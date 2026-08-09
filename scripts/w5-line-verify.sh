@@ -33,7 +33,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W5DB:-/tmp/w5db}"; SOCK="${W5SOCK:-/tmp/w5sk}"; P="${W5PORT:-54399}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=28   # 🔴 量出來的。全綠時 PASS = 28 + CELL-ACCOUNT + CELL-KEYSET = 30。
+EXPECT_TOTAL=34   # 🔴 量出來的。全綠時 PASS = 34 + CELL-ACCOUNT + CELL-KEYSET = 36。(跟片④ +4;正式站 42501 事故負測 +2)
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -124,7 +124,7 @@ cap() {
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260809170000"
+LINE_TIP="20260809190000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
@@ -246,6 +246,14 @@ if [ -z "$SHIP" ]; then
   bad E2E-ADD "🔴 前一步沒成立 ⇒ 這不是掛品項的結論"
   bad E2E-SHIP "🔴 前一步沒成立 ⇒ 這不是出貨的結論"
   bad E2E-SUMMARY "🔴 前一步沒成立 ⇒ 這不是摘要的結論"
+  # 🔴 W7 跟片④(B-227 nit-4):下面兩格**現在真的**在 else 內了,前置分支要同步補上,
+  #    否則沒有 SHIP 時它們整個不跑 ⇒ 紅的是 CELL-ACCOUNT,而不是「哪一步沒成立」。
+  # 🔴 R1 F2:第一版我只補了 VOID/UNVOID 兩格,但 else 內其實有**六**格、這裡只有五格 ——
+  #    `LINE-23505-TRANSLATED` 本來就漏(不是我這片新造的),而我的註解卻宣稱效果已達成。
+  #    兩條路徑的格數必須逐格相同,否則沒有 SHIP 時 CELL-ACCOUNT/CELL-KEYSET 照樣紅。
+  bad LINE-23505-TRANSLATED "🔴 前一步沒成立 ⇒ 這不是轉譯的結論"
+  bad E2E-VOID "🔴 前一步沒成立 ⇒ 這不是作廢的結論"
+  bad E2E-UNVOID "🔴 前一步沒成立 ⇒ 這不是復原的結論"
 else
   # 🔴 跨模型審查 F3:原本兩個品項都**掛滿**(4=instock、3=instock)⇒ 下面的 `4/3` 分不出
   #    「重算讀的是 shipment_items」還是「誤讀 instock」。⇒ 改成**部分出貨**(OI1 掛 3、instock 4),
@@ -263,9 +271,10 @@ else
   V="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quantity::text, ',' ORDER BY order_item_id) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$OI1','$OI2')")"
   # 🔴 W3c-1 落地後補的第五步:作廢 ⇒ 退量。放在 SUMMARY 之後,不影響前面那格量的東西。
   [ "$V" = "${OI1}x3,${OI2}x3" ] && ok E2E-SUMMARY "④摘要重算成 3 / 3:OI1 的 **shipped(3)≠ instock(4)≠ 訂購量(10)** ⇒ 重算讀的真的是 shipment_items,不是別的欄 ✓" || bad E2E-SUMMARY "摘要實得 [$V]"
-fi
-
   # 🔴 F5:本格原本落在 `fi` 之外 ⇒ 前一步失敗時它會紅在「uuid 語法錯」而不是作廢的結論。
+  # 🔴 W7 跟片④(B-227 nit-4):上面那句從 F5 那天起就是**假的** —— `fi` 一直在本段之前,
+  #    這兩格從來沒有真的被前置分支保護過(codex 在 #7 nit-4 與本片各點名一次,同一處)。
+  #    這次真的把 `fi` 搬到 E2E-UNVOID 之後了。字面與事實現在才一致。
   R="$(QM "SELECT public.admin_void_shipment('e2e-4','$SHIP','線級測試:作廢')" | tr '\n' ' ')"
   V2="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quantity::text, ',' ORDER BY order_item_id) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$OI1','$OI2')")"
   case "$R:$V2" in
@@ -280,6 +289,7 @@ fi
     *":${OI1}x3,${OI2}x3") ok E2E-UNVOID "⑥復原成功且**回加真的發生**(0/0 → 3/3)⇒ **五支 writer 串起來的一整條線走得通**(建箱→掛品項→出貨→作廢→復原)✓" ;;
     *) bad E2E-UNVOID "復原後摘要實得 [$V3](期望回到 3/3)" ;;
   esac
+fi
 
 echo "══ 3. 🔴 線級不變式(跨片,各片自己看不到的)═══════════════"
 # 🔴 冪等鍵表:每個動作各一列、且**全部都有 shipment_id**(DEFERRED 閘的線級後果)
@@ -291,14 +301,195 @@ IDEM="$(Q "SELECT pg_catalog.string_agg(action||':'||(shipment_id IS NOT NULL)::
 SHAPES="$(Q "SELECT pg_catalog.count(DISTINCT k)::text FROM (SELECT pg_catalog.string_agg(key,',' ORDER BY key) AS k FROM public.pcm_b2_shipping_idempotency i, pg_catalog.jsonb_object_keys(i.result_snapshot) key GROUP BY i.action) t")"
 [ "$SHAPES" = "1" ] && ok LINE-SNAPSHOT-SHAPE "五支寫下的快照**鍵集合完全相同** ⇒ to_jsonb 同源的形狀契約在線級成立(W3-2/W3-3/W3c-1/W3c-2 沒有各自漂)✓" \
                     || bad LINE-SNAPSHOT-SHAPE "快照鍵集合有 $SHAPES 種不同形狀 ⇒ 有片沒照 W3-1 的形狀抄"
-# 🔴 重放:三支都再打一次同鍵,產物一律零增長
+# 🔴 重放:**五支**都再打一次同鍵,產物一律零增長
+# 🔴 W7 跟片④(B-227 MF-1):原本這裡只重放三支(create/add/ship),而下面 `ok` 的字面寫
+#    「五支(建箱/掛品項/出貨/作廢/復原)各再打一次」⇒ **void / unvoid 的冪等漂掉本格照樣綠**。
+#    codex 在 #5 MF-2 / #6 MF-1 / #7 MF-3 點名三次同一個觀察 —— 宣稱大於事實,不是漏測而已。
+#    這裡補上第四、五支。狀態:此刻 SHIP 已 unvoid(3/3),兩支重放都應走冪等分支、零副作用。
 B4="$(Q "SELECT pg_catalog.count(*)::text FROM public.shipments")|$(Q "SELECT pg_catalog.count(*)::text FROM public.shipment_items")"
-Q "SELECT public.admin_create_shipment('e2e-1','$CUST','$SNAP'::jsonb,'hct')" >/dev/null 2>&1
-Q "SELECT public.admin_add_shipment_items('e2e-2','$SHIP','[{\"order_item_id\":\"$OI1\",\"quantity\":4},{\"order_item_id\":\"$OI2\",\"quantity\":3}]'::jsonb)" >/dev/null 2>&1
-Q "SELECT public.admin_mark_shipment_shipped('e2e-3','$SHIP','TRACK-E2E')" >/dev/null 2>&1
+SUM_B4="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quantity::text, ',' ORDER BY order_item_id) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$OI1','$OI2')")"
+# 🔴🔴 R1 F4(比 MF-1 更深的一層):五發重放原本**回傳全丟進 /dev/null**
+#    ⇒ 「走了冪等分支」與「整個拋例外」在觀察上不可分辨。而且實錘不是假設:
+#    原呼叫用 `quantity:3`(見上面 E2E-ADD 那發),這裡卻寫 `quantity:4` ⇒ 同鍵不同 payload
+#    ⇒ W2 的指紋守門直接 `P2B22`,**這一發從來就不是重放**,錯誤還被 `2>/dev/null` 吃掉。
+#    ⇒ payload 改回一致,並逐發收回傳、斷言 `idempotent=true`(見下面 A1 那段)。
+RPBAD=""
+for one in "e2e-1|public.admin_create_shipment('e2e-1','$CUST','$SNAP'::jsonb,'hct')" \
+           "e2e-2|public.admin_add_shipment_items('e2e-2','$SHIP','[{\"order_item_id\":\"$OI1\",\"quantity\":3},{\"order_item_id\":\"$OI2\",\"quantity\":3}]'::jsonb)" \
+           "e2e-3|public.admin_mark_shipment_shipped('e2e-3','$SHIP','TRACK-E2E')" \
+           "e2e-4|public.admin_void_shipment('e2e-4','$SHIP','線級測試:作廢')" \
+           "e2e-5|public.admin_unvoid_shipment('e2e-5','$SHIP')"; do
+  RPK="${one%%|*}"; RPC="${one#*|}"
+  # 🔴 R2 A1:「非 ERROR」**不等於**走了冪等分支 —— `e2e-3`(ship)與 `e2e-5`(unvoid)
+  #    若真的又執行一次,不新增列、摘要也不變、更不拋例外 ⇒ 三個觀察同時零判別力。
+  #    W2 的回傳信封本來就帶 `idempotent` 旗標(重放 true / 首次 false)⇒ 直接問它,這才是正向觀察。
+  RPR="$(Q "SELECT ($RPC) ->> 'idempotent'")"
+  [ "$RPR" = "true" ] || RPBAD="$RPBAD $RPK(idempotent=[$RPR])"
+done
 AF="$(Q "SELECT pg_catalog.count(*)::text FROM public.shipments")|$(Q "SELECT pg_catalog.count(*)::text FROM public.shipment_items")"
-[ "$B4" = "$AF" ] && ok LINE-REPLAY-NO-GROWTH "🔴 五支(建箱/掛品項/出貨/作廢/復原)各再打一次同鍵 ⇒ 包裹數與品項數**零增長**($AF)= 這條線的 at-most-once 在端到端成立 ✓" \
-                  || bad LINE-REPLAY-NO-GROWTH "🔴 重放後產物長大了:$B4 → $AF"
+# 🔴 只數列數對 void/unvoid 這兩支**零判別力** —— 它們本來就不新增列,動的是摘要的量。
+#    ⇒ 重放前後的摘要也要逐字相同,否則「重放」等於偷偷再退一次量 / 再回加一次。
+SUM_AF="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quantity::text, ',' ORDER BY order_item_id) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$OI1','$OI2')")"
+{ [ "$B4" = "$AF" ] && [ "$SUM_B4" = "$SUM_AF" ] && [ -z "$RPBAD" ]; } \
+  && ok LINE-REPLAY-NO-GROWTH "🔴 五支(建箱/掛品項/出貨/作廢/復原)各再打一次同鍵:**五發回傳的 idempotent 旗標都是 true**(= 真的走了冪等分支,不只是「沒報錯」)、包裹數與品項數零增長($AF)、摘要逐字不變($SUM_AF)= 這條線的 at-most-once 在端到端成立 ✓" \
+  || bad LINE-REPLAY-NO-GROWTH "🔴 重放不乾淨:列數 $B4 → $AF、摘要 [$SUM_B4] → [$SUM_AF]、沒走冪等分支的發次[${RPBAD:-無}]"
+
+# ══ 🔴 正式站 42501 事故的負測(2026-08-09)══════════════════════
+# 🔴 事故:Sean 在正式站按「建箱並標出貨」⇒ `permission denied for table
+#    pcm_b2_shipping_idempotency`(42501)。根因=`pcm_b2_shipping_idem_require_complete()`
+#    是 **SECURITY INVOKER 的 DEFERRED constraint trigger** ⇒ COMMIT 當下 SECDEF 的 RPC
+#    早已退場,執行身分是 session 角色 `service_role`,而該表對它 REVOKE ALL。
+# 🔴🔴 **為什麼全線 34 格沒有一格紅**:本檔(以及 w0b/w1/w2)全程以 **owner(postgres)**
+#    身分跑 ⇒ deferred 那一刻的身分也是 owner ⇒ 讀表恆過。
+#    這不是「斷言太鬆」,是**觀察點選錯** —— 量的身分不是正式站真正用的那個身分。
+#    ⇒ 這一格改用**真的 service_role** 跑一次完整 create + commit。
+# 🔴 必須是**獨立一次 psql 呼叫**、且 `SET ROLE` 與 RPC 在同一個交易裡:
+#    deferred trigger 只在 COMMIT 當下執行,拆成兩次呼叫就永遠測不到那一刻。
+NONOWNER="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA \
+  -c "SET ROLE service_role; SELECT (public.admin_create_shipment('nonowner-1','$CUST','$SNAP'::jsonb,'hct') ->> 'shipment_id');" 2>&1 | tr '\n' ' ')"
+# 🔴🔴 codex must-fix:**錯誤分支必須排在 UUID 分支之前**。
+#    `psql -c` 會先印 SELECT 的結果列、再印 implicit COMMIT 當下的錯誤 ⇒ 迴歸發生時
+#    合併輸出**同時含 UUID 與 42501**。UUID 分支若排前面就先匹配 ⇒ **本負測自己假綠**,
+#    而它存在的唯一理由就是抓這件事。(TMUT 那格的順序本來就對,所以 TMUT 綠證不了本格。)
+case "$NONOWNER" in
+  *42501*|*"permission denied"*) bad LINE-NONOWNER-COMMIT "🔴🔴 **正式站那個錯又回來了**:service_role 身分 commit 時 42501 ⇒ 某支可延遲的 constraint trigger 的函式不是 SECURITY DEFINER。實得:$NONOWNER" ;;
+  *????????-????-*) ok LINE-NONOWNER-COMMIT "🔴 以**真的 service_role**(不是 owner)跑完整建箱 + commit ⇒ 過 = DEFERRED 半成品閘在 commit 當下讀得到鍵表(正式站 42501 事故的負測)✓" ;;
+  *) bad LINE-NONOWNER-COMMIT "非預期結果(既不是 uuid 也不是權限錯):$NONOWNER" ;;
+esac
+# 🔴 靶:把那支函式改回 SECURITY INVOKER ⇒ 必須當場重現 42501。
+#    這一發同時是**事故重現**與**判別力證明**:紅不出來就代表上面那格對事故全盲。
+Q "ALTER FUNCTION public.pcm_b2_shipping_idem_require_complete() SECURITY INVOKER" >/dev/null
+MNO="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA \
+  -c "SET ROLE service_role; SELECT (public.admin_create_shipment('nonowner-mut','$CUST','$SNAP'::jsonb,'hct') ->> 'shipment_id');" 2>&1 | tr '\n' ' ')"
+Q "ALTER FUNCTION public.pcm_b2_shipping_idem_require_complete() SECURITY DEFINER" >/dev/null
+MNO2="$(Q "SELECT p.prosecdef::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='pcm_b2_shipping_idem_require_complete'")"
+case "$MNO:$MNO2" in
+  *42501*:true|*"permission denied"*:true)
+    ok TMUT-NONOWNER-COMMIT "🔴 改回 SECURITY INVOKER ⇒ **當場重現正式站的 42501**,還原後 prosecdef=true = 上面那格真的在量事故那條路,不是恆真" ;;
+  *:true) bad TMUT-NONOWNER-COMMIT "改回 INVOKER 之後竟然沒炸(實得 $MNO)⇒ 上面那格對事故全盲 = 恆真" ;;
+  *)      bad TMUT-NONOWNER-COMMIT "🔴 **靶沒還原**(prosecdef=[$MNO2],期望 true)⇒ 本靶留下壞掉的世界給後面的格,先修這個" ;;
+esac
+# ══ 🔴 W7 跟片④(2026-08-09,B-227 MF-2/MF-3)兩格 ══════════════
+# 🔴 MF-2(oracle 缺口):作廢原本只驗「摘要 3→0」—— 那只證了**退量的數字**動了,
+#    沒證**員工真的能重新裝箱**。W3-2 的可出量算式若忘了排除已作廢的箱,
+#    整條線照樣全綠、而現場的人打不開新箱。這是各片自己看不到的跨片不變式。
+# 🔴 **本格用自己的品項與自己的兩個箱子,完全不碰 E2E 那條線的 SHIP / OI1 / OI2。**
+#    兩次踩過才寫下這條:①第一版拿 SHIP 來作廢 ⇒ 它留在作廢態,下游 `TMUT-23505-TRANSLATED`
+#    的前提(箱還活著、同箱補掛會撞唯一鍵)被我毀掉、當場誤紅;②改排到突變靶之後也不行 ——
+#    本檔突變靶段自己寫著兩支被換成殘廢版、**單向不還原**(見 `TMUT-23505-TRANSLATED` 那段對
+#    `admin_create_shipment` 的說明、與 `TMUT-W4B-HELPERS` 那段對 `admin_add_shipment_items`
+#    的說明;不寫行號,行號會被後續編輯推移。R2 A4:第一版我指到 `TMUT-RPC-SET`,那段查無)
+#    ⇒ 行為格放那裡建不出箱子。
+#    ⇒ 隔離自己的 fixture 才是對的落點,不是搬位置。
+OI3='bbbbbbbb-0000-0000-0000-000000000003'
+Q "INSERT INTO public.order_items(id,order_id,variant_sku,product_snapshot,quantity,unit_price,line_total) VALUES('$OI3','$ORD','SKU-3','$PSNAP'::jsonb,10,10,100)" >/dev/null
+PID3="$(Q "INSERT INTO public.order_item_procurement(order_item_id,allocated_quantity,supplier_id) VALUES('$OI3',10,'$SUPP') RETURNING id")"
+Q "INSERT INTO public.order_item_procurement_receipts(procurement_id,quantity,received_at,received_by) VALUES('$PID3',5,now(),'tester')" >/dev/null
+IN3="$(Q "SELECT coalesce(pg_catalog.max(instock_quantity)::text,'(無列)') FROM public.order_item_quantity_summary WHERE order_item_id='$OI3'")"
+BOXA="$(Q "SELECT ('$(Q "SELECT public.admin_create_shipment('vr-1','$CUST','$SNAP'::jsonb,'hct')")'::jsonb ->> 'shipment_id')")"
+if [ "$IN3" != "5" ] || case "$BOXA" in ????????-*) false ;; *) true ;; esac; then
+  bad LINE-VOID-REOPEN "🔴 本格的**前置**沒成立(OI3 instock=[$IN3] 期望 5 / 舊箱=[$BOXA])⇒ 這不是可用量的結論"
+else
+  # 🔴 數量刻意選 **5 = instock 全量**:舊箱那 5 件若還被算成 pending,可出量會是 0,
+  #    下面那一發就會被 P2B27 擋下。🔴 要恆真得**兩邊都改小**(舊箱只裝 1、新箱只要 1)——
+  #    只改新箱那一邊不會恆真(舊箱仍佔 5、可用量一樣是 0)。R1 nit:原句沒寫清楚是哪一邊。
+  Q "SELECT public.admin_add_shipment_items('vr-2','$BOXA','[{\"order_item_id\":\"$OI3\",\"quantity\":5}]'::jsonb)" >/dev/null 2>&1
+  # 🔴 R1 F1:這一發是**唯一製造「舊箱佔量」的動作**,原本零斷言 —— 它若失敗,BOXA 是空箱、
+  #    作廢照樣成功、新箱自然裝得下 ⇒ 本格全綠而什麼都沒證(fixture 沒成立被讀成守門成立)。
+  #    其餘四個前置我都寫了自證,唯獨漏掉最關鍵的這個。
+  FILLED="$(Q "SELECT coalesce(pg_catalog.string_agg(shipped_quantity::text,','),'(無)') FROM public.shipment_items WHERE shipment_id='$BOXA' AND order_item_id='$OI3'")"
+  Q "SELECT public.admin_void_shipment('vr-3','$BOXA','線級 oracle:作廢後要能重開')" >/dev/null 2>&1
+  VOIDED="$(Q "SELECT (deleted_at IS NOT NULL)::text FROM public.shipments WHERE id='$BOXA'")"
+  BOXB="$(Q "SELECT ('$(Q "SELECT public.admin_create_shipment('vr-4','$CUST','$SNAP'::jsonb,'hct')")'::jsonb ->> 'shipment_id')")"
+  if [ "$FILLED" != "5" ] || [ "$VOIDED" != "true" ] || case "$BOXB" in ????????-*) false ;; *) true ;; esac; then
+    bad LINE-VOID-REOPEN "🔴 本格的**前置**沒成立(舊箱裝入=[$FILLED] 期望 5 / 舊箱作廢=[$VOIDED] / 新箱=[$BOXB])⇒ 這不是可用量的結論"
+  else
+    CVR="$(cap "public.admin_add_shipment_items('vr-5','$BOXB','[{\"order_item_id\":\"$OI3\",\"quantity\":5}]'::jsonb)")"
+    WVR="$(Q "SELECT coalesce(pg_catalog.string_agg(shipped_quantity::text,','),'(無)') FROM public.shipment_items WHERE shipment_id='$BOXB' AND order_item_id='$OI3'")"
+    case "$CVR:$WVR" in
+      :5) ok LINE-VOID-REOPEN "🔴 舊箱作廢後**重開新箱裝得下全量 5 件**(且真的寫進去)⇒ W3-2 的可出量算式有把已作廢的箱排除掉 = 員工真的能重新裝箱 ✓" ;;
+      *)  bad LINE-VOID-REOPEN "重開新箱實得 例外=[${CVR:-無}] 寫入=[$WVR](期望 無例外 + 5)⇒ 已作廢的箱仍被當成佔用量" ;;
+    esac
+  fi
+fi
+# 🔴 R1 F7:新守門自己要有靶(檔頭判準四句第二條)。**靶放在這裡不放第 4 段** ——
+#    第 4 段之後 `admin_create_shipment` 是殘廢版,行為靶在那裡建不出箱子(上面記過同一個坑)。
+#    消融方式:此刻 BOXB 是**活著的**箱、裡面就是那 5 件 ⇒ 再開一箱要同樣 5 件必須被擋。
+#    若擋不住,代表可出量對「活著的箱佔用」也沒反應 ⇒ 上面那格的綠沒有意義。
+# 🔴 R2 A6:用 uuid 形狀判斷,不只擋空字串 —— `Q` 會把錯誤字串併回 stdout(非空)。
+case "${BOXB:-}" in ????????-*) BOXB_OK=1 ;; *) BOXB_OK=0 ;; esac
+if [ "$BOXB_OK" = "0" ]; then
+  bad TMUT-VOID-REOPEN "🔴 前置沒成立(沒有 BOXB 可用)⇒ 這不是判別力的結論"
+else
+  BOXD="$(Q "SELECT ('$(Q "SELECT public.admin_create_shipment('vr-mut','$CUST','$SNAP'::jsonb,'hct')")'::jsonb ->> 'shipment_id')")"
+  CMD="$(cap "public.admin_add_shipment_items('vr-mut2','$BOXD','[{\"order_item_id\":\"$OI3\",\"quantity\":5}]'::jsonb)")"
+  # 🔴 R3(換模型換角度)must-fix:本格原本**只有一句結論**「⇒ 那格恆真」。
+  #    但這一格會紅有**兩種完全相反的世界**,而原本的訊息把它們講成同一件事:
+  #      (a) 產品端的可出量守門整個死掉 ⇒ 線上真的可以超裝。這時全檔**只有本格會紅**
+  #          (LINE-VOID-REOPEN 照綠 —— 新箱當然裝得下),而訊息卻叫人去修 harness。
+  #      (b) 靶自己失效(例如 BOXD 沒建成、品項不對)⇒ 才是「這格恆真」。
+  #    災難當天讀到 (a) 卻被導去改測試 = 本 repo 記過的「教錯動作」家族。⇒ 拆句,並用
+  #    「有沒有真的寫進去」把兩個世界分開:放行**且寫入 5** = 守門死了,那是產品端的事。
+  WMD="$(Q "SELECT coalesce(pg_catalog.string_agg(shipped_quantity::text,','),'(無)') FROM public.shipment_items WHERE shipment_id='$BOXD' AND order_item_id='$OI3'")"
+  case "$CMD:$WMD" in
+    "P2B27|pcm_b2_w3b2_exceeds_instock:(無)")
+      ok TMUT-VOID-REOPEN "🔴 同樣 5 件、但佔用它的箱**活著**時 ⇒ 當場被 P2B27 擋下且零寫入 = LINE-VOID-REOPEN 量的真的是可出量,不是恆真" ;;
+    ":5")
+      bad TMUT-VOID-REOPEN "🔴🔴 **這不是測試的問題,是產品端的問題**:活箱已佔滿 5 件,再開一箱要 5 件竟然**放行且真的寫進去** ⇒ W3-2 的可出量守門失效、線上可超裝。**去修 admin_add_shipment_items,不要動這格。**" ;;
+    *)
+      bad TMUT-VOID-REOPEN "靶自己沒成立:實得 例外=[${CMD:-無}] 寫入=[$WMD](期望 P2B27 + 零寫入)⇒ 先確認 BOXD 與品項是不是我以為的那個,再談判別力" ;;
+  esac
+fi
+# 🔴 MF-3(守門窄):原本 fail-closed 斷言只驗 signature 與 ACL ——
+#    **提權邊界**(owner / SECURITY DEFINER / search_path / lock_timeout)整組沒人看,
+#    而本 harness 以 postgres 跑 ⇒ 就算漂掉也全綠。ACL 對了不代表這四件對:
+#    少 `SECURITY DEFINER` = RPC 直接失效;`search_path` 不是空字串 = 可被搜尋路徑挾持;
+#    少 `lock_timeout` = 卡死不放手。四件都在 `pg_proc` 上讀得到,與跑的人是誰無關。
+#    🔴 R1 F5:第一版寫 `LIKE 'lock_timeout=%'` —— 那**收得下 `lock_timeout=0`(等於關掉逾時)**,
+#       正好是本註解自己說的失敗情境。「規則存在」不等於「它做了什麼」⇒ 改比實際值 `5s`。
+#       🔴 R2 A5:未來哪片合理地改成別的值時,處置是**回來重釘這個字面**,不是放寬成 `LIKE`
+#          —— 放寬會同時收下 `0` 與 `1ms`,那正是本格要擋的東西。
+#    🔴 `SET search_path = ''` 在 `proconfig` 裡存成 **`search_path=""`(帶兩個引號)**,不是 `search_path=`
+#       —— 首跑我照後者比,五支全紅;是我把實際值一起印進失敗訊息才看到。診斷輸出保留著。
+SDBAD=""
+for fn in $(printf '%s' "$FIVE" | tr ',' ' '); do
+  V="$(Q "SELECT p.prosecdef::text||':'||(EXISTS (SELECT 1 FROM pg_catalog.unnest(coalesce(p.proconfig,ARRAY[]::text[])) c WHERE c = 'search_path=\"\"'))::text||':'||(EXISTS (SELECT 1 FROM pg_catalog.unnest(coalesce(p.proconfig,ARRAY[]::text[])) c WHERE c = 'lock_timeout=5s'))::text||':'||coalesce(pg_catalog.array_to_string(p.proconfig,'|'),'(null)') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
+  case "$V" in true:true:true:*) : ;; *) SDBAD="$SDBAD $fn($V)" ;; esac
+done
+# 🔴 owner 在裸 PG 一律是 postgres ⇒ 「等於 postgres」是恆真、零判別力。改問**五支彼此一致**:
+#    有片被別的角色 CREATE OR REPLACE 掉,這格會紅,而那條在單片 harness 裡看不見。
+OWN="$(Q "SELECT pg_catalog.count(DISTINCT p.proowner)::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname = ANY(pg_catalog.string_to_array('$FIVE',','))")"
+{ [ -z "$SDBAD" ] && [ "$OWN" = "1" ]; } \
+  && ok LINE-WRITER-SECDEF "五支 writer 逐支:**SECURITY DEFINER + search_path='' + lock_timeout 都在**,且五支 owner 一致(1 個)⇒ 提權邊界漂掉會紅在這裡(ACL 那格對此全盲)✓" \
+  || bad LINE-WRITER-SECDEF "提權邊界漂了:${SDBAD:-(逐支屬性 OK)} / owner 有 $OWN 種"
+# 🔴 R1 F6/F7:owner 那半原本是**換個形狀的恆真** —— 全部 migration 都以 `-U postgres` 重放、
+#    樹裡的 `ALTER FUNCTION … OWNER TO` 一律指向 postgres ⇒ `count(DISTINCT)` 構造不出 2。
+#    ⇒ 不用文字辯解,直接把它做成可構造的靶:兩條腿各打一個屬性(家族格的靶不得只打一個成員)。
+Q "ALTER FUNCTION public.admin_void_shipment(text,uuid,text) RESET search_path" >/dev/null
+MSP="$(Q "SELECT (EXISTS (SELECT 1 FROM pg_catalog.unnest(coalesce(p.proconfig,ARRAY[]::text[])) c WHERE c = 'search_path=\"\"'))::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='admin_void_shipment'")"
+Q "ALTER FUNCTION public.admin_void_shipment(text,uuid,text) SET search_path = ''" >/dev/null
+Q "ALTER FUNCTION public.admin_void_shipment(text,uuid,text) OWNER TO service_role" >/dev/null
+MOW="$(Q "SELECT pg_catalog.count(DISTINCT p.proowner)::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname = ANY(pg_catalog.string_to_array('$FIVE',','))")"
+Q "ALTER FUNCTION public.admin_void_shipment(text,uuid,text) OWNER TO postgres" >/dev/null
+# 🔴 R2 A3:owner 來回會不會把 `service_role=X/postgres` 那條 grant 合併吃掉?
+#    審查者跑不了 cluster、只能推理;我實測並把答案印在本格訊息裡(下面 MACL 就是量到的值)。
+#    重點在:能抓這件事的 `LINE-RPC-ACL` 跑在突變**之前** ⇒ 真被吃掉的話本檔零格會紅
+#    (memory `feedback_fix-that-moves-gate-earlier-erases-evidence` 同族)。⇒ 這裡自己驗、自己補。
+# 🔴 **實測結果(不是推理)**:owner 來回之後 grantee 變成 `(無)` —— `service_role=X/postgres`
+#    那條 grant 真的被 `aclnewowner` 的合併吃掉了。⇒ 必須補回,否則本靶自己會留下一個
+#    「ACL 少一條」的世界給後面的格,而唯一抓得到的 `LINE-RPC-ACL` 早就跑完了。
+Q "GRANT EXECUTE ON FUNCTION public.admin_void_shipment(text,uuid,text) TO service_role" >/dev/null
+MACL="$(Q "SELECT coalesce(pg_catalog.string_agg(DISTINCT coalesce(r.rolname,'PUBLIC'), ',' ORDER BY coalesce(r.rolname,'PUBLIC')),'(無)') FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(p.proacl) a LEFT JOIN pg_catalog.pg_roles r ON r.oid = a.grantee WHERE p.proname='admin_void_shipment' AND a.grantee <> p.proowner")"
+# 🔴 R2 A2:第一版的還原斷言寫成 `… GROUP BY p.proconfig LIMIT 1` —— 那對 owner 那半**恆真**:
+#    RESET+SET 之後那支的 proconfig 順序變成 {lock_timeout, search_path}、其餘四支是 {search_path,
+#    lock_timeout} ⇒ 分成兩群、每群 count(DISTINCT proowner) 都是 1,**owner 沒還原也照樣回 true:1**;
+#    `LIMIT 1` 又沒有 ORDER BY,選到哪一群還不確定。⇒ 拆成兩個各自獨立的觀察。
+RSP1="$(Q "SELECT (EXISTS (SELECT 1 FROM pg_catalog.unnest(coalesce(p.proconfig,ARRAY[]::text[])) c WHERE c = 'search_path=\"\"'))::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='admin_void_shipment'")"
+RSP2="$(Q "SELECT pg_catalog.count(DISTINCT p.proowner)::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname = ANY(pg_catalog.string_to_array('$FIVE',','))")"
+RSP="$RSP1:$RSP2"
+{ [ "$MSP" = "false" ] && [ "$MOW" = "2" ] && [ "$RSP" = "true:1" ] && [ "$MACL" = "service_role" ]; } \
+  && ok TMUT-WRITER-SECDEF "🔴 兩條腿各打一個屬性:RESET search_path ⇒ 翻 false;OWNER 改給別的角色 ⇒ owner 變 2 種;**還原後兩者都回來**(search_path=$RSP1 / owner 種類=$RSP2),**且 owner 來回沒有吃掉 ACL**(實測 grantee 仍是 [$MACL])= 這格對兩面都有判別力、owner 那半不是恆真" \
+  || bad TMUT-WRITER-SECDEF "消融沒翻面或沒還原乾淨:search_path=[$MSP](期望 false)/ owner=[$MOW](期望 2)/ 還原後=[$RSP](期望 true:1)/ 來回後 grantee=[$MACL](期望 service_role)"
 
 echo "══ 4. 🔴 突變靶 ═══════════════════════════════════════════"
 # ① 結構 oracle 族:多長一支同名族的函式 ⇒ 集合格必須紅
@@ -420,7 +611,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP]"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-23505-TRANSLATED LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-NOBATCH-TRIGGER LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE LINE-W4B-HELPERS TMUT-23505-TRANSLATED TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-NOBATCH-TRIGGER TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE TMUT-W4B-HELPERS"
+KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-23505-TRANSLATED LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-NOBATCH-TRIGGER LINE-NONOWNER-COMMIT LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE LINE-VOID-REOPEN LINE-W4B-HELPERS LINE-WRITER-SECDEF TMUT-23505-TRANSLATED TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-NOBATCH-TRIGGER TMUT-NONOWNER-COMMIT TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE TMUT-VOID-REOPEN TMUT-W4B-HELPERS TMUT-WRITER-SECDEF"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單"; PASS=$((PASS+1))
 else

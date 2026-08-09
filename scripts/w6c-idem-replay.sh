@@ -175,7 +175,7 @@ QF() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qt
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260809170000"
+LINE_TIP="20260809190000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
