@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, render as rtlRender } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
+import { ShippingSelectionProvider } from './shipping-selection';
+
+/**
+ * 🔴 **2b-1 起 `OrdersTable` 必須包在 `<ShippingSelectionProvider>` 內。**
+ * 那顆勾選 island 在缺 provider 時會**明確丟錯**(刻意的:靜默降級的話「勾不動」與
+ * 「這張單不能勾」長得一模一樣、沒有人會發現)。本檔所有 render 統一走這個包裝,
+ * 不逐處手包 —— 漏包一處就是整個檔紅一片,不會只紅那一條。
+ */
+const render = (ui: React.ReactElement) =>
+  rtlRender(<ShippingSelectionProvider>{ui}</ShippingSelectionProvider>);
 
 import { OrdersTable } from './orders-table';
 import {
@@ -106,6 +116,9 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
 
 /** 表頭欄名(唯一權威 = 母 plan §5.1a;A11a-1 = 9 欄 → A11a-4 加訂貨 = 10 → **A11a-5 加發票 = 11**)。 */
 const EXPECTED_HEADERS = [
+  // 2b-1:勾選欄(訂單層)。**無欄名**(表頭是空的 <th aria-label='選取' />)——
+  // 刻意沒有全選框:全選必然跨客人,而跨客人裝同一箱一定被 DB 退件。
+  '',
   '訂單編號',
   '日期',
   '品牌',
@@ -123,25 +136,26 @@ const EXPECTED_HEADERS = [
 describe('V1 — 表頭欄數與內容欄數一致', () => {
   // 🔴 期望值**不寫死**上限:Q5b=A 已把 A11a-3(操作欄)整片移到 A13 ⇒ 本線上限是 **12**(不是 13)。
   //    每片收工值 = 前一片 +1(plan §3);寫死任何終值都會讓中間片永遠過不了驗收。
-  it('表頭恰為 11 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面;A11a-4/-5 起含訂貨、發票)', () => {
+  it('表頭恰為 12 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面;A11a-4/-5 起含訂貨、發票)', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
   });
 
-  it('單品項單:該列 <td> 數 = 11(訂單層與品項層都在同一列)', () => {
+  it('單品項單:該列 <td> 數 = 12(訂單層與品項層都在同一列)', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
-    expect(cells.length).toBe(11);
+    expect(cells.length).toBe(12); // 2b-1:+1 勾選欄(訂單層)
   });
 
-  it('三品項單:第一列 <td> 數 + 後續列 <td> 數 = 11 + 品項欄數×2', () => {
+  it('三品項單:第一列 <td> 數 + 後續列 <td> 數 = 12 + 品項欄數×2', () => {
     // 🔴 這條是「表頭與 rowSpan 佔位一致」的真正斷言:訂單層 4 欄(單號/日期/金額合併/客戶)
     //    訂單層現為 **5** 欄(單號/日期/金額合併/客戶/發票),只在第一列出現;
     //    後兩列各只有 **6** 個品項欄(品牌/料號/品名/車種/數量 + **A11a-4 訂貨**)。
-    //    A11a-5 的發票欄是**訂單層** ⇒ 只加在第一列、不影響後續列的 6 ⇒ 總格數 = **11** + 6 + 6。
+    //    A11a-5 的發票欄是**訂單層** ⇒ 只加在第一列、不影響後續列的 6。
+    //    2b-1 再加**訂單層**勾選欄 ⇒ 總格數 = **12** + 6 + 6。
     // ⚠️ **這條守的是「格數與 rowSpan 佔位」,不是「渲染後落在第幾欄」**(R1 抓到我原本的註解
     //    宣稱過頭):jsdom **沒有 table layout 引擎**,把 `<th>訂貨</th>` 搬到表頭第一位而 `<td>` 不動,
     //    這三條照樣全綠。真正保證落點的是 HTML 表格模型 + `shouldMergeAmount` 對多列恆真
@@ -151,7 +165,8 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(11);
+    // 2b-1:訂單層由 5 欄變 **6**(+勾選)⇒ 第一列 12;後續列仍只有 6 個品項欄(勾選是訂單層、不逐列)。
+    expect(rows[0]!.querySelectorAll('td').length).toBe(12);
     expect(rows[1]!.querySelectorAll('td').length).toBe(6);
     expect(rows[2]!.querySelectorAll('td').length).toBe(6);
   });
@@ -182,8 +197,8 @@ describe('V3 — rowSpan 分組', () => {
     const { container } = render(<OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
     const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
 
-    // 訂單層 5 格:單號 / 日期 / 金額(本例合併)/ 客戶 / **發票**(A11a-5)
-    expect(spanned.length).toBe(5);
+    // 訂單層 6 格:**勾選(2b-1)** / 單號 / 日期 / 金額(本例合併)/ 客戶 / 發票(A11a-5)
+    expect(spanned.length).toBe(6);
     expect(spanned.every((td) => td.getAttribute('rowspan') === '3')).toBe(true);
     // 🔴 「只渲染一次」要另外釘:rowSpan 值對、但每列都畫一次的話上面那條仍會過
     //    (它只數帶 rowspan 屬性的格子總數 —— 訂單層現為 **5** 格,每列都畫會變 **15** 而不是 5,
@@ -201,8 +216,8 @@ describe('V3 — rowSpan 分組', () => {
     const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
 
     // 🔴 先釘數量再釘值:`every` 對空陣列恆真 ⇒ 把 rowSpan 整個拿掉時上一版仍會綠(R1 nit)。
-    //    單品項單金額不合併 ⇒ 訂單層 4 格:單號 / 日期 / 客戶 / **發票**。
-    expect(spanned.length).toBe(4);
+    //    單品項單金額不合併 ⇒ 訂單層 5 格:**勾選(2b-1)** / 單號 / 日期 / 客戶 / 發票。
+    expect(spanned.length).toBe(5);
     expect(spanned.every((td) => td.getAttribute('rowspan') === '1')).toBe(true);
   });
 });
@@ -224,8 +239,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 
     expect(container.textContent).toContain('NT$ 12,000');
     expect(container.textContent).not.toContain('NT$ 12,100');
-    // 金額格不帶 rowspan ⇒ 訂單層帶 rowspan 的格子剩 4 個(單號/日期/客戶/**發票**)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
+    // 金額格不帶 rowspan ⇒ 訂單層帶 rowspan 的格子剩 5 個(**勾選**/單號/日期/客戶/發票)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
   });
 
   it('1 品項 × 數量 3 → 合併格顯示整單總額', () => {
@@ -234,8 +249,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     );
 
     expect(container.textContent).toContain('NT$ 36,000');
-    // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
+    // 合併態:訂單層 6 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(6);
   });
 
   it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
@@ -252,8 +267,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     expect(table.textContent).toContain('NT$ 25,000');
     // 反面:不得再逐列顯示各列小計
     expect(table.textContent).not.toContain('NT$ 8,000');
-    // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
+    // 合併態:訂單層 6 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(6);
   });
 
   it('2 品項 × 其中一列數量 2 → 合併並顯示整單總額', () => {
@@ -264,8 +279,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 
     // 🔴 A11c:同上,鎖進 `<table>`(這格連負向斷言都沒有,更需要限定供應者)
     expect(container.querySelector('table')!.textContent).toContain('NT$ 29,000');
-    // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
+    // 合併態:訂單層 6 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(6);
   });
 });
 
@@ -276,15 +291,15 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(11); // A11a-4/-5 起含訂貨、發票欄
+    expect(rows[0]!.querySelectorAll('td').length).toBe(12); // A11a-4/-5 起含訂貨、發票欄;2b-1 起 +勾選欄
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
     const tds = [...rows[0]!.querySelectorAll('td')];
-    expect(tds[2]!.textContent).toBe('—'); // 品牌
-    expect(tds[3]!.textContent).toBe('—'); // 料號
-    expect(tds[4]!.textContent).toBe('—'); // 品名
-    expect(tds[6]!.textContent).toBe('—'); // 數量
+    expect(tds[3]!.textContent).toBe('—'); // 品牌
+    expect(tds[4]!.textContent).toBe('—'); // 料號
+    expect(tds[5]!.textContent).toBe('—'); // 品名
+    expect(tds[7]!.textContent).toBe('—'); // 數量
   });
 });
 
@@ -297,7 +312,7 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
     expect(headers).not.toContain('會員等級');
     // 🔴 用**固定欄索引 8**,不用「最後一個帶 rowspan 的格」:A11a-4/-5/-6 任一片在客戶欄之後
     //    再加訂單層 rowSpan 欄,後者就會靜默指到別格、這條變成量錯東西(R1 nit)。
-    const customerCell = [...container.querySelectorAll('tbody tr td')][8]!;
+    const customerCell = [...container.querySelectorAll('tbody tr td')][9]!; // 2b-1:+1 勾選欄整體右移
     expect(customerCell.textContent).toContain('王小明');
     // 🔴 等級文字必須與名字在**同一格**;分成兩格會讓上面那條仍過、但版面回到舊的兩欄
     expect(customerCell.textContent).not.toBe('王小明');
@@ -307,7 +322,7 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
     const { container } = render(
       <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], customerName: null })]} />,
     );
-    const customerCell = [...container.querySelectorAll('tbody tr td')][8]!;
+    const customerCell = [...container.querySelectorAll('tbody tr td')][9]!; // 2b-1:+1 勾選欄整體右移
 
     expect(customerCell.textContent).toContain('—');
     expect(customerCell.textContent!.length).toBeGreaterThan(1);
@@ -319,8 +334,9 @@ describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
   it('小字與單號在**同一格**(索引 0),且表頭仍是 11 欄、無「付款」欄', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
-    // 🔴 同 V7 的理由用**固定索引 0**:訂單編號恆是第一格,不靠「第一個帶 rowspan 的格」推。
-    const idCell = [...container.querySelectorAll('tbody tr td')][0]!;
+    // 🔴 同 V7 的理由用**固定索引**:訂單編號恆在該列的固定位置,不靠「第一個帶 rowspan 的格」推。
+    //    2b-1 起第 0 格是**勾選欄**(訂單層)⇒ 訂單編號是第 **1** 格。
+    const idCell = [...container.querySelectorAll('tbody tr td')][1]!;
 
     // 🔴 「沒有付款欄」由這條 `toEqual` 全額涵蓋。原本多寫的 `not.toContain('付款')` 已刪:它被嚴格蘊含,
     //    **且**陣列 `toContain` 是整格相等 ⇒ 欄名若叫「付款狀態」它照樣綠(R1 抓到,名實不符)。
@@ -340,7 +356,7 @@ describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
     const { container: unpaidBox } = render(
       <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: 'unpaid' })]} />,
     );
-    const unpaidCell = [...unpaidBox.querySelectorAll('tbody tr td')][0]!;
+    const unpaidCell = [...unpaidBox.querySelectorAll('tbody tr td')][1]!; // 2b-1:第 0 格是勾選欄
     const unpaidCapsule = unpaidCell.querySelector(':scope > div > span')!;
 
     expect(unpaidCapsule.textContent).toBe('待付款');
@@ -350,7 +366,7 @@ describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
     const { container: paidBox } = render(
       <OrdersTable orders={[order({ lines: [line('l2', 1, 12000)] })]} />,
     );
-    const paidCapsule = [...paidBox.querySelectorAll('tbody tr td')][0]!.querySelector(
+    const paidCapsule = [...paidBox.querySelectorAll('tbody tr td')][1]!.querySelector(
       ':scope > div > span',
     )!;
 
@@ -380,9 +396,9 @@ describe('A11b — 付款軸膠囊配色(五態,§4 表)', () => {
     const { container } = render(
       <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
     );
-    const capsule = [...container.querySelectorAll('table tbody tr td')][0]!.querySelector(
+    const capsule = [...container.querySelectorAll('table tbody tr td')][1]!.querySelector(
       ':scope > div > span',
-    )!;
+    )!; // 2b-1:第 0 格是勾選欄,付款軸小字在訂單編號格
 
     expect(capsule.textContent).toBe(label);
     expect(capsule.className).toContain(colorToken);
@@ -401,9 +417,9 @@ describe('A11b — 付款軸膠囊配色(五態,§4 表)', () => {
       const { container } = render(
         <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
       );
-      return [...container.querySelectorAll('table tbody tr td')][0]!.querySelector(
+      return [...container.querySelectorAll('table tbody tr td')][1]!.querySelector(
         ':scope > div > span',
-      )!.className;
+      )!.className; // 2b-1:同上
     });
 
     expect(colors[3]).not.toBe(colors[0]); // refunded ≠ paid
@@ -428,7 +444,7 @@ describe('A11b — 訂貨軸膠囊配色(三段完成度 + 邊界,§4 表)', () 
       quantitySummary: { ...l.quantitySummary, orderedQuantity: ordered, cancellableQuantity: quantity - ordered },
     };
     const { container } = render(<OrdersTable orders={[order({ lines: [withOrdered] })]} />);
-    const cell = [...container.querySelectorAll('table tbody tr td')][9]!;
+    const cell = [...container.querySelectorAll('table tbody tr td')][10]!;
     const capsule = cell.querySelector('span')!;
 
     expect(capsule.textContent).toBe(`${ordered}/${quantity}`);
@@ -445,7 +461,7 @@ describe('A11b — 訂貨軸膠囊配色(三段完成度 + 邊界,§4 表)', () 
       quantitySummary: { ...full.quantitySummary, orderedQuantity: quantity, cancellableQuantity: 0 },
     };
     const { container: fullBox } = render(<OrdersTable orders={[order({ lines: [fullOrdered] })]} />);
-    const fullCapsule = [...fullBox.querySelectorAll('table tbody tr td')][9]!.querySelector('span')!;
+    const fullCapsule = [...fullBox.querySelectorAll('table tbody tr td')][10]!.querySelector('span')!;
 
     expect(fullCapsule.className).toContain('bg-emerald-100');
     expect(fullCapsule.className).not.toContain('bg-amber-100');
@@ -456,7 +472,7 @@ describe('A11b — 訂貨軸膠囊配色(三段完成度 + 邊界,§4 表)', () 
       quantitySummary: { ...near.quantitySummary, orderedQuantity: quantity - 1, cancellableQuantity: 1 },
     };
     const { container: nearBox } = render(<OrdersTable orders={[order({ lines: [nearOrdered] })]} />);
-    const nearCapsule = [...nearBox.querySelectorAll('table tbody tr td')][9]!.querySelector('span')!;
+    const nearCapsule = [...nearBox.querySelectorAll('table tbody tr td')][10]!.querySelector('span')!;
 
     expect(nearCapsule.className).toContain('bg-amber-100');
     expect(nearCapsule.className).not.toContain('bg-emerald-100');
@@ -464,7 +480,7 @@ describe('A11b — 訂貨軸膠囊配色(三段完成度 + 邊界,§4 表)', () 
 
   it('佔位列(空 lines):訂貨格仍是純文字「—」,不套膠囊(不是一個可辨識的完成度)', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [] })]} />);
-    const cell = [...container.querySelectorAll('table tbody tr td')][9]!;
+    const cell = [...container.querySelectorAll('table tbody tr td')][10]!;
 
     expect(cell.querySelector('span')).toBeNull();
     expect(cell.textContent).toBe('—');
@@ -520,7 +536,7 @@ describe('V6 接線 — 日期格吃的是 formatOrderListDate,不是 formatOrde
     vi.setSystemTime(new Date('2026-08-06T02:00:00Z'));
     try {
       const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-      const dateCell = [...container.querySelectorAll('tbody tr td')][1]!;
+      const dateCell = [...container.querySelectorAll('tbody tr td')][2]!;
 
       // 🔴 原本這下面多寫一條 `.not.toContain('2026-08-06')`,R1 抓到被本條嚴格蘊含 ⇒ 已刪。
       //    連帶更正我先前的突變報告:突變②(接線改回 `formatOrderDate`)紅的是**整條 it**,
@@ -547,7 +563,7 @@ describe('V9 — 訂貨欄接 A9c 的非 nullable 三軸(零 join 由型別層�
       quantitySummary: { ...l.quantitySummary, orderedQuantity: 2, instockQuantity: 1, cancellableQuantity: 4 },
     };
     const { container } = render(<OrdersTable orders={[order({ lines: [withOrdered] })]} />);
-    const cell = [...container.querySelectorAll('tbody tr td')][9]!;
+    const cell = [...container.querySelectorAll('tbody tr td')][10]!;
 
     expect(cell.textContent).toBe('2/5');
   });
@@ -565,16 +581,17 @@ describe('V9 — 訂貨欄接 A9c 的非 nullable 三軸(零 join 由型別層�
     );
     const rows = [...container.querySelectorAll('tbody tr')];
 
-    // 第一列訂貨在索引 9;第二列只有 6 格,訂貨是最後一格。
-    expect([...rows[0]!.querySelectorAll('td')][9]!.textContent).toBe('3/3');
+    // 2b-1 起第一列訂貨在索引 **10**(勾選欄把訂單層整體右移一格);
+    // 第二列只有 6 格(純品項層、不含勾選)⇒ 訂貨仍是最後一格 [5],**刻意不動**。
+    expect([...rows[0]!.querySelectorAll('td')][10]!.textContent).toBe('3/3');
     expect([...rows[1]!.querySelectorAll('td')][5]!.textContent).toBe('1/4');
     // 訂貨格**不得**帶 rowspan(帶了就是被寫成訂單層)
-    expect(rows[0]!.querySelectorAll('td')[9]!.hasAttribute('rowspan')).toBe(false);
+    expect(rows[0]!.querySelectorAll('td')[10]!.hasAttribute('rowspan')).toBe(false);
   });
 
   it('佔位列(空 lines)→ 訂貨顯示「—」,不畫出 `0/0`', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [] })]} />);
-    const cell = [...container.querySelectorAll('tbody tr td')][9]!;
+    const cell = [...container.querySelectorAll('tbody tr td')][10]!;
 
     expect(cell.textContent).toBe('—');
     expect(container.textContent).not.toContain('0/0');
@@ -621,7 +638,7 @@ describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => 
     const { container } = render(
       <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: status })]} />,
     );
-    const cell = [...container.querySelectorAll('tbody tr td')][10]!;
+    const cell = [...container.querySelectorAll('tbody tr td')][11]!;
 
     expect(cell.textContent).toBe(label);
   });
@@ -640,7 +657,7 @@ describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => 
     );
     const rows = [...container.querySelectorAll('tbody tr')];
 
-    expect([...rows[0]!.querySelectorAll('td')][10]!.getAttribute('rowspan')).toBe('2');
+    expect([...rows[0]!.querySelectorAll('td')][11]!.getAttribute('rowspan')).toBe('2');
     // 🔴 A11c:同上,鎖進 `<table>`(手機卡片會讓同一字面在 container 內出現第二次)
     expect(container.querySelector('table')!.innerHTML.split('已開立').length - 1).toBe(1);
     expect(rows[1]!.querySelectorAll('td').length).toBe(6); // 後續列不多一格

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { OrderShipCheckbox } from './shipping-selection';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
   INVOICE_STATUS_LABEL,
@@ -54,6 +55,14 @@ import {
 //    SSO 閘後 admin-only。**本片拆掉唯一的 client 元件(狀態欄下拉)後,本檔已無任何 client 邊界。**
 //    ⇒ 卡片版**同樣零 client 邊界**(純 server component、零 `use*`、零 `'use client'`)。
 //
+// 🔴 **2026-08-09 片 2b-1 更正上面那句:本檔已經不是「零 client 邊界」了。**
+//    出貨動線需要勾選狀態 ⇒ 引入**第一個** client 邊界,但做成 **island**:
+//    只有 `<OrderShipCheckbox>`(`shipping-selection.tsx`)是 client,**表格與卡片本體仍是 server component**。
+//    🔴 鐵則 12 的護欄**沒有鬆動**:那顆 checkbox 的 props **只有 `orderId` / `customerUserId` 兩個純量**,
+//    `AdminOrderSummary` 整包(帶 `total` 金額與 `tierAtCheckout` 會員等級)**絕不進 client props** ——
+//    否則那兩個敏感值會被序列化進 RSC payload。⚠️ **使用者看不到 ≠ 沒送出去**(payload 在 network 面板是純文字)。
+//    這條由 `shipping-selection.test.tsx` 的守門釘住,不是只寫在這段註解。
+//
 // 🔴 **A11b(2026-08-07)**:付款軸與訂貨軸從純文字改膠囊(pill)上色,配色表在 `order-list-view.ts`
 //    (`PAYMENT_STATUS_CAPSULE` / `orderedCapsuleClass`)。**A11b 只落這兩軸,出貨軸不做**
 //    ——沒有資料來源(`AdminOrderItemQuantitySummary` 無 shipped 欄),前置 = A11a-6。
@@ -106,6 +115,13 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
           key={line ? line.id : 'empty'}
           className={i === 0 ? 'border-t' : 'border-t border-dashed'}
         >
+          {i === 0 && (
+            <td className={`${TD} align-top`} rowSpan={rowSpan}>
+              {/* 2b-1:訂單層勾選。放 rowSpan 合併格 ⇒ **一訂單一個框**;
+                  放品項列的話,一張三品項的訂單會冒出三個框。 */}
+              <OrderShipCheckbox orderId={order.id} customerUserId={order.customerUserId} />
+            </td>
+          )}
           {i === 0 && (
             <td className={TD} rowSpan={rowSpan}>
               <Link href={`/orders/${order.id}`} className='font-medium hover:underline'>
@@ -235,7 +251,12 @@ function OrderCard({ order }: { order: AdminOrderSummary }) {
     <li className='p-3'>
       {/* 第一行:主標(單號)+ 靠右(金額 / 發票)—— §4-1「主要欄位加粗置頂、金額/狀態靠右」 */}
       <div className='flex items-start justify-between gap-3'>
-        <div className='min-w-0 font-medium'>
+        <div className='flex min-w-0 items-start gap-2 font-medium'>
+          {/* 🔴 2b-1:手機這份**必須跟桌機一起加**。只改桌機的話,手機上根本沒得勾,
+              而桌機測試全綠 —— Sean 常用手機看後台。守門兩處都釘。 */}
+          <span className='pt-0.5'>
+            <OrderShipCheckbox orderId={order.id} customerUserId={order.customerUserId} />
+          </span>
           <Link href={`/orders/${order.id}`} className='hover:underline'>
             {order.displayId}
           </Link>
@@ -331,6 +352,9 @@ export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
       <table className='w-full border-collapse'>
         <thead>
           <tr>
+            {/* 2b-1:勾選欄(訂單層)。**刻意沒有全選框** —— 全選必然跨客人,而跨客人裝同一箱
+                一定被 DB 退件;不提供一個「按了一定失敗」的按鈕。 */}
+            <th className={`${TH} w-8`} aria-label='選取' />
             {/* Q6=A(Sean 2026-08-06):欄名改短字面 —— 商品品牌→品牌、物品名稱→品名、客戶名稱→客戶。 */}
             <th className={TH}>訂單編號</th>
             <th className={TH}>日期</th>
