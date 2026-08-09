@@ -1,5 +1,6 @@
 import type { AdminOrderCancellationReasonCode, AdminOrderDetail } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+import { CANCEL_REASON_LABEL } from '../../lib/orders/cancel-form';
 import {
   buildOrderCancelView,
   type OrderCancelBlockReason,
@@ -12,7 +13,11 @@ import {
 //    「同頁兩段式展開」(Sean Q2=A)用原生 `<details>/<summary>` 做,不需要任何 client JS。
 //    ⇒ 順帶避開 D 窗踩過的那個坑:`AdminOrderDetail` 帶金額與會員等級脈絡,
 //      整包丟進 client props 會進 RSC payload(純文字)。這裡它從頭到尾留在 server。
-//    ⚠️ A13b 的**表單**才需要 `'use client'`,那是另一支檔;兩者刻意不合併(鐵則 6)。
+//    ⚠️ **本行 2026-08-10 由 D4 更正**:原本寫「A13b 的表單才需要 `'use client'`」——
+//      那是 A13b v2 的舊形狀。v3 換路之後**表單也是零 `'use client'`**
+//      (`cancel-order-forms.tsx`,原生 form + server action、零 client state);
+//      而「零 client state」正是「不會誤送整單取消」的修法本體,不是風格選擇。
+//      兩支檔仍刻意不合併(鐵則 6:唯讀複核區塊 vs 表單,職責不同)。
 // 🔴 **這條目前只有註解在守,沒有機制**(R1 F15 誠實記載):`import 'server-only'` 是正解,
 //    但 `server-only` 不是 `apps/admin` 的直接依賴(實測 vite 解析不到、整支測試檔載入即炸),
 //    為一條 nit 加依賴會動到 `package.json`(鐵則 12 ④ 那類)⇒ 不划算。
@@ -95,16 +100,13 @@ export const BLOCK_REASON_TEXT: Record<
   },
 };
 
-/** 🔴 `Record<七碼 union, string>` 不是 `Record<string, string>`:①少寫一碼編譯期紅 ②動態索引不會取到原型鏈屬性(memory `reference_js-index-lookup-hits-prototype-chain`,PCM 曾中 6 頁)。 */
-const REASON_CODE_LABEL: Record<AdminOrderCancellationReasonCode, string> = {
-  customer_request: '客人要求',
-  out_of_stock: '缺貨',
-  long_leadtime: '交期過長',
-  price_change: '價格異動',
-  duplicate_order: '重複下單',
-  internal_error: '內部作業疏失',
-  other: '其他',
-};
+/**
+ * 🔴 **字典搬到 `cancel-form.ts`(A13b D4)** —— 表單下拉與歷程顯示必須是同一組字。
+ *    這裡只留一個別名,呼叫點不動。搬家理由見那支常數的 docstring。
+ * ⚠️ 型別對齊:`CancelReasonCode`(解析器的七碼)與 `AdminOrderCancellationReasonCode`
+ *    (domain 的七碼)是同一組字面值,兩者都由 `20260730130000:131-139` 的 CHECK 當權威。
+ */
+const REASON_CODE_LABEL: Record<AdminOrderCancellationReasonCode, string> = CANCEL_REASON_LABEL;
 
 /**
  * 這次取消共幾件。

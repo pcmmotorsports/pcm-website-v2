@@ -138,7 +138,11 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   //    🔴 **新 token 從哪來**:舊形狀是 builder 內鑄;PRG 之後**由整頁重繪時表單自己鑄**
   //    (D4 的義務;`cancel-action-state.ts` 的 `generateCancelRequestToken` docstring 逐字寫著
   //    「產生點必須在 server component 渲染期、且不得落在任何快取層內」——落了快取 = 兩個人拿到同一把)。
-  //    ⚠️ **那條義務目前零測試釘住**,D4 落地時必須配一條(D2b 收工信會把它列成 D4 硬項)。
+  //    ✅ **D4 已落地**(`components/orders/cancel-order-forms.tsx` 的 `CancelFormShell`):
+  //    token 在渲染期鑄,守門 = `cancel-order-forms.test.tsx` 的「兩次獨立 render 兩顆不同合法 uuid」
+  //    +「同一頁兩支表單兩顆不同 token」+ 原始碼層「本檔不得 import 快取層」三條。
+  //    ⚠️ **涵蓋範圍有邊界**(`React.cache` 在測試環境是純透傳、行為層分辨不出來),
+  //    逐字見 `CancelFormShell` 的 docstring —— 別把它讀成「已完全擋住」。
   const parsed = parseOrderCancelForm(formData);
   // 🔴 **不帶回員工輸入**(`E-014-A` Q2=A:失敗一律重填、從無效空值起始)——
   //    PRG 之下「保留輸入」要嘛把內容塞進 URL(違反 §2-2 只帶碼不帶內容),
