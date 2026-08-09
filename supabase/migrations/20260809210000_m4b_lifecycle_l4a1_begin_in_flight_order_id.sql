@@ -5,6 +5,7 @@
 --   + 母 plan docs/specs/2026-08-09-l4-l5-settlement-compensation-plan.md §2
 --   + 主視窗 P-257-A 核准(Q1=A 值層守門 / Q2=A 前兩片先 commit)。
 -- 依賴:20260804120000(A8c1,本函式的 live 定義)。鐵則 12①③。
+-- ✅ 已 apply 正式站 2026-08-10 上午(Sean 拍 Q16=A;NOTICE 結構驗收全過)。P-282-A 裁 1 補記(主視窗代筆)。
 --
 -- 🔴 為什麼要改這支:action 層撞到 per-user 閘時,現行回傳**只有** {acquired:false, reason:'user_in_flight'}
 --   —— 沒有 order id ⇒ action 層無從得知「要對哪一張在途單跑 settleCharge」⇒ 母 plan §2 的即時對帳
