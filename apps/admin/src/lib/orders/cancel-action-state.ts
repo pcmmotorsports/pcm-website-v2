@@ -157,6 +157,23 @@ export function toOrderCancelResultCode(code: CancelFailureCode): OrderCancelFai
 }
 
 /**
+ * 導頁 query 的**參數名**(A13b D5 起抽成常數)。
+ *
+ * 🔴 抽出來的理由是**漂移**:同一個 `r` / `rt` 有三個角色 ——
+ *    **組**(下面三支建構器)、**刪**(D5 的網址清除元件)、**讀**(頁層 `searchParams`)。
+ *    改了任何一邊而漏掉另一邊,症狀是「面板不出現」或「網址永遠清不掉」,
+ *    而**四閘全綠、沒有東西會轉紅**。
+ * ⚠️ **目前只收攏了「組」與「刪」兩處**(R1 nit 4 更正原本寫成三處都收了):
+ *    **「讀」那一側還沒有** —— D5 的面板收 props、不自己讀 `searchParams`,
+ *    真正的讀取點是 `app/orders/[id]/page.tsx` 裡的 `rawSearch.r` 字面,它還沒引用這顆常數。
+ *    ⇒ **D6 接線時要把讀取那側一起改用常數**(已寫進 plan 的 D6-a 列)。
+ * ⚠️ `r` 是訂單明細頁**共用**的參數(改單線 / 採購線 / 備註線都在用)——
+ *    這顆常數只是取消線對它的單一引用點,**不是**它的所有權宣告;要改名得先盤那幾條線。
+ */
+export const CANCEL_RESULT_PARAM = 'r';
+export const CANCEL_REQUEST_TOKEN_PARAM = 'rt';
+
+/**
  * D2 組導頁 query 的**唯一入口**,而且**刻意拆成三支不相交的簽章**(D1 窄 R3 must-fix)。
  *
  * 🔴 為什麼不留一支扁平的 `toQuery(code, token?)`:那樣「成功路徑最自然的單行寫法」會是
@@ -184,15 +201,15 @@ export function toOrderCancelResultCode(code: CancelFailureCode): OrderCancelFai
  *    不得當成「沒失敗」把表單開回去,plan §1c)。token 是 uuid ⇒ 無需 encode。
  */
 export function notSentResultQuery(code: CancelNotSentCode): string {
-  return `r=${toOrderCancelResultCode(code)}`;
+  return `${CANCEL_RESULT_PARAM}=${toOrderCancelResultCode(code)}`;
 }
 
 export function sentResultQuery(code: CancelSentCode, requestToken: string): string {
-  return `r=${toOrderCancelResultCode(code)}&rt=${requestToken}`;
+  return `${CANCEL_RESULT_PARAM}=${toOrderCancelResultCode(code)}&${CANCEL_REQUEST_TOKEN_PARAM}=${requestToken}`;
 }
 
 export function cancelledResultQuery(requestToken: string): string {
-  return `r=${ORDER_CANCELLED_RESULT_CODE}&rt=${requestToken}`;
+  return `${CANCEL_RESULT_PARAM}=${ORDER_CANCELLED_RESULT_CODE}&${CANCEL_REQUEST_TOKEN_PARAM}=${requestToken}`;
 }
 
 /**
