@@ -38,7 +38,7 @@ vi.mock('./cancel-repository', async (importOriginal) => {
   return { ...actual, cancelOrder: mocks.cancelOrder };
 });
 
-// 🔴 解析器與 state builder **刻意不 mock** —— 餵真 FormData 走真解析器,
+// 🔴 解析器與 query builders **刻意不 mock**(state builder 已隨 D2b 刪除) —— 餵真 FormData 走真解析器,
 //    否則「爛表單擋得住」「invalid 不帶 rt」都是恆真斷言(前例 `note-actions.test.ts:29`)。
 //    ⚠️ D2a 之後**新 token 不再由 action 鑄** —— 改成下次整頁渲染時表單自己鑄(D4 硬驗收)。
 import { cancelOrderAction } from './cancel-actions';

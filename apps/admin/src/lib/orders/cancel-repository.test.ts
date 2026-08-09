@@ -108,7 +108,7 @@ describe('cancelOrder — wire(plan §2 慣例 4:逐欄具名送、不 spread)',
 describe('cancelOrder — 成功 payload 形狀全集(plan §4.1 五條逐條)', () => {
   // 🔴 這一族全部歸 `bug`,而 `bug` 的員工訊息是「可能已經寫進去了」—— 那不是保守措辭:
   //    形狀驗證發生在 RPC 成功 RETURN **之後**,這一支真的已經 commit 了
-  //    (逐支歸類見 `cancel-action-state.ts:64-70`)。
+  //    (逐支歸類見 `cancel-action-state.ts:110-117`)。
   const badShapes: Array<[string, unknown]> = [
     ['① 非 object:字串', 'CANCELLED'],
     ['① 非 object:數字', 1],

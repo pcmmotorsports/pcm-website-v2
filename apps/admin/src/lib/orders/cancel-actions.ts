@@ -188,7 +188,8 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     //    員工拿到 500、重整後表單重繪換到新 token,而前一次可能已 commit ⇒ 正是重複部分取消的路。
     safeRevalidate(parsed.orderId, httpRequestId);
     // 🔴 **原樣帶回這次送出的 token**(不鑄新的):換新鍵 = 全新 payload_hash =
-    //    同一份 payload 會真的再取消一次(`cancel-action-state.ts:265-266`)。
+    //    同一份 payload 會真的再取消一次(payload_hash 綁定見 `cancel-action-state.ts:14-20`;
+    //    原本指的那句在 `cancelSentFailure` 的 docstring 裡,已隨 D2b 刪除)。
     // 🔴 **帶著這次送出的 token 導頁**(不鑄新的):它是 D5 拿去對取消帳本的唯一線索,
     //    也是員工那側「我剛送的那筆到底寫進去了沒有」唯一問得出答案的方法。
     //    型別上這裡**要不到不帶 token 的版本**(`sentResultQuery` 簽章必填,D1 交付面)。

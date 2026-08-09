@@ -103,7 +103,7 @@ const SUCCESS_PAYLOAD_KEYS = 'cancellation_id,cancelled,closed,idempotent';
  *
  * 🔴 ②的「鍵集合**恰等**」而不是「包含」是刻意的:RPC 日後加鍵要**轉紅讓人來看**,
  * 不是靜默忽略。這條也是 `bug` 裡唯一**真的可能已經寫進去**的那一支 ——
- * 它發生在 RPC 成功 RETURN **之後**(逐支歸類見 `cancel-action-state.ts:64-70`)。
+ * 它發生在 RPC 成功 RETURN **之後**(逐支歸類見 `cancel-action-state.ts:110-117`)。
  */
 function parseSuccessPayload(
   data: unknown,
