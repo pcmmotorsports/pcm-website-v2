@@ -35,6 +35,32 @@
 
 **修法**:`begin_charge_attempt` 回 `user_in_flight` 時,action 層先對那張在途單跑一次 `settleCharge`;裁出 `failed`(Record 明確 -1/5、已 markFailed 釋鎖)才重試 `begin` **一次**;其餘一律照舊擋。
 
+🔴 **開工前實查到的事實,改變了本片的形狀(2026-08-09,動手前讀原始檔)**:
+`user_in_flight` 的回傳**只有** `{acquired:false, reason:'user_in_flight'}` ——
+**沒有 order id、沒有 attempt id**。
+
+⚠️ **來源更正(第二次同型,自己抓到)**:我原本引 `20260613130000_*.sql:443`,
+但那**不是最新定義** —— `begin_charge_attempt` 被 `20260613140000`(0c)與
+**`20260804120000`(A8c1 取消守門)**先後 `CREATE OR REPLACE` 過,**live 版是 A8c1**,
+該處的 `user_in_flight` 回傳在 `20260804120000_*.sql:181`(逐字,同樣沒有識別碼)。
+事實不變、來源檔錯了。⇒ **本片的 migration 必須以 A8c1 的函式體為基底**(照 L2 的零漂移做法:
+讀 live 檔 → 只改那一處 → diff 核對),抄舊檔會把 A8c1 的取消守門整段弄丟。
+(這正是 L2 harness 那條「掃最後一支定義該函式的檔」的教訓,這次是在 plan 引用上復發。)
+⇒ action 層**無從得知要 settle 哪一張單**,plan 原本寫的「對那張在途單跑一次 settleCharge」
+**在現行契約下做不到**。
+⇒ L4 **必須**同時改 `begin_charge_attempt`,讓 `user_in_flight` 一併回傳在途單的識別
+(order id / attempt id)。那是**核心雙扣防線 RPC 的行為改動** ⇒ 鐵則 12①③,
+片型從「純 action 層」升級成「migration + action 層」,成本與審查強度都要照這個估。
+(P-250-A 已預期到這件事:「讓路觸發點在 begin/preflight 面=動既有金流 RPC」。)
+
+⚠️ **順帶釐清 L4 的實際打擊面**:`user_in_flight` 只在**異 cart session** 時觸發;
+同 cart 的情況在它之前就被 cart dedup 攔成 `needs_settle` → `adjudicateSettlement`(**已經會 settle**)。
+⇒ L4 修的正是**跨裝置/跨購物車**那條路 —— 也就是 Sean 08-09 實際遇到的情境。
+
+🔴 **回傳識別碼要小心的一件事**:`user_in_flight` 現行刻意**不帶 displayId**
+(`charge-actions.ts:362` 逐字「無 displayId(round3 C)」——此請求零扣款、不得讓客人以為有單)。
+新增的識別碼**只能給 server 端 settle 用,不得流到 UI**,否則會把「別的單的單號」洩到這次請求的畫面上。
+
 **三道護欄(缺一就從修復變成新洞)**
 1. **節流**:每張在途單每 N 秒最多觸發一次 Record 查詢。🔴 已有現成基礎設施 `PgPollSettleThrottleAdapter`,**優先複用、不要新寫一套**。
 2. **只放行 `failed`**:`auth_or_pending` / `record_unverified` / `record_not_found` / `record_unreachable` 一律維持擋住。
