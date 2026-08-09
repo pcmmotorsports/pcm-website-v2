@@ -10,7 +10,7 @@
 //    也證不了 RSC payload 裡真的沒有金額 —— ② 守的是**原始碼層的形狀**(props 只有兩個純量),
 //    真 payload 要看瀏覽器 network 面板。這個缺口是明說的。
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi} from 'vitest';
 import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,18 @@ import {
   OrderShipCheckbox,
   nextSelection,
 } from './shipping-selection';
+
+// 🔴 `server-only` 在**本檔**換成空替身 —— **不是放寬護欄,而且刻意不做成全域 alias。**
+//    真的 `server-only` 被 client 模組載入時會丟錯,那正是我們要的
+//    (`shipment-candidates.ts` 帶著它,誰把訂單明細拉進 client bundle 就建置失敗)。
+//    但 vitest 沒有 server/client 之分、會天真地走完整個 import 圖:
+//      client 元件 → `shipment-actions.ts`('use server')→ `shipment-candidates.ts`('server-only')→ 丟錯。
+//    真實 Next 下這條路**不存在**('use server' 模組在 client 側是引用樁)。
+//    ⚠️ **為什麼不做全域 alias**:`apps/storefront/src/lib/brand-products.test.ts:223` 有一條測試
+//    **刻意依賴 server-only 真的丟錯**來證明 mock 清乾淨了(斷言字面就是那句錯誤訊息)。
+//    全域替身會把那條的驗證機制整個拆掉 —— 實測會讓它從綠變紅。所以只在需要的檔各自 mock。
+vi.mock('server-only', () => ({}));
+
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
