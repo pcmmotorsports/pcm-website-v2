@@ -1,4 +1,27 @@
-# 後台完成地圖(2026-08-01 建;**2026-08-03 凌晨刷新**)
+# 後台完成地圖(2026-08-01 建;**2026-08-09 午刷新**)
+
+## §-1 · 08-09 刷新(當場實查,非抄交接;驗證命令=本檔 §5 慣例 grep+掛載鏈追蹤)
+
+**✅ 能用:2 → 5**(07-26 以來第一次動)。admin 頁 8、`'use server'` 14→**16**。
+
+| # | 項 | 舊 | 新 | 證據 |
+|---|---|---|---|---|
+| 3 | 訂單寫備註 | 🟡 | **✅** | `NoteComposeForm` 經 `order-detail.tsx` 掛上詳情頁(A10a 落地) |
+| 5 | 標「已向供應商下單」逐品項 | 🟡 | **✅*** | `ItemProcurementSection`+form+供應商下拉掛上詳情頁;*=待 Sean 肉眼 |
+| 6 | 記供應商單號/預計到貨 | 🟡 | **✅*** | 同上表單;`supplier_order_no` migration 已 apply;跨單搜尋(A10c2)未驗 |
+| 8/9 | 快遞單號/追蹤 | ❌ | **🟡** | 出貨線 DB 全 apply(shipments 家族+九支 RPC+冪等+死結重試);admin UI `shipments` 關鍵字 0 命中=畫面全缺 |
+| 17 | 退款操作 | 🟡 | **🟡➚** | `TapPayChargeAdapter.refund()` **已實作**(08-03 的一行 throw 已亡)+admin refund UI 7 檔+refund-exceptions 頁(`isRefundUiEnabled` flag 閘);缺=worker/對帳線+flag 未開 |
+| 19 | 取消訂單 | 🟡 | 🟡 | DB+RPC+死結重試全齊;admin `order_cancellations` 0 命中=畫面全缺(A13) |
+
+**前台側同期**(不在 27 項但 Sean 有感):LINE 刷卡修復全案結(email 落地址)/聲音檔全線貫通/手機 RWD 五修/h1 三級/發票暫藏。
+
+**未動**:12 手動建單(六題未拍)/15 匯款/20-24 商品線(零規劃)/26 認證(E8-B)/27 稽核 UI。
+**測試單清理**:33 筆 unpaid 測試單 08-09 全清(Sean Studio SQL),後台訂單列表首次乾淨。
+**新拍板落片**:未付款 1 天自動失效+防雙付窗縮短+殭屍裁決=「訂單付款生命週期片」(P 窗 plan 中)。
+
+---
+
+# 〔08-03 版原文以下保留〕
 
 > **Sean 08-01 拍板 Q1=A 的產出。** 從今天起,進度度量 = **這張地圖上還剩幾片**,
 > 不看 commit 數、不看守門數(memory `project_workmode-0801-nightrun-decisions`)。
