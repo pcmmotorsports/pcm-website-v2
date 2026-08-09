@@ -17,6 +17,12 @@ vi.mock('../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ listOrderSummariesForAdmin: mocks.list }),
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: vi.fn() }) }));
+// #347-2b:本頁自此會讀 `cookies()` —— 關鍵字搜尋詞的載體(它是 PII、刻意不進 URL)。
+// 🔴 沒有這個替身,vitest 會擲「`cookies` was called outside a request scope」⇒ 本檔**每一格**都紅,
+//    而紅的原因與各格自己要驗的東西完全無關。回空 store = 「沒有在搜尋」,正是本檔既有各格的前提。
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined, set: vi.fn(), delete: vi.fn() }),
+}));
 
 import OrdersPage from './page';
 

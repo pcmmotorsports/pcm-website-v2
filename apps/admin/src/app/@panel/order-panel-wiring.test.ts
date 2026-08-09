@@ -32,6 +32,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('server-only', () => ({}));
+// #347-2b:`app/orders/page.tsx` 自此會讀 `cookies()`(關鍵字搜尋詞的載體)。
+// 守門 7 會渲染那一頁 ⇒ 沒有這個替身會擲「cookies was called outside a request scope」。
+// 回空 store = 「沒有在搜尋」,守門 7 要驗的是 panel href,與搜尋無關。
+vi.mock('next/headers', () => ({
+  cookies: async () => ({ get: () => undefined, set: vi.fn(), delete: vi.fn() }),
+}));
 vi.mock('next/navigation', () => ({
   notFound: () => {
     throw new Error('notFound 不該在槽裡被呼叫');
