@@ -227,6 +227,22 @@ describe('TapPayChargeAdapter.recordQuery — wire→domain 解析(不下裁決)
     expect(body.filters).not.toHaveProperty('rec_trade_id');
   });
 
+  // 🔴 M-4b L2:parser 有測、settleCharge 有測,但**中間這一跳(adapter 把旗標抄進 domain DTO)沒人守** ——
+  //    刪掉那一行,parser 測試與 use-case 測試會照樣全綠,而正式站上 settleCharge 永遠收到 undefined
+  //    ⇒ 恆不判 not-found ⇒ L5 靜默不生效。這兩條就是那一跳的守門。
+  it('🔴 L2 透傳:回應有 number_of_transactions → numberOfTransactionsReported=true 帶到 domain DTO', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(RECORD_CAPTURED_WIRE)));
+    const res = await new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY);
+    expect(res.numberOfTransactionsReported).toBe(true);
+  });
+
+  it('🔴 L2 透傳:回應缺 number_of_transactions → numberOfTransactionsReported=false 帶到 domain DTO', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ status: 0, msg: 'ok' })));
+    const res = await new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY);
+    expect(res.numberOfTransactionsReported).toBe(false);
+    expect(res.numberOfTransactions).toBe(0); // 既有 fallback 行為零改動
+  });
+
   it('AUTH-only(record_status=0、is_captured=false)三態可辨、原值回不誤判 paid', async () => {
     const authWire = {
       status: 0,

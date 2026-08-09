@@ -286,6 +286,17 @@ export type TapPayRecordResult = {
   queryStatus: number;
   numberOfTransactions: number;
   records: TapPayTradeRecord[];
+  /**
+   * 🔴 M-4b 生命週期 L2:`number_of_transactions` 這個欄位**是否真的出現在回應裡**。
+   *
+   * parser 在該欄缺席時會退回 `records.length`(誠實計數、不虛報)—— 對既有裁決無害,但它讓
+   * `numberOfTransactions === 0 && records.length === 0` 這組「雙條件」在**形狀異常的回應**
+   * (例如只回 `{status:0, msg}`)上退化成單一條件、兩邊必然一致 ⇒ 一個根本沒回答問題的回應
+   * 會被判成「TapPay 說沒有這筆」。而 `record_not_found` 是 L5 拿來自動釋鎖的依據。
+   * ⇒ 只有這個旗標為 `true`(TapPay 真的回報了筆數)時,才允許判 not-found;
+   * 未提供(舊 fixture / 其他 adapter)一律當 `false` = fail-closed。
+   */
+  numberOfTransactionsReported?: boolean;
 };
 
 // ── M-3 階段②-②b:confirm(付款確認)型別 ────────────────────────────────────
@@ -538,7 +549,25 @@ export type SettleChargeInput = {
  * - `failed`:Record 明確未成功(record_status -1=ERROR / 5=CANCEL)→ markFailed 已釋鎖、caller 可放行重刷。
  * - `pending`:保留、不釋鎖 → sweeper/retry 再來。`reason`:
  *   - `auth_or_pending`:record_status 4=PENDING 待付款(尚未授權;0 AUTH/1 OK 已 S1「授權即成立」→ paid)。
- *   - `record_unverified`:金額不符 / 鍵不符 / number_of_transactions≠1 / 2·3 退款異常(不自動放行、S2=B)。
+ *   - `record_unverified`:金額不符 / 鍵不符 / number_of_transactions≠1(但非「成功查詢且零筆」)/ 2·3 退款異常
+ *     (不自動放行、S2=B)。
+ *   - 🔴 `record_not_found`(M-4b 生命週期 L2):**這一次**查詢成功(queryStatus ∈ {0,2})而 TapPay 回**零筆**。
+ *     🔴 **它精確的意思只有這一句** —— 特別**不是**「沒扣款」的證明(codex 關卡2 must-fix A):
+ *     `bank_transaction_id` 在 charge **之前**就 durable,所以「錢已扣、Record 索引還沒到」長得一模一樣。
+ *     安全性由 L5 的「多次觀察 + 年齡閘」提供,不由本 reason 提供;本層只讓那個事實**可分辨**。
+ *     🔴 **為什麼仍要從 `record_unverified` 拆出來**:那個 reason 同時裝著兩種必須分開處理的事實 ——
+ *     「TapPay 回零筆」(可能可以在夠久之後裁定未成交)與「有紀錄但識別/金額對不上」(可能撈到別人的單、
+ *     **任何情況都不可放行**)。混在一起,L5 就無法只針對前者動作。
+ *     產生條件(四道,任一不成立即落回 `record_unverified`、fail-closed):
+ *     ① **強識別**(本機已有 rec 或 bank)—— 弱識別只能用 order_number 反查,非 3DS 的 `confirmPayment`
+ *        路徑在 charge 前不寫任何鍵,零筆多半是「我問錯了」而不是「TapPay 沒有」;
+ *     ② **attempt.status === 'pending'** —— `charged` 代表我們親眼看過 Record 給的 rec、交易確實存在過,
+ *        `released` 代表鎖已釋續對帳;這兩種再查到零筆只可能是查詢面出事;
+ *     ③ `numberOfTransactionsReported === true` —— 筆數必須是 TapPay 真的回的,不能是 parser 推的;
+ *     ④ `numberOfTransactions === 0` **且** `records.length === 0` —— wire 不一致一律不採信。
+ *     ⚠️ **放行行為零漂移、診斷欄則會改變**:所有消費端的**分岔**與 `record_unverified` 相同(pending、
+ *     保留、不釋鎖、preflight 一律 hold);但強識別 pending 的零筆,`last_settle_error` 會從
+ *     `record_unverified` 改存 `record_not_found`(這正是本片的目的)。
  *   - `record_unreachable`:recordQuery throw / confirm throw(已扣款不棄、retry)。
  *   - 🔴 `released_failure_observed`(M-3 3DS 乙路 R2a、canonical §5/§2.5):**released** attempt 讀 Record
  *     -1/5(明確失敗觀察)→ 經 `recordReleasedFailureObservation` 寫雙鍵 write-once、**不轉 failed**
@@ -552,7 +581,12 @@ export type SettleChargeOutcome =
   | { kind: 'failed' }
   | {
       kind: 'pending';
-      reason: 'auth_or_pending' | 'record_unverified' | 'record_unreachable' | 'released_failure_observed';
+      reason:
+        | 'auth_or_pending'
+        | 'record_unverified'
+        | 'record_not_found'
+        | 'record_unreachable'
+        | 'released_failure_observed';
     }
   | { kind: 'no_attempt' };
 
@@ -602,7 +636,9 @@ export type PreflightReleaseSiblingInput = {
  * - `hold`:不確定 → 「確認中、稍候」(不建新單、不放行)。`reason`(遙測):
  *   - `lookup_unreachable`:siblingLookup throw(查不到兄弟單 → fail-closed 不建新單避免孤兒/雙扣)。
  *   - `settle_unreachable`:settle 非預期 throw(settleCharge 契約本應 fail-closed 回 pending、此為縱深)。
- *   - `released_failure_observed` / `record_unreachable` / `record_unverified`:settle 回對應 pending reason(§2.5)。
+ *   - `released_failure_observed` / `record_unreachable` / `record_unverified` / `record_not_found`:settle 回對應
+ *     pending reason(§2.5)。🔴 `record_not_found` 在此**與 record_unverified 同樣一律 hold** —— preflight 是
+ *     單次觀察,「這一次查無」不足以推論未成交(TapPay 索引可能落後);自動放行只在 L5 的多次觀察 + 年齡閘之後。
  *   - `release_unreachable`:releaseSibling throw(CAS 連線層失敗 → fail-closed)。
  *   - `release_lost_race`:release CAS rowcount=0(被 markCharged 搶先/他 tab)後重 settle 仍非 paid(§2.3:不建新單)。
  */
@@ -612,6 +648,7 @@ export type PreflightHoldReason =
   | 'released_failure_observed'
   | 'record_unreachable'
   | 'record_unverified'
+  | 'record_not_found'
   | 'release_unreachable'
   | 'release_lost_race';
 

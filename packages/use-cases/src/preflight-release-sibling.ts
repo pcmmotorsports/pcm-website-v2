@@ -23,7 +23,8 @@ import type {
  *         released:false        → 重 settle:paid→existing_paid / 其餘→hold(§2.3:不建新單)
  *     released_failure_observed
  *     | record_unreachable
- *     | record_unverified       → hold
+ *     | record_unverified
+ *     | record_not_found        → hold             (L2:單次查無不足以推論未成交,放行在 L5)
  *     failed | no_attempt       → proceed             (🔴 Q2=A:確定未成交 → 放行安全)
  * 任一 lookup/release 非預期 throw → hold(fail-closed、不建新單避免孤兒/雙扣)。
  * ```
@@ -104,8 +105,11 @@ async function adjudicateActive(
       if (settled.reason === 'auth_or_pending') {
         return releaseThenAdjudicate(deps, input, sibling);
       }
-      // released_failure_observed / record_unreachable / record_unverified → hold「確認中、稍候」。
-      // 🔴 passthrough 由型別守(adversarial S1 顯式化):`PreflightHoldReason` ⊇ 這三個 pending reason;
+      // released_failure_observed / record_unreachable / record_unverified / record_not_found → hold「確認中、稍候」。
+      // 🔴 M-4b 生命週期 L2:`record_not_found` 在這裡**刻意與 record_unverified 同樣 hold、不放行** ——
+      //    preflight 是**單次**觀察,「這一次查無」推論不出「未成交」(TapPay 索引可能落後於 charge)。
+      //    自動放行只發生在 L5 的「多次觀察 + 年齡閘」之後;這裡放行等於用一次抖動換一次雙扣。
+      // 🔴 passthrough 由型別守(adversarial S1 顯式化):`PreflightHoldReason` ⊇ 這些 pending reason;
       //    `SettleChargeOutcome` 若新增 pending reason 而未同步 `PreflightHoldReason` → 此行 TS compile error
       //    (顯式耦合、防靜默誤分類成 hold)。
       return { kind: 'hold', reason: settled.reason };

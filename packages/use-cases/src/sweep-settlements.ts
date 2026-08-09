@@ -86,9 +86,14 @@ export type SweepSettlementsResult = {
  * 存進診斷欄 last_settle_error(零 PII、不影響重試與結算正確性)。Phase 1 producer-gating(零 released row)下
  * 此路徑零觸發 = 對齊前後皆無實際影響。
  */
-const SWEEP_REASON_CODES: ReadonlySet<string> = new Set([
+export const SWEEP_REASON_CODES: ReadonlySet<string> = new Set([
   'record_unreachable',
   'record_unverified',
+  // 🔴 M-4b 生命週期 L2:`record_not_found` 必須同時進本集合**與** DB 兩支 retry RPC 的 allowlist
+  //    (同片 migration、做法逐字比照 #251)。只加這裡不加 DB ⇒ 該值會被 RPC 正規化成 `'unknown'` 存進
+  //    `last_settle_error` ⇒ **L5 的判別條件(最近一次是 not-found)永遠讀不到、自動裁定靜默不生效**。
+  //    兩層必須同批 apply。
+  'record_not_found',
   'auth_or_pending',
   'released_failure_observed',
 ]);

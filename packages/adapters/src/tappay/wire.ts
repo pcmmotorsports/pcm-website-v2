@@ -136,6 +136,14 @@ export type TapPayRecordResponseWire = {
   status: number;
   msg: string;
   numberOfTransactions: number;
+  /**
+   * 🔴 M-4b L2:`number_of_transactions` 是否真的出現在回應裡(見下方 parser 的 fallback 說明)。
+   * 對應 domain `TapPayRecordResult.numberOfTransactionsReported`,由 adapter 原樣帶過去。
+   * ⚠️ 型別上**可選**(讓既有 scripts/ 的手寫 wire fixture 不必全部改),但 `parseTapPayRecordResponse`
+   * **一定**會設值 —— 這件事由 wire.test.ts 的 L2-W1/W2/W3 三條釘住(不靠型別)。
+   * 消費端一律 `=== true` 判斷(缺值 = fail-closed、不當成「TapPay 說沒有這筆」)。
+   */
+  numberOfTransactionsReported?: boolean;
   records: TapPayRecordWire[];
 };
 
@@ -153,6 +161,14 @@ export function parseTapPayRecordResponse(raw: unknown): TapPayRecordResponseWir
   if (typeof r.status !== 'number') {
     throw new Error('TapPay Record 回應缺 status');
   }
+  // 🔴 M-4b L2(codex 關卡2 R2):`trade_records` **有值但不是陣列**(字串/物件/數字)原本會被靜默折成 `[]`,
+  //    搭配「回報 count=0」就會長得跟「TapPay 說沒有這筆」一模一樣 ⇒ 形狀異常的回應被誤判成 record_not_found
+  //    (= L5 的自動釋鎖依據)。缺欄 / null = 合法空回應(照舊);**有值卻非陣列 = wire 異常 → throw**
+  //    (settleCharge 的 catch 映 `record_unreachable` = pending 保留、retry,fail-closed)。
+  //    同一條規則在 `scripts/d1-tappay-client.ts` 的 assertStrictRecordWire 已有先例。
+  if (r.trade_records !== undefined && r.trade_records !== null && !Array.isArray(r.trade_records)) {
+    throw new Error('TapPay Record 回應 trade_records 非陣列(wire 異常)');
+  }
   const rawRecords = Array.isArray(r.trade_records) ? r.trade_records : [];
   const records = rawRecords.map(parseTapPayRecordWire);
   return {
@@ -161,6 +177,10 @@ export function parseTapPayRecordResponse(raw: unknown): TapPayRecordResponseWir
     // number_of_transactions 缺則退回實得筆數(誠實計數、不虛報)。
     numberOfTransactions:
       typeof r.number_of_transactions === 'number' ? r.number_of_transactions : records.length,
+    // 🔴 M-4b L2:上面那個 fallback 會讓「count 與 records 兩個條件」在該欄缺席時塌成同一個條件
+    //    ⇒ 只回 `{status, msg}` 的形狀異常回應,會長得跟「TapPay 說沒有這筆」一模一樣。
+    //    把「這個數字是 TapPay 回的、還是我們推的」如實帶出去,由 settleCharge 決定採不採信。
+    numberOfTransactionsReported: typeof r.number_of_transactions === 'number',
     records,
   };
 }
