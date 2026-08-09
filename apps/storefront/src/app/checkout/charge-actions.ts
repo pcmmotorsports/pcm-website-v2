@@ -62,6 +62,7 @@ import {
   getChargeAttemptStore,
   getSettleChargeDeps,
   getPreflightReleaseSiblingDeps,
+  getPollSettleThrottle,
 } from '@/lib/payment/composition';
 import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/cardholder';
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
@@ -85,6 +86,18 @@ const MSG = {
   settlementRequired: '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認',
   inFlight: '您有一筆付款正在處理中,請稍候再試',
 } as const;
+
+/**
+ * 🔴 M-4b L4b:撞到 per-user 閘時,對那張在途單觸發 Record 查詢的節流窗(秒)。
+ *
+ * 值刻意與輪詢端點的 `POLL_SETTLE_THROTTLE_SECONDS` 相同(10)—— 兩者共用 **同一張 order 的
+ * `last_poll_settle_at` 時窗**(`claim_order_poll_settle` RPC),不是各自獨立的預算。
+ * ⚠️ 誠實邊界:客人剛輪詢過那張在途單、10 秒內又撞窗 ⇒ 節流不放行 ⇒ 退回**今天的行為**
+ * (擋住、請稍候)。那不是新的洞,是「這一次沒有改善」。
+ * ⚠️ 另注:`settle_attempt_count < 8` 那個 ceiling 是 **sweeper 的計數器**,輪詢與本路徑都不遞增它
+ * (`20260621120000_*.sql:51` 逐字「輪詢窗內 count 恆=0」)—— 別把它當成本路徑的預算。
+ */
+const IN_FLIGHT_SETTLE_THROTTLE_SECONDS = 10;
 
 export type ChargePaymentActionResult =
   | { fieldErrors?: CheckoutFieldErrors; formError?: string } // 驗證/登入/建單失敗(零扣款)
@@ -267,9 +280,37 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     //   getTapPayAdapter/getChargeAttemptStore(不呼 confirmer — initiate 不 markCharged/confirm)。
     if (threeDSConfig) {
       const { frontendRedirectUrl, backendNotifyUrl } = buildResultUrls(threeDSConfig, placed.orderId);
-      const initiated = await initiatePayment(
+      // 🔴 L4b:包一層撞窗即時對帳。closure 固定的是**付款 input 的值**(同一 orderId / total /
+      //   cardholder / 同一把未消耗的 prime)⇒ 兩次之間無從漂移。
+      //   ⚠️ deps **不是**固定實例:每次 run() 都會重呼 factory(getChargeAttemptStore 會新建 client)。
+      //      這對正確性無影響(它們是無狀態的取得器),但別把註解寫成「deps 也固定」——那是假話(codex 關卡2 nit)。
+      const runInitiate = async () =>
+        initiatePayment(
+          {
+            tappay: getTapPayAdapter(),
+            attempts: await getChargeAttemptStore(),
+          },
+          {
+            prime: parsedPrime.data,
+            orderId: placed.orderId,
+            amount: total,
+            cardholder: built.cardholder,
+            frontendRedirectUrl,
+            backendNotifyUrl,
+          },
+        );
+      return await settleInFlightThenRetryOnce(runInitiate, inFlightOrderIdOfOutcome, (o) =>
+        mapInitiateOutcome(o, placed.displayId),
+      );
+    }
+
+    // ⑥ 編排(flag off 同步路徑、逐字不動):鎖 → charge → 雙軌簿記 → PF-X3 → confirm → 收斂補記(②-③c-2)。
+    // 🔴 L4b:同 3DS 路徑,包一層撞窗即時對帳(closure 固定的是付款 input 的值;deps factory 每次重呼)。
+    const runConfirm = async () =>
+      confirmPayment(
         {
           tappay: getTapPayAdapter(),
+          confirmer: getPaymentConfirmer(),
           attempts: await getChargeAttemptStore(),
         },
         {
@@ -277,34 +318,90 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
           orderId: placed.orderId,
           amount: total,
           cardholder: built.cardholder,
-          frontendRedirectUrl,
-          backendNotifyUrl,
         },
       );
-      return await mapInitiateOutcome(initiated, placed.displayId);
-    }
-
-    // ⑥ 編排(flag off 同步路徑、逐字不動):鎖 → charge → 雙軌簿記 → PF-X3 → confirm → 收斂補記(②-③c-2)。
-    const outcome = await confirmPayment(
-      {
-        tappay: getTapPayAdapter(),
-        confirmer: getPaymentConfirmer(),
-        attempts: await getChargeAttemptStore(),
-      },
-      {
-        prime: parsedPrime.data,
-        orderId: placed.orderId,
-        amount: total,
-        cardholder: built.cardholder,
-      },
+    return await settleInFlightThenRetryOnce(runConfirm, inFlightOrderIdOfOutcome, (o) =>
+      mapOutcome(o, placed.displayId),
     );
-    return await mapOutcome(outcome, placed.displayId);
   } catch {
     // 🔴 Q2=A 通用字面、零原始 error 透傳。走到此處的 throw 全屬零扣款路徑
     // (cardholder repo / placeOrder RPC / findTotal / attempts.begin;charge 之後的失敗
     //  已由 confirmPayment 收斂為 outcome、不 throw)→「請稍後再試」誠實且安全。
     return { formError: MSG.generic };
   }
+}
+
+/**
+ * 🔴 M-4b L4b:撞窗即時對帳(母 plan §2;plan v3 §4)。
+ *
+ * 客人**跨裝置 / 換購物車**回來重刷時會撞 per-user 閘(同 cart 那條路更早就被 cart dedup 攔成
+ * `needs_settle` → `adjudicateSettlement`,不走這裡)。撞窗當下,那張擋住他的在途單可能其實**早就死了**
+ * (客人按過取消 ⇒ Record ≤1 秒轉 `5 CANCEL`,L1a probe 實測)—— 舊行為是一律叫他等,
+ * 本片改成:先對那張單做一次對帳,**裁出明確死亡才放行**。
+ *
+ * `run` 呼**兩次**(至多),`map` 負責把 outcome 映成 UI 態。這個形狀本身就是三道護欄:
+ * 1. **只重呼同一支 use-case、同一組參數**(同 `orderId` / `total` / `cardholder` / 同一把**還沒用掉**的 prime
+ *    —— begin 沒過 ⇒ charge 從未跑 ⇒ prime 未消耗)。**不重跑 `placeOrder` / preflight / `findTotal`**,
+ *    也**不遞迴呼 `chargePaymentAction`** —— 那會多建一張孤兒單、並讓「重試恰一次」失去意義。
+ * 2. **恰一次**:`run` 在本函式裡字面上只出現兩次、沒有迴圈也沒有遞迴 ⇒ 第三次在結構上不存在。
+ * 3. **只有 `failed` 放行**:其餘一切(節流不放行 / settle throw / paid / pending / no_attempt / 沒有識別碼)
+ *    一律走 `map(first)` = **今天的行為**,fail-closed。
+ */
+async function settleInFlightThenRetryOnce<O>(
+  run: () => Promise<O>,
+  inFlightOrderIdOf: (outcome: O) => string | null,
+  map: (outcome: O) => Promise<ChargePaymentActionResult>,
+): Promise<ChargePaymentActionResult> {
+  const first = await run();
+  const inFlightOrderId = inFlightOrderIdOf(first);
+  // 沒有識別碼 = migration 未 apply(payload 無該欄)或不是 user_in_flight ⇒ 整段 skip、退回舊行為。
+  // 🔴 這條就是「app 層不得先於 migration apply 上線」那顆雷的形狀內建解:
+  //    L4b 先上線也只是 dormant no-op,不會壞(memory feedback_app-layer-must-not-ship-before-migration-apply)。
+  if (inFlightOrderId === null) {
+    return map(first);
+  }
+  if (!(await isInFlightSettledFailed(inFlightOrderId))) {
+    return map(first);
+  }
+  return map(await run());
+}
+
+/**
+ * 對在途單跑一次對帳,回「是否裁出明確失敗(可放行)」。
+ *
+ * 🔴 **只有 `failed` 回 true**。特別是 `no_attempt` **不放行** —— 這點與 cart dedup 那條路
+ * (`adjudicateSettlement` 把 `no_attempt` 當可重刷)**刻意不同**:那邊的 `no_attempt` 是
+ * 「同 cart 的兄弟單已無 active attempt」;這裡的在途單是**剛剛才被閘認定為 active** 的,
+ * 兩次觀察不一致 = 未知,未知不放行。
+ *
+ * 🔴 全包 try/catch:任何 throw 都回 false(照舊擋),**絕不落到 `chargePaymentAction` 的外層
+ * generic catch** —— 那會回 `formError`,而 client 收到 formError 會釋放按鈕允許重試 = 潛在雙扣。
+ */
+async function isInFlightSettledFailed(inFlightOrderId: string): Promise<boolean> {
+  try {
+    const allowed = await getPollSettleThrottle().claimPollSettle(
+      inFlightOrderId,
+      IN_FLIGHT_SETTLE_THROTTLE_SECONDS,
+    );
+    if (!allowed) {
+      return false;
+    }
+    // 不帶 recTradeIdHint:settleCharge 以 orderId 重查 attempt、自取強鍵(settle-charge.ts:74,77),
+    // 我們手上沒有、也不需要一個較舊的觀察。
+    const settled = await settleCharge(getSettleChargeDeps(), { orderId: inFlightOrderId });
+    return settled.kind === 'failed';
+  } catch {
+    return false;
+  }
+}
+
+/** locked/user_in_flight 且帶識別碼 → 回那張在途單的 orderId;其餘一律 null(fail-closed)。 */
+function inFlightOrderIdOfOutcome(
+  outcome: ConfirmPaymentOutcome | InitiatePaymentOutcome,
+): string | null {
+  return outcome.kind === 'locked' && outcome.reason === 'user_in_flight' && outcome.inFlight
+    ? outcome.inFlight.orderId
+    : null;
 }
 
 /** cardholder 組裝失敗 → 引導文案(fieldErrors.addressId 引導補地址/手機;其餘 formError)。 */

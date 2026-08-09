@@ -27,6 +27,10 @@ const mockGetPaymentConfirmer = vi.fn();
 const mockGetChargeAttemptStore = vi.fn();
 const mockGetSettleChargeDeps = vi.fn(); // 3DS-7 7c-2:cookieless settleCharge deps
 const mockGetPreflightReleaseSiblingDeps = vi.fn(); // 🔴 R3:preflight deps 工廠
+const mockClaimPollSettle = vi.fn(); // 🔴 L4b:撞窗即時對帳的 per-order 節流
+// 🔴 factory 本身也要可控:寫死成永遠成功的 inline mock,會讓「把 factory 移出 try」這個突變無人擋
+//    (codex 關卡2 R1)——正式環境缺設定時 factory 會 throw,那條路徑必須也是 fail-closed。
+const mockGetPollSettleThrottle = vi.fn();
 const mockBuildCardholder = vi.fn();
 const mockGetUser = vi.fn();
 // 3DS-6a:flag 分岔 + result_url 組裝(three-ds-flag / three-ds-urls 各有獨立單元測;此處 mock 驗分岔接線)。
@@ -54,6 +58,7 @@ vi.mock('@/lib/payment/composition', () => ({
   getChargeAttemptStore: () => mockGetChargeAttemptStore(),
   getSettleChargeDeps: () => mockGetSettleChargeDeps(),
   getPreflightReleaseSiblingDeps: () => mockGetPreflightReleaseSiblingDeps(),
+  getPollSettleThrottle: () => mockGetPollSettleThrottle(),
 }));
 vi.mock('@/lib/payment/three-ds-flag', () => ({
   isThreeDSEnabled: () => mockIsThreeDSEnabled(),
@@ -128,6 +133,8 @@ beforeEach(() => {
   mockGetPreflightReleaseSiblingDeps.mockResolvedValue({ tag: 'preflight-deps' });
   // 🔴 R3 預設 proceed(既有 3DS flag-on 測沿用 → fall-through 到 placeOrder + initiatePayment)。
   mockPreflightReleaseSibling.mockResolvedValue({ kind: 'proceed' });
+  mockClaimPollSettle.mockResolvedValue(true); // 🔴 L4b 預設節流放行;不放行的那格顯式 override
+  mockGetPollSettleThrottle.mockReturnValue({ claimPollSettle: (...a: unknown[]) => mockClaimPollSettle(...a) });
   mockSettleCharge.mockResolvedValue({ kind: 'paid', idempotent: false, displayId: 'PCM-2026-NS' });
   mockBuildCardholder.mockResolvedValue({ ok: true, cardholder: CARDHOLDER });
   mockPlaceOrder.mockResolvedValue({ orderId: 'order-server-1', displayId: 'PCM-2026-0001' });
@@ -412,6 +419,178 @@ describe('chargePaymentAction — outcome 六態映射(plan v6 §7)', () => {
     expect(res).not.toHaveProperty('displayId');
   });
 
+  // ══ 🔴 M-4b L4b:撞窗即時對帳(母 plan §2、plan v3 §4/§5)══
+  //
+  // 客人跨裝置/換購物車回來重刷會撞 per-user 閘。撞窗當下先對那張在途單對帳一次,
+  // **只有裁出明確 failed 才放行重試恰一次**;其餘一切照舊擋(fail-closed)。
+
+  const IN_FLIGHT = { kind: 'locked', reason: 'user_in_flight', inFlight: { orderId: 'order-in-flight-9' } };
+  const IN_FLIGHT_MSG = { ok: false, payment: 'in_flight', message: '您有一筆付款正在處理中,請稍候再試' };
+
+  it.each([
+    ['failed', { kind: 'failed' }, true],
+    ['paid', { kind: 'paid', idempotent: false, displayId: 'PCM-2026-OTHER' }, false],
+    ['no_attempt', { kind: 'no_attempt' }, false],
+    ['pending/auth_or_pending', { kind: 'pending', reason: 'auth_or_pending' }, false],
+    ['pending/record_unverified', { kind: 'pending', reason: 'record_unverified' }, false],
+    ['pending/record_not_found', { kind: 'pending', reason: 'record_not_found' }, false],
+    ['pending/record_unreachable', { kind: 'pending', reason: 'record_unreachable' }, false],
+    ['pending/released_failure_observed', { kind: 'pending', reason: 'released_failure_observed' }, false],
+  ])(
+    '🔴 settle=%s → 只有 failed 放行重試(其餘照舊擋)',
+    async (_label, settled, shouldRetry) => {
+      // 🔴 八格窮舉 kind × pending 的**全部 5 個 reason**:只測一個 pending reason 的話,
+      //    「讓另一個 reason 也放行」這個突變會全綠(codex 關卡1 R1 點名)。
+      mockSettleCharge.mockResolvedValue(settled);
+      // 🔴 先 reset 再排佇列:mockResolvedValueOnce 的佇列**不會**被 vi.clearAllMocks() 清掉,
+      //    而不放行的格子只消費 1 顆 ⇒ 剩下那顆會漏進下一個測試(實測連既有兩格一起打紅)。
+      mockConfirmPayment.mockReset();
+      mockConfirmPayment.mockResolvedValueOnce(IN_FLIGHT).mockResolvedValueOnce({ kind: 'paid', idempotent: false });
+      const action = await getAction();
+      const res = await action(validInput());
+      expect(mockConfirmPayment).toHaveBeenCalledTimes(shouldRetry ? 2 : 1);
+      expect(res).toEqual(shouldRetry ? { ok: true, displayId: 'PCM-2026-0001' } : IN_FLIGHT_MSG);
+    },
+  );
+
+  it('🔴 settle 打的是**那張在途單**、且不帶 recTradeIdHint', async () => {
+    // 打錯單 = 對別人的單做裁決。這一格釘的是「識別碼真的被用上」,不是「有呼叫」。
+    mockSettleCharge.mockResolvedValue({ kind: 'failed' });
+    mockConfirmPayment.mockReset();
+    mockConfirmPayment.mockResolvedValueOnce(IN_FLIGHT).mockResolvedValueOnce({ kind: 'paid', idempotent: false });
+    const action = await getAction();
+    await action(validInput());
+    expect(mockSettleCharge).toHaveBeenCalledTimes(1);
+    expect(mockSettleCharge).toHaveBeenCalledWith({ tag: 'settle-deps' }, { orderId: 'order-in-flight-9' });
+    expect(mockClaimPollSettle).toHaveBeenCalledWith('order-in-flight-9', 10);
+  });
+
+  it('🔴 節流不放行 → **零** settleCharge 呼叫、照舊擋', async () => {
+    // 斷言數的是 settleCharge 的**呼叫次數**,不是回傳值 —— 兩者回傳一樣時,數回傳值等於量錯東西。
+    mockClaimPollSettle.mockResolvedValue(false);
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(1);
+    expect(res).toEqual(IN_FLIGHT_MSG);
+  });
+
+  it('🔴 3a 重試後仍撞窗 → begin 恰 2 次、settle 恰 1 次、**不得有第三次**', async () => {
+    // 🔴 用 === 不用 <=:`<=2` 會被「完全沒重試」滿足 ⇒ 那組斷言證不了「有重試」(codex 關卡1 R2)。
+    mockSettleCharge.mockResolvedValue({ kind: 'failed' });
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT); // 兩次都撞窗
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(mockPlaceOrder).toHaveBeenCalledTimes(1); // 🔴 重試不得重跑建單(否則多一張孤兒單)
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(2);
+    expect(mockSettleCharge).toHaveBeenCalledTimes(1);
+    expect(res).toEqual(IN_FLIGHT_MSG);
+  });
+
+  it('🔴 3b 重試取得鎖 → 第二次參數與第一次**逐字相同**(同 prime / orderId / total / cardholder)', async () => {
+    mockSettleCharge.mockResolvedValue({ kind: 'failed' });
+    mockConfirmPayment.mockReset();
+    mockConfirmPayment.mockResolvedValueOnce(IN_FLIGHT).mockResolvedValueOnce({ kind: 'paid', idempotent: false });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(2);
+    const [firstDeps, firstInput] = mockConfirmPayment.mock.calls[0]!;
+    const [secondDeps, secondInput] = mockConfirmPayment.mock.calls[1]!;
+    expect(secondInput).toEqual(firstInput); // prime 未消耗(begin 沒過 ⇒ charge 從未跑)
+    expect(secondDeps).toEqual(firstDeps);
+    expect(secondInput).toMatchObject({ orderId: 'order-server-1', amount: TOTAL });
+    expect(mockPlaceOrder).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ ok: true, displayId: 'PCM-2026-0001' });
+  });
+
+  it('🔴 settleCharge throw → 照舊擋(in_flight),**不得**落外層 generic catch 變 formError', async () => {
+    // 落到 formError 的話 client 會釋放按鈕允許重試 = 潛在雙扣。
+    mockSettleCharge.mockRejectedValue(new Error('settle boom'));
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual(IN_FLIGHT_MSG);
+    expect(res).not.toHaveProperty('formError');
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 節流 RPC throw → 同樣照舊擋、零 settleCharge', async () => {
+    mockClaimPollSettle.mockRejectedValue(new Error('throttle boom'));
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    const action = await getAction();
+    expect(await action(validInput())).toEqual(IN_FLIGHT_MSG);
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+  });
+
+  it('🔴 節流 factory throw(正式環境缺設定)→ 照舊擋、零 settle、run 恰一次', async () => {
+    // factory 若被移出 try,這裡會落外層 generic catch → formError → client 釋鎖 → 潛在雙扣。
+    mockGetPollSettleThrottle.mockImplementation(() => {
+      throw new Error('throttle factory boom');
+    });
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual(IN_FLIGHT_MSG);
+    expect(res).not.toHaveProperty('formError');
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 settle deps factory throw → 照舊擋、run 恰一次', async () => {
+    mockGetSettleChargeDeps.mockImplementation(() => {
+      throw new Error('settle deps factory boom');
+    });
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual(IN_FLIGHT_MSG);
+    expect(res).not.toHaveProperty('formError');
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 6b 版本錯位(migration 未 apply):locked 無 inFlight → 零節流、零 settle、回今天逐字相同的結果', async () => {
+    mockConfirmPayment.mockResolvedValue({ kind: 'locked', reason: 'user_in_flight' });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(mockClaimPollSettle).not.toHaveBeenCalled();
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(1);
+    expect(res).toEqual(IN_FLIGHT_MSG);
+  });
+
+  it('🔴 零洩漏三發:exact keys + message 恆等常數 + sentinel 深掃', async () => {
+    // (a) keys 集合固定 (b) message **恆等於**常數本身 (c) 整個回傳物件遞迴查無在途單 id。
+    // 🔴 (b) 是關鍵:只有 (a)+(c) 時,`message: \`${MSG.inFlight} ${orderId.slice(0,8)}\`` 這個突變
+    //    keys 沒變、完整值也找不到 —— 但單號前 8 碼已經到瀏覽器了(codex 關卡1 R2 給的破口)。
+    mockSettleCharge.mockResolvedValue({ kind: 'pending', reason: 'auth_or_pending' });
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(Object.keys(res as object).sort()).toEqual(['message', 'ok', 'payment']);
+    expect((res as { message: string }).message).toBe('您有一筆付款正在處理中,請稍候再試');
+    const dumped = JSON.stringify(res);
+    expect(dumped).not.toContain('order-in-flight-9');
+    expect(dumped).not.toContain('order-in-flight');
+    expect(dumped).not.toContain('order-server-1');
+    expect(dumped).not.toContain('PCM-2026-0001');
+  });
+
+  it('🔴 3DS 路徑同款:initiate 撞窗 → settle failed → 重試恰一次', async () => {
+    // 兩條路徑共用同一段程式碼,但「共用」要有自己的證據,否則哪天有人只改一邊不會有人喊。
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockSettleCharge.mockResolvedValue({ kind: 'failed' });
+    mockInitiatePayment.mockReset();
+    mockInitiatePayment
+      .mockResolvedValueOnce(IN_FLIGHT)
+      .mockResolvedValueOnce({ kind: 'redirect', redirectUrl: 'https://sandbox.tappaysdk.com/pay?token=abc' });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(mockInitiatePayment).toHaveBeenCalledTimes(2);
+    expect(mockPlaceOrder).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ redirect: true, redirectUrl: 'https://sandbox.tappaysdk.com/pay?token=abc' });
+  });
+
   it('paid(idempotent:true 重放)→ 同樣 ok:true(成功真相 = confirm 成功)', async () => {
     mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: true });
     const action = await getAction();
@@ -665,6 +844,8 @@ describe('chargePaymentAction — 🔴 R3 立即重刷 preflight(canonical §2.3
   it('flag on + proceed → 續建單 + charge(placeOrder/initiatePayment 被呼)', async () => {
     mockIsThreeDSEnabled.mockReturnValue(true);
     mockPreflightReleaseSibling.mockResolvedValue({ kind: 'proceed' });
+  mockClaimPollSettle.mockResolvedValue(true); // 🔴 L4b 預設節流放行;不放行的那格顯式 override
+  mockGetPollSettleThrottle.mockReturnValue({ claimPollSettle: (...a: unknown[]) => mockClaimPollSettle(...a) });
     const action = await getAction();
     const res = await action(validInput());
     expect(mockPreflightReleaseSibling).toHaveBeenCalledTimes(1);
