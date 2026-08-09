@@ -515,6 +515,9 @@ describe('🔴 settleCharge — queryStatus=2 查詢成功放行(2026-06-21 quer
   });
 
   // R5a/R5b:放行 status 後仍要求恰 1 筆(count 與 records 各自擋、縱深不動)。
+  // ⚠️ M-4b L2 註記:R5a 的**名字**說 count=0,但 `recordResult` 的預設 `records` 是一筆
+  //    ⇒ 這個 fixture 其實是「count=0 卻帶紀錄」= wire 不一致,**不是**真正的查無。
+  //    真正的「查詢成功且零筆」在下面 L2 那個 describe(兩者的期望值不同,不可互相取代)。
   it('R5a queryStatus=2 + count=0 → record_unverified(count 閘仍擋)', async () => {
     const d = deps({ tappay: makeTapPay(async () => recordResult({}, { queryStatus: 2, numberOfTransactions: 0 })) });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
@@ -526,6 +529,109 @@ describe('🔴 settleCharge — queryStatus=2 查詢成功放行(2026-06-21 quer
       ),
     });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+});
+
+describe('🔴 M-4b 生命週期 L2 — record_not_found 從 record_unverified 拆出', () => {
+  // 拆桶的意義:L5 的自動裁定只能建立在「TapPay 端真的沒有這筆」上。
+  // 下面每條刻意只讓**一個**條件不成立 ⇒ 拿掉 settle-charge.ts 的 not-found 判斷後各自可分辨。
+  // 「TapPay 真的回報了筆數 0、且真的零筆」的回應形狀(reported=true 是刻意的:parser 推出來的 0 不算)。
+  const empty = (topOver: Partial<TapPayRecordResult>): TapPayRecordResult => ({
+    queryStatus: 0,
+    numberOfTransactions: 0,
+    numberOfTransactionsReported: true,
+    records: [],
+    ...topOver,
+  });
+  /** 弱識別 attempt:本機 rec 與 bank 皆 null ⇒ 只能用 order_number 反查。 */
+  const weakAttempts = () =>
+    makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({
+        ...ACTIVE_PENDING,
+        recTradeId: null,
+        bankTransactionId: null,
+      })),
+    });
+
+  it('L2-1 queryStatus=0 + count=0 + records=[] → record_not_found', async () => {
+    const d = deps({ tappay: makeTapPay(async () => empty({ queryStatus: 0 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_not_found' });
+  });
+
+  it('L2-2 queryStatus=2(已無更多分頁、亦為查詢成功)+ count=0 + records=[] → record_not_found', async () => {
+    const d = deps({ tappay: makeTapPay(async () => empty({ queryStatus: 2 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_not_found' });
+  });
+
+  it('🔴 L2-3 queryStatus 非白名單(99)+ count=0 + records=[] → record_unverified,**不得**當成查無', async () => {
+    // 判別力核心:查詢本身沒成功時,「零筆」不代表「TapPay 那邊沒有」,只代表我們沒問到。
+    // 突變(把 isQuerySucceeded 從 not-found 判斷裡拿掉)⇒ 只有這條會紅。
+    const d = deps({ tappay: makeTapPay(async () => empty({ queryStatus: 99 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+
+  it('🔴 L2-4 wire 不一致:count=0 卻帶一筆紀錄 → record_unverified(fail-closed、不進可放行桶)', async () => {
+    // 🔴 `numberOfTransactionsReported: true` 是刻意的(codex 關卡2 must-fix F):不設它的話,
+    //    這條會**同時**被 reported 閘與 records 閘擋住 ⇒ 拿掉 records.length===0 仍全綠 = 零判別力。
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({}, { queryStatus: 0, numberOfTransactions: 0, numberOfTransactionsReported: true }),
+      ),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+
+  it('🔴 L2-5 wire 不一致:count=1 卻零筆紀錄 → record_unverified(fail-closed)', async () => {
+    const d = deps({ tappay: makeTapPay(async () => empty({ queryStatus: 0, numberOfTransactions: 1 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+
+  it('🔴 L2-9 弱識別 attempt(rec/bank 皆 null)+ 查詢成功零筆 → record_unverified,**不得**判查無', async () => {
+    // must-fix 1:弱識別只能用 order_number 反查;非 3DS 路徑在 charge 前不寫任何鍵 ⇒
+    // 「錢可能已扣但本機無鍵」時,索引未到的零筆是「我問錯了」而不是「TapPay 沒有這筆」。
+    // 突變(拿掉 hasStrongKey 條件)⇒ 只有這條會紅。
+    const d = deps({ attempts: weakAttempts(), tappay: makeTapPay(async () => empty({ queryStatus: 0 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+
+  it('🔴 L2-10 回應沒回報 number_of_transactions(parser 用 records.length 補)→ record_unverified', async () => {
+    // 只回 {status, msg} 的形狀異常回應,count 與 records 兩個條件會塌成一個、必然一致 ⇒
+    // 不能拿它當「TapPay 說沒有這筆」。突變(拿掉 numberOfTransactionsReported 條件)⇒ 只有這條會紅。
+    const d = deps({
+      tappay: makeTapPay(async () => empty({ queryStatus: 0, numberOfTransactionsReported: false })),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+
+  it('🔴 L2-12 回應完全沒帶 numberOfTransactionsReported 這個欄位 → record_unverified(未提供 = fail-closed)', async () => {
+    // Fable R3 F3(我沒想到要跑的突變):把 `=== true` 改成 `!== false` 時,原本所有測試照樣全綠 ——
+    // 因為沒有任何 fixture 讓這個欄位「不存在」(empty() 恆給 true、L2-10 給顯式 false)。
+    // types.ts 逐字宣稱「未提供一律當 false = fail-closed」,這條就是釘住那句話的唯一證據。
+    const d = deps({
+      tappay: makeTapPay(async () => ({ queryStatus: 0, numberOfTransactions: 0, records: [] })),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+
+  it.each(['charged', 'released'] as const)(
+    '🔴 L2-11 attempt.status=%s + 強識別零筆 → record_unverified,**不得**判查無',
+    async (status) => {
+      // must-fix A:charged = 我們親眼看過 Record 給的 rec(交易存在過);released = 鎖已釋續對帳。
+      // 這兩種再查到零筆只可能是查詢面出事。突變(把 status==='pending' 放寬)⇒ 只有這兩條會紅。
+      const attempts = makeAttempts({
+        findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, status })),
+      });
+      const d = deps({ attempts, tappay: makeTapPay(async () => empty({ queryStatus: 0 })) });
+      expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({
+        kind: 'pending',
+        reason: 'record_unverified',
+      });
+    },
+  );
+
+  it('L2-6 有一筆且完全對得上 → 仍照舊 paid(拆桶零回歸)', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({}, { queryStatus: 0 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toMatchObject({ kind: 'paid' });
   });
 });
 

@@ -90,7 +90,14 @@ describe('preflightReleaseSibling — active → settle 裁決', () => {
     },
   );
 
-  it.each(['released_failure_observed', 'record_unreachable', 'record_unverified'] as const)(
+  // 🔴 M-4b L2:`record_not_found` 一併納入 —— preflight 是**單次**觀察,「這次查無」推論不出「未成交」
+  //    (TapPay 索引可能落後於 charge)⇒ 這裡必須 hold、**不得** proceed;放行只在 L5 的多次觀察 + 年齡閘之後。
+  it.each([
+    'released_failure_observed',
+    'record_unreachable',
+    'record_unverified',
+    'record_not_found',
+  ] as const)(
     'settle pending(%s)→ hold(同 reason);不 release',
     async (reason) => {
       const { deps, release } = makeDeps({

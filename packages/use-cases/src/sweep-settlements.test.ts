@@ -12,7 +12,10 @@ import type {
   IPaymentConfirmer,
   IWebhookInbox,
 } from '@pcm/ports';
-import { sweepSettlements, type SweepSettlementsDeps } from './sweep-settlements';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { sweepSettlements, SWEEP_REASON_CODES, type SweepSettlementsDeps } from './sweep-settlements';
 
 const ATTEMPT_CREATED_AT = '2026-06-15T00:00:00.000Z';
 const TXN_TIME_MS = Date.parse(ATTEMPT_CREATED_AT); // 同刻 → 弱識別必在窗內
@@ -388,4 +391,69 @@ describe('sweepSettlements — 有界並發(群7;預設順序 / concurrency 可�
     expect(findActiveByOrderId).toHaveBeenCalledTimes(1); // 同步 check+add 原子 → 只 settle 一次
     expect(res).toMatchObject({ stuckSettled: 1, deduped: 1 });
   });
+});
+
+describe('🔴 M-4b 生命週期 L2 — reason 碼集 TS↔DB allowlist 對齊(這條沒有的話,L5 會靜默不生效)', () => {
+  // 為什麼要有這條:`SWEEP_REASON_CODES` 只管「TS 願不願意把這個碼傳下去」;
+  // 真正決定 `last_settle_error` 存什麼的是 DB 兩支 retry RPC 的 allowlist CASE。
+  // 兩邊不一致時值會被靜默正規化成 'unknown' —— 單元測試 mock 掉 RPC、**看不到**這件事,
+  // 而 L5 的判別條件正是讀那一欄 ⇒ 條件恆假、自動裁定不生效、測試卻全綠。
+  // 故本守門讀 migration 的**字面**,而不是相信註解說有對齊。
+  //
+  // 🔴 守門畫在「不變量」而不是「這個檔名」(code-reviewer important 6):
+  //    掃整個 migrations 目錄、取**最後一支**定義該函式的檔 —— 未來有人再 CREATE OR REPLACE
+  //    這兩支 RPC 而漏寫碼時,這裡看到的就是那一支新的,不會盯著舊檔全綠。
+  const MIGRATIONS_DIR = fileURLToPath(new URL('../../../supabase/migrations/', import.meta.url));
+
+  /**
+   * 回「最後一支定義 fnName 的 migration 檔名 + 該函式**函式體內**的 allowlist 碼集」。
+   * 🔴 搜尋範圍限定在 `FUNCTION public.<fn>(` 到該定義的 `$fn$;` 之間(codex 關卡2 must-fix H):
+   *    不限範圍的話,一支檔裡的第二個函式的 allowlist 會被算到第一個頭上。
+   * 🔴 「定義了這支函式卻找不到 allowlist」= 直接 throw,**不得**靜默沿用上一支舊檔的結果
+   *    (那正是「新版把碼寫丟了、守門卻盯著舊檔全綠」的形狀)。
+   */
+  function latestAllowlistFor(fnName: string): { file: string; codes: Set<string> } {
+    const files = readdirSync(MIGRATIONS_DIR)
+      .filter((f) => f.endsWith('.sql'))
+      .sort(); // 檔名前綴是時間戳 ⇒ 字典序 = 時序
+    let hit: { file: string; codes: Set<string> } | null = null;
+    for (const f of files) {
+      const sql = readFileSync(join(MIGRATIONS_DIR, f), 'utf8');
+      const defIdx = sql.indexOf(`FUNCTION public.${fnName}(`);
+      if (defIdx === -1) continue;
+      const bodyEnd = sql.indexOf('$fn$;', defIdx);
+      const body = sql.slice(defIdx, bodyEnd === -1 ? undefined : bodyEnd);
+      const m = /p_reason_code IN \(([^)]*)\)/.exec(body);
+      if (!m) {
+        throw new Error(`${f} 定義了 ${fnName} 卻找不到 reason allowlist —— 守門拒絕沿用舊檔`);
+      }
+      hit = { file: f, codes: new Set([...m[1]!.matchAll(/'([a-z_]+)'/g)].map((x) => x[1]!)) };
+    }
+    if (!hit) throw new Error(`找不到任何定義 ${fnName} 且帶 allowlist 的 migration`);
+    return hit;
+  }
+
+  const FNS = ['mark_attempt_settle_retry', 'mark_webhook_retry'] as const;
+
+  it('🔴 L2-6b record_not_found 必須留在 SWEEP_REASON_CODES(TS 側被刪掉 → 這條紅)', () => {
+    // codex 關卡2 must-fix G:少了這條,「從 TS 集合刪掉 record_not_found」會讓 L2-8 的
+    // TS ⊆ DB 因為 TS 變小而照樣通過、L2-7 又只看 DB ⇒ runtime 存 'unknown' 而守門全綠。
+    expect([...SWEEP_REASON_CODES]).toContain('record_not_found');
+  });
+
+  it.each(FNS)('L2-7 %s 的最新 allowlist 含 record_not_found', (fn) => {
+    const { codes } = latestAllowlistFor(fn);
+    expect([...codes]).toContain('record_not_found');
+  });
+
+  it.each(FNS)(
+    '🔴 L2-8 %s 的最新 allowlist ⊇ SWEEP_REASON_CODES(TS 送得出去的碼,DB 都收得下)',
+    (fn) => {
+      // 🔴 比對的是**真正會被送進 RPC 的那個集合**(從 sweep-settlements.ts export),不是手抄清單 ——
+      //    手抄版在「新增 reason 而沒人同時改清單」時會全綠,正好是它宣稱要防的情境(code-reviewer must-fix 2)。
+      const { file, codes } = latestAllowlistFor(fn);
+      const missing = [...SWEEP_REASON_CODES].filter((c) => !codes.has(c));
+      expect({ file, missing }).toEqual({ file, missing: [] });
+    },
+  );
 });

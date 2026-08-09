@@ -223,3 +223,47 @@ describe('parseTapPayRecordResponse — #301 真實回應形狀', () => {
     );
   });
 });
+
+describe('🔴 M-4b 生命週期 L2 — numberOfTransactionsReported(count 是 TapPay 回的還是我們推的)', () => {
+  // 為什麼需要這個旗標:settleCharge 用「count===0 且 records.length===0」判 record_not_found,
+  // 而 L5 會拿那個 reason 去自動釋鎖。parser 在 count 欄缺席時以 records.length 補 ⇒ 兩個條件塌成一個
+  // ⇒ 只回 {status,msg} 的異常回應會長得跟「TapPay 說沒有這筆」一模一樣。旗標把兩者分開。
+
+  it('L2-W1 回應有 number_of_transactions → reported = true(值照回、不改)', () => {
+    const res = parseTapPayRecordResponse({ status: 0, msg: 'ok', number_of_transactions: 0, trade_records: [] });
+    expect(res.numberOfTransactions).toBe(0);
+    expect(res.numberOfTransactionsReported).toBe(true);
+  });
+
+  it('🔴 L2-W2 回應缺 number_of_transactions → reported = false(count 仍退回 records.length、行為不變)', () => {
+    const res = parseTapPayRecordResponse({ status: 0, msg: 'ok' });
+    expect(res.numberOfTransactions).toBe(0); // 既有 fallback 行為零改動
+    expect(res.numberOfTransactionsReported).toBe(false); // 但「這是推的」如實帶出
+  });
+
+  it.each([['字串', 'x'], ['物件', { a: 1 }], ['數字', 0]] as const)(
+    '🔴 L2-W4 trade_records 有值但是%s(非陣列)→ throw,不得靜默折成空陣列',
+    (_label, bad) => {
+      // codex 關卡2 R2:折成 [] 之後,搭配「回報 count=0」會長得跟「TapPay 說沒有這筆」一樣
+      // ⇒ 形狀異常的回應被誤判成 record_not_found(L5 的釋鎖依據)。突變(拿掉 throw)⇒ 這三條紅。
+      expect(() =>
+        parseTapPayRecordResponse({ status: 0, msg: 'ok', number_of_transactions: 0, trade_records: bad }),
+      ).toThrow(/trade_records/);
+    },
+  );
+
+  it.each([['缺欄', undefined], ['null', null]] as const)(
+    'L2-W5 trade_records %s = 合法空回應(照舊不 throw、records=[])',
+    (_label, v) => {
+      const body: Record<string, unknown> = { status: 0, msg: 'ok', number_of_transactions: 0 };
+      if (v === null) body.trade_records = null;
+      const res = parseTapPayRecordResponse(body);
+      expect(res.records).toEqual([]);
+    },
+  );
+
+  it('🔴 L2-W3 number_of_transactions 型別不對(字串 "0")→ reported = false(不採信非數字)', () => {
+    const res = parseTapPayRecordResponse({ status: 0, msg: 'ok', number_of_transactions: '0', trade_records: [] });
+    expect(res.numberOfTransactionsReported).toBe(false);
+  });
+});

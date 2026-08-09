@@ -547,6 +547,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
     return {
       queryStatus: wire.status,
       numberOfTransactions: wire.numberOfTransactions,
+      // 🔴 M-4b L2:「這個筆數是 TapPay 回的、還是 parser 用 records.length 推的」原樣帶到 use-case;
+      //    settleCharge 只在 true 時才允許把零筆判成 record_not_found(= L5 的自動釋鎖依據)。
+      numberOfTransactionsReported: wire.numberOfTransactionsReported,
       records: wire.records.map(toTradeRecord),
     };
   }

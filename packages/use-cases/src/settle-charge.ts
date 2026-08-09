@@ -98,6 +98,36 @@ export async function settleCharge(
         count: record.numberOfTransactions,
       });
     }
+    // 🔴 M-4b 生命週期 L2:把「查詢成功但 TapPay 端零筆」從 record_unverified 拆出成 record_not_found。
+    //    兩者的**放行行為完全相同**(pending、保留、不釋鎖);差別只在診斷欄存哪個碼。拆的是**語意**。
+    //    🔴 這個 reason 精確的意思只有一句:「**這一次**查詢成功,而 TapPay 回零筆」。
+    //    它**不是**「沒扣款」的證明(codex 關卡2 must-fix A)—— bank_txn 在 charge **前**就 durable,
+    //    所以「錢已扣、Record 索引還沒到」同樣長這樣。安全性不能建立在單次觀察上,必須由 L5 的
+    //    「多次觀察 + 年齡閘」提供;本層只負責讓那個事實**可分辨**,並把明顯不該進這個桶的擋掉。
+    //    🔴 條件刻意要求 count===0 **且** records.length===0:wire 不一致(count=0 卻帶紀錄、
+    //    count>0 卻零紀錄)一律 fail-closed 落回 record_unverified —— 不確定的東西不進「可放行」那個桶。
+    //    🔴 **必須 hasStrongKey(code-reviewer must-fix 1)**:弱識別(rec 與 bank 皆 null)的 attempt
+    //    只能用 `order_number` 反查,而**非 3DS 的 `confirmPayment` 路徑**(`confirm-payment.ts` begin →
+    //    `tappay.charge`)在 charge 前不寫任何鍵 ⇒ transport throw 後「錢可能已扣、但本機沒有任何鍵」,
+    //    此時 Record 索引還沒到就會回零筆 —— 那是「我問錯了/還沒入帳」,不是「TapPay 說沒有這筆」。
+    //    L5 只讀 `last_settle_error`、讀不到是哪條路徑產生的 ⇒ 分辨的責任在這裡。
+    //    3DS 路徑零損失:`initiate-payment.ts` 的 bank_txn 在 charge **前** durable ⇒ 恆 hasStrongKey。
+    //    🔴 **且 count 必須是 TapPay 真的回報的**:parser 在該欄缺席時以 records.length 補(wire.ts),
+    //    兩個條件會塌成一個 ⇒ 只回 `{status,msg}` 的異常回應會被誤讀成「查無」。
+    //    🔴 **只認 `pending`(codex 關卡2 must-fix A)**:`charged` ⇒ markCharged 跑過 ⇒ 我們**親眼看過**
+    //    Record 給的 rec_trade_id、那筆交易確實存在過;`released` ⇒ 鎖已釋、續低頻對帳到 terminal。
+    //    這兩種狀態再查到零筆,只可能是查詢面出事(索引/分頁/filter),絕不是「TapPay 沒有這筆」
+    //    ⇒ 不得進可放行桶(白名單而非黑名單:未來新增 status 預設落在桶外、fail-closed)。
+    if (
+      hasStrongKey &&
+      attempt.status === 'pending' &&
+      isQuerySucceeded(record.queryStatus) &&
+      record.numberOfTransactionsReported === true &&
+      record.numberOfTransactions === 0 &&
+      record.records.length === 0
+    ) {
+      return { kind: 'pending', reason: 'record_not_found' };
+    }
     return { kind: 'pending', reason: 'record_unverified' };
   }
   const tr = record.records[0]!;
@@ -335,6 +365,7 @@ type RecordVerdict =
   | { kind: 'explicit_failed' }
   | { kind: 'refund_anomaly' }
   | { kind: 'pending'; reason: 'auth_or_pending' | 'record_unverified' };
+// (classifyRecordStatus 只在「已有恰一筆紀錄」之後才被呼 ⇒ record_not_found 不屬於它的值域。)
 
 /**
  * record_status 官方 7 值 → 裁決(§5 表;識別/金額已在 recordMatchesOrder 閘驗過)。
