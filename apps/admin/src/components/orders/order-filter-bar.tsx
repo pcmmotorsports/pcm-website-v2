@@ -7,6 +7,11 @@ import {
   PAYMENT_CHANNEL_OPTIONS,
   SHOW_UNPAID_CARD_ON,
 } from '../../lib/orders/order-list-view';
+import { applyOrderKeywordSearchAction } from '../../lib/orders/keyword-search-action';
+import {
+  ORDER_KEYWORD_FIELD,
+  ORDER_KEYWORD_RETURN_TO_FIELD,
+} from '../../lib/orders/order-keyword-cookie';
 
 // M-4a 訂單篩選列(D-1b:選了即時生效免按鈕;Sean Q1=A)。
 // M-4b E10 A9w2(九碼退場):**商品狀態軸整條下架**(原主篩選)—— 選項來源 `order_status_options`
@@ -46,12 +51,21 @@ export function OrderFilterBar({
           showUnpaidCard: filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : '',
         }}
       />
-      <a
-        href='/orders'
-        className='border-input text-muted-foreground hover:text-foreground flex h-9 items-center rounded-md border px-4 text-sm'
-      >
-        清除
-      </a>
+      {/* 🔴 #347-2b:這顆從 `<a href='/orders'>` 改成 **POST 同一支 action 送空字串**。
+          原本它只清得掉 URL 上那六軸;關鍵字那一軸住在 httpOnly cookie 裡,
+          按了「清除」之後 URL 乾淨、列表卻**還被關鍵字篩著**(code-reviewer 2026-08-10 nit-3)。
+          走 action 才能一次清兩邊,而且與 chip 的「清除搜尋」是同一條 PRG 路徑
+          (裁決條件①:不生第二條沒人守的路)。 */}
+      <form action={applyOrderKeywordSearchAction}>
+        <input type='hidden' name={ORDER_KEYWORD_FIELD} value='' />
+        <input type='hidden' name={ORDER_KEYWORD_RETURN_TO_FIELD} value='/orders' />
+        <button
+          type='submit'
+          className='border-input text-muted-foreground hover:text-foreground flex h-9 items-center rounded-md border px-4 text-sm'
+        >
+          清除
+        </button>
+      </form>
     </div>
   );
 }

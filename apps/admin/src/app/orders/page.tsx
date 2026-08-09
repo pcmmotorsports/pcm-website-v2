@@ -1,5 +1,15 @@
-import type { AdminOrderSummary, Paginated, SupplierOrderNoSearchInvalidReason } from '@pcm/domain';
+import { cookies } from 'next/headers';
+import type {
+  AdminOrderFilter,
+  AdminOrderListResult,
+  SupplierOrderNoSearchInvalidReason,
+} from '@pcm/domain';
 import { SupplierOrderNoSearchTooManyError } from '@pcm/domain';
+import {
+  ORDER_KEYWORD_COOKIE,
+  readOrderKeywordCookie,
+} from '../../lib/orders/order-keyword-cookie';
+import { OrderKeywordSearch } from '../../components/orders/order-keyword-search';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import {
   parseOrderListSearchParams,
@@ -63,10 +73,16 @@ export default async function OrdersPage({
   //    **整個訂單列表**進錯誤態(不只搜尋壞掉),與 A10c1/D0 同族。
   const supplierOrderNoSearchEnabled =
     process.env.ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH === '1';
-  const { filter, page, supplierOrderNoSearch } = parseOrderListSearchParams(rawSearchParams, {
-    orderNumberSearchEnabled,
-    supplierOrderNoSearchEnabled,
-  });
+  const { filter: urlFilter, page, supplierOrderNoSearch } = parseOrderListSearchParams(
+    rawSearchParams,
+    { orderNumberSearchEnabled, supplierOrderNoSearchEnabled },
+  );
+  // 🔴 **#347-2b:關鍵字這一軸不在 URL、在 httpOnly cookie**(Q-a=B 紅線:搜尋詞是 PII)。
+  //    它與其他七軸的來源不同,但**下游一視同仁** —— 合進同一個 `filter` 之後,
+  //    分頁 / 篩選 / 查詢全部照原路走,`buildOrderListHref` 一個字都不用改。
+  //    讀取 fail-closed(壞值/超長 ⇒ 當沒搜尋),理由與三道閘見 `order-keyword-cookie.ts`。
+  const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
+  const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
@@ -76,7 +92,7 @@ export default async function OrdersPage({
   //    它在本頁的唯一用途是餵列表的九碼 cell 與整單彙總 badge,兩者已隨本片下架
   //    ⇒ 原本的「訂單與詞彙分開容錯」雙腿 `Promise.allSettled` 收斂成單一 try/catch。
   //    讀取鏈本體(port / adapter / repository getter)的處置見 plan §3.1 裁定:歸 A9w4c 後半。
-  let result: Paginated<AdminOrderSummary> | null = null;
+  let result: AdminOrderListResult | null = null;
   let loadFailed = false;
   // 🔴 搜尋層的**明示訊息**(Sean 2026-08-07 Q1=A:不默默降級)。
   //    與 `loadFailed` 分開:這些是「使用者可以自己處理」的狀況(改個輸入就好),
@@ -126,6 +142,28 @@ export default async function OrdersPage({
       </div>
 
       <ResultBanner code={resultCode} />
+
+      {/* #347-2b:關鍵字搜尋框 + 「目前搜尋」chip。
+          🔴 `listHref` 的 `page` 固定給 **1**:換了搜尋條件還停在第 3 頁,常常直接看到空白頁。
+          其餘篩選軸照 `filter` 原樣帶回 ⇒ 搜尋不會把使用者的篩選洗掉。 */}
+      <OrderKeywordSearch
+        keyword={keyword}
+        listHref={buildOrderListHref(filter, 1)}
+        matchCount={result?.keywordMatchCount ?? null}
+        truncated={result?.keywordTruncated ?? false}
+      />
+
+      {/* 🔴🔴 **截斷提示:`keywordTruncated=true` 時無條件顯示,包含 0 筆**
+          (`packages/domain/src/order/types.ts:316-318` 逐字要求)。
+          RPC 先取全域最新 100 筆命中,才與其他篩選取交集 ⇒ 真正要找的單可能整張落在那 100 筆之外,
+          畫面因此可能顯示 0 筆。**0 筆 + 沒有提示 = 員工得到「查無此單」的錯誤結論**,
+          那正是本合約最主要要禁的形狀 ⇒ 這個條件式**不得**加上 `orders.length > 0`。 */}
+      {result?.keywordTruncated && (
+        <div className='rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
+          符合這個關鍵字的訂單超過 100 筆,目前只找了最新的 100 筆;請輸入更完整的關鍵字(例如完整料號或單號)再查一次。
+        </div>
+      )}
+
       {searchNotice && (
         <div className='rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
           {searchNotice}
