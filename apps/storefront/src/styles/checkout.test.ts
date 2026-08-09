@@ -183,7 +183,13 @@ describe('第5批 · 結帳主 CTA 熔橘(交接單 §五 驗收 #3)', () => {
     expect(rule, '.btn-primary 已被全域熔橘化 ⇒ 這裡四條變成重複宣告,且購物車空車鈕被連坐').toMatch(
       /background:\s*var\(--c-text\)/,
     );
-    expect(rule, '.btn-primary 不再提供白字 ⇒ 四顆主 CTA 會變成熔橘底配深色字').toMatch(/color:\s*#fff\b/i);
+    // 🔴 2026-08-09 Q4=B:白字改由 `var(--c-text-inverse)` 提供(底色是 `var(--c-text)`、
+    //    兩顆是 token 表裡唯一的反相配對,深色模式要一起翻才不會變成白底白字)。
+    //    本條守的是「**白字還在**」、不是「白字用 # 開頭寫」⇒ 兩種寫法都收,
+    //    但**不收第三種顏色**:有人把它改成墨黑/熔橘,這裡照樣紅。
+    expect(rule, '.btn-primary 不再提供白字 ⇒ 四顆主 CTA 會變成熔橘底配深色字').toMatch(
+      /color:\s*(#fff\b|var\(\s*--c-text-inverse\s*\))/i,
+    );
   });
 
   it('前提② — layout.tsx 的 import 序:checkout.css 必須晚於 cart.css', () => {
