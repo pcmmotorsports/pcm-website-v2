@@ -19,10 +19,14 @@ const addShipmentItems = vi.fn();
 const markShipmentShipped = vi.fn();
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('./shipment-candidates', () => ({ loadShipmentCandidates: vi.fn() }));
+const voidShipment = vi.fn();
+const unvoidShipment = vi.fn();
 vi.mock('./shipment-repository', () => ({
   createShipment,
   addShipmentItems,
   markShipmentShipped,
+  voidShipment,
+  unvoidShipment,
 }));
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -51,6 +55,8 @@ beforeEach(() => {
   });
   addShipmentItems.mockReset().mockResolvedValue({ idempotent: false });
   markShipmentShipped.mockReset().mockResolvedValue({ idempotent: false });
+  voidShipment.mockReset().mockResolvedValue({ idempotent: false });
+  unvoidShipment.mockReset().mockResolvedValue({ idempotent: false });
 });
 
 describe('🔴 冪等鍵 — 三支共用同一把,且本檔不得自己產', () => {
@@ -133,5 +139,116 @@ describe('只建箱 / 建箱並出貨', () => {
     expect(createArgs.carrierNote).toBe('客人自取');
     const shipArgs = markShipmentShipped.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(Object.keys(shipArgs)).not.toContain('trackingNumber');
+  });
+});
+
+describe('作廢 / 復原(片 2c)', () => {
+  it('🔴 作廢按鈕的冪等鍵:失敗重按沿用同一把、成功後才清掉', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const src = readFileSync(
+      resolve(HERE, '../../components/orders/shipment-void-button.tsx'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m: string) => m.replace(/[^\n]/g, ' '));
+    // 生成點恰好 1 個,且必須是 `key ?? crypto.randomUUID()` 這種「沒有才生」的形狀 ——
+    // 寫成無條件 `crypto.randomUUID()` = 每次重按換新鍵、冪等失效(連按兩次會作廢兩次)。
+    expect([...src.matchAll(/randomUUID\(\)/g)].length, '鍵生成點不是恰好 1 個').toBe(1);
+    expect(src, '不是「沒有才生」的形狀 ⇒ 每次重按都換新鍵').toMatch(/key\s*\?\?\s*crypto\.randomUUID\(\)/);
+    expect(src, '成功後沒有把鍵清掉 ⇒ 下一次作廢別箱會沿用舊鍵').toMatch(/setKey\(null\)/);
+  });
+
+  it('作廢必須帶原因(RPC 的 p_void_reason 是必填)', async () => {
+    const { voidShipmentAction } = await import('./shipment-actions');
+    await voidShipmentAction({ idempotencyKey: 'K', shipmentId: 's', voidReason: '客人改地址' });
+    expect(voidShipment).toHaveBeenCalledWith({
+      idempotencyKey: 'K',
+      shipmentId: 's',
+      voidReason: '客人改地址',
+    });
+  });
+
+  it('作廢失敗 → ok:false 帶原訊息(不改寫)', async () => {
+    voidShipment.mockRejectedValue(new Error('作廢:包裹 K7X2MP 已經寄出了,不能作廢。'));
+    const { voidShipmentAction } = await import('./shipment-actions');
+    const r = await voidShipmentAction({ idempotencyKey: 'K', shipmentId: 's', voidReason: 'r' });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.message).toContain('已經寄出');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 2026-08-09 Sean 正式站實測回報的三族 bug(D-364-A)。守門逐條。
+// ─────────────────────────────────────────────────────────────
+describe('🔴 Bug 2 — 錯誤物件要轉人話,不得吐 [object Object]', () => {
+  // 病根:Supabase 丟的是 PostgrestError 這種**普通物件**、不是 Error 實例
+  // ⇒ 舊寫法落到字串化分支 ⇒ 畫面出現 `[object Object]`,
+  //   而 DB RAISE 的中文就在那個物件的 message 欄裡 —— 等於把唯一能給員工看的訊息丟掉。
+  it('丟 PostgrestError 形狀的普通物件 → 取得 message,不是 [object Object]', async () => {
+    createShipment.mockRejectedValue({
+      message: '建立包裹:找不到這位客人(user_id=x),請確認是從客人頁面進來的',
+      code: 'P0001',
+      details: null,
+      hint: null,
+    });
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.message, '錯誤物件沒轉字串 ⇒ 員工看到 [object Object]').toContain(
+      '找不到這位客人',
+    );
+    expect(r.ok === false && r.message).not.toContain('[object Object]');
+  });
+
+  it('沒有 message 但有 details / hint → 退而取它們(仍然不吐 [object Object])', async () => {
+    createShipment.mockRejectedValue({ details: '違反 shipments_carrier_domain' });
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok === false && r.message).toContain('shipments_carrier_domain');
+  });
+
+  it('🔴 完全沒有可讀欄位 → 吐 JSON,**仍然不得**是 [object Object](那對排查零幫助)', async () => {
+    createShipment.mockRejectedValue({ weird: 1 });
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok === false && r.message).not.toContain('[object Object]');
+    expect(r.ok === false && r.message).toContain('weird');
+  });
+
+  it('作廢路徑同樣不得吐 [object Object]', async () => {
+    voidShipment.mockRejectedValue({ message: '作廢:找不到這個包裹' });
+    const { voidShipmentAction } = await import('./shipment-actions');
+    const r = await voidShipmentAction({ idempotencyKey: 'K', shipmentId: 's', voidReason: 'r' });
+    expect(r.ok === false && r.message).toBe('作廢:找不到這個包裹');
+  });
+});
+
+describe('🔴 Bug 1 — 彈窗不得靠繼承拿字色', () => {
+  const read = (p: string) =>
+    readFileSync(resolve(HERE, p), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) =>
+      m.replace(/[^\n]/g, ' '),
+    );
+
+  it('彈窗面板**自己**設了字色(不論掛在哪都不再繼承)', () => {
+    const src = read('../../components/orders/shipment-dialog.tsx');
+    const at = src.indexOf('bg-card');
+    expect(at, 'shipment-dialog.tsx 找不到 bg-card 面板 ⇒ 結構變了,本條要重寫').toBeGreaterThan(-1);
+    expect(
+      src.slice(at, at + 120),
+      '面板設了 bg-card(白底)卻沒有自己的 text-* ⇒ 會繼承祖先的字色。' +
+        '2026-08-09 就是這樣白底白字:它掛在 `bg-foreground text-background` 的動作列裡。',
+    ).toMatch(/text-(foreground|card-foreground)/);
+  });
+
+  it('🔴 彈窗不得是那個 `text-background` 動作列的子節點', () => {
+    const src = read('../../components/orders/shipping-selection.tsx');
+    const barOpen = src.indexOf('bg-foreground text-background');
+    const barClose = src.indexOf('</div>', barOpen);
+    const dialogAt = src.indexOf('<ShipmentDialog');
+    expect(barOpen).toBeGreaterThan(-1);
+    expect(dialogAt).toBeGreaterThan(-1);
+    expect(
+      dialogAt > barClose,
+      '<ShipmentDialog> 又被放回 `bg-foreground text-background` 容器裡 ⇒ 整個彈窗會繼承白字、' +
+        '在白底面板上全部隱形(Sean 2026-08-09 正式站實測的症狀)。它是 fixed 覆蓋層,不該是某列的子節點。',
+    ).toBe(true);
   });
 });
