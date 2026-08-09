@@ -9,6 +9,8 @@ import {
   PAYMENT_STATUS_PARAM,
   FULFILLMENT_STATUS_PARAM,
   ORDER_SOURCE_PARAM,
+  SHOW_UNPAID_CARD_PARAM,
+  SHOW_UNPAID_CARD_ON,
   PAYMENT_CHANNEL_PARAM,
   ORDER_NUMBER_PARAM,
   SUPPLIER_ORDER_NO_PARAM,
@@ -20,8 +22,9 @@ import { AutoApplySelect } from '../shared/auto-apply-select';
 // 🔴 競態設計:各軸值收成**單一 client state、URL 全量由 state 導出**(buildListHref、page 恆回 1、
 //   r 不帶=清 stale banner)——不讀 useSearchParams/window.location 當基底,RSC 往返(數百 ms)中
 //   快速連勾/跨軸交錯也不會用 stale 快照互相蓋寫,checkbox/select 顯示同源自 state=無延遲窗回彈。
-//   前提:/orders 的 query 全集=**六**個鍵(付款 / 出貨 / 來源 / 管道 /
-//   **單號搜尋 order_no**,M-4b E10 A10c1 新增;**供應商單號 supplier_no**,A10c2 新增)+page+r,無其他要保留的鍵
+//   前提:/orders 的 query 全集=**七**個鍵(付款 / 出貨 / 來源 / 管道 /
+//   **單號搜尋 order_no**,M-4b E10 A10c1 新增;**供應商單號 supplier_no**,A10c2 新增;
+//   **show_unpaid_card**,M-4b 生命週期 L6 新增)+page+r,無其他要保留的鍵
 //   (A9w2:原第六軸「商品狀態 workflow_status」隨九碼退場已下架 —— state、URL 參數、
 //    MultiCheckFilter 三處同時移除;少移一處都會留下「改別軸就把它丟掉」或「丟不掉」的半殘狀態)
 //   (新增鍵時須進 state 或此處明列 —— 漏了就是「改任一篩選就把該鍵丟掉」的 fail-open)。
@@ -48,6 +51,12 @@ type FilterState = {
    * 被靜默丟掉 ⇒ 搜尋詞消失、列表變回全部訂單(fail-open)。
    */
   supplierNo: string;
+  /**
+   * 「連刷卡未付款一起顯示」(M-4b 生命週期 L6;'' = 預設隱藏、'1' = 全顯示)。
+   * 🔴 與 `no`/`supplierNo` 同理**必須進 state**:不進 state 的鍵會在改任一其他篩選或翻頁時
+   * 被靜默丟掉 ⇒ 勾還打著、列表卻已經變回隱藏 = 畫面與實際不一致。
+   */
+  showUnpaidCard: string;
 };
 
 function href(state: FilterState): string {
@@ -60,6 +69,7 @@ function href(state: FilterState): string {
       [PAYMENT_CHANNEL_PARAM, state.ch],
       [ORDER_NUMBER_PARAM, state.no || undefined],
       [SUPPLIER_ORDER_NO_PARAM, state.supplierNo || undefined],
+      [SHOW_UNPAID_CARD_PARAM, state.showUnpaidCard || undefined],
     ],
     1,
   );
@@ -149,7 +159,7 @@ export function OrderFilterControls({
             訂單編號
           </label>
           {/* 🔴 刻意不給 name:form 無 action,hydration 完成前按 Enter 會走原生 GET,
-              而原生送出只帶 form 內的欄位 ⇒ 其他五軸篩選會被清掉。沒有 name 就送不出東西。
+              而原生送出只帶 form 內的欄位 ⇒ 其他六軸篩選會被清掉。沒有 name 就送不出東西。
               🔴 用 type='text' 不用 type='search':原生的 × 與 Esc 只觸發 onChange 清掉草稿、
               不會送出,使用者會以為搜尋已取消,實際列表還篩著同一張單。 */}
           <input
@@ -239,6 +249,19 @@ export function OrderFilterControls({
         selected={state.ch}
         onToggle={(v) => apply({ ...state, ch: toggled(state.ch, v) })}
       />
+      {/* L6:預設隱藏刷卡未付款單;這個勾是唯一的打開方式(資料沒被刪、只是不列)。 */}
+      <label className='flex items-center gap-2 text-sm' htmlFor='show-unpaid-card'>
+        <input
+          id='show-unpaid-card'
+          type='checkbox'
+          className='size-4'
+          checked={state.showUnpaidCard === SHOW_UNPAID_CARD_ON}
+          onChange={(e) =>
+            apply({ ...state, showUnpaidCard: e.target.checked ? SHOW_UNPAID_CARD_ON : '' })
+          }
+        />
+        顯示刷卡未付款(預設隱藏)
+      </label>
     </>
   );
 }

@@ -20,7 +20,7 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { pay: '', ful: '', src: [], ch: [], no: '', supplierNo: '' },
+  initial: { pay: '', ful: '', src: [], ch: [], no: '', supplierNo: '', showUnpaidCard: '' },
 };
 
 beforeEach(() => replace.mockClear());
@@ -325,5 +325,40 @@ describe('OrderFilterControls — A10c2 供應商單號搜尋', () => {
     fireEvent.change(input, { target: { value: '  SO-9  ' } });
     fireEvent.submit(input.closest('form') as HTMLFormElement);
     expect(replace.mock.calls[0]?.[0]).toContain('supplier_no=SO-9');
+  });
+});
+
+describe('🔴 M-4b 生命週期 L6 — 「顯示刷卡未付款」勾選框(client 端 href 是第二份實作,要自己的測試)', () => {
+  // code-reviewer important 4:本片原本只測了 server 端的 buildOrderListHref,
+  // 而這個元件裡的 href() 是**獨立的第二份**實作 —— 四個突變(刪掉 href entry / onChange 寫錯值 /
+  // checked 判斷放寬 / 整個 checkbox 不 render)當時全綠。以下三條就是釘那份。
+  it('L6-C1 預設沒勾(= 隱藏生效)', () => {
+    const { getByLabelText } = render(<OrderFilterControls {...PROPS} />);
+    expect((getByLabelText(/顯示刷卡未付款/) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('L6-C2 勾起來 → URL 帶 show_unpaid_card=1', () => {
+    const { getByLabelText } = render(<OrderFilterControls {...PROPS} />);
+    fireEvent.click(getByLabelText(/顯示刷卡未付款/));
+    expect(replace.mock.calls[0]?.[0]).toContain('show_unpaid_card=1');
+  });
+
+  it("🔴 L6-C4 state 是 truthy 但不是 '1'(例如 'true')→ 勾**不得**打勾", () => {
+    // 與 parser 的 fail-safe 同一條規則:只有字面 '1' 算開。
+    // 沒有這條的話,把 checked 放寬成 Boolean(state.showUnpaidCard) 的突變會存活(實測過)。
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, showUnpaidCard: 'true' }} />,
+    );
+    expect((getByLabelText(/顯示刷卡未付款/) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('🔴 L6-C3 勾起來之後再改其他篩選,開關不得被丟掉', () => {
+    const { getByLabelText, getAllByRole } = render(<OrderFilterControls {...PROPS} />);
+    fireEvent.click(getByLabelText(/顯示刷卡未付款/));
+    replace.mockClear();
+    const paySelect = getAllByRole('combobox')[0];
+    if (!paySelect) throw new Error('付款狀態 select 不存在');
+    fireEvent.change(paySelect, { target: { value: 'paid' } });
+    expect(replace.mock.calls[0]?.[0]).toContain('show_unpaid_card=1');
   });
 });

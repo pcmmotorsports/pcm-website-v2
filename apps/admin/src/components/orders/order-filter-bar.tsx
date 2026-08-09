@@ -5,6 +5,7 @@ import {
   FULFILLMENT_STATUS_OPTIONS,
   ORDER_SOURCE_OPTIONS,
   PAYMENT_CHANNEL_OPTIONS,
+  SHOW_UNPAID_CARD_ON,
 } from '../../lib/orders/order-list-view';
 
 // M-4a 訂單篩選列(D-1b:選了即時生效免按鈕;Sean Q1=A)。
@@ -41,6 +42,8 @@ export function OrderFilterBar({
           ch: filter.paymentChannels ?? [],
           no: filter.orderNumber ?? '',
           supplierNo: filter.supplierOrderNo ?? '',
+          // L6:server 端解析出來的開關要餵回勾選框,否則重新整理後「勾沒了、列表卻是全顯示」。
+          showUnpaidCard: filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : '',
         }}
       />
       <a

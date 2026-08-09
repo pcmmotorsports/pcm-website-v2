@@ -21,6 +21,7 @@ import {
   FULFILLMENT_STATUS_VALUES,
   ORDER_SOURCE_VALUES,
   PAYMENT_CHANNEL_VALUES,
+  SHOW_UNPAID_CARD_PARAM,
 } from './order-list-view';
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
@@ -37,6 +38,9 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       fulfillmentStatus: 'shipped',
       orderSources: ['manual_line'],
       paymentChannels: ['bank_transfer'],
+      // L6:filter 是整包比對 ⇒ 新增鍵一定要在這裡出現(這正是它的價值:
+      // 有人新增 filter 欄卻忘了想「預設值該是什麼」時,這三條會紅)。
+      includeUnpaidCardOrders: false,
     });
     expect(page).toBe(3);
   });
@@ -53,6 +57,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       fulfillmentStatus: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
+      includeUnpaidCardOrders: false,
     });
   });
 
@@ -74,6 +79,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       fulfillmentStatus: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
+      includeUnpaidCardOrders: false,
     });
     expect(page).toBe(1);
   });
@@ -355,5 +361,48 @@ describe('parseOrderListSearchParams — A10c2 供應商單號搜尋(supplier_no
     const href = buildOrderListHref({ orderNumber: 'YWP3PC', supplierOrderNo: 'SO-1' }, 1);
     expect(href).toContain('order_no=YWP3PC');
     expect(href).toContain('supplier_no=SO-1');
+  });
+});
+
+describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關解析', () => {
+  // Sean 逐字「刷卡單失敗直接不顯示在後台就好」(P-233-A)。預設隱藏 ⇒ 解析出錯時
+  // 必須倒向**隱藏**,不能倒向全顯示 —— 後者是「規則靜默失效」而畫面看不出來。
+  it('L6-1 沒帶參數 → includeUnpaidCardOrders=false(預設隱藏)', () => {
+    expect(parseOrderListSearchParams({}).filter.includeUnpaidCardOrders).toBe(false);
+  });
+
+  it('L6-2 show_unpaid_card=1 → true(唯一的開法)', () => {
+    expect(
+      parseOrderListSearchParams({ [SHOW_UNPAID_CARD_PARAM]: '1' }).filter.includeUnpaidCardOrders,
+    ).toBe(true);
+  });
+
+  it.each(['true', 'TRUE', 'yes', '0', '', 'on', '01', ' 1'])(
+    '🔴 L6-3 show_unpaid_card=%p(非字面 1)→ false,fail-safe 倒向預設隱藏',
+    (v) => {
+      expect(
+        parseOrderListSearchParams({ [SHOW_UNPAID_CARD_PARAM]: v }).filter.includeUnpaidCardOrders,
+      ).toBe(false);
+    },
+  );
+
+  it('🔴 L6-4 同鍵重複(?show_unpaid_card=1&show_unpaid_card=x)→ 取首值 → true', () => {
+    // firstValue 是必要的:陣列直接比對字串恆為 false ⇒ 勾打開後一翻頁就失效。
+    expect(
+      parseOrderListSearchParams({ [SHOW_UNPAID_CARD_PARAM]: ['1', 'x'] }).filter
+        .includeUnpaidCardOrders,
+    ).toBe(true);
+  });
+
+  it('🔴 L6-5 buildOrderListHref 會把開關帶著走(翻頁不掉)', () => {
+    const href = buildOrderListHref({ includeUnpaidCardOrders: true }, 3);
+    expect(href).toContain(`${SHOW_UNPAID_CARD_PARAM}=1`);
+    expect(href).toContain('page=3');
+  });
+
+  it('L6-6 關著的時候不留空參數在 URL 上', () => {
+    expect(buildOrderListHref({ includeUnpaidCardOrders: false }, 1)).not.toContain(
+      SHOW_UNPAID_CARD_PARAM,
+    );
   });
 });
