@@ -201,10 +201,19 @@ describe('掛品項 · 形狀轉換', () => {
     expect(args.p_items).toEqual([{ order_item_id: 'oi-1', quantity: 2 }]);
   });
 
-  it('🔴 本檔不自行擋重複 order_item_id —— 那是 DB 的正確性層,這裡擋會變成第二個真相源', () => {
+  it('🔴 掛品項不自行擋重複 order_item_id —— 那是 DB 的正確性層,這裡擋會變成第二個真相源', () => {
+    // 🔴 **只掃 `addShipmentItems` 的函式體**,不是整個檔案。
+    //    原本掃全檔;而 2026-08-09 加進來的 `listCustomerUserIdsByOrderItemIds` 合法地用
+    //    `new Set(...)` 去重訂單 id / 收斂擁有者集合 —— 與掛品項的重複偵測完全無關,
+    //    卻讓本條變成**假紅**。⚠️ 這條守的性質是「**掛品項這條路徑上**沒有第二個真相源」,
+    //    那個不變量成立的面就是這支函式;把面畫成整個檔是畫錯了。
+    const at = SRC.indexOf('export async function addShipmentItems');
+    expect(at, '找不到 addShipmentItems 宣告 ⇒ 本條要重寫').toBeGreaterThan(-1);
+    const body = SRC.slice(at, SRC.indexOf('\nexport ', at + 1));
+    expect(body.length, '切出來的函式體太短 ⇒ 本條會退化成恆真').toBeGreaterThan(100);
     expect(
-      SRC,
-      '本檔出現了重複偵測邏輯 ⇒ 與 DB 的 `pcm_b2_w3b2_items_duplicate` 變成兩個真相源,' +
+      body,
+      'addShipmentItems 出現了重複偵測邏輯 ⇒ 與 DB 的 `pcm_b2_w3b2_items_duplicate` 變成兩個真相源,' +
         '兩邊哪天不一致時症狀是「UI 說可以、DB 說不行」或更糟的反過來',
     ).not.toMatch(/dedup|duplicate|new Set\(/i);
   });
@@ -279,5 +288,144 @@ describe('讀取面 · 空輸入短路', () => {
     const r = await listShipmentItemsByOrderItemIds([]);
     expect(r).toEqual([]);
     expect(from, '空輸入還是打了一次 DB').not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 2026-08-09:「箱子掛誰」的來源(codex R1 打回來之後補)。
+// ─────────────────────────────────────────────────────────────
+describe('🔴🔴 品項 → 客人反查 · 全程 fail-closed', () => {
+  /**
+   * 依查的是哪張表回不同的列;`.in()` 直接結束鏈。
+   *
+   * 🔴 **`.select()` 與 `.in()` 的參數要記下來。** 第一版把它們整個忽略,而 codex R2 當場指出:
+   *    那樣把正式查詢改成 `.in('id', ['亂寫'])`,底下六條**照樣全綠** ——
+   *    測到的只有「有沒有查兩張表」,沒測到「查的是不是送進去的那批品項」。
+   */
+  function tables(byTable: Record<string, unknown[]>) {
+    const seen: string[] = [];
+    /** 每張表被查了什麼:`{ table, columns, filterColumn, filterValues }`。 */
+    const queries: { table: string; columns: string; filterColumn: string; filterValues: unknown }[] = [];
+    from.mockImplementation((t: string) => {
+      seen.push(t);
+      return {
+        select: (columns: string) => ({
+          in: (filterColumn: string, filterValues: unknown) => {
+            queries.push({ table: t, columns, filterColumn, filterValues });
+            return Promise.resolve({ data: byTable[t] ?? [], error: null });
+          },
+        }),
+      };
+    });
+    return { seen, queries };
+  }
+
+  it('兩個品項同屬一位客人 → 集合裡恰好一位', async () => {
+    void tables({
+      order_items: [
+        { id: 'oi-1', order_id: 'o1' },
+        { id: 'oi-2', order_id: 'o2' },
+      ],
+      orders: [
+        { id: 'o1', customer_user_id: 'cu-A' },
+        { id: 'o2', customer_user_id: 'cu-A' },
+      ],
+    });
+    const { listCustomerUserIdsByOrderItemIds } = await import('./shipment-repository');
+    expect([...(await listCustomerUserIdsByOrderItemIds(['oi-1', 'oi-2']))]).toEqual(['cu-A']);
+  });
+
+  it('🔴 跨兩位客人 → 集合有兩位(呼叫端據此不建箱)', async () => {
+    void tables({
+      order_items: [
+        { id: 'oi-1', order_id: 'o1' },
+        { id: 'oi-2', order_id: 'o2' },
+      ],
+      orders: [
+        { id: 'o1', customer_user_id: 'cu-A' },
+        { id: 'o2', customer_user_id: 'cu-B' },
+      ],
+    });
+    const { listCustomerUserIdsByOrderItemIds } = await import('./shipment-repository');
+    expect((await listCustomerUserIdsByOrderItemIds(['oi-1', 'oi-2'])).size).toBe(2);
+  });
+
+  it('🔴 有品項查不到 → 整批回空集合(不是拿查得到的那些「湊」一位出來)', async () => {
+    void tables({
+      order_items: [{ id: 'oi-1', order_id: 'o1' }], // oi-2 查不到
+      orders: [{ id: 'o1', customer_user_id: 'cu-A' }],
+    });
+    const { listCustomerUserIdsByOrderItemIds } = await import('./shipment-repository');
+    expect(
+      (await listCustomerUserIdsByOrderItemIds(['oi-1', 'oi-2'])).size,
+      '清單裡混一個不存在的品項時仍推出「恰好一位客人」⇒ 箱子照建,' +
+        '那個假品項要到掛品項才被 FK 擋掉,而箱子已經留在 DB 裡了(禁刪、只能作廢)。',
+    ).toBe(0);
+  });
+
+  it('🔴 有訂單查不到客人 → 整批回空集合', async () => {
+    void tables({
+      order_items: [
+        { id: 'oi-1', order_id: 'o1' },
+        { id: 'oi-2', order_id: 'o2' },
+      ],
+      orders: [{ id: 'o1', customer_user_id: 'cu-A' }], // o2 那列讀不到
+    });
+    const { listCustomerUserIdsByOrderItemIds } = await import('./shipment-repository');
+    expect((await listCustomerUserIdsByOrderItemIds(['oi-1', 'oi-2'])).size).toBe(0);
+  });
+
+  it('空輸入短路,不發請求', async () => {
+    const { listCustomerUserIdsByOrderItemIds } = await import('./shipment-repository');
+    expect((await listCustomerUserIdsByOrderItemIds([])).size).toBe(0);
+    expect(from, '空輸入還是打了一次 DB').not.toHaveBeenCalled();
+  });
+
+  it('🔴 兩次查詢分別打 order_items 與 orders(不押在本專案測不了的內嵌 join 語意上)', async () => {
+    const { seen } = tables({
+      order_items: [{ id: 'oi-1', order_id: 'o1' }],
+      orders: [{ id: 'o1', customer_user_id: 'cu-A' }],
+    });
+    const { listCustomerUserIdsByOrderItemIds } = await import('./shipment-repository');
+    await listCustomerUserIdsByOrderItemIds(['oi-1']);
+    expect(
+      seen,
+      '改成內嵌 join 了 ⇒ 過濾/展開語意押在本專案無法實測的 PostgREST 行為上' +
+        '(本機是裸 PG、沒有 PostgREST)。',
+    ).toEqual(['order_items', 'orders']);
+  });
+
+  it('🔴🔴 兩次查詢都真的**綁在送進去的那批 id 上**(投影欄與過濾條件逐項核)', async () => {
+    const { queries } = tables({
+      order_items: [
+        { id: 'oi-1', order_id: 'o1' },
+        { id: 'oi-2', order_id: 'o2' },
+      ],
+      orders: [
+        { id: 'o1', customer_user_id: 'cu-A' },
+        { id: 'o2', customer_user_id: 'cu-A' },
+      ],
+    });
+    const { listCustomerUserIdsByOrderItemIds } = await import('./shipment-repository');
+    await listCustomerUserIdsByOrderItemIds(['oi-1', 'oi-2']);
+
+    // 🔴 這條擋的是「反查根本沒綁在輸入上」:把 `.in('id', [...wanted])` 改成任何別的清單,
+    //    上面那些「回幾位客人」的測試**照樣全綠**(codex R2 指出的缺口)。
+    expect(queries[0], '第一段沒有拿送進來的品項 id 去查').toEqual({
+      table: 'order_items',
+      columns: 'id, order_id',
+      filterColumn: 'id',
+      filterValues: ['oi-1', 'oi-2'],
+    });
+    expect(queries[1], '第二段沒有拿第一段查出來的 order_id 去查').toEqual({
+      table: 'orders',
+      columns: 'id, customer_user_id',
+      filterColumn: 'id',
+      filterValues: ['o1', 'o2'],
+    });
+    // 🔴 投影只有兩欄 —— 這條路徑上不得順手多撈金額或 PII。
+    expect(queries[1]!.columns, 'orders 的投影長出第三欄 ⇒ 這支是「只取 id 對照」的窄查詢').not.toMatch(
+      /total|shipping_address_snapshot|invoice/,
+    );
   });
 });

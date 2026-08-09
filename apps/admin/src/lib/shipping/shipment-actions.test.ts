@@ -21,12 +21,14 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('./shipment-candidates', () => ({ loadShipmentCandidates: vi.fn() }));
 const voidShipment = vi.fn();
 const unvoidShipment = vi.fn();
+const listOwners = vi.fn();
 vi.mock('./shipment-repository', () => ({
   createShipment,
   addShipmentItems,
   markShipmentShipped,
   voidShipment,
   unvoidShipment,
+  listCustomerUserIdsByOrderItemIds: listOwners,
 }));
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -35,10 +37,17 @@ const ACTIONS = strip(readFileSync(resolve(HERE, 'shipment-actions.ts'), 'utf8')
 const BAR = strip(
   readFileSync(resolve(HERE, '../../components/orders/shipping-selection.tsx'), 'utf8'),
 );
+/**
+ * 🔴 2026-08-09 起開窗流程(取候選 → 生冪等鍵 → 開窗)**不在勾單列裡**了 ——
+ * 出貨長出第二個入口(詳情頁出貨卡)之後整段搬到 `shipment-launcher.tsx`、兩個入口共用一份。
+ * 本檔守的**性質沒變**(鍵在開窗時生成一次、只有一個生成點),變的只是它住在哪個檔。
+ */
+const LAUNCHER = strip(
+  readFileSync(resolve(HERE, '../../components/orders/shipment-launcher.tsx'), 'utf8'),
+);
 
 const base = {
   idempotencyKey: 'KEY-1',
-  customerUserId: 'cu-1',
   recipient: { name: 'n', phone: 'p', line: 'l' },
   carrierCode: 'hct' as const,
   items: [{ orderItemId: 'oi-1', quantity: 2 }],
@@ -57,6 +66,66 @@ beforeEach(() => {
   markShipmentShipped.mockReset().mockResolvedValue({ idempotent: false });
   voidShipment.mockReset().mockResolvedValue({ idempotent: false });
   unvoidShipment.mockReset().mockResolvedValue({ idempotent: false });
+  // 預設:送出的品項都屬於同一位客人(常態);0 位與 2 位以上另外構造。
+  listOwners.mockReset().mockResolvedValue(new Set(['cu-1']));
+});
+
+describe('🔴🔴 箱子掛誰 — 由 server 從品項反查,client 送不進來', () => {
+  it('建箱用的客人來自 `listCustomerUserIdsByOrderItemIds`(不是 input)', async () => {
+    // 🔴 值刻意與 fixture 的 `cu-1` **不同**:相同的話,「照抄 input」的實作也會全綠。
+    listOwners.mockResolvedValue(new Set(['cu-derived-by-server']));
+    const { submitShipment } = await import('./shipment-actions');
+    await submitShipment(base);
+    expect(listOwners, '沒去反查品項的擁有者').toHaveBeenCalledWith(['oi-1']);
+    expect(
+      createShipment.mock.calls[0]?.[0]?.customerUserId,
+      '建箱用的客人不是 server 反查出來的那位 ⇒ 它的來源仍是瀏覽器裡的一個字串。',
+    ).toBe('cu-derived-by-server');
+  });
+
+  it('🔴 client 硬塞 `customerUserId` 也沒有用(型別外的欄位被完全忽略)', async () => {
+    listOwners.mockResolvedValue(new Set(['cu-real-owner']));
+    const { submitShipment } = await import('./shipment-actions');
+    // 模擬竄改過的 client:多送一個別人的客人 id。
+    await submitShipment({ ...base, customerUserId: 'cu-attacker' } as never);
+    expect(
+      createShipment.mock.calls[0]?.[0]?.customerUserId,
+      '竄改的客人 id 被拿去建箱 ⇒ 會先替錯的人建出一個空箱(半成品,只能作廢),' +
+        '要到掛品項才被 DB 的 pcm_b2_w3b2_item_not_customers 擋下。',
+    ).toBe('cu-real-owner');
+  });
+
+  it('🔴 品項跨兩位客人 → 直接失敗,**一個箱子都不建**', async () => {
+    listOwners.mockResolvedValue(new Set(['cu-A', 'cu-B']));
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok).toBe(false);
+    expect(
+      createShipment,
+      '跨客人卻仍去建箱 ⇒ 箱子建出來了、掛品項才失敗,員工得自己去作廢那個孤兒箱。',
+    ).not.toHaveBeenCalled();
+    expect(r.ok === false && r.shipmentReference, '沒建箱卻回了箱號').toBeNull();
+  });
+
+  it('🔴 一個品項都查不到 → 失敗(fail-closed,不是「沒有限制」)', async () => {
+    listOwners.mockResolvedValue(new Set());
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok).toBe(false);
+    expect(createShipment, '查無擁有者卻照樣建箱').not.toHaveBeenCalled();
+  });
+
+  it('前提 — `SubmitShipmentInput` 型別上沒有 customerUserId 這個欄位', () => {
+    const inputBlock = ACTIONS.slice(
+      ACTIONS.indexOf('export type SubmitShipmentInput'),
+      ACTIONS.indexOf('export type SubmitShipmentResult'),
+    );
+    expect(inputBlock.length, '找不到 SubmitShipmentInput 宣告 ⇒ 本條要重寫').toBeGreaterThan(0);
+    expect(
+      inputBlock,
+      'SubmitShipmentInput 又長回 customerUserId ⇒ client 可以送客人 id,反查那道就被繞過了。',
+    ).not.toMatch(/customerUserId/);
+  });
 });
 
 describe('🔴 冪等鍵 — 三支共用同一把,且本檔不得自己產', () => {
@@ -80,18 +149,23 @@ describe('🔴 冪等鍵 — 三支共用同一把,且本檔不得自己產', ()
   });
 
   it('🔴 鍵在**開窗**時生成一次(不是送出時)—— 生成點只有一個', () => {
-    const hits = [...BAR.matchAll(/randomUUID\(\)/g)].length;
+    const hits = [...LAUNCHER.matchAll(/randomUUID\(\)/g)].length;
     expect(
       hits,
-      `shipping-selection.tsx 裡 randomUUID() 出現 ${hits} 次,期望恰好 1(開窗那一處)。` +
+      `shipment-launcher.tsx 裡 randomUUID() 出現 ${hits} 次,期望恰好 1(開窗那一處)。` +
         '出現在送出路徑上 = 每次重試換新鍵;完全不出現 = 沒有鍵可用。',
     ).toBe(1);
     // 生成點必須在 setOpen(開窗)那一段,不在 submit 相關的 callback 裡
-    const at = BAR.indexOf('randomUUID()');
+    const at = LAUNCHER.indexOf('randomUUID()');
     expect(
-      BAR.slice(Math.max(0, at - 200), at),
+      LAUNCHER.slice(Math.max(0, at - 200), at),
       'randomUUID() 不在 setOpen(…) 附近 ⇒ 可能被移到了送出路徑上',
     ).toMatch(/setOpen\(/);
+    // 🔴 舊生成點必須真的不見了 —— 只加新斷言、舊檔還留一份的話,線上會有兩個鍵源。
+    expect(
+      BAR,
+      'shipping-selection.tsx 還留著一份 randomUUID() ⇒ 搬家沒搬乾淨,兩個入口各自產鍵。',
+    ).not.toMatch(/randomUUID\(\)/);
   });
 });
 
@@ -242,9 +316,11 @@ describe('🔴 Bug 1 — 彈窗不得靠繼承拿字色', () => {
     const src = read('../../components/orders/shipping-selection.tsx');
     const barOpen = src.indexOf('bg-foreground text-background');
     const barClose = src.indexOf('</div>', barOpen);
-    const dialogAt = src.indexOf('<ShipmentDialog');
+    // 🔴 2026-08-09 起彈窗由 `useShipmentLauncher()` 回傳、在這裡以 `{dialog}` 掛出來。
+    //    要守的性質完全沒變:**它掛的位置**不得落在那個深底動作列裡面。
+    const dialogAt = src.indexOf('{dialog}');
     expect(barOpen).toBeGreaterThan(-1);
-    expect(dialogAt).toBeGreaterThan(-1);
+    expect(dialogAt, 'shipping-selection.tsx 掃不到 {dialog} ⇒ 掛法變了,本條要重寫').toBeGreaterThan(-1);
     expect(
       dialogAt > barClose,
       '<ShipmentDialog> 又被放回 `bg-foreground text-background` 容器裡 ⇒ 整個彈窗會繼承白字、' +

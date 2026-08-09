@@ -20,10 +20,12 @@
 //    刪除路徑本來就被 DB 封死;唯一的收拾方式就是作廢,而那該由員工看著辦、不是靜默替他決定。
 
 import { revalidatePath } from 'next/cache';
+import { toMessage } from './error-message';
 import { loadShipmentCandidates, type ShipmentCandidates } from './shipment-candidates';
 import {
   addShipmentItems,
   createShipment,
+  listCustomerUserIdsByOrderItemIds,
   markShipmentShipped,
   unvoidShipment,
   voidShipment,
@@ -32,36 +34,9 @@ import {
   type ShipmentItemInput,
 } from './shipment-repository';
 
-/**
- * 把丟出來的東西轉成**人看得懂的一行字**。
- *
- * 🔴 2026-08-09 Sean 正式站實測:錯誤區塊直接印出 `[object Object]`。
- *    根因:Supabase 丟的是 **`PostgrestError` 這種普通物件**(帶 message / code / details / hint),
- *    **不是 `Error` 實例** ⇒ 舊寫法的三元判斷會落到字串化分支 ⇒ `[object Object]`。
- *    而 DB `RAISE EXCEPTION` 寫的中文就在那個物件的 message 欄裡,
- *    等於**我們把唯一能給員工看的訊息丟掉了**。
- */
-function toMessage(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  if (typeof e === 'object' && e !== null) {
-    const o = e as { message?: unknown; details?: unknown; hint?: unknown };
-    if (typeof o.message === 'string' && o.message !== '') return o.message;
-    if (typeof o.details === 'string' && o.details !== '') return o.details;
-    if (typeof o.hint === 'string' && o.hint !== '') return o.hint;
-    // 🔴 真的沒有可讀欄位時吐 JSON,**也不要吐那個沒有資訊量的字串** —— 對排查零幫助。
-    try {
-      return JSON.stringify(e);
-    } catch {
-      return '未知錯誤(無法序列化)';
-    }
-  }
-  return String(e);
-}
-
 export type SubmitShipmentInput = {
   /** 開彈窗時生成一次、重試沿用同一把。 */
   idempotencyKey: string;
-  customerUserId: string;
   recipient: RecipientSnapshot;
   carrierCode: CarrierCode;
   /** 只有 `carrierCode === 'other'` 時給(且必須給)。 */
@@ -88,9 +63,30 @@ export type SubmitShipmentResult =
 export async function submitShipment(input: SubmitShipmentInput): Promise<SubmitShipmentResult> {
   let reference: string | null = null;
   try {
+    // 🔴🔴 **箱子掛在誰身上,由 server 從「這批品項自己」推導,不收 client 送的客人 id。**
+    //    第一版是把 `customerUserId` 當 input 收進來的 —— 那等於整條的唯一來源是瀏覽器裡的
+    //    一個字串:改成另一位合法客人,`admin_create_shipment` 會**先替錯的人建出一個空箱**,
+    //    要到 `admin_add_shipment_items` 才被 `pcm_b2_w3b2_item_not_customers` 擋下,
+    //    而那時箱子已經在 DB 裡了(半成品,只能作廢)。
+    //    ⇒ 現在改成從 `input.items` 反查:client 就算竄改品項清單,推出來的也是**那些品項真正的
+    //      擁有者**,建箱與掛品項對得起來,構造不出跨客人的箱。
+    const owners = await listCustomerUserIdsByOrderItemIds(input.items.map((i) => i.orderItemId));
+    if (owners.size !== 1) {
+      // fail-closed:0 位(查無品項)與 2 位以上(跨客人)都不建箱,**一個箱子都不留下**。
+      return {
+        ok: false,
+        message:
+          owners.size === 0
+            ? '找不到這些品項所屬的訂單,無法建立包裹(請重新整理後再試)。'
+            : '這些品項不屬於同一位客人,不能裝同一箱。',
+        shipmentReference: null,
+      };
+    }
+    const customerUserId = [...owners][0]!;
+
     const created = await createShipment({
       idempotencyKey: input.idempotencyKey,
-      customerUserId: input.customerUserId,
+      customerUserId,
       recipient: input.recipient,
       carrierCode: input.carrierCode,
       ...(input.carrierNote === undefined ? {} : { carrierNote: input.carrierNote }),

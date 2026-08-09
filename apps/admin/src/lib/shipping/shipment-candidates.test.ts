@@ -2,7 +2,9 @@
 //
 // 🔴 **主守的是鐵則 12**:`AdminOrderDetail.items` 帶成交價(`unitPrice`/`lineTotal`),
 //    而這支的產物是要交給 client 元件的 ⇒ **DTO 裡出現任何金額欄位就是外洩**。
-//    守門兩面:①型別/實作層面不得出現金額欄名 ②實際回傳的物件逐鍵檢查、只有白名單那四個鍵。
+//    守門兩面:①型別/實作層面不得出現金額欄名 ②實際回傳的物件逐鍵檢查、只有白名單那五個鍵
+//    (`orderItemId` / `orderDisplayId` / `variantSku` / `title` / `remaining`;
+//     `variantSku` 是 2026-08-09 追加的料號,非價格欄)。
 //
 // ⚠️ **它擋不住什麼**:mock 證不了真 DB 的數字對不對(無 DB);也證不了 RSC payload ——
 //    `import 'server-only'` 讓誤用變成建置期錯誤,那是機制,不是本檔的斷言。
@@ -14,12 +16,14 @@ import { dirname, resolve } from 'node:path';
 
 const findAdminOrderDetail = vi.fn();
 const listAssigned = vi.fn();
+const listCustomers = vi.fn();
 vi.mock('server-only', () => ({}));
 vi.mock('../orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ findAdminOrderDetail }),
 }));
 vi.mock('./shipment-repository', () => ({
   listAssignedQuantitiesByOrderItemIds: listAssigned,
+  listOrderCustomerUserIds: listCustomers,
 }));
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +40,8 @@ const detail = (over: Record<string, unknown> = {}) => ({
     {
       id: 'oi-1',
       title: 'Akrapovic 鈦合金頭段',
+      // 🔴 料號與品名**刻意不同構**:兩者長得像的話,「把 title 抄成 sku」的實作也會全綠。
+      variantSku: 'S-Y10E9-HGEH',
       quantity: 3,
       unitPrice: { amount: 61500, currency: 'TWD' },
       lineTotal: { amount: 184500, currency: 'TWD' },
@@ -49,6 +55,14 @@ beforeEach(() => {
   findAdminOrderDetail.mockReset();
   listAssigned.mockReset();
   listAssigned.mockResolvedValue(new Map());
+  listCustomers.mockReset();
+  // 預設:兩張 fixture 單同屬一位客人(這才是常態;跨客人是另外構造的負向格)。
+  listCustomers.mockResolvedValue(
+    new Map([
+      ['o1', 'cu-same'],
+      ['o2', 'cu-same'],
+    ]),
+  );
 });
 
 describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
@@ -62,15 +76,15 @@ describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
     ).toEqual([]);
   });
 
-  it('🔴 實際回傳的品項物件只有白名單四個鍵(逐鍵檢查,不是只看型別)', async () => {
+  it('🔴 實際回傳的品項物件只有白名單五個鍵(逐鍵檢查,不是只看型別)', async () => {
     findAdminOrderDetail.mockResolvedValue(detail());
     const { loadShipmentCandidates } = await import('./shipment-candidates');
     const r = await loadShipmentCandidates(['o1']);
     expect(r.items.length).toBe(1);
     expect(
       Object.keys(r.items[0]!).sort(),
-      '品項 DTO 的鍵不是白名單那四個 ⇒ 有人把 detail 的欄位整包展開進來了',
-    ).toEqual(['orderDisplayId', 'orderItemId', 'remaining', 'title']);
+      '品項 DTO 的鍵不是白名單那五個 ⇒ 有人把 detail 的欄位整包展開進來了',
+    ).toEqual(['orderDisplayId', 'orderItemId', 'remaining', 'title', 'variantSku']);
   });
 
   it('前提 — 本檔必須有 `import \'server-only\'`(誤用變建置期錯誤,不是上線才發現)', () => {
@@ -149,11 +163,107 @@ describe('多張訂單 · 邊界', () => {
 
   it('空輸入 / 查無訂單 → 空清單,不打後續查詢', async () => {
     const { loadShipmentCandidates } = await import('./shipment-candidates');
-    expect(await loadShipmentCandidates([])).toEqual({ items: [], recipient: null });
+    expect(await loadShipmentCandidates([])).toEqual({
+      items: [],
+      customerUserId: null,
+      recipient: null,
+    });
     expect(findAdminOrderDetail).not.toHaveBeenCalled();
 
     findAdminOrderDetail.mockResolvedValue(null);
-    expect(await loadShipmentCandidates(['nope'])).toEqual({ items: [], recipient: null });
+    expect(await loadShipmentCandidates(['nope'])).toEqual({
+      items: [],
+      customerUserId: null,
+      recipient: null,
+    });
     expect(listAssigned, '查無訂單時仍去查已配箱數量 ⇒ 多打一次沒有意義的 DB').not.toHaveBeenCalled();
+    expect(listCustomers, '查無訂單時仍去查客人 ⇒ 同上').not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// D-373-A 任務 1:料號 + server 端客人身分。
+// ─────────────────────────────────────────────────────────────
+describe('料號(2026-08-09 Sean 實測後追加)', () => {
+  it('🔴 DTO 帶 `variantSku`,值取自品項本身(不是抄品名、不是抄單號)', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(
+      r.items[0]!.variantSku,
+      '料號不見了或被抄成別欄 ⇒ 員工在彈窗裡對不到實物上的標籤,' +
+        '而「訂單編號 + 商品名稱 + 料號三件都在」正是 Sean 實測後逐字要的。',
+    ).toBe('S-Y10E9-HGEH');
+  });
+
+  it('🔴 料號是**每列各自的**,不是整批共用一個值', async () => {
+    const base = detail().items[0]!;
+    findAdminOrderDetail.mockResolvedValue(
+      detail({
+        items: [
+          base,
+          { ...base, id: 'oi-2', title: '另一件', variantSku: 'K-9921-BLK' },
+        ],
+      }),
+    );
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(
+      r.items.map((i) => i.variantSku),
+      '兩列的料號一樣 ⇒ 實作可能是取第一筆再套給全部,員工會照著錯的料號撿貨',
+    ).toEqual(['S-Y10E9-HGEH', 'K-9921-BLK']);
+  });
+});
+
+describe('🔴🔴 第 ③ 道閘 — 客人身分由 server 查、跨客人不給建箱', () => {
+  it('單一客人 → 回那位客人的 id(值來自 `orders`,不是輸入)', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listCustomers.mockResolvedValue(new Map([['o1', 'cu-from-db']]));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    expect((await loadShipmentCandidates(['o1'])).customerUserId).toBe('cu-from-db');
+  });
+
+  it('🔴 兩張單屬於不同客人 → `null`(呼叫端開不了窗,不會送出一箱裝兩位客人)', async () => {
+    findAdminOrderDetail
+      .mockResolvedValueOnce(detail())
+      .mockResolvedValueOnce(detail({ id: 'o2', displayId: 'PCM-0002' }));
+    listCustomers.mockResolvedValue(
+      new Map([
+        ['o1', 'cu-A'],
+        ['o2', 'cu-B'],
+      ]),
+    );
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1', 'o2']);
+    expect(
+      r.customerUserId,
+      '跨客人卻吐出一個客人 id ⇒ 建箱 RPC 會拿其中一位去建,另一位的品項在掛品項時被 DB 退件,' +
+        '而箱子已經建出來了(半成品)。',
+    ).toBeNull();
+    expect(r.items.length, '品項清單本身不受影響(擋的是建箱、不是顯示)').toBe(2);
+  });
+
+  it('🔴 有訂單查不到客人 → `null`(不是拿剩下那位「湊」一個出來)', async () => {
+    findAdminOrderDetail
+      .mockResolvedValueOnce(detail())
+      .mockResolvedValueOnce(detail({ id: 'o2', displayId: 'PCM-0002' }));
+    // o2 不在 Map 裡 = 它的 customer_user_id 是 null 或那列讀不到。
+    listCustomers.mockResolvedValue(new Map([['o1', 'cu-A']]));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    expect(
+      (await loadShipmentCandidates(['o1', 'o2'])).customerUserId,
+      '少一張單的客人卻照樣回傳 ⇒ 那張單的品項會被掛進別人的箱子。',
+    ).toBeNull();
+  });
+
+  it('前提 — 只拿「查得到明細」的單去問客人(否則查無會被誤判成跨客人)', async () => {
+    findAdminOrderDetail
+      .mockResolvedValueOnce(detail())
+      .mockResolvedValueOnce(null); // o2 查無
+    listCustomers.mockResolvedValue(new Map([['o1', 'cu-A']]));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1', 'o2']);
+    expect(listCustomers, '拿了沒濾過的輸入清單去問').toHaveBeenCalledWith(['o1']);
+    expect(r.customerUserId, '一張單查無就整批建不了箱 ⇒ 員工會卡在一個沒有解釋的錯誤').toBe('cu-A');
   });
 });

@@ -10,6 +10,18 @@
 // 🔴 **props 不收 `AdminOrderSummary` / `AdminOrderDetail`**(同 2b-1 紅線):
 //    候選品項走 `ShipmentCandidateItem`(server 端算好的最小 DTO、零金額)。
 //
+// 🔴 **也不收 `customerUserId`。** 第一版收了,而那等於「箱子掛誰」的唯一來源是瀏覽器裡的
+//    一個字串(改成另一位合法客人 ⇒ 先替錯的人建出空箱,要到掛品項才被 DB 擋)。
+//    現在客人由 `submitShipment` **從送出的品項自己反查**,client 沒有這個欄位可以送。
+//
+// 🔴 **送出中不給關窗**(`busy` 時 ✕ disabled)。允許關窗會開出兩個洞:
+//    ①關掉再開 ⇒ 新的冪等鍵 ⇒ 同一批貨真的建出第二箱;
+//    ②飛在半空的那次送出回來後仍會呼叫 `onDone`,把**新開的**彈窗關掉。
+//    ⚠️ 這道鎖的**代價**:`busy` 一旦回不來,彈窗就關不掉 ⇒ `run()` 的 `finally` 是承重的(見下)。
+//    🔴 **剩下的天花板**:請求真的永遠不回(網路吊死)時仍然只能重整頁面 —— 這裡**沒有** timeout。
+//    不做 timeout 是刻意的:計時器到了要嘛謊稱失敗(其實可能成功了)、要嘛解鎖讓人再按一次
+//    (那就回到重複建箱)。兩個都比「重整一次、去出貨卡看箱子在不在」更糟。
+//
 // 🔴 **同一個品項只有一列 + 數量框**:`admin_add_shipment_items` 會退回同一份清單裡
 //    重複的 `order_item_id` 並要求合併數量 ⇒ 畫面上不提供「再加一次」。
 //
@@ -17,6 +29,7 @@
 //    先擋只是不要讓員工按了才看到錯誤。
 
 import { useCallback, useMemo, useState } from 'react';
+import { toMessage } from '../../lib/shipping/error-message';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 import { submitShipment, type SubmitShipmentResult } from '../../lib/shipping/shipment-actions';
 
@@ -29,14 +42,12 @@ const CARRIERS = [
 ] as const;
 
 export function ShipmentDialog({
-  customerUserId,
   candidates,
   recipient,
   idempotencyKey,
   onClose,
   onDone,
 }: {
-  customerUserId: string;
   candidates: readonly ShipmentCandidateItem[];
   recipient: Recipient;
   /** 🔴 由呼叫端生成、整段重試沿用同一把(見檔頭)。 */
@@ -80,21 +91,42 @@ export function ShipmentDialog({
     async (markShipped: boolean) => {
       setBusy(true);
       setResult(null);
-      const r = await submitShipment({
-        idempotencyKey, // 🔴 不重生:重試沿用同一把
-        customerUserId,
-        recipient: { name: recipient.name ?? '', phone: recipient.phone ?? '', line: recipient.line ?? '' },
-        carrierCode: carrier,
-        ...(carrier === 'other' ? { carrierNote: note.trim() } : {}),
-        items: chosen,
-        ...(markShipped && tracking.trim() !== '' ? { trackingNumber: tracking.trim() } : {}),
-        markShipped,
-      });
-      setResult(r);
-      setBusy(false);
-      if (r.ok) onDone();
+      try {
+        const r = await submitShipment({
+          idempotencyKey, // 🔴 不重生:重試沿用同一把
+          recipient: { name: recipient.name ?? '', phone: recipient.phone ?? '', line: recipient.line ?? '' },
+          carrierCode: carrier,
+          ...(carrier === 'other' ? { carrierNote: note.trim() } : {}),
+          items: chosen,
+          ...(markShipped && tracking.trim() !== '' ? { trackingNumber: tracking.trim() } : {}),
+          markShipped,
+        });
+        setResult(r);
+        if (r.ok) onDone();
+      } catch (e) {
+        // 🔴🔴 **這個 catch 是承重的。** `submitShipment` 是 server action:它**自己內部**的錯誤
+        //    會被包成 `{ok:false}` 回來,但**傳輸層**失敗(斷網、部署換版、RSC 回應壞掉)是直接 throw。
+        //    少了它,`busy` 永遠停在 true,而 ✕ 是 `disabled={busy}` ⇒
+        //    **員工被鎖在一個關不掉的彈窗裡,只能重整頁面** —— 那正是我為了擋「送出中關窗」
+        //    而親手做出來的回歸(codex R2 抓到)。
+        // 🔴🔴 **這句話要叫他「再按一次」,不是「關掉重整」。** 第一版寫成後者,而那是**最糟**的動作:
+        //    ①冪等鍵存在這個彈窗的 state 裡 ⇒ **關窗就丟了**,下次開窗是新鍵 ⇒ 真的建出第二箱。
+        //    ②`createShipment` 成功、`addShipmentItems` 之前斷線的話,那是一個**沒有品項的空箱** ——
+        //      而訂單詳情頁的出貨卡是「由品項反查箱」畫出來的(`loadOrderShipments`)
+        //      ⇒ **空箱在出貨卡上根本看不到**,叫他去那裡找等於叫他去看一個不會顯示的東西。
+        //    ⇒ 正解就是本檔開頭那條紀律:**同一把鍵再送一次**,建箱會被認成重放(不會多一箱),
+        //      掛品項接著補上。(codex R3 抓到:我的文案與本檔自己寫的復原路徑互相矛盾。)
+        setResult({
+          ok: false,
+          message: `${toMessage(e)}(送出中斷線或伺服器沒回應。⚠️ 請**直接再按一次同一顆按鈕** —— 這個視窗還握著同一把冪等鍵,重送不會重複建箱。🔴 不要關掉視窗重來:關掉就換一把鍵了,那才會真的多出一箱。)`,
+          shipmentReference: null,
+        });
+      } finally {
+        // 🔴 一定要在 `finally`:寫在 try 尾巴的話,上面那條 throw 路徑會跳過它、鎖死照舊。
+        setBusy(false);
+      }
     },
-    [idempotencyKey, customerUserId, recipient, carrier, note, chosen, tracking, onDone],
+    [idempotencyKey, recipient, carrier, note, chosen, tracking, onDone],
   );
 
   return (
@@ -112,7 +144,15 @@ export function ShipmentDialog({
       >
         <div className='flex items-center justify-between border-b px-4 py-3'>
           <h3 className='font-semibold'>建立包裹</h3>
-          <button type='button' onClick={onClose} className='text-muted-foreground px-2' aria-label='關閉'>
+          {/* 🔴 送出中不給關 —— 見檔頭那兩個洞。`disabled` 同時擋掉滑鼠與鍵盤(Enter/Space)。 */}
+          <button
+            type='button'
+            disabled={busy}
+            onClick={onClose}
+            className='text-muted-foreground px-2 disabled:opacity-40'
+            aria-label={busy ? '送出中,請等結果出來再關閉' : '關閉'}
+            title={busy ? '送出中,關掉會讓同一批貨可能被建成兩箱' : undefined}
+          >
             ✕
           </button>
         </div>
@@ -126,7 +166,15 @@ export function ShipmentDialog({
             {candidates.map((c) => (
               <li key={c.orderItemId} className='flex items-center gap-3 px-3 py-2'>
                 <span className='text-muted-foreground w-24 shrink-0 font-mono text-xs'>{c.orderDisplayId}</span>
-                <span className='min-w-0 flex-1 truncate text-sm'>{c.title ?? '—'}</span>
+                {/* 🔴 2026-08-09 Sean 實測後追加:一列要**三件都在** —— 訂單編號 + 商品名稱 + 料號。
+                    料號另起一行而不是擠在品名後面:品名長、擠同一行會被 truncate 先吃掉料號,
+                    而料號正是員工對著實物核對的那一欄。 */}
+                <span className='min-w-0 flex-1'>
+                  <span className='block truncate text-sm'>{c.title ?? '—'}</span>
+                  <span className='text-muted-foreground block truncate font-mono text-xs'>
+                    {c.variantSku}
+                  </span>
+                </span>
                 <span className='text-muted-foreground shrink-0 text-xs'>還能出 {c.remaining}</span>
                 {/* 🔴 數量框,不是「再加一次」—— 同一份清單裡重複的 order_item_id 會被 DB 退件 */}
                 <input
