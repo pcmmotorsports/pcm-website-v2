@@ -274,6 +274,80 @@ export async function listAssignedQuantitiesByOrderItemIds(
 }
 
 /**
+ * 給一組訂單 id,查出各自掛在哪位客人下。
+ *
+ * 🔴 **為什麼不從 `AdminOrderDetail` 拿**:那份讀模型沒有 customer id,而它的白名單
+ * `ADMIN_ORDER_DETAIL_SELECT` 是**帶 PII 的明細專用**白名單 —— 為了一個 id 去動它又是一輪鐵則 12。
+ * 這裡只投影 `id, customer_user_id` 兩欄:零金額、零 PII,是最便宜的取法。
+ *
+ * 🔴 **這條的用途是「不信任 client 送來的客人 id」**:建箱時客人身分改由 server 從 `orders`
+ * 自己查(見 `shipment-candidates.ts`),client 沒有機會送一個別人的 id 進來。
+ *
+ * ⚠️ `orders.customer_user_id` 是 **NOT NULL**(`database.types.ts` 的 `orders.Insert`
+ * 把它列為必填、非 nullable)⇒ 下面那個 `typeof === 'string'` **不是在處理 null 值**,
+ * 它處理的是「這一列根本沒讀到」那類契約破裂。查不到的 id 只是**不出現在 Map 裡**,
+ * 呼叫端會因此判定「這批單沒有共同客人」而不給建箱 —— fail-closed,不會拿半個答案去打 RPC。
+ */
+export async function listOrderCustomerUserIds(
+  orderIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (orderIds.length === 0) return new Map();
+  const { data, error } = await createSupabaseServiceClient()
+    .from('orders')
+    .select('id, customer_user_id')
+    .in('id', [...orderIds]);
+  if (error) throw error;
+  const out = new Map<string, string>();
+  for (const r of data ?? []) {
+    if (typeof r.customer_user_id === 'string' && r.customer_user_id !== '') {
+      out.set(r.id, r.customer_user_id);
+    }
+  }
+  return out;
+}
+
+/**
+ * 給一組**訂單品項** id,查出它們分別屬於哪位客人(去重後的集合)。
+ *
+ * 🔴🔴 **這是建箱時「箱子掛誰」的唯一來源**(見 `shipment-actions.ts` 的 `submitShipment`)。
+ * 從**品項本身**反查,而不是收 client 送來的客人 id:client 就算竄改品項清單,
+ * 推出來的也是那些品項真正的擁有者 ⇒ 建箱與掛品項對得起來,構造不出跨客人的箱。
+ *
+ * ⚠️ **刻意分兩次查、不用內嵌 join**:內嵌層的過濾/展開語意押在
+ * **本專案無法實測**的 PostgREST 行為上(本機是裸 PG、沒有 PostgREST;
+ * `SupabaseOrderAdapter.ts:408-413` 那段註解逐字說明過這件事)。
+ * 兩次平凡的 `.in()` 查詢沒有這個不確定性,而這條路徑上的筆數是個位數。
+ */
+export async function listCustomerUserIdsByOrderItemIds(
+  orderItemIds: readonly string[],
+): Promise<Set<string>> {
+  const wanted = new Set(orderItemIds);
+  if (wanted.size === 0) return new Set();
+
+  const { data, error } = await createSupabaseServiceClient()
+    .from('order_items')
+    .select('id, order_id')
+    .in('id', [...wanted]);
+  if (error) throw error;
+  const rows = data ?? [];
+
+  // 🔴 **有任何一個品項查不到就整批不算數**(回空集合 ⇒ 呼叫端 fail-closed)。
+  //    漏掉這道的話:清單裡混一個不存在的品項時,剩下的仍推出「恰好一位客人」⇒ 箱子照建,
+  //    那個假品項要到掛品項才被 FK 擋掉,而**箱子已經留在 DB 裡了**(禁刪、只能作廢)。
+  // ⚠️ **已知天花板**(codex R3,nit):PostgREST 預設單次回傳上限 1000 列。一次送超過 1000 個
+  //    品項時這裡會被靜默截斷 ⇒ 本條把它判成「查不到」而擋下建箱。**方向是安全的**
+  //    (擋下、不是建錯箱),症狀是合法操作被誤擋。實務上一箱是個位數品項 ⇒ 不預先加分頁,
+  //    真的撞到再說。**不要**把這道改成寬鬆比較來「修」它 —— 那會把上面那個洞打開。
+  if (rows.length !== wanted.size) return new Set();
+
+  const orderIds = [...new Set(rows.map((r) => r.order_id))];
+  const byOrder = await listOrderCustomerUserIds(orderIds);
+  // 🔴 同理:有訂單查不到客人就整批不算數,不拿剩下那位「湊」一個出來。
+  if (byOrder.size !== orderIds.length) return new Set();
+  return new Set(byOrder.values());
+}
+
+/**
  * 給一組訂單品項 id,查出它們分別裝在哪些箱(訂單詳情頁的出貨卡用)。
  *
  * ⚠️ 回傳的箱子**可能還裝著別單的品項** —— 箱子掛客人不掛訂單。

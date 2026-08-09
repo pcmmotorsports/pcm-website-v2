@@ -23,14 +23,14 @@
 // 🔴 **沒有全選框**(C 版線框上那句話):全選必然跨客人,而跨客人裝同一箱一定被退件。
 //    畫面上不提供一個「按了一定失敗」的按鈕。
 //
-// 🔴 **冪等鍵在這裡生成(開窗時一次),不在 action 裡生成。**
-//    `crypto.randomUUID()` 只出現在「開窗」那一個地方;送出與重試都沿用同一把。
-//    守門釘住:`shipment-actions.ts` 不得出現任何鍵產生器。
+// 🔴 **冪等鍵在開窗時生成一次,不在 action 裡生成。**
+//    ⚠️ 那段邏輯 2026-08-09 起**不在本檔** —— 出貨長出第二個入口(詳情頁出貨卡)之後,
+//    開窗流程整段搬到 `shipment-launcher.tsx` 的 `useShipmentLauncher()`,兩個入口共用一份。
+//    複製第二份的代價是**冪等紀律變成兩份**,而其中一份走鐘不會有任何症狀。
+//    守門釘住:`crypto.randomUUID()` 全線只出現在 launcher,`shipment-actions.ts` 零鍵產生器。
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { ShipmentDialog } from './shipment-dialog';
-import { fetchShipmentCandidates } from '../../lib/shipping/shipment-actions';
-import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates';
+import { useShipmentLauncher } from './shipment-launcher';
 
 type SelectionState = {
   /** 目前這批勾選屬於哪位客人;`null` = 還沒勾任何單。 */
@@ -144,31 +144,8 @@ export function OrderShipCheckbox({
 /** 勾選後浮出的動作列。沒勾任何單時整條不渲染(不佔位、不留一個 disabled 的鈕在那裡)。 */
 export function ShippingSelectionBar() {
   const s = useSelection();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  /**
-   * 開著的彈窗。`key` 是**冪等鍵**,在**開窗時生成一次**、整段重試沿用。
-   * 🔴 不要移到送出時生成 —— 那樣每次重試都是新鍵,冪等層完全失效**而且零症狀**
-   *    (連按兩次真的建出兩個箱子,兩次都回報成功)。
-   */
-  const [open, setOpen] = useState<{ key: string; data: ShipmentCandidates } | null>(null);
-
-  const openDialog = useCallback(async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      const data = await fetchShipmentCandidates(s.orderIds);
-      if (data.items.length === 0) {
-        setError('這些訂單沒有可出貨的品項(可能都已取消,或已經裝進其他箱子了)。');
-        return;
-      }
-      setOpen({ key: crypto.randomUUID(), data });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [s.orderIds]);
+  // 🔴 開窗流程走共用 hook(見檔頭)。成功後清空勾選 —— 那些單的東西已經進箱了。
+  const { loading, error, openDialog, dialog } = useShipmentLauncher(s.orderIds, s.clear);
 
   if (s.orderIds.length === 0) return null;
 
@@ -205,20 +182,7 @@ export function ShippingSelectionBar() {
         根因就是它原本是那個 `bg-foreground text-background`(深底白字)容器的子節點、
         整個彈窗繼承到白字。搬出來 + 面板自己設 `text-foreground`(見 shipment-dialog.tsx)= 兩道。
         ⚠️ 它是 `fixed inset-0` 的覆蓋層,本來就不該是某個列的子節點 —— 搬出來也比較正確。 */}
-    {open !== null && s.customerUserId !== null && (
-      <ShipmentDialog
-        customerUserId={s.customerUserId}
-        candidates={open.data.items}
-        recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
-        idempotencyKey={open.key}
-        onClose={() => setOpen(null)}
-        onDone={() => {
-          // 成功之後清空勾選並關窗;下一次開窗會生成**新的**冪等鍵(那是另一箱)。
-          setOpen(null);
-          s.clear();
-        }}
-      />
-    )}
+    {dialog}
     </>
   );
 }

@@ -12,7 +12,7 @@
 
 import { afterEach, describe, expect, it, vi} from 'vitest';
 import { cleanup, render, screen, fireEvent } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import {
@@ -40,6 +40,8 @@ const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.
 const TABLE = strip(readFileSync(resolve(HERE, 'orders-table.tsx'), 'utf8'));
 const TABLE_RAW = readFileSync(resolve(HERE, 'orders-table.tsx'), 'utf8');
 const ISLAND = strip(readFileSync(resolve(HERE, 'shipping-selection.tsx'), 'utf8'));
+const LAUNCHER = strip(readFileSync(resolve(HERE, 'shipment-launcher.tsx'), 'utf8'));
+const SECTION = strip(readFileSync(resolve(HERE, 'shipment-section.tsx'), 'utf8'));
 
 // 🔴 跨測試殘留的 DOM 會讓 getAllByRole 撈到上一個測試的框(數量對不上、或斷言打到別人的節點)。
 afterEach(cleanup);
@@ -272,6 +274,95 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
         'z-10 容器後面找不到 <OrderShipCheckbox ⇒ 浮起來的可能是別的東西,勾選框仍被蓋住',
       ).toMatch(/<OrderShipCheckbox/);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// D-373-A 任務 1-2:詳情頁出貨卡的「建立包裹」入口 + 開窗邏輯單一實作。
+// ─────────────────────────────────────────────────────────────
+describe('🔴 建箱動線只有一份實作(兩個入口、同一個彈窗)', () => {
+  /** 這個資料夾裡所有非測試的元件檔。用掃目錄而不是寫死清單 —— 有人加第三個入口時本條仍然生效。 */
+  const COMPONENTS = readdirSync(HERE)
+    .filter((f) => f.endsWith('.tsx') && !f.endsWith('.test.tsx'))
+    .map((f) => ({ f, src: strip(readFileSync(resolve(HERE, f), 'utf8')) }));
+
+  it('🔴 `<ShipmentDialog` 全資料夾只被**一個**檔渲染(複製第二份 = 冪等紀律也被複製)', () => {
+    const users = COMPONENTS.filter(
+      ({ f, src }) => f !== 'shipment-dialog.tsx' && src.includes('<ShipmentDialog'),
+    ).map(({ f }) => f);
+    expect(
+      users,
+      `渲染 <ShipmentDialog> 的檔:${users.join(', ')}。期望只有 shipment-launcher.tsx。` +
+        '🔴 複製第二份的代價不是多幾行 —— 是開窗時生冪等鍵那條紀律變成兩份,' +
+        '而其中一份被改成「送出時生鍵」**不會有任何症狀**(連按兩次真的建出兩箱、兩次都回報成功)。',
+    ).toEqual(['shipment-launcher.tsx']);
+  });
+
+  it('🔴 建箱的冪等鍵只在 launcher 生成(勾單列與出貨卡都不得自己產鍵)', () => {
+    expect(
+      [...LAUNCHER.matchAll(/crypto\.randomUUID\(/g)].length,
+      'launcher 裡的 randomUUID 不是恰好 1 次 ⇒ 可能有第二個生成點(例如送出時又生一把)',
+    ).toBe(1);
+    for (const [name, src] of [
+      ['shipping-selection.tsx', ISLAND],
+      ['shipment-section.tsx', SECTION],
+    ] as const) {
+      expect(
+        src,
+        `${name} 自己產了冪等鍵 ⇒ 它繞過了 launcher 那條「開窗生一次、重試沿用」的紀律。`,
+      ).not.toMatch(/crypto\.randomUUID\(/);
+    }
+  });
+
+  it('取候選也只有一個呼叫點(`fetchShipmentCandidates`)', () => {
+    const callers = COMPONENTS.filter(({ src }) => src.includes('fetchShipmentCandidates')).map(
+      ({ f }) => f,
+    );
+    expect(callers, `呼叫 fetchShipmentCandidates 的檔:${callers.join(', ')}`).toEqual([
+      'shipment-launcher.tsx',
+    ]);
+  });
+});
+
+describe('🔴🔴 鐵則 12 — launcher 同樣不得收整包訂單', () => {
+  it('launcher 的原始碼不得出現金額/等級欄名或讀模型型別', () => {
+    const forbidden = ['AdminOrderSummary', 'AdminOrderDetail', 'order:', 'summary:', 'total', 'tierAtCheckout'];
+    const bad = forbidden.filter((t) => LAUNCHER.includes(t));
+    expect(
+      bad,
+      `shipment-launcher.tsx(client 元件)出現了這些字面:${bad.join(', ')}。` +
+        '它和 shipping-selection.tsx 同一條紅線:整包讀模型進 client props = 序列化進 RSC payload。',
+    ).toEqual([]);
+  });
+
+  it('🔴 出貨卡只傳訂單 id 進 client 元件(不是整包 detail)', () => {
+    const call = SECTION.match(/<OrderShipButton([^/>]*)\/>/)?.[1] ?? '';
+    expect(call, 'shipment-section.tsx 掃不到 <OrderShipButton … /> ⇒ 入口不見了或掛法變了').not.toBe('');
+    expect(
+      call,
+      `出貨卡把整包 detail 傳進 client 元件了:${call.trim()}。只能傳 orderId={detail.id}。` +
+        'AdminOrderDetail 帶成交價與客人 PII。',
+    ).not.toMatch(/detail=\{detail\}|\{\.\.\.detail\}/);
+    expect(call, `少了 orderId:${call.trim()}`).toMatch(/orderId=\{detail\.id\}/);
+  });
+
+  it('前提 — 出貨卡本體仍是 server component(沒有整支轉 client)', () => {
+    const raw = readFileSync(resolve(HERE, 'shipment-section.tsx'), 'utf8');
+    expect(
+      raw.slice(0, 400),
+      "shipment-section.tsx 檔首出現了 'use client' ⇒ 整支被轉成 client," +
+        '它拿的是 AdminOrderDetail(成交價 + PII)⇒ 整包進 bundle。',
+    ).not.toMatch(/'use client'/);
+  });
+
+  it('🔴 空狀態那句話不得再說「只能到列表建箱」(現在卡上就有入口,舊句是假的)', () => {
+    const hasEntry = SECTION.includes('<OrderShipButton');
+    const stale = /建箱請到<b>訂單列表<\/b>/.test(SECTION);
+    expect(
+      hasEntry && !stale,
+      '卡上已經有「建立包裹」入口,空狀態卻還在叫員工回列表 ⇒ 畫面自己和自己矛盾,' +
+        '而員工會照著那句話多繞一趟。',
+    ).toBe(true);
   });
 });
 

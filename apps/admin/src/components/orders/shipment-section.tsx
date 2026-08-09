@@ -12,6 +12,7 @@
 
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadOrderShipments } from '../../lib/shipping/order-shipments';
+import { OrderShipButton } from './shipment-launcher';
 import { ShipmentVoidButton } from './shipment-void-button';
 
 const CARRIER_LABEL: Record<string, string> = {
@@ -27,11 +28,18 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
 
   return (
     <section className='rounded-lg border bg-card p-4'>
-      <h2 className='mb-3 font-semibold'>出貨</h2>
+      {/* 🔴 2026-08-09 Sean 實測後追加:出貨卡要能**直接出貨**,不必先回列表勾單。
+          等於單張訂單版的勾單流程(預選 = 本單全部還能出的品項),
+          走的是**同一個** `useShipmentLauncher` 與同一個彈窗 —— 不是第二份實作。 */}
+      <div className='mb-3 flex flex-wrap items-start justify-between gap-2'>
+        <h2 className='font-semibold'>出貨</h2>
+        <OrderShipButton orderId={detail.id} />
+      </div>
 
       {groups.length === 0 ? (
         <p className='text-muted-foreground text-sm'>
-          這張訂單還沒有任何包裹。建箱請到<b>訂單列表</b>勾選這位客人的單、按「出貨」。
+          這張訂單還沒有任何包裹。按右上角<b>建立包裹</b>直接出這一單;要和這位客人的其他訂單裝同一箱,
+          請到<b>訂單列表</b>勾選那幾張單、按「出貨」。
         </p>
       ) : (
         <ul className='space-y-3'>
