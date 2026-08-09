@@ -355,8 +355,19 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    🔴 **本次施工窗只重釘、未重跑**(全跑成本高、且主視窗 `B-199-A` ④ 已裁「收割不重跑它、
 #       職責由 W5 線級接手一半、**apply 前 preflight 重釘+全跑一次**」)⇒ 這條仍是 apply 前的欠款,
 #       不得因為釘值更新了就當它已驗。
-[ "$NEWEST_TS" = "20260808100000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260808100000 ——
+# 🔴 重釘(2026-08-09 W7d-3 落檔 `20260809020000`):該片是 **assert-only** ——
+#    逐條核過 `CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE` **全部零命中**,
+#    只有一個 DO block 與一個 `COMMENT ON FUNCTION`。⇒ **結構 oracle 無需增列**
+#    (閘要求的第二步在本片是 no-op,但這是查出來的、不是跳過的)。
+#    `COMMENT` 不進 `pg_get_functiondef` ⇒ 任何函式體 md5 釘值也不受影響。
+#    🔴 閘點名的 `MD5_HELPER_4AXIS`(:274)**不需重量**,而且這是**實測**不是推理:
+#       `scripts/w7d3-verify.sh` 的 `BASE_MD5` 在被測物套用**之前**抓,`RESTORE-CLEAN` 格在
+#       migration(含那句 `COMMENT ON FUNCTION`)套完之後比對 —— **相同**、該格綠。
+#       ⇒ 實測證明本片沒動到 `pg_get_functiondef` 的輸出;4AXIS 是它扣掉述詞行的子集,更不會變。
+#    🔴 本片同樣**只重釘、未重跑** b2s2b —— 沿用主視窗 `B-199-A` ④ 的裁定(見上方),
+#       apply 前 preflight 仍要重釘+全跑一次,這條欠款不因釘值更新而消失。
+[ "$NEWEST_TS" = "20260809020000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809020000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 

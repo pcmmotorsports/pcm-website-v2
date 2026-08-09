@@ -96,7 +96,12 @@ cap() {
 # 🔴🔴 **第三次重釘(W4-1 落檔)**:W4-1 把 W0b 那兩支 trigger 函式的 REVOKE 補上了
 #    ⇒ **下面的 `ACL_EXEMPT` 具名例外必須撤掉**。當初留例外時就寫了「修掉那天本格會紅、逼人回收例外」——
 #    這次就是那一天。例外留著不撤 = 它會從「誠實的記帳」變成「永久的謊」。
-LINE_TIP="20260808100000"
+# 🔴 重釘(2026-08-09 W7d-3 落檔 `20260809020000`):該片是 **assert-only** ——
+#    逐條核過 `CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE` **全部零命中**,
+#    只有一個 DO block 與一個 `COMMENT ON FUNCTION`。⇒ **結構 oracle 無需增列**
+#    (閘要求的第二步在本片是 no-op,但這是查出來的、不是跳過的)。
+#    `COMMENT` 不進 `pg_get_functiondef` ⇒ 任何函式體 md5 釘值也不受影響。
+LINE_TIP="20260809020000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
