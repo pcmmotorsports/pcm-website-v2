@@ -44,7 +44,36 @@ MODE="${1:-check}"
 # 目錄裡的 W 線 harness 檔案集合。🔴 排除本檔自己(它沒有被測物、不是 harness)與收據檔。
 # 🔴 `^w[0-9]` 是命名慣例不是機制:未來若有人把 harness 取成別的開頭,它對本檔隱形。
 #    今天 19 支全部符合(逐支實查),這是**慣例債**、寫下來不假裝沒有。
-harness_set() { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$' | sort; }
+# 🔴 2026-08-09 W7 跟片:`b2s2b-verify.sh` **收編進帳**(B-222-A ②-2 裁准)。
+#    動機事故:08-09 中午跨線重釘漏掉它,而 `check` 27/0 對那個漏**零判別力** ——
+#    因為它不在本集合裡。`^w[0-9]` 是命名慣例,慣例外的 harness 對本檔隱形。
+#    ⇒ 改成**顯式併集**:慣例撈到的 + 一份具名清單。慣例本身仍是債(見上),但不再是唯一入口。
+EXTRA_HARNESSES="b2s2b-verify.sh"
+harness_set() {
+  { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$'
+    for e in $EXTRA_HARNESSES; do [ -f "$SCRIPTS/$e" ] && printf '%s\n' "$e"; done
+  } | sort
+}
+
+# 🔴 **不是每支 harness 都是「無參數、exit 0」** —— 這是收編 b2s2b 時才發現的:
+#    `b2s2b-verify.sh:198-201` 要 MODE + workdir,且 **PORT 必須顯式帶**(它自己 plan §3.6
+#    刻意不給預設值,那是別片的設計決定,不為了我方便而改掉)。
+#    ⇒ 呼叫方式與允許出口碼都改成**每支各自查表**,預設維持「無參數 / 只准 exit 0」。
+invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
+  case "$1" in
+    b2s2b-verify.sh) printf 'PORT=54365 bash scripts/%s all /tmp/b2s2bv' "$1" ;;
+    *)               printf 'bash scripts/%s' "$1" ;;
+  esac
+}
+exits_of() {   # $1=harness 檔名 → 印出允許的出口碼(空白分隔)
+  case "$1" in
+    # 🔴 b2s2b 的 `exit 3` 是**刻意的第三態**(`:2935`:INCONC 待裁格 > 0),不是失敗。
+    #    它自己在 `:2874` 驗過「待裁格集合逐字相符」⇒ 對它而言 FAIL=0 + 集合相符 = 綠。
+    #    ⚠️ 所以收據多記一欄 `inconc`:待裁格從 1 個變 5 個時,帳面看得到。
+    b2s2b-verify.sh) printf '0 3' ;;
+    *)               printf '0' ;;
+  esac
+}
 # 現行 migration 時間序尾碼(與 b2s2b-verify.sh 的 NEWEST_TS 閘同一個量法)
 newest_ts() { ls "$REPO"/supabase/migrations/*.sql 2>/dev/null | sed 's|.*/||; s|_.*||' | sort | tail -1; }
 sha_of() { shasum "$SCRIPTS/$1" 2>/dev/null | cut -d' ' -f1; }
@@ -59,16 +88,19 @@ if [ "$MODE" = "record" ]; then
   for h in $LIST; do
     [ -f "$SCRIPTS/$h" ] || { echo "SKIP $h(檔案不存在)"; continue; }
     printf '跑 %s … ' "$h"
-    OUT="$(cd "$REPO" && bash "scripts/$h" 2>&1)"; EX=$?
+    OUT="$(cd "$REPO" && eval "$(invoke_of "$h")" 2>&1)"; EX=$?
     # 🔴 兩軌都讀(退出碼三連坑):字面的 PASS=/FAIL= **與** 結束碼,任一不對就是不綠。
     P="$(printf '%s' "$OUT" | sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/\1/p' | tail -1)"
     F="$(printf '%s' "$OUT" | sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/\2/p' | tail -1)"
     [ -n "$P" ] || P=0
     [ -n "$F" ] || F=-1   # 抓不到總結行 = 不當作 0,當作壞掉
-    printf 'PASS=%s FAIL=%s exit=%s\n' "$P" "$F" "$EX"
+    # 待裁格數(只有 b2s2b 會印 INCONCLUSIVE=;其餘恆 0)
+    IC="$(printf '%s' "$OUT" | sed -n 's/.*INCONCLUSIVE=\([0-9]*\).*/\1/p' | tail -1)"
+    [ -n "$IC" ] || IC=0
+    printf 'PASS=%s FAIL=%s exit=%s inconc=%s\n' "$P" "$F" "$EX" "$IC"
     grep -v "^$h	" "$LEDGER" > "$LEDGER.tmp" 2>/dev/null || true
     mv "$LEDGER.tmp" "$LEDGER"
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$h" "$P" "$F" "$EX" "$TS" "$(sha_of "$h")" >> "$LEDGER"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$h" "$P" "$F" "$EX" "$TS" "$(sha_of "$h")" "$IC" >> "$LEDGER"
   done
   echo "收據已寫入 $LEDGER"
   exit 0
@@ -76,7 +108,7 @@ fi
 
 # ══════════════════════════ check 模式 ═══════════════════════════════════
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=25   # 🔴 量出來的(**19** 逐支 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 25 + 2 = 27。
+EXPECT_TOTAL=26   # 🔴 量出來的(**20** 逐支〔19 支 w 線 + b2s2b〕 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 26 + 2 = 28。
                   # 🔴 W7d-1(2026-08-08)新增 scripts/w7d1-verify.sh ⇒ harness_set() 的 ^w[0-9] 自動撈得到它,
                   #    但**格數與 KEYS_FROZEN 是手動字面**、不會自己長 —— 關卡2 抓到這個漏。
                   #    ⇒ 以後每新增一支 w 開頭的 harness,這兩個字面都要一起改(這正是本檔在守的那種帳)。
@@ -100,10 +132,18 @@ check_one() { # $1=收據檔 $2=harness 檔名
   [ -n "$row" ] || { printf '沒有收據 ⇒ **這支從來沒被跑過**(或收據被刪)'; return; }
   p="$(printf '%s' "$row" | cut -f2)"; f="$(printf '%s' "$row" | cut -f3)"
   ex="$(printf '%s' "$row" | cut -f4)"; ts="$(printf '%s' "$row" | cut -f5)"
-  sha="$(printf '%s' "$row" | cut -f6)"
+  sha="$(printf '%s' "$row" | cut -f6)"; ic="$(printf '%s' "$row" | cut -f7)"
+  # 待裁格數凍結:b2s2b 現況恰 1(BMUT-L2A-INCONCLUSIVE);變多變少都要有人看
+  case "$h" in
+    b2s2b-verify.sh) [ "${ic:-x}" = "1" ] || problems="$problems 待裁格數=${ic:-未記}(凍結值 1)⇒ 有格從綠掉進待裁、或待裁格被消掉,兩種都要人看;" ;;
+    *)               [ "${ic:-0}" = "0" ] || problems="$problems 待裁格數=$ic(該支不該有待裁格);" ;;
+  esac
   # ① 綠不綠 —— 字面與退出碼**兩軌都要**(本線教訓:五支 verify 曾「紅跑回 exit 0」)
   [ "$f" = "0" ]  || problems="$problems 收據記 FAIL=$f(非 0);"
-  [ "$ex" = "0" ] || problems="$problems 收據記 exit=$ex(非 0);"
+  # 🔴 允許碼每支各自查表(b2s2b = 0 或 3)。預設仍是「只准 0」——放寬只發生在具名那支。
+  ALLOWED="$(exits_of "$h")"; ex_ok=0
+  for a in $ALLOWED; do [ "$ex" = "$a" ] && ex_ok=1; done
+  [ "$ex_ok" = "1" ] || problems="$problems 收據記 exit=$ex(該支允許的是 [$ALLOWED]);"
   [ "${p:-0}" -gt 0 ] 2>/dev/null || problems="$problems 收據記 PASS=$p ⇒ 一格都沒跑到;"
   # ② 跑的是不是**現在這份**程式碼(用內容 sha,不用 mtime —— git checkout 會動 mtime)
   [ "$sha" = "$(sha_of "$h")" ] || problems="$problems harness 內容已改但**沒重跑**(收據 sha ${sha:0:8}… vs 現行 $(sha_of "$h" | cut -c1-8)…);"
@@ -167,7 +207,10 @@ else
 fi
 
 # ③ 「改了 harness 沒重跑」:把收據的 sha 改掉(等價於 harness 內容變了)
-sed "s/^\($PROBE	.*	\)[0-9a-f]\{40\}$/\1deadbeefdeadbeefdeadbeefdeadbeefdeadbeef/" "$LEDGER" > "$TMPD/led-stale.tsv"
+# 🔴 2026-08-09:收據新增第 7 欄 `inconc` 之後,sha 不再位於行尾 ⇒ 原本錨 `$` 的 sed 失配。
+#    當時本靶**自己 fail-closed 了**(印「本靶自己壞了,不是帳的結論」)= 正確行為,
+#    它沒有靜默通過。錨改成「sha + tab + 尾欄」。
+sed "s/^\($PROBE	.*	\)[0-9a-f]\{40\}	\([0-9]*\)$/\1deadbeefdeadbeefdeadbeefdeadbeefdeadbeef	\2/" "$LEDGER" > "$TMPD/led-stale.tsv"
 if ! grep -q "^$PROBE	.*deadbeef" "$TMPD/led-stale.tsv"; then
   bad TMUT-COV-STALE "sed 沒把 sha 改掉 ⇒ 本靶自己壞了,不是帳的結論"
 else
@@ -209,7 +252,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-b2s2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
