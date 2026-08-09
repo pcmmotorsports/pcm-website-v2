@@ -9377,3 +9377,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **現況**:任何動這三支的片都不會被 manifest 可達性稽核罩到;「0 unreachable」的宣稱對它們=真空。
 - **要做什麼**:對回 design 端決定歸屬元件(brand-directory→品牌總覽?coming-soon→ComingSoonPage?filter-responsive 疑跨元件要拆或立獨立條目),新增條目+初始 hash。
 - **不修會痛在哪**:這三支的視覺回歸永遠不觸發 manifest 檢查,design 漂移無聲;h1 這片已實際發生「改了無處記帳」一次。
+
+### #347. 🔍 admin 訂單搜尋大一統 — 一個框搜八個維度(Sean 08-09 拍板立案)
+
+- **來源**:Sean 2026-08-09 逐字「目前是搜尋訂單編號跟供應商單號,可以結合搜尋 訂單編號、供應商單號、客人姓名、電話、商品料號、品牌、收件地址、品名,做到同一個搜尋框就好了」。
+- **範圍**:admin 訂單列表搜尋框擴充為八維度 OR 搜尋:訂單編號 / 供應商單號(既有)+ 客人姓名 / 電話 / 商品料號(variant_sku)/ 品牌 / 收件地址 / 品名。
+- **技術面預判**(開工時偵察定案):跨表 join(customers 名+電話、order_items sku/snapshot 品名、brands、shipping_address_snapshot)⇒ 大機率要一支搜尋 RPC 或擴 `ADMIN_ORDER_LIST_SELECT` 查詢面;🔴 動 admin 投影=經銷價白名單守門連動(比照 2b-0 customer_user_id 前例:byte-equal 期望值同步+forbidden 清單零碰撞+codex 審);電話/地址=個資,結果只給 admin(SSO 閘後)、log 不落搜尋詞。
+- **派工**:等 D(出貨 UI)或 E(取消畫面)先收線,騰出的窗接;標準片以上、預計 2-3 片(RPC/adapter 一片+UI 接線一片+索引評估)。
+- **不修會痛在哪**:員工接客服電話時只有單號能查,拿姓名/電話/商品都得人肉翻列表;訂單量月 100-300 筆下每天都痛。
