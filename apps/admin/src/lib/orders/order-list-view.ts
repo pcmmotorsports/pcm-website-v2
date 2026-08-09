@@ -41,6 +41,15 @@ export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
 export const ORDER_NUMBER_PARAM = 'order_no';
 /** 供應商單號搜尋 query param(M-4b E10 A10c2;與 A9b1 的 `order_no` **分立**、語意完全不同)。 */
 export const SUPPLIER_ORDER_NO_PARAM = 'supplier_no';
+/**
+ * 「連刷卡未付款一起顯示」切換(M-4b 生命週期 L6)。
+ * 🔴 **只有字面 `'1'` 才算開**:任何其他值(`'true'` / `'0'` / 空字串 / 未知字串)一律當關 ——
+ * 預設隱藏是 Sean 要的行為,解析出錯時要倒向**預設**,不是倒向「全顯示」。
+ * ⚠️ 同鍵重複(`?show_unpaid_card=1&show_unpaid_card=x`)**取首值後再比對** —— 與其他軸一致;
+ *    直接拿陣列比字串會恆 false,那會讓「勾打開後一翻頁就失效」(測試 L6-4 釘住)。
+ */
+export const SHOW_UNPAID_CARD_PARAM = 'show_unpaid_card';
+export const SHOW_UNPAID_CARD_ON = '1';
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
 
@@ -231,6 +240,8 @@ export function parseOrderListSearchParams(
       ? parseOrderNumberParam(raw[ORDER_NUMBER_PARAM])
       : undefined,
     supplierOrderNo: supplierOrderNoToFilterValue(supplierOrderNoSearch),
+    // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
+    includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
   };
   return { filter, page: parsePage(raw.page), supplierOrderNoSearch };
 }
@@ -286,6 +297,9 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
       //    列表突然變成全部訂單(fail-open)。
       [ORDER_NUMBER_PARAM, filter.orderNumber],
       [SUPPLIER_ORDER_NO_PARAM, filter.supplierOrderNo],
+      // 🔴 L6 的開關同理必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
+      //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
+      [SHOW_UNPAID_CARD_PARAM, filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : undefined],
     ],
     page,
   );

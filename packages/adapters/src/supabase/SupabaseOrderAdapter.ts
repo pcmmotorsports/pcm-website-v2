@@ -499,6 +499,37 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (filter.paymentChannels?.length) {
       query = query.in('payment_channel', [...filter.paymentChannels]);
     }
+    // ── M-4b 生命週期 L6:預設隱藏「刷卡未付款」單 ────────────────────────────
+    // NOT(tappay AND unpaid) 依 De Morgan = (channel<>tappay) OR (status<>unpaid)。
+    //
+    // 🔴 **單號搜尋啟用時刻意不套用**,兩個理由缺一不可:
+    //   ① 產品面:客服拿著單號查**特定一張單**,查不到會比看到它更困惑 ——
+    //      隱藏規則要治的是「瀏覽列表時的噪音」,不是「精準查詢」。
+    //   ② 技術面:上面單號搜尋那段已經用掉一個 `or=` 參數。兩個 `.or()` 會產生**兩個同名
+    //      `or=` query param**(實測 URL:`?…&or=(…)&or=(…)`),而 PostgREST 官方文件
+    //      **沒有明說**重複的頂層邏輯運算子怎麼合併(只寫了「不同欄位的條件預設 AND」)。
+    //      沒有來源就不押 —— 押錯的後果是單號搜尋那半靜默失效 = 列出全部訂單(fail-open),
+    //      正是本 repo 被咬過好幾次的形狀。
+    //   ⇒ 兩者合起來:任一時刻最多只有一個 `or=`,語意不依賴未文件化的行為。
+    // 🔴 供應商單號搜尋**也豁免**(code-reviewer must-fix 3):它走 `.in('id', ids)`、與 `or=` 零衝突,
+    //    所以技術理由②對它不成立 —— 但**產品理由①逐字成立**:員工拿供應商給的單號反查,
+    //    命中的單若剛好是 tappay+unpaid,畫面會吐「共 0 筆 / 沒有符合條件的訂單」,
+    //    而 `apps/admin/src/app/orders/page.tsx` 明文寫著這個結論正是 Q1=A 拍板要禁的。
+    //    先前只豁免 orderNumber 是**遺漏、不是決定**。
+    // ⚠️ 前提(nit 8):De Morgan 等價只在兩欄皆 NOT NULL 時成立(SQL 三值邏輯:`neq` 遇 NULL
+    //    回 NULL、該列被丟掉 = 靜默多藏單)。實查兩欄都安全:`payment_channel` NOT NULL DEFAULT 'tappay'
+    //    (`20260712203000_m4a_orders_admin_columns.sql`)、`payment_status` NOT NULL(`20260604120000`)。
+    //    誰把任一欄改成 nullable,必須回頭重看這一行。
+    // ⚠️ 現況(nit 9):`ADMIN_E10_ORDER_NUMBER_SEARCH` 預設 off ⇒ `filter.orderNumber` 恆 undefined
+    //    ⇒ 單號那半的豁免**現在是死路徑**、flag 開了才生效;供應商單號那半同理受自己的 flag 管。
+    //    ⇒ 目前唯一實際打得開的逃生口是篩選列上的那個勾。
+    if (
+      !filter.includeUnpaidCardOrders &&
+      orderNumberSearch.kind !== 'ok' &&
+      supplierSearch.kind !== 'ok'
+    ) {
+      query = query.or('payment_channel.neq.tappay,payment_status.neq.unpaid');
+    }
     const { data, error, count } = await query
       .order('created_at', { ascending: false })
       .order('id', { ascending: false }) // 次鍵防同秒單分頁跨頁重複/漏單(Fable D-2 verdict n1)

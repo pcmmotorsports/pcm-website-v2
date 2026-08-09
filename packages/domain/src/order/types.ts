@@ -234,6 +234,23 @@ export type AdminOrderFilter = {
    */
   orderNumber?: string;
   /**
+   * 是否**連刷卡未付款的單一起顯示**(M-4b 生命週期 L6;Sean 2026-08-09 逐字
+   * 「我覺得刷卡單失敗直接不顯示在後台就好」,經主視窗 P-233-A 轉達)。
+   *
+   * - `undefined` / `false`(**預設**)= 隱藏 `payment_channel='tappay' AND payment_status='unpaid'`;
+   * - `true` = 全部顯示(篩選列上的切換,員工要查得到時打得開)。
+   *
+   * 🔴 **這是顯示層,不是資料層**:被隱藏的單一個都沒有被改動或刪除,轉成 paid 會自動再出現;
+   *    與件①(1 天寫 `cancelled_at`)是**兩件獨立的事**,不要互相推論。
+   * 🔴 **兩個豁免(合約的一部分,不要只讀上面那兩行)**:即使本欄為 false,
+   *    **單號搜尋**或**供應商單號搜尋**啟用時,隱藏規則一律不套用 —— 精準查一張單卻查不到,
+   *    比看到它更困惑(理由全文在 `SupabaseOrderAdapter.listOrderSummariesForAdmin`)。
+   * 🔴 **邊界寫死(P-233-A ④)**:規則只認 `payment_channel='tappay'`。
+   *    未來開匯款(後台第 15 項)時,`bank_transfer` 的未付款單**不在**隱藏規則內 ——
+   *    那種單「未付款」是正常待辦、不是失敗,藏起來會讓員工漏掉要對帳的匯款。
+   */
+  includeUnpaidCardOrders?: boolean;
+  /**
    * 供應商單號跨單搜尋(M-4b E10 A9b2-A):到貨登錄時靠供應商給的單號反查是哪幾張訂單
    * (UX §2 #7;母 plan `:431` row 39)。
    *

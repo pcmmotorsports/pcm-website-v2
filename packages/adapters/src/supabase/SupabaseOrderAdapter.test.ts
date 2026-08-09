@@ -262,6 +262,9 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   };
 }
 
+/** L6 預設隱藏規則的 `.or()` 字面(module scope:多處斷言共用同一個真相)。 */
+const L6_HIDE_OR = 'payment_channel.neq.tappay,payment_status.neq.unpaid';
+
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
@@ -482,7 +485,11 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       { limit: 20 },
     );
     expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-    expect(or).not.toHaveBeenCalled();
+    // 🔴 L6 起「`.or` 完全沒被呼叫」不再是有效代理 —— 預設的隱藏規則自己就用 `.or`。
+    //    這條要證的是「**單號/九碼沒有被下推**」,所以改成比對字面(意圖不變、只是量對東西)。
+    // 🔴 等價強度(code-reviewer important 7):只比兩個具名字面的話,日後有人用**別的**欄名
+    //    復活 or 下推,這條不會紅。改成「or 的呼叫集合恰好只有 L6 的隱藏規則那一筆」。
+    expect(or.mock.calls).toEqual([[L6_HIDE_OR]]);
     expect(is).not.toHaveBeenCalled();
     expect(inFn).not.toHaveBeenCalled();
   });
@@ -1345,7 +1352,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋'
   it('未給 / 空字串 → 不篩選(不呼叫 .or、也不提前回零筆)', async () => {
     const a = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(a.client).listOrderSummariesForAdmin({}, { limit: 20 });
-    expect(a.or).not.toHaveBeenCalled();
+    // 🔴 L6 起「`.or` 完全沒被呼叫」不再是有效代理 —— 預設的隱藏規則自己就用 `.or`。
+    //    這條要證的是「**單號/九碼沒有被下推**」,所以改成比對字面(意圖不變、只是量對東西)。
+    expect(a.or.mock.calls).toEqual([[L6_HIDE_OR]]);
     expect(a.range).toHaveBeenCalled();
 
     const b = makeAdminListClient({ data: [], error: null, count: 0 });
@@ -1353,7 +1362,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋'
       { orderNumber: '   ' },
       { limit: 20 },
     );
-    expect(b.or).not.toHaveBeenCalled();
+    expect(b.or.mock.calls).toEqual([[L6_HIDE_OR]]);
     expect(b.range).toHaveBeenCalled();
   });
 
@@ -1485,6 +1494,21 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商�
     // 🔴 第二段的投影一個字都沒動(鐵則 12 byte-lock 白名單不因搜尋而換版本)
     expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
     expect(h.in).toHaveBeenCalledWith('id', ['o-1', 'o-2']);
+  });
+
+  it('🔴 L6-A6 供應商單號搜尋時**不套用**隱藏規則(否則命中的 tappay+unpaid 單會吐「共 0 筆」)', async () => {
+    // code-reviewer must-fix 3:先前只豁免了 orderNumber,這條是遺漏不是決定。
+    // 技術理由(兩個 `or=`)對這條路徑**不成立**(它走 `.in('id',…)`、不同 param);
+    // 站得住的是產品理由:拿供應商給的單號反查,查不到比看到更困惑。
+    const h = makeSupplierSearchClient({
+      proc: { data: [procRow('o-1')], error: null },
+      list: { data: [], error: null, count: 0 },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(h.or).not.toHaveBeenCalled();
   });
 
   it('同一張訂單有多列採購 → id 去重後才進 .in', async () => {
@@ -1656,5 +1680,61 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商�
     await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({}, { limit: 20 });
     expect(h.from).not.toHaveBeenCalledWith('order_item_procurement');
     expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+  });
+});
+
+describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付款」單', () => {
+  // Sean 逐字「刷卡單失敗直接不顯示在後台就好」(P-233-A)。
+  // 🔴 這是**顯示層**:被隱藏的單一列都沒被改動,轉 paid 會自動再出現。
+  const HIDE = L6_HIDE_OR;
+  const listArgs = { limit: 20, offset: 0 } as const;
+
+  it('L6-A1 預設(沒帶開關)→ 套用隱藏條件', async () => {
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, listArgs);
+    expect(or).toHaveBeenCalledWith(HIDE);
+  });
+
+  it('L6-A2 includeUnpaidCardOrders=true → 不套用(員工要看得到)', async () => {
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { includeUnpaidCardOrders: true },
+      listArgs,
+    );
+    expect(or).not.toHaveBeenCalledWith(HIDE);
+  });
+
+  it('🔴 L6-A3 單號搜尋時不套用隱藏 —— 且全程只用掉一個 or=', async () => {
+    // 兩個理由(缺一不可,adapter 註解有全文):
+    //   ① 產品面:拿單號查特定一張單,查不到比看到更困惑;
+    //   ② 技術面:兩個 .or() 會產生兩個同名 `or=` param,而 PostgREST 官方文件**沒有明說**
+    //      重複的頂層邏輯運算子怎麼合併 —— 押錯的後果是單號搜尋靜默失效 = 列出全部訂單。
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: 'PCM-2026-0001' },
+      listArgs,
+    );
+    expect(or).toHaveBeenCalledTimes(1); // 只有單號那一個
+    expect(or).not.toHaveBeenCalledWith(HIDE);
+  });
+
+  it('🔴 L6-A4 單號搜尋 + 明確要求顯示 → 一樣只有一個 or=(兩條路徑不會疊加)', async () => {
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: 'PCM-2026-0001', includeUnpaidCardOrders: true },
+      listArgs,
+    );
+    expect(or).toHaveBeenCalledTimes(1);
+  });
+
+  it('L6-A5 隱藏條件與其他篩選軸並存(不互相取代)', async () => {
+    const { client, or, eq, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { fulfillmentStatus: 'shipped', paymentChannels: ['bank_transfer'] },
+      listArgs,
+    );
+    expect(or).toHaveBeenCalledWith(HIDE);
+    expect(eq).toHaveBeenCalledWith('fulfillment_status', 'shipped');
+    expect(inFn).toHaveBeenCalledWith('payment_channel', ['bank_transfer']);
   });
 });
