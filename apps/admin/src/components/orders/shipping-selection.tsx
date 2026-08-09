@@ -171,12 +171,14 @@ export function ShippingSelectionBar() {
   }, [s.orderIds]);
 
   if (s.orderIds.length === 0) return null;
+
+  // 🔴 2026-08-09 Sean 實測要求:動作鈕移到**最左**(鈕在前、計數在後,靠左排)。
+  //    ⚠️ 這段註解**必須放在 `return` 外面**:第一版寫在 `<>` 之後 = JSX 子節點位置,
+  //    `//` 在那裡**不是註解、是文字**,整段會被渲染到畫面上給 Sean 看到。
+  //    (測試當場抓到:`Found multiple elements with the text: /已勾/`。)
   return (
     <>
-    <div className='bg-foreground text-background mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5'>
-      <span className='text-sm'>
-        已勾 <b>{s.orderIds.length}</b> 張訂單
-      </span>
+    <div className='bg-foreground text-background mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5'>
       <span className='flex items-center gap-2'>
         <button
           type='button'
@@ -193,6 +195,9 @@ export function ShippingSelectionBar() {
         >
           取消勾選
         </button>
+      </span>
+      <span className='text-sm'>
+        已勾 <b>{s.orderIds.length}</b> 張訂單
       </span>
       {error !== null && <span className='w-full text-xs'>{error}</span>}
     </div>

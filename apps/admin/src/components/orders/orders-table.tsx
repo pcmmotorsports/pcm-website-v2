@@ -113,18 +113,28 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
       {rows.map((line, i) => (
         <tr
           key={line ? line.id : 'empty'}
-          className={i === 0 ? 'border-t' : 'border-t border-dashed'}
+          // 🔴 2026-08-09 Sean 實測要求「整列可點進詳情」。做法是 **stretched link**:
+          //    列設 `relative`,單號那個 <Link> 用 `after:absolute after:inset-0` 把命中區撐滿整列。
+          //    **零 JS、表格本體維持 server component**,而且它是**真的連結** ——
+          //    鍵盤 Tab、中鍵開新分頁、右鍵複製網址都正常(用 onClick 做這些全都沒有)。
+          //    勾選格另外設 `relative z-10` 浮在覆蓋層上面 ⇒ 點勾選不會誤觸進詳情。
+          className={`hover:bg-muted/40 relative ${i === 0 ? 'border-t' : 'border-t border-dashed'}`}
         >
           {i === 0 && (
-            <td className={`${TD} align-top`} rowSpan={rowSpan}>
+            <td className={`${TD} relative z-10 align-top`} rowSpan={rowSpan}>
               {/* 2b-1:訂單層勾選。放 rowSpan 合併格 ⇒ **一訂單一個框**;
-                  放品項列的話,一張三品項的訂單會冒出三個框。 */}
+                  放品項列的話,一張三品項的訂單會冒出三個框。
+                  🔴 `relative z-10` 是承重的:整列被 stretched link 的覆蓋層蓋住,
+                  沒有它就**點不到勾選框**(會變成點哪裡都進詳情)。 */}
               <OrderShipCheckbox orderId={order.id} customerUserId={order.customerUserId} />
             </td>
           )}
           {i === 0 && (
             <td className={TD} rowSpan={rowSpan}>
-              <Link href={`/orders/${order.id}`} className='font-medium hover:underline'>
+              <Link
+                href={`/orders/${order.id}`}
+                className='font-medium after:absolute after:inset-0 hover:underline'
+              >
                 {order.displayId}
               </Link>
               {cancelled && (
@@ -247,17 +257,23 @@ function OrderCard({ order }: { order: AdminOrderSummary }) {
   //    語意落差(合併態=訂單的錢、非合併態=品項的錢),兩份實作必然漂。
   const mergeAmount = shouldMergeAmount(order);
 
+  // 🔴 手機卡片**必須跟桌機一起做**(2b-1 那次的教訓:只改一邊、另一邊全綠)。
+  //    註解放 `return` 外面 —— 放進 JSX 子節點位置的 `//` 會被當成文字渲染出來。
   return (
-    <li className='p-3'>
+    <li className='hover:bg-muted/40 relative p-3'>
       {/* 第一行:主標(單號)+ 靠右(金額 / 發票)—— §4-1「主要欄位加粗置頂、金額/狀態靠右」 */}
       <div className='flex items-start justify-between gap-3'>
         <div className='flex min-w-0 items-start gap-2 font-medium'>
           {/* 🔴 2b-1:手機這份**必須跟桌機一起加**。只改桌機的話,手機上根本沒得勾,
               而桌機測試全綠 —— Sean 常用手機看後台。守門兩處都釘。 */}
-          <span className='pt-0.5'>
+          {/* 🔴 `relative z-10`:同桌機,沒有它勾選框會被整卡的 stretched link 蓋住。 */}
+          <span className='relative z-10 pt-0.5'>
             <OrderShipCheckbox orderId={order.id} customerUserId={order.customerUserId} />
           </span>
-          <Link href={`/orders/${order.id}`} className='hover:underline'>
+          <Link
+            href={`/orders/${order.id}`}
+            className='after:absolute after:inset-0 hover:underline'
+          >
             {order.displayId}
           </Link>
           {cancelled && (
