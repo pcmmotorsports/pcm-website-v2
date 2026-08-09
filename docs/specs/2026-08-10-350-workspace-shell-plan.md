@@ -120,5 +120,7 @@ E 窗的 PRG **一行都不用改**。這是我推薦 A 案的主因。
 ## 7. rollback
 
 350a:改回常數。350b/c:單一 commit revert;無 migration、無 schema、無資料寫入。
-🔴 若 Q1=A,`app/orders` 底下會多出 parallel-route 目錄結構 —— revert 要連目錄一起,
-不能只 revert layout(漏了會留下半套 route 慣例,那比沒做更難懂)。
+🔴 若 Q1=A 會多出 parallel-route 目錄 —— revert 要連目錄一起,不能只 revert layout
+(漏了會留下半套 route 慣例,那比沒做更難懂)。
+⚠️ **實作後更正**(code-reviewer 抓到):槽目錄是 **`apps/admin/src/app/@panel/`**,
+不是 plan 原本寫的 `app/orders` 底下 —— 照舊字面 revert 會整個漏掉它。

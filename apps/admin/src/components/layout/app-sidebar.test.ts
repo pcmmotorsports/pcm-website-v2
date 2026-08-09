@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+// 🔴 相對路徑不用 `@/`:vitest 的 `@` alias 指向 `apps/storefront/src`(本檔檔頭記過的同一個坑)。
+import { stripComments } from '../../lib/test-support/strip-comments';
+
 // app-sidebar.test.ts — M-4b E10 S3b-3(`[K1-M9]`)。
 //
 // 🔴 **為什麼一行 nav 值得一支測試**:整片 S3b 的三個 action、四個元件、一整頁都可以
@@ -49,9 +52,7 @@ const RAW_SOURCE = readFileSync(
  *    直接對本函式餵一行帶 `https://` 的輸入,判別力就有了 ——
  *    「我想不到怎麼構造」不等於「構造不出來」,這一片已經在這上面栽過兩次。
  */
-export function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '');
-}
+
 
 const SOURCE = stripComments(RAW_SOURCE);
 
