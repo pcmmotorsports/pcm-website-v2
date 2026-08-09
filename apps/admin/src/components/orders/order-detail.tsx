@@ -266,7 +266,13 @@ export function OrderDetail({
         </span>
       </div>
 
-      <div className='grid gap-4 md:grid-cols-2 xl:grid-cols-4'>
+      {/* #350c:欄數改看**容器寬度**而不是視窗寬度(主視窗 2026-08-10 裁④)。
+          🔴 為什麼非改不可:同一份明細現在有兩個容器 —— 整頁版(~72rem)與右側面板(~36rem)。
+          用 `md:`/`xl:` 這種 viewport 斷點的話,1920 螢幕上的 576px 面板會**硬排四欄**、每欄擠到不能看。
+          容器斷點 `@md`(28rem)/ `@4xl`(56rem)⇒ 面板 2 欄、整頁 4 欄。
+          ⚠️ **兩個消費者的外框都必須帶 `@container`**,否則容器斷點沒有參照對象、一律退回 1 欄
+          (`order-panel-wiring.test.ts` 有一格把兩邊的 `@container` 釘住)。 */}
+      <div className='grid gap-4 @md:grid-cols-2 @4xl:grid-cols-4'>
         <section className={CARD}>
           <h2 className={CARD_TITLE}>客戶資訊</h2>
           <Field label='姓名' value={detail.customer.name} />
