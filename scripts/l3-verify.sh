@@ -61,6 +61,16 @@ echo "== 身分閘 =="
 if ! q "SELECT 1" >/dev/null 2>&1; then
   echo "🔴 連不上 $URL —— 先跑 scripts/d1t2-rehearsal.sh provision $WORK"; exit 1
 fi
+# 🔴 連得上 ≠ 連對(2026-08-09 P 窗實錘):harness 的 port 寫死,兩個視窗同時跑時
+#    第二個窗會**靜默連到第一個窗的資料庫**,而所有查詢都有回值、看起來全綠。
+#    原本這道身分閘只驗「函式是不是本片版本」——防得住漂移,防不住「連到別人的庫」。
+DATADIR="$(q "SELECT current_setting('data_directory')")"
+if [ "$DATADIR" != "$WORK/pgdata" ]; then
+  echo "🔴 身分閘:連到的 data_directory=$DATADIR,期望 $WORK/pgdata"
+  echo "   很可能 port ${PORT:-54329} 上是**別的視窗**的 cluster。用別的 port 重跑:"
+  echo "   PORT=54371 bash scripts/d1t2-rehearsal.sh provision $WORK && PORT=54371 bash scripts/l3-verify.sh $WORK"
+  exit 1
+fi
 HAS_FN="$(q "SELECT count(*) FROM pg_proc p WHERE p.oid='${FN}'::regprocedure")"
 [ "$HAS_FN" = "1" ] || { echo "🔴 ${FN} 不存在(L3a 未套用?);拒繼續"; exit 1; }
 test -f "$MIGFILE" || { echo "🔴 找不到 $MIGFILE"; exit 1; }
@@ -88,7 +98,7 @@ if [ "$DEF_OK" != "true" ] || [ "$ANCHORS_OK" != "true" ]; then
   echo "🔴 DB 上的 ${FN} 不是本片這一版(secdef/owner/search_path=$DEF_OK、錨=$ANCHORS_OK)—— 重跑 provision;拒繼續"
   exit 1
 fi
-echo "  ok:${FN} 在且為本片版本、migration 檔在、orders=${NORD} 筆(≥3)、workdir=${WORK}"
+echo "  ok:data_directory=${DATADIR}、${FN} 為本片版本、orders=${NORD} 筆(≥3)"
 
 # 造資料共用片段:把「所有既有 orders」推到失效條件之外(created_at=now()),
 # 再把指定那筆設成想要的形狀 ⇒ 每格只有一筆候選,計數可判別。

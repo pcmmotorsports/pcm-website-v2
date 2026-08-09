@@ -41,8 +41,23 @@ provision() {
   "$PGBIN/initdb" --version | grep -q ' 17\.' || die "PATH 的 initdb 非 PG17(宣稱=實際;codex K2 nit)"
   "$PGBIN/initdb" -U postgres --auth=trust --locale=C --encoding=UTF8 -D "$WORK/pgdata" >/dev/null
   touch "$WORK/.d1t2-harness"
+  # 🔴 起庫前先確認這個 port 沒有**別的 cluster**在聽(2026-08-09 P 窗實錘):
+  #    port 寫死 54329 ⇒ 兩個窗同時跑 harness 時,第二個窗的 initdb/pg_ctl 會失敗,
+  #    而它**後續的 psql 會靜默連到第一個窗的資料庫** —— 症狀是「provision 印了 🔴,
+  #    但查詢有回值、看起來很正常」。當時差一步就把來源不明的 md5 釘進金流 migration 的前置閘。
+  if psql "$(url)" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
+    die "port ${PORT} 已經有別的 PostgreSQL 在聽(很可能是另一個視窗的 harness cluster)。
+     這是硬停:繼續下去你的查詢會打到**別人的庫**而毫無症狀。
+     解法:用別的 port 重跑 —— PORT=54371 bash scripts/d1t2-rehearsal.sh provision <workdir>"
+  fi
   "$PGBIN/pg_ctl" -D "$WORK/pgdata" -l "$WORK/pg.log" -o "-p ${PORT} -c unix_socket_directories='${WORK}'" start >/dev/null \
     || { cat "$WORK/pg.log" >&2; die "pg_ctl 啟動失敗(log 如上)"; }
+
+  # 🔴 起來之後立刻驗「我連到的就是我剛建的那台」——data_directory 是唯一不會說謊的識別。
+  local DD
+  DD="$(runsql "SELECT current_setting('data_directory')" 2>/dev/null || true)"
+  [ "$DD" = "$WORK/pgdata" ] \
+    || die "身分閘:連到的 data_directory=${DD:-<查不到>},期望 ${WORK}/pgdata —— 拒繼續"
 
   log "2/5 Supabase shim(角色 + auth schema)"
   psql "$(url)" -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql
