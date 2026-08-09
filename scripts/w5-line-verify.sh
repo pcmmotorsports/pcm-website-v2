@@ -33,7 +33,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W5DB:-/tmp/w5db}"; SOCK="${W5SOCK:-/tmp/w5sk}"; P="${W5PORT:-54399}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=32   # 🔴 量出來的。全綠時 PASS = 32 + CELL-ACCOUNT + CELL-KEYSET = 34。(W7 跟片④ +4:LINE-VOID-REOPEN / LINE-WRITER-SECDEF 各配一發常設靶)
+EXPECT_TOTAL=34   # 🔴 量出來的。全綠時 PASS = 34 + CELL-ACCOUNT + CELL-KEYSET = 36。(跟片④ +4;正式站 42501 事故負測 +2)
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -124,7 +124,7 @@ cap() {
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260809170000"
+LINE_TIP="20260809190000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
@@ -334,6 +334,41 @@ SUM_AF="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quan
   && ok LINE-REPLAY-NO-GROWTH "🔴 五支(建箱/掛品項/出貨/作廢/復原)各再打一次同鍵:**五發回傳的 idempotent 旗標都是 true**(= 真的走了冪等分支,不只是「沒報錯」)、包裹數與品項數零增長($AF)、摘要逐字不變($SUM_AF)= 這條線的 at-most-once 在端到端成立 ✓" \
   || bad LINE-REPLAY-NO-GROWTH "🔴 重放不乾淨:列數 $B4 → $AF、摘要 [$SUM_B4] → [$SUM_AF]、沒走冪等分支的發次[${RPBAD:-無}]"
 
+# ══ 🔴 正式站 42501 事故的負測(2026-08-09)══════════════════════
+# 🔴 事故:Sean 在正式站按「建箱並標出貨」⇒ `permission denied for table
+#    pcm_b2_shipping_idempotency`(42501)。根因=`pcm_b2_shipping_idem_require_complete()`
+#    是 **SECURITY INVOKER 的 DEFERRED constraint trigger** ⇒ COMMIT 當下 SECDEF 的 RPC
+#    早已退場,執行身分是 session 角色 `service_role`,而該表對它 REVOKE ALL。
+# 🔴🔴 **為什麼全線 34 格沒有一格紅**:本檔(以及 w0b/w1/w2)全程以 **owner(postgres)**
+#    身分跑 ⇒ deferred 那一刻的身分也是 owner ⇒ 讀表恆過。
+#    這不是「斷言太鬆」,是**觀察點選錯** —— 量的身分不是正式站真正用的那個身分。
+#    ⇒ 這一格改用**真的 service_role** 跑一次完整 create + commit。
+# 🔴 必須是**獨立一次 psql 呼叫**、且 `SET ROLE` 與 RPC 在同一個交易裡:
+#    deferred trigger 只在 COMMIT 當下執行,拆成兩次呼叫就永遠測不到那一刻。
+NONOWNER="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA \
+  -c "SET ROLE service_role; SELECT (public.admin_create_shipment('nonowner-1','$CUST','$SNAP'::jsonb,'hct') ->> 'shipment_id');" 2>&1 | tr '\n' ' ')"
+# 🔴🔴 codex must-fix:**錯誤分支必須排在 UUID 分支之前**。
+#    `psql -c` 會先印 SELECT 的結果列、再印 implicit COMMIT 當下的錯誤 ⇒ 迴歸發生時
+#    合併輸出**同時含 UUID 與 42501**。UUID 分支若排前面就先匹配 ⇒ **本負測自己假綠**,
+#    而它存在的唯一理由就是抓這件事。(TMUT 那格的順序本來就對,所以 TMUT 綠證不了本格。)
+case "$NONOWNER" in
+  *42501*|*"permission denied"*) bad LINE-NONOWNER-COMMIT "🔴🔴 **正式站那個錯又回來了**:service_role 身分 commit 時 42501 ⇒ 某支可延遲的 constraint trigger 的函式不是 SECURITY DEFINER。實得:$NONOWNER" ;;
+  *????????-????-*) ok LINE-NONOWNER-COMMIT "🔴 以**真的 service_role**(不是 owner)跑完整建箱 + commit ⇒ 過 = DEFERRED 半成品閘在 commit 當下讀得到鍵表(正式站 42501 事故的負測)✓" ;;
+  *) bad LINE-NONOWNER-COMMIT "非預期結果(既不是 uuid 也不是權限錯):$NONOWNER" ;;
+esac
+# 🔴 靶:把那支函式改回 SECURITY INVOKER ⇒ 必須當場重現 42501。
+#    這一發同時是**事故重現**與**判別力證明**:紅不出來就代表上面那格對事故全盲。
+Q "ALTER FUNCTION public.pcm_b2_shipping_idem_require_complete() SECURITY INVOKER" >/dev/null
+MNO="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA \
+  -c "SET ROLE service_role; SELECT (public.admin_create_shipment('nonowner-mut','$CUST','$SNAP'::jsonb,'hct') ->> 'shipment_id');" 2>&1 | tr '\n' ' ')"
+Q "ALTER FUNCTION public.pcm_b2_shipping_idem_require_complete() SECURITY DEFINER" >/dev/null
+MNO2="$(Q "SELECT p.prosecdef::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='pcm_b2_shipping_idem_require_complete'")"
+case "$MNO:$MNO2" in
+  *42501*:true|*"permission denied"*:true)
+    ok TMUT-NONOWNER-COMMIT "🔴 改回 SECURITY INVOKER ⇒ **當場重現正式站的 42501**,還原後 prosecdef=true = 上面那格真的在量事故那條路,不是恆真" ;;
+  *:true) bad TMUT-NONOWNER-COMMIT "改回 INVOKER 之後竟然沒炸(實得 $MNO)⇒ 上面那格對事故全盲 = 恆真" ;;
+  *)      bad TMUT-NONOWNER-COMMIT "🔴 **靶沒還原**(prosecdef=[$MNO2],期望 true)⇒ 本靶留下壞掉的世界給後面的格,先修這個" ;;
+esac
 # ══ 🔴 W7 跟片④(2026-08-09,B-227 MF-2/MF-3)兩格 ══════════════
 # 🔴 MF-2(oracle 缺口):作廢原本只驗「摘要 3→0」—— 那只證了**退量的數字**動了,
 #    沒證**員工真的能重新裝箱**。W3-2 的可出量算式若忘了排除已作廢的箱,
@@ -576,7 +611,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP]"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-23505-TRANSLATED LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-NOBATCH-TRIGGER LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE LINE-VOID-REOPEN LINE-W4B-HELPERS LINE-WRITER-SECDEF TMUT-23505-TRANSLATED TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-NOBATCH-TRIGGER TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE TMUT-VOID-REOPEN TMUT-W4B-HELPERS TMUT-WRITER-SECDEF"
+KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-23505-TRANSLATED LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-NOBATCH-TRIGGER LINE-NONOWNER-COMMIT LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE LINE-VOID-REOPEN LINE-W4B-HELPERS LINE-WRITER-SECDEF TMUT-23505-TRANSLATED TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-NOBATCH-TRIGGER TMUT-NONOWNER-COMMIT TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE TMUT-VOID-REOPEN TMUT-W4B-HELPERS TMUT-WRITER-SECDEF"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單"; PASS=$((PASS+1))
 else
