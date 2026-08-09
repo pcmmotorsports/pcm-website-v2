@@ -269,7 +269,9 @@ describe('🔴 fail-loud:守門自己的每一步失敗都必須是吵的', () =
     const f = join(dir, 'via-bash.txt');
     writeFileSync(f, TEN_LINES, 'utf8');
     const ed = join(dir, 'ed.sh');
-    writeFileSync(ed, `sed -i '' 's/line5/LINE5/' ${JSON.stringify(f)}\n`, 'utf8');
+    // 🔴 跨平台:`sed -i ''` 是 BSD/macOS 專屬——GNU sed(CI 的 ubuntu)把 '' 當檔名 ⇒ exit 1,
+    //    此格自 08-07 起只在 CI 紅(本機恆綠)= CI 信轟炸的root cause。`-i.bak` 兩邊都收,改完刪備份。
+    writeFileSync(ed, `sed -i.bak 's/line5/LINE5/' ${JSON.stringify(f)} && rm -f ${JSON.stringify(f + '.bak')}\n`, 'utf8');
     const r = runGuard(f, 1, 1, ed);
     expect(r.status).toBe(0);
     expect(readFileSync(f, 'utf8')).toContain('LINE5');
