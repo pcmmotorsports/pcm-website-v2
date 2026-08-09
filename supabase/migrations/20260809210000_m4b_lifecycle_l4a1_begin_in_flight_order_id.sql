@@ -17,7 +17,11 @@
 --   ⚠️ diff 會顯示 **3 個 hunk**:②那處被中間「未改動的述詞行」切成兩段。改動點是 2、hunk 是 3。
 --
 -- 🔴 述詞一字未改 ⇒ 「擋 / 不擋」的判斷與 A8c1 完全相同;SELECT INTO 後的 FOUND ⇔ 舊 EXISTS 為真。
---   新增的 ORDER BY 只決定「回哪一張」,不參與閘的判斷;a.id DESC 是 tie-breaker
+--   新增的 ORDER BY 只決定「回哪一張」,不參與閘的判斷;a.id DESC 是 tie-breaker。
+--   🔴 排序第一鍵 = (a.status = 'charged') DESC(R3 換模型審查 F4,主視窗直接裁):
+--      同一會員同時有 charged-未-paid(錢很可能已經動了)與較新的 pending 時,
+--      回較新的 pending = 把對帳目標指向**證據弱**的那張。charged 優先才是對帳該看的那張。
+--      這個取捨不是本片發明的 —— 逐字比照 cart dedup 那段已被 codex 硬化過的 ORDER BY 前例。
 --   (同 created_at 時不得任選 —— 否則「拿掉 tie-breaker」這個突變會存活)。
 --
 -- 🔴 不回 attempt_id、不回 rec_trade_id、不回 display_id(plan §2 逐條理由):
@@ -165,7 +169,7 @@ BEGIN
        AND a.status IN ('pending', 'charged')
        AND a.created_at > pg_catalog.now() - interval '10 minutes'
        AND o.payment_status <> 'paid'::public.payment_status
-     ORDER BY a.created_at DESC, a.id DESC
+     ORDER BY (a.status = 'charged') DESC, a.created_at DESC, a.id DESC
      LIMIT 1;
   IF FOUND THEN
     RETURN pg_catalog.jsonb_build_object(
@@ -224,7 +228,7 @@ BEGIN
        AND a.status IN ('pending', 'charged')
        AND a.created_at > pg_catalog.now() - interval '10 minutes'
        AND o.payment_status <> 'paid'::public.payment_status
-     ORDER BY a.created_at DESC, a.id DESC
+     ORDER BY (a.status = 'charged') DESC, a.created_at DESC, a.id DESC
      LIMIT 1;
   IF FOUND THEN
     RETURN pg_catalog.jsonb_build_object(
@@ -254,6 +258,19 @@ BEGIN
   END IF;
   IF position('ON CONFLICT (order_id) WHERE status IN (''pending'', ''charged'') DO NOTHING' in v_def) = 0 THEN
     RAISE EXCEPTION 'L4a-1 結構 assert:0c 佔鎖 INSERT 逐字錨缺失(zero-regression 破);拒繼續';
+  END IF;
+
+  -- 🔴 R3 換模型審查 F5 補三錨:這三段同屬「抄掉了也沒有人會喊」那一族。
+  --    A8c1 的五錨守的是取消守門與 dedup;per-user 閘之前還有三道各自獨立的安全面,
+  --    本片既然是 CREATE OR REPLACE 整支函式,它們一樣在「抄錯一行就不見」的射程內。
+  IF position('PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_order.customer_user_id::text, 0));' in v_def) = 0 THEN
+    RAISE EXCEPTION 'L4a-1 結構 assert:per-user advisory xact lock 碼錨缺失(閘失去序列化);拒繼續';
+  END IF;
+  IF position('IF v_order.cart_session_id IS NULL THEN' in v_def) = 0 THEN
+    RAISE EXCEPTION 'L4a-1 結構 assert:cart_session_id null fail-closed 碼錨缺失;拒繼續';
+  END IF;
+  IF position('''acquired'', false, ''reason'', ''not_unpaid''' in v_def) = 0 THEN
+    RAISE EXCEPTION 'L4a-1 結構 assert:not_unpaid 出口碼錨缺失;拒繼續';
   END IF;
 
   -- ACL 窮舉(沿用 A8c1:抽查三角色證不了「只 payment_confirmer」;is_grantable 併入指紋)

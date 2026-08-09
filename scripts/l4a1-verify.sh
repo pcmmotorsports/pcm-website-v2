@@ -5,8 +5,8 @@
 #   PORT=54372 bash scripts/l4a1-verify.sh /tmp/p2-l4-work
 #
 # 兩層,缺一層都證不完:
-#   【matrix】9 格行為矩陣 —— 對「現行定義」跑,證明它**做了什麼**。
-#   【mutations】8 發突變 —— 每發改壞 per-user 閘的一條述詞,分兩軸各自斷言:
+#   【matrix】10 格行為矩陣 —— 對「現行定義」跑,證明它**做了什麼**。
+#   【mutations】9 發突變 —— 每發改壞 per-user 閘的一條述詞,分兩軸各自斷言:
 #       軸 A(結構錨判別力):把突變**連同 migration 的 assert 區**一起送 ⇒ 必須被整段錨**擋下**。
 #       軸 B(矩陣判別力):把突變**不帶 assert** 直接 CREATE OR REPLACE 裝上去 ⇒ 必須**恰好只有**
 #                          對應的那一格翻掉、其餘 8 格照常(控制流突變 M8 例外,見該處註解)。
@@ -44,12 +44,17 @@ cleanup() {
   [ "${RESTORE_ON_EXIT:-0}" = 1 ] || return 0
   { echo 'BEGIN;'; sed -n '71,202p' supabase/migrations/20260804120000_m4b_e10_a8c1_begin_cancel_guard.sql; echo 'COMMIT;'; } \
     | psql "$(url)" -v ON_ERROR_STOP=1 -qtA >/dev/null 2>&1 || true
-  psql "$(url)" -v ON_ERROR_STOP=1 -qtA \
-    -f supabase/migrations/20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql >/dev/null 2>&1 \
-    || echo "⚠️ cleanup:裝不回本片正版定義,庫可能仍是突變狀態 —— 手動跑一次該 migration" >&2
+  if ! psql "$(url)" -v ON_ERROR_STOP=1 -qtA \
+       -f supabase/migrations/20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql >/dev/null 2>&1; then
+    # 🔴 收尾污染不得被 exit 0 蓋掉(codex 關卡2 R2):A8c1 還原成功但正版裝不回去時,
+    #    庫會停在**舊定義**,而腳本原本仍會回 0 ⇒ 下一個人跑出來的一切都建立在錯的定義上。
+    echo "⚠️ cleanup:裝不回本片正版定義,庫停在 A8c1 或突變狀態 —— 手動跑一次該 migration" >&2
+    exit 1
+  fi
 }
 trap cleanup EXIT
 
+MATRIX_CELLS=10  # 矩陣格數(M8 的「全翻」期望值要對齊它;加格時一起改)
 PASS=0; FAIL=0
 ok()   { echo "  ✅ $*"; PASS=$((PASS+1)); }
 bad()  { echo "  ❌ $*"; FAIL=$((FAIL+1)); }
@@ -89,9 +94,11 @@ RETURNS void LANGUAGE sql AS \$\$
 CREATE OR REPLACE FUNCTION pg_temp.mk_attempt(p_id uuid, p_order uuid, p_user uuid, p_status text, p_age interval)
 RETURNS void LANGUAGE sql AS \$\$
   INSERT INTO public.payment_charge_attempts
-    (id, order_id, customer_user_id, status, fallback_token_hash, created_at)
-  -- 用真的 hash 函式產 token hash:該欄有格式 CHECK,自己編的字串會被擋
-  VALUES (p_id, p_order, p_user, p_status, public.charge_attempt_token_hash(p_id), pg_catalog.now() - p_age);
+    (id, order_id, customer_user_id, status, fallback_token_hash, created_at, rec_trade_id)
+  -- 用真的 hash 函式產 token hash:該欄有格式 CHECK,自己編的字串會被擋。
+  -- status='charged' 另有 CHECK 要求 rec_trade_id NOT NULL ⇒ 只在 charged 時補一個具名 rec。
+  VALUES (p_id, p_order, p_user, p_status, public.charge_attempt_token_hash(p_id), pg_catalog.now() - p_age,
+          CASE WHEN p_status = 'charged' THEN 'l4t-rec-' || p_id::text END);
 \$\$;
 
 -- 🔴 造**自己的**兩個會員,不借 seed 的會員:seed 有 27 筆 attempt 掛在既有會員身上,
@@ -147,6 +154,11 @@ F_OTHERUSER="SELECT pg_temp.mk_order((SELECT v FROM _l4 WHERE k='f1'),(SELECT v 
 SELECT pg_temp.mk_attempt('9c000000-0000-4000-8000-000000000011',(SELECT v FROM _l4 WHERE k='f1'),(SELECT v FROM _l4 WHERE k='other'),'pending',interval '1 minute');"
 # 🔴 格 9:failed —— 與格 7(released)分開成格。plan 原本把兩者寫在同一格,但 fixture 只造了 released
 #    ⇒「誤把 failed 加進 active 集合」這個突變沒有任何一格會紅(codex 關卡2 R1)。
+# 🔴 格 10(R3 換模型審查 F3):**charged-未-paid** 的在途單。
+#    migration 自陳這條是「雙扣視窗」——本閘最高錢面的述詞,而原本 9 格 fixture 沒有任何一格是 charged
+#    ⇒ 把 'charged' 從 status 集合刪掉的突變,當時**沒有任何一格會紅**。
+F_CHARGED="SELECT pg_temp.mk_order((SELECT v FROM _l4 WHERE k='f1'),(SELECT v FROM _l4 WHERE k='user'),'PCM-2099-9011','c0000000-0000-4000-8000-0000000000f1'::uuid,false);
+SELECT pg_temp.mk_attempt('9c000000-0000-4000-8000-000000000011',(SELECT v FROM _l4 WHERE k='f1'),(SELECT v FROM _l4 WHERE k='user'),'charged',interval '1 minute');"
 F_FAILED="SELECT pg_temp.mk_order((SELECT v FROM _l4 WHERE k='f1'),(SELECT v FROM _l4 WHERE k='user'),'PCM-2099-9011','c0000000-0000-4000-8000-0000000000f1'::uuid,false);
 SELECT pg_temp.mk_attempt('9c000000-0000-4000-8000-000000000011',(SELECT v FROM _l4 WHERE k='f1'),(SELECT v FROM _l4 WHERE k='user'),'failed',interval '1 minute');"
 
@@ -156,7 +168,7 @@ W_FLIGHT_F2='user_in_flight|9b000000-0000-4000-8000-000000000012'
 W_LOCKED='order_locked|-'
 
 matrix() {
-  echo "== 9 格行為矩陣 =="
+  echo "== 10 格行為矩陣 =="
   expect "格1 無在途 attempt              " "$W_ACQ"        "$F_NONE"
   expect "格2 1 張在途(異單異 cart 10 分內)" "$W_FLIGHT_F1"  "$F_INFLIGHT"
   expect "格3 在途單已 paid                " "$W_ACQ"        "$F_PAID"
@@ -166,12 +178,16 @@ matrix() {
   expect "格7 attempt 是 released          " "$W_ACQ"        "$F_RELEASED"
   expect "格8 在途 attempt 屬別的會員      " "$W_ACQ"        "$F_OTHERUSER"
   expect "格9 attempt 是 failed            " "$W_ACQ"        "$F_FAILED"
+  expect "格10 charged-未-paid(雙扣視窗)  " "$W_FLIGHT_F1"  "$F_CHARGED"
 }
 
 # 把 begin 還原成 A8c1 的定義(裸裝、不帶 assert)。突變兩軸都要用:
 # 本片的前置閘釘 md5=A8c1,裝過一次 L4a-1 之後 md5 就變了 ⇒ 不還原就永遠是前置閘在喊。
 A8C1=supabase/migrations/20260804120000_m4b_e10_a8c1_begin_cancel_guard.sql
 install_a8c1_bare() {
+  # ⚠️ 行號寫死(R3 nit F6):A8c1 若被編輯過,這段會抽錯範圍。方向是安全的
+  #    —— 抽錯 ⇒ 本片 migration 的 md5 前置閘會攔下,不會靜默用錯定義。
+  #    但錯誤訊息會指向「md5 不符」而不是真因 ⇒ 撞到那個錯時**先確認這兩個行號還對**。
   { echo 'BEGIN;'; sed -n '71,202p' "$A8C1"; echo 'COMMIT;'; } \
     | psql "$(url)" -v ON_ERROR_STOP=1 -qtA >/dev/null 2>&1 \
     || die "還原 A8c1 定義失敗 —— 停下(庫狀態未知)"
@@ -189,12 +205,14 @@ mutate_sed() { # $1=突變代號 → 印出 perl 表達式
     # 🔴 M6 不用「拿掉 tie-breaker」(codex 關卡2 R1 抓到):少了 ORDER BY 的第二鍵,PG **可能**照樣
     #    回同一筆 —— 那樣這一發是否翻格取決於執行計畫,綠了也證不了東西(不穩定的突變=沒有判別力)。
     #    改成把 tie-breaker **反向**:結果變成確定回 id 較小者 ⇒ 格 6 必定翻,且翻得可重現。
-    M6) echo "s/^     ORDER BY a\.created_at DESC, a\.id DESC\$/     ORDER BY a.created_at DESC, a.id ASC/m" ;;
+    M6) echo "s/^     ORDER BY \(a\.status = 'charged'\) DESC, a\.created_at DESC, a\.id DESC\$/     ORDER BY (a.status = 'charged') DESC, a.created_at DESC, a.id ASC/m" ;;
     # 🔴 M7:plan 的格 7 原本宣稱涵蓋 released **與 failed**,但 fixture 與突變都只碰 released
     #    ⇒「誤把 failed 加進 active 集合」這個突變當時無人擋(codex 關卡2 R1)。補格 9 + 本發。
     M7) echo "s/^       AND a\.status IN \('pending', 'charged'\)\$/       AND a.status IN ('pending', 'charged', 'failed')/m" ;;
     # 🔴 M8:控制流突變 —— 述詞一字不動,只把 IF FOUND 反轉。這一發是用來證明
     #    「整段錨含到 END IF」那個修法真的有效(舊版只錨到 LIMIT 1 時它會全綠逃掉)。
+    # 🔴 M9(R3 F3):拿掉 'charged' —— 這一發在加格 10 之前**無格可紅**。
+    M9) echo "s/^       AND a\.status IN \('pending', 'charged'\)\$/       AND a.status IN ('pending')/m" ;;
     M8) echo "s/^  IF FOUND THEN\n    RETURN pg_catalog\.jsonb_build_object\(\n      'acquired', false, 'reason', 'user_in_flight',/  IF NOT FOUND THEN\n    RETURN pg_catalog.jsonb_build_object(\n      'acquired', false, 'reason', 'user_in_flight',/m" ;;
   esac
 }
@@ -202,17 +220,16 @@ mutate_expect_cell() { # 該突變應該讓哪一格翻掉
   case "$1" in
     M1) echo "格3" ;; M2) echo "格4" ;; M3) echo "格5" ;;
     M4) echo "格7" ;; M5) echo "格8" ;; M6) echo "格6" ;; M7) echo "格9" ;;
-    # M8 反轉控制流 ⇒ 會讓「該擋的不擋、不該擋的擋」= 多格同時翻。
-    # 它的判別力**只**由軸 A(整段錨)承擔,軸 B 不要求恰 1 格 —— 見 mutations() 內的分流。
-    M8) echo "多格" ;;
+    # M8 反轉控制流 ⇒ 每一格的結果都不再等於期望 ⇒ 簽名是「9 格全翻」,見 mutations() 內的分流。
+    M8) echo "全格" ;; M9) echo "格10" ;;
   esac
 }
 
 mutations() {
   echo
-  echo "== 8 發突變 × 兩軸 =="
+  echo "== 9 發突變 × 兩軸 =="
   local m expr tmp out
-  for m in M1 M2 M3 M4 M5 M6 M7 M8; do
+  for m in M1 M2 M3 M4 M5 M6 M7 M8 M9; do
     expr="$(mutate_sed "$m")"
     tmp="$(mktemp -t l4a1mut)"
     perl -0777 -pe "$expr" "$MIG" > "$tmp"
@@ -243,10 +260,15 @@ mutations() {
         *"❌"*) total_diff=$((total_diff+1)); case "$line" in *"$want_cell"*) flipped=1 ;; esac ;;
       esac
     done < <(matrix 2>&1)
-    if [ "$want_cell" = "多格" ]; then
-      # M8(控制流反轉):本來就會讓多格同時翻,要求「恰 1 格」是錯的期望。
-      # 它要證的是「矩陣看得見這個突變」(≥1 格翻)+ 軸 A 擋得住,不是單格定位。
-      if [ "$total_diff" -ge 1 ]; then ok "$m 軸B:矩陣看得見(翻了 $total_diff 格)"; else bad "$m 軸B:矩陣**完全看不見**控制流反轉 ⇒ 整組矩陣對這一族突變全盲"; fi
+    if [ "$want_cell" = "全格" ]; then
+      # M8(控制流反轉):要求「恰 1 格」是錯的期望,但放寬成「≥1 格」幾乎沒有判別力
+      # (codex 關卡2 R2:那樣即使有八格失去判別力,這一發照樣 PASS)。
+      # 反轉 IF FOUND 會讓**每一格**的結果都不再等於期望值 ⇒ 正確簽名是 **恰好 9 格全翻**。
+      if [ "$total_diff" = "$MATRIX_CELLS" ]; then
+        ok "$m 軸B:$MATRIX_CELLS 格全翻(控制流反轉的正確簽名)"
+      else
+        bad "$m 軸B:期望 $MATRIX_CELLS 格全翻,實際只翻 $total_diff 格 ⇒ 有格子對控制流反轉是盲的"
+      fi
     elif [ "$flipped" = 1 ] && [ "$total_diff" = 1 ]; then
       ok "$m 軸B:恰好只有 $want_cell 翻掉"
     else
@@ -270,15 +292,18 @@ mutations
 # 🔴 收尾 read-back 改比 **完整 functiondef 的 md5**(codex 關卡2 R1:只查字串存在證不了「已還原成正版」
 #    —— 帶著某個突變的定義裡那個字串照樣在)。期望值在第一次跑時由本腳本自己量、印出來給人釘。
 FINAL_MD5="$(q -c "SELECT md5(pg_get_functiondef('public.begin_charge_attempt(uuid)'::regprocedure))")"
-EXPECT_MD5="${EXPECT_MD5:-2363d8c359b59b27479c1c3192ce3bc3}"
-if [ -n "${EXPECT_MD5:-}" ]; then
-  [ "$FINAL_MD5" = "$EXPECT_MD5" ] \
-    || die "收尾 read-back:定義 md5=$FINAL_MD5,期望 $EXPECT_MD5 —— 庫沒回到本片正版,**不要拿這次結果下結論**"
-  echo "收尾 read-back:md5 = $FINAL_MD5(與 EXPECT_MD5 相符)"
-else
-  echo "收尾 read-back:md5 = $FINAL_MD5(未給 EXPECT_MD5;下次用 EXPECT_MD5=$FINAL_MD5 跑才算釘住)"
-fi
+# 期望值釘死在這裡。改了 migration 就必須手動重釘:跑一次、把印出來的 md5 貼回本行。
+# 忘記重釘 = false-stop(腳本紅、但庫是好的),這是安全方向;不會有假綠。
+EXPECT_MD5="${EXPECT_MD5:-3cde7884d42de7d169052030c3ff82db}"
+[ "$FINAL_MD5" = "$EXPECT_MD5" ] \
+  || die "收尾 read-back:定義 md5=$FINAL_MD5,期望 $EXPECT_MD5。
+     若你剛改過 migration ⇒ 把 EXPECT_MD5 重釘成上面那個值;
+     若你沒改過 ⇒ 庫沒回到本片正版,**不要拿這次結果下結論**"
+echo "收尾 read-back:md5 = $FINAL_MD5(與 EXPECT_MD5 相符)"
+# 🔴 到這裡才關掉 EXIT cleanup:上面每一步都已確認庫是本片正版,
+#    再讓 trap 重裝一次只會製造「重裝失敗 → 收尾把好的庫弄壞」這條新路徑。
+RESTORE_ON_EXIT=0
 echo
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = 0 ] || exit 1
-echo "✅ L4a-1 全綠(9 格矩陣 + 8 發突變 × 兩軸;$PASS 條斷言)"
+echo "✅ L4a-1 全綠(10 格矩陣 + 9 發突變 × 兩軸;$PASS 條斷言)"

@@ -115,6 +115,7 @@ L4a-1 已驗的只有 DB 側:9 格行為矩陣 + 8 發突變 × 兩軸(`scripts/
 | 7 | attempt status = `released` | 不擋 |
 | 8 | 🔴 **另一個會員**有在途 attempt | 不擋 |
 | 9 | 🔴 attempt status = `failed`(與格 7 **分開成格**) | 不擋 |
+| 10 | 🔴 **`charged`-未-paid**(migration 自陳的「雙扣視窗」) | 擋 + 回 `in_flight_order_id` |
 
 **突變紀律**:逐條刪述詞 ⇒ **只紅對應那一格**。三處 R2 糾正,全採納:
 - **格 5**:本單有 active attempt 時會落到佔鎖 INSERT 的 `ON CONFLICT DO NOTHING` ⇒ A8c1 `:191-192` 回 **`order_locked`**。
@@ -126,10 +127,15 @@ L4a-1 已驗的只有 DB 側:9 格行為矩陣 + 8 發突變 × 兩軸(`scripts/
 - **格 9(關卡2 R1 新增)**:原本把 `released / failed` 寫在同一格,但 fixture 只造了 `released`
   ⇒「誤把 `failed` 加進 active 集合」這個突變**沒有任何一格會紅**。拆成兩格才有判別力。
 
-**實跑結果(`scripts/l4a1-verify.sh`,PORT=54372 自己的拋棄庫)**:**9 格矩陣 + 8 發突變 × 兩軸 = 25 條斷言全綠**。
+**實跑結果(`scripts/l4a1-verify.sh`,PORT=54372 自己的拋棄庫)**:**10 格矩陣 + 9 發突變 × 兩軸 = 28 條斷言全綠**。
+🔴 **格 10 與 M9 是 R3 換模型審查(P-262-A F3)加的,不是我想到的**:原本 9 格 fixture **沒有任何一格是 `charged`**
+—— 而 migration 自陳「charged-未-paid 也擋 = 雙扣視窗」正是本閘**最高錢面**的述詞
+⇒「把 `'charged'` 從 status 集合刪掉」這個突變當時**無格可紅**。同一族的第三次:守門存在、但那條路上沒有觀察點。
 八發突變:M1 paid 條件 / M2 10 分鐘 / M3 異單 / M4 status 加 released / M5 同會員 / M6 tie-breaker 反向 / M7 status 加 failed / M8 `IF FOUND`→`IF NOT FOUND`。
 - **軸 A**(帶 assert 送)= 8 發**全部**被整段錨擋下。
 - **軸 B**(裸裝突變)= M1-M7 各自**恰好只翻對應的一格**;M8 是控制流反轉、本來就會翻多格,只要求「矩陣看得見」。
+- 🔴 **排序第一鍵 = `(a.status = 'charged') DESC`**(R3 F4,主視窗直接裁):同會員同時有 charged-未-paid 與較新 pending 時,
+  回較新的 pending = 把對帳目標指向**證據弱**的那張。逐字比照 cart dedup 那段已被 codex 硬化過的前例,不發明新序。
 - 🔴 **M6 改成把 tie-breaker 反向(`a.id ASC`)而不是拿掉它**(codex 關卡2 R1):拿掉第二排序鍵時 PG **可能**照樣
   回同一筆 ⇒ 翻不翻格取決於執行計畫 = 這一發綠了也證不了東西。反向則結果確定、可重現。
 
