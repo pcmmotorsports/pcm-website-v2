@@ -368,10 +368,33 @@ case "${1:-}" in
     n3a_mutations
     require_free_port
     WORK="$(mktemp -d)"
-    trap '( teardown "$WORK" ) >/dev/null 2>&1 || true' EXIT
+    # 🔴 W7 跟片⑥(2026-08-09,R3 F5 + R1 F1/F2):原本是
+    #      trap '( teardown "$WORK" ) >/dev/null 2>&1 || true' EXIT
+    #    輸出丟掉 + `|| true` ⇒ **teardown 失敗零可觀察**:workdir 留著、cluster 沒停,
+    #    畫面上一個字都沒有、離場碼也是 0。
+    # 🔴🔴 **但真正的洞比這個大**(R1 F1,我實測證了):`n3b_behaviour` 在自己尾端跑
+    #    `trap - EXIT`(見該函式最後幾行)⇒ **綠路徑上這道 trap 早就被清掉、從來沒執行過**。
+    #    檔頭寫的「all(自行 provision / teardown)」在成功路徑上是假的。
+    #    實測:連跑兩次 `all`,留下兩支 `postgres -D <tmp>/pgdata`(54380 與 54390)還活著。
+    #    ⇒ 綠路徑必須**自己顯式收**(照 s1b「顯式清理 + 收 trap」的形狀),trap 只負責異常路徑。
+    # 🔴 本檔是 `set -euo pipefail` ⇒ trap 內 `TD_OUT="$(…)"` 一拿到非 0 就當場中止整個 trap,
+    #    後面的判斷與 printf 一行都跑不到(實測:teardown 回 4 ⇒ 離場碼 4、警告零輸出,
+    #    看起來就像我沒寫這段)。⇒ 捕捉狀態一律用 `|| rc=$?` 這種 `-e` 安全的形式。
+    n3_teardown_now() {   # 🔴 不自己 exit —— 由呼叫端決定(顯式那側與 trap 那側的正確處置不同)
+      local out rc=0
+      out="$( ( teardown "$WORK" ) 2>&1 )" || rc=$?
+      [ "$rc" -eq 0 ] || printf '🔴 TEARDOWN_WARN:teardown 失敗(rc=%s)⇒ 現場保留:%s\n%s\n' "$rc" "$WORK" "$out" >&2
+      return "$rc"
+    }
+    trap 'TD_RC=$?; n3_teardown_now || { if [ "$TD_RC" -eq 0 ]; then exit 9; else exit "$TD_RC"; fi; }' EXIT
     ( provision "$WORK" ) >/dev/null 2>&1 || fail "all:provision 失敗"
     python3 scripts/n3b-verbatim-check.py || fail "all:§4.1d 機械比對失敗"
     n3b_behaviour "$WORK"
+    # 🔴 R1 F1:`n3b_behaviour` 尾端的 `trap - EXIT` 已經把上面那道 trap 清掉了 ⇒ 走到這裡
+    #    是**沒有任何 EXIT trap** 的狀態,綠路徑的 teardown 只能靠這一句。先收 trap 再收現場,
+    #    避免「顯式收了一次、trap 又收一次」。
+    trap - EXIT
+    n3_teardown_now || exit 9
     ;;
   *)
     echo "用法:$0 n3a-mutations | n3b-verbatim | n3b-behaviour <workdir> | all" >&2

@@ -35,12 +35,50 @@ PASS=0; FAIL=0
 ok()  { printf '  ✅ %s\n' "$1"; PASS=$((PASS+1)); }
 bad() { printf '  🔴 %s\n' "$1"; FAIL=$((FAIL+1)); }
 
+# 🔴 R1 F3(W7 跟片⑥):**開場**那道 `pg_ctl stop -m immediate || true` + 無條件 `rm -rf "$W"`
+#    就是本檔 teardown 剛被我譴責的同一件事,原封留在下面幾行 —— 兩個視窗用同一個預設路徑
+#    並行跑就會互刪。w 線 19 支已在跟片⑤ 補過這道閘,這裡對齊。
+# 🔴🔴 必須排在 `trap teardown EXIT` **之前**:teardown 會對 `$W/data` 下 `pg_ctl stop`,
+#    閘若排在 trap 之後,`exit 1` 會觸發 teardown 去停掉**別人的** cluster = 正好做了它要防的事。
+command -v pgrep >/dev/null 2>&1 || { echo "REFUSE: 找不到 pgrep ⇒ 無法確認 $W 是否正被別人使用,拒絕 rm -rf"; exit 1; }
+if [ -f "$W/data/postmaster.pid" ] && pgrep -f "postgres.*$W/data" >/dev/null 2>&1; then
+  echo "REFUSE: $W/data 底下有活著的 postmaster(別的視窗正在用?)⇒ 拒絕 rm -rf,也不去停它。"
+  echo "        處置:等它跑完,或改本檔頂端的 W= / PORT=。"
+  exit 1
+fi
 teardown() {
+  TD_RC=$?   # 🔴 W7 跟片⑥:第一句接住本來要離場的碼(EXIT trap 進來時的 $?)
   [ "$KEEP" = "keep" ] && return 0
   pg_ctl -D "$W/data" stop -m fast >/dev/null 2>&1 || true
+  # 🔴 W7 跟片⑥(2026-08-09,R3 F4):原本 `stop … || true` 之後**無條件 `rm -rf`**,
+  #    零殘留觀察。這比「量了不算」更糟 —— 停不掉時會把資料目錄從**還活著的 postmaster**
+  #    底下刪掉,而 w 線的 teardown 早就明文拒絕做這件事(「stop 失敗時不刪 datadir,
+  #    否則會變成 postmaster 還活著、資料目錄卻沒了」)。本支自建自拆、又是併發探針,
+  #    停不乾淨的機率比一般 harness 高。
+  #    ⇒ 停完要**看**:有殘留就保留現場 + 離場碼非 0(照 w 線跟片③的形狀:
+  #      本來就非 0 時保留原碼,不把真正的 FAIL 洗掉)。
+  # 🔴 `pgrep` 缺席不能當成「沒殘留」—— 那是 fail-open。查不到工具就當不確定,保留現場。
+  if ! command -v pgrep >/dev/null 2>&1; then
+    echo "🔴 TEARDOWN_WARN:找不到 pgrep ⇒ 無法確認 $W/data 是否已停乾淨,**保留現場**:$W"
+    if [ "$TD_RC" -eq 0 ]; then exit 9; else exit "$TD_RC"; fi
+  fi
+  LEFTOVER="$(pgrep -f "postgres.*$W/data" 2>/dev/null | wc -l | tr -d ' ')"
+  if [ -f "$W/data/postmaster.pid" ] || [ "$LEFTOVER" != "0" ]; then
+    echo "🔴 TEARDOWN_WARN:postmaster 沒停乾淨(殘留程序 $LEFTOVER 支)⇒ **保留 workdir 供診斷、不刪**:$W"
+    if [ "$TD_RC" -eq 0 ]; then exit 9; else exit "$TD_RC"; fi
+  fi
   # 🔴 「自建自拆」必須真的拆掉(關卡2 R2 nit:原版只停 PG、留下整個 data directory)。
   #    刪除前確認是本腳本建的(ownership marker),不然寧可留著。
-  [ -f "$W/.a7t-conc-throwaway" ] && rm -rf "$W"
+  A7T_OWNED=0; [ -f "$W/.a7t-conc-throwaway" ] && A7T_OWNED=1
+  [ "$A7T_OWNED" = "1" ] && rm -rf "$W"
+  # 🔴 rm 之後實測 -e —— 「宣稱」不是「檢查」(w 線同款)。
+  # 🔴 R1 F2:第一版把 `[ -f marker ]` 放在**這裡**當前綴 —— 但 `rm -rf` 會先刪掉頂層的
+  #    marker,子項刪不掉時目錄留著而 marker 已不在 ⇒ 條件為假、靜默放行,正好對它要抓的
+  #    那個失敗模式全盲。⇒ marker 只用來決定「該不該刪」,不參與「刪乾淨了沒」。
+  if [ "$A7T_OWNED" = "1" ] && [ -e "$W" ]; then
+    echo "🔴 TEARDOWN_WARN:rm 之後 workdir 仍在:$W"
+    if [ "$TD_RC" -eq 0 ]; then exit 9; else exit "$TD_RC"; fi
+  fi
   return 0
 }
 trap teardown EXIT
