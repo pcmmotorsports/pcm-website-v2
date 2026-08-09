@@ -215,6 +215,38 @@ export async function listShipmentsByCustomer(customerUserId: string): Promise<S
 }
 
 /**
+ * 給一組訂單品項 id,算出**每個品項已經被配進箱子的數量**(排除已作廢的箱)。
+ *
+ * 🔴 **這不是 `order_item_quantity_summary.shipped_quantity`,而且刻意不是。**
+ * 那一欄算的是「**已寄出**」(`shipments.shipped_at` 有值);而建箱畫面要排除的是
+ * 「**已經被裝進任何一個沒作廢的箱**」—— 包含**還沒寄出的草稿箱**。
+ * 用 `shipped_quantity` 的話,已經放進草稿箱的品項仍會顯示成可選 ⇒ **同一件被裝進第二個箱子**。
+ * 兩個是不同的問題,不是同一個數字的兩種取法。
+ *
+ * 🔴 作廢的箱要排除:`admin_void_shipment` 之後那些品項應該**回到可出貨池**
+ * (合約:「要重新出這批貨請開一張新的包裹」)。漏了這個過濾,作廢一箱等於把貨永久鎖住。
+ *
+ * ⚠️ 本函式**沒有實跑驗證**(本 worktree 無 DB)。`!inner` + 巢狀 `.is()` 的過濾語意
+ * 是照 PostgREST 文件寫的,真行為要收割端的 smoke 驗。
+ */
+export async function listAssignedQuantitiesByOrderItemIds(
+  orderItemIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (orderItemIds.length === 0) return new Map();
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipment_items')
+    .select('order_item_id, shipped_quantity, shipments!inner(deleted_at)')
+    .in('order_item_id', [...orderItemIds])
+    .is('shipments.deleted_at', null);
+  if (error) throw error;
+  const out = new Map<string, number>();
+  for (const r of data ?? []) {
+    out.set(r.order_item_id, (out.get(r.order_item_id) ?? 0) + r.shipped_quantity);
+  }
+  return out;
+}
+
+/**
  * 給一組訂單品項 id,查出它們分別裝在哪些箱(訂單詳情頁的出貨卡用)。
  *
  * ⚠️ 回傳的箱子**可能還裝著別單的品項** —— 箱子掛客人不掛訂單。

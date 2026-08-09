@@ -210,6 +210,69 @@ describe('掛品項 · 形狀轉換', () => {
   });
 });
 
+describe('已配箱數量 · 與 shipped_quantity 是不同的問題', () => {
+  /** 建一個 supabase 查詢鏈的 mock,記錄呼叫過的過濾條件。 */
+  function chain(rows: unknown[]) {
+    const calls: Record<string, unknown[]> = {};
+    const rec = (k: string) => (...a: unknown[]) => {
+      calls[k] = a;
+      return api;
+    };
+    const api: Record<string, unknown> = {
+      select: rec('select'),
+      in: rec('in'),
+      is: (...a: unknown[]) => {
+        calls.is = a;
+        return Promise.resolve({ data: rows, error: null });
+      },
+    };
+    return { api, calls };
+  }
+
+  it('🔴 必須排除已作廢的箱(作廢後品項要回到可出貨池,漏過濾等於把貨永久鎖住)', async () => {
+    const { api, calls } = chain([]);
+    from.mockReturnValue(api);
+    const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+    await listAssignedQuantitiesByOrderItemIds(['oi-1']);
+    expect(calls.is, '查詢沒有對 shipments.deleted_at 過濾 ⇒ 作廢箱裡的品項仍被算成已配箱').toEqual([
+      'shipments.deleted_at',
+      null,
+    ]);
+    expect(
+      String(calls.select?.[0] ?? ''),
+      'select 沒有用 `shipments!inner` ⇒ 巢狀過濾不會生效(outer join 下 null 側會被保留)',
+    ).toContain('shipments!inner');
+  });
+
+  it('同一品項散在多箱 → 數量相加', async () => {
+    const { api } = chain([
+      { order_item_id: 'oi-1', shipped_quantity: 1, shipments: { deleted_at: null } },
+      { order_item_id: 'oi-1', shipped_quantity: 2, shipments: { deleted_at: null } },
+      { order_item_id: 'oi-2', shipped_quantity: 5, shipments: { deleted_at: null } },
+    ]);
+    from.mockReturnValue(api);
+    const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+    const m = await listAssignedQuantitiesByOrderItemIds(['oi-1', 'oi-2']);
+    expect(m.get('oi-1'), '同一品項分裝兩箱時數量沒有相加 ⇒ 會讓它看起來還能再出').toBe(3);
+    expect(m.get('oi-2')).toBe(5);
+  });
+
+  it('🔴 本檔不得改用 `shipped_quantity` 欄(那是「已寄出」,不含草稿箱 ⇒ 會被裝進第二個箱)', () => {
+    expect(
+      SRC,
+      '出現了 order_item_quantity_summary / shipped_quantity 欄的讀取 ⇒ ' +
+        '那一欄只算已寄出,已放進**草稿箱**的品項仍會顯示可選、被裝進第二個箱子。' +
+        '建箱畫面要問的是「已配進任何未作廢的箱」,不是「已寄出」。',
+    ).not.toMatch(/order_item_quantity_summary/);
+  });
+
+  it('空輸入短路,不發請求', async () => {
+    const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+    expect((await listAssignedQuantitiesByOrderItemIds([])).size).toBe(0);
+    expect(from).not.toHaveBeenCalled();
+  });
+});
+
 describe('讀取面 · 空輸入短路', () => {
   it('🔴 orderItemIds 為空時不得發出請求(PostgREST 的 `in.()` 行為不保證)', async () => {
     const { listShipmentItemsByOrderItemIds } = await import('./shipment-repository');
