@@ -53,6 +53,9 @@ provision() {
   for f in supabase/migrations/*.sql; do
     case "$f" in
       *20260723120000*) echo "  跳過(pg_cron/vault):$f" >&2; continue ;;
+      # M-4b 生命週期 L3b:只有「排程」那半依賴 pg_cron;函式本體在 L3a(20260809160000)照常套用
+      # ⇒ scripts/l3-verify.sh 驗得到真 PostgreSQL 上的行為(拆兩支的理由見 L3a 檔頭)。
+      *20260809170000*) echo "  跳過(pg_cron):$f" >&2; continue ;;
     esac
     if [ "$f" = "$FIRST_FITMENTS" ]; then
       echo "  插入 fitments DDL 快照(於首引用 $f 之前)" >&2
