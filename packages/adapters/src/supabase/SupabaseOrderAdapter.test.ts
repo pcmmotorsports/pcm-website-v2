@@ -14,6 +14,8 @@ import type { AdminOrderFilter, PlaceOrderInput } from '@pcm/domain';
 import {
   SupplierOrderNoSearchTooManyError,
   SupplierOrderNoSearchShapeError,
+  OrderKeywordSearchShapeError,
+  MAX_ORDER_KEYWORD_LENGTH,
 } from '@pcm/domain';
 import {
   SupabaseOrderAdapter,
@@ -22,6 +24,8 @@ import {
   ADMIN_ORDER_DETAIL_SELECT,
   SUPPLIER_ORDER_NO_MATCH_CAP,
   SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT,
+  ADMIN_ORDER_ID_IN_CAP,
+  ADMIN_SEARCH_ORDERS_FN,
 } from './SupabaseOrderAdapter';
 import * as adapterModule from './SupabaseOrderAdapter';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
@@ -466,6 +470,10 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
         },
       ],
       total: 37,
+      // #347-2a:未做關鍵字搜尋 ⇒ 沒截斷、且 matchCount 是 `null`(「沒搜過」)
+      //          而不是 `0`(「搜了、零命中」)—— 兩者的區分正是這個欄位存在的理由。
+      keywordTruncated: false,
+      keywordMatchCount: null,
     });
   });
 
@@ -502,7 +510,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     );
     expect(eq).not.toHaveBeenCalled();
     expect(range).toHaveBeenCalledWith(0, 19);
-    expect(res).toEqual({ items: [], total: 0 });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
   });
 
   it('取消單(cancelled_at 非 null)+ 客人 join 缺(customers null)→ cancelledAt 帶值、customerName null', async () => {
@@ -1377,7 +1385,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋'
         { orderNumber: bad },
         { limit: 20 },
       );
-      expect(res, `格式不符應回零筆:${bad}`).toEqual({ items: [], total: 0 });
+      expect(res, `格式不符應回零筆:${bad}`).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
       expect(from, `格式不符不該碰 DB:${bad}`).not.toHaveBeenCalled();
       expect(or).not.toHaveBeenCalled();
       expect(range).not.toHaveBeenCalled();
@@ -1396,7 +1404,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋'
         { orderNumber: attack },
         { limit: 20 },
       );
-      expect(res).toEqual({ items: [], total: 0 });
+      expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
       expect(from, `注入形狀不該碰 DB:${attack}`).not.toHaveBeenCalled();
     }
   });
@@ -1426,7 +1434,7 @@ describe('SupabaseOrderAdapter — A9b1 單號搜尋守門', () => {
       { orderNumber: 'BAD!', paymentStatus: 'paid' },
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0 });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
     expect(from).not.toHaveBeenCalled();
   });
 });
@@ -1528,7 +1536,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商�
       { supplierOrderNo: 'SO-NOPE' },
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0 });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
     expect(h.listSelect).not.toHaveBeenCalled();
     expect(h.from).not.toHaveBeenCalledWith('orders');
   });
@@ -1539,7 +1547,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商�
       { supplierOrderNo: 'SO-123ß' }, // 非 ASCII
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0 });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
     expect(h.from).not.toHaveBeenCalled();
   });
 
@@ -1736,5 +1744,359 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
     expect(or).toHaveBeenCalledWith(HIDE);
     expect(eq).toHaveBeenCalledWith('fulfillment_status', 'shipped');
     expect(inFn).toHaveBeenCalledWith('payment_channel', ['bank_transfer']);
+  });
+});
+
+// ── M-4b #347-2a:八維度關鍵字搜尋(`admin_search_orders` RPC + 第二段 .in(id))────────
+// 🔴 同 A9b2-A 的既有慣例:**另立** client harness、不改上面那些 —— 本片對既有路徑零行為改動,
+//    既有測試必須一格不動仍綠(改了就分不清「新片沒壞東西」還是「我把斷言改成配合新行為」)。
+function makeKeywordSearchClient(opts: {
+  rpc?: { data: unknown; error: unknown };
+  proc?: { data: unknown; error: unknown };
+  list?: { data: unknown; error: unknown; count: number | null };
+}) {
+  const rpc = vi.fn().mockResolvedValue(opts.rpc ?? { data: { ids: [], truncated: false }, error: null });
+
+  const procFilter = vi.fn().mockResolvedValue(opts.proc ?? { data: [], error: null });
+  const procLimit = vi.fn().mockReturnValue({ filter: procFilter });
+  const procOrder = vi.fn().mockReturnValue({ limit: procLimit });
+  const procSelect = vi.fn().mockReturnValue({ order: procOrder });
+
+  const listResult = opts.list ?? { data: [], error: null, count: 0 };
+  const range = vi.fn().mockResolvedValue(listResult);
+  const order = vi.fn();
+  order.mockReturnValue({ order, range });
+  const eq = vi.fn();
+  const inFn = vi.fn();
+  const or = vi.fn();
+  const builder = { eq, is: vi.fn(), in: inFn, or, order };
+  or.mockReturnValue(builder);
+  eq.mockReturnValue(builder);
+  inFn.mockReturnValue(builder);
+  const listSelect = vi.fn().mockReturnValue(builder);
+
+  const from = vi.fn((table: string) =>
+    table === 'order_item_procurement' ? { select: procSelect } : { select: listSelect },
+  );
+  return {
+    client: { from, rpc } as unknown as SupabaseClient,
+    from,
+    rpc,
+    procSelect,
+    listSelect,
+    or,
+    in: inFn,
+    range,
+  };
+}
+
+const uuid = (n: number) => `0000000${n}-0000-4000-8000-000000000000`.slice(-36);
+
+describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — #347-2a 關鍵字搜尋', () => {
+  it('命中 → 打 RPC(參數名逐字)+ 第二段 .in(id),且**投影仍是主常數**', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1), uuid(2)], truncated: false }, error: null },
+    });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '  王小明  ' },
+      { limit: 20 },
+    );
+    // 🔴 參數名逐字對 migration 簽章;`p_limit` 由呼叫端明講、不依賴 DB 的 DEFAULT。
+    expect(h.rpc).toHaveBeenCalledWith(ADMIN_SEARCH_ORDERS_FN, {
+      p_query: '王小明',
+      p_limit: ADMIN_ORDER_ID_IN_CAP,
+    });
+    // 🔴 **只有兩個引數** —— 第三參數就是 `{get:true}`/`{head:true}` 進來的地方(搜尋詞會進 URL)。
+    expect(h.rpc.mock.calls[0]).toHaveLength(2);
+    // 🔴 第二段的投影一個字都沒動(鐵則 12 byte-lock 白名單不因搜尋而換版本)
+    expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+    expect(h.in).toHaveBeenCalledWith('id', [uuid(1), uuid(2)]);
+    expect(res.keywordTruncated).toBe(false);
+    expect(res.keywordMatchCount).toBe(2);
+  });
+
+  it('🔴 truncated 直通到回傳(靜默截斷 = 員工以為就這幾筆)', async () => {
+    const ids = Array.from({ length: ADMIN_ORDER_ID_IN_CAP }, (_, i) => uuid(i + 1));
+    const h = makeKeywordSearchClient({ rpc: { data: { ids, truncated: true }, error: null } });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王' },
+      { limit: 20 },
+    );
+    expect(res.keywordTruncated).toBe(true);
+    expect(res.keywordMatchCount).toBe(ADMIN_ORDER_ID_IN_CAP);
+  });
+
+  it('🔴 truncated 為真、但結果被其他篩選濾成 0 筆時,旗標**仍要是 true**(提示的唯一依據)', async () => {
+    const ids = Array.from({ length: ADMIN_ORDER_ID_IN_CAP }, (_, i) => uuid(i + 1));
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids, truncated: true }, error: null },
+      list: { data: [], error: null, count: 0 },
+    });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王', paymentStatus: 'refunded' },
+      { limit: 20 },
+    );
+    // 0 筆 + 沒有提示 = 員工得到「查無此單」的錯誤結論,正是合約要禁的形狀。
+    expect(res).toMatchObject({ items: [], total: 0, keywordTruncated: true });
+  });
+
+  it('零命中 → 回零筆、**第二段完全沒被打**,但 matchCount 是 0(不是 null)', async () => {
+    const h = makeKeywordSearchClient({ rpc: { data: { ids: [], truncated: false }, error: null } });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: 'zzz' },
+      { limit: 20 },
+    );
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: 0 });
+    // 🔴 `0`(搜了、零命中)與 `null`(沒搜過)必須分得出來 —— 那是災難當天的第一個分岔。
+    expect(res.keywordMatchCount).not.toBeNull();
+    expect(h.from).not.toHaveBeenCalled();
+  });
+
+  it('🔴 fail-closed:搜尋詞不合法 → 回零筆,且 **RPC 與第二段都沒被打**(零 I/O)', async () => {
+    const h = makeKeywordSearchClient({ proc: { data: [procRow(uuid(1))], error: null } });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      // 🔴 **一定要同時給一個有效的 supplierOrderNo**(關卡2 R1 抓到):不給的話供應商 probe
+      //    本來就不會跑 ⇒ 就算有人把關鍵字驗證移回 probe 之後,`h.from` 仍然沒被呼叫、這格照樣綠
+      //    = 這格量的其實不是「驗證排在 I/O 之前」。給了才構造得出那個突變。
+      { keyword: 'x'.repeat(MAX_ORDER_KEYWORD_LENGTH + 1), supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+    expect(h.rpc).not.toHaveBeenCalled();
+    expect(h.from).not.toHaveBeenCalled();
+  });
+
+  it('🔴 空/全空白(含零寬空格)→ 不篩選:RPC 不打,但列表照查(不是回零筆)', async () => {
+    const h = makeKeywordSearchClient({ list: { data: [], error: null, count: 5 } });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '\u200b\u3000' },
+      { limit: 20 },
+    );
+    expect(h.rpc).not.toHaveBeenCalled();
+    expect(h.in).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ total: 5, keywordTruncated: false, keywordMatchCount: null });
+  });
+
+  it('🔴 RPC error → 裸 throw(不吞成零筆:那會讓壞掉看起來像查無此單)', async () => {
+    const h = makeKeywordSearchClient({ rpc: { data: null, error: { message: 'boom' } } });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({ keyword: 'x' }, { limit: 20 }),
+    ).rejects.toEqual({ message: 'boom' });
+  });
+});
+
+/**
+ * 在任意物件圖裡遞迴找子字串(含 Error 的不可列舉屬性、巢狀物件、陣列)。
+ *
+ * 🔴 用途:證明「錯誤物件的**任何角落**都沒有搜尋詞」—— 搜尋詞是 PII,而錯誤物件會進 server log。
+ * 淺層的 `JSON.stringify` 或看 `.message` 都只覆蓋一層,巢狀欄位會整個溜過去(關卡2 R2)。
+ */
+function deepContains(value: unknown, needle: string, seen = new Set<unknown>()): boolean {
+  if (typeof value === 'string') return value.includes(needle);
+  if (typeof value === 'number' || typeof value === 'boolean' || value == null) return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) return value.some((v) => deepContains(v, needle, seen));
+  return Object.getOwnPropertyNames(value).some((k) =>
+    deepContains((value as Record<string, unknown>)[k], needle, seen),
+  );
+}
+
+describe('#347-2a 關鍵字搜尋 · RPC 回傳形狀 fail-closed(硬轉 = 假設沒人驗)', () => {
+  it.each([
+    ['回傳不是物件', 'not-an-object'],
+    ['回傳是陣列', [uuid(1)]],
+    ['回傳是 null', null],
+    ['truncated 缺鍵(undefined 會靜默變成「沒截斷」)', { ids: [uuid(1)] }],
+    ['truncated 不是 boolean', { ids: [uuid(1)], truncated: 'yes' }],
+    ['ids 不是陣列', { ids: uuid(1), truncated: false }],
+    ['ids 含非 UUID(進 .in() 會讓 PostgREST 400 = 整頁錯誤態)', { ids: ['not-a-uuid'], truncated: false }],
+  ])('🔴 %s → 擲 OrderKeywordSearchShapeError', async (_name, data) => {
+    const h = makeKeywordSearchClient({ rpc: { data, error: null } });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({ keyword: 'x' }, { limit: 20 }),
+    ).rejects.toBeInstanceOf(OrderKeywordSearchShapeError);
+  });
+
+  it('🔴 ids 有重複 → 擲錯(不靜默去重:重複會灌水 URL,且讓 matchCount 大於真實訂單數)', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1), uuid(1), uuid(2)], truncated: false }, error: null },
+    });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({ keyword: 'x' }, { limit: 20 }),
+    ).rejects.toBeInstanceOf(OrderKeywordSearchShapeError);
+  });
+
+  it('🔴 ids 超過上限 → 擲錯(RPC 被改成回 101 筆時,.in() 的 URL 會爆,而那個失敗長得像「列表壞了」)', async () => {
+    const ids = Array.from({ length: ADMIN_ORDER_ID_IN_CAP + 1 }, (_, i) => uuid(i + 1));
+    const h = makeKeywordSearchClient({ rpc: { data: { ids, truncated: true }, error: null } });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({ keyword: 'x' }, { limit: 20 }),
+    ).rejects.toBeInstanceOf(OrderKeywordSearchShapeError);
+  });
+
+  it('🔴 錯誤訊息不得含搜尋詞(它會進 server log,而搜尋詞是 PII)', async () => {
+    // 🔴 **第一版只掛 `.catch()` = 這一格自己是假綠**(關卡2 R1 抓到):
+    //    promise 若意外正常 resolve,裡面的斷言**一次都不會執行**,而測試照樣 PASS。
+    //    ⇒ 先用 `rejects` 釘住「它一定要擲」,再對擲出來的東西做斷言。
+    const secret = '王小明0912345678';
+    const h = makeKeywordSearchClient({ rpc: { data: 'bad', error: null } });
+    const call = new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: secret },
+      { limit: 20 },
+    );
+    await expect(call).rejects.toBeInstanceOf(OrderKeywordSearchShapeError);
+    const err: unknown = await call.then(
+      () => {
+        throw new Error('unreachable:上一行的 rejects 已經釘死它必須擲');
+      },
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(Error);
+    const msg = (err as Error).message;
+    expect(msg).not.toContain(secret);
+    expect(msg).not.toContain('王');
+    // 🔴 **深層掃描,不是 `JSON.stringify(err, ownPropertyNames)`**(關卡2 R2 抓到):
+    //    那個 replacer 陣列只列**頂層**自有屬性 ⇒ `err.context.query = 搜尋詞` 這種巢狀欄位
+    //    會被序列化掉、掃不到,而真的 logger(pino/console.error)照樣會把它印出來 ⇒ 那格是假綠。
+    expect(deepContains(err, '王')).toBe(false);
+    expect(deepContains(err, secret)).toBe(false);
+  });
+});
+
+describe('#347-2a 關鍵字 × 供應商單號:交集只送一次 .in(id)', () => {
+  it('🔴 兩個維度並用 → **只呼叫一次 .in(id)**、值是交集(送兩次 = 兩個同名 query param,合併語意未文件化)', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1), uuid(2), uuid(3)], truncated: false }, error: null },
+      proc: { data: [procRow(uuid(2)), procRow(uuid(3)), procRow(uuid(4))], error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王', supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    const idCalls = h.in.mock.calls.filter((c) => c[0] === 'id');
+    expect(idCalls).toHaveLength(1);
+    expect(idCalls.map((c) => c[1])).toEqual([[uuid(2), uuid(3)]]);
+  });
+
+  it('🔴 交集為空 → 回零筆、第二段不打;matchCount 仍回報關鍵字**真的有命中**', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+      proc: { data: [procRow(uuid(9))], error: null },
+    });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王', supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    // 🔴 這一格正是 keywordMatchCount 存在的理由:畫面上與「關鍵字零命中」完全同形,
+    //    只有這個數字分得出來是「找到了、但被交集砍光」。
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: 1 });
+    expect(h.in).not.toHaveBeenCalled();
+  });
+
+  it('🔴 關鍵字零命中 + 供應商命中過多 → 回零筆、**不擲 TooMany**(關鍵字已證明交集必為空)', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [], truncated: false }, error: null },
+      proc: { data: Array.from({ length: 9999 }, (_, i) => procRow(uuid(i))), error: null },
+    });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: 'zzz', supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    // 順序載重:關鍵字 RPC 排在供應商 probe 之前 ⇒ 這裡根本走不到供應商那段。
+    expect(res).toMatchObject({ items: [], total: 0, keywordMatchCount: 0 });
+    expect(h.from).not.toHaveBeenCalled();
+  });
+});
+
+describe('#347-2a 關鍵字 × 供應商零命中:早退也要帶出 truncated / matchCount', () => {
+  it('🔴 關鍵字 truncated + 供應商零命中 → 早退,但**兩個訊號照實帶出去**', async () => {
+    // 🔴 這一格補的是「供應商零命中」那條早退(關卡2 R1 抓到沒人測):
+    //    把它改回一個不帶訊號的空回傳 ⇒ truncated 靜默消失、畫面不再顯示「結果太多」,
+    //    而在補這格之前,其餘 23 格全部照綠。
+    const ids = Array.from({ length: ADMIN_ORDER_ID_IN_CAP }, (_, i) => uuid(i + 1));
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids, truncated: true }, error: null },
+      proc: { data: [], error: null },
+    });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王', supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(res).toEqual({
+      items: [],
+      total: 0,
+      keywordTruncated: true,
+      keywordMatchCount: ADMIN_ORDER_ID_IN_CAP,
+    });
+    expect(h.in).not.toHaveBeenCalled();
+  });
+});
+
+describe('#347-2a 關鍵字 × L6 隱藏規則(豁免綁精準鍵)', () => {
+  const HIDE = 'payment_channel.neq.tappay,payment_status.neq.unpaid';
+
+  it('🔴 純關鍵字搜尋 **不豁免** 隱藏規則(主視窗 D-385-A 裁決;搜「王」會撈回大量刷卡未付款單)', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王' },
+      { limit: 20 },
+    );
+    expect(h.or).toHaveBeenCalledWith(HIDE);
+  });
+
+  it('關鍵字 + 供應商單號並用 → 豁免**由精準鍵帶入**(這是規則的正確結果,不是 bug)', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+      proc: { data: [procRow(uuid(1))], error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王', supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(h.or).not.toHaveBeenCalled();
+  });
+
+  it('關鍵字 + 員工手動勾「連未付款一起顯示」→ 不套隱藏(既有逃生口對關鍵字一樣有效)', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '王', includeUnpaidCardOrders: true },
+      { limit: 20 },
+    );
+    expect(h.or).not.toHaveBeenCalled();
+  });
+});
+
+describe('#347-2a 早退回傳 · 每次都是新物件(不得共用可變實例)', () => {
+  it('🔴 改動第一次的回傳,**不得**污染第二次(共用 const 物件 = 跨 request 污染)', async () => {
+    const h = makeKeywordSearchClient({});
+    const adapter = new SupabaseOrderAdapter(h.client);
+    const bad = { keyword: 'x'.repeat(MAX_ORDER_KEYWORD_LENGTH + 1) };
+    const first = await adapter.listOrderSummariesForAdmin(bad, { limit: 20 });
+    // consumer 對回傳做的事(完全合法):往 items 塞東西、改 total。
+    first.items.push({ id: 'poison' } as unknown as (typeof first.items)[number]);
+    first.total = 999;
+    const second = await adapter.listOrderSummariesForAdmin(bad, { limit: 20 });
+    // 🔴 關卡2 R1 抓到:第一版 `EMPTY_ADMIN_ORDER_LIST` 是 module-level const
+    //    ⇒ 這裡的 second 會帶著 poison 與 999,而症狀出現在**別的 request** 上、幾乎追不回這一行。
+    //    `Object.freeze` 不夠(淺凍結,items 照樣 push 得進去)⇒ 必須每次回新物件。
+    expect(second.items).toEqual([]);
+    expect(second.total).toBe(0);
+    expect(second).not.toBe(first);
+  });
+});
+
+describe('#347-2a 上限常數 · 獨立釘值(抽共用後的漂綠面)', () => {
+  it('🔴 ADMIN_ORDER_ID_IN_CAP 必須是字面 100 —— 要改先重量 URL 預算', () => {
+    // 🔴 **刻意寫死 100、不從常數導出**:供應商邊界測試是拿這個常數產資料的,
+    //    有人改成 200 ⇒ production 與那些測試會**一起漂綠**、8KB URL 的病無聲復活。
+    //    來源:adapter `SupabaseOrderAdapter.ts:138-155` 那張 byte 表(100 筆 = 4,461 / 200 筆 = 8,361 越 8KB 線)
+    //    + migration `:198` RPC 自己的硬夾值。三者要一起改,不是改一個。
+    expect(ADMIN_ORDER_ID_IN_CAP).toBe(100);
+    expect(SUPPLIER_ORDER_NO_MATCH_CAP).toBe(100);
   });
 });

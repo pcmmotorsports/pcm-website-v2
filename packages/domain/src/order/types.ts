@@ -1,4 +1,4 @@
-import type { Money, MemberTier } from '../shared/types';
+import type { Money, MemberTier, Paginated } from '../shared/types';
 import type { ProductId } from '../catalog/types';
 import type { CustomerId } from '../identity/types';
 
@@ -269,6 +269,73 @@ export type AdminOrderFilter = {
    * 未 apply 時打這條 filter 會 PostgREST 42703 ⇒ 整個列表進錯誤態(D0/A10c1 同族)。
    */
   supplierOrderNo?: string;
+  /**
+   * 八維度「關鍵字」搜尋(M-4b #347-2a;Sean 拍板 #347「八維度一框」)。
+   *
+   * 命中面 = 訂單編號 / 會員姓名 / 會員電話 / 收件快照 name-phone-line / 料號 / 品名 / 品牌 /
+   * 供應商單號,由 `public.admin_search_orders(text, integer)` 在 **SQL 內**比對
+   * (`supabase/migrations/20260809180000_…`,已 apply 正式站)。
+   *
+   * - `undefined` / 空字串 = 不篩;
+   * - 值由 `normalizeOrderKeywordSearch` 正規化後才可進 adapter;
+   * - 🔴 **不合法時 adapter 回零筆、不得退化成不篩選**(同上面兩欄的理由:fail-open 是本族的病)。
+   *
+   * 🔴🔴 **為什麼它是 RPC 而不是多幾個 filter 欄**:命中面裡有 `shipping_address_snapshot`,
+   * 而那一欄**就在鐵則 12 的 forbidden 清單裡**(`SupabaseOrderAdapter.test.ts` 的 forbidden 陣列)。
+   * 走 RPC 之後 **PII 只在 SQL 內被比對,一個字都不進讀模型、不進 RSC payload** —— 函式只吐 `orders.id`。
+   * ⇒ 任何「把這些欄加進列表投影去前端過濾」的修法都是**親手拆掉那道守門**,不要走。
+   *
+   * 🔴 **與另外兩欄最大的差異:本欄沒有字元集限制**。那兩欄擋字元是因為值會被內插進
+   * PostgREST 的 GET query string;本欄走 `.rpc()` = POST + JSON body ⇒ 中文、`%`、`,` 全合法
+   * (完整理由在 `keyword-search.ts` 檔頭;照抄那兩欄的守門會把功能廢掉一半)。
+   *
+   * 🔴 **上限 100 筆、超過只回前 100 並回報截斷**:見 {@link AdminOrderListResult.keywordTruncated}。
+   */
+  keyword?: string;
+};
+
+/**
+ * AdminOrderListResult: `listOrderSummariesForAdmin` 的回傳(M-4b #347-2a)。
+ *
+ * = `Paginated<AdminOrderSummary>` **加上關鍵字搜尋的兩個訊號**。
+ *
+ * 🔴 **為什麼不直接加寬 `Paginated<T>`**:那會為了一個少數分支去加寬**所有**消費端都看得到的共用型別
+ * (`supplier-order-no-search.ts:48` 已就同一問題寫下這條判準)。這裡加寬的是**這一支方法的回傳**,
+ * 會員側 / 客戶列表的 `Paginated` 一個字不動。
+ */
+export type AdminOrderListResult = Paginated<AdminOrderSummary> & {
+  /**
+   * 🔴 **精確語意:「關鍵字_自己_命中的訂單超過上限,RPC 只回了最新的 100 筆」** ——
+   * **不是**「畫面上這個結果集被截斷」。兩者不同,因為 RPC 先取全域前 100,
+   * 才在第二段與其他篩選條件取交集:
+   *
+   * - `false` ⇒ 關鍵字命中集合**完整** ⇒ 交集與 `total` 精確,無歧義。
+   * - `true`  ⇒ **第 101 筆之後的命中看不到**。此時若同時套了其他篩選,真正符合的單可能
+   *   **整張落在那 100 筆之外** ⇒ 畫面可能顯示 0 筆,而 `total` 只代表
+   *   「前 100 筆再套其他篩選後的數量」,不是完整命中數。
+   *
+   * 🔴 **所以 UI 必須在 `true` 時_一律_顯示「結果太多,請輸入更精確的關鍵字」,包含 0 筆的情況** ——
+   * 0 筆 + 沒有提示 = 員工得到「查無此單」的錯誤結論,那正是 migration `:130-136` 合約要禁的形狀。
+   * ⚠️ 型別上的必填只約束**產出者**;真正防靜默截斷的守門是 2b 的畫面測試(plan §1-2)。
+   *
+   * 🔴 **不能靠把其他篩選下推進 RPC 解決** —— 那要動 RPC 簽章,而 Sean Q14=A 已拍板
+   * 日期等參數隨 **347-3**。本片的正確作法是把語意寫死、讓提示無條件出現。
+   */
+  keywordTruncated: boolean;
+  /**
+   * 關鍵字命中的訂單筆數(RPC 回的 `ids` 長度)。
+   * **`null` = 從來沒打過 RPC**(沒給關鍵字、或搜尋詞不合法在正規化階段就被擋下);
+   * **`0` = 打過了、DB 回零筆**。兩者**不可互換** —— 那正是這個欄位存在的理由。
+   *
+   * 🔴 **存在的唯一理由是「災難當天查得出來」**:三個月後員工說「搜料號 X 查無此單」時,
+   * 下面三種成因在畫面上**完全同形**(都是 0 筆):
+   * ① RPC 零命中 ② RPC 有命中但與供應商單號的 ids 交集砍光 ③ 交集非空但被 L6 / 付款狀態篩掉。
+   * 而**搜尋詞禁止落 log**(migration `:50-74`,那是 PII)⇒ 唯一合法的觀測物就是**非 PII 的計數**。
+   * `ids.length` 在 adapter 手上,不帶出來就等於自願把診斷能力丟掉。
+   * ⇒ 2b 可以據此對員工說人話(「找到 3 筆,但都被目前的篩選條件排除了」),
+   * **而一個字的搜尋詞都不必記錄**。
+   */
+  keywordMatchCount: number | null;
 };
 
 /**
