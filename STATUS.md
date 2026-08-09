@@ -7,6 +7,8 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 12:10 🎉 兩大驗收全過+測試單全清+生命週期三拍板。** ①**TabBar 白區 iOS 實機消失**=D 候選修法轉正(可反駁預測命中),兩夜十七片全驗收。②**LINE 刷卡手機實刷跳 3D=修復全案結**;桌機緊接重刷被防雙付窗擋=設計行為(手機筆 failed+rec 健康全循環)。③**測試單全清**:6 筆 08-08+27 筆 PCM-2026 舊單 Sean Studio SQL 兩批執行、主視窗獨立複驗 unpaid 僅剩今晨測試單 1 筆(7F4TF8);殭屍隨單滅。④**生命週期拍板**:Q1=A 自動失效/Q2=**1 天**(⚠️ 開匯款時必重估,寫進片規格)/Q3=A 已清/**防雙付窗要縮短**(首選=3D 取消返回即時對帳)⇒ 併立「訂單付款生命週期片」(失效+窗縮短+殭屍裁決三件同域,鐵則12① plan 先行)。⑤B 窗 Sean 已重開接手現場中。餘:生命週期片派工/三張圖(graphify 需可 spawn 窗+完成地圖+roadmap=主視窗欠帳)。
+
 🗂️ **2026-08-09 11:45 晨間三輪拍板全收官+五片上線(`d0b9b25e` dev=main)。** ①三輪品味題全拍全落:R1 六題(Q6 後翻案=B 逐條截圖)/R2 h1 三題全 A/R3 T1=A 三處彩線保留(另 5 條=impeccable 對 .css 誤報,機制題另議)。②晨間五片收割上線:觸控救援(命中區 ≥24、getBoundingClientRect≠命中區教訓)/#fff 誠實版(69→7,62 處改了深色日爆)/h1 三級收斂(11 字級+2 字重,四面真頁主視窗補驗全中)/Q6 截圖片。③backlog +2:#345 深色模式前置掃描/#346 三支 CSS 無 manifest 追蹤。④🔴 **B 窗死亡**(01:47 停,12 檔未 commit 掛樹含已改名 migration;不在活窗名單)⇒ 重開提示詞已交 Sean(接手現場不重做)。⑤P 收工 worktree 已清。**等 Sean**:B 重開/Studio SQL 結果/未付款三題/TabBar iPhone/LINE 實刷。
 
 🗂️ **2026-08-09 晨 Sean 六題拍板落地+D 三片開工(詳 memory site-redesign 檔)。** Q1:A 聲音中英混排維持/Q2:A **h1 收斂三級**(38/26/22,對照表 confirm 後落)/Q3:A 觸控救最小兩處(透明點擊 ≥24px)/**Q4:B `#fff` 69 處現在改吃 token**(語意 triage、拿不準列出不硬改)/Q5:A 小字維持/Q6:A OD 字面保真。派 D(`D-331-A`)三片。信箱監看升級=**Monitor 事件流**(殼層哨兵 sleep 在沙盒失效退役)+10 分心跳兜底。B 折 codex 中(剝註解根治法主視窗核可)。待 Sean:TabBar iPhone 驗收+LINE 殭屍 A/B。
