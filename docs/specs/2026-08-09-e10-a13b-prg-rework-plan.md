@@ -19,7 +19,7 @@
    ⇒ v3 改用**兩支獨立 form**(§2-3),`full_confirm` 整個概念刪除。**`E-022-A` Q1=A 已裁。**
 2. 🔴 **v2 §1「失敗導頁 → 讀 `r`/`rt` → 查帳本」把兩種不同的失敗混成一種。**
    實查:`?r=` 是訂單明細頁**唯一共用的一顆參數**,由既有 `ResultBanner` 消費
-   (`apps/admin/src/components/orders/result-banner.tsx:27-84`〔D1 落地後的行界〕,map 裡已經有 `invalid`/`denied`/`error`/`not_found`)。
+   (`apps/admin/src/components/orders/result-banner.tsx` 的 `MESSAGES`,map 裡已經有 `invalid`/`denied`/`error`/`not_found`)。
    ⇒ v3 把六碼切成兩類(§1a):**未送出類**只是一則文案、**沿用既有 ResultBanner**、不需要 `rt`、不需要查帳本;
    **已送出結果不明類**才帶 `rt` 並走帳本核對面板。rt 與帳本的暴露面因此縮到 **B 類四碼 + 成功碼**(v3.1 更正原寫的「兩顆碼」;v3.2 起成功碼也帶 `rt`,見 §1a)。
 3. 🔴 **v2 §1「失敗導頁用 replace ⇒ 上一頁也重播不了」是未實測的斷言。**
@@ -31,16 +31,16 @@
 
 ### §1a 結果碼分兩類(這是 v3 最重要的結構改動)
 
-🔴 **v3.1 更正(2026-08-09,D1 開工第一動實查 `cancel-action-state.ts:73-75` 抓到)**:
+🔴 **v3.1 更正(2026-08-09,D1 開工第一動實查 `cancel-action-state.ts` 的 `CancelNotSentCode` / `CancelSentCode` 兩個型別宣告抓到)**:
 v3 初稿這張表把碼寫錯了 —— 寫成「A 類三碼含 `ineligible`、B 類只有 retry/error」。
 **`ineligible` 是我憑空生的、根本不存在;`rejected` 與 `bug` 被我漏掉。**
 真正的分組**既有程式碼早就定義好了**(`CancelNotSentCode` / `CancelSentCode`),v3.1 照抄、不自己重編:
 
 | 類 | 碼(既有字面 → namespaced) | 帶 `rt`? | 誰消費 | 顯示依據 |
 |---|---|---|---|---|
-| **A 未送出**(RPC 從未被呼叫) | `denied` / `invalid` → `order_cancel_denied` / `order_cancel_invalid` | ❌ 不帶 | 既有 `ResultBanner`(登錄新碼) | 靜態文案,**逐字沿用既有 `FAILURE_MESSAGES`**(`cancel-action-state.ts:123-135`〔D1 落地後的行界〕),不另寫一份 |
+| **A 未送出**(RPC 從未被呼叫) | `denied` / `invalid` → `order_cancel_denied` / `order_cancel_invalid` | ❌ 不帶 | 既有 `ResultBanner`(登錄新碼) | 靜態文案,**逐字沿用既有 `FAILURE_MESSAGES`**(`cancel-action-state.ts` 的 `FAILURE_MESSAGES_SOURCE`),不另寫一份 |
 | **B 已送出、結果不明**(**四支,不是兩支**) | `rejected` / `retry` / `bug` / `error` → `order_cancel_*` | ✅ 帶 | **新**帳本核對面板 | 🔴 **一律由帳本 classifier 產出**(§1c);URL 只決定「要不要顯示這個面板、要對哪一顆 token」 |
-| **成功** | `order_cancelled`(常數 `cancel-action-state.ts:26` 早就存在) | ✅ 需要(**v3.2 改**) | 🔴 **D5 的帳本核對面板**,不是 banner | 🔴 **不得是靜態文案**(理由見下) |
+| **成功** | `order_cancelled`(常數 `ORDER_CANCELLED_RESULT_CODE` 早就存在) | ✅ 需要(**v3.2 改**) | 🔴 **D5 的帳本核對面板**,不是 banner | 🔴 **不得是靜態文案**(理由見下) |
 
 🔴🔴 **v3.2:成功訊息從 banner 移交 D5**(D1 關卡2 must-fix,推翻 v3.1 的「成功碼進 banner 當靜態文案」):
 `?r=` 是任何人都能自己打的字,而 `ResultBanner` 掛在 4 個頁面上 ⇒ 對一張**沒被取消**的單
