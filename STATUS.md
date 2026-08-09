@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 15:30 五窗滿載:E 窗開線(graphify 刷圖+取消畫面偵察核准)+B 跟片②收割+24/7 研究與設定盤點出爐。** ①**E 窗上線**:工作 0 graphify 刷圖完成(6418→10620 節點、零遺失、PII 零命中;docs 語意層停 07-25=誠實標注、暫不補);取消畫面偵察=8 片已成 6、只剩 A13a/b 畫面,主視窗裁 Q1=B(Sean 今日開窗=新拍板,DAG 序不擋;A9e/A9r/A9s 實查未做、是否殭屍片等出貨線落定再盤)+片 6 純函式抽出認可;🔴 E 引用 P plan `:93` 已推翻字面被主視窗糾正(取消鈕不鎖客人、L3 apply 硬前置不採)。五片 6→10 開工。②**B 跟片②收割**(`e0d6fc77`):w3b2 一格擴四格「沒有壞消息=PASS」修實、六發突變各紅其格;B 自報第一版修法恆真被突變抓到+R2 抓「結論對理由錯」;check 28/0。B 續跟片③(W5 三條)。③**24/7 研究+設定盤點**:claude --cloud/Routines/官方跨窗訊息=可行升級;盤點=常載 56KB 健康、4 死引用+3 斷鏈 skill+memory 超標(23KB/290 檔)+CLAUDE↔AGENTS 八段重複;**六題 Q-A~Q-F 待 Sean**(推薦 A/A/A/A/A/C)。④活性診斷 loop 常設(playbook §7-⑥,15 分 poke)。
+**Sean 待決策**:Q-A~Q-F 六題(24/7 上雲試點/Routine 巡邏/設定瘦身)。
+
 🗂️ **2026-08-09 14:50 Q7 拍板落檔+D 之 2b-0 收割(含真 DB smoke PASS)。** ①**Q7 Sean 拍板**(逐字「自動清理,10分鐘,不要鎖住,讓客人可以再重新加入商品到購物車直接下單」):兩型殭屍都自動清+門檻 10 分+不鎖新單;工程前置=L5 開工前先證偽「10 分內在途授權遲到完成」(3DS 頁 300s 倒數+token TTL=候選證據),證不偽=量化風險回 Sean、不靜默實作(詳 memory b2-shipments 檔)。已派 P(P-241-A),L5 解鎖、順序照舊 L3 先。②**D 之 2b-0 收割**:admin 列表投影+讀模型加 customer_user_id(同客人閘前提;主視窗裁 A);codex R1 FAIL=fixture 撞號恆真(真 must-fix,修後攻擊實測轉紅)、R2 PASS(自申=靜態推演非實跑,實跑由三綠+突變頂);五處同步、forbidden 清單零碰撞。**真 DB smoke 主視窗補跑=PostgREST 具名撈 customer_user_id HTTP 200 有值** ⇒ D-354 ⑥ 的未驗鏈已閉。D 續做 2b-1(勾單 UI)。③E 窗(取消訂單畫面線)開窗提示詞已交 Sean,等開。
 **Sean 待決策**:無(三窗+E 窗皆有活)。
 
