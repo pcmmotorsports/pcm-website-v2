@@ -100,7 +100,11 @@ CREATE TABLE public.order_notes (
     CHECK (pg_catalog.translate(body, U&'\200B\200C\200D\FEFF', '') ~ '[^[:space:]]'),
 
   -- occurred_at 必須是有限且合理的時間:'infinity' 或 1900 年的「已告知客人」是假證據。
-  -- ⚠️ 「不得晚於現在」擋不進 CHECK(now() 非 IMMUTABLE)⇒ 那條是 A6 owner RPC 的責任,
+  -- ⚠️ 「不得晚於現在」**不放進 CHECK**(now() 非 IMMUTABLE)
+  -- 🔴 2026-08-10 更正(OP1 施工實測):**PG 17.10 其實接受** `CHECK (col <= now())` ——
+  --    約束建得起來、`pg_constraint` 查得到。所以「擋不進」這個字面是錯的,對的說法是
+  --    「文件要求 CHECK 表達式 IMMUTABLE,`now()` 不是 ⇒ 那是**現在能用**不是**保證能用**,
+  --    不要依賴」。**結論不變、理由更正**(純註解,不改行為)⇒ 那條是 A6 owner RPC 的責任,
   --    此處只擋掉 infinity 與明顯荒謬值。
   CONSTRAINT order_notes_occurred_at_sane
     CHECK (

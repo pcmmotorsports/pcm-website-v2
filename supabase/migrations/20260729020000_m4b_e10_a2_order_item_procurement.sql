@@ -198,7 +198,11 @@ CREATE TABLE public.order_item_procurement_receipts (
     CHECK (quantity BETWEEN 1 AND 100000),
 
   -- 時間必須有限且合理('infinity' 或 1900 年的到貨紀錄是假證據)。
-  -- ⚠️ 「不得晚於現在」擋不進 CHECK(now() 非 IMMUTABLE)⇒ 那條是 A4b writer 的責任。
+  -- ⚠️ 「不得晚於現在」**不放進 CHECK**(now() 非 IMMUTABLE)
+  -- 🔴 2026-08-10 更正(OP1 施工實測):**PG 17.10 其實接受** `CHECK (col <= now())` ——
+  --    約束建得起來、`pg_constraint` 查得到。所以「擋不進」這個字面是錯的,對的說法是
+  --    「文件要求 CHECK 表達式 IMMUTABLE,`now()` 不是 ⇒ 那是**現在能用**不是**保證能用**,
+  --    不要依賴」。**結論不變、理由更正**(純註解,不改行為)⇒ 那條是 A4b writer 的責任。
   CONSTRAINT order_item_procurement_receipts_received_at_sane
     CHECK (received_at > TIMESTAMPTZ '2020-01-01' AND received_at < TIMESTAMPTZ '2100-01-01'),
 
