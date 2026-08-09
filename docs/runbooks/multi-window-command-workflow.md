@@ -130,5 +130,5 @@ context 快滿=先寫 checkpoint 信再停,不硬做「可能驗不完」的東�
 9. 施工窗回報的「事實」主視窗要抽驗(開原始檔),尤其影響決策的那種。
 10. 每逢新 DB migration 落檔,依賴「最新版本號」釘值的檢查會全紅=機制正常,照程序重釘+重跑,不是壞掉。
 11. 本機測試資料庫(pg cluster)每窗**專屬 PORT + 專屬 workdir**;腳本預設 port 兩窗同跑時,後到者 provision 失敗但 psql **靜默連到別窗的庫**(查詢有正常回值=最毒的症狀)。機制修法=harness 起庫前探測 port 被占硬停、起庫後驗 `current_setting('data_directory')` 等於本次 workdir 才採信。
-12. **fork 風暴**(08-09 五窗實錘,最終全機當機):多 session 齊跑 vitest/turbopack 會打滿 per-user 程序上限,症狀=所有窗 `echo` 都 exit 1 零輸出、Monitor 全死、Python 吐 `Errno 35`,連 sandbox 內外都一樣。處置:①症狀=系統層,**不是程式紅、不當 finding 修**;②各窗停止重試(重試也燒 fork)、掛長輪詢等主視窗令;③主視窗協調**全套測試錯開跑**、查孤兒 node(turbopack crash 會留);④預防=多窗夜跑時 vitest 全套與 build 不同窗同時起。
+12. **fork 風暴**(08-09 五窗實錘,最終全機當機):多 session 齊跑 vitest/turbopack 會打滿 per-user 程序上限,症狀=所有窗 `echo` 都 exit 1 零輸出、Monitor 全死、Python 吐 `Errno 35`,連 sandbox 內外都一樣。處置:①症狀=系統層,**不是程式紅、不當 finding 修**;②各窗停止重試(重試也燒 fork)、掛長輪詢等主視窗令;③主視窗協調**全套測試錯開跑**、查孤兒 node(turbopack crash 會留);④預防=多窗夜跑時 vitest 全套與 build 向主視窗排隊錯開;**dev server 在多窗期間一律 `next dev --webpack`**(turbopack 的 next-swc 有 fork 競態崩潰 bug,08-09 四份 .ips 同指紋、兩次全機當機;單窗日常照用 turbopack 沒問題,Sean 拍板保持預設;治本=追 Next 上游修復)。
 ```
