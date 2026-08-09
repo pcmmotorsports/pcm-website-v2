@@ -81,6 +81,7 @@ sha_of() { shasum "$SCRIPTS/$1" 2>/dev/null | cut -d' ' -f1; }
 # ══════════════════════════ record 模式 ══════════════════════════════════
 if [ "$MODE" = "record" ]; then
   TARGET="${2:-all}"
+  REC_BAD=0
   TS="$(newest_ts)"
   [ -n "$TS" ] || { echo "找不到 supabase/migrations ⇒ 不敢記帳"; exit 1; }
   if [ "$TARGET" = "all" ]; then LIST="$(harness_set)"; else LIST="$TARGET"; fi
@@ -98,11 +99,25 @@ if [ "$MODE" = "record" ]; then
     IC="$(printf '%s' "$OUT" | sed -n 's/.*INCONCLUSIVE=\([0-9]*\).*/\1/p' | tail -1)"
     [ -n "$IC" ] || IC=0
     printf 'PASS=%s FAIL=%s exit=%s inconc=%s\n' "$P" "$F" "$EX" "$IC"
-    grep -v "^$h	" "$LEDGER" > "$LEDGER.tmp" 2>/dev/null || true
+    # 🔴 R1 F7:原本 `|| true` 之後無條件 mv —— grep 因「無匹配」**以外**的原因失敗
+    #    (檔不可讀、磁碟滿)時 tmp 是空的,整本收據會被靜默清空、只剩本支那行。
+    #    grep 的退出碼:0=有匹配、1=無匹配(正常)、≥2=真的出錯 ⇒ 只有前兩者才敢 mv。
+    grep -v "^$h	" "$LEDGER" > "$LEDGER.tmp" 2>/dev/null; GRC=$?
+    [ "$GRC" -le 1 ] || { echo "🔴 grep 讀收據失敗(rc=$GRC)⇒ 拒絕覆寫,收據保持原樣"; rm -f "$LEDGER.tmp"; exit 1; }
+    # 🔴 R2 F3:`> file` 重導向失敗時 bash 也給 rc=1 —— 與「無匹配」**不可分辨**。
+    #    那時 tmp 根本不存在,`mv` 只在 stderr 抱怨,收據沒被換掉,下一行 `>>` 再追加 ⇒ 該支出現兩列。
+    #    ⇒ 不能只看 rc,要看產物真的在。
+    [ -f "$LEDGER.tmp" ] || { echo "🔴 收據暫存檔沒產出(重導向失敗?)⇒ 拒絕覆寫"; exit 1; }
     mv "$LEDGER.tmp" "$LEDGER"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$h" "$P" "$F" "$EX" "$TS" "$(sha_of "$h")" "$IC" >> "$LEDGER"
+    # 🔴 R1 F6:record 原本無條件 `exit 0` —— 而 record 是唯一**真的跑 harness** 的模式,
+    #    任一支跑紅照樣回 0 ⇒ 夜跑寫 `record all && …` 會被騙。判準與 check 的 `check_one` 對齊:
+    #    FAIL 非 0、或 exit 不在該支的允許集合內,就是不綠。
+    case " $(exits_of "$h") " in *" $EX "*) : ;; *) REC_BAD=$((REC_BAD+1)) ;; esac
+    [ "$F" = "0" ] || REC_BAD=$((REC_BAD+1))
   done
   echo "收據已寫入 $LEDGER"
+  [ "$REC_BAD" -eq 0 ] || { echo "🔴 本輪有 $REC_BAD 項不綠(FAIL 非 0 或 exit 不在允許集合)⇒ 收據已寫,但離場碼非 0"; exit 1; }
   exit 0
 fi
 

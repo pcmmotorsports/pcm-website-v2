@@ -441,6 +441,13 @@ stop_cluster() {
   #    `pg_ctl` 逾時 / PGBIN 不對 / 權限不足時欠款原樣復發且零診斷)。
   if psql -X "$BASE_URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
     printf '  WARN teardown 後埠 %s 仍連得上 ⇒ 叢集**沒停成**(datadir %s/pgdata),請手動收\n' "$PORT" "$WORK"
+    # 🔴 W7 跟片③ R1 F2(B-226 MF-3 同族):原本只印 WARN、離場碼不動 ⇒ 殘留在跑過帳上隱形,
+    #    而本支正好在 coverage 的 EXTRA_HARNESSES 裡、`exits_of` 又准 `0 3` ⇒ 這條路帳面完全看不到。
+    #    🔴 本支與 w 線不同:`3` 是它的**正常**出口(INCONC 待裁格),所以 0 與 3 都要被殘留蓋掉;
+    #    只有真的有格紅(1)時才保留原碼 —— 那個資訊比「殘留」更該先被看到。
+    #    TD_RC 在 trap 的**第一個指令**取得(:488/:629),不能放進本函式 —— 前面十二個 drop_db
+    #    與 run_mode_notice 會先把 $? 洗掉。
+    case "${TD_RC:-0}" in 0|3) exit 9 ;; *) exit "$TD_RC" ;; esac
   fi
 }
 
@@ -485,7 +492,7 @@ if [ "$MODE" = "all" ]; then
   #    R1 實測構造:`PGOPTIONS='-c default_transaction_read_only=on'` ⇒ die 在 shim ⇒ 殘留 1 支。
   #    ⇒ 這裡先掛「只收叢集」的版本;副本資料庫此時都還不存在,不需要 drop_db。
   #    後面那個完整 trap 會覆蓋本行(bash 的 trap 是覆蓋不是疊加,兩者都含 stop_cluster)。
-  trap 'stop_cluster' EXIT
+  trap 'TD_RC=$?; stop_cluster' EXIT
   psql -X "$BASE_URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql || die "shim 失敗"
   # 🔴 fitments 相容 stub 的插序沿用 d1t2 家族(public.product_fitments_effective 在 repo 內
   #    沒有任何建立來源,backlog #299)⇒ 這裡的「全綠」不等於「repo 能從零重建正式站 schema」。
@@ -626,7 +633,7 @@ run_mode_notice() {
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
 # 🔴 `trap … EXIT` 對 **exit 0 / 1 / 3 三條路都生效**;本檔的常態出口正是 **exit 3**
 #    (無紅但有待裁格)⇒ 漏掉 teardown 的其實是**最常走的那條**。
-trap 'drop_db b2s2b_29a; drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar; drop_db b2s2b_cfp; run_mode_notice; stop_cluster' EXIT
+trap 'TD_RC=$?; drop_db b2s2b_29a; drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar; drop_db b2s2b_cfp; run_mode_notice; stop_cluster' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
