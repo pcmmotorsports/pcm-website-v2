@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 18:4x 🏁 Sean 拍板策略轉向:訂單後台先建完整再總測試(停逐片測試迴圈)+四板落檔+空箱清零。** ①**轉向拍板**(memory `project_m4b-order-admin-complete-then-test`):完整化清單=#347 搜尋→#350 佈局分割視窗(含 #348 客人面板+Q1=A 商品卡)→#351 出貨文案/口徑/空箱可見→#352 現貨補記到貨(Q2=A)→取消線 A13;完成後給 Sean「功能地圖+日常操作流程」總驗收;視覺=Claude Design 出 demo。期間不再請 Sean 逐片重測。②**當晚拍板**:Q1=A(商品卡=凍結資料+現行圖+開賣場頁鈕)/Q2=A/Q3=A。③**42501 修後 Sean 重按=權限過了、被到貨守恆規則正確擋下**(可出=已到貨−已出貨−已裝箱,該單無到貨紀錄);彈窗「還能出」與 DB 口徑不一致+空箱不可見=兩個真缺口入 #351。④**空箱 NXYNTB 已作廢**(admin_void_shipment 正規管道、可復原;正式站未出貨箱=0;Sean 以為多建一顆=冪等機制擋下沒發生)。⑤B 之 8→6 註解更正收割(數 CREATE 不問 catalog 的教訓入 B memory);E 片 6 收割(`7af238be`,408 檔 6171 綠)。
+**Sean 待動作**:無(等完整版通知,期間不用測)。
+
 🗂️ **2026-08-09 18:0x 🎉 正式站 42501 修復上線(建箱解鎖)+B 跟片④同收+Sean 拍兩 UI 需求立案。** ①**42501 修復收割+apply**(`bd214e99` 收 B 之 `4cdb517e`+跟片④ `f8fffba7`;check 28/0 綠才推、dry-run 只列 190000 才 apply):根因=W2 冪等閘函式是 SECURITY INVOKER 卻掛 DEFERRABLE constraint trigger ⇒ COMMIT 當下以 service_role 讀 owner-only 鍵表;修法=一句 `ALTER FUNCTION … SECURITY DEFINER`+三道唯讀 fail-closed 斷言(同族全掃 `tgdeferrable` 不限 schema、search_path 兩值 allowlist、防恆真前置)。🔴 codex 擴判準=「可被延遲」非「預設延遲」(`SET CONSTRAINTS ALL DEFERRED` 一句就逃出 SECDEF 上下文)。真身分負測入 w5-line(靶改回 INVOKER 當場重現 42501)。⚠️ **apply NOTICE 掃到 6 支、B 帳面 8 支=差 2 待 B 解釋**(斷言本身 fail-closed 已過,不擋上線)。②**待 Sean=重按「建箱並標出貨」一次**(成功=write smoke 閉帳;再 42501 則貼錯誤裡 CONTEXT 行)。③**Sean 拍兩 UI 需求**(逐字):側邊欄預設窄至與文字對齊、放大訂單區;點訂單編號改右側分割視窗(約一半、可調)不切頁——立案 #350、排 D 窗 347-1 後。④E 片 6 判停裁 A(三輪確認 FAIL 但同層打轉=字面命中判停條件,直接 commit)。
 **Sean 待動作**:重按「建箱並標出貨」一次(修復已上線)。
 
