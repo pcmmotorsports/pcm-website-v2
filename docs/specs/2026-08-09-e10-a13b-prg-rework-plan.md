@@ -110,7 +110,7 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
    - 原因 `<select>` 兩支都是 `<option value=''>請選擇</option>` + `required`
      (沒有空 placeholder 時瀏覽器會自動選第一個 ⇒「重選」根本沒發生)。
    - **附帶解掉 v2 C5**:「切回 full 時怎麼排除殘留 `cancel_item`」這題消失——整單那支 form 裡本來就沒有品項欄。
-   - server 端不變:`cancel-form.ts:172-182` 現況「`full` 卻帶品項 ⇒ `{ok:false}`」保留為第二道。
+   - server 端不變:`cancel-form.ts:203` 現況「`full` 卻帶品項 ⇒ `{ok:false}`」保留為第二道。
    - 🔴 **驗收 = 真瀏覽器負測**(D6-a;`E-031-A` 核准的字面):失敗一次 → `goBack()` → 直接按送出
      → **斷言實際送出去的 POST body** 是 `cancel_mode=partial&cancel_item=…`、**不是** `cancel_mode=full`。
      突變驗:把兩支 form 併回單一 radio 形狀 → 該測試必須轉紅(**探針已實跑證明會翻**,見下)。
@@ -146,9 +146,22 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
 `cancelledResultQuery`)。**這是約束、不是型別保證** —— `ORDER_CANCELLED_RESULT_CODE` 與
 `toOrderCancelResultCode` 因為 banner 的 computed key 與 D5 路由的需求仍公開匯出,
 手拼 `` `?r=${ORDER_CANCELLED_RESULT_CODE}` `` 編得過(窄 R3 consider F1;`E-037-A` 同意放驗收層)。
-⇒ D4/D5 收工前各跑一次 `grep -rn '?r=' apps/admin/src` 確認零手拼,發現一處就改回建構器。
+⇒ D4/D5 收工前各跑一次 `grep -rn '?r=' apps/admin/src`,**判準 = 「取消線零手拼」,不是「全 admin 零命中」**;
+取消線有一處手拼就改回建構器。
+🔴 **判準 2026-08-10 由 D4 實跑更正(主視窗核准)**:原字面「確認零手拼」會被讀成「這條 grep 應該零命中」——
+**實跑會命中一堆**,因為備註 / 退款 / 採購 / 供應商 / 會員 tier 各線本來就在用 `?r=`(全部合法、非取消線)。
+照原字面跑的人只有兩條路:誤判成壞掉,或看到一堆命中就整條略過 —— 兩條都比沒有這道驗收更糟。
+D4 實查:取消線自己零手拼(`cancel-actions.ts:127/150/200/224` 全走三支建構器;
+兩支表單元件零 `?r=`,已由 `cancel-order-forms.test.tsx` 的原始碼層測試釘住)。
 
 🔴 **內容分級(鐵則 9)**:新增的失敗文案與結果碼 = **L1**(年 0-1 次改、hardcode 可),不需後台 CRUD。
+🔴 **D4 補分級(2026-08-10,R2 codex 抓到原句只涵蓋「失敗文案與結果碼」、沒涵蓋表單自己的字)**:
+D4 新增的**全部員工可見文字**同樣是 **L1** —— 兩支表單的區塊標題、警語(「會把還沒取消的數量全部取消掉…」)、
+送出鈕文字、欄位 label 與 placeholder、品項列的「買 N 件,這次可取消 M 件」。
+理由:它們是**流程說明**不是營運內容,改動頻率同失敗文案(年 0-1 次,通常伴隨流程本身變更);
+且 `cancel-order-forms.tsx` 檔頭已標「結構鎖、字不鎖 —— 待 Sean 肉眼定稿」,定稿後不再週期性變動。
+⚠️ **唯一例外要盯**:原因碼的中文(`CANCEL_REASON_LABEL`)雖也是 L1,但它的**碼**由 DB CHECK 當權威
+(`20260730130000:131-139`)⇒ 要新增原因碼是 **DB + TS 兩處都改**,不是改文案。
 **片型**:全部 **高風險**(鐵則 12 ①錢,送出 `admin_cancel_order`),對抗審查不降級。
 
 ## §4 已裁事項(`E-014-A`)
@@ -229,6 +242,6 @@ B: 本線加跨 token 的原子防線(動 RPC / DB = 範圍擴張,要另外提 p
 | 9 | 完整 parser 失敗拿不到可信 orderId 決定導向 | ✅ §1b + **D2 的授權後 envelope parser**;既有 landmine 測試(授權閘第一動)不得弱化 |
 | 10 | `order_cancelled` 未註冊於既有 banner;導 `/orders` 的碼沒有消費者 | ✅ 實查屬實。**D1 專片**只登錄 A 類兩碼(關卡2 R2 後:**成功碼與 B 類四碼都不進 banner**,全交 D5 查帳本),並釘死鍵集合歸類與零碰撞 |
 | 11 | C5 只說「要排除殘留欄」沒選機制 | ✅ 兩支 form 讓這題消失(§2-3);C5 不再存在 |
-| 12 | 沒有 playwright 基建;`goBack()` 可能走網路重載仍綠 | ✅ §6-4 誠實列出實查結果;§2-3 驗收加 **`pageshow.persisted === true` 斷言**;基建路線 `E-022-A` **Q2=A 已裁**(D5 後跑 30 分探針、結果落信再定形狀)|
+| 12 | 沒有 playwright 基建;`goBack()` 可能走網路重載仍綠 | ✅ §6-4 誠實列出實查結果;基建路線 `E-022-A` **Q2=A 已裁**(D5 後跑 30 分探針、結果落信再定形狀)。<br>🔴🔴 **本列原本寫「驗收加 `pageshow.persisted === true` 斷言」——2026-08-10 D4 R2 codex 抓到它與 §2-3 `:118-121` 的「不准加回」直接矛盾,已刪除**。§2-3 那段是 v3.3 依 D6 探針實測改的(CDP 連著時 Chromium 不進 bfcache、四種組合量下來 `persisted` 全 false = 機制限制),而本列是 v3 舊字面沒跟著沖掉。**現行驗收 = 斷言實際送出的 POST body + 「併回單一 radio 必轉紅」的突變**,以 §2-3 為準。|
 | 13 | 基底 `76c27011` 過期;`cancel-section.tsx` 不存在卻寫「整支重寫」 | ✅ 檔頭改 `07dc69fc`;D4 是**新增**不是重寫(前代兩支 untracked 舊表單已 `rm`) |
 | nit | request token / 授權 token 用詞混用;rollback 漏 C5 | ✅ §2-2 統一用詞;§5 rollback 列全六片 |

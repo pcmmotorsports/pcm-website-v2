@@ -72,9 +72,14 @@ export function generateCancelRequestToken(): string {
  *
  * **義務 A(D4,token 生成)**:規則本身寫在 `generateCancelRequestToken` 的 docstring(產生點與快取層),
  *   這裡**不重抄**(同一條規則養兩份總有一天會不一樣 —— 那正是那支 docstring 自己在講的事)。
- *   🔴 這裡要記的是**守門帳**:「產生點在渲染期、不落快取層」那一半**從來就沒有測試守過**;
- *   「失敗後換一把新的」那一半原本由 `cancelNotSentFailure` 內鑄保證,而那支已隨 D2b 刪掉
- *   ⇒ **在 D4 補上「兩次獨立 render 拿到兩顆不同合法 uuid」之前,兩半都零守門**。
+ *   🔴 這裡要記的是**守門帳**。D2b 當下兩半都零守門:「產生點在渲染期、不落快取層」從來沒有測試守過;
+ *   「失敗後換一把新的」原本由 `cancelNotSentFailure` 內鑄保證,而那支已隨 D2b 刪掉。
+ *   ✅ **D4 已把兩半都接上**(`components/orders/cancel-order-forms.tsx`):token 在
+ *   `CancelFormShell` 渲染期鑄 ⇒ 每次整頁重繪自然是新的一把(= 涵蓋「失敗後換新」),
+ *   守門三條 = 兩次獨立 render 兩顆不同合法 uuid / 同一頁兩支表單兩顆不同 token / 原始碼層禁 import 快取層。
+ *   ⚠️ **仍有邊界、別讀成「已完全擋住」**:`React.cache` 在測試環境是純透傳(實跑證過,17 測全綠),
+ *   行為層分辨不出來 ⇒ 那一格靠原始碼層守門;呼叫端把整棵樹包進快取層更是誰都擋不住(D6 接線時看)。
+ *   逐字見 `CancelFormShell` 的 docstring。
  *   已列進 plan 的 D4 驗收**⑥**(⑤ 是「URL 只准經三支建構器組」,別看錯);
  *   這裡再寫一次,因為讀 code 的人不會先去讀 plan。
  *

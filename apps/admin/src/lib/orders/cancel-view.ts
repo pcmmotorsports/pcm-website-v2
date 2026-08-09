@@ -180,6 +180,32 @@ export type CancelItemView = {
   maxCancellable: number | null;
 };
 
+/**
+ * 這個品項**這次勾得動嗎**。`maxCancellable` 為 `null`(上限算不出來,見 `SUMMARY_FAIL_CLOSED`)
+ * 或 0 ⇒ 勾不動。
+ *
+ * 🔴 **匯出是為了讓「哪些品項可選」只有一份**(A13b D4 R1 must-fix 5):D4 的部分取消表單
+ *    原本自己寫了一份逐字相同的 `maxCancellable !== null && > 0`,而它同時宣稱「判定不在本檔」。
+ *    兩份的漂移面很具體:本檔日後若給「可選」加第三個條件(例如鎖定中的品項),
+ *    表單那份不會跟著改 ⇒ 畫出一顆勾得到的 checkbox、員工勾了送出被 RPC 拒
+ *    ⇒ 看到「這張單目前不能取消」這句**誤導**的話。
+ * ⚠️ 型別述詞(`item is … & { maxCancellable: number }`):`.filter()` 之後
+ *    `maxCancellable` 才收窄成 `number`,消費端不必再 `!` 或再判一次 null。
+ */
+export function isItemSelectable<T extends Pick<CancelItemView, 'maxCancellable'>>(
+  item: T,
+): item is T & { maxCancellable: number } {
+  // 🔴 **要正整數,不只是 `> 0`**(R2 codex nit):`1.5` 與 `Infinity` 都通得過 `> 0`,
+  //    而表單把它組成 `<uuid>:1.5` 送出去後,解析器的 `/^[0-9]+$/`(`cancel-form.ts:146`)必拒
+  //    ⇒ 畫面上勾得到、送出去卻整份 `{ok:false}` 且輸入不保留。
+  //    入口是結構型別、擋不住手寫值,所以這道是**純防禦**——與 `toItemView` 的 clamp 同一性質。
+  return (
+    item.maxCancellable !== null &&
+    Number.isSafeInteger(item.maxCancellable) &&
+    item.maxCancellable > 0
+  );
+}
+
 export type OrderCancelView = {
   /** ⟺ `blockReasons.length === 0` */
   canCancel: boolean;
@@ -482,13 +508,11 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   if (reasonResidue || ledger.overCancelled || ledger.emptyHeader) reasons.push('ledger_unhealthy');
   if (ledger.unreadable) reasons.push('cancellations_unreadable');
 
-  // 全品項都勾不動 ⇒ 兩種模式都送不出去(部分模式最少要送 1 件,`cancel-form.ts:131`)。
+  // 全品項都勾不動 ⇒ 兩種模式都送不出去(部分模式最少要送 1 件,`cancel-form.ts:208`)。
   // 🔴 摘要缺列時不重複報這條(那邊已 fail-closed),否則同一個根因會在畫面上列成兩條拒因。
   // 🔴 `itemsTruncated` 時也不報(關卡2 codex R2):看得見的品項全勾不動,不代表**被截掉的**也勾不動
   //    ⇒ 那是一句錯的斷言。該情境已由 `items_truncated` 擋住。
-  const anyCancellable = items.some(
-    (item) => item.maxCancellable !== null && item.maxCancellable > 0,
-  );
+  const anyCancellable = items.some(isItemSelectable);
   if (!anyCancellable && items.length > 0 && !hasMissingSummary(items) && !order.itemsTruncated) {
     reasons.push('nothing_cancellable');
   }
