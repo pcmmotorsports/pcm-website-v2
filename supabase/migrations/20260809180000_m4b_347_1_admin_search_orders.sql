@@ -53,6 +53,9 @@
 -- ⇒ 一旦把輸入原文放進訊息,就等於**把 PII 從「只在 SQL 內比對」變成「持久落在 log 裡」**,
 --    本片最主要的設計理由當場失效。連 `RAISE NOTICE`(除錯用)都不留。
 -- ⚠️ 任何人日後想加錯誤訊息:**訊息裡不得含 `p_query` 或由它衍生的值**(長度、前綴都不行)。
+-- ⚠️ **斷言 E 的實力邊界**(R3 nit):它掃的是函式體裡有沒有 `RAISE` —— 擋不住
+--    `INSERT INTO 某張表`、`pg_notify()`、寫進暫存表這類外洩路徑。它是「最常見那條路的守門」,
+--    不是「搜尋詞不可能外流」的證明。
 --
 -- 🔴🔴 **這條防護擋得住什麼、擋不住什麼(誠實寫死,不要讓名字大於實力)**:
 --   擋得住 —— **本函式自己**不會把搜尋詞寫進任何 log。
@@ -78,6 +81,30 @@
 -- ⚠️ 用 `strpos()` 而不是 `position(needle IN haystack)`:後者是 **SQL 語法不是函式**,
 --    在 `search_path = ''` 下沒辦法加 `pg_catalog.` 前綴(實測 42601)。兩者語意相同、**參數順序相反**。
 -- ⇒ 代價:不支援萬用字元搜尋。這是刻意的 —— 員工要的是「把料號貼進去」,不是寫 pattern。
+--
+-- ── ⚠️ 比對語意的三條已知限制(R3 nit,寫進合約免得被當 bug)────────────────
+-- · **大小寫折疊只對 ASCII 有效**:`lower()` 依 collation,而排練環境是 `LC_ALL=C`
+--   ⇒ harness 的 B6 只證了 ASCII 那半;非 ASCII 的大小寫(如全形英文)未驗。
+-- · **不做任何正規化**:全形/半形不互通、`0912-345-678` 與 `0912345678` **互相搜不到**、
+--   空白位置不同也搜不到。要不要正規化是**產品題**,連同搜尋 UX 一起在 347-3 評。
+-- · **OAuth 註冊的會員 `customers.phone` 常常是空字串** ⇒ 維度③對他們**恆不命中**。
+--   這不是 bug,是資料面事實;員工找這種客人要用姓名、或收件快照的電話(維度④)。
+--
+-- ── 🔴🔴 執行時間**沒有**被本片限住(R3-M1 實測,原本這裡宣稱有)───────────────
+-- 第一版在函式上掛了 `SET statement_timeout = '10s'` 並宣稱「病態輸入會明確失敗」。**那是假的。**
+-- PG 的 statement timer 在**語句開始時**依當下 GUC arm,函式內 SET **不會重新 arm**
+-- ⇒ 呼叫端 session 的 `statement_timeout = 0` 時,這支照樣可以無限期跑。
+-- 🔴 **可判定 probe(任何人都能重跑)**:建一支帶 `SET statement_timeout='100ms'`、
+--    body 裡 `pg_sleep(1)` 的函式,`SET statement_timeout=0` 之後呼叫它 ——
+--    **正常回傳**(睡滿一秒)就證明函式層那個 SET 對當句無效。本片實跑過,結論就是這樣。
+-- ⇒ 那行已移除(留著等於掛一個名字大於實力的防護)。**真正要綁時間上限只有兩條路**,
+--    都不在本片範圍、也都需要 Sean 拍板:
+--      ① `ALTER ROLE service_role SET statement_timeout = …`(同 repo 前例:
+--         `20260611120000…:73` 對 payment_confirmer 就是這樣做)—— 但那會影響
+--         **service_role 的每一句查詢**,炸開範圍遠大於一支搜尋 RPC。
+--      ② 由呼叫端(347-2)自己設 session GUC。
+-- 🔴 本片能做、也做了的那半 = **限制輸入長度**(見下方長度閘):它擋的是「超長字串讓每列的
+--    strpos 變貴」,**不等於**擋住整體執行時間。兩者不要混為一談。
 --
 -- ── ⚠️ 效能天花板(誠實標註,不用「量小」帶過)───────────────────────────────
 -- 這是逐列掃描:`orders` 全表 + 每列的四個 EXISTS 子查詢,**沒有任何索引幫得上忙**
@@ -127,11 +154,6 @@ LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = ''
--- 🔴 **有界失敗**:逐列掃描 + 四層巢狀 EXISTS,而 `p_query` 沒有長度上限 ⇒ 病態輸入
---    (超長字串、或資料量長大之後)可能跑很久。給上限讓它「明確失敗」而不是無限期占住連線。
---    逾時訊息是 PG 內建的 `canceling statement due to statement timeout`、**不含搜尋詞**
---    ⇒ 不違反本片的不落 log 紀律(codex R2)。
-SET statement_timeout = '10s'
 AS $fn$
 DECLARE
   v_needle text;
@@ -151,6 +173,15 @@ BEGIN
   v_needle := pg_catalog.lower(
     pg_catalog.btrim(COALESCE(p_query, ''), E' \t\r\n\u3000\u00a0\u202f\u200b\ufeff'));
   IF v_needle = '' THEN
+    RETURN pg_catalog.jsonb_build_object('ids', '[]'::jsonb, 'truncated', false);
+  END IF;
+
+  -- 🔴 **長度閘**:超過 120 字元一律當作沒有結果。
+  --    ⚠️ 它擋的是「超長輸入讓每一列的 strpos 變貴」,**不是**整體執行時間
+  --    (那個本片綁不住,見檔頭 §執行時間沒有被本片限住)。
+  --    120 的來源:料號、單號、姓名、電話、地址全部遠短於它 ⇒ 對真實使用者不可觸及。
+  --    回空清單而不是丟錯:錯誤訊息**不得**含輸入原文,而「長度是 N」本身也是輸入的資訊。
+  IF pg_catalog.length(v_needle) > 120 THEN
     RETURN pg_catalog.jsonb_build_object('ids', '[]'::jsonb, 'truncated', false);
   END IF;
 
@@ -350,7 +381,25 @@ BEGIN
     RAISE EXCEPTION '#347-1:admin_search_orders 函式體出現 RAISE(搜尋詞可能落進 log);拒繼續';
   END IF;
 
-  RAISE NOTICE '#347-1 斷言通過:單一 signature + SECDEF/search_path + ACL allowlist(僅 service_role)+ 函式體零 RAISE';
+  -- F. 🔴 **FORCE ROW LEVEL SECURITY 會把 SECDEF 自己擋死**(同族 a2b1:298 / a5a:580 / a4a:566
+  --    都有這一道,本片 R3 才補上)。本函式以 definer 身分讀 7 張表;任何一張日後開了 FORCE,
+  --    連 owner 都會被自己的 policy 過濾 ⇒ **搜尋靜默漏單**,而且
+  --    **superuser 跑的 harness 永遠看不到**(superuser 不受 RLS 影響)⇒ 只有這道斷言擋得住。
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class
+     WHERE oid IN ('public.orders'::regclass,
+                   'public.customers'::regclass,
+                   'public.order_items'::regclass,
+                   'public.product_variants'::regclass,
+                   'public.products'::regclass,
+                   'public.brands'::regclass,
+                   'public.order_item_procurement'::regclass)
+       AND relforcerowsecurity
+  ) THEN
+    RAISE EXCEPTION '#347-1:搜尋讀到的表有人開了 FORCE ROW LEVEL SECURITY(definer 會被自己擋死、搜尋靜默漏單);拒繼續';
+  END IF;
+
+  RAISE NOTICE '#347-1 斷言通過:單一 signature + SECDEF/search_path + ACL allowlist(僅 service_role)+ 函式體零 RAISE + 七張讀取表無 FORCE RLS';
 END $$;
 
 COMMIT;

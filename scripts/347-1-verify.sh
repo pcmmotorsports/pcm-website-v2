@@ -177,6 +177,19 @@ SELECT o.id,
  WHERE o.display_id LIKE 'PCM-2099-73%';
 
 -- ⑧ 供應商單號:每個品項掛一筆採購,只有 7310 那筆帶毒值。
+-- 🔴 **給空白格一個真的靶**(R3-M2):B17/B18 原本恆真 —— fixture 裡沒有任何一列含 tab
+--    或全形空白,所以就算把 btrim 的字元集改回預設,搜 tab 照樣 0 命中、格子照樣綠。
+--    ⇒ 這張單的收件地址**真的**含一個 tab 與一個 U+3000。有短路 ⇒ 0 命中;
+--      拿掉短路的字元集 ⇒ v_needle 變成那顆空白、命中這一張。負測這才構造得出來。
+INSERT INTO public.orders
+  (display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+   subtotal, shipping_fee, total, shipping_method, invoice, created_at)
+VALUES
+  ('PCM-2097-7311','aaaaaaaa-0000-4000-8000-000000000001',
+   jsonb_build_object('name','CleanN','phone','0900000000',
+                      'line', 'ZQ' || E'\t' || 'ZQ' || E'\u3000' || 'ZQ'),
+   'general',100,0,100,'home','{"type":"personal"}'::jsonb, '2097-01-01 00:01+00');
+
 INSERT INTO public.order_item_procurement (order_item_id, allocated_quantity, supplier_id, supplier_order_no)
 SELECT oi.id, 1, (SELECT id FROM public.suppliers ORDER BY id LIMIT 1),
        CASE WHEN o.display_id = 'PCM-2099-7310' THEN 'QQD8PO' ELSE 'CLEANPO347' END
@@ -250,12 +263,15 @@ cell "B8 收件快照三子鍵不得串接後比對"      "(none)" "$(hit 'Clean
 
 # 🔴 tab 與**全形空白 U+3000**:btrim 預設清不掉它們 ⇒ 會穿過空白短路、白掃全表。
 #    全形空白是中文輸入法下很容易按到的那顆,不是理論邊界。
-cell "B17 tab 視同空白 → 零命中"            "0|false" "$(meta '	')"
+# 🔴 這兩格的靶是 `PCM-2097-7311`(地址裡真的含 tab 與 U+3000)——沒有那張單,兩格恆真(R3-M2)。
+cell "B17 tab 視同空白 → 零命中(有真靶)"   "0|false" "$(meta '	')"
 cell "B18 全形空白 U+3000 視同空白 → 零命中" "0|false" "$(meta '　')"
+# 前提格:證明那個靶真的存在、且那兩顆空白真的在資料裡 —— 否則上面兩格又會退化成恆真。
+cell "B17p 前提:靶單存在且地址含那兩顆空白" "PCM-2097-7311" "$(hit 'ZQ')"
 
 echo
 echo "== B 區續:p_limit 與 truncated(共同前綴命中十張)=="
-cell "B9  預設(NULL)→ 十張、未截斷"        "10|false" "$(meta 'PCM-2099-73' 'NULL')"
+cell "B9  預設(NULL,=100)→ 十張、未截斷"  "10|false" "$(meta 'PCM-2099-73' 'NULL')"
 cell "B10 limit=3 → 三張、truncated=true"   "3|true"   "$(meta 'PCM-2099-73' '3')"
 # 🔴 合約:NULL 與 <=0 都回預設 200(不是回 1)。第一版實作回 1、與檔頭合約矛盾,codex R1 抓到。
 cell "B11 limit=0 → 退回預設 200"           "10|false" "$(meta 'PCM-2099-73' '0')"
@@ -305,6 +321,34 @@ SELECT jsonb_array_length(r -> 'ids')::text || '|' || (r ->> 'truncated')
 ROLLBACK;" | tail -1; }
 cell "B15 傳 limit=5000 → 硬夾 100 + truncated" "100|true" "$(cap)"
 
+# 🔴 **同秒排序的一致性**(R3-M5):cap 的 201 張全部同一個 created_at ⇒ 誰進前 100 完全由
+#    **次鍵 id** 決定。B15 只比對「100|true」,對次鍵方向零覆蓋 —— 而次鍵方向正是 R2 修過的東西
+#    (要與列表那層的 `id DESC` 一致)。這格直接斷言「回來的就是 id 最大的那 100 張,且順序相符」。
+#    ⚠️ 它同時覆蓋 migration 兩處 ORDER BY(子查詢 LIMIT 取誰、array_agg 排序)。
+CAPSET="$(q "
+BEGIN;
+$SETUP
+INSERT INTO public.orders
+  (id, display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+   subtotal, shipping_fee, total, shipping_method, invoice, created_at)
+SELECT ('eeeeeeee-0000-4000-8000-' || pg_catalog.lpad(g::text, 12, '0'))::uuid,
+       'PCM-2096-' || pg_catalog.lpad(g::text, 4, '0'),
+       'aaaaaaaa-0000-4000-8000-000000000001',
+       '{\"name\":\"CleanN\",\"phone\":\"0900000000\",\"line\":\"Clean Line\"}'::jsonb,
+       'general', 100, 0, 100, 'home', '{\"type\":\"personal\"}'::jsonb,
+       '2096-01-01 00:00:00+00'
+  FROM generate_series(1, 201) g;
+SELECT (
+  SELECT (array_agg(a.id ORDER BY a.ord) IS NOT DISTINCT FROM array_agg(b.id ORDER BY b.rn))::text
+    FROM (SELECT (v)::uuid AS id, ord
+            FROM jsonb_array_elements_text((public.admin_search_orders('PCM-2096-', 100)) -> 'ids')
+                 WITH ORDINALITY AS e(v, ord)) a
+    FULL JOIN (SELECT id, row_number() OVER (ORDER BY id DESC) AS rn
+                 FROM public.orders WHERE display_id LIKE 'PCM-2096-%'
+                ORDER BY id DESC LIMIT 100) b ON b.rn = a.ord);
+ROLLBACK;" | tail -1)"
+cell "B15b 同秒 201 張 → 回的是 id 最大的 100 張且順序相符" "true" "$CAPSET"
+
 echo
 echo "== B 區續:同一張單多品項命中不得重複 =="
 DUP="$(q "
@@ -339,6 +383,10 @@ gap "B19 變體被刪(variant_id=NULL)→ 品牌搜不到" "(none)" "$BRANDNULL"
 
 echo
 echo "== C 區:ACL(這支能跨全部訂單比對 PII)=="
+# ⚠️ **C1-C6 對「本片是否正確」不提供獨立證據**(R3 nit):它們查的東西與 migration 檔尾的
+#    fail-closed 斷言重疊 —— 那些斷言若沒過,migration 根本 apply 不上去,harness 連跑都跑不到。
+#    留著的理由是**回歸**:有人日後在 DB 上手動 GRANT(不經 migration)時,只有這裡看得到。
+#    真正有獨立判別力的是下面 C 區續的**執行面**三格,以及 E 區的兩個 ACL 攻擊突變。
 cell "C1 service_role 可執行"   "true"  "$(q "SELECT has_function_privilege('service_role','${FN}','EXECUTE')::text")"
 cell "C2 PUBLIC 不可執行"        "false" "$(q "SELECT has_function_privilege('public','${FN}','EXECUTE')::text")"
 cell "C3 anon 不可執行"          "false" "$(q "SELECT has_function_privilege('anon','${FN}','EXECUTE')::text")"
@@ -356,6 +404,39 @@ SELECT (p.prosrc ~* '\\mRAISE\\M')::text FROM pg_proc p WHERE p.oid='${FN}'::reg
 # 🔴 逐維度把該維度的欄位表達式換成 `''`(那條分支變死碼),只重跑**對應那一格**。
 #    換成 `''` 而不是刪整行:刪行會動到 SQL 結構(第一條沒有前置 OR),換值則永遠合法。
 # ⚠️ 宣稱的是「拿掉這個維度 ⇒ 這個維度的正測會紅」,**不宣稱其他格不受影響**。
+echo
+echo "== C 區續:**執行面**(真 SET ROLE,不是目錄查詢)=="
+# 🔴 C1-C4 查的是 `has_function_privilege` = **目錄面**。它證得了「ACL 上誰有 EXECUTE」,
+#    但證不了 **SECDEF + search_path='' 在真正的呼叫者身分下跑不跑得動**
+#    —— harness 連線是 superuser,superuser 執行任何東西都會過(同族教訓:
+#    memory `reference_pg-has-table-privilege-not-rls-passthrough`)。
+#    ⇒ 補三格真的 `SET LOCAL ROLE`(同 repo 正解 `scripts/a6-verify.sh:761-764`)。
+role_exec() { # role_exec <角色> → ok | denied
+  # 🔴 **先把輸出接住再判,不要用 `… | grep -q && echo A || echo B`。**
+  #    本檔開頭有 `set -uo pipefail` ⇒ psql 因 ON_ERROR_STOP 退出碼 3 會**蓋掉 grep 的成功**,
+  #    整條 `&&` 被跳過、一律落到 `|| echo ok` ⇒ **anon/authenticated 兩格恆綠地報「可以執行」**
+  #    (第一版真的這樣,當場自己抓到;對齊 memory `reference_exit-code-provenance-three-traps`)。
+  local out
+  out="$(q "BEGIN; SET LOCAL ROLE $1; SELECT public.admin_search_orders('QQD5SKU')::text; ROLLBACK;")"
+  case "$out" in
+    *"permission denied"*|*42501*) echo denied ;;
+    *)                             echo ok ;;
+  esac
+}
+cell "C7 service_role **真的執行得動**(SECDEF+search_path 在它身分下 OK)" "ok"     "$(role_exec service_role)"
+cell "C8 anon 執行 → permission denied(42501)"                              "denied" "$(role_exec anon)"
+cell "C9 authenticated 執行 → permission denied(42501)"                     "denied" "$(role_exec authenticated)"
+# 前提格:上面那三格的判別靠「訊息裡有沒有 permission denied」,所以要證明 ok 那格真的**有結果**,
+# 不是靜默回空(靜默回空也會被判成 ok ⇒ 恆真)。
+cell "C7p 前提:service_role 那次真的撈到那張單" "PCM-2099-7307" "$(q "
+BEGIN;
+$SETUP
+SET LOCAL ROLE service_role;
+SELECT COALESCE(string_agg(o.display_id, ','), '(none)')
+  FROM public.orders o
+ WHERE o.id IN (SELECT (jsonb_array_elements_text((public.admin_search_orders('QQD5SKU')) -> 'ids'))::uuid);
+ROLLBACK;" | tail -1)"
+
 echo
 echo "== D 區:逐維度突變(改壞 → 對應那格必須翻面 → 還原)=="
 DEF="$(q "SELECT pg_get_functiondef('${FN}'::regprocedure)")"
@@ -420,7 +501,7 @@ sys.stdout.write(d.replace(o, os.environ['NEW']))
 }
 # 拿掉空白短路 ⇒ 空字串會變成「每一欄都含空字串」= 撈出全部訂單(strpos(x,'')=1)。
 mutate_contract "D11 拿掉空白短路 → B2/B3 應翻面" \
-  "IF v_needle = '' THEN" "IF false THEN" "meta ''" "41|false"
+  "IF v_needle = '' THEN" "IF false THEN" "meta ''" "42|false"
 # 把多取一筆拿掉 ⇒ 命中數剛好等於 limit 時 truncated 永遠 false。
 mutate_contract "D12 LIMIT 不多取一筆 → B10 應翻面" \
   "LIMIT v_limit + 1" "LIMIT v_limit" "meta 'PCM-2099-73' '3'" "3|false"
@@ -436,6 +517,12 @@ mutate_contract "D13 拿掉 LEAST(…,200) → B15 應翻面" \
 #    我手動試過那兩種攻擊會被擋,但**手動一次不是回歸守門** ⇒ 自動化成兩格。
 # ⚠️ 這兩格改的是**角色圖**(不是函式),而 GRANT/REVOKE 無法靠交易回滾到別的連線 ⇒
 #    每格自己負責還原,且還原失敗一律計 FAIL(拋棄式 cluster,不影響任何真環境)。
+# 🔴 D14 是 R3-M2 的收尾:證明「空白字元集」那道守門真的有判別力。
+#    有靶單(地址含 tab)之後,把字元集改回 btrim 預設 ⇒ 搜 tab 會命中那張單。
+#    沒有靶單的話這個突變**什麼都不會發生** —— 那正是原本 B17/B18 恆真的原因。
+mutate_contract "D14 btrim 字元集改回預設 → B17 應翻面" \
+  "E' \\t\\r\\n\\u3000\\u00a0\\u202f\\u200b\\ufeff'" "' '" "meta '	'" "1|false"
+
 echo
 echo "== E 區:ACL 斷言的突變(攻擊 → migration 必須中止)=="
 acl_attack() { # acl_attack <描述> <攻擊 SQL> <還原 SQL> <期望的中止訊息片段>
