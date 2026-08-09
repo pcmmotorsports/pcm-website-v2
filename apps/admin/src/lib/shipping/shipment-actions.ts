@@ -32,6 +32,32 @@ import {
   type ShipmentItemInput,
 } from './shipment-repository';
 
+/**
+ * 把丟出來的東西轉成**人看得懂的一行字**。
+ *
+ * 🔴 2026-08-09 Sean 正式站實測:錯誤區塊直接印出 `[object Object]`。
+ *    根因:Supabase 丟的是 **`PostgrestError` 這種普通物件**(帶 message / code / details / hint),
+ *    **不是 `Error` 實例** ⇒ 舊寫法的三元判斷會落到字串化分支 ⇒ `[object Object]`。
+ *    而 DB `RAISE EXCEPTION` 寫的中文就在那個物件的 message 欄裡,
+ *    等於**我們把唯一能給員工看的訊息丟掉了**。
+ */
+function toMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'object' && e !== null) {
+    const o = e as { message?: unknown; details?: unknown; hint?: unknown };
+    if (typeof o.message === 'string' && o.message !== '') return o.message;
+    if (typeof o.details === 'string' && o.details !== '') return o.details;
+    if (typeof o.hint === 'string' && o.hint !== '') return o.hint;
+    // 🔴 真的沒有可讀欄位時吐 JSON,**也不要吐那個沒有資訊量的字串** —— 對排查零幫助。
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return '未知錯誤(無法序列化)';
+    }
+  }
+  return String(e);
+}
+
 export type SubmitShipmentInput = {
   /** 開彈窗時生成一次、重試沿用同一把。 */
   idempotencyKey: string;
@@ -90,7 +116,7 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
     return { ok: true, shipmentReference: created.shipmentReference, shipped: input.markShipped };
   } catch (e) {
     // 🔴 不吞錯、不改寫成自己的措辭 —— 見上方註解。
-    const message = e instanceof Error ? e.message : String(e);
+    const message = toMessage(e);
     return { ok: false, message, shipmentReference: reference };
   }
 }
@@ -129,7 +155,7 @@ export async function voidShipmentAction(args: {
     revalidatePath('/orders');
     return { ok: true };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    return { ok: false, message: toMessage(e) };
   }
 }
 
@@ -143,6 +169,6 @@ export async function unvoidShipmentAction(args: {
     revalidatePath('/orders');
     return { ok: true };
   } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    return { ok: false, message: toMessage(e) };
   }
 }

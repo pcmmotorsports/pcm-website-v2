@@ -99,7 +99,17 @@ export function ShipmentDialog({
 
   return (
     <div className='bg-foreground/60 fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4'>
-      <div className='bg-card mt-8 w-full max-w-2xl rounded-lg border shadow-xl' role='dialog' aria-label='建立包裹'>
+      {/* 🔴 `text-foreground` 是**承重的**,不是裝飾。2026-08-09 Sean 正式站實測:彈窗大量文字白字白底、
+          整片不可讀。根因**不是寫死的色**,是**繼承** —— 彈窗原本掛在動作列
+          `<div class="bg-foreground text-background">`(深底白字)裡面,面板只設了 `bg-card`(白底)
+          **沒設字色** ⇒ 白底 + 繼承來的白字。凡是自己有設色的(muted / destructive / 主鈕)看得見,
+          沒設的(標題 / 品名 / label / placeholder / 次要鈕)全部隱形 —— 症狀與 Sean 的截圖逐項吻合。
+          ⇒ 兩道一起做:①面板**顯式**設字色(不論掛在哪都不再繼承)②把彈窗搬出動作列(見 shipping-selection.tsx)。 */}
+      <div
+        className='bg-card text-foreground mt-8 w-full max-w-2xl rounded-lg border shadow-xl'
+        role='dialog'
+        aria-label='建立包裹'
+      >
         <div className='flex items-center justify-between border-b px-4 py-3'>
           <h3 className='font-semibold'>建立包裹</h3>
           <button type='button' onClick={onClose} className='text-muted-foreground px-2' aria-label='關閉'>

@@ -172,13 +172,12 @@ export function ShippingSelectionBar() {
 
   if (s.orderIds.length === 0) return null;
   return (
+    <>
     <div className='bg-foreground text-background mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5'>
       <span className='text-sm'>
         已勾 <b>{s.orderIds.length}</b> 張訂單
       </span>
       <span className='flex items-center gap-2'>
-        {/* ⚠️ 彈窗是 2b-2 的範圍。本片只把入口做出來,按下去先不做事 ——
-            刻意不放一個「假裝會動」的鈕:disabled + 說明,比按了沒反應誠實。 */}
         <button
           type='button'
           disabled={loading || s.customerUserId === null}
@@ -196,20 +195,25 @@ export function ShippingSelectionBar() {
         </button>
       </span>
       {error !== null && <span className='w-full text-xs'>{error}</span>}
-      {open !== null && s.customerUserId !== null && (
-        <ShipmentDialog
-          customerUserId={s.customerUserId}
-          candidates={open.data.items}
-          recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
-          idempotencyKey={open.key}
-          onClose={() => setOpen(null)}
-          onDone={() => {
-            // 成功之後清空勾選並關窗;下一次開窗會生成**新的**冪等鍵(那是另一箱)。
-            setOpen(null);
-            s.clear();
-          }}
-        />
-      )}
     </div>
+    {/* 🔴 彈窗**刻意放在動作列 `<div>` 外面**。2026-08-09 Sean 正式站實測白字白底,
+        根因就是它原本是那個 `bg-foreground text-background`(深底白字)容器的子節點、
+        整個彈窗繼承到白字。搬出來 + 面板自己設 `text-foreground`(見 shipment-dialog.tsx)= 兩道。
+        ⚠️ 它是 `fixed inset-0` 的覆蓋層,本來就不該是某個列的子節點 —— 搬出來也比較正確。 */}
+    {open !== null && s.customerUserId !== null && (
+      <ShipmentDialog
+        customerUserId={s.customerUserId}
+        candidates={open.data.items}
+        recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
+        idempotencyKey={open.key}
+        onClose={() => setOpen(null)}
+        onDone={() => {
+          // 成功之後清空勾選並關窗;下一次開窗會生成**新的**冪等鍵(那是另一箱)。
+          setOpen(null);
+          s.clear();
+        }}
+      />
+    )}
+    </>
   );
 }
