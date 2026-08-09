@@ -104,10 +104,14 @@
 -- 🔴 **裁決(主視窗 D-380-A,流程層決定、未上 Sean)**:**不做 ①** ——
 --    `ALTER ROLE service_role` 會動到**service_role 的每一句查詢**,是平台級改動,
 --    為一支唯讀搜尋函式付這個代價不值得。
--- ⚠️ **待補的事實(347-2 順手做)**:用真連線 `SHOW statement_timeout` 量平台對 service_role
---    的**實際值**,把數字寫回這一段。若量出來是 `0`(無上限),再另立小片走鐵則 12④ 審。
---    🔴 **這個數字現在是空的,不是「已確認無虞」** —— 本 worktree 沒有 `.env*`、量不到,
---    不要把「沒寫」讀成「沒問題」。
+-- ✅ **已補的事實(2026-08-09,Sean 於 Supabase Studio 實跑 `select rolname, rolconfig
+--    from pg_roles`,截圖+全文轉貼主視窗)**:
+--      · `service_role`  → `statement_timeout=300s`(本函式的實際天花板;非 0,有上限)
+--      · `authenticator` → `statement_timeout=8s` + `lock_timeout=8s`(anon/authenticated 走
+--        PostgREST 的上限;本函式是 admin service_role 專用,不受這條管,但記著它)
+--      · `postgres`      → 只設 search_path,無 timeout 覆寫
+--    量測面=role 級 GUC(語句開始時依此 arm),非 session `SHOW`;若未來有 db 級或
+--    connection-string 覆寫,以更近的那層為準。300s 非 0 ⇒ 免另立鐵則 12④ 小片。
 -- 🔴 本片能做、也做了的那半 = **限制輸入長度**(見下方長度閘):它擋的是「超長字串讓每列的
 --    strpos 變貴」,**不等於**擋住整體執行時間。兩者不要混為一談。
 --
