@@ -225,3 +225,69 @@ describe('同客人閘 — 行為', () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// UX 次片(D-365-A):整列可點進詳情 + 動作鈕移最左。
+// ─────────────────────────────────────────────────────────────
+describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不得互相吃掉)', () => {
+  // 做法是 **stretched link**(零 JS、表格維持 server component、真的連結 ⇒
+  // 鍵盤/中鍵/右鍵複製網址都正常)。三個部件缺一就壞:
+  //   ① 列 `relative`(覆蓋層的定位基準)② 連結 `after:absolute after:inset-0`(撐滿整列)
+  //   ③ 勾選格 `relative z-10`(浮在覆蓋層上,否則點勾選會變成進詳情)
+  it('列本身是定位基準(`relative`)—— 桌機與手機卡片都要', () => {
+    const rows = [...TABLE.matchAll(/className=\{`([^`]*)`\}\s*\n\s*>/g)].map((m) => m[1] ?? '');
+    expect(
+      rows.some((c) => c.includes('relative')),
+      '桌機 <tr> 沒有 relative ⇒ stretched link 的 inset-0 會定位到更外層,命中區不是這一列',
+    ).toBe(true);
+    expect(
+      TABLE,
+      '手機卡片 <li> 沒有 relative ⇒ 手機上整卡不可點(而桌機測試全綠)',
+    ).toMatch(/<li className='[^']*relative[^']*p-3'/);
+  });
+
+  it('🔴 兩個版面**各有一條** stretched link(`after:inset-0`)', () => {
+    const hits = [...TABLE.matchAll(/after:absolute after:inset-0/g)].length;
+    expect(
+      hits,
+      `after:inset-0 出現 ${hits} 次,期望 2(桌機列 + 手機卡各一)。` +
+        '只有 1 次 = 有一個版面整列不可點,而另一個版面的測試照樣綠。',
+    ).toBe(2);
+  });
+
+  it('🔴 勾選格必須浮在覆蓋層上(`z-10`)—— 否則點勾選會變成進詳情', () => {
+    const hits = [...TABLE.matchAll(/relative z-10/g)].length;
+    expect(
+      hits,
+      `勾選格的 relative z-10 出現 ${hits} 次,期望 2(桌機格 + 手機卡各一)。` +
+        '少了它,整列的 stretched link 會蓋在勾選框上面 ⇒ **點哪裡都進詳情、根本勾不了單**。',
+    ).toBe(2);
+  });
+
+  it('前提 — 勾選框確實在那個 z-10 容器裡(不是各自為政)', () => {
+    for (const m of TABLE.matchAll(/relative z-10[^>]*>/g)) {
+      const after = TABLE.slice(m.index ?? 0, (m.index ?? 0) + 400);
+      expect(
+        after,
+        'z-10 容器後面找不到 <OrderShipCheckbox ⇒ 浮起來的可能是別的東西,勾選框仍被蓋住',
+      ).toMatch(/<OrderShipCheckbox/);
+    }
+  });
+});
+
+describe('動作鈕移到最左(D-365-A)', () => {
+  it('🔴 鈕在計數之前(來源順序 = 畫面順序)', () => {
+    const src = readFileSync(resolve(HERE, 'shipping-selection.tsx'), 'utf8').replace(
+      /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,
+      (m) => m.replace(/[^\n]/g, ' '),
+    );
+    const btn = src.indexOf('出貨(');
+    const count = src.indexOf('已勾 ');
+    expect(btn).toBeGreaterThan(-1);
+    expect(count).toBeGreaterThan(-1);
+    expect(
+      btn < count,
+      '計數又跑到按鈕前面了 ⇒ Sean 要的是「動作先到」,讀完計數再把視線甩到最右是多餘的橫向移動',
+    ).toBe(true);
+  });
+});
