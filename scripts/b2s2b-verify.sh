@@ -377,8 +377,12 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    (mark_attempt_settle_retry / mark_webhook_retry, allowlist + 'record_not_found' only).
 #    Non-shipping functions; grep recompute|order_item_qty|oiqs = 0 hits => shipping oracles
 #    unchanged, no md5 re-measure needed. Main-window re-pin + full re-record.
-[ "$NEWEST_TS" = "20260809140000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809140000 ——
+# RE-PIN 2026-08-09 evening: lifecycle L3 20260809160000/170000 = new fn pcm_cron.expire_unpaid_orders
+#    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
+#    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
+#    Main-window re-pin + full re-record.
+[ "$NEWEST_TS" = "20260809170000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809170000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 
@@ -498,7 +502,7 @@ if [ "$MODE" = "all" ]; then
   #    沒有任何建立來源,backlog #299)⇒ 這裡的「全綠」不等於「repo 能從零重建正式站 schema」。
   FIRST_FITMENTS="$(grep -l 'product_fitments_effective' supabase/migrations/*.sql | sort | head -1)"
   for f in supabase/migrations/*.sql; do
-    case "$f" in *20260723120000*) continue ;; esac
+    case "$f" in *20260723120000*|*20260809170000*) continue ;; esac  # skip pg_cron-dependent: settle sweeper + L3b schedule (bare PG has no pg_cron; L3a fn still replayed)
     case "$(basename "$f")" in
       [0-9]*) : ;;
       *) die "migration 檔名不是時間戳開頭:$f" ;;
@@ -527,7 +531,7 @@ if [ "$MODE" = "all" ]; then
   PRE_URL="postgresql://postgres@127.0.0.1:${PORT}/b2s2b_pre"
   psql -X "$PRE_URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql || die "pre:shim 失敗"
   for f in supabase/migrations/*.sql; do
-    case "$f" in *20260723120000*) continue ;; esac
+    case "$f" in *20260723120000*|*20260809170000*) continue ;; esac  # skip pg_cron-dependent: settle sweeper + L3b schedule (bare PG has no pg_cron; L3a fn still replayed)
     # 🔴 檔名必須時間戳開頭(2b R1 nit 7:post 迴圈有這道、pre 漏抄):
     #    非時間戳檔名在 LC_ALL=C 下 `\<` 會比成 false ⇒ **靜默 continue**,那一支就沒進 pre 庫。
     case "$(basename "$f")" in

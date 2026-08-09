@@ -137,7 +137,7 @@ cd "$REPO" || die "CD_FAIL"
 psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql >/dev/null || die "SHIM_FAIL"
 FIRST_FITMENTS="$(grep -l 'product_fitments_effective' supabase/migrations/*.sql | sort | head -1)"
 for f in supabase/migrations/*.sql; do
-  case "$f" in *20260723120000*) continue ;; esac
+  case "$f" in *20260723120000*|*20260809170000*) continue ;; esac  # skip pg_cron-dependent: settle sweeper + L3b schedule (bare PG has no pg_cron; L3a fn still replayed)
   case "$(basename "$f")" in [0-9]*) : ;; *) die "MIG_NAME_NOT_TS: $f" ;; esac
   # 🔴 被測物留到下面才套。**比 basename、不比路徑** —— 迴圈給相對路徑、`$W2MIG` 是絕對路徑,
   #    直接比會永遠不相等 ⇒ W2 被套兩次、DDL-SYNTAX 紅在「already exists」而非真語法問題(首跑實錘)。

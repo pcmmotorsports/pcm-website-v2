@@ -98,7 +98,7 @@ if [ "$MODE" = "all" ]; then
   psql "$URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql || die "shim 失敗"
   FIRST_FITMENTS="$(grep -l 'product_fitments_effective' supabase/migrations/*.sql | sort | head -1)"
   for f in supabase/migrations/*.sql; do
-    case "$f" in *20260723120000*) continue ;; esac
+    case "$f" in *20260723120000*|*20260809170000*) continue ;; esac  # skip pg_cron-dependent: settle sweeper + L3b schedule (bare PG has no pg_cron; L3a fn still replayed)
     if [ "$f" = "$FIRST_FITMENTS" ]; then
       psql "$URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-fitments-bootstrap.sql || die "fitments bootstrap 失敗"
     fi

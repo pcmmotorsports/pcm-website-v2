@@ -92,7 +92,7 @@ cd "$REPO" || die "CD_FAIL"
 psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql >/dev/null || die "SHIM_FAIL"
 FIRST_FITMENTS="$(grep -l 'product_fitments_effective' supabase/migrations/*.sql | sort | head -1)"
 for f in supabase/migrations/*.sql; do
-  case "$f" in *20260723120000*) continue ;; esac
+  case "$f" in *20260723120000*|*20260809170000*) continue ;; esac  # skip pg_cron-dependent: settle sweeper + L3b schedule (bare PG has no pg_cron; L3a fn still replayed)
   case "$(basename "$f")" in [0-9]*) : ;; *) die "MIG_NAME_NOT_TS: $f" ;; esac
   TS="${f##*/}"; TS="${TS%%_*}"
   [ "$TS" \> "$PREFIX_TS" ] && continue          # 前綴外的片不套
@@ -308,6 +308,7 @@ LATER=0; LATER_OK=1
 for f in supabase/migrations/*.sql; do
   TS="${f##*/}"; TS="${TS%%_*}"
   [ "$TS" \> "$PREFIX_TS" ] || continue
+  case "$f" in *20260809170000*) continue ;; esac  # skip pg_cron-dependent L3b schedule (bare PG has no pg_cron; same reason as prefix-loop skip of 20260723120000)
   LATER=$((LATER+1))
   psql -X -h "$SOCK" -p $P -U postgres -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null 2>"$D/err" \
     || { bad LATER-REPLAY "前綴外的片套不上:$f :: $(head -1 "$D/err")"; LATER_OK=0; break; }

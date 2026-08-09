@@ -151,7 +151,11 @@ QM() { psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1; }
 #    (mark_attempt_settle_retry / mark_webhook_retry, allowlist + 'record_not_found' only).
 #    Non-shipping functions; grep recompute|order_item_qty|oiqs = 0 hits => shipping oracles
 #    unchanged, no md5 re-measure needed. Main-window re-pin + full re-record.
-LINE_TIP="20260809140000"
+# RE-PIN 2026-08-09 evening: lifecycle L3 20260809160000/170000 = new fn pcm_cron.expire_unpaid_orders
+#    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
+#    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
+#    Main-window re-pin + full re-record.
+LINE_TIP="20260809170000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
@@ -159,7 +163,7 @@ cd "$REPO" || die "CD_FAIL"
 psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql >/dev/null || die "SHIM_FAIL"
 FIRST_FITMENTS="$(grep -l 'product_fitments_effective' supabase/migrations/*.sql | sort | head -1)"
 for f in supabase/migrations/*.sql; do
-  case "$f" in *20260723120000*) continue ;; esac
+  case "$f" in *20260723120000*|*20260809170000*) continue ;; esac  # skip pg_cron-dependent: settle sweeper + L3b schedule (bare PG has no pg_cron; L3a fn still replayed)
   if [ "$f" = "$FIRST_FITMENTS" ]; then
     psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f scripts/d1-fitments-bootstrap.sql >/dev/null || die "FITBOOT_FAIL"
   fi

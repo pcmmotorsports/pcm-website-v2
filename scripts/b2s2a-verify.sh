@@ -271,7 +271,7 @@ if [ "$MODE" = "all" ]; then
   #    沒有任何建立來源,backlog #299)⇒ 這裡的「全綠」不等於「repo 能從零重建正式站 schema」。
   FIRST_FITMENTS="$(grep -l 'product_fitments_effective' supabase/migrations/*.sql | sort | head -1)"
   for f in supabase/migrations/*.sql; do
-    case "$f" in *20260723120000*) continue ;; esac
+    case "$f" in *20260723120000*|*20260809170000*) continue ;; esac  # skip pg_cron-dependent: settle sweeper + L3b schedule (bare PG has no pg_cron; L3a fn still replayed)
     # 🔴 pre-S2a 的正確定義 = **時間戳早於本檔**的前綴,不是「全部減本檔」(codex 關卡2):
     #    後者在日後新增更晚的 migration 之後會把它們一起套進「pre-S2a」,定義靜默漂移。
     case "$(basename "$f")" in
