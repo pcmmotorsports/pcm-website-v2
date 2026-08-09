@@ -9370,3 +9370,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   深色覆寫前提條(`--c-text-inverse` 若不再翻,整組要重估)。
 - **不修會痛在哪**:三族在淺色模式全綠零症狀,**症狀全部延到深色模式上線日爆**;屆時若沒有這條索引,
   要重掃全站才找得回來。深色模式片開工時本條=硬前置清單。
+
+### #346. 🗺️ 三支 CSS 完全不在 design manifest 追蹤內 — brand-directory / coming-soon / filter-responsive
+
+- **來源**:2026-08-09 h1 收斂片(`03fd5b74`)改到這三支卻無處 bump,grep manifest 全檔零命中而現形;既有缺口非該片造成。
+- **現況**:任何動這三支的片都不會被 manifest 可達性稽核罩到;「0 unreachable」的宣稱對它們=真空。
+- **要做什麼**:對回 design 端決定歸屬元件(brand-directory→品牌總覽?coming-soon→ComingSoonPage?filter-responsive 疑跨元件要拆或立獨立條目),新增條目+初始 hash。
+- **不修會痛在哪**:這三支的視覺回歸永遠不觸發 manifest 檢查,design 漂移無聲;h1 這片已實際發生「改了無處記帳」一次。
