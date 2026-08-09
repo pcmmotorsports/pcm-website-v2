@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 14:50 Q7 拍板落檔+D 之 2b-0 收割(含真 DB smoke PASS)。** ①**Q7 Sean 拍板**(逐字「自動清理,10分鐘,不要鎖住,讓客人可以再重新加入商品到購物車直接下單」):兩型殭屍都自動清+門檻 10 分+不鎖新單;工程前置=L5 開工前先證偽「10 分內在途授權遲到完成」(3DS 頁 300s 倒數+token TTL=候選證據),證不偽=量化風險回 Sean、不靜默實作(詳 memory b2-shipments 檔)。已派 P(P-241-A),L5 解鎖、順序照舊 L3 先。②**D 之 2b-0 收割**:admin 列表投影+讀模型加 customer_user_id(同客人閘前提;主視窗裁 A);codex R1 FAIL=fixture 撞號恆真(真 must-fix,修後攻擊實測轉紅)、R2 PASS(自申=靜態推演非實跑,實跑由三綠+突變頂);五處同步、forbidden 清單零碰撞。**真 DB smoke 主視窗補跑=PostgREST 具名撈 customer_user_id HTTP 200 有值** ⇒ D-354 ⑥ 的未驗鏈已閉。D 續做 2b-1(勾單 UI)。③E 窗(取消訂單畫面線)開窗提示詞已交 Sean,等開。
+**Sean 待決策**:無(三窗+E 窗皆有活)。
+
 🗂️ **2026-08-09 14:30 L2 migration 已 apply(Sean 拍板)+B 之 W7 跟片①收割+八支重釘 140000。** ①**Q8=Apply 已執行**:`20260809140000`(retry RPC allowlist 加 record_not_found)推上正式庫、帳面 local/remote 對齊、pending 清零。🔴 P-240 誠實揭示:該片檔頭「交易模擬 T1-T5」是**未跑的清單非紀錄**(P 自曝);apply 當下實跑的=內嵌 EXECUTE 矩陣+role hygiene 兩格;**T1/T4 行為格併入 L3 apply 前交易模擬補跑**(主視窗裁定,PostgREST 補打不可行=唯 payment_confirmer 可呼+無法 rollback);檔頭字面由 P 在 L3 commit 改正。②**P-238 更正收訖**:「客服取消單擋人」洞不存在(主視窗親驗兩處 migration 字面),L3 縮範圍=失效 RPC+pg_cron、三處 cancelled_at 連動不加(未來雙扣陷阱)。③**B 之 W7 跟片①收割**(`0fa4e1c0`):b2s2b 收編跑過帳(invoke_of/exits_of {0,3}/收據第 7 欄 inconc 凍結 1;三腿突變證過);B 壓縮後接假綠家族。④**140000 落檔觸發八支釘值過期**=機制照設計變紅;主視窗代跑重釘(030000→140000,零交集 grep=0 註記)+全線重錄 20 支+check **28/0**(exit 分開驗)。⑤D 做 2b-0(customer_user_id 進列表投影,主視窗裁 A+codex;經銷價白名單新欄照機制走審)。
 **Sean 待決策**:Q7 殭屍單自動處理範圍(白話版已重講)。
 
