@@ -284,8 +284,64 @@ function supplierOrderNoToFilterValue(parsed: SupplierOrderNoSearch): string | u
   return parsed.kind === 'ok' ? parsed.value : parsed.input;
 }
 
-/** 建 `/orders?...` 連結(分頁 / 篩選保留;page=1 省略);多勾選軸=同鍵重複 param;走共用 buildListHref。 */
-export function buildOrderListHref(filter: AdminOrderFilter, page: number): string {
+/**
+ * 右側面板要開哪一張單(#350c;主視窗 2026-08-10 裁 A 案)。
+ *
+ * 🔴 面板**不是** intercepting route —— v1 走過那條,真瀏覽器實測「軟導航回列表時面板黏著不放」,
+ * 而 Next 文件的兩種標準修法(槽 catch-all、槽精確空頁)實測**皆無效**(`D-403-Q` §①)。
+ * 改成 searchParams 驅動之後 **URL 一變槽頁就重算**,黏住問題從根消失。
+ */
+export const ORDER_PANEL_PARAM = 'panel';
+
+/**
+ * 關閉面板時要一起丟掉的**一次性**參數:面板本身,加上只對「剛剛那個動作」有意義的兩個。
+ * `r` = 結果碼橫幅;`correct` = A10a-3 更正模式目標。留著它們的話,關掉面板後重整
+ * 會莫名其妙又進更正模式 / 又跳一次橫幅。
+ */
+const ONE_SHOT_PARAMS = new Set<string>([ORDER_PANEL_PARAM, 'r', 'correct']);
+
+/**
+ * 關閉面板的連結 = **拿掉一次性參數之後的當下 URL**(#350c)。
+ *
+ * 🔴 為什麼是「刪 param」而不是「重跑一次 `buildOrderListHref`」:重建要再讀一次兩個搜尋啟用旗標
+ * 並重新解析篩選 = 把列表的解析規則抄第二份。抄錯的那天,症狀是員工按「返回」之後篩選條件被靜默洗掉
+ * —— 正是下面 `buildOrderListHref` 那兩條 🔴 註記過兩次的坑。刪 param 則**逐字保留**當下所有查詢條件,
+ * 連本支不認得的參數也不會弄丟。
+ *
+ * 🔴 放在本檔(不是放在槽頁裡)是為了**測得到**:它原本是 `app/@panel/orders/page.tsx` 的私有函式,
+ * 而 page 檔不能隨便多開具名 export(Next 對 page 模組的 export 形狀有規定)⇒ 沒有任何測試碰得到它。
+ * codex 關卡2(2026-08-10)實測擊破:把它改成固定回 `/orders`(= 關閉面板就把篩選全洗掉),
+ * 當時六組守門**全綠**。
+ */
+export function buildPanelCloseHref(
+  raw: Record<string, string | string[] | undefined>,
+): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(raw)) {
+    if (ONE_SHOT_PARAMS.has(key)) continue;
+    if (Array.isArray(value)) {
+      for (const v of value) params.append(key, v);
+    } else if (value !== undefined) {
+      params.set(key, value);
+    }
+  }
+  const qs = params.toString();
+  return qs ? `/orders?${qs}` : '/orders';
+}
+
+/**
+ * 建 `/orders?...` 連結(分頁 / 篩選保留;page=1 省略);多勾選軸=同鍵重複 param;走共用 buildListHref。
+ *
+ * 🔴 **面板連結一定要走本支、不得在元件裡自己拼字串**(#350c):下方那兩條 🔴 註警告的
+ * 「漏帶參數 = 搜尋詞被靜默丟掉、列表 fail-open 變全部訂單」對面板連結同樣成立 ——
+ * 員工點開一張單就把篩選條件洗掉,是同一個坑的第三次。
+ */
+export function buildOrderListHref(
+  filter: AdminOrderFilter,
+  page: number,
+  /** 有值 = 這條連結把該訂單開進右側面板;不給 = 關閉面板(列表狀態照舊保留)。 */
+  panelOrderId?: string,
+): string {
   return buildListHref(
     '/orders',
     [
@@ -300,6 +356,8 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
       // 🔴 L6 的開關同理必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
       //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
       [SHOW_UNPAID_CARD_PARAM, filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : undefined],
+      // #350c:面板目標。`undefined` 會被 buildListHref 略過 ⇒ 不給 = 關閉面板。
+      [ORDER_PANEL_PARAM, panelOrderId],
     ],
     page,
   );

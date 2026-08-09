@@ -101,7 +101,13 @@ function paymentCapsuleClass(status: AdminOrderSummary['paymentStatus']): string
   return `${STATUS_CAPSULE} ${PAYMENT_STATUS_CAPSULE[status]}`;
 }
 
-function OrderGroup({ order }: { order: AdminOrderSummary }) {
+function OrderGroup({
+  order,
+  buildPanelHref,
+}: {
+  order: AdminOrderSummary;
+  buildPanelHref: (orderId: string) => string;
+}) {
   const cancelled = order.cancelledAt !== null;
   // 品項展開;空陣列(理論不發生,create_order 保證 ≥1 line)→ 兜一列 null 佔位、顯示「—」。
   const rows = order.lines.length > 0 ? order.lines : [null];
@@ -131,8 +137,12 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
           )}
           {i === 0 && (
             <td className={TD} rowSpan={rowSpan}>
+              {/* #350c:桌機改開右側面板(`/orders?…&panel=<id>`)。
+                  🔴 仍然是**真的 `<Link href>`**,不是 onClick ⇒ 上面那段註解講的
+                  「零 JS、鍵盤 Tab、中鍵開新分頁、右鍵複製網址」**一條都沒有失去**
+                  —— 新分頁開的是帶面板的列表頁,不是詳情整頁,但仍是可分享的網址。 */}
               <Link
-                href={`/orders/${order.id}`}
+                href={buildPanelHref(order.id)}
                 className='font-medium after:absolute after:inset-0 hover:underline'
               >
                 {order.displayId}
@@ -351,7 +361,21 @@ function OrderCard({ order }: { order: AdminOrderSummary }) {
   );
 }
 
-export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
+export function OrdersTable({
+  orders,
+  buildPanelHref,
+}: {
+  orders: AdminOrderSummary[];
+  /**
+   * #350c:桌機單號連結要導去哪(= `/orders?…&panel=<id>`,開右側面板)。
+   *
+   * 🔴 **由呼叫端注入、不在本檔拼字串**:面板連結必須帶著當下的篩選與頁碼一起走
+   * (`order-list-view.ts` 的 `buildOrderListHref` 是唯一落點),否則點開一張單就把篩選洗掉。
+   * 🔴 **手機卡片不吃這個 prop**(主視窗 2026-08-10 裁③、Q5):小螢幕沒有分割空間,
+   * 照舊整頁進 `/orders/[id]`。守門把「桌機走注入 href、手機仍是字面路徑」兩邊釘住。
+   */
+  buildPanelHref: (orderId: string) => string;
+}) {
   if (orders.length === 0) {
     // 空狀態**只有一份 markup**,桌機手機共用(不複製第二份)。
     return (
@@ -388,7 +412,7 @@ export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
           </tr>
         </thead>
         {orders.map((order) => (
-          <OrderGroup key={order.id} order={order} />
+          <OrderGroup key={order.id} order={order} buildPanelHref={buildPanelHref} />
         ))}
       </table>
       </div>

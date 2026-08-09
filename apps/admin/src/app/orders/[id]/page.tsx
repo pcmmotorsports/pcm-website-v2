@@ -1,19 +1,5 @@
-import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import type { AdminOrderDetail } from '@pcm/domain';
-import type { SupplierOption } from '../../../lib/orders/procurement-suppliers';
-import { getAdminOrderRepository } from '../../../lib/orders/order-repository';
-import { isOrderId } from '../../../lib/orders/order-detail-view';
 import { isUuid } from '../../../lib/orders/note-action-state';
-import { isRefundUiEnabled } from '../../../lib/payment/refund-ui-flag';
-import {
-  getLedgerUnregisteredAmount,
-  listOrderRefunds,
-  type OrderRefundRow,
-} from '../../../lib/payment/refund-read';
-import { listSuppliers } from '../../../lib/supplier';
-import { OrderDetail } from '../../../components/orders/order-detail';
-import { ResultBanner } from '../../../components/orders/result-banner';
+import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
 
 // 相對 import(非 `@/`):root vitest.config 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話這一頁
 // **完全沒辦法被單測載入**(A10b 關卡2 codex MF10 要求補頁層接線測試時當場踩到)。
@@ -21,6 +7,10 @@ import { ResultBanner } from '../../../components/orders/result-banner';
 //
 // M-4a Slice B:後台訂單明細頁(server component、唯讀)。
 // 🔴 PII:客人姓名/電話/email+收件快照只在本頁(明細專用白名單、service_role、登入閘後);列表不帶。
+//
+// 🔴 **#350c 之後本檔是薄殼**:載入與組裝全在 `components/orders/order-detail-route.tsx`,
+//    因為右側面板(`app/@panel/orders/page.tsx`)要跑**完全相同**的那一段(含退款入口的
+//    fail-closed 判斷)。本檔只負責:route 參數解析、segment config、整頁版的外框與返回連結。
 export const dynamic = 'force-dynamic';
 
 // 🔴 M-3 RW2b:退款 server action(RW2c)由本頁的表單送出 ⇒ 那個 POST 走的是**本 route segment**
@@ -42,6 +32,9 @@ export const dynamic = 'force-dynamic';
 //    ⚠️ RW2c/RW2d 若把退款入口移到別的 route(獨立 route handler / 別的頁),那條 route 也要帶
 //      同一個 maxDuration;本行只保護本 segment(釘死它的斷言在
 //      `apps/admin/src/lib/payment/composition-tappay-wiring.test.ts` 最後一格)。
+//    🔴 **#350c 已經發生一次那個「移到別的 route」**:面板版的退款表單掛在 `/orders?panel=<id>`
+//      ⇒ `app/orders/page.tsx` 與 `app/@panel/orders/page.tsx` 都補了同一個 60,
+//      三處由 `order-panel-wiring.test.ts` 釘在一起。
 export const maxDuration = 60;
 
 export default async function OrderDetailPage({
@@ -59,98 +52,23 @@ export default async function OrderDetailPage({
     typeof rawSearch.correct === 'string' && isUuid(rawSearch.correct)
       ? rawSearch.correct
       : null;
-  // id 形狀守門:非 UUID 直接 404、不打 DB(路由參數不透傳查詢)。
-  if (!isOrderId(id)) {
-    notFound();
-  }
 
-  // 🔴 防禦:讀取失敗 → 錯誤態 200(不 500、DB error 不外洩);查無 → 404。
-  // A9w1:狀態詞彙(`listOrderStatusOptions`)那一路**整條移除** —— 它在本頁的唯一用途是
-  // 九碼 badge / 下拉的詞彙,兩者已下架 ⇒ 再讀就是每次進明細頁多打一次 DB 卻沒人用。
-  // 列表頁 `apps/admin/src/app/orders/page.tsx` 仍讀(那邊的九碼 cell 隨 A11a-c 退場)。
-  // A10b:供應商選單(S3a)與明細兩者**各自容錯** —— 供應商壞掉不該讓整頁看不了,
-  // 但也**不得靜默**:空選單會讓員工以為「這家不存在」而去建重複的供應商,而供應商不可刪除
-  // (`lib/supplier.ts:22-26` 逐字)⇒ 傳 `suppliersFailed` 下去顯示。
-  let detail: AdminOrderDetail | null = null;
-  let suppliers: SupplierOption[] = [];
-  let suppliersFailed = false;
-  let loadFailed = false;
-  // M-3 RW3:退款帳本(獨立容錯,不靜默 —— 藏掉 processing 滯留列比整頁掛掉更糟)。
-  // 🔴 兩種讀取健康各自成旗標(codex MF2):任一失敗 ⇒ 退款發起入口 fail-closed
-  //    (order-detail 掛載閘),不只顯示警告 —— 看不見帳本現況時放人按退款=盲飛。
-  let refunds: OrderRefundRow[] = [];
-  let refundsFailed = false;
-  let refundsTruncated = false;
-  let refundUnregisteredAmount: number | null = null;
-  let refundUnregisteredFailed = false;
-  const [detailSettled, suppliersSettled, refundsSettled] = await Promise.allSettled([
-    (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
-    (async () => listSuppliers())(),
-    (async () => listOrderRefunds(id))(),
-  ]);
-  if (detailSettled.status === 'fulfilled') {
-    detail = detailSettled.value;
-  } else {
-    console.error('[admin/orders/:id] 訂單明細載入失敗', detailSettled.reason);
-    loadFailed = true;
-  }
-  if (suppliersSettled.status === 'fulfilled') {
-    suppliers = suppliersSettled.value;
-  } else {
-    console.error('[admin/orders/:id] 供應商清單載入失敗(採購選單只剩既有供應商)', suppliersSettled.reason);
-    suppliersFailed = true;
-  }
-  if (refundsSettled.status === 'fulfilled') {
-    refunds = refundsSettled.value.rows;
-    refundsTruncated = refundsSettled.value.truncated;
-    // 有帳本列才查未登記額(零列時該數=訂單總額,無資訊、省一趟)。
-    if (refunds.length > 0) {
-      try {
-        refundUnregisteredAmount = await getLedgerUnregisteredAmount(id);
-      } catch (error) {
-        // 🔴 失敗≠查無(codex MF2):壓成 null 會顯示成普通「查無」被照著操作。
-        console.error('[admin/orders/:id] 帳本未登記額查詢失敗(顯錯誤態+入口 fail-closed)', error);
-        refundUnregisteredFailed = true;
-      }
-    }
-  } else {
-    console.error('[admin/orders/:id] 退款帳本載入失敗(區塊顯示警告、入口 fail-closed)', refundsSettled.reason);
-    refundsFailed = true;
-  }
+  // 🔴 **`await` 它、不要當成 JSX 子元素塞進去**:`OrderDetailRoute` 是 async server component,
+  //    寫成 `<OrderDetailRoute />` 的話,`await OrderDetailPage(...)` 拿到的樹裡它還沒解析
+  //    ⇒ 既有的頁層接線測試(procurement / refund / nine-code 三支、12 格)會 render 出**空字串**
+  //    而且**不會報錯** —— 2026-08-10 實測踩過一次。
+  //    ⚠️ **誠實代價**(codex 關卡2 2026-08-10 nit):當成函式呼叫等於**消掉一層元件邊界** ——
+  //    失去巢狀 Suspense、失去獨立的錯誤隔離與 streaming(快取不受影響)。本片沒有 Suspense 邊界
+  //    要切,所以現在不痛;但**日後要在 `OrderDetailRoute` 裡加 hook 或 Suspense 就得先改回元件寫法**,
+  //    而那會同時弄紅那 12 格既有測試 —— 兩件事要一起做。
+  const body = await OrderDetailRoute({
+    id,
+    resultCode,
+    correctNoteId,
+    back: { href: '/orders', label: '← 返回訂單列表' },
+    missing: 'not-found',
+  });
 
-  if (!loadFailed && detail === null) {
-    notFound();
-  }
-
-  return (
-    <div className='mx-auto max-w-6xl space-y-4'>
-      <Link
-        href='/orders'
-        className='text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm'
-      >
-        ← 返回訂單列表
-      </Link>
-
-      <ResultBanner code={resultCode} />
-
-      {loadFailed || detail === null ? (
-        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
-          訂單明細載入失敗,請稍後再試或聯絡系統維護。
-        </div>
-      ) : (
-        <OrderDetail
-          detail={detail}
-          correctNoteId={correctNoteId}
-          suppliers={suppliers}
-          suppliersFailed={suppliersFailed}
-          refundEnabled={isRefundUiEnabled()}
-          refunds={refunds}
-          refundsFailed={refundsFailed}
-          refundsTruncated={refundsTruncated}
-          refundUnregisteredAmount={refundUnregisteredAmount}
-          refundUnregisteredFailed={refundUnregisteredFailed}
-        />
-      )}
-    </div>
-  );
+  // #350c:`@container` 是 `order-detail.tsx:275` 容器斷點的參照對象,漏了會退回單欄。
+  return <div className='@container mx-auto max-w-6xl space-y-4'>{body}</div>;
 }

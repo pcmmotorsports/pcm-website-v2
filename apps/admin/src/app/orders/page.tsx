@@ -22,6 +22,17 @@ import { ListPagination } from '../../components/shared/list-pagination';
 // 讀 searchParams → 動態渲染;force-dynamic 確保不被靜態預渲染(避免 build 期執行 DB 查詢)。
 export const dynamic = 'force-dynamic';
 
+// 🔴🔴 **#350c 把退款 action 的計時 segment 換到了這一頁**(本片唯一碰到錢的地方)。
+//    面板改成 searchParams 驅動之後,退款表單是在 **`/orders?panel=<id>`** 這個 URL 上送出的
+//    ⇒ 那個 POST 吃的是**本 segment** 的函式時限,不再只有 `/orders/[id]`。
+//    為什麼這個數字承重(理由全文在 `app/orders/[id]/page.tsx:16-38`,此處不複述):
+//    adapter 的 refund fetch 有 30s 硬逾時,平台時限一旦低於它,慢回應會被砍在 fetch 中途
+//    = **錢可能已動、帳本停在 processing**,而那條路徑明文「不得自動重發」。
+//    ⚠️ 本頁原本**沒有** `maxDuration`(= 吃平台預設)⇒ 不補這一行就是把退款丟回預設值。
+//    `app/@panel/orders/page.tsx` 宣告同一個數字;三處(含 `orders/[id]`)由
+//    `order-panel-wiring.test.ts` 釘在一起,改一處會紅。
+export const maxDuration = 60;
+
 /**
  * 供應商單號搜尋詞不合法時的**明示**訊息(M-4b E10 A10c2;Sean 2026-08-07 Q1=A)。
  *
@@ -148,7 +159,11 @@ export default async function OrdersPage({
               動作列放表格上方(勾了才浮出)。彈窗成箱是 2b-2。 */}
           <ShippingSelectionProvider>
             <ShippingSelectionBar />
-            <OrdersTable orders={orders} />
+            {/* #350c:面板連結**帶著當下篩選與頁碼**一起走(同一支 builder)⇒ 點開一張單不會洗掉列表狀態。 */}
+            <OrdersTable
+              orders={orders}
+              buildPanelHref={(orderId) => buildOrderListHref(filter, page, orderId)}
+            />
           </ShippingSelectionProvider>
           <ListPagination
             page={page}
