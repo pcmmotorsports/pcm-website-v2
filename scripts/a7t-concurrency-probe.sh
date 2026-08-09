@@ -3,6 +3,8 @@
 # A7-t 併發證據 harness —— 支撐 plan §2.0「本片對併發**不防**而非**已防**」這個決定。
 #
 # 用法:scripts/a7t-concurrency-probe.sh          (自建拋棄式 cluster、跑完自動 teardown)
+#       A7TCC_WORK / A7TCC_PORT 可覆寫 workdir 與 port(預設 /tmp/a7tcc:54332);
+#       workdir 限 /tmp 或 /private/tmp 底下、字元集受限(見下方五道閘)。
 #      scripts/a7t-concurrency-probe.sh keep     (跑完保留 cluster 供人工查看)
 #
 # ══ 這支在證明什麼 ═══════════════════════════════════════════════════════════
@@ -25,8 +27,30 @@
 #    不是 A7-t 那支函式的實作(那個在 scripts/a7t-verify.sh)。
 set -uo pipefail
 
-W=/tmp/a7tcc
-PORT=54332
+# 🔴 W7 跟片⑦(2026-08-09,收編進跑過帳):W / PORT 改成可用 env 覆寫。
+#    原本兩個都寫死 ⇒ `record all` 與有人手跑本檔會撞同一個 workdir 與同一個 port。
+#    多視窗環境下這不是理論風險(本線 08-09 一天撞三次別窗的 port)。
+W="${A7TCC_WORK:-/tmp/a7tcc}"
+PORT="${A7TCC_PORT:-54332}"
+# 🔴🔴 R1 Critical:**我把 W 改成可覆寫的那一刻,就把 `rm -rf "$W"` 交給了外部輸入。**
+#    下面的 `rm -rf "$W"` 是無條件的,而併發護欄只在 `$W/data/postmaster.pid` 存在時才擋
+#    ⇒ `A7TCC_WORK=$HOME` 這種值一路過關、一路刪下去。加彈性沒配上路徑閘 = 我自己開的洞。
+#    ⇒ 抄 w 線 19 支同款的路徑閘(w7d1-verify.sh 是參考實作),外加一道 PORT 純數字閘。
+#    🔴 R2 nit:別把這叫「五道閘」—— w7d1 那邊是 2 前綴 + 2 dotdot + 1 字元集、**沒有 PORT 閘**;
+#    本檔是 3 道路徑 case + 1 道 PORT case,再加下面既有的 postmaster 併發閘。數字要對得上。
+case "$W" in /tmp/?*|/private/tmp/?*) : ;; *) echo "REFUSE: workdir 必須在 /tmp 或 /private/tmp 底下(現為 [$W])"; exit 1 ;; esac
+case "$W" in *..*) echo "REFUSE: workdir 不得含 ..(現為 [$W])"; exit 1 ;; esac
+# 🔴 字元集這道同時關掉第二個洞:`pgrep -f "postgres.*$W/data"` 把 $W 當 regex ——
+#    含 metachar 時**併發護欄與殘留檢查會一起靜默失效**(w6c-idem-replay.sh 記過同一條)。
+case "$W" in *[!A-Za-z0-9/._-]*) echo "REFUSE: workdir 只允許 A-Za-z0-9/._-(pgrep -f 會把其餘字元當 regex ⇒ 護欄靜默失效)"; exit 1 ;; esac
+case "$W" in /tmp/[A-Za-z0-9]*|/private/tmp/[A-Za-z0-9]*) : ;; *) echo "REFUSE: workdir 第一段必須以英數開頭(現為 [$W])"; exit 1 ;; esac
+case "$W" in *//*) echo "REFUSE: workdir 不得含連續斜線(現為 [$W])—— /tmp// 過得了前綴閘,但 rm -rf 會刪掉整個 /tmp"; exit 1 ;; esac
+# 🔴🔴 W7 跟片⑦(2026-08-09,R2 抓的):上面的 `/tmp/?*` **擋不住 `/tmp//`** ——
+#    glob 的 `?` 吃得下 `/`,四道閘全過(前綴符合、無 `..`、字元集全合法),
+#    而 `rm -rf "/tmp//"` 實測**會把整個 /tmp 刪掉**(含別窗還活著的 PG datadir),
+#    且 `$D/postmaster.pid` = `/tmp//postmaster.pid` 不存在 ⇒ 併發護欄也不會響 = 靜默。
+#    ⇒ 兩道一起補:①第一個字元必須是英數(順帶擋掉 `/tmp/.`、`/tmp/-x`)②路徑中不得有 `//`。
+case "$PORT" in ''|*[!0-9]*) echo "REFUSE: PORT 必須是純數字(現為 [$PORT])"; exit 1 ;; esac
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 export LC_ALL=C
 KEEP="${1:-}"
@@ -43,7 +67,8 @@ bad() { printf '  🔴 %s\n' "$1"; FAIL=$((FAIL+1)); }
 command -v pgrep >/dev/null 2>&1 || { echo "REFUSE: 找不到 pgrep ⇒ 無法確認 $W 是否正被別人使用,拒絕 rm -rf"; exit 1; }
 if [ -f "$W/data/postmaster.pid" ] && pgrep -f "postgres.*$W/data" >/dev/null 2>&1; then
   echo "REFUSE: $W/data 底下有活著的 postmaster(別的視窗正在用?)⇒ 拒絕 rm -rf,也不去停它。"
-  echo "        處置:等它跑完,或改本檔頂端的 W= / PORT=。"
+  echo "        處置:等它跑完,或用 env 換路徑:A7TCC_WORK=/tmp/自己的名字 A7TCC_PORT=54xxx"
+  echo "        (🔴 不要改本檔字面 —— 內容一動,w7-coverage 的收據 sha 就對不上、check 會紅)"
   exit 1
 fi
 teardown() {
@@ -279,5 +304,9 @@ fi
 
 echo
 echo "════ A7-t 併發實測:通過 ${PASS} / 失敗 ${FAIL} ════"
+# 🔴 W7 跟片⑦:機器讀的那一行。`w7-coverage.sh` 的 record 是用 `PASS=n FAIL=n` 這個
+#    字面抓兩軌的,上面那句人話它讀不到(收編首跑實得 PASS=0 FAIL=-1 = 抓不到總結行)。
+#    兩行都留:人看上面那句,帳讀下面這句。**格式不得改**,改了跑過帳會靜靜記成 FAIL=-1。
+echo "PASS=${PASS} FAIL=${FAIL}"
 echo "(A/B 的「漏」是預期結果 = 案例成功;它們是 plan §2.0 與 backlog #307 的依據)"
 [ "$FAIL" -eq 0 ] || exit 1

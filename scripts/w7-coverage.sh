@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════
-# W7 · 出貨 writer 線的**跑過帳**(covering account = 「這 19 支到底有沒有被跑過」)
+# W7 · 出貨 writer 線的**跑過帳**(covering account = 「帳上這 21 支到底有沒有被跑過」)
 #
-#   check(預設):驗收據 —— 19 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
+#   check(預設):驗收據 —— 21 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
 #                 跑的時候 migration 尾碼**就是現行的**。任何一條不成立就紅。
 #   record <支|all>:真的跑 harness、把結果寫成收據。慢(每支要 initdb + 重放全套 migration),
 #                 這是 **apply preflight 的本分**,不是每次 commit 都要做的事。
@@ -22,7 +22,7 @@
 #     (前一版要同步約 16 處字面 + 兩次心算加總 = 本 repo 復發第一名那個病的最大化版本)。
 #
 # ══ 🔴 證得了什麼 / 證不了什麼 ═══════════════════════════════════════════
-#   ✅ 這 19 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
+#   ✅ 這 21 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
 #   ❌ **證不了**那些格「有判別力」—— 那是各支自己的靶在證(全線現況見 matrix.md §1)。
 #   ❌ **證不了**「該有的守門都想到了」。欠款清單在 matrix.md §3。
 #   ❌ 收據是**自陳**:它證的是「有人跑了並記下結果」,不是「結果沒被手改」。
@@ -30,7 +30,12 @@
 #
 # 用法:
 #   bash scripts/w7-coverage.sh              驗收據(快,<1s)
-#   bash scripts/w7-coverage.sh record all   跑全線 19 支並重寫收據(**實測約 4 分**:13 秒/支 × 19。舊字面寫 15-25 分是錯的,從未實測過 —— 2026-08-09 W7d-3 片實際計時後更正)
+#   bash scripts/w7-coverage.sh record all   跑全線 21 支並重寫收據
+#     **實測 217 秒(3 分 37 秒)**,2026-08-09 收編 a7t 之後當場計時(單次、這台機器)。
+#     組成:b2s2b 約 26 秒、a7t 約 2 秒,其餘 19 支 w 線各約 10 秒上下 —— 每支都要 initdb + 重放全套 migration。
+#     🔴 R2 nit:別把組成式當精算(19×10+26+2=218 已經超過 217)。當量級看:**約 3.5-4.5 分**;
+#        **失效條件 = 每收編一支 w 線約 +10-13 秒、migration 變多每支都會變慢**,數字過期就重量一次。
+#     (更早的「15-25 分」是從未實測過的字面,已於 W7d-3 片更正為 ~4 分;本行是收編後重量的值。)
 #   bash scripts/w7-coverage.sh record w2-verify.sh   只重跑一支
 # ══════════════════════════════════════════════════════════════════════════
 set -u
@@ -48,7 +53,20 @@ MODE="${1:-check}"
 #    動機事故:08-09 中午跨線重釘漏掉它,而 `check` 27/0 對那個漏**零判別力** ——
 #    因為它不在本集合裡。`^w[0-9]` 是命名慣例,慣例外的 harness 對本檔隱形。
 #    ⇒ 改成**顯式併集**:慣例撈到的 + 一份具名清單。慣例本身仍是債(見上),但不再是唯一入口。
-EXTRA_HARNESSES="b2s2b-verify.sh"
+# 🔴 W7 跟片⑦(2026-08-09,主視窗裁):收編 `a7t-concurrency-probe.sh`。
+#    它自足、跑 2 秒、無參數 exit 0 ⇒ 收編成本最低。
+# 🔴 **另外三支明知有洞、明知不在帳上,仍不收 —— 理由逐支寫下來,不含混**:
+#    · `n3-verify.sh`      需要一個**空 port**,而多視窗環境下 port 常被別窗佔
+#      (08-09 一天撞三次)⇒ 進帳會變成「別人開叢集就紅」的假紅來源。
+#      🔴 誠實邊界:**a7t 有同樣的風險**(54366 被佔 ⇒ pg_ctl start 失敗 ⇒ 一樣的假紅),
+#      差別只在那個埠冷門(全 repo 只有本檔用它),而且 n3 還多一道顯式的 require_free_port。
+#      收 a7t 是賭埠冷門,不是它沒有這個問題。
+#    · `s1b-verify.sh`     需要外部 `d1t2-rehearsal.sh provision <workdir>` 先建庫,
+#      不是加一行 `invoke_of` 就能自足;要進帳得先讓它會自己 provision。
+#    · `b2s1-concurrency-probe.sh` 目前被自己的 `exit 2` 停用(已知會卡死),不該進帳。
+#    ⇒ 這三支的回歸目前**沒有任何自動化會紅**。這是慣例債,寫在這裡是為了下一個人
+#      不用重新發現一次(跟片⑥ B-326-STOP ⑦、主視窗 B-328-A 裁)。
+EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh"
 harness_set() {
   { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$'
     for e in $EXTRA_HARNESSES; do [ -f "$SCRIPTS/$e" ] && printf '%s\n' "$e"; done
@@ -62,6 +80,8 @@ harness_set() {
 invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
   case "$1" in
     b2s2b-verify.sh) printf 'PORT=54365 bash scripts/%s all /tmp/b2s2bv' "$1" ;;
+    # 🔴 a7t 用**專屬的 workdir 與 port**,與有人手跑本檔隔離(它預設是 /tmp/a7tcc:54332)。
+    a7t-concurrency-probe.sh) printf 'A7TCC_WORK=/tmp/a7tcov A7TCC_PORT=54366 bash scripts/%s' "$1" ;;
     *)               printf 'bash scripts/%s' "$1" ;;
   esac
 }
@@ -84,7 +104,18 @@ if [ "$MODE" = "record" ]; then
   REC_BAD=0
   TS="$(newest_ts)"
   [ -n "$TS" ] || { echo "找不到 supabase/migrations ⇒ 不敢記帳"; exit 1; }
-  if [ "$TARGET" = "all" ]; then LIST="$(harness_set)"; else LIST="$TARGET"; fi
+  if [ "$TARGET" = "all" ]; then
+    LIST="$(harness_set)"
+  else
+    # 🔴 W7 跟片⑦:具名那條路原本**不檢查名字在不在集合裡** —— 打錯字(或像我一樣手滑打成
+    #    `record w7-coverage.sh`)會寫進一筆「有收據沒 harness」的列,下一次 check 才紅在 SET-MATCH。
+    #    fail-closed 沒錯,但紅的地方離手滑很遠。⇒ 當場擋。
+    case " $(harness_set | tr '\n' ' ') " in
+      *" $TARGET "*) : ;;
+      *) echo "🔴 $TARGET 不在 harness 集合裡 ⇒ 拒絕記帳(集合 = ^w[0-9] 撈到的 + EXTRA_HARNESSES)"; exit 1 ;;
+    esac
+    LIST="$TARGET"
+  fi
   [ -f "$LEDGER" ] || printf '# W7 跑過帳。一行一支:harness\\tPASS\\tFAIL\\texit\\tnewest_ts\\tharness_sha\n# 由 `bash scripts/w7-coverage.sh record` 產生,勿手改。\n' > "$LEDGER"
   for h in $LIST; do
     [ -f "$SCRIPTS/$h" ] || { echo "SKIP $h(檔案不存在)"; continue; }
@@ -123,7 +154,12 @@ fi
 
 # ══════════════════════════ check 模式 ═══════════════════════════════════
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=26   # 🔴 量出來的(**20** 逐支〔19 支 w 線 + b2s2b〕 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 26 + 2 = 28。
+# 🔴 R1 F5(宣稱範圍,寫下來不假裝沒有):格名用 `sed 's/-.*//'` 取檔名第一段 ⇒
+#    `a7t-concurrency-probe.sh` 的格叫 `RECEIPT-a7t`。現行 21 支無撞號(已機械驗),
+#    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
+#    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
+#    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
+EXPECT_TOTAL=27   # 🔴 量出來的(**21** 逐支〔19 支 w 線 + b2s2b + a7t〕 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 27 + 2 = 29。
                   # 🔴 W7d-1(2026-08-08)新增 scripts/w7d1-verify.sh ⇒ harness_set() 的 ^w[0-9] 自動撈得到它,
                   #    但**格數與 KEYS_FROZEN 是手動字面**、不會自己長 —— 關卡2 抓到這個漏。
                   #    ⇒ 以後每新增一支 w 開頭的 harness,這兩個字面都要一起改(這正是本檔在守的那種帳)。
@@ -197,7 +233,32 @@ echo "══ 3. 🔴 靶(四類真實失效各一發;在副本上動手腳)═�
 # 🔴 判別力的形狀:**改壞值、保留結構**。四發各打一種**本線真的發生過**的失效,
 #    不是打「有人惡意改帳」那個零實例的威脅模型(R3 打掉前一版的理由)。
 FP_BEFORE="$(shasum "$LEDGER" 2>/dev/null | cut -d' ' -f1)"
-PROBE="$(harness_set | head -1)"
+# 🔴 W7 跟片⑦:PROBE **改成釘死具名那支,不再用 `harness_set | head -1`**。
+#    原本取排序第一支 ⇒ **收編一支新 harness 就會靜靜換掉四發靶打的對象**,而且沒人會發現:
+#    收編 a7t 那一刻,四發靶就從 b2s2b 換成了 a7t,`check` 照樣 29/0。
+#    靶打誰是設計決定,不該由檔名排序決定(本檔在守的正是這種「帳自己漂掉」)。
+#    選 b2s2b 的理由:它是唯一走特例路徑的一支(`exits_of`=0 3、`inconc` 凍結 1),
+#    靶打它才會連特例那條路一起走過。
+#    🔴 誠實邊界:即使釘在 b2s2b,四發靶本身**沒有**專門去翻 `exits_of` 放寬與 inconc 凍結
+#    那兩條(它們只改 FAIL / sha / ts / 抽收據)。那兩條目前只有跟片① 的一次性突變佐證,
+#    沒有常設靶 —— 寫下來,不假裝關完。
+PROBE="b2s2b-verify.sh"
+# 🔴 R1 F3/F4:第一版這道守門只問「檔案在不在」,而且不跳過後面四發 ——
+#    ① 「檔案還在但已被移出 EXTRA_HARNESSES」它完全不響(靶繼續打一支不在帳上的 harness);
+#    ② 標的真的不見時,靶① 對「不存在的 harness」跑 `check_one` 會拿到「從來沒被跑過」
+#      ⇒ **TMUT-COV-MISSING 印 PASS**、說一句它證不到的話(靶②③④ 才會說「本靶自己壞了」)。
+#    ⇒ 改成問「它還在不在集合裡、有沒有收據」,並且**命中就整節跳過**,不讓任何一格說謊。
+PROBE_OK=1
+harness_set | grep -Fqx "$PROBE" || { echo "  🔴 靶的標的 $PROBE 不在 harness 集合裡 ⇒ 四發靶沒有合法對象"; PROBE_OK=0; }
+grep -Fq "$PROBE	" "$LEDGER" 2>/dev/null || { echo "  🔴 靶的標的 $PROBE 沒有收據 ⇒ 四發靶構造不出「動過手腳的副本」"; PROBE_OK=0; }
+if [ "$PROBE_OK" = "0" ]; then
+  # 🔴 整節跳過 + 四格逐一判紅(不是靜靜少四格 —— 那會讓 CELL-ACCOUNT 紅在別的理由上)
+  bad TMUT-COV-MISSING  "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
+  bad TMUT-COV-RED      "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
+  bad TMUT-COV-STALE    "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
+  bad TMUT-COV-TSDRIFT  "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
+fi
+if [ "$PROBE_OK" = "1" ]; then
 
 # ① 「跑都沒跑」:抽掉一張收據
 grep -v "^$PROBE	" "$LEDGER" > "$TMPD/led-missing.tsv" 2>/dev/null
@@ -250,6 +311,10 @@ else
   esac
 fi
 
+fi   # 🔴 PROBE_OK 那個 if 收在這裡:四發靶要嘛整組跑、要嘛整組判紅,不會半套。
+     #    (R2 nit:第一版這個 fi 落在下面那段註解**之後**,讀起來像 COV-NO-WRITEBACK 也被跳過。
+     #     實際上那格一直在 fi 之外、兩條路徑都會發 —— 但註解位置會讓人讀錯,所以移上來。)
+
 # 🔴 零回寫自證:四發靶只動 $TMPD 裡的副本,真收據一個位元都不該變。
 #    (守在**不變量面**,不是某個瞬間的 git 狀態 —— 那是 R2 打掉前一版的理由。)
 FP_AFTER="$(shasum "$LEDGER" 2>/dev/null | cut -d' ' -f1)"
@@ -267,7 +332,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-b2s2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-a7t RECEIPT-b2s2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
