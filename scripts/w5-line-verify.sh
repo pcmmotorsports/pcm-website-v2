@@ -33,7 +33,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W5DB:-/tmp/w5db}"; SOCK="${W5SOCK:-/tmp/w5sk}"; P="${W5PORT:-54399}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=34   # 🔴 量出來的。全綠時 PASS = 34 + CELL-ACCOUNT + CELL-KEYSET = 36。(跟片④ +4;正式站 42501 事故負測 +2)
+EXPECT_TOTAL=39   # 🔴 量出來的。全綠時 PASS = 39 + CELL-ACCOUNT + CELL-KEYSET = 41。(跟片④ +4;42501 負測 +2;MF-2 存根產物 +3;寫入面凍結 +2)
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -152,7 +152,7 @@ cap() {
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260809210000"  # 2026-08-10 重釘 190000->210000 (L4a-1 落檔)
+LINE_TIP="20260809210000"  # 2026-08-10 重釘 20260809200000->20260809210000(L4a-1 落檔;我的 200000 排它前面、不動尖端)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
@@ -397,6 +397,110 @@ case "$MNO:$MNO2" in
   *:true) bad TMUT-NONOWNER-COMMIT "改回 INVOKER 之後竟然沒炸(實得 $MNO)⇒ 上面那格對事故全盲 = 恆真" ;;
   *)      bad TMUT-NONOWNER-COMMIT "🔴 **靶沒還原**(prosecdef=[$MNO2],期望 true)⇒ 本靶留下壞掉的世界給後面的格,先修這個" ;;
 esac
+# ══ 🔴 冪等帳寫入面凍結(codex 關卡2 must-fix:migration 裡那份攔不到後來的片)══
+# 🔴 **為什麼這道一定要在 harness 而不是 migration 裡**:migration 的 DO block 只在
+#    apply 當下跑一次。若明天有片新增了 `record()` 的呼叫者,全量重放時我那支
+#    `20260809200000` **排在它前面先跑** ⇒ 斷言當下還是乾淨的、根本攔不到。
+#    「凍結」那個詞在 migration 那份上是誇大的(codex 關卡2 點名,他對)。
+#    本檔重放**整個目錄到尖端**之後才跑,看到的是**最終狀態** ⇒ 這裡才守得住。
+#    migration 那份保留,但它的角色是「apply 到正式庫當下的一次性檢查」,不是持續守門。
+# 🔴 大小寫:SQL 識別字不區分大小寫,body 可以寫成大寫而躲過 LIKE ⇒ 一律用 ILIKE / `~*`。
+LEDGER_NS="n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg\\_%'"
+LEDGER_DEF="CASE WHEN p.prokind IN ('f','p') THEN pg_catalog.pg_get_functiondef(p.oid) ELSE NULL END"
+LEDGER_SIG="n.nspname||'.'||p.oid::regprocedure::text"
+ledger_callers() { Q "SELECT coalesce(pg_catalog.string_agg($LEDGER_SIG, ',' ORDER BY $LEDGER_SIG),'(無)') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE $LEDGER_NS AND $LEDGER_DEF ~* 'pcm_b2_shipping_idem_record[[:space:]]*\\(' AND p.proname <> 'pcm_b2_shipping_idem_record'"; }
+ledger_touchers() { Q "SELECT coalesce(pg_catalog.string_agg($LEDGER_SIG, ',' ORDER BY $LEDGER_SIG),'(無)') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE $LEDGER_NS AND $LEDGER_DEF ILIKE '%pcm_b2_shipping_idempotency%'"; }
+ledger_dyn()   { Q "SELECT pg_catalog.count(*)::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE $LEDGER_NS AND $LEDGER_DEF ILIKE '%pcm_b2_shipping_idempotency%' AND $LEDGER_DEF ~* 'EXECUTE[[:space:]]'"; }
+ledger_force() { Q "SELECT coalesce(pg_catalog.string_agg(c.relname||'='||c.relforcerowsecurity::text, ',' ORDER BY c.relname),'(無)') FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('shipments','pcm_b2_shipping_idempotency')"; }
+# 🔴 凍結值 = catalog 實測(2026-08-09)。**逐字全等**,不是「不准多」——
+#    只擋擴張的話,某支被改名或刪掉不會有人紅(codex nit:那是「禁止擴張」不是凍結)。
+LEDGER_CALLERS_EXP="public.admin_create_shipment(text,uuid,jsonb,text,text),public.admin_mark_shipment_shipped(text,uuid,text),public.admin_unvoid_shipment(text,uuid),public.admin_void_shipment(text,uuid,text),public.pcm_b2_add_items_impl(text,uuid,jsonb),public.pcm_b2_shipping_idem_require_complete()"
+LEDGER_TOUCHERS_EXP="public.pcm_b2_shipping_idem_claim(text,text,text),public.pcm_b2_shipping_idem_record(text,text,uuid,jsonb),public.pcm_b2_shipping_idem_require_complete()"
+LC="$(ledger_callers)"; LT="$(ledger_touchers)"; LD="$(ledger_dyn)"; LF="$(ledger_force)"
+LBAD=""
+[ "$LC" = "$LEDGER_CALLERS_EXP" ] || LBAD="$LBAD 呼叫 record() 的集合變了:[$LC];"
+[ "$LT" = "$LEDGER_TOUCHERS_EXP" ] || LBAD="$LBAD 碰鍵表的集合變了:[$LT];"
+[ "$LD" = "0" ]                    || LBAD="$LBAD 有 $LD 支在 body 裡同時出現動態 EXECUTE 與鍵表名;"
+[ "$LF" = "pcm_b2_shipping_idempotency=false,shipments=false" ] || LBAD="$LBAD FORCE RLS 現況 [$LF](期望兩張都 false);"
+[ -z "$LBAD" ] \
+  && ok LINE-LEDGER-WRITE-SURFACE "🔴 冪等帳的寫入面在**尖端**逐字凍結:record() 呼叫者 6 筆簽章、碰表函式 3 筆、動態 SQL 0 支、兩張表未開 FORCE RLS ✓(這道在 migration 裡守不住 —— 那份只在自己 apply 那一刻跑)" \
+  || bad LINE-LEDGER-WRITE-SURFACE "🔴 冪等帳寫入面變了:$LBAD ⇒ 新的寫入面要先確認它傳的值不是呼叫端可控的,再更新本檔與 20260809200000 的清單"
+# 靶:新增一支呼叫 record() 的函式 ⇒ 上面那格必須紅(證它不是恆真)
+Q "CREATE FUNCTION public.zz_ledger_probe() RETURNS void LANGUAGE plpgsql AS \$zz\$ BEGIN PERFORM public.pcm_b2_shipping_idem_record('x','y',NULL,'{}'::jsonb); END \$zz\$" >/dev/null
+MLC="$(ledger_callers)"
+Q "DROP FUNCTION public.zz_ledger_probe()" >/dev/null
+MLC2="$(ledger_callers)"
+case "$MLC:$MLC2" in
+  *zz_ledger_probe*:"$LEDGER_CALLERS_EXP") ok TMUT-LEDGER-WRITE-SURFACE "🔴 多長一支呼叫 record() 的函式 ⇒ 集合真的變了(命中 zz_ledger_probe)、且**還原後逐字回到凍結值** = 上面那格對「寫入面擴張」有判別力" ;;
+  *zz_ledger_probe*:*)                     bad TMUT-LEDGER-WRITE-SURFACE "🔴 靶沒還原乾淨(實得 [$MLC2])⇒ 留了一支給後面的格" ;;
+  *)                                       bad TMUT-LEDGER-WRITE-SURFACE "多長一支之後集合沒變(實得 [$MLC])⇒ 上面那格恆真" ;;
+esac
+
+# ══ 🔴 MF-2 落地驗收(2026-08-09,codex #4 MF-2 / migration 20260809200000)══
+# 🔴 被測的是**存根產物斷言**:deferred 半成品閘從「鍵在不在」升級成「產物在不在」。
+#    偽造情境要以 **owner 直寫**構造(那正是 finding 的威脅模型 —— 繞過 record());
+#    而 deferred trigger 只在 **COMMIT 那一刻**執行 ⇒ 必須用單一 psql 呼叫、讓它走到隱式 commit,
+#    包在 `cap`/`capstmt` 的 DO block 裡永遠測不到(那個 exception handler 在 commit 之前就結束了)。
+# 🔴 錯誤分支排在成功分支**之前**:psql 會先印 INSERT 的結果、再印 commit 當下的錯誤,
+#    順序反了就會被前面的分支先匹配掉(跟片④ 的 LINE-NONOWNER-COMMIT 記過同一條)。
+# 🔴 `payload_hash` 要餵**形狀合法**的值:表上有 CHECK `~ '^[0-9a-f]{64}$'`
+#    (`…w0b…:63-64`)。首跑我隨手填 `deadbeef`,三格全紅在那道 CHECK ——
+#    格子誠實印了「被擋了但不是那道」而不是假綠,那是設計對了;但也說明
+#    **偽造存根本身還要跨一道形狀閘**,不是隨便一列都塞得進來。
+forge() {   # $1=action $2=key $3=shipment_id 字面 $4=snapshot 字面 → 印出合併輸出
+  # 🔴 `-v VERBOSITY=verbose` 不可省:psql **預設不印 CONSTRAINT 名**,只印訊息文字。
+  #    首跑我把 case 錨在 conname 上,兩格全紅在「被擋了但不是那道」—— 斷言其實開火了,
+  #    是我讀不到證據(memory `reference_exit-code-provenance-three-traps` 同族:先確認你在讀誰的輸出)。
+  #    錨在 conname 而不是中文訊息,是因為訊息會被改、conname 是分派用的契約。
+  psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -v VERBOSITY=verbose \
+    -c "INSERT INTO public.pcm_b2_shipping_idempotency(action,idempotency_key,payload_hash,shipment_id,result_snapshot)
+        VALUES ('$1','$2',pg_catalog.encode(pg_catalog.sha256(('forge'||'$2')::bytea),'hex'),$3,'$4'::jsonb);" 2>&1 | tr '\n' ' '
+}
+# ① 空快照的假收據:shipment_id 指向**真的存在**的包裹,只有快照是空的
+FG1="$(forge create_shipment forge-empty-snap "'$SHIP'" '{}')"
+case "$FG1" in
+  *pcm_b2_w2_stub_snapshot_empty*) ok LINE-STUB-EMPTY-SNAPSHOT "🔴 owner 直寫一筆「既存包裹 + 空快照」的假收據 ⇒ **commit 當下被擋**(pcm_b2_w2_stub_snapshot_empty)= 存根必須是真實動作的產物,不是有鍵就算 ✓" ;;
+  *ERROR*)                         bad LINE-STUB-EMPTY-SNAPSHOT "被擋了但不是那道:$FG1" ;;
+  *)                               bad LINE-STUB-EMPTY-SNAPSHOT "🔴🔴 **空快照的假收據 commit 成功了** ⇒ 之後同鍵重試會拿到「成功」信封而事情從沒發生。實得:[$FG1]" ;;
+esac
+# ② 指向不存在包裹的存根:快照非空,但 shipment_id 是憑空的
+FG2="$(forge create_shipment forge-dangling "'99999999-9999-9999-9999-999999999999'" '{"a":1}')"
+case "$FG2" in
+  *pcm_b2_w2_stub_shipment_missing*) ok LINE-STUB-DANGLING "🔴 存根指向不存在的包裹 ⇒ **commit 當下被擋**(pcm_b2_w2_stub_shipment_missing)= 產物存在這件事畫在**表**上,不是只畫在 record() 裡 ✓" ;;
+  *ERROR*)                           bad LINE-STUB-DANGLING "被擋了但不是那道:$FG2" ;;
+  *)                                 bad LINE-STUB-DANGLING "🔴🔴 **指向不存在包裹的存根 commit 成功了**。實得:[$FG2]" ;;
+esac
+# ③ 靶:把 trigger 換回**只驗 shipment_id 非 NULL** 的舊版 ⇒ 上面兩格量的東西必須同時翻面。
+#    不還原成舊版而只是「拿掉整支 trigger」的話,證的是「有沒有 trigger」而不是「那兩道斷言」。
+Q "CREATE OR REPLACE FUNCTION public.pcm_b2_shipping_idem_require_complete() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS \$old\$ DECLARE v_sid uuid; BEGIN SELECT shipment_id INTO v_sid FROM public.pcm_b2_shipping_idempotency WHERE action = NEW.action AND idempotency_key = NEW.idempotency_key; IF v_sid IS NULL THEN RAISE EXCEPTION 'old' USING ERRCODE='P2B25', CONSTRAINT='pcm_b2_w2_stub_incomplete_at_commit'; END IF; RETURN NULL; END \$old\$" >/dev/null
+MG1="$(forge create_shipment forge-mut-snap "'$SHIP'" '{}')"
+MG2="$(forge create_shipment forge-mut-dangling "'99999999-9999-9999-9999-999999999999'" '{"a":1}')"
+# 🔴 還原:重跑被測物 migration,並自證換回來了(跟片⑤ 記過:突變不還原 ⇒ 後面的格量到 mutant)
+psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$REPO/supabase/migrations/20260809200000_m4b_e10_b2_w2_stub_verifies_artifact.sql" >/dev/null 2>"$SOCK/restore.err" \
+  || die "RESTORE_FAIL(TMUT-STUB-ARTIFACT):被測物 migration 重跑失敗 :: $(cat "$SOCK/restore.err" 2>/dev/null | tr '\n' ' ')"
+RST="$(Q "SELECT (pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.pcm_b2_shipping_idem_require_complete()'::regprocedure), 'pcm_b2_w2_stub_snapshot_empty') > 0)::text")"
+[ "$RST" = "true" ] || die "RESTORE_FAIL(TMUT-STUB-ARTIFACT):線上函式體不是本尊(錨查得 [$RST])"
+# 🔴 R1 N4:`*) ok` 這種 catch-all 會把「forge 根本沒輸出」也讀成成功 = 本 session 一路在清的
+#    「空值當成功」。我第一版改成比 `INSERT 0 1`,實跑當場紅 —— **`-qtA` 之下成功的 INSERT
+#    什麼都不印**,那個正向訊號根本不存在。⇒ 用**寫入效果**當正向訊號:那兩列真的在表裡。
+MGN="$(Q "SELECT pg_catalog.count(*)::text FROM public.pcm_b2_shipping_idempotency WHERE idempotency_key IN ('forge-mut-snap','forge-mut-dangling')")"
+case "$MG1$MG2:$MGN" in
+  *ERROR*:*) bad TMUT-STUB-ARTIFACT "換回舊版之後竟然還是被擋 ⇒ 上面兩格量到的不是那兩道斷言。空快照=[$MG1] 懸空=[$MG2]" ;;
+  *:2)       ok TMUT-STUB-ARTIFACT "🔴 換回「只驗非 NULL」的舊版 ⇒ 兩筆假收據**都 commit 成功且真的躺在鍵表裡**(這就是修之前的世界)= 上面兩格量的真的是新增的那兩道斷言,不是恆真" ;;
+  *)         bad TMUT-STUB-ARTIFACT "非預期:沒被擋、但鍵表裡只有 $MGN 筆(期望 2)⇒ 靶自己沒跑到。空快照=[$MG1] 懸空=[$MG2]" ;;
+esac
+# 🔴 靶那兩筆假收據是**真的 commit 進去了**(那正是它要證的),而且**刪不掉** ——
+#    鍵表有 `pcm_b2_shipping_idem_no_purge` 的 BEFORE DELETE trigger,append-only 是刻意設計
+#    (`…w0b…:121-139`)。首版我寫了 DELETE + 「清乾淨了嗎」斷言,當場 die ——
+#    清理假設本身是錯的,不是清理失敗。
+# 🔴 那兩筆對後面的格無害,理由要寫下來、不是「應該沒事」:
+#    · 讀鍵表的**計分格**(LINE-IDEM-COMPLETE / LINE-SNAPSHOT-SHAPE)都在第 3 段,**跑在本段之前**;
+#    · 第 4 段兩發讀鍵表的靶(TMUT-IDEM-COMPLETE / TMUT-SNAPSHOT-SHAPE)逐字濾 `idempotency_key LIKE 'e2e-%'`。
+#    ⇒ 改成釘住「殘留的就是我預期的那兩筆」:多了或換了鍵,代表有人加了新的偽造而沒想到這件事。
+FGLEFT="$(Q "SELECT coalesce(pg_catalog.string_agg(idempotency_key, ',' ORDER BY idempotency_key),'(無)') FROM public.pcm_b2_shipping_idempotency WHERE idempotency_key LIKE 'forge-%'")"
+[ "$FGLEFT" = "forge-mut-dangling,forge-mut-snap" ] \
+  || die "FORGE_RESIDUE_UNEXPECTED:鍵表裡的假收據不是預期的那兩筆(實得 [$FGLEFT])⇒ append-only 刪不掉,後面的格可能量到被污染的鍵表,停"
+
 # ══ 🔴 W7 跟片④(2026-08-09,B-227 MF-2/MF-3)兩格 ══════════════
 # 🔴 MF-2(oracle 缺口):作廢原本只驗「摘要 3→0」—— 那只證了**退量的數字**動了,
 #    沒證**員工真的能重新裝箱**。W3-2 的可出量算式若忘了排除已作廢的箱,
@@ -639,7 +743,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP]"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-23505-TRANSLATED LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-NOBATCH-TRIGGER LINE-NONOWNER-COMMIT LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE LINE-VOID-REOPEN LINE-W4B-HELPERS LINE-WRITER-SECDEF TMUT-23505-TRANSLATED TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-NOBATCH-TRIGGER TMUT-NONOWNER-COMMIT TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE TMUT-VOID-REOPEN TMUT-W4B-HELPERS TMUT-WRITER-SECDEF"
+KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-23505-TRANSLATED LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-LEDGER-WRITE-SURFACE LINE-NOBATCH-TRIGGER LINE-NONOWNER-COMMIT LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE LINE-STUB-DANGLING LINE-STUB-EMPTY-SNAPSHOT LINE-VOID-REOPEN LINE-W4B-HELPERS LINE-WRITER-SECDEF TMUT-23505-TRANSLATED TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-LEDGER-WRITE-SURFACE TMUT-NOBATCH-TRIGGER TMUT-NONOWNER-COMMIT TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-STUB-ARTIFACT TMUT-TRIGGER-STATE TMUT-VOID-REOPEN TMUT-W4B-HELPERS TMUT-WRITER-SECDEF"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單"; PASS=$((PASS+1))
 else

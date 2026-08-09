@@ -381,7 +381,6 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-# RE-PIN 2026-08-10: 190000->210000 (L4a-1 begin_charge_attempt in_flight_order_id;不動出貨表/函式)
 [ "$NEWEST_TS" = "20260809210000" ] \
   || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809210000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
