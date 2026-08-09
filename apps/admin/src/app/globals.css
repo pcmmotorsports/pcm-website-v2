@@ -117,3 +117,35 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── #350b 工作區殼 ─────────────────────────────────────────────────────────
+   ① 沒有面板內容時,面板欄與拖曳把手一起收起來。
+   🔴 用 CSS `:has()` 而不是 JS state:槽的內容是**平行路由**渲染的(`app/@panel/*`),
+      殼是 client component ⇒ 它**無從得知**槽裡有沒有東西(`panel` 永遠是一個 ReactNode,
+      `default.tsx` 回 null 時也還是個 node)。`:has()` 看的是**實際 DOM**,沒有第二個真相源。
+   🔴 `:not(template)` 是必要的(code-reviewer R2):React streaming / Next router 會在邊界
+      插入 `<template>` —— 它**是元素、會被 `> *` 命中** ⇒ 面板永遠收不起來、
+      **每一頁都被吃掉半個畫面**,而且零執行期訊號。
+   ⚠️ 這條規則本身要**真瀏覽器**才驗得到(jsdom 不做 `:has()` 版面)⇒ 已列為 350c 的**上線前 blocker**
+      (不只是驗收清單項)。 */
+.workspace-row:not(:has(.workspace-panel > *:not(template))) > .workspace-panel,
+.workspace-row:not(:has(.workspace-panel > *:not(template))) > .workspace-handle {
+  display: none;
+}
+
+/* ② 面板寬度的**夾範圍在 CSS 做**,不是只在 JS 做。
+   🔴 為什麼(code-reviewer R2 兩條 must-fix 用這一條一起消掉):
+      · 只在 JS 夾 ⇒ **第一幀**吃的是未夾的 cookie(1920 螢幕存的 1400px 在 1280 筆電上開,
+        SSR 那幀內容區被壓成負值、整列橫向溢位),要等 hydration 後才跳回來;
+      · 為了修它而在 resize 時重夾 + 回寫 cookie ⇒ 使用者存的偏好會被**永久改小**
+        (縮視窗一次就回不去了),而 Sean 逐字要的正是「狀態要留著」。
+      改成 CSS 夾:第一幀就正確、resize 天然跟著走、**cookie 只在使用者真的拖曳時才寫**。
+   🔴 `min-width` 依 CSS 規範在 `max-width` **之後**套用 ⇒ 兩個下限打架時 `min-width` 贏,
+      與 `clampPanelWidth()` 的「下限贏」逐字同語意(那支保留給寫 cookie 前的正規化)。
+   ⚠️ 這裡的兩個數字與 `lib/layout/workspace-panel.ts` 的 `MIN_PANEL_WIDTH` / `MIN_CONTENT_WIDTH`
+      是**同一組規則的兩個落點**;`workspace-shell.test.ts` 有一格把它們釘在一起,改一邊會紅。 */
+.workspace-panel {
+  width: var(--workspace-panel-width);
+  min-width: 320px;
+  max-width: calc(100% - 480px);
+}
