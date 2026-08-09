@@ -366,8 +366,15 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #       ⇒ 實測證明本片沒動到 `pg_get_functiondef` 的輸出;4AXIS 是它扣掉述詞行的子集,更不會變。
 #    🔴 本片同樣**只重釘、未重跑** b2s2b —— 沿用主視窗 `B-199-A` ④ 的裁定(見上方),
 #       apply 前 preflight 仍要重釘+全跑一次,這條欠款不因釘值更新而消失。
-[ "$NEWEST_TS" = "20260809020000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809020000 ——
+# 🔴 再重釘(2026-08-09 中午,`20260809030000` P 線 COMMENT 修正落檔):
+#    主視窗 `B-312-A` ② 代跑的那輪重釘只涵蓋**七支線級 w 檔**,**本檔漏了** ——
+#    因為 `w7-coverage.sh` 的 `harness_set()` 用 `^w[0-9]` 撈不到 `b2s2b-verify.sh`
+#    ⇒ **跑過帳看不見本檔**,`check` 27/0 的綠對這個漏**零判別力**(coverage 檔頭自記的「慣例債」)。
+#    `MD5_HELPER_4AXIS` 不需重量:`20260809030000` 只有一句
+#    `COMMENT ON COLUMN public.customer_addresses.email`,與 recompute helper / oiqs **零交集**(grep=0 實查)。
+#    🔴 上方那句「W7d-3 落檔 20260809020000」是**歷史註記**、刻意不跟著改。
+[ "$NEWEST_TS" = "20260809030000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809030000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 
