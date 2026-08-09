@@ -22,7 +22,43 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 const SIDEBAR_COOKIE_NAME = 'sidebar_state';
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
-const SIDEBAR_WIDTH = '16rem';
+/**
+ * 桌機側欄展開寬度(#350a;原 shadcn 預設 `16rem`)。
+ *
+ * 🔴 **Sean 2026-08-09 逐字**:「左邊側邊欄位預設窄一些,**變成跟文字對齊**,盡量放大訂單顯示空間」
+ * (`docs/phase-1-backlog.md:9406`)⇒ 目標不是「收成圖示」(那是 `SIDEBAR_WIDTH_ICON` 的事、
+ * ⌘B 仍可切),而是**讓面板貼著文字**、把省下來的寬度還給訂單表格。
+ *
+ * ── 9rem 怎麼來的:從實際 class 鏈推,不是挑一個看起來順眼的數字 ──────────────
+ * 🔴 **有兩條路,而**綁住下限的是 header 那條、不是選單那條**(第一版只算了選單 ⇒ 下限算低了,
+ *    code-reviewer 抓到)。兩條都要算,因為它們的水平開銷不同:
+ *
+ * | 路徑 | 開銷來源 | px |
+ * |---|---|---|
+ * | 共同 | `Sidebar` 容器左邊框 `group-data-[side=left]:border-r`(box-sizing 是 border-box ⇒ 吃寬度) | 1 |
+ * | **選單** | `SidebarGroup` `p-2`(8+8)+ `sidebarMenuButtonVariants` `p-2`(8+8)+ `[&>svg]:size-4` 16 + `gap-2` 8 | 56 |
+ * | 選單文字 | `text-sm` 14px × 4 個 CJK(最寬並列兩項:`退款異常` / `員工管理`) | ≈ 56 |
+ * | **選單合計** | | **≈ 113px** |
+ * | **Header** | `SidebarHeader` `p-2`(8+8)+ 內層 `px-2`(8+8;`app-sidebar.tsx`)+ logo `size-5` 20 + `gap-2` 8 | 60 |
+ * | Header 文字 | `PCM 後台` = 3 個 Latin(semibold 14px)+ 空格 + 2 個 CJK | ≈ 58 |
+ * | **Header 合計** | | **≈ 119px** ← **綁住下限的是這條** |
+ *
+ * ⇒ 取 **9rem(144px)**,對 ≈119px 的下限留約 **25px** 餘裕。比原本的 16rem **還給內容區 7rem(112px)**。
+ *
+ * 🔴🔴 **兩條路的失效模式不一樣,不要一律讀成「截字」**:
+ * · 選單:`sidebarMenuButtonVariants` 有 `[&>span:last-child]:truncate` ⇒ 太窄會**靜默截字**
+ *   (`退款異常` → `退款…`)。
+ * · Header:那個 div **沒有** `min-w-0`、span **沒有** `truncate`、`sidebar-inner`/容器也沒有
+ *   `overflow-hidden` ⇒ 太窄是**溢出蓋到內容區**,不是截字。**這條比截字更醜、也更早發生。**
+ *
+ * ⚠️ **誠實邊界:上表是從 class 鏈算出來的,不是真瀏覽器量的。**
+ * 兩處「≈」都是字型進距的估計(CJK 不保證剛好 1em、Latin semibold 更不是)⇒ 這是**有依據的起點,
+ * 不是量測結果**。「窄到什麼程度好看」本來就是 Sean 拍板的視覺題(CLAUDE.md 風格節),
+ * 他肉眼驗完可以直接調這一行;真要把下限釘死到 px,得用真瀏覽器量(本片沒做)。
+ * 🔴 調的時候記得:**往下走會先撞到 header 溢出(≈119px),不是選單截字(≈113px)**。
+ */
+const SIDEBAR_WIDTH = '9rem';
+/** 🔴 手機**刻意不動**(Sean Q5=維持現狀:小螢幕是 Sheet 覆蓋、不是分割,窄化沒有意義)。 */
 const SIDEBAR_WIDTH_MOBILE = '18rem';
 const SIDEBAR_WIDTH_ICON = '3rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
