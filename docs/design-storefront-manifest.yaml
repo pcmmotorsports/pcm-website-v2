@@ -1640,6 +1640,63 @@ components:
         reason: "design mock → 真 Supabase 目錄資料;快取全訪客恆等 general 投影(tier 變體不進快取、經銷紅線);featured 旗標仍為正解(#205)"
     open_drifts: []
 
+  # ---- #346 補追蹤三支(2026-08-09;h1 三級收斂片讓它們現形)----
+  # 🔴 現形經過:h1 片改了這三支 CSS,收工做 manifest bump 時 grep 全檔**零命中** ——
+  #    沒有任何條目宣告擁有它們,改了無處登記。缺口是既有的、不是那一片造成的。
+  #    三個歸屬是本片的判斷(理由各自寫在條目註記裡),不是既有文件講過的。
+
+  BrandDirectoryPage:
+    storefront:
+      component: "apps/storefront/src/components/brand/BrandDirectoryRoot.tsx"
+      css: "apps/storefront/src/styles/brand-directory.css"
+      last_modified_commit: "c9b269d0"  # 記可達祖先=#346 補追蹤片的父 commit(#180 案 A)(新增條目、無前錨)
+      last_modified_date: "2026-08-09 [#346 補追蹤,本條目為新建]:`/brands` 品牌總覽頁。歸屬判斷=**整支 `brand-directory.css` 只服務這一頁**(`.bd-*` 命名空間;色票 scope 掛在 `.bd-page`、刻意不進 `:root` 以免正式站每頁變色)⇒ 單一元件擁有、不需獨立條目。🔴 `BrandDirectoryRoot.tsx` 檔頭記著一個單點風險並照抄自 `BrandPageRoot`:**這支的 CSS import 被刪掉時整頁裸奔而測試全綠** ⇒ `BrandDirectoryRoot.test.tsx` 有一條讀原始碼的守門(本檔必須有 import、其餘 src 必須沒有);動這支 CSS 的檔界前先讀那條。最近改動:`03fd5b74`(h1 三級收斂:`.bd-hero h1` 手機 34→38,形象級)、`5d04bea0`(H2 品牌磚牆:N°06 由 17 家文字清單改 OD 20 家 logo 磚牆)、`b94246e1`(第1批內容頁換色與版寬)。"
+    design:
+      # 🔴 真權威 = Open Design `pcm-home-redesign/brand-directory.html`(骨架 :120-137、組裝 :170-182),
+      #    鐵則 1 例外 = Sean 2026-08-03 拍 Q1=B;位置見
+      #    `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md` 檔頭。
+      #    OD 稿**不在本 repo 磁碟上**(非 submodule 內容)⇒ 這裡不寫 path token,
+      #    避免製造一條永遠驗不到的 broken link(同 MobileInputZoomGuard 的處理)。
+      component: "(無 repo 內對應稿)真權威為 Open Design pcm-home-redesign/brand-directory.html、不在本 repo"
+      css: "(無 repo 內對應稿)同上"
+    related_storefront:
+      - "apps/storefront/src/styles/filter-responsive.css"  # `.brand-*` 磚牆的 <=1079 響應式在那支、不在本頁 CSS
+    open_drifts: []
+
+  ComingSoonPage:
+    storefront:
+      component: "apps/storefront/src/components/ComingSoon.tsx"
+      css: "apps/storefront/src/styles/coming-soon.css"
+      last_modified_commit: "c9b269d0"  # 記可達祖先=#346 補追蹤片的父 commit(#180 案 A)(新增條目、無前錨)
+      last_modified_date: "2026-08-09 [#346 補追蹤,本條目為新建]:「即將上線」頁。歸屬判斷=`coming-soon.css`(`.cs-*` 命名空間)只服務這一支元件,而該元件**同時是三個路由的實作**(`/coming-soon` 整站版 + `/stores` `/install` 站內版,同元件不同 props、不走 query string)⇒ 歸元件不歸路由。🔴 `hasNav` 的語意是「這是站內頁」不是「要不要好看」:`/coming-soon` 刻意**沒有天地**(整站上線前其他頁都還沒上線,擺連結只會 404;交接單驗收 #14 明列這是刻意的),`/stores` `/install` 有 ⇒ 看到沒天地不要當 bug 修。最近改動:`03fd5b74`(h1 三級收斂:`.cs-title` 手機 34→38 形象級;🔴 原本那條 `<=599` 覆寫是**把 base clamp 算出的 38 壓成 34**、不是還沒放大)、`65efcc68`(整頁容器 100vh→100svh,iOS TabBar 白區候選修法、08-09 Sean iPhone 實測轉正)、`42406e93`(第2批新開四條路由)。"
+    design:
+      # 🔴 真權威 = OD `pcm-home-redesign/coming-soon.html` + `coming-soon-handoff.md`(不在本 repo,同上不寫 path token)。
+      component: "(無 repo 內對應稿)真權威為 Open Design pcm-home-redesign/coming-soon.html + coming-soon-handoff.md、不在本 repo"
+      css: "(無 repo 內對應稿)同上"
+    related_storefront:
+      - "apps/storefront/src/app/stores/page.tsx"  # 站內版天地要各頁自己 import(本站殼非 layout 注入)
+      - "apps/storefront/src/app/install/page.tsx"  # 同上
+    open_drifts: []
+
+  MobileResponsiveLayer:
+    storefront:
+      component: "(無單一元件;跨元件的手機響應式覆寫層)apps/storefront/src/app/layout.tsx 全域 import"
+      css: "apps/storefront/src/styles/filter-responsive.css"
+      last_modified_commit: "c9b269d0"  # 記可達祖先=#346 補追蹤片的父 commit(#180 案 A)(新增條目、無前錨)
+      last_modified_date: "2026-08-09 [#346 補追蹤,本條目為新建]:🔴 **歸屬判斷=立獨立條目、不拆歸個別元件**。實查選擇器前綴分佈:`.brand-*` 16 / `.pp-*` 7 / `.ft-*` 7 / `.page-*` 3 / `.cat-*` 2 / `.brands-*` 2 / `.fs-*` 1 —— **六個以上元件家族共用一支檔**,拆歸任何一個都會讓另外五個的響應式無人追蹤;而按元件複製條目又會讓同一支檔出現在六個 `css:` 欄、bump 時漏一個就對不上。獨立條目=改這支檔的人只有一個地方要更新。同形狀前例:`MobileInputZoomGuard`(跨元件樣式防線、`component` 欄寫「無元件」)。⚠️ **它是 h1 片踩到的那個坑的所在地**:`.page-hero-title` 的手機值有三處宣告同時生效(本檔 `<=1079` 一條 + 本檔 `[data-mobile=\"true\"]` 一條 + `pages-shipping.css` 一條),其中 `[data-mobile]` 那條 specificity (0,2,0) **贏過** `@media` 裡的 (0,1,0) 且與順序無關 ⇒ 只改一處會留下另一條 cascade 路徑的舊值,而「某檔裡有這個數字」式的斷言照樣綠。守門見 `apps/storefront/src/styles/h1-scale.test.ts`。最近改動:`03fd5b74`(h1 三級收斂:`.page-hero-title` 兩處 24→26)、`2864e69c`(商品目錄選車 UX 落地)、`799a7330`(移除手機選車死碼 chip)。"
+    design:
+      # 🔴 無對應稿:這支檔是 storefront 的響應式**機制**(#192 A1 viewport @media + UA hint 雙保險),
+      #    design SPA 用的是純 `[data-mobile="true"]` attribute selector —— 機制差異已登記在
+      #    上方 `globalRwdMechanism`,不是 drift。
+      component: "(無對應稿)響應式機制差異見 globalRwdMechanism 條目"
+      css: "(無對應稿)同上"
+    related_storefront:
+      - "apps/storefront/src/styles/filter-top.css"  # #221 拆檔三兄弟之一(.ft-*);import 序 filter-top→cascade→responsive 不可變
+      - "apps/storefront/src/styles/filter-cascade.css"  # 同上(.cft-* / .ac-* / .vsc-*)
+      - "apps/storefront/src/styles/pages-shipping.css"  # .page-hero-title 的第三處宣告在這支,改字級要兩支一起
+      - "apps/storefront/src/styles/h1-scale.test.ts"  # 跨檔守門:h1 手機三級,會抓「只改一處」
+    open_drifts: []
+
   # ---- 其他元件(規範段) ----
 
   # 規範:其他 ~20 個元件條目在後續 slice 觸到才填、避免第一版過大難維護
@@ -1651,7 +1708,9 @@ components:
   #     按 import 序串接 = 原檔逐 byte 等價、concat-diff 證、零 cascade 變化):
   #       · filter-top.css(238)     = .ft-*(篩選頂欄:bar/chips/dropdown/車種category 3 欄 drill/品牌 checkbox grid/價格)
   #       · filter-cascade.css(223) = .cft-*(CascadeFilterTop 車款列)+ .ac-*(已選條件 chips)+ .vsc-*(V-1b VehicleSelect combobox)
-  #       · filter-responsive.css(205) = .pp-mobile-fab/FAB + @media(1079)/[data-mobile] 響應式 + cascade 間距 + .ft-pills active pills
+  #       · filter-responsive.css(155) = @media(1079)/[data-mobile] 響應式 + cascade 間距 + .ft-pills active pills
+  #         🔴 2026-08-09 #346 更正兩處過期字面:①行數 205→**155**(實測 wc -l)②`.pp-mobile-fab/FAB` **已於 ADR-0007 退場**(該檔檔頭自己寫著全樹零 render 端、已刪),留著會讓人以為 FAB 還在。
+  #         ⚠️ 本檔**已於 #346 建立自己的條目 `MobileResponsiveLayer`**(跨六個元件家族、不拆歸個別元件),下面這份候選列表不再是它的登記處。
   #     三檔於 layout.tsx 接在 filter-top→filter-side 之間、維持此序(順序變則 cascade 變);填上述元件條目時據此定位 css 來源
   #   - Price(共用)
   #   - SearchOverlay / StorePickerModal / TierComponents / WalletTab(Phase 2 範圍)
