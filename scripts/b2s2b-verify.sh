@@ -381,8 +381,14 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-[ "$NEWEST_TS" = "20260810100000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260810100000 ——
+# RE-PIN 2026-08-10 (OP2a): 20260810100000 -> 20260810110000 = OP2a A8 guard
+#    (1 trigger fn + 1 BEFORE INSERT OR UPDATE trigger on order_payments; that table is empty and
+#    still fully blocked by its dormant gate). No shipping table/function touched;
+#    grep recompute|order_item_qty|oiqs|shipment on the new migration = 0 hits
+#    => shipping oracles unchanged, no md5 re-measure needed.
+#    Ledger: full re-record done (w7-coverage record all, all green); MD5_HELPER_4AXIS unchanged.
+[ "$NEWEST_TS" = "20260810110000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260810110000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 
