@@ -1,4 +1,7 @@
-// cancel-action-state.ts — M-4b E10 A9d2-2a:訂單取消 action 的回傳 state + 冪等 token。
+// cancel-action-state.ts — 取消線的**結果碼、導頁 query 建構器、冪等 token**。
+//
+// ⚠️ 檔名裡的 "action-state" 是歷史:A9d2-2a 時它裝的是 action 的回傳 state;
+//    **A13b D2a 起 action 回 `Promise<void>` + 導頁**,那族 state 已成死碼、D2b 整族刪除。
 //
 // 🔴🔴 **維持 client-safe**(零 IO、零敏感值;唯一 import 是同目錄的 `isUuid`,也是純函式)
 //    ⇒ **不得**引入 `server-only` 或任何 server 專用模組。
@@ -61,11 +64,14 @@ export function isCancelRequestToken(value: string): boolean {
  * 失敗碼 —— **依「有沒有送到 RPC」分兩組**,不是依嚴重度。
  *
  * 🔴 這個分組就是 plan §2.1 的規則本身:
- * - **沒送到**(`denied` 授權閘 / `invalid` 解析器擋下)⇒ 保留輸入、**換新 token**、表單可編輯。
- *   舊 token 從未送出、沒有冪等價值。
- * - **已送到**(`rejected` / `retry` / `bug` / `error` **四支全部**)⇒ **凍結表單**,
- *   只給「重新整理本單」一條路。理由:①`rejected`/`bug`/`error` 都可能已 commit
- *   (`rejected` 也可能是 hash 不符 = 前一次其實成功了)②就地改值 + 同 token 必撞 hash。
+ * - **沒送到**(`denied` 授權閘 / `invalid` 解析器擋下)⇒ **導頁、不帶 `rt`、不保留輸入**(`E-014-A` Q2=A)。
+ *   ⚠️ D2a 前的字面是「保留輸入、換新 token、表單可編輯」——三句都隨 PRG 換路作廢:
+ *   新 token 改由**下次整頁渲染時表單自己鑄**(D4 硬驗收)。「舊 token 從未送出、沒有冪等價值」這點不變。
+ * - **已送到**(`rejected` / `retry` / `bug` / `error` **四支全部**)⇒ **導頁(D5 之後由帳本核對面板說「寫進去了沒有」;在那之前畫面空白)**。
+ *   ⚠️ D2a 前的字面是「凍結表單、只給重新整理一條路」——那個 UX 閘隨 client state 一起消失了,
+ *   接手的是 D5 的帳本核對(它說得出真話,而凍結旗標攔不住偽造)。
+ *   理由:①**其中幾支可能已 commit**(逐支的精確版在下面 ⚠️ 那段,**不要引用這一行當事實**)
+ *   ②就地改值 + 同 token 必撞 hash。
  *   ⚠️ **精確版**(關卡2 兩輪各修一次;不要把「四支都可能已 commit」當事實寫到別處):
  *   - 真的可能已 commit 的是 `rejected`(可能是 hash 不符 = 前一次其實成功了)、`error`(未知),
  *     以及 🔴 **`bug` 的「payload 形狀不符」那一支**(A9d2-2b 關卡2 R4 補:plan §4.2 表
@@ -74,7 +80,7 @@ export function isCancelRequestToken(value: string): boolean {
  *     本段前一版只列五個 SQL/PostgREST 碼就下「`bug` 不可能已 commit」的結論,**漏了這一支**)。
  *   - 確定沒留半筆的只有:`retry`(`55P03`/`40P01`)與 `bug` 裡的 `P8C01`/`23514`/`22003`
  *     **都會中止該交易**;`bug` 裡的 `PGRST202`(找不到函式)與 `42501`(ACL 被撤)**根本沒進到函式**。
- *   ⇒ 這四支照樣凍結,但理由是**②同 token 撞 hash + 分不出是哪一種**,不是「都可能已 commit」。
+ *   ⇒ 這四支照樣**不讓他就地重送**,但理由是**②同 token 撞 hash + 分不出是哪一種**,不是「都可能已 commit」。
  *
  * 🔴 **陣列是真相、型別從陣列推導**(A13b D1 關卡2 must-fix,推翻我第一版):
  *    第一版是「手寫兩個 union 型別 + 另外手寫兩個 `as const` 陣列 + `satisfies` 對齊」。
@@ -117,7 +123,13 @@ export function toOrderCancelResultCode(code: CancelFailureCode): OrderCancelFai
  *    `?r=…` 忘了帶 `rt`,而它**編譯、測試、lint 全綠** —— 症狀要到員工真的取消完、
  *    D5 面板拿不到 token 才浮出來:**畫面一片空白**(比 D1 之前更差,而且落在錢的那一面)。
  *    拆開之後,「已送到 RPC」與「成功」這兩類**在型別上就要不到不帶 token 的版本**
- *    ⇒ D2 忘記帶 = 編譯期紅,不是靠註解提醒下一個人。
+ *    ⇒ **經由這三支組 URL 時**,忘記帶 = 編譯期紅,不是靠註解提醒下一個人。
+ *
+ * ⚠️ **這道保證的邊界(窄 R3 F1,說清楚免得比實際大)**:它只在「有走這三支」時成立。
+ *    `ORDER_CANCELLED_RESULT_CODE` 與 `toOrderCancelResultCode` 仍是公開匯出
+ *    (banner 要拿它當 computed key、D5 要拿它比對)⇒ 有人手拼 `?r=order_cancelled` 照樣編得過。
+ *    **收掉匯出面不可行**(那兩個消費端是真的需要)⇒ 約束改放在**驗收層**:
+ *    plan §3 的 D4/D5 驗收明列「導頁 URL 只准經這三支建構器組」。
  *
  * 🔴 分法對齊唯一判準「有沒有送到 RPC」:
  *    - `notSentResultQuery` —— 沒送到(RPC 從未被呼叫)⇒ **沒有帳本可查**,不需要也不該帶 token。
@@ -125,7 +137,11 @@ export function toOrderCancelResultCode(code: CancelFailureCode): OrderCancelFai
  *    - `cancelledResultQuery` —— 成功 ⇒ 同樣必填:D5 要分得出「這次成功 / 帳本裡的舊紀錄 / 偽造的網址」。
  *
  * ⚠️ 回傳的是 query 字串本體(不含 `?`),呼叫端自己接在路徑後面。
- *    token 是 uuid(`generateCancelRequestToken`)⇒ 無需 encode;不是 uuid 的東西本來就不該走到這裡。
+ * ⚠️ **`requestToken: string` 沒有形狀約束**(窄 R3 nit F2:`cancelledResultQuery('denied')` 編得過)。
+ *    刻意不在這裡加 runtime 檢查 —— 它會在**錢的失敗路徑上**多開一個新的拋出點。
+ *    形狀由兩側夾住:**進來的那一側**已過解析器的 `isCancelRequestToken`(`cancel-form.ts`);
+ *    **出去的那一側**由 D5 的 classifier **fail-closed**(rt 缺失/非 uuid ⇒ 一律「無法核對」,
+ *    不得當成「沒失敗」把表單開回去,plan §1c)。token 是 uuid ⇒ 無需 encode。
  */
 export function notSentResultQuery(code: CancelNotSentCode): string {
   return `r=${toOrderCancelResultCode(code)}`;
@@ -156,8 +172,9 @@ export function cancelledResultQuery(requestToken: string): string {
  *
  🔴 **A13b D1 起本表被匯出**:`denied` / `invalid` 兩則由 `result-banner.tsx` **逐字沿用**
  *    (PRG 導頁後由 banner 顯示),不在那邊另寫一份 —— 兩份文案遲早會分岔。
- *    ⚠️ 另外四則(`rejected`/`retry`/`bug`/`error`)**目前仍只服務舊的 client state 形狀**;
- *    plan v3.1 §1a 要把它們換成帳本核對面板的動態文案(D5),**在那片落地之前不要說它們已被取代**。
+ *    ⚠️ 另外四則(`rejected`/`retry`/`bug`/`error`)**D2a 之後已經沒有人顯示它們** ——
+ *    action 改成導頁帶 `?r=&rt=`,而那四碼刻意不進 banner、要等 **D5** 的帳本核對面板。
+ *    ⇒ 在 D5 落地之前,那四條路徑員工畫面上是空白的(plan §3 排序原則:D5 之前不接線曝光)。
  */
 const FAILURE_MESSAGES_SOURCE: Record<CancelFailureCode, string> = {
   denied: '沒有權限或登入已失效,取消沒有送出。',
@@ -179,7 +196,11 @@ const FAILURE_MESSAGES_SOURCE: Record<CancelFailureCode, string> = {
 export const FAILURE_MESSAGES: Readonly<Record<CancelFailureCode, string>> =
   Object.freeze(FAILURE_MESSAGES_SOURCE);
 
-/** 失敗時原樣帶回的員工輸入(只有「沒送到 RPC」那組才帶得回)。 */
+/**
+ * ⚰️ **D2a 起是死碼**(隨 `CancelActionState` 那族一起,D2b 刪除)。
+ * 舊行為(歷史):失敗時原樣帶回員工輸入,只有「沒送到 RPC」那組帶得回。
+ * **現況是不帶回、一律重填**(`E-014-A` Q2=A)。
+ */
 export type CancelFormInput = {
   /**
    * 🔴 `'full'` / `'partial'`(關卡2 must-fix 補):少了它,「部分取消但零品項」失敗後
@@ -195,6 +216,10 @@ export type CancelFormInput = {
 };
 
 /**
+ * ⚰️ **D2a 起這一族是死碼**(action 已改成回 `Promise<void>` + 導頁,沒有人再組這些 state)。
+ * **D2b 整族刪除**;在那之前保留只是為了讓 D2a 的 diff 收斂在 action 本身。
+ * ⚠️ 下面整段對「凍結」的描述講的是**已經退場的舊形狀**,不要拿它描述現況。
+ *
  * action 回傳型別(`useActionState` 的 state)。
  *
  * 🔴🔴 **凍結是 UX 層,不是安全邊界**(關卡2 R2 打掉我前一版的整套推理,連續兩處錯):
@@ -244,8 +269,12 @@ export type CancelFormInput = {
  *      ⇒ 片 5/A13b 必須讓凍結畫面**自己**把 `idempotencyKey === requestToken` 的那一列標出來,
  *        不要把比對推遲到重載之後。A13b 配測試釘住「凍結畫面指得出是哪一列」。
  *      🔴 **不是叫員工手抄比對**(手抄是 `A-109-A` 裁示明確否決的 C 案:「把機器該做的事丟給人」);
- *      🔴 **也不要把 token 塞進 URL query**(關卡2 R4:它會進瀏覽器歷史與 Referer;
- *        它不是授權密鑰,但是內部冪等/重放識別碼,沒有必要為了跨重載而外洩一層)。
+ *      🔴🔴 **這條「token 不要塞進 URL query」已被 `E-014-A` Q1=A 推翻,A13b D2a 起 code 正在這樣做。**
+ *      推翻的理由不是「風險不存在」,是**把它講精確了**:原句混用了兩種東西 ——
+ *      **授權性 token 不得進 URL**(原紀律保留);`rt` 是**非授權性一次性識別碼**,可以進,前提三條:
+ *      ①值單獨不可行使(要 `payload_hash` + `actor` 相符才有意義)②看過即清除(canonical 清除出口)
+ *      ③不含業務內容。⚠️ 殘餘的「關聯洩漏」誠實認列(對象是已登入後台使用者)。
+ *      ⇒ 顯示什麼**一律先查帳本**(plan §1c 五分類 fail-closed),URL 只是「要對哪一筆」的線索。
  *      ⚠️ **本條踩在一個未實測的前提上**(關卡2 R5 標記):「server action 失敗回傳的**同一往返**
  *        會重算當前路由的 RSC payload」。本 repo 的備註片已在 production 依賴同一行為
  *        (`note-actions.ts:133-134` 註解大意:不重取的話員工會停在看不到那筆備註的舊畫面)⇒ 前例支持,

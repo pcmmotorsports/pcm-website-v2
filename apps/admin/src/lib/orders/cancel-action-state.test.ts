@@ -23,7 +23,12 @@ const INPUT: CancelFormInput = {
   items: ['33333333-3333-4333-8333-333333333333:2'],
 };
 
-describe('cancel-action-state — A9d2-2a', () => {
+// 🔴🔴 **本 describe 刻意獨立於下面那族死碼**(窄 R3 nit F5):token 產生器與形狀驗證
+//    是**跨形狀活著的機制**(PRG 之後由表單渲染時鑄,仍然要「每次不同、且過得了驗證」),
+//    而下面 `cancelNotSentFailure` / `cancelSentFailure` 那族 D2b 要整塊刪 ——
+//    混在同一個 describe 裡,D2b 一刀切下去會把這三條守門一起帶走而沒有人轉紅。
+//    🔴 D2b 的 must-survive 清單:本 describe 的三條 + 文案兩條 + 碼清單那組。
+describe('cancel-action-state — token 產生器與形狀驗證(跨形狀活著,D2b 不得刪)', () => {
   it('產生器與驗證器同源:產出來的一定過得了驗證', () => {
     const token = generateCancelRequestToken();
     expect(isCancelRequestToken(token)).toBe(true);
@@ -48,6 +53,10 @@ describe('cancel-action-state — A9d2-2a', () => {
     expect(isCancelRequestToken(withLetters.toUpperCase())).toBe(true);
   });
 
+});
+
+// ⚰️ 以下這族測的是 D2a 起已無人呼叫的 state builder,**隨 D2b 一起刪**。
+describe('cancel-action-state — A9d2-2a 舊 state builder(死碼,D2b 刪)', () => {
   // ── §2.1 的執行機制:兩種 failed 形狀 ──
 
   it('沒送到 RPC(denied / invalid)→ 帶回輸入 + 新 token,表單可編輯', () => {
@@ -102,20 +111,22 @@ describe('cancel-action-state — A9d2-2a', () => {
       retry: '系統忙碌,這次沒完成。請重新整理本單確認後再送一次。',
       error: '取消可能已經寫進去了。請重新整理本單確認之後再決定要不要重送。',
     };
+    // 🔴 **直接讀 `FAILURE_MESSAGES`,不透過 builder**(窄 R3 must-fix F4):
+    //    原本是呼叫 `cancelNotSentFailure` / `cancelSentFailure` 取 `message` ——
+    //    那兩支 D2b 就要整族刪掉,屆時本條編譯紅,而**最省力的處理就是把本條一起刪**;
+    //    B 類四碼的文案**全樹只有這裡釘死**(banner 只收 A 類)⇒ 一刪就沒人守。
+    //    改讀常數之後,D2b **刪不到它**。
     for (const code of Object.keys(expected) as CancelFailureCode[]) {
-      const actual =
-        code === 'denied' || code === 'invalid'
-          ? cancelNotSentFailure(code, INPUT).message
-          : cancelSentFailure(code, INPUT, '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b').message;
-      expect(actual, `${code} 的文案`).toBe(expected[code]);
+      expect(FAILURE_MESSAGES[code], `${code} 的文案`).toBe(expected[code]);
     }
   });
 
   // 🔴 plan §4.2:取消帳本 append-only ⇒ 已送達那四支一律叫他「重新整理確認」,
   //    不得出現「稍後再試」這種誘導重按的字。
+  // 🔴 同 F4:改讀常數 + 改吃 `CANCEL_SENT_CODES`(碼清單少一顆時本條跟著少測會被窮舉那條抓到)。
   it('🔴 已送達的四支訊息都叫他重新整理、且都沒有「稍後再試」', () => {
-    for (const code of ['rejected', 'retry', 'bug', 'error'] as const) {
-      const { message } = cancelSentFailure(code, INPUT, '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b');
+    for (const code of CANCEL_SENT_CODES) {
+      const message = FAILURE_MESSAGES[code];
       expect(message, `${code} 應叫員工重新整理`).toContain('重新整理');
       expect(message, `${code} 不得誘導重按`).not.toContain('稍後再試');
     }
@@ -147,7 +158,7 @@ describe('cancel-action-state — A13b D1 的碼清單與 namespaced 結果碼',
   });
 
   // 🔴 兩組**互斥**:同一顆碼不能既算「沒送到」又算「已送到」——
-  //    那個分組就是「要不要凍結 / 要不要查帳本」的判準本身(見來源檔 `cancel-action-state.ts` 的失敗碼 docstring)。
+  //    那個分組就是「導頁要不要帶 `rt` / 要不要查帳本」的判準本身(見來源檔 `cancel-action-state.ts` 的失敗碼 docstring)。
   //    ⚠️ 本條就是關卡2 抓到的那個洞的守門:實測把 `invalid` 加進 `CANCEL_SENT_CODES` ⇒ 本條與上一條同時紅。
   it('兩組零交集', () => {
     const overlap = CANCEL_NOT_SENT_CODES.filter((c) =>
