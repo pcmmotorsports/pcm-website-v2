@@ -111,10 +111,24 @@ done
   || die "UPSTREAM_MISSING: W2 冪等層 / shipment_items / 摘要表 有缺"
 
 echo "══ 0. DDL 語法(被測物 = migration 實檔) ══════════════════"
-OUT="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -f "$W3BMIG" 2>&1)"
+# 🔴 R2 F7:補 -v ON_ERROR_STOP=1,與前綴重放那圈一致 —— 否則中段失敗後續語句照跑,
+#    「跑起來了」的觀察會建立在一個半套的狀態上。
+OUT="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -v ON_ERROR_STOP=1 -f "$W3BMIG" 2>&1)"
 case "$OUT" in
   *ERROR*) bad DDL-SYNTAX "migration 跑不起來:$OUT"; exit 1 ;;   # 🔴 收尾交給 trap teardown(原本這裡是無條件 rm -rf = fail-open)
-  *) ok DDL-SYNTAX "migration 實檔在 PG $(Q "SHOW server_version") 實跑成功" ;;
+  # 🔴 W7 跟片② R1 nit(同族):原本「輸出裡沒有 ERROR」就判 PASS —— psql **用戶端層**失敗印的是
+  #    小寫 `psql: error:`(不匹配 `*ERROR*`)、`$OUT` 全空也走這裡 ⇒ 又是「沒有壞消息 = 成功」。
+  #    加一句正向斷言。🔴 **第一版寫成 `to_regprocedure(...) IS NOT NULL` 是恆真的** ——
+  #    `admin_add_shipment_items` 在 W1(`…150000…`)與 W2(`…160000…`)就已建好、兩片都在重放前綴裡,
+  #    被測物只是 CREATE OR REPLACE ⇒ 「函式存在」對「被測物有沒有套上」零判別力。
+  #    (拿空白假被測物實跑證過:該斷言照樣綠。這一發是突變抓到的,不是想出來的。)
+  #    ⇒ 改錨在**只有被測物版本才有**的函式體字面 `pcm_b2_w3b2_items_shape`(前綴內僅 :180000 命中)。
+  *) DDLBODY="$(Q "SELECT (pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.admin_add_shipment_items(text,uuid,jsonb)'::regprocedure), 'pcm_b2_w3b2_items_shape') > 0)::text")"   # 🔴 R2 F3:原本尾巴掛 2>/dev/null 是死碼(Q() 已 2>&1),留著會讓人誤以為錯誤被吞、這格 fail-open
+     if [ "$DDLBODY" = "true" ]; then
+       ok DDL-SYNTAX "migration 實檔在 PG $(Q "SHOW server_version") 實跑成功,且**線上函式體是被測物那一版**(錨 pcm_b2_w3b2_items_shape;不只是「沒看到 ERROR」、也不只是「函式存在」)"
+     else
+       bad DDL-SYNTAX "🔴 輸出裡沒有 ERROR,但線上函式體不是被測物那一版(錨查得 [$DDLBODY])⇒ migration 沒真的套上去(psql 用戶端層失敗印小寫 psql: error:,`*ERROR*` 抓不到)"; exit 1
+     fi ;;
 esac
 
 # ── fixture:客人 → 訂單 → 兩個品項 → 到貨(讓 instock > 0)→ 包裹 ──
@@ -200,11 +214,34 @@ C="$(cap "public.admin_add_shipment_items('m1','$SHIP','[{\"order_item_id\":\"$U
 [ "$C" = "P2B26|pcm_b2_w3b2_items_duplicate" ] \
   && ok W3B2-DUP-CASE "🔴 同一個 uuid 用**大小寫兩種寫法**送兩筆 ⇒ 仍被重複守門擋(首版用原始文字分組會穿過去、撞 raw 23505)✓" \
   || bad W3B2-DUP-CASE "實得 [$C] ⇒ 大小寫繞得過重複守門"
-C="$(cap "public.admin_add_shipment_items('m2','$SHIP','[{\"order_item_id\":\"$OI3\",\"quantity\":1.0}]'::jsonb)")"
+# 🔴🔴 W7 跟片②(2026-08-09,B-298-Q ②):本格原本**一次都沒真的呼叫過 RPC**,兩個缺陷疊在一起:
+#    ① 它引用 `$OI3`,而 OI3 到下方 `W3B2-BOUNDARY` 那格才宣告 ⇒ 本檔 `set -u` 在 `cap` 的
+#       **command substitution 子 shell** 裡炸掉;父腳本活著、`$C` 拿到**空字串**。
+#    ② 而空字串當時與「放行」共用 PASS 分支 ⇒ harness 把自己的崩潰翻譯成 `PASS …(實得 [放行])`。
+#    修法兩件,少一件都還是空轉:
+#    ① 用**本格自己的乾淨品項** OI6(不借用 OI3 —— 借了會吃掉下方邊界格的可出量,
+#       那格的可出量正是它要量的東西),且宣告就在使用之前。
+#    ② `cap` 回空字串**不得單獨判 PASS**:空字串在本檔有兩個來源(真的沒例外 / cap 自己死掉),
+#       要配**寫入效果斷言**才分得開(同 F5 對 `W3B2-BOUNDARY` 的處置、檔頭 :15-17 記過的坑)。
+OI6='bbbbbbbb-0000-0000-0000-000000000006'
+Q "INSERT INTO public.order_items(id,order_id,variant_sku,product_snapshot,quantity,unit_price,line_total) VALUES('$OI6','$ORD','SKU-6','$PSNAP'::jsonb,10,10,100)" >/dev/null
+mkstock "$OI6" 5
+C="$(cap "public.admin_add_shipment_items('m2','$SHIP','[{\"order_item_id\":\"$OI6\",\"quantity\":1.0}]'::jsonb)")"
+WN="$(Q "SELECT coalesce(pg_catalog.string_agg(shipped_quantity::text,','),'(無)') FROM public.shipment_items WHERE shipment_id='$SHIP' AND order_item_id='$OI6'")"
 case "$C" in
   22P02*) bad W3B2-QTY-SCALE "🔴 實得 raw 22P02 ⇒ 1.0 仍在下游 cast 裸炸" ;;
-  ""|P2B2*) ok W3B2-QTY-SCALE "🔴 quantity 送 1.0(jsonb 保留 scale)不再在 ::int 裸炸(實得 [${C:-放行}])✓" ;;
-  *) bad W3B2-QTY-SCALE "實得 [$C]" ;;
+  "")     [ "$WN" = "1" ] \
+            && ok W3B2-QTY-SCALE "🔴 quantity 送 1.0(jsonb 保留 scale)不在 ::int 裸炸,**且真的寫進 shipped_quantity=1** ⇒ 空字串配寫入效果才採信 ✓" \
+            || bad W3B2-QTY-SCALE "🔴 cap 回空字串但 shipment_items 沒有這筆(實際寫入=[$WN])⇒ 這是 harness 空轉,不是放行" ;;
+  # 🔴 R1(code-reviewer)must-fix:原本這裡有一條 `P2B2*) ok`(「被人話擋下也算沒裸炸」)——
+  #    **那是新的假綠面**。判準:本格 fixture 下(qty=1、形狀閘明文接受 1.0、OI6 為本格自建且
+  #    可出 5、pending 0、冪等鍵 `m2` 全檔唯一)**唯一的合法結果就是 `C="" ∧ WN=1`**;
+  #    任何 P2B2x 都是回歸 ⇒ 讓它落到下面的 `*) bad`。
+  # 🔴 R2 更正一句我原本寫錯的理由:**不是**「所有 P2B2x 都 raise 在 cast 之前」——
+  #    P2B27(被測物 :254)與 P2B26 rowcount(:272)在 cast(:236)**之後**,
+  #    P2B27 甚至是從**含該 cast 的同一個 CTE** 算出來的。所以刪這條分支的理由是
+  #    「本格構造不出合法的 P2B2x」,不是「P2B2x 蘊含 cast 沒走到」。後者是假的,別引用。
+  *) bad W3B2-QTY-SCALE "實得 [$C](本格唯一合法結果是「無例外 + 寫入 1」;P2B2x 代表擋在 cast 之前 ⇒ 這格量不到它要量的東西)" ;;
 esac
 
 echo "══ 3. 包裹狀態 + 品項歸屬的人話前緣 ═══════════════════════"
@@ -270,9 +307,17 @@ case "$MSGP" in
   *) bad W3B2-PENDING-MESSAGE "訊息沒說明 pending 去向:[$MSGP]" ;;
 esac
 # 🔴 N2(Fable):已作廢 / 已寄出兩條人話分支原本零格
-Q "UPDATE public.shipments SET deleted_at = now(), void_reason = 'test' WHERE id='$SHIPB'" >/dev/null
-C="$(cap "public.admin_add_shipment_items('vd-1','$SHIPB','[{\"order_item_id\":\"$OI5\",\"quantity\":1}]'::jsonb)")"
-[ "$C" = "P2B26|pcm_b2_w3b2_shipment_voided" ] && ok W3B2-SHIP-VOIDED "已作廢的包裹不能再加品項 ⇒ 人話 ✓" || bad W3B2-SHIP-VOIDED "[$C]"
+# 🔴 R2 F4:這道 setup 原本 `>/dev/null`(而 Q() 已 2>&1 ⇒ 連錯誤一起丟)且**沒有前置自證** ——
+#    緊鄰的「已寄出」那格為了同一個坑補過,這邊只補了一半。欄位改名時本格會紅在 `[]`,
+#    讀起來像「守門沒擋」,其實是「我的 setup 壞了」(判準第三句)。
+UPDV="$(QM "UPDATE public.shipments SET deleted_at = now(), void_reason = 'test' WHERE id='$SHIPB'" | tr '\n' ' ')"
+VOIDED="$(Q "SELECT (deleted_at IS NOT NULL)::text FROM public.shipments WHERE id='$SHIPB'")"
+if [ "$VOIDED" != "true" ]; then
+  bad W3B2-SHIP-VOIDED "🔴 本格的**前置**沒成立(包裹沒被設成已作廢:$UPDV)⇒ 這不是守門的結論"
+else
+  C="$(cap "public.admin_add_shipment_items('vd-1','$SHIPB','[{\"order_item_id\":\"$OI5\",\"quantity\":1}]'::jsonb)")"
+  [ "$C" = "P2B26|pcm_b2_w3b2_shipment_voided" ] && ok W3B2-SHIP-VOIDED "已作廢的包裹不能再加品項 ⇒ 人話 ✓" || bad W3B2-SHIP-VOIDED "[$C]"
+fi
 # 🔴 setup **不得靜默失敗**:首跑這裡 `>/dev/null` 吃掉了 UPDATE 的錯,結果本格紅在 23505(撞唯一鍵)
 #    而不是「已寄出」——那是「我的 setup 壞了」被讀成「守門沒擋」(判準第三句)。⇒ 前置自證。
 UPD="$(QM "UPDATE public.shipments SET shipped_at = now(), tracking_number='T-A' WHERE id='$SHIPA'" | tr '\n' ' ')"
@@ -292,9 +337,15 @@ SHIP5="$(Q "SELECT ('$(Q "SELECT public.admin_create_shipment('mk5','$CUST','$SN
 #    首跑用 99 時先撞到同族的 `oiqs_cancelled_shipped_le_quantity`(cancelled+shipped ≤ quantity),
 #    那不是本格要證的那一條 —— 一根因多症狀 ≠ 多證據,靶要對準。
 C="$(capstmt "INSERT INTO public.shipment_items(shipment_id,order_item_id,shipped_quantity) VALUES('$SHIP5','$OI1',7)")"
-[ -z "$C" ] \
-  && ok W3B2-M3-NO-C9-AT-ADD "🔴 **繞過 RPC 直寫 7 件(超過可出的 5 件)零錯誤進得去** ⇒ 重算 trigger 不掛 shipment_items、掛品項當下 C9 不發火 ⇒ 本片的前緣是唯一擋這件事的東西(檔頭那句已據此更正)" \
-  || bad W3B2-M3-NO-C9-AT-ADD "實得 [$C] ⇒ 掛品項當下就有守門,檔頭的更正要重寫"
+# 🔴 W7 跟片②:本格與 QTY-SCALE 同族 —— 原本只有 `[ -z "$C" ]`,而空字串在本檔有兩個來源
+#    (真的沒例外 / capstmt 自己死掉)⇒ 「零錯誤進得去」的**「進得去」那半句從來沒被觀察過**。
+#    加寫入效果斷言把兩個來源分開;這也讓本格對「W3-3 落地後這裡改成被擋」真的有判別力。
+M3N="$(Q "SELECT pg_catalog.count(*)::text FROM public.shipment_items WHERE shipment_id='$SHIP5' AND order_item_id='$OI1' AND shipped_quantity=7")"
+case "$C:$M3N" in
+  :1) ok W3B2-M3-NO-C9-AT-ADD "🔴 **繞過 RPC 直寫 7 件(超過可出的 5 件)零錯誤進得去、且列真的在** ⇒ 重算 trigger 不掛 shipment_items、掛品項當下 C9 不發火 ⇒ 本片的前緣是唯一擋這件事的東西(檔頭那句已據此更正)" ;;
+  :*) bad W3B2-M3-NO-C9-AT-ADD "🔴 capstmt 沒回錯但那一列不在(實得 $M3N 列)⇒ 空轉,不是「進得去」" ;;
+  *)  bad W3B2-M3-NO-C9-AT-ADD "實得 [$C] ⇒ 掛品項當下就有守門,檔頭的更正要重寫" ;;
+esac
 # 🔴 出貨還有一道 `shipments_shipped_needs_tracking`(設 shipped_at 必須同時有單號)——
 #    首跑就是紅在它、而不是 C9 ⇒ 那不是本格要的結論(判準第三句)。⇒ 一併給單號,讓 C9 成為唯一可紅的那道。
 C="$(capstmt "UPDATE public.shipments SET shipped_at = now(), tracking_number = 'TRACK-1' WHERE id='$SHIP5'")"
@@ -313,6 +364,11 @@ echo "══ 6. 🔴 突變靶 ════════════════�
 Q "CREATE OR REPLACE FUNCTION public.admin_add_shipment_items(p_idempotency_key text, p_shipment_id uuid, p_items jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$m\$ BEGIN INSERT INTO public.shipment_items(shipment_id,order_item_id,shipped_quantity) SELECT p_shipment_id,(e.value->>'order_item_id')::uuid,(e.value->>'quantity')::int FROM pg_catalog.jsonb_array_elements(p_items) e ORDER BY 2; RETURN '{}'::jsonb; END \$m\$" >/dev/null
 # 🔴 R2-F-C4:原本沒排除**已作廢**的箱、也沒 ORDER BY ⇒ 若 heap 序改變選中作廢箱,
 #    mutant 的 INSERT 會被 S1b 的 parent guard 擋 ⇒ 本格**誤紅**(靠插入序碰巧穩定)。
+# 🔴 R2 F5:突變體**換上去了沒有**要自證 —— 這是 DDL-SYNTAX 剛修掉的同一族
+#    (「我以為它換上去了」)。若 CREATE OR REPLACE 失敗,原函式仍在 ⇒ M=P2B27、MN=0 ⇒
+#    本格紅在「那族守的不是這段」= 把「我的突變沒套上」講成「守門歸屬錯」。
+MUTON="$(Q "SELECT (pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.admin_add_shipment_items(text,uuid,jsonb)'::regprocedure), 'pcm_b2_w3b2_items_shape') = 0)::text")"
+[ "$MUTON" = "true" ] || die "MUTANT_NOT_APPLIED(TMUT-FRONTEDGE):突變體沒換上去(錨查得 [$MUTON])⇒ 本格的結論不成立,停"
 SHIP6="$(Q "SELECT id::text FROM public.shipments WHERE customer_user_id='$CUST' AND shipped_at IS NULL AND deleted_at IS NULL AND id NOT IN (SELECT DISTINCT shipment_id FROM public.shipment_items) ORDER BY created_at, id LIMIT 1")"
 if [ -z "$SHIP6" ]; then
   bad TMUT-FRONTEDGE "🔴 本格的**前置**沒成立(找不到空包裹可用)⇒ 不是守門的結論"
