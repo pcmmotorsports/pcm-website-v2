@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 19:3x 🏁 完整化範圍三板+建單六題全拍+P 窗換代收線+E 之 A13a 收割。** ①**範圍拍板**:Q1=A 員工日常全閉環(認證/稽核/月報另線)、Q2=**B 商品線完整版**(新增+媒體庫+Excel 匯入入後台)、Q3=A;**建單六題全拍**(Q4-Q9=A,B,A,A,A,A;master-plan §8.6 銷案,手動建單開批閘解除)。剩兩包待問:通知矩陣+退款兩題(隨總 plan 附推薦)。②**P 窗關窗換代**(P-254-A CLOSE):L4 未動一行、交接包在 P-252-STOP §3(🔴 live begin_charge_attempt=A8c1 `20260804120000`、md5=`f621a56…`、識別碼 server-only 守門);三顆收割(plan v2 全修訂+**隔離庫身分閘**——P 實錘 54329 跨窗撞庫、差點污染金流釘值,port 探測+data_directory 驗證已入共用腳本,runbook 新增坑 11+門鈴位址檔雙向機制)。③**E 之 A13a 收割**(`dbfb2b09`):server component 零 use client、11 碼文案 Record 守門+豁免制測試;E 裁 A 接 A13b-1(高風險不降級);取消線剩 3 片。④root 409 檔 6193 綠;dev=main 同步 `6bc3b668`。⑤主視窗兩連誤投 E 窗記過⇒位址檔機制入 runbook。
+**Sean 待動作**:開新 P 窗(提示詞已給)。
+
 🗂️ **2026-08-09 18:4x 🏁 Sean 拍板策略轉向:訂單後台先建完整再總測試(停逐片測試迴圈)+四板落檔+空箱清零。** ①**轉向拍板**(memory `project_m4b-order-admin-complete-then-test`):完整化清單=#347 搜尋→#350 佈局分割視窗(含 #348 客人面板+Q1=A 商品卡)→#351 出貨文案/口徑/空箱可見→#352 現貨補記到貨(Q2=A)→取消線 A13;完成後給 Sean「功能地圖+日常操作流程」總驗收;視覺=Claude Design 出 demo。期間不再請 Sean 逐片重測。②**當晚拍板**:Q1=A(商品卡=凍結資料+現行圖+開賣場頁鈕)/Q2=A/Q3=A。③**42501 修後 Sean 重按=權限過了、被到貨守恆規則正確擋下**(可出=已到貨−已出貨−已裝箱,該單無到貨紀錄);彈窗「還能出」與 DB 口徑不一致+空箱不可見=兩個真缺口入 #351。④**空箱 NXYNTB 已作廢**(admin_void_shipment 正規管道、可復原;正式站未出貨箱=0;Sean 以為多建一顆=冪等機制擋下沒發生)。⑤B 之 8→6 註解更正收割(數 CREATE 不問 catalog 的教訓入 B memory);E 片 6 收割(`7af238be`,408 檔 6171 綠)。
 **Sean 待動作**:無(等完整版通知,期間不用測)。
 
