@@ -314,7 +314,7 @@
 @media (max-width: 1079px) {
   .cart-main { padding: 24px 16px 40px; }
   .cart-head { flex-direction: column; align-items: flex-start; gap: 8px; }
-  .cart-head h1 { font-size: 28px; }
+  .cart-head h1 { font-size: 22px; }  /* 08-09 H1=A 工具級 */
   .cart-layout { grid-template-columns: 1fr; gap: 24px; }
   .cart-item { grid-template-columns: 80px 1fr; gap: 12px; }
   .cart-item-price {
@@ -334,7 +334,7 @@
 /* [既有] [data-mobile="true"] 兜底(dev-preview 強制模式 / SSR UA hint) */
 [data-mobile="true"] .cart-main { padding: 24px 16px 40px; }
 [data-mobile="true"] .cart-head { flex-direction: column; align-items: flex-start; gap: 8px; }
-[data-mobile="true"] .cart-head h1 { font-size: 28px; }
+[data-mobile="true"] .cart-head h1 { font-size: 22px; }  /* 08-09 H1=A 工具級;specificity 高於上條 */
 [data-mobile="true"] .cart-layout { grid-template-columns: 1fr; gap: 24px; }
 [data-mobile="true"] .cart-item { grid-template-columns: 80px 1fr; gap: 12px; }
 [data-mobile="true"] .cart-item-price {

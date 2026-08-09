@@ -251,7 +251,11 @@ describe('第2批 · /logout(建好了但刻意沒接線)', () => {
     // 照設計稿字面搬,手機上的內距與標題字級會被靜默蓋掉。
     expect(AUTH, '平板段的 .lo-card 沒提權').toMatch(/\.auth-card\.lo-card\s*\{\s*padding:\s*44px/);
     expect(AUTH, '手機段的 .lo-card 沒提權').toMatch(/\.auth-card\.lo-card\s*\{\s*padding:\s*32px/);
-    expect(AUTH, '手機段的標題字級沒提權').toMatch(/\.auth-card\.lo-card h1\s*\{\s*font-size:\s*24px/);
+    // 🔴 2026-08-09 H1=A:字級 24→22(工具級)。本條守的是**提權這件事**(測試名就這麼寫),
+    //    字級的「值」現在由 `h1-scale.test.ts` 的三級守門擁有 —— 兩邊都釘同一個數字 =
+    //    改一次拍板要改兩處、而且漏改哪一處都只有一半會紅。這裡放寬成「有提權 + 有宣告字級」,
+    //    值多少交給那支專責的。
+    expect(AUTH, '手機段的標題字級沒提權').toMatch(/\.auth-card\.lo-card h1\s*\{\s*font-size:\s*\d+px/);
   });
 
   it('🔴 前提 — 那組 [data-mobile] 兜底還在(它沒了,上面的提權就是多餘的複雜度)', () => {

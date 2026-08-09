@@ -43,7 +43,10 @@
 }
 .co-head h1 {
   font-size: 36px;
-  font-weight: 700;
+  /* 08-09 H3=A 工具級字重收斂 700→600:會員中心/購物車/登入族本來就是 600,
+     結帳與結帳完成是僅有的兩個 700 落單者。標題在工具頁是「你在哪一步」的路標、不是主張。
+     🔴 改的是 base(全寬生效)、不是手機帶 —— 字重不隨斷點變,與本片只收斂手機字級不同。 */
+  font-weight: 600;
   letter-spacing: -0.015em;
   margin: 6px 0 0;
 }
@@ -451,7 +454,8 @@
   text-transform: uppercase;
 }
 .co-success-title {
-  font-size: 28px; font-weight: 700; letter-spacing: -0.01em;
+  /* 08-09 H3=A 工具級字重收斂 700→600(理由同 .co-head h1);字級的手機值見下方 ≤900 帶 */
+  font-size: 28px; font-weight: 600; letter-spacing: -0.01em;
   margin: 12px 0 0;
 }
 .co-success-note { font-size: 14px; color: var(--c-text-2); margin: 10px 0 0; line-height: 1.7; }
@@ -654,7 +658,9 @@ html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
   .co-aside { position: static; }
   .co-main { padding: 16px 20px 120px; }
   .co-head { flex-direction: column; align-items: flex-start; gap: 8px; }
-  .co-head h1 { font-size: 28px; }
+  .co-head h1 { font-size: 22px; }
+  /* 08-09 H1=A 工具級。結帳完成頁的標題 base 沒有任何手機宣告(28px 一路吃到 390)⇒ 本片新增。 */
+  .co-success-title { font-size: 22px; }
   .co-steps { grid-template-columns: 1fr 1fr; } /* U1 兩步;與 base 的 .co-steps 同步 */
   .co-step { padding: 14px 12px; gap: 8px; }
   .co-step-label { font-size: 12px; }

@@ -30,7 +30,7 @@
   .page-product-grid,
   .brand-detail-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
   .page-hero-inner { padding: 0 14px; }
-  .page-hero-title { font-size: 24px; }
+  .page-hero-title { font-size: 26px; }  /* 08-09 H1=A 一般級 */
   .brand-hero-logo { font-size: 40px; }
   .brand-hero-logo-img { max-width: 240px; max-height: 80px; }
   .brand-hero-inner { padding: 0 14px; }
@@ -95,7 +95,7 @@
 [data-mobile="true"] .page-product-grid,
 [data-mobile="true"] .brand-detail-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
 [data-mobile="true"] .page-hero-inner { padding: 0 14px; }
-[data-mobile="true"] .page-hero-title { font-size: 24px; }
+[data-mobile="true"] .page-hero-title { font-size: 26px; }  /* 08-09 H1=A 一般級;此條 specificity (0,2,0) 高於上面那條,漏改會走這條回舊值 */
 [data-mobile="true"] .brand-hero-logo { font-size: 40px; }
 [data-mobile="true"] .brand-hero-logo-img { max-width: 240px; max-height: 80px; }
 [data-mobile="true"] .brand-hero-inner { padding: 0 14px; }
