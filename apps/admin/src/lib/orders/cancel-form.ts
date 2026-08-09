@@ -16,7 +16,8 @@
 //    一個那三碼位」的說明都會穿過這層**(關卡2 nit 更正:不只「純由那三個字組成」——
 //    31 個既有碼位與那三個混在一起的字串同樣穿得過)、到 RPC 才被擋。維持與 `note-form.ts:95-96` 同一取捨(單一真相在 RPC、
 //    這層不養第二份碼位清單),但要寫下代價差異:備註片那條路只是「改一改再送」,
-//    取消片會走到 `rejected` ⇒ **表單凍結**、員工連改都不能改,只能重新整理重來。
+//    取消片會走到 `rejected` ⇒ **導頁(D5 之後由帳本核對面板說「寫進去了沒有」;在那之前畫面空白)**,
+//    而且 `E-014-A` Q2=A 之下員工的輸入不保留、要整份重填。(D2a 前的字面是「表單凍結」,已隨 PRG 換路作廢。)
 //    ⇒ A13b 的說明欄建議加一道 client 端提示(「說明看起來是空的」),不要靠這層。
 //
 // 🔴 **為什麼形狀還是要在這裡擋一次**(不是重工):RPC 的輸入類 RAISE 與業務拒絕**同為 `P0001`**
@@ -72,7 +73,7 @@ export type CancelMode = (typeof CANCEL_MODES)[number];
  *
  * 🔴🔴 **為什麼不用 camelCase 再配一支 mapper**(關卡2 兩輪各抓一次同一個洞):
  * `p_items` 的生成型別是 `Json` —— 送錯鍵名**不會型別報錯**,RPC 才會 RAISE
- * 「品項元素需恰含 order_item_id 與 quantity」⇒ `rejected` ⇒ **表單凍結**。
+ * 「品項元素需恰含 order_item_id 與 quantity」⇒ `rejected` ⇒ **導頁(D5 之後由帳本核對面板說「寫進去了沒有」;在那之前畫面空白)**。
  * 第一版加了 `toCancelItemsWire()` 想補這個洞,但 R2 指出它是 **opt-in** ——
  * 片 5 大可不呼叫、直接把 camelCase 丟給 `Json` 參數,而 mapper 的測試抓不到。
  * ⇒ 最省的解法不是多一層,是**根本不存在另一種形狀**:解析器只吐這一種,
@@ -125,7 +126,7 @@ function parseItemEntry(raw: string): CancelItemInput | null {
   const quantity = Number(quantityRaw);
   // 🔴 上界擋的是 **int4 的型別邊界**,不是業務值域(關卡2 must-fix 推翻我原本「刻意不鏡像」的判斷):
   //    實測 `2147483648` 原本回 `ok:true`,到 RPC 才在 `:172-175` RAISE ⇒ 走到 `rejected`
-  //    ⇒ **表單被凍結**、員工連改都不能改。`cancelled_quantity` 是 int4 欄
+  //    ⇒ **導頁(D5 之後由帳本核對面板說「寫進去了沒有」;在那之前畫面空白)**、且輸入不保留要重填。`cancelled_quantity` 是 int4 欄
   //    (`20260730130000:223`),送得進去的值本來就不可能超過它 —— 這是形狀不是規則。
   //    ⚠️ 真正的業務上限(可取消量)仍**不在這層**,那是 A13b 依 quantitySummary 算。
   if (quantity < 1 || quantity > INT4_MAX || !Number.isSafeInteger(quantity)) return null;
@@ -133,7 +134,7 @@ function parseItemEntry(raw: string): CancelItemInput | null {
 }
 
 /**
- * 解析取消表單。任一欄形狀不合 → `{ ok: false }`(呼叫端回 `invalid` state)。
+ * 解析取消表單。任一欄形狀不合 → `{ ok: false }`(呼叫端導頁帶 `order_cancel_invalid`)。
  *
  * 🔴 誠實邊界:回傳只有單一 `ok: false`,**缺欄 / 形狀錯 / 品項重複在 UI 上分不出來**
  *    (同 `note-form.ts:76-77` 的已知取捨);要分得出來得先擴回傳型別,本片不做。
@@ -193,7 +194,7 @@ export function parseOrderCancelForm(form: CancelFormLike): CancelParse {
     // 🔴 重複品項 RPC 會 RAISE(`:176-180`)⇒ 這層先擋,免得員工看到誤導的「不能取消」。
     // 🔴 **比對前先轉小寫**(R1 must-fix):`isUuid` 是 `/i`、RPC 去重用 `(el->>'order_item_id')::uuid`
     //    (大小寫不敏感)⇒ 同一顆 uuid 一大寫一小寫會過得了這層、到 RPC 才被 RAISE,
-    //    而那條路的終點是「表單被凍結」,員工連改都不能改。
+    //    而那條路的終點是「導頁(D5 之後由帳本核對面板說「寫進去了沒有」;在那之前畫面空白)、輸入不保留」。
     const dedupKey = parsed.order_item_id.toLowerCase();
     if (seen.has(dedupKey)) return { ok: false };
     seen.add(dedupKey);

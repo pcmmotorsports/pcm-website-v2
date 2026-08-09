@@ -208,7 +208,7 @@ describe('parseOrderCancelForm — A9d2-2a 純解析器', () => {
   });
 
   // 🔴 R1 must-fix:isUuid 是 /i、RPC 去重用 ::uuid(大小寫不敏感)⇒ 同一顆 uuid
-  //    一大寫一小寫原本過得了這層,到 RPC 才 RAISE、而那條路的終點是表單被凍結。
+  //    一大寫一小寫原本過得了這層,到 RPC 才 RAISE、而那條路的終點是導頁、輸入不保留(D5 前畫面上還沒有訊息)。
   it('🔴 同一顆 uuid 大小寫不同 → 仍算重複、擋下', () => {
     expect(
       parseOrderCancelForm(
@@ -229,7 +229,7 @@ describe('parseOrderCancelForm — A9d2-2a 純解析器', () => {
     }
   });
 
-  // 🔴 關卡2 must-fix(實測):`2147483648` 原本回 ok:true,到 RPC 才 RAISE ⇒ 表單凍結。
+  // 🔴 關卡2 must-fix(實測):`2147483648` 原本回 ok:true,到 RPC 才 RAISE ⇒ 導頁、輸入不保留。
   //    上界是 int4 欄位型別邊界(`20260730130000:223`),不是業務值域。
   it('🔴 數量超過 int4 上界 → 擋下;恰等於上界 → 收', () => {
     const partial = { [CANCEL_MODE_FIELD]: 'partial' };
