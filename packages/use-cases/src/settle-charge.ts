@@ -374,6 +374,27 @@ type RecordVerdict =
  * record_status ∈ {0 AUTH, 1 OK} 即成立 → paid_candidate,**不再要求 is_captured**(請款由收單行自動批次、
  * 網站不做 capture)。`0 AUTH=授權成功未請款` ≠ `4 PENDING=待付款(尚未授權)`;故只放 0/1、4 維持 pending。
  * is_captured 欄位仍 parse/型別保留(未來精準帳務 authorized/captured 兩段),裁決不再讀。
+ *
+ * ---
+ * 🔴 **`explicit_failed`(-1 / 5)背後那句假設的實測狀態**(2026-08-10 L4 probe;主視窗 P-275-A 裁 B 要求銘刻)
+ *
+ * 這一格判 `explicit_failed` 會讓上游 `markFailed` 釋鎖、放行重刷,靠的是這句話:
+ * 「Record 落 -1/5 之後,那張交易的舊 3DS `payment_url` 送出 OTP **必定失敗**。」
+ * 兩個值的證據強度**不對等**,不得混為一談:
+ *
+ * - **`5 CANCEL` = sandbox 實測成立**。交易 `D20260809yRE3lo`:按取消 → Record 立刻 `5`;
+ *   重開同一 payment_url 彈回 `status=924`;**繞過頁面**直 POST `otp-validate` 也打不動,
+ *   Record 停 `5`、`amount` 未動。判別力來自**正向對照** `D20260809AgULsD`:同一支 headless POST
+ *   打一筆**不取消**的,Record `4 → 0 AUTH`(`auth_code=500436`)⇒ 失敗可歸因於取消本身、非手法不通。
+ * - **`-1 ERROR` = 🔴 未確認**。sandbox **構造不出**該態(非「還沒試」):OTP 連錯 5 次 → 仍 `4`;
+ *   放置逾時 → 不轉態;sandbox 3DS 頁只有送出/取消兩鈕、無失敗選項。
+ *   ⇒ **不得拿 `5` 的結果替 `-1` 背書**;講「前提已驗」時只能指 `5`,`-1` 一律帶「未確認」。
+ * - 🔴 **兩者共同上限**:只證「**TapPay sandbox 的狀態機**這樣走」,**不等於真實發卡行**
+ *   (sandbox 3DS 頁是 TapPay 自己的模擬頁)。
+ *
+ * **失效條件(命中即重估本分類,不是加註解了事)**:真實環境出現「Record 已 -1 或 5、
+ * 之後那張舊 payment_url 仍成交(轉 0/1)」⇒ 本格放行重刷會開雙扣窗口。
+ * 詳:docs/specs/2026-08-10-l4-stale-3ds-url-probe-plan.md §7;backlog #353。
  */
 function classifyRecordStatus(tr: TapPayTradeRecord): RecordVerdict {
   switch (tr.recordStatus) {
