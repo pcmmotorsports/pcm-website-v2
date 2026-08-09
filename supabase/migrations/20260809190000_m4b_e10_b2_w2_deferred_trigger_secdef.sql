@@ -117,7 +117,8 @@ BEGIN
   END IF;
 
   -- 🔴 前置自證:上面兩道若因為「一支都沒撈到」而恆真,這裡會擋下。
-  --    本 repo 現況是八支可延遲的 constraint trigger;數字掉到 0 = 查詢寫錯或 trigger 被 DROP,
+  --    本 repo 現況是**六支**可延遲的 constraint trigger(catalog 實測,見檔頭);
+  --    數字掉到 0 = 查詢寫錯或 trigger 被 DROP,
   --    兩種都不該讓本 migration 靜靜通過。
   SELECT pg_catalog.count(*)::integer INTO v_n
     FROM pg_catalog.pg_trigger t

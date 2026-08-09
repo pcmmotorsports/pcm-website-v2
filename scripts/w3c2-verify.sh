@@ -46,6 +46,25 @@ case "$SOCK" in /tmp/?*|/private/tmp/?*) : ;; *) echo "REFUSE: socket 目錄必�
 case "$D"    in *..*) echo "REFUSE: datadir 不得含 .. (現為 [$D])"; exit 1 ;; esac
 case "$SOCK" in *..*) echo "REFUSE: socket 目錄不得含 .. (現為 [$SOCK])"; exit 1 ;; esac
 case "$D$SOCK" in *[!A-Za-z0-9/._-]*) echo "REFUSE: 路徑只允許 A-Za-z0-9/._- (pgrep -f 會把其餘字元當 regex ⇒ 殘留那道靜默失效)"; exit 1 ;; esac
+# 🔴 W7 跟片⑤(2026-08-09,codex #4 MF-4 的另一半):路徑閘只保證「刪的東西在 /tmp 底下」,
+#    **擋不住「那個 /tmp 路徑正被別人的 live cluster 用著」** —— 本檔開場無條件 `rm -rf`,
+#    兩個視窗用預設路徑並行跑就會互刪。夜跑多視窗是常態,這不是理論風險。
+#    ⇒ 刪之前先問:那裡有沒有活著的 postmaster?有就 REFUSE,不猜、不等、不強刪。
+# 🔴🔴 **本段必須排在 `trap teardown EXIT` 之前**:teardown 會 `pg_ctl -D "$D" stop`,
+#    若這道 REFUSE 排在 trap 之後,`exit 1` 會觸發 teardown 去停掉**別人的** cluster
+#    —— 那正是本段要防的事。(第一版我就寫在 trap 之後,自己抓到。)
+# 🔴 R1 F2:`pgrep` 不存在/被 PATH 遮蔽時回非 0 ⇒ 連言 false ⇒ **靜默放行 rm -rf** = fail-open。
+#    這道護欄的整個價值就在「不確定時不要刪」,所以工具缺席要當成不確定,不當成沒事。
+command -v pgrep >/dev/null 2>&1 || { echo "REFUSE: 找不到 pgrep ⇒ 無法判斷 $D 是否正被別人使用,拒絕 rm -rf"; exit 1; }
+# 🔴 R1 F3(誠實邊界,別把註解讀成全稱):本護欄只擋**穩態**。別的視窗正卡在 initdb / pg_ctl start
+#    到 postmaster.pid 落地之間那個短窗口時,$D 有目錄但沒有 pid 檔 ⇒ 這裡仍會刪掉它。
+#    要關那個窗口得改成 ownership marker 制(如 a1-verify / b2s2b 的作法),本片不做。
+if [ -f "$D/postmaster.pid" ] && pgrep -f "postgres.*$D" >/dev/null 2>&1; then
+  echo "REFUSE: $D 底下有活著的 postmaster(別的視窗正在用?)⇒ 拒絕 rm -rf,也不去停它。"
+  echo "        處置:等它跑完,或改用別的 datadir —— 設定點在本檔頂端的 D= / SOCK= / P=(多數 harness 寫在同一行,w0b-verify.sh 是分三行)"
+  echo "        (多數 harness 寫成 \${XXXDB:-預設},可用 env 覆寫;少數(如 w0b-verify.sh)是**寫死的**,要改檔)。"
+  exit 1
+fi
 teardown() {
   TD_RC=$?   # 🔴 W7 跟片③:第一句就接住本來要離場的碼(EXIT trap 進來時的 $?)
   pg_ctl -D "$D" -w stop >/dev/null 2>&1
@@ -271,6 +290,24 @@ case "$M" in
   P2B27*) bad TMUT-M4-GUARD "拿掉前緣後仍回 P2B27 ⇒ 那格守的不是這段" ;;
   *)      bad TMUT-M4-GUARD "實得 [$M]" ;;
 esac
+# 🔴🔴 W7 跟片(2026-08-09,codex #7 MF-2):**上面那發突變原本沒有還原** ——
+#    它把 `admin_unvoid_shipment` 整支換成沒有 M4 前緣的殘廢版,而下面 `W3C2-DRAFT-SAFE`
+#    照樣呼叫同一個名字 ⇒ **那格量到的是 mutant、不是本尊**。殘廢版本來就不會擋任何東西,
+#    所以「安全的草稿復原沒被誤擋」這個結論在正式函式上**從來沒有被觀察過**;
+#    正式函式真的誤擋草稿的話,本格照樣全綠。
+#    ⇒ 重跑被測物 migration 把本尊放回來,並**自證放回來了**(不自證的話,
+#      還原失敗會靜靜地讓下面那格繼續量 mutant,跟現在一模一樣)。
+# 🔴 R1 F6:錨 `pcm_b2_w3c2_translated` 的唯一性是**時點性質,不是恆真** ——
+#    `…w7d1_ship_deadlock_retry.sql` 也 CREATE OR REPLACE 同一支函式、也含這個字面,
+#    現在靠 `PREFIX_TS=20260807210000` 把它排除在重放外才唯一。
+#    **失效條件**:PREFIX_TS 往後挪到含 w7d1 的那天,這個錨就分不出兩個版本 ⇒ 要換成
+#    md5 釘值或改錨在本片獨有的字面。
+# 🔴 R1 F5(誠實邊界):這個錨落在**例外轉譯分支**,不是 `W3C2-DRAFT-SAFE` 真正要量的 M4 前緣。
+#    整檔重放下兩者同生共死,所以現在不假綠;但守門沒畫在不變量成立的那個面,寫下來不假裝關完。
+# 🔴 R1 F7:原本 stderr 丟掉,失敗只拿得到六個字;對齊本檔他處的 2>"$D/err" 慣例。
+psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$W3UMIG" >/dev/null 2>"$D/restore.err" || die "RESTORE_FAIL(TMUT-M4-GUARD):被測物 migration 重跑失敗,本尊沒放回來 :: $(cat "$D/restore.err" 2>/dev/null | tr '\n' ' ')"
+RESTORED="$(Q "SELECT (pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.admin_unvoid_shipment(text,uuid)'::regprocedure), 'pcm_b2_w3c2_translated') > 0)::text")"
+[ "$RESTORED" = "true" ]   || die "RESTORE_FAIL(TMUT-M4-GUARD):線上函式體不是本尊(錨 pcm_b2_w3c2_translated 查得 [$RESTORED])⇒ 下面每一格都會量到 mutant,停"
 # ② 🔴🔴 「只在 shipped_at 非空時才算」那條 —— **我原本從一個沒有判別力的 fixture 讀出了錯的結論**。
 #    首版:草稿箱掛 2 件、instock 5 ⇒ 拿掉條件也是 `0+2 ≤ 5` 放行 ⇒ 觀察值不變,
 #    我就寫成「那個條件沒有正確性作用、只省算」。**錯了**(跨模型審查 F2)。
@@ -297,6 +334,12 @@ else
   [ "$M" = "P2B27|pcm_b2_w3c2_unvoid_exceeds_instock" ] \
     && ok TMUT-DRAFT-CONDITION "🔴 拿掉「只在已出貨時才算」⇒ **安全的草稿復原被誤擋**(P2B27)= 那個條件是**正確性條件**(防誤擋),不是省算 —— 我原本的自陳被這一發打掉" \
     || bad TMUT-DRAFT-CONDITION "拿掉條件後實得 [$M](期望 P2B27 的誤擋)"
+  # 🔴 R1 F8:**突變②同樣沒有還原**。目前無害 —— 它之後只剩 CELL-ACCOUNT / CELL-KEYSET,
+  #    兩格都不呼叫 `admin_unvoid_shipment`。但這正是 MF-2 的同型缺陷,只是還沒咬到人;
+  #    加格的人不會先讀到這段註解 ⇒ 這裡也還原並自證,不留給下一個人踩。
+  psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$W3UMIG" >/dev/null 2>"$D/restore2.err" || die "RESTORE_FAIL(TMUT-DRAFT-CONDITION):本尊沒放回來 :: $(cat "$D/restore2.err" 2>/dev/null | tr '\n' ' ')"
+  R2ED="$(Q "SELECT (pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.admin_unvoid_shipment(text,uuid)'::regprocedure), 'pcm_b2_w3c2_translated') > 0)::text")"
+  [ "$R2ED" = "true" ] || die "RESTORE_FAIL(TMUT-DRAFT-CONDITION):線上函式體不是本尊(錨查得 [$R2ED])"
 fi
 
 echo "══ 6. 覆蓋帳 ══════════════════════════════════════════════"
