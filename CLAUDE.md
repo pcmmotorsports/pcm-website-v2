@@ -2,6 +2,7 @@
 
 > **Claude Code 工作規則檔(常載本體;細節與「為什麼」按下方路由表按需讀)。** 每 session 自動載入。
 > Codex 入口 = `AGENTS.md`;共同規則只寫在 `docs/ops/AI_CONTRACT.md`,不再靠雙生檔人工同步。
+> 🔴 **重複段主從(2026-08-09 Sean Q-F=C)**:與 `AGENTS.md` 逐字重複的八段以**本檔為準**;字面歧異照本檔執行並回報修齊,改任一段必同 commit 改兩檔。
 > **固定政策:** `docs/ops/AI_CONTRACT.md` > 本檔;**現況:** 可驗證事實 > `STATUS.md` > `docs/handoff/CURRENT.md` > 歷史 memory/對話。制度演變史與拍板典故一律在 docs/decisions/、memory 與 lessons-learned,本檔只留現行規則。
 
 ---

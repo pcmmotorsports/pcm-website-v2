@@ -2,6 +2,7 @@
 
 > **Codex 工作入口。** 每個進 repo 的 Codex session 自動載入；Claude 入口是 `CLAUDE.md`，共同規則只寫在 `docs/ops/AI_CONTRACT.md`，不再靠雙生檔人工複製。
 > **固定政策:** `docs/ops/AI_CONTRACT.md` > 本檔；**現況:** 可驗證事實 > `STATUS.md` > `docs/handoff/CURRENT.md` > 歷史 memory／對話。
+> 🔴 **重複段主從(2026-08-09 Sean Q-F=C)**:本檔與 `CLAUDE.md` 逐字重複的八段(鐵則 1-12/Git 紀律/Busboy/Bash 紀律/Server 端鐵則/風格速查/突發狀況/Phase 1 精神)**以 `CLAUDE.md` 為準**;兩檔字面歧異時照 CLAUDE.md 執行並回報修齊,改任一段必同 commit 改兩檔。
 
 **按需路由(2026-07-03 與 CLAUDE.md 同步瘦身:移除 @import 常載、原版備份 `docs/archive/2026-07-03-AGENTS-md-pre-slim.md`;命中情境才讀,不通讀)**:
 - Phase 1 範圍爭議 → `docs/PHASE-1-NORTHSTAR.md` §1;design 真權威與矛盾仲裁 → 同檔 §2;上線判斷 → 同檔 §5
