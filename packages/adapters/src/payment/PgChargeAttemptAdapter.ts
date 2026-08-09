@@ -250,6 +250,8 @@ function parseBeginResult(rows: Array<Record<string, unknown>>): BeginChargeAtte
         existing_order_id?: unknown;
         existing_rec_trade_id?: unknown;
         existing_bank_transaction_id?: unknown;
+        /** 🔴 M-4b L4:user_in_flight 時那張在途單的 order id(server-only、migration 20260809210000)。 */
+        in_flight_order_id?: unknown;
       }
     | undefined;
   if (!r || typeof r.acquired !== 'boolean') {
@@ -302,6 +304,23 @@ function parseBeginResult(rows: Array<Record<string, unknown>>): BeginChargeAtte
   }
   if (r.reason !== 'user_in_flight' && r.reason !== 'order_locked' && r.reason !== 'not_unpaid') {
     throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
+  }
+  // 🔴 M-4b L4:user_in_flight 帶在途單 order id(migration 20260809210000)。三態,刻意不對稱:
+  //   · 欄**缺**(undefined)= migration 未 apply 的舊 payload ⇒ 合法,回無 inFlight
+  //     ⇒ action 層即時對帳整段 skip、退回舊行為(這是跨 apply 停點的安全閥,不是漏判)。
+  //   · 欄是**非空字串** ⇒ 帶上。
+  //   · 其餘(null / number / object / false / 空字串)⇒ **fail-closed throw**:
+  //     新 migration 在 IF FOUND 內必填此欄,出現 null 或錯型別 = RPC 契約違反,不靜默降級成
+  //     「當作舊版」—— 那會讓一個真的壞掉的 RPC 看起來只是版本舊(逐字沿用同檔 needs_settle 分支那套嚴格度)。
+  if (r.reason === 'user_in_flight') {
+    const inFlightOrderId = r.in_flight_order_id;
+    if (inFlightOrderId === undefined) {
+      return { acquired: false, reason: 'user_in_flight' };
+    }
+    if (typeof inFlightOrderId !== 'string' || inFlightOrderId === '') {
+      throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
+    }
+    return { acquired: false, reason: 'user_in_flight', inFlight: { orderId: inFlightOrderId } };
   }
   return { acquired: false, reason: r.reason };
 }

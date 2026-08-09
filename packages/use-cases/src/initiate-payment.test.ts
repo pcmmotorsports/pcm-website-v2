@@ -92,6 +92,39 @@ describe('initiatePayment — begin 佔鎖(複用 PF-X2 + 0b/0c cart dedup)', ()
     },
   );
 
+  // ── 🔴 M-4b L4:user_in_flight 的 inFlight 透傳(3DS 路徑與同步路徑同形)──
+
+  it('🔴 begin 回 user_in_flight + inFlight → locked 原樣帶著 inFlight、零 bank_txn 零 TapPay', async () => {
+    const d = deps({
+      attempts: makeAttempts({
+        begin: vi.fn(async () => ({
+          acquired: false as const,
+          reason: 'user_in_flight' as const,
+          inFlight: { orderId: 'in-flight-order-9' },
+        })),
+      }),
+    });
+    const out = await initiatePayment(d, INPUT);
+    expect(out).toEqual({
+      kind: 'locked',
+      reason: 'user_in_flight',
+      inFlight: { orderId: 'in-flight-order-9' },
+    });
+    expect(d.attempts.recordInitiationBankTxn).not.toHaveBeenCalled();
+    expect(d.tappay.initiateThreeDSCharge).not.toHaveBeenCalled();
+  });
+
+  it('🔴 begin 回 user_in_flight **無** inFlight(DB 舊版)→ locked 不長出 inFlight 欄', async () => {
+    const d = deps({
+      attempts: makeAttempts({
+        begin: vi.fn(async () => ({ acquired: false as const, reason: 'user_in_flight' as const })),
+      }),
+    });
+    const out = await initiatePayment(d, INPUT);
+    expect(out).toEqual({ kind: 'locked', reason: 'user_in_flight' });
+    expect('inFlight' in out).toBe(false);
+  });
+
   it('🔴 begin duplicate(0b D2)→ settlement_required(非 locked/redirect)、零 charge', async () => {
     const d = deps({
       attempts: makeAttempts({

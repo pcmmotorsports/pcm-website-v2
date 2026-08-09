@@ -77,7 +77,11 @@ export async function initiatePayment(
         },
       };
     }
-    return { kind: 'locked', reason: lock.reason };
+    // 🔴 M-4b L4:user_in_flight 把在途單識別透傳給 action 層(即時對帳用);其餘 reason 逐字不變。
+    //    use-case 只做透傳、不判斷 —— 「要不要對那張單 settle」是 action 層的職責(母 plan §2)。
+    return lock.reason === 'user_in_flight'
+      ? { kind: 'locked', reason: 'user_in_flight', ...(lock.inFlight ? { inFlight: lock.inFlight } : {}) }
+      : { kind: 'locked', reason: lock.reason };
   }
 
   // 2. charge 前產唯一 bank_txn(≤19 字大寫英數;DB UNIQUE 部分索引 + TapPay 去重雙保險)。

@@ -93,6 +93,42 @@ describe('confirmPayment — 鎖(PF-X2、②-③c-2 織入)', () => {
     },
   );
 
+  // ── 🔴 M-4b L4:user_in_flight 的 inFlight 透傳(action 層即時對帳的唯一輸入來源)──
+
+  it('🔴 begin 回 user_in_flight + inFlight → locked 原樣帶著 inFlight(use-case 只透傳、不判斷)', async () => {
+    const d = deps({
+      attempts: makeAttempts({
+        begin: vi.fn(async () => ({
+          acquired: false as const,
+          reason: 'user_in_flight' as const,
+          inFlight: { orderId: 'in-flight-order-9' },
+        })),
+      }),
+    });
+    const out = await confirmPayment(d, INPUT);
+    expect(out).toEqual({
+      kind: 'locked',
+      reason: 'user_in_flight',
+      inFlight: { orderId: 'in-flight-order-9' },
+    });
+    // 透傳不得有副作用:這一格同時釘住「即時對帳是 action 層的事,不是 use-case 的事」
+    expect(d.tappay.charge).not.toHaveBeenCalled();
+    expect(d.confirmer.confirm).not.toHaveBeenCalled();
+  });
+
+  it('🔴 begin 回 user_in_flight **無** inFlight(DB 舊版)→ locked 不長出 inFlight 欄', async () => {
+    // 沒有這一格,「把 inFlight 補成 undefined 也照樣塞進物件」會讓下游的
+    // `'inFlight' in outcome` 這類判斷靜默轉向。
+    const d = deps({
+      attempts: makeAttempts({
+        begin: vi.fn(async () => ({ acquired: false as const, reason: 'user_in_flight' as const })),
+      }),
+    });
+    const out = await confirmPayment(d, INPUT);
+    expect(out).toEqual({ kind: 'locked', reason: 'user_in_flight' });
+    expect('inFlight' in out).toBe(false);
+  });
+
   it('🔴 begin !acquired duplicate(3DS-0b D2)→ settlement_required(非 locked/paid)、零 charge 零 confirm', async () => {
     const d = deps({
       attempts: makeAttempts({
