@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import { ResultBanner } from './result-banner';
+import { MESSAGES, ResultBanner } from './result-banner';
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
 import {
   PROCUREMENT_CREATED_RESULT_CODE,
@@ -9,6 +9,17 @@ import {
   PROCUREMENT_UPDATED_RESULT_CODE,
 } from '../../lib/orders/procurement-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
+import {
+  REFUND_MARKED_FAILED_RESULT_CODE,
+  REFUND_RECOVERED_RESULT_CODE,
+} from '../../lib/payment/refund-recovery-state';
+import {
+  CANCEL_NOT_SENT_CODES,
+  CANCEL_SENT_CODES,
+  FAILURE_MESSAGES,
+  ORDER_CANCELLED_RESULT_CODE,
+  toOrderCancelResultCode,
+} from '../../lib/orders/cancel-action-state';
 
 // M-4b E10 A9d2-1:本片只加一個成功碼 ⇒ 本檔只測那一格 + 既有行為不被打壞。
 //
@@ -106,5 +117,95 @@ describe('ResultBanner — 非自有 key 一律不渲染(#332-2)', () => {
     const { container } = render(<ResultBanner code='nope' />);
 
     expect(container.innerHTML).toBe('');
+  });
+});
+
+// ── M-4b E10 A13b **D1**:取消線的結果碼 ───────────────────────────────────────
+describe('ResultBanner — A13b D1 取消線結果碼', () => {
+  // 🔴🔴 **成功碼刻意什麼都不畫**(D1 關卡2 must-fix,推翻第一版的「渲染得出『取消已完成』」)。
+  //    `?r=` 是任何人都能自己打的字 ⇒ 靜態的成功訊息 = 對一張沒被取消的單說「已完成」。
+  //    錯的方向是危險那邊(員工看到綠字就不再去取消),所以成功訊息移交 D5 的帳本核對面板。
+  //    這條同時是**偽造 query 的負測**:D5 之後若有人把它加回 banner 當靜態文案,本條轉紅。
+  it('🔴 偽造 ?r=order_cancelled 什麼都不畫(成功訊息必須由帳本核對,不由 URL 說了算)', () => {
+    const { container } = render(<ResultBanner code={ORDER_CANCELLED_RESULT_CODE} />);
+    expect(container.innerHTML).toBe('');
+  });
+
+  // 🔴 A 類 = 沒送到 RPC 的兩支。文案**逐字**取自 `FAILURE_MESSAGES` ——
+  //    這裡刻意斷言「與那張表一模一樣」而不是斷言某個關鍵詞:
+  //    關鍵詞式斷言在「banner 自己另寫了一句意思差不多的話」時照樣綠,而那正是兩份文案分岔的起點。
+  it.each(CANCEL_NOT_SENT_CODES)('A 類 %s → 文案與 FAILURE_MESSAGES 逐字相同', (code) => {
+    const { container } = render(<ResultBanner code={toOrderCancelResultCode(code)} />);
+    expect(container.textContent).toBe(FAILURE_MESSAGES[code]);
+  });
+
+  // 🔴 tone 打錯不會有任何別的守門紅,而它的後果是**失敗長得像成功**(綠框)——
+  //    員工掃一眼綠色就走人,以為取消送出去了。只釘「不得是 ok」,不釘 error/warn 的分法
+  //    (那是可調的視覺選擇,這裡要守的是「失敗不准畫成成功」這條不變量)。
+  it.each(CANCEL_NOT_SENT_CODES)('A 類 %s 的 tone 不得是 ok(失敗不准畫成綠色)', (code) => {
+    const entry = MESSAGES[toOrderCancelResultCode(code)];
+
+    // 🔴 先釘「有註冊」:少了這句,碼被拿掉時 `entry?.tone` 是 undefined、`not.toBe('ok')` 照樣綠。
+    expect(entry, `${code} 必須註冊在 banner`).toBeDefined();
+    expect(entry?.tone).not.toBe('ok');
+  });
+
+  // 🔴🔴 **反向斷言:B 類四碼不得在表裡**(plan v3.1 §1a「消費者互斥、兩邊都要釘」)。
+  //    只釘正向的話,哪天有人「順手把六碼補齊」,員工會看到一句靜態文案就走人 ——
+  //    而那四支的意思是「**已經送到 RPC 了、不知道有沒有寫進去**」,
+  //    要的是拿 `?rt=` 去帳本核對(D5 的面板),不是一句安心的話。
+  //    這格紅掉時的正確修法是**把碼從 banner 拿掉**,不是改這條測試。
+  it.each(CANCEL_SENT_CODES)('B 類 %s → banner 什麼都不畫(它歸帳本核對面板)', (code) => {
+    const { container } = render(<ResultBanner code={toOrderCancelResultCode(code)} />);
+    expect(container.innerHTML).toBe('');
+  });
+
+  // 🔴🔴 零碰撞:取消線的碼**沒有一顆**等於別條線既有的碼。
+  //
+  //    ⚠️ **本條的第一版是假守門**(D1 code-review must-fix,已修):原本拿一份**硬寫的
+  //    改單線 7 顆快照**當「既有碼」,而 `MESSAGES` 實際有 16 顆鍵 ⇒ 漏掉的那 7 顆
+  //    (備註 1 + 退款 3 + 採購 3)就算被撞上也照樣綠。現在改成**從 `MESSAGES` 的鍵集合反推**:
+  //    每一顆鍵都必須被歸進「取消線」或「其他線」其中一邊,兩邊都比對得上才算過。
+  //
+  //    判別力(三個突變各自轉紅;R2 更正:①的機制原本寫得不精確,兩種紅法要分開講):
+  //    ①`toOrderCancelResultCode` 拿掉 namespace → A 類兩顆(denied/invalid)的 computed key
+  //      直接**覆蓋掉**改單線同名的兩顆 ⇒ 表少兩顆鍵、第一個 `toEqual` 紅;
+  //      而 `error`(B 類、不在表裡)則是被第二個斷言的**集合交集**抓到 —— 兩條互補;
+  //    ②有人把裸 `retry` 加進 `MESSAGES` → 出現沒被歸類的鍵 → 紅;
+  //    ③有人把 B 類碼或成功碼加進 `MESSAGES` → 取消線註冊集合對不上 → 紅。
+  it('MESSAGES 的每一顆鍵都歸得了線,且取消線的碼與其他線零碰撞', () => {
+    // 取消線**應該**註冊在 banner 的碼 = 只有 A 類兩碼。
+    // 🔴 成功碼與 B 類四碼都**不在**表裡:前者要等 D5 的帳本核對(不能由 URL 說了算)、
+    //    後者本來就歸帳本面板。把任何一顆加進 `MESSAGES` 都會讓下面的鍵集合比對轉紅。
+    const cancelRegistered = CANCEL_NOT_SENT_CODES.map(toOrderCancelResultCode);
+    // 其他線的碼:有常數的用常數,改單線那 7 顆在 `MESSAGES` 裡本來就是字面 key、沒有常數可引。
+    const otherLines = [
+      'saved',
+      'noop',
+      'conflict',
+      'invalid',
+      'denied',
+      'not_found',
+      'error',
+      NOTE_ADDED_RESULT_CODE,
+      REFUND_SUBMITTED_RESULT_CODE,
+      REFUND_MARKED_FAILED_RESULT_CODE,
+      REFUND_RECOVERED_RESULT_CODE,
+      PROCUREMENT_CREATED_RESULT_CODE,
+      PROCUREMENT_UPDATED_RESULT_CODE,
+      PROCUREMENT_NO_CHANGE_RESULT_CODE,
+    ];
+
+    // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)
+    expect(Object.keys(MESSAGES).sort()).toEqual([...otherLines, ...cancelRegistered].sort());
+
+    // ② 取消線**全部**的碼(含四顆不進表的 B 類)沒有一顆等於別條線的碼
+    const allCancelCodes = [
+      ORDER_CANCELLED_RESULT_CODE,
+      ...[...CANCEL_NOT_SENT_CODES, ...CANCEL_SENT_CODES].map(toOrderCancelResultCode),
+    ];
+
+    expect(allCancelCodes).toHaveLength(7);
+    expect(allCancelCodes.filter((c) => otherLines.includes(c))).toEqual([]);
   });
 });
