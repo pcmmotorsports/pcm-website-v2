@@ -13,7 +13,7 @@
 --    (`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts` 的 forbidden 陣列)。
 --    把它加進 `ADMIN_ORDER_LIST_SELECT` 去做前端過濾 = **親手拆掉那道守門**。
 -- ② 八個維度裡有三個在**內嵌層**(品項、品牌、採購),而內嵌層 filter 的語意押在
---    **本專案無法實測**的 PostgREST 行為上 —— `SupabaseOrderAdapter.ts:408-413` 的註解逐字說明過
+--    **本專案無法實測**的 PostgREST 行為上 —— `SupabaseOrderAdapter.ts:542-546` 的註解逐字說明過(#347-2a 推移後重量)
 --    (本機是裸 PG、沒有 PostgREST)。
 -- ⇒ 走 RPC 之後,**PII 只在 SQL 內被比對,一個字都不進讀模型、不進 RSC payload**。
 --    函式只吐 `orders.id` 的陣列 —— id 本身不是 PII。
@@ -135,7 +135,8 @@
 -- · `p_limit`:NULL 或 <= 0 → 100;**上限硬夾在 100**,傳 5000 也只給 100。
 --   🔴 **100 不是隨手挑的,是對齊下游已經釘死的那個數**:列表拿到 ids 之後走
 --   `.in('id', ids)`,而那條路徑的上限是 `SUPPLIER_ORDER_NO_MATCH_CAP = 100`
---   (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:121`)——理由是 **PostgREST 的
+--   (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:160`;#347-2a 起它由同檔的
+--    `ADMIN_ORDER_ID_IN_CAP` 導出 —— 兩個搜尋維度共用同一個數字,值仍是 100)——理由是 **PostgREST 的
 --   query string 長度**:200 個 UUID 加上 select 投影已經 8,361 bytes、越過 8KB 線。
 --   ⇒ 這裡若給 200,347-2 接上去會**先 HTTP 失敗**,員工連 truncated 提示都看不到(codex R2)。
 -- ============================================================

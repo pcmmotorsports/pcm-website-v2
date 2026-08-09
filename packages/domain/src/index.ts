@@ -50,6 +50,16 @@ export {
   SupplierOrderNoSearchShapeError,
 } from './order/supplier-order-no-search';
 
+// 八維度關鍵字搜尋正規化(M-4b #347-2a;解析層與 adapter `.rpc('admin_search_orders')` 前共用單一來源)
+// 🔴 與上面兩支分立、不合併:本支**沒有**字元集守門(走 POST body、值不進 URL),
+//    合成一支會讓它繼承那兩支的字元限制,把中文姓名與含標點的品名整組擋掉。
+export type { OrderKeywordSearch, OrderKeywordSearchInvalidReason } from './order/keyword-search';
+export {
+  normalizeOrderKeywordSearch,
+  MAX_ORDER_KEYWORD_LENGTH,
+  OrderKeywordSearchShapeError,
+} from './order/keyword-search';
+
 // order entity runtime helper(M-3-S1)
 export type { OrderErrorCode } from './order/errors';
 export { OrderError } from './order/errors';
