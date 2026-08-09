@@ -111,12 +111,42 @@ BEGIN
 END $fx$;
 S1BFX
 [ $? -eq 0 ] || { echo "🔴 s1b fixture 建立失敗;拒跑"; exit 1; }
+# 🔴 W7 跟片⑥(2026-08-09,R3 F8):前兩條 DELETE 原本 `>/dev/null 2>&1 || true`,零觀察。
+# 🔴 R1 F5/F6 把我的宣稱修窄了兩處,照事實寫:
+#    ① 不是「跑在真的共用庫」—— 本檔上方有三重身分閘(marker + data_directory 必須在
+#      $WORK 底下 + db 名),它只跑得到 d1t2 建的**拋棄式**叢集。殘留的實害是
+#      「下一次跑會撞 fixture 唯一鍵」,不是污染正式資料。
+#    ② 也不是「完全零觀察」—— 收尾處早就有一格計分的零殘留斷言。真正的空窗是
+#      **trap 裝好之後的異常離場路徑**(早退 / die / 信號):那時計分那格根本跑不到。
+#    ⇒ 三條都改成「刪完回查殘量」,有殘留就報出來;離場碼由呼叫端決定(見 F4)。
+#    🔴 觀察的是**刪完之後還剩幾列**,不是「DELETE 這道命令有沒有回錯」——
+#      命令成功但沒刪到(條件寫錯、被 FK 擋在別處)一樣是殘留。
+# 🔴 R1 F4:本函式是**雙角色** —— trap 用一次(:trap)、收尾又顯式呼叫一次。
+#    第一版我把 `exit` 寫在函式裡 ⇒ 顯式那次遇到殘留會從腳本中段離場,
+#    把後面計分的「零殘留」那格與 `== 結果 ==` 整段吃掉,比原本的 `bad()` 報告還糟。
+#    ⇒ 函式只負責**觀察與報告、回傳非 0**;要不要 exit 由兩側各自決定。
 s1b_cleanup() {
   psql "$URL" -tAX -c "DELETE FROM public.order_item_procurement WHERE order_item_id IN (SELECT id FROM public.order_items WHERE variant_sku LIKE 'S1B-%')" >/dev/null 2>&1 || true
   psql "$URL" -tAX -c "DELETE FROM public.order_item_quantity_summary WHERE order_item_id IN (SELECT id FROM public.order_items WHERE variant_sku LIKE 'S1B-%')" >/dev/null 2>&1 || true
-  psql "$URL" -tAX -c "DELETE FROM public.orders WHERE display_id='PCM-9993-0001'" >/dev/null 2>&1 || echo "🔴 s1b cleanup:fixture 訂單殘留" >&2
+  psql "$URL" -tAX -c "DELETE FROM public.orders WHERE display_id='PCM-9993-0001'" >/dev/null 2>&1 || true
+  S1B_LEFT="$(psql "$URL" -tAX -c "SELECT
+      (SELECT pg_catalog.count(*) FROM public.order_item_procurement p JOIN public.order_items i ON i.id=p.order_item_id WHERE i.variant_sku LIKE 'S1B-%')::text
+      ||'/'|| (SELECT pg_catalog.count(*) FROM public.order_item_quantity_summary q JOIN public.order_items i ON i.id=q.order_item_id WHERE i.variant_sku LIKE 'S1B-%')::text
+      ||'/'|| (SELECT pg_catalog.count(*) FROM public.orders WHERE display_id='PCM-9993-0001')::text" 2>/dev/null | tr -d '\n ')"
+  # 🔴 R1 F7:查詢本身失敗時別把錯誤字串當成「殘留筆數」印給下一個人看。
+  #    形狀不是 N/N/N 就當作**查不出來** —— 一樣不放行(fail-closed),但訊息講對。
+  case "$S1B_LEFT" in
+    [0-9]*/[0-9]*/[0-9]*) : ;;
+    *) echo "🔴 s1b cleanup:殘量查詢失敗(實得 [$S1B_LEFT])⇒ 無法確認是否清乾淨,當作沒清" >&2; return 1 ;;
+  esac
+  if [ "$S1B_LEFT" != "0/0/0" ]; then
+    echo "🔴 s1b cleanup:fixture 殘留在這座拋棄式庫裡(procurement/summary/orders = $S1B_LEFT,期望 0/0/0)⇒ 下一次跑會撞 fixture 唯一鍵" >&2
+    return 1
+  fi
+  return 0
 }
-trap s1b_cleanup EXIT
+# 🔴 trap 那側:異常離場時計分的零殘留格根本沒跑到 ⇒ 只剩這裡看得見。離場碼要非 0。
+trap 'TD_RC=$?; s1b_cleanup || { if [ "$TD_RC" -eq 0 ]; then exit 9; else exit "$TD_RC"; fi; }' EXIT
 ITEM="$(q "SELECT id FROM public.order_items WHERE variant_sku='S1B-P5A'")"
 ITEM2="$(q "SELECT id FROM public.order_items WHERE variant_sku='S1B-P5B'")"
 SUP="$(q "SELECT id FROM public.suppliers WHERE label='AKOSO'")"
@@ -330,7 +360,9 @@ echo "      ⇒ 本 harness 是以 owner 身分直插來測形狀,不是在測�
 echo "   🔴 本機 C locale ≠ 正式站 en_US.UTF-8(#305);database.types.ts 重 gen 需 apply 後才做得了。"
 echo
 echo "== 收尾:顯式清理 + 基準斷言(codex K2-7:trap 失敗不得靜默 exit 0)=="
-s1b_cleanup
+# 🔴 顯式那側:**不 exit** —— 讓下面計分的零殘留格與結果摘要照常印完,
+#    真有殘留時由那一格判 FAIL、走檔尾的 `exit 1`(那是本來就有的報告路徑)。
+s1b_cleanup || true
 trap - EXIT
 [ "$(q "SELECT count(*) FROM public.orders")" = "$ORDERS_BASE" ] \
   && [ "$(q "SELECT count(*) FROM public.order_items WHERE variant_sku LIKE 'S1B-%'")" = "0" ] \
