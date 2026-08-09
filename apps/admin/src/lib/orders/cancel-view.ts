@@ -424,7 +424,10 @@ function toItemView(
   const derived = summary.quantity - summary.instockQuantity - summary.cancelledQuantity;
   return {
     orderItemId: item.id,
-    quantity: summary.quantity,
+    // 🔴 買了幾件一律取**真相** `order_items.quantity`,不取摘要快取的去正規化欄(A13a R1 F9):
+    //    兩者由複合 FK 物理保證相等,但本欄的 docstring 宣稱「取自真相」——
+    //    取快取會讓那句宣稱在快取毀損時變成假的,而且會讓同一列的數字兩種來源。
+    quantity: item.quantity,
     instockQuantity: summary.instockQuantity,
     cancelledQuantity: summary.cancelledQuantity,
     maxCancellable: Math.max(0, Math.min(summary.cancellableQuantity, derived)),

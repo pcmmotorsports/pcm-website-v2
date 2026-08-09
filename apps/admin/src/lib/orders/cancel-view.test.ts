@@ -122,6 +122,25 @@ describe('buildOrderCancelView 健康基準', () => {
     ]);
   });
 
+  it('🔴 「買了幾件」取真相 order_items.quantity,不取摘要快取的去正規化欄', () => {
+    // 🔴 A13a R1 F9:兩者由複合 FK 物理保證相等 ⇒ fixture 讓它們相等時,「讀哪一個」構造不出負測。
+    //    這條刻意讓它們不等(結構型別擋不住、真實 mapper 產不出,同 clamp/min 那類入口防禦)。
+    const view = buildOrderCancelView(
+      order({
+        items: [
+          {
+            id: ITEM_A,
+            quantity: 5,
+            procurements: [],
+            procurementTruncated: false,
+            quantitySummary: summary({ quantity: 4 }),
+          },
+        ],
+      }),
+    );
+    expect(view.items[0]!.quantity).toBe(5);
+  });
+
   it('canCancel 恆等於「blockReasons 是空的」', () => {
     expect(buildOrderCancelView(order()).canCancel).toBe(true);
     expect(buildOrderCancelView(order({ itemsTruncated: true })).canCancel).toBe(false);
