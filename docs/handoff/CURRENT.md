@@ -1,5 +1,14 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🧭🧭 **2026-08-09 19:3x 主視窗第二次壓縮前 checkpoint(壓縮後讀本節,13:50 舊節僅備查)。第一動=date+find 全量掃 pcm-mailbox+確認 Monitor(brjcnghb9)活著+心跳 /loop 600s 照排(prompt 含 liveness+gh site-patrol issue 檢查;liveness 腳本=scratchpad/window-liveness.sh,重建法見 playbook §7-⑥)。**
+>
+> **🔴 最優先待收**:**B 窗 42501 修復片**(migration `20260809190000` ALTER `pcm_b2_shipping_idem_require_complete()` SECURITY DEFINER+同族掃(全 repo 六支 DEFERRED trigger 四函式、唯 W2 這支 INVOKER)+w5 真 service_role 負測+八支釘值已重釘 190000;codex high 背景中→B-323-STOP)⇒ 收割後**主視窗 apply → 叫 Sean 重按「建箱並標出貨」**(根因與實證=STATUS 17:00-18:00 節+memory b2-shipments 檔尾;Sean 等著出貨)。樹髒勿 merge。
+> **四窗現況**:**P**=L4 施工中(片型升級 migration+action:begin 回傳加在途識別 **server-only 不流 UI**;plan v1.1=`docs/specs/2026-08-09-l4-l5-settlement-compensation-plan.md` 已核+三修訂=零等待折入 L5a/L4 邊界句改寫/L3 已 apply 更正;序=L4→L5a→L5b(獨立對抗審查)→L5c;durable 標記=attempt 加欄已核;#349 已立案)。**D**=壓縮重啟後照 D-373-A:①彈窗品項列加料號+出貨卡直接出貨入口(Bug3 已拍 B=未付款可出貨不加擋)②347-1 搜尋 RPC(checkpoint=D-372 ②;Q1=A RPC/Q2=A 八維度;回傳 {ids,truncated} 已核)。**E**=片 6 修 F1/F4/N3/N5(E-007-A:Q1=A 用權威訊號推 0/0+plan :103 同片改)+窄確認輪→commit→A13a(11 碼文案表)。**雲端巡邏**=trig_017GadLkFrNqokpmz5waYPJM 每時 :16,異常寫 site-patrol issue(心跳③查)。
+> **今日晚段拍板全落檔**(memory b2-shipments 檔):Q7 兩型 10 分(→被零等待取代擋雙扣職責)/Q8 L2 apply ✓/Q9=**A 補償制**(PENDING 不可作廢、AUTH 可退=L1b/L1c 實測)/**零等待**(Sean 逐字「馬上刷卡也可以成功」)/Bug3=B 未付款可出貨/出貨追加=料號+出貨卡入口/#347 八維度搜尋/#348 客人 360/#349 preflight-release 同型雙扣。**Apply 現況**:140000/160000/170000 全 apply、pending 零;**190000 待 B 完片後 apply**。
+> **工作流常設**(Sean 拍板「常用要記好」):`docs/runbooks/multi-window-command-workflow.md`(§B 主視窗建置/§C 施工窗提示詞/§E 十坑)+memory `reference_multi-window-workflow-doc`+CLAUDE.md 路由表已加行。
+> **主視窗今日記過三筆**(勿再犯):push 排在 check 前(第二次)→模板=check 綠才推;`pnpm --filter X test` 靜默跳過假綠→一律根層 `pnpm test`+兩軌證據;/tmp 中繼檔被清→一律 scratchpad。
+>
+> —— 以下 13:50 舊 checkpoint 備查 ——
 > 🧭 **2026-08-09 13:50 主視窗壓縮前 checkpoint(壓縮後讀本節;第一動=date+find 全量掃 pcm-mailbox+確認 Monitor 活著(task brjcnghb9=信箱事件流;死了用 Monitor 工具重掛 20 秒輪詢版,勿用殼層 sentinel=sleep 在沙盒失效已退役)+心跳 /loop 600s 照跑)。**
 >
 > **現況**:dev=main=`04f27752` 之後或更新(以 git log 為準)、**未推 0 顆常態**(本日改為收割即推,Sean 授權);CI **已修全綠**(guarded-edit 測試 sed -i 跨平台,08-07 起恆紅的信轟炸已止)。全套 400 檔 5953+ 綠。
