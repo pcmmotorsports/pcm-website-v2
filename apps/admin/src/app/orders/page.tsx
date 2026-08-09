@@ -8,6 +8,10 @@ import {
 } from '../../lib/orders/order-list-view';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
+import {
+  ShippingSelectionProvider,
+  ShippingSelectionBar,
+} from '../../components/orders/shipping-selection';
 import { ResultBanner } from '../../components/orders/result-banner';
 import { ListPagination } from '../../components/shared/list-pagination';
 
@@ -140,7 +144,12 @@ export default async function OrdersPage({
         )
       ) : (
         <>
-          <OrdersTable orders={orders} />
+          {/* 2b-1:勾選狀態的 client provider。**只包住表格**,頁面其餘部分仍是純 server render。
+              動作列放表格上方(勾了才浮出)。彈窗成箱是 2b-2。 */}
+          <ShippingSelectionProvider>
+            <ShippingSelectionBar />
+            <OrdersTable orders={orders} />
+          </ShippingSelectionProvider>
           <ListPagination
             page={page}
             total={total}
