@@ -74,7 +74,8 @@
 payment_status = 'unpaid'
 AND cancelled_at IS NULL
 AND created_at < now() - interval '1 day'
-AND NOT EXISTS (該單有 status IN ('pending','charged') 的 attempt)
+AND NOT EXISTS (該單有 status <> 'failed' 的 attempt)   ← 🔴 實作用這個(也擋 released),
+                                                       與 admin_cancel_order 步7 逐字同條件
 ```
 🔴 最後一條是安全核心:**有 active attempt = 可能已扣款只是還沒收斂**,這種單一律不碰(留給 `needs_manual_review` 走人工)。少了這條,件①會把「正在被人工追的扣款單」標成失效。
 
@@ -84,13 +85,30 @@ AND NOT EXISTS (該單有 status IN ('pending','charged') 的 attempt)
 
 **誰掃** → 決策題 Q5。推薦 **A = 新增一支窄權 RPC + 既有 pg_cron 新排一個 job**(`0 * * * *` 每小時即可;1 天的粒度不需要更密)。不掛進 `settle-sweep` route:那支的 60s 預算已被算到 ~50s(`route.ts:52-56` 逐字),再塞一段掃全表的工作會吃掉它的餘量。**不綁 Vercel cron**(memory `reference_pcm-platform-plans-*`:Hobby 方案,排程別預設綁 Vercel)。
 
-**🔴 連動面(這是件①最容易漏的地方)**:失效單如果沒有從「兄弟單查找」與「cart dedup」裡排除掉,它會從「擋 10 分鐘」升級成**永久擋住那個 cart session**。要一起改的三處 WHERE:
-- `find_active_sibling_own`(preflight 用)
-- `begin_charge_attempt` 的 cart dedup 段(`20260613130000:400-412`)
-- 同函式的 per-user 閘段(`:433-444`)
-三處都要加 `AND o.cancelled_at IS NULL`。**沒有這三處,件① 是淨負作用。**
+~~**🔴 連動面**:失效單如果沒有從「兄弟單查找」與「cart dedup」裡排除掉,它會永久擋住那個 cart session;
+三處 WHERE 都要加 `AND o.cancelled_at IS NULL`。~~
+🔴 **這整段是錯的、已刪除論證(2026-08-09)** —— 詳見下一段的撤回說明。**不要照這段動手**:
+那三支是雙扣防線的核心 SQL,照舊稿去改會開一個真的洞。
 
-🔴🔴 **順手查出一個既有 bug(不是本片引入的)**:`admin_cancel_order` 已經會寫 `cancelled_at`(`supabase/migrations/20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:242`),但上面三處 WHERE **一個都沒有** 看 `cancelled_at`(兩支 RPC 全檔 grep `cancelled_at` = 零命中)⇒ **今天客服取消一張未付款單,那張單照樣會擋住這位客人重新結帳**(同 cart session 是永久擋)。`find_active_sibling_own` 建於 `20260624`、`cancelled_at` 加於 `20260712` —— 典型的「新欄位沒回頭補進舊 WHERE」。件① 的三處連動改**同時修掉這個既有洞**;若 Sean 決定不做件①,這條要單獨立 backlog。
+🔴🔴 **本 plan v1 曾在這裡宣稱一個「既有 bug」——已於 2026-08-09 撤回,理由寫在這裡以免有人照舊稿動手**
+
+v1 寫過:「`admin_cancel_order` 會寫 `cancelled_at`,但三處擋人查詢全檔沒有 `cancelled_at`
+⇒ 客服取消未付款單仍會永久擋住客人重結帳」。**這句是錯的。**
+
+事實(三處逐條讀過):三個查詢**每一個都要求該單有 active attempt(pending|charged)或已 paid** ——
+`20260624120001_*.sql:66-70`、`20260613130000_*.sql:399-409`、同檔 `:433-444`。
+而 `admin_cancel_order` 的允許集合(`20260804180000_*.sql:198-202`)逐字要求
+「`unpaid` 且不存在 status ≠ 'failed' 的 attempt」⇒ **被取消的單依定義沒有 active attempt ⇒ 擋不到任何人**。
+
+錯法:只 grep 了「那兩支 RPC 有沒有 `cancelled_at` 這個字」就下結論,沒讀那三段 WHERE 的其他條件,
+也沒讀取消 RPC 的允許集合(= memory `feedback_assert-scope-only-after-reading-source-file` 同型復發:
+查了「這個欄位在不在」,沒查「這條查詢實際上怎麼選列」)。
+
+🔴 **連帶:三處 `cancelled_at IS NULL` 不加**。不只是加了沒用 —— 它是無條件過濾,
+一旦未來放寬取消條件(例如允許取消在途單),那三處就會**停止阻擋一張 3DS 還在途中的取消單** ⇒ 雙扣。
+現在加它是死碼,未來它會變成陷阱。改成把不變量寫明:**cancelled ⇒ 無 active attempt**,
+由 `admin_cancel_order` 與本片的失效 RPC **兩個寫入端用同一個述詞**共同維持;
+誰要放寬它,必須同時回頭改那三處查詢。
 
 **失效單再付款** → 決策題 Q2。推薦 **A = 不復活、請客人重新下單**(購物車在失敗路徑本來就保留、重建成本低;復活等於要重驗庫存/價格/會員等級,是另一個片的量)。
 
@@ -194,6 +212,25 @@ L5 會對一筆**活的授權**釋鎖、客人重刷 = 雙扣。
 這對「交易存在與否」是有力旁證,但**成功扣款路徑的索引延遲仍未直接量過** ⇒ T=30 分屬保守猜測,
 **要嘛在 L5 開工前補量,要嘛把 T 訂得明顯大於任何合理索引延遲**(並在 L5 的 RPC COMMENT 寫明依據)。
 
+### 🔴 Q7 拍板(Sean 2026-08-09,逐字)—— L5 規格以此為準,推翻 plan 原稿
+
+> 「自動清理,10分鐘,然後我們不要鎖住,讓客人可以再重新加入商品到購物車,然後直接下單」
+
+解讀成規格(經主視窗 P-241-A 轉達、已落 memory):
+
+1. **兩型都自動清** —— `record_not_found` **與**「放棄型」恆 `auth_or_pending` 兩種殭屍都要處理。
+   ⇒ 比本 plan 原稿(只認 not-found)寬;L1 實測正是靠這個把原稿的前提打掉的。
+2. **門檻 10 分鐘**(原稿猜的 T=30 分、我給的建議是 ≥1 小時)。**這是拍板值,不得自行加大。**
+   🔴 **但 L5 開工前有一項工程前置**:必須先**證偽**「10 分鐘內,一筆在途授權還可能遲到完成」。
+   候選證據:3DS 頁的 300 秒 client 端倒數(L1 已讀到)、`payment_url` / token 的實際 TTL(**未量**)。
+   ⇒ **若實測顯示 10 分鐘內存在雙扣路徑:量化風險回報主視窗轉 Sean 再議 ——
+   不得靜默實作,也不得自己把門檻調大。**
+3. **不鎖新單**:殭屍存在期間,客人重新加購物車 → 直接下單要走得通。
+   ⇒ 這不只是「清掉舊的」,preflight 對殭屍的裁定也要放行新單。
+4. L5 硬契約照舊(見上):釋鎖前要有自己的新鮮 Record 觀察 + 鎖下重驗 `status='pending'` 且 order 仍 unpaid。
+
+⚠️ 這條把件③ 的體積放大了(兩型 + 放行新單),**L5 開工時要重估是否還是一片**。
+
 ### 件④(附帶,量最小)admin 列表預設不顯示失效單
 
 `AdminOrderFilter`(`packages/domain/src/order/types.ts:217`)加一個「含已取消/失效」的開關,列表預設關。連動:`SupabaseOrderAdapter` 的 list 查詢 + 篩選列 UI + URL 參數。**實作可切給後續片**(開工令 §2 逐字允許),本 plan 只列連動面。
@@ -206,10 +243,11 @@ L5 會對一筆**活的授權**釋鎖、客人重刷 = 雙扣。
 |---|---|---|---|
 | L1 | ~~sandbox probe:量 3DS 取消 → Record 轉 CANCEL 的延遲~~ **已完成 2026-08-09,結果見上方「L1 probe 實測結果」** | — (零 code、零 repo 寫入) | ~~Sean 授權~~ 已授權(P-232-A ②) |
 | L2 | 件③ 第一步:`record_not_found` reason 拆桶(型別 + use-case + **retry RPC allowlist migration**) | ①錢③ | — |
-| L3 | 件① migration:失效 RPC + pg_cron job + **三處 WHERE 加 `cancelled_at IS NULL`** | ①③ | — |
+| L3a | 件① 失效 RPC(`pcm_cron.expire_unpaid_orders`)+ ACL;**純 SQL、隔離 DB 驗得到** | ①③ | — |
+| L3b | 件① 每小時 pg_cron 排程(依賴 pg_cron ⇒ 隔離 DB 跳過) | ①④ | L3a |
 | L4 | 件② B2:撞窗即時對帳 + 節流 + 重試一次 | ①錢 | L1(數字決定要不要做)、L2 |
 | L5 | 件③ 第二步:not-found 自動裁定放行 | ①錢 | L1(定 T)、L2、L4 |
-| L6 | 件④ admin 列表預設隱藏 | — | L3 |
+| L6 | 件④ admin 列表預設隱藏(規格已改:見 P-233-A) | — | L3a |
 
 L3 與 L2/L4/L5 無資料依賴,可並行;**L1 擋 L4 與 L5**。
 
@@ -217,18 +255,29 @@ L3 與 L2/L4/L5 無資料依賴,可並行;**L1 擋 L4 與 L5**。
 
 ## §4 測試設計(反恆真紀律;每條斷言配自己的突變)
 
-1. **件① 的安全條件要能被單獨殺死**:構造「有 active attempt 的 1 天前 unpaid 單」→ 突變掉 `NOT EXISTS` 那條 ⇒ **只有這筆**變成被失效。🔴 fixture 的年齡要坐在 1 天邊界的**兩側各一筆**,且**不得**讓某一筆同時被兩個條件擋住(否則證明不了是哪條在擋 —— 08-09 LINE 片踩過的同一個坑,見 memory `feedback_negative-test-observation-supplied-by-another-mechanism`)。
-2. **三處 WHERE 的連動**:失效單 + 同 cart session 再結帳 ⇒ 必須 `proceed`。突變:拿掉任一處的 `cancelled_at IS NULL` ⇒ 只紅對應那一條(三條各自可分辨,不共用 fixture)。
+1. **件① 的安全條件要能被單獨殺死** —— ✅ **已落地並實跑**:`scripts/l3-verify.sh`,對本機隔離 PG17
+   **PASS=25 / FAIL=0 / 突變命中=5**。突變掉 `NOT EXISTS` ⇒ 有 attempt 的單被失效(A3/A4/A8 那組會紅);
+   邊界坐在 23:59:59 與 2 天兩側;非 unpaid 的四個 enum 值各一格(只測 paid 會讓「非 paid」的錯誤寫法全綠)。
+   ⚠️ 措辭更正:每個突變只重跑最能代表它的那一格,**不宣稱「只翻一格」**(拿掉 `NOT EXISTS` 實際會同時翻三格)。
+2. ~~**三處 WHERE 的連動**~~ **已刪(2026-08-09)**:該連動改本身已撤回(見 §2 的撤回段)⇒ 這條測試沒有對象。**不要照舊稿去寫它**。取而代之的是把不變量「cancelled ⇒ 無 active attempt」寫進兩個寫入端的註解與 L5 的硬約束。
 3. **件② 只放行 failed**:四種 settle outcome 各一條負測,只有 `failed` 那條放行。突變:把 `auth_or_pending` 也放行 ⇒ 只紅一條。
 4. **件② 節流真的生效**:連按兩次 ⇒ 第二次不得再打 Record。突變:拿掉節流 ⇒ 該條紅(斷言要數 **Record 呼叫次數**,不是數回傳值 —— 回傳值兩次都一樣,量錯東西)。
 5. **件③ 不得誤放行**:`record_unverified`(識別不符)重複 N 次以上 ⇒ **永不**放行。這條是件③ 的安全核心,突變=把 `record_not_found` 判斷放寬回 `record_unverified` ⇒ 該條紅。
-6. **觀測性**(08-09 R3 教訓:修法把閘往前移會消滅原本的證據鏈):件①/件③ 每次自動裁決都要留一行結構化 log(`orderId` / `attemptId` / 原因 / 計數,零 PII)。沒有它,上線後「殭屍清光了」和「掃描器根本沒跑」在觀測上長得一模一樣。
+6. **觀測性**(08-09 R3 教訓:修法把閘往前移會消滅原本的證據鏈):件①/件③ 每次自動裁決都要留一行結構化 log。
+   ✅ 件① 已做:函式內 `RAISE LOG '[expire_unpaid_orders] expired=% limit=%'`(零 PII、只有筆數與上限)。
+   ⚠️ **不記 orderId**:一次掃描可能改多列,逐列記會灌爆 log;要知道改了哪些單查
+   `orders WHERE cancelled_reason='payment_expired'`(durable、可查時間)。
+   🔴 **不要期待從 `cron.job_run_details.return_message` 讀到筆數** —— pg_cron 對 SELECT 記的是 command tag。沒有它,上線後「殭屍清光了」和「掃描器根本沒跑」在觀測上長得一模一樣。
 
 ---
 
 ## §5 風險 / rollback / 誠實邊界
 
-- **最大風險 = 件① 誤殺已扣款單**。防線:§2 件① 的 `NOT EXISTS(active attempt)` + 只寫 `cancelled_at`(**不動 `payment_status`、不刪任何資料**)⇒ rollback = 一句 `UPDATE orders SET cancelled_at=NULL, cancelled_reason=NULL WHERE cancelled_reason='payment_expired'`,完全可逆。
+- **最大風險 = 件① 誤殺已扣款單**。防線:§2 件① 的 `NOT EXISTS(非終態 attempt)` + **不動 `payment_status`、不刪任何資料**。
+  🔴 **rollback 不是「完全可逆」**(codex 確認輪更正):函式寫三欄 —— `cancelled_at` / `cancelled_reason`
+  / **`updated_at`**。前兩欄可用一句 `UPDATE orders SET cancelled_at=NULL, cancelled_reason=NULL
+  WHERE cancelled_reason='payment_expired'` 還原;**`updated_at` 還原不了**(舊值沒留),
+  被掃到的列會停在失效當下的時間戳。
 - **第二風險 = 件②/件③ 把雙扣防線開太大**。防線**兩者不同,不可混為一談(codex 關卡2 must-fix D)**:
   - 件②(撞窗即時對帳)只在 Record **明確回終態**(`record_status` -1/5,已 `markFailed`)時放行;
   - 件③(殭屍裁定)放行依據是**零筆查無**,那**不是**終態 —— 它的安全性完全來自「多次觀察 + 年齡閘 T」
