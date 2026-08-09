@@ -1,8 +1,12 @@
 // cancel-action-state.ts — M-4b E10 A9d2-2a:訂單取消 action 的回傳 state + 冪等 token。
 //
-// 🔴🔴 **本檔會被 client 端 import**(A13b 的表單要用 `useActionState` 接 state、並讀 `requestToken`)
-//    ⇒ **不得**引入 `server-only` 或任何 server 專用模組。目前零 IO、零敏感值
-//    (唯一 import 是同目錄的 `isUuid`,它也是 client-safe 的純函式)。
+// 🔴🔴 **維持 client-safe**(零 IO、零敏感值;唯一 import 是同目錄的 `isUuid`,也是純函式)
+//    ⇒ **不得**引入 `server-only` 或任何 server 專用模組。
+//    ⚠️ **理由已經換過一次**(A13b D1 更正):原本寫的是「A13b 表單要用 `useActionState` 接 state」——
+//    那條路 **plan v3 已經換掉**(React 19 form reset 競態會誤送整單取消 ⇒ 改 PRG 整頁化、零 client state)。
+//    現在的理由是:本檔被 `result-banner.tsx`(server component)匯入,而它 4 頁共用;
+//    保持零 server 相依也讓 D2 之後若有 client 需求不必再拆檔。
+//    🔴 `CancelActionState` 那族型別是**舊形狀的殘留**,D2 退場(plan v3.1 §3)。
 //
 // 🔴🔴 **本檔與備註片(`note-action-state.ts`)最大的差異 = 失敗後 token 怎麼處理**。
 //    備註片是「失敗一律原樣帶回同一顆 token」;**取消片照抄會出事**(plan §2.1、K1-13):
@@ -20,6 +24,8 @@ import { isUuid } from './note-action-state';
 
 /** 成功後 PRG 帶的結果碼(理由同 `NOTE_ADDED_RESULT_CODE`:兩邊各打一次字串會靜默 typo)。 */
 export const ORDER_CANCELLED_RESULT_CODE = 'order_cancelled';
+// 🔴 D5 路由要比對的是**完整前綴 `order_cancel_`(含尾底線)**。
+//    寫成 `order_cancel` 會連 `order_cancelled` 一起吞掉 —— 成功碼會被誤判成失敗碼。
 
 /** 表單欄位名(解析器與 A13b 表單共用單一真相,避免兩邊各打一次字串)。 */
 export const CANCEL_ORDER_ID_FIELD = 'order_id';
@@ -69,10 +75,69 @@ export function isCancelRequestToken(value: string): boolean {
  *   - 確定沒留半筆的只有:`retry`(`55P03`/`40P01`)與 `bug` 裡的 `P8C01`/`23514`/`22003`
  *     **都會中止該交易**;`bug` 裡的 `PGRST202`(找不到函式)與 `42501`(ACL 被撤)**根本沒進到函式**。
  *   ⇒ 這四支照樣凍結,但理由是**②同 token 撞 hash + 分不出是哪一種**,不是「都可能已 commit」。
+ *
+ * 🔴 **陣列是真相、型別從陣列推導**(A13b D1 關卡2 must-fix,推翻我第一版):
+ *    第一版是「手寫兩個 union 型別 + 另外手寫兩個 `as const` 陣列 + `satisfies` 對齊」。
+ *    那個形狀有一個**兩邊都不會紅**的洞 —— 把 `invalid` 也加進 `CancelSentCode` 的 union、
+ *    陣列一個字都不動:`satisfies` 只檢查「陣列元素都在 union 裡」(仍成立)、
+ *    窮舉測試比的是陣列 vs `FAILURE_MESSAGES` 的鍵(也沒變)⇒ **全綠**,
+ *    而 `invalid` 從此在型別上可以被塞進「已送達」那條路 = 該凍結卻沒凍結。
+ *    改用 `typeof ARRAY[number]` 之後,型別與執行期清單**在結構上是同一份東西**,對不齊做不到。
  */
-export type CancelNotSentCode = 'denied' | 'invalid';
-export type CancelSentCode = 'rejected' | 'retry' | 'bug' | 'error';
+// 🔴 `Object.freeze`(關卡2 R2):`as const` 只在**編譯期**唯讀 —— 執行期 `Reflect.set()` 改得動陣列,
+//    而型別是編譯期產物、不會跟著變 ⇒ 上面「型別與執行期是同一份東西」那句宣稱會破功。
+export const CANCEL_NOT_SENT_CODES = Object.freeze(['denied', 'invalid'] as const);
+export const CANCEL_SENT_CODES = Object.freeze(['rejected', 'retry', 'bug', 'error'] as const);
+
+export type CancelNotSentCode = (typeof CANCEL_NOT_SENT_CODES)[number];
+export type CancelSentCode = (typeof CANCEL_SENT_CODES)[number];
 export type CancelFailureCode = CancelNotSentCode | CancelSentCode;
+
+/**
+ * PRG 的失敗結果碼(A13b plan v3.1 §1a)—— **一律 namespaced**。
+ *
+ * 🔴 理由是**碰撞**,不是好看:`?r=` 是訂單明細頁**唯一共用的一顆參數**,
+ *    而 `result-banner.tsx` 的訊息表已經被改單線佔用了 `invalid` / `denied` / `error` / `not_found`
+ *    ⇒ 取消線若直接送 `?r=invalid`,員工會看到**改單的**「表單內容不正確,未儲存」。
+ *    關卡1 R1 finding 10 抓到,R2 再確認一次。
+ *
+ * 🔴 **用模板字面型別而不是另寫一張對照表**:對照表要把六個碼名再打一次,
+ *    那正是本檔開頭 `:21` 在避的「兩邊各打一次字串會靜默 typo」。
+ */
+export type OrderCancelFailureResultCode = `order_cancel_${CancelFailureCode}`;
+
+export function toOrderCancelResultCode(code: CancelFailureCode): OrderCancelFailureResultCode {
+  return `order_cancel_${code}`;
+}
+
+/**
+ * D2 組導頁 query 的**唯一入口**,而且**刻意拆成三支不相交的簽章**(D1 窄 R3 must-fix)。
+ *
+ * 🔴 為什麼不留一支扁平的 `toQuery(code, token?)`:那樣「成功路徑最自然的單行寫法」會是
+ *    `?r=…` 忘了帶 `rt`,而它**編譯、測試、lint 全綠** —— 症狀要到員工真的取消完、
+ *    D5 面板拿不到 token 才浮出來:**畫面一片空白**(比 D1 之前更差,而且落在錢的那一面)。
+ *    拆開之後,「已送到 RPC」與「成功」這兩類**在型別上就要不到不帶 token 的版本**
+ *    ⇒ D2 忘記帶 = 編譯期紅,不是靠註解提醒下一個人。
+ *
+ * 🔴 分法對齊唯一判準「有沒有送到 RPC」:
+ *    - `notSentResultQuery` —— 沒送到(RPC 從未被呼叫)⇒ **沒有帳本可查**,不需要也不該帶 token。
+ *    - `sentResultQuery` —— 已送到、結果不明 ⇒ D5 必須拿 token 去帳本核對,`requestToken` **必填**。
+ *    - `cancelledResultQuery` —— 成功 ⇒ 同樣必填:D5 要分得出「這次成功 / 帳本裡的舊紀錄 / 偽造的網址」。
+ *
+ * ⚠️ 回傳的是 query 字串本體(不含 `?`),呼叫端自己接在路徑後面。
+ *    token 是 uuid(`generateCancelRequestToken`)⇒ 無需 encode;不是 uuid 的東西本來就不該走到這裡。
+ */
+export function notSentResultQuery(code: CancelNotSentCode): string {
+  return `r=${toOrderCancelResultCode(code)}`;
+}
+
+export function sentResultQuery(code: CancelSentCode, requestToken: string): string {
+  return `r=${toOrderCancelResultCode(code)}&rt=${requestToken}`;
+}
+
+export function cancelledResultQuery(requestToken: string): string {
+  return `r=${ORDER_CANCELLED_RESULT_CODE}&rt=${requestToken}`;
+}
 
 /**
  * 員工看到的字(plan §4.2 表,逐字)。
@@ -82,8 +147,19 @@ export type CancelFailureCode = CancelNotSentCode | CancelSentCode;
  * 「稍後再試」會誘導重按,而重按可能就是第二筆刪不掉的取消。
  * 🔴 `rejected` 也要叫他重新整理:它同時涵蓋「這張單真的不能取消」與「hash 不符
  * (= 前一次其實成功了)」,兩者都不該就地重送。
+ *
+ * 🔴 **不得寫成 `Object.freeze({ ... })`**(D1 窄 R3 must-fix,實測):把物件字面直接包進 `freeze()`
+ * 會讓 TS 的 **excess-property check 消失** —— 多打一顆不存在的碼**編譯期不紅**
+ * (探針三形狀實跑:直接標註→TS2353 紅、`freeze({...})`→**綠**、先宣告再 freeze→紅)。
+ * 我在 R2 加 freeze 時就是這樣把自己前一輪驗過的那道閘拆掉的,而註解還留著「tsc 會紅」。
+ * ⇒ 形狀固定成「**先宣告 `_SOURCE` 常數(帶標註)→ 再 freeze**」,兩層都在。
+ *
+ 🔴 **A13b D1 起本表被匯出**:`denied` / `invalid` 兩則由 `result-banner.tsx` **逐字沿用**
+ *    (PRG 導頁後由 banner 顯示),不在那邊另寫一份 —— 兩份文案遲早會分岔。
+ *    ⚠️ 另外四則(`rejected`/`retry`/`bug`/`error`)**目前仍只服務舊的 client state 形狀**;
+ *    plan v3.1 §1a 要把它們換成帳本核對面板的動態文案(D5),**在那片落地之前不要說它們已被取代**。
  */
-const FAILURE_MESSAGES: Record<CancelFailureCode, string> = {
+const FAILURE_MESSAGES_SOURCE: Record<CancelFailureCode, string> = {
   denied: '沒有權限或登入已失效,取消沒有送出。',
   invalid: '表單內容不正確,取消沒有送出。',
   rejected:
@@ -96,6 +172,12 @@ const FAILURE_MESSAGES: Record<CancelFailureCode, string> = {
   retry: '系統忙碌,這次沒完成。請重新整理本單確認後再送一次。',
   error: '取消可能已經寫進去了。請重新整理本單確認之後再決定要不要重送。',
 };
+
+// 🔴 `Object.freeze`(關卡2 nit):本表 D1 起被匯出,凍住才擋得掉「呼叫端事後改一句話」——
+//    那會讓 action 回的訊息與 banner 顯示的訊息分岔,而兩邊都不會紅。
+//    🔴 **凍在這裡、不凍在字面上**:理由見上面 docstring(freeze 包字面會吃掉 excess-property check)。
+export const FAILURE_MESSAGES: Readonly<Record<CancelFailureCode, string>> =
+  Object.freeze(FAILURE_MESSAGES_SOURCE);
 
 /** 失敗時原樣帶回的員工輸入(只有「沒送到 RPC」那組才帶得回)。 */
 export type CancelFormInput = {

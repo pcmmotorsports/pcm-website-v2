@@ -11,11 +11,20 @@ import {
   REFUND_MARKED_FAILED_RESULT_CODE,
   REFUND_RECOVERED_RESULT_CODE,
 } from '../../lib/payment/refund-recovery-state';
+import {
+  FAILURE_MESSAGES as CANCEL_FAILURE_MESSAGES,
+  toOrderCancelResultCode,
+} from '../../lib/orders/cancel-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
 
-const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> = {
+// 🔴 **匯出是為了讓「零碰撞」那道守門有判別力**(A13b D1 code-review must-fix):
+//    測試原本拿一份**硬寫的既有碼快照**(只有改單線那 7 顆)去比對,而本表實際有 16 顆鍵
+//    ⇒ 快照漏掉的那 7 顆(備註 1 + 退款 3 + 採購 3)就算被撞上也照樣綠。改成由測試讀本表的鍵集合、逐顆歸類,
+//    **新增任何一顆沒被歸類的碼都會轉紅** —— 那時要做的是去測試裡把它歸到對的線,不是放寬斷言。
+export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>> =
+  Object.freeze({
   saved: { text: '已儲存變更。', tone: 'ok' },
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
   conflict: { text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。', tone: 'warn' },
@@ -55,7 +64,38 @@ const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> 
     text: '沒有變更(送出的內容與目前的採購紀錄完全相同)。',
     tone: 'ok',
   },
-};
+  // 🔴 M-4b E10 **A13b D1**:取消線改走 PRG 整頁化 ⇒ 這是它第一次有結果提示。
+  //    **失敗碼**一律 namespaced(`order_cancel_*`):`?r=` 是本頁唯一共用的參數,而上面
+  //    `invalid`/`denied`/`error`/`not_found` 已被改單線佔走 —— 取消線送裸 `invalid`
+  //    會讓員工看到改單的「未儲存」。實算:六顆裸碼裡真正會撞的是 `denied`/`invalid`/`error` **三顆**。
+  //
+  //    🔴🔴 **成功碼 `order_cancelled` 刻意不在這張表裡**(D1 關卡2 must-fix,推翻我第一版):
+  //    第一版把它登錄成一則靜態綠色「取消已完成。」,而 `?r=` 是**任何人都能自己打的字**
+  //    ⇒ 對一張根本沒被取消的單(甚至在訂單列表頁、退款異常頁)貼上 `?r=order_cancelled`,
+  //    畫面就會說「取消已完成」。**錯的方向是危險的那一邊**:員工看到綠字就不會再去取消它。
+  //    ⓘ 對照:下面 A 類兩碼被偽造時說的是「取消**沒有**送出」—— 錯的方向是**比較不危險**的那一邊
+  //    (它讓人多做一次,而不是漏做)。
+  //    🔴 **但不是無害**(關卡2 R2 打掉我上一版寫的「重送會被冪等鍵吸收」——那句是錯的):
+  //    重新渲染會拿到**一把新的 token** ⇒ 新的 payload_hash ⇒ **部分取消在剩餘量足夠時會真的再扣一次**。
+  //    這與 plan §6-5 記的是同一個殘餘風險(backlog #353),不是這裡多出來的新洞,
+  //    但**不准**再寫成「被冪等吸收」。
+  //    ⇒ 成功訊息移交 **D5**:那片有 `?rt=` 對取消帳本的核對,說得出「真的寫進去了」才顯示。
+  //    在 D5 落地之前,取消成功後畫面上沒有提示 —— 與 D1 之前相同,**不是回歸**。
+  //
+  //    ⓘ 下面兩顆用 computed key(`toOrderCancelResultCode(...)`)⇒ **全樹 grep `order_cancel_denied`
+  //    在本檔找不到字面**;這是刻意的(單一真相 > 好 grep),要找請 grep 那支函式。
+  // 🔴 **只收「沒送到 RPC」那兩支**(`CANCEL_NOT_SENT_CODES`)。已送到 RPC 的四支
+  //    (`rejected`/`retry`/`bug`/`error`)**刻意不在這張表裡** —— 它們要的不是一則靜態文案,
+  //    而是拿 `?rt=` 去取消帳本核對「到底寫進去了沒有」(plan v3.1 §1c,D5 的面板)。
+  //    誤把它們加進來 = 員工看到一句安心的話、卻錯過那道核對 ⇒ 測試對這件事有**反向斷言**。
+  // 🔴 文案逐字沿用 `cancel-action-state.ts` 的 `FAILURE_MESSAGES`,不在這裡另寫一份。
+  [toOrderCancelResultCode('denied')]: { text: CANCEL_FAILURE_MESSAGES.denied, tone: 'error' },
+  [toOrderCancelResultCode('invalid')]: { text: CANCEL_FAILURE_MESSAGES.invalid, tone: 'warn' },
+  // 🔴 `Object.freeze`(關卡2 R2):本表 D1 起被匯出給測試讀鍵集合,凍住才擋得掉
+  //    「某個正式模組 import 後偷加一顆碼」——那條路測試抓不到(測試不會載入那個模組)。
+  //    ⚠️ **誠實界線:這是淺 freeze** —— 擋得住「加/刪一顆碼」,擋**不住** `MESSAGES.saved.text = '…'`
+  //    這種改內層物件的寫法。要擋那個得逐顆 freeze;目前 repo 零 mutator,不先付這個複雜度。
+});
 
 const TONE = {
   ok: 'border-green-500/30 bg-green-500/5 text-green-700',

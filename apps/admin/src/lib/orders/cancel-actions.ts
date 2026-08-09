@@ -33,15 +33,23 @@ import { cancelOrder } from './cancel-repository';
 //
 // 🔴 **本檔沒有一行稽核 code** —— `admin_cancel_order` 在同交易寫 `admin_audit_log`。
 //
-// ⚠️ **成功導頁後畫面上不會有任何提示**:`order_cancelled` 要等**片 9** 才接進
-//   `result-banner.tsx`(Phase 2,plan §3 逐字「本期零行」)。這是 DAG 序,不是漏做。
+// ⚠️ **成功導頁後畫面上仍然沒有提示**(A13b D1 現況;本段的「要等片 9」已改寫,片 9 = 現在的 D1/D5):
+//   `order_cancelled` **刻意沒有**進 `result-banner.tsx` 的訊息表 —— `?r=` 是任何人都能自己打的字,
+//   靜態的成功訊息等於對一張沒被取消的單說「已完成」(D1 關卡2 must-fix)。
+//   ⇒ 成功訊息移交 **D5**:由 `?rt=` 對取消帳本核對後才顯示。
+//   🔴 **因此 D2 有一個硬義務**:成功那條 `redirect` 現在只帶 `r`(見下面 `:` 的成功路徑),
+//   **必須一併帶上本次的 request token**,否則 D5 無從分辨「這次成功 / 舊紀錄 / 偽造的網址」。
+//   ⚠️ **失敗那六碼也還沒有人送**:D1 只登錄了「沒送到 RPC」的 `denied`/`invalid` 兩支
+//   (namespaced 成 `order_cancel_*`),而**本檔目前仍是回 action state、不是導頁**
+//   ⇒ 那兩顆碼要等 **D2** 把失敗路徑改成 `redirect` 才會被用到。
+//   已送到 RPC 的四支(`rejected`/`retry`/`bug`/`error`)同樣不進 banner,走 D5 的帳本核對面板。
 //   ⓘ **未知碼靜默不顯示,現在由守門本身承擔**(#332-2,Sean 2026-08-06 拍板 Q1=A):
 //   `result-banner.tsx` 的查表已硬化成 `Object.hasOwn(MESSAGES, code)`
 //   ⇒ 任何非自有 key(含 `__proto__` 那族)都走 `return null`。
 //   歷史註記:2026-08-02 拍板 B 曾把這個修法退回,那段期間本檔逐字警告過
 //   「不要照抄『banner 用 hasOwn 所以未知碼安全』」—— 當時那句話是假的(裸索引),
 //   `order_cancelled` 之所以安全只是**因為這個字串剛好不在原型鏈上**。現在理由變成守門本身,
-//   兩者結論相同但**依據不同**:片 9 接線時可以依賴守門,不必再論證字串「剛好不毒」。
+//   兩者結論相同但**依據不同**:D1 接線時可以依賴守門,不必再論證字串「剛好不毒」。
 
 const ORDERS_PATH = '/orders';
 
@@ -115,7 +123,7 @@ export async function cancelOrderAction(
   //    `prevState` 是 client 送回來的參數,偽造 `undefined` 不得在授權前把這裡炸成 500。
   // 🔴🔴 **這是 UX 層、不是安全邊界**:持有效 session 者可以偽造 `idle` 繞過它。
   // 🔴 **而且「RPC 的 UNIQUE 會擋住第二筆」是過度保證**(關卡2 codex must-fix 抓到我寫太滿):
-  //    `(order_id, idempotency_key)` UNIQUE + payload hash(`cancel-action-state.ts:129-131`)
+  //    `(order_id, idempotency_key)` UNIQUE + payload hash(`cancel-action-state.ts:166-167`)
   //    只擋得住**同一顆 token** 的重送。換一顆新 token 送同一份 payload:
   //    - 整單取消 → 會被 RPC 的業務檢查擋(單已取消);
   //    - **部分取消 → 擋不住** —— 分次累積本來就是合法用法,剩餘量夠就真的再扣一次。
@@ -179,7 +187,7 @@ export async function cancelOrderAction(
     //    員工拿到 500、重載換到新 token,而前一次可能已經 commit ⇒ 正是重複部分取消的路。
     safeRevalidate(parsed.orderId, httpRequestId);
     // 🔴 **原樣帶回這次送出的 token**(不鑄新的):換新鍵 = 全新 payload_hash =
-    //    同一份 payload 會真的再取消一次(`cancel-action-state.ts:228-229`)。
+    //    同一份 payload 會真的再取消一次(`cancel-action-state.ts:265-266`)。
     // 🔴 **`carried` 也要原樣帶回**:片 4 義務 5 的比對要在凍結畫面上做,
     //    而畫面得先知道「員工剛送出的是什麼」才畫得出那一列。
     return cancelSentFailure(outcome.code, carried, parsed.requestToken);
