@@ -33,7 +33,8 @@
      新信全數處理後 touch baseline(全量比對,禁 head/tail 截斷、禁檔名差集——比 mtime)
    ②跑 window-liveness,沉默>15 分的窗發 SendMessage poke「一句話報進度」(worktree 檔案在動=施工中,不 poke);
      poke 後再 15 分零訊號=盤點該 worktree 現場(dirty 保留不清),通報老闆附「接手現場、不重做」重開提示詞,不自行重開
-   ③確認 Monitor 活著 ④重排心跳 600s。
+   ③確認 Monitor 活著 ④查未回應帳:主視窗每發一封 A/裁決信登記進 ~/quote-mailbox/.pending-replies.md、
+     收到對應回信銷帳;逾 20 分未回=poke 該窗 ⑤重排心跳 600s。
 
 【信箱協定】
 - 信件命名:<窗代號>-<流水號>-<型別>.md,型別=A(主視窗派工/裁決)/STOP(施工窗停點回報)/Q(問題)/CLOSE+ACK(關窗)。
@@ -81,6 +82,8 @@ session 看不到自己的 socket,不用也不要自己猜寫。)
 取主視窗位址 → SendMessage 敲門鈴(內容只指向信檔)。收到不是給自己的訊息=回「誤投」。
 掃信用 find -newer <基準檔> 全量比 mtime,禁 head/tail 截斷。
 停下來=寫 X-nnn-STOP 信 → 敲門鈴 → 等回信,不空等也不亂做。
+🔴 收到主視窗的 A/裁決信=**10 分內回一封 ≤5 行 ACK 信**(收到+下一動作);正式內容**永遠落信箱**,
+門鈴訊息只准指信檔名——「寫進 repo/跑了審查」都不算回報,沒落信=對主視窗等於沒發生。
 
 【施工】開自己的 worktree:git worktree add <路徑> -b <分支> <基底>。之後所有改動都在 worktree。
 完片=跑完該跑的驗證(exit 分開驗)→ commit(不 push)→ STOP 信附:改了什麼/驗了什麼(附數字)/
