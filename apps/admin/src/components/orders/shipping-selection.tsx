@@ -22,8 +22,15 @@
 //
 // 🔴 **沒有全選框**(C 版線框上那句話):全選必然跨客人,而跨客人裝同一箱一定被退件。
 //    畫面上不提供一個「按了一定失敗」的按鈕。
+//
+// 🔴 **冪等鍵在這裡生成(開窗時一次),不在 action 裡生成。**
+//    `crypto.randomUUID()` 只出現在「開窗」那一個地方;送出與重試都沿用同一把。
+//    守門釘住:`shipment-actions.ts` 不得出現任何鍵產生器。
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { ShipmentDialog } from './shipment-dialog';
+import { fetchShipmentCandidates } from '../../lib/shipping/shipment-actions';
+import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates';
 
 type SelectionState = {
   /** 目前這批勾選屬於哪位客人;`null` = 還沒勾任何單。 */
@@ -137,6 +144,32 @@ export function OrderShipCheckbox({
 /** 勾選後浮出的動作列。沒勾任何單時整條不渲染(不佔位、不留一個 disabled 的鈕在那裡)。 */
 export function ShippingSelectionBar() {
   const s = useSelection();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /**
+   * 開著的彈窗。`key` 是**冪等鍵**,在**開窗時生成一次**、整段重試沿用。
+   * 🔴 不要移到送出時生成 —— 那樣每次重試都是新鍵,冪等層完全失效**而且零症狀**
+   *    (連按兩次真的建出兩個箱子,兩次都回報成功)。
+   */
+  const [open, setOpen] = useState<{ key: string; data: ShipmentCandidates } | null>(null);
+
+  const openDialog = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const data = await fetchShipmentCandidates(s.orderIds);
+      if (data.items.length === 0) {
+        setError('這些訂單沒有可出貨的品項(可能都已取消,或已經裝進其他箱子了)。');
+        return;
+      }
+      setOpen({ key: crypto.randomUUID(), data });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [s.orderIds]);
+
   if (s.orderIds.length === 0) return null;
   return (
     <div className='bg-foreground text-background mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg px-4 py-2.5'>
@@ -148,10 +181,11 @@ export function ShippingSelectionBar() {
             刻意不放一個「假裝會動」的鈕:disabled + 說明,比按了沒反應誠實。 */}
         <button
           type='button'
-          disabled
+          disabled={loading || s.customerUserId === null}
+          onClick={() => void openDialog()}
           className='bg-background text-foreground rounded px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
         >
-          出貨({s.orderIds.length} 單)
+          {loading ? '載入中…' : `出貨(${s.orderIds.length} 單)`}
         </button>
         <button
           type='button'
@@ -161,6 +195,21 @@ export function ShippingSelectionBar() {
           取消勾選
         </button>
       </span>
+      {error !== null && <span className='w-full text-xs'>{error}</span>}
+      {open !== null && s.customerUserId !== null && (
+        <ShipmentDialog
+          customerUserId={s.customerUserId}
+          candidates={open.data.items}
+          recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
+          idempotencyKey={open.key}
+          onClose={() => setOpen(null)}
+          onDone={() => {
+            // 成功之後清空勾選並關窗;下一次開窗會生成**新的**冪等鍵(那是另一箱)。
+            setOpen(null);
+            s.clear();
+          }}
+        />
+      )}
     </div>
   );
 }
