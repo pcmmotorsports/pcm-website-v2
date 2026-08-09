@@ -193,6 +193,33 @@ export type ShipmentItemRow = {
   shippedQuantity: number;
 };
 
+/**
+ * 依箱 id 取箱(訂單詳情頁的出貨卡用:先由品項查到箱 id,再查箱本身)。
+ *
+ * ⚠️ 不走 `listShipmentsByCustomer` 的原因:`AdminOrderDetail` **沒有 customer id**
+ * (見 `shipment-candidates.ts` 檔頭那段),詳情頁拿不到客人身分。
+ */
+export async function listShipmentsByIds(ids: readonly string[]): Promise<ShipmentRow[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipments')
+    .select('id, shipment_reference, customer_user_id, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at, void_reason')
+    .in('id', [...ids])
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    shipmentReference: r.shipment_reference,
+    customerUserId: r.customer_user_id,
+    carrierCode: r.carrier_code,
+    carrierNote: r.carrier_note,
+    trackingNumber: r.tracking_number,
+    shippedAt: r.shipped_at,
+    voidedAt: r.deleted_at,
+    voidReason: r.void_reason,
+  }));
+}
+
 /** 某位客人的所有包裹(建箱動線用:看他還有哪些箱在路上)。 */
 export async function listShipmentsByCustomer(customerUserId: string): Promise<ShipmentRow[]> {
   const { data, error } = await createSupabaseServiceClient()

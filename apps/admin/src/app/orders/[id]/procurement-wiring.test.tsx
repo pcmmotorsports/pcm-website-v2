@@ -53,6 +53,16 @@ vi.mock('../../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }
 
 import OrderDetailPage from './page';
 
+// 🔴 2c:`<ShipmentSection>` 是 **async server component**,而本檔用 RTL **同步**渲染
+//    ⇒ 不 mock 的話整個 OrderDetail 渲染不出來(症狀是 container 變空字串、本檔全紅)。
+//    真實 Next 下 async server component 是支援的,**這是測試工具的限制、不是產品缺陷**。
+//    本檔測的是採購/退款/九碼,出貨卡有自己的測試(`shipment-section.test.tsx` +
+//    `order-shipments.test.ts`)⇒ 這裡換成佔位、不影響本檔要驗的東西。
+vi.mock('../../../components/orders/shipment-section', () => ({
+  ShipmentSection: () => null,
+}));
+
+
 const ORDER = '11111111-1111-4111-8111-111111111111';
 const ITEM = '22222222-2222-4222-8222-222222222222';
 const SUPPLIER = '33333333-3333-4333-8333-333333333333';

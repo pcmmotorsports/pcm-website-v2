@@ -18,6 +18,7 @@ import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { ItemProcurementSection } from './item-procurement-section';
+import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
@@ -336,6 +337,10 @@ export function OrderDetail({
         suppliers={suppliers}
         suppliersFailed={suppliersFailed}
       />
+
+      {/* 2c:出貨卡。**查看與補救用,不是主要建箱動線**(建箱走訂單總覽勾單、Sean 拍 S1=A)。
+          放在採購之後、備註之前 —— 採購(進貨)→ 出貨(出貨)是員工的實際時序。 */}
+      <ShipmentSection detail={detail} />
 
       {/* A10a-2/-3:備註時間軸 + 表單。token 在本 server component 渲染期產(Q2=C;
           頁層 force-dynamic、此處零快取層 —— 契約債①的「不得落快取層」就是指這一行)。

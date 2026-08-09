@@ -19,10 +19,14 @@ const addShipmentItems = vi.fn();
 const markShipmentShipped = vi.fn();
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('./shipment-candidates', () => ({ loadShipmentCandidates: vi.fn() }));
+const voidShipment = vi.fn();
+const unvoidShipment = vi.fn();
 vi.mock('./shipment-repository', () => ({
   createShipment,
   addShipmentItems,
   markShipmentShipped,
+  voidShipment,
+  unvoidShipment,
 }));
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -51,6 +55,8 @@ beforeEach(() => {
   });
   addShipmentItems.mockReset().mockResolvedValue({ idempotent: false });
   markShipmentShipped.mockReset().mockResolvedValue({ idempotent: false });
+  voidShipment.mockReset().mockResolvedValue({ idempotent: false });
+  unvoidShipment.mockReset().mockResolvedValue({ idempotent: false });
 });
 
 describe('🔴 冪等鍵 — 三支共用同一把,且本檔不得自己產', () => {
@@ -133,5 +139,38 @@ describe('只建箱 / 建箱並出貨', () => {
     expect(createArgs.carrierNote).toBe('客人自取');
     const shipArgs = markShipmentShipped.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(Object.keys(shipArgs)).not.toContain('trackingNumber');
+  });
+});
+
+describe('作廢 / 復原(片 2c)', () => {
+  it('🔴 作廢按鈕的冪等鍵:失敗重按沿用同一把、成功後才清掉', () => {
+    const { readFileSync } = require('node:fs') as typeof import('node:fs');
+    const src = readFileSync(
+      resolve(HERE, '../../components/orders/shipment-void-button.tsx'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m: string) => m.replace(/[^\n]/g, ' '));
+    // 生成點恰好 1 個,且必須是 `key ?? crypto.randomUUID()` 這種「沒有才生」的形狀 ——
+    // 寫成無條件 `crypto.randomUUID()` = 每次重按換新鍵、冪等失效(連按兩次會作廢兩次)。
+    expect([...src.matchAll(/randomUUID\(\)/g)].length, '鍵生成點不是恰好 1 個').toBe(1);
+    expect(src, '不是「沒有才生」的形狀 ⇒ 每次重按都換新鍵').toMatch(/key\s*\?\?\s*crypto\.randomUUID\(\)/);
+    expect(src, '成功後沒有把鍵清掉 ⇒ 下一次作廢別箱會沿用舊鍵').toMatch(/setKey\(null\)/);
+  });
+
+  it('作廢必須帶原因(RPC 的 p_void_reason 是必填)', async () => {
+    const { voidShipmentAction } = await import('./shipment-actions');
+    await voidShipmentAction({ idempotencyKey: 'K', shipmentId: 's', voidReason: '客人改地址' });
+    expect(voidShipment).toHaveBeenCalledWith({
+      idempotencyKey: 'K',
+      shipmentId: 's',
+      voidReason: '客人改地址',
+    });
+  });
+
+  it('作廢失敗 → ok:false 帶原訊息(不改寫)', async () => {
+    voidShipment.mockRejectedValue(new Error('作廢:包裹 K7X2MP 已經寄出了,不能作廢。'));
+    const { voidShipmentAction } = await import('./shipment-actions');
+    const r = await voidShipmentAction({ idempotencyKey: 'K', shipmentId: 's', voidReason: 'r' });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.message).toContain('已經寄出');
   });
 });

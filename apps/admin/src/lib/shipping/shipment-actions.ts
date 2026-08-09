@@ -25,6 +25,8 @@ import {
   addShipmentItems,
   createShipment,
   markShipmentShipped,
+  unvoidShipment,
+  voidShipment,
   type CarrierCode,
   type RecipientSnapshot,
   type ShipmentItemInput,
@@ -104,4 +106,43 @@ export async function fetchShipmentCandidates(
   orderIds: readonly string[],
 ): Promise<ShipmentCandidates> {
   return loadShipmentCandidates(orderIds);
+}
+
+export type VoidResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * 作廢一箱(片 2c)。
+ *
+ * 🔴 **作廢不是刪除**:`shipments` 有 `block_delete` trigger,列會留著、只是 `deleted_at` 有值。
+ * 效果是那些品項**回到可出貨池**(合約:「要重新出這批貨請開一張新的包裹」)。
+ * ⇒ 畫面要把作廢的箱**繼續列出來**,否則員工會以為貨憑空消失。
+ *
+ * 🔴 冪等鍵由呼叫端給(同建箱那條紀律)。這裡不產。
+ */
+export async function voidShipmentAction(args: {
+  idempotencyKey: string;
+  shipmentId: string;
+  voidReason: string;
+}): Promise<VoidResult> {
+  try {
+    await voidShipment(args);
+    revalidatePath('/orders');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** 復原作廢(片 2c)。 */
+export async function unvoidShipmentAction(args: {
+  idempotencyKey: string;
+  shipmentId: string;
+}): Promise<VoidResult> {
+  try {
+    await unvoidShipment(args);
+    revalidatePath('/orders');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
 }
