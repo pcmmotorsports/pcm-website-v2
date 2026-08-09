@@ -297,10 +297,13 @@
   color: var(--c-text-2);
   margin: 0 0 24px;
 }
+/* 08-09 Q4=B:底色是 `var(--c-text)`(會跟著主題翻)⇒ 白字換 `--c-text-inverse` 是真正的反相配對。
+   同檔 `.cart-checkout` 的白字**刻意不換** —— 它坐在 `var(--c-red)` 上,紅底在深色模式不翻。
+   判準與全站未改清單見 color-tokens.test.ts 的 ALLOW。 */
 .btn-primary {
   padding: 14px 32px;
   background: var(--c-text);
-  color: #fff;
+  color: var(--c-text-inverse);
   font-size: 13px;
   letter-spacing: 0.04em;
 }

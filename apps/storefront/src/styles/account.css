@@ -45,10 +45,16 @@
   margin-bottom: 36px; /* 🔶 R1 9-3 */
   border-bottom: 1px solid var(--c-border);
 }
+/* 08-09 Q4=B `#fff` 吃 token —— 本檔 6 處全是同一個形狀:`background: var(--c-text)` 配白字。
+   這是**真正的反相配對**:淺色 #121214 底 / #ffffff 字,深色 #fafafa 底 / #0a0a0a 字,兩邊都對。
+   🔴 只有底色**會跟著主題翻**的白字才該換成 `--c-text-inverse`。
+   固定底(--c-red / --c-graphite / 照片疊字 / rgba 黑)上的白字**必須保持字面 #fff** ——
+   那些底在深色模式不翻,字跟著翻成 #0a0a0a 會直接消失(tokens.css:102 已就此立過字)。
+   全站分類與未改清單見 color-tokens.test.ts 的 ALLOW。 */
 .acc-avatar {
   width: 72px; height: 72px;
   background: var(--c-text);
-  color: #fff;
+  color: var(--c-text-inverse);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -112,7 +118,7 @@
   /* 🔶 R1 nit:原本寫了兩次 `color`(第一次 `--c-text` 被第二次 `#fff` 蓋掉、是死宣告)。
      交接單 §八-3 明文「等價清理、要不要收由網站端決定」⇒ 本批既然大改這條規則的鄰居,順手收掉。 */
   background: var(--c-text);
-  color: #fff;
+  color: var(--c-text-inverse);
 }
 /* 🔶 第4批 R1 9-2:由「置中的 13px 字元」改成 18×18 的 flex 容器(裡面是 inline SVG)。
    顏色分三階:預設最淺、hover 中間、`.is-active`(黑底)半透明白 —— **不是純白也不是灰**。 */
@@ -383,7 +389,7 @@
 }
 .acc-bike-primary {
   background: var(--c-text);
-  color: #fff;
+  color: var(--c-text-inverse);
 }
 .acc-bike-primary .ap-mono { color: rgba(255,255,255,0.6); }
 .acc-bike h3 {
@@ -442,7 +448,7 @@
   letter-spacing: 0.12em;
   padding: 2px 8px;
   background: var(--c-text);
-  color: #fff;
+  color: var(--c-text-inverse);
 }
 .acc-addr-name {
   font-size: 16px;
@@ -711,7 +717,7 @@
   .acc-nav button:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
   .acc-nav button.is-active {
     background: var(--c-text);
-    color: #fff;
+    color: var(--c-text-inverse);
   }
   /* 圖示翻回半透明白(對齊桌機;OD 同區塊內 grep `.is-active .acc-nav-icon`)。
      守的不變量是「圖示與所在底色要有對比」:上面這條翻回黑底之後,原本為了配透明底才改的
@@ -764,7 +770,7 @@
 [data-mobile="true"] .acc-nav button:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
 [data-mobile="true"] .acc-nav button.is-active {
   background: var(--c-text);
-  color: #fff;
+  color: var(--c-text-inverse);
 }
 /* 同 MF1,`[data-mobile]` 兜底那一路(0,2,0 ⇒ 也贏過全域那條)。圖示翻回半透明白理由同上。 */
 [data-mobile="true"] .acc-nav button.is-active .acc-nav-icon { color: rgba(255,255,255,0.75); }

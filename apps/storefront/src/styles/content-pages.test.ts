@@ -201,8 +201,10 @@ describe('🔴 第1批 · 404 主鈕那個 scope 的兩個前提(前提消失要
     // 🔴 R1 nit N4:`.err-btn-primary` 折入了底色與框線,但白字 `color: #fff` **仍完全倚賴這裡**。
     //    熔橘底白字是這顆鈕的核心視覺,少了它就是熔橘底配墨黑字(且對比只剩 3.1 的反面)。
     //    這條讓「有人動了 cart.css 的 color」變成紅,而不是 404 頁悄悄變醜。
+    // 🔴 2026-08-09 Q4=B:白字改由 `var(--c-text-inverse)` 提供(底色 `var(--c-text)` 是它的反相對,
+    //    深色模式要一起翻)。本條守的是「**白字還在**」而非寫法 ⇒ 兩種都收、第三種顏色照樣紅。
     expect(body, '.btn-primary 不再提供白字 ⇒ 404 主鈕會變成熔橘底配深色字').toMatch(
-      /color:\s*#fff\b/i,
+      /color:\s*(#fff\b|var\(\s*--c-text-inverse\s*\))/i,
     );
   });
 
