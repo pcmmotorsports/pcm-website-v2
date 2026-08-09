@@ -1,27 +1,26 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
+import { RedirectType, redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 import { authorizeAdminMutation } from '../session/authorize';
 import { parseOrderCancelForm } from './cancel-form';
 import {
-  CANCEL_ITEM_FIELD,
-  CANCEL_MODE_FIELD,
-  CANCEL_REASON_CODE_FIELD,
-  CANCEL_REASON_DETAIL_FIELD,
-  ORDER_CANCELLED_RESULT_CODE,
-  cancelNotSentFailure,
-  cancelSentFailure,
-  type CancelActionState,
-  type CancelFormInput,
+  CANCEL_ORDER_ID_FIELD,
+  cancelledResultQuery,
+  notSentResultQuery,
+  sentResultQuery,
 } from './cancel-action-state';
+import { isUuid } from './note-action-state';
 import { cancelOrder } from './cancel-repository';
 
 // cancel-actions.ts — M-4b E10 A9d2-2c:取消訂單 server action。
 //
-// 🔴 **混合形**(同備註片 `note-actions.ts:25-26`,Sean 2026-08-02 拍板 Q1=A):
-//   失敗回 state、成功才 `redirect()`(PRG,避免重整重送)。
+// 🔴 **全 PRG、零 client state**(A13b **D2a**;`E-012-A` Q1=A 換路,推翻本片原本的「混合形」)。
+//   原本是「失敗回 action state、成功才 redirect」——那個形狀在 React 19 的 form reset 競態下
+//   **可能誤送整單取消**(四輪修不穩,`E-011-STOP`)⇒ 現在**每一條路徑都導頁**,
+//   URL 上只留碼與 token:**A 類(沒送到 RPC)只帶碼**(帳本裡本來就沒那筆,給 token 是叫 D5 去找鬼);
+//   **B 類與成功帶碼 + `rt`**。畫面狀態一律由 server 從帳本重建。
 //
 // 🔴 **主流程一行 try 都沒有,是刻意的**:`cancel-repository.ts` 永不 throw、把所有失敗
 //   收斂成回傳值 ⇒ 「`redirect()` 拋的 NEXT_REDIRECT 被 catch 吞掉、把已經成功的取消
@@ -33,16 +32,13 @@ import { cancelOrder } from './cancel-repository';
 //
 // 🔴 **本檔沒有一行稽核 code** —— `admin_cancel_order` 在同交易寫 `admin_audit_log`。
 //
-// ⚠️ **成功導頁後畫面上仍然沒有提示**(A13b D1 現況;本段的「要等片 9」已改寫,片 9 = 現在的 D1/D5):
-//   `order_cancelled` **刻意沒有**進 `result-banner.tsx` 的訊息表 —— `?r=` 是任何人都能自己打的字,
-//   靜態的成功訊息等於對一張沒被取消的單說「已完成」(D1 關卡2 must-fix)。
-//   ⇒ 成功訊息移交 **D5**:由 `?rt=` 對取消帳本核對後才顯示。
-//   🔴 **因此 D2 有一個硬義務**:成功那條 `redirect` 現在只帶 `r`(見下面 `:` 的成功路徑),
-//   **必須一併帶上本次的 request token**,否則 D5 無從分辨「這次成功 / 舊紀錄 / 偽造的網址」。
-//   ⚠️ **失敗那六碼也還沒有人送**:D1 只登錄了「沒送到 RPC」的 `denied`/`invalid` 兩支
-//   (namespaced 成 `order_cancel_*`),而**本檔目前仍是回 action state、不是導頁**
-//   ⇒ 那兩顆碼要等 **D2** 把失敗路徑改成 `redirect` 才會被用到。
-//   已送到 RPC 的四支(`rejected`/`retry`/`bug`/`error`)同樣不進 banner,走 D5 的帳本核對面板。
+// ⚠️ **導頁之後畫面上會看到什麼,本檔決定不了**(D2a 現況,誠實寫清楚):
+//   - `order_cancel_denied` / `order_cancel_invalid`(沒送到 RPC 那兩支)⇒ 既有 `ResultBanner` 有文案。
+//   - **成功碼與「已送到 RPC」那四支目前畫面上一片空白** —— 它們刻意不進 banner:
+//     `?r=` 是任何人都能自己打的字,靜態訊息等於對一張沒被取消的單說「已完成」(D1 關卡2 must-fix)。
+//     它們要由 **D5 的帳本核對面板**拿 `?rt=` 對帳本查出真話才顯示。
+//   🔴 ⇒ **D5 落地前,取消成功後員工看不到提示**。這與 D1 之前相同、不是回歸,
+//     但**在 D5 之前不得接線曝光給員工**(plan §3 的排序原則)。
 //   ⓘ **未知碼靜默不顯示,現在由守門本身承擔**(#332-2,Sean 2026-08-06 拍板 Q1=A):
 //   `result-banner.tsx` 的查表已硬化成 `Object.hasOwn(MESSAGES, code)`
 //   ⇒ 任何非自有 key(含 `__proto__` 那族)都走 `return null`。
@@ -53,27 +49,21 @@ import { cancelOrder } from './cancel-repository';
 
 const ORDERS_PATH = '/orders';
 
-/** 🔴 `orderId` 必然已過解析器的 uuid 閘(能走到這裡就代表解析成功)。 */
+/** 🔴 `orderId` 必已過 uuid 閘 —— **兩個來源都是**:完整解析器,或 `readRedirectTargetOrderId`。 */
 function detailPath(orderId: string): string {
   return `${ORDERS_PATH}/${orderId}`;
 }
 
-/** 授權失敗時用的空輸入 —— 見下面 `denied` 那段的取捨說明。 */
-const EMPTY_INPUT: CancelFormInput = {
-  cancelMode: '',
-  reasonCode: '',
-  reasonDetail: '',
-  items: [],
-};
-
 /**
  * 重取明細頁(plan §2 慣例 3:**失敗路徑也要 revalidate**;前例 `note-actions.ts:133-135`)——
- * `rejected` / `error` / `bug` 的 payload 形狀那一支都可能已經寫進去了,不重取的話員工會停在
- * 看不到那筆取消的舊畫面。這也是片 4 義務 5 的「可比對時間窗」:歷程當場刷新、token 還在 client state。
+ * `rejected` / `error` / `bug` 的 payload 形狀那一支都可能已經寫進去了,不重取的話**導頁之後那一頁**
+ * 會停在看不到那筆取消的舊快取上,而 D5 的帳本核對面板正是要在那頁上說「你那筆寫進去了沒有」。
+ * ⚠️ 理由已隨 D2a 換過:原本寫的是「凍結畫面上兩顆鍵同時在」——那個時間窗隨 client state 一起消失了。
  *
  * 🔴 **拋錯不得往外傳**(關卡2 codex must-fix):它是「讓畫面新一點」的動作,不是取消成功與否的一部分。
- * 讓它炸出去 = 補償 log 與凍結 state 全部消失、員工重載換到新 token,而前一次可能已 commit
- * ⇒ 換一顆 token 的部分取消**擋不住**(見上面凍結那段)。這是本片唯一的 try,且離 `redirect()` 很遠。
+ * 讓它炸出去 = 補償 log 與導頁**全部不會發生**,員工拿到 500、重整後表單重繪換到新 token,
+ * 而前一次可能已 commit ⇒ 換一顆 token 的部分取消**擋不住**(§6-5 認列的殘餘風險、backlog #353)。
+ * 這是本檔唯一的 try,且離 `redirect()` 很遠。
  */
 function safeRevalidate(orderId: string, requestId: string): void {
   try {
@@ -88,61 +78,72 @@ function safeRevalidate(orderId: string, requestId: string): void {
 }
 
 /**
- * 失敗時原樣帶回員工輸入(**未解析、未正規化**)。
+ * 失敗導頁的單一出口。
  *
- * 🔴 `items` 用 `getAll`:品項是可重複欄位,`get()` 只拿得到第一筆
- * ⇒ 「勾了 5 個」會靜默變成「只帶回第 1 個」(同 `cancel-form.ts:41-42` 的理由)。
+ * 🔴 **一律 `replace`**:`redirect()` 在 Server Action 預設是 push ⇒ 每失敗一次就在瀏覽器歷史
+ *    多堆一格帶著結果碼的網址,上一頁按回去會重播一個早就不成立的畫面。
+ *    ⚠️ **但安全論證不掛在這上面**(plan §1b):Next 16.2.6 的 progressive(無 JS)路徑只送 303
+ *    Location、不吃 `replace`,而**該路徑的實際 history 行為本窗沒有量過**
+ *    (要量得起真的 admin + 真瀏覽器,`E-031-A` 把那件事排到 #350 線下)。
+ *    ⇒ 真正撐住「重播看不到假訊息」的是 D5 那側:**顯示什麼一律先查帳本**,URL 只是線索。
+ *
+ * 🔴 回傳型別 `never`:`redirect()` 用拋例外實作 ⇒ 呼叫點後面的 code 不會執行。
+ *    寫成 `never` 讓 TS 也知道這件事,呼叫點才不用寫 `return`(寫了反而像「還會往下跑」)。
  */
-function carryBack(formData: FormData): CancelFormInput {
-  const read = (field: string): string => {
-    const value = formData.get(field);
-    return typeof value === 'string' ? value : '';
-  };
-  return {
-    cancelMode: read(CANCEL_MODE_FIELD),
-    reasonCode: read(CANCEL_REASON_CODE_FIELD),
-    reasonDetail: read(CANCEL_REASON_DETAIL_FIELD),
-    items: formData
-      .getAll(CANCEL_ITEM_FIELD)
-      .filter((value): value is string => typeof value === 'string'),
-  };
+function failRedirect(path: string, query: string): never {
+  redirect(`${path}?${query}`, RedirectType.replace);
 }
 
-export async function cancelOrderAction(
-  prevState: CancelActionState | undefined,
-  formData: FormData,
-): Promise<CancelActionState> {
+/**
+ * 授權**之後**才跑的「信封解析」——只為了決定**失敗要導去哪一頁**(D2a;關卡1 R2 finding 9)。
+ *
+ * 🔴 為什麼需要它:完整解析器失敗時只回 `{ ok: false }`、**拿不到 orderId** ⇒ 沒有它就只能把
+ *    所有失敗都導去 `/orders`,員工每填錯一次就被踢出他正在看的那張單。
+ * 🔴 為什麼排在授權閘**之後**:授權前連一個欄位都不准讀(plan §2 慣例 1),這條不破。
+ *
+ * ⚠️ **只驗 uuid 形狀,不驗「這張單存在且本 actor 看得到」** —— 與 `E-014-A` 追加的字面有出入,
+ *    理由據實寫在這裡(已在 D2a 收工信向主視窗申報,不是偷偷縮範圍):
+ *    ① **本 repo 沒有「本 actor 看得到哪些單」這個東西** —— actor 是使用者自己下拉挑的、系統未驗證
+ *       (`../session/actor.ts` 自陳非授權邊界)⇒ 以它為準寫存在性檢查 = 守門的名字大於實際能力,
+ *       正是本線一再被抓到的那種假守門。
+ *    ② **目的地本身就是權威**:`/orders/<uuid>` 那頁對查無的單 `notFound()`(`app/orders/[id]/page.tsx`),
+ *       在這裡多打一次 DB 只是把同一個判斷做兩遍,而且做在**失敗路徑**上。
+ *    ⇒ 因此只宣稱一條、也只做得到這一條:**導頁目標永遠是 uuid 形狀的自家路徑**,
+ *      client 送的字串轉不成任意網址(開放重導向面關掉)。
+ */
+function readRedirectTargetOrderId(formData: FormData): string | null {
+  const raw = formData.get(CANCEL_ORDER_ID_FIELD);
+  return typeof raw === 'string' && isUuid(raw) ? raw : null;
+}
+
+export async function cancelOrderAction(formData: FormData): Promise<void> {
   // ① 授權閘。🔴 **絕對第一,連讀一個欄位都在它之後**(plan §2 慣例 1)——
   //    未授權者送爛表單要拿到 `denied` 而不是 `invalid`,否則等於對未授權者洩漏表單規則。
   //    🔴 代價:`denied` 因此**不保留員工輸入**(拿不到就回不了)。同備註片 `:88-93` 的取捨,
   //    理由 = denied 意謂 session 已失效,他下一步一定要重新登入,留著也接不回去。
   const authorization = await authorizeAdminMutation();
-  if (!authorization) return cancelNotSentFailure('denied', EMPTY_INPUT);
+  // 🔴 導**固定安全頁** `/orders`,不是明細頁:這條路上我們還沒讀過任何欄位(也不准讀),
+  //    手上根本沒有可信的 orderId(關卡1 R1 finding 2)。
+  if (!authorization) failRedirect(ORDERS_PATH, notSentResultQuery('denied'));
 
-  // ② 凍結短路。🔴 **緊接授權閘之後**(片 4 交棒義務 1),且用 `prevState?.` 防呆讀 ——
-  //    `prevState` 是 client 送回來的參數,偽造 `undefined` 不得在授權前把這裡炸成 500。
-  // 🔴🔴 **這是 UX 層、不是安全邊界**:持有效 session 者可以偽造 `idle` 繞過它。
-  // 🔴 **而且「RPC 的 UNIQUE 會擋住第二筆」是過度保證**(關卡2 codex must-fix 抓到我寫太滿):
-  //    `(order_id, idempotency_key)` UNIQUE + payload hash(`cancel-action-state.ts:166-167`)
-  //    只擋得住**同一顆 token** 的重送。換一顆新 token 送同一份 payload:
-  //    - 整單取消 → 會被 RPC 的業務檢查擋(單已取消);
-  //    - **部分取消 → 擋不住** —— 分次累積本來就是合法用法,剩餘量夠就真的再扣一次。
-  //    ⇒ 這條路唯一的防線是**員工看得到歷程、且對得出哪一筆是自己那次**
-  //      (= A9d2-2b 把 `idempotencyKey` 補進投影的理由,以及下面義務 5 的比對)。
-  //    這裡的凍結只是不讓誠實員工在凍結畫面上手滑重送,不要把它算進安全論證。
-  // 🔴 **排在解析之前也是承重的**(code-reviewer 抓到:搬到解析之後整份測試照樣全綠):
-  //    凍結中的畫面若送出爛表單,解析會先擋下來回 `invalid` ——而 `invalid` 會**換新 token**
-  //    ⇒ 新 payload_hash ⇒ 同一份 payload 真的再取消一次,正是 §2.1 要防的事。
-  // 🔴 原樣回 `prevState`、不重建:它本來就是 client 自己的 state,回給他自己不構成任何信任面;
-  //    重建反而要對 client 送的 `code` 做驗證,會讓人誤以為這裡是信任邊界。
-  if (prevState?.status === 'failed' && prevState.outcome === 'sent') return prevState;
+  // ② 失敗導頁目標(授權後才讀;理由見 `readRedirectTargetOrderId`)。
+  //    🔴 **舊的「凍結短路」在這裡整段消失了,而且是刻意的**:它讀的是 `prevState`
+  //    = client 送回來的參數(自陳只是 UX 層、可偽造)。PRG 之後根本沒有 client state 可讀,
+  //    而它原本要防的事(員工在凍結畫面上手滑重送)改由 **D5 的帳本核對面板**接手 ——
+  //    那一側說得出「你那筆到底寫進去了沒有」,比一個攔不住偽造的凍結旗標強。
+  const targetOrderId = readRedirectTargetOrderId(formData);
+  const failPath = targetOrderId === null ? ORDERS_PATH : detailPath(targetOrderId);
 
-  const carried = carryBack(formData);
-
-  // ③ 解析。任一形狀不合 → `invalid`:保留輸入、**換新 token**(builder 內鑄)。
-  //    舊 token 從未送到 RPC、沒有冪等價值(plan §2.1)。
+  // ③ 解析。任一形狀不合 → 導頁帶 `invalid`。
+  //    🔴 **新 token 從哪來**:舊形狀是 builder 內鑄;PRG 之後**由整頁重繪時表單自己鑄**
+  //    (D4 的義務;`cancel-action-state.ts` 的 `generateCancelRequestToken` docstring 逐字寫著
+  //    「產生點必須在 server component 渲染期、且不得落在任何快取層內」——落了快取 = 兩個人拿到同一把)。
+  //    ⚠️ **那條義務目前零測試釘住**,D4 落地時必須配一條(D2b 收工信會把它列成 D4 硬項)。
   const parsed = parseOrderCancelForm(formData);
-  if (!parsed.ok) return cancelNotSentFailure('invalid', carried);
+  // 🔴 **不帶回員工輸入**(`E-014-A` Q2=A:失敗一律重填、從無效空值起始)——
+  //    PRG 之下「保留輸入」要嘛把內容塞進 URL(違反 §2-2 只帶碼不帶內容),
+  //    要嘛留 client state(正是本線換路要殺掉的東西)。
+  if (!parsed.ok) failRedirect(failPath, notSentResultQuery('invalid'));
 
   const httpRequestId = await getRequestId();
   // 🔴 **不記 `reasonDetail` 全文**(員工打的營運內容),只記長度 —— 同備註片 `:104` 的慣例。
@@ -183,14 +184,16 @@ export async function cancelOrderAction(
       message: outcome.logMessage,
     });
     // 🔴 **revalidate 排在 log 之後、且不准吃掉回傳**(關卡2 codex must-fix):
-    //    原本它排在最前面 —— 它一拋錯,補償 log、原 token 與凍結 state 就**全部不會發生**,
-    //    員工拿到 500、重載換到新 token,而前一次可能已經 commit ⇒ 正是重複部分取消的路。
+    //    原本它排在最前面 —— 它一拋錯,補償 log 與導頁就**全部不會發生**,
+    //    員工拿到 500、重整後表單重繪換到新 token,而前一次可能已 commit ⇒ 正是重複部分取消的路。
     safeRevalidate(parsed.orderId, httpRequestId);
     // 🔴 **原樣帶回這次送出的 token**(不鑄新的):換新鍵 = 全新 payload_hash =
-    //    同一份 payload 會真的再取消一次(`cancel-action-state.ts:265-266`)。
-    // 🔴 **`carried` 也要原樣帶回**:片 4 義務 5 的比對要在凍結畫面上做,
-    //    而畫面得先知道「員工剛送出的是什麼」才畫得出那一列。
-    return cancelSentFailure(outcome.code, carried, parsed.requestToken);
+    //    同一份 payload 會真的再取消一次(payload_hash 綁定見 `cancel-action-state.ts:14-20`;
+    //    原本指的那句在 `cancelSentFailure` 的 docstring 裡,已隨 D2b 刪除)。
+    // 🔴 **帶著這次送出的 token 導頁**(不鑄新的):它是 D5 拿去對取消帳本的唯一線索,
+    //    也是員工那側「我剛送的那筆到底寫進去了沒有」唯一問得出答案的方法。
+    //    型別上這裡**要不到不帶 token 的版本**(`sentResultQuery` 簽章必填,D1 交付面)。
+    failRedirect(detailPath(parsed.orderId), sentResultQuery(outcome.code, parsed.requestToken));
   }
 
   // 🔴 成功也留一行 log:把 `request_token` 對回 `cancellation_id` ——
@@ -211,5 +214,10 @@ export async function cancelOrderAction(
   //    (同備註片對 `DUPLICATE_REQUEST` 的處置,`note-actions.ts:45-47`)。
   // ④ 成功才 PRG。🔴 在任何 try 之外 —— 全檔唯一的 try 在 `safeRevalidate()` 裡、
   //    包的是 `revalidatePath`,碰不到這一行(關卡2 R2 更正我原本寫的「本檔根本沒有 try」)。
-  redirect(`${detailPath(parsed.orderId)}?r=${ORDER_CANCELLED_RESULT_CODE}`);
+  // 🔴 成功也要帶 `rt`(關卡2 R2 must-fix):成功訊息由 D5 查帳本後才顯示,
+  //    沒有 token 就分不出「這次成功 / 帳本裡的舊紀錄 / 有人自己打的網址」。
+  redirect(
+    `${detailPath(parsed.orderId)}?${cancelledResultQuery(parsed.requestToken)}`,
+    RedirectType.replace,
+  );
 }

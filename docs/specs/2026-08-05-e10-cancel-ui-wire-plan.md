@@ -4,6 +4,13 @@
 > DAG 真權威:`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` §5.0(`:263-275`)
 > RPC 契約真權威:`supabase/migrations/20260805100000_m4b_e10_a8a2_partial_cancel.sql`(已 apply 正式站)
 > 狀態:**待批准**。批准前零程式碼改動。
+>
+> 🔴🔴 **A13b 那一段(以及所有描述「失敗回 action state」的規格)已於 2026-08-09 被取代,不要照它施工。**
+> 取代者 = `docs/specs/2026-08-09-e10-a13b-prg-rework-plan.md`(PRG 整頁化,`E-012-A` Q1=A)。
+> 原因:React 19 的 form reset 競態在舊形狀下**可能誤送整單取消**(四輪修不穩,`E-011-STOP`)。
+> ⇒ 本檔中「保留輸入 / 換新 token / **凍結表單** / `useActionState`」那組字面**全部作廢**;
+> 現況是「一律導頁、輸入不保留、新 token 由整頁重繪時表單自己鑄、結果由 D5 查取消帳本後才顯示」。
+> ⚠️ 本檔其餘部分(RPC 契約、失敗碼分組、§4.2 文案表)仍然有效 —— 作廢的只有**表單與 action 的形狀**。
 > v2 = 折入關卡1 codex(`gpt-5.6-sol`)R1 的 16 must-fix + 1 nit(R1 判定 FAIL;§8 逐條對帳)。
 
 ---

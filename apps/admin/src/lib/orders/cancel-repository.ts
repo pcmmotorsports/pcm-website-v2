@@ -10,7 +10,7 @@ import type { CancelItemInput, CancelReasonCode } from './cancel-form';
 //    plan §4.1(`docs/specs/2026-08-05-e10-cancel-ui-wire-plan.md:212`)逐字寫
 //    「任一不符 → `OrderCancelCallerBugError`」= 用**拋例外**表達形狀漂移。
 //    本片改成**回傳** `{ ok: false, code: 'bug' }`。
-//    - **員工看到的行為完全相同**:兩者都走 `bug` 那支訊息、都凍結表單。差別只在機制。
+//    - **員工看到的行為完全相同**:兩者都判 `bug`、都導頁(D5 之後由帳本核對面板說「寫進去了沒有」;在那之前畫面空白)。差別只在機制。
 //    - 換掉的理由:拋例外就得在 action 裡包 try。**不是「有 try 就會吞 redirect」**
 //      (關卡2 R2 更正我原本寫太滿的字面)—— 窄包住 repository 那一個 await 就不會。
 //      但那個窄 try 得由每個未來的呼叫端自己記得維持,而漏掉的代價是把成功的 `redirect()`
@@ -21,7 +21,8 @@ import type { CancelItemInput, CancelReasonCode } from './cancel-form';
 //    🔴 **要改回拋例外的人請連 action 一起改**,不要只改這一層。
 //
 // 🔴 **本層不 throw、只回傳**(與備註片 `note-repository.ts` 的 throw 形相反,是刻意的):
-//    action 因此**一行 try 都不需要**,而「成功的 `redirect()` 被 catch 吞掉」那個坑
+//    action 的**主流程(RPC / redirect)因此一行 try 都不需要**(唯一的窄 try 在 `safeRevalidate()`,
+//    包的是 `revalidatePath`、碰不到 `redirect()`),而「成功的 `redirect()` 被 catch 吞掉」那個坑
 //    (plan §2 慣例 2、備註片 `note-actions.ts:28-30` 的教訓)在結構上就不存在 ——
 //    不是靠下一個人記得把 `redirect()` 寫在 try 外面。
 //
@@ -42,7 +43,7 @@ export interface CancelOrderArgs {
   /** 🔴 `null` = 整單取消(送 `p_items: null`);非 null = 部分取消、且必為非空。 */
   items: CancelItemInput[] | null;
   actor: string;
-  /** 冪等鍵 = 表單帶回的一次性 token(`CancelActionState.requestToken`)。 */
+  /** 冪等鍵 = 表單帶回的一次性 token(server 渲染表單帶下來的 `request_token`)。 */
   requestToken: string;
 }
 
@@ -102,7 +103,7 @@ const SUCCESS_PAYLOAD_KEYS = 'cancellation_id,cancelled,closed,idempotent';
  *
  * 🔴 ②的「鍵集合**恰等**」而不是「包含」是刻意的:RPC 日後加鍵要**轉紅讓人來看**,
  * 不是靜默忽略。這條也是 `bug` 裡唯一**真的可能已經寫進去**的那一支 ——
- * 它發生在 RPC 成功 RETURN **之後**(逐支歸類見 `cancel-action-state.ts:64-70`)。
+ * 它發生在 RPC 成功 RETURN **之後**(逐支歸類見 `cancel-action-state.ts:110-117`)。
  */
 function parseSuccessPayload(
   data: unknown,

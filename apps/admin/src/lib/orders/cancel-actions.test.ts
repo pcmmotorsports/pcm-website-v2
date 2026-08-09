@@ -24,7 +24,13 @@ class NextRedirectError extends Error {
     this.name = 'NEXT_REDIRECT';
   }
 }
-vi.mock('next/navigation', () => ({ redirect: mocks.redirect }));
+// 🔴 `RedirectType` **也要 mock**:source 用 `redirect(url, RedirectType.replace)`,
+//    只 mock `redirect` 會讓 `RedirectType` 是 undefined、當場 TypeError
+//    —— 而那個錯會被測試看成「有拋 = 有導頁」而**假綠**。值照 Next 真實匯出。
+vi.mock('next/navigation', () => ({
+  redirect: mocks.redirect,
+  RedirectType: { push: 'push', replace: 'replace' },
+}));
 vi.mock('@pcm/adapters/server', () => ({ createSupabaseServiceClient: vi.fn() }));
 
 vi.mock('./cancel-repository', async (importOriginal) => {
@@ -32,8 +38,9 @@ vi.mock('./cancel-repository', async (importOriginal) => {
   return { ...actual, cancelOrder: mocks.cancelOrder };
 });
 
-// 🔴 解析器與 state builder **刻意不 mock** —— 餵真 FormData 走真解析器,
-//    否則「爛表單擋得住」「invalid 會換新 token」都是恆真斷言(前例 `note-actions.test.ts:29`)。
+// 🔴 解析器與 query builders **刻意不 mock**(state builder 已隨 D2b 刪除) —— 餵真 FormData 走真解析器,
+//    否則「爛表單擋得住」「invalid 不帶 rt」都是恆真斷言(前例 `note-actions.test.ts:29`)。
+//    ⚠️ D2a 之後**新 token 不再由 action 鑄** —— 改成下次整頁渲染時表單自己鑄(D4 硬驗收)。
 import { cancelOrderAction } from './cancel-actions';
 import {
   CANCEL_ITEM_FIELD,
@@ -42,19 +49,17 @@ import {
   CANCEL_REASON_CODE_FIELD,
   CANCEL_REASON_DETAIL_FIELD,
   CANCEL_REQUEST_TOKEN_FIELD,
-  ORDER_CANCELLED_RESULT_CODE,
-  type CancelActionState,
+  cancelledResultQuery,
+  notSentResultQuery,
+  sentResultQuery,
 } from './cancel-action-state';
 
 const ORDER_ID = '11111111-2222-3333-4444-555555555555';
 const TOKEN = '99999999-8888-7777-6666-555555555555';
 const ITEM_ID = 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff';
+// 🔴 第二顆品項 id(窄 R3 F3):**只有多一筆樣本,依筆數分流的壞實作才紅得起來**。
+const ITEM_ID_2 = 'cccccccc-dddd-eeee-ffff-111111111111';
 const DETAIL_PATH = `/orders/${ORDER_ID}`;
-// 🔴 **刻意與表單的 TOKEN 不同**(code-reviewer nit):兩者相同的話,
-//    把實作改成 `prevState?.requestToken ?? parsed.requestToken` 也會全綠 ——
-//    「回帶的是**這次送出**的那一顆」就沒被分辨出來。
-const PREV_TOKEN = '12121212-3434-5656-7878-909090909090';
-const IDLE: CancelActionState = { status: 'idle', requestToken: PREV_TOKEN };
 // 🔴 刻意含 emoji(surrogate pair):碼位長度與 UTF-16 長度不同 ⇒
 //    log 那格若改用 `.length` 會轉紅(同備註片 fixture 的理由)。
 const OTHER_DETAIL = '客人改買別款,已電話確認 🏍️';
@@ -96,150 +101,113 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('cancelOrderAction — 閘的順序(plan §2 慣例 1 + 片 4 交棒義務 1)', () => {
-  it('未授權 → denied、不呼叫 RPC', async () => {
+// ── D2a:全 PRG 之後,每一條路徑都導頁 ────────────────────────────────────────
+//
+// 🔴 讀本檔前先知道兩件事:
+//   ① `redirect` 的 mock **會拋**(像 Next 真實行為)⇒ 每個案例都是 `rejects.toThrow('NEXT_REDIRECT')`
+//      **加上**對 `mocks.redirect` 的參數斷言。只斷言有拋 = 恆真(六條路徑都會拋)。
+//   ② 導頁一律 `replace`,所以第二個參數也要斷言 —— 少了它,實作改回預設 push 不會有人紅。
+
+describe('cancelOrderAction — 閘的順序(plan §2 慣例 1;PRG 之後仍不變)', () => {
+  it('未授權 → 導固定安全頁 /orders 帶 denied、不呼叫 RPC', async () => {
     mocks.authorizeAdminMutation.mockResolvedValue(null);
-    const state = await cancelOrderAction(IDLE, cancelForm());
-    expect(state).toMatchObject({ status: 'failed', outcome: 'not_sent', code: 'denied' });
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders?${notSentResultQuery('denied')}`,
+      'replace',
+    );
     expect(mocks.cancelOrder).not.toHaveBeenCalled();
   });
 
-  it('🔴 未授權時**不保留輸入**(授權閘在讀任何欄位之前 —— 這是明說的取捨,不是漏)', async () => {
+  // 🔴 未授權**不得**用表單裡的 orderId 導回明細頁:那等於在授權之前就採信 client 送的欄位。
+  //    把實作改成「denied 也導 detailPath(信封 orderId)」→ 本條紅。
+  it('🔴 未授權 → 即使表單帶著合法 orderId,也不導明細頁(授權前不採信任何欄位)', async () => {
     mocks.authorizeAdminMutation.mockResolvedValue(null);
-    const state = await cancelOrderAction(
-      IDLE,
-      cancelForm({ [CANCEL_REASON_CODE_FIELD]: 'other', [CANCEL_REASON_DETAIL_FIELD]: '看得見我嗎' }),
-    );
-    expect(state).toMatchObject({
-      input: { cancelMode: '', reasonCode: '', reasonDetail: '', items: [] },
-    });
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+    const [url] = mocks.redirect.mock.calls[0] as [string, string];
+    expect(url.startsWith('/orders?')).toBe(true);
+    expect(url).not.toContain(ORDER_ID);
   });
 
-  // 🔴🔴 **關卡2 codex must-fix:上面兩格餵的都是合法表單** ⇒ 把「解析失敗立即 return invalid」
-  //    搬到授權閘**之前**,它們照樣全綠(合法表單解析得過、走不到那條路)。
-  //    要證明「授權閘絕對第一、之前零讀取」,得餵一顆**碰到就炸**的表單:
-  //    授權失敗時若有任何一行先摸了它,這格會拿到 TypeError 而不是 denied。
-  it('🔴 未授權 + **碰到就炸的表單** → 仍是 denied(證明授權閘之前一個欄位都沒讀)', async () => {
+  // 🔴 沿用舊片的地雷表單:任何欄位被讀到就炸 ⇒ 證明授權閘之前一個欄位都沒讀。
+  it('🔴 未授權 + 碰到就炸的表單 → 仍是 denied(證明授權閘之前零讀欄位)', async () => {
     mocks.authorizeAdminMutation.mockResolvedValue(null);
     const landmine = {
       get() {
-        throw new TypeError('授權閘之前不該讀表單');
+        throw new Error('授權前不得讀取任何欄位');
       },
       getAll() {
-        throw new TypeError('授權閘之前不該讀表單');
+        throw new Error('授權前不得讀取任何欄位');
       },
     } as unknown as FormData;
-    const state = await cancelOrderAction(IDLE, landmine);
-    expect(state).toMatchObject({ outcome: 'not_sent', code: 'denied' });
-  });
 
-  // 🔴🔴 **這格釘的是「順序」而不是「兩道閘各自會擋」**(memory
-  //    `feedback_assertion-measures-the-wrong-thing`:每組負測只讓一道閘失敗 ⇒ 順序沒被測)。
-  //    同時餵「未授權」與「凍結的 prevState」,只有把授權排第一才會回 denied。
-  //    把兩道對調 → 本格回 sent state 而紅;而上面每一格都仍會綠。
-  it('🔴 未授權 + prevState 已凍結 → 仍是 denied(證明授權閘排在凍結判斷之前)', async () => {
-    mocks.authorizeAdminMutation.mockResolvedValue(null);
-    const frozen: CancelActionState = {
-      status: 'failed',
-      outcome: 'sent',
-      code: 'error',
-      message: '取消可能已經寫進去了。',
-      requestToken: TOKEN,
-      input: { cancelMode: 'full', reasonCode: 'out_of_stock', reasonDetail: '', items: [] },
-    };
-    const state = await cancelOrderAction(frozen, cancelForm());
-    expect(state).toMatchObject({ outcome: 'not_sent', code: 'denied' });
-  });
+    await expect(cancelOrderAction(landmine)).rejects.toThrow('NEXT_REDIRECT');
 
-  it('已授權 + prevState 已凍結 → 原樣回、不呼叫 RPC、不 revalidate、不導頁', async () => {
-    const frozen: CancelActionState = {
-      status: 'failed',
-      outcome: 'sent',
-      code: 'rejected',
-      message: '這張單目前不能取消。',
-      requestToken: TOKEN,
-      input: { cancelMode: 'partial', reasonCode: 'other', reasonDetail: 'x', items: [`${ITEM_ID}:1`] },
-    };
-    const state = await cancelOrderAction(frozen, cancelForm());
-    expect(state).toBe(frozen);
-    expect(mocks.cancelOrder).not.toHaveBeenCalled();
-    expect(mocks.revalidatePath).not.toHaveBeenCalled();
-    expect(mocks.redirect).not.toHaveBeenCalled();
-  });
-
-  // 🔴🔴 **code-reviewer must-fix:凍結閘搬到解析之後 → 原本 54 格全綠**。
-  //    實害:凍結中的畫面送出爛表單 → 解析先擋 → 回 `invalid` → **換新 token**
-  //    ⇒ 新 payload_hash ⇒ 同一份 payload 會真的再取消一次(正是 §2.1 要防的事)。
-  //    上面那格用的是**合法**表單,擋不住這個突變 —— 爛表單才分得出兩者的順序。
-  it('🔴 已凍結 + **爛表單** → 仍原樣回 frozen(證明凍結閘排在解析之前)', async () => {
-    const frozen: CancelActionState = {
-      status: 'failed',
-      outcome: 'sent',
-      code: 'bug',
-      message: '系統狀態異常。',
-      requestToken: TOKEN,
-      input: { cancelMode: 'full', reasonCode: 'out_of_stock', reasonDetail: '', items: [] },
-    };
-    const state = await cancelOrderAction(frozen, cancelForm({ [CANCEL_MODE_FIELD]: '亂碼' }));
-    expect(state).toBe(frozen);
-    if (state.status !== 'failed') return;
-    // 🔴 這行是本格的承重:突變後回的是新鑄的 token,而 frozen 這顆必須原封不動。
-    expect(state.requestToken).toBe(TOKEN);
-  });
-
-  it('🔴 prevState 是 undefined 也不得炸(偽造 undefined 不能在授權後變成 500)', async () => {
-    // 走到成功路徑 ⇒ 拋的是 NEXT_REDIRECT(不是 TypeError)。拿掉 `?.` 這格會變成 TypeError 而紅。
-    await expect(cancelOrderAction(undefined, cancelForm())).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.cancelOrder).toHaveBeenCalledTimes(1);
-  });
-
-  it('prevState 是 not_sent(可編輯)→ 不凍結,照常送出', async () => {
-    const editable: CancelActionState = {
-      status: 'failed',
-      outcome: 'not_sent',
-      code: 'invalid',
-      message: '表單內容不正確,取消沒有送出。',
-      requestToken: TOKEN,
-      input: { cancelMode: 'full', reasonCode: '', reasonDetail: '', items: [] },
-    };
-    await expect(cancelOrderAction(editable, cancelForm())).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.cancelOrder).toHaveBeenCalledTimes(1);
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `/orders?${notSentResultQuery('denied')}`,
+      'replace',
+    );
   });
 });
 
-describe('cancelOrderAction — 解析失敗', () => {
-  it('爛表單 → invalid、不呼叫 RPC、保留輸入', async () => {
-    const state = await cancelOrderAction(IDLE, cancelForm({ [CANCEL_REASON_CODE_FIELD]: '亂碼' }));
-    expect(state).toMatchObject({
-      outcome: 'not_sent',
-      code: 'invalid',
-      input: { reasonCode: '亂碼', cancelMode: 'full' },
-    });
+describe('cancelOrderAction — 解析失敗(invalid)', () => {
+  it('爛表單 → 導回**那張單的明細頁**帶 invalid、不呼叫 RPC', async () => {
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_REASON_CODE_FIELD]: '不存在的原因' })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `${DETAIL_PATH}?${notSentResultQuery('invalid')}`,
+      'replace',
+    );
     expect(mocks.cancelOrder).not.toHaveBeenCalled();
   });
 
-  it('🔴 invalid 一定**換新 token**(舊的沒送出、沒有冪等價值;留著會在日後撞 payload_hash)', async () => {
-    const state = await cancelOrderAction(IDLE, cancelForm({ [CANCEL_MODE_FIELD]: '亂碼' }));
-    expect(state).toMatchObject({ code: 'invalid' });
-    if (state.status !== 'failed') return;
-    expect(state.requestToken).not.toBe(TOKEN);
+  // 🔴 信封解析的存在理由:完整解析器失敗時拿不到 orderId ⇒ 沒有它,員工每填錯一次
+  //    就被踢回訂單列表。把 `readRedirectTargetOrderId` 改成永遠回 null → 本條紅。
+  it('🔴 orderId 合法但別的欄位爛 → 仍導回該單明細頁(不是把人踢回列表)', async () => {
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_MODE_FIELD]: '亂寫的模式' })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    const [url] = mocks.redirect.mock.calls[0] as [string, string];
+    expect(url).toBe(`${DETAIL_PATH}?${notSentResultQuery('invalid')}`);
   });
 
-  it('🔴 品項是可重複欄位:invalid 時要帶回**全部**勾選(用 get() 只會帶回第一筆)', async () => {
-    const items = [`${ITEM_ID}:2`, 'cccccccc-dddd-eeee-ffff-000000000000:1'];
-    const state = await cancelOrderAction(
-      IDLE,
-      // mode 亂碼 ⇒ 解析必失敗,但品項要原樣帶回
-      cancelForm({ [CANCEL_MODE_FIELD]: '亂碼' }, items),
-    );
-    expect(state).toMatchObject({ code: 'invalid', input: { items } });
+  // 🔴 反向:orderId 本身就不是 uuid ⇒ 沒有可信目標,退回 /orders。
+  //    這條同時關掉開放重導向面:client 送 `https://evil.example` 也只會得到 `/orders`。
+  it('🔴 orderId 不是 uuid(含想塞外部網址)→ 退回 /orders,不拿它拼路徑', async () => {
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_ORDER_ID_FIELD]: 'https://evil.example/x' })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    const [url] = mocks.redirect.mock.calls[0] as [string, string];
+    // 🔴 上面的全等已涵蓋「不含 evil.example」⇒ 不另寫那條恆真斷言(關卡2 nit)。
+    expect(url).toBe(`/orders?${notSentResultQuery('invalid')}`);
+  });
+
+  it('🔴 invalid 的 query 不得帶 rt(沒送到 RPC = 帳本裡本來就沒有那筆,給 token 是叫 D5 去找鬼)', async () => {
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_REASON_CODE_FIELD]: '' })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    const [url] = mocks.redirect.mock.calls[0] as [string, string];
+    expect(url).not.toContain('rt=');
   });
 });
 
 describe('cancelOrderAction — 送達 RPC 之後', () => {
+  // 🔴🔴 **本片 code-review must-fix:這兩格差點隨簽章改動一起被我刪掉。**
+  //    它們與 PRG 改造無關,守的是**送進 RPC 的參數本身** —— 一刪,把 `items: parsed.items`
+  //    改成 `items: null` 就會**送出整單取消而整份測試全綠**,正是 `E-011-STOP` 那個失敗模式。
+  //    改簽章時「順手清掉不再編譯的測試」= 把錢面覆蓋跟著清掉,這裡逐字記著。
   it('逐欄具名送進 repository(整單取消:items=null)', async () => {
-    await expect(cancelOrderAction(IDLE, cancelForm())).rejects.toThrow('NEXT_REDIRECT');
-    // 🔴 恰呼一次:多打一次(換新 token)帳本會真的多一筆。
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
     expect(mocks.cancelOrder).toHaveBeenCalledTimes(1);
     expect(mocks.cancelOrder).toHaveBeenCalledWith({
       orderId: ORDER_ID,
@@ -251,121 +219,190 @@ describe('cancelOrderAction — 送達 RPC 之後', () => {
     });
   });
 
-  it('部分取消 + other 說明:品項與說明原樣送達', async () => {
-    await expect(
-      cancelOrderAction(
-        IDLE,
-        cancelForm(
-          {
-            [CANCEL_MODE_FIELD]: 'partial',
-            [CANCEL_REASON_CODE_FIELD]: 'other',
-            [CANCEL_REASON_DETAIL_FIELD]: OTHER_DETAIL,
-          },
-          [`${ITEM_ID}:3`],
+  // 🔴🔴 **一筆與兩筆都要測**(窄 R3 must-fix F3)。原本只有單筆樣本 ⇒ 一個**依筆數分流**的
+  //    壞實作(例如 `items: parsed.items.length > 1 ? null : parsed.items`)會讓兩格全綠,
+  //    而 `items: null` 對 RPC 的意思是**整單取消** —— 寫進 append-only 的取消帳本、刪不掉。
+  //    這正是 `E-011-STOP` 那個失敗模式的同形,只是換一條路徑進來。
+  //    ⚠️ 記帳:我自評「沒驗過改欄位名那一軸」時**根本沒想到筆數這一軸**;
+  //    「構造不出負測」與「想不到那個維度」是兩件事,後者只有換人/換角度看得到
+  //    (memory `feedback_negative-test-observation-supplied-by-another-mechanism` 的反面提醒)。
+  it.each([
+    ['一筆', [`${ITEM_ID}:3`], [{ order_item_id: ITEM_ID, quantity: 3 }]],
+    [
+      '兩筆',
+      [`${ITEM_ID}:3`, `${ITEM_ID_2}:1`],
+      [
+        { order_item_id: ITEM_ID, quantity: 3 },
+        { order_item_id: ITEM_ID_2, quantity: 1 },
+      ],
+    ],
+  ])(
+    '部分取消(%s)+ other 說明:品項與說明原樣送達(整單 ≠ 部分,這組是分界)',
+    async (_label, formItems, expectedItems) => {
+      await expect(
+        cancelOrderAction(
+          cancelForm(
+            {
+              [CANCEL_MODE_FIELD]: 'partial',
+              [CANCEL_REASON_CODE_FIELD]: 'other',
+              [CANCEL_REASON_DETAIL_FIELD]: OTHER_DETAIL,
+            },
+            formItems as string[],
+          ),
         ),
-      ),
-    ).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.cancelOrder).toHaveBeenCalledWith(
-      expect.objectContaining({
+      ).rejects.toThrow('NEXT_REDIRECT');
+
+      expect(mocks.cancelOrder).toHaveBeenCalledTimes(1);
+      expect(mocks.cancelOrder).toHaveBeenCalledWith({
+        orderId: ORDER_ID,
         reasonCode: 'other',
         reasonDetail: OTHER_DETAIL,
-        items: [{ order_item_id: ITEM_ID, quantity: 3 }],
-      }),
-    );
-  });
+        // 🔴 snake_case 是**解析器就定好的形狀**(RPC 的 jsonb 契約),不是這裡順手寫的。
+        items: expectedItems,
+        actor: 'sean',
+        requestToken: TOKEN,
+      });
+    },
+  );
 
-  it('成功 → 成功 log 與 revalidate **都在 redirect 之前**,再 PRG 導回明細頁帶結果碼', async () => {
-    // 🔴 `redirect()` 真的會拋 ⇒ 排在它後面的東西一律不會執行。
-    await expect(cancelOrderAction(IDLE, cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+  it('成功 → 成功 log 與 revalidate 都在 redirect 之前,再帶 r+rt 導回明細頁', async () => {
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
     expect(mocks.revalidatePath).toHaveBeenCalledWith(DETAIL_PATH);
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `${DETAIL_PATH}?${cancelledResultQuery(TOKEN)}`,
+      'replace',
+    );
+    // 🔴 **成功 log 也要斷言**(關卡2 must-fix:本條名稱寫著「成功 log 與 revalidate 都在
+    //    redirect 之前」,但原本只驗 revalidate ⇒ 把 `order_cancel.done` 整段刪掉照樣全綠,
+    //    而那行 log 是災難當天把 `request_token` 對回 `cancellation_id` 的唯一線索)。
     expect(console.info).toHaveBeenCalledWith(
       '[admin/orders/cancel] order_cancel.done',
       expect.objectContaining({
         request_token: TOKEN,
+        order_id: ORDER_ID,
         cancellation_id: OK_OUTCOME.cancellationId,
       }),
     );
-    expect(mocks.redirect).toHaveBeenCalledWith(
-      `${DETAIL_PATH}?r=${ORDER_CANCELLED_RESULT_CODE}`,
-    );
+
+    // 🔴 順序:redirect 一拋就跳出 ⇒ 它若排在前面,上面那兩條會零呼叫。
+    const redirectOrder = mocks.redirect.mock.invocationCallOrder[0] as number;
+    const revalidateOrder = mocks.revalidatePath.mock.invocationCallOrder[0] as number;
+    const doneLogOrder = vi
+      .mocked(console.info)
+      .mock.invocationCallOrder.at(-1) as number;
+    expect(revalidateOrder).toBeLessThan(redirectOrder);
+    expect(doneLogOrder).toBeLessThan(redirectOrder);
   });
 
-  it('🔴 `idempotent: true` 也是成功(顯示成錯誤會誘導員工換 token 重送 = 真的多一筆取消)', async () => {
+  // 🔴🔴 成功也必須帶 rt(關卡2 R2 must-fix):少了它,D5 分不出「這次成功 / 帳本裡的舊紀錄 /
+  //    有人自己打的網址」⇒ 成功訊息要嘛不敢顯示、要嘛顯示成偽造得出來的東西。
+  //
+  // 🔴 **餵三顆不同的 token 各送一次**(關卡2 R1 must-fix:原本只有固定那顆 ⇒ 實作若寫死
+  //    一顆常數、或捕獲了上一次的值,單一樣本一律看不出來 —— 那正是 fixture「碰巧」讓
+  //    守門恆真的形狀,memory `feedback_fixture-value-makes-guard-vacuous` 同族)。
+  it.each([
+    ['本次送出的那顆', '11112222-3333-4444-8555-666677778888'],
+    ['另一顆(模擬上一次那把)', '99998888-7777-6666-8555-444433332222'],
+    ['第三顆(模擬別人偽造後又被正常送出)', 'abcdabcd-1234-4321-8abc-abcdabcdabcd'],
+  ])('🔴 成功的 query 帶回的是「%s」,不是寫死或上一次的值', async (_label, token) => {
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_REQUEST_TOKEN_FIELD]: token })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+
+    const [url] = mocks.redirect.mock.calls[0] as [string, string];
+    expect(url).toBe(`${DETAIL_PATH}?${cancelledResultQuery(token)}`);
+  });
+
+  it('🔴 idempotent: true 也是成功(顯示成錯誤會誘導員工換 token 重送 = 真的多一筆取消)', async () => {
     mocks.cancelOrder.mockResolvedValue({ ...OK_OUTCOME, idempotent: true });
-    await expect(cancelOrderAction(IDLE, cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
     expect(mocks.redirect).toHaveBeenCalledWith(
-      `${DETAIL_PATH}?r=${ORDER_CANCELLED_RESULT_CODE}`,
+      `${DETAIL_PATH}?${cancelledResultQuery(TOKEN)}`,
+      'replace',
     );
   });
 
-  // 🔴 plan §2 慣例 3:失敗路徑**也**要 revalidate —— 那幾支可能已經寫進去了,
-  //    不重取的話員工會停在看不到那筆取消的舊畫面(也就沒得跟手上的 token 對)。
-  for (const code of ['rejected', 'retry', 'bug', 'error'] as const) {
-    it(`${code} 失敗 → 仍 revalidate、回 sent state、**原樣**帶回送出的 token`, async () => {
-      mocks.cancelOrder.mockResolvedValue({
-        ok: false,
-        code,
-        sqlstate: 'P0001',
-        logMessage: 'boom',
-      });
-      const state = await cancelOrderAction(IDLE, cancelForm());
-      expect(mocks.revalidatePath).toHaveBeenCalledWith(DETAIL_PATH);
-      expect(mocks.redirect).not.toHaveBeenCalled();
-      // 🔴 `input` 也要斷言(code-reviewer must-fix:原本零守門)——
-      //    片 4 義務 5 的比對要在凍結畫面上做,畫面得先知道員工剛送出什麼。
-      expect(state).toMatchObject({
-        outcome: 'sent',
-        code,
-        input: { cancelMode: 'full', reasonCode: 'out_of_stock', reasonDetail: '', items: [] },
-      });
-      if (state.status !== 'failed') return;
-      // 🔴 換新鍵 = 全新 payload_hash = 同一份 payload 會真的再取消一次。
-      expect(state.requestToken).toBe(TOKEN);
-    });
-  }
+  it.each(['rejected', 'retry', 'bug', 'error'] as const)(
+    '已送到 RPC 的 %s → 導回明細頁,r 與 rt 都要有',
+    async (code) => {
+      mocks.cancelOrder.mockResolvedValue({ ok: false, code, sqlstate: 'P0001', logMessage: 'x' });
 
-  // 🔴🔴 我加了 `safeRevalidate` 卻沒配負測 —— 拿掉那個 try 整份測試照樣全綠(自己跑突變才發現)。
-  //    這格就是它的判別力:`revalidatePath` 拋錯時,補償 log 與凍結 state **都必須照樣發生**。
-  //    沒有這格,那道防護就只是一個名字。
-  it('🔴 revalidate 拋錯不得吃掉失敗回傳(否則員工拿到 500、換到新 token,而前一次可能已 commit)', async () => {
+      await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+      expect(mocks.redirect).toHaveBeenCalledWith(
+        `${DETAIL_PATH}?${sentResultQuery(code, TOKEN)}`,
+        'replace',
+      );
+    },
+  );
+
+  // 🔴 這條釘的是「換一顆新 token 就會真的再取消一次」那個洞的反面:
+  //    已送到 RPC 的失敗**必須原樣帶回這次那顆**,不得鑄新的。
+  it('🔴 已送達失敗帶回的是原本那顆 token(鑄新的 → 本條紅)', async () => {
+    mocks.cancelOrder.mockResolvedValue({
+      ok: false,
+      code: 'retry',
+      sqlstate: '40P01',
+      logMessage: 'x',
+    });
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+    const [url] = mocks.redirect.mock.calls[0] as [string, string];
+    expect(url).toContain(`rt=${TOKEN}`);
+  });
+
+  // 🔴 plan §3 D2 驗收③:revalidate 拋錯**仍必導頁**。
+  //    它一旦被往外傳,員工拿到 500、重載換到新 token,而前一次可能已 commit。
+  it('🔴 revalidate 拋錯不得吃掉導頁(仍要導到失敗出口)', async () => {
     mocks.cancelOrder.mockResolvedValue({
       ok: false,
       code: 'error',
-      sqlstate: null,
+      sqlstate: 'XX000',
       logMessage: 'boom',
     });
     mocks.revalidatePath.mockImplementation(() => {
-      throw new Error('revalidate 炸了');
+      throw new Error('revalidate 爆了');
     });
-    const state = await cancelOrderAction(IDLE, cancelForm());
-    expect(state).toMatchObject({ outcome: 'sent', code: 'error' });
-    if (state.status !== 'failed') return;
-    expect(state.requestToken).toBe(TOKEN);
-    // 補償 log 也要還在(它排在 revalidate 之前)。
-    expect(console.error).toHaveBeenCalledWith(
-      '[admin/orders/cancel] 取消失敗',
-      expect.objectContaining({ message: 'boom' }),
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `${DETAIL_PATH}?${sentResultQuery('error', TOKEN)}`,
+      'replace',
     );
   });
 
-  it('🔴 P0001 路徑一定把 message 記進 log(plan §4.2 補償條款;判別器從 UI 移到可觀測面)', async () => {
+  // 🔴 同一條的成功側:成功路徑的 revalidate 拋錯也不得把已經成功的取消變成 500。
+  it('🔴 成功路徑的 revalidate 拋錯同樣不得吃掉導頁', async () => {
+    mocks.revalidatePath.mockImplementation(() => {
+      throw new Error('revalidate 爆了');
+    });
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      `${DETAIL_PATH}?${cancelledResultQuery(TOKEN)}`,
+      'replace',
+    );
+  });
+
+  it('🔴 失敗路徑一定把 message 記進 log(plan §4.2 補償條款)', async () => {
     mocks.cancelOrder.mockResolvedValue({
       ok: false,
       code: 'rejected',
       sqlstate: 'P0001',
-      logMessage: 'admin_cancel_order: p_items 需為非空陣列',
+      logMessage: '這張單已經取消過了',
     });
-    await cancelOrderAction(IDLE, cancelForm());
+
+    await expect(cancelOrderAction(cancelForm())).rejects.toThrow('NEXT_REDIRECT');
+
     expect(console.error).toHaveBeenCalledWith(
       '[admin/orders/cancel] 取消失敗',
-      expect.objectContaining({
-        request_id: 'req-1',
-        request_token: TOKEN,
-        order_id: ORDER_ID,
-        code: 'rejected',
-        sqlstate: 'P0001',
-        message: 'admin_cancel_order: p_items 需為非空陣列',
-      }),
+      expect.objectContaining({ message: '這張單已經取消過了', sqlstate: 'P0001' }),
     );
   });
 });
@@ -374,7 +411,6 @@ describe('cancelOrderAction — log 衛生', () => {
   it('🔴 attempt log **不記說明全文**,只記碼位長度', async () => {
     await expect(
       cancelOrderAction(
-        IDLE,
         cancelForm({
           [CANCEL_REASON_CODE_FIELD]: 'other',
           [CANCEL_REASON_DETAIL_FIELD]: OTHER_DETAIL,
@@ -405,17 +441,20 @@ describe('cancelOrderAction — log 衛生', () => {
       sqlstate: null,
       logMessage: 'boom',
     });
-    await cancelOrderAction(
-      IDLE,
-      cancelForm(
-        {
-          [CANCEL_MODE_FIELD]: 'partial',
-          [CANCEL_REASON_CODE_FIELD]: 'other',
-          [CANCEL_REASON_DETAIL_FIELD]: OTHER_DETAIL,
-        },
-        [`${ITEM_ID}:3`],
+    // 🔴 D2a 之後失敗也導頁 ⇒ 這裡會拋。**先接住再驗 log**:不接住的話本條會以
+    //    「NEXT_REDIRECT 未捕捉」失敗,而那與 log 衛生無關、會遮掉真正要驗的東西。
+    await expect(
+      cancelOrderAction(
+        cancelForm(
+          {
+            [CANCEL_MODE_FIELD]: 'partial',
+            [CANCEL_REASON_CODE_FIELD]: 'other',
+            [CANCEL_REASON_DETAIL_FIELD]: OTHER_DETAIL,
+          },
+          [`${ITEM_ID}:3`],
+        ),
       ),
-    );
+    ).rejects.toThrow('NEXT_REDIRECT');
     const serialized = JSON.stringify(vi.mocked(console.error).mock.calls);
     expect(serialized).not.toContain('客人改買別款');
     expect(serialized).not.toContain(ITEM_ID);
@@ -423,7 +462,7 @@ describe('cancelOrderAction — log 衛生', () => {
 
   it('部分取消的 attempt log 記筆數、不記品項內容', async () => {
     await expect(
-      cancelOrderAction(IDLE, cancelForm({ [CANCEL_MODE_FIELD]: 'partial' }, [`${ITEM_ID}:3`])),
+      cancelOrderAction(cancelForm({ [CANCEL_MODE_FIELD]: 'partial' }, [`${ITEM_ID}:3`])),
     ).rejects.toThrow('NEXT_REDIRECT');
     const [, payload] = vi.mocked(console.info).mock.calls[0] ?? [];
     expect(payload).toMatchObject({ mode: 'partial', item_count: 1 });

@@ -3,8 +3,6 @@ import {
   CANCEL_NOT_SENT_CODES,
   CANCEL_SENT_CODES,
   cancelledResultQuery,
-  cancelNotSentFailure,
-  cancelSentFailure,
   FAILURE_MESSAGES,
   notSentResultQuery,
   sentResultQuery,
@@ -13,17 +11,17 @@ import {
   ORDER_CANCELLED_RESULT_CODE,
   toOrderCancelResultCode,
   type CancelFailureCode,
-  type CancelFormInput,
 } from './cancel-action-state';
 
-const INPUT: CancelFormInput = {
-  cancelMode: 'partial',
-  reasonCode: 'other',
-  reasonDetail: '客人改買別款',
-  items: ['33333333-3333-4333-8333-333333333333:2'],
-};
-
-describe('cancel-action-state — A9d2-2a', () => {
+// 🔴🔴 **這個 describe 是 D2b 刀下的倖存者,而且是刻意安排的**(窄 R3 nit F5):
+//    D2b 把 `cancelNotSentFailure` / `cancelSentFailure` 那族死碼整塊刪掉了。**刪之前**先把
+//    這幾條拆進獨立 describe —— 它們測的是**跨形狀活著的機制**(token 產生器與形狀驗證,
+//    PRG 之後改由表單渲染時鑄,仍然要「每次不同、且過得了驗證」)。
+//    混在同一個 describe 裡的話,D2b 一刀切下去會把這幾條守門一起帶走,**而且沒有任何人會轉紅**。
+//    🔴 **D2b 的 must-survive 清單(已全數存活,勿再合併回去)**:本 describe 這四條
+//    + 六句文案那條 + 已送達四支措辭那條 + 碼清單那組。後三者已改成直接讀 `FAILURE_MESSAGES`
+//    / 兩個碼陣列,**不再經過任何會被刪的東西**。
+describe('cancel-action-state — token 產生器與形狀驗證(跨形狀活著,D2b 已保留)', () => {
   it('產生器與驗證器同源:產出來的一定過得了驗證', () => {
     const token = generateCancelRequestToken();
     expect(isCancelRequestToken(token)).toBe(true);
@@ -48,49 +46,20 @@ describe('cancel-action-state — A9d2-2a', () => {
     expect(isCancelRequestToken(withLetters.toUpperCase())).toBe(true);
   });
 
-  // ── §2.1 的執行機制:兩種 failed 形狀 ──
+});
 
-  it('沒送到 RPC(denied / invalid)→ 帶回輸入 + 新 token,表單可編輯', () => {
-    const state = cancelNotSentFailure('invalid', INPUT);
-    expect(state.status).toBe('failed');
-    expect(state.outcome).toBe('not_sent');
-    expect(state.code).toBe('invalid');
-    expect(state.message).toBe('表單內容不正確,取消沒有送出。');
-    expect(state.input).toEqual(INPUT);
-    expect(isCancelRequestToken(state.requestToken)).toBe(true);
-  });
-
-  // 🔴 關卡2 must-fix:原本 token 由呼叫端傳入 ⇒ 片 5 把舊的原樣傳回來型別與測試都不會紅。
-  //    現在由 builder 自己鑄 ⇒ 兩次呼叫必不同,「換新」是機制不是願望。
-  it('🔴 not_sent 的 token 每次都是新鑄的(呼叫端無從指定舊的那把)', () => {
-    const a = cancelNotSentFailure('invalid', INPUT);
-    const b = cancelNotSentFailure('invalid', INPUT);
-    expect(a.requestToken).not.toBe(b.requestToken);
-  });
-
-  // 🔴 關卡2 R2 推翻了前一版(「sent 不帶 token/input」):那擋不住重送(prevState 由 client 送、
-  //    可偽造;片 5 也能自己鑄鍵),卻毀掉災難當天的對帳證據。改成**原樣帶回**,
-  //    而且刻意**不鑄新鍵** —— 新鍵 = 全新 payload_hash = 同一份 payload 會真的再取消一次。
-  it('🔴 已送到 RPC → 原樣帶回這次用的 token(絕不鑄新的)與員工輸入', () => {
-    const used = '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b';
-    for (const code of ['rejected', 'retry', 'bug', 'error'] as const) {
-      const state = cancelSentFailure(code, INPUT, used);
-      expect(state.requestToken, `${code} 必須是原本那一顆`).toBe(used);
-      expect(state.input).toEqual(INPUT);
-      expect(state.outcome).toBe('sent');
-    }
-  });
-
-  // 🔴 兩個 builder 對 token 的處置**相反**,而且必須相反:
-  //    not_sent 換新(舊的沒送出)、sent 原樣(換新就是再取消一次)。把 sent 改成也鑄新的,本條紅。
-  it('🔴 sent 不鑄新鍵、not_sent 一定鑄新鍵(兩者相反)', () => {
-    const used = '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b';
-    expect(cancelSentFailure('rejected', INPUT, used).requestToken).toBe(used);
-    expect(cancelNotSentFailure('invalid', INPUT).requestToken).not.toBe(used);
-  });
-
-  // ── 訊息表與碼一對一(驗收條件)──
-
+// ── 文案(D2b 差點被我一起刪掉的那兩條)──────────────────────────────────────
+//
+// 🔴🔴 **事故記錄,不要刪這段註解**:窄 R3 的 F4 要我把這兩條從「經過將死的 builder 取 message」
+//    改成「直接讀 `FAILURE_MESSAGES`」,理由正是「讓 D2b 刪不到」。我照做了 —— **但沒有把它們
+//    搬出那個將死的 describe**,所以 D2b 一刀切下去,兩條連同死碼一起消失。
+//    ⚠️ **四閘全綠、typecheck 全綠、沒有任何東西轉紅**;測試數 6222 → 6215 我當時也沒去對。
+//    抓到它的是**突變驗**:改一句 B 類文案而測試全綠 ⇒ 守門不在了。
+//    (而且第一次跑那發突變時我沒先確認突變真的套上去 —— 差點以為「綠 = 沒事」而放過。
+//     `feedback_negative-test-harness-self-false-green` 同族:**先證突變發生,再看紅綠**。)
+//    🔴 教訓形狀:「改成不依賴將死的東西」與「搬出將死的容器」是**兩件事**,只做前者不夠。
+//    B 類四碼的文案**全樹只有這兩條釘死**(banner 只收 A 類)⇒ 沒有它們就零守門。
+describe('cancel-action-state — 失敗文案(全樹唯一釘死 B 類四碼的地方)', () => {
   // 🔴 R1 nit:原本只驗「六句非空且互異」⇒ 把 rejected 與 error 的字串**對調**也全綠
   //    (兩句都含「重新整理」、都不含「稍後再試」)。⇒ 改成對 plan §4.2 的表**逐字**釘死。
   it('🔴 六句文案與 plan §4.2 的表逐字相同(對調兩句也要紅)', () => {
@@ -102,29 +71,20 @@ describe('cancel-action-state — A9d2-2a', () => {
       retry: '系統忙碌,這次沒完成。請重新整理本單確認後再送一次。',
       error: '取消可能已經寫進去了。請重新整理本單確認之後再決定要不要重送。',
     };
+    // 🔴 直接讀常數(窄 R3 F4):不經過任何會被刪的 builder。
     for (const code of Object.keys(expected) as CancelFailureCode[]) {
-      const actual =
-        code === 'denied' || code === 'invalid'
-          ? cancelNotSentFailure(code, INPUT).message
-          : cancelSentFailure(code, INPUT, '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b').message;
-      expect(actual, `${code} 的文案`).toBe(expected[code]);
+      expect(FAILURE_MESSAGES[code], `${code} 的文案`).toBe(expected[code]);
     }
   });
 
   // 🔴 plan §4.2:取消帳本 append-only ⇒ 已送達那四支一律叫他「重新整理確認」,
-  //    不得出現「稍後再試」這種誘導重按的字。
+  //    不得出現「稍後再試」這種誘導重按的字(那會誘發第二筆刪不掉的取消)。
   it('🔴 已送達的四支訊息都叫他重新整理、且都沒有「稍後再試」', () => {
-    for (const code of ['rejected', 'retry', 'bug', 'error'] as const) {
-      const { message } = cancelSentFailure(code, INPUT, '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b');
+    for (const code of CANCEL_SENT_CODES) {
+      const message = FAILURE_MESSAGES[code];
       expect(message, `${code} 應叫員工重新整理`).toContain('重新整理');
       expect(message, `${code} 不得誘導重按`).not.toContain('稍後再試');
     }
-  });
-
-  // ⚠️ 名稱已更正(D1 關卡2 R2):`result-banner` **不再**匯入這顆常數(成功訊息移交 D5)。
-  //    本條現在守的是「字面穩定」——action 的 redirect 與 D5 的面板要對得上同一顆字串。
-  it('成功結果碼字面穩定(action 與 D5 面板共用同一顆,結構上 typo 不可能)', () => {
-    expect(ORDER_CANCELLED_RESULT_CODE).toBe('order_cancelled');
   });
 });
 
@@ -147,7 +107,7 @@ describe('cancel-action-state — A13b D1 的碼清單與 namespaced 結果碼',
   });
 
   // 🔴 兩組**互斥**:同一顆碼不能既算「沒送到」又算「已送到」——
-  //    那個分組就是「要不要凍結 / 要不要查帳本」的判準本身(見來源檔 `cancel-action-state.ts` 的失敗碼 docstring)。
+  //    那個分組就是「導頁要不要帶 `rt` / 要不要查帳本」的判準本身(見來源檔 `cancel-action-state.ts` 的失敗碼 docstring)。
   //    ⚠️ 本條就是關卡2 抓到的那個洞的守門:實測把 `invalid` 加進 `CANCEL_SENT_CODES` ⇒ 本條與上一條同時紅。
   it('兩組零交集', () => {
     const overlap = CANCEL_NOT_SENT_CODES.filter((c) =>

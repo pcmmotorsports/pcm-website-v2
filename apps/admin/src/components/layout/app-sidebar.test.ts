@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+// 🔴 相對路徑不用 `@/`:vitest 的 `@` alias 指向 `apps/storefront/src`(本檔檔頭記過的同一個坑)。
+import { stripComments } from '../../lib/test-support/strip-comments';
+
 // app-sidebar.test.ts — M-4b E10 S3b-3(`[K1-M9]`)。
 //
 // 🔴 **為什麼一行 nav 值得一支測試**:整片 S3b 的三個 action、四個元件、一整頁都可以
@@ -49,9 +52,7 @@ const RAW_SOURCE = readFileSync(
  *    直接對本函式餵一行帶 `https://` 的輸入,判別力就有了 ——
  *    「我想不到怎麼構造」不等於「構造不出來」,這一片已經在這上面栽過兩次。
  */
-export function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '');
-}
+
 
 const SOURCE = stripComments(RAW_SOURCE);
 
@@ -107,4 +108,45 @@ describe('AppSidebar 導覽項', () => {
   //    但 `navEntries()` 的 regex 本來就要求 `href:` 存在才匹配得到 ⇒ 若那項變成無 href 的
   //    disabled 分支,上面那條 `toEqual` 已經先紅。被嚴格蘊含的斷言寫不出只紅它的負測
   //    (memory `feedback_unconstructible-negative-test-means-noop-guard`),留著只是假裝多一道。
+});
+
+// ── #350a:側欄寬度釘值 ──────────────────────────────────────────────────────
+// 🔴 **為什麼需要這一格**:#350 的偵察實查結果是「root layout 零測試、側欄寬度零斷言」——
+//    也就是說,**把寬度改回 16rem、或改到會截字的 6rem,全 repo 沒有一格會紅**。
+//    Sean 的需求(「跟文字對齊、放大訂單空間」)與那個下限(截字)都只活在一個常數裡,
+//    沒有守門就等於沒寫下來。
+const SIDEBAR_UI_SOURCE = stripComments(
+  readFileSync(fileURLToPath(new URL('../ui/sidebar.tsx', import.meta.url)), 'utf8'),
+);
+
+/**
+ * 從 `ui/sidebar.tsx` 抽某個寬度常數的 rem 值(抽不到 = 常數被改名/刪掉,回 null 讓斷言紅)。
+ *
+ * 🔴 **先剝註解**(同本檔 `SOURCE` 的既有理由):`SIDEBAR_WIDTH` 的 docstring 裡就有 `16rem`
+ * 這個字面(在講「原本是多少」)。今天的 regex 要求 `const X = '` 前綴、不會誤命中,
+ * 但只要有人把舊那行註解掉再新增一行,`.exec` 就會抓到註解裡的那個 ⇒ 假綠。不留這個縫。
+ */
+function widthRem(name: string): number | null {
+  const m = new RegExp(`const ${name} = '([0-9.]+)rem'`).exec(SIDEBAR_UI_SOURCE);
+  return m ? Number(m[1]) : null;
+}
+
+describe('#350a 側欄寬度(Sean:窄到跟文字對齊、放大訂單空間)', () => {
+  it('🔴 桌機展開寬 = 9rem(比原本的 16rem 還給內容區 7rem)', () => {
+    // 🔴 **下限 ≈119px(header 溢出)、選單截字 ≈113px** —— 推導表在 `ui/sidebar.tsx` 的
+    //    `SIDEBAR_WIDTH` docstring。要調這個值的人請先讀那張表:往下走**先撞 header 溢出**,
+    //    而 header 沒有 truncate ⇒ 是蓋到內容區,不是靜默截字。
+    // ⚠️ **刻意只有這一格、沒有另立「>= 下限」那格**:`toBe(9)` 綠 ⇒ 任何 `>=` 恆綠
+    //    = 被嚴格蘊含、寫不出只紅它的負測(memory `feedback_unconstructible-negative-test-means-noop-guard`,
+    //    也正是本檔上面剛刪掉一條斷言的同一個理由)。下限寫在 docstring 給人讀,不假裝是一道守門。
+    expect(widthRem('SIDEBAR_WIDTH')).toBe(9);
+  });
+
+  it('🔴 手機寬度**不得**被順手一起改(Q5=維持現狀:手機是 Sheet 覆蓋、不是分割)', () => {
+    expect(widthRem('SIDEBAR_WIDTH_MOBILE')).toBe(18);
+  });
+
+  it('圖示態寬度不變(⌘B 收合仍是既有行為,本片不動)', () => {
+    expect(widthRem('SIDEBAR_WIDTH_ICON')).toBe(3);
+  });
 });

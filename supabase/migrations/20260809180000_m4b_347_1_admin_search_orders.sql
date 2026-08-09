@@ -13,7 +13,7 @@
 --    (`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts` 的 forbidden 陣列)。
 --    把它加進 `ADMIN_ORDER_LIST_SELECT` 去做前端過濾 = **親手拆掉那道守門**。
 -- ② 八個維度裡有三個在**內嵌層**(品項、品牌、採購),而內嵌層 filter 的語意押在
---    **本專案無法實測**的 PostgREST 行為上 —— `SupabaseOrderAdapter.ts:408-413` 的註解逐字說明過
+--    **本專案無法實測**的 PostgREST 行為上 —— `SupabaseOrderAdapter.ts:542-546` 的註解逐字說明過(#347-2a 推移後重量)
 --    (本機是裸 PG、沒有 PostgREST)。
 -- ⇒ 走 RPC 之後,**PII 只在 SQL 內被比對,一個字都不進讀模型、不進 RSC payload**。
 --    函式只吐 `orders.id` 的陣列 —— id 本身不是 PII。
@@ -104,10 +104,14 @@
 -- 🔴 **裁決(主視窗 D-380-A,流程層決定、未上 Sean)**:**不做 ①** ——
 --    `ALTER ROLE service_role` 會動到**service_role 的每一句查詢**,是平台級改動,
 --    為一支唯讀搜尋函式付這個代價不值得。
--- ⚠️ **待補的事實(347-2 順手做)**:用真連線 `SHOW statement_timeout` 量平台對 service_role
---    的**實際值**,把數字寫回這一段。若量出來是 `0`(無上限),再另立小片走鐵則 12④ 審。
---    🔴 **這個數字現在是空的,不是「已確認無虞」** —— 本 worktree 沒有 `.env*`、量不到,
---    不要把「沒寫」讀成「沒問題」。
+-- ✅ **已補的事實(2026-08-09,Sean 於 Supabase Studio 實跑 `select rolname, rolconfig
+--    from pg_roles`,截圖+全文轉貼主視窗)**:
+--      · `service_role`  → `statement_timeout=300s`(本函式的實際天花板;非 0,有上限)
+--      · `authenticator` → `statement_timeout=8s` + `lock_timeout=8s`(anon/authenticated 走
+--        PostgREST 的上限;本函式是 admin service_role 專用,不受這條管,但記著它)
+--      · `postgres`      → 只設 search_path,無 timeout 覆寫
+--    量測面=role 級 GUC(語句開始時依此 arm),非 session `SHOW`;若未來有 db 級或
+--    connection-string 覆寫,以更近的那層為準。300s 非 0 ⇒ 免另立鐵則 12④ 小片。
 -- 🔴 本片能做、也做了的那半 = **限制輸入長度**(見下方長度閘):它擋的是「超長字串讓每列的
 --    strpos 變貴」,**不等於**擋住整體執行時間。兩者不要混為一談。
 --
@@ -135,7 +139,8 @@
 -- · `p_limit`:NULL 或 <= 0 → 100;**上限硬夾在 100**,傳 5000 也只給 100。
 --   🔴 **100 不是隨手挑的,是對齊下游已經釘死的那個數**:列表拿到 ids 之後走
 --   `.in('id', ids)`,而那條路徑的上限是 `SUPPLIER_ORDER_NO_MATCH_CAP = 100`
---   (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:121`)——理由是 **PostgREST 的
+--   (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:160`;#347-2a 起它由同檔的
+--    `ADMIN_ORDER_ID_IN_CAP` 導出 —— 兩個搜尋維度共用同一個數字,值仍是 100)——理由是 **PostgREST 的
 --   query string 長度**:200 個 UUID 加上 select 投影已經 8,361 bytes、越過 8KB 線。
 --   ⇒ 這裡若給 200,347-2 接上去會**先 HTTP 失敗**,員工連 truncated 提示都看不到(codex R2)。
 -- ============================================================
