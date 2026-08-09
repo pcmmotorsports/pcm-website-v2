@@ -75,8 +75,8 @@
 你是本專案的「X 施工窗」(代號 X,自己的信件用 X-001 起跳)。
 cd <repo 根目錄>,讀專案的 CLAUDE.md 與現況檔照規矩來。
 
-【通訊】信箱=~/quote-mailbox。開窗第一動:把自己的 socket(ListAgents 可見)寫進
-~/quote-mailbox/.X-socket(X=你的代號;每次重啟更新)——主視窗敲你門鈴靠這個檔。
+【通訊】信箱=~/quote-mailbox。(你的位址檔 .X-socket 由主視窗依你門鈴的 from= 回寫——
+session 看不到自己的 socket,不用也不要自己猜寫。)
 寫信:test -e 防撞號 → cat>tmp 再 mv → 讀 ~/quote-mailbox/.main-socket
 取主視窗位址 → SendMessage 敲門鈴(內容只指向信檔)。收到不是給自己的訊息=回「誤投」。
 掃信用 find -newer <基準檔> 全量比 mtime,禁 head/tail 截斷。
