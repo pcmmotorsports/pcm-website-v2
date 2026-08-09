@@ -394,6 +394,8 @@ $fn$;
 COMMENT ON FUNCTION public.pcm_b2_shipping_idem_record(text, text, uuid, jsonb) IS
   'B2 出貨冪等回填(plan §1c 面 3:與產物同一交易),並回傳**首次成功的信封**。'
   '三道:shipment_id 非 NULL / 該包裹存在 / ROW_COUNT=1。'
+  '🔴 2026-08-09 起還有第四道、但不在本函式:deferred 半成品閘會在 COMMIT 當下驗「產物存在 + 快照非空」'
+  '(`20260809200000`)⇒ 傳 `{}` 進來的呼叫端會死在 commit 而不是死在這裡。'
   '🔴 「改到 0 列」若不當場拋,存根會停在 shipment_id IS NULL ⇒ 下一次合法重試被 P2B23 卡死。'
   '🔴 快照欄位契約與 write-once **不在本函式**,在鍵表的 BEFORE UPDATE trigger 上(對抗審查 R1-F5:'
   '守門要畫在不變量成立的那個面 —— 畫在函式上,owner 直寫一句 UPDATE 就繞過去了)。'
@@ -485,10 +487,15 @@ BEGIN
   END IF;
 
   -- 🔴 W2 新增①:快照 **write-once**。
-  --    🔴 **R2-F6:哨兵不得用 `OLD.result_snapshot <> '{}'`** —— `'{}'` 既是 W0b 的 DEFAULT
-  --       **也是一個合法的快照值**(W3 傳空快照沒有任何守門攔它)⇒ 第一次就寫 `'{}'` 的列,
+  --    🔴 **R2-F6:哨兵不得用 `OLD.result_snapshot <> '{}'`** —— `'{}'` 是 W0b 的 DEFAULT,
+  --       而**在本片當下**它也是一個合法的快照值(W3 傳空快照沒有任何守門攔它)⇒ 第一次就寫 `'{}'` 的列,
   --       `OLD` 永遠等於 `'{}'`,write-once **永不生效**、之後可被任意覆寫。
   --       (memory `feedback_fixture-value-makes-guard-vacuous`:哨兵值與合法值撞號。)
+  --    🔴 **2026-08-09 更正(codex #4 MF-2 落地,`20260809200000`)**:上面那句「`'{}'` 也是一個
+  --       合法的快照值」**現在不成立了** —— deferred 半成品閘已改成「快照必須是非空 object」,
+  --       空快照會在 COMMIT 當下被 `pcm_b2_w2_stub_snapshot_empty` 擋下。
+  --       本段的推理(哨兵不能用 `<> '{}'`)仍然成立、程式一個字都不用改;
+  --       只有「合法值」那個字面過期了,照事實改窄。(純註解更正,不改行為。)
   --    ⇒ 改用 `OLD.shipment_id IS NOT NULL` 當「這列已完成」的判準:`record()` 把 shipment_id
   --      與 snapshot **同一句 UPDATE 一起寫**,所以 shipment_id 非空 ⇔ 快照已經寫過一次。
   IF OLD.shipment_id IS NOT NULL
