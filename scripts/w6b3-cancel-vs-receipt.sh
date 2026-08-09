@@ -134,7 +134,12 @@ Q()  { psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1 | tr -
 QM() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1 | tr '\n' ' '; }
 
 # 🔴 **第六個釘值檔**(b2s2b / w5 / w6a / w6b1 / w6b2 / 本檔)—— 新片落檔要**同批重釘六個**。
-LINE_TIP="20260808100000"
+# 🔴 重釘(2026-08-09 W7d-3 落檔 `20260809020000`):該片是 **assert-only** ——
+#    逐條核過 `CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE` **全部零命中**,
+#    只有一個 DO block 與一個 `COMMENT ON FUNCTION`。⇒ **結構 oracle 無需增列**
+#    (閘要求的第二步在本片是 no-op,但這是查出來的、不是跳過的)。
+#    `COMMENT` 不進 `pg_get_functiondef` ⇒ 任何函式體 md5 釘值也不受影響。
+LINE_TIP="20260809020000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 

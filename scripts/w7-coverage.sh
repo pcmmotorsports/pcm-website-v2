@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════
-# W7 · 出貨 writer 線的**跑過帳**(covering account = 「這 18 支到底有沒有被跑過」)
+# W7 · 出貨 writer 線的**跑過帳**(covering account = 「這 19 支到底有沒有被跑過」)
 #
-#   check(預設):驗收據 —— 18 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
+#   check(預設):驗收據 —— 19 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
 #                 跑的時候 migration 尾碼**就是現行的**。任何一條不成立就紅。
 #   record <支|all>:真的跑 harness、把結果寫成收據。慢(每支要 initdb + 重放全套 migration),
 #                 這是 **apply preflight 的本分**,不是每次 commit 都要做的事。
@@ -22,7 +22,7 @@
 #     (前一版要同步約 16 處字面 + 兩次心算加總 = 本 repo 復發第一名那個病的最大化版本)。
 #
 # ══ 🔴 證得了什麼 / 證不了什麼 ═══════════════════════════════════════════
-#   ✅ 這 18 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
+#   ✅ 這 19 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
 #   ❌ **證不了**那些格「有判別力」—— 那是各支自己的靶在證(全線現況見 matrix.md §1)。
 #   ❌ **證不了**「該有的守門都想到了」。欠款清單在 matrix.md §3。
 #   ❌ 收據是**自陳**:它證的是「有人跑了並記下結果」,不是「結果沒被手改」。
@@ -30,7 +30,7 @@
 #
 # 用法:
 #   bash scripts/w7-coverage.sh              驗收據(快,<1s)
-#   bash scripts/w7-coverage.sh record all   跑全線 18 支並重寫收據(慢,~15-25 分)
+#   bash scripts/w7-coverage.sh record all   跑全線 19 支並重寫收據(**實測約 4 分**:13 秒/支 × 19。舊字面寫 15-25 分是錯的,從未實測過 —— 2026-08-09 W7d-3 片實際計時後更正)
 #   bash scripts/w7-coverage.sh record w2-verify.sh   只重跑一支
 # ══════════════════════════════════════════════════════════════════════════
 set -u
@@ -43,7 +43,7 @@ MODE="${1:-check}"
 
 # 目錄裡的 W 線 harness 檔案集合。🔴 排除本檔自己(它沒有被測物、不是 harness)與收據檔。
 # 🔴 `^w[0-9]` 是命名慣例不是機制:未來若有人把 harness 取成別的開頭,它對本檔隱形。
-#    今天 18 支全部符合(逐支實查),這是**慣例債**、寫下來不假裝沒有。
+#    今天 19 支全部符合(逐支實查),這是**慣例債**、寫下來不假裝沒有。
 harness_set() { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$' | sort; }
 # 現行 migration 時間序尾碼(與 b2s2b-verify.sh 的 NEWEST_TS 閘同一個量法)
 newest_ts() { ls "$REPO"/supabase/migrations/*.sql 2>/dev/null | sed 's|.*/||; s|_.*||' | sort | tail -1; }
@@ -76,14 +76,15 @@ fi
 
 # ══════════════════════════ check 模式 ═══════════════════════════════════
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=24   # 🔴 量出來的(**18** 逐支 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 24 + 2 = 26。
+EXPECT_TOTAL=25   # 🔴 量出來的(**19** 逐支 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 25 + 2 = 27。
                   # 🔴 W7d-1(2026-08-08)新增 scripts/w7d1-verify.sh ⇒ harness_set() 的 ^w[0-9] 自動撈得到它,
                   #    但**格數與 KEYS_FROZEN 是手動字面**、不會自己長 —— 關卡2 抓到這個漏。
                   #    ⇒ 以後每新增一支 w 開頭的 harness,這兩個字面都要一起改(這正是本檔在守的那種帳)。
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-28s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-28s %s\n' "$1" "$2"; }
 rm -rf "$TMPD"; mkdir -p "$TMPD"
-# 🔴 R2 nit(2026-08-08):原本掛 `EXIT INT TERM`,那正是我在 18 支 harness **拒絕**的雙跑形狀。
+# 🔴 R2 nit(2026-08-08):原本掛 `EXIT INT TERM`,那正是我在當時那 **18 支** harness **拒絕**的雙跑形狀。
+#    (數字刻意不隨後來新增的 w7d3 一起長 —— 這句講的是掃掠當下的範圍,是歷史陳述不是現況。)
 #    bash 3.2.57 實測:掛上 INT/TERM 後,被中斷的腳本**退出碼被洗成 0**(130→0、143→0)
 #    ⇒ 一次 Ctrl-C 的 `check` 會回 exit 0 = fail-open。EXIT 單掛就接得到 INT/TERM/HUP/QUIT,不需要它們。
 trap 'rm -rf "$TMPD"' EXIT
@@ -208,7 +209,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
