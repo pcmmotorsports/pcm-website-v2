@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 14:30 L2 migration 已 apply(Sean 拍板)+B 之 W7 跟片①收割+八支重釘 140000。** ①**Q8=Apply 已執行**:`20260809140000`(retry RPC allowlist 加 record_not_found)推上正式庫、帳面 local/remote 對齊、pending 清零。🔴 P-240 誠實揭示:該片檔頭「交易模擬 T1-T5」是**未跑的清單非紀錄**(P 自曝);apply 當下實跑的=內嵌 EXECUTE 矩陣+role hygiene 兩格;**T1/T4 行為格併入 L3 apply 前交易模擬補跑**(主視窗裁定,PostgREST 補打不可行=唯 payment_confirmer 可呼+無法 rollback);檔頭字面由 P 在 L3 commit 改正。②**P-238 更正收訖**:「客服取消單擋人」洞不存在(主視窗親驗兩處 migration 字面),L3 縮範圍=失效 RPC+pg_cron、三處 cancelled_at 連動不加(未來雙扣陷阱)。③**B 之 W7 跟片①收割**(`0fa4e1c0`):b2s2b 收編跑過帳(invoke_of/exits_of {0,3}/收據第 7 欄 inconc 凍結 1;三腿突變證過);B 壓縮後接假綠家族。④**140000 落檔觸發八支釘值過期**=機制照設計變紅;主視窗代跑重釘(030000→140000,零交集 grep=0 註記)+全線重錄 20 支+check **28/0**(exit 分開驗)。⑤D 做 2b-0(customer_user_id 進列表投影,主視窗裁 A+codex;經銷價白名單新欄照機制走審)。
+**Sean 待決策**:Q7 殭屍單自動處理範圍(白話版已重講)。
+
 🗂️ **2026-08-09 14:00 壓縮後雙收割:P 之 L1+L2(`62d6ce11`)+D 之出貨 2a(合併後推)。** ①**P 生命週期 L1+L2 收割**:L1 probe 實測=3DS 按取消→Record **≤1 秒**轉 CANCEL(Q3=A 成立、窗可壓「下一動作當下」);放棄不碰=**44 分恆 4 PENDING**(⇒ 🔴 件③「只認 not-found」對放棄型殭屍無效=**Q7 待 Sean、擋 L5 不擋 L3/L4**)。L2 拆桶 record_not_found(四道 fail-closed 條件、放行零漂移;四輪審查 R3 Fable 抓 `last_settle_error` 非「最近一次結果」⇒ L5 硬契約=釋鎖前必須新鮮 Record 觀察)。🔴 **migration `20260809140000` 未 apply(待 Sean;不 apply 則值靜默存 'unknown'、L5 恆假)**;L2 程式在 apply 前=維持現狀零破壞。P 續做 L3。②**D 出貨 2a 收割**:五支 B2 writer RPC 呼叫面(零自寫 SQL、冪等鍵呼叫端給、回傳逐鍵驗;守門 20+突變 5);無 DB 窗 ⇒ 真 DB smoke 於 2b 帶 UI 流程補。D 續做 2b(勾單+彈窗 island)。③三綠+受影響套件測試 exit 分開驗全 0。④B 之 b2s2b 仍未 commit(2 檔掛樹)、續等 STOP。
 **Sean 待決策**:Q7 殭屍自動處理範圍(A 兩種都處理/B 只認查無/C 人工鈕)+ L2 migration apply。
 

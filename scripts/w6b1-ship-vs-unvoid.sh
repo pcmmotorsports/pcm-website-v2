@@ -124,7 +124,11 @@ cap() {
 #    只有一個 DO block 與一個 `COMMENT ON FUNCTION`。⇒ **結構 oracle 無需增列**
 #    (閘要求的第二步在本片是 no-op,但這是查出來的、不是跳過的)。
 #    `COMMENT` 不進 `pg_get_functiondef` ⇒ 任何函式體 md5 釘值也不受影響。
-LINE_TIP="20260809030000"
+# RE-PIN 2026-08-09 pm: lifecycle L2 20260809140000 = payment retry RPC CREATE OR REPLACE
+#    (mark_attempt_settle_retry / mark_webhook_retry, allowlist + 'record_not_found' only).
+#    Non-shipping functions; grep recompute|order_item_qty|oiqs = 0 hits => shipping oracles
+#    unchanged, no md5 re-measure needed. Main-window re-pin + full re-record.
+LINE_TIP="20260809140000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 

@@ -373,8 +373,12 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    `MD5_HELPER_4AXIS` 不需重量:`20260809030000` 只有一句
 #    `COMMENT ON COLUMN public.customer_addresses.email`,與 recompute helper / oiqs **零交集**(grep=0 實查)。
 #    🔴 上方那句「W7d-3 落檔 20260809020000」是**歷史註記**、刻意不跟著改。
-[ "$NEWEST_TS" = "20260809030000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809030000 ——
+# RE-PIN 2026-08-09 pm: lifecycle L2 20260809140000 = payment retry RPC CREATE OR REPLACE
+#    (mark_attempt_settle_retry / mark_webhook_retry, allowlist + 'record_not_found' only).
+#    Non-shipping functions; grep recompute|order_item_qty|oiqs = 0 hits => shipping oracles
+#    unchanged, no md5 re-measure needed. Main-window re-pin + full re-record.
+[ "$NEWEST_TS" = "20260809140000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260809140000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 
