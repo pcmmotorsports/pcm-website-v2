@@ -1,5 +1,15 @@
-import type { AdminOrderSummary, Paginated, SupplierOrderNoSearchInvalidReason } from '@pcm/domain';
+import { cookies } from 'next/headers';
+import type {
+  AdminOrderFilter,
+  AdminOrderListResult,
+  SupplierOrderNoSearchInvalidReason,
+} from '@pcm/domain';
 import { SupplierOrderNoSearchTooManyError } from '@pcm/domain';
+import {
+  ORDER_KEYWORD_COOKIE,
+  readOrderKeywordCookie,
+} from '../../lib/orders/order-keyword-cookie';
+import { OrderKeywordSearch } from '../../components/orders/order-keyword-search';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import {
   parseOrderListSearchParams,
@@ -21,6 +31,17 @@ import { ListPagination } from '../../components/shared/list-pagination';
 // A11a-1(2026-08-06):列表的九碼 cell 與整單彙總 badge 已下架 ⇒ 本頁不再讀狀態詞彙。
 // 讀 searchParams → 動態渲染;force-dynamic 確保不被靜態預渲染(避免 build 期執行 DB 查詢)。
 export const dynamic = 'force-dynamic';
+
+// 🔴🔴 **#350c 把退款 action 的計時 segment 換到了這一頁**(本片唯一碰到錢的地方)。
+//    面板改成 searchParams 驅動之後,退款表單是在 **`/orders?panel=<id>`** 這個 URL 上送出的
+//    ⇒ 那個 POST 吃的是**本 segment** 的函式時限,不再只有 `/orders/[id]`。
+//    為什麼這個數字承重(理由全文在 `app/orders/[id]/page.tsx:16-38`,此處不複述):
+//    adapter 的 refund fetch 有 30s 硬逾時,平台時限一旦低於它,慢回應會被砍在 fetch 中途
+//    = **錢可能已動、帳本停在 processing**,而那條路徑明文「不得自動重發」。
+//    ⚠️ 本頁原本**沒有** `maxDuration`(= 吃平台預設)⇒ 不補這一行就是把退款丟回預設值。
+//    `app/@panel/orders/page.tsx` 宣告同一個數字;三處(含 `orders/[id]`)由
+//    `order-panel-wiring.test.ts` 釘在一起,改一處會紅。
+export const maxDuration = 60;
 
 /**
  * 供應商單號搜尋詞不合法時的**明示**訊息(M-4b E10 A10c2;Sean 2026-08-07 Q1=A)。
@@ -52,10 +73,16 @@ export default async function OrdersPage({
   //    **整個訂單列表**進錯誤態(不只搜尋壞掉),與 A10c1/D0 同族。
   const supplierOrderNoSearchEnabled =
     process.env.ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH === '1';
-  const { filter, page, supplierOrderNoSearch } = parseOrderListSearchParams(rawSearchParams, {
-    orderNumberSearchEnabled,
-    supplierOrderNoSearchEnabled,
-  });
+  const { filter: urlFilter, page, supplierOrderNoSearch } = parseOrderListSearchParams(
+    rawSearchParams,
+    { orderNumberSearchEnabled, supplierOrderNoSearchEnabled },
+  );
+  // 🔴 **#347-2b:關鍵字這一軸不在 URL、在 httpOnly cookie**(Q-a=B 紅線:搜尋詞是 PII)。
+  //    它與其他七軸的來源不同,但**下游一視同仁** —— 合進同一個 `filter` 之後,
+  //    分頁 / 篩選 / 查詢全部照原路走,`buildOrderListHref` 一個字都不用改。
+  //    讀取 fail-closed(壞值/超長 ⇒ 當沒搜尋),理由與三道閘見 `order-keyword-cookie.ts`。
+  const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
+  const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
@@ -65,7 +92,7 @@ export default async function OrdersPage({
   //    它在本頁的唯一用途是餵列表的九碼 cell 與整單彙總 badge,兩者已隨本片下架
   //    ⇒ 原本的「訂單與詞彙分開容錯」雙腿 `Promise.allSettled` 收斂成單一 try/catch。
   //    讀取鏈本體(port / adapter / repository getter)的處置見 plan §3.1 裁定:歸 A9w4c 後半。
-  let result: Paginated<AdminOrderSummary> | null = null;
+  let result: AdminOrderListResult | null = null;
   let loadFailed = false;
   // 🔴 搜尋層的**明示訊息**(Sean 2026-08-07 Q1=A:不默默降級)。
   //    與 `loadFailed` 分開:這些是「使用者可以自己處理」的狀況(改個輸入就好),
@@ -115,6 +142,28 @@ export default async function OrdersPage({
       </div>
 
       <ResultBanner code={resultCode} />
+
+      {/* #347-2b:關鍵字搜尋框 + 「目前搜尋」chip。
+          🔴 `listHref` 的 `page` 固定給 **1**:換了搜尋條件還停在第 3 頁,常常直接看到空白頁。
+          其餘篩選軸照 `filter` 原樣帶回 ⇒ 搜尋不會把使用者的篩選洗掉。 */}
+      <OrderKeywordSearch
+        keyword={keyword}
+        listHref={buildOrderListHref(filter, 1)}
+        matchCount={result?.keywordMatchCount ?? null}
+        truncated={result?.keywordTruncated ?? false}
+      />
+
+      {/* 🔴🔴 **截斷提示:`keywordTruncated=true` 時無條件顯示,包含 0 筆**
+          (`packages/domain/src/order/types.ts:316-318` 逐字要求)。
+          RPC 先取全域最新 100 筆命中,才與其他篩選取交集 ⇒ 真正要找的單可能整張落在那 100 筆之外,
+          畫面因此可能顯示 0 筆。**0 筆 + 沒有提示 = 員工得到「查無此單」的錯誤結論**,
+          那正是本合約最主要要禁的形狀 ⇒ 這個條件式**不得**加上 `orders.length > 0`。 */}
+      {result?.keywordTruncated && (
+        <div className='rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
+          符合這個關鍵字的訂單超過 100 筆,目前只找了最新的 100 筆;請輸入更完整的關鍵字(例如完整料號或單號)再查一次。
+        </div>
+      )}
+
       {searchNotice && (
         <div className='rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
           {searchNotice}
@@ -148,7 +197,11 @@ export default async function OrdersPage({
               動作列放表格上方(勾了才浮出)。彈窗成箱是 2b-2。 */}
           <ShippingSelectionProvider>
             <ShippingSelectionBar />
-            <OrdersTable orders={orders} />
+            {/* #350c:面板連結**帶著當下篩選與頁碼**一起走(同一支 builder)⇒ 點開一張單不會洗掉列表狀態。 */}
+            <OrdersTable
+              orders={orders}
+              buildPanelHref={(orderId) => buildOrderListHref(filter, page, orderId)}
+            />
           </ShippingSelectionProvider>
           <ListPagination
             page={page}

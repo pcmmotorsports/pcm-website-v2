@@ -63,6 +63,32 @@ export const CANCEL_REASON_CODES = [
 ] as const;
 export type CancelReasonCode = (typeof CANCEL_REASON_CODES)[number];
 
+/**
+ * 七碼 → 員工看到的中文。
+ *
+ * 🔴 **住在這裡、與 `CANCEL_REASON_CODES` 同檔**(A13b D4 R1 nit 4):消費端有兩個 ——
+ *    取消表單的下拉(D4)與取消歷程的顯示(`cancel-review-section.tsx`)。
+ *    **兩邊必須是同一組字**,否則員工在下拉選「交期過長」、事後在歷程看到另一種說法。
+ *    ⚠️ 原本放在 `cancel-review-section.tsx`(元件)、由表單反向 import 元件 ——
+ *    那會為了一張字典把 `@pcm/domain` 與 `buildOrderCancelView` 整個模組圖拉進表單。
+ * 🔴 `Record<七碼 union, string>` 不是 `Record<string, string>` ⇒ **少寫一碼編譯期紅**。
+ * ⚠️ **它擋不到原型鏈**(R2 codex nit 更正原本說滿的字面):型別只約束**編譯期**的索引;
+ *    執行期 `CANCEL_REASON_LABEL['constructor']` 照樣拿得到 `Object.prototype.constructor`(truthy)
+ *    ⇒ 任何 `?? fallback` 都不會執行(memory `reference_js-index-lookup-hits-prototype-chain`,PCM 曾中 6 頁)。
+ *    現況為什麼還安全:兩個消費端的索引值都**不是使用者自由輸入** ——
+ *    表單下拉逐個走 `CANCEL_REASON_CODES`(不動態索引),歷程顯示的值由 DB CHECK 限成七碼。
+ *    🔴 **哪天要拿它去查「來路不明的字串」,先改成 `Object.hasOwn` 或 `Map`**。
+ */
+export const CANCEL_REASON_LABEL: Record<CancelReasonCode, string> = {
+  customer_request: '客人要求',
+  out_of_stock: '缺貨',
+  long_leadtime: '交期過長',
+  price_change: '價格異動',
+  duplicate_order: '重複下單',
+  internal_error: '內部作業疏失',
+  other: '其他',
+};
+
 /** 整單 / 部分兩種模式。 */
 export const CANCEL_MODES = ['full', 'partial'] as const;
 export type CancelMode = (typeof CANCEL_MODES)[number];

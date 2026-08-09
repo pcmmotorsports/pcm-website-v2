@@ -25,12 +25,12 @@
 // 🔴🔴 **本檔的 fail-closed 只涵蓋「看得出來的分不清楚」——三種看不出來的它擋不住**
 //    (codex R2 三條 must-fix,逐條實查屬實;**這段是為了不讓上面那句宣稱大於事實**):
 //    本檔**擋得住**的:`rt` 缺失 / 非 uuid / 重複鍵陣列、`cancellations === null`、`cancellationsTruncated`。
-//    本檔**結構上擋不住**的,三條全部只影響 `miss_complete` 那一格(= 唯一一句「可以重送」):
+//    本檔**結構上擋不住**的,三條全部只影響 `miss_complete` 那一格(= 唯一一格會讓員工再送一次的):
 //      ① **跨單**:冪等鍵唯一性是 `UNIQUE (order_id, idempotency_key)`
 //         (`20260730130000_m4b_e10_a7_order_cancellations.sql:118-119`)= 跨單不唯一,
 //         而本函式收到的是「某一張單的帳本」,看不到 token 原本屬於哪張單。
 //      ② **新鮮度**:「導頁後那頁拿到的是重算過的資料」這個前提**沒人量過**
-//         (`cancel-action-state.ts:88-90` 逐字)⇒ 已 commit 但這次沒讀到,長得跟「沒寫進去」一樣。
+//         (`cancel-action-state.ts:93-95` 逐字)⇒ 已 commit 但這次沒讀到,長得跟「沒寫進去」一樣。
 //      ③ **假完整**:`cancellationsTruncated` 是 `rows.length >= 100` 算的
 //         (`mappers/order-cancellations.ts:142`)⇒ 伺服器 `max-rows` 若被調到 100 以下,
 //         截斷發生在更低的數字上而本旗標**恆 false**(backlog **#325** 逐字記載的共同前提)。
@@ -61,15 +61,16 @@ export type CancelLedgerVerdict =
   /** 沒找到,**且**歷程被截斷 ⇒ 可能在沒列出的那批裡,無法斷定 */
   | 'miss_truncated'
   /**
-   * 沒找到,且**看得到的這批**完整 ⇒ 這筆沒有寫進去。
+   * 沒找到,且**看得到的這批**完整 ⇒ 這筆**在目前看得到的帳本裡查不到**。
+   * ⚠️ **不等於「沒有寫進去」**(D5 R2 codex must-fix 同步):見下方兩個未證前提。
    *
    * 🔴🔴 **這一格最貴 —— 它是唯一一句「可以重送」,而它踩在一個沒人量過的前提上**(R1 must-fix 2)。
    *    前提 = 「導頁之後那一頁拿到的是重新算過的資料」。舊形狀踩的是 server action 同一往返會重算
    *    RSC payload,PRG 換成 redirect + 新渲染,**機制不同、一樣沒人量過**
-   *    (`cancel-action-state.ts:88-90` 逐字;`E-031-A` 已把「要起真 admin 才量得到」排到 #350 線下)。
+   *    (`cancel-action-state.ts:93-95` 逐字;`E-031-A` 已把「要起真 admin 才量得到」排到 #350 線下)。
    *    ⇒ 若 RPC 其實已 commit 而這次渲染還沒看到那一列(快取 / 複本 / 重算沒發生),
-   *    本格會對員工說「可以重送」⇒ 第二筆刪不掉的取消。
-   * ⇒ 🔴 **D5 的文案義務**:本格不得寫成斷言句(「這筆沒有寫進去」),
+   *    本格若被寫成「可以重送」⇒ 第二筆刪不掉的取消。
+   * ⇒ 🔴 **D5 的文案義務(已落地)**:本格不得寫成斷言句(「這筆沒有寫進去」),
    *    要寫成「**目前查不到這筆**,重新整理再確認一次;仍然沒有才重送」。
    */
   | 'miss_complete';
@@ -119,7 +120,7 @@ export type CancelLedgerInput = {
  * `note-action-state.ts:42`)⇒ 比對前兩側都正規化。
  *
  * 🔴 **這不是潔癖,是 fail-open 的洞**:直接 `===` 時,一顆大小寫不同的合法 token 會**找不到**
- * ⇒ 落 `miss_complete` = 對員工說「這筆沒有寫進去,可以重送」,而它其實寫進去了。
+ * ⇒ 落 `miss_complete`,而它其實寫進去了(D5 的文案因此只說「目前查不到」、且結果頁不給表單)。
  * 方向錯的那一邊正好是 append-only 帳本最貴的那一邊。
  * ⚠️ 目前的產生端(`crypto.randomUUID()`)與 PostgREST 都吐小寫、實務上撞不到 ——
  * 但 `rt` 來自**網址**,員工手抄/大寫化改一改就構造得出來,而型別與正規式都不會擋。
@@ -135,7 +136,7 @@ function normalizeToken(token: string): string {
  *    冪等鍵的唯一性是 **`UNIQUE (order_id, idempotency_key)`**
  *    (`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:118-119`)= **跨單不唯一**。
  *    ⇒ 帶著 X 單的合法 `rt` 落在 Y 單頁(舊書籤 / 手改網址 / 轉貼連結),Y 單的帳本裡當然沒有它
- *    ⇒ 落 `miss_complete` = 對員工說「可以重送」,而那筆其實好好地在 X 單裡。
+ *    ⇒ 落 `miss_complete`,而那筆其實好好地在 X 單裡。
  *    ⚠️ plan §1c 的殘餘風險段只談了 `match_*` 那個方向(關聯洩漏),**沒談這個方向**。
  * ⇒ 🔴 **D5 承接**:D5 手上有 order,顯示面板前要先確認「這顆 `rt` 是這張單的表單鑄的」;
  *    做不到就別把 `miss_complete` 寫成斷言句(上面 `miss_complete` 的文案義務已涵蓋)。

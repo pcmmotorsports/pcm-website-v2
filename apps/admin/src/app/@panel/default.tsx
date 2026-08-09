@@ -14,8 +14,13 @@
  * 那要真瀏覽器按 F5 才看得到,已掛進 350c 的真瀏覽器驗收清單(主視窗 `D-393-A` 核准)。
  * **不要把「有這個檔」讀成「重新整理已驗證」。**
  *
- * 🔴 面板的**真正內容**在 350c 用 intercepting route 接(`(.)orders/[id]` 之類);
- * 本片只把槽開出來,**刻意不放任何訂單概念**(面板是共用基礎設施,wave-plan `:23`)。
+ * 🔴 **本檔仍然只服務硬導航**;軟導航離開時清空槽的是 `[...catchAll]/page.tsx`,兩者不可互相取代
+ * (`default.tsx` 在軟導航時**不會**被重新套用 —— 2026-08-10 真瀏覽器實測,`D-403-Q` §①)。
+ *
+ * 🔴 **2026-08-10 更正**:350b 寫在這裡的「350c 用 intercepting route 接(`(.)orders/[id]` 之類)」
+ * **已作廢** —— 攔截路由實測會讓面板黏著不放,主視窗改裁 searchParams 驅動。
+ * 真正的面板內容在 `app/@panel/orders/page.tsx`(讀 `?panel=<uuid>`);**這個目錄下沒有攔截路由,別去找。**
+ * 本檔仍然刻意不放任何訂單概念(面板是共用基礎設施,wave-plan `:23`)。
  */
 export default function WorkspacePanelDefault() {
   return null;
