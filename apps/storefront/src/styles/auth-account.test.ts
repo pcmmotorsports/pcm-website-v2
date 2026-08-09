@@ -554,3 +554,79 @@ describe('🔴 第4批 · 突變 M3/M4/M5 抓到的三組「我根本沒寫斷�
     expect(smaller, `有 .acc-inline-form 規則把 scroll-margin-top 覆寫成 <73px:${smaller}`).toEqual([]);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 2026-08-09 Q3=A 觸控救援:會員中心兩個小連結
+//
+// 🔴 **為什麼這裡的內容高是「實測值」而不是算出來的**:這兩處都吃 `line-height: normal`
+//    (tokens.css 的 `body` 沒有宣告 line-height),文字層**推不出**實際行高。
+//    2026-08-09 用真瀏覽器在真站字體(Inter, "Noto Sans TC", …)下量:
+//      12px → 17.5px、13px → 18.5px。
+//    ⇒ 下面把**當時量的 font-size 前提一起釘住**:字級被改動 ⇒ 這組直接紅、
+//      強迫重新量,而不是讓一個過期的實測常數安靜地繼續當基準。
+//
+// ⚠️ **它擋不住什麼**:`/account` 在本 worktree 渲染不了(要登入 + DB),
+//    所以「改完真的沒位移」是用**同字面規則在真頁面複刻 DOM** 量的
+//    (17.5→25.5 / 18.5→26.5,文字 top 位移 0、section-head 列高 29px 不變),
+//    不是在真的會員中心頁量的。真頁面那一格仍是主視窗/Sean 的格。
+// ───────────────────────────────────────────────────────────────────────────
+describe('Q3=A 觸控救援 · 會員中心小連結(Sean 2026-08-09 拍板,最小兩處之一)', () => {
+  const WCAG_MIN = 24; // WCAG 2.2 SC 2.5.8 Target Size (Minimum)
+  /** 2026-08-09 真瀏覽器實測(Inter + Noto Sans TC,line-height:normal)。改字級必須重量。 */
+  const MEASURED: Record<number, number> = { 12: 17.5, 13: 18.5 };
+
+  /** 取 `padding` / `padding-block` / `margin` / `margin-block` 的上下兩值。 */
+  function vertical(body: string, prop: 'padding' | 'margin', label: string): [number, number] {
+    const m = body.match(new RegExp(`(?:^|[;{\\s])${prop}(?:-block)?:\\s*([^;}]+)`));
+    expect(m, `${label} 沒有 ${prop} 宣告 ⇒ 命中區外擴根本沒發生`).toBeTruthy();
+    const parts = (m?.[1] ?? '').trim().split(/\s+/).map((v) => Number(v.replace('px', '')));
+    expect(parts.every((v) => Number.isFinite(v)), `${label} 的 ${prop} 含非 px 值,本守門算不了:${m?.[1]}`).toBe(true);
+    return [parts[0]!, parts.length >= 3 ? parts[2]! : parts[0]!];
+  }
+
+  function assertHit(body: string, fontPx: number, label: string) {
+    const base = MEASURED[fontPx]!;
+    const [top, bottom] = vertical(body, 'padding', label);
+    const hit = base + top + bottom;
+    expect(
+      hit,
+      `${label} 命中區算出來 ${hit}px(實測內容 ${base} + 上 ${top} + 下 ${bottom})< ${WCAG_MIN}px ⇒ ` +
+        '手機上這個連結會很難點到。Sean 2026-08-09 Q3=A 就是挑了這兩處。',
+    ).toBeGreaterThanOrEqual(WCAG_MIN);
+    const [marTop, marBottom] = vertical(body, 'margin', label);
+    expect(marTop, `${label} 上 margin ${marTop} ≠ -${top} ⇒ 外擴沒被收回,版面會被推開`).toBe(-top);
+    expect(marBottom, `${label} 下 margin ${marBottom} ≠ -${bottom} ⇒ 同上`).toBe(-bottom);
+  }
+
+  it('前提 — 實測基準對應的字級沒有被改掉(改了就要重新量,不能沿用舊實測值)', () => {
+    const shared = block(ACCOUNT, 'account.css', '.acc-section-head a,');
+    const sharedFont = Number(shared.match(/font-size:\s*([\d.]+)px/)?.[1]);
+    expect(
+      sharedFont,
+      `「＋ 新增地址 / 查看全部」那條規則的 font-size 是 ${sharedFont}px、不是 13px ⇒ ` +
+        '本組的 18.5px 實測基準已過期,請用真瀏覽器重量後更新 MEASURED',
+    ).toBe(13);
+
+    const sub = block(ACCOUNT, 'account.css', '.acc-stat-sub');
+    const subFont = Number(sub.match(/font-size:\s*([\d.]+)px/)?.[1]);
+    expect(
+      subFont,
+      `.acc-stat-sub 的 font-size 是 ${subFont}px、不是 12px ⇒ .acc-link-btn 吃的是 inherit,` +
+        '本組的 17.5px 實測基準已過期,請重量',
+    ).toBe(12);
+
+    const linkBtn = block(ACCOUNT, 'account.css', '.acc-link-btn');
+    expect(
+      linkBtn,
+      '.acc-link-btn 不再是 font-size: inherit ⇒ 它的字級不再等於 .acc-stat-sub,上一條前提失效',
+    ).toMatch(/font-size:\s*inherit/);
+  });
+
+  it('🔴「＋ 新增地址 / 查看全部 →」命中區 ≥ 24px、且外擴被等量收回', () => {
+    assertHit(block(ACCOUNT, 'account.css', '.acc-section-head a,'), 13, '`.acc-section-head a / .acc-add`');
+  });
+
+  it('🔴「查看明細 →」命中區 ≥ 24px、且外擴被等量收回', () => {
+    assertHit(block(ACCOUNT, 'account.css', '.acc-link-btn'), 12, '`.acc-link-btn`');
+  });
+});

@@ -206,6 +206,12 @@
   background: transparent;
   text-decoration: underline;
   text-underline-offset: 3px;
+  /* 08-09 Q3=A 觸控救援:13px + line-height:normal ⇒ 實測高 18.5px(Inter,真瀏覽器量)。
+     外擴 4px ⇒ 26.5px ≥ 24(WCAG 2.2 目標尺寸最小值);3px 只到 24.5、餘裕不足。
+     padding-block + 等量負 margin-block ⇒ 佔位與基線位置零變化;只動垂直、不寫成
+     `padding: 4px 0`,避免覆寫水平值(tokens.css:203 已把 button padding 歸零)。 */
+  padding-block: 4px;
+  margin-block: -4px;
 }
 .acc-section-head a:hover, .acc-add:hover { color: var(--c-text); }
 
@@ -217,7 +223,11 @@
   color: var(--c-text-2);
   background: transparent;
   border: 0;
-  padding: 0;
+  /* 08-09 Q3=A 觸控救援:font-size 繼承 .acc-stat-sub 的 12px + line-height:normal
+     ⇒ 實測高 17.5px;外擴 4px ⇒ 25.5px ≥ 24。padding + 等量負 margin ⇒ 佔位零變化
+     (inline-block 的垂直 margin 會參與行框計算,故負 margin 真的收得回來)。 */
+  padding: 4px 0;
+  margin: -4px 0;
   text-decoration: underline;
   text-underline-offset: 3px;
   cursor: pointer;

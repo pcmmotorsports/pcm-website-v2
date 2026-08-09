@@ -95,3 +95,87 @@ describe('附件搬遷片 · 安裝資源面板寬度(Sean 2026-08-07 拍 Q11=A:
     expect(body).toMatch(/max-width:\s*960px/);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 2026-08-09 Q3=A 觸控救援:麵包屑連結命中區
+//
+// 🔴 **這一組守的是「算出來的命中區」,不是「有沒有寫 padding」** —— 因為本片真瀏覽器實測
+//    抓到一個致命形狀:只給連結加 padding、容器不同步撐開時,
+//    `getBoundingClientRect().height` **照樣回報 25px**,但 `elementFromPoint` 打在
+//    外擴後的上緣與下緣**兩端全部 false** ——`overflow-x: auto` 讓計算後的 `overflow-y`
+//    也變成 `auto`(實測 getComputedStyle → "auto"),外擴出去的部分被 scrollport 裁掉了。
+//    ⇒ 「量盒高說已修好」是這一片最容易踩的假綠。容器 padding 是**承重**的,不是排版偏好。
+//
+// ⚠️ **它擋不住什麼**:文字層算不出 `line-height: normal` 的實際行高。這裡之所以算得出來,
+//    是因為 `.pd-crumbs` 用了 `font: 400 13px/1` **顯式行高 1**。帳號那兩處算不出來,
+//    所以走「實測值 + 釘住 font-size 前提」那條路(見 auth-account.test.ts 同日那組)。
+// ───────────────────────────────────────────────────────────────────────────
+describe('Q3=A 觸控救援 · 商品頁麵包屑(Sean 2026-08-09 拍板,最小兩處之一)', () => {
+  const WCAG_MIN = 24; // WCAG 2.2 SC 2.5.8 Target Size (Minimum)
+
+  /** 取一個 shorthand 的「上/下」兩個值(支援 1-4 值寫法),回傳 [top, bottom]。 */
+  function vertical(body: string, prop: 'padding' | 'margin', label: string): [number, number] {
+    const m = body.match(new RegExp(`(?:^|[;{\\s])${prop}:\\s*([^;}]+)`));
+    expect(m, `${label} 沒有 ${prop} 宣告 ⇒ 命中區外擴根本沒發生`).toBeTruthy();
+    const parts = (m?.[1] ?? '').trim().split(/\s+/).map((v) => Number(v.replace('px', '')));
+    expect(parts.every((v) => Number.isFinite(v)), `${label} 的 ${prop} 含非 px 值,本守門算不了:${m?.[1]}`).toBe(true);
+    // 1 值 → 四邊;2/3 值 → [0] 上、[2] ?? [0] 下;4 值 → [0] 上、[2] 下
+    return [parts[0]!, parts.length >= 3 ? parts[2]! : parts[0]!];
+  }
+
+  const crumbs = block(PAGE, 'product-page.css', '.pd-crumbs');
+  const link = block(PAGE, 'product-page.css', '.pd-crumbs a');
+
+  it('前提 — `.pd-crumbs` 仍是 `font: …13px/1`(行高顯式為 1,下面的命中區才算得出來)', () => {
+    const m = crumbs.match(/font:\s*\d+\s+([\d.]+)px\/([\d.]+)\s/);
+    expect(m, '`.pd-crumbs` 的 font 簡寫不見了或改了形狀 ⇒ 內容高不再是可推導的,命中區算式失效').toBeTruthy();
+    expect(Number(m?.[2]), '行高不再是顯式 1 ⇒ 內容高變成 line-height:normal 那族、文字層算不出來').toBe(1);
+  });
+
+  it('🔴 命中區算出來必須 ≥ 24px(WCAG 2.2 目標尺寸最小值)', () => {
+    const m = crumbs.match(/font:\s*\d+\s+([\d.]+)px\/([\d.]+)\s/)!;
+    const contentH = Number(m[1]) * Number(m[2]);
+    const [padTop, padBottom] = vertical(link, 'padding', '`.pd-crumbs a`');
+    const hit = contentH + padTop + padBottom;
+    expect(
+      hit,
+      `連結命中區算出來 ${hit}px(內容 ${contentH} + 上 ${padTop} + 下 ${padBottom})< ${WCAG_MIN}px ⇒ ` +
+        '手機上這排麵包屑會很難點到。這是 Sean 2026-08-09 Q3=A 挑的最小兩處之一。',
+    ).toBeGreaterThanOrEqual(WCAG_MIN);
+  });
+
+  it('🔴 容器 padding 必須 ≥ 連結 padding —— 否則外擴的部分被 overflow 裁掉(盒高照報、點不到)', () => {
+    const [linkTop, linkBottom] = vertical(link, 'padding', '`.pd-crumbs a`');
+    const [navTop, navBottom] = vertical(crumbs, 'padding', '`.pd-crumbs`');
+    const why =
+      '`.pd-crumbs` 有 overflow-x:auto ⇒ 計算後的 overflow-y 也是 auto(真瀏覽器 getComputedStyle 實測),' +
+      '連結外擴超出容器 padding box 的部分會被 scrollport 裁掉。' +
+      '實測突變:只留連結 padding、拿掉容器 padding ⇒ getBoundingClientRect().height 仍回報 25px,' +
+      'elementFromPoint 打上緣與下緣**兩端都 false**。盒高不是命中區。';
+    expect(navTop, `容器上 padding ${navTop}px < 連結 ${linkTop}px ⇒ ${why}`).toBeGreaterThanOrEqual(linkTop);
+    expect(navBottom, `容器下 padding ${navBottom}px < 連結 ${linkBottom}px ⇒ ${why}`).toBeGreaterThanOrEqual(linkBottom);
+  });
+
+  it('前提 — `.pd-crumbs` 仍有 overflow-x:auto(上一條「容器要撐開」的存在理由;它沒了要重估)', () => {
+    expect(
+      crumbs,
+      'overflow-x 不見了 ⇒ 裁切前提消失,上一條守門變成沒有理由的約束、該重新評估而不是留著當包袱',
+    ).toMatch(/overflow-x:\s*auto/);
+  });
+
+  it('🔴 外擴必須被等量負 margin 收回 —— 這是「視覺零變化」的機械保證', () => {
+    const [linkPadTop, linkPadBottom] = vertical(link, 'padding', '`.pd-crumbs a`');
+    const [linkMarTop, linkMarBottom] = vertical(link, 'margin', '`.pd-crumbs a`');
+    expect(linkMarTop, `連結上 margin ${linkMarTop} ≠ -${linkPadTop} ⇒ 麵包屑會整排往下推、版面被改到`).toBe(-linkPadTop);
+    expect(linkMarBottom, `連結下 margin ${linkMarBottom} ≠ -${linkPadBottom} ⇒ 同上`).toBe(-linkPadBottom);
+
+    const [navPadTop, navPadBottom] = vertical(crumbs, 'padding', '`.pd-crumbs`');
+    const [navMarTop, navMarBottom] = vertical(crumbs, 'margin', '`.pd-crumbs`');
+    expect(navMarTop, `容器上 margin ${navMarTop} ≠ -${navPadTop} ⇒ 麵包屑整塊往下掉 ${navPadTop}px`).toBe(-navPadTop);
+    expect(
+      navPadBottom + navMarBottom,
+      `容器下 padding+margin = ${navPadBottom + navMarBottom}px ≠ 24px ⇒ 麵包屑與下方主區的間距被改掉了` +
+        '(24px 是這一片動手前的原值,真瀏覽器量到下一個元素 top=134 不變)',
+    ).toBe(24);
+  });
+});
