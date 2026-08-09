@@ -1,5 +1,21 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🧭 **2026-08-09 13:50 主視窗壓縮前 checkpoint(壓縮後讀本節;第一動=date+find 全量掃 pcm-mailbox+確認 Monitor 活著(task brjcnghb9=信箱事件流;死了用 Monitor 工具重掛 20 秒輪詢版,勿用殼層 sentinel=sleep 在沙盒失效已退役)+心跳 /loop 600s 照跑)。**
+>
+> **現況**:dev=main=`04f27752` 之後或更新(以 git log 為準)、**未推 0 顆常態**(本日改為收割即推,Sean 授權);CI **已修全綠**(guarded-edit 測試 sed -i 跨平台,08-07 起恆紅的信轟炸已止)。全套 400 檔 5953+ 綠。
+>
+> **三窗施工中**:**D**(site-redesign)=出貨畫面 C 版三片(鐵則 8 已批:2a repository 接線層→2b 總覽勾選+彈窗成箱(island、桌機+手機兩處)→2c 詳情卡+作廢;裁決=P1 三片/P2 island/P3 圖不重畫)逐片 STOP 逐片收割。**P**(金流)=生命週期 L1 probe(3D 取消後 Record 延遲量測,sandbox 授權)→L2 拆桶→L3(件①+cancelled_at WHERE)→L4 撞窗對帳→L5 自動裁定→L6 admin 隱藏(六題全 A+刷卡單即時隱藏拍板,plan=docs/specs/2026-08-09-order-payment-lifecycle-plan.md)。**B**(a4a-chain)=W7 跟片首件 b2s2b 收編跑過帳(允許出口碼 {0,3}/inconc 入帳/顯式併集/先量成本,設計已核)。
+>
+> **今日拍板全落檔**(memory shipments 檔+site-redesign 檔+STATUS):生命週期六題全 A+刷卡 unpaid 即時隱藏/出貨 S1=A C 版+S2=A 作廢/h1 三題全 A/T1=A 彩線保留/Q6 翻案=逐條截圖(誤報 5 條不進)/地圖改版 A(第 5 段=27 項)/Poke 協定五條(playbook §7,.main-socket=uds:/tmp/cc-socks/27610.sock 開工要更新)。
+>
+> **Apply 現況**:pending=**零**(0809 三支 004000/020000/030000 全 apply;020000 五錨對正式庫全過)。測試單全清(unpaid 僅 Sean 今晨 7F4TF8)。
+>
+> **兩大驗收全過**:TabBar iOS 白區消失(svh 轉正)+LINE 手機實刷跳 3D(修復全案結)。
+>
+> **主視窗欠帳**:graphify --update(900 檔變更,需可 spawn subagent 的窗,本 session 被禁)=待 Sean 開專窗或明日;收割 D 2b/2c 時真 DB smoke(uitest 建箱→作廢);D 交 2a 時親審 diff 替代 code-reviewer 照舊。
+>
+> **工法提醒**:收割 B 線 merge 後必跑 `bash scripts/w7-coverage.sh check` **且 exit 雙軌驗**(pipeline tail 吃 exit 已踩);跨線落 migration=八支釘值檔同批重釘(b2s2b 不在 coverage glob=要單獨記得);husky reviewer gate=收割 commit 前寫 pcm-reviewer-ran 標記;zsh `set --` 不斷詞(檔名帶空格已踩);artifact 決策頁=claude.ai/code/artifact/7e7d4813-ab40-44bf-971f-10c2731f0b1a(同檔路徑重發=同網址)。
+
 > 🧭 **2026-08-08 18:05 主視窗壓縮前 checkpoint(壓縮後讀本節;第一動=掃 pcm-mailbox 全量+確認哨兵活著+讀背景任務 `beatqbqm2` 刷新片三綠結果)。**
 >
 > **現況**:dev 頂端見 `git log`(未推 **15+ 顆**,今日全 D 線收割+W7d-1+正式站事故落檔);哨兵樣板=本 session scratchpad `sentinel.sh`(基準 mail-baseline;死了重掛)。全套約 **392 檔 5824 綠**(刷新片 merge 後待背景三綠確認)。
