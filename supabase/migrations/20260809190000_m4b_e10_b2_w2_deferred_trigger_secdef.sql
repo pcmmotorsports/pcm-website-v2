@@ -21,12 +21,22 @@
 --       ⇒ 它同樣逃得出 SECDEF 上下文。**判準是「可不可以被延遲」(`tgdeferrable`),不是「預設有沒有被延遲」。**
 --       (這一條是 codex 對抗審查抓的:我原本只掃 `tginitdeferred`,漏掉這一整類。)
 --     · `NOT DEFERRABLE`(含未宣告)⇒ 永遠在語句內跑 ⇒ 仍在呼叫者的 SECDEF 上下文 ⇒ 不在範圍。
---   本 repo 現況(機械複量):`tgdeferrable` 共八支 —— 六支 INITIALLY DEFERRED(四個相異函式)
---   + 兩支 INITIALLY IMMEDIATE 但可延遲(`pcm_a2b1_procurement_allocation_guard` a2b1:102、
---   `pcm_a4a_procurement_summary_recompute` a4a:220,兩支本來就是 SECDEF)。
---   逐支開檔驗過:`pcm_assert_refund_ledger_consistent`(rf2a2:185)、
---   `pcm_assert_cancellation_has_items`(a7t:143)、`pcm_b2_shipments_items_presence`(s1b:202)
---   也都本來就是 SECDEF ⇒ **八支裡只有 W2 這支漏了**。
+--   本 repo 現況(**catalog 實測**,不是數 CREATE 敘述):`tgdeferrable` 共 **6 支**:
+--     · initdeferred=true 四支:`order_cancellations_items_presence_ac` /
+--       `order_cancellation_items_presence_ac`(a7t,fn=pcm_assert_cancellation_has_items)、
+--       `shipments_items_presence_ac`(s1b,fn=pcm_b2_shipments_items_presence)、
+--       `pcm_b2_shipping_idem_require_complete`(本片修的這支)。
+--     · initdeferred=false 但可延遲兩支:`order_item_procurement_allocation_guard_ac`(a2b1)、
+--       `order_item_procurement_summary_recompute_zc`(a4a)。
+--   除了本片修的那支,其餘五支本來就是 SECDEF ⇒ **6 支裡只有 W2 這支漏了**。
+--
+-- 🔴 **本檔首版把這個數字寫成「8 支」,錯的**(2026-08-09 apply 後由正式站 NOTICE 印出 6 才發現)。
+--    病因不是查詢面、也不是正式站漂移(本地重放與正式站都是 6,兩邊一致):
+--    我是**數 migration 原始碼裡的 `CREATE CONSTRAINT TRIGGER` 敘述**得到 8 的,
+--    而 `…a7c_refund_ledger_guards.sql:160-161` 後來把 rf2a2 那兩支 **DROP 掉了**。
+--    ⇒ **要數「現在存在什麼」就得問 catalog,不能數建立敘述** —— 建立敘述只講歷史,不講現況。
+--    本檔的三道斷言本來就查 catalog,所以斷言的涵蓋面從頭到尾是對的;錯的只有這行註解。
+--    (本行於 apply 之後更正,**只改註解、不改任何行為**;DB 內沒有本檔的註解文字,無 repo/DB 語意分歧。)
 --   斷言的範圍照判準畫在 `tgdeferrable` 上,而且不限 public schema。
 --
 -- 🔴 為什麼 harness 沒抓到:w0b/w1/w2 全程以 **owner(postgres)** 身分跑 ⇒
