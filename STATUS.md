@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 16:00 六題全拍執行完+雲端巡邏上線+D 之 2b-2a 收割+#347 立案。** ①**Q-A~Q-F 執行**:Q-A=B 不上雲(施工窗維持本機)/Q-B=A **雲端巡邏 Routine 已掛**(`PCM 正式站每時巡邏`,每小時 :16 查首頁+/products 200+慢速警告,唯讀零金鑰;試跑已發射)/Q-C 死引用已刪(rules:5,實查後只有一處——盤點兵報的 CLAUDE.md:6 為誤報)/Q-D dragon-* 三斷鏈已刪(test -e 確認斷才刪)/Q-F=C 主從標註兩檔已加(`a6b1d348`)/Q-E memory 精簡=排夜間專場(需讀天花板 memory 再動)。②**行為分析線立案待規劃**(Sean Q-B 補充需求:客人在哪離開/為何沒下單)——方案=免費工具(錄影+漏斗),等窗騰出接。③**D 之 2b-2a 收割**:彈窗資料源——已裝箱量從 shipment_items 算(shipped_quantity 答錯問題=已寄出≠已裝箱,避開一次白名單加欄)、作廢箱 `!inner` 排除;🔴 **未驗鏈=`!inner`+巢狀 `.is()` 語意無實跑**(prod 零 shipments 列=讀面 smoke 零判別力)⇒ **建箱→作廢→回可選 write smoke 為 2b-2b/2c 收割硬項**。④**#347 admin 訂單搜尋大一統立案**(Sean 拍板,八維度一框;等 D/E 收線派工)。⑤手機勾選框 Sean 肉眼過(「後台可以」)。
+**Sean 待決策**:無。
+
 🗂️ **2026-08-09 15:40 D 之 2b-1 收割(總覽勾單上線)。** 三條驗收字面全落地:兩處勾選(桌機 rowSpan 格+手機卡頭)/island 只收 orderId+customerUserId 兩純量(原始碼層守門+突變)/`:55` 零 client 邊界註解同 commit 更正。🔴 M5 突變 commit 前抓到假守門:「對 disabled 框發事件模擬繞過」根本進不到 handler=測試綠得無意義,抽純函式直打後修實(教訓:模擬繞過要先證自己真的繞過去了)。同客人閘雙道(UI 變灰+狀態轉移拒收)、刻意無全選框。四道 exit 分開驗全 0。⚠️ **待 Sean 手機肉眼:手機卡頭那顆勾選框位置**(D 唯一零自動化證據處);「出貨(N 單)」鈕暫 disabled、彈窗=2b-2 施工中。門鈴誤投真因更正=「認不出收件人就廣播」,playbook §7-④ 已補「fallback=讀位址檔絕不廣播」。
 **Sean 待決策**:Q-A~Q-F 六題+手機看一眼勾選框。
 
