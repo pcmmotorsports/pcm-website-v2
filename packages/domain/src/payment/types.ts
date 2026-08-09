@@ -393,7 +393,12 @@ export type ConfirmPaymentOutcome =
    * - `order_locked`:同單已有 active attempt(pending/charged)→ 映 processing(勿重複付款)。
    * - `not_unpaid`:order 非 unpaid(已 paid 等;與撞鎖同層級、RPC 不洩具體狀態)→ 映 processing。
    */
-  | { kind: 'locked'; reason: ChargeLockReason }
+  /**
+   * 🔴 M-4b L4:`user_in_flight` 帶 `inFlight`(那張在途單的 server-only order id)供 action 層即時對帳。
+   * 拆兩支的理由同 `BeginChargeAttemptResult`:別讓 `order_locked + inFlight` 這種非契約狀態過型別檢查。
+   */
+  | { kind: 'locked'; reason: 'user_in_flight'; inFlight?: InFlightSettleContext }
+  | { kind: 'locked'; reason: Exclude<ChargeLockReason, 'user_in_flight'>; inFlight?: never }
   /**
    * `settlement_required`:begin 偵測同 cart_session_id 異單已扣款/扣款中(3DS-0b dedup duplicate/needs_settle)、
    * **零本次扣款**(begin !acquired、charge 未跑)→ ②-③ 映「狀態確認中、請勿重複付款」(非「付款失敗」、非 paid、非 locked)。
@@ -409,6 +414,24 @@ export type ConfirmPaymentOutcome =
 
 /** begin_charge_attempt 拒絕理由(②-③a RPC `{acquired:false, reason}` 對應、plan v6 §2)。 */
 export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
+
+/**
+ * InFlightSettleContext:`user_in_flight` 擋下時,那張**在途單**的 server-only 識別(M-4b L4;
+ * migration `20260809210000` 的 `in_flight_order_id`)。
+ *
+ * 用途只有一個:action 層對那張在途單跑一次 `settleCharge`,裁出終態才放行重試(母 plan §2)。
+ *
+ * 🔴 **刻意只有 orderId** —— 三個「沒有」都是設計,不是漏掉:
+ * - 無 `displayId`:`user_in_flight` 對客不得帶單號(此請求零扣款、不得讓客人以為有單;
+ *   `charge-actions.ts` 逐字「無 displayId(round3 C)」)。**沒帶進來的東西洩不出去。**
+ * - 無 `attemptId`:閘的真相由「重試那一次 begin」重新認定,不由我們手上的識別碼認定
+ *   ⇒ pin 一個會過期的 attempt 不增加安全性(codex 關卡1 R2 逐字背書此判斷)。
+ * - 無 `recTradeId`:`settleCharge(orderId)` 本來就會重查 attempt 自取強鍵,hint 是多餘的較舊觀察。
+ *
+ * 🔴 **optional 是跨版本安全閥**:migration 未 apply 時 payload 沒這個欄 ⇒ `inFlight` undefined
+ * ⇒ action 層即時對帳整段 skip、退回舊行為(memory `feedback_app-layer-must-not-ship-before-migration-apply`)。
+ */
+export type InFlightSettleContext = { orderId: string };
 
 /**
  * InitiatePaymentInput:3DS charge 啟動半段 use-case(initiatePayment、M-3 3DS-5b)輸入。
@@ -452,7 +475,9 @@ export type InitiatePaymentOutcome =
   | { kind: 'redirect'; redirectUrl: string }
   | { kind: 'charge_unknown'; orderId: OrderId }
   | { kind: 'settlement_required'; dedup: SettlementRequiredContext }
-  | { kind: 'locked'; reason: ChargeLockReason }
+  /** 🔴 M-4b L4:同 `ConfirmPaymentOutcome` 的 locked —— 只有 `user_in_flight` 能帶 `inFlight`。 */
+  | { kind: 'locked'; reason: 'user_in_flight'; inFlight?: InFlightSettleContext }
+  | { kind: 'locked'; reason: Exclude<ChargeLockReason, 'user_in_flight'>; inFlight?: never }
   | { kind: 'init_failed' };
 
 /**
@@ -463,7 +488,17 @@ export type InitiatePaymentOutcome =
  */
 export type BeginChargeAttemptResult =
   | { acquired: true; attemptId: string; fallbackToken: string }
-  | { acquired: false; reason: ChargeLockReason }
+  /**
+   * 🔴 M-4b L4:`user_in_flight` 可帶 `inFlight`(那張擋住我們的在途單);其餘兩個 reason **不能**帶。
+   * 拆成兩支 union member 而非在 `ChargeLockReason` 上掛 optional 欄 —— 後者會讓
+   * `{reason:'order_locked', inFlight:{...}}` 這種**不存在於 RPC 契約**的狀態通過型別檢查。
+   *
+   * 🔴 另一支必須寫 `inFlight?: never`,光靠 `Exclude<>` 不夠(codex 關卡2 抓到):
+   * TS 的多餘屬性檢查**只作用在直接寫出來的 object literal**;先存進變數再指派時走結構型別,
+   * `{reason:'order_locked', inFlight:{...}}` 照樣通過 —— 也就是說原本那句註解的宣稱是假的。
+   */
+  | { acquired: false; reason: 'user_in_flight'; inFlight?: InFlightSettleContext }
+  | { acquired: false; reason: Exclude<ChargeLockReason, 'user_in_flight'>; inFlight?: never }
   /**
    * 🔴 3DS-0b cart-instance dedup(D2):同 user 同 cart_session_id 異單、sibling 已 paid → DB 確定既有單
    * 已完成付款(begin RPC `reason:'duplicate'`、帶 `existingDisplayId`;`existingPaid` 恆 `true` = 此 reason 的

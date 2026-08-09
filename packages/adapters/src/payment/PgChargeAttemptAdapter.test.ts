@@ -9,6 +9,8 @@ import type { PgClientLike } from './PaymentConfirmerAdapter';
 const ORDER = 'order-uuid-1';
 const ATTEMPT = 'attempt-uuid-1';
 const TOKEN = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+// 🔴 刻意與 ORDER 不同值:同值會讓「回錯單」這一族錯誤看不出來(fixture 撞號 = 守門恆真)。
+const IN_FLIGHT_ORDER = 'order-uuid-in-flight-9';
 
 type QueryRows = { rows: Array<Record<string, unknown>> };
 
@@ -49,6 +51,73 @@ describe('PgChargeAttemptAdapter.begin', () => {
       });
       const res = await new PgChargeAttemptAdapter('conn', () => client).begin(ORDER);
       expect(res).toEqual({ acquired: false, reason });
+    },
+  );
+
+  // ── 🔴 M-4b L4:user_in_flight 的 in_flight_order_id(server-only、migration 20260809210000)──
+  //    plan §5-6:這裡只有 **app 新 × DB 舊**(6a)有真正的單元證據;
+  //    「DB 新 × app 舊」那個方向靠的是舊 parser 不讀未知 key 的既有形狀,單元測試證不到。
+
+  it('🔴 6a(app 新 × DB 舊):payload **無** in_flight_order_id → 不帶 inFlight(不 throw)', async () => {
+    // migration 未 apply 時的真實 payload。這一格是「L4b 先上線也不會壞」的唯一證據:
+    // 沒有 inFlight ⇒ action 層即時對帳整段 skip ⇒ 退回今天的行為。
+    const { client } = makeClient({
+      query: async () => beginRows({ acquired: false, reason: 'user_in_flight' }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).begin(ORDER);
+    expect(res).toStrictEqual({ acquired: false, reason: 'user_in_flight' }); // 見下方 toEqual 的坑
+    expect('inFlight' in res).toBe(false); // 突變:把該欄改必填 ⇒ 上一行 throw、本格紅
+  });
+
+  // ⚠️ 這一格**不是**「DB 新 × app 舊」(codex 關卡2 抓到我的標籤說謊):它跑的是本片的新 parser
+  //    ⇒ 實際測到的是 **DB 新 × app 新**。真正的「DB 新 × app 舊」要拿 L4a-2 之前的 parser 來跑,
+  //    那不是單元測試證得了的東西 —— 它的依據是「舊 parser 不讀未知 key」這個既有形狀(靜態論證)。
+  //    ⇒ 在寫出那格之前,**不得宣稱兩個方向都有單元測試**。
+  it('🔴 DB 新 × app 新:payload **帶** in_flight_order_id → 解析出 inFlight.orderId', async () => {
+    const { client } = makeClient({
+      query: async () =>
+        beginRows({ acquired: false, reason: 'user_in_flight', in_flight_order_id: IN_FLIGHT_ORDER }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).begin(ORDER);
+    expect(res).toEqual({
+      acquired: false,
+      reason: 'user_in_flight',
+      inFlight: { orderId: IN_FLIGHT_ORDER },
+    });
+  });
+
+  it('🔴 in_flight_order_id **只**掛在 user_in_flight;order_locked 帶了也不得長出 inFlight', async () => {
+    // 型別層已用 discriminated union 擋住,但 RPC 是 runtime 邊界 —— 型別擋不到真的送進來的 payload。
+    // 沒有這一格,「哪天有人在 order_locked 也塞這個欄」會被靜默接受。
+    const { client } = makeClient({
+      query: async () =>
+        beginRows({ acquired: false, reason: 'order_locked', in_flight_order_id: IN_FLIGHT_ORDER }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).begin(ORDER);
+    // 🔴 toStrictEqual + `in` 兩道(codex 關卡2):`toEqual` **忽略值為 undefined 的 key**
+    //    ⇒ 回 `{..., inFlight: undefined}` 時它照樣綠,但那個欄已經存在、契約已經破。
+    expect(res).toStrictEqual({ acquired: false, reason: 'order_locked' });
+    expect('inFlight' in res).toBe(false);
+  });
+
+  it.each([
+    ['null(新 migration 在 IF FOUND 內必填 ⇒ null = 契約違反,不當成舊版)', null],
+    ['數字', 123],
+    ['物件', { orderId: 'x' }],
+    ['false', false],
+    ['空字串', ''],
+  ])(
+    '🔴 in_flight_order_id 型別/值不合(%s)→ fail-closed throw、**不**靜默降級成「舊 migration」',
+    async (_label, bad) => {
+      // 靜默降級的後果:一個真的壞掉的 RPC 看起來只是「版本比較舊」,
+      // 即時對帳安靜地永遠不跑,而且沒有任何症狀。
+      const { client } = makeClient({
+        query: async () =>
+          beginRows({ acquired: false, reason: 'user_in_flight', in_flight_order_id: bad }),
+      });
+      await expect(new PgChargeAttemptAdapter('conn', () => client).begin(ORDER)).rejects.toThrow(
+        '回應格式異常',
+      );
     },
   );
 
