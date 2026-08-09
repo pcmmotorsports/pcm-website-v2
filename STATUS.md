@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 16:15 🎉 出貨 2b 全線收官(勾單→彈窗→建箱一條龍上線)+巡邏兵 2.0 接 GitHub。** ①**D 之 2b-2b-1+2b-2b-2 收割**:窄 DTO 資料源(零金額+server-only 機制擋)+彈窗成箱收官——冪等鍵開窗生成一次三支共用(守門釘生成點恰一)、掛品項失敗=半成品帶箱號明示員工(DB 禁刪、收拾=作廢);D 自報兩案:server-only 全域 alias 差點拆掉 brand-products 的驗證機制(全套跑完才現形,撤全域改各檔 mock)+誤用 git stash 彈出他人 WIP(已還原零損失)⇒ **playbook 新增「多窗共用 clone 禁 stash」**。②🔴 **write smoke 未跑成=改期不改口**:原定「uitest 建箱→作廢→回可選」需一張**已付款測試單**,現庫無(測試單已全清)⇒ 併入 Sean 對出貨功能的肉眼驗收(2c 完+推上後 Sean 實際點一輪=同時是 write smoke);在那之前**冪等層/RPC 參數/`!inner` 語意=僅 mock 級證據**,帳上掛著。③**巡邏兵 2.0**:Sean 改 8 項檢查+GitHub App 接通+異常自動開 site-patrol issue(主視窗心跳自動看)+真壞 vs 雲端 IP 被擋分辨+email/push 通知打開(原全關);試跑發射中。④D 接 2c(詳情頁出貨卡+作廢/復原=出貨線最後一片)。
+**Sean 待決策**:無;待 Sean 動作=出貨功能上線後手機/桌機實點一輪(=write smoke)。
+
 🗂️ **2026-08-09 16:00 六題全拍執行完+雲端巡邏上線+D 之 2b-2a 收割+#347 立案。** ①**Q-A~Q-F 執行**:Q-A=B 不上雲(施工窗維持本機)/Q-B=A **雲端巡邏 Routine 已掛**(`PCM 正式站每時巡邏`,每小時 :16 查首頁+/products 200+慢速警告,唯讀零金鑰;試跑已發射)/Q-C 死引用已刪(rules:5,實查後只有一處——盤點兵報的 CLAUDE.md:6 為誤報)/Q-D dragon-* 三斷鏈已刪(test -e 確認斷才刪)/Q-F=C 主從標註兩檔已加(`a6b1d348`)/Q-E memory 精簡=排夜間專場(需讀天花板 memory 再動)。②**行為分析線立案待規劃**(Sean Q-B 補充需求:客人在哪離開/為何沒下單)——方案=免費工具(錄影+漏斗),等窗騰出接。③**D 之 2b-2a 收割**:彈窗資料源——已裝箱量從 shipment_items 算(shipped_quantity 答錯問題=已寄出≠已裝箱,避開一次白名單加欄)、作廢箱 `!inner` 排除;🔴 **未驗鏈=`!inner`+巢狀 `.is()` 語意無實跑**(prod 零 shipments 列=讀面 smoke 零判別力)⇒ **建箱→作廢→回可選 write smoke 為 2b-2b/2c 收割硬項**。④**#347 admin 訂單搜尋大一統立案**(Sean 拍板,八維度一框;等 D/E 收線派工)。⑤手機勾選框 Sean 肉眼過(「後台可以」)。
 **Sean 待決策**:無。
 
