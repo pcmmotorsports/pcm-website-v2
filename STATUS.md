@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 15:40 D 之 2b-1 收割(總覽勾單上線)。** 三條驗收字面全落地:兩處勾選(桌機 rowSpan 格+手機卡頭)/island 只收 orderId+customerUserId 兩純量(原始碼層守門+突變)/`:55` 零 client 邊界註解同 commit 更正。🔴 M5 突變 commit 前抓到假守門:「對 disabled 框發事件模擬繞過」根本進不到 handler=測試綠得無意義,抽純函式直打後修實(教訓:模擬繞過要先證自己真的繞過去了)。同客人閘雙道(UI 變灰+狀態轉移拒收)、刻意無全選框。四道 exit 分開驗全 0。⚠️ **待 Sean 手機肉眼:手機卡頭那顆勾選框位置**(D 唯一零自動化證據處);「出貨(N 單)」鈕暫 disabled、彈窗=2b-2 施工中。門鈴誤投真因更正=「認不出收件人就廣播」,playbook §7-④ 已補「fallback=讀位址檔絕不廣播」。
+**Sean 待決策**:Q-A~Q-F 六題+手機看一眼勾選框。
+
 🗂️ **2026-08-09 15:30 五窗滿載:E 窗開線(graphify 刷圖+取消畫面偵察核准)+B 跟片②收割+24/7 研究與設定盤點出爐。** ①**E 窗上線**:工作 0 graphify 刷圖完成(6418→10620 節點、零遺失、PII 零命中;docs 語意層停 07-25=誠實標注、暫不補);取消畫面偵察=8 片已成 6、只剩 A13a/b 畫面,主視窗裁 Q1=B(Sean 今日開窗=新拍板,DAG 序不擋;A9e/A9r/A9s 實查未做、是否殭屍片等出貨線落定再盤)+片 6 純函式抽出認可;🔴 E 引用 P plan `:93` 已推翻字面被主視窗糾正(取消鈕不鎖客人、L3 apply 硬前置不採)。五片 6→10 開工。②**B 跟片②收割**(`e0d6fc77`):w3b2 一格擴四格「沒有壞消息=PASS」修實、六發突變各紅其格;B 自報第一版修法恆真被突變抓到+R2 抓「結論對理由錯」;check 28/0。B 續跟片③(W5 三條)。③**24/7 研究+設定盤點**:claude --cloud/Routines/官方跨窗訊息=可行升級;盤點=常載 56KB 健康、4 死引用+3 斷鏈 skill+memory 超標(23KB/290 檔)+CLAUDE↔AGENTS 八段重複;**六題 Q-A~Q-F 待 Sean**(推薦 A/A/A/A/A/C)。④活性診斷 loop 常設(playbook §7-⑥,15 分 poke)。
 **Sean 待決策**:Q-A~Q-F 六題(24/7 上雲試點/Routine 巡邏/設定瘦身)。
 

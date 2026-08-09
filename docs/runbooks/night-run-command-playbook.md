@@ -83,7 +83,7 @@
   ① **發信必 poke**:任何窗落信到 pcm-mailbox 後,立刻 `ListAgents` **當下取址**發 SendMessage 門鈴(內容不承載、只指向信檔;位址絕不用快取——死 socket 照樣回 success)。門鈴=喚醒,信箱=唯一正式內容通道,兩者缺一不可。
   ② **30 分無回應=主動 poke**:發信方 30 分未見回信且對方樹上無動靜 → 先 `ls -la` 驗信在,再 poke 一次;poke 後 15 分仍無反應 → 施工窗上報主視窗、主視窗走死哨兜底(喚醒詞/重開)。
   ③ 主視窗心跳(10 分)承擔全域盯窗;施工窗只需盯「自己發出待回」的信。
-  ④ **主視窗取址=讀 `/Users/sean_1/pcm-mailbox/.main-socket`**(主視窗每 session 開工與換 socket 時更新)——ListAgents 通用名認不出主視窗,歷史信件 from 快取=死 socket 陷阱,兩者都不准當位址來源。
+  ④ **主視窗取址=讀 `/Users/sean_1/pcm-mailbox/.main-socket`**(主視窗每 session 開工與換 socket 時更新)——ListAgents 通用名認不出主視窗,歷史信件 from 快取=死 socket 陷阱,兩者都不准當位址來源。🔴 **認不出收件人時的 fallback=讀位址檔,絕不廣播**(08-09 E 窗實錘:通用名猜不到就廣播 5 窗=誤投真因;`SendMessage` 的 `to` 可直接吃 `uds:/tmp/cc-socks/*.sock` 位址,零廣播可行)。
   ⑤ **誤投門鈴=收到方回發送方一句「誤投」並附 .main-socket 現值**;發送方重敲正主、「30 分計時」重起。「沉默即通過」型提案的計時同理——門鈴沒真的到主視窗,沉默不算數。
   ⑥ **全窗活性診斷 loop(2026-08-09 午 Sean 拍板常設;把 ③ 的全域盯窗具體化、閾值收緊)**:主視窗心跳(600s)對每個施工窗量「距最後可觀測活動幾分鐘」——訊號源取最新者=該窗信件 mtime ∨ worktree HEAD commit 時間 ∨ worktree dirty 檔 mtime(E 窗 graphify 階段另看主樹 `graphify-out/` mtime);量測腳本=主視窗 scratchpad `window-liveness.sh`(session 重開時照本條重建)。**沉默 >15 分 → poke「一句話報進度」**(問進度、非催工;施工窗回一句門鈴訊息即可、不用寫信,slice 中不中斷)。**poke 後 15 分仍零訊號 → 判疑似死窗**:主視窗盤點該 worktree 現場(dirty=保留現場不清理)→ 通知 Sean 並附「接手現場、不重做」重開提示詞,**不自行重開**。⚠️ 誤判防護:worktree 檔案在動=正在施工,不 poke——15 分閾值量的是「零訊號」不是「零回信」。
 - **收線令協定(2026-08-08 深夜增補;實錘=兩個 P 窗撞線,金流 plan 差 16 秒被雙寫,靠工具層 mtime 衝突擋下)**:
