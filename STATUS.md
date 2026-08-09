@@ -8,7 +8,7 @@
 
 ## 最後更新
 🗂️ **2026-08-10 02:2x 🎉 金流 L4a 全片收割(migration 未 apply=待 Sean)+八支重釘 210000+四窗深夜滿載。** ①**P 之 L4a 三顆收割**(`36efe989`+`5db119ed`+`0a7ae051`):user_in_flight 帶回在途單 id(server-only);R3 換模型抓 5 條(凍結物落後=add 後才改檔、charged 盲軸、cleanup 假綠出口)+關卡2 抓 3 條(Exclude 型別逃逸、測試標籤說謊、toEqual 忽略 undefined key)全折;P 立「commit 後 git show 自驗凍結物」為固定機制。⛔ `20260809210000` **未 apply**(錢面 Q10 例外,明早問 Sean;加欄相容、現行 app 丟棄未知鍵=dormant)。②八支重釘 190000→210000+全帳重錄 check **29/0**+root **6205 綠**;🔴 主視窗記過:重釘註解插進 b2s2b 跨行條件式弄壞語法(bash -n 抓到已修);🔴 record all 連跑撞 B 的 REFUSE 護欄(瞬時型,單跑綠)=已函告 B 補 wait-and-recheck。③E 裁三題(兩支獨立 form/探針先行/#353 殘餘認列)開工 D1(plan v3.1 自報碼清單錯=正身)。④D 三題裁(Q-a=B POST+PRG 紅線一致性/Q-b 豁免綁精準鍵/Q-c 2b 硬閘)做 2a。⑤B 之 MF-2 triage 判 P2(三層論證)→D+A 高風險片開工;#354/#355 立案。⑥P 接 L4b(值層三發守門;收割等 apply 先行)。
-**Sean 待動作(醒來後)**:L4a migration apply 拍板(A=apply/B=等 L4b 一起)——動 begin_charge_attempt=錢的面,照約定問你;內容=擋單時多回一個內部單號(server-only),現行網站行為零改變。
+**Sean 已拍 Q16=A(08-10)**:`20260809210000` 已 apply 正式站(NOTICE 結構驗收全過);L4b 收割前置已解。**Sean 待動作:無**。
 
 🗂️ **2026-08-09 21:0x 🎉 347-1 搜尋 RPC 上正式站(R3 退修全折+41/0/16+PostgREST smoke 綠)。** ①D 五條 must-fix 全修(M1 probe 實錘 no-op 移除/M2 真靶+D14/M3 真 SET ROLE 三格+C7p/M4 FORCE RLS 斷言判別力實測/M5 B15b 同秒排序);D 自抓「補守門時 pipefail 蓋 grep 產新假綠」。②收割 3 顆+apply `20260809180000`(--include-all,dry-run 只此一支;Q10=A 授權首用)+主視窗 PostgREST smoke:真 SKU 恰一單/亂字串空 ⇒ 本機測不到的 overload/service_role HTTP 面已閉。③statement_timeout 兩路=主視窗流程裁決不上 Sean:不 ALTER ROLE,347-2 量平台實際值落檔頭。④D 接 347-2(POST-only 機制化;RPC 簽章不動,Q14 日期參數隨 347-3)。⑤位址檔機制更正:施工窗看不到自己 socket ⇒ .{代號}-socket 由主視窗依門鈴 from= 回寫(.d-socket 已寫)。
 **Sean 待動作**:無。
