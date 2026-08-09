@@ -7,6 +7,12 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 21:0x 🎉 347-1 搜尋 RPC 上正式站(R3 退修全折+41/0/16+PostgREST smoke 綠)。** ①D 五條 must-fix 全修(M1 probe 實錘 no-op 移除/M2 真靶+D14/M3 真 SET ROLE 三格+C7p/M4 FORCE RLS 斷言判別力實測/M5 B15b 同秒排序);D 自抓「補守門時 pipefail 蓋 grep 產新假綠」。②收割 3 顆+apply `20260809180000`(--include-all,dry-run 只此一支;Q10=A 授權首用)+主視窗 PostgREST smoke:真 SKU 恰一單/亂字串空 ⇒ 本機測不到的 overload/service_role HTTP 面已閉。③statement_timeout 兩路=主視窗流程裁決不上 Sean:不 ALTER ROLE,347-2 量平台實際值落檔頭。④D 接 347-2(POST-only 機制化;RPC 簽章不動,Q14 日期參數隨 347-3)。⑤位址檔機制更正:施工窗看不到自己 socket ⇒ .{代號}-socket 由主視窗依門鈴 from= 回寫(.d-socket 已寫)。
+**Sean 待動作**:無。
+
+🗂️ **2026-08-09 20:3x 🏁 完整化線決策題全清(Q11-Q14)+總 plan 落檔+兩線審查裁決。** ①**最後三包全拍**:Q11=A 通知矩陣照 07-26 草案全收/Q12=A 各自原路退/**Q13=Sean 自案:退款額=max(0, 已收未退−取消後剩餘應收),不退時已收轉部分款**/Q14=A 日期範圍預設近半年(隨 347-3)。**至此到總測試前零開放決策**;master-plan §8.6 三行全銷案。②總 plan `docs/specs/2026-08-09-admin-completion-wave-plan.md`(塊序+匯流點+完成判準;刻意不預拆片)。③**347-1 R3(換模型輪)FAIL 5 must-fix 退修 D**(statement_timeout no-op/B17-18 恆真/ACL superuser 觀察零判別力/缺 FORCE RLS 斷言/同秒排序零覆蓋);R3 換模型第三度證明必要。④**E 之 A13b-1 停手裁 A**:React 19 form reset 競態→可能誤送整單取消(append-only 帳本),四輪修不穩+雙審查者同指根因 ⇒ 換路 PRG 整頁化(plan 過關卡1+三約束:URL 只帶碼/勾選重建不了=明示重選/事故路徑負測釘死);C(弱化斷言)永久否決。⑤B 跟片⑤收割(突變未還原假綠+19 支互刪護欄);P 窗 L4 施工中。⑥54329 撞庫→身分閘機制化+門鈴位址檔機制入 runbook。
+**Sean 待動作**:無(總測試前不會再有決策題;動錢/大量寫入 apply 仍會問)。
+
 🗂️ **2026-08-09 19:3x 🏁 完整化範圍三板+建單六題全拍+P 窗換代收線+E 之 A13a 收割。** ①**範圍拍板**:Q1=A 員工日常全閉環(認證/稽核/月報另線)、Q2=**B 商品線完整版**(新增+媒體庫+Excel 匯入入後台)、Q3=A;**建單六題全拍**(Q4-Q9=A,B,A,A,A,A;master-plan §8.6 銷案,手動建單開批閘解除)。剩兩包待問:通知矩陣+退款兩題(隨總 plan 附推薦)。②**P 窗關窗換代**(P-254-A CLOSE):L4 未動一行、交接包在 P-252-STOP §3(🔴 live begin_charge_attempt=A8c1 `20260804120000`、md5=`f621a56…`、識別碼 server-only 守門);三顆收割(plan v2 全修訂+**隔離庫身分閘**——P 實錘 54329 跨窗撞庫、差點污染金流釘值,port 探測+data_directory 驗證已入共用腳本,runbook 新增坑 11+門鈴位址檔雙向機制)。③**E 之 A13a 收割**(`dbfb2b09`):server component 零 use client、11 碼文案 Record 守門+豁免制測試;E 裁 A 接 A13b-1(高風險不降級);取消線剩 3 片。④root 409 檔 6193 綠;dev=main 同步 `6bc3b668`。⑤主視窗兩連誤投 E 窗記過⇒位址檔機制入 runbook。
 **Sean 待動作**:開新 P 窗(提示詞已給)。
 
