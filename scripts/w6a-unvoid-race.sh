@@ -183,7 +183,7 @@ QM() { psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1; }
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260810130000"  # 2026-08-10 重釘 20260810120000->20260810130000(OP2b 沖銷不變式+DROP dormant gate 落檔;本檔的線與收款帳本不相交,只跟尖端)
+LINE_TIP="20260810160000"  # 2026-08-10 重釘 20260810130000->20260810160000(OP3 confirm_order_payment card 腿落檔。🔴 本片取號撞了兩次:先取 140000 撞 L5b、再取 150000 撞 D 的 347-3c-3(且已 apply 正式庫)。病根=在 dev 查過一次就當數,而 dev 一直在前進 ⇒ 取號要在**定案當下**重查一次,守門見 w7-coverage.sh 的 MIG-PREFIX-UNIQ 格)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
