@@ -146,7 +146,47 @@ describe('#350a 側欄寬度(Sean:窄到跟文字對齊、放大訂單空間)', 
     expect(widthRem('SIDEBAR_WIDTH_MOBILE')).toBe(18);
   });
 
-  it('圖示態寬度不變(⌘B 收合仍是既有行為,本片不動)', () => {
+  it('🔴 桌機展開寬那顆常數本身要存在(抽不到 = 被改名/刪掉,上面兩格會靜默拿到 null)', () => {
+    expect(widthRem('SIDEBAR_WIDTH')).not.toBeNull();
+  });
+
+  // 🔴 **這一格的理由被 #380 弄過期了,標題同步改掉**(原文是「⌘B 收合仍是既有行為,本片不動」)。
+  //    #380 之後 admin 的收合模式是 `offcanvas` ⇒ **圖示態在後台已經走不到了**,
+  //    `SIDEBAR_WIDTH_ICON` 只剩 fork 來的 `ui/sidebar.tsx` 自己還支援(通用能力,非 admin 路徑)。
+  //    保留這條斷言的唯一理由 = 有人把 `collapsible` 改回 `'icon'` 時,寬度不會同時被亂動;
+  //    **它不再是「後台收合行為」的守門** —— 那個守門是下面 #380 那一組。
+  it('圖示態寬度常數不變(#380 後 admin 走不到此模式,僅守 fork 元件的通用能力)', () => {
     expect(widthRem('SIDEBAR_WIDTH_ICON')).toBe(3);
+  });
+});
+
+// ── #380:收合 = 整條收起,而且收起後開得回來 ────────────────────────────────────
+//
+// 🔴 **這一片修的不是「鈕不見了」**:S-010 唯讀診斷證明 `SidebarTrigger` 從後台骨架那顆 commit
+//    之後**沒有任何 commit 動過**;Sean 按得到,只是 `collapsible='icon'` 收完只剩一條
+//    3rem 圖示列,他讀成「沒收起來」。⇒ 真正的修法是換模式。
+//
+// 🔴🔴 **誠實邊界(照本檔既有紀律,不要讀成「收合行為已驗證」)**:本檔是**文字層**斷言。
+//    擋得住:`collapsible` 被改回 `'icon'` / 被整個拿掉(拿掉 = 落回元件預設值,恰好也是
+//    `offcanvas`,所以下面第二條**另外**釘住那個字面必須寫出來)、以及 `SidebarTrigger`
+//    被搬進側欄子樹裡。
+//    擋不住:①收合動畫實際跑不跑得起來 ②收起後內容區有沒有真的拿回那 9rem
+//    ③那顆鈕在收合狀態下有沒有被別的東西蓋住 ⇒ **這三條只有 Sean 的肉眼驗算數**
+//    (本檔檔頭記過同一個坑:vitest 的 `@` alias 指向 storefront,渲染 `<AppSidebar />` 進不去)。
+describe('#380 側欄收合模式', () => {
+  it('🔴 收合模式 = offcanvas(整條滑走),不是 icon(留一條圖示列)', () => {
+    expect(SOURCE).toContain("<Sidebar collapsible='offcanvas'>");
+    // 負向對照:沒有這一條,把 `icon` 那個字面留在檔案別處(例如註解外的死碼)也不會被發現。
+    expect(SOURCE).not.toContain("collapsible='icon'");
+  });
+
+  it('🔴 收起後開得回來:SidebarTrigger 在 header、不在側欄子樹內', () => {
+    // 這是本片唯一「改壞了會把員工鎖在收合狀態」的不變式:側欄整條滑走時,
+    // 唯一的重新展開入口必須活在**沒有被收起的那棵子樹**裡。
+    const headerSource = stripComments(
+      readFileSync(fileURLToPath(new URL('./header.tsx', import.meta.url)), 'utf8'),
+    );
+    expect(headerSource).toContain('<SidebarTrigger');
+    expect(SOURCE).not.toContain('<SidebarTrigger');
   });
 });
