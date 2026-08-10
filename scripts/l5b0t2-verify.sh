@@ -29,6 +29,14 @@
 # ============================================================
 set -uo pipefail
 
+# ── 模式(收編 w7 覆蓋帳的前提:必須**自足** —— 自己 provision、自己 teardown)────────
+#   l5b0t2-verify.sh all  <workdir>   provision → 跑 → teardown(w7 record 走這個)
+#   l5b0t2-verify.sh run  <workdir>   只跑(叢集已在,開發時用)
+#   不給模式 = 沿用舊行為(等同 run),避免既有呼叫方式一夜之間全壞。
+MODE="run"
+case "${1:-}" in
+  all|run) MODE="$1"; shift ;;
+esac
 WORK="${1:-/tmp/l5b0t/pg}"
 PORT="${L5B0_VERIFY_PORT:-54394}"
 BASE_URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
@@ -76,6 +84,19 @@ if grep -n "$BT" "${BASH_SOURCE[0]}" | grep -qv '^[0-9]*:[[:space:]]*#'; then
   echo "🔴 原始碼含反引號且不在整行註解上(shell 會吃掉那段字面):" >&2
   grep -n "$BT" "${BASH_SOURCE[0]}" | grep -v '^[0-9]*:[[:space:]]*#' >&2
   exit 1
+fi
+
+# ── all 模式:自己起拋棄式叢集(形制照 op3-verify.sh:135-146)────────────────
+if [ "$MODE" = "all" ]; then
+  mkdir -p "$WORK"
+  PORT="$PORT" scripts/d1t2-rehearsal.sh provision "$WORK" > "$WORK/provision.log" 2>&1 \
+    || { echo "🔴 provision 失敗,見 $WORK/provision.log"; tail -20 "$WORK/provision.log"; exit 1; }
+  echo "  ok   all 模式:provision 完成(PORT=$PORT workdir=$WORK)"
+  # 🔴 code-reviewer must-fix:teardown 只寫在檔尾的話,**身分閘/基線閘那幾道 `exit 1` 全都繞過它**
+  #    ⇒ 叢集與埠洩漏,而且症狀是「腳本紅了」而不是「有東西沒收」,沒人會聯想到殘留。
+  #    可構造:把 $MIGFILE 路徑弄失效即可。⇒ provision 一成功就掛 trap,任何離場路徑都收得到。
+  #    (檔尾那段仍留著,因為它多驗一件事:teardown 的**退出碼**與埠真的沒人聽;trap 這道只保底。)
+  trap 'cleanup_all; scripts/d1t2-rehearsal.sh teardown "$WORK" >/dev/null 2>&1 || true' EXIT
 fi
 
 # ── 身分閘 ───────────────────────────────────────────────
@@ -328,12 +349,54 @@ for M in M4 M5; do
     || { bad "$M 還原失敗 ⇒ 立即停損(後續的紅會變連鎖雜訊)"; break; }
 done
 
+# ══════════════════════════════════════════════════════════
+# 呼叫面端到端(L5b-0-t3;plan §5.3 那條「至少一條跨 use-case→adapter→真 DB」)
+# ══════════════════════════════════════════════════════════
+# 🔴 為什麼要有這一段:§5.3 的 14 個呼叫端座標**全部**已有正向覆蓋,但**全是 mock 掉
+#    settleCharge / confirmer.confirm 的呼叫端測試** ⇒ 證得了「參數傳對」,證不了
+#    「這串參數餵得進真 RPC、而且 RPC 的 RAISE 被 adapter 分類對」。中間那一跳沒人守。
+# 🔴 **刻意不列進 CELLS**:它不參與突變向量(M4/M5 拿掉閘三之後它當然會紅,
+#    那會讓已凍結的向量多兩位、且與「一發突變只染一格」的設計相衝)。它是正向存在性證據、不是判別力來源。
+echo "== 呼叫面端到端(adapter → 真 DB)=="
+if ! command -v pnpm >/dev/null 2>&1; then
+  bad "端到端:找不到 pnpm ⇒ 這一段沒跑(不當作綠)"
+else
+  E2E_D_OK="$(next_disp)";  E2E_O_OK="$(mkord "$E2E_D_OK")"
+  mkatt "$E2E_O_OK" pending n "" >/dev/null                      # 未讓路:合法可收款
+  E2E_D_SUP="$(next_disp)"; E2E_O_SUP="$(mkord "$E2E_D_SUP")"
+  mkatt "$E2E_O_SUP" released y "" >/dev/null                    # 活的讓路 attempt:閘三該擋
+  E2E_OUT="$(L5B0T3_DSN="$PC_URL" L5B0T3_ORDER="$E2E_O_OK" L5B0T3_SUPERSEDED_ORDER="$E2E_O_SUP" \
+             L5B0T3_AMOUNT=100 L5B0T3_REC="RECE2E-$E2E_D_OK" \
+             pnpm exec tsx --conditions=react-server scripts/l5b0t3-adapter-e2e.ts 2>&1)"
+  printf '%s\n' "$E2E_OUT" | grep -E '^  (ok|FAIL) ' || true
+  E2E_TAIL="$(printf '%s' "$E2E_OUT" | grep -m1 '^PASS=')"
+  case "$E2E_TAIL" in
+    "PASS=3 FAIL=0") ok "端到端三格全過($E2E_TAIL)" ;;
+    PASS=*)          bad "端到端未全過($E2E_TAIL)" ;;
+    *)               bad "端到端沒吐出計分行(tsx 自己爆了?)最後一行:$(printf '%s' "$E2E_OUT" | tail -1 | cut -c1-120)" ;;
+  esac
+fi
+
 # ── 收尾:base 一個位元組都沒被寫過(clone 模型的獨立佐證)─────────────────
 SNAP1="$(snap)" || SNAP1="<取不到>"
 if [ "$SNAP1" = "$SNAP0" ]; then ok "base 零寫入:$SNAP1"
 else bad "🔴 base 被寫到了:跑前=[$SNAP0] 跑後=[$SNAP1]"; fi
 [ "$(qb "SELECT count(*) FROM public.orders WHERE display_id LIKE '${PREFIX}%'")" = "0" ] \
   && ok "base 上零 ${PREFIX}* fixture" || bad "🔴 base 上出現 ${PREFIX}* fixture"
+
+# ── all 模式:teardown + 埠零留痕(照 op3-verify.sh:687-697:teardown 失敗不得吞掉)──
+if [ "$MODE" = "all" ]; then
+  if scripts/d1t2-rehearsal.sh teardown "$WORK" >/dev/null 2>&1; then
+    ok "teardown 完成"
+  else
+    bad "teardown 失敗 ⇒ 可能留下活叢集(PORT=${PORT}、workdir=${WORK}),請手動 pg_ctl stop 後刪目錄"
+  fi
+  if [ -z "$(lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t 2>/dev/null)" ]; then
+    ok "teardown 後 port ${PORT} 無人聽(零留痕)"
+  else
+    bad "teardown 後 port ${PORT} 仍有人聽 ⇒ 零留痕不成立"
+  fi
+fi
 
 echo "─────────────────────────────────────────"
 echo "PASS=$PASS FAIL=$FAIL"

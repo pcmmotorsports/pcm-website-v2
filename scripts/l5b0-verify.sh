@@ -22,6 +22,14 @@
 # ============================================================
 set -uo pipefail
 
+# ── 模式(收編 w7 覆蓋帳的前提:必須**自足** —— 自己 provision、自己 teardown)────────
+#   l5b0-verify.sh all  <workdir>   provision → 跑 → teardown(w7 record 走這個)
+#   l5b0-verify.sh run  <workdir>   只跑(叢集已在,開發時用)
+#   不給模式 = 沿用舊行為(等同 run),避免既有呼叫方式一夜之間全壞。
+MODE="run"
+case "${1:-}" in
+  all|run) MODE="$1"; shift ;;
+esac
 WORK="${1:-/tmp/l5b0t/pg}"
 PORT="${L5B0_VERIFY_PORT:-54394}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
@@ -52,7 +60,7 @@ q()   { psql "$URL" -qtAX -c "$1" 2>&1; }
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 CASEDIR="$(mktemp -d "${TMPDIR:-/tmp}/l5b0-cases.XXXXXX")"
-trap 'rm -rf "$CASEDIR"' EXIT
+trap 'rm -rf "$CASEDIR"; rm -f "${ERRFILE:-}"' EXIT
 
 # ── 自檢:原始碼裡不得出現「會被 shell 吃掉」的反引號 ────────────────────────
 # 🔴 2026-08-10 實錘:格 1 的註解裡寫了一組反引號,而 case body 是用**雙引號字串**傳進 emit_case
@@ -68,6 +76,19 @@ if grep -n "$BT" "${BASH_SOURCE[0]}" | grep -qv '^[0-9]*:[[:space:]]*#'; then
   grep -n "$BT" "${BASH_SOURCE[0]}" | grep -v '^[0-9]*:[[:space:]]*#' >&2
   echo "   改用「」或直接不加引號;不要靠「記得別用」這種規則。" >&2
   exit 1
+fi
+
+# ── all 模式:自己起拋棄式叢集(形制照 op3-verify.sh:135-146)────────────────
+if [ "$MODE" = "all" ]; then
+  mkdir -p "$WORK"
+  PORT="$PORT" scripts/d1t2-rehearsal.sh provision "$WORK" > "$WORK/provision.log" 2>&1 \
+    || { echo "🔴 provision 失敗,見 $WORK/provision.log"; tail -20 "$WORK/provision.log"; exit 1; }
+  echo "  ok   all 模式:provision 完成(PORT=$PORT workdir=$WORK)"
+  # 🔴 code-reviewer must-fix:teardown 只寫在檔尾的話,**身分閘/基線閘那幾道 `exit 1` 全都繞過它**
+  #    ⇒ 叢集與埠洩漏,而且症狀是「腳本紅了」而不是「有東西沒收」,沒人會聯想到殘留。
+  #    可構造:把 $MIGFILE 路徑弄失效即可。⇒ provision 一成功就掛 trap,任何離場路徑都收得到。
+  #    (檔尾那段仍留著,因為它多驗一件事:teardown 的**退出碼**與埠真的沒人聽;trap 這道只保底。)
+  trap 'rm -rf "$CASEDIR"; rm -f "${ERRFILE:-}"; scripts/d1t2-rehearsal.sh teardown "$WORK" >/dev/null 2>&1 || true' EXIT
 fi
 
 # ── 身分閘(照 a8c1/a8c2:先證「我連到的是我以為的那台、而且兩片都在」)──────────
@@ -153,15 +174,19 @@ ROLLBACK;
 SQL
 }
 
-# 每格獨立一條 psql;回傳 0=綠 1=紅,紅時把第一行 ERROR 收進 CELL_ERR
-CELL_ERR=""
+# 每格獨立一條 psql;回傳 0=綠 1=紅,紅時把第一行 ERROR 記下來。
+# 🔴 -t3 修:原本記進 `CELL_ERR` 變數 —— 而 run_vector 跑在 `$( )` 的**子殼**裡,
+#    子殼設的變數回不到主殼 ⇒ 所有診斷訊息**永遠是空字串**(收割時看到的「格 N — 」後面空白就是它)。
+#    不影響判定(向量本身帶得走資訊),但出事時你會拿到一個沒有線索的紅。改寫檔案,並自帶格名前綴。
+ERRFILE="$(mktemp "${TMPDIR:-/tmp}/l5b0-err.XXXXXX")"
 run_case() {
   local name="$1" out
   out="$(psql "$URL" -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qtAX -f "$CASEDIR/case-$name.sql" 2>&1)"
   if [ $? -eq 0 ]; then return 0; fi
-  CELL_ERR="$(printf '%s' "$out" | grep -m1 'ERROR' | cut -c1-160)"
+  printf '%s\t%s\n' "$name" "$(printf '%s' "$out" | grep -m1 'ERROR' | cut -c1-160)" >> "$ERRFILE"
   return 1
 }
+cell_err_of() { grep -m1 "^$1	" "$ERRFILE" 2>/dev/null | cut -f2-; }
 
 # ══════════════════════════════════════════════════════════
 # 行為格(plan §5.1;本片=attempt 面)
@@ -386,7 +411,7 @@ BASE_VEC="$(run_vector)"
 i=0
 for c in $CELLS; do
   i=$((i+1))
-  if [ "${BASE_VEC:$((i-1)):1}" = "1" ]; then ok "格 $c"; else bad "格 $c — ${CELL_ERR:-}"; fi
+  if [ "${BASE_VEC:$((i-1)):1}" = "1" ]; then ok "格 $c"; else bad "格 $c — $(cell_err_of "$c")"; fi
 done
 ALL_GREEN="$(printf '1%.0s' $CELLS)"
 [ "$BASE_VEC" = "$ALL_GREEN" ] && ok "對照組向量全綠($BASE_VEC)" || bad "對照組向量=$BASE_VEC 期望=$ALL_GREEN"
@@ -529,7 +554,7 @@ for M in M1 M2 M3 M6 M7 M8 M9 M10 M11 M12; do
   VEC="$(run_vector)"
   EXP="$(reds_to_vec "$(mut_reds "$M")")"
   if [ "$VEC" = "$EXP" ]; then ok "$M 向量逐格吻合($VEC;應紅=[$(mut_reds "$M")])"
-  else bad "$M 向量=$VEC 期望=$EXP(應紅=[$(mut_reds "$M")];最後一則:${CELL_ERR:-})"; fi
+  else bad "$M 向量=$VEC 期望=$EXP(應紅=[$(mut_reds "$M")];最後一則:$(tail -1 "$ERRFILE" 2>/dev/null | cut -f2- | cut -c1-110))"; fi
 
   restore_all
   [ "$(q "SELECT md5(prosrc) FROM pg_catalog.pg_proc WHERE oid='$TGT'::regprocedure")" = "$BASESRC" ] \
@@ -545,6 +570,20 @@ case "$END_ATT$END_ANO" in *[!0-9]*) bad "零留痕複查取不到數值(att=$EN
 [ "$END_ATT" = "$BASE_ATT" ] && [ "$END_ANO" = "$BASE_ANO" ] \
   && ok "零留痕:attempts $BASE_ATT→$END_ATT、anomalies $BASE_ANO→$END_ANO" \
   || bad "🔴 有留痕:attempts $BASE_ATT→$END_ATT、anomalies $BASE_ANO→$END_ANO"
+
+# ── all 模式:teardown + 埠零留痕(照 op3-verify.sh:687-697:teardown 失敗不得吞掉)──
+if [ "$MODE" = "all" ]; then
+  if scripts/d1t2-rehearsal.sh teardown "$WORK" >/dev/null 2>&1; then
+    ok "teardown 完成"
+  else
+    bad "teardown 失敗 ⇒ 可能留下活叢集(PORT=${PORT}、workdir=${WORK}),請手動 pg_ctl stop 後刪目錄"
+  fi
+  if [ -z "$(lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t 2>/dev/null)" ]; then
+    ok "teardown 後 port ${PORT} 無人聽(零留痕)"
+  else
+    bad "teardown 後 port ${PORT} 仍有人聽 ⇒ 零留痕不成立"
+  fi
+fi
 
 echo "─────────────────────────────────────────"
 echo "PASS=$PASS FAIL=$FAIL"

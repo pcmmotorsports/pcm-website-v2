@@ -379,7 +379,27 @@ migration 檔內只留**不可回滾的斷言**(catalog 存在性 / ACL / fail-c
   唯一 app 出口 `PaymentConfirmerAdapter.ts:128`。
 - 🔴 至少一條**跨 use-case→adapter→真 DB** 端到端格(不得只在 mock 掉 settleCharge 的層測)。
 - 做法:先逐入口開檔判有無**正向覆蓋**、列「已覆蓋/缺」附行號,只補缺的。
-  已知**查無專屬測試檔**:`callback/page.tsx`、`tappay-notify`、`payment-status`。
+- ~~已知**查無專屬測試檔**:`callback/page.tsx`、`tappay-notify`、`payment-status`。~~
+  🔴 **這句是過期字面,2026-08-10 -t3 實查推翻**(三個檔都在,且都有正向覆蓋;路徑我逐一 `find` 對過,
+  盤點 agent 最初給的路徑有兩個是錯的):
+  | 原句所指 | 實際檔案 | 佐證 |
+  |---|---|---|
+  | `callback/page.tsx` | `apps/storefront/src/app/checkout/callback/page.test.tsx`(11 個 `it`) | `it('⑤ 歸屬通過 + paid → CheckoutSuccess…')` |
+  | `tappay-notify` | `apps/storefront/src/app/api/**checkout/**tappay-notify/[secret]/route.test.ts` | `it('合法首見 + 本機單存在 → recordEvent…settleCharge 排程')`;檔內 `settleCharge` 14 處 |
+  | `payment-status` | `apps/storefront/src/app/api/**orders/[orderId]/**payment-status/route.test.ts` | `it('unpaid + throttle 放行 → 呼 settleCharge…')`;檔內 `settleCharge` 7 處 |
+- ✅ **-t3 盤點結論:14 個座標(11 attempt + 2 confirm + 1 app 出口)正向覆蓋 = 14/14、缺口 0。**
+  ⚠️ **「14/14」只代表「每個呼叫端都有一條正向測試」,不代表「這條線已被充分驗證」** —— 見下一行的層級限制。
+  ⚠️ 但那 14 個**全部是 mock 掉 `settleCharge` / `confirmer.confirm` 的呼叫端測試** ——
+  它們證得了「呼叫端把參數傳對」,證不了「這串參數餵得進真 RPC、且 RPC 的 RAISE 被 adapter 分類對」。
+  ⇒ 本節那條**跨層端到端格**由 `scripts/l5b0t3-adapter-e2e.ts` 補(由 `l5b0t2-verify.sh` 帶起)。
+  🔴 **但它只補到一半,範圍要講清楚(code-reviewer 抓;不講就會被讀成「原始要求已閉環」)**:
+  本節原文要求的是「跨 **use-case** → adapter → 真 DB」,而該檔是**直接 import `PaymentConfirmerAdapter`**、
+  從 **adapter → 真 DB**,**沒有經過 `settleCharge` / `confirmPayment` 這一層**。
+  ⇒ **仍然缺**:「use-case → adapter」那一跳的真連線覆蓋(現況仍只有 mock 掉 confirmer 的呼叫端測試)。
+  補它要把 use-case 的整組 deps(charge port 等)在 harness 裡湊出來,體積另一片級 ⇒ **本片不做、認列在此**。
+  該格的誠實邊界寫在檔頭:adapter 預設 client factory 把 host 釘死在 Supabase pooler 網域 + verify-full,
+  **結構上連不到 127.0.0.1** ⇒ 用 constructor 的 `clientFactory` 注入本機 client;
+  **TLS/CA/host 釘死那一段沒被驗到**,不在該格宣稱。
 
 ### 5.4 既有 verify 腳本(R2-MF12:不能當本片驗收)
 `a8c1-verify.sh` / `a8c2-verify.sh` 走**自己的 replay 鏈與黃金 diff / md5 pin**,標的是它們各自那片。
