@@ -31,6 +31,7 @@ import { ORDER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
 import {
   taipeiDayEndExclusiveIso,
   taipeiDayStartIso,
+  recentTaipeiMonthsRange,
   taipeiYmdFromDayEndExclusive,
   taipeiYmdFromInstantIso,
 } from '@pcm/domain';
@@ -213,6 +214,68 @@ export const FULFILLMENT_STATUS_OPTIONS = toOptions(
 export const ORDER_SOURCE_OPTIONS = toOptions(ORDER_SOURCE_VALUES, ORDER_SOURCE_LABEL);
 export const PAYMENT_CHANNEL_OPTIONS = toOptions(PAYMENT_CHANNEL_VALUES, PAYMENT_CHANNEL_LABEL);
 
+/**
+ * 日期範圍下拉的選項(#347-3c-2)。
+ *
+ * 🔴🔴 **區間由 server 算好、連同 label 一起傳給 client** —— client 一個字都不碰時鐘。
+ *    理由:①`new Date()` 在 server 與 client 各算一次會 hydration 不一致(而症狀是
+ *    「重整之後選中的選項跳掉」這種沒人查得出來的東西)②算得出來才測得到:
+ *    這支是純函式、吃 `now`,邊界(月界、跨年)在單測裡構造得出來。
+ * 🔴 **沒有「全部」選項**:那是 plan §1-1 認列過的誠實代價 —— 要看更早的單就選「自訂」
+ *    給一個很早的起日。沒有逃生口的預設等於把舊單藏起來,所以**自訂與預設必須同片**。
+ */
+const ORDER_DATE_PRESETS = [
+  { key: 'm1', label: '近一個月', months: 1 },
+  { key: 'm3', label: '近三個月', months: 3 },
+  { key: 'm6', label: '近半年', months: 6 },
+  { key: 'y1', label: '近一年', months: 12 },
+] as const;
+
+/** 「自訂」那一格的 key —— 它沒有預先算好的區間,由員工自己填兩個日期。 */
+export const ORDER_DATE_CUSTOM_KEY = 'custom';
+
+/**
+ * 「未選」時的預設 —— Sean Q14=A 逐字「未選預設近半年」。
+ * 🔴 它是**下拉的預設選項**(看得見、改得動),不是隱形過濾:
+ *    `parseOrderListSearchParams` 套它的同時,`buildOrderListHref` 會把日期寫進 URL、
+ *    篩選列也會把「近半年」顯示成選中 ⇒ 員工看得到自己正在看的是哪段期間。
+ *    這條的來由與被推翻的舊方案見 plan §1-1 的推翻框。
+ */
+export const ORDER_DATE_DEFAULT_KEY = 'm6';
+
+export type OrderDatePresetOption = {
+  key: string;
+  label: string;
+  fromYmd: string;
+  toYmd: string;
+};
+
+/** 把每個預設算成具體的曆面日區間(台北曆面;`now` 由呼叫端注入)。 */
+export function buildOrderDatePresetOptions(now: Date): OrderDatePresetOption[] {
+  return ORDER_DATE_PRESETS.map(({ key, label, months }) => {
+    const { fromYmd, toYmd } = recentTaipeiMonthsRange(now, months);
+    return { key, label, fromYmd, toYmd };
+  });
+}
+
+/**
+ * 目前選中的是哪一格 —— 拿當下的 from/to 去比對每個預設算出來的區間。
+ *
+ * 🔴 **這是「選中的選項」與「生效的區間」之間唯一的連結**:比對不上就顯示「自訂」,
+ *    而不是硬選一個 —— 顯示「近半年」卻篩著別的區間,比顯示「自訂」糟得多。
+ * ⚠️ 誠實邊界:區間是**相對今天**算的 ⇒ 昨天分享的一條「近半年」網址,今天打開會顯示「自訂」
+ *    (因為它的迄日停在昨天)。那是對的:它篩的**確實**不是今天的近半年。
+ */
+function matchOrderDatePreset(
+  options: readonly OrderDatePresetOption[],
+  fromYmd: string,
+  toYmd: string,
+): string {
+  return (
+    options.find((o) => o.fromYmd === fromYmd && o.toYmd === toYmd)?.key ?? ORDER_DATE_CUSTOM_KEY
+  );
+}
+
 // ── searchParams 解析(白名單守門 + 分頁頁碼)──
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
@@ -224,7 +287,18 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
  */
 export function parseOrderListSearchParams(
   raw: RawSearchParams,
-  options?: { orderNumberSearchEnabled?: boolean; supplierOrderNoSearchEnabled?: boolean },
+  options?: {
+    orderNumberSearchEnabled?: boolean;
+    supplierOrderNoSearchEnabled?: boolean;
+    /**
+     * #347-3c-2「未選預設近半年」用的**現在時刻**。
+     *
+     * 🔴 **不給就不套預設**(= 3c-1 的行為,不限期間)。刻意做成 opt-in 而不是 `?? new Date()`:
+     *    ①本函式是純函式,內建時鐘就測不出邊界;②「有沒有套預設」變成呼叫端明講的事,
+     *    而不是某個檔案深處的預設值 —— 這一軸會**藏掉半年前的單**,那個決定要看得見。
+     */
+    now?: Date;
+  },
 ): {
   filter: AdminOrderFilter;
   page: number;
@@ -238,10 +312,15 @@ export function parseOrderListSearchParams(
    * flag 未開時恆為 `empty`(與 `filter.supplierOrderNo` 同一個閘)。
    */
   supplierOrderNoSearch: SupplierOrderNoSearch;
+  /** #347-3c-2:日期下拉的選項(server 算好;沒給 `now` 時為空陣列 = 不顯示下拉)。 */
+  datePresetOptions: OrderDatePresetOption[];
+  /** #347-3c-2:選中的那一格(`custom` = 兩個日期輸入)。 */
+  selectedDatePresetKey: string;
 } {
   const supplierOrderNoSearch: SupplierOrderNoSearch = options?.supplierOrderNoSearchEnabled
     ? normalizeSupplierOrderNoSearch(firstValue(raw[SUPPLIER_ORDER_NO_PARAM]))
     : { kind: 'empty' };
+  const dateRange = resolveOrderDateRange(raw, options?.now);
   const filter: AdminOrderFilter = {
     paymentStatus: pickEnum(raw[PAYMENT_STATUS_PARAM], PAYMENT_STATUS_VALUES),
     fulfillmentStatus: pickEnum(raw[FULFILLMENT_STATUS_PARAM], FULFILLMENT_STATUS_VALUES),
@@ -256,12 +335,72 @@ export function parseOrderListSearchParams(
     // #347-3c-1:曆面日 → 絕對時刻。形狀不合 ⇒ `undefined`(該側不限)、不是回零筆
     //    —— 日期打錯字只是「這一軸不篩」,其他軸照舊生效,不會造出假的查無
     //    (與 `orderNumber` / `supplierOrderNo` 相反,理由在 domain `date-range.ts`)。
-    // 🔴 **本片沒有預設**:沒帶參數 = 不限期間。「未選預設近半年」是 3c-2 下拉的預設**選項**
-    //    (看得見的選單狀態),不是這裡偷偷補一段區間 —— plan §1-1 的推翻框。
-    createdFrom: taipeiDayStartIso(firstValue(raw[DATE_FROM_PARAM]) ?? '') ?? undefined,
-    createdTo: taipeiDayEndExclusiveIso(firstValue(raw[DATE_TO_PARAM]) ?? '') ?? undefined,
+    // 🔴 **#347-3c-2 起這裡有預設了**(3c-1 那句「本片沒有預設」已被推翻,不要照舊讀):
+    //    呼叫端給 `options.now` 才套(見 `resolveOrderDateRange`)—— 給不給是呼叫端明講的事,
+    //    因為這一軸會**藏掉半年前的單**。可見性由同一份結果的 `selectedDatePresetKey` 保證。
+    createdFrom: dateRange.createdFrom,
+    createdTo: dateRange.createdTo,
   };
-  return { filter, page: parsePage(raw.page), supplierOrderNoSearch };
+  return {
+    filter,
+    page: parsePage(raw.page),
+    supplierOrderNoSearch,
+    datePresetOptions: dateRange.options,
+    /** 篩選列要把哪一格顯示成選中(= 真正生效的那段期間;兩者同源,不可能對不上)。 */
+    selectedDatePresetKey: dateRange.selectedKey,
+  };
+}
+
+/**
+ * 日期軸:URL → 生效區間 + 下拉狀態(#347-3c-2)。
+ *
+ * 三種狀態,**只有這裡決定**(選中的選項與生效的區間同源 ⇒ 結構上不可能對不上):
+ * ① URL 帶了合法日期 ⇒ 用它,選中的格子由 `matchOrderDatePreset` 比對(對不上 = 自訂);
+ * ② URL 沒帶、且呼叫端給了 `now` ⇒ **套預設近半年**(看得見:下拉顯示「近半年」、
+ *    而 `buildOrderListHref` 會把日期寫進 URL);
+ * ③ URL 沒帶、也沒給 `now` ⇒ 不限期間、不顯示下拉(= 3c-1 的行為)。
+ *
+ * 🔴 **只帶一邊也算「帶了」**:員工用自訂只填起日是合理的(「這天之後的全部」),
+ *    那時不得把另一邊補成預設 —— 補了就是「我只設了起日,迄日卻被系統偷偷設成今天」。
+ */
+function resolveOrderDateRange(
+  raw: RawSearchParams,
+  now: Date | undefined,
+): {
+  createdFrom: string | undefined;
+  createdTo: string | undefined;
+  options: OrderDatePresetOption[];
+  selectedKey: string;
+} {
+  const fromYmd = firstValue(raw[DATE_FROM_PARAM]) ?? '';
+  const toYmd = firstValue(raw[DATE_TO_PARAM]) ?? '';
+  const fromIso = taipeiDayStartIso(fromYmd);
+  const toIso = taipeiDayEndExclusiveIso(toYmd);
+  const options = now === undefined ? [] : buildOrderDatePresetOptions(now);
+
+  if (fromIso !== null || toIso !== null) {
+    return {
+      createdFrom: fromIso ?? undefined,
+      createdTo: toIso ?? undefined,
+      options,
+      selectedKey: matchOrderDatePreset(options, fromYmd, toYmd),
+    };
+  }
+  if (now === undefined) {
+    return { createdFrom: undefined, createdTo: undefined, options, selectedKey: ORDER_DATE_CUSTOM_KEY };
+  }
+  const preset = options.find((o) => o.key === ORDER_DATE_DEFAULT_KEY);
+  // 🔴 找不到預設那一格 = `ORDER_DATE_PRESETS` 與 `ORDER_DATE_DEFAULT_KEY` 不同步
+  //    ⇒ 不靜默降級成「不限期間」(那會讓預設默默消失、而畫面上沒人說),直接當自訂空區間。
+  if (preset === undefined) {
+    return { createdFrom: undefined, createdTo: undefined, options, selectedKey: ORDER_DATE_CUSTOM_KEY };
+  }
+  return {
+    createdFrom: taipeiDayStartIso(preset.fromYmd) ?? undefined,
+    createdTo: taipeiDayEndExclusiveIso(preset.toYmd) ?? undefined,
+    options,
+    selectedKey: preset.key,
+  };
 }
 
 /**

@@ -12,7 +12,14 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace }),
 }));
 
+/** #347-3c-2:server 算好的日期選項(client 不碰時鐘 ⇒ 測試裡就是一組固定值)。 */
+const DATE_OPTIONS = [
+  { key: 'm1', label: '近一個月', fromYmd: '2026-07-10', toYmd: '2026-08-10' },
+  { key: 'm6', label: '近半年', fromYmd: '2026-02-10', toYmd: '2026-08-10' },
+];
+
 const PROPS = {
+  datePresetOptions: DATE_OPTIONS,
   paymentOptions: [{ value: 'paid', label: '已付款' }],
   fulfillmentOptions: [{ value: 'shipped', label: '已出貨' }],
   sourceOptions: [
@@ -20,7 +27,7 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { pay: '', ful: '', src: [], ch: [], no: '', supplierNo: '', showUnpaidCard: '', dateFrom: '', dateTo: '' },
+  initial: { pay: '', ful: '', src: [], ch: [], no: '', supplierNo: '', showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
 beforeEach(() => replace.mockClear());
@@ -391,5 +398,93 @@ describe('#347-3c-1 日期兩軸的 state 透傳(第二個 URL builder 的守門
     const url = replace.mock.calls.at(-1)?.[0] as string;
     expect(url).not.toContain('date_from');
     expect(url).not.toContain('date_to');
+  });
+});
+
+describe('#347-3c-2 日期下拉(選中的選項 == 生效的區間)', () => {
+  const withPreset = (datePreset: string, dateFrom = '', dateTo = '') => ({
+    ...PROPS,
+    initial: { ...PROPS.initial, datePreset, dateFrom, dateTo },
+  });
+
+  it('🔴 選一個預設 ⇒ URL 直接帶上**那一格 server 算好的區間**', () => {
+    // 突變:`applyDatePreset` 只寫 `datePreset` 而不寫 `dateFrom/dateTo` ⇒ 這格紅,
+    // 而症狀正是「下拉顯示近一個月、列表卻還是舊區間」。
+    const { container } = render(<OrderFilterControls {...withPreset('m6')} />);
+    const select = container.querySelector('#order-date-preset') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: 'm1' } });
+    const qs = new URLSearchParams((replace.mock.calls.at(-1)?.[0] as string).split('?')[1] ?? '');
+    expect(qs.get('date_from')).toBe('2026-07-10');
+    expect(qs.get('date_to')).toBe('2026-08-10');
+  });
+
+  it('🔴🔴 「自訂」是逃生口:**在畫面上真的選它**就出現兩個日期輸入', () => {
+    // 🔴 R1 must-fix 2:第一版是 `rerender` 換 prop —— 那證的是「prop 說 custom 就渲染輸入框」,
+    //    **不是**「員工選得到自訂」。真實路徑走的是 select 的 onChange → 本地 state。
+    //    預設會藏掉半年前的單,逃生口到不到得了是這一片最要緊的事,不能只靠 prop 證。
+    //    突變:`applyDatePreset` 對 `custom` 那條 early return 拿掉 ⇒ 這格紅。
+    const { container } = render(<OrderFilterControls {...withPreset('m6', '2026-02-10', '2026-08-10')} />);
+    expect(container.querySelector('#order-date-from'), '非自訂時不該出現輸入框').toBeNull();
+    fireEvent.change(container.querySelector('#order-date-preset') as HTMLSelectElement, {
+      target: { value: 'custom' },
+    });
+    expect(container.querySelector('#order-date-from'), '選了自訂卻沒有輸入框 = 逃生口不通').not.toBeNull();
+    expect(container.querySelector('#order-date-to')).not.toBeNull();
+  });
+
+  it('🔴🔴 自訂把兩格都清空 ⇒ **當場退回近半年**(不得留下畫面空白、列表卻篩近半年的分岔)', () => {
+    // 🔴 R1 must-fix 1 構造出來的真分岔:兩格皆空 ⇒ URL 不帶日期 ⇒ server 重套近半年,
+    //    而 client 回音被 prop-sync 拒絕 ⇒ 畫面停在「自訂 + 空白」= 員工讀成不限期間,
+    //    列表卻篩著近半年,而且**永不自癒**。⇒ 在 client 端就把這個歧義態消掉。
+    //    突變:拿掉 `applyCustomDate` 的兩格皆空分支 ⇒ 這格紅。
+    const { container } = render(<OrderFilterControls {...withPreset('custom', '2020-01-01', '')} />);
+    fireEvent.change(container.querySelector('#order-date-from') as HTMLInputElement, {
+      target: { value: '' },
+    });
+    const url = replace.mock.calls.at(-1)?.[0] as string;
+    const qs = new URLSearchParams(url.split('?')[1] ?? '');
+    // 退回預設 = URL 帶著近半年那組日期(而不是裸 /orders)。
+    expect(qs.get('date_from')).toBe('2026-02-10');
+    expect(qs.get('date_to')).toBe('2026-08-10');
+    // 而且下拉會**看得見地**跳回近半年(state 與 URL 同一次寫入)。
+    expect((container.querySelector('#order-date-preset') as HTMLSelectElement).value).toBe('m6');
+  });
+
+  it('只清空其中一格 ⇒ 那一側不限、不觸發退回(「這天之後的全部」是合理需求)', () => {
+    const { container } = render(<OrderFilterControls {...withPreset('custom', '2020-01-01', '2026-08-10')} />);
+    fireEvent.change(container.querySelector('#order-date-to') as HTMLInputElement, {
+      target: { value: '' },
+    });
+    const qs = new URLSearchParams((replace.mock.calls.at(-1)?.[0] as string).split('?')[1] ?? '');
+    expect(qs.get('date_from')).toBe('2020-01-01');
+    expect(qs.has('date_to')).toBe(false);
+  });
+
+  it('🔴 自訂改起日 ⇒ 直接生效(而且不會把迄日一起洗掉)', () => {
+    const { container } = render(<OrderFilterControls {...withPreset('custom', '2020-01-01', '2026-08-10')} />);
+    fireEvent.change(container.querySelector('#order-date-from') as HTMLInputElement, {
+      target: { value: '2019-06-01' },
+    });
+    const qs = new URLSearchParams((replace.mock.calls.at(-1)?.[0] as string).split('?')[1] ?? '');
+    expect(qs.get('date_from')).toBe('2019-06-01');
+    expect(qs.get('date_to')).toBe('2026-08-10');
+  });
+
+  it('🔴 選單被設成不存在的值(jsdom 下 value 變空字串)⇒ **維持現況**,不得靜默清掉日期', () => {
+    // ⚠️ 名稱精確化(R1 nit 7):HTML 規範下把 `<select>.value` 設成不存在的選項會讓它變 `''`,
+    //    所以 handler 實際收到的是空字串。斷言仍有判別力(拿掉 guard 會 throw),但別讓名字說謊。
+    // server/client 不同步時,「悄悄變成不限期間」比「什麼都不做」危險得多。
+    const { container } = render(<OrderFilterControls {...withPreset('m6', '2026-02-10', '2026-08-10')} />);
+    fireEvent.change(container.querySelector('#order-date-preset') as HTMLSelectElement, {
+      target: { value: 'no-such-key' },
+    });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('沒有選項時整塊不渲染(3c-1 的呼叫端還沒給 options)', () => {
+    const { container } = render(
+      <OrderFilterControls {...PROPS} datePresetOptions={[]} />,
+    );
+    expect(container.querySelector('#order-date-preset')).toBeNull();
   });
 });

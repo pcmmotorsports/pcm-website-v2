@@ -7,6 +7,7 @@ import {
   ORDER_SOURCE_OPTIONS,
   PAYMENT_CHANNEL_OPTIONS,
   SHOW_UNPAID_CARD_ON,
+  type OrderDatePresetOption,
 } from '../../lib/orders/order-list-view';
 import { applyOrderKeywordSearchAction } from '../../lib/orders/keyword-search-action';
 import {
@@ -23,10 +24,16 @@ import {
 
 export function OrderFilterBar({
   filter,
+  datePresetOptions,
+  selectedDatePresetKey,
   orderNumberSearchEnabled = false,
   supplierOrderNoSearchEnabled = false,
 }: {
   filter: AdminOrderFilter;
+  /** #347-3c-2:日期下拉的選項(server 算好區間;client 不碰時鐘)。 */
+  datePresetOptions: OrderDatePresetOption[];
+  /** #347-3c-2:選中的那一格 —— 與**真正生效的區間**同源(見 `resolveOrderDateRange`)。 */
+  selectedDatePresetKey: string;
   /** M-4b E10 A10c1 單號搜尋開關(§7.1 逐批啟用閘;D0 apply 前一律 false)。 */
   orderNumberSearchEnabled?: boolean;
   /** M-4b E10 A10c2 供應商單號搜尋開關(A9b2-M `20260807130000` apply 前一律 false)。 */
@@ -35,6 +42,7 @@ export function OrderFilterBar({
   return (
     <div className='bg-card text-card-foreground flex flex-wrap items-end gap-3 rounded-lg border p-4'>
       <OrderFilterControls
+        datePresetOptions={datePresetOptions}
         paymentOptions={PAYMENT_STATUS_OPTIONS}
         fulfillmentOptions={FULFILLMENT_STATUS_OPTIONS}
         sourceOptions={ORDER_SOURCE_OPTIONS}
@@ -52,8 +60,10 @@ export function OrderFilterBar({
           showUnpaidCard: filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : '',
           // #347-3c-1:日期兩軸**純透傳**(沒有可見控制項,下拉是 3c-2)。
           //    server 解析出來的絕對時刻換回曆面日,換算走 domain 那一份。
+          // #347-3c-2:兩個曆面日 + 選中的那一格,全部來自同一份 server 解析結果。
           dateFrom: filter.createdFrom ? (taipeiYmdFromInstantIso(filter.createdFrom) ?? '') : '',
           dateTo: filter.createdTo ? (taipeiYmdFromDayEndExclusive(filter.createdTo) ?? '') : '',
+          datePreset: selectedDatePresetKey,
         }}
       />
       {/* 🔴 #347-2b:這顆從 `<a href='/orders'>` 改成 **POST 同一支 action 送空字串**。

@@ -74,10 +74,24 @@ export default async function OrdersPage({
   //    **整個訂單列表**進錯誤態(不只搜尋壞掉),與 A10c1/D0 同族。
   const supplierOrderNoSearchEnabled =
     process.env.ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH === '1';
-  const { filter: urlFilter, page, supplierOrderNoSearch } = parseOrderListSearchParams(
-    rawSearchParams,
-    { orderNumberSearchEnabled, supplierOrderNoSearchEnabled },
-  );
+  const {
+    filter: urlFilter,
+    page,
+    supplierOrderNoSearch,
+    datePresetOptions,
+    selectedDatePresetKey,
+  } = parseOrderListSearchParams(rawSearchParams, {
+    orderNumberSearchEnabled,
+    supplierOrderNoSearchEnabled,
+    // 🔴🔴 #347-3c-2:**給 `now` = 開啟「未選預設近半年」**(Sean Q14=A)。
+    //    這一行是這一軸唯一「會藏掉舊單」的地方,所以它明著寫在頁層、不藏在 lib 的預設參數裡。
+    //    可見性由 `selectedDatePresetKey` 保證:篩選列會把「近半年」顯示成**選中**,員工改得動。
+    //    ⚠️ **不要宣稱「網址列會顯示日期」**(R1 important 4 更正):打開裸 `/orders` 時
+    //    沒有任何東西改寫網址列,日期只在按連結 / 翻頁之後才進 URL
+    //    ⇒ 首次載入的可見性**完全由那格下拉承擔**。
+    //    ⚠️ 頁層 `force-dynamic`,每次請求重算;逃生口 = 下拉的「自訂」。
+    now: new Date(),
+  });
   // 🔴 **#347-2b:關鍵字這一軸不在 URL、在 httpOnly cookie**(Q-a=B 紅線:搜尋詞是 PII)。
   //    它與其他七軸的來源不同,但**下游一視同仁** —— 合進同一個 `filter` 之後,
   //    分頁 / 篩選 / 查詢全部照原路走,`buildOrderListHref` 一個字都不用改。
@@ -188,6 +202,8 @@ export default async function OrdersPage({
       )}
       <OrderFilterBar
         filter={filter}
+        datePresetOptions={datePresetOptions}
+        selectedDatePresetKey={selectedDatePresetKey}
         orderNumberSearchEnabled={orderNumberSearchEnabled}
         supplierOrderNoSearchEnabled={supplierOrderNoSearchEnabled}
       />

@@ -12,6 +12,9 @@ import {
   SHOW_UNPAID_CARD_PARAM,
   DATE_FROM_PARAM,
   DATE_TO_PARAM,
+  ORDER_DATE_CUSTOM_KEY,
+  ORDER_DATE_DEFAULT_KEY,
+  type OrderDatePresetOption,
   SHOW_UNPAID_CARD_ON,
   PAYMENT_CHANNEL_PARAM,
   ORDER_NUMBER_PARAM,
@@ -59,6 +62,13 @@ type FilterState = {
    */
   dateFrom: string;
   dateTo: string;
+  /**
+   * #347-3c-2:選中的那一格(`m1`/`m3`/`m6`/`y1` 或 `custom`)。
+   * 🔴 **它不進 URL** —— URL 上的真相是 `date_from`/`date_to` 兩個曆面日,這一格是**從那兩個值
+   *    比對出來的**(`matchOrderDatePreset`)。若它也進 URL,就會出現「選項說近半年、日期是別的」
+   *    這種兩個真相打架的狀態,而畫面只會顯示其中一個。
+   */
+  datePreset: string;
   no: string;
   /**
    * 供應商單號搜尋詞(M-4b E10 A10c2;'' = 不搜尋)。
@@ -99,6 +109,7 @@ function toggled(list: readonly string[], value: string): string[] {
 }
 
 export function OrderFilterControls({
+  datePresetOptions,
   paymentOptions,
   fulfillmentOptions,
   sourceOptions,
@@ -107,6 +118,8 @@ export function OrderFilterControls({
   orderNumberSearchEnabled = false,
   supplierOrderNoSearchEnabled = false,
 }: {
+  /** #347-3c-2:日期下拉的選項(server 已把每格的區間算好;client 不碰時鐘)。 */
+  datePresetOptions: OrderDatePresetOption[];
   paymentOptions: FilterOption[];
   fulfillmentOptions: FilterOption[];
   sourceOptions: FilterOption[];
@@ -155,6 +168,53 @@ export function OrderFilterControls({
     setState(next);
     setLastPushedKey(JSON.stringify(next));
     router.replace(href(next), { scroll: false });
+  };
+
+  /**
+   * 日期下拉:選預設 ⇒ 直接套那一格**server 算好**的區間;選「自訂」⇒ 保留現值讓員工自己改。
+   *
+   * 🔴 選中的那一格與生效的區間**同一次 apply 寫進去**,不可能分岔 ——
+   *    「畫面說近半年、實際篩別的期間」是這一軸最貴的壞法(員工會據此判斷「這段期間沒單」)。
+   */
+  /**
+   * 自訂區間改一格。
+   *
+   * 🔴🔴 **兩格都空是歧義態,必須當場消掉**(R1 must-fix 1,審查者構造出來的真分岔):
+   *    兩格皆空 ⇒ `href()` 產出裸 `/orders` ⇒ server 判定「沒帶日期」⇒ **重新套近半年**,
+   *    而 client 的回音因為與 `lastPushedKey` 不等會被 prop-sync 拒絕採用
+   *    ⇒ 畫面停在「自訂 + 兩格空白」(員工讀成不限期間)、列表實際篩近半年,而且**永不自癒**。
+   *    那正是「找不到舊單 → 清空日期想看全部 → 看到 0 筆 → 判定沒這張單」。
+   * ⇒ 處置:兩格都空的那一刻,**當場退回預設那一格並把日期補上**。
+   *    員工會看到下拉跳回「近半年」—— 那是**看得見**的,而且是事實:
+   *    本片沒有「不限期間」這個選項(plan §1-1 認列過的誠實代價;要看更早的就填一個很早的起日)。
+   */
+  const applyCustomDate = (patch: { dateFrom?: string; dateTo?: string }) => {
+    const next = { ...state, ...patch };
+    if (next.dateFrom === '' && next.dateTo === '') {
+      const fallback = datePresetOptions.find((o) => o.key === ORDER_DATE_DEFAULT_KEY);
+      if (fallback !== undefined) {
+        apply({
+          ...next,
+          datePreset: fallback.key,
+          dateFrom: fallback.fromYmd,
+          dateTo: fallback.toYmd,
+        });
+        return;
+      }
+    }
+    apply(next);
+  };
+
+  const applyDatePreset = (key: string) => {
+    if (key === ORDER_DATE_CUSTOM_KEY) {
+      apply({ ...state, datePreset: key });
+      return;
+    }
+    const option = datePresetOptions.find((o) => o.key === key);
+    // 🔴 找不到那一格 ⇒ 什麼都不做(不要靜默清掉日期):選項是 server 給的,
+    //    對不上只可能是 server/client 不同步,那時「維持現況」比「悄悄變成不限期間」安全。
+    if (option === undefined) return;
+    apply({ ...state, datePreset: key, dateFrom: option.fromYmd, dateTo: option.toYmd });
   };
 
   return (
@@ -281,6 +341,62 @@ export function OrderFilterControls({
         />
         顯示刷卡未付款(預設隱藏)
       </label>
+      {/* 🔴🔴 **日期這一塊刻意排在最後**:本檔既有的多格測試用 `getAllByRole('combobox')[0]`
+          **位置索引**抓付款下拉(不是用 label)⇒ 在前面插一個 `<select>` 會讓那些測試靜默改測
+          別的控制項(實測:5 格當場紅,錯誤訊息還長得像「replace 沒被呼叫」而不是「抓錯元素」)。
+          把新控制項排在最後 = 既有測試的意圖與目標都不動。
+          ⚠️ 這是**遷就測試的排版決定**,誠實寫下來:視覺順序若要改成日期在前,
+          得先把那幾格改成用 label 抓元素,不要只是搬 JSX。 */}
+      {datePresetOptions.length > 0 && (
+        <div className='flex flex-col gap-1'>
+          <label htmlFor='order-date-preset' className='text-muted-foreground text-xs'>
+            建立日期
+          </label>
+          <select
+            id='order-date-preset'
+            value={state.datePreset}
+            onChange={(e) => applyDatePreset(e.target.value)}
+            className='border-input bg-background h-9 rounded-md border px-3 text-sm'
+          >
+            {datePresetOptions.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+            {/* 🔴 **逃生口**:預設近半年會藏掉更早的單,沒有這一格員工就無路可走
+                (plan §1-1 認列過的誠實代價 —— 要看更早的就自己給一個很早的起日)。 */}
+            <option value={ORDER_DATE_CUSTOM_KEY}>自訂</option>
+          </select>
+        </div>
+      )}
+
+      {datePresetOptions.length > 0 && state.datePreset === ORDER_DATE_CUSTOM_KEY && (
+        <div className='flex flex-col gap-1'>
+          <label htmlFor='order-date-from' className='text-muted-foreground text-xs'>
+            起日 / 迄日(含當天)
+          </label>
+          <div className='flex items-center gap-1'>
+            <input
+              id='order-date-from'
+              type='date'
+              value={state.dateFrom}
+              onChange={(e) => applyCustomDate({ dateFrom: e.target.value })}
+              aria-label='起日'
+              className='border-input bg-background h-9 rounded-md border px-2 text-sm'
+            />
+            <span className='text-muted-foreground text-sm'>–</span>
+            <input
+              id='order-date-to'
+              type='date'
+              value={state.dateTo}
+              onChange={(e) => applyCustomDate({ dateTo: e.target.value })}
+              aria-label='迄日'
+              className='border-input bg-background h-9 rounded-md border px-2 text-sm'
+            />
+          </div>
+        </div>
+      )}
+
     </>
   );
 }

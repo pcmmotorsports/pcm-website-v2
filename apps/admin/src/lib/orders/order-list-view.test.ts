@@ -8,6 +8,8 @@ import type { AdminOrderFilter } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
+  buildOrderDatePresetOptions,
+  ORDER_DATE_DEFAULT_KEY,
   formatOrderListDate,
   formatOrderAmount,
   formatOrderItemVehicle,
@@ -476,5 +478,72 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
     expect(qs.get('date_from')).toBe('2026-02-10');
     expect(qs.get('panel')).toBe('ord-1');
     expect(qs.get('page')).toBe('2');
+  });
+});
+
+// ── M-4b #347-3c-2:「未選預設近半年」+ 下拉狀態 ────────────────────────────────
+describe('#347-3c-2 預設近半年 + 選中的選項', () => {
+  const NOW = new Date('2026-08-10T03:00:00Z'); // 台北 8/10 11:00
+
+  it('🔴🔴 沒帶日期 + 給了 now ⇒ 套近半年,**而且下拉顯示的就是它**', () => {
+    // 🔴 這是本片的核心不變式:**選中的選項 == 真正生效的區間**。
+    //    顯示「近半年」卻篩著別的期間,會讓員工據此判斷「這段期間沒有單」——
+    //    那比不篩選糟得多。兩者同源(`resolveOrderDateRange` 一次算出),結構上不可能分岔。
+    const r = parseOrderListSearchParams({}, { now: NOW });
+    expect(r.selectedDatePresetKey).toBe('m6');
+    expect(r.filter.createdFrom).toBe('2026-02-10T00:00:00+08:00');
+    // 迄日含當天 ⇒ 上界是下一個台北午夜。
+    expect(r.filter.createdTo).toBe('2026-08-11T00:00:00+08:00');
+    const selected = r.datePresetOptions.find((o) => o.key === r.selectedDatePresetKey);
+    expect(selected?.fromYmd).toBe('2026-02-10');
+  });
+
+  it('🔴 **不給 now ⇒ 不套預設**(3c-1 的行為;藏資料的那個決定要呼叫端明講)', () => {
+    // 突變:把 `now` 改成 `?? new Date()` ⇒ 這條紅。那樣的話任何呼叫端都會靜默拿到近半年。
+    const r = parseOrderListSearchParams({});
+    expect(r.filter.createdFrom).toBeUndefined();
+    expect(r.filter.createdTo).toBeUndefined();
+    expect(r.datePresetOptions).toEqual([]);
+  });
+
+  it('🔴 URL 帶了日期 ⇒ 用它,不得被預設蓋掉', () => {
+    const r = parseOrderListSearchParams({ date_from: '2025-01-01', date_to: '2025-01-31' }, { now: NOW });
+    expect(r.filter.createdFrom).toBe('2025-01-01T00:00:00+08:00');
+    // 🔴 上界也要斷言(R1 nit 11):只驗下界的話,「to 算錯一天」那個窄突變沒有任何一格會紅。
+    expect(r.filter.createdTo).toBe('2025-02-01T00:00:00+08:00');
+    expect(r.selectedDatePresetKey).toBe('custom');
+  });
+
+  it('🔴 只帶起日 ⇒ 迄日**不得**被補成預設(「這天之後的全部」是合理需求)', () => {
+    // 突變:把「只帶一邊也算帶了」改成「兩邊都要才算」⇒ 這條紅,而症狀是員工只設起日,
+    // 迄日卻被系統偷偷設成今天。
+    const r = parseOrderListSearchParams({ date_from: '2025-01-01' }, { now: NOW });
+    expect(r.filter.createdFrom).toBe('2025-01-01T00:00:00+08:00');
+    expect(r.filter.createdTo).toBeUndefined();
+  });
+
+  it('🔴 日期剛好等於某個預設 ⇒ 顯示那一格(不是永遠顯示自訂)', () => {
+    const r = parseOrderListSearchParams({ date_from: '2026-07-10', date_to: '2026-08-10' }, { now: NOW });
+    expect(r.selectedDatePresetKey).toBe('m1');
+  });
+
+  it('每個預設選項都算得出區間,而且 `m6` 就是預設那一格', () => {
+    const options = buildOrderDatePresetOptions(NOW);
+    expect(options.map((o) => o.key)).toEqual(['m1', 'm3', 'm6', 'y1']);
+    for (const o of options) {
+      expect(o.fromYmd, `${o.key} 的起日`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(o.toYmd).toBe('2026-08-10');
+    }
+    expect(options.some((o) => o.key === ORDER_DATE_DEFAULT_KEY)).toBe(true);
+  });
+
+  it('🔴 預設套用之後,**連結**會帶著日期走(翻頁/分享不會掉回不限期間)', () => {
+    // ⚠️ 名稱精確化(R1 important 4):打開裸 `/orders` 時**沒有東西改寫網址列** ——
+    //    首次載入的可見性完全由下拉那格承擔;這一格量的是 `buildOrderListHref` 的產出,
+    //    也就是「按下去之後」那些連結。別把它讀成「網址列會顯示日期」。
+    const r = parseOrderListSearchParams({}, { now: NOW });
+    const qs = new URLSearchParams(buildOrderListHref(r.filter, 1).split('?')[1] ?? '');
+    expect(qs.get('date_from')).toBe('2026-02-10');
+    expect(qs.get('date_to')).toBe('2026-08-10');
   });
 });
