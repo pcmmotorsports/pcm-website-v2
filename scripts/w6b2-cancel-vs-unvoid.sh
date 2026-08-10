@@ -196,7 +196,7 @@ QF() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qt
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260810130000"  # 2026-08-10 重釘 20260810120000->20260810130000(OP2b 沖銷不變式+DROP dormant gate 落檔;本檔的線與收款帳本不相交,只跟尖端)
+LINE_TIP="20260810140000"  # 2026-08-10 重釘 20260810130000->20260810140000(L5b-1 退款兩表 payment_refunds/payment_refund_events 落檔;grep recompute|order_item_qty|oiqs|shipment = 0 命中=本檔的線與退款 ledger 不相交,只跟尖端)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
