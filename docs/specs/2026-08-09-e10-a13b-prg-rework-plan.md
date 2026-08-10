@@ -137,7 +137,7 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
 | **D3** | 帳本 classifier(純函式) | §1c 五分類 | 五格各一測 + fail-closed 三格(rt 缺 / 非 uuid / 帳本 null);突變:拿掉 `truncated` 判斷 → `miss_truncated` 那格轉紅 | 35m |
 | **D4** | 兩支表單元件 | §2-3 的整單 form / 部分 form,零 client state | ①兩支各自 hidden `cancel_mode` 值正確 ②部分那支**零 radio、零 name=cancel_mode 的可編輯控制項**(原始碼層守門)③整單那支零品項欄 ④select 有空 placeholder + required ⑤🔴 **導頁 URL 只准經 `notSentResultQuery` / `sentResultQuery` / `cancelledResultQuery` 三支建構器組**——手拼 `?r=…` 編得過(窄 R3 F1:那兩顆常數為了 banner 與 D5 必須公開匯出、收不掉),所以約束放這裡 ⑥🔴🔴 **token 生成硬驗收(D2b 移交過來的義務)**:兩次獨立 server render 必須拿到**兩顆不同的合法 uuid**,且產生點**不得落在任何快取層**(`unstable_cache` / `React.cache` 會把 token 凍住 ⇒ 兩個人拿到同一把、第二個人直接撞冪等格)。**舊守門隨 D2b 刪掉,這條沒補上就是守門在移交途中掉一段** | 40m |
 | **D5** | 帳本核對面板 + canonical 清除 + 🔴**成功訊息**(URL 同樣只准經三支建構器組讀/組) | 吃 D3 的 classifier 結果算文案;🔴 **成功訊息由 D1 移交到這裡**(§1a 下方);清除機制 client/server **第一動先實測兩案再挑** | ①五分類各自文案正確 ②B 類碼但拿不到帳本 → `unreadable`、**表單不開回去** ③清除後重整不再出現面板 ④🔴 **偽造 `?r=order_cancelled` 對一張沒被取消的單不得顯示「已完成」** | 40m |
-| **D6-a** | 接線 + 真瀏覽器負測(**元件層**;`E-031-A` Q=A) | 掛 `CancelReviewSection` + 兩支 form 進 `order-detail.tsx`;頁層讀 `r`/`rt`(🔴 **用 `CANCEL_RESULT_PARAM` / `CANCEL_REQUEST_TOKEN_PARAM` 兩顆常數,不再手打字面**);面板掛**資格閘之外**;§2-3 的 bfcache 負測 | ①RPC 關單後面板仍在 ②真瀏覽器負測綠 ③突變(併回單一 radio)→ 轉紅 ④🔴🔴 **兩支表單必須由 `mayReopenCancelForms(verdict)` 閘住** —— 這是 D5 驗收②「表單不開回去」的**執行點**。D5 只提供那支純函式,**在 D6 呼叫它之前,義務 B 仍然是零守門**(D5 收工信已認列)。照本列原字面接線(只寫「掛兩支 form」)的話,B 類失敗含 `unreadable` 之後表單原樣開著、員工直接重送 = **第二筆刪不掉的取消**。⑤突變:拿掉那道閘 → 必須轉紅 | 45m + Q2 基建未知 |
+| **D6-a** | 接線 + 真瀏覽器負測(**元件層**;`E-031-A` Q=A) | 掛 `CancelReviewSection` + 兩支 form 進 `order-detail.tsx`;頁層讀 `r`/`rt`(🔴 **用 `CANCEL_RESULT_PARAM` / `CANCEL_REQUEST_TOKEN_PARAM` 兩顆常數,不再手打字面**);面板掛**資格閘之外**;§2-3 的 bfcache 負測 | ①RPC 關單後面板仍在 ②真瀏覽器負測綠 ③突變(併回單一 radio)→ 轉紅 ④🔴🔴 **兩支表單必須由 `cancelFormsAllowedOnResultPage(?r=)` 閘住**(⚠️ **v3.5 更正**:本列原寫 `mayReopenCancelForms(verdict)`,那支函式在 **D5 的 R2** 就被換掉了 —— 按 verdict 分流與面板文案「請重新整理再確認」自相矛盾,改成形狀規則「面板出現的那次渲染不給表單」。D6-a 接線時才發現這列還寫著舊名,**本 slice 第六次 claimed-sync**) —— 這是 D5 驗收②「表單不開回去」的**執行點**。D5 只提供那支純函式,**在 D6 呼叫它之前,義務 B 仍然是零守門**(D5 收工信已認列)。照本列原字面接線(只寫「掛兩支 form」)的話,B 類失敗含 `unreadable` 之後表單原樣開著、員工直接重送 = **第二筆刪不掉的取消**。⑤突變:拿掉那道閘 → 必須轉紅 | 45m + Q2 基建未知 |
 
 🔴 **D6 的真瀏覽器負測是本線唯一可主張「不會誤送整單取消」的證據**,基建成本未知 ⇒ `E-022-A` Q2=A:**D5 後先跑 30 分探針、結果落信再定 D6 形狀**;證據落地前不接線。
 估時合計 D1-D5 = 30+40+35+40+40 = **185m**,D6 = 45m + 基建。
@@ -191,9 +191,17 @@ D4 新增的**全部員工可見文字**同樣是 **L1** —— 兩支表單的�
    `E-031-A` 已把「要起真 admin 才量得到」那類移到 #350 線下 ⇒ **本線不再承諾量它**。
    實作用 `replace`(能生效就生效),但**plan 不宣稱任何 history 保證**,安全論證不掛在它上面(§1b)。
 3. **canonical 清除是本線第一次做的機制**,repo 內無同款前例 ⇒ D5 第一動先實測 client / server 兩案再挑。
-4. 🔴 **真瀏覽器負測本窗沒做過,且 admin 沒有 playwright 基建**——實查:`apps/admin/package.json:6-11` 只有 dev/build/start/lint/typecheck;
-   playwright 只在 `apps/storefront`(`package.json:13-14,31` + `playwright.config.ts`)。
-   admin 的登入面是報價單站 SSO / 共用密碼(`STATUS.md:7`)⇒ **e2e 要先解決「怎麼帶著有效 session 進 admin」**。**成本未知 ⇒ Q2=A 探針先行。**
+4. 🔴 **真瀏覽器負測 —— v3.6 更新現況(D6-a 已落地,原字面「admin 沒有 playwright 基建」已過期)**:
+   探針(`E-050-NOTE`)實測後採用的形狀 = `renderToStaticMarkup(真元件)` → node http server → playwright 攔 body,
+   **不起真 Next admin、不接 DB** ⇒ 原本「e2e 要先解決怎麼帶著有效 session 進 admin」那道門檻**繞開了**。
+   現況:`apps/admin` 已加 `playwright` devDependency、CI 多一步 `playwright install --with-deps chromium`;
+   測試檔 `apps/admin/src/components/orders/cancel-forms-browser.test.tsx`,單輪約 0.8 秒。
+   🔴🔴 **但這個 harness 有一條沒達成的驗收**:§2-3 要求「把兩支 form 併回單一 radio ⇒ 測試必須轉紅」——
+   **實跑抓不到**。成因是那個事故來自 **React 19 在 action 完成後的 form reset**,需要 client React 接管表單,
+   而本 harness 是靜態 HTML、沒有 React runtime。⇒ 該突變的「抓不到」已寫成一條測試釘住,
+   **不宣稱有判別力**;真要守那一面得起真 Next admin(`E-031-A` 已排到 #350 線下)。
+   ⇒ **現行可主張的範圍**:markup 裡沒有任何控制項的值能變成 `full`、且返回後送出的仍是 partial
+   (改壞 `value="full"` 會紅);**不可主張**「已證明併回 radio 會出事」。
 5. **多分頁重複部分取消擋不住**:換一顆新 token 送同一份 payload,剩餘量夠就會真的再扣一次
    (實查:`cancel-repository.ts` 的冪等鍵說明 + `cancel-action-state.ts` 失敗碼 docstring;**根因是現況、不是 PRG 帶來的新洞**。
    ⚠️ **但 D2a 之後多了一層**:舊形狀下「同一分頁失敗後就地重送」被凍結表單擋著(UX 層),

@@ -235,6 +235,21 @@ describe('CancelReviewSection — 取消紀錄三態', () => {
     expect(container.textContent).not.toContain('這張單沒有取消紀錄');
   });
 
+  it('🔴 缺鍵(undefined)= 投影退版,也要當成讀取失敗,不得 throw', () => {
+    // 🔴 **A13b D6-a 接線時真的炸出來過**(三支既有頁層測試當場全紅)—— 但**觸發者是
+    //    那些測試的手寫 fixture 缺鍵**,不是投影退版(R2 codex 更正:`mappers/order.ts:750-751`
+    //    **恆設**這兩個鍵、產不出 `undefined`)。
+    //    ⇒ 本條守的是「入口是結構型別、擋不住手寫物件」那一面,**純防禦**;
+    //    方向仍與 `null` 相同:fail-closed 說讀取失敗。
+    const { container } = render(
+      <CancelReviewSection
+        detail={{ ...detail(), cancellations: undefined } as unknown as AdminOrderDetail}
+      />,
+    );
+    expect(container.textContent).toContain('取消紀錄讀取失敗');
+    expect(container.textContent).not.toContain('這張單沒有取消紀錄');
+  });
+
   it('[] = 真的沒取消過', () => {
     const { container } = render(<CancelReviewSection detail={detail()} />);
     expect(container.textContent).toContain('這張單沒有取消紀錄');

@@ -202,7 +202,15 @@ function ItemRows({
 function CancellationHistory({ detail }: { detail: AdminOrderDetail }) {
   // 🔴 三態逐條分開(`types.ts` 對 `cancellations` 的契約):
   //    `null` = 沒讀到(別畫成空清單)/ `[]` = 真的沒取消過 / 有內容才畫清單。
-  if (detail.cancellations === null) {
+  // 🔴 **`== null` 而不是 `=== null`**(A13b D6-a 加的**防禦性**收斂)。
+  //    ⚠️ **誠實更正(R1 must-fix)**:我第一版把理由寫成「投影退版時這個鍵會整個不存在、
+  //    是產線真的會發生的值」——**那句不實**。實查 `mappers/order.ts:750-751`:
+  //    `cancellations` 與 `cancellationsTruncated` 由 mapper **恆設**,產不出 `undefined`。
+  //    真正的觸發是 D6-a 接線時,三支既有頁層測試的 **fixture 沒有這兩個鍵** ⇒ `.length` throw。
+  //    ⇒ 保留 `== null` 的理由只有一條:**入口是結構型別、擋不住手寫物件**,而缺值與 `null`
+  //    在這裡的處置本來就相同 —— 純防禦,**不是**在修一個已知的產線缺陷。
+  //    ⚠️ 方向不變:兩種缺值都走「讀取失敗」那句(fail-closed),不是畫成「沒有取消紀錄」。
+  if (detail.cancellations == null) {
     return (
       <p className='text-muted-foreground text-sm'>
         取消紀錄讀取失敗,無法顯示。請重新整理;若仍相同,請通知系統維護。

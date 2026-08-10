@@ -96,6 +96,51 @@ function order(over: Partial<CancelViewOrder> = {}): CancelViewOrder {
   };
 }
 
+describe('投影退版:缺鍵(undefined)要與 null 同向 fail-closed', () => {
+  it('🔴 quantitySummary 缺鍵 ⇒ 上限算不出來、不給勾,而且不得 throw', () => {
+    // 🔴 **A13b D6-a 接線時真的炸出來過** —— 但**觸發者是頁層測試的手寫 fixture 缺鍵**,
+    //    不是投影退版(R2 codex 更正:`mappers/order.ts:542-544` 的 `mapQuantitySummary`
+    //    回 `| null`、**產不出 `undefined`**)。
+    //    ⇒ 本條守的是「入口是結構型別、擋不住手寫物件」那一面,**純防禦**。
+    const view = buildOrderCancelView(
+      order({
+        items: [
+          {
+            id: ITEM_A,
+            quantity: 5,
+            // 🔴 給一筆採購列讓 `ZERO_INFERENCE` **推不出 0/0** —— 否則缺摘要會被合法地推成
+            //    「上限 = 買的量」,那條路是對的、但**測不到本條要守的 fail-closed**。
+            procurements: [A_PROCUREMENT_ROW],
+            procurementTruncated: false,
+            quantitySummary: undefined,
+          } as unknown as CancelViewOrder['items'][number],
+        ],
+      }),
+    );
+    expect(view.items[0]?.maxCancellable).toBeNull();
+    expect(view.canCancel).toBe(false);
+    expect(view.blockReasons).toContain('quantity_summary_missing');
+  });
+
+  it('🔴 缺鍵但五項前提成立 ⇒ 走 ZERO_INFERENCE(照樣不 throw)', () => {
+    // 對照組:證明上一條的 null 是「推不出來」而不是「一律擋」。
+    const view = buildOrderCancelView(
+      order({
+        items: [
+          {
+            id: ITEM_A,
+            quantity: 5,
+            procurements: [],
+            procurementTruncated: false,
+            quantitySummary: undefined,
+          } as unknown as CancelViewOrder['items'][number],
+        ],
+      }),
+    );
+    expect(view.items[0]?.maxCancellable).toBe(5);
+  });
+});
+
 describe('常數字面', () => {
   it('自動失效的 reason 字面 = DB 端寫的那個(不是從同一支匯入就算對)', () => {
     // 🔴 R1 T5:這行是唯一把常數的**值**釘住的地方。改成 'payment-expired' 之類要在這裡紅,

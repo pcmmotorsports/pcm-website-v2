@@ -74,7 +74,8 @@ export function generateCancelRequestToken(): string {
  *   這裡**不重抄**(同一條規則養兩份總有一天會不一樣 —— 那正是那支 docstring 自己在講的事)。
  *   🔴 這裡要記的是**守門帳**。D2b 當下兩半都零守門:「產生點在渲染期、不落快取層」從來沒有測試守過;
  *   「失敗後換一把新的」原本由 `cancelNotSentFailure` 內鑄保證,而那支已隨 D2b 刪掉。
- *   ✅ **D4 已把兩半都接上**(`components/orders/cancel-order-forms.tsx`):token 在
+ *   ✅ **D4 已把兩半都接上**(D6-a 另把「結果頁不給表單」那道閘接進頁層,見 `cancel-result-panel.ts` 的
+ *   `cancelFormsAllowedOnResultPage`)(`components/orders/cancel-order-forms.tsx`):token 在
  *   `CancelFormShell` 渲染期鑄 ⇒ 每次整頁重繪自然是新的一把(= 涵蓋「失敗後換新」),
  *   守門三條 = 兩次獨立 render 兩顆不同合法 uuid / 同一頁兩支表單兩顆不同 token / 原始碼層禁 import 快取層。
  *   ⚠️ **仍有邊界、別讀成「已完全擋住」**:`React.cache` 在測試環境是純透傳(實跑證過,17 測全綠),
@@ -164,9 +165,9 @@ export function toOrderCancelResultCode(code: CancelFailureCode): OrderCancelFai
  *    改了任何一邊而漏掉另一邊,症狀是「面板不出現」或「網址永遠清不掉」,
  *    而**四閘全綠、沒有東西會轉紅**。
  * ⚠️ **目前只收攏了「組」與「刪」兩處**(R1 nit 4 更正原本寫成三處都收了):
- *    **「讀」那一側還沒有** —— D5 的面板收 props、不自己讀 `searchParams`,
- *    真正的讀取點是 `app/orders/[id]/page.tsx` 裡的 `rawSearch.r` 字面,它還沒引用這顆常數。
- *    ⇒ **D6 接線時要把讀取那側一起改用常數**(已寫進 plan 的 D6-a 列)。
+ *    ✅ **「讀」那一側已於 D6-a 接上**:`app/orders/[id]/page.tsx` 與
+ *    `app/@panel/orders/page.tsx` 兩個頁層都改用這兩顆常數讀 `searchParams`(不再手打字面)。
+ *    ⇒ **組 / 讀 / 刪三端現在同源**。
  * ⚠️ `r` 是訂單明細頁**共用**的參數(改單線 / 採購線 / 備註線都在用)——
  *    這顆常數只是取消線對它的單一引用點,**不是**它的所有權宣告;要改名得先盤那幾條線。
  */

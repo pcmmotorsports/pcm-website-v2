@@ -11,6 +11,8 @@ import type { AdminOrderDetail } from '@pcm/domain';
 //    ⇒ 這一條量的是「頁面真的把 S3a 的結果傳到採購區塊」。
 
 vi.mock('server-only', () => ({}));
+vi.mock('../../../lib/session/actor', () => ({ getSessionActor: async () => null }));
+vi.mock('../../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
   notFound: () => {
