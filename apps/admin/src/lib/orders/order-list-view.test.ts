@@ -406,3 +406,75 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
     );
   });
 });
+
+// ── M-4b #347-3c-1:建立日期範圍的 URL 軸 ──────────────────────────────────────
+describe('#347-3c-1 日期範圍 URL 軸', () => {
+  it('🔴 曆面日 → 絕對時刻:from 是台北午夜、to 是**下一個**台北午夜', () => {
+    // 突變:parse 改用 `new Date(ymd)`(UTC 午夜)⇒ 這條紅,而症狀是畫面顯示 08/10 的單
+    // 在選了 08/10 之後不見了(差 8 小時)。
+    const { filter } = parseOrderListSearchParams({
+      date_from: '2026-02-10',
+      date_to: '2026-08-10',
+    });
+    expect(filter.createdFrom).toBe('2026-02-10T00:00:00+08:00');
+    expect(filter.createdTo).toBe('2026-08-11T00:00:00+08:00');
+  });
+
+  it.each([
+    ['格式不合', '2026/08/10'],
+    ['不存在的日期', '2026-02-30'],
+    ['垃圾', 'yesterday'],
+    ['空字串', ''],
+  ])('%s → 該側不篩(不是回零筆、也不是擲錯)', (_label, raw) => {
+    const { filter } = parseOrderListSearchParams({ date_from: raw, date_to: raw });
+    expect(filter.createdFrom).toBeUndefined();
+    expect(filter.createdTo).toBeUndefined();
+  });
+
+  it('🔴 沒帶參數 ⇒ **沒有預設**(本片不套近半年;那是 3c-2 的下拉預設選項)', () => {
+    // 🔴 這條守的是 plan §1-1 推翻框的結論:預設要是**看得見的選單狀態**,不是這裡偷偷補區間。
+    //    突變:在 parse 補一個 `?? recentTaipeiMonthsRange(...)` ⇒ 這條紅。
+    const { filter } = parseOrderListSearchParams({});
+    expect(filter.createdFrom).toBeUndefined();
+    expect(filter.createdTo).toBeUndefined();
+  });
+
+  it('🔴🔴 往返:URL → filter → URL 逐字回到原樣(翻頁不得把日期弄丟或位移一天)', () => {
+    // 🔴 編譯期那道 `Record<keyof AdminOrderFilter, …>` 只保證「每個軸都被做過決定」,
+    //    **保證不了那個決定是對的** —— 對到錯的 param 名、或 `to` 換算回去差一天,型別一樣過。
+    //    這條就是它蓋不到的那一半。突變:把 `taipeiYmdFromDayEndExclusive` 換成
+    //    `isoBackToTaipeiYmd`(直接取上界的曆面)⇒ `date_to` 變 08-11 ⇒ 紅,
+    //    而症狀是員工每翻一頁結束日就往後跑一天。
+    const raw = { date_from: '2026-02-10', date_to: '2026-08-10', payment_status: 'paid' };
+    const { filter } = parseOrderListSearchParams(raw);
+    const qs = new URLSearchParams(buildOrderListHref(filter, 1).split('?')[1] ?? '');
+    expect(qs.get('date_from')).toBe('2026-02-10');
+    expect(qs.get('date_to')).toBe('2026-08-10');
+    expect(qs.get('payment_status')).toBe('paid');
+  });
+
+  it('🔴 只給一邊也要往返得回來', () => {
+    const { filter } = parseOrderListSearchParams({ date_to: '2026-08-10' });
+    const qs = new URLSearchParams(buildOrderListHref(filter, 1).split('?')[1] ?? '');
+    expect(qs.get('date_to')).toBe('2026-08-10');
+    expect(qs.has('date_from')).toBe(false);
+  });
+
+  it('🔴 `keyword` 那一軸**永遠不進 URL**(它住 httpOnly cookie;PII 紅線)', () => {
+    // 窮舉 Record 逼每個軸都要有一格,而 keyword 那格的值恆 undefined。
+    // 突變:把 keyword 那格改成 `['keyword', filter.keyword]` ⇒ 這條紅,而症狀是
+    // 客人姓名/電話跟著網址進 access log、CDN log、瀏覽器歷史。
+    const href = buildOrderListHref({ keyword: '王小明' }, 1);
+    expect(href).not.toContain('王小明');
+    expect(href).not.toContain(encodeURIComponent('王小明'));
+    expect(href).toBe('/orders');
+  });
+
+  it('日期軸與面板連結並存(點開一張單不會把日期洗掉)', () => {
+    const { filter } = parseOrderListSearchParams({ date_from: '2026-02-10' });
+    const qs = new URLSearchParams(buildOrderListHref(filter, 2, 'ord-1').split('?')[1] ?? '');
+    expect(qs.get('date_from')).toBe('2026-02-10');
+    expect(qs.get('panel')).toBe('ord-1');
+    expect(qs.get('page')).toBe('2');
+  });
+});

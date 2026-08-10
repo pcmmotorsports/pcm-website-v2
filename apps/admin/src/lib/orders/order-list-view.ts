@@ -27,6 +27,13 @@ import {
 // (兩邊各寫一份 = 補了 `rt` 卻只補一邊,症狀是重複鍵讓取消面板永遠讀不到)。
 import { isUuid } from './note-action-state';
 import { ORDER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
+// #347-3c-1:曆面日 ↔ 絕對時刻的換算只有 domain 一份(自己拼 `new Date(ymd)` 是 UTC 午夜、差 8 小時)。
+import {
+  taipeiDayEndExclusiveIso,
+  taipeiDayStartIso,
+  taipeiYmdFromDayEndExclusive,
+  taipeiYmdFromInstantIso,
+} from '@pcm/domain';
 
 /** 每頁筆數(server 端 .range 分頁)。 */
 export const ORDERS_PAGE_SIZE = 20;
@@ -246,6 +253,13 @@ export function parseOrderListSearchParams(
     supplierOrderNo: supplierOrderNoToFilterValue(supplierOrderNoSearch),
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
     includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
+    // #347-3c-1:曆面日 → 絕對時刻。形狀不合 ⇒ `undefined`(該側不限)、不是回零筆
+    //    —— 日期打錯字只是「這一軸不篩」,其他軸照舊生效,不會造出假的查無
+    //    (與 `orderNumber` / `supplierOrderNo` 相反,理由在 domain `date-range.ts`)。
+    // 🔴 **本片沒有預設**:沒帶參數 = 不限期間。「未選預設近半年」是 3c-2 下拉的預設**選項**
+    //    (看得見的選單狀態),不是這裡偷偷補一段區間 —— plan §1-1 的推翻框。
+    createdFrom: taipeiDayStartIso(firstValue(raw[DATE_FROM_PARAM]) ?? '') ?? undefined,
+    createdTo: taipeiDayEndExclusiveIso(firstValue(raw[DATE_TO_PARAM]) ?? '') ?? undefined,
   };
   return { filter, page: parsePage(raw.page), supplierOrderNoSearch };
 }
@@ -300,6 +314,14 @@ function supplierOrderNoToFilterValue(parsed: SupplierOrderNoSearch): string | u
  * 兩邊各寫一份字面才是真的坑。
  */
 export { ORDER_PANEL_PARAM } from './order-return-to';
+
+/**
+ * 建立日期範圍(#347-3c-1)。URL 上帶的是**曆面日 `YYYY-MM-DD`**(員工看得懂、網址可分享),
+ * filter 裡放的是**絕對時刻** —— 兩者的換算只有 `@pcm/domain` 的 `date-range.ts` 一份。
+ * 🔴 `date_to` 是**含當天**的結束日(進 filter 時變成下一個台北午夜,見 domain 檔頭)。
+ */
+export const DATE_FROM_PARAM = 'date_from';
+export const DATE_TO_PARAM = 'date_to';
 
 /**
  * 面板要不要開,**唯一判準**(#350d)。
@@ -399,28 +421,69 @@ export function buildPanelSelfHref(
  * 「漏帶參數 = 搜尋詞被靜默丟掉、列表 fail-open 變全部訂單」對面板連結同樣成立 ——
  * 員工點開一張單就把篩選條件洗掉,是同一個坑的第三次。
  */
+/** `buildListHref` 吃的一組 `[param, value]`。 */
+type HrefEntry = readonly [string, string | readonly string[] | undefined];
+
+/**
+ * `keyword` 那一格的 param 名 —— **一個不存在的鍵**,值恆為 `undefined` ⇒ 永遠不會進 URL。
+ * 🔴 用具名常數而不是空字串:讓「為什麼這一軸沒有 param」在 grep 得到的地方留下答案。
+ */
+const ORDER_KEYWORD_URL_EXCLUDED = '__keyword_lives_in_httponly_cookie__';
+
 export function buildOrderListHref(
   filter: AdminOrderFilter,
   page: number,
   /** 有值 = 這條連結把該訂單開進右側面板;不給 = 關閉面板(列表狀態照舊保留)。 */
   panelOrderId?: string,
 ): string {
+  // 🔴🔴 **編譯期窮舉守門(#347-3c-1;機制優先律 —— 不是再寫一條「記得列進來」的規則)**:
+  //    型別是 `Record<keyof AdminOrderFilter, …>` ⇒ **filter 加一軸而這裡沒列,`tsc` 直接紅**。
+  //    在這之前是手抄列舉,而漏列的症狀是「翻頁時那一軸靜默消失、畫面上的選擇還在」——
+  //    本檔已為不同的軸記過**兩次**同一個坑(下面兩條 🔴),第三次改用機制擋。
+  //    ⚠️ 這道**只保證「每個軸都被做過決定」**,保證不了那個決定是對的:對到錯的 param 名、
+  //      或該帶卻寫 `undefined`,型別一樣過。那半靠 `order-list-view.test.ts` 的往返測試。
+  const byFilterKey: Record<keyof AdminOrderFilter, HrefEntry> = {
+    paymentStatus: [PAYMENT_STATUS_PARAM, filter.paymentStatus],
+    fulfillmentStatus: [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
+    orderSources: [ORDER_SOURCE_PARAM, filter.orderSources],
+    paymentChannels: [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
+    // 🔴 分頁與 returnTo 都走這裡:漏列 = 翻頁或改狀態回跳時搜尋詞被靜默丟掉、
+    //    列表突然變成全部訂單(fail-open)。
+    orderNumber: [ORDER_NUMBER_PARAM, filter.orderNumber],
+    supplierOrderNo: [SUPPLIER_ORDER_NO_PARAM, filter.supplierOrderNo],
+    // 🔴 L6 的開關同理必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
+    //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
+    includeUnpaidCardOrders: [
+      SHOW_UNPAID_CARD_PARAM,
+      filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : undefined,
+    ],
+    // 🔴🔴 **`keyword` 刻意不進 URL**(#347-2b;Sean Q-a=B 紅線):搜尋詞是 PII
+    //    (客人姓名 / 電話 / 地址),它住在 httpOnly cookie 裡。寫在這裡是為了讓
+    //    「這一軸被做過決定」留下字面,而不是看起來像漏掉。
+    keyword: [ORDER_KEYWORD_URL_EXCLUDED, undefined],
+    // #347-3c-1:URL 帶曆面日、filter 帶絕對時刻 ⇒ 這裡換回曆面日(換算只有 domain 一份)。
+    createdFrom: [
+      DATE_FROM_PARAM,
+      // 🔴 走帶 NaN 閘的那支(R1 must-fix 1):`isoBackToTaipeiYmd(new Date(''))` 會擲 RangeError
+      //    ⇒ 型別上合法的空字串會把整個 `/orders` 打成 500,而不是這一格失效。
+      filter.createdFrom === undefined
+        ? undefined
+        : (taipeiYmdFromInstantIso(filter.createdFrom) ?? undefined),
+    ],
+    createdTo: [
+      DATE_TO_PARAM,
+      filter.createdTo === undefined
+        ? undefined
+        : (taipeiYmdFromDayEndExclusive(filter.createdTo) ?? undefined),
+    ],
+  };
   return buildListHref(
     '/orders',
     [
-      [PAYMENT_STATUS_PARAM, filter.paymentStatus],
-      [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
-      [ORDER_SOURCE_PARAM, filter.orderSources],
-      [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
-      // 🔴 分頁與 returnTo 都走這裡:漏列 = 翻頁或改狀態回跳時搜尋詞被靜默丟掉、
-      //    列表突然變成全部訂單(fail-open)。
-      [ORDER_NUMBER_PARAM, filter.orderNumber],
-      [SUPPLIER_ORDER_NO_PARAM, filter.supplierOrderNo],
-      // 🔴 L6 的開關同理必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
-      //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
-      [SHOW_UNPAID_CARD_PARAM, filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : undefined],
-      // #350c:面板目標。`undefined` 會被 buildListHref 略過 ⇒ 不給 = 關閉面板。
-      [ORDER_PANEL_PARAM, panelOrderId],
+      ...Object.values(byFilterKey),
+      // #350c:面板目標(**不是 filter 的軸**,所以不在上面那個 Record 裡)。
+      //    `undefined` 會被 buildListHref 略過 ⇒ 不給 = 關閉面板。
+      [ORDER_PANEL_PARAM, panelOrderId] as HrefEntry,
     ],
     page,
   );

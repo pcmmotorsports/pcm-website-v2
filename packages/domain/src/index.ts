@@ -56,6 +56,8 @@ export {
   recentTaipeiMonthsRange,
   taipeiDayEndExclusiveIso,
   taipeiDayStartIso,
+  taipeiYmdFromDayEndExclusive,
+  taipeiYmdFromInstantIso,
 } from './order/date-range';
 // 八維度關鍵字搜尋正規化(M-4b #347-2a;解析層與 adapter `.rpc('admin_search_orders')` 前共用單一來源)
 // 🔴 與上面兩支分立、不合併:本支**沒有**字元集守門(走 POST body、值不進 URL),

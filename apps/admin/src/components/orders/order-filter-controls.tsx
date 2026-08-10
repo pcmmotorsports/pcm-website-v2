@@ -10,6 +10,8 @@ import {
   FULFILLMENT_STATUS_PARAM,
   ORDER_SOURCE_PARAM,
   SHOW_UNPAID_CARD_PARAM,
+  DATE_FROM_PARAM,
+  DATE_TO_PARAM,
   SHOW_UNPAID_CARD_ON,
   PAYMENT_CHANNEL_PARAM,
   ORDER_NUMBER_PARAM,
@@ -22,9 +24,14 @@ import { AutoApplySelect } from '../shared/auto-apply-select';
 // 🔴 競態設計:各軸值收成**單一 client state、URL 全量由 state 導出**(buildListHref、page 恆回 1、
 //   r 不帶=清 stale banner)——不讀 useSearchParams/window.location 當基底,RSC 往返(數百 ms)中
 //   快速連勾/跨軸交錯也不會用 stale 快照互相蓋寫,checkbox/select 顯示同源自 state=無延遲窗回彈。
-//   前提:/orders 的 query 全集=**七**個鍵(付款 / 出貨 / 來源 / 管道 /
+//   前提:/orders 的 query 全集=**九**個鍵(付款 / 出貨 / 來源 / 管道 /
 //   **單號搜尋 order_no**,M-4b E10 A10c1 新增;**供應商單號 supplier_no**,A10c2 新增;
-//   **show_unpaid_card**,M-4b 生命週期 L6 新增)+page+r,無其他要保留的鍵
+//   **show_unpaid_card**,M-4b 生命週期 L6 新增;**date_from / date_to**,#347-3c-1 新增)
+//   +page+r,無其他要保留的鍵
+//   🔴 **「七」是 #347-3c-1 之前的數字,已過期**:那一片把日期兩軸加進 `parseOrderListSearchParams`,
+//     而本檔的 `href()` 是**第二個 URL builder**、不受 `buildOrderListHref` 的編譯期窮舉守門保護
+//     ⇒ 不同步的話,分享一條帶日期的網址、使用者一動任何下拉,日期就靜默消失。
+//     ⇒ 3c-1 已把兩軸接成 **state 透傳**(沒有可見控制項;下拉是 3c-2)。
 //   (A9w2:原第六軸「商品狀態 workflow_status」隨九碼退場已下架 —— state、URL 參數、
 //    MultiCheckFilter 三處同時移除;少移一處都會留下「改別軸就把它丟掉」或「丟不掉」的半殘狀態)
 //   (新增鍵時須進 state 或此處明列 —— 漏了就是「改任一篩選就把該鍵丟掉」的 fail-open)。
@@ -44,6 +51,14 @@ type FilterState = {
    * 「改任一其他篩選 / 翻頁」時被靜默丟掉 ⇒ 搜尋詞消失、列表變回全部訂單(fail-open)。
    * 本檔頂部的前提註解早就寫死了這條規則。
    */
+  /**
+   * 建立日期範圍的**曆面日**(#347-3c-1;'' = 該側不限)。
+   * 🔴 **本片沒有可見控制項** —— 兩欄只是「進得來、出得去」的透傳,理由同上面 `no`:
+   *    不進 state 的鍵會在改任一其他篩選時被靜默丟掉,而網址是可分享的。
+   *    可見的下拉(含「未選預設近半年」)是 3c-2。
+   */
+  dateFrom: string;
+  dateTo: string;
   no: string;
   /**
    * 供應商單號搜尋詞(M-4b E10 A10c2;'' = 不搜尋)。
@@ -70,6 +85,10 @@ function href(state: FilterState): string {
       [ORDER_NUMBER_PARAM, state.no || undefined],
       [SUPPLIER_ORDER_NO_PARAM, state.supplierNo || undefined],
       [SHOW_UNPAID_CARD_PARAM, state.showUnpaidCard || undefined],
+      // 🔴 #347-3c-1:**純透傳、沒有可見控制項**(下拉在 3c-2)。放這裡的理由與上面那幾軸相同:
+      //    漏列 = 改任一篩選就把日期丟掉,而網址是可分享的、URL 已經是可達的 producer。
+      [DATE_FROM_PARAM, state.dateFrom || undefined],
+      [DATE_TO_PARAM, state.dateTo || undefined],
     ],
     1,
   );

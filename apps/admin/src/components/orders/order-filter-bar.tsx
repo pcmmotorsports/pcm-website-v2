@@ -1,4 +1,5 @@
 import type { AdminOrderFilter } from '@pcm/domain';
+import { taipeiYmdFromDayEndExclusive, taipeiYmdFromInstantIso } from '@pcm/domain';
 import { OrderFilterControls } from './order-filter-controls';
 import {
   PAYMENT_STATUS_OPTIONS,
@@ -49,6 +50,10 @@ export function OrderFilterBar({
           supplierNo: filter.supplierOrderNo ?? '',
           // L6:server 端解析出來的開關要餵回勾選框,否則重新整理後「勾沒了、列表卻是全顯示」。
           showUnpaidCard: filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : '',
+          // #347-3c-1:日期兩軸**純透傳**(沒有可見控制項,下拉是 3c-2)。
+          //    server 解析出來的絕對時刻換回曆面日,換算走 domain 那一份。
+          dateFrom: filter.createdFrom ? (taipeiYmdFromInstantIso(filter.createdFrom) ?? '') : '',
+          dateTo: filter.createdTo ? (taipeiYmdFromDayEndExclusive(filter.createdTo) ?? '') : '',
         }}
       />
       {/* 🔴 #347-2b:這顆從 `<a href='/orders'>` 改成 **POST 同一支 action 送空字串**。

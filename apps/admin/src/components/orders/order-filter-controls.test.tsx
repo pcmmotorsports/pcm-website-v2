@@ -20,7 +20,7 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { pay: '', ful: '', src: [], ch: [], no: '', supplierNo: '', showUnpaidCard: '' },
+  initial: { pay: '', ful: '', src: [], ch: [], no: '', supplierNo: '', showUnpaidCard: '', dateFrom: '', dateTo: '' },
 };
 
 beforeEach(() => replace.mockClear());
@@ -360,5 +360,36 @@ describe('🔴 M-4b 生命週期 L6 — 「顯示刷卡未付款」勾選框(cli
     if (!paySelect) throw new Error('付款狀態 select 不存在');
     fireEvent.change(paySelect, { target: { value: 'paid' } });
     expect(replace.mock.calls[0]?.[0]).toContain('show_unpaid_card=1');
+  });
+});
+
+describe('#347-3c-1 日期兩軸的 state 透傳(第二個 URL builder 的守門)', () => {
+  // 🔴🔴 **為什麼這一組必須存在**:`buildOrderListHref` 的編譯期窮舉守門**管不到本檔** ——
+  //    本檔的 `href()` 是**第二個 URL builder**,自己列 param。R1 抓到的就是這個缺口:
+  //    分享一條 `/orders?date_from=…` 的網址,使用者一動任何下拉 ⇒ `router.replace(href(state))`
+  //    ⇒ 日期**靜默消失**,而畫面上什麼提示都沒有(本檔頭已為別的軸記過兩次同一個坑)。
+  // ⚠️ 本片**沒有可見控制項**(下拉是 3c-2);這裡守的是「進得來、出得去」。
+  const WITH_DATES = {
+    ...PROPS,
+    initial: { ...PROPS.initial, dateFrom: '2026-02-10', dateTo: '2026-08-10' },
+  };
+
+  it('🔴 改別的篩選軸時,日期兩軸原封帶著走', () => {
+    // 突變:把 `href()` 裡的 DATE_FROM_PARAM / DATE_TO_PARAM 兩列刪掉 ⇒ 這格紅。
+    const { getAllByRole } = render(<OrderFilterControls {...WITH_DATES} />);
+    fireEvent.change(getAllByRole('combobox')[0]!, { target: { value: 'paid' } });
+    const url = replace.mock.calls.at(-1)?.[0] as string;
+    const qs = new URLSearchParams(url.split('?')[1] ?? '');
+    expect(qs.get('payment_status'), '前提:這次改的是付款軸').toBe('paid');
+    expect(qs.get('date_from')).toBe('2026-02-10');
+    expect(qs.get('date_to')).toBe('2026-08-10');
+  });
+
+  it('沒有日期時不憑空長出參數(空字串不進 URL)', () => {
+    const { getAllByRole } = render(<OrderFilterControls {...PROPS} />);
+    fireEvent.change(getAllByRole('combobox')[0]!, { target: { value: 'paid' } });
+    const url = replace.mock.calls.at(-1)?.[0] as string;
+    expect(url).not.toContain('date_from');
+    expect(url).not.toContain('date_to');
   });
 });

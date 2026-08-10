@@ -62,7 +62,13 @@
 |---|---|---|---|
 | **347-3a** | migration:`admin_search_orders` 加 `p_from`/`p_to`(DROP 舊 + CREATE 新 + 重 GRANT + REVOKE PUBLIC)| 🔴 **呼叫端已存在**(見下) | **高**(鐵則 12 ③;**留 pending 不 apply**)|
 | **347-3b** | domain `AdminOrderFilter.createdFrom/createdTo` + `date-range.ts` 曆面換算 + adapter 兩處下推(列表 `created_at` + RPC `p_from`/`p_to`)。🔴 **近半年預設改歸 3c**(見 §1-1 推翻框) | 無(零產出者;RPC wire 多兩個 `null` 鍵,DB 側等價、已對正式站實測) | 中 |
-| **347-3c** | UI 日期範圍下拉(近一個月/三個月/半年/一年/自訂)+ 落進 350 殼。🔴 **含「未選預設近半年」的套用**(3b 只匯出 `recentTaipeiMonthsRange`,沒有套);🔴 新軸要記得列進 `buildOrderListHref`(`order-list-view.ts` 是手抄列舉、沒有窮舉守門 ⇒ 漏列 = 翻頁時日期靜默消失) | **是** | 中 |
+> 🔴 **3c 於 2026-08-10 再拆三片**(D 窗;主視窗核 3c 開工時的三條交接照辦):
+> **3c-1** URL 軸 `date_from`/`date_to` + `buildOrderListHref` 編譯期窮舉守門 + controls 的 state 透傳
+> (**不套預設、無可見控制項** ⇒ 沒人送參數 = 行為不變);
+> **3c-2** 下拉 UI + 「未選預設近半年」(**同片** —— 預設必須是看得見的選單狀態,見 §1-1 推翻框);
+> **3c-3** 修正式站 `admin_search_orders` 那句過期的 `COMMENT ON FUNCTION`(需 apply 停點)。
+
+| **347-3c** | UI 日期範圍下拉(近一個月/三個月/半年/一年/自訂)+ 落進 350 殼。🔴 **含「未選預設近半年」的套用**(3b 只匯出 `recentTaipeiMonthsRange`,沒有套);🔴 ~~新軸要記得列進 `buildOrderListHref`(手抄列舉、沒有窮舉守門)~~ **已由 3c-1 用機制解決**:改成 `Record<keyof AdminOrderFilter, …>` = 漏列**編譯期就紅**。⚠️ 但 `order-filter-controls.tsx` 的 `href()` 是**第二個 builder**、不受那道保護,3c-1 已把日期接成 state 透傳 | **是** | 中 |
 
 ### 🔴 3a 不是「零呼叫端」—— 我 v1 寫錯了(codex 關卡1 must-fix)
 
