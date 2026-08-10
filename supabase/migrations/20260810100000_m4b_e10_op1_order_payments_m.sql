@@ -41,7 +41,9 @@
 --
 -- ── 🔴 本表記「收款流入 + 對它的沖銷更正」,退款不在這裡 ──────────────────
 -- 🔴 codex R2-R2 #6:這個小標原本寫「本表只記**流入**」—— 那是第一版(`CHECK (amount > 0)`、
---    零沖銷欄)的字面,設計改成「沖銷列為負」之後它就錯了。同一句矛盾字面在本檔出現**三處**
+--    零沖銷欄)的字面,設計改成「沖銷列就在本表、金額是被沖列的反號」之後它就錯了。
+--    (原句寫「改成沖銷列為負」,2026-08-10 A10 拍板放寬成反號後**這句歷史敘述自己也過期**,同步改。)
+--    同一句矛盾字面在本檔出現**三處**
 --    (欄位 COMMENT / 表 COMMENT / 這個小標),前兩處在 R2 折掉、這處漏了 = 只補被點名的行
 --    (memory `feedback_claimed-sync-but-only-patched-touched-lines`,同一輪內連犯兩次)。
 -- ⚠️ 「沖銷 ≠ 退款」:沖銷是**登錄錯誤的更正**(同軌、同單、指向被沖那一列),退款是把錢還給客人。
@@ -62,29 +64,76 @@
 -- A7 **「客人聲稱的匯款日」不記** —— 催款情境會想要它,但目前只能塞 `payer_note`,
 --    而那欄明文不參與判定。要記就是 OP5 加欄,不要臨時發明。
 -- A8 **「不得晚於現在」的閘 = OP2 的具名交付物**,不是散文。gate DROP 的前置條件之一。
--- A9 **沖銷金額必須等於被沖金額的負值 = OP2 的具名交付物**(跨列比較,CHECK 做不到)。
+-- A9 **沖銷金額必須等於被沖列金額的「反號」= OP2b 的具名交付物**(跨列比較,CHECK 做不到)。
 --    沒有這條,「已收 = SUM(amount)」只擋得住重複沖銷與跨單沖銷,擋不住金額對不上。
--- 🔴🔴 A10 **「沖銷本身登錯」目前無合法更正路 = 待拍板的具名缺口(R3 換模型換角度抓到)**。
---    A2 宣稱「更正走沖銷」,但**沖銷機制自己是單向的**,三條路全被本片的規則堵死:
---      ① 沖銷之沖銷:`order_payments_reversal_shape` 強制沖銷列 amount < 0,而 A9 要求
---         「沖 -500 的那列」= +500 ⇒ 兩條規則互相矛盾,該列**物理上構造不出來**。
+--    🔴 **字面 2026-08-10 隨 A10 拍板改過**:原字面是「等於被沖金額的**負值**」,那假設了被沖的一定是
+--       收款列(正值);允許沖銷之沖銷之後,被沖的可能是**沖銷列**(負值),它的沖銷必為正
+--       ⇒ 正確字面是 `NEW.amount = -被沖列.amount`(反號),不是「恆負」。OP2b 照這句實作。
+-- 🏁 A10 **「沖銷本身登錯(誤沖)」的恢復路 = 沖銷之沖銷。已拍板銷案,不再是缺口。**
+--    (缺口由 R3 換模型換角度抓到 → `B-348-Q` → **Sean 2026-08-10 晨拍 Q1=A**,
+--     memory `project_m4b-0810-morning-seven-decisions` 第 1 條;本顆 commit 就是它的落地。)
+--    原本的死路:A2 宣稱「更正走沖銷」,但沖銷機制自己是**單向**的,三條路全堵死 ——
+--      ① 沖銷之沖銷:`order_payments_reversal_shape` 舊字面強制沖銷列 `amount < 0`,
+--         而沖掉 -500 的那列必須是 +500 ⇒ 該列**物理上構造不出來**。**← 本次放寬的就是這條**
 --      ② 重登原收款:被誤沖的那筆卡軌收款仍滿足 `WHERE rail='card' AND reverses_payment_id IS NULL`
---         (predicate 問的是「這列是不是沖銷」,不是「這列被沖過沒」)⇒ 兩道 card unique 擋死。
---      ③ 剩下的只有偽造 `rec_trade_id` 或 owner 直接改列 —— 兩者都破 A2。
---    ⇒ 後果:**一筆誤沖之後,那張單的「已收」永久低報**,而每一步單看都合法。
---    🔴 這是**產品決策**(要不要允許沖銷之沖銷 / 要不要放寬 unique / 還是明文接受帳外處理),
---       不是 M 片能自己拍的 ⇒ 已落 Q 信(`B-348-Q`)排晨報。
---    🔴 **擋到哪一片,說清楚(主視窗 2026-08-10 裁定的片界;原句「OP2/OP5 開工前必須有答案」
---       過寬,會與本檔下方「OP2a 已施工」的紀錄互相矛盾)**:
---         · **OP2a**(A8 閘,`…op2a_received_at_guard.sql`)**不受這題擋** —— 它只加一道
---           「不得晚於現在」的 trigger,與沖銷怎麼更正無關。
---         · **OP2b**(A9 + `DROP` dormant gate,同 migration 同交易)**被擋**:A9 的字面
---           (「沖銷金額 = 被沖金額的負值」)正是與本題選項 A 互相矛盾的那一條。
---         · **OP5** 被擋。
---       ⚠️ 若 Sean 選 A(允許沖銷之沖銷),本表的 `order_payments_reversal_shape`
---          要從「沖銷列 amount < 0」放寬成 `<> 0` ⇒ **OP1 會需要再一顆 commit**。
---    ⚠️ 特別注意:本輪剛把四道 unique 的 predicate **逐字凍結**,②那條路日後要打開會更貴 ——
---       這件事現在講,不是等 OP5 撞到才發現。
+--         (predicate 問的是「這列是不是沖銷」,不是「這列被沖過沒」)⇒ 兩道 card unique 擋死。**仍然擋死,照舊**
+--      ③ 剩下的只有偽造 `rec_trade_id` 或 owner 直接改列 —— 兩者都破 A2。**仍然禁止**
+--    ⇒ 拍板後的合法路**只有 ①**:鏈式沖銷 P(+500) → R1(-500) → R2(+500),每一列都是 append,
+--      A2 不破,「已收 = SUM(amount)」照樣成立(500-500+500=500)。
+--    🔴 **鏈只保證「不是樹」,不保證「不是環」——這句話的邊界要寫死**
+--      (原句寫「鏈不會爆」,codex 關卡2 打回、我實測證實它字面過強):
+--        · `one_reversal_uniq`(partial unique on `reverses_payment_id`)擋的**只有**「同一列被沖兩次」
+--          ⇒ 鏈不會分岔成樹。**這條沒放寬、不得放寬。**
+--        · 它**擋不住環**:自環(某列的 `reverses_payment_id` 指向自己)與雙列互指,
+--          每一列的 `reverses_payment_id` 都不同 ⇒ partial unique 看不到;複合自我 FK 只管同單同軌。
+--        · 🔴 **實測真值表(2026-08-10,拋棄式 PG17 全新 provision、交易內 DROP gate、跑完 ROLLBACK、
+--          每次都驗本表零殘列)**。四發探針、逐格都跑過,**不是推論**:
+--            ┌ 形狀 ──────────────────┬ 放寬後(<> 0)─────────┬ 放寬前(< 0)──────────┐
+--            │ 自環(一列 -500 指向自己)│ 寫得進,該單 SUM=-500  │ **寫得進**(同樣沒擋)  │
+--            │ 兩列皆負互指(-300/-300) │ 寫得進                │ **寫得進**,SUM=-600   │
+--            │ 一正一負互指(-300/+300) │ 寫得進,該單 SUM=0     │ **被 reversal_shape 擋** │
+--            └────────────────────────┴──────────────────────┴────────────────────────┘
+--          ⇒ 結論分兩半,不要混為一談:
+--            ① **「環可構造」是 OP1 既有的洞**(自環與全負互指環在放寬前後都寫得進)。
+--            ② **「含正額沖銷列的環」是這次放寬新增的面**(表格第三列:舊版擋、新版不擋)。
+--            拿「本來就有」當不處理的理由不成立;拿「這次放寬開的洞」當否決拍板的理由也不成立。
+--          ⚠️ 兩列互指**單一 multi-row INSERT 就構造得出來**(FK 是 statement 結束才檢查,
+--             不需要 `DEFERRABLE`,也不需要事後 UPDATE)—— 這一條是 code-reviewer 判「構造不出來」、
+--             我以實跑輸出駁回的;寫在這裡免得下一個人再推論一次。
+--    🔴🔴 **⇒ 對 OP2b 的具名要求(A9 的驗收條件,不是散文)**:A9 除了「金額 = 被沖列反號」,
+--      **必須同時擋住自環與多列環**(例如:沖銷列不得指向自己 + 被沖列必須是「更早提交且不是沖銷鏈上游」;
+--      實作方式由 OP2b 決定,但驗收要有一發環的負測)。**A9 沒擋環 = OP2b 不算完成。**
+--    ⚠️ 在 OP2b 落地之前,唯一擋住上述所有形狀的東西是 dormant gate(`CHECK (false)`)——
+--      它擋的是**全部寫入**,不是「擋得聰明」。所以 gate 不得先 DROP,見下方發布序那段。
+--    🔴 **本次連動改了哪些**(逐條列出,免得下一個人以為只有 CHECK 那一行。
+--       code-reviewer nit 打回過一次:上一版宣稱「逐條」卻漏了五處 ⇒ 現在是真的逐條):
+--         · `order_payments_reversal_shape`:沖銷列 `amount < 0` → `amount <> 0`。
+--         · 檔尾 fail-closed 的片段:`('order_payments_reversal_shape','amount')` → `'amount > 0'`
+--           (放寬後片段 `amount` 會被 `CHECK (amount <> 0)` 滿足 = 掏空也全綠,見該處註解)。
+--         · A9 字面:「被沖金額的**負值**」→「被沖列金額的**反號**」,並補「A9 必須連環一起擋」。
+--         · A9 / 洞③ 的歸屬:`OP2` → **`OP2b`**(OP2 拆片後的正確名字,兩處)。
+--         · A10 整段:從「待拍板的具名缺口」改寫成「已拍板銷案」+ 實測真值表 + 對 OP2b 的具名要求。
+--         · 「各片影響」整段重寫(OP2a 不受影響 / OP2b・OP3・OP5 解鎖)。
+--         · 三處「沖銷列為負 / 沖銷恆負」的散文與 COMMENT(欄位 COMMENT、表 COMMENT、本檔小標)。
+--         · `reversal_shape` 約束上方的理由段、`reverses_payment_id` 欄位上方的「誰在守哪一半」段。
+--           —— 同一句字面散在多處是本檔的已知病(memory `feedback_claimed-sync-but-only-patched-touched-lines`),
+--              所以這次是先 `grep '為負\|恆負\|負值\|amount < 0\|OP2 的'` 建清單再逐處改,不是看到哪改到哪。
+--    🔴 **各片影響(主視窗 2026-08-10 裁定的片界,拍板後更新)**:
+--         · **OP2a**(A8 閘,`…op2a_received_at_guard.sql`)**從頭到尾不受這題影響**;
+--           它的 N6 沖銷列探針用 `amount = -1`,放寬後仍合法 ⇒ 本次改動對它零連動(已實查該檔)。
+--         · **OP2b**(A9 + `DROP` dormant gate,同 migration 同交易)**解鎖**,照「反號」字面實作。
+--         · **OP3**(card 腿)與 **OP5** 解鎖。
+--           (拍板 memory `project_m4b-0810-morning-seven-decisions` §1 逐字是「OP2b/OP3/OP5 解鎖」;
+--            上一版漏抄 OP3 = code-reviewer nit 打回,已補。)
+--    🔴 **這次放寬新開、而目前無人守的面(登記在案,不要當作沒有)**:
+--       「同號沖銷」—— R 沖 P 但金額**同號**(例如 P=+500、R=+500)現在寫得進去,`SUM` 會**高報**。
+--       舊 CHECK 擋得住它(沖銷恆負),放寬後擋它的責任整條落在 A9(反號)身上。
+--       ⚠️ 本片**沒有**為這個形狀留守門 —— 它與環一樣,都是 A9 的驗收條件。在 OP2b 之前由 gate 全擋。
+--       ⚠️ 同族還有一個(R3 nit N2,寫下來免得下一代重推):「**異號但金額不等的正額沖銷**」——
+--          例如 R2=+300 沖 R1=-500,符號對了、金額不對,舊 CHECK 一樣擋得住(它禁止正額沖銷列)、
+--          放寬後可構造。它被 A9 的「反號」字面涵蓋(反號蘊含等額)⇒ 不必另立要求,但要在清單上。
+--    ⚠️ 仍然成立的那條警告:四道 unique 的 predicate 已**逐字凍結**,②那條路日後要打開會很貴。
+--       拍板選的是 ①,②維持擋死 —— 這是刻意的,不是還沒做。
 -- 🔴 **OP-A11**(OP2a 施工時新增;**這裡是本帳本所有具名交付物的登記處** —— OP3/OP5 的規劃者
 --    讀的是這一份清單,散在各片檔頭的東西他們不會去翻):
 --    `received_at` 的**時間來源與時鐘偏差政策**,逐軌指定 owner —
@@ -143,12 +192,17 @@ CREATE TABLE public.order_payments (
   -- 🔴🔴 **R1 F1(must-fix,我自己宣告的 A2 被自己的欄位設計否決)**:檔頭寫「append-only、
   --    更正走沖銷」,但第一版是 `CHECK (amount > 0)` + 零沖銷欄 ⇒ **沖銷列物理上寫不進**,
   --    而 OP2 是 trigger 片、變不出欄。宣告一個做不到的東西比不宣告更糟。
-  -- ⇒ 收款列為正、沖銷列為負,並用 `reverses_payment_id` 指向被沖的那一列。
-  --    好處:「已收」= `SUM(amount)`,不必外接「哪些被沖掉了」的知識。
+  -- ⇒ 收款列為正、沖銷列 = 被沖列金額的反號,並用 `reverses_payment_id` 指向被沖的那一列。
+  --    (A10 拍板前這裡寫「沖銷列為負」;放寬成反號的理由見檔頭 A10。)
+  --    好處:「已收」= `SUM(amount)`,不必外接「哪些被沖掉了」的知識 —— 鏈式沖銷也一樣成立:
+  --    P(+500)+R1(-500)+R2(+500) = 500。
   amount          integer     NOT NULL CHECK (amount <> 0),
 
   -- 沖銷:指向被沖掉的那一列。NULL = 這是一筆收款;非 NULL = 這是一筆沖銷。
-  -- 🔴 兩者的正負由下方 `order_payments_reversal_shape` 綁死,不靠寫入端自律。
+  -- 🔴 收款列的正負由下方 `order_payments_reversal_shape` 綁死(恆正),不靠寫入端自律。
+  -- ⚠️ 沖銷列的正負與金額(= 被沖列的反號)**現在沒有任何東西在守** —— 那是 A9 trigger 的職責,
+  --    而 A9 要到 **OP2b** 才落地。在那之前擋住一切的是 dormant gate(全擋,不是擋得聰明)。
+  --    別把這兩句讀成「兩層防線」:同一時間點上只有一層在,見檔頭 A10。
   -- 🔴🔴 **我自己追出來的三個洞(在 codex 關卡2 回來之前)**:第一版只有
   --    `REFERENCES order_payments(id)`,於是「已收 = SUM(amount)」這個不變式**站不住** ——
   --    三種**完全合法**的 INSERT 就能把它弄錯:
@@ -156,7 +210,8 @@ CREATE TABLE public.order_payments (
   --      ② 沖銷**別張單**的列 ⇒ 兩張單的總額同時錯
   --      ③ 沖銷金額 ≠ 被沖金額 ⇒ 總額對不上
   --    ①② 宣告式擋得掉(見下方 composite FK 與 partial unique);
-  --    ③ 是跨列比較,CHECK 做不到 ⇒ **OP2 的具名交付物**(寫進 A9,不是散文)。
+  --    ③ 是跨列比較,CHECK 做不到 ⇒ **OP2b 的具名交付物**(寫進 A9,不是散文)。
+  --       (原字面寫「OP2 的」,A10 拍板後 OP2 已拆成 OP2a/OP2b,A9 明確在 **OP2b** ⇒ 同步改。)
   reverses_payment_id uuid,
 
   -- 🔴 `received_at` = **實際收到錢的時點**,不是登錄時間(登錄時間是 `created_at`)。
@@ -228,10 +283,22 @@ CREATE TABLE public.order_payments (
   -- 複核是「一對」:有人簽就要有時間,有時間就要有人。半套的稽核痕跡比沒有更糟。
   CONSTRAINT order_payments_review_pair CHECK ((reviewed_by IS NULL) = (reviewed_at IS NULL)),
 
-  -- 🔴 沖銷列的形狀綁死:收款恆正、沖銷恆負。少了這條,寫入端可以送出「正數的沖銷」
-  --    或「負數的收款」,`SUM(amount)` 當場失去意義。
+  -- 🔴 收款列的形狀綁死:收款恆正。少了這條,寫入端可以送出「負數的收款」,
+  --    `SUM(amount)` 當場失去意義。
+  -- 🔴🔴 **A10 已拍板放寬(Sean 2026-08-10 晨拍 Q1=A;memory `project_m4b-0810-morning-seven-decisions`
+  --    第 1 條逐字、原決策題 `B-348-Q`)**:沖銷列從「恆負」放寬成「非零」。
+  --    理由 = 誤沖之後唯一的合法恢復路是**沖銷之沖銷**,而那一列必為正:
+  --      P(+500) → R1(-500) → R2(+500),R2 沖的是 R1、金額是 R1 的反號。
+  --      舊字面「沖銷恆負」讓 R2 **物理上構造不出來** ⇒ 一次誤沖就讓那張單的「已收」永久低報。
+  -- ⚠️ **誠實邊界:放寬後本條對沖銷列只剩「非零」,而那與欄位層的 `CHECK (amount <> 0)` 同界
+  --    ⇒ 本條實際上只剩「收款恆正」一件事在守。** 沖銷列的正負與金額改由 **A9 trigger** 保證
+  --    (字面見檔頭 A9:「沖銷金額 = 被沖列金額的**反號**」),A9 是 **OP2b** 的具名交付物。
+  -- 🔴 **為什麼中間沒有裸奔窗口**:OP2b 在**同一支 migration、同一筆交易**裡做「建 A9 + DROP dormant gate」,
+  --    而在那之前 `order_payments_dormant_until_triggers`(`CHECK (false)`)擋住本表**所有**寫入
+  --    (OP2a 檔頭逐字:「本片不碰 dormant gate。`DROP` gate 綁在 OP2b、與 A9 同 migration 同交易」)。
+  --    ⇒ 從本條放寬到 A9 上線之間,一列都寫不進來。**發布序 OP1 → OP2b 不得跳號、gate 不得先 DROP。**
   CONSTRAINT order_payments_reversal_shape
-    CHECK ((reverses_payment_id IS NULL AND amount > 0) OR (reverses_payment_id IS NOT NULL AND amount < 0)),
+    CHECK ((reverses_payment_id IS NULL AND amount > 0) OR (reverses_payment_id IS NOT NULL AND amount <> 0)),
 
   -- 🔴 讓下面那道 composite FK 有得指(PK 已保證 id 唯一,本道是為了 FK 的形狀)。
   CONSTRAINT order_payments_id_order_rail_uniq UNIQUE (id, order_id, rail),
@@ -343,10 +410,14 @@ ALTER TABLE public.order_payments ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.order_payments FROM PUBLIC, anon, authenticated, service_role, authenticator;
 
 -- 🔴 本輪 code-reviewer:欄位 COMMENT 改了、**表級這句沒跟**(`\d+` 先讀到的是它)——
---    「只記流入」與「沖銷列為負、就在本表」是同一個矛盾,只補被點名的那一行不算修好
+--    「只記流入」與「沖銷列有負值、就在本表」是同一個矛盾,只補被點名的那一行不算修好
 --    (memory `feedback_claimed-sync-but-only-patched-touched-lines`)。
+--    🔴 2026-08-10 A10 拍板後**這句自己也改過一次**:原本寫「沖銷列為負」,而拍板允許沖銷之沖銷
+--       ⇒ 沖銷列可正可負(必為被沖列的反號)。同一個病第二次發作在同一句話上。
 COMMENT ON TABLE public.order_payments IS
-  'OP1 收款帳本(master-plan v2 :655 第 3 批第 1 項)。記的是**收款流入 + 對它的沖銷更正**(沖銷列為負);'
+  'OP1 收款帳本(master-plan v2 :655 第 3 批第 1 項)。記的是**收款流入 + 對它的沖銷更正**(沖銷列可正可負);'
+  '🔴 「沖銷列 = 被沖列的反號」是**設計意圖、還不是已生效的保護** —— 那要等 A9 trigger(OP2b);'
+  '在 OP2b 落地之前,本表由 dormant gate 全擋、任何列都寫不進來。詳見 amount 欄的 COMMENT。'
   '**退款不在本表**,照 rail 分流到別的機制'
   '(卡=order_refunds/TapPay refund job、匯款=匯款退款線、現金=現金退還登記)。'
   '🔴 「已收未退總額」要跨源算,非卡軌的退款帳本目前還不存在 = OP6 的前置。'
@@ -357,11 +428,15 @@ COMMENT ON COLUMN public.order_payments.received_at IS '實際收到錢的時點
 COMMENT ON COLUMN public.order_payments.rail   IS 'canonical 三值 card/bank_transfer/cash。A8b 讀本欄分軌退款(Q12=A 各自原路退)。';
 -- 🔴🔴 **R2 #8 + 我自審同時抓到:這行原本與 DDL 直接矛盾。** 原字面是「整數元、**恆正**。
 --    本表只記流入 —— **沖銷**與退款不在這裡」,而同檔 `CHECK (amount <> 0)` 加
---    `order_payments_reversal_shape` 明定**沖銷列 amount < 0 且就在本表**。
+--    `order_payments_reversal_shape` 明定**沖銷列有負值且就在本表**。
 --    那是「第一版 `CHECK (amount > 0)` + 零沖銷欄」的殘留字面 —— 設計改了、COMMENT 沒跟。
 --    COMMENT 是下一個人在 DB 裡讀到的唯一說明,錯的字面比沒有更貴。
+--    🔴 2026-08-10 A10 拍板後再改一次:沖銷列不再恆負(見檔頭 A10)。
 COMMENT ON COLUMN public.order_payments.amount IS
-  '整數元、非零。收款列為正、沖銷列為負(沖銷列必帶 reverses_payment_id,由 order_payments_reversal_shape 綁死)。'
+  '整數元、非零。收款列恆正;沖銷列 = 被沖列金額的反號(可正可負,必帶 reverses_payment_id)。'
+  '🔴 現在真正在守的只有「收款恆正」(order_payments_reversal_shape);沖銷分支的 <> 0 與欄位 CHECK 同界、等於沒守。'
+  '沖銷列的金額正確性(反號)與環的防護要等 A9 trigger(OP2b)——**在 OP2b 落地前,本表由 dormant gate 全擋、任何列都寫不進來**,'
+  '不要把這句讀成「沖銷金額已經受保護」。'
   '⇒ 「已收」= SUM(amount)。🔴 退款不在本表(照 rail 分流到別的機制);沖銷 ≠ 退款,沖銷是登錄錯誤的更正。';
 
 -- ── 檔尾 fail-closed 結構驗收 ─────────────────────────────────────────────
@@ -670,7 +745,13 @@ BEGIN
     SELECT * FROM (VALUES
       ('order_payments_rail_fields',            'reverses_payment_id'),
       ('order_payments_rail_fields',            'rec_trade_id'),
-      ('order_payments_reversal_shape',         'amount'),
+      -- 🔴🔴 code-reviewer(本片)MF2:片段原本是 `'amount'` —— 放寬之後 `reversal_shape`
+      --    只剩「收款恆正」一件事在守,而 `amount` 這個子字串在 `CHECK (amount <> 0)` 裡照樣命中
+      --    ⇒ 有人把它掏空成 `CHECK (amount <> 0)`,收款恆正整條消失、apply 當下**照樣全綠**。
+      --    這道縫是**本次縮小約束職責時新開的**,不是舊債。⇒ 片段升級成 `amount > 0`。
+      --    實測 `pg_get_constraintdef` 對本約束渲染成
+      --    `CHECK ((((reverses_payment_id IS NULL) AND (amount > 0)) OR (...)))` ⇒ 逐字命中得到。
+      ('order_payments_reversal_shape',         'amount > 0'),
       ('order_payments_review_pair',            'reviewed_by'),
       ('order_payments_dormant_until_triggers', 'false'),
       ('order_payments_amount_check',           'amount'),
