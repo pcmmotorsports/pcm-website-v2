@@ -97,7 +97,7 @@ const ORDER_DETAIL = {
 
 describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
   it('should keep all three hidden fields including the version optimistic lock', () => {
-    const { container } = render(<OrderEditForm detail={ORDER_DETAIL} />);
+    const { container } = render(<OrderEditForm detail={ORDER_DETAIL} returnTo='/orders/ord-1' />);
     expect(hiddenPairs(container)).toEqual([
       [ORDER_ID_FIELD, 'ord-1'],
       [VERSION_FIELD, '7'],
@@ -106,7 +106,7 @@ describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
   });
 
   it('should keep all four named controls present so the parser sees every key', () => {
-    const { container } = render(<OrderEditForm detail={ORDER_DETAIL} />);
+    const { container } = render(<OrderEditForm detail={ORDER_DETAIL} returnTo='/orders/ord-1' />);
     // workflow-form.ts 用 form.has() 分辨「未送出」與「清空」=> 四個 key 必須全 present。
     for (const name of [
       SHIPPING_METHOD_FIELD,
@@ -119,7 +119,7 @@ describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
   });
 
   it('should keep the shipping method required with its length cap and prefill current values', () => {
-    const { container } = render(<OrderEditForm detail={ORDER_DETAIL} />);
+    const { container } = render(<OrderEditForm detail={ORDER_DETAIL} returnTo='/orders/ord-1' />);
     const shipping = field(container, SHIPPING_METHOD_FIELD) as HTMLInputElement;
     expect(shipping.required).toBe(true);
     expect(shipping.maxLength).toBe(64);

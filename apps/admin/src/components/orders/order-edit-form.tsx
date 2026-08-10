@@ -21,7 +21,18 @@ import {
 // 出貨方式+發票紀錄三欄(order 層 RPC 的 workflow_status key 能力保留、UI 停送)。
 // E11-2:欄位外框與版面已改用共用 <AdminForm> 卡片內嵌變體。
 
-export function OrderEditForm({ detail }: { detail: AdminOrderDetail }) {
+export function OrderEditForm({
+  detail,
+  returnTo,
+}: {
+  detail: AdminOrderDetail;
+  /**
+   * #350d C1:動作做完回哪裡 = **這個視圖自己的網址**(整頁 `/orders/{id}` / 面板帶 `panel` 的列表)。
+   * 🔴 原本這裡硬寫 `/orders/${detail.id}` ⇒ 在面板裡按儲存會**跳去整頁版、面板消失**。
+   *    值不可信任(client 送得回來),action 端一律再過 `parseOrderReturnTo`。
+   */
+  returnTo: string;
+}) {
   return (
     <AdminForm
       action={updateOrderWorkflowAction}
@@ -31,7 +42,7 @@ export function OrderEditForm({ detail }: { detail: AdminOrderDetail }) {
       hidden={{
         [ORDER_ID_FIELD]: detail.id,
         [VERSION_FIELD]: detail.version,
-        [RETURN_TO_FIELD]: `/orders/${detail.id}`,
+        [RETURN_TO_FIELD]: returnTo,
       }}
       actions={
         <button

@@ -123,18 +123,32 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
     ).toBe(false);
   });
 
-  it('return_to:站內 /orders 路徑保留;外部/他路徑退 /orders(防 open redirect)', () => {
+  it('return_to:站內 /orders 路徑保留;外部/他路徑退回這張單的明細頁(防 open redirect)', () => {
     const inPath = parseWorkflowPatchForm(
       form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: 'shipped_done', [RETURN_TO_FIELD]: `/orders/${UUID}` }),
     );
     expect(inPath.ok && inPath.returnTo).toBe(`/orders/${UUID}`);
     // nit-6:`..` 站內 redirect gadget(/orders/../../api/sso/start)拒
+    // 🔴 **#350d:fallback 從 `/orders` 改成 `/orders/{orderId}`**(契約 §3 逐字)——
+    //    非法的 return_to 不該把正在看這張單的員工踢回列表。守門本體已搬到
+    //    `order-return-to.test.ts`(那裡有 16 種非法形狀 + 512 邊界 + decode 那道);
+    //    這裡留一格**接線**斷言:本 parser 真的走那支、不是自己留了一份舊的正規式。
     for (const evil of ['https://evil.com', '//evil.com', '/customers', '/orders\n/x', '/orders/../../api/sso/start']) {
       const r = parseWorkflowPatchForm(
         form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: 'shipped_done', [RETURN_TO_FIELD]: evil }),
       );
-      expect(r.ok && r.returnTo).toBe('/orders');
+      expect(r.ok && r.returnTo).toBe(`/orders/${UUID}`);
     }
+    // 🔴 #350d 新行為:一次性參數被剝掉(舊的那份正規式做不到這件事 ⇒ 這條也是接線證據)。
+    const withResult = parseWorkflowPatchForm(
+      form({
+        [ORDER_ID_FIELD]: UUID,
+        [VERSION_FIELD]: '5',
+        workflow_status: 'shipped_done',
+        [RETURN_TO_FIELD]: `/orders?panel=${UUID}&r=saved&rt=${UUID}`,
+      }),
+    );
+    expect(withResult.ok && withResult.returnTo).toBe(`/orders?panel=${UUID}`);
   });
 });
 

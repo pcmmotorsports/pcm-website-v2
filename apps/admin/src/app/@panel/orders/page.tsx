@@ -1,5 +1,9 @@
 import { isUuid } from '../../../lib/orders/note-action-state';
-import { ORDER_PANEL_PARAM, buildPanelCloseHref } from '../../../lib/orders/order-list-view';
+import {
+  buildPanelCloseHref,
+  buildPanelSelfHref,
+  readOpenPanelOrderId,
+} from '../../../lib/orders/order-list-view';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
 import {
   CANCEL_REQUEST_TOKEN_PARAM,
@@ -37,18 +41,26 @@ export default async function OrderPanelPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const raw = await searchParams;
-  const panelId = typeof raw[ORDER_PANEL_PARAM] === 'string' ? raw[ORDER_PANEL_PARAM] : undefined;
 
   // 🔴 兩種情況都回 `null` = 「這個 URL 沒有面板要開」,殼那邊靠 CSS `:has()` 把面板欄與把手一起收起來:
   //    ① 沒帶 `panel` ⇒ 這就是關閉面板的機制本身;
   //    ② 帶了但不是 UUID 形狀 ⇒ **不打 DB、也不 `notFound()`**。手打一條爛網址不該讓畫面被吃掉半邊,
   //       更不該把整頁打成 404(在平行路由槽裡呼叫 `notFound()` 會炸掉的是**整個頁面**,
   //       員工手上的列表會整片消失 —— 主視窗 2026-08-10 裁⑤「notFound 面板自理」)。
-  if (!panelId || !isUuid(panelId)) return null;
+  // 🔴 #350d:判準搬進 `readOpenPanelOrderId` —— **列表要停畫自己那條橫幅時問的是同一支**。
+  //    兩邊各判一次的話,`?panel=not-a-uuid&r=saved` 會變成「面板不開 + 列表也停畫」= 零橫幅。
+  const panelId = readOpenPanelOrderId(raw);
+  if (!panelId) return null;
 
-  // 🔴 **面板不顯示「通用」`ResultBanner`**(code-reviewer 2026-08-10 nit-6):
-  //    `r` 是列表層與整頁詳情共用的命名空間 ⇒ 面板若也畫一份,員工會同時看到兩條橫幅。
-  //    ⇒ 用 `showResultBanner={false}` 明確關掉那一份,**而不是靠不傳 `r` 來達成**。
+  // 🔴🔴 **#350d C2:`r` 歸誰,用 `panel` 的有無判定 —— 有 `panel` ⇒ 是面板的結果碼。**
+  //    ⇒ 面板**畫**通用 `ResultBanner`(`showResultBanner` 不再傳 false),
+  //      而 `app/orders/page.tsx` 在面板開著時**停畫**自己那條。
+  //    🔴 這兩半**必須同片**(契約 §2 硬條件 2):翻早了 = 兩條橫幅(C2 存在的理由被打破);
+  //      翻晚了 = 零橫幅(動作做完什麼都沒說)。守門 = `order-panel-wiring.test.ts` 的
+  //      「有 panel 時列表零、面板恰一」正負兩格。
+  //    ⚠️ #350c 這裡原本寫「面板若也畫一份,員工會同時看到兩條橫幅」—— 那句在 #350c 是對的
+  //      (當時 action 全部導去整頁版,panel URL 上的 `r` 只可能是**列表**的碼);
+  //      #350d 讓面板裡的動作把 `r` 帶回面板 URL 之後,擁有權就換手了。
   // 🔴🔴 **A13b D6-a R2 codex must-fix:`r`/`rt` 必須原封傳進去。**
   //    我上一版寫「面板版不接結果碼、今天不可構造」——**那句不實**:
   //    action 全部 redirect 去整頁版只說明**網址怎麼被產生**,不說明**網址怎麼被到達**。
@@ -69,8 +81,10 @@ export default async function OrderPanelPage({
     requestToken,
     correctNoteId,
     back: { href: buildPanelCloseHref(raw), label: '← 關閉,回訂單列表' },
+    // 🔴 #350d:`return_to` = **面板自己這個視圖**,不是 `back.href`(那是「關閉」連結,
+    //    拿它當 return_to 等於動作做完把面板關掉;契約字面更正見 `D-420-NOTE` §1)。
+    returnTo: buildPanelSelfHref(raw, panelId),
     missing: 'inline',
-    showResultBanner: false,
   });
 
   return (

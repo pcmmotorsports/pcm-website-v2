@@ -43,8 +43,8 @@ export async function OrderDetailRoute({
   requestToken,
   correctNoteId,
   back,
+  returnTo,
   missing,
-  showResultBanner = true,
 }: {
   id: string;
   /**
@@ -64,21 +64,31 @@ export async function OrderDetailRoute({
   correctNoteId: string | null;
   /** 返回連結:整頁版 = 回列表;面板版 = 關閉面板(同一份列表 href、不帶 `panel`)。 */
   back: { href: string; label: string };
-  missing: 'not-found' | 'inline';
   /**
-   * 要不要渲染**通用** `ResultBanner`(改單 / 採購 / 備註等各線共用的 `?r=` 橫幅)。
+   * #350d C1:**這個視圖自己的網址** —— 表單裡的 `return_to` hidden 欄位吃它,
+   * server action 動作做完就導回這裡(整頁版 = `/orders/{id}`;面板版 = 帶 `panel` 的列表網址)。
    *
-   * 🔴 面板版傳 `false`:`r` 是列表層與整頁詳情共用的命名空間,面板若也畫一份,
-   *    員工會**同時看到兩條橫幅**(列表一條、面板一條)。
-   * ⚠️ **這個 prop 只關通用 banner,不關取消結果面板** —— 取消面板要照常吃 `r`/`rt`,
-   *    否則面板版的取消表單就沒有結果頁閘(A13b D6-a R2 codex must-fix)。
+   * 🔴🔴 **不是 `back.href`**(契約 §4/§6-2 的字面錯誤,`D-420-NOTE` §1 實查更正):
+   *    `back.href` 面板版是**關閉**連結、整頁版是回列表 ⇒ 拿它當 `return_to` 會讓動作做完
+   *    面板被關掉 / 整頁版的人被踢回列表(後者是回歸)。兩者長得很像,差別只在有沒有 `panel`,
+   *    所以這裡刻意收兩個 prop 而不是從 `back` 推 —— 推錯不會編譯紅,只會在畫面上默默發生。
+   * ⚠️ 值不信任:action 端一律再過 `parseOrderReturnTo`(站內白名單 + 剝一次性參數)。
    */
-  showResultBanner?: boolean;
+  returnTo: string;
+  missing: 'not-found' | 'inline';
+  // 🔴 **`showResultBanner` prop 已於 #350d 刪除**(code-reviewer R1 must-fix 1):
+  //    C2 把 `r` 的擁有權翻給面板之後,兩個消費者都要畫 ⇒ 這個 prop 零呼叫端。
+  //    「誰不畫」的決定搬到**列表**那一側(`app/orders/page.tsx` 的 `!panelOpen &&`),
+  //    因為只有列表有辦法知道面板開著。留一個沒人傳的 prop = 下一個人以為還有這個旋鈕。
 }) {
+  // 🔴 只有 banner 需要字串;閘門吃原始值(見 `resultCode` 的 docstring)。
+  //    算在最前面是因為**每一條 return 路徑都要畫得出它**(#350d nit-6:少畫一條 = 零橫幅)。
+  const bannerCode = typeof resultCode === 'string' ? resultCode : undefined;
+
   // id 形狀守門:非 UUID 不打 DB(路由參數不透傳查詢)。
   if (!isOrderId(id)) {
     if (missing === 'not-found') notFound();
-    return <PanelMessage text='找不到這張訂單。' back={back} />;
+    return <PanelMessage text='找不到這張訂單。' back={back} bannerCode={bannerCode} />;
   }
 
   // 🔴 防禦:讀取失敗 → 錯誤態 200(不 500、DB error 不外洩);查無 → 依 `missing` 分流。
@@ -100,8 +110,6 @@ export async function OrderDetailRoute({
   //    ⚠️ **不是授權邊界**(`session/actor.ts:6-7` 自陳:cookie 承載、使用者自選、未驗證)——
   //    只做顯示層比對;`null`(尚未選人)時 D3 會 fail-closed 走 `match_other_actor`。
   const actor = await getSessionActor();
-  // 🔴 只有 banner 需要字串;閘門吃原始值(見 `resultCode` 的 docstring)。
-  const bannerCode = typeof resultCode === 'string' ? resultCode : undefined;
   const [detailSettled, suppliersSettled, refundsSettled] = await Promise.allSettled([
     (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
     (async () => listSuppliers())(),
@@ -139,14 +147,18 @@ export async function OrderDetailRoute({
 
   if (!loadFailed && detail === null) {
     if (missing === 'not-found') notFound();
-    return <PanelMessage text='找不到這張訂單(可能已被刪除)。' back={back} />;
+    return (
+      <PanelMessage text='找不到這張訂單(可能已被刪除)。' back={back} bannerCode={bannerCode} />
+    );
   }
 
   return (
     <>
       <BackLink back={back} />
 
-      {showResultBanner && <ResultBanner code={bannerCode} />}
+      {/* 🔴 #350d C2:兩個消費者都畫 —— 「面板開著時列表停畫」的決定在
+          `app/orders/page.tsx`(只有列表知道面板開著)。這裡不再有旋鈕。 */}
+      <ResultBanner code={bannerCode} />
 
       {/* 🔴 `cancellationsTruncated` 缺值折成 `true` 不是 `false`(R1 must-fix):
           折成 false ⇒ classifier 落 `miss_complete` ⇒ 面板說「仍然沒有,才重新送一次」
@@ -174,6 +186,7 @@ export async function OrderDetailRoute({
       ) : (
         <OrderDetail
           detail={detail}
+          returnTo={returnTo}
           correctNoteId={correctNoteId}
           suppliers={suppliers}
           suppliersFailed={suppliersFailed}
@@ -201,10 +214,27 @@ function BackLink({ back }: { back: { href: string; label: string } }) {
   );
 }
 
-function PanelMessage({ text, back }: { text: string; back: { href: string; label: string } }) {
+/**
+ * 面板版的「這張單看不到」訊息。
+ *
+ * 🔴 **橫幅也要畫在這裡**(#350d code-reviewer R1 nit-6):C2 之後列表在面板開著時會停畫,
+ *    而這條路徑原本在畫橫幅**之前**就 return ⇒ `?panel=<合法 uuid 但查無>&r=saved` 會變成
+ *    **零橫幅**:動作做完了、單同時被別人刪掉,員工兩邊都看不到「存好了沒有」。
+ *    到得了這裡的方式不只「單被刪」——書籤與上一頁都算。
+ */
+function PanelMessage({
+  text,
+  back,
+  bannerCode,
+}: {
+  text: string;
+  back: { href: string; label: string };
+  bannerCode?: string;
+}) {
   return (
     <>
       <BackLink back={back} />
+      <ResultBanner code={bannerCode} />
       <div className='text-muted-foreground rounded-lg border p-6 text-sm'>{text}</div>
     </>
   );

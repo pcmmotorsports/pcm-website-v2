@@ -14,6 +14,7 @@ import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
+  readOpenPanelOrderId,
   ORDERS_PAGE_SIZE,
 } from '../../lib/orders/order-list-view';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
@@ -84,6 +85,12 @@ export default async function OrdersPage({
   const keyword = readOrderKeywordCookie((await cookies()).get(ORDER_KEYWORD_COOKIE)?.value);
   const filter: AdminOrderFilter = keyword === null ? urlFilter : { ...urlFilter, keyword };
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
+  // 🔴🔴 **#350d C2:`r` 歸誰,用 `panel` 的有無判定** —— 面板開著時它是**面板的**結果碼,
+  //    列表停畫自己那條,否則員工會同時看到兩條說同一件事的橫幅(契約 §2 硬條件 2)。
+  //    🔴 判準必須是 `readOpenPanelOrderId`(= 槽頁決定開不開面板的**同一支**),不能自己看
+  //    `rawSearchParams.panel` 在不在:`?panel=not-a-uuid&r=saved` 時槽頁回 null(面板不開),
+  //    列表若也停畫就是**零橫幅** —— 動作做完了畫面上一個字都不說。
+  const panelOpen = readOpenPanelOrderId(rawSearchParams) !== null;
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);
@@ -141,7 +148,7 @@ export default async function OrdersPage({
         )}
       </div>
 
-      <ResultBanner code={resultCode} />
+      {!panelOpen && <ResultBanner code={resultCode} />}
 
       {/* #347-2b:關鍵字搜尋框 + 「目前搜尋」chip。
           🔴 `listHref` 的 `page` 固定給 **1**:換了搜尋條件還停在第 3 頁,常常直接看到空白頁。

@@ -221,6 +221,7 @@ function resolveCorrectTarget(
 
 export function OrderDetail({
   detail,
+  returnTo,
   correctNoteId = null,
   suppliers = [],
   suppliersFailed = false,
@@ -233,6 +234,12 @@ export function OrderDetail({
   cancelFormsAllowed = false,
 }: {
   detail: AdminOrderDetail;
+  /**
+   * #350d C1:這個視圖自己的網址,逐支表單當 `return_to` hidden 欄位送出。
+   * 🔴 **必填、無預設**:給預設值等於「忘了接就靜默回整頁版」——面板裡的動作會把面板關掉,
+   *    而那個症狀在測試裡看起來完全正常(頁面是對的、只是視圖換了)。逐條理由見 `order-return-to.ts`。
+   */
+  returnTo: string;
   /** A10a-3:`?correct` searchParam(頁層過 uuid 閘後下傳) */
   correctNoteId?: string | null;
   /** A10b:S3a 供應商選單(啟用中、zh-TW 排序) */
@@ -343,7 +350,7 @@ export function OrderDetail({
       {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
       <OrderCancelBlock detail={detail} formsAllowed={cancelFormsAllowed} />
 
-      <OrderEditForm detail={detail} />
+      <OrderEditForm detail={detail} returnTo={returnTo} />
 
       <ItemsTable detail={detail} />
 

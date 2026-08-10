@@ -3,6 +3,8 @@
 // 形狀層(語意 fail-closed 權威在 admin_update_order_workflow RPC,此處輕驗 + 縱深)。
 
 import type { AdminOrderWorkflowPatch, InvoiceStatus } from '@pcm/domain';
+// #350d:`return_to` 的守門集中在 order 域共用解析器(五支 action 的 choke point)。
+import { parseOrderReturnTo } from './order-return-to';
 
 // ── 表單欄名(list inline 小 form 與明細頁表單共用)──
 export const ORDER_ID_FIELD = 'order_id';
@@ -118,18 +120,18 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     patch.invoiceStatus = raw as InvoiceStatus;
   }
 
-  return { ok: true, orderId, expectedVersion, patch, returnTo: parseReturnTo(form) };
-}
-
-/**
- * return_to:站內 /orders 路徑;拒 `..`(防 /orders/../../api/sso/start 站內 redirect gadget、Fable nit-6)
- * 與 open redirect(離站已由 regex 起始 /orders 擋);非法 → 退 '/orders'。order/item 兩表單共用。
- */
-function parseReturnTo(form: FormLike): string {
-  const returnRaw = asString(form.get(RETURN_TO_FIELD));
-  return returnRaw && !returnRaw.includes('..') && /^\/orders(\/[^\s]*)?(\?[^\s]*)?$/.test(returnRaw)
-    ? returnRaw
-    : '/orders';
+  // 🔴 #350d:`return_to` 的守門搬到 `order-return-to.ts`(order 域五支 action 的共同 choke point);
+  //    本檔原本那份正規式版本**已刪除**,不是留著沒人用 —— 兩份會漂移,而漂移的症狀
+  //    (某一支沒剝掉 `rt` ⇒ 重複鍵 ⇒ 取消面板永遠讀不到)在畫面上看不出是哪一支造成的。
+  //    ⚠️ **fallback 從 `/orders` 改成 `/orders/{orderId}`**(契約 §3 逐字):非法的 `return_to`
+  //    不該把正在看這張單的員工踢回列表;`orderId` 在上面已經過 uuid 閘,拼進去是安全的。
+  return {
+    ok: true,
+    orderId,
+    expectedVersion,
+    patch,
+    returnTo: parseOrderReturnTo(form.get(RETURN_TO_FIELD), orderId),
+  };
 }
 
 // ── per-item 改狀態表單:🔴 **A9w4a(2026-08-06)已具名移除** ────────────────────────────
