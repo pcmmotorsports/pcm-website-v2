@@ -190,7 +190,9 @@ describe(`${RPC_NAME} · 簽章逐字對 migration(GRANT 綁精確簽章)`, () =
       REPO_ROOT,
       'supabase',
       'migrations',
-      '20260809180000_m4b_347_1_admin_search_orders.sql',
+      // 🔴 #347-3a 起改讀**現行**那支 migration:20260809180000 建的兩參數版已被 3a `DROP` 掉,
+      //    繼續讀它 = 拿一份**已經不存在的簽章**在對帳,而測試照樣全綠(它只是讀檔比字串)。
+      '20260810120000_m4b_347_3a_admin_search_orders_date_range.sql',
     ),
     'utf8',
   );
@@ -198,10 +200,15 @@ describe(`${RPC_NAME} · 簽章逐字對 migration(GRANT 綁精確簽章)`, () =
 
   it('🔴 函式名:呼叫端常數的值 = migration 裡 CREATE 的那個名字', () => {
     // 前提:migration 真的建了這支(檔名改了 / 函式改名 ⇒ 這格先紅,下面才有意義)。
-    expect(MIGRATION).toContain(`CREATE OR REPLACE FUNCTION public.${RPC_NAME}(`);
+    // 🔴 #347-3a 是 `CREATE FUNCTION`(**沒有** OR REPLACE)—— 它先 DROP 舊簽章再建新的,
+    //    因為 `CREATE OR REPLACE` 改不了參數個數(會變成第二支 overload,PostgREST 挑錯就 404)。
+    expect(MIGRATION).toContain(`CREATE FUNCTION public.${RPC_NAME}(`);
     expect(adapter).toContain(`${RPC_NAME_CONST} = ${RPC_NAME_LITERAL}`);
   });
 
+  // 🔴 **只列 `p_query` / `p_limit` 是刻意的**:#347-3a 新增的 `p_from` / `p_to` 有 `DEFAULT NULL`,
+  //    而現行 adapter(3b 之前)**不送它們** —— PostgREST 允許省略具預設值的參數。
+  //    3b 把日期接上去時,**這個陣列要一起加兩個**,否則「adapter 送了但 migration 沒有」那半沒人守。
   it.each(['p_query', 'p_limit'])('🔴 參數名 `%s` 兩邊逐字對得上', (param) => {
     expect(MIGRATION).toMatch(new RegExp(`\\b${param}\\s+(text|integer)\\b`));
     // 呼叫端的引數物件裡也必須有它(少一個 = 走進 DEFAULT、多一個 = 找不到 overload)。
