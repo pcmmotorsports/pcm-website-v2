@@ -10,7 +10,6 @@ import {
   parseSupplierCreateForm,
   parseSupplierRenameForm,
   rpcTrim,
-  type FormLike,
 } from './supplier-form';
 
 // 🔴 隱形字元一律用 fromCharCode 造,不寫字面 —— 理由同 supplier-form.ts 的常數註解:
@@ -23,13 +22,20 @@ const TAB = ch(0x0009);
 const LF = ch(0x000a);
 
 const VALID_ID = '11111111-2222-3333-4444-555555555555';
+/** #365:用來證明「送兩份時兩個值都不會被採用」的第二顆合法 id。 */
+const OTHER_ID = '99999999-8888-7777-6666-555555555555';
 
-/** 最小 FormLike;刻意不是真 FormData —— 真 FormData 會把值強制轉成字串,
- *  那樣就測不到「值不是字串」的分支(檔案上傳欄位會給 File)。 */
-function form(fields: Record<string, FormDataEntryValue | undefined>): FormLike {
-  return {
-    get: (name: string) => fields[name] ?? null,
-  };
+// #365 片③:改用**真 FormData**(理由同 `staff-form.test.ts`:假表單造不出重複欄位)。
+// 🔴 保留 `FormDataEntryValue` 型別:本檔既有測試會餵 `File` 進來驗「非字串一律拒」。
+// 🔴 **原本這裡有一句「刻意不是真 FormData —— 真 FormData 會把值強制轉成字串」,已刪:**
+//    那句是錯的。`FormData.set(name, File)` **不會**字串化(若會,下方 File 那族案例會全部
+//    變成 `ok:true` 而轉紅,現在是綠的)。留著會讓下一個人以為 File 那族測試已經失效而去「修」它。
+function form(fields: Record<string, FormDataEntryValue | undefined>): FormData {
+  const data = new FormData();
+  for (const [name, value] of Object.entries(fields)) {
+    if (value !== undefined) data.set(name, value);
+  }
+  return data;
 }
 
 describe('RPC_WHITESPACE_CHARS', () => {
@@ -295,5 +301,48 @@ describe('boundSupplierQuery', () => {
     expect([...astral]).toHaveLength(100);
     expect(astral.length).toBe(200);
     expect(boundSupplierQuery(astral)).toBe(astral);
+  });
+});
+
+// ── #365 片③:單值欄位「getAll 恰一筆」 ────────────────────────────────────────────────
+//
+// 🔴 **受害形狀 = 對錯的對象動手,不是 fail-open**:三個 parser 每欄都有 `null → ok:false`
+//    明擋,所以「送兩份」不會讓檢查被跳過。它會讓 `supplier_id` 採第一筆 ⇒
+//    **改到 / 停用到另一家供應商**,而且回 `ok:true`、畫面顯示成功。
+describe('supplier-form — #365 單值欄位恰一筆', () => {
+  const EXPECTED_RENAME = ['id', 'label'];
+  const EXPECTED_ACTIVE = ['id', 'is_active'];
+
+  it('新增:label 送兩份 → ok:false(舊行為:採第一筆 ⇒ 建出名字錯的供應商)', () => {
+    const d = form({ [SUPPLIER_LABEL_FIELD]: 'RPM Carbon' });
+    d.append(SUPPLIER_LABEL_FIELD, 'Webike JP');
+    expect(parseSupplierCreateForm(d).ok).toBe(false);
+    expect(parseSupplierCreateForm(form({ [SUPPLIER_LABEL_FIELD]: 'RPM Carbon' })).ok).toBe(true);
+  });
+
+  it.each(EXPECTED_RENAME)('🔴 改名:%s 送兩份 → ok:false(id 採第一筆 = 改到別家)', (field) => {
+    const base = { [SUPPLIER_ID_FIELD]: VALID_ID, [SUPPLIER_LABEL_FIELD]: 'RPM Carbon' };
+    const d = form(base);
+    d.append(field, field === SUPPLIER_ID_FIELD ? OTHER_ID : 'Webike JP');
+    expect(parseSupplierRenameForm(d).ok).toBe(false);
+    expect(parseSupplierRenameForm(form(base)).ok).toBe(true);
+  });
+
+  it.each(EXPECTED_ACTIVE)('🔴 停用:%s 送兩份 → ok:false(id 採第一筆 = 停用到別家)', (field) => {
+    const base = { [SUPPLIER_ID_FIELD]: VALID_ID, [SUPPLIER_IS_ACTIVE_FIELD]: 'false' };
+    const d = form(base);
+    d.append(field, field === SUPPLIER_ID_FIELD ? OTHER_ID : 'true');
+    expect(parseSupplierActiveForm(d).ok).toBe(false);
+    expect(parseSupplierActiveForm(form(base)).ok).toBe(true);
+  });
+
+  it('🔴 送兩份時**兩個 id 都不會被採用**(不是「拿了後面那個」)', () => {
+    const d = form({ [SUPPLIER_ID_FIELD]: VALID_ID, [SUPPLIER_LABEL_FIELD]: 'RPM Carbon' });
+    d.append(SUPPLIER_ID_FIELD, OTHER_ID);
+    const r = parseSupplierRenameForm(d);
+    expect(r.ok).toBe(false);
+    // 沒有這條,「改成一律採最後一筆」的突變也會讓上面那格綠(它只斷言 ok:false)。
+    expect(JSON.stringify(r)).not.toContain(OTHER_ID);
+    expect(JSON.stringify(r)).not.toContain(VALID_ID);
   });
 });

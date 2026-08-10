@@ -4,7 +4,10 @@
 //    (S3b-3a 起 `supplier-candidates.ts` 用了本檔的 `rpcTrim`,而 candidates 會被
 //     `'use client'` 的 typeahead 元件呼叫。)哪天有人在這裡加 `import 'server-only'`
 //    或 import repository / adapters,那支 client 元件會在建置或執行期直接炸。
-//    本檔目前零 import、零 IO、零敏感值 ⇒ 進 client bundle 只多 31 個碼位與幾支 parser。
+//    ⚠️ **「零 import」那句已於 #365 片③ 失效**:本檔現在 import `lib/forms/single-value.ts`。
+//    那支同樣是零 import / 零 IO / 零 server 依賴的純函式模組(片① 建立時就是為了讓
+//    client 端 import 得到的檔也能用),所以上面那條紅線**沒有被打破** —— 但字面要對得上事實。
+//    本檔仍是零 IO、零敏感值 ⇒ 進 client bundle 只多 31 個碼位與幾支 parser。
 //
 // 🔴 本檔鏡像的是 `admin_upsert_supplier`(`20260801160000`)的 **label 與 id 規則,不是它的全部輸入驗證**。
 //    (R1 抓:原字面「是 RPC 輸入驗證的鏡像」說滿了。)逐條講清楚:
@@ -25,6 +28,9 @@
 // 🔴 三個解析器各自要求自己那個欄位(改名要 label、切換要 is_active)
 //    ⇒ **經由解析器**不可能產生一個空 patch。呼叫面的同一道防線在 `supplier-repository.ts`
 //      的 `updateSupplier` 型別聯集(R1 抓:原字面說「結構上不可達」而當時呼叫面擋不住)。
+
+// #365 片③:單值欄位的唯一讀法(見 `lib/forms/single-value.ts` 檔頭)。
+import { type SingleValueFormLike, readSingleString } from './forms/single-value';
 
 /** 供應商 id(uuid);改名與切換啟用狀態共用。新增表單**沒有**這個欄位。 */
 export const SUPPLIER_ID_FIELD = 'id';
@@ -93,13 +99,20 @@ export const SUPPLIER_LABEL_MAX = 100;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export interface FormLike {
-  get(name: string): FormDataEntryValue | null;
-}
+/**
+ * 表單讀取的最小介面 = **共用讀法自己的型別**(`lib/forms/single-value.ts`)。
+ * 🔴 #365 片③:原本是 `{ get() }`,而 `get()` 取的是**第一筆** ⇒ 同名欄位送兩份靜默採前面那個。
+ *    收窄成只有 `getAll()`,下一個人就寫不出 `form.get()` 那條路。
+ */
+export type FormLike = SingleValueFormLike;
 
-function asString(value: FormDataEntryValue | null): string | null {
-  return typeof value === 'string' ? value : null;
-}
+// #365 片③:本地 `asString` 已刪,改用共用的「`getAll()` 恰一筆」讀法。
+//
+// 🔴 **本檔的受害形狀與片②不同,別照抄那邊的句子**:這三個 parser 沒有「這欄空的 ⇒ 跳過某個
+//    檢查」那族守門(每個欄位都是 `null → ok:false` 明擋)⇒ **沒有 fail-open**。
+//    真正的傷害是**對錯的對象動手**:`supplier_id` 送兩份時舊碼採第一筆 ⇒
+//    **改到 / 停用到另一家供應商**,而且回 `ok:true`、畫面顯示成功。
+//    ⇒ 這是「值被靜默換掉」型,不是「檢查被靜默跳過」型。
 
 /**
  * 剝除 RPC 認定的全部空白字元(前後,不動內部)。
@@ -144,7 +157,7 @@ function normalizeLabel(raw: string | null): string | null {
 }
 
 function parseSupplierId(form: FormLike): string | null {
-  const id = asString(form.get(SUPPLIER_ID_FIELD));
+  const id = readSingleString(form, SUPPLIER_ID_FIELD);
   return id !== null && UUID_RE.test(id) ? id : null;
 }
 
@@ -176,9 +189,23 @@ export function boundSupplierQuery(raw: string | null): string | null {
 
 export type SupplierCreateParse = { ok: true; label: string } | { ok: false };
 
+// 🔴🔴 **本檔刻意沒有 `anyMalformed` 入口擋門 —— 這是量測結果,不是漏做。**
+//
+// 片①②的解析器需要入口擋門,是因為它們有一整族「這欄是空的 ⇒ 跳過某個檢查」的守門,
+// 而 `readSingleString` 把 `missing` 與 `invalid` 都收斂成 `null` ⇒ 兩者相乘會 fail-open。
+// **本檔三個 parser 沒有那種欄位**:`id` 過 `UUID_RE`、`label` 過 `normalizeLabel`、
+// `is_active` 只認 `'true'`/`'false'` —— 每一顆 `null` 都直接 `ok:false`。
+//
+// ⇒ 我原本照片②的形狀加了三份清單 + 三道擋門,**突變實測三條全部活下來**
+//   (拿掉擋門後「送兩份 ⇒ ok:false」照樣成立,因為擋的是 reader 不是 gate)。
+//   零判別力的守門 = 假裝多一道,正是 memory `feedback_unconstructible-negative-test-means-noop-guard`
+//   記的形狀 ⇒ 整組刪掉,只留真正在擋的 `readSingleString`。
+//   (對照組:`staff-form.ts` **有**擋門,因為它的 `is_manager` 是 presence 語意的 checkbox
+//    —— 那一欄的 `invalid` 讀不出「不合法」,只讀得出「沒勾」,所以非擋不可。)
+
 /** 新增:只吃 label。🔴 回傳結構裡**沒有** id —— 新增路徑物理上餵不出 id。 */
 export function parseSupplierCreateForm(form: FormLike): SupplierCreateParse {
-  const label = normalizeLabel(asString(form.get(SUPPLIER_LABEL_FIELD)));
+  const label = normalizeLabel(readSingleString(form, SUPPLIER_LABEL_FIELD));
   return label === null ? { ok: false } : { ok: true, label };
 }
 
@@ -189,7 +216,7 @@ export type SupplierRenameParse =
 /** 改名:id + label 兩者皆必要。 */
 export function parseSupplierRenameForm(form: FormLike): SupplierRenameParse {
   const id = parseSupplierId(form);
-  const label = normalizeLabel(asString(form.get(SUPPLIER_LABEL_FIELD)));
+  const label = normalizeLabel(readSingleString(form, SUPPLIER_LABEL_FIELD));
   if (id === null || label === null) return { ok: false };
   return { ok: true, id, label };
 }
@@ -209,7 +236,7 @@ export type SupplierActiveParse =
  */
 export function parseSupplierActiveForm(form: FormLike): SupplierActiveParse {
   const id = parseSupplierId(form);
-  const active = asString(form.get(SUPPLIER_IS_ACTIVE_FIELD));
+  const active = readSingleString(form, SUPPLIER_IS_ACTIVE_FIELD);
   if (id === null || (active !== 'true' && active !== 'false')) {
     return { ok: false };
   }

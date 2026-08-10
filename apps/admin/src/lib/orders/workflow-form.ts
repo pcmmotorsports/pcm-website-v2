@@ -58,9 +58,9 @@ export function isAllowedOrigin(
  *    · `get()` 取的是**第一筆**,同理。
  *    兩支留在型別上 = 下一個人寫 `if (form.has(x))` 就原地重生同一個洞。三態的 `readSingle`
  *    同時回答「有沒有提供」與「形狀對不對」⇒ 這兩支在本檔與 `wallet`/`tier` 皆已零呼叫端。
- *    ⚠️ 片③ 尚未轉的面(關卡2 code-reviewer nit-5 補全,原本只點了 staff):
- *    `lib/staff-form.ts`(自帶一份 `FormLike`、`has()` 讀 checkbox)、`lib/supplier-form.ts`
- *    (4 處 `form.get()`)、`lib/session/actor-actions.ts`(`formData.get('actorId')`)。
+ *    ✅ **片③ 已把剩下三個面收完**(`staff-form.ts` / `supplier-form.ts` / `session/actor-actions.ts`)
+ *    ⇒ `#365` 全線收工,admin 已無 `form.get()` / `form.has()` 讀單值欄位的路徑。
+ *    (這一段原本寫的是「片③ 尚未轉」,片③ 收工同 commit 改掉 —— 留著就是指著已做完的檔喊沒做。)
  */
 export type FormLike = SingleValueFormLike;
 
