@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 import { authorizeAdminMutation } from '../session/authorize';
@@ -19,6 +18,13 @@ import {
   appendOrderNote,
   type NoteResultCode,
 } from './note-repository';
+// #350d-3:動作做完回發起的那個視圖(order 域五支共用的解析器)。
+import {
+  ORDER_RETURN_TO_FIELD,
+  appendResultQuery,
+  parseOrderReturnTo,
+} from './order-return-to';
+import { revalidateOrderViews } from './order-revalidate';
 
 // M-4b E10 A9d2-1:訂單備註寫入 server action。
 //
@@ -37,6 +43,8 @@ const ORDERS_PATH = '/orders';
 function detailPath(orderId: string): string {
   return `${ORDERS_PATH}/${orderId}`;
 }
+
+
 
 /**
  * 14 碼 → 三類語意(母 plan v4 §5 F3,逐碼、非代表值)。
@@ -100,6 +108,10 @@ export async function appendOrderNoteAction(
   const parsed = parseOrderNoteForm(formData);
   if (!parsed.ok) return noteFailure('invalid', carried.body, carried.requestToken);
 
+  // 🔴 #350d-3 C1:動作做完回發起的那個視圖(面板裡寫備註 ⇒ 回面板)。
+  //    綁在 `parsed.orderId`(已過 uuid 閘)上 —— 契約 §6-1:`return_to` 只決定視圖、不決定哪一張單。
+  const returnTo = parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), parsed.orderId);
+
   const httpRequestId = await getRequestId();
   // 🔴 log **不記 body 全文**(只記長度)—— 備註是營運內容,長度足以除錯。
   // 🔴 **兩個 id 都記**:冪等鍵已改成表單 token(Sean Q2=C),稽核列的 request_id 因此
@@ -132,7 +144,7 @@ export async function appendOrderNoteAction(
   } catch (error) {
     // 🔴 失敗路徑也要 revalidate:`bug` / `error` 兩支都**可能已經寫進去了**
     //    (RPC 已 commit、回應斷在路上)⇒ 不重取的話員工會停在看不到那筆備註的舊畫面。
-    revalidatePath(detailPath(parsed.orderId));
+    revalidateOrderViews({ orderId: parsed.orderId, returnTo, scope: 'note', requestId: httpRequestId });
     if (error instanceof OrderNoteCallerBugError) {
       console.error('[admin/orders/note] 呼叫端契約違反', {
         request_id: httpRequestId,
@@ -153,11 +165,11 @@ export async function appendOrderNoteAction(
     return noteFailure('error', parsed.body, parsed.requestToken);
   }
 
-  revalidatePath(detailPath(parsed.orderId));
+  revalidateOrderViews({ orderId: parsed.orderId, returnTo, scope: 'note', requestId: httpRequestId });
 
   const failure = classifyResult(result);
   if (failure) return noteFailure(failure, parsed.body, parsed.requestToken);
 
   // ④ 成功才 PRG。🔴 在 try 之外(見檔頭 R2-3)。
-  redirect(`${detailPath(parsed.orderId)}?r=${NOTE_ADDED_RESULT_CODE}`);
+  redirect(appendResultQuery(returnTo, `r=${NOTE_ADDED_RESULT_CODE}`));
 }

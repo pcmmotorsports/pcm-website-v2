@@ -1,6 +1,12 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
+// #350d-3:動作做完回發起的那個視圖(order 域五支共用的解析器)。
+import {
+  ORDER_RETURN_TO_FIELD,
+  appendResultQuery,
+  parseOrderReturnTo,
+} from './order-return-to';
+import { revalidateOrderViews } from './order-revalidate';
 import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 import { authorizeAdminMutation } from '../session/authorize';
@@ -48,6 +54,8 @@ const ORDERS_PATH = '/orders';
 function detailPath(orderId: string): string {
   return `${ORDERS_PATH}/${orderId}`;
 }
+
+
 
 // A9h-1(2026-08-06):`classifyResult` 已抽到 `./procurement-result` —— A9h 批次 coordinator
 // 要用同一套語意,兩份 switch 會在加碼時漂移(症狀=同一個碼在單列失敗、在批次成功)。
@@ -124,9 +132,15 @@ export async function upsertItemProcurementAction(
 
   // ③ 解析。
   const parsed = parseProcurementForm(formData);
+  // 🔴 #350d-3 C1:動作做完回發起的那個視圖(面板裡登錄採購 ⇒ 回面板)。
+  //    ⚠️ **算在 `!parsed.ok` 之前不行** —— 解析失敗時拿不到可信的 orderId,而契約 §6-1 要求
+  //    拿它來比對「`return_to` 指的是不是同一張單」。採購線失敗一律回 action state(不導頁),
+  //    所以這裡只在解析成功之後才需要它。
   if (!parsed.ok) {
     return procurementFailure('invalid', parsed.orderItemId, carried);
   }
+
+  const returnTo = parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), parsed.orderId);
 
   const requestId = await getRequestId();
   // 🔴 log **不記三個文字欄的內容**(只記有沒有填)—— 供應商單號與異常原因是內部營運資料,
@@ -195,7 +209,7 @@ export async function upsertItemProcurementAction(
   } catch (error) {
     // 🔴 失敗路徑也要 revalidate:`bug` / `error` 兩支都**可能已經寫進去了**
     //    (RPC 已 commit、回應斷在路上)⇒ 不重取的話員工會停在看不到那筆採購的舊畫面。
-    revalidatePath(detailPath(parsed.orderId));
+    revalidateOrderViews({ orderId: parsed.orderId, returnTo, scope: 'procurement', requestId: requestId });
     if (error instanceof ProcurementCallerBugError) {
       console.error('[admin/orders/procurement] 呼叫端契約違反', {
         request_id: requestId,
@@ -214,15 +228,16 @@ export async function upsertItemProcurementAction(
     return procurementFailure('error', parsed.orderItemId, carried);
   }
 
-  revalidatePath(detailPath(parsed.orderId));
+  revalidateOrderViews({ orderId: parsed.orderId, returnTo, scope: 'procurement', requestId: requestId });
 
   const failure = classifyResult(result);
   if (failure) return procurementFailure(failure, parsed.orderItemId, carried);
 
   // ⑥ 成功才 PRG。🔴 在 try 之外(見檔頭)。
   redirect(
-    `${detailPath(parsed.orderId)}?r=${successResultCode(
-      result as 'CREATED' | 'UPDATED' | 'NO_CHANGE',
-    )}`,
+    appendResultQuery(
+      returnTo,
+      `r=${successResultCode(result as 'CREATED' | 'UPDATED' | 'NO_CHANGE')}`,
+    ),
   );
 }

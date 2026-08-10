@@ -69,12 +69,15 @@ afterEach(() => {
   cleanup();
 });
 
+/** #350d-3:表單的 `return_to` 值(用過得了 parser 的形狀:站內 /orders 路徑)。 */
+const RETURN_TO = '/orders?payment_status=paid';
+
 describe('ItemProcurementSection — 採購列顯示', () => {
   // 🔴 斷言限定在**表格**內:供應商名字同時會出現在下拉選單的 <option> 裡
   //    (buildSupplierChoices 把既有採購的供應商併進選單)⇒ 不限定範圍會撞到兩個節點。
   it('顯示供應商 / 訂購 / 到貨 / 回覆狀態 / 單號 / 預計到貨 / 異常原因', () => {
     const { container } = render(
-      <ItemProcurementSection detail={detail()} suppliers={[]} suppliersFailed={false} />,
+      <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
     );
     const table = container.querySelector('table')!;
     const text = table.textContent ?? '';
@@ -93,7 +96,7 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     const d = detail();
     d.items[0]!.procurements = [];
     const { getByText } = render(
-      <ItemProcurementSection detail={d} suppliers={[]} suppliersFailed={false} />,
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
     expect(getByText(/還沒有採購紀錄/)).toBeTruthy();
   });
@@ -103,7 +106,7 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     const d = detail();
     d.items[0]!.procurements = [proc({ supplierLabel: null })];
     const { getByText } = render(
-      <ItemProcurementSection detail={d} suppliers={[]} suppliersFailed={false} />,
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
     expect(getByText('(供應商資料缺)')).toBeTruthy();
   });
@@ -115,7 +118,7 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     const d = detail();
     d.items[0]!.procurements = [proc({ supplierIsActive: isActive as boolean | null })];
     const { getByText } = render(
-      <ItemProcurementSection detail={d} suppliers={[]} suppliersFailed={false} />,
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
     expect(getByText(label)).toBeTruthy();
   });
@@ -124,7 +127,7 @@ describe('ItemProcurementSection — 採購列顯示', () => {
 describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
   it('itemsTruncated(外層)→ 顯示整單警告、且每個品項的表單都拒送', () => {
     const { container, getByText } = render(
-      <ItemProcurementSection
+      <ItemProcurementSection returnTo={RETURN_TO}
         detail={detail({ itemsTruncated: true })}
         suppliers={[]}
         suppliersFailed={false}
@@ -141,7 +144,7 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
     const d = detail();
     d.items[0]!.procurementTruncated = true;
     const { container, getByText } = render(
-      <ItemProcurementSection detail={d} suppliers={[]} suppliersFailed={false} />,
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
     expect(getByText(/採購紀錄這次沒有完整載入/)).toBeTruthy();
     expect(container.querySelector('button[type="submit"]')).toBeNull();
@@ -149,7 +152,7 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
 
   it('兩個都 false → 表單可送', () => {
     const { container } = render(
-      <ItemProcurementSection detail={detail()} suppliers={[]} suppliersFailed={false} />,
+      <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
     );
     expect(container.querySelector('button[type="submit"]')).not.toBeNull();
   });
@@ -161,7 +164,7 @@ describe('ItemProcurementSection — 供應商清單', () => {
     const d = detail();
     d.items[0]!.procurements = [proc({ supplierId: SUP_A, supplierIsActive: false })];
     const { container } = render(
-      <ItemProcurementSection
+      <ItemProcurementSection returnTo={RETURN_TO}
         detail={d}
         suppliers={[{ id: SUP_B, label: 'Webike TW' }]}
         suppliersFailed={false}
@@ -176,7 +179,7 @@ describe('ItemProcurementSection — 供應商清單', () => {
   //    而供應商不可刪除 ⇒ 製造永久垃圾列(`lib/supplier.ts:22-26` 逐字)。
   it('suppliersFailed → 顯示警告,不是靜默的空選單', () => {
     const { getByText } = render(
-      <ItemProcurementSection detail={detail()} suppliers={[]} suppliersFailed />,
+      <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed />,
     );
     expect(getByText(/供應商清單載入失敗/)).toBeTruthy();
   });

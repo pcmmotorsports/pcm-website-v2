@@ -63,7 +63,7 @@ const CHOICES = [
 
 function setup(over: Partial<Parameters<typeof ItemProcurementForm>[0]> = {}) {
   return render(
-    <ItemProcurementForm
+    <ItemProcurementForm returnTo={RETURN_TO}
       orderId={ORDER}
       orderItemId={ITEM}
       procurements={[proc()]}
@@ -80,6 +80,25 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+});
+
+/** #350d-3:表單的 `return_to` 值(用過得了 parser 的形狀:站內 /orders 路徑)。 */
+const RETURN_TO = '/orders?payment_status=paid';
+
+describe('#350d-3 return_to 這一跳(表單 → action)', () => {
+  // 🔴🔴 **這一跳最容易零守門**(取消線 R1 must-fix 2 的同型):元件收了 prop、action 讀了欄位,
+  //    但**中間那顆 hidden input 沒有人數** ⇒ 刪掉它全套照樣綠,而正式站每次登錄採購都靜默走
+  //    fallback、把面板關掉。突變:拿掉那行 `<input name={ORDER_RETURN_TO_FIELD}>` ⇒ 這格紅。
+  it('送出去的 FormData 帶著逐字相同的 return_to,而且是 hidden input', () => {
+    const { container } = setup();
+    const form = container.querySelector('form');
+    if (form === null) throw new Error('沒有 form 可以送出');
+    expect(new FormData(form).getAll('return_to')).toEqual([RETURN_TO]);
+    const els = Array.from(container.querySelectorAll('[name="return_to"]'));
+    expect(els).toHaveLength(1);
+    expect(els[0]?.tagName).toBe('INPUT');
+    expect(els[0]?.getAttribute('type')).toBe('hidden');
+  });
 });
 
 describe('ItemProcurementForm — 選供應商即 hydrate(全量 payload 的承重)', () => {
@@ -289,7 +308,7 @@ describe('ItemProcurementForm — hydration 閘(關卡2 Critical)', () => {
   //    ⇒ 用 server render 直接看那份 HTML。
   it('🔴 server render 的 HTML:旗標 = 0、且**沒有** submit 鈕', () => {
     const html = renderToStaticMarkup(
-      <ItemProcurementForm
+      <ItemProcurementForm returnTo={RETURN_TO}
         orderId={ORDER}
         orderItemId={ITEM}
         procurements={[proc()]}

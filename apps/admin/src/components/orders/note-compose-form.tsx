@@ -14,6 +14,7 @@ import {
   type NoteActionState,
 } from '../../lib/orders/note-action-state';
 import { NOTE_CHANNELS, NOTE_TYPES, type NoteType } from '../../lib/orders/note-form';
+import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import {
   CORRECTION_IRREVOCABLE_NOTICE,
   NOTE_CHANNEL_LABEL,
@@ -80,11 +81,18 @@ const RADIO_LABEL = 'flex items-center gap-1.5 text-sm';
 
 export function NoteComposeForm({
   orderId,
+  returnTo,
   serverToken,
   correctTarget,
   correctionMissing = false,
 }: {
   orderId: string;
+  /**
+   * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**(整頁 `/orders/{id}` / 面板帶 `panel` 的列表)。
+   * 🔴 值不可信任(client 送得回來):action 端一律再過 `parseOrderReturnTo`,
+   *    非法或指向別張單 ⇒ fail-closed 退回本單明細頁。
+   */
+  returnTo: string;
   /** 🔴 由 server component 渲染期產(Q2=C;不得落任何快取層 —— 見 note-action-state.ts:47-50) */
   serverToken: string;
   correctTarget: CorrectTarget | null;
@@ -174,6 +182,7 @@ export function NoteComposeForm({
       >
         <input type='hidden' name={NOTE_ORDER_ID_FIELD} value={orderId} />
         <input type='hidden' name={NOTE_REQUEST_TOKEN_FIELD} value={requestToken} />
+        <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
         {correctTarget && (
           <input type='hidden' name={NOTE_CORRECTS_FIELD} value={correctTarget.id} />
         )}

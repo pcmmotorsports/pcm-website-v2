@@ -28,6 +28,7 @@ import {
   toTaipeiInputValue,
   type ProcurementSupplierChoice,
 } from '../../lib/orders/procurement-view';
+import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
 // M-4b E10 A10b:單一品項的採購表單(upsert;master plan `:404` row 57)。
@@ -73,12 +74,18 @@ function secondsOf(iso: string | null): string {
 
 export function ItemProcurementForm({
   orderId,
+  returnTo,
   orderItemId,
   procurements,
   supplierChoices,
   truncated,
 }: {
   orderId: string;
+  /**
+   * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**。值不可信任:action 端一律再過
+   * `parseOrderReturnTo`(站內白名單 + 剝一次性參數 + §6-1 同單比對)。
+   */
+  returnTo: string;
   orderItemId: string;
   procurements: readonly AdminOrderItemProcurement[];
   supplierChoices: readonly ProcurementSupplierChoice[];
@@ -198,6 +205,7 @@ export function ItemProcurementForm({
   return (
     <form action={formAction} className='mt-3 border-t pt-3'>
       <input type='hidden' name={PROC_ORDER_ID_FIELD} value={orderId} />
+      <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
       <input type='hidden' name={PROC_ORDER_ITEM_ID_FIELD} value={orderItemId} />
       <input type='hidden' name={PROC_STALE_FIELD} value={truncated ? '1' : '0'} />
       <input type='hidden' name={PROC_HYDRATED_FIELD} value={hydrated ? '1' : '0'} />

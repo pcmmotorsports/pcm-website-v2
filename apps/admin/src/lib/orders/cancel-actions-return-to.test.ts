@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   cancelOrder: vi.fn(),
 }));
 
+// `order-revalidate.ts` 走 `server-only`(#350d-3 契約 §5 的單一實作)。
+vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({
   redirect: mocks.redirect,
   RedirectType: { replace: 'replace', push: 'push' },
