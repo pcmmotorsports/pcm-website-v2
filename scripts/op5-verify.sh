@@ -5,9 +5,11 @@
 # 分工照 op2b-verify.sh / op3-verify.sh:migration 檔尾只做**不依賴業務資料**的結構斷言;
 # 真正的行為(落一列、逐欄正確、冪等、每一道拒絕路徑零落帳)需要真訂單當 fixture,在這裡跑。
 #
-# 🔴 本 harness 以 **owner(postgres)** 身分呼叫 —— 本片**刻意零 GRANT**(分期開權,見 migration 檔頭):
-#    EXECUTE 要等 OP-A12 與沖銷 RPC 一起開。owner 天生可執行自己的函式,所以這裡測得到行為;
-#    但要誠實記住:**本檔全綠不等於正式路徑可呼叫**,那一半要等 OP-A12 開權後才成立。
+# 🔴 本 harness 以 **owner(postgres)** 身分呼叫。OP5 自己那支 migration 刻意零 GRANT(分期開權),
+#    而**開權已經發生**:OP-A12(20260810210000)在同一交易 GRANT 兩支
+#    ⇒ 下方 S1 的極性已跟著翻成「service_role 拿得到、anon/authenticated/authenticator 拿不到」。
+#    owner 天生可執行自己的函式,所以這裡測得到行為;但**本檔全綠仍不等於正式路徑可呼叫** ——
+#    「service_role 真的寫得進去」那一半在 opa12-verify.sh 的 P5 格(SET LOCAL ROLE)證。
 #
 # 🔴 判定紀律(同 op3-verify.sh):每格自己比 SQLSTATE / CONSTRAINT 名 / 訊息;fail-closed
 #    (psql 退出碼 + sentinel);輸入類負向格另比**訊息片段**(否則拿掉某一道閘、下一道會接手擋、
@@ -21,18 +23,18 @@
 #                       當日入帳交叉格 / clock 窗 / 逐軌下限邊界
 #   N1-N19 負向         每格只讓一道閘失敗;有 CONSTRAINT 名的比名,沒有的比 SQLSTATE=P0001
 #                       + 本 RPC 的具名訊息前綴(+ 能指名的再比一段訊息片段)
-#   S1-S3  結構         ACL 分期開權極性 / SECDEF fail-open 面 / 碼錨與順序錨
+#   S1-S3  結構         ACL 終態(A12 開權後的極性)/ SECDEF fail-open 面 / 碼錨與順序錨
 #   C1     併發         雙 session rendezvous:A 觀察到 B 真的卡在它的 orders 列鎖上才提交
 #                       (有界輪詢、等不到就紅);再驗 B 走冪等樹(逐字 idempotent: true)與最終恰一列
 #
 # ⚠️ 已知邊界(誠實列,不假裝關完):
-#   · 本檔以 owner 呼叫 ⇒ 證不到 service_role 路徑(那要等 OP-A12 開權)。
+#   · 本檔以 owner 呼叫 ⇒ 證不到「service_role 真的寫得進去」(該半在 opa12-verify.sh 的 P5 格)。
 #   · C1 量的是「B 被 A 擋住」與「A commit 後 B 走冪等樹」;**unique 真撞在同單情境下不可構造**
 #     (orders FOR UPDATE 已序列化)⇒ 那條 backstop 本檔不宣稱測過。
 #   · 時區相關的格用 Asia/Taipei 明寫,不依賴 session 的 TimeZone 設定。
 #
 # 用法:
-#   bash scripts/op5-verify.sh all <workdir>          # provision -> 跑 -> teardown
+#   bash scripts/op5-verify.sh all <workdir>          # provision -> 跑(🔴 不含 teardown,自己收)
 #   PORT=54375 bash scripts/op5-verify.sh run /tmp/x  # 對已起好的庫跑(C1 會被跳過並記錄)
 # ============================================================
 set -uo pipefail
@@ -642,26 +644,21 @@ END
 \$n18\$;
 ROLLBACK;"
 
-log "S1-S3 結構:ACL 分期開權極性 / SECDEF fail-open 面 / 碼錨與順序錨"
-run_case "S1 ACL:proacl 非 NULL 且 owner 以外零 EXECUTE(分期開權,到期點=OP-A12)" "OP5-S1-OK" "
+log "S1-S3 結構:ACL 終態(A12 開權後的極性)/ SECDEF fail-open 面 / 碼錨與順序錨"
+run_case "S1 ACL 終態(**OP-A12 已開權**):service_role=真、anon/authenticated/authenticator=假" "OP5-S1-OK" "
 DO \$s1\$
-DECLARE v_fn oid; v_acl text; v_bad text;
+DECLARE v_sig constant text := 'public.admin_record_manual_payment(uuid,uuid,text,text,integer,timestamptz,text,text)';
+        v_bad text;
 BEGIN
-  SELECT p.oid, p.proacl::text INTO v_fn, v_acl FROM pg_catalog.pg_proc p
-   WHERE p.oid = 'public.admin_record_manual_payment(uuid,uuid,text,text,integer,timestamptz,text,text)'::regprocedure;
-  IF v_acl IS NULL THEN RAISE EXCEPTION 'proacl 是 NULL ⇒ PG 的預設是 EXECUTE TO PUBLIC'; END IF;
-  SELECT pg_catalog.string_agg(DISTINCT
-           CASE WHEN g.grantee = 0 THEN 'PUBLIC' ELSE g.grantee::regrole::text END, ', ') INTO v_bad
-    FROM pg_catalog.pg_proc p CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) g
-   WHERE p.oid = v_fn AND g.grantee <> p.proowner;
-  IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION '本片應為零 GRANT,但有 owner 以外的 grantee(%)。
-   處置 = 若這是 OP-A12 的開權,請**同批**把本格與 migration 檔尾 ⑧ 的極性一起翻成 service_role only
-   並補 has_function_privilege 斷言,**不是把這道閘拿掉**;若不是 OP-A12,那就是有人偷開權。', v_bad;
-  END IF;
-  IF pg_catalog.has_function_privilege('service_role',
-       'public.admin_record_manual_payment(uuid,uuid,text,text,integer,timestamptz,text,text)', 'EXECUTE') THEN
-    RAISE EXCEPTION 'service_role 有效權限拿得到 EXECUTE(可能經 role 繼承)⇒ 分期開權被繞過';
+  -- 🔴 極性已於 OP-A12 那片翻轉(本片原本斷言「零 EXECUTE」=分期開權期間的正確終態)。
+  --    到期點就是 A12:它同片 GRANT 兩支,所以這裡改問「service_role 拿得到、其餘拿不到」。
+  --    ⚠️ 誠實邊界照舊:has_function_privilege 涵蓋這些角色(含繼承),不涵蓋清單外角色/owner/superuser。
+  SELECT pg_catalog.string_agg(x.r, ', ' ORDER BY x.r) INTO v_bad
+    FROM unnest(ARRAY['anon','authenticated','authenticator']) x(r)
+   WHERE pg_catalog.has_function_privilege(x.r, v_sig, 'EXECUTE');
+  IF v_bad IS NOT NULL THEN RAISE EXCEPTION '這些角色不該拿得到 EXECUTE:%', v_bad; END IF;
+  IF NOT pg_catalog.has_function_privilege('service_role', v_sig, 'EXECUTE') THEN
+    RAISE EXCEPTION 'service_role 拿不到 EXECUTE ⇒ A12 的開權沒生效,正式站會噴 42501';
   END IF;
   RAISE NOTICE 'OP5-S1-OK';
 END
@@ -735,7 +732,7 @@ END
 
 log "C1 併發:B 真的被 A 的 orders 列鎖擋住"
 # 🔴 這格與其他格的紀律**不同**:它必須真的 COMMIT 才量得到鎖等待,所以會在本表留下一列。
-#    ⇒ 只在 all 模式跑(跑完整個 cluster 會被 teardown 掉);run 模式一律跳過並記錄,不靜默略過。
+#    ⇒ 只在 all 模式跑(該庫自此髒掉,跑完自己 teardown);run 模式一律跳過並記錄,不靜默略過。
 # 🔴 FAIL 只綁在**可構造的那一半**:「B 沒有被 A 擋住」。
 #    「B 最後是走冪等樹而不是撞 unique」是預期結果、據實記錄 —— 同單的 orders FOR UPDATE
 #    已經序列化,unique 真撞在這個情境下本來就構造不出來(Fable R3 #5)。
@@ -826,7 +823,8 @@ SQLB
     else
       bad "C1:B 沒走冪等樹或 A 沒成功(A rc=$A_RC B rc=$B_RC,B 輸出=$(tr '\n' ' ' < "$C1_OUT/b.log" | cut -c1-200))"
     fi
-    echo "     (C1 已提交一列,本庫自此不得再跑其他格;all 模式跑完會 teardown 整個 cluster)"
+    echo "     (C1 已提交一列,本庫自此不得再跑其他格。🔴 本腳本**不會**自己 teardown ——"
+    echo "      跑完請自己收:PORT=$PORT bash scripts/d1t2-rehearsal.sh teardown $WORK)"
   fi
 fi
 
