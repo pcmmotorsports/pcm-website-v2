@@ -6,7 +6,7 @@
 # 真正的行為(落一列、逐欄正確、冪等、每一道拒絕路徑零落帳)需要真訂單當 fixture,在這裡跑。
 #
 # 🔴 本 harness 以 **owner(postgres)** 身分呼叫。OP5 自己那支 migration 刻意零 GRANT(分期開權),
-#    而**開權已經發生**:OP-A12(20260810210000)在同一交易 GRANT 兩支
+#    而**開權已經發生**:OP-A12(20260810220000)在同一交易 GRANT 兩支
 #    ⇒ 下方 S1 的極性已跟著翻成「service_role 拿得到、anon/authenticated/authenticator 拿不到」。
 #    owner 天生可執行自己的函式,所以這裡測得到行為;但**本檔全綠仍不等於正式路徑可呼叫** ——
 #    「service_role 真的寫得進去」那一半在 opa12-verify.sh 的 P5 格(SET LOCAL ROLE)證。
