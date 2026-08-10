@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// 🔴 **#363**:本檔靜態 import `./cancel-order-forms`,而它現在(間接)載入帶
+//    `import 'server-only'` 的產生器模組 ⇒ 在 vitest(jsdom 也一樣)會拋。
+//    逐檔 mock 是本 repo 的既有處置(jsdom 前例:`app/orders/[id]/cancel-wiring.test.tsx`);
+//    刻意**不**開全域 setupFiles(那會改動全 repo 測試基建、超出 #363 片界)。
+vi.mock('server-only', () => ({}));
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -624,27 +629,99 @@ describe('A13b E1 不變式(i):送出值不得被 client 層承載', () => {
   });
 });
 
-describe('A13b E1 token 守門:擴到所有呼叫點(關卡1 R2 #5 的處置 = 文字層 + 寫死已知繞法)', () => {
-  it('🔴 凡是呼叫 `generateCancelRequestToken(` 的檔,都不得是 client 檔、也不得碰快取層', () => {
-    // 🔴 **這條的能力邊界寫死在這裡,不要當它是機制**(主視窗 08-10 裁 C:片 1 走文字層):
-    //    已知四種繞法它都抓不到 —— ①`import { generateCancelRequestToken as makeToken }` 改名
-    //    ②呼叫寫成換行 `generateCancelRequestToken\n(` ③把呼叫點搬進 `.ts` 檔
-    //    ④搬到 `components/orders/` 以外的目錄。
-    //    真正擋得住的是機制層(獨立模組 + `import 'server-only'`,build 期紅),
-    //    已立 backlog(見本片 STOP 信的草稿),不在本片。
+describe('#363 token 守門:機制層接手 import 面,本層改守 **inline 產生器** 面', () => {
+  // 🔴🔴 **兩層守的是不同的面,所以這一條不能刪**(#363 裁 Q1=A):
+  //    - **機制層**(`lib/orders/cancel-request-token.ts` 的 `import 'server-only'`)擋
+  //      「client 檔 **import** 那支共用產生器」⇒ build 期紅。#363 立案記的四種文字層繞法
+  //      (改名 import / 換行呼叫 / 搬進 `.ts` / 搬出本目錄)**對它全部失效**,因為它看模組圖。
+  //    - **本層**(文字層)擋機制層**擋不到**的那一面:**在取消線的 client 檔裡自己寫一行
+  //      `crypto.randomUUID()`**。機制層對這條路完全無感 —— 它根本沒有 import 任何東西。
+  //    🔴 **這條路真的有人走**:`note-compose-form.tsx`(`'use client'`)的 `regenerateToken()`
+  //      就是 inline `crypto.randomUUID()` + `Math.random` 退路,而且是**刻意的**
+  //      (bfcache 復原換鍵、備註線債④)。⇒ 備註線**不是**本條的目標,本條只掃**取消線**的 client 檔。
+  //    ⇒ 正確宣稱:「取消線 token **不可能經由 import 共用產生器**在 client 產生」,
+  //      **不是**「不可能在 client 產生」。
+  it('🔴 取消線的 client 檔不得自己 inline 產 token(機制層擋不到這一面)', () => {
     const stripComments = (src: string) =>
       src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     const dir = __dirname;
-    const files = readdirSync(dir).filter((f) => f.endsWith('.tsx') && !f.includes('.test.'));
-    const callers = files.filter((f) =>
-      readFileSync(join(dir, f), 'utf8').includes('generateCancelRequestToken('),
+    // 🔴 **檔名條件是「含 `cancel`」不是「以 `cancel-` 開頭」**(opus nit + 我自攻同條):
+    //    同目錄就有反例 `order-cancel-block.tsx` —— 取消線元件、但不是 `cancel-` 前綴。
+    //    它今天是 server 檔(所以今天沒洞),前綴寫法的問題是**哪天它加上 `'use client'` 會靜默不被涵蓋**。
+    const cancelFiles = readdirSync(dir).filter(
+      (f) => /cancel/i.test(f) && f.endsWith('.tsx') && !f.includes('.test.'),
     );
-    // 正向對照:掃描範圍不能是空的,否則整條斷言恆真。
-    expect(callers).toContain('cancel-order-forms.tsx');
-    for (const f of callers) {
+    // 🔴 正向對照一:掃描範圍不能是空的,否則整條恆真。
+    expect(cancelFiles.length).toBeGreaterThan(0);
+    // 🔴🔴 **必須先剝註解再判 `'use client'`**(opus must-fix 1,實跑打掉我上一版):
+    //    上一版拿**未剝註解**的原始碼去比 `/['"]use client['"]/` ⇒ 命中 **5 支**
+    //    (2 支真 client + 3 支只是在註解裡**提到** `'use client'`)。兩個後果:
+    //      ① 我寫的「今天恰有兩支」是**字面 vs 事實**;
+    //      ② 更糟:下面那個「client 檔集合不能是空的」正向對照**恆綠** ——
+    //         真 client 檔全被搬走時,那三支註解命中照樣讓它 >0。
+    //    ⚠️ 而且同一格 `:randomUUID` 那邊**本來就剝了**註解 ⇒ 兩邊不對稱正是漏洞的來源。
+    const clientFiles = cancelFiles.filter((f) =>
+      /['"]use client['"]/.test(stripComments(readFileSync(join(dir, f), 'utf8'))),
+    );
+    // 🔴 正向對照二:集合不能空,**且必須真的含一支已知的 client 檔** ——
+    //    只寫 `>0` 的話,任何一支「湊數」的命中都能讓它綠(那正是上一版的病)。
+    //    釘一支具名的:`cancel-form-body.tsx` 是取消線唯一承載表單互動的 client 元件,
+    //    它若改名/消失,本守門**應該**要紅一次讓人回來看,不該靜靜放過。
+    expect(clientFiles).toContain('cancel-form-body.tsx');
+    for (const f of clientFiles) {
       const code = stripComments(readFileSync(join(dir, f), 'utf8'));
-      expect(code, `${f} 不得是 client 檔`).not.toMatch(/['"]use client['"]/);
-      expect(code, `${f} 不得碰快取層`).not.toMatch(/\bcache\b/i);
+      expect(code, `${f} 不得 inline 產 token(randomUUID)`).not.toMatch(/randomUUID/);
+      expect(code, `${f} 不得 inline 產 token(Math.random)`).not.toMatch(/Math\s*\.\s*random/);
+      // 🔴 `getRandomValues` **不是假想繞法**:本 repo 既有慣用法
+      //    (`lib/sso/state.ts`、`lib/session/session.ts` 都在用)⇒ 手搓一顆 uuid 完全走得通,
+      //    而 `randomUUID` / `Math.random` 兩條字串都攔不到它。
+      expect(code, `${f} 不得 inline 產 token(getRandomValues)`).not.toMatch(/getRandomValues/);
     }
+  });
+
+  // 🔴 **本格的涵蓋面比 HEAD 版**窄**,這件事要說清楚(opus nit,commit body 也揭示)**:
+  //    HEAD 版掃的是「**動態算出來的 caller 集合**」(誰呼叫 `generateCancelRequestToken(` 就掃誰);
+  //    本格改成**寫死讀一個檔名**(產生器模組)。今天零損失(產生器就只住在那一個檔),
+  //    但**未來多一個呼叫檔時不再自動被蓋** —— 那時要回來把這格改回動態集合。
+  it('🔴 server-only 產生器模組本身不得碰快取層,且必須真的帶 `import \'server-only\'`', () => {
+    const tokenModule = readFileSync(
+      join(__dirname, '..', '..', 'lib', 'orders', 'cancel-request-token.ts'),
+      'utf8',
+    );
+    // 🔴 **這一行是「存在性斷言」,自己承認它零效果證明力** —— 它只證明那行字還在,
+    //    不證明 build 真的會紅。效果面由 #363 的一次性 fixture 實測(M1/M3,逐字輸出寫在該模組檔頭)。
+    //    ⓘ 精確說法(opus 角度①更正我原本偏悲觀的字面):機制**每次 `next build` 都在守**
+    //    (鐵則 11 收工必跑 build)⇒ 是「**常態生效、但不常態被證明生效**」,不是「不在守」。
+    expect(tokenModule).toMatch(/^import 'server-only';/m);
+    const code = tokenModule.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    // 🔴🔴 **`/\bcache\b/i` 對 `unstable_cache` 不命中 —— `_` 是 word character、沒有邊界**
+    //    (codex 關卡2 must-fix,我 `node -e` 實測確認:`unstable_cache(fn)` → **false**、
+    //     `React.cache(fn)` → true)。⇒ 這道對 docstring **自己點名的那個快取層**一直是恆真。
+    //    ⚠️ **這是既有洞、不是本片引入的**:同一條正規式從舊守門原封抄過來。
+    //    ⚠️ 也**只修了具名的這兩個** —— 別把它讀成「所有快取層都守住了」(自訂的 memo 包裝照樣過)。
+    expect(code, '產生器模組不得碰 unstable_cache').not.toMatch(/unstable_cache/);
+    expect(code, '產生器模組不得碰 React.cache / cache()').not.toMatch(/\bcache\b/i);
+    // 🔴 **宣稱降級(codex must-fix)**:這條只證明「本模組只有**一個直接** `randomUUID` 呼叫」,
+    //    **證不到**「產生器只有一條路」—— 包一層 helper、改用 `getRandomValues`、或換別的演算法,
+    //    這條都照樣綠。要真的唯一,得有可列舉的單一產生入口(本片沒做)。
+    expect(code.match(/randomUUID/g)?.length ?? 0).toBe(1);
+  });
+
+  // 🔴 **re-export 禁令從註解升級成守門(opus nit:零成本常駐化)**:
+  //    `cancel-request-token.ts` 檔頭寫著「不得從 `cancel-action-state.ts` re-export 本模組」,
+  //    但那句原本**零機制** —— 有人 re-export 的話沒有任何東西會紅,而後果是
+  //    `server-only` 被拉回 client 模組圖(該檔有兩支 `'use client'` importer)。
+  //    ⇒ 一行原始碼層守門就守得住:那個 client-safe 檔裡不得出現本模組的名字。
+  it('🔴 client-safe 的 `cancel-action-state.ts` 不得 re-export / import 產生器模組', () => {
+    const clientSafe = readFileSync(
+      join(__dirname, '..', '..', 'lib', 'orders', 'cancel-action-state.ts'),
+      'utf8',
+    );
+    const code = clientSafe.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    // ⚠️ 剝註解是**必要**的:該檔的註解**刻意**提到 `cancel-request-token`(指路用)⇒
+    //    不剝的話這條恆紅,而且是紅在正確的字面上 = 最難查的那種假紅。
+    expect(code, 'client-safe 檔不得碰產生器模組(會把 server-only 拉回 client 圖)').not.toMatch(
+      /cancel-request-token/,
+    );
   });
 });

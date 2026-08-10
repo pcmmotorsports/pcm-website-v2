@@ -1,5 +1,10 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+// 🔴 **#363**:本檔 `renderToStaticMarkup(真元件)`,而真元件現在(間接)載入帶
+//    `import 'server-only'` 的產生器模組 ⇒ 不 mock 的話本檔 7 格全紅,錯誤逐字是
+//    `server-only/index.js:1 This module cannot be imported from a Client Component module`
+//    (實測長相、不是推測)。逐檔 mock = 本 repo 既有處置,刻意不開全域 setupFiles。
+vi.mock('server-only', () => ({}));
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';

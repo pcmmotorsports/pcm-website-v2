@@ -9539,7 +9539,12 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 🔴 **harness 自己的三個坑(都會產出假的「全新鮮」,寫下來讓案 A 不要重踩)**:①prod build 把 server 端 `process.env` **編譯期內聯** ⇒ 變體從未生效而四格看起來全正常(修法=變體走 formData,並把「實際走的分支」寫回 DOM 當斷言)②port 被殘留程序佔住 ⇒ `next start` 靜默 `EADDRINUSE`、探針打到**別的 build**,而 **「curl 回 200」與「HTML 有那顆 hidden 欄」兩道都攔不住**(唯一有效守門 = `start.sh` 裡「聽 port 的必須是我們剛啟動的 PID」)③「有沒有重抓 `main-app.js` chunk」判斷整頁重載**恆為 true**=假警報,要改用「送出前插的 JS 全域還在不在」。
 - **編號註**:立案當下最大=#363(E 窗 token 守門,已派號)。
 
-### #363. 🔐 token 產生點的守門從文字層升級成機制層(server-only)(A13b E1 立案;E 窗草稿原文)
+### #363. ✅ 已完成(2026-08-10)token 產生點的守門從文字層升級成機制層(server-only)(A13b E1 立案;E 窗草稿原文)
+
+🔴 **完工摘要與下面「立案當下原文」的兩處差異(單獨讀本條的人必看)**:
+1. **「這不是取消線專屬:備註線、退款線的 token 產生點吃同一個形狀」= 已被推翻**,見 **#373**。形狀相同,但**備註線今天有一條刻意的 client 端換鍵路徑**(bfcache),教義未經重新驗證 ⇒ **不可搭同一片**。本片**只做取消線**。
+2. **「代價:要動 vitest alias 或測試 setup」= 估錯方向**。實查:repo 既有處置是**逐檔一行 `vi.mock('server-only', () => ({}))`**(payment 五支前例 + jsdom 前例),root `vitest.config.ts` 無 `setupFiles`,本片**刻意不開**全域 setup。真成本在原文**沒提到**的地方:`cancel-forms-hydrated.test.tsx` 那支 esbuild harness 會把整棵樹打包進瀏覽器 ⇒ 要在它的 stub plugin 裡換掉 `server-only`。
+3. **落地範圍**:新模組 `lib/orders/cancel-request-token.ts`(`import 'server-only'`)+ 呼叫端一處改 import + 文字層那條守門**改守 inline 產生器面**(機制層擋 import、文字層擋 inline,**兩層守不同的面**)。能力邊界逐字寫在該模組檔頭:**「不可能經由 import 這支共用產生器在 client 產生」,不是「不可能在 client 產生」。**
 
 現況:`cancel-order-forms.test.tsx` 用「掃 components/orders/*.tsx、含 generateCancelRequestToken( 的檔不得有 'use client'」擋。已知四種繞法它都抓不到:改名 import(`as makeToken`)、換行呼叫、把呼叫點搬進 .ts、搬到 components/orders/ 以外。
 修法:把 token 產生器拆成獨立模組 + `import 'server-only'` ⇒ 從 client 元件 import 會在 build 期紅。
@@ -9611,3 +9616,16 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **不修會痛在哪**:開權後才發現=登錯帳不能更正(A12)/退款態的真實入帳永遠記不進(A13)/收款與取消互相矛盾的單(A14)/記不進的錢無處可放(A15)。
 - **排程**:A12=B 線 OP5 後下一片(開權前置檢查表全表);A13 掛 OP6;A14 歸 OP6/A8 線;A15 排接 UI 前。
 - **編號註**:立案當下最大=#371(grep repo+信箱兩邊實查)。
+
+### #373. 🔐 備註線 / 退款線的 token 產生點:各自判教義,再決定要不要跟進 #363 的 server-only 機制(#363 立案)
+
+- **來源**:#363(取消線 token 產生點升級 server-only)實作時的範圍界線。#363 原文寫著「這不是取消線專屬:備註線、退款線的 token 產生點吃同一個形狀」——**實查後那句要修正:形狀相同,但備註線有一條刻意的 client 端換鍵路徑,而那條路徑的必要性尚未重新驗證** ⇒ 不能搭同一片。
+  🔴 **字面紀律(codex 關卡2 must-fix 更正我的第一版)**:我原本寫「教義**不同**」——那是**封口式斷言、我證不到**。實檔只能證明「備註線**目前**這樣實作 + 它當初的理由」,**證不到「那個必要性今天仍然成立」**(取消線是用「渲染期鑄 + 每次整頁重繪換新」解掉同一題的)。本條要判的就是這件事。
+- **實查(#363 偵察 pass)**:
+  - **退款線**:`generateRefundRequestToken` 的呼叫點三處(`app/orders/refund-exceptions/page.tsx`、`components/orders/order-detail.tsx`、`lib/payment/refund-*.ts`)**全在 server 檔** ⇒ 今天沒有洞,跟進 #363 是**純加固**,成本與取消線同形(拆模組 + 逐檔 `vi.mock('server-only')`)。
+  - 🔴 **備註線不一樣,它今天就有一條 client 端鑄鍵路徑、而且是刻意的**:`components/orders/note-compose-form.tsx`(`'use client'`)有自己的 `regenerateToken()`(inline `crypto.randomUUID()` + 非 secure context 的 `Math.random` 退路),用途是 **bfcache 復原時換鍵**(取消線 `cancel-order-forms.tsx` 檔頭逐字記為「備註線把同一件事列成債④、用 client 端 `pageshow` 換鍵解決」)。
+    ⚠️ **精確範圍(opus nit;別讀成全線 client 鑄)**:該元件**另收一顆 `serverToken` prop** ⇒ **主鍵仍然是 server 鑄的**,client 只鑄「bfcache 換鍵」那一把。本條要判的是**那一把**,不是整條線。
+- **要做什麼**:**先判教義、後動手**。逐條回答:①備註線的 bfcache 換鍵是不是仍然必要(取消線是用「渲染期鑄 + 每次整頁重繪換新」解掉同一題的)②若必要,那條線的正確守門形狀是什麼(機制層擋不到 inline,只能靠文字層掃描 + 明寫例外)③退款線要不要單獨跟進。
+- **不修會痛在哪**:#363 之後**只有取消線**有機制層守門。若有人讀了 #363 就以為「全站 token 都不可能在 client 產生」,他會拿這個假前提去審備註線(而備註線是刻意 inline)或去設計新的線。⇒ 痛點是**假前提擴散**,不是今天有 bug。
+- **不修的現行緩解**:`lib/orders/cancel-request-token.ts` 檔頭已逐字寫死能力邊界(「不可能**經由 import 這支共用產生器**在 client 產生」,並點名備註線是刻意 inline 的活例),`cancel-order-forms.test.tsx` 的 inline 守門也明寫只掃取消線。
+- **編號註**:立案當下最大=**#372**(三邊實查:`grep '^### #'` repo 端最大 372、`grep '#373\|#374'` 信箱零命中、`git log -60 dev` 零命中)。

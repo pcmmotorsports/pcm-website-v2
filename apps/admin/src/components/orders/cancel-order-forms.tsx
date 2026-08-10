@@ -5,8 +5,10 @@ import {
   CANCEL_ORDER_ID_FIELD,
   CANCEL_REQUEST_TOKEN_FIELD,
   cancelItemQtyField,
-  generateCancelRequestToken,
 } from '../../lib/orders/cancel-action-state';
+// 🔴 #363:產生器改從**獨立的 server-only 模組**取(client 檔 import 它 = build 期紅)。
+//    這一行的 import 來源本身就是守門的一部分,別為了「少一個 import」搬回上面那支。
+import { generateCancelRequestToken } from '../../lib/orders/cancel-request-token';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { isItemSelectable, type CancelItemView } from '../../lib/orders/cancel-view';
 import { CancelFormBody } from './cancel-form-body';

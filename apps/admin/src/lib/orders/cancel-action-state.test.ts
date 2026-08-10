@@ -6,7 +6,6 @@ import {
   FAILURE_MESSAGES,
   notSentResultQuery,
   sentResultQuery,
-  generateCancelRequestToken,
   isCancelRequestToken,
   ORDER_CANCELLED_RESULT_CODE,
   toOrderCancelResultCode,
@@ -21,23 +20,13 @@ import {
 //    🔴 **D2b 的 must-survive 清單(已全數存活,勿再合併回去)**:本 describe 這四條
 //    + 六句文案那條 + 已送達四支措辭那條 + 碼清單那組。後三者已改成直接讀 `FAILURE_MESSAGES`
 //    / 兩個碼陣列,**不再經過任何會被刪的東西**。
-describe('cancel-action-state — token 產生器與形狀驗證(跨形狀活著,D2b 已保留)', () => {
-  it('產生器與驗證器同源:產出來的一定過得了驗證', () => {
-    const token = generateCancelRequestToken();
-    expect(isCancelRequestToken(token)).toBe(true);
-  });
-
-  // 🔴 關卡2 must-fix:把產生器換成回一顆固定合法 uuid,原本所有測試仍全綠 ——
-  //    而那正是「同一張單下一次不同 payload 撞既有 token/hash」的形狀。
-  it('🔴 產生器每次都不同(換成固定 uuid 要紅)', () => {
-    const tokens = new Set(Array.from({ length: 50 }, () => generateCancelRequestToken()));
-    expect(tokens.size).toBe(50);
-  });
-
-  it('🔴 `req_<uuid>` 形狀不算 token(前例 Fable F3:重用 generateRequestId 會讓整個功能死掉)', () => {
-    expect(isCancelRequestToken(`req_${generateCancelRequestToken()}`)).toBe(false);
-  });
-
+//
+// 🔴🔴 **#363 更新:原本這裡的四條,有三條已隨產生器搬去 `cancel-request-token.test.ts`。**
+//    產生器本體移進 server-only 模組(`./cancel-request-token.ts`)⇒ 碰產生器的那三條跟著**物理搬離**,
+//    不是只改 import —— 否則日後刪本 describe 的人會把它們連鍋端走(這正是上面那段警告的形狀)。
+//    **留在本檔的只有下面這一條**:它測的是**驗證器**(`isCancelRequestToken`),而驗證器沒搬。
+//    對帳:原四條 = 那邊三條 + 這裡一條,**總數不變**。describe 標題也跟著改,不留「產生器」字樣。
+describe('cancel-action-state — token 形狀驗證(產生器已於 #363 搬離本檔)', () => {
   // 🔴 關卡2 nit:原本用純數字 uuid,`toUpperCase()` 是 no-op ⇒ 這條根本沒在測大小寫
   //    (與 cancel-form.test.ts 同款的 fixture 坑,當時只修了那一支)。
   it('大小寫 uuid 皆收(手上有一把合法 uuid 卻被擋掉 = 難查的 bug)', () => {

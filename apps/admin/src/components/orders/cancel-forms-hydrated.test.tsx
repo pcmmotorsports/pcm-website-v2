@@ -176,6 +176,18 @@ const stubActionsPlugin = {
       }`,
       loader: 'js',
     }));
+    // 🔴 **#363**:`cancel-order-forms.tsx` 現在(間接)import 一個帶 `import 'server-only'`
+    //    的模組,而本 harness **把整棵樹打包進瀏覽器** ⇒ 不換掉它,bundle 會載到那顆
+    //    非 react-server 條件下就會拋的 shim(症狀:整份 bundle 掛掉 ⇒ 依本檔既有的
+    //    「SSR 標記由 bundle 自己產」設計,那不是靜默退化、四格會紅,但錯誤看不出根因)。
+    //    ⚠️ 用**獨立的 `empty` namespace**、不是塞進上面那個 `stub` ——
+    //    `stub` 的 onLoad 對整個 namespace 一律吐 cancel-actions 的內容,
+    //    把 `server-only` 導進去會讓它拿到一份 `cancelOrderAction`(能跑,但字面與事實不符)。
+    build.onResolve({ filter: /^server-only$/ }, () => ({
+      path: 'server-only',
+      namespace: 'empty',
+    }));
+    build.onLoad({ filter: /.*/, namespace: 'empty' }, () => ({ contents: '', loader: 'js' }));
   },
 };
 
