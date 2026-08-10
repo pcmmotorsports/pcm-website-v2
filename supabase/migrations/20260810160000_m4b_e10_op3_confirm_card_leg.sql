@@ -262,7 +262,41 @@ BEGIN
   SELECT pg_catalog.string_agg(m.member::regrole::text, ',' ORDER BY m.member::regrole::text)
     INTO v_members
     FROM pg_catalog.pg_auth_members m
-   WHERE m.roleid = 'payment_confirmer'::regrole;
+   WHERE m.roleid = 'payment_confirmer'::regrole
+     -- 🔴 2026-08-11 放行**唯一一筆**:member=postgres 且 grantor=supabase_admin 的那列。
+     --    實測(主視窗對正式庫唯讀量、B 窗未複驗):恰一列、member=postgres、grantor=supabase_admin、
+     --    admin_option=true,且用**本閘自己的運算式**算出 would_still_red=false;
+     --    我方 migration 全 repo grep 零命中該 GRANT。
+     --    ⚠️ 由此**推不出**「是平台種的」—— 有人在 dashboard 以 supabase_admin 身分手動 GRANT,
+     --      catalog 外觀一模一樣。**放行的正當性不建立在來源上**,而是下面這條。
+     --    · 為什麼不改成 REVOKE 拔掉:那是去動平台管理的狀態(可能被回種),而且**沒有必要**——
+     --      本閘要防的威脅由執行期守門覆蓋(見下)。
+     --      🔴 舊註解曾寫「拔了會讓 SET ROLE payment_confirmer 的交易模擬驗證法失效」=**錯的,已刪**:
+     --      `SET ROLE` 改的是 current_user、**不改 session_user**,拿它驗本函式一律紅在
+     --      pcm_op3_actor_wrong_role;本檔 harness 用的是 SET LOCAL SESSION AUTHORIZATION
+     --      (要 superuser、與成員資格無關)。
+     --    · 不比對 admin_option 是刻意的:它只決定能不能再轉授,false 是**更小**的權限面,
+     --      把它一起紅只會對「風險變小」發假紅。
+     -- 🔴 為什麼放行不弱化錢的守門:本閘只是 apply 那一刻的早停(檔頭 :67-68 已明文),
+     --    真正擋「成員用自己名字連線來刷卡」的是執行期 P2B36 兩層(pcm_op3_actor_wrong_role +
+     --    pcm_op3_actor_not_in_staff,函式體內、每次呼叫都問;行號會漂、用 CONSTRAINT 名找)。
+     --    ⚠️ 但「不弱化**安全**」不等於「本閘可有可無」:整道成員閘刪掉的話,錯誤的成員集合
+     --      就**不會在部署時被發現**,要等**正式站第一筆刷卡**才爆(那時紅的是 P2B36)。
+     --      ⇒ 本閘的獨有價值 = **上線前的可用性預警**,不是第二道安全鎖。要刪它前先想清楚這件事。
+     -- 🔴 這個白名單**不是**「新增機器軌角色」的入口:把某個角色加進白名單,只讓 apply 不紅;
+     --    它呼叫 confirm_order_payment **一樣會全紅在 P2B36**(session_user 不是 payment_confirmer)。
+     --    真要多一條機器軌,四件事要同步:actor 政策(檔頭那段拍板)、正式 DSN 的登入角色、
+     --    staff 對應列、P2B36 的允許集合。**只改這裡 = migration 綠、正式站每一筆刷卡都失敗。**
+     -- 🩺 值班提示:P2B36 目前會被 app 層 classifyPgError 歸成「連線失敗、可重試」(backlog #371)
+     --    ⇒ 刷卡全掛而畫面說「可重試」時,**先查 DB log 的 constraint 名**,別照畫面去查網路。
+     -- 🔴 用 pg_get_userbyid 不用 ::regrole:本機拋棄庫沒有 supabase_admin,轉型會 42704 整片紅。
+     -- ⚠️ 失效條件(到期日):本閘只看 apply 那一刻。apply 之後成員集合仍可能變 ——
+     --    來源不只 postgres 的轉授(admin_option=true),supabase_admin 自己也能再加。
+     --    🔴 而執行期 P2B36 **擋得住「錯身分來呼叫」,卻看不到 catalog 漂移**(它觀測的是呼叫者,
+     --      不是成員集合)⇒ 想「知道」成員變了,只能**另外定期查 pg_auth_members**。
+     --      目前**沒有**這個機制;要不要做,是 OP3 之外的題。
+     AND NOT (pg_catalog.pg_get_userbyid(m.member)  = 'postgres'
+          AND pg_catalog.pg_get_userbyid(m.grantor) = 'supabase_admin');
   IF v_members IS NOT NULL THEN
     RAISE EXCEPTION 'OP3 actor 前提閘:有角色是 payment_confirmer 的成員(%)⇒ 它們拿得到 EXECUTE,'
                     '但 session_user 會是它們自己的名字、staff 查無此列 ⇒ 那條路上每一筆刷卡都會撞 actor 的 FK。'
