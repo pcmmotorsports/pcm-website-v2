@@ -235,7 +235,15 @@ export async function loadShipmentCandidates(
     //    (可出 0 是罕見態)。改成到貨量起算後,可出 0 變成**常態**(貨還沒到)⇒ 濾掉它
     //    = 員工訂了 4 件卻在彈窗裡一列都看不到,那正是 #351 要修的「以為系統壞了」的變體。
     //    ⇒ 全部吐出去,由 `blockedReason` 告訴他為什麼、由彈窗把它畫成不可選。
-    items: details.flatMap((d) => itemsOf(d, assigned)),
+    // 🔴 **可出的排前面、出不了的沉底**(Sean 2026-08-10 晚拍 A;backlog `:9425` 逐字)。
+    //    理由:一次勾 5 張單可能是 40 列、其中 35 列是灰的,能出的那幾件散在中間就等於沒解決
+    //    #351 的「找不到 / 看不懂」。排序放 **server 端**,讓彈窗只負責畫。
+    // 🔴 `sort` 的穩定性是這裡的規格,不是實作細節:同一組內要維持「訂單 → 品項」的原順序,
+    //    員工才對得起訂單頁。ES2019 起 `Array.prototype.sort` **保證穩定**,所以比較子
+    //    **只准比「能不能出」這一個鍵**;多加任何 tie-breaker 都會把那個對齊打散。
+    items: details
+      .flatMap((d) => itemsOf(d, assigned))
+      .sort((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0)),
     customerUserId: complete ? [...distinct][0]! : null,
     recipient: details[0]!.shippingAddress,
   };
