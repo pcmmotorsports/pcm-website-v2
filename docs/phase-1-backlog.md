@@ -9823,3 +9823,15 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   (lightech 舊 host)⇒ 該預覽頁在 https 下那張圖是破的。#275 收官後它是全 repo 最後一個 `http://` 圖。
 - **編號註**:立案當下最大=#380;#381-#384 已被其他窗在信箱佔號(backlog 尚未落條目)⇒ 取 #385;
   `grep` repo 與信箱兩邊對 #385 皆 0 命中。
+
+### #387. 🗣️ 取消區「刷卡還在進行中」文案對已成功付款的單說謊(誤導值班)
+- **現象**(2026-08-11 Sean 實測):已付款單(attempt=charged)在後台取消區看到「這張單有一筆刷卡還在
+  進行中,等結束才能取消」——付款早已成功,不存在「進行中」。
+- **根因**(實讀):`packages/adapters/src/supabase/mappers/order.ts` `mapChargeAttemptGate` 把
+  「任何非 failed」的 attempt 一律判 `blocked`,charged(成功終態)與 pending(真在途)同碼;
+  `cancel-review-section.tsx` 的 `charge_attempt_blocked` 文案只寫了 pending 那種語意。
+- **擋人是對的**(已付款單本就不可在此取消=payment_not_unpaid 那條),錯的只有理由文案 ⇒ 純可讀性。
+- **修法候選**:A=gate 拆四態(clear/in_flight/settled_success/unknown),文案各自對 ⇒ 動 shared mapper=
+  鐵則 12⑥ 走 codex;B=文案層修:同時命中 payment_not_unpaid 時隱藏 charge_attempt_blocked 那張卡
+  (admin 端一行條件,不動 mapper)。
+- **不修會痛在哪**:員工看到「進行中」會去等/重新整理/懷疑系統,永遠等不到變化;第一次遇到的人會當成故障回報。
