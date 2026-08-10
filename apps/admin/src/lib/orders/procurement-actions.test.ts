@@ -172,6 +172,31 @@ describe('upsertItemProcurementAction — 截斷閘(A9a-2 MF1 的下游義務)',
     expect(mocks.upsertItemProcurement).toHaveBeenCalledTimes(1);
   });
 
+  // 🔴 #365(關卡2 審查 MF4):本片把 stale 閘的**判斷方向**改了 —— 原本「等於 '1' 才擋」,
+  //    單純換成 getAll 恰一筆會讓「送兩份」落在**不擋**那一側(讀成 null ≠ '1')= fail-open。
+  //    現在 invalid(含送兩份)也算擋。這兩格就是那個改動的負測,先前**零負測**。
+  it('🔴 stale 送兩份 [0,1] → 擋成 invalid(擋住,但不借用「沒完整載入」那句診斷)', async () => {
+    const f = fd();
+    f.delete(PROC_STALE_FIELD);
+    f.append(PROC_STALE_FIELD, '0');
+    f.append(PROC_STALE_FIELD, '1');
+    const state = await upsertItemProcurementAction(IDLE, f);
+    expect(state.status === 'failed' && state.code).toBe('invalid');
+    expect(mocks.upsertItemProcurement).not.toHaveBeenCalled();
+    // 釘住「行為真的變了」:舊寫法 get() 拿到的是第一筆 '0' ⇒ 不算截斷 ⇒ 會放行。
+    expect(f.get(PROC_STALE_FIELD)).toBe('0');
+  });
+
+  it('🔴 hydrated 送兩份 → 擋成 invalid(同理:形狀錯不借用「還沒載入完成」那句診斷)', async () => {
+    const f = fd();
+    f.delete(PROC_HYDRATED_FIELD);
+    f.append(PROC_HYDRATED_FIELD, '1');
+    f.append(PROC_HYDRATED_FIELD, '1');
+    const state = await upsertItemProcurementAction(IDLE, f);
+    expect(state.status === 'failed' && state.code).toBe('invalid');
+    expect(mocks.upsertItemProcurement).not.toHaveBeenCalled();
+  });
+
   it('截斷閘排在解析**之前**:表單同時 stale 且爛 → 回 stale 而不是 invalid', async () => {
     const state = await upsertItemProcurementAction(
       IDLE,

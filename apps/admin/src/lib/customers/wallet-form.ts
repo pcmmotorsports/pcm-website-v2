@@ -5,6 +5,7 @@
 // Sean 拍板(07-16、Q1=B):UI=「加值」「扣款」兩顆 submit(name=direction)+ 金額(正整數、元位)
 // + 備註必填;server 端負責 use → 轉負號(RPC 的 wallet_amount_sign 語意=deposit>0/use<0)。
 
+import { anyMalformed, readSingleString as readString } from '../forms/single-value';
 import type { FormLike } from '../orders/workflow-form';
 
 // ── 表單欄名(明細頁儲值金卡表單用)──
@@ -35,9 +36,7 @@ export type WalletAdjustParseResult =
     }
   | { ok: false };
 
-function asString(v: FormDataEntryValue | null): string | null {
-  return typeof v === 'string' ? v : null;
-}
+// #365:本地 asString 已刪,單值欄位改走共用的「getAll 恰一筆」讀法。
 
 /**
  * 表單 → { customerId, entryType, signedAmount, note }(形狀層;語意 fail-closed 在 RPC):
@@ -47,21 +46,35 @@ function asString(v: FormDataEntryValue | null): string | null {
  * - note 須 trim 後非空且 ≤200 字(必填=Sean Q1;RPC 端另拒控制字元);
  * - return_to:只接受站內絕對路徑 `/customers...`(防 open redirect、拒 `..`);非法 → 退 '/customers'。
  */
+/**
+ * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
+ * ⚠️ 漏列一欄 = 那一欄的「送兩份」洞照舊且無症狀 ⇒ 測試逐欄跑一遍當完整性守門。
+ */
+export const WALLET_SINGLE_FIELDS = [
+  WALLET_CUSTOMER_ID_FIELD,
+  WALLET_DIRECTION_FIELD,
+  WALLET_AMOUNT_FIELD,
+  WALLET_NOTE_FIELD,
+  WALLET_RETURN_TO_FIELD,
+] as const;
+
 export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
-  const customerId = asString(form.get(WALLET_CUSTOMER_ID_FIELD));
+  // 🔴 重複欄位在語意層之前擋掉(理由見 `anyMalformed` docstring)。
+  if (anyMalformed(form, WALLET_SINGLE_FIELDS)) return { ok: false };
+  const customerId = readString(form, WALLET_CUSTOMER_ID_FIELD);
   if (!customerId || !UUID_RE.test(customerId)) return { ok: false };
 
-  const direction = asString(form.get(WALLET_DIRECTION_FIELD));
+  const direction = readString(form, WALLET_DIRECTION_FIELD);
   if (direction !== 'deposit' && direction !== 'use') return { ok: false };
 
-  const amountRaw = (asString(form.get(WALLET_AMOUNT_FIELD)) ?? '').trim();
+  const amountRaw = (readString(form, WALLET_AMOUNT_FIELD) ?? '').trim();
   if (!/^\d{1,8}$/.test(amountRaw)) return { ok: false };
   const amount = Number(amountRaw);
   if (!Number.isInteger(amount) || amount < 1 || amount > WALLET_AMOUNT_MAX) {
     return { ok: false };
   }
 
-  const note = (asString(form.get(WALLET_NOTE_FIELD)) ?? '').trim();
+  const note = (readString(form, WALLET_NOTE_FIELD) ?? '').trim();
   if (note === '' || note.length > WALLET_NOTE_MAX) return { ok: false };
   // 零寬字防(codex F2 縱深):JS trim() 已吃 NBSP/全形空白/U+FEFF,但零寬(U+200B/200C/200D)不算
   // whitespace → 「看似空白」備註在此擋;語意權威=RPC v_ws 集(migration 20260716210000)。
@@ -77,7 +90,7 @@ export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
     entryType: direction,
     signedAmount: direction === 'use' ? -amount : amount,
     note,
-    returnTo: parseCustomersReturnTo(form.get(WALLET_RETURN_TO_FIELD)),
+    returnTo: parseCustomersReturnTo(readString(form, WALLET_RETURN_TO_FIELD)),
   };
 }
 

@@ -9,6 +9,7 @@ import {
 import { revalidateOrderViews } from './order-revalidate';
 import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
+import { readSingle, readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
 import { parseProcurementForm } from './procurement-form';
 import {
@@ -75,10 +76,8 @@ function successResultCode(code: 'CREATED' | 'UPDATED' | 'NO_CHANGE'): string {
 
 /** 失敗時要帶回的員工輸入。解析失敗時也要盡量帶回,否則他打的整份會不見。 */
 function carryBack(formData: FormData): ProcurementFormValues {
-  const read = (field: string): string => {
-    const raw = formData.get(field);
-    return typeof raw === 'string' ? raw : '';
-  };
+  // #365:回帶欄位同樣走「getAll 恰一筆」——送兩份時不再回顯第一筆,一律回空。
+  const read = (field: string): string => readSingleString(formData, field) ?? '';
   return {
     supplierId: read(PROC_SUPPLIER_ID_FIELD),
     allocatedQuantity: read(PROC_ALLOCATED_FIELD),
@@ -119,13 +118,28 @@ export async function upsertItemProcurementAction(
   //    未 hydrate 時 `hydrateFormValues` 沒跑過,整份表單的值都不可信,
   //    連「這個品項是不是真的被截斷」都還沒被畫面算出來 ⇒ 先擋這一層。
   //    fail-closed:**沒帶旗標也擋**(舊快取的 HTML / 直接打 action 都算)。
-  if (formData.get(PROC_HYDRATED_FIELD) !== '1') {
+  // 🔴 #365:兩支旗標都先判「形狀」再判「值」,而且**形狀錯要回 `invalid`、不要回旗標自己的碼**。
+  //    理由是文案與程式必須是同一條不變式(`cancel-form.ts:25-27` 的原則):
+  //    `stale` 的文案逐字說「這個品項的採購清單這次沒有完整載入」、`not_hydrated` 說「還沒載入
+  //    完成就被送出」——那是**診斷**。同名欄位送兩份時我們並不知道畫面新不新,借用那兩句
+  //    等於對員工說一件沒被證實的事;`invalid`(「表單內容不正確」)才是我們真的知道的事。
+  //    ⇒ 擋(fail-closed)不變,只是把碼換成誠實的那一顆。
+  const hydratedRead = readSingle(formData, PROC_HYDRATED_FIELD);
+  const staleRead = readSingle(formData, PROC_STALE_FIELD);
+  if (hydratedRead.kind === 'invalid' || staleRead.kind === 'invalid') {
+    const parsedForShape = parseProcurementForm(formData);
+    return procurementFailure('invalid', parsedForShape.orderItemId, carried);
+  }
+
+  //    未 hydrate 時 `hydrateFormValues` 沒跑過 ⇒ 先擋;fail-closed:**沒帶旗標也擋**。
+  if (!(hydratedRead.kind === 'value' && hydratedRead.value === '1')) {
     const parsedForHydration = parseProcurementForm(formData);
     return procurementFailure('not_hydrated', parsedForHydration.orderItemId, carried);
   }
 
-  const staleRaw = formData.get(PROC_STALE_FIELD);
-  if (staleRaw === '1') {
+  // 🔴 這道與上面那道方向相反(它是「等於 1 才擋」)⇒ 單純換讀法會讓「送兩份」落在
+  //    「不算 stale」那一側 = fail-open;上面那道形狀閘已經把它擋掉,這裡只判值。
+  if (staleRead.kind === 'value' && staleRead.value === '1') {
     const parsedForStale = parseProcurementForm(formData);
     return procurementFailure('stale', parsedForStale.orderItemId, carried);
   }
@@ -140,7 +154,16 @@ export async function upsertItemProcurementAction(
     return procurementFailure('invalid', parsed.orderItemId, carried);
   }
 
-  const returnTo = parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), parsed.orderId);
+  // 🔴 #365(codex 關卡2 MF)**`return_to` 刻意不進入口清單,這是判斷不是遺漏**:
+  //    它**不決定寫什麼、只決定寫完停在哪一頁**,而它的非法值已經有自己的 fail-closed
+  //    (`parseOrderReturnTo` 退回本單的視圖)。為了一個「導頁目的地壞掉」而把整筆寫入退掉,
+  //    代價與風險不成比例(員工要重打一次,而資料面零風險)。
+  //    ⇒ 本片的契約字面收窄成:**入口擋門負責「值會影響寫入決策」的欄位**;
+  //      只影響導頁的欄位走自己的 fallback。
+  const returnTo = parseOrderReturnTo(
+    readSingleString(formData, ORDER_RETURN_TO_FIELD),
+    parsed.orderId,
+  );
 
   const requestId = await getRequestId();
   // 🔴 log **不記三個文字欄的內容**(只記有沒有填)—— 供應商單號與異常原因是內部營運資料,

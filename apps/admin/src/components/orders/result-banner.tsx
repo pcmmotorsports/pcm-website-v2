@@ -114,7 +114,7 @@ export function ResultBanner({ code }: { code: string | undefined }) {
   //    「守門的名字大於它的實際能力」——`if (!msg)` 承諾擋掉所有非自有 key,實際擋不掉最好猜的那五個。
   //    ⇒ 回歸測試釘在 `result-banner.test.tsx`(五個向量逐字入測);姊妹元件
   //    `settings/settings-result-banner.tsx` 同形、測試在 `settings-result-banner.test.tsx`。
-  //    背景與爆炸半徑(本元件 4 頁 + 姊妹元件 2 頁 = **6 頁**)見
+  //    背景與爆炸半徑(本元件 **5 頁**〔#365 加了 `app/customers/page.tsx`〕+ 姊妹元件 2 頁 = **7 頁**)見
   //    `docs/specs/2026-08-06-result-banner-cleanup-plan.md`。
   const msg = Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined;
   if (!msg) return null;

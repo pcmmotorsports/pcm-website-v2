@@ -6,6 +6,7 @@
 // tier 白名單復用列表片 TIER_VALUES(customer-list-view;=domain MemberTier=DB enum member_tier 全集)。
 
 import type { MemberTier } from '@pcm/domain';
+import { anyMalformed, readSingleString as readString } from '../forms/single-value';
 import type { FormLike } from '../orders/workflow-form';
 import { TIER_VALUES } from './customer-list-view';
 import { parseCustomersReturnTo } from './wallet-form';
@@ -31,9 +32,7 @@ export type TierEditParseResult =
     }
   | { ok: false };
 
-function asString(v: FormDataEntryValue | null): string | null {
-  return typeof v === 'string' ? v : null;
-}
+// #365:本地 asString 已刪,單值欄位改走共用的「getAll 恰一筆」讀法。
 
 /**
  * 表單 → { customerId, tier, note }(形狀層;語意 fail-closed 在 RPC):
@@ -42,15 +41,28 @@ function asString(v: FormDataEntryValue | null): string | null {
  * - note 須 trim 後非空且 ≤200 字(必填=Sean Q2=A;RPC 端另拒控制字元);
  * - return_to:只接受站內 /customers 路徑(parseCustomersReturnTo 共用守門);非法 → 退 '/customers'。
  */
+/**
+ * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
+ * ⚠️ 漏列一欄 = 那一欄的「送兩份」洞照舊且無症狀 ⇒ 測試逐欄跑一遍當完整性守門。
+ */
+export const TIER_SINGLE_FIELDS = [
+  TIER_CUSTOMER_ID_FIELD,
+  TIER_VALUE_FIELD,
+  TIER_NOTE_FIELD,
+  TIER_RETURN_TO_FIELD,
+] as const;
+
 export function parseTierEditForm(form: FormLike): TierEditParseResult {
-  const customerId = asString(form.get(TIER_CUSTOMER_ID_FIELD));
+  // 🔴 重複欄位在語意層之前擋掉(理由見 `anyMalformed` docstring)。
+  if (anyMalformed(form, TIER_SINGLE_FIELDS)) return { ok: false };
+  const customerId = readString(form, TIER_CUSTOMER_ID_FIELD);
   if (!customerId || !UUID_RE.test(customerId)) return { ok: false };
 
-  const tierRaw = asString(form.get(TIER_VALUE_FIELD));
+  const tierRaw = readString(form, TIER_VALUE_FIELD);
   const tier = TIER_VALUES.find((v) => v === tierRaw);
   if (!tier) return { ok: false };
 
-  const note = (asString(form.get(TIER_NOTE_FIELD)) ?? '').trim();
+  const note = (readString(form, TIER_NOTE_FIELD) ?? '').trim();
   if (note === '' || note.length > TIER_NOTE_MAX) return { ok: false };
   // 零寬/格式字防（本片 codex 關卡2 F2 補集）：JS trim() 已吃 Unicode White_Space 全集（含 NBSP/全形/
   // U+1680/U+2000-200A/U+205F、不含 U+0085 NEL），NEL/零寬/格式字（U+0085/U+200B/200C/200D/U+2060/U+FEFF/U+180E）不算
@@ -62,6 +74,6 @@ export function parseTierEditForm(form: FormLike): TierEditParseResult {
     customerId,
     tier,
     note,
-    returnTo: parseCustomersReturnTo(form.get(TIER_RETURN_TO_FIELD)),
+    returnTo: parseCustomersReturnTo(readString(form, TIER_RETURN_TO_FIELD)),
   };
 }

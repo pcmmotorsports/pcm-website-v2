@@ -9556,6 +9556,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 ### #365. 🕳️ 取消線外 8 處單值欄位用 `formData.get()` 取第一筆(A13b E1 複審外溢立案)
 
 - **來源**:codex 複審 E1 抓到取消線三處 `formData.get()`(已修=getAll 恰一);E 窗掃出**同形狀未修 8 處**:`procurement-actions.ts`(3)、`keyword-search-action.ts`(2)、`note-actions.ts`(2)、`item-procurement-form.tsx`(1)。
+  🔴 **範圍更正(2026-08-10 E 三代動手前實查;原「8 處 / 4 檔」是低估,不是筆誤而是掃描範圍太窄)**:全 `apps/admin` 非測試檔的**單值 `form.get()` / `formData.get()` 共 43 處、分佈 17 檔**,而且**已經長出 11 個各自為政的本地 helper、三種形狀**(`asString` ×5 檔、非取消線的 `readString` ×5 檔、只有 `cancel-form.ts:148` 的 `readSingle` 是「`getAll()` 恰一筆」的正確形狀)。逐檔數(`grep` 後排除測試檔與註解命中):`workflow-form.ts` 7 / `wallet-form.ts` 5 / `supplier-form.ts` 4 / `procurement-actions.ts` 4 / `tier-form.ts` 4 / `staff-form.ts` 3 / `note-actions.ts` 3 / `refund-actions.ts` 2 / `procurement-form.ts` 2 / `keyword-search-action.ts` 2 / `actor-actions.ts` 1 / `refund-recovery-form.ts` 1 / `refund-recovery-actions.ts` 1 / `refund-form.ts` 1 / `note-form.ts` 1 / `cancel-actions.ts` 1 / `item-procurement-form.tsx` 1。
+  ⇒ **這不是一片的體積、且跨 3+ 檔又碰錢面(wallet/tier/refund/procurement)⇒ 命中鐵則 8(先提 plan 等批)與鐵則 12①**。拆片提案見 `E-088-STOP`。
+  ⚠️ **風險口徑要誠實、別照抄取消線那句**:取消線的後果是「員工看到 2、系統取消 5」;但 admin 這些路徑的送出者**本來就是已登入員工**,重複欄位**不給他任何新權限**(他直接送任意值也行)。真正的痛是另外兩個:①**表單重構意外**渲染出兩個同名欄位 ⇒ 靜默採第一筆、零紅燈 ②**畫面顯示值 ≠ 送出值**這條路在未來任何「代填 / 分享連結 / 嵌入」情境會變成真的洞。⇒ 修它的理由是**可防的正確性與 fail-closed 一致性**,不是「今天有人偷得到錢」。
 - **形狀**:單值欄位送兩份時由送出者決定採哪一筆;取消線的後果是放大取消數量/導錯單,其他線各自評(採購=錢面優先)。
 - **要做什麼**:統一 `getAll()` 恰一筆字串的讀取 helper(取消線已有現成形狀可抄),逐線套+順序互換負測。
 - **不修未來會痛在哪**:重複欄位=竄改或未來表單重構失誤都構造得出;採購/備註線被採第一筆時是寫入錯誤資料的入口,且零紅燈。

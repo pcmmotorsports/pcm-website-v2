@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { TapPayRefundNotSentError, toMoneyAmount } from '@pcm/domain';
 import type { TapPayRefundPayload, TapPayRefundResult } from '@pcm/domain';
 import { getRequestId } from '../audit/context';
+import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
 import { TapPayConfigError, getTapPayAdapter } from './composition';
 import { REFUND_RECORD_QUERY_TIMEOUT_MS, checkRecordBaseline } from './refund-baseline';
@@ -70,10 +71,8 @@ function clipCodepoints(value: string, max: number): string {
 /** 失敗時帶回的員工輸入(Q1=A)。唯一空殼例外=denied(授權閘在讀表單之前);
  *  disabled 在 carryBack 之後才判 ⇒ 帶的是真輸入(RW2d 關卡2 nit 更正舊字面)。 */
 function carryBack(formData: FormData): RefundFormInput & { requestToken: string } {
-  const read = (field: string): string => {
-    const value = formData.get(field);
-    return typeof value === 'string' ? value : '';
-  };
+  // #365:回帶欄位同樣走「getAll 恰一筆」——送兩份時不再回顯第一筆,一律回空。
+  const read = (field: string): string => readSingleString(formData, field) ?? '';
   const token = read(REFUND_REQUEST_TOKEN_FIELD);
   return {
     kind: read(REFUND_KIND_FIELD),
@@ -118,7 +117,16 @@ export async function initiateRefundAction(
   //    🔴 **這一條碰錢,但它決定不了「退哪一張單的錢」**:退款目標自始至終是 `parsed.orderId`
   //    (`:141` 的 `findOrderForRefund`、`:207`/`:217` 的 initiate 都吃它),`return_to` 只影響
   //    「PRG 之後畫面停在哪」。非法值 fail-closed 退回本單明細頁,**不影響已經送出去的退款**。
-  const returnTo = parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), parsed.orderId);
+  // 🔴 #365(codex 關卡2 MF)**`return_to` 刻意不進入口清單,這是判斷不是遺漏**:
+  //    它**不決定寫什麼、只決定寫完停在哪一頁**,而它的非法值已經有自己的 fail-closed
+  //    (`parseOrderReturnTo` 退回本單的視圖)。為了一個「導頁目的地壞掉」而把整筆寫入退掉,
+  //    代價與風險不成比例(員工要重打一次,而資料面零風險)。
+  //    ⇒ 本片的契約字面收窄成:**入口擋門負責「值會影響寫入決策」的欄位**;
+  //      只影響導頁的欄位走自己的 fallback。
+  const returnTo = parseOrderReturnTo(
+    readSingleString(formData, ORDER_RETURN_TO_FIELD),
+    parsed.orderId,
+  );
 
   const httpRequestId = await getRequestId();
   // 🔴 log 紀律(A9d2-1 H11 同型):reason 是營運文字 → 只記長度;

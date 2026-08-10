@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
+import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
 import { TapPayConfigError, getTapPayAdapter } from './composition';
 import { REFUND_RECORD_QUERY_TIMEOUT_MS } from './refund-baseline';
@@ -227,10 +228,8 @@ export async function resolveRefundExceptionAction(
     return resolveFailure('denied', generateRefundRequestToken(), { drCode: '', confirmCode: '' });
   }
 
-  const read = (field: string): string => {
-    const value = formData.get(field);
-    return typeof value === 'string' ? value : '';
-  };
+  // #365:回帶欄位同樣走「getAll 恰一筆」——送兩份時不再回顯第一筆,一律回空。
+  const read = (field: string): string => readSingleString(formData, field) ?? '';
   const rawToken = read(RECOVERY_REQUEST_TOKEN_FIELD);
   // 原樣帶回;真的拿不到才新產(重放權威=G5 CAS,token 只餵 audit)。
   const carriedToken = rawToken !== '' ? rawToken : generateRefundRequestToken();
