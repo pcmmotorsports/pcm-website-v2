@@ -25,7 +25,11 @@ vi.mock('next/headers', () => ({ cookies: async () => ({ set: mocks.cookieSet })
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidatePath }));
 
 import { selectActorAction } from './actor-actions';
-import { ACTOR_COOKIE } from './actor';
+import { ACTOR_COOKIE, ACTOR_ID_FIELD } from './actor';
+// #388:送出端的原始碼層守門要讀 `app/page.tsx`(理由見該格註解)。
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { stripComments } from '../test-support/strip-comments';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -88,5 +92,43 @@ describe('selectActorAction — #365 actorId 走 getAll 恰一筆', () => {
     await selectActorAction(new FormData());
     expect(writtenActor()).toBeNull();
     expect(mocks.resolveStaff).not.toHaveBeenCalled();
+  });
+});
+
+// ── #388:欄名 wire 契約(送出端與讀取端必須共用同一顆常數)──────────────────────────
+//
+// 🔴 **這個欄名打錯字的症狀是「什麼都沒發生」**:讀不到 ⇒ 靜默不寫 cookie ⇒ 操作者身分沒換,
+//    而 typecheck / lint / 其餘測試全部看不到(兩邊各自都是合法字串)。
+//    而這顆值最終是 `admin_audit_log.actor` 的來源 ⇒ 打錯字 = 稽核歸屬靜默斷線。
+describe('#388 actorId 欄名 wire 契約', () => {
+  it('🔴 欄名打錯 → 什麼都不做(這就是打錯字時的真實症狀,零紅燈)', async () => {
+    const fd = new FormData();
+    // 少一個字母的 typo:對 FormData 完全合法,對這支 action 等於「沒送」。
+    fd.set('actorld', 'sean');
+    await selectActorAction(fd);
+    expect(writtenActor()).toBeNull();
+    expect(mocks.resolveStaff).not.toHaveBeenCalled();
+
+    // 正向對照:同樣的值用**正確欄名**送 ⇒ 寫得進去。
+    // 沒有這條,「action 永遠不寫 cookie」的突變也會讓上面三條全綠。
+    const ok = new FormData();
+    ok.set(ACTOR_ID_FIELD, 'sean');
+    await selectActorAction(ok);
+    expect(writtenActor()).toBe('sean');
+  });
+
+  // 🔴 **為什麼是原始碼層而不是 render 測試**:render 出來的 `name` 屬性值,無論來自常數
+  //    還是來自一個剛好同字的裸字面,**都是同一個字串** ⇒ render 測試對「有人把常數換回裸字面」
+  //    完全分辨不出來。要釘住「兩端共用同一顆」只有原始碼層做得到。
+  // ⚠️ 誠實邊界:本格擋的是「裸字面回流」,**擋不住**有人把常數本身改成錯的值
+  //    (那會讓兩端一起改、行為一致)—— 那一面由上面那條行為測試 + 真人操作覆蓋。
+  it('🔴 送出端不得出現裸字面欄名(改回裸字面 = 兩端各自漂移的入口)', () => {
+    const pageSource = stripComments(
+      readFileSync(fileURLToPath(new URL('../../app/page.tsx', import.meta.url)), 'utf8'),
+    );
+    // 正向對照:確定真的讀到那支檔、而且它就是掛 action 的那一支(否則整格恆真)。
+    expect(pageSource).toContain('selectActorAction');
+    expect(pageSource).toContain('ACTOR_ID_FIELD');
+    expect(pageSource).not.toMatch(/['"]actorId['"]/);
   });
 });

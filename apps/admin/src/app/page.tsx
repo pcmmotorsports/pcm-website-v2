@@ -1,5 +1,5 @@
 import { selectActorAction } from '@/lib/session/actor-actions';
-import { getSessionActor } from '@/lib/session/actor';
+import { ACTOR_ID_FIELD, getSessionActor } from '@/lib/session/actor';
 import { listActiveStaff } from '@/lib/staff';
 
 // M0-S1 骨架占位頁 + M0-S2 具名身分選人。骨架驗收 = pnpm dev 跑得起來、殼可見可用;
@@ -32,12 +32,13 @@ export default async function AdminHomePage() {
           }
         </p>
         <form action={selectActorAction} className='mt-4 flex items-center gap-2'>
-          <label htmlFor='actorId' className='sr-only'>
+          {/* #388:欄名走共用常數 —— 三處都吃同一顆(`htmlFor`/`id` 綁 a11y、`name` 是 wire 契約)。 */}
+          <label htmlFor={ACTOR_ID_FIELD} className='sr-only'>
             選擇具名身分
           </label>
           <select
-            id='actorId'
-            name='actorId'
+            id={ACTOR_ID_FIELD}
+            name={ACTOR_ID_FIELD}
             defaultValue={actor?.id ?? ''}
             className='border-input bg-background h-9 rounded-md border px-3 text-sm'
           >
