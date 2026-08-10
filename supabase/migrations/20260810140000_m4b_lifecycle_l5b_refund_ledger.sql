@@ -88,8 +88,24 @@ CREATE TABLE public.payment_refunds (
   CONSTRAINT pr_currency_domain_chk    CHECK (currency = 'TWD'),
   CONSTRAINT pr_lease_token_nonneg_chk CHECK (lease_token >= 0),
   CONSTRAINT pr_not_self_chk           CHECK (supersedes_refund_id IS DISTINCT FROM id),
-  -- 🔴 NOT NULL 擋不掉空字串與純空白 ⇒ 弱鍵仍進得了退款路徑;btrim 後不得為空
-  CONSTRAINT pr_idem_key_nonblank_chk   CHECK (pg_catalog.btrim(idempotency_key) <> ''),
+  -- 🔴🔴 idempotency_key **就是** TapPay 的 `bank_refund_id` ⇒ 形狀必須與 adapter 送出前守門一致。
+  --   逐字對齊 `packages/adapters/src/tappay/TapPayChargeAdapter.ts:68`
+  --     `const BANK_REFUND_ID_RE = /^[A-Za-z0-9_-]{1,20}$/;`(官方 String(20);:275 訊息逐字
+  --     「UUID 36 字放不下、不要傳 row id」)。
+  --   **不加會怎樣**:一把 DB 收得下、adapter 一定拒送的鍵(例如 36 字 UUID)可以寫成 write-ahead
+  --   父列並 commit ⇒ 打 TapPay 前就被 pre-flight 擋掉 ⇒ 留下一列「已宣告意圖、從未送出」的殭屍,
+  --   正好落在誠實清單①「未知態禁重試」最不希望有的灰區(方向 fail-closed、不誤退,但會卡住)。
+  --   姊妹片先例:`order_refunds_bank_refund_id_len`(20260725130100:109-110,只有長度)、
+  --   `orj_bank_refund_id_shape`(20260731120000:224-228,長度+禁控制字元+禁頭尾空白含全形空格)。
+  --   ⚠️ **刻意偏離 RW1a 的先例**:`20260803150000:542-544` 逐字寫「生成即形狀,不設驗證
+  --   (恆真=死規則)」。本片不跟隨,理由=①該理由成立於「唯一寫入者是自產鍵的 RPC」,
+  --   而本表全篇的立場是**結構取代自律**、不預設寫入者守規矩;②它在本片**不是恆真** ——
+  --   harness 直接 INSERT 就構造得出負測(`G-IDEM-UUID` / `G-IDEM-BADCHAR`),
+  --   `MUT-idem-shape` 拿掉它三格立刻翻 ⇒ 有判別力,不是死規則。
+  CONSTRAINT pr_idem_key_shape_chk      CHECK (idempotency_key ~ '^[A-Za-z0-9_-]{1,20}$'),
+  -- 🔴 本條**取代**原 `pr_idem_key_nonblank_chk`:形狀約束**嚴格蘊含**它(空字串與純空白都不符
+  --   `[A-Za-z0-9_-]{1,20}`)⇒ 再留一條會是「寫不出只紅它的負測」那族。
+  --   `strong_key` 不同:它是 Record 比對用的強鍵、**不是** TapPay 欄位,無 20 字上限 ⇒ 維持非空白。
   CONSTRAINT pr_strong_key_nonblank_chk CHECK (pg_catalog.btrim(strong_key) <> ''),
   -- 🔴 複合自我 FK 的靶:證「同一 attempt 下這個 id 存在」
   CONSTRAINT pr_attempt_id_uniq UNIQUE (attempt_id, id),

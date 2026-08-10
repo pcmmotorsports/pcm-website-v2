@@ -137,7 +137,11 @@ add G-LEASE-NONNEG     CHECK:pr_lease_token_nonneg_chk "INSERT INTO public.payme
 add G-STRONGKEY-REQ    NOTNULL:strong_key       "INSERT INTO public.payment_refunds (attempt_id,idempotency_key,amount,currency,lease_token) VALUES ('$A1','k1',100,'TWD',3);"
 # 🔴 NOT NULL 擋不掉空白:純空白 strong_key / 空字串冪等鍵仍會進退款路徑
 add G-STRONGKEY-BLANK  CHECK:pr_strong_key_nonblank_chk "INSERT INTO public.payment_refunds (attempt_id,idempotency_key,amount,currency,strong_key,lease_token) VALUES ('$A1','k1',100,'TWD','   ',3);"
-add G-IDEM-BLANK       CHECK:pr_idem_key_nonblank_chk "INSERT INTO public.payment_refunds (attempt_id,idempotency_key,amount,currency,strong_key,lease_token) VALUES ('$A1','',100,'TWD','r',3);"
+add G-IDEM-BLANK       CHECK:pr_idem_key_shape_chk "INSERT INTO public.payment_refunds (attempt_id,idempotency_key,amount,currency,strong_key,lease_token) VALUES ('$A1','',100,'TWD','r',3);"
+# 🔴 idempotency_key = TapPay bank_refund_id ⇒ 36 字 UUID 與非法字元都必須進不了 write-ahead 列
+#    (不擋的話:DB 收得下、adapter pre-flight 一定拒送 ⇒ 一列「已宣告意圖、從未送出」的殭屍)
+add G-IDEM-UUID        CHECK:pr_idem_key_shape_chk "INSERT INTO public.payment_refunds (attempt_id,idempotency_key,amount,currency,strong_key,lease_token) VALUES ('$A1','7c000000-0000-4000-8000-000000000009',100,'TWD','r',3);"
+add G-IDEM-BADCHAR     CHECK:pr_idem_key_shape_chk "INSERT INTO public.payment_refunds (attempt_id,idempotency_key,amount,currency,strong_key,lease_token) VALUES ('$A1','k1 k2',100,'TWD','r',3);"
 add G-TERMINAL-ONCE    UNIQ:pre_one_terminal_uniq "$(printf "$RF" "$R1" "$A1" k1) INSERT INTO public.payment_refund_events (refund_id,event_type,seq,lease_token) VALUES ('$R1','result_success',1,3),('$R1','result_failed',2,3);"
 add G-SEQ-UNIQUE       UNIQ:pre_refund_seq_uniq "$(printf "$RF" "$R1" "$A1" k1) INSERT INTO public.payment_refund_events (refund_id,event_type,seq,lease_token) VALUES ('$R1','sent',1,3),('$R1','reconcile',1,3);"
 add G-EVENT-TYPE       CHECK:pre_event_type_chk "$(printf "$RF" "$R1" "$A1" k1) INSERT INTO public.payment_refund_events (refund_id,event_type,seq,lease_token) VALUES ('$R1','bogus',1,3);"
@@ -207,7 +211,7 @@ mut MUT-currency     "ALTER TABLE public.payment_refunds DROP CONSTRAINT pr_curr
 mut MUT-lease-nonneg "ALTER TABLE public.payment_refunds DROP CONSTRAINT pr_lease_token_nonneg_chk" "ALTER TABLE public.payment_refunds ADD CONSTRAINT pr_lease_token_nonneg_chk CHECK (lease_token >= 0)" "G-LEASE-NONNEG=OK"
 mut MUT-strongkey    "ALTER TABLE public.payment_refunds ALTER COLUMN strong_key DROP NOT NULL" "ALTER TABLE public.payment_refunds ALTER COLUMN strong_key SET NOT NULL" "G-STRONGKEY-REQ=OK"
 mut MUT-strongkey-blank "ALTER TABLE public.payment_refunds DROP CONSTRAINT pr_strong_key_nonblank_chk" "ALTER TABLE public.payment_refunds ADD CONSTRAINT pr_strong_key_nonblank_chk CHECK (pg_catalog.btrim(strong_key) <> '')" "G-STRONGKEY-BLANK=OK"
-mut MUT-idem-blank   "ALTER TABLE public.payment_refunds DROP CONSTRAINT pr_idem_key_nonblank_chk" "ALTER TABLE public.payment_refunds ADD CONSTRAINT pr_idem_key_nonblank_chk CHECK (pg_catalog.btrim(idempotency_key) <> '')" "G-IDEM-BLANK=OK"
+mut MUT-idem-shape   "ALTER TABLE public.payment_refunds DROP CONSTRAINT pr_idem_key_shape_chk" "ALTER TABLE public.payment_refunds ADD CONSTRAINT pr_idem_key_shape_chk CHECK (idempotency_key ~ '^[A-Za-z0-9_-]{1,20}\$')" "G-IDEM-BLANK=OK G-IDEM-UUID=OK G-IDEM-BADCHAR=OK"
 mut MUT-terminal-once "DROP INDEX public.pre_one_terminal_uniq" "CREATE UNIQUE INDEX pre_one_terminal_uniq ON public.payment_refund_events (refund_id) WHERE event_type IN ('result_success','result_failed','manual')" "G-TERMINAL-ONCE=OK"
 mut MUT-seq-unique   "DROP INDEX public.pre_refund_seq_uniq" "CREATE UNIQUE INDEX pre_refund_seq_uniq ON public.payment_refund_events (refund_id, seq)" "G-SEQ-UNIQUE=OK"
 mut MUT-event-type   "ALTER TABLE public.payment_refund_events DROP CONSTRAINT pre_event_type_chk" "ALTER TABLE public.payment_refund_events ADD CONSTRAINT pre_event_type_chk CHECK (event_type IN ('sent','result_success','result_failed','result_unknown','reconcile','manual'))" "G-EVENT-TYPE=OK"
