@@ -5,10 +5,13 @@
 # 用法:scripts/l5a1-verify.sh   (自建拋棄式 cluster、跑完自動 teardown;不碰任何正式庫)
 # 真權威:母 plan §3.1 + P-280-STOP §5 + 本片 migration 檔頭。
 #
-# 🔴 兩層,缺一層都證不完:
-#   【matrix】23 格行為矩陣 —— 對現行定義跑,證明它**做了什麼**(每格只讓一道不成立)。
-#   【mutations】16 發突變(11 發閘弱化 + 5 發特殊)—— 每發把**一道弱化、保留結構**(不是整段拿掉),
+# 🔴 三層,缺一層都證不完(數字與檔尾那行**必須逐字一致**;本檔 2026-08-10 因可呼面重設計改過一次,
+#    code-reviewer MF3 指出當時只補了檔尾 = `claimed-sync-but-only-patched-touched-lines` 那族):
+#   【reach】11 格可呼面守門 —— 證那道 apply 期斷言**攔得住誰、放得過誰**(含正式庫拓樸重演)。
+#   【matrix】25 格行為矩陣 —— 對現行定義跑,證明它**做了什麼**(每格只讓一道不成立)。
+#   【mutations】17 發突變(11 發閘弱化 + 6 發特殊)—— 每發把**一道弱化、保留結構**(不是整段拿掉),
 #                 斷言**恰好**對應的那些格翻掉。只要求「至少一格翻」等於沒有判別力。
+#   另有 2 條 provenance 偵測器 + 3 條結構釘 ⇒ 合計 **58**(= 2+11+3+25+17,與檔尾同源)。
 #
 # 🔴 突變體從 `pg_get_functiondef` 的**當下輸出**生成、不從檔案抄字面(避免縮排/行號漂移那族坑),
 #    每個 anchor 都斷言在定義裡**恰好出現一次**,不唯一就 exit(不自行變通)。
@@ -30,7 +33,7 @@ ok()  { PASS=$((PASS+1)); LABELS="$LABELS $1"; printf '  PASS %-22s %s\n' "$1" "
 bad() { FAIL=$((FAIL+1)); LABELS="$LABELS $1"; printf '  FAIL %-22s %s\n' "$1" "$2"; }
 # ⚠️ 與 l5am-verify 同款誠實邊界:這份 manifest 與它守的格子住在同一個檔,
 #    擋得住**非同步**的漏跑(改一邊忘另一邊),擋不住有意的同步修改。
-MANIFEST="ACL-UNIVERSAL G24 G25 MUT-cancel-table MUT-isolation STRUCT-LOCKSET MUT-successor-cancel G1 G10 G11 G12 G13 G14 G15 G16 G17 G18 G19 G20 G21 G22 G23 G2 G3 G4 G5 G6 G7 G8 G9 MUT-atomic MUT-cancelled MUT-order-owner MUT-order_id MUT-orderlock MUT-pending MUT-reason-raise MUT-released-future MUT-successor-live MUT-successor-owner MUT-successor-self MUT-superseded-null MUT-unpaid MUT-user_id SOLE-WRITER STRUCT-ATOMIC STRUCT-ORDERLOCK"
+MANIFEST="ACL-UNIVERSAL REACH-EXTRACT REACH-ALLOW-super REACH-ALLOW-owner REACH-ALLOW-owner-setrole REACH-ALLOW-inert REACH-PROD-SHAPE REACH-DENY-admin REACH-DENY-direct REACH-DENY-inherit REACH-DENY-setrole REACH-DENY-transit G24 G25 MUT-cancel-table MUT-isolation STRUCT-LOCKSET MUT-successor-cancel G1 G10 G11 G12 G13 G14 G15 G16 G17 G18 G19 G20 G21 G22 G23 G2 G3 G4 G5 G6 G7 G8 G9 MUT-atomic MUT-cancelled MUT-order-owner MUT-order_id MUT-orderlock MUT-pending MUT-reason-raise MUT-released-future MUT-successor-live MUT-successor-owner MUT-successor-self MUT-superseded-null MUT-unpaid MUT-user_id SOLE-WRITER STRUCT-ATOMIC STRUCT-ORDERLOCK"
 
 PMPID=""
 teardown() {
@@ -180,6 +183,198 @@ ACL_BAD="$(Q "SELECT COALESCE(string_agg(x, ','), '') FROM (
 [ -z "$ACL_BAD" ] \
   && ok "ACL-UNIVERSAL" "當期全稱:表級+欄級非 owner 者一律只有 SELECT(不是枚舉三個角色名)" \
   || bad "ACL-UNIVERSAL" "權限面異常:[$ACL_BAD]"
+
+# ── R1-MF7 可呼面守門（2026-08-10 換面重設計）判別力十格 ────────────────
+# 🔴 MAIN-005 實錘：正式庫 postgres（函式 owner、又因 CREATEROLE 自動成為 payment_confirmer 成員）
+#    炸掉前版「零直接成員」斷言 —— 那是**假警報**（owner 不新增可呼面），不是守太嚴。
+#    重設計把守門從「成員面」換到「**可呼面**」：**非 inert 身分取得閉包**（遞迴走 set/inherit/admin 任一）
+#    × has_function_privilege（它自己含 inherit_option 那層）；白名單=超級角色 或 閉包含 owner。
+# 🔴 **不用 pg_has_role(...,'MEMBER') 當可達性**（PG 17.10 實測，兩個方向都錯）：
+#    inert 成員（INHERIT F,SET F）MEMBER=true 卻呼不到 ⇒ 誤擋；
+#    owner 的 SET 成員 MEMBER(pc)=false 卻呼得到 ⇒ 漏抓。REACH-EXTRACT 釘死取出段內 pg_has_role 出現 0 次。
+# 🔴 跑的是 migration 檔裏**那段字面**（sed 取錨點段），不是這裡抄一份謂詞——抄本證不了守門本尊。
+# 🔴 十一格的分工（code-reviewer N4：別再寫「九格各一分支」，那與下面兩個複合格矛盾）：
+#    · REACH-EXTRACT      = 靜態檢查（剝註解後掃謂詞存在性），不進 DB
+#    · REACH-PROD-SHAPE   = **複合窮舉格**（同一拓樸跑 8 種 option 組合，全要放行）
+#    · 其餘 9 格          = 各讓**一個分支單獨**做工（codex R2-MF3/MF4/MF5：裸 GRANT 預設 SET TRUE
+#    會讓兩條路徑同時成立=假隔離），所以 fixture **一律顯式寫 WITH INHERIT/SET**，
+#    sanity 直接斷言 pg_auth_members 三欄 + has_function_privilege 真假值 + owner 是否在閉包內。
+#    每格附 case-specific sanity（SANITY_t），防 fixture 沒立起來而整格空跑恆真。
+echo "-- 可呼面守門 --"
+GUARD_SQL="$SOCK/inherit-guard.sql"
+sed -n '/L5A1-INHERIT-GUARD-BEGIN/,/L5A1-INHERIT-GUARD-END/p' "$MIG" > "$GUARD_SQL"
+GB="$(grep -o 'L5A1-INHERIT-GUARD-BEGIN' "$MIG" | wc -l | tr -d ' ')"
+GE="$(grep -o 'L5A1-INHERIT-GUARD-END' "$MIG" | wc -l | tr -d ' ')"
+# 🔴 code-reviewer N1/N2/N5:這四個存在性斷言原本掃**整段含註解**、且用 grep -c 數行數。
+#    取出段裡就有「admin_option 那項是 R3/Fable MF-A」這種註解 ⇒ 就算把謂詞從 SQL 裡拿掉,
+#    註解仍會餵飽斷言 = **恆真**。改成先剝掉行內註解再數,且數**出現次數**不是行數。
+#    🔴 只剝註解**還不夠**(自驗突變抓到,比 reviewer 指的再深一層):RAISE 訊息裡附了一段診斷 SQL,
+#      `admin_option` 這個字在**字串字面**裡也出現 ⇒ 把 SQL 的那一項拿掉、斷言仍為真(實測 3→2、非 0)。
+#      所以註解與單引號字串**兩者都要剝**,剝完 admin_option 恰 1;拿掉那一項即 0(突變實測)。
+#      ⚠️ 連帶:`server_version_num` 只出現在 current_setting('...') 的字串裡 ⇒ 剝完為 0,
+#        不能拿它當版本閘的錨,改錨 `160000`(裸數字、剝不掉)。
+GSTRIP="$SOCK/guard-nocomment.sql"
+sed 's/--.*$//' "$GUARD_SQL" | sed "s/'[^']*'/''/g" > "$GSTRIP"
+CNT() { grep -o "$1" "$GSTRIP" | wc -l | tr -d ' '; }
+GP1="$(CNT 'has_function_privilege')"
+GP2="$(CNT 'set_option')"
+GP3="$(CNT 'pg_has_role')"
+GP4="$(CNT 'admin_option')"   # 🔴 R3/Fable MF-A:拿掉它就是對前版的回歸,釘住
+GP5="$(CNT '160000')"   # 🔴 code-reviewer MF1:PG16+ 版本閘(錨用裸數字,見上方剝字串那條)
+# 🔴 GP3 必須為 0:pg_has_role(...,'MEMBER') 已實測證明**不能**當可達性判準
+#    (inert 成員 MEMBER=true 卻呼不到 ⇒ 誤擋;owner 的 SET 成員 MEMBER=false 卻呼得到 ⇒ 漏抓)。
+#    這裡把「不准回頭用它」釘成斷言,否則下一代很容易又寫回去。
+{ [ "$GB" = "1" ] && [ "$GE" = "1" ] && [ "$GP1" -ge 1 ] && [ "$GP2" -ge 1 ] && [ "$GP3" = "0" ] && [ "$GP4" -ge 1 ] && [ "$GP5" -ge 1 ]; } \
+  && ok "REACH-EXTRACT" "**剝掉註解與字串字面後**的取出段:含 has_function_privilege/set_option/admin_option/版本閘(錨 160000)、零 pg_has_role;錨點各恰 1 次" \
+  || bad "REACH-EXTRACT" "錨 BEGIN=$GB END=$GE / has_fn_priv=$GP1 / set_option=$GP2 / pg_has_role=$GP3 / admin_option=$GP4 / 版本閘=$GP5(應 1,1,≥1,≥1,0,≥1,≥1)"
+
+# reach_state <fixture_sql> <sanity_bool_sql> → OK / P5A03 / ERR:…
+#   sanity 必須為 true,否則該格的 fixture 沒立起來 ⇒ 判為 ERR 而不是靜靜綠掉。
+reach_state() {
+  local out
+  out="$(PSQL -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -qtA <<SQL 2>&1
+BEGIN;
+$1
+SELECT 'SANITY_' || COALESCE(($2)::bool::text, 'null');
+\\i $GUARD_SQL
+SELECT 'GUARD_OK';
+ROLLBACK;
+SQL
+)"
+  case "$out" in
+    *SANITY_t*) : ;;
+    *) printf 'ERR:fixture sanity 未成立 :: %s' "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-100)"; return ;;
+  esac
+  case "$out" in
+    *GUARD_OK*)         printf 'OK' ;;
+    # 🔴 codex R2-MF4:只回 'P5A03' 會讓 DENY-transit 假綠(鏈上任一角色被抓都回同一個字串)。
+    #    這裡把 RAISE 訊息裡的角色清單一起帶出來,呼叫端才能斷言「**誰**被抓到」。
+    *'ERROR:  P5A03:'*) printf 'P5A03|%s' "$(printf '%s' "$out" | tr '\n' ' ' | sed -n 's/.*可呼面異常 — \[\([^]]*\)\].*/\1/p')" ;;
+    *) printf 'ERR:%s' "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)" ;;
+  esac
+}
+# deny_is <got> <期望被抓到的角色,逗號分隔> → 0/1;同時擋「有 RAISE 但抓錯人」
+deny_is() { [ "${1%%|*}" = "P5A03" ] && [ "${1#*|}" = "$2" ]; }
+FNP="has_function_privilege('%s','$FN','EXECUTE')"
+# EDGE <member> <roleid> <set> <inherit>:直接斷言 pg_auth_members 的三欄,不繞 pg_has_role
+EDGE() { printf "EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member='%s'::regrole AND m.roleid='%s'::regrole AND m.set_option IS %s AND m.inherit_option IS %s)" "$1" "$2" "$3" "$4"; }
+NOEDGE() { printf "NOT EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member='%s'::regrole)" "$1"; }
+# EDGE3 <member> <roleid> <set> <inherit> <admin>:三個 option 欄全釘（R3/Fable C-1:不留假設）
+EDGE3() { printf "EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.member='%s'::regrole AND m.roleid='%s'::regrole AND m.set_option IS %s AND m.inherit_option IS %s AND m.admin_option IS %s)" "$1" "$2" "$3" "$4" "$5"; }
+SUPER() { printf "(SELECT r.rolsuper FROM pg_roles r WHERE r.rolname='%s')" "$1"; }
+# 🔴 codex R2-MF5:白名單ⓑ 的隔離要用**同一套遞迴閉包**斷言「owner 不可達」,
+#    只排除「直接 owner edge」證不了閉包裡沒有更長的路。
+OWNER_REACHABLE() { printf "EXISTS (WITH RECURSIVE c AS (SELECT '%s'::regrole::oid AS cur UNION SELECT m.roleid FROM c JOIN pg_auth_members m ON m.member=c.cur AND (m.set_option OR m.inherit_option OR m.admin_option)) SELECT 1 FROM c WHERE c.cur = (SELECT p.proowner FROM pg_proc p WHERE p.oid='$FN'::regprocedure))" "$1"; }
+MKOWNER="CREATE ROLE l5a1_owner; GRANT CREATE ON SCHEMA public TO l5a1_owner; ALTER FUNCTION $FN OWNER TO l5a1_owner;"
+
+# ① 白名單ⓐ 超級角色:本身可呼(has_fn_priv=true)、且**閉包不含 owner**(排除ⓑ 分支)⇒ 只有 rolsuper 在放行
+got="$(reach_state \
+  "CREATE ROLE l5a1_su SUPERUSER; GRANT payment_confirmer TO l5a1_su;" \
+  "$(SUPER l5a1_su) AND $(printf "$FNP" l5a1_su) AND NOT $(OWNER_REACHABLE l5a1_su)")"
+[ "$got" = "OK" ] \
+  && ok  "REACH-ALLOW-super" "超級角色(可呼、閉包不含 owner)⇒ 只有 rolsuper 分支在放行" \
+  || bad "REACH-ALLOW-super" "得到 [$got],期望 OK"
+
+# ② 白名單ⓑ 之一:自己就是 owner(非超級、零 membership 邊)⇒ 只有 owner-閉包分支在放行
+got="$(reach_state "$MKOWNER" \
+  "NOT $(SUPER l5a1_owner) AND $(printf "$FNP" l5a1_owner) AND $(NOEDGE l5a1_owner)")"
+[ "$got" = "OK" ] \
+  && ok  "REACH-ALLOW-owner" "隔離 owner 白名單分支(非超級、無任何 membership)⇒ 放行" \
+  || bad "REACH-ALLOW-owner" "得到 [$got],期望 OK"
+
+# ③ 🔴 codex R1-MF1 的形狀:GRANT owner TO W WITH INHERIT FALSE, SET TRUE
+#    W 自己 has_fn_priv=false、也不是 payment_confirmer 成員 ⇒ 舊 pg_has_role 判準**整個漏抓**;
+#    新閉包看得到它(可 SET ROLE 成 owner)⇒ 由 owner-閉包白名單明示放行(能力嚴格強於呼這支)。
+got="$(reach_state \
+  "$MKOWNER CREATE ROLE l5a1_wo; GRANT l5a1_owner TO l5a1_wo WITH INHERIT FALSE, SET TRUE;" \
+  "NOT $(printf "$FNP" l5a1_wo) AND $(EDGE l5a1_wo l5a1_owner TRUE FALSE) AND NOT $(SUPER l5a1_wo)")"
+[ "$got" = "OK" ] \
+  && ok  "REACH-ALLOW-owner-setrole" "可 SET ROLE 成 owner 者(自身 has_fn_priv=false)⇒ 白名單ⓑ 明示放行" \
+  || bad "REACH-ALLOW-owner-setrole" "得到 [$got],期望 OK"
+
+# ④ 🔴 codex R1-MF2 的形狀:GRANT payment_confirmer TO r WITH INHERIT FALSE, SET FALSE(inert)
+#    實測 pg_has_role MEMBER=true 但呼不到 ⇒ 舊判準會**誤擋**、重演 MAIN-005 假警報;新閉包不誤擋。
+got="$(reach_state \
+  "CREATE ROLE l5a1_inert; GRANT payment_confirmer TO l5a1_inert WITH INHERIT FALSE, SET FALSE, ADMIN FALSE;" \
+  "NOT $(printf "$FNP" l5a1_inert) AND $(EDGE3 l5a1_inert payment_confirmer FALSE FALSE FALSE)")"
+[ "$got" = "OK" ] \
+  && ok  "REACH-ALLOW-inert" "全假 inert 成員(set/inherit/admin 三欄皆 F:什麼也做不到)⇒ 不誤擋(舊 MEMBER 判準會擋)" \
+  || bad "REACH-ALLOW-inert" "得到 [$got],期望 OK —— 守門在誤擋呼不到的角色"
+
+# ④b 🔴 **正式庫真實形狀重演**（唯一直接回答「這次 apply 會不會再炸」的一格）。
+#     來源=Sean 2026-08-10 親跑 Supabase SQL Editor、主視窗 `MAIN-007-A` 逐字帶回：
+#       postgres           非超級 / 本函式 owner / payment_confirmer 直接成員（usage=false,member=true）
+#       cli_login_postgres 非超級 / postgres 的成員（usage=false,member=true）
+#       supabase_admin     超級角色 / payment_confirmer 成員（usage=true）
+#     🔴 R3/Fable C-1 + code-reviewer MF2：`MAIN-007-A` 只有 usage/member 兩欄，**set/inherit/admin 三欄未知**，
+#       且它只枚舉了兩個節點、而守門以**全 pg_roles** 為根 ⇒ 本格證的是「本拓樸下放行」，**不是**「正式庫會放行」。
+#       前一版 fixture 直接寫死 SET TRUE = 拿假設當證據。改法不是去猜，是**把未知窮舉掉**：
+#       cli→owner 那條邊跑遍 7 種非全假組合 + 1 種 inert，全部都要放行。
+#       之所以全都會放行，是因為判準用的是「非 inert 閉包」：
+#         邊非 inert ⇒ 閉包含 owner ⇒ 白名單ⓑ；邊 inert ⇒ 那條邊什麼也做不到 ⇒ 根本不進候選。
+#       ⚠️ 它證的仍是**拓樸**、不是正式庫現況；現況的唯一來源是 MAIN-007-A 那份輸出。
+PROD_OK=1; PROD_BAD=""
+for OPT in "SET TRUE, INHERIT TRUE, ADMIN TRUE" "SET TRUE, INHERIT FALSE, ADMIN FALSE" \
+           "SET FALSE, INHERIT TRUE, ADMIN FALSE" "SET FALSE, INHERIT FALSE, ADMIN TRUE" \
+           "SET TRUE, INHERIT TRUE, ADMIN FALSE" "SET TRUE, INHERIT FALSE, ADMIN TRUE" \
+           "SET FALSE, INHERIT TRUE, ADMIN TRUE" "SET FALSE, INHERIT FALSE, ADMIN FALSE"; do
+  g="$(reach_state \
+    "$MKOWNER GRANT payment_confirmer TO l5a1_owner WITH INHERIT FALSE, SET TRUE;
+     CREATE ROLE l5a1_cli; GRANT l5a1_owner TO l5a1_cli WITH $OPT;
+     CREATE ROLE l5a1_sa SUPERUSER; GRANT payment_confirmer TO l5a1_sa WITH INHERIT TRUE, SET TRUE;" \
+    "NOT $(SUPER l5a1_owner) AND (SELECT p.proowner FROM pg_proc p WHERE p.oid='$FN'::regprocedure) = 'l5a1_owner'::regrole::oid AND $(EDGE l5a1_owner payment_confirmer TRUE FALSE) AND NOT $(SUPER l5a1_cli) AND $(SUPER l5a1_sa)")"
+  [ "$g" = "OK" ] || { PROD_OK=0; PROD_BAD="$PROD_BAD [$OPT -> $g]"; }
+done
+[ "$PROD_OK" = "1" ] \
+  && ok  "REACH-PROD-SHAPE" "**本拓樸下**放行:重演 MAIN-007-A 兩節點、cli 邊 8 種 option 全放行(⚠️ 手搭拓樸≠正式庫現況;apply 前另有 prod 唯讀原字面預跑,見 migration 誠實邊界 7)" \
+  || bad "REACH-PROD-SHAPE" "有組合被擋:$PROD_BAD —— 本拓樸下就會炸,正式庫更不用談"
+
+# ⑤ 一般 INHERIT 成員:has_fn_priv=true、零 owner 邊 ⇒ 兩個白名單都不適用
+got="$(reach_state \
+  "CREATE ROLE l5a1_stranger; GRANT payment_confirmer TO l5a1_stranger WITH INHERIT TRUE, SET FALSE;" \
+  "$(printf "$FNP" l5a1_stranger) AND $(EDGE l5a1_stranger payment_confirmer FALSE TRUE) AND NOT $(SUPER l5a1_stranger) AND NOT $(OWNER_REACHABLE l5a1_stranger)")"
+deny_is "$got" "l5a1_stranger" \
+  && ok  "REACH-DENY-inherit" "純繼承成員(INHERIT T,SET F:SET 路徑明文關掉)⇒ 只有 has_function_privilege 那層抓得到" \
+  || bad "REACH-DENY-inherit" "得到 [$got],期望 P5A03|l5a1_stranger"
+
+# ⑥ 只靠 SET ROLE 到得了 payment_confirmer(INHERIT F,SET T):has_fn_priv=false
+#    ⇒ 這格證的是**閉包那一層有判別力**(單看 has_function_privilege 完全看不到它)
+got="$(reach_state \
+  "CREATE ROLE l5a1_setonly; GRANT payment_confirmer TO l5a1_setonly WITH INHERIT FALSE, SET TRUE;" \
+  "NOT $(printf "$FNP" l5a1_setonly) AND $(EDGE l5a1_setonly payment_confirmer TRUE FALSE)")"
+deny_is "$got" "l5a1_setonly" \
+  && ok  "REACH-DENY-setrole" "只 SET ROLE 到得了(自身 has_fn_priv=false)⇒ 閉包那層抓到、且抓到的就是它" \
+  || bad "REACH-DENY-setrole" "得到 [$got],期望 P5A03|l5a1_setonly —— 閉包那層沒有判別力"
+
+# ⑦ 直接被 GRANT EXECUTE、零 membership 邊 ⇒ 只有 has_function_privilege 那層看得到
+got="$(reach_state \
+  "CREATE ROLE l5a1_grantee; GRANT EXECUTE ON FUNCTION $FN TO l5a1_grantee;" \
+  "$(printf "$FNP" l5a1_grantee) AND $(NOEDGE l5a1_grantee)")"
+deny_is "$got" "l5a1_grantee" \
+  && ok  "REACH-DENY-direct" "直接被 GRANT EXECUTE、零 membership ⇒ RAISE P5A03 且抓到的就是它" \
+  || bad "REACH-DENY-direct" "得到 [$got],期望 P5A03|l5a1_grantee"
+
+# ⑦b 🔴 R3/Fable MF-A:只持 ADMIN OPTION 的 inert 成員（set=F, inherit=F, admin=T）。
+#     它自身 has_fn_priv=false、也 SET ROLE 不了，但可以 `GRANT payment_confirmer TO 自己` 之後再呼。
+#     🔴 這是**本次重設計自己造出來的回歸**：前版「零直接成員」斷言攔得住它，
+#       只走 set_option 的閉包會靜默放過 ⇒ 必須被抓到。
+got="$(reach_state \
+  "CREATE ROLE l5a1_admin; GRANT payment_confirmer TO l5a1_admin WITH INHERIT FALSE, SET FALSE, ADMIN TRUE;" \
+  "NOT $(printf "$FNP" l5a1_admin) AND $(EDGE3 l5a1_admin payment_confirmer FALSE FALSE TRUE)")"
+deny_is "$got" "l5a1_admin" \
+  && ok  "REACH-DENY-admin" "只持 ADMIN 的 inert 成員(可自授後呼)⇒ 抓到、且抓到的就是它(補回前版能力)" \
+  || bad "REACH-DENY-admin" "得到 [$got],期望 P5A03|l5a1_admin —— admin_option 那條邊漏抓(對前版是回歸)"
+
+# ⑧ 兩層 SET 鏈 Y→X→payment_confirmer,全程 INHERIT FALSE。
+#    🔴 codex R2-MF4「確定假綠」的折法:X 自己就可 SET ROLE 到 pc ⇒ 光看「有沒有 RAISE」
+#      即使遞迴只走一層也會綠。所以這格改成斷言 **RAISE 訊息裡的角色清單逐字等於 `l5a1_x,l5a1_y`**:
+#      只有遞迴真的走到第二層,l5a1_y 才會出現在清單裡。
+got="$(reach_state \
+  "CREATE ROLE l5a1_x; CREATE ROLE l5a1_y; GRANT payment_confirmer TO l5a1_x WITH INHERIT FALSE, SET TRUE; GRANT l5a1_x TO l5a1_y WITH INHERIT FALSE, SET TRUE;" \
+  "NOT $(printf "$FNP" l5a1_y) AND NOT $(printf "$FNP" l5a1_x) AND $(EDGE l5a1_x payment_confirmer TRUE FALSE) AND $(EDGE l5a1_y l5a1_x TRUE FALSE) AND NOT $(OWNER_REACHABLE l5a1_y)")"
+deny_is "$got" "l5a1_x,l5a1_y" \
+  && ok  "REACH-DENY-transit" "兩層 SET 鏈:清單逐字含 l5a1_y ⇒ 遞迴真的走到第二層(不是只抓到 X 就綠)" \
+  || bad "REACH-DENY-transit" "得到 [$got],期望 P5A03|l5a1_x,l5a1_y —— 只抓到 X = 遞迴那層沒有判別力"
 
 # ── 原子性結構斷言(R3 MF-4)──────────────────────────────────────────────────
 # 🔴 為什麼要結構斷言而不是行為斷言:「釋鎖與標記分兩步」的失敗只在**中間斷掉**時顯現,
@@ -531,4 +726,4 @@ WANT="$(printf '%s\n' $MANIFEST | sort | tr '\n' ' ' | sed 's/ *$//')"
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$GOT" = "$WANT" ] || { echo "🔴 label 清單不符"; echo "   實跑=[$GOT]"; echo "   期望=[$WANT]"; exit 1; }
 [ "$FAIL" = 0 ] || exit 1
-echo "✅ L5a-1 全綠(47 條斷言:2 provenance 偵測器 + 3 結構釘 + 25 格矩陣 + 11 發閘弱化突變 + 6 發特殊突變)"
+echo "✅ L5a-1 全綠(58 條斷言=2+11+3+25+17,與檔頭同源:2 provenance 偵測器 + 11 可呼面守門格 + 3 結構釘 + 25 格矩陣 + 11 發閘弱化突變 + 6 發特殊突變)"
