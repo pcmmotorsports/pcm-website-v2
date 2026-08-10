@@ -561,13 +561,60 @@ BEGIN
   --    ⇒ 直接把來源釘死:**payment_confirmer 不得有任何成員**(它是 NOINHERIT 的專用登入角色、
   --    只由 PAYMENT_CONFIRMER_DB_URL 直接登入使用,`20260611120000:62` 建立時就沒有任何 GRANT … TO)。
   --    這比「窮舉所有角色」穩:窮舉在 Supabase 上會被 supabase_admin/authenticator 之類的平台角色誤紅。
-  IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members am WHERE am.roleid = 'payment_confirmer'::regrole) THEN
+  -- 🔴 2026-08-11 放行**唯一一筆**:member=postgres 且 grantor=supabase_admin。
+  --    首推實測:220000 紅在本閘,正式庫該列 admin_option=true、我方 migration 全 repo grep 零命中該 GRANT。
+  --    ⚠️ 由此**推不出**「是平台種的」——有人以 supabase_admin 在 dashboard 手動 GRANT,catalog 外觀一樣。
+  --      **放行的正當性不建立在來源上**,而是下面這條。
+  -- 🔴 放行的正當性 = **postgres 對這四支的可達性與這筆成員資格無關**:
+  --    postgres 是這四支的 owner(見下方 owner 斷言)。⚠️ 精確講:owner **可以**把自己當下的 EXECUTE REVOKE 掉,
+  --    所以「恆有 EXECUTE」不準;**恆有的是 grant option ⇒ 它隨時可以自己授回來** ⇒ **能力等價**。
+  --    ⇒ 把這筆成員資格拔掉,postgres 對**這四支**的可達性一點都不會變
+  --    ⇒ 白名單**沒有擴大「這四支」的可達集合**。⚠️ 射程僅限這四支:payment_confirmer 若另有(或日後新增)
+  --      別的權限,那些不在本斷言的證明範圍內,不得由本句推出「完全沒擴大」。
+  -- 🔴 ⚠️ **不可照抄 OP3(20260810160000)的理由**:那支說「放行不弱化守門,因為執行期 P2B36 每次都問」——
+  --    **本片四支函式體內零 actor 檢查**(查法:看四支的**可執行本體**,不要用全檔 grep ——
+  --    `session_user`/`current_user` 這兩個字會命中本段註解自己,得到恆有的假命中)⇒ **沒有執行期鎖**。
+  --    SECDEF 一旦可呼就能 claim/標人工/expire/讀聚合。本閘不是「可用性預警」,**它就是那道**。
+  -- 🔴 executable 面由誰守:上方 :548-556 的 has_function_privilege 迴圈(**含角色繼承閉包**)——
+  --    若 anon/authenticated/service_role 拿到**當下生效**的 EXECUTE,那圈會紅。
+  --    ⚠️ 不宣稱「任何路徑都抓得到」:成員資格若是 `INHERIT FALSE`,`has_function_privilege` 在
+  --    `SET ROLE` **之前**回 false ⇒ 那圈看不到它。該路徑的能力等同 owner、不由本白名單放行,
+  --    但**它確實在那圈的射程之外** —— 要涵蓋它得另外查 pg_auth_members(即下方失效條件那段)。
+  --    成員閘擋「來源」、那圈擋「結果」,兩者不重複。
+  -- 🔴 用 pg_get_userbyid 不用 ::regrole:本機拋棄庫沒有 supabase_admin,轉型會 42704 整片紅。
+  -- ⚠️ 失效條件:本閘只看 apply 那一刻;apply 後成員集合仍可能變(admin_option=true 可再轉授),
+  --    而**沒有任何執行期機制會發現 catalog 漂移**(本片無 actor 閘)⇒ 想「知道」只能另外定期查 pg_auth_members。
+  --    目前**沒有**這個機制 ⇒ 這是本片比 OP3 更需要它的地方,已請主視窗列 backlog 候選。
+  --
+  -- 🔴 owner 斷言(把上面那條正當性變成**可執行的**,不是只寫在註解裡):
+  --    白名單的成立條件是「postgres 是 owner」。owner 一旦不是 postgres,放行就會真的擴大可達集合
+  --    ⇒ 那時本片必須紅、由人重裁,而不是安靜地照放。
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc p
+     WHERE p.oid IN ('public.claim_stuck_unsettled_attempts(integer,integer)'::regprocedure,
+                     'public.mark_attempt_settle_retry(uuid,integer,text)'::regprocedure,
+                     'public.get_payment_anomaly_alert_summary(integer,integer,integer)'::regprocedure,
+                     'public.expire_stuck_attempts_at_ceiling()'::regprocedure)
+       AND pg_catalog.pg_get_userbyid(p.proowner) <> 'postgres'
+  ) THEN
+    RAISE EXCEPTION 'L5b-0-s assert:四支之一的 owner 不是 postgres ⇒ 下方成員白名單(放行 postgres@supabase_admin)'
+                    ' 的正當性前提「postgres 本來就是 owner、可達性與成員資格無關」不再成立,放行會真的擴大可達集合。停下人工判斷';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members am
+     WHERE am.roleid = 'payment_confirmer'::regrole
+       AND NOT (pg_catalog.pg_get_userbyid(am.member)  = 'postgres'
+            AND pg_catalog.pg_get_userbyid(am.grantor) = 'supabase_admin')
+  ) THEN
     RAISE EXCEPTION 'L5b-0-s assert:payment_confirmer 有成員 [%] ⇒ 這些角色可繼承它、直接呼得到本片四支 SECDEF RPC,'
                     ' 而 proacl 與三個前台負測都看不出來。停下人工判斷',
                     (SELECT pg_catalog.string_agg(r.rolname, ',' ORDER BY r.rolname)
                        FROM pg_catalog.pg_auth_members am
                        JOIN pg_catalog.pg_roles r ON r.oid = am.member
-                      WHERE am.roleid = 'payment_confirmer'::regrole);
+                      WHERE am.roleid = 'payment_confirmer'::regrole
+                        AND NOT (pg_catalog.pg_get_userbyid(am.member)  = 'postgres'
+                             AND pg_catalog.pg_get_userbyid(am.grantor) = 'supabase_admin'));
   END IF;
 
   -- 🔴 關卡2 R2-MF-B:與前置閘那道同型 —— 本片四支的 post-image 指紋也只釘**本體字面**。
