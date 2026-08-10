@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseOrderNoteForm } from './note-form';
+import { NOTE_SINGLE_FIELDS, parseOrderNoteForm } from './note-form';
 import {
   NOTE_BODY_FIELD,
   NOTE_CHANNEL_FIELD,
@@ -169,5 +169,71 @@ describe('parseOrderNoteForm — body', () => {
     expect(parseOrderNoteForm(internalForm({ [NOTE_BODY_FIELD]: long }))).toMatchObject({
       ok: true,
     });
+  });
+});
+
+// ── #365 片②:單值欄位「getAll 恰一筆」 ────────────────────────────────────────────────
+describe('parseOrderNoteForm — #365 單值欄位恰一筆', () => {
+  // 🔴 **手寫清單、不走訪受測常數**(循環論證:清單少一欄 ⇒ 測項也少一條 ⇒ 全綠)。
+  const EXPECTED_SINGLE_FIELDS = [
+    'order_id',
+    'request_token',
+    'note_type',
+    'body',
+    'corrects_note_id',
+    'channel',
+    'occurred_at',
+  ];
+
+  it('入口清單 = 手寫的七顆 wire 欄名', () => {
+    expect([...NOTE_SINGLE_FIELDS]).toEqual(EXPECTED_SINGLE_FIELDS);
+  });
+
+  // 🔴🔴 **本檔最重要的一格**:`corrects_note_id` 走的是「讀不出來就當沒填」——
+  //    沒有入口擋門的話,送兩份會讀成 null ⇒ **跳過 uuid 閘** ⇒ `ok: true` 且
+  //    `correctsNoteId: null` ⇒ 一筆**更正備註**被靜默寫成一筆普通備註,而 `order_notes`
+  //    是 append-only(D5 帳本核對面板從此對不回去)。這與片① 在退款線抓到的 fail-open 同型。
+  it('🔴 corrects_note_id 送兩份 → ok:false(不是讀成 null 之後跳過 uuid 閘)', () => {
+    const d = contactForm();
+    d.append(NOTE_CORRECTS_FIELD, NOTE_ID);
+    d.append(NOTE_CORRECTS_FIELD, NOTE_ID);
+    expect(parseOrderNoteForm(d).ok).toBe(false);
+    // 正向對照:同一顆 id 只送一份 ⇒ 過,而且真的被當成更正。
+    const one = contactForm({ [NOTE_CORRECTS_FIELD]: NOTE_ID });
+    const r = parseOrderNoteForm(one);
+    expect(r.ok && r.correctsNoteId).toBe(NOTE_ID);
+  });
+
+  const GOOD: Record<string, string> = {
+    order_id: ORDER_ID,
+    request_token: TOKEN,
+    note_type: 'contact_log',
+    body: '已致電客人',
+    corrects_note_id: NOTE_ID,
+    channel: 'phone',
+    occurred_at: '2026-08-02T14:30:00+08:00',
+  };
+  // 🔴 查不到就當場炸(理由同 `workflow-form.test.ts` 的 `goodValueOf`)。
+  function goodValueOf(field: string): string {
+    const v = GOOD[field];
+    if (v === undefined) throw new Error(`fixture 缺 ${field} 的合法值`);
+    return v;
+  }
+
+  it.each(EXPECTED_SINGLE_FIELDS)('%s 送兩份 → ok:false(不採第一筆)', (field) => {
+    const d = contactForm();
+    d.delete(field);
+    d.append(field, goodValueOf(field));
+    d.append(field, goodValueOf(field));
+    expect(parseOrderNoteForm(d).ok).toBe(false);
+    // 正向對照:同樣的值只送一份 ⇒ 過(證明紅的是「兩份」而不是那個值)。
+    expect(parseOrderNoteForm(contactForm({ [field]: goodValueOf(field) })).ok).toBe(true);
+  });
+
+  // 🔴 第二種形狀:單一 File(數量是 1 ⇒ 只數 length 的擋門會放行;片① codex 抓到的)。
+  it('body 送單一 File → ok:false', () => {
+    const d = contactForm();
+    d.set(NOTE_BODY_FIELD, new File(['已致電客人'], 'note.txt'));
+    expect(parseOrderNoteForm(d).ok).toBe(false);
   });
 });

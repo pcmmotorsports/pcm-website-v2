@@ -3,6 +3,8 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { normalizeOrderKeywordSearch } from '@pcm/domain';
+// #365 片②:單值欄位的唯一讀法。
+import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
 import {
   ORDER_KEYWORD_COOKIE,
@@ -34,8 +36,8 @@ import {
  * 不是站內 `/orders` 開頭、或含 `//` `://` 換行 ⇒ 一律當作 `/orders`。
  * 不擲錯的理由:此時 cookie 已經寫好了,擲錯只會讓員工看到錯誤頁而不知道搜尋到底生效沒有。
  */
-function safeListReturnTo(raw: FormDataEntryValue | null): string {
-  if (typeof raw !== 'string') return '/orders';
+function safeListReturnTo(raw: string | null): string {
+  if (raw === null) return '/orders';
   // 🔴 控制字元與非 latin-1 一起擋(code-reviewer 2026-08-10 nit-6):它們不是 open-redirect
   //    ——那條被下面的前綴白名單擋死了——而是**會讓 `redirect()` 自己爆掉**:
   //    Node 對 header 值裡的這些字元擲 `ERR_INVALID_CHAR`,結果正是本函式上面那段說要避免的
@@ -59,9 +61,15 @@ export async function applyOrderKeywordSearchAction(formData: FormData): Promise
   //    未授權 ⇒ 什麼都不做、直接導回列表(不擲錯:proxy 那層本來就會把未登入的人導去 SSO)。
   if ((await authorizeAdminMutation()) === null) redirect('/orders');
 
-  const raw = formData.get(ORDER_KEYWORD_FIELD);
-  const parsed = normalizeOrderKeywordSearch(typeof raw === 'string' ? raw : null);
-  const returnTo = safeListReturnTo(formData.get(ORDER_KEYWORD_RETURN_TO_FIELD));
+  // 🔴 #365 片②:兩欄都改走「`getAll()` 恰一筆」讀法。
+  //    · 搜尋詞送兩份 ⇒ 讀成 null ⇒ `normalizeOrderKeywordSearch(null)` 回 `empty` ⇒ **刪 cookie**。
+  //      這與「員工清空搜尋框」同一個出口,是本檔既有的 fail-closed 語意(見下方 else 分支註解):
+  //      讀不出一個明確的搜尋詞時,寧可讓 chip 消失、列表回全部,也不要拿其中一份去查。
+  //    · `return_to` 讀成 null ⇒ `safeListReturnTo` 退回 `/orders`(它本來就有這條 fallback)。
+  const parsed = normalizeOrderKeywordSearch(readSingleString(formData, ORDER_KEYWORD_FIELD));
+  const returnTo = safeListReturnTo(
+    readSingleString(formData, ORDER_KEYWORD_RETURN_TO_FIELD),
+  );
   const store = await cookies();
 
   if (parsed.kind === 'ok') {

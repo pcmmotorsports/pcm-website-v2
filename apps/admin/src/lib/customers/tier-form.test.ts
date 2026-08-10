@@ -15,14 +15,13 @@ import { TIER_VALUES } from './customer-list-view';
 
 const UUID = '11111111-2222-3333-4444-555555555555';
 
+// #365 片②:假表單整個拿掉,改用**真 FormData** —— `FormLike` 已收窄成只有 `getAll()`
+// (`get()` / `has()` 分不出「送一份」與「送兩份」,型別上就不再提供),而手寫的假表單
+// 正是「單值情境永遠只回一筆」那種讓重複欄位測不出來的形狀。
 function form(entries: Record<string, string>): FormLike {
-  const m = new Map(Object.entries(entries));
-  // #365:單值讀法改走 getAll 恰一筆 ⇒ 假表單補這一支(單值情境回 0 或 1 筆)。
-  return {
-    get: (k) => m.get(k) ?? null,
-    has: (k) => m.has(k),
-    getAll: (k) => (m.has(k) ? [m.get(k) as string] : []),
-  };
+  const data = new FormData();
+  for (const [name, value] of Object.entries(entries)) data.set(name, value);
+  return data;
 }
 
 function valid(overrides: Record<string, string> = {}): Record<string, string> {

@@ -3,6 +3,13 @@
 // 形狀層(語意 fail-closed 權威在 admin_update_order_workflow RPC,此處輕驗 + 縱深)。
 
 import type { AdminOrderWorkflowPatch, InvoiceStatus } from '@pcm/domain';
+// #365 片②:單值欄位的唯一讀法(見 `lib/forms/single-value.ts` 檔頭)。
+import {
+  type SingleValueFormLike,
+  anyMalformed,
+  readSingle,
+  readSingleString,
+} from '../forms/single-value';
 // #350d:`return_to` 的守門集中在 order 域共用解析器(五支 action 的 choke point)。
 import { ORDER_RETURN_TO_FIELD, parseOrderReturnTo } from './order-return-to';
 
@@ -42,17 +49,20 @@ export function isAllowedOrigin(
   return false;
 }
 
-/** 表單讀取的最小介面(FormData 相容;單測用 Map 亦可)。 */
-export interface FormLike {
-  get(name: string): FormDataEntryValue | null;
-  has(name: string): boolean;
-  /**
-   * #365:單值欄位一律走「`getAll()` 恰一筆」(見 `lib/forms/single-value.ts`)。
-   * ⚠️ 本檔自己的呼叫點**還沒轉**(#365 片②的範圍);型別先補是因為共用本型別的
-   *    `wallet-form` / `tier-form` 在片①已經轉了。
-   */
-  getAll(name: string): FormDataEntryValue[];
-}
+/**
+ * 表單讀取的最小介面 = **共用讀法自己的型別**(`lib/forms/single-value.ts`);
+ * 本檔沿用 `FormLike` 這個名字,是因為 `wallet-form` / `tier-form` 從這裡 import 它。
+ *
+ * 🔴 **`get()` 與 `has()` 已於 #365 片② 具名移除,不是漏掉的**:
+ *    · `has()` 分不出「送一份」與「送兩份」(兩者都回 `true`),而那正是本片要修的洞;
+ *    · `get()` 取的是**第一筆**,同理。
+ *    兩支留在型別上 = 下一個人寫 `if (form.has(x))` 就原地重生同一個洞。三態的 `readSingle`
+ *    同時回答「有沒有提供」與「形狀對不對」⇒ 這兩支在本檔與 `wallet`/`tier` 皆已零呼叫端。
+ *    ⚠️ 片③ 尚未轉的面(關卡2 code-reviewer nit-5 補全,原本只點了 staff):
+ *    `lib/staff-form.ts`(自帶一份 `FormLike`、`has()` 讀 checkbox)、`lib/supplier-form.ts`
+ *    (4 處 `form.get()`)、`lib/session/actor-actions.ts`(`formData.get('actorId')`)。
+ */
+export type FormLike = SingleValueFormLike;
 
 export type ParseResult =
   | {
@@ -64,9 +74,36 @@ export type ParseResult =
     }
   | { ok: false };
 
-function asString(v: FormDataEntryValue | null): string | null {
-  return typeof v === 'string' ? v : null;
-}
+// #365 片②:本地 `asString` 已刪,改用共用的「`getAll()` 恰一筆」三態讀法。
+//
+// 🔴 **舊行為是兩種、不是一種**(關卡2 code-reviewer must-fix 1 更正我原本說過頭的那句;
+//    我自己開 `git show 48a99080:` 逐行複驗過)。
+// ⚠️ **範圍限 `shipping_method` / `invoice_number` / `invoice_amount` 這三個欄**(R2 nit-1:
+//    我重寫時把 R1 版原有的範圍字弄丟了)——`invoice_status` 舊碼是**裸的** `asString(get())`、
+//    沒有 `?? ''` 也沒有 trim ⇒ 它送 File 時 `raw` 是 null、直接 `ok:false`,從來不會被清空。
+//    那三個欄走的是 `(asString(get()) ?? '').trim()`:
+//    · **送兩份**:`get()` 回**第一筆字串** ⇒ `asString` 不回 null ⇒ `?? ''` 根本沒觸發
+//      ⇒ **靜默採第一筆**(寫進去的是錯的那個值,不是清空);
+//    · **送單一 File**:`asString` 回 null ⇒ 收斂成 `''`,而 `''` 在 `invoice_number` /
+//      `invoice_amount` 的語意是**「清空這一欄」** ⇒ **靜默清掉發票號 / 發票金額**。
+//    兩條的共同點是「零紅燈」,但**受害方向不同**,寫成同一句會讓下一個人估錯風險。
+//    改用三態後:「送了但形狀不對」與「根本沒送」分得開,前者一律 `ok:false`。
+
+/**
+ * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
+ * ⚠️ 漏列一欄 = 那一欄退回「三態各自處理」的行為(仍 fail-closed,但變成**靜默不 patch**、
+ *    員工看不到 `invalid`)⇒ 測試拿手寫清單比對這顆常數當完整性守門。
+ * ⚠️ `return_to` **刻意不在清單內**(同 `lib/payment/refund-actions.ts` 的判斷):它不決定寫什麼、
+ *    只決定寫完停在哪一頁,而非法值已有自己的 fail-closed(`parseOrderReturnTo` 退回本單明細頁)。
+ */
+export const WORKFLOW_SINGLE_FIELDS = [
+  ORDER_ID_FIELD,
+  VERSION_FIELD,
+  SHIPPING_METHOD_FIELD,
+  INVOICE_NUMBER_FIELD,
+  INVOICE_AMOUNT_FIELD,
+  INVOICE_STATUS_FIELD,
+] as const;
 
 /**
  * 表單 → { orderId, expectedVersion, patch }(形狀層;語意 fail-closed 在 RPC):
@@ -80,10 +117,14 @@ function asString(v: FormDataEntryValue | null): string | null {
  * - return_to:只接受站內絕對路徑 `/orders...`(防 open redirect);否則退 '/orders'。
  */
 export function parseWorkflowPatchForm(form: FormLike): ParseResult {
-  const orderId = asString(form.get(ORDER_ID_FIELD));
+  // 🔴 重複 / 非字串欄位在語意層之前擋掉(理由見 `anyMalformed` docstring):
+  //    下面三個 patch 欄是「空字串 = 清空」的語意,不先擋就會把形狀錯誤讀成「員工要清空」。
+  if (anyMalformed(form, WORKFLOW_SINGLE_FIELDS)) return { ok: false };
+
+  const orderId = readSingleString(form, ORDER_ID_FIELD);
   if (!orderId || !UUID_RE.test(orderId)) return { ok: false };
 
-  const versionRaw = asString(form.get(VERSION_FIELD));
+  const versionRaw = readSingleString(form, VERSION_FIELD);
   if (!versionRaw || !/^\d{1,10}$/.test(versionRaw)) return { ok: false };
   const expectedVersion = Number(versionRaw);
   if (!Number.isInteger(expectedVersion) || expectedVersion < 1 || expectedVersion > 2147483646) {
@@ -100,19 +141,25 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
   // `admin_update_order_item_workflow` RPC 仍在(**REVOKE 非 DROP**);其 EXECUTE 權由
   // **A9v `20260807120000`** 撤除、**apply 後 service_role 叫不動**;orders.workflow_status=停寫欄。
 
-  if (form.has(SHIPPING_METHOD_FIELD)) {
-    const raw = (asString(form.get(SHIPPING_METHOD_FIELD)) ?? '').trim();
+  // 🔴 `has()` → 三態 `readSingle`(#365 片②):`kind === 'value'` 就是原本的「有提供這一欄」,
+  //    而 `kind === 'invalid'`(送兩份 / 非字串)在上面的入口擋門已被擋掉 ⇒ 到這裡只剩
+  //    「有提供且是恰一筆字串」與「沒提供」兩種,`?? ''` 那層收斂因此整個不需要了。
+  const shippingRead = readSingle(form, SHIPPING_METHOD_FIELD);
+  if (shippingRead.kind === 'value') {
+    const raw = shippingRead.value.trim();
     if (raw === '') return { ok: false }; // NOT NULL
     patch.shippingMethod = raw;
   }
 
-  if (form.has(INVOICE_NUMBER_FIELD)) {
-    const raw = (asString(form.get(INVOICE_NUMBER_FIELD)) ?? '').trim();
+  const invoiceNumberRead = readSingle(form, INVOICE_NUMBER_FIELD);
+  if (invoiceNumberRead.kind === 'value') {
+    const raw = invoiceNumberRead.value.trim();
     patch.invoiceNumber = raw === '' ? null : raw;
   }
 
-  if (form.has(INVOICE_AMOUNT_FIELD)) {
-    const raw = (asString(form.get(INVOICE_AMOUNT_FIELD)) ?? '').trim();
+  const invoiceAmountRead = readSingle(form, INVOICE_AMOUNT_FIELD);
+  if (invoiceAmountRead.kind === 'value') {
+    const raw = invoiceAmountRead.value.trim();
     if (raw === '') {
       patch.invoiceAmount = null;
     } else if (/^\d{1,10}$/.test(raw) && Number(raw) <= 2147483647) {
@@ -122,8 +169,9 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     }
   }
 
-  if (form.has(INVOICE_STATUS_FIELD)) {
-    const raw = asString(form.get(INVOICE_STATUS_FIELD));
+  const invoiceStatusRead = readSingle(form, INVOICE_STATUS_FIELD);
+  if (invoiceStatusRead.kind === 'value') {
+    const raw = invoiceStatusRead.value;
     if (raw !== 'not_issued' && raw !== 'issued' && raw !== 'voided') return { ok: false };
     patch.invoiceStatus = raw as InvoiceStatus;
   }
@@ -138,7 +186,10 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     orderId,
     expectedVersion,
     patch,
-    returnTo: parseOrderReturnTo(form.get(ORDER_RETURN_TO_FIELD), orderId),
+    //    🔴 #365 片②:`return_to` 同樣改走「恰一筆」讀法(送兩份 ⇒ 讀成 null ⇒ 走 fallback),
+    //    但**不進入口清單** —— 理由同 `lib/payment/refund-actions.ts` 的 `return_to` 那段:
+    //    它決定不了寫什麼、只決定寫完停在哪一頁。
+    returnTo: parseOrderReturnTo(readSingleString(form, ORDER_RETURN_TO_FIELD), orderId),
   };
 }
 

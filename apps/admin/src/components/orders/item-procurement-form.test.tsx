@@ -28,6 +28,7 @@ vi.mock('../../lib/orders/procurement-actions', () => ({
     actionMock(prev, form),
 }));
 
+import { parseProcurementForm } from '../../lib/orders/procurement-form';
 import { ItemProcurementForm } from './item-procurement-form';
 
 const ORDER = '11111111-1111-4111-8111-111111111111';
@@ -494,5 +495,85 @@ describe('ItemProcurementForm — 送出中要鎖欄位(關卡2 codex R2 MF5)', 
       release({ status: 'idle' });
     });
     expect(container.querySelector('fieldset')!.disabled).toBe(false);
+  });
+});
+
+// ── #365 片②:`submitted_at_local` 是合成欄位、入口擋門看不到它 ──────────────────────
+describe('ItemProcurementForm — #365 submitted_at_local 形狀錯 ⇒ 不合成 submitted_at', () => {
+  // 🔴 為什麼這一格要**繞過 React 直接動 DOM**:重複的同名欄位不會由本元件渲染出來,
+  //    它來自「表單重構意外多渲染一個」或手工 POST —— 那正是 #365 要防的兩個情境之一。
+  function addDuplicateLocalInput(container: HTMLElement, value: string) {
+    const form = container.querySelector('form')!;
+    const extra = document.createElement('input');
+    extra.setAttribute('name', 'submitted_at_local');
+    extra.value = value;
+    form.appendChild(extra);
+  }
+
+  it('🔴 同名欄位送兩份 → submitted_at 整顆不送(舊行為:收斂成空字串 ⇒ 靜默把既有時間寫成 NULL)', async () => {
+    const { container } = setup();
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    addDuplicateLocalInput(container, '2026-12-25T08:15');
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form')!);
+    });
+    const sent = actionMock.mock.calls[0]![1];
+    expect(sent.has(PROC_SUBMITTED_AT_FIELD)).toBe(false);
+    // 🔴 **中間那一跳自己也要有守門**(「兩端各有測試、中間透傳無人守」那族):
+    //    把元件真的送出去的那份 FormData 餵給**真解析器**,證明它確實走到 ok:false,
+    //    而不是只證明「我們沒送那個 key」。
+    expect(parseProcurementForm(sent).ok).toBe(false);
+  });
+
+  // 🔴 關卡2 must-fix 2:`missing` 與 `invalid` 必須走同一條 —— 我第一版只擋了 `invalid`,
+  //    整顆欄位不見時照舊收斂成 `''` ⇒ A5a 全量 payload 把既有時間寫成 NULL、畫面顯示成功。
+  it('🔴 submitted_at_local 整顆不見 → submitted_at 也不送(missing 與 invalid 同一條路)', async () => {
+    const { container } = setup();
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    container.querySelector('input[name="submitted_at_local"]')!.remove();
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form')!);
+    });
+    const sent = actionMock.mock.calls[0]![1];
+    expect(sent.has(PROC_SUBMITTED_AT_FIELD)).toBe(false);
+    expect(parseProcurementForm(sent).ok).toBe(false);
+  });
+
+  // 🔴🔴 **「補一半掏空另一半」的守門**:上面那條把「讀不出恰一筆字串」全擋掉,很容易連
+  //    **員工清空這個欄位**(合法操作、送的是空字串)一起擋死。空字串是 `kind: 'value'`、
+  //    不是 `missing` ⇒ 必須照舊走「清成 NULL」那條合法路徑。
+  it('🔴 員工清空時間欄(送空字串)→ 仍然送 submitted_at,而且解析成 null(清空照舊可用)', async () => {
+    const { container } = setup();
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    fireEvent.change(container.querySelector('input[name="submitted_at_local"]')!, {
+      target: { value: '' },
+    });
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form')!);
+    });
+    const sent = actionMock.mock.calls[0]![1];
+    expect(sent.get(PROC_SUBMITTED_AT_FIELD)).toBe('');
+    const parsed = parseProcurementForm(sent);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.submittedAtLocal).toBeNull();
+  });
+
+  it('正向對照:只有一個 submitted_at_local → 照常合成、解析器收得下', async () => {
+    const { container } = setup();
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form')!);
+    });
+    const sent = actionMock.mock.calls[0]![1];
+    expect(sent.has(PROC_SUBMITTED_AT_FIELD)).toBe(true);
+    expect(parseProcurementForm(sent).ok).toBe(true);
   });
 });

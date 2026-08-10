@@ -2,6 +2,8 @@
 
 import { RedirectType, redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
+// #365 片②:單值欄位的唯一讀法(本檔的 `readRedirectTargetOrderId` 是這條讀法的原型)。
+import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
 import { parseOrderCancelForm } from './cancel-form';
 import {
@@ -116,10 +118,10 @@ function readRedirectTargetOrderId(formData: FormData): string | null {
   //    解析器那邊會拒(`cancel-form.ts` 的 `readSingle`),但**失敗導頁**若採第一筆,
   //    員工會被導到**另一張單**的頁面、看著別人的取消結果面板。
   //    ⇒ 導頁目標與解析器必須用同一套讀法,否則「兩邊各自正確、合起來錯」。
-  const all = formData.getAll(CANCEL_ORDER_ID_FIELD);
-  if (all.length !== 1) return null;
-  const raw = all[0];
-  return typeof raw === 'string' && isUuid(raw) ? raw : null;
+  //    #365 片②:那套讀法已升成共用模組(`lib/forms/single-value.ts`),這裡改叫它 ——
+  //    本函式原本手寫的三行就是它的原型,留著等於留一份會漂移的副本。
+  const raw = readSingleString(formData, CANCEL_ORDER_ID_FIELD);
+  return raw !== null && isUuid(raw) ? raw : null;
 }
 
 export async function cancelOrderAction(formData: FormData): Promise<void> {
@@ -146,7 +148,9 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   const returnTo =
     targetOrderId === null
       ? ORDERS_PATH
-      : parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), targetOrderId);
+      //    🔴 #365 片②:`return_to` 也改走「恰一筆」讀法 —— 本函式上面那顆 `order_id` 早就這麼讀了
+      //    (`readRedirectTargetOrderId`),同一支 action 裡兩個欄位用兩套讀法才是最容易漂移的形狀。
+      : parseOrderReturnTo(readSingleString(formData, ORDER_RETURN_TO_FIELD), targetOrderId);
 
 
   // ③ 解析。任一形狀不合 → 導頁帶 `invalid`。

@@ -2,6 +2,8 @@
 
 import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
+// #365 片②:單值欄位的唯一讀法。
+import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
 import { parseOrderNoteForm } from './note-form';
 import {
@@ -77,13 +79,16 @@ function classifyResult(code: NoteResultCode): NoteFailureCode | null {
 
 /** 失敗時要帶回的兩個值。解析失敗時也要盡量帶回,否則員工打的字一樣會不見。 */
 function carryBack(formData: FormData): { body: string; requestToken: string } {
-  const body = formData.get(NOTE_BODY_FIELD);
-  const token = formData.get(NOTE_REQUEST_TOKEN_FIELD);
+  // 🔴 #365 片②:這兩欄與解析器讀的是**同兩顆欄位**,讀法必須一致 ——
+  //    解析器對「送兩份」回 `ok:false`,而這裡若還採第一筆,失敗畫面就會把**其中一份**當成
+  //    員工打的字回填、把**其中一把** token 當成冪等鍵繼續用(「兩邊各自正確、合起來錯」,
+  //    同 `cancel-actions.ts:115-118` 的導頁目標)。讀不出恰一筆 ⇒ body 回空、token 另產一把。
+  const body = readSingleString(formData, NOTE_BODY_FIELD);
+  const token = readSingleString(formData, NOTE_REQUEST_TOKEN_FIELD);
   return {
-    body: typeof body === 'string' ? body : '',
+    body: body ?? '',
     // 🔴 原樣帶回(R2-2);真的拿不到才新產一把,否則 `error` 路上重按會變成第二筆永久備註。
-    requestToken:
-      typeof token === 'string' && token !== '' ? token : generateNoteRequestToken(),
+    requestToken: token !== null && token !== '' ? token : generateNoteRequestToken(),
   };
 }
 
@@ -110,7 +115,13 @@ export async function appendOrderNoteAction(
 
   // 🔴 #350d-3 C1:動作做完回發起的那個視圖(面板裡寫備註 ⇒ 回面板)。
   //    綁在 `parsed.orderId`(已過 uuid 閘)上 —— 契約 §6-1:`return_to` 只決定視圖、不決定哪一張單。
-  const returnTo = parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), parsed.orderId);
+  //    🔴 #365 片②:改走「恰一筆」讀法(送兩份 ⇒ null ⇒ 走 fallback);**不進入口清單**,
+  //    理由同 `lib/payment/refund-actions.ts` 的 `return_to` 那段(它決定不了寫什麼,
+  //    只決定寫完停在哪一頁)。
+  const returnTo = parseOrderReturnTo(
+    readSingleString(formData, ORDER_RETURN_TO_FIELD),
+    parsed.orderId,
+  );
 
   const httpRequestId = await getRequestId();
   // 🔴 log **不記 body 全文**(只記長度)—— 備註是營運內容,長度足以除錯。

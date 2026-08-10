@@ -1,6 +1,6 @@
 'use client';
 
-import { readSingleString } from '../../lib/forms/single-value';
+import { readSingle } from '../../lib/forms/single-value';
 import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AdminOrderItemProcurement } from '@pcm/domain';
@@ -102,14 +102,30 @@ export function ItemProcurementForm({
   const [state, formAction, isPending] = useActionState<ProcurementActionState, FormData>(
     async (prev, formData) => {
       // #365:同名欄位送兩份時不採第一筆(讀成 null)。
-      // 🔴 **這一欄下游擋不到,別再寫成擋得到**(codex 關卡2 抓到我第二次寫錯同一句):
-      //    本行讀的是 `submitted_at_local`(`'submitted_at_local'`),而解析器入口清單
-      //    `PROCUREMENT_SINGLE_FIELDS` 裡的是 **`submitted_at`**(`'submitted_at'`)——**兩顆不同的欄位**。
-      //    ⇒ `submitted_at_local` 送兩份 / 送 File 時這裡收斂成 `''`,下游把空字串當成合法的「沒填」,
-      //    而 A5a 是全量 payload ⇒ **既有時間會被靜默寫成 NULL**。
-      //    本片不擴大到改這條線的送出協定(那要動 hidden 欄位契約);先把事實寫對,
-      //    並在 `#365` 片②的範圍內處理(`submitted_at_local` 屬呼叫端合成欄位、不是解析器欄位)。
-      const local = readSingleString(formData, PROC_SUBMITTED_AT_LOCAL_FIELD) ?? '';
+      // 🔴 **這一欄下游擋不到**(codex 關卡2 抓到,#365 片② 在這裡修掉):本行讀的是
+      //    `submitted_at_local`,而解析器入口清單 `PROCUREMENT_SINGLE_FIELDS` 裡的是
+      //    **`submitted_at`** ——**兩顆不同的欄位**。它是**呼叫端合成欄位**:員工填的是這一顆,
+      //    送進 RPC 的是下面 `formData.set()` 產出的那一顆 ⇒ 入口擋門看不到它。
+      //    ⇒ 形狀錯時若沿用舊寫法的 `?? ''`,下游把空字串當成合法的「沒填」,而 A5a 是全量 payload
+      //    ⇒ **既有的送出時間被靜默寫成 NULL**,而員工看到的是「更新成功」。
+      // 🔴 修法 = 讀不出「恰一筆字串」就**把 `submitted_at` 整顆刪掉**,走解析器既有的
+      //    「這一欄沒送 ⇒ ok:false」出口(`procurement-form.ts` 的 `optionalText` 對 `missing`
+      //    回 `undefined`、呼叫端回 `invalid`)。不在 client 這層自己發明第二條失敗路徑。
+      // 🔴 **`missing` 與 `invalid` 走同一條**(關卡2 code-reviewer must-fix 2:我第一版只擋了
+      //    `invalid`,`missing` 照舊收斂成 `''` ⇒ 同一個「靜默寫 NULL」原地存活)。零 UX 代價:
+      //    上面那個 `datetime-local` input **無條件渲染**,員工清空欄位送的是 `value: ''`
+      //    (不是 `missing`)⇒ 那條**仍然**照舊走「清成 NULL」的合法路徑,收緊不會把它擋死
+      //    (測試釘住,突變 M6d 只紅那一格)。
+      // ⚠️ **不寫「真瀏覽器永遠送得出 value」那種全稱句**(R2 nit-3):本表單整個包在
+      //    `<fieldset disabled={truncated || isPending || refreshing}>` 內,而 disabled 的控制項
+      //    不會進 FormData ⇒ 真瀏覽器也構造得出 `missing`。那種情況下 `supplier_id` 等欄
+      //    一起消失、解析照樣 `ok:false`,所以**不開洞** —— 但字面要對得上事實。
+      const localRead = readSingle(formData, PROC_SUBMITTED_AT_LOCAL_FIELD);
+      if (localRead.kind !== 'value') {
+        formData.delete(PROC_SUBMITTED_AT_FIELD);
+        return upsertItemProcurementAction(prev, formData);
+      }
+      const local = localRead.value;
       const originalLocal =
         originalSubmittedAt === null ? '' : toTaipeiInputValue(originalSubmittedAt);
       formData.set(
