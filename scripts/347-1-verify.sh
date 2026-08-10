@@ -30,6 +30,26 @@
 # · 「搜尋詞不落 log」由 migration 的斷言 E 用**字面**守(函式體零 RAISE);
 #   本 harness **沒有**去讀真的 server log ⇒ 那條是字面證據,不是觀察證據。
 # ============================================================
+# ══════════════════════════════════════════════════════════════════════════════
+# ⛔ **2026-08-10 起本檔已被 #347-3a 取代 —— 對「已 apply 3a 的庫」不得執行。**
+#
+# 🔴 **更正(codex 關卡1 R2 打回我的第一版理由)**:我原本寫「跑本檔會把 3a 的四參數版**蓋掉**」
+#    —— **那是錯的**。重跑 #347-1 會建出第二支 overload,而它自己的斷言 A(「恰好一支 signature」)
+#    會當場 RAISE ⇒ 整個交易 rollback ⇒ 四參數版**毫髮無傷**。我沒有把那條斷言算進去就下了結論。
+#
+# 🔴 **那為什麼還是要擋**:因為本檔在那種庫上**跑不出有意義的結果** ——
+#    它的每一格都對著 `FN`(兩參數簽章)發問,而那支已經不存在 ⇒ 得到的是一連串「查無」而不是「不符」。
+#    更實際的風險是**撞庫**:誤連到別窗的叢集時,本檔會在別人的環境裡做突變(它真的會改函式)。
+#    ⇒ 用**機制**擋(身分閘 + 精確簽章判定 + exit 2),不是靠下一個人讀到這段字。
+#
+# 🔴 **為什麼 3a 不能像本檔一樣「重跑 migration 還原」**:#347-3a 開頭是
+#    `DROP FUNCTION public.admin_search_orders(text, integer)` 且**刻意沒有 `IF EXISTS`**
+#    (舊簽章必須存在;不存在代表前提被推翻、該停下來看)⇒ 在已套 3a 的庫上重跑會 42883。
+#    3a 的正確還原路徑寫在 `scripts/347-3a-verify.sh` 檔頭(先 DROP 四參數版 → 回填 347-1 → 再套 3a),
+#    最保險則是重跑 `scripts/d1t2-rehearsal.sh provision`。
+#
+# ⇒ 要驗現行行為請跑 **`scripts/347-3a-verify.sh`**(它涵蓋本檔的向後相容面 + 日期範圍)。
+# ══════════════════════════════════════════════════════════════════════════════
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -38,6 +58,24 @@ URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 FN="public.admin_search_orders(text, integer)"
 MIGFILE="supabase/migrations/20260809180000_m4b_347_1_admin_search_orders.sql"
 PASS=0; FAIL=0; MUT=0
+
+# ⛔ 機制閘(見檔頭;codex 關卡1 R2 must-fix 4 要求的順序與精度)。
+#    🔴 **順序**:先確認「連得上」與「是拋棄庫」,**再**判版本 —— 否則誤連到別窗叢集時,
+#       會先吐一句「已套 3a」把真正的撞庫問題蓋掉。
+#    🔴 **精度**:用 `regprocedure` 精確簽章,不是「同名且四參數」(同名四參數可能是別的型別組合)。
+_DD=$(psql "$URL" -qtA -c "SHOW data_directory;" 2>/dev/null)
+if [ -z "$_DD" ]; then
+  echo "⛔ 連不上 $URL(先跑 scripts/d1t2-rehearsal.sh provision)。" >&2; exit 2
+fi
+case "$_DD" in
+  /tmp/*) : ;;
+  *) echo "⛔ data_directory=[$_DD] 不在 /tmp 底下 —— 這不像拋棄庫,拒跑(本檔會做突變、真的會改函式)。" >&2; exit 2 ;;
+esac
+if psql "$URL" -qtA -c "SELECT 1 FROM pg_catalog.pg_proc WHERE oid = 'public.admin_search_orders(text, integer, timestamptz, timestamptz)'::regprocedure;" 2>/dev/null | grep -q '^1$'; then
+  echo "⛔ 這個庫已套用 #347-3a(四參數版):本檔每一格都對著已不存在的兩參數簽章發問。" >&2
+  echo "   改跑:PORT=${PORT:-54329} scripts/347-3a-verify.sh" >&2
+  exit 2
+fi
 
 # 🔴 突變是在交易外改真函式(CREATE OR REPLACE 不能在別的連線讀著的同時回滾)⇒ 中斷在還原前,
 #    這個隔離 DB 會永久留著壞函式,之後任何人跑別的 harness 都在測錯的東西。
