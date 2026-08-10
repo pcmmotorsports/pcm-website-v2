@@ -7,6 +7,7 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { getRequestId } from '../audit/context';
 import { getAdminOrderRepository } from './order-repository';
 import { parseWorkflowPatchForm } from './workflow-form';
+import { appendResultQuery } from './order-return-to';
 
 // M-4a Slice C 後台改單 server action(D-2 起只映射 shipping_method / 發票紀錄三欄=4 欄;
 // order 層 workflow_status 寫入面已收窄=送該 key 即 RAISE、20260716130000 §4)。
@@ -31,10 +32,13 @@ import { parseWorkflowPatchForm } from './workflow-form';
 
 type ResultCode = 'saved' | 'conflict' | 'noop' | 'invalid' | 'denied' | 'error';
 
-/** 結果碼 → returnTo?r=<code>(PRG;returnTo 已由 parse 限定站內 /orders 路徑)。 */
+/**
+ * 結果碼 → returnTo?r=<code>(PRG;returnTo 已由 `parseOrderReturnTo` 限定站內 /orders 路徑)。
+ * 🔴 #350d:接法(`?` vs `&`)改走共用的 `appendResultQuery` —— 五支 action 各拼一份的話,
+ *    面板網址(本來就帶 query)那一半只要有一支寫成 `?` 就會把整串篩選蓋掉。
+ */
 function redirectWith(returnTo: string, code: ResultCode): never {
-  const sep = returnTo.includes('?') ? '&' : '?';
-  redirect(`${returnTo}${sep}r=${code}`);
+  redirect(appendResultQuery(returnTo, `r=${code}`));
 }
 
 // 共用授權閘 authorizeAdminMutation:M-4a 儲值金編輯片起搬至 ../session/authorize.ts

@@ -256,7 +256,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   //    而它守的正是最容易發生的錯:**有人新增一個 `OrderDetail` 的呼叫端、忘了接那道閘**。
   //    ⇒ 直接渲染元件、不傳 prop,才量得到預設值本身。
   it('🔴 直接渲染 OrderDetail 且不傳 cancelFormsAllowed ⇒ 零取消表單', () => {
-    const { container } = render(<OrderDetail detail={detail()} />);
+    const { container } = render(<OrderDetail detail={detail()} returnTo='/orders/ord-1' />);
     // 正向對照:證明元件真的畫出來了(否則「零表單」是恆真)。
     expect(container.textContent).toContain('ABC123');
     expect(cancelFormCount(container)).toBe(0);
@@ -294,7 +294,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   });
 
   it('同一份資料明確傳 true ⇒ 表單出現(證明上一格不是因為資料不可取消)', () => {
-    const { container } = render(<OrderDetail detail={detail()} cancelFormsAllowed />);
+    const { container } = render(<OrderDetail detail={detail()} returnTo='/orders/ord-1' cancelFormsAllowed />);
     expect(container.textContent).toContain('ABC123');
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });

@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import type { AdminOrderFilter } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderFilter } from '@pcm/domain';
 import {
   buildOrderListHref,
   buildPanelCloseHref,
+  buildPanelSelfHref,
   ORDER_PANEL_PARAM,
 } from '../../lib/orders/order-list-view';
 
@@ -56,6 +57,55 @@ vi.mock('../../lib/orders/order-repository', () => ({
   }),
 }));
 vi.mock('../../lib/supplier', () => ({ listSuppliers: mocks.listSuppliers }));
+// 🔴 `<ShipmentSection>` 是 **async server component**,而 RTL 是**同步**渲染
+//    ⇒ 不 mock 的話整個 `OrderDetail` 渲染出來是**空字串、而且不報錯**
+//    (`cancel-wiring.test.tsx:67-75` 逐字記過同一個坑:那次讓「期望 0 個表單」整組恆綠)。
+//    ⇒ 守門 8/9 的每一格都配正向對照(數得到 1 條橫幅 / 至少一個 return_to),
+//      否則「0 條」與「畫面根本沒畫出來」在斷言上分不出來。
+// ⚠️ **代價寫清楚**:出貨區塊裡若日後長出自己的 `return_to`,守門 9 看不到它。
+vi.mock('../../components/orders/shipment-section', () => ({ ShipmentSection: () => null }));
+
+/**
+ * #350d 守門 8/9 用的最小明細 —— 只要**畫得出來**就夠(要量的是橫幅條數與 `return_to` 值)。
+ * 🔴 不能用 `null`:`OrderDetailRoute` 對查無會在畫橫幅**之前**就 return 掉
+ *    ⇒ 那樣「面板 0 條」會是恆真,量不到 C2 有沒有翻過來。
+ */
+function orderDetailFixture(id: string): AdminOrderDetail {
+  const money = { amount: 0, currency: 'TWD' };
+  return {
+    id,
+    displayId: 'PCM-0001',
+    createdAt: '2026-08-10T00:00:00.000Z',
+    paymentStatus: 'unpaid',
+    fulfillmentStatus: 'notOrdered',
+    orderSource: 'web',
+    paymentChannel: 'tappay',
+    paymentMethod: null,
+    paidAt: null,
+    subtotal: money,
+    shippingFee: money,
+    discountTotal: money,
+    total: money,
+    shippingMethod: 'home',
+    shippingAddress: { name: null, phone: null, line: null },
+    customer: { name: null, email: null, phone: null },
+    invoiceRequest: { type: null, taxId: null, title: null, carrier: null, donateCode: null },
+    invoiceNumber: null,
+    invoiceAmount: null,
+    invoiceStatus: 'not_issued',
+    cancelledAt: null,
+    cancelledReason: null,
+    chargeAttemptGate: 'clear',
+    version: 1,
+    items: [],
+    notes: [],
+    customerNotified: false,
+    notesTruncated: false,
+    itemsTruncated: false,
+    cancellations: [],
+    cancellationsTruncated: false,
+  } as unknown as AdminOrderDetail;
+}
 vi.mock('../../lib/payment/refund-read', () => ({
   listOrderRefunds: mocks.listOrderRefunds,
   getLedgerUnregisteredAmount: mocks.getLedgerUnregisteredAmount,
@@ -153,13 +203,38 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
       ]);
     });
 
-    it('一次性參數 r / correct 一起剝掉', () => {
-      const href = buildPanelCloseHref({ r: 'OK', correct: 'x', payment_status: 'paid' });
+    it('一次性參數 r / rt / correct 一起剝掉', () => {
+      // 🔴 `rt` 是 #350d 補進 `ONE_SHOT_PARAMS` 的(#350c 漏了)。在 #350c 它只是網址上多一個
+      //    沒用的參數;#350d 起這份清單被 `buildPanelSelfHref` 拿去當 `return_to` 的來源
+      //    ⇒ 夾帶舊 `rt` 的話 action 再接一顆新的 = `?rt=舊&rt=新` 重複鍵
+      //    ⇒ D3 classifier fail-closed ⇒ 面板永遠只說「查不到取消紀錄」。
+      //    突變:把 `rt` 從清單拿掉 ⇒ 這條紅。
+      const href = buildPanelCloseHref({ r: 'OK', rt: 'tok', correct: 'x', payment_status: 'paid' });
       expect(href).toBe('/orders?payment_status=paid');
     });
 
     it('沒有任何殘留條件 → 乾淨的 /orders(不留一個孤零零的問號)', () => {
       expect(buildPanelCloseHref({ [ORDER_PANEL_PARAM]: 'ord-1' })).toBe('/orders');
+    });
+  });
+
+  describe('buildPanelSelfHref — #350d 的 return_to 來源', () => {
+    it('保留篩選、剝掉一次性參數、**把 panel 留下**', () => {
+      const href = buildPanelSelfHref(
+        { payment_status: 'paid', r: 'saved', rt: 'tok', [ORDER_PANEL_PARAM]: 'stale' },
+        'ord-9',
+      );
+      const qs = new URLSearchParams(href.split('?')[1] ?? '');
+      expect(qs.get('payment_status')).toBe('paid');
+      expect(qs.get('r')).toBeNull();
+      expect(qs.get('rt')).toBeNull();
+      // 🔴 用**參數帶進來的那個 id**,不是網址上原本那顆:槽頁只在 `readOpenPanelOrderId`
+      //    回非 null 時才呼叫本支,而那支回的就是驗過形狀的值。
+      expect(qs.getAll(ORDER_PANEL_PARAM)).toEqual(['ord-9']);
+    });
+
+    it('沒有其他條件時也接得出乾淨的 `?panel=`(不會變成 `/orders&panel=`)', () => {
+      expect(buildPanelSelfHref({}, 'ord-9')).toBe(`/orders?${ORDER_PANEL_PARAM}=ord-9`);
     });
   });
 });
@@ -205,12 +280,15 @@ describe('A13b D6-a 守門:面板版的取消結果頁閘門不得常開', () =>
     expect(src).toMatch(/resultCode,\s*\n\s*requestToken,/);
   });
 
-  it('🔴 面板關掉的是「通用 banner」,不是整個結果碼', () => {
-    // 🔴 這兩件事必須分開:關掉通用 `ResultBanner` 是為了避免列表與面板各畫一條;
-    //    但**取消結果面板與結果頁閘門仍要吃 `r`/`rt`**。
+  it('🔴 面板吃的是完整的 `r`,不是「為了關 banner 而不傳 r」', () => {
+    // 🔴 這兩件事必須分開:通用 `ResultBanner` 畫在哪一邊(#350d C2 已翻給面板)是一回事;
+    //    **取消結果面板與結果頁閘門要吃 `r`/`rt`** 是另一回事。
     //    用「不傳 `r`」來達成關 banner = 把兩件事綁在一起,而代價是閘門常開。
+    // ⚠️ #350c 這裡原本還斷言 `showResultBanner: false`;#350d 把那個 prop **整個刪掉**了
+    //    ⇒ 再留一條 `not.toContain('showResultBanner: false')` 是**恆真**(prop 不存在,
+    //    誰再傳它 typecheck 就紅)。恆真的斷言只會讓人以為這裡守了什麼,已拿掉。
+    //    C2 的行為層由下面 #350d 守門 8 那組守(每格都做過突變實測)。
     const src = read('app/@panel/orders/page.tsx');
-    expect(src).toContain('showResultBanner: false');
     expect(src).not.toContain('const resultCode = undefined;');
   });
 });
@@ -342,6 +420,153 @@ describe('#350c 守門 6:明細的兩個外框都是 @container', () => {
     expect(detail).toContain('@4xl:grid-cols-4');
     // 突變:改回 md:/xl: ⇒ 紅。(1920 螢幕上的 576px 面板會硬排四欄。)
     expect(detail).not.toContain('md:grid-cols-2 xl:grid-cols-4');
+  });
+});
+
+// ── 8. #350d C2:結果碼歸誰 + return_to 接線 ──────────────────────────────────
+describe('#350d 守門 8:有 panel 時列表零橫幅、面板恰一條(契約 §2 C2)', () => {
+  // 🔴 這一組是契約 §2 硬條件 2 的**行為層**守門。兩個壞法都沒有執行期訊號:
+  //    翻早了 = 兩條橫幅(C2 存在的理由被打破);翻晚了 = **零橫幅**(動作做完什麼都不說)。
+  // ⚠️ **誠實界線**:真站上列表與面板是同一個頁面的兩個平行槽,這裡是**分別**渲染再各自數。
+  //    量得到「誰畫誰不畫」,量不到「同一次 render 的視覺順序」。
+  const PANEL_ID = '11111111-2222-4333-8444-555555555555';
+  const BANNER_TEXT = '已儲存變更。';
+
+  /** 🔴 用**文字**數而不是數 `[role="status"]`:取消結果面板與 spinner 也用那個 role。 */
+  const countBanner = (root: HTMLElement) =>
+    [...root.querySelectorAll('[role="status"]')].filter((el) => el.textContent === BANNER_TEXT)
+      .length;
+
+  const renderList = async (sp: Record<string, string | string[]>) => {
+    const OrdersPage = (await import('../orders/page')).default;
+    return render((await OrdersPage({ searchParams: Promise.resolve(sp) })) as React.ReactElement)
+      .container;
+  };
+  const renderPanel = async (sp: Record<string, string | string[]>) => {
+    const PanelPage = (await import('./orders/page')).default;
+    const ui = await PanelPage({ searchParams: Promise.resolve(sp) });
+    return ui === null ? null : render(ui as React.ReactElement).container;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listOrderSummariesForAdmin.mockResolvedValue({ items: [], total: 0 });
+    mocks.listSuppliers.mockResolvedValue([]);
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+    mocks.findAdminOrderDetail.mockResolvedValue(orderDetailFixture(PANEL_ID));
+  });
+
+  it('🔴 面板開著:列表 0 條、面板 1 條', async () => {
+    const list = await renderList({ [ORDER_PANEL_PARAM]: PANEL_ID, r: 'saved' });
+    const panel = await renderPanel({ [ORDER_PANEL_PARAM]: PANEL_ID, r: 'saved' });
+    // 突變 A:拿掉列表的 `!panelOpen &&` ⇒ 這條變 1 ⇒ 紅(兩條橫幅)。
+    expect(countBanner(list), '面板開著時列表不該畫橫幅').toBe(0);
+    // 突變 B:把面板的 `showResultBanner` 設回 false ⇒ 這條變 0 ⇒ 紅(零橫幅)。
+    expect(panel).not.toBeNull();
+    expect(countBanner(panel!), '面板要畫恰一條').toBe(1);
+  });
+
+  it('🔴 沒有 panel:列表 1 條(正向對照 —— 證明上一格的 0 不是恆真)', async () => {
+    expect(countBanner(await renderList({ r: 'saved' }))).toBe(1);
+  });
+
+  it('🔴 `panel` 是合法 UUID 但**查無此單**:面板仍畫那一條(不是零橫幅)', async () => {
+    // 🔴 code-reviewer R1 nit-6:這條路徑在 `OrderDetailRoute` 裡走 `PanelMessage`,
+    //    而它原本在畫橫幅**之前**就 return ⇒ 列表已因 C2 停畫、面板又不畫 = **零橫幅**。
+    //    到得了這裡的不只「單剛好被刪」——書籤與上一頁都算。
+    //    突變:把 `PanelMessage` 裡的 `<ResultBanner>` 拿掉 ⇒ 這格紅,而上面那格照樣綠
+    //    (上面用的是查得到的 fixture)⇒ 兩格互不蘊含。
+    mocks.findAdminOrderDetail.mockResolvedValue(null);
+    const panel = await renderPanel({ [ORDER_PANEL_PARAM]: PANEL_ID, r: 'saved' });
+    expect(panel).not.toBeNull();
+    expect(panel!.textContent, '正向對照:確實走到了查無那條訊息').toContain('找不到這張訂單');
+    expect(countBanner(panel!)).toBe(1);
+  });
+
+  it('🔴🔴 `panel` 不是 UUID:面板不開 ⇒ 列表**照畫**(判準要跟槽頁同一支)', async () => {
+    // 🔴 這格擋的是最像對的那個寫法:列表用「`panel` 這個 key 在不在」當判準。
+    //    那樣寫的話這條 URL 會變成「面板不開 + 列表也停畫」= **零橫幅**,
+    //    而 typecheck / lint / 上面兩格**全綠**。
+    //    突變:把 `readOpenPanelOrderId(rawSearchParams) !== null` 改成
+    //    `rawSearchParams.panel !== undefined` ⇒ 只有這一格紅。
+    const sp = { [ORDER_PANEL_PARAM]: 'not-a-uuid', r: 'saved' };
+    expect(await renderPanel(sp), '非 UUID 時槽頁必須回 null').toBeNull();
+    expect(countBanner(await renderList(sp)), '面板沒開就該由列表說話').toBe(1);
+  });
+
+  it('🔴 `panel` 重複鍵(陣列)⇒ 面板不開、列表照畫', async () => {
+    // 🔴 R2 F4 補的:`readOpenPanelOrderId` 的**陣列分支**原本零覆蓋。
+    //    日後有人把它改成「取第一顆」⇒ 面板會開,而 `parseOrderReturnTo` 仍拒重複鍵
+    //    ⇒ 每次儲存都把面板踢掉,而當時四格全綠。
+    const sp = { [ORDER_PANEL_PARAM]: [PANEL_ID, PANEL_ID], r: 'saved' };
+    expect(await renderPanel(sp), '重複鍵要 fail-closed').toBeNull();
+    expect(countBanner(await renderList(sp))).toBe(1);
+  });
+
+  it('🔴 大寫 UUID 的 `panel`:面板照開,且 return_to 折平成小寫', async () => {
+    // 🔴 R2 F1:`isUuid` 是 `/i` ⇒ 大寫過閘,但表單的 `order_id` 是 DB 出來的小寫
+    //    ⇒ 不折平的話 §6-1 比對判「不同單」⇒ 儲存完面板被靜默關掉。
+    //    突變:拿掉 `readOpenPanelOrderId` 的 `.toLowerCase()` ⇒ 這格紅。
+    // 🔴🔴 **這裡刻意不用 `PANEL_ID`**:它是 `1111…-5555` 全數字,`toUpperCase()` 是 no-op
+    //    ⇒ 第一版這格對上面那個突變**存活**(實測),是 fixture 讓守門恆真的教科書形狀
+    //    (memory `feedback_fixture-value-makes-guard-vacuous`)。改用帶 a-f 的 uuid。
+    const hexId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+    expect(hexId.toUpperCase(), '這顆 uuid 必須含字母,否則大小寫這條恆真').not.toBe(hexId);
+    mocks.findAdminOrderDetail.mockResolvedValue(orderDetailFixture(hexId));
+    const panel = await renderPanel({ [ORDER_PANEL_PARAM]: hexId.toUpperCase() });
+    expect(panel).not.toBeNull();
+    const returnTo = panel!.querySelector('input[name="return_to"]')?.getAttribute('value');
+    expect(returnTo).toBe(`/orders?${ORDER_PANEL_PARAM}=${hexId}`);
+  });
+});
+
+describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', () => {
+  const PANEL_ID = '11111111-2222-4333-8444-555555555555';
+
+  const returnToValues = (root: HTMLElement) =>
+    [...root.querySelectorAll('input[name="return_to"]')].map((el) =>
+      el.getAttribute('value'),
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listSuppliers.mockResolvedValue([]);
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+    mocks.findAdminOrderDetail.mockResolvedValue(orderDetailFixture(PANEL_ID));
+  });
+
+  it('🔴 面板版:return_to 帶著篩選**與 panel**(不是關閉連結)', async () => {
+    // 🔴 這格是**契約字面更正**的守門(`D-420-NOTE` §1):契約 §4/§6-2 寫「值 = `back.href`」,
+    //    而 `back.href` 在面板版是 `buildPanelCloseHref`(**不帶 panel**)
+    //    ⇒ 照字面接 = 動作做完面板被關掉,而畫面上看起來「頁面是對的」、沒有任何錯誤。
+    //    突變:把槽頁的 `buildPanelSelfHref(raw, panelId)` 換成 `buildPanelCloseHref(raw)`
+    //    ⇒ 下面 `panel=` 那條紅。
+    const PanelPage = (await import('./orders/page')).default;
+    const ui = await PanelPage({
+      searchParams: Promise.resolve({ [ORDER_PANEL_PARAM]: PANEL_ID, payment_status: 'paid' }),
+    });
+    const { container } = render(ui as React.ReactElement);
+    const values = returnToValues(container);
+    expect(values.length, '面板裡至少要有一個接了 return_to 的表單').toBeGreaterThan(0);
+    for (const value of values) {
+      const qs = new URLSearchParams((value ?? '').split('?')[1] ?? '');
+      expect(value?.startsWith('/orders?')).toBe(true);
+      expect(qs.get(ORDER_PANEL_PARAM), `${value} 沒帶 panel ⇒ 動作做完面板會關掉`).toBe(PANEL_ID);
+      expect(qs.get('payment_status'), `${value} 弄丟了篩選`).toBe('paid');
+    }
+  });
+
+  it('🔴 整頁版:return_to = /orders/{id}(不是 back.href 的 /orders)', async () => {
+    // 突變:整頁版改傳 `back.href` ⇒ 值變 `/orders` ⇒ 紅(改單完被踢回列表 = 回歸)。
+    const DetailPage = (await import('../orders/[id]/page')).default;
+    const ui = await DetailPage({
+      params: Promise.resolve({ id: PANEL_ID }),
+      searchParams: Promise.resolve({}),
+    });
+    const { container } = render(ui as React.ReactElement);
+    const values = returnToValues(container);
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values) expect(value).toBe(`/orders/${PANEL_ID}`);
   });
 });
 

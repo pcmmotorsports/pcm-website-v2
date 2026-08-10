@@ -23,6 +23,10 @@ import {
   buildListHref,
   type FilterOption,
 } from '../shared/list-params';
+// #350d:面板判準要 uuid 閘;一次性參數清單與 `order-return-to.ts` 共用單一來源
+// (兩邊各寫一份 = 補了 `rt` 卻只補一邊,症狀是重複鍵讓取消面板永遠讀不到)。
+import { isUuid } from './note-action-state';
+import { ORDER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
 
 /** 每頁筆數(server 端 .range 分頁)。 */
 export const ORDERS_PAGE_SIZE = 20;
@@ -290,15 +294,46 @@ function supplierOrderNoToFilterValue(parsed: SupplierOrderNoSearch): string | u
  * 🔴 面板**不是** intercepting route —— v1 走過那條,真瀏覽器實測「軟導航回列表時面板黏著不放」,
  * 而 Next 文件的兩種標準修法(槽 catch-all、槽精確空頁)實測**皆無效**(`D-403-Q` §①)。
  * 改成 searchParams 驅動之後 **URL 一變槽頁就重算**,黏住問題從根消失。
+ *
+ * ⚠️ **定義搬到 `order-return-to.ts`**(#350d):那支要拿它比對「`return_to` 指的是不是同一張單」
+ * (契約 §6-1),而它不能反向 import 本檔(會成環)。這裡 re-export 讓既有 import 路徑不變 ——
+ * 兩邊各寫一份字面才是真的坑。
  */
-export const ORDER_PANEL_PARAM = 'panel';
+export { ORDER_PANEL_PARAM } from './order-return-to';
 
 /**
- * 關閉面板時要一起丟掉的**一次性**參數:面板本身,加上只對「剛剛那個動作」有意義的兩個。
- * `r` = 結果碼橫幅;`correct` = A10a-3 更正模式目標。留著它們的話,關掉面板後重整
- * 會莫名其妙又進更正模式 / 又跳一次橫幅。
+ * 面板要不要開,**唯一判準**(#350d)。
+ *
+ * 🔴🔴 **列表要停畫自己那條橫幅時,必須問這一支、不得自己看 `panel` 有沒有出現**
+ *    (契約 §2 C2 的「有 `panel` 時列表零橫幅、面板恰一條」)。
+ *    `?panel=not-a-uuid&r=saved` 時槽頁回 `null`(面板不開)⇒ 若列表用「`panel` 這個 key 在不在」
+ *    當判準就會**同時停畫** ⇒ **零橫幅**:動作做完了,畫面上一個字都不說。
+ *    兩邊共用同一支函式,那個分岔就不存在(memory `feedback_verify-anchor-with-the-guards-own-command`
+ *    的同型:判準要用守門自己那條命令去數)。
  */
-const ONE_SHOT_PARAMS = new Set<string>([ORDER_PANEL_PARAM, 'r', 'correct']);
+export function readOpenPanelOrderId(
+  raw: Record<string, string | string[] | undefined>,
+): string | null {
+  const value = raw[ORDER_PANEL_PARAM];
+  // 🔴 **正規化成小寫**(R2 F1):`isUuid` 是 `/i`(`note-action-state.ts:42`)⇒ 大寫 UUID 過閘,
+  //    但表單送的 `order_id` 是 `detail.id`(DB 出來一律小寫)⇒ `parseOrderReturnTo` 的
+  //    §6-1 比對會判「不同單」⇒ 動作做完**靜默把面板關掉**。觸發只要一條大寫的書籤網址。
+  //    在**入口**折平比在比對處放寬安全:後者等於讓兩個不同字串被當成同一張單。
+  return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
+}
+
+/**
+ * 關閉面板時要一起丟掉的**一次性**參數:面板本身,加上只對「剛剛那個動作」有意義的三個。
+ * `r` = 結果碼橫幅;`rt` = 取消結果的核對 token;`correct` = A10a-3 更正模式目標。
+ * 留著它們的話,關掉面板後重整會莫名其妙又進更正模式 / 又跳一次橫幅。
+ *
+ * 🔴 **`rt` 是 #350d 補的**(原本漏了)。在 #350c 它只是「網址上多一個沒用的參數」,
+ *    但 #350d 起這份清單被 `buildPanelSelfHref` 拿去當 `return_to` 的來源 ——
+ *    夾帶舊 `rt` 的話 action 再接一顆新的 ⇒ `?rt=舊&rt=新` 重複鍵 ⇒ D3 classifier fail-closed
+ *    ⇒ 面板永遠只說「查不到取消紀錄」。第二道守門在 `order-return-to.ts` 的 `RESULT_ONLY_PARAMS`
+ *    (那支是五支 action 的共同 choke point,擋的是手打 / 偽造的 `return_to`)。
+ */
+const ONE_SHOT_PARAMS = new Set<string>([ORDER_PANEL_PARAM, ...RESULT_ONLY_PARAMS]);
 
 /**
  * 關閉面板的連結 = **拿掉一次性參數之後的當下 URL**(#350c)。
@@ -327,6 +362,34 @@ export function buildPanelCloseHref(
   }
   const qs = params.toString();
   return qs ? `/orders?${qs}` : '/orders';
+}
+
+/**
+ * **面板這個視圖的網址、扣掉一次性狀態**(#350d;五支 action 的 `return_to` 值)。
+ *
+ * ⚠️ 措辭精確(code-reviewer R1 nit-7):不是「當下網址原封不動」—— `r`/`rt`/`correct` 會被剝掉。
+ *    `correct`(更正模式)被剝是對的:動作做完那筆備註已經更正了,回到更正模式等於叫他再改一次;
+ *    整頁版今天的行為也是丟掉它(`/orders/{id}?r=…`)。
+ *
+ * ⚠️ **它逐字複製 raw 的每一個參數**(連本支不認得的也留)⇒ 網址上的垃圾參數會一起被帶進
+ *    `return_to`,而 `parseOrderReturnTo` 對「整串超過 512」與「含 `..`」都是 fail-closed
+ *    ⇒ 症狀是**動作做完靜默跳回整頁版、面板關掉**(R2 F2)。兩條都不是安全問題,
+ *    但下次有人回報「面板偶爾自己關掉」,先來看這裡而不是去查 React。
+ *
+ * = 關閉連結 **再把 `panel` 加回去**。復用 `buildPanelCloseHref` 而不是另寫一份掃描:
+ * 那支已經被 codex 擊破過一次、也已經有測試釘著「篩選逐字保留」,重抄一份只會多一個會漂移的規格。
+ *
+ * 🔴 **不要拿 `back.href` 當 `return_to`**(契約字面更正,`D-420-NOTE` §1):
+ *    `back.href` 在面板版就是**關閉**連結 ⇒ 動作做完面板會被關掉,C1 的目的直接落空。
+ * ⚠️ `panelOrderId` 呼叫端要先過 uuid 閘(`readOpenPanelOrderId`);本支只負責拼。
+ */
+export function buildPanelSelfHref(
+  raw: Record<string, string | string[] | undefined>,
+  panelOrderId: string,
+): string {
+  const base = buildPanelCloseHref(raw);
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}${ORDER_PANEL_PARAM}=${panelOrderId}`;
 }
 
 /**

@@ -78,6 +78,9 @@ export default async function OrderDetailPage({
     requestToken,
     correctNoteId,
     back: { href: '/orders', label: '← 返回訂單列表' },
+    // 🔴 #350d C1:整頁版的 `return_to` = **這一頁自己**(= 今天的行為,零變更)。
+    //    刻意不寫 `back.href` —— 那是「回列表」,拿它當 return_to 會讓改單完被踢出明細(回歸)。
+    returnTo: `/orders/${id}`,
     missing: 'not-found',
   });
 
