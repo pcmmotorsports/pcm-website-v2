@@ -9,6 +9,7 @@ import {
   TIER_NOTE_FIELD,
   TIER_RETURN_TO_FIELD,
   TIER_NOTE_MAX,
+  TIER_SINGLE_FIELDS,
 } from './tier-form';
 import { TIER_VALUES } from './customer-list-view';
 
@@ -16,7 +17,12 @@ const UUID = '11111111-2222-3333-4444-555555555555';
 
 function form(entries: Record<string, string>): FormLike {
   const m = new Map(Object.entries(entries));
-  return { get: (k) => m.get(k) ?? null, has: (k) => m.has(k) };
+  // #365:單值讀法改走 getAll 恰一筆 ⇒ 假表單補這一支(單值情境回 0 或 1 筆)。
+  return {
+    get: (k) => m.get(k) ?? null,
+    has: (k) => m.has(k),
+    getAll: (k) => (m.has(k) ? [m.get(k) as string] : []),
+  };
 }
 
 function valid(overrides: Record<string, string> = {}): Record<string, string> {
@@ -91,5 +97,67 @@ describe('parseTierEditForm — return_to 站內守門(parseCustomersReturnTo �
       const r = parseTierEditForm(form(valid({ [TIER_RETURN_TO_FIELD]: bad })));
       expect(r.ok && r.returnTo).toBe('/customers');
     }
+  });
+});
+
+describe('#365 同名欄位送兩份 → 被拒(不採第一筆)', () => {
+  // 🔴 用**真 FormData**:假表單的 getAll 是測試自己寫的,拿它證「重複欄位被擋」等於自己證自己。
+  function realForm(pairs: [string, string][]): FormData {
+    const f = new FormData();
+    for (const [k, v] of pairs) f.append(k, v);
+    return f;
+  }
+
+  const FIRST_TIER = TIER_VALUES[0] as string;
+  const LAST_TIER = TIER_VALUES[TIER_VALUES.length - 1] as string;
+
+  it('🔴 tier 送兩份 → ok:false(等級由送出者挑 = 會員等級自選)', () => {
+    const f = realForm([
+      [TIER_CUSTOMER_ID_FIELD, UUID],
+      [TIER_VALUE_FIELD, FIRST_TIER],
+      [TIER_VALUE_FIELD, LAST_TIER],
+      [TIER_NOTE_FIELD, '測試'],
+    ]);
+    expect(parseTierEditForm(f).ok).toBe(false);
+    // 釘住「行為真的變了」:同一份 FormData 上,舊寫法拿到的是第一筆。
+    expect(f.get(TIER_VALUE_FIELD)).toBe(FIRST_TIER);
+  });
+
+  it('單筆 tier 仍照常通過(擋的是「兩份」不是整條路)', () => {
+    const f = realForm([
+      [TIER_CUSTOMER_ID_FIELD, UUID],
+      [TIER_VALUE_FIELD, FIRST_TIER],
+      [TIER_NOTE_FIELD, '測試'],
+    ]);
+    expect(parseTierEditForm(f).ok).toBe(true);
+  });
+});
+
+describe('#365 逐欄「送兩份 → 被拒」(同時是 TIER_SINGLE_FIELDS 完整性的守門)', () => {
+  function dup(base: [string, string][], field: string): FormData {
+    const f = new FormData();
+    for (const [k, v] of base) f.append(k, v);
+    // 保證真的兩筆:base 沒有的欄位也補到兩筆(只 append 一次 = 送一份,測不到重複)。
+    const existing = f.getAll(field);
+    const value = (existing[0] as string | undefined) ?? 'x1';
+    if (existing.length === 0) f.append(field, value);
+    f.append(field, value);
+    return f;
+  }
+  const BASE: [string, string][] = [
+    [TIER_CUSTOMER_ID_FIELD, UUID],
+    [TIER_VALUE_FIELD, TIER_VALUES[0] as string],
+    [TIER_NOTE_FIELD, '測試'],
+  ];
+
+  it.each([...TIER_SINGLE_FIELDS])('%s 送兩份 → ok:false', (field) => {
+    expect(parseTierEditForm(dup(BASE, field)).ok).toBe(false);
+  });
+  // 🔴 codex 關卡2 MF:上面那條走訪的是常數本身 ⇒ 清單少一欄時測項也少一條、全綠(循環論證)。
+  //    真正的完整性守門 = 拿**測試檔自己手寫的**清單比對;來源檔漏欄或多欄,這一條就紅。
+  it('🔴 TIER_SINGLE_FIELDS 逐字等於四欄(手寫對照)', () => {
+    expect([...TIER_SINGLE_FIELDS].sort()).toEqual(
+      ['customer_id', 'tier', 'note', 'return_to'].sort(),
+    );
   });
 });

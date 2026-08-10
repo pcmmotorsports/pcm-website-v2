@@ -25,6 +25,11 @@
 //    「這張單目前不能取消」這句**誤導**的話(plan §4.2 已把這個代價寫下來)。
 //    本層擋掉形狀錯誤,員工才看得到「表單內容不正確」。
 
+import {
+  readSingle as readSharedSingle,
+  readSingleString as readSharedSingleString,
+  type SingleRead as SharedSingleRead,
+} from '../forms/single-value';
 import { rpcTrim } from '../supplier-form';
 import {
   CANCEL_ITEM_FIELD,
@@ -140,24 +145,12 @@ export type CancelParse =
  *    「改不了取消量」變成「改得了取消量」** ⇒ 一起收緊,不留「只修自己那一條路」的半套。
  * 🔴 三態分開回,呼叫端才分得出「沒送」與「送壞了」:`reason_detail` 沒送是合法的、送兩份不是。
  */
-type SingleRead =
-  | { kind: 'value'; value: string }
-  | { kind: 'missing' }
-  | { kind: 'invalid' };
-
-function readSingle(form: CancelFormLike, field: string): SingleRead {
-  const all = form.getAll(field);
-  if (all.length === 0) return { kind: 'missing' };
-  if (all.length > 1) return { kind: 'invalid' };
-  const raw = all[0];
-  return typeof raw === 'string' ? { kind: 'value', value: raw } : { kind: 'invalid' };
-}
-
-/** 必填單值欄位:非「恰一筆字串」一律回 `null`(呼叫端一律當形狀錯)。 */
-function readString(form: CancelFormLike, field: string): string | null {
-  const read = readSingle(form, field);
-  return read.kind === 'value' ? read.value : null;
-}
+// 🔴 **#365**:這個形狀原本住在本檔(私有),已升成共用模組 `lib/forms/single-value.ts`,
+//    本檔改成**引用**它 —— 全站單值欄位只留一份定義,不再各檔一個本地 helper。
+//    上面那段「為什麼不是 `get()`」的論證仍然適用,逐字留在本檔(它是這條規則的起源)。
+type SingleRead = SharedSingleRead;
+const readSingle = readSharedSingle;
+const readString = readSharedSingleString;
 
 /**
  * 解析一筆 `<order_item_id>:<quantity>`。

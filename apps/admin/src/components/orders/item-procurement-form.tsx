@@ -1,5 +1,6 @@
 'use client';
 
+import { readSingleString } from '../../lib/forms/single-value';
 import { useActionState, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { AdminOrderItemProcurement } from '@pcm/domain';
@@ -100,8 +101,15 @@ export function ItemProcurementForm({
   //    ⇒ 沒動過時把**帶秒的台北牆上時間**送回去,秒才不會被吃掉。
   const [state, formAction, isPending] = useActionState<ProcurementActionState, FormData>(
     async (prev, formData) => {
-      const raw = formData.get(PROC_SUBMITTED_AT_LOCAL_FIELD);
-      const local = typeof raw === 'string' ? raw : '';
+      // #365:同名欄位送兩份時不採第一筆(讀成 null)。
+      // 🔴 **這一欄下游擋不到,別再寫成擋得到**(codex 關卡2 抓到我第二次寫錯同一句):
+      //    本行讀的是 `submitted_at_local`(`'submitted_at_local'`),而解析器入口清單
+      //    `PROCUREMENT_SINGLE_FIELDS` 裡的是 **`submitted_at`**(`'submitted_at'`)——**兩顆不同的欄位**。
+      //    ⇒ `submitted_at_local` 送兩份 / 送 File 時這裡收斂成 `''`,下游把空字串當成合法的「沒填」,
+      //    而 A5a 是全量 payload ⇒ **既有時間會被靜默寫成 NULL**。
+      //    本片不擴大到改這條線的送出協定(那要動 hidden 欄位契約);先把事實寫對,
+      //    並在 `#365` 片②的範圍內處理(`submitted_at_local` 屬呼叫端合成欄位、不是解析器欄位)。
+      const local = readSingleString(formData, PROC_SUBMITTED_AT_LOCAL_FIELD) ?? '';
       const originalLocal =
         originalSubmittedAt === null ? '' : toTaipeiInputValue(originalSubmittedAt);
       formData.set(

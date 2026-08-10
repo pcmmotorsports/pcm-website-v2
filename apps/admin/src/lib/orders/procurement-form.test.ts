@@ -3,6 +3,7 @@ import {
   parseProcurementForm,
   PROCUREMENT_REPLY_STATUSES,
   type FormLike,
+  PROCUREMENT_SINGLE_FIELDS,
 } from './procurement-form';
 import {
   PROC_ALLOCATED_FIELD,
@@ -37,7 +38,11 @@ function form(over: Record<string, string> = {}): FormLike {
     [PROC_EXPECTED_ARRIVAL_FIELD]: '',
     ...over,
   };
-  return { get: (name) => base[name] ?? null };
+  // #365:單值讀法改走 getAll 恰一筆 ⇒ 假表單補這一支(單值情境回 0 或 1 筆)。
+  return {
+    get: (name) => base[name] ?? null,
+    getAll: (name) => (name in base ? [base[name] as string] : []),
+  };
 }
 
 describe('parseProcurementForm — 形狀閘', () => {
@@ -151,6 +156,8 @@ describe('parseProcurementForm — 選填欄「整個沒送」不等於「送了
     const base = form();
     const missing: FormLike = {
       get: (name) => (name === field ? null : base.get(name)),
+      // #365:兩支都要覆寫,否則測到的是 TypeError、不是「這個欄位整個沒送」
+      getAll: (name) => (name === field ? [] : base.getAll(name)),
     };
     expect(parseProcurementForm(missing).ok).toBe(false);
   });
@@ -198,5 +205,92 @@ describe('parseProcurementForm — 三個文字欄刻意不 trim', () => {
   it('只有空白的字串**不是** null(原樣送、由 RPC 收斂成 NULL)', () => {
     const parsed = parseProcurementForm(form({ [PROC_EXCEPTION_REASON_FIELD]: '   ' }));
     expect(parsed.ok && parsed.exceptionReason).toBe('   ');
+  });
+});
+
+describe('#365 同名欄位送兩份 → 被拒(不採第一筆)', () => {
+  // 🔴 用**真 FormData**(理由同 wallet 那組:假表單的 getAll 是測試自己寫的)。
+  function realForm(pairs: [string, string][]): FormData {
+    const f = new FormData();
+    for (const [k, v] of pairs) f.append(k, v);
+    return f;
+  }
+  const base: [string, string][] = [
+    [PROC_ORDER_ID_FIELD, ORDER],
+    [PROC_ORDER_ITEM_ID_FIELD, ITEM],
+    [PROC_SUPPLIER_ID_FIELD, SUPPLIER],
+    [PROC_REPLY_STATUS_FIELD, 'confirmed'],
+    [PROC_SUBMITTED_AT_FIELD, ''],
+    [PROC_EXPECTED_ARRIVAL_FIELD, ''],
+    [PROC_CONTACT_CHANNEL_FIELD, ''],
+    [PROC_SUPPLIER_ORDER_NO_FIELD, ''],
+    [PROC_EXCEPTION_REASON_FIELD, ''],
+  ];
+
+  it('🔴 數量送兩份 → ok:false(採購量是寫進採購真相表的值)', () => {
+    const f = realForm([...base, [PROC_ALLOCATED_FIELD, '1'], [PROC_ALLOCATED_FIELD, '999']]);
+    expect(parseProcurementForm(f).ok).toBe(false);
+    expect(f.get(PROC_ALLOCATED_FIELD)).toBe('1');
+  });
+
+  it('🔴 選填欄送兩份 → ok:false(optionalText 的 invalid 也要擋、不能落回「沒填」)', () => {
+    const f = realForm([
+      ...base.filter(([k]) => k !== PROC_SUPPLIER_ORDER_NO_FIELD),
+      [PROC_ALLOCATED_FIELD, '1'],
+      [PROC_SUPPLIER_ORDER_NO_FIELD, 'A'],
+      [PROC_SUPPLIER_ORDER_NO_FIELD, 'B'],
+    ]);
+    expect(parseProcurementForm(f).ok).toBe(false);
+  });
+
+  it('單筆仍照常通過(擋的是「兩份」不是整條路)', () => {
+    expect(parseProcurementForm(realForm([...base, [PROC_ALLOCATED_FIELD, '1']])).ok).toBe(true);
+  });
+});
+
+describe('#365 逐欄「送兩份 → 被拒」(同時是 PROCUREMENT_SINGLE_FIELDS 完整性的守門)', () => {
+  function dup(base: [string, string][], field: string): FormData {
+    const f = new FormData();
+    for (const [k, v] of base) f.append(k, v);
+    // 保證真的兩筆:base 沒有的欄位也補到兩筆(只 append 一次 = 送一份,測不到重複)。
+    const existing = f.getAll(field);
+    const value = (existing[0] as string | undefined) ?? 'x1';
+    if (existing.length === 0) f.append(field, value);
+    f.append(field, value);
+    return f;
+  }
+  const BASE: [string, string][] = [
+    [PROC_ORDER_ID_FIELD, ORDER],
+    [PROC_ORDER_ITEM_ID_FIELD, ITEM],
+    [PROC_SUPPLIER_ID_FIELD, SUPPLIER],
+    [PROC_ALLOCATED_FIELD, '1'],
+    [PROC_REPLY_STATUS_FIELD, 'confirmed'],
+    [PROC_SUBMITTED_AT_FIELD, ''],
+    [PROC_EXPECTED_ARRIVAL_FIELD, ''],
+    [PROC_CONTACT_CHANNEL_FIELD, ''],
+    [PROC_SUPPLIER_ORDER_NO_FIELD, ''],
+    [PROC_EXCEPTION_REASON_FIELD, ''],
+  ];
+
+  it.each([...PROCUREMENT_SINGLE_FIELDS])('%s 送兩份 → ok:false', (field) => {
+    expect(parseProcurementForm(dup(BASE, field)).ok).toBe(false);
+  });
+  // 🔴 codex 關卡2 MF:上面那條走訪的是常數本身 ⇒ 清單少一欄時測項也少一條、全綠(循環論證)。
+  //    真正的完整性守門 = 拿**測試檔自己手寫的**清單比對;來源檔漏欄或多欄,這一條就紅。
+  it('🔴 PROCUREMENT_SINGLE_FIELDS 逐字等於十欄(手寫對照)', () => {
+    expect([...PROCUREMENT_SINGLE_FIELDS].sort()).toEqual(
+      [
+        'order_id',
+        'order_item_id',
+        'supplier_id',
+        'allocated_quantity',
+        'reply_status',
+        'submitted_at',
+        'expected_arrival_date',
+        'contact_channel',
+        'supplier_order_no',
+        'exception_reason',
+      ].sort(),
+    );
   });
 });

@@ -15,6 +15,7 @@
 //    ⇒ 表單必須**全欄 hydrate 自最新的那一列**,呼叫端(`item-procurement-form.tsx`)負責;
 //    本解析器只保證「空字串一律收斂成 null」,讓「留空」的語意在型別上就是 NULL、不是 ''。
 
+import { anyMalformed, readSingle, readSingleString as readString } from '../forms/single-value';
 import {
   PROC_ALLOCATED_FIELD,
   PROC_CONTACT_CHANNEL_FIELD,
@@ -32,6 +33,8 @@ import {
 /** 最小 FormData 介面(同 `note-form.ts` 慣例:測試不必造真 FormData)。 */
 export interface FormLike {
   get(name: string): FormDataEntryValue | null;
+  /** #365:單值欄位一律走 getAll 恰一筆 —— 真 FormData 天生有這一支。 */
+  getAll(name: string): FormDataEntryValue[];
 }
 
 /** 五種回覆狀態(鏡像 `order_item_procurement_reply_status_check`、`20260729020000:86-87`)。 */
@@ -64,10 +67,8 @@ const TAIPEI_LOCAL_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
  */
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function readString(form: FormLike, field: string): string | null {
-  const raw = form.get(field);
-  return typeof raw === 'string' ? raw : null;
-}
+// #365:本地 readString 已刪,改用共用的「getAll 恰一筆」讀法(見 lib/forms/single-value.ts)。
+//   行為變更:同名欄位送兩份由「靜默採第一筆」改為「解析失敗、表單被拒」。
 
 /**
  * 選填文字欄:空字串 → null。
@@ -78,14 +79,15 @@ function readString(form: FormLike, field: string): string | null {
  *    (那條因果是 migration `:231` 逐字寫的)。這裡只認「完全沒填」。
  */
 function optionalText(form: FormLike, field: string): string | null | undefined {
-  const raw = form.get(field);
   // 🔴 **「沒送這個欄位」與「送了空字串」是兩件事**(關卡2 codex R2 MF3):
   //    A5a 是全量 payload ⇒ 沒送 = 被寫成 NULL = 靜默清掉既有值。
   //    畫面上每個欄位一定都會送(即使空白),所以「整個鍵不存在」只可能來自繞過畫面的呼叫
   //    ⇒ 回 `undefined` 讓呼叫端擋掉,不是預設成 null。
-  if (raw === null) return undefined;
-  if (typeof raw !== 'string') return undefined;
-  return raw === '' ? null : raw;
+  // 🔴 #365:改走共用三態讀法 —— `missing` 與 `invalid`(**含同名欄位送兩份**)都回 `undefined`,
+  //    與原本「非恰一筆字串一律擋掉」的意圖一致,只是現在多擋住了重複欄位那條路。
+  const read = readSingle(form, field);
+  if (read.kind !== 'value') return undefined;
+  return read.value === '' ? null : read.value;
 }
 
 export type ProcurementParse =
@@ -114,7 +116,29 @@ export type ProcurementParse =
  * 🔴 誠實邊界:回傳只有單一 `ok: false`,**哪一欄壞掉在 UI 上分不出來**
  *    (同 `note-form.ts` / `supplier-form.ts` 的已知取捨);要分得出來得先擴回傳型別,本片不做。
  */
+/**
+ * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
+ * ⚠️ 漏列一欄 = 那一欄的「送兩份」洞照舊且無症狀 ⇒ 測試逐欄跑一遍當完整性守門。
+ */
+export const PROCUREMENT_SINGLE_FIELDS = [
+  PROC_ORDER_ID_FIELD,
+  PROC_ORDER_ITEM_ID_FIELD,
+  PROC_SUPPLIER_ID_FIELD,
+  PROC_ALLOCATED_FIELD,
+  PROC_REPLY_STATUS_FIELD,
+  PROC_SUBMITTED_AT_FIELD,
+  PROC_EXPECTED_ARRIVAL_FIELD,
+  PROC_CONTACT_CHANNEL_FIELD,
+  PROC_SUPPLIER_ORDER_NO_FIELD,
+  PROC_EXCEPTION_REASON_FIELD,
+] as const;
+
 export function parseProcurementForm(form: FormLike): ProcurementParse {
+  // 🔴 重複欄位在語意層之前擋掉:本檔 `optionalText` 也是「讀不出就當沒填」那一族,
+  //    不先擋會讓「送兩份」被當成「沒填」而靜默寫 NULL(A5a 是全量 payload)。
+  if (anyMalformed(form, PROCUREMENT_SINGLE_FIELDS)) {
+    return { ok: false, orderItemId: null };
+  }
   const orderItemIdRaw = readString(form, PROC_ORDER_ITEM_ID_FIELD);
   const orderItemId =
     orderItemIdRaw !== null && isProcurementUuid(orderItemIdRaw) ? orderItemIdRaw : null;

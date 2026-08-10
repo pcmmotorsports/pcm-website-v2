@@ -46,6 +46,12 @@ export function isAllowedOrigin(
 export interface FormLike {
   get(name: string): FormDataEntryValue | null;
   has(name: string): boolean;
+  /**
+   * #365:單值欄位一律走「`getAll()` 恰一筆」(見 `lib/forms/single-value.ts`)。
+   * ⚠️ 本檔自己的呼叫點**還沒轉**(#365 片②的範圍);型別先補是因為共用本型別的
+   *    `wallet-form` / `tier-form` 在片①已經轉了。
+   */
+  getAll(name: string): FormDataEntryValue[];
 }
 
 export type ParseResult =

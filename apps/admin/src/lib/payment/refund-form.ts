@@ -10,6 +10,7 @@
 //    RPC 會 RAISE 成 bug 畫面;在這裡擋 = 員工看到的是「表單內容不正確」。RW2d 的表單切到
 //    全額退時要清空金額欄(契約債)。
 
+import { anyMalformed, readSingleString as readString } from '../forms/single-value';
 import { isUuid } from '../orders/note-action-state';
 import {
   REFUND_AMOUNT_FIELD,
@@ -24,6 +25,8 @@ import {
 /** 最小 FormData 介面(同 note-form 慣例:測試不必造真 FormData)。 */
 export interface FormLike {
   get(name: string): FormDataEntryValue | null;
+  /** #365:單值欄位一律走 getAll 恰一筆 —— 真 FormData 天生有這一支。 */
+  getAll(name: string): FormDataEntryValue[];
 }
 
 export const REFUND_KINDS = ['full', 'partial'] as const;
@@ -59,13 +62,31 @@ export type RefundParse =
     ))
   | { ok: false };
 
-function readString(form: FormLike, field: string): string | null {
-  const raw = form.get(field);
-  return typeof raw === 'string' ? raw : null;
-}
+// #365:本地 readString 已刪,改用共用的「getAll 恰一筆」讀法(見 lib/forms/single-value.ts)。
+//   行為變更:同名欄位送兩份由「靜默採第一筆」改為「解析失敗、表單被拒」。
+//   🔴 **這句只有配上入口的 `anyMalformed` 才成立**:單靠 readString 會把 invalid 收斂成 null,
+//      而本檔有「這欄是空的就跳過互斥檢查」那族守門 ⇒ 曾經反而讓「送兩份」比「送一份」更寬鬆
+//      (關卡2 審查實跑抓到)。擋門在解析器入口,別把它當可有可無的加強。
 
 /** 解析退款表單。任一欄形狀不合 → `{ ok: false }`(呼叫端回 `invalid` state)。 */
+/**
+ * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
+ * ⚠️ 漏列一欄 = 那一欄的「送兩份」洞照舊,而且**沒有症狀** ⇒ 測試用表格式逐欄跑一遍,
+ *    那條才是這份清單完整性的守門(關卡2 審查實跑打出來的教訓)。
+ */
+export const REFUND_SINGLE_FIELDS = [
+  REFUND_ORDER_ID_FIELD,
+  REFUND_REQUEST_TOKEN_FIELD,
+  REFUND_KIND_FIELD,
+  REFUND_AMOUNT_FIELD,
+  REFUND_CONFIRM_FIELD,
+  REFUND_REASON_FIELD,
+] as const;
+
 export function parseRefundForm(form: FormLike): RefundParse {
+  // 🔴 先擋重複欄位,**再**做任何語意判斷:否則 `readString` 把 invalid 收斂成 null 之後,
+  //    「這欄是空的就跳過互斥檢查」那族守門會被繞過(kind=full + amount 送兩份 ⇒ 全額退款)。
+  if (anyMalformed(form, REFUND_SINGLE_FIELDS)) return { ok: false };
   const orderId = readString(form, REFUND_ORDER_ID_FIELD);
   if (orderId === null || !isUuid(orderId)) return { ok: false };
 

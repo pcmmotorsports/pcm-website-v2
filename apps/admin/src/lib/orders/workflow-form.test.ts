@@ -18,7 +18,12 @@ const UUID = '11111111-2222-3333-4444-555555555555';
 
 function form(entries: Record<string, string>): FormLike {
   const m = new Map(Object.entries(entries));
-  return { get: (k) => m.get(k) ?? null, has: (k) => m.has(k) };
+  // #365:共用 FormLike 已要求 getAll(本檔呼叫點在片②才轉,型別面先補齊)。
+  return {
+    get: (k) => m.get(k) ?? null,
+    has: (k) => m.has(k),
+    getAll: (k) => (m.has(k) ? [m.get(k) as string] : []),
+  };
 }
 
 describe('isAllowedOrigin — fail-closed', () => {
