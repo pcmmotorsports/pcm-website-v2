@@ -29,7 +29,7 @@ Codex 是**不同模型(OpenAI gpt-5.5)**,比 Claude 審 Claude 更對抗(無共
    - **diff 直接餵進 prompt**:`git diff --cached`(或 plan 全文)貼進交辦,**不叫 codex 自己翻 repo 找對象**。
    - prompt 明文兩條限制:**禁 grep/搜尋全 repo**;**最多另開 N 個白名單檔**(逐一列路徑,N≤5)。
    - **審查角度逐條列**(3-4 條),且**主視窗/前輪已給的錨點先寫進 prompt**(標「已知,直接驗」),免得被當新 finding 再繞一輪。
-   - **背景跑**(`run_in_background` 或 `&`)+輸出導 `/tmp/codex-out-*.txt`;**timeout 12 分**,逾時=殺掉、只准再窄化重跑一次(同一件事 2 輪封頂,第 2 輪仍逾時或零 findings=認列缺口回報主視窗,不跑第 3 輪)。
+   - **背景跑**(`run_in_background` 或 `&`)+輸出導 `/tmp/codex-out-*.txt`;**12 分上限用 shell watchdog**,🔴 **不得寫 `timeout 12m`——macOS 無 `timeout` 也無 gtimeout,照抄=codex 根本沒跑、輸出只有一行 command not found,而零留痕比對照樣「通過」**(B 窗 08-10 實錘)。watchdog 形狀:`( codex exec … < /dev/null > /tmp/codex-out-X.txt 2>&1 & CPID=$!; for i in $(seq 1 72); do kill -0 $CPID 2>/dev/null || exit 0; sleep 10; done; kill $CPID ) &`。逾時=殺掉、只准再窄化重跑一次(同一件事 2 輪封頂,第 2 輪仍逾時或零 findings=認列缺口回報主視窗,不跑第 3 輪)。**跑完必驗輸出非空且含 findings 段**——空輸出/單行錯誤=「沒跑」不是「零 findings」。
    - 大 diff(>1500 行)拆段餵、或改附「檔案清單+行區間」;審 plan 同理(plan 全文貼入、禁翻 docs/)。
    - 實證:E 窗 #363 關卡2 第 1 輪未窄化=逾時零產出;第 2 輪窄化(diff 372 行入 prompt+白名單 3 檔)=45,877 tokens 正常吐 4MF+1nit。
 
