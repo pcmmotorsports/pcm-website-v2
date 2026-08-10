@@ -134,9 +134,9 @@ END IF;
 理由:`settle-charge.ts:428-432` 的 catch 整個吞掉、只回 `record_unreachable` ⇒ 專屬碼**觀測不到**。
 ⇒ 本片為**純 DB 片**(⚠️ 但見 §3.5 改③ 的 R2-MF4:告警語意改變可能連帶要動 domain 文案,實作時複核)。
 
-### 3.5 甲(可終止性 + 觀測性;**三處協調改動**)
+### 3.5 甲(可終止性 + 觀測性;**四處協調改動**;原文寫三處,實作時補上改④,見本節末)
 字面那一刀(claim 只加 `superseded_at IS NULL`)會讓這族**整個落出 claim** ⇒ 永不再被 claim ⇒
-`mark_attempt_settle_retry` 永不跑 ⇒ 連 12h marker 都不寫 ⇒ **無聲消失**。正確 = 三處:
+`mark_attempt_settle_retry` 永不跑 ⇒ 連 12h marker 都不寫 ⇒ **無聲消失**。正確 = 四處(①②③ 見下、④ 見本節末):
 
 - **改 ① claim 述詞**(`20260624120008:94-98`)拆三支:
   `(pending/charged 受 manual+ceiling)` / `(released AND superseded_at IS NULL)` 維持繞閘 /
@@ -173,8 +173,40 @@ END IF;
 而 app 端文案/domain 註解把它講成「pending 孤兒」(`packages/domain/src/payment/anomaly-alert.ts` 附近)
 ⇒ 要嘛同片更新文案與測試,要嘛**另立第八個計數**避免一詞兩義。**兩案都可,實作時選一個並寫理由。**
 
+> **✅ 實作已選(L5b-0-s,2026-08-10 關卡2 R1-MF2):同片更新文案與測試。** 理由:第八個計數要改 RPC 回傳
+> jsonb 的鍵集合 ⇒ `PgAnomalyAlertReaderAdapter` 的 `parseCount` 在**新鍵尚未 apply** 時會 throw ⇒ 告警 cron
+> 直接 503;那條路要嘛硬綁 apply 序、要嘛加旗標,成本與風險都高於改一行文案。改文案在 apply 前後都不會壞
+> (apply 前那一族恆為 0、文案只是先把它列出來)。落點:`packages/use-cases/src/check-anomaly-alerts.ts`
+> + `packages/domain/src/payment/anomaly-alert.ts` 註解 + 一格文案不變式測試。
+> ⚠️ **誠實邊界**:commit 到 apply 之間,文案講的「被讓路轉人工」在 DB 還算不到 —— 方向是**多列一類**、
+> 不是把風險講小,且該族此時恆 0;此偏離寫進 commit body。
+
+#### 改④(關卡2 R1-MF1 補;plan 原文只推導到三處)
+- **`expire_stuck_attempts_at_ceiling()`(活本體 `20260615120001:86`)的 status 閘**照改①② 同一條線擴成
+  `(status IN ('pending','charged') OR (status='released' AND superseded_at IS NOT NULL))`。
+- **為什麼非做不可**:改① 第三支帶 `count < 8`,它把兩種**已經 >= 8** 的列孤兒化 ——
+  (a) **既有列**(apply 前 released 繞 ceiling ⇒ count 無界,正式庫上「已讓路且 count>8」是常態不是例外);
+  (b) **claim 完在 mark 之前 crash** 的孤兒(這正是這支 expirer 當初存在的理由,`20260615120001:79-84`)。
+  兩者都落成:claim 濾掉 ⇒ mark 永不跑 ⇒ 旗標永遠 false ⇒ 改③ 的計數**恆零** ⇒ 本片要治的「無聲消失」原封不動,
+  而且更難察覺,因為三道改動看起來都「有做」。
+- **這是明文收窄 R1c1〔E〕**(`20260624120008:24-26`「expire 不改本體」):〔E〕的成立條件是
+  「released 繞 ceiling、永遠不需要 expire」,而改① 正是把讓路那族送回 ceiling 之內 ⇒ 前提對這族失效。
+  收窄後:**未讓路的 released 仍不被 expire 碰**(R1c1 零回歸,格 17 釘住)。
+- **不可寫成裸 `superseded_at IS NOT NULL`**:那會把 `close_released_attempt` 翻成 `failed` 的結案列也標人工,
+  與改③ 的 terminal 排除自相矛盾。
+
 ### 3.6 apply 前置(主視窗跑;P 窗碰不到)
 1. `SELECT count(*) … superseded_at IS NOT NULL AND status='charged'`(17:5x = 0;**apply 當下重數**)。
+1a. 🔴 **R3-F1 新增(改④ 的規模面,apply 當天才知道)**:改④ 讓 ceiling-expirer 收讓路族,
+   **第一輪 sweeper 會一次把積壓的既有列全部翻成 needs_manual_review**,而那個數字目前**沒有人數過**。
+   apply 前先數,數字大就先跟 Sean 講預期噪音(告警無去重、每輪重推、見 §4 末):
+   ```sql
+   SELECT count(*) FROM public.payment_charge_attempts a
+     JOIN public.orders o ON o.id = a.order_id
+    WHERE a.status = 'released' AND a.superseded_at IS NOT NULL
+      AND a.needs_manual_review = false AND a.settle_attempt_count >= 8
+      AND o.payment_status = 'unpaid'::public.payment_status;
+   ```
 2. ~~`ANOMALY_ALERT_ENABLED` 正式站現值~~ **已查:`"true"`**(事實 12)⇒ 本條前置解除。
    ⚠️ 未解的那半留在 §8-2:**cron 是否真的在跑 / 通知管道密鑰是否配妥**(事實 12a)。
 
@@ -206,12 +238,38 @@ END IF;
 
 gap 期間值班查詢(Sean 已裁,**不加 status 條件**;事實 10 是理由;R3-nit:join orders 才答得出「退多少」):
 ```sql
+-- 查詢 A:讓路那族(Sean 已裁「不加 status 條件」——維持;只補欄位,不動 WHERE)
 SELECT a.id, a.order_id, a.status, a.superseded_at, a.rec_trade_id, a.bank_transaction_id,
-       a.last_settle_error, o.display_id, o.total, o.payment_status
+       a.last_settle_error, a.needs_manual_review, a.settle_attempt_count,   -- 🔴 R3-F3 補這兩欄
+       a.released_manual_review_at,                                          -- 🔴 R3-F3:辨別它是否也被算進 released_stuck_count
+       o.display_id, o.total, o.payment_status
   FROM public.payment_charge_attempts a
   JOIN public.orders o ON o.id = a.order_id
  WHERE a.superseded_at IS NOT NULL;
 ```
+🔴 **R3-F3:少了那兩欄,這條查詢答不出告警在講誰。** 告警的 `attempt_manual_review_count` 只數
+`needs_manual_review = true` 且 order unpaid 的列;而查詢 A 回的是**整個讓路族**(含已 `close` 成 failed 的、
+含 `count<8` 還沒轉人工的)⇒ 回列集 ⊋ 計數集,值班無法把「N 筆」對回是哪幾列。補欄之後的對法:
+**計數集 = 查詢 A 之中 `needs_manual_review = true` 且 `status IN ('charged','released')` 且 `payment_status='unpaid'` 的那幾列。**
+
+🔴 **R3-F3 的另一半:這條查詢查不到 `attempt_manual_review_count` 的另一族。**
+該計數自 L5b-0-s 起是**兩族聯集**,而查詢 A 的 `WHERE a.superseded_at IS NOT NULL` 把
+**pending 孤兒那一族整個排除**(它們 `superseded_at IS NULL`)⇒ 只給查詢 A 的話,值班會少看見一整類。
+配套查詢:
+```sql
+-- 查詢 B:pending 孤兒那族(sweeper 放棄、非讓路)
+SELECT a.id, a.order_id, a.status, a.settle_attempt_count, a.last_settle_error,
+       a.rec_trade_id, a.bank_transaction_id, o.display_id, o.total
+  FROM public.payment_charge_attempts a
+  JOIN public.orders o ON o.id = a.order_id
+ WHERE a.needs_manual_review = true
+   AND a.status = 'pending'
+   AND a.superseded_at IS NULL
+   AND o.payment_status = 'unpaid'::public.payment_status;
+```
+**兩族的處置完全不同**:查詢 B(pending 孤兒)= 走 Record 對帳補結算;
+查詢 A 命中的讓路列 = 錢屬於**舊單**、出口是退款(L5b-2),**不要**去補結算。
+⚠️ 告警文案指的就是本節這兩條 —— 文案改了、本節沒改的話,值班會照著一條查不全的查詢做事(R3-F3 原病)。
 ⚠️ **`last_settle_error` 會顯示 `record_unreachable`,那不是連線層故障**(R3-nit):
 閘一的 RAISE 在 `settle-charge.ts:428-432` 被吞成同一個碼(§3.4)⇒ 這一族與基礎設施故障**同碼不同因**,勿誤判。
 
@@ -255,6 +313,8 @@ migration 檔內只留**不可回滾的斷言**(catalog 存在性 / ACL / fail-c
 | 13 | 甲:`superseded_at IS NULL` 的 released | 仍繞 ceiling/manual、仍被 claim(R1c1 不回歸) |
 | 14 | 天花板(§3.3):舊 attempt close 成 failed 後、拿**舊 rec** 呼 confirm | **放行**(已知天花板、非缺陷);此格存在是為了讓它變成**被記錄的行為** |
 | **15** | 🔴 甲:格 11 之後把該 attempt `close_released_attempt` 成 `failed`,再查告警 | `attempt_manual_review_count` **不再算它**(結案後計數回落;R3-MF5) |
+| **16** | 🔴 甲改④:**既有列** —— seed 一顆「released + superseded + `count=12` + 非 manual + lease 到期 + order unpaid」(模擬 apply 前就繞著 ceiling 跑的列),呼 `expire_stuck_attempts_at_ceiling()` | 回 **>=1**、該列 `needs_manual_review=true`。🔴 這格是 MF1 的直接證據:沒有改④ 時它**紅**,因為 claim 也永遠碰不到它(count>=8)。⚠️ **刻意不接告警計數斷言**——那條由格 12 負責;接了會讓 M8 連帶染紅本格(多紅)|
+| **17** | 🔴 甲改④ 的負向對照:同樣 seed 但 **`superseded_at IS NULL`**(未讓路的 released、`count=12`) | expire **不碰它**(`needs_manual_review` 維持 false)⇒ R1c1 行為零回歸(= 收窄版的 SWEEP-6) |
 
 ### 5.2 突變(🔴 每發列**完整預期向量**,harness 精確比對「多紅/少紅」皆算失敗)
 🔴 **v6 全表重算**(R3-MF1~4:v5 五條向量算錯。**病根 = 格 9 沒指明驅動哪支 RPC**
@@ -268,10 +328,13 @@ migration 檔內只留**不可回滾的斷言**(catalog 存在性 / ACL / fail-c
 | M3 | 閘二整條拿掉 | 2 |
 | M4 | 閘三整條拿掉 | **3、9b** |
 | M5 | 閘三的 `status IN (...)` 拿掉 | **4、14** |
-| M6 | 改① 第三支拿掉(= 字面那版) | **10、11、12** |
+| M6 | 改① 第三支拿掉(= 字面那版) | **10**(v6 寫 10、11、12;**-s 實作改設計後改成 10**,理由見下方「-s 實作時的向量修正」)|
 | M7 | 改② 的 `OR …` 拿掉 | **11、12** |
-| M8 | 改③ status 半邊放寬拿掉 | 12 |
+| M8 | 改③ status 半邊放寬拿掉 | **12、15**(v6 寫 12;**-s 實作改成 12、15**,理由見下方)|
 | M9 | 改③ 的 **terminal 排除**拿掉 | 15 |
+| **M10** | 改④ 的讓路分支拿掉(= expire 回到只收 pending/charged) | **16** |
+| **M11** | 改④ 寫成「收整族 released」(丟掉 superseded 條件) | **17**(證明格 17 這個負向對照**不是恆綠**)|
+| **M12** | 改① 的**第二支**(未讓路 released 繞閘)拿掉 | **13**(證明格 13 這個負向對照**不是恆綠**)|
 
 **幾條向量為什麼是這樣(避免下一個人又算錯)**:
 - **M1 含 9a**:charged 冪等分支(`20260624120005:98-101`)在閘**之後** ⇒ 閘 flip 後 `charged+superseded` 同 rec
@@ -282,6 +345,25 @@ migration 檔內只留**不可回滾的斷言**(catalog 存在性 / ACL / fail-c
   (v5 寫「格 10 仍綠」與本檔 §3.5 自相矛盾)。
 - **M7 含 12**:`attempt_manual_review_count` 的 `needs_manual_review = true` 是述詞前提
   (活本體 `20260701130000:74-79`)⇒ 改② 拿掉 ⇒ 旗標不設 ⇒ 計數為 0。
+
+#### 🔴 -s 實作時的向量修正(2026-08-10,關卡2 R1-MF5 折完後實跑得到;**先改向量再改 harness、非就地對齊觀察值**)
+兩條 v6 向量在 -s 的 harness 上不成立,病根是 **v6 的 M6/M8 是照「格 11/12/15 的前置鏈過 claim」算的**,
+而 §5.0 的硬紀律是「每一格只有點名的那支 RPC 走守門、其餘前置 owner 直寫」。兩者互斥 ⇒ 依 §5.0 改 harness、
+連帶改向量:
+- **M6:{10,11,12} → {10}**。格 11/12 的點名 RPC 是 `mark_attempt_settle_retry` 與告警聚合,
+  `settle_attempt_count=8` 由 owner 直寫 seed(格 10 那條「禁止直接 seed count=8」只約束格 10 自己,
+  因為格 10 驗的正是 claim 的 ceiling)⇒ 改① 被拿掉時它們照樣綠。**好處**:M6 紅在哪一格 = 壞在哪一處改動,
+  一一對應、不再一發突變染紅三格。
+- **M8:{12} → {12,15}**。格 15 的前提是「結案**前**這列算得到」,而 M8 拿掉的正是讓它算得到的那半邊
+  ⇒ 格 15 的前提被打穿。**若不讓格 15 紅**,它在 M8 之下會變成「計數從 0 到 0」的**恆綠**(= 沒有判別力的負測,
+  memory `feedback_negative-test-observation-supplied-by-another-mechanism`)⇒ 選擇讓前提失敗**明確報紅**。
+- 新增 **M11 / M12**:專門用來證明兩個負向對照格(17 / 13)不是恆綠 —— 它們在 M6-M10 全綠,
+  若不另外構造能讓它們紅的突變,「R1c1 零回歸」這句話就只是**沒被測過的斷言**。
+
+**-s 實跑實得(每格獨立 psql + 各自 BEGIN/ROLLBACK,一格紅不擋其他格;7 格 × 8 組 DB clone)**:
+對照組 `[]`(全綠)/ M6 `[10]` / M7 `[11 12]` / M8 `[12 15]` / M9 `[15]` / M10 `[16]` / M11 `[17]` / M12 `[13]`
+—— **與上表逐格相符,無多紅無少紅**。另外每一發突變的**全檔** apply 都被本檔自己的 post-image prosrc 指紋 assert
+擋下(= 指紋守門對這 7 種述詞改動都有判別力,不是只有位置錨)。
 
 ⚠️ **harness 紀律**:比對「多紅 / 少紅」**皆判失敗**。
 🔴 **禁止就地把向量改成觀察值** —— 那是橡皮圖章。向量與實作不符時,先判「哪一邊錯」再改。
@@ -306,9 +388,9 @@ migration 檔內只留**不可回滾的斷言**(catalog 存在性 / ACL / fail-c
 
 ---
 
-## §6 Rollback(R2-MF13:v4 只還原三道閘、漏了甲的三支)
+## §6 Rollback(R2-MF13:v4 只還原三道閘、漏了甲的三支;-s 實作後甲是**四支**,見第 7 列)
 
-forward-only ⇒ **六支**全部要有 pre-image,且 `CREATE OR REPLACE` **不還原 COMMENT** ⇒ 每支都要配 `COMMENT ON`:
+forward-only ⇒ **七支**全部要有 pre-image,且 `CREATE OR REPLACE` **不還原 COMMENT** ⇒ 每支都要配 `COMMENT ON`:
 
 | # | 物件 | pre-image |
 |---|---|---|
@@ -318,6 +400,7 @@ forward-only ⇒ **六支**全部要有 pre-image,且 `CREATE OR REPLACE` **不�
 | 4 | `claim_stuck_unsettled_attempts` | `20260624120008:80-113` + COMMENT `:115` |
 | 5 | `mark_attempt_settle_retry` | 🔴 **`20260809140000:89-…`**(**不是** `20260624120008`) |
 | 6 | `get_payment_anomaly_alert_summary` | 🔴 **三參數 `20260701130000:43-112`** |
+| 7 | `expire_stuck_attempts_at_ceiling`(改④;關卡2 R1-MF1 補) | `20260615120001:86-105` + COMMENT `:107` |
 
 🔴 rollback 會讓 superseded 列恢復「可入帳」⇒ **必須連 §4 的值班查詢一起恢復**。
 🔴 rollback 後要跑一次 §5.1 的**反向 read-back**(證明舊行為真的回來了,不是只換了函式本文)。
@@ -334,8 +417,8 @@ forward-only ⇒ **六支**全部要有 pre-image,且 `CREATE OR REPLACE` **不�
 | 片 | 內容 | 估時 |
 |---|---|---|
 | **L5b-0-m** | 一支 migration:三道閘 + COMMENT + catalog/ACL 斷言 | ~40 分 |
-| **L5b-0-s** | 甲三處改動(pre-image 取活本體)+ §3.5 的文案/計數複核 | ~35 分 |
-| **L5b-0-t** | `scripts/l5b0-verify.sh`(**16 格 + 9 發突變**)+ 呼叫面 13 發正向 + 既有腳本實跑 | ~60 分 |
+| **L5b-0-s** | 甲**四處**改動(pre-image 取活本體)+ §3.5 的文案/計數複核(文案案已選:同片改文案+測試)| ~35 分 |
+| **L5b-0-t** | `scripts/l5b0-verify.sh`(**17 格 + 12 發突變**;格 16/17 與 M10-M12 為 -s 關卡2 R1-MF1/MF5 新增)+ 呼叫面 13 發正向 + 既有腳本實跑 | ~60 分 |
 
 ⚠️ **-t 仍超鐵則 4** ⇒ 依鐵則 6 慣例在 commit body 寫不拆的理由,或再按「行為格 / 呼叫面」切兩次。
 
@@ -369,5 +452,25 @@ forward-only ⇒ **六支**全部要有 pre-image,且 `CREATE OR REPLACE` **不�
 6. **§0a-4 的能力天花板**:owner / 直接 SQL / 未來第七支 SECDEF 物件都繞得過。
 7. **附錄 A 的 11 座標**:新增 `settleCharge(` 呼叫或 `settle` port 第二個消費者 ⇒ 過期,引用前重跑 grep。
 8. **既有測試盤點只證檔案存在**,不證正向覆蓋。
+9. 🔴 **B1a `claim_expired_pending_attempts` 對 `superseded` 完全不設防(R3-F6;-s 實作時實查 `20260627120000:88-93`)**:
+   它的述詞是 `status='pending'` + age≥12h + 6h throttle,**明文不濾 `needs_manual_review`、不濾 ceiling、不濾 `superseded_at`**
+   (`:72-74` 逐字寫著這三個「不濾」是刻意的)。
+   ⇒ 若真的出現 `superseded` + `pending` 的列(schema 沒禁,正是閘二存在的理由、plan §3.2),
+   它會**每 6 小時被 B1a 重領一次、永遠不停**:錢真的來了會撞 -m 閘一 → `settleCharge` 吞成
+   `record_unreachable` → B1a 不 ++ count、不動旗標 ⇒ 這條路上**沒有任何 terminal**。
+   **本片四處改動都治不到它**(改①④ 是 sweeper 的 claim_stuck / expire 那條線,B1a 是另一支 claimer)。
+   ⚠️ **誠實邊界(修正 R3 審查者的措辭)**:這一族**不會無聲消失** —— 它 `status='pending'`,
+   走基線那支 ceiling 閘照樣會被標人工、也照樣進 `attempt_manual_review_count`(改③ 的 pending 那半);
+   殘餘傷害是**白打的 TapPay Record 呼叫**,不是看不見。
+   ⇒ 不在本片治(動 B1a = 第五支 RPC、超片界);修法選項=B1a 述詞加 `a.superseded_at IS NULL`,
+   隨 L5b-2 或另立 backlog 條目處理。
+10. 🔴 **告警噪音沒有自動出場(R3-F5,已修正審查者的事實錯誤)**:本 use-case **無 per-anomaly 去重**
+   (`check-anomaly-alerts.ts:22` 明文刻意)⇒ 讓路那族被標人工之後,**每一輪 cron 都會把同一個數字再推一次**,
+   直到有人把它處理掉。
+   ⚠️ 審查者說「唯一出口 `close_released_attempt` 尚未建」**不成立**:那支 owner-only RPC 早就在
+   `20260624120010:62`,-s 的驗收格 15 就是實際呼它跑的。
+   **正確說法**:出口存在但**只有人工**(owner 執行、逐筆),自動化的出口才是 L5b-2。
+   ⇒ apply 當天先跑 §3.6-1a 數積壓量;量大 ⇒ 值班要知道這個數字會**恆駐並每輪重推**,
+   而**雙扣 open_count 的 +1 增量會淹在裡面**(這正是改③ 在計數層治掉的底噪問題、在人的注意力層重生)。
 
 — P 窗三代,2026-08-10(**v6:折 R3 七條 + 三 nit;Fable 複核 PASS、零 must-fix,4 nit 已清**)

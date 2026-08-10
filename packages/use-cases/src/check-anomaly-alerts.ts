@@ -92,10 +92,20 @@ export function buildAnomalyAlertMessage(
     lines.push(`• 退款卡逾時(refunding 逾 ${stuckHours}h)${summary.refundingStuckCount} 筆`);
   }
   if (summary.attemptManualReviewCount > 0) {
-    lines.push(`• 人工待確認(pending 孤兒)${summary.attemptManualReviewCount} 筆`);
+    // 🔴 M-4b L5b-0-s:此計數自該片起是**兩種事故的聯集**(pending 孤兒 + 被讓路後達 ceiling 轉人工),
+    //    寫死「pending 孤兒」會給值班**錯誤的事故分類**(兩者的處置完全不同:前者查 Record 對帳、
+    //    後者是「錢被讓給另一張單」要走退款線)。計數本身不帶 id ⇒ 分辨靠 plan §4 值班查詢,文案只負責不誤導。
+    lines.push(
+      `• 人工待確認(sweeper 放棄:pending 孤兒 / 被讓路轉人工)${summary.attemptManualReviewCount} 筆 — 兩類共用此計數,請查 plan §4 值班查詢分辨`,
+    );
   }
   if (summary.releasedStuckCount > 0) {
-    lines.push(`• released 死卡 ${summary.releasedStuckCount} 筆`);
+    // 🔴 M-4b L5b-0-s(關卡2 R2 nit,本機拋棄式叢集實測:同一顆 attempt 兩個計數各回 1):
+    //    被讓路的 released 若同時「達 12h」與「達 ceiling 轉人工」,會**同時**落進上面那個計數與這個計數。
+    //    不揭露的話值班會把同一筆讀成兩起事故 ⇒ 文案講清楚可重疊。
+    //    ⚠️ 只有「上一項真的有列出來」時才講重疊,否則指向一個不存在的項目、反而更難讀。
+    const overlapNote = summary.attemptManualReviewCount > 0 ? '(可能與上一項重疊 — 同一顆 attempt 兩邊都算)' : '';
+    lines.push(`• released 死卡 ${summary.releasedStuckCount} 筆${overlapNote}`);
   }
   if (summary.pendingDoubleChargeCandidateCount > 0) {
     // #256 GAP2:同客戶同額、其一付款卡住 → 疑似重複扣款;🔴 需人工查證哪一筆為重複再退(GAP2 無 released 錨點)。

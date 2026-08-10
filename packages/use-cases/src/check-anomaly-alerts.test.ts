@@ -134,6 +134,27 @@ describe('buildAnomalyAlertMessage — 固定格式零 PII', () => {
     expect(msg.text).not.toContain('released 死卡');
   });
 
+  it('🔴 M-4b L5b-0-s:人工待確認文案不得把計數講成單一族(它是 pending 孤兒 + 被讓路轉人工的聯集)', () => {
+    // 病根:migration 改③ 把 superseded 的 charged/released 併進 attempt_manual_review_count,
+    // 而文案若仍寫死「pending 孤兒」= 值班拿到**錯誤的事故分類**(兩者處置不同:對帳 vs 走退款線)。
+    // ⇒ 這一格釘的是「文案與 DB 述詞是同一條不變式」,不是字串美觀。
+    const msg = buildAnomalyAlertMessage({ ...ZERO, attemptManualReviewCount: 3 }, 86400);
+    expect(msg.text).toContain('pending 孤兒');
+    expect(msg.text).toContain('被讓路');
+    // 舊字面(把整個計數等同於 pending 孤兒)不得復活
+    expect(msg.text).not.toContain('人工待確認(pending 孤兒)');
+  });
+
+  it('🔴 M-4b L5b-0-s:人工待確認與 released 死卡可重疊時要講明(同一顆 attempt 兩邊都算)', () => {
+    // 實測依據:被讓路的 released 同時「達 12h」與「達 ceiling 轉人工」時,兩個計數各回 1(本機叢集實跑)。
+    const both = buildAnomalyAlertMessage({ ...ZERO, attemptManualReviewCount: 1, releasedStuckCount: 1 }, 86400);
+    expect(both.text).toContain('可能與上一項重疊');
+    // 只有 released 死卡時不得指向一個沒列出來的「上一項」
+    const only = buildAnomalyAlertMessage({ ...ZERO, releasedStuckCount: 1 }, 86400);
+    expect(only.text).toContain('released 死卡');
+    expect(only.text).not.toContain('可能與上一項重疊');
+  });
+
   it('refunding 卡逾時顯示小時(86400s → 24h)', () => {
     const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 86400);
     expect(msg.text).toContain('24h');
