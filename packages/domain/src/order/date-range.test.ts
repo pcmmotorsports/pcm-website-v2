@@ -4,6 +4,8 @@ import {
   recentTaipeiMonthsRange,
   taipeiDayEndExclusiveIso,
   taipeiDayStartIso,
+  taipeiYmdFromDayEndExclusive,
+  taipeiYmdFromInstantIso,
 } from './date-range';
 
 // date-range.test.ts — #347-3b 的曆面換算守門。
@@ -134,5 +136,35 @@ describe('recentTaipeiMonthsRange — 3c 的下拉預設值來源(3b 不套用)'
     expect(recentTaipeiMonthsRange(new Date('2026-03-15T03:00:00Z'), 6).fromYmd).toBe('2025-09-15');
     expect(recentTaipeiMonthsRange(new Date('2026-01-15T03:00:00Z'), 12).fromYmd).toBe('2025-01-15');
     expect(recentTaipeiMonthsRange(new Date('2026-01-15T03:00:00Z'), 24).fromYmd).toBe('2024-01-15');
+  });
+});
+
+describe('taipeiYmdFromDayEndExclusive / taipeiYmdFromInstantIso — 上界與下界換回曆面日', () => {
+  it('🔴 上界 → 員工當初挑的那個結束日(往返回得去,不是隔天)', () => {
+    // 突變:改成直接 `isoBackToTaipeiYmd(上界)` ⇒ 回 08-11 ⇒ 紅。症狀 = 每翻一頁結束日往後跑一天。
+    expect(taipeiYmdFromDayEndExclusive('2026-08-11T00:00:00+08:00')).toBe('2026-08-10');
+    expect(taipeiYmdFromDayEndExclusive(taipeiDayEndExclusiveIso('2026-12-31')!)).toBe('2026-12-31');
+  });
+
+  it('🔴 上界不是整午夜時也對(這才是 `-1ms` 勝過 `-1天` 的地方)', () => {
+    // 🔴 R1 nit:整午夜的輸入下,`-1ms` 與 `-1天` 輸出**完全相同** ⇒ 上面那格分不出兩種實作。
+    //    餵一個非午夜的上界才有判別力:`-1天` 會位移成 08-09。
+    expect(taipeiYmdFromDayEndExclusive('2026-08-10T12:00:00+08:00')).toBe('2026-08-10');
+  });
+
+  it.each([
+    ['空字串', ''],
+    ['垃圾', 'not-a-date'],
+  ])('%s → null(而不是擲 RangeError 把整頁打成 500)', (_label, raw) => {
+    // 🔴 `Intl.formatToParts(Invalid Date)` 會**擲 RangeError**(實測)⇒ 兩支都要有 NaN 閘。
+    //    R1 must-fix:下界那支原本沒有,而型別上 `createdFrom: ''` 是合法值。
+    expect(taipeiYmdFromDayEndExclusive(raw)).toBeNull();
+    expect(taipeiYmdFromInstantIso(raw)).toBeNull();
+  });
+
+  it('下界 → 曆面日(合法輸入照常回值,證明上面那條不是恆 null)', () => {
+    expect(taipeiYmdFromInstantIso('2026-02-10T00:00:00+08:00')).toBe('2026-02-10');
+    // 台北曆面的隔天凌晨:UTC 曆面是 08-09,台北是 08-10。
+    expect(taipeiYmdFromInstantIso('2026-08-09T16:30:00Z')).toBe('2026-08-10');
   });
 });

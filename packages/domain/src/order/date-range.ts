@@ -27,6 +27,14 @@ const TAIPEI_OFFSET = '+08:00';
 /** `YYYY-MM-DD`(曆面日期,非時刻)。 */
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** 模組常數:`Intl.DateTimeFormat` 建構不便宜,而這支每畫一列連結就會被叫一次。 */
+const TAIPEI_YMD_FORMAT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Taipei',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
 /**
  * 台北曆面某一天的**午夜**(= 那一天的起點)的絕對時刻 ISO 字串。
  *
@@ -66,15 +74,47 @@ export function taipeiDayEndExclusiveIso(ymd: string): string | null {
 /** 絕對時刻 → 台北曆面的 `YYYY-MM-DD`(與列表日期欄同一個曆面)。 */
 export function isoBackToTaipeiYmd(instant: Date): string {
   // `en-CA` 的 short date 就是 `YYYY-MM-DD`;用 `formatToParts` 而不是切字串
-  // (格式一改就靜默切錯,`order-list-view.ts:442-444` 記過同一條)。
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Taipei',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(instant);
+  // (格式一改就靜默切錯,`order-list-view.ts` 的 `taipeiParts` 記過同一條)。
+  // 🔴 **`instant` 必須是合法時刻** —— `formatToParts(Invalid Date)` **擲 RangeError**(實測),
+  //    而本層的 throw 會一路炸成 `/orders` 500。呼叫端拿不確定的字串時走
+  //    `taipeiYmdFromInstantIso`(帶 NaN 閘),不要直接 `new Date(未驗字串)` 餵進來。
+  const parts = TAIPEI_YMD_FORMAT.formatToParts(instant);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/**
+ * `taipeiDayEndExclusiveIso` 的**反函式**:半開區間的上界 → 員工當初挑的那個結束日。
+ *
+ * `'2026-08-11T00:00:00+08:00'` → `'2026-08-10'`。
+ *
+ * 🔴 **為什麼需要它**:URL 上帶的是**曆面日**(員工看得懂、可分享),filter 裡放的是**絕對時刻**。
+ *    翻頁時要把 filter 重新組回 URL,就得把上界換回那個曆面日 —— 直接對上界取曆面會得到**隔天**。
+ * 🔴 **作法是「減 1 毫秒再取曆面」**,不是「減 1 天」:減 1 毫秒取的是**區間內最後一個瞬間**,
+ *    那一刻的曆面日**定義上**就是結束日 —— 對「上界不是整午夜」的輸入也對(減 1 天會整個位移)。
+ * ⚠️ **不要宣稱它 DST 安全**(R1 nit,實測更正我原本寫的):本管線的上界是由**寫死的 offset**
+ *    產生的,DST 之下它根本不是當地午夜,`-1ms` 反而會落進隔天第一個小時。
+ *    真正的 DST 修法在**產生上界的那一端**(`taipeiDayEndExclusiveIso` 的常數),不在這裡。
+ * ⚠️ 傳進來的若不是合法時刻 ⇒ 回 `null`(呼叫端當作沒篩)。
+ */
+export function taipeiYmdFromDayEndExclusive(iso: string): string | null {
+  const end = new Date(iso);
+  if (Number.isNaN(end.getTime())) return null;
+  return isoBackToTaipeiYmd(new Date(end.getTime() - 1));
+}
+
+/**
+ * 絕對時刻 ISO(**可能是垃圾**)→ 台北曆面日;不合法回 `null`。
+ *
+ * 🔴 **與 `taipeiYmdFromDayEndExclusive` 對稱**(R1 must-fix 1):下界那側原本直接呼叫
+ *    `isoBackToTaipeiYmd(new Date(值))`,而 `formatToParts(Invalid Date)` **擲 RangeError**
+ *    ⇒ 型別上合法的 `createdFrom: ''` 會讓**整個 `/orders` 500**,而不是那一格顯示怪東西。
+ *    今天 producer 只有 parse(產不出爛值)⇒ 不可達;但 adapter 那側已經在防同一個形狀了,
+ *    兩側的防法不對稱本身就是下一個人會踩的洞。
+ */
+export function taipeiYmdFromInstantIso(iso: string): string | null {
+  const instant = new Date(iso);
+  return Number.isNaN(instant.getTime()) ? null : isoBackToTaipeiYmd(instant);
 }
 
 /**
