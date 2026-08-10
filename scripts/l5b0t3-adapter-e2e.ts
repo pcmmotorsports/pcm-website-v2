@@ -23,7 +23,8 @@
 import { Client } from 'pg';
 import { PaymentConfirmerAdapter, type PgClientLike } from '../packages/adapters/src/payment/PaymentConfirmerAdapter';
 import { PaymentConfirmError } from '../packages/domain/src/payment/errors';
-import type { ConfirmOrderPaymentInput, OrderId } from '../packages/domain/src/payment/types';
+import type { ConfirmOrderPaymentInput } from '../packages/domain/src/payment/types';
+import type { OrderId } from '../packages/domain/src/order/types';
 import type { Money, MoneyAmount } from '../packages/domain/src/shared/types';
 
 function need(name: string): string {
