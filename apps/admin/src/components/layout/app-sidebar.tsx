@@ -45,10 +45,24 @@ export function AppSidebar() {
   const pathname = usePathname();
 
   return (
-    <Sidebar collapsible='icon'>
+    // 🔴 #380(Sean 2026-08-10 深夜正式站肉眼驗):收合模式 `icon` → `offcanvas`。
+    //    **那顆鈕從來沒有消失過**(S-010 唯讀診斷:`SidebarTrigger` 在整個 repo 歷史裡只出現於
+    //    後台骨架那一顆 commit、從沒被動過)—— Sean 按得到,只是按下去**收成一條窄圖示列**
+    //    而不是整條收起,所以他讀成「隱藏鈕不見了」。要的是後者 ⇒ 換模式,不是補鈕。
+    //    · `icon`:收合後留 `SIDEBAR_WIDTH_ICON`(3rem)圖示列,內容區只多拿到 6rem;
+    //    · `offcanvas`:gap 收成 `w-0`、面板整條滑出畫面左側(`ui/sidebar.tsx` 的
+    //      `group-data-[collapsible=offcanvas]:w-0` 與 `left-[calc(var(--sidebar-width)*-1)]`)
+    //      ⇒ 內容區拿回整整 9rem。
+    //    ✅ **收起後開得回來**:`SidebarTrigger` 住在 `layout/header.tsx`,而 header 在
+    //      `<SidebarInset>` 內 = 側欄的**兄弟節點**、不在被收起的那棵子樹裡(見 `app/layout.tsx`)
+    //      ⇒ 側欄整條滑走後那顆鈕照樣在。這是本片唯一「改壞了會把員工鎖在收合狀態」的地方,
+    //      守門在 `app-sidebar.test.ts`。
+    <Sidebar collapsible='offcanvas'>
       <SidebarHeader>
         <div className='flex items-center gap-2 px-2 py-1.5'>
           <Icons.logo className='size-5 shrink-0' />
+          {/* `group-data-[collapsible=icon]:hidden` 在 offcanvas 下**永遠不會命中**(整條都滑走了);
+              留著是 icon 模式的回頭路 —— 要拿掉請連同上面那段一起改,別只刪這一個 class。 */}
           <span className='text-sm font-semibold group-data-[collapsible=icon]:hidden'>
             PCM 後台
           </span>
