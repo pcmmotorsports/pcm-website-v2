@@ -9538,3 +9538,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **要做什麼**:評估把測試檔納入 lint(可能要 test 專屬 ruleset,直接開會炸一堆既有警告);或至少把「lint 不含測試碼」寫進 slice-checkpoint.md 的三綠說明=誠實計價。
 - **不修會痛在哪**:測試碼的品質問題(未 await、dead assertion、誤用 API)只剩 tsc 和 reviewer 肉眼在看;恆真測試那族(本週抓到 3+ 例)有一部分本可被 lint 規則(如 no-floating-promises、expect-expect)機械抓到。
 - **編號註**:立案當下最大=#366(P 線 reviewer-gate soft-skip,已派號待條目)。
+
+### #368. 📜 L5a-1 migration 誠實邊界 7 的 apply 前置指示照字面不可執行(P 窗自查立案)
+
+- **來源**:`supabase/migrations/20260810010000_m4b_lifecycle_l5a1_supersede_charge_attempt.sql:379-382`。兩處與事實不符:①寫「原字面 SELECT」但該段是 **DO block**;②`::regprocedure` 在函式建立前必炸 function does not exist。08-10 apply 實際跑的是主視窗改寫的預演版(EXECUTE 持有集代入 {owner postgres, payment_confirmer}),預跑 NULL、apply 放行,零損害——但錯誤指示仍留在已 apply 的檔案裡。
+- **修法**:邊界 7 改成預演版口徑:「apply 前預跑=把守門段的查詢部分抽出、v_fn/v_owner 兩個 DECLARE 換成當下已知 EXECUTE 持有集再跑,斷言回 NULL;不可直接貼原段」。一行文件修正,隨下次動該檔或 P 線任一 docs 片帶走。
+- **不修會痛在哪**:下一代照字面預跑 ⇒ 撞 function does not exist ⇒ 誤判為「守門又發火」= MAIN-005 假警報重演一次,浪費一輪診斷。
+- **編號註**:立案當下最大=#367(grep 實查;P 草稿自派 #367 已被佔用,主視窗改派)。
