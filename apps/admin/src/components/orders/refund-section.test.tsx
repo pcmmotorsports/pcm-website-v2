@@ -42,10 +42,31 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** #350d-4:表單的 `return_to` 值(站內 /orders 路徑,過得了 parser)。 */
+const RETURN_TO = '/orders?payment_status=paid';
+
+describe('#350d-4 return_to 這一跳(表單 → action)', () => {
+  // 🔴🔴 元件收了 prop、action 讀了欄位,但**中間那顆 hidden input 沒有人數** ⇒ 刪掉它全套照樣綠,
+  //    而正式站每次退款都靜默走 fallback、把面板關掉(取消線 R1 must-fix 2 的同型)。
+  //    突變:拿掉 `<input name={ORDER_RETURN_TO_FIELD}>` ⇒ 這格紅。
+  it('送出去的 FormData 帶著逐字相同的 return_to,而且是 hidden input', () => {
+    const { container } = render(
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
+    );
+    const form = container.querySelector('form');
+    if (form === null) throw new Error('沒有 form 可以送出');
+    expect(new FormData(form).getAll('return_to')).toEqual([RETURN_TO]);
+    const els = Array.from(container.querySelectorAll('[name="return_to"]'));
+    expect(els).toHaveLength(1);
+    expect(els[0]?.tagName).toBe('INPUT');
+    expect(els[0]?.getAttribute('type')).toBe('hidden');
+  });
+});
+
 describe('RefundSection — RW2d', () => {
   it('[1] 初始:預設全額、amount 欄不在 DOM;hidden order_id / token = serverToken', () => {
     const { container, getByRole } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     expect(
       container.querySelector<HTMLInputElement>('input[name="order_id"]')?.value,
@@ -57,7 +78,7 @@ describe('RefundSection — RW2d', () => {
 
   it('[2] 契約債①:切部分→打金額→切回全額 = amount 欄整個消失;再切回部分 = 值已清空', () => {
     const { container, getByLabelText } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.click(getByLabelText('部分退款'));
     const amount = amountInput(container);
@@ -72,7 +93,7 @@ describe('RefundSection — RW2d', () => {
 
   it('[3] full 送出:FormData 結構上不帶 amount 鍵;kind/order_id/token/確認碼/原因齊', async () => {
     const { container, getByLabelText } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.change(getByLabelText('確認碼(訂單號末 4 碼)'), { target: { value: '1234' } });
     fireEvent.change(getByLabelText('退款原因'), { target: { value: '缺貨退款' } });
@@ -89,7 +110,7 @@ describe('RefundSection — RW2d', () => {
 
   it('[4] partial 送出:amount 進 FormData', async () => {
     const { container, getByLabelText } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.click(getByLabelText('部分退款'));
     fireEvent.change(amountInput(container)!, { target: { value: '3' } });
@@ -110,7 +131,7 @@ describe('RefundSection — RW2d', () => {
     );
     actionMock.mockResolvedValue(failedState);
     const { container, findByRole, getByLabelText } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.submit(container.querySelector('form')!);
     const alert = await findByRole('alert');
@@ -135,7 +156,7 @@ describe('RefundSection — RW2d', () => {
     expect(fresh).not.toBe(TOKEN);
     actionMock.mockResolvedValue(failedState);
     const { container, findByRole } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.submit(container.querySelector('form')!);
     await findByRole('alert');
@@ -147,7 +168,7 @@ describe('RefundSection — RW2d', () => {
       refundFailure('denied', EMPTY_REFUND_INPUT, 'ffffffff-0000-4000-8000-000000000009'),
     );
     const { container, findByRole, getByLabelText } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.change(getByLabelText('確認碼(訂單號末 4 碼)'), { target: { value: '9999' } });
     fireEvent.change(getByLabelText('退款原因'), { target: { value: '員工打了一半的原因' } });
@@ -166,7 +187,7 @@ describe('RefundSection — RW2d', () => {
       ),
     );
     const { container, findByRole, getByLabelText } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.submit(container.querySelector('form')!);
     await findByRole('alert');
@@ -178,7 +199,7 @@ describe('RefundSection — RW2d', () => {
   it('[8] pending:fieldset 全鎖 —— 按鈕與每個欄位都 disabled(codex MF2:欄位可編輯=「眼前值」與「正在動的錢」分岔)', async () => {
     actionMock.mockImplementation(() => new Promise(() => {}));
     const { container, getByRole, getByLabelText } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
     fireEvent.click(getByLabelText('部分退款'));
     fireEvent.change(amountInput(container)!, { target: { value: '100' } });
@@ -195,7 +216,7 @@ describe('RefundSection — RW2d', () => {
   });
 
   it('[9] pageshow persisted → 只 router.refresh、token 絕不 client 換鍵(codex MF1:換鍵=拆掉 G4 重送保護=雙退窗);非 persisted 不 refresh', () => {
-    const { container } = render(<RefundSection orderId={ORDER_ID} serverToken={TOKEN} />);
+    const { container } = render(<RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />);
     const persistedShow = new Event('pageshow');
     Object.defineProperty(persistedShow, 'persisted', { value: true });
     fireEvent(window, persistedShow);
@@ -209,14 +230,14 @@ describe('RefundSection — RW2d', () => {
   it('[9b] refresh 帶回新 serverToken → 表單用新把(新鍵唯一合法來源=server 渲染)', () => {
     const NEW_TOKEN = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
     const { container, rerender } = render(
-      <RefundSection orderId={ORDER_ID} serverToken={TOKEN} />,
+      <RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />,
     );
-    rerender(<RefundSection orderId={ORDER_ID} serverToken={NEW_TOKEN} />);
+    rerender(<RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={NEW_TOKEN} />);
     expect(tokenInput(container).value).toBe(NEW_TOKEN);
   });
 
   it('[10] 單行原因欄:輸入不可能含換行(控制字元會被解析器/RPC 拒 ⇒ 結構上不給輸入)', () => {
-    const { getByLabelText } = render(<RefundSection orderId={ORDER_ID} serverToken={TOKEN} />);
+    const { getByLabelText } = render(<RefundSection returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} />);
     const reason = getByLabelText('退款原因') as HTMLInputElement;
     expect(reason.tagName).toBe('INPUT');
     expect(reason.maxLength).toBe(200);

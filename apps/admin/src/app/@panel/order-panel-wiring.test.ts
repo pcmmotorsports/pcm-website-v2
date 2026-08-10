@@ -70,7 +70,7 @@ vi.mock('../../components/orders/shipment-section', () => ({ ShipmentSection: ()
  * 🔴 不能用 `null`:`OrderDetailRoute` 對查無會在畫橫幅**之前**就 return 掉
  *    ⇒ 那樣「面板 0 條」會是恆真,量不到 C2 有沒有翻過來。
  */
-function orderDetailFixture(id: string): AdminOrderDetail {
+function orderDetailFixture(id: string, over: Record<string, unknown> = {}): AdminOrderDetail {
   const money = { amount: 0, currency: 'TWD' };
   return {
     id,
@@ -104,6 +104,7 @@ function orderDetailFixture(id: string): AdminOrderDetail {
     itemsTruncated: false,
     cancellations: [],
     cancellationsTruncated: false,
+    ...over,
   } as unknown as AdminOrderDetail;
 }
 vi.mock('../../lib/payment/refund-read', () => ({
@@ -528,11 +529,27 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
       el.getAttribute('value'),
     );
 
+  // 🔴🔴 **fixture 必須讓「所有會帶 return_to 的表單」都渲染得出來**(#350d-4 code-reviewer
+  //    must-fix 2):本組是逐一掃 `input[name="return_to"]` 的**面層**守門,但它原本的 fixture 是
+  //    `paymentStatus: 'unpaid'` 且沒開 `REFUND_UI_ENABLED` ⇒ `order-detail.tsx` 的退款入口閘
+  //    讓 `RefundSection` **根本沒渲染** ⇒ 「`OrderDetail` → `RefundSection`」那一跳零守門:
+  //    把 `returnTo` 改寫成 `/orders/${detail.id}` 或空字串,全套照樣綠,而正式站每次面板退款
+  //    都靜默走 fallback、把面板關掉。⇒ 這裡改成 `paid` + 開旗標,for-loop 自動涵蓋到它。
+  let savedRefundFlag: string | undefined;
   beforeEach(() => {
     vi.clearAllMocks();
+    savedRefundFlag = process.env.REFUND_UI_ENABLED;
+    process.env.REFUND_UI_ENABLED = '1';
     mocks.listSuppliers.mockResolvedValue([]);
     mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
-    mocks.findAdminOrderDetail.mockResolvedValue(orderDetailFixture(PANEL_ID));
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      orderDetailFixture(PANEL_ID, { paymentStatus: 'paid' }),
+    );
+  });
+
+  afterEach(() => {
+    if (savedRefundFlag === undefined) delete process.env.REFUND_UI_ENABLED;
+    else process.env.REFUND_UI_ENABLED = savedRefundFlag;
   });
 
   it('🔴 面板版:return_to 帶著篩選**與 panel**(不是關閉連結)', async () => {
@@ -547,6 +564,11 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     });
     const { container } = render(ui as React.ReactElement);
     const values = returnToValues(container);
+    // 🔴 **正向對照:退款那一份真的渲染出來了** —— 否則本組的涵蓋面只是一句宣稱
+    //    (fixture 若讓退款入口閘擋掉,下面的 for-loop 就掃不到它,而斷言照樣全綠)。
+    expect(container.textContent, '退款區塊沒渲染 ⇒ 這組守不到 RefundSection 那一跳').toContain(
+      '線上退款',
+    );
     expect(values.length, '面板裡至少要有一個接了 return_to 的表單').toBeGreaterThan(0);
     for (const value of values) {
       const qs = new URLSearchParams((value ?? '').split('?')[1] ?? '');

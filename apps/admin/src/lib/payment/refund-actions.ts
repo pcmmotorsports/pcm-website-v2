@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { TapPayRefundNotSentError, toMoneyAmount } from '@pcm/domain';
 import type { TapPayRefundPayload, TapPayRefundResult } from '@pcm/domain';
@@ -9,6 +8,13 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { TapPayConfigError, getTapPayAdapter } from './composition';
 import { REFUND_RECORD_QUERY_TIMEOUT_MS, checkRecordBaseline } from './refund-baseline';
 import { parseRefundForm } from './refund-form';
+// #350d-4:動作做完回發起的那個視圖(order 域五支共用的解析器 + 契約 §5 的單一 revalidate 實作)。
+import {
+  ORDER_RETURN_TO_FIELD,
+  appendResultQuery,
+  parseOrderReturnTo,
+} from '../orders/order-return-to';
+import { revalidateOrderViews } from '../orders/order-revalidate';
 import { isRefundUiEnabled } from './refund-ui-flag';
 import {
   EMPTY_REFUND_INPUT,
@@ -47,11 +53,10 @@ import {
 // 🔴 本檔沒有一行稽核 code —— 兩支 RPC 同交易寫 admin_audit_log(G9)。
 // 🔴 本片收工時本 action 零呼叫端(入口 = RW2d);對 27 項驗收貢獻 0。
 
-const ORDERS_PATH = '/orders';
-
-function detailPath(orderId: string): string {
-  return `${ORDERS_PATH}/${orderId}`;
-}
+// 🔴 `ORDERS_PATH` / `detailPath()` 已於 #350d-4 **具名刪除**(零呼叫端):導頁與 revalidate 的
+//    路徑一律由 `return_to`(過 `parseOrderReturnTo`)與 `revalidateOrderViews` 決定。
+//    留著一支沒人用的路徑拼接器 = 下一個人繞過 `return_to` 的現成入口
+//    (同 `order-detail-route.tsx` 刪掉零呼叫端 prop 的理由)。
 
 /**
  * 碼位安全截斷(給 failed_detail 用):`.slice()` 按 UTF-16 units 切,切在 surrogate pair
@@ -107,6 +112,13 @@ export async function initiateRefundAction(
   // ③ 解析(純形狀;業務判定單一真相在 RPC)。
   const parsed = parseRefundForm(formData);
   if (!parsed.ok) return refundFailure('invalid', input, carried.requestToken);
+
+  // 🔴 #350d-4 C1:動作做完回發起的那個視圖(面板裡退款 ⇒ 回面板)。
+  //    綁在 `parsed.orderId`(已過 uuid 閘)上 —— 契約 §6-1:`return_to` 只決定視圖、不決定哪一張單。
+  //    🔴 **這一條碰錢,但它決定不了「退哪一張單的錢」**:退款目標自始至終是 `parsed.orderId`
+  //    (`:141` 的 `findOrderForRefund`、`:207`/`:217` 的 initiate 都吃它),`return_to` 只影響
+  //    「PRG 之後畫面停在哪」。非法值 fail-closed 退回本單明細頁,**不影響已經送出去的退款**。
+  const returnTo = parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), parsed.orderId);
 
   const httpRequestId = await getRequestId();
   // 🔴 log 紀律(A9d2-1 H11 同型):reason 是營運文字 → 只記長度;
@@ -225,7 +237,17 @@ export async function initiateRefundAction(
           },
     );
   } catch (error) {
-    revalidatePath(detailPath(parsed.orderId));
+    revalidateOrderViews({
+      orderId: parsed.orderId,
+      returnTo,
+      scope: 'refund',
+      // 🔴 用 **HTTP x-request-id**、不是表單 token(code-reviewer must-fix 1):本檔 `:125-126`
+      //    的紀律逐字寫「冪等鍵=表單 token ≠ HTTP x-request-id ⇒ 兩者都記才對得回稽核鏈」,
+      //    而我原本讓同一個 `request_id` 欄在同一支 action 裡放兩種值 —— 事故當天拿
+      //    x-request-id 撈整條鏈,revalidate 那行會撈不到。
+      //    ⚠️ 本檔其餘 `requestId: parsed.requestToken` 是**送進 RPC 的冪等鍵**,那些是對的、不要一起改。
+      requestId: httpRequestId,
+    });
     if (error instanceof RefundCallerBugError) {
       logError('initiate 契約違反', error);
       return refundFailure('bug', input, parsed.requestToken);
@@ -235,8 +257,13 @@ export async function initiateRefundAction(
     logError('initiate 失敗', error);
     return refundFailure('error', input, parsed.requestToken);
   }
-  // 帳本自此可能有新列/新狀態 —— 之後所有 return 都要讓明細頁重取。
-  revalidatePath(detailPath(parsed.orderId));
+  // 帳本自此可能有新列/新狀態 —— 之後所有 return 都要讓**兩個視圖**重取(契約 §5)。
+  revalidateOrderViews({
+    orderId: parsed.orderId,
+    returnTo,
+    scope: 'refund',
+    requestId: httpRequestId,
+  });
 
   let succeeded = false;
 
@@ -400,7 +427,7 @@ export async function initiateRefundAction(
 
   // ⑩ 成功才 PRG。🔴 在一切 try 之外(redirect 拋 NEXT_REDIRECT,包進 try 會被 catch
   //    吞成失敗 state ⇒ 「錢退了、畫面卻說失敗」= 員工再退一次;A9d2-1 R2-3)。
-  redirect(`${detailPath(parsed.orderId)}?r=${REFUND_SUBMITTED_RESULT_CODE}`);
+  redirect(appendResultQuery(returnTo, `r=${REFUND_SUBMITTED_RESULT_CODE}`));
 }
 
 /**

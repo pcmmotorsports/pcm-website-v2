@@ -405,7 +405,11 @@ export function OrderDetail({
         !(refundUnregisteredAmount !== null && refundUnregisteredAmount < 0) &&
         detail.paymentChannel === 'tappay' &&
         REFUND_ENTRY_STATUSES.includes(detail.paymentStatus) && (
-          <RefundSection orderId={detail.id} serverToken={generateRefundRequestToken()} />
+          <RefundSection
+            orderId={detail.id}
+            returnTo={returnTo}
+            serverToken={generateRefundRequestToken()}
+          />
         )}
     </div>
   );
