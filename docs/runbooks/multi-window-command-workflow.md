@@ -95,7 +95,8 @@ session 看不到自己的 socket,不用也不要自己猜寫。)
 🔴 收到主視窗的 A/裁決信=**10 分內回一封 ≤5 行 ACK 信**(收到+下一動作);正式內容**永遠落信箱**,
 門鈴訊息只准指信檔名——「寫進 repo/跑了審查」都不算回報,沒落信=對主視窗等於沒發生。
 
-【施工】開自己的 worktree:git worktree add <路徑> -b <分支> <基底>。之後所有改動都在 worktree。
+【施工】接單第一動=**用條目自己的查法重數範圍數字**(N 處/N 檔/N 支);對不上=先更正條目、超過一片體積就停下提拆片,不照舊數字開工(08-10 一日三錘:8 處實為 43/三處實為 7/一處實為兩處)。
+開自己的 worktree:git worktree add <路徑> -b <分支> <基底>。之後所有改動都在 worktree。
 🔴 新 worktree 的 submodule 是空的(design-reference 零檔)——要 grep design 真權威(鐵則 1)前先
 `git submodule update --init design-reference`,否則 grep 零命中會被誤讀成「design 沒有這段」(S 窗 08-10 實踩)。
 完片=跑完該跑的驗證(exit 分開驗)→ commit(不 push)→ STOP 信附:改了什麼/驗了什麼(附數字)/
