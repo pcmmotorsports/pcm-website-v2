@@ -9475,13 +9475,24 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 - **狀態:** ⏳ 待執行(A13b D3 codex R2 抓出、主視窗 08-10 裁 A+D 立案;前提③假完整已由 **#325** 管,本條不重造)
 - **來源**:`apps/admin/src/lib/orders/cancel-ledger-classifier.ts` 的 `miss_complete` 是全站**唯一一句「可以重送」**,而它踩在兩個 D3 結構上證明不了的前提上(檔頭「結構上擋不住」清單逐條有依據行號)。
-- **前提①(跨單)**:冪等鍵唯一性是 `UNIQUE (order_id, idempotency_key)`(`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:118-119`)= **跨單不唯一**。classifier 只收到「某一張單的帳本」,看不出 token 原本屬於哪張單 ⇒ 帶著 A 單的 `rt` 落在 B 單頁(舊書籤 / 轉貼連結 / 手改網址),B 單帳本當然沒有它。
-- **前提②(新鮮度)**:「導頁之後那一頁拿到的是重新算過的資料」**沒人量過**(`apps/admin/src/lib/orders/cancel-action-state.ts:88-90` 逐字;`E-031-A` 已把「要起真 admin 才量得到」排到 #350 線下)。已 commit 但這次渲染沒讀到,與「沒寫進去」在畫面上長得一模一樣。
+- **前提①(跨單)**:冪等鍵唯一性是 `UNIQUE (order_id, idempotency_key)`(`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:118-119`)= **跨單不唯一**。classifier 只收到「某一張單的帳本」,看不出 token 原本屬於哪張單 ⇒ 帶著 A 單的 `rt` 落在 B 單頁,B 單帳本當然沒有它。**可達性字面見下面「08-10 E 二代前置研究更正」——「舊書籤」那條已證偽,別再引用本行原本的三個構型。**
+- **前提②(新鮮度)**:「導頁之後那一頁拿到的是重新算過的資料」**沒人量過**(`apps/admin/src/lib/orders/cancel-action-state.ts:113-115` = 義務 A/B 後面「⚠️ 兩條都踩在同一個未實測前提上」那段逐字;`E-031-A` 已把「要起真 admin 才量得到」排到 #350 線下)。已 commit 但這次渲染沒讀到,與「沒寫進去」在畫面上長得一模一樣。**未排除的層只剩一個,見下面更正段。**
 - **候選解**:① 讓表單鑄 token 時把 `order_id` 一起綁進去(或另存一份 token→order 對照),D5 顯示面板前先驗綁定,驗不過回 `unreadable` ② 導頁後那次讀取走強制新鮮 / primary read,並補一條真的量得到「重算有沒有發生」的觀測點。
-- **不修會痛在哪**:員工在**舊書籤**與**讀到舊快取**這兩種情境下,會被明確告知「這筆沒寫進去、可以重送」,而它其實已經寫進去了 ⇒ **第二筆刪不掉的取消**(取消明細表 append-only,`20260805100000_m4b_e10_a8a2_partial_cancel.sql:17`)。代價落在錢與客訴那一面,且**四閘與測試數都看不見它** —— 純函式對它的輸入是不是可信完全無知。
+  🔴 **①的「綁進 token 本體」那個變體實查不可行**:`idempotency_key` 是 `uuid`(`20260730130000:86`),而同檔驗收段用 `format_type` **釘死型別必 uuid**(`:317-322`,該段自陳「型別本身就是第一道守門 —— 它是免形狀 CHECK 的理由」)⇒ `${orderId}:${uuid}` 放不進去,要放就得改欄型 + 拆驗收 + 連動 a8a1 冪等格與 hash(`20260805100000:195-202`)= **鐵則 12③**,而換來的防護等級與純 app 層那案**相同**(D5 比的是「URL 上這顆 `rt` 宣稱屬於誰」,DB 端不參與那次比對)。⇒ 走 app 層,別動 DB。
+- **不修會痛在哪 —— 🔴 ①與②的傷害形狀不同,不要合寫**:
+  - **②(新鮮度)= 第二筆刪不掉的取消**:已 commit 但這次渲染沒讀到 ⇒ 員工被告知「查不到」⇒ 對**同一張單**重送(取消明細表 append-only,`20260805100000_m4b_e10_a8a2_partial_cancel.sql:17`)。
+  - **①(跨單)= 取消到錯的那張單**(08-10 更正,比原字面更糟):員工帶著 A 的 `rt` 落在 **B 單頁**,面板說「查不到」⇒ 他若照文案重送,送出的是 **B 單頁上的表單**,而那支表單為 B **鑄一顆全新 token**(`components/orders/cancel-order-forms.tsx:124` 每次 render 新的)⇒ 冪等格完全撞不到 ⇒ 取消掉一張本來不該取消的單。
+  - 兩者共同:代價落在錢與客訴那一面,且**四閘與測試數都看不見它** —— 純函式對它的輸入是不是可信完全無知。
 - **現行緩解(已上線,不等本條)**:`miss_complete` 的文案不得寫成斷言句,要寫「目前查不到這筆,重新整理再確認一次;仍然沒有才重送」(主視窗裁 A;義務已寫死在該格 docstring,D5 實作時承接)。
 - **排程**:取消線 D4/D5/D6 收工後評估;與 #325(max-rows 漂移偵測)同屬「截斷/完整性判定的共同前提」族,可合併一次做。
 - **08-10 350d 後更正(E 會簽備註①)**:revalidate 已跟 return_to 走(order-revalidate.ts)⇒ 前提②的失效原因**少了一個**(「它不可能是新的」已拿掉),但「導頁後真的讀到重算資料」的**觀測仍是零**;#357 開工時以此為現況基準。
+- **🔴 08-10 E 二代前置研究更正(全文 `E-068-STOP`,主視窗裁決 `MAIN-026-A` = Q1 先不修 code)**:
+  - **前提①的可達性:原字面三個構型裡「舊書籤」已證偽。** 逐支讀完 orders 域全部會產生「開另一張單 / 換視圖」連結的 builder:`buildOrderListHref` 只吃 `Record<keyof AdminOrderFilter>` + `[panel, id]`(`lib/orders/order-list-view.ts:572`、`:619-627` → `lib/shared/list-params.ts:99-116`,**只走傳進來的 entries**);`order-filter-controls` 的 `href()` 全量由 client state 導出(`components/orders/order-filter-controls.tsx:27-28`);`buildPanelCloseHref` / `buildPanelSelfHref` 會抄 raw query 但把 `panel`/`r`/`rt`/`correct` 剝掉(`order-list-view.ts:497` + `order-return-to.ts:32-40`)且指的是**同一張單**。⇒ 書籤存的是當時那條完整網址 ⇒ path/`panel` 與 `rt` **同單**,錯配不成立;點列表另一張單 / 翻頁 / 改任何篩選也帶不動 `rt`。**真正剩下的構型 = 手改網址、或把結果網址貼到別張單的網址上**;JS 開著時 `rt` 在面板顯示後就被抹掉(`components/orders/cancel-result-url-cleanup.tsx:52-54`),JS 關掉才會一直留在網址上。
+  - ⚠️ **誠實邊界(引用上面那段的人必須一起帶走)**:證的是「**這四支 builder 不會帶著 `rt` 跨單**」,**不是**「跨單不可能」。方法=四支原始碼逐支讀 + 兩支剝除清單逐字,**零實測**(沒起 admin、沒開瀏覽器)。**沒有量過**的是人因路徑:網址列自動補全 / 歷史建議把一條舊結果網址接到新單上、複製貼上只貼一半 —— 那些不在 code 的可控面上,不因本段而消失。
+  - **前提②:未排除的層從四層縮到一層,而那一層 = #364。** 已排除三層(方法=靜態證據 + 官方文件親讀,同樣**零實測**):①Full Route Cache —— 兩頁都 `force-dynamic`(`app/orders/[id]/page.tsx:18`、`app/@panel/orders/page.tsx:23`)②Data Cache —— `next@16.2.6`(`apps/admin/package.json:20`)、admin `next.config.ts` 空物件(無 `fetchCache`/`cacheComponents`/`staleTimes` 覆寫)、Next 官方文件字面「預設 fetch 不快取」與「`force-dynamic` similar to setting `cache: 'no-store'` for all `fetch()`」③revalidate 與導頁的**順序**是對的(`lib/orders/cancel-actions.ts:208`→`:217`、`:231`→`:240` 都是先 revalidate 再導頁)。**排不掉的那一層** = `revalidateOrderViews` 用 `returnToPathname` 把面板 `return_to` 砍成 `/orders`(`lib/orders/order-revalidate.ts:35` + `order-return-to.ts:218-221`)⇒ `revalidatePath('/orders')` 到底刷不刷 `@panel/orders` 插槽零觀測點 = **#364 同一件事,同場量**。
+  - ⚠️ 三個「排除」是排除**具名機制**,不是「真站上一定新鮮」的證明;前提②的觀測**仍然是零**這句沒有變。
+  - **🔴 尚未同步的 .ts 字面(本片刻意不動,逐處列名以免下一個人照抄舊字面)**:`cancel-ledger-classifier.ts:138` 仍把構型寫成「舊書籤 / 手改網址 / 轉貼連結」三個 —— 「舊書籤」那條已證偽(見上一格),動那個檔的人請一起改。
+  - **行號漂移警告(順手實查到的)**:全樹三處指向 `cancel-action-state.ts` 的行號已過期 —— `cancel-ledger-classifier.ts:33` 與 `:70` 的 `:93-95`(實際在 `:113-115`)、`cancel-ledger-classifier.ts:22` 與 `cancel-ledger-classifier.test.ts:93` 的 `:69-71`(義務 B 實際在 `:106` 起)。本條目自己那顆 `:88-90` 已於本次改成 `:113-115` + 內容錨點;**三處 .ts 註解未動**(那會讓本片從純文件片變成動生產碼),留給下一個動那些檔的人順手修。
 
 ### #358. 🎲 note-compose-form 測試 [5] confirm 閘 flaky(全套偶紅、單檔恆綠)
 
@@ -9516,6 +9527,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **來源**:D 窗 350d-2(`5690b771`)。本片測試只量「mock 收到什麼參數」,不是 Next 真的重取了什麼;契約 §5(revalidate 隨視圖)與它防的 `miss_complete` 誤導整條踩在這個未量前提上。
 - **要做什麼**:真站(或真 admin dev server)量一次:取消動作後導回面板視圖時,平行插槽的資料到底刷沒刷;與 #357 前提②(導頁後新鮮度)同族,可同場做。
 - **不修會痛在哪**:若 revalidatePath 刷不到平行插槽,員工在面板看到的取消帳本可能是舊的 ⇒ `miss_complete` 那句「查不到請重整確認」出現機率上升,最壞路徑=員工重送一筆刪不掉的取消(append-only)。
+- **🔴 08-10 E 二代升級(`E-068-STOP` §2、裁決 `MAIN-026-A` Q2=C)**:本條**已經是 #357 前提②唯一還排不掉的那一層** —— 另外三層(Full Route Cache / Data Cache / revalidate 與導頁的順序)已由靜態證據 + Next 官方文件排除,逐條錨點在 #357 的「08-10 E 二代前置研究更正」段。⇒ 量到這一條就等於把 #357② 一起定案,**兩條同場做、不要各排一片**。量法兩案:**案 B**(最小 repro app,不需真單)只當**證偽器** —— repro 層刷不到 ⇒ PCM 必刷不到 = 兩條直接定案;repro 層刷得到 ⇒ **推不出任何 PCM 結論**(PCM 這側多了 `returnToPathname` 砍 query、`@panel` 槽、真資料層),**不得寫成「應該會刷」**;**案 A**(真 admin + 一張真單)與 **D6-b 併同一個 Sean 停點**。
 - **編號註**:立案當下最大=#363(E 窗 token 守門,已派號)。
 
 ### #363. 🔐 token 產生點的守門從文字層升級成機制層(server-only)(A13b E1 立案;E 窗草稿原文)
