@@ -61,6 +61,24 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
     return () => clearTimeout(id);
   }, [saved]);
 
+  /**
+   * 一動某欄就清該欄 inline 錯 + 頂部錯(#378;與 auth 四張、`InlineVehicleForm` 同三條判準)。
+   * **新增行為,不是搬 design** —— design 真權威(`AccountPages.jsx:662-671`)那份原型連錯誤
+   * state 都沒有(`saveProfile` 直接寫 localStorage),沒有可搬的字面。
+   *
+   * 🔴 三個可編輯欄(姓名 / 手機 / 生日)各有自己的 `fieldErrors` 鍵
+   * (`ProfileFieldErrors = Partial<Record<'name' | 'phone' | 'birthday', string>>`,
+   * `app/account/profile/actions.ts:24`)⇒ 三欄都接。**Email 欄是 `disabled`、不可能觸發 onChange
+   * 且沒有自己的錯 ⇒ 不接**(同 auth 判準③:看這欄有沒有自己的 fieldError,不是看它是不是輸入框)。
+   *
+   * ⚠️ 誠實標註(同 auth nit-5):頂部通道可能裝的是「請重新登入」——那條**不會因為開始打字就過期**。
+   * 清掉是可回復的(下次送出 server 會再回一次),不會讓客人做出錯誤決策,故照清。
+   */
+  const clearErr = (k: keyof ProfileFieldErrors) => {
+    setFieldErrors((prev) => (prev[k] === undefined ? prev : { ...prev, [k]: undefined }));
+    setFormError(null);
+  };
+
   // LINE 用戶(displayEmail 空)Email 欄走替代字面 + 不可編輯(Q2-1=b business override)。
   const isLineUser = email === '';
 
@@ -102,7 +120,13 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
         <div className="acc-profile">
           <label>
             <span>姓名</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} />
+            <input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearErr('name');
+              }}
+            />
             {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
           </label>
           <label>
@@ -115,12 +139,25 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
           </label>
           <label>
             <span>手機</span>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input
+              value={phone}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                clearErr('phone');
+              }}
+            />
             {fieldErrors.phone && <span className="auth-field-err">{fieldErrors.phone}</span>}
           </label>
           <label>
             <span>生日</span>
-            <input type="date" value={birthday} onChange={(e) => setBirthday(e.target.value)} />
+            <input
+              type="date"
+              value={birthday}
+              onChange={(e) => {
+                setBirthday(e.target.value);
+                clearErr('birthday');
+              }}
+            />
             {fieldErrors.birthday && <span className="auth-field-err">{fieldErrors.birthday}</span>}
           </label>
           <button type="submit" className="auth-submit" disabled={isPending}>
