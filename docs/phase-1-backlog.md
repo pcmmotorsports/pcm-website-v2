@@ -9491,8 +9491,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - ⚠️ **誠實邊界(引用上面那段的人必須一起帶走)**:證的是「**這四支 builder 不會帶著 `rt` 跨單**」,**不是**「跨單不可能」。方法=四支原始碼逐支讀 + 兩支剝除清單逐字,**零實測**(沒起 admin、沒開瀏覽器)。**沒有量過**的是人因路徑:網址列自動補全 / 歷史建議把一條舊結果網址接到新單上、複製貼上只貼一半 —— 那些不在 code 的可控面上,不因本段而消失。
   - **前提②:未排除的層從四層縮到一層,而那一層 = #364。** 已排除三層(方法=靜態證據 + 官方文件親讀,同樣**零實測**):①Full Route Cache —— 兩頁都 `force-dynamic`(`app/orders/[id]/page.tsx:18`、`app/@panel/orders/page.tsx:23`)②Data Cache —— `next@16.2.6`(`apps/admin/package.json:20`)、admin `next.config.ts` 空物件(無 `fetchCache`/`cacheComponents`/`staleTimes` 覆寫)、Next 官方文件字面「預設 fetch 不快取」與「`force-dynamic` similar to setting `cache: 'no-store'` for all `fetch()`」③revalidate 與導頁的**順序**是對的(`lib/orders/cancel-actions.ts:208`→`:217`、`:231`→`:240` 都是先 revalidate 再導頁)。**排不掉的那一層** = `revalidateOrderViews` 用 `returnToPathname` 把面板 `return_to` 砍成 `/orders`(`lib/orders/order-revalidate.ts:35` + `order-return-to.ts:218-221`)⇒ `revalidatePath('/orders')` 到底刷不刷 `@panel/orders` 插槽零觀測點 = **#364 同一件事,同場量**。
   - ⚠️ 三個「排除」是排除**具名機制**,不是「真站上一定新鮮」的證明;前提②的觀測**仍然是零**這句沒有變。
-  - **🔴 尚未同步的 .ts 字面(本片刻意不動,逐處列名以免下一個人照抄舊字面)**:`cancel-ledger-classifier.ts:138` 仍把構型寫成「舊書籤 / 手改網址 / 轉貼連結」三個 —— 「舊書籤」那條已證偽(見上一格),動那個檔的人請一起改。
-  - **行號漂移警告(順手實查到的)**:全樹三處指向 `cancel-action-state.ts` 的行號已過期 —— `cancel-ledger-classifier.ts:33` 與 `:70` 的 `:93-95`(實際在 `:113-115`)、`cancel-ledger-classifier.ts:22` 與 `cancel-ledger-classifier.test.ts:93` 的 `:69-71`(義務 B 實際在 `:106` 起)。本條目自己那顆 `:88-90` 已於本次改成 `:113-115` + 內容錨點;**三處 .ts 註解未動**(那會讓本片從純文件片變成動生產碼),留給下一個動那些檔的人順手修。
+  - **🏁 .ts 側字面已同步(裁決 `MAIN-029` Q1=A,純註解片,與本條目同一個工作段)**:①`cancel-ledger-classifier.ts` 的跨單可達性段已改掉「舊書籤」那個構型、並補上四支 builder 的依據 + 誠實邊界 + 傷害方向(取消錯單)②三處指向 `cancel-action-state.ts` 的過期行號(`:93-95` ×2、`:69-71` ×2,含 `cancel-ledger-classifier.test.ts`)已改成**以段名為錨、行號為輔**(`:113-115` / `:106` 起)—— 改錨點形狀是為了讓它**不會再漂**:行號被同檔後續編輯推移時沒有任何東西會紅。
+    ⚠️ 順手查過但**沒動**的一處:`cancel-actions.ts` 引 `cancel-action-state.ts:14-20` 談 payload_hash 綁定 —— 實查該段落確實涵蓋(精確在 `:16-22`),起點早兩行、不構成誤導,不在本次範圍。
 
 ### #358. 🎲 note-compose-form 測試 [5] confirm 閘 flaky(全套偶紅、單檔恆綠)
 
@@ -9528,6 +9528,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **要做什麼**:真站(或真 admin dev server)量一次:取消動作後導回面板視圖時,平行插槽的資料到底刷沒刷;與 #357 前提②(導頁後新鮮度)同族,可同場做。
 - **不修會痛在哪**:若 revalidatePath 刷不到平行插槽,員工在面板看到的取消帳本可能是舊的 ⇒ `miss_complete` 那句「查不到請重整確認」出現機率上升,最壞路徑=員工重送一筆刪不掉的取消(append-only)。
 - **🔴 08-10 E 二代升級(`E-068-STOP` §2、裁決 `MAIN-026-A` Q2=C)**:本條**已經是 #357 前提②唯一還排不掉的那一層** —— 另外三層(Full Route Cache / Data Cache / revalidate 與導頁的順序)已由靜態證據 + Next 官方文件排除,逐條錨點在 #357 的「08-10 E 二代前置研究更正」段。⇒ 量到這一條就等於把 #357② 一起定案,**兩條同場做、不要各排一片**。量法兩案:**案 B**(最小 repro app,不需真單)只當**證偽器** —— repro 層刷不到 ⇒ PCM 必刷不到 = 兩條直接定案;repro 層刷得到 ⇒ **推不出任何 PCM 結論**(PCM 這側多了 `returnToPathname` 砍 query、`@panel` 槽、真資料層),**不得寫成「應該會刷」**;**案 A**(真 admin + 一張真單)與 **D6-b 併同一個 Sean 停點**。
+- **🔴🔴 08-10 案 B 最小 repro 已跑完(全文 `E-070-STOP`,裁決 `MAIN-029` Q2=A;repro 在 `~/repro364-20260810/`,附 README + `start.sh`)**:
+  - **repro 層的答案 = 會刷。** `revalidatePath('/orders')` **確實刷到了 `@panel/orders` 插槽**。撐住這句的是**單變數對照**:同一份 build、同一個 server、同樣**不改網址**,只差 `revalidatePath` 一個變數 ⇒ 有 = 插槽新鮮、無 = **插槽 stale**。
+  - **判別力證明(沒有這個,「新鮮」就是恆真)**:在 `experimental.staleTimes.dynamic = 30`(刻意造出 client Router Cache)之下,「無 revalidate + 網址不變」那格量到**真的 stale** —— 插槽顯示動作前的值、**per-render nonce 一個字沒變**(⇒ 那份 DOM 就是動作前那次 render),而同一顆 tab 硬重整立刻看到新值(⇒ 寫入發生了、是畫面沒跟上)。
+  - 🔴 **`PCM 現況 config`(admin `next.config.ts` 空物件)那一組四格全新鮮、含對照格 ⇒ 該組零判別力**,不得拿它當 PCM 的任何保證。
+  - **副產物**:光是「導頁網址變了」就足以讓插槽新鮮(不需要 revalidate)。而取消線**每次導頁都會改網址**(必 append `r`,`sentResultQuery`/`cancelledResultQuery` 兩支都必帶 `rt`)⇒ PCM 有**兩個彼此獨立**的理由會新鮮;**兩個都沒有在 PCM 上量過**。
+  - ⚠️ **`repro ≠ PCM`,推不出本站結論**(證偽器的觸發條件是「repro 層都刷不到」,沒有成立 ⇒ 依 `MAIN-026-A` 字面**不寫「應該會刷」**)。已知差異:資料層(本機檔案 vs PostgREST+service_role)、插槽內容(一顆數字 vs `OrderDetailRoute` 三路 `Promise.allSettled`+四組容錯旗標)、執行環境(`next start` 單程序 vs Vercel 多實例)、面板 `return_to` 夾帶的篩選 query。**版本是對齊的**(`next@16.2.6` / `react@19.2.6`,直接接 admin 的 `node_modules`)。
+  - **案 A(真站)照這個形狀做**,兩個觀測點缺一不可:①**per-render nonce**(有沒有重新 render)②**帳本那一列**(重新 render 之後讀不讀得到)。🔴 **先建立判別力再下結論** —— 案 A 也要有「stale 構造得出來」的那一格(最便宜=本機 dev/預覽暫時調高 `staleTimes.dynamic` 跑負向格,**不動正式設定**),否則會複製上面那種零判別力的全綠。與 **D6-b 併同一個 Sean 停點**。
+  - 🔴 **harness 自己的三個坑(都會產出假的「全新鮮」,寫下來讓案 A 不要重踩)**:①prod build 把 server 端 `process.env` **編譯期內聯** ⇒ 變體從未生效而四格看起來全正常(修法=變體走 formData,並把「實際走的分支」寫回 DOM 當斷言)②port 被殘留程序佔住 ⇒ `next start` 靜默 `EADDRINUSE`、探針打到**別的 build**,而 **「curl 回 200」與「HTML 有那顆 hidden 欄」兩道都攔不住**(唯一有效守門 = `start.sh` 裡「聽 port 的必須是我們剛啟動的 PID」)③「有沒有重抓 `main-app.js` chunk」判斷整頁重載**恆為 true**=假警報,要改用「送出前插的 JS 全域還在不在」。
 - **編號註**:立案當下最大=#363(E 窗 token 守門,已派號)。
 
 ### #363. 🔐 token 產生點的守門從文字層升級成機制層(server-only)(A13b E1 立案;E 窗草稿原文)

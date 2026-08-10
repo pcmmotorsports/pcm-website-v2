@@ -19,7 +19,9 @@
 //    (`20260730140000_m4b_e10_a7t_cancellation_consistency_triggers.sql:235` 的 COMMENT 逐字,
 //     同段並要求日後真要刪改時**必須先補鎖 parent + 隔離級 fail-closed 閘**)。
 //    結論不變,但別把 header 的 append-only 講成 DB 保證的。
-//    這條就是 `cancel-action-state.ts:69-71` 記的那筆零守門債(義務 B),D3/D5 各認領一半:
+//    這條就是 `cancel-action-state.ts` 的**義務 B(D5,對帳窗)**那段記的那筆零守門債
+//    (該段從 `:106` 起;🔴 **錨點用段名不用行號** —— 原本寫 `:69-71` 已經漂到別段去了,
+//     08-10 E 二代實查更正,行號會被同檔後續編輯推移而沒有任何東西會紅),D3/D5 各認領一半:
 //    **本檔負責「分不清楚時回 `unreadable`」,D5 負責「拿到 `unreadable` 不得開表單」**。
 //
 // 🔴🔴 **本檔的 fail-closed 只涵蓋「看得出來的分不清楚」——三種看不出來的它擋不住**
@@ -30,7 +32,14 @@
 //         (`20260730130000_m4b_e10_a7_order_cancellations.sql:118-119`)= 跨單不唯一,
 //         而本函式收到的是「某一張單的帳本」,看不到 token 原本屬於哪張單。
 //      ② **新鮮度**:「導頁後那頁拿到的是重算過的資料」這個前提**沒人量過**
-//         (`cancel-action-state.ts:93-95` 逐字)⇒ 已 commit 但這次沒讀到,長得跟「沒寫進去」一樣。
+//         (`cancel-action-state.ts` 義務 A/B 後面「⚠️ 兩條都踩在同一個未實測前提上」那段逐字,
+//          現在在 `:113-115`;原本這裡寫 `:93-95` 已漂,08-10 E 二代更正)
+//         ⇒ 已 commit 但這次沒讀到,長得跟「沒寫進去」一樣。
+//         🔴 **08-10 進度**:未排除的層已從四層縮到**一層** = `revalidatePath('/orders')` 刷不刷
+//         平行插槽 `@panel/orders`(= backlog **#364**);另三層(Full Route Cache / Data Cache /
+//         revalidate 與導頁的順序)已由靜態證據 + Next 官方文件排除,逐條錨點在 backlog #357。
+//         最小 repro 實測**在 repro 層會刷**(配 stale 正向對照),但 **repro ≠ PCM ⇒ 推不出本站結論**,
+//         真站量測仍未做(`E-070-STOP`)。
 //      ③ **假完整**:`cancellationsTruncated` 是 `rows.length >= 100` 算的
 //         (`mappers/order-cancellations.ts:142`)⇒ 伺服器 `max-rows` 若被調到 100 以下,
 //         截斷發生在更低的數字上而本旗標**恆 false**(backlog **#325** 逐字記載的共同前提)。
@@ -67,7 +76,9 @@ export type CancelLedgerVerdict =
    * 🔴🔴 **這一格最貴 —— 它是唯一一句「可以重送」,而它踩在一個沒人量過的前提上**(R1 must-fix 2)。
    *    前提 = 「導頁之後那一頁拿到的是重新算過的資料」。舊形狀踩的是 server action 同一往返會重算
    *    RSC payload,PRG 換成 redirect + 新渲染,**機制不同、一樣沒人量過**
-   *    (`cancel-action-state.ts:93-95` 逐字;`E-031-A` 已把「要起真 admin 才量得到」排到 #350 線下)。
+   *    (`cancel-action-state.ts` 的「⚠️ 兩條都踩在同一個未實測前提上」那段逐字,現在在 `:113-115`;
+   *     原本寫 `:93-95` 已漂,08-10 E 二代更正 —— 錨點以段名為準、行號只是輔助;
+   *     `E-031-A` 已把「要起真 admin 才量得到」排到 #350 線下)。
    *    ⇒ 若 RPC 其實已 commit 而這次渲染還沒看到那一列(快取 / 複本 / 重算沒發生),
    *    本格若被寫成「可以重送」⇒ 第二筆刪不掉的取消。
    * ⇒ 🔴 **D5 的文案義務(已落地)**:本格不得寫成斷言句(「這筆沒有寫進去」),
@@ -135,8 +146,20 @@ function normalizeToken(token: string): string {
  * 🔴🔴 **本檔不驗「這顆 `rt` 屬於哪一張單」——它只認得餵進來的這本帳**(R1 must-fix 4)。
  *    冪等鍵的唯一性是 **`UNIQUE (order_id, idempotency_key)`**
  *    (`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:118-119`)= **跨單不唯一**。
- *    ⇒ 帶著 X 單的合法 `rt` 落在 Y 單頁(舊書籤 / 手改網址 / 轉貼連結),Y 單的帳本裡當然沒有它
+ *    ⇒ 帶著 X 單的合法 `rt` 落在 Y 單頁,Y 單的帳本裡當然沒有它
  *    ⇒ 落 `miss_complete`,而那筆其實好好地在 X 單裡。
+ *    🔴 **可達性字面 08-10 E 二代更正(原本寫「舊書籤 / 手改網址 / 轉貼連結」三個構型)**:
+ *    **「舊書籤」構造不出來** —— 書籤存的是當時那條完整網址 ⇒ path/`panel` 與 `rt` 同一張單,錯配不成立。
+ *    orders 域四支會產生「開另一張單 / 換視圖」連結的 builder **沒有一支帶得動 `rt` 跨單**
+ *    (`buildOrderListHref` 只吃 filter 的 Record + `[panel, id]`;`order-filter-controls` 的 `href()`
+ *     全量由 client state 導出;`buildPanelCloseHref` / `buildPanelSelfHref` 會抄 raw query 但把
+ *     `panel`/`r`/`rt`/`correct` 剝掉、且指的是同一張單)⇒ 點列表另一張單 / 翻頁 / 改篩選都帶不動它。
+ *    ⇒ **真正剩下的構型 = 手改網址、或把結果網址貼到別張單的網址上**。
+ *    ⚠️ **誠實邊界**:證的是「這四支 builder 不帶 `rt` 跨單」,**不是**「跨單不可能」——
+ *    方法是原始碼逐支讀、**零實測**;人因路徑(網址列自動補全 / 複製貼上只貼一半)不在 code 可控面上。
+ *    🔴 **傷害方向也一起更正**:不是「第二筆重複取消」(那是新鮮度那條的形狀),而是
+ *    員工在 Y 單頁被告知「查不到」後重送 ⇒ Y 單頁的表單為 Y **鑄一顆新 token** ⇒ 冪等格撞不到
+ *    ⇒ **取消到錯的那張單**。逐條依據見 backlog **#357** 的「08-10 E 二代前置研究更正」段。
  *    ⚠️ plan §1c 的殘餘風險段只談了 `match_*` 那個方向(關聯洩漏),**沒談這個方向**。
  * ⇒ 🔴 **D5 承接**:D5 手上有 order,顯示面板前要先確認「這顆 `rt` 是這張單的表單鑄的」;
  *    做不到就別把 `miss_complete` 寫成斷言句(上面 `miss_complete` 的文案義務已涵蓋)。
