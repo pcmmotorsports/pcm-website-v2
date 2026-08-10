@@ -43,6 +43,12 @@ import { chromium, type Browser } from 'playwright';
 
 const ORDER = '9c9c9c9c-9c9c-4c9c-8c9c-9c9c9c9c9c9c';
 const ITEM = '3a3a3a3a-3a3a-4a3a-8a3a-3a3a3a3a3a3a';
+/**
+ * #350d-2:面板視圖的 `return_to`。
+ * 🔴 `panel` **必須等於本單**(契約 §6-1)—— 隨手填 `panel=x` 的話正式站上會被 parser 退回明細頁,
+ *    那等於這支瀏覽器測試量的是一個真站不會出現的形狀。
+ */
+const RETURN_TO = `/orders?payment_status=paid&panel=${ORDER}`;
 
 vi.mock('../../lib/orders/cancel-actions', () => ({ cancelOrderAction: '/submit' }));
 
@@ -100,7 +106,7 @@ function withPostMethod(html: string): string {
 async function renderPartial(): Promise<string> {
   const { PartialCancelForm } = await import('./cancel-order-forms');
   return renderToStaticMarkup(
-    <PartialCancelForm
+    <PartialCancelForm returnTo={RETURN_TO}
       orderId={ORDER}
       items={[
         {
@@ -140,6 +146,10 @@ describe('D6-a 真瀏覽器負測:失敗後返回再送,送出去的仍是部分
       // 🔴 這一條就是約束 3:**任何情況下都不得送出整單取消**。
       expect(body).not.toContain('cancel_mode=full');
       expect(body).toContain(`cancel_item=${encodeURIComponent(`${ITEM}:2`)}`);
+      // 🔴 #350d-2:`return_to` 也要真的出現在**送出去的 body** 裡(codex 關卡2 nit):
+      //    只補必填 prop 而不斷言 body,等於沒量到接線 —— 而漏掉它的症狀是
+      //    每次取消都靜默走 fallback、把面板關掉。
+      expect(body).toContain(`return_to=${encodeURIComponent(RETURN_TO)}`);
     }
   }, 60_000);
 

@@ -4,12 +4,14 @@
 
 import type { AdminOrderWorkflowPatch, InvoiceStatus } from '@pcm/domain';
 // #350d:`return_to` 的守門集中在 order 域共用解析器(五支 action 的 choke point)。
-import { parseOrderReturnTo } from './order-return-to';
+import { ORDER_RETURN_TO_FIELD, parseOrderReturnTo } from './order-return-to';
 
 // ── 表單欄名(list inline 小 form 與明細頁表單共用)──
 export const ORDER_ID_FIELD = 'order_id';
 export const VERSION_FIELD = 'version';
-export const RETURN_TO_FIELD = 'return_to';
+// #350d-2:欄名的定義搬到 `order-return-to.ts`(order 域五支表單共用一顆);這裡 re-export
+// 讓既有 import 路徑不變。兩邊各打一次字面 = 打錯的那一支靜默走 fallback、面板被關掉。
+export { ORDER_RETURN_TO_FIELD as RETURN_TO_FIELD } from './order-return-to';
 export const SHIPPING_METHOD_FIELD = 'shipping_method';
 export const INVOICE_NUMBER_FIELD = 'invoice_number';
 export const INVOICE_AMOUNT_FIELD = 'invoice_amount';
@@ -130,7 +132,7 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     orderId,
     expectedVersion,
     patch,
-    returnTo: parseOrderReturnTo(form.get(RETURN_TO_FIELD), orderId),
+    returnTo: parseOrderReturnTo(form.get(ORDER_RETURN_TO_FIELD), orderId),
   };
 }
 

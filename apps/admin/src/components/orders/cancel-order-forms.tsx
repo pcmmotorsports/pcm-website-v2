@@ -9,6 +9,7 @@ import {
   generateCancelRequestToken,
 } from '../../lib/orders/cancel-action-state';
 import { CANCEL_REASON_CODES, CANCEL_REASON_LABEL } from '../../lib/orders/cancel-form';
+import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { isItemSelectable, type CancelItemView } from '../../lib/orders/cancel-view';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
@@ -139,11 +140,18 @@ function CancelReasonFields() {
  */
 function CancelFormShell({
   orderId,
+  returnTo,
   mode,
   submitLabel,
   children,
 }: {
   orderId: string;
+  /**
+   * #350d C1:動作做完回哪裡(整頁 `/orders/{id}` / 面板帶 `panel` 的列表網址)。
+   * 🔴 值不可信任(client 送得回來):action 端一律再過 `parseOrderReturnTo`,
+   *    非法或指向別張單 ⇒ fail-closed 退回本單明細頁。
+   */
+  returnTo: string;
   mode: 'full' | 'partial';
   submitLabel: string;
   children?: React.ReactNode;
@@ -155,6 +163,9 @@ function CancelFormShell({
       <input type='hidden' name={CANCEL_REQUEST_TOKEN_FIELD} value={requestToken} />
       {/* 🔴 `cancel_mode` **只有這一顆、且是 hidden**:表單裡沒有任何可編輯控制項叫這個名字。 */}
       <input type='hidden' name={CANCEL_MODE_FIELD} value={mode} />
+      {/* 🔴 #350d:多這一顆不會動到 D4 的守門 —— 那組數的是 `[name="cancel_mode"]`,
+          而 `parseOrderCancelForm` 只讀具名欄位、多餘欄位無害(契約 §6-2 已確認)。 */}
+      <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
       {children}
       <CancelReasonFields />
       <div className='flex justify-end'>
@@ -173,7 +184,13 @@ function CancelFormShell({
  * 🔴 能不能給這支,由 `buildOrderCancelView().fullCancelAllowed` 決定(有到貨就只能逐品項取消),
  *    **本檔不重算那條判定**(同 `cancel-review-section.tsx:22-24` 的紀律:重算一份就會有兩份漂移的規格)。
  */
-export function FullCancelForm({ orderId }: { orderId: string }) {
+export function FullCancelForm({
+  orderId,
+  returnTo,
+}: {
+  orderId: string;
+  returnTo: string;
+}) {
   return (
     <section className={CARD}>
       <h2 className={CARD_TITLE}>整單取消</h2>
@@ -181,7 +198,7 @@ export function FullCancelForm({ orderId }: { orderId: string }) {
       <p className='text-muted-foreground mb-3 text-sm'>
         會把這張單<strong>還沒取消的數量全部</strong>取消掉。取消是永久紀錄,送出後不能刪。
       </p>
-      <CancelFormShell orderId={orderId} mode='full' submitLabel='整單取消' />
+      <CancelFormShell orderId={orderId} returnTo={returnTo} mode='full' submitLabel='整單取消' />
     </section>
   );
 }
@@ -200,10 +217,12 @@ export function FullCancelForm({ orderId }: { orderId: string }) {
  */
 export function PartialCancelForm({
   orderId,
+  returnTo,
   items,
   itemNames,
 }: {
   orderId: string;
+  returnTo: string;
   items: readonly CancelItemView[];
   /**
    * `orderItemId` → 給員工看的品名。缺這顆時退回顯示 id 尾八碼。
@@ -232,7 +251,12 @@ export function PartialCancelForm({
   return (
     <section className={CARD}>
       <h2 className={CARD_TITLE}>取消部分品項</h2>
-      <CancelFormShell orderId={orderId} mode='partial' submitLabel='取消勾選的品項'>
+      <CancelFormShell
+        orderId={orderId}
+        returnTo={returnTo}
+        mode='partial'
+        submitLabel='取消勾選的品項'
+      >
         <fieldset className='space-y-2'>
           <legend className='mb-1 text-sm font-medium'>要取消的品項</legend>
           {selectable.map((item) => (

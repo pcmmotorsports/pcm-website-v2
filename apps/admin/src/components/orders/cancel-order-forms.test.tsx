@@ -103,6 +103,37 @@ function submitted(container: HTMLElement): FormData {
   return new FormData(form);
 }
 
+/**
+ * #350d-2:兩支表單的 `return_to` 值。
+ * 🔴 用**過得了 `parseOrderReturnTo` 的值**(`panel` 必須等於本單 —— 契約 §6-1)。
+ *    隨手填 `/orders?panel=x` 的話,測試會綠但那個值在正式站上會被 fail-closed 掉,
+ *    等於這幾格量的是一個真站不會出現的形狀。
+ */
+const RETURN_TO = `/orders?payment_status=paid&panel=${ORDER_ID}`;
+
+describe('#350d-2 兩支表單都帶 return_to(C1 的那一跳)', () => {
+  // 🔴🔴 **這一跳原本零守門**(R1 must-fix 2):`order-panel-wiring.test.ts` 那組數
+  //    `input[name="return_to"]` 的 fixture 是 `items: []` ⇒ `buildOrderCancelView` 回
+  //    `canCancel=false` ⇒ **取消表單根本沒渲染** ⇒ 刪掉那顆 hidden input,全套照樣綠,
+  //    而正式站每次取消都靜默走 fallback、把面板關掉。
+  //    突變:拿掉 `CancelFormShell` 那行 `<input name={ORDER_RETURN_TO_FIELD}>` ⇒ 兩格都紅。
+  it.each([
+    ['整單', <FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />],
+    ['部分', <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />],
+  ])('%s那支:送出去的 FormData 帶著逐字相同的 return_to', (_label, ui) => {
+    const { container } = render(ui);
+    expect(submitted(container).getAll('return_to')).toEqual([RETURN_TO]);
+  });
+
+  it('🔴 是 hidden input(不是可編輯欄 —— 員工改得動就等於自己挑導頁目標)', () => {
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    const els = Array.from(container.querySelectorAll('[name="return_to"]'));
+    expect(els).toHaveLength(1);
+    expect(els[0]?.tagName).toBe('INPUT');
+    expect(els[0]?.getAttribute('type')).toBe('hidden');
+  });
+});
+
 describe('D4 驗收① 兩支各自的 hidden cancel_mode', () => {
   // 🔴 每格都同時驗兩層:**送出去的 FormData**(真相)+ **DOM 是不是 `input[type=hidden]`**
   //    (擋掉「用別種標籤偽裝成 hidden」那族繞法)。
@@ -118,13 +149,13 @@ describe('D4 驗收① 兩支各自的 hidden cancel_mode', () => {
   }
 
   it('整單那支 = hidden full(FormData 與 DOM 兩層都驗)', () => {
-    const { container } = render(<FullCancelForm orderId={ORDER_ID} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
     expect(submitted(container).getAll('cancel_mode')).toEqual(['full']);
     expectHiddenInput(container, 'cancel_mode');
   });
 
   it('部分那支 = hidden partial(FormData 與 DOM 兩層都驗)', () => {
-    const { container } = render(<PartialCancelForm orderId={ORDER_ID} items={[itemView()]} />);
+    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
     expect(submitted(container).getAll('cancel_mode')).toEqual(['partial']);
     expectHiddenInput(container, 'cancel_mode');
   });
@@ -133,8 +164,8 @@ describe('D4 驗收① 兩支各自的 hidden cancel_mode', () => {
     // 🔴 `order_id` 若變成可編輯文字欄,員工打進另一張單的 uuid 就會**取消錯單**
     //    —— R2 codex must-fix:原本只驗值、沒驗它不可編輯。
     for (const ui of [
-      <FullCancelForm key='f' orderId={ORDER_ID} />,
-      <PartialCancelForm key='p' orderId={ORDER_ID} items={[itemView()]} />,
+      <FullCancelForm returnTo={RETURN_TO} key='f' orderId={ORDER_ID} />,
+      <PartialCancelForm returnTo={RETURN_TO} key='p' orderId={ORDER_ID} items={[itemView()]} />,
     ]) {
       const { container } = render(ui);
       expect(submitted(container).get('order_id')).toBe(ORDER_ID);
@@ -150,13 +181,13 @@ describe('D4 驗收② 部分那支沒有任何能變成 full 的控制項', () 
   //    React 19 form reset 競態 + 返回鍵的表單狀態復原會把 radio 勾回 `full`
   //    ⇒ 員工以為送部分取消、實際送整單取消。v3 的解法是「形狀上不存在那條路」。
   it('零 radio', () => {
-    const { container } = render(<PartialCancelForm orderId={ORDER_ID} items={[itemView()]} />);
+    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
     expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
   });
 
   it('送出去的 cancel_mode 恰好一筆、值是 partial(不是 full)', () => {
     // 🔴 這條打在 FormData 上:不管畫面上長什麼樣,**真的會被送出去的**只有 partial 一筆。
-    const { container } = render(<PartialCancelForm orderId={ORDER_ID} items={[itemView()]} />);
+    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
     expect(submitted(container).getAll('cancel_mode')).toEqual(['partial']);
   });
 
@@ -164,7 +195,7 @@ describe('D4 驗收② 部分那支沒有任何能變成 full 的控制項', () 
     // 🔴 選擇器要含 `button`(R1 nit 1):`<button name='cancel_mode' value='full'>` 送得出
     //    `cancel_mode=full`,而第一版的選擇器漏了它 —— 那時擋到它的是上面那條長度斷言,
     //    不是這條。兩條各自守不同的面,別讓這條看起來比實際能耐大。
-    const { container } = render(<PartialCancelForm orderId={ORDER_ID} items={[itemView()]} />);
+    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
     const values = Array.from(
       container.querySelectorAll('input, select, option, textarea, button'),
     ).map((el) => el.getAttribute('value'));
@@ -176,7 +207,7 @@ describe('D4 原因下拉的七碼完整性', () => {
   // 🔴 R1 nit 2:少渲染一碼(例如濾掉 `other`)⇒ 全綠,而員工只能選一個不對的原因,
   //    那筆還會進 append-only 帳本。碼的權威是 DB CHECK(`20260730130000:131-139`)。
   it('七個原因碼全部渲染成 option,且文案取自單一字典', () => {
-    const { container } = render(<FullCancelForm orderId={ORDER_ID} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
     const options = Array.from(container.querySelectorAll('select[name="reason_code"] option'));
     // 空 placeholder + 七碼
     expect(options).toHaveLength(CANCEL_REASON_CODES.length + 1);
@@ -190,12 +221,12 @@ describe('D4 原因下拉的七碼完整性', () => {
 
 describe('D4 驗收③ 整單那支零品項欄', () => {
   it('沒有 cancel_item 欄', () => {
-    const { container } = render(<FullCancelForm orderId={ORDER_ID} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
     expect(container.querySelectorAll('[name="cancel_item"]')).toHaveLength(0);
   });
 
   it('也沒有任何 checkbox', () => {
-    const { container } = render(<FullCancelForm orderId={ORDER_ID} />);
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
   });
 });
@@ -204,8 +235,8 @@ describe('D4 驗收④ 原因 select 有空 placeholder + required', () => {
   // 🔴 沒有空 placeholder 時瀏覽器**自動選第一個** ⇒「重選原因」根本沒發生,
   //    而表單照樣送得出去、帶著員工沒看過的原因(plan §2-3 逐字)。
   it.each([
-    ['整單', <FullCancelForm key='f' orderId={ORDER_ID} />],
-    ['部分', <PartialCancelForm key='p' orderId={ORDER_ID} items={[itemView()]} />],
+    ['整單', <FullCancelForm returnTo={RETURN_TO} key='f' orderId={ORDER_ID} />],
+    ['部分', <PartialCancelForm returnTo={RETURN_TO} key='p' orderId={ORDER_ID} items={[itemView()]} />],
   ])('%s 那支:select required 且第一個 option 是空值 placeholder', (_label, ui) => {
     const { container } = render(ui);
     const select = container.querySelector('select[name="reason_code"]');
@@ -229,16 +260,16 @@ describe('D4 驗收⑥ token 每次 render 都是新鑄的一顆合法 uuid', ()
   }
 
   it('兩次獨立 render 拿到兩顆不同的合法 uuid(整單)', () => {
-    const a = tokenOf(<FullCancelForm orderId={ORDER_ID} />);
-    const b = tokenOf(<FullCancelForm orderId={ORDER_ID} />);
+    const a = tokenOf(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    const b = tokenOf(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
     expect(isValidToken(a)).toBe(true);
     expect(isValidToken(b)).toBe(true);
     expect(a).not.toBe(b);
   });
 
   it('兩次獨立 render 拿到兩顆不同的合法 uuid(部分)', () => {
-    const a = tokenOf(<PartialCancelForm orderId={ORDER_ID} items={[itemView()]} />);
-    const b = tokenOf(<PartialCancelForm orderId={ORDER_ID} items={[itemView()]} />);
+    const a = tokenOf(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
+    const b = tokenOf(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
     expect(isValidToken(a)).toBe(true);
     expect(isValidToken(b)).toBe(true);
     expect(a).not.toBe(b);
@@ -251,8 +282,8 @@ describe('D4 驗收⑥ token 每次 render 都是新鑄的一顆合法 uuid', ()
     //    `React.cache` / `unstable_cache` 那一格由下面的原始碼層守門接手。
     const { container } = render(
       <>
-        <FullCancelForm orderId={ORDER_ID} />
-        <PartialCancelForm orderId={ORDER_ID} items={[itemView()]} />
+        <FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />
+        <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />
       </>,
     );
     const tokens = Array.from(container.querySelectorAll('[name="request_token"]')).map((el) =>
@@ -289,7 +320,7 @@ describe('D4 驗收⑥ token 每次 render 都是新鑄的一顆合法 uuid', ()
 describe('D4 品項欄的形狀與過濾', () => {
   it('checkbox 的值 = `<order_item_id>:<可取消量>`(對齊解析器)', () => {
     const { container } = render(
-      <PartialCancelForm orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
     );
     const box = container.querySelector('input[name="cancel_item"]');
     // 🔴 值取的是「可取消量 2」而不是「買的量 5」—— 兩者刻意不同,壞實作分得出來。
@@ -300,7 +331,7 @@ describe('D4 品項欄的形狀與過濾', () => {
     // 🔴 後半是 R1 must-fix 6:空 fieldset 配一顆按得下去的送出鈕 ⇒ 按下去必然 `{ok:false}`
     //    (部分取消要求至少一筆,`cancel-form.ts:208`)⇒ `order_cancel_invalid` + 原因欄不保留。
     const { container } = render(
-      <PartialCancelForm
+      <PartialCancelForm returnTo={RETURN_TO}
         orderId={ORDER_ID}
         items={[
           itemView({ orderItemId: ITEM_A, maxCancellable: null }),
@@ -320,7 +351,7 @@ describe('D4 品項欄的形狀與過濾', () => {
     // 失敗情境:`1.5` 通得過 `> 0` ⇒ 表單組出 `<uuid>:1.5` ⇒ 解析器的 `/^[0-9]+$/` 必拒
     //    ⇒ 整份 `{ok:false}`、原因欄不保留要重填。
     const { container } = render(
-      <PartialCancelForm
+      <PartialCancelForm returnTo={RETURN_TO}
         orderId={ORDER_ID}
         items={[
           itemView({ orderItemId: ITEM_A, maxCancellable: 1.5 }),
@@ -333,7 +364,7 @@ describe('D4 品項欄的形狀與過濾', () => {
 
   it('有品名就顯示品名,沒有就退回 id 尾八碼', () => {
     const { container } = render(
-      <PartialCancelForm
+      <PartialCancelForm returnTo={RETURN_TO}
         orderId={ORDER_ID}
         items={[itemView({ orderItemId: ITEM_A }), itemView({ orderItemId: ITEM_B })]}
         itemNames={new Map([[ITEM_A, '下導流']])}
@@ -352,7 +383,7 @@ describe('D4 品項欄的形狀與過濾', () => {
     //    改成**正面斷言 fallback 真的發生了**,壞實作才紅得起來
     //    (同族 memory `feedback_negative-test-observation-supplied-by-another-mechanism`)。
     const { container } = render(
-      <PartialCancelForm
+      <PartialCancelForm returnTo={RETURN_TO}
         orderId={ORDER_ID}
         items={[itemView({ orderItemId: 'constructor' })]}
         itemNames={new Map()}

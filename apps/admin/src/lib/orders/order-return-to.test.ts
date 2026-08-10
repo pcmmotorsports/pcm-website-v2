@@ -63,6 +63,29 @@ describe('parseOrderReturnTo — `return_to` 不得決定「哪一張單」(契�
     expect(parseOrderReturnTo(`/orders?panel=${ORDER}&panel=${ORDER}`, ORDER)).toBe(FALLBACK);
   });
 
+  it('🔴🔴 path 段指向別張單 → fallback(`/orders/<B>`;R1 must-fix 1 實測擊破過)', () => {
+    // 🔴 原本 §6-1 只擋 `?panel=`,**path 形式整條放行**。對取消線那是「多一筆刪不掉的取消」的路:
+    //    取消 A 成功卻導去 B 的明細頁並帶著 `rt` ⇒ D5 在 B 的帳本查不到 ⇒ 落 `miss_complete`
+    //    (全站唯一一句叫員工再送一次)。突變:拿掉 path 那道 ⇒ 這條紅。
+    expect(parseOrderReturnTo(`/orders/${OTHER}`, ORDER)).toBe(FALLBACK);
+    // 連 query 一起帶也一樣(兩道各自獨立,不能只擋一半)。
+    expect(parseOrderReturnTo(`/orders/${OTHER}?x=1`, ORDER)).toBe(FALLBACK);
+  });
+
+  it('🔴 path 段是別的東西(不是列表、也不是本單明細)→ fallback', () => {
+    expect(parseOrderReturnTo('/orders/settings', ORDER)).toBe(FALLBACK);
+    expect(parseOrderReturnTo(`/orders/${ORDER}/items`, ORDER)).toBe(FALLBACK);
+  });
+
+  it('🔴 `#` 片段 → fallback(不是安全面:接尾之後 server 收不到 r/rt)', () => {
+    // 🔴 **兩個位置都要測,而且承重的是第二個**(突變實測):
+    //    `/orders/<id>#x` 那條就算拿掉 `#` 檢查也會被上面的 path 段守門擋下 ⇒ 對 `#` 這道**零判別力**;
+    //    `#` 在 **query 之後**時 pathname 仍是 `/orders`、path 段守門放行 ⇒ 只有 `#` 那道擋得住。
+    //    突變:拿掉 `hasUnsafeShape` 的 `includes('#')` ⇒ **只有第二條**紅。
+    expect(parseOrderReturnTo(`/orders/${ORDER}#x`, ORDER)).toBe(FALLBACK);
+    expect(parseOrderReturnTo('/orders?payment_status=paid#frag', ORDER)).toBe(FALLBACK);
+  });
+
   it('`panel` 就是這張單 → 放行(正向對照:證明上面兩條不是恆真)', () => {
     expect(parseOrderReturnTo(`/orders?panel=${ORDER}`, ORDER)).toBe(`/orders?panel=${ORDER}`);
   });

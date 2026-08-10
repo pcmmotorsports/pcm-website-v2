@@ -46,6 +46,19 @@ export const RESULT_ONLY_PARAMS: readonly string[] = [
  */
 export const ORDER_PANEL_PARAM = 'panel';
 
+/**
+ * `return_to` 的**表單欄名**(wire 契約)。
+ *
+ * 🔴 order 域五支表單共用同一顆 —— 改單線原本把它定義在 `workflow-form.ts`(現改為 re-export),
+ *    取消 / 備註 / 採購 / 退款接線時**一律 import 這一顆**,不要各自打 `'return_to'` 字面:
+ *    欄名打錯的症狀是「`formData.get()` 拿到 null ⇒ 靜默走 fallback ⇒ 面板被關掉」,
+ *    typecheck 與現有測試都看不到(memory `feedback_api-silently-ignores-unknown-field-...` 同型)。
+ */
+export const ORDER_RETURN_TO_FIELD = 'return_to';
+
+/** 訂單列表的路徑 —— `return_to` 合法的兩個視圖之一(另一個是這張單的明細頁)。 */
+const ORDERS_PATH = '/orders';
+
 /** `return_to` 長度上限(契約 §3 ③)。 */
 const MAX_RETURN_TO_LENGTH = 512;
 
@@ -77,6 +90,10 @@ function hasNonLatin1(value: string): boolean {
  * - `..` —— 防站內 redirect gadget(`/orders/../../api/sso/start`;`workflow-form.ts` 原註 Fable nit-6)。
  * - `//` 開頭 / `://` —— open redirect(離站)。
  * - 空白與控制字元 —— 見 `hasControlChars`。
+ * - `#` —— **不是安全面,是功能面**(R1 nit-3,實測):片段一律排在 query 後面,
+ *   而 `appendResultQuery` 是**字串接尾** ⇒ `/orders/<id>#x` 會接成 `/orders/<id>#x?r=…&rt=…`,
+ *   瀏覽器把 `?r=…` 當成片段的一部分、**server 根本收不到 `r`/`rt`**
+ *   ⇒ 契約 §2 硬條件 1 說的「面板永遠只會說查不到取消紀錄」換一個入口發生。
  *
  * ⚠️ **已知誤殺**(code-reviewer R1 nit-5,誠實記下不假裝沒有):`..` 這道看的是**整串**,
  *    所以某個篩選值裡出現 `..`(例如訂單編號 `AB..CD`)會讓整條 `return_to` 落 fallback
@@ -89,6 +106,7 @@ function hasUnsafeShape(value: string): boolean {
     value.includes('..') ||
     value.startsWith('//') ||
     value.includes('://') ||
+    value.includes('#') ||
     /\s/.test(value) ||
     hasControlChars(value)
   );
@@ -158,6 +176,14 @@ export function parseOrderReturnTo(raw: unknown, orderId: string): string {
   //    但「靠兩道檢查碰巧覆蓋」不是守門 —— 把出口那道補上,判準就不依賴那個巧合。
   const cleaned = stripResultParams(raw, orderId);
   if (cleaned === null) return fallback;
+  // 🔴🔴 **path 段也要指這張單**(R1 must-fix 1,實測擊破:`parseOrderReturnTo('/orders/<B>', A)`
+  //    原本原樣放行 —— §6-1 當時只擋了 `?panel=`,path 形式整條漏掉)。
+  //    對取消線這是**會多出一筆刪不掉的取消**的路:取消 A 成功後導去 **B 的明細頁**並帶著 `rt`
+  //    ⇒ D5 在 B 的帳本查不到那顆 token ⇒ 落 `miss_complete`(全站唯一一句叫員工再送一次)。
+  //    ⇒ 合法的 path 只有兩個視圖:列表 `/orders`,或**這張單**的明細頁。其餘一律 fallback。
+  if (returnToPathname(cleaned) !== ORDERS_PATH && returnToPathname(cleaned) !== fallback) {
+    return fallback;
+  }
   if (cleaned.length > MAX_RETURN_TO_LENGTH) return fallback;
   // ⚠️ **誠實界線**(R2 F3):上面那條長度檢查有殺得死它的負測(`~`×200 重編碼後爆表);
   //    下面這條**形狀**複驗**構造不出負測** —— `toString()` 把危險字元全編碼掉、path 段沒動過。
@@ -177,4 +203,19 @@ export function parseOrderReturnTo(raw: unknown, orderId: string): string {
  */
 export function appendResultQuery(returnTo: string, query: string): string {
   return `${returnTo}${returnTo.includes('?') ? '&' : '?'}${query}`;
+}
+
+/**
+ * `return_to` → **`revalidatePath` 吃得下的路徑**(#350d-2;契約 §5)。
+ *
+ * 🔴 `revalidatePath` 吃的是**路徑**、不吃 query ——
+ *    `revalidatePath('/orders?panel=x')` 不會 revalidate `/orders`,它只會是一條打不中的路徑。
+ *    面板版的 `return_to` 一定帶 query ⇒ 少了這一步,「回面板」那條路由**永遠沒被重取**,
+ *    而契約 §5 把它列成硬前置的理由是:D5 的 `miss_complete`(全站唯一會讓員工再送一次的那句)
+ *    踩的正是「導頁之後那頁拿到的是重算過的資料」。
+ * ⚠️ 只切 `?` —— `#` 在 `hasUnsafeShape` 就被擋掉了,這裡再處理一次是**寫不出負測的死碼**。
+ */
+export function returnToPathname(returnTo: string): string {
+  const queryAt = returnTo.indexOf('?');
+  return queryAt === -1 ? returnTo : returnTo.slice(0, queryAt);
 }
