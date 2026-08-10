@@ -253,6 +253,52 @@ describe('還能出幾件 = 已到貨 − 已配箱(#351② 口徑修正)', () =
   });
 });
 
+// ─────────────────────────────────────────────────────────────
+// 排序(Sean 2026-08-10 晚拍 A;backlog `:9425`)。
+// ─────────────────────────────────────────────────────────────
+describe('🔴 可出的排前面、出不了的沉底', () => {
+  /** 三件:到貨 2(可出)/ 未到貨 / 到貨 1(可出)—— 刻意讓可出的被出不了的隔開。 */
+  const mixed = () => {
+    const base = detail().items[0]!;
+    return detail({
+      items: [
+        { ...base, id: 'oi-a', title: 'A 可出', quantitySummary: { quantity: 4, orderedQuantity: 4, instockQuantity: 2, cancelledQuantity: 0, cancellableQuantity: 2 } },
+        { ...base, id: 'oi-b', title: 'B 未到貨', quantitySummary: { quantity: 4, orderedQuantity: 4, instockQuantity: 0, cancelledQuantity: 0, cancellableQuantity: 4 } },
+        { ...base, id: 'oi-c', title: 'C 可出', quantitySummary: { quantity: 4, orderedQuantity: 4, instockQuantity: 1, cancelledQuantity: 0, cancellableQuantity: 3 } },
+      ],
+    });
+  };
+
+  it('出不了的沉到最後', async () => {
+    findAdminOrderDetail.mockResolvedValue(mixed());
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(
+      r.items.map((i) => i.title),
+      '出不了的沒沉底 ⇒ 能出的那幾件散在一堆灰列中間,員工還是要逐列找。',
+    ).toEqual(['A 可出', 'C 可出', 'B 未到貨']);
+  });
+
+  it('🔴 同一組內維持原順序(排序必須穩定,否則對不上訂單頁)', async () => {
+    findAdminOrderDetail.mockResolvedValue(
+      detail({
+        // 三件全部未到貨 ⇒ 排序鍵完全相同,任何 tie-breaker 都會露餡。
+        items: ['oi-x', 'oi-y', 'oi-z'].map((id) => ({
+          ...detail().items[0]!,
+          id,
+          title: id,
+          quantitySummary: { quantity: 4, orderedQuantity: 4, instockQuantity: 0, cancelledQuantity: 0, cancellableQuantity: 4 },
+        })),
+      }),
+    );
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    expect(
+      (await loadShipmentCandidates(['o1'])).items.map((i) => i.title),
+      '同組內順序被打散 ⇒ 比較子多比了「能不能出」以外的鍵,彈窗與訂單頁對不起來。',
+    ).toEqual(['oi-x', 'oi-y', 'oi-z']);
+  });
+});
+
 describe('多張訂單 · 邊界', () => {
   it('跨單的品項會被攤平成同一份清單,各自標示來源單號', async () => {
     findAdminOrderDetail
