@@ -30,6 +30,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { toMessage } from '../../lib/shipping/error-message';
+import { parseShipmentError } from '../../lib/shipping/shipment-error-view';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 import { submitShipment, type SubmitShipmentResult } from '../../lib/shipping/shipment-actions';
 
@@ -120,6 +121,8 @@ export function ShipmentDialog({
           ok: false,
           message: `${toMessage(e)}(送出中斷線或伺服器沒回應。⚠️ 請**直接再按一次同一顆按鈕** —— 這個視窗還握著同一把冪等鍵,重送不會重複建箱。🔴 不要關掉視窗重來:關掉就換一把鍵了,那才會真的多出一箱。)`,
           shipmentReference: null,
+          // 傳輸層失敗(斷網 / 部署換版)⇒ 沒有 SQLSTATE。白話層會退回吐上面那段(它本來就是人話)。
+          code: null,
         });
       } finally {
         // 🔴 一定要在 `finally`:寫在 try 尾巴的話,上面那條 throw 路徑會跳過它、鎖死照舊。
@@ -236,16 +239,34 @@ export function ShipmentDialog({
 
           {blocker !== null && <p className='text-destructive text-xs'>{blocker}</p>}
           {result !== null && !result.ok && (
-            <p className='text-destructive text-xs'>
-              {result.message}
+            /* #351 ①(Sean 08-09 逐字「這個文字太難懂,精簡一點」):
+               認得的 DB 拒因 → **一句人話 + 一句該怎麼辦**;原始訊息收進「詳細」摺疊。
+               🔴 認不得的 → 照舊吐原文,**不吃掉**。安靜地少講一句話比講錯話更難查。 */
+            <div className='text-destructive space-y-1 text-xs'>
+              {(() => {
+                const parsed = parseShipmentError(result.code, result.message);
+                if (parsed.copy === null) return <p>{result.message}</p>;
+                return (
+                  <>
+                    <p className='font-medium'>{parsed.copy.what}</p>
+                    <p>{parsed.copy.next}</p>
+                    <details>
+                      {/* 🔴 標題是「詳細」**不是**「給工程師看」(code-reviewer 2026-08-10):
+                          DB 原文帶**逐品項的實際數字**(可出幾件、你要出幾件),那正是員工要的答案;
+                          標成給工程師看等於明示他不用看。 */}
+                      <summary className='cursor-pointer select-none opacity-70'>詳細(每個品項可出幾件)</summary>
+                      <p className='mt-1 font-mono break-all opacity-80'>{parsed.raw}</p>
+                    </details>
+                  </>
+                );
+              })()}
               {result.shipmentReference !== null && (
-                <>
-                  <br />
+                <p>
                   ⚠️ 箱子 <b className='font-mono'>{result.shipmentReference}</b>{' '}
                   已經建出來了(還沒出貨)。再按一次會沿用同一箱、不會重複建;不寄的話請去訂單頁作廢它。
-                </>
+                </p>
               )}
-            </p>
+            </div>
           )}
           {result?.ok === true && (
             <p className='text-xs'>

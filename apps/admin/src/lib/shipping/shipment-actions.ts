@@ -50,8 +50,15 @@ export type SubmitShipmentInput = {
 
 export type SubmitShipmentResult =
   | { ok: true; shipmentReference: string; shipped: boolean }
-  /** `shipmentReference` 有值 = 箱子已經建出來了(半成品),員工要嘛重試要嘛作廢。 */
-  | { ok: false; message: string; shipmentReference: string | null };
+  /**
+   * `shipmentReference` 有值 = 箱子已經建出來了(半成品),員工要嘛重試要嘛作廢。
+   *
+   * 🔴 **`code` 是 #351 ① 加的,而且它是必要的**:白話對照表靠 SQLSTATE 分辨拒因,
+   * 而這裡是 server↔client 的邊界 —— 不把碼帶過去,client 手上就只剩一段字串,
+   * 只能用正規式去訊息裡撈碼(那會把「說明裡提到某個碼」誤判成那個碼)。
+   * `null` = 不是 DB 丟的、或沒有 code 欄(傳輸層失敗屬這類)。
+   */
+  | { ok: false; message: string; shipmentReference: string | null; code: string | null };
 
 /**
  * 建箱 →(掛品項)→(可選)標出貨。
@@ -74,6 +81,9 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
     if (owners.size !== 1) {
       // fail-closed:0 位(查無品項)與 2 位以上(跨客人)都不建箱,**一個箱子都不留下**。
       return {
+        // 這條是**本層自己的**拒絕(不是 DB 丟的)⇒ 沒有 SQLSTATE,白話層會退回吐這段訊息。
+        // 而這段訊息本來就是寫給員工看的人話,不需要再翻譯一次。
+        code: null,
         ok: false,
         message:
           owners.size === 0
@@ -113,7 +123,12 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
   } catch (e) {
     // 🔴 不吞錯、不改寫成自己的措辭 —— 見上方註解。
     const message = toMessage(e);
-    return { ok: false, message, shipmentReference: reference };
+    // 🔴 只讀 `code` 欄、不解析訊息(理由見 `shipment-error-view.ts` 的 `parseShipmentError`)。
+    const code =
+      typeof e === 'object' && e !== null && typeof (e as { code?: unknown }).code === 'string'
+        ? ((e as { code: string }).code)
+        : null;
+    return { ok: false, message, shipmentReference: reference, code };
   }
 }
 
