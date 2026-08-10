@@ -9605,13 +9605,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **不修會痛在哪**:OP3 已 apply 後第一次部署設定錯誤發生時,診斷被 app 層抹平、恢復時間 ×N;OP3 migration 檔頭已誠實計價此缺口。
 - **編號註**:立案當下最大=#370(grep 實查)。
 - **08-10 晚增補(OP5 線)**:清單擴為 **P2B38(🔴 一碼兩義:`pcm_op5_received_at_future` 與 `pcm_op5_received_at_before_order` 兩個 CONSTRAINT 共用,按 CONSTRAINT 名分)/P2B39(actor 無效)/P2B40(吞列)/P2B41(退款態具名拒)/42501(分期開權期間呼叫=還沒開權非壞掉)**;來源=OP5 審查鏈 Fable R3-#4/#7。
+- **08-10 晚增補(OP-A12 線)**:再擴 **P2B42(actor 無效 `pcm_opa12_actor_invalid`)/P2B43(落帳 row_count `pcm_opa12_row_count`)/P2B44(🔴 一碼兩義,按 CONSTRAINT 分:`pcm_opa12_card_rail` 卡軌拒 vs `pcm_opa12_already_reversed` 已沖拒)**;來源=A12 migration(`20260810210000`:54/:102/:136/:148/:165)。🔴 `pcm_opa12_already_reversed` 的映法要求見 #372 A12 條目(終態非可重試)。
 
 ### #372. 🕳️ OP5 四個具名缺口登記:OP-A12 沖銷入口/A13 退款態補收/A14 已收款單可被取消/A15 待認領款暫存帳(B 窗 08-10,主視窗立案)
 
 - **來源**:OP5 登錄 RPC 審查鏈(B-395→B-400,codex×3+Fable 四輪 34+ 條)。四缺口字面已寫在 `20260810200000` migration 檔頭;**OP1 檔頭不補寫**(已 apply 檔+W7 收據翻攪成本,主視窗 08-10 裁)⇒ 本條=repo 內可 grep 的登記處。
-- **OP-A12 沖銷入口**(`admin_reverse_manual_payment`):同片 ①GRANT 兩支(登錄+沖銷)②翻 op5-verify ⑰/⑳ ACL 極性(零 EXECUTE→service_role only)+重錄 W7 收據 ③`has_function_privilege` 有效權限斷言。**沖銷不受 payment_status allowlist 限制**(沖銷是更正不是收錢)。=OP5 的開權解鎖點(GRANT 分離設計,取代「同批 apply」)。
+- **OP-A12 沖銷入口**(`admin_reverse_manual_payment`):同片 ①GRANT 兩支(登錄+沖銷)②翻 op5-verify ⑰/⑳ ACL 極性(零 EXECUTE→service_role only)+重錄 W7 收據 ③`has_function_privilege` 有效權限斷言。**沖銷不受 payment_status allowlist 限制**(沖銷是更正不是收錢)。=OP5 的開權解鎖點(GRANT 分離設計,取代「同批 apply」)。🔴 **接 UI 時 adapter 必把 `P2B44/pcm_opa12_already_reversed` 映成「已沖成,勿重試」終態**——G8 無冪等,網路逾時後重送得此碼=前一次已成功,誤歸「失敗可重試」會誘發沖銷之沖銷(08-10 雙線審 opus#10/Fable F5)。
 - **OP-A13 退款態單的沖銷與重登入口**;失效條件=OP6 淨額與狀態重算上線。
-- **OP-A14 已收款單的取消守門**:A8a2 允許集合只看 unpaid+attempts、**不看 order_payments** ⇒ 已收人工款的單目前仍可被取消(收了錢的取消單)。歸 OP6 或 A8 線收,不在 OP5 片內。
+- **OP-A14 已收款單的取消守門**:A8a2 允許集合只看 unpaid+attempts、**不看 order_payments** ⇒ 已收人工款的單目前仍可被取消(收了錢的取消單)。歸 OP6 或 A8 線收,不在 OP5 片內。🔴 **A12 開權後此壞態「開權後可達」**(Sean 08-10 拍 C 照現狀開權不加守門;否決 A 案理由=會推翻 07-26「已付款可取消」拍板,逐字在 A12 migration 檔頭 :47-51)。
 - **OP-A15 待認領款項暫存帳**:OP5 每一道 fail-closed 拒絕在正式站=**錢收到了但記不進去**;OP-A15 上線前值班唯一手段=人工銀行對帳。**接 UI 硬前置**。
 - **不修會痛在哪**:開權後才發現=登錯帳不能更正(A12)/退款態的真實入帳永遠記不進(A13)/收款與取消互相矛盾的單(A14)/記不進的錢無處可放(A15)。
 - **排程**:A12=B 線 OP5 後下一片(開權前置檢查表全表);A13 掛 OP6;A14 歸 OP6/A8 線;A15 排接 UI 前。

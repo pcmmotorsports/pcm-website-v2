@@ -53,7 +53,7 @@
     實錘:E 窗某 session 開場時 STOP 號段 245、`-A` 號段僅 150,實際是**漏讀了兩封**(`E-149-A`/`E-150-A` 都比 STOP 新)。
   - **機制形狀**:
     - **接收端做得成機制**(純機械判斷,建議做):開窗儀式跑一行
-      `find $MB -name '<窗>-1*.md' -newer "$(ls -t $MB/<窗>-2*STOP.md | head -1)"`;
+      `find $MB -name '<窗>-*.md' -newer "$(ls -t $MB/<窗>-*STOP.md | head -1)"`;
       有輸出=有漏讀、逐封處理完才准開工;無輸出才開工。
     - **發送端做不成完整機制**(依 §4 機制優先律,退成文字條前先答「為何做不到」):
       主視窗「處理完一封 STOP」**沒有機器可觀測的完成事件** —— 收割動作散落在 merge / 測試 / STATUS 更新,
@@ -120,7 +120,7 @@ BASE=$MB/<剛寫完的自己那封 STOP 檔名>
 LOG=$MB/.sentinel-<窗代號>-<號>.log
 echo "[$(date '+%H:%M:%S')] sentinel start, base=$(basename $BASE)" > $LOG
 for i in $(seq 1 90); do
-  NEW=$(find "$MB" -maxdepth 1 -name '<窗代號>-1*.md' -newer "$BASE" 2>/dev/null)
+  NEW=$(find "$MB" -maxdepth 1 -name '<窗代號>-*.md' -newer "$BASE" 2>/dev/null)
   if [ -n "$NEW" ]; then
     echo "[$(date '+%H:%M:%S')] HIT" >> $LOG; echo "$NEW" >> $LOG
     echo "NEW-MAIL 以下每封都要處理:"; echo "$NEW"; exit 0
@@ -131,7 +131,7 @@ done
 echo "[$(date '+%H:%M:%S')] timeout 30min" >> $LOG; echo "SENTINEL TIMEOUT"
 ```
 
-要點:基準=自己剛寫的 STOP(存在且不會再被摸);`-name '<窗>-1*.md'` 涵蓋 -A/-Q/任何後綴;mtime 比對天然免疫撞號蓋信與截斷;`exit 0` 喚醒即死=單發哨兵,絕不兩座共用狀態(A-14 吞信事故)。
+要點:基準=自己剛寫的 STOP(存在且不會再被摸);`-name '<窗>-*.md'` 涵蓋 -A/-Q/任何後綴,**不得寫死號段開頭數字**(舊樣板 `<窗>-1*.md` 在號段長到 2xx/3xx/4xx 後=恆不觸發且完全靜默,2026-08-10 D 窗實測抓到);**掛之前先證錨點匹配得到**:`find "$MB" -maxdepth 1 -name '<窗>-*.md' | wc -l` 命中 0 = pattern 錯,不准掛;mtime 比對天然免疫撞號蓋信與截斷;`exit 0` 喚醒即死=單發哨兵,絕不兩座共用狀態(A-14 吞信事故)。
 
 🔴 **2026-08-07 三處增補,都是機制版、不是靠人記得**:
 1. **一律寫 log**(`>> $LOG`):推播鏈斷掉時,沒有 log 就分不出「沒信」與「哨兵早就死了」。
