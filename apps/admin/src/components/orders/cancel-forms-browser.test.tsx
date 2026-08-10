@@ -61,9 +61,14 @@ let browser: Browser;
 beforeAll(async () => {
   browser = await chromium.launch();
 }, 120_000);
+// 🔴 **`afterAll` 也要給 timeout,而且要跟 `beforeAll` 一樣長(#334)**:
+//    沒給的話它吃 vitest 預設的 **10 秒**,而 `beforeAll` 明明給了 120 秒 —— 這個不對稱
+//    在機器忙的時候就是一次 file-level FAIL:**檔案紅、但零個測試紅**
+//    (`Test Files 1 failed | Tests 0 failed`,實測過一次是 5 格全過、耗時 13 秒後倒在關瀏覽器)。
+//    症狀長得像「測試壞了」,實際是**收尾逾時**;而且它不會有第二次(重跑就綠)⇒ 最容易被誤記成 flake。
 afterAll(async () => {
   await browser?.close();
-});
+}, 120_000);
 
 /** 把一份 HTML 掛上 server、開瀏覽器跑一段腳本、回傳所有收到的 POST body。 */
 async function withPage(
