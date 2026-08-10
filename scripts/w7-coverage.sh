@@ -77,7 +77,12 @@ MODE="${1:-check}"
 #    A9 / 不可變 / 擋刪的回歸全部搬進 `op2b-verify.sh`;它若不在本集合裡,
 #    `record all` 永遠跑不到它 ⇒ 帳面照樣 32/0 全綠,而那三條守門的回歸**沒有任何自動化在看**。
 #    它自足(all 模式自己 provision + teardown)、只認 PORT 與 workdir ⇒ 收編成本同 b2s2b。
-EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh op2b-verify.sh"
+# 🔴 OP3 片(2026-08-10):收編 `op3-verify.sh`。同 op2b 的理由 —— OP3 把「付款確認同交易落 card 腿」
+#    的**全部行為證據**放在那支(migration 只做結構斷言,因為它不得依賴業務資料)。
+#    它若不在本集合裡,`record all` 永遠跑不到它 ⇒ 帳面照樣全綠,而
+#    「重放不落第二列」「翻單與落帳同生共死」「actor 守門 P2B36」的回歸**沒有任何自動化在看**。
+#    它自足(all 模式自己 provision + teardown)、只認 PORT 與 workdir ⇒ 收編成本同 op2b。
+EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh op2b-verify.sh op3-verify.sh"
 harness_set() {
   { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$'
     for e in $EXTRA_HARNESSES; do [ -f "$SCRIPTS/$e" ] && printf '%s\n' "$e"; done
@@ -96,6 +101,8 @@ invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
     # 🔴 op2b 同款隔離:它預設 PORT=54381,這裡改用專屬埠與 workdir,免得撞到手跑那一輪。
     #    `all` 會自己 provision + teardown;workdir 有 `.d1t2-harness` ownership marker 才敢 rm -rf。
     op2b-verify.sh) printf 'PORT=54367 bash scripts/%s all /tmp/op2bcov' "$1" ;;
+    # 🔴 op3 同款隔離:它預設 PORT=54371,這裡改用專屬埠與 workdir,免得撞到手跑那一輪。
+    op3-verify.sh) printf 'PORT=54368 bash scripts/%s all /tmp/op3cov' "$1" ;;
     *)               printf 'bash scripts/%s' "$1" ;;
   esac
 }
@@ -173,7 +180,9 @@ PASS=0; FAIL=0; KEYS=""
 #    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
 #    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
-EXPECT_TOTAL=31   # 🔴 量出來的(**22** 逐支〔19 支 w 線 + b2s2b + a7t + op2b〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS)。全綠 PASS = 31 + 2 = 33。
+EXPECT_TOTAL=33   # 🔴 量出來的(**23** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 33 + 2 = 35。
+                  # 🔴 2026-08-10 OP3 片:32→33,新增 MIG-PREFIX-UNIQ(本片自己撞號兩次,見該格上方理由)。
+                  # 🔴 2026-08-10 OP3 片:31→32,收編 op3-verify.sh(見 EXTRA_HARNESSES 上方理由)。
                   # 🔴 2026-08-10 OP2b 片(code-reviewer MF3):30→31,收編 op2b-verify.sh(見 EXTRA_HARNESSES 上方理由)。
                   # 🔴 2026-08-10 殘項 A:29→30,新增 EXCLUDED-REASONS(三支明文不收的 harness,排除理由的失效條件)。
                   # 🔴 2026-08-10 #354:27→29,新增 TMUT-COV-EXITS / TMUT-COV-INCONC 兩發常設靶。
@@ -290,9 +299,65 @@ excl_check s1b-verify.sh               "provision 是否跑過"              "�
 # · b2s1:被自己的 exit 2 停用(已知卡死)
 # 🔴 **行錨**:`exit 2` 這三個字在該檔出現兩次(`:25` 真停用 / `:32` 註解引用)⇒ 必須釘行
 excl_check b2s1-concurrency-probe.sh   "^exit 2$"                       "自己 exit 2 停用(已知會卡死)"
+# 🔴🔴 **2026-08-10 OP3 片新增三支(三線審查 must-fix:不得沉默)**:a8c2 / a8a1 / a8a2 家族
+#    在**全量 migration 庫**上跑不動,而它們**不在本帳集合裡** ⇒ 帳面永遠全綠、沒有任何訊號。
+#    · **既有債(先於 OP3)**:三支都釘 `begin_charge_attempt` 或 confirm 的 md5,而 L4a-1(08-09)
+#      改過 begin ⇒ 早在 OP3 之前就拒跑。實證:2026-08-10 把 OP3 暫時移出 migrations 後重跑,
+#      `a8c2-verify` 仍紅在 **begin 閘** ⇒ 這是 **backlog #370**,不是 OP3 弄壞的。
+#    · **OP3 新增的理由**(要一起修才活得過來):三支以 **postgres** 連線呼叫 confirm,
+#      而 OP3 的 P2B36 只放行 `payment_confirmer`;且 OP3 改了 confirm 的**定義**與 **COMMENT**
+#      ⇒ `MD5_NEW` / `MD5_CONFIRM_A8C2` / `CMT_MD5_NEW` 三個釘值全部過期。
+#    · 🔴 **失效條件(這條排除理由什麼時候不再成立)**:一旦 #370 修好(改用
+#      `SET SESSION AUTHORIZATION 'payment_confirmer'` + 重釘上述 md5 + 對齊 begin 閘),
+#      三支就該**收進本帳**;屆時本段要刪,並把它們加進 EXTRA_HARNESSES 與格數。
+#    · 錨點用**變數名**不用 md5 值:值本來就會被重釘,名字才是「它釘了那個東西」的證據。
+excl_check a8c2-verify.sh              "MD5_BEGIN_A8C1"                 "釘 begin md5(#370 既有債)+ 以 postgres 呼 confirm(OP3 P2B36 擋)"
+excl_check a8a1-verify.sh              "MD5_CONFIRM_A8C2"               "釘 confirm md5,OP3 改了定義與 COMMENT ⇒ 需重釘(#370 一併)"
+excl_check a8a2-verify.sh              "MD5_CONFIRM_A8C2"               "同 a8a1;另釘 begin(部署鏈)⇒ #370 修復時一起處理"
 [ -z "$EXCL_BAD" ] \
-  && ok EXCLUDED-REASONS "三支明文不收的 harness,排除理由的證據都還在(n3=require_free_port / s1b=未 provision 時拒跑 / b2s1=行錨 ^exit 2$ 的停用機制)⇒ 證據整條消失時會紅在這裡" \
+  && ok EXCLUDED-REASONS "六支明文不收的 harness,排除理由的證據都還在(n3=require_free_port / s1b=未 provision 時拒跑 / b2s1=行錨 ^exit 2$ 的停用機制 / a8c2+a8a1+a8a2=釘 md5 且以 postgres 呼 confirm,#370)⇒ 證據整條消失時會紅在這裡" \
   || bad EXCLUDED-REASONS "排除理由失效:$EXCL_BAD ⇒ 這三支的回歸目前零自動化,理由不成立就要重新判定該不該收進帳"
+
+# ── MIG-PREFIX-UNIQ:migration 版本前綴不得重複(2026-08-10 OP3 片立案)──────────
+# 🔴 **立案理由是它今天咬了我自己兩次**:OP3 先取 `20260810140000` 撞 L5b、改 `20260810150000`
+#    又撞 D 的 347-3c-3(**且那支已 apply 正式庫**)。Supabase 的 `schema_migrations` PK = 前綴
+#    ⇒ 重號的第二支 apply 時會被**靜默跳過**(最貴的那種失敗:零錯誤、零症狀、功能沒上)。
+# 🔴 病根不是「忘了查」,是**查過一次就當數**:我確實在 dev 查過,但 dev 一直在前進,
+#    我的觀察在定案當下已經過期 ⇒ 守門要在**每次跑 check 當下重查**,不能靠人記得。
+# ⚠️ 誠實邊界(兩條):
+#    ① 這道比的是「**現在**的 dev + 本 worktree」;它擋不住「我查完之後、合併之前別人又取同號」
+#       —— 那一段只有收割當下再跑一次才蓋得到(所以主視窗收割時也要跑)。
+#    ③ **真正無競態的觀察點不在這裡**(三線審查 C2,記檔備查):前綴唯一性最終只在
+#       **apply 當下對目標庫的 `supabase_migrations.schema_migrations`** 才是無競態的 ——
+#       任何 repo 側的檢查都有「查完到 apply 之間別人又進去」的窗。把它做成 apply preflight
+#       是流程片的工,不在本片;寫在這裡是為了讓下一個人知道這格的天花板在哪。
+#    ② `dev` ref 不可解析時(淺 clone / 沒有該分支)本格**明說跳過 dev 比對**、只驗本樹,
+#       不假裝比過(fail-loud 而非靜默降級)。
+MIG_DIR="supabase/migrations"
+MIG_SELF_DUP="$(ls "$MIG_DIR" 2>/dev/null | cut -d_ -f1 | sort | uniq -d | tr '\n' ' ')"
+MIG_DEV_DUP=""
+MIG_DEV_NOTE="含 dev 比對"
+if git rev-parse --verify --quiet dev >/dev/null 2>&1; then
+  # 同前綴但**檔名不同** = 兩支不同的 migration 搶同一個版本號(這正是 OP3 踩的形狀);
+  # 同前綴同檔名 = 就是同一支,不算衝突。
+  MIG_DEV_DUP="$(
+    { git ls-tree -r --name-only dev -- "$MIG_DIR" | xargs -n1 basename 2>/dev/null; ls "$MIG_DIR"; } \
+      | sort -u | awk -F_ '{print $1"\t"$0}' | sort | awk -F'\t' '{if($1==p&&$2!=q){print $1} p=$1;q=$2}' | sort -u | tr '\n' ' '
+  )"
+else
+  MIG_DEV_NOTE="dev ref 不可解析"
+  MIG_DEV_UNRESOLVED=1
+fi
+# 🔴 三線審查 nit:上一版註解寫「fail-loud 而非靜默降級」,實作卻是**綠格帶一句紅字**
+#    ⇒ 宣稱 > 事實(綠格不會擋任何人)。dev 比不到 = 這格**根本沒驗到它宣稱要驗的那一半**
+#    ⇒ 直接判紅,由人決定要不要在該環境放行,不由本檔替他決定。
+if [ "${MIG_DEV_UNRESOLVED:-0}" = "1" ]; then
+  bad MIG-PREFIX-UNIQ "dev ref 不可解析 ⇒ **與 dev 的撞號完全沒驗到**(只驗了本樹)。本格宣稱涵蓋 dev,驗不到就不給綠;在無 dev ref 的環境要放行請顯式判斷,不要讓它靜默變綠"
+elif [ -n "$MIG_SELF_DUP$MIG_DEV_DUP" ]; then
+  bad MIG-PREFIX-UNIQ "migration 版本前綴重複(本樹:${MIG_SELF_DUP:-無} / 與 dev:${MIG_DEV_DUP:-無})⇒ schema_migrations PK 是前綴,重號的第二支 apply 會被**靜默跳過**、功能沒上而零錯誤。改號並同步所有釘值"
+else
+  ok MIG-PREFIX-UNIQ "migration 版本前綴唯一($MIG_DEV_NOTE)⇒ 重號會在這裡紅;OP3 本片就是被它咬出來的形狀"
+fi
 
 echo "══ 3. 🔴 靶(六類真實失效各一發;在副本上動手腳)═══════════"
 # 🔴 判別力的形狀:**改壞值、保留結構**。六發各打一種**本線真的發生過**的失效,
@@ -396,7 +461,7 @@ fi
 #          不該由檔名排序決定(同 PROBE 那段的教訓)。
 EXITS_PROBE="w5-line-verify.sh"
 EXITS_MAP_NOW="$(for h in $(harness_set); do printf '%s=[%s] ' "$h" "$(exits_of "$h")"; done | sed 's/ *$//')"
-EXITS_MAP_FROZEN="a7t-concurrency-probe.sh=[0] b2s2b-verify.sh=[0 3] op2b-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
+EXITS_MAP_FROZEN="a7t-concurrency-probe.sh=[0] b2s2b-verify.sh=[0 3] op2b-verify.sh=[0] op3-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
 if [ "$EXITS_MAP_NOW" != "$EXITS_MAP_FROZEN" ]; then
   bad TMUT-COV-EXITS "exits_of 對照表漂了。現行:[$EXITS_MAP_NOW]。⇒ 放寬任何一支的允許出口碼都要有人看(#354)"
 elif ! harness_set | grep -Fqx "$EXITS_PROBE" || ! grep -Fq "$EXITS_PROBE	" "$LEDGER" 2>/dev/null; then
@@ -454,7 +519,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS RECEIPT-a7t RECEIPT-b2s2b RECEIPT-op2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS MIG-PREFIX-UNIQ RECEIPT-a7t RECEIPT-b2s2b RECEIPT-op2b RECEIPT-op3 RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else

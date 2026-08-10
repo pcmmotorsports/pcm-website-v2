@@ -9568,3 +9568,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **要做什麼**:①修三支的前置(對齊 L4a-1 後的 begin 定義)②收進 W7 帳或寫明排除理由(照 EXCLUDED-REASONS 慣例)。
 - **不修會痛在哪**:取消守門(a8c2)與 A8a 系的回歸驗證形同不存在;未來動 confirm/cancel 線時以為有網,實際上那三張網從 08-09 起就是破的。
 - **編號註**:立案當下最大=#369(grep 實查)。
+- **08-10 OP3 後補註**:OP3(20260810160000)使修復需連帶=改三支用 SET SESSION AUTHORIZATION+重釘 confirm 的兩個 md5(MD5_NEW/CMT_MD5_NEW)+對齊 begin 閘;三支已入 w7 EXCLUDED-REASONS 附失效條件(修好=刪該段收進帳)。
+
+
+### #371. 🩺 `classifyPgError` 只認 P0001 ⇒ P2B36/P2B37/P8C01 被歸「連線失敗可重試」誤導值班(OP3 立案,Sean 裁 A=另片修)
+
+- **來源**:OP3 codex R2-MF2;`packages/adapters/src/payment/PaymentConfirmerAdapter.ts` `classifyPgError` 非 P0001 一律 unreachable「付款確認連線失敗(可重試)」且原錯誤零 cause 鏈。
+- **失敗情境**:P2B36(部署 DSN 身分錯)=全部刷卡確認紅,值班照「可重試」去查網路,**重試永遠不會好**;P2B37(吞列)與既有 P8C01(隔離閘)同形。app log 零診斷、要去 DB log 撈 RAISE 原文。
+- **修法**:三碼(P2B36/P2B37/P8C01)歸 rejected(不可重試)+cause 鏈+單元測=一片 adapter 金流片(鐵則 12①,獨立審查)。
+- **不修會痛在哪**:OP3 已 apply 後第一次部署設定錯誤發生時,診斷被 app 層抹平、恢復時間 ×N;OP3 migration 檔頭已誠實計價此缺口。
+- **編號註**:立案當下最大=#370(grep 實查)。
