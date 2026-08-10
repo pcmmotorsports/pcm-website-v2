@@ -9154,22 +9154,36 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **不修會痛在哪**:每新增一個藏 TabBar 的頁面就重演一次「底部神祕空白」,深色頁直接露白條,
   三綠與單元測試全盲、只有真瀏覽器看得到。
 
-### #334. 🎲 CheckoutView.test.tsx 非決定性 1 紅 — 同日兩窗各目擊一次、皆無法重現
+### #334. 🎲 全套「檔紅、零測試紅」非決定性 1 紅 — **其中一個成因已找到並修掉(2026-08-11)**;CheckoutView 那條仍開著
 
-- **狀態:** ⏳ 待執行(2026-08-06 立案;E 窗與 D 窗同日各見一次全套 1 failed;**2026-08-11 S 窗第三次目擊**)
-- **現況**:E 窗指認失敗檔=`apps/storefront/src/components/CheckoutView.test.tsx`(單檔重跑 61/61 綠、全套重跑兩次全綠);D 窗同日也見一次 1 failed 但沒抓到測試名。兩窗當時的改動都與 storefront 結帳零交集。
-- 🔴 **2026-08-11 第三次目擊(S 窗)—— 帶回一個新簽名,可能會改變修法方向**:
-  - 看到的是 **`Test Files 1 failed | 430 passed (431)` 而 `Tests 6771 passed`、失敗測試數 = 0**。
-    **零個測試失敗、失敗的是「檔案」** —— 通過數與全綠那兩次**完全相同**。
-  - ⇒ assertion race 會讓 `Tests` 那行出現 failed;這個形狀更像
-    **collect / teardown / unhandled rejection**(檔案層),而不是條目現在猜的「多次 submit / 非同步 race」。
-    請下一個目擊者**先確認 `Tests` 那行有沒有 failed** 再往 race 方向查。
-  - ⚠️ S 窗**同樣沒抓到檔名**(當下用管線 grep 過濾掉了、回頭重跑已全綠)。連續兩次重跑 `exit=0`、431 全過。
+- **狀態:** 🔧 **部分收斂**(2026-08-06 立案;2026-08-11 E 窗四代找到並修掉**一個可重現的成因**,
+  但**不是全部** —— 見下方「涵蓋範圍」)。
+- 🔴 **已確認並修掉的成因:兩支 browser harness 的 `afterAll` 沒有 timeout。**
+  - `cancel-forms-browser.test.tsx` 與 `cancel-forms-hydrated.test.tsx` 兩支都是
+    `beforeAll(async () => { browser = await chromium.launch(); }, 120_000)` **給了 120 秒**,
+    而 `afterAll(async () => { await browser?.close(); })` **沒給** ⇒ 吃 vitest 預設的 **10 秒**。
+  - 機器一忙,關 chromium 超過 10 秒就 file-level FAIL,而**測試本身全過**。
+  - ✅ **構造重現(不是推論)**:在 `afterAll` 內插一段 11 秒延遲 —— 沒有 timeout 那版吐
+    **`Test Files 1 failed` + `Tests 7 passed`**(**逐字就是 S 窗記下的那個簽名**);
+    補上 `, 120_000` 那版 pass。修法 = 兩支各補一個參數。
+  - 📋 E 窗四代 2026-08-11 全套跑**兩次**撞到,兩次不同檔、同一個病
+    (`cancel-forms-browser` 一次、`cancel-forms-hydrated` 一次;後者 5 格全過、耗時 13045ms 後倒在收尾)。
+- ⚠️ **涵蓋範圍(刻意不宣稱修完 #334)**:
+  - **2026-08-06 E 窗那次目擊指認的是 `apps/storefront/src/components/CheckoutView.test.tsx`**,
+    而該檔**沒有 chromium、沒有 `afterAll`**(實查:只有一個同步的 `beforeAll`)
+    ⇒ **上面這個成因解釋不了它**,`#330` 那條「多次 submit / 非同步 race」的候選**不撤**。
+  - S 窗 2026-08-11 那次**沒抓到檔名**,只留下簽名 ⇒ 無法歸給任何一邊;它的簽名與本成因一致,
+    但簽名一致不等於同因(本條現在證明了**至少有兩種東西**會產生同一個簽名)。
+  - D 窗 2026-08-06 那次同樣沒抓到檔名。
+- 🔴 **給下一個目擊者的判別順序(改自原本的「先看 Tests 那行」)**:
+  1. 先看 `Tests` 那行有沒有 failed。**有** ⇒ 是真的測試紅,照一般回歸查。
+  2. **沒有**(檔紅、零測試紅)⇒ 先看失敗檔**是不是 browser harness**(`grep chromium.launch`)。
+     是 ⇒ 先確認它的 `beforeAll`/`afterAll` timeout 是否對稱(本條已把已知兩支修掉)。
+     不是 ⇒ 才往 collect / unhandled rejection / race 方向查,並**務必留下檔名**。
 - 🔴 **機制修法(比「請下一個人記得」可靠)**:跑全套一律先落檔再過濾 ——
   `npx vitest run > /tmp/vitest-full.log 2>&1; echo "exit=$?"` 然後 grep 那個檔,
   **不要直接 `npx vitest run | grep ...`**:一濾就把唯一一次的證據丟掉,而 flake 依定義不會有第二次。
-  (三次目擊有兩次因為這個原因沒留下檔名。)
-- **修法方向**:下一個遇到的人先把失敗測試名記下來;對照 #330(note-compose-form confirm 閘懸案)同族=「多次 submit/非同步 race」候選 —— **但先看上面那條新簽名再決定要不要往這個方向走**;抓到簽名前不動測試。
+  (四次目擊有三次因為這個原因沒留下檔名。)
 - **不修會痛在哪**:非決定性紅會讓「全套 N 綠」失去收割對帳的意義——每次紅都要人工判斷 flake 還是真回歸,判斷疲勞後遲早把真紅當 flake 放行。
 
 ### #335. 🧬 auth-error.ts 原型鏈查表 — 全 repo 最後一筆同型命中(當前不可觀察)
