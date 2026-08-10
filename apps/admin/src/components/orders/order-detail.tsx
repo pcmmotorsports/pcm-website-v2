@@ -357,6 +357,7 @@ export function OrderDetail({
       {/* A10b:採購區塊(逐品項清單 + upsert 表單)。🔴 內部資料、admin-only。 */}
       <ItemProcurementSection
         detail={detail}
+        returnTo={returnTo}
         suppliers={suppliers}
         suppliersFailed={suppliersFailed}
       />
@@ -372,6 +373,7 @@ export function OrderDetail({
       <NoteComposeForm
         key={correctTarget?.id ?? 'compose-new'}
         orderId={detail.id}
+        returnTo={returnTo}
         serverToken={generateNoteRequestToken()}
         correctTarget={correctTarget}
         correctionMissing={correctNoteId !== null && correctTarget === null}

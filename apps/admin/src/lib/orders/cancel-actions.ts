@@ -1,6 +1,5 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { RedirectType, redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 import { authorizeAdminMutation } from '../session/authorize';
@@ -16,8 +15,8 @@ import {
   ORDER_RETURN_TO_FIELD,
   appendResultQuery,
   parseOrderReturnTo,
-  returnToPathname,
 } from './order-return-to';
+import { revalidateOrderViews } from './order-revalidate';
 import { cancelOrder } from './cancel-repository';
 
 // cancel-actions.ts — M-4b E10 A9d2-2c:取消訂單 server action。
@@ -32,9 +31,10 @@ import { cancelOrder } from './cancel-repository';
 //   收斂成回傳值 ⇒ 「`redirect()` 拋的 NEXT_REDIRECT 被 catch 吞掉、把已經成功的取消
 //   分類成失敗」那個坑(plan §2 慣例 2、備註片 `:28-30` 的教訓)在結構上不存在,
 //   不是靠下一個人記得把 `redirect()` 寫在 try 外面。
-//   ⚠️ **唯一的 try 在 `safeRevalidate()` 裡**(關卡2 codex 後補),它包的是 `revalidatePath`、
-//   不是 RPC 也不是 `redirect()` —— 理由寫在那支函式的 docstring。
-//   要再加 try 的人:先確認它包不到 `redirect()`。
+//   ⚠️ **本檔自 #350d-3 起一行 try 都沒有** —— 原本唯一那個(`safeRevalidate`)已經連同它的
+//   兩份複製一起搬進 `order-revalidate.ts`(契約 §5 的單一實作,`import 'server-only'`)。
+//   那支自己逐條包 try、拋錯不外傳,理由寫在它的 docstring。
+//   要在本檔加 try 的人:先確認它包不到 `redirect()`。
 //
 // 🔴 **本檔沒有一行稽核 code** —— `admin_cancel_order` 在同交易寫 `admin_audit_log`。
 //
@@ -71,28 +71,6 @@ function detailPath(orderId: string): string {
  * 而前一次可能已 commit ⇒ 換一顆 token 的部分取消**擋不住**(§6-5 認列的殘餘風險、backlog #353)。
  * 這是本檔唯一的 try,且離 `redirect()` 很遠。
  */
-function safeRevalidate(orderId: string, requestId: string, returnTo: string): void {
-  // 🔴🔴 **#350d 契約 §5 硬前置(E 窗把它從「偵察項」升上來,對取消線這是正確性不是效能)**:
-  //    動作後若回到 `/orders?…&panel=…`,那條路由**沒被 revalidate ⇒ 面板讀到更舊的帳本**。
-  //    而 D5 的 `miss_complete`(全站唯一一句會讓員工再送一次)踩的正是
-  //    「導頁之後那頁拿到的是重算過的資料」這個前提(backlog #357)⇒ 回面板會讓它更不成立。
-  //    ⚠️ `revalidatePath` 吃的是**路徑**、不吃 query ⇒ 打的是 `return_to` 的 pathname。
-  // 🔴 `returnTo` **必填**(R1 nit-8):給預設值 = 下一個呼叫點忘了傳時 §5 靜默失效、typecheck 不紅。
-  // 🔴 **逐條各包各的 try**(R1 nit-4):共用一個 try 的話,第一條拋錯會讓**第二條整個被跳過** ——
-  //    而第二條正是員工真正落地的那一頁。catch 吞掉之後零訊號。
-  for (const path of new Set([detailPath(orderId), returnToPathname(returnTo)])) {
-    try {
-      revalidatePath(path);
-    } catch (thrown) {
-      console.error('[admin/orders/cancel] revalidate 失敗(不影響取消結果)', {
-        request_id: requestId,
-        order_id: orderId,
-        path,
-        message: String((thrown as { message?: unknown } | null)?.message ?? '').slice(0, 200),
-      });
-    }
-  }
-}
 
 /**
  * 失敗導頁的單一出口。
@@ -218,7 +196,7 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     // 🔴 **revalidate 排在 log 之後、且不准吃掉回傳**(關卡2 codex must-fix):
     //    原本它排在最前面 —— 它一拋錯,補償 log 與導頁就**全部不會發生**,
     //    員工拿到 500、重整後表單重繪換到新 token,而前一次可能已 commit ⇒ 正是重複部分取消的路。
-    safeRevalidate(parsed.orderId, httpRequestId, returnTo);
+    revalidateOrderViews({ orderId: parsed.orderId, returnTo, scope: 'cancel', requestId: httpRequestId });
     // 🔴 **原樣帶回這次送出的 token**(不鑄新的):換新鍵 = 全新 payload_hash =
     //    同一份 payload 會真的再取消一次(payload_hash 綁定見 `cancel-action-state.ts:14-20`;
     //    原本指的那句在 `cancelSentFailure` 的 docstring 裡,已隨 D2b 刪除)。
@@ -241,13 +219,13 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     idempotent: outcome.idempotent,
     closed: outcome.closed,
   });
-  safeRevalidate(parsed.orderId, httpRequestId, returnTo);
+  revalidateOrderViews({ orderId: parsed.orderId, returnTo, scope: 'cancel', requestId: httpRequestId });
 
   // 🔴 `idempotent: true` 也是成功:它意謂 RPC 認出同鍵同 payload 而吸收掉這次重送
   //    ——顯示成錯誤會誘導員工換一把 token 重送 = 冪等設計反而製造第二筆取消
   //    (同備註片對 `DUPLICATE_REQUEST` 的處置,`note-actions.ts:45-47`)。
-  // ④ 成功才 PRG。🔴 在任何 try 之外 —— 全檔唯一的 try 在 `safeRevalidate()` 裡、
-  //    包的是 `revalidatePath`,碰不到這一行(關卡2 R2 更正我原本寫的「本檔根本沒有 try」)。
+  // ④ 成功才 PRG。🔴 **本檔自 #350d-3 起沒有任何 try**(那個唯一的 try 隨 `safeRevalidate`
+  //    搬進 `order-revalidate.ts`)⇒ 這一行結構上不可能被 catch 吞掉。
   // 🔴 成功也要帶 `rt`(關卡2 R2 must-fix):成功訊息由 D5 查帳本後才顯示,
   //    沒有 token 就分不出「這次成功 / 帳本裡的舊紀錄 / 有人自己打的網址」。
   redirect(

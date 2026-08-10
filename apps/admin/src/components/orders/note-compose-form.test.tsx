@@ -43,10 +43,30 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** #350d-3:表單的 `return_to` 值(用過得了 parser 的形狀:站內 /orders 路徑)。 */
+const RETURN_TO = '/orders?payment_status=paid';
+
+
+describe('#350d-3 return_to 這一跳(表單 → action)', () => {
+  // 🔴🔴 **這一跳最容易零守門**(取消線 R1 must-fix 2 的同型):元件收了 prop、action 讀了欄位,
+  //    但**中間那顆 hidden input 沒有人數** ⇒ 刪掉它全套照樣綠,而正式站每次動作都靜默走
+  //    fallback、把面板關掉。突變:拿掉那行 `<input name={ORDER_RETURN_TO_FIELD}>` ⇒ 這格紅。
+  it('送出去的 FormData 帶著逐字相同的 return_to,而且是 hidden input', () => {
+    const { container } = render(<NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />);
+    const form = container.querySelector('form');
+    if (form === null) throw new Error('沒有 form 可以送出');
+    expect(new FormData(form).getAll('return_to')).toEqual([RETURN_TO]);
+    const els = Array.from(container.querySelectorAll('[name="return_to"]'));
+    expect(els).toHaveLength(1);
+    expect(els[0]?.tagName).toBe('INPUT');
+    expect(els[0]?.getAttribute('type')).toBe('hidden');
+  });
+});
+
 describe('NoteComposeForm — A10a-3', () => {
   it('[1] 預設 internal:無管道/時間欄;hidden token=serverToken、order_id 正確', () => {
     const { container } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     expect(tokenInput(container).value).toBe(TOKEN);
     expect(container.querySelector<HTMLInputElement>('input[name="order_id"]')?.value).toBe(ORDER_ID);
@@ -57,7 +77,7 @@ describe('NoteComposeForm — A10a-3', () => {
 
   it('[2] 切聯絡紀錄:管道+時間出現且 required;切回 internal 消失', () => {
     const { container, getByLabelText } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     fireEvent.click(getByLabelText('聯絡紀錄'));
     const channel = container.querySelector<HTMLSelectElement>('select[name="channel"]');
@@ -71,7 +91,7 @@ describe('NoteComposeForm — A10a-3', () => {
     // 前提自斷言:本檔第 1 行的 TZ 釘住真的生效(否則 epoch 斷言無判別力 = MF3)
     expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('Asia/Taipei');
     const { container, getByLabelText } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     fireEvent.click(getByLabelText('聯絡紀錄'));
     fireEvent.change(getByLabelText('聯絡時間(台北時間)'), {
@@ -86,7 +106,7 @@ describe('NoteComposeForm — A10a-3', () => {
 
   it('[4] 更正模式:不可撤回文案 + hidden corrects_note_id + 取消更正連結', () => {
     const { container, getByText } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={TARGET} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={TARGET} />,
     );
     expect(container.textContent).toContain('不可撤回');
     expect(container.querySelector<HTMLInputElement>('input[name="corrects_note_id"]')?.value).toBe(TARGET.id);
@@ -98,7 +118,7 @@ describe('NoteComposeForm — A10a-3', () => {
     //    React 19 接手 form action 時本來就會 preventDefault,事件層分不出「誰擋的」。
     const confirmSpy = vi.spyOn(window, 'confirm');
     const { container, rerender } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={TARGET} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={TARGET} />,
     );
     const form = container.querySelector('form')!;
     confirmSpy.mockReturnValue(false);
@@ -112,7 +132,7 @@ describe('NoteComposeForm — A10a-3', () => {
     fireEvent.submit(form);
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(1));
     // 非更正模式:不問 confirm
-    rerender(<NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />);
+    rerender(<NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />);
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(2));
     expect(confirmSpy.mock.calls.length).toBe(2);
@@ -121,7 +141,7 @@ describe('NoteComposeForm — A10a-3', () => {
   it('[6] 失敗 state:訊息顯示 + token 沿用 state 那把(R2-2)', async () => {
     actionMock.mockResolvedValue(noteFailure('INVALID_BODY', '員工打的字', 'ffffffff-0000-4000-8000-000000000009'));
     const { container, findByRole } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     fireEvent.submit(container.querySelector('form')!);
     const alert = await findByRole('alert');
@@ -132,7 +152,7 @@ describe('NoteComposeForm — A10a-3', () => {
   it('[7] pending:送出中按鈕 disabled(disabled 按鈕吃不到後續 click;真雙擊窗口 jsdom 測不到,真保證=A6 token 冪等)', async () => {
     actionMock.mockImplementation(() => new Promise(() => {})); // 懸置
     const { container, getByRole } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => {
@@ -144,7 +164,7 @@ describe('NoteComposeForm — A10a-3', () => {
 
   it('[8] pageshow persisted → token 重產(債④);非 persisted 不換、值仍合法 uuid', () => {
     const { container } = render(
-      <NoteComposeForm orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     const persistedShow = new Event('pageshow');
     Object.defineProperty(persistedShow, 'persisted', { value: true });
@@ -159,7 +179,7 @@ describe('NoteComposeForm — A10a-3', () => {
 
   it('[9] MF1:更正聯絡類備註 → radio 初值 = 原型別、管道/時間欄直接在場', () => {
     const { container, getByLabelText } = render(
-      <NoteComposeForm
+      <NoteComposeForm returnTo={RETURN_TO}
         orderId={ORDER_ID}
         serverToken={TOKEN}
         correctTarget={{ ...TARGET, noteType: 'customer_notified', typeLabel: '已告知客人' }}
@@ -171,7 +191,7 @@ describe('NoteComposeForm — A10a-3', () => {
 
   it('[10] MF2:correctionMissing → 警告顯示「會是新備註」、不進更正模式', () => {
     const { container } = render(
-      <NoteComposeForm
+      <NoteComposeForm returnTo={RETURN_TO}
         orderId={ORDER_ID}
         serverToken={TOKEN}
         correctTarget={null}

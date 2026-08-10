@@ -87,10 +87,16 @@ function ProcurementRows({ item }: { item: AdminOrderDetailItem }) {
 
 export function ItemProcurementSection({
   detail,
+  returnTo,
   suppliers,
   suppliersFailed,
 }: {
   detail: AdminOrderDetail;
+  /**
+   * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**。值不可信任:action 端一律再過
+   * `parseOrderReturnTo`(站內白名單 + 剝一次性參數 + §6-1 同單比對)。
+   */
+  returnTo: string;
   /** S3a 讀模型(啟用中、zh-TW 排序);載入失敗時傳空陣列 + suppliersFailed */
   suppliers: readonly SupplierOption[];
   /** 供應商清單載入失敗 —— 🔴 不可靜默:選單空掉會讓員工以為「這家不存在」 */
@@ -135,6 +141,7 @@ export function ItemProcurementSection({
 
               <ItemProcurementForm
                 orderId={detail.id}
+                returnTo={returnTo}
                 orderItemId={item.id}
                 procurements={item.procurements}
                 supplierChoices={buildSupplierChoices(suppliers, item.procurements)}
