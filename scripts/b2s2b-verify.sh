@@ -408,6 +408,9 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    admin_search_orders (zero DDL, zero data, zero shipping objects; grep = 0 hits)
 #    => shipping oracles unchanged, no md5 re-measure needed. Main-window re-pin, D-line migration.
 #    Ledger: full re-record done (w7-coverage record all); MD5_HELPER_4AXIS unchanged.
+# 🔴 重釘 2026-08-10 晚(#352-a1):20260810220000 -> 20260810230000 = 到貨登錄 schema 地基(D 窗)。
+#    只動 receipts 加欄+CHECK/新冪等帳表/停用種子,零函式 DDL 於出貨面;grep recompute|order_item_qty|oiqs|shipment
+#    於新 migration = **0 命中**(主視窗收割時實跑)⇒ MD5_HELPER_4AXIS 未動。帳:同批重錄(record all)。
 # 🔴 重釘 2026-08-10 晚(L5b-0-s):20260810210000 -> 20260810220000 = 讓路族回 ceiling 閘(P 窗)。
 #    只動 mark/expire/claim 述詞與告警計數,零 DDL 於出貨面;grep recompute|order_item_qty|oiqs|shipment
 #    於新 migration = **0 命中**(主視窗收割時實跑)⇒ MD5_HELPER_4AXIS 未動。帳:同批重錄(record all)。
@@ -427,8 +430,8 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    ⇒ 出貨面 oracle 不受影響、不需重量 md5;MD5_HELPER_4AXIS 未動。
 #    帳:已整輪重錄(w7-coverage record all)。
 #    (本段原以英文寫成、與同檔其餘繁中不一致 ⇒ 三線審查 nit,已改齊。)
-[ "$NEWEST_TS" = "20260810220000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260810220000 ——
+[ "$NEWEST_TS" = "20260810230000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260810230000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 

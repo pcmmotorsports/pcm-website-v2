@@ -152,7 +152,7 @@ cap() {
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260810220000"  # 2026-08-10 重釘 20260810200000->20260810220000(OP-A12 沖銷入口 + 兩支開權落檔;取號定案當下於 dev 重跑聯集檢)
+LINE_TIP="20260810230000"  # 2026-08-10 重釘 20260810200000->20260810230000(OP-A12 沖銷入口 + 兩支開權落檔;取號定案當下於 dev 重跑聯集檢)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
