@@ -305,3 +305,155 @@ describe('存檔成功的收尾交給父層', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// ── #378:錯誤訊息隨輸入清除(2026-08-08 全站掃測 B 級;auth 四張已修、本張是剩下三張的第一張)──
+//
+// 三條判準沿用 auth 片(`LoginPage.tsx` 的 `clearErr` 註解):
+// ① 動哪一欄清哪一欄 ② 頂部 formError 一律清 ③ checkbox 接不接看它有沒有自己的 fieldError。
+//
+// 🔴 本元件的特殊之處:`VehicleFieldErrors` **只有 `name` 一個鍵**
+//    (`app/account/vehicle/actions.ts:24-26`),但「車型」這一欄有 **7 個入口**可以被動到:
+//    自行輸入框 / 廠牌 onPick / 廠牌 onClear / 車型 onPick / 車型 onClear / 兩顆模式切換鈕。
+//    ⇒ 每個入口各一格,**不是一格代表全部** —— 少掛一個入口的突變只會紅它自己那一格。
+//
+// 🔴 為什麼「清 fieldErrors」與「清 formError」要分格驗:兩者的前置**互斥**。
+//    `submit` 的三條分支互相排斥(`result.fieldErrors` 那條清 formError、`result.formError` 那條清
+//    fieldErrors、client 端組字 guard 也 `setFormError(null)`)⇒ 畫面上**不可能同時**有逐欄錯與頂部錯。
+//    (與 LoginPage 拆兩格是同一個理由,不是湊格數。)
+describe('#378 錯誤隨輸入清除', () => {
+  /** dict 模式未選齊直接送出 ⇒ client 端組字 guard 顯逐欄錯(不打 server)。 */
+  function showFieldErr() {
+    const utils = renderForm({ vehicleBrands: BRANDS });
+    fireEvent.click(screen.getByText('儲存'));
+    expect(screen.getByText('請選擇廠牌與車型，或改用自行輸入')).toBeTruthy();
+    return utils;
+  }
+
+  /** 選齊 → 送出 → server 回帳號層級錯 ⇒ 頂部通道有字。 */
+  async function showFormErr() {
+    const utils = renderForm({ vehicleBrands: BRANDS });
+    utils.onSubmit.mockResolvedValue({ formError: '請重新登入' });
+    pickByTyping('選擇廠牌', 'Yamaha');
+    pickByTyping('選擇車型', 'YZF-R6');
+    fireEvent.click(screen.getByText('儲存'));
+    expect(await screen.findByText('請重新登入')).toBeTruthy();
+    return utils;
+  }
+
+  it('自行輸入框:打字 → 清掉車型欄的錯', async () => {
+    const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
+    // 🔴 錨點用「清單裡找不到你的車」而非 /改用自行輸入/ —— 後者同時命中錯誤字面
+    //    「請選擇廠牌與車型，或改用自行輸入」,錯誤在場時 getByText 會 multiple match 直接炸。
+    //    (本檔既有那幾格用寬 regex 沒事,只因為那時畫面上沒有錯。)
+    fireEvent.click(screen.getByText(/清單裡找不到你的車/));
+    const free = screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement;
+    fireEvent.change(free, { target: { value: 'x' } });
+    onSubmit.mockResolvedValue({ fieldErrors: { name: '請填寫車型' } });
+    fireEvent.click(screen.getByText('儲存'));
+    expect(await screen.findByText('請填寫車型')).toBeTruthy();
+
+    fireEvent.change(free, { target: { value: 'xy' } });
+
+    expect(screen.queryByText('請填寫車型')).toBeNull();
+  });
+
+  it('廠牌下拉 onPick:選了廠牌 → 清掉車型欄的錯', () => {
+    showFieldErr();
+    pickByTyping('選擇廠牌', 'Yamaha');
+    expect(screen.queryByText('請選擇廠牌與車型，或改用自行輸入')).toBeNull();
+  });
+
+  it('車型下拉 onPick:選了車型 → 清掉車型欄的錯', () => {
+    showFieldErr();
+    pickByTyping('選擇廠牌', 'Yamaha');
+    // 上一步已經清過一次 ⇒ 先讓錯**重新出現**,否則這一格是在驗上一格的行為(恆綠、零判別力)。
+    fireEvent.click(screen.getByText('儲存'));
+    expect(screen.getByText('請選擇廠牌與車型，或改用自行輸入')).toBeTruthy();
+
+    pickByTyping('選擇車型', 'YZF-R6');
+
+    expect(screen.queryByText('請選擇廠牌與車型，或改用自行輸入')).toBeNull();
+  });
+
+  it('廠牌下拉 onClear:清空已選廠牌 → 也清掉錯(清空是編輯動作,同 auth 把 Email 清空)', () => {
+    const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
+    pickByTyping('選擇廠牌', 'Yamaha');
+    fireEvent.click(screen.getByText('儲存')); // 只選了廠牌 ⇒ 未選齊 ⇒ 顯錯
+    expect(screen.getByText('請選擇廠牌與車型，或改用自行輸入')).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: '' } });
+    fireEvent.blur(brand);
+
+    expect(screen.queryByText('請選擇廠牌與車型，或改用自行輸入')).toBeNull();
+  });
+
+  // 🔴 這一格的錯**必須來自 server**,不能用 client 組字 guard 那條:
+  //    guard 的錯只在「未選齊」時存在,而 `onClear` 的前提是那一欄**有值**。
+  //    車型有值 ⇒ 廠牌一定也有值(廠牌 onPick/onClear 都會把車型清成 null,且車型欄
+  //    `disabled={brandName === null}`)⇒ 「車型有值 + guard 錯在場」構造不出來。
+  //    ⚠️ 第一版我就是這樣寫的,實跑紅了才發現這個不可能組合 —— 不是 flaky,是前提矛盾。
+  it('車型下拉 onClear:清空已選車型 → 也清掉錯(錯來自 server,理由見上)', async () => {
+    const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
+    onSubmit.mockResolvedValue({ fieldErrors: { name: '這台車已經在你的清單裡了' } });
+    pickByTyping('選擇廠牌', 'Yamaha');
+    pickByTyping('選擇車型', 'YZF-R6');
+    fireEvent.click(screen.getByText('儲存'));
+    expect(await screen.findByText('這台車已經在你的清單裡了')).toBeTruthy();
+
+    const model = combo('選擇車型');
+    fireEvent.change(model, { target: { value: '' } });
+    fireEvent.blur(model);
+
+    expect(screen.queryByText('這台車已經在你的清單裡了')).toBeNull();
+  });
+
+  it('「改用自行輸入」切換鈕 → 清掉錯(切換也是動車型欄)', () => {
+    showFieldErr();
+    fireEvent.click(screen.getByText(/清單裡找不到你的車/));
+    expect(screen.queryByText('請選擇廠牌與車型，或改用自行輸入')).toBeNull();
+  });
+
+  it('「改用清單選車」切換鈕 → 清掉錯', async () => {
+    const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
+    // 🔴 錨點用「清單裡找不到你的車」而非 /改用自行輸入/ —— 後者同時命中錯誤字面
+    //    「請選擇廠牌與車型，或改用自行輸入」,錯誤在場時 getByText 會 multiple match 直接炸。
+    //    (本檔既有那幾格用寬 regex 沒事,只因為那時畫面上沒有錯。)
+    fireEvent.click(screen.getByText(/清單裡找不到你的車/));
+    const free = screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement;
+    fireEvent.change(free, { target: { value: 'x' } });
+    onSubmit.mockResolvedValue({ fieldErrors: { name: '請填寫車型' } });
+    fireEvent.click(screen.getByText('儲存'));
+    expect(await screen.findByText('請填寫車型')).toBeTruthy();
+
+    fireEvent.click(screen.getByText(/改用清單選車/));
+
+    expect(screen.queryByText('請填寫車型')).toBeNull();
+  });
+
+  it('🔴 頂部帳號層級錯(請重新登入)也隨動車型欄清掉', async () => {
+    await showFormErr();
+    pickByTyping('選擇廠牌', 'Kawasaki');
+    expect(screen.queryByText('請重新登入')).toBeNull();
+  });
+
+  // ── 對照組:沒有自己 fieldError 的欄位**不得**接清除(判準③)──────────────
+  it('改年份不清車型欄的錯 —— 年份沒有自己的錯,改它不代表在修車型', () => {
+    showFieldErr();
+    fireEvent.change(screen.getByPlaceholderText('2022'), { target: { value: '2016' } });
+    expect(screen.getByText('請選擇廠牌與車型，或改用自行輸入')).toBeTruthy();
+  });
+
+  it('勾「設為主要車輛」不清車型欄的錯(對照組=LoginPage 的「記住我」)', () => {
+    showFieldErr();
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.getByText('請選擇廠牌與車型，或改用自行輸入')).toBeTruthy();
+  });
+
+  it('改年份也不清頂部 formError(前置與上面兩格互斥,所以拆格)', async () => {
+    await showFormErr();
+    fireEvent.change(screen.getByPlaceholderText('2022'), { target: { value: '2016' } });
+    expect(screen.getByText('請重新登入')).toBeTruthy();
+  });
+});
