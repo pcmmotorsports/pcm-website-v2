@@ -40,6 +40,23 @@ export function ResetPasswordPage({ email }: { email: string }) {
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  /**
+   * 一開始改欄位就清錯(2026-08-08 全站掃測 B 級;四張表單同形)。完整理由見 `LoginPage.tsx` 同名函式。
+   *
+   * 🔴 本頁**刻意清掉兩欄的錯,不只被動的那一欄** —— 另外三頁是逐欄清。
+   *    理由:`confirm` 的錯是「兩次輸入不一致」,那是**兩欄之間的關係**,不是 confirm 自己的毛病。
+   *    客人改上面那欄就可能把它修好了;只清 password 會留下一條已經不成立的「不一致」紅字。
+   *    本頁只有兩個欄位、且其中一個是關係錯 ⇒ 一起清是對的,不是偷懶。
+   *
+   * ⚠️ **一個誠實的例外**(R1 nit):本頁的 formError 也可能是 `reset/actions.ts:26-27` 的
+   *    「操作太頻繁,請稍後再試」。那條**不會因為客人開始打字就過期** —— 清掉只是讓紅字消失,
+   *    再按一次照樣被限流擋。可回復、不造成錯誤決策,故照清;但別把它算進「改輸入就過期」的前提。
+   */
+  const clearErrs = () => {
+    setFieldErrors((prev) => (prev.password === undefined && prev.confirm === undefined ? prev : {}));
+    setFormError(null);
+  };
+
   const level = strengthLevel(password);
 
   const submit = async (e: FormEvent) => {
@@ -101,7 +118,7 @@ export function ResetPasswordPage({ email }: { email: string }) {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); clearErrs(); }}
                   placeholder="至少 8 碼"
                   autoComplete="new-password"
                   autoFocus
@@ -135,7 +152,7 @@ export function ResetPasswordPage({ email }: { email: string }) {
               <input
                 type="password"
                 value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
+                onChange={(e) => { setConfirm(e.target.value); clearErrs(); }}
                 placeholder="再打一次上面那組"
                 autoComplete="new-password"
               />

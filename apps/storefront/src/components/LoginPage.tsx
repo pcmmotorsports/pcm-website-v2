@@ -59,6 +59,26 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
   const [formError, setFormError] = useState<string | null>(oauthErrorCopy(oauthError));
   const [pending, setPending] = useState(false);
 
+  /**
+   * 客人一開始改某一欄,就清掉那一欄的 inline 錯 + 頂部帳號層級錯(2026-08-08 全站掃測 B 級)。
+   *
+   * - **只清被動的那一欄**:其他欄的錯留著,客人一眼看得到還有幾處要修。
+   * - **頂部 formError 一律清**:它講的是「上一次送出」的結果(Email 或密碼錯誤 / OAuth 失敗),
+   *   人開始改輸入的那一刻它就過期了,留著會讓人以為改完還是錯。
+   * - 兩個 setter 都在「本來就沒東西可清」時回傳原值 ⇒ **這兩個 setter** 不觸發更新。
+   *   ⚠️ 不等於「不重繪」:同一個 handler 裡的 `setForm({ ...form, … })` 每次都產新物件,
+   *   controlled input 本來就每按一鍵重繪一次(R1 nit:第一版把結論寫成「不會每按一鍵重繪」= 錯)。
+   * - 「記住我」checkbox 不接:勾選框改不動任何欄位錯,也不代表客人在修正帳密。
+   *
+   * 📌 design 真權威(`design-reference/components/AccountPages.jsx:208-213`)的 onChange
+   *    只有 `setForm(...)`、**同樣不清錯**;那是靜態原型(單一 `err` 字串、無真驗證),
+   *    不是 UX 政策。本片是**新增行為**、不是對齊 design,如實記在此。
+   */
+  const clearErr = (k: keyof LoginFieldErrors) => {
+    setFieldErrors((prev) => (prev[k] === undefined ? prev : { ...prev, [k]: undefined }));
+    setFormError(null);
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     // client 逐欄驗證(主防線、與 server 同一份 validateLogin)
@@ -121,7 +141,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
                 type="email"
                 value={form.email}
                 autoFocus
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                onChange={(e) => { setForm({ ...form, email: e.target.value }); clearErr('email'); }}
                 placeholder="your@email.com"
               />
               {fieldErrors.email && <span className="auth-field-err">{fieldErrors.email}</span>}
@@ -131,7 +151,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
               <input
                 type="password"
                 value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                onChange={(e) => { setForm({ ...form, password: e.target.value }); clearErr('password'); }}
                 placeholder="至少 8 碼"
               />
               {fieldErrors.password && <span className="auth-field-err">{fieldErrors.password}</span>}

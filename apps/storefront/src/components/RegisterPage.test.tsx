@@ -109,4 +109,33 @@ describe('RegisterPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '建立帳號' }));
     expect(await screen.findByText('Email 格式不正確')).toBeDefined();
   });
+
+  // ── 錯誤訊息隨輸入清除(2026-08-08 全站掃測 B 級)────────────────────────────
+  it('改姓名 → 只清姓名那欄的錯,其餘四欄的錯留著(逐欄清)', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '建立帳號' }));
+    expect(screen.getByText('請填寫姓名')).toBeDefined();
+
+    fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '王' } });
+
+    expect(screen.queryByText('請填寫姓名')).toBeNull();
+    // 🔴 判別力在這四條:改成「動任一欄就全清」的話它們會紅。
+    expect(screen.getByText('請填寫 Email')).toBeDefined();
+    expect(screen.getByText('請填寫手機')).toBeDefined();
+    expect(screen.getByText('請填寫密碼')).toBeDefined();
+    expect(screen.getByText('請同意服務條款')).toBeDefined();
+  });
+
+  it('🔴 勾「同意條款」→ 清掉 agree 那欄的錯(與 LoginPage 的「記住我」相反)', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '建立帳號' }));
+    expect(screen.getByText('請同意服務條款')).toBeDefined();
+
+    fireEvent.click(screen.getByRole('checkbox'));
+
+    // agree 是 RegisterField 的一員、有自己的 fieldErrors.agree ⇒ 這顆 checkbox 要接清除;
+    // LoginPage 的「記住我」不是驗證欄 ⇒ 那邊不接。判準是「有沒有自己的錯」不是「是不是 checkbox」。
+    expect(screen.queryByText('請同意服務條款')).toBeNull();
+    expect(screen.getByText('請填寫姓名')).toBeDefined(); // 其餘欄不受影響
+  });
 });

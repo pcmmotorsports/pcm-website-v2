@@ -163,4 +163,50 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '登入' }));
     expect(await screen.findByText('Email 格式不正確')).toBeDefined();
   });
+
+  // ── 錯誤訊息隨輸入清除(2026-08-08 全站掃測 B 級)────────────────────────────
+  it('改 Email → 清該欄的錯,但**不動密碼那欄的錯**(逐欄清、不是全清)', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '登入' })); // 空送出 → 兩欄都紅
+    expect(screen.getByText('請填寫 Email')).toBeDefined();
+    expect(screen.getByText('請填寫密碼')).toBeDefined();
+
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'r' } });
+
+    expect(screen.queryByText('請填寫 Email')).toBeNull();
+    // 🔴 這一半才是判別力所在:若改成「動任一欄就 setFieldErrors({})」,下面這條會紅。
+    expect(screen.getByText('請填寫密碼')).toBeDefined();
+  });
+
+  it('改任一欄 → 頂部帳號層級錯(OAuth 失敗字面)也一起清掉', () => {
+    // 🔴 code 是 'oauth' 不是 'google'(`LoginPage.tsx:45-49` 的分流:oauth→Google 字面、
+    //    line→LINE 字面、其餘→通用)。第一版我照直覺寫 'google',實跑才發現它落到通用字面。
+    renderPage('oauth'); // 初始 formError = Google OAuth 失敗
+    expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
+    fireEvent.change(screen.getByPlaceholderText('至少 8 碼'), { target: { value: 'x' } });
+    expect(screen.queryByText('Google 登入失敗，請重試')).toBeNull();
+  });
+
+  // 🔴「記住我不接清除」要分兩格,因為兩半的前置**互斥**:
+  //    R1 nit 指出第一版只守了 fieldErrors 那一半(用 renderPage() ⇒ formError 恆 null,
+  //    突變「remember 加 setFormError(null)」照樣綠)。但它建議的「renderPage('oauth') 再斷言
+  //    formError 仍在」一行修法**跑起來是紅的** —— 因為要讓 fieldErrors 有值就得先送出一次,
+  //    而 submit 自己在 client 驗證失敗那條路就 `setFormError(null)` 了(LoginPage.tsx submit 內)。
+  //    ⇒ 想同時看到「fieldErrors 有值」與「formError 有值」在本元件**構造不出來**;拆成兩格。
+  it('「記住我」不清 fieldErrors —— 它不是驗證欄,勾了不代表在修正帳密', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '登入' }));
+    fireEvent.click(screen.getByRole('checkbox'));
+    // 判準是「這欄有沒有自己的錯」,不是「它是不是 checkbox」——
+    // 對照組 = RegisterPage 的同意條款 checkbox 有 fieldErrors.agree ⇒ 那邊要接。
+    expect(screen.getByText('請填寫 Email')).toBeDefined();
+    expect(screen.getByText('請填寫密碼')).toBeDefined();
+  });
+
+  it('「記住我」也不清頂部 formError(不先送出,才看得到這一半)', () => {
+    renderPage('oauth');
+    expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
+  });
 });

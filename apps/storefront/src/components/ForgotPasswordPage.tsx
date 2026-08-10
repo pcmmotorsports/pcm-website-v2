@@ -44,6 +44,21 @@ export function ForgotPasswordPage() {
   // 🔴 稿本來就有這個頂部通道(`<div class="auth-err" id="form-error" hidden>`),是我們第一版漏搬。
   const [formError, setFormError] = useState<string | null>(null);
 
+  /**
+   * 一開始改欄位就清該欄 inline 錯 + 頂部錯(2026-08-08 全站掃測 B 級;四張表單同形)。
+   * 完整理由見 `LoginPage.tsx` 同名函式。
+   *
+   * 🔴 本頁的頂部通道裝的是 server action **故意 throw** 的「站台設定錯誤」(見上方 formError 註解)。
+   *    ⚠️ **R1 must-fix 更正**:第一版我寫的理由是「若不清,重試成功後畫面仍掛著一條紅字」——
+   *    那個情境**構造不出來**,因為 `submit` 在驗證通過後、送出前就已經 `setFormError(null)`
+   *    (見下方 submit 內)。理由不成立、行為仍成立:**成立的理由只有一條**——客人一開始改
+   *    Email,那條紅字講的就是上一次的事,留在畫面上會誤導。
+   */
+  const clearErr = (k: keyof ForgotFieldErrors) => {
+    setFieldErrors((prev) => (prev[k] === undefined ? prev : { ...prev, [k]: undefined }));
+    setFormError(null);
+  };
+
   // 倒數:每秒扣 1、歸零自動停(cooldown===0 時 effect 直接 return、鈕自然變回可按)。
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -124,7 +139,7 @@ export function ForgotPasswordPage() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); clearErr('email'); }}
                   placeholder="your@email.com"
                   autoComplete="email"
                   autoFocus
