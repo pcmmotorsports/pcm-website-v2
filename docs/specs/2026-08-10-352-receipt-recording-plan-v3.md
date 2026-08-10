@@ -4,7 +4,7 @@
 > ⇒ **員工方便=首要設計目標**;白話層 = `pcm-mailbox/D-443-STOP.md`(Sean 已讀)。
 > **三題全照推薦**:**Q1=A(甲+乙)/ Q2=A(兩入口)/ Q3=A(刪除)**。memory:`project_m4b-352-spot-stock-supplier-decision`。
 > **審查鏈**:codex 關卡1 **R1 FAIL 12MF+2nit** → v3.1 → **R2 FAIL 8MF+2nit(全打在折法上)** → v3.2
-> → **R3 換模型換角度(Fable)FAIL 2MF+4consider+4nit** → 本檔 **v3.3**。折入紀錄見 §10(三輪 32 條、零重複)。
+> → **R3 換模型換角度(Fable)FAIL 2MF+4consider+4nit** → 本檔 **v3.3**。折入紀錄見 §10(三輪 **34** 條、零重複;⚠️ 這裡原本寫 32,§10 早已更正為 34 而檔頭沒跟 —— Fable R3 N1,claimed-sync 殘留)。
 > 🔴 待批,批准前不動 code。
 
 ---
@@ -116,6 +116,15 @@ ACL 同 receipts:`REVOKE ALL` + 只 `GRANT SELECT TO service_role`,RLS on + zero
 
 - 清單建法 = 全樹 `grep -rn "append-only" supabase/migrations packages/domain/src packages/adapters/src apps/admin/src | grep -iE "receipt|到貨"`
   ⇒ **恰 2 處**(`20260805100000:493` 是**取消帳本**的 append-only,與本片無關、不得順手改)。
+- 🔴🔴 **2026-08-11 更正(opus 線 MF5):這 2 處只有 1 處改得動,原本寫「兩處都逐字改」是錯的。**
+  - `:224` 的**表 COMMENT** = DB 物件 ⇒ a2 用新的 `COMMENT ON TABLE` 覆蓋掉,**已結清**。
+  - `:178` 是**已 apply 的 migration 檔裡的 `--` 原始碼註解** ⇒ **刻意不動**。
+    理由:改一支已經跑過的 migration 的檔案內容 = 竄改「當時實際執行了什麼」的紀錄,
+    與本 repo 對 migration 的一貫立場相反(同一條理由讓 #376 重編號片決定 `#343` 留給 DB 那側)。
+  - ⇒ **衝突怎麼裁**(寫給日後 grep 到 `:178` 那句「不改不刪」的人):
+    **看時間戳大的那支**。`20260810233000`(a2)晚於 `20260729020000`(A2)⇒ 以 a2 的
+    表 COMMENT 與檔頭為準:**受守門的刪除已存在,但 ledger 仍無 UPDATE 路徑**。
+    a2 檔頭 `:8-10` 已寫明它就是在兌現 A2 `:180-181` 那條契約債。
 - A2 `:180-181` 逐字:「登錄錯了的更正機制 = 第 2 批批次到貨 UI 落地時才設計,本片不預先發明語意」
   ⇒ **本片就是那一刻**,migration 要明寫是在兌現這條契約債。
 - **結構驗收一格**:receipts 的 COMMENT 若仍含 `append-only` 且不含新語意 ⇒ fail。
@@ -188,46 +197,68 @@ RETURNS text  -- 'RECORDED' | 'DUPLICATE_REQUEST' | 'PROCUREMENT_NOT_FOUND'
    查無 ⇒ `RETURN 'PROCUREMENT_NOT_FOUND'`。
    (A5a `:57` 逐字:`FOR UPDATE` 對不存在的列**不留任何鎖** ⇒ 不得靠「鎖住了就安全」的直覺。)
    🔴 **為什麼這一步從 ledger 之後移到之前**:守門排在 ledger 前,超收與查無就都能用 `RETURN`
-   而不必為了回滾 ledger 而 RAISE(§3.0)。**冪等的正確性不靠取鎖順序** ——
-   靠的是 ledger 的 PK 本身(跨全表)+ `unique_violation` 的查驗式處理,那在任何順序下都成立
-   (R1-MF2 要的是「有 PK 且會查驗」,不是「PK 一定最先」)。
-   併發同 request_id、不同 procurement:各自先鎖不同的 proc,再撞同一個 ledger PK ⇒ 後者阻塞至前者提交
-   ⇒ 進查驗枝;ledger 是**最後取得的葉資源** ⇒ 不成環(§4)。
-5. **超收前置拒絕**:`p_quantity > allocated − received` ⇒ `RETURN 'QUANTITY_EXCEEDS_ALLOCATED'`。
+   而不必為了回滾 ledger 而 RAISE(§3.0)。
+   ⚠️⚠️ **這裡原本寫著「冪等的正確性不靠取鎖順序」——那句話害本片出了一個真 bug,已刪。**
+   詳見下面步 5 的 🔴 段:那句對**鎖**成立,對**讀狀態的守門**不成立。
+5. 🔴🔴 **冪等快篩(必須排在任何「狀態相依」守門之前)** ——
+   讀 ledger:鍵在且 payload 全等 ⇒ `RETURN 'DUPLICATE_REQUEST'`;鍵在但不等 ⇒ RAISE(caller bug)。
+   **為什麼一定要在超收之前**(2026-08-11 實作時煙霧測撞出來的真 bug):
+   第一次登錄**成功之後** `received_quantity` 就被自己改掉了,於是**同鍵同 payload 的合法重放**
+   會先撞上超收守門、回 `QUANTITY_EXCEEDS_ALLOCATED`,**永遠到不了冪等那一步**
+   ⇒ 冪等在最常見的重放路徑上等於不存在。
+   **規則(寫給下一個動這段順序的人)**:凡是讀「**會在兩次呼叫之間改變的狀態**」的守門,
+   都必須排在冪等判斷之後。⚠️ **界**:判準不是「誰改的」,是「重放時還一不一樣」——
+   步 4 的 `PROCUREMENT_NOT_FOUND` 讀的是**外部**可變狀態,同樣在快篩之前;現在不動它的理由
+   (無刪採購列的面 + 失敗方向 fail-safe)與失效條件寫在 migration 步 6 的註解裡,
+   **動到採購列刪除面的那一片必須回來重排**。
+6. **超收前置拒絕**:`p_quantity > allocated − received` ⇒ `RETURN 'QUANTITY_EXCEEDS_ALLOCATED'`。
    ⚠️ **這一步在 proc 列鎖之內** ⇒ 併發登錄會序列化、第二者讀得到第一者提交後的 `received`(READ COMMITTED)。
    🔴 **不靠 A2 的 `received_range` CHECK 兜底**:那條吐 **raw 23514**、員工看不懂
    (A4a COMMENT `:319` 逐字)。⚠️ 那條 CHECK **仍然留著,它才是權威**;本條只把失敗時機提前、訊息換人話。
    **訊息的拆分由 app 組**(R3-nit1):app 手上已有 `allocated`/`received`,直接算給員工看
    「這列還能記 X 件;你填了 Y 件,多的 Z 件請填在『溢收』欄」——**不要讓員工自己減**。
-6. **產 receipt uuid** `v_receipt_id := gen_random_uuid()` → **INSERT ledger(含 `receipt_id`)**(R3-F3)
-   - `unique_violation` ⇒ 重讀該列 → **`IS NOT DISTINCT FROM` 比對全部不可變 payload**(R3-F1)
+7. **產 receipt uuid** `v_receipt_id := gen_random_uuid()` → **INSERT ledger(含 `receipt_id`)**(R3-F3)
+   - `unique_violation` ⇒ 重讀該列 → **`IS NOT DISTINCT FROM` 比對全部不可變 payload**(R3-F1;
+     **比對面與步 5 快篩逐字相同,不得分岔**)
      → 相符回 `DUPLICATE_REQUEST`(產物已被刪也一樣回它,**不重新 INSERT**);
      不符 ⇒ **RAISE(不具名,caller bug)**,訊息白話 + 給救法(R3-nit2):
      「這個提交編號先前已經用過,但內容不一樣。請重新整理頁面再送一次。」
-7. **INSERT receipt(`id = v_receipt_id`)** → A4a 級聯重算 → 稽核 `admin_audit_log`。
-   ⇒ **ledger 全程零 UPDATE**。
+   - ⚠️ **這一枝只有真併發到得了**(單連線時步 5 快篩就先攔下)⇒ 驗收上是**已知缺口**,
+     harness 收尾明印(需兩條連線 rendezvous,本片未做)。
+8. **INSERT receipt(`id = v_receipt_id`)** → A4a 級聯重算 → 稽核 `admin_audit_log`。
+   ⇒ **ledger 全程零 UPDATE**(harness `D6` 用**全程掛 `BEFORE UPDATE` 爆炸 trigger** 釘住;
+   `xmin`/`receipt_id` 只是第二道 —— 詳見 §7-19 的 08-11 更正)。
 
 ### 3.2 `admin_delete_item_receipt` — 刪掉一筆到貨(Sean Q3)
 
 ```
 p_receipt_id uuid,
-p_actor      text
+p_actor      text,
+p_request_id text   -- 🔴 出貨碼比本表多這個(偏離已核准);**只作稽核 correlation、不參與冪等**
 RETURNS text  -- 'DELETED' | 'ALREADY_DELETED' | 'RECEIPT_NOT_FOUND'
 ```
-**刻意不收 `p_request_id`**:刪除天然冪等(uuid 不重用)。
+**原本寫「刻意不收 `p_request_id`」**(理由:刪除天然冪等、uuid 不重用)——
+那個理由只反對拿它當**冪等鍵**,不反對拿它做**稽核**。而 `admin_audit_log.request_id` 是
+**NOT NULL**(`20260712210000:52`)、用途就是貫穿同一個 admin 請求 ⇒ 不收的話稽核鏈斷在這裡。
+⇒ **收,但不參與冪等判斷**(這句也寫進 COMMENT)。形狀閘與登錄那支同一條(Fable F2 折面補齊)。
 
 守門序:
-1. 隔離閘 + `p_actor` 形狀(§3.0)。
-2. 🔴 **`SET CONSTRAINTS public.order_item_procurement_summary_recompute_zc IMMEDIATE`** —— **本支需要**,見 §3.3。
-   ⚠️ 副作用照 A5a 檔頭認列(提前引爆外層 pending 事件 + 永久改該交易 deferred 模式),**寫進 COMMENT**。
-3. 查 receipt。**查無 ⇒ 去 ledger 以 `receipt_id` 反查(R2-MF1)**:
+1. 隔離閘 + `p_actor` / `p_request_id` 形狀(§3.0;**形狀閘與登錄那支同一條**)。
+2. 查 receipt。**查無 ⇒ 去 ledger 以 `receipt_id` 反查(R2-MF1)**:
    - ledger 有該 `receipt_id` ⇒ `RETURN 'ALREADY_DELETED'`。
    - ledger 也沒有 ⇒ `RETURN 'RECEIPT_NOT_FOUND'`。
      🔴 **不可以也回 `ALREADY_DELETED`** —— 那會讓任何亂數 uuid 都得到成功回應。
    (這就是為什麼 §2.4 的 `receipt_id` 是 `NOT NULL UNIQUE` 且永不改:v3.1 把它清成 NULL,這一枝就實作不出來。)
+3. 🔴 **`SET CONSTRAINTS public.order_item_procurement_summary_recompute_zc IMMEDIATE`** —— **本支需要**,見 §3.3。
+   ⚠️ 副作用照 A5a 檔頭認列(提前引爆外層 pending 事件 + 永久改該交易 deferred 模式),**寫進 COMMENT**。
+   🔴 **排在步 2 之後**(2026-08-11,opus nit11;原本無條件排第一):副作用是**永久**的,
+   而 `RECEIPT_NOT_FOUND` / `ALREADY_DELETED` 兩枝是**完全 no-op 的呼叫** ——
+   讓什麼都沒做的呼叫改掉呼叫端整個交易的 deferred 模式 = 白付代價。
+   ⚠️ 正確性不受影響:唯一需要 IMMEDIATE 的是**步 6 讀摘要**,步 2-5 都不讀摘要,而本步仍在 DELETE 之前。
 4. 反查 procurement 列 → **鎖 procurement 列 NKU** → **再鎖 `order_items` NKU**(序見 §4)。
-5. **`DELETE … RETURNING id`(R3-F5)**:**回 0 列 ⇒ `RETURN 'ALREADY_DELETED'`**。
-   理由:兩個併發刪同一筆時,兩者都在步 3 看得到那列,取鎖序列化後第二者的 DELETE 影響 0 列
+5. **`DELETE`(R3-F5)**:**`GET DIAGNOSTICS ROW_COUNT` 回 0 ⇒ `RETURN 'ALREADY_DELETED'`**。
+   ⚠️ 判準**只有** `ROW_COUNT`;原本寫的 `RETURNING id INTO v_deleted` 是死賦值(opus nit13)、已移除。
+   理由:兩個併發刪同一筆時,兩者都在步 2 看得到那列,取鎖序列化後第二者的 DELETE 影響 0 列
    —— 不看 rowcount 就會**拿著已失效的舊值往下走**、還去跑後置守門並宣稱刪除成功。
 6. 🔴 **唯一的業務守門(後置、讀重算後的權威值;fail-closed)**:
    ```
@@ -235,8 +266,11 @@ RETURNS text  -- 'DELETED' | 'ALREADY_DELETED' | 'RECEIPT_NOT_FOUND'
     WHERE order_item_id = <該品項>;
    ```
    - **(R1-MF6)先斷言「恰一列」且兩欄皆非 NULL;缺列或任一 NULL ⇒ 直接 RAISE(fail-closed)**,
-     不得讓比較式因 NULL 不成立就靜默放行。(A4a 惰性建列 ⇒ 缺列**真的會發生**;
-     `types.ts:638-660` 立過「讀不到就不放行」的契約。)
+     不得讓比較式因 NULL 不成立就靜默放行(`types.ts:638-660` 立過「讀不到就不放行」的契約)。
+     ⚠️ **誠實邊界(2026-08-11,Fable F7 更正)**:原本寫「A4a 惰性建列 ⇒ 缺列**真的會發生**」——
+     那是**登錄那支**的前提,**對刪除路徑不成立**:有 receipt 就必定先有過 procurement 的 INSERT、
+     `_zc` 必定建過摘要列 ⇒ **正常路徑構造不出缺列**。保留這一枝是為了 trigger 壞掉/有人直寫 DB 的世界,
+     **不宣稱**它會在正常路徑被觸發(harness `E5` 要先停掉 A4a 才測得到,格內已逐字寫明)。
    - 要求 **`instock_quantity ≥ shipped_quantity + pending`**,`pending` = 該品項在**未出貨且未作廢**包裹裡的
      `shipment_items.shipped_quantity` 合計 —— 逐字對齊 w3b2 `20260807180000:244-250` 那段 `LEFT JOIN LATERAL`
      (`sh.shipped_at IS NULL AND sh.deleted_at IS NULL` 兩條件都要),**不自寫第二版**。
@@ -294,6 +328,16 @@ R1 說「外層若延後 A4a trigger,後置守門會讀到刪除前摘要而放�
   ⚠️ **這是同一段論證在本檔第三個版本**(v3.2「源點」→ v3.3「葉」→ 現在)。
   前兩版都是**順序改了而理由沒跟著改**。⇒ 若日後再動 §3.1 的守門順序,**這一段要重寫、不得沿用**,
   而且**不要再用「源點/葉」這種依賴取鎖次序的字眼** —— 用「誰會碰這張表」這個不隨順序改變的性質。
+- ✅ **複核紀錄(2026-08-11,§3.1 守門順序真的動了 —— 冪等快篩插進步 5)**:
+  上面這段自己要求「順序動了就要重寫」,所以逐句複核過一次,**結論不變、理由也不需要改寫**。
+  為什麼:插進去的是一個**不取 row lock 的 `SELECT`**(讀 ledger 快篩),**取鎖序列一個字都沒動** ——
+  ⚠️ 措辭更正(codex 關卡2 C7):普通 `SELECT` 仍會取 relation-level `ACCESS SHARE`,
+     碰上對 ledger 下 DDL 的交易照樣會等 ⇒ 這裡要講的是「**不取 row lock**」,不是「完全不取鎖」。
+  仍是 `proc(NKU) → ledger(PK 插入) → receipt INSERT → order_items(trigger 內 NKU)`。
+  而本段論證(①只有本片會寫 ledger ②因此不存在反向持有者 ③併發同鍵是同向等待)
+  **完全建立在「誰會碰這張表」上、不依賴順序** ⇒ 對新順序照樣成立。
+  🔴 **這一條複核是被 opus 線 MF2 逼出來的** —— 我當時改了順序卻沒回來看這段,
+  正是本段自己預言的第四次。(記帳:D-454-STOP §4 說「兩處 plan 更正」= 清單不完整。)
 - ⚠️ **適用界(A5a `:71-73` 同款)**:限定**每交易單次呼叫本片 RPC、且同交易不混呼 `admin_upsert_supplier`**。
   §5.3/§5.4 的多步流程**必須逐步各自成交易**,不得包成單一交易連呼。
 
@@ -398,7 +442,7 @@ A2 `order_item_procurement.allocated_quantity` 之和」,由 A4a 維護)⇒ **�
 | 片 | 內容 | 型 | 分級 | 估時 |
 |---|---|---|---|---|
 | **#352-a1** | migration:§2.1 欄 + §2.2 CHECK 換 + §2.4 ledger 表 + §2.3 種子列(**`is_active=false`**)+ ACL + 結構驗收<br>🔴 **+ `scripts/storefront-projection-leak-guard.test.ts` 登記兩張表名**(施工時發現的必要連動,見下) | M(**+1 支 .ts**) | L2 | ~40 分 |
-| **#352-a2** | migration:§3.1 / §3.2 兩支 RPC + §2.5 COMMENT 更正 + `scripts/352a2-verify.sh` harness<br>**+ `database.types.ts` regen**(a1 加了 `surplus_quantity` 與新表,型別要跟上;a1 沒有呼叫端所以不急,a2 有)<br>**+ ⛔ 開工前先上 Sean 桌**:§8-10 溢收列 × 取消閘 | T | L2 | ~45 分 |
+| **#352-a2** | migration:§3.1 / §3.2 兩支 RPC + §2.5 COMMENT 更正 + `scripts/352a2-verify.sh` harness 填滿<br>**+ 重釘 7 支 harness 的 `LINE_TIP`**(片內義務)<br>🔴 **`database.types.ts` regen 不在 a2** —— 見下 | T | L2 | ~45 分 |
 | **#352-b** | §5 小視窗 + 兩入口 + 彈窗就地刷新 + 衍生指標 + server actions + smoke test **+ 一支一行 migration 翻種子 `is_active=true`** | U+A(**含一筆 DB 資料寫入**) | L2 | ~45 分 |
 
 🔴 **b 的載具講明(R3-F6)**:翻 `is_active` 用**一支只有一行 `UPDATE` 的 migration**,隨 b 一起 apply、
@@ -406,6 +450,12 @@ A2 `order_item_procurement.allocated_quantity` 之和」,由 A4a 維護)⇒ **�
 ⇒ b 的片型句要誠實寫成「**U+A 且含一筆 DB 資料寫入**」,不是純前端片。
 **但它不因此命中鐵則 12③**:12③ 逐字是「DB **結構**與**大量/不可逆**寫入」,而這是**單列、可逆、非結構**的資料更正
 ⇒ 仍走 code-reviewer;若審查者判它該升,我照辦不爭。
+
+🔴 **`database.types.ts` regen 是 apply【之後】的事,不是 a2 的片內工作(a2 施工時查到、更正 plan)**:
+`scripts/s1b-verify.sh:360` 逐字「**`database.types.ts` 重 gen 需 apply 後才做得了**」——
+gen 是對**真的資料庫**取 schema,而 a2 ⛔ 未 apply ⇒ 現在做不了、硬做只會產出與正式庫不符的型別。
+先例一致:A5a 是 08-03 apply **之後**才收割 regen(`28cdab8`)。
+⇒ **移出 a2**,列為 **apply 後的義務**(與 b 片開工前置並列;b 要呼叫這兩支 RPC,型別要先跟上)。
 
 🔴 **a1 施工時發現的必要連動(plan 三輪審查都沒抓到,我實作時才撞上)**:
 `scripts/storefront-projection-leak-guard.test.ts` 有一份 `SERVICE_ROLE_ONLY_TABLES` 清單,
@@ -445,6 +495,15 @@ backlog **#329** 逐字點名的失效路徑就是「**新表忘登記 = 零防�
 
 **a2**
 6. `352a2-verify.sh` 全綠,**每條守門各有一格只紅它自己的負測**(消融等長同形)。
+   🔴 **2026-08-11 落地補齊(Fable R3 F1 —— 這條宣稱穿透了前四輪審查都沒被發現是假的)**:
+   凍結版 harness 對 record 的**四道輸入守門零格覆蓋**(`INVALID_QUANTITY` / `RECEIVED_AT_REQUIRED` /
+   `NOTE_TOO_LONG` / `p_actor` 形狀閘)—— 拿掉任一道,全部格與突變照樣綠、收尾照印「✅ 全綠」。
+   ⇒ **補 `C7`**:四道各有專屬毒值(負數 / 和=0 / 和>100000 / 到貨時間 NULL / 501 字備註 /
+   非法 actor),外加**邊界另一側**(恰 500 字必須收得下)證明它不是「備註一律拒」的假紅。
+   ⚠️ **誠實界**:判別力只有 `NOTE_TOO_LONG` 那一道有專屬突變(`M8`,**改壞門檻、保留選擇器**);
+   另三道是同形狀(斷言**確切回傳碼**、非存在性檢查)但**沒有各自的突變**。
+   ⇒ **選補格而不是收窄本條**:那四道構造成本近乎零,拿「誠實缺口」去豁免十幾行就能測的東西,
+   是把那個機制用歪 —— 缺口段留給真的構造不出來的(併發那三項)。
 7. 正向:`allocated=5 received=0` 登錄 3 件 ⇒ `received=3`、`instock=3`(A4a 級聯真的跑了)。
 8. 超收:登錄 6 件 ⇒ `RETURN 'QUANTITY_EXCEEDS_ALLOCATED'`(**不是** raw 23514、**也不是** RAISE)。
 9. 溢收:`quantity=0 / surplus=5` 寫得進,`received` 與 `instock` **不變**。
@@ -454,20 +513,38 @@ backlog **#329** 逐字點名的失效路徑就是「**新表忘登記 = 零防�
        ⚠️ **這一格的 fixture 必須用 NULL note**;拿非空 note 跑會讓它恆綠 = fixture-vacuous
        (memory `feedback_fixture-value-makes-guard-vacuous` 同型)。把 `IS NOT DISTINCT FROM` 改回 `=` ⇒ 該格必紅。
     ② 同鍵**不同 payload** ⇒ RAISE(caller bug、不具名);訊息含救法
-    ③ 同鍵掛**不同 procurement** 的併發 ⇒ 不得外洩 raw 23505
+    ③ 同鍵掛**不同 procurement** ⇒ 不得外洩 raw 23505
+       🔴 **2026-08-11 誠實化(opus MF4 / Fable F3)**:harness 的 `D3` 只做得到**單連線**版
+       (第二次呼叫在步 5 快篩就看得見自己未提交的 ledger 列 ⇒ 明確 RAISE)。
+       真正的 `unique_violation` **併發** fallback 需要兩條連線 rendezvous ⇒ **本片未測、列為已知缺口**
+       (harness 收尾明印)。原本這一條寫「的併發」卻只驗了單連線 = 格名 > 斷言。
     ④ `p_procurement_id` 不存在 ⇒ `PROCUREMENT_NOT_FOUND`(**不是** raw 23503)**且 ledger 不留孤兒列**
-10-a. 🆕 **ledger 與 receipt 同滾(雙線審 consider-1;F3 折面的正主)**:讓步驟 7 的 receipt INSERT 失敗
+10-a. 🆕 **ledger 與 receipt 同滾(雙線審 consider-1;F3 折面的正主)**:讓步驟 8 的 receipt INSERT 失敗
+    🔴 **2026-08-11 修法更正(opus MF1 / Fable F3)**:第一版拿 `1999-01-01` 當「失敗」——
+    那在步 4 的 range 閘就 `RETURN` 了,**ledger 根本沒被寫過、receipt INSERT 根本沒失敗**,
+    「同滾」那半句從來沒被驗過(把兩個 INSERT 拆成各自獨立的 subtransaction,舊版照樣綠)。
+    正確做法 = **臨時 `BEFORE INSERT` trigger 讓 receipt 寫入真的爆**(harness `D4`,E5 同形制);
+    早退不留孤兒那半獨立成 `D4a`。
     ⇒ **ledger 那一列必須一起消失**(同交易);之後用**同一個 `request_id`** 重送 ⇒ 必須**正常成功**
     (回 `RECORDED`),**不得**被誤判成 `DUPLICATE_REQUEST`。
     ⚠️ 這一格是 F3「先產 uuid、ledger 先寫」那個折法的承重點:寫帳與寫產物不同步的話,
     冪等帳會擋住一個從未成功的請求。
 11. **不復活**:登錄 → 刪除 → 同一 `request_id` 重送 ⇒ `DUPLICATE_REQUEST` 且 **receipt 沒有被重建**。
-11-a. 🔴 **溢收列 × 取消閘(§8-10)**:造一列 `quantity=0 / surplus=5`,然後對該單跑整單取消
-    ⇒ **把當下的行為釘成可觀察事實**(是被拒還是放行)。
-    Sean 拍板前不預設哪一邊是對的,但**不可以讓它靜默**。
+11-a. ✅ **溢收列 × 取消閘(§8-10)—— Sean 2026-08-11 Q6=A 拍板:可取消 + 由畫面提醒。**
+    harness `G1` 用**同一張單的前後對照**釘住:
+    有 `quantity>0` 的到貨列 ⇒ 整單取消**被擋**;把那列刪掉、只剩 `quantity=0/surplus=5` ⇒ **放行**。
+    ⚠️ **界(codex 關卡2 C8;R2 抓到這裡的舊字面「唯一變因就是那個述詞」沒跟著改)**:
+    刪掉那筆到貨列的同時 A4a 也會改 `received/instock` ⇒ 若日後有人把閘改成**讀摘要值**,本格照樣綠。
+    本格證的是「**有真到貨列 vs 只剩溢收列**這個差異會改變取消結果」,
+    **不宣稱**它能釘死「閘一定是用 `r.quantity > 0` 這個述詞實作的」。
+    (提醒文案屬 **b 片**,不在 a2。)
 12. **`ALREADY_DELETED` 的判別力**:已刪的 id ⇒ `ALREADY_DELETED`;**隨機不存在的 uuid ⇒ `RECEIPT_NOT_FOUND`**。
-13. **併發雙刪(R3-F5)**:兩條連線同時刪同一筆 ⇒ 一個 `DELETED`、另一個 `ALREADY_DELETED`;
-    把 `RETURNING` 的 rowcount 判斷拿掉 ⇒ 該格必紅。
+13. **併發雙刪(R3-F5)—— 🔴 2026-08-11 誠實化(codex 關卡2 C3):這條原本宣稱的兩件事都不成立。**
+    - 原文寫「兩條連線同時刪同一筆」⇒ **本片沒有做兩連線 rendezvous**,`E4` 只是**結構錨**。
+    - 原文寫「把 `RETURNING` 的 rowcount 判斷拿掉 ⇒ 該格必紅」⇒ `RETURNING` **已不存在**
+      (opus nit13:那是死賦值,已移除);錨點現在釘 `GET DIAGNOSTICS v_rows = ROW_COUNT` 與它的消費點。
+    - **現況**:`E4` 證的是「rowcount 判斷與它的消費點在函式體裡」;**真併發行為壞掉仍可能全綠**
+      ⇒ 列進 harness 收尾的已知缺口段。要真的驗它,得照 w6 系列開兩連線,**那不在 a2**。
 14. **deferred 兩格**:①先 `SET CONSTRAINTS … DEFERRED` 再呼叫**刪除** ⇒ 守門仍擋得住
     ②同條件呼叫**登錄** ⇒ 行為不變(證明 §3.1-2 的「不需要」不是宣稱)。
 15. **fail-closed**:摘要列缺席 ⇒ 刪除被 RAISE 擋下(**不是**靜默放行)。
@@ -475,10 +552,21 @@ backlog **#329** 逐字點名的失效路徑就是「**新表忘登記 = 零防�
 17. `p_request_id`:帶連字號小寫 UUID 收得下;同值大寫 ⇒ **拒收**(不是靜默 lower)。
 18. `p_received_at`:界線帶 offset(改 session `TimeZone` 後判定不變);超過 `clock_timestamp() + 5 分鐘` 拒;
     **5 分鐘內的未來值收得下**(證明寬限真的在)。
-19. **ledger 零 UPDATE 路徑**(R3-F3):跑完整套後 ledger 每列的 `receipt_id` 與 INSERT 當下相同
-    (取 `xmin` 或前後快照比對);任何 UPDATE 出現 ⇒ 該格紅。
+19. **ledger 零 UPDATE 路徑**(R3-F3):跑完整套後 ledger 那一列不得被 UPDATE 過。
+    🔴 **2026-08-11 更正(codex 關卡2 C2;R2 抓到本條沒跟著改)**:原本寫「取 `xmin` 或前後快照比對」——
+    **那個觀察點抓不到 intra-call UPDATE**:①快照是 record **回來之後**才取的 ②同交易內 UPDATE
+    產生的新版本 `xmin` **不變**。
+    **現行做法**:`D6` **全程掛 `BEFORE UPDATE` 爆炸 trigger**,任何人 UPDATE 這張表當場紅;
+    `xmin`/`receipt_id` 保留當第二道(擋跨交易的改動);
+    並在格內**故意 UPDATE 一次驗偵測器活著**(不爆 ⇒ 該格紅,免得綠只是「trigger 沒生效」)。
 20. 鎖序錨:`prosrc` 釘住 proc 鎖在 order_items 鎖之前;對調 ⇒ 該格紅。
-21. §2.5 兩處 COMMENT 已更正,且結構驗收在字面沒改時會紅。
+21. §2.5 的 COMMENT:**DB 面(`:224` 表 COMMENT)已由 a2 覆蓋**;`:178` 是已 apply 的 migration
+    原始碼註解、**刻意不動**(理由與裁決規則見 §2.5 的 08-11 更正段)。結構驗收在字面沒改時會紅。
+21-a. 🆕 **稽核不得靜默消失(Fable F1)**:兩支 RPC 各留一列 `admin_audit_log`
+    (`action` / `target` / `request_id` / `actor` 逐欄對,刪除那支的 before-image 要帶得走內容);
+    **把 audit INSERT 整段抽掉 ⇒ 該格必紅**(harness `G2` + 突變 `M6`)。
+    ⚠️ 立這條的理由:折面前 harness 對 `admin_audit_log` **零斷言** ——
+    audit 是「刪掉之後唯一查得到」的補償控制,卻是全片唯一拿掉沒人紅的寫入面。
 22. 突變靶打**真實失效形狀**,且**先證突變真的套上了**才談紅綠(D-440 §7-3:二代四次假存活)。
 23. 跑前跑後 `git status --porcelain` 皆空。
 
@@ -567,7 +655,7 @@ R1 `12+2` / R2 `8+2` / R3 `2+4+4` = **34**。(這正是「自己算的數字要�
 | **F2 (MF)** | §5.4 斷點橫幅若存 action 暫態,① 成功後關瀏覽器 ⇒ 橫幅蒸發、帳面短少 2 件靜默 —— 正是本節自己說不可接受的情境 | ✅ §5.4 改成**從 DB 推導的衍生指標**(`quantity − cancelled − SUM(allocated)`),持久且**比存狀態簡單**;驗收 27 加「① 後放棄重整、指標仍在」格;§8-10 認列它分不出成因 |
 | F3 | ledger 兩條 UPDATE 可消(RPC 先產 receipt uuid 免回填 + 已刪改推導)⇒ 表變**真** append-only | ✅ §2.4 + §3.1-6;連帶 **R2-nit2 的改名不再需要**(成因移除) |
 | F4 | 入口 2 登錄成功後彈窗刷新未規格化 ⇒ D-443 承諾「立刻能出」沒接住 | ✅ §5.2:明確重取 `loadShipmentCandidates`;並引 #351④ 肉眼驗實錘說明**不能只靠 `revalidatePath`**;驗收 26 |
-| F5 | 併發雙刪 DELETE 影響 0 列仍走舊值 | ✅ §3.2-5 改 `DELETE … RETURNING`,0 列 ⇒ `ALREADY_DELETED`;驗收 13 |
+| F5 | 併發雙刪 DELETE 影響 0 列仍走舊值 | ✅ §3.2-5:**`GET DIAGNOSTICS ROW_COUNT` 回 0 ⇒ `ALREADY_DELETED`**。🔴 **2026-08-11 更正(codex 關卡2 C3 / R2)**:本欄原寫「改 `DELETE … RETURNING`」—— `RETURNING id INTO v_deleted` 是死賦值、已移除(opus nit13),判準**只有** `ROW_COUNT`。驗收 13 同步誠實化:**真併發未測**、E4 只是結構錨 |
 | F6 | b 片翻 `is_active` 的載具未指明;若用 migration 則 b 含 DB 寫入面 | ✅ §6:講明是一支一行 migration、排在 b 上線前,片型句改成「U+A 含一筆 DB 資料寫入」,並說明為何仍不命中 12③ |
 | nit1 | `QUANTITY_EXCEEDS_ALLOCATED` 訊息要代員工算拆分 | ✅ §3.1-5 + §5.1:由 app 算「還能記 X / 你填了 Y / 多的 Z 填溢收」 |
 | nit2 | 同鍵不同 payload 的訊息要白話 + 給救法 | ✅ §3.1-6 |
