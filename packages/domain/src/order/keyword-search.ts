@@ -1,10 +1,13 @@
 /**
  * 後台訂單「關鍵字」搜尋的正規化與形狀守門(M-4b #347-2a)。
  *
- * 背景:#347-1 建了 `public.admin_search_orders(text, integer)` —— 一支八維度子字串搜尋
+ * 背景:#347-1 建了 `public.admin_search_orders` —— 一支八維度子字串搜尋
  * (訂單編號 / 會員姓名 / 會員電話 / 收件快照 name-phone-line / 料號 / 品名 / 品牌 / 供應商單號),
  * 回 `{"ids": uuid[], "truncated": bool}`。本模組是**送進那支 RPC 的搜尋詞的唯一來源**。
- * 合約全文在 `supabase/migrations/20260809180000_m4b_347_1_admin_search_orders.sql` 檔頭。
+ * 合約全文在 `supabase/migrations/20260810120000_m4b_347_3a_admin_search_orders_date_range.sql` 檔頭
+ * (apply 之後真正的權威是 catalog 上的 `COMMENT ON FUNCTION`)。
+ * ⚠️ **不要再指向 `20260809180000`**(#347-3c-3 更正):那支建的**兩參數版已被 3a `DROP`**,
+ *    指過去等於把讀者送到一個不存在的簽章上。
  *
  * ── 🔴🔴 與另外兩個搜尋維度最重要的差異:**本模組沒有字元集守門** ──────────
  * A9b1 的 `normalizeOrderNumberSearch` 只放行 `[A-Z0-9-]`、

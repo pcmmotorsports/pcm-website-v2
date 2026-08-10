@@ -273,8 +273,9 @@ export type AdminOrderFilter = {
    * 八維度「關鍵字」搜尋(M-4b #347-2a;Sean 拍板 #347「八維度一框」)。
    *
    * 命中面 = 訂單編號 / 會員姓名 / 會員電話 / 收件快照 name-phone-line / 料號 / 品名 / 品牌 /
-   * 供應商單號,由 `public.admin_search_orders(text, integer)` 在 **SQL 內**比對
-   * (`supabase/migrations/20260809180000_…`,已 apply 正式站)。
+   * 供應商單號,由 `public.admin_search_orders` 在 **SQL 內**比對
+   * (現行簽章 = 四參數版,`supabase/migrations/20260810120000_…`,已 apply 正式站;
+   *  ⚠️ #347-3c-3 更正:原本這裡寫 `(text, integer)` 與 `20260809180000`,而那個簽章已被 3a `DROP`)。
    *
    * - `undefined` / 空字串 = 不篩;
    * - 值由 `normalizeOrderKeywordSearch` 正規化後才可進 adapter;
