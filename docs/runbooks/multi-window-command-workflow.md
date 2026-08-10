@@ -117,6 +117,7 @@ context 快滿=先寫 checkpoint 信再停,不硬做「可能驗不完」的東�
 | Monitor 工具 | 信箱秒級哨兵 | 檔案輪詢;殼層 sleep 在沙盒常壞,別用 shell 迴圈 |
 | ScheduleWakeup(/loop) | 10 分心跳 | 綁 session,視窗關掉即停 |
 | git worktree | 施工窗隔離 | 🔴 多窗共用 clone 禁用 git stash(全域堆疊會彈到別人的) |
+| 審查 subagent(主視窗派) | 凍結件雙線審 | 🔴 派工單必寫「工作副本只准落 session scratchpad、**不得落 repo 樹內**」——落 `apps/`/`packages/` 會進 vitest/tsc 收集面、直接改變被審者的三綠計數與 Δ 對帳(08-10 S 窗實錘:.rev.test.tsx 被收集+in-flight 假紅);審查完成報告必附 porcelain 零留痕證明 |
 | /schedule 雲端 Routine | 選配:每小時網站巡邏 | 跑在雲端、關機照跑;異常可寫 GitHub issue 讓主視窗心跳看到 |
 | gh CLI | 選配:巡邏異常回流 | 需 GitHub App 授權 |
 
