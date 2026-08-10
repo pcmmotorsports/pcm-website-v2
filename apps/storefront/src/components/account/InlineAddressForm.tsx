@@ -84,6 +84,42 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
   const isEmailTooLong =
     email.replace(/^ +| +$/g, '').length > TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH;
 
+  /**
+   * 一動某欄就清該欄 inline 錯 + 頂部錯(#378;與 auth 四張、愛車、個人資料同三條判準)。
+   * **新增行為,不是搬 design** —— design 真權威(`AccountPages.jsx:686` 起)沒有錯誤 state。
+   *
+   * 🔴🔴 **Email 欄連著付款,清除的宣稱範圍要講精確**(上限 40 = TapPay `cardholder.email`):
+   * 錯誤位置是**兩通道共用**的 —— `fieldErrors.email` 在就顯它,否則顯 client 的長度提示。
+   * 清掉 server 錯後落到 else 分支、`isEmailTooLong` 當場重算,而 **client 只鏡射「長度」這一維**:
+   * · 仍超長 ⇒ 立刻顯「已超過 N 字元,付款會被拒絕」,警告換成更即時的那條、沒有消失;
+   * · 其餘維度(`notification-email.ts` 的 ASCII / octets / 基本形狀 / 合成網域四閘,**都回同一句
+   *   「Email 格式不正確」**)⇒ **清掉之後畫面會退回中性提示**,那條警告是真的會不見。
+   * ⚠️ 第一版我在這裡寫「不會讓**任何一種**付款會被擋的訊號消失」——**超出事實**,已收窄成上面兩行。
+   * 之所以仍可接受:40 的執法在 server(`AddressEmailInput` refine,`packages/schemas/src/index.ts:111`),
+   * 儲存鈕從不 disable、client 這條本來就不擋送出 ⇒ 格式不合的信箱**存不進 DB**,
+   * 而 `buildCardholder` 讀的是已入庫的地址 ⇒ 不存在「存得下、付款才炸」。本片一行未動 server。
+   *
+   * 🔴 **發票那組巢狀欄位也接了**(`clearInvoiceErr`)。
+   * ⚠️ 我第一版的理由「`INVOICE_FIELDS_HIDDEN` 為真、不渲染 ⇒ 接了也測不到」**是錯的**:
+   *    測試檔 `:34` 把旗標 mock 成 false,發票欄照常渲染、完全測得到。四欄各有測試。
+   *
+   * 🔴 **發票 tab 切換(`setInvType`)刻意不清**:切 tab 不是在編輯任何一欄,
+   *    而被切走那欄的錯**仍然擋得住儲存** —— 清掉它會讓客人看不到自己為什麼存不了。
+   */
+  const clearErr = (k: 'name' | 'phone' | 'line' | 'email') => {
+    setFieldErrors((prev) => (prev[k] === undefined ? prev : { ...prev, [k]: undefined }));
+    setFormError(null);
+  };
+
+  const clearInvoiceErr = (k: 'carrier' | 'title' | 'taxId' | 'donateCode') => {
+    setFieldErrors((prev) =>
+      prev.invoice?.[k] === undefined
+        ? prev
+        : { ...prev, invoice: { ...prev.invoice, [k]: undefined } },
+    );
+    setFormError(null);
+  };
+
   const invTabs = [
     { id: 'personal', label: '個人' },
     { id: 'company', label: '公司(三聯式)' },
@@ -129,17 +165,40 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
 
       <label>
         <span>收件人</span>
-        <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="王小明" />
+        <input
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            clearErr('name');
+          }}
+          required
+          placeholder="王小明"
+        />
         {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
       </label>
       <label>
         <span>手機</span>
-        <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0912 345 678" />
+        <input
+          value={phone}
+          onChange={(e) => {
+            setPhone(e.target.value);
+            clearErr('phone');
+          }}
+          placeholder="0912 345 678"
+        />
         {fieldErrors.phone && <span className="auth-field-err">{fieldErrors.phone}</span>}
       </label>
       <label>
         <span>地址</span>
-        <input value={line} onChange={(e) => setLine(e.target.value)} required placeholder="縣市 / 區 / 路 / 號 / 樓" />
+        <input
+          value={line}
+          onChange={(e) => {
+            setLine(e.target.value);
+            clearErr('line');
+          }}
+          required
+          placeholder="縣市 / 區 / 路 / 號 / 樓"
+        />
         {fieldErrors.line && <span className="auth-field-err">{fieldErrors.line}</span>}
       </label>
       {/* 🔴 M-4b:收件地址自帶 Email(design 原本沒有這欄;plan §2.2)。
@@ -153,7 +212,10 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
         <input
           type="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            clearErr('email'); // 清完會落到下方 else 分支、長度警告當場重算(見 clearErr 註解)
+          }}
           required
           placeholder="example@mail.com"
         />
@@ -197,7 +259,14 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
       {invType === 'personal' && (
         <label>
           <span>手機載具(選填)</span>
-          <input value={carrier} onChange={(e) => setCarrier(e.target.value)} placeholder="/ABCD123" />
+          <input
+            value={carrier}
+            onChange={(e) => {
+              setCarrier(e.target.value);
+              clearInvoiceErr('carrier');
+            }}
+            placeholder="/ABCD123"
+          />
           {fieldErrors.invoice?.carrier && (
             <span className="auth-field-err">{fieldErrors.invoice.carrier}</span>
           )}
@@ -207,7 +276,14 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
         <>
           <label>
             <span>公司抬頭</span>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="例:賓士機車有限公司" />
+            <input
+              value={title}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                clearInvoiceErr('title');
+              }}
+              placeholder="例:賓士機車有限公司"
+            />
             {fieldErrors.invoice?.title && (
               <span className="auth-field-err">{fieldErrors.invoice.title}</span>
             )}
@@ -216,7 +292,10 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
             <span>統一編號</span>
             <input
               value={taxId}
-              onChange={(e) => setTaxId(e.target.value)}
+              onChange={(e) => {
+                setTaxId(e.target.value);
+                clearInvoiceErr('taxId');
+              }}
               placeholder="8 碼數字"
               maxLength={8}
             />
@@ -231,7 +310,10 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
           <span>愛心碼</span>
           <input
             value={donateCode}
-            onChange={(e) => setDonateCode(e.target.value)}
+            onChange={(e) => {
+              setDonateCode(e.target.value);
+              clearInvoiceErr('donateCode');
+            }}
             placeholder="例:8585(罕病)、925(伊甸)"
           />
           {fieldErrors.invoice?.donateCode && (

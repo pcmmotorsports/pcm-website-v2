@@ -23,6 +23,8 @@ vi.mock('next/navigation', () => ({
 
 import { InlineAddressForm, type InlineAddressFormProps } from './InlineAddressForm';
 import type { AddAddressActionResult } from '@/app/account/address/actions';
+// #378:Email 那格要驗「付款會被拒絕」的警告 —— 上限值 import 常數,**不在測試裡再抄一個 40**。
+import { TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH } from '@pcm/schemas';
 
 // 🔴 2026-08-08 發票欄位「先隱藏」(Sean 拍板):本檔的發票斷言**刻意把開關 mock 成 false**。
 //    理由:這些斷言是「發票重開之後該長什麼樣」的規格 —— 刪掉的話重開時沒有東西守著,
@@ -175,5 +177,197 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+// ── #378:錯誤訊息隨輸入清除(2026-08-08 全站掃測 B 級;本張是 7 張裡的最後一張)──────
+// 三條判準沿用 auth 片:① 動哪一欄清哪一欄 ② 頂部 formError 一律清 ③ 沒有自己 fieldError 的欄不接。
+//
+// 🔴🔴 本張與另外六張的差別:**Email 那一欄連著付款**(上限 40 = TapPay `cardholder.email`)。
+//    那個位置是兩個通道共用的 —— server 的 `fieldErrors.email` 優先,沒有時才顯 client 算的長度提示。
+//    ⇒ 「清掉 server 錯」必須**不會讓付款會被擋的警告消失**。下面那格就是釘這件事的。
+describe('#378 錯誤隨輸入清除', () => {
+  const ALL_FIELD_ERRS = {
+    name: '請填寫收件人',
+    phone: '手機格式不正確',
+    line: '請填寫地址',
+    email: 'Email 格式不正確',
+  };
+
+  /** 讓四個頂層欄同時紅 —— 逐欄清那半要有「其他欄的錯留著」可看。 */
+  function showAllFieldErrs() {
+    const utils = renderForm({ result: { fieldErrors: ALL_FIELD_ERRS } });
+    fillRequired();
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    return utils;
+  }
+
+  async function showAllFieldErrsAwaited() {
+    const utils = showAllFieldErrs();
+    expect(await screen.findByText('請填寫收件人')).toBeTruthy();
+    return utils;
+  }
+
+  it('改收件人 → 只清收件人那欄,其餘三欄的錯留著(逐欄清、不是全清)', async () => {
+    await showAllFieldErrsAwaited();
+    fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '陳' } });
+
+    expect(screen.queryByText('請填寫收件人')).toBeNull();
+    // 🔴 判別力在這三條:改成「動任一欄就 setFieldErrors({})」時只有它們會紅。
+    expect(screen.getByText('手機格式不正確')).toBeTruthy();
+    expect(screen.getByText('請填寫地址')).toBeTruthy();
+    expect(screen.getByText('Email 格式不正確')).toBeTruthy();
+  });
+
+  it('改手機 → 只清手機那欄', async () => {
+    await showAllFieldErrsAwaited();
+    fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '09' } });
+
+    expect(screen.queryByText('手機格式不正確')).toBeNull();
+    expect(screen.getByText('請填寫收件人')).toBeTruthy();
+  });
+
+  it('改地址 → 只清地址那欄', async () => {
+    await showAllFieldErrsAwaited();
+    fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北' } });
+
+    expect(screen.queryByText('請填寫地址')).toBeNull();
+    expect(screen.getByText('請填寫收件人')).toBeTruthy();
+  });
+
+  // 🔴🔴 本片唯一碰到錢的那一格。
+  it('🔴 改 Email 清掉 server 錯之後,「付款會被拒絕」的超長警告**當場接上**、不是消失', async () => {
+    const tooLong = `${'a'.repeat(TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH)}@b.tw`; // 必定超過上限
+    const utils = renderForm({ result: { fieldErrors: { email: 'Email 格式不正確' } } });
+    fillRequired();
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: tooLong } });
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('Email 格式不正確')).toBeTruthy();
+    // 前提:server 錯在場時,長度警告被它蓋住(兩通道共用同一個位置)。
+    expect(screen.queryByText(new RegExp(`已超過 ${TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH} 字元`))).toBeNull();
+
+    // 再打一個字 —— 仍然超長。
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: `${tooLong}x` } });
+
+    expect(screen.queryByText('Email 格式不正確')).toBeNull();
+    // 🔴 這條是整片最重要的斷言:清掉 server 錯之後,客人**沒有**變成看不到「付款會被擋」。
+    const warn = screen.getByText(new RegExp(`已超過 ${TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH} 字元`));
+    // 🔴 R1 nit-7:只斷言**文字**沒有判別力 —— 那段文字由同一個 span 無條件提供,
+    //    把三元改成恆 `'acc-field-hint'`(警告變灰色中性字)時,只驗文字的版本照樣綠。
+    expect(warn.classList.contains('auth-field-err')).toBe(true);
+
+    // 🔴 R1 nit-8 反向對照:縮到上限內 ⇒ 必須換回**中性**提示。
+    //    少了這一半,`isEmailTooLong` 恆真(每個正常信箱都掛「付款會被拒絕」)也全綠。
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
+    const hint = screen.getByText(new RegExp(`${TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH} 字元內`));
+    expect(hint.classList.contains('auth-field-err')).toBe(false);
+    expect(utils.onSubmit).toHaveBeenCalledTimes(1); // 全程只送出過那一次
+  });
+
+  it('🔴 改任一欄 → 頂部帳號層級錯(請重新登入)也一起清掉', async () => {
+    renderForm({ result: { formError: '請重新登入' } });
+    fillRequired();
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('請重新登入')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '09' } });
+
+    expect(screen.queryByText('請重新登入')).toBeNull();
+  });
+
+  // ── 巢狀 invoice 欄(重開旗標後就是客人看得到的欄;測試端 mock 成顯示,見檔頭 :32)────
+  it('改手機載具 → 清掉巢狀 invoice.carrier 的錯', async () => {
+    renderForm({ result: { fieldErrors: { invoice: { carrier: '載具格式不正確' } } } });
+    fillRequired();
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('載具格式不正確')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('/ABCD123'), { target: { value: '/X' } });
+
+    expect(screen.queryByText('載具格式不正確')).toBeNull();
+  });
+
+  it('改公司抬頭 → 清掉巢狀 invoice.title 的錯', async () => {
+    renderForm({ result: { fieldErrors: { invoice: { title: '請填寫抬頭' } } } });
+    fillRequired();
+    fireEvent.click(screen.getByText('公司(三聯式)'));
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('請填寫抬頭')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('例:賓士機車有限公司'), { target: { value: '賓士' } });
+
+    expect(screen.queryByText('請填寫抬頭')).toBeNull();
+  });
+
+  it('改愛心碼 → 清掉巢狀 invoice.donateCode 的錯', async () => {
+    renderForm({ result: { fieldErrors: { invoice: { donateCode: '愛心碼不存在' } } } });
+    fillRequired();
+    fireEvent.click(screen.getByText('捐贈'));
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('愛心碼不存在')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('例:8585(罕病)、925(伊甸)'), { target: { value: '925' } });
+
+    expect(screen.queryByText('愛心碼不存在')).toBeNull();
+  });
+
+  // 🔴 R1 nit-10:`clearInvoiceErr` 裡的 `setFormError(null)` 原本零測試、刪掉全綠。
+  //    構造法要繞一下:`submit` 的兩條分支互斥(回 fieldErrors 就清 formError、反之亦然)
+  //    ⇒ 「頂部錯」與「invoice 逐欄錯」**同時在場是構造不出來的**。
+  //    但 `setFormError(null)` 是**無條件**跑的(bail out 只在 fieldErrors 那半)
+  //    ⇒ 正解 = 頂部錯在場時,去動一個**自己沒有錯**的發票欄。
+  it('🔴 頂部 formError 在場時改發票欄 → 頂部錯也清掉(巢狀那支的 formError 那半)', async () => {
+    renderForm({ result: { formError: '請重新登入' } });
+    fillRequired();
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('請重新登入')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('/ABCD123'), { target: { value: '/X' } });
+
+    expect(screen.queryByText('請重新登入')).toBeNull();
+  });
+
+  it('改統一編號 → 只清 invoice.taxId,同 tab 的公司抬頭錯留著(巢狀也是逐欄)', async () => {
+    renderForm({
+      result: { fieldErrors: { invoice: { title: '請填寫抬頭', taxId: '統編需 8 碼數字' } } },
+    });
+    fillRequired();
+    fireEvent.click(screen.getByText('公司(三聯式)'));
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('統編需 8 碼數字')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('8 碼數字'), { target: { value: '12345678' } });
+
+    expect(screen.queryByText('統編需 8 碼數字')).toBeNull();
+    expect(screen.getByText('請填寫抬頭')).toBeTruthy();
+  });
+
+  // ── 對照組:不是「編輯某一欄」的動作,一律不清 ──────────────────────────────
+  // 🔴 R1 nit-6:第一版這格的名字講「**被切走那欄的錯**仍然留著」,但 fixture 裡根本沒有
+  //    任何 invoice 錯 ⇒ 名字在講的那件事沒有被斷言,突變「在 setInvType 裡只清 invoice 那組」
+  //    照樣綠。改成把 invoice 錯放進 fixture、切走那個 tab 之後再切回來確認它還在。
+  it('切發票 tab 不清錯 —— 切 tab 不是編輯,被切走那欄的錯仍然留著(它還擋得住儲存)', async () => {
+    renderForm({
+      result: { fieldErrors: { name: '請填寫收件人', invoice: { taxId: '統編需 8 碼數字' } } },
+    });
+    fillRequired();
+    fireEvent.click(screen.getByText('公司(三聯式)'));
+    fireEvent.click(screen.getByRole('button', { name: '儲存' }));
+    expect(await screen.findByText('統編需 8 碼數字')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('捐贈')); // 切走 ⇒ 統編欄不再渲染
+    expect(screen.queryByText('統編需 8 碼數字')).toBeNull(); // 看不到了(欄位不在 DOM),但不代表被清掉
+    expect(screen.getByText('請填寫收件人')).toBeTruthy(); // 頂層那欄的錯不受切 tab 影響
+
+    fireEvent.click(screen.getByText('公司(三聯式)')); // 切回來
+    // 🔴 這條才是本格的重點:錯**還在 state 裡**,沒有因為切 tab 被清掉。
+    expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
+  });
+
+  it('勾「設為預設地址」不清錯(對照組=LoginPage 的「記住我」)', async () => {
+    await showAllFieldErrsAwaited();
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(screen.getByText('請填寫收件人')).toBeTruthy();
+    expect(screen.getByText('手機格式不正確')).toBeTruthy();
   });
 });

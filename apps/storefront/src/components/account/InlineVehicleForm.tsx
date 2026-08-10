@@ -115,6 +115,32 @@ export function InlineVehicleForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  /**
+   * 一動車型欄就清該欄 inline 錯 + 頂部錯(#378;與 auth 四張同一個 2026-08-08 掃測 B 級 bug、
+   * 同三條判準)。**本片是新增行為,不是搬 design** —— design 真權威
+   * (`design-reference/components/AccountPages.jsx:760-798`)的 onChange 只有 `set(k, v)`,
+   * 那份原型連錯誤 state 都沒有(必填靠 `if (!form.name.trim()) return;` 靜默擋)⇒ 沒有可搬的字面。
+   *
+   * 🔴 **為什麼只掛在車型這個面上**:`VehicleFieldErrors` 只有 `name` 一個鍵
+   * (`app/account/vehicle/actions.ts:24-26`)—— 年份 / 引擎號 / 里程 / 已改裝 / 最近保養 /
+   * 設為主要車輛**都沒有自己的錯** ⇒ 照 auth 片第三條判準**不接**。
+   * 判準是「這欄有沒有自己的 fieldError」,不是「它是不是輸入框」;對照組 = LoginPage 的
+   * 「記住我」(不是驗證欄 ⇒ 不接)vs RegisterPage 的「同意條款」(是 `RegisterField` ⇒ 接)。
+   *
+   * 🔴 **dict 模式那兩顆下拉也算「動車型欄」**:那條錯的字面是「請選擇廠牌與車型，或改用自行輸入」,
+   * 客人挑一個廠牌就是在修它。`onClear` 一樣接 —— 與 auth 同語意(把 Email 清空也會清掉
+   * 「請填寫 Email」):清空是編輯動作,不是維持現狀。
+   *
+   * 🔴 頂部 `formError` 一律清:它講的是**上一次送出**的結果。
+   * ⚠️ 誠實標註(同 auth nit-5):`請重新登入` 這種**不會因為開始打字就過期** ——
+   * 清掉是可回復的(下次送出 server 會再回一次),不會讓客人做出錯誤決策,故照清。
+   */
+  const clearNameErr = () => {
+    // 只有 `name` 一個鍵 ⇒ 清空整個物件與逐欄清等價;`prev` bail out 避免無錯時的多餘 render。
+    setFieldErrors((prev) => (prev.name === undefined ? prev : {}));
+    setFormError(null);
+  };
+
   const curBrand = brandName !== null ? vehicleBrands.find((b) => b.name === brandName) : undefined;
   const modelOptions = curBrand?.models.map((m) => m.name) ?? [];
 
@@ -192,10 +218,12 @@ export function InlineVehicleForm({
               onPick={(n) => {
                 setBrandName(n);
                 setModelName(null);
+                clearNameErr();
               }}
               onClear={() => {
                 setBrandName(null);
                 setModelName(null);
+                clearNameErr();
               }}
               onDraftTextChange={setBrandText}
             />
@@ -211,8 +239,14 @@ export function InlineVehicleForm({
               /* 本欄非跨層(要先選廠牌才啟用)⇒ 用「車型」那句、不是跨層的「車款」。 */
               emptyHint={VEHICLE_EMPTY_HINTS.model}
               variant="form"
-              onPick={(n) => setModelName(n)}
-              onClear={() => setModelName(null)}
+              onPick={(n) => {
+                setModelName(n);
+                clearNameErr();
+              }}
+              onClear={() => {
+                setModelName(null);
+                clearNameErr();
+              }}
               onDraftTextChange={setModelText}
             />
             {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
@@ -248,7 +282,9 @@ export function InlineVehicleForm({
                 if (composed !== '' && name.trim() === '') setName(composed);
               }
               setMode('free');
-              setFieldErrors({});
+              // #378:原本只清 `setFieldErrors({})`;改走 `clearNameErr()` 讓「動車型欄 ⇒ 兩條錯都清」
+              // 在四個入口(自行輸入框 / 兩顆下拉 / 兩顆模式切換)是同一條不變式,不是三種寫法。
+              clearNameErr();
             }}
           >
             清單裡找不到你的車?改用自行輸入
@@ -260,7 +296,10 @@ export function InlineVehicleForm({
             <span>車型</span>
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                clearNameErr();
+              }}
               required
               placeholder="YAMAHA YZF-R6"
             />
@@ -279,7 +318,7 @@ export function InlineVehicleForm({
                   setModelName(hit.model);
                 }
                 setMode('dict');
-                setFieldErrors({});
+                clearNameErr(); // #378:同上,四個入口同一條不變式。
               }}
             >
               改用清單選車(廠牌/車型)

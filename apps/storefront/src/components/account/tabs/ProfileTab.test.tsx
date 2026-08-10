@@ -170,3 +170,73 @@ describe('ProfileTab(g-4b 真 form)', () => {
     setItem.mockRestore();
   });
 });
+
+// ── #378:錯誤訊息隨輸入清除(2026-08-08 全站掃測 B 級;auth 四張 + 愛車表單已修,本張是第六張)──
+// 三條判準沿用 auth 片:① 動哪一欄清哪一欄 ② 頂部 formError 一律清
+// ③ 沒有自己 fieldError 的欄不接(本張的對照組 = **disabled 的 Email 欄**)。
+describe('#378 錯誤隨輸入清除', () => {
+  /** 讓三欄同時紅 —— 逐欄清那半要有「其他欄的錯留著」可看,否則改成全清也照樣綠。 */
+  async function showAllFieldErrs() {
+    mockUpdate.mockResolvedValue({
+      fieldErrors: { name: '請填寫姓名', phone: '手機格式不正確', birthday: '生日格式不正確' },
+    });
+    const utils = renderTab();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    expect(await screen.findByText('請填寫姓名')).toBeTruthy();
+    return utils;
+  }
+
+  it('改姓名 → 只清姓名那欄,手機與生日的錯留著(逐欄清、不是全清)', async () => {
+    await showAllFieldErrs();
+    fireEvent.change(screen.getByDisplayValue('王小明'), { target: { value: '陳' } });
+
+    expect(screen.queryByText('請填寫姓名')).toBeNull();
+    // 🔴 這兩條才是判別力所在:改成「動任一欄就 setFieldErrors({})」時只有它們會紅。
+    expect(screen.getByText('手機格式不正確')).toBeTruthy();
+    expect(screen.getByText('生日格式不正確')).toBeTruthy();
+  });
+
+  it('改手機 → 只清手機那欄', async () => {
+    await showAllFieldErrs();
+    fireEvent.change(screen.getByDisplayValue('0912345678'), { target: { value: '09' } });
+
+    expect(screen.queryByText('手機格式不正確')).toBeNull();
+    expect(screen.getByText('請填寫姓名')).toBeTruthy();
+    expect(screen.getByText('生日格式不正確')).toBeTruthy();
+  });
+
+  it('改生日 → 只清生日那欄', async () => {
+    await showAllFieldErrs();
+    fireEvent.change(screen.getByDisplayValue('1990-05-20'), { target: { value: '1991-01-01' } });
+
+    expect(screen.queryByText('生日格式不正確')).toBeNull();
+    expect(screen.getByText('請填寫姓名')).toBeTruthy();
+    expect(screen.getByText('手機格式不正確')).toBeTruthy();
+  });
+
+  it('🔴 改任一欄 → 頂部帳號層級錯(請重新登入)也一起清掉', async () => {
+    mockUpdate.mockResolvedValue({ formError: '請重新登入' });
+    const { container } = renderTab();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    expect(await screen.findByText('請重新登入')).toBeTruthy();
+
+    fireEvent.change(screen.getByDisplayValue('0912345678'), { target: { value: '09' } });
+
+    expect(screen.queryByText('請重新登入')).toBeNull();
+    expect(container.querySelector('.auth-err')).toBeNull();
+  });
+
+  // 對照組:Email 欄 `disabled` 且**沒有自己的 fieldError** ⇒ 判準③ 不接。
+  // 🔴 這一格釘的是「不要順手把 clearErr 掛到每一個 input 上」——
+  //    掛上去的突變會讓下面這條紅(jsdom 對 disabled 欄的 fireEvent.change 仍會叫到 onChange)。
+  it('Email 欄是 disabled 且無自己的錯 ⇒ 不接清除(判準③)', async () => {
+    await showAllFieldErrs();
+    const emailInput = screen.getByDisplayValue('wang@example.com') as HTMLInputElement;
+    expect(emailInput.disabled).toBe(true);
+    fireEvent.change(emailInput, { target: { value: 'other@example.com' } });
+
+    expect(screen.getByText('請填寫姓名')).toBeTruthy();
+    expect(screen.getByText('手機格式不正確')).toBeTruthy();
+    expect(screen.getByText('生日格式不正確')).toBeTruthy();
+  });
+});
