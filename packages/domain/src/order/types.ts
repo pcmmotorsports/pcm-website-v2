@@ -292,6 +292,24 @@ export type AdminOrderFilter = {
    * 🔴 **上限 100 筆、超過只回前 100 並回報截斷**:見 {@link AdminOrderListResult.keywordTruncated}。
    */
   keyword?: string;
+  /**
+   * 建立日期範圍(M-4b #347-3b;Sean Q14=A「搜尋加日期範圍」)。**絕對時刻的 ISO 字串**,
+   * 半開區間 `[createdFrom, createdTo)` —— `createdFrom` 含、`createdTo` **不含**。
+   *
+   * 🔴 **值必須由 `taipeiDayStartIso` / `taipeiDayEndExclusiveIso` 算出來**,不要自己拼:
+   *    列表日期欄是**固定 Asia/Taipei 曆面**,而 `new Date('2026-08-10')` 是 UTC 午夜、差 8 小時
+   *    ⇒ 畫面顯示 `08/10` 的單會被 UTC 起點的篩選排除,員工選了那天卻看不到它。
+   *    逐條理由與「為什麼 `to` 是下一個午夜而不是 23:59:59」在 `date-range.ts` 檔頭。
+   * 🔴 **兩處都要下推**:①列表查詢的 `created_at` ②關鍵字 RPC 的 `p_from`/`p_to`。
+   *    只推列表的話,RPC 仍然是「**全歷史**最新 100 筆命中」再與日期取交集
+   *    ⇒ 要找的單可能整張落在那 100 筆之外、畫面顯示 0 筆(#347-1 的取樣順序,plan §1 逐字)。
+   * 🔴 `from > to` ⇒ 回零筆、**不擲錯**(員工打得出這種輸入;RPC 側同語意)。
+   * ⚠️ **本欄沒有 server 端預設**:UI 沒送就是不限期間(#347-3b 刻意只鋪管線)。
+   *    「未選預設近半年」是 **3c 下拉選單的預設值**(看得見的選單狀態),不是隱形過濾
+   *    —— 主視窗 2026-08-10 核:那樣才符合 Q14=A 的原意。
+   */
+  createdFrom?: string;
+  createdTo?: string;
 };
 
 /**

@@ -177,7 +177,12 @@ export const ADMIN_SEARCH_ORDERS_FN = 'admin_search_orders';
 type AdminSearchOrdersRpcClient = {
   rpc(
     fn: typeof ADMIN_SEARCH_ORDERS_FN,
-    args: { p_query: string; p_limit: number },
+    // 🔴 #347-3b:兩個新參數**必填但可為 `null`**(不是 optional)——
+    //    呼叫端一律兩個鍵都帶,`null` = 該側不限(migration `:134-135` 的 `IS NULL OR …`)。
+    //    寫成必填是為了讓「忘了帶」變成編譯錯誤,而不是靜默少推一軸;
+    //    也讓 `admin-search-orders-post-only.test.ts` 的參數名字面守門掃得到它們。
+    //    ⚠️ 參數**名**打錯一個字就是執行期 404/42501(GRANT 綁精確簽章),窄介面就是為了擋這個。
+    args: { p_query: string; p_limit: number; p_from: string | null; p_to: string | null },
   ): Promise<{ data: unknown; error: unknown }>;
 };
 
@@ -597,6 +602,19 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       ).rpc(ADMIN_SEARCH_ORDERS_FN, {
         p_query: keywordSearch.value,
         p_limit: ADMIN_ORDER_ID_IN_CAP,
+        // 🔴🔴 **日期一定要下推進 RPC,不能只篩列表**(#347-3b;plan §1 逐字):
+        //    #347-1 的取樣順序是「**先**取全域最新 100 筆命中,**才**與其他篩選取交集」
+        //    ⇒ 只在列表那邊 `.gte('created_at')` 的話,要找的單可能整張落在那 100 筆之外,
+        //    畫面顯示 0 筆而且**看起來像查無此單**。下推之後取樣窗口才會變成「這段期間內最新 100」。
+        // 🔴 **一律帶兩個鍵、沒有值就送 `null`,不用 spread**:
+        //    ①`admin-search-orders-post-only.test.ts` 明文禁止在這個引數物件用 `...`
+        //      —— spread 會讓該檔「參數名逐字對 migration」那組守門與型別檢查同時失效;
+        //    ②`null` 與省略在 DB 側等價 —— migration `:134-135` 是
+        //      `(p_from IS NULL OR …) AND (p_to IS NULL OR …)`,NULL = 該側不限。
+        //      這一點**已對正式站實測**(#347-3b 收工前的 PostgREST smoke,四鍵帶 null 回傳與省略一致)。
+        // 🔴 空字串也折成 `null`(與列表那側的 truthy 判斷同語意;R1 nit 6)。
+        p_from: filter.createdFrom || null,
+        p_to: filter.createdTo || null,
       });
       // 🔴 error 先處理、再碰 data(同本檔既有慣例;先讀 data 會讓錯誤變成形狀錯誤、指錯方向)。
       if (error) {
@@ -696,6 +714,19 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     }
     if (filter.paymentChannels?.length) {
       query = query.in('payment_channel', [...filter.paymentChannels]);
+    }
+    // ── #347-3b:建立日期範圍(半開區間 `[from, to)`)──────────────────────────
+    // 🔴 `lt` 不是 `lte`:`to` 是**下一個台北午夜**(見 domain `date-range.ts`)。
+    //    用 `lte` 配「當天 23:59:59」會在微秒級漏單,而那是一年只發生幾次、查不出來的漏單。
+    // 🔴 用 truthy 判斷、不是 `!== undefined`(R1 nit 6):型別上合法的空字串會讓
+    //    `.gte('created_at', '')` 送出 `created_at=gte.` ⇒ PostgREST 400 ⇒ **整個列表進錯誤態**;
+    //    而 RPC 那側的 `?? null` 對空字串是「照送空字串」—— 兩條路徑語意不一致本身就是坑。
+    //    truthy 也對齊本檔既有慣例(`filter.orderSources?.length` 那幾條)。
+    if (filter.createdFrom) {
+      query = query.gte('created_at', filter.createdFrom);
+    }
+    if (filter.createdTo) {
+      query = query.lt('created_at', filter.createdTo);
     }
     // ── M-4b 生命週期 L6:預設隱藏「刷卡未付款」單 ────────────────────────────
     // NOT(tappay AND unpaid) 依 De Morgan = (channel<>tappay) OR (status<>unpaid)。
