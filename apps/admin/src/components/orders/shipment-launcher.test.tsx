@@ -23,13 +23,18 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ fetchShipmentCandidates }));
 
 import { OrderShipButton } from './shipment-launcher';
+import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
-const CANDIDATE = {
+// 🔴 **標型別**(2026-08-10 R2 抓到):不標的話漏一個欄位 `vi.fn()` 不會有任何抱怨,
+//    而 `blockedReason` 缺席會讓彈窗把一個 `remaining=2` 的可出品項畫成「數量資料尚未就緒」,
+//    測試卻因為只斷言料號而全綠 —— fixture 缺欄是假綠的常見入口。
+const CANDIDATE: ShipmentCandidateItem = {
   orderItemId: 'oi-1',
   orderDisplayId: 'PCM-0001',
   variantSku: 'S-Y10E9-HGEH',
   title: '鈦合金頭段',
   remaining: 2,
+  blockedReason: null,
 };
 const RECIPIENT = { name: '陳彥廷', phone: '0912345678', line: '台北市…' };
 
@@ -71,12 +76,69 @@ describe('🔴🔴 錯誤訊息 — PostgrestError 是普通物件,不是 Error 
 });
 
 describe('🔴 開窗的前置閘 — 兩種情況都不給開,而且各有自己的說法', () => {
-  it('沒有可出貨品項 → 不開窗,告訴員工為什麼', async () => {
+  it('一列品項都沒有 → 不開窗,而且**不編原因**(沒有品項就沒有「未到貨」可言)', async () => {
     fetchShipmentCandidates.mockResolvedValue({ items: [], customerUserId: 'cu-A', recipient: RECIPIENT });
     render(<OrderShipButton orderId='o1' />);
     click();
-    await waitFor(() => expect(screen.queryByText(/沒有可出貨的品項/)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(/沒有任何品項/)).not.toBeNull());
+    expect(
+      screen.queryByText(/未到貨|已取消|其他箱子/),
+      '對一張沒有品項的單列出「未到貨/已取消/已裝箱」⇒ 三個理由全是編的。',
+    ).toBeNull();
     expect(screen.queryByRole('dialog'), '沒東西可出卻把彈窗開起來了').toBeNull();
+  });
+
+  it('🔴 全部出不了時,錯誤訊息報**逐項原因**(server 已經算好了,不要丟掉讓員工猜)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [
+        { ...CANDIDATE, orderItemId: 'a', remaining: 0, blockedReason: 'not_arrived' },
+        { ...CANDIDATE, orderItemId: 'b', remaining: 0, blockedReason: 'not_arrived' },
+        { ...CANDIDATE, orderItemId: 'c', remaining: 0, blockedReason: 'cancelled' },
+      ],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByText(/2件未到貨、1件已取消/),
+      '只丟一句「未到貨、已取消,或已裝進其他箱子」⇒ 把三個可能性交給員工自己猜,' +
+        '而原因就在 items[].blockedReason 手上 —— 這片存在的理由就是說出原因。',
+    ).not.toBeNull();
+  });
+
+  // 🔴 2026-08-10 #351②:**這一格是新的主線**。改片之後「全部出不了」不再等於 `items` 是空的 ——
+  //    出不了的品項現在會留在清單裡(要標原因)⇒ 舊的 `items.length === 0` 判斷對這個情境完全失效,
+  //    員工會開到一個兩顆鈕全灰的彈窗、看到「至少要選一件才能建箱」,像是他自己忘了選。
+  it('🔴 品項都在、但一件都出不了 → 一樣不開窗(不是開一個全灰的彈窗給他)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, remaining: 0, blockedReason: 'not_arrived' }],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/沒有任何一件出得了/)).not.toBeNull());
+    expect(
+      screen.queryByRole('dialog'),
+      '全部出不了卻開了窗 ⇒ 員工面對一個什麼都按不動的彈窗,錯誤訊息還說是他沒選。',
+    ).toBeNull();
+  });
+
+  it('🔴 只要有一件出得了就要開窗(不能因為清單裡有出不了的就整批擋掉)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [{ ...CANDIDATE, orderItemId: 'oi-0', remaining: 0, blockedReason: 'not_arrived' }, CANDIDATE],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeNull());
+    expect(
+      screen.queryByText(/沒有任何一件出得了/),
+      '清單裡混了出不了的品項就把整批擋掉 ⇒ 到貨的東西寄不出去(把 every 寫成 some 就是這個症狀)。',
+    ).toBeNull();
   });
 
   it('🔴 查不到共同客人(跨客人)→ 不開窗', async () => {
