@@ -61,21 +61,15 @@ export function cancelItemQtyField(orderItemId: string): string {
   return `${CANCEL_ITEM_QTY_PREFIX}${orderItemId}`;
 }
 
-/**
- * 產一把冪等 token。
- *
- * 🔴 產生點必須在 server component 的渲染期、且**不得落在任何快取層內**
- * (`unstable_cache` / `React.cache` 會把 token 凍住 ⇒ 多次載入拿到同一把 ⇒ 第二個人送出時
- *  直接撞冪等格)。理由與前例逐字同 `note-action-state.ts:47-51`。
- *
- * 🔴 **形狀驗證刻意不另寫一條正規式**(plan §2 慣例 5):直接用 `note-action-state` 的 `isUuid`
- * —— 那裡的註解 `:61-68` 記著關卡2 抓過的漂移面(同一條正規式養兩份,總有一天會不一樣)。
- * ⚠️ 代價寫清楚:取消線因此**依賴備註線的檔案**。這是刻意的取捨(單一真相 > 模組獨立),
- *    真要拆得把 `isUuid` 抽到共用檔、兩邊一起改,不是在這裡複製一份。
- */
-export function generateCancelRequestToken(): string {
-  return crypto.randomUUID();
-}
+// 🔴🔴 **`generateCancelRequestToken` 已於 #363 搬走** → `./cancel-request-token.ts`
+//    (該檔 `import 'server-only'` ⇒ client 檔 import 它會在 **build 期**紅,逐字錯誤訊息與
+//     實測方法寫在那支檔頭)。
+//    **搬走的理由 = 本檔必須維持 client-safe**(見檔頭 `:6-13`:兩支 `'use client'` 元件
+//    在 import 本檔拿欄位名常數)⇒ 產生器留在這裡就永遠只能靠文字層守門。
+//    🔴 **不要在本檔 re-export 它** —— re-export 會把 `server-only` 拉回 client 模組圖,等於白做。
+//    ⓘ 驗證器 `isCancelRequestToken`(下面那支)**刻意留在本檔**:純形狀檢查、client-safe,
+//      而且解析器與 D3 classifier 都要用。「產生器與驗證器同源」那條守門因此改成跨兩檔驗
+//      (`cancel-request-token.test.ts`),不是不驗了。
 
 /**
  * 🔴🔴 **D4 / D5 的承接義務 —— 這段是 D2b 刪除舊 state 族時「搶救」出來的**。
