@@ -159,7 +159,8 @@ PASS=0; FAIL=0; KEYS=""
 #    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
 #    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
-EXPECT_TOTAL=29   # 🔴 量出來的(**21** 逐支〔19 支 w 線 + b2s2b + a7t〕 + SET-MATCH + **六發靶** + NO-WRITEBACK)。全綠 PASS = 29 + 2 = 31。
+EXPECT_TOTAL=30   # 🔴 量出來的(**21** 逐支〔19 支 w 線 + b2s2b + a7t〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS)。全綠 PASS = 30 + 2 = 32。
+                  # 🔴 2026-08-10 殘項 A:29→30,新增 EXCLUDED-REASONS(三支明文不收的 harness,排除理由的失效條件)。
                   # 🔴 2026-08-10 #354:27→29,新增 TMUT-COV-EXITS / TMUT-COV-INCONC 兩發常設靶。
                   # 🔴 W7d-1(2026-08-08)新增 scripts/w7d1-verify.sh ⇒ harness_set() 的 ^w[0-9] 自動撈得到它,
                   #    但**格數與 KEYS_FROZEN 是手動字面**、不會自己長 —— 關卡2 抓到這個漏。
@@ -229,6 +230,54 @@ RS="$(grep -v '^#' "$LEDGER" 2>/dev/null | cut -f1 | grep -v '^$' | sort | tr '\
 [ "$HS" = "$RS" ] \
   && ok SET-MATCH "harness 集合($(printf '%s' "$HS" | wc -w | tr -d ' ') 支)與收據集合逐字相等 ⇒ 新片落檔沒記帳會紅在這裡" \
   || bad SET-MATCH "集合不符。有 harness 沒收據:[$(comm -23 <(printf '%s' "$HS" | tr ' ' '\n' | sort) <(printf '%s' "$RS" | tr ' ' '\n' | sort) | tr '\n' ' ')] 有收據沒 harness:[$(comm -13 <(printf '%s' "$HS" | tr ' ' '\n' | sort) <(printf '%s' "$RS" | tr ' ' '\n' | sort) | tr '\n' ' ')]"
+
+# 🔴🔴 **殘項 A(B-357 盤點,主視窗裁 A→C→B 序):三支「明知有洞、明知不在帳上」的
+#    排除理由,補失效條件。** 檔頭 `:58-68` 逐支寫了為什麼不收,但那三條理由都是
+#    **時點觀察**:改成自帶隨機埠、讓它自己 provision、或哪天把卡死修好,理由就不成立了,
+#    而**沒有任何機制在複查**(memory `feedback_withdrawal-reason-needs-expiry-condition`)。
+# ⇒ 每支釘一個「排除理由還成立」的可觀測證據;證據不見了就判紅、要人重看該不該收進帳。
+#
+# 🔴🔴 **誠實邊界(這一格的實力就到這裡,別讀成更多)**:
+#    它檢查的是**排除理由的證據**,不是排除理由的**真假**。
+#    例:n3 可以保留 `require_free_port` 卻改成隨機埠 —— 證據還在、理由其實已經失效,這格不會紅。
+#    它擋的是「**證據整條消失**卻沒人重看」,不是「理由被悄悄改成別的意思」。
+#    ⚠️ 「證據消失」也**只在錨點真的唯一指向那個機制時**才等於「理由消失」——
+#       第一版 b2s1 就栽在這裡(錨點同時命中一段散文,刪掉真機制後仍恆綠)。
+#       ⇒ 每個錨點都要**用守門那條命令本身**去數命中次數,不是用另一條看起來等價的。
+#    真正要關那半,得逐支讀懂它們 —— 那是殘項 B 的工作(主視窗已登記日班)。
+# ⚠️ 落字(本輪 code-reviewer 建議):本格的判別力是**人工一次性突變**跑出來的
+#    (四種失效各一發、每發驗錨點真的移除、跑完驗三支 harness 指紋逐位元不變)——
+#    腳本沒有隨片留檔 ⇒ 「零回寫」這句在**這一次**是實測、但**不是常設可重跑的證據**。
+#    下次動這一族時,突變腳本要一併留痕。
+EXCL_BAD=""
+# 🔴🔴 **本輪 code-reviewer must-fix:錨點必須用 `grep -E`(行錨),不能用 `grep -F`(子字串)。**
+#    第一版 b2s1 的錨點是固定字串 `exit 2`,而它在該檔命中**兩處**:`:25` 是真正的停用機制,
+#    `:32` 只是註解裡用反引號引用它。⇒ **真實的失效(有人重新啟用、刪掉 `:25`)之後,
+#    `:32` 那段散文仍然命中 ⇒ 這一格對 b2s1 恆綠**,而它存在的唯一理由就是要擋那件事。
+#    🔴 **根因是我驗唯一性時用錯判準**:我用 `^exit 2$`(命中 1)確認「唯一」,
+#       而守門實際用的是 `grep -F`(命中 2)——**驗證的判準與守門的判準不是同一個**,
+#       所以那句「唯一」從頭到尾沒有被真的驗過。下次釘錨點:**用守門那條命令本身去數**。
+excl_check() {  # excl_check <harness> <錨點 ERE(必要時用 ^…$ 釘行)> <排除理由一句話>
+  if [ ! -f "$SCRIPTS/$1" ]; then
+    EXCL_BAD="$EXCL_BAD [$1 檔案不見了 ⇒ 排除清單過期]"
+  elif ! grep -qE "$2" "$SCRIPTS/$1"; then
+    EXCL_BAD="$EXCL_BAD [$1 的排除理由「$3」失去證據(找不到 \`$2\`)⇒ 重看它該不該進帳]"
+  fi
+}
+# · n3:需要一個**空 port**;它自己有一道顯式的 require_free_port ⇒ 那道就是「需要固定空埠」的證據
+excl_check n3-verify.sh                "require_free_port"              "需空 port,多視窗常被佔 ⇒ 進帳會變假紅來源"
+# · s1b:需要外部 provision 先建庫;它在 fixture 取不到時明講「provision 是否跑過?拒跑」
+# 🔴 錨點**不含正規式元字元**:原本用「provision 是否跑過?拒跑」,那個 `?` 是 **ASCII** 不是全形
+#    ⇒ 在 ERE 裡是量詞、整條比不到,換成 -E 的當下這格就紅了(fail-closed 正確,但那是我的錯)。
+#    這正是上面那條教訓的即時複現:**用守門自己的命令去數**,不要憑「看起來等價」。
+#    現用錨點以守門的 `grep -E` 實數 = 1 命中。
+excl_check s1b-verify.sh               "provision 是否跑過"              "需外部 d1t2-rehearsal provision,不自足"
+# · b2s1:被自己的 exit 2 停用(已知卡死)
+# 🔴 **行錨**:`exit 2` 這三個字在該檔出現兩次(`:25` 真停用 / `:32` 註解引用)⇒ 必須釘行
+excl_check b2s1-concurrency-probe.sh   "^exit 2$"                       "自己 exit 2 停用(已知會卡死)"
+[ -z "$EXCL_BAD" ] \
+  && ok EXCLUDED-REASONS "三支明文不收的 harness,排除理由的證據都還在(n3=require_free_port / s1b=未 provision 時拒跑 / b2s1=行錨 ^exit 2$ 的停用機制)⇒ 證據整條消失時會紅在這裡" \
+  || bad EXCLUDED-REASONS "排除理由失效:$EXCL_BAD ⇒ 這三支的回歸目前零自動化,理由不成立就要重新判定該不該收進帳"
 
 echo "══ 3. 🔴 靶(六類真實失效各一發;在副本上動手腳)═══════════"
 # 🔴 判別力的形狀:**改壞值、保留結構**。六發各打一種**本線真的發生過**的失效,
@@ -390,7 +439,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-a7t RECEIPT-b2s2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS RECEIPT-a7t RECEIPT-b2s2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
