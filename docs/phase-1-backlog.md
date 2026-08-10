@@ -5728,10 +5728,17 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #220c. 🏷️ /products 品牌篩選側欄仍用 MOCK_BRANDS — 真資料單一品牌、選其他 chip 0 結果
+### #220c. ✅ /products 品牌篩選側欄仍用 MOCK_BRANDS — 真資料單一品牌、選其他 chip 0 結果
 
-- **狀態:** ⏳ 待排(#220 衍生、非靜默壞篩選〔本條即揭示〕;不阻結帳/逛街)
-- **優先級:** 🟡 低(真資料現只 RPM CARBON 單一品牌、品牌篩選實質無用、不阻 #220 逛街動線)
+- **狀態:** ✅ 完成 —— 兩個消費端都早已換掉寫死名單(2026-08-11 S 窗實查關檔)。
+  - `ProductsPage.tsx` 檔頭逐字:「品牌(C3/#220c):`buildBrandTaxonomy(products)` ←(只列**有真商品**的品牌、
+    **取代寫死 MOCK_BRANDS**)」。
+  - `BrandIndex.tsx` 檔頭逐字:資料源已從 `MOCK_BRANDS`(17 家)換成 `BRAND_CONTENT`(20 家),
+    並記著「前一版的既有落差(akrapovic / ebc / k-speed **有商品卻不在 17 家名單上**)**本片一併消失**」。
+  - `MOCK_BRANDS` 今天只剩 `app/dev-preview/filter-{top,side,drawer}` 三個預覽頁在用,**不在客人路徑上**。
+  - ⚠️ 本條原文的前提「真資料 p.brand 恆為 'RPM CARBON'(目錄唯一品牌)」也早已過期 ——
+    2026-08-11 實查可見商品共 **16 家供應商**。引用本條前先看這一行。
+- **優先級:** 🟡 低(已解決)
 - **問題:**
   - #220 把 /products 商品列表遷真 Supabase 目錄,但品牌篩選側欄(FilterSide/CascadeFilterTop 的 data.brands)仍用 MOCK_BRANDS(17 個 design 品牌:LIGHTECH/RIZOMA/BREMBO…)。
   - filterProducts 用品牌名比對(MOCK_BRANDS id→name→lowercase vs p.brand.toLowerCase());真資料 p.brand 恆為 'RPM CARBON'(目錄唯一品牌)→ 只勾「RPM CARBON」chip 有結果、選其他 16 個 chip silently 回 0 商品。
@@ -6937,7 +6944,18 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #277. 🚗 車輛下拉/taxonomy 只讀 direct fitment(純 inherited 子款選不到、S1-F11)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🔶 **施工中,刻意拆兩段(2026-08-11 S 窗)**
+  - **段一(本 commit)= migration 先行**:新增 `vehicle_taxonomy_public` view
+    (`supabase/migrations/20260811020000_…`)。⛔ **未 apply**,排批三。
+  - **段二(等段一 apply 後)= app 層接線**:`lib/products.ts` 的 `getVehicleTaxonomyCached`
+    換源 + 快取鍵 `vehicle-taxonomy-v1` → `v2`。code 已寫好存成 patch,**刻意不與段一同 commit**。
+  - 🔴 **為什麼拆**:`database.types.ts` 是產生的,view 沒 apply 前它不存在 ⇒ 接線 typecheck 紅。
+    不繞過型別的正解就是等 apply → 重 gen 型別 → 再接線;這也正是
+    memory `feedback_app-layer-must-not-ship-before-migration-apply`(08-07 正式站壞 8 小時)那條規則。
+  - **量化**:direct 2,196 組 vs effective 2,390 組 ⇒ **198 組(8.3%)客人選不到**
+    (MT-07 ABS / Ninja 400 SE / CB650R Neo Sports Cafe / GL 1800 Gold Wing Tour…)。
+  - **取捨與代價**:見 migration 檔頭 §2/§3 與 **#389**(正解 matview)。
+    主視窗 2026-08-11 裁 B1、以更正後口徑(37 組幽靈)重新確認,**待 Sean 晨間追認**。
 - **優先級:** 🟠 中
 - **問題:**
   - `buildVehicleTaxonomy` / `fetchVehicleTaxonomy` 只掃 `products_public.fitments`(direct 原始值);S1 後搜尋層已含 `product_fitments_effective` 展開(inherited),但**只存在展開層的子款**(某車系純推導、無商品 direct 標它)不會出現在車輛下拉 → 客人選不到、RPC 能力被入口閘住。年份同理(direct 2021-2024 + inherited 補 2025 → 2025 選不到)。
@@ -9841,3 +9859,36 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **形狀**:`actorId` 欄名字面散落兩處,無共用常數;typo 症狀=cookie 靜默未寫、無任何紅燈。
 - **修法**:抽單一常數+兩處引用;順手一格「錯欄名必失敗」負測。體積=輕量片。
 - **不修會痛在哪**:未來重構誰動到那兩個字面,後台操作者身分追蹤斷線且無聲(audit actor 來源)。
+
+### #389. 🚗 車輛下拉的正解:`vehicle_taxonomy_public` 改 materialized view(#277 B1 的技術債)
+
+- **狀態:** ⏳ 待執行(2026-08-11 隨 #277 B1 一起立案;B1 是取捨、本條是正解)
+- **優先級:** 🟠 中(B1 已讓 198 台熱門車看得到;本條修的是 B1 付出的那個代價)
+- **背景**:#277 的 view 為了避開 anon 逾時,**刻意不排除下架商品的車款**
+  (`security_invoker = false` + 不 join `products`)。實測數字:
+
+  ```text
+  DISTINCT + EXISTS(母商品未下架)   3,047 ms   ❌ 超過 anon 的 statement_timeout = 3s
+  DISTINCT 四欄、不看下架             52 ms     ✅(走 ix_pfe_lookup 的 Index Only Scan)
+  ```
+
+  代價 = 會出現「下拉選得到、點進去 0 結果」的**幽靈項**;2026-08-11 四欄實測 **37 組**(13,133 vs 13,096,0.28%),
+  其中僅 1 組是整個車型、其餘 36 組是**車型還在、但某個年份區間空手**。
+  🔴 **這個數字被更正過**:第一版用兩欄 `(moto_brand, model_code)` 對帳報成「1 組」,
+  粒度與 view 的四欄唯一性不一致 ⇒ 漏掉幽靈年份區間;由 codex 對抗審查抓出、實查更正為 37。
+  **B1 的取捨是在「1」這個錯數字上拍的,已回報主視窗重新確認。**
+- 🔴 **失效條件(這條就是為它而立)**:那個 37 是**時點觀察**。大量下架(換供應商、清目錄)時
+  幽靈數會跟著長,而症狀是**客人選得到、結果 0 筆 —— 客人看得到、系統不會叫、測試不會紅**。
+  對帳查詢(**四欄版**)寫在 `supabase/migrations/20260811020000_…_vehicle_taxonomy_effective_view.sql` §3,
+  任何人都可以跑;數字明顯變大就該把本條排上來。
+- **預期解法**:把該 view 改成 **materialized view**,內容是**正確的 join 版**(排除下架)。
+  讀取近乎零成本 ⇒ 正確與速度同時拿到,代價是 refresh。
+- 🎁 **refresh 掛點是現成的**(2026-08-11 查 `lib/products.ts` 檔頭發現,省下一輪偵察):
+  報價單側已有**台灣 11:30 的 `sync_storefront_fitments`** 每日寫網站庫 `product_fitments_effective`
+  ⇒ 那就是天然的 `REFRESH MATERIALIZED VIEW` 位置。
+- ⚠️ **歸屬跨 repo**:寫入方在報價單(PCM_Quote)的 ingest 鏈,不在本 repo
+  ⇒ 開工前要先跟那側對齊誰負責 refresh、失敗了誰會知道(refresh 靜默失敗 = 清單凍在舊資料)。
+- **不修會痛在哪**:可追蹤性 —— 幽靈車型的症狀對客人可見、對系統不可見,只有人工跑對帳查詢才看得到;
+  拖越久、目錄異動越多,那個數字就越可能已經不是 1 了而沒人知道。
+- **編號註**:立案當下最大=#387;#388 由主視窗保留、#389 由主視窗核發給本條
+  (repo 內 `#389` grep 0 命中)。
