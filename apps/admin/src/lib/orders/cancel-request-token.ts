@@ -57,15 +57,42 @@ import 'server-only';
 //         (`lib/orders/note-form.ts:83-84`、`lib/payment/refund-form.ts:72-73`)
 //         ⇒ **送出的 token 本來就由 client 全權掌控**,本機制保證的是
 //         「不可能經由 import 共用產生器在 client 產生」,**不是**「token 由 server 權威產生」。
-//      ①b 🔴 **例外登記面不只備註線**(判斷時審查抓出、本檔尚未補齊):**出貨線是 100% client 鑄鍵**
-//         (`components/orders/shipment-void-button.tsx:36`、`components/orders/shipment-launcher.tsx:101`,
-//          兩支第一行皆 `'use client'`;檔頭逐字「冪等鍵在按下去那一刻生成一次、重試沿用同一把」)。
-//         ⇒ 下面「備註線是刻意 inline 的活例」那段**列得不全**,補齊登記=另一片,已記在 `#373` §2。
+//      ①b ✅ **例外登記面已補齊(2026-08-11,本檔的測試檔)——而且是升成機制、不是補一段散文。**
+//         當初的缺口:這份登記只點名備註線,而**出貨線是 100% client 鑄鍵**
+//         (`components/orders/shipment-void-button.tsx`、`components/orders/shipment-launcher.tsx`,
+//          兩支第一行皆 `'use client'`)。⚠️ 那句「冪等鍵在按下去那一刻生成一次」**只在
+//          `shipment-void-button.tsx` 的檔頭**、且原文標點與此處不同 ⇒ **不是兩支的逐字**
+//          (關卡2 nit-7 更正);launcher 的對應敘述在它的 state docstring。
+//         完全沒被登記,是 `#373` 判斷時審查才揭出來的。
+//         🔴 **根因不是「漏寫一行」,是「登記是散文」**:散文不會因為有人新增第五條線而轉紅。
+//         ⇒ 補齊的做法 = `cancel-request-token.test.ts` 的「client 端亂數必須逐檔**逐點**登記」守門:
+//           掃 **`apps/` 與 `packages/`** 全部 `'use client'` 檔的亂數字面,與登記表比對
+//           **`路徑 → 命中數`** ⇒ **多一個檔、或同一檔多一顆,都紅**。
+//           (突變 5 條全紅:新增未登記檔 / 登記表拿掉一支 / 掃描器恆回空 / `stripComments` 失效 /
+//            已登記檔內新長第二顆 —— 最後那條在只比對路徑集合的第一版是**全綠**的。)
+//         ⚠️ 該守門刻意掃「亂數」而不是「token」——分辨一顆亂數是不是冪等鍵要讀語意、機器做不到,
+//           而**漏判**正是這裡補的洞 ⇒ 一律攔下、由登記表逐條標註它是什麼。
+//         ⚠️ 能力邊界(**五條**)逐字寫在該守門的檔頭,別讀成「client 不可能鑄鍵」。
+//         📋 2026-08-11 枚舉結果(`apps/` + `packages/` 全掃):client 端亂數字面共 **9 處 / 5 檔**
+//           (3+3+1+1+1;分項見守門的 `REGISTERED` 表)。
+//           🔴 **這個總和我寫錯過一次(R2 審查抓到):`CartContext` 從 2 改成 3 之後,我只補了表、
+//           沒回頭重加總,留下 `6+2=8` 的殘影。** 守門抓得到表、抓不到散文裡的總數 —— 所以這種
+//           「同一個事實在兩處、只改了一處」的字面,永遠要自己回頭掃第二處。
+//           🔴 **我第一版寫「4 處 / 4 檔、沒有第五條鑄鍵線」是錯的,關卡2 審查當場打掉** ——
+//           錯了兩件事:①**掃描範圍只有 `apps/admin/src` 卻把結論寫成「全樹」**
+//           ②**把檔數抄成處數**(admin 那四檔的字面其實是 6 處不是 4 處)。
+//           漏掉的第五條是 **`apps/storefront/src/contexts/CartContext.tsx`**,而且它鑄的
+//           `cart_session_id` 是 **3DS-7 雙扣防線的去重把手**(該檔逐字:碰撞會讓兩筆不同結帳
+//           被誤判為同一筆)⇒ **比 admin 這幾條都重要**。逐檔清單與分類在守門的 `REGISTERED` 表。
+//           ⇒ **沒有第六條**:採購線刻意不做表單 token(`procurement-action-state.ts` 檔頭逐字,
+//           冪等來自業務鍵 upsert)、供應商線與儲值金/會員等級線沒有表單冪等鍵
+//           (只有 server 端 `getRequestId()` 進稽核列)。此句的效力範圍 = 守門的五條能力邊界。
 //      ② 🔴 **我上面那句括號原本寫「取消線是用渲染期鑄 + 每次整頁重繪換新解掉同一題的」——那是錯的、已刪**:
 //         取消線把 bfcache 這條路列為**已知未解**(`cancel-order-forms.tsx:67-80`,D6-a 真瀏覽器
 //         實測兩次 POST 同一顆 `rt`)。bfcache 還原的定義就是不重新渲染 ⇒ 渲染期鑄對它零覆蓋。
-//      ③ 退款線**不跟進**本機制(呼叫點全 server=今天零洞;`refund-action-state.ts` 有 client
-//         importer `refund-section.tsx` ⇒ 要加 `server-only` 得先拆模組,與本檔同形成本)。
+//      ③ 退款線**不跟進**本機制(呼叫點全 server=今天零洞;`refund-action-state.ts` 有**兩支** client
+//         importer(`refund-section.tsx`、`refund-exception-resolve.tsx`)⇒ 要加 `server-only`
+//         得先拆模組,與本檔同形成本)。
 //    ⇒ 所以 `cancel-order-forms.test.tsx` 那條**文字層守門不能刪**,它改守 **inline 產生器**那個面:
 //      **機制層擋 import、文字層擋 inline,兩層守的是不同的面。**
 //    ⇒ 正確的宣稱字面是「取消線的 token **不可能經由 import 這支共用產生器**在 client 產生」,
