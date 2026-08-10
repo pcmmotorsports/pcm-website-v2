@@ -5,10 +5,12 @@
 //    submodule 那份是過期假稿、不得回頭引用。
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
-// onNav target 對映(本檔 7 條):
+// onNav target 對映(本檔 **6 條**;2026-08-11 #269-a 移除「特價專區」後由 7 條變 6 條):
 //   'catalog' → /products / 'brands' → **/brands**(D3c-5 改回;當年 Q4-S5 指 /products 的理由是
 //      「品牌專區頁留 Phase 2、route 不存在」,那個前提在 D3c-3 落地時消失)
-//   'new' → /products?filter=new / 'sale' → /products?filter=sale(🔴 ?filter= 全站未接、backlog)
+//   'new' → /products?filter=new(🔴 `?filter=` **全站沒有任何地方在讀**、按了等於未篩選全目錄;
+//      真篩選 = backlog #269-b,要動 RPC 投影帶 created_at)
+//   ~~'sale' → /products?filter=sale~~ **2026-08-11 移除**(#269-a;Sean:特價概念還不存在)
 //   'install' → /install / 'stores' → /stores(🔶 2026-08-06 第2批已建這兩條路由、掛「新功能即將上線」
 //      ⇒ 原註解的「路由不存在=404」已失效;backlog #269 的 `/install` `/stores` 那半已解)
 //      / 'shipping' → /info/shipping
@@ -84,7 +86,11 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
             <Link href="/products">商品目錄</Link>
             <Link href="/brands">品牌專區</Link>
             <Link href="/products?filter=new">新品上架</Link>
-            <Link href="/products?filter=sale">特價專區</Link>
+            {/* 🔴 「特價專區」2026-08-11 移除(#269-a;Sean 逐字:特價這個概念**還不存在**,
+                要等商品編輯後台能設優惠價才有)。
+                ⚠️ 本檔**檔頭的 onNav 對映表原本就註記著**「🔴 `?filter=` 全站未接、backlog」——
+                那句話在這裡躺著,但沒有人把它變成行動,客人照樣天天在每一頁的頁尾看到
+                這顆按了沒反應的連結。(檔頭那段已隨本片更新。) */}
           </div>
           <div>
             <div className="ed-mono ed-footer-h">服務</div>

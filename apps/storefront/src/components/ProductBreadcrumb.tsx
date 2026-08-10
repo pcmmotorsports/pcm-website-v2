@@ -62,8 +62,15 @@ export function ProductBreadcrumb({ product }: { product: MockProduct }) {
       });
     } else if (from === 'new') {
       arr.push({ label: sourceLabel || '新品上架', href: withVehicle('/products?filter=new') });
-    } else if (from === 'sale') {
-      arr.push({ label: sourceLabel || '特價精選', href: withVehicle('/products?filter=sale') });
+    // 🔴 原 `from === 'sale'` 分支(顯「特價精選」)2026-08-11 移除(#269-a;Sean:特價概念還不存在)。
+    //    ⚠️ **這是行為改變,只是發生在 UI 到不了的路徑上** —— 兩件事要分清楚:
+    //      · 全 src 對 `?from=sale` 的**發出端** grep 零命中(唯一產生 `from` 的地方是
+    //        `ProductsPage` 的 `from: 'catalog'`)⇒ 客人**點不出**這條路徑;
+    //      · 但只要有人手打 `?from=sale`,行為**確實變了**:原本走「特價精選」crumb,
+    //        現在落到下方的 legacy fallback(商品目錄 + brand/category)。
+    //    🔴 我第一版把這寫成「不是行為改變」是錯的(code-reviewer 抓到),而且同一片的
+    //       `ProductPage.test.tsx` 註解剛好把分別講對了 ⇒ 同片兩處自打架。已統一成這段。
+    //    (同理 `from === 'new'` 今天也沒有發出端,但那是 #269-b 的範圍,本片不動。)
     } else if (from === 'home') {
       // From homepage — no extra crumb, just 首頁 → product
     } else if (from === 'search') {

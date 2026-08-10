@@ -104,7 +104,12 @@ export function Header({
     };
   }, []);
 
-  const navItems = [
+  // 🔴 型別寫明,不靠字面推導(2026-08-11 #269-a):
+  //    `sale?: boolean` 原本是**從「特價」那一列的 `sale: true` 推導出來的**,
+  //    移除那一列之後 TS 就推不到它,`:192` 的 `item.sale` 與 `MobileMenu.tsx:199` 的
+  //    `item.sale` 會直接編譯失敗。
+  //    ⇒ 這個欄位是**契約的一部分**(特價回來時要用),不是某一列的副產品,所以寫進型別。
+  const navItems: { id: string; label: string; href: string; sale?: boolean }[] = [
     { id: 'catalog', label: '商品目錄', href: '/products' },
     // 2026-08-03 Sean 拍 B 案「同落地 + 開燈」:首頁維持錨點(finder 就在同一頁、捲過去即可),
     // 其他頁改連 /products?pick=vehicle —— 落地即開燈(桌機聚焦廠牌欄、手機自動開選車面板)。
@@ -122,7 +127,17 @@ export function Header({
     //      並實際點過(不只改字面)。
     { id: 'brands', label: '品牌', href: '/brands' },
     { id: 'new', label: '新品', href: '/products?filter=new' },
-    { id: 'sale', label: '特價', href: '/products?filter=sale', sale: true },
+    // 🔴 「特價」那一顆 2026-08-11 移除(#269-a;Sean 逐字:**特價這個概念還不存在**,
+    //    要等商品編輯後台能設優惠價才有)。它原本指 `/products?filter=sale`,而 `filter`
+    //    這個 query key **全站零個地方在讀**(`lib/catalog-query.ts` 的 `parseCatalogQuery`
+    //    只認 page/per/sort/pbrand/category/pmin/pmax/price/vehicle)
+    //    ⇒ 客人按下去拿到的是**未篩選的全目錄**,而畫面上沒有任何跡象說它沒生效。
+    //    這顆在**全站每一頁**都有,桌機導覽與手機選單共用本陣列(`MobileMenu` 收 props、不自己寫一份)。
+    // ⚠️ **`sale?: boolean` 的樣式鉤子刻意留著**(本檔 `pcm-nav-item` 那個 className 模板裡的
+    //    `pcm-nav-sale`、以及 `MobileMenu` 的 `is-sale`):特價是「還沒做」不是「不做」——
+    //    後台能設優惠價時把上面那一行加回來即可,不必重接樣式。
+    //    🔴 引符號不引行號:上一版這裡寫「本檔 `:184`」,而同一片的編輯把它推到 `:197` ⇒ 當場過期。
+    //    守門 = `MobileMenu.test.tsx` 的「帶 sale:true 要掛 is-sale」那格(#269-a 補,原本零守門)。
     { id: 'install', label: '安裝預約', href: '/install' },
     { id: 'stores', label: '合作店家', href: '/stores' },
   ];

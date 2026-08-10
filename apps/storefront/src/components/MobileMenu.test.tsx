@@ -141,4 +141,27 @@ describe('MobileMenu 直接單元測試(R1 修復守門)', () => {
     // 反面:在 MobileMenu 內另寫一份真資料硬編碼清單,渲染不出 sentinel 字面 ⇒ 這條轉紅。
     expect(links.map((l) => l[0])).not.toContain('商品目錄');
   });
+
+  // 🔴 2026-08-11 #269-a 補:`sale?: boolean` → `is-sale` 這條樣式鉤子**原本沒有任何守門**。
+  //    當時「特價」是唯一帶 `sale: true` 的導覽項,把它移除後我在 backlog 寫了
+  //    「鉤子仍有測試覆蓋、恢復時不必重接樣式」—— **那句是假的**:全 repo 對
+  //    `is-sale` / `pcm-nav-sale` 的斷言只剩 `Header.test.tsx` 那格的 `toEqual([])`,
+  //    也就是**刪掉 `MobileMenu.tsx` 的 `className={item.sale ? 'is-sale' : undefined}`
+  //    整套 6876 案照樣全綠**,那個承諾等於沒人守。(code-reviewer 抓到。)
+  //    ⇒ 這一格用本檔既有的 `REAL_NAV` fixture(它仍帶一列 `sale: true`)把鉤子釘住:
+  //    突變「拿掉那個 className 三元」⇒ 只有這一格紅。
+  it('🔴 帶 sale:true 的項目要掛上 is-sale class(樣式鉤子的唯一守門、#269-a 補)', () => {
+    // ⚠️ 本檔的 `openMenu()` 直接回 panel 元素(不是 `{ panel }`)—— 與 `Header.test.tsx`
+    //    同名 helper 的回傳形狀不同。第一版我照 Header 那邊的形狀解構,typecheck 直接紅。
+    const panel = openMenu();
+    const saleLinks = Array.from(panel.querySelectorAll<HTMLAnchorElement>('a.is-sale')).map((a) =>
+      a.textContent?.trim(),
+    );
+    expect(saleLinks, 'sale:true 的項目沒有掛 is-sale ⇒ 樣式鉤子斷了,而特價恢復時會靜默沒有樣式').toEqual(['特價']);
+    // 反面:沒有 sale 標記的項目不得掛上(擋「全部都掛」那種恆真實作)。
+    const catalog = Array.from(panel.querySelectorAll<HTMLAnchorElement>('a')).find(
+      (a) => a.textContent?.trim() === '商品目錄',
+    );
+    expect(catalog?.className ?? '').not.toContain('is-sale');
+  });
 });
