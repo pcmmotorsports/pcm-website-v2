@@ -25,6 +25,13 @@ Codex 是**不同模型(OpenAI gpt-5.5)**,比 Claude 審 Claude 更對抗(無共
    - **防線分層(誠實)**:settings.json deny 擋 `codex fix` / `apply` / `a`(明確會改檔的子命令);但 deny **無法**精準「只擋非唯讀 exec、放行唯讀 exec」(pattern 重疊)→ `codex exec` 的唯讀紀律靠**本 skill 強制每次帶 `-s read-only`** + 下方第 4 點 baseline 比對當實質防線,**非全靠 hard deny**。
 4. **跑 codex 前後各取 `git status --porcelain` 比對一致**(確認 codex 沒新增 / 改任何檔)。⚠️ 審 staged 變更時 status 本就非空(會列已 staged 檔)→ 看的是「**有無新增變動**」、不是「空」。跑後比跑前多出東西 → 停下回報 Sean(Codex 異常動手)。
 5. **成本意識(2026-05-29 校正):** codex exec 是 **agent 翻 repo**(會 git diff / grep / 開檔、每輪 re-send 全 context)、**不是讀一份包** → 實測累計 **~0.5M–1.4M input token/次**(非舊註的 28k)、gpt-5.5 API key 計費約 **$0.8–2/次**。故嚴格照下方「觸發範圍」控量、且每 slice 限輪數(見關卡2)、非每 commit。
+6. 🔴 **窄化交辦(2026-08-10 Sean 指示立制;不窄化=實測 10 分鐘翻無關 docs、4027 行輸出零 findings、額度全費)**,每次 codex 呼叫必照:
+   - **diff 直接餵進 prompt**:`git diff --cached`(或 plan 全文)貼進交辦,**不叫 codex 自己翻 repo 找對象**。
+   - prompt 明文兩條限制:**禁 grep/搜尋全 repo**;**最多另開 N 個白名單檔**(逐一列路徑,N≤5)。
+   - **審查角度逐條列**(3-4 條),且**主視窗/前輪已給的錨點先寫進 prompt**(標「已知,直接驗」),免得被當新 finding 再繞一輪。
+   - **背景跑**(`run_in_background` 或 `&`)+輸出導 `/tmp/codex-out-*.txt`;**timeout 12 分**,逾時=殺掉、只准再窄化重跑一次(同一件事 2 輪封頂,第 2 輪仍逾時或零 findings=認列缺口回報主視窗,不跑第 3 輪)。
+   - 大 diff(>1500 行)拆段餵、或改附「檔案清單+行區間」;審 plan 同理(plan 全文貼入、禁翻 docs/)。
+   - 實證:E 窗 #363 關卡2 第 1 輪未窄化=逾時零產出;第 2 輪窄化(diff 372 行入 prompt+白名單 3 檔)=45,877 tokens 正常吐 4MF+1nit。
 
 ## 觸發範圍(客觀判定、自己決定、不問 Sean)
 
