@@ -408,6 +408,10 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    admin_search_orders (zero DDL, zero data, zero shipping objects; grep = 0 hits)
 #    => shipping oracles unchanged, no md5 re-measure needed. Main-window re-pin, D-line migration.
 #    Ledger: full re-record done (w7-coverage record all); MD5_HELPER_4AXIS unchanged.
+# 🔴 重釘 2026-08-10(OP5):20260810160000 -> 20260810200000 = admin_record_manual_payment
+#    (人工軌 bank_transfer/cash 收款登錄 RPC;只碰 orders/order_payments/staff 三張表,零 DDL 於出貨面)。
+#    對新 migration 跑本檔要求的 grep recompute|order_item_qty|oiqs|shipment = **0 命中**(實跑,不是推的)
+#    ⇒ 出貨面 oracle 不受影響、不需重量 md5;MD5_HELPER_4AXIS 未動。帳:同批重錄。
 # 🔴 重釘 2026-08-10(OP3):20260810150000 -> 20260810160000 = confirm_order_payment 的 card 腿
 #    (B 窗原鏈 130000->160000;merge dev 後前兩跳=上面 L5b-1/3c-3 兩段,主視窗收割時聯集改齊)
 #    (付款確認同交易往 order_payments 插一列 + seed 一列停用 staff)。只碰 orders/order_payments/staff。
@@ -417,8 +421,8 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    ⇒ 出貨面 oracle 不受影響、不需重量 md5;MD5_HELPER_4AXIS 未動。
 #    帳:已整輪重錄(w7-coverage record all)。
 #    (本段原以英文寫成、與同檔其餘繁中不一致 ⇒ 三線審查 nit,已改齊。)
-[ "$NEWEST_TS" = "20260810160000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260810160000 ——
+[ "$NEWEST_TS" = "20260810200000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260810200000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 

@@ -82,7 +82,7 @@ MODE="${1:-check}"
 #    它若不在本集合裡,`record all` 永遠跑不到它 ⇒ 帳面照樣全綠,而
 #    「重放不落第二列」「翻單與落帳同生共死」「actor 守門 P2B36」的回歸**沒有任何自動化在看**。
 #    它自足(all 模式自己 provision + teardown)、只認 PORT 與 workdir ⇒ 收編成本同 op2b。
-EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh op2b-verify.sh op3-verify.sh"
+EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh op2b-verify.sh op3-verify.sh op5-verify.sh"
 harness_set() {
   { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$'
     for e in $EXTRA_HARNESSES; do [ -f "$SCRIPTS/$e" ] && printf '%s\n' "$e"; done
@@ -103,6 +103,7 @@ invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
     op2b-verify.sh) printf 'PORT=54367 bash scripts/%s all /tmp/op2bcov' "$1" ;;
     # 🔴 op3 同款隔離:它預設 PORT=54371,這裡改用專屬埠與 workdir,免得撞到手跑那一輪。
     op3-verify.sh) printf 'PORT=54368 bash scripts/%s all /tmp/op3cov' "$1" ;;
+    op5-verify.sh) printf 'PORT=54369 bash scripts/%s all /tmp/op5cov' "$1" ;;
     *)               printf 'bash scripts/%s' "$1" ;;
   esac
 }
@@ -180,8 +181,9 @@ PASS=0; FAIL=0; KEYS=""
 #    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
 #    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
-EXPECT_TOTAL=33   # 🔴 量出來的(**23** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 33 + 2 = 35。
+EXPECT_TOTAL=34   # 🔴 量出來的(**24** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3 + op5〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 34 + 2 = 36。
                   # 🔴 2026-08-10 OP3 片:32→33,新增 MIG-PREFIX-UNIQ(本片自己撞號兩次,見該格上方理由)。
+                  # 🔴 2026-08-10 OP5 片:33→34,收編 op5-verify.sh(人工軌登錄 RPC 的行為證據全在那支;不收編就等於本線沒人跑)。
                   # 🔴 2026-08-10 OP3 片:31→32,收編 op3-verify.sh(見 EXTRA_HARNESSES 上方理由)。
                   # 🔴 2026-08-10 OP2b 片(code-reviewer MF3):30→31,收編 op2b-verify.sh(見 EXTRA_HARNESSES 上方理由)。
                   # 🔴 2026-08-10 殘項 A:29→30,新增 EXCLUDED-REASONS(三支明文不收的 harness,排除理由的失效條件)。
@@ -461,7 +463,7 @@ fi
 #          不該由檔名排序決定(同 PROBE 那段的教訓)。
 EXITS_PROBE="w5-line-verify.sh"
 EXITS_MAP_NOW="$(for h in $(harness_set); do printf '%s=[%s] ' "$h" "$(exits_of "$h")"; done | sed 's/ *$//')"
-EXITS_MAP_FROZEN="a7t-concurrency-probe.sh=[0] b2s2b-verify.sh=[0 3] op2b-verify.sh=[0] op3-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
+EXITS_MAP_FROZEN="a7t-concurrency-probe.sh=[0] b2s2b-verify.sh=[0 3] op2b-verify.sh=[0] op3-verify.sh=[0] op5-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
 if [ "$EXITS_MAP_NOW" != "$EXITS_MAP_FROZEN" ]; then
   bad TMUT-COV-EXITS "exits_of 對照表漂了。現行:[$EXITS_MAP_NOW]。⇒ 放寬任何一支的允許出口碼都要有人看(#354)"
 elif ! harness_set | grep -Fqx "$EXITS_PROBE" || ! grep -Fq "$EXITS_PROBE	" "$LEDGER" 2>/dev/null; then
@@ -519,7 +521,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS MIG-PREFIX-UNIQ RECEIPT-a7t RECEIPT-b2s2b RECEIPT-op2b RECEIPT-op3 RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS MIG-PREFIX-UNIQ RECEIPT-a7t RECEIPT-b2s2b RECEIPT-op2b RECEIPT-op3 RECEIPT-op5 RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
