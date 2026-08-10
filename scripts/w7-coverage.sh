@@ -108,6 +108,20 @@ invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
     *)               printf 'bash scripts/%s' "$1" ;;
   esac
 }
+# 🔴 record 跑完必須自己收掉那座拋棄式 cluster。實查(看**實際呼叫**不看註解):
+#    a7t=`trap teardown EXIT` 自清 / op2b、op3 在 all 尾端真的 teardown 並驗埠 /
+#    **b2s2b、op5、opa12 從來沒呼叫過**,只印一行「請自己收」。
+#    後果不是理論:同一支連錄兩次,第二次必被自己上一輪的 postmaster 佔埠、
+#    fail-closed 成 `exit=2 / PASS=0 / FAIL=-1`,而收據只寫得出「不綠」、不會說是埠。
+#    ⇒ 這裡統一收尾。**埠與 workdir 不另抄一份**,直接從 invoke_of 的字面解析
+#      (抄第二份 = 改埠時只改一邊的漂移風險);解析不到就當它不用拋棄式庫、跳過。
+cleanup_of() { # $1=harness 檔名 → 印出 "PORT WORKDIR",無則印空
+  local cmd p w
+  cmd="$(invoke_of "$1")"
+  p="$(printf '%s' "$cmd" | grep -oE '(^|[[:space:]])[A-Z0-9_]*PORT=[0-9]+' | grep -oE '[0-9]+$' | head -1)"
+  w="$(printf '%s' "$cmd" | grep -oE '/tmp/[A-Za-z0-9_.-]+' | head -1)"
+  [ -n "$p" ] && [ -n "$w" ] && printf '%s %s' "$p" "$w"
+}
 exits_of() {   # $1=harness 檔名 → 印出允許的出口碼(空白分隔)
   case "$1" in
     # 🔴 b2s2b 的 `exit 3` 是**刻意的第三態**(`:2935`:INCONC 待裁格 > 0),不是失敗。
@@ -153,6 +167,35 @@ if [ "$MODE" = "record" ]; then
     IC="$(printf '%s' "$OUT" | sed -n 's/.*INCONCLUSIVE=\([0-9]*\).*/\1/p' | tail -1)"
     [ -n "$IC" ] || IC=0
     printf 'PASS=%s FAIL=%s exit=%s inconc=%s\n' "$P" "$F" "$EX" "$IC"
+    # 🔴 收尾:**成功與失敗兩條路徑都要收**(失敗那次留下的 cluster 一樣會擋死下一支;
+    #    這正是實際踩到的形狀)⇒ 放在這裡、不放在任何 if 裡面。
+    #    對已自清的 a7t / op2b / op3 是 no-op(目錄已不在,teardown 拒絕後被 || true 吃掉)。
+    CLEAN="$(cleanup_of "$h")"
+    if [ -n "$CLEAN" ]; then
+      CPORT="${CLEAN%% *}"; CWORK="${CLEAN##* }"
+      PORT="$CPORT" bash "$SCRIPTS/d1t2-rehearsal.sh" teardown "$CWORK" >/dev/null 2>&1 || true
+      # 🔴 teardown 的退出碼證明不了埠的狀態(op2b 關卡2 #11 的教訓)⇒ 另外驗埠。
+      if lsof -nP -iTCP:"$CPORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+        LEFT_PID="$(lsof -nP -iTCP:"$CPORT" -sTCP:LISTEN -t 2>/dev/null | tr '\n' ' ')"
+        LEFT_DD="$(psql "postgresql://postgres@127.0.0.1:$CPORT/postgres" -qtA -c "SELECT current_setting('data_directory')" 2>/dev/null)"
+        echo "   🔴 $h 跑完後 port $CPORT 仍有人聽(pid: $LEFT_PID / data_directory: ${LEFT_DD:-查不到})" \
+             "⇒ 下一支 record 會被它 fail-closed 成 exit=2"
+        # 🔴 只有在那座**確實是本表的 workdir** 時才敢叫人收 —— 佔埠的可能是別的 workdir
+        #    甚至別的視窗(本輪實測過這個情境);叫錯人去 teardown 等於教人砍別人的庫。
+        if [ "$LEFT_DD" = "$CWORK/pgdata" ]; then
+          echo "      ↳ 那座就是本表的 workdir,手動收:PORT=$CPORT bash scripts/d1t2-rehearsal.sh teardown $CWORK"
+        else
+          echo "      ↳ ⚠️ 它的 data_directory 不是本表的 $CWORK/pgdata ⇒ **可能是別人的庫,不要逕自 teardown**;先用 pid $LEFT_PID 查清楚是誰的"
+        fi
+        REC_BAD=$((REC_BAD+1))
+      fi
+    fi
+    # 🔴 失敗訊息要點名埠:harness 自己印的「port 被佔用」原本被總結行吃掉,
+    #    帳面只剩 `exit=2 / PASS=0 / FAIL=-1`,看的人不知道是埠。⇒ 把它那幾行撈回來。
+    case " $(exits_of "$h") " in
+      *" $EX "*) : ;;
+      *) printf '%s' "$OUT" | grep -E '🔴|被佔用|port [0-9]+' | head -3 | sed 's/^/   ↳ /' ;;
+    esac
     # 🔴 R1 F7:原本 `|| true` 之後無條件 mv —— grep 因「無匹配」**以外**的原因失敗
     #    (檔不可讀、磁碟滿)時 tmp 是空的,整本收據會被靜默清空、只剩本支那行。
     #    grep 的退出碼:0=有匹配、1=無匹配(正常)、≥2=真的出錯 ⇒ 只有前兩者才敢 mv。
