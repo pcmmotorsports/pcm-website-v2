@@ -97,6 +97,12 @@ function withPostMethod(html: string): string {
   return html.replace('<form ', '<form method="post" ');
 }
 
+/**
+ * A13b E1 之後 `maxCancellable: 2` 的品項會多渲染一個數量覆寫欄。
+ * 🔴 **本檔量的是「JS 不在場」那一側** —— `renderToStaticMarkup` 沒有 React runtime
+ *    (檔頭 `:35-42`),所以這裡看到的行為就是員工把 JS 關掉 / 還沒 hydrate 時的行為。
+ *    E1 的三格全部退化成原行為,而**挑數量仍然可用**(覆寫欄是原生控制項、沒有任何值由 JS 組)。
+ */
 async function renderPartial(): Promise<string> {
   const { PartialCancelForm } = await import('./cancel-order-forms');
   return renderToStaticMarkup(
@@ -224,5 +230,42 @@ describe('D6-a 判別力邊界:這個 harness 抓得到什麼', () => {
     // 兩次都是 partial ⇒ 這個 harness 對「radio 形狀」沒有判別力。實測結果照實釘住。
     expect(bodies).toHaveLength(2);
     expect(bodies.every((b) => b.includes('cancel_mode=partial'))).toBe(true);
+  }, 60_000);
+});
+
+describe('A13b E1 真瀏覽器(JS 不在場側):數量覆寫欄照樣送得出去', () => {
+  it('🔴 改成 1 件送出 ⇒ body 帶 cancel_item=<id>:2 與 cancel_item_qty__<id>=1', async () => {
+    // 🔴 checkbox 的值仍是 `:2`(可取消上限)、覆寫欄才是員工挑的數字 ——
+    //    兩個都要在 body 裡,解析器才有東西可以比上界(`cancel-form.ts` 的 `applyQuantityOverride`)。
+    const html = withPostMethod(await renderPartial());
+    const bodies = await withPage(html, async (page) => {
+      await page.check('input[name="cancel_item"]');
+      await page.fill(`input[name="cancel_item_qty__${ITEM}"]`, '1');
+      await page.selectOption('select[name="reason_code"]', 'out_of_stock');
+      await page.click('button[type="submit"]');
+      await page.waitForSelector('#done', { timeout: 10_000 });
+    });
+
+    expect(bodies).toHaveLength(1);
+    const params = new URLSearchParams(bodies[0]!);
+    expect(params.get('cancel_item')).toBe(`${ITEM}:2`);
+    expect(params.get(`cancel_item_qty__${ITEM}`)).toBe('1');
+    expect(params.get('cancel_mode')).toBe('partial');
+  }, 60_000);
+
+  it('🔴 零 JS 之下說明欄仍在、送出鈕仍按得下去(E1 的兩格確實退化成原行為)', async () => {
+    // 🔴 關卡1 R2 #6:驗收寫了「零 JS 恆渲染」卻沒有對應斷言 ⇒ 若哪天 SSR 初始就藏起來,
+    //    只看 jsdom 那側是看不出來的(jsdom 一定 hydrate)。這條在**真瀏覽器**上量。
+    const html = withPostMethod(await renderPartial());
+    const bodies = await withPage(html, async (page) => {
+      expect(await page.locator('textarea[name="reason_detail"]').count()).toBe(1);
+      expect(await page.locator('button[type="submit"]').isDisabled()).toBe(false);
+      await page.check('input[name="cancel_item"]');
+      await page.selectOption('select[name="reason_code"]', 'out_of_stock');
+      await page.click('button[type="submit"]');
+      await page.waitForSelector('#done', { timeout: 10_000 });
+    });
+    // 沒填說明 ⇒ 非 other 的正常路徑,`reason_detail` 是空字串而不是缺欄(零 JS 側的實況)。
+    expect(new URLSearchParams(bodies[0]!).get('reason_detail')).toBe('');
   }, 60_000);
 });

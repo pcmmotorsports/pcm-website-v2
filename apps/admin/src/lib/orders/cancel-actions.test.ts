@@ -49,6 +49,7 @@ import {
   CANCEL_REASON_CODE_FIELD,
   CANCEL_REASON_DETAIL_FIELD,
   CANCEL_REQUEST_TOKEN_FIELD,
+  cancelItemQtyField,
   cancelledResultQuery,
   notSentResultQuery,
   sentResultQuery,
@@ -246,6 +247,10 @@ describe('cancelOrderAction — 送達 RPC 之後', () => {
               [CANCEL_MODE_FIELD]: 'partial',
               [CANCEL_REASON_CODE_FIELD]: 'other',
               [CANCEL_REASON_DETAIL_FIELD]: OTHER_DETAIL,
+              // ⚠️ **A13b E1 改的是輸入、不是期望值**:>1 的品項必須帶同名數量欄
+              //    (關卡2 codex 第三輪 #1 的 fail-closed);值刻意等於 checkbox 的數量
+              //    ⇒ 覆寫不改變結果,下面的期望值一個字都沒動。
+              [cancelItemQtyField(ITEM_ID)]: '3',
             },
             formItems as string[],
           ),
@@ -450,11 +455,19 @@ describe('cancelOrderAction — log 衛生', () => {
             [CANCEL_MODE_FIELD]: 'partial',
             [CANCEL_REASON_CODE_FIELD]: 'other',
             [CANCEL_REASON_DETAIL_FIELD]: OTHER_DETAIL,
+            // ⚠️ A13b E1 契約收緊:>1 的品項必須帶數量欄。**漏補這一格會讓整條測試變恆真**
+            //    —— 解析器提前判 invalid ⇒ RPC 從沒被呼叫、`console.error` 從沒發生
+            //    ⇒ `JSON.stringify([])` 當然不含敏感字串。關卡2 codex 複審 #1 抓到的就是這個。
+            [cancelItemQtyField(ITEM_ID)]: '3',
           },
           [`${ITEM_ID}:3`],
         ),
       ),
     ).rejects.toThrow('NEXT_REDIRECT');
+    // 🔴🔴 **先證「該跑的路徑真的跑到了」,再驗它沒帶敏感內容**(關卡2 codex 複審 #1)。
+    //    少了這兩條前置斷言,任何讓表單提前 invalid 的改動都會把本條變成恆真格。
+    expect(mocks.cancelOrder).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(console.error)).toHaveBeenCalled();
     const serialized = JSON.stringify(vi.mocked(console.error).mock.calls);
     expect(serialized).not.toContain('客人改買別款');
     expect(serialized).not.toContain(ITEM_ID);
@@ -462,10 +475,100 @@ describe('cancelOrderAction — log 衛生', () => {
 
   it('部分取消的 attempt log 記筆數、不記品項內容', async () => {
     await expect(
-      cancelOrderAction(cancelForm({ [CANCEL_MODE_FIELD]: 'partial' }, [`${ITEM_ID}:3`])),
+      cancelOrderAction(
+        cancelForm(
+          { [CANCEL_MODE_FIELD]: 'partial', [cancelItemQtyField(ITEM_ID)]: '3' },
+          [`${ITEM_ID}:3`],
+        ),
+      ),
     ).rejects.toThrow('NEXT_REDIRECT');
     const [, payload] = vi.mocked(console.info).mock.calls[0] ?? [];
     expect(payload).toMatchObject({ mode: 'partial', item_count: 1 });
     expect(JSON.stringify(payload)).not.toContain(ITEM_ID);
+  });
+});
+
+describe('A13b E1:失敗導頁的 order_id 也走「恰一筆」(關卡2 codex 複審 #3)', () => {
+  // 🔴 解析器那邊會拒重複的 `order_id`,但**失敗導頁**若採第一筆,員工會被導到**另一張單**、
+  //    看著別人的取消結果面板。導頁目標與解析器必須用同一套讀法。
+  function twoOrderIds(first: string, second: string): FormData {
+    const data = cancelForm();
+    data.delete(CANCEL_ORDER_ID_FIELD);
+    data.append(CANCEL_ORDER_ID_FIELD, first);
+    data.append(CANCEL_ORDER_ID_FIELD, second);
+    return data;
+  }
+  const OTHER_ORDER = '77777777-6666-5555-4444-333333333333';
+
+  it.each([
+    ['本單在前', ORDER_ID, OTHER_ORDER],
+    ['別單在前', OTHER_ORDER, ORDER_ID],
+  ])('🔴 order_id 送兩份(%s)⇒ 導回訂單列表,**不導向任一張單**', async (_l, a, b) => {
+    await expect(cancelOrderAction(twoOrderIds(a, b))).rejects.toThrow('NEXT_REDIRECT');
+    const [target] = mocks.redirect.mock.calls[0] ?? [];
+    expect(String(target)).not.toContain(ORDER_ID);
+    expect(String(target)).not.toContain(OTHER_ORDER);
+  });
+
+  it('🔴 正向對照:只送一份時仍導回那張單(證明上面兩條不是「永遠不導向任何單」)', async () => {
+    await expect(cancelOrderAction(cancelForm({ [CANCEL_MODE_FIELD]: 'nope' }))).rejects.toThrow(
+      'NEXT_REDIRECT',
+    );
+    expect(String(mocks.redirect.mock.calls[0]?.[0])).toContain(ORDER_ID);
+  });
+});
+
+describe('A13b E1:數量覆寫欄走完整條接線(段 1 = action → repository)', () => {
+  // 🔴 **為什麼這組非有不可**(關卡1 R1 #8):解析器測試只量純函式、表單測試只量 markup,
+  //    中間那一跳(真 FormData → 解析器 → repository 參數)兩頭都綠也可能斷掉
+  //    —— memory `feedback_assertion-measures-the-wrong-thing` 的第四形狀。
+  // ⚠️ 這條只證**段 1**;段 2(repository → RPC 的 `p_items`)在 `cancel-repository.test.ts`
+  //    (那裡已有 `p_items: items` 的深度相等斷言)。兩段合起來才是完整證據鏈,單獨任一段都不是。
+  it('🔴 覆寫 2 件 ⇒ repository 收到 quantity:2,而不是 checkbox 帶的 5', async () => {
+    await expect(
+      cancelOrderAction(
+        cancelForm(
+          { [CANCEL_MODE_FIELD]: 'partial', [cancelItemQtyField(ITEM_ID)]: '2' },
+          [`${ITEM_ID}:5`],
+        ),
+      ),
+    ).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.cancelOrder).toHaveBeenCalledTimes(1);
+    expect(mocks.cancelOrder.mock.calls[0]![0]).toMatchObject({
+      items: [{ order_item_id: ITEM_ID, quantity: 2 }],
+    });
+  });
+
+  it('🔴 正向對照:覆寫值 = checkbox 值時送 5(證明上一條量的是覆寫、不是恆為 2)', async () => {
+    await expect(
+      cancelOrderAction(
+        cancelForm(
+          { [CANCEL_MODE_FIELD]: 'partial', [cancelItemQtyField(ITEM_ID)]: '5' },
+          [`${ITEM_ID}:5`],
+        ),
+      ),
+    ).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.cancelOrder.mock.calls[0]![0]).toMatchObject({
+      items: [{ order_item_id: ITEM_ID, quantity: 5 }],
+    });
+  });
+
+  it('🔴 >1 的品項缺數量欄 ⇒ invalid、送不到 RPC(關卡2 codex 第三輪 #1,走完整條接線)', async () => {
+    await expect(
+      cancelOrderAction(cancelForm({ [CANCEL_MODE_FIELD]: 'partial' }, [`${ITEM_ID}:5`])),
+    ).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 覆寫欄是空字串 ⇒ 整份 invalid、**根本送不到 RPC**(不是靜默取消到底)', async () => {
+    await expect(
+      cancelOrderAction(
+        cancelForm(
+          { [CANCEL_MODE_FIELD]: 'partial', [cancelItemQtyField(ITEM_ID)]: '' },
+          [`${ITEM_ID}:5`],
+        ),
+      ),
+    ).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.cancelOrder).not.toHaveBeenCalled();
   });
 });
