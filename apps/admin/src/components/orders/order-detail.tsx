@@ -348,7 +348,7 @@ export function OrderDetail({
       )}
 
       {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
-      <OrderCancelBlock detail={detail} formsAllowed={cancelFormsAllowed} />
+      <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
 
       <OrderEditForm detail={detail} returnTo={returnTo} />
 

@@ -12,6 +12,12 @@ import {
   sentResultQuery,
 } from './cancel-action-state';
 import { isUuid } from './note-action-state';
+import {
+  ORDER_RETURN_TO_FIELD,
+  appendResultQuery,
+  parseOrderReturnTo,
+  returnToPathname,
+} from './order-return-to';
 import { cancelOrder } from './cancel-repository';
 
 // cancel-actions.ts — M-4b E10 A9d2-2c:取消訂單 server action。
@@ -65,15 +71,26 @@ function detailPath(orderId: string): string {
  * 而前一次可能已 commit ⇒ 換一顆 token 的部分取消**擋不住**(§6-5 認列的殘餘風險、backlog #353)。
  * 這是本檔唯一的 try,且離 `redirect()` 很遠。
  */
-function safeRevalidate(orderId: string, requestId: string): void {
-  try {
-    revalidatePath(detailPath(orderId));
-  } catch (thrown) {
-    console.error('[admin/orders/cancel] revalidate 失敗(不影響取消結果)', {
-      request_id: requestId,
-      order_id: orderId,
-      message: String((thrown as { message?: unknown } | null)?.message ?? '').slice(0, 200),
-    });
+function safeRevalidate(orderId: string, requestId: string, returnTo: string): void {
+  // 🔴🔴 **#350d 契約 §5 硬前置(E 窗把它從「偵察項」升上來,對取消線這是正確性不是效能)**:
+  //    動作後若回到 `/orders?…&panel=…`,那條路由**沒被 revalidate ⇒ 面板讀到更舊的帳本**。
+  //    而 D5 的 `miss_complete`(全站唯一一句會讓員工再送一次)踩的正是
+  //    「導頁之後那頁拿到的是重算過的資料」這個前提(backlog #357)⇒ 回面板會讓它更不成立。
+  //    ⚠️ `revalidatePath` 吃的是**路徑**、不吃 query ⇒ 打的是 `return_to` 的 pathname。
+  // 🔴 `returnTo` **必填**(R1 nit-8):給預設值 = 下一個呼叫點忘了傳時 §5 靜默失效、typecheck 不紅。
+  // 🔴 **逐條各包各的 try**(R1 nit-4):共用一個 try 的話,第一條拋錯會讓**第二條整個被跳過** ——
+  //    而第二條正是員工真正落地的那一頁。catch 吞掉之後零訊號。
+  for (const path of new Set([detailPath(orderId), returnToPathname(returnTo)])) {
+    try {
+      revalidatePath(path);
+    } catch (thrown) {
+      console.error('[admin/orders/cancel] revalidate 失敗(不影響取消結果)', {
+        request_id: requestId,
+        order_id: orderId,
+        path,
+        message: String((thrown as { message?: unknown } | null)?.message ?? '').slice(0, 200),
+      });
+    }
   }
 }
 
@@ -91,7 +108,9 @@ function safeRevalidate(orderId: string, requestId: string): void {
  *    寫成 `never` 讓 TS 也知道這件事,呼叫點才不用寫 `return`(寫了反而像「還會往下跑」)。
  */
 function failRedirect(path: string, query: string): never {
-  redirect(`${path}?${query}`, RedirectType.replace);
+  // 🔴 #350d:接法走共用的 `appendResultQuery` —— `path` 現在可能是**面板網址**(本來就帶 query),
+  //    寫死 `?` 會把整串篩選蓋掉(而畫面上只看得出「篩選不見了」,看不出是誰蓋的)。
+  redirect(appendResultQuery(path, query), RedirectType.replace);
 }
 
 /**
@@ -132,7 +151,16 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   //    而它原本要防的事(員工在凍結畫面上手滑重送)改由 **D5 的帳本核對面板**接手 ——
   //    那一側說得出「你那筆到底寫進去了沒有」,比一個攔不住偽造的凍結旗標強。
   const targetOrderId = readRedirectTargetOrderId(formData);
-  const failPath = targetOrderId === null ? ORDERS_PATH : detailPath(targetOrderId);
+  // 🔴 #350d C1:動作做完回哪裡由表單決定(面板裡取消 ⇒ 回面板)。
+  //    **與 `targetOrderId` 綁在一起讀**:`parseOrderReturnTo` 的 fallback 需要一個可信的 orderId,
+  //    而契約 §6-1 要求「`return_to` 只決定視圖、不決定哪一張單」—— 兩者都吃這一顆。
+  //    🔴 `targetOrderId` 為 null(連 uuid 形狀都不合)⇒ **完全不看 `return_to`**:
+  //    此時沒有可信的單號可以拿來做 §6-1 比對,放行等於讓 client 自己挑導頁目標。
+  const returnTo =
+    targetOrderId === null
+      ? ORDERS_PATH
+      : parseOrderReturnTo(formData.get(ORDER_RETURN_TO_FIELD), targetOrderId);
+
 
   // ③ 解析。任一形狀不合 → 導頁帶 `invalid`。
   //    🔴 **新 token 從哪來**:舊形狀是 builder 內鑄;PRG 之後**由整頁重繪時表單自己鑄**
@@ -147,7 +175,7 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   // 🔴 **不帶回員工輸入**(`E-014-A` Q2=A:失敗一律重填、從無效空值起始)——
   //    PRG 之下「保留輸入」要嘛把內容塞進 URL(違反 §2-2 只帶碼不帶內容),
   //    要嘛留 client state(正是本線換路要殺掉的東西)。
-  if (!parsed.ok) failRedirect(failPath, notSentResultQuery('invalid'));
+  if (!parsed.ok) failRedirect(returnTo, notSentResultQuery('invalid'));
 
   const httpRequestId = await getRequestId();
   // 🔴 **不記 `reasonDetail` 全文**(員工打的營運內容),只記長度 —— 同備註片 `:104` 的慣例。
@@ -190,14 +218,16 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     // 🔴 **revalidate 排在 log 之後、且不准吃掉回傳**(關卡2 codex must-fix):
     //    原本它排在最前面 —— 它一拋錯,補償 log 與導頁就**全部不會發生**,
     //    員工拿到 500、重整後表單重繪換到新 token,而前一次可能已 commit ⇒ 正是重複部分取消的路。
-    safeRevalidate(parsed.orderId, httpRequestId);
+    safeRevalidate(parsed.orderId, httpRequestId, returnTo);
     // 🔴 **原樣帶回這次送出的 token**(不鑄新的):換新鍵 = 全新 payload_hash =
     //    同一份 payload 會真的再取消一次(payload_hash 綁定見 `cancel-action-state.ts:14-20`;
     //    原本指的那句在 `cancelSentFailure` 的 docstring 裡,已隨 D2b 刪除)。
     // 🔴 **帶著這次送出的 token 導頁**(不鑄新的):它是 D5 拿去對取消帳本的唯一線索,
     //    也是員工那側「我剛送的那筆到底寫進去了沒有」唯一問得出答案的方法。
     //    型別上這裡**要不到不帶 token 的版本**(`sentResultQuery` 簽章必填,D1 交付面)。
-    failRedirect(detailPath(parsed.orderId), sentResultQuery(outcome.code, parsed.requestToken));
+    // 🔴 #350d C1:導回**動作發起的那個視圖**(面板裡取消 ⇒ 回面板),不再寫死明細頁。
+    //    `returnTo` 已由 `parseOrderReturnTo` 綁在 `targetOrderId` 上(契約 §6-1)⇒ 它指的一定是這張單。
+    failRedirect(returnTo, sentResultQuery(outcome.code, parsed.requestToken));
   }
 
   // 🔴 成功也留一行 log:把 `request_token` 對回 `cancellation_id` ——
@@ -211,7 +241,7 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     idempotent: outcome.idempotent,
     closed: outcome.closed,
   });
-  safeRevalidate(parsed.orderId, httpRequestId);
+  safeRevalidate(parsed.orderId, httpRequestId, returnTo);
 
   // 🔴 `idempotent: true` 也是成功:它意謂 RPC 認出同鍵同 payload 而吸收掉這次重送
   //    ——顯示成錯誤會誘導員工換一把 token 重送 = 冪等設計反而製造第二筆取消
@@ -221,7 +251,7 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   // 🔴 成功也要帶 `rt`(關卡2 R2 must-fix):成功訊息由 D5 查帳本後才顯示,
   //    沒有 token 就分不出「這次成功 / 帳本裡的舊紀錄 / 有人自己打的網址」。
   redirect(
-    `${detailPath(parsed.orderId)}?${cancelledResultQuery(parsed.requestToken)}`,
+    appendResultQuery(returnTo, cancelledResultQuery(parsed.requestToken)),
     RedirectType.replace,
   );
 }

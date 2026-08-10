@@ -267,14 +267,14 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     //    原本**全綠存活** —— 因為 `OrderDetail` 自己的預設值是 `false`,
     //    區塊**永遠收不到 `undefined`** ⇒ 它自己那道嚴格比對從來沒被走到。
     //    兩層各自 fail-closed 是縱深,但**沒被測到的縱深等於不存在**;直接渲染區塊才量得到。
-    const { container } = render(<OrderCancelBlock detail={detail()} />);
+    const { container } = render(<OrderCancelBlock returnTo='/orders?panel=x' detail={detail()} />);
     // 正向對照:複核區塊有畫出來(否則「零表單」是恆真)。
     expect(container.textContent).toContain('取消訂單');
     expect(cancelFormCount(container)).toBe(0);
   });
 
   it('OrderCancelBlock 明確傳 true ⇒ 表單出現(對照組)', () => {
-    const { container } = render(<OrderCancelBlock detail={detail()} formsAllowed />);
+    const { container } = render(<OrderCancelBlock returnTo='/orders?panel=x' detail={detail()} formsAllowed />);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 

@@ -14,18 +14,27 @@ import { FullCancelForm, PartialCancelForm } from './cancel-order-forms';
 // order-cancel-block.tsx — M-4b E10 **A13b D6-a**:訂單明細頁上的取消區塊(複核 + 兩支表單)。
 //
 // 🔴 **為什麼抽成獨立檔**(鐵則 6):接線之後 `order-detail.tsx` 從 393 行漲到 429 行、
-//    越過 400 的硬線。抽出來之後那支**回到 400 行整、未超過硬上限**(R2 nit:原寫「400 以下」
-//    大於事實),而本檔把「取消要不要出現」的
+//    越過 400 的硬線。抽出來之後那支**當時回到 400 行整**,而本檔把「取消要不要出現」的
 //    三道判斷收在同一個地方 —— 它們本來就該一起讀。
+//    ⚠️ **「未超過硬上限」那句已過期**(#350d-2 實查):`order-detail.tsx` 現在 **410 行**、
+//    已越線 —— 是 #350d 兩片各加幾行推上去的。拆它要動的是卡片區塊的切分、與 return_to 無關
+//    ⇒ 另立一片,不拆的理由寫在 #350d-2 的 commit body。
 //
 // 🔴 判定只有一份:`buildOrderCancelView` 是唯一真相,本檔不重算任何拒因或上限
 //    (同 `cancel-review-section.tsx` 的紀律:重算一份就會有兩份會漂移的規格)。
 
 export function OrderCancelBlock({
   detail,
+  returnTo,
   formsAllowed,
 }: {
   detail: AdminOrderDetail;
+  /**
+   * #350d C1:兩支取消表單的 `return_to` 值 = 當下這個視圖自己的網址。
+   * 🔴 **必填、無預設**:給預設值等於「忘了接就靜默把面板關掉」,而那個症狀在測試裡
+   *    看起來完全正常(頁面是對的、只是視圖換了)。
+   */
+  returnTo: string;
   /**
    * 這一次渲染准不准出現取消表單(頁層算好後下傳)。
    *
@@ -61,9 +70,12 @@ export function OrderCancelBlock({
       {showForms && (
         <div className='space-y-4'>
           {/* 🔴 整單那支還要多過 `fullCancelAllowed`(有到貨就只能逐品項取消,RPC 會拒)。 */}
-          {view.fullCancelAllowed && <FullCancelForm orderId={detail.id} />}
+          {view.fullCancelAllowed && (
+            <FullCancelForm orderId={detail.id} returnTo={returnTo} />
+          )}
           <PartialCancelForm
             orderId={detail.id}
+            returnTo={returnTo}
             items={view.items}
             itemNames={new Map(detail.items.map((item) => [item.id, item.title ?? item.variantSku]))}
           />
