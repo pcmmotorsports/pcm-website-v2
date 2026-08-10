@@ -42,6 +42,28 @@ const CARRIERS = [
   { code: 'other', label: '其他' },
 ] as const;
 
+/**
+ * 出不了的原因 → 給員工看的一句話(#351②)。
+ *
+ * 🔴 **用 switch 不用查表物件**:`TABLE[reason]` 那種寫法在 `reason` 是非預期字串時會取到
+ *    原型鏈上的東西(`constructor` / `toString` 都是 truthy),本 repo 為這個形狀修過 6 頁
+ *    (memory `reference_js-index-lookup-hits-prototype-chain`)。switch 沒有這個面。
+ * 🔴 `default` 走「數量資料尚未就緒」而不是「未到貨」:漏帶或非預期值代表**我們不知道**,
+ *    此時編一個具體的原因給員工 = 把不知道偽裝成事實,他會照著去做錯的下一步。
+ */
+function blockedText(reason: ShipmentCandidateItem['blockedReason']): string {
+  switch (reason) {
+    case 'cancelled':
+      return '已取消';
+    case 'all_boxed':
+      return '已全數配箱';
+    case 'not_arrived':
+      return '未到貨';
+    default:
+      return '數量資料尚未就緒';
+  }
+}
+
 export function ShipmentDialog({
   candidates,
   recipient,
@@ -178,12 +200,24 @@ export function ShipmentDialog({
                     {c.variantSku}
                   </span>
                 </span>
-                <span className='text-muted-foreground shrink-0 text-xs'>還能出 {c.remaining}</span>
+                {/* 🔴 2026-08-10 #351②:出不了的品項**留在清單裡並說明原因**,不是整列消失。
+                    改成「到貨量起算」之後「可出 0」是常態(貨還沒到),整列不見會讓員工
+                    以為系統壞了 —— 那正是 #351 這條 backlog 的來源。
+                    🔴 三個原因不可合併成一句「未到貨」:對已全數配箱的品項那是假話,
+                    而且員工的下一步動作不同(去看採購 vs 去看既有包裹 vs 找人修資料)。 */}
+                {/* 🔴 判「能不能出」一律看 `remaining`,**不看 `blockedReason`** —— 下方的 `disabled`
+                    也看 `remaining`。兩者共用同一個來源,否則「標籤說出不了、框卻打得進去」這種
+                    自相矛盾的畫面會在某個欄位漏帶時無聲出現(R2 在 launcher 的 fixture 上抓到過)。
+                    `blockedReason` 只負責**選哪句話**。 */}
+                <span className='text-muted-foreground shrink-0 text-xs'>
+                  {c.remaining > 0 ? `還能出 ${c.remaining}` : blockedText(c.blockedReason)}
+                </span>
                 {/* 🔴 數量框,不是「再加一次」—— 同一份清單裡重複的 order_item_id 會被 DB 退件 */}
                 <input
                   type='number'
                   min={0}
                   max={c.remaining}
+                  disabled={c.remaining === 0}
                   value={qty[c.orderItemId] ?? 0}
                   aria-label={`${c.title ?? '品項'} 要出的數量`}
                   onChange={(e) =>
@@ -192,7 +226,7 @@ export function ShipmentDialog({
                       [c.orderItemId]: Math.max(0, Math.min(c.remaining, Number(e.target.value) || 0)),
                     }))
                   }
-                  className='w-16 shrink-0 rounded border px-2 py-1 text-sm'
+                  className='w-16 shrink-0 rounded border px-2 py-1 text-sm disabled:opacity-50'
                 />
               </li>
             ))}

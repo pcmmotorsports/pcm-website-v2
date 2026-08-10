@@ -19,10 +19,11 @@ vi.mock('server-only', () => ({}));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ submitShipment }));
 
 import { ShipmentDialog } from './shipment-dialog';
+import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
-const CANDIDATES = [
-  { orderItemId: 'oi-1', orderDisplayId: 'PCM-0001', variantSku: 'S-Y10E9-HGEH', title: '鈦合金頭段', remaining: 2 },
-  { orderItemId: 'oi-2', orderDisplayId: 'PCM-0002', variantSku: 'K-9921-BLK', title: '把手端子', remaining: 1 },
+const CANDIDATES: ShipmentCandidateItem[] = [
+  { orderItemId: 'oi-1', orderDisplayId: 'PCM-0001', variantSku: 'S-Y10E9-HGEH', title: '鈦合金頭段', remaining: 2, blockedReason: null },
+  { orderItemId: 'oi-2', orderDisplayId: 'PCM-0002', variantSku: 'K-9921-BLK', title: '把手端子', remaining: 1, blockedReason: null },
 ];
 
 const noop = () => {};
@@ -172,5 +173,95 @@ describe('冪等鍵原樣送出(重試沿用同一把的前提)', () => {
       Object.keys(submitShipment.mock.calls[0]?.[0] ?? {}),
       '彈窗又把客人 id 送出去了 ⇒ 那等於「箱子掛誰」的來源回到瀏覽器手上。',
     ).not.toContain('customerUserId');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// #351②(2026-08-10):出不了的品項要**看得到、看得懂、按不動**。
+// 🔴 為什麼放在這一檔而不是資料層:資料層只證得了 `blockedReason` 這個欄位算得對;
+//    把畫面上那一行標籤刪掉、或把 `disabled` 拿掉,資料層測試照樣全綠 —— 而員工看到的就壞了。
+//    (同「管線每一跳都要有自己的守門」那條:資料備妥 ≠ 畫面畫出來。)
+// ─────────────────────────────────────────────────────────────
+describe('#351② 出不了的品項:留在清單裡 + 標出原因 + 不可選', () => {
+  const blocked = (reason: ShipmentCandidateItem['blockedReason']): ShipmentCandidateItem[] => [
+    { orderItemId: 'oi-9', orderDisplayId: 'PCM-0009', variantSku: 'X-0001', title: '還沒到的東西', remaining: 0, blockedReason: reason },
+  ];
+
+  // 🔴 標題不寫「整列消失就是 #351 的症狀」:整列消失發生在**資料層的 filter**,彈窗從來不過濾
+  //    ⇒ 那句話在這一層恆真、零判別力。釘住「不濾掉」的是 `shipment-candidates.test.ts`。
+  //    本格只驗彈窗**真的把傳進來的 blocked 品項畫出來**(有人加一道 `.filter` 進來就會紅)。
+  it('🔴 傳進來的 blocked 品項會被畫出來(彈窗自己不得再濾一次)', () => {
+    open({ candidates: blocked('not_arrived') });
+    expect(
+      screen.queryByText('還沒到的東西'),
+      '彈窗自己把出不了的品項濾掉了 ⇒ 員工訂了東西卻在建箱彈窗裡找不到它。',
+    ).not.toBeNull();
+  });
+
+  it('🔴 四個原因各自顯示自己的字,不是共用一句「未到貨」', () => {
+    open({ candidates: blocked('not_arrived') });
+    expect(screen.queryByText('未到貨'), 'not_arrived 沒顯示「未到貨」').not.toBeNull();
+    cleanup();
+
+    open({ candidates: blocked('all_boxed') });
+    expect(
+      screen.queryByText('已全數配箱'),
+      '對「已全數配箱」的品項說「未到貨」是假話 —— 員工會跑去追採購,而東西其實在別的箱子裡。',
+    ).not.toBeNull();
+    expect(screen.queryByText('未到貨'), 'all_boxed 卻顯示「未到貨」').toBeNull();
+    cleanup();
+
+    open({ candidates: blocked('cancelled') });
+    expect(
+      screen.queryByText('已取消'),
+      '對已取消的品項說「未到貨」= 叫員工去等一批永遠不會到的貨。',
+    ).not.toBeNull();
+    expect(screen.queryByText('未到貨'), 'cancelled 卻顯示「未到貨」').toBeNull();
+    cleanup();
+
+    open({ candidates: blocked('unknown') });
+    expect(
+      screen.queryByText('數量資料尚未就緒'),
+      '數量讀不到/資料損壞時顯示成一個正常的數字或「未到貨」= 把「不知道」偽裝成事實。',
+    ).not.toBeNull();
+  });
+
+  // 🔴 R2 nit:上面五格全是「單一品項、全 blocked」⇒「blocked 不進 payload、可出的數量正確」
+  //    只被間接罩到。混合清單才是員工真正會看到的畫面。
+  it('🔴 混合清單:只有出得了的那件進 payload,blocked 那件不進去', async () => {
+    open({
+      candidates: [
+        { orderItemId: 'oi-blocked', orderDisplayId: 'PCM-0009', variantSku: 'X-0001', title: '還沒到的東西', remaining: 0, blockedReason: 'not_arrived' },
+        { orderItemId: 'oi-ok', orderDisplayId: 'PCM-0001', variantSku: 'S-Y10E9-HGEH', title: '到了的東西', remaining: 2, blockedReason: null },
+      ],
+    });
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(submitShipment).toHaveBeenCalled());
+    expect(
+      submitShipment.mock.calls[0]?.[0]?.items,
+      'blocked 的品項混進 payload(或可出那件的數量不對)⇒ 掛品項會被 DB 整批退件,' +
+        '員工看到的是「建箱成功但掛不上去」的半成品箱。',
+    ).toEqual([{ orderItemId: 'oi-ok', quantity: 2 }]);
+  });
+
+  it('🔴 出不了的品項不顯示「還能出 0」(那是 #351 抱怨的那種看不懂的畫面)', () => {
+    open({ candidates: blocked('not_arrived') });
+    expect(screen.queryByText('還能出 0'), '顯示「還能出 0」⇒ 員工只知道不能出、不知道為什麼').toBeNull();
+  });
+
+  it('🔴 數量框被停用且維持 0(不預選;#351② 逐字「0 件品項不預選」)', () => {
+    open({ candidates: blocked('not_arrived') });
+    const box = screen.getByLabelText('還沒到的東西 要出的數量') as HTMLInputElement;
+    expect(box.disabled, '數量框沒停用 ⇒ 員工打得進數字、按下去被 DB 退件').toBe(true);
+    expect(box.value, '預選了數量 ⇒ 「0 件品項不預選」沒做到').toBe('0');
+  });
+
+  it('🔴 清單裡只有出不了的品項時,建箱鈕按下去不會送出(至少要選一件)', async () => {
+    open({ candidates: blocked('not_arrived') });
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    expect(
+      submitShipment,
+      '整箱都是出不了的品項卻送得出去 ⇒ 建出一個空箱(#359 那個找不到的孤兒箱)。',
+    ).not.toHaveBeenCalled();
   });
 });

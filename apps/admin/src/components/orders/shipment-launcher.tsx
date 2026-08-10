@@ -27,6 +27,32 @@ import { toMessage } from '../../lib/shipping/error-message';
 import { fetchShipmentCandidates } from '../../lib/shipping/shipment-actions';
 import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates';
 
+/**
+ * 「一件都出不了」時要告訴員工的話 —— **用 server 已經算好的原因,不要用猜的**(#351②)。
+ *
+ * 🔴 舊版寫死一句「(未到貨、已取消,或已經裝進其他箱子了)」= 把三個可能性丟給員工自己猜,
+ *    而這片存在的理由正是「說出原因」;原因就在 `items[].blockedReason` 手上,丟掉它很浪費。
+ * 🔴 零品項的訂單**另外講**:對一張根本沒有品項的單說「未到貨或已取消」,三個理由全是編的。
+ *    (這片自己的標準:不知道就說不知道,不編一個看起來合理的原因。)
+ */
+function noneShippableMessage(items: ShipmentCandidates['items']): string {
+  if (items.length === 0) return '這些訂單裡沒有任何品項。';
+  const buckets = [
+    ['not_arrived', '件未到貨'],
+    ['all_boxed', '件已裝進其他箱子'],
+    ['cancelled', '件已取消'],
+    ['unknown', '件的數量資料尚未就緒'],
+  ] as const;
+  const parts = buckets
+    .map(([reason, word]) => [items.filter((i) => i.blockedReason === reason).length, word] as const)
+    .filter(([n]) => n > 0)
+    .map(([n, word]) => `${n}${word}`);
+  // 理由全空只可能是契約破了(remaining 0 卻沒帶原因)⇒ 不編一個出來。
+  return parts.length === 0
+    ? '這些訂單目前沒有任何一件出得了。'
+    : `這些訂單目前沒有任何一件出得了(${parts.join('、')})。`;
+}
+
 export type ShipmentLauncher = {
   loading: boolean;
   error: string | null;
@@ -59,8 +85,13 @@ export function useShipmentLauncher(
     setLoading(true);
     try {
       const data = await fetchShipmentCandidates(orderIds);
-      if (data.items.length === 0) {
-        setError('這些訂單沒有可出貨的品項(可能都已取消,或已經裝進其他箱子了)。');
+      // 🔴 2026-08-10 #351②:條件從 `items.length === 0` 改成「沒有任何一件出得了」。
+      //    改片之後 `items` **含出不了的品項**(要留在清單裡標原因)⇒ `length === 0` 只剩
+      //    「這張單一列品項都沒有」才成立,而那句文案講的是「都已取消或已裝箱」= 字面與事實脫節。
+      //    更糟的是真的「全部出不了」時會落到:開了窗、兩顆鈕全灰、員工看到
+      //    「這箱還沒有任何品項。至少要選一件才能建箱。」—— 講得像他忘了選,其實是沒得選。
+      if (data.items.every((i) => i.remaining === 0)) {
+        setError(noneShippableMessage(data.items));
         return;
       }
       if (data.customerUserId === null) {
