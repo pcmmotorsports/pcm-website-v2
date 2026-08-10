@@ -15,6 +15,8 @@ import type { AdminOrderDetail } from '@pcm/domain';
 //    `isRefundUiEnabled()`(refund-ui-flag.ts 檔頭),本檔只需釘顯示鏈。
 
 vi.mock('server-only', () => ({}));
+vi.mock('../../../lib/session/actor', () => ({ getSessionActor: async () => null }));
+vi.mock('../../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
   notFound: () => {

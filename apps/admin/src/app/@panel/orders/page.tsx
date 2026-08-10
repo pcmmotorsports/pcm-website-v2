@@ -1,6 +1,10 @@
 import { isUuid } from '../../../lib/orders/note-action-state';
 import { ORDER_PANEL_PARAM, buildPanelCloseHref } from '../../../lib/orders/order-list-view';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
+import {
+  CANCEL_REQUEST_TOKEN_PARAM,
+  CANCEL_RESULT_PARAM,
+} from '../../../lib/orders/cancel-action-state';
 
 // app/@panel/orders/page.tsx — #350c:訂單詳情的**右側面板版**。
 //
@@ -42,12 +46,18 @@ export default async function OrderPanelPage({
   //       員工手上的列表會整片消失 —— 主視窗 2026-08-10 裁⑤「notFound 面板自理」)。
   if (!panelId || !isUuid(panelId)) return null;
 
-  // 🔴 **面板刻意不顯示 `ResultBanner`**(code-reviewer 2026-08-10 nit-6):
-  //    `r` 是列表層與整頁詳情共用的命名空間,而面板裡的動作**目前不會**產生 `/orders?panel=…&r=…`
-  //    (五支 action 全部 redirect 去整頁詳情,見 plan §8)⇒ 面板若讀 `raw.r`,它唯一顯示得到的
-  //    是**列表**剛才那個動作的結果碼,而且會與列表上那條橫幅同時出現兩份。
-  //    等 `D-404-Q` 裁定「動作回面板」的 URL 契約之後再接。
-  const resultCode = undefined;
+  // 🔴 **面板不顯示「通用」`ResultBanner`**(code-reviewer 2026-08-10 nit-6):
+  //    `r` 是列表層與整頁詳情共用的命名空間 ⇒ 面板若也畫一份,員工會同時看到兩條橫幅。
+  //    ⇒ 用 `showResultBanner={false}` 明確關掉那一份,**而不是靠不傳 `r` 來達成**。
+  // 🔴🔴 **A13b D6-a R2 codex must-fix:`r`/`rt` 必須原封傳進去。**
+  //    我上一版寫「面板版不接結果碼、今天不可構造」——**那句不實**:
+  //    action 全部 redirect 去整頁版只說明**網址怎麼被產生**,不說明**網址怎麼被到達**。
+  //    員工用書籤 / 手打 / 上一頁開 `/orders?panel=<未付款單>&r=order_cancel_retry&rt=<uuid>`
+  //    就到得了 ⇒ 當時 `cancelFormsAllowedOnResultPage(undefined)` 恆 true
+  //    ⇒ **面板不顯示結果、取消表單卻開著**(fail-open,與整頁版那個 narrowing bug 同型)。
+  //    ⇒ 現在原封轉:取消面板照常顯示、結果頁閘照常生效。
+  const resultCode = raw[CANCEL_RESULT_PARAM];
+  const requestToken = raw[CANCEL_REQUEST_TOKEN_PARAM];
   const correctNoteId =
     typeof raw.correct === 'string' && isUuid(raw.correct) ? raw.correct : null;
 
@@ -56,9 +66,11 @@ export default async function OrderPanelPage({
   const body = await OrderDetailRoute({
     id: panelId,
     resultCode,
+    requestToken,
     correctNoteId,
     back: { href: buildPanelCloseHref(raw), label: '← 關閉,回訂單列表' },
     missing: 'inline',
+    showResultBanner: false,
   });
 
   return (

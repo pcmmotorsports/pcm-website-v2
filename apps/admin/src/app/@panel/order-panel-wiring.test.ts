@@ -183,6 +183,38 @@ describe('#350c 守門 3:只有桌機走面板,手機仍是整頁', () => {
   //    就會誤報。真正的不變量已經被上面那格(桌機 href 走注入的 builder)釘住了。
 });
 
+// ── 3b. A13b D6-a:面板版也要吃取消結果碼 ────────────────────────────────────
+describe('A13b D6-a 守門:面板版的取消結果頁閘門不得常開', () => {
+  const PANEL_ID = '11111111-2222-4333-8444-555555555555';
+  const TOKEN = 'a1b2c3d4-e5f6-4a7b-8c9d-e0f1a2b3c4d5';
+
+  it('🔴 槽頁必須把 `r`/`rt` 原封傳給 OrderDetailRoute', () => {
+    // 🔴 **這格是 R2 codex 抓的**:我原本寫死 `resultCode = undefined`,並宣稱
+    //    「今天不可構造(action 全 redirect 去整頁)」——**那句不實**:
+    //    action 只決定網址**怎麼被產生**,不決定**怎麼被到達**。
+    //    書籤 / 手打 / 上一頁開 `/orders?panel=<單>&r=order_cancel_retry&rt=<uuid>` 就到得了,
+    //    當時 `cancelFormsAllowedOnResultPage(undefined)` 恆 true
+    //    ⇒ **面板不顯示結果、取消表單卻開著**(fail-open)。
+    // ⚠️ 原始碼層守門:面板槽的渲染鏈要真的量得跑真 Next(async server component + 平行路由),
+    //    本檔既有守門也是這個層級(見檔頭)。突變:把 `raw[CANCEL_RESULT_PARAM]` 改回
+    //    `undefined` ⇒ 下面兩條斷言各紅一邊。
+    const src = read('app/@panel/orders/page.tsx');
+    expect(src).toContain('const resultCode = raw[CANCEL_RESULT_PARAM];');
+    expect(src).toContain('const requestToken = raw[CANCEL_REQUEST_TOKEN_PARAM];');
+    // 🔴 而且要真的傳下去,不是算出來放著。
+    expect(src).toMatch(/resultCode,\s*\n\s*requestToken,/);
+  });
+
+  it('🔴 面板關掉的是「通用 banner」,不是整個結果碼', () => {
+    // 🔴 這兩件事必須分開:關掉通用 `ResultBanner` 是為了避免列表與面板各畫一條;
+    //    但**取消結果面板與結果頁閘門仍要吃 `r`/`rt`**。
+    //    用「不傳 `r`」來達成關 banner = 把兩件事綁在一起,而代價是閘門常開。
+    const src = read('app/@panel/orders/page.tsx');
+    expect(src).toContain('showResultBanner: false');
+    expect(src).not.toContain('const resultCode = undefined;');
+  });
+});
+
 // ── 4. 槽頁的開關語意 ─────────────────────────────────────────────────────────
 describe('#350c 守門 4:槽頁只在 panel 是合法 UUID 時才開', () => {
   const PANEL_ID = '11111111-2222-4333-8444-555555555555';

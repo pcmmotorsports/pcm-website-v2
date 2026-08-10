@@ -18,6 +18,7 @@ import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { ItemProcurementSection } from './item-procurement-section';
+import { OrderCancelBlock } from './order-cancel-block';
 import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
@@ -71,8 +72,11 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
  *    em-dash 的出貨欄等於假裝有這個軸。母 plan `:426` row 60(A11b)才是出貨軸唯讀灰的去處。
  */
 function ItemAxisCell({ summary }: { summary: AdminOrderItemQuantitySummary | null }) {
-  // 型別是 `| null`,但這裡刻意用 falsy 判斷:投影退版時這一欄會是 `undefined`,
-  // 而「讀不到就 fail-closed」的立場對兩種缺值都成立(補 0 才是要防的那個寫法)。
+  // 型別是 `| null`,但這裡刻意用 falsy 判斷。
+  // ⚠️ **2026-08-10 更正**(A13b D6-a R2 codex):原本寫「投影退版時這一欄會是 `undefined`」——
+  //    **那句沒有依據**,`mappers/order.ts:542-544` 的 `mapQuantitySummary` 回 `| null`、
+  //    產不出 `undefined`。falsy 判斷保留的理由只有「防手寫物件」與「兩種缺值處置相同」,
+  //    不是在接住一個已知的產線值。(`cancel-view.ts` 同族註解已同步收窄。)
   if (!summary) {
     return <span className='text-muted-foreground text-xs'>數量資料尚未就緒</span>;
   }
@@ -226,6 +230,7 @@ export function OrderDetail({
   refundsTruncated = false,
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
+  cancelFormsAllowed = false,
 }: {
   detail: AdminOrderDetail;
   /** A10a-3:`?correct` searchParam(頁層過 uuid 閘後下傳) */
@@ -246,6 +251,8 @@ export function OrderDetail({
   refundUnregisteredAmount?: number | null;
   /** M-3 RW3:未登記額讀取失敗(顯錯誤態≠查無 + 發起入口 fail-closed,codex MF2)。 */
   refundUnregisteredFailed?: boolean;
+  /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
+  cancelFormsAllowed?: boolean;
 }) {
   const cancelled = detail.cancelledAt !== null;
   const correctTarget = resolveCorrectTarget(detail, correctNoteId);
@@ -332,6 +339,9 @@ export function OrderDetail({
           )}
         </div>
       )}
+
+      {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
+      <OrderCancelBlock detail={detail} formsAllowed={cancelFormsAllowed} />
 
       <OrderEditForm detail={detail} />
 

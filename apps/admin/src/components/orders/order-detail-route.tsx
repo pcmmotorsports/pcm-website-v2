@@ -13,6 +13,11 @@ import {
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
 import { ResultBanner } from './result-banner';
+import { getSessionActor } from '../../lib/session/actor';
+import {
+  CancelResultPanel,
+  cancelFormsAllowedOnResultPage,
+} from './cancel-result-panel';
 
 // order-detail-route.tsx — #350c:訂單明細的**載入 + 組裝**,兩個消費者共用。
 //
@@ -35,16 +40,40 @@ const LOAD_FAILED_TEXT = '訂單明細載入失敗,請稍後再試或聯絡系�
 export async function OrderDetailRoute({
   id,
   resultCode,
+  requestToken,
   correctNoteId,
   back,
   missing,
+  showResultBanner = true,
 }: {
   id: string;
-  resultCode: string | undefined;
+  /**
+   * URL 的 `?r=`,**原封轉入**。
+   * 🔴🔴 **不要在呼叫端先 narrow**(A13b D6-a 實測踩過):頁層若先寫
+   *    `typeof x === 'string' ? x : undefined`,重複鍵(`?r=a&r=b`)就會變成 `undefined`
+   *    ⇒ `cancelFormsAllowedOnResultPage` 收到「沒有結果碼」⇒ **把取消表單放行**。
+   *    面板那側因為自己也 narrow 所以不顯示 ⇒ 症狀是「**面板不出現、表單卻開著**」= fail-open。
+   *    ⇒ 原始值一路帶到閘門前,narrow 只在**真的需要字串的那一個消費點**(banner)做。
+   */
+  resultCode: string | string[] | undefined;
+  /**
+   * A13b D6-a:URL 的 `?rt=`(**原封轉入,呼叫端不要先 narrow**)。
+   * 🔴 重複鍵(`string[]`)的 fail-closed 決定收攏在 D3 的 classifier,不在頁層。
+   */
+  requestToken?: string | string[] | null;
   correctNoteId: string | null;
   /** 返回連結:整頁版 = 回列表;面板版 = 關閉面板(同一份列表 href、不帶 `panel`)。 */
   back: { href: string; label: string };
   missing: 'not-found' | 'inline';
+  /**
+   * 要不要渲染**通用** `ResultBanner`(改單 / 採購 / 備註等各線共用的 `?r=` 橫幅)。
+   *
+   * 🔴 面板版傳 `false`:`r` 是列表層與整頁詳情共用的命名空間,面板若也畫一份,
+   *    員工會**同時看到兩條橫幅**(列表一條、面板一條)。
+   * ⚠️ **這個 prop 只關通用 banner,不關取消結果面板** —— 取消面板要照常吃 `r`/`rt`,
+   *    否則面板版的取消表單就沒有結果頁閘(A13b D6-a R2 codex must-fix)。
+   */
+  showResultBanner?: boolean;
 }) {
   // id 形狀守門:非 UUID 不打 DB(路由參數不透傳查詢)。
   if (!isOrderId(id)) {
@@ -67,6 +96,12 @@ export async function OrderDetailRoute({
   let refundsTruncated = false;
   let refundUnregisteredAmount: number | null = null;
   let refundUnregisteredFailed = false;
+  // 🔴 A13b D6-a:取消面板要拿它比對「這筆是不是你送的」。
+  //    ⚠️ **不是授權邊界**(`session/actor.ts:6-7` 自陳:cookie 承載、使用者自選、未驗證)——
+  //    只做顯示層比對;`null`(尚未選人)時 D3 會 fail-closed 走 `match_other_actor`。
+  const actor = await getSessionActor();
+  // 🔴 只有 banner 需要字串;閘門吃原始值(見 `resultCode` 的 docstring)。
+  const bannerCode = typeof resultCode === 'string' ? resultCode : undefined;
   const [detailSettled, suppliersSettled, refundsSettled] = await Promise.allSettled([
     (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
     (async () => listSuppliers())(),
@@ -111,7 +146,26 @@ export async function OrderDetailRoute({
     <>
       <BackLink back={back} />
 
-      <ResultBanner code={resultCode} />
+      {showResultBanner && <ResultBanner code={bannerCode} />}
+
+      {/* 🔴 `cancellationsTruncated` 缺值折成 `true` 不是 `false`(R1 must-fix):
+          折成 false ⇒ classifier 落 `miss_complete` ⇒ 面板說「仍然沒有,才重新送一次」
+          = 全片唯一會讓員工按第二次的那句;折成 true 只會多說一句「無法斷定」,方向安全。
+          ⚠️ `detail` 為 null 時 `cancellations` 已先觸發 `unreadable`,這行不影響那條路。 */}
+      {/* 🔴🔴 A13b D6-a:取消結果面板掛在**資格閘之外**(plan D6-a 逐字)——
+          RPC 關單成功之後 `canCancel` 會變 false,若把面板掛在資格閘內,
+          **最需要看到「寫進去了沒有」的那一刻反而什麼都不顯示**。
+          🔴 它也在 `loadFailed` 分支之外:明細**讀取失敗(repo throw)**時仍說得出「你剛才那筆怎麼了」。
+          ⚠️ **但「查無」那條走不到這裡**(R1 must-fix 更正原本說滿的字面):`missing === 'not-found'`
+          時上面已經 `notFound()` return ⇒ 員工帶著 `?r=&rt=` 開一張被刪掉的單,看到的是整頁 404。
+          那是既有的路由行為,本片不改;寫下來免得下一個人以為面板涵蓋所有失敗路徑。 */}
+      <CancelResultPanel
+        resultCode={resultCode}
+        requestToken={requestToken}
+        actor={actor?.id ?? null}
+        cancellations={detail?.cancellations ?? null}
+        cancellationsTruncated={detail?.cancellationsTruncated ?? true}
+      />
 
       {loadFailed || detail === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
@@ -129,6 +183,7 @@ export async function OrderDetailRoute({
           refundsTruncated={refundsTruncated}
           refundUnregisteredAmount={refundUnregisteredAmount}
           refundUnregisteredFailed={refundUnregisteredFailed}
+          cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
         />
       )}
     </>

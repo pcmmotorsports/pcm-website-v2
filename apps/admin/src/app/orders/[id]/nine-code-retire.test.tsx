@@ -11,6 +11,8 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
 //    ①九碼下拉/存鈕復活 ②三軸數字沒接上投影 ③`quantitySummary` 為 null 時被 `?? 0` 補成 0。
 
 vi.mock('server-only', () => ({}));
+vi.mock('../../../lib/session/actor', () => ({ getSessionActor: async () => null }));
+vi.mock('../../../lib/orders/cancel-actions', () => ({ cancelOrderAction: vi.fn() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
   notFound: () => {

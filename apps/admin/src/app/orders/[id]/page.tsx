@@ -1,4 +1,8 @@
 import { isUuid } from '../../../lib/orders/note-action-state';
+import {
+  CANCEL_REQUEST_TOKEN_PARAM,
+  CANCEL_RESULT_PARAM,
+} from '../../../lib/orders/cancel-action-state';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
 
 // 相對 import(非 `@/`):root vitest.config 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話這一頁
@@ -46,7 +50,14 @@ export default async function OrderDetailPage({
 }) {
   const { id } = await params;
   const rawSearch = await searchParams;
-  const resultCode = typeof rawSearch.r === 'string' ? rawSearch.r : undefined;
+  // 🔴 A13b D6-a:參數名走常數,不再手打字面(`cancel-action-state.ts` 抽出;
+  //    `r`/`rt` 有組/讀/刪三個角色,漏改一處的症狀是「面板不出現」或「網址清不掉」而四閘全綠)。
+  // 🔴 **原封轉下去、不在這裡 narrow**:先 narrow 會讓重複鍵(`?r=a&r=b`)變成「沒有結果碼」
+  //    ⇒ 取消表單被放行,而面板因為自己也 narrow 所以不顯示 = **面板不出現、表單卻開著**(fail-open)。
+  const resultCode = rawSearch[CANCEL_RESULT_PARAM];
+  // 🔴 `rt` **原封轉下去、不在這裡 narrow**:重複鍵(`string[]`)/ 缺失 / 非 uuid 的
+  //    fail-closed 判斷全部收攏在 D3 的 classifier,頁層先挑一顆就會把那道閘架空。
+  const requestToken = rawSearch[CANCEL_REQUEST_TOKEN_PARAM];
   // A10a-3:更正模式目標(uuid 形狀閘;非 uuid 視同沒帶,不透傳)
   const correctNoteId =
     typeof rawSearch.correct === 'string' && isUuid(rawSearch.correct)
@@ -64,6 +75,7 @@ export default async function OrderDetailPage({
   const body = await OrderDetailRoute({
     id,
     resultCode,
+    requestToken,
     correctNoteId,
     back: { href: '/orders', label: '← 返回訂單列表' },
     missing: 'not-found',

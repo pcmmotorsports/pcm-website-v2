@@ -75,11 +75,14 @@ export function cancelFormsAllowedOnResultPage(resultCode: string | string[] | u
 }
 
 /**
- * 🔴🔴 **本函式今天零消費端 —— 在 D6 呼叫它之前,義務 B 仍然是零守門**(R1 must-fix 2,誠實記載)。
+ * ✅ **D6-a 已接線**(2026-08-10 更新;D5 收工當時本函式零消費端、義務 B 還是零守門)。
  *
- * 本片交付的是「**判斷**」,不是「**執行**」:真正把表單關起來的動作在 D6 接線那片。
- * 全樹 grep 除本檔與本檔測試外零命中 ⇒ **不得把 D5 收工讀成「表單不會被開回去」已經成立**。
- * ⇒ 已把「兩支表單必須由本函式閘住 + 拿掉那道閘要轉紅」寫進 plan 的 **D6-a 驗收④⑤**。
+ * 現況消費鏈:`app/orders/[id]/page.tsx`(原封轉 `?r=`)→ `order-detail-route.tsx`
+ * → `OrderDetail` → `OrderCancelBlock` 的 `showForms`;面板版 `app/@panel/orders/page.tsx` 同樣接。
+ * 守門:`app/orders/[id]/cancel-wiring.test.tsx`(結果頁不給表單 / A 類照常給 / 重複鍵不放行 /
+ * 預設 fail-closed / 區塊自己也 fail-closed),突變 W1/W2/W2b/W3/W5 各自轉紅。
+ * ⚠️ **仍要記得的邊界**:本函式只認 `?r=`,**不認「這頁的資料有多新」** ——
+ * `miss_complete` 那格踩的未證前提(backlog **#357**)不因為接線而消失。
  */
 
 type PanelTone = 'ok' | 'warn' | 'error';

@@ -38,5 +38,14 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # 🔴 A13b D6-a:取消線的真瀏覽器負測(`cancel-forms-browser.test.tsx`)會
+      #    `chromium.launch()`,而 `pnpm install` **不會**下載瀏覽器二進位
+      #    ⇒ 少了這一步,CI 會紅在 `beforeAll`(Executable doesn't exist),而本機因為
+      #    早就裝過而全綠 —— 典型的「只在 CI 壞」。
+      #    ⚠️ **不改成「裝不到就跳過」**:那條負測是 plan §2-3 對「不會誤送整單取消」
+      #    唯一可主張的證據,靜默跳過等於把它變成宣稱。
+      - name: Install Playwright chromium
+        run: pnpm --filter @pcm/admin exec playwright install --with-deps chromium
+
       - name: Test
         run: pnpm test

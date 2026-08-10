@@ -414,7 +414,14 @@ function toItemView(
   itemsTruncated: boolean,
 ): CancelItemView {
   const summary = item.quantitySummary;
-  if (summary === null) {
+  // 🔴 **`== null` 而不是 `=== null`**(A13b D6-a 加的**防禦性**收斂)。
+  //    ⚠️ **誠實更正(R1 must-fix)**:第一版寫成「投影退版時這個鍵會整個不存在」並引
+  //    `ItemAxisCell` 當佐證 —— 實查 `mappers/order.ts:542-544` 的 `mapQuantitySummary`
+  //    回的是 `| null`、**產不出 `undefined`**;`ItemAxisCell` 那句同樣是未經驗證的搬運,
+  //    不是獨立來源。真正的觸發是頁層測試 fixture 缺這個鍵 ⇒ `summary.quantity` throw。
+  //    ⇒ 保留的理由只有「入口是結構型別、擋不住手寫物件」,而兩種缺值處置相同 —— 純防禦。
+  //    ⚠️ 方向不變:兩種缺值都走「上限算不出來 ⇒ 不給勾」的 fail-closed 那一支。
+  if (summary == null) {
     const zeroInferable =
       item.procurements.length === 0 &&
       !item.procurementTruncated &&
