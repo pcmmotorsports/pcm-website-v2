@@ -6144,10 +6144,19 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #242. 🔁 Google/LINE 登入 OAuth redirect 指向舊 `localhost:3001`
+### #242. ✅ Google/LINE 登入 OAuth redirect 指向舊 `localhost:3001`
 
-- **狀態:** ⏳ 待執行
-- **優先級:** 🟠 中(上線前必補;社群登入是主要入口之一)
+- **狀態:** ✅ 完成 —— 2026-08-08 Sean 改 Supabase 後台設定後,**在正式站親驗通過**。
+  - **關檔依據**:`STATUS.md:99` 逐字:「Sean 改 Supabase 後台 Site URL→shop.pcmmotorsports.com
+    + Redirect URLs 加 `/auth/callback` ⇒ Sean 真站點『可以了』(**不再跳 localhost:3001**)」。
+    根因不在 code 也不在 Vercel env(`NEXT_PUBLIC_SITE_URL` 當時實查是對的),
+    而是 **Supabase 後台 Site URL 欄位仍是 dev 值** —— 兩處設定、只改一處會靜默失效。
+  - ⚠️ **本條原文的「LINE 登入疑同類」不成立、走的是另一條機制**:LINE 不走 Supabase OAuth redirect,
+    而是自家的 `/api/auth/line/start` → `/api/auth/line/callback`(見 `LoginPage.tsx` 的 LINE 分支),
+    不吃 Supabase 的 Site URL。要查 LINE 的回跳問題不要來翻這一條。
+  - 🔴 **引用更正**:2026-08-11 S 窗在 `S-002-STOP` 裡把出處寫成「STATUS:94」,**行號引錯**
+    (正確是 `:99`);內容無誤。行號類字面會被後續編輯推移,引用前重查。
+- **優先級:** 🟠 中(已解決)
 - **問題:**
   - Google OAuth 登入完成後導回 `http://localhost:3001/?code=...` → `ERR_CONNECTION_REFUSED`(網站實際跑在 3000 / tunnel / 正式網域),redirect URI 設定指向舊的 `localhost:3001`、與實際運行網域不符 → Google 登入失敗。LINE 登入疑同類。2026-06-20 sandbox 測試以一般會員(email/密碼)登入繞過。
 - **觸發事件(任一觸發即啟動實作):**
@@ -6552,10 +6561,19 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-03 / #5 調查 candidate 2。
 - **相關:** #212 / #257 / Phase 0 plan §2.6。
 
-### #259. 🔴 prod 殘留 `supplier_slug='test'` 測試商品 **正在 live 首頁精選第 1 格對客人展示**
+### #259. ✅ prod 殘留 `supplier_slug='test'` 測試商品 **正在 live 首頁精選第 1 格對客人展示**
 
-- **狀態:** ⏳ 待 Sean 點頭清除(prod DB 寫入、Claude 不自行動)
-- **優先級:** 🔴 高(2026-07-03 Playwright production build 實證升級:**不是躺在 DB,而是公開可見**)
+- **狀態:** ✅ 完成 —— **那筆商品已經不在正式庫了,不需要 Sean 再點頭。**
+  - **關檔依據(2026-08-11 S 窗正式庫唯讀實查)**:`handle = 'test-1nt-payment'` → **0 筆**;
+    `supplier_slug = 'test'` → **0 筆**;可見商品的 `supplier_slug` 共 **16 家、無幽靈供應商**
+    (條目擔心的 per-supplier 對賬干擾一併消失)。
+  - 清除的時點與執行者本條目沒有記到(2026-07-03 立案 → 2026-08-11 實查已不存在)。
+  - 🔴🔴 **給未來的人:不要順手清「測試接線盒」。** 用「測試 / test」搜正式庫,今天只會命中兩筆
+    **motogadget 真商品**(`motogadget-1005040` / `motogadget-1005041`,NT 3800 / 4900)——
+    那是真的商品名稱(機車電路測試工具),**不是測試資料**。
+    本條目標題含「測試商品」,很容易讓下一個人拿關鍵字掃一遍就把真商品刪掉;
+    判準是 `supplier_slug` 與 `handle`,**不是商品名稱裡有沒有「測試」兩個字**。
+- **優先級:** 🔴 高(已解決)
 - **問題:** prod `products` 有 1 筆 `supplier_slug='test'`:「【測試】1元金流測試商品(測完即刪)」handle `test-1nt-payment`。它掛在「碳纖維部品」分類 → 被 `fetchFeaturedProducts`(取該分類前 4)撈中 → **live 首頁「編輯精選」第 1 格就是它**(Playwright 實證 `.ed-select-grid` 第一張卡)。商品名自標「測完即刪」= M-3 金流測試遺留。另:多供應商化後 per-supplier 對賬/統計被幽靈供應商干擾。
 - **預期解法:** Sean 點頭 → 單筆 DELETE(或 delisted_at 軟下架)+ 事後唯讀驗證;動作納 Phase 0/P0-D 順手清單。
 - **不修會痛在:** 可維護性:per-supplier 報表/reconcile 出現幽靈供應商;bug 可追蹤性:未來查「為什麼有 12 家」浪費一輪。
@@ -6870,10 +6888,22 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #275. 🖼 lightech 變體圖大宗 http://(mixed content、寫入後前台破圖風險)
+### #275. ✅ lightech 變體圖大宗 http://(mixed content、寫入後前台破圖風險)
 
-- **狀態:** ⏳ 待執行(lightech confirm-write 前評估)
-- **優先級:** 🟠 中
+- **狀態:** ✅ 完成 —— **從來沒有落地成真破圖;本條是寫入前的風險評估,而該風險已在源頭消除。**
+  - **關檔依據(2026-08-11 S 窗正式庫唯讀實查)**:全 16 家供應商、`delisted_at IS NULL` 的變體圖
+    含 `http://` 的列 = **0**;lightech 舊 host `www.lightechmarketplace.com` = **0 列**;
+    lightech 8788 列 = 8062 列 https + 726 列空陣列(和相符)。
+    19017 筆可見商品的群層 `images` 與 `description` 含 `http://` = **0**。
+  - **為什麼**:本條的 A/B 兩案(fetcher 改寫 host / 網站 transform 層)**都已於 2026-07-24 晚間被 Sean 推翻**,
+    改走「**源頭下載→轉存 Cloudflare R2→DB 存乾淨 https 網址**、storefront 零改動」
+    (memory `project_brand-line-kspeed-extreme-lightech-decisions`)。報價單側做完了。
+  - 🔴 **本條「lightech.it 有 https 鏡像」的前提當時就已抽 40 張 0/40 實測推翻** —— 若有人日後想沿用
+    「改寫 host 到鏡像」這條路,它是死路,不要重走。
+  - ⚠️ 那 **726 列空陣列 = 缺圖**(memory 記的「726 群無圖 8.3%」),與 mixed content 無關,不要合併看待。
+  - storefront 這側零殘留(`next.config.ts` 無 `images` 區塊、無 transform 層);唯一還帶 `http://` 的是
+    `app/dev-preview/brands/fixtures.ts` 的一行 dev fixture,不在客人路徑上。
+- **優先級:** 🟠 中(已解決)
 - **問題:**
   - lightech 來源變體圖大量為 `http://www.lightechmarketplace.com/...`(實測該 host https 連線 reset、僅 http 可用);寫入後 https 正式站 `<img>` 觸發 mixed content——Chrome 自動升級失敗破圖、Safari/Firefox 擋。
   - 抽查同檔名在 `https://lightech.it/images_web/...` 多有可用鏡像(品牌版面已改用、code-reviewer R1 Critical 前例)。
@@ -9082,19 +9112,46 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #333. 📐 TabBar 讓位 padding 與「藏 TabBar」不同步 — 藏的頁面底部留 70px 死空間
 
-- **狀態:** ⏳ 待執行(2026-08-06 D 批2 R1 點名;動殼=鐵則 12⑥ 候選,獨立小片)
-- **現況**:`mobile-tabbar.css` 給 body 加固定讓位 padding;`/coming-soon` 已用頁內覆寫修掉露白,
-  但 `/products/[slug]` 同樣藏 TabBar、同樣有 70px 空捲動(白底看不出來、實際存在)。
-- **修法(D 批2 R1 建議)**:藏 TabBar 時同步在 `html`/`body` 標旗標,讓位 padding 吃同一個條件
-  ——一處守門取代逐頁覆寫;動 `MobileTabBar.tsx`+殼層 CSS,走標準片+完整 pnpm test。
+- **狀態:** ⏳ 待重新設計(2026-08-06 D 批2 R1 點名;**2026-08-11 S 窗實作後撤回 —— 原病灶描述是錯的**)
+- 🔴🔴 **2026-08-11 病灶更正(S 窗實作 → code-reviewer FAIL → 逐檔親驗 → `git checkout --` 撤回、零 commit)**:
+  - **`/products/[slug]` 那 70px 在主帶上不是死空間,是承重牆。**
+    `ProductPage.tsx` 的 `<HomeFooter />` 在 `</main>` **之後**,`.pd-mobile-buybar` 又在它之後、
+    `position: fixed; bottom: 0; z-index: 50`;而 `product-page.css` 的
+    `@media (max-width: 1079px) { .pd-mobile-buybar { display: flex } }`
+    **與 body 那條讓位 padding 是同一個斷點**。
+    ⇒ 頁尾下方唯一的讓位就是那 70px,歸零 = **商品頁頁尾被購買列永久蓋住**。
+  - **真正有死空間的只有一個窄帶**:手機 UA(`html[data-mobile="true"]`,該條沒有 media query)
+    + viewport ≥1080px(此時 buybar 是 `display:none`)—— 例如 Android 平板橫放。
+  - **另有一個容易被忽略的競爭者**:`checkout.css` 的 `body:has(.co-mobile-buybar)` =
+    `calc(80px + safe-area)`,權重與「掛在 `.mobile-tabbar.is-hidden` 上的歸零規則」**兩層都相等**,
+    而 `app/layout.tsx` 先 import checkout.css、後 import mobile-tabbar.css ⇒ **平手後載勝、會把它歸零**。
+    那 80px 的註解逐字寫著是「R2 用真瀏覽器 fixture 量出來的」,不可覆蓋。
+- **修法(原 D 批2 R1 建議已作廢)**:~~藏 TabBar 時標旗標、讓位 padding 吃同一個條件~~
+  —— 那個修法會同時打掉上面兩條承重。若仍要修,**條件必須是「這一頁有沒有自己的 fixed 底欄」
+  而不是「TabBar 藏了沒」**,並且只針對那個窄帶;範圍與收益都遠小於原條目的想像,值不值得做請先拍。
+- 🔴 **給下一個接手的人的檢查步驟**(這輪的教訓:查「這條規則是什麼」≠ 查「拿掉它誰會死」):
+  動任何 `body { padding-bottom }` 之前,先把**三條 hidden 路徑逐頁列出**
+  「這一頁底部有沒有 fixed 元素、它的讓位是誰在出」,再列全所有競爭選擇器(含別的 CSS 檔)。
+  這兩件事都是純文字層查得到的,**不需要真瀏覽器** —— 上一輪就是漏了這兩件,而不是漏了量測。
 - **不修會痛在哪**:每新增一個藏 TabBar 的頁面就重演一次「底部神祕空白」,深色頁直接露白條,
   三綠與單元測試全盲、只有真瀏覽器看得到。
 
 ### #334. 🎲 CheckoutView.test.tsx 非決定性 1 紅 — 同日兩窗各目擊一次、皆無法重現
 
-- **狀態:** ⏳ 待執行(2026-08-06 立案;E 窗與 D 窗同日各見一次全套 1 failed)
+- **狀態:** ⏳ 待執行(2026-08-06 立案;E 窗與 D 窗同日各見一次全套 1 failed;**2026-08-11 S 窗第三次目擊**)
 - **現況**:E 窗指認失敗檔=`apps/storefront/src/components/CheckoutView.test.tsx`(單檔重跑 61/61 綠、全套重跑兩次全綠);D 窗同日也見一次 1 failed 但沒抓到測試名。兩窗當時的改動都與 storefront 結帳零交集。
-- **修法方向**:下一個遇到的人先把失敗測試名記下來;對照 #330(note-compose-form confirm 閘懸案)同族=「多次 submit/非同步 race」候選;抓到簽名前不動測試。
+- 🔴 **2026-08-11 第三次目擊(S 窗)—— 帶回一個新簽名,可能會改變修法方向**:
+  - 看到的是 **`Test Files 1 failed | 430 passed (431)` 而 `Tests 6771 passed`、失敗測試數 = 0**。
+    **零個測試失敗、失敗的是「檔案」** —— 通過數與全綠那兩次**完全相同**。
+  - ⇒ assertion race 會讓 `Tests` 那行出現 failed;這個形狀更像
+    **collect / teardown / unhandled rejection**(檔案層),而不是條目現在猜的「多次 submit / 非同步 race」。
+    請下一個目擊者**先確認 `Tests` 那行有沒有 failed** 再往 race 方向查。
+  - ⚠️ S 窗**同樣沒抓到檔名**(當下用管線 grep 過濾掉了、回頭重跑已全綠)。連續兩次重跑 `exit=0`、431 全過。
+- 🔴 **機制修法(比「請下一個人記得」可靠)**:跑全套一律先落檔再過濾 ——
+  `npx vitest run > /tmp/vitest-full.log 2>&1; echo "exit=$?"` 然後 grep 那個檔,
+  **不要直接 `npx vitest run | grep ...`**:一濾就把唯一一次的證據丟掉,而 flake 依定義不會有第二次。
+  (三次目擊有兩次因為這個原因沒留下檔名。)
+- **修法方向**:下一個遇到的人先把失敗測試名記下來;對照 #330(note-compose-form confirm 閘懸案)同族=「多次 submit/非同步 race」候選 —— **但先看上面那條新簽名再決定要不要往這個方向走**;抓到簽名前不動測試。
 - **不修會痛在哪**:非決定性紅會讓「全套 N 綠」失去收割對帳的意義——每次紅都要人工判斷 flake 還是真回歸,判斷疲勞後遲早把真紅當 flake 放行。
 
 ### #335. 🧬 auth-error.ts 原型鏈查表 — 全 repo 最後一筆同型命中(當前不可觀察)
@@ -9737,3 +9794,32 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **順帶更正**:同檔「圖示態寬度不變(⌘B 收合仍是既有行為)」那格的理由被本片弄過期,
   已同步改寫 —— 圖示態在後台已走不到,那顆常數只剩 fork 元件的通用能力。
 - **編號註**:立案當下最大=#379(同 commit 立案,序在其後)。
+
+### #385. 🚪 `/dev-preview/*` 內部預覽頁在正式站**沒有任何 gate**、公開可達
+
+- **狀態:** ⏳ 待執行(2026-08-11 S 窗查 #275 時附帶發現;非 #275 範圍)
+- **優先級:** 🟡 低(**現況**無敏感內容);🔴 **但失效條件明確,見下** —— 這條的價值在防未來,不在修現在。
+- **現況(實測,不是推論)**:
+  - `curl` 等效實測 `https://shop.pcmmotorsports.com/dev-preview/brands` → **真的回內容**
+    (品牌展示索引、11 個品牌與分類群數),**不是 404**。
+  - 程式面零 gate:`apps/storefront` **沒有 `middleware.ts`**;`dev-preview/brands/[slug]/page.tsx` 與
+    `brand-page/[slug]/page.tsx` 的 `notFound()` 只擋**未知 slug**,不擋環境;
+    `next.config.ts` / `vercel.json` 對 `/dev-preview` 零設定。
+  - 目錄下共 8 個預覽區:`brands` / `brand-page` / `filter-drawer` / `filter-side` / `filter-top` /
+    `mobile-catalog-ux` / `sound-clips` / `_components`。
+- **✅ 已經有的那一半防護(不要重複做)**:`/dev-preview` **已在 robots disallow 清單**
+  (`apps/storefront/src/lib/seo.ts` 的 `CRAWLER_DISALLOW_PATHS`)⇒ 不會被搜尋引擎索引。
+  所以這**不是** SEO / 曝光問題,是「知道網址就進得去」。
+- 🔴 **失效條件(什麼時候這條會從低變高)**:今天 fixture 裡的品牌(lightech / k-speed / extreme)
+  都**已經上線**,所以沒有洩漏。但**沒有任何機制**擋住下一個人把「還沒上架的品牌 / 還沒拍板的價格 /
+  內部命名」寫進 `dev-preview/*/fixtures.ts` —— 那一刻它就是對外公開的。
+  ⇒ 要嘛加 gate,要嘛在 fixtures 檔頭寫死「這裡的內容等同公開」。
+- **預期解法(未拍)**:A=`middleware.ts` 對 `/dev-preview` 在 production 回 404(最小、一處守門)/
+  B=改用 Vercel preview-only 部署或密碼保護 / C=不加 gate,只在每個 fixtures 檔頭與 PR 模板寫明
+  「本目錄內容視同公開,不得放未上架資料」。
+- **不修會痛在哪**:可追蹤性 —— 半成品 UI 掛在客人網域上,客服或客人偶然拿到連結時沒人知道那是什麼;
+  且「內部頁」這個心智模型是錯的,會讓人放心把不該公開的東西放進去。
+- **順帶(不值得單開一條)**:`dev-preview/brands/fixtures.ts` 還留一個 `http://` 圖片網址
+  (lightech 舊 host)⇒ 該預覽頁在 https 下那張圖是破的。#275 收官後它是全 repo 最後一個 `http://` 圖。
+- **編號註**:立案當下最大=#380;#381-#384 已被其他窗在信箱佔號(backlog 尚未落條目)⇒ 取 #385;
+  `grep` repo 與信箱兩邊對 #385 皆 0 命中。
