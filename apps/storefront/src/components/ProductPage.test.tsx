@@ -74,12 +74,14 @@ describe('ProductPage', () => {
     expect(within(breadcrumbNav).getByText(akrapovic.name)).toBeDefined();
   });
 
-  it('should render from=sale branch with default sourceLabel', () => {
-    mockSearchParams = new URLSearchParams('from=sale');
-    render(<ProductPage product={MOCK_PRODUCTS[1]!} tier="general" related={[]} />);
-    const breadcrumbNav = screen.getByLabelText('navigation path');
-    expect(within(breadcrumbNav).getByText('特價精選')).toBeDefined();
-  });
+  // 🔴 原「should render from=sale branch with default sourceLabel」2026-08-11 移除(#269-a):
+  //    麵包屑的 `from === 'sale'` 分支已隨特價入口一起拿掉(Sean:特價概念還不存在)。
+  //    ⚠️ **一個要說清楚的分別**:我在 plan 裡說那條分支「已經是死碼」,指的是
+  //    **全站沒有任何頁面會發出 `?from=sale`**(非測試碼 grep 零命中)—— 那句仍然成立;
+  //    但它**確實有測試覆蓋**,因為這一格是直接把 searchParam 餵進去、繞過了 UI 入口。
+  //    ⇒ **「從 UI 到不了」不等於「沒有測試在測它」**。是全套測試把這件事指出來的,
+  //    不是我事先想到的;寫在這裡免得下一個人重複同樣的誤判。
+  //    特價回來時:恢復 `ProductBreadcrumb.tsx` 那條分支 + 這一格。
 
   it('should render vehicle pill when vehicle searchParam set', () => {
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');

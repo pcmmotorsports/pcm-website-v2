@@ -136,8 +136,11 @@ describe('Header', () => {
   //   必須是刻意的。
   //   沿革:2026-07-22 因為 `/brands` route 不存在(客人按了吃 404)把「品牌」改指 `/products`;
   //   **D3c-3 那條 route 落地、D3c-4 進了 sitemap ⇒ D3c-5 改回 `/brands`**,前提消失。
-  //   ⚠️ /install 與 /stores 目前**仍是已知死連結**(backlog #269、待 Sean 定內容),
-  //      刻意鎖住現況以免被誤讀成「已修好」;#269 收斂時本測試會轉紅,那是預期的提醒。
+  //   ✅ **2026-08-11 更正**:`/install` 與 `/stores` **已經不是死連結** ——
+  //      2026-08-06 第2批已建這兩條路由(`app/install/page.tsx` / `app/stores/page.tsx`,
+  //      渲染 `ComingSoon` 佔位頁,本片實查兩檔存在)。原本這裡寫「仍是已知死連結」,
+  //      而下方 `:163-164` 已被同一片改成「已落地」⇒ **同檔自我矛盾**,由 code-reviewer 抓出。
+  //      🔴 這是「改了摸到的那幾行、沒回頭掃同檔其他敘述」那一族(#269-a 自報)。
   describe('導覽列連結目的地 (D3c-5 品牌改指 /brands + #269 現況鎖)', () => {
     it('每個導覽項目的 href 與預期一致,「品牌」指向已落地的 /brands', () => {
       const { container } = renderWithCart(<Header isMobile={false} />);
@@ -153,10 +156,15 @@ describe('Header', () => {
         //    本 case 沒帶 currentPage ⇒ 吃預設 'products' ⇒ 走這一支。首頁那一支見下一條測試。
         ['依車輛搜尋', '/products?pick=vehicle'],
         ['品牌', '/brands'], // ✅ D3c-3 落地、D3c-5 接回;與頁尾「品牌專區」同一個目的地
+        // ⚠️ `?filter=new` **目前沒有任何地方在讀**(`parseCatalogQuery` 不認 `filter`)
+        //    ⇒ 按下去是未篩選全目錄。真篩選 = #269-b(要動 RPC 投影帶 created_at)。
         ['新品', '/products?filter=new'],
-        ['特價', '/products?filter=sale'],
-        ['安裝預約', '/install'], // ⚠️ 已知死連結 = backlog #269
-        ['合作店家', '/stores'], // ⚠️ 已知死連結 = backlog #269
+        // 🔴 「特價」2026-08-11 移除(#269-a、Sean:概念還不存在)—— 這一行**刻意留成註解**,
+        //    而不是無聲消失:整表 `toEqual` 是嚴格比對,誰把它加回來就必須先來這裡改,
+        //    那時就會讀到「特價要等商品編輯後台」這個前提。
+        // ['特價', '/products?filter=sale'],
+        ['安裝預約', '/install'], // ✅ 已落地(第2批 ComingSoon 佔位頁),非死連結
+        ['合作店家', '/stores'], // ✅ 同上
       ]);
       // ⚠️ 這裡**刻意不再補一條「/brands 恰好出現一次」的反面斷言**(關卡2 R1 nit):
       //    上面那個整表 `toEqual` 已經嚴格蘊含它 —— 多寫一條看起來更保險、實際零判別力,
@@ -244,7 +252,8 @@ describe('Header', () => {
       ['依車輛搜尋', '/products?pick=vehicle'],
       ['品牌', '/brands'],
       ['新品', '/products?filter=new'],
-      ['特價', '/products?filter=sale'],
+      // 🔴 特價 2026-08-11 移除(#269-a);同上,留註解行讓恢復的人先讀到前提。
+      // ['特價', '/products?filter=sale'],
     ];
     const EXPECTED_SERVICE = [
       ['安裝預約', '/install'],
@@ -314,13 +323,22 @@ describe('Header', () => {
       expect(groupLinks(panel, '帳戶')).toEqual(EXPECTED_ACCOUNT);
     });
 
-    it('特價那條有 is-sale 樣式標記,其餘沒有(OD 驗收 #4)', () => {
+    // 🔴 原「特價那條有 is-sale 樣式標記(OD 驗收 #4)」2026-08-11 改寫(#269-a):
+    //    特價那顆導覽項已移除(Sean 逐字:特價這個概念**還不存在**,要等商品編輯後台能設優惠價)
+    //    ⇒ OD 驗收 #4 的**前提消失**,原斷言 `saleLinks === ['特價']` 恆假、不可能成立。
+    //    ⚠️ **但不是刪掉就算了**:`sale?: boolean` → `is-sale` 這條樣式鉤子刻意保留
+    //    (`Header.tsx` navItems 與 `MobileMenu.tsx:199`),特價回來時加一行即可、不必重接樣式。
+    //    這一格改成釘「現在沒有任何一條掛 is-sale」——**偷偷把特價入口加回來會讓它轉紅**,
+    //    於是恢復的人必然回到這裡、也必然讀到上面這段脈絡與 OD 驗收 #4 原本要求什麼。
+    // ⚠️ 標題只講**手機面板**(`.pcm-menu-body`),因為這一格只查那個容器 —— 桌機 `.pcm-nav` 的
+    //    `pcm-nav-sale` 不在本格觀察範圍(它由上面兩張整表 `toEqual` 覆蓋)。宣稱不要大於量到的面。
+    it('🔴 手機面板目前沒有任何項目掛 is-sale(特價入口已移除;要恢復請連這格一起改)', () => {
       const { panel } = openMenu();
       const saleLinks = Array.from(panel.querySelectorAll('.pcm-menu-body a.is-sale')).map((a) => a.textContent?.trim());
-      expect(saleLinks).toEqual(['特價']);
-      const nonSaleWithClass = Array.from(panel.querySelectorAll('.pcm-menu-body a:not(.is-sale)')).map((a) => a.textContent?.trim());
-      expect(nonSaleWithClass).not.toContain('特價');
-      expect(nonSaleWithClass.length).toBe(9); // 5 選購(扣特價=4)+2 服務+3 帳戶 = 9
+      expect(saleLinks, '有東西掛上 is-sale ⇒ 特價入口被加回來了?請連帶恢復 OD 驗收 #4 那組斷言').toEqual([]);
+      const allLinks = Array.from(panel.querySelectorAll('.pcm-menu-body a')).map((a) => a.textContent?.trim());
+      expect(allLinks).not.toContain('特價');
+      expect(allLinks.length).toBe(9); // 4 選購(原 5 扣特價)+2 服務+3 帳戶 = 9
     });
 
     it('底部有熔橘 LINE 鈕(連真 site-config LINE_ADD_URL)與門市地址(OD 驗收 #6)', () => {
