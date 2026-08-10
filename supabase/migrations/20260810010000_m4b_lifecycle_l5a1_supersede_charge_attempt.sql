@@ -317,20 +317,117 @@ BEGIN
 END
 $$;
 
--- 🔴 R1-MF7:繼承面 —— 直接 ACL 窮舉看不到「別的角色 GRANT payment_confirmer TO 它」。
---    有效權限是繼承後的結果,只查 proacl 會漏掉整條繼承鏈。
+-- 🔴 R1-MF7:可呼面 —— 直接 ACL 窮舉(上一段)只看得到 proacl 那一層,
+--    「別的角色 GRANT payment_confirmer TO 它」造出的可呼身分完全看不到。
+-- 🔴 重設計(2026-08-10,MAIN-005 apply 發火後,Sean 拍 A 交 P 窗):
+--    前版斷「payment_confirmer 零直接成員」,在正式庫必炸 —— postgres 是本函式 owner、
+--    又因 CREATEROLE 建角色時 PG 自動授予而成了 payment_confirmer 成員。那是**既有現實且不新增可呼面**
+--    (owner 本來就呼得到、還能自己改 ACL),不是威脅 ⇒ 前版是**假警報**,不是「守太嚴」。
+--    🔴 換面而非放寬(memory `feedback_guard-drawn-at-narrowest-surface-not-invariant`):
+--    真正的不變量是「**誰呼得到這支 RPC**」,不是「誰是 payment_confirmer 的成員」。
+--    🔴 判準=**非 inert 身分取得閉包**(codex R1 兩 must-fix + R3/Fable MF-A;PG17.10 本機實測釘死,非推理):
+--      角色 r **以自己或取得得到的身分直接 EXECUTE 得到本 RPC**
+--        ⟺ ∃ s ∈ 閉包(r):has_function_privilege(s, fn, 'EXECUTE')
+--      閉包(r) = {r} ∪ 沿 pg_auth_members **任一非 inert 邊**反覆可達的角色(遞迴)。
+--      🔴 「非 inert」= set_option OR inherit_option OR admin_option 三者任一為真(R3/Fable MF-A):
+--        · set   ⇒ 可 SET ROLE 直接變成它;
+--        · inherit ⇒ 自動就有它的權限(has_function_privilege 那層已看得到,列進來不新增誤判);
+--        · admin ⇒ 🔴 **可以 `GRANT 該角色 TO 自己` 再變成它** —— 只走 set_option 會**靜默放過**這種角色,
+--          而前版「零直接成員」斷言反而攔得住它 ⇒ 那是本次重設計自己造出來的**回歸**,不是既有缺口。
+--        · 三者皆假(inert 成員)⇒ 這條邊什麼也做不到,不走(否則就是 R1-MF2 那種誤擋)。
+--      has_function_privilege 自身已含 inherit_option 那一層 ⇒ 兩層合起來才是完整**直接**可呼面。
+--      ⚠️ 逐字注意「直接」二字(codex R2-MF1):**間接入口不在本段射程**——見誠實邊界第 4 條。
+--    ⚠️ 為什麼**不能**用 pg_has_role(...,'MEMBER') 當可達性(實測 PG 17.10,三個都是真值):
+--      ① `GRANT pc TO r WITH INHERIT FALSE, SET FALSE`(inert)⇒ has_fn_priv=false 但 MEMBER=**true**
+--         ⇒ 拿 MEMBER 當判準會**誤擋呼不到的角色**,重演 MAIN-005 那種假警報。
+--      ② `GRANT owner TO r WITH INHERIT FALSE, SET TRUE` ⇒ has_fn_priv=false 且 MEMBER(pc)=**false**,
+--         但 r 可 SET ROLE 成 owner 再呼 ⇒ 拿 MEMBER 當判準會**整個漏抓**這條。
+--    白名單恰兩種,且**兩種都構造得出正測**(不用 rolname='postgres' 那種本地測不到的名字白名單:
+--    bootstrap superuser 禁降級 ⇒ 那個分支永遠驗不了 = 測不到的層不能宣稱被守住):
+--      ⓐ 超級角色 —— ACL 本來就攔不住它,對它斷言=零判別力(同 supabase_admin 不可 REVOKE 那條);
+--      ⓑ 閉包裡含**本函式 owner** 的角色 —— 它取得得到 owner 身分後可自行改 ACL/改函式,
+--         能力嚴格強於「呼這支」,對它斷言同樣零判別力(prod 的 postgres 與 cli_login_postgres 即此)。
+--    🔴 用同一個「非 inert 閉包」同時算可呼面與白名單,換到一個**不依賴未知值**的性質(R3/Fable C-1):
+--       `MAIN-007-A` 只給了 usage/member 兩欄,cli_login_postgres → postgres 那條邊的
+--       set/inherit/admin 三個 option **我們並不知道**。但無論它是哪一種組合,結論都一樣:
+--         · 邊非 inert ⇒ 閉包含 owner ⇒ 白名單ⓑ 放行;
+--         · 邊 inert  ⇒ 那條邊什麼也做不到 ⇒ has_function_privilege 為假 ⇒ 根本不進候選。
+--       ⇒ apply 放行預測**不再是條件式的**,不必等那發 prod 查詢才敢說(仍以 MAIN-007-A 的角色清單完整為前提)。
+--    其餘任何可達角色 ⇒ RAISE(fail-closed),專屬 SQLSTATE P5A03。
+--    ⚠️ 誠實邊界(七條,不擴張宣稱):
+--      1. 本段只在 **apply 當下**跑一次,擋不住 apply 之後才被授出的權限(那要 CI/定期稽核,
+--         掛帳同 SOLE-WRITER / ACL-UNIVERSAL 兩道偵測器);
+--      2. 白名單ⓑ 是**明示放行**、不是「證明它們無害」—— 正式庫 `postgres` / `cli_login_postgres`
+--         確實呼得到這支動錢的 RPC,只是守它零收益(它們本來就能做更多)。**殘餘風險已列給 Sean**;
+--      3. 擋不住超級角色事後自己開後門,也擋不住 owner 自己改 ACL;
+--      4. 🔴 **只證直接可呼面,間接入口證不到**(codex R2-MF1):若日後有人建一支
+--         SECURITY DEFINER 的 wrapper 函式(或 trigger)去呼本 RPC,拿得到那支 wrapper EXECUTE 的角色
+--         就繞過本段 —— 它對本 RPC 的 has_function_privilege 是 false、也沒有 SET ROLE 路徑,本段看不到。
+--         要連間接入口一起守,得另做 wrapper/trigger 入口稽核(與 SOLE-WRITER 同一個掛帳桶);
+--      5. 🔴 **守的是「任何角色身分持有可呼權」,不是「誰實際登得進來呼」**(codex R2-MF2):
+--         枚舉以**所有** pg_roles 為根,所以連 NOLOGIN、且沒有任何非白名單角色能成為它的葉角色
+--         也會被擋下。這是**刻意的 fail-closed 代價**(要精準判「誰進得來」得先定義 session/proxy 根,
+--         而 rolcanlogin 隨時可被 ALTER ⇒ 那個前提本身不穩)。代價=apply 可能被這種無害構型擋下,
+--         真的遇到就排 Sean 拍板,不在這裡自行放寬。
+--      5b. 🔴 **反向的一類要講清楚,免得被誤讀成誤擋**(code-reviewer N3):以 `INHERIT TRUE, SET FALSE`
+--         繼承到 payment_confirmer 的角色**會被擋,而那是對的** —— 它不需要 SET ROLE,登入當下就
+--         自動帶著那份權限、真的呼得到。它與第 5 條那種「持有權限但沒人進得來」是**不同成因**:
+--         第 5 條是保守誤擋(可惜但刻意),這一類是**真陽性**。
+--      6. 🔴 **硬相依 PostgreSQL 16+**(code-reviewer MF1):判準用的 `pg_auth_members.set_option /
+--         inherit_option / admin_option` 三欄 PG16 才有。DO 區塊開頭已加版本閘明話擋下 PG15 以下。
+--         正式庫實查 `supabase/.temp/postgres-version` = **17.6.1.111** ⇒ 今天不觸發;閘是回歸網。
+--      7. ⛔ **apply 前置(主視窗清單持有,不由本檔執行)**:apply 之前先在**正式庫唯讀**跑一次
+--         本段的**原字面 SELECT**(不是 harness 重建的拓樸)、斷言回 NULL。理由=harness 那格
+--         (`REACH-PROD-SHAPE`)是手搭拓樸重演,證的是「本拓樸下放行」,**證不到正式庫現況**
+--         (code-reviewer MF2 + R3/Fable C-1 同根)。這步由主視窗排、Sean 或屆時可用的 psql 路徑跑。
+-- L5A1-INHERIT-GUARD-BEGIN(harness 依此對錨點取整段,勿改字面)
 DO $$
-DECLARE v_inheritors text;
+DECLARE
+  v_fn    oid := 'public.supersede_charge_attempt_for_user(uuid,uuid,text,uuid)'::regprocedure;
+  v_owner oid;
+  v_bad   text;
 BEGIN
-  SELECT string_agg(m.member::regrole::text, ',' ORDER BY m.member::regrole::text)
-    INTO v_inheritors
-    FROM pg_auth_members m
-   WHERE m.roleid = 'payment_confirmer'::regrole;
-  IF v_inheritors IS NOT NULL THEN
-    RAISE EXCEPTION 'L5a-1 繼承面異常 — [%] 繼承了 payment_confirmer ⇒ 它們也呼得到本 RPC;拒繼續', v_inheritors;
+  -- 🔴 版本閘(code-reviewer MF1):本段硬相依 PG16+ 才有的 pg_auth_members.set_option /
+  --    inherit_option / admin_option 三欄。PG15 以下這三欄不存在 ⇒ 整段會炸在
+  --    「column does not exist」,那種錯誤看不出根因、也分不清是守門真的發火還是環境不對。
+  --    先明話擋掉。(正式庫實查 supabase/.temp/postgres-version = 17.6.1.111 ⇒ 今天不會觸發;
+  --     這道是**回歸網**,防日後被搬到舊庫或降版重放。)
+  IF pg_catalog.current_setting('server_version_num')::int < 160000 THEN
+    RAISE EXCEPTION 'L5a-1 可呼面守門需要 PostgreSQL 16 以上(現為 %):判準相依 pg_auth_members 的 set_option/inherit_option/admin_option 三欄;拒繼續',
+      pg_catalog.current_setting('server_version')
+      USING ERRCODE = 'P5A03';
+  END IF;
+
+  SELECT p.proowner INTO v_owner FROM pg_catalog.pg_proc p WHERE p.oid = v_fn;
+
+  WITH RECURSIVE reach AS (
+    -- 起點:每個角色以自己為根(閉包含自己)
+    SELECT r.oid AS root, r.oid AS cur FROM pg_catalog.pg_roles r
+    UNION
+    -- 遞迴:沿任一**非 inert** 邊走(set=可變成它 / inherit=已經有它 / admin=可自授後變成它)。
+    -- 🔴 admin_option 那項是 R3/Fable MF-A:漏掉它 ⇒ 持 ADMIN 的 inert 成員自授後即可呼、而守門看不到。
+    SELECT k.root, m.roleid
+      FROM reach k
+      JOIN pg_catalog.pg_auth_members m
+        ON m.member = k.cur
+       AND (m.set_option OR m.inherit_option OR m.admin_option)
+  )
+  SELECT string_agg(DISTINCT rr.rolname, ',' ORDER BY rr.rolname)
+    INTO v_bad
+    FROM reach k
+    JOIN pg_catalog.pg_roles rr ON rr.oid = k.root
+   WHERE NOT rr.rolsuper
+     AND rr.rolname <> 'payment_confirmer'
+     AND pg_catalog.has_function_privilege(k.cur, v_fn, 'EXECUTE')
+     AND NOT EXISTS (SELECT 1 FROM reach w WHERE w.root = k.root AND w.cur = v_owner);
+
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION 'L5a-1 可呼面異常 — [%] 以自己或取得得到的身分**直接** EXECUTE 得到本 RPC(直接授予 / 繼承 / SET ROLE / ADMIN 自授 任一);除 payment_confirmer 外只放行超級角色與可取得 owner 身分者,拒繼續。診斷:SELECT m.member::regrole, m.set_option, m.inherit_option, m.admin_option FROM pg_auth_members m WHERE m.member = ''<上列角色>''::regrole; ⚠️ 本判準不含間接入口(SECDEF wrapper/trigger),且以所有角色為根、NOLOGIN 葉角色也會被擋 —— 見本檔可呼面段誠實邊界 4/5 與 MAIN-005', v_bad
+      USING ERRCODE = 'P5A03';
   END IF;
 END
 $$;
+-- L5A1-INHERIT-GUARD-END
 
 -- 🔴 R1-MF7:SECDEF fail-open 面(對齊 A8c1/L4a-1 20260809210000:291-300 的既有形狀,本片前一版漏了)。
 --    本支是 SECURITY DEFINER 且讀 zero-policy 的表:owner 一旦漂移、或表被打開 FORCE RLS,
