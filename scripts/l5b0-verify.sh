@@ -6,7 +6,8 @@
 # 用法:provision(d1t2 家族)後 `L5B0_VERIFY_PORT=54394 scripts/l5b0-verify.sh /tmp/l5b0t/pg`
 # 形制沿用 a8c1/a8c2-verify.sh:身分閘 → 行為格 → 突變矩陣(逐格向量精確比對)→ 零留痕複查。
 #
-# 🔴 本片(-t1)只涵蓋 **attempt 面**:格 1,2,5,6,7,9a,10,11,12,13,15 + 突變 M1,M2,M3,M6,M7,M8,M9。
+# 🔴 本片(-t1)只涵蓋 **attempt 面**:格 1,2,5,6,7,9a,10,11,12,13,15,16,17 + 突變 M1,M2,M3,M6,M7,M8,M9,M10,M11,M12。
+#    (格 16/17 與 M10-M12 是**改④ 面**;-s 送審期間留白,Sean 2026-08-10 拍板 A 認可改④ 後補齊。)
 #    **confirm 面(格 3,4,8,9b,14 + 突變 M4,M5)不在本片**,理由不是偷懶,是**驗收載體不同**:
 #    OP3(20260810160000)之後 `confirm_order_payment` 帶 `session_user <> 'payment_confirmer'` 硬閘
 #    ⇒ 那幾格必須用**另一條 payment_confirmer 連線**呼 RPC ⇒ fixture 不能留在未提交交易裡
@@ -52,6 +53,22 @@ q()   { psql "$URL" -qtAX -c "$1" 2>&1; }
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 CASEDIR="$(mktemp -d "${TMPDIR:-/tmp}/l5b0-cases.XXXXXX")"
 trap 'rm -rf "$CASEDIR"' EXIT
+
+# ── 自檢:原始碼裡不得出現「會被 shell 吃掉」的反引號 ────────────────────────
+# 🔴 2026-08-10 實錘:格 1 的註解裡寫了一組反引號,而 case body 是用**雙引號字串**傳進 emit_case
+#    ⇒ shell 在**交出引數之前**就把它當命令替換執行掉,並把那段字面**換成空字串**寫進 SQL 檔。
+#    這次只吃掉一句註解(唯一症狀=stderr 一行 "EXCEPTION: command not found",極易被當雜訊放過),
+#    但同一個機制吃到的若是一條斷言,就是**靜默少驗一件事而全綠**。
+# 🔴 守門要畫在**不變量成立的那個面**:執行期的 `case "$2"` 檢查是**恆真**的
+#    (反引號那時候早就不見了)—— 這一版就是先寫了那個恆真守門、被消融測試打回來才改成掃原始碼。
+# 🔴 連這段自己都不能出現字面的反引號(否則守門會咬到自己)⇒ 用 printf 產出那個字元。
+BT="$(printf '\140')"
+if grep -n "$BT" "${BASH_SOURCE[0]}" | grep -qv '^[0-9]*:[[:space:]]*#'; then
+  echo "🔴 原始碼含反引號且不在整行註解上 —— shell 會執行它並把那段換成空字串:" >&2
+  grep -n "$BT" "${BASH_SOURCE[0]}" | grep -v '^[0-9]*:[[:space:]]*#' >&2
+  echo "   改用「」或直接不加引號;不要靠「記得別用」這種規則。" >&2
+  exit 1
+fi
 
 # ── 身分閘(照 a8c1/a8c2:先證「我連到的是我以為的那台、而且兩片都在」)──────────
 test -f "$WORK/.d1t2-harness" || { echo "🔴 缺 d1t2 harness marker;拒跑"; exit 1; }
@@ -153,7 +170,7 @@ run_case() {
 # 格 1:閘一 —— superseded + released 呼 markCharged ⇒ RAISE、attempt 不動、anomaly 零列
 emit_case 1 "$(seed_attempt released 0 y NULL false)
   SELECT count(*) INTO v_ano FROM public.payment_double_charge_anomalies;
-  -- 🔴 code-reviewer must-fix:裸 `EXCEPTION WHEN others` 是**結構性**假綠 ——
+  -- 🔴 code-reviewer must-fix:裸的 EXCEPTION WHEN others 捕捉是**結構性**假綠 ——
   --    只要未來在閘之前多一道前置(例如收緊 rec 格式),這一格會因為「別的東西 RAISE 了」而**靜默續綠**,
   --    而閘本身可能早已被繞過。⇒ 收下 SQLSTATE 與訊息、斷言它就是閘那一種拒絕,
   --    並在呼叫前先證「唯二的前置(rec 形狀、雙鍵 row 存在)確實會過」。
@@ -330,7 +347,29 @@ emit_case 15 "$(seed_attempt released 8 y NULL true)
                     v_before, v_before - 1, v_after;
   END IF;"
 
-CELLS="1 2 5 6 7 9a 10 11 12 13 15"
+# 格 16(改④;關卡2 R1-MF1 的直接證據)——**既有列**:讓路 + count 早已 >8 + lease 到期 + 非 manual。
+#   claim 永遠碰不到它(count>=8)⇒ 只有 expire 收得到;沒有改④ 時本格必紅。
+#   ⚠️ 刻意**不接**告警計數斷言:那條由格 12 負責。接了會讓 M8(改③ 放寬拿掉)連帶染紅本格 = 多紅。
+emit_case 16 "$(seed_attempt released 12 y "pg_catalog.now() - interval '1 minute'" false)
+  SELECT count(*) INTO v_hit FROM public.claim_stuck_unsettled_attempts(0, 1000) c WHERE c.attempt_id = v_attempt;
+  IF v_hit <> 0 THEN RAISE EXCEPTION '格16 前提 FAIL:count>=8 的列不該被 claim 到(實得 %)', v_hit; END IF;
+  SELECT public.expire_stuck_attempts_at_ceiling() INTO v_n;
+  IF v_n < 1 THEN RAISE EXCEPTION '格16 FAIL:expire 應至少轉換 1 列(實得 %)', v_n; END IF;
+  SELECT needs_manual_review INTO v_flag FROM public.payment_charge_attempts WHERE id = v_attempt;
+  IF v_flag IS NOT TRUE THEN
+    RAISE EXCEPTION '格16 FAIL:既有 count>=8 的讓路列沒被 expire 標人工 ⇒ 旗標永遠 false、告警恆零(MF1 原病)';
+  END IF;"
+
+# 格 17(格 16 的負向對照 = 收窄版 SWEEP-6)—— 未讓路的 released 不得被 expire 碰。
+#   本格若紅,代表改④ 寫成了裸 superseded_at IS NOT NULL 或直接收整族 released ⇒ R1c1 行為回歸、假告警。
+emit_case 17 "$(seed_attempt released 12 n "pg_catalog.now() - interval '1 minute'" false)
+  SELECT public.expire_stuck_attempts_at_ceiling() INTO v_n;
+  SELECT needs_manual_review INTO v_flag FROM public.payment_charge_attempts WHERE id = v_attempt;
+  IF v_flag IS NOT FALSE THEN
+    RAISE EXCEPTION '格17 FAIL:未讓路的 released 被 expire 標了人工 ⇒ R1c1 行為回歸、假告警';
+  END IF;"
+
+CELLS="1 2 5 6 7 9a 10 11 12 13 15 16 17"
 
 # 向量 = 逐格 1/0 字串(1=綠)。突變時與 EXPECT 精確比對,**多紅少紅皆判失敗**。
 run_vector() {
@@ -359,17 +398,20 @@ ALL_GREEN="$(printf '1%.0s' $CELLS)"
 # 🔴 錨點唯一性由 python 端強制(命中數 <> 1 立即中止)——「我以為只有一處」是這類腳本最常見的假綠來源。
 # 🔴 期望值寫成**該發突變應該紅的格名清單**、不是手數的位元字串:
 #    手數位元在格數變動時會靜默錯位,而錯位的向量照樣「比對成功」= 橡皮圖章。
+# 🔴 M11/M12 的存在理由:格 17/13 是負向對照,在 M1-M10 之下**全綠**。
+#    不另外構造能讓它們紅的突變,「R1c1 零回歸」就只是一句沒被測過的斷言
+#    (memory feedback_negative-test-observation-supplied-by-another-mechanism)。
 echo "== 突變矩陣 ×${CELL_COUNT} 格 =="
 
 base_file() { printf '%s/base-%s.sql' "$CASEDIR" "$(printf '%s' "$1" | cksum | cut -d' ' -f1)"; }
-for S in "$SIG_MARK" "$SIG_FB" "$SIG_CLAIM" "$SIG_RETRY" "$SIG_SUM"; do
+for S in "$SIG_MARK" "$SIG_FB" "$SIG_CLAIM" "$SIG_RETRY" "$SIG_SUM" "$SIG_EXP"; do
   psql "$URL" -qtAX -c "SELECT pg_get_functiondef('$S'::regprocedure)" > "$(base_file "$S")"
   test -s "$(base_file "$S")" || { echo "🔴 dump $S 失敗;拒跑"; exit 1; }
 done
 
 restore_all() {
   local S
-  for S in "$SIG_MARK" "$SIG_FB" "$SIG_CLAIM" "$SIG_RETRY" "$SIG_SUM"; do
+  for S in "$SIG_MARK" "$SIG_FB" "$SIG_CLAIM" "$SIG_RETRY" "$SIG_SUM" "$SIG_EXP"; do
     psql "$URL" -v ON_ERROR_STOP=1 -qtAX -f "$(base_file "$S")" >/dev/null 2>&1
   done
 }
@@ -384,6 +426,7 @@ base_prosrc() {
     "$SIG_CLAIM") printf '%s' "$PROSRC_S_C1" ;;
     "$SIG_RETRY") printf '%s' "$PROSRC_S_C2" ;;
     "$SIG_SUM")   printf '%s' "$PROSRC_S_C3" ;;
+    "$SIG_EXP")   printf '%s' "$PROSRC_S_C4" ;;
     *) printf '%s' "UNKNOWN_TARGET" ;;
   esac
 }
@@ -410,6 +453,12 @@ SUM_WIDE = """          AND ( a.status = 'pending'
                 OR ( a.superseded_at IS NOT NULL
                      AND a.status IN ('charged', 'released') ) )
 """
+EXP_STATUS = """       AND ( a.status IN ('pending', 'charged')
+             OR ( a.status = 'released' AND a.superseded_at IS NOT NULL ) )
+"""
+CLAIM2 = """             OR ( a.status = 'released'
+                  AND a.superseded_at IS NULL )        -- 未讓路的 released:維持 R1c1 繞閘、行為不回歸
+"""
 if   name == 'M1': out = sub("IF v_row.superseded_at IS NOT NULL THEN", "IF v_row.superseded_at IS NULL THEN")
 elif name == 'M2': out = sub(GATE, "  -- M2 mutant:閘一整條拿掉")
 elif name == 'M3': out = sub(GATE, "  -- M3 mutant:閘二整條拿掉")
@@ -419,6 +468,11 @@ elif name == 'M8': out = sub(SUM_WIDE, "          AND a.status = 'pending'\n")
 elif name == 'M9': out = sub(SUM_WIDE, """          AND ( a.status = 'pending'
                 OR a.superseded_at IS NOT NULL )
 """)
+elif name == 'M10': out = sub(EXP_STATUS, "       AND a.status IN ('pending', 'charged')\n")
+elif name == 'M11': out = sub(EXP_STATUS, """       AND ( a.status IN ('pending', 'charged')
+             OR a.status = 'released' )
+""")
+elif name == 'M12': out = sub(CLAIM2, "")
 else: sys.exit("unknown mutant " + name)
 open(out_p, 'w').write(out)
 PYEOF
@@ -432,6 +486,8 @@ mut_target() {
     M6)    printf '%s' "$SIG_CLAIM" ;;
     M7)    printf '%s' "$SIG_RETRY" ;;
     M8|M9) printf '%s' "$SIG_SUM" ;;
+    M10|M11) printf '%s' "$SIG_EXP" ;;
+    M12)   printf '%s' "$SIG_CLAIM" ;;
   esac
 }
 mut_reds() {
@@ -443,6 +499,9 @@ mut_reds() {
     M7) echo "11 12" ;;
     M8) echo "12 15" ;;
     M9) echo "15" ;;
+    M10) echo "16" ;;
+    M11) echo "17" ;;
+    M12) echo "13" ;;
   esac
 }
 # 紅格清單 → 向量(避免手數位元錯位)
@@ -454,7 +513,7 @@ reds_to_vec() {
   printf '%s' "$out"
 }
 
-for M in M1 M2 M3 M6 M7 M8 M9; do
+for M in M1 M2 M3 M6 M7 M8 M9 M10 M11 M12; do
   TGT="$(mut_target "$M")"
   if ! ERR="$(gen_mutant "$M" "$(base_file "$TGT")" "$CASEDIR/mutant.sql" 2>&1)"; then
     bad "$M 錨點 preflight — $ERR"; continue
