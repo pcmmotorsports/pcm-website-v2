@@ -159,7 +159,8 @@ PASS=0; FAIL=0; KEYS=""
 #    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
 #    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
-EXPECT_TOTAL=27   # 🔴 量出來的(**21** 逐支〔19 支 w 線 + b2s2b + a7t〕 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 27 + 2 = 29。
+EXPECT_TOTAL=29   # 🔴 量出來的(**21** 逐支〔19 支 w 線 + b2s2b + a7t〕 + SET-MATCH + **六發靶** + NO-WRITEBACK)。全綠 PASS = 29 + 2 = 31。
+                  # 🔴 2026-08-10 #354:27→29,新增 TMUT-COV-EXITS / TMUT-COV-INCONC 兩發常設靶。
                   # 🔴 W7d-1(2026-08-08)新增 scripts/w7d1-verify.sh ⇒ harness_set() 的 ^w[0-9] 自動撈得到它,
                   #    但**格數與 KEYS_FROZEN 是手動字面**、不會自己長 —— 關卡2 抓到這個漏。
                   #    ⇒ 以後每新增一支 w 開頭的 harness,這兩個字面都要一起改(這正是本檔在守的那種帳)。
@@ -175,7 +176,7 @@ trap 'rm -rf "$TMPD"' EXIT
 TS_NOW="$(newest_ts)"
 
 # ── 對帳原語:吃一份收據檔,回一支的問題描述(空 = 這支的帳是好的)────────
-# 🔴 參數化成吃檔案,是為了 §3 四發靶能對「動過手腳的副本」跑**同一份判定式**
+# 🔴 參數化成吃檔案,是為了 §3 六發靶能對「動過手腳的副本」跑**同一份判定式**
 #    —— 靶與被靶用兩套判定,翻面證的只是我寫了兩套。
 check_one() { # $1=收據檔 $2=harness 檔名
   local led="$1" h="$2" row p f ex ts sha problems=""
@@ -229,34 +230,40 @@ RS="$(grep -v '^#' "$LEDGER" 2>/dev/null | cut -f1 | grep -v '^$' | sort | tr '\
   && ok SET-MATCH "harness 集合($(printf '%s' "$HS" | wc -w | tr -d ' ') 支)與收據集合逐字相等 ⇒ 新片落檔沒記帳會紅在這裡" \
   || bad SET-MATCH "集合不符。有 harness 沒收據:[$(comm -23 <(printf '%s' "$HS" | tr ' ' '\n' | sort) <(printf '%s' "$RS" | tr ' ' '\n' | sort) | tr '\n' ' ')] 有收據沒 harness:[$(comm -13 <(printf '%s' "$HS" | tr ' ' '\n' | sort) <(printf '%s' "$RS" | tr ' ' '\n' | sort) | tr '\n' ' ')]"
 
-echo "══ 3. 🔴 靶(四類真實失效各一發;在副本上動手腳)═══════════"
-# 🔴 判別力的形狀:**改壞值、保留結構**。四發各打一種**本線真的發生過**的失效,
+echo "══ 3. 🔴 靶(六類真實失效各一發;在副本上動手腳)═══════════"
+# 🔴 判別力的形狀:**改壞值、保留結構**。六發各打一種**本線真的發生過**的失效,
 #    不是打「有人惡意改帳」那個零實例的威脅模型(R3 打掉前一版的理由)。
 FP_BEFORE="$(shasum "$LEDGER" 2>/dev/null | cut -d' ' -f1)"
 # 🔴 W7 跟片⑦:PROBE **改成釘死具名那支,不再用 `harness_set | head -1`**。
 #    原本取排序第一支 ⇒ **收編一支新 harness 就會靜靜換掉四發靶打的對象**,而且沒人會發現:
-#    收編 a7t 那一刻,四發靶就從 b2s2b 換成了 a7t,`check` 照樣 29/0。
+#    收編 a7t 那一刻,四發靶就從 b2s2b 換成了 a7t,`check` 照樣全綠(**當時**是 29/0;
+#    #354 之後是 31/0 —— 這行是史實,數字別讀成現況)。
 #    靶打誰是設計決定,不該由檔名排序決定(本檔在守的正是這種「帳自己漂掉」)。
 #    選 b2s2b 的理由:它是唯一走特例路徑的一支(`exits_of`=0 3、`inconc` 凍結 1),
 #    靶打它才會連特例那條路一起走過。
-#    🔴 誠實邊界:即使釘在 b2s2b,四發靶本身**沒有**專門去翻 `exits_of` 放寬與 inconc 凍結
-#    那兩條(它們只改 FAIL / sha / ts / 抽收據)。那兩條目前只有跟片① 的一次性突變佐證,
-#    沒有常設靶 —— 寫下來,不假裝關完。
+#    🔴 **原本的誠實邊界(#354)**:四發靶只改 FAIL / sha / ts / 抽收據,**沒有一發打 `exit` 欄**,
+#    也沒有一發打 inconc 凍結 ⇒ 那兩條的語意被悄悄放寬時 check 不會紅。
+#    ⇒ **2026-08-10 補上靶⑤⑥**(見下),這條邊界關掉;`exits_of` 的對照表另有逐字凍結。
 PROBE="b2s2b-verify.sh"
 # 🔴 R1 F3/F4:第一版這道守門只問「檔案在不在」,而且不跳過後面四發 ——
 #    ① 「檔案還在但已被移出 EXTRA_HARNESSES」它完全不響(靶繼續打一支不在帳上的 harness);
 #    ② 標的真的不見時,靶① 對「不存在的 harness」跑 `check_one` 會拿到「從來沒被跑過」
 #      ⇒ **TMUT-COV-MISSING 印 PASS**、說一句它證不到的話(靶②③④ 才會說「本靶自己壞了」)。
 #    ⇒ 改成問「它還在不在集合裡、有沒有收據」,並且**命中就整節跳過**,不讓任何一格說謊。
+#    🔴 #354 後這一節有**六**格。靶⑤ 另有自己的標的 `EXITS_PROBE`,但它仍**隨整節跳過**
+#       —— 不做半套:PROBE 不可用時六格一起判紅。反過來,`EXITS_PROBE` 自己不可用時
+#       只紅 TMUT-COV-EXITS 那一格,不牽連其他五格(它有自己的守門)。
 PROBE_OK=1
-harness_set | grep -Fqx "$PROBE" || { echo "  🔴 靶的標的 $PROBE 不在 harness 集合裡 ⇒ 四發靶沒有合法對象"; PROBE_OK=0; }
-grep -Fq "$PROBE	" "$LEDGER" 2>/dev/null || { echo "  🔴 靶的標的 $PROBE 沒有收據 ⇒ 四發靶構造不出「動過手腳的副本」"; PROBE_OK=0; }
+harness_set | grep -Fqx "$PROBE" || { echo "  🔴 靶的標的 $PROBE 不在 harness 集合裡 ⇒ 本節六發靶沒有合法對象"; PROBE_OK=0; }
+grep -Fq "$PROBE	" "$LEDGER" 2>/dev/null || { echo "  🔴 靶的標的 $PROBE 沒有收據 ⇒ 本節六發靶構造不出「動過手腳的副本」"; PROBE_OK=0; }
 if [ "$PROBE_OK" = "0" ]; then
-  # 🔴 整節跳過 + 四格逐一判紅(不是靜靜少四格 —— 那會讓 CELL-ACCOUNT 紅在別的理由上)
+  # 🔴 整節跳過 + 六格逐一判紅(不是靜靜少六格 —— 那會讓 CELL-ACCOUNT 紅在別的理由上)
   bad TMUT-COV-MISSING  "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
   bad TMUT-COV-RED      "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
   bad TMUT-COV-STALE    "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
   bad TMUT-COV-TSDRIFT  "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
+  bad TMUT-COV-EXITS    "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
+  bad TMUT-COV-INCONC   "靶的標的不可用($PROBE)⇒ 本格沒有對象,拒絕當成綠"
 fi
 if [ "$PROBE_OK" = "1" ]; then
 
@@ -311,15 +318,66 @@ else
   esac
 fi
 
-fi   # 🔴 PROBE_OK 那個 if 收在這裡:四發靶要嘛整組跑、要嘛整組判紅,不會半套。
+# ⑤ 🔴 **#354:`exits_of` 放寬**。靶①-④ 只動 FAIL/sha/ts/收據,**一發都沒打 `exit` 欄**
+#    ⇒ 有人把預設允許集從 `0` 放寬成 `0 3`,check 一格都不會紅(這條是 B-330-STOP ⑦ 盤出的)。
+#    做法兩半,缺一不可:
+#      (a) **對照表逐字凍結** —— 抓**任何一支的允許集被放寬**(含預設 `*)` 那條與 b2s2b 自己那組)。
+#          突變實測:改 `*)` 為 `0 3`、改 b2s2b 為 `0 3 7`,兩發都紅在這一半。
+#      (b) **在一支預設集 = {0} 的 harness 上把 exit 改成 3** ——
+#          🔴 措辭收窄(本輪 code-reviewer nit):(b) **不是**用來抓「集合被放寬」的,那個 (a) 就抓得到。
+#          (b) 獨有的價值是抓 **`check_one` 裡那段比對邏輯自己壞掉/被拿掉** ——
+#          對照表可以完全沒動,而 `[ "$ex_ok" = "1" ] || problems=…` 那行被刪掉就沒人管 exit 了。
+#          突變實測:把該行換成 `:` ⇒ 對照表全綠、只有 (b) 紅。兩半各自蓋住對方看不到的壞法。
+#          釘死具名 `w5-line-verify.sh`,不用 `harness_set | head -n`:靶打誰是設計決定,
+#          不該由檔名排序決定(同 PROBE 那段的教訓)。
+EXITS_PROBE="w5-line-verify.sh"
+EXITS_MAP_NOW="$(for h in $(harness_set); do printf '%s=[%s] ' "$h" "$(exits_of "$h")"; done | sed 's/ *$//')"
+EXITS_MAP_FROZEN="a7t-concurrency-probe.sh=[0] b2s2b-verify.sh=[0 3] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
+if [ "$EXITS_MAP_NOW" != "$EXITS_MAP_FROZEN" ]; then
+  bad TMUT-COV-EXITS "exits_of 對照表漂了。現行:[$EXITS_MAP_NOW]。⇒ 放寬任何一支的允許出口碼都要有人看(#354)"
+elif ! harness_set | grep -Fqx "$EXITS_PROBE" || ! grep -Fq "$EXITS_PROBE	" "$LEDGER" 2>/dev/null; then
+  bad TMUT-COV-EXITS "靶的標的 $EXITS_PROBE 不在集合裡或沒有收據 ⇒ 本格沒有對象,拒絕當成綠"
+else
+  sed "s/^\($EXITS_PROBE	[0-9]*	[0-9]*	\)0	/\13	/" "$LEDGER" > "$TMPD/led-exit.tsv"
+  if ! grep -q "^$EXITS_PROBE	[0-9]*	[0-9]*	3	" "$TMPD/led-exit.tsv"; then
+    bad TMUT-COV-EXITS "sed 沒把 exit 改成 3 ⇒ 本靶自己壞了,不是帳的結論"
+  else
+    M5="$(check_one "$TMPD/led-exit.tsv" "$EXITS_PROBE")"
+    case "$M5" in
+      *"該支允許的是"*) ok TMUT-COV-EXITS "🔴 把 $EXITS_PROBE 的 exit 改成 3(它只准 0)⇒ 當場紅 = 對「離場碼語意被悄悄放寬」有判別力;對照表另逐字凍結" ;;
+      "")               bad TMUT-COV-EXITS "exit=3 仍回報帳是好的 ⇒ 這條恆真(exits_of 的預設集被放寬了?)" ;;
+      *)                bad TMUT-COV-EXITS "紅了但理由不是 exit:[$M5]" ;;
+    esac
+  fi
+fi
+
+# ⑥ 🔴 **#354:inconc 凍結**。b2s2b 的待裁格數凍在 1;那條檢查被拿掉或放寬時,
+#    原本一發靶都不會紅。⇒ 把它的收據 inconc 改成 5(inconc 是最後一欄)。
+if ! grep -Fq "b2s2b-verify.sh	" "$LEDGER" 2>/dev/null; then
+  bad TMUT-COV-INCONC "b2s2b 沒有收據 ⇒ 本格沒有對象,拒絕當成綠"
+else
+  sed "s/^\(b2s2b-verify.sh	.*	\)1$/\15/" "$LEDGER" > "$TMPD/led-inconc.tsv"
+  if ! grep -q "^b2s2b-verify.sh	.*	5$" "$TMPD/led-inconc.tsv"; then
+    bad TMUT-COV-INCONC "sed 沒把 inconc 改成 5 ⇒ 本靶自己壞了,不是帳的結論"
+  else
+    M6="$(check_one "$TMPD/led-inconc.tsv" "b2s2b-verify.sh")"
+    case "$M6" in
+      *"待裁格數"*) ok TMUT-COV-INCONC "🔴 把 b2s2b 的待裁格數改成 5(凍結值 1)⇒ 當場紅 = 對「有格從綠掉進待裁 / 待裁格被消掉」有判別力" ;;
+      "")           bad TMUT-COV-INCONC "待裁格數=5 仍回報帳是好的 ⇒ 這條恆真(凍結值被拿掉了?)" ;;
+      *)            bad TMUT-COV-INCONC "紅了但理由不是待裁格數:[$M6]" ;;
+    esac
+  fi
+fi
+
+fi   # 🔴 PROBE_OK 那個 if 收在這裡:六發靶要嘛整組跑、要嘛整組判紅,不會半套。
      #    (R2 nit:第一版這個 fi 落在下面那段註解**之後**,讀起來像 COV-NO-WRITEBACK 也被跳過。
      #     實際上那格一直在 fi 之外、兩條路徑都會發 —— 但註解位置會讓人讀錯,所以移上來。)
 
-# 🔴 零回寫自證:四發靶只動 $TMPD 裡的副本,真收據一個位元都不該變。
+# 🔴 零回寫自證:六發靶只動 $TMPD 裡的副本,真收據一個位元都不該變。
 #    (守在**不變量面**,不是某個瞬間的 git 狀態 —— 那是 R2 打掉前一版的理由。)
 FP_AFTER="$(shasum "$LEDGER" 2>/dev/null | cut -d' ' -f1)"
 [ "$FP_BEFORE" = "$FP_AFTER" ] \
-  && ok COV-NO-WRITEBACK "四發靶跑完,真收據檔指紋逐位元不變 ⇒ 手腳只動到副本" \
+  && ok COV-NO-WRITEBACK "六發靶跑完,真收據檔指紋逐位元不變 ⇒ 手腳只動到副本" \
   || bad COV-NO-WRITEBACK "真收據檔在本節前後變了(${FP_BEFORE:0:8}… → ${FP_AFTER:0:8}…)"
 
 echo "══ 4. 覆蓋帳 ═════════════════════════════════════════════"
@@ -332,7 +390,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-a7t RECEIPT-b2s2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-a7t RECEIPT-b2s2b RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
