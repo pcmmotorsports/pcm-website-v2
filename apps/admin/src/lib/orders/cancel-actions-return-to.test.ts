@@ -250,3 +250,34 @@ describe('#350d-2 契約 §5 硬前置:revalidate 隨 return_to 打對路由', (
     }
   });
 });
+
+// ── #365 片②:`return_to` 與 `order_id` 用同一套讀法 ──────────────────────────────────
+describe('#365 片②:return_to 送兩份 ⇒ 走 fallback,不採第一筆', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 's1', actorId: 'staff-a' });
+    mocks.cancelOrder.mockResolvedValue({
+      ok: true,
+      cancellationId: 'c1',
+      idempotent: false,
+      closed: true,
+    });
+  });
+
+  // 🔴 本檔上方那顆 `order_id` 早就是「getAll 恰一筆」(關卡2 codex 複審 #3);
+  //    同一支 action 裡兩個欄位若用兩套讀法,就是最容易漂移的形狀 —— 這格把它釘住。
+  it('兩份合法的 return_to ⇒ 導回本單明細頁(而不是其中任何一份)', async () => {
+    const fd = form(PANEL_VIEW);
+    fd.append(ORDER_RETURN_TO_FIELD, `/orders?panel=${OTHER}`);
+    const target = await redirectTarget(fd);
+    expect(target.startsWith(`/orders/${ORDER}?`)).toBe(true);
+    expect(target).not.toContain(PANEL_VIEW_CLEAN);
+    expect(target).not.toContain(OTHER);
+  });
+
+  // 🔴 正向對照:同一份 return_to 只送一份 ⇒ 照常導去那個視圖。
+  //    沒有這格,上面那條對「return_to 一律走 fallback」的突變也會是綠的。
+  it('只送一份 ⇒ 照常導去那個視圖(證明上面那格紅的是「兩份」)', async () => {
+    expect(await redirectTarget(form(PANEL_VIEW))).toContain(PANEL_VIEW_CLEAN);
+  });
+});

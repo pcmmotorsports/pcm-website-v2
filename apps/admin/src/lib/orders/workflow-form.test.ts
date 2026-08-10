@@ -11,19 +11,19 @@ import {
   INVOICE_AMOUNT_FIELD,
   INVOICE_STATUS_FIELD,
   RETURN_TO_FIELD,
+  WORKFLOW_SINGLE_FIELDS,
   type FormLike,
 } from './workflow-form';
 
 const UUID = '11111111-2222-3333-4444-555555555555';
 
+// #365 片②:假表單整個拿掉,改用**真 FormData** —— `FormLike` 已收窄成只有 `getAll()`
+// (`get()` / `has()` 分不出「送一份」與「送兩份」,型別上就不再提供),而手寫的假表單
+// 正是「單值情境永遠只回一筆」那種讓重複欄位測不出來的形狀。
 function form(entries: Record<string, string>): FormLike {
-  const m = new Map(Object.entries(entries));
-  // #365:共用 FormLike 已要求 getAll(本檔呼叫點在片②才轉,型別面先補齊)。
-  return {
-    get: (k) => m.get(k) ?? null,
-    has: (k) => m.has(k),
-    getAll: (k) => (m.has(k) ? [m.get(k) as string] : []),
-  };
+  const data = new FormData();
+  for (const [name, value] of Object.entries(entries)) data.set(name, value);
+  return data;
 }
 
 describe('isAllowedOrigin — fail-closed', () => {
@@ -159,3 +159,84 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
 
 // 🔴 `parseItemWorkflowForm — 形狀守門(item 層)` 4 條:**A9w4a(2026-08-06)隨受測函式一併移除**
 //    (母 plan row 53)。order 層的 return_to / version 守門仍在上方 `parseWorkflowPatchForm` 那組。
+
+// ── #365 片②:單值欄位「getAll 恰一筆」 ────────────────────────────────────────────────
+//
+// 🔴 為什麼是真 FormData 而不是假表單:重複欄位只有真 FormData 造得出來(`append` 兩次),
+//    上面那支 `form()` 幫手在片② 之前是 Map 支撐的、單值情境永遠只回一筆 ⇒ 這一整族測不出來。
+describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
+  function base(): FormData {
+    const d = new FormData();
+    d.set(ORDER_ID_FIELD, UUID);
+    d.set(VERSION_FIELD, '5');
+    return d;
+  }
+
+  // 🔴 **手寫清單、不 `it.each(WORKFLOW_SINGLE_FIELDS)`**:走訪受測常數本身是循環論證 ——
+  //    清單少一欄,測項也跟著少一條,全綠(片① 關卡2 codex 抓到的形狀)。
+  const EXPECTED_SINGLE_FIELDS = [
+    'order_id',
+    'version',
+    'shipping_method',
+    'invoice_number',
+    'invoice_amount',
+    'invoice_status',
+  ];
+
+  it('入口清單 = 手寫的六顆 wire 欄名(漏列一欄 ⇒ 那一欄的洞無症狀)', () => {
+    expect([...WORKFLOW_SINGLE_FIELDS]).toEqual(EXPECTED_SINGLE_FIELDS);
+    // 🔴 `return_to` **刻意不在清單內**(判斷不是遺漏;理由見 `WORKFLOW_SINGLE_FIELDS` docstring)。
+    expect([...WORKFLOW_SINGLE_FIELDS]).not.toContain(RETURN_TO_FIELD);
+  });
+
+  // 兩份都是**各自合法**的值 ⇒ 被拒的原因只可能是「送了兩份」,不是值本身不合法。
+  const GOOD: Record<string, string> = {
+    order_id: UUID,
+    version: '5',
+    shipping_method: '黑貓',
+    invoice_number: 'AB-12345678',
+    invoice_amount: '1200',
+    invoice_status: 'issued',
+  };
+  // 🔴 查不到就當場炸,不回 undefined —— 清單加了新欄卻忘了補合法值時,
+  //    這格會變成「拿 undefined 去送」而靜默失去判別力。
+  function goodValueOf(field: string): string {
+    const v = GOOD[field];
+    if (v === undefined) throw new Error(`fixture 缺 ${field} 的合法值`);
+    return v;
+  }
+
+  it.each(EXPECTED_SINGLE_FIELDS)('%s 送兩份 → ok:false(不採第一筆)', (field) => {
+    const d = base();
+    d.set(field, goodValueOf(field));
+    d.append(field, goodValueOf(field));
+    expect(parseWorkflowPatchForm(d).ok).toBe(false);
+    // 正向對照:同樣的值只送一份 ⇒ 過。證明上面那格紅的是「兩份」而不是那個值。
+    const one = base();
+    one.set(field, goodValueOf(field));
+    expect(parseWorkflowPatchForm(one).ok).toBe(true);
+  });
+
+  // 🔴 **第二種形狀:單一 File**(片① 關卡2 codex 抓到的 —— 數量是 1、只數 length 的擋門放行)。
+  //    這兩欄的舊寫法會把非字串收斂成 `''`,而 `''` 在它們的語意是 **「清空」**
+  //    ⇒ 舊行為 = 送一顆 File 就靜默清掉發票號 / 發票金額,且回 ok:true。
+  it.each([
+    [INVOICE_NUMBER_FIELD, 'invoiceNumber'],
+    [INVOICE_AMOUNT_FIELD, 'invoiceAmount'],
+  ])('%s 送單一 File → ok:false(舊行為是靜默清空該欄)', (field) => {
+    const d = base();
+    d.set(field, new File(['x'], 'x.txt'));
+    expect(parseWorkflowPatchForm(d).ok).toBe(false);
+  });
+
+  it('return_to 送兩份 → 走 fallback、但寫入照常成立(它不決定寫什麼)', () => {
+    const d = base();
+    d.set(INVOICE_STATUS_FIELD, 'issued');
+    d.append(RETURN_TO_FIELD, `/orders?panel=${UUID}`);
+    d.append(RETURN_TO_FIELD, '/orders?panel=evil');
+    const r = parseWorkflowPatchForm(d);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.returnTo).toBe(`/orders/${UUID}`);
+    expect(r.ok && r.patch.invoiceStatus).toBe('issued');
+  });
+});

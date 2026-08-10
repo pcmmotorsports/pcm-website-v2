@@ -166,6 +166,30 @@ describe('#347-2b 守門 2:action 寫 cookie、PRG,且**搜尋詞絕不進 URL**
       expect(mocks.redirect.mock.calls[0]![0], `return_to=${evil} 應退回 /orders`).toBe('/orders');
     }
   });
+
+  // ── #365 片②:兩欄都走「getAll 恰一筆」 ──────────────────────────────────────
+  it('🔴 搜尋詞送兩份 → 刪 cookie(不拿其中一份去查)', async () => {
+    const { applyOrderKeywordSearchAction } = await load();
+    const fd = new FormData();
+    fd.append(ORDER_KEYWORD_FIELD, '王小明');
+    fd.append(ORDER_KEYWORD_FIELD, '李小華');
+    await expect(applyOrderKeywordSearchAction(fd)).rejects.toThrow('NEXT_REDIRECT');
+    // 讀不出一個明確的搜尋詞 ⇒ 走與「員工清空搜尋框」同一個出口:chip 消失、列表回全部。
+    // 突變:改回 `formData.get()` ⇒ 這格紅(會拿 '王小明' 去寫 cookie)。
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
+    expect(mocks.cookieDelete).toHaveBeenCalledWith(ORDER_KEYWORD_COOKIE);
+  });
+
+  it('🔴 return_to 送兩份 → 退回 /orders(不採第一筆)', async () => {
+    const { applyOrderKeywordSearchAction } = await load();
+    const fd = new FormData();
+    fd.set(ORDER_KEYWORD_FIELD, '王小明');
+    fd.append(ORDER_KEYWORD_RETURN_TO_FIELD, '/orders?payment_status=paid');
+    fd.append(ORDER_KEYWORD_RETURN_TO_FIELD, '/orders?payment_status=unpaid');
+    await expect(applyOrderKeywordSearchAction(fd)).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect.mock.calls[0]![0]).toBe('/orders');
+    // 正向對照在上方「redirect 目標不含搜尋詞」那格:只送一份時會逐字保留 `?payment_status=paid`。
+  });
 });
 
 // ── 3. 畫面:chip 常駐 + 清除入口 + 截斷提示 ────────────────────────────────────

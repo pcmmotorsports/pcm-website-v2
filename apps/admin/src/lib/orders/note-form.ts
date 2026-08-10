@@ -12,6 +12,12 @@
 //    internal ⇒ channel 與 occurred_at **都必須 NULL**;非 internal ⇒ **都不得 NULL**。
 //    用「有填就送」的寫法會在 internal 帶著空字串時撞 `INTERNAL_FIELDS_FORBIDDEN`。
 
+// #365 片②:單值欄位的唯一讀法(見 `lib/forms/single-value.ts` 檔頭)。
+import {
+  type SingleValueFormLike,
+  anyMalformed,
+  readSingleString as readString,
+} from '../forms/single-value';
 import { rpcTrim } from '../supplier-form';
 import {
   NOTE_BODY_FIELD,
@@ -25,10 +31,12 @@ import {
   isUuid,
 } from './note-action-state';
 
-/** 最小 FormData 介面(同 `supplier-form.ts` 慣例:測試不必造真 FormData)。 */
-export interface FormLike {
-  get(name: string): FormDataEntryValue | null;
-}
+/**
+ * 最小 FormData 介面 = **共用讀法自己的型別**(`lib/forms/single-value.ts`)。
+ * 🔴 #365 片②:原本是 `{ get() }`,而 `get()` 取的是**第一筆** ⇒ 同名欄位送兩份時靜默採前面那個。
+ *    型別收窄成只有 `getAll()`,下一個人就寫不出 `form.get()` 那條路。
+ */
+export type FormLike = SingleValueFormLike;
 
 /** 三種備註型別(鏡像 `order_notes_type_check`、`20260729030000:87-88`)。 */
 export const NOTE_TYPES = ['internal', 'contact_log', 'customer_notified'] as const;
@@ -51,10 +59,38 @@ export type NoteChannel = (typeof NOTE_CHANNELS)[number];
  */
 const ISO_WITH_OFFSET_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
-function readString(form: FormLike, field: string): string | null {
-  const raw = form.get(field);
-  return typeof raw === 'string' ? raw : null;
-}
+// #365 片②:本地 `readString` 已刪,改 alias 共用的「`getAll()` 恰一筆」讀法。
+//   行為變更:同名欄位送兩份由「靜默採第一筆」改為「解析失敗、表單被拒」。
+
+/**
+ * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
+ *
+ * ⚠️ **入口擋門在本檔真正承重的只有一欄:`corrects_note_id`**(關卡2 code-reviewer nit-6 更正 ——
+ * 原句寫成「漏列一欄就開洞」對七欄一律成立,那是說過頭)。它走的是「讀不出來就當沒填」
+ * (下面 `correctsRaw === null → null` 那兩行)⇒ 不先擋的話,**送兩份會跳過 uuid 閘、
+ * 把一筆更正備註靜默寫成一筆普通備註**(與片① 在退款線抓到的 fail-open 同型)。
+ * 其餘六欄各自有 `null → ok:false` 的明擋 ⇒ 漏列它們不會開洞,只會讓錯誤晚一步被判、
+ * 且症狀相同(一樣是 `ok:false`)。
+ * ⚠️ **「症狀相同」限非 internal**(R2 nit-2):`note_type=internal` 時 `channel` / `occurred_at`
+ * 根本不會被讀(下面型別分流早退)⇒ 把那兩欄從清單拿掉的話,「internal + channel 送兩份」
+ * 會從 `ok:false` 變成 `ok:true`。那不是洞(值本來就被丟掉),但症狀**確實會變**,
+ * 所以不能用一句話蓋掉七欄。
+ *
+ * ⚠️ **本清單對 `internal` 型別比「本解析器讀的全部欄位」更嚴**:`note_type=internal` 時
+ * `channel` / `occurred_at` 根本不會被讀(型別分流早退),但它們仍在清單裡 ⇒ 那兩欄送兩份現在會被拒。
+ * 方向是 fail-closed、刻意保留 —— 送出者連「這張表單有哪些欄」都搞錯時,不值得替他猜。
+ *
+ * ⚠️ 完整性由測試的**手寫清單**比對這顆常數(不能只走訪常數本身 = 循環論證)。
+ */
+export const NOTE_SINGLE_FIELDS = [
+  NOTE_ORDER_ID_FIELD,
+  NOTE_REQUEST_TOKEN_FIELD,
+  NOTE_TYPE_FIELD,
+  NOTE_BODY_FIELD,
+  NOTE_CORRECTS_FIELD,
+  NOTE_CHANNEL_FIELD,
+  NOTE_OCCURRED_AT_FIELD,
+] as const;
 
 export type NoteParse =
   | {
@@ -77,6 +113,9 @@ export type NoteParse =
  *    (同 `supplier-form.ts` 的已知取捨);要分得出來得先擴回傳型別,本片不做。
  */
 export function parseOrderNoteForm(form: FormLike): NoteParse {
+  // 🔴 重複 / 非字串欄位在語意層之前擋掉(必要性見 `NOTE_SINGLE_FIELDS` docstring)。
+  if (anyMalformed(form, NOTE_SINGLE_FIELDS)) return { ok: false };
+
   const orderId = readString(form, NOTE_ORDER_ID_FIELD);
   if (orderId === null || !isUuid(orderId)) return { ok: false };
 

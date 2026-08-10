@@ -281,3 +281,39 @@ describe('appendOrderNoteAction — log 面(PII)', () => {
     expect(dumped).not.toContain('secret hint');
   });
 });
+
+// ── #365 片②:carryBack 與解析器的讀法一致 ────────────────────────────────────────────
+describe('appendOrderNoteAction — #365 carryBack 與解析器讀同一套', () => {
+  beforeEach(() => {
+    mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'sean' });
+  });
+
+  // 🔴 解析器對「送兩份」回 ok:false ⇒ 這條一定走 `invalid`。真正被測的是**帶回來的那兩個值**:
+  //    carryBack 若還採第一筆,失敗畫面就會把其中一份當成員工打的字、把其中一把 token 當冪等鍵
+  //    繼續用(「兩邊各自正確、合起來錯」)。
+  it('🔴 body 送兩份 → invalid,且不把其中一份當成員工輸入帶回', async () => {
+    const d = noteForm();
+    d.append(NOTE_BODY_FIELD, '第二份');
+    const state = await appendOrderNoteAction(IDLE, d);
+    expect(state).toMatchObject({ status: 'failed', code: 'invalid', body: '' });
+    expect(state.status === 'failed' && state.body).not.toBe(BODY);
+  });
+
+  it('🔴 request_token 送兩份 → invalid,且另產一把新 token(不沿用其中一份當冪等鍵)', async () => {
+    const d = noteForm();
+    d.append(NOTE_REQUEST_TOKEN_FIELD, '11112222-3333-4444-5555-666677778888');
+    const state = await appendOrderNoteAction(IDLE, d);
+    expect(state).toMatchObject({ status: 'failed', code: 'invalid' });
+    const carried = state.status === 'failed' ? state.requestToken : '';
+    expect(carried).not.toBe(TOKEN);
+    expect(carried).not.toBe('11112222-3333-4444-5555-666677778888');
+    expect(carried.length).toBeGreaterThan(0);
+  });
+
+  // 🔴 正向對照:只送一份時 body 與 token **仍然原樣帶回** —— 沒有這格,上面兩條對
+  //    「carryBack 一律回空字串 + 一律發新 token」的突變也會是綠的(那是既有行為的迴歸網)。
+  it('只送一份 → body 與 token 照舊原樣帶回(證明上面兩格紅的是「兩份」)', async () => {
+    const state = await appendOrderNoteAction(IDLE, noteForm({ [NOTE_TYPE_FIELD]: 'urgent' }));
+    expect(state).toMatchObject({ code: 'invalid', body: BODY, requestToken: TOKEN });
+  });
+});
