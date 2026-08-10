@@ -199,7 +199,7 @@ trigger 對 owner 照樣觸發。負向測試**以 owner 身分**跑(拿非 owne
 ## 2. 片級 plan
 
 ### 2a. 範圍
-- **L5b-1(已完成、未 apply)**:新增**兩張**表 —— `payment_refunds`(父,insert-only)+
+- **L5b-1(已完成、🚀 2026-08-10 已 apply 正式庫:兩表上線、空表、fail-closed 斷言安靜過)**:新增**兩張**表 —— `payment_refunds`(父,insert-only)+
   `payment_refund_events`(子,append-only);ACL 比照 L5a-1(零 GRANT + RLS),append-only 走 trigger。
 - **L5b-2(下一片)**:新增退款 use-case,且 **RPC 是唯一寫入路徑** —— 取 lease(1-A)→ 重驗 L5a 狀態 →
   當下 Record 觀察 → 決策 → write-ahead(父列 + `sent` 事件先 commit,2-A)→ 呼 TapPay refund → 記結果事件。
