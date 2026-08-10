@@ -330,7 +330,25 @@ type SupplierOrderNoProbeRow = { order_items?: { order_id?: string | null } | nu
  * ⇒ mapper 兩種形狀都吃、不賭邊(理由詳 `mapQuantitySummary` docstring)。
  * 0 筆 = A4a 還沒建那一列 = **「不知道」而非「都是 0」**,翻成 `quantitySummary: null`、下游 fail-closed。
  *
- * 🔴 M-4b E10 A9g-2 在 orders 層加 `payment_charge_attempts(status)` 內嵌。
+ * 🔴 M-4b E10 A9g-2 在 orders 層加扣款嘗試內嵌(**現已帶 FK hint,逐字見常數本體與下一段**)。
+ * 🔴 **2026-08-10 熱修:內嵌必須帶 FK hint `!payment_charge_attempts_order_id_fkey`,不是排版**。
+ * `20260809230000`(L5a-M)加了 `superseded_by_order_id uuid REFERENCES orders(id)` ⇒ orders 與本表
+ * 之間**有兩條 FK**,裸內嵌讓 PostgREST 無從決定走哪條、整條明細查詢回 `PGRST201`
+ * (正式站 2026-08-10 全站明細頁壞掉的根因;錯誤原文與影響面在 `E-082-STOP`)。
+ * FK 名逐字取自 PostgREST 回應的 `hint` 欄,**不是自己拼的**,不要改寫成別的寫法。
+ * 🔴 **配套事實(本機真 PostgREST 實測,12.2.12 與 14.16 兩版同結果)**:加了 hint 之後,
+ * 下面 `findAdminOrderDetail` 的三個 `referencedTable` 引數仍要填**原表名**
+ * `'payment_charge_attempts'`,回傳 JSON 的鍵也仍是原表名。
+ * ⚠️ **填含 hint 的那個字串不會回 query error,而是靜默失效** —— 量到的是「無 error、
+ * 且這組 order/limit 完全沒作用」(repro 三筆全回、插入序);至於 PostgREST 內部
+ * 是「解不到排序目標就丟棄」還是別的路徑,**是推測、沒量到**。
+ * ⇒ 錯法的症狀只出現在**回傳內容**(取到哪 N 筆變未定義、正式站還要疊上伺服器 `max-rows`),
+ * 呼叫端拿不到任何錯誤訊號。只有那三個引數維持原表名才是對的,
+ * 別拿「頁面不再顯示失敗文案」當它們還活著的證據 —— 它們自己的守門是
+ * `SupabaseOrderAdapter.test.ts` 那三條 `toHaveBeenCalledWith` 的表名字面
+ * (突變其中**任一個**成 hint 字串即轉紅,2026-08-10 實跑)。
+ * (審查更正:本註解初稿寫「會回 42703 硬報錯」是錯的 —— 那是最小 repro 的 `orders`
+ *  沒有 `created_at` 才報的錯,補齊該欄後兩版 PostgREST 都改成不報錯。)
  * 用途 = 取消 UI 的**單層**閘:A8a2 只在 `payment_status='unpaid'` **且**該單扣款嘗試全為終態
  * `failed`(或零筆)時才放行(`20260805100000:360-364`,判定字面逐字 `status <> 'failed'`)。
  * 只看 `payment_status` 會漏掉「已扣款但尚未回填」的單 ⇒ 畫面給按、送出必拒。
@@ -362,7 +380,7 @@ type SupplierOrderNoProbeRow = { order_items?: { order_id?: string | null } | nu
  * 它的盲區是掃描根之外(`packages/`)。⇒ 真正沒人看得見的只有「掃描根外的 inline select」。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。
