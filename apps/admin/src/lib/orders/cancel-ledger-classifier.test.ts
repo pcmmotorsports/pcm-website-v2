@@ -90,7 +90,8 @@ describe('classifyCancelLedger — 五分類窮舉(plan §1c)', () => {
 
 describe('classifyCancelLedger — fail-closed 三格(plan §1c)', () => {
   // 🔴 三格都回 `unreadable`,而 `unreadable` 的意思是「**不代表沒送出**」——
-  //    D5 拿到它**不得**把表單開回去(`cancel-action-state.ts:69-71` 的義務 B,那一半由 D5 認領)。
+  //    D5 拿到它**不得**把表單開回去(`cancel-action-state.ts` 的**義務 B(D5,對帳窗)**那段,
+  //    現在從 `:106` 起;原本寫 `:69-71` 已漂,08-10 E 二代更正 —— 錨點以段名為準)。
   it('rt 缺失(undefined)→ unreadable', () => {
     expect(classify({ requestToken: undefined })).toBe('unreadable');
   });
