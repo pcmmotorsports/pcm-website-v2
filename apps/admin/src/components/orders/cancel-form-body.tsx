@@ -51,11 +51,29 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 //    真的送出去也會被解析器七碼白名單擋成 `{ok:false}`(`cancel-form.ts`),到不了 RPC。
 //    ⚠️ **同一個 reset 窗口還有第二格**(code-reviewer F9):`hasItem` 也會停在 `true`
 //    ⇒ 零勾選時鈕仍可按。同為 fail-closed(解析器「至少一筆」)。**兩格都已知、已認列,不宣稱不可能。**
-//    🔴🔴 **這兩格是「推論級」,不是實測級**(Fable 假設審查 C1):本片的真瀏覽器 harness 沒有
-//    React runtime、跑不到 function-action 的 reset 路徑 ⇒ **要等片 2 才量得到**。
-//    🔴 **而且其中「數量回彈 + 重勾」那個構型,現在是被 `#357` 的 stale token 意外擋住的** ——
-//    返回/重送帶的是同一顆 token,撞 `payload_hash` 就被拒了。
-//    ⇒ **修 `#357`(換鍵)的人必須連動重驗這一格**:那道意外的守門會跟著消失。
+//    ✅ **片 2 已經量到,兩格都成立**(`cancel-forms-hydrated.test.tsx`,2026-08-10;原註記
+//    「這兩格是推論級、要等片 2 才量得到」已兌現)。附帶:上面那句「原生 `required` 先擋」
+//    也從推論升成實測。而且**員工下一個「會冒泡到容器的 `change`」就會觸發 `syncFromDom`
+//    ⇒ state 追回 DOM、窗口自癒**(片 2 量的是「改原因」那一種,不是所有動作都驗過)。
+//    🔴🔴 **但片 2 同時量到第三格,方向是「變多」**:reset 把**數量覆寫欄**還原成 `defaultValue`
+//    (= `maxCancellable`)。員工原本改成 1 件、reset 後只重勾品項與原因(沒理由再改一次那個數字)
+//    ⇒ 第二次送出是 **2 件**。⚠️ 這**不推翻**上面的不變式 (ii) —— 幹這件事的是**原生 `defaultValue`
+//    還原**、不是 React state;但「不變式成立」不等於「員工不會多取消一件」。
+//    🔴 **這一格今天有三道,依序**(R2 nit 7 更正:我原本只寫了第二道,把第一道漏掉):
+//      ①**`redirect()`** —— 真站 `cancelOrderAction` 每條出口都導頁(`failRedirect` 的回傳型別是
+//        `never`;`cancelOrderAction` 本身是 `Promise<void>`)⇒「reset 後還留在同一頁按第二次」
+//        **可不可達根本沒被證明**。片 2 的 harness 不做 PRG,證不了這一道。
+//      ②**`#357` 的 stale token** —— 兩次送出帶同一顆 `request_token`(片 2 實測逐字相同)
+//        ⇒ 數量從 1 變 2 會產生不同 `payload_hash` ⇒ 被 RPC 擋。
+//      ③**沒有第三道。**(Fable 第三輪 F1 更正,我複驗屬實:我原本在這裡寫「解析器的形狀閘」——
+//        那是**幽靈**。`cancel-form.ts` 的 `applyQuantityOverride` 上界是
+//        `quantity > parsed.quantity`,而 `parsed.quantity` 就是 **checkbox 帶上來的可取消量**;
+//        回彈值恰好**等於**它 ⇒ `2 > 2` 為假 ⇒ **照常放行**。RPC 側取消 2/2 也本來就合法。
+//        解析器只擋**形狀**,對本構型完全不設防。)
+//    🔴🔴 ⇒ **①②拆掉任何一道都沒有東西兜底,兩道都拆 = 零防線。**
+//    ⇒ **要重驗這一格的不只一種人**:修 `#357`(換鍵)的人拆的是②;**拿掉 `redirect()`、
+//      改走 `useActionState` 行內錯誤的人拆的是①** —— 那個改動會讓這個構型第一次變成可達。
+//    ⚠️ 以上是**機制與方向**的實測,不是事故重現。
 //
 // 🔴 **不變式(iii):state 是 DOM 的單向投影 —— mount 與 `pageshow` 一律從 DOM 重讀一次。**
 //    只靠 `onChange` 累積會在返回鍵 / bfcache 還原後留下「state 比 DOM 舊」的窗口:
