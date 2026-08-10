@@ -9545,3 +9545,12 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **修法**:邊界 7 改成預演版口徑:「apply 前預跑=把守門段的查詢部分抽出、v_fn/v_owner 兩個 DECLARE 換成當下已知 EXECUTE 持有集再跑,斷言回 NULL;不可直接貼原段」。一行文件修正,隨下次動該檔或 P 線任一 docs 片帶走。
 - **不修會痛在哪**:下一代照字面預跑 ⇒ 撞 function does not exist ⇒ 誤判為「守門又發火」= MAIN-005 假警報重演一次,浪費一輪診斷。
 - **編號註**:立案當下最大=#367(grep 實查;P 草稿自派 #367 已被佔用,主視窗改派)。
+
+### #366. 🚪 `.husky/pre-commit` 對 reviewer-gate 缺檔採 fail-open,gate 被刪即靜默放行(P 窗草稿,主視窗代錄)
+
+- **現況**(`.husky/pre-commit:1-5` 逐字):`if [ -f .husky/reviewer-gate.sh ]` 存在才跑,不存在只印一行 stderr 警告**照樣放行**。
+- **失敗情境**:誤刪/rebase 掉/worktree 漏帶/checkout 到舊 commit ⇒ reviewer gate 完全不執行、commit 照過;警告行易被 lint-staged 輸出淹掉 ⇒ Sean 08-04 拍板 Q3=A 的存在理由(擋「先 commit 後審」)該情境下歸零。
+- **修法**(2 行):`else` 分支改印明話並 `exit 1`(fail-closed)。
+- 🔴 **需 Sean 點頭**:改的是他拍板過的守門行為(fail-open→fail-closed),「gate 檔暫時不在」會從可 commit 變不可 commit。
+- **不修未來會痛在哪**:reviewer gate 是唯一擋「先 commit 後審」的機制;它靜默失效時沒有任何訊號說審查被跳過了。
+- **編號註**:#366 為 12:2x 預派號(P-308 §4 裁 A 當下),條目 13:0x 補錄;當下最大實錄=#368。
