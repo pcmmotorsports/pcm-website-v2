@@ -33,6 +33,7 @@ import {
   CANCEL_REASON_CODE_FIELD,
   CANCEL_REASON_DETAIL_FIELD,
   CANCEL_REQUEST_TOKEN_FIELD,
+  cancelItemQtyField,
   isCancelRequestToken,
 } from './cancel-action-state';
 import { isUuid } from './note-action-state';
@@ -129,9 +130,33 @@ export type CancelParse =
     }
   | { ok: false };
 
+/**
+ * 單值欄位的讀法 —— **`getAll()` 且必須恰一筆**,不是 `get()`。
+ *
+ * 🔴🔴 **`get()` 取的是第一筆,而「第一筆」是攻擊者可以決定的**(關卡2 codex 第三輪 #2):
+ *    同名欄位送兩份,瀏覽器 / fetch 都送得出去,`get()` 靜默採前面那個 ⇒ 畫面上可見的 `2` 排在
+ *    藏起來的 `5` 後面時,員工看到 2、系統取消 5。**方向就是 E-011 的方向。**
+ *    ⚠️ 這條在本片之前就存在(所有單值欄位共用 `readString`),但**本片新增的數量欄讓它從
+ *    「改不了取消量」變成「改得了取消量」** ⇒ 一起收緊,不留「只修自己那一條路」的半套。
+ * 🔴 三態分開回,呼叫端才分得出「沒送」與「送壞了」:`reason_detail` 沒送是合法的、送兩份不是。
+ */
+type SingleRead =
+  | { kind: 'value'; value: string }
+  | { kind: 'missing' }
+  | { kind: 'invalid' };
+
+function readSingle(form: CancelFormLike, field: string): SingleRead {
+  const all = form.getAll(field);
+  if (all.length === 0) return { kind: 'missing' };
+  if (all.length > 1) return { kind: 'invalid' };
+  const raw = all[0];
+  return typeof raw === 'string' ? { kind: 'value', value: raw } : { kind: 'invalid' };
+}
+
+/** 必填單值欄位:非「恰一筆字串」一律回 `null`(呼叫端一律當形狀錯)。 */
 function readString(form: CancelFormLike, field: string): string | null {
-  const raw = form.get(field);
-  return typeof raw === 'string' ? raw : null;
+  const read = readSingle(form, field);
+  return read.kind === 'value' ? read.value : null;
 }
 
 /**
@@ -160,6 +185,61 @@ function parseItemEntry(raw: string): CancelItemInput | null {
 }
 
 /**
+ * 套用數量覆寫欄(A13b E1「挑數量」)。回 `null` = 整份表單作廢。
+ *
+ * 🔴🔴 **`null`(欄位不存在)與 `''`(欄位存在但空)必須分開**(關卡1 R2 #1,這條打到不變式心臟):
+ *    - **不存在** = `maxCancellable === 1`、表單根本沒渲染這個欄位 ⇒ 沿用 checkbox 帶的數量。
+ *      這不是靜默降級:checkbox 旁邊的字就是「這次可取消 N 件」,取消 N 就是它的字面意思。
+ *    - **空字串** = 員工把數量清空了 ⇒ **整份 `{ok:false}`**。
+ *      (⚠️ code-reviewer F8:第一版這裡還寫「或瀏覽器把非法輸入正規化成空」—— 那是 `type=number`
+ *       的行為,而表單刻意用 `type=text` 正是為了避開它。前案的殘留理由,已刪。)
+ *      ⚠️ 這一格若寫成「空的就沿用 checkbox 的 max」,就會**送出比畫面顯示的更多** ——
+ *      那正是 `E-011-STOP` 誤送整單取消的傷害方向。第一版 plan 真的這樣寫,codex 兩輪都打對。
+ *
+ * 🔴 **上界比的是 checkbox 帶的數量,而那也是 client 送來的** ⇒ 這道是**形狀比較,不是授權**。
+ *    真正的可取消量權威在 RPC(`20260805100000_m4b_e10_a8a2_partial_cancel.sql:395-405`,
+ *    逐品項 `quantity − Σ已到貨 − Σ已取消`)。UI 與本層都只是 advisory,擋的是手滑不是竄改
+ *    (威脅模型同 Sean Q3=A:動 DevTools 的員工本來就按得到整單取消鈕)。
+ *
+ * ⚠️ **三條誠實邊界(code-reviewer F5/F6/F7,都要竄改或手滑才到得了,但字面要收)**:
+ *    ① ~~`readString` 回 `null` 有三義,三者都走「沿用 checkbox 值」~~ —— **關卡2 第三輪已修掉**:
+ *      改用 `readSingle` 三態,`File` / 重複欄位一律 `invalid` ⇒ 整份退回;只有「欄位不存在
+ *      **且** checkbox 說可取消 1」才沿用。本函式**不再有 fail-open 分支**。
+ *    ② 查名用 `parsed.order_item_id` 的**原大小寫**,而去重刻意 `.toLowerCase()`(`:268`)
+ *      ⇒ 同一顆 uuid 大小寫變體:去重認得出、覆寫查不到 ⇒ 靜默回退成 checkbox 的量(方向偏多)。
+ *      表單自己渲染時兩邊同源、撞不到;竄改才到得了。
+ *    ③ 覆寫**只讀被勾選的那幾筆** —— 沒勾的品項就算留著壞值也不影響送出(有測試釘住)。
+ *      反面代價:員工「改了數量卻忘了勾」⇒ 那筆零取消、畫面上卻顯示 2,而且沒有任何提示。
+ *      方向是「送得比畫面**少**」(不是 E-011 的多),但這是真的操作面陷阱,認列。
+ *
+ * ⚠️ **本片新增的代價**(同檔 `:19-21` 慣例):數量欄**清空**、或打成全形數字 / 「2件」/ 前導空白
+ *    ⇒ 整份 `{ok:false}`,而 `E-014-A` Q2=A 之下輸入不保留、要整份重填。
+ *    🔴 **「清空」那格前置擋不到**:E1 的送出鈕只看「有沒有勾品項」,不看數量欄的內容
+ *    ⇒ 清空之後鈕仍可按、送出才被擋。認列,不在本片修(要修得把數量欄也納入 disabled 條件,
+ *      那會讓不變式(ii) 的枚舉再長一條,得先想清楚 reset 窗口那格)。
+ */
+function applyQuantityOverride(
+  form: CancelFormLike,
+  parsed: CancelItemInput,
+): CancelItemInput | null {
+  const read = readSingle(form, cancelItemQtyField(parsed.order_item_id));
+  if (read.kind === 'invalid') return null;
+  if (read.kind === 'missing') {
+    // 🔴🔴 **只有可取消量 1 的品項才准沒有這個欄位**(關卡2 codex 第三輪 #1)。
+    //    表單的渲染條件是 `maxCancellable > 1`,所以「checkbox 說可取消 5、卻沒有數量欄」
+    //    代表兩邊分岔了 —— 最可能的成因不是竄改,是**日後有人改了欄位名只改一邊**。
+    //    第一版無條件沿用 checkbox 的數量 ⇒ 員工畫面上填 2、系統取消 5。**送出比看到的多。**
+    //    ⇒ 這裡改成 fail-closed:分岔就整份退回,不猜。
+    return parsed.quantity === 1 ? parsed : null;
+  }
+  // 🔴 沿用 `parseItemEntry` 的「十進位整數字面」規則 —— `''` / `1.0` / `+2` / `' 2'` 全拒。
+  if (!/^[0-9]+$/.test(read.value)) return null;
+  const quantity = Number(read.value);
+  if (quantity < 1 || quantity > parsed.quantity) return null;
+  return { ...parsed, quantity };
+}
+
+/**
  * 解析取消表單。任一欄形狀不合 → `{ ok: false }`(呼叫端導頁帶 `order_cancel_invalid`)。
  *
  * 🔴 誠實邊界:回傳只有單一 `ok: false`,**缺欄 / 形狀錯 / 品項重複在 UI 上分不出來**
@@ -185,7 +265,12 @@ export function parseOrderCancelForm(form: CancelFormLike): CancelParse {
   //    用「有填就送」會讓非 other 帶著空字串撞 `非 other 不得填說明`(`:141-142`)。
   //    空白判定用 `rpcTrim` 不用 `.trim()`:`.trim()` 不剝 U+200B / U+2060 等零寬字,
   //    而 RPC 會剝(`:134-138`)⇒ 純零寬字的說明在 `.trim()` 下是「非空」、會漏到 RPC 才被擋。
-  const detailRaw = readString(form, CANCEL_REASON_DETAIL_FIELD);
+  // 🔴🔴 **`reason_detail` 不能用 `readString`**(關卡2 codex 複審 #2):它把「沒送」與「送壞了」
+  //    都壓成 `null`,而非 other 的路徑把 `null` 當成「合法的沒填」⇒ **重複欄位 / File 直接放行**,
+  //    上一版宣稱的「重複 / File 全拒」對這個欄位並不成立。三態分開才對得起那句宣稱。
+  const detail = readSingle(form, CANCEL_REASON_DETAIL_FIELD);
+  if (detail.kind === 'invalid') return { ok: false };
+  const detailRaw = detail.kind === 'value' ? detail.value : null;
   let reasonDetail: string | null = null;
   if (reasonCode === 'other') {
     if (detailRaw === null || rpcTrim(detailRaw) === '') return { ok: false };
@@ -224,7 +309,9 @@ export function parseOrderCancelForm(form: CancelFormLike): CancelParse {
     const dedupKey = parsed.order_item_id.toLowerCase();
     if (seen.has(dedupKey)) return { ok: false };
     seen.add(dedupKey);
-    items.push(parsed);
+    const overridden = applyQuantityOverride(form, parsed);
+    if (overridden === null) return { ok: false };
+    items.push(overridden);
   }
   return { ok: true, orderId, reasonCode, reasonDetail, items, requestToken };
 }

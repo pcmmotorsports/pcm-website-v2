@@ -14,7 +14,7 @@
 ## §0 v3 推翻 v2 的三件事(先講,免得又照 v2 字面動手)
 
 1. 🔴 **v2 §2-3③ 的 `full_confirm`(只在點了「整單取消」時才渲染的一次性欄)在 v2 的形狀下做不出來。**
-   「點了才渲染」需要 client state,和同一份 plan 的「零 client state」互斥;而且 bfcache 復原的是**整個 DOM**、
+   「點了才渲染」需要 client state,和同一份 plan 的「零 client state」互斥(🔴 **A13b E1 已推翻這個前提**:見 §表格「表單狀態」列);而且 bfcache 復原的是**整個 DOM**、
    動態插入的欄一樣會回來,自造 POST 更是直接補一顆就好。
    ⇒ v3 改用**兩支獨立 form**(§2-3),`full_confirm` 整個概念刪除。**`E-022-A` Q1=A 已裁。**
 2. 🔴 **v2 §1「失敗導頁 → 讀 `r`/`rt` → 查帳本」把兩種不同的失敗混成一種。**
@@ -72,7 +72,7 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
 | 導頁目標 | 讀 client 送的 orderId | 🔴 **授權後才跑的 envelope parser**(`readRedirectTargetOrderId`)取 `order_id`;驗不過 → `/orders`。完整 parser 失敗只回 `{ok:false}`、拿不到 orderId ⇒ envelope 是必要的、不是可選。<br>⚠️ **D2a 申報偏離**:`E-014-A` 追加的字面要求驗「uuid **+ 該單存在且本 actor 看得到**」,**實作只驗 uuid 形狀**。理由:①本 repo 沒有 per-order 授權,actor 是自選未驗證(`session/actor.ts` 自陳非授權邊界)⇒ 以它為準的存在性檢查=假守門 ②目的地頁對查無的單自己 `notFound()`,在失敗路徑上多打一次 DB 是把同一判斷做兩遍。**只宣稱一條:導頁目標永遠是 uuid 形狀的自家路徑(開放重導向面關掉)**。已於 D2a 收工信申報 |
 | history | 宣稱 replace ⇒ 重播不了 | 🔴 **不宣稱**。用 replace(能生效就生效),但**安全論證不靠它**:重播/重整只會重跑 §1c 的帳本核對,看到的永遠是帳本的真話 |
 | canonical 清除 | 「看過即清除」 | 保留,但**降級為 UX**(不再是安全前提)。<br>🔴 **v3.4:「兩案實測後挑」這條偏離已由主視窗核准**(2026-08-10,D5 施工中回報)—— **server 案在結構上就不成立、沒有可比的量**:server 要清 query 只有 `redirect()`,而 redirect 發生在渲染期 ⇒ 面板還沒送到瀏覽器就換頁,員工**永遠看不到那則訊息**;那不是「效果較差」是「把功能刪掉」。⇒ 照 `E-031-A` 先例:**把「為什麼不需要量」寫進實作檔頭**,不起真 admin 量。實作 = client `history.replaceState`(`cancel-result-url-cleanup.tsx`)。<br>⚠️ 仍未驗證的是**它與 Next App Router 內部狀態的互動**(`useSearchParams()` / 內部 canonical 是否同步),已在該檔標未確認並交 D6 在真 admin 上看。 |
-| 表單狀態 | 零 client state | 不變 |
+| 表單狀態 | 零 client state | 🔴 **A13b E1 已推翻**:改成「**送出值不由 client state 產生或回寫**;原生控制項才是送出來源」(Sean 08-10 晨拍 Q2=B)。現行界線=`components/orders/cancel-form-body.tsx` 檔頭三條不變式 |
 | 面板位置 | 頁層、資格閘外 | 不變(關單後義務 5 的比對仍要在) |
 
 ### §1c 帳本 classifier(取代 v2 的「先查帳本」四個字)
@@ -135,7 +135,7 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
 | **D2a** ✅ | PRG action 改造(**action 停用 state;那族型別的刪除延到 D2b**,不要讀成已刪) | 🔴 **成功那條 `redirect` 也帶 `rt`**(D2a 前只帶 `r`、**D2a 後已是 `r+rt`**):成功訊息移交 D5 後,D5 得有 token 才分得出「這次成功 / 舊紀錄 / 偽造網址」;`cancel-actions.ts` 失敗改 `redirect`;**授權後 envelope parser** 取出一個 **uuid 形狀的自家導頁目標**(⚠️ 那不是「這張單存在」或「你有權限」的事實,只是形狀;見 §1b 的偏離申報);過期註解同片改(含全樹「表單凍結」字面) | ①六碼各導到對的出口 ②**成功導頁帶得出本次 request token**(真成功 / 舊 token / 偽造 token 三格各一測)③envelope 驗不過 / `denied` → `/orders` ③🔴 `revalidatePath` 拋錯**仍必導頁**(用會拋的 redirect mock 驗它沒被 catch) ④授權閘仍是第一動(既有 landmine 測試不得被弱化) ⑤~~實測 Next 16.2.6 兩條路徑的 history 行為~~ **移出本片**:`E-031-A` 把「要起真 admin 才量得到」的那類排到 #350 線下;D2a 改成「用 `replace`,但安全論證不掛在它上面」並把未量到這件事寫進 `cancel-actions.ts` 的 `failRedirect` docstring | 40m |
 | **D2b** | 舊 state 型別退場 | `CancelActionState` / `CancelNotSentState` / `CancelSentState` / `cancelNotSentFailure` / `cancelSentFailure` 整族刪除(D2a 之後已無人呼叫)+ 其測試 | ①全樹零引用 ②🔴 **刪掉的那族測試原本釘著「invalid 換新 token」「sent 原樣帶回」——新機制是「整頁重繪時表單自己鑄、且不得落快取層」,D2b 必須把這條義務轉成 D4 的測試,不得讓守門在移交途中掉一段** | 30m |
 | **D3** | 帳本 classifier(純函式) | §1c 五分類 | 五格各一測 + fail-closed 三格(rt 缺 / 非 uuid / 帳本 null);突變:拿掉 `truncated` 判斷 → `miss_truncated` 那格轉紅 | 35m |
-| **D4** | 兩支表單元件 | §2-3 的整單 form / 部分 form,零 client state | ①兩支各自 hidden `cancel_mode` 值正確 ②部分那支**零 radio、零 name=cancel_mode 的可編輯控制項**(原始碼層守門)③整單那支零品項欄 ④select 有空 placeholder + required ⑤🔴 **導頁 URL 只准經 `notSentResultQuery` / `sentResultQuery` / `cancelledResultQuery` 三支建構器組**——手拼 `?r=…` 編得過(窄 R3 F1:那兩顆常數為了 banner 與 D5 必須公開匯出、收不掉),所以約束放這裡 ⑥🔴🔴 **token 生成硬驗收(D2b 移交過來的義務)**:兩次獨立 server render 必須拿到**兩顆不同的合法 uuid**,且產生點**不得落在任何快取層**(`unstable_cache` / `React.cache` 會把 token 凍住 ⇒ 兩個人拿到同一把、第二個人直接撞冪等格)。**舊守門隨 D2b 刪掉,這條沒補上就是守門在移交途中掉一段** | 40m |
+| **D4** | 兩支表單元件 | §2-3 的整單 form / 部分 form,零 client state(🔴 **A13b E1 已改成「送出值不由 client state 產生或回寫」**,見「表單狀態」列)| ①兩支各自 hidden `cancel_mode` 值正確 ②部分那支**零 radio、零 name=cancel_mode 的可編輯控制項**(原始碼層守門)③整單那支零品項欄 ④select 有空 placeholder + required ⑤🔴 **導頁 URL 只准經 `notSentResultQuery` / `sentResultQuery` / `cancelledResultQuery` 三支建構器組**——手拼 `?r=…` 編得過(窄 R3 F1:那兩顆常數為了 banner 與 D5 必須公開匯出、收不掉),所以約束放這裡 ⑥🔴🔴 **token 生成硬驗收(D2b 移交過來的義務)**:兩次獨立 server render 必須拿到**兩顆不同的合法 uuid**,且產生點**不得落在任何快取層**(`unstable_cache` / `React.cache` 會把 token 凍住 ⇒ 兩個人拿到同一把、第二個人直接撞冪等格)。**舊守門隨 D2b 刪掉,這條沒補上就是守門在移交途中掉一段** | 40m |
 | **D5** | 帳本核對面板 + canonical 清除 + 🔴**成功訊息**(URL 同樣只准經三支建構器組讀/組) | 吃 D3 的 classifier 結果算文案;🔴 **成功訊息由 D1 移交到這裡**(§1a 下方);清除機制 client/server **第一動先實測兩案再挑** | ①五分類各自文案正確 ②B 類碼但拿不到帳本 → `unreadable`、**表單不開回去** ③清除後重整不再出現面板 ④🔴 **偽造 `?r=order_cancelled` 對一張沒被取消的單不得顯示「已完成」** | 40m |
 | **D6-a** | 接線 + 真瀏覽器負測(**元件層**;`E-031-A` Q=A) | 掛 `CancelReviewSection` + 兩支 form 進 `order-detail.tsx`;頁層讀 `r`/`rt`(🔴 **用 `CANCEL_RESULT_PARAM` / `CANCEL_REQUEST_TOKEN_PARAM` 兩顆常數,不再手打字面**);面板掛**資格閘之外**;§2-3 的 bfcache 負測 | ①RPC 關單後面板仍在 ②真瀏覽器負測綠 ③突變(併回單一 radio)→ 轉紅 ④🔴🔴 **兩支表單必須由 `cancelFormsAllowedOnResultPage(?r=)` 閘住**(⚠️ **v3.5 更正**:本列原寫 `mayReopenCancelForms(verdict)`,那支函式在 **D5 的 R2** 就被換掉了 —— 按 verdict 分流與面板文案「請重新整理再確認」自相矛盾,改成形狀規則「面板出現的那次渲染不給表單」。D6-a 接線時才發現這列還寫著舊名,**本 slice 第六次 claimed-sync**) —— 這是 D5 驗收②「表單不開回去」的**執行點**。D5 只提供那支純函式,**在 D6 呼叫它之前,義務 B 仍然是零守門**(D5 收工信已認列)。照本列原字面接線(只寫「掛兩支 form」)的話,B 類失敗含 `unreadable` 之後表單原樣開著、員工直接重送 = **第二筆刪不掉的取消**。⑤突變:拿掉那道閘 → 必須轉紅 | 45m + Q2 基建未知 |
 

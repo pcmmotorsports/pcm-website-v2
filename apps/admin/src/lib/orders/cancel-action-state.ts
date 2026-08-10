@@ -6,9 +6,11 @@
 // 🔴🔴 **維持 client-safe**(零 IO、零敏感值;唯一 import 是同目錄的 `isUuid`,也是純函式)
 //    ⇒ **不得**引入 `server-only` 或任何 server 專用模組。
 //    ⚠️ **理由已經換過一次**(A13b D1 更正):原本寫的是「A13b 表單要用 `useActionState` 接 state」——
-//    那條路 **plan v3 已經換掉**(React 19 form reset 競態會誤送整單取消 ⇒ 改 PRG 整頁化、零 client state)。
+//    那條路 **plan v3 已經換掉**(React 19 form reset 競態會誤送整單取消 ⇒ 改 PRG 整頁化)。
 //    現在的理由是:本檔被 `result-banner.tsx`(server component)匯入,而它 4 頁共用;
 //    保持零 server 相依也讓 D2 之後若有 client 需求不必再拆檔。
+//    🔴 **而那個「若有 client 需求」在 A13b E1 發生了**:`components/orders/cancel-form-body.tsx`
+//    是 client 檔、會 import 本檔的欄位名常數 ⇒ **「不得引入 server-only」這條現在是硬需求,不是預留**。
 //    🔴 `CancelActionState` 那族型別**已於 D2b 整族刪除**(D2a 起就沒有人呼叫)。
 //
 // 🔴🔴 **本檔與備註片(`note-action-state.ts`)最大的差異 = 失敗後 token 怎麼處理**。
@@ -41,6 +43,23 @@ export const CANCEL_MODE_FIELD = 'cancel_mode';
 /** 🔴 **可重複**欄位,每個被勾選的品項一筆,值 = `<order_item_id>:<quantity>`(見解析器)。 */
 export const CANCEL_ITEM_FIELD = 'cancel_item';
 export const CANCEL_REQUEST_TOKEN_FIELD = 'request_token';
+
+/**
+ * 數量覆寫欄的名字(每個品項各一,`cancel_item_qty__<order_item_id>`)。
+ *
+ * 🔴 **為什麼是「覆寫」而不是把數量塞進 `cancel_item` 的值**(關卡1 R1 #3/#6 打掉的兩個前案):
+ *    ① 若改成「每品項一個 `<select name=cancel_item>` 含空值 option」,解析器就得豁免空字串,
+ *      而豁免一旦排在 mode 分流之前,`full` + `cancel_item=''` 會**從拒絕變合法**
+ *      (`cancel-form.ts` 的 full 分支就是靠 `entries.length > 0` 擋)。
+ *    ② select 的 option 數會等於 `maxCancellable`,而它只被限成安全正整數
+ *      (`cancel-view.ts` 的 `isItemSelectable`)⇒ 大值直接把 server render 撐爆。
+ *    ⇒ 現行形狀:`cancel_item` 一個字都沒改(既有守門與既有測試全部原封),數量走另一個
+ *      **有界**的欄位;`maxCancellable === 1` 的品項根本不渲染這個欄位。
+ */
+export const CANCEL_ITEM_QTY_PREFIX = 'cancel_item_qty__';
+export function cancelItemQtyField(orderItemId: string): string {
+  return `${CANCEL_ITEM_QTY_PREFIX}${orderItemId}`;
+}
 
 /**
  * 產一把冪等 token。

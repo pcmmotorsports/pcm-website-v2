@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { FullCancelForm, PartialCancelForm } from './cancel-order-forms';
 import type { CancelItemView } from '../../lib/orders/cancel-view';
-import { isCancelRequestToken } from '../../lib/orders/cancel-action-state';
+import {
+  cancelItemQtyField,
+  isCancelRequestToken,
+} from '../../lib/orders/cancel-action-state';
 import { CANCEL_REASON_CODES, CANCEL_REASON_LABEL } from '../../lib/orders/cancel-form';
 
 // 🔴 action 是 `'use server'` 模組(拉 next/cache、next/navigation、supabase)——
@@ -413,6 +417,234 @@ describe('D4 驗收⑤ URL 只准經三支建構器組', () => {
     expect(actions).not.toMatch(/\?r=/);
     for (const builder of ['notSentResultQuery', 'sentResultQuery', 'cancelledResultQuery']) {
       expect(actions, `${builder} 沒有被呼叫`).toMatch(new RegExp(`${builder}\\(`));
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A13b E1(Sean 08-10 晨拍 Q2=B):挑數量 / 說明欄 / 零勾選 三格。
+//
+// 🔴 **突變靶(逐發實跑,每發只紅它那一條;字面 = 我真的改過的那一行)**:
+//   E1  數量欄的 `item.maxCancellable > 1` 改成 `>= 1` .............. 紅「=1 不渲染」那條
+//   E2  `requireItemSelection={mode === 'partial'}` 改成 `{true}` ... 紅「整單鈕恆可按」那條
+//       ⇒ 這發就是關卡1 R2 #3:整單那支天生零品項,套上去會被永久鎖死。
+//   E3  `showDetail` 改成 `true`(說明欄恆渲染)..................... 紅「非 other 時不在 DOM」那條
+//   E4  `disabled={...}` 改成 `disabled={false}` .................... 紅「零勾選停用」那條
+//   E5  `disabled={...}` 改成 `disabled={true}` ..................... 紅「勾了就能按」正向對照
+//   E6  拿掉 `pageshow` 監聽 ........................................ 紅「還原後重讀」那條
+//   E7  `required={enhanced}` 改成 `required={false}` ............... 紅「other 時必填」那條
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 表單裡那顆送出鈕(兩支表單各自只有一顆)。 */
+function submitOf(container: HTMLElement): HTMLButtonElement {
+  const btn = container.querySelector<HTMLButtonElement>('button[type="submit"]');
+  if (btn === null) throw new Error('找不到送出鈕');
+  return btn;
+}
+
+function formDataOf(container: HTMLElement): FormData {
+  const form = container.querySelector('form');
+  if (form === null) throw new Error('找不到 form');
+  return new FormData(form);
+}
+
+describe('A13b E1 ①挑數量', () => {
+  it('🔴 可取消量 > 1 ⇒ 有數量欄、預設 = 可取消量', () => {
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 3 })]} />,
+    );
+    const qty = container.querySelector<HTMLInputElement>(
+      `input[name="${cancelItemQtyField(itemView().orderItemId)}"]`,
+    );
+    expect(qty).not.toBeNull();
+    expect(qty!.value).toBe('3');
+    // 🔴 刻意不是 type=number、且不掛原生 constraint(關卡1 R2 #1/#2):
+    //    number 會把非法輸入正規化成空字串,constraint 會讓沒勾的品項擋住整張表單。
+    expect(qty!.getAttribute('type')).toBe('text');
+    expect(qty!.hasAttribute('min')).toBe(false);
+    expect(qty!.hasAttribute('max')).toBe(false);
+    expect(qty!.hasAttribute('step')).toBe(false);
+  });
+
+  it('🔴 可取消量 === 1 ⇒ **沒有**數量欄(不是渲染一個永遠填 1 的欄位)', () => {
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 1 })]} />,
+    );
+    expect(
+      container.querySelector(`input[name="${cancelItemQtyField(itemView().orderItemId)}"]`),
+    ).toBeNull();
+  });
+
+  it('🔴 送出去的 FormData:checkbox 帶 `<id>:<max>`、數量欄另外一格', () => {
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 5 })]} />,
+    );
+    const id = itemView().orderItemId;
+    fireEvent.click(container.querySelector('input[name="cancel_item"]')!);
+    fireEvent.change(container.querySelector<HTMLInputElement>(
+      `input[name="${cancelItemQtyField(id)}"]`,
+    )!, { target: { value: '2' } });
+
+    const fd = formDataOf(container);
+    // 🔴 checkbox 的值**一個字都沒改**(既有解析器與既有真瀏覽器測試因此原封)。
+    expect(fd.getAll('cancel_item')).toEqual([`${id}:5`]);
+    expect(fd.get(cancelItemQtyField(id))).toBe('2');
+  });
+
+  it('🔴 數量欄在 `<label>` **外面**(斷言 DOM 結構,不是斷言 toggle 行為)', () => {
+    // 🔴🔴 **第一版這條是恆真格**(code-reviewer F3 用 jsdom probe 打掉):
+    //    我原本點數量欄、斷言 checkbox 沒被勾起來 —— 但 label activation 規格上**本來就跳過
+    //    interactive content**,所以把數量欄搬回 `<label>` 內,那條斷言照樣綠 ⇒ 突變存活。
+    //    現在改成直接量結構:數量欄的最近 `<label>` 祖先必須是 null。搬回去就會紅。
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 5 })]} />,
+    );
+    const qty = container.querySelector<HTMLInputElement>(
+      `input[name="${cancelItemQtyField(itemView().orderItemId)}"]`,
+    )!;
+    expect(qty.closest('label')).toBeNull();
+    // 正向對照:checkbox **是**在 label 裡(證明這個選擇器問得出「在不在 label 裡」)。
+    expect(container.querySelector('input[name="cancel_item"]')!.closest('label')).not.toBeNull();
+  });
+});
+
+describe('A13b E1 ②說明欄只有選「其他」才在畫面上', () => {
+  it('🔴 hydrated + 非 other ⇒ textarea **不在 DOM**(不是藏起來 —— 藏起來照樣會被送出)', () => {
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    expect(container.querySelector('textarea[name="reason_detail"]')).toBeNull();
+    expect(formDataOf(container).has('reason_detail')).toBe(false);
+  });
+
+  it('🔴 選 other ⇒ textarea 出現且 required(正向對照:上一條不是恆真)', () => {
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    fireEvent.change(container.querySelector('select[name="reason_code"]')!, {
+      target: { value: 'other' },
+    });
+    const ta = container.querySelector<HTMLTextAreaElement>('textarea[name="reason_detail"]');
+    expect(ta).not.toBeNull();
+    expect(ta!.required).toBe(true);
+  });
+
+  it('🔴 選了 other 打字之後改選別的原因 ⇒ 那段字**不會**跟著送出去', () => {
+    // 🔴 這是 `E-046-Q` 附註那條 UX 陷阱的驗收:舊行為是整份被退回且輸入不保留、要重填。
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    const select = container.querySelector<HTMLSelectElement>('select[name="reason_code"]')!;
+    fireEvent.change(select, { target: { value: 'other' } });
+    fireEvent.change(container.querySelector('textarea[name="reason_detail"]')!, {
+      target: { value: '客人臨時改單' },
+    });
+    fireEvent.change(select, { target: { value: 'out_of_stock' } });
+    expect(formDataOf(container).has('reason_detail')).toBe(false);
+  });
+
+  it('🔴 零 JS(server 靜態輸出)⇒ textarea 恆在、且不帶 required', () => {
+    // 🔴 關卡1 R2 #6:驗收寫了「零 JS 恆渲染」卻沒有對應斷言 ⇒ 若 SSR 初始就藏起來,測試仍會綠。
+    // 🔴 斷言要**打在那個元素的開標籤上**,不能在整份 HTML 裡搜 `required=""` ——
+    //    原因 select 本來就帶 required、placeholder option 本來就帶 disabled
+    //    ⇒ 全文搜尋會量到別人身上(第一版我真的這樣寫、真的紅了)。
+    const html = renderToStaticMarkup(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    const textareaTag = /<textarea[^>]*name="reason_detail"[^>]*>/.exec(html);
+    expect(textareaTag).not.toBeNull();
+    expect(textareaTag![0]).not.toMatch(/\srequired[=\s>]/);
+  });
+});
+
+describe('A13b E1 ③零勾選前置擋', () => {
+  it('🔴 部分取消:零勾選 ⇒ 送出鈕停用', () => {
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
+    );
+    expect(submitOf(container).disabled).toBe(true);
+  });
+
+  it('🔴 勾一個 ⇒ 立刻可按(正向對照:上一條不是「鈕永遠停用」)', () => {
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
+    );
+    fireEvent.click(container.querySelector('input[name="cancel_item"]')!);
+    expect(submitOf(container).disabled).toBe(false);
+  });
+
+  it('🔴🔴 整單取消的鈕**恆可按** —— 它天生零 cancel_item,套上這道會被永久鎖死', () => {
+    // 🔴 關卡1 R2 #3 就是這一格:兩支表單共用 `CancelFormShell`,
+    //    「零勾選就停用」若沒有限定 partial,整單取消在 hydration 之後就再也按不下去。
+    const { container } = render(<FullCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} />);
+    expect(submitOf(container).disabled).toBe(false);
+  });
+
+  it('🔴 零 JS(server 靜態輸出)⇒ 部分取消的鈕也不帶 disabled', () => {
+    const html = renderToStaticMarkup(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
+    );
+    const submitTag = /<button[^>]*type="submit"[^>]*>/.exec(html);
+    expect(submitTag).not.toBeNull();
+    // 🔴 比的是**屬性**不是子字串:class 裡有 `disabled:cursor-not-allowed`(Tailwind 的 variant)
+    //    ⇒ `toContain('disabled')` 會恆紅。第二次量錯東西,照實留紀錄。
+    expect(submitTag![0]).not.toMatch(/\sdisabled[=\s>]/);
+  });
+});
+
+describe('A13b E1 不變式(iii):state 是 DOM 的單向投影', () => {
+  it('🔴 瀏覽器還原了欄位值但沒發 change(返回鍵 / bfcache)⇒ `pageshow` 要把 state 追回來', () => {
+    // 🔴 只靠 onChange 累積的話,這裡會留下「select 顯示『其他』、但說明欄沒渲染」的窗口。
+    const { container } = render(
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
+    );
+    const select = container.querySelector<HTMLSelectElement>('select[name="reason_code"]')!;
+    const box = container.querySelector<HTMLInputElement>('input[name="cancel_item"]')!;
+    // 直接改 DOM,**不派發 change** —— 這正是瀏覽器表單狀態復原的樣子。
+    select.value = 'other';
+    box.checked = true;
+    expect(container.querySelector('textarea[name="reason_detail"]')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(new Event('pageshow'));
+    });
+    expect(container.querySelector('textarea[name="reason_detail"]')).not.toBeNull();
+    expect(submitOf(container).disabled).toBe(false);
+  });
+});
+
+describe('A13b E1 不變式(i):送出值不得被 client 層承載', () => {
+  it('🔴 client 檔不得碰數量欄 —— 它一旦變成受控輸入,(i) 就破了而現有行為格全綠', () => {
+    // 🔴 **這條是 R2 reviewer 補的靶**:我原本宣稱「三條不變式測試逐條釘住」,
+    //    但把數量欄改成 `value={state}` + `onChange` 之後,現有 9 格行為斷言**全部照樣綠**
+    //    (FormData 仍讀得到 '2')⇒ (i) 當時沒有任何只紅它的靶,那句宣稱大於事實。
+    // ⚠️ 這是**文字層**守門,能力邊界與 token 那條同族:改名 import、換行、搬檔都繞得過。
+    //    它擋的是「不小心」——把數量欄搬進 client 檔會先撞到這條、被迫來讀為什麼。
+    const stripComments = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const body = stripComments(readFileSync(join(__dirname, 'cancel-form-body.tsx'), 'utf8'));
+    expect(body).not.toContain('cancel_item_qty');
+    expect(body).not.toContain('cancelItemQtyField');
+    expect(body).not.toContain('CANCEL_ITEM_QTY');
+    // 正向對照:數量欄確實存在於 server 那一側,否則上面三條是對空氣斷言。
+    const forms = stripComments(readFileSync(join(__dirname, 'cancel-order-forms.tsx'), 'utf8'));
+    expect(forms).toContain('cancelItemQtyField');
+  });
+});
+
+describe('A13b E1 token 守門:擴到所有呼叫點(關卡1 R2 #5 的處置 = 文字層 + 寫死已知繞法)', () => {
+  it('🔴 凡是呼叫 `generateCancelRequestToken(` 的檔,都不得是 client 檔、也不得碰快取層', () => {
+    // 🔴 **這條的能力邊界寫死在這裡,不要當它是機制**(主視窗 08-10 裁 C:片 1 走文字層):
+    //    已知四種繞法它都抓不到 —— ①`import { generateCancelRequestToken as makeToken }` 改名
+    //    ②呼叫寫成換行 `generateCancelRequestToken\n(` ③把呼叫點搬進 `.ts` 檔
+    //    ④搬到 `components/orders/` 以外的目錄。
+    //    真正擋得住的是機制層(獨立模組 + `import 'server-only'`,build 期紅),
+    //    已立 backlog(見本片 STOP 信的草稿),不在本片。
+    const stripComments = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const dir = __dirname;
+    const files = readdirSync(dir).filter((f) => f.endsWith('.tsx') && !f.includes('.test.'));
+    const callers = files.filter((f) =>
+      readFileSync(join(dir, f), 'utf8').includes('generateCancelRequestToken('),
+    );
+    // 正向對照:掃描範圍不能是空的,否則整條斷言恆真。
+    expect(callers).toContain('cancel-order-forms.tsx');
+    for (const f of callers) {
+      const code = stripComments(readFileSync(join(dir, f), 'utf8'));
+      expect(code, `${f} 不得是 client 檔`).not.toMatch(/['"]use client['"]/);
+      expect(code, `${f} 不得碰快取層`).not.toMatch(/\bcache\b/i);
     }
   });
 });

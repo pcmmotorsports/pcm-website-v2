@@ -9516,3 +9516,18 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **要做什麼**:真站(或真 admin dev server)量一次:取消動作後導回面板視圖時,平行插槽的資料到底刷沒刷;與 #357 前提②(導頁後新鮮度)同族,可同場做。
 - **不修會痛在哪**:若 revalidatePath 刷不到平行插槽,員工在面板看到的取消帳本可能是舊的 ⇒ `miss_complete` 那句「查不到請重整確認」出現機率上升,最壞路徑=員工重送一筆刪不掉的取消(append-only)。
 - **編號註**:立案當下最大=#363(E 窗 token 守門,已派號)。
+
+### #363. 🔐 token 產生點的守門從文字層升級成機制層(server-only)(A13b E1 立案;E 窗草稿原文)
+
+現況:`cancel-order-forms.test.tsx` 用「掃 components/orders/*.tsx、含 generateCancelRequestToken( 的檔不得有 'use client'」擋。已知四種繞法它都抓不到:改名 import(`as makeToken`)、換行呼叫、把呼叫點搬進 .ts、搬到 components/orders/ 以外。
+修法:把 token 產生器拆成獨立模組 + `import 'server-only'` ⇒ 從 client 元件 import 會在 build 期紅。
+代價:`server-only` 在 jsdom 測試環境會拋(A13b E1 的 spike 已實際撞到 `server-only/index.js:1` "cannot be imported from a Client Component"),要動 vitest alias 或測試 setup。
+不修未來會痛在哪:取消線的 token 是冪等鍵。它一旦在 client 端鑄,同一個人重整兩次會拿到兩把鍵、重送保護失效;而更糟的是**沒有任何東西會紅**——文字層守門對「換個寫法」全盲,而行為層在 jsdom 分辨不出來(`React.cache` 純透傳,D4 已實跑證過 17 測全綠)。這不是取消線專屬:備註線、退款線的 token 產生點吃同一個形狀。
+
+### #365. 🕳️ 取消線外 8 處單值欄位用 `formData.get()` 取第一筆(A13b E1 複審外溢立案)
+
+- **來源**:codex 複審 E1 抓到取消線三處 `formData.get()`(已修=getAll 恰一);E 窗掃出**同形狀未修 8 處**:`procurement-actions.ts`(3)、`keyword-search-action.ts`(2)、`note-actions.ts`(2)、`item-procurement-form.tsx`(1)。
+- **形狀**:單值欄位送兩份時由送出者決定採哪一筆;取消線的後果是放大取消數量/導錯單,其他線各自評(採購=錢面優先)。
+- **要做什麼**:統一 `getAll()` 恰一筆字串的讀取 helper(取消線已有現成形狀可抄),逐線套+順序互換負測。
+- **不修未來會痛在哪**:重複欄位=竄改或未來表單重構失誤都構造得出;採購/備註線被採第一筆時是寫入錯誤資料的入口,且零紅燈。
+- **編號註**:立案當下最大=#364(grep 實查)。

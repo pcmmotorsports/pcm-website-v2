@@ -22,7 +22,10 @@ import { cancelOrder } from './cancel-repository';
 
 // cancel-actions.ts — M-4b E10 A9d2-2c:取消訂單 server action。
 //
-// 🔴 **全 PRG、零 client state**(A13b **D2a**;`E-012-A` Q1=A 換路,推翻本片原本的「混合形」)。
+// 🔴 **全 PRG**(A13b **D2a**;`E-012-A` Q1=A 換路,推翻本片原本的「混合形」)。
+//    ⚠️ 原本這行寫「全 PRG、零 client state」—— **A13b E1 之後「零 client state」為假**
+//    (表單多了 `cancel-form-body.tsx` 的漸進增強層)。本 action 這一側沒變:它不回傳 state、
+//    一律導頁,畫面狀態仍全部由 server 從帳本重建。
 //   原本是「失敗回 action state、成功才 redirect」——那個形狀在 React 19 的 form reset 競態下
 //   **可能誤送整單取消**(四輪修不穩,`E-011-STOP`)⇒ 現在**每一條路徑都導頁**,
 //   URL 上只留碼與 token:**A 類(沒送到 RPC)只帶碼**(帳本裡本來就沒那筆,給 token 是叫 D5 去找鬼);
@@ -131,7 +134,13 @@ function failRedirect(path: string, query: string): never {
  *      client 送的字串轉不成任意網址(開放重導向面關掉)。
  */
 function readRedirectTargetOrderId(formData: FormData): string | null {
-  const raw = formData.get(CANCEL_ORDER_ID_FIELD);
+  // 🔴🔴 **`getAll()` 恰一筆,不是 `get()`**(關卡2 codex 複審 #3):送兩份 `order_id` 時,
+  //    解析器那邊會拒(`cancel-form.ts` 的 `readSingle`),但**失敗導頁**若採第一筆,
+  //    員工會被導到**另一張單**的頁面、看著別人的取消結果面板。
+  //    ⇒ 導頁目標與解析器必須用同一套讀法,否則「兩邊各自正確、合起來錯」。
+  const all = formData.getAll(CANCEL_ORDER_ID_FIELD);
+  if (all.length !== 1) return null;
+  const raw = all[0];
   return typeof raw === 'string' && isUuid(raw) ? raw : null;
 }
 

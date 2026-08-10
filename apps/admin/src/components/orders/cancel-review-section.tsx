@@ -14,9 +14,11 @@ import {
 //    ⇒ 順帶避開 D 窗踩過的那個坑:`AdminOrderDetail` 帶金額與會員等級脈絡,
 //      整包丟進 client props 會進 RSC payload(純文字)。這裡它從頭到尾留在 server。
 //    ⚠️ **本行 2026-08-10 由 D4 更正**:原本寫「A13b 的表單才需要 `'use client'`」——
-//      那是 A13b v2 的舊形狀。v3 換路之後**表單也是零 `'use client'`**
-//      (`cancel-order-forms.tsx`,原生 form + server action、零 client state);
-//      而「零 client state」正是「不會誤送整單取消」的修法本體,不是風格選擇。
+//      那是 A13b v2 的舊形狀。v3 換路之後表單改成原生 form + server action;
+//      **A13b E1 又加回了一層薄的 `'use client'`**(`cancel-form-body.tsx`,漸進增強)——
+//      界線是「**送出值不由 client state 產生或回寫**」(不是「state 裡沒有送出值」——
+//      `reason_code` 就在 state 裡),而那正是「不會誤送整單取消」的修法本體,
+//      不是風格選擇。要引用這段的人**讀 `cancel-form-body.tsx` 檔頭的三條不變式**,別照抄「零 client state」。
 //      兩支檔仍刻意不合併(鐵則 6:唯讀複核區塊 vs 表單,職責不同)。
 // 🔴 **這條目前只有註解在守,沒有機制**(R1 F15 誠實記載):`import 'server-only'` 是正解,
 //    但 `server-only` 不是 `apps/admin` 的直接依賴(實測 vite 解析不到、整支測試檔載入即炸),
