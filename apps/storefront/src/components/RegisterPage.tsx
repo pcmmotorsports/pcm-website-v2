@@ -35,6 +35,28 @@ export function RegisterPage({ next }: { next?: string } = {}) {
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  /**
+   * 一開始改某一欄就清那一欄的 inline 錯 + 頂部帳號層級錯(2026-08-08 全站掃測 B 級;四張表單同形)。
+   * 完整理由見 `LoginPage.tsx` 同名函式的註解(只清被動那欄 / formError 一律清 / 無錯時回原值讓 React bail out)。
+   *
+   * 🔴 **本頁的 formError 不只裝錯誤**(R1 must-fix,LoginPage 那句「它講的是上一次送出的
+   *    **錯誤**」在本頁範圍不足):`register/actions.ts:75` 會用同一個通道回
+   *    「註冊成功,請至信箱完成 Email 驗證後再登入。」。今天走不到那條分支
+   *    (`actions.ts:73-74` 註明 confirm email 前置為 OFF、預期不命中),所以清掉無害。
+   *    ⚠️ **失效條件**:#173 把 confirm email 重開的那一刻,這裡就會把客人唯一的成功訊號
+   *    一按鍵清掉(他會重送 → 拿到「此 Email 已註冊」→ 以為註冊失敗)。
+   *    重開 #173 的人必須連帶處理:成功訊息改走非 error 通道,或本函式排除該字面。
+   *
+   * 🔴 與 LoginPage 的差異:**本頁的「同意條款」checkbox 要接**。`agree` 是 `RegisterField`
+   *    的一員(`field-validation.ts:26`)、有自己的 `fieldErrors.agree`;而 LoginPage 的
+   *    「記住我」不是驗證欄、勾了不代表在修正任何錯 ⇒ 那邊不接。判準是「這欄有沒有自己的錯」,
+   *    不是「它是不是 checkbox」。
+   */
+  const clearErr = (k: keyof RegisterFieldErrors) => {
+    setFieldErrors((prev) => (prev[k] === undefined ? prev : { ...prev, [k]: undefined }));
+    setFormError(null);
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     // client 逐欄驗證(主防線、與 server 同一份 validateRegister)
@@ -73,7 +95,7 @@ export function RegisterPage({ next }: { next?: string } = {}) {
               <span>姓名（必填）</span>
               <input
                 value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                onChange={(e) => { setForm({ ...form, name: e.target.value }); clearErr('name'); }}
                 placeholder="王小明"
               />
               {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
@@ -83,7 +105,7 @@ export function RegisterPage({ next }: { next?: string } = {}) {
               <input
                 type="email"
                 value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                onChange={(e) => { setForm({ ...form, email: e.target.value }); clearErr('email'); }}
                 placeholder="your@email.com"
               />
               {fieldErrors.email && <span className="auth-field-err">{fieldErrors.email}</span>}
@@ -92,7 +114,7 @@ export function RegisterPage({ next }: { next?: string } = {}) {
               <span>手機（必填）</span>
               <input
                 value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                onChange={(e) => { setForm({ ...form, phone: e.target.value }); clearErr('phone'); }}
                 placeholder="0912 345 678"
               />
               {fieldErrors.phone && <span className="auth-field-err">{fieldErrors.phone}</span>}
@@ -102,7 +124,7 @@ export function RegisterPage({ next }: { next?: string } = {}) {
               <input
                 type="password"
                 value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                onChange={(e) => { setForm({ ...form, password: e.target.value }); clearErr('password'); }}
                 placeholder="至少 8 碼"
               />
               {fieldErrors.password && <span className="auth-field-err">{fieldErrors.password}</span>}
@@ -111,7 +133,7 @@ export function RegisterPage({ next }: { next?: string } = {}) {
               <input
                 type="checkbox"
                 checked={form.agree}
-                onChange={(e) => setForm({ ...form, agree: e.target.checked })}
+                onChange={(e) => { setForm({ ...form, agree: e.target.checked }); clearErr('agree'); }}
               />
               {/* #291(2026-07-24):原為死連結 href="#",已接真頁面。
                   `target="_blank"`:避免填到一半的註冊表單被導航沖掉。

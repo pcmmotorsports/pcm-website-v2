@@ -76,6 +76,16 @@ describe('ForgotPasswordPage · 狀態 A(填 Email)', () => {
     expect(screen.getByText('Email 格式不正確')).toBeDefined();
     expect(mockAction).not.toHaveBeenCalled();
   });
+  // ── 錯誤訊息隨輸入清除(2026-08-08 全站掃測 B 級)────────────────────────────
+  it('改 Email → 清掉該欄的錯', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' }));
+    expect(screen.getByText('請填寫 Email')).toBeDefined();
+
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'r' } });
+
+    expect(screen.queryByText('請填寫 Email')).toBeNull();
+  });
 });
 
 describe('ForgotPasswordPage · 送出成功 → 狀態 B(已寄出)', () => {
@@ -177,6 +187,21 @@ describe('ForgotPasswordPage · action throw(站台設定錯誤)', () => {
     expect(btn.disabled, '鈕必須解鎖,否則客人卡在轉圈').toBe(false);
     // 🔴 反向:不得因為 throw 就跑到「信寄出去了」——那正是規格要避免的「畫面說謊」。
     expect(screen.queryByText('信寄出去了')).toBeNull();
+  });
+
+  it('🔴 頂部那條 throw 錯改 Email 就清掉(本頁唯一與另外三頁不同的主張,要有可執行字面)', async () => {
+    // R1 nit:元件裡花五行論證「頂部 throw 錯要清」,但原本只有 fieldErrors 那一半有測試。
+    mockAction.mockRejectedValueOnce(new Error('NEXT_PUBLIC_SITE_URL 未設定'));
+    renderPage();
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'a@b.co' } });
+    await act(async () => {
+      fireEvent.submit(screen.getByText('寄出重設連結').closest('form') as HTMLFormElement);
+    });
+    expect(screen.getByRole('alert').textContent).toContain('系統暫時無法寄出重設信');
+
+    fireEvent.change(screen.getByPlaceholderText('your@email.com'), { target: { value: 'a@b.com' } });
+
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次', async () => {

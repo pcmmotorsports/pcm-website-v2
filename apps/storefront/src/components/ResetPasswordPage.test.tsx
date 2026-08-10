@@ -124,6 +124,20 @@ describe('ResetPasswordPage · 狀態 A(設新密碼)', () => {
     expect(await screen.findByText('操作太頻繁，請稍後再試')).toBeDefined();
     expect(screen.queryByText('密碼改好了')).toBeNull();
   });
+  // ── 錯誤訊息隨輸入清除(2026-08-08 全站掃測 B 級)────────────────────────────
+  it('🔴 改上面那欄 → 連「兩次不一樣」也清掉(本頁刻意兩欄一起清)', () => {
+    renderPage();
+    fireEvent.change(screen.getByPlaceholderText('至少 8 碼'), { target: { value: 'hunter2hunter' } });
+    fireEvent.change(screen.getByPlaceholderText('再打一次上面那組'), { target: { value: 'different1' } });
+    fireEvent.click(screen.getByRole('button', { name: '設定新密碼' }));
+    expect(screen.getByText('兩次輸入的密碼不一樣')).toBeDefined();
+
+    fireEvent.change(screen.getByPlaceholderText('至少 8 碼'), { target: { value: 'different1' } });
+
+    // 「不一樣」是**兩欄之間的關係**、不是 confirm 自己的毛病:客人改上面那欄就可能已經修好了。
+    // 只清被動那一欄的話,這條已經不成立的紅字會留在畫面上 ⇒ 本頁刻意兩欄一起清。
+    expect(screen.queryByText('兩次輸入的密碼不一樣')).toBeNull();
+  });
 });
 
 describe('ResetPasswordPage · 狀態 C(完成)', () => {
