@@ -11,7 +11,7 @@
 //    過濾掉的話,員工會以為貨憑空不見了。
 
 import type { AdminOrderDetail } from '@pcm/domain';
-import { loadOrderShipments } from '../../lib/shipping/order-shipments';
+import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
 import { ShipmentVoidButton } from './shipment-void-button';
 
@@ -24,7 +24,12 @@ const CARRIER_LABEL: Record<string, string> = {
 export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) {
   // 🔴 只取 id 與 title 兩欄餵下去 —— 不把整包 detail(帶成交價)交給資料層或 client。
   const titleByItemId = new Map(detail.items.map((it) => [it.id, it.title]));
-  const groups = await loadOrderShipments(titleByItemId);
+  // 🔴 兩支併發:空箱區與本單包裹清單沒有依賴關係,序列化只是白等一趟。
+  const [groups, empties] = await Promise.all([
+    loadOrderShipments(titleByItemId),
+    // 🔴 只傳訂單 id —— 空箱查詢自己從 `orders` 反查客人,不從帶 PII 的 detail 取。
+    loadEmptyShipments(detail.id),
+  ]);
 
   return (
     <section className='rounded-lg border bg-card p-4'>
@@ -100,6 +105,46 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
         <p className='text-muted-foreground mt-3 text-xs'>
           這裡只列<b>這張訂單</b>在各箱裡的品項。同一箱可能還裝著這位客人其他訂單的東西。
         </p>
+      )}
+
+      {/* 🔴 #351④ 空箱區。**沒有空箱時整區不出現** —— 常態是沒有,長期掛一個「目前沒有空箱」
+          只會佔版面並讓真的出現時不顯眼。
+          🔴 這一區是**客人層**,不是本單:`shipments` 沒有 order_id(Sean 08-05 Q1=B 併箱同客人
+          ⇒ 本來就不該加),而空箱連品項都沒有、與這張訂單之間一條線都沒有。
+          ⇒ 文案必須講實話「可能來自別張訂單」,不可假裝是本單的。
+          🔴 這是**可見化不是止血**:空箱會繼續產生(源頭 = #359,建箱與掛品項非原子)。 */}
+      {empties.length > 0 && (
+        <div className='mt-4 border-t pt-3'>
+          <h3 className='text-sm font-semibold'>
+            未收尾的空箱 <span className='text-muted-foreground font-normal'>({empties.length})</span>
+          </h3>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            這些箱子建出來了但<b>一件東西都沒裝</b>(通常是建箱成功、掛品項失敗;
+            也可能是<b>此刻有人正在建箱</b>)。它們掛在<b>這位客人</b>名下,
+            <b>可能來自他的別張訂單</b>;確定不用了再作廢。
+          </p>
+          <ul className='mt-2 space-y-2'>
+            {empties.map((s) => (
+              <li
+                key={s.id}
+                className='flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2'
+              >
+                <span className='flex items-center gap-2 text-sm'>
+                  <b className='font-mono'>{s.shipmentReference}</b>
+                  <span className='text-amber-700'>空箱</span>
+                </span>
+                {/* 🔴 `voided` 從資料算,**不要寫死 `false`** —— 寫死的話它會變成
+                    `loadEmptyShipments` 那道「未作廢」過濾條件的第二個真相源,
+                    哪天過濾條件放寬,這裡就會對一個已作廢的箱顯示「作廢」鈕。 */}
+                <ShipmentVoidButton
+                  shipmentId={s.id}
+                  shipmentReference={s.shipmentReference}
+                  voided={s.voidedAt !== null}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

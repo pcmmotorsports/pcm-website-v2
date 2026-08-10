@@ -11,10 +11,20 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const listItems = vi.fn();
 const listShipments = vi.fn();
+const listItemsByShipment = vi.fn();
+const listByCustomer = vi.fn();
+const listOrderCustomers = vi.fn();
 vi.mock('server-only', () => ({}));
 vi.mock('./shipment-repository', () => ({
   listShipmentItemsByOrderItemIds: listItems,
   listShipmentsByIds: listShipments,
+  listShipmentItemsByShipmentIds: listItemsByShipment,
+  listShipmentsByCustomer: listByCustomer,
+  listOrderCustomerUserIds: listOrderCustomers,
+  // 🔴 `vi.mock` 換掉整個模組 ⇒ 常數也要在這裡給,否則受測碼拿到 `undefined`。
+  //    這是複本,**真值與查詢實際送出的 `.limit(N+1)` 由 `shipment-repository.test.ts` 釘住**;
+  //    真值改了而這裡沒改,下面那兩格會紅(不是靜默通過)。
+  SHIPMENT_ITEM_ROWS_LIMIT: 500,
 }));
 
 const box = (over: Record<string, unknown> = {}) => ({
@@ -33,6 +43,14 @@ const box = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   listItems.mockReset();
   listShipments.mockReset();
+  listItemsByShipment.mockReset();
+  listByCustomer.mockReset();
+  listOrderCustomers.mockReset();
+  // 空箱區的預設:查得到客人,但**一個箱都沒有**(⇒ 預設就是「沒有空箱」)。
+  // 🔴 每一格要測什麼就自己把箱餵進去,不要以為預設已經有一個箱在那裡。
+  listOrderCustomers.mockResolvedValue(new Map([['o1', 'cu-1']]));
+  listByCustomer.mockResolvedValue([]);
+  listItemsByShipment.mockResolvedValue([]);
 });
 
 const titles = new Map([
@@ -90,5 +108,128 @@ describe('出貨卡資料源', () => {
     listItems.mockResolvedValue([]);
     expect(await loadOrderShipments(titles)).toEqual([]);
     expect(listShipments, '沒有 shipment_items 還去查箱 ⇒ 多打一次無意義的 DB').not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// #351④ 客人層空箱區(2026-08-10)。
+//
+// 🔴 這一區存在的理由是**上面那支在結構上做不到**:`loadOrderShipments` 從品項反查箱,
+//    而空箱沒有品項 ⇒ 它永遠不會出現在那條路徑上。Sean 08-09 逐字「我也找不到那個箱子在哪裡」。
+// ⚠️ 全 mock ⇒ 證不了真 DB 的關聯;真行為併入肉眼驗收。
+// ─────────────────────────────────────────────────────────────
+describe('#351④ loadEmptyShipments — 這位客人還沒收尾的空箱', () => {
+  it('🔴 沒裝任何品項的未出貨箱 → 列出來(這正是出貨卡看不到的那種箱)', async () => {
+    listByCustomer.mockResolvedValue([box({ id: 'sh-empty', shipmentReference: 'EMPTY1', shippedAt: null })]);
+    listItemsByShipment.mockResolvedValue([]); // 一件都沒裝
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(
+      (await loadEmptyShipments('o1')).map((s) => s.shipmentReference),
+      '空箱沒被列出來 ⇒ 員工還是找不到它、作廢不了,#351④ 等於沒做。',
+    ).toEqual(['EMPTY1']);
+  });
+
+  it('🔴 裝了東西的箱**不算空箱**(那種箱出貨卡本來就看得到,重複列只會混淆)', async () => {
+    listByCustomer.mockResolvedValue([box({ id: 'sh-full', shippedAt: null })]);
+    listItemsByShipment.mockResolvedValue([
+      { id: 'si-1', shipmentId: 'sh-full', orderItemId: 'oi-1', shippedQuantity: 1 },
+    ]);
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(await loadEmptyShipments('o1'), '有品項的箱被當成空箱').toEqual([]);
+  });
+
+  it('🔴 已出貨的箱不算(它不是待收尾的問題)', async () => {
+    listByCustomer.mockResolvedValue([box({ id: 'sh-shipped', shippedAt: '2026-08-09T00:00:00Z' })]);
+    listItemsByShipment.mockResolvedValue([]);
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(
+      await loadEmptyShipments('o1'),
+      '已出貨的箱被列進待收尾 ⇒ 員工會去作廢一個已經寄出去的箱。',
+    ).toEqual([]);
+  });
+
+  it('🔴 已作廢的箱不算(那是**已經處理過**的,再列一次等於叫他重做)', async () => {
+    listByCustomer.mockResolvedValue([
+      box({ id: 'sh-void', shippedAt: null, voidedAt: '2026-08-10T00:00:00Z' }),
+    ]);
+    listItemsByShipment.mockResolvedValue([]);
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(await loadEmptyShipments('o1'), '已作廢的空箱又被列出來').toEqual([]);
+  });
+
+  it('🔴 查不到這張單的客人 → 一個都不列(fail-closed,寧可少一區也不列到別人的箱)', async () => {
+    listOrderCustomers.mockResolvedValue(new Map()); // 查無
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(await loadEmptyShipments('o1'), '查不到客人卻照樣列箱').toEqual([]);
+    expect(
+      listByCustomer,
+      '查不到客人還去查箱 ⇒ 不是多打一次 DB 的問題,是根本不知道要查誰的箱。',
+    ).not.toHaveBeenCalled();
+  });
+
+  it('沒有未出貨的箱 → 不去查品項(少打一次沒有意義的 DB)', async () => {
+    listByCustomer.mockResolvedValue([box({ shippedAt: '2026-08-09T00:00:00Z' })]);
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(await loadEmptyShipments('o1')).toEqual([]);
+    expect(listItemsByShipment).not.toHaveBeenCalled();
+  });
+
+  it('🔴 混合:同一位客人的空箱與有貨箱並存時,只吐空的那個', async () => {
+    listByCustomer.mockResolvedValue([
+      box({ id: 'sh-full', shipmentReference: 'FULL1', shippedAt: null }),
+      box({ id: 'sh-empty', shipmentReference: 'EMPTY1', shippedAt: null }),
+    ]);
+    listItemsByShipment.mockResolvedValue([
+      { id: 'si-1', shipmentId: 'sh-full', orderItemId: 'oi-1', shippedQuantity: 2 },
+    ]);
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(
+      (await loadEmptyShipments('o1')).map((s) => s.shipmentReference),
+      '集合差算錯 ⇒ 要嘛漏掉空箱、要嘛把有貨的箱標成空箱叫員工去作廢。',
+    ).toEqual(['EMPTY1']);
+  });
+  it('🔴 品項清單回傳超過自夾上限 → 整區不顯示(fail-closed)', async () => {
+    const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repository');
+    listByCustomer.mockResolvedValue([
+      box({ id: 'sh-full', shipmentReference: 'FULL1', shippedAt: null }),
+      box({ id: 'sh-empty', shipmentReference: 'EMPTY1', shippedAt: null }),
+    ]);
+    // 🔴 N+1:查詢送 `.limit(N+1)`,拿到 N+1 筆就代表「可能還有更多」⇒ 這份分母不可信。
+    //    數量從 repository 的常數推出來,**不在這裡抄一個字面** —— 抄字面的話常數改了測試不會紅。
+    listItemsByShipment.mockResolvedValue(
+      Array.from({ length: SHIPMENT_ITEM_ROWS_LIMIT + 1 }, (_, n) => ({
+        id: `si-${n}`,
+        shipmentId: 'sh-full',
+        orderItemId: `oi-${n}`,
+        shippedQuantity: 1,
+      })),
+    );
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(
+      await loadEmptyShipments('o1'),
+      '截斷時照樣算集合差 ⇒ 被截掉的箱進不了 withItems ⇒ **裝著貨的箱被吐成空箱**,' +
+        '畫面會叫員工去作廢一個真的有貨的箱。方向是誤判不是漏判,所以這裡必須 fail-closed。',
+    ).toEqual([]);
+  });
+
+  it('剛好等於上限(沒有第 N+1 筆)⇒ 正常算,不誤擋', async () => {
+    const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repository');
+    listByCustomer.mockResolvedValue([
+      box({ id: 'sh-full', shipmentReference: 'FULL1', shippedAt: null }),
+      box({ id: 'sh-empty', shipmentReference: 'EMPTY1', shippedAt: null }),
+    ]);
+    listItemsByShipment.mockResolvedValue(
+      Array.from({ length: SHIPMENT_ITEM_ROWS_LIMIT }, (_, n) => ({
+        id: `si-${n}`,
+        shipmentId: 'sh-full',
+        orderItemId: `oi-${n}`,
+        shippedQuantity: 1,
+      })),
+    );
+    const { loadEmptyShipments } = await import('./order-shipments');
+    expect(
+      (await loadEmptyShipments('o1')).map((s) => s.shipmentReference),
+      '把 `>` 寫成 `>=` ⇒ 剛好取滿(但沒被截斷)的合法情況被誤擋,空箱區平白消失。',
+    ).toEqual(['EMPTY1']);
   });
 });

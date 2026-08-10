@@ -289,6 +289,99 @@ describe('讀取面 · 空輸入短路', () => {
     expect(r).toEqual([]);
     expect(from, '空輸入還是打了一次 DB').not.toHaveBeenCalled();
   });
+
+  it('🔴 shipmentIds 為空時同樣不得發出請求(#351④ 新增的那支)', async () => {
+    const { listShipmentItemsByShipmentIds } = await import('./shipment-repository');
+    expect(await listShipmentItemsByShipmentIds([])).toEqual([]);
+    expect(from, '空輸入還是打了一次 DB').not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// #351④(2026-08-10):從**箱**找品項。
+//
+// 🔴 **這一格守的是「查的是哪一欄」**。上層 `order-shipments.test.ts` 把整個 repository mock 掉
+//    ⇒ 這支若把 `.in('shipment_id', …)` 寫成 `.in('order_item_id', …)`,上層那一整檔**照樣全綠**,
+//    而空箱判斷會全錯(拿箱 id 去比品項 id ⇒ 一律查無 ⇒ **每一個未出貨的箱都被標成空箱**,
+//    畫面叫員工去作廢裝著貨的箱)。這正是「同型 mock 一致 = 共同盲點」那條。
+// ─────────────────────────────────────────────────────────────
+describe('🔴 #351④ listShipmentItemsByShipmentIds — 方向與過濾欄', () => {
+  /** 🔴 鏈在 `.limit()` 才結束(查詢自己送 N+1);停在 `.in()` 的舊寫法會拿到 undefined。 */
+  function chainOn(rows: unknown[]) {
+    const calls: Record<string, unknown[]> = {};
+    const api: Record<string, unknown> = {
+      select: (...a: unknown[]) => {
+        calls.select = a;
+        return api;
+      },
+      in: (...a: unknown[]) => {
+        calls.in = a;
+        return api;
+      },
+      limit: (...a: unknown[]) => {
+        calls.limit = a;
+        return Promise.resolve({ data: rows, error: null });
+      },
+    };
+    return { api, calls };
+  }
+
+  it('🔴 過濾欄必須是 `shipment_id`(寫成 order_item_id 會讓每個箱都被誤判成空箱)', async () => {
+    const { api, calls } = chainOn([]);
+    from.mockReturnValue(api);
+    const { listShipmentItemsByShipmentIds } = await import('./shipment-repository');
+    await listShipmentItemsByShipmentIds(['sh-1', 'sh-2']);
+    expect(from, '查錯表').toHaveBeenCalledWith('shipment_items');
+    expect(
+      calls.in,
+      '過濾欄不是 shipment_id ⇒ 拿箱 id 去比品項 id、一律查無 ⇒ 所有未出貨的箱都被標成「空箱」,' +
+        '員工會去作廢裝著貨的箱。上層測試對這個錯全盲(它把本檔整個 mock 掉)。',
+    ).toEqual(['shipment_id', ['sh-1', 'sh-2']]);
+  });
+
+  it('🔴 查詢自己送 `.limit(N+1)`(截斷邊界要由我們擁有,不是抄伺服器 max-rows)', async () => {
+    const calls: Record<string, unknown[]> = {};
+    const api: Record<string, unknown> = {
+      select: (...a: unknown[]) => {
+        calls.select = a;
+        return api;
+      },
+      in: (...a: unknown[]) => {
+        calls.in = a;
+        return api;
+      },
+      limit: (...a: unknown[]) => {
+        calls.limit = a;
+        return Promise.resolve({ data: [], error: null });
+      },
+    };
+    from.mockReturnValue(api);
+    const { listShipmentItemsByShipmentIds, SHIPMENT_ITEM_ROWS_LIMIT } = await import(
+      './shipment-repository'
+    );
+    await listShipmentItemsByShipmentIds(['sh-1']);
+    expect(
+      SHIPMENT_ITEM_ROWS_LIMIT,
+      '上限沒有嚴格低於已對 production 實測過的 1000 ⇒ 又變成伺服器設定的複本:' +
+        'max-rows 被調低時呼叫端判定恆假、守門靜默變 no-op(A9a-1 R1 判過的同型 must-fix)。',
+    ).toBeLessThan(1000);
+    expect(
+      calls.limit,
+      '查詢沒送 `.limit(N+1)` ⇒ 回傳筆數由伺服器決定,呼叫端拿 N 去比就是在比一個它管不到的數字。' +
+        '取 N+1 才分得出「正好這麼多」與「可能還有更多」(backlog #325 的 canonical 形狀)。',
+    ).toEqual([SHIPMENT_ITEM_ROWS_LIMIT + 1]);
+  });
+
+  it('回傳逐列映射成 domain 形狀(欄名對照錯掉的話上層算不出集合差)', async () => {
+    const { api } = chainOn([
+      { id: 'si-1', shipment_id: 'sh-1', order_item_id: 'oi-1', shipped_quantity: 2 },
+    ]);
+    from.mockReturnValue(api);
+    const { listShipmentItemsByShipmentIds } = await import('./shipment-repository');
+    expect(await listShipmentItemsByShipmentIds(['sh-1'])).toEqual([
+      { id: 'si-1', shipmentId: 'sh-1', orderItemId: 'oi-1', shippedQuantity: 2 },
+    ]);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
