@@ -20,7 +20,22 @@
 
 ### 1-1 「未選預設近半年」的預設值**落在哪一層**
 
-**推薦 = adapter 層**(不是 RPC、也不是 UI)。
+> 🔴🔴 **本節的結論已於 2026-08-10 被推翻(#347-3b 實作時,主視窗核)——「放 adapter」改成「放 3c 的 UI」。**
+> 下面整段保留原文備查,**但不要照著做**。推翻的理由(v1.1 沒有想到的那一條):
+> ①`§2` 切片表把 3b 的「對外可見」列為 **無(零產出者)**,而 adapter 一旦在「沒給日期」時自己補
+>   近半年,列表就會**默默藏掉半年前的單** —— 那是對外可見、而且是員工看得見的產品行為改變,
+>   兩句不可能同時成立(`§2` 那格的摘要在 3a 已經被證錯過一次,見 `:52-65`;這是第二次)。
+> ②Sean Q14=A 的逐字是「未選預設近半年」——「未選」指的是**選單上的預設選項**。
+>   預設值是**看得見的選單狀態**(員工看到「近半年」被選中、而且改得動),不是隱形過濾;
+>   後者會讓「我明明沒設條件,單卻不見了」變成沒人查得出來的客訴。
+> ③本節「不放 UI」的理由是「非 UI 呼叫端會沉默地拿到全歷史」—— 那條**今天不成立**:
+>   全樹 `createdFrom`/`createdTo` 的 producer = 0(實查),沒有非 UI 呼叫端。
+>   哪天真的有(匯出、API),那時再決定它要不要收窄,而不是現在替它決定。
+> ⇒ **3b 只鋪管線**:domain 兩個欄位 + `date-range.ts` 的曆面換算 + adapter 兩處下推,
+>   `recentTaipeiMonthsRange()` **匯出但不套用**;**3c 把它接成下拉的預設選項**。
+> 落檔:memory `project_347-3-date-range-default-belongs-to-3c`、`#347-3b` commit body。
+
+**(以下為 v1.1 原文,已被上面那段推翻,保留備查)** **推薦 = adapter 層**(不是 RPC、也不是 UI)。
 
 - **不放 RPC**:RPC 的 `p_from IS NULL` 應該老實表示「不限期間」。把預設塞進 DB 函式 =
   同一支函式對「沒給」與「明確要全部」**做不出區分**,而那是日後對帳/匯出會需要的能力。
@@ -46,8 +61,8 @@
 | 片 | 做什麼 | 對外可見 | 風險 |
 |---|---|---|---|
 | **347-3a** | migration:`admin_search_orders` 加 `p_from`/`p_to`(DROP 舊 + CREATE 新 + 重 GRANT + REVOKE PUBLIC)| 🔴 **呼叫端已存在**(見下) | **高**(鐵則 12 ③;**留 pending 不 apply**)|
-| **347-3b** | domain `AdminOrderFilter.createdFrom/createdTo` + port 型別 + adapter 傳參 + **近半年預設** | 無(零產出者) | 中 |
-| **347-3c** | UI 日期範圍下拉(近一個月/三個月/半年/一年/自訂)+ 落進 350 殼 | **是** | 中 |
+| **347-3b** | domain `AdminOrderFilter.createdFrom/createdTo` + `date-range.ts` 曆面換算 + adapter 兩處下推(列表 `created_at` + RPC `p_from`/`p_to`)。🔴 **近半年預設改歸 3c**(見 §1-1 推翻框) | 無(零產出者;RPC wire 多兩個 `null` 鍵,DB 側等價、已對正式站實測) | 中 |
+| **347-3c** | UI 日期範圍下拉(近一個月/三個月/半年/一年/自訂)+ 落進 350 殼。🔴 **含「未選預設近半年」的套用**(3b 只匯出 `recentTaipeiMonthsRange`,沒有套);🔴 新軸要記得列進 `buildOrderListHref`(`order-list-view.ts` 是手抄列舉、沒有窮舉守門 ⇒ 漏列 = 翻頁時日期靜默消失) | **是** | 中 |
 
 ### 🔴 3a 不是「零呼叫端」—— 我 v1 寫錯了(codex 關卡1 must-fix)
 
@@ -92,4 +107,7 @@ v1 那格寫「對外可見=無(零呼叫端)」是**假的**:正式 adapter
 ## 5. rollback
 
 3a:單一 migration,rollback = 反向 migration(DROP 新 + CREATE 舊簽章)。
+🔴 **3b 之後這條回滾序變了**(#347-3b code-reviewer 指出):adapter 自 3b 起**一律送四個鍵**
+⇒ 單獨回滾 3a(回到兩參數簽章)= PostgREST 找不到 overload = **404 = 整個訂單列表進錯誤態**
+(不只搜尋壞掉)。⇒ 回滾序硬性是「**先 revert 3b 的 adapter,再 revert 3a 的 migration**」。
 🔴 **未 apply 之前 rollback = 直接 revert commit**,沒有 DB 狀態要收。

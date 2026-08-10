@@ -206,11 +206,20 @@ describe(`${RPC_NAME} · 簽章逐字對 migration(GRANT 綁精確簽章)`, () =
     expect(adapter).toContain(`${RPC_NAME_CONST} = ${RPC_NAME_LITERAL}`);
   });
 
-  // 🔴 **只列 `p_query` / `p_limit` 是刻意的**:#347-3a 新增的 `p_from` / `p_to` 有 `DEFAULT NULL`,
-  //    而現行 adapter(3b 之前)**不送它們** —— PostgREST 允許省略具預設值的參數。
-  //    3b 把日期接上去時,**這個陣列要一起加兩個**,否則「adapter 送了但 migration 沒有」那半沒人守。
-  it.each(['p_query', 'p_limit'])('🔴 參數名 `%s` 兩邊逐字對得上', (param) => {
-    expect(MIGRATION).toMatch(new RegExp(`\\b${param}\\s+(text|integer)\\b`));
+  // 🔴 **#347-3b 已照 3a 留下的字條把 `p_from` / `p_to` 加進來**:3a 當時只列兩個,是因為
+  //    當時的 adapter 不送日期(PostgREST 允許省略具預設值的參數)。3b 接上之後,
+  //    不加的話「adapter 送了但 migration 沒有」那半就沒人守 —— 而那正是執行期 404 的樣子。
+  //    ⚠️ 型別要一起認 `timestamptz`(前兩個是 text/integer)。
+  // 🔴 **名字與型別成對**(R1 nit 9):共用一組 `(text|integer|timestamptz)` alternation 的話,
+  //    把 migration 的 `p_from timestamptz` 改成 `p_from text` 那格仍然綠,
+  //    而註解卻說「型別要一起認」= 宣稱大於斷言。
+  it.each([
+    ['p_query', 'text'],
+    ['p_limit', 'integer'],
+    ['p_from', 'timestamptz'],
+    ['p_to', 'timestamptz'],
+  ])('🔴 參數 `%s`(型別 %s)兩邊逐字對得上', (param, type) => {
+    expect(MIGRATION).toMatch(new RegExp(`\\b${param}\\s+${type}\\b`));
     // 呼叫端的引數物件裡也必須有它(少一個 = 走進 DEFAULT、多一個 = 找不到 overload)。
     expect(adapter.slice(rpcCallIndex(adapter), rpcCallIndex(adapter) + 600)).toMatch(
       new RegExp(`\\b${param}\\s*:`),

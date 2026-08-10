@@ -246,7 +246,11 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   const is = vi.fn();
   const inFn = vi.fn(); // D-1b 多勾選 .in(('in' 是保留字、local 取名 inFn)
   const or = vi.fn(); // D-1b code 混勾「未設定」→ 內嵌資源 .or
-  const builder = { eq, is, in: inFn, or, order };
+  const gte = vi.fn(); // #347-3b 建立日期下界
+  const lt = vi.fn(); //  #347-3b 建立日期上界(半開區間 ⇒ lt 不是 lte)
+  const builder = { eq, is, in: inFn, or, gte, lt, order };
+  gte.mockReturnValue(builder);
+  lt.mockReturnValue(builder);
   eq.mockReturnValue(builder); // query = query.eq(...) 保持可鏈
   is.mockReturnValue(builder); // query = query.is(...) 保持可鏈(A9w3 後只服務負向斷言)
   inFn.mockReturnValue(builder);
@@ -261,6 +265,8 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
     is,
     in: inFn,
     or,
+    gte,
+    lt,
     order,
     range,
   };
@@ -1460,10 +1466,14 @@ function makeSupplierSearchClient(opts: {
   const eq = vi.fn();
   const inFn = vi.fn();
   const or = vi.fn();
-  const builder = { eq, is: vi.fn(), in: inFn, or, order };
+  const gte = vi.fn();
+  const lt = vi.fn();
+  const builder = { eq, is: vi.fn(), in: inFn, or, gte, lt, order };
   or.mockReturnValue(builder);
   eq.mockReturnValue(builder);
   inFn.mockReturnValue(builder);
+  gte.mockReturnValue(builder);
+  lt.mockReturnValue(builder);
   const listSelect = vi.fn().mockReturnValue(builder);
 
   const from = vi.fn((table: string) =>
@@ -1769,10 +1779,14 @@ function makeKeywordSearchClient(opts: {
   const eq = vi.fn();
   const inFn = vi.fn();
   const or = vi.fn();
-  const builder = { eq, is: vi.fn(), in: inFn, or, order };
+  const gte = vi.fn(); // #347-3b 建立日期下界
+  const lt = vi.fn(); //  #347-3b 建立日期上界(半開區間 ⇒ lt 不是 lte)
+  const builder = { eq, is: vi.fn(), in: inFn, or, gte, lt, order };
   or.mockReturnValue(builder);
   eq.mockReturnValue(builder);
   inFn.mockReturnValue(builder);
+  gte.mockReturnValue(builder);
+  lt.mockReturnValue(builder);
   const listSelect = vi.fn().mockReturnValue(builder);
 
   const from = vi.fn((table: string) =>
@@ -1786,6 +1800,8 @@ function makeKeywordSearchClient(opts: {
     listSelect,
     or,
     in: inFn,
+    gte,
+    lt,
     range,
   };
 }
@@ -1802,9 +1818,14 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — #347-2a 關鍵字�
       { limit: 20 },
     );
     // 🔴 參數名逐字對 migration 簽章;`p_limit` 由呼叫端明講、不依賴 DB 的 DEFAULT。
+    // 🔴 #347-3b:`p_from`/`p_to` 起也一律帶著(沒選日期就是 `null` = 該側不限)——
+    //    這裡跟著加是**行為真的變了**,不是為了配合新程式碼改斷言:wire 上多了兩個 null 鍵。
+    //    等價性已對正式站實測(省略 / null 兩種回傳一致,而真有下界時回 0 筆)。
     expect(h.rpc).toHaveBeenCalledWith(ADMIN_SEARCH_ORDERS_FN, {
       p_query: '王小明',
       p_limit: ADMIN_ORDER_ID_IN_CAP,
+      p_from: null,
+      p_to: null,
     });
     // 🔴 **只有兩個引數** —— 第三參數就是 `{get:true}`/`{head:true}` 進來的地方(搜尋詞會進 URL)。
     expect(h.rpc.mock.calls[0]).toHaveLength(2);
@@ -2098,5 +2119,125 @@ describe('#347-2a 上限常數 · 獨立釘值(抽共用後的漂綠面)', () =>
     //    + migration `:198` RPC 自己的硬夾值。三者要一起改,不是改一個。
     expect(ADMIN_ORDER_ID_IN_CAP).toBe(100);
     expect(SUPPLIER_ORDER_NO_MATCH_CAP).toBe(100);
+  });
+});
+
+// ── M-4b #347-3b:建立日期範圍下推(列表 + 關鍵字 RPC 兩處)────────────────────────
+describe('SupabaseOrderAdapter — #347-3b 建立日期範圍', () => {
+  const FROM = '2026-02-10T00:00:00+08:00';
+  const TO = '2026-08-11T00:00:00+08:00';
+
+  it('🔴 列表查詢:`gte(created_at, from)` + **`lt`**(半開區間,不是 `lte`)', async () => {
+    // 突變:把 `lt` 改成 `lte` ⇒ 這條紅。`lte` 配「當天 23:59:59」會在微秒級漏單,
+    // 而 `to` 是**下一個台北午夜** ⇒ 用 `lte` 會多收隔天 00:00:00.000 那一瞬間的單。
+    const h = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { createdFrom: FROM, createdTo: TO },
+      { limit: 20 },
+    );
+    expect(h.gte).toHaveBeenCalledWith('created_at', FROM);
+    expect(h.lt).toHaveBeenCalledWith('created_at', TO);
+  });
+
+  it('🔴 沒給日期 ⇒ 一個字都不下推(#347-3b 沒有 server 端預設)', async () => {
+    // 🔴 這條守的是「對外可見=無」那個驗收:adapter 若自己補近半年,列表就會默默藏掉舊單。
+    //    突變:在 adapter 補一個預設 ⇒ 這條紅。
+    const h = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(h.gte).not.toHaveBeenCalled();
+    expect(h.lt).not.toHaveBeenCalled();
+  });
+
+  it('🔴 空字串 ⇒ 兩條路徑都當作沒給(不得送出 `created_at=gte.`)', async () => {
+    // 🔴 R1 nit 6 的靶(我第一版修了 code 卻沒配靶,突變全綠存活):
+    //    型別上 `createdFrom: ''` 是合法的,而 `.gte('created_at','')` 會讓 PostgREST 400
+    //    ⇒ **整個訂單列表進錯誤態**(不只日期軸失效)。兩條路徑要同語意。
+    //    突變:把 `if (filter.createdFrom)` 改回 `!== undefined` ⇒ 這條紅。
+    const h = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { createdFrom: '', createdTo: '' },
+      { limit: 20 },
+    );
+    expect(h.gte).not.toHaveBeenCalled();
+    expect(h.lt).not.toHaveBeenCalled();
+
+    const k = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+    });
+    await new SupabaseOrderAdapter(k.client).listOrderSummariesForAdmin(
+      { keyword: 'PCM', createdFrom: '', createdTo: '' },
+      { limit: 20 },
+    );
+    // RPC 那側也要折成 null(`|| null` 而不是 `?? null` —— 空字串照送 = 送一個爛的 timestamptz)。
+    expect(k.rpc).toHaveBeenCalledWith('admin_search_orders', {
+      p_query: 'PCM',
+      p_limit: 100,
+      p_from: null,
+      p_to: null,
+    });
+  });
+
+  it('只給一邊也要下推那一邊(兩軸各自獨立)', async () => {
+    const h = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { createdFrom: FROM },
+      { limit: 20 },
+    );
+    expect(h.gte).toHaveBeenCalledWith('created_at', FROM);
+    expect(h.lt).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 關鍵字搜尋:日期**也要進 RPC**(只篩列表 = 取樣窗口還是全歷史最新 100)', async () => {
+    // 🔴 這是本片最重要的一格:#347-1 的取樣順序是「先取全域最新 100 筆命中、才與其他篩選取交集」
+    //    ⇒ 只在列表 `.gte()` 的話,要找的單可能整張落在那 100 筆之外,畫面顯示 0 筆
+    //    而且**看起來像查無此單**。突變:把 RPC 那兩個展開拿掉 ⇒ 這條紅(而列表那格照樣綠
+    //    —— 兩處各自獨立,少推一處是查得到與查不到的差別)。
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: 'PCM', createdFrom: FROM, createdTo: TO },
+      { limit: 20 },
+    );
+    expect(h.rpc).toHaveBeenCalledWith('admin_search_orders', {
+      p_query: 'PCM',
+      p_limit: 100,
+      p_from: FROM,
+      p_to: TO,
+    });
+  });
+
+  it('🔴 沒給日期的關鍵字搜尋:兩個鍵仍帶著、值是 `null`(= 該側不限)', async () => {
+    // 🔴 為什麼是 `null` 而不是省略:`admin-search-orders-post-only.test.ts` 禁止在這個引數物件
+    //    用 spread(spread 會讓它的「參數名逐字對 migration」守門與型別檢查同時失效)⇒ 一律兩鍵都帶。
+    //    `null` 與省略在 DB 側等價(migration `:134-135` 的 `p_from IS NULL OR …`),
+    //    而且**已對正式站實測**:省略 / 兩鍵 null / 單鍵 null 三種都回同一筆數,
+    //    而「真的有下界」回 0 筆(對照組證明這個等價不是恆真)。
+    // 突變:把 `?? null` 改成漏帶其中一鍵 ⇒ 這條紅。
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: 'PCM' },
+      { limit: 20 },
+    );
+    expect(h.rpc).toHaveBeenCalledWith('admin_search_orders', {
+      p_query: 'PCM',
+      p_limit: 100,
+      p_from: null,
+      p_to: null,
+    });
+  });
+
+  it('🔴 關鍵字 + 日期時,列表那一段**也**照樣下推(兩處都要,不是二選一)', async () => {
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: 'PCM', createdFrom: FROM, createdTo: TO },
+      { limit: 20 },
+    );
+    expect(h.gte).toHaveBeenCalledWith('created_at', FROM);
+    expect(h.lt).toHaveBeenCalledWith('created_at', TO);
   });
 });
