@@ -152,7 +152,7 @@ cap() {
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260810140000"  # 2026-08-10 重釘 20260810130000->20260810140000(L5b-1 退款兩表 payment_refunds/payment_refund_events 落檔;grep recompute|order_item_qty|oiqs|shipment = 0 命中=本檔的線與退款 ledger 不相交,只跟尖端)
+LINE_TIP="20260810150000"  # 2026-08-10 重釘 20260810140000->20260810150000(3c-3 admin_search_orders COMMENT 修=純註解 migration,零 DDL 零出貨面;只跟尖端)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
