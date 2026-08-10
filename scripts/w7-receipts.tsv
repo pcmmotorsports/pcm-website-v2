@@ -1,7 +1,7 @@
 # W7 跑過帳。一行一支:harness\tPASS\tFAIL\texit\tnewest_ts\tharness_sha
 # 由 `bash scripts/w7-coverage.sh record` 產生,勿手改。
 a7t-concurrency-probe.sh	6	0	0	20260810160000	77032e8c96d9b86d34367aba621add8858d357d2	0
-b2s2b-verify.sh	78	0	3	20260810160000	f6d81b965a337e1b4cc4c6baf469800f411ec605	1
+b2s2b-verify.sh	78	0	3	20260810160000	ae056fbed41ab166f9708c61996c4886fc16780f	1
 op2b-verify.sh	11	0	0	20260810160000	395420b0e55b1b9aef9a21b44dde344abacf3303	0
 op3-verify.sh	16	0	0	20260810160000	13054280bb17bbe7f1fcf23feb16aacb6eccbe2b	0
 w0b-verify.sh	47	0	0	20260810160000	ea5bea5d6d52fe6a1b28e0193943bb5708fde9f5	0
