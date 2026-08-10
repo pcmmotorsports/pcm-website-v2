@@ -7,6 +7,12 @@
 #       workdir 限 /tmp 或 /private/tmp 底下、字元集受限(見下方五道閘)。
 #      scripts/a7t-concurrency-probe.sh keep     (跑完保留 cluster 供人工查看)
 #
+# 離場碼(W7 收據只記得下這個數字 ⇒ 它必須自己說得出「哪一種紅」):
+#   0 = 探針全綠
+#   1 = **真的紅**(探針抓到東西)或路徑/工具閘拒跑
+#   2 = **環境不可用**(埠被佔、或找不到 lsof)⇒ 換埠重跑,不必懷疑正確性
+#   9 = teardown 沒停乾淨,現場已保留供診斷
+#
 # ══ 這支在證明什麼 ═══════════════════════════════════════════════════════════
 # 主從一致 trigger 的形狀是「`SELECT count(*) ... WHERE parent_id = ?` 為 0 就 RAISE」。
 # 情境:header 有兩列明細,**兩個交易各刪一列**。
@@ -70,6 +76,29 @@ if [ -f "$W/data/postmaster.pid" ] && pgrep -f "postgres.*$W/data" >/dev/null 2>
   echo "        處置:等它跑完,或用 env 換路徑:A7TCC_WORK=/tmp/自己的名字 A7TCC_PORT=54xxx"
   echo "        (🔴 不要改本檔字面 —— 內容一動,w7-coverage 的收據 sha 就對不上、check 會紅)"
   exit 1
+fi
+
+# ── 殘項 C(B-357-NOTE §殘項 C;2026-08-10)埠被佔 ≠ 真的紅 ────────────────
+# 🔴 收本支進 W7 跑過帳時,w7-coverage.sh 檔頭自承那是**賭 54366 冷門**,不是本支沒有
+#    n3 那個問題:埠被別人佔著 ⇒ 下面的 `pg_ctl start` 死在 bind 失敗 ⇒ 印「🔴 start 失敗」
+#    exit 1 ⇒ 收據記 exit=1、check 紅。那個紅與「探針真的抓到併發缺陷」**在帳上完全同形**,
+#    人要翻 log 才分得出來,而收據裡只留得下一個數字。
+# 🔴 ⇒ 用**專屬離場碼 2**(環境不可用),與真失敗的 1 分開。`exits_of` 對本支仍只准 0
+#    ⇒ 兩種情況照樣都會紅(該紅),差別在**帳面看得出是哪一種**:
+#      exit=1 ⇒ 去看探針;exit=2 ⇒ 換埠重跑,不必懷疑正確性。
+# 🔴 fail-closed:查不到 lsof 就拒跑(不照 n3 的 `|| true` —— 那條在工具缺席時是 fail-open,
+#    等於「沒看到佔用」= 放行,正是本閘要避免的形狀;對齊 op2b-verify.sh 的較嚴版本)。
+# 🔴 必須排在 `trap teardown EXIT` **之前**,理由同上一段:閘若排在 trap 之後,
+#    `exit` 會觸發 teardown 去動**別人的**現場。
+command -v lsof >/dev/null 2>&1 \
+  || { echo "REFUSE: 找不到 lsof ⇒ 埠檢查做不到,拒絕往下跑(fail-closed)"; exit 2; }
+A7T_PORT_PIDS="$(lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t 2>/dev/null || true)"
+if [ -n "$A7T_PORT_PIDS" ]; then
+  echo "REFUSE: port ${PORT} 已被佔用(pid: $(echo "$A7T_PORT_PIDS" | tr '\n' ' '))⇒ 本輪**沒有證據**,不是探針紅了。"
+  echo "        處置:換埠重跑 A7TCC_PORT=54xxx A7TCC_WORK=/tmp/自己的名字 bash scripts/a7t-concurrency-probe.sh"
+  echo "        或停掉殘留的 postmaster:pg_ctl -D <workdir>/data stop -m immediate"
+  echo "        🔴 離場碼 2 = 環境不可用(與真失敗的 1 分開;W7 收據記的就是這個數字)"
+  exit 2
 fi
 teardown() {
   TD_RC=$?   # 🔴 W7 跟片⑥:第一句接住本來要離場的碼(EXIT trap 進來時的 $?)
