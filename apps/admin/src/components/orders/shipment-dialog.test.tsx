@@ -177,6 +177,56 @@ describe('冪等鍵原樣送出(重試沿用同一把的前提)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// #351③(2026-08-10):半成品箱提示「保留但精簡」。
+// 🔴 這段文案原本**一格測試都沒有** —— 整段刪掉、或把箱號拿掉,所有測試照樣全綠,
+//    而員工失去的正是 Sean 08-09 逐字問的那個「箱子在哪裡」。精簡的前提是先有守門。
+// ─────────────────────────────────────────────────────────────
+describe('#351③ 半成品箱(建箱成功、後續失敗)的提示', () => {
+  const halfDone = () => {
+    submitShipment.mockResolvedValue({
+      ok: false,
+      message: '掛品項:有品項的出貨數量超過現有可出數量。',
+      shipmentReference: 'K7X2MP',
+      code: 'P2B27',
+    });
+  };
+
+  it('🔴 箱號要顯示出來(Sean 逐字「我也找不到那個箱子在哪裡」的答案)', async () => {
+    halfDone();
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
+  });
+
+  it('🔴 要講「再按一次不會重複建」(不講的話員工不敢按,半成品就永遠留著)', async () => {
+    halfDone();
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText(/不會重複建/)).not.toBeNull());
+  });
+
+  it('🔴 **不得**叫員工去「訂單頁」找這個箱(空箱在那裡看不到 —— #351④ 未修)', async () => {
+    halfDone();
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
+    expect(
+      screen.queryByText(/訂單頁/),
+      '掛品項失敗留下的是**空箱**,而出貨卡是由品項反查箱畫的 ⇒ 空箱在訂單頁看不到。' +
+        '指一個找不到東西的地方,員工會在那裡繞半天(這正是 #351④ 記著的盲點)。' +
+        '④ 落地後可以把地點加回來,那時要連這條斷言一起改。',
+    ).toBeNull();
+  });
+
+  it('成功時不出現半成品警告(那是只在失敗路徑才該講的話)', async () => {
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText(/已建立包裹/)).not.toBeNull());
+    expect(screen.queryByText(/不會重複建/), '成功了還警告半成品 ⇒ 員工以為出事了').toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
 // #351②(2026-08-10):出不了的品項要**看得到、看得懂、按不動**。
 // 🔴 為什麼放在這一檔而不是資料層:資料層只證得了 `blockedReason` 這個欄位算得對;
 //    把畫面上那一行標籤刪掉、或把 `disabled` 拿掉,資料層測試照樣全綠 —— 而員工看到的就壞了。
