@@ -142,7 +142,7 @@ L5b 自己那片加」——**與本案的 ledger 直接矛盾**。不宣告作�
 | `id` | uuid | PK,DEFAULT `gen_random_uuid()` |
 | `attempt_id` | uuid | NOT NULL,FK → `payment_charge_attempts(id)`(ON DELETE 預設 NO ACTION) |
 | `supersedes_refund_id` | uuid | 可空(NULL = 根);**複合 FK** `(attempt_id, supersedes_refund_id)` → `(attempt_id, id)`,靶 = `pr_attempt_id_uniq UNIQUE(attempt_id, id)` ⇒ 🔴 **重試鏈不得跨 attempt / 跨 order** |
-| `idempotency_key` | text | NOT NULL + `btrim(...) <> ''`;**全表 UNIQUE**(`pr_idem_key_uniq`)—— 鍵恆久消耗、絕不重用 |
+| `idempotency_key` | text | NOT NULL;**全表 UNIQUE**(`pr_idem_key_uniq`)—— 鍵恆久消耗、絕不重用。🔴 `pr_idem_key_shape_chk CHECK (… ~ '^[A-Za-z0-9_-]{1,20}$')` —— 本欄**就是** TapPay 的 `bank_refund_id`,形狀逐字對齊 adapter 送出前守門(`TapPayChargeAdapter.ts:68`);不對齊的話 36 字 UUID 這種鍵會寫得進 write-ahead 列卻永遠送不出去 |
 | `amount` | integer | NOT NULL,CHECK `> 0`。🔴 **整數「元」**(全庫慣例,非分);禁浮點 |
 | `currency` | text | NOT NULL,CHECK `= 'TWD'` |
 | `strong_key` | text | NOT NULL + `btrim(...) <> ''` —— 弱識別不得進退款路徑(§3 強識別) |
@@ -216,10 +216,11 @@ trigger 對 owner 照樣觸發。負向測試**以 owner 身分**跑(拿非 owne
 **L5b-1(本片,DB 層)—— 已交付,`scripts/l5b1-verify.sh` 拋棄式 cluster 實跑**:
 | 面 | 突變 | 現況 |
 |---|---|---|
-| 每條 CHECK / UNIQUE / FK | 各一發獨立突變,**每發重跑全矩陣、比對每一格的精確結果** | ✅ 26 格 × 19 發 |
+| 每條 CHECK / UNIQUE / FK | 各一發獨立突變,**每發重跑全矩陣、比對每一格的精確結果** | ✅ 28 格 × 19 發 |
 | 無環(`P5B02`) | `MUT-no-cycle` 停守門 ⇒ `G-NO-CYCLE` 翻 `OK` = 環真的寫得進去 | ✅ |
 | 重試鏈不跨 attempt | `MUT-supersedes-fk` 丟複合 FK ⇒ 只有 `G-CROSS-ATTEMPT` 翻 | ✅ |
 | append-only 機制 | 以 **owner** 身分 UPDATE / DELETE / TRUNCATE ⇒ 被 DB 擋(`P5B01`) | ✅ |
+| 冪等鍵形狀 = adapter 契約 | `MUT-idem-shape` 丟 CHECK ⇒ 空字串 / 36 字 UUID / 含空白三格一起翻 `OK` | ✅ |
 | TRUNCATE 兩支各自有效 | **只停子表那支**:子格翻 `OK`、父格仍 `P5B01`(此刻只剩父支能擋)⇒ 兩支各自證到 | ✅ |
 
 **L5b-2(寫入 RPC,下一片)—— 🔴 本片 DB 擋不住、必須在那片配突變的五條**
