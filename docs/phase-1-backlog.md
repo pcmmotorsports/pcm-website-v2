@@ -9475,6 +9475,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 ### #357. 🔁 取消 `miss_complete` 說「可以重送」的兩個未證前提 — 跨單 token 與導頁後讀取新鮮度(原 E 窗取 #353,主視窗改派 #357)
 
 - **狀態:** ⏳ 待執行(A13b D3 codex R2 抓出、主視窗 08-10 裁 A+D 立案;前提③假完整已由 **#325** 管,本條不重造)
+- 🔗 **動手前先讀 `#373` §4**(08-10 教義判斷的附帶產出):取消線 bfcache 死巷的修法**未必要 client 鑄鍵** —— 退款線示範了「`pageshow` 只 `router.refresh()`、不鑄鍵」這條路,它不牴觸「渲染期鑄」義務(`refund-section.tsx:83-88`)。⚠️ 該候選的空窗安全性**未驗**,要修的人自己驗。
 - **來源**:`apps/admin/src/lib/orders/cancel-ledger-classifier.ts` 的 `miss_complete` 是全站**唯一一句「可以重送」**,而它踩在兩個 D3 結構上證明不了的前提上(檔頭「結構上擋不住」清單逐條有依據行號)。
 - **前提①(跨單)**:冪等鍵唯一性是 `UNIQUE (order_id, idempotency_key)`(`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:118-119`)= **跨單不唯一**。classifier 只收到「某一張單的帳本」,看不出 token 原本屬於哪張單 ⇒ 帶著 A 單的 `rt` 落在 B 單頁,B 單帳本當然沒有它。**可達性字面見下面「08-10 E 二代前置研究更正」——「舊書籤」那條已證偽,別再引用本行原本的三個構型。**
 - **前提②(新鮮度)**:「導頁之後那一頁拿到的是重新算過的資料」**沒人量過**(`apps/admin/src/lib/orders/cancel-action-state.ts:113-115` = 義務 A/B 後面「⚠️ 兩條都踩在同一個未實測前提上」那段逐字;`E-031-A` 已把「要起真 admin 才量得到」排到 #350 線下)。已 commit 但這次渲染沒讀到,與「沒寫進去」在畫面上長得一模一樣。**未排除的層只剩一個,見下面更正段。**
@@ -9621,12 +9622,43 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 ### #373. 🔐 備註線 / 退款線的 token 產生點:各自判教義,再決定要不要跟進 #363 的 server-only 機制(#363 立案)
 
 - **來源**:#363(取消線 token 產生點升級 server-only)實作時的範圍界線。#363 原文寫著「這不是取消線專屬:備註線、退款線的 token 產生點吃同一個形狀」——**實查後那句要修正:形狀相同,但備註線有一條刻意的 client 端換鍵路徑,而那條路徑的必要性尚未重新驗證** ⇒ 不能搭同一片。
-  🔴 **字面紀律(codex 關卡2 must-fix 更正我的第一版)**:我原本寫「教義**不同**」——那是**封口式斷言、我證不到**。實檔只能證明「備註線**目前**這樣實作 + 它當初的理由」,**證不到「那個必要性今天仍然成立」**(取消線是用「渲染期鑄 + 每次整頁重繪換新」解掉同一題的)。本條要判的就是這件事。
+  🔴 **字面紀律(codex 關卡2 must-fix 更正我的第一版)**:我原本寫「教義**不同**」——那是**封口式斷言、我證不到**。實檔只能證明「備註線**目前**這樣實作 + 它當初的理由」,**證不到「那個必要性今天仍然成立」**(~~取消線是用「渲染期鑄 + 每次整頁重繪換新」解掉同一題的~~ 🔴 **這個括號的前提是錯的、08-10 判斷時被實檔推翻,見下 §0;刪除線保留原字面,讓讀過舊版的人認得出自己看到的是哪一句**)。本條要判的就是這件事。
 - **實查(#363 偵察 pass)**:
-  - **退款線**:`generateRefundRequestToken` 的呼叫點三處(`app/orders/refund-exceptions/page.tsx`、`components/orders/order-detail.tsx`、`lib/payment/refund-*.ts`)**全在 server 檔** ⇒ 今天沒有洞,跟進 #363 是**純加固**,成本與取消線同形(拆模組 + 逐檔 `vi.mock('server-only')`)。
+  - **退款線**:`generateRefundRequestToken` 的呼叫點(**08-10 複查:非測試檔共 7 處、不是原記的「三處」**——`app/orders/refund-exceptions/page.tsx:131`、`components/orders/order-detail.tsx:411`、`lib/payment/refund-action-state.ts:190`、`refund-actions.ts:84/96`、`refund-recovery-actions.ts:227/236`)**沒有任何 client 呼叫端**(7 個點分佈在 **5** 個檔:`page.tsx` / `order-detail.tsx` 無 `'use client'` 指令、`refund-actions.ts` / `refund-recovery-actions.ts` 第一行 `'use server'`;🔴 **第 5 支 `refund-action-state.ts` 兩者皆非**——它被 `'use client'` 的 `refund-section.tsx` import ⇒ **實際在 client bundle 內**,只是那顆呼叫點所在的 `refundFailure` 目前只被 `'use server'` 檔呼叫)⇒ 今天沒有洞,跟進 #363 是**純加固**,成本與取消線同形(拆模組 + 逐檔 `vi.mock('server-only')`)。
   - 🔴 **備註線不一樣,它今天就有一條 client 端鑄鍵路徑、而且是刻意的**:`components/orders/note-compose-form.tsx`(`'use client'`)有自己的 `regenerateToken()`(inline `crypto.randomUUID()` + 非 secure context 的 `Math.random` 退路),用途是 **bfcache 復原時換鍵**(取消線 `cancel-order-forms.tsx` 檔頭逐字記為「備註線把同一件事列成債④、用 client 端 `pageshow` 換鍵解決」)。
     ⚠️ **精確範圍(opus nit;別讀成全線 client 鑄)**:該元件**另收一顆 `serverToken` prop** ⇒ **主鍵仍然是 server 鑄的**,client 只鑄「bfcache 換鍵」那一把。本條要判的是**那一把**,不是整條線。
-- **要做什麼**:**先判教義、後動手**。逐條回答:①備註線的 bfcache 換鍵是不是仍然必要(取消線是用「渲染期鑄 + 每次整頁重繪換新」解掉同一題的)②若必要,那條線的正確守門形狀是什麼(機制層擋不到 inline,只能靠文字層掃描 + 明寫例外)③退款線要不要單獨跟進。
+- **要做什麼**:**先判教義、後動手**。逐條回答:①備註線的 bfcache 換鍵是不是仍然必要 ②若必要,那條線的正確守門形狀是什麼(機制層擋不到 inline,只能靠文字層掃描 + 明寫例外)③退款線要不要單獨跟進。
+  ⚠️ **原題目①括號裡寫「取消線是用『渲染期鑄 + 每次整頁重繪換新』解掉同一題的」——那個前提是錯的,08-10 判斷時實檔推翻**(詳下「教義判斷」§0)。留這句是為了讓讀過舊版的人知道自己看到的是被推翻的前提。
+
+#### 🏁 教義判斷(2026-08-10 E 窗三代;**判斷完成、機制跟進不排期**)
+
+**§0 先更正題目自帶的假前提** — 「取消線已用渲染期鑄解掉 bfcache 這題」**不成立**。
+主論是**定義層、不依賴任何實測**:**bfcache 還原的定義就是不重新渲染** ⇒「渲染期鑄」對它零覆蓋。
+旁證:取消線自己的檔頭把這條路列為**已知未解**(`components/orders/cancel-order-forms.tsx:67-80` 逐字「返回鍵帶回來的是上一次那顆 token…撞 `payload_hash`(`20260805100000:195-198`)⇒ 回 `rejected`」)。
+🔴 **證據強度要收窄(審查抓到我引超過)**:`cancel-forms-browser.test.tsx` 證的是「**返回鍵 + hidden 維持 markup 值**」,**不是 bfcache** —— 該檔自陳④「送出後的回應是本 harness 自己回的一頁普通 200、不是 `redirect(303)`+PRG ⇒ 返回鍵走到的 history 條目與正式站不同,**不主張**返回鍵在正式站的行為與這裡一致」,且全檔零 `event.persisted` 斷言。⇒ 我原本寫「D6-a 真瀏覽器實測證實 bfcache」是**宣稱大於來源**,已收窄成上面這句。
+⇒ 不能拿取消線當「已有更好解法」的依據;真相是**取消線是這幾條線裡唯一沒處理這條路的**。
+
+**§1 答①:必要,保留備註線的 client 換鍵。** 撤掉 = 把備註線退回取消線今天的已知 bug:同鍵不同內容 ⇒ RPC **RAISE fail-loud**(實作逐字在 `20260802150000_m4b_e10_a6_admin_append_order_note.sql:172` `RAISE EXCEPTION 'admin_append_order_note: request_id 已被使用但無對應備註或內容不符…'`;同檔 `:33` 是它的檔頭說明——**引註解不算行為證據,審查抓到後改引實作那行**)⇒ 員工正常操作看到「系統狀態異常」。
+🔴 **它與 #363 教義沒有真衝突**,理由是機制邊界而非慣例:token 是 **hidden input**,而**真正吃進 RPC 的那顆是直接從 FormData 讀的、只驗形狀不驗來歷**(`lib/orders/note-form.ts:83-84`、`lib/payment/refund-form.ts:72-73` 逐字 `readString(form, …_REQUEST_TOKEN_FIELD)` + `isNoteRequestToken` / `isRefundRequestToken` 形狀檢查)⇒ **送出的那顆 token 本來就由 client 完全掌控,與誰鑄無關**;server 端沒有任何「這顆 token 必須是我發過的」查驗。
+(⚠️ 審查更正:我原本引 `note-actions.ts:86` / `refund-actions.ts:84` —— 那兩行在**失敗回帶 state** 的 `carryBack` 路徑上,不是吃進 RPC 的那條路,證的是另一件事。結論不變、引證已換。)#363 的機制保證的是「不可能**經由 import 共用產生器**在 client 產生」,**不是**「token 由 server 權威產生」。備註線那把只削弱「產生點統一」這個可讀性目標,沒有削弱 #363 真正保證的東西。(同一句話備註線檔頭 `note-compose-form.tsx:37-38` 早已寫過:「繞過畫面者本就能自選 token,server 權威只保 honest path」。)
+
+**§2 答②:守門不該追求「全站統一」,而是「每條線的例外具名登記 + 可被發現」。** 因為實檔顯示**這是四條線、四種刻意不同的教義,不是一種教義加一個例外**:
+| 線 | 冪等鍵怎麼來 / bfcache 還原時 | 為什麼 | 出處 |
+|---|---|---|---|
+| 備註 | server 鑄主鍵;bfcache 還原時 **client 換新鍵** | 多一筆備註可用「更正」修;沿用舊鍵撞 C9 = 死巷 | `note-compose-form.tsx:29-38`、`:110-118` |
+| 退款 | server 鑄;**絕不換鍵,改 `router.refresh()`** | 多一筆是**錢**;舊鍵撞 G4 → DUPLICATE 才是重送保護 | `refund-section.tsx:30-33`、`:83-88` |
+| 取消 | server 渲染期鑄;bfcache **沒有處理**(已知未解) | 卡在 E1 不變式(i):client 重鑄就離開 server 渲染期 | `cancel-order-forms.tsx:67-80` |
+| **出貨** | 🔴 **100% client 鑄**(按下去/開窗那一刻 `crypto.randomUUID()`) | 刻意:「冪等鍵在按下去那一刻生成一次,重試沿用同一把」 | `shipment-void-button.tsx:8-10`、`:36`;`shipment-launcher.tsx:10`、`:101` |
+🔴 **出貨線是審查抓出來的,我原本漏了它**,而它正是 #363 痛點(假前提擴散)最大的一面:全站 client 端真正鑄鍵的檔就是 `shipment-void-button.tsx` 與 `shipment-launcher.tsx` 這兩支(逐檔看第一行 `'use client'` + 真呼叫點,非註解命中),而 `cancel-request-token.ts` 的例外登記段**只點名了備註線**。⇒ **具名登記那條義務本片未落實**(登記面要補出貨線),**已知未做、不是漏掉**:它要動 `#363` 的產物檔頭,屬另一片。
+⇒ 守門形狀:機制層(`server-only`)擋 import、文字層擋 inline,兩層守不同的面(#363 檔頭已寫);**本判斷不新增守門**。誠實邊界:文字層掃描對「換個寫法」全盲(#363 檔頭自列四種繞法)⇒ 它的價值是**讓例外可被發現**,不是**防止新增 inline**。真要防得靠 lint 規則(對 `'use client'` 檔禁 `crypto.randomUUID`),那是另一件事、本判斷不排期。
+
+⚠️ **本判斷用的方法有一個結構性邊界(審查提,誠實記)**:我判「某支是不是 client」是**逐檔看第一行指令**(不是 grep 關鍵字,那會把註解算進去)。但**第一行沒有 `'use client'` ≠ 該檔不進 client bundle**——`refund-action-state.ts` 就是活例(無指令,卻被 `'use client'` 的 `refund-section.tsx` import ⇒ 實際打進 client bundle)。要答「有沒有洞」嚴格上得看**模組圖**,而那正是 #363 選 `server-only`(機制)而非文字掃描的理由。本判斷的三個結論不依賴這個邊界(§3 另以「呼叫端是誰」補證),但下一個人別把「看指令」當成充分方法。
+
+**§3 答③:退款線不跟進 #363 機制片。** ①今天零洞(呼叫點全 server,見上「實查」段複查數字)②`lib/payment/refund-action-state.ts` **有 client importer**(`components/orders/refund-section.tsx` 第一行 `'use client'`)⇒ 直接加 `server-only` 會當場 build 紅、**必須拆模組**,與取消線同形的成本(取消線那片實花一整片 + 雙線審查)③#363 的痛點是**假前提擴散**,那個痛用**文字**就解得掉,不需要再做一次機制片。
+
+**§4 🔴 本判斷的附帶產出(對 `#357` 有用,但不在本片動手)**:取消線檔頭說擋路的是「client 重鑄 ⇒ 離開 server 渲染期」——**退款線示範了第三條路:`pageshow` 時只 `router.refresh()`、不鑄鍵**(`refund-section.tsx:83-88`)。那條路**不牴觸**「渲染期鑄」義務(新鍵仍由 server 在 refresh 的那次 render 產),所以取消線的 bfcache 死巷**未必需要 client 鑄鍵才能修**。⇒ 修 `#357`/取消線 bfcache 時先評估這個候選。⚠️ **兩條未驗邊界,別把這段當已驗結論**:
+①**空窗**:refresh 完成前重送在取消線語意下是否安全(退款線靠 G4 承接;取消線對應的是 `payload_hash`)。
+②**結構差異(審查補)**:取消線失敗走 **PRG + 結果頁**,而結果頁有 `cancelFormsAllowedOnResultPage` 閘(`lib/orders/cancel-action-state.ts:91`)⇒ **結果頁根本不渲染表單**,`pageshow` listener 只能掛在表單渲染時存在的元件上;退款線沒有這一層(`useActionState` 原地失敗、同頁)。⇒ 套用前要先解這個掛載點問題。(好消息:兩者同掛 `order-detail.tsx`、頁層快取條件相同,這一項不構成障礙。)
 - **不修會痛在哪**:#363 之後**只有取消線**有機制層守門。若有人讀了 #363 就以為「全站 token 都不可能在 client 產生」,他會拿這個假前提去審備註線(而備註線是刻意 inline)或去設計新的線。⇒ 痛點是**假前提擴散**,不是今天有 bug。
 - **不修的現行緩解**:`lib/orders/cancel-request-token.ts` 檔頭已逐字寫死能力邊界(「不可能**經由 import 這支共用產生器**在 client 產生」,並點名備註線是刻意 inline 的活例),`cancel-order-forms.test.tsx` 的 inline 守門也明寫只掃取消線。
 - **編號註**:立案當下最大=**#372**(三邊實查:`grep '^### #'` repo 端最大 372、`grep '#373\|#374'` 信箱零命中、`git log -60 dev` 零命中)。
