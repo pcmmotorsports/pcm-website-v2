@@ -38,6 +38,7 @@ vi.mock('./refund-repository', async (importOriginal) => {
 // 🔴 解析器與 G0 checker 刻意不 mock —— 餵真 FormData 走真檢查,否則守門斷言恆真。
 import { initiateRefundAction } from './refund-actions';
 import { RefundCallerBugError } from './refund-repository';
+import { ORDER_RETURN_TO_FIELD } from '../orders/order-return-to';
 import {
   REFUND_AMOUNT_FIELD,
   REFUND_CONFIRM_FIELD,
@@ -54,6 +55,14 @@ const REC = 'D20260803TESTrec';
 const DETAIL = `/orders/${ORDER_ID}`;
 const IDLE: RefundActionState = { status: 'idle', requestToken: TOKEN };
 const REASON = '客人取消訂單,依約定退款';
+/**
+ * #350d-4:面板視圖的 `return_to`。
+ * 🔴 刻意夾帶一顆**舊的 `r`**(而且是別條線的碼)—— 不夾帶的話「結果 URL 的 `r` 恰一顆」是恆真,
+ *    也證不出剝掉的是**鍵**而不是那個值。
+ */
+const PANEL_VIEW = `/orders?payment_status=paid&panel=${ORDER_ID}&r=saved`;
+const PANEL_VIEW_CLEAN = `/orders?payment_status=paid&panel=${ORDER_ID}`;
+const OTHER_ORDER = '99999999-8888-4777-8666-555555555555';
 
 function refundForm(over: Record<string, string> = {}, omit: string[] = []): FormData {
   const data = new FormData();
@@ -127,6 +136,9 @@ beforeEach(() => {
   mocks.redirect.mockImplementation(() => {
     throw new Error('NEXT_REDIRECT'); // 真 redirect 是拋;不拋的話「包進 try」的突變殺不掉
   });
+  // 🔴 #350d-4:有一格會把它換成「打某條路徑就拋」。不在這裡重設的話,那格一旦被搬到
+  //    describe 中段就會污染後面每一格(code-reviewer minor)。
+  mocks.revalidatePath.mockImplementation(() => undefined);
   vi.spyOn(console, 'info').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -390,5 +402,128 @@ describe('initiateRefundAction — log 紀律(H11 同型)', () => {
     expect(dumped).not.toContain('整列內容外洩面');
     expect(dumped).not.toContain('不該出現');
     expect(dumped).toContain('23514');
+  });
+});
+
+describe('#350d-4 退款線:動作做完回發起的那個視圖(契約 C1 / §5 / §6-1)', () => {
+  // 🔴🔴 **這條碰錢,但 `return_to` 決定不了「退哪一張單的錢」** —— 退款目標自始至終是
+  //    表單的 `order_id`(`findOrderForRefund` / initiate 都吃 `parsed.orderId`);
+  //    `return_to` 只影響 PRG 之後畫面停在哪。下面每一格都同時釘住「錢的那一半沒被動到」。
+
+  /**
+   * 錢那一半**逐項**沒被 `return_to` 動到:退哪一張單、退多少、用哪個 `rec_trade_id`。
+   * 🔴 codex 關卡2 nit:原本只驗 `findOrderForRefund` 收到本單 —— 那證得了「查對了單」,
+   *    證不了「**送出去的那筆錢**也是本單的」。這是本片唯一碰錢的宣稱,斷言要蓋到最後一跳。
+   */
+  const expectMoneyUntouched = () => {
+    expect(mocks.findOrderForRefund).toHaveBeenCalledWith(ORDER_ID);
+    expect(mocks.initiateOrderRefund).toHaveBeenCalledWith(
+      expect.objectContaining({ orderId: ORDER_ID, kind: 'partial', amount: 500 }),
+    );
+    expect(mocks.refund).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'partial',
+        transactionId: REC,
+        amount: { amount: 500, currency: 'TWD' },
+      }),
+    );
+  };
+
+  const redirectTarget = async (returnTo: string): Promise<string> => {
+    await expect(
+      initiateRefundAction(IDLE, refundForm({ [ORDER_RETURN_TO_FIELD]: returnTo })),
+    ).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect).toHaveBeenCalledTimes(1);
+    return mocks.redirect.mock.calls[0]![0] as string;
+  };
+
+  it('🔴 成功:回面板,篩選逐字保留、`r` 恰一顆', async () => {
+    // 突變:把成功那行改回 `detailPath(parsed.orderId)` ⇒ 這格紅(退完款面板被關掉)。
+    const target = await redirectTarget(PANEL_VIEW);
+    // 逐字全串比對已經釘死「`r` 恰一顆」⇒ 不另寫 matchAll 那條(它被嚴格蘊含、零判別力)。
+    expect(target).toBe(`${PANEL_VIEW_CLEAN}&r=refund_submitted`);
+  });
+
+  it('整頁版行為不變(= 本片之前的行為)', async () => {
+    expect(await redirectTarget(DETAIL)).toBe(`${DETAIL}?r=refund_submitted`);
+  });
+
+  it('🔴 return_to 指向別張單(**query 與 path 兩形式各測一次**)⇒ 退回本單明細頁,而且退的還是本單的錢', async () => {
+    // 契約 §6-1。錢那一半的正向對照:`findOrderForRefund` 收到的必須是本單。
+    // 🔴 **兩形式都要測**:第一版只寫了 query 那一種,而標題寫「兩形式」= 測試名大於斷言
+    //    (突變實測抓到:拿掉 parser 的 path 段比對,這格照樣綠)。
+    expect(await redirectTarget(`/orders?panel=${OTHER_ORDER}`)).toBe(`${DETAIL}?r=refund_submitted`);
+    expectMoneyUntouched();
+    mocks.redirect.mockClear();
+    mocks.findOrderForRefund.mockClear();
+    mocks.initiateOrderRefund.mockClear();
+    mocks.refund.mockClear();
+    // path 形式:`/orders/<別張單>` —— 這一條若放行,退款成功後畫面會停在**別人的單**上。
+    expect(await redirectTarget(`/orders/${OTHER_ORDER}`)).toBe(`${DETAIL}?r=refund_submitted`);
+    expectMoneyUntouched();
+  });
+
+  it('🔴 return_to 非法 ⇒ 退回本單明細頁,而且**退款照樣送出去了**(不是 500)', async () => {
+    // fail-closed 只換導頁目標,不吃掉動作本身 —— 錢可能已經動了,不能因為一個 URL 參數壞掉
+    // 就讓員工看到錯誤頁而不知道結果(契約 §3 的理由逐字)。
+    expect(await redirectTarget('https://evil.example/steal')).toBe(`${DETAIL}?r=refund_submitted`);
+    expect(mocks.refund).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 契約 §5:回面板時 `/orders` 那條路由也要 revalidate,且吃的是路徑不是網址', async () => {
+    await redirectTarget(PANEL_VIEW);
+    const paths = mocks.revalidatePath.mock.calls.map((c) => c[0]);
+    expect(paths).toContain(DETAIL);
+    expect(paths, 'return_to 的 pathname 沒被 revalidate').toContain('/orders');
+    // `revalidatePath('/orders?panel=x')` 打不中 `/orders`,而且不會報錯。
+    for (const [path] of mocks.revalidatePath.mock.calls) expect(String(path)).not.toContain('?');
+  });
+
+  it('🔴 initiate 拋錯(錢可能已動)⇒ 不導頁、回 state,但兩條路由仍被 revalidate', async () => {
+    // 這條是錢最貴的那一格:INSERT 可能已 commit、回應斷在路上。畫面若停在舊帳本上,
+    // 員工看不到那筆 processing ⇒ 可能再退一次。
+    mocks.initiateOrderRefund.mockRejectedValue(new Error('boom'));
+    // 🔴 讓明細頁那條 revalidate 也拋 —— 這樣本格同時是 **catch 分支那個呼叫點**的靶:
+    //    ①逐條各自 try(第二條仍要被嘗試)②log 記的是 HTTP request id 不是表單 token。
+    //    兩個呼叫點要各自有靶:我第一版只對成功那條寫了斷言,突變改到 catch 那條時**全綠存活**。
+    mocks.revalidatePath.mockImplementation((path: unknown) => {
+      if (path === DETAIL) throw new Error('boom');
+    });
+    const state = await initiateRefundAction(
+      IDLE,
+      refundForm({ [ORDER_RETURN_TO_FIELD]: PANEL_VIEW }),
+    );
+    expect(mocks.redirect).not.toHaveBeenCalled();
+    const revalidateLog = JSON.stringify(
+      vi.mocked(console.error).mock.calls.filter((c) => String(c[0]).includes('revalidate 失敗')),
+    );
+    expect(revalidateLog).toContain('req_http-side-id');
+    expect(revalidateLog, 'catch 那條也不該把表單冪等鍵當 request_id').not.toContain(TOKEN);
+    expect(state.status).toBe('failed');
+    const paths = mocks.revalidatePath.mock.calls.map((c) => c[0]);
+    // 🔴 標題說「兩條」就要斷言兩條(code-reviewer minor:原本只斷言 `/orders`)。
+    expect(paths).toContain('/orders');
+    expect(paths).toContain(DETAIL);
+  });
+
+  it('🔴 明細頁那條 revalidate 拋錯,`/orders` 那條仍要被嘗試,且 log 記的是 **HTTP request id**', async () => {
+    mocks.revalidatePath.mockImplementation((path: unknown) => {
+      if (path === DETAIL) throw new Error('boom');
+    });
+    await redirectTarget(PANEL_VIEW);
+    expect(mocks.revalidatePath.mock.calls.map((c) => c[0])).toContain('/orders');
+    // 🔴 code-reviewer must-fix 1 的靶:我原本傳的是**表單 token**,而本檔 `:125-126` 的紀律
+    //    逐字禁止在同一個 `request_id` 欄放兩種值。harness 刻意讓 `getRequestId()` 與 TOKEN
+    //    不同值(`:100-102`)⇒ 接錯來源這格就會紅,不是恆綠。
+    const dumped = JSON.stringify(vi.mocked(console.error).mock.calls);
+    expect(dumped).toContain('req_http-side-id');
+    expect(dumped, 'revalidate 的 log 不該把表單冪等鍵當成 request_id').not.toContain(TOKEN);
+  });
+
+  it('🔴 return_to 完全沒送(舊快取的 HTML)⇒ 退回本單明細頁,退款照樣完成', async () => {
+    // 欄位缺失是真實會發生的:員工開著舊分頁、部署換版之後才按下去。
+    await expect(initiateRefundAction(IDLE, refundForm())).rejects.toThrow('NEXT_REDIRECT');
+    expect(mocks.redirect.mock.calls[0]![0]).toBe(`${DETAIL}?r=refund_submitted`);
+    expect(mocks.refund).toHaveBeenCalledTimes(1);
   });
 });

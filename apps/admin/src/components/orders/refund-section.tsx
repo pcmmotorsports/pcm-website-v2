@@ -13,6 +13,7 @@ import {
   type RefundActionState,
 } from '../../lib/payment/refund-action-state';
 import { REFUND_KINDS, type RefundKind } from '../../lib/payment/refund-form';
+import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
 // refund-section.tsx — M-3 A7c RW2d:訂單詳情的退款入口(Q4=B 全額+部分;高風險片、鐵則 12 ①)。
@@ -54,9 +55,16 @@ const KIND_LABEL: Record<RefundKind, string> = {
 
 export function RefundSection({
   orderId,
+  returnTo,
   serverToken,
 }: {
   orderId: string;
+  /**
+   * #350d-4 C1:動作做完回哪裡 = 這個視圖自己的網址。
+   * 🔴 值不可信任(client 送得回來):action 端一律再過 `parseOrderReturnTo`。
+   *    它**決定不了退哪一張單的錢** —— 退款目標吃的是 `order_id`,本欄只影響 PRG 之後停在哪。
+   */
+  returnTo: string;
   /** 🔴 由 server component 渲染期產(refund-action-state.ts:41-43;不得落任何快取層)。 */
   serverToken: string;
 }) {
@@ -119,6 +127,7 @@ export function RefundSection({
         <fieldset disabled={isPending} className='min-w-0 space-y-3 border-0'>
           <input type='hidden' name={REFUND_ORDER_ID_FIELD} value={orderId} />
           <input type='hidden' name={REFUND_REQUEST_TOKEN_FIELD} value={requestToken} />
+          <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
 
           <div className='flex flex-wrap gap-4'>
             {REFUND_KINDS.map((k) => (
