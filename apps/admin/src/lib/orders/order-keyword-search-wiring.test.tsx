@@ -267,7 +267,16 @@ describe('#347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、
       .map((el) => el.getAttribute('value'));
     expect(returnTo.length).toBeGreaterThan(0);
     // page 已把 `page` 歸 1(搜尋換條件不該停在第 3 頁),但**篩選軸要原樣帶著**。
-    expect(returnTo).toContain('/orders?payment_status=paid');
+    // 🔴 **#347-3c-2 起這條不能再比整串**:頁層開了「未選預設近半年」⇒ `return_to` 會多帶
+    //    `date_from`/`date_to`(那是本片刻意的行為變更,不是回歸)。改成逐軸斷言 ——
+    //    比整串會讓「新增任何一軸」都紅在這裡,而它要守的其實只有「篩選軸沒被洗掉」那一件事。
+    // 🔴 舊斷言含**路徑**那一半,改成解 query 時別把它弄丟(R1 指出)。
+    expect(returnTo[0]).toMatch(/^\/orders\?/);
+    const qs = new URLSearchParams((returnTo[0] ?? '').split('?')[1] ?? '');
+    expect(qs.get('payment_status'), '篩選軸被搜尋洗掉了').toBe('paid');
+    expect(qs.get('page'), '搜尋換條件應回第 1 頁(不帶 page)').toBeNull();
+    // 正向對照:預設日期確實跟著走(否則「多帶兩軸」這句是空話)。
+    expect(qs.get('date_from')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('🔴🔴 keywordTruncated=true ⇒ 截斷提示一定出現,**包含 0 筆的情況**', async () => {
