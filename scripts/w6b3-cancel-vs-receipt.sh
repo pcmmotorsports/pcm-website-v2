@@ -50,6 +50,21 @@
 #   · 本檔的到貨側是**直寫 receipts**,因為今天沒有別的路。等第 2 批的批次到貨 UI/RPC 落地,
 #     **本檔的結論要重估** —— 那時到貨側可能長出前緣,`W6B3-RECEIPT-NO-FRONTEDGE` 會自己轉 FAIL
 #     (它是**絆線**,不是守門:它的價值在「情況變了會紅」,不在「它擋住了什麼」)。
+#   🔴🔴 **2026-08-11:絆線已發火,上面那個前提正式作廢。**
+#     `W6B3-RECEIPT-NO-FRONTEDGE` 凍結的「到貨側零 writer」被 **#352-a2**(`20260810233000`)的
+#     `admin_record_item_receipt` / `admin_delete_item_receipt` 作廢。**這是設計中的發火,不是假紅。**
+#     · **本檔「登錄不進去」的結論仍然成立**,而且從理論**變成可構造**:D 窗 2026-08-11 於
+#       from-zero rehearsal 實測 —— 未付款單全量取消後呼叫 `admin_record_item_receipt`
+#       ⇒ **SQLSTATE 23514 / `oiqs_instock_cancelled_le_quantity`**(即本檔 §1 那條序列路徑)。
+#     · **變的是「可達性」不是「結論」**:a2 之前無人寫得到到貨側(本檔靠 superuser 直寫);
+#       a2 apply 之後**值班員工按得到**。
+#     · **已修**:#352 甲片(`20260811010000`)在 record 補了**品項層額度守門**,讀真相表
+#       (`order_cancellation_items` + `order_item_procurement_receipts`)、不讀衍生摘要,
+#       同情境改回具名碼 `ORDER_CANCELLED_USE_SPOT_STOCK`(Sean Q9=A:不讓登錄、導向現貨入庫)。
+#       驗收在 `scripts/352a2-verify.sh` 的 H 區(H1/H1b/H2/H3/H4/F2b)+ 突變 `M9`。
+#     · ⚠️ **甲片沒有讓 C7 消失**:C7 仍是權威,新守門只把失敗時機提前、訊息換成人話 ——
+#       與 a2 對「超收」的處理同構。本檔若日後再跑,`W6B3-SERIAL-BLOCKS-ARRIVAL` 用
+#       **superuser 直寫**的路徑仍會撞 C7(那條路繞過 RPC、繞過新守門),**那不是回歸**。
 #   · 跑過的維度:quantity 3、到貨量 2-3、取消增量 2-3、序列雙向、真併發同時放行。
 #     **沒跑到**:多採購列拆單、多品項、到貨×到貨、取消×取消、冪等重放、
 #     **整單取消路徑(`p_items` NULL)** —— 它的前緣是另一條規則(`…a8a2…sql:410-415`
@@ -190,7 +205,7 @@ QM() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qt
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260810233000"  # 2026-08-10 重釘 20260810230000->20260810233000(#352-a2 到貨登錄兩支 writer RPC 落檔;取號由主視窗集中發、落筆當下實查目錄尾端,守門=w7-coverage.sh 的 MIG-PREFIX-UNIQ)
+LINE_TIP="20260811010000"  # 2026-08-11 重釘 20260810233000->20260811010000(#352 甲片 品項層額度守門落檔;前次為 #352-a2 兩支 writer RPC 落檔;取號由主視窗集中發、落筆當下實查目錄尾端,守門=w7-coverage.sh 的 MIG-PREFIX-UNIQ)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
@@ -283,10 +298,21 @@ FN_W="$(Q "$WRQ")"
 RULE_W="$(Q "SELECT coalesce(pg_catalog.string_agg(r.rulename,','),'') FROM pg_catalog.pg_rewrite r WHERE r.ev_class='public.order_item_procurement_receipts'::regclass AND r.rulename <> '_RETURN'")"
 TG_B="$(Q "SELECT coalesce(pg_catalog.string_agg(t.tgname,','),'') FROM pg_catalog.pg_trigger t WHERE t.tgrelid='public.order_item_procurement_receipts'::regclass AND NOT t.tgisinternal AND (t.tgtype & 2) <> 0")"
 TG_A="$(Q "SELECT coalesce(pg_catalog.string_agg(t.tgname,','),'') FROM pg_catalog.pg_trigger t WHERE t.tgrelid='public.order_item_procurement_receipts'::regclass AND NOT t.tgisinternal AND (t.tgtype & 2) = 0")"
-if [ -z "$FN_W" ] && [ -z "$TG_B" ] && [ -z "$RULE_W" ] && [ -n "$TG_A" ]; then
-  ok W6B3-RECEIPT-NO-FRONTEDGE "🔴 到貨側**零前緣**:public schema 內無任何函式 prosrc 對 receipts 下 DML(零 writer RPC;**同一條查詢剛用兩支假 writer 證過抓得到 —— INSERT 限定形與 UPDATE 未限定跨行形各一**)、receipts 上**零 BEFORE trigger**、**零 RULE**,只有 AFTER 的重算鏈($TG_A)⇒ 一筆 INSERT 在**語句結束**就撞 CHECK(重算 trigger NOT DEFERRABLE),中間沒有人攔 ✓(🔴 絆線;🔴 **量到的範圍**=prosrc 的 INSERT/UPDATE/DELETE/MERGE 四種形(含未 schema 限定、跨行空白),**看不到**:動態 SQL/format() 拼出來的、BEGIN ATOMIC 的 prosqlbody、public 以外 schema、以及**應用層直接對表下 DML**)"
+# 🔴🔴 **2026-08-11 重新基準化(codex 關卡2 C4;主視窗裁定)**
+#   舊寫法把「到貨側零 writer」凍結成前緣;那個前提已被 #352-a2 永久作廢 ⇒ 本格會**永遠紅**,
+#   而永遠紅的絆線**分不出「預期狀態」與「下一次真的變化」** —— 它原本的價值就是後者。
+#   ⇒ 絆線的使命已完成(它逼出了本次前提重估)。本格改成守**新狀態**:
+#     ① 到貨側的 writer **恰為那兩支 RPC**(第三支出現 ⇒ 紅)
+#     ② **甲片的品項層守門仍在**(被拔掉 ⇒ 紅;錨用守門自己的碼名,不用外部描述)
+#   ⚠️ 本格**不再**宣稱「到貨側零前緣」;那句話在 a2 之後是假的。
+# 🔴 **偵測器沿用 `$WRQ`**(上面用 w6b3_probe_ins/upd 兩發假 writer 自測過的那一條),
+#    **不自己另寫查詢** —— 另寫的偵測器沒有那兩發自測,綠了也證明不了它看得見。
+GUARD_NOW="$(Q "SELECT (pg_catalog.strpos(prosrc, 'EXCEEDS_ROOM_AFTER_CANCELLATION') > 0)::text
+                  FROM pg_proc WHERE proname = 'admin_record_item_receipt'")"
+if [ "$FN_W" = "admin_delete_item_receipt,admin_record_item_receipt" ] && [ "$GUARD_NOW" = "true" ]; then
+  ok W6B3-RECEIPT-FRONTEDGE-PINNED "到貨側前緣=**恰兩支 RPC**(admin_record/delete_item_receipt)且**甲片品項層守門仍在** —— 前提已於 2026-08-11 重新基準化(見檔頭);第三支 writer 出現、或守門被拔 ⇒ 本格紅"
 else
-  bad W6B3-RECEIPT-NO-FRONTEDGE "到貨側的前緣狀況變了:writer=[$FN_W] BEFORE=[$TG_B] RULE=[$RULE_W] AFTER=[$TG_A] ⇒ 本檔全部結論的前提要重估"
+  bad W6B3-RECEIPT-FRONTEDGE-PINNED "到貨側前緣或守門變了:writer=[$FN_W](期望 admin_delete_item_receipt,admin_record_item_receipt)/ 品項層守門存在=[$GUARD_NOW](期望 true)。⇒ 本檔結論要再次重估,先讀檔頭 2026-08-11 那段"
 fi
 
 echo "══ 1. 🔴🔴 序列就已經紅(不需要併發)════════════════════════"
@@ -436,7 +462,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-32s %s\n' "CELL-DUP" "重複格名 [$DUP]"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="TMUT-W6B3-C7 W6B3-ARRIVAL-RAW W6B3-BARRIER W6B3-CONCURRENT-EXACTLY-ONE W6B3-LOSER-IS-INNOCENT W6B3-PARTIAL-DIM W6B3-RECEIPT-NO-FRONTEDGE W6B3-REPLAY W6B3-REVERSE-ASYMMETRY W6B3-SERIAL-BLOCKS-ARRIVAL"
+KEYS_FROZEN="TMUT-W6B3-C7 W6B3-ARRIVAL-RAW W6B3-BARRIER W6B3-CONCURRENT-EXACTLY-ONE W6B3-LOSER-IS-INNOCENT W6B3-PARTIAL-DIM W6B3-RECEIPT-FRONTEDGE-PINNED W6B3-REPLAY W6B3-REVERSE-ASYMMETRY W6B3-SERIAL-BLOCKS-ARRIVAL"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-32s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單"; PASS=$((PASS+1))
 else

@@ -152,7 +152,7 @@ cap() {
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260810233000"  # 2026-08-10 重釘 20260810230000->20260810233000(#352-a2 到貨登錄兩支 writer RPC 落檔;取號由主視窗集中發、落筆當下實查目錄尾端,守門=w7-coverage.sh 的 MIG-PREFIX-UNIQ)
+LINE_TIP="20260811010000"  # 2026-08-11 重釘 20260810233000->20260811010000(#352 甲片 品項層額度守門落檔;前次為 #352-a2 兩支 writer RPC 落檔;取號由主視窗集中發、落筆當下實查目錄尾端,守門=w7-coverage.sh 的 MIG-PREFIX-UNIQ)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——

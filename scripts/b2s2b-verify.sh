@@ -435,8 +435,16 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    ⇒ 出貨面 oracle 不受影響、不需重量 md5;MD5_HELPER_4AXIS 未動。
 #    帳:已整輪重錄(w7-coverage record all)。
 #    (本段原以英文寫成、與同檔其餘繁中不一致 ⇒ 三線審查 nit,已改齊。)
-[ "$NEWEST_TS" = "20260810233000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260810233000 ——
+#    RE-PIN 2026-08-11 (#352 甲片): 20260810233000 -> 20260811010000 = record 補品項層額度守門
+#    (讀真相表 order_cancellation_items + order_item_procurement_receipts,不讀衍生摘要)。
+#    🔴 **MD5_HELPER_4AXIS 未動,理由(B 窗覆核後的正確版)**:那顆 md5 釘的是
+#    `pcm_a4a_recompute_order_item_summary(uuid)` 的 functiondef(本檔 :270);
+#    **甲片沒有 CREATE OR REPLACE 那支 helper ⇒ 它的定義不可能變**。
+#    ⚠️ **D 窗原本寫的理由是錯的**(「grep 命中兩處皆註解」):甲片正是**透過 trigger 間接動 oiqs**,
+#    而**文字 grep 對 trigger 的間接效果全盲** —— 那條理由在這片剛好不成立,已由 B 窗實測更正。
+#    (判準本身要不要改成「有沒有重定義被釘的 helper」= B 窗另出小片,不在甲片。)
+[ "$NEWEST_TS" = "20260811010000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260811010000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 

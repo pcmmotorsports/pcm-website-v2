@@ -217,6 +217,31 @@ RETURNS text  -- 'RECORDED' | 'DUPLICATE_REQUEST' | 'PROCUREMENT_NOT_FOUND'
    (A4a COMMENT `:319` 逐字)。⚠️ 那條 CHECK **仍然留著,它才是權威**;本條只把失敗時機提前、訊息換人話。
    **訊息的拆分由 app 組**(R3-nit1):app 手上已有 `allocated`/`received`,直接算給員工看
    「這列還能記 X 件;你填了 Y 件,多的 Z 件請填在『溢收』欄」——**不要讓員工自己減**。
+6-b. 🆕 **品項層額度守門(#352 甲片,`20260811010000`;Sean 2026-08-11 Q9=A)**
+   步 6 擋的是**採購列層**(`allocated − received`),而 C7(`20260730150000:123-124`
+   `instock + cancelled <= quantity`)是**品項層**不變式 —— **兩個不同的軸**。
+   取消吃掉的額度步 6 完全看不見 ⇒ 「單子取消後貨才到」會直接撞 C7、**吐 raw 23514 給員工**
+   (實測見 D-462),而步 6 的註解才剛說過「不靠 CHECK 兜底、員工看不懂」。
+   ```
+   鎖 order_items(NKU)            ← 序 = proc → order_items,與 §3.2 delete 逐字相同(見 §4 第四版)
+   v_cancelled = sum(order_cancellation_items.cancelled_quantity)
+   v_room      = order_items.quantity − v_cancelled − sum(receipts.quantity)
+   p_quantity > v_room 且 v_cancelled > 0  ⇒ RETURN 'EXCEEDS_ROOM_AFTER_CANCELLATION'
+   p_quantity > v_room 且 v_cancelled = 0  ⇒ RAISE(不變式破損;見下)
+   ```
+   🔴 **讀真相表、不讀 `order_item_quantity_summary`**(關卡1 must-fix 1/2/4):
+   摘要是衍生值,而兩跳時機**不對稱**(`…summary_recompute_zc` 唯一 DEFERRABLE /
+   `…received_sync_ac` NOT DEFERRABLE)⇒ 讀它會有「偏大 ⇒ **誤拒合法登錄而 C7 不出場**」的第三結局。
+   真相表沒有這個問題,順帶消掉「摘要列不存在 ⇒ NULL 讓比較式不成立而 fail-open」的坑。
+   ⇒ **record 仍然不下 `SET CONSTRAINTS`**(步 2 的決定沒被翻掉)。
+   🔴 **`v_cancelled = 0` 那一枝為什麼 RAISE 而不回業務碼**:碼面對員工說「此單已取消」,
+   沒取消卻這樣回**就是說謊**;而 A2b1 保證 `SUM(allocated) <= quantity − SUM(cancelled)`
+   (`20260803130000:16` 逐字),配上步 6 的式子,`cancelled = 0` 時兩式相接即得 `p_quantity <= v_room`
+   ⇒ **那一枝不可達**,走到那裡代表 A2b1 壞了 ⇒ fail-loud。
+   ⚠️ **溢收不佔額度**:C7 的左邊是 `instock`,其來源 sum 只算 `quantity`
+   ⇒ `quantity=0/surplus=N` 的溢收列在取消後仍可登錄(harness `H1b` 釘住)。
+   ⚠️ **precedence**(關卡1 must-fix 3):**採購列層先判、品項層後判**,兩層同時不足時固定回
+   `QUANTITY_EXCEEDS_ALLOCATED`(harness `H4` 釘住),免得錯誤碼隨實作順序漂移。
 7. **產 receipt uuid** `v_receipt_id := gen_random_uuid()` → **INSERT ledger(含 `receipt_id`)**(R3-F3)
    - `unique_violation` ⇒ 重讀該列 → **`IS NOT DISTINCT FROM` 比對全部不可變 payload**(R3-F1;
      **比對面與步 5 快篩逐字相同,不得分岔**)
@@ -328,9 +353,50 @@ R1 說「外層若延後 A4a trigger,後置守門會讀到刪除前摘要而放�
   ⚠️ **這是同一段論證在本檔第三個版本**(v3.2「源點」→ v3.3「葉」→ 現在)。
   前兩版都是**順序改了而理由沒跟著改**。⇒ 若日後再動 §3.1 的守門順序,**這一段要重寫、不得沿用**,
   而且**不要再用「源點/葉」這種依賴取鎖次序的字眼** —— 用「誰會碰這張表」這個不隨順序改變的性質。
+- 🔴🔴 **無環論證第五版(2026-08-11 折面;取代第四版的「逐個參與者列理由」寫法)**
+  **主論證(一句)**:**所有參與者的取鎖序都是同一條 canonical 全序的子序列** ⇒ 不成環。
+  **全序不是我發明的,是 repo 早就寫下的** —— `20260803140000:21` 逐字:
+  「取鎖序:`orders`(A8a 系,未來)→ `order_item_procurement` → `order_items`」。
+  對照三個參與者(皆實查):
+  | 參與者 | 取鎖序 | 是子序列? |
+  |---|---|---|
+  | 取消 `admin_cancel_order` | `orders`(FOR UPDATE)→ `order_items`(NKU)(`20260805100000:188-190` / `:367-370`;**不鎖 proc**) | ✅ |
+  | 登錄 `admin_record_item_receipt`(甲片後) | `proc`(NKU)→ `order_items`(NKU) | ✅ |
+  | 刪除 `admin_delete_item_receipt` | `proc`(NKU)→ `order_items`(NKU) | ✅ |
+  **佐證(第四版的四條降為佐證,仍成立)**:①只有本片寫 ledger、②record 與 delete 同序、
+  ③取消不鎖 proc(上表)、④**A4a 與它的五支 helper 都不碰 `orders`** ——
+  ⚠️ ④ 這條在第四版是**沒被支撐的斷言**(codex 關卡2 C2 打掉:我只 grep 了限定表名 `public.orders`)。
+  **補查後成為證據**:無限定 `orders` 全檔僅 **1 命中,在 `:21` 的那行註解裡**;
+  五支 helper(`cancellation_summary_recompute` / `procurement_summary_recompute` /
+  `receipts_received_sync` / `received_quantity_guard` / `recompute_order_item_summary`)**各自 0 命中**。
+  🔴 **失效條件(這一版的好處就是它只有一個)**:
+  **有任何參與者不照 `orders → proc → order_items` 這條全序取鎖** ⇒ 本段即失效,必須重寫。
+  日後多一個 writer,只要問這一句,不必再重新論證一次。
+  ✅ **獨立印證**:opus 線親畫等待圖(含 trigger 間接取鎖)判第四版**成立**;
+  第五版是同一結論的更強寫法(把「逐個列理由」換成「共同全序」)。
+
+- 🔴🔴 **無環論證第四版(2026-08-11,#352 甲片:取鎖序真的變了)** ——
+  本段自己寫著「順序動了就要重寫、不得沿用」,這是第四次兌現它。
+  **變更**:record 為了讀品項層額度,新增 **`order_items` NKU**,且它排在寫入之前 ⇒
+  新序 = `proc(NKU) → order_items(NKU) → ledger(PK) → receipt INSERT`
+  (舊序是 `proc(NKU) → ledger → receipt INSERT → order_items(trigger 內 NKU)`)。
+  **論證(仍然不靠「源點/葉」這種依賴次序的字眼)**:
+  ① **record 與 delete 現在取鎖序逐字相同**(`proc → order_items`)⇒ 兩支之間不可能互等。
+  ② **ledger 仍然只有 record 會寫**(a2 起未變)⇒ 不存在「持有 ledger 再回頭要別的鎖」的第三方。
+  ③ **取消 RPC(a8c1/a8c2)的序是 `orders(FOR UPDATE) → order_items(NKU)`**
+     (`20260805100000:188-190` 第一觸表、`:368-370` 逐字),**它不鎖 `order_item_procurement`**
+     ⇒ 取消側與到貨側**沒有反向邊**(取消要 order_items 而不要 proc;到貨要 proc 再要 order_items)。
+  ④ **receipt INSERT 觸發的 A4a 不碰 `orders`**(實查:`20260803140000` 全檔 `public.orders` **0 命中**)
+     ⇒ 到貨側不會產生 `order_items → orders` 這條會與取消側成環的邊。
+  ⚠️ **這一版與前三版最大的不同**:①和②是**性質**(誰會寫這張表 / 兩支同序),
+     ③和④是**實查的字面**(行號在上)。若日後 a8c1 開始鎖 proc、或 A4a 開始碰 orders,**本段即失效**。
+  🔴 **本版依主視窗裁定送對抗審查**(角度窄化:只打鎖序與環),不自評放行。
+
 - ✅ **複核紀錄(2026-08-11,§3.1 守門順序真的動了 —— 冪等快篩插進步 5)**:
   上面這段自己要求「順序動了就要重寫」,所以逐句複核過一次,**結論不變、理由也不需要改寫**。
-  為什麼:插進去的是一個**不取 row lock 的 `SELECT`**(讀 ledger 快篩),**取鎖序列一個字都沒動** ——
+  ⚠️ **時序標記(codex 關卡2 C3:本段與上面第四/五版並存會自相矛盾)**:
+  **以下描述的是「甲片之前」的狀態**(冪等快篩那次改動);甲片之後的取鎖序以上面第五版為準。
+  為什麼:插進去的是一個**不取 row lock 的 `SELECT`**(讀 ledger 快篩),**當時**取鎖序列一個字都沒動 ——
   ⚠️ 措辭更正(codex 關卡2 C7):普通 `SELECT` 仍會取 relation-level `ACCESS SHARE`,
      碰上對 ledger 下 DDL 的交易照樣會等 ⇒ 這裡要講的是「**不取 row lock**」,不是「完全不取鎖」。
   仍是 `proc(NKU) → ledger(PK 插入) → receipt INSERT → order_items(trigger 內 NKU)`。
@@ -442,6 +508,7 @@ A2 `order_item_procurement.allocated_quantity` 之和」,由 A4a 維護)⇒ **�
 | 片 | 內容 | 型 | 分級 | 估時 |
 |---|---|---|---|---|
 | **#352-a1** | migration:§2.1 欄 + §2.2 CHECK 換 + §2.4 ledger 表 + §2.3 種子列(**`is_active=false`**)+ ACL + 結構驗收<br>🔴 **+ `scripts/storefront-projection-leak-guard.test.ts` 登記兩張表名**(施工時發現的必要連動,見下) | M(**+1 支 .ts**) | L2 | ~40 分 |
+| **#352 甲片** | migration:**新開一支** `20260811010000`(**不就地改 233000** —— 關卡1 must-fix 7:「未 apply」只是單一環境的事實,任何持久環境登記過即形成同版本號不同內容)<br>+ `scripts/352a2-verify.sh` H 區 6 格 + `M9`<br>+ `scripts/w6b3-cancel-vs-receipt.sh` 前提格重估(絆線發火=設計預期)<br>+ **`LINE_TIP` 重釘 8 支**(7 支 `LINE_TIP=` + `b2s2b-verify.sh` 的 `NEWEST_TS`)<br>+ `scripts/w7-receipts.tsv` 重錄 | T | L2 | ~45 分 |
 | **#352-a2** | migration:§3.1 / §3.2 兩支 RPC + §2.5 COMMENT 更正 + `scripts/352a2-verify.sh` harness 填滿<br>**+ 重釘 7 支 harness 的 `LINE_TIP`**(片內義務)<br>🔴 **`database.types.ts` regen 不在 a2** —— 見下 | T | L2 | ~45 分 |
 | **#352-b** | §5 小視窗 + 兩入口 + 彈窗就地刷新 + 衍生指標 + server actions + smoke test **+ 一支一行 migration 翻種子 `is_active=true`** | U+A(**含一筆 DB 資料寫入**) | L2 | ~45 分 |
 
@@ -562,6 +629,15 @@ backlog **#329** 逐字點名的失效路徑就是「**新表忘登記 = 零防�
 20. 鎖序錨:`prosrc` 釘住 proc 鎖在 order_items 鎖之前;對調 ⇒ 該格紅。
 21. §2.5 的 COMMENT:**DB 面(`:224` 表 COMMENT)已由 a2 覆蓋**;`:178` 是已 apply 的 migration
     原始碼註解、**刻意不動**(理由與裁決規則見 §2.5 的 08-11 更正段)。結構驗收在字面沒改時會紅。
+21-b. 🆕 **品項層額度守門(#352 甲片)**:
+    ①全量取消後登錄 ⇒ 回 `EXCEEDS_ROOM_AFTER_CANCELLATION`、**不得是 raw 23514**(`H1`)
+    ②取消後**純溢收**仍 `RECORDED`(`H1b`,不過度攔截)
+    ③**部分取消**:取消 2/3 後登錄 2 ⇒ 拒(`H2`);取消 1/3 後登錄 2 ⇒ `RECORDED`(`H3`)
+    ④兩層同時不足 ⇒ 固定回採購列層的碼(`H4`,precedence)
+    ⑤`SET CONSTRAINTS … DEFERRED` 下新守門仍正確(`F2b` —— 它讀真相表,不受 deferred 影響)
+    ⑥把額度算式的 `− v_cancelled` 改成 `− 0` ⇒ `H1` 必紅(`M9`,改壞值保留選擇器)
+    ⚠️ 原關卡1 要求的 `F2a`(commit-aware)**因設計改讀真相表而失去對象**,
+    改以 `F2b` 覆蓋;**這是「沒有對象」不是「測不出來」**,兩者不可混為一談。
 21-a. 🆕 **稽核不得靜默消失(Fable F1)**:兩支 RPC 各留一列 `admin_audit_log`
     (`action` / `target` / `request_id` / `actor` 逐欄對,刪除那支的 before-image 要帶得走內容);
     **把 audit INSERT 整段抽掉 ⇒ 該格必紅**(harness `G2` + 突變 `M6`)。

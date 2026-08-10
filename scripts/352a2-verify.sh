@@ -24,8 +24,8 @@ FN_DELETE="public.admin_delete_item_receipt(uuid,text,text)"
 SPOT="00000000-0000-4000-8000-000000000352"
 
 PASS=0; FAIL=0; MUT=0; MUT_BAD=0; PEND=0
-EXPECTED_TOTAL=33
-EXPECTED_MUT=8
+EXPECTED_TOTAL=39
+EXPECTED_MUT=9
 EXPECTED_PEND=0
 
 ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -67,7 +67,7 @@ FIX="
   INSERT INTO public.order_item_procurement (id, order_item_id, allocated_quantity, supplier_id, reply_status)
   VALUES (v_proc, v_item, v_qty, '$SPOT', 'confirmed');
 "
-DECL="DECLARE v_item uuid; v_qty int; v_proc uuid := gen_random_uuid(); v_r text; v_rid uuid; v_n bigint; v_ship uuid; v_ord uuid;"
+DECL="DECLARE v_item uuid; v_qty int; v_proc uuid := gen_random_uuid(); v_r text; v_rid uuid; v_n bigint; v_ship uuid; v_ord uuid; v_i3 uuid; v_p3 uuid;"
 
 # cell <label> <body>  —— body 內用 RAISE 表示失敗;全程 BEGIN…ROLLBACK
 cell() {
@@ -467,12 +467,34 @@ cell "F1 呼叫端先 SET CONSTRAINTS DEFERRED ⇒ 刪除守門仍擋得住" "
     WHEN raise_exception THEN IF SQLERRM LIKE 'F1 DEFERRED 下竟然放行%' THEN RAISE; END IF;
     WHEN sqlstate 'P4A03' THEN NULL;
   END;"
+# 🔴 關卡1 must-fix 5 原本要我補一格 commit-aware 的 `F2a`(因為 DEFERRED trigger 在 rollback 前不發火)。
+#    **plan v1 換設計之後那一格失去對象**:新守門讀的是**真相表**
+#    (`order_cancellation_items` / `order_item_procurement_receipts`),兩者都由 RPC 直接寫、
+#    **沒有 deferred trigger 夾在中間** ⇒ 「可能讀到舊值」這個危險面**不存在了**,不需要真 COMMIT 去觀察它。
+#    ⇒ 改成把**新守門**併進 F2 一起在 DEFERRED 下驗(仍走 BEGIN…ROLLBACK,零留痕不破)。
+#    **這是「因為設計改了所以那格沒有對象」,不是「測不出來所以跳過」** —— 兩者要分清楚。
 cell "F2 DEFERRED 下【登錄】行為不變(證明 record 不需要 IMMEDIATE)" "
   SET CONSTRAINTS public.order_item_procurement_summary_recompute_zc DEFERRED;
   v_r := public.admin_record_item_receipt(v_proc, v_qty, 0, now()-interval '1 hour', NULL, 'staff_d', 'f2-'||v_proc::text);
   IF v_r <> 'RECORDED' THEN RAISE EXCEPTION 'F2 DEFERRED 下登錄回 %', v_r; END IF;
   v_r := public.admin_record_item_receipt(v_proc, v_qty, 0, now()-interval '1 hour', NULL, 'staff_d', 'f2-'||v_proc::text);
   IF v_r <> 'DUPLICATE_REQUEST' THEN RAISE EXCEPTION 'F2 DEFERRED 下重放回 %', v_r; END IF;"
+# ⚠️ **本格是「非回歸格」,判別力有限**(opus 線 ③):新守門讀的兩張真相表由 RPC 直接寫,
+#    夾在中間的 deferred trigger(`…presence_ac`)**只驗不寫** ⇒ DEFERRED 與否本來就不影響它的值。
+#    ⇒ 本格證的是「**設計改了之後行為沒退化**」,**不是**「守門在 deferred 下被考驗過」。
+#    真正的判別力來源是 migration 的結構斷言(record 的函式體內 `order_item_quantity_summary` 零命中)。
+cell "F2b(非回歸格)DEFERRED 下品項層守門行為不變 —— 判別力見上方註解" "
+  SET CONSTRAINTS public.order_item_procurement_summary_recompute_zc DEFERRED;
+  SELECT order_id INTO v_ord FROM public.order_items WHERE id=v_item;
+  UPDATE public.orders SET payment_status='unpaid', cancelled_at=NULL, cancelled_reason=NULL WHERE id=v_ord;
+  UPDATE public.payment_charge_attempts SET status='failed' WHERE order_id=v_ord AND status<>'failed';
+  PERFORM public.admin_cancel_order(v_ord, gen_random_uuid(), 'staff_1', 'customer_request', NULL);
+  BEGIN
+    v_r := public.admin_record_item_receipt(v_proc, 1, 0, now()-interval '1 hour', NULL, 'staff_1', 'f2b-'||v_proc::text);
+  EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'F2b DEFERRED 下爆了(SQLSTATE=%)—— 若這裡紅,代表守門其實還在讀衍生值', SQLSTATE;
+  END;
+  IF v_r <> 'EXCEEDS_ROOM_AFTER_CANCELLATION' THEN RAISE EXCEPTION 'F2b DEFERRED 下回 %', v_r; END IF;"
 
 # ══ G 區:稽核 ═════════════════════════════════════════════
 # 🔴🔴 Fable F1:原本整份 harness 對 `admin_audit_log` **零斷言**(`grep -c` = 0)——
@@ -501,6 +523,78 @@ cell "G2 兩支 RPC 都必須留下稽核列(action / target / request_id 逐欄
                     AND (a.before->>'quantity')::int = 1
                     AND (a.before->>'surplus_quantity')::int = 0)
   THEN RAISE EXCEPTION 'G2 刪除的 before-image 值對不上(鍵在不代表內容帶得走)'; END IF;"
+
+# ══ H 區:品項層額度守門(#352 甲片;Sean Q9=A)════════════════
+# 🔴 背景:a2 只擋「採購列層」超收,C7 是「品項層」不變式 ⇒ 取消吃掉的額度看不見
+#    ⇒ 「單子取消後貨才到」原本直接吐 raw 23514。甲片補了讀**真相表**的品項層守門。
+cell "H1 未付款單全量取消後貨才到 ⇒ 回 EXCEEDS_ROOM_AFTER_CANCELLATION(不是 raw 23514)" "
+  SELECT order_id INTO v_ord FROM public.order_items WHERE id=v_item;
+  UPDATE public.orders SET payment_status='unpaid', cancelled_at=NULL, cancelled_reason=NULL WHERE id=v_ord;
+  UPDATE public.payment_charge_attempts SET status='failed' WHERE order_id=v_ord AND status<>'failed';
+  PERFORM public.admin_cancel_order(v_ord, gen_random_uuid(), 'staff_1', 'customer_request', NULL);
+  BEGIN
+    v_r := public.admin_record_item_receipt(v_proc, 1, 0, now()-interval '1 hour', NULL, 'staff_1', 'h1-'||v_proc::text);
+  EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'H1 竟然爆了(SQLSTATE=%)—— 甲片的整個目的就是不要讓員工看到這個', SQLSTATE;
+  END;
+  IF v_r <> 'EXCEEDS_ROOM_AFTER_CANCELLATION' THEN RAISE EXCEPTION 'H1 回 %', v_r; END IF;"
+# 🔴 判別力的另一半:新守門**不得過度攔截**。溢收列 quantity=0 不佔 C7 的 instock 軸
+#    ⇒ 取消後純溢收仍必須 RECORDED。這一格是「甲片沒有把到貨側整個關掉」的證據。
+cell "H1b 取消後【純溢收】(quantity=0/surplus=N)仍必須 RECORDED —— 新守門不過度攔截" "
+  SELECT order_id INTO v_ord FROM public.order_items WHERE id=v_item;
+  UPDATE public.orders SET payment_status='unpaid', cancelled_at=NULL, cancelled_reason=NULL WHERE id=v_ord;
+  UPDATE public.payment_charge_attempts SET status='failed' WHERE order_id=v_ord AND status<>'failed';
+  PERFORM public.admin_cancel_order(v_ord, gen_random_uuid(), 'staff_1', 'customer_request', NULL);
+  v_r := public.admin_record_item_receipt(v_proc, 0, 5, now()-interval '1 hour', NULL, 'staff_1', 'h1b-'||v_proc::text);
+  IF v_r <> 'RECORDED' THEN RAISE EXCEPTION 'H1b 純溢收被誤擋(回 %)', v_r; END IF;"
+# 🔴🔴 H2/H3 = **部分取消**情境。plan v0 我寫「構造不出來」——**那是假的**(關卡1 打掉):
+#      `w6b3-cancel-vs-receipt.sh:232` 的 `mkitem` 早就不動 seed 自建 `quantity=3` 的品項。
+#      這裡照同一招:往既有訂單插一筆自己的 `quantity=3` 品項(`line_total = quantity × unit_price`,
+#      與 mkitem 逐字同形),再跑部分取消。
+#      ⚠️ 前提斷言:該訂單其它品項不得已有真到貨,否則整單閘會先擋、本格失去判別力。
+H23FIX="
+  SELECT order_id INTO v_ord FROM public.order_items WHERE id=v_item;
+  IF EXISTS (SELECT 1 FROM public.order_items oi
+              JOIN public.order_item_procurement p ON p.order_item_id=oi.id
+              JOIN public.order_item_procurement_receipts r ON r.procurement_id=p.id
+             WHERE oi.order_id=v_ord AND r.quantity>0)
+  THEN RAISE EXCEPTION '前提不足:同單已有真到貨,本格無判別力'; END IF;
+  v_i3 := gen_random_uuid();
+  INSERT INTO public.order_items(id,order_id,variant_sku,product_snapshot,quantity,unit_price,line_total)
+  VALUES (v_i3, v_ord, 'SKU-H23', '{\"title\":\"零件\",\"sku\":\"S1\",\"spec\":{\"color\":\"black\"}}'::jsonb, 3, 10, 30);
+  v_p3 := gen_random_uuid();
+  INSERT INTO public.order_item_procurement(id,order_item_id,allocated_quantity,supplier_id,reply_status)
+  VALUES (v_p3, v_i3, 3, '$SPOT', 'confirmed');
+  UPDATE public.orders SET payment_status='unpaid', cancelled_at=NULL, cancelled_reason=NULL WHERE id=v_ord;
+  UPDATE public.payment_charge_attempts SET status='failed' WHERE order_id=v_ord AND status<>'failed';
+"
+cell "H2 部分取消 2/3 後想登錄 2 件(額度只剩 1)⇒ 回 EXCEEDS_ROOM_AFTER_CANCELLATION" "
+  $H23FIX
+  PERFORM public.admin_cancel_order(v_ord, gen_random_uuid(), 'staff_1', 'customer_request', NULL,
+    jsonb_build_array(jsonb_build_object('order_item_id', v_i3::text, 'quantity', 2)));
+  BEGIN
+    v_r := public.admin_record_item_receipt(v_p3, 2, 0, now()-interval '1 hour', NULL, 'staff_1', 'h2-'||v_p3::text);
+  EXCEPTION WHEN others THEN RAISE EXCEPTION 'H2 竟然爆了(SQLSTATE=%)', SQLSTATE;
+  END;
+  IF v_r <> 'EXCEEDS_ROOM_AFTER_CANCELLATION' THEN RAISE EXCEPTION 'H2 回 %', v_r; END IF;"
+cell "H3 部分取消 1/3 後登錄 2 件(額度剩 2)⇒ 必須 RECORDED(部分取消也不過度攔截)" "
+  $H23FIX
+  PERFORM public.admin_cancel_order(v_ord, gen_random_uuid(), 'staff_1', 'customer_request', NULL,
+    jsonb_build_array(jsonb_build_object('order_item_id', v_i3::text, 'quantity', 1)));
+  v_r := public.admin_record_item_receipt(v_p3, 2, 0, now()-interval '1 hour', NULL, 'staff_1', 'h3-'||v_p3::text);
+  IF v_r <> 'RECORDED' THEN RAISE EXCEPTION 'H3 額度內竟被擋(回 %)', v_r; END IF;
+  IF (SELECT instock_quantity FROM public.order_item_quantity_summary WHERE order_item_id=v_i3) <> 2
+  THEN RAISE EXCEPTION 'H3 instock 沒跟上'; END IF;"
+# 🔴 precedence(關卡1 must-fix 3):兩道守門同時不足時,**採購列層先回** ——
+#    否則員工看到的錯誤碼會隨實作順序漂移、處置跟著改。
+cell "H4 兩層額度同時不足 ⇒ 固定回採購列層的碼(precedence 被釘住)" "
+  SELECT order_id INTO v_ord FROM public.order_items WHERE id=v_item;
+  UPDATE public.orders SET payment_status='unpaid', cancelled_at=NULL, cancelled_reason=NULL WHERE id=v_ord;
+  UPDATE public.payment_charge_attempts SET status='failed' WHERE order_id=v_ord AND status<>'failed';
+  PERFORM public.admin_cancel_order(v_ord, gen_random_uuid(), 'staff_1', 'customer_request', NULL);
+  v_r := public.admin_record_item_receipt(v_proc, v_qty+99, 0, now()-interval '1 hour', NULL, 'staff_1', 'h4-'||v_proc::text);
+  IF v_r <> 'QUANTITY_EXCEEDS_ALLOCATED'
+  THEN RAISE EXCEPTION 'H4 precedence 漂移:兩層都不足時回了 %(應為採購列層的碼)', v_r; END IF;"
 
 # ══ 突變靶 ═════════════════════════════════════════════════
 mut "M1 冪等帳補 FK ⇒ A5 翻紅" \
@@ -649,6 +743,29 @@ mut "M6 record 抽掉 audit INSERT ⇒ G2 翻紅" \
                      AND request_id='m6-'||v_proc::text AND actor='staff_d')
    THEN RAISE EXCEPTION 'G2 等價格:登錄沒留稽核列'; END IF;"
 
+# 🔴 M9 = H1 的判別力證明:把品項層額度的算式**改壞值、保留選擇器**
+#    (拿掉 `- v_cancelled` ⇒ 取消吃掉的額度又看不見了)⇒ H1 必紅。
+mut "M9 品項層額度算式拿掉取消那一項(保留選擇器)⇒ H1 翻紅" \
+  "SELECT strpos(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'oi.quantity::bigint - 0')>0
+     FROM pg_proc WHERE oid='$FN_RECORD'::regprocedure" "true" \
+  "DO \$mm\$
+   DECLARE s text; t text := 'oi.quantity::bigint - v_cancelled'; n int;
+   BEGIN
+     SELECT prosrc INTO s FROM pg_proc WHERE oid='$FN_RECORD'::regprocedure;
+     n := (length(s) - length(replace(s, t, ''))) / length(t);
+     IF n <> 1 THEN RAISE EXCEPTION 'M9 突變前提破了:該字面出現 % 次(預期 1)', n; END IF;
+     EXECUTE format('CREATE OR REPLACE FUNCTION public.admin_record_item_receipt(p_procurement_id uuid, p_quantity integer, p_surplus_quantity integer, p_received_at timestamptz, p_note text, p_actor text, p_request_id text) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %L', replace(s, t, 'oi.quantity::bigint - 0'));
+   END \$mm\$;" \
+  "SELECT order_id INTO v_ord FROM public.order_items WHERE id=v_item;
+   UPDATE public.orders SET payment_status='unpaid', cancelled_at=NULL, cancelled_reason=NULL WHERE id=v_ord;
+   UPDATE public.payment_charge_attempts SET status='failed' WHERE order_id=v_ord AND status<>'failed';
+   PERFORM public.admin_cancel_order(v_ord, gen_random_uuid(), 'staff_1', 'customer_request', NULL);
+   BEGIN
+     v_r := public.admin_record_item_receipt(v_proc, 1, 0, now()-interval '1 hour', NULL, 'staff_1', 'm9-'||v_proc::text);
+   EXCEPTION WHEN others THEN RAISE EXCEPTION 'H1 等價格:回到 raw %', SQLSTATE;
+   END;
+   IF v_r <> 'EXCEEDS_ROOM_AFTER_CANCELLATION' THEN RAISE EXCEPTION 'H1 等價格:回 %', v_r; END IF;"
+
 # ══ 🟡 留白格(house 形制保留:規格已知、答案在人手上時放這裡)════
 #    目前 0 格 —— G1 已於 2026-08-11 由 Sean Q6=A 解鎖並改成下方的真行為格。
 
@@ -703,6 +820,12 @@ echo "   · 🔴 record 的 unique_violation 併發 fallback(migration 步 8 的
 echo "     單連線下第二次呼叫在步 6 快篩就看得見自己未提交的 ledger 列 ⇒ 永遠走不到那一枝。"
 echo "     D3 只證了『單連線同鍵跨採購列會被明確擋下且不外洩 23505』。同鍵**跨採購列的真併發**未測。"
 echo "   · 🔴 record 註解宣稱『同鍵同採購列由 proc 列鎖序列化』——**結構推論,無 rendezvous 實測**。"
+echo "   · 🔴 品項層額度守門(甲片)的**真併發未測**:它讀 order_cancellation_items / receipts 兩張真相表"
+echo "     但**沒有鎖那兩張表**;與取消 RPC 的序列化靠的是雙方都鎖同一列 order_items"
+echo "     (20260805100000:367-370 與本片的 order_items NKU)—— 那是**字面**,但交錯行為需兩條連線"
+echo "     rendezvous 才驗得到,本片未做。"
+echo "   · 🔴 v_cancelled = 0 卻超出額度的 RAISE 枝**不可達是推導**(A2b1 不變式 + 採購層守門兩式相接),"
+echo "     **沒有負測**。A2b1 若被改動,這條推導要重做。"
 echo "   · E5 的 fail-closed 分支在正常路徑構造不出來(停掉 A4a 才測得到);證的是那一枝活著、"
 echo "     **不宣稱**它會在正常路徑被觸發。"
 
