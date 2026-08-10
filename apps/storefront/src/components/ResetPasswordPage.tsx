@@ -53,7 +53,17 @@ export function ResetPasswordPage({ email }: { email: string }) {
     setFieldErrors({});
     setFormError(null);
     setPending(true);
-    const result = await resetPasswordAction({ password: v.data.password });
+    // 🔴 **`confirm` 一定要一起送**(2026-08-11 正式站客面壞、Sean 親測撞到):
+    //    `resetPasswordAction` 開頭就跑 `validateResetPassword(input)`(`app/login/reset/actions.ts`),
+    //    而那支對空 `confirm` 直接開「請再輸入一次密碼」(`lib/auth/field-validation.ts:199-200`)
+    //    ⇒ 原本只送 `{ password }` 的寫法讓 **happy path 100% 不可達**:密碼填得再對,
+    //    送出永遠回同一句、密碼永遠改不成。
+    //    (`v.data` strip 掉 confirm,所以 confirm 取 state;client 剛用同一組原值比對過。)
+    //    ⚠️ 別反過來把 server 改成 password-only:`actions.ts` 檔頭寫明它**刻意**共用這支驗證
+    //    (含 confirm 兩句 Sean Q24-e 拍板的照稿字面)。
+    //    ⚠️ 但也**別把 server 那道記成安全控制**(R1 nit-5 收窄):攻擊者用 curl 兩欄都自己填、
+    //    永遠填得相等 ⇒ 它擋得住的只有「壞掉的 client」,也就是這次這種。
+    const result = await resetPasswordAction({ password: v.data.password, confirm });
     setPending(false);
     if (result.fieldErrors || result.formError) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
