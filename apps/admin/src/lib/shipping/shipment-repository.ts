@@ -197,7 +197,11 @@ export type ShipmentItemRow = {
  * 依箱 id 取箱(訂單詳情頁的出貨卡用:先由品項查到箱 id,再查箱本身)。
  *
  * ⚠️ 不走 `listShipmentsByCustomer` 的原因:`AdminOrderDetail` **沒有 customer id**
- * (見 `shipment-candidates.ts` 檔頭那段),詳情頁拿不到客人身分。
+ * (見 `shipment-candidates.ts` 檔頭那段)。
+ * 🔴 **2026-08-10 #351④ 更正**:上一句的後半原本寫「詳情頁**拿不到**客人身分」,那已被證偽 ——
+ * `loadEmptyShipments` 就是在詳情頁用 `listOrderCustomerUserIds()`(兩欄獨立查詢、不碰 PII 白名單)
+ * 拿到客人身分的。**仍然不走** `listShipmentsByCustomer` 的真正理由是:本支要的是
+ * 「**這批品項所在的那些箱**」,拿客人的全部箱回來再濾是多查一堆用不到的列。
  */
 export async function listShipmentsByIds(ids: readonly string[]): Promise<ShipmentRow[]> {
   if (ids.length === 0) return [];
@@ -345,6 +349,47 @@ export async function listCustomerUserIdsByOrderItemIds(
   // 🔴 同理:有訂單查不到客人就整批不算數,不拿剩下那位「湊」一個出來。
   if (byOrder.size !== orderIds.length) return new Set();
   return new Set(byOrder.values());
+}
+
+/**
+ * 給一組**包裹** id,查出它們各自裝了什麼(#351④ 空箱區用)。
+ *
+ * 🔴 **方向與下面那支相反,不可互相取代**:下面是 `by orderItemIds`(從品項找箱),
+ * 這支是 `by shipmentIds`(從箱找品項)。#351④ 要回答的是「**這箱有沒有東西**」,
+ * 而「從品項找箱」在定義上**找不到空箱** —— 空箱沒有任何品項可以當查詢起點。
+ * 那正是 Sean 2026-08-09 逐字「我也找不到那個箱子在哪裡」的機制成因:
+ * 出貨卡整張都是從品項反查箱畫出來的,空箱在那條路徑上不可能出現。
+ *
+ * ⚠️ 這支只回答「有哪些品項」,**不判斷「是不是空箱」** —— 那是呼叫端的事:
+ * 「空」是相對於一組箱子的集合差,單一查詢表達不了。
+ *
+ * 🔴 **截斷邊界由我們的常數擁有,不是伺服器的**(A9a-1 R1 已判過一次同型 must-fix,
+ * STATUS.md 逐字「常數 1000 是遠端設定的複本、程式釘不住它(max-rows 調低就靜默失效)」)。
+ * 這裡顯式送 `.limit(N+1)`、N **嚴格低於**已對 production 實測過的 1000
+ * ⇒ 回傳 `> N` 就是「這批可能不完整」,而那個判定與專案設定脫鉤。
+ * 不自夾的話,max-rows 被調到低於 N 時呼叫端的 `>= N` 恆假 ⇒ **守門靜默變 no-op、零測試轉紅**。
+ * (取 N+1 判截斷的寫法 = backlog #325 的 canonical 形狀。)
+ */
+export const SHIPMENT_ITEM_ROWS_LIMIT = 500;
+
+export async function listShipmentItemsByShipmentIds(
+  shipmentIds: readonly string[],
+): Promise<ShipmentItemRow[]> {
+  // 🔴 同下面那支:空輸入短路,不賭 `in.()` 的行為。
+  if (shipmentIds.length === 0) return [];
+  const { data, error } = await createSupabaseServiceClient()
+    .from('shipment_items')
+    .select('id, shipment_id, order_item_id, shipped_quantity')
+    .in('shipment_id', [...shipmentIds])
+    // 🔴 N+1:回傳剛好 N 是「正好這麼多」,回傳 N+1 才代表**可能還有更多**。
+    .limit(SHIPMENT_ITEM_ROWS_LIMIT + 1);
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    shipmentId: r.shipment_id,
+    orderItemId: r.order_item_id,
+    shippedQuantity: r.shipped_quantity,
+  }));
 }
 
 /**
