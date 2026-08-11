@@ -57,7 +57,7 @@
 
 | 欄 | 值 |
 |---|---|
-| 狀態 | ✅ **plan v3 已收斂(Q1=B / Q2=A / Q3=A 已拍)**、等關卡1 R2 → 實作歸 P 八代(`docs/specs/2026-08-11-refund-manual-reversal-plan.md`) |
+| 狀態 | ✅ **plan v5**(關卡1 R1+R2 共 16 條全折;Q1=B / Q2=A / Q3=A 已拍;Q2 語意由 `P-523-A` 校正=每筆終局至多一沖、修正鏈狀)⇒ 實作歸 P 八代(`docs/specs/2026-08-11-refund-manual-reversal-plan.md`)。⏳ **卡一題**:「有效 `manual` 但 `refunded=false` 算什麼」已送 Sean(`P-525-Q`),未回不進實作 |
 | 是什麼 | `manual` 判定填錯之後的合法修正路徑(#405)+ 2d 回退閘那句「先由人處理」的出口(#417) |
 | 依賴 | 🔴 **Sean 2026-08-11 23:15 拍 Q1=B 之後,序反過來:沖銷片排在 2e 之前** —— 它交付的是「有效事件」的正準語意(canonical predicate),**2e 直接蓋在它上面**,免回頭改 |
 | apply 停點 | 視 Q1 而定(最小出口案=**零 schema、零停點**) |
