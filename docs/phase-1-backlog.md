@@ -10634,3 +10634,53 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   沒有人會想到根因在三個月前的入站解析。
 - **依賴**:動 adapter 或已上線 RPC ⇒ 鐵則 12①;可獨立輕量片,不必綁 2d。
 - **編號註**:#407 由主視窗配(P-366-A);#403-#405 同批。
+
+---
+
+### #409. 🔤 `Panigale V4` / `panigale v4` 雙字面:同一台車兩個大小寫版本,顯示名與寫入驗證都受影響
+
+- **狀態:** ⏳ 待排(2026-08-11 #277 C 案實作時量到;主視窗 S-033-A 配號、Sean §3 拍 A「照現狀 apply、另立本條」)
+- **優先級:** 🟡 低-中(**今天零客人受影響**,但會讓下拉顯示一個小寫的車名,且有潛在拒寫風險)
+- **問題**:資料裡同一台 Ducati 有兩個只差大小寫的字面 —— `"Panigale V4"` 與 `"panigale v4"`,
+  **兩張表都各有兩種**,而且小寫版是**極少數**(2026-08-11 實查):
+
+  | 表 | `panigale v4` | `Panigale V4` |
+  |---|---|---|
+  | `product_fitments` | **2 列** | 930 列 |
+  | `product_fitments_effective` | **2 列** | 877 列 |
+
+  🔴 **2 列打贏 930 列** —— 顯示名不是多數決,是排序決定的
+  (`ORDER BY model_code` 下 `"panigale v4"` 排在 `"Panigale V4"` 前面)。
+  這也讓修法變得很便宜:**每張表各改 2 列**。
+
+  車輛下拉的節點鍵是 `normalizeVehicleQuery`(NFKC+trim+lower)⇒ 兩者會併成同一台車,
+  但**顯示名取 first-seen**(`vehicle-taxonomy.ts:80,85`)⇒ 誰先被掃到誰就成為畫面上的名字。
+- **#277 C 案換源後的實測**:用 app 真正的排序(`ORDER BY moto_brand, model_code, year_start, year_end`)
+  比對換源前後的 first-seen 贏家,**全部 2,192 組裡只有這 1 組翻面**:
+  `ducati "Panigale V4"` → `"panigale v4"` ⇒ **下拉會顯示小寫車名**。
+- **潛在的第二個後果(比顯示更重要)**:`app/account/vehicle/actions.ts:41-53` 的 `validateDictPair`
+  拿這份 taxonomy 當**寫入路徑的 fail-closed 字典**,而 `:47` 是**嚴格字串比對**
+  ⇒ 存了輸家字面的客人,編輯愛車時會被判「所選車款不在清單中」。
+- **現況量測(2026-08-11,決定它為什麼不緊急)**:
+  ```sql
+  SELECT count(*) AS total_dict_vehicles,
+         count(*) FILTER (WHERE lower(btrim(dict_model_name)) = 'panigale v4') AS any_case_variant
+  FROM customer_vehicles WHERE dict_model_name IS NOT NULL;
+  -- 2026-08-11:total_dict_vehicles = 1、any_case_variant = 0
+  ```
+  ⇒ 全表只有 **1 筆**用字典的愛車,且**沒有任何一筆**命中這台車 ⇒ **今天 0 客人受影響**。
+  ⚠️ 這是**時點觀察**:字典愛車功能被用起來之後,曝險會跟著長。
+- **修法方向**:清資料 —— 把 `"panigale v4"` 統一成 `"Panigale V4"`。
+  ⚠️ 要動的是**正式站資料**(`product_fitments` / `product_fitments_effective`,
+  且 effective 每日 16:10 會被報價單側整表覆寫 ⇒ **只改網站庫會被蓋回去**,
+  根治要在報價單側或匯入端)。⇒ 停點 = Sean;不是前台自己能收的。
+- **順帶**:同族還有 `Honda "Forza 250 "`(尾端空格)—— 那個目前不會造成翻面,但同樣是字面不一致。
+  一起清比較划算。
+- **不修未來會痛在哪**:
+  - 擴充性:任何「拿 taxonomy 的 name 當鍵去比對」的新功能都會踩到同一顆地雷(今天已有一個=寫入驗證)。
+  - 可維護性:顯示名由「資料掃描順序」決定 ⇒ 換資料來源、換排序、甚至新增一筆別名,
+    都可能讓畫面上的車名無聲改變,而**沒有任何測試會紅**。
+  - bug 可追蹤性:客訴會長成「我明明有這台車,系統說不在清單中」,
+    根因在兩個看起來一樣的字串,現場肉眼分辨不出來。
+- **依賴**:#277 C 案(`20260811100000`)已把翻面量化;本條可獨立排。相關 = #389(matview 正解)。
+- **發現於**:2026-08-11 / #277 C 案 關卡2 折 finding 時的 first-seen 贏家逐筆比對
