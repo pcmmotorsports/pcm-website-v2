@@ -6,7 +6,7 @@
 process.env.TZ = 'America/New_York';
 
 import { describe, it, expect, vi } from 'vitest';
-import type { AdminOrderItemProcurement } from '@pcm/domain';
+import type { AdminOrderItemProcurement, AdminOrderItemQuantitySummary } from '@pcm/domain';
 
 // 🔴 `procurement-suppliers` → `lib/supplier.ts` → `supplier-repository.ts` → `import 'server-only'`,
 //    在 vitest 的 node 環境解析不到(`supplier.test.ts:3-5` 同一個處置)。
@@ -19,6 +19,7 @@ import {
   hydrateFormValues,
   toTaipeiInputValue,
   toTaipeiIso,
+  unsourcedQuantity,
   REPLY_STATUS_LABEL,
 } from './procurement-view';
 import { PROCUREMENT_REPLY_STATUSES } from './procurement-form';
@@ -195,5 +196,45 @@ describe('REPLY_STATUS_LABEL — 五個狀態都有字', () => {
     for (const code of PROCUREMENT_REPLY_STATUSES) {
       expect(REPLY_STATUS_LABEL[code]).not.toBe('');
     }
+  });
+});
+
+describe('unsourcedQuantity — #352-b-2 衍生指標', () => {
+  const sum = (over: Partial<AdminOrderItemQuantitySummary> = {}): AdminOrderItemQuantitySummary => ({
+    quantity: 5,
+    orderedQuantity: 2,
+    instockQuantity: 0,
+    cancelledQuantity: 1,
+    cancellableQuantity: 4,
+    ...over,
+  });
+
+  it('quantity − cancelled − ordered', () => {
+    expect(unsourcedQuantity(sum())).toBe(2);
+  });
+
+  // 🔴 `null` = 「不知道」不是「都是 0」(types.ts:638-660)。補 0 會讓畫面對員工說
+  //    「還有 5 件沒登記」這種它證明不了的話 —— 摘要列是 A4a 惰性建立的,沒列只代表沒被碰過。
+  it('🔴 summary 為 null ⇒ 回 null(不補 0)', () => {
+    expect(unsourcedQuantity(null)).toBeNull();
+  });
+
+  it('全部都有來源 ⇒ 0', () => {
+    expect(unsourcedQuantity(sum({ quantity: 3, cancelledQuantity: 0, orderedQuantity: 3 }))).toBe(0);
+  });
+
+  it('整筆取消 ⇒ 0(不是「還有 N 件沒登記」)', () => {
+    expect(unsourcedQuantity(sum({ quantity: 3, cancelledQuantity: 3, orderedQuantity: 0 }))).toBe(0);
+  });
+
+  // 🔴 `ordered` 是 `SUM(allocated)`、由 A4a 維護 —— 這格釘住「用的是摘要的那一欄」:
+  //    誰改成讀 `instockQuantity`(已到貨)會紅。兩者語意完全不同:
+  //    已訂但還沒到的件數**是有來源的**,不該被算成「沒登記來源」。
+  it('🔴 用的是 ordered(已訂)不是 instock(已到)', () => {
+    expect(unsourcedQuantity(sum({ quantity: 5, cancelledQuantity: 0, orderedQuantity: 5, instockQuantity: 0 }))).toBe(0);
+  });
+
+  it('夾 0:即使守門日後被改動也不吐負數', () => {
+    expect(unsourcedQuantity(sum({ quantity: 1, cancelledQuantity: 1, orderedQuantity: 5 }))).toBe(0);
   });
 });
