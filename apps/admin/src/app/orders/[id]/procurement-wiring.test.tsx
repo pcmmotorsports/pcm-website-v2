@@ -52,6 +52,14 @@ vi.mock('../../../lib/supplier', async (importOriginal) => {
   return { ...actual, listSuppliers: mocks.listSuppliers };
 });
 vi.mock('../../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }));
+// 🔴 #15-B2-c 片1a:`order-detail-route` 起會讀 `listOrderPayments`(→ `createSupabaseServiceClient`
+//    = server-only)。⚠️ **不 mock 也不會紅** —— 它在呼叫時 throw、被 `allSettled` 接住折成
+//    `unreadable` ⇒ 本檔每次 renderPage 都靜默多畫一塊紅框 + 噴 `console.error`,
+//    而本檔要驗的東西照樣全綠 ⇒ 那塊紅框會被下一個人當成既有雜訊。回空陣列 = 「這單沒收過款」,
+//    與本檔要驗的東西無關,也不會多畫任何東西。
+vi.mock('../../../lib/orders/payment-repository', () => ({
+  listOrderPayments: vi.fn(async () => []),
+}));
 
 import OrderDetailPage from './page';
 

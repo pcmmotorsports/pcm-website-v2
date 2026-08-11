@@ -10,8 +10,10 @@ import {
   listOrderRefunds,
   type OrderRefundRow,
 } from '../../lib/payment/refund-read';
+import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
+import type { PaymentListData } from './payment-list';
 import { ResultBanner } from './result-banner';
 import { getSessionActor } from '../../lib/session/actor';
 import {
@@ -22,7 +24,9 @@ import {
 // order-detail-route.tsx — #350c:訂單明細的**載入 + 組裝**,兩個消費者共用。
 //
 // 🔴 為什麼抽出來:面板版(`app/@panel/orders/page.tsx`)與整頁版(`app/orders/[id]/page.tsx`)
-//    要跑**完全相同**的三路 `Promise.allSettled` 與四組容錯旗標。複製一份 = 兩邊會慢慢分岔,
+//    要跑**完全相同**的四路 `Promise.allSettled`(#15-B2-c 片1a 起:明細 / 供應商 / 退款帳本 /
+//    **收款明細**,見 `:117-124`)與四組容錯旗標,外加收款那一路的**三態 union**
+//    (`:161-166`,刻意不用旗標的理由寫在那)。複製一份 = 兩邊會慢慢分岔,
 //    而分岔的其中一條是**退款入口的 fail-closed 判斷**(帳本讀不到就不准按退款)——
 //    那不是可以有兩個版本的東西。
 //
@@ -110,11 +114,14 @@ export async function OrderDetailRoute({
   //    ⚠️ **不是授權邊界**(`session/actor.ts:6-7` 自陳:cookie 承載、使用者自選、未驗證)——
   //    只做顯示層比對;`null`(尚未選人)時 D3 會 fail-closed 走 `match_other_actor`。
   const actor = await getSessionActor();
-  const [detailSettled, suppliersSettled, refundsSettled] = await Promise.allSettled([
-    (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
-    (async () => listSuppliers())(),
-    (async () => listOrderRefunds(id))(),
-  ]);
+  const [detailSettled, suppliersSettled, refundsSettled, paymentsSettled] =
+    await Promise.allSettled([
+      (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
+      (async () => listSuppliers())(),
+      (async () => listOrderRefunds(id))(),
+      // #15-B2-c 片1a:收款明細(獨立容錯 —— 讀不到**不是**「沒收過款」,見下方折三態)。
+      (async () => listOrderPayments(id))(),
+    ]);
   if (detailSettled.status === 'fulfilled') {
     detail = detailSettled.value;
   } else {
@@ -143,6 +150,22 @@ export async function OrderDetailRoute({
   } else {
     console.error('[admin/order-detail] 退款帳本載入失敗(區塊顯示警告、入口 fail-closed)', refundsSettled.reason);
     refundsFailed = true;
+  }
+
+  // 🔴🔴 #15-B2-c 片1a:**三態不可收斂成兩態**(`payment-repository.ts:93-96` 逐字)——
+  //    `[]` = 訂單在、還沒收過款;`null` = **訂單不存在**;`throw` = **沒讀到**。
+  //    把 `throw` 或 `null` 畫成「尚未登錄任何收款」= 員工照著再登一次 ⇒ **重複入帳**。
+  //    ⚠️ 這裡刻意**不用**上面那三段的 `let + 旗標` 形狀:旗標形狀要兩個變數才表達得完
+  //    (`failed` 與 `notFound`),而兩個布林能組出第四種不存在的狀態。一個 union 收斂成三態,
+  //    多出來的組合在型別上就不存在。
+  const payments: PaymentListData =
+    paymentsSettled.status === 'rejected'
+      ? { status: 'unreadable' }
+      : paymentsSettled.value === null
+        ? { status: 'order_not_found' }
+        : { status: 'ok', rows: paymentsSettled.value };
+  if (paymentsSettled.status === 'rejected') {
+    console.error('[admin/order-detail] 收款明細載入失敗(顯錯誤態≠查無)', paymentsSettled.reason);
   }
 
   if (!loadFailed && detail === null) {
@@ -197,6 +220,7 @@ export async function OrderDetailRoute({
           refundUnregisteredAmount={refundUnregisteredAmount}
           refundUnregisteredFailed={refundUnregisteredFailed}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
+          payments={payments}
         />
       )}
     </>

@@ -22,6 +22,7 @@ import { OrderCancelBlock } from './order-cancel-block';
 import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
+import { PaymentList, type PaymentListData } from './payment-list';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
@@ -232,6 +233,7 @@ export function OrderDetail({
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
   cancelFormsAllowed = false,
+  payments,
 }: {
   detail: AdminOrderDetail;
   /**
@@ -260,6 +262,14 @@ export function OrderDetail({
   refundUnregisteredFailed?: boolean;
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
+  /**
+   * #15-B2-c 片1a:收款明細三態(頁層讀 `listOrderPayments` 折出來)。
+   *
+   * 🔴 **必填、無預設**(同 `returnTo` 的立場):給預設值等於「忘了接就靜默顯示成某一態」——
+   *    而這裡任何一個預設都會說謊:`ok/[]` 說「沒收過款」(員工照著再登一次 ⇒ 重複入帳)、
+   *    `unreadable` 說「讀取失敗」(對一個其實讀得到的頁面亂報錯)。忘了接**必須編不過**。
+   */
+  payments: PaymentListData;
 }) {
   const cancelled = detail.cancelledAt !== null;
   const correctTarget = resolveCorrectTarget(detail, correctNoteId);
@@ -335,6 +345,12 @@ export function OrderDetail({
           />
         </section>
       </div>
+
+      {/* #15-B2-c 片1a:已登錄的收款明細(唯讀)。
+          🔴 位置 = 緊接「付款」卡之後:員工看完付款狀態,下一個問題就是「錢收了哪幾筆」。
+          退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。
+          ⚠️ 登錄表單是**片2** —— 本片只有「看」,畫面上不會出現任何登錄入口。 */}
+      <PaymentList data={payments} />
 
       {cancelled && (
         <div className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
