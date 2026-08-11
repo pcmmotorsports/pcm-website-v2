@@ -451,7 +451,7 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    ⚠️ **D 窗原本寫的理由是錯的**(「grep 命中兩處皆註解」):甲片正是**透過 trigger 間接動 oiqs**,
 #    而**文字 grep 對 trigger 的間接效果全盲** —— 那條理由在這片剛好不成立,已由 B 窗實測更正。
 #    (判準本身要不要改成「有沒有重定義被釘的 helper」= B 窗另出小片,不在甲片。)
-[ "$NEWEST_TS" = "20260811080000" ] \
+[ "$NEWEST_TS" = "20260811100000" ] \
   || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260811060000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
