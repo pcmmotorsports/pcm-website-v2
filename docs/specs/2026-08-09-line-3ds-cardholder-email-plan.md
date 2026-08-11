@@ -107,7 +107,7 @@ domain 型別 `CustomerAddress`(`packages/domain/src/identity/address.ts:24-40`)
 `mappers/address.ts:12` 的 row 型別 **derive 自生成檔**(檔頭註解逐字「schema 改 → 重新 gen → 此型別自動跟著變」;
 `database.types.ts:243` 為 `customer_addresses` 生成型別)⇒ 只加 migration + 改 `ADDRESS_SELECT` 不重 gen,型別層讀不到新欄。
 🔴 **重 gen 的已知陷阱**(`database.types.ts:1-8` 檔頭明寫,計數以檔頭為唯一權威):重 gen 會沖掉中文檔頭
-**與七個函式、共二十一處手動校正**,重 gen 後必須逐項重貼再 typecheck。順序:migration 寫檔 → (apply 後)重 gen → 重貼校正 → 改 adapter/domain。
+**與手動校正(函式數與處數以 `database.types.ts` 檔頭計數為唯一權威,本檔不複述數字——2026-08-11 主視窗更正:原寫死「七支/二十一處」已因第 22 處失真)**,重 gen 後必須逐項重貼再 typecheck。順序:migration 寫檔 → (apply 後)重 gen → 重貼校正 → 改 adapter/domain。
 
 **migration + rollback**:
 - forward:`ADD COLUMN email text;`(純加欄、不重寫既有列 ⇒ 無鎖表風險)。
@@ -273,7 +273,7 @@ if (email === null) return { ok: false, reason: 'email_unusable' };
 | domain | `packages/domain/src/identity/address.ts:24-40` | 型別加欄 |
 | schema | `packages/schemas/src/index.ts:94-103`(`AddressInput`)、`notification-email.ts`(export 判斷式) | 🔴 **共用 schema**,add/update 兩路徑同時生效 |
 | adapter | `SupabaseAddressAdapter.ts:12-13`(+ 三個 select 呼叫點共用) | 讀取面 |
-| types | `database.types.ts` 重 gen(v2.1 合併件③;`:243` 生成型別、mapper derive 自它) | 🔴 重 gen 沖掉檔頭+二十一處手動校正,需重貼(§2.1) |
+| types | `database.types.ts` 重 gen(v2.1 合併件③;`:243` 生成型別、mapper derive 自它) | 🔴 重 gen 沖掉檔頭+全部手動校正(處數以 types 檔頭為準),需重貼(§2.1) |
 | 元件 | `InlineAddressForm.tsx`(**不落行號**,D 窗施工中) | 會員中心 + 結帳共用 |
 | 付款 | `cardholder.ts:45-76`、`charge-actions.ts:177-183` | 🔴 **錢的主幹** |
 
