@@ -54,6 +54,7 @@ import { MOCK_BRANDS, type MockBrand } from '@/data/mock-brands';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 import { buildCategoryTree } from '@/lib/category-taxonomy';
 import type { CatalogQuery } from '@/lib/catalog-query';
+import { NEW_ARRIVAL_WINDOW_DAYS } from '@/lib/catalog-query';
 import { catalogRowToUIProduct, type CatalogListRow } from '@/lib/catalog-page';
 
 /**
@@ -352,9 +353,28 @@ type CatalogRpcClient = {
       p_brand_slugs: string[] | null;
       p_price_min: number | null;
       p_price_max: number | null;
+      // #269-b:非 NULL = 只回這個時間點之後新增、且排除供應商批次日的商品。
+      // migration 20260811040000 加的第 11 個參數(有預設值 ⇒ 舊呼叫端不傳也照跑)。
+      p_new_since: string | null;
     },
   ): PromiseLike<{ data: CatalogRpcRow[] | null; error: { message: string } | null }>;
 };
+
+/**
+ * 退回查詢用的「很早的時間戳」(Sean `Q20 = C`:新品頁空了就顯示最近上架)。
+ *
+ * 🔴 **刻意傳一個很早的時戳,而不是傳 NULL**(主視窗 `Q23 = A`):
+ *   RPC 的批次日排除**只在 `p_new_since` 非 NULL 時才生效**。傳 NULL = 連供應商目錄搬遷
+ *   也一起算進「最近上架」⇒ 實測 total 會從 **108 變成 19,017**,而且往後翻就翻進
+ *   2026-07-24 那 6,188 件目錄傾倒 —— 正是 `Q15 = C` 要擋的東西。
+ *   兩者的**最新 50 件完全相同**,所以這個差別在第一頁看不出來,只在總數與第二頁之後現形。
+ */
+const NEW_ARRIVAL_FALLBACK_SINCE = '2000-01-01T00:00:00.000Z';
+
+function newArrivalWindowStart(): string {
+  const since = new Date(Date.now() - NEW_ARRIVAL_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  return since.toISOString();
+}
 
 export type CatalogPageResult = {
   products: MockProduct[];
@@ -362,28 +382,70 @@ export type CatalogPageResult = {
   error: boolean;
 };
 
-async function queryCatalogPage(
+type VehicleArg = { brand: string; model?: string; year?: number } | null | undefined;
+
+async function callCatalogRpc(
+  client: CatalogRpcClient,
   query: CatalogQuery,
-  vehicle?: { brand: string; model?: string; year?: number } | null,
-): Promise<CatalogPageResult> {
-  const client = createSupabaseAnonClient() as unknown as CatalogRpcClient;
+  vehicle: VehicleArg,
+  newSince: string | null,
+  overrides?: { offset?: number; limit?: number },
+): Promise<{ rows: CatalogRpcRow[]; total: number }> {
   const { data, error } = await client.rpc('search_catalog_by_vehicle', {
     p_brand: vehicle?.brand ?? null,
     p_model: vehicle?.model ?? null,
     p_year: vehicle?.year ?? null,
-    p_offset: (query.page - 1) * query.perPage,
-    p_limit: query.perPage,
+    p_offset: overrides?.offset ?? (query.page - 1) * query.perPage,
+    p_limit: overrides?.limit ?? query.perPage,
     p_sort: query.sort,
     p_category: query.category ?? null,
     p_brand_slugs: query.brandSlugs.length > 0 ? query.brandSlugs : null,
     p_price_min: query.priceMin ?? null,
     p_price_max: query.priceMax ?? null,
+    p_new_since: newSince,
   });
   if (error) throw error;
   const rows = data ?? [];
+  // 🔴 `total` 只搭在回傳列上 ⇒ 0 列時讀不到,只能回 0(既有限制,backlog #393)。
+  //    呼叫端不得把這個 0 直接當「總數 0」——見下面 queryCatalogPage 的探查。
+  return { rows, total: rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0 };
+}
+
+async function queryCatalogPage(
+  query: CatalogQuery,
+  vehicle?: { brand: string; model?: string; year?: number } | null,
+): Promise<CatalogPageResult> {
+  const client = createSupabaseAnonClient() as unknown as CatalogRpcClient;
+  const wantsNew = query.filter === 'new';
+  // 🔴 **只算一次**(codex 段二審查 MF-3):本查詢與探查若各算一次 `now()-7d`,
+  //    落在窗邊界的商品可能被前者納入、數毫秒後被後者排除 ⇒ 探查回 0 ⇒ 誤判成「沒有新品」而退回。
+  const windowStart = wantsNew ? newArrivalWindowStart() : null;
+  let result = await callCatalogRpc(client, query, vehicle, windowStart);
+
+  if (wantsNew && result.rows.length === 0) {
+    // 🔴 0 列有**兩種**成因,而它們該做的事相反(主視窗 `Q24 = A`):
+    //   ① 這個視窗真的沒有新品 → 退回顯示最近上架(Sean `Q20 = C`「不准空白」)
+    //   ② 有新品,但客人翻過了尾頁(例如 25 件卻要第 2 頁)→ 就該是空的,**不可退回**
+    //  只看「這頁有沒有列」分不出來,因為 total 搭在列上、0 列時讀不到(#393)。
+    //  ⇒ 補一次 offset=0/limit=1 的窗內探查問總數。只在 0 列這條路上發生,一般瀏覽零成本。
+    //  少了這道:第 1 頁 25 件新品、第 2 頁冒出 108 件退回商品 = 同一次瀏覽兩種清單。
+    const probe = await callCatalogRpc(client, query, vehicle, windowStart, {
+      offset: 0,
+      limit: 1,
+    });
+    if (probe.total === 0) {
+      result = await callCatalogRpc(client, query, vehicle, NEW_ARRIVAL_FALLBACK_SINCE);
+    } else {
+      // 🔴 翻過尾頁:這頁沒有列,但**總數不是 0**(codex 段二審查 MF-4)。
+      //    直接回 result.total(=0)會讓分頁列說「共 0 件」而客人明明在第 2 頁 —— 而且那正是
+      //    上面註解自己說「不得把 0 當總數」的那個錯。探查已經知道真總數了,用它。
+      result = { rows: result.rows, total: probe.total };
+    }
+  }
+
   return {
-    products: rows.map((row) => catalogRowToUIProduct(row.item as CatalogListRow)),
-    total: rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0,
+    products: result.rows.map((row) => catalogRowToUIProduct(row.item as CatalogListRow)),
+    total: result.total,
     error: false,
   };
 }
@@ -405,7 +467,7 @@ const getCatalogPageCached = unstable_cache(
       } : null,
     );
   },
-  ['catalog-page-v2'],
+  ['catalog-page-v3'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 

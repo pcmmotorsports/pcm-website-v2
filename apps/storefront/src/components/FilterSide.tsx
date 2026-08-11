@@ -211,8 +211,11 @@ export function FilterSide({
   extras,
   setExtras,
   countOf = SERVER_COUNTS_ONLY,
+  hideSectionCounts = false,
 }: {
   data: FilterSideData;
+  /** 新品頁(Sean `Q21 = B`)不顯示任何件數,含**區段標題**的總數(它繞過 countOf)。 */
+  hideSectionCounts?: boolean;
   hideVehicle?: boolean;
   /** #220-B1:真資料單一分類「碳纖維部品」、零件分類篩選無意義 → 結構性隱藏(視覺 Sean 後續 design skill 調) */
   hideCategory?: boolean;
@@ -263,8 +266,12 @@ export function FilterSide({
         </Accordion>
       )}
 
+      {/* 🔴 區段件數不走 resolver:resolver 的 key 是 facet key,拿它裝「區段標題」會在
+          選了車時回 null ⇒ 連現況都一起弄壞。改用明確的 hideSectionCounts
+          (codex 段二審查 MF-5:此處原本直接用 data.brands.length、完全繞過件數控制,
+           新品頁側欄仍顯示全目錄品牌數 (16),違反 Sean `Q21 = B`)。 */}
       {!hideBrand && (
-        <Accordion title="品牌" defaultOpen={false} count={data.brands.length}>
+        <Accordion title="品牌" defaultOpen={false} count={hideSectionCounts ? undefined : data.brands.length}>
           <div className="fs-brand-search">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
