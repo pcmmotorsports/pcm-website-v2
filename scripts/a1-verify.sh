@@ -614,5 +614,8 @@ else
 fi
 
 echo
-echo "════════ A1 驗證結果:PASS=$PASS / FAIL=$FAIL ════════"
+# 🔴 2026-08-11 W-b:總結行的 `PASS=n FAIL=n` 之間**不能有 ` / `** —— w7-coverage 的 recorder
+#    用 `sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/…/p'` 取值,舊字面 `PASS=n / FAIL=n`
+#    解析不到 ⇒ 收據記成 `PASS=0 FAIL=-1` 恆紅。**只改分隔字元,判定邏輯與 exit code 未動。**
+echo "════════ A1 驗證結果:PASS=$PASS FAIL=$FAIL ════════"
 [ "$FAIL" -eq 0 ] || exit 1
