@@ -283,5 +283,9 @@ if [ "$MODE" = "all" ]; then
 fi
 
 echo
-echo "════ A7-t 驗證結果:通過 ${PASS} / 失敗 ${FAIL} ════"
+# 🔴 2026-08-11 W-a:總結行加上 `PASS=n FAIL=n` 字面。理由是**機械的**,不是美觀:
+#    w7-coverage 的 recorder 用 `sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/…/p'` 取值,
+#    舊字面「通過 N / 失敗 N」沒有 `PASS=` ⇒ 解析不到 ⇒ 收據記成 `PASS=0 FAIL=-1` 恆紅。
+#    ⚠️ **只加輸出字面,判定邏輯與 exit code 一個字沒動**(下一行的 `[ "$FAIL" -eq 0 ] || exit 1` 原樣)。
+echo "════ A7-t 驗證結果:PASS=$PASS FAIL=$FAIL ════"
 [ "$FAIL" -eq 0 ] || exit 1
