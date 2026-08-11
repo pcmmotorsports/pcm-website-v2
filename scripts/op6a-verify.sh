@@ -347,7 +347,14 @@ mk_refund () {  # $1=order_id $2=事件清單(空=只有父列)
   rid=$(psql "$URL" -qtA -v ON_ERROR_STOP=1 -c "
     INSERT INTO public.payment_refunds (attempt_id, idempotency_key, amount, currency, strong_key, lease_token)
     SELECT a.id, substr(replace(gen_random_uuid()::text,'-',''),1,20), 1100, 'TWD',
-           'sk_' || replace(gen_random_uuid()::text,'-',''), 0
+           -- 🔴 2026-08-11:原本是 'sk_' || uuid,**無前綴** ⇒ 被 L5b-2 片 2c 新加的
+           --    `pr_strong_key_domain_chk`(`^(rec|bank):…`,`20260811080000`)拒掉 23514,
+           --    本 harness 整支 0 格。這是 2c 收緊值域的爆炸半徑,不是 op6a 自己的缺陷。
+           -- 🔴 **選 `bank:` 不選 `rec:` 是有理由的**:本列刻意不寫 `rec_trade_id`(留 NULL),
+           --    而 backlog #403 未來要加的等式條款只約束 `rec:` 那一支
+           --    (`strong_key = 'rec:' || rec_trade_id`)⇒ 寫 `rec:` 會讓這個 fixture 在 #403 落地當天再爆一次。
+           --    `bank:` 對本 harness 的被測面(結算金額彙總)完全中性,且**向前相容**。
+           'bank:' || replace(gen_random_uuid()::text,'-',''), 0
       FROM public.payment_charge_attempts a WHERE a.order_id='$1'::uuid LIMIT 1
     RETURNING id::text;" | tail -1) || die "mk_refund 失敗"
   local n=1
