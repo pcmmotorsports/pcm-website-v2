@@ -30,7 +30,9 @@ import { toMoneyAmount } from '@pcm/domain';
  * - deps 由 **cookieless** composition factory(getSettleChargeDeps)注入:attempts=主軌-only
  *   PgChargeAttemptAdapter(webhook/sweeper 無 cookie;markCharged 主軌刻意不用 fallbackToken)。
  * - 金額 = `attempt.orderTotal`(read RPC 窄權回、非 findTotal RLS own-only);整數零浮點。
- * - log 僅 orderId/attemptId/recTradeId/recordStatus(零 PII/卡資料/token)。
+ * - log 僅 orderId/attemptId/recTradeId/recordStatus + **RF7 起的 orderPaymentStatus/attemptStatus**
+ *   (零 PII/卡資料/token —— 新增兩欄都是**內部 enum**,不含客人資料;關卡 2 R2 nit:
+ *   原字面「僅…四欄」在 RF7 之後與事實不符,已補齊而非放寬)。
  * - settleCharge **不下 UI/cart 決策**(retry 三裁決的 duplicate/重刷/hold 由 action 層〔3DS-5b〕映)。
  *
  * @see docs/specs/2026-06-14-m3-3ds-1b-settlecharge-plan.md §2/§5-§8
@@ -179,12 +181,71 @@ export async function settleCharge(
       return { kind: 'failed' };
     }
     if (verdict.kind === 'refund_anomaly') {
-      // 2=PARTIALREFUNDED / 3=REFUNDED:Phase 1 無退款流程 → 異常、不自動放行(S2=B);告警。
-      console.error('[settleCharge] 🔴 Record 顯退款態(Phase 1 無退款流程、不自動放行;退款片 S2=B)', {
-        orderId,
-        attemptId: attempt.attemptId,
-        recordStatus: tr.recordStatus,
-      });
+      // 2=PARTIALREFUNDED / 3=REFUNDED。
+      // 🔴 **RF7(2026-08-11):這裡改的是「訊息」,不是「處置」。**
+      //   ~~原字面「Phase 1 無退款流程」~~ 已作廢 —— **退款流程 2026-08 就上線了**
+      //   (A7c 線:`admin_initiate_order_refund`/`admin_finalize_order_refund`),
+      //   那句話今天是假的,而且它讓看 log 的人以為系統壞了。
+      //
+      //   **兩路的回傳值刻意逐字相同**(`pending/record_unverified`)⇒ 零裁決變更、
+      //   零新 reason、零 caller 連動。分流只在 log 的層級與措辭。
+      //   ⚠️ **但這不是「零行為變更」**:本檔的測試直接斷言這行 log
+      //   (兩路回傳值一樣 ⇒ log 是唯一可觀察的差別)⇒ 動 log 就是動可觀察行為。
+      //
+      //   為什麼可以不再用 error 級:訂單已是 refunded/partiallyRefunded 時,
+      //   「attempt 還活著」這件事**另有指定回收路徑** ——
+      //   `flag_non_unpaid_active_attempts`(`20260615120001:159-173`,每輪 sweeper 跑,
+      //   條件 `payment_status NOT IN ('unpaid','paid')` → 標 `needs_manual_review`)。
+      //   ⇒ 這裡再叫一次 error 不會多解決任何事,只會淹掉真正的異常。
+      //   🔴 **未查(不得當成「已經有解」)**:那個人工佇列**有沒有人處理**、
+      //      以及主動告警 summary 是否只統計 `unpaid` —— 兩件都沒查(RF7-fix plan §1)。
+      //
+      //   🔴 **`paid` 這一格到不了這裡**:上面 `:68` 的 `=== 'paid'` 短路在查 Record 之前就 return
+      //   ⇒ 訂單已 paid 而 TapPay 已退款(**Portal 退、或我們自己 accepted→finalize 之間/finalize 失敗**)
+      //   時**完全無聲**。本片刻意不碰(改它等於動 paid 短路 = 錢的主路徑);
+      //   全圖見 `docs/specs/2026-08-11-rf7-recon-settle-trigger-matrix.md`。
+      // 🔴 **關卡 2 折面(三條)——「方向一致」現在是由構造成立的,不是形容詞**:
+      //   ① **配對要對**:`record_status=3`(全退)只配本地 `refunded`;`=2`(部分退)只配 `partiallyRefunded`。
+      //      交叉的兩格(本地全退 × Record 部分退、本地部分退 × Record 全退)是**方向就矛盾**,
+      //      **不比金額也判得出來** ⇒ 走 error。(關卡 2:「未比金額不能安全降級」——這條把不需要
+      //      金額就能抓的那一半抓起來;需要金額的那一半仍在 §誠實邊界,交退款線後續片。)
+      //   ② **回收路徑只收 `pending`/`charged`**:`flag_non_unpaid_active_attempts`
+      //      (`20260615120001:165` 逐字 `a.status IN ('pending','charged')`),
+      //      而 `ActiveChargeAttempt.status` **含 `released`**(`types.ts:558`)
+      //      ⇒ `released` 沒有那條回收路徑,**降 info 會讓它完全消失** ⇒ 排除在 info 路之外。
+      //      (第一版註解宣稱「另有指定回收路徑」對 `released` 是假的 —— 現在改成**由條件保證**。)
+      //   🔴 **未查(降 info 的前提只成立到這裡為止)**:那條回收路徑做的事是
+      //      **標 `needs_manual_review`**,而「那個佇列有沒有人處理」「主動告警 summary 是否
+      //      只統計 `unpaid`」**兩件都沒查**(RF7-fix plan §1 同一段)。
+      //      ⇒ 本分支降 info 的正當性是「**有指定去向**」,**不是**「已經有人在處理」。
+      const recordPairsWithLocal =
+        (tr.recordStatus === 3 && attempt.orderPaymentStatus === 'refunded') ||
+        (tr.recordStatus === 2 && attempt.orderPaymentStatus === 'partiallyRefunded');
+      const hasRecoveryPath = attempt.status === 'pending' || attempt.status === 'charged';
+      if (recordPairsWithLocal && hasRecoveryPath) {
+        console.info('[settleCharge] Record 顯退款態;與本地退款方向相符(金額未核)', {
+          orderId,
+          attemptId: attempt.attemptId,
+          recordStatus: tr.recordStatus,
+          orderPaymentStatus: attempt.orderPaymentStatus,
+        });
+      } else {
+        // 🔴 **落進這一路的原因有兩種、訊息必須分開**(關卡 2 R2 MF1:
+        //   `released` + 配對正確時,兩邊其實**沒有**對不上 —— 問題是沒有回收路徑,
+        //   一句「與本地狀態對不上」對那格是**誤報**)。
+        console.error(
+          recordPairsWithLocal
+            ? '[settleCharge] 🔴 Record 顯退款態且與本地方向相符,但此 attempt 無自動回收路徑 — 需人工結案'
+            : '[settleCharge] 🔴 Record 顯退款態,與本地狀態對不上 — 需人工查 TapPay',
+          {
+            orderId,
+            attemptId: attempt.attemptId,
+            recordStatus: tr.recordStatus,
+            orderPaymentStatus: attempt.orderPaymentStatus,
+            attemptStatus: attempt.status,
+          },
+        );
+      }
       return { kind: 'pending', reason: 'record_unverified' };
     }
     // auth_or_pending(record_status=4 PENDING 待付款)或 unverified(未知碼)
