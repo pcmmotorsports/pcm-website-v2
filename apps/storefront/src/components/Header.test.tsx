@@ -156,8 +156,8 @@ describe('Header', () => {
         //    本 case 沒帶 currentPage ⇒ 吃預設 'products' ⇒ 走這一支。首頁那一支見下一條測試。
         ['依車輛搜尋', '/products?pick=vehicle'],
         ['品牌', '/brands'], // ✅ D3c-3 落地、D3c-5 接回;與頁尾「品牌專區」同一個目的地
-        // ⚠️ `?filter=new` **目前沒有任何地方在讀**(`parseCatalogQuery` 不認 `filter`)
-        //    ⇒ 按下去是未篩選全目錄。真篩選 = #269-b(要動 RPC 投影帶 created_at)。
+        // ✅ `?filter=new` 自 2026-08-11 #269-b 段二起是真篩選(`parseCatalogQuery` 認得它、
+        //    換算近 7 天 `p_new_since` 打進 RPC;空窗退回最近上架)。原註解「目前沒有任何地方在讀」已作廢。
         ['新品', '/products?filter=new'],
         // 🔴 「特價」2026-08-11 移除(#269-a、Sean:概念還不存在)—— 這一行**刻意留成註解**,
         //    而不是無聲消失:整表 `toEqual` 是嚴格比對,誰把它加回來就必須先來這裡改,

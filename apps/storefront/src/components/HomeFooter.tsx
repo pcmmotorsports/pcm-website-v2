@@ -8,8 +8,9 @@
 // onNav target 對映(本檔 **6 條**;2026-08-11 #269-a 移除「特價專區」後由 7 條變 6 條):
 //   'catalog' → /products / 'brands' → **/brands**(D3c-5 改回;當年 Q4-S5 指 /products 的理由是
 //      「品牌專區頁留 Phase 2、route 不存在」,那個前提在 D3c-3 落地時消失)
-//   'new' → /products?filter=new(🔴 `?filter=` **全站沒有任何地方在讀**、按了等於未篩選全目錄;
-//      真篩選 = backlog #269-b,要動 RPC 投影帶 created_at)
+//   'new' → /products?filter=new(**2026-08-11 #269-b 段二起是真的篩選** —— `parseCatalogQuery`
+//      認得 `filter=new`、換算成近 7 天的 `p_new_since` 打進 RPC;窗內沒東西時退回顯示最近上架
+//      (Sean Q20=C「不准空白」)。原註解寫的「全站沒有任何地方在讀、按了等於未篩選全目錄」已作廢)
 //   ~~'sale' → /products?filter=sale~~ **2026-08-11 移除**(#269-a;Sean:特價概念還不存在)
 //   'install' → /install / 'stores' → /stores(🔶 2026-08-06 第2批已建這兩條路由、掛「新功能即將上線」
 //      ⇒ 原註解的「路由不存在=404」已失效;backlog #269 的 `/install` `/stores` 那半已解)

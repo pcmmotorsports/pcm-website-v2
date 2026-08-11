@@ -29,9 +29,11 @@ function Harness({
   facetCounts,
   selectedCategory,
   selectedBrands,
+  hideSectionCounts,
 }: {
   hideVehicle?: boolean;
   vehicle?: boolean;
+  hideSectionCounts?: boolean;
   facetCounts?: VehicleFacetCounts | null;
   /** 🔴 直接注入「已選中」的狀態:0 件的列是 disabled 的,用點擊**永遠到不了**這個組合
    *  (2026-07-31 突變測試抓到:原本用「件數 3 的列點一下」測,`&& !isMainActive` 拿掉仍全綠)。 */
@@ -52,6 +54,7 @@ function Harness({
       data={data}
       countOf={makeFacetCountResolver(Boolean(vehicle), facetCounts ?? null)}
       hideVehicle={hideVehicle}
+      hideSectionCounts={hideSectionCounts}
       cascade={cascade}
       dispatch={dispatch}
       extras={extras}
@@ -164,6 +167,31 @@ describe('FilterSide', () => {
     // 「其他」accordion 預設收合、展開後仍應無「僅顯示現貨」label(flag 隱藏)
     fireEvent.click(screen.getByText('其他'));
     expect(screen.queryByText('僅顯示現貨')).toBeNull();
+  });
+});
+
+// #269-b MF-8(codex 段二審查):`hideSectionCounts`(新品頁不顯示件數,Sean Q21=B)在
+// 2026-08-11 落地時**一格測試都沒有** —— Harness 連這個 prop 都沒接。
+//
+// 🔴 修法刻意不是「把 `.fs-section-count` 併進下面 #306 的 `counts()` helper」(codex 的字面建議):
+//   那兩個是**不同的不變式**,併了會弄紅 #306 的**兩格**(「件數還沒回來」與「沒有這個分類的 key」;
+//   2026-08-11 實跑併進去驗過,不是推論)——
+//   `.fs-section-count` 是「品牌區段共有幾個品牌」的總數,#306 管的是「這個 facet 對應幾件商品」;
+//   選了車卻件數未到時,前者本來就該照常顯示。⇒ 另立一組守門,不動 #306 那三格。
+describe('FilterSide 區段件數(#269-b Q21=B:新品頁不顯示件數)', () => {
+  const sectionCounts = (c: HTMLElement) => c.querySelectorAll('.fs-section-count').length;
+
+  it('一般情況 → 品牌區段標題顯示件數', () => {
+    const { container } = render(<Harness />);
+    expect(sectionCounts(container)).toBeGreaterThan(0);
+  });
+
+  it('🔴 hideSectionCounts → 區段標題的件數消失(項目本身仍在)', () => {
+    const { container } = render(<Harness hideSectionCounts />);
+    expect(sectionCounts(container)).toBe(0);
+    // 只拿掉數字、不拿掉可選項:整個品牌段被藏起來也會讓上一行變綠。
+    fireEvent.click(screen.getByText('品牌'));
+    expect(container.querySelectorAll('.fs-cbx-row').length).toBeGreaterThan(0);
   });
 });
 
