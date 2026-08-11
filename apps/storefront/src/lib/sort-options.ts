@@ -7,18 +7,16 @@
 
 export type SortOption = { value: string; label: string };
 
-// 🔴 **這份清單與 `catalog-query.ts` 的 `CATALOG_SORT_VALUES` 是兩份、而且不相等。**
-//    後者(server 端白名單)只認 `recommend / price-asc / price-desc`;不在白名單裡的
-//    `?sort=` 值會被 `parseCatalogQuery` **靜默回退成 recommend**
-//    ⇒ 列在這裡、卻不在白名單裡的選項 = **客人選了排序完全沒變的假選項**。
-//    ⚠️ 兩份清單之間**沒有任何守門在比對**(檔頭那段講的是「手機/桌機各寫一份」那個問題,
-//    不是這個)。2026-08-11 #269-a 發現時,五個選項裡有兩個是假的。
+// 🔴 **這份清單與 `catalog-query.ts` 的 `CATALOG_SORT_VALUES` 是兩份。**
+//    後者是 server 端白名單;不在白名單裡的 `?sort=` 值會被 `parseCatalogQuery`
+//    **靜默回退成 recommend** ⇒ 列在這裡、卻不在白名單裡的選項
+//    = **客人選了排序完全沒變的假選項**。2026-08-11 #269-a 發現時,五個選項裡有兩個是假的。
+//    ✅ 現在兩份清單之間**有守門在比對**了(`catalog-query.test.ts` #391),
+//    而且 2026-08-11 #269-b 段二落地後,**兩份清單已經相等、假選項歸零**。
 export const SORT_OPTIONS: readonly SortOption[] = [
   { value: 'recommend', label: '推薦排序' },
-  // ⚠️ **今天是假的**:`new` 不在 `CATALOG_SORT_VALUES` 裡 ⇒ 選了等於推薦排序。
-  //    刻意留著 —— #269-b(RPC 投影帶 `created_at`)就是要把它做成真的,
-  //    那片落地時把 `new` 加進白名單即可、不必重接 UI。
-  //    🔴 若 #269-b 被取消或無限期延後,這一行要跟著拿掉(理由同下面被移除的「折扣優先」)。
+  // ✅ 2026-08-11 #269-b 段二起是**真的**:`new` 已進 `CATALOG_SORT_VALUES`,
+  //    server 走 migration 20260811040000 的 `p_sort='new'`(`created_at DESC`)。
   { value: 'new', label: '最新上架' },
   { value: 'price-asc', label: '價格低到高' },
   { value: 'price-desc', label: '價格高到低' },

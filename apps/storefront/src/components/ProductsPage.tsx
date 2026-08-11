@@ -264,6 +264,9 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   //   抽出去的理由 = 鐵則 6,本檔曾一度到 405 行)。輸入只認 URL、不看 cascade:後者要等
   //   hydration 才還原,用它判斷會在深連結進站時先閃一次全站數。
   const countOf = useFacetCountResolver(searchParams);
+  // Sean `Q21 = B`:新品頁側欄不顯示件數。resolver 已擋掉逐項件數,
+  // 區段標題的總數(品牌 Accordion 的 (16))繞過 resolver ⇒ 要另外關(codex 段二審查 MF-5)。
+  const hideSectionCounts = searchParams.get('filter') === 'new';
 
   // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
   // 否則會把 total/page 語意拆成兩套而造成漏項。
@@ -332,6 +335,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             現況單一 RPM CARBON、多品牌上架後自動長出)。 */}
         <FilterSide
           countOf={countOf}
+          hideSectionCounts={hideSectionCounts}
           data={data}
           hideVehicle
           hideColor

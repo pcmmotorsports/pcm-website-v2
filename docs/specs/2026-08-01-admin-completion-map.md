@@ -19,6 +19,12 @@
 | 19「admin `order_cancellations` 0 命中=畫面全缺(A13)」 | **假**,取消 UI 四支都在且已掛 | `cancel-order-forms` / `cancel-review-section` / `cancel-form-body` / `cancel-result-panel`;掛載點 `order-detail.tsx:21`(`OrderCancelBlock`) |
 | 17「`TapPayChargeAdapter.refund()` 仍一行 throw、全樹 `.refund(` 呼叫端 = 0」 | **假**,已實作且有呼叫端 | `packages/adapters/src/tappay/TapPayChargeAdapter.ts:241`;呼叫端 `apps/admin/src/lib/payment/refund-actions.ts:318` |
 | 13「改訂單內容 ❌ 無」 | **假**(至少有表單) | `components/orders/order-edit-form.tsx`,掛載點 `order-detail.tsx:17` |
+| §-1 表「admin UI `shipments` 關鍵字 0 命中=畫面全缺」(**08-11 D 窗回報、E 窗複量**) | **假** | `grep -rl shipment apps/admin/src/components --include='*.ts' --include='*.tsx' \| grep -v '\.test\.' \| wc -l` = **8**(其中檔名帶 shipment 的非測試檔 5 支) |
+| §0 與 §2 第 3 項「備註 action **零呼叫端**」(同上) | **假** | `grep -rln appendOrderNoteAction apps/admin/src --include='*.tsx' \| grep -v '\.test\.'` = **1**(`note-compose-form.tsx`)⇒ 不是零 |
+
+⚠️ **這兩列的數字與 D 窗回報的不同(它報 7 與 2),因為口徑不同,不是誰數錯** ——
+「7」應是只算檔名帶 `shipment` 的另一種切法、「2」應是把渲染 `NoteComposeForm` 的 `order-detail.tsx` 也算成呼叫端。
+⇒ 這正是本檔檔頭那條規則的意思:**數字要跟著數法一起寫**,否則兩個都對的人會以為對方錯。
 
 ⚠️ 第三句的檔案路徑在 08-09 版寫成 `packages/adapters/src/payment/TapPayChargeAdapter.ts` ——
 **那個路徑今天不存在**(真身在 `…/src/tappay/`)。引用舊行號前先 `find`。
@@ -81,7 +87,7 @@
 | 3 | 訂單寫備註 | 🟡 | **✅** | `NoteComposeForm` 經 `order-detail.tsx` 掛上詳情頁(A10a 落地) |
 | 5 | 標「已向供應商下單」逐品項 | 🟡 | **✅*** | `ItemProcurementSection`+form+供應商下拉掛上詳情頁;*=待 Sean 肉眼 |
 | 6 | 記供應商單號/預計到貨 | 🟡 | **✅*** | 同上表單;`supplier_order_no` migration 已 apply;跨單搜尋(A10c2)未驗 |
-| 8/9 | 快遞單號/追蹤 | ❌ | **🟡** | 出貨線 DB 全 apply(shipments 家族+九支 RPC+冪等+死結重試);admin UI `shipments` 關鍵字 0 命中=畫面全缺 |
+| 8/9 | 快遞單號/追蹤 | ❌ | **🟡** | 出貨線 DB 全 apply(shipments 家族+九支 RPC+冪等+死結重試);~~admin UI `shipments` 關鍵字 0 命中=畫面全缺~~ 🔴 **這句 08-11 已過期,見 §-2.1**(D 窗回報、E 窗複量) |
 | 17 | 退款操作 | 🟡 | **🟡➚** | `TapPayChargeAdapter.refund()` **已實作**(08-03 的一行 throw 已亡)+admin refund UI 7 檔+refund-exceptions 頁(`isRefundUiEnabled` flag 閘);缺=worker/對帳線+flag 未開 |
 | 19 | 取消訂單 | 🟡 | 🟡 | DB+RPC+死結重試全齊;admin `order_cancellations` 0 命中=畫面全缺(A13) |
 
@@ -152,7 +158,7 @@
 |---|---|---|---|---|---|
 | 1 | 看今天要處理什麼 | ❌ | 無 | 待辦檢視整條 | 第 3 批區塊⑧(依賴收款帳本 + 出貨) |
 | 2 | 看訂單明細 | ✅ | — | — | — |
-| 3 | 訂單寫備註 | 🟡 | ✅ 全鏈到 action(A6 + A9a-1 + A9d2-1 ✅) | **只剩畫面**(action 零呼叫端) | **A10a**(1 片) |
+| 3 | 訂單寫備註 | 🟡 | ✅ 全鏈到 action | ~~只剩畫面(action 零呼叫端)~~ 🔴 **08-11 已過期**:A10a 已落地,呼叫端存在,見 §-2.1 | ~~**A10a**~~ 已完成 |
 | 4 | 標商品進度(批次) | 🟡 | 既有 | 批次選取與批次動作 | **A12a / A12b**(2 片) |
 | 5 | 標「已向供應商下單」逐品項 | 🟡 | ✅ `order_item_procurement` + 供應商主檔線收工(S1b 換 FK 軸) | RPC + 讀模型 + 表單 | **A5a / A9a-2 / A9c / A10b** |
 | 6 | 記供應商單號 / 預計到貨 | 🟡 | ✅ 欄位齊 + 供應商可下拉選(S3b) | 同上 + 跨單搜尋 | **A5a / A10b / A9b2 / A10c2** |

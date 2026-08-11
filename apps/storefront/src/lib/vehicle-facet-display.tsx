@@ -117,11 +117,25 @@ export function useVehicleFacetCounts(vehicleSlug: string | null): VehicleFacetC
  * 🔴 抽成 hook 而非留在 ProductsPage(codex 關卡2 C7):`ProductsPage.tsx` 已達 **405 行**、
  *    踩到鐵則 6 的 400 上限(我在 commit body 寫的 396 是上一版事實、加料後沒重數 = 字面漂移)。
  */
+/**
+ * 新品頁一律不顯示件數(Sean 2026-08-11 `Q21 = B`)。
+ *
+ * 🔴 為什麼不是「讓 facet 也吃新品篩選」:facet 的件數**刻意不疊其他篩選**
+ *   (`vehicle-facet-counts.ts` 檔頭明載,那是 #306 的設計決定)⇒ 接上 `?filter=new` 之後,
+ *   側欄會說「碳纖維部品 2,130」而列表只有 10 件。要讓數字對得上就得把 `p_new_since`
+ *   灌進 facet 的 108 次 fan-out,而**沒選車那條路今天根本不呼叫 RPC**(讀 taxonomy 靜態 count)
+ *   ⇒ 得為它新開一條算法,代價是沒選車時也要發 108 次查詢(今天是 0 次),
+ *   還會推翻 #306 明文寫下的 facet 語意。
+ * ⇒ 選擇不顯示。**這不是新狀態**:取數失敗時面板本來就是這樣(見上面 resolver 的 fail-safe)。
+ */
+const NO_COUNTS: FacetCountResolver = () => null;
+
 export function useFacetCountResolver(searchParams: SearchParamsLike): FacetCountResolver {
   const vehicleSlug = vehicleUrlParam(searchParams);
-  const counts = useVehicleFacetCounts(vehicleSlug);
+  const isNewArrivals = searchParams.get('filter') === 'new';
+  const counts = useVehicleFacetCounts(isNewArrivals ? null : vehicleSlug);
   return useMemo(
-    () => makeFacetCountResolver(vehicleSlug !== null, counts),
-    [vehicleSlug, counts],
+    () => (isNewArrivals ? NO_COUNTS : makeFacetCountResolver(vehicleSlug !== null, counts)),
+    [isNewArrivals, vehicleSlug, counts],
   );
 }

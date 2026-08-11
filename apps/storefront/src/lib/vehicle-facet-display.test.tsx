@@ -15,6 +15,7 @@ import {
   makeFacetCountResolver,
   facetCategoryKey,
   useVehicleFacetCounts,
+  useFacetCountResolver,
 } from './vehicle-facet-display';
 
 const COUNTS = { categories: { 碳纖維部品: 13, '碳纖維部品 · 土除': 0 }, brands: { lightech: 84 } };
@@ -178,5 +179,31 @@ describe('useVehicleFacetCounts', () => {
     rerender({ slug: 'honda:cbr1000rr-sp:2021' });
     expect(signals[0]?.aborted).toBe(true);
     expect(signals[1]?.aborted).toBe(false);
+  });
+});
+
+// ── #269-b 段二:新品頁不顯示件數(Sean `Q21 = B`)────────────────────────
+//
+// 🔴 codex 段二審查 MF-7 實錘:本檔原本**完全沒有 import 或呼叫 `useFacetCountResolver`**
+//    ⇒ 把 `filter=new` 那整段分支刪掉,測試仍然全綠 = Q21 沒有任何行為守門。
+describe('#269-b useFacetCountResolver:新品頁一律不給件數', () => {
+  const call = (qs: string) => {
+    const { result } = renderHook(() => useFacetCountResolver(new URLSearchParams(qs)));
+    return result.current;
+  };
+
+  it('🔴 filter=new ⇒ 任何 bucket/key 都回 null(即使有 serverCount)', () => {
+    const countOf = call('filter=new');
+    expect(countOf('brands', 'akrapovic', 16)).toBeNull();
+    expect(countOf('categories', '碳纖維部品', 2130)).toBeNull();
+  });
+
+  it('對照組:沒有 filter=new 時,沒選車仍沿用 serverCount(現況不得被改壞)', () => {
+    const countOf = call('');
+    expect(countOf('brands', 'akrapovic', 16)).toBe(16);
+  });
+
+  it('對照組:不認得的 filter 值不觸發隱藏', () => {
+    expect(call('filter=sale')('brands', 'akrapovic', 16)).toBe(16);
   });
 });
