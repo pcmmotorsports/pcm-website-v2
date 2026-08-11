@@ -408,6 +408,10 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    admin_search_orders (zero DDL, zero data, zero shipping objects; grep = 0 hits)
 #    => shipping oracles unchanged, no md5 re-measure needed. Main-window re-pin, D-line migration.
 #    Ledger: full re-record done (w7-coverage record all); MD5_HELPER_4AXIS unchanged.
+# 🔴 重釘 2026-08-11(L5b-2 片 2a):20260811030000 -> 20260811060000 = claim RPC 回傳加 superseded_at(P 窗)。
+#    只動 claim 的**回傳欄**(DROP+重建),述詞一字未動;grep recompute|order_item_qty|oiqs|shipment
+#    於新 migration = 0 命中(P 窗實跑)⇒ MD5_HELPER_4AXIS 未動。帳:同批重錄(record all)。
+#    🔴 本檔的錨**不叫 LINE_TIP**(:419 自陳的坑)⇒ 這次是 grep 舊字面抓到的,不是 grep 變數名。
 # 🔴 重釘 2026-08-11(OP6-a):20260811020000 -> 20260811030000 = 結清偵測唯讀 RPC(B 窗)。
 #    零 DML 零表 DDL ⇒ 與 S2b 被測面無交集、預期 MD5_HELPER_4AXIS 不變(未重定義被釘 helper)。
 # 🔴 重釘 2026-08-11(#277 段一):20260811010000 -> 20260811020000 = taxonomy inherited view(S 窗)。
@@ -447,8 +451,8 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    ⚠️ **D 窗原本寫的理由是錯的**(「grep 命中兩處皆註解」):甲片正是**透過 trigger 間接動 oiqs**,
 #    而**文字 grep 對 trigger 的間接效果全盲** —— 那條理由在這片剛好不成立,已由 B 窗實測更正。
 #    (判準本身要不要改成「有沒有重定義被釘的 helper」= B 窗另出小片,不在甲片。)
-[ "$NEWEST_TS" = "20260811030000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260811030000 ——
+[ "$NEWEST_TS" = "20260811060000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260811060000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 

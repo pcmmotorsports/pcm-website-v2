@@ -278,7 +278,7 @@ QM() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qt
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260811030000"  # 2026-08-11 重釘 20260811020000->20260811030000(OP6-a 對帳偵測 RPC 落檔=B 窗;主視窗收割線重釘;唯讀函式零 DML、對各線被測面無交集)
+LINE_TIP="20260811060000"  # 2026-08-11 重釘 20260811030000->20260811060000(L5b-2 片 2a=P 窗;claim RPC DROP+重建、回傳三欄->四欄。**述詞一字未動**〔md5(split_part(prosrc,'RETURNING',1)) 兩版皆 f15644b5…〕⇒ 對本檔被測面無交集;唯一連動是 l5b0-verify 的 claim 身分閘,已同批重釘)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
