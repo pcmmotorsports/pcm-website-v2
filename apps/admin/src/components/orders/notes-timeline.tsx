@@ -111,7 +111,7 @@ export function NotesTimeline({
           差別只在我們**有沒有讀到**。順序寫反就等於把讀取失敗顯示成「這單沒人寫過備註」。 */}
       {unreadable ? (
         <p className='mb-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>
-          這一單的備註沒有載入(讀取失敗)—— 這**不是**「沒有備註」,是「不知道有沒有」。
+          這一單的備註沒有載入(讀取失敗)—— 這<strong>不是</strong>「沒有備註」,是「不知道有沒有」。
           請重新整理;若仍相同,請通知系統維護。在這之前不要據此判斷有沒有告知過客人。
         </p>
       ) : view.entries.length === 0 ? (

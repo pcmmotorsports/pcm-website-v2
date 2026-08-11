@@ -153,7 +153,7 @@ export function isNotesUnreadable(
 }
 
 /**
- * U6 告知義務三態(契約 C4:`types.ts:483-489`)。
+ * U6 告知義務三態(契約 C4:`packages/domain/src/order/types.ts` 的 `customerNotified` docstring)。
  * 🔴 `null` 必須先以 `=== null` 分流 —— 寫成 `value ?? false` / truthy 判斷就是把「無法判定」
  * 顯示成「尚未告知」,兩個方向都可能錯(被截掉的更正列/告知列),明文禁項。
  * 🔴 **#328:`unknown` 的文案要分兩種**。舊版只寫「備註筆數超過載入上限」——
@@ -162,8 +162,13 @@ export function isNotesUnreadable(
  */
 export function describeCustomerNotified(
   value: boolean | null,
-  /** 見 {@link isNotesUnreadable};省略 = 舊行為(截斷語意),呼叫端請顯式給。 */
-  unreadable = false,
+  /**
+   * 見 {@link isNotesUnreadable}。
+   * 🔴 **必填、刻意不給預設值**(R1 nit-2):給了預設值就等於「漏傳 = 靜默退回舊文案」,
+   * 而那句話在讀取失敗時是假的、且 typecheck 全綠 —— 那正是這一片在修的病的同一個形狀。
+   * 現在只有一個呼叫端,改必填的代價是 0。
+   */
+  unreadable: boolean,
 ): CustomerNotifiedDescriptor {
   if (value === null) {
     return {

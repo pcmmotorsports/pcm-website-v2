@@ -909,8 +909,13 @@ export type AdminOrderDetail = {
   /**
    * U6 告知義務:本單有「未被更正的 `customer_notified`」。
    * 🔴 **不得**寫成「有 customer_notified」—— 被更正掉的誤選要排除(建表檔 `:160-177` 合約)。
-   * 🔴 **`null` = 無法判定**(時間軸被截斷,見 `notesTruncated`):兩個方向都可能錯,顯示端必須
-   * 說「無法判定」而**不得**當 false 用。型別留 null 是為了讓 TS 逼消費端處理,不是靠註解提醒。
+   * 🔴 **`null` = 無法判定**:兩個方向都可能錯,顯示端必須說「無法判定」而**不得**當 false 用。
+   * 型別留 null 是為了讓 TS 逼消費端處理,不是靠註解提醒。
+   * 🔴 **`null` 有兩個成因,不可只記得第一個**(#328 補;漏了它的人會把 `?? []` 寫回 mapper):
+   *   ①**時間軸被截斷**(`notesTruncated === true`)—— 讀到了,但只有最新 N 筆;
+   *   ②**整段沒讀到**(`notesTruncated === false`)—— 投影退版 / 內嵌鍵缺,= 讀取失敗。
+   *   ⇒ **`null` ⟺ 截斷 是錯的**。兩者對員工的處置不同(①看更早紀錄 ②重新整理/通知維護),
+   *   文案不可共用;判別式**唯一具名處** = admin `lib/orders/note-timeline.ts` 的 `isNotesUnreadable`。
    */
   customerNotified: boolean | null;
   /**

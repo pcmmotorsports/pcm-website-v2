@@ -160,9 +160,9 @@ describe('buildNoteTimeline — 欄位與格式化', () => {
 
 describe('describeCustomerNotified — 三態(契約 C4)', () => {
   it('[G12] null = unknown,與 false 是不同態(?? false 的突變殺手)', () => {
-    const unknown = describeCustomerNotified(null);
-    const notNotified = describeCustomerNotified(false);
-    const notified = describeCustomerNotified(true);
+    const unknown = describeCustomerNotified(null, false);
+    const notNotified = describeCustomerNotified(false, false);
+    const notified = describeCustomerNotified(true, false);
     expect(unknown.state).toBe('unknown');
     expect(notNotified.state).toBe('not_notified');
     expect(notified.state).toBe('notified');
