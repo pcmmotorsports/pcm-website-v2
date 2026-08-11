@@ -1,4 +1,12 @@
-# 退款帳本 `manual` 沖銷 — 片級 plan **v6**(#405 + #417)
+# 退款帳本 `manual` 沖銷 — 片級 plan **v7**(#405 + #417)
+
+> **v7 = 關卡1 R3 折完**(2026-08-12;codex `gpt-5.6-sol` high、唯讀、零留痕)。**FAIL → 2 must-fix + 1 nit,全折**:
+> ① §11-4 的 A 正案例**沒釘死 fixture 的 `refunded` 值** ⇒ 用 `false` 的話,**沖銷邏輯整段拿掉那格照樣綠**(該格零判別力)。已釘成 `true`。
+> ② **漏了第三個行為翻面 C**(同一顆 refund 有 `result_success` + `result_failed`):舊制 `needs_human`、新制**可結清**
+>   —— 方向是「從保守變成自動結清」。已補進 §11-4 並明列接受理由 + apply 當下的盤點要求 + 三者同交易切換。
+> ③ nit:四格抓不到 `COALESCE(…,true)` 被改成 `false`(NULL 路徑不可達)⇒ 補一格**定義層**結構斷言,並註明它擋的是編輯不是執行。
+> 角度 1/2/3(COALESCE 方向、正向存在條件、§11-1 對 op6a 的宣稱)**審查者逐條確認無問題**。
+> ⇒ **R1 FAIL ⇒ 照紀律修完要跑 R2 確認**。
 
 > **v6 = Q-425 拍板後,述詞定稿、解除封鎖**(2026-08-12,主視窗 `P-533-A`;Sean 逐字「桌上五題 依照推薦」)。
 > **Q-425=B**:有效 `manual` 且 `refunded=false` **視同 `result_failed`** —— 不算退款跡象、單子可自動結清;
@@ -444,12 +452,43 @@ COALESCE(
 
 | # | 情境 | 舊 | 新 | 測試 |
 |---|---|---|---|---|
-| A | 被沖銷的 `manual` + 有效的 `result_failed` | `needs_human` | 可結清 | 正:翻面成立;負:**替代 manual(refunded=true)存在時不得翻面** |
+| A | 被沖銷的 `manual`(🔴 **該筆 `refunded` 必須是 `true`**)+ 有效的 `result_failed` | `needs_human` | 可結清 | 正:翻面成立;負:**替代 manual(refunded=true)存在時不得翻面** |
 | B | 有效 `manual` + `refunded=false`(**Q-425=B**) | `needs_human`(永遠) | 可結清 | 正:可結清;負:**改成 `refunded=true` 後必須翻回 `needs_human`** |
+| **C** | **同一顆 refund 有 `result_success` + `result_failed`**(受理成功、後來對帳判定失敗) | `needs_human` | **可結清** | 正:可結清;負:把 `result_failed` 換成 `result_confirmed` ⇒ 必須 `needs_human` |
 | — | 零有效終局(只有 `sent`/`result_unknown`) | `needs_human` | **不變** | 負:仍 `needs_human`(守 11-3 的左半) |
+
+🔴 **A 的 fixture 為什麼必須把被沖銷那筆釘成 `refunded=true`(關卡1 R3 must-fix,成立)**:
+若 fixture 用 `refunded=false`,則**拿掉 (a) 的整段 `NOT EXISTS`(=沖銷完全失效)之後**——
+那筆 manual 重新變成有效,但它的 `indicates_refund` 仍是 `false` ⇒ **照樣可結清、該格照樣綠**。
+⇒ 這一格就證明不了「沖銷有沒有在運作」。釘成 `true` 之後,沖銷失效時它會翻成 `needs_human` ⇒ 紅。
+(同族 memory `feedback_fixture-value-makes-guard-vacuous` 與
+`feedback_negative-test-observation-supplied-by-another-mechanism`。)
+
+🔴 **C 是關卡1 R3 抓出來的第三個翻面,v6 漏了(must-fix,成立)**。逐值走一次:
+- **舊 op6a**:第一個 EXISTS 認 `('result_success','result_failed','manual')` ⇒ true;
+  第二個 `NOT EXISTS ('result_success','manual')` ⇒ 因為有 `result_success` 而為 **false**
+  ⇒ 除外條件 `true AND false` = false ⇒ **算跡象 ⇒ `needs_human`**。
+- **新述詞**:有效終局集合 `('result_confirmed','result_failed','manual')` **不含 `result_success`**
+  ⇒ 有效終局 = `result_failed` ⇒ `indicates_refund=false` ⇒ **除外 ⇒ 可結清**。
+⇒ **方向是「從保守變成自動結清」**,必須明列接受,不能讓它從縫裡溜過去。
+**為什麼接受**:2d 已經拍板「受理(`result_success`)≠ 確認(`result_confirmed`)」
+(`20260811110000:191-192` COMMENT 逐字),`result_success` 本來就不該再被當終局;
+舊 op6a 把它當終局是 **2d 之前的字面**(§11-1 的既存 drift)。新語意才是對的。
+⚠️ **但這使本片的射程包含「修一個既存 drift 且該修正會讓某些單自動結清」** ——
+apply 檢查表要明列這條給 Sean,與「回退永久關閉」同一格。
+**遷移安全**:view / trigger / op6a 三者**必須在同一支 migration、同一交易內切換**(關卡1 R3 修法,採納);
+落庫前先跑一次盤點查詢,數「同時有 `result_success` 與 `result_failed` 的 refund 有幾顆」——
+現況正式庫該表 **0 列**(§11-5),所以今天是 0,但 **2e/2f/2g 上線後就不是**,
+⇒ 這條盤點要放進 **apply 當下**而不是寫 plan 當下。
 
 🔴 **B 的負測是本片最重要的一格**:它同時驗「沖銷真的改得了判定」與「op6a 真的即時重算」——
 Sean 選 B 的整個安全網就是這一條回頭路,**它沒被測到 = B 的風險論證是空的**。
+
+🔴 **一格結構斷言(關卡1 R3 nit,採納)**:上面四格**抓不到** `COALESCE(…, true)` 被改成 `false`
+—— 因為 2c 的 verdict CHECK 讓 NULL 路徑**不可達**(§11-2 已寫明它是縱深不是主守門)。
+⇒ 補一格**定義層**斷言:`pg_get_viewdef` 逐字含 `, true)` 那一段。
+它證明不了行為(不可達的東西沒有行為),但它擋得住「有人順手把方向改成 fail-open」。
+**不得**把這格說成「fail-open 已被測試擋住」——它擋的是編輯,不是執行。
 
 ### 11-5 零回溯風險(落筆當下實查)
 
