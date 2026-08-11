@@ -28,16 +28,30 @@
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(🔴 **2026-08-09 重 gen** —— M-4b LINE 3DS 修復片,
-//   `20260809004000_m4b_line3ds_address_email`(customer_addresses.email)apply 之後。
-//   本次帶進來的**不只本片的欄**,還有前幾片 apply 但當時沒重 gen 的存量:
-//   `customer_addresses.email`(本片)/ `supplier_order_no_upper` / `pcm_b2_shipping_idempotency` 表 /
-//   `sound_clips` / `admin_add_shipment_items` 與 `pcm_b2_shipping_idem_*` 等 B 線函式。
+// 反映 LIVE prod schema(🔴 **2026-08-11 重 gen** —— #352 到貨登錄線 a1/a2/甲片
+//   (`20260810230000` / `20260810233000` / `20260811010000`)+ #277 車型分類 view
+//   (`20260811020000`)apply 之後。
+//   本次帶進來的**不只本片的產物**,還有別線已 apply 但當時沒重 gen 的存量:
+//   `admin_record_item_receipt` / `admin_delete_item_receipt`(#352 到貨登錄兩支 RPC,本片)/
+//   `vehicle_taxonomy_public` view(#277)/ `admin_record_manual_payment` /
+//   `admin_reverse_manual_payment` / `admin_search_orders` / `supersede_charge_attempt_for_user` 等。
+//   🔴 `op6a`(`20260811030000`,`compute_order_settlement`)**在 migrations 目錄裡但尚未 apply**
+//      ⇒ 它的產物**不在本檔=正確**,不得手補(同 2026-08-07 a9v/a9b2_m 的形狀)。
 //   🔴 那些**不是本片的產物、形狀一律照生成值原樣收下**(主視窗 `P-226-A` ③:只貼回校正、
 //      不順手改別人的形狀)。
 //   🔴 二十一處校正的重貼方式(留給下一個重 gen 的人):**逐函式整塊替換 + 參數名集合比對** ——
 //      先確認該函式在新舊兩版的參數集合完全相同(= 只有校正被沖掉、沒有真的簽章變更),
-//      才用舊版區塊蓋回去;任一函式參數有增減就停下人工判斷,不硬蓋。本次七支全數比對通過。
+//      才用舊版區塊蓋回去;任一函式參數有增減就停下人工判斷,不硬蓋。
+//      本次七支**機械比對**(非肉眼)全數通過:參數集合 7/7 相等、重貼後 21/21 處校正逐條實查在位。
+//   🔴 切「檔頭 vs 本體」的分界**必用行首錨點**(`^export type Json`)—— 檔頭註解自己就提到那個字串
+//      (見上方 ⑦ 的 `p_items` 說明)⇒ 用裸子字串切會在第 14 行攔腰砍掉整段檔頭。
+//      2026-08-11 本次真的踩了、當場 `git checkout HEAD --` 復原重做;下一個人別再踩。
+//   ── 以下為上一輪 2026-08-09 重 gen 的紀錄,保留供追溯 ──
+//   (2026-08-09 重 gen —— M-4b LINE 3DS 修復片,
+//   `20260809004000_m4b_line3ds_address_email`(customer_addresses.email)apply 之後;
+//   帶進來的存量:`customer_addresses.email`(該片)/ `supplier_order_no_upper` /
+//   `pcm_b2_shipping_idempotency` 表 / `sound_clips` / `admin_add_shipment_items` 與
+//   `pcm_b2_shipping_idem_*` 等 B 線函式。)
 //   ── 以下為上一輪 2026-08-07 重 gen 的紀錄,保留供追溯 ──
 //   (2026-08-07 重 gen —— B2-S2a/S2b 兩支 + A9h-M 三支 apply 之後;
 //   本次新增:摘要表第四軸 `shipped_quantity`、`shipments` / `shipment_items` **兩張表首次進型別**
@@ -700,6 +714,7 @@ export type Database = {
           quantity: number
           received_at: string
           received_by: string
+          surplus_quantity: number
         }
         Insert: {
           created_at?: string
@@ -709,6 +724,7 @@ export type Database = {
           quantity: number
           received_at: string
           received_by: string
+          surplus_quantity?: number
         }
         Update: {
           created_at?: string
@@ -718,6 +734,7 @@ export type Database = {
           quantity?: number
           received_at?: string
           received_by?: string
+          surplus_quantity?: number
         }
         Relationships: [
           {
@@ -763,6 +780,42 @@ export type Database = {
             referencedColumns: ["id", "quantity"]
           },
         ]
+      }
+      order_item_receipt_requests: {
+        Row: {
+          actor: string
+          created_at: string
+          note: string | null
+          procurement_id: string
+          quantity: number
+          receipt_id: string
+          received_at: string
+          request_id: string
+          surplus_quantity: number
+        }
+        Insert: {
+          actor: string
+          created_at?: string
+          note?: string | null
+          procurement_id: string
+          quantity: number
+          receipt_id: string
+          received_at: string
+          request_id: string
+          surplus_quantity: number
+        }
+        Update: {
+          actor?: string
+          created_at?: string
+          note?: string | null
+          procurement_id?: string
+          quantity?: number
+          receipt_id?: string
+          received_at?: string
+          request_id?: string
+          surplus_quantity?: number
+        }
+        Relationships: []
       }
       order_items: {
         Row: {
@@ -923,6 +976,92 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_payments: {
+        Row: {
+          actor: string
+          amount: number
+          bank_reference: string | null
+          created_at: string
+          id: string
+          note: string | null
+          order_id: string
+          payer_note: string | null
+          rail: string
+          rec_trade_id: string | null
+          received_at: string
+          request_id: string | null
+          reversal_reason: string | null
+          reverses_payment_id: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+        }
+        Insert: {
+          actor: string
+          amount: number
+          bank_reference?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          order_id: string
+          payer_note?: string | null
+          rail: string
+          rec_trade_id?: string | null
+          received_at: string
+          request_id?: string | null
+          reversal_reason?: string | null
+          reverses_payment_id?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+        }
+        Update: {
+          actor?: string
+          amount?: number
+          bank_reference?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          order_id?: string
+          payer_note?: string | null
+          rail?: string
+          rec_trade_id?: string | null
+          received_at?: string
+          request_id?: string | null
+          reversal_reason?: string | null
+          reverses_payment_id?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_payments_actor_fkey"
+            columns: ["actor"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_payments_reverses_same_order_rail"
+            columns: ["reverses_payment_id", "order_id", "rail"]
+            isOneToOne: false
+            referencedRelation: "order_payments"
+            referencedColumns: ["id", "order_id", "rail"]
+          },
+          {
+            foreignKeyName: "order_payments_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
             referencedColumns: ["id"]
           },
         ]
@@ -1438,6 +1577,9 @@ export type Database = {
           released_manual_review_at: string | null
           settle_attempt_count: number
           status: string
+          superseded_at: string | null
+          superseded_by_order_id: string | null
+          superseded_reason: string | null
           updated_at: string
         }
         Insert: {
@@ -1462,6 +1604,9 @@ export type Database = {
           released_manual_review_at?: string | null
           settle_attempt_count?: number
           status?: string
+          superseded_at?: string | null
+          superseded_by_order_id?: string | null
+          superseded_reason?: string | null
           updated_at?: string
         }
         Update: {
@@ -1486,12 +1631,22 @@ export type Database = {
           released_manual_review_at?: string | null
           settle_attempt_count?: number
           status?: string
+          superseded_at?: string | null
+          superseded_by_order_id?: string | null
+          superseded_reason?: string | null
           updated_at?: string
         }
         Relationships: [
           {
             foreignKeyName: "payment_charge_attempts_order_id_fkey"
             columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
             isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
@@ -1617,6 +1772,95 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "payment_double_charge_anomalies"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_refund_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          lease_token: number
+          record_snapshot: Json | null
+          refund_id: string
+          seq: number
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          lease_token: number
+          record_snapshot?: Json | null
+          refund_id: string
+          seq: number
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          lease_token?: number
+          record_snapshot?: Json | null
+          refund_id?: string
+          seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_refund_events_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "payment_refunds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_refunds: {
+        Row: {
+          amount: number
+          attempt_id: string
+          created_at: string
+          currency: string
+          id: string
+          idempotency_key: string
+          lease_token: number
+          strong_key: string
+          supersedes_refund_id: string | null
+        }
+        Insert: {
+          amount: number
+          attempt_id: string
+          created_at?: string
+          currency: string
+          id?: string
+          idempotency_key: string
+          lease_token: number
+          strong_key: string
+          supersedes_refund_id?: string | null
+        }
+        Update: {
+          amount?: number
+          attempt_id?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          idempotency_key?: string
+          lease_token?: number
+          strong_key?: string
+          supersedes_refund_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_refunds_attempt_id_fkey"
+            columns: ["attempt_id"]
+            isOneToOne: false
+            referencedRelation: "payment_charge_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pr_supersedes_same_attempt_fkey"
+            columns: ["attempt_id", "supersedes_refund_id"]
+            isOneToOne: false
+            referencedRelation: "payment_refunds"
+            referencedColumns: ["attempt_id", "id"]
           },
         ]
       }
@@ -2437,6 +2681,15 @@ export type Database = {
           },
         ]
       }
+      vehicle_taxonomy_public: {
+        Row: {
+          model_code: string | null
+          moto_brand: string | null
+          year_end: number | null
+          year_start: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       admin_add_shipment_items: {
@@ -2508,6 +2761,10 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_delete_item_receipt: {
+        Args: { p_actor: string; p_receipt_id: string; p_request_id: string }
+        Returns: string
+      }
       admin_finalize_order_refund: {
         // 🔴 手動校正三處(重 gen 後需重貼;RW2c)—— outcome 參數矩陣**強制**互斥:
         //   accepted 必帶 tappay_refund_id + refund_amount_wire、其餘必 NULL;
@@ -2545,6 +2802,44 @@ export type Database = {
           p_idempotency_key: string
           p_shipment_id: string
           p_tracking_number?: string
+        }
+        Returns: Json
+      }
+      admin_record_item_receipt: {
+        Args: {
+          p_actor: string
+          p_note: string
+          p_procurement_id: string
+          p_quantity: number
+          p_received_at: string
+          p_request_id: string
+          p_surplus_quantity: number
+        }
+        Returns: string
+      }
+      admin_record_manual_payment: {
+        Args: {
+          p_actor: string
+          p_amount: number
+          p_bank_reference?: string
+          p_order_id: string
+          p_payer_note?: string
+          p_rail: string
+          p_received_at: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_reverse_manual_payment: {
+        Args: { p_actor: string; p_payment_id: string; p_reason: string }
+        Returns: Json
+      }
+      admin_search_orders: {
+        Args: {
+          p_from?: string
+          p_limit?: number
+          p_query: string
+          p_to?: string
         }
         Returns: Json
       }
@@ -2904,6 +3199,15 @@ export type Database = {
       search_products_by_vehicle: {
         Args: { p_brand: string; p_model?: string; p_year?: number }
         Returns: Json[]
+      }
+      supersede_charge_attempt_for_user: {
+        Args: {
+          p_order_id: string
+          p_reason: string
+          p_successor_order_id: string
+          p_user_id: string
+        }
+        Returns: Json
       }
       sync_product_variant_group: {
         Args: {
