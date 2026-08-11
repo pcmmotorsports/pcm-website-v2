@@ -41,7 +41,12 @@ MIGFILE_M="supabase/migrations/20260810170000_m4b_lifecycle_l5b0_reject_supersed
 # post-image prosrc 指紋(= 兩片各自檔內 assert 段釘的同一組值;此處當「該片已套用」的身分閘)
 PROSRC_M_G1="13dfcc0a3c7f8e35b53063ca9babf8e5"   # mark_charge_attempt_charged
 PROSRC_M_G2="ca9a7593ca05b2991d295ce93be692f4"   # ..._fallback
-PROSRC_S_C1="dda1fdbd680632432a22a3f092c4b9ec"   # claim_stuck_unsettled_attempts
+# 🔴 2026-08-11 L5b-2 片 2a 重釘:dda1fdbd… → 8b90444d…
+#    2a(20260811060000)把 claim DROP+重建、回傳從三欄加寬成四欄(多 superseded_at)⇒ prosrc 必變。
+#    **為什麼這個重釘不是把守門關掉**:本身分閘要保證的是「L5b-0-s 改① 的述詞在庫裡」,
+#    而 2a **一個字都沒動述詞** —— 實測 md5(split_part(prosrc,'RETURNING',1)) 兩版皆
+#    f15644b5029f9c2e983f9520d3d29ef5(改動全在 RETURNING 之後)⇒ 射程不變,只是本體字面前進一版。
+PROSRC_S_C1="8b90444daff704fb45046605bd8fe1bf"   # claim_stuck_unsettled_attempts(L5b-2 片 2a 之後)
 PROSRC_S_C2="6c3f81fce0683a4a17ffd83157f02353"   # mark_attempt_settle_retry
 PROSRC_S_C3="12a1605c7c9705b1ab1a1c363febbd79"   # get_payment_anomaly_alert_summary
 PROSRC_S_C4="a4e1a29b202d75361ae64919f1897d09"   # expire_stuck_attempts_at_ceiling

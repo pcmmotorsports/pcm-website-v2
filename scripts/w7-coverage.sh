@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════
-# W7 · 出貨 writer 線的**跑過帳**(covering account = 「帳上這 22 支到底有沒有被跑過」)
+# W7 · 出貨 writer 線的**跑過帳**(covering account = 「帳上這 28 支到底有沒有被跑過」)
 #
-#   check(預設):驗收據 —— 22 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
+#   check(預設):驗收據 —— 28 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
 #                 跑的時候 migration 尾碼**就是現行的**。任何一條不成立就紅。
 #   record <支|all>:真的跑 harness、把結果寫成收據。慢(每支要 initdb + 重放全套 migration),
 #                 這是 **apply preflight 的本分**,不是每次 commit 都要做的事。
@@ -22,7 +22,7 @@
 #     (前一版要同步約 16 處字面 + 兩次心算加總 = 本 repo 復發第一名那個病的最大化版本)。
 #
 # ══ 🔴 證得了什麼 / 證不了什麼 ═══════════════════════════════════════════
-#   ✅ 這 22 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
+#   ✅ 這 28 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
 #   ❌ **證不了**那些格「有判別力」—— 那是各支自己的靶在證(全線現況見 matrix.md §1)。
 #   ❌ **證不了**「該有的守門都想到了」。欠款清單在 matrix.md §3。
 #   ❌ 收據是**自陳**:它證的是「有人跑了並記下結果」,不是「結果沒被手改」。
@@ -30,7 +30,7 @@
 #
 # 用法:
 #   bash scripts/w7-coverage.sh              驗收據(快,<1s)
-#   bash scripts/w7-coverage.sh record all   跑全線 22 支並重寫收據
+#   bash scripts/w7-coverage.sh record all   跑全線 28 支並重寫收據
 #     **實測 314 秒(5 分 14 秒)**,2026-08-10 **收編 l5b0 兩支之後**當場重量(單次、這台機器)。
 #     前一個值是收編 op2b 當時的 **232 秒**。
 #     🔴 **這 82 秒的差別不是 l5b0 兩支造成的 —— 我第一版就是這樣歸因,當場被自己的實測打臉**:
@@ -103,7 +103,10 @@ MODE="${1:-check}"
 #    🔴 2026-08-11 OP6-a **補登記**(主視窗判定:昨夜收割遺漏,不是刻意排除)。
 #    OP6-a 收割行寫的 w7 39/0 裡的 39 = 37+2,**它自己那 49 格從來不在帳上** ——
 #    「結清狀態純算函式」的行為證據全在 op6a-verify.sh,不收編等於這條線沒人跑。
-EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh l5b0-verify.sh l5b0t2-verify.sh op4-verify.sh op6a-verify.sh opa12-verify.sh op2b-verify.sh op3-verify.sh op5-verify.sh"
+#    🔴 2026-08-11 L5b-2 片 2a 收編 l5b2-2a-verify.sh:它是那支**正在收錢的 claim RPC** 被 DROP+重建
+#    之後唯一的守門(回傳形狀/ACL 四件/schema USAGE/成員白名單 + 十發突變 + 回退腳本實跑)。
+#    不收編 ⇒ `record all` 永遠跑不到它,帳面照樣全綠,而這些守門的回歸沒有任何自動化在看。
+EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh l5b0-verify.sh l5b0t2-verify.sh l5b2-2a-verify.sh op4-verify.sh op6a-verify.sh opa12-verify.sh op2b-verify.sh op3-verify.sh op5-verify.sh"
 harness_set() {
   { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$'
     for e in $EXTRA_HARNESSES; do [ -f "$SCRIPTS/$e" ] && printf '%s\n' "$e"; done
@@ -137,6 +140,9 @@ invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
     #    否則會 provision 在 A 埠、卻連去 B 埠(那正是 d1t2-rehearsal:44-52 警告的無症狀假綠)。
     l5b0-verify.sh)   printf 'PORT=54372 L5B0_VERIFY_PORT=54372 bash scripts/%s all /tmp/l5b0cov' "$1" ;;
     l5b0t2-verify.sh) printf 'PORT=54373 L5B0_VERIFY_PORT=54373 bash scripts/%s all /tmp/l5b0t2cov' "$1" ;;
+    # 🔴 l5b2-2a 用專屬埠與 workdir。它的**叢集身分閘會讀 <workdir>/cluster-id** ⇒ workdir 必須是
+    #    它自己 provision 的那個(all 模式會建),不能借用別支的目錄。
+    l5b2-2a-verify.sh) printf 'PORT=54374 bash scripts/%s all /tmp/l5b22acov' "$1" ;;
     *)               printf 'bash scripts/%s' "$1" ;;
   esac
 }
@@ -253,17 +259,15 @@ fi
 # ══════════════════════════ check 模式 ═══════════════════════════════════
 PASS=0; FAIL=0; KEYS=""
 # 🔴 R1 F5(宣稱範圍,寫下來不假裝沒有):格名用 `sed 's/-.*//'` 取檔名第一段 ⇒
-#    `a7t-concurrency-probe.sh` 的格叫 `RECEIPT-a7t`。現行 22 支無撞號(已機械驗),
+#    `a7t-concurrency-probe.sh` 的格叫 `RECEIPT-a7t`。現行 28 支無撞號(已機械驗),
 #    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
 #    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
-EXPECT_TOTAL=39   # 🔴 量出來的(**29** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3 + op4 + op5 + op6a + opa12 + l5b0 + l5b0t2〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 39 + 2 = 41。
-                  # 🔴 2026-08-11 OP6-a 補登記:38→39(見 EXTRA_HARNESSES 上方理由)。
-                  #    ⚠️ 這一筆是**補既有遺漏**,不是新片 —— OP6-a 早在 2026-08-11 凌晨就上庫了,
-                  #       它的 49 格卻一直不在帳上。教訓:**收編是收割的一部分**,不是下一片的事。
-                  # 🔴 2026-08-11 OP4 片:37→38,收編 op4-verify.sh(見 EXTRA_HARNESSES 上方理由)。
-                  #    ⚠️ 改這個數字時**同句的枚舉也要改**(27→28、清單補 op4)——
-                  #       「改了數字沒改枚舉」是本 repo 今天已發作三次的病,不要第四次。
+EXPECT_TOTAL=40   # 🔴 量出來的(**30** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3 + op4 + op5 + op6a + opa12 + l5b0 + l5b0t2 + l5b2-2a〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 40 + 2 = 42。
+                  # 🔴 2026-08-11 合併裁定(主視窗):B 線 37→38(op4)→39(op6a 補登記)與 P 線 37→38(l5b2-2a)
+                  #    於 dev 合流=**40**;三支收編理由見 EXTRA_HARNESSES 上方。
+                  #    ⚠️ OP6-a 那筆是**補既有遺漏**(收編是收割的一部分,不是下一片的事)。
+                  #    ⚠️ 改這個數字時**同句的枚舉也要改**——「改了數字沒改枚舉」是本 repo 2026-08-11 已發作三次的病,不要第四次。
                   # 🔴 2026-08-10 L5b-0-t3 片:35→37,收編 l5b0-verify.sh + l5b0t2-verify.sh
                   #    (「讓路款不得被認列成收款」那條鐵律的行為證據全在這兩支;不收編 = 這條線沒人跑)。
                   # 🔴 2026-08-10 OP3 片:32→33,新增 MIG-PREFIX-UNIQ(本片自己撞號兩次,見該格上方理由)。
@@ -548,9 +552,10 @@ fi
 #          不該由檔名排序決定(同 PROBE 那段的教訓)。
 EXITS_PROBE="w5-line-verify.sh"
 EXITS_MAP_NOW="$(for h in $(harness_set); do printf '%s=[%s] ' "$h" "$(exits_of "$h")"; done | sed 's/ *$//')"
+# 🔴 2026-08-11 L5b-2 片 2a:加 l5b2-2a-verify.sh = **[0]**(只准乾淨離場;它沒有待裁態)。
 # 🔴 2026-08-10 L5b-0-t3:加 l5b0-verify.sh / l5b0t2-verify.sh,兩支都是 **[0]**
 #    (只准乾淨離場;它們沒有 b2s2b 那種「3=待裁」的語意,別給第二個碼)。
-EXITS_MAP_FROZEN="a7t-concurrency-probe.sh=[0] b2s2b-verify.sh=[0 3] l5b0-verify.sh=[0] l5b0t2-verify.sh=[0] op2b-verify.sh=[0] op3-verify.sh=[0] op5-verify.sh=[0] opa12-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
+EXITS_MAP_FROZEN="a7t-concurrency-probe.sh=[0] b2s2b-verify.sh=[0 3] l5b0-verify.sh=[0] l5b0t2-verify.sh=[0] l5b2-2a-verify.sh=[0] op2b-verify.sh=[0] op3-verify.sh=[0] op5-verify.sh=[0] opa12-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
 if [ "$EXITS_MAP_NOW" != "$EXITS_MAP_FROZEN" ]; then
   bad TMUT-COV-EXITS "exits_of 對照表漂了。現行:[$EXITS_MAP_NOW]。⇒ 放寬任何一支的允許出口碼都要有人看(#354)"
 elif ! harness_set | grep -Fqx "$EXITS_PROBE" || ! grep -Fq "$EXITS_PROBE	" "$LEDGER" 2>/dev/null; then
@@ -608,7 +613,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS MIG-PREFIX-UNIQ RECEIPT-a7t RECEIPT-b2s2b RECEIPT-l5b0 RECEIPT-l5b0t2 RECEIPT-op2b RECEIPT-op3 RECEIPT-op5 RECEIPT-opa12 RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS MIG-PREFIX-UNIQ RECEIPT-a7t RECEIPT-b2s2b RECEIPT-l5b0 RECEIPT-l5b0t2 RECEIPT-l5b2 RECEIPT-op2b RECEIPT-op3 RECEIPT-op5 RECEIPT-opa12 RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
