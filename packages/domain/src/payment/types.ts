@@ -739,6 +739,24 @@ export type StuckChargeAttempt = {
   attemptId: string;
   orderId: string;
   settleCount: number;
+  /**
+   * 🔴 L5b-2 片2a 加:**讓路的 durable 標記**(ISO-8601 字串;未讓路 = `null`)。
+   *
+   * 補償退款的**第一條**准退條件讀它。**不能改用 `status === 'released'` 代替** ——
+   * preflight release CAS 也會產生 released,但那不是「被 L5 自動裁定讓路」。
+   *
+   * 由 `claim_stuck_unsettled_attempts` 在**同一句原子 UPDATE** 裡回傳,不是事後另外 SELECT:
+   * 後者是另一個時點的觀察(TOCTOU),而這個值要用來決定要不要把錢送出去。
+   *
+   * ⚠️ 形別:DB 是 `timestamptz`,`node-postgres` 會把它轉成 **`Date` 物件**(非 NULL 時)、
+   * NULL 轉成 `null`(2026-08-11 實測,非推論)。adapter 用 `toISOString()` 轉成字串。
+   * 🔴 **不要說它和 `attemptCreatedAt` 是「同一種字面慣例」**(對抗審查 R1 更正):
+   * 本欄是 `toISOString()` ⇒ 恆為 **UTC `Z` 結尾、毫秒精度**;
+   * `attemptCreatedAt` 來自 **jsonb 序列化**,字面可能帶 session 時區偏移、且精度可到微秒。
+   * ⇒ 兩者**不得直接做字串比大小或字串相等**;要比就 `Date.parse()` 轉 epoch 再比,
+   * 且注意本欄已在毫秒被截斷(微秒精度在這裡會遺失)。
+   */
+  supersededAt: string | null;
 };
 
 /**

@@ -290,7 +290,11 @@ describe('PgChargeAttemptAdapter.markCharged / markFailed(主軌、雙鍵驗參�
 
 // ── M-3 3DS-4 sweeper(主軌-only;claim_stuck / mark_attempt_settle_retry / flag_non_unpaid_active)──
 
-const STUCK_ROW = { attempt_id: ATTEMPT, order_id: ORDER, settle_attempt_count: 2 };
+// 🔴 L5b-2 片2a:第四欄 superseded_at。fixture 用 **`Date` 物件**,不是字串 ——
+//    node-postgres 對 timestamptz 欄回的就是 Date(2026-08-11 實測)。
+//    用字串當 fixture 會讓這組測試對真實驅動行為失去判別力(fixture 撒謊型假綠)。
+const SUP_AT = new Date('2026-08-10T15:04:05.678Z');
+const STUCK_ROW = { attempt_id: ATTEMPT, order_id: ORDER, settle_attempt_count: 2, superseded_at: null };
 const EXPIRED_ROW = { attempt_id: ATTEMPT, order_id: ORDER, needs_manual_review: true };
 
 describe('PgChargeAttemptAdapter.expireStuckAtCeiling(ceiling-expirer、3DS-4a-2)', () => {
@@ -318,11 +322,20 @@ describe('PgChargeAttemptAdapter.claimStuckUnsettled(原子 lease claim、3DS-4a
     });
     const res = await new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50);
     expect(res).toEqual([
-      { attemptId: ATTEMPT, orderId: ORDER, settleCount: 2 },
-      { attemptId: ATTEMPT, orderId: ORDER, settleCount: 5 },
+      { attemptId: ATTEMPT, orderId: ORDER, settleCount: 2, supersededAt: null },
+      { attemptId: ATTEMPT, orderId: ORDER, settleCount: 5, supersededAt: null },
     ]);
     const [sql, values] = query.mock.calls[0]!;
     expect(sql).toMatch(/claim_stuck_unsettled_attempts\(\$1::integer, \$2::integer\)/); // 🔴 鎖 cast
+    // 🔴 鎖**完整 projection 字面**,不是只鎖 `superseded_at` 出現過(對抗審查 R1 打中):
+    //    只鎖欄名時,把它改成 `NULL::timestamptz AS superseded_at` 照樣綠,
+    //    而正式環境會永遠拿到 null ⇒ 補償線靜默跳過每一筆。
+    // ⚠️ 對抗審查 R2 指出這樣鎖得偏死(未來合法地改欄序/加第五欄/加 alias 都會紅)。**刻意保留**:
+    //    這是一支**正在收錢的 RPC 的 projection**,改它應該是有意識的動作,順手改到就該有一格逼你回頭看。
+    //    代價是那種改動要同步改本行 —— 這個成本我們認,它換到的是「恆 NULL 這種改法殺得掉」。
+    expect(sql).toContain(
+      'SELECT attempt_id, order_id, settle_attempt_count, superseded_at FROM public.claim_stuck_unsettled_attempts',
+    );
     expect(values).toEqual([600, 50]);
     expect(connect).toHaveBeenCalledTimes(1);
     expect(end).toHaveBeenCalledTimes(1);
@@ -341,11 +354,62 @@ describe('PgChargeAttemptAdapter.claimStuckUnsettled(原子 lease claim、3DS-4a
     ['settle_attempt_count 非數字', { ...STUCK_ROW, settle_attempt_count: '2' }],
     ['settle_attempt_count 非整數(1.5)', { ...STUCK_ROW, settle_attempt_count: 1.5 }], // 🔴 claim token 必整數(codex K2 must-fix)
     ['settle_attempt_count NaN', { ...STUCK_ROW, settle_attempt_count: Number.NaN }],
+    // 🔴 L5b-2 片2a:第四欄的三種壞法各一發
+    //    ①**row 上沒有這個 key**。⚠️ 這格證的是「parser 拒絕畸形回應」,
+    //      **不是**「migration 未 apply 的長相」—— 對抗審查 R1 更正了我原本的說法:
+    //      migration 未 apply 時,`SELECT … superseded_at` 會在 **PG 端就 42703(column does not exist)**,
+    //      根本進不到 parser。真正的錯序防線是**發布順序**(見 IChargeAttemptStore 該方法註解),不是這一格。
+    //      這格仍要留:它擋的是「RPC 回了少一欄的 row」那種畸形,而把它讀成「未讓路」會讓補償線安靜空轉。
+    ['superseded_at 這個 key 不在 row 上(畸形回應)', { attempt_id: ATTEMPT, order_id: ORDER, settle_attempt_count: 2 }],
+    //    ②字串(照抄 jsonb 路徑那種寫法時會拿到的東西)⇒ 也要紅,不得默默接受
+    ['superseded_at 是字串而非 Date', { ...STUCK_ROW, superseded_at: '2026-08-10T15:04:05.678Z' }],
+    //    ③Invalid Date:toISOString() 會丟 RangeError ⇒ 在 parse 就 fail-closed
+    ['superseded_at 是 Invalid Date', { ...STUCK_ROW, superseded_at: new Date('nope') }],
   ])('SETOF 列形狀不符(%s)→ throw 通用(fail-closed)', async (_l, row) => {
     const { client } = makeClient({ query: async () => ({ rows: [row] }) });
     await expect(
       new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50),
     ).rejects.toThrow('回應格式異常');
+  });
+
+  // 🔴 42703(應用層先於 migration 上線)必須換成自我診斷訊息,而不是原樣拋 PG 錯。
+  //    ⚠️ 這格證的是**訊息可診斷**,不是「錯序被擋住了」——沒有任何東西擋得住錯序上線(見 port 註解)。
+  it('42703(舊三欄 RPC)→ 錯誤訊息指名 migration 20260811060000', async () => {
+    const pgErr = Object.assign(new Error('column "superseded_at" does not exist'), { code: '42703' });
+    const { client } = makeClient({
+      query: async () => {
+        throw pgErr;
+      },
+    });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50),
+    ).rejects.toThrow('20260811060000');
+  });
+
+  it('其他 PG 錯誤(非 42703)走既有分類、**不被誤標**成 migration 問題', async () => {
+    // 🔴 期望值是實跑校正過的:本 adapter 的 `run()` 外層本來就把 PG 錯誤包成
+    //    `charge 簿記主軌失敗(<code>)`,不會原樣透出 PG 的訊息。我第一版寫成期望
+    //    'deadlock detected' 是**我對既有分層的假設寫錯**,不是程式行為錯 —— 照實跑結果改。
+    //    這一格真正要釘的是:**40P01 不可以被貼上 migration 未 apply 的標籤**。
+    const pgErr = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    const { client } = makeClient({
+      query: async () => {
+        throw pgErr;
+      },
+    });
+    const run = new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50);
+    await expect(run).rejects.toThrow('40P01');
+    await expect(run).rejects.not.toThrow('20260811060000');
+  });
+
+  // 🔴 正向那一側:讓路的列必須把**該列真正的時間**帶出來(轉 ISO 字串),不是被塞成 null。
+  //    與上面「未讓路 → null」成對 —— 少了任一半,「回傳寫死一個值」都會全綠。
+  it('讓路的列 → supersededAt = 該 Date 的 ISO 字串(未讓路那列仍為 null)', async () => {
+    const { client } = makeClient({
+      query: async () => ({ rows: [{ ...STUCK_ROW, superseded_at: SUP_AT }, STUCK_ROW] }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50);
+    expect(res.map((r) => r.supersededAt)).toEqual(['2026-08-10T15:04:05.678Z', null]);
   });
 });
 
