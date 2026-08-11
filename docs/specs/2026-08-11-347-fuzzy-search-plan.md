@@ -122,32 +122,83 @@ GIN trigram 索引建在原欄、而查詢對欄套函式 ⇒ 索引用不到;`s
 ### A5 品牌時間語意(產品面,§8 Q2 給 Sean)
 ### A6 `supplier_order_no_upper` 生成欄本片不改(死欄清理併片組 B)
 
-## 4. 🔴 規範表(唯一來源;**完整 SQL 字面**,實作與索引照抄)
+## 4. 🔴 規範表 + UNION 骨架(唯一來源;實作照抄)
 
 > 條數:現行 10 條 `strpos`(數法 `sed -n '136,181p' supabase/migrations/20260810120000_*.sql | grep -c 'strpos'` = 10)+ 新增 `spec` ⇒ **11**。
-> 共用巨集(寫在 migration 頂端註解,實作展開):
-> - `NORM_ID(x)` = `pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[-_[:space:]\u3000\u00A0]', '', 'g')`
-> - `NORM_NUM(x)` = `pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[^0-9]', '', 'g')`
-> - `NORM_TXT(x)` = `pg_catalog.lower(pg_catalog.btrim(COALESCE(x,'')))`
-> needle 側同樣算三份(`v_id_needle` / `v_num_needle` / `v_txt_needle`),各自非空才進該類。
+> 🔴 **形狀由 A0 的數字定案:UNION,不是一大坨 OR**(OR 形狀下品項側索引拿不到:127.5 ms vs 1.4 ms)。
 
-| # | 目標表達式(查詢與索引**同一字面**) | 類別 | 子字串 | 模糊 `needle <% 目標` |
-|---|---|---|---|---|
-| 1 | `NORM_ID(o.display_id)` | 識別碼 | ✅ | ❌ |
-| 2 | `NORM_TXT(c.name)` | 文字 | ✅ | ✅ |
-| 3 | `NORM_NUM(c.phone)` | 數字 | ✅ | ❌ |
-| 4 | `NORM_TXT(o.shipping_address_snapshot ->> 'name')` | 文字 | ✅ | ✅ |
-| 5 | `NORM_NUM(o.shipping_address_snapshot ->> 'phone')` | 數字 | ✅ | ❌ |
-| 6 | `NORM_TXT(o.shipping_address_snapshot ->> 'line')` | 文字 | ✅ | ✅ |
-| 7 | `NORM_ID(oi.variant_sku)` | 識別碼 | ✅ | ❌ |
-| 8 | `NORM_TXT(oi.product_snapshot ->> 'title')` | 文字 | ✅ | ✅ |
-| 9 | `NORM_TXT(public.pcm_spec_text(oi.product_snapshot -> 'spec'))`(**新增**;🔴 spec 是**物件**不是字串,見 A0) | 文字 | ✅ | ✅(索引可選,見 A0-3) |
-| 10 | `NORM_TXT(br.name)` | 文字 | ✅ | ✅ |
-| 11 | `NORM_ID(pc.supplier_order_no)` | 識別碼 | ✅ | ❌ |
+### 4.1 正規化三巨集(查詢與索引**同一字面**;`COALESCE` 是語法、**不加 `pg_catalog.` 前綴**)
 
-索引:每列一支 `CREATE INDEX … USING gin ((<上表表達式>) extensions.gin_trgm_ops)`
-(jsonb 那四支的表達式全都是 IMMUTABLE 組合 ⇒ 可建表達式索引;`->>` 與 `lower/btrim/regexp_replace` 皆 IMMUTABLE)。
-**模糊欄 6 個**(#2/#4/#6/#8/#9/#10)、**禁模糊欄 5 個**(#1/#3/#5/#7/#11)—— 這兩個數字驅動 §5 的格數。
+```sql
+-- NORM_ID(x):識別碼類。忽略大小寫 + 忽略 - _ 空白(含全形空白 U+3000 與 NBSP)
+pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[-_[:space:]\u3000\u00A0]', '', 'g')
+-- NORM_NUM(x):數字類。只留數字
+pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[^0-9]', '', 'g')
+-- NORM_TXT(x):文字類。lower + btrim
+pg_catalog.lower(pg_catalog.btrim(COALESCE(x,'')))
+-- spec 專用(A0 實測:spec 是 jsonb 物件,不是字串)
+CREATE FUNCTION public.pcm_spec_text(p jsonb) RETURNS text
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
+$$ SELECT COALESCE((SELECT pg_catalog.string_agg(value, ' ') FROM pg_catalog.jsonb_each_text(p)), '') $$;
+```
+
+### 4.2 needle 側(函式開頭算一次,三份各自檢查非空)
+
+```sql
+v_id_needle  := NORM_ID(p_query);
+v_num_needle := NORM_NUM(p_query);
+v_txt_needle := NORM_TXT(p_query);
+-- LIKE 用的跳脫版(\ % _ 三個字元;跳脫字元固定用反斜線)
+v_id_like  := pg_catalog.replace(pg_catalog.replace(pg_catalog.replace(v_id_needle ,'\','\\'),'%','\%'),'_','\_');
+v_num_like := …(同形)…;  v_txt_like := …(同形)…;
+```
+🔴 **空字串就整類跳過**(A0 前已用正式站 SQL 實測:`strpos(x,'')=1`、`x LIKE '%%'`=true ⇒ 不跳過會撈出全部)。
+
+### 4.3 UNION 骨架(11 個分支;每個分支自己帶日期範圍與非空閘)
+
+```sql
+WITH hits AS (
+  -- #1 訂單編號(識別碼)
+  SELECT o.id, o.created_at FROM public.orders o
+   WHERE v_id_needle <> '' AND (p_from IS NULL OR o.created_at >= p_from) AND (p_to IS NULL OR o.created_at < p_to)
+     AND NORM_ID(o.display_id) LIKE '%' || v_id_like || '%' ESCAPE '\'
+  UNION
+  -- #2 會員姓名(文字:子字串 OR 詞相似度;🔴 needle 在左)
+  SELECT o.id, o.created_at FROM public.orders o
+     JOIN public.customers c ON c.user_id = o.customer_user_id
+   WHERE v_txt_needle <> '' AND <日期範圍>
+     AND (NORM_TXT(c.name) LIKE '%' || v_txt_like || '%' ESCAPE '\'
+       OR v_txt_needle OPERATOR(extensions.<%) NORM_TXT(c.name))
+  UNION
+  -- #3 會員電話(數字,不模糊) / #4 收件人姓名(文字) / #5 收件電話(數字)
+  -- #6 收件地址 line(文字) / #7 料號(識別碼) / #8 品名(文字)
+  -- #9 規格(文字,走 pcm_spec_text) / #10 品牌(文字,三跳 JOIN) / #11 供應商單號(識別碼)
+  --   …同形:JOIN 到該表 → 非空閘 → 日期範圍 → LIKE(+ 文字類再 OR `<%`)
+)
+SELECT pg_catalog.array_agg(h.id ORDER BY h.created_at DESC, h.id DESC)
+  FROM (SELECT DISTINCT id, created_at FROM hits ORDER BY created_at DESC, id DESC LIMIT v_limit + 1) h;
+```
+- `UNION`(非 `UNION ALL`)去重;最外層多取一筆用來判斷截斷(與現行合約相同)。
+- 每個分支都 JOIN 回 `orders` 以套日期範圍 ⇒ 保留 #347-3a 的取樣窗口語意。
+
+### 4.4 逐條規範表(11 條)
+
+| # | 目標表達式(查詢與索引同一字面) | 類別 | 子字串 | `needle <% 目標` | 索引 |
+|---|---|---|---|---|---|
+| 1 | `NORM_ID(o.display_id)` | 識別碼 | ✅ | ❌ | ✅ |
+| 2 | `NORM_TXT(c.name)` | 文字 | ✅ | ✅ | ✅ |
+| 3 | `NORM_NUM(c.phone)` | 數字 | ✅ | ❌ | ✅ |
+| 4 | `NORM_TXT(o.shipping_address_snapshot ->> 'name')` | 文字 | ✅ | ✅ | ✅ |
+| 5 | `NORM_NUM(o.shipping_address_snapshot ->> 'phone')` | 數字 | ✅ | ❌ | ✅ |
+| 6 | `NORM_TXT(o.shipping_address_snapshot ->> 'line')` | 文字 | ✅ | ✅ | ✅ |
+| 7 | `NORM_ID(oi.variant_sku)` | 識別碼 | ✅ | ❌ | ✅ |
+| 8 | `NORM_TXT(oi.product_snapshot ->> 'title')` | 文字 | ✅ | ✅ | ✅ |
+| 9 | `NORM_TXT(public.pcm_spec_text(oi.product_snapshot -> 'spec'))`(**新增**) | 文字 | ✅ | ✅ | **可選**(A0-3:低基數時索引不划算) |
+| 10 | `NORM_TXT(br.name)` | 文字 | ✅ | ✅ | 可選(brands 是小表,規劃器多半不用) |
+| 11 | `NORM_ID(pc.supplier_order_no)` | 識別碼 | ✅ | ❌ | ✅ |
+
+索引一律 `CREATE INDEX … USING gin ((<上表表達式>) extensions.gin_trgm_ops)`。
+**模糊六欄**=#2/#4/#6/#8/#9/#10;**禁模糊五欄**=#1/#3/#5/#7/#11 ⇒ 這兩個數字驅動 §5 的格數。
 
 ## 5. 驗收條件(逐條可 yes/no;格數由 §4 驅動)
 
