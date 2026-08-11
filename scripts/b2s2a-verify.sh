@@ -1329,13 +1329,41 @@ EXP_KEYS="$(printf '%s\n' $EXPECT_PASS_KEYS | sort | tr '\n' ' ' | sed 's/ *$//'
   echo "   實際 [$GOT_KEYS]"
   echo "   期望 [$EXP_KEYS]"
   FAIL=$((FAIL+1)); }
+# 🔴 teardown(2026-08-11 W-c1 新增):本支原本跑完**不收 cluster**(「零留痕」指交易 ROLLBACK,
+#    不是關 postmaster)⇒ 連錄兩次第二次必被自己上一輪佔埠。
+# 🔴 兩段式:d1t2 的 teardown **要求 workdir 有 `.d1t2-harness` ownership marker**
+#    (它對沒有 marker 的目錄會 die,是刻意的安全設計)。自己 provision 的 harness 沒有那個 marker
+#    ⇒ 第一段會靜默無效(實測:b2s2a 就是這樣留下一座 postmaster)。
+#    ⇒ 第二段自己收,但**只收 `$WORK/pgdata` 這一座**,絕不對別人的 datadir 動手。
+# 🔴🔴 **順序不可調(W-c1 R1 C1)**:這一段會 `FAIL+1`,必須跑在總結行**之前**。原本印在後面
+#    ⇒ 留痕時收據記 `FAIL=0` 而 exit=1、自相矛盾,而「留痕」正是本片新增的這道檢查
+#    唯一要抓的失敗模式 ⇒ 唯一會用到它的那個情境,收據剛好在說謊。
+bash "$(dirname "$0")/d1t2-rehearsal.sh" teardown "$WORK" >/dev/null 2>&1 || true
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  if [ -d "$WORK/pgdata" ]; then
+    "$(dirname "$(command -v initdb)")/pg_ctl" -D "$WORK/pgdata" stop -m immediate >/dev/null 2>&1 || true
+  fi
+fi
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  echo "  🔴 teardown 後 port $PORT 仍有人聽(留痕)"; FAIL=$((FAIL+1))
+else
+  echo "  ✅ teardown 後 port $PORT 無人聽(零留痕)"
+fi
+
 # 🔴 MUT0 是**只剝不改的對照組**,不是突變靶(codex 關卡2)⇒ 合計要扣掉它,不然會多報一發。
-printf 'PASS=%s  FAIL=%s  MUT=%s(結構段,含 MUT0 對照) BMUT=%s(行為段) RMUT=%s(回滾段) 合計 %s 發突變靶 + 1 組對照\n' \
+# 🔴 W-c1:`PASS=n` 與 `FAIL=n` 之間原本是**兩個空格**,而 w7-coverage 的 recorder
+#    要單空格相鄰(`sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/…/p'`)⇒ 解析不到、收據恆紅。
+#    只改分隔字元,數值與判定未動。
+printf 'PASS=%s FAIL=%s  MUT=%s(結構段,含 MUT0 對照) BMUT=%s(行為段) RMUT=%s(回滾段) 合計 %s 發突變靶 + 1 組對照\n' \
   "$PASS" "$FAIL" "$MUT" "$BMUT" "$RMUT" "$((MUT - 1 + BMUT + RMUT))"
 # 🔴 沒有這道:整段刪掉身分閘 / pre-S2a 確認 / 零殘留之後,會變成 PASS=14 FAIL=0 照樣 exit 0。
 
-echo "對照組副本 s2a_ctl 保留不刪(可直接連上去看落地後的樣子):"
-echo "  psql postgresql://postgres@127.0.0.1:${PORT}/s2a_ctl"
+# 🔴 W-c1 R1 折面順手更正:這兩行原本寫「可直接連上去看落地後的樣子 / psql …」——
+#    自從本片加了 teardown,cluster 跑完就被收掉,那句話當場失效(貼了也連不上)。
+#    s2a_ctl 這個庫沒有被 DROP、datadir 也還在,但**要看得自己先重啟**。
+#    這裡不給重啟指令:沒有親手貼過的指令不寫進別人照做的輸出。
+echo "對照組副本 s2a_ctl 沒有被 DROP,datadir 留在 $WORK/pgdata —— 但 cluster 已在上面 teardown 收掉,"
+echo "  要看落地後的樣子得自己把它重新啟動再連 s2a_ctl。"
 echo
 echo "🔴 本支**不涵蓋**(誠實邊界,詳見檔頭):正式站行為(這裡是本機 PG17、非 Supabase);"
 echo "   結構段 17 格中只有 7 格由突變證明;行為段的項8 不碰受測 DB、也沒有對應突變;"
@@ -1347,4 +1375,5 @@ echo "   🔴 gate 的第五條路徑只測到 libpq 環境變數,**~/.pgpass �
 echo "   rehearsal **跳過 A4a 與 S2b 的重放**(兩者都要先做 runbook 步驟④ 的拆除;清單裡有沒有它們仍被斷言)。"
 echo "   🔴 **本檔對 S2b 的產物結構上全盲**(只量摘要表欄數與 CHECK 數,而 S2b 不加欄不加 CHECK)——"
 echo "      那一面由 scripts/b2s2b-verify.sh 的 REH-PRODUCTS 格承擔(B2-S2b-3b 第二段)。"
+
 [ "$FAIL" -eq 0 ] || exit 1
