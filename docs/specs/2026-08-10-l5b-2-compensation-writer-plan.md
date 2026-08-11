@@ -640,6 +640,16 @@ ALTER TABLE public.payment_refunds
 兩者的負測分別是 **弱識別(兩者皆無)** 與 **強識別存在但指錯單**,**這兩個負測互不蘊含**,判別力成立。
 
 #### 2f-3. `manual` 事件的值域(關卡1 R2 `:464`)
+
+> 🔴🔴 **2026-08-11 更正(片 2c 實作時被打穿兩次,原字面已作廢)**:本節原本給的 DDL 是
+> `record_snapshot ? 'refunded' AND jsonb_typeof(...) = 'boolean'` —— **它擋不住本節要擋的第一種情形**。
+> PG 的 CHECK **只擋 FALSE、求值為 NULL 一律放行**,而:
+> ① `record_snapshot` 為 SQL NULL ⇒ `NULL ? 'refunded'` = **NULL** ⇒ 整條 NULL ⇒ 放行;
+> ② 補 `IS NOT NULL` 之後仍被打穿:`record_snapshot = '["refunded"]'`(**陣列**)⇒ `?` 對陣列是
+>    「元素存在嗎」= **true**,而 `-> 'refunded'` 對陣列回 **NULL** ⇒ 又是 NULL ⇒ 放行(正式 17.6 已重現)。
+> ⇒ 正解**不是再列一個 NULL 來源**(打地鼠),是**由構造保證非 NULL**:整條包 `COALESCE(…, false)`。
+> 一併涵蓋:NULL / 陣列 / 純量 / 缺鍵 / 鍵值非 boolean **五種**。下方 DDL 已改。
+> ⚠️ **後面的片凡是寫 CHECK,一律先問「這條求值成 NULL 時會怎樣」** —— 這是本線第二次栽在同一個語意上。
 `manual` 是人寫的終局,但**它對「已退金額 R」的貢獻從未定義** ⇒ §3b 的表只能寫「不得自行解讀」。
 **定案**:`manual` **必須帶 `record_snapshot`**,且其中要能讀出「人當時判定錢**有沒有**退出去」。
 ```sql
@@ -647,7 +657,7 @@ ALTER TABLE public.payment_refunds
 ALTER TABLE public.payment_refund_events
   ADD CONSTRAINT pre_manual_needs_verdict_chk
   CHECK (event_type <> 'manual'
-         OR (record_snapshot ? 'refunded' AND pg_catalog.jsonb_typeof(record_snapshot->'refunded') = 'boolean'));
+         OR COALESCE(pg_catalog.jsonb_typeof(record_snapshot -> 'refunded') = 'boolean', false));
 ```
 ⇒ 之後 §3b 的表可以把 `manual` 寫成:**`refunded=true` 計入 R、`false` 貢獻 0**,不再是「不得解讀」。
 

@@ -41,7 +41,11 @@ MODE="${1:?用法: a7c-rw1b-verify.sh all|run <workdir>}"
 WORK="${2:?缺 workdir(必須是短路徑,例 /tmp/rw1b —— unix socket 路徑上限)}"
 case "$MODE" in all|run) : ;; *) echo "🔴 mode 只接受 all|run(收到:$MODE)"; exit 2 ;; esac
 
-PORT=54331
+# 🔴 W-c1:原本是**寫死** `PORT=54331`,`PORT=xxxx bash …` 完全無效
+#    ⇒ ①w7-coverage 的 invoke 行給不了專用埠、②多窗同時跑必撞同一個埠、
+#      ③更陰的是**呼叫者以為自己換了埠**(B 窗 2026-08-11 就這樣「換到 54348」實際還是 54331)。
+#    改成可被 env 覆寫,預設值不變。
+PORT="${PORT:-54331}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 AURL="${URL}?application_name=rw1b_sess_a"
 BURL="${URL}?application_name=rw1b_sess_b"
@@ -1475,8 +1479,34 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# 🔴 teardown(2026-08-11 W-c1 新增):本支原本跑完**不收 cluster** —— 它宣稱的「零留痕」
+#    指的是交易 ROLLBACK,不是關 postmaster ⇒ 連錄兩次,第二次必被自己上一輪佔埠而 fail-closed。
+# 🔴 兩段式:d1t2 的 teardown **要求 workdir 有 `.d1t2-harness` ownership marker**
+#    (它對沒有 marker 的目錄會 die,是刻意的安全設計)。自己 provision 的 harness 沒有那個 marker
+#    ⇒ 第一段會靜默無效(實測:b2s2a 就是這樣留下一座 postmaster)。
+#    ⇒ 第二段自己收,但**只收 `$WORK/pgdata` 這一座**,絕不對別人的 datadir 動手。
+# 🔴🔴 **順序不可調(W-c1 R1 C1)**:這一段會 `FAIL+1`,必須跑在總結**之前**。原本印在後面
+#    ⇒ 留痕時總結兩行(中文那行與機器可讀那行)都還在說 FAIL=0、exit 卻是 1,
+#    而「留痕」正是本片新增的這道檢查唯一要抓的失敗模式 ⇒ 唯一用得到它的場合收據在說謊。
+# 🔴 位置在**數量閘之後**:數量閘核的是 `$PASS`,而 teardown 只動 `$FAIL`、不進 PASS ⇒ 不互相干擾。
+bash "$(dirname "$0")/d1t2-rehearsal.sh" teardown "$WORK" >/dev/null 2>&1 || true
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  if [ -d "$WORK/pgdata" ]; then
+    "$(dirname "$(command -v initdb)")/pg_ctl" -D "$WORK/pgdata" stop -m immediate >/dev/null 2>&1 || true
+  fi
+fi
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  echo "  🔴 teardown 後 port $PORT 仍有人聽(留痕)"; FAIL=$((FAIL+1))
+else
+  echo "  ✅ teardown 後 port $PORT 無人聽(零留痕)"
+fi
+
 echo
 echo "════════ RW1b 驗收總結 ════════"
 echo "  通過 $PASS / 失敗 $FAIL(突變+消融:$MUT_N 格、乾淨承重 $MUT_OPEN、異常 $MUT_BAD)"
+# 🔴 W-c1 新增:w7-coverage 的 recorder 用 `sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/…/p'`
+#    取值,而上面那行是中文「通過 N / 失敗 N」、**沒有 `PASS=` 字面** ⇒ 解析不到、收據恆紅。
+#    ⇒ **另加**一行機器可讀的,不改上面那行給人看的(兩個受眾、兩行,不互相遷就)。
+echo "  PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
 echo "  🎉 全綠"

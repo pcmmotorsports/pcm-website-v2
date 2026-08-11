@@ -254,3 +254,112 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 });
+
+// ── #315:認不得的 pbrand/category 留在 URL 上(Sean 2026-08-11 Q1=A)────────────────
+//
+// 病灶:改名殘連結 / 客人手打的 `?pbrand=dbk` 會被寫回段清掉 ⇒ 網址變成沒有篩選的 `/products`
+// ⇒ **靜默顯示全站商品**,客人以為還在看 DBK。留著則是 0 筆 + 空狀態(server 只驗形狀不驗對照表,
+// `lib/catalog-query.ts:124`)——看得見、可自我解釋。
+//
+// 🔴 ⑭ 是**正向對照、不是湊數**:⑪⑫⑬ 全部只證「留得住」,把 delete 整條拿掉也會全綠;
+//    要靠 ⑭ 才分得出「認不得才留」與「一律不刪」。
+// 突變驗證 —— **四靶全部在最終版上重跑**(不是從舊版的數字加減來的;數字=vitest 輸出字面):
+//   ① 拿掉 unknownBrands 保留                    → 紅 ⑪⑫⑮(3 failed | 12 passed)
+//   ② `category` else 改回無條件 `params.delete` → 紅 ⑬  (1 failed | 14 passed)
+//   ③ `category` else 整條拿掉(=一律不刪)      → 紅 ⑭  (1 failed | 14 passed)
+//   ④ 把「空表就停用保留」那道守衛**加回去**      → 紅 ⑮  (1 failed | 14 passed)
+// 🔴 ④ 是刻意留的**回歸鎖**:那道守衛真的被寫進來過,理由聽起來很對(RPC 中斷保護),
+//    但前提是假的、方向剛好相反(詳 ⑮ 那格的註解)。這一靶讓它不會被第二個人善意地加回來。
+const qs = (url: string) => new URLSearchParams(url.split('?')[1] ?? '');
+
+describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', () => {
+  it('⑪ 未知 pbrand + 有效品牌並存 → 兩者都留,且**不送導覽**(等值早退命中)', () => {
+    // 這格同時釘住修法的支點:保留未知值後,重建結果與當前 URL **值層等值** ⇒ 連 replace 都不必送。
+    // ⚠️ 不涵蓋重複鍵(`?pbrand=dbk&pbrand=dbk` 會被收斂成一個 ⇒ 仍送一次收斂導覽,無害)。
+    transition('?pbrand=akrapovic&pbrand=dbk', cascade(['akrapovic']), cascade(['akrapovic']));
+
+    expect(hoisted.replace).not.toHaveBeenCalled();
+    expect(hoisted.refresh).not.toHaveBeenCalled();
+  });
+
+  it('⑫ URL 只帶未知 pbrand,使用者改價格 → 未知值仍在', () => {
+    window.history.replaceState(null, '', '/products?pbrand=dbk');
+
+    const { rerender } = renderHook(
+      ({ extras }: { extras: ProductExtraFilters }) =>
+        useCatalogFilterUrlSync(cascade([]), extras, RESTORE_SOURCES),
+      { initialProps: { extras: EXTRAS } },
+    );
+    rerender({ extras: { ...EXTRAS, price: '10000-20000', priceRange: [10000, 20000] } });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).getAll('pbrand')).toEqual(['dbk']);
+    expect(qs(url).get('price')).toBe('10000-20000');
+  });
+
+  it('⑬ 未知 category 不被刪(改名殘連結)', () => {
+    window.history.replaceState(null, '', '/products?category=已下架的分類');
+
+    const { rerender } = renderHook(
+      ({ extras }: { extras: ProductExtraFilters }) =>
+        useCatalogFilterUrlSync(cascade([]), extras, RESTORE_SOURCES),
+      { initialProps: { extras: EXTRAS } },
+    );
+    rerender({ extras: { ...EXTRAS, price: '10000-20000', priceRange: [10000, 20000] } });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).get('category')).toBe('已下架的分類');
+  });
+
+  it('⑭ 正向對照:**認得**的 category 被使用者清掉時,照舊要刪(不得因本片變成永不刪)', () => {
+    // 🔴 **必須跑滿三個 render**,兩個做不出來 —— 這格第一版就是寫成兩個而假紅的:
+    //   ① mount 走 `initialized` 早退,`pendingRestoreRef` 還是 null;
+    //   ② 直接跳到「state 已清空」時,V-1a 還原窗口守衛看到「state 空 + URL 有**可還原**的 category」
+    //      ⇒ 判定成還原波、`return` 收手,**根本走不到寫回段** ⇒ replace 從未被呼叫。
+    //   要觀察「清掉分類」必須先讓 state 非空一次(=還原窗口被消化、pendingRestoreRef 轉 false),
+    //   那也才是真實路徑:客人得先選到分類,才有分類可清。
+    //   ⚠️ 這同時是「認不得」與「認得」兩條路的**不對稱點**:⑬ 的未知值不 restorable、一步就到寫回段。
+    window.history.replaceState(null, '', '/products?category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81');
+    const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: picked } },
+    );
+    rerender({ category: picked }); // ② 還原窗口消化(此輪與 URL 等值 ⇒ 不送導覽)
+    expect(hoisted.replace).not.toHaveBeenCalled();
+    rerender({ category: null }); // ③ 使用者清掉分類
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).get('category')).toBeNull();
+  });
+
+  it('⑮ 品牌對照表是空的(taxonomy RPC 中斷)→ 值**照樣保留**,不得因此被刪', () => {
+    // 🔴 這格的歷史值得留著:我一度在這裡加了一道「空表就停用保留」的守衛(R1 nit-4),
+    //   理由是「中斷期每個 pbrand 都會被判未知 ⇒ 全站釘 0 筆」。**那個前提是假的**,
+    //   跨模型 adversarial 輪擊破:商品過濾走 `search_catalog_by_vehicle` 的 `p_brand_slugs`
+    //   (`lib/products.ts:402`),跟掛掉的 `catalog_brand_counts`(:528)是**兩支不同的 RPC**
+    //   ⇒ 側欄清單掛掉時,有效品牌照樣篩得對。
+    //   ⇒ 有守衛才會出事:客人一動篩選,**有效**的 pbrand 被刪 ⇒ 靜默顯示全站(=#315 本身),
+    //     而且表恢復後不會自癒。守衛已拆,這格改成釘住「拆掉之後」的正確行為。
+    //   ⚠️ 教訓:我當時驗了「表會是空的」三段鏈,卻沒驗**結論那一跳**「空表會不會影響查詢」。
+    window.history.replaceState(null, '', '/products?pbrand=akrapovic');
+    const EMPTY_TABLE = { ...RESTORE_SOURCES, productBrands: [] as { id: string }[] };
+
+    const { rerender } = renderHook(
+      ({ extras }: { extras: ProductExtraFilters }) =>
+        useCatalogFilterUrlSync(cascade([]), extras, EMPTY_TABLE),
+      { initialProps: { extras: EXTRAS } },
+    );
+    rerender({ extras: { ...EXTRAS, price: '10000-20000', priceRange: [10000, 20000] } });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).getAll('pbrand')).toEqual(['akrapovic']); // 空表也不刪
+    expect(qs(url).get('price')).toBe('10000-20000'); // 其他軸照常
+  });
+});
