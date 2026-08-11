@@ -544,13 +544,16 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
 .co-submit-error { color: var(--c-red-dark); font-size: 13px; margin: 0 0 12px; } /* 🔶 0c 文字層(OD `pcm-checkout.css:563` 同族)*/
 
 /* ============ ASIDE / SUMMARY ============ */
-/* 🔴 #331 **刻意沒改這一處**(2026-08-11 R1 抓到後退出該片,見 backlog #408)。
-   其餘三處側欄 sticky 都改吃了 `calc(var(--shell-header-h) + N)`,這裡沒有,原因不是漏:
-   `.co-aside` 轉 static 的斷點是 **≤900**(本檔下方那個 `@media (max-width: 900px)`),
-   **不是** 其他三處的 ≤1079 ⇒ 在 **901-1079** 這段它仍然 sticky,而 `--shell-header-h`
-   在 ≤1079 已經是 60px ⇒ 換成 `+23px` 會讓它從 96 變 83、**位移 13px**。
-   那 13px 該不該動是**視覺題**,不在收斂 token 的片裡沉默決定。 */
-.co-aside { position: sticky; top: 96px; }
+/* 🏁 **#408①(2026-08-11 拍板 B)**:改吃 token,與其餘三處側欄 sticky 同式。
+   ~~#331 刻意留寫死 96px~~ **已解**。經過:#331 R1 抓到「這一處的斷點不一樣」而退出該片,
+   立 `#408` 等拍;拍板 B = **維持 sticky、top 改吃 token**。
+   🔴 **本行是刻意的行為變更,不是收斂**:`.co-aside` 轉 static 的斷點是 **≤900**
+   (本檔下方 `@media (max-width: 900px)`),**不是**其他三處的 ≤1079
+   ⇒ 在 **901-1079** 這段它仍 sticky,而該區間 `--shell-header-h` = 60px
+   ⇒ 本行讓它由 96px 變 **83px**(60+23),**位移 13px**。那 13px 就是 #408① 拍的東西。
+   ⚠️ 斷點差異**本身沒有被改掉**(A 案才是改斷點,Sean 沒選)⇒ 901-1079 仍是唯一
+   「sticky 但頁首已收窄」的區間;它現在的間距與桌機一致(都是 header + 23),這才是 B 的理由。 */
+.co-aside { position: sticky; top: calc(var(--shell-header-h) + 23px); }
 .co-summary {
   border: 1px solid var(--c-border);
   background: var(--c-surface);

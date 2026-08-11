@@ -325,3 +325,118 @@ A: A|B|C
   其餘 7 條(§8 驗收沒判別力、Q2-B 無安全落點、Q3-B 沒人產 SQL、部分退金額對帳…)
   **我認為成立但沒逐條實查** ⇒ 標**未親驗**,不得當成已證。
 - **沒有 R3**:不是因為收斂了,是因為 **R3 該打的東西已經不在 plan 層**(Q0 沒拍,重寫也是白寫)。
+
+---
+
+# RF7 plan **v3**(Q0=A;2026-08-11 夜)—— **修法縮成一個判斷,而且不需要任何新東西**
+
+> 派工 = `E-314-A`。Sean 拍 **Q0=A**:「TapPay 退了、本地無帳」維持異常進人工待審;
+> **RF7 縮成只消掉「我們自己退的」那些假告警**;Record API 對帳線立 backlog **`#419`**。
+> **v2 的三題(§10)在 Q0=A 之下全部消失** —— 理由不是「不用問了」,是**下面這三條實查把它們的前提拆了**。
+
+## v3-§1 三條實查,把 v2 的整個困難面移除
+
+| # | 事實 | 座標 |
+|---|---|---|
+| ① | **`settleCharge` 手上已經有 `orders.payment_status`** —— `ActiveChargeAttempt.orderPaymentStatus`,而且 `settle-charge.ts:68` 早就在用它短路已 paid 的單 | `packages/domain/src/payment/types.ts:565`;`settle-charge.ts:68` |
+| ② | **我們自己的退款會寫它**:`admin_finalize_order_refund` 步 7 依 `SUM(order_refunds.refund_amount) WHERE status='confirmed'` 對比 `orders.total`,`UPDATE orders SET payment_status = refunded / partiallyRefunded` | `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:777-782` |
+| ③ | **sweeper 的 claim 濾 `orders.payment_status='unpaid'`** ⇒ 已退款的單**根本不會被領** | `20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:16` |
+
+⇒ **v2 那些困難全部消失**:
+- 不需要讀任何帳本 ⇒ **`payment_confirmer` 沒有 SELECT 這件事不再是障礙**(v2 §2.1 的死結)
+- 不需要新 port / 新 RPC / 新 migration / 不碰 P 的地盤 ⇒ **v2 §10 的 Q1、Q3 消失**
+- **Q2 的死結被繞開**:v2 說 Q2-A「仍回 pending ⇒ 重試到 ceiling ⇒ 假人工待審沒解掉」,
+  但那個推論**漏了 ③** —— 自己退的單 `payment_status` 已非 `unpaid`,**sweeper 從一開始就不領它**
+  ⇒ 回 pending 不會產生任何重試,**不需要新的 attempt 終態**
+  (而 `payment_charge_attempts.status` 實查 = `{pending, charged, failed, released}`、**確實沒有 refunded**,
+  R2 那條說對了 —— 只是我們現在不需要它)
+
+## v3-§2 修法(全部改動集中在 `settle-charge.ts` 的**一個分支**)
+
+`:181-188` 的 `refund_anomaly` 消費端改成兩路:
+- `attempt.orderPaymentStatus ∈ {refunded, partiallyRefunded}` ⇒ **我們自己退的**:
+  不告警、回一個**具名的**非異常 pending(reason 另立,別沿用 `record_unverified` —— 它現在的意思是「查不出來」,
+  而這裡是「查得出來、而且正常」)。
+- 其餘(含 **Portal 手動退**)⇒ **維持現況:`console.error` + pending** ← 這就是 Q0=A 要的行為。
+
+**不動**:`classifyRecordStatus`(純函式)、任何 caller、`SettleChargeDeps`、schema、ACL。
+
+## v3-§3 🔴 一個誠實的缺口:**L5b 補償退款蓋不到**
+
+`payment_refunds`(L5b)**不寫 `orders.payment_status`** —— 這不是我推的,是 **P 自己的 plan 寫下的證據**:
+`docs/specs/2026-08-10-l5b-2-compensation-writer-plan.md:741` 逐字
+「**本片零 `payment_status` 寫入的證據**:`20260810140000` 全檔 `payment_status` **零命中**(實 grep)」。
+
+⇒ 嚴格講,**本修法沒有 100% 滿足 Q0=A**(L5b 退的也是「我們自己退的」)。
+**但今天覆蓋率是 100%**:`payment_refunds` 正式庫 **0 列**、`110000` 未 apply ⇒ 那條路還沒有任何一筆。
+**處置(建議,不自己決定)**:
+- (a) 由 **L5b 側**在補償退款成立時一併寫 `orders.payment_status`(語意上本來就該寫)—— 我**不碰 P 的地盤**,只提出;
+- (b) 或把它掛進 `#419`(Record API 對帳線)一起解;
+- (c) 或另立條目。
+⚠️ **無論哪個,RF7 這片都要在 code 註解裡留下「L5b 那條路不在本片覆蓋內」的字面**,
+否則下一個人會以為 2/3 的假告警已經全解了(**這正是 v2 §2.2 那種「看起來已修好」的陷阱**)。
+
+## v3-§4 片界:**一片**(15-45 分鐘)
+
+v2 拆的三片(RF7-0/a/b/c)全部作廢 —— 那是為了「讀帳本」而拆的。
+現在只有一片:改 `:181-188` 分支 + 具名 reason + 測試。
+
+## v3-§5 驗收(每條可 yes/no)
+
+1. `orderPaymentStatus='refunded'` ⇒ 不 `console.error`、回具名新 reason。
+2. `='partiallyRefunded'` ⇒ 同上(**兩個值各一格,不共用一格**)。
+3. `='unpaid'`(Portal 情境)⇒ **仍 `console.error` + pending**,且**該格拿掉修法後必須仍綠**
+   —— 它是現況基線,**不能拿它當本片的證據**(R2 打過同型的假驗收,`plan §8-5`)。
+4. **判別力**:把修法拿掉 ⇒ 第 1、2 格必紅;把條件寫成 `!== 'unpaid'` ⇒ 應有一格紅
+   (`released`/`charged` 等其他值不得被誤放行)。
+5. **不得新增** port / deps / migration ⇒ `SettleChargeDeps` 型別**逐字不變**(結構斷言釘住)。
+6. 三綠 + 全套;鐵則 12 ①錢命中 ⇒ commit 前跑關卡 2。
+
+## v3-§6 誠實邊界
+
+1. **沒實作**(等批)。
+2. **沒打 Record API** ⇒ 「那 1 筆 sweeper 可領的 attempt 在 TapPay 端是不是 2/3」仍未確認。
+3. **L5b 缺口見 v3-§3**,已明列、不假裝蓋到。
+4. v3 的三條實查是 **21:3x** 的觀察;`admin_finalize_order_refund` 我讀的是 migration 原文、
+   **沒有實跑一次退款驗證它真的寫了 `payment_status`**(正式庫 `order_refunds` 0 列,構造不出來)
+   ⇒ ② 標**讀碼確認、未實跑**。
+5. **v2 的 §11 對帳表與 §13 停線段全部保留** —— 那是這片怎麼走到這裡的紀錄,不刪。
+
+## v3-§7 🔴 窄審結論:**v3 也 FAIL(11 must-fix)—— 而且失敗形狀與 v1/v2 相同**
+
+### 7.1 三條我親驗、直接打死 v3 中心主張的
+
+| # | 事實 | 座標 | 打死了什麼 |
+|---|---|---|---|
+| ① | `if (attempt.orderPaymentStatus === 'paid') { … return paid }` —— **已 paid 的單根本不查 Record** | `settle-charge.ts:68-71` | v3-§2 說「其餘(含 Portal)維持現況告警」**是假的**:Portal 對**已 paid** 單退款,今天**連告警都不會有**(它在 Record 查詢之前就返回了)。⚠️ 該處註解自己寫「嚴格 `=== 'paid'`…避免誤短路退款/partiallyPaid 態」——**作者想過這件事,是我沒讀到那一行** |
+| ② | webhook inbox 的 claim **不濾 `orders.payment_status`** | 4a1 webhook migration(grep `payment_status` 該檔 = 0 命中) | v3-§1 ③ 只對 **sweeper 的 attempt claim** 成立;**inbox 那條路照樣重試到 8 次並轉人工** ⇒「不會進人工佇列」為假 |
+| ③ | **`flagNonUnpaidActive`** 存在 —— 專門把「訂單非 unpaid 但 attempt 仍 active」標成人工 | `PgChargeAttemptAdapter.ts:210` | 系統**本來就有**一條針對這個狀態的設計動作。我完全沒盤到它 ⇒ RF7 的問題框架可能一開始就該從它出發 |
+
+### 7.2 另一條方向最危險的(審查者提、我認,未實跑構造)
+
+**先本地部分退款、之後 Portal 再退一次**:`orders.payment_status` 仍是 `partiallyRefunded`
+(那是**上一次**我們自己退的結果),而**這一次**的退款兩本帳都沒有列
+⇒ v3 的判斷會把它**誤判成「我們自己退的」而靜音**。
+**方向 = 漏報**(把「不知道發生什麼事」講成「一切正常」),正是 Q0=A 明確要留住的那一類。
+🔴 **根因**:`orders.payment_status` 是**訂單層的累積狀態**,而我拿它當**這一次 Record 事件**的證據
+—— **粒度不對**。同一個病 v2 也犯過(v2 用 `orderId` 當鍵、被打回改 `recTradeId`),**我換了證據來源卻把粒度錯誤原樣帶過來**。
+
+### 7.3 🔴 三輪的失敗形狀是同一個(這才是該記的東西)
+
+| 版本 | 中心主張 | 被什麼打死 |
+|---|---|---|
+| v1 | 「認任一本帳有非 failed 紀錄、零 migration 直讀」 | 我沒查**誰在跑**(角色 ACL)、沒查 `deferred` 語意 |
+| v2 | 「三個選項涵蓋了問題空間」 | 我沒把選項走到終態(Portal 案三案全不收斂) |
+| v3 | 「讀 `orderPaymentStatus` 就夠,七路都不累積」 | 我沒盤完七路(inbox 不濾、paid 短路、`flagNonUnpaidActive`) |
+
+⇒ **共通形狀:每一版的中心主張都建立在「我列的那份清單是完整的」,而三次都不完整。**
+而且**每次補完之後,新版又立刻建立在一份新的、同樣沒被證明完整的清單上**。
+⇒ **這不是再寫一版 v4 能解的** —— v4 的中心主張會是「這次我盤完了」,而那正是前三次說過的話。
+
+### 7.4 建議(**不是我能拍的**)
+
+RF7 這片要能出一份站得住的 plan,前提是先有人把
+**「`settleCharge` 的所有觸發路 × 訂單狀態 × Record 狀態」這張矩陣一次列完並各自標出現行處置**
+—— 包含 `flagNonUnpaidActive` 這種我這次才發現的既有機制。
+那是一份**偵察產出**,不是 plan;它做完之前,任何修法提案都會重複上面那個形狀。
+⇒ 建議把 RF7 拆成 **RF7-recon(矩陣)** 與 **RF7-fix(等矩陣出來再寫)** 兩件,由主視窗排。

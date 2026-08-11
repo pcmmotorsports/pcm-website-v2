@@ -12,7 +12,7 @@
 //      而那正是這一片要修的原始症狀 —— 修法自己失效、看起來卻像做完了)。
 
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -30,13 +30,14 @@ const FILES = [
   'products-mobile.css',
   // #331:三支「側欄 sticky」的檔。它們寫死的不是頁首高本身,是**頁首高 + 呼吸空間**的
   // 合成值(100 / 96)⇒ 0b 那輪的守門看不見。理由寫在本檔最下面的 #331 describe。
-  // 🔴 `checkout.css` **有載入、但不在 CONSUMERS 裡**(它在本清單下方,只為 #331 的回歸鎖而載):
-  //    它的 static 斷點是 ≤900 不是 ≤1079(見 #331 describe 的「退出」段與 backlog #408)
-  //    ⇒ 它還留著寫死的 96px,放進 CONSUMERS 會讓「都在吃這顆 token」那條恆紅。
+  // 🏁 `checkout.css` **2026-08-11(#408①)起併入 CONSUMERS**。
+  //    ~~它還留著寫死的 96px,放進 CONSUMERS 會讓「都在吃這顆 token」那條恆紅~~
+  //    —— 那句在 #408① 之後**是假的**(`.co-aside` 已改吃 token),
+  //    留著不改就是「改了事實、沒改宣稱」。斷點差異(≤900)仍在,但那與 CONSUMERS 無關。
   'account.css',
   'cart.css',
   'product-page.css',
-  // 只為了下面 #331 的「checkout 回歸鎖」而載入 —— **它不在 CONSUMERS 裡**(見上一段)。
+  // #331 的 checkout 回歸鎖 + #408① 之後也進 CONSUMERS(見上一段)。
   'checkout.css',
 ] as const;
 // 🔴 鍵型別用**字面聯集**不是 `Record<string, string>`:本 repo 開了 `noUncheckedIndexedAccess`
@@ -162,6 +163,7 @@ describe('R2-3 頁首細節', () => {
 //    ⇒ 本組把「單一來源」這件事本身釘住:token 在、消費端沒有人再寫死、斷點兩處同步。
 describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () => {
   const CONSUMERS = [
+    'checkout.css', // #408① 起:`.co-aside` 改吃 token,它現在真的是消費端
     'products-page.css',
     'filter-cascade.css',
     'filter-top.css',
@@ -262,7 +264,7 @@ describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () =
     }
   });
 
-  it('🔴 五支消費端真的都在吃這顆 token(不是「剛好沒寫死」而已)', () => {
+  it('🔴 消費端真的都在吃這顆 token(不是「剛好沒寫死」而已;#408① 起含 checkout.css)', () => {
     for (const f of CONSUMERS) {
       expect(CSS[f], `${f} 完全沒有消費 --shell-header-h ⇒ 它的偏移改吃了別的東西`)
         .toMatch(/var\(--shell-header-h\)/);
@@ -460,23 +462,61 @@ describe('#331 側欄 sticky 的 top 必須吃 --shell-header-h(不得寫合成�
     },
   );
 
-  // 🔴 **checkout 回歸鎖**(backlog #408):`.co-aside` 刻意**留著寫死的 96px**。
-  //   危險在於它現在是三支裡唯一的例外 —— 下一個人看到另外三支都吃 token,很容易「順手補齊」,
-  //   而那會在 901-1079 把它從 96 移到 83,**沒有任何東西會紅、也沒有人會發現**。
-  //   這兩條斷言讓「順手補齊」必須先撞紅一次:要改就得連斷點一起想清楚(那是視覺題、要 Sean 拍)。
-  //   ⚠️ 同族第二次:#315 也留了一個「把被擊破的守衛加回去要紅」的回歸鎖。
-  //      共通形狀 = **本片刻意沒做的事,要留一個會紅的東西擋住善意的下一個人**。
-  it('🔴 checkout .co-aside 維持寫死 96px(#408 未解前不得改吃 token)', () => {
+  // 🏁 **checkout 回歸鎖已翻面(#408① 拍板 B,2026-08-11)**。
+  //   ~~原本兩條鎖的是「`.co-aside` 維持寫死 96px」~~ —— 那是 #331 刻意留白時期的鎖,
+  //   目的是讓「順手補齊」先撞紅一次。**現在 Sean 拍了 B、那個決定被推翻,鎖跟著翻面**:
+  //   🔴 **這不是「為了讓測試過而改期望值」** —— 被測的東西真的變了(96px → token 式),
+  //      而且是**拍板驅動**的變更;期望值改成新行為之後,寫回 96px 一樣紅。
+  //   ⚠️ 斷點差異(≤900 vs 其他三處的 ≤1079)**沒有被這一片改掉** ⇒ 下面第二條前提鎖照留:
+  //      它現在守的是「B 案的理由還成立嗎」——斷點若哪天也改成 1079,901-1079 這個
+  //      特殊區間就消失了,那時第一條的理由要重讀(而不是自動繼續對)。
+  it('🔴 checkout .co-aside 吃 token(#408① 拍板 B;寫回 96px 一樣紅)', () => {
     expect(
       CSS['checkout.css'],
-      '.co-aside 改吃 token 了 —— 它的斷點是 ≤900,901-1079 會位移 13px,先解 #408',
-    ).toMatch(/\.co-aside\s*\{[^}]*top:\s*96px/);
+      '.co-aside 沒在吃 --shell-header-h ⇒ #408① 的拍板被回捲了',
+    ).toMatch(/\.co-aside\s*\{[^}]*top:\s*calc\(var\(--shell-header-h\)\s*\+\s*23px\)/);
+    expect(
+      CSS['checkout.css'],
+      '.co-aside 又出現寫死的 96px',
+    ).not.toMatch(/\.co-aside\s*\{[^}]*top:\s*96px/);
   });
 
-  it('🔴 前提 — checkout .co-aside 的 static 仍在 ≤900(上一條的理由就是這個斷點)', () => {
+  it('🔴 前提 — checkout .co-aside 的 static 仍在 ≤900(#408① 選 B 而非 A 的理由)', () => {
     expect(
       allMediaBlocks('checkout.css', '(max-width: 900px)'),
-      '.co-aside 的 static 不在 ≤900 了 ⇒ 上一條回歸鎖的理由已變,重想別照抄',
+      '.co-aside 的 static 不在 ≤900 了 ⇒ A 案(改斷點)可能已被別人做掉,#408① 的理由要重讀',
     ).toMatch(/\.co-aside\s*\{[^}]*position:\s*static/);
+  });
+
+  // 🔴 **#408②③:兩處 `scroll-margin-top` 的合成寫死**(`76 = 73 + 3`)。
+  //   它與側欄 sticky 是**同一個病、不同的面**:合成值裡沒有 69/73/64/65 任何一個字面
+  //   ⇒ 上面 CONSUMERS 那條掃 `top:` 的守門對它**全盲**。
+  //   🔴🔴 **本條第一版的母體是上面那份寫死的 `FILES`(12 支),而註解卻寫「掃全部 CSS」**——
+  //      #408 的 code-reviewer 在 `error.css` 塞 `.zz-refute-probe { scroll-margin-top: 76px }`
+  //      **全綠親證**(作者自己重跑同一個探針、同樣全綠)。`styles/` 實有 **28** 支 `.css`,
+  //      當時有 **16 支零覆蓋** ⇒ 宣稱與事實不符,而且**是寫守門的當下寫下的宣稱**。
+  //   ⇒ 現在母體改成**真的去讀目錄**(`readdirSync`),不吃 `FILES`:
+  //      新增一支 CSS 就自動納管,不需要有人記得回來加名字。
+  it('🔴 styles/ 全部 .css 的 scroll-margin-top 都吃 --shell-header-h(母體=讀目錄,非 FILES)', () => {
+    const all = readdirSync(HERE).filter((f) => f.endsWith('.css'));
+    // 前提①:母體本身要夠大 —— 若哪天 readdir 掃不到東西(路徑變了),本條會恆綠。
+    expect(all.length, `styles/ 掃不到 .css(母體壞了)`).toBeGreaterThan(20);
+    // 前提②:母體必須**真的比 FILES 大**,否則等於又退回寫死清單。
+    expect(all.length, 'readdir 母體不大於 FILES ⇒ 這條改法沒有生效').toBeGreaterThan(FILES.length);
+    const decls: string[] = [];
+    for (const f of all) {
+      const src = read(f); // 沿用檔頭 `read()`(resolve(HERE, f)),不自造路徑組法
+      // 🔴 已知盲區(reviewer nit,標明不假裝沒有):本正規式只吃「宣告獨立成行」的寫法,
+      //    對 `a { x:1; scroll-margin-top: 76px }` 這種同行簡寫**看不到**。
+      //    不改成無腦全文掃的理由 = 會把註解裡的字也算進去(#408① 的「列印」6 命中全是註解就是這個病)。
+      for (const d of src.match(/^[^\n/*]*scroll-margin-top:\s*[^;]+;/gm) ?? []) {
+        decls.push(`${f}: ${d.trim()}`);
+      }
+    }
+    // 前提③:掃得到宣告才有判別力(掃到 0 條時下面的迴圈恆綠)。
+    expect(decls.length, '一條 scroll-margin-top 都沒掃到 ⇒ 正規式壞了,本條恆綠').toBeGreaterThan(0);
+    for (const d of decls) {
+      expect(d, `${d} 沒吃 token ⇒ 頁首高一改它就被遮住(#408②③)`).toContain('var(--shell-header-h)');
+    }
   });
 });
