@@ -156,7 +156,11 @@ UPDATE 驗 OLD+NEW 的理由逐字沿用 `20260725130100:200-201`:把明細從 A
 1. **既有資料閘**:🔴 **先 `LOCK TABLE` 兩表(固定順序、SHARE ROW EXCLUSIVE)再驗**零明細 header = 0 筆
    —— 只查不鎖有 TOCTOU:窗內 owner writer 可插入孤兒並 commit,trigger 之後才建成 ⇒ 壞列永久留存。
    實測背書 = `scripts/a7t-concurrency-probe.sh` 案例 **E**(E1 證明鎖真的擋住、E2 證明取得鎖後看得到孤兒)。
-2. 每表 trigger **名稱集合恰好相等**(不是「包含」、也不是只數數量)
+2. ~~每表 trigger **名稱集合恰好相等**(不是「包含」、也不是只數數量)~~
+   🔴 **已於 2026-08-11 撤(backlog #399,主視窗 B-445-A 裁定)**:集合相等會擋掉後來者的合法演進
+   (A4a `20260803140000` 在 `order_cancellation_items` 加了第三支 trigger),也讓本檔在 HEAD 狀態
+   重放必紅 ⇒ `scripts/a7t-verify.sh` 整支跑不完。現行語意=**包含式**,由下面第 3 條
+   (逐支綁 `tgrelid`+`tgname`、找不到就 RAISE)承擔;migration 裡已無此條斷言。
 3. **逐支綁 `tgrelid` + `tgname`** 斷言:
    - `tgenabled = 'O'` —— 🔴 `DISABLE` / `ENABLE REPLICA` 之後數量、名稱、`pg_get_triggerdef` **三者完全不變**
    - `tgtype`(21 / 29 / 34,**本機 PG17.10 實測值**,非推算)

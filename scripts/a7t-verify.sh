@@ -107,11 +107,20 @@ SQL
   fi
   psql "$URL" -v ON_ERROR_STOP=1 -q -f "$MIG" > "$WORK/apply.log" 2>&1
   local rc=$?
-  # 終態物件集合複驗:四支 trigger + 兩支函式,一個不多一個不少
+  # 終態物件複驗(2026-08-11 #399 改寫;原版=「兩張表上的 user trigger 數 + 三支具名函式(含 pgnoop)= 6」,
+  #                           其中 trigger 那半是**整張表的計數**、沒綁到本片自己那四支)
+  # 🔴 原版與 migration 5.1 是同一種病:**精確集合**。A4a 後來在 order_cancellation_items 加了
+  #    第三支 `..._summary_recompute_ac` ⇒ 在 HEAD 狀態它會數到 7 ⇒ migration 修好之後換這裡擋路。
+  # 🔴 改法要**逐對綁 (relname, tgname)**,不能只 `tgname IN (…)`:只比名字的話,
+  #    第三方在另一張目標表放同名誘餌會被算進來(關卡1 codex R1 MF2)。
+  # 🔴 三個數字**分開比**、不加總:加總會讓「pgnoop 殘留 + 少一支函式」互相抵銷成同一個數。
+  # ⚠️ 誠實代價(code-reviewer nit):改成只數具名四對之後,「兩張目標表上多出**非正規名**的殘留 trigger」
+  #    不再讓 reapply 中止。今天沒有活的洩漏路徑(s1/3b 全在 BEGIN…ROLLBACK 內、s2 只重建正規名、
+  #    reapply 清理階段會 DROP),但日後若有突變用非正規名建 trigger,它會靜默活到行為探針那段。
   local n
-  n="$(psql "$URL" -qtA -c "SELECT (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE c.relname IN ('order_cancellations','order_cancellation_items') AND NOT t.tgisinternal) + (SELECT count(*) FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace WHERE s.nspname='public' AND p.proname IN ('pcm_assert_cancellation_has_items','pcm_cancellation_ledger_block_truncate','pgnoop'))" 2>/dev/null)"
-  if [ "$rc" -eq 0 ] && [ "$n" != "6" ]; then
-    echo "🔴 reapply 後終態物件數 = $n(預期 6 = 4 trigger + 2 函式、且無 pgnoop 殘留);中止"; exit 1
+  n="$(psql "$URL" -qtA -c "SELECT (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace s ON s.oid=c.relnamespace WHERE s.nspname='public' AND NOT t.tgisinternal AND (c.relname, t.tgname) IN (('order_cancellations','order_cancellations_items_presence_ac'),('order_cancellations','order_cancellations_block_truncate_bt'),('order_cancellation_items','order_cancellation_items_presence_ac'),('order_cancellation_items','order_cancellation_items_block_truncate_bt'))) || '|' || (SELECT count(*) FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace WHERE s.nspname='public' AND p.proname IN ('pcm_assert_cancellation_has_items','pcm_cancellation_ledger_block_truncate')) || '|' || (SELECT count(*) FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace WHERE s.nspname='public' AND p.proname='pgnoop')" 2>/dev/null)"
+  if [ "$rc" -eq 0 ] && [ "$n" != "4|2|0" ]; then
+    echo "🔴 reapply 後終態 = $n(預期 4|2|0 = 四對具名 trigger|兩支函式|pgnoop 零殘留);中止"; exit 1
   fi
   cat "$WORK/apply.log"
   return $rc
@@ -158,9 +167,14 @@ s1 "改 INITIALLY IMMEDIATE + 別表同名誘餌" \
   "CREATE TABLE decoy (id int PRIMARY KEY); CREATE CONSTRAINT TRIGGER order_cancellations_items_presence_ac AFTER INSERT ON decoy DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.pcm_assert_cancellation_has_items(); DROP TRIGGER order_cancellations_items_presence_ac ON public.order_cancellations; CREATE CONSTRAINT TRIGGER order_cancellations_items_presence_ac AFTER INSERT OR UPDATE ON public.order_cancellations DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION public.pcm_assert_cancellation_has_items();" "deferrable/initdeferred"
 s1 "子表 trigger 拿掉 DELETE" \
   "DROP TRIGGER order_cancellation_items_presence_ac ON public.order_cancellation_items; CREATE CONSTRAINT TRIGGER order_cancellation_items_presence_ac AFTER INSERT OR UPDATE ON public.order_cancellation_items DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.pcm_assert_cancellation_has_items();" "tgtype"
+# 🔴 2026-08-11 #399:原本 want 是 5.1 的「user trigger 數」,而 5.1 已隨集合相等一起撤。
+#    現在改由 5.2 的 NOT FOUND 抓。**want 必須帶完整 trigger 名** —— 5.2 那句
+#    「表 % 上找不到 trigger %」是四支共用的模板,只寫「找不到 trigger」的話,
+#    任何一支缺失都會命中 ⇒ 紅在別支也被判成命中(關卡1 codex R1 MF1)。
 s1 "刪一支 TRUNCATE 攔截" \
-  "DROP TRIGGER order_cancellation_items_block_truncate_bt ON public.order_cancellation_items;" "user trigger 數"
-s1 "換成無害同名 trigger(數量仍 2)" \
+  "DROP TRIGGER order_cancellation_items_block_truncate_bt ON public.order_cancellation_items;" \
+  "上找不到 trigger order_cancellation_items_block_truncate_bt"
+s1 "換成無害同名 trigger(名稱不變、由 tgtype 接住)" \
   "DROP TRIGGER order_cancellation_items_presence_ac ON public.order_cancellation_items; CREATE FUNCTION pgx1() RETURNS trigger LANGUAGE plpgsql AS \$f\$ BEGIN RETURN NULL; END \$f\$; CREATE TRIGGER order_cancellation_items_presence_ac AFTER INSERT ON public.order_cancellation_items FOR EACH ROW EXECUTE FUNCTION pgx1();" "tgtype"
 s1 "EXECUTE 授權回 PUBLIC" \
   "GRANT EXECUTE ON FUNCTION public.pcm_assert_cancellation_has_items() TO PUBLIC;" "owner 以外的 grantee"
@@ -176,6 +190,25 @@ s1 "保留兩段字面但邏輯反了" \
   "CREATE OR REPLACE FUNCTION public.pcm_assert_cancellation_has_items() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS \$f\$ DECLARE v_cnt integer; BEGIN IF false THEN SELECT count(*) INTO v_cnt FROM public.order_cancellation_items WHERE cancellation_id = v_x; RAISE EXCEPTION '沒有任何品項明細'; END IF; RETURN NULL; END \$f\$;" "本體指紋"
 s1 "TRUNCATE 攔截函式被改成放行" \
   "CREATE OR REPLACE FUNCTION public.pcm_cancellation_ledger_block_truncate() RETURNS trigger LANGUAGE plpgsql AS \$f\$ BEGIN RETURN NULL; END \$f\$;" "本體指紋"
+
+# ── 3b:#399 反轉後的**明示正向案例**(不是唯一判別器 —— 關卡2 codex nit 更正)────────────
+# 上面 15 條全是「守門仍咬得住」;這一條反過來明寫**新語意生效**:第三方往同一張表加一支
+# 無關 trigger(A4a 當初做的就是這件事)⇒ 結構驗收必須**放行**。
+# ⚠️ 它不是唯一能分辨新舊語意的格:2/7 的零突變本來就跑在「A4a 第三支已在場」的庫上,
+#    舊版集合相等在那裡就會紅。3b 的價值是把這件事**指名寫出來**(靶名自帶意圖),
+#    免得日後有人把包含式又收緊回去時,只看到 2/7 紅而以為是環境問題。
+log "3b/7 反轉驗證:同表多一支第三方 trigger,結構驗收必須放行(#399 包含式語意)"
+{ echo "BEGIN;"
+  echo "CREATE FUNCTION public.zz_a7t_third_party() RETURNS trigger LANGUAGE plpgsql AS \$f\$ BEGIN RETURN NULL; END \$f\$;"
+  echo "CREATE TRIGGER zz_a7t_third_party_ac AFTER INSERT ON public.order_cancellation_items FOR EACH ROW EXECUTE FUNCTION public.zz_a7t_third_party();"
+  cat "$WORK/a7t-assert.sql"; echo "ROLLBACK;"; } > "$WORK/allow.sql"
+psql "$URL" -v ON_ERROR_STOP=1 -qtA -f "$WORK/allow.sql" > "$WORK/allow.out" 2>&1
+ALLOW_RC=$?
+if [ "$ALLOW_RC" -eq 0 ] && grep -q 'A7-t 結構驗收全數通過' "$WORK/allow.out"; then
+  ok "A:第三方多一支 trigger → 結構驗收放行(集合相等已撤,合法演進不再被擋)"
+else
+  bad "A:第三方多一支 trigger 竟被擋(rc=$ALLOW_RC):$(grep -m1 'ERROR:' "$WORK/allow.out" | cut -c1-96)"
+fi
 
 log "4/7 行為探針(零突變必須綠)"
 reapply >/dev/null || { echo '🔴 reapply 失敗(fail-closed)'; exit 1; }

@@ -242,9 +242,6 @@ COMMENT ON FUNCTION public.pcm_cancellation_ledger_block_truncate() IS
 --    行為在 scripts/a7t-behavior-probe.sql;可重現驗證在 scripts/a7t-verify.sh。
 DO $$
 DECLARE
-  v_tbl        text;
-  v_expected   text[];
-  v_actual     text[];
   v_cnt        integer;
   v_rel        text;
   v_name       text;
@@ -264,32 +261,26 @@ DECLARE
   v_fname      text;
   v_md5        text;
 BEGIN
-  -- ── 5.1 每表 trigger 名稱集合恰好相等(不是「包含」)────────────
-  -- 🔴 用集合相等而非 count:只數數量的話,「刪掉一支、另外加一支無害的」數量仍對。
-  FOR v_tbl, v_expected IN
-    SELECT * FROM (VALUES
-      ('order_cancellations',
-       ARRAY['order_cancellations_items_presence_ac','order_cancellations_block_truncate_bt']),
-      ('order_cancellation_items',
-       ARRAY['order_cancellation_items_presence_ac','order_cancellation_items_block_truncate_bt'])
-    ) AS t(tbl, exp)
-  LOOP
-    SELECT count(*), array_agg(tgname ORDER BY tgname)
-      INTO v_cnt, v_actual
-      FROM pg_trigger
-     WHERE tgrelid = ('public.' || v_tbl)::regclass
-       AND NOT tgisinternal;
-
-    IF v_cnt <> 2 THEN
-      RAISE EXCEPTION 'A7-t 驗收失敗 — 表 % 的 user trigger 數 = %(預期恰 2:一支 presence + 一支 truncate 攔截)',
-        v_tbl, v_cnt;
-    END IF;
-
-    IF v_actual IS DISTINCT FROM (SELECT array_agg(x ORDER BY x) FROM unnest(v_expected) AS x) THEN
-      RAISE EXCEPTION 'A7-t 驗收失敗 — 表 % 的 trigger 名稱集合 = %,預期 %',
-        v_tbl, v_actual, v_expected;
-    END IF;
-  END LOOP;
+  -- ── 5.1 已撤(2026-08-11 #399:精確集合相等 → 包含式)──────────────────
+  -- ~~原本這裡對每張表斷言「user trigger 數恰 2 且名稱集合完全相等」~~
+  -- 🔴 **這是刻意反轉本片作者當初的設計決策**(原註解逐字:「用集合相等而非 count:
+  --    只數數量的話,『刪掉一支、另外加一支無害的』數量仍對」),不是筆誤修正。理由:
+  --    後來者往同一張表加 trigger 是**合法演進** —— A4a(`20260803140000`)就在
+  --    `order_cancellation_items` 加了第三支 `..._summary_recompute_ac`(正式站實查:該表現有 3 支)。
+  --    集合相等會擋掉別人的無辜片,也讓「在 HEAD 狀態重放本檔」必紅 ⇒ `scripts/a7t-verify.sh`
+  --    整支跑不完 ⇒ A7-t 四支 trigger 的回歸覆蓋歸零(backlog #399)。
+  -- ⇒ 改成**包含式**語意:「這四支具名 trigger 都在、且屬性正確」,不對總數與集合設上限。
+  -- ⚠️ **誠實寫出放棄了什麼**(關卡2 codex must-fix,裁決型 —— 依 B-445-A 拍板保留本修法,理由記於此):
+  --    本檔從此**不再管這兩張表上還有誰**。有人掛一支會讓正式站寫入中斷的 trigger,A7-t 不會擋。
+  --    這不是「所有後加 trigger 都無害」的宣稱 —— 是**責任歸屬**:新 trigger 的正確性由**加它的那一片**
+  --    自己的驗收負責(A4a 就是這樣做的);A7-t 只保證自己那四支還在、還是原本的樣子。
+  --    集合相等本來也擋不住這件事:它在 A4a 落地那天就已經是紅的,只是紅在**重放**、不在正式站。
+  --    包含式**不需要新程式**:下面 5.2 已經逐支綁 `(tgrelid, tgname)` 查、`IF NOT FOUND THEN RAISE`,
+  --    再寫一段 `@>` 只是與 5.2 重複的第二把 ⇒ 這裡只留說明,判定全交給 5.2。
+  --    (惡意面仍有守:5.2 逐支驗啟用態/事件位元/函式 OID/DEFERRED/無 WHEN,5.3 驗本體指紋與 ACL。)
+  -- 三條件(主視窗 2026-08-11 裁定,B-445-A):①本檔已 apply 到正式站、DO block 早已執行完
+  --    ⇒ 改檔不會回頭動正式站 ②ledger 漂移比對的是 `schema_migrations` **版本號**不是內容雜湊
+  --    ⇒ 改內容不造成帳本不一致 ③本次改動過審查(codex 關卡1 + code-reviewer)。
 
   -- ── 5.2 逐支斷言(🔴 **每一條都綁 tgrelid + tgname**)──────────
   -- 🔴 關卡2 codex 抓到三個逃脫路徑,以下逐一封死:
