@@ -10050,3 +10050,16 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   ③OP4 已把「webhook amount 相符」寫進回填前提 —— 這個佐證面的健康度沒有任何守門在看。
 - **下一步**:查 repo 有無 webhook 消化路徑(grep `processed` 寫入面);有=修或補監控,無=把欄位語意
   改註解為「保留欄、現無消化者」或排消化片。B 窗刻意不診斷(非其片),立案即止。
+
+- **調查結論(2026-08-11 E 窗 #392 調查段,C 案;主視窗補實測)**:消化鏈完整且已上庫
+  (pg_cron `pcm-settle-sweep` 每 2 分 → `/api/cron/settle-sweep` → `sweepSettlements` → `mark_webhook_processed`),
+  卡在 route `:105` 的 `CRON_SWEEPER_ENABLED` gate(**gate 在建 deps 之前** ⇒ 連 DB 連線都不建);
+  該旗標依 S2 片 Sean Q1=A **刻意留給 S4**,而 S4 隨 M-3 S3 起暫緩 ⇒ **`processed` 全 false=休眠態、不是壞掉**。
+  全樹 `SET processed` 恰 1 命中、呼叫鏈單線(E 枚舉非推測)。
+- **欄位語意正確講法**:不是「已處理」,是「已被 sweeper 處理」——而 sweeper 尚未啟用;拿它當對帳訊號先看旗標。
+- 🔴 **開旗標=金流動作**(主視窗 2026-08-11 正式庫實測,推論已轉事實):inbox 全表 **39 列**全部
+  `processed=false / needs_manual_review=false / attempt_count=0 / next_retry_at=NULL` ⇒ **全部立即到期**,
+  開啟後第一輪(2 分內)就對 39 列逐筆真打 TapPay Record API 反查、可能改 `payment_status`。
+  排片時與 S4 一起看,不當「補監控」。
+- **未確認兩件**:①正式站 `CRON_SWEEPER_ENABLED` 實際值(Vercel env,Sean 看一眼)②pg_cron job 現在仍 active 否
+  (`cron.job_run_details`;不影響結論——旗標關著時皆 no-op)。
