@@ -84,6 +84,10 @@ MODE="${1:-check}"
 # 🔴 OP2b 片(2026-08-10,本輪 code-reviewer MF3):收編 `op2b-verify.sh`。
 #    動機不是「多一支比較齊」,是**覆蓋淨減**:OP2b 同一片把 `op1p-verify.sh` 退役,
 #    A9 / 不可變 / 擋刪的回歸全部搬進 `op2b-verify.sh`;它若不在本集合裡,
+#    🔴 **2026-08-11 更正(backlog #396)**:`op1p-verify.sh` **已解除退役並改寫成「OP2b 之後」版**
+#    (實跑 `PASS=7 FAIL=0`)—— 它守的是 OP1 自己的交付物 `order_payments_reversal_shape`,
+#    那條 CHECK 在 OP2b 之後沒有第二個 harness 在看。**擋環那半仍歸 op2b-verify.sh**,本段收編理由不變;
+#    op1p 本身是否收編另計(尚未收編)。
 #    `record all` 永遠跑不到它 ⇒ 帳面照樣 32/0 全綠,而那三條守門的回歸**沒有任何自動化在看**。
 #    它自足(all 模式自己 provision + teardown)、只認 PORT 與 workdir ⇒ 收編成本同 b2s2b。
 # 🔴 OP3 片(2026-08-10):收編 `op3-verify.sh`。同 op2b 的理由 —— OP3 把「付款確認同交易落 card 腿」
