@@ -630,9 +630,15 @@ export async function fetchCategories(): Promise<MockCategory[]> {
  * 來源 = `vehicle_taxonomy_public`(#277 **C 案**,migration `20260811100000`):四欄
  * (moto_brand / model_code / year_start / year_end)。
  * **車型**取 `product_fitments`(direct)∪ `product_fitments_effective`(含家族樹 inherited),
- * **年份只取 direct** —— effective 的年份有已確認的上游 production bug(報價單側投影商品群
- * min/max 聯集年份,2026-08-11 實測 29.1% 不一致)。完整理由與所有量測寫在那支 migration 的檔頭,
- * 決策脈絡在 `docs/specs/2026-08-11-277-c-plan.md`。**要動這裡之前先讀那兩份。**
+ * **年份只取 direct** —— effective 的年份與 direct 有系統性差異,方向是**放大**。
+ * 🔴 **2026-08-11 傍晚更正數字**:原字面寫「實測 29.1% 不一致」,那是**列 JOIN 交叉積**下的比率,
+ *   已作廢。鍵層「年段集合 vs 年段集合」口徑 = **7,110 / 81,437 個鍵(8.7%)**,其中 7,012 是
+ *   effective 為 direct 的嚴格超集(報價單側裁定:子款繼承父年段 + 多年段多列是設計),
+ *   而且 **effective 起年更晚 0、迄年更早 0** ⇒ 只放大不縮小 ⇒ 取 direct = 取保守的一邊。
+ *   完整分桶在 `docs/specs/2026-08-11-277-c-plan.md`、backlog #277;
+ *   ⚠️ migration `20260811100000` 的檔頭與 DB COMMENT 仍留著舊數字(**已 apply 的檔不就地改**,
+ *   COMMENT 要更正得走新 migration)⇒ 以本段與那兩份文件為準。
+ * 決策脈絡與所有量測 = 那支 migration 的檔頭 + 上述 spec。**要動這裡之前先讀那兩份。**
  *
  * 🔴 為什麼不繼續用 `products_public.fitments`:那條路只看得到 direct 標記,
  *   純推導的子款客人在下拉**選不到自己的車**(2026-08-11 實測:normalize 後多 200 個車型 ——
