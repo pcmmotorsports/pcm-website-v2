@@ -3071,8 +3071,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **優先級:** 🟠 中(NaN 路徑只在 Supabase 0 row → mock fallback 落地時 hit、M-1-16 種子前需修;真資料模式下 mock fallback 路徑廢、視 ProductPage M-1-13 啟動再評)
 - **問題:**
   - `apps/storefront/src/lib/products.ts:77` `id: product.id as unknown as number` 把 string ProductId cast 成 number(MockProduct.id 字面 number)
-  - `apps/storefront/src/components/ProductCard.tsx:34-42` `PRODUCT_IMG_POOL[seed % n] ?? ''` 若 seed === NaN → NaN % n = NaN → array index NaN → undefined → '' → broken URL
-  - `apps/storefront/src/components/ProductCard.tsx:129` `seed={p.id}` 三處字面互關(page L65 `data-tier` + ProductCard L129 + lib L77)、debug 鏈未明示
+  - `apps/storefront/src/components/ProductImage.tsx:50-52` `PRODUCT_IMG_POOL[seed % n] ?? ''` 若 seed === NaN → NaN % n = NaN → array index NaN → undefined → '' → broken
+    (⚠️ **2026-08-12 拆檔後座標更正**:原寫 `ProductCard.tsx:34-42`,該段已整組搬到 `ProductImage.tsx`、程式碼逐字未變) URL
+  - `apps/storefront/src/components/ProductCard.tsx:141` `seed={p.id}` 三處字面互關(page L65 `data-tier` + ProductCard **L141** + lib L77)、debug 鏈未明示
+    (⚠️ **2026-08-12 拆檔後座標更正**:呼叫點仍在 `ProductCard.tsx`、但由 L129 位移至 **L141**;被呼叫的 `ProductImage` 本體已搬到 `ProductImage.tsx`)
 - **觸發事件(任一觸發即啟動實作):**
   - M-1-13 ProductPage 啟動前(ProductCardProps 真改造時機)
   - M-1-16 種子前(0 row fallback 路徑廢之前)
@@ -4131,7 +4133,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
-  - ProductCard.tsx 已有 PRODUCT_IMG_POOL + productGallery(M-1-04-mini-slice 搬入)
+  - `ProductImage.tsx` 已有 PRODUCT_IMG_POOL(`:28-44`)+ productGallery(`:46-54`)(M-1-04-mini-slice 搬入;
+    ⚠️ **2026-08-12 拆檔後座標更正**:原寫「ProductCard.tsx 已有」,該段已整組搬到 `ProductImage.tsx`、逐字未變 ⇒ 本條的「第 1 處」現在指新檔)
   - ProductPage.tsx M-1-13c 第 2 處 inline 同字面(因 13c 範圍小、不擴大動既有元件)
   - M-1-13c 新立 swipe useRef + onTouchStart/End pattern、storefront 第 1 處;第 3 處撞抽 hook
 - **觸發事件(任一觸發即啟動實作):**
@@ -9633,10 +9636,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **修法方向**:單獨開一片**純搬移**(零行為變更):按「URL 讀」/「URL 寫」/「入站還原」三組拆,
   每組一檔;驗收=全套回歸 Δ=0 + `use-deep-link-restore.test.tsx` 的 15 案全綠(它是目前唯一
   把五支 hook 串起來跑的 harness、拆檔後要跟著改 import 但斷言一字不動)。
-- **同族第二筆(2026-08-08 加購鈕線;⏳ 仍未拆)**:`apps/storefront/src/components/ProductCard.tsx`
-  294 → 345 → **現行 360 行**(本窗 2026-08-11 `wc -l` 實查;>300 警戒、未過 400 硬線)。不拆理由同形:`quickAdd` / `hasVariants` 與它們唯一的消費者(同檔那顆鈕)內聚,
-  拆出去要多傳 4 個值、且會把「導頁 vs 直加」這個**當天才出過 Critical** 的判斷推到另一個檔;
-  剛動完行為就疊搬移風險不划算。兩支一起排一片純搬移較省。
+- **同族第二筆 ✅ 已拆(2026-08-11 深夜,B 九代;主視窗 `B-469-A` 批)**:
+  `apps/storefront/src/components/ProductCard.tsx` 294 → 345 → 360 行
+  → **拆後 207 行 + 新檔 `ProductImage.tsx` 194 行**(`wc -l` 實測、含 R1/R2 折 findings 補的註解;>300 警戒解除、兩支都遠低於 400)。
+  🔴 **實際拆的不是本條原本設想的那條線**——原文寫的不拆理由是針對「把 `quickAdd` / `hasVariants`
+  抽出去」,那條線**至今仍不划算、也確實沒做**(它們與唯一消費者=同檔那顆鈕內聚,抽出要多傳 4 個值、
+  且會把「導頁 vs 直加」那個出過 Critical 的判斷推到別的檔)。這次切的是**另一條零耦合的線**:
+  圖區元件 `ProductImage` + 它三個 module-level const(`PRODUCT_IMG_POOL` / `productGallery` / `PALETTES`)
+  整組搬走 —— 那半邊與卡片本體**零共用狀態**、唯一介面就是 `<ProductImage {...} />` 那一行 props。
+  ⇒ 原不拆理由與本次拆檔不衝突,兩者講的是同一個檔案的兩條不同切線。
+- **本次拆檔的驗收(2026-08-11 實跑)**:①**純搬移逐字證明**=拆前 `ProductCard.tsx:21-187`(167 行)
+  與新檔對應段 `diff` **零差異**;保留段 `:189-360`(172 行)與拆後對應段 `diff` 亦**零差異**。
+  ②`ProductCard.tsx` 保留 `export { ProductImage }` re-export(#341-B barrel 手法)⇒ 全樹零 import 改動
+  (數法=`grep -rn "from '\./ProductImage'\|from '@/components/ProductImage'` --include='*.tsx'
+  --include='*.ts' apps packages | grep -v node_modules`,真正的 import 呼叫點 **1 個**〔`ProductCard.tsx` 自己那行〕;
+  ~~「四處提及全是註解」~~ **2026-08-12 窄 R2 更正**:那個數字是錯的,而且「數提及」本來就是
+  數字串出現位置、不是數語法位置——註解提及實查 14 處,與「有幾個 import」無關)。③三綠:typecheck 8/8、lint 10/10、
+  build 2/2(0 cached);④全套 **449 檔 7429 綠 +1 todo**、與拆檔前基準 **Δ=0**;
+  ⑤**突變證判別力**:把新檔的 `'#ffffff'` 改成 `'#000000'` ⇒ `ProductCard.test.tsx` **2 紅**
+  (證明既有測試真的跑到被搬走的那段,不是「綠但沒覆蓋」),已還原並複驗逐字相同。
 
 - **不修會痛在哪**:每加一條 URL 軸都要在這 479 行裡找「該插在哪一個 effect 的哪一行之前」,
   而該檔已經有三處註解在寫「**不得**在本行之前再新增任何 `params.set/delete`」這種順序契約

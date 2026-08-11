@@ -8,7 +8,7 @@
 //
 // 字面轉換:
 // - window.__pdSwipeX/Y/T/DidSwipe + __lbSwipeX 全局 → 5 個 useRef(heroSwipeXRef / heroSwipeYRef / heroSwipeTRef / heroDidSwipeRef / lbSwipeXRef)
-// - PRODUCT_IMG_POOL + productGallery inline(第 2 處、ProductCard.tsx line 17-41 第 1 處、第 3 處撞抽 backlog #155)
+// - PRODUCT_IMG_POOL + productGallery inline(第 2 處、第 1 處在 `ProductImage.tsx`:POOL `:28-44` / productGallery `:46-54`〔2026-08-12 拆檔前在 ProductCard.tsx〕、第 3 處撞抽 backlog #155)
 // - e.target → cast as Element 取 .closest()(TypeScript 嚴格)
 // - product.origPrice! non-null assertion(hasDiscount guard 後安全)
 //
