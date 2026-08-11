@@ -97,7 +97,12 @@
   display: flex;
   flex-direction: column;
   position: sticky;
-  top: 100px;
+  /* #331:原本寫死 100px = 頁首 73 + 呼吸 27。頁首高的單一來源是 `tokens.css` 的
+     `--shell-header-h`;寫死的話下次調頁首高這裡不會跟著動(0b 就是這樣撞出來的)。
+     ⚠️ 這道 sticky **只在 ≥1080 生效**(≤1079 兩路都改 position:static —— 本檔的
+     `@media (max-width: 1079px)` 與 `[data-mobile="true"]` 各一條)⇒ 那裡 token 恆為 73px
+     ⇒ 本次替換**與舊值等價、零視覺變化**,換的是「以後會不會跟著動」。 */
+  top: calc(var(--shell-header-h) + 27px);
   border: 1px solid var(--c-border);
 }
 .acc-nav button {
