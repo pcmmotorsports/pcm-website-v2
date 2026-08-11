@@ -165,7 +165,10 @@ export async function recordItemReceiptAction(
     if (inline) {
       return { status: 'recorded_inline', outcome: 'recorded', procurementId: parsed.procurementId };
     }
-    redirect(appendResultQuery(returnTo, RECEIPT_RECORDED_RESULT_CODE));
+    // 🔴 **補上 `r=`**(#15-B2-b2 R2 MF1 root-cause 式跨檔修):頁層讀的是 `r` 參數,
+    //    這裡原本直接接裸碼 ⇒ 產出 `?receipt_recorded` ⇒ `result-banner.tsx` 那則
+    //    **今天在正式站永遠讀不到**。同族另三支(退款/採購/取消)都逐字寫 `r=`。
+    redirect(appendResultQuery(returnTo, `r=${RECEIPT_RECORDED_RESULT_CODE}`));
   }
 
   if (result === 'DUPLICATE_REQUEST') {
@@ -192,7 +195,7 @@ export async function recordItemReceiptAction(
     if (outcome === 'unknown') {
       return receiptFailure('DUPLICATE_UNKNOWN', parsed.procurementId, carried);
     }
-    redirect(appendResultQuery(returnTo, RECEIPT_DUPLICATE_RESULT_CODE));
+    redirect(appendResultQuery(returnTo, `r=${RECEIPT_DUPLICATE_RESULT_CODE}`));
   }
 
   if (result === 'QUANTITY_EXCEEDS_ALLOCATED') {

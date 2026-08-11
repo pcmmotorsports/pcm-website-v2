@@ -187,13 +187,28 @@ const FAILURE_MESSAGES: Record<PaymentFailureCode, string> = {
     '🔴 **先不要重新整理頁面** —— 重新整理會換一把新的鍵,那時再送就會變成第二筆收款。',
 };
 
-/** 員工剛才打的內容(失敗時原樣帶回;不帶回 = 「保留輸入」是空宣稱)。 */
+/**
+ * 員工剛才打的內容(失敗時原樣帶回;不帶回 = 「保留輸入」是空宣稱)。
+ *
+ * 🔴🔴 **`requestId` / `cashReceivedAt` 也在裡面,而且是必須的**(R2 MF2):
+ *    失敗路徑會 `revalidatePath` ⇒ server component 重渲染 ⇒ 表單若「每次渲染重鑄印章」,
+ *    員工在 `'error'` 分支重按就是**新的一把鍵**。而 `'error'` 的定義正是
+ *    「RPC **可能已經 commit**、只是回應斷在路上」⇒ 新鍵讓 RPC 的 G8 認不出這是重送
+ *    ⇒ **真的多一筆刪不掉的收款**。
+ *    ⇒ 照備註線第一手前例(`note-action-state.ts:10-14`:`state.requestToken ?? 新產一個`),
+ *      **失敗 state 把整組印章原樣帶回**,B2-c 的表單用 `state.values` 當 hidden input 的值。
+ *    ⚠️ 這是 B2-c 的硬條款:**表單的印章來源 = `state.values` 優先、沒有才 `mintPaymentFormStamp()`**。
+ */
 export type PaymentFormValues = {
   rail: string;
   amount: string;
   receivedDate: string;
   bankReference: string;
   payerNote: string;
+  /** 🔴 印章上半(冪等鍵)—— 失敗重送必須沿用同一把,見上。 */
+  requestId: string;
+  /** 🔴 印章下半(現金軌時點)—— 與上半同生共死,拆開送會讓 G8 認不出來。 */
+  cashReceivedAt: string;
 };
 
 export const EMPTY_PAYMENT_VALUES: PaymentFormValues = {
@@ -202,6 +217,8 @@ export const EMPTY_PAYMENT_VALUES: PaymentFormValues = {
   receivedDate: '',
   bankReference: '',
   payerNote: '',
+  requestId: '',
+  cashReceivedAt: '',
 };
 
 export type PaymentActionState =
