@@ -7,10 +7,20 @@
 // ⚠️ 舊路徑 `products-url-state.tsx` 仍 re-export 本檔全部匯出 ⇒ 既有 import 一行都不用改。
 
 import type { SearchParamsLike } from '@/lib/vehicle-url';
-import { CATALOG_DEFAULT_PER_PAGE } from '@/lib/catalog-query';
+import { CATALOG_DEFAULT_PER_PAGE, CATALOG_SORT_VALUES } from '@/lib/catalog-query';
 
 
-export const SORT_VALUES = ['recommend', 'new', 'price-asc', 'price-desc', 'sale'] as const; // = SortBar <option>
+/**
+ * client 端可接受的 `?sort=` 值。
+ *
+ * 🔴 **直接沿用 server 白名單,不再自己寫一份**(codex 段二審查 MF-9)。
+ *   這裡原本是**第三份**排序清單,而且還殘留著 `'sale'` —— 它早在 2026-08-11 #269-a
+ *   就從 `SORT_OPTIONS` 移除了。後果:舊書籤 `?sort=sale` 會讓 **client 認為排序是 sale、
+ *   server 卻回退成 recommend**,而 `<select>` 裡根本沒有那個選項 ⇒ 下拉顯示空白/錯位。
+ *   ⚠️ 這也讓我 #391 那句「假選項歸零」是**過頭的宣稱** —— 那格只比對了三份裡的兩份。
+ *   守門已擴成三份一起比(見 `catalog-query.test.ts`)。
+ */
+export const SORT_VALUES = CATALOG_SORT_VALUES;
 export const PER_PAGE_VALUES = [25, 50, 75, 100] as const; // = Pagination #pp-perpage <option>
 export const DEFAULT_SORT = 'recommend';
 // 🔴 預設每頁筆數與 server 端(lib/catalog-query.parseCatalogQuery)必須是同一個數字,

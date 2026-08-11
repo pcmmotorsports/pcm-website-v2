@@ -1,4 +1,27 @@
-export const CATALOG_SORT_VALUES = ['recommend', 'price-asc', 'price-desc'] as const;
+// 🔴 `'new'` 於 2026-08-11 #269-b 段二加入 —— 在那之前它列在 UI(`sort-options.ts`)卻不在這裡,
+//    ⇒ 客人選「最新上架」會被靜默回退成 recommend、畫面完全沒變。守門見 `catalog-query.test.ts`。
+//    server 端真正做得到它,是因為 migration `20260811040000` 讓 RPC 支援 `p_sort='new'`
+//    (依 `created_at DESC`)。**這一行與那支 migration 是綁在一起的**:RPC 若被 rollback,這裡要一起退。
+export const CATALOG_SORT_VALUES = ['recommend', 'price-asc', 'price-desc', 'new'] as const;
+
+/**
+ * `?filter=` 白名單。今天只有 `new`(新品)。
+ *
+ * 🔴 在 #269-b 段二之前,`?filter=` **全站沒有任何地方在讀** —— 導覽列/頁尾/麵包屑/首頁四個
+ *   入口都指向 `/products?filter=new`,按下去等於未篩選的全目錄(backlog #269)。
+ */
+export const CATALOG_FILTER_VALUES = ['new'] as const;
+export type CatalogFilter = (typeof CATALOG_FILTER_VALUES)[number];
+
+/**
+ * 「新品」的視窗天數 —— Sean 2026-08-11 `Q15b = rolling 近 7 天`(不是自然週)。
+ *
+ * ⚠️ 實測:照這個視窗,**有 44% 的日子完全沒有商品**(2026-06-01~08-11 模擬 72 天、
+ *   排除批次日後 32 天為 0、平均 10.2 件)。Sean 看過這個數字後仍選 7 天,
+ *   並拍 `Q20 = C 形狀`:**空的時候自動退回顯示最近上架**(見 `products.ts` 的退回邏輯),
+ *   且明示**不要過度設計** —— 不加模式標示、不加說明文案。
+ */
+export const NEW_ARRIVAL_WINDOW_DAYS = 7;
 export const CATALOG_PER_PAGE_VALUES = [25, 50, 75, 100] as const;
 /**
  * 每頁筆數預設(Sean 2026-07-31:25 → 50)。
@@ -19,6 +42,13 @@ export type CatalogQuery = {
   priceMin?: number;
   priceMax?: number;
   vehicle?: string;
+  /**
+   * `?filter=new` ⇒ 只看新品。
+   * 🔴 **這裡刻意存「filter」而不是算好的時間戳**:`CatalogQuery` 會被 `JSON.stringify` 當成
+   *   `unstable_cache` 的鍵(`products.ts`),放時間戳進去等於每次請求都是新鍵、快取全失效。
+   *   真正的 `p_new_since` 在 `products.ts` 的 cached callback 內才算(見該處)。
+   */
+  filter?: CatalogFilter;
 };
 
 const PRICE_LABEL_BOUNDS: Record<string, readonly [number, number | null]> = {
@@ -77,9 +107,19 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     ? requestedPerPage
     : CATALOG_DEFAULT_PER_PAGE;
   const requestedSort = searchParams.get('sort');
+  // 🔴 `?filter=new` 沒帶 `sort` 時預設 `'new'`,不是 `'recommend'`(codex 段二審查 MF-1)。
+  //    `recommend` 在 RPC 裡是 `ORDER BY id ASC` ⇒ 導覽列那顆「新品」點進去會拿到
+  //    **依 id 排的任意順序**,而 Sean `Q20 = C` 要的是「最近上架」。
+  //    退回清單受害更明顯:退回本來就是為了顯示「最近上架的」,用 id ASC 排等於隨機挑 108 件裡的一頁。
+  //    只在**沒有明確指定 sort** 時才套用 ⇒ 客人自己選了價格排序仍然有效。
+  const filterValue = searchParams.get('filter');
+  const filter = (CATALOG_FILTER_VALUES as readonly string[]).includes(filterValue ?? '')
+    ? (filterValue as CatalogFilter)
+    : undefined;
+  const sortFallback: CatalogSort = filter === 'new' ? 'new' : 'recommend';
   const sort = (CATALOG_SORT_VALUES as readonly string[]).includes(requestedSort ?? '')
     ? (requestedSort as CatalogSort)
-    : 'recommend';
+    : sortFallback;
   const brandSlugs = Array.from(
     new Set(searchParams.getAll('pbrand').filter((slug) => SAFE_SLUG.test(slug))),
   ).sort();
@@ -95,7 +135,6 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
   const priceMax = candidateMax.length > 0 ? Math.min(...candidateMax) : undefined;
   const vehicleValue = searchParams.get('vehicle');
   const vehicle = vehicleValue && SAFE_VEHICLE.test(vehicleValue) ? vehicleValue : undefined;
-
   return {
     page,
     perPage,
@@ -105,5 +144,6 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     ...(priceMin > 0 || labelBounds ? { priceMin } : {}),
     ...(priceMax !== undefined ? { priceMax } : {}),
     ...(vehicle ? { vehicle } : {}),
+    ...(filter ? { filter } : {}),
   };
 }
