@@ -214,6 +214,115 @@ describe('🔴 settleCharge — queryStatus=2 查詢成功放行(2026-06-21 quer
     errSpy.mockRestore();
   });
 
+  // ── RF7(2026-08-11):`refund_anomaly` 分流「訊息」,**裁決不變** ──────────────────────
+  //   🔴 上面那格的 fixture 是 `orderPaymentStatus: 'unpaid'` ⇒ 它走 **error 那一路**、RF7 之後照舊全綠。
+  //      (關卡 1 MF4 說「降級會紅那條測試」只對了一半:它確實直接斷言 log,但 fixture 是 unpaid。
+  //      成立的是**原則**「兩路回傳值一樣 ⇒ log 是唯一可觀察的差別 ⇒ 動 log 就是動可觀察行為」,
+  //      不是那個**預測**。下面幾格是本片新增的觀察點。)
+  //   🔴 關卡 2 折面後,info 路的成立條件有**兩個**、且都要能單獨證紅:
+  //      ① Record 碼與本地狀態**配對**(3↔refunded、2↔partiallyRefunded;交叉即矛盾)
+  //      ② attempt 有回收路徑(`pending`/`charged`;`released` 沒有 ⇒ 不得降 info)
+  // 🔴 **部分退與全退的 Record 形狀不同**(關卡 2 R2 MF3:第一版兩個碼共用全退數值
+  //    `amount=0 / refunded=1050` ⇒ `recordStatus=2` 配全退金額 = **內部矛盾的 Record**,
+  //    卻被正向格鎖成 info)。全退取自 2026-07-30 正式商戶實測;部分退為合成值(未實測、標明)。
+  const refundRecord = (recordStatus: 2 | 3) =>
+    recordResult({
+      recordStatus,
+      isCaptured: false,
+      amount: recordStatus === 3 ? toMoneyAmount(0) : toMoneyAmount(550),
+      refundedAmount: recordStatus === 3 ? toMoneyAmount(1050) : toMoneyAmount(500),
+      originalAmount: toMoneyAmount(1050),
+    });
+  const spies = () => ({
+    err: vi.spyOn(console, 'error').mockImplementation(() => {}),
+    info: vi.spyOn(console, 'info').mockImplementation(() => {}),
+  });
+  const runRefundCase = async (over: Partial<(typeof ACTIVE_PENDING)>, recordStatus: 2 | 3) =>
+    settleCharge(
+      deps({
+        tappay: makeTapPay(async () => refundRecord(recordStatus)),
+        attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, ...over })) }),
+      }),
+      { orderId: ORDER_ID },
+    );
+
+  // ✅ 兩個**配得上**的組合 → info、不 error。(關卡 2:第一版 fixture 全是 Record 3
+  //    ⇒「只有 3 才降 info」的實作也會全綠;現在兩個碼各一格。)
+  // 🔴 `attempt.status` 兩個值各跑一次(關卡 2 R2 MF2:第一版全是預設 `pending`
+  //    ⇒ 把條件錯寫成「只允許 `pending`」時,新增測試仍會全綠)。
+  it.each([
+    [3, 'refunded', 'pending'],
+    [2, 'partiallyRefunded', 'pending'],
+    [3, 'refunded', 'charged'],
+    [2, 'partiallyRefunded', 'charged'],
+  ] as const)('🔴 RF7:Record %s + 本地 %s + attempt %s(方向相符)→ info、不 error', async (rs, ps, st) => {
+    const { err, info } = spies();
+    expect(await runRefundCase({ orderPaymentStatus: ps, status: st }, rs)).toEqual({
+      kind: 'pending',
+      reason: 'record_unverified',
+    });
+    expect(err, `${ps} × Record ${rs} 不該走 error`).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('方向相符'), expect.anything());
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('金額未核'), expect.anything());
+    vi.restoreAllMocks();
+  });
+
+  // 🔴 兩個**配錯**的組合 → 必須 error。不比金額也判得出來:本地說全退而 TapPay 說部分退(或反之)。
+  it.each([
+    [2, 'refunded'],
+    [3, 'partiallyRefunded'],
+  ] as const)('🔴 RF7:Record %s + 本地 %s(方向矛盾)→ error、且不得發 info', async (rs, ps) => {
+    const { err, info } = spies();
+    await runRefundCase({ orderPaymentStatus: ps }, rs);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('與本地狀態對不上'), expect.anything());
+    expect(info, '矛盾組合不得同時發 info').not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  // 🔴 `released`:配對就算對,也**沒有** flag_non_unpaid_active_attempts 那條回收路徑
+  //    (`20260615120001:165` 只收 pending/charged)⇒ 降 info 會讓它完全消失。
+  it('🔴 RF7:released attempt + 配對正確 → 仍 error(它沒有回收路徑)', async () => {
+    const { err, info } = spies();
+    await runRefundCase({ orderPaymentStatus: 'refunded', status: 'released' }, 3);
+    // 🔴 訊息要說**真正的原因**:方向是相符的,問題是沒有回收路徑(關卡 2 R2 MF1)。
+    expect(err, 'released 不得被降成 info').toHaveBeenCalledWith(
+      expect.stringContaining('無自動回收路徑'),
+      expect.anything(),
+    );
+    expect(err, 'released 配對正確時不得誤報「對不上」').not.toHaveBeenCalledWith(
+      expect.stringContaining('與本地狀態對不上'),
+      expect.anything(),
+    );
+    expect(info).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  // 🔴 判別力格:條件若寫成 `!== 'unpaid'`,`partiallyPaid` 會被誤降。
+  //    它**有部分收款 + 退款態** ⇒ 帳對不上,必須留在 error 路。
+  //    (關卡 2:第一版這格沒斷言「不得發 info」⇒「先發 info 再加發 error」的實作會全綠。)
+  it('🔴 RF7 判別力:partiallyPaid + Record 退款態 → error 且**不得**發 info', async () => {
+    const { err, info } = spies();
+    await runRefundCase({ orderPaymentStatus: 'partiallyPaid' }, 3);
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('與本地狀態對不上'), expect.anything());
+    expect(info, 'partiallyPaid 不得走 info 路').not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  // 🔴 釘住「零裁決變更」:兩路的回傳值**逐字相同**。
+  //    ⚠️ 關卡 2 判這格是 nit(「各分支已分別釘住回傳值、判別力不獨立」)——**保留**,理由:
+  //    分支格釘的是「這一路回傳什麼」,**這格釘的是「兩路必須相等」**;有人只改其中一路的
+  //    reason 時,分支格會跟著改期望值而全綠,只有這格會紅。
+  it('🔴 RF7:兩路回傳值逐字相同(擋「順手加新 reason」)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    // 兩路各取一個**真的會走不同分支**的組合:unpaid→error 路、refunded×Record 3→info 路。
+    const a = await runRefundCase({ orderPaymentStatus: 'unpaid' }, 3);
+    const b = await runRefundCase({ orderPaymentStatus: 'refunded' }, 3);
+    expect(a).toEqual(b);
+    expect(a).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    vi.restoreAllMocks();
+  });
+
   // 消融:同一筆退款紀錄,若身分閘退回舊寫法(比 amount)則 amount=0 ≠ orders.total ⇒ 連告警都不會發。
   // 用「拿掉 original_amount」模擬舊行為 —— 證明上一條測到的是新閘、不是巧合(其餘欄位等長同形)。
   it('🔴 消融:退款紀錄缺 original_amount(退回比 amount)→ 被身分閘擋下、告警不發', async () => {
