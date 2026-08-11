@@ -269,12 +269,17 @@
 
 /* ========= Info column (OD §5) ========= */
 /* OD-3:右欄資訊換皮、字面從 OD product-detail-rpm-template.html §5 直接搬。
-   .pd-info sticky top:96px(≥1080 align-self:stretch 由 OD-2 等高接管、≤1079 static);
+   .pd-info sticky(≥1080 align-self:stretch 由 OD-2 等高接管、≤1079 static);
    .pd-sku mono 大寫 11px / .pd-title clamp 26-38px 700 / .pd-sub 14px var(--c-text-2)。
-   取代原 design-reference Apple/Aritzia 版(28px title / #86868b 等硬色)。 */
+   取代原 design-reference Apple/Aritzia 版(28px title / #86868b 等硬色)。
+   🔴 #331:上一行原本寫「sticky top:96px」,那個字面 2026-08-11 隨下方改動作廢 —— 註解與
+      規則同檔同段,不同步就會變成「文件說 96、程式吃 token」的兩份事實。 */
 .pd-info {
   position: sticky;
-  top: 96px;
+  /* #331:原 96px = 頁首 73 + 呼吸 23,改吃 `--shell-header-h` 單一來源。
+     只在 ≥1080 生效(本檔下方 `@media (max-width: 1079px)` 改 static)
+     ⇒ 該處 token 恆 73px ⇒ 與舊值等價、零視覺變化。 */
+  top: calc(var(--shell-header-h) + 23px);
   align-self: flex-start;
 }
 @media (max-width: 1079px) { .pd-info { position: static; } }
