@@ -44,7 +44,7 @@ function bankForm(over: Record<string, string | string[]> = {}): FormData {
     [PAY_RAIL_FIELD]: 'bank_transfer',
     [PAY_AMOUNT_FIELD]: '1180',
     [PAY_RECEIVED_DATE_FIELD]: '2026-08-11',
-    [PAY_CASH_RECEIVED_AT_FIELD]: '',
+    [PAY_CASH_RECEIVED_AT_FIELD]: MINTED_AT,
     [PAY_BANK_REFERENCE_FIELD]: '國泰 12345',
     [PAY_PAYER_NOTE_FIELD]: '',
     ...over,
@@ -233,14 +233,52 @@ describe('🔴 received_at 的構造(兩軌不同,而且都不碰裝置時區)',
   );
 });
 
+describe('🔴 印章:兩軌都要在、壞掉不准帶回(窄 R3 must-fix)', () => {
+  it.each([
+    ['', '缺章'],
+    ['2026-08-11T14:30:00', '沒有偏移'],
+    ['not-a-time', '根本不是時間'],
+  ])('匯款軌的印章 %s(%s)⇒ 整份表單拒收', (raw) => {
+    expect(parsePaymentForm(bankForm({ [PAY_CASH_RECEIVED_AT_FIELD]: raw }))).toBeNull();
+  });
+
+  // 🔴 這是那條 must-fix 的本體:`invalid` 路徑的 payload 依定義是壞的,
+  //    帶回一個壞印章 ⇒ B2-c 依「兩者皆空才重鑄」永遠不重鑄 ⇒ 表單怎麼按都失敗、鎖死。
+  it.each<[Record<string, string>, string]>([
+    [{ [PAY_REQUEST_ID_FIELD]: 'not-a-uuid' }, '鍵不是 uuid'],
+    [{ [PAY_CASH_RECEIVED_AT_FIELD]: 'garbage' }, '時點不合法'],
+    [{ [PAY_REQUEST_ID_FIELD]: '' }, '鍵是空的'],
+    [{ [PAY_CASH_RECEIVED_AT_FIELD]: '' }, '時點是空的'],
+  ])('印章壞掉(%o:%s)⇒ 帶回時**兩格一起清空**,讓 B2-c 重鑄', (over) => {
+    const values = carryBackPaymentValues(bankForm(over));
+    expect(values.requestId).toBe('');
+    expect(values.cashReceivedAt).toBe('');
+  });
+
+  it('印章完整合法 ⇒ 原樣沿用(對照組,證明上一格不是「一律清空」)', () => {
+    const values = carryBackPaymentValues(bankForm());
+    expect(values.requestId).toBe(REQUEST_ID);
+    expect(values.cashReceivedAt).toBe(MINTED_AT);
+  });
+});
+
 describe('失敗帶回', () => {
-  it('原樣帶回五個可見欄(不帶回 =「保留輸入」是空宣稱)', () => {
-    expect(carryBackPaymentValues(bankForm({ [PAY_PAYER_NOTE_FIELD]: '週五匯' }))).toEqual({
-      rail: 'bank_transfer',
-      amount: '1180',
-      receivedDate: '2026-08-11',
-      bankReference: '國泰 12345',
+  // 🔴 R2 MF2 之後這裡是**七個欄位**:五個可見欄 + 印章兩格。
+  //    印章不帶回的話,失敗路徑 revalidate ⇒ 表單重渲染 ⇒ 下一次送出是新的一把鍵
+  //    ⇒ 對 RPC 的 G8 是全新的一次 ⇒ 多一筆刪不掉的收款。
+  it('原樣帶回五個可見欄 + 印章兩格(不帶回 =「保留輸入」與「沿用同一把鍵」都是空宣稱)', () => {
+    expect(
+      carryBackPaymentValues(
+        cashForm({ [PAY_PAYER_NOTE_FIELD]: '週五匯', [PAY_BANK_REFERENCE_FIELD]: '' }),
+      ),
+    ).toEqual({
+      rail: 'cash',
+      amount: '500',
+      receivedDate: '',
+      bankReference: '',
       payerNote: '週五匯',
+      requestId: REQUEST_ID,
+      cashReceivedAt: MINTED_AT,
     });
   });
 });

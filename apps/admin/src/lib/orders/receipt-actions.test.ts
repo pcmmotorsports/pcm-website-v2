@@ -100,6 +100,23 @@ async function runExpectingRedirect(fd: FormData): Promise<string> {
   return String(mocks.redirect.mock.calls.at(-1)?.[0] ?? '');
 }
 
+// 🔴 wire 格式守門(#15-B2-b2 R2 MF1 跨檔修一起補):頁層讀的是 `r` 參數,
+//    這裡原本直接接裸碼 ⇒ `?receipt_recorded` ⇒ 橫幅在正式站永遠讀不到,而所有測試照樣綠。
+//    ⇒ 這一格釘住 wire 格式本身,兩支 action(到貨/收款)各有一份。
+describe('🔴 結果碼一定要以 `r=` 送出', () => {
+  it('成功 ⇒ 網址帶 `r=receipt_recorded`(裸碼會讓橫幅永遠讀不到)', async () => {
+    const target = await runExpectingRedirect(formData());
+    expect(target).toMatch(/[?&]r=receipt_recorded(&|$)/);
+  });
+
+  it('冪等重放 ⇒ 網址帶 `r=receipt_duplicate`', async () => {
+    mocks.recordItemReceipt.mockResolvedValue('DUPLICATE_REQUEST');
+    mocks.findDuplicateOutcome.mockResolvedValue('alive');
+    const target = await runExpectingRedirect(formData());
+    expect(target).toMatch(/[?&]r=receipt_duplicate(&|$)/);
+  });
+});
+
 describe('recordItemReceiptAction — 冪等鍵', () => {
   // 🔴🔴 R1 Important 4 突變①:把 `requestId: parsed.requestId` 改成 HTTP 的 `requestId`
   //    ⇒ 每次送出都是一把新鍵 ⇒ **冪等完全失效**,員工手滑按兩次就記兩筆到貨。

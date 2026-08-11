@@ -157,6 +157,14 @@ export function parsePaymentForm(form: FormData): ParsedPaymentForm | null {
   const amount = toAmount(one(form, PAY_AMOUNT_FIELD));
   if (amount === null) return null;
 
+  // 🔴 **印章的形狀在兩軌都驗**(窄 R3 MF2 的根治):`mintPaymentFormStamp` 一次蓋兩格、
+  //    `paymentStampFields` 一次展開兩格 ⇒ 「只有一格」本來就不是本系統產得出來的表單。
+  //    在這裡一起驗的好處是**下游可以無條件信任**:解析成功 ⇒ 印章必定完整合法
+  //    ⇒ 失敗帶回時不必再判一次(不然 `invalid` 那條會把壞印章原樣還給表單、永遠重送壞的)。
+  //    匯款軌不使用這個值,但仍要求它在 —— 少了它代表 B2-c 沒照契約蓋章。
+  const cashReceivedAt = one(form, PAY_CASH_RECEIVED_AT_FIELD);
+  if (!isIsoInstant(cashReceivedAt)) return null;
+
   const payerNote = orNull(one(form, PAY_PAYER_NOTE_FIELD));
   const bankReference = orNull(one(form, PAY_BANK_REFERENCE_FIELD));
   const receivedDate = one(form, PAY_RECEIVED_DATE_FIELD);
@@ -168,8 +176,6 @@ export function parsePaymentForm(form: FormData): ParsedPaymentForm | null {
     // 🔴 現金軌**不讀那個日期欄**:它是匯款軌的欄位 ⇒ 塞了也一律忽略(忽略不是拒收:
     //    一個多餘的欄位不該變成阻斷,而員工的裝置時鐘本來就不該有發言權)。
     if (bankReference !== null) return null;
-    const cashReceivedAt = one(form, PAY_CASH_RECEIVED_AT_FIELD);
-    if (!isIsoInstant(cashReceivedAt)) return null;
     return { rail: 'cash', orderId, amount, bankReference: null, cashReceivedAt, payerNote, requestId };
   }
 
@@ -203,14 +209,31 @@ export function buildReceivedAt(parsed: ParsedPaymentForm): string {
   return parsed.cashReceivedAt;
 }
 
-/** 失敗時帶回員工打的內容。 */
+/**
+ * 失敗時帶回員工打的內容 + **驗過形狀的整組印章**。
+ *
+ * 🔴🔴 **不驗就帶回會把表單鎖死**(窄 R3 must-fix):`invalid` 那條路的 payload 依定義是壞的,
+ *    印章可能只有一格、或根本不是 uuid / ISO。B2-c 的規則是「兩者皆空才重鑄」
+ *    ⇒ 帶回一個壞印章 = 它**永遠不會重鑄**,而每次送出又都因為印章不合法被判 `invalid`
+ *    ⇒ 員工卡在一個怎麼按都失敗、也看不出原因的表單裡。
+ * ⇒ 規則:**整組合法才沿用,任一格壞掉就兩格一起清空**(清空 = 讓 B2-c 重鑄一組新的)。
+ *    清空的代價是換一把新鍵,但那條路的前提是「這次根本沒送進 RPC」⇒ 沒有重複入帳的風險。
+ */
 export function carryBackPaymentValues(form: FormData): PaymentFormValues {
+  const rawRequestId = one(form, PAY_REQUEST_ID_FIELD);
+  const rawCashReceivedAt = one(form, PAY_CASH_RECEIVED_AT_FIELD);
+  const stampOk = UUID_RE.test(rawRequestId) && isIsoInstant(rawCashReceivedAt);
   return {
     rail: one(form, PAY_RAIL_FIELD),
     amount: one(form, PAY_AMOUNT_FIELD),
     receivedDate: one(form, PAY_RECEIVED_DATE_FIELD),
     bankReference: one(form, PAY_BANK_REFERENCE_FIELD),
     payerNote: one(form, PAY_PAYER_NOTE_FIELD),
+    // 🔴 印章也要帶回來(R2 MF2):失敗路徑會 revalidate ⇒ 表單重渲染 ⇒
+    //    不帶回的話下一次送出會是**新的一把鍵**,而那正是「可能已經寫進去了」那條路
+    //    ⇒ G8 認不出是重送 ⇒ 多一筆刪不掉的收款。
+    requestId: stampOk ? rawRequestId : '',
+    cashReceivedAt: stampOk ? rawCashReceivedAt : '',
   };
 }
 
@@ -229,8 +252,18 @@ export function carryBackPaymentValues(form: FormData): PaymentFormValues {
  * 生命週期(🔴 三條都是硬規則,B2-c 照做):
  *  · **成功之後**才重鑄(整組換掉);
  *  · **換一張訂單**要重鑄 —— 冪等作用域是 `(order_id, request_id)`,不是全域;
- *  · 🔴 **失敗時一律沿用同一組**,包含「可能已經寫進去了」那種不確定的失敗 ——
+ *  · 🔴 **解析成功之後的失敗一律沿用同一組**,包含「可能已經寫進去了」那種不確定的失敗 ——
  *    那時重鑄 = 下一次送出對 G8 是全新的一次 ⇒ **擋不到 ⇒ 重複入帳**(窄確認輪 MF4)。
+ *    ⚠️ **唯一的例外寫在這裡,免得後人照「一律」把它改回去**(窄 R4 must-fix):
+ *    **印章自己不合法**那種失敗(`parsePaymentForm` 回 null)⇒ 那次**根本沒進 RPC**
+ *    ⇒ `carryBackPaymentValues` 會把兩格一起清空、讓 B2-c 重鑄。
+ *    分界線很清楚:**進得了 RPC 的失敗 = 沿用;連解析都過不了 = 清空重鑄**。
+ *    (少了這句,下一個讀到「一律沿用」的人會把清空改掉,而那正是表單被鎖死的那個版本。)
+ *    🔴🔴 **「沿用」是有機制的,不是靠表單記得**(R2 MF2):失敗 state 的 `values`
+ *    會把整組印章原樣帶回(`carryBackPaymentValues`)⇒ B2-c 的 hidden input
+ *    **以 `state.values.requestId / cashReceivedAt` 為優先來源**,兩者皆空才呼叫本函式鑄新的。
+ *    ⚠️ 少了這條:失敗路徑的 `revalidatePath` 會讓 server component 重渲染、印章跟著換 ——
+ *    而那條路正是「可能已經寫進去了」,換鍵就是多一筆刪不掉的收款。
  *    ⚠️ 這條與「重新整理頁面」直接衝突(重新整理 = 重新 render = 重鑄)
  *    ⇒ `'error'` 那句文案已經逐字寫「先不要重新整理」,兩邊要一起看。
  * ⚠️ **不要在 client 端補鑄任何一半**(姊妹片 `receipt-record-form.tsx:81` 的 `useState` 形狀)。
