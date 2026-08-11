@@ -7,7 +7,11 @@
 // ⚠️ 舊路徑 `products-url-state.tsx` 仍 re-export 本檔全部匯出 ⇒ 既有 import 一行都不用改。
 
 import type { SearchParamsLike } from '@/lib/vehicle-url';
-import { CATALOG_DEFAULT_PER_PAGE, CATALOG_SORT_VALUES } from '@/lib/catalog-query';
+import {
+  CATALOG_DEFAULT_PER_PAGE,
+  CATALOG_SORT_VALUES,
+  parseBrandSlugsFromUrl,
+} from '@/lib/catalog-query';
 
 
 /**
@@ -73,20 +77,21 @@ export function parseCategoryFromUrl(
  * ⚠️ 與 vehicle 長版 fallback(?brand=Yamaha&model=…)共用 key:各自對照表驗證、查無即 null。
  * 🔴 現況兩命名空間不相交(摩托車廠 id vs 產品品牌 slug),但**非結構保證**:日後多品牌若含
  *    OEM 副廠件(Yamaha/Honda 亦賣部品)、slug 'yamaha' 可能同時命中兩者 → 同一 ?brand= 雙重過濾。
- *    多品牌放量前需消歧(產品品牌深連結改獨立 key 如 ?pbrand=,或入站時 vehicle 優先互斥)。見 backlog #269。
+ *    產品品牌深連結**已改獨立 key**(`?pbrands=`,見 backlog #287;它之前是 `?pbrand=`,兩種都還讀得懂)
+ *    ⇒ 這裡的 `?brand=` 只剩「P4 之前的舊深連結」一種來源,且只有在完全沒有品牌軸參數時才吃。
  */
 export function parseBrandFiltersFromUrl(
   searchParams: SearchParamsLike,
   productBrands: { id: string }[],
 ): string[] {
-  const getAll = (searchParams as SearchParamsLike & { getAll?: (name: string) => string[] }).getAll;
-  const requested = getAll ? getAll.call(searchParams, 'pbrand') : [];
-  // 相容 P4 前的單一 ?brand= 深連結；新網址一律輸出不會和車款衝突的 ?pbrand=。
+  // #287:`?pbrands=a,b`(新)與 `?pbrand=a&pbrand=b`(舊)都吃,單一定義點在 lib/catalog-query.ts。
+  const requested = parseBrandSlugsFromUrl(searchParams);
+  // 相容 P4 前的單一 ?brand= 深連結;新網址一律輸出不會和車款衝突的 ?pbrands=。
   if (requested.length === 0) {
     const legacy = searchParams.get('brand');
     if (legacy) requested.push(legacy);
   }
-  return Array.from(new Set(requested)).filter((slug) => productBrands.some((b) => b.id === slug));
+  return requested.filter((slug) => productBrands.some((b) => b.id === slug));
 }
 
 export function parseSortParam(raw: string | null): string {

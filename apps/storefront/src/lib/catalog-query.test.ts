@@ -25,6 +25,18 @@ describe('parseCatalogQuery', () => {
     });
   });
 
+  it('#287 server 端對新舊兩種品牌格式產出**相同**的 brandSlugs', () => {
+    // 🔴 這一格是 #287 的 server 側合約:客人已分享的舊連結不能因為前台改格式就篩不到東西。
+    //    新舊各跑一次比同一個期望值,不是只驗新格式跑得動。
+    const expected = ['cnc-racing', 'gb-racing'];
+    expect(parseCatalogQuery(params('pbrands=gb-racing,cnc-racing')).brandSlugs).toEqual(expected);
+    expect(parseCatalogQuery(params('pbrand=gb-racing&pbrand=cnc-racing')).brandSlugs).toEqual(expected);
+    // 混雜(手打才產得出來)取聯集;不合形狀的 slug 照舊被 SAFE_SLUG 擋掉 —— 新格式不是繞過它的後門。
+    expect(parseCatalogQuery(params('pbrands=gb-racing&pbrand=cnc-racing')).brandSlugs).toEqual(expected);
+    expect(parseCatalogQuery(params('pbrands=GB%20RACING,gb-racing')).brandSlugs).toEqual(['gb-racing']);
+    expect(parseCatalogQuery(params('pbrands=')).brandSlugs).toEqual([]);
+  });
+
   it('omits price bounds entirely when no price params are present (P4 回歸:缺 pmax 不可變成 priceMax=0)', () => {
     // 根因:Number(null) === 0 且 0 >= 0,parseNonNegativeInteger(null) 誤回 0 → priceMax:0
     //   → RPC 過濾 price_general<=0 → 整頁 0 筆。缺價格參數時 priceMin/priceMax 必須「不存在」。

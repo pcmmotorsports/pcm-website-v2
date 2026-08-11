@@ -4,11 +4,17 @@
 //
 // 根因(實測 + 讀 node_modules 內 Next 16.2.6 原始碼坐實):`getCacheKeyForDynamicParam` 產生
 // page segment cache key 走 `Object.fromEntries(new URLSearchParams(...))`、**重複 key 只留最後值**。
-// 品牌是重複 key(`pbrand`)+ 字母序 → `?pbrand=a&pbrand=b` 與 `?pbrand=b` 的 key 相同 →
+// 品牌原本是重複 key(`pbrand`)+ 字母序 → `?pbrand=a&pbrand=b` 與 `?pbrand=b` 的 key 相同 →
 // router.replace 判定同一 segment、重用舊 CacheNode、零 RSC 請求 → 畫面停在舊清單。
 //
-// 修法 = 只在 segment key 真碰撞時補一次 refresh。案例①-⑤釘住兩個方向:
-//   ① 碰撞時**必須** refresh(缺 → 本 bug 復發)
+// 🔴 **2026-08-11 #287 落地:寫出端改單值鍵 `?pbrands=a,b`** ⇒ 品牌軸的碰撞在結構上不再可能,
+//   案例①③⑤(原本釘「碰撞必 refresh」的那幾格)改成釘**反向**:同一個 Sean 回報的操作,
+//   現在只送一次 replace、零 refresh = 恆一次查詢。碰撞守門本身沒拆(它擋的是別的重複鍵形狀),
+//   判別力改由案例⑰(`?category=A&category=B`)提供 —— 拿掉 refresh 那行只有⑰會紅。
+//   讀取端**新舊格式都吃**;客人手上的舊連結與站內品牌頁連結(`lib/brand-url.ts`)仍是舊格式。
+//
+// 原修法 = 只在 segment key 真碰撞時補一次 refresh,兩個方向都要釘:
+//   ① 碰撞時**必須** refresh(缺 → 本 bug 復發;現由⑰守)
 //   ② 不碰撞時**不得** refresh(多餘 → 每次切分類/拉價格都對 12793 筆型錄多查一次)
 //
 // 案例⑥-⑨ = **分頁失效**修復的守門(同日第二片;既有 bug,已對照 61f45b6 確認非品牌片引入):
@@ -20,10 +26,18 @@
 // deps 此時全未變、effect 不重跑)。修法 = 刪 page 前先比對「不動 page 的版本」,若已等於當前
 // URL 代表 state 只是剛追上 URL → 直接收手。
 //
-// 突變驗證(2026-07-19 全數實跑):
-//   拿掉 refresh → ①紅;改無條件 refresh → ②③④紅;改「只有品牌變少才 refresh」→ ②⑤紅;
-//   `delete('page')` 改回無條件 → ⑥紅;filterKey 拿掉 category 軸 → ⑧紅;拿掉 price 軸 → ⑨紅;
-//   拿掉還原波 early return → ⑩紅。
+// 突變驗證 —— **七靶全部在 #287 最終版上重跑**(數字 = 該次 vitest 輸出字面,不是從舊版加減):
+//   拿掉 `if (collides) refresh()`      → 1 failed | 17 passed → 紅 ⑰
+//   改無條件 refresh                    → 5 failed | 13 passed → 紅 ①②③④⑤
+//   `delete('page')` 改回無條件         → 1 failed | 17 passed → 紅 ⑱
+//   filterKey 拿掉 category 軸          → 1 failed | 17 passed → 紅 ⑧
+//   filterKey 拿掉 price 軸             → 1 failed | 17 passed → 紅 ⑨
+//   拿掉還原波 early return             → 2 failed | 16 passed → 紅 ⑩⑯
+//   `normalizedQuery` 不收斂品牌軸      → 3 failed | 15 passed → 紅 ⑥⑩⑪、**⑯仍綠**
+// 🔴 最後那一靶的「⑯仍綠」不是缺口,是那條防線的形狀本身:⑯ 是新格式進站,而新格式站內到處都是
+//    ⇒ 少了收斂,我們自己怎麼點都全綠,只有客人手上的舊格式連結(⑩)會踩。
+// 🔴 「`delete('page')` 改回無條件 → ⑥紅」是**這次重跑推翻的舊字面**:實跑零紅 —— ⑥ 走等值早退
+//    那條路,根本到不了刪 page 那一行 ⇒ 該守門在最終版上沒有任何負測。⑱ 是為此補的。
 // ⚠️ 已知未擋住(R2 評估為不值得補):`[...brands].sort()` 拿掉(reducer 不會產生不同順序、
 //    UI 不可達)、`prevFilterKey !== null` 守衛拿掉(該守衛是不可達死碼,拿掉零行為差異)。
 
@@ -82,59 +96,89 @@ beforeEach(() => {
   hoisted.refresh.mockClear();
 });
 
+// 🔴 `?pbrands=a,b` 序列化後逗號會被 `URLSearchParams` 依規格編成 `%2C`(它是 form-urlencoded
+//    序列化器,逗號不在安全集合裡)⇒ 網址列上看到的是 `pbrands=akrapovic%2Cbonamici`。
+//    功能完全等價(讀回來自動解碼、server 端同一支 parser),但**斷言要用解碼後的值比**,
+//    不要拿 backlog #287 條目裡那個未編碼的字面去比對 —— 那條字面講的是格式、不是序列化結果。
+const PBRANDS = (...slugs: string[]) => `pbrands=${encodeURIComponent(slugs.join(','))}`;
+
 describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
-  it('① 取消非最後值的品牌(key 碰撞)→ replace 後必須 refresh,且順序為 replace→refresh', () => {
-    // ?pbrand=akrapovic&pbrand=bonamici → ?pbrand=bonamici;兩者 segment key 同為 pbrand:bonamici
+  it('① Sean 回報的那一步:取消非最後值的品牌 → 只送一次 replace,**不再需要 refresh**(#287 收益)', () => {
+    // 舊格式進站(客人已分享的連結)→ 寫出新格式:?pbrand=akrapovic&pbrand=bonamici → ?pbrands=bonamici
+    // 舊行為:兩者 segment key 同為 {pbrand:bonamici} → 必須補 refresh(2 次型錄查詢)。
+    // #287 後:新網址的 key 是 {pbrands:bonamici},鍵名就不同 → 不碰撞 → 一次查詢即正確。
     transition(
       '?pbrand=akrapovic&pbrand=bonamici',
       cascade(['akrapovic', 'bonamici']),
       cascade(['bonamici']),
     );
 
-    expect(hoisted.replace).toHaveBeenCalledWith('/products?pbrand=bonamici', { scroll: false });
-    // 缺這行 = bug 復發(URL 對、但 server 不重跑、商品清單停在兩品牌合計)
-    expect(hoisted.refresh).toHaveBeenCalledTimes(1);
-    // 🔴 順序不變量:refresh 必須在 replace **之後**。若寫成 refresh(); replace();,
-    // refresh 抓的是舊 URL、bug 原樣復發,但上面兩條斷言仍會綠(code-reviewer R1 nit-3)。
-    const replaceOrder = hoisted.replace.mock.invocationCallOrder[0];
-    const refreshOrder = hoisted.refresh.mock.invocationCallOrder[0];
-    expect(replaceOrder).toBeDefined();
-    expect(refreshOrder).toBeDefined();
-    expect(replaceOrder as number).toBeLessThan(refreshOrder as number);
+    expect(hoisted.replace).toHaveBeenCalledWith(`/products?${PBRANDS('bonamici')}`, {
+      scroll: false,
+    });
+    expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 
-  it('② 取消最後值的品牌(key 改變)→ replace 足矣,不得多餘 refresh', () => {
-    // ?pbrand=akrapovic&pbrand=bonamici → ?pbrand=akrapovic;key 由 bonamici 變 akrapovic
+  it('② 取消最後值的品牌 → replace 足矣,不得多餘 refresh', () => {
     transition(
       '?pbrand=akrapovic&pbrand=bonamici',
       cascade(['akrapovic', 'bonamici']),
       cascade(['akrapovic']),
     );
 
-    expect(hoisted.replace).toHaveBeenCalledWith('/products?pbrand=akrapovic', { scroll: false });
+    expect(hoisted.replace).toHaveBeenCalledWith(`/products?${PBRANDS('akrapovic')}`, {
+      scroll: false,
+    });
     expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 
-  it('③ 新增「字母序在後」的品牌(key 改變)→ replace 足矣,不得多餘 refresh', () => {
-    // 新增 bonamici → 最後值由 akrapovic 變 bonamici → key 改變
+  it('③ 新增「字母序在後」的品牌 → replace 足矣,不得多餘 refresh', () => {
     transition('?pbrand=akrapovic', cascade(['akrapovic']), cascade(['akrapovic', 'bonamici']));
 
-    expect(hoisted.replace).toHaveBeenCalledWith('/products?pbrand=akrapovic&pbrand=bonamici', {
-      scroll: false,
-    });
+    expect(hoisted.replace).toHaveBeenCalledWith(
+      `/products?${PBRANDS('akrapovic', 'bonamici')}`,
+      { scroll: false },
+    );
     expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 
-  it('⑤ 新增「字母序在前」的品牌(key 仍碰撞)→ 必須 refresh', () => {
-    // 🔴 碰撞不是「移除」專屬:先選 bonamici 再加 akrapovic,排序後為 akrapovic,bonamici,
-    // 最後值仍是 bonamici → 新舊 segment key 同為 {pbrand:bonamici} → 一樣不重抓。
-    // 若把條件誤寫成「只有品牌變少才 refresh」(collides && to.length < from.length),
-    // 案例①②③④ 會**全綠**卻真壞;本案例是殺死該突變的唯一守門(code-reviewer R2 nit-B)。
+  it('⑤ 新增「字母序在前」的品牌(舊格式下會碰撞的那格)→ #287 後也不再碰撞', () => {
+    // 🔴 這格的歷史要留著:舊格式下碰撞不是「移除」專屬 —— 先選 bonamici 再加 akrapovic,
+    //   排序後最後值仍是 bonamici → 新舊 segment key 同為 {pbrand:bonamici} → 一樣不重抓
+    //   (code-reviewer R2 nit-B 抓到的漏洞)。#287 改單值鍵之後這條路整個消失,
+    //   本格改成釘住「消失了」:同一個操作零 refresh。
     transition('?pbrand=bonamici', cascade(['bonamici']), cascade(['akrapovic', 'bonamici']));
 
-    expect(hoisted.replace).toHaveBeenCalledWith('/products?pbrand=akrapovic&pbrand=bonamici', {
-      scroll: false,
-    });
+    expect(hoisted.replace).toHaveBeenCalledWith(
+      `/products?${PBRANDS('akrapovic', 'bonamici')}`,
+      { scroll: false },
+    );
+    expect(hoisted.refresh).not.toHaveBeenCalled();
+  });
+
+  it('⑰ 碰撞守門仍有判別力:`?category=A&category=B` 這種重複鍵改成 B → 必須補 refresh', () => {
+    // 🔴 #287 拿掉了品牌軸的碰撞,但**沒有拿掉守門** —— 因為重複鍵還有別的來源:
+    //   手打/外站來的 `?category=A&category=B`。server 讀的是**第一個**值(`searchParams.get`),
+    //   segment key 取的是**最後一個** ⇒ 客人把分類切成 B 時:
+    //     舊網址 key = {category:操控部品}(最後值)、新網址 key = {category:操控部品} → 相同,
+    //     但 server 之前看到的是「已下架的分類」(0 筆)、現在該看到「操控部品」⇒ 內容必須變。
+    //   缺 refresh = 畫面停在 0 筆。**拿掉 `if (collides) router.refresh()` 只有本格會紅。**
+    window.history.replaceState(
+      null,
+      '',
+      '/products?category=%E5%B7%B2%E4%B8%8B%E6%9E%B6%E7%9A%84%E5%88%86%E9%A1%9E&category=%E6%93%8D%E6%8E%A7%E9%83%A8%E5%93%81',
+    );
+
+    const { rerender } = renderHook(
+      ({ category }: { category: CascadeFilterState['category'] }) =>
+        useCatalogFilterUrlSync(cascade([], category), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { category: null as CascadeFilterState['category'] } },
+    );
+    rerender({ category: { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'] });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).getAll('category')).toEqual(['操控部品']); // 重複鍵被收斂成使用者選的那個
     expect(hoisted.refresh).toHaveBeenCalledTimes(1);
   });
 
@@ -159,6 +203,32 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 
+  it('⑱ state 已含篩選、URL 還沒(replace 未落地的那一拍)→ 指紋未變就**不得**洗掉 page', () => {
+    // 🔴 這格是 2026-08-11 #287 突變驗證補的:原本檔頭寫「`delete('page')` 改回無條件 → ⑥紅」,
+    //   重跑發現**零紅** —— ⑥ 走的是等值早退那條路,根本到不了刪 page 那一行,
+    //   於是「條件式刪 page」這道守門在最終版上其實沒有任何負測(恆真守門)。
+    //   構造:`router.replace` 是非同步的,server 回新 props 時 `window.location` 可能還是舊的
+    //   ⇒ 出現「state 有分類、URL 只有 page」這一拍。此時指紋沒變(不是使用者操作)
+    //   ⇒ 頁碼必須留著(`useBrowseUrlSync` 才是 page 的權威寫入者,洗掉就是 2026-07-19 的分頁失效)。
+    //   拿掉 `if (filtersChanged)` 這個條件 ⇒ **只有本格會紅**。
+    window.history.replaceState(null, '', '/products?page=2');
+    const picked = { mainId: 'ride', main: '操控部品' } as CascadeFilterState['category'];
+    const sourcesA = { ...RESTORE_SOURCES };
+    const sourcesB = { ...RESTORE_SOURCES }; // 值同、identity 不同(= server 回新 props)
+
+    const { rerender } = renderHook(
+      ({ sources }: { sources: typeof sourcesA }) =>
+        useCatalogFilterUrlSync(cascade([], picked), EXTRAS, sources),
+      { initialProps: { sources: sourcesA } },
+    );
+    rerender({ sources: sourcesB });
+
+    const url = hoisted.replace.mock.calls[0]?.[0] as string;
+    expect(url).toBeDefined();
+    expect(qs(url).get('page')).toBe('2');
+    expect(qs(url).get('category')).toBe('操控部品');
+  });
+
   it('⑦ 使用者真的改了篩選 → 仍須刪 page 回第 1 頁(不得因⑥的修法而失效)', () => {
     window.history.replaceState(null, '', '/products?pbrand=akrapovic&page=3');
 
@@ -173,8 +243,7 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     const url = hoisted.replace.mock.calls[0]?.[0] as string;
     expect(url).toBeDefined();
     expect(url).not.toContain('page=');
-    expect(url).toContain('pbrand=akrapovic');
-    expect(url).toContain('pbrand=bonamici');
+    expect(qs(url).get('pbrands')).toBe('akrapovic,bonamici');
   });
 
   it('⑧ 分類變動 → 也必須刪 page 回第 1 頁(釘住 filterKey 的 category 軸)', () => {
@@ -240,6 +309,25 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 
+  it('⑯ 同一波、**新格式**進站(?pbrands=)→ 一樣不得動 URL、不得吃掉 ?page=', () => {
+    // 🔴 ⑩ 與本格是一對,而**只有⑩擋得住 #287 引入的那條回歸**:
+    //   寫出端改新格式後,若 `normalizedQuery` 不收斂品牌軸,舊格式進站時重建結果(新格式)
+    //   與當前 URL(舊格式)永遠不相等 ⇒ ⑩ 的早退不觸發 ⇒ page 被刪、#289 原封復發。
+    //   本格(新格式)在那個突變下**照樣綠** —— 站內連結全是新格式,所以我們自己怎麼點都測不出來,
+    //   踩到的只有客人手上的舊連結。留著本格是為了讓這個不對稱看得見,不是湊數。
+    window.history.replaceState(null, '', '/products?pbrands=akrapovic&page=2');
+
+    const { rerender } = renderHook(
+      ({ brands }: { brands: string[] }) =>
+        useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { brands: [] as string[] } },
+    );
+    rerender({ brands: ['akrapovic'] });
+
+    expect(hoisted.replace).not.toHaveBeenCalled();
+    expect(hoisted.refresh).not.toHaveBeenCalled();
+  });
+
   it('④ 分類變動(單值 key、天然不碰撞)→ 不得多餘 refresh', () => {
     // 無條件 refresh 會讓每次切分類都對 12793 筆型錄多查一次、零收益
     transition(
@@ -259,15 +347,15 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
 //
 // 病灶:改名殘連結 / 客人手打的 `?pbrand=dbk` 會被寫回段清掉 ⇒ 網址變成沒有篩選的 `/products`
 // ⇒ **靜默顯示全站商品**,客人以為還在看 DBK。留著則是 0 筆 + 空狀態(server 只驗形狀不驗對照表,
-// `lib/catalog-query.ts:124`)——看得見、可自我解釋。
+// `lib/catalog-query.ts:161`)——看得見、可自我解釋。
 //
 // 🔴 ⑭ 是**正向對照、不是湊數**:⑪⑫⑬ 全部只證「留得住」,把 delete 整條拿掉也會全綠;
 //    要靠 ⑭ 才分得出「認不得才留」與「一律不刪」。
-// 突變驗證 —— **四靶全部在最終版上重跑**(不是從舊版的數字加減來的;數字=vitest 輸出字面):
-//   ① 拿掉 unknownBrands 保留                    → 紅 ⑪⑫⑮(3 failed | 12 passed)
-//   ② `category` else 改回無條件 `params.delete` → 紅 ⑬  (1 failed | 14 passed)
-//   ③ `category` else 整條拿掉(=一律不刪)      → 紅 ⑭  (1 failed | 14 passed)
-//   ④ 把「空表就停用保留」那道守衛**加回去**      → 紅 ⑮  (1 failed | 14 passed)
+// 突變驗證 —— **四靶全部重跑**(2026-08-11 #287 後再跑一次;數字=該次 vitest 輸出字面):
+//   ① 拿掉 unknownBrands 保留                    → 紅 ⑪⑫⑮(3 failed | 15 passed)
+//   ② `category` else 改回無條件 `params.delete` → 紅 ⑬  (1 failed | 17 passed)
+//   ③ `category` else 整條拿掉(=一律不刪)      → 紅 ⑭  (1 failed | 17 passed)
+//   ④ 把「空表就停用保留」那道守衛**加回去**      → 紅 ⑮  (1 failed | 17 passed)
 // 🔴 ④ 是刻意留的**回歸鎖**:那道守衛真的被寫進來過,理由聽起來很對(RPC 中斷保護),
 //    但前提是假的、方向剛好相反(詳 ⑮ 那格的註解)。這一靶讓它不會被第二個人善意地加回來。
 const qs = (url: string) => new URLSearchParams(url.split('?')[1] ?? '');
@@ -294,7 +382,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
 
     const url = hoisted.replace.mock.calls[0]?.[0] as string;
     expect(url).toBeDefined();
-    expect(qs(url).getAll('pbrand')).toEqual(['dbk']);
+    expect(qs(url).get('pbrands')).toBe('dbk'); // 未知值改用新格式寫回,值本身原樣
     expect(qs(url).get('price')).toBe('10000-20000');
   });
 
@@ -359,7 +447,7 @@ describe('useCatalogFilterUrlSync — #315 認不得的參數留在網址上', (
 
     const url = hoisted.replace.mock.calls[0]?.[0] as string;
     expect(url).toBeDefined();
-    expect(qs(url).getAll('pbrand')).toEqual(['akrapovic']); // 空表也不刪
+    expect(qs(url).get('pbrands')).toBe('akrapovic'); // 空表也不刪
     expect(qs(url).get('price')).toBe('10000-20000'); // 其他軸照常
   });
 });

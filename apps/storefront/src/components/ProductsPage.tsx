@@ -197,10 +197,12 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // ── A2(2026-08-03):`?pick=vehicle` 落地開燈(Sean 拍 B 案「同落地 + 開燈」)──
   // 入口 = Header「依車輛搜尋」(非首頁時)與 MobileTabBar「找車」。
   // 🔴 `pick` **不是篩選條件**,刻意不進 cascade 狀態機:useDeepLinkRestore 與
-  //    useCatalogFilterUrlSync 都不認識它。後者只改寫 pbrand/category/price/pmin/pmax
-  //    五軸、其餘 key 原樣拷貝(products-url-state.tsx 內 #289 那段的安全前提),
+  //    useCatalogFilterUrlSync 都不認識它。後者只改寫**它自己那幾軸**、其餘 key 原樣拷貝,
   //    所以 `pick` 會留在網址上 —— 語意 = 「這次進站要開燈」,刻意不再多送一次
   //    router.replace 去換一個沒人在看的乾淨網址。
+  //    🔴 **軸的清單不在這裡列第二份**(2026-08-11 #287 實證:這裡原本逐字寫「pbrand/category/
+  //    price/pmin/pmax 五軸」,而 #287 把品牌軸換成 `pbrands` 之後這份拷貝就過期了)。
+  //    正本 = `use-catalog-filter-url-sync.tsx` 的「安全前提」那段註解,只留單向指標。
   // 🔴 桌機 / 手機必須**分流**,不能兩邊都吃同一個布林:
   //    桌機 = 聚焦 .cft-bar 的廠牌欄;手機 = 自動開 MobileVehicleSheet。
   //    兩棵樹在任何裝置上都會 mount(只是被 CSS 各自藏起來),而選車面板一開就會

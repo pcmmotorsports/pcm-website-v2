@@ -7,6 +7,7 @@ import {
   parsePerPageParam,
   parseSortParam,
 } from './products-url-state';
+import { parseBrandSlugsFromUrl } from '@/lib/catalog-query';
 
 // #341-A 回歸鎖 —— **拆檔之前先立**(主視窗裁定「先立回歸鎖再拆」)。
 //
@@ -54,6 +55,61 @@ describe('#341-A parseBrandFiltersFromUrl —— 濾表 + 去重 + legacy 相容
     const params = sp('brand=akrapovic');
     const noGetAll = { get: (k: string) => params.get(k) };
     expect(parseBrandFiltersFromUrl(noGetAll, table)).toEqual(['akrapovic']);
+  });
+});
+
+// ── #287:品牌軸改單值逗號分隔 `?pbrands=a,b`;讀取端兩種格式都要吃 ──────────────────
+//
+// 🔴 相容不是可選項:客人已經分享出去的 `?pbrand=a&pbrand=b` 連結、以及站內品牌頁到目錄的
+//   連結(`lib/brand-url.ts` 仍產 `?pbrand=X`,那同時是 `BrandAboutRedirect` 的設計稿契約)
+//   都是舊格式。**站內連結測不出舊格式的回歸**,所以這裡要逐格釘。
+describe('#287 parseBrandSlugsFromUrl —— 新舊格式、聯集、去重', () => {
+  const table = [{ id: 'akrapovic' }, { id: 'rizoma' }];
+
+  it('新格式 `?pbrands=a,b` 解析出兩個 slug', () => {
+    expect(parseBrandSlugsFromUrl(sp('pbrands=akrapovic,rizoma'))).toEqual(['akrapovic', 'rizoma']);
+  });
+
+  it('舊格式 `?pbrand=a&pbrand=b` 解析出**同一組**', () => {
+    expect(parseBrandSlugsFromUrl(sp('pbrand=akrapovic&pbrand=rizoma'))).toEqual([
+      'akrapovic',
+      'rizoma',
+    ]);
+  });
+
+  it('兩種混雜(手打才產得出來)→ 取聯集、不靜默丟掉任何一邊', () => {
+    expect(parseBrandSlugsFromUrl(sp('pbrands=akrapovic&pbrand=rizoma'))).toEqual([
+      'akrapovic',
+      'rizoma',
+    ]);
+  });
+
+  it('去重(跨格式也去):`?pbrands=a,a&pbrand=a` → 一個', () => {
+    expect(parseBrandSlugsFromUrl(sp('pbrands=rizoma,rizoma&pbrand=rizoma'))).toEqual(['rizoma']);
+  });
+
+  it('空值不產生空字串 slug:`?pbrands=` / `?pbrands=a,,b` / 完全沒帶', () => {
+    // 🔴 空字串 slug 會一路流到 server 的 `p_brand_slugs`(SAFE_SLUG 擋得掉,但 client 端的
+    //   `parseBrandFiltersFromUrl` 是拿它去比對照表 ⇒ 不擋就是一個永遠 miss 的幽靈值)。
+    expect(parseBrandSlugsFromUrl(sp('pbrands='))).toEqual([]);
+    expect(parseBrandSlugsFromUrl(sp('pbrands=akrapovic,,rizoma'))).toEqual(['akrapovic', 'rizoma']);
+    expect(parseBrandSlugsFromUrl(sp(''))).toEqual([]);
+  });
+
+  it('🔴 **不吃** legacy 單值 `?brand=` —— 那條 fallback 只活在 client 的對照表驗證後面', () => {
+    // 病灶:`?brand=Yamaha&model=…` 是**選車長版**網址。server 端只驗 slug 形狀、驗不了品牌
+    // 對照表,若這支把 `?brand=` 也吃進來,選車網址會被誤當品牌篩選 ⇒ 那頁 0 筆。
+    expect(parseBrandSlugsFromUrl(sp('brand=rizoma'))).toEqual([]);
+    // 對照:同一個網址走 client 的 parseBrandFiltersFromUrl(有對照表)仍要吃得到。
+    expect(parseBrandFiltersFromUrl(sp('brand=rizoma'), table)).toEqual(['rizoma']);
+  });
+
+  it('新格式也吃得到對照表過濾(parseBrandFiltersFromUrl 的新舊等價)', () => {
+    expect(parseBrandFiltersFromUrl(sp('pbrands=akrapovic,dbk'), table)).toEqual(['akrapovic']);
+    expect(parseBrandFiltersFromUrl(sp('pbrands=akrapovic,rizoma'), table)).toEqual([
+      'akrapovic',
+      'rizoma',
+    ]);
   });
 });
 

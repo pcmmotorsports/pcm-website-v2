@@ -144,7 +144,12 @@ export type BrandFocus = { enabled: boolean; order: number };
 
 /** 一家品牌一列。欄位對照版型見 `brand-content-data.js` 檔頭的「欄位對照版型」表。 */
 export type BrandContent = {
-  /** 網址用 slug,對應 `?pbrand=<slug>`(products-url-state.tsx:92-98 的讀取端)。 */
+  /**
+   * 網址用 slug。目錄側讀取端 = `lib/catalog-query.ts` 的 `parseBrandSlugsFromUrl`
+   * (#287 之後新格式 `?pbrands=a,b`、舊的 `?pbrand=` 仍讀得懂);
+   * 品牌頁自己的連結產出 = `lib/brand-url.ts`(仍產 `?pbrand=<slug>`)。
+   * ⚠️ 這裡只留**函式名**不留行號 —— 原字面 `products-url-state.tsx:92-98` 已被 #341 拆檔推移。
+   */
   slug: string;
   name: string;
   country: string;

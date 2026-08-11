@@ -7285,7 +7285,36 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #287. 🧹 商品目錄品牌參數改單值(`?pbrands=a,b`)— 消除 Next segment key 碰撞的治本解
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ **已實作(2026-08-11 / S 窗四代;plan = 信箱 `S-043-PLAN.md`,Sean `S-044-A` 批准)**
+  - **落地形狀**:寫出端只產 `?pbrands=a,b`(單一鍵);讀取端**新舊格式都吃**,單一定義點 =
+    `lib/catalog-query.ts` 的 `parseBrandSlugsFromUrl`,三個讀取端(server `parseCatalogQuery`、
+    client `parseBrandFiltersFromUrl`、寫回段的 #315 未知值保留)全部改吃它。
+  - **🔴 附帶必修的一條(照本條字面做會踩)**:`normalizedQuery` 要**先把品牌軸收斂成同一種表示
+    再比對**。少了它,客人帶**舊格式**連結進站時,重建結果(新格式)與網址(舊格式)永遠不相等
+    ⇒ #289 的還原波早退不觸發 ⇒ `page` 被吃掉且不自癒。**站內連結全是新格式 ⇒ 自己怎麼點都
+    測不出來**,只有客人手上的舊連結會踩。回歸鎖 = hooks 測試案例⑩(舊格式)+⑯(新格式對照)。
+  - **⚠️ 網址列實際字面是 `?pbrands=a%2Cb`**:`URLSearchParams` 是 form-urlencoded 序列化器、
+    逗號不在安全集合裡 ⇒ 必然被編碼。功能等價(讀回自動解碼、server 同一支 parser),但**本條
+    標題那個未編碼字面是格式描述、不是序列化結果**,拿它去 grep 或寫斷言會落空。
+  - **殘留與邊界(誠實清單)**:
+    1. **站內連結仍產舊格式** —— `lib/brand-url.ts` 的 `brandCatalogueUrl` 維持 `/products?pbrand=X`。
+       刻意不改:單一品牌不可能碰撞(本條要治的是重複鍵),而那個字面同時是 `BrandAboutRedirect`
+       的**設計稿契約**(`BrandAboutRedirect.tsx` 檔頭引的 `brand-page.html:1606`
+       ——⚠️ **該座標未確認**:本樹 `grep -rln "brand-about" design-reference/` 只命中
+       `components/Pages.jsx:150` 與 `styles/pages.css`,查無 `brand-page.html`;
+       非本片引入,契約本身仍以那支元件的行為邊界為準)⇒ 改它要一起動
+       設計稿契約與**16 支測試檔**(數法=`grep -rln "brandCatalogueUrl\|pbrand=" --include='*.test.ts'
+       --include='*.test.tsx' apps packages | wc -l`,2026-08-11 實跑),收益是零。
+       相容路徑因此在正式站每天都被走到(不是只有舊分享連結)。
+    2. **條件式 `router.refresh()` 沒有拆掉** —— 本條原本寫的「可移除條件式 refresh()」**不採用**:
+       重複鍵不只品牌軸產得出來,手打/外站的 `?category=A&category=B` 同樣會讓新舊 segment key 相同
+       (server 讀第一個值、segment key 取最後一個)。判別力回歸鎖 = hooks 測試案例⑰
+       (拿掉 `if (collides) refresh()` 只有它會紅)。品牌軸本身則已恆一次查詢(案例①②③⑤)。
+    3. **`#288`(production build E2E)仍未做,而本條的框架層行為只有 production build 驗得到**
+       —— 單元測試驗得到「送出去的網址對不對」,驗不到「Next 有沒有真的重抓」。本片**未跑**真瀏覽器
+       production 實測(S 樹沒有 `.env.local`,跨樹複製 secret 不在施工窗權限內)⇒ 已在信箱
+       `S-050-STOP` 列為待辦/待裁,**不是已驗**。
+- **舊狀態(留存):** ⏳ 待執行
 - **優先級:** 🟠 中
 - **問題:**
   - 現況品牌篩選以**重複 query key** 寫 URL(`products-url-state.tsx:220` 的 `params.append('pbrand', …)`)。
@@ -7305,8 +7334,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 品牌改**單一值逗號分隔**(`?pbrands=akrapovic,bonamici`)→ 每個組合的 segment key 天然不同
     → 可移除條件式 `refresh()`、恆一次查詢。
   - 🔴 讀取端須**同時相容**舊的重複 `?pbrand=` 格式(客人已分享的連結、站內既有入口),輸出端只產新格式。
-  - 涉及檔:前台寫出端 `products-url-state.tsx`、讀取端 `parseBrandFiltersFromUrl`、
-    server 端 `lib/catalog-query.ts:64-66`(現用 `getAll('pbrand')`)+ 對應測試。
+  - 涉及檔(**2026-08-11 實作時更正:條目原寫的三個座標全部被 #341 拆檔推移過**;
+    以下是實作後的實際位置):寫出端 `use-catalog-filter-url-sync.tsx`(原寫 `products-url-state.tsx:220`,
+    該檔今天只有 143 行)、client 讀取端 `products-url-parsers.ts` 的 `parseBrandFiltersFromUrl`、
+    server 讀取端 `lib/catalog-query.ts` 的 `parseCatalogQuery`(原寫 `:64-66`,那裡今天是型別宣告)、
+    共用解析 `lib/catalog-query.ts` 的 `parseBrandSlugsFromUrl` + 對應測試三支。
   - 屬鐵則 8 重大改動(跨 3 檔 + 動對外可見的 URL 合約)→ **須先提 plan 等 Sean 批准**。
 - **不修會痛在:**
   - 擴充性:任何新的「可複選」篩選軸若沿用重複 key,會複製同一個 bug;現行修法是偵測碰撞後補救,
@@ -7319,10 +7351,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** 無(可獨立進行)
 - **發現於:** 2026-07-19 / Sean 回報品牌篩選取消無效
 - **相關:** #288(E2E 守門)/ 鐵則 8
-- **順帶記錄(既有漂移、非本次引入):** `products-url-state.tsx:82` 註解寫「產品品牌深連結改獨立
-  key…見 backlog #269」,但 #269 實際標題為「首頁殘餘死連結:/install /stores + `?filter=new|sale`」
-  (`docs/phase-1-backlog.md:6712`),且全檔查無「`?brand=` 命名空間消歧」條目 → 該引用是 dangling。
-  本條(#287)實作時順手把該註解一併修正或補建對應條目。
+- **順帶記錄(既有漂移、非本次引入):✅ 2026-08-11 已修** —— 那句 dangling 引用(「產品品牌深連結
+  改獨立 key…見 backlog #269」,而 #269 實為「首頁殘餘死連結」)隨 #341 拆檔搬到
+  `products-url-parsers.ts` 的 `parseBrandFiltersFromUrl` doc comment;本片把它改成指向本條(#287),
+  並把敘述更新成事實:消歧**已經做了**(`?pbrands=`,舊的 `?pbrand=` 仍讀得懂)。
 
 ### #288. 🧪 前台篩選加 production build E2E 回歸測試(現有 playwright 只跑 `next dev`)
 
@@ -8660,10 +8692,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - **修法**:`use-catalog-filter-url-sync.tsx` 寫回 URL 時,把 URL 上**認不得**的 `pbrand` / `category`
     原樣留著,不再刪。⇒ 下文實測的兩個症狀都消失:`?pbrand=dbk` 再動任何篩選,`pbrand` **不再蒸發**;
     `?pbrand=akrapovic&category=輪框與傳動` 的 `category` 也留著。終態 = **0 筆 + 空狀態**(看得見、
-    可自我解釋),而不是「靜默顯示全站商品」。server 只驗形狀不驗對照表(`lib/catalog-query.ts:124`)
+    可自我解釋),而不是「靜默顯示全站商品」。server 只驗形狀不驗對照表(`lib/catalog-query.ts:161`)
     ⇒ 未知但形狀合法的值真的進查詢、真的回 0 筆。
   - **為什麼是「留」不是「清」**:兩者在 URL 上長得一模一樣,程式手上只有「在不在對照表裡」一個位元
-    (`products-url-parsers.ts:89`),**分辨不出意圖**;而清掉的代價是看不見的誤導。
+    (`products-url-parsers.ts:94`),**分辨不出意圖**;而清掉的代價是看不見的誤導。
     ⚠️ 這**反轉了**原本刻意的設計(舊註解逐字「垃圾參數同 vehicle 語意清掉」),故走 Sean 拍板、
     不由實作端自行決定。plan = 信箱 `E-110-PLAN.md`。
   - **附帶好處(非預期)**:保留後,重建結果與當前 URL **值層等值**(排序後比對、忽略參數順序)
@@ -10873,3 +10905,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     根因在兩個看起來一樣的字串,現場肉眼分辨不出來。
 - **依賴**:#277 C 案(`20260811100000`)已把翻面量化;本條可獨立排。相關 = #389(matview 正解)。
 - **發現於**:2026-08-11 / #277 C 案 關卡2 折 finding 時的 first-seen 贏家逐筆比對
+
+### #413. 🧪 `20260811100000` 檔尾守門擋得住「分支消失」、擋不住「anti-join 語意寫反」
+
+- **狀態:** ⏳ 待排(2026-08-11 / S 窗三代留下、四代立案;主視窗 `S-049-A` 配號並裁「A=不做,落條目當已知邊界」)
+- **優先級:** 🟡 低(**已 apply 的那一版語意本身經過兩輪對抗審查 + 實印對照**;本條是守門覆蓋率缺口,不是已知錯誤)
+- **問題:**
+  - `supabase/migrations/20260811100000_*.sql` 檔尾的斷言在**空庫重放**時會把「view 空」誤判成
+    「view 壞掉」,故三代加了讓路(view 空**且**兩張底表也空才跳過)。讓路打開了一個新洞:
+    空庫路徑上,view 定義被改壞也會靜默通過。
+  - 三代補的是**與資料量無關的結構檢查**(view 定義必須含 `product_fitments_effective` 與 `UNION ALL`)
+    —— 它擋得住「整個 UNION 分支消失」(實測情境 D:空庫 + 刪掉 effective 分支 → 退出碼 3 開火),
+    **但擋不住 anti-join 的語意寫反**(例如 `NOT EXISTS` 寫成 `EXISTS`、或 join 條件少一欄):
+    文字層看得到「分支還在」,看不到「它現在選出的是相反的集合」。
+- **為什麼不補(2026-08-11 裁定,不是漏想):**
+  - 要驗語意就得在空庫塞 fixture ⇒ 等於**讓 migration 寫底表**。那是拿「migration 只改結構」
+    這條可審查的性質去換一格守門覆蓋,代價比洞大(而且 fixture 本身也會變成要維護的假資料)。
+  - 替代覆蓋來源:真實庫上的重放不走讓路那條路(底表有資料 ⇒ 斷言照常開火,實測情境 B/C 涵蓋)。
+    ⇒ 缺口只存在於**空庫重放**這一個場景,而空庫重放的目的是驗 harness、不是驗資料語意。
+- **觸發事件:** (任一)①重放 harness 開始被當成語意回歸的依據 ②同型讓路被複製到別的 migration
+  ③這支 view 的 anti-join 條件真的要改(屆時語意驗證要另找觀測點,不能靠這道守門)。
+- **不修未來會痛在哪:**
+  - 可追蹤性:守門的名字讓人以為「view 有被驗過」,而它只驗了形狀 —— 沒有本條,下一個人會把
+    「重放全綠」當成語意背書。
+  - 擴充性:同型讓路(「空庫就跳過」)只要被複製,同一個盲點就跟著複製。
+- **依賴:** 無。相關 = #401(重放式 harness × 非冪等 migration 族譜)/ #277 C 案。
+- **發現於:** 2026-08-11 / S 窗三代修「空庫讓路」時自己標出的誠實邊界(`S-047-STOP` §2)
