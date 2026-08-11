@@ -5,7 +5,7 @@
 # 用法:scripts/w0b-verify.sh        (自建拋棄式 cluster、跑完自動 teardown)
 # 格數:**45 格 + `CELL-ACCOUNT` + `CELL-KEYSET` = 全綠時 `PASS=47`**(2026-08-09 補 KEYS_FROZEN 後由 46 升 47)。
 #      45 凍結在 `EXPECT_TOTAL`;新增/刪格必同批更新,否則 `CELL-ACCOUNT` 紅(已驗:改小立刻紅)。
-#      🔴 格**名集合**另凍結在檔尾 `KEYS_FROZEN`(backlog #341-1):只守總數的話,
+#      🔴 格**名集合**另凍結在檔尾 `KEYS_FROZEN`(backlog #420-1(原 #341-1,2026-08-11 撞號改號)):只守總數的話,
 #      「刪一格 + 別處加一格」總數不變、`CELL-ACCOUNT` 照綠 —— 那正是 `CELL-KEYSET` 要紅的情境。
 # 真權威:docs/specs/2026-08-07-e10-b2-shipping-writer-rpc-plan-draft.md(v4.2 定稿)§1c-1
 # 被測物:supabase/migrations/20260807140000_m4b_e10_b2_w0b_shipping_idempotency.sql
@@ -426,7 +426,7 @@ else
 fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
-# 🔴 backlog #341-1(W7d-3 補):本檔原本是全線 18 支裡**唯一沒有 KEYS_FROZEN 的**。
+# 🔴 backlog #420-1(原 #341-1,2026-08-11 撞號改號)(W7d-3 補):本檔原本是全線 18 支裡**唯一沒有 KEYS_FROZEN 的**。
 #    只數總數的話,「刪一格 + 別處加一格」= `CELL-ACCOUNT` 照綠 ⇒ 格名集合無人守。
 #    這 45 個名字不是手抄的:跑一次本檔、`awk '{print $2}'` 取 PASS/FAIL 欄、排除 CELL-* 後 sort 而得。
 #    慣例照其餘 17 支:`CELL-KEYSET` **不計入 `EXPECT_TOTAL`**(TOT 在上面已算完),全綠 PASS 由 46 → 47。
