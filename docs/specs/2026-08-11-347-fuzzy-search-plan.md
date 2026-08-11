@@ -127,6 +127,34 @@ GIN trigram 索引建在原欄、而查詢對欄套函式 ⇒ 索引用不到;`s
 3. 索引表達式逐字複製 §4 的「完整表達式」欄。
 
 ### A4 `product_snapshot ->> 'spec'` 納入比對(#9)
+
+### A4b 🔴 搜尋資料源的 `is_listed` / `hidden_from_store` 語意(2026-08-12 補;來源 `B-481-A` 轉報價單側坑)
+
+報價單側 08-09 回檔(信箱 `QUOTE-2026-08-09-service-other-category.md` 尾段)提醒:
+`storefront_catalog_v` 條件=`WHERE p.is_listed AND NOT p.hidden_from_store`
+⇒ **料號搜尋若讀那個 view,未上架商品一律搜不到**(且分類留空 → `is_listed` 自動 false、
+零告警,就是 733 筆消失的機制)。
+
+**本片現況實查=不受影響,但方向相反的風險是真的**:
+
+- **現行大框(`20260810120000_m4b_347_3a_admin_search_orders_date_range.sql`)讀的全是 base 表**:
+  `public.orders` / `public.customers` / `public.order_items` /
+  `public.product_variants` → `public.products` → `public.brands`(`:160-179` 品名·品牌·供應商單號那段)/
+  `public.order_item_procurement`。
+  **全檔 `is_listed` / `hidden_from_store` / `storefront_catalog_v` 命中數 = 0**
+  (數法:`grep -c "is_listed\|hidden_from_store\|storefront_catalog_v" supabase/migrations/20260810120000*.sql`)。
+- ⇒ 目前**沒有**「未上架商品的訂單搜不到」這個病;本片 UNION 化沿用同樣的 base 表面,也不會引入它。
+
+🔴 **要釘死的語意(兩種面兩種答案,別互抄)**:
+
+| 面 | 該不該看到已下架/隱藏商品 | 理由 |
+|---|---|---|
+| **後台訂單搜尋(本片)** | **要看到** | 那是**歷史交易**。商品今天下架不代表去年那張單不存在;搜不到=員工查不到自己出過的單 |
+| 前台商品目錄(`storefront_catalog_v`) | 不要看到 | 客人只該看到在賣的東西 |
+
+⇒ **本片明文不讀 `storefront_catalog_v`、不加任何上架/隱藏過濾**。
+⚠️ 這條的真正風險**不是現在**,是未來有人「順手優化」把搜尋改讀那個 view(它看起來就是「商品的正規來源」)
+⇒ 已下架商品的訂單會**靜默**從搜尋結果消失、零告警(與 733 筆同機制)。驗收見 §5 第 19 條。
 ### A5 品牌時間語意 — **Sean 拍 Q2=A:維持現況(搜「現在的品牌」)+ 畫面標明**
 不動建單流程、不碰金流路徑(Q2 的 B 案要凍快照=動建單=另案)。
 🔴 **本片要交付的是那句 UI 文案**(原 plan 只寫了語意、沒指定落點):文案字面
@@ -254,6 +282,13 @@ SELECT pg_catalog.array_agg(h.id ORDER BY h.created_at DESC, h.id DESC)
 17. **A5 那句 UI 文案存在**:畫面上出現「品牌以現行資料為準」(Q2=A 的交付物,不是可選裝飾)。
 18. **突變**:把新搜尋的品名/品牌那條 predicate 改壞 ⇒ 第 15 條的等價性格必紅
     (證明那兩格真的在驗新路徑,不是在驗舊路徑殘留)。
+
+19. 🔴 **已下架/隱藏商品的訂單仍搜得到**(A4b;2026-08-12 補):fixture 造一張含
+    `is_listed=false`(或 `hidden_from_store=true`)商品的歷史訂單 ⇒ 用該商品的**料號與品名**
+    搜尋**都要命中**。
+    **突變**:把新 RPC 的商品那幾條分支改成讀 `public.storefront_catalog_v` ⇒ **本格必紅**。
+    ⚠️ 這格擋的是**未來的「順手優化」**,不是現況 bug(現況實查零命中,見 A4b)——
+    沒有它,那種改動會零告警地把已下架商品的訂單從搜尋結果抹掉。
 
 ## 6. 風險與回滾
 
