@@ -5,7 +5,15 @@ import 'server-only';
 // 🔴🔴 **鐵則 12 面:這支的唯一職責就是把價格擋在 server 端。**
 //    `AdminOrderDetail.items` 帶成交價(`unitPrice` / `lineTotal`)與客人 PII。
 //    彈窗只需要**單號 + 品名 + 料號 + 還能出幾件**,所以本檔吐的是一個**刻意很窄的 DTO**:
-//    `{ orderItemId, orderDisplayId, variantSku, title, remaining, blockedReason }` —— 沒有任何金額欄位。
+//    `{ orderId, orderItemId, orderDisplayId, variantSku, title, remaining, blockedReason }`
+//    —— 沒有任何金額欄位。
+//
+// 🔴 **「窄」的判準是資訊類別,不是欄位數**(2026-08-11 主視窗裁 D1 時補明,免得被讀成「不可增欄」):
+//    這條不變式守的是**價格 / 客人 PII / 供應商身分**這三類不得跨到 client;
+//    **不進新類別**的欄位可以增(例:`variantSku` 是料號、`orderId` 是 client 已持有集合的逐件對映)。
+//    ⇒ 要加欄時先問「它屬於上面三類的哪一類」,答得出來就別加、答不出來再看必要性。
+//    ⚠️ 反面提醒:當年 #352-b-2 一度想把**採購列(含供應商 label)**塞進來當入口 2 的資料源,
+//    那就是**新類別**,已改成「按下去才抓」的獨立 action(`fetchItemProcurementChoices`)。
 //    (`variantSku` = 料號,2026-08-09 Sean 實測後追加:員工核對包裹內容靠料號、不是靠品名。
 //     它是非價格欄、`ADMIN_ORDER_DETAIL_SELECT` 早就取了它 ⇒ 零白名單改動。)
 //    ⇒ 呼叫端把這個 DTO 交給 client 元件是安全的;把 `AdminOrderDetail` 交過去不是。
@@ -63,6 +71,16 @@ import {
 
 /** 彈窗用的一個可出貨品項。**刻意沒有任何金額欄位**(見檔頭)。 */
 export type ShipmentCandidateItem = {
+  /**
+   * 這件屬於哪一張訂單(uuid)。
+   *
+   * 🔴 **為什麼需要它**(#352-b-2 入口 2):跨單裝同一箱是允許的 ⇒ 彈窗手上那組 `orderIds`
+   * **反推不出**某一件屬於哪張單。而「登錄到貨」的歸屬閘要的是 `(orderId, orderItemId)` 配對,
+   * 不能靠 client 送一個「允許集合」來近似 —— 那正是歸屬閘要防的形狀。
+   * 🔴 **不是新資訊類別**:`orderIds` 本來就整組傳給 client 了(見 `shipment-launcher`),
+   * 這只是把逐件對映講清楚。判準見檔頭。
+   */
+  orderId: string;
   orderItemId: string;
   /** 顯示用的單號(讓員工看得出這件來自哪一張單;跨單裝同一箱是允許的)。 */
   orderDisplayId: string;
@@ -172,6 +190,7 @@ function itemsOf(detail: AdminOrderDetail, assigned: Map<string, number>): Shipm
     //       ⇒ 有測試釘得住(`shipment-candidates.test.ts` 的 `unknown` 那格)。
     if (summary === null) {
       return {
+        orderId: detail.id,
         orderItemId: it.id,
         orderDisplayId: detail.displayId,
         variantSku: it.variantSku,
@@ -187,6 +206,7 @@ function itemsOf(detail: AdminOrderDetail, assigned: Map<string, number>): Shipm
     const raw = summary.instockQuantity - already;
     const remaining = raw > 0 ? raw : 0;
     return {
+      orderId: detail.id,
       orderItemId: it.id,
       orderDisplayId: detail.displayId,
       variantSku: it.variantSku,

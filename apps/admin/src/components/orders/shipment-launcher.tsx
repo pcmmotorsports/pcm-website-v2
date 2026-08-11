@@ -90,7 +90,17 @@ export function useShipmentLauncher(
       //    「這張單一列品項都沒有」才成立,而那句文案講的是「都已取消或已裝箱」= 字面與事實脫節。
       //    更糟的是真的「全部出不了」時會落到:開了窗、兩顆鈕全灰、員工看到
       //    「這箱還沒有任何品項。至少要選一件才能建箱。」—— 講得像他忘了選,其實是沒得選。
-      if (data.items.every((i) => i.remaining === 0)) {
+      // 🔴 **2026-08-11 #352-b-2:條件放寬,閘本身留著。**
+      //    #351② 立這道閘的理由逐字是「開了窗、兩顆鈕全灰、員工看到『這箱還沒有任何品項』
+      //    —— 講得像他忘了選,其實是沒得選」。**入口 2 把那個前提推翻了**:
+      //    未到貨的品項現在窗裡有「貨到了」可按 ⇒ 開窗**有事可做**。
+      //    不放寬的話,#352-b 的主場景(單品項訂單、東西還沒到)整個進不去 ——
+      //    那不是已知限制,是功能沒接到。
+      //    ⚠️ **放寬的是條件、不是拆閘**:真的什麼都不能做的單(沒得出、也沒有在等的貨,
+      //    例如全取消 / 全已裝箱)**照舊擋下**,訊息不變。
+      const anyShippable = data.items.some((i) => i.remaining > 0);
+      const anyAwaiting = data.items.some((i) => i.blockedReason === 'not_arrived');
+      if (!anyShippable && !anyAwaiting) {
         setError(noneShippableMessage(data.items));
         return;
       }
@@ -115,6 +125,13 @@ export function useShipmentLauncher(
         recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
         idempotencyKey={open.key}
         onClose={() => setOpen(null)}
+        onRefreshCandidates={async () => {
+          // 驗收 23a:登錄到貨後**就地**重取候選,不靠整頁刷新。
+          // 🔴 **只換 `data`、`key` 原封不動** —— `key` 是這一箱的冪等鍵(見檔頭),
+          //    換掉它等於「同一個彈窗變成另一箱」,重試就不再是同一次出貨。
+          const data = await fetchShipmentCandidates(orderIds);
+          setOpen((o) => (o === null ? o : { ...o, data }));
+        }}
         onDone={() => {
           // 成功之後關窗;下一次開窗會生成**新的**冪等鍵(那是另一箱)。
           setOpen(null);

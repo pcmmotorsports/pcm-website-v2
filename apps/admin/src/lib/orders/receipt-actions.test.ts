@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   recordItemReceipt: vi.fn(),
   findDuplicateOutcome: vi.fn(),
   findProcurementRemaining: vi.fn(),
+  listProcurementChoices: vi.fn(),
   findOrderIdForItem: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock('./receipt-repository', async (importOriginal) => {
     recordItemReceipt: mocks.recordItemReceipt,
     findDuplicateOutcome: mocks.findDuplicateOutcome,
     findProcurementRemaining: mocks.findProcurementRemaining,
+    listProcurementChoices: mocks.listProcurementChoices,
   };
 });
 vi.mock('./procurement-repository', async (importOriginal) => {
@@ -36,13 +38,14 @@ vi.mock('./procurement-repository', async (importOriginal) => {
 });
 
 // 🔴 解析器**刻意不 mock** —— 餵真 FormData 走真解析器,否則「爛表單擋得住」是恆真斷言。
-import { recordItemReceiptAction } from './receipt-actions';
+import { fetchItemProcurementChoices, recordItemReceiptAction } from './receipt-actions';
 import { ReceiptCallerBugError } from './receipt-repository';
 import {
   RCPT_NOTE_FIELD,
   RCPT_ORDER_ID_FIELD,
   RCPT_ORDER_ITEM_ID_FIELD,
   RCPT_PROCUREMENT_ID_FIELD,
+  RCPT_INLINE_FIELD,
   RCPT_QUANTITY_FIELD,
   RCPT_RECEIVED_AT_LOCAL_FIELD,
   RCPT_REQUEST_ID_FIELD,
@@ -285,5 +288,103 @@ describe('recordItemReceiptAction — RPC 回傳碼分派', () => {
     if (state.status !== 'failed') throw new Error('應為 failed');
     expect(state.code).toBe('error');
     expect(state.message).toContain('可能已經寫進去');
+  });
+});
+
+// 🔴🔴 E1 的兩格「不倒灌」守門(主視窗要求②):**成對**釘住 ——
+//    彈窗模式成功不 redirect / 列表模式成功仍 redirect。
+//    只釘前者的話,有人把 redirect 整條拿掉會全綠,而「成功一律 PRG」那條慣例就這樣沒了。
+describe('recordItemReceiptAction — E1 彈窗模式(具名例外,不得倒灌成常態)', () => {
+  it('🔴 彈窗模式 RECORDED → 回 recorded_inline,**不** redirect', async () => {
+    const state = await recordItemReceiptAction(IDLE, formData({ [RCPT_INLINE_FIELD]: '1' }));
+    expect(mocks.redirect).not.toHaveBeenCalled();
+    expect(state.status).toBe('recorded_inline');
+    if (state.status !== 'recorded_inline') return;
+    expect(state.outcome).toBe('recorded');
+    expect(state.procurementId).toBe(PROC_ID);
+  });
+
+  it('🔴 列表模式 RECORDED → 仍然 redirect(例外不得倒灌)', async () => {
+    expect(await runExpectingRedirect(formData())).toContain(RECEIPT_RECORDED_RESULT_CODE);
+  });
+
+  it('彈窗模式 DUPLICATE 且產物還在 → recorded_inline(outcome=duplicate)', async () => {
+    mocks.recordItemReceipt.mockResolvedValue('DUPLICATE_REQUEST');
+    mocks.findDuplicateOutcome.mockResolvedValue('alive');
+    const state = await recordItemReceiptAction(IDLE, formData({ [RCPT_INLINE_FIELD]: '1' }));
+    expect(mocks.redirect).not.toHaveBeenCalled();
+    expect(state.status === 'recorded_inline' && state.outcome).toBe('duplicate');
+  });
+
+  // 🔴 產物已被刪那條**不因彈窗模式而變成功** —— 它是本片最不能說謊的一格。
+  it('🔴 彈窗模式 DUPLICATE 但產物已刪 → 仍是 failed,不是 recorded_inline', async () => {
+    mocks.recordItemReceipt.mockResolvedValue('DUPLICATE_REQUEST');
+    mocks.findDuplicateOutcome.mockResolvedValue('deleted');
+    const state = await recordItemReceiptAction(IDLE, formData({ [RCPT_INLINE_FIELD]: '1' }));
+    expect(state.status === 'failed' && state.code).toBe('DUPLICATE_DELETED');
+  });
+
+  // 🔴 fail-closed:旗標形狀不對一律當列表模式(走既有且已審過的 redirect 路)。
+  it.each([
+    ['值不是 1', '0'],
+    ['空字串', ''],
+  ])('inline 旗標 %s ⇒ 當列表模式、照舊 redirect', async (_label, raw) => {
+    expect(await runExpectingRedirect(formData({ [RCPT_INLINE_FIELD]: raw }))).toContain(
+      RECEIPT_RECORDED_RESULT_CODE,
+    );
+  });
+
+  it('inline 送兩份 ⇒ 當列表模式、照舊 redirect(不因送兩份而取得例外待遇)', async () => {
+    const fd = formData({ [RCPT_INLINE_FIELD]: '1' });
+    fd.append(RCPT_INLINE_FIELD, '1');
+    expect(await runExpectingRedirect(fd)).toContain(RECEIPT_RECORDED_RESULT_CODE);
+  });
+});
+
+// ── #352-b-2 I1:新 server action 的三道閘各自要有守門 ──────────────────
+//
+// 🔴 這支吐的是**供應商身分**(`service_role only` 的內部資料)⇒ 它的「讀」不比「寫」鬆:
+//    沒有歸屬閘的話,它就是一支「給我任意品項的供應商」的查詢。
+describe('fetchItemProcurementChoices — 三道閘', () => {
+  const ROWS = [
+    { procurementId: 'p-1', supplierLabel: 'RPM', allocatedQuantity: 3, receivedQuantity: 1 },
+  ];
+
+  it('正常路徑:兩道閘都過 → 回採購列', async () => {
+    mocks.listProcurementChoices.mockResolvedValue(ROWS);
+    await expect(fetchItemProcurementChoices(ORDER_ID, ITEM_ID)).resolves.toEqual(ROWS);
+  });
+
+  // 🔴 突變靶:拿掉授權閘 ⇒ 這格紅。
+  it('🔴 未授權 → null,而且**一次 DB 都不查**', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
+    await expect(fetchItemProcurementChoices(ORDER_ID, ITEM_ID)).resolves.toBeNull();
+    expect(mocks.findOrderIdForItem).not.toHaveBeenCalled();
+    expect(mocks.listProcurementChoices).not.toHaveBeenCalled();
+  });
+
+  // 🔴 突變靶:拿掉歸屬閘 ⇒ 這格紅。沒有它 = 拿別張單的品項 id 就能問出供應商。
+  it('🔴 品項不屬於這張單 → null,且不吐任何採購列', async () => {
+    mocks.findOrderIdForItem.mockResolvedValue('99999999-9999-4999-8999-999999999999');
+    await expect(fetchItemProcurementChoices(ORDER_ID, ITEM_ID)).resolves.toBeNull();
+    expect(mocks.listProcurementChoices).not.toHaveBeenCalled();
+  });
+
+  it('查無品項 → null(fail-closed,不是當成沒有採購列)', async () => {
+    mocks.findOrderIdForItem.mockResolvedValue(null);
+    await expect(fetchItemProcurementChoices(ORDER_ID, ITEM_ID)).resolves.toBeNull();
+    expect(mocks.listProcurementChoices).not.toHaveBeenCalled();
+  });
+
+  it('查詢炸掉 → null(不把例外往上丟給 client 元件)', async () => {
+    mocks.listProcurementChoices.mockRejectedValue(new Error('boom'));
+    await expect(fetchItemProcurementChoices(ORDER_ID, ITEM_ID)).resolves.toBeNull();
+  });
+
+  // 🔴 `[]` 與 `null` **必須分得出來**:前者=真的沒有採購列(去建一筆),
+  //    後者=被拒或失敗(重試/找工程)。合併成一個值會讓彈窗對員工說錯話。
+  it('🔴 沒有採購列回 [](不是 null)—— 兩者語意不可合併', async () => {
+    mocks.listProcurementChoices.mockResolvedValue([]);
+    await expect(fetchItemProcurementChoices(ORDER_ID, ITEM_ID)).resolves.toEqual([]);
   });
 });
