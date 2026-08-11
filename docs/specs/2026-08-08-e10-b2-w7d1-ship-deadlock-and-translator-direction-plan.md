@@ -360,7 +360,7 @@ R1 自己在 R1-5 正確指出了前綴重放,兩條結論互相矛盾;我親驗
   **副產物已立條**:`…a8a2….sql:567` 的「零全函式 EXCEPTION handler」assert **名不副實**
   (只認 `WHEN OTHERS` 與 `WHEN unique_violation` 兩個字面,`WHEN deadlock_detected` 靜默通過)
   ⇒ backlog **#344**(`B-308-A` Q2=B 裁准,排 W7 假綠家族)。
-- **W7d-3** = `s2b` position 結構錨(`B-215-A` ②-②)+ backlog #341-1(`w0b` `KEYS_FROZEN`)。
+- **W7d-3** = `s2b` position 結構錨(`B-215-A` ②-②)+ backlog #420-1(原 #341-1,2026-08-11 改號)(`w0b` `KEYS_FROZEN`)。
 - **W7 跟片** = harness 假綠家族:`B-220` MF-2/3/nit-4、`B-224` MF-2/7/8、`B-226` W5 三條(teardown 出口 exit 0)、
   `B-227` W3c-1 三條、**`B-298-Q` 我判定的 `W3B2-QTY-SCALE` 空值假綠**、
   `B-222-A` ②-2 裁准的「`b2s2b-verify.sh` 納入跑過帳」。建議開一格全線掃「空值 / exit 0 當成功」的出口。
