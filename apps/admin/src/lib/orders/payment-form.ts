@@ -252,8 +252,13 @@ export function carryBackPaymentValues(form: FormData): PaymentFormValues {
  * 生命週期(🔴 三條都是硬規則,B2-c 照做):
  *  · **成功之後**才重鑄(整組換掉);
  *  · **換一張訂單**要重鑄 —— 冪等作用域是 `(order_id, request_id)`,不是全域;
- *  · 🔴 **失敗時一律沿用同一組**,包含「可能已經寫進去了」那種不確定的失敗 ——
+ *  · 🔴 **解析成功之後的失敗一律沿用同一組**,包含「可能已經寫進去了」那種不確定的失敗 ——
  *    那時重鑄 = 下一次送出對 G8 是全新的一次 ⇒ **擋不到 ⇒ 重複入帳**(窄確認輪 MF4)。
+ *    ⚠️ **唯一的例外寫在這裡,免得後人照「一律」把它改回去**(窄 R4 must-fix):
+ *    **印章自己不合法**那種失敗(`parsePaymentForm` 回 null)⇒ 那次**根本沒進 RPC**
+ *    ⇒ `carryBackPaymentValues` 會把兩格一起清空、讓 B2-c 重鑄。
+ *    分界線很清楚:**進得了 RPC 的失敗 = 沿用;連解析都過不了 = 清空重鑄**。
+ *    (少了這句,下一個讀到「一律沿用」的人會把清空改掉,而那正是表單被鎖死的那個版本。)
  *    🔴🔴 **「沿用」是有機制的,不是靠表單記得**(R2 MF2):失敗 state 的 `values`
  *    會把整組印章原樣帶回(`carryBackPaymentValues`)⇒ B2-c 的 hidden input
  *    **以 `state.values.requestId / cashReceivedAt` 為優先來源**,兩者皆空才呼叫本函式鑄新的。
