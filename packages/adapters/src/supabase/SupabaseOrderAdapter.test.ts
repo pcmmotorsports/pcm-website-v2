@@ -1161,7 +1161,10 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
             product_snapshot: null,
           },
         ],
-        order_notes: undefined, // A9a-1:內嵌鍵整個缺(舊 row / 投影退版)→ 空時間軸、不 throw
+        // 🔴 #328(2026-08-11 更正):這一行原本註解寫「→ **空時間軸**」,而下面也真的斷言
+        //    `customerNotified === false` —— 那是**把 fail-open 寫成規格在替它站崗**:
+        //    「沒讀到」被當成「讀到了、沒人告知過客人」。現行契約是 fail-closed ⇒ `null`(無法判定)。
+        order_notes: undefined, // 內嵌鍵整個缺(舊 row / 投影退版)→ 不 throw,但**不得**翻成 false
       },
       error: null,
     });
@@ -1171,7 +1174,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(res?.invoiceRequest.type).toBeNull();
     expect(res?.items[0]).toMatchObject({ title: null, spec: null });
     expect(res?.notes).toEqual([]);
-    expect(res?.customerNotified).toBe(false);
+    // 🔴 #328:null = 無法判定(不是 false = 尚未告知)。
+    expect(res?.customerNotified).toBeNull();
+    // 🔴 這一欄仍是 false,而且**必須**是 —— 它是畫面分辨「讀取失敗」與「被截斷」的唯一依據。
     expect(res?.notesTruncated).toBe(false);
     // 🔴 A9a-2 + 關卡2 codex MF1:採購內嵌鍵整個缺(投影退版)→ 空清單、不 throw,
     //    但 **procurementTruncated = true**(「沒問到」不等於「答案是零筆」;A10b 據此拒絕送出表單)。

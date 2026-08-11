@@ -659,15 +659,14 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
 ): AdminOrderDetail {
   const customer = row.customers == null ? null : Array.isArray(row.customers) ? row.customers[0] : row.customers;
   // M-4b E10 A9a-1:排序 + U6 告知義務都在 mapper(PostgREST 不保證內嵌列順序、投影不支援子查詢)
-  const notesProjection = mapSupabaseOrderNoteRowsToProjection(row.order_notes ?? []);
-  // 🔴 A9g-3:**不加 `?? []`**(與上一行刻意不同)—— 缺鍵必須原樣傳進 mapper,才翻得成
+  // 🔴 **#328 已修:這裡不再補 `?? []`**(2026-08-11)。缺鍵原樣傳進 mapper,由它翻成
+  //    「無法判定」。舊寫法把「沒讀到」翻成「讀到了、零筆」⇒ 畫面說「尚未告知客人」= 假資料上的 U6 判斷。
+  //    ⚠️ **不要好心把它加回來** —— 加回 `?? []` 的那一刻,守門會紅在 `order-notes.test.ts`
+  //    的「缺鍵 ⇒ customerNotified 為 null」那格,那不是測試壞了。
+  const notesProjection = mapSupabaseOrderNoteRowsToProjection(row.order_notes);
+  // 🔴 A9g-3:**不加 `?? []`** —— 缺鍵必須原樣傳進 mapper,才翻得成
   //    `cancellations: null`(= 沒讀到)。加了 `?? []` 就會變成「讀到了、真的沒取消過」。
-  // ⚠️ R3 抓到我原本寫的理由是**假的**:我寫「notes 缺鍵時 customerNotified 另有 null 表達無法判定」,
-  //    但上一行的 `?? []` 讓 notes 缺鍵走成 `rows=[]` ⇒ `notesTruncated=false`、`customerNotified=false`
-  //    (實測 `mapSupabaseOrderNoteRowsToProjection([])` 回 `{false, false}`)。
-  //    ⇒ A9a-1 在投影退版時其實會說「時間軸完整、未告知客人」= 既有 fail-open。
-  //    **那不是本片引入的,本片也不順手改**(動 notes 的 fail-closed 語意要自己一片 + 自己的審查);
-  //    但既然發現了就不能留一句宣稱它安全的註解 ⇒ 已回報主視窗立 backlog。
+  //    (#328 之後 notes 與本行**同一個方向**了;原本兩行語意不一致的那段記載已隨修法移除。)
   const cancellationProjection = mapSupabaseOrderCancellationRowsToProjection(
     row.order_cancellations,
   );

@@ -46,7 +46,13 @@ export type SupabaseOrderNoteRow = Pick<
 /** 備註時間軸 + U6 判定(mapper 產物;三者一起回,避免呼叫端各自重算集合)。 */
 export type AdminOrderNotesProjection = {
   notes: AdminOrderNote[];
-  /** `null` = 無法判定(時間軸被截斷);見 domain `AdminOrderDetail.customerNotified` */
+  /**
+   * `null` = **無法判定**;見 domain `AdminOrderDetail.customerNotified`。
+   * 🔴 `null` 有**兩個成因**,靠 `notesTruncated` 分辨(#328):
+   *   ①`notesTruncated === true` → 時間軸被截斷,更早的紀錄沒載入;
+   *   ②`notesTruncated === false` → **整段 notes 根本沒讀到**(投影退版/缺鍵)= 讀取失敗。
+   *   兩者對員工的處置不同(①看更早紀錄 ②重新整理 / 通知維護)⇒ 文案**不可**共用一句。
+   */
   customerNotified: boolean | null;
   notesTruncated: boolean;
 };
@@ -66,8 +72,21 @@ const compareNotes = compareByCreatedAtThenId;
  * `NOT EXISTS` 語意);**只看直接指向** ⇒ `A ← B ← C` 裡 A 仍算已更正(更正不可撤回,`:179-184`)。
  */
 export function mapSupabaseOrderNoteRowsToProjection(
-  rows: SupabaseOrderNoteRow[],
+  rows: SupabaseOrderNoteRow[] | null | undefined,
 ): AdminOrderNotesProjection {
+  // 🔴🔴 #328:**缺鍵(投影退版)/ null = 沒讀到,不是「真的零筆」**。
+  //    舊寫法在呼叫端補 `?? []`,「沒讀到」就被翻成「讀到了、零筆」⇒ `customerNotified: false`
+  //    ⇒ 畫面斬釘截鐵說「尚未告知客人」,而事實是我們**根本沒看到那些列** ——
+  //    U6 告知義務(該補告知的不會補)會建立在假資料上,而且沒有任何測試或錯誤會轉紅。
+  //    ⇒ 改 fail-closed 回「無法判定」。方向與呼叫端 `cancellations`(缺鍵→null)一致。
+  // 🔴 **不新增欄位**,因為這三個欄位合起來已經是「讀取失敗」的唯一簽章:
+  //    `customerNotified === null` 且 `notesTruncated === false`
+  //    (被截斷那條路 `notesTruncated` 必為 true)⇒ 呼叫端分辨得出兩種 null。
+  //    判別式**具名一次**在 `apps/admin/src/lib/orders/note-timeline.ts` 的 `isNotesUnreadable`,
+  //    不要在各處重寫這個比較式(重寫第二份就會漂)。
+  if (rows === null || rows === undefined) {
+    return { notes: [], customerNotified: null, notesTruncated: false };
+  }
   const correctedIds = new Set(
     rows.map((row) => row.corrects_note_id).filter((id): id is string => id !== null),
   );

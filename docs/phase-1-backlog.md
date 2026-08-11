@@ -9104,8 +9104,24 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #328. 🕳️ A9a-1 notes 投影 `?? []` fail-open — 投影退版時畫面會說「時間軸完整、未告知客人」
 
-- **狀態:** ⏳ 待執行(A 窗片 3 R3 審查發現既有問題;2026-08-05 主視窗立案)
-- **現況**:`packages/adapters/src/supabase/mappers/order.ts:609` 的 `row.order_notes ?? []`
+- **狀態:** ✅ **已修(2026-08-11 E 窗)** —— `?? []` 拿掉,mapper 收 `null | undefined` 並回
+  `customerNotified: null`(無法判定);畫面另闢「讀取失敗」橫幅。**仍待 Sean 肉眼驗**(要構造投影退版才看得到,見下)。
+  - 🔴 **不新增欄位**:`customerNotified === null && notesTruncated === false` 已經是「讀取失敗」的
+    **唯一簽章**(截斷那條路 `notesTruncated` 必為 true)⇒ 判別式具名一次
+    (`apps/admin/src/lib/orders/note-timeline.ts` 的 `isNotesUnreadable`),不散在各處重寫。
+  - **文案跟著分兩種**(文案與程式是同一條不變式):舊的 `unknown` 只寫「備註筆數超過載入上限」——
+    那句在「整段沒讀到」時是**假的**,還會把員工引去找不存在的舊紀錄、而不是叫他重新整理。
+  - **畫面三處**都改了,因為三處各自會說謊:徽章文案 / 空清單改成紅底「讀取失敗」橫幅 /
+    右上角筆數 **`0 筆` → `筆數未知`**(那是這條 bug 最短的一句謊話)。
+  - **守門 + 突變四靶,各只紅該紅的**:①`?? []` 加回去 ⇒ 只紅新加的**中間那一跳**那格
+    (`order.test.ts`;兩端各自的測試在這個突變下**照樣全綠** —— 那正是本條當初能存活的原因)
+    ②mapper 對 null 回 false ⇒ 紅 3 格 ③判別式只看 `customerNotified === null` ⇒ 截斷被誤報成讀取失敗
+    ④畫面拿掉分支 ⇒ 只紅畫面那格。
+  - 🔴 **順手修掉一格「把 bug 寫成規格」的測試**:`SupabaseOrderAdapter.test.ts` 原本
+    逐字寫 `order_notes: undefined` 且斷言 `customerNotified === false`、註解還寫「→ 空時間軸」
+    ⇒ 它**在替這個 fail-open 站崗**。已改成斷言 `null` 並把理由寫在格內。
+- ~~**原狀態**~~:⏳ 待執行(A 窗片 3 R3 審查發現既有問題;2026-08-05 主視窗立案)
+- **現況(修前)**:`packages/adapters/src/supabase/mappers/order.ts:609` 的 `row.order_notes ?? []`
   把「select 投影缺鍵(根本沒讀到)」翻成「讀到了、真的零筆」⇒
   `mapSupabaseOrderNoteRowsToProjection([])` 回 `notesTruncated=false`、`customerNotified=false`(實測)。
   同函式下一行的 cancellations **刻意不加** `?? []`(缺鍵→`null`=「沒讀到」),兩行語意不一致;

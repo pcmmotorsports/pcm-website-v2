@@ -136,15 +136,41 @@ export type CustomerNotifiedState = 'notified' | 'not_notified' | 'unknown';
 export type CustomerNotifiedDescriptor = { state: CustomerNotifiedState; label: string };
 
 /**
+ * 「備註整段沒讀到」的**唯一具名判別式**(#328)。
+ *
+ * 🔴 `customerNotified === null` 有兩個成因,而 `notesTruncated` 把它們分開:
+ *   ①截斷(`notesTruncated === true`):讀到了、但只有最新 N 筆;
+ *   ②**讀取失敗**(`notesTruncated === false`):投影退版/缺鍵,**整段沒讀到**。
+ * 這個比較式只寫這一份 —— 在別處重寫第二份,兩邊會各自漂(而症狀是文案說錯話、沒有測試轉紅)。
+ * ⚠️ 前提來自 mapper:截斷那條路一定把 `notesTruncated` 設成 true(`order-notes.ts` 的
+ * `notesTruncated = rows.length >= LIMIT` 與 `customerNotified = truncated ? null : …`)。
+ * 那個前提若被改,本判別式會靜默失準 ⇒ 守門釘在 `note-timeline.test.ts`。
+ */
+export function isNotesUnreadable(
+  detail: Pick<AdminOrderDetail, 'customerNotified' | 'notesTruncated'>,
+): boolean {
+  return detail.customerNotified === null && !detail.notesTruncated;
+}
+
+/**
  * U6 告知義務三態(契約 C4:`types.ts:483-489`)。
  * 🔴 `null` 必須先以 `=== null` 分流 —— 寫成 `value ?? false` / truthy 判斷就是把「無法判定」
  * 顯示成「尚未告知」,兩個方向都可能錯(被截掉的更正列/告知列),明文禁項。
+ * 🔴 **#328:`unknown` 的文案要分兩種**。舊版只寫「備註筆數超過載入上限」——
+ * 那句話在「整段讀取失敗」時是**假的**,而且會把員工引去找不存在的舊紀錄,
+ * 不會叫他重新整理或通知維護。文案與程式是同一條不變式,分了就要一起分。
  */
-export function describeCustomerNotified(value: boolean | null): CustomerNotifiedDescriptor {
+export function describeCustomerNotified(
+  value: boolean | null,
+  /** 見 {@link isNotesUnreadable};省略 = 舊行為(截斷語意),呼叫端請顯式給。 */
+  unreadable = false,
+): CustomerNotifiedDescriptor {
   if (value === null) {
     return {
       state: 'unknown',
-      label: '無法判定(備註筆數超過載入上限,告知紀錄可能不在已載入範圍)',
+      label: unreadable
+        ? '無法判定(備註讀取失敗,這一單的備註沒有載入)'
+        : '無法判定(備註筆數超過載入上限,告知紀錄可能不在已載入範圍)',
     };
   }
   return value
