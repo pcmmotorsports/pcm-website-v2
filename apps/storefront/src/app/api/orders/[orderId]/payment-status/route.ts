@@ -21,8 +21,12 @@
 //      page 同呼法)→ Record 同步後即成立。partiallyPaid/refunded **不觸發 settle**(對齊 throttle RPC unpaid 閘、
 //      不干擾 4a-2 sweeper 回收路徑)。throttle 走 payment_confirmer 窄權主軌(getPollSettleThrottle)。
 //
-// ⚠️ 誠實中間態:throttle migration(claim_order_poll_settle)在 Q2=A 下未 db push;正式暫無此 RPC 時 throttle 呼叫
-//    throw → 端點 fail-closed skip settle = 退回只讀行為(正式結帳 flag 鎖、此端點 S6 前幾無真流量;plan §5.3)。
+// ⚠️ 🔴 **這段「誠實中間態」的前提已為假**(2026-08-11 晚重 gen 實查):`claim_order_poll_settle`
+//    現在就在 `database.types.ts` 裡 ⇒ 它**已經活在正式庫**,不再是「未 db push」。
+//    ~~throttle migration 在 Q2=A 下未 db push~~ ——
+//    下面那條 fail-closed 行為(throttle 呼叫 throw ⇒ 端點 skip settle、退回只讀)**照舊留著**:
+//    它守的是「throttle 這一跳失敗」這件事本身,與 RPC 存不存在無關。
+//    ⚠️ 但「正式暫無此 RPC」這個**觸發情境**已不成立 ⇒ 誰要拿這段當「此路目前走不到」的依據,先重新量一次。
 //
 // @see docs/specs/2026-06-21-m3-3ds-s2b-poll-settle-throttle-plan.md §6.4
 // @see apps/storefront/src/app/checkout/callback/page.tsx(IDOR 歸屬閘同 pattern + settleCharge 同呼法)

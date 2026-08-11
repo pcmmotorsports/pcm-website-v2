@@ -10904,3 +10904,39 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     根因在兩個看起來一樣的字串,現場肉眼分辨不出來。
 - **依賴**:#277 C 案(`20260811100000`)已把翻面量化;本條可獨立排。相關 = #389(matview 正解)。
 - **發現於**:2026-08-11 / #277 C 案 關卡2 折 finding 時的 first-seen 贏家逐筆比對
+
+### #415. 🧹 重 gen 之後,五個「文件化窄 cast」的存在理由已經消失(cast 還在、typecheck 被繞過)
+
+- **狀態:** ⏳ 待排(2026-08-11 晚 `dd3cf733` 重 gen 的 R1 nit;主視窗發號)
+- **優先級:** P2(不是缺陷,是**防護力被自己繞過**:每一處都讓 typecheck 對那條路徑失效)
+- **背景**:這些 cast 當初都有正當理由 —— 對應的表/RPC 真的不在 `database.types.ts` 裡,
+  具名呼叫過不了 typecheck。**2026-08-11 晚重 gen 之後那個前提整批消失**,
+  但 cast 與註解留在原地 ⇒ 註解變成假的、cast 變成純粹的防護漏洞。
+- **實查(重 gen 後,逐一 `grep '^      <名>: {' packages/adapters/src/supabase/database.types.ts` 皆 1)**:
+
+  (**五個 cast、六個檔案位置** —— `EmailOutboxClient` 那一個的宣告與注入端分居兩檔。)
+
+  | 檔案 | cast | 生成型別裡的對應物 |
+  |---|---|---|
+  | `packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts` | `EmailOutboxClient` | `email_outbox` |
+  | `apps/storefront/src/lib/email/composition.ts:49` | 同上(注入端) | 同上 |
+  | `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` | `AdminSearchOrdersRpcClient` | `admin_search_orders` |
+  | `apps/admin/src/lib/customers/customer-repository.ts:139` | `TierRpcClient` | `admin_set_customer_tier` |
+  | `packages/adapters/src/supabase/helpers/fitment-queries.ts:133/187` | `VehicleRpcClient` / `EffectiveFitmentsClient` | `search_products_by_vehicle` / `product_fitments_effective` |
+
+  ⚠️ **不含** `SupabaseOrderAdapter` 的 `data as unknown as CreateOrderRpcResult` ——
+  那支 RPC 的生成型別是 `Returns: Json`,Json→DTO 是**正當的邊界投射**,不在本條範圍。
+- **這一條為什麼不當場做掉**:拆 cast 會**改變型別檢查的形狀**,每一處要配自己的行為驗證 ——
+  · `admin_search_orders`:POST-only 那組原始碼掃描測試的**理由**會變(現在它是唯一守門,
+    拆 cast 後 typecheck 接手一半)⇒ 要同步改測試註解、確認那組仍有判別力;
+  · `admin_set_customer_tier`:tier 是權限面,參數名/回傳碼漂一個字就是 404/42501;
+  · `email_outbox`:窄介面的方法簽章與生成型別逐欄對得上才行,且 mark* 三出口的世代柵欄
+    不能因為型別放寬而失守。
+  ⇒ 不是「順手改字面」那種工作,所以 2026-08-11 那顆只更正註解、不拆。
+- **不修未來會痛在哪**:
+  - 擴充性:每多一個呼叫端就多一處被 cast 繞過的路徑,而它們**看起來**是型別安全的。
+  - 可維護性:註解已經被更正成「可拆」,但下一個人若只讀 cast 不讀註解,會以為那是必要之惡而照抄。
+  - bug 可追蹤性:參數名或欄位漂移的症狀是**執行期 404/42501**,typecheck 全綠 ——
+    也就是說,今天這幾條路的迴歸只能靠原始碼掃描測試接住,少寫一組就是全裸。
+- **依賴**:無;`dd3cf733`(重 gen)之後隨時可排。建議一次做完五處,免得又留下一半。
+- **發現於**:2026-08-11 / `dd3cf733` R1 nit(reviewer 點名三處;D 窗 grep 全樹後補出另兩處同族)

@@ -85,8 +85,10 @@ describe('SupabaseAuditLogRepository', () => {
     ).rejects.toThrow(/admin_audit_log 寫入失敗/);
   });
 
-  // 🔴 整合測試(接真 admin_audit_log 表 via createSupabaseServiceClient)= pending:
-  //    表尚未 db push(統一批次佇列 5 支之一)+ admin 尚未接 @pcm/adapters/server 依賴。
-  //    表落地 + client 注入後解除,驗:真 INSERT 落地、service_role 無 SELECT 下 return=minimal 不炸 42501。
-  it.todo('integration: 真 Supabase service client 寫入 admin_audit_log(pending 表 db push)');
+  // 🔴 整合測試(接真 admin_audit_log 表 via createSupabaseServiceClient)= pending。
+  //    ⚠️ **兩個擋路理由裡的第一個已為假**(2026-08-11 晚重 gen):`admin_audit_log`
+  //    現在就在 `database.types.ts` 裡 ⇒ 表活在正式庫、不是「尚未 db push」。
+  //    剩下的擋路理由只有:admin 尚未接 @pcm/adapters/server 依賴。
+  //    client 注入後解除,驗:真 INSERT 落地、service_role 無 SELECT 下 return=minimal 不炸 42501。
+  it.todo('integration: 真 Supabase service client 寫入 admin_audit_log(pending:admin 未接 adapters/server)');
 });
