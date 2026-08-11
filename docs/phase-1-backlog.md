@@ -11313,3 +11313,42 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 擴充性:每支新 migration 都要自己猜執行端的交易語意;猜錯的症狀是**部分套用**,而不是編譯錯。
 - **依賴:** 無;相關 = #401(重放式 harness × 非冪等 migration 族譜)/ #412。
 - **發現於:** 2026-08-11 / #412 關卡2 R3 M1(重放路徑實跑重現)+ R4 對修法的反對
+
+### #429. 🧬 年份「無資料=通吃」有 **5 個判定點**,其中兩份是平行實作、彼此無一致性機制
+
+- **狀態:** ⏳ 待排(2026-08-12 / S 窗五代由「年份 R2 選邊題」帶出;主視窗 `S-094-A` §2 批准配號)。
+- **優先級:** 🟡 低-中(**今天五處方向一致、零客人可見問題**;債的形狀是「碰巧一致」而非「被綁住」)
+- **問題:**
+  - 「`year_start` 與 `year_end` 皆 NULL = 沒有年份資料」在我方**一律當通吃**(任何年份都命中),
+    與報價單側 `COALESCE(ys,0)/COALESCE(ye,9999)` 同邊(2026-08-12 兩側對齊、已結案)。
+  - 但寫著這條語意的地方有 **5 個**,其中兩個是**同一段邏輯的兩份實作**:
+    ① `search_catalog_by_vehicle`(catalog 實查)② `search_products_by_vehicle`(述詞逐字相同)
+    ③ `packages/adapters/src/supabase/helpers/fitment-queries.ts:31`(PostgREST `year_start.is.null,…`)
+    ④ `packages/domain/src/catalog/year-range.ts` `matchFitmentYear`(`yearStart === undefined` 早退 true)
+    🔴 ⑤ `packages/adapters/src/in-memory/InMemoryProductRepository.ts:220-226` ——
+       **把 ④ 的外層三行自己抄了一份**(只 `import { resolveEnd }`,判斷式沒有呼叫 domain)。
+  - ④ 能成立還壓在**一個對映**上:`fitment-queries.ts:169-171` 只在 `row.year_start != null` 時
+    才寫入 `yearStart`/`yearEnd`,否則兩欄都省略 ⇒ `undefined` ⇒ 早退。
+    寫成 `yearStart: row.year_start ?? null` 就會讓 ④ 倒向另一邊,而 ①②③⑤ 不動 = **同站內部不一致**。
+    **這一跳目前沒有任何守門。**
+- **預期解法(兩件,可同片):**
+  1. 讓 ⑤ 呼叫 domain `matchFitmentYear`,而不是自己抄(消掉平行實作)。
+  2. 補兩格測試,各配一個突變靶(**驗收就用這兩靶,不接受「測試有寫」**):
+     - 靶 A:把 `fitment-queries.ts:169-171` 改成 `yearStart: row.year_start ?? null` → **必須有測試紅**。
+     - 靶 B:拿掉 domain `matchFitmentYear` 的 `=== undefined` 早退 →
+       **⑤ 那條路徑也必須有測試紅**(現況:不會紅,因為它跑的是自己那份)。
+- **不修未來會痛在哪:**
+  - **bug 可追蹤性**:改 domain 年份語意時,走 InMemory 的測試**照樣全綠** —— 綠燈與正式站行為脫鉤,
+    正是本 repo 記過的假綠形狀(靶 B 就是為了讓它紅)。
+  - **可維護性**:哪天要改「無年份」的語意(例如從通吃改成排除),必須**同時找到 5 個點**;
+    而第 5 個在**測試 adapter** 裡 —— grep「年份篩選」時沒有人會直覺想到那裡,漏掉它的症狀是
+    「正式站改了、測試還在用舊語意驗」。
+  - **擴充性**:報價單側若哪天改邊(不再 `COALESCE(ys,0)`),我方要一次改 5 處;
+    **沒有這張清單就會漏**,而漏掉的那處症狀是「同一商品報價單搜得到、網站搜不到」(或反過來)。
+- **估時:** 30-45 分(⑤ 改呼叫 domain + 兩格測試 + 兩靶各實跑一次)
+- **依賴:** 無(**不擋年份線任何一片**);Sean 決策不需要。
+- **發現於:** 2026-08-12 / S 窗五代 年份 R2 選邊題實查 —— `S-091` 原本寫「四條路徑」,
+  是**對 grep 結果的分類判斷、非實讀**(app 側 15 檔只開了 2 檔);全稱句守門攔下後補讀才找到第 5 個
+  (更正見 `S-093-NOTE`)。
+- **相關:** #277(車型/年份下拉 C 案)
+- **分流標籤:** `P2-later`
