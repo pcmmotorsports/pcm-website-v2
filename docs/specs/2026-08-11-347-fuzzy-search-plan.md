@@ -56,6 +56,35 @@
    ⇒ **走不到的那幾條**:要嘛把該 predicate 改寫成 UNION/semi-join 形狀,要嘛**記為缺口照實寫**
    (不假裝索引有用)。這個決定由探針結果決定,不由本 plan 決定。
 
+### A0 結果(**2026-08-11 夜實跑,拋棄式庫 PORT=54378 / 50,031 orders / 50,072 items / 20,002 customers / 30,000 procurement,已 ANALYZE**)
+
+| 形狀 | 索引有沒有被用到 | 實測時間 |
+|---|---|---|
+| A 單條 `display_id` LIKE(識別碼) | ✅ `Bitmap Index Scan on spike_o_display` | **1.4 ms** |
+| B 單條品名 LIKE(文字) | ✅ `spike_oi_title` | **0.3 ms** |
+| C 單條品名 **`<%` 詞相似度** | ✅ `spike_oi_title` | **1.8 ms** |
+| D **現行 RPC 形狀**(跨表 OR + correlated EXISTS + 排序 + LIMIT) | ⚠️ **`order_items` 走 Seq Scan**;customers/procurement 側有走 index | **127.5 ms** |
+| E **UNION 改寫**(同一 needle、三條 predicate) | ✅ 三支索引全走到 | **1.4 ms** |
+| D2 只留兩條 OR(品名 EXISTS + 地址) | ✅ 走到 `spike_oi_title` | 28.6 ms |
+| E2 同 needle 的 UNION | ✅ | 7.3 ms |
+| F 規格(spec)走 helper 函式索引 | ✅ `spike_oi_spec` | 192.9 ms(**選擇率造成**:我塞的 spec 只有 ~24 種值、命中 5,000 列;recheck 成本吃掉索引好處) |
+
+**三個結論(這是 A0 存在的理由,plan 層答不出來)**:
+1. **`<%` 走得到 trigram 索引**(C)⇒ 模糊比對不是只能全表掃。
+2. 🔴 **現行的「一大坨 OR + EXISTS」形狀,品項側索引拿不到**(D)——分支越多,規劃器越傾向整表掃。
+   ⇒ **實作必須改成 UNION/semi-join 形狀**(E),否則索引白建。這條先前只是 codex 的推測,現在有數字。
+3. 索引的價值**取決於選擇率**(F):低基數欄位(規格顏色/尺寸)命中太多列時,索引反而不划算
+   ⇒ 規格那條的索引**列為可選**,由實作時的資料分布決定(**不預先宣稱它有用**)。
+
+🔴 **A0 順帶抓到兩個 plan 寫錯的字面(都會讓 migration 當場失敗)**:
+- **`product_snapshot->'spec'` 是 jsonb 物件、不是字串**(正式站實查:`{"color": "經典-經典黑"}`;
+  拋棄式庫的 CHECK `order_items_snapshot_whitelist` 也強制 `jsonb_typeof(spec)='object'`)
+  ⇒ `->>'spec'` 拿到的是**整段 JSON 文字**(含 `{`、`"`、鍵名)⇒ 直接比對會用鍵名命中一堆單。
+  ⇒ 改用 IMMUTABLE helper `pcm_spec_text(jsonb)`(`string_agg(value,' ')` over `jsonb_each_text`)
+  取**值**再比對;索引也建在 helper 上(F 實測索引建得起來也用得到)。
+- **`pg_catalog.coalesce(...)` 不存在**(COALESCE 是 SQL 語法不是函式)⇒ 索引建立當場
+  `No function matches the given name`。§4 的表達式一律寫**裸 `COALESCE`**(既有 RPC 也是這樣寫的)。
+
 ### A1 安裝擴充
 `CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;`(單獨 migration 第一段)。
 驗收 1 fail-closed:裝不上就整片停。
@@ -80,7 +109,7 @@
 **不保證**涵蓋 U+3000(全形空格)與 NBSP ⇒ 正規化字元類明寫成
 `[-_[:space:]\u3000\u00A0]`(欄值與 needle **雙向**都套),驗收各加一格。
 
-### A3 索引:與查詢**逐字相同**的表達式
+### A3 索引:與查詢**逐字相同**的表達式(🔴 A0 已證:**查詢形狀必須改成 UNION**,否則品項側索引拿不到)
 GIN trigram 索引建在原欄、而查詢對欄套函式 ⇒ 索引用不到;`strpos()` 與
 `similarity(a,b) >= 常數` 本來就不是 trigram 索引支援的形狀。⇒ 三件事一起改:
 1. 子字串:`LIKE '%' || <跳脫後 needle> || '%'`(needle 內 `\` `%` `_` 必須跳脫)。
@@ -97,9 +126,9 @@ GIN trigram 索引建在原欄、而查詢對欄套函式 ⇒ 索引用不到;`s
 
 > 條數:現行 10 條 `strpos`(數法 `sed -n '136,181p' supabase/migrations/20260810120000_*.sql | grep -c 'strpos'` = 10)+ 新增 `spec` ⇒ **11**。
 > 共用巨集(寫在 migration 頂端註解,實作展開):
-> - `NORM_ID(x)` = `pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.coalesce(x,'')), '[-_[:space:]\u3000\u00A0]', '', 'g')`
-> - `NORM_NUM(x)` = `pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.coalesce(x,'')), '[^0-9]', '', 'g')`
-> - `NORM_TXT(x)` = `pg_catalog.lower(pg_catalog.btrim(pg_catalog.coalesce(x,'')))`
+> - `NORM_ID(x)` = `pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[-_[:space:]\u3000\u00A0]', '', 'g')`
+> - `NORM_NUM(x)` = `pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[^0-9]', '', 'g')`
+> - `NORM_TXT(x)` = `pg_catalog.lower(pg_catalog.btrim(COALESCE(x,'')))`
 > needle 側同樣算三份(`v_id_needle` / `v_num_needle` / `v_txt_needle`),各自非空才進該類。
 
 | # | 目標表達式(查詢與索引**同一字面**) | 類別 | 子字串 | 模糊 `needle <% 目標` |
@@ -112,7 +141,7 @@ GIN trigram 索引建在原欄、而查詢對欄套函式 ⇒ 索引用不到;`s
 | 6 | `NORM_TXT(o.shipping_address_snapshot ->> 'line')` | 文字 | ✅ | ✅ |
 | 7 | `NORM_ID(oi.variant_sku)` | 識別碼 | ✅ | ❌ |
 | 8 | `NORM_TXT(oi.product_snapshot ->> 'title')` | 文字 | ✅ | ✅ |
-| 9 | `NORM_TXT(oi.product_snapshot ->> 'spec')`(**新增**) | 文字 | ✅ | ✅ |
+| 9 | `NORM_TXT(public.pcm_spec_text(oi.product_snapshot -> 'spec'))`(**新增**;🔴 spec 是**物件**不是字串,見 A0) | 文字 | ✅ | ✅(索引可選,見 A0-3) |
 | 10 | `NORM_TXT(br.name)` | 文字 | ✅ | ✅ |
 | 11 | `NORM_ID(pc.supplier_order_no)` | 識別碼 | ✅ | ❌ |
 
