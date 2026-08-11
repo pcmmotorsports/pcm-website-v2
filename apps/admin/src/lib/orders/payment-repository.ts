@@ -4,17 +4,14 @@ import type { OrderPaymentRow } from './payment-list-view';
 
 // payment-repository.ts — M-4b E10 #15-B2-a:`admin_list_order_payments` 的唯一呼叫端(唯讀)。
 //
-// 🔴🔴 **型別上的臨時縫,連同它的代價一起寫在這裡**:
-//    B1(`20260811090000`)**已 apply 正式站**(主視窗 2026-08-11 傍晚回報,真單煙測過),
-//    但 `database.types.ts` **還沒 regen** ⇒ 這支 RPC 不在生成型別裡
-//    (落筆當下實查 `grep -c admin_list_order_payments packages/adapters/src/supabase/database.types.ts` = 0)
-//    ⇒ 具名 `.rpc()` 過不了 typecheck。
-//    ⇒ 下面把 client 窄化成一個**只描述本次呼叫**的區域型別。
-//    ⚠️ **cast 本身證明不了任何事** —— 它只是讓編譯器閉嘴,不會讓回傳真的長那樣。
-//    所以形狀由**執行期**的 `parseRow` 把關(fail-closed),不是由 cast 把關。
-//    ✅ **regen types 之後要回來拆掉這個縫**(apply 那一半已經成立),改用具名 `.rpc()`;
-//       拆掉之後 `parseRow` **仍然留著** —— 生成型別是「schema 說它長這樣」,
-//       不是「這次回來的真的長這樣」(它連 null 都常常標錯,同檔頭 22 處手動校正)。
+// ✅ **型別縫已拆**(2026-08-11 晚):B1(`20260811090000`)apply 後重 gen,
+//    `admin_list_order_payments` 進了 `database.types.ts` ⇒ 這裡改回**具名 `.rpc()`**,
+//    區域型別與 cast 一併刪除(原本那個縫只是讓編譯器閉嘴,證明不了回傳形狀)。
+// 🔴 **`parseRow` 刻意留著,不因為「現在有型別了」就拿掉**:
+//    生成型別說的是「schema 長這樣」,不是「這次回來的真的長這樣」
+//    (它連 null 都常常標錯 —— 同檔頭記著 22 處手動校正)。
+//    這支 RPC 的 `Returns` 是 `Json`,型別層對每一列的形狀**零保證**,
+//    唯一的把關就是下面的執行期 fail-closed。
 //
 // 🔴 **授權誠實話**:讀路徑上**沒有管理員檢查**可以靠。
 //    `session/actor.ts:5-7` 與 `components/orders/order-detail-route.tsx:110-111` 兩處**逐字自陳**
@@ -22,14 +19,6 @@ import type { OrderPaymentRow } from './payment-list-view';
 //    讀路徑真正唯一的閘 = `apps/admin/src/proxy.ts:38-49` 的**全域登入閘,無角色檢查**。
 //    ⇒ **任何登入後台的人都讀得到任何一單的收款明細**。這是現況、不是本片造成的,
 //      但本片第一次把它變成畫面上的資料。
-
-/** 本次呼叫用的最小 client 形狀(見檔頭:生成型別還沒 regen、裡面沒有這支)。 */
-type UntypedRpcClient = {
-  rpc(
-    fn: string,
-    args: Record<string, unknown>,
-  ): Promise<{ data: unknown; error: { message?: unknown; code?: unknown } | null }>;
-};
 
 export class PaymentListShapeError extends Error {
   constructor(message: string) {
@@ -108,7 +97,7 @@ function parseRow(raw: unknown, index: number): OrderPaymentRow {
  * (同 #328 的形狀:「讀取失敗」與「真的沒有」輸入長得一模一樣,只能靠這裡分。)
  */
 export async function listOrderPayments(orderId: string): Promise<OrderPaymentRow[] | null> {
-  const client = createSupabaseServiceClient() as unknown as UntypedRpcClient;
+  const client = createSupabaseServiceClient();
   const { data, error } = await client.rpc('admin_list_order_payments', { p_order_id: orderId });
 
   if (error) {
