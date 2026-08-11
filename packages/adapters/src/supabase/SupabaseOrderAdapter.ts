@@ -596,7 +596,8 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    (字面是 `new RegExp('[,()]')`),而只有 `.in()` `:815` 與 `.notIn()` `:843` 在用它。
     // 🔴 **本搜尋沒有供應商維度**:`supplier_order_no` 在 DB 層無跨供應商唯一性
     //    (A2 `:70` 的業務鍵是 `(order_item_id, supplier_canonical_key)`)⇒ 兩家供應商用同一組
-    //    單號時會一起回來。**A10c2 必須在結果列顯示供應商讓人眼消歧**(完整理由與失敗情境見
+    //    單號時會一起回來。**#338 起下方探測會把命中的供應商帶回來**(結果集層消歧、非逐列),
+    //    畫面三態顯示;仍**沒有**供應商 filter 軸(裁定不做,理由見 domain 檔頭)。(完整理由見
     //    `packages/domain/src/order/supplier-order-no-search.ts` 檔頭的誠實邊界段)。
     const supplierSearch = normalizeSupplierOrderNoSearch(filter.supplierOrderNo);
     if (supplierSearch.kind === 'invalid') {

@@ -1550,6 +1550,21 @@ describe('#338 命中的供應商帶出來(同一次往返)', () => {
     expect(res.supplierOrderNoMatchedSuppliers).toEqual([{ id: 'sup-9', label: null }]);
   });
 
+  it('🔴 R2:第三個 null 成因 —— 單號合法,但關鍵字先零命中而早退(探測排在關鍵字之後)', async () => {
+    // 這一格釘的是**契約**:照「null = 沒搜單號」推導會錯,因為這條路上單號是合法且有給的。
+    // 沒有它,把 domain docstring 改回「只有兩個成因」也不會有任何測試轉紅。
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [], truncated: false }, error: null },
+      proc: { data: [procRow('o-1')], error: null },
+    });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '找不到的詞', supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(res.supplierOrderNoMatchedSuppliers).toBeNull();
+    expect(res.keywordMatchCount).toBe(0);
+  });
+
   it('🔴 探測整條沒跑(輸入不合法)⇒ `null`,與 `[]` 不同', async () => {
     const h = makeSupplierSearchClient({ proc: { data: [], error: null } });
     const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
