@@ -259,9 +259,13 @@ fi
 # ══════════════════════════ check 模式 ═══════════════════════════════════
 PASS=0; FAIL=0; KEYS=""
 # 🔴 R1 F5(宣稱範圍,寫下來不假裝沒有):格名用 `sed 's/-.*//'` 取檔名第一段 ⇒
-#    `a7t-concurrency-probe.sh` 的格叫 `RECEIPT-a7t`。現行 28 支無撞號(已機械驗),
+#    `a7t-concurrency-probe.sh` 的格叫 `RECEIPT-a7t`。
 #    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
-#    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
+#    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。
+#    🔴 **2026-08-11 W-a 實況**:本輪已把 KEY 推導改成「撞號才展開」(見下方 key_of),
+#       撞號在結構上不會再留下來。但 `a7t-verify.sh` **本輪仍收編不進來** —— 它跑不綠,
+#       原因不是格名也不是輸出格式,是 A7-t migration 自己的斷言過期(見 backlog **#399**)。
+#       ⇒ **這段歧義警告到 #399 修完、a7t-verify 收編為止都仍然成立。** 格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
 EXPECT_TOTAL=40   # 🔴 量出來的(**30** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3 + op4 + op5 + op6a + opa12 + l5b0 + l5b0t2 + l5b2-2a〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 40 + 2 = 42。
                   # 🔴 2026-08-11 合併裁定(主視窗):B 線 37→38(op4)→39(op6a 補登記)與 P 線 37→38(l5b2-2a)
@@ -326,8 +330,33 @@ if [ ! -f "$LEDGER" ]; then
   echo "  🔴 收據檔不存在:$LEDGER"
   echo "     ⇒ 先跑 bash scripts/w7-coverage.sh record all(慢,apply preflight 的本分)"
 fi
+# 🔴🔴 **KEY 推導:撞號才展開**(2026-08-11 W-a)。
+#    舊規則 `sed 's/-.*//'`(截到第一個 `-`)在只有一支 `a7t-*` 時沒問題,
+#    但 `a7t-verify.sh` 一收編就與 `a7t-concurrency-probe.sh` **推出同一個 `RECEIPT-a7t`**。
+#    ⚠️ 為什麼不用「後綴剝除法」(剝 `-verify` / `-probe`):
+#       ① 它會一次改掉 **9 個**既有格名(w5/w6a/w6b1-3/w6c/w7b/l5b2-2a/a7t-probe),爆炸半徑大;
+#       ② **它擋不住下一對同前綴**(`xx-verify.sh` 與 `xx-probe.sh` 剝完都是 `xx`,照樣撞)。
+#    ⇒ 改成:base 撞號時,**撞到的那幾支**才改用「檔名去掉 .sh」當 KEY,其餘一律維持舊規則。
+#      效果分兩個世界講清楚(reviewer C1:上一版把兩者混為一談,量的是**還沒發生的那個**):
+#        · **現況**(a7t-verify.sh 尚未收編):`COLLIDING_BASES` 為空 ⇒ **30/30 逐字不變**、
+#          `RECEIPT-a7t` 原封不動。本次改動對帳面是**零行為差異**。
+#        · **收編 a7t-verify.sh 之後**(待 #399 修完):29/30 不變,唯一變的是
+#          `a7t-concurrency-probe`(`a7t` → `a7t-concurrency-probe`),並新增 `a7t-verify`。
+#    🔴 這條規則讓**重複 KEY** 結構上不可能留下來:任何新撞號都會自動展開成全名。
+#    ⚠️ 誠實邊界(reviewer Minor):它自動的只有**推導**,`KEYS_FROZEN` 仍是**人工字面** ——
+#       收編一支新 harness 時該清單還是要有人改。而且反向也有盲區:實測**刪掉撞號的一方**時,
+#       倖存者的 KEY 會縮回短名 ⇒ `TMUT-COV-EXITS` 會紅,但 `CELL-KEYSET` 對這個縮回**全盲**
+#       (它比的是集合,而縮回後的集合剛好又合法)。⇒ 別把這條讀成「格名層全自動了」。
+COLLIDING_BASES="$(harness_set | sed 's/-.*//' | sort | uniq -d | tr '\n' ' ')"
+key_of() {  # $1=harness 檔名 → 印出格名
+  local base; base="$(printf '%s' "$1" | sed 's/-.*//')"
+  case " $COLLIDING_BASES " in
+    *" $base "*) printf 'RECEIPT-%s' "$(printf '%s' "$1" | sed 's/\.sh$//')" ;;
+    *)           printf 'RECEIPT-%s' "$base" ;;
+  esac
+}
 for h in $(harness_set); do
-  KEY="RECEIPT-$(printf '%s' "$h" | sed 's/-.*//')"
+  KEY="$(key_of "$h")"
   PROB="$(check_one "$LEDGER" "$h")"
   if [ -z "$PROB" ]; then
     ROW="$(grep "^$h	" "$LEDGER" | tail -1)"
