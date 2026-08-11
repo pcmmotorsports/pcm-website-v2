@@ -612,44 +612,107 @@ export async function fetchCategories(): Promise<MockCategory[]> {
 /**
  * 撈全目錄車輛清單(S2/#220b:首頁 VehicleFinder 接真)。
  *
- * 輕量投影:只 select fitments 欄(不撈完整商品/變體)、.order('id') + .range 分頁迴圈
- * 繞 PostgREST「Max rows=1000」硬上限(仿 adapter listAllByCategory 分頁模式、MAX_PAGES 防呆)
- * → buildVehicleTaxonomy 衍生 品牌→車型→年份(與 /products 列表端同一衍生函式 = id 空間一致、
- * 首頁選車深連結必命中列表過濾)。
+ * 來源 = `vehicle_taxonomy_public`(#277 段二,migration `20260811020000`):四欄
+ * (moto_brand / model_code / year_start / year_end)的 DISTINCT 投影,底層是
+ * `product_fitments_effective`(**含家族樹 inherited 展開**)。
+ *
+ * 🔴 為什麼換掉原本的 `products_public.fitments`:那條路只看得到 **direct** 標記,
+ *   純推導的子款客人在下拉**選不到自己的車**。
+ *
+ * 2026-08-11 正式庫實查,**兩個母體 = 這兩條 code path 各自真的看得到的東西**
+ *   (舊路 = 未下架商品的 jsonb fitments;新路 = 本 view,effective 展開且含下架):
+ *     (廠牌, 車型)組  舊 2,193 → 新 2,390;四欄組合 舊 8,157 → 新 13,135
+ *     (⚠️ 已 apply 的 migration COMMENT 寫 13,133 —— 那是它當時量的,兩個都對、只是時點不同)
+ *     新增 198 組,其中 **197 組有未下架商品撐著**(= 真收穫:MT-07 ABS / Ninja 400 SE /
+ *     CB650R / Gold Wing Tour…)、1 組只有下架商品(幽靈)。
+ *   ⚠️ 這 198 不是「純 inherited 的貢獻」——它同時混進了「不排除下架」帶來的部分,
+ *     兩個母體本來就不同。要純 inherited 的數字得另外量。
+ *
+ * 🔴🔴 **換源會弄丟 1 個車型:Ducati Panigale 959**(18 件未下架商品標著它,
+ *   `product_fitments` 有 18 列、`product_fitments_effective` **0 列**)。
+ *   ⚠️ 影響面比「下拉少一台」大一級:`app/account/vehicle/actions.ts:41-53` 的
+ *   `validateDictPair` 拿 `fetchVehicleTaxonomy()` 當**寫入路徑的 fail-closed 字典**
+ *   ⇒ 959 車主連「儲存我的愛車」都會被拒(「所選車款不在清單中」);
+ *   反向地,含下架的幽靈車款也會跟著變成可寫入。
+ *   ⇒ **`product_fitments_effective` 不是 `product_fitments` 的超集** —— #277 原本
+ *   「effective = direct + inherited」的假設是錯的,家族樹字典查無的車型不會有 effective 列。
+ *   backlog #277「預期解法」原文寫的是 **兩表 UNION**,`20260811020000` 只取了 effective 那半。
+ *   ⇒ 修法 = view 改成 UNION(已驗:445ms、13,144 列、含 959,兩側都走 Index Only Scan,
+ *   在 anon 的 3s 內)。**那是 migration = 要向主視窗要號 + apply,不是 S 窗自己能收的。**
+ *
+ * ⚠️ 一併吃下的行為改變(migration §3 已載明):本 view **不排除下架商品的車款**
+ *   ⇒ 會有「選得到但 0 結果」的幽靈項(2026-08-11 實測 37 組四欄組合)。正解是 #389。
+ *
+ * 🔴🔴 **年份維度已知是壞的 —— 這是本片卡住不進 dev 的主因之二**(2026-08-11 code-reviewer 抓到)。
+ *   `product_fitments_effective` 的年份最終來源是報價單 B 庫 view `storefront_fitments_v`,
+ *   每日 16:10 由 `sync_storefront_fitments.py` 同步進來;那支 view 對每個展開車款
+ *   **一律投影商品群層級的 min/max 聯集年份**,不是該車款自己的年份 ——
+ *   `docs/archive/2026-07-20-git-cleanup/handoffs/2026-07-14-quote-fitment-year-bug-verification.md:9-11`
+ *   逐字寫「**已確認、會影響顧客搜尋結果的 production bug**」,且明載 `product_fitments`(direct)
+ *   **不受影響**。修復屬報價單側,修好後每日同步會自動更正、網站端不必改 code。
+ *
+ *   2026-08-11 今天重量(同 `product_id`+廠牌+車型 對照,母體 = 兩表都有的 123,920 列):
+ *     年份不一致 **36,062 列(29.1%)**;effective 起始更早 19,689、結束更晚 14,205 = 系統性放大。
+ *   ⇒ 換源等於把年份下拉從「沒事的來源」換到「已知會放大的來源」。
+ *
+ * 🔴 `year_end IS NULL` 對映成**開放式**("2025+"、展到資料上界)這件事**沒有被證明**。
+ *   我原本引的證據(來源 jsonb 87,427 個元素裡「省略 yearEnd」= 0 個)**量錯了母體** ——
+ *   那是 `products.fitments` 的 jsonb,而新來源的年份欄是報價單同步寫進 effective 的,
+ *   兩者不同一條路。對**正確母體**重量:effective 中 `year_end IS NULL` 且有 direct 對照的列裡,
+ *   **11,948 列 direct 也是開放式、但 1,187 列 direct 有明確結束年** ⇒ 同步本身會把封閉區間變成
+ *   開放式。故這裡的 `null` 至少有 1,187 列會被展開到資料上界 = 年份下拉多出沒商品的年。
+ *
+ * 分頁:PostgREST「Max rows=1000」硬上限 ⇒ .range 迴圈(MAX_PAGES 防呆)。
+ *   **四欄一起 order 是必要的**:view 的唯一性就是這四欄 ⇒ 四欄升冪 = 嚴格全序,
+ *   分頁不會重疊或漏。少 order 任一欄,同鍵列的相對順序未定義、翻頁會漏資料。
+ *
+ * 實測成本(2026-08-11 真 anon PostgREST,非 SET ROLE):新路 14 頁 × 0.52-1.44s;
+ *   舊路(products_public 全 fitments)20 頁 × 約 0.85s、每頁約 450KB ⇒ **換過來反而更省**。
+ *   仍在 unstable_cache 900s 內側,單次 cache miss 才付。
  *
  * 失敗回 [](VehicleFinder 顯空品牌下拉、不 crash;console.error 留 log)。
- * anon RLS 已擋 delisted(products_public view)、fitments 為公開車輛相容資訊、零敏感欄。
- *
- * perf/P3:包 unstable_cache 900s(全訪客恆等、JSON-safe;消首頁第二輪全表 fitments 掃描的
- *   每請求成本;失敗 throw 不進快取、外層 catch 回 [])。
+ * view 只有四欄車款字面,零 product_id / 零價格 / 零供應商(migration §2 明列不得加欄)。
  */
 const getVehicleTaxonomyCached = unstable_cache(
   async (): Promise<MockMotoBrand[]> => {
     const client = createSupabaseAnonClient();
     const PAGE_SIZE = 1000;
     const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
-    const rows: Array<{ fitments: unknown }> = [];
+    const fitments: NonNullable<MockProduct['fitments']> = [];
 
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const from = page * PAGE_SIZE;
       const { data, error } = await client
-        .from('products_public')
-        .select('id, fitments')
-        .order('id')
+        .from('vehicle_taxonomy_public')
+        .select('moto_brand, model_code, year_start, year_end')
+        .order('moto_brand')
+        .order('model_code')
+        .order('year_start')
+        .order('year_end')
         .range(from, from + PAGE_SIZE - 1);
       if (error) throw error;
-      rows.push(...(data ?? []));
+      // MAX_PAGES 撞頂是**靜默截斷**(下拉少一截、沒人會叫)⇒ 至少留 log。
+      if (page === MAX_PAGES - 1 && data && data.length === PAGE_SIZE) {
+        console.warn(
+          `[fetchVehicleTaxonomy] 撞到 MAX_PAGES=${MAX_PAGES} 仍是滿頁,車輛下拉可能被截斷`,
+        );
+      }
+      for (const r of data ?? []) {
+        fitments.push({
+          // 空廠牌/車型由 buildVehicleTaxonomy 自己 skip(它已有 `if (!brand || !model) continue`)
+          motoBrand: r.moto_brand ?? '',
+          modelCode: r.model_code ?? '',
+          ...(r.year_start === null ? {} : { yearStart: r.year_start }),
+          yearEnd: r.year_end, // null = 開放式(見上方實測)
+        });
+      }
       if (!data || data.length < PAGE_SIZE) break;
     }
-    return buildVehicleTaxonomy(
-      rows.map((r) => ({
-        fitments: Array.isArray(r.fitments)
-          ? (r.fitments as NonNullable<MockProduct['fitments']>)
-          : undefined,
-      })),
-    );
+    // 每列包成獨立一筆 fitment 餵原衍生函式:buildVehicleTaxonomy 只讀 p.fitments、
+    // 不在意來源是不是同一個商品 ⇒ 不必改它(它另有 4 個消費端)。
+    return buildVehicleTaxonomy([{ fitments }]);
   },
-  ['vehicle-taxonomy-v1'],
+  ['vehicle-taxonomy-v2'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 

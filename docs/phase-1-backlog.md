@@ -7027,11 +7027,62 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #277. 🚗 車輛下拉/taxonomy 只讀 direct fitment(純 inherited 子款選不到、S1-F11)
 
-- **狀態:** 🔶 **施工中,刻意拆兩段(2026-08-11 S 窗)**
-  - **段一(本 commit)= migration 先行**:新增 `vehicle_taxonomy_public` view
-    (`supabase/migrations/20260811020000_…`)。⛔ **未 apply**,排批三。
-  - **段二(等段一 apply 後)= app 層接線**:`lib/products.ts` 的 `getVehicleTaxonomyCached`
-    換源 + 快取鍵 `vehicle-taxonomy-v1` → `v2`。code 已寫好存成 patch,**刻意不與段一同 commit**。
+- **狀態:** 🔶 **2026-08-11 段一已 apply、段二 code 已寫完並測過,但卡在一條實測抓到的回歸**
+  - 🔴🔴 **換源會弄丟 1 個車型:Ducati Panigale 959**(18 件未下架商品標著它;
+    `product_fitments` 18 列、`product_fitments_effective` **0 列**)。
+    ⇒ **`product_fitments_effective` 不是 `product_fitments` 的超集**,本條原本
+    「effective = direct + inherited」的假設**是錯的** —— 家族樹字典查無的車型不會有 effective 列。
+    本條「預期解法」原文寫的就是**兩表 UNION**,`20260811020000` 只取了 effective 那半。
+    **數法(2026-08-11 唯讀實跑,可重跑複驗;「1 個」= `lost` 的列數)**:
+
+    ```sql
+    WITH old_path AS (   -- 舊路徑(products_public.fitments,未下架 + direct)
+      SELECT DISTINCT trim(e->>'motoBrand') AS b, trim(e->>'modelCode') AS m
+      FROM products p, jsonb_array_elements(p.fitments) e
+      WHERE p.delisted_at IS NULL AND jsonb_typeof(p.fitments)='array'
+        AND nullif(trim(e->>'motoBrand'),'') IS NOT NULL
+        AND nullif(trim(e->>'modelCode'),'') IS NOT NULL),
+         new_path AS (   -- 新路徑(vehicle_taxonomy_public)
+      SELECT DISTINCT moto_brand AS b, model_code AS m FROM vehicle_taxonomy_public
+      WHERE moto_brand IS NOT NULL AND model_code IS NOT NULL),
+         lost AS (SELECT b,m FROM old_path EXCEPT SELECT b,m FROM new_path)
+    SELECT (SELECT count(*) FROM lost) AS lost_models, * FROM lost;
+    -- 2026-08-11 結果:lost_models = 1、Ducati / Panigale 959(四欄粒度 = 3 組)
+    ```
+  - **修法(已預先驗過,不是紙上提案)**:view 改成 `effective UNION direct` 的四欄 DISTINCT。
+    `EXPLAIN (ANALYZE, BUFFERS)` 實測 **445ms / 13,144 列 / 含 959**,兩側都是 Index Only Scan
+    (`ix_pfe_lookup` + `ix_pf_lookup`)⇒ 在 anon 的 3s 內。
+    (比 effective-only 的 52ms 慢 8.5 倍,主因是 `product_fitments` 那側 `Heap Fetches: 11147`
+    = visibility map 沒設滿;VACUUM 後應會降,但**沒實測過、不當成事實**。)
+  - 🔴🔴 **第二條、而且 UNION 修不掉:年份維度換到了一個已知會放大的來源。**
+    `product_fitments_effective` 的年份最終來自報價單 B 庫 view `storefront_fitments_v`
+    (每日 16:10 `sync_storefront_fitments.py` 同步),那支 view 對每個展開車款**一律投影商品群
+    min/max 聯集年份**、不是該車款自己的年份 ——
+    `docs/archive/2026-07-20-git-cleanup/handoffs/2026-07-14-quote-fitment-year-bug-verification.md:9-11`
+    逐字寫「**已確認、會影響顧客搜尋結果的 production bug**」,且明載 `product_fitments`(direct)
+    **不受影響**。2026-08-11 今天重量(母體 = 兩表都有的 123,920 列):
+    **年份不一致 36,062 列(29.1%)**,起始更早 19,689、結束更晚 14,205 = 系統性放大;
+    另有 **1,187 列** direct 有明確結束年、effective 卻是 NULL(封閉區間被同步成開放式)。
+    ⇒ 換源 = 拿「198 組車型」去換「29.1% 的年份可信度」。**修復屬報價單側**(修好後每日同步
+    自動更正、網站端不必改 code)。
+  - 🔴 **影響面不只下拉**:`app/account/vehicle/actions.ts:41-53` 的 `validateDictPair` 拿
+    `fetchVehicleTaxonomy()` 當**寫入路徑的 fail-closed 字典** ⇒ 959 車主連「儲存我的愛車」
+    都會被拒;反向地,含下架的幽靈車款會變成可寫入。
+  - ⛔ **這是 migration ⇒ 要向主視窗要號 + apply,S 窗不自己收**。段二 code 在 `storefront-line`,
+    **view 修好之前不該進 dev**(否則 959 車主直接從下拉消失)。
+  - ⇒ **這已經不是「補一支 migration 就收工」,是要重裁的方向題**(見 S-029-STOP 三選項)。
+  - **段一 = migration 先行**:新增 `vehicle_taxonomy_public` view
+    (`supabase/migrations/20260811020000_…`),**已 apply**。
+  - **段二 = app 層接線**:`lib/products.ts` 的 `getVehicleTaxonomyCached` 換源 +
+    快取鍵 `vehicle-taxonomy-v1` → `v2`,守門 = `products-vehicle-taxonomy.test.ts`(6 格,
+    5 個突變逐格驗過判別力)。
+    🔴 **接線時實測到、plan 沒寫的一件事**:`product_fitments` 建表把「yearEnd 省略(單年)」與
+    「yearEnd = null(開放式)」**壓成同一個 NULL**(`20260708130000:92` 的 CASE 要求兩欄都是四位數字)
+    ⇒ 對映時得選一邊。查了來源 jsonb 才敢定:未下架商品 87,427 個 fitment 元素裡
+    **省略 yearEnd = 0 個**(numeric 73,175 / json null 14,252)⇒ NULL 一律當開放式與現況等價。
+    ⚠️ 這是**時點觀察**:匯入端哪天開始送沒有 yearEnd 鍵的單年 fitment,單年會被默默展開到資料上界。
+  - **效能**:換源後反而更省 —— 真 anon PostgREST 實測新路 14 頁 × 0.52-1.44s,
+    舊路(products_public 全 fitments)20 頁 × 約 0.85s、每頁約 450KB。
   - 🔴 **為什麼拆**:`database.types.ts` 是產生的,view 沒 apply 前它不存在 ⇒ 接線 typecheck 紅。
     不繞過型別的正解就是等 apply → 重 gen 型別 → 再接線;這也正是
     memory `feedback_app-layer-must-not-ship-before-migration-apply`(08-07 正式站壞 8 小時)那條規則。
