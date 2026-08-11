@@ -181,10 +181,19 @@ describe(`${RPC_NAME} · 呼叫面唯一性`, () => {
 });
 
 describe(`${RPC_NAME} · 簽章逐字對 migration(GRANT 綁精確簽章)`, () => {
-  // 🔴 為什麼要有這一組:PostgREST 靠**簽章**找 overload,函式名或參數名漂一個字就是
-  //    執行期 404 / 42501,而 **typecheck 全綠** —— ⚠️ 理由更正(2026-08-11 晚重 gen):
-  //    **不是**「RPC 不在生成型別裡」(它在 `database.types.ts:2884`),是**呼叫端的窄介面 cast
-  //    把生成型別繞過去了**。⇒ 這一組在 cast 拆掉之前(backlog #415)仍然是唯一的守門。
+  // 🔴 為什麼要有這一組:PostgREST 靠**簽章**找 overload,函式名或參數名漂一個字就是執行期 404 / 42501。
+  //    ⚠️ **理由二次更正(2026-08-11 #415:呼叫端的窄 cast 已拆)**:舊字面「typecheck 全綠 ⇒
+  //    這一組是唯一的守門」**現在是假的**。但這一組**沒有變多餘**,它守的東西縮小成三塊:
+  //      ① **少帶一個具預設值的參數**:生成型別把 `p_from` / `p_to` / `p_limit` 標成 optional
+  //         ⇒ 把呼叫端的 `p_from` 那一行拿掉,**tsc 是 0 error**(2026-08-11 實測);
+  //         而 #347-3b 的整個理由就是「日期不下推 = 取樣窗口錯 = 看起來像查無此單」
+  //         ⇒ 少帶一個是**行為 bug、不是型別 bug**。同一個突變下本組的參數格**當場紅**
+  //         (實測 1 failed / 12 passed)⇒ 這一格是本組今天最硬的判別力。
+  //      ② **對帳的對象不同**:typecheck 對的是 `database.types.ts` 這份**快照**;本組對的是
+  //         **migration 原文**。有人改了 migration 沒重 gen ⇒ typecheck 照樣綠、本組會紅。
+  //      ③ **SQL 型別**(`timestamptz` vs `text`):生成型別兩者都是 `string`,型別層分不出來。
+  //    ✅ 已由 typecheck 接手、本組**不再是唯一守門**的部分:函式名與參數名的**拼字**
+  //       (突變證:任一加 `_TYPO` ⇒ tsc 當場 TS2345)。
   //    同款先例:`apps/admin/src/lib/shipping/shipment-repository.test.ts:52` 起那一組。
   //    ⚠️ 這一組與上面 POST-only 那組是**兩件事**:一個守「怎麼送」,一個守「送給誰」。
   const MIGRATION = readFileSync(

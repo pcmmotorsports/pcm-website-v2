@@ -174,27 +174,14 @@ export const SUPPLIER_ORDER_NO_MATCH_CAP: number = ADMIN_ORDER_ID_IN_CAP;
 export const ADMIN_SEARCH_ORDERS_FN = 'admin_search_orders';
 
 /**
- * `admin_search_orders` 的窄簽章介面。
- *
- * 🔴 **當初 cast 的理由(「生成型別裡沒有它、實查 grep 零命中」)已於 2026-08-11 晚重 gen 之後為假** ——
- * `admin_search_orders` 現在就在 `database.types.ts:2884`。⇒ **cast 已經可以拆**,
- * 但拆除要配行為驗證(POST-only 那族原始碼掃描測試 + 參數名逐字對得上生成型別)
- * ⇒ 統一立案 **backlog #415**(三處同族 cast 一起處理);本次**只更正字面、不拆**。
- * 🔴 拆之前這個形狀仍然成立:**cast 成只含這一支簽章的窄介面、不是 `any`** ——
- * `any` 會連參數名打錯都不紅,而參數名漂一個字就是執行期 404/42501(GRANT 綁精確簽章)。
- * (先例:`apps/admin/src/lib/customers/customer-repository.ts` 的 `as unknown as TierRpcClient`。)
+ * ~~`admin_search_orders` 的最小呼叫面 `AdminSearchOrdersRpcClient`~~
+ * 🔴 **2026-08-11 已拆(backlog #415)**:窄介面把生成型別繞過去了,拆掉之後函式名與參數名
+ * 改由 `database.types.ts` 的 `admin_search_orders` 區塊直接把關
+ * (數法=`grep -n "^      admin_search_orders: {" packages/adapters/src/supabase/database.types.ts`,落筆當下 `:2898`)(同批補了第 ⑩ 組手動校正:`p_from` / `p_to` 的 `| null`,
+ * 因為呼叫端刻意送顯式 `null`、不用 spread)。
+ * ⚠️ 型別接手的是**函式名與參數名**;`Returns: Json` ⇒ 回傳形狀型別層一個字都保證不了,
+ *    仍由下面的 `parseAdminSearchOrdersResult` 四道執行期驗證負責 —— 拆 cast 沒有改變那一層。
  */
-type AdminSearchOrdersRpcClient = {
-  rpc(
-    fn: typeof ADMIN_SEARCH_ORDERS_FN,
-    // 🔴 #347-3b:兩個新參數**必填但可為 `null`**(不是 optional)——
-    //    呼叫端一律兩個鍵都帶,`null` = 該側不限(migration `:134-135` 的 `IS NULL OR …`)。
-    //    寫成必填是為了讓「忘了帶」變成編譯錯誤,而不是靜默少推一軸;
-    //    也讓 `admin-search-orders-post-only.test.ts` 的參數名字面守門掃得到它們。
-    //    ⚠️ 參數**名**打錯一個字就是執行期 404/42501(GRANT 綁精確簽章),窄介面就是為了擋這個。
-    args: { p_query: string; p_limit: number; p_from: string | null; p_to: string | null },
-  ): Promise<{ data: unknown; error: unknown }>;
-};
 
 /** UUID 形狀(RPC 回的 `ids` 逐顆驗;非 UUID 進 `.in()` 會讓 PostgREST 400 = 整頁錯誤態)。 */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -634,11 +621,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       //    這條由 `admin-search-orders-post-only.test.ts` 的原始碼掃描守著,不是只寫在這裡。
       // 🔴 參數名逐字對 migration 簽章(`:154-155`):GRANT 綁精確簽章,漂一個字 = 執行期 404/42501,
       //    而 typecheck 抓不到 —— ⚠️ 理由更正(2026-08-11 晚重 gen):**不是**「RPC 不在生成型別裡」
-      //    (它在 `database.types.ts:2884`),是**這裡的窄介面 cast 把生成型別繞過去了**。
-      //    拆 cast 之後這道就會由 typecheck 接手(待 backlog #415)。
-      const { data, error } = await (
-        this.supabase as unknown as AdminSearchOrdersRpcClient
-      ).rpc(ADMIN_SEARCH_ORDERS_FN, {
+      //    (它在 `database.types.ts` 裡,數法=`grep -n "^      admin_search_orders: {" …`,落筆當下 `:2898`),
+      //    是**這裡的窄介面 cast 把生成型別繞過去了**。
+      //    ✅ **2026-08-11 #415 已拆 cast**:函式名與參數名這一層現在由生成型別接手
+      //    (突變證:把函式名或任一參數名加 `_TYPO` ⇒ tsc 當場紅)。
+      //    原始碼掃描那一組**仍然必要**:它守的是「POST-only(不得出現 get/head)」與
+      //    「不得用 spread」,那兩件事 typecheck 看不到。
+      const { data, error } = await this.supabase.rpc(ADMIN_SEARCH_ORDERS_FN, {
         p_query: keywordSearch.value,
         p_limit: ADMIN_ORDER_ID_IN_CAP,
         // 🔴🔴 **日期一定要下推進 RPC,不能只篩列表**(#347-3b;plan §1 逐字):

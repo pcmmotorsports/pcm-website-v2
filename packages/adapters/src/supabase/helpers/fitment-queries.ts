@@ -91,25 +91,16 @@ export async function queryProductsByFitment(
  * 🔴 PostgREST jsonb 空陣列等值待 R3 整合實測(SQL 層已驗 `fitments = '[]'` → 631 筆)。
  */
 /**
- * S1 變體補足(2026-07-12):以下兩查詢用**文件化窄 cast** 收斂為最小結構型別
- * (先例:SupabaseOrderAdapter 的窄 cast 模式)。
- * 🔴 **原本寫的理由「`product_fitments_effective` 與 `search_products_by_vehicle` 不在生成型別」
- * 已為假** —— 2026-08-11 晚重 gen 後兩者都在 `database.types.ts` 裡。
- * ⇒ **cast 已經可以拆**,但拆除要配行為驗證 ⇒ 統一立案 **backlog #415**;本次只更正字面、不拆。
+ * S1 變體補足(2026-07-12):以下兩查詢原本用**文件化窄 cast** 收斂為最小結構型別。
+ * ✅ **2026-08-11 #415:兩處都已拆**,改回具名呼叫、由生成型別把關(逐處理由見各自註解)。
  */
 
-/** RPC search_products_by_vehicle 的最小呼叫面(SETOF jsonb + .range 分頁)。 */
-type VehicleRpcClient = {
-  rpc(
-    fn: 'search_products_by_vehicle',
-    args: { p_brand: string; p_model: string | null; p_year: number | null },
-  ): {
-    range(
-      from: number,
-      to: number,
-    ): PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
-  };
-};
+/**
+ * ~~RPC search_products_by_vehicle 的最小呼叫面 `VehicleRpcClient`~~
+ * 🔴 **2026-08-11 已拆(backlog #415)**:改回具名 `.rpc()`,函式名與參數名由生成型別把關。
+ * 同批在 `database.types.ts` 補了第 ⑨ 組手動校正(`p_model` / `p_year` 的 `| null`)——
+ * 不補就只能把顯式 `null` 改成 `undefined`,那會改變送出去的 payload,不是型別整理。
+ */
 
 /**
  * 以車查商品 —— 走 DB RPC `search_products_by_vehicle`(S1 變體補足、車款篩選下推 DB)。
@@ -130,10 +121,9 @@ export async function queryProductsByVehicle(
   modelCode?: string,
   year?: number,
 ): Promise<SupabaseProductRow[]> {
-  const rpcClient = supabase as unknown as VehicleRpcClient;
   const rows = await fetchAllPaginated(
     (from, to) =>
-      rpcClient
+      supabase
         .rpc('search_products_by_vehicle', {
           p_brand: motoBrand,
           p_model: modelCode ?? null,
@@ -145,32 +135,13 @@ export async function queryProductsByVehicle(
   return rows as SupabaseProductRow[];
 }
 
-/** effective 表 inherited 列的最小讀取面(select + eq 過濾)。 */
-type EffectiveFitmentsClient = {
-  from(table: 'product_fitments_effective'): {
-    select(cols: 'moto_brand, model_code, year_start, year_end'): {
-      eq(
-        col: 'product_id',
-        v: string,
-      ): {
-        eq(
-          col: 'match_source',
-          v: 'inherited',
-        ): PromiseLike<{
-          data:
-            | {
-                moto_brand: string;
-                model_code: string;
-                year_start: number | null;
-                year_end: number | null;
-              }[]
-            | null;
-          error: { message: string } | null;
-        }>;
-      };
-    };
-  };
-};
+/**
+ * ~~effective 表 inherited 列的最小讀取面 `EffectiveFitmentsClient`~~
+ * 🔴 **2026-08-11 已拆(backlog #415)**:`product_fitments_effective` 重 gen 後就在生成型別裡
+ * (數法=`grep -n "^      product_fitments_effective: {" packages/adapters/src/supabase/database.types.ts`,落筆當下 `:2069`),窄介面留著只會讓 typecheck 對這條讀取路失效。
+ * ⇒ 改回具名 `.from(...).select(...)`,表名、欄名、回傳列形狀全部由生成型別把關
+ *   (原本那個手寫介面把 `year_start` 之類的型別再宣告一次,是第二份會漂的真相)。
+ */
 
 /**
  * 查單一商品的「車系相容(推導)」fitment(PDP 兩層顯示、Sean Q4=A)。
@@ -184,8 +155,7 @@ export async function queryInheritedFitments(
   supabase: SupabaseClient<Database>,
   productId: string,
 ): Promise<FitmentSpec[]> {
-  const client = supabase as unknown as EffectiveFitmentsClient;
-  const { data, error } = await client
+  const { data, error } = await supabase
     .from('product_fitments_effective')
     .select('moto_brand, model_code, year_start, year_end')
     .eq('product_id', productId)

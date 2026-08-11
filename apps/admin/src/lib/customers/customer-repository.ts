@@ -96,29 +96,16 @@ export async function adjustCustomerWallet(args: {
 export type AdminTierSetResult = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
 
 /**
- * RPC admin_set_customer_tier 的最小呼叫面 → 文件化窄 cast
- * (先例:SupabaseOrderAdapter 的窄 cast 模式 + fitment-queries VehicleRpcClient)。
- * 🔴 **原本寫的理由「migration 20260717010000 尚未 db push、不在生成型別」已為假** ——
- * 2026-08-11 晚重 gen 後,`admin_set_customer_tier` 就在 `database.types.ts:2893`。
- * ⇒ **cast 已經可以拆、改 typed Args**,但拆除要配行為驗證(tier 是權限面:
- * 參數名與回傳碼要逐字對得上,漂一個字就是執行期 404/42501)
- * ⇒ 統一立案 **backlog #415**(三處同族 cast 一起處理);本次**只更正字面、不拆**。
+ * ~~RPC admin_set_customer_tier 的最小呼叫面 → 文件化窄 cast `TierRpcClient`~~
+ * 🔴 **2026-08-11 已拆(backlog #415)**:窄 cast 的前提(「該 RPC 不在生成型別裡」)在
+ * `dd3cf733` 重 gen 後消失 —— `admin_set_customer_tier` 現在就在 `database.types.ts`
+ * (數法=`grep -n "^      admin_set_customer_tier: {" packages/adapters/src/supabase/database.types.ts`,
+ * 落筆當下 `:2912`;行號會被後來的編輯推移,以那條命令為準)
+ * (Args 五個參數名逐字相同、`Returns: string`)。cast 留著只會讓 typecheck 對這條路失效。
+ * ⇒ 改回具名 `.rpc()`,由生成型別直接把關參數名與函式名。
+ * ⚠️ 型別層把關的是**參數名與函式名**;回傳碼(`UPDATED`/`NO_CHANGE`/`NOT_FOUND`)生成型別只說 `string`,
+ *    那一層仍由下面的執行期收斂負責 —— 拆 cast 沒有讓它變安全,也沒有讓它變不安全。
  */
-type TierRpcClient = {
-  rpc(
-    fn: 'admin_set_customer_tier',
-    args: {
-      p_customer_user_id: string;
-      p_tier: string;
-      p_note: string;
-      p_actor: string;
-      p_request_id: string;
-    },
-  ): PromiseLike<{
-    data: string | null; // RPC RETURNS text scalar
-    error: { code?: string; message?: string } | null;
-  }>;
-};
 
 /**
  * 會員等級變更(M-4a tier 編輯片;走 admin_set_customer_tier owner RPC〔20260717010000〕)。
@@ -136,16 +123,13 @@ export async function setCustomerTier(args: {
   actor: string;
   requestId: string;
 }): Promise<AdminTierSetResult> {
-  const { data, error } = await (createSupabaseServiceClient() as unknown as TierRpcClient).rpc(
-    'admin_set_customer_tier',
-    {
-      p_customer_user_id: args.customerId,
-      p_tier: args.tier,
-      p_note: args.note,
-      p_actor: args.actor,
-      p_request_id: args.requestId,
-    },
-  );
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_customer_tier', {
+    p_customer_user_id: args.customerId,
+    p_tier: args.tier,
+    p_note: args.note,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
   if (error) {
     throw error;
   }

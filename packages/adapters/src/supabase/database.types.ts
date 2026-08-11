@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**八個函式、共二十二處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十個函式、共二十六處**手動校正
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
@@ -15,7 +15,16 @@
 //      (見下方 `export type Json`)⇒ 整單取消送 null 本來就過,再加 `| null` 是重複且誤導。
 //   ⑧ `admin_record_item_receipt.Args` **一處**(p_note 的 `| null`;2026-08-11 #352-b 起 ——
 //      到貨備註留空是常態呼叫;理由與「其餘六個為何不補」寫在該函式區塊)
-//   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」,一律型別化為非 null。
+//   ⑨ `search_products_by_vehicle.Args` **兩處**(p_model / p_year 的 `| null`;2026-08-11 #415 起 ——
+//      這一支與前八支的形狀**不同**:前八支是「必填但可為 null」,它是「**可省略且可為 null**」
+//      (正式站實查 `p_model text DEFAULT NULL::text, p_year integer DEFAULT NULL::integer`);
+//      生成器只寫得出 `?`,寫不出 `| null`。補這兩處的理由=呼叫端送的是**顯式 null**,
+//      不補就只能改送 undefined,那是改 payload 不是整理型別)
+//   ⑩ `admin_search_orders.Args` **兩處**(p_from / p_to 的 `| null`;2026-08-11 #415 起 ——
+//      與 ⑨ 同形狀「可省略且可為 null」;呼叫端刻意一律帶兩個鍵、沒有值送顯式 null
+//      〔#347-3b:不用 spread,才能讓「忘了帶」變編譯錯誤、也才掃得到參數名〕。
+//      p_limit **不補**:呼叫端一律帶值,沒有送 null 的路徑)
+//   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」(⑨⑩ 是「可省略且可為 null」),一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
 //   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
 //   漏貼 ④⑤ = 退款線 RW2c repository 型別紅(kind/outcome 互斥矩陣的「必須傳 NULL」全紅);
@@ -2887,11 +2896,16 @@ export type Database = {
         Returns: Json
       }
       admin_search_orders: {
+        // 🔴 手動校正(見檔頭計數):p_from / p_to 在 DB 是 `DEFAULT NULL` 的**可省略且可為 null**
+        // 參數(正式站實查:`p_query text, p_limit integer DEFAULT 100, p_from timestamptz DEFAULT NULL, p_to timestamptz DEFAULT NULL`)。
+        // 呼叫端(SupabaseOrderAdapter)**刻意一律帶兩個鍵、沒有值就送顯式 null**(理由見該處註解:
+        // 不用 spread、讓「忘了帶」變成編譯錯誤)⇒ 不補 `| null` 就只能改送 undefined = 改 payload。
+        // ⚠️ p_limit 不補:呼叫端一律帶值(`ADMIN_ORDER_ID_IN_CAP`),沒有送 null 的路徑。
         Args: {
-          p_from?: string
+          p_from?: string | null
           p_limit?: number
           p_query: string
-          p_to?: string
+          p_to?: string | null
         }
         Returns: Json
       }
@@ -3251,7 +3265,11 @@ export type Database = {
         }[]
       }
       search_products_by_vehicle: {
-        Args: { p_brand: string; p_model?: string; p_year?: number }
+        // 🔴 手動校正(見檔頭計數):p_model / p_year 在 DB 是 `DEFAULT NULL` 的**可省略且可為 null**
+        // 參數(正式站實查:`p_brand text, p_model text DEFAULT NULL::text, p_year integer DEFAULT NULL::integer`),
+        // 生成器只表達得出「可省略」。呼叫端(fitment-queries.queryProductsByVehicle)送的是**顯式 null**,
+        // 不補 `| null` 就只能改送 undefined = 改變送出去的 payload,那是行為變更不是型別整理。
+        Args: { p_brand: string; p_model?: string | null; p_year?: number | null }
         Returns: Json[]
       }
       supersede_charge_attempt_for_user: {
