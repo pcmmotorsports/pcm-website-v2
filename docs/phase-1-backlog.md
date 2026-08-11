@@ -9221,9 +9221,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   `confirmSpy.mock.calls.length` 得 3 期望 2,而 `:117` `actionMock` 恰 2 次先通過
   ⇒ 第三發 submit(rerender 成非更正模式後)走了**更正模式的舊 handler**(confirm 被多問一次、
   回 true 後 action 照發)——兩個計數合起來只有這一種走法。
-- **假說(未證實)**:第二發 submit 的 form action 在 React 19 transition 內仍 in-flight 時
-  `rerender()`,props 提交與第三發 submit 的先後在高負載下翻轉。修法方向=第三發前先等
-  transition 安定(不是改期望值);修完要在負載下重現原紅(如 `--threads` 滿載重複跑)證明修的是根因。
+- ~~**假說(未證實)**~~ 🔴 **2026-08-11 E 窗:這個假說被兩次構造證偽,不要再從它開始。**
+  原假說=「第二發 submit 的 form action 仍 in-flight 時 `rerender()`,props 提交與第三發 submit
+  的先後翻轉」。**構造重現失敗兩次**:把第二發的 `actionMock` 換成延遲 resolve
+  (`mockImplementationOnce` + `setTimeout` **25ms** 一次、**200ms** 一次;後者連跑 6 遍)
+  ⇒ `rerender()` 發生時 action **確實仍在飛**,而 **11 格全綠、一次都沒紅**。
+  ⇒ **「action 仍 in-flight」不是充分條件**;真因還需要別的東西(疑似真正的執行緒競爭影響 React
+  scheduler 的 commit 時機,而不是 promise 的 pending 狀態本身)。
+  另:本日全套跑了約 6 次(含刻意在機器忙碌時跑),**這格一次都沒紅** ⇒ 頻率很低,不適合用重跑碰運氣。
+- 🔴 **刻意不套「第三發前先等 transition 安定」那個硬化**(E 窗判斷,請覆核):在**根因未證**的情況下
+  硬化只會讓它更罕見、看起來像修好了 —— 那正是 memory `feedback_fix-that-moves-gate-earlier-erases-evidence`
+  的形狀:原本「怎麼知道它壞」的那條觀測會消失。要動它之前先把根因釘住。
+- **下一步建議**(給接手的人,別重跑上面兩個已證偽的構造):
+  ①在 CI/滿載下對**單檔**跑數十輪(`--repeat`/迴圈)並保留完整 log,先把頻率量出來;
+  ②若能重現,在第三發 submit 前後印 React commit 順序(或改用 `act()` 包住 rerender 對照),
+  分辨「props 沒 commit」與「舊 handler 仍綁在 form 上」兩種走法 —— 目前的簽名兩者都相容。
 - **不修會痛在哪**:全套「N 綠」是收割對帳的唯一依據(同族=`WalletTab` 缺 `afterEach(cleanup)`,
   `ec4d629` 已修);這條每隔幾輪隨機紅一次,每次都要人工重跑判定「flaky 還是真壞」,
   且它蓋掉的可能是同檔真回歸。C-204-STOP §五那筆懸案到此指認、不再是幽靈。
