@@ -155,7 +155,10 @@ exact pathname 仍不足:若計數器涵蓋初始載入或下一次操作,**同�
 🔴 **另一個 exact-pathname 污染源(Fable R3 F4,已 grep 核實)**:
 `MobileTabBar.tsx:49` 的 `href: '/products'` —— mobile 視窗下 tab bar 可見、
 viewport prefetch 會對 `/products` **exact 命中**。
-⇒ #288-c 須額外以 **query 指紋比對**(斷言該筆請求的 `pbrand` 參數 == 動作後狀態)排除之。
+⇒ #288-c 須額外以 **query 指紋比對**(斷言該筆請求的**品牌軸**參數 == 動作後狀態)排除之。
+🔴 **2026-08-11 #287 更正**:品牌軸的鍵已改成單值的 `pbrands`(`?pbrands=a,b`;舊的重複鍵
+`?pbrand=` 只在讀取端保留相容)。本行原字面逐字寫 `pbrand`,照抄會寫出一條**永遠取不到值**
+的指紋斷言 ⇒ 污染排不掉卻全綠。實作 #288-c 時以 `lib/catalog-query.ts` 的 `BRANDS_PARAM` 為準。
 ✅ 好消息:`Pagination.tsx` **無 `next/link`/`href`**(Fable grep 零命中)→ 分頁鈕無 prefetch 污染。
 
 ### 5.3 #288-a 的 smoke 斷言(v3.2 強化:原版是假綠)

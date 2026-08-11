@@ -77,6 +77,48 @@ export function isSafeCategoryValue(value: string): boolean {
   return value.length <= 120 && !/[\u0000-\u001f%_]/.test(value);
 }
 
+// ── #287:品牌軸的 URL 表示(單一定義點,讀寫兩端都吃這裡)────────────────────────
+/**
+ * 新格式 = **單一鍵逗號分隔** `?pbrands=a,b`;舊格式 = **重複鍵** `?pbrand=a&pbrand=b`。
+ *
+ * 🔴 為什麼要換:Next 16.2.6 產 page segment cache key 走
+ *   `Object.fromEntries(new URLSearchParams(...))` ⇒ **重複鍵只留最後一個值** ⇒
+ *   `?pbrand=a&pbrand=b` 與 `?pbrand=b` 的 key 相同 ⇒ `router.replace` 判定同一 segment、
+ *   重用舊 CacheNode、零 RSC 請求 ⇒ 取消非字母序最後那個品牌時畫面不變(Sean 2026-07-19 回報)。
+ *   單值鍵讓每個組合的 key 天然不同 = 結構上消除碰撞,而非偵測到再補救。
+ * 🔴 **舊格式必須繼續讀得懂**:客人已分享出去的連結,以及站內 `lib/brand-url.ts` 產的單一品牌
+ *   連結(`/products?pbrand=X`,同時是 `BrandAboutRedirect` 的設計稿契約)都還是舊格式。
+ *   ⇒ 讀取端兩種都吃、**寫出端只產新格式**。
+ */
+export const BRANDS_PARAM = 'pbrands';
+export const LEGACY_BRAND_PARAM = 'pbrand';
+
+/**
+ * 讀品牌軸:兩種格式都吃、取聯集、去重、保留出現順序(新格式在前)。
+ * 不驗對照表也不排序 —— 那是各呼叫端自己的事(server 驗 slug 形狀、client 驗品牌對照表)。
+ *
+ * ⚠️ **不含 legacy 單值 `?brand=` 的 fallback**:那個 key 與選車長版 `?brand=Yamaha&model=…`
+ *   共用(理由在 `products-url-parsers.ts` 的 `parseBrandFiltersFromUrl` 檔內註解),只有
+ *   **驗得了產品品牌對照表**的 client 端吃得起;server 端只驗 slug 形狀,吃進來會把選車網址
+ *   誤當品牌篩選 ⇒ 該頁 0 筆。故 fallback 留在 `parseBrandFiltersFromUrl` 內、不下放到這裡。
+ *
+ * ⚠️ **不 round-trip 的形狀只有一個:值本身含逗號**。`?pbrands=a%2Cb` 解析出的是兩個 slug
+ *   `a` 與 `b`,不是一個叫 `a,b` 的品牌。真實品牌 slug 到不了這個形狀(`SAFE_SLUG` 只收
+ *   `[a-z0-9-]`,見本檔下方),所以碰得到它的**只有 #315 那條「認不得的值原樣留著」的路徑**:
+ *   客人手打 `?pbrands=dbk,x`,寫回時會變成 `dbk` 與 `x` 兩個未知值(仍然留著、仍然 0 筆,
+ *   只是切成兩段)。判為可接受 —— #315 要保的是未知值**還在網址上**,不是它的分段方式。
+ */
+export function parseBrandSlugsFromUrl(
+  searchParams: Pick<URLSearchParams, 'get'> & { getAll?: (name: string) => string[] },
+): string[] {
+  const joined = searchParams.get(BRANDS_PARAM);
+  const fromNew = joined ? joined.split(',').filter(Boolean) : [];
+  const fromLegacy = searchParams.getAll
+    ? searchParams.getAll.call(searchParams, LEGACY_BRAND_PARAM)
+    : [];
+  return Array.from(new Set([...fromNew, ...fromLegacy]));
+}
+
 const SAFE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SAFE_VEHICLE = /^[a-z0-9]+(?:-[a-z0-9]+)*(?::[a-z0-9]+(?:-[a-z0-9]+)*){0,2}$/;
 
@@ -120,9 +162,11 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
   const sort = (CATALOG_SORT_VALUES as readonly string[]).includes(requestedSort ?? '')
     ? (requestedSort as CatalogSort)
     : sortFallback;
-  const brandSlugs = Array.from(
-    new Set(searchParams.getAll('pbrand').filter((slug) => SAFE_SLUG.test(slug))),
-  ).sort();
+  // #287:新舊兩種格式都吃(`parseBrandSlugsFromUrl` 已去重);排序是為了 `CatalogQuery` 當
+  // `unstable_cache` 鍵時穩定,與 URL 上的順序無關。
+  const brandSlugs = parseBrandSlugsFromUrl(searchParams)
+    .filter((slug) => SAFE_SLUG.test(slug))
+    .sort();
   const categoryValue = searchParams.get('category');
   const category = categoryValue && isSafeCategoryValue(categoryValue) ? categoryValue : undefined;
   const sliderMin = parseNonNegativeInteger(searchParams.get('pmin'));

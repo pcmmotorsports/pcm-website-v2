@@ -128,10 +128,14 @@ export function Header({
     { id: 'brands', label: '品牌', href: '/brands' },
     { id: 'new', label: '新品', href: '/products?filter=new' },
     // 🔴 「特價」那一顆 2026-08-11 移除(#269-a;Sean 逐字:**特價這個概念還不存在**,
-    //    要等商品編輯後台能設優惠價才有)。它原本指 `/products?filter=sale`,而 `filter`
-    //    這個 query key **全站零個地方在讀**(`lib/catalog-query.ts` 的 `parseCatalogQuery`
-    //    只認 page/per/sort/pbrand/category/pmin/pmax/price/vehicle)
-    //    ⇒ 客人按下去拿到的是**未篩選的全目錄**,而畫面上沒有任何跡象說它沒生效。
+    //    要等商品編輯後台能設優惠價才有)。它原本指 `/products?filter=sale`,而當時 `filter`
+    //    這個 query key **全站零個地方在讀** ⇒ 客人按下去拿到的是**未篩選的全目錄**,
+    //    而畫面上沒有任何跡象說它沒生效。
+    //    🔴 **那半句話今天已經不成立**:同日 #269-b 段二讓 `?filter=new` 真的生效
+    //    (`lib/catalog-query.ts:13` 的 `CATALOG_FILTER_VALUES` 白名單),上面那顆「新品」是活的;
+    //    失效的只有 `sale` 這個**值**(不在白名單 ⇒ 被丟掉)。
+    //    ⚠️ 這裡**不再列 parseCatalogQuery 認得的 key 清單**(原本逐字列九個,#269-b 加 `filter`、
+    //    #287 把 `pbrand` 換成 `pbrands` 之後就過期了)—— 要看認得哪些鍵,讀那支函式本身。
     //    這顆在**全站每一頁**都有,桌機導覽與手機選單共用本陣列(`MobileMenu` 收 props、不自己寫一份)。
     // ⚠️ **`sale?: boolean` 的樣式鉤子刻意留著**(本檔 `pcm-nav-item` 那個 className 模板裡的
     //    `pcm-nav-sale`、以及 `MobileMenu` 的 `is-sale`):特價是「還沒做」不是「不做」——
