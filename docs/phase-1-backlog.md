@@ -11095,6 +11095,41 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴**:無;`dd3cf733`(重 gen)之後隨時可排。建議一次做完五處,免得又留下一半。
 - **發現於**:2026-08-11 / `dd3cf733` R1 nit(reviewer 點名三處;D 窗 grep 全樹後補出另兩處同族)
 
+### #416. ✅ `a7t-verify.sh` 的 fail-closed 離場不收叢集 ⇒ 留下孤兒 PG(已修)
+
+- **狀態:** ✅ 已修(2026-08-11 P 窗立案〔STATUS 72〕、B 窗八代施工;主視窗 B-455-A 派工)
+  🔴 立案當下**只有號碼進 STATUS、沒有條目落 backlog** —— 本條由施工者補寫(內容=STATUS 那句 + 實查)。
+- **優先級:** 🟡 中(不影響正式站;影響的是**下一個跑 harness 的人**會靜默連到孤兒庫)
+- **事實(實查)**:`teardown` 原本只寫在**快樂路徑的尾巴**(`if [ "$MODE" = "all" ]` 那段),
+  而旗標之後有 **14 條** fail-closed 離場(數法:
+  `P=$(grep -n '^  PROVISIONED=1$' scripts/a7t-verify.sh | cut -d: -f1) && grep -n 'exit [12]' scripts/a7t-verify.sh | awk -F: -v p=$P '$1 > p' | grep -v ':[[:space:]]*#'`
+  = 15 行,扣掉最後那條 `[ "$FAIL" -eq 0 ] || exit 1`〔在快樂路徑之後〕= **14**)。
+  任一條走到,PG 就留著繼續聽那個埠 —— 2026-08-11 的 **54352 孤兒叢集**就是這個形狀。
+  🔴 **數法的錨點刻意寫成 `^  PROVISIONED=1$`**:裸 `PROVISIONED=1` 會命中**寫這句話的註解自己**
+  ⇒ 照著跑會拿到註解行號、整組數字錯位(code-reviewer 抓到;形狀=偵測字串同時存在於自己的輸入)。
+- **不修未來會痛在哪**:
+  - bug 可追蹤性:歷史上「後續 psql **靜默**連到孤兒庫」是真的發生過的事故(`d1t2-rehearsal.sh` 的
+    埠佔用閘註解逐字寫著);⚠️ **今天已經不是靜默的** —— d1t2 的埠佔用閘是硬 `die`、a7t `run` 模式
+    另有 CIDFILE 身分閘 ⇒ 現況是**吵的 fail-closed**。真痛點剩「埠被佔住、要人肉 `lsof` 找出來收」。
+  - 可維護性:孤兒要人肉 `lsof` 找、手動 teardown;跑得越勤留得越多。
+- **修法(本片)**:改用 **EXIT trap**(`cleanup_cluster`),條件 = `all` 模式且 `PROVISIONED=1`
+  (`run` 模式的叢集是別人的、絕不碰;provision 之前的 exit 沒有東西要收);
+  快樂路徑那段自己的 teardown 刪掉,兩條路走同一個出口。
+  🔴 **只掛 EXIT、不掛 INT/TERM**(實測教訓在 `w7-coverage.sh`,數法=`grep -n '130→0' scripts/w7-coverage.sh`
+  ⇒ 落筆當下 `:325`:掛上 INT/TERM 會把 130/143 洗成 0 = fail-open);
+  trap 內不呼叫 `exit`、teardown 失敗一律 `|| true`,免得蓋掉真正的離場碼。
+- **驗證(實跑)**:
+  · 快樂路徑:`PORT=54375 … all /tmp/a7tv416` → `PASS=28 FAIL=0`、exit 0、埠空、workdir 已清。
+  · 負測 A:在 provision 之後注入一發 `exit 1` ⇒ **exit 碼仍是 1**(沒被 trap 洗掉)、埠空、workdir 已清。
+  · 負測 B(**真構造、非注入**;code-reviewer MF1 逼出來的):`chmod 000 scripts/d1-supabase-shim.sql`
+    讓 provision 在 **`pg_ctl start` 之後**失敗 ⇒ `54377` 已收、workdir 已清、exit 1。
+    旗標若照第一版設在「provision 回傳成功之後」,這一條收不到 —— 而它正是最會留孤兒的一條。
+  · **消融**:同一發注入 + 把 `trap` 拿掉 ⇒ `54376` **仍在聽** = 舊行為真的會留孤兒(這格有判別力)。
+    ⚠️ 第一次消融用 `/tmp` 的副本跑,`cd "$(dirname $0)/.."` 落到 `/` ⇒ provision 失敗、什麼都沒證到;
+    改在 repo 內做才成立 —— **「腳本的副本」不等於「腳本」**,cd 相對路徑會換一個世界。
+  · 收據:`bash scripts/w7-coverage.sh record a7t-verify.sh` 重錄(sha 過期)、`check` = **49/0**。
+- **發現於**:2026-08-11 / P 窗 record 輪(54352 孤兒叢集查明)
+
 ### #417. 🧯 退款帳本「人工處置」沒有合法路徑 —— 回退閘叫人做的事被 append-only 擋死
 
 - **狀態:** ⏳ 待排(2026-08-11 晚 L5b-2 片 2d 的 R3-Fable consider;主視窗 P-507-A 立案)
@@ -11112,3 +11147,33 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   而那時的選擇通常是**繞過守門**(DISABLE TRIGGER / 直連 owner 改資料)——
   也就是說,沒有逃逸路徑的守門,實務上會訓練出「繞過守門」這個習慣。
 - **發現於**:2026-08-11 / 片 2d R3(Fable)consider;`scripts/l5b2-2d-rollback.sql` 資料閘那段
+
+### #418. ✅ 註解引用生成型別寫死行號 ⇒ 每次重 gen 就整批過期(五處已清、通則已寫)
+
+- **狀態:** ✅ 已修(2026-08-11 B 窗八代;主視窗 B-455-A 發號、由 #415 的實查逼出來)
+- **優先級:** 🟢 低(不影響行為;影響的是「照著座標去看」的人會看到不相干的行)
+- **事實(#415 收工時實查,五處**在本片之前就已經過期**)**:
+
+  | 引用處 | 寫的 | 實際(2026-08-11 實查) |
+  |---|---|---|
+  | `apps/admin/src/lib/payment/composition.ts:41` | `database.types.ts:11`(重 gen 命令) | `:38` |
+  | `apps/admin/src/lib/orders/note-repository.ts:14` | `:19-22`(14 固定碼) | `:170` |
+  | `packages/adapters/src/supabase/mappers/order.ts:588` | `:1456-1458`(`isOneToOne: false`) | `:1684-1686` |
+  | `packages/adapters/src/supabase/mappers/order.test.ts:640` | 同上 | 同上 |
+  | `packages/adapters/src/supabase/mappers/order.test.ts:391` | `:1268` / `:1273` | `:1487` / `:1492` |
+
+  數法(可重跑):`grep -n "gen types typescript --project-id" …` / `grep -n "回 14 固定碼" …` /
+  `grep -n -A 2 "payment_charge_attempts_order_id_fkey" …` / `grep -n "^          invoice_status: string" …`。
+- **根因**:`database.types.ts` 是**生成檔**,每次重 gen(或補一組手動校正)整份行號就位移 ——
+  它與「自己的編輯推移自己的行號」是同族,但更嚴重:**推移的人與被推移的人不是同一片**,
+  所以寫的人當下是對的、也不會有人回頭看。
+- **修法(本片做的)**:五處全部改成「**可重跑數法 + 落筆當下行號**」的形狀,例如
+  `(數法=grep -n '^      admin_search_orders: {' …,落筆當下 :2898)`。
+  ⇒ 行號變成**參考值**,錨點是那條命令;讀者跑一次就拿到現值。
+- **通則(往後照做)**:引用生成檔(`database.types.ts`、未來任何 codegen 產物)一律附數法;
+  ~~只寫 `檔案:行號`~~ 對生成檔不成立。**引用手寫檔仍可寫行號**(它們不會被機器整份重排)。
+- **不修未來會痛在哪**:
+  - 可維護性:座標指到不相干的行,讀的人要嘛白花時間、要嘛以為註解在講別的事。
+  - bug 可追蹤性:註解是承重的(例:`isOneToOne: false` 是「必為陣列」那條推論的唯一依據),
+    座標爛掉等於推論斷鏈,而**沒有任何守門看得到**(行號漂移不會讓任何測試變紅)。
+- **發現於**:2026-08-11 / #415 code-reviewer MF3(我自己的編輯推移了行號)→ 回頭盤點全樹發現另五處早已過期

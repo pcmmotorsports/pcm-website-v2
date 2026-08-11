@@ -388,7 +388,8 @@ function detailRow(
     payment_status: 'unpaid',
     fulfillment_status: 'notOrdered',
     order_source: 'storefront',
-    // invoice_status(database.types.ts:1268)/ payment_channel(:1273)在 schema 是 NOT NULL string
+    // invoice_status / payment_channel 在 schema 是 NOT NULL string(數法=
+    // `grep -n "^          invoice_status: string" …/database.types.ts`,落筆當下 `:1487` / `:1492`)
     // ⇒ 給最小合法值;本組測試不讀這兩欄。
     payment_channel: 'none',
     payment_method: null,
@@ -637,7 +638,8 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-2 在途扣款閘 fail-
   // 🔴 R1 F3 那條防線自己也要被測:上面每一條 fixture 都是陣列 ⇒ **把 `Array.isArray(...)`
   //    正規化整行拿掉,它們照樣全綠**,「兩種形狀都吃」就只是一句沒被驗過的宣稱
   //    (真回物件時 `.some` 直接 TypeError = 明細頁炸掉)。
-  //    ⚠️ 這是**防禦**測試:生成型別 `isOneToOne: false`(`database.types.ts:1456-1458`)
+  //    ⚠️ 這是**防禦**測試:生成型別 `isOneToOne: false`(數法=`grep -n -A 2
+  //    "payment_charge_attempts_order_id_fkey" …/database.types.ts`,落筆當下 `:1684-1686`)
   //    ⇒ 規則上不會發生;留著只因賭錯的代價是整頁炸掉(關卡2 codex nit1 更正原本的錯誤理由)。
   it('🔴 內嵌回單物件(to-one 形狀)且是在途 → blocked、不炸', () => {
     expect(

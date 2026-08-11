@@ -45,6 +45,32 @@ ok()  { printf '  ✅ %s\n' "$1"; PASS=$((PASS+1)); }
 bad() { printf '  🔴 %s\n' "$1"; FAIL=$((FAIL+1)); }
 log() { echo "== $* =="; }
 
+# ══ #416:fail-closed 離場也要收叢集 ═════════════════════════════════════════
+# 🔴 病症:teardown 原本只寫在**快樂路徑**的尾巴,而本檔在旗標之後有 **14 條** fail-closed 離場
+#    (數法:`P=$(grep -n '^  PROVISIONED=1$' scripts/a7t-verify.sh | cut -d: -f1) &&
+#     grep -n 'exit [12]' scripts/a7t-verify.sh | awk -F: -v p=$P '$1 > p' | grep -v ':[[:space:]]*#'`
+#     = 15 行,扣掉最後那條 `[ "$FAIL" -eq 0 ] || exit 1`〔在快樂路徑之後〕= **14**;
+#     ⚠️ 這 14 條**含 provision 自己失敗那條**〔:103〕—— 旗標移到呼叫之前才把它收進來,
+#     而它正是最會留孤兒的一條(postmaster 已經起來了)。
+#     🔴 錨點刻意用 `^  PROVISIONED=1$` 而不是裸 `PROVISIONED=1`:後者會命中**本註解自己**
+#     ⇒ 數法照著跑會拿到註解的行號、數出來的東西整個錯位〔code-reviewer MF2 抓到,
+#     形狀=「偵測字串同時存在於自己的輸入」〕)——
+#    任何一條 fail-closed 離場都會留下一台還在聽的 PG(2026-08-11 的 54352 孤兒叢集就是這樣來的),
+#    而下一個人跑同一個埠時會**靜默連到那台舊庫**,紅綠都不是在講被測物。
+# ⇒ 用 EXIT trap 收:只在 `all` 模式且**我們自己 provision 過**時才收(`run` 模式的叢集是別人的,
+#    絕不碰;provision 之前的 exit 也沒有東西要收)。
+# 🔴 **只掛 EXIT、不掛 INT/TERM**:w7-coverage.sh 的實測教訓 —— 掛上 INT/TERM 之後
+#    被中斷的腳本退出碼會被洗成 0(130→0、143→0)= fail-open;EXIT 單掛就接得到 INT/TERM/HUP/QUIT。
+# 🔴 trap 內**不呼叫 exit、不改 $?**:teardown 失敗一律 `|| true`,免得把真正的離場碼蓋掉。
+PROVISIONED=0
+cleanup_cluster() {
+  if [ "$MODE" = "all" ] && [ "$PROVISIONED" = "1" ]; then
+    log "teardown(EXIT trap;fail-closed 離場也走這裡)"
+    scripts/d1t2-rehearsal.sh teardown "$WORK" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_cluster EXIT
+
 # ══ workdir 與 cluster 身分閘(關卡2 R2 兩條 must-fix)═══════════════════════
 # 🔴 原版 `rm -rf "$WORK"` **只檢查字串長度** ⇒ 誤傳 `/tmp`、repo 路徑或家目錄會直接刪資料。
 # 🔴 原版 `run` 模式**不驗 cluster 身分**、還自己建「拋棄式」marker ⇒ 若 54329 上是
@@ -69,6 +95,13 @@ if [ "$MODE" = "all" ]; then
   log "0/7 provision 拋棄式 PG17(重用 d1t2 的 provision,不複製貼上)"
   rm -rf "$WORK"
   mkdir -p "$WORK" && : > "$MARK"
+  # 🔴 #416 code-reviewer MF1:旗標要在**呼叫 provision 之前**就設 ——
+  #    postmaster 在 d1t2 的 `pg_ctl start` 就起來了,而它後面還有 shim / migration loop /
+  #    fake-cron 斷言 / seed 四段會 `die`;旗標若設在「provision 回傳成功之後」,
+  #    **最會留孤兒的那一條**(provision 自己失敗)反而收不到。
+  #    設早是安全的:teardown 對「還沒東西可收」是 no-op(d1t2 的 teardown 目錄不在就 return 0、
+  #    `pg_ctl stop` 後面掛 `|| true`),而它自己另有 ownership marker 閘。
+  PROVISIONED=1
   scripts/d1t2-rehearsal.sh provision "$WORK" >/dev/null 2>&1 || { echo "🔴 provision 失敗"; exit 1; }
 fi
 
@@ -310,11 +343,8 @@ probe_run; RC=$?
 if probe_ok "$RC"; then ok "對照組綠(harness 會分辨,不是恆紅)"
 else bad "對照組竟然紅 —— harness 本身壞了"; fi
 
-if [ "$MODE" = "all" ]; then
-  log "teardown"
-  scripts/d1t2-rehearsal.sh teardown "$WORK" >/dev/null 2>&1 || true
-fi
-
+# 🔴 #416:這裡不再自己 teardown —— 交給 EXIT trap(快樂路徑與 fail-closed 走同一條路,
+#    兩份 teardown 會讓「有沒有收」變成兩個地方要維護)。
 echo
 # 🔴 2026-08-11 W-a:總結行加上 `PASS=n FAIL=n` 字面。理由是**機械的**,不是美觀:
 #    w7-coverage 的 recorder 用 `sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/…/p'` 取值,
