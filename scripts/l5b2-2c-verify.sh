@@ -35,11 +35,17 @@ URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 
 MIG="supabase/migrations/20260811080000_m4b_lifecycle_l5b2_2c_refund_ledger_columns_checks.sql"
 ROLLBACK="scripts/l5b2-2c-rollback.sql"
+# 🔴 2026-08-11 片 2d 起,本 harness 的 reset **依賴 2d 的回退腳本**(provision 會把 2d 一起套上,
+#    而 2c rollback 有順序閘)⇒ 它是依賴檔,照同一條紀律釘 SHA,不然它改了本檔照樣全綠。
+RB2D="scripts/l5b2-2d-rollback.sql"
 
 # 🔴 依賴檔 SHA 釘死(2a 的 R2 教訓):w7 收據只記 harness 自己的 SHA 與 migration 目錄尾碼
 #    ⇒ 同一尾碼下改了 migration 或 rollback 而不動 harness,帳面照樣全綠。釘在這裡才閉合。
 MIG_SHA_EXPECT="475ae0d6fc3f9ea507291efc7fde8b2c9023dc8f"
-RB_SHA_EXPECT="1139b2a8c984340c08f2b2a81a5a729a06ea6ccd"
+# 🔴 2026-08-11 片 2d:2c rollback 加了順序閘 ⇒ 本值重釘(舊值 1139b2a8c984340c08f2b2a81a5a729a06ea6ccd)。
+#    取值用 `shasum scripts/l5b2-2c-rollback.sql`,不手抄。
+RB_SHA_EXPECT="2aa8a87da1f858982c566f5041e92652ba2f0f36"
+RB2D_SHA_EXPECT="c34a95e5d79048a1a14b42b4ab9e5acff8cec253"
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;它就是「刪格會紅」那道守門)
 #    ⚠️ 病史(這道閘總共擋下我自己**四次**,每次都是同一個動作:用加減算而不是用跑的):
@@ -60,7 +66,8 @@ q()   { psql "$URL" -qtAX -c "$1" 2>&1; }
 
 test -f "$MIG"      || { echo "🔴 找不到 $MIG(請在 repo 根目錄跑)"; exit 1; }
 test -f "$ROLLBACK" || { echo "🔴 找不到 $ROLLBACK"; exit 1; }
-for pair in "$MIG:$MIG_SHA_EXPECT" "$ROLLBACK:$RB_SHA_EXPECT"; do
+test -f "$RB2D"     || { echo "🔴 找不到 $RB2D(2c rollback 的順序閘要它才退得動 2d)"; exit 1; }
+for pair in "$MIG:$MIG_SHA_EXPECT" "$ROLLBACK:$RB_SHA_EXPECT" "$RB2D:$RB2D_SHA_EXPECT"; do
   _f="${pair%%:*}"; _want="${pair##*:}"; _got="$(shasum "$_f" | cut -d' ' -f1)"
   [ "$_got" = "$_want" ] || { echo "🔴 $_f 的 SHA=[$_got] 與本檔釘住的 [$_want] 不符 ⇒ 依賴檔改過但本檔沒同步。"; \
       echo "   改法:確認改動是預期的,更新本檔的 *_SHA_EXPECT,然後 record 重跑(不要只改常數不重跑)。"; exit 1; }
@@ -107,6 +114,16 @@ fi
 ok "叢集身分閘:PORT=$PORT 確認是本 workdir provision 的那個叢集"
 
 reset_preimage() {
+  # 🔴🔴 **2026-08-11 片 2d 落檔後補**:provision 會把 `20260811110000`(2d)一起套上去,
+  #    而 2c rollback 現在有順序閘(2d 還在 ⇒ 拒退)⇒ 不先退 2d 的話,本 harness 第一發 reset 就死。
+  #    ⚠️ 條件式不是裝飾:2d rollback 的自驗釘的 pre-image **含 2c 那條 CHECK**,
+  #    而 reset 之後 2c 已被撤 ⇒ 第二輪起無條件跑 2d rollback 會紅在它自己的自驗。
+  #    ⇒ 判準用**庫的狀態**(值域帶不帶 result_confirmed),不是檔案在不在。
+  if [ "$(q "SELECT count(*) FROM pg_catalog.pg_constraint WHERE conrelid='public.payment_refund_events'::regclass AND conname='pre_event_type_chk' AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(oid),'result_confirmed')>0;")" != "0" ]; then
+    if ! psql "$URL" -v ON_ERROR_STOP=1 -f "$RB2D" > "$MUTDIR/reset-2d.log" 2>&1; then
+      echo "🔴🔴 reset 的前置(退 2d)失敗 ⇒ 後面每一格都不算數,停止。log:"; tail -5 "$MUTDIR/reset-2d.log"; exit 1
+    fi
+  fi
   # 🔴 reset 用 `force_nonempty=1`:M7/M8 會刻意留下 guard 列(append-only 清不掉),
   #    而破壞性閘看到非 NULL 快照就會拒絕 ⇒ 不帶 force 的話**我自己的閘會擋住我自己的 reset**。
   #    這不是繞過守門:閘的行為由 M7(force=0 必拒)與 M8(非法值必拒)兩格**正面驗證**,

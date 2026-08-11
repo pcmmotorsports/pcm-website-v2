@@ -52,7 +52,45 @@ DECLARE
   -- 🔴 **只認字面 `1`**(對抗審查 R1):第一版寫 `<> '0'` ⇒ `false`、空字串、打錯的任何值
   --    **通通變成「強制放行」** —— 一道破壞性閘的預設方向恰好反了。白名單而不是黑名單。
   v_force boolean := COALESCE(pg_catalog.current_setting('l5b2_2c.force_nonempty', true), '0') = '1';
+  v_child_cons text;
+  -- 子表 CHECK 集合的兩個合法形狀(順序閘用;逐字,不是子字串)
+  c_child_after_2c  constant text :=
+       'pre_event_type_chk=CHECK ((event_type = ANY (ARRAY[''sent''::text, ''result_success''::text,'
+    || ' ''result_failed''::text, ''result_unknown''::text, ''reconcile''::text, ''manual''::text])))'
+    || ' | pre_lease_token_nonneg_chk=CHECK ((lease_token >= 0))'
+    || ' | pre_manual_needs_verdict_chk=CHECK ((COALESCE((event_type <> ''manual''::text), false)'
+    || ' OR COALESCE((jsonb_typeof((record_snapshot -> ''refunded''::text)) = ''boolean''::text), false)))'
+    || ' | pre_seq_positive_chk=CHECK ((seq > 0))';
+  c_child_before_2c constant text :=
+       'pre_event_type_chk=CHECK ((event_type = ANY (ARRAY[''sent''::text, ''result_success''::text,'
+    || ' ''result_failed''::text, ''result_unknown''::text, ''reconcile''::text, ''manual''::text])))'
+    || ' | pre_lease_token_nonneg_chk=CHECK ((lease_token >= 0))'
+    || ' | pre_seq_positive_chk=CHECK ((seq > 0))';
 BEGIN
+  -- 🔴🔴 **順序閘(2026-08-11 補;主視窗裁 A)**:本檔只准跑在「子表恰好是 2c 之後、沒有任何後續片」的庫上。
+  --    為什麼是機制不是註解:2d v1 的檔頭宣稱「本檔會當場 abort」=**假的**,實測 rc=0 跑完(E1);
+  --    跑完之後 2d 退不掉(它的自驗釘的 pre-image 含本片的 `pre_manual_needs_verdict_chk`)、
+  --    2c 也 apply 不回去(`20260811080000:167-178` 釘死子表六值 pre-image)⇒ **死角**。
+  --    ⚠️ **白名單不是黑名單**(對抗審查 R2 must-fix,成立):v1 的判準是「值域或索引述詞帶
+  --    `result_confirmed`」。後面的片只要把那個值**改名**(例如 2f 改成 `settled`),黑名單當場失效、
+  --    本檔照跑,而死角原封不動地成立 —— 那是同一個病的第二種形狀。
+  --    ⇒ 改成:子表 CHECK 集合必須**逐字**等於 2c post-image(可退)或 2c pre-image(冪等重跑),
+  --    其餘任何形狀一律拒退,並在偵測得到 2d 時給出指路訊息。
+  v_child_cons := (SELECT COALESCE(pg_catalog.string_agg(
+                     c.conname || '=' || pg_catalog.pg_get_constraintdef(c.oid), ' | ' ORDER BY c.conname), '(空)')
+                     FROM pg_catalog.pg_constraint c
+                    WHERE c.conrelid = 'public.payment_refund_events'::regclass AND c.contype = 'c');
+  IF v_child_cons IS DISTINCT FROM c_child_after_2c AND v_child_cons IS DISTINCT FROM c_child_before_2c THEN
+    IF pg_catalog.strpos(v_child_cons, 'result_confirmed') > 0 THEN
+      RAISE EXCEPTION 'L5b-2-2c rollback:片 2d(result_confirmed)還在庫裡 ⇒ 拒退。'
+                      '**先跑 scripts/l5b2-2d-rollback.sql,再跑本檔**。'
+                      '順序顛倒的話 2d 退不掉、2c 也 apply 不回去(死角,2026-08-11 實測 E1→E3→E4)';
+    END IF;
+    RAISE EXCEPTION 'L5b-2-2c rollback:payment_refund_events 的 CHECK 集合既不是 2c 之後、也不是 2c 之前的形狀 ⇒ '
+                    '有 2c 以後的片動過子表(即使它沒用 result_confirmed 這個字)。'
+                    '盲目往下會製造「後片退不掉、2c 也重套不回去」的死角。先退那些片,再跑本檔。實際=[%]', v_child_cons;
+  END IF;
+
   -- 🔴 鎖 `conrelid`:約束名只對同一張表唯一,全庫計數會被別表的同名約束干擾(對抗審查 R1)。
   SELECT count(*) INTO v_n
     FROM pg_catalog.pg_constraint c
