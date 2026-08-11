@@ -1046,7 +1046,7 @@ M-1-05 刀 1 spike(2026-05-12)揭示:repo 內 `supabase/migrations/2026051013470
 上述原始事故是「migration 自己沒 apply」;本次擴寫的是**相鄰但不同**的洞 —— **應用層與 migration 是一組、卻只上了應用層那一半**。
 A9h-1 應用層(12 參 rpc 呼叫)於 2026-08-06 夜先上線、對應的 `a9h_m` migration 未 apply ⇒ **正式站採購 upsert 回 `PGRST202`、壞約 8 小時**(夜間無人使用故未被投訴),`STATUS.md` 2026-08-07 09:45 條逐字有記。
 🔴 **它不是被任何守門抓到的** —— 是 B 窗做型別重生時才被挖出來,主視窗三方親驗後由 Sean 拍 Q8=A 單獨 apply `20260806200000` 修復。
-兩個加重情節:①**手寫型別補丁**(在 `database.types.ts` 手寫 12 參「讓 typecheck 反映合約」)實測**零保護力**(rpc 呼叫路徑本來就沒有型別守門),而且**它讓 typecheck 綠 = 恰好蓋掉「DB 還沒有這個東西」的訊號**;②repo 側 hook 對此**沒有觀測點**:deploy 發生在 Vercel、apply 發生在 Sean 手動 `db push`,**兩者都不經過 git**。
+兩個加重情節:①**手寫型別補丁**(在 `database.types.ts` 手寫 12 參「讓 typecheck 反映合約」)實測**零保護力**(rpc 呼叫路徑本來就沒有型別守門),而且**它讓 typecheck 綠 = 恰好蓋掉「DB 還沒有這個東西」的訊號**;②當時判定「repo 側 hook 對此**沒有觀測點**:deploy 發生在 Vercel、apply 發生在 Sean 手動 `db push`,**兩者都不經過 git**」—— 🔴 **這句 2026-08-11 被推翻**(Q26=A 部署 gate 片):兩個 Vercel 專案的 production 部署**都由一次 git push 觸發**(storefront=`push origin dev:main`、admin=`push origin dev`)⇒ **`pre-push` 就是觀測點**。現況已有機制:`scripts/deploy-order-gate.sh` + `supabase/APPLIED.tsv`,掛在 `.husky/pre-push`。⚠️ **射程只有 RPC 函式名**(Sean 拍 Q2=B「寧可漏擋」):純加欄位、建表、改 RLS 的 migration **零覆蓋**。⚠️ 它只覆蓋**本機 git push**(GitHub 網頁 merge / Vercel Redeploy / 別台機器仍看不到)⇒ 文字條保留,但要說的是「機制覆蓋本機 push 這條路徑」,不是「沒有觀測點」。**這個錯法本身是教訓**:把「在別處執行」與「由這裡觸發」混為一談,就會把做得到的機制寫成做不到,而機制優先律的判準正是「機制做不到才寫文字」。
 夜跑收線立法彙整(`docs/reviews/2026-08-07-night-legislation-draft.md` §5.5)回讀原始教訓時,另抓到一個**會立錯法的細節**:原文含「**(或掛 flag)**」這個限定 —— 事故不是「不准分兩次上」(分兩次上是常態、也無法避免),而是「**先上的那半沒有 flag 保護**」。省掉這三個字會禁掉一個合法且必要的做法。
 
 **規則:**

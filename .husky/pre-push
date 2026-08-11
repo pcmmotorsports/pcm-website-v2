@@ -1,1 +1,6 @@
-pnpm typecheck && pnpm lint
+# 🔴 三段一律 `&&` 串接(關卡2 must-fix):第一版寫成兩行,typecheck 紅了照樣往下跑,
+#    而 hook 的離場碼是**最後一行**的 ⇒ gate 綠就把 typecheck 的紅洗掉了 = 我自己拆掉一道既有守門。
+# 🔴 部署時序 gate(Q26=A;plan docs/specs/2026-08-11-deploy-order-gate-plan.md v3):
+#    git 把 `<local-ref> <local-sha> <remote-ref> <remote-sha>` 由 stdin 餵進來,
+#    而 pnpm 那兩支不吃 stdin ⇒ 直接把 stdin 交給 gate(它自己逐行處理、也自己處理全 0 的 ref)。
+pnpm typecheck && pnpm lint && bash "$(git rev-parse --show-toplevel)/scripts/deploy-order-gate.sh"
