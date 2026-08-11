@@ -1533,7 +1533,8 @@
    (#270、2026-07-10),**commit body 沒留任何推導** —— 它與 `account.css` 的 76
    當年只是「值一致」,不是同源(該檔 R2 自己標過這件事)。
    現在兩處同式 `calc(var(--shell-header-h) + 3px)`:桌機 76、≤1079 為 63。
-   **不變式由構造保證**(永遠比頁首低 3px),不再依賴「兩個斷點取較大者」那種攤平算術。 */
+   **不變式 = 跟著 `--shell-header-h` 動**,不再依賴「兩個斷點取較大者」那種攤平算術。
+   ⚠️ 守門只證「有吃 token」,**「+3」本身沒被釘住**(#408 R1 nit;`- 40px` 照樣綠)。 */
 .pd-sec { border-top: 2px solid var(--c-text); scroll-margin-top: calc(var(--shell-header-h) + 3px); }
 .pd-sec:last-of-type { border-bottom: 2px solid var(--c-text); }
 
