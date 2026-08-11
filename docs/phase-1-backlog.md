@@ -10464,11 +10464,55 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴**:A 案=三支 harness 重寫(標準片×3);B 案=逐支設計、其中 #394 需另想解法。
   🔗 個案見 **#394**(a7,診斷權威)、**#396**(op1p)、**#399**(a7t)。
 
-### #402. 👻 `scripts/a7bt-verify.sh` 是孤兒 —— 它的目標 migration 已被**刻意刪除**
+### #402. ✅ `scripts/a7bt-*` **整族七支**是孤兒 —— 它們的目標 migration 已被**刻意刪除**(已整族刪除)
 
-- **狀態:** ⏳ 待決策(2026-08-11 B 窗 W-c1 前置實跑撞出;主視窗發號)
+- **狀態:** ✅ 完成(2026-08-11,B 窗七代;主視窗 `B-443-A` 裁 **B 案=整族七支刪**)
 - **優先級:** 🟡 中(不影響正式站,也**不是** #401 族 —— 見下)
-- **事實**:
+
+- **🔴 範圍更正(立案時寫窄了)**:本條原本只點名 `scripts/a7bt-verify.sh` **一支**。
+  動手前盤「誰死」才發現是**七檔 / 311,275 bytes 的一整族**,其中**五支**的 `MIG=` 指向同一支死 migration:
+
+  | 檔 | bytes | `MIG=` 指向死 migration |
+  |---|---|---|
+  | `a7bt-negative-state.sh` | 104,683 | ✅ |
+  | `a7bt-negative-money.sh` | 41,846 | ✅ |
+  | `a7bt-fixtures.sh` | 41,822 | ✗(共用 fixture 函式庫,被下面五支 source) |
+  | `a7bt-verify.sh` | 34,984 | ✅(立案時只寫了這一支) |
+  | `a7bt-acl-rollback-lock.sh` | 34,316 | ✅ |
+  | `a7bt-rollback.sql` | 27,305 | ✗(SQL,依賴同一支不存在的 migration) |
+  | `a7bt-mutation.sh` | 26,319 | ✅ |
+
+  ⇒ 只刪一支的話,剩四支照樣是孤兒、fixtures 變成只服務孤兒的函式庫
+  ⇒ 本條自己寫的兩條痛點對那四支**逐字成立**,單修完病還在。**故整族刪。**
+
+- **🔴 刪除前的依賴盤點(全部可重跑)**:
+  · 家族內:五支 `.sh` 全部 source 同一支 `a7bt-fixtures.sh`
+    (`grep -n 'shellcheck source=scripts/a7bt-fixtures.sh' scripts/a7bt-*.sh` 當時 = 5 行)。
+  · 家族外:`grep -rln 'a7bt-' --include='*.sh' scripts/` 家族外只命中 `a7c-rw1b-verify.sh`,
+    且逐行看完**只有 `:22` 一處指到檔名**(`a7bt-mutation.sh`),另兩處(`:239`/`:1473`)引用的是
+    **A7b-T 的紀律**(「紅對地方」「數量閘同款」)而非檔案 ⇒ 那兩處刪檔後仍成立、不改。
+    `:22` 已加註「原出處…已整族刪除,座標見本條」。**沒有任何活著的 harness 因此壞掉**
+    (三處皆註解,無 `source`、無呼叫)。
+  · w7:`grep -n 'a7bt' scripts/w7-coverage.sh scripts/w7-receipts.tsv` = 零命中
+    ⇒ 七支既未收編也未登記排除 ⇒ 刪除不動格數。**但** `a7c-rw1b-verify.sh` 因 `:22` 那行改動
+    sha 變了、收據 stale 閘當場紅(`RECEIPT-a7c`)⇒ 已重錄(57/0),全 w7 回 46/0。
+
+- **🔑 贖回座標(A7b-T 回線時取回;兩式並存,①短但會鏽、②長但不依賴任何寫死的 sha)**
+  · ① 定錨式:七支在 **`3704b756`** 全部還在 ⇒ `git show 3704b756:scripts/a7bt-verify.sh`
+    (逐支 `git cat-file -e 3704b756:scripts/<檔>` 當時七支皆通)。
+  · ② 自尋式:`git log --all --diff-filter=D -- scripts/a7bt-verify.sh` → `git show <該顆>^:<路徑>`。
+  · **migration 另有座標**(與 harness 不同顆,別搞混):刪它的是
+    `0190bcee chore(schema): 移除未 apply 的 A7b-T migration — 拆掉 db push 地雷 [M-4b]`
+    ⇒ `git show 0190bcee^:supabase/migrations/20260731120100_m4b_e10_a7b_t_refund_job_guards.sql`。
+- **🔁 A7b-T 回線時的重啟條件**:①先把上面那支 migration 取回並 apply(它當初被移除的理由是
+  「未 apply 的 db push 地雷」,回線=那個理由消失)②再整族取回七支(它們本來就要一起用:
+  五支 harness + 共用 fixtures + rollback SQL)③`a7bt-verify.sh` 的自我測試②會驗四支 constraint
+  trigger 存在,migration 沒 apply 就會紅在那裡 ⇒ **順序不可顛倒**。
+  ④ 那時才談收編 w7(現在不收:恆紅的東西進帳只會稀釋訊號)。
+- **⚠️ 刻意沒動的**:`docs/specs/2026-07-31-e10-a7b-refund-jobs-plan.md` 與 `STATUS.md` 仍有數處提到
+  這七支 —— 那是 A7b-T 的規格與歷史紀錄,**本來就該保留當時的字面**;回線時照本條座標取回即可。
+
+- **事實(立案時原文,保留)**:
   · `scripts/a7bt-verify.sh:197` 逐字 `MIG="supabase/migrations/20260731120100_m4b_e10_a7b_t_refund_job_guards.sql"`,
     而**該檔不存在**。`git log --diff-filter=D` 查到它被 **`0190bcee`** 刪除,commit subject 逐字:
     「移除未 apply 的 A7b-T migration — 拆掉 db push 地雷」⇒ **是刻意移除,不是遺失**。
@@ -10495,12 +10539,17 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   ② 它 `exit=1`,任何「把 scripts/*-verify.sh 跑一輪」的人都會看到紅,而那個紅
      **與任何現存 code 無關** ⇒ 訊號稀釋(同 #398 那族的病理)。
   ③ 它收編不進 w7(恆紅),而不在帳上又正是它壞了沒人發現的原因。
-- **修法方向:兩案,本條不拍**
-  · **A 案:刪掉這支 harness。** A7b-T 真的回來時從 git 取回即可(`0190bcee^` 有完整版)。
-    好處:repo 不留指向不存在檔案的東西;代價:A7b-T 復活時要記得取回(靠人記)。
+- **修法方向(立案時兩案,已裁定;原文保留供對照)**
+  · **A 案:刪掉 harness。**〔**✅ 已採用**,並由主視窗 `B-443-A` 把範圍從一支擴成整族七支〕
+    好處:repo 不留指向不存在檔案的東西;代價:A7b-T 復活時要記得取回(靠人記)
+    → **這個代價已用機制補掉**:贖回座標雙寫進本條與刪除 commit body,並附「回線重啟條件」四步。
+    🔴 **立案時這句寫錯,一併更正**:原文寫「從 git 取回即可(`0190bcee^` 有完整版)」——
+    `0190bcee^` 有的是 **migration**,不是 harness。**兩者是不同顆、不同路徑**,
+    當時把它們混成一句。正確座標見上面「贖回座標」段(harness=`3704b756` 或自尋式;
+    migration=`0190bcee^`)。同一種病:**把「查到的那顆」當成「所有東西都在的那顆」**。
   · **B 案:保留但明確 skip**(偵測到 `$MIG` 不存在 ⇒ 印「目標 migration 未上線,本支略過」+ `exit 0`)。
-    好處:A7b-T 一回來它自己就活了;代價:一支恆綠但零斷言的 harness,**收編進 w7 就是恆真格**
-    ⇒ 若選 B,**明確不收編**,並在 EXCLUDED-REASONS 登記排除理由與失效條件。
+    〔**未採用**〕理由(主視窗裁定逐字):留下的是一支恆綠零斷言檔=**假安心感**,
+    正是 #396 那型病的變體;而「靠人記得取回」的坑改用機制補(贖回座標+重啟條件),不需要靠留檔。
 - **依賴**:純 harness,不動 migration ⇒ 輕量片。與 #396(op1p 過期)同屬「harness 對不上現況」大類,
   但**成因不同**(#396 是前置條件被移除、本條是**目標物被移除**)⇒ 不併入 #401 族譜。
 ### #403. 🔗 `strong_key` 只驗前綴、不驗它與 `rec_trade_id` 的等式(條款掛 2g)

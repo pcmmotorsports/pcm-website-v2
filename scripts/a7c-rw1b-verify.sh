@@ -19,7 +19,8 @@
 # ── 🔴 誠實邊界(先寫,免得數字被當成比它實際更強的證據)──────────────────
 # · 本機 PG17 非 Supabase:role 繼承 / BYPASSRLS / pgbouncer / PostgREST 不在覆蓋內。
 # · 「格全綠」證明的是**這些輸入走到指定出口**,不是「所有輸入都對」。
-# · 突變一格轉綠只證明**該守門對該案例**承重(a7bt-mutation.sh 同一句誠實邊界)。
+# · 突變一格轉綠只證明**該守門對該案例**承重(原出處 a7bt-mutation.sh 同一句誠實邊界;
+#   a7bt 家族已於 2026-08-11 #402 整族刪除,贖回座標見 docs/phase-1-backlog.md #402)。
 # · G11 的 [[:cntrl:]] 判定吃 lc_ctype —— 本機 C locale 的結論**不外推正式站**(plan G11 ⚠️)。
 # · 併發只做 plan 指定的 `finalize G8 翻轉 × initiate G12` 一種交錯;
 #   「兩 finalize 同單搶 SUM」在 S5 下物理不可達(同單僅一 processing 列;同列雙
