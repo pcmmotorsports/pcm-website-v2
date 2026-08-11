@@ -63,6 +63,14 @@ vi.mock('../../../lib/supplier', async (importOriginal) => {
   return { ...actual, listSuppliers: mocks.listSuppliers };
 });
 vi.mock('../../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }));
+// 🔴 #15-B2-c 片1a:`order-detail-route` 起會讀 `listOrderPayments`(→ `createSupabaseServiceClient`
+//    = server-only)。⚠️ **不 mock 也不會紅** —— 它在呼叫時 throw、被 `allSettled` 接住折成
+//    `unreadable` ⇒ 本檔每次 renderPage 都靜默多畫一塊紅框 + 噴 `console.error`,
+//    而本檔要驗的東西照樣全綠 ⇒ 那塊紅框會被下一個人當成既有雜訊。回空陣列 = 「這單沒收過款」,
+//    與本檔要驗的東西無關,也不會多畫任何東西。
+vi.mock('../../../lib/orders/payment-repository', () => ({
+  listOrderPayments: vi.fn(async () => []),
+}));
 
 // 🔴 `<ShipmentSection>` 是 **async server component**,而本檔用 RTL **同步**渲染
 //    ⇒ 不 mock 的話整個 OrderDetail 渲染不出來(症狀 = container 變空字串、**而且不報錯**)。
@@ -256,7 +264,10 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   //    而它守的正是最容易發生的錯:**有人新增一個 `OrderDetail` 的呼叫端、忘了接那道閘**。
   //    ⇒ 直接渲染元件、不傳 prop,才量得到預設值本身。
   it('🔴 直接渲染 OrderDetail 且不傳 cancelFormsAllowed ⇒ 零取消表單', () => {
-    const { container } = render(<OrderDetail detail={detail()} returnTo='/orders/ord-1' />);
+    // `payments` 與本格無關,給「訂單在、零收款列」的中性值(#15-B2-c 片1a 起為必填 prop)。
+    const { container } = render(
+      <OrderDetail detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+    );
     // 正向對照:證明元件真的畫出來了(否則「零表單」是恆真)。
     expect(container.textContent).toContain('ABC123');
     expect(cancelFormCount(container)).toBe(0);
@@ -294,7 +305,14 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   });
 
   it('同一份資料明確傳 true ⇒ 表單出現(證明上一格不是因為資料不可取消)', () => {
-    const { container } = render(<OrderDetail detail={detail()} returnTo='/orders/ord-1' cancelFormsAllowed />);
+    const { container } = render(
+      <OrderDetail
+        detail={detail()}
+        returnTo='/orders/ord-1'
+        cancelFormsAllowed
+        payments={{ status: 'ok', rows: [] }}
+      />,
+    );
     expect(container.textContent).toContain('ABC123');
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });

@@ -30,6 +30,12 @@ const mocks = vi.hoisted(() => ({
   listSuppliers: vi.fn(),
   listOrderRefunds: vi.fn(),
   getLedgerUnregisteredAmount: vi.fn(),
+  // #15-B2-c 片1a:收款明細 —— 兩個消費者都要拿得到(守門在檔尾)。
+  // 🔴 **預設值寫在 hoisted 這裡、不寫在某個 describe 的 `beforeEach`**:本檔有多個 describe
+  //    各自帶 `beforeEach`,寫進其中一個的話,其他 describe 的替身會回 `undefined`
+  //    ⇒ 折出 `{status:'ok', rows: undefined}` ⇒ 收款區塊渲染當場炸掉(而症狀會出現在
+  //    與收款無關的那些格上,查起來完全不像本片造成的)。
+  listOrderPayments: vi.fn(async () => [] as unknown[]),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -57,6 +63,12 @@ vi.mock('../../lib/orders/order-repository', () => ({
   }),
 }));
 vi.mock('../../lib/supplier', () => ({ listSuppliers: mocks.listSuppliers }));
+// 🔴 #15-B2-c 片1a:`payment-repository` → `createSupabaseServiceClient`(server-only)。
+//    ⚠️ **不 mock 也不會紅** —— 它會在呼叫時 throw、被 `allSettled` 接住折成 `unreadable`
+//    ⇒ 整個檔案靜默走在「讀不到」那條路上。要驗「面板真的拿得到收款列」就必須給它可控的替身。
+vi.mock('../../lib/orders/payment-repository', () => ({
+  listOrderPayments: mocks.listOrderPayments,
+}));
 // 🔴 `<ShipmentSection>` 是 **async server component**,而 RTL 是**同步**渲染
 //    ⇒ 不 mock 的話整個 `OrderDetail` 渲染出來是**空字串、而且不報錯**
 //    (`cancel-wiring.test.tsx:67-75` 逐字記過同一個坑:那次讓「期望 0 個表單」整組恆綠)。
@@ -455,6 +467,7 @@ describe('#350d 守門 8:有 panel 時列表零橫幅、面板恰一條(契約 �
     mocks.listSuppliers.mockResolvedValue([]);
     mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
     mocks.findAdminOrderDetail.mockResolvedValue(orderDetailFixture(PANEL_ID));
+    mocks.listOrderPayments.mockResolvedValue([]);
   });
 
   it('🔴 面板開著:列表 0 條、面板 1 條', async () => {
@@ -589,6 +602,56 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     const values = returnToValues(container);
     expect(values.length).toBeGreaterThan(0);
     for (const value of values) expect(value).toBe(`/orders/${PANEL_ID}`);
+  });
+
+  // 🔴 #15-B2-c 片1a:**收款明細兩個消費者都要拿得到**。
+  //    兩個視圖共用 `OrderDetailRoute`,所以今天是結構上共享的 —— 但 #350c 抽出那一層的
+  //    理由逐字就是「複製一份會慢慢分岔」⇒ 把「兩邊都有」釘成守門,分岔當下就轉紅。
+  //    突變:只在整頁版傳 `payments`(面板版不傳)⇒ 型別紅;把 `<PaymentList>` 拿掉 ⇒ 兩格都紅。
+  it('🔴 收款明細:面板版與整頁版都畫得出來,且金額同樣讀得到', async () => {
+    // 金額取 7531:與 fixture 的任何金額都不撞號 ⇒ 「找得到它」只可能來自收款列。
+    // ⚠️ **`mockResolvedValue` 會外溢到後面的格**(code-reviewer R1 nit-6):`clearAllMocks`
+    //    清呼叫紀錄、**不清 implementation** ⇒ 這一組收款列會被之後每一格拿到。
+    //    今天無害(本格是本檔最後一格),但「無害」是位置決定的、不是機制決定的
+    //    ⇒ 用 `mockResolvedValueOnce`,讓它只活這一次、位置怎麼搬都不會外溢。
+    //    ⚠️ 本格會渲染**兩個**消費者(面板 + 整頁)⇒ 要餵**兩次**。
+    const paymentRows = [
+      {
+        id: '33333333-3333-4333-8333-333333333333',
+        rail: 'cash',
+        amount: 7531,
+        receivedAt: '2026-08-05T01:00:00+00:00',
+        createdAt: '2026-08-05T02:00:00+00:00',
+        actor: 'sean',
+        bankReference: null,
+        recTradeId: null,
+        payerNote: null,
+        reversesPaymentId: null,
+        reversalReason: null,
+        isReversal: false,
+      },
+    ];
+    mocks.listOrderPayments.mockResolvedValueOnce(paymentRows);
+    mocks.listOrderPayments.mockResolvedValueOnce(paymentRows);
+
+    // 🔴 就地渲染面板頁(本 describe 沒有 `renderPanel` —— 那支是上一個 describe 的區域 helper)。
+    const PanelPage = (await import('./orders/page')).default;
+    const panelUi = await PanelPage({
+      searchParams: Promise.resolve({ [ORDER_PANEL_PARAM]: PANEL_ID }),
+    });
+    expect(panelUi).not.toBeNull();
+    const panel = render(panelUi as React.ReactElement).container;
+    expect(panel.textContent, '面板版少了收款明細').toContain('已登錄的收款');
+    expect(panel.textContent).toContain('7,531');
+
+    const DetailPage = (await import('../orders/[id]/page')).default;
+    const ui = await DetailPage({
+      params: Promise.resolve({ id: PANEL_ID }),
+      searchParams: Promise.resolve({}),
+    });
+    const { container } = render(ui as React.ReactElement);
+    expect(container.textContent, '整頁版少了收款明細').toContain('已登錄的收款');
+    expect(container.textContent).toContain('7,531');
   });
 });
 

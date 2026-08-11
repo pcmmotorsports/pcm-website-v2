@@ -11410,6 +11410,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-08-12 / P 窗八代 2e/2f 前置實查(`535097a8`);
   病型 = 本 repo 記過多次的「守門只檢查規則存在」,**這次的新變形是那個字串被自己的說明文字複製了一份**。
 
+### #428. 🟥 `refund-wiring.test.tsx:306` 的「帳本讀取失敗」斷言**恆綠** —— 拿整頁字串驗一個區塊專屬的宣稱
+
+- **狀態:** ⏳ 待排(2026-08-12 / D 窗七代 #15-B2-c 片1a 的 code-reviewer R1 實測發現;
+  主視窗 `D-539-A` §立案 配號 #428,**與本片無責、隨片1a 那顆 commit 帶進來**)。
+- **優先級:** 🟡 中(不會壞正式站;壞的是**守門本身**——它承諾守的那件事今天沒人在守)
+- **問題:**
+  - `apps/admin/src/app/orders/[id]/refund-wiring.test.tsx:306` 逐字
+    `expect(container.textContent).toContain('讀取失敗')`,意圖是驗「未登記額讀取失敗 ⇒ 帳本區塊顯錯誤態」。
+  - 但 `讀取失敗` 這四個字在**同一頁的多個元件**都會出現。實查(`grep -rn '讀取失敗' apps/admin/src/components/orders/`)
+    非測試檔命中:`refund-ledger-section.tsx` / `cancel-review-section.tsx` / `cancel-result-panel.tsx` /
+    `notes-timeline.tsx` / `order-detail.tsx` / `order-detail-route.tsx` / `payment-list.tsx`(**片1a 新增的第七個來源**)。
+  - ⇒ 斷言吃得到**第三方餵的字串**,與帳本區塊有沒有正確顯示無關。
+- **reviewer 的突變證據(2026-08-12 實跑,轉述):** 把 `refund-ledger-section.tsx:75` 的文案改壞
+  **並且**把 `<PaymentList>` 拿掉,該檔 **13 格照樣全綠** ⇒ 這條斷言從來沒有守住過任何東西。
+- **修法(與片1a 用的同一招):** 把斷言鎖進帳本區塊那個 `section`(用它的標題當錨、找不到就 throw、不回 null),
+  不要拿 `container.textContent` 整頁比對。片1a 的
+  `app/orders/[id]/payment-list-wiring.test.tsx` 的 `paymentSection()` / `paymentText()` 可直接抄。
+- **三視角:**
+  - 可維護性:同一形狀在本 repo 已出現兩次(這條 + 片1a 第一版被自己抓到的那條)⇒ 值得在頁層測試的
+    共用 helper 裡提供「取某區塊」的標準寫法,而不是每支自己 `container.textContent`。
+  - bug 可追蹤性:這族錯的症狀是**永遠不紅**,不會有人來報。只能靠突變或 review 抓
+    ⇒ 不修的代價是「帳本錯誤態」這條路日後被改壞時零告警,而它正是「勿依本頁發起退款」那句話的載體。
+- **依賴:** 無。相關 = memory `feedback_assertion-measures-the-wrong-thing`(斷言量錯東西七形狀)。
+- **發現於:** 2026-08-12 / #15-B2-c 片1a code-reviewer R1(opus)
+
 ### #429. 🧬 年份「無資料=通吃」有 **5 個判定點**,其中兩份是平行實作、彼此無一致性機制
 
 - **狀態:** ⏳ 待排(2026-08-12 / S 窗五代由「年份 R2 選邊題」帶出;主視窗 `S-094-A` §2 批准配號)。
@@ -11448,3 +11473,4 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   (更正見 `S-093-NOTE`)。
 - **相關:** #277(車型/年份下拉 C 案)
 - **分流標籤:** `P2-later`
+
