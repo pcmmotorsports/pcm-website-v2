@@ -5,7 +5,7 @@
 > **三題全照推薦**:**Q1=A(甲+乙)/ Q2=A(兩入口)/ Q3=A(刪除)**。memory:`project_m4b-352-spot-stock-supplier-decision`。
 > **審查鏈**:codex 關卡1 **R1 FAIL 12MF+2nit** → v3.1 → **R2 FAIL 8MF+2nit(全打在折法上)** → v3.2
 > → **R3 換模型換角度(Fable)FAIL 2MF+4consider+4nit** → 本檔 **v3.3**。折入紀錄見 §10(三輪 **34** 條、零重複;⚠️ 這裡原本寫 32,§10 早已更正為 34 而檔頭沒跟 —— Fable R3 N1,claimed-sync 殘留)。
-> 🔴 待批,批准前不動 code。
+> ✅ 已批准並分片出貨:a1/a2/甲片三支已 commit+apply(2026-08-11);§5 之 #352-b 依 §6 R3-F6 施工中。(原「🔴 待批」字面 2026-08-11 晨由主視窗更正,D-469 指認過期)
 
 ---
 
