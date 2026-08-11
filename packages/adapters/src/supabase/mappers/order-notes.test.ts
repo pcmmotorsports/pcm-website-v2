@@ -222,3 +222,27 @@ describe('mapSupabaseOrderNoteRowsToProjection — 逐欄 wire → domain', () =
     expect(rows.map((r) => r.id)).toEqual(['n-2', 'n-1']);
   });
 });
+
+describe('#328 缺鍵 / null = 沒讀到,不是「真的零筆」', () => {
+  // 🔴 這一族的病徵是**沒有病徵**:舊行為下畫面會說「尚未告知客人」,而我們根本沒讀到那些列。
+  //    三格排在一起是為了讓「兩種空」與「真的空」的差別一眼看得出來。
+  it('🔴 缺鍵(undefined)⇒ customerNotified 為 null(無法判定),不是 false', () => {
+    const res = mapSupabaseOrderNoteRowsToProjection(undefined);
+    expect(res.customerNotified).toBeNull();
+    // 🔴 這一欄必須是 false —— 它是呼叫端分辨「讀取失敗」與「被截斷」的唯一依據
+    //    (見 note-timeline.ts 的 isNotesUnreadable)。改成 true 會讓畫面說錯話。
+    expect(res.notesTruncated).toBe(false);
+    expect(res.notes).toEqual([]);
+  });
+
+  it('🔴 null(內嵌鍵回 null)⇒ 與缺鍵同向', () => {
+    expect(mapSupabaseOrderNoteRowsToProjection(null).customerNotified).toBeNull();
+  });
+
+  it('🔴 正向對照:真的空陣列 ⇒ customerNotified 為 false(「讀到了、確實沒人告知過」)', () => {
+    // 沒有這格,「一律回 null」的突變會讓上面兩格全綠 —— 而那會讓每一單都顯示「讀取失敗」。
+    const res = mapSupabaseOrderNoteRowsToProjection([]);
+    expect(res.customerNotified).toBe(false);
+    expect(res.notesTruncated).toBe(false);
+  });
+});

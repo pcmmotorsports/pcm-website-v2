@@ -118,3 +118,45 @@ describe('NotesTimeline — A10a-2', () => {
     expect(container.textContent).not.toContain('undefined');
   });
 });
+
+describe('#328 讀取失敗 ≠ 尚無備註', () => {
+  const ID = '3f2f2c1e-0000-4000-8000-000000000001';
+
+  it('🔴 整段沒讀到:說「讀取失敗」、不說「尚無備註」、不顯示「0 筆」', () => {
+    // 這就是投影退版後 mapper 給出來的形狀(notes 空、customerNotified null、未截斷)。
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [], notesTruncated: false, customerNotified: null }}
+      />,
+    );
+    expect(container.textContent).toContain('讀取失敗');
+    // 🔴 這三條是這條 bug 的實際傷害面:員工看到的每一句話都在說「這單沒事」。
+    expect(container.textContent).not.toContain('尚無備註');
+    expect(container.textContent).not.toContain('尚未告知客人');
+    expect(container.textContent).not.toContain('0 筆');
+  });
+
+  it('🔴 正向對照:真的沒備註仍然說「尚無備註」,不准被讀取失敗那格吃掉', () => {
+    // 沒有這格,「一律顯示讀取失敗」的突變會讓上面全綠 —— 而那會讓每一張正常單都在喊壞掉。
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [], notesTruncated: false, customerNotified: false }}
+      />,
+    );
+    expect(container.textContent).toContain('尚無備註');
+    expect(container.textContent).not.toContain('讀取失敗');
+  });
+
+  it('🔴 截斷不得被誤報成讀取失敗(同樣是 customerNotified=null)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [], notesTruncated: true, customerNotified: null }}
+      />,
+    );
+    expect(container.textContent).toContain('載入上限');
+    expect(container.textContent).not.toContain('讀取失敗');
+  });
+});

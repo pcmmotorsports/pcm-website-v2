@@ -17,6 +17,7 @@ import {
   readOpenPanelOrderId,
   ORDERS_PAGE_SIZE,
 } from '../../lib/orders/order-list-view';
+import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
 import {
@@ -151,6 +152,11 @@ export default async function OrdersPage({
   }
 
   const orders = result?.items ?? [];
+  // #338:命中的供應商 → 三態提示(語意在 lib,本檔只排版)。
+  const supplierMatch = describeSupplierMatch(
+    result?.supplierOrderNoMatchedSuppliers ?? null,
+    orders.length > 0,
+  );
   const total = result?.total ?? 0;
 
   return (
@@ -190,15 +196,31 @@ export default async function OrdersPage({
           {searchNotice}
         </div>
       )}
-      {/* 🔴 **過渡緩解**(A9b2-A 階段 C must-fix 4):本搜尋**沒有供應商維度** ——
-          兩家供應商用同一組單號時會一起列出,而列表投影裡沒有供應商欄可以標示是哪一家。
-          真正的修法(把供應商帶進列表)需要動 adapter 契約或列表投影白名單,**不在本片範圍**;
-          在那之前先用一句常駐提醒讓人知道要核對,總比什麼都不說好。
-          🔴 已立 backlog **#338**(含兩條修法方向與「不修會痛在哪」)—— 不只留這段註解。 */}
-      {supplierOrderNoSearch.kind === 'ok' && !loadFailed && !searchBlocked && orders.length > 0 && (
-        <div className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
-          此搜尋不區分供應商:若兩家供應商使用相同單號,結果會同時列出。登錄到貨前請先點進訂單核對供應商。
-        </div>
+      {/* 🔴 #338(2026-08-11 修):本搜尋原本**只有一句常駐警語**「請先點進訂單核對供應商」——
+          而員工正是因為不知道是哪一家才來搜,那句話等於把唯一能回答問題的資料藏起來。
+          現在 adapter 在**同一次往返**裡把命中的供應商帶回來(不動列表投影白名單),分三態顯示:
+          一家 ⇒ 直接具名 / 多家 ⇒ 示警並列名(真正會出事的情況)/ 認不出來 ⇒ 退回原本那句警語。
+          語意在 `lib/orders/supplier-match-notice.ts`(純函式 + 守門),本檔只排版。 */}
+      {supplierOrderNoSearch.kind === 'ok' && !loadFailed && !searchBlocked && (
+        <>
+          {supplierMatch.kind === 'single' && (
+            <div className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
+              這組單號屬於供應商<strong className='text-foreground'>{supplierMatch.label}</strong>。
+            </div>
+          )}
+          {supplierMatch.kind === 'multiple' && (
+            <div className='rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900'>
+              ⚠️ 這組單號在 <strong>{supplierMatch.labels.length}</strong> 家供應商都有:
+              <strong>{supplierMatch.labels.join('、')}</strong>。
+              登錄到貨前<strong>務必</strong>先點進訂單確認是哪一家的貨。
+            </div>
+          )}
+          {supplierMatch.kind === 'unknown' && (
+            <div className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
+              此搜尋不區分供應商:若兩家供應商使用相同單號,結果會同時列出。登錄到貨前請先點進訂單核對供應商。
+            </div>
+          )}
+        </>
       )}
       <OrderFilterBar
         filter={filter}

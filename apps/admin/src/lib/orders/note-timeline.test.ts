@@ -14,6 +14,7 @@ import {
   NOTE_TYPE_LABEL,
   buildNoteTimeline,
   describeCustomerNotified,
+  isNotesUnreadable,
   walkCorrectionChain,
 } from './note-timeline';
 
@@ -159,14 +160,46 @@ describe('buildNoteTimeline — 欄位與格式化', () => {
 
 describe('describeCustomerNotified — 三態(契約 C4)', () => {
   it('[G12] null = unknown,與 false 是不同態(?? false 的突變殺手)', () => {
-    const unknown = describeCustomerNotified(null);
-    const notNotified = describeCustomerNotified(false);
-    const notified = describeCustomerNotified(true);
+    const unknown = describeCustomerNotified(null, false);
+    const notNotified = describeCustomerNotified(false, false);
+    const notified = describeCustomerNotified(true, false);
     expect(unknown.state).toBe('unknown');
     expect(notNotified.state).toBe('not_notified');
     expect(notified.state).toBe('notified');
     expect(unknown.state).not.toBe(notNotified.state);
     expect(unknown.label).not.toBe(notNotified.label);
+  });
+});
+
+describe('#328 isNotesUnreadable —— 兩種 null 要分得開', () => {
+  // 🔴 為什麼需要這個判別式:`customerNotified === null` 有兩個成因,而**員工的下一步不同** ——
+  //    截斷要去看更早的紀錄,讀取失敗要重新整理 / 通知維護。共用一句文案就會把人帶錯路。
+  it('🔴 null + 未截斷 = 讀取失敗(整段沒讀到)', () => {
+    expect(isNotesUnreadable({ customerNotified: null, notesTruncated: false })).toBe(true);
+  });
+
+  it('🔴 null + 已截斷 = 截斷,不是讀取失敗', () => {
+    // 突變:把判別式寫成「只看 customerNotified === null」⇒ 這格紅(截斷會被誤報成讀取失敗)。
+    expect(isNotesUnreadable({ customerNotified: null, notesTruncated: true })).toBe(false);
+  });
+
+  it('🔴 非 null 一律不是讀取失敗(兩個值都試)', () => {
+    // 突變:把判別式寫成「只看 !notesTruncated」⇒ 這格紅(每一張正常單都會顯示讀取失敗)。
+    expect(isNotesUnreadable({ customerNotified: false, notesTruncated: false })).toBe(false);
+    expect(isNotesUnreadable({ customerNotified: true, notesTruncated: false })).toBe(false);
+  });
+
+  it('🔴 unknown 的兩種文案必須不同,而且各自講對「下一步」', () => {
+    const unreadable = describeCustomerNotified(null, true);
+    const truncated = describeCustomerNotified(null, false);
+    expect(unreadable.state).toBe('unknown');
+    expect(truncated.state).toBe('unknown');
+    // 同一個 state、不同的話 —— 只比 state 的測試對這條 bug 全盲。
+    expect(unreadable.label).not.toBe(truncated.label);
+    expect(unreadable.label).toContain('讀取失敗');
+    // 🔴 反向:讀取失敗那句**不可以**沿用「超過載入上限」——那是假的,且會叫員工去找不存在的舊紀錄。
+    expect(unreadable.label).not.toContain('載入上限');
+    expect(truncated.label).toContain('載入上限');
   });
 });
 

@@ -480,6 +480,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       //          而不是 `0`(「搜了、零命中」)—— 兩者的區分正是這個欄位存在的理由。
       keywordTruncated: false,
       keywordMatchCount: null,
+      // #338:這一格不是供應商單號搜尋 ⇒ `null`(不是 `[]`)。
+      supplierOrderNoMatchedSuppliers: null,
     });
   });
 
@@ -516,7 +518,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     );
     expect(eq).not.toHaveBeenCalled();
     expect(range).toHaveBeenCalledWith(0, 19);
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
   });
 
   it('取消單(cancelled_at 非 null)+ 客人 join 缺(customers null)→ cancelledAt 帶值、customerName null', async () => {
@@ -1161,7 +1163,10 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
             product_snapshot: null,
           },
         ],
-        order_notes: undefined, // A9a-1:內嵌鍵整個缺(舊 row / 投影退版)→ 空時間軸、不 throw
+        // 🔴 #328(2026-08-11 更正):這一行原本註解寫「→ **空時間軸**」,而下面也真的斷言
+        //    `customerNotified === false` —— 那是**把 fail-open 寫成規格在替它站崗**:
+        //    「沒讀到」被當成「讀到了、沒人告知過客人」。現行契約是 fail-closed ⇒ `null`(無法判定)。
+        order_notes: undefined, // 內嵌鍵整個缺(舊 row / 投影退版)→ 不 throw,但**不得**翻成 false
       },
       error: null,
     });
@@ -1171,7 +1176,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(res?.invoiceRequest.type).toBeNull();
     expect(res?.items[0]).toMatchObject({ title: null, spec: null });
     expect(res?.notes).toEqual([]);
-    expect(res?.customerNotified).toBe(false);
+    // 🔴 #328:null = 無法判定(不是 false = 尚未告知)。
+    expect(res?.customerNotified).toBeNull();
+    // 🔴 這一欄仍是 false,而且**必須**是 —— 它是畫面分辨「讀取失敗」與「被截斷」的唯一依據。
     expect(res?.notesTruncated).toBe(false);
     // 🔴 A9a-2 + 關卡2 codex MF1:採購內嵌鍵整個缺(投影退版)→ 空清單、不 throw,
     //    但 **procurementTruncated = true**(「沒問到」不等於「答案是零筆」;A10b 據此拒絕送出表單)。
@@ -1395,7 +1402,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋'
         { orderNumber: bad },
         { limit: 20 },
       );
-      expect(res, `格式不符應回零筆:${bad}`).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+      expect(res, `格式不符應回零筆:${bad}`).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
       expect(from, `格式不符不該碰 DB:${bad}`).not.toHaveBeenCalled();
       expect(or).not.toHaveBeenCalled();
       expect(range).not.toHaveBeenCalled();
@@ -1414,7 +1421,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋'
         { orderNumber: attack },
         { limit: 20 },
       );
-      expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+      expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
       expect(from, `注入形狀不該碰 DB:${attack}`).not.toHaveBeenCalled();
     }
   });
@@ -1444,7 +1451,7 @@ describe('SupabaseOrderAdapter — A9b1 單號搜尋守門', () => {
       { orderNumber: 'BAD!', paymentStatus: 'paid' },
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
     expect(from).not.toHaveBeenCalled();
   });
 });
@@ -1498,7 +1505,75 @@ function makeSupplierSearchClient(opts: {
   };
 }
 
-const procRow = (orderId: string) => ({ order_items: { order_id: orderId } });
+const procRow = (orderId: string, supplierId = 'sup-1', label: string | null = 'A 商行') => ({
+  order_items: { order_id: orderId },
+  // #338:探測查詢多取的兩欄。預設給一家有名字的,既有測試的斷言因此一個字都不用改。
+  supplier_id: supplierId,
+  suppliers: { label },
+});
+
+describe('#338 命中的供應商帶出來(同一次往返)', () => {
+  const run = async (procData: unknown[]) => {
+    const h = makeSupplierSearchClient({
+      proc: { data: procData, error: null },
+      list: { data: [], error: null, count: 0 },
+    });
+    return new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+  };
+
+  it('🔴 同一家跨多張單 ⇒ 去重成一家(去重鍵是 supplier_id,不是 label)', async () => {
+    // 突變:拿掉去重 ⇒ 這格紅,而畫面會把「一家」說成「2 家供應商都有」= 憑空製造一個不存在的警訊。
+    const res = await run([procRow('o-1'), procRow('o-2')]);
+    expect(res.supplierOrderNoMatchedSuppliers).toEqual([{ id: 'sup-1', label: 'A 商行' }]);
+  });
+
+  it('🔴 兩家共用同一組單號 ⇒ 兩家都帶出來(這就是本條 backlog 的情境)', async () => {
+    const res = await run([procRow('o-1'), procRow('o-2', 'sup-2', 'B 貿易')]);
+    expect(res.supplierOrderNoMatchedSuppliers).toEqual([
+      { id: 'sup-1', label: 'A 商行' },
+      { id: 'sup-2', label: 'B 貿易' },
+    ]);
+  });
+
+  it('🔴 有任何一列認不出 supplier_id ⇒ 整份回 `[]`,不回「我認得的那幾家」', async () => {
+    // 🔴 少報比不報更危險:員工看到「只有 A 家」會放心登錄,而實際上還有一家沒被認出來。
+    //    突變:改成「濾掉認不出的、其餘照回」⇒ 這格紅。
+    const res = await run([procRow('o-1'), { order_items: { order_id: 'o-2' }, suppliers: null }]);
+    expect(res.supplierOrderNoMatchedSuppliers).toEqual([]);
+  });
+
+  it('🔴 label 拿不到(內嵌沒回來)⇒ 該家仍在清單裡但 label 為 null(交給 UI 退回警語)', async () => {
+    const res = await run([procRow('o-1', 'sup-9', null)]);
+    expect(res.supplierOrderNoMatchedSuppliers).toEqual([{ id: 'sup-9', label: null }]);
+  });
+
+  it('🔴 R2:第三個 null 成因 —— 單號合法,但關鍵字先零命中而早退(探測排在關鍵字之後)', async () => {
+    // 這一格釘的是**契約**:照「null = 沒搜單號」推導會錯,因為這條路上單號是合法且有給的。
+    // 沒有它,把 domain docstring 改回「只有兩個成因」也不會有任何測試轉紅。
+    const h = makeKeywordSearchClient({
+      rpc: { data: { ids: [], truncated: false }, error: null },
+      proc: { data: [procRow('o-1')], error: null },
+    });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { keyword: '找不到的詞', supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(res.supplierOrderNoMatchedSuppliers).toBeNull();
+    expect(res.keywordMatchCount).toBe(0);
+  });
+
+  it('🔴 探測整條沒跑(輸入不合法)⇒ `null`,與 `[]` 不同', async () => {
+    const h = makeSupplierSearchClient({ proc: { data: [], error: null } });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'bad,input' },
+      { limit: 20 },
+    );
+    expect(res.supplierOrderNoMatchedSuppliers).toBeNull();
+  });
+});
 
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商單號搜尋', () => {
   it('命中 → 第一段對採購表 eq 比對大寫欄;第二段 .in(id) 且**投影仍是主常數**', async () => {
@@ -1511,7 +1586,12 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商�
       { limit: 20 },
     );
     // 第一段:比對的是 A9b2-M 的產生欄、值是正規化後的大寫形(不是使用者原輸入)
-    expect(h.procSelect).toHaveBeenCalledWith('order_items!inner(order_id)');
+    // 🔴 #338:這一行**改過**(原為 `'order_items!inner(order_id)'`)。它紅過一次,而且**紅得對** ——
+    //    這正是這道守門存在的意義:探測查詢的投影不該被誰順手改掉而沒人知道。
+    //    多取的兩欄只餵「命中了哪幾家供應商」的提示,**不進列表投影白名單**(下一行照舊釘住)。
+    expect(h.procSelect).toHaveBeenCalledWith(
+      'order_items!inner(order_id), supplier_id, suppliers(label)',
+    );
     expect(h.procFilter).toHaveBeenCalledWith('supplier_order_no_upper', 'eq', 'SO-123');
     // 🔴 第二段的投影一個字都沒動(鐵則 12 byte-lock 白名單不因搜尋而換版本)
     expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
@@ -1550,7 +1630,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商�
       { supplierOrderNo: 'SO-NOPE' },
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: [] });
     expect(h.listSelect).not.toHaveBeenCalled();
     expect(h.from).not.toHaveBeenCalledWith('orders');
   });
@@ -1561,7 +1641,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商�
       { supplierOrderNo: 'SO-123ß' }, // 非 ASCII
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
     expect(h.from).not.toHaveBeenCalled();
   });
 
@@ -1871,7 +1951,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — #347-2a 關鍵字�
       { keyword: 'zzz' },
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: 0 });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: 0, supplierOrderNoMatchedSuppliers: null });
     // 🔴 `0`(搜了、零命中)與 `null`(沒搜過)必須分得出來 —— 那是災難當天的第一個分岔。
     expect(res.keywordMatchCount).not.toBeNull();
     expect(h.from).not.toHaveBeenCalled();
@@ -1886,7 +1966,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — #347-2a 關鍵字�
       { keyword: 'x'.repeat(MAX_ORDER_KEYWORD_LENGTH + 1), supplierOrderNo: 'SO-1' },
       { limit: 20 },
     );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null });
+    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
     expect(h.rpc).not.toHaveBeenCalled();
     expect(h.from).not.toHaveBeenCalled();
   });
@@ -2015,7 +2095,15 @@ describe('#347-2a 關鍵字 × 供應商單號:交集只送一次 .in(id)', () =
     );
     // 🔴 這一格正是 keywordMatchCount 存在的理由:畫面上與「關鍵字零命中」完全同形,
     //    只有這個數字分得出來是「找到了、但被交集砍光」。
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: 1 });
+    // 🔴 #338:供應商探測**跑過而且有命中**(交集為空是關鍵字那側砍掉的)⇒ 照實帶出來,不是 null。
+    //    畫面上不會顯示 —— `describeSupplierMatch` 的第二個參數(有沒有列出訂單)是 false。
+    expect(res).toEqual({
+      items: [],
+      total: 0,
+      keywordTruncated: false,
+      keywordMatchCount: 1,
+      supplierOrderNoMatchedSuppliers: [{ id: 'sup-1', label: 'A 商行' }],
+    });
     expect(h.in).not.toHaveBeenCalled();
   });
 
@@ -2053,6 +2141,8 @@ describe('#347-2a 關鍵字 × 供應商零命中:早退也要帶出 truncated /
       total: 0,
       keywordTruncated: true,
       keywordMatchCount: ADMIN_ORDER_ID_IN_CAP,
+      // #338:探測跑過、零列 ⇒ `[]`(查過了、一家都沒有),與「沒查過」的 `null` 不同。
+      supplierOrderNoMatchedSuppliers: [],
     });
     expect(h.in).not.toHaveBeenCalled();
   });

@@ -3,6 +3,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import {
   buildNoteTimeline,
   describeCustomerNotified,
+  isNotesUnreadable,
   type NoteTimelineEntry,
 } from '../../lib/orders/note-timeline';
 
@@ -77,7 +78,9 @@ export function NotesTimeline({
   orderId: string;
 }) {
   const view = buildNoteTimeline(detail);
-  const notified = describeCustomerNotified(detail.customerNotified);
+  // #328:整段沒讀到 ⇒ 徽章與下方橫幅都要說「讀取失敗」,不能畫成一條「尚無備註」的空時間軸。
+  const unreadable = isNotesUnreadable(detail);
+  const notified = describeCustomerNotified(detail.customerNotified, unreadable);
   // 顯示新在上;seq 由 lib 依時間軸(舊→新)編號,反轉只動排版不動語意。
   const newestFirst = [...view.entries].reverse();
 
@@ -90,8 +93,10 @@ export function NotesTimeline({
         >
           {notified.label}
         </span>
+        {/* 🔴 #328:讀取失敗時**不可**顯示「0 筆」—— 那是這條 bug 最短的一句謊話
+            (entries 是空的,但那不代表真的零筆)。 */}
         <span className='text-muted-foreground ml-auto text-xs tabular-nums'>
-          {view.entries.length} 筆
+          {unreadable ? '筆數未知' : `${view.entries.length} 筆`}
         </span>
       </div>
 
@@ -102,7 +107,14 @@ export function NotesTimeline({
         </p>
       )}
 
-      {view.entries.length === 0 ? (
+      {/* 🔴 #328:這一格排在「尚無備註」之前,因為兩者的輸入長得一模一樣(entries 皆為空)——
+          差別只在我們**有沒有讀到**。順序寫反就等於把讀取失敗顯示成「這單沒人寫過備註」。 */}
+      {unreadable ? (
+        <p className='mb-2 rounded-md bg-red-50 px-3 py-2 text-xs text-red-800'>
+          這一單的備註沒有載入(讀取失敗)—— 這<strong>不是</strong>「沒有備註」,是「不知道有沒有」。
+          請重新整理;若仍相同,請通知系統維護。在這之前不要據此判斷有沒有告知過客人。
+        </p>
+      ) : view.entries.length === 0 ? (
         <p className='text-muted-foreground py-2 text-sm'>尚無備註。</p>
       ) : (
         <ul>

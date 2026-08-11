@@ -78,8 +78,9 @@ export interface IOrderRepository {
    * - server 端分頁(`.range(offset, offset+limit-1)`)+ 排序 created_at DESC(新到舊)+ 總筆數 count;
    * - 🔴 鐵則 12:投影具名白名單、零成本欄、禁 `select('*')`(orders 表本身無成本欄、天生守,白名單守慣例縱深)。
    *
-   * 🔴 **回傳是 {@link AdminOrderListResult}、不是裸 `Paginated`**(M-4b #347-2a):關鍵字搜尋多帶兩個
-   * 訊號 —— `keywordTruncated`(命中超過上限、只回前 100)與 `keywordMatchCount`(非 PII 的命中計數)。
+   * 🔴 **回傳是 {@link AdminOrderListResult}、不是裸 `Paginated`**(M-4b #347-2a):關鍵字搜尋多帶**三個**
+   * 訊號 —— `keywordTruncated`(命中超過上限、只回前 100)、`keywordMatchCount`(非 PII 的命中計數),
+   * 以及 `supplierOrderNoMatchedSuppliers`(#338:供應商單號命中了哪幾家)。
    * 兩者都是**必填**:adapter 的每一條 return 路徑都必須明確表態,
    * 不能讓「忘了填」變成合法寫法 —— 那正好等於靜默截斷。語意全文見該型別的 docstring。
    * ⚠️ 實作端共有 **7 條 return 路徑**(6 條早退 + 1 條正常);其中前 3 條是「正規化就判定不可能有結果」、

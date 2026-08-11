@@ -145,8 +145,37 @@ describe('OrdersPage — A10c2 供應商單號搜尋的明示態', () => {
   //    拿那半句去斷言會抓到輸入框、量到的不是橫幅(第一版就是這樣紅的)。
   const BANNER_ONLY = '登錄到貨前請先點進訂單核對供應商';
 
-  it('搜尋成功且有命中 → 顯示「不區分供應商」的過渡提醒', async () => {
-    mocks.list.mockResolvedValue(ONE_ORDER);
+  /** #338:adapter 回的「命中了哪幾家」。舊 fixture 沒有這個欄位 ⇒ 等同 `null` = 不顯示任何提示。 */
+  const withSuppliers = (suppliers: { id: string; label: string | null }[] | null) => ({
+    ...ONE_ORDER,
+    supplierOrderNoMatchedSuppliers: suppliers,
+  });
+
+  it('🔴 #338 命中一家 ⇒ 直接具名(這才是員工要的答案),不再只叫他自己去核對', async () => {
+    mocks.list.mockResolvedValue(withSuppliers([{ id: 's1', label: 'A 商行' }]));
+    const { container } = await renderPage({ supplier_no: 'SO-1' });
+    expect(container.textContent).toContain('這組單號屬於供應商');
+    expect(container.textContent).toContain('A 商行');
+    // 一家的時候不該再叫他點進去核對 —— 問題已經回答完了。
+    expect(container.textContent).not.toContain(BANNER_ONLY);
+  });
+
+  it('🔴 #338 命中兩家 ⇒ 示警 + 列名 + 仍要求點進去核對(這才是真的會出事的情況)', async () => {
+    mocks.list.mockResolvedValue(
+      withSuppliers([
+        { id: 's1', label: 'A 商行' },
+        { id: 's2', label: 'B 貿易' },
+      ]),
+    );
+    const { container } = await renderPage({ supplier_no: 'SO-1' });
+    expect(container.textContent).toContain('A 商行');
+    expect(container.textContent).toContain('B 貿易');
+    expect(container.textContent).toContain('務必');
+  });
+
+  it('🔴 #338 認不出供應商 ⇒ 退回原本那句警語,不假裝知道', async () => {
+    // 突變:把 unknown 也畫成具名 ⇒ 這格紅(而畫面會憑空指定一家供應商)。
+    mocks.list.mockResolvedValue(withSuppliers([]));
     const { container } = await renderPage({ supplier_no: 'SO-1' });
     expect(container.textContent).toContain(BANNER_ONLY);
   });

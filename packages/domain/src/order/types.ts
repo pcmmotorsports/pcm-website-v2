@@ -355,6 +355,25 @@ export type AdminOrderListResult = Paginated<AdminOrderSummary> & {
    * **而一個字的搜尋詞都不必記錄**。
    */
   keywordMatchCount: number | null;
+  /**
+   * 供應商單號搜尋**命中了哪幾家供應商**(#338;已去重、順序不保證)。
+   *
+   * **`null` = 這次沒有真的去查供應商**;`[]` = **查過了、但一家都認不出來**。兩者**不可互換**。
+   * 🔴 **`null` 有三個成因,不是只有「沒給單號」**(R2 抓到 —— 而這正是同一顆 commit 裡
+   *    `customerNotified` 剛修過的**同一種錯**:改了行為卻沒回頭改契約):
+   *      ①根本沒給供應商單號;②給了但在正規化階段被判不合法(探測不跑);
+   *      ③**給了合法單號,但關鍵字先零命中而提早回傳** —— 探測排在關鍵字之後,那條路上它沒跑到。
+   *    ⇒ **照契約推導「null = 沒搜單號」會錯**。要判斷「有沒有搜」請看 `filter.supplierOrderNo`。
+   *
+   * 🔴 **存在的理由是「員工手上只有一張單號」**:`supplier_order_no` 在 DB 層沒有跨供應商唯一性
+   * (A2 `20260729020000:70` 的業務鍵是 `(order_item_id, supplier_canonical_key)`)⇒ 兩家用同一組
+   * 單號時結果會一起列出。而員工**正是因為不知道是哪一家才來搜**,叫他「點進訂單核對」
+   * 等於把唯一能回答問題的那筆資料藏起來。⇒ 一家就具名、多家就示警並列名。
+   *
+   * 🔴 `label` 可為 `null`(內嵌沒回來 / 投影退版)⇒ **UI 不得假裝知道**,要退回
+   * 「此搜尋不區分供應商」那句警語。與 `procurement-suppliers.ts` 對同一情況的處置同向。
+   */
+  supplierOrderNoMatchedSuppliers: { id: string; label: string | null }[] | null;
 };
 
 /**
@@ -894,8 +913,13 @@ export type AdminOrderDetail = {
   /**
    * U6 告知義務:本單有「未被更正的 `customer_notified`」。
    * 🔴 **不得**寫成「有 customer_notified」—— 被更正掉的誤選要排除(建表檔 `:160-177` 合約)。
-   * 🔴 **`null` = 無法判定**(時間軸被截斷,見 `notesTruncated`):兩個方向都可能錯,顯示端必須
-   * 說「無法判定」而**不得**當 false 用。型別留 null 是為了讓 TS 逼消費端處理,不是靠註解提醒。
+   * 🔴 **`null` = 無法判定**:兩個方向都可能錯,顯示端必須說「無法判定」而**不得**當 false 用。
+   * 型別留 null 是為了讓 TS 逼消費端處理,不是靠註解提醒。
+   * 🔴 **`null` 有兩個成因,不可只記得第一個**(#328 補;漏了它的人會把 `?? []` 寫回 mapper):
+   *   ①**時間軸被截斷**(`notesTruncated === true`)—— 讀到了,但只有最新 N 筆;
+   *   ②**整段沒讀到**(`notesTruncated === false`)—— 投影退版 / 內嵌鍵缺,= 讀取失敗。
+   *   ⇒ **`null` ⟺ 截斷 是錯的**。兩者對員工的處置不同(①看更早紀錄 ②重新整理/通知維護),
+   *   文案不可共用;判別式**唯一具名處** = admin `lib/orders/note-timeline.ts` 的 `isNotesUnreadable`。
    */
   customerNotified: boolean | null;
   /**

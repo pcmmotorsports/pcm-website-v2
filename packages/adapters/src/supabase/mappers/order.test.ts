@@ -660,3 +660,20 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-2 在途扣款閘 fail-
     ).toBe('unknown');
   });
 });
+
+describe('#328 明細 mapper 的 notes 那一跳:缺鍵不得被補成空陣列', () => {
+  // 🔴 這一格守的是**中間那一跳**:`order-notes.test.ts` 守 mapper 自己、
+  //    `notes-timeline.test.tsx` 守畫面,但把 `?? []` 加回 `order.ts` 的那一刻,兩端都還是綠的。
+  //    (同 memory「兩端各有測試但中間透傳一跳無人守」那一形狀。)
+  it('🔴 `order_notes` 缺鍵(投影退版)⇒ customerNotified 為 null,不是 false', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(detailRow());
+    expect(res.customerNotified).toBeNull();
+    expect(res.notesTruncated).toBe(false);
+  });
+
+  it('🔴 正向對照:帶了空陣列(真的讀到、沒備註)⇒ false', () => {
+    // 沒有這格,「這一跳永遠回 null」的突變也會讓上面那格綠。
+    const res = mapSupabaseAdminOrderDetailRowToDetail({ ...detailRow(), order_notes: [] });
+    expect(res.customerNotified).toBe(false);
+  });
+});
