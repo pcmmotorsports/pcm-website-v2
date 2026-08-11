@@ -178,7 +178,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     image: product.images[0] ?? null,
     // trim 線 S4a:卡片首圖去白邊 bbox(domain cardImageTrim 已經 parseImageTrim 收斂;無=undefined)。
     //   🔴 2026-08-07 更正:原註解寫「→ cover fallback」是**過期字面**。實際 fallback 是
-    //   **contain**(`ProductCard.tsx:154-157` 的 inline `objectFit: 'contain'`;Sean 2026-07-24
+    //   **contain**(`ProductImage.tsx:166` 的 inline `objectFit: 'contain'` —— 2026-08-12 拆檔前
+    //   在 `ProductCard.tsx` 同一段,純搬移零行為變更;Sean 2026-07-24
     //   override design 原 cover,理由=非正方形合成圖 cover 會裁掉上下)。行為一直是對的、
     //   只有這句註解停在改判之前;由設計端 OD 查證信反推查出。
     imageTrim: product.cardImageTrim,

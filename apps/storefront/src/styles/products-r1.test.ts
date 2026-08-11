@@ -390,7 +390,8 @@ describe('商品卡價格顏色 · 必須贏過 pricing.css 的通用預設', ()
 //    ProductPage.tsx:206 掛載;R1 抓到前一版漏算此面)——皆共用 .pcard-img-wrap class。
 // 🔴 這條守門只驗「CSS 宣告存在」,不驗「畫面看得到」——2026-08-07 更正(R1 MF1/MF2/MF3,
 //    上一版這裡的講法有兩處錯):
-//    ①`ProductCard.tsx` 的 `.pcard-gallery` inline background 已跟進改 `#ffffff`(Sean 08-06 拍 A
+//    ①`ProductImage.tsx` 的 `.pcard-gallery`(`:116`)inline background 已跟進改 `#ffffff`(`:131`)
+//      (2026-08-12 拆檔前在 `ProductCard.tsx`,純搬移零行為變更;Sean 08-06 拍 A
 //      推翻 07-24 拍板 Q1=A)——但這裡的 `background:#fff` **仍然被 `.pcard-gallery` 完整蓋住**
 //      (該層 width/height:100% + 三分支全不透明),只是兩條真圖路徑現在同色、看不出被蓋。
 //      它是**縱深防禦**(gallery 若改回透明或整條 background 被拿掉才輪到它現形),不是「不再被蓋」;

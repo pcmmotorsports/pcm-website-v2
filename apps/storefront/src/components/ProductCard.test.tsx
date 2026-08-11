@@ -147,7 +147,7 @@ describe('ProductCard', () => {
     const gallery = img.closest('.pcard-gallery') as HTMLElement;
     expect(gallery.style.background, '前提(非獨立防線,被下面的 toContain 嚴格蘊含):gallery 有算出 background(非空字串)').not.toBe('');
     expect(gallery.style.background, 'placeholder 分支應仍是 linear-gradient、不是純白').toContain('linear-gradient');
-    // 🔴 2026-08-07(R1 nit):這條前提是 PALETTES(見 ProductCard.tsx)六色沒有一個含
+    // 🔴 2026-08-07(R1 nit):這條前提是 PALETTES(宣告 `ProductImage.tsx:60`、六色 `:61-66`;2026-08-12 拆檔前在 ProductCard.tsx)六色沒有一個含
     // rgb(255, 255, 255) —— 日後有人加一個含白的 palette(例如更淺的 cool 色),這條會無聲失效
     // (linear-gradient 字串裡混進 '255, 255, 255' 也一樣通過上面那條 toContain)。
     expect(gallery.style.background, 'placeholder 分支不該被誤改成 #fff').not.toContain('255, 255, 255');
