@@ -134,7 +134,8 @@
   position: relative;
   min-height: 600px;
   /* 🔴 R1 must-fix:第一版把 OD 的 `69px` / ≤900 的 `65px` **寫死**搬進來,而本 repo 的頁首高
-     是站台 token `--shell-header-h`(`tokens.css:27` 桌機 73px、`:226` ≤1079 改 69px)——
+     是站台 token `--shell-header-h`(`tokens.css:27` 桌機 73px、`:242` ≤1079 改 **60px**)——
+     (⚠️ 原字面「`:226` ≤1079 改 69px」**行號與值都過期**:值 2026-08-09 由 69 改 60、行號隨檔案增長位移;#421 修)
      兩邊差 4px,而且 `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」
      (那顆 token 正是為了同款 4px 事故才立的)。⇒ 改吃 token,連 ≤900 的高度覆寫一起刪
      (token 自己在 ≤1079 就換值了,不需要本檔再寫第二個斷點)。
@@ -276,7 +277,8 @@
 .b-dock-hint { font-size: 13px; color: var(--ed-c-ink-mute); }
 
 @media (max-width: 900px) {
-  /* 高度不再於此覆寫:`--shell-header-h` 在 ≤1079 自己就換成 69px(見上方 R1 修正)。 */
+  /* 高度不再於此覆寫:`--shell-header-h` 在 ≤1079 自己就換成 **60px**(見上方 R1 修正)。
+     (~~69px~~ 2026-08-09 Sean 看過梯度截圖後改 60;#421 修) */
   .b-hero { min-height: 560px; }
   .b-hero-inner { padding-bottom: 20px; }
   .b-hero-title { margin-bottom: 22px; }
