@@ -91,6 +91,13 @@ fi
   echo "   docs/reviews/2026-08-11-269b-rollback.sql 複製成新時戳 migration 後 db push"; }
 [ "$fail_new" = 1 ] && { echo "🟠 格③④⑤⑥失敗 = 新品路徑不夠快,但今天沒人在用"; \
   echo "   ⇒ 開索引片(普通 CREATE INDEX、**不可 CONCURRENTLY**)、不接段二、**不 rollback**"; }
-[ "$fail_existing" = 0 ] && [ "$fail_new" = 0 ] && [ "$schema_cache" = 0 ] && \
-  echo "✅ 全格通過 ⇒ 段二解鎖(記得 T+20min 再跑一次格② — revalidate 900s)"
+# 🔴 只跑單格時**不得**宣告「全格通過」——那會讓 T+20min 的單格複跑看起來像整個閘過了,
+#    足以讓人據此解鎖段二。判準:有沒有帶 $ONLY。
+if [ "$fail_existing" = 0 ] && [ "$fail_new" = 0 ] && [ "$schema_cache" = 0 ]; then
+  if [ -n "$ONLY" ]; then
+    echo "✅ 格${ONLY} 單格通過。⚠️ 這**不是**整個閘通過 —— 段二解鎖要六格全跑且全過。"
+  else
+    echo "✅ 六格全通過 ⇒ 段二解鎖(記得 T+20min 再跑一次格② — revalidate 900s)"
+  fi
+fi
 exit 0
