@@ -1,4 +1,11 @@
-# 退款帳本 `manual` 沖銷 — 片級 plan **v8**(#405 + #417)
+# 退款帳本 `manual` 沖銷 — 片級 plan **v9**(#405 + #417)
+
+> **v9 = 折 Fable R3 的 4 must-fix + 2 consider + 1 nit**(2026-08-12,主視窗 `P-536-A`;逐條處置=**§12**)。
+> 🔴 **最重的 F1**:本片把唯一性從索引級降成 trigger 計數級,卻**沒有隔離閘** ——
+> REPEATABLE READ 下計數看不到兄弟已提交的列,而索引後盾已被本片 DROP、**沒有任何一層接得住**。
+> 🔴 **F4**:fail-closed 原本只對 NULL 成立;jsonb 字串 `"true"` 求值是 **false 不是 NULL** ⇒ COALESCE 不觸發 ⇒ **fail-open**。
+> ⚠️ **版本號說明**:主視窗信裡說的「v7」= 折完 Fable 那一版。我這邊在他派 Fable 之前已自跑 codex 出了 v7/v8
+> (見 §11-6),故折完是 **v9**;內容對得上,只是編號多走了兩號。
 
 > **v8 = 關卡1 R2 確認輪**(2026-08-12):**3/4 通過**;唯一新提的 must-fix(「仍漏列會翻面的混合形狀」)
 > **經逐值驗證後駁回** —— 它舉的三個形狀,兩個推錯、一個是已列的翻面 A(逐值表在 §11-6)。
@@ -131,11 +138,24 @@ v1 想用 `(refund_id, generation)` 唯一索引拿到「索引級保證」。**
    ⚠️ 這讓本片的爆炸半徑變大(它是 2d 剛動過的物件)⇒ §7 的字面清單、2c/2d 兩支回退腳本的
    逐字 pin、兩支 harness 的基線斷言**全部要同批改**,且 2c 回退的順序閘白名單要多一個形狀。
    🔴 **v5 實查推翻了這句的後半**:兩支回退腳本的逐字 pin **不得動**(它們是順序閘本體,不是會過期的字面),
-   必改的 harness 只有 `l5b2-2d-verify.sh` 一支。逐檔實查與理由見 **§10**。
+   ~~必改的 harness 只有 `l5b2-2d-verify.sh` 一支~~ ⇒ **v9 更正:兩支**(加 `scripts/op6a-verify.sh`,
+   §11 改寫 op6a 之後才進射程;Fable R3 F2)。逐檔實查與理由見 **§10**。
 2. 新增 `reverses_event_id`(自我 FK)+ `pre_one_reversal_uniq`(一列最多被沖一次,對照 `20260810100000:387-389`)。
 3. **把 `pre_one_terminal_uniq` 的述詞改成「排除已被沖銷者」做不到**(索引述詞不能引用別列)⇒
    改成 **BEFORE INSERT trigger**:寫入 terminal 事件時,先 `SELECT … FOR NO KEY UPDATE` 鎖父列 `payment_refunds`,
    再算「**未被任何 reversal 指向的 terminal 事件數**」,>0 就 RAISE。
+   🔴🔴 **trigger 本體的第一件事必須是隔離閘**(Fable R3 F1,親驗成立):
+   ```sql
+   IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
+     RAISE EXCEPTION '…: isolation guard' USING ERRCODE = 'P8C01';
+   END IF;
+   ```
+   **為什麼是 must-fix 不是保險**:本片把唯一性從**索引級**降成**trigger 計數級**(2b-1 DROP 了索引)。
+   在 **REPEATABLE READ** 下,後到的交易取得父列鎖之後,它的**快照仍看不到兄弟剛提交的那一列**
+   ⇒ 計數為 0 ⇒ 放行 ⇒ **兩筆有效終局同時存在**,而索引後盾**已經被本片拿掉、沒有任何一層接得住**。
+   本 repo 對這個形狀有實測案底(A2b1 的 `P2B02` 隔離閘,memory `project_m4b-a2b1-guard-decisions`)。
+   🔴 **而我自稱沿用形制的 `opa12`,它的 G1 就是這道閘**(`20260810210000:99-102` 逐字)——
+   v8 之前本檔對「隔離/isolation」的命中數是 **0**(`grep -ciE "隔離|isolation" <本檔>`)⇒ 我沿用了十道守門、獨漏第一道。
    ⚠️ 這是**把索引級保證降級成 trigger 級**——誠實寫明:並發正確性**完全靠那道父列鎖**,
    而那道鎖是本線既有的序列化點(母 plan §3a-4 的 advisory 共用點同一顆)。
 4. **`manual_reversal` 明定 NOT terminal**(關卡1 must-fix):它不進 terminal 集合、不佔名額;
@@ -186,7 +206,9 @@ view 要明定 owner、`security_invoker`、**零 GRANT**,並對「被 SECDEF �
 鎖父列之後先做 CAS(現行有效終局 ≠ 期望值 ⇒ 拒),這是**併發正確性的本體**,不是參數美觀。
 —— SECURITY DEFINER、`SET search_path=''`、EXECUTE 只給 `service_role`(逐字對照 opa12 的開權段)。
 內部一交易做三件:①鎖父列 ②寫 `manual_reversal`(指向現行 manual、帶 reason 與 actor)③寫新的 `manual`(generation+1、帶新 verdict)。
-守門沿用 opa12 十道的形制:actor 存在且 active(`staff`)→ reason 必填非空白 → 鎖序 → 已被沖銷拒 → row_count 守。
+守門沿用 opa12 十道的形制:**G1 隔離閘(`transaction_isolation` 必須是 `read committed`,ERRCODE `P8C01`,排最前)**
+→ actor 存在且 active(`staff`)→ reason 必填非空白 → 鎖序 → 已被沖銷拒 → row_count 守。
+⚠️ **RPC 與 trigger 兩邊都要**:RPC 那道擋的是「呼叫端把交易開成 RR」,trigger 那道擋的是「繞過 RPC 直接寫入」。
 
 ⇒ **員工看到的是「修改判定」一個按鈕**;沖銷、generation、兩列寫入全在 RPC 裡面,員工不需要知道。
 
@@ -199,7 +221,13 @@ view 要明定 owner、`security_invoker`、**零 GRANT**,並對「被 SECDEF �
 4. 負:`p_actor` 不在 `staff` 或 `is_active=false` ⇒ 擋,且**在讀任何帳本資料之前**(對照 opa12 G2 的位置)。
 5. 負:對**沒有** manual 的 refund 呼叫 ⇒ 擋(不是靜默建一筆)。
 6. 結構:三欄純加法、既有約束一條都沒被動到、零直權面(表級 + 欄級兩本帳)。
-7. 並發:兩個交易同時沖同一筆 ⇒ 只有一個成功(鎖父列 + 唯一索引兩層)。
+7. 並發(**宣稱已依 Fable R3 F1 改寫,原字面不實**):
+   - **同時沖同一筆** ⇒ 只有一個成功。兩層=父列鎖 + `pre_one_reversal_uniq`(唯一索引,擋雙沖)。
+   - **同時寫兩筆 terminal** ⇒ 只有一個成功。這裡**只有一層**=父列鎖 + trigger 計數,
+     `pre_one_reversal_uniq` **擋不到它**(它索引的是 `reverses_event_id`,不是終局)。
+     ⇒ 正確性完全靠「父列鎖 + read committed」這一組;**隔離閘是這一層的必要條件、不是加分項**。
+   - ~~舊字面「鎖父列 + 唯一索引兩層」~~ 對後者為假:那道唯一索引在本片已被 DROP。
+   - 負測:把交易開成 `REPEATABLE READ` ⇒ 必須被隔離閘擋(ERRCODE `P8C01`),**不得**靜默放行。
 8. 回退腳本 + 回退自驗;順序依賴寫明(本片在 2d 之後)。
 9. 突變:每道守門一發,**預期紅格由實跑決定**。
 10. 三綠 + harness 實跑格數由 `PASS=` 回填。
@@ -225,11 +253,23 @@ v1 寫「三欄 + 一索引 + 一 RPC,皆純加法」。**關卡1 指出不實**
 - **本片不含 UI**(§1c-1:L5b 帳本零畫面)⇒ Sean 的 UI 鐵律**這一片還兌現不了**,只能保證 RPC 的形狀讓 UI 之後接得上(一個動作、三個參數)。
 - 不寫 `admin_audit_log`(沿用本線慣例);稽核靠帳本列本身 ⇒ **actor 欄是承重的**,不是裝飾。
 - #417 的回退閘訊息要改指沖銷路——**那要等本片的 RPC 存在**,所以放本片收尾、不放前面。
+- 🔴🔴 **B 的回頭路有有效窗:只到「判定被執行消費」之前**(Fable R3 F3,採納)。
+  Q-425=B 的安全網逐字是「員工看錯就沖銷改回、判定即時重算」——**那只在判定還沒被拿去做事時成立**。
+  ④ 已付款取消整合的**結清執行器**上線之後,一筆錯的 `manual` 可能**在被改回之前就已經被消費**
+  (單子已結清、錢已經照那個判定處理掉)。屆時需要的是**退款 / 沖掉那次結清**,
+  **本片不提供、也不該提供**(它只管帳本判定,不管執行後果)。
+  ⇒ 明文界線:**沖銷恢復的是「判定」,不恢復「已依該判定執行的動作」**。
+  ⇒ 🔴 **交 ④ 線的硬約束**(主視窗轉 E):①執行器必須在**執行當下**重算,不吃快取的舊判定
+  ②「執行後才被改回」要有它自己的補償機制,不能假設沖銷片會兜住。
 - 🔴🔴 **第一筆沖銷寫進去之後,本片的回退就永久關閉**(v5 實查;推導在 §10c-2):
   沖銷會讓同一顆 refund 上有兩筆 `manual`,而回退必須還原的 `pre_one_terminal_uniq` 述詞含 `manual`
   ⇒ 唯一索引**物理上建不起來**(23505),除非刪掉那些 append-only 的稽核列。
   ⇒ 這不是政策而是**做不到**,apply 前要讓 Sean 知道:**這片的可回退性只存在到第一次有人用它為止**。
   ✅ **已實測**(2026-08-11 23:4x,拋棄式 PG 17.10、三格含正向對照,零留痕;複跑法見 §10c-2)。
+  🔴 **但「回退關閉」≠「沒有出路」(Fable R3 F6,採納)**:語意要改**不必回退** ——
+  `view` 與 `trigger` 都可以 `CREATE OR REPLACE` 換述詞、**不動任何資料**。
+  真正關閉的只有「把三欄與 `manual_reversal` 值域整個撤掉」這條路。**兩件事不要混為一談**,
+  否則 apply 前的風險簡報會把它讀成死路而過度保守。
 
 ## §6 拍板紀錄(2026-08-11 23:15,主視窗 P-521-A)
 
@@ -316,7 +356,18 @@ v4 §7 結尾自己寫了「實作當天要再跑一次同樣的 grep」。跑�
 grep -rn "reconcile" supabase/migrations/ scripts/ | grep -i manual
 grep -rn "pre_one_terminal_uniq" --include='*.sql' --include='*.sh' supabase/ scripts/
 ```
-第三條不是命令:**逐檔開來讀該行的上下文**。v4 的錯全部出在只看命中數、沒看那一行在做什麼。
+第三條(**v9 補,Fable R3 F2**)—— §11 把 `op6a` 拉進射程之後,值域字面那兩條**掃不到它**:
+```
+grep -rn "result_success\|result_failed" scripts/op6a-verify.sh
+```
+第四條不是命令:**逐檔開來讀該行的上下文**。v4 的錯全部出在只看命中數、沒看那一行在做什麼。
+
+🔴🔴 **v9 必須先認一個錯**:§10a 原本寫「**本片唯一必改的 harness**」——
+那句話在 v5 落筆時對(當時射程只有值域字面),**v6 把 `op6a` 拉進射程的那一刻就過期了**,
+而我沒有為新的那個面重跑影響掃描 ⇒ 這正是本檔 §10b 在罵 v4 的同一個病,**我自己犯了第二次**。
+`scripts/op6a-verify.sh` 存在(33KB、可執行)、`:372-375` 釘著兩格期望值,
+而 §10 的兩條 grep 對它命中 **0**(`grep -rn "reconcile" scripts/op6a-verify.sh | grep -ci manual` → 0)。
+⇒ 教訓寫進這裡:**射程一改,影響清單就要重建,不是沿用**。
 
 ### 10a 逐檔性質與處置
 
@@ -327,7 +378,8 @@ grep -rn "pre_one_terminal_uniq" --include='*.sql' --include='*.sh' supabase/ sc
 | `20260811110000:100 / :188 / :239 / :250-255`(2d) | 前置閘六值 + 值域 DDL 七值 + post assert 逐值/逐字 | ❌ 同上。**重放一律按時序**,本片是 `130000`、排在它後面 ⇒ 2d 求值時看到的仍是它自己的 pre/post-image,**不會過期** |
 | `scripts/l5b2-2d-rollback.sql:56-58 / :60-79 / :86-101` | 前置閘 + 冪等分支 + post-image 逐字 pin | ❌ **不得動、更不得放寬**(理由 10b-2) |
 | `scripts/l5b2-2c-rollback.sql:57-68` | 順序閘白名單(兩個合法形狀) | ❌ **不得動**(理由 10b-1) |
-| `scripts/l5b2-2d-verify.sh:140 / :238 / :416 / :424` + 19 處索引名 | 它自建合成 schema 的 pre/post 基線 | ✅ **必改**(本片唯一必改的 harness) |
+| `scripts/l5b2-2d-verify.sh:140 / :238 / :416 / :424` + 19 處索引名 | 它自建合成 schema 的 pre/post 基線 | ✅ **必改** |
+| 🔴 `scripts/op6a-verify.sh:372-375`(**v9 補列**;Fable R3 F2) | `P6-2c`「terminal 全為 result_failed ⇒ 不算跡象 ⇒ settled」與 `P6-2d`「result_success ⇒ 算跡象 ⇒ needs_human」的**期望值** | ✅ **必改/必重推**(§11 改寫 op6a 直接動到這兩格的前提) |
 | `scripts/l5b2-2c-verify.sh:122` | `strpos(constraintdef,'result_confirmed')>0` **子字串** | 免疫(值域多一個值不會紅)。v4 寫「2 命中會紅」=**高估** |
 | `scripts/l5b1-verify.sh:154 / :224` | 有柵欄 `PREFIX_TS="20260810140000"`(`:51`)⇒ 2c/2d 都沒進它的庫 | 免疫。v4 **漏列**,但結論無害 |
 | `w5-line-verify.sh` `w6a` `w6b1` `w6b2` `w6b3` `w6c` `w7b`(各 1) | 只在 `LINE_TIP` 註解裡,非被測面 | ✅ apply 後**重釘錨**,照 2d 的老規矩 |
@@ -426,9 +478,13 @@ AND NOT EXISTS (SELECT 1 FROM public.payment_refund_events r
                    AND r.reverses_event_id = e.id)                               -- 沒被沖掉
 
 -- indicates_refund(🔴 fail-closed:判不出來一律當「錢動過」)
+-- 🔴 v9(Fable R3 F4):manual 那半必須先過 jsonb_typeof,否則**型別錯會落 false 而不是 NULL**
 COALESCE(
   e.event_type = 'result_confirmed'
-  OR (e.event_type = 'manual' AND (e.record_snapshot -> 'refunded') = 'true'::jsonb),
+  OR (e.event_type = 'manual'
+      AND CASE jsonb_typeof(e.record_snapshot -> 'refunded')
+            WHEN 'boolean' THEN (e.record_snapshot -> 'refunded') = 'true'::jsonb
+          END),
   true)
 ```
 
@@ -439,6 +495,24 @@ COALESCE(
 ⚠️ 實務上 `manual` 列的 `refunded` 由 2c 的 `pre_manual_needs_verdict_chk`(`20260811080000:356-359`)保證是 boolean
 ⇒ NULL 分支**構造不出來**(除非那道 CHECK 被拿掉)。**它是縱深,不是主守門** —— 這句要寫進註解,
 否則下一個人會以為它有被測到(同族 memory `feedback_negative-test-observation-supplied-by-another-mechanism`)。
+
+🔴🔴 **v9 補一個比 NULL 更危險的分支(Fable R3 F4,親驗成立)**:
+原式子的 fail-closed **只對 NULL 成立**。若 2c 那道 CHECK 哪天被拿掉,`refunded` 存成 jsonb **字串** `"true"`
+(人的意思明明是「退成了」),`(… -> 'refunded') = 'true'::jsonb` 求值是 **`false` 而不是 `NULL`**
+⇒ **COALESCE 根本不會觸發** ⇒ `indicates_refund=false` ⇒ **已退錢的單自動結清**,方向正好是最危險那邊。
+
+**實測**(2026-08-12,正式庫唯讀單句):
+
+| 式子 | 結果 |
+|---|---|
+| `'"true"'::jsonb = 'true'::jsonb` | **false**(`IS NULL` → false)⇒ COALESCE 不觸發 |
+| `COALESCE(('"true"'::jsonb='true'::jsonb), true)` | **false** ⇐ fail-**open** |
+| 修法:`COALESCE(CASE jsonb_typeof('"true"'::jsonb) WHEN 'boolean' THEN … END, true)` | **true** ⇐ fail-closed ✅ |
+| 正向對照:同修法餵 boolean `true` / `false` | **true** / **false**(沒有把正常路徑弄壞)✅ |
+
+⚠️ **誠實對稱**:這個形狀今天同樣被 2c 的 CHECK 擋在寫入面 —— 和 NULL 分支一樣不可達。
+**但我已經為 NULL 付了一個 COALESCE**,獨漏更危險的那一支沒有道理(Fable 原話)。
+兩者都留、都標成「縱深,不是主守門」。
 
 ### 11-3 op6a 換吃 canonical 之後的**正向存在條件必須保留**(關卡1 R2 F3)
 
@@ -522,5 +596,27 @@ R2 說「仍漏列會翻面的混合形狀」,舉三個。**我逐值走過,兩�
 全形狀盤點的成本一樣,而且**它會把我沒想到的組合自己吐出來**。
 
 **判停**:R2 三條通過 + 唯一新條經驗證不成立 ⇒ **收斂**,不開 R3。
+
+## §12 Fable R3 逐條處置(v9;主視窗 `P-536-A` 轉達,2026-08-12)
+
+**四條 must-fix 我全部親驗過才折**(七代教訓逐字:「審查者給的事實要先驗再動手」)。
+
+| # | finding | 我的親驗 | 處置 |
+|---|---|---|---|
+| **F1** | trigger/RPC 皆無 `transaction_isolation` 閘;DROP 索引後 RR 下計數看不到兄弟提交列 ⇒ 雙有效終局、無層可接 | ✅ **成立且最重**。`grep -ciE "隔離\|isolation" <本檔>` → **0**;而我自稱沿用的 `opa12` **G1 就是它**(`20260810210000:99-102` 逐字實讀) | **全折**:§2b-3 trigger 本體 + §2c RPC 各加一道(`P8C01`);§3-7「兩層」宣稱**改寫**(`pre_one_reversal_uniq` 索引的是 `reverses_event_id`、擋不到雙 terminal)+ 加 RR 負測 |
+| **F2** | §10 的 grep 掃不到 `scripts/op6a-verify.sh`,而 §11-1 改 op6a 是 v6 才進射程 | ✅ **成立**。該檔存在(33KB、可執行)、`:372-375` 釘 `P6-2c`/`P6-2d` 兩格期望值;§10 兩條 grep 對它命中 **0** | **全折**:§10 補第三條 grep、§10a 補列、§2b-1 與 §10a 的「唯一必改的 harness」**兩處**都更正。**並認錯**:射程一改就要重建影響清單,我在同一份檔裡犯了 §10b 罵 v4 的那個病 |
+| **F3** | B 的回頭路只在「判定被消費前」成立;④ 執行器上線後可能先被消費 | ✅ 成立(是**範圍**問題不是實作錯) | **全折**:§5 明寫「沖銷恢復判定、不恢復已執行的動作」+ 有效窗=執行前;兩條硬約束交 ④ 線(主視窗轉 E) |
+| **F4** | fail-closed 只對 NULL 成立;jsonb **字串** `"true"` 求值是 **false 非 NULL** ⇒ COALESCE 不觸發 ⇒ 已退錢的單自動結清 | ✅ **成立,且修法實測有效**(正式庫唯讀單句;含 boolean true/false 兩個正向對照)⇒ 表在 §11-2 | **全折**:述詞的 manual 那半包 `CASE jsonb_typeof(…) WHEN 'boolean' THEN … END` |
+| F5(consider) | 開燈前 B 的回頭路實際上是 service_role 下呼叫 RPC,缺可照做的過渡期程序 | 成立 | **採納、排 apply 前**:過渡期操作程序(誰跑/什麼命令/怎麼取 `p_expected_event_id`)隨 apply 檢查表一起交,**不寫在本 plan 正文**(它是操作物不是設計) |
+| F6(consider) | 「回退永久關閉」會被讀成死路 | 成立 | **全折**:§5 該條旁補「語意要改不必回退,view/trigger 可 `CREATE OR REPLACE` 換述詞不動資料」 |
+| F7(nit) | `database.types.ts` 三新欄 + 新 view 要 regen | 成立 | **列一筆**:規格見下方「收尾清單」,2m 之前補即可 |
+
+**收尾清單(本片 commit 前逐項打勾)**:①`database.types.ts` regen(三欄 + view)②`op6a-verify.sh` 的 `P6-2c/2d` 逐格重推
+③`l5b2-2d-verify.sh` 值域 4 處 + 索引 19 處 ④w 系列 7 支 + 本片共 8 錨重釘 ⑤w7 `record` + `check` 回帳(順帶做 **#427**)。
+
+**輪次帳**:關卡1 R1/R2(codex,v4)→ R3(codex,v7/v8;2 must-fix)→ **R3′(Fable,換模型;4 must-fix)**。
+🔴 **Fable 抓到的四條,codex 兩輪加我三次自檢全部沒看到**,而 F1 直指本片最核心的降級(索引→trigger)。
+⇒ 「第 3 輪起換模型」這條紀律這次是實錘,記在這裡供下一片引用。
+**判停**:Fable 明判「修完免 R4」⇒ 折完交主視窗窄核,不再開審查輪。
 
 — v6,P 八代 2026-08-12 00:5x
