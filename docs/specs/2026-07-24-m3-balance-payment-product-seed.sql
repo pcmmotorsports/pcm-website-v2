@@ -46,15 +46,41 @@ BEGIN
     RETURNING id INTO v_brand_id;
   END IF;
 
-  -- ── 2. 分類:服務／其他(頂層,fullwidth ／ 避免 raw_path 被 '/' 拆段)──
-  SELECT id INTO v_cat_id
-  FROM public.categories
-  WHERE name = '服務／其他' AND parent_category_id IS NULL;
-  IF v_cat_id IS NULL THEN
-    SELECT COALESCE(MAX(sort_order), 0) + 1 INTO v_sort FROM public.categories;
-    INSERT INTO public.categories (name, raw_path, segments, sort_order)
-    VALUES ('服務／其他', '服務／其他', '["服務／其他"]'::jsonb, v_sort)
-    RETURNING id INTO v_cat_id;
+  -- ── 2. 分類:服務與其他(頂層)────────────────────────────────────────
+  -- 🔴 **2026-08-11 #412 改名**:原本是「服務／其他」(全形 ／,避免 raw_path 被 '/' 拆段)。
+  --   migration `20260811120000_m4b_storefront_412_service_other_category.sql` 把它與報價單側新增的
+  --   大分類「服務與其他」**合併成一顆**(Sean Q1=B)⇒ 本檔的守衛與字面必須一起改成新名。
+  -- 🔴 **不改會怎樣(不是理論)**:下面這個 `IF v_cat_id IS NULL` 是本檔的冪等守衛;守衛還比舊名時,
+  --   改名後它**恆不成立** ⇒ 有人重建環境再跑本檔,就會長出**第二顆**「服務／其他」分類,
+  --   而那正是那支 migration 的斷言②要防的病態狀態(R3 I1 抓到)。
+  -- 🔴 **識別鍵用 `raw_path` 不用 `name`**(codex R4):`raw_path` 才是唯一鍵。拿 `name` 當鍵有兩個坑 ——
+  --   `raw_path` 已是新值但 `name` 錯 → 這裡認為「不存在」→ INSERT 撞唯一鍵;
+  --   `name` 對但 `raw_path`/`segments` 錯 → 誤認成功、錯值留著。
+  -- 四態明確處理(與那支 migration 同一個收斂形狀):
+  SELECT id INTO v_cat_id FROM public.categories WHERE raw_path = '服務與其他';
+  IF v_cat_id IS NOT NULL THEN
+    -- 態①:新名已在 → 收斂 name/segments/parent(不碰 sort_order:別人可能調過)
+    UPDATE public.categories
+       SET name = '服務與其他', segments = '["服務與其他"]'::jsonb, parent_category_id = NULL
+     WHERE id = v_cat_id;
+    IF EXISTS (SELECT 1 FROM public.categories WHERE raw_path = '服務／其他') THEN
+      -- 態③:新舊並存 = 病態(兩顆分類各自有商品),本檔不猜該併哪顆
+      RAISE EXCEPTION '新舊分類同時存在(服務與其他 / 服務／其他)—— 先人工併完再跑本檔';
+    END IF;
+  ELSE
+    SELECT id INTO v_cat_id FROM public.categories WHERE raw_path = '服務／其他';
+    IF v_cat_id IS NOT NULL THEN
+      -- 態②:只有舊名 → 改名即合併(與 migration 20260811120000 同一個動作)
+      UPDATE public.categories
+         SET name = '服務與其他', raw_path = '服務與其他', segments = '["服務與其他"]'::jsonb
+       WHERE id = v_cat_id;
+    ELSE
+      -- 態④:兩者都沒有 → 新建
+      SELECT COALESCE(MAX(sort_order), 0) + 1 INTO v_sort FROM public.categories;
+      INSERT INTO public.categories (name, raw_path, segments, sort_order)
+      VALUES ('服務與其他', '服務與其他', '["服務與其他"]'::jsonb, v_sort)
+      RETURNING id INTO v_cat_id;
+    END IF;
   END IF;
 
   -- ── 3. 商品:補差額用賣場 ────────────────────────────────────────────
