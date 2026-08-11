@@ -100,11 +100,24 @@ s1 "加欄級 ACL"              "GRANT SELECT (id) ON TABLE public.order_cancell
 
 log "4/5 A7-2 行為探針(零突變必須綠 = 兩句成功 NOTICE 都要出現)"
 reapply >/dev/null
+# 🔴🔴 #327 修法(2026-08-11):突變路徑原本用 `n==2` 抽「第 2 個 DO 區塊」,而本檔的第 2 個
+#    DO 區塊是**DML/cluster 前置閘**、不是行為探針 ⇒ 每一發突變都死在「閘 -1 失敗:缺 -v a7_allow_dml」,
+#    而 s2 把「沒看到成功 NOTICE」一律判成「突變被抓到」⇒ **整段恆綠、零判別力**;
+#    同一個病也讓下面的對照組恆紅(它自己在喊 harness 壞了,喊了六天沒人接)。
+#    修法兩件:①改成**按內容錨定**抽出「含成功 NOTICE 的那個區塊」——位置會變、內容不會
+#              ②抽不到就吐 `HARNESS_EXTRACT_FAIL`,由 s2 判成 harness 壞掉,**不准算成「突變被抓到」**。
 probe_run() {  # 回傳 0 = 綠(兩句 NOTICE 都在)
   local extra="${1:-}"
   if [ -n "$extra" ]; then
     { echo "BEGIN;"; echo "SET LOCAL statement_timeout='300s';"; echo "$extra";
-      awk '/^DO \$\$$/{n++} n==2{print} n==2 && /^\$\$;$/{exit}' "$PROBE"; echo "ROLLBACK;"; } > "$WORK/p.sql"
+      awk '
+        /^DO \$\$$/            { blk = $0 "\n"; inb = 1; next }
+        inb                    { blk = blk $0 "\n" }
+        inb && /^\$\$;$/       { if (blk ~ /行為驗收全數通過/) { printf "%s", blk; done = 1; exit } inb = 0 }
+        END                    { if (!done) exit 3 }
+      ' "$PROBE"; echo "ROLLBACK;"; } > "$WORK/p.sql"
+    # 🔴 抽取失敗 = harness 壞掉,**不是**突變被抓到。沒有這道,#327 那種病會再度偽裝成全綠。
+    if ! grep -q '行為驗收全數通過' "$WORK/p.sql"; then echo 'HARNESS_EXTRACT_FAIL'; return 0; fi
     psql "$URL" -v ON_ERROR_STOP=1 -qtA -f "$WORK/p.sql" 2>&1
   else
     psql "$URL" -v ON_ERROR_STOP=1 -v a7_allow_dml=yes-throwaway-db -v a7_expect_cluster="$CID" -qtA -f "$PROBE" 2>&1
@@ -117,11 +130,27 @@ else
   bad "A7-2 未全綠:$(echo "$OUT" | grep -m1 ERROR)"
 fi
 
-s2() {  # A7-2 行為突變:期望紅(任何錯誤都算紅;不只認自家訊息)
+# A7-2 行為突變:期望紅,**但要紅在探針上**。
+# 🔴 #327 的教訓寫成程式:「沒看到成功 NOTICE」有三種成因,只有第三種算「突變被抓到」——
+#    ①harness 抽不出區塊 ②紅在前置閘(與突變無關,原本就是這個)③探針或 PG 原生約束擋下。
+#    把①②判成綠,就是拿「腳本壞了」當「守門有效」的證據。
+s2() {
   local name="$1" ddl="$2"
   local o; o="$(probe_run "$ddl")"
-  if echo "$o" | grep -q '行為驗收全數通過'; then bad "B:$name —— 突變未被任何探針抓到(假綠)"
-  else ok "B:$name → $(echo "$o" | grep -m1 -oE '(探針 [0-9-]+ 失敗|ERROR:[^\"]{0,44})')"; fi
+  if echo "$o" | grep -q 'HARNESS_EXTRACT_FAIL'; then
+    bad "B:$name —— harness 抽不出行為區塊(這不是突變被抓到)"
+  elif echo "$o" | grep -qE '閘 -[0-9]+ 失敗|拒絕執行:僅允許本機拋棄庫'; then
+    # 🔴 只認**負號**閘與 port 閘 = 行為區塊【之外】的前置閘(`閘 -1` DML 旗標 / DO#1 port)。
+    #    ⚠️ 這裡窄化過一次,而且是被實測逼的:第一版寫 `閘 -?[0-9]+ 失敗`(含正號),
+    #    結果把「拿掉 RF2a-0 trigger」這發**真的被抓到**的突變誤判成 harness 壞掉 ——
+    #    因為行為區塊自己的第一道是 `閘 0:trigger inventory`,它是**正當的探針斷言**。
+    #    ⇒ 判別「紅得對不對」的規則,自己也會量錯東西;窄化後才對得上。
+    bad "B:$name —— 紅在【前置閘】不是探針(#327 的病;與突變內容無關)"
+  elif echo "$o" | grep -q '行為驗收全數通過'; then
+    bad "B:$name —— 突變未被任何探針抓到(假綠)"
+  else
+    ok "B:$name → $(echo "$o" | grep -m1 -oE '(探針 [0-9-]+ 失敗|ERROR:[^\"]{0,44})')"
+  fi
 }
 
 log "5/5 A7-2 行為突變"
