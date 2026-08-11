@@ -38,12 +38,41 @@ ok()  { printf '  ✅ %s\n' "$1"; PASS=$((PASS+1)); }
 bad() { printf '  🔴 %s\n' "$1"; FAIL=$((FAIL+1)); }
 log() { echo "== $* =="; }
 
+# 🔴 自我探針模式:`$0 __pathguard_probe <workdir>` 只跑路徑閘就離場,給 §PATHGUARD 用。
+#    不另寫一份閘的副本 —— 抄第二份就會漂(改一邊忘另一邊),這裡是**同一段程式碼**被跑兩次。
+if [ "${1:-}" = "__pathguard_probe" ]; then WORK="${2:-}"; PATHGUARD_PROBE=1; fi
+
 # workdir 身分閘(這支腳本會 rm -rf 它)
-case "$(cd / && printf '%s' "$WORK")" in
-  /tmp/?*) : ;;
-  *) echo "🔴 workdir 必須在 /tmp 底下(收到:$WORK)"; exit 2 ;;
+# 🔴🔴 **#362 修復(2026-08-11 W-c1)**:舊寫法 `case "$WORK" in /tmp/?*)` **放行 `/tmp//`**
+#    —— glob 的 `?` 會吃掉第二個斜線 ⇒ 下面那句 teardown 就是 `rm -rf /tmp//` = **清空整機 /tmp**。
+#    後果不是本 harness 壞掉而已:本機所有 session 的 socket 與中繼檔全滅、多窗當場斷訊。
+#    修法照 `op1p-verify.sh:70-82` **已驗過**的寫法逐條擋(負測見檔尾 §PATHGUARD)。
+case "$WORK" in
+  /tmp/[!/]*) : ;;
+  *) echo "🔴 workdir 必須是 /tmp/<名字>(收到:$WORK)"; exit 2 ;;
 esac
-case "$WORK" in *..*) echo "🔴 workdir 不得含 ..(收到:$WORK)"; exit 2 ;; esac
+case "$WORK" in
+  */)    echo "🔴 workdir 不得以斜線結尾(收到:$WORK)"; exit 2 ;;
+  *//*)  echo "🔴 workdir 不得含連續斜線(收到:$WORK)"; exit 2 ;;
+  *..*)  echo "🔴 workdir 不得含 ..(收到:$WORK)"; exit 2 ;;
+esac
+if [ -L "$WORK" ]; then
+  echo "🔴 workdir 是 symlink(收到:$WORK)⇒ rm -rf 會刪到它指向的地方"; exit 2
+fi
+# 探針模式到這裡就結束(閘全過 ⇒ exit 0 = 「放行了」,§PATHGUARD 會判紅)
+[ "${PATHGUARD_PROBE:-}" = "1" ] && exit 0
+
+# 🔴 埠空關(2026-08-11 W-c1 一併補):埠被別窗佔住時 initdb/pg_ctl 失敗、後續 psql 會
+#    **靜默連到別人的庫** ⇒ 整輪紅綠都不是在講這支。寫法照 `op1p-verify.sh:85-96`。
+#    ⚠️ 這不是理論:B 窗 2026-08-11 就在 54352 對著別窗的 cluster 跑出一輪「全綠」,當場作廢重跑。
+require_free_port() {
+  command -v lsof >/dev/null 2>&1 || {
+    echo "🔴 找不到 lsof ⇒ 埠檢查做不到,拒絕往下跑(fail-closed,不是「檢查過了沒問題」)"; exit 2; }
+  local pids; pids="$(lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t 2>/dev/null || true)"
+  if [ -n "$pids" ]; then
+    echo "🔴 port ${PORT} 已被佔用(pid: $(echo "$pids" | tr '\n' ' '))⇒ 換一個埠重跑"; exit 2
+  fi
+}
 
 runsql() { psql "$URL" -qtA -c "$1" 2>&1; }
 
@@ -59,7 +88,7 @@ snapshot() {  # $1=SQL $2=輸出檔 $3=用途
 }
 
 if [ "$MODE" = "all" ]; then
-  log "0/6 provision 拋棄式 PG17(重用 d1t2 的 provision,不複製貼上)"
+  log "0/7 provision 拋棄式 PG17(重用 d1t2 的 provision,不複製貼上)"
   rm -rf "$WORK"; mkdir -p "$WORK"
   scripts/d1t2-rehearsal.sh provision "$WORK" > "$WORK/provision.log" 2>&1 \
     || { echo "🔴 provision 失敗,見 $WORK/provision.log"; exit 1; }
@@ -75,7 +104,7 @@ if [ $? -eq 0 ]; then
 fi
 ok "harness 自我測試:壞掉的快照 SQL 會當場中止(不會變成假的零漂移)"
 
-log "1/6 對照組:零突變下,migration 的結構驗收必須通過"
+log "1/7 對照組:零突變下,migration 的結構驗收必須通過"
 apply_out="$(psql "$URL" -v ON_ERROR_STOP=1 -q -f "$MIG" 2>&1)"
 # 表已存在 ⇒ 重套會 42P07。改用「物件已在且驗收曾通過」當對照組。
 if echo "$apply_out" | grep -q 'already exists'; then
@@ -89,7 +118,7 @@ else
   bad "對照組:apply 未通過 — $(echo "$apply_out" | grep -m1 ERROR)"
 fi
 
-log "2/6 物件盤點(數字型斷言:改了必須有人發現)"
+log "2/7 物件盤點(數字型斷言:改了必須有人發現)"
 [ "$(runsql "SELECT count(*) FROM pg_attribute WHERE attrelid='public.order_refund_jobs'::regclass AND attnum>0 AND NOT attisdropped")" = "42" ] \
   && ok "order_refund_jobs = 42 欄" || bad "order_refund_jobs 欄數不是 42"
 [ "$(runsql "SELECT count(*) FROM pg_attribute WHERE attrelid='public.order_refund_job_items'::regclass AND attnum>0 AND NOT attisdropped")" = "7" ] \
@@ -101,7 +130,7 @@ log "2/6 物件盤點(數字型斷言:改了必須有人發現)"
 [ "$(runsql "SELECT count(*) FROM pg_indexes WHERE schemaname='public' AND indexname IN ('orj_one_current_per_cancellation_idx','orj_one_current_per_rec_trade_idx','orj_one_job_per_refund_idx')")" = "3" ] \
   && ok "三道 partial unique 存在(U2/U3/U5)" || bad "partial unique 缺漏"
 
-log "3/6 dormant gate 雙向(plan §1.1:只測一個方向等於沒證明它被移除過)"
+log "3/7 dormant gate 雙向(plan §1.1:只測一個方向等於沒證明它被移除過)"
 H="$(printf 'a1b2c3d4%.0s' 1 2 3 4 5 6 7 8)"
 LEGAL_INSERT="INSERT INTO public.order_refund_jobs
   (cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
@@ -130,7 +159,7 @@ echo "$out" | grep -q 'orj_cancellation_fk' \
 [ "$(runsql "SELECT count(*) FROM public.order_refund_jobs")" = "0" ] \
   && ok "零留痕:jobs 表仍為空" || bad "零留痕失敗:jobs 表有殘留列"
 
-log "4/6 結構突變(每條承重斷言各一個突變;必須紅在**指定的**那條)"
+log "4/7 結構突變(每條承重斷言各一個突變;必須紅在**指定的**那條)"
 # 🔴 每個突變都先 cmp 驗「sed 真的改到東西」—— sed 沒命中會變成「零突變卻宣稱紅了」。
 mutate() {  # $1=sed 表達式  $2=預期錯誤訊息片段  $3=說明
   local tmp="$WORK/mut.sql"
@@ -199,7 +228,7 @@ mutate '/^CREATE INDEX orj_due_submitted_idx/d' \
 #    ⇒ **錢面四條的「承重性」明文歸屬 A7b-T 的 §7.2 一對一矩陣**;
 #      本片只證明到「它們的定義沒有被悄悄改掉」。
 
-log "5/6 對照組再跑一次(證明上面的紅不是因為 harness 自己壞了)"
+log "5/7 對照組再跑一次(證明上面的紅不是因為 harness 自己壞了)"
 out="$(psql "$URL" -qtA -v ON_ERROR_STOP=1 <<SQL 2>&1
 BEGIN;
 DROP TABLE public.order_refund_job_items;
@@ -212,6 +241,94 @@ echo "$out" | grep -q 'A7b-M 結構驗收全數通過' \
   && ok "對照組(零突變、同一條路徑)⇒ 結構驗收仍然全過" \
   || bad "對照組失敗 — $(echo "$out" | grep -m1 ERROR | cut -c1-160)"
 
-log "6/6 結果"
-printf '  PASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
+# ── §PATHGUARD:#362 路徑閘負測(2026-08-11 W-c1)────────────────────────────
+# 🔴 這一段測的是**本腳本自己的 workdir 閘**,不是 A7b-M。它值一格的理由:
+#    閘失效的後果是 `rm -rf /tmp//` 清空整機 /tmp(所有窗的 socket 全滅),
+#    而那個後果**不會在本 harness 的紅綠上顯示** —— 它會顯示在別人身上。
+# ⚠️ **誠實邊界(2026-08-11 W-c1 R1 C2 更正:舊註解點錯了規則)**
+#    舊註解寫「`/tmp//` 同時被 `/tmp/[!/]*` 與 `*//*` 兩條擋」—— **`*//*` 那半是錯的**。
+#    實際是**三條縱深**:現行由 `/tmp/[!/]*` 命中;拿掉它會紅在 `*/`(尾斜線 —— case 取
+#    第一個命中,而 `/tmp//` 的確以斜線結尾);再拿掉 `*/` 才輪得到 `*//*`。
+#    ⇒ 這一格證明的是「/tmp// 進不來」,**不能指認是哪一條在擋** ⇒ 不列入下面的消融。
+#    另外**四**格(舊註解寫「後三條」= 漏算了 `/notmp/x`)各自唯一可證,而且不是嘴上說的:
+#    由 §PATHGUARD-ABL 逐條消融實際打過。
+# 🔴 **每格核對「紅在哪一條」,不是只核對「有紅」(W-c1 R1 C3)**:舊斷言只 case
+#    `*"🔴 workdir"*`,而四條規則的訊息開頭全都是它 ⇒ 對「哪一條在擋」零判別力
+#    (實測 `/tmp//` 與 `/notmp/x` 同規則同訊息,舊斷言分不出來)。現在逐格釘死訊息字面。
+log "6/7 #362 路徑閘負測(五種危險輸入 × 核對命中的是哪一條規則)"
+for spec in \
+  '/tmp//|必須是 /tmp/<名字>' \
+  '/tmp/x/|不得以斜線結尾' \
+  '/tmp/a//b|不得含連續斜線' \
+  '/tmp/../etc|不得含 ..' \
+  '/notmp/x|必須是 /tmp/<名字>'
+do
+  bad_w="${spec%%|*}"; want="${spec#*|}"
+  if out="$(PORT="$PORT" bash "$0" __pathguard_probe "$bad_w" 2>&1)"; then
+    bad "路徑閘放行了危險 workdir:$bad_w"
+  else
+    case "$out" in
+      *"🔴 workdir $want"*) ok "路徑閘擋住 $bad_w,且紅在「$want」那條" ;;
+      *) bad "路徑閘擋住 $bad_w,但不是「$want」那條在擋(實際:$(printf '%s' "$out" | head -1))" ;;
+    esac
+  fi
+done
+
+# ── §PATHGUARD-ABL:消融 —— 讓「唯一可證」變成會紅的斷言,不是註解裡的散文 ──────
+# 做法:把那條規則從腳本副本裡拿掉,再餵它唯一能擋的輸入 ⇒ **必須放行**(exit 0)。
+#   放行 = 沒有第二道在擋 = 它確實是該輸入的唯一防線;仍被擋 = 這格本來就沒判別力。
+# 🔴 錨點命中數用**與 sed 同一條 BRE** 去數(本線教訓:`grep -F` 與 sed 比對語意不同 ——
+#    `不得含 ..` 的 `..` 在 BRE 是兩個萬用字元,-F 數出來的數字擔保不了 sed 只改一處)。
+# 🔴🔴 **錨點不能寫進下面那張表**(第一版就是這樣寫的,實測命中 2 行):訊息本身
+#    在本檔至少出現在①閘的 echo ②表自己的參數 ⇒ 表污染自己的錨點,「剛好 1 行」那道
+#    自保閘會把好端端的四發全打成不可信。⇒ 表只放**訊息片段**,完整錨點由函式**組出來**
+#    (`echo "🔴 workdir <片段>`),這樣沒有任何一行同時含有那整串。
+ABL="$WORK/pathguard-ablated.sh"
+ablate() {  # $1=危險輸入 $2=訊息片段(刪除模式)/整條 BRE(替換模式) $3=替換文字(空=刪整行) $4=規則名
+  local n re sedexpr
+  if [ -z "$3" ]; then re="echo \"🔴 workdir $2"; else re="$2"; fi
+  n="$(grep -c "$re" scripts/a7bm-verify.sh)"
+  [ "$n" -eq 1 ] || { bad "消融錨點在原檔命中 $n 行(要剛好 1)⇒ 消融不可信,不判綠:$4"; return; }
+  if [ -z "$3" ]; then sedexpr="/$re/d"; else sedexpr="s|$re|$3|"; fi
+  sed "$sedexpr" scripts/a7bm-verify.sh > "$ABL" || { bad "消融 sed 失敗:$4"; return; }
+  if cmp -s scripts/a7bm-verify.sh "$ABL"; then bad "消融沒改到東西(零命中卻宣稱消融了):$4"; return; fi
+  if PORT="$PORT" bash "$ABL" __pathguard_probe "$1" >/dev/null 2>&1; then
+    ok "消融「$4」⇒ $1 被放行 ⇒ 它是該輸入的唯一防線"
+  else
+    bad "消融「$4」⇒ $1 仍被擋 ⇒ 還有第二道在擋,「唯一可證」不成立"
+  fi
+}
+ablate "/notmp/x"    '  /tmp/\[!/\]\*) : ;;' '  *) : ;;' '/tmp/[!/]* 前綴閘'
+ablate "/tmp/x/"     '不得以斜線結尾'        ''          '*/ 尾斜線'
+ablate "/tmp/a//b"   '不得含連續斜線'        ''          '*//* 連續斜線'
+ablate "/tmp/../etc" '不得含 \.\.'           ''          '*..* 上層參照'
+rm -f "$ABL"
+
+# 🔴 teardown(W-c1 新增):本支原本**跑完不收 cluster** —— 它宣稱的「零留痕」指的是
+#    交易 ROLLBACK,不是關 postmaster ⇒ 連錄兩次第二次必被自己上一輪佔埠。
+# 🔴 兩段式:d1t2 的 teardown **要求 workdir 有 `.d1t2-harness` ownership marker**
+#    (它對沒有 marker 的目錄會 die,是刻意的安全設計)。自己 provision 的 harness 沒有那個 marker
+#    ⇒ 第一段會靜默無效(實測:b2s2a 就是這樣留下一座 postmaster)。
+#    ⇒ 第二段自己收,但**只收 `$WORK/pgdata` 這一座**,絕不對別人的 datadir 動手。
+# 🔴🔴 **順序不可調(W-c1 R1 C1)**:這一段會 `FAIL+1`,所以它必須跑在總結行**之前**。
+#    原本印在後面 ⇒ 留痕時收據記 `FAIL=0` 而 exit=1、自相矛盾,而「留痕」正是本片新增的
+#    這道檢查唯一要抓的失敗模式 ⇒ 唯一會用到它的那個情境,收據剛好在說謊。
+bash "$(dirname "$0")/d1t2-rehearsal.sh" teardown "$WORK" >/dev/null 2>&1 || true
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  if [ -d "$WORK/pgdata" ]; then
+    "$(dirname "$(command -v initdb)")/pg_ctl" -D "$WORK/pgdata" stop -m immediate >/dev/null 2>&1 || true
+  fi
+fi
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  echo "  🔴 teardown 後 port $PORT 仍有人聽(留痕)"; FAIL=$((FAIL+1))
+else
+  echo "  ✅ teardown 後 port $PORT 無人聽(零留痕)"
+fi
+
+log "7/7 結果"
+# 🔴 `PASS=n FAIL=n` **單空格相鄰**:w7-coverage 的 recorder 用
+#    `sed -n 's/.*PASS=\([0-9]*\) FAIL=\([0-9]*\).*/…/p'` 取值,舊字面是**兩個空格**、解析不到
+#    ⇒ 收據會記成 `PASS=0 FAIL=-1` 恆紅。只改分隔字元,判定與 exit code 未動。
+printf '  PASS=%d FAIL=%d\n' "$PASS" "$FAIL"
+
 [ "$FAIL" -eq 0 ] || exit 1
