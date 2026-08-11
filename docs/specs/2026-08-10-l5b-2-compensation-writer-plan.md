@@ -293,8 +293,27 @@ v6 把兩者綁成一句,才會撞上本體。它們的約束不同:
 **重播仍在步 4 拿到 `DUPLICATE_REQUEST`,述詞不變。**
 🔴 **順序錨要釘的是這兩點各自的相對位置**,**不是**一條籠統的「在冪等之後」。
 **釘法(R5-N3,寫死)**:比對 **`prosrc` 內的字元位置** ——
-`strpos(prosrc,'pg_advisory_xact_lock') < strpos(prosrc,'FOR UPDATE')`(② 的 advisory 早於步 3 鎖訂單)
+~~`strpos(prosrc,'pg_advisory_xact_lock') < strpos(prosrc,'FOR UPDATE')`(② 的 advisory 早於步 3 鎖訂單)~~
 與否決條件相對於 G4 那段字面的先後,兩條各一發斷言。
+
+> 🔴🔴 **上面那條式子套在 ② 上會量到註解**(P 窗八代 2026-08-12 實查,主視窗 `P-534-A` §3 裁定歸 2f 片;
+> 完整實測 = `docs/specs/2026-08-12-2e2f-precheck-recon.md` §3):
+> ② `admin_initiate_order_refund` 的列鎖型別是 **`FOR NO KEY UPDATE`,不是 `FOR UPDATE`**;
+> 那支函式裡唯一出現 `FOR UPDATE` 這串字的地方,**正是步 3 上面那句「解釋為什麼不能用 `FOR UPDATE`」的註解**。
+>
+> | 量的東西 | ③ `close_released_attempt` | ② `admin_initiate_order_refund` |
+> |---|---|---|
+> | `strpos(prosrc,'FOR UPDATE')` 原樣 | 831(真列鎖) | **2530 ← 註解** |
+> | 剝掉 `--` 註解後 | 584(仍是真列鎖) | **0 ←整支根本沒有 `FOR UPDATE`** |
+> | 剝註解後 `FOR NO KEY UPDATE` | 0 | **2459(真列鎖)** |
+>
+> ③ 目前量對**純屬運氣**(它的註解排在真列鎖後面;那句話往上搬幾行就開始量註解)。
+> **2f 片要照這樣寫**:
+> ① 先剝註解 —— `regexp_replace(prosrc,'--[^'||chr(10)||']*','','g')` 再比位置(已驗證有效);
+> ② **兩支不得共用同一個字串**:③ 找 `FOR UPDATE`、② 找 `FOR NO KEY UPDATE`(同一條式子套兩支必然量錯一支);
+> ③ 🔴 **它只是廉價前哨** —— 真判別力在下面那條消融。時間有限就先做消融,
+>    **只做 strpos = 拿一條會量錯的東西當保證**。
+> (同族的病另有一顆活的在 `scripts/w6b3-cancel-vs-receipt.sh:310`,已立案 **#427**。)
 ⚠️ 用 `prosrc` **不用** `pg_get_functiondef`(前者是檔內字面、跨環境穩定;形制同 `20260810220000` 的 post-image 指紋)。
 **寫錨之前先開本體**——這句話本檔已寫過一次,這次要真的做到。
 
