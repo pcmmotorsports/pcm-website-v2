@@ -6,7 +6,9 @@
 //    (兩份會漂,而漂掉的症狀是「測試全綠、正式站偶發」)。
 // 🔴 副檔名 `.tsx`:repo 的 eslint react-hooks plugin glob 只掛 `**/*.tsx`,含 hook 的檔必須是 .tsx
 //    才受 rules-of-hooks / exhaustive-deps 保護(沿用原檔頭的理由,不是隨手選的)。
-// 回歸鎖:`products-url-state.hooks.test.tsx`(11 格,含 #287 五案與 #289 還原波)。
+// 回歸鎖:`products-url-state.hooks.test.tsx`(**15 格**,含 #287 五案、#289 還原波、#315 五案)。
+//    🔴 這個數字 2026-08-11 由 11 改成 15:#315 加了 5 格,但**原本的 11 就已經是錯的**(實跑 10)
+//    —— R1 nit-2 抓到。數法 = 該檔實跑的 `Tests N passed`,不是數 `it(` 也不是憑記憶。
 
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -51,8 +53,12 @@ export function useCatalogFilterUrlSync(
   // 本 effect 若以「state 還空、URL 帶可還原 category/pbrand」執行(StrictMode 第二次 invoke 會繞過
   // initialized 首輪守衛),會把 URL 上待還原的參數整組洗掉=返回/深連結分類丟失。
   // 規則:state 對應軸仍空且 URL 參數**可還原**(parse 命中對照表、對齊 vehicle idiom)且還原未消化
-  // → skip;查無(改名殘連結等)=restore 永不來 → 不 hold、照常同步(price 等其他軸不得被吞、
-  // 垃圾參數同 vehicle 語意清掉);state 首次非空=消化、之後才允許清。
+  // → skip;查無(改名殘連結等)=restore 永不來 → 不 hold、照常同步(price 等其他軸不得被吞);
+  // state 首次非空=消化、之後才允許清。
+  // 🔴 **本句 2026-08-11 #315 更正**:原字面是「垃圾參數同 vehicle 語意清掉」——那一半**已被推翻**。
+  //   認不得的 pbrand/category 現在**留在 URL 上**(理由在下方寫回段)。本 hold 守衛本身一個字沒改:
+  //   它判的仍是「可還原」(parse 命中對照表),未知值本來就不 restorable ⇒ 不 hold;
+  //   #315 只改變**它放行之後**那一段怎麼重建 URL。兩件事不要混。
   const pendingRestoreRef = useRef<boolean | null>(null);
   // 🔴 2026-07-19 修「分頁失效」(既有 bug、已用基準版對照確認非品牌片引入;單元測試坐實根因):
   // 本 effect deps 含 `restoreSources`(ProductsPage 的 `useMemo(...,[categories,brands])`)→
@@ -112,13 +118,41 @@ export function useCatalogFilterUrlSync(
         return; // 還原窗口:URL 參數待 restore dispatch flush、勿清
       }
     }
+    // 🔴 #315(Sean 2026-08-11 Q1=A):URL 上**認不得**的 pbrand/category 原樣留著,不再清掉。
+    //   理由:「垃圾參數」與「客人手打的舊連結/改名殘連結」在 URL 上長得一模一樣 —— 程式手上
+    //   只有「在不在對照表裡」這一個位元(`products-url-parsers.ts:89` 的 `.filter`),**沒有任何
+    //   欄位能分辨意圖**;而清掉的代價是**靜默顯示全站商品**(server 只驗形狀不驗對照表,
+    //   `lib/catalog-query.ts:124`)⇒ 客人以為還在看 DBK。留著 = 0 筆 + 空狀態,看得見、可自我解釋。
+    // 🔴 它同時是本修法的支點,而且方向是**更安全**不是更危險:保留後重建結果與當前 URL 在
+    //   **值層等值**(`normalizedQuery` 排序後比對、忽略參數順序)⇒ 下方的等值早退通常命中
+    //   ⇒ 連 `router.replace` 都不送。
+    //   ⚠️ 「逐字相等」是**過度宣稱**(跨模型審查 F3 抓到):`?pbrand=dbk&pbrand=dbk` 這種重複鍵
+    //     會被 `new Set` 收斂成一個,值層就不等 ⇒ 仍送**一次**收斂導覽。無害(一步到定點、
+    //     #287 的 refresh 正確補發、`page` 完好),但不能講成「一定不送」。
+    //   ⚠️ 這裡**沒有新增任何 `params.set/delete`**(改的是同一次 append 的來源集合、以及把既有的
+    //      delete 改成條件式)⇒ 下方「不得在等值比對之前再新增寫入」那條安全前提照舊成立。
+    // 🔴 **對照表空的時候照樣保留**(= 不特別處理),這是想過的、不是漏的:
+    //   `fetchCatalogBrandTaxonomy()` 撈失敗回 `[]` 而非 null(`lib/products.ts:520-521`),
+    //   而 `ProductsPage.tsx:234` 是 `??` ⇒ `[]` 不觸發 fallback ⇒ 中斷期對照表真的是空的。
+    //   但**商品過濾不吃這張表**:品牌條件走 `search_catalog_by_vehicle` 的 `p_brand_slugs`
+    //   (`lib/products.ts:402`),與 `catalog_brand_counts`(:528)是**兩支不同的 RPC**
+    //   ⇒ 側欄品牌清單掛掉時,有效品牌照樣正確過濾。
+    //   ⇒ 空表時「照樣保留」= 網址原封不動、server 照常篩對;若反過來在空表時停用保留,
+    //     客人一動篩選,**有效**的 pbrand 會被刪掉 ⇒ 靜默顯示全站 = #315 這個病本身,
+    //     而且表恢復後**不會自癒**(值已經不在網址上了)。
+    //   ⚠️ 這道守衛我真的加過(R1 nit-4),被跨模型 adversarial 輪擊破後拆掉 —— 前提「中斷期
+    //     帶品牌網址會被釘 0 筆」是假的,錯在只驗了「表會是空的」卻沒驗「空表會不會影響查詢」。
+    const knownBrandIds = new Set(restoreSources.productBrands.map((b) => b.id));
+    const unknownBrands = params.getAll('pbrand').filter((slug) => !knownBrandIds.has(slug));
     params.delete('pbrand');
-    for (const brand of [...cascade.brands].sort()) params.append('pbrand', brand);
+    for (const brand of [...new Set([...cascade.brands, ...unknownBrands])].sort())
+      params.append('pbrand', brand);
     const category = cascade.category?.sub
       ? `${cascade.category.main}${CATEGORY_URL_SEPARATOR}${cascade.category.sub}`
       : cascade.category?.main;
     if (category) params.set('category', category);
-    else params.delete('category');
+    // state 沒有分類時,只有「URL 那個值**認得出來**」(= 使用者剛把篩選清掉)才刪;認不得的留著。
+    else if (parseCategoryFromUrl(params, restoreSources.categories) !== null) params.delete('category');
     if (extras.price) params.set('price', extras.price);
     else params.delete('price');
     if (extras.priceRange) {
