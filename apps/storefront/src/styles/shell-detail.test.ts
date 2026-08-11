@@ -28,6 +28,16 @@ const FILES = [
   'filter-top.css',
   'filter-side.css',
   'products-mobile.css',
+  // #331:三支「側欄 sticky」的檔。它們寫死的不是頁首高本身,是**頁首高 + 呼吸空間**的
+  // 合成值(100 / 96)⇒ 0b 那輪的守門看不見。理由寫在本檔最下面的 #331 describe。
+  // 🔴 `checkout.css` **有載入、但不在 CONSUMERS 裡**(它在本清單下方,只為 #331 的回歸鎖而載):
+  //    它的 static 斷點是 ≤900 不是 ≤1079(見 #331 describe 的「退出」段與 backlog #408)
+  //    ⇒ 它還留著寫死的 96px,放進 CONSUMERS 會讓「都在吃這顆 token」那條恆紅。
+  'account.css',
+  'cart.css',
+  'product-page.css',
+  // 只為了下面 #331 的「checkout 回歸鎖」而載入 —— **它不在 CONSUMERS 裡**(見上一段)。
+  'checkout.css',
 ] as const;
 // 🔴 鍵型別用**字面聯集**不是 `Record<string, string>`:本 repo 開了 `noUncheckedIndexedAccess`
 //    (`tsconfig.base.json:14`),索引簽章取值一律 `string | undefined` ⇒ 每個 `.indexOf` 都是 TS 錯。
@@ -349,5 +359,124 @@ describe('§4-4 TabBar 平板段(600-1079px)', () => {
     expect(fallback, '找不到 data-mobile 兜底').toBeGreaterThan(-1);
     expect(tablet, '找不到平板段').toBeGreaterThan(-1);
     expect(tablet, '平板段被搬到兜底之前 ⇒ 同權重下輸給兜底、整段失效').toBeGreaterThan(fallback);
+  });
+});
+
+// ── #331:四處側欄 sticky 的 top 改吃 --shell-header-h ─────────────────────────────
+//
+// 🔴 **為什麼 0b 的守門沒抓到它們**(這段才是本片的重點,不是那四行 CSS):
+//   上面 CONSUMERS 那條守門禁的是 `69 / 73 / 64 / 65` —— 也就是**頁首高本身**被寫成字面。
+//   但這四處寫的是 `100` 與 `96`,是「頁首高 **+ 該側欄自己的呼吸空間**」的**合成值**。
+//   合成值裡沒有任何一個被禁的數字 ⇒ 那條守門對它們**恆綠、零判別力**,而它們壞掉的方式
+//   與被守住的那五支**一模一樣**(調頁首高 → 側欄被壓住或浮開,三綠與全套測試全盲)。
+//   ⇒ 教訓:守門畫在「哪個數字不准出現」上,只擋得住把常數**直接**寫出來的那一種;
+//     把常數**算進另一個數字裡**是同一個病的變形,得靠「這個位置必須吃 token」來擋。
+//
+// 🔴 為什麼可以直接換、不必挑值:這三道 sticky **只在 ≥1080 生效**
+//   (≤1079 改 `position: static`,見下方前提斷言)⇒ 那裡 `--shell-header-h` 恆為 73px
+//   ⇒ `calc(var(--shell-header-h) + 27px)` == 100px、`+ 23px` == 96px,**逐值等價、零視覺變化**。
+//   換掉的是「以後會不會跟著動」,不是現在長什麼樣。
+//
+// 🔴🔴 **`checkout.css` 的 `.co-aside` 被踢出本片,理由值得記**(R1 抓到;backlog #408):
+//   它轉 static 的斷點是 **≤900**,不是其他三處的 ≤1079 ⇒ **901-1079 這段它仍然 sticky**,
+//   而 `--shell-header-h` 在 ≤1079 早就是 60px ⇒ 換成 `+23px` 會讓它 96 → 83、**位移 13px**。
+//   ⇒ 上面那句「逐值等價」對它**是假的**。
+//   我原本的前提斷言**看不見這個維度**:它只在整份檔案裡找「`.co-aside` 有沒有一條 static」,
+//   **沒有綁那條 static 住在哪個媒體查詢裡**;而我打的那一靶拿掉的正是 ≤900 那條
+//   ⇒ 靶紅了、卻證明的是別的事。**查斷點寫在哪 ≠ 查斷點是多少。**
+//   ⇒ 現在的前提斷言一律綁 `mediaBlock(file, '(max-width: 1079px)')`,讓斷點成為被斷言的一部分。
+describe('#331 側欄 sticky 的 top 必須吃 --shell-header-h(不得寫合成的寫死值)', () => {
+  const STICKY = [
+    // `mobileRoutes`:該選擇器在 ≤1079 轉 static 的**每一條**路。`.acc-nav` / `.cart-summary`
+    // 各有兩條(`@media` 主路 + `[data-mobile="true"]` SSR 兜底),兩條都要各自證得出紅 ——
+    // 只驗其中一條的話,另一條被刪掉時這格照樣綠。
+    { file: 'account.css', sel: '.acc-nav', gap: 27, dataMobile: true },
+    { file: 'cart.css', sel: '.cart-summary', gap: 27, dataMobile: true },
+    { file: 'product-page.css', sel: '.pd-info', gap: 23, dataMobile: false },
+  ] as const;
+
+  /** 一份檔案裡**所有** `@media <query>` 區塊的內容合起來(mediaBlock 只回第一個)。 */
+  const allMediaBlocks = (file: CssFile, query: string): string => {
+    const src = CSS[file];
+    const out: string[] = [];
+    let from = 0;
+    for (;;) {
+      const start = src.indexOf(`@media ${query} {`, from);
+      if (start === -1) break;
+      const open = src.indexOf('{', start);
+      let depth = 0;
+      let end = -1;
+      for (let i = open; i < src.length; i++) {
+        if (src[i] === '{') depth++;
+        else if (src[i] === '}' && --depth === 0) { end = i; break; }
+      }
+      if (end === -1) break;
+      out.push(src.slice(open + 1, end));
+      from = end;
+    }
+    return out.join('\n');
+  };
+
+  it.each(STICKY)('$file 的 $sel top 吃 token + $gap px', ({ file, sel, gap }) => {
+    // 🔴 抓「該選擇器自己那條規則」而不是整份檔案:整檔 `toMatch(/var\(--shell-header-h\)/)`
+    //    會被檔案裡**任何一處**的 token 消費滿足 ⇒ 這條規則自己改回寫死也照樣綠(恆真)。
+    //    現在四支檔各只有這一處在吃 token,但那是**現況不是保證**,不能拿它當守門的地基。
+    // 🔴 而且要鎖在「宣告了 `position: sticky` 的那一條」:同一個選擇器在同檔出現多次
+    //    (媒體查詢段、`[data-mobile]` 兜底段)⇒ 只抓第一個 `{...}` 會抓到**別條規則**。
+    //    初稿就是這樣寫的,當場被 `.pd-info { align-self: stretch; }`(:267 那條)打紅 ——
+    //    斷言是對的、觀察點挑錯了,和 #315 那格 ⑭ 同一種病。
+    const rule = CSS[file].match(
+      new RegExp(`\\${sel}\\s*\\{[^}]*position:\\s*sticky[^}]*\\}`),
+    )?.[0];
+    expect(rule, `${file} 找不到 ${sel} 那條 position:sticky 的規則本體`).toBeDefined();
+    expect(rule, `${sel} 的 top 沒吃 --shell-header-h ⇒ 下次調頁首高它不會跟著動`).toMatch(
+      new RegExp(`top:\\s*calc\\(var\\(--shell-header-h\\)\\s*\\+\\s*${gap}px\\)`),
+    );
+  });
+
+  // 🔴 前提斷言:上面「逐值等價」的推理**完全建立在**「這三道只在 ≥1080 生效」。
+  //    哪天有人讓其中一個在 ≤1079 也 sticky,token 就變成 60px、位置少 13px ——
+  //    那時該重新挑呼吸空間,而不是讓上面那組斷言繼續假裝它還在守同一件事。
+  //    🔴 **斷點本身是斷言的一部分**:綁 `(max-width: 1079px)` 這個字面,不是「檔案裡有沒有
+  //       一條 static」。checkout 就是栽在這 —— 它有 static、但住在 ≤900,而舊寫法看不出差別。
+  it.each(STICKY)('前提① — $sel 在 @media ≤1079 轉 static(等價推理的地基)', ({ file, sel }) => {
+    const block = allMediaBlocks(file, '(max-width: 1079px)');
+    expect(block, `${file} 找不到任何 @media (max-width: 1079px) 區塊`).not.toBe('');
+    expect(
+      block,
+      `${sel} 沒有在 ≤1079 轉 static ⇒ 該區間仍 sticky、而 token 在那裡是 60px`,
+    ).toMatch(new RegExp(`\\${sel}\\s*\\{[^}]*position:\\s*static`));
+  });
+
+  // `[data-mobile="true"]` 那條 SSR 兜底是**獨立的第二條路**(不在 media 區塊裡):
+  // 手機 UA 但 viewport ≥1080(Android 平板橫放)只有它擋得住。少了它,那個組合下側欄仍 sticky。
+  it.each(STICKY.filter((s) => s.dataMobile))(
+    '前提② — $sel 的 [data-mobile="true"] SSR 兜底也轉 static',
+    ({ file, sel }) => {
+      expect(
+        CSS[file],
+        `${sel} 少了 [data-mobile] 那條 static ⇒ 手機 UA + 寬 viewport 下仍 sticky`,
+      ).toMatch(new RegExp(`\\[data-mobile="true"\\]\\s*\\${sel}\\s*\\{[^}]*position:\\s*static`));
+    },
+  );
+
+  // 🔴 **checkout 回歸鎖**(backlog #408):`.co-aside` 刻意**留著寫死的 96px**。
+  //   危險在於它現在是三支裡唯一的例外 —— 下一個人看到另外三支都吃 token,很容易「順手補齊」,
+  //   而那會在 901-1079 把它從 96 移到 83,**沒有任何東西會紅、也沒有人會發現**。
+  //   這兩條斷言讓「順手補齊」必須先撞紅一次:要改就得連斷點一起想清楚(那是視覺題、要 Sean 拍)。
+  //   ⚠️ 同族第二次:#315 也留了一個「把被擊破的守衛加回去要紅」的回歸鎖。
+  //      共通形狀 = **本片刻意沒做的事,要留一個會紅的東西擋住善意的下一個人**。
+  it('🔴 checkout .co-aside 維持寫死 96px(#408 未解前不得改吃 token)', () => {
+    expect(
+      CSS['checkout.css'],
+      '.co-aside 改吃 token 了 —— 它的斷點是 ≤900,901-1079 會位移 13px,先解 #408',
+    ).toMatch(/\.co-aside\s*\{[^}]*top:\s*96px/);
+  });
+
+  it('🔴 前提 — checkout .co-aside 的 static 仍在 ≤900(上一條的理由就是這個斷點)', () => {
+    expect(
+      allMediaBlocks('checkout.css', '(max-width: 900px)'),
+      '.co-aside 的 static 不在 ≤900 了 ⇒ 上一條回歸鎖的理由已變,重想別照抄',
+    ).toMatch(/\.co-aside\s*\{[^}]*position:\s*static/);
   });
 });

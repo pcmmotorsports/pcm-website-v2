@@ -167,7 +167,10 @@
 /* Summary panel */
 .cart-summary {
   position: sticky;
-  top: 100px;
+  /* #331:原 100px = 頁首 73 + 呼吸 27,改吃 `--shell-header-h` 單一來源。
+     只在 ≥1080 生效(≤1079 的 `@media` 與 `[data-mobile="true"]` 兩路都改 static)
+     ⇒ 該處 token 恆 73px ⇒ 與舊值等價、零視覺變化。 */
+  top: calc(var(--shell-header-h) + 27px);
   padding: 28px;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
