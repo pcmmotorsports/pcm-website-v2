@@ -7,34 +7,32 @@
 #
 # 本片的改動只有一句:`order_payments_reversal_shape` 的沖銷分支
 #   `amount < 0` → `amount <> 0`(Sean 2026-08-10 晨拍 Q1=A,允許沖銷之沖銷)。
-# ⇒ 七格(G0 自我測試 + G1 對照組 + 四發真探針 + G6 收尾):
-#   G2 正測  誤沖的恢復路現在**走得通**:P(+500) → R1(-500) → R2(+500) 三列都寫得進,且 SUM=500。
+# ⇒ 六格(G0 自我測試 + G1 對照組 + 兩發真探針 + G5 突變 + G6 收尾):
+#   G2 正測  誤沖的恢復路**走得通**:P(+500) → R1(-500) → R2(+500) 三列都寫得進,且 SUM=500。
 #   G3 負測  「負數的收款」**仍然**被 `order_payments_reversal_shape` 擋(逐字比 conname,
 #            不是「反正紅了就算擋住」——放寬如果寫壞成整條恆真,這格會綠不了)。
-#   G4 邊界  自環(沖銷指向自己)在 OP2b 之前**只有 dormant gate 擋得住** —— 兩半都量:
-#            gate 在時紅在 gate、gate 拿掉後同一發**寫得進去**(後半才撐得起「唯一」這兩個字)。
 #   G5 突變  把 CHECK 換回舊版 `amount < 0`(先斷言定義**真的變了**)⇒ **只有 G2 轉紅**、
 #            G3 照樣紅在同一個 conname ⇒ 證明 G2 的綠是這一句放寬換來的,不是恆真。
-#   G6 收尾  G4/G5 動過的**約束定義**都回到原狀(只數資料列看不到這一層)。
+#   G6 收尾  G5 動過的**約束定義**回到原狀 + gate 仍不在 + A9 三支仍在崗(只數資料列看不到這一層)。
+#   ~~G4 邊界(自環:gate 在時紅在 gate、拿掉就寫得進)~~ **2026-08-11 #396 退役**,理由見該段原位註解。
 #
-# ⚠️ **本 harness 有明確保鮮期:它綁在「OP2b 之前」那個狀態。** OP2b 落地(A9 建好 + gate DROP)之後
-#    本檔就過期,前置閘會 exit 2 要求改寫,**不會**留下一片看起來像「OP1 壞了」的紅。
-#    (第一版我在註解裡宣稱它不會變成假警報 —— 那是錯的,codex 關卡2 R2 打回。)
+# 🏁 **2026-08-11 #396:本檔解除退役,改寫成「OP2b 之後」版。**
+#    ~~2026-08-10 的處置:本檔已退役、後繼者 = `scripts/op2b-verify.sh`;理由是「本檔證的三件事
+#    在 OP2b 之後由更強的守門接手」~~ —— 🔴 **那句話只對了一半,實查為證**:
+#    `grep -rn 'reversal_shape' scripts/*.sh` **只命中本檔** ⇒ OP1 的交付物
+#    `order_payments_reversal_shape`(A10 放寬後的那條 CHECK)在 OP2b 之後**沒有第二個 harness 在看**。
+#    A9 的反號律管的是「沖銷列的金額對不對」,**管不到**「非沖銷的收款列不得為負」(本檔 G3),
+#    也不會在有人把 CHECK 改回舊版時指名道姓(本檔 G1/G5)。
+#    ⇒ 保留退役決定裡**正確**的那一半(擋環不在這裡重寫,見 G4 原位註解),
+#      收回**過寬**的那一半(本檔不是只剩歷史證據,它還有唯一的活職責)。
 #
-# 🏁 **2026-08-10:保鮮期到了 —— 本檔已退役,後繼者 = `scripts/op2b-verify.sh`。**
-#    OP2b(`20260810130000_m4b_e10_op2b_reversal_invariants.sql`)落檔後 dormant gate 已 DROP
-#    ⇒ 本檔的前置閘會 `exit 2` 拒跑(這是設計,不是壞掉)。
-#    🔴 **當初承諾的是「同 commit 改寫本檔」,實際做的是「退役 + 指到後繼者」** —— 理由:
-#      本檔證的三件事(合法鏈寫得進、負數收款仍被擋、放寬有判別力)在 OP2b 之後
-#      **由更強的守門接手**(A9 反號涵蓋了「放寬後金額可以亂填」那一面),
-#      改寫本檔等於把 `op2b-verify.sh` 的 G2/G4 再抄一份 ⇒ 兩套講同一件事的守門,
-#      正是本 repo 反覆記過的形狀。**保留本檔是為了留住 OP1 那一輪的證據與理由,不是為了再跑它。**
+# ⚠️ 保鮮期(這次寫成可執行的,不是承諾):前置閘 `gate_precondition` 要求
+#    「dormant gate 不在 + A9 三支 trigger 在崗**且是活的**」,不成立就 `exit 2` **拒跑**
+#    —— 不給會被誤讀成「OP1 壞了」的紅,也不給假綠。
 #
-# 🔴 為什麼要在交易裡 DROP dormant gate:OP1 的 `order_payments_dormant_until_triggers`
-#    (`CHECK (false)`)擋住本表所有寫入,要到 OP2b 才與 A9 同交易 DROP。不拿掉它,
-#    上面每一發探針都會紅在 gate、什麼都證不到。**只在交易內拿掉、跑完 ROLLBACK,零留痕**
-#    (每個 case 結束都驗一次資料列數 = 0;**約束層**由收尾的 G6 驗 —— G4/G5 動的是 DDL,
-#     只數資料列看不到「約束被改掉沒回來」,那是 code-reviewer 打回的缺口)。
+# 🔴 零留痕:每個 case 在自己的交易裡跑完 `ROLLBACK`(每格結束驗一次資料列數 = 0);
+#    **約束層**由收尾的 G6 驗 —— G5 動的是 DDL,只數資料列看不到「約束被改掉沒回來」,
+#    那是 code-reviewer 當初打回的缺口。
 #
 # 🔴 判定紀律(照 a7bm-verify.sh 檔頭那四條,不重蹈):
 #   ① 突變必須紅在**指定的那條斷言**,不是「反正紅了就算抓到」⇒ 每個 case 自己比 conname。
@@ -134,25 +132,78 @@ cluster_identity() {
   fi
 }
 
+# 🔴 2026-08-11 #396 反轉:前置由「dormant gate 必須**在**」改成「gate 必須**不在** + A9 三支 trigger
+#    必須在**且是活的**」。理由見檔頭;OP2b 已把 gate 與 A9 同交易處理掉,舊前置永遠不成立。
+# 🔴 **不只驗存在**(關卡1 codex MF2):存在性斷言對「還在但失效」全盲 ——
+#    disabled / 綁到別的函式 / 掛了 WHEN 條件,三種都會讓後面每一格在「沒有 A9」的世界裡跑而不自知。
+#    ⇒ 逐支綁 `(tgrelid, tgname)` 並釘 `tgenabled='O'` + `tgfoid`(對 regprocedure)+ `tgtype`
+#      (7 / 19 / 11,值抄自 `20260810130000_…op2b….sql:497-501`,那裡逐字寫明「寫死才擋得住
+#      『被改成 AFTER』或『多掛一個事件』」)+ WHEN:**無 WHEN 兩支釘 `tgqual IS NULL`、
+#      帶 WHEN 那支逐字比 `pg_get_triggerdef`**(三支的 WHEN 不一樣,見下方 A9 那段)。
+# 🔴 **本檔沒有 `set -e`**(關卡1 codex MF3):psql 失敗會回空字串,而 `"" != "1"` 與 `"0" != "1"` 在
+#    字串比較下**看起來一樣**。⇒ 這裡分開看 rc 與空值,兩種都 exit 2,絕不當成「查到 0」往下跑。
 gate_precondition() {
-  local n
+  local n rc
   n="$(psql "$URL" -qtA -c "SELECT count(*) FROM pg_catalog.pg_constraint
         WHERE conname = 'order_payments_dormant_until_triggers'
-          AND conrelid = 'public.order_payments'::regclass" 2>/dev/null)"
-  if [ "$n" != "1" ]; then
-    echo "🔴 dormant gate 不在(查得 count=${n:-<查詢失敗>})。
-    本 harness 驗的是 **OP1 補丁片**(A10 放寬)在 OP2b 之前的行為,前置就是「gate 還在」。
-    · 若這是因為 **OP2b 已經落地**:本檔已過期,請改寫成 A9 版(正測改由 A9 守、G4 改驗 A9 擋環),不要硬跑。
-    · 若這是因為連錯庫或 provision 沒跑完:先確認 PORT=${PORT} 這個 cluster 是不是你剛建的那個。"
+          AND conrelid = 'public.order_payments'::regclass" 2>/dev/null)"; rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$n" ]; then
+    echo "🔴 查 dormant gate 的那句 psql 失敗(rc=$rc、輸出=${n:-<空>})⇒ 拒跑(fail-closed)。
+    這不是「查到 0」—— 連不上或查詢壞掉時繼續跑,後面每一格的紅綠都不是在講被測物。"
+    exit 2
+  fi
+  if [ "$n" != "0" ]; then
+    echo "🔴 dormant gate 還在(查得 count=$n)。
+    本 harness 現在驗的是 **OP2b 之後**的世界(gate 已 DROP、A9 三支 trigger 在崗)。
+    · 若這是因為這個庫**還沒套到 OP2b**:換一個套滿全套 migration 的拋棄式庫再跑。
+    · 若這是因為連錯庫:先確認 PORT=${PORT} 這個 cluster 是不是你剛建的那個(身分閘已在上一步跑過)。"
+    exit 2
+  fi
+
+  # A9 三支 trigger:存在 + 啟用中 + 綁對函式 + **WHEN 條件逐支釘死**。任一不成立 = 這個庫沒有 A9,拒跑。
+  # 🔴 三支的 WHEN 不一樣,不能一律要求 `tgqual IS NULL`(我第一版就這樣寫,實跑當場得 2/3):
+  #    `..._reversal_amount_bi` **本來就帶** `WHEN ((new.reverses_payment_id IS NOT NULL))`
+  #    (OP2b 建它時就寫了,設計如此);另外兩支無 WHEN。
+  #    ⇒ 帶 WHEN 那支改成**逐字比對它的定義**(`WHEN (false)` 這種掏空手法一樣抓得到);
+  #      無 WHEN 那兩支維持 `tgqual IS NULL`。
+  local a9 rc9
+  a9="$(psql "$URL" -qtA -c "SELECT count(*) FROM pg_trigger t
+        WHERE NOT t.tgisinternal
+          AND t.tgrelid = 'public.order_payments'::regclass
+          AND t.tgenabled = 'O'
+          AND (
+               (t.tgname = 'order_payments_reversal_amount_bi'
+                AND t.tgfoid = 'public.pcm_op2b_reversal_amount()'::regprocedure
+                AND t.tgtype = 7
+                AND pg_get_triggerdef(t.oid) LIKE '%WHEN ((new.reverses_payment_id IS NOT NULL))%')
+            OR (t.tgname = 'order_payments_immutable_bu'
+                AND t.tgfoid = 'public.pcm_op2b_immutable_columns()'::regprocedure
+                AND t.tgtype = 19 AND t.tgqual IS NULL)
+            OR (t.tgname = 'order_payments_no_delete_bd'
+                AND t.tgfoid = 'public.pcm_op2b_no_delete()'::regprocedure
+                AND t.tgtype = 11 AND t.tgqual IS NULL))" 2>/dev/null)"; rc9=$?
+  if [ "$rc9" -ne 0 ] || [ -z "$a9" ]; then
+    echo "🔴 查 A9 三支 trigger 的那句 psql 失敗(rc=$rc9、輸出=${a9:-<空>})⇒ 拒跑(fail-closed)。"
+    exit 2
+  fi
+  if [ "$a9" != "3" ]; then
+    echo "🔴 A9 三支 trigger 不是三支都在崗(實得 $a9 / 期望 3)。
+    判準含「啟用中(tgenabled='O')、綁對函式(tgfoid)、**事件/時機(tgtype 7/19/11)**、WHEN 條件逐支對」——
+    **只是名字還在不算數**:disabled、改綁別的函式、把 BEFORE 改成 AFTER 或多掛一個事件、
+    把 WHEN 換成 (false),每一種都讓它什麼都不擋(tgtype 這條實測有牙:把 no_delete_bd
+    改成 BEFORE INSERT、其餘全不動 ⇒ 這裡當場 2/3)。
+    這個庫沒有(完整的)A9 ⇒ 後面每一格會在「沒有反號律」的世界裡跑,紅綠都不算數,拒跑。"
     exit 2
   fi
 }
 
 # 每個 case 共用的前置:抓真的 order / staff 當 fixture(FK 是 RESTRICT,假 id 過不了)
-FIXTURE_PRELUDE=$'  SELECT id INTO v_o FROM public.orders ORDER BY created_at LIMIT 1;\n  SELECT id INTO v_s FROM public.staff ORDER BY id LIMIT 1;\n  IF v_o IS NULL OR v_s IS NULL THEN\n    RAISE EXCEPTION \'fixture 不足(orders=% staff=%)⇒ 這輪沒有證據,不是通過\', v_o, v_s;\n  END IF;\n  EXECUTE \'ALTER TABLE public.order_payments DROP CONSTRAINT order_payments_dormant_until_triggers\';'
+# 🔴 2026-08-11 #396:尾端那句 `EXECUTE 'ALTER TABLE … DROP CONSTRAINT …dormant…'` **已刪** ——
+#    gate 早被 OP2b DROP 掉了,再 DROP 一次會直接紅在「約束不存在」,而那與被測物無關。
+FIXTURE_PRELUDE=$'  SELECT id INTO v_o FROM public.orders ORDER BY created_at LIMIT 1;\n  SELECT id INTO v_s FROM public.staff ORDER BY id LIMIT 1;\n  IF v_o IS NULL OR v_s IS NULL THEN\n    RAISE EXCEPTION \'fixture 不足(orders=% staff=%)⇒ 這輪沒有證據,不是通過\', v_o, v_s;\n  END IF;'
 
 if [ "$MODE" = "all" ]; then
-  log "0/7 provision 拋棄式 PG17(重用 d1t2 的 provision,不複製貼上)"
+  log "0/6 provision 拋棄式 PG17(重用 d1t2 的 provision,不複製貼上)"
   require_free_port
   rm -rf "$WORK"; mkdir -p "$WORK"
   PORT="$PORT" scripts/d1t2-rehearsal.sh provision "$WORK" > "$WORK/provision.log" 2>&1 \
@@ -165,7 +216,7 @@ cluster_identity
 gate_precondition
 
 # ── G0 harness 自我測試:壞掉的 SQL 必須讓 run_case 判紅 ──────────────────
-log "1/7 G0 harness 自我測試"
+log "1/6 G0 harness 自我測試"
 if run_case "G0-selftest(這格應該紅)" "NEVER" "SELECT this_column_does_not_exist;" >/dev/null 2>&1; then
   bad "G0:壞掉的 SQL 竟然被判成通過 ⇒ 本 harness 的判定失效,後面全部不算數"
   echo "════ PASS=$PASS FAIL=$FAIL ════"; exit 1
@@ -174,7 +225,7 @@ FAIL=$((FAIL-1))   # G0 預期紅,把它從 FAIL 帳裡扣回來(上一版還有
 ok "G0:壞掉的 SQL 會被判紅(判定不是恆真)"
 
 # ── G1 對照組:庫裡的定義就是**放寬後**的新版 ──────────────────────────────
-log "2/7 G1 對照組(不是新版就別往下跑)"
+log "2/6 G1 對照組(不是新版就別往下跑)"
 run_case "G1 reversal_shape 定義含 <> 0(= A10 拍板後的版本)" "OP1P-G1-OK" "
 DO \$g1\$
 DECLARE v_def text;
@@ -192,7 +243,7 @@ END
 \$g1\$;"
 
 # ── G2 正測:沖銷之沖銷鏈走得通(本片存在的理由)────────────────────────────
-log "3/7 G2 正測:P(+500) → R1(-500) → R2(+500)"
+log "3/6 G2 正測:P(+500) → R1(-500) → R2(+500)"
 run_case "G2 誤沖恢復鏈三列都寫得進且 SUM=500" "OP1P-G2-OK" "
 BEGIN;
 DO \$g2\$
@@ -221,7 +272,7 @@ END
 ROLLBACK;"
 
 # ── G3 負測:負數的收款仍被同一條 CHECK 擋(逐字比 conname)───────────────
-log "4/7 G3 負測:負數收款"
+log "4/6 G3 負測:負數收款"
 run_case "G3 負數收款被 order_payments_reversal_shape 擋下" "OP1P-G3-OK" "
 BEGIN;
 DO \$g3\$
@@ -244,59 +295,22 @@ END
 \$g3\$;
 ROLLBACK;"
 
-# ── G4:環目前只有 dormant gate 擋得住(把檔頭那句話變成可跑的檢查)───────
-# 🔴 codex 關卡2 MF1 + 我的實測:`one_reversal_uniq` 擋的只有「同一列被沖兩次」,**擋不住環**
-#    (自環與雙列互指的 `reverses_payment_id` 彼此不同)。gate 拿掉後自環寫得進去、`SUM` 當場錯,
-#    而且**放寬前的舊 CHECK 下同樣寫得進去** ⇒ 環是 OP1 既有的洞,不是這次放寬新增的。
-#    擋環是 **A9(OP2b)的具名驗收條件**,見 migration 檔頭 A10。
-# ⇒ 本格釘的是「在 OP2b 之前,擋住它的是 **dormant gate**」這句話。有人提早 DROP gate 就會紅在這裡。
-#    ⚠️ 本格**不**斷言「環寫得進去」——那會在 A9 落地後變成假警報。
-#    ⚠️ 本格自己在 OP2b 之後也不再成立(A9 會接手擋環)⇒ 由檔頭的前置閘負責拒跑,見 `gate_precondition`。
-log "5/7 G4:自環 —— gate 在時紅在 gate、gate 拿掉就寫得進"
-run_case "G4 自環:gate 在時紅在 gate、gate 拿掉就寫得進去(兩半都量,唯一性有據)" "OP1P-G4-OK" "
-BEGIN;
-DO \$g4\$
-DECLARE v_o uuid; v_s text; v_con text; v_rows integer;
-BEGIN
-  SELECT id INTO v_o FROM public.orders ORDER BY created_at LIMIT 1;
-  SELECT id INTO v_s FROM public.staff ORDER BY id LIMIT 1;
-  IF v_o IS NULL OR v_s IS NULL THEN
-    RAISE EXCEPTION 'fixture 不足(orders=% staff=%)⇒ 這輪沒有證據,不是通過', v_o, v_s;
-  END IF;
-
-  -- 前半:gate 還在 ⇒ 自環必須紅在 gate
-  BEGIN
-    INSERT INTO public.order_payments (id, order_id, rail, amount, received_at,
-                                       reverses_payment_id, reversal_reason, actor)
-    VALUES ('11111111-1111-1111-1111-111111111111', v_o, 'card', -500, now(),
-            '11111111-1111-1111-1111-111111111111', '自環探針', v_s);
-    RAISE EXCEPTION '自環在 gate 還在的情況下就寫進了錢帳 ⇒ gate 沒生效';
-  EXCEPTION WHEN check_violation THEN
-    GET STACKED DIAGNOSTICS v_con = CONSTRAINT_NAME;
-    IF v_con IS DISTINCT FROM 'order_payments_dormant_until_triggers' THEN
-      RAISE EXCEPTION '自環是被 % 擋的,不是 dormant gate', coalesce(v_con, '(conname 為 NULL)');
-    END IF;
-  END;
-
-  -- 🔴 後半(code-reviewer MF4:格名不能大於斷言量到的東西):把 gate 拿掉,自環**必須寫得進去**。
-  --    少了這一半,本格只證明「有東西擋住它」,證不到「擋住它的**只有** gate」——
-  --    真要是別的約束也擋得住,前半照樣綠,而「OP2b 前唯一防線是 gate」那句話就是沒被驗過的斷言。
-  EXECUTE 'ALTER TABLE public.order_payments DROP CONSTRAINT order_payments_dormant_until_triggers';
-  INSERT INTO public.order_payments (id, order_id, rail, amount, received_at,
-                                     reverses_payment_id, reversal_reason, actor)
-  VALUES ('11111111-1111-1111-1111-111111111111', v_o, 'card', -500, now(),
-          '11111111-1111-1111-1111-111111111111', '自環探針(gate 拿掉後)', v_s);
-  GET DIAGNOSTICS v_rows = ROW_COUNT;
-  IF v_rows <> 1 THEN
-    RAISE EXCEPTION 'gate 拿掉後自環沒寫進去(ROW_COUNT=%)⇒ 擋它的還有別的東西,唯一性不成立', v_rows;
-  END IF;
-  RAISE NOTICE 'OP1P-G4-OK';
-END
-\$g4\$;
-ROLLBACK;"
+# ── G4 已退役(2026-08-11 #396)────────────────────────────────────────────
+# ~~原 G4:自環在 gate 還在時紅在 gate、gate 拿掉就寫得進去(雙態,用來證明「唯一防線是 gate」)~~
+# 🔴 **這一格是刻意退役的歷史斷言,不是「搬到別處」** —— 它描述的世界(dormant gate 還在)
+#    已被 OP2b 同交易 DROP 掉,那個雙態現在物理上構造不出來,任何人都接不了手。
+# ✅ 仍然被守住的是「**環寫不進去**」這件事,而且守得比這裡強(逐字比 SQLSTATE):
+#    · `supabase/migrations/20260810130000_…op2b….sql:294`(說明)、`:318-378`(N1/N2/N3 實碼)
+#      —— apply 當下三發負向探針:N1(parent 不存在)/ N2(**自環**)/ N3(multi-row 互指環),皆斷言 `P2B32`。
+#      ⚠️ 這三發只在**套到 OP2b 那一刻**跑;對「全套 migration 套完的最終狀態」,自環的覆蓋在下一條。
+#    · `scripts/op2b-verify.sh:251-269` —— sibling CTE 互指環仍被擋,亦斷言 `P2B32`。
+# ⇒ 這裡**不重寫一份 A9 擋環測試**:那會變成兩套講同一件事的守門,而且新寫的那份沒有
+#    上面那組完整的 SQLSTATE 矩陣 = 比較弱的第二把。要加深 A9 覆蓋請加在 `op2b-verify.sh`。
+# ⇒ 本檔改為**只守 OP1 自己的交付物**(`order_payments_reversal_shape` 那條放寬後的 CHECK),
+#    它在全 repo 的 harness 裡沒有第二個人在看(`grep -rn reversal_shape scripts/*.sh` 只命中本檔)。
 
 # ── G5 突變:換回舊版 CHECK ⇒ 只有 G2 轉紅、G3 不動 ──────────────────────
-log "6/7 G5 突變(把 CHECK 換回 amount < 0)"
+log "5/6 G5 突變(把 CHECK 換回 amount < 0)"
 run_case "G5 舊版 CHECK 下沖銷之沖銷當場紅在 reversal_shape、負數收款照樣紅(方向可觀測)" "OP1P-G5-OK" "
 BEGIN;
 DO \$g5\$
@@ -351,11 +365,11 @@ END
 ROLLBACK;"
 
 # ── G6 收尾:約束層也要驗零留痕 ────────────────────────────────────────────
-# 🔴 code-reviewer nit:每格結束只驗了「資料列數 = 0」,而 G4/G5 動的是**約束定義**(DROP/ADD),
+# 🔴 code-reviewer nit:每格結束只驗了「資料列數 = 0」,而 G5 動的是**約束定義**(DROP/ADD),
 #    那一層完全沒被驗過 —— 交易真的沒回滾的話,後面每一格都會在一張被改過的表上跑。
 #    最便宜的補法就是把 G1 再跑一次:定義回不到放寬版就當場紅。
-log "7/7 G6 收尾:G4/G5 動過的約束都回到原狀"
-run_case "G6 收尾對照:reversal_shape 定義仍是放寬版 + dormant gate 仍在(約束層零留痕)" "OP1P-G6-OK" "
+log "6/6 G6 收尾:G5 動過的約束回到原狀 + A9 三支仍在崗"
+run_case "G6 收尾對照:reversal_shape 回到放寬版(零留痕)+ 世界仍是 OP2b 之後(gate 不在、A9 三支在崗)" "OP1P-G6-OK" "
 DO \$g6\$
 DECLARE v_def text; v_n integer;
 BEGIN
@@ -366,11 +380,36 @@ BEGIN
   IF v_def IS NULL OR v_def NOT LIKE '%<> 0%' OR v_def NOT LIKE '%amount > 0%' THEN
     RAISE EXCEPTION 'G5 的突變沒回滾乾淨(定義=%)⇒ 前面幾格是在一張被改過的表上跑的', coalesce(v_def, '(NULL)');
   END IF;
+  -- 🔴 2026-08-11 #396:原本這裡驗「dormant gate 仍在(count=1)」——gate 已被 OP2b DROP,
+  --    那條斷言現在恆假。改成驗**它仍然不在**(有人偷偷把它加回來,這張表就整個寫不進去)。
   SELECT pg_catalog.count(*)::integer INTO v_n FROM pg_catalog.pg_constraint
    WHERE conname = 'order_payments_dormant_until_triggers'
      AND conrelid = 'public.order_payments'::regclass;
-  IF v_n <> 1 THEN
-    RAISE EXCEPTION 'G4 交易內 DROP 的 dormant gate 沒回來(count=%)⇒ 這張錢帳現在裸奔', v_n;
+  IF v_n <> 0 THEN
+    RAISE EXCEPTION 'dormant gate 又出現了(count=%)⇒ 本表所有寫入都會被 CHECK (false) 擋死', v_n;
+  END IF;
+  -- A9 三支 trigger 仍在崗(前置閘只在開跑那一刻看過;這裡是收尾複驗,判準與前置閘同一套)。
+  -- ⚠️ 誠實:gate 與 A9 這兩半**本 harness 內沒有任何動作會改變它們**(G5 只動 reversal_shape、
+  --    FIXTURE_PRELUDE 已不再 DROP gate)⇒ 對「本檔自己有沒有留痕」零判別力,
+  --    它們擋的是**外部行為者**(別的視窗/別支腳本跑到一半改了世界)。真正的零留痕證據是
+  --    上面那條 reversal_shape 定義比對 + 每格結束的資料列數 = 0。
+  -- 判準與前置閘同一套(含 WHEN 逐支釘:reversal_amount_bi 本來就帶 WHEN,另兩支無 WHEN)。
+  SELECT pg_catalog.count(*)::integer INTO v_n FROM pg_trigger t
+   WHERE NOT t.tgisinternal
+     AND t.tgrelid = 'public.order_payments'::regclass
+     AND t.tgenabled = 'O'
+     AND ((t.tgname = 'order_payments_reversal_amount_bi'
+           AND t.tgfoid = 'public.pcm_op2b_reversal_amount()'::regprocedure
+           AND t.tgtype = 7
+           AND pg_get_triggerdef(t.oid) LIKE '%WHEN ((new.reverses_payment_id IS NOT NULL))%')
+       OR (t.tgname = 'order_payments_immutable_bu'
+           AND t.tgfoid = 'public.pcm_op2b_immutable_columns()'::regprocedure
+           AND t.tgtype = 19 AND t.tgqual IS NULL)
+       OR (t.tgname = 'order_payments_no_delete_bd'
+           AND t.tgfoid = 'public.pcm_op2b_no_delete()'::regprocedure
+           AND t.tgtype = 11 AND t.tgqual IS NULL));
+  IF v_n <> 3 THEN
+    RAISE EXCEPTION 'A9 三支 trigger 收尾複驗只剩 %(期望 3:啟用中、綁對函式、事件時機 tgtype、WHEN 逐支對)', v_n;
   END IF;
   RAISE NOTICE 'OP1P-G6-OK';
 END
