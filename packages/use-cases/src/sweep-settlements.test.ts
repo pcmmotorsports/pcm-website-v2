@@ -225,9 +225,27 @@ describe('sweepSettlements — ② inbox 來源', () => {
 });
 
 describe('sweepSettlements — ③ stuck attempt 來源', () => {
+  // 🔴 L5b-2 片2b(對抗審查 R2 nit):port 註解宣稱「claim throw ⇒ errors=1、stuck 分支停、
+  //    其餘照跑」,但**沒有任何測試釘住它** —— 那句話只是對現行程式的描述,不是被守住的契約。
+  //    最可能踩到的實例:2b 先於 migration 20260811060000 上線 ⇒ 每輪 42703。
+  it('claimStuckUnsettled throw(例:42703 應用層先於 migration 上線)→ errors=1、stuck 分支整段停、不中斷整輪', async () => {
+    const boom = Object.assign(new Error('column "superseded_at" does not exist'), { code: '42703' });
+    const attempts = makeAttempts({
+      claimStuckUnsettled: vi.fn(async () => {
+        throw boom;
+      }),
+    });
+    const res = await sweepSettlements(deps({ attempts }), OPTS);
+    expect(res.errors).toBe(1);
+    // stuck 分支的三個計數必須全 0(不是「有跑但沒結果」,是根本沒有可跑的列)
+    expect(res).toMatchObject({ stuckClaimed: 0, stuckRetried: 0, stuckSettled: 0 });
+    // 🔴 不中斷整輪:下游的 markSettleRetry 不該被呼叫,而整個 sweep 也不該 reject
+    expect(attempts.markSettleRetry).not.toHaveBeenCalled();
+  });
+
   it('settle pending → markSettleRetry(attemptId, claimToken, reason);terminal 不 markSettleRetry', async () => {
     const attempts = makeAttempts({
-      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 4 }]),
+      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 4, supersededAt: null }]),
     });
     const tappay = makeTapPay(async () => paidResultFor(ORDER_X, { recordStatus: 4, isCaptured: false })); // PENDING
     const res = await sweepSettlements(deps({ attempts, tappay }), OPTS);
@@ -237,7 +255,7 @@ describe('sweepSettlements — ③ stuck attempt 來源', () => {
 
   it('🔴 群1 charged-unpaid 收斂:status=charged + order unpaid + Record paid → settleCharge 補 confirm → stuckSettled', async () => {
     const attempts = makeAttempts({
-      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 1 }]),
+      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 1, supersededAt: null }]),
       findActiveByOrderId: vi.fn(async (orderId: string) =>
         activeFor(orderId, { status: 'charged', recTradeId: 'D-rec-1', bankTransactionId: 'bank-1' }),
       ),
@@ -255,7 +273,7 @@ describe('sweepSettlements — ③ stuck attempt 來源', () => {
 
   it('🔴 O8 charged-unpaid 遇 explicit_failed:markFailed RAISE(throw)→ settleCharge 吞 pending → markSettleRetry(不釋鎖)', async () => {
     const attempts = makeAttempts({
-      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 1 }]),
+      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 1, supersededAt: null }]),
       findActiveByOrderId: vi.fn(async (orderId: string) =>
         activeFor(orderId, { status: 'charged', recTradeId: 'D-rec-1', bankTransactionId: 'bank-1' }),
       ),
@@ -278,7 +296,7 @@ describe('sweepSettlements — per-order 去重(Q4=A 同 run inbox+stuck 撞同�
     const findActiveByOrderId = vi.fn(async (orderId: string) => activeFor(orderId));
     const attempts = makeAttempts({
       findActiveByOrderId,
-      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 1 }]),
+      claimStuckUnsettled: vi.fn(async () => [{ attemptId: 'attempt-x', orderId: ORDER_X, settleCount: 1, supersededAt: null }]),
     });
     const inbox = makeInbox({
       claimDueEvents: vi.fn(async () => [{ recTradeId: 'D-rec-x', orderNumber: ORDER_X, attemptCount: 1 }]),
@@ -383,8 +401,8 @@ describe('sweepSettlements — 有界並發(群7;預設順序 / concurrency 可�
     const attempts = makeAttempts({
       findActiveByOrderId,
       claimStuckUnsettled: vi.fn(async () => [
-        { attemptId: 'attempt-x1', orderId: ORDER_X, settleCount: 1 },
-        { attemptId: 'attempt-x2', orderId: ORDER_X, settleCount: 1 },
+        { attemptId: 'attempt-x1', orderId: ORDER_X, settleCount: 1, supersededAt: null },
+        { attemptId: 'attempt-x2', orderId: ORDER_X, settleCount: 1, supersededAt: null },
       ]),
     });
     const res = await sweepSettlements(deps({ attempts }), { ...OPTS, concurrency: 2 });

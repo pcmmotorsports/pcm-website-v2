@@ -86,9 +86,38 @@ export interface IChargeAttemptStore {
   /**
    * 🔴 原子 lease claim stuck unsettled attempt(FOR UPDATE OF a SKIP LOCKED + LIMIT;3DS-4a-2)。
    *
-   * 濾 status IN(pending,charged) AND order unpaid(含 charged-unpaid 群1)AND 非 manual AND settle_attempt_count<ceiling
-   * AND lease 到期 AND created_at < now()-ageSeconds(`ageSeconds`<0 → 整批空、fail-closed)。settle_attempt_count++(claim token)
-   * + 5min lease。回 `StuckChargeAttempt[]`(空=本輪無 due)。
+   * 🔴 **述詞是三支不是一支**(L5b-0-s `20260810220000:219-236` 起;此處原本停在更早的版本,
+   * 對抗審查 R1 更正)——OR 起來的三支各有不同的閘:
+   *   ① `status IN (pending, charged)` AND 非 manual AND `settle_attempt_count < 8`〔基線 manual/ceiling 閘〕
+   *   ② `status = released` AND `superseded_at IS NULL`〔R1c1:**未讓路**的 released **繞過** manual/ceiling,
+   *      持續低頻對帳直到 terminal ⇒ 這一支**不受** ceiling 限制〕
+   *   ③ `status = released` AND `superseded_at IS NOT NULL` AND 非 manual AND `settle_attempt_count < 8`
+   *      〔L5b-0-s:**被讓路**的 released 回到 manual/ceiling 閘 —— **這一支正是補償線要處理的那族**〕
+   * 三支之外再 AND:order unpaid(含 charged-unpaid 群1)AND lease 到期
+   * AND `created_at < now()-ageSeconds`(`ageSeconds`<0 → 整批空、fail-closed)。
+   * settle_attempt_count++(claim token)+ 5min lease。回 `StuckChargeAttempt[]`(空=本輪無 due)。
+   * ⚠️ **2i 的決策函式不得照「只有 pending/charged」那個舊描述實作** —— 那會漏掉 ③,而 ③ 就是要補償的列。
+   *
+   * 🔴 **L5b-2 片2a 起回四欄**:多一個 `supersededAt`(讓路的 durable 標記,未讓路為 `null`)。
+   * 它是補償退款的第一條准退條件,由 claim 在**同一句原子 UPDATE** 裡回傳(不是事後 SELECT ⇒ 避 TOCTOU)。
+   * ⚠️ **發布順序硬前置**:對應的 migration(`20260811060000`)**必須先 apply 且 read-back 過**,才准部署讀這一欄的應用層。
+   * 🔴 順序弄反時的**真實**失敗形狀(對抗審查 R1 更正了我原本的說法):
+   * 舊的三欄 RPC 會讓 `SELECT … superseded_at` 在 **PG 端就丟 `42703`(column does not exist)**,
+   * **根本進不到 adapter 的 parser** ⇒ 不是「parser 拿到 undefined 再 fail-closed」。
+   * 後果:sweeper 的 stuck 分支整段停、`errors=1`、對應路由每輪 503(inbox 與前置守衛仍照跑)。
+   * 方向是 fail-closed(不會誤退錢),但**會吵**。
+   * 🔴🔴 **這段註解不是閘,只是說明。目前這條線上沒有任何機械保證。**(對抗審查 R2 兩輪都打這一點,成立)
+   * 現況只有三層,**沒有一層擋得住錯序上線**:
+   *   ① **流程**:2a apply + read-back 通過之前不併入 dev(主視窗持有;dev 一推即上正式站)。
+   *   ② **診斷**:adapter 收到 42703 會換成指名 `20260811060000` 的錯誤訊息 ⇒ 錯序上線後**一眼看得出原因**。
+   *   ③ **止血**:`sweepSettlements` 對 claim 的 throw 有 try/catch ⇒ `errors++`、stuck 分支整段停、
+   *      inbox 與前置守衛照跑、整輪不中斷(行為由 `sweep-settlements.test.ts` 釘住,消融實測會紅)。
+   * ⇒ 方向是 fail-closed(**不會誤退錢**),但會吵:每輪 `errors=1`、對應路由 503。
+   * 🔴 **真正的機械 gate(部署時檢查 RPC 回傳形狀)尚未建**,它會動到 CI/平台設定(鐵則 12 ④)
+   * ⇒ 超出本片範圍,已列決策題交 Sean。**在它建起來之前,① 是唯一的防線,而它是人。**
+   * ⚠️ 也**不要**改走「跨版本相容」的 expand/contract:本欄缺欄是 SQL 42703 而不是 payload 缺 key,
+   * 而「兩版都吃、缺欄當未讓路」會讓補償線**安靜空轉** —— 對金流而言比吵著壞更糟。
+   * 見 memory `feedback_app-layer-must-not-ship-before-migration-apply`(2026-08-07 正式站因此壞約 8 小時)。
    */
   claimStuckUnsettled(ageSeconds: number, limit: number): Promise<StuckChargeAttempt[]>;
 

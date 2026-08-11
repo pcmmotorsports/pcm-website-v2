@@ -44,8 +44,10 @@ function makeStore(opts: {
   });
   // 3DS-4 sweeper 主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
   const primaryExpireStuck = vi.fn(async () => 0);
+  // 🔴 passthrough fixture 用**非 NULL 哨兵值**(對抗審查 R1 打中):
+  //    兩邊都寫 `supersededAt: null` 時,wrapper 若把所有值洗成 null,這格照樣綠 ⇒ 證不了直通。
   const primaryClaimStuck = vi.fn(async () => [
-    { attemptId: 'attempt-uuid-1', orderId: ORDER, settleCount: 2 },
+    { attemptId: 'attempt-uuid-1', orderId: ORDER, settleCount: 2, supersededAt: '2026-08-10T15:04:05.678Z' },
   ]);
   const primaryMarkSettleRetry = vi.fn(async () => 1);
   const primaryFlagNonUnpaid = vi.fn(async () => 3);
@@ -287,7 +289,9 @@ describe('3DS-4 sweeper 方法 — 主軌-only 直通(無 fallback、對齊 find
     const res = await store.claimStuckUnsettled(600, 50);
     expect(primaryClaimStuck).toHaveBeenCalledTimes(1);
     expect(primaryClaimStuck).toHaveBeenCalledWith(600, 50);
-    expect(res).toEqual([{ attemptId: 'attempt-uuid-1', orderId: ORDER, settleCount: 2 }]);
+    expect(res).toEqual([
+      { attemptId: 'attempt-uuid-1', orderId: ORDER, settleCount: 2, supersededAt: '2026-08-10T15:04:05.678Z' },
+    ]);
     expect(sleep).not.toHaveBeenCalled();
   });
 

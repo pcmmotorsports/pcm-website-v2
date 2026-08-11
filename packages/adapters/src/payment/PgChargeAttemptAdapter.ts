@@ -164,13 +164,29 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
     });
   }
 
-  /** 🔴 原子 lease claim stuck unsettled attempt(SETOF 三欄、claim token=settle_attempt_count);空陣列=本輪無 due。 */
+  /** 🔴 原子 lease claim stuck unsettled attempt(SETOF **四欄**、claim token=settle_attempt_count、superseded_at=讓路 durable 標記);空陣列=本輪無 due。 */
   async claimStuckUnsettled(ageSeconds: number, limit: number): Promise<StuckChargeAttempt[]> {
     return this.run(async (client) => {
-      const res = await client.query(
-        'SELECT attempt_id, order_id, settle_attempt_count FROM public.claim_stuck_unsettled_attempts($1::integer, $2::integer)',
-        [ageSeconds, limit],
-      );
+      let res;
+      try {
+        res = await client.query(
+          'SELECT attempt_id, order_id, settle_attempt_count, superseded_at FROM public.claim_stuck_unsettled_attempts($1::integer, $2::integer)',
+          [ageSeconds, limit],
+        );
+      } catch (err) {
+        // 🔴 42703 = undefined_column。本片唯一會踩到它的原因,就是**應用層先於 migration 上線**
+        //    (舊的三欄 RPC 沒有 superseded_at)。PG 原訊息是 `column "superseded_at" does not exist`,
+        //    正確但不會告訴值班「要去 apply 哪一支」。這裡把它換成自我診斷的訊息。
+        // ⚠️ **這不是閘**,是診斷:它不會阻止錯序上線,只讓錯序上線後第一眼就知道原因。
+        //    真正的順序強制點見 `IChargeAttemptStore.claimStuckUnsettled` 的註解(尚無機械 gate,已列決策題)。
+        if ((err as { code?: string } | null)?.code === '42703') {
+          throw new ChargeAttemptParseError(
+            'claim_stuck_unsettled_attempts 缺 superseded_at 欄(42703)⇒ migration 20260811060000(L5b-2 片2a)未 apply。' +
+              '應用層不得先於 migration 上線;先 apply + read-back,或退回本片。',
+          );
+        }
+        throw err;
+      }
       return res.rows.map(parseStuckAttempt);
     });
   }
@@ -374,7 +390,7 @@ function parseActiveAttempt(rows: Array<Record<string, unknown>>): ActiveChargeA
   };
 }
 
-/** 解析 claim_stuck_unsettled_attempts SETOF 一列(attempt_id/order_id/settle_attempt_count);形狀不符 → throw(通用)。 */
+/** 解析 claim_stuck_unsettled_attempts SETOF 一列(attempt_id/order_id/settle_attempt_count/superseded_at);形狀不符 → throw(通用)。 */
 function parseStuckAttempt(row: Record<string, unknown>): StuckChargeAttempt {
   if (
     typeof row.attempt_id !== 'string' ||
@@ -384,10 +400,35 @@ function parseStuckAttempt(row: Record<string, unknown>): StuckChargeAttempt {
   ) {
     throw new ChargeAttemptParseError('claim_stuck_unsettled_attempts 回應格式異常');
   }
+  // 🔴 L5b-2 片2a 的第四欄。形別**是實測來的,不是推論**(2026-08-11):
+  //    `timestamptz` 欄經 node-postgres 回的是 **`Date` 物件**(非 NULL 時)、NULL 回 `null`。
+  //    ⚠️ 不要照抄本檔 `parseActiveAttempt` 的 `typeof … === 'string'` —— 那一欄是從 **jsonb**
+  //      出來的(`20260614120000:91` 的 jsonb_build_object),jsonb 內的 timestamptz 才是字串。
+  //      同一個型別在兩條路徑上長不一樣,照抄會 fail-closed 掉整條 sweeper。
+  const superseded = row.superseded_at;
+  if (
+    superseded !== null &&
+    // 🔴 `undefined`(row 上沒這個 key)必須紅,**不得當成 null** —— 讀成「未讓路」會讓補償線安靜空轉。
+    //    ⚠️ **更正**(對抗審查 R2 打中,這是我同一句錯話的第三處、前兩處已在 port 與測試改掉):
+    //    這裡**不是**「migration 未 apply 的長相」。migration 未 apply 時,舊的三欄 RPC 會讓上面那句
+    //    `SELECT … superseded_at` 在 **PG 端就丟 42703**,`rows` 根本不會產生 ⇒ 走不到本函式。
+    //    本條擋的是「RPC 回了少一欄的畸形 row」,兩者要分開講。
+    //    🔴 也**不要**照本檔 `:309` 那個「欄缺=舊 payload、合法」的跨版本安全閥:
+    //    那一條成立是因為它讀的是 **jsonb payload**(key 可以真的不存在);
+    //    本欄是 **SETOF 欄投影**,缺欄是 SQL 錯誤而不是缺 key —— **同一招在這裡用不了**。
+    !(superseded instanceof Date)
+  ) {
+    throw new ChargeAttemptParseError('claim_stuck_unsettled_attempts 回應格式異常');
+  }
+  if (superseded instanceof Date && Number.isNaN(superseded.getTime())) {
+    // Invalid Date:`toISOString()` 會丟 RangeError ⇒ 在這裡 fail-closed,不讓它變成下游的例外
+    throw new ChargeAttemptParseError('claim_stuck_unsettled_attempts 回應格式異常');
+  }
   return {
     attemptId: row.attempt_id,
     orderId: row.order_id,
     settleCount: row.settle_attempt_count,
+    supersededAt: superseded === null ? null : superseded.toISOString(),
   };
 }
 
