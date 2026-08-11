@@ -49,6 +49,15 @@ PSQL() { psql -X -h "$SOCK" -p "$P" -U postgres -d postgres "$@"; }
 Q() { local o; o="$(PSQL -v ON_ERROR_STOP=1 -qtA -c "$1" 2>"$SOCK/e")" || die "psql 失敗:$1 :: $(tr -d '\n' <"$SOCK/e")"; printf '%s' "$o" | tr -d '\n'; }
 
 PREFIX_TS="20260810140000"
+# ⚠️⚠️ **這道版本柵欄目前正在替本檔擋一顆地雷,動它之前先讀這段**(2026-08-11 L5b-2 片 2c 順掃發現):
+#   本檔約 15 處 fixture 把 `strong_key` 寫成 `'r'` / `'rec-1'` 這種**無前綴**字面。
+#   `20260811080000`(L5b-2 片 2c)給 `payment_refunds.strong_key` 加了值域 CHECK
+#   `pr_strong_key_domain_chk`(`^(rec|bank):…`)⇒ 那 15 處**全部會被 23514 拒掉**。
+#   現在沒事的**唯一**理由是:上面那行柵欄讓本檔只套用到 `20260810140000` 為止,080000 從未進到這個庫。
+#   🔴 那是**時點事實不是不變量** —— 誰把 `PREFIX_TS` 往後推過 080000,本檔會整批爆,
+#   而且症狀會長成「一堆負測紅在 `pr_strong_key_domain_chk` 而不是它們各自要測的那條」
+#   (更糟的是只比 SQLSTATE 的格會**因為錯的理由變綠**)。
+#   ⇒ 推柵欄的人請同批把那些字面改成 `bank:`+值(op6a 已照此修,理由見該檔 mk_refund 註解)。
 MIG="$REPO/supabase/migrations/20260810140000_m4b_lifecycle_l5b_refund_ledger.sql"
 [ -f "$MIG" ] || die "MIG_MISSING"
 cd "$REPO" || die CD_FAIL
