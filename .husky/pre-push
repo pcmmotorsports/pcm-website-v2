@@ -1,5 +1,10 @@
 # 🔴 三段一律 `&&` 串接(關卡2 must-fix):第一版寫成兩行,typecheck 紅了照樣往下跑,
 #    而 hook 的離場碼是**最後一行**的 ⇒ gate 綠就把 typecheck 的紅洗掉了 = 我自己拆掉一道既有守門。
+# 🔴 **改本檔請用編輯器,不要 `mv` 或 `cp` 覆蓋**:2026-08-11 我用 `mv /tmp/… .husky/pre-push`
+#    把 mode 從 **100755 洗成 100644**(`git diff` 的 `old mode/new mode` 才看得出來)。
+#    husky 的 shim 目前仍會執行它,但那是 husky 的實作細節、不是 git 的保證 ——
+#    hook 檔一旦不可執行,失效方式是**完全靜默**。改完請 `ls -l` 確認仍是 `-rwxr-xr-x`。
+#    (harness `scripts/deploy-order-gate-verify.sh` 的格⑱ 會驗它,但那是**事後**才紅。)
 # 🔴 部署時序 gate(Q26=A;plan docs/specs/2026-08-11-deploy-order-gate-plan.md v3):
 #    git 把 `<local-ref> <local-sha> <remote-ref> <remote-sha>` 由 stdin 餵進來,
 #    而 pnpm 那兩支不吃 stdin ⇒ 直接把 stdin 交給 gate(它自己逐行處理、也自己處理全 0 的 ref)。
