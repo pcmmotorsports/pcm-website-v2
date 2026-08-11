@@ -9845,7 +9845,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #385. 🚪 `/dev-preview/*` 內部預覽頁在正式站**沒有任何 gate**、公開可達
 
-- **狀態:** ⏳ 待執行(2026-08-11 S 窗查 #275 時附帶發現;非 #275 範圍)
+- **狀態:** ✅ **已修(2026-08-11 E 窗,A 案的 layout 版)** —— 新增
+  `apps/storefront/src/app/dev-preview/layout.tsx`:巢狀 layout 包住整個 segment(今天 8 區 + 以後新增的
+  自動繼承),正式環境 `notFound()`。**沒動 `middleware.ts` / `next.config` / `vercel.json`**(不落鐵則 12④)。
+  **仍待 Sean 肉眼驗**:正式站開 `https://shop.pcmmotorsports.com/dev-preview/brands` 應為 404。
+  - **判準 fail-closed**:`VERCEL_ENV` 有值 ⇒ 只有 `preview`/`development` 白名單放行(未知值一律關);
+    讀不到 ⇒ 退看 `NODE_ENV`,production build 一律關。⇒ **任何「讀不到系統變數」的情況都倒向 404**,
+    不會出現「以為擋住其實沒擋」。守門 6 格 + 突變三靶(fallback 改放行 / 白名單改黑名單 / 拿掉
+    `notFound()`)實跑**各只紅自己那一格**。
+  - ⚠️ **preview 會不會被連坐 = 未確認**:量到 `/dev-preview/*` 在加 layout **之前就是** `ƒ`(dynamic,
+    移開本檔重跑 build 對照過)⇒ 理論上讀 runtime env、preview 正常;但若 Next 在 build 期固定該值,
+    Turborepo 2 預設 Strict env mode 會濾掉 `VERCEL_ENV`(不在 `turbo.json` build `env` 清單)⇒ preview 也 404。
+    **兩條路的正式站結果都是 404**,差別只在 preview。要讓 preview 一定回得來 = `turbo.json` 的
+    `build.env` 加一筆 `"VERCEL_ENV"`(平台設定、本片刻意不動,判準不必跟著改)。**第一次 preview 部署當場揭曉。**
+  - 🔴 **本閘擋不住**:fixtures 裡的字面仍在 git 與 JS bundle 內 ⇒ 下面 C 案(fixtures 檔頭寫明「視同公開」)
+    **不因本片作廢**,兩者不互斥;也擋不住已被抓走的舊快照。
 - **優先級:** 🟡 低(**現況**無敏感內容);🔴 **但失效條件明確,見下** —— 這條的價值在防未來,不在修現在。
 - **現況(實測,不是推論)**:
   - `curl` 等效實測 `https://shop.pcmmotorsports.com/dev-preview/brands` → **真的回內容**
