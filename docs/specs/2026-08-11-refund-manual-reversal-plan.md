@@ -1,4 +1,9 @@
-# 退款帳本 `manual` 沖銷 — 片級 plan **v7**(#405 + #417)
+# 退款帳本 `manual` 沖銷 — 片級 plan **v8**(#405 + #417)
+
+> **v8 = 關卡1 R2 確認輪**(2026-08-12):**3/4 通過**;唯一新提的 must-fix(「仍漏列會翻面的混合形狀」)
+> **經逐值驗證後駁回** —— 它舉的三個形狀,兩個推錯、一個是已列的翻面 A(逐值表在 §11-6)。
+> 但**採納其衍生建議**:apply 當下的盤點改成**全形狀盤點**(`GROUP BY` 每顆 refund 的 event_type 集合),
+> 不只數自己想得到的那一種組合。**判停=收斂,不開 R3;plan 等 Sean 批准後才動手。**
 
 > **v7 = 關卡1 R3 折完**(2026-08-12;codex `gpt-5.6-sol` high、唯讀、零留痕)。**FAIL → 2 must-fix + 1 nit,全折**:
 > ① §11-4 的 A 正案例**沒釘死 fixture 的 `refunded` 值** ⇒ 用 `false` 的話,**沖銷邏輯整段拿掉那格照樣綠**(該格零判別力)。已釘成 `true`。
@@ -477,7 +482,8 @@ COALESCE(
 ⚠️ **但這使本片的射程包含「修一個既存 drift 且該修正會讓某些單自動結清」** ——
 apply 檢查表要明列這條給 Sean,與「回退永久關閉」同一格。
 **遷移安全**:view / trigger / op6a 三者**必須在同一支 migration、同一交易內切換**(關卡1 R3 修法,採納);
-落庫前先跑一次盤點查詢,數「同時有 `result_success` 與 `result_failed` 的 refund 有幾顆」——
+落庫前先跑一次**全形狀盤點**(對每顆 refund 算它的 `event_type` 集合、`GROUP BY` 列出每種組合各幾顆;
+**不只數 `success+failed` 這一種**,理由見 §11-6)——
 現況正式庫該表 **0 列**(§11-5),所以今天是 0,但 **2e/2f/2g 上線後就不是**,
 ⇒ 這條盤點要放進 **apply 當下**而不是寫 plan 當下。
 
@@ -495,5 +501,26 @@ Sean 選 B 的整個安全網就是這一條回頭路,**它沒被測到 = B 的�
 正式庫 `payment_refund_events` / `payment_refunds` / `order_refunds` **三張表皆 0 列**
 (2026-08-11 唯讀 SELECT 實跑,專案 `bmpnplmnldofgaohnaok`)⇒ 上述行為改變**不影響任何既有資料**,
 純粹是定未來的語意。⚠️ 這是**當時**的觀察;apply 前要重查一次(它會從 0 變成非 0——2e/2f/2g 就是寫入面)。
+
+### 11-6 關卡1 R2(確認輪)—— 3/4 通過,唯一新提的 must-fix **經逐值驗證後駁回**
+
+R2 說「仍漏列會翻面的混合形狀」,舉三個。**我逐值走過,兩個推錯、一個是已列的 A**:
+
+| R2 舉的形狀 | 舊 op6a | 新述詞 | 判 |
+|---|---|---|---|
+| 只有 `result_success` | 第一個 EXISTS=true(它把 success 當終局)、第二個 `NOT EXISTS('result_success','manual')`=**false** ⇒ 除外=false ⇒ **算跡象 ⇒ `needs_human`** | **零有效終局**(集合不含 `result_success`)⇒ §11-3 左半 `EXISTS(有效終局)`=**false** ⇒ 不除外 ⇒ **算跡象 ⇒ `needs_human`** | ❌ **不翻面**。這正是 §11-3 正向存在條件在做的事 —— 而 R1 的角度2 是**同一位審查者自己確認過**的 |
+| `result_unknown` + `result_failed` | 第一個 EXISTS=true(有 failed)、第二個 NOT EXISTS=true ⇒ 除外=true ⇒ **可結清** | 有效終局=`result_failed` ⇒ `indicates_refund=false` ⇒ **可結清** | ❌ **兩制相同,不翻面** |
+| 有效 `manual` + `result_failed` | — | — | ⚠️ **構造不出來**(2d 的唯一索引、本片之後的 trigger 都保證同一顆 refund 至多一個**有效**終局);唯一能成立的變形是「被沖銷的 manual + 有效 failed」=**已列的翻面 A** |
+
+⇒ **駁回這條 must-fix**。依據=P 七代交接的教訓逐字「審查者給的事實要先驗再動手」
+(R3 的 F1 照改反而弄壞 `l5b1-verify`),以及 memory `feedback_verify-subagent-function-behavior-before-decision-question`。
+
+🔴 **但採納它的衍生建議(nit 級,便宜且更穩健)**:apply 當下的盤點**不要只數 `success+failed` 一種組合**,
+改成**全形狀盤點** —— 對每顆 refund 算它的 `event_type` 集合,`GROUP BY` 後列出每種組合各幾顆。
+理由:我上面能逐值走完是因為**形狀數量小**;真到 apply 那天,只數自己想得到的那一種
+=「拿枚舉當窮舉」(同族 memory `feedback_claim-scope-exceeds-fact-three-shapes` 的「枚舉寫下即過期」)。
+全形狀盤點的成本一樣,而且**它會把我沒想到的組合自己吐出來**。
+
+**判停**:R2 三條通過 + 唯一新條經驗證不成立 ⇒ **收斂**,不開 R3。
 
 — v6,P 八代 2026-08-12 00:5x
