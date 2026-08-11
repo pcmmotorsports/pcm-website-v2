@@ -157,15 +157,34 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
   });
 
   it('拒因同時成立時逐條都畫出來,不是只畫第一條', () => {
+    // 🔴 這格的三碼**換過一次**(#387):原本用 `paid + blocked`,而 `blocked` 現在對已付款單
+    //    會被抑制(理由見 `cancel-view.ts` 該行)⇒ 那個組合只剩兩碼、這格會紅。
+    //    換成 `unknown`(它不在收窄範圍內)保住本格原本要守的事:**同時成立就要逐條畫**。
     const { container } = render(
       <CancelReviewSection
-        detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'blocked', itemsTruncated: true })}
+        detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'unknown', itemsTruncated: true })}
       />,
     );
     expect(container.querySelectorAll('li').length).toBeGreaterThanOrEqual(3);
     expect(container.textContent).toContain('這期還不能在這裡取消');
-    expect(container.textContent).toContain('還在進行中');
+    expect(container.textContent).toContain('付款狀態沒有讀完整');
     expect(container.textContent).toContain('品項太多');
+  });
+
+  it('🔴 #387 已付款的單:畫面上不得出現「刷卡還在進行中」', () => {
+    // Sean 2026-08-11 實測撞到的那句。員工看到它會去等一個永遠不會發生的變化。
+    const paid = render(
+      <CancelReviewSection detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'blocked' })} />,
+    );
+    expect(paid.container.textContent).not.toContain('還在進行中');
+    // 擋人是對的,錯的只有理由 ⇒ 該說的那句仍要在。
+    expect(paid.container.textContent).toContain('這期還不能在這裡取消');
+
+    // 🔴 正向對照:未付款 + 在途,那句是真的,不可以連它一起消失。
+    const unpaid = render(
+      <CancelReviewSection detail={detail({ paymentStatus: 'unpaid', chargeAttemptGate: 'blocked' })} />,
+    );
+    expect(unpaid.container.textContent).toContain('還在進行中');
   });
 });
 
