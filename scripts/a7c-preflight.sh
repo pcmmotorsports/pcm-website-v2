@@ -95,16 +95,24 @@ ENVD="$(git status --porcelain -- '.env*' 2>/dev/null || true)"
   || bad ".env* 出現在 git status" "🔴 絕不提交;先弄清楚為什麼"
 
 # ── 6. 未登記 migration(A7b-T 地雷)──────────────────────────────
-# 正式站 ledger 的最後一筆 = 20260731120000(A7b-M)。任何序號更大的檔案
-# 都會在下一次 `supabase db push` 被套上正式站 —— 包含我們決定要丟掉的 A7b-T。
+# 任何**未 apply** 的 migration 都會在下一次 `supabase db push` 被套上正式站。
+# 🔴 2026-08-11(部署 gate 片)改法:原本這裡把「正式站 ledger 最後一筆」**寫死成
+#    `20260731120000`**,而實際早已 apply 到 `20260811110000` ⇒ 那個判斷過期了三個月,
+#    在那之後落的每一支 migration 都會被它列成「未 apply」= 訊號被自己的雜訊淹掉。
+#    改成讀 `supabase/APPLIED.tsv`(部署 gate 片建的可查帳,由 apply 停點的人維護)——
+#    **同一本帳只留一份**,不再有第二個會過期的字面。
 echo "6) supabase/migrations 未 apply 檔"
-PEND="$(ls supabase/migrations/ 2>/dev/null | awk -F_ '$1 > "20260731120000"' || true)"
+PEND="$(for f in supabase/migrations/*.sql; do
+          [ -e "$f" ] || continue
+          v="${f##*/}"; v="${v%%_*}"
+          grep -v '^#' supabase/APPLIED.tsv 2>/dev/null | cut -f1 | grep -qx "$v" || echo "${f##*/}"
+        done)"
 if [ -z "$PEND" ]; then
-  ok "沒有序號大於 20260731120000 的 migration"
+  ok "supabase/APPLIED.tsv 已涵蓋所有 migration(零未 apply)"
 else
   note "以下檔案未 apply,下次 db push 會一起上正式站:"
   printf '       %s\n' $PEND
-  note "這是刻意的就忽略;A7b-T 若已決定丟棄,它不該還留在這個目錄"
+  note "這是刻意的就忽略。⚠️ 本檔只比版本號在不在帳上;sha 漂移那一面由 scripts/deploy-order-gate.sh 管"
 fi
 
 echo "══ 結果 ══"
