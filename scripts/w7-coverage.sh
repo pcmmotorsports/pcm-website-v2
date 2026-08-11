@@ -106,7 +106,19 @@ MODE="${1:-check}"
 #    🔴 2026-08-11 L5b-2 片 2a 收編 l5b2-2a-verify.sh:它是那支**正在收錢的 claim RPC** 被 DROP+重建
 #    之後唯一的守門(回傳形狀/ACL 四件/schema USAGE/成員白名單 + 十發突變 + 回退腳本實跑)。
 #    不收編 ⇒ `record all` 永遠跑不到它,帳面照樣全綠,而這些守門的回歸沒有任何自動化在看。
-EXTRA_HARNESSES="a1-verify.sh a7bm-verify.sh a7c-rw1b-verify.sh a7t-concurrency-probe.sh b2s2a-verify.sh b2s2b-verify.sh l5b0-verify.sh l5b0t2-verify.sh l5b2-2a-verify.sh op4-verify.sh op6a-verify.sh opa12-verify.sh op2b-verify.sh op3-verify.sh op5-verify.sh"
+#    🔴 2026-08-11 **#414**:同線再收編 `l5b2-2c-verify.sh` 與 `l5b2-2d-verify.sh`。
+#    2c 是**漏網**(它 08-11 落檔時既沒進本清單、也沒進下面的 `excl_check` 排除名單 ⇒ 三條 CHECK
+#    的行為回歸零自動化);2d 是**當批**(值域 + terminal 集合換人,行為證據全在它自己那 34 格;數法=該支尾端印的 `PASS=`)。
+#    🔴 兩支收編之後 `l5b2` 這個 base 出現三次 ⇒ 依 `key_of` 的撞號規則,三支的格名**全部展開成全名**
+#    (`RECEIPT-l5b2` 消失,換成 `RECEIPT-l5b2-2a-verify` / `-2c-verify` / `-2d-verify`)——
+#    這正是那條規則寫出來要處理的情況,`KEYS_FROZEN` 已同批改。
+#    🔴 2026-08-11 **收編 `a7t-verify.sh`**(#399;主視窗 P-502-A 指派、P-506-A 確認)。
+#    ⚠️ 中間退回過一次:20:00 左右實跑紅在「4/7 行為探針 → reapply 失敗(fail-closed)」,
+#    當時 #399 的修法還沒進 dev ⇒ 我先撤回收編、在此留下失效條件「修法進 dev 後再收編」。
+#    20:1x `git merge dev` 之後 `git merge-base --is-ancestor 27626a2b HEAD` 為真
+#    (27626a2b=#399 修法,改的是 `20260730140000_m4b_e10_a7t_…` 不是 `…070000`)⇒ 失效條件成立,照它解除。
+#    它與 `a7t-concurrency-probe.sh` 撞 base ⇒ 兩支格名都展開成全名。
+EXTRA_HARNESSES="a1-verify.sh a7t-verify.sh a7bm-verify.sh a7c-rw1b-verify.sh a7t-concurrency-probe.sh b2s2a-verify.sh b2s2b-verify.sh l5b0-verify.sh l5b0t2-verify.sh l5b2-2a-verify.sh l5b2-2c-verify.sh l5b2-2d-verify.sh op4-verify.sh op6a-verify.sh opa12-verify.sh op2b-verify.sh op3-verify.sh op5-verify.sh"
 harness_set() {
   { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$'
     for e in $EXTRA_HARNESSES; do [ -f "$SCRIPTS/$e" ] && printf '%s\n' "$e"; done
@@ -149,6 +161,12 @@ invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
     # 🔴 l5b2-2a 用專屬埠與 workdir。它的**叢集身分閘會讀 <workdir>/cluster-id** ⇒ workdir 必須是
     #    它自己 provision 的那個(all 模式會建),不能借用別支的目錄。
     l5b2-2a-verify.sh) printf 'PORT=54374 bash scripts/%s all /tmp/l5b22acov' "$1" ;;
+    # 🔴 2c / 2d 同款(#414):兩支都有叢集身分閘,workdir 必須是它自己 provision 的。
+    #    埠一律另配,不沿用它們檔內的預設(2c=54403 / 2d=54413),免得撞到有人同時手跑。
+    # 🔴 a7t-verify 預設埠 54329(= d1t2 主埠),覆蓋率一律另配;54378 已被 op4/opa12 用掉 ⇒ 取 54382。
+    a7t-verify.sh) printf 'PORT=54382 bash scripts/%s all /tmp/a7tvcov' "$1" ;;
+    l5b2-2c-verify.sh) printf 'PORT=54376 bash scripts/%s all /tmp/l5b22ccov' "$1" ;;
+    l5b2-2d-verify.sh) printf 'PORT=54377 bash scripts/%s all /tmp/l5b22dcov' "$1" ;;
     *)               printf 'bash scripts/%s' "$1" ;;
   esac
 }
@@ -271,9 +289,14 @@ PASS=0; FAIL=0; KEYS=""
 #    🔴 **2026-08-11 W-a 實況**:本輪已把 KEY 推導改成「撞號才展開」(見下方 key_of),
 #       撞號在結構上不會再留下來。但 `a7t-verify.sh` **本輪仍收編不進來** —— 它跑不綠,
 #       原因不是格名也不是輸出格式,是 A7-t migration 自己的斷言過期(見 backlog **#399**)。
-#       ⇒ **這段歧義警告到 #399 修完、a7t-verify 收編為止都仍然成立。** 格內訊息印的是
+#       🔴 **2026-08-11 更新:#399 已修(27626a2b)、`a7t-verify.sh` 已收編 ⇒ 這段歧義警告到此失效** ——
+#       兩支各有自己的格(`RECEIPT-a7t-concurrency-probe` / `RECEIPT-a7t-verify`),`RECEIPT-a7t` 不再存在。 格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
-EXPECT_TOTAL=44   # 🔴 量出來的(**34** 逐支〔19 支 w 線 + a1 + a7bm + a7c-rw1b + b2s2a + b2s2b + a7t + op2b + op3 + op4 + op5 + op6a + opa12 + l5b0 + l5b0t2 + l5b2-2a〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 44 + 2 = 46。
+EXPECT_TOTAL=47   # 🔴 量出來的(**37** 逐支〔19 支 w 線 + a1 + a7bm + a7c-rw1b + b2s2a + b2s2b + a7t-concurrency-probe + a7t-verify + op2b + op3 + op4 + op5 + op6a + opa12 + l5b0 + l5b0t2 + l5b2-2a + l5b2-2c + l5b2-2d〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 47 + 2 = 49。
+                  # 🔴 2026-08-11 **#399 修完收編 a7t-verify.sh**(主視窗 P-506-A):46→47。
+                  #    連動:`a7t` base 撞號 ⇒ `RECEIPT-a7t` 展開成 `RECEIPT-a7t-concurrency-probe` + `RECEIPT-a7t-verify`。
+                  # 🔴 2026-08-11 **#414**(P 線 2d 片):44→46,收編 l5b2-2c-verify.sh(漏網補收)+ l5b2-2d-verify.sh(當批)。
+                  #    ⚠️ 同批連動:`KEYS_FROZEN` 的 `RECEIPT-l5b2` 依 key_of 撞號規則展開成三支全名。
                   # 🔴 2026-08-11 合併裁定(主視窗):B 線 37→38(op4)→39(op6a 補登記)與 P 線 37→38(l5b2-2a)
                   #    於 dev 合流=**40**;三支收編理由見 EXTRA_HARNESSES 上方。
                   #    ⚠️ OP6-a 那筆是**補既有遺漏**(收編是收割的一部分,不是下一片的事)。
@@ -588,9 +611,10 @@ fi
 EXITS_PROBE="w5-line-verify.sh"
 EXITS_MAP_NOW="$(for h in $(harness_set); do printf '%s=[%s] ' "$h" "$(exits_of "$h")"; done | sed 's/ *$//')"
 # 🔴 2026-08-11 L5b-2 片 2a:加 l5b2-2a-verify.sh = **[0]**(只准乾淨離場;它沒有待裁態)。
+# 🔴 2026-08-11 #414:l5b2-2c-verify.sh 與 l5b2-2d-verify.sh 同為 **[0]**(兩支都無待裁格)。
 # 🔴 2026-08-10 L5b-0-t3:加 l5b0-verify.sh / l5b0t2-verify.sh,兩支都是 **[0]**
 #    (只准乾淨離場;它們沒有 b2s2b 那種「3=待裁」的語意,別給第二個碼)。
-EXITS_MAP_FROZEN="a1-verify.sh=[0] a7bm-verify.sh=[0] a7c-rw1b-verify.sh=[0] a7t-concurrency-probe.sh=[0] b2s2a-verify.sh=[0] b2s2b-verify.sh=[0 3] l5b0-verify.sh=[0] l5b0t2-verify.sh=[0] l5b2-2a-verify.sh=[0] op2b-verify.sh=[0] op3-verify.sh=[0] op4-verify.sh=[0] op5-verify.sh=[0] op6a-verify.sh=[0] opa12-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
+EXITS_MAP_FROZEN="a1-verify.sh=[0] a7bm-verify.sh=[0] a7c-rw1b-verify.sh=[0] a7t-concurrency-probe.sh=[0] a7t-verify.sh=[0] b2s2a-verify.sh=[0] b2s2b-verify.sh=[0 3] l5b0-verify.sh=[0] l5b0t2-verify.sh=[0] l5b2-2a-verify.sh=[0] l5b2-2c-verify.sh=[0] l5b2-2d-verify.sh=[0] op2b-verify.sh=[0] op3-verify.sh=[0] op4-verify.sh=[0] op5-verify.sh=[0] op6a-verify.sh=[0] opa12-verify.sh=[0] w0b-verify.sh=[0] w1-verify.sh=[0] w2-verify.sh=[0] w3a-verify.sh=[0] w3b2-verify.sh=[0] w3c1-verify.sh=[0] w3c2-verify.sh=[0] w3c3-verify.sh=[0] w4a-verify.sh=[0] w4b-verify.sh=[0] w5-line-verify.sh=[0] w6a-unvoid-race.sh=[0] w6b1-ship-vs-unvoid.sh=[0] w6b2-cancel-vs-unvoid.sh=[0] w6b3-cancel-vs-receipt.sh=[0] w6c-idem-replay.sh=[0] w7b-cancel-vs-ship-lockorder.sh=[0] w7d1-verify.sh=[0] w7d3-verify.sh=[0]"
 if [ "$EXITS_MAP_NOW" != "$EXITS_MAP_FROZEN" ]; then
   bad TMUT-COV-EXITS "exits_of 對照表漂了。現行:[$EXITS_MAP_NOW]。⇒ 放寬任何一支的允許出口碼都要有人看(#354)"
 elif ! harness_set | grep -Fqx "$EXITS_PROBE" || ! grep -Fq "$EXITS_PROBE	" "$LEDGER" 2>/dev/null; then
@@ -648,7 +672,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS MIG-PREFIX-UNIQ RECEIPT-a1 RECEIPT-a7bm RECEIPT-a7c RECEIPT-a7t RECEIPT-b2s2a RECEIPT-b2s2b RECEIPT-l5b0 RECEIPT-l5b0t2 RECEIPT-l5b2 RECEIPT-op2b RECEIPT-op3 RECEIPT-op4 RECEIPT-op5 RECEIPT-op6a RECEIPT-opa12 RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK EXCLUDED-REASONS MIG-PREFIX-UNIQ RECEIPT-a1 RECEIPT-a7bm RECEIPT-a7c RECEIPT-a7t-concurrency-probe RECEIPT-a7t-verify RECEIPT-b2s2a RECEIPT-b2s2b RECEIPT-l5b0 RECEIPT-l5b0t2 RECEIPT-l5b2-2a-verify RECEIPT-l5b2-2c-verify RECEIPT-l5b2-2d-verify RECEIPT-op2b RECEIPT-op3 RECEIPT-op4 RECEIPT-op5 RECEIPT-op6a RECEIPT-opa12 RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 RECEIPT-w7d3 SET-MATCH TMUT-COV-EXITS TMUT-COV-INCONC TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
