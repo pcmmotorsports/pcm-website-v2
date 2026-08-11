@@ -134,6 +134,24 @@ describe('BrandPageRoot · 前提(這支測試有沒有判別力)', () => {
     expect(PRODUCTS).toHaveLength(BRAND_PRODUCT_SLOTS);
   });
 
+  // 🔴 #398:20 家必須是**每家一格**(`it.each`),不得收回成「一格裡 for 迴圈跑 20 次」。
+  //    病灶:vitest 的 `testTimeout` 是**每格**算的。收成一格時那格單跑 676ms,
+  //    多窗並行負載下實測衝到 5116-6984ms > 預設 5000ms ⇒ **週期性假紅**
+  //    (同日 E / 主視窗 / reviewer 三方各撞一次)。拆開後最慢一格 92ms(暖機那家),
+  //    其餘 ≤28ms ⇒ 離門檻 54 倍。
+  //    ⚠️ **本條守的是「結構」不是「時間」** —— 它擋得住有人把迴圈收回來,
+  //    擋不住「單家 render 自己變慢到 5 秒」。後者要靠別的東西(而今天沒有人在守),
+  //    寫在這裡是為了讓下一個人知道邊界在哪,不是假裝這條守住了逾時。
+  it('🔴 20 家不得收回成單格迴圈(每格一家 —— testTimeout 是每格算的)', () => {
+    const self = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+    const loops = self.match(/for\s*\([^)]*\bof\s+BRAND_CONTENT\b/g) ?? [];
+    expect(
+      loops,
+      `本檔出現 ${loops.length} 個對 BRAND_CONTENT 的 for 迴圈 ⇒ 20 家又被收回單格,` +
+        `那格會重新貼著 5s 門檻、在並行負載下週期性假紅(#398)`,
+    ).toEqual([]);
+  });
+
   // 🔴 守門本身抓不抓得到問題,要用**已知壞掉的輸入**證明,不是靠「跑了 20 家都綠」。
   //    (memory `feedback_negative-test-harness-self-false-green`)
   it('🔴 `firstOutlineBreak` 對已知的壞大綱會回報,對好的回 null', () => {
@@ -174,20 +192,17 @@ describe('BrandPageRoot · CSS import 的單一落點(關卡2 R1 must-fix 1)', (
 });
 
 describe('BrandPageRoot · `.bp-page` scope(#314 的 `.bp-page` scope 前置)', () => {
-  it('🔴 根節點帶 `.bp-page`,而且是 `<main>` —— 20 家逐一驗', () => {
-    for (const brand of BRAND_CONTENT) {
-      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
-      const root = container.firstElementChild;
-      expect(root, `${brand.slug}:BrandPageRoot 沒有渲染出任何元素`).not.toBeNull();
-      expect(
-        root!.classList.contains('bp-page'),
-        `${brand.slug}:根節點少了 .bp-page ⇒ 整頁色票沉默降級、畫面「有東西」但顏色全錯`,
-      ).toBe(true);
-      // 設計稿 `brand-page.html:1354` 的 `<main>` 恰好包住麵包屑(:1356)到磚牆(:1504)
-      // = 本元件的範圍(鐵則 1);站台其他頁也都有 main landmark。
-      expect(root!.tagName, `${brand.slug}:少了 main landmark`).toBe('MAIN');
-      cleanup();
-    }
+  it.each(BRAND_CONTENT)('🔴 $slug:根節點帶 `.bp-page`,而且是 `<main>`', (brand) => {
+    const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
+    const root = container.firstElementChild;
+    expect(root, `${brand.slug}:BrandPageRoot 沒有渲染出任何元素`).not.toBeNull();
+    expect(
+      root!.classList.contains('bp-page'),
+      `${brand.slug}:根節點少了 .bp-page ⇒ 整頁色票沉默降級、畫面「有東西」但顏色全錯`,
+    ).toBe(true);
+    // 設計稿 `brand-page.html:1354` 的 `<main>` 恰好包住麵包屑(:1356)到磚牆(:1504)
+    // = 本元件的範圍(鐵則 1);站台其他頁也都有 main landmark。
+    expect(root!.tagName, `${brand.slug}:少了 main landmark`).toBe('MAIN');
   });
 
   // ⚠️ 這條只講**本元件自己的輸出**。`dev-preview/brand-page/[slug]` 另外包了一個
@@ -217,35 +232,32 @@ describe('BrandPageRoot · 整頁標題大綱(#311)', () => {
     }
   });
 
-  it('🔴 20 家全部:首個標題是 h1、其後不跳級', () => {
-    for (const brand of BRAND_CONTENT) {
-      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
-      const levels = outlineOf(container);
-      expect(firstOutlineBreak(levels), `${brand.slug} 的大綱 [${levels.join(',')}]`).toBeNull();
-      cleanup();
-    }
+  it.each(BRAND_CONTENT)('🔴 $slug:首個標題是 h1、其後不跳級', (brand) => {
+    const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
+    const levels = outlineOf(container);
+    expect(firstOutlineBreak(levels), `${brand.slug} 的大綱 [${levels.join(',')}]`).toBeNull();
   });
 
-  it('🔴 恰一個 h1、內容 = 品牌名(多一個 h1 = 兩份大綱,螢幕閱讀器會當成兩篇文章)', () => {
-    for (const brand of BRAND_CONTENT) {
+  it.each(BRAND_CONTENT)(
+    '🔴 $slug:恰一個 h1、內容 = 品牌名(多一個 h1 = 兩份大綱,螢幕閱讀器會當成兩篇文章)',
+    (brand) => {
       const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
       const h1s = [...container.querySelectorAll('h1')];
       expect(h1s.map((h) => h.textContent), brand.slug).toEqual([brand.name]);
-      cleanup();
-    }
-  });
+    },
+  );
 
-  it('🔴 標題只用到 h1-h3(h4 以下沒有對應的設計稿層級 ⇒ 出現就是有人自己加的)', () => {
-    for (const brand of BRAND_CONTENT) {
+  it.each(BRAND_CONTENT)(
+    '🔴 $slug:標題只用到 h1-h3(h4 以下沒有對應的設計稿層級 ⇒ 出現就是有人自己加的)',
+    (brand) => {
       const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
       const used = [...new Set(outlineOf(container))].sort((a, b) => a - b);
       // 🔴 用「集合相等」而不是 arrayContaining(關卡2 R1 nit 6:後者對 h4 完全不設限、
       //    整條斷言的重量全壓在下一行,等於白寫)。h3 是選填(有些品牌沒有第三層)。
       expect(used.every((level) => level >= 1 && level <= 3), `${brand.slug} 用到 ${used.join(',')}`).toBe(true);
       expect(used.slice(0, 2), brand.slug).toEqual([1, 2]);
-      cleanup();
-    }
-  });
+    },
+  );
 });
 
 describe('BrandPageRoot · 商品區(D3b)', () => {
