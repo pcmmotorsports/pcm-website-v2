@@ -97,7 +97,10 @@ MODE="${1:-check}"
 #    它們不在集合裡 ⇒ `record all` 永遠跑不到 ⇒ 帳面照樣全綠,而「讓路款不得被認列成收款」
 #    這條鐵律的回歸**沒有任何自動化在看**。
 #    兩支都已在 -t3 補上 `all` 模式(自己 provision + teardown + 驗埠零留痕)⇒ 自足、收編成本同 op3。
-EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh l5b0-verify.sh l5b0t2-verify.sh opa12-verify.sh op2b-verify.sh op3-verify.sh op5-verify.sh"
+#    🔴 2026-08-11 OP4 片同款理由:歷史回填的行為證據**全在 op4-verify.sh**(migration 檔內
+#    只有不可回滾的檔尾斷言)。它是**寫錢帳且不可回收**的片(卡軌無沖銷 RPC)⇒ 不收編
+#    = 這條線的回歸沒有任何自動化在看。
+EXTRA_HARNESSES="a7t-concurrency-probe.sh b2s2b-verify.sh l5b0-verify.sh l5b0t2-verify.sh op4-verify.sh opa12-verify.sh op2b-verify.sh op3-verify.sh op5-verify.sh"
 harness_set() {
   { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$'
     for e in $EXTRA_HARNESSES; do [ -f "$SCRIPTS/$e" ] && printf '%s\n' "$e"; done
@@ -119,6 +122,9 @@ invoke_of() {  # $1=harness 檔名 → 印出要跑的完整命令
     # 🔴 op3 同款隔離:它預設 PORT=54371,這裡改用專屬埠與 workdir,免得撞到手跑那一輪。
     op3-verify.sh) printf 'PORT=54368 bash scripts/%s all /tmp/op3cov' "$1" ;;
     op5-verify.sh) printf 'PORT=54369 bash scripts/%s all /tmp/op5cov' "$1" ;;
+    # 🔴 op4 無預設 PORT(該支刻意要求顯式帶),這裡給專屬埠與 workdir;
+    #    刻意避開 54374 / 54379 系(P 窗 2a 與手跑輪在用)。
+    op4-verify.sh) printf 'PORT=54364 bash scripts/%s all /tmp/op4cov' "$1" ;;
     opa12-verify.sh) printf 'PORT=54370 bash scripts/%s all /tmp/a12cov' "$1" ;;
     # 🔴 L5b-0 兩支:各自專屬埠與 workdir。l5b0*-verify.sh 讀的是 L5B0_VERIFY_PORT
     #    (不是 PORT)—— 但它們內部把 PORT 傳給 d1t2-rehearsal provision,故**兩個都要給**,
@@ -245,7 +251,10 @@ PASS=0; FAIL=0; KEYS=""
 #    但 `scripts/a7t-verify.sh`(真正測 A7-t 函式那支)推出來也是 `a7t`,而**它不在帳上**。
 #    ⇒ `RECEIPT-a7t` 綠只代表那支**併發探針**跑過,不代表 A7-t 有被驗過。格內訊息印的是
 #    完整檔名(`a7t-concurrency-probe.sh:6 綠`),讀訊息不會誤會;讀格名會。
-EXPECT_TOTAL=37   # 🔴 量出來的(**27** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3 + op5 + opa12 + l5b0 + l5b0t2〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 37 + 2 = 39。
+EXPECT_TOTAL=38   # 🔴 量出來的(**28** 逐支〔19 支 w 線 + b2s2b + a7t + op2b + op3 + op4 + op5 + opa12 + l5b0 + l5b0t2〕 + SET-MATCH + **六發靶** + NO-WRITEBACK + EXCLUDED-REASONS + MIG-PREFIX-UNIQ)。全綠 PASS = 38 + 2 = 40。
+                  # 🔴 2026-08-11 OP4 片:37→38,收編 op4-verify.sh(見 EXTRA_HARNESSES 上方理由)。
+                  #    ⚠️ 改這個數字時**同句的枚舉也要改**(27→28、清單補 op4)——
+                  #       「改了數字沒改枚舉」是本 repo 今天已發作三次的病,不要第四次。
                   # 🔴 2026-08-10 L5b-0-t3 片:35→37,收編 l5b0-verify.sh + l5b0t2-verify.sh
                   #    (「讓路款不得被認列成收款」那條鐵律的行為證據全在這兩支;不收編 = 這條線沒人跑)。
                   # 🔴 2026-08-10 OP3 片:32→33,新增 MIG-PREFIX-UNIQ(本片自己撞號兩次,見該格上方理由)。
