@@ -17,12 +17,11 @@
  *   柵欄**(帶不了),以 `claimed_at < staleBefore` 述詞判定所有權 —— 故「mark* 三出口皆帶柵欄」
  *   **不等於**「所有離開 sending 的路都有柵欄」。兩條路的共同義務只有 `claimed_at = NULL`。
  *
- * ⚠️ 本檔用**文件化窄 cast**(先例:helpers/fitment-queries.ts VehicleRpcClient),composition 端
- * `createSupabaseServiceClient() as unknown as EmailOutboxClient`。
- * 🔴 **原本寫的理由「`email_outbox` 不在生成型別」在 2026-08-11 晚重 gen 之後已為假** ——
- * 該表現在就在 `database.types.ts:492`。⇒ **cast 已經可以拆**,但拆除要配行為驗證
- * (窄介面簽章 vs 生成型別逐欄對得上、mark* 三出口的世代柵欄不因型別放寬而失守)
- * ⇒ 統一立案 **backlog #415**(三處同族 cast 一起處理);本次**只更正字面、不拆**。
+ * ✅ **2026-08-11 #415:窄 cast 已拆** —— `EmailOutboxClient` 現在直接是 `SupabaseClient<Database>`,
+ * composition 端不再 `as unknown as`。`email_outbox` 的**表名、欄名、回傳列形狀**由生成型別把關
+ * (該表在 `database.types.ts`;突變證:把 `.from('email_outbox')` 或任一欄名加 `_TYPO` ⇒ tsc 當場紅)。
+ * ⚠️ **型別放寬與否與世代柵欄無關**:mark* 三出口的 `.eq('attempts', claimedAttempts)` 是**執行期述詞**,
+ * 型別層從來沒有在守它(守它的是本檔的單元測試);拆 cast 沒有動到那一層,也沒有讓它變弱。
  *
  * 🔴 PostgREST 限制與對策(語意仍守 REQUIRED-E2a):
  * - 不支援欄對欄比較(`attempts < max_attempts`)→ due 掃描取 `DUE_SCAN_CAP` 大窗、app 層過濾後
@@ -49,6 +48,10 @@ import type {
   EmailOutboxEventType,
   EmailSendErrorCode,
 } from '@pcm/ports';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import type { Database } from '../supabase/database.types';
+
 import { buildOrderCreatedPayload, orderCreatedSubject } from './order-email-assembly';
 
 /** PostgREST unique_violation(需再查核同事件才可回 duplicate,見 enqueue)。 */
@@ -123,8 +126,11 @@ type OutboxResponse = {
 };
 
 /**
- * email_outbox 查詢鏈最小呼叫面(文件化窄 cast;真 client = service_role SupabaseClient)。
+ * email_outbox 查詢鏈最小呼叫面 —— **2026-08-11 #415 後只剩測試替身在用**
+ * (`SupabaseEmailOutboxAdapter.test.ts` 拿它當假 builder 的形狀;production 端已改用真 client 型別)。
  * thenable = PostgREST builder 本身可 await。
+ * ⚠️ 它不再是 production 路徑的型別來源 ⇒ 它與生成型別漂了也不會讓 production 型別紅;
+ *    這是**刻意的**:測試替身要的是「能被 await 的鏈」,不是整份 PostgREST 泛型。
  */
 export type EmailOutboxQueryBuilder = PromiseLike<OutboxResponse> & {
   insert(row: Record<string, unknown>): EmailOutboxQueryBuilder;
@@ -138,9 +144,7 @@ export type EmailOutboxQueryBuilder = PromiseLike<OutboxResponse> & {
   limit(count: number): EmailOutboxQueryBuilder;
 };
 
-export type EmailOutboxClient = {
-  from(table: 'email_outbox'): EmailOutboxQueryBuilder;
-};
+export type EmailOutboxClient = SupabaseClient<Database>;
 
 export type SupabaseEmailOutboxAdapterConfig = {
   /**
@@ -395,7 +399,10 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   private async leaveSending(
     id: string,
     claimedAttempts: number,
-    values: Record<string, unknown>,
+    // 🔴 #415 code-reviewer MF4:原本是 `Record<string, unknown>` ⇒ index signature 把欄名檢查整個吃掉,
+    //    mark* 三出口寫的 `status` / `sent_at` / `last_error_code` / `next_retry_at` **打錯完全不紅**
+    //    (實測 `sent_at_TYPO` tsc 0 error)。改用生成型別的 Update 形狀 ⇒ 欄名這一層才真的有人守。
+    values: Database['public']['Tables']['email_outbox']['Update'],
   ): Promise<boolean> {
     const { data, error } = await this.client
       .from('email_outbox')
