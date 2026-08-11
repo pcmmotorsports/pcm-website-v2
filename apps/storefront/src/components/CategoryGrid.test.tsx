@@ -15,7 +15,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { CategoryGrid } from './CategoryGrid';
+import { CategoryGrid, HOME_WALL_EXCLUDED } from './CategoryGrid';
 import type { MockCategory } from '../data/mock-categories';
 
 afterEach(cleanup);
@@ -27,7 +27,9 @@ const TOP_11 = [
 ] as const;
 
 /** 未進榜的 4 類(OD 沒有畫 icon 的那些)。 */
-const BELOW_LINE = ['煞車系統', '懸吊與車架', '四輪 ATV/UTV', '服務／其他'] as const;
+// ⚠️ 最後那顆 2026-08-11(#412)由「服務／其他」改名為「服務與其他」——
+//    字面來源 = migration `20260811120000_m4b_storefront_412_service_other_category.sql`。
+const BELOW_LINE = ['煞車系統', '懸吊與車架', '四輪 ATV/UTV', '服務與其他'] as const;
 
 const mk = (names: readonly string[], base = 3000): MockCategory[] =>
   names.map((name, i) => ({ id: `id-${i}`, name, count: base - i * 100, children: [] }));
@@ -119,10 +121,21 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
   });
 
   it('🔴 沒有 icon 的分類:照樣有入口、不當機,而且標記得出來(Sean 2026-08-06 拍 A)', () => {
-    // OD 沒畫 icon 的那 4 類,以及未來新增的分類,都會走這條路
-    const { container } = render(<CategoryGrid categories={mk(BELOW_LINE)} />);
+    // OD 沒畫 icon 的那幾類,以及未來新增的分類,都會走這條路。
+    // ⚠️ 2026-08-11(#412):這裡**不能**再用 `BELOW_LINE` 全集 —— 它的最後一顆「服務與其他」
+    //    已進 `HOME_WALL_EXCLUDED`、根本不會渲染成 chip ⇒ 用全集會讓本格數字對不上,
+    //    而且會把「排除生效」誤讀成「沒有 icon 的分類被丟掉」。改用未被排除的那三類。
+    const NO_ICON_ON_WALL = BELOW_LINE.filter((n) => !HOME_WALL_EXCLUDED.includes(n));
+    // 🔴 前提斷言(R3 I2 立、codex R4 收緊):上一行是**從受測物導出**的 —— 排除清單哪天誤長,
+    //    這格會跟著縮、然後靜默地繼續全綠(判別力歸零)。
+    //    ⚠️ 只釘**數量**還不夠(R4):「誤排除一顆 + 漏排除服務與其他」數量一樣是 3、照樣假綠。
+    //    改釘**精確集合**,同數量替換也會紅。
+    expect(NO_ICON_ON_WALL, '排除清單誤傷了沒有 icon 的分類 ⇒ 客人少了入口')
+      .toEqual(['煞車系統', '懸吊與車架', '四輪 ATV/UTV']);
+    const { container } = render(<CategoryGrid categories={mk(NO_ICON_ON_WALL)} />);
     const chips = [...container.querySelectorAll('.b-cat-chip')];
-    expect(chips, '沒有 icon 的分類被整顆丟掉 ⇒ 客人少了那個入口').toHaveLength(4);
+    expect(chips, '沒有 icon 的分類被整顆丟掉 ⇒ 客人少了那個入口')
+      .toHaveLength(NO_ICON_ON_WALL.length);
     for (const a of chips) {
       expect(a.classList.contains('b-cat-chip--noicon'), '沒有標記 ⇒ 真瀏覽器 / E2E 掃不出來').toBe(true);
       expect(a.querySelector('.b-cat-icon'), '不該畫一個空的 icon 方塊(看起來像圖沒載出來)').toBeNull();
@@ -166,6 +179,39 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
   it('分類為空 → 整段不渲染(不顯假卡 / 空磚面)', () => {
     const { container } = render(<CategoryGrid categories={[]} />);
     expect(container.querySelector('.b-cats')).toBeNull();
+  });
+
+  // ── #412:磚牆排除清單(Sean 2026-08-11 Q2=A)────────────────────────────────
+  it('🔴 #412:「服務與其他」件數再多也不上磚牆,而且不是靠「它件數本來就少」', () => {
+    // 🔴 判別力的關鍵在 fixture:給它 2500 件 ⇒ **沒有排除的話它一定佔一格**(排在第 6 名附近),
+    //    並把原本的第 11 名擠出榜外。若拿它當「件數少所以不上榜」的樣本,這格就恆真、什麼都沒守到。
+    //    正式站的真實情境正是「件數多到會上榜」:落筆當日報價單側該分類 800+ 件,
+    //    而磚牆第 10/11 名是 738 / 553。
+    const WITH_SERVICE: MockCategory[] = [
+      ...mk(TOP_11),
+      { id: 'svc', name: '服務與其他', count: 2500, children: [] },
+    ];
+    const { container } = render(<CategoryGrid categories={WITH_SERVICE} />);
+    const labels = [...container.querySelectorAll('.b-cat-label')].map((el) => el.textContent ?? '');
+
+    expect(labels.join('|'), '排除清單失效 ⇒ 首頁最顯眼的磚面被維修零件佔一格')
+      .not.toContain('服務與其他');
+    expect(container.querySelectorAll('.b-cat-chip')).toHaveLength(11);
+    // 正向對照:原本的第 11 名還在(= 排除的是那一顆、不是把整排砍短)
+    expect(labels.some((l) => l.includes(TOP_11[TOP_11.length - 1]!))).toBe(true);
+    // 「全站共 N 類」講的是全站分類數,**不**因磚牆排除而變小(排除的是曝光位置、不是可及性)
+    expect(container.querySelector('.b-cats-note')?.textContent)
+      .toBe('依件數排序取前 11 名 · 全站共 12 類');
+  });
+
+  it('🔴 #412:被排除的分類不算進「查無 icon」告警(否則每次渲染都叫一次假警報)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      render(<CategoryGrid categories={[...mk(TOP_11), { id: 'svc', name: '服務與其他', count: 2500, children: [] }]} />);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('表頭是 N°03 標題 + 排序說明(OD 表頭右側放的是說明,不是連結)', () => {

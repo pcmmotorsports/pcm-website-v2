@@ -31,7 +31,9 @@
 //
 // ── ⚠️ 沒有 icon 的分類會發生什麼(**已知邊界,Sean 未拍板前的暫行做法**)────────
 //   OD 只畫了 11 顆 icon,而全站有 15 類(2026-08-06 實測)。未進榜的 4 類
-//   (煞車系統 285 / 懸吊與車架 202 / 四輪 ATV/UTV 46 / 服務／其他 1)沒有 icon;
+//   (煞車系統 285 / 懸吊與車架 202 / 四輪 ATV/UTV 46 / 服務與其他 1)沒有 icon;
+//   ⚠️ 最後那顆 2026-08-11(#412)由「服務／其他」改名為「服務與其他」,並且**已列入
+//   `HOME_WALL_EXCLUDED`** ⇒ 它從此不會上榜,也就不會走到下面說的「純文字 chip」那條路。
 //   哪天它們的件數超車就會上榜、而稿上沒有那顆圖。
 //   本片的暫行做法 = **chip 照畫、但不畫 icon 格**(純文字 chip),並掛上 `.b-cat-chip--noicon`
 //   讓它在真瀏覽器 / E2E 掃得出來。**不隱藏那個分類**(客人會少一個入口)、
@@ -189,9 +191,33 @@ function warnMissingIcon(missing: MockCategory[]): void {
   );
 }
 
+/**
+ * 首頁磚牆**不收**的分類(Sean 2026-08-11 `Q2=A`;backlog #412、plan = 信箱 `S-063-PLAN`)。
+ *
+ * 🔴 為什麼要有這張清單:報價單側新增的「服務與其他」有 800+ 件,依件數會**直接排進前 11**
+ *   (落筆當日實查:第 10 名排氣系統 738、第 11 名燈具與電子 553)⇒ 不排除的話,首頁最顯眼的
+ *   12 格磚面會被「維修零件」佔一格、把「燈具與電子」擠掉。Sean 拍的是「目錄照樣篩得到、
+ *   但首頁不主打它」。
+ * 🔴 **只作用於首頁磚牆**:側欄分類、`?category=` 深連結、facet 件數一律照舊 —— 排除的是曝光位置,
+ *   不是可及性。
+ * ⚠️ 字面必須與 `categories.raw_path` 的頂層名逐字相同(seed = migration
+ *   `20260811120000_m4b_storefront_412_service_other_category.sql`)。分類改名時這裡要跟著改。
+ *   守門 = `CategoryGrid.test.tsx` 的兩格 #412 測試:**把這行 `.filter` 拿掉,實跑
+ *   `2 failed | 11 passed`,紅的正是那兩格**(上榜那格 + 告警那格;告警那格會紅是因為
+ *   沒有排除時它會上榜、而它沒有 icon ⇒ 每次渲染都叫一次假警報)。
+ * ⚠️ **刻意用具名清單、不用規則**(例如「名字含『服務』就排除」):規則會誤傷未來真的要上榜的
+ *   分類,而誤傷這件事寫不出會紅的測試(plan §2-2 的 B-3 落選理由)。
+ */
+export const HOME_WALL_EXCLUDED: readonly string[] = ['服務與其他'];
+
 export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
-  // 依件數遞減取前 11(`buildCategoryTree` 已按群數排序,這裡保守再排一次)。
-  const chips = [...categories].sort((a, b) => b.count - a.count).slice(0, WALL_CELLS - 1);
+  // 依件數遞減取前 11(`buildCategoryTree` 已按群數排序,這裡保守再排一次);排除清單先濾掉。
+  // ⚠️ 下方「全站共 N 類」用的是**未濾的** `categories.length` —— 那句話講的是全站分類數,
+  //    不是磚牆候選數;把它一起濾掉會讓那個數字開始說謊(而畫面看起來完全正常)。
+  const chips = [...categories]
+    .filter((c) => !HOME_WALL_EXCLUDED.includes(c.name))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, WALL_CELLS - 1);
   if (chips.length === 0) return null; // 空 → 整段不渲染(勝過假卡或空磚面)
   warnMissingIcon(chips.filter((c) => !CATEGORY_CHIPS[c.name]));
 
