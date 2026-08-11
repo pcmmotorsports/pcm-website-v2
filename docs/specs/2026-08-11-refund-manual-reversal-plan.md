@@ -1,11 +1,16 @@
-# 退款帳本 `manual` 沖銷 — 片級 plan **v5**(#405 + #417)
+# 退款帳本 `manual` 沖銷 — 片級 plan **v6**(#405 + #417)
+
+> **v6 = Q-425 拍板後,述詞定稿、解除封鎖**(2026-08-12,主視窗 `P-533-A`;Sean 逐字「桌上五題 依照推薦」)。
+> **Q-425=B**:有效 `manual` 且 `refunded=false` **視同 `result_failed`** —— 不算退款跡象、單子可自動結清;
+> 員工看錯就用本片的沖銷改回 `true`,而 op6a 是即算函式 ⇒ 下一次呼叫立刻翻回 `needs_human`。
+> ⇒ **§2d-1 的 canonical view 述詞已定稿(§11)**;§2d-1b 的必答項關閉。**下一步=關卡1**(鐵則 12①③ 不降級)。
 
 > **v5 = P 八代開工前的實查重跑**(2026-08-11 23:4x)。只做兩件、零設計變更:
 > ①**§7 的字面清單全部重跑**,結果推翻 v4 的兩個判斷(見 **§10**)——
 >   v4 要我去改兩支回退腳本的逐字 pin,而那兩處 pin 是**順序閘本體**,改了等於拆守門。
 > ②Q2 語意由主視窗 `P-523-A` 校正 = **每筆終局至多被沖一次、修正走鏈狀**(=v4 §6 我的 A 本義)⇒ **本文零改動**。
-> ⏳ **仍卡一題**:§2d-1b 的「有效 `manual` 但 `refunded=false` 算什麼」已出選項送 Sean(`P-525-Q`),
->   **未回覆前 canonical view 的述詞不定稿、不進實作**。
+> ~~⏳ 仍卡一題:§2d-1b 那題送 Sean(`P-525-Q`)、未回覆前不定稿不進實作~~
+>   ⇒ **v6 已解除**(Q-425=B),述詞見 §11。
 
 > **v4 = 關卡1 R2 折完**(8 findings,見 §9)。其中一條**又是我自相矛盾**:
 > v2/v3 我寫「`pre_one_terminal_uniq` **維持不動**,改用 trigger 算有效終局」——
@@ -145,9 +150,10 @@ view 要明定 owner、`security_invoker`、**零 GRANT**,並對「被 SECDEF �
 - **會翻面的情境**:「被沖銷的 manual + 現行有效的 `result_failed`」原本落 `needs_human`,
   之後可能變成可結清。**這是新語意的合理結果,但它是行為改變**,要:
   ①在 plan 明列接受 ②配兩格測試:「替代 manual 不翻面」「無替代事件時仍 `needs_human`」。
-- 🔴 **canonical 只回答「哪一列有效」,不回答「有效的 `manual` 且 `refunded=false` 要算什麼」** ——
-  現行程式把**所有** manual 都當退款跡象。**本片必須釘死**:維持現行(manual 一律算跡象)
-  或改成「`refunded=false` 視同 failed」。**v3 沒釘 ⇒ v4 列為必答項**,新代開工前要跟主視窗確認。
+- ✅ **已釘死(Q-425=B,2026-08-12)**:有效的 `manual` 且 `refunded=false` **視同 `result_failed`**。
+  ~~舊字面:v3 沒釘、v4 列為必答項、開工前要確認~~ ⇒ **已關閉**,述詞見 **§11**。
+  🔴 這是**對客金流面的行為改變**(原本這種單永遠落 `needs_human`),與 §2d-1b 上面那條翻面一起列入接受,
+  並各配一格測試(§11-4)。
 
 ### 2d-2. 讀取面逐點改寫(v1 整段漏掉,關卡1 抓出來)
 
@@ -273,14 +279,15 @@ v1 寫「三欄 + 一索引 + 一 RPC,皆純加法」。**關卡1 指出不實**
 | 2 | canonical 必須選具名 **view**,不能停在「view 或片語」 | ✅ §2d-1 選定 view + owner/`security_invoker`/零 GRANT/不得 fail-open |
 | 3 | `op6a` 換吃 canonical 後仍要保留**正向存在條件** | ✅ §2d-1b |
 | 4 | 「被沖 manual + 有效 failed」會從 `needs_human` 翻面=**正式錢面行為改變** | ✅ §2d-1b 明列接受 + 兩格測試 |
-| 5 | canonical 沒回答「有效 manual 但 `refunded=false`」算什麼 | ✅ 列為**必答項**(新代開工前確認) |
+| 5 | canonical 沒回答「有效 manual 但 `refunded=false`」算什麼 | ✅ 列為必答項 → **已答:Q-425=B**(§11) |
 | 6 | 自我 FK 不保證同 refund / 被指的是 manual | ✅ §2a 改複合 FK + trigger 補型別 |
 | 7 | `actor` CHECK 會掃舊列 ⇒ apply 失敗 | ✅ §2a 改 `NOT VALID`,並承認舊列拿不回來 |
 | 8 | 「Q2 兩種讀法會合流」**不成立** | ✅ §6 撤回該說法,列為新代第一件要確認的事 |
 
 **判停**:8 條全折進 v4,但**其中兩件不是我能拍的**——
 Q2 的真意(§6)與 `refunded=false` 的語意(§2d-1b)⇒ **實作前必須先問**。
-關卡1 已用滿 2 輪(R1 8 條 / R2 8 條,每輪都打掉一個核心)⇒ 不再開 R3;**v4 交給 P 八代,開工前先問那兩題**。
+關卡1 已用滿 2 輪(R1 8 條 / R2 8 條,每輪都打掉一個核心)⇒ 不再開 R3;~~v4 交給 P 八代,開工前先問那兩題~~
+**兩題皆已答**(Q2 語意=`P-523-A` 校正、Q-425=B=`P-533-A`)⇒ **v6 進關卡1 審實作前 plan**。
 
 — v4,P 七代 2026-08-11 23:3x
 
@@ -359,7 +366,95 @@ v4 把它們和 harness 基線混成同一類 —— 而 harness 基線該改、
 
 ### 10d 還沒做的
 
-- §2d-1b 那題(有效 `manual` 但 `refunded=false`)**仍在等 Sean**(`P-525-Q`)⇒ canonical view 的述詞還不能定稿。
+- ~~§2d-1b 那題仍在等 Sean~~ ✅ **已答:Q-425=B**(2026-08-12,`P-533-A`)⇒ 述詞已定稿於 **§11**。
 - 本節只重跑了 §7 的**字面清單**;`l5b2-2d-verify.sh` 那 19 處索引引用要逐處改成什麼,屬實作當天。
 
 — v5,P 八代 2026-08-11 23:4x
+
+---
+
+## §11 canonical view **述詞定稿**(v6;Q-425=B 之後)
+
+### 11-1 先講一件實查到的既存落差(不是本片造成的,但本片必須處理)
+
+`op6a`(`20260811030000:148-153`)用的兩個集合是 **2d 之前**的:
+
+| 集合 | op6a 現行字面 | 2d 之後的真相(`20260811110000:200-201`,已 apply) |
+|---|---|---|
+| 終局 | `('result_success','result_failed','manual')` | **`('result_confirmed','result_failed','manual')`** |
+| 「錢動過」 | `('result_success','manual')` | 見 11-2 |
+
+⇒ **`result_success` 已經不是終局**(2d 逐字:「受理成功不代表錢已經退出去」,`:191-192` COMMENT)。
+現況 op6a 對一顆只有 `result_confirmed` 的 refund **認不出它的終局** ⇒ 落 `needs_human`。
+**結果碰巧是安全的**(保守),但**理由是錯的** —— 它不是「認出錢動過」,是「什麼都沒認出來」。
+本片換吃 canonical view 時**一併修掉**;這是修既存 drift,不是本片新增行為。
+
+### 11-2 定稿述詞
+
+**有效終局**(canonical)= `event_type ∈ ('result_confirmed','result_failed','manual')`
+**且** 沒有任何 `manual_reversal` 列的 `reverses_event_id` 指向它。
+
+**該有效終局是否代表「錢動過」**(`indicates_refund`)—— **Q-425=B 的落點就在這一欄**:
+
+| 有效終局 | `indicates_refund` | 依據 |
+|---|---|---|
+| `result_confirmed` | **true** | 確認退款成功 |
+| `result_failed` | **false** | 退款失敗、錢沒動 |
+| `manual` + `refunded=true` | **true** | 人工判定「有退成」 |
+| `manual` + `refunded=false` | **false** | 🔴 **Q-425=B**:與 `result_failed` 一視同仁 |
+| (沒有有效終局) | — | **不得除外**(§11-3) |
+
+```sql
+-- 述詞本體(view 的兩欄)
+e.event_type IN ('result_confirmed','result_failed','manual')                    -- 是不是終局
+AND NOT EXISTS (SELECT 1 FROM public.payment_refund_events r
+                 WHERE r.refund_id = e.refund_id
+                   AND r.event_type = 'manual_reversal'
+                   AND r.reverses_event_id = e.id)                               -- 沒被沖掉
+
+-- indicates_refund(🔴 fail-closed:判不出來一律當「錢動過」)
+COALESCE(
+  e.event_type = 'result_confirmed'
+  OR (e.event_type = 'manual' AND (e.record_snapshot -> 'refunded') = 'true'::jsonb),
+  true)
+```
+
+🔴 **`COALESCE(…, true)` 的方向是刻意的**:`indicates_refund=true` ⇒ 算跡象 ⇒ `needs_human` ⇒ **保守**。
+若寫成 `COALESCE(…, false)` 就是 fail-**open**:判不出來 ⇒ 當作沒退 ⇒ **自動結清一張可能已退錢的單**。
+(本 repo 的通例是 `COALESCE(…, false)`——**那是給 CHECK 用的**,因為 CHECK 的 false 才擋得住;
+這裡是判定式,兩者的安全方向相反,**不可照抄**。同族 memory `reference_pg-check-passes-on-null-use-coalesce-false`。)
+⚠️ 實務上 `manual` 列的 `refunded` 由 2c 的 `pre_manual_needs_verdict_chk`(`20260811080000:356-359`)保證是 boolean
+⇒ NULL 分支**構造不出來**(除非那道 CHECK 被拿掉)。**它是縱深,不是主守門** —— 這句要寫進註解,
+否則下一個人會以為它有被測到(同族 memory `feedback_negative-test-observation-supplied-by-another-mechanism`)。
+
+### 11-3 op6a 換吃 canonical 之後的**正向存在條件必須保留**(關卡1 R2 F3)
+
+```
+除外(不算退款跡象) ⇔ EXISTS(該 refund 的有效終局)
+                    AND NOT EXISTS(該 refund 的有效終局 且 indicates_refund)
+```
+
+- **左半不能省**:少了它,「零有效終局」(例如只有 `sent` 或只有 `result_unknown`,兩個最危險的未知態)
+  會被空集合當成「全 failed」而除外 —— 這正是 op6a `:141-145` 註解記載的 Fable F5。
+- 兩個 EXISTS 都吃 canonical view,**不得再自己問「有沒有 manual」**。
+- 雖然 trigger 保證至多一列有效終局,**述詞仍寫成 EXISTS 對**:它不依賴那個保證,
+  trigger 萬一被繞過也不會翻成 fail-open。
+
+### 11-4 本片因此要接受的**兩個行為翻面**(各配一格測試)
+
+| # | 情境 | 舊 | 新 | 測試 |
+|---|---|---|---|---|
+| A | 被沖銷的 `manual` + 有效的 `result_failed` | `needs_human` | 可結清 | 正:翻面成立;負:**替代 manual(refunded=true)存在時不得翻面** |
+| B | 有效 `manual` + `refunded=false`(**Q-425=B**) | `needs_human`(永遠) | 可結清 | 正:可結清;負:**改成 `refunded=true` 後必須翻回 `needs_human`** |
+| — | 零有效終局(只有 `sent`/`result_unknown`) | `needs_human` | **不變** | 負:仍 `needs_human`(守 11-3 的左半) |
+
+🔴 **B 的負測是本片最重要的一格**:它同時驗「沖銷真的改得了判定」與「op6a 真的即時重算」——
+Sean 選 B 的整個安全網就是這一條回頭路,**它沒被測到 = B 的風險論證是空的**。
+
+### 11-5 零回溯風險(落筆當下實查)
+
+正式庫 `payment_refund_events` / `payment_refunds` / `order_refunds` **三張表皆 0 列**
+(2026-08-11 唯讀 SELECT 實跑,專案 `bmpnplmnldofgaohnaok`)⇒ 上述行為改變**不影響任何既有資料**,
+純粹是定未來的語意。⚠️ 這是**當時**的觀察;apply 前要重查一次(它會從 0 變成非 0——2e/2f/2g 就是寫入面)。
+
+— v6,P 八代 2026-08-12 00:5x
