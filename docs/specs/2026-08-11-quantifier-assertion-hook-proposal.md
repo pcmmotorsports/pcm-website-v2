@@ -1,9 +1,12 @@
-# 提案:數量詞落筆 hook(草案 v1)
+# 提案:數量詞落筆 hook(草案 v1.1)
 
-> **狀態:草案,未掛。** hook 掛點在 `~/.claude/`(Sean 批准區)⇒ 本檔只到提案,不動 `settings.json`。
-> 起草:E 窗(2026-08-11 晨),交主視窗轉 Sean 拍板。
+> **狀態:草案,未掛。** hook 掛點在 `~/.claude/`(Sean 批准區)⇒ 本檔只到提案,不動 `settings.json`
+> 也不動 `~/.claude/hooks/`。起草:E 窗(2026-08-11 晨),交主視窗轉 Sean 拍板。
 > 素材:`B-431-STOP §4`(十例)/ D 窗「拿名字找東西」族 / S 窗「同片自打架」族 /
 > memory `feedback_guard-effect-depends-on-how-it-is-executed`。
+> **v1.1(同日午前)**:①`Stop`/`PostToolUse` 的 stdout 行為**已查證**,原本的「未確認」段換成
+> 事實,並連帶查出**兩支既有 hook 是啞的**(§3.1a、Q2 因此改題)②T1 補三個詞(§3.2)
+> ③追加 B-433 線兩條素材(§2 四階)。**行數 183 > 派工的 150** —— 超出的全在 v1.1 這三處,要砍請說。
 
 ## 0. 一句話
 
@@ -30,6 +33,14 @@ hook 唯一做得到的事 = **在那一刻把它變成一道當場要交代的�
   兩者都同時存在於自己送出去的 prompt 裡。
 - 二階:段落標題「四個退款面各一格」實為兩面,**而且已經轉述給下游**。
 - 三階:**用會命中非實例的 pattern 去數**(上面那條 `grep -c`)⇒ 修這一族的途中又製造一例。
+- **四階(v1.1 追加,B-433 線 codex R1)**:**「用前提當驗收」在會改變前提的寫入片裡有毒** ——
+  回填 migration 的檔尾斷言若在寫入後**重算**前提命中數,合格單一寫進去,「零帳本列」這個前提
+  就從真變假 ⇒ **正確的寫入被自己的斷言判成違規**(命中數歸 0、實寫 1)。
+  修法=候選集合**寫入前凍結**,檔尾對凍結快照驗、不對 live 狀態重算。
+  ⇒ 對本提案的意涵:數量詞的「數法」也有時效 —— 同一條命令在寫入前後數出來的東西不是同一件事。
+- 同批 B 又抓到自己一例**假的「構造不出來」**(cash 的 `request_id` 可由 `order_id` 衍生)——
+  同族全稱否定句,已在 T1 觸發集內(`不存在` / `做不到` 類);全文見 memory
+  `feedback_false-unconstructible-claim-is-worse-than-false-verified`。
 
 **族二 · D 窗「拿名字找東西」**
 - `LINE_TIP` 重釘用**錨名**盤 ⇒ 漏掉釘同一個值、但變數叫 `NEWEST_TS` 的那一支;**改用「值」grep 才抓到**。
@@ -57,21 +68,41 @@ hook 唯一做得到的事 = **在那一刻把它變成一道當場要交代的�
 
 | 事件 | 攔到的落筆面 | 能不能擋 | 現成範本 |
 |---|---|---|---|
-| `PostToolUse` `Write\|Edit` | 信件 / STATUS / backlog / spec | ❌ 只能印提醒,Claude 讀完仍可照寫 | `contract-sync-reminder.js` |
+| `PostToolUse` `Write\|Edit` | 信件 / STATUS / backlog / spec | ❌ 只能提醒(而且**必須走 `additionalContext` JSON**,見 §3.1a) | `contract-sync-reminder.js` |
 | `PreToolUse` `Bash` | commit 訊息(heredoc / `-F` 檔) | ✅ `permissionDecision: deny` | `block-commit-verify-bypass.js` |
-| `Stop` | **對話裡講給 Sean / 主視窗的話** | ⚠️ 見下 | `push-state-watch.js` |
+| `Stop` | **對話裡講給 Sean / 主視窗的話** | ✅ `additionalContext`(續跑)或 `exit 2`(擋停) | `push-state-watch.js` |
 
 🔴 **只有 `Stop` 攔得到對話 prose**,而這一族有相當比例是**先講出去、才寫進檔**
 (B-431 §4-7「污染了你和 codex R2 兩個下游的前提」是最貴的一例)。
 
-⚠️ **未確認、實作前必驗**:`Stop` hook 以 `exit 0` + stdout 送出的字,**是否真的被看見**。
-現有 `push-state-watch.js` 是這個寫法且註解自稱「當場被看見」,但我**沒有實測過**它的輸出去哪裡。
-驗法:在 `push-state-watch.js` 暫時無條件印一行特徵字串,收工一次看它出不出現;
-若不出現,`Stop` 這一格就只剩「exit 2 擋停」一種形狀,**那是會改變選項成本的事實**。
+### 3.1a 🔴 已查證:`exit 0` 的**純 stdout 根本不會被看見**(v1.1 更正,連帶查出兩支既有 hook 是啞的)
+
+官方文件(`code.claude.com/docs/en/hooks`,2026-08-11 親讀)逐字:
+> For most events, stdout is written to the debug log but not shown in the transcript.
+> The exceptions are `UserPromptSubmit`, `UserPromptExpansion`, and `SessionStart`.
+
+⇒ `Stop` 與 `PostToolUse` 要送話給 Claude,**只有兩條路**:JSON 的
+`hookSpecificOutput.additionalContext`,或 `exit 2` 走 stderr(`Stop` 的 exit 2 = 擋停續跑)。
+
+🔴 **本 session 的構造證據**:`contract-sync-reminder.js`(PostToolUse、`docs/specs/*.md` 命中)
+的計數器 `$TMPDIR/.claude-contract-sync-254b5555c188`(檔名=本 session id 的 md5 前 12 碼)
+**現值 3 = 它自己設的每 session 上限**,而**最後寫入時間 09:36 正是我編輯本檔的時段**
+⇒ **它那一刻確實跑了,而我沒收到任何提醒文字**。
+⚠️ 誠實界:我只證得到「至少那一次跑了且沒被看見」,**不主張那三次全發生在寫本檔時**
+(本 session 跨了昨天,更早的命中可能來自別的 spec 編輯)。
+同一批工具回應裡,用 JSON `additionalContext` 送的 ide 診斷與 impeccable 兩支則**每次都看得到**。
+
+⇒ **這兩支 hook 現在是啞的**:`contract-sync-reminder.js`(合約字面守則)與
+`push-state-watch.js`(別窗連帶 push 警報)都是 `process.stdout.write(...)` + `exit 0`。
+兩支的檔頭都寫著「prose 層擋不住時機型規則、hooks 是唯一 deterministic 層」——
+**而它們自己從沒把話送到**。修法是各改一處送出方式(純字串 → `additionalContext` JSON),
+但那是動 `~/.claude/hooks/` ⇒ **屬 Sean 批准區,本片不動,列為 §5 Q2**。
 
 ### 3.2 觸發字元集(三個 tier,實測見 §4)
 
 - **T1 全稱 / 全稱否定**:`全部` `所有` `每一` `一律` `唯一` `僅有` `只有` `皆` `零命中` `查無` `不存在` `從沒` `一項都` `完全不`
+  **+ `做不到` `構造不出來` `不可能`**(v1.1 追加:少了這三個就漏掉「假的構造不出來」那一族,
+  而那族有專屬 memory;實測代價=每封 2.4 → **2.6 次**,同量級)
 - **T2 數量詞**:`\d+` 緊接 `處|支|條|格|檔|例|欄|筆|次|面|種|版|列|台|組|顆|片`
 - **T3** = T1 ∪ T2
 
@@ -95,9 +126,9 @@ hook 唯一做得到的事 = **在那一刻把它變成一道當場要交代的�
 
 | tier | 觸發段落 | 佔比 | 其中已附數法 | **每封平均會開火** |
 |---|---|---|---|---|
-| T1 全稱 | 67 | 15% | 19 | **2.4 次** |
+| T1 全稱(含 v1.1 追加三詞) | 73 | 17% | 20 | **2.6 次** |
 | T2 數量詞 | 66 | 15% | 7 | **3.0 次** |
-| T3 聯集 | 119 | 27% | 21 | **4.9 次** |
+| T3 聯集 | 124 | 28% | 22 | **5.1 次** |
 
 ⚠️ **時間戳是必要的,不是講究**:本節第一版寫「最近 20 封」而沒釘時點,
 十分鐘後別窗落了一封新信 ⇒ 視窗滑掉一格、三個數字全變。
@@ -110,7 +141,7 @@ cd ~/pcm-mailbox && python3 - <<'PY'
 import re,glob,os,datetime
 CUT=datetime.datetime(2026,8,11,9,40).timestamp()   # 釘住樣本視窗,否則新信一落就滑掉
 CMD=re.compile(r'`[^`]*(?:grep|rg|wc\s+-l|sort|uniq|psql|ls\b|find\b|jq|awk)[^`]*`|`[^`]*:\d+(?:-\d+)?`')
-T1=r'全部|所有|每一|一律|唯一|僅有|只有|皆|零命中|查無|不存在|從沒|一項都|完全不'
+T1=r'全部|所有|每一|一律|唯一|僅有|只有|皆|零命中|查無|不存在|從沒|一項都|完全不|做不到|構造不出來|不可能'
 T2=r'\d+\s*(?:處|支|條|格|檔|例|欄|筆|次|面|種|版|列|台|組|顆|片)'
 f=sorted([x for x in glob.glob('[A-Z]-*STOP.md') if os.path.getmtime(x)<CUT],key=os.path.getmtime)[-20:]
 p=[q for x in f for q in re.split(r'\n\s*\n',open(x,encoding='utf8',errors='replace').read()) if q.strip()]
@@ -120,7 +151,7 @@ for n,r in (('T1',T1),('T2',T2),('T3',T1+'|'+T2)):
 PY
 ```
 
-🔴 **這組數字直接否掉「全掛 T3」**:每封信開火 4.9 次 = 提醒疲勞,而疲勞的提醒等於沒掛
+🔴 **這組數字直接否掉「全掛 T3」**:每封信開火 5.1 次 = 提醒疲勞,而疲勞的提醒等於沒掛
 (`contract-sync-reminder.js` 每 session 上限 3 次,就是為了這個)。
 
 ## 5. 給 Sean 的決策題
@@ -131,7 +162,7 @@ A: A|B|C
 
 A(推薦)= 只掛 T1「全稱句」,三個事件都掛(Write/Edit 提醒、Bash commit 擋、Stop 提醒)。
    理由:全稱句是**一個反例就推翻**的句型,誤報成本低、命中率最高(素材四族裡佔多數);
-   每封信平均開火 2.4 次,和現有 hook 同量級。
+   每封信平均開火 2.6 次,和現有 hook 同量級。
 B = T3 聯集,但只掛 PostToolUse(純提醒、不擋任何工作流),每 session 上限 3 次。
    理由:最保守,絕不影響流程;代價是 commit 訊息與對話 prose 兩個面完全沒守到。
 C = 先不掛 hook,只把 §3.3「同段落附數法」寫進 00-work-rules。
@@ -139,11 +170,14 @@ C = 先不掛 hook,只把 §3.3「同段落附數法」寫進 00-work-rules。
 ```
 
 ```
-Q2:`Stop` 事件那格(唯一攔得到對話 prose 的),要不要做?
-A: A|B
+Q2:§3.1a 查出**既有兩支 hook 是啞的**(純 stdout + exit 0 送不到)。要不要修?
+A: A|B|C
 
-A(推薦)= 先做 §3.1 的那個實測(印特徵字串、看收工時出不出現),再決定形狀。
-B = 這一格直接不做,對話 prose 面交給審查者與這份規則文字。
+A(推薦)= 兩支都改成 hookSpecificOutput.additionalContext(每支動一處送出方式,行為不變只是話送得到)。
+   理由:它們是為「時機型規則」而立的,現在等於沒立;而且是**先修既有的、再談要不要新增**。
+B = 只修 push-state-watch.js(別窗連帶 push =會動到 origin 的那一支),合約字面那支下次順手。
+C = 都先不動,連同 Q1 的新 hook 一起排。
+⚠️ 三個選項都動 `~/.claude/hooks/`,屬 Sean 批准區 —— 批了我才動,本片只到提案。
 ```
 
 — E 窗六代,2026-08-11

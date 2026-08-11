@@ -73,7 +73,12 @@ export type OrderCancelBlockReason =
    * 否則員工會以為那是永久規則,與 Sean 的拍板衝突。
    */
   | 'payment_not_unpaid'
-  /** 明確觀察到非 `failed` 的扣款嘗試(RPC 步7 第二半,`:361-364`) */
+  /**
+   * 明確觀察到非 `failed` 的扣款嘗試(RPC 步7 第二半,`:361-364`)。
+   * 🔴 **本碼只在 `paymentStatus === 'unpaid'` 時出現**(#387,理由與失效條件見
+   * `buildOrderCancelView` 內該行的註解)——已付款單上那筆非 failed 的嘗試是**付款成功的那一筆**,
+   * 掛本碼等於告訴員工「還在進行中」。**RPC 那一側沒有跟著收窄**(它照樣擋),收窄的只有文案面。
+   */
   | 'charge_attempt_blocked'
   /**
    * 扣款嘗試**沒讀到或只讀到子集** ⇒ 沒看到的那些可能就有一筆在途(`types.ts:844` 三態的 `'unknown'`)。
@@ -492,7 +497,23 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   // 🔴 `'blocked'` 與 `'unknown'` 分開兩碼:員工要看到的話不同(「有在途扣款」vs「讀取不完整,請重新整理」),
   //    這正是 `chargeAttemptGate` 收成三態的理由(`types.ts:831-836`)——合成一碼就把它退回兩 boolean 的洞。
   if (order.paymentStatus !== 'unpaid') reasons.push('payment_not_unpaid');
-  if (order.chargeAttemptGate === 'blocked') reasons.push('charge_attempt_blocked');
+  // 🔴 **已付款的單不報這條**(#387;Sean 2026-08-11 實測撞到)。
+  //    `mapChargeAttemptGate` 用否定式 `!== CHARGE_ATTEMPT_TERMINAL_FAILED` 判定
+  //    (`packages/adapters/src/supabase/mappers/order.ts:619` 與 `:622`)
+  //    ⇒ **成功終態 `charged` 與真在途 `pending` 共用 `'blocked'` 一碼**,而本碼的文案只寫了
+  //    pending 那種語意(「還在進行中,等它結束」)。單子已付款時,那筆非 failed 的嘗試就是
+  //    **付款成功的那一筆** ⇒ 對員工說「刷卡還在進行中」是假話,而且是會讓人一直重整、
+  //    等一個永遠不會發生的變化的假話。
+  // 🔴 **抑制的只是碼、不是 fail-closed 的實質**(同本檔 `quantity_summary_missing` 的紀律):
+  //    抑制只在 `paymentStatus !== 'unpaid'` 時發生,而那正是上一行 `payment_not_unpaid`
+  //    **必然成立**的條件 ⇒ 兩行互補、恆有一條在擋,`canCancel` 不受影響(守門見測試)。
+  // ⚠️ **失效條件**:日後 L5b 重新付款線若讓「已付款單上再開一筆真 pending 扣款」變可達,
+  //    這裡會把那筆**真在途**一起藏掉。那時要走根治 = #387 修法 A(gate 拆四態、`charged`
+  //    與 `pending` 分碼),那動的是 `packages/adapters` 的共用 mapper ⇒ 另一片、另一層審查。
+  //    在那之前處置不變:`payment_not_unpaid` 照樣擋住,員工該做的事(走退款線)也一樣。
+  if (order.chargeAttemptGate === 'blocked' && order.paymentStatus === 'unpaid') {
+    reasons.push('charge_attempt_blocked');
+  }
   if (order.chargeAttemptGate === 'unknown') reasons.push('charge_attempt_unknown');
 
   // plan §1.4:品項清單被截斷 ⇒ 複核的「影響範圍」是漏的,不可按。

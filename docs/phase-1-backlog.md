@@ -9913,9 +9913,18 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   「任何非 failed」的 attempt 一律判 `blocked`,charged(成功終態)與 pending(真在途)同碼;
   `cancel-review-section.tsx` 的 `charge_attempt_blocked` 文案只寫了 pending 那種語意。
 - **擋人是對的**(已付款單本就不可在此取消=payment_not_unpaid 那條),錯的只有理由文案 ⇒ 純可讀性。
-- **修法候選**:A=gate 拆四態(clear/in_flight/settled_success/unknown),文案各自對 ⇒ 動 shared mapper=
-  鐵則 12⑥ 走 codex;B=文案層修:同時命中 payment_not_unpaid 時隱藏 charge_attempt_blocked 那張卡
-  (admin 端一行條件,不動 mapper)。
+- **狀態:** ✅ **已修(B 案,2026-08-11 E 窗)** —— `cancel-view.ts` 的 `charge_attempt_blocked`
+  收窄成只在 `paymentStatus === 'unpaid'` 時發出;已付款單只剩「這期還不能在這裡取消」那一句。
+  **仍待 Sean 肉眼驗**(進任一張已付款單的取消區,確認看不到「還在進行中」)。
+  - **抑制的是碼、不是實質**:抑制條件與 `payment_not_unpaid` 的觸發條件**互補**,兩者恆有一條在擋
+    ⇒ `canCancel` 不變;守門逐條在 `cancel-view.test.ts` / `cancel-review-section.test.tsx`,
+    突變三靶實跑皆紅(拿掉 `&& unpaid` / 刪整條 push / 拿掉 `payment_not_unpaid` 那行)。
+  - **順帶換掉一格的 fixture**:`cancel-review-section.test.tsx` 那格「逐條都畫出來」原本用
+    `paid + blocked` 湊三碼,收窄後只剩兩碼 ⇒ 改用 `paid + unknown + truncated`,本格原本要守的事不變。
+- 🔴 **根治(A 案)未做,且它有明確的失效條件觸發點**:gate 仍把 `charged` 與 `pending` 併成一碼。
+  今天無害是因為「已付款單上再開一筆真 pending 扣款」不可達;**L5b 重新付款線一旦讓它可達,
+  B 案就會把那筆真在途一起藏掉** ⇒ 屆時要走 A 案(gate 拆四態,動 `packages/adapters` 共用 mapper、另片另審)。
+  失效條件同字面寫在 `cancel-view.ts` 該行的註解裡,不只留在本條目。
 - **不修會痛在哪**:員工看到「進行中」會去等/重新整理/懷疑系統,永遠等不到變化;第一次遇到的人會當成故障回報。
 
 ### #388. 🍪 actor cookie 欄名為裸字面(兩處)— 打錯字=靜默不寫 cookie、typecheck 與測試全盲

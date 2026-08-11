@@ -237,6 +237,31 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     ]);
   });
 
+  it('🔴 #387 已付款的單不報「刷卡進行中」——那筆非 failed 的嘗試就是成功的那一筆', () => {
+    // 🔴 正向對照放在同一格:少了它,「把整條 push 刪掉」的突變會讓下面全綠。
+    expect(
+      buildOrderCancelView(order({ paymentStatus: 'unpaid', chargeAttemptGate: 'blocked' }))
+        .blockReasons,
+    ).toEqual(['charge_attempt_blocked']);
+
+    // 🔴 值域掃全:比照上一格的紀律,不只測 paid ——「只抑制 paid」的突變要紅。
+    for (const status of ['paid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const) {
+      const view = buildOrderCancelView(order({ paymentStatus: status, chargeAttemptGate: 'blocked' }));
+      // 突變:拿掉 `&& paymentStatus === 'unpaid'` ⇒ 這行紅(陣列會多一碼「還在進行中」)。
+      expect(view.blockReasons).toEqual(['payment_not_unpaid']);
+      // 🔴 抑制的是碼、不是實質:單子照樣擋得住。
+      //    這行釘住的是「兩條互補、恆有一條在擋」——若有人把 `payment_not_unpaid` 那行拿掉,
+      //    被抑制的這張單就會變成可送出,而只看上一行斷言是看不出來的。
+      expect(view.canCancel).toBe(false);
+    }
+
+    // `unknown` 不在本次收窄範圍內:讀不完整時「可能有在途」對已付款單仍然為真。
+    expect(
+      buildOrderCancelView(order({ paymentStatus: 'paid', chargeAttemptGate: 'unknown' }))
+        .blockReasons,
+    ).toEqual(['payment_not_unpaid', 'charge_attempt_unknown']);
+  });
+
   it('品項清單被截斷', () => {
     expect(buildOrderCancelView(order({ itemsTruncated: true })).blockReasons).toEqual([
       'items_truncated',
