@@ -11112,3 +11112,33 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   而那時的選擇通常是**繞過守門**(DISABLE TRIGGER / 直連 owner 改資料)——
   也就是說,沒有逃逸路徑的守門,實務上會訓練出「繞過守門」這個習慣。
 - **發現於**:2026-08-11 / 片 2d R3(Fable)consider;`scripts/l5b2-2d-rollback.sql` 資料閘那段
+
+### #418. ✅ 註解引用生成型別寫死行號 ⇒ 每次重 gen 就整批過期(五處已清、通則已寫)
+
+- **狀態:** ✅ 已修(2026-08-11 B 窗八代;主視窗 B-455-A 發號、由 #415 的實查逼出來)
+- **優先級:** 🟢 低(不影響行為;影響的是「照著座標去看」的人會看到不相干的行)
+- **事實(#415 收工時實查,五處**在本片之前就已經過期**)**:
+
+  | 引用處 | 寫的 | 實際(2026-08-11 實查) |
+  |---|---|---|
+  | `apps/admin/src/lib/payment/composition.ts:41` | `database.types.ts:11`(重 gen 命令) | `:38` |
+  | `apps/admin/src/lib/orders/note-repository.ts:14` | `:19-22`(14 固定碼) | `:170` |
+  | `packages/adapters/src/supabase/mappers/order.ts:588` | `:1456-1458`(`isOneToOne: false`) | `:1684-1686` |
+  | `packages/adapters/src/supabase/mappers/order.test.ts:640` | 同上 | 同上 |
+  | `packages/adapters/src/supabase/mappers/order.test.ts:391` | `:1268` / `:1273` | `:1487` / `:1492` |
+
+  數法(可重跑):`grep -n "gen types typescript --project-id" …` / `grep -n "回 14 固定碼" …` /
+  `grep -n -A 2 "payment_charge_attempts_order_id_fkey" …` / `grep -n "^          invoice_status: string" …`。
+- **根因**:`database.types.ts` 是**生成檔**,每次重 gen(或補一組手動校正)整份行號就位移 ——
+  它與「自己的編輯推移自己的行號」是同族,但更嚴重:**推移的人與被推移的人不是同一片**,
+  所以寫的人當下是對的、也不會有人回頭看。
+- **修法(本片做的)**:五處全部改成「**可重跑數法 + 落筆當下行號**」的形狀,例如
+  `(數法=grep -n '^      admin_search_orders: {' …,落筆當下 :2898)`。
+  ⇒ 行號變成**參考值**,錨點是那條命令;讀者跑一次就拿到現值。
+- **通則(往後照做)**:引用生成檔(`database.types.ts`、未來任何 codegen 產物)一律附數法;
+  ~~只寫 `檔案:行號`~~ 對生成檔不成立。**引用手寫檔仍可寫行號**(它們不會被機器整份重排)。
+- **不修未來會痛在哪**:
+  - 可維護性:座標指到不相干的行,讀的人要嘛白花時間、要嘛以為註解在講別的事。
+  - bug 可追蹤性:註解是承重的(例:`isOneToOne: false` 是「必為陣列」那條推論的唯一依據),
+    座標爛掉等於推論斷鏈,而**沒有任何守門看得到**(行號漂移不會讓任何測試變紅)。
+- **發現於**:2026-08-11 / #415 code-reviewer MF3(我自己的編輯推移了行號)→ 回頭盤點全樹發現另五處早已過期

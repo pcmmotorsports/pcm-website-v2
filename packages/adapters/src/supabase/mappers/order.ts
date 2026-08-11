@@ -585,7 +585,8 @@ function mapQuantitySummary(
  * `(order_id) WHERE status IN ('pending','charged','released')`(`20260624120000:62-64`)
  * 可能讓 PostgREST 判成 to-one」—— **不成立**,同一單可以有任意多筆 `failed`,
  * partial index 蓋不住整條關聯。生成型別也逐字寫著 `isOneToOne: false`
- * (`database.types.ts:1456-1458`)⇒ **規則上必為陣列**。
+ * (數法=`grep -n -A 2 "payment_charge_attempts_order_id_fkey" packages/adapters/src/supabase/database.types.ts`
+ * ⇒ 該關聯逐字 `isOneToOne: false`,落筆當下 `:1684-1686`)⇒ **規則上必為陣列**。
  * 仍然兩種都吃的理由只剩一條(與 `mapQuantitySummary` 同):那是規則推導、**不是實測到的 wire 回應**,
  * 而賭錯的代價不對稱 —— 只認陣列卻回物件時 `.some` 直接 TypeError = 整個明細頁炸掉。
  * 一行正規化買一個不會炸的下限,留著;但它是**防禦**,不是「DB 會這樣送」的宣稱。

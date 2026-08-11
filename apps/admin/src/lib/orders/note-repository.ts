@@ -11,7 +11,10 @@ import type { NoteChannel, NoteType } from './note-form';
 //    未知碼 / null 一律當呼叫端 bug 拋出,不得靜默當成功 —— 靠參數分流的 RPC 一旦漂移,
 //    「靜默降級」的症狀就是零錯誤而事情沒發生。
 
-/** RPC 回的 14 個固定碼(`database.types.ts:19-22` 檔頭逐字)。 */
+/**
+ * RPC 回的 14 個固定碼(`database.types.ts` 檔頭逐字;
+ * 數法=`grep -n "回 14 固定碼" packages/adapters/src/supabase/database.types.ts`,落筆當下 `:170`)。
+ */
 export const NOTE_RESULT_CODES = [
   'APPENDED',
   'DUPLICATE_REQUEST',

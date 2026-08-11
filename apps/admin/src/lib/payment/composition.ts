@@ -38,7 +38,9 @@ export class TapPayConfigError extends Error {
 
 /**
  * 正式站帳本 DB 的 host(Supabase project ref `bmpnplmnldofgaohnaok`;非機密、repo 內既有多處字面,
- * 例如 `packages/adapters/src/supabase/database.types.ts:11` 的重 gen 命令)。
+ * 例如 `packages/adapters/src/supabase/database.types.ts` 檔頭的重 gen 命令
+ * (數法=`grep -n "gen types typescript --project-id" packages/adapters/src/supabase/database.types.ts`,
+ *  落筆當下 `:38`;#418:不寫死行號 —— 那個檔每次重 gen 都會位移)。
  *
  * 🔴 **刻意寫死、不做成 env**:這條規則本身就是要擋「env 設錯」——把判準交給 env,
  * 設錯 env 的那一刻判準也一起錯,守門變裝飾。
