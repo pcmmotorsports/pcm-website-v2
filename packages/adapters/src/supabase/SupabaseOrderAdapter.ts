@@ -176,10 +176,13 @@ export const ADMIN_SEARCH_ORDERS_FN = 'admin_search_orders';
 /**
  * `admin_search_orders` 的窄簽章介面。
  *
- * 🔴 **為什麼要 cast**:這支函式建立於 `database.types.ts` 生成之後 ⇒ 生成型別裡**沒有它**
- * (實查 grep 零命中)。走本 repo 既有先例(`apps/admin/src/lib/customers/customer-repository.ts:135`
- * 的 `as unknown as TierRpcClient`),**cast 成只含這一支簽章的窄介面、不是 `any`** ——
+ * 🔴 **當初 cast 的理由(「生成型別裡沒有它、實查 grep 零命中」)已於 2026-08-11 晚重 gen 之後為假** ——
+ * `admin_search_orders` 現在就在 `database.types.ts:2884`。⇒ **cast 已經可以拆**,
+ * 但拆除要配行為驗證(POST-only 那族原始碼掃描測試 + 參數名逐字對得上生成型別)
+ * ⇒ 統一立案 **backlog #415**(三處同族 cast 一起處理);本次**只更正字面、不拆**。
+ * 🔴 拆之前這個形狀仍然成立:**cast 成只含這一支簽章的窄介面、不是 `any`** ——
  * `any` 會連參數名打錯都不紅,而參數名漂一個字就是執行期 404/42501(GRANT 綁精確簽章)。
+ * (先例:`apps/admin/src/lib/customers/customer-repository.ts` 的 `as unknown as TierRpcClient`。)
  */
 type AdminSearchOrdersRpcClient = {
   rpc(
@@ -630,7 +633,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       //    而網址會落進 access log / CDN log / 瀏覽器歷史 / Referer(migration `:50-74` 的硬要求)。
       //    這條由 `admin-search-orders-post-only.test.ts` 的原始碼掃描守著,不是只寫在這裡。
       // 🔴 參數名逐字對 migration 簽章(`:154-155`):GRANT 綁精確簽章,漂一個字 = 執行期 404/42501,
-      //    而 typecheck 抓不到(RPC 不在生成型別裡、這裡是窄介面 cast)。
+      //    而 typecheck 抓不到 —— ⚠️ 理由更正(2026-08-11 晚重 gen):**不是**「RPC 不在生成型別裡」
+      //    (它在 `database.types.ts:2884`),是**這裡的窄介面 cast 把生成型別繞過去了**。
+      //    拆 cast 之後這道就會由 typecheck 接手(待 backlog #415)。
       const { data, error } = await (
         this.supabase as unknown as AdminSearchOrdersRpcClient
       ).rpc(ADMIN_SEARCH_ORDERS_FN, {

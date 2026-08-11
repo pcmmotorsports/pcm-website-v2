@@ -38,8 +38,9 @@ function requireEnv(name: string): string {
  * 建 SweepEmailOutboxDeps(E2a-c email-sweep cron route 注入 sweepEmailOutbox use-case)。
  *
  * 🔴 lazy(見檔頭):env 在此讀、非 module-top → route 認證/限流未過即不觸發本 factory = 零 env 依賴。
- * - outbox = SupabaseEmailOutboxAdapter + service_role client(文件化窄 cast=E1b 前例 database.types 未含 email_outbox;
- *   regen 後可移除);syntheticEmailDomain 注入單一字面來源。
+ * - outbox = SupabaseEmailOutboxAdapter + service_role client(文件化窄 cast=E1b 前例;
+ *   🔴 原本寫的理由「database.types 未含 email_outbox」**已為假**——2026-08-11 晚重 gen 後
+ *   `email_outbox` 就在生成型別裡 ⇒ cast 可拆、拆除待 **backlog #415**);syntheticEmailDomain 注入單一字面來源。
  * - sender = ResendEmailSenderAdapter(RESEND_API_KEY 與告警管道共用同一把 key、from=ORDER_EMAIL_FROM 交易信專用寄件者
  *   〔E1 定案 orders@pcmmotorsports.com,兩 Vercel project 都要設;缺 → requireEnv throw → route 503 fail-closed〕)。
  */

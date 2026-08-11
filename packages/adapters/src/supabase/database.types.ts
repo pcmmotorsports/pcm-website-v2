@@ -30,15 +30,44 @@
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(🔴 **2026-08-11 重 gen** —— #352 到貨登錄線 a1/a2/甲片
+// 反映 LIVE prod schema(🔴 **2026-08-11 晚重 gen(當日第二次,D 窗六代)** ——
+//   E10 #15-B1(`20260811090000` 收款列表唯讀 RPC)apply 之後;
+//   目的 = **拆掉 B2-a 的型別縫**(`apps/admin/src/lib/orders/payment-repository.ts`
+//   原本用區域型別繞過具名 `.rpc()`,同 commit 一起改回具名呼叫)。
+//   本次 diff **恰 11 行、全新增、零刪除** —— ⚠️ **這個數字有範圍前提,照抄整檔跑會對不上**:
+//   它量的是**切 `^export type Json` 之後的本體**(舊版本體 vs 合併後本體),
+//   等價於「合併腳本剛跑完、檔頭還沒編輯」那一刻的整檔 diff。實測三個數字都留著免得後人誤判:
+//     · 本體 vs 本體 = **11**(全 `>` 側,`<` 側 0)← 這才是「校正沒被沖掉」的那個證據
+//     · 整檔 舊 vs 現行 HEAD = **41**(多出來的 30 行是本段新寫的檔頭紀錄)
+//     · 整檔 舊 vs **原始生成檔** = **258**(整段中文檔頭 + 22 處校正都在裡面,與校正無關)
+//   六段各自對得上一支 migration(主視窗 D-501-A 條件③:多出來的段要講得出來源):
+//     · `admin_list_order_payments` ← `20260811090000`(本次目的)
+//     · `search_catalog_by_vehicle.p_new_since` + `products_list_public.created_at`
+//       ← `20260811040000`(#269-b 新品線;MF-10 要的就是前者)
+//     · `admin_compute_order_settlement` ← `20260811030000`(op6a,**已 apply**,見下方那條已作廢的註記)
+//     · `payment_refunds.rec_trade_id` 三處 ← `20260811080000:239`(L5b-2 片 2c 純加法欄)
+//     · `claim_stuck_unsettled_attempts.superseded_at` ← `20260811060000`(L5b-2 片 2a claim 回傳形狀)
+//   🔴 **零刪除本身就是「校正沒被沖掉」的機械證據** —— 校正全是既有行,少一行必出現在 `<` 側。
+//   🔴 本次八支**機械比對**(腳本比參數名集合,非肉眼)全通過:參數集合 8/8 相等、
+//      重貼後 **22/22 處逐塊實查在位**(數法 = 對八個 Args 區塊 regex 數行尾 `| null`;
+//      同一支腳本對**原始生成檔**數出 **0** ⇒ 那個數法看得見校正被沖掉、不是恆真)。
+//   ⚠️ 寫腳本踩到的坑,留給下一個人:多區塊替換要**按檔案位置由後往前**,
+//      不能按清單順序 `reversed()` —— 清單順序 ≠ 檔案順序,第一版把
+//      `admin_initiate_order_refund` 插成兩份(靠「每支恰出現一次」那道檢查才抓到)。
+//   ── 以下兩段都保留:上一輪(2026-08-11 當日第一次)重 gen 的紀錄,
+//      以及 `:68` 起**給每一個重 gen 的人的通則**(通則不隨輪次過期) ──
+//   🔴 **2026-08-11 重 gen(當日第一次)** —— #352 到貨登錄線 a1/a2/甲片
 //   (`20260810230000` / `20260810233000` / `20260811010000`)+ #277 車型分類 view
 //   (`20260811020000`)apply 之後。
 //   本次帶進來的**不只本片的產物**,還有別線已 apply 但當時沒重 gen 的存量:
 //   `admin_record_item_receipt` / `admin_delete_item_receipt`(#352 到貨登錄兩支 RPC,本片)/
 //   `vehicle_taxonomy_public` view(#277)/ `admin_record_manual_payment` /
 //   `admin_reverse_manual_payment` / `admin_search_orders` / `supersede_charge_attempt_for_user` 等。
-//   🔴 `op6a`(`20260811030000`,`compute_order_settlement`)**在 migrations 目錄裡但尚未 apply**
-//      ⇒ 它的產物**不在本檔=正確**,不得手補(同 2026-08-07 a9v/a9b2_m 的形狀)。
+//   ~~🔴 `op6a`(`20260811030000`,`compute_order_settlement`)**在 migrations 目錄裡但尚未 apply**
+//      ⇒ 它的產物**不在本檔=正確**,不得手補~~ **⚠️ 本行已作廢(2026-08-11 晚)**:
+//      它已 apply,`admin_compute_order_settlement` 這次由生成器帶進來了。
+//      留著原文是因為那個**形狀**仍然成立(未 apply 的產物不該手補,同 2026-08-07 a9v/a9b2_m);
+//      作廢的只是「op6a 未 apply」這個當時的事實。
 //   🔴 那些**不是本片的產物、形狀一律照生成值原樣收下**(主視窗 `P-226-A` ③:只貼回校正、
 //      不順手改別人的形狀)。
 //   🔴 校正的重貼方式(留給下一個重 gen 的人;**筆數見檔頭 `:2`,此處刻意不複述**):
@@ -1827,6 +1856,7 @@ export type Database = {
           id: string
           idempotency_key: string
           lease_token: number
+          rec_trade_id: string | null
           strong_key: string
           supersedes_refund_id: string | null
         }
@@ -1838,6 +1868,7 @@ export type Database = {
           id?: string
           idempotency_key: string
           lease_token: number
+          rec_trade_id?: string | null
           strong_key: string
           supersedes_refund_id?: string | null
         }
@@ -1849,6 +1880,7 @@ export type Database = {
           id?: string
           idempotency_key?: string
           lease_token?: number
+          rec_trade_id?: string | null
           strong_key?: string
           supersedes_refund_id?: string | null
         }
@@ -2620,6 +2652,7 @@ export type Database = {
           card_image: string | null
           category_id: string | null
           category_raw: string | null
+          created_at: string | null
           fitments: Json | null
           fits: string | null
           handle: string | null
@@ -2756,6 +2789,10 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_compute_order_settlement: {
+        Args: { p_order_id: string }
+        Returns: Json
+      }
       admin_create_shipment: {
         Args: {
           p_carrier_code: string
@@ -2802,6 +2839,7 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_list_order_payments: { Args: { p_order_id: string }; Returns: Json }
       admin_mark_shipment_shipped: {
         Args: {
           p_idempotency_key: string
@@ -2987,6 +3025,7 @@ export type Database = {
           attempt_id: string
           order_id: string
           settle_attempt_count: number
+          superseded_at: string
         }[]
       }
       close_released_attempt: {
@@ -3199,6 +3238,7 @@ export type Database = {
           p_category?: string
           p_limit?: number
           p_model?: string
+          p_new_since?: string
           p_offset?: number
           p_price_max?: number
           p_price_min?: number

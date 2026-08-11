@@ -91,10 +91,11 @@ export async function queryProductsByFitment(
  * 🔴 PostgREST jsonb 空陣列等值待 R3 整合實測(SQL 層已驗 `fitments = '[]'` → 631 筆)。
  */
 /**
- * S1 變體補足(2026-07-12):新表 `product_fitments_effective` 與 RPC `search_products_by_vehicle`
- * 不在生成型別 database.types.ts 內(該檔落後 live schema = 既有 backlog、regen 屬另一 slice,
- * 本片不夾帶無關 schema drift)→ 以下兩查詢用**文件化窄 cast** 收斂為最小結構型別
- * (先例:SupabaseOrderAdapter create_order 的「db-push-pending 窄 cast」模式;regen 後可移除)。
+ * S1 變體補足(2026-07-12):以下兩查詢用**文件化窄 cast** 收斂為最小結構型別
+ * (先例:SupabaseOrderAdapter 的窄 cast 模式)。
+ * 🔴 **原本寫的理由「`product_fitments_effective` 與 `search_products_by_vehicle` 不在生成型別」
+ * 已為假** —— 2026-08-11 晚重 gen 後兩者都在 `database.types.ts` 裡。
+ * ⇒ **cast 已經可以拆**,但拆除要配行為驗證 ⇒ 統一立案 **backlog #415**;本次只更正字面、不拆。
  */
 
 /** RPC search_products_by_vehicle 的最小呼叫面(SETOF jsonb + .range 分頁)。 */

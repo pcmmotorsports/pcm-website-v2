@@ -182,7 +182,9 @@ describe(`${RPC_NAME} · 呼叫面唯一性`, () => {
 
 describe(`${RPC_NAME} · 簽章逐字對 migration(GRANT 綁精確簽章)`, () => {
   // 🔴 為什麼要有這一組:PostgREST 靠**簽章**找 overload,函式名或參數名漂一個字就是
-  //    執行期 404 / 42501,而 **typecheck 全綠**(RPC 不在生成型別裡、呼叫端是窄介面 cast)。
+  //    執行期 404 / 42501,而 **typecheck 全綠** —— ⚠️ 理由更正(2026-08-11 晚重 gen):
+  //    **不是**「RPC 不在生成型別裡」(它在 `database.types.ts:2884`),是**呼叫端的窄介面 cast
+  //    把生成型別繞過去了**。⇒ 這一組在 cast 拆掉之前(backlog #415)仍然是唯一的守門。
   //    同款先例:`apps/admin/src/lib/shipping/shipment-repository.test.ts:52` 起那一組。
   //    ⚠️ 這一組與上面 POST-only 那組是**兩件事**:一個守「怎麼送」,一個守「送給誰」。
   const MIGRATION = readFileSync(

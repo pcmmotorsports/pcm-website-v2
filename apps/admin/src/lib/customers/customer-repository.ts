@@ -96,9 +96,13 @@ export async function adjustCustomerWallet(args: {
 export type AdminTierSetResult = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
 
 /**
- * RPC admin_set_customer_tier 的最小呼叫面(migration 20260717010000 **尚未 db push**、不在生成型別
- * database.types.ts 內)→ 文件化窄 cast(先例:SupabaseOrderAdapter create_order「db-push-pending
- * 窄 cast」模式+fitment-queries VehicleRpcClient);Sean db push + gen types 後可移除、改 typed Args。
+ * RPC admin_set_customer_tier 的最小呼叫面 → 文件化窄 cast
+ * (先例:SupabaseOrderAdapter 的窄 cast 模式 + fitment-queries VehicleRpcClient)。
+ * 🔴 **原本寫的理由「migration 20260717010000 尚未 db push、不在生成型別」已為假** ——
+ * 2026-08-11 晚重 gen 後,`admin_set_customer_tier` 就在 `database.types.ts:2893`。
+ * ⇒ **cast 已經可以拆、改 typed Args**,但拆除要配行為驗證(tier 是權限面:
+ * 參數名與回傳碼要逐字對得上,漂一個字就是執行期 404/42501)
+ * ⇒ 統一立案 **backlog #415**(三處同族 cast 一起處理);本次**只更正字面、不拆**。
  */
 type TierRpcClient = {
   rpc(

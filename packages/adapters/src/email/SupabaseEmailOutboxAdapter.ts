@@ -17,9 +17,12 @@
  *   柵欄**(帶不了),以 `claimed_at < staleBefore` 述詞判定所有權 —— 故「mark* 三出口皆帶柵欄」
  *   **不等於**「所有離開 sending 的路都有柵欄」。兩條路的共同義務只有 `claimed_at = NULL`。
  *
- * ⚠️ `email_outbox` 不在生成型別 database.types.ts(該檔落後 live schema=既有 backlog、regen 屬另一
- * slice)→ 本檔用**文件化窄 cast**(先例:helpers/fitment-queries.ts VehicleRpcClient),composition 端
- * `createSupabaseServiceClient() as unknown as EmailOutboxClient`;regen 後可移除。
+ * ⚠️ 本檔用**文件化窄 cast**(先例:helpers/fitment-queries.ts VehicleRpcClient),composition 端
+ * `createSupabaseServiceClient() as unknown as EmailOutboxClient`。
+ * 🔴 **原本寫的理由「`email_outbox` 不在生成型別」在 2026-08-11 晚重 gen 之後已為假** ——
+ * 該表現在就在 `database.types.ts:492`。⇒ **cast 已經可以拆**,但拆除要配行為驗證
+ * (窄介面簽章 vs 生成型別逐欄對得上、mark* 三出口的世代柵欄不因型別放寬而失守)
+ * ⇒ 統一立案 **backlog #415**(三處同族 cast 一起處理);本次**只更正字面、不拆**。
  *
  * 🔴 PostgREST 限制與對策(語意仍守 REQUIRED-E2a):
  * - 不支援欄對欄比較(`attempts < max_attempts`)→ due 掃描取 `DUE_SCAN_CAP` 大窗、app 層過濾後
