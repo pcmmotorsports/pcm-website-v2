@@ -1528,7 +1528,13 @@
 .pd-acc { width: 100%; }
 
 /* 每段 = <details>;段間 2px 粗上框(直角、對齊全站),首尾封口。 */
-.pd-sec { border-top: 2px solid var(--c-text); scroll-margin-top: 76px; }
+/* `scroll-margin-top` = 讓 <details> 展開後的捲動停點避開固定頁首。
+   🔴 **#408②(2026-08-11)**:~~寫死 76px~~ 改吃 token。那顆 76 引入於 `e8a3c150`
+   (#270、2026-07-10),**commit body 沒留任何推導** —— 它與 `account.css` 的 76
+   當年只是「值一致」,不是同源(該檔 R2 自己標過這件事)。
+   現在兩處同式 `calc(var(--shell-header-h) + 3px)`:桌機 76、≤1079 為 63。
+   **不變式由構造保證**(永遠比頁首低 3px),不再依賴「兩個斷點取較大者」那種攤平算術。 */
+.pd-sec { border-top: 2px solid var(--c-text); scroll-margin-top: calc(var(--shell-header-h) + 3px); }
 .pd-sec:last-of-type { border-bottom: 2px solid var(--c-text); }
 
 /* 收合標題列(summary):去原生三角、flex 排「eyebrow+標題 / hint chip / chevron」。 */

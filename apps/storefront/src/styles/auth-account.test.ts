@@ -529,29 +529,31 @@ describe('🔴 第4批 · 突變 M3/M4/M5 抓到的三組「我根本沒寫斷�
 
   // g-5c/g-6c 手機捲動修復(2026-08-07):.acc-inline-form 沒有 scroll-margin-top 的話,
   // JS 把表單捲到視窗頂端後,表單仍會被 position:sticky 的 header(header.css:3)蓋住開頭幾列。
-  it('🔴 .acc-inline-form 有 scroll-margin-top(沒有它,表單捲到位仍會被 sticky header 蓋住)', () => {
+  // 🔴 **2026-08-11 #408② 改寫本條(不是放寬,是換成更強的形式)**。
+  //   舊版斷言:`scroll-margin-top` 是**寫死的數字**且 `>= 73`(= 兩個斷點裡較高那顆 header)。
+  //   #408② 之後該宣告改吃 token `calc(var(--shell-header-h) + 3px)` ⇒
+  //   舊版的 `(\d+)px` 正規式**讀不到 calc**,於是它紅了 —— **它紅得對**:守的東西真的變了。
+  //   ⚠️ 這時最容易犯的錯是「把正規式放寬成也吃 calc」——那會讓
+  //   `calc(var(--foo) + 3px)`(吃錯 token)也全綠。**改成釘新的不變式**:
+  //     舊:一個數字 >= max(73, 60)  ← 靠「兩個斷點取較大者」的攤平算術,前提一動就失效
+  //     新:必須吃 `--shell-header-h` ← **由構造保證**每個斷點都比頁首高,不依賴任何算術
+  //   ⇒ 新版嚴格蘊含舊版的意圖,而且對「頁首高之後再改」免疫(那正是 #408③ 那句過期推導的病根)。
+  it('🔴 .acc-inline-form 的 scroll-margin-top 必須吃 --shell-header-h(#408②)', () => {
     const body = block(ACCOUNT, 'account.css', '.acc-inline-form {');
-    const m = /scroll-margin-top:\s*(\d+)px/.exec(body);
-    expect(m, '.acc-inline-form 沒有 scroll-margin-top ⇒ 表單捲到位仍會被 sticky header 蓋住').not.toBeNull();
-    // 🔴 只斷言「> 0」擋不住這條守門自己宣稱要擋的事:1px 也是正數、照樣被 header 蓋住。
-    //    下限要釘**兩個斷點裡較高的那顆** header,不是較矮的:
-    //      桌機 = padding 14×2 + .pcm-icon-btn 44 + border-bottom 1 = 73px
-    //      手機 = padding 12×2 + 44 + 1 = 69px
-    //    🔴 R1 抓到我第一版釘 69(較小者)—— 那樣填 70/71/72 會全綠,但桌機 73px 的 header
-    //    照樣蓋住表單開頭。「至少不被任何一個斷點蓋住」的下限是 max(73, 69) = 73。
-    //    數值來源:header.css 的 `.pcm-header-inner` padding 兩條、`.pcm-icon-btn` 44px、
-    //    `.pcm-header` 的 border-bottom(用 grep 這幾個選擇器找,不引行號)。
+    const decl = /scroll-margin-top:\s*([^;]+);/.exec(body);
+    expect(decl, '.acc-inline-form 沒有 scroll-margin-top ⇒ 表單捲到位仍會被 sticky header 蓋住').not.toBeNull();
     expect(
-      Number(m?.[1]),
-      'scroll-margin-top 小於桌機 header 實高 73px ⇒ 表單捲到位、開頭仍被蓋住',
-    ).toBeGreaterThanOrEqual(73);
-    // 🔴 base 值對了不代表沒被推翻:任何 @media 把它覆寫成更小值,上面那條照樣綠。
-    //    R2 nit:原本用 `\.acc-inline-form\s*\{`,對 `.acc-inline-form.is-x {`、
-    //    `.acc-inline-form,\n.foo {` 這兩種寫法全盲 ⇒ 放寬成「選擇器串裡含 .acc-inline-form」。
-    const smaller = [...ACCOUNT.matchAll(/\.acc-inline-form[^{;]*\{[^}]*scroll-margin-top:\s*(\d+)px/g)]
-      .map((mm) => Number(mm[1]))
-      .filter((v) => v < 73);
-    expect(smaller, `有 .acc-inline-form 規則把 scroll-margin-top 覆寫成 <73px:${smaller}`).toEqual([]);
+      decl?.[1],
+      'scroll-margin-top 沒吃 --shell-header-h ⇒ 頁首高一改它就被遮住(#408② 收斂掉的正是這個)',
+    ).toContain('var(--shell-header-h)');
+    // 🔴 base 對了不代表沒被推翻:任何 `.acc-inline-form` 規則(含 @media 覆寫)只要寫死數字就紅。
+    //    R2 nit 沿用:選擇器串裡含 `.acc-inline-form` 即算(`.acc-inline-form.is-x`、逗號串都要抓)。
+    const hardcoded = [...ACCOUNT.matchAll(/\.acc-inline-form[^{;]*\{[^}]*scroll-margin-top:\s*([^;]+);/g)]
+      // `?? ''`:`noUncheckedIndexedAccess` 下 capture group 型別可為 undefined。空字串**不含** token
+      //  ⇒ 真的抓不到值時這條會紅(fail-closed 方向),不是被吞成綠。
+      .map((mm) => (mm[1] ?? '').trim())
+      .filter((v) => !v.includes('var(--shell-header-h)'));
+    expect(hardcoded, `有 .acc-inline-form 規則把 scroll-margin-top 寫死:${hardcoded}`).toEqual([]);
   });
 });
 

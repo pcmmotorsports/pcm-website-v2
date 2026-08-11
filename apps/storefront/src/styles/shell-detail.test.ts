@@ -460,23 +460,49 @@ describe('#331 側欄 sticky 的 top 必須吃 --shell-header-h(不得寫合成�
     },
   );
 
-  // 🔴 **checkout 回歸鎖**(backlog #408):`.co-aside` 刻意**留著寫死的 96px**。
-  //   危險在於它現在是三支裡唯一的例外 —— 下一個人看到另外三支都吃 token,很容易「順手補齊」,
-  //   而那會在 901-1079 把它從 96 移到 83,**沒有任何東西會紅、也沒有人會發現**。
-  //   這兩條斷言讓「順手補齊」必須先撞紅一次:要改就得連斷點一起想清楚(那是視覺題、要 Sean 拍)。
-  //   ⚠️ 同族第二次:#315 也留了一個「把被擊破的守衛加回去要紅」的回歸鎖。
-  //      共通形狀 = **本片刻意沒做的事,要留一個會紅的東西擋住善意的下一個人**。
-  it('🔴 checkout .co-aside 維持寫死 96px(#408 未解前不得改吃 token)', () => {
+  // 🏁 **checkout 回歸鎖已翻面(#408① 拍板 B,2026-08-11)**。
+  //   ~~原本兩條鎖的是「`.co-aside` 維持寫死 96px」~~ —— 那是 #331 刻意留白時期的鎖,
+  //   目的是讓「順手補齊」先撞紅一次。**現在 Sean 拍了 B、那個決定被推翻,鎖跟著翻面**:
+  //   🔴 **這不是「為了讓測試過而改期望值」** —— 被測的東西真的變了(96px → token 式),
+  //      而且是**拍板驅動**的變更;期望值改成新行為之後,寫回 96px 一樣紅。
+  //   ⚠️ 斷點差異(≤900 vs 其他三處的 ≤1079)**沒有被這一片改掉** ⇒ 下面第二條前提鎖照留:
+  //      它現在守的是「B 案的理由還成立嗎」——斷點若哪天也改成 1079,901-1079 這個
+  //      特殊區間就消失了,那時第一條的理由要重讀(而不是自動繼續對)。
+  it('🔴 checkout .co-aside 吃 token(#408① 拍板 B;寫回 96px 一樣紅)', () => {
     expect(
       CSS['checkout.css'],
-      '.co-aside 改吃 token 了 —— 它的斷點是 ≤900,901-1079 會位移 13px,先解 #408',
-    ).toMatch(/\.co-aside\s*\{[^}]*top:\s*96px/);
+      '.co-aside 沒在吃 --shell-header-h ⇒ #408① 的拍板被回捲了',
+    ).toMatch(/\.co-aside\s*\{[^}]*top:\s*calc\(var\(--shell-header-h\)\s*\+\s*23px\)/);
+    expect(
+      CSS['checkout.css'],
+      '.co-aside 又出現寫死的 96px',
+    ).not.toMatch(/\.co-aside\s*\{[^}]*top:\s*96px/);
   });
 
-  it('🔴 前提 — checkout .co-aside 的 static 仍在 ≤900(上一條的理由就是這個斷點)', () => {
+  it('🔴 前提 — checkout .co-aside 的 static 仍在 ≤900(#408① 選 B 而非 A 的理由)', () => {
     expect(
       allMediaBlocks('checkout.css', '(max-width: 900px)'),
-      '.co-aside 的 static 不在 ≤900 了 ⇒ 上一條回歸鎖的理由已變,重想別照抄',
+      '.co-aside 的 static 不在 ≤900 了 ⇒ A 案(改斷點)可能已被別人做掉,#408① 的理由要重讀',
     ).toMatch(/\.co-aside\s*\{[^}]*position:\s*static/);
+  });
+
+  // 🔴 **#408②③:兩處 `scroll-margin-top` 的合成寫死**(`76 = 73 + 3`)。
+  //   它與側欄 sticky 是**同一個病、不同的面**:合成值裡沒有 69/73/64/65 任何一個字面
+  //   ⇒ 上面 CONSUMERS 那條掃 `top:` 的守門對它**全盲**(它掃的是 `top:`,
+  //   而 `scroll-margin-top:` 雖然字面上也含 `top:`,那兩支檔根本不在 CONSUMERS 名單裡)。
+  //   ⚠️ **母體要釘死**:本條掃的是「全 storefront styles 裡所有 `scroll-margin-top` 宣告」,
+  //      不是一份寫死的檔案清單 —— 新檔案再寫一個 76px 時,清單版會靜默漏掉。
+  it('🔴 所有 scroll-margin-top 都吃 --shell-header-h(不得再寫合成的 76px)', () => {
+    const decls: string[] = [];
+    for (const [file, src] of Object.entries(CSS)) {
+      for (const d of src.match(/^[^\n/*]*scroll-margin-top:\s*[^;]+;/gm) ?? []) {
+        decls.push(`${file}: ${d.trim()}`);
+      }
+    }
+    // 前提斷言:掃得到東西才有判別力(掃到 0 條時上面的迴圈恆綠)。
+    expect(decls.length, '一條 scroll-margin-top 都沒掃到 ⇒ 選擇器壞了,本條恆綠').toBeGreaterThan(0);
+    for (const d of decls) {
+      expect(d, `${d} 沒吃 token ⇒ 頁首高一改它就被遮住(#408②③)`).toContain('var(--shell-header-h)');
+    }
   });
 });
