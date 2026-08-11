@@ -9608,9 +9608,22 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   當一題問 Sean(是產品決定,不是技術決定)。
 - **編號註**:#338 R2 的第三條 nit,reviewer 明寫「前輪既有、另立 backlog 不塞本片」;主視窗發號 #397。
 
-### #341. 🧱 `products-url-state.tsx` 479 行(>400)— 四支互相咬合的 URL 同步 hook 待拆
+### #341(拆檔). ✅ `products-url-state.tsx` 479 行(>400)— 四支互相咬合的 URL 同步 hook(已拆)
 
-- **狀態:** ⏳ 待執行(2026-08-08 Q28① 立案;鐵則 6「判斷不拆 → 寫理由」的那個理由就在下面)
+- **狀態:** ✅ 已完成(2026-08-11 12:57 `f80fca40`「#341-B products-url-state 480 行拆成五支,零行為變更」;
+  **已在 dev 也已在 main**〔`git merge-base --is-ancestor f80fca40 origin/main` 通過〕)。
+  ⚠️ 本行狀態在 2026-08-11 21:3x 之前一直停在「⏳ 待執行」,害主視窗照舊字面又派了一次
+  ——**收工的人沒回頭改條目狀態**,而 backlog 是唯一的派工依據。教訓同族:#416 立案時只有號碼進 STATUS、條目沒落檔。
+- **實際拆法(與本條原本寫的「三組」不同,以 commit 為準)**:五支 +
+  `products-url-state.tsx` 保留成 re-export barrel(全樹 import 一行不用改)——
+  `products-url-parsers.ts` 94 / `use-catalog-filter-url-sync.tsx` 169 / `use-vehicle-url-sync.tsx` 95 /
+  `use-deep-link-restore.tsx` 86 / barrel 143(數字取自該 commit body;現行行數本窗實查:143 / 237 / 95 / 86)。
+  ⚠️ `use-catalog-filter-url-sync.tsx` 現行 **237 行**(commit 當下 169)—— 已被後續片長大,但仍未過 400。
+- **驗收(本窗 2026-08-11 21:39 實跑複驗)**:`use-deep-link-restore.test.tsx` **15 案全綠**。
+- **🔴 號碼撞號**:本條與下方「#341 W 線 harness 的零靶族與單成員靶族」**同號**
+  (數法:`grep -n '^### #341\.' docs/phase-1-backlog.md` = 2 命中)。兩條都活著、內容無關;
+  引用時務必連標題一起講,不要只寫「#341」。撞號歸屬與改號由主視窗裁。
+- ~~**狀態:** ⏳ 待執行(2026-08-08 Q28① 立案;鐵則 6「判斷不拆 → 寫理由」的那個理由就在下面)~~
 - **現況**:該檔 **479 行**(Q28① 前 449、更早 379),內容=URL parsers + `useBrowseUrlState` /
   `useBrowseUrlSync` / `useCatalogFilterUrlSync` / `useVehicleUrlSync` / `useDeepLinkRestore` /
   `usePageResetOnFilterChange`。鐵則 6 對元件檔的線是 400、對 hook 檔是「>200 評估拆分」,兩條都過了。
@@ -9621,8 +9634,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **修法方向**:單獨開一片**純搬移**(零行為變更):按「URL 讀」/「URL 寫」/「入站還原」三組拆,
   每組一檔;驗收=全套回歸 Δ=0 + `use-deep-link-restore.test.tsx` 的 15 案全綠(它是目前唯一
   把五支 hook 串起來跑的 harness、拆檔後要跟著改 import 但斷言一字不動)。
-- **同族第二筆(2026-08-08 加購鈕線)**:`apps/storefront/src/components/ProductCard.tsx` 294 → **345 行**
-  (>300 警戒)。不拆理由同形:`quickAdd` / `hasVariants` 與它們唯一的消費者(同檔那顆鈕)內聚,
+- **同族第二筆(2026-08-08 加購鈕線;⏳ 仍未拆)**:`apps/storefront/src/components/ProductCard.tsx`
+  294 → 345 → **現行 360 行**(本窗 2026-08-11 `wc -l` 實查;>300 警戒、未過 400 硬線)。不拆理由同形:`quickAdd` / `hasVariants` 與它們唯一的消費者(同檔那顆鈕)內聚,
   拆出去要多傳 4 個值、且會把「導頁 vs 直加」這個**當天才出過 Critical** 的判斷推到另一個檔;
   剛動完行為就疊搬移風險不划算。兩支一起排一片純搬移較省。
 
