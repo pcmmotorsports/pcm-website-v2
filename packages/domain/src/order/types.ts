@@ -355,6 +355,21 @@ export type AdminOrderListResult = Paginated<AdminOrderSummary> & {
    * **而一個字的搜尋詞都不必記錄**。
    */
   keywordMatchCount: number | null;
+  /**
+   * 供應商單號搜尋**命中了哪幾家供應商**(#338;已去重、順序不保證)。
+   *
+   * **`null` = 這次不是供應商單號搜尋**(沒給單號、或在正規化階段就被擋下);
+   * `[]` = 查過了、但一家都認不出來。兩者**不可互換**,理由同上面 `keywordMatchCount`。
+   *
+   * 🔴 **存在的理由是「員工手上只有一張單號」**:`supplier_order_no` 在 DB 層沒有跨供應商唯一性
+   * (A2 `20260729020000:70` 的業務鍵是 `(order_item_id, supplier_canonical_key)`)⇒ 兩家用同一組
+   * 單號時結果會一起列出。而員工**正是因為不知道是哪一家才來搜**,叫他「點進訂單核對」
+   * 等於把唯一能回答問題的那筆資料藏起來。⇒ 一家就具名、多家就示警並列名。
+   *
+   * 🔴 `label` 可為 `null`(內嵌沒回來 / 投影退版)⇒ **UI 不得假裝知道**,要退回
+   * 「此搜尋不區分供應商」那句警語。與 `procurement-suppliers.ts` 對同一情況的處置同向。
+   */
+  supplierOrderNoMatchedSuppliers: { id: string; label: string | null }[] | null;
 };
 
 /**

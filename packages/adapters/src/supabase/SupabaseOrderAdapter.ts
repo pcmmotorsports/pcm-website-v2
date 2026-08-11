@@ -129,7 +129,14 @@ export const ADMIN_ORDER_ID_IN_CAP = 100;
  * (`Object.freeze` 不夠:它是淺凍結,`items` 陣列照樣 push 得進去。)
  */
 function emptyAdminOrderList(): AdminOrderListResult {
-  return { items: [], total: 0, keywordTruncated: false, keywordMatchCount: null };
+  return {
+    items: [],
+    total: 0,
+    keywordTruncated: false,
+    keywordMatchCount: null,
+    // #338:根本沒查過 ⇒ `null`(不是 `[]` = 查過但認不出來)。
+    supplierOrderNoMatchedSuppliers: null,
+  };
 }
 
 /**
@@ -279,7 +286,13 @@ export const SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT = 500;
  * 🔴 `order_items` 宣告成**可選**是為了讓「形狀不符」在型別上表達得出來 —— 但 runtime 的處置是
  * **擲 {@link SupplierOrderNoSearchShapeError}、不是靜默濾掉**(Fable F1;理由見查詢處註解)。
  */
-type SupplierOrderNoProbeRow = { order_items?: { order_id?: string | null } | null };
+type SupplierOrderNoProbeRow = {
+  order_items?: { order_id?: string | null } | null;
+  /** #338:這一列是哪一家的。DB 上 NOT NULL,宣告成可選只為了讓「形狀不符」表達得出來。 */
+  supplier_id?: string | null;
+  /** #338:many-to-one embed;投影退版時整個沒有這個鍵 ⇒ 拿不到 `label`,UI 退回警語不假裝知道。 */
+  suppliers?: { label?: string | null } | null;
+};
 
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
@@ -604,6 +617,8 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     // 🔴 為什麼是 RPC 而不是把欄位加進投影:命中面含 `shipping_address_snapshot`,
     //    那一欄在鐵則 12 的 forbidden 清單裡 ⇒ 擴投影 = 親手拆守門。走 RPC 之後
     //    **PII 只在 SQL 內比對,一個字都不進讀模型、不進 RSC payload**(migration `:9-17`)。
+    // #338:這次搜尋命中了哪幾家供應商。`null` = 這次不是供應商單號搜尋(見 domain docstring)。
+    let supplierOrderNoMatchedSuppliers: { id: string; label: string | null }[] | null = null;
     let keywordOrderIds: string[] | null = null;
     let keywordTruncated = false;
     let keywordMatchCount: number | null = null;
@@ -645,7 +660,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       // 🔴 `keywordTruncated` **照實帶出去、不寫死 false** —— 「零命中且 truncated」在 RPC 的合約下
       //    構造不出來,但不靠「不可能」寫死:靠不可能寫死的值,哪天可能了就是靜默降級。
       if (parsed.ids.length === 0) {
-        return { items: [], total: 0, keywordTruncated, keywordMatchCount };
+        return { items: [], total: 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
       }
       keywordOrderIds = parsed.ids;
     }
@@ -654,7 +669,11 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (supplierSearch.kind === 'ok') {
       const { data: procRows, error: procError } = await this.supabase
         .from('order_item_procurement')
-        .select('order_items!inner(order_id)')
+        // 🔴 #338:多取 `supplier_id, suppliers(label)` —— **同一次往返**,不新增第二段讀模型
+        //    (backlog 條目原本估成「新增第二段批次讀」,實作時發現這段查詢本來就打在這張表上)。
+        //    ⚠️ **不動 `ADMIN_ORDER_LIST_SELECT`**:那條是鐵則 12 的 byte-equal 白名單,
+        //    本案完全不碰它;這裡是本檔自己的探測查詢,兩者不同。
+        .select('order_items!inner(order_id), supplier_id, suppliers(label)')
         // 🔴 排序不是排版:沒有 `.order()` 時 PostgREST 在 `limit` 下回**哪些**列未定義。
         //    ⚠️ **誠實界(Fable F4)**:兩道界修完後「凡截斷必擲錯」⇒ 沒擲錯時拿到的必是完整集合,
         //    所以「分頁不同頁拿到不同 id 集合」這個失敗模式**現在已不可達**。本行留作縱深 ——
@@ -686,6 +705,27 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       if (extracted.length !== rows.length) {
         throw new SupplierOrderNoSearchShapeError(rows.length);
       }
+      // 🔴 #338:把命中的供應商去重帶出來。**去重的鍵是 `supplier_id` 不是 `label`** ——
+      //    同一家在多張單上會有多列(那正是搜尋會列出多筆的原因),不去重就會顯示成「N 家」。
+      // 🔴 **有任何一列認不出 `supplier_id` ⇒ 整份回 `[]`(= 一家都認不出來)**,而不是回
+      //    「我認得出來的那幾家」—— 後者會**少報**,而少報正是本條 backlog 要修的傷害本身
+      //    (員工看到「只有 A 家」就放心登錄,實際上還有 B 家)。`[]` 會讓 UI 退回原本的警語。
+      //    ⚠️ 這裡刻意**不擲錯**(與上面 order_id 那道不同):供應商只是顯示用的加值資訊,
+      //    為了它把整個搜尋打掛,是拿員工找得到單的能力去換一個標示。
+      const supplierById = new Map<string, string | null>();
+      let supplierShapeOk = true;
+      for (const row of rows) {
+        const sid = row.supplier_id;
+        if (typeof sid !== 'string' || sid === '') {
+          supplierShapeOk = false;
+          break;
+        }
+        // label 缺鍵 / null ⇒ 保留該家但 label 為 null:UI 據此退回警語(不假裝知道是誰)。
+        if (!supplierById.has(sid)) supplierById.set(sid, row.suppliers?.label ?? null);
+      }
+      supplierOrderNoMatchedSuppliers = supplierShapeOk
+        ? Array.from(supplierById, ([id, label]) => ({ id, label }))
+        : [];
       const ids = Array.from(new Set(extracted));
       // 🔴 **第二道:去重後訂單數超過上限 ⇒ 明示擲錯,不截斷假裝那就是全部**
       //    (Sean 2026-08-07 Q1=A「不默默降級」的同一精神;主視窗 E-142-A 批准)。
@@ -695,7 +735,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       }
       // 零命中 ⇒ 直接回零筆、**不打第二段**(省一次往返,且不押 `.in('id', [])` 的行為)。
       if (ids.length === 0) {
-        return { items: [], total: 0, keywordTruncated, keywordMatchCount };
+        return { items: [], total: 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
       }
       supplierOrderIds = ids;
     }
@@ -711,7 +751,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     // ⚠️ 這一格正是 `keywordMatchCount` 存在的理由:關鍵字明明有命中、卻被交集砍光,
     //    畫面上與「關鍵字零命中」完全同形。沒有這個計數,災難當天分不出是哪一種。
     if (orderIdFilter !== null && orderIdFilter.length === 0) {
-      return { items: [], total: 0, keywordTruncated, keywordMatchCount };
+      return { items: [], total: 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
     }
 
     let query = this.supabase
@@ -804,7 +844,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     const items = (data as unknown as SupabaseAdminOrderRow[]).map(
       mapSupabaseAdminOrderRowToSummary,
     );
-    return { items, total: count ?? 0, keywordTruncated, keywordMatchCount };
+    return { items, total: count ?? 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
   }
 
   /**
