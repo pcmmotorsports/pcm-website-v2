@@ -422,6 +422,21 @@ async function queryCatalogPage(
   const windowStart = wantsNew ? newArrivalWindowStart() : null;
   let result = await callCatalogRpc(client, query, vehicle, windowStart);
 
+  // 🔴 #393-A(Sean 2026-08-11 拍 A):**一般型錄路徑**翻過尾頁時也會踩到同一個坑 ——
+  //    `?page=999` → 0 列 → `callCatalogRpc` 只能回 total=0 → 分頁列說「共 0 件」、
+  //    畫面變成「找不到商品」,而其實還有一萬多件。手動改網址或翻頁時資料集縮水都會踩到。
+  //    修法 = 把下面 `filter=new` 已經在用的探查解推廣過來(同一個形狀,不是新機制)。
+  //    ⚠️ **只在 page > 1 才探查**:page=1 回 0 列代表真的沒有東西符合條件(offset 就是 0),
+  //       那個 0 是對的,再打一次 RPC 只會拿到同一個 0 ⇒ 純浪費。
+  //    keyset / 快照 / 改 design 都**不做**(#393 條目記 A 案裁定與 B/C/D 落選理由)。
+  if (!wantsNew && result.rows.length === 0 && query.page > 1) {
+    const probe = await callCatalogRpc(client, query, vehicle, windowStart, {
+      offset: 0,
+      limit: 1,
+    });
+    result = { rows: result.rows, total: probe.total };
+  }
+
   if (wantsNew && result.rows.length === 0) {
     // 🔴 0 列有**兩種**成因,而它們該做的事相反(主視窗 `Q24 = A`):
     //   ① 這個視窗真的沒有新品 → 退回顯示最近上架(Sean `Q20 = C`「不准空白」)

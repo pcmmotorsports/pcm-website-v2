@@ -13,6 +13,18 @@
 -- 🔴 年份那條的證據(2026-08-11 唯讀實查,母體 = 兩表都有的 123,920 列):
 --      年份不一致 36,062 列(29.1%);effective 起始更早 19,689、結束更晚 14,205;
 --      另有 1,187 列 direct 有明確結束年、effective 卻是 NULL(封閉區間被同步成開放式)。
+--
+-- ⚠️⚠️ **2026-08-11 稍晚:上面這三個數字的口徑被報價單側挑戰,重量中,引用前先看這段。**
+--   (a) 我的比對是 `JOIN ON (product_id, moto_brand, model_code)`。若同一組有**多個年段列**
+--       (報價單側說那是設計),join 會產生年段的**交叉積**、逐列比對到不同年段
+--       ⇒ **36,062 很可能是我的查詢自己造出來的**,不是真的不一致數。要改「年段集合 vs 年段集合」重量。
+--   (b) 報價單側裁定真機制是「**子車款原樣繼承父年段**」(52,836 列),**不是**我寫的 min/max 聯集
+--       ⇒ 檔頭原本那句機制描述**不成立**,以本段為準。
+--   (c) `2025+` → `year_end = NULL` 是**刻意的開放式語意、不是 bug** ⇒ 那 1,187 列不算問題;
+--       網站端應把 NULL 當 `COALESCE(year_end, 9999)` 用(本 view 的下半硬寫 NULL 是另一回事,
+--       那是「這台車沒有年份資訊」,語意不同,別混)。
+--   🔴 **C 案本身不受影響**:年份只取 direct 的裁定照舊 —— 換源的理由不依賴那個百分比,
+--       而是「effective 的年份不是該車款自己的年份」這件事本身,那一點雙方沒有爭議。
 --    根因在報價單側 view storefront_fitments_v(投影商品群 min/max 聯集年份),
 --    2026-07-14 已確認為 production bug:
 --    docs/archive/2026-07-20-git-cleanup/handoffs/2026-07-14-quote-fitment-year-bug-verification.md:9-11
@@ -151,9 +163,44 @@ DECLARE
   v_959             bigint;
   v_public_select   boolean;
 BEGIN
+  -- 🔴 **空庫重放讓路**(2026-08-11 事後修補;#401 族:重放式 harness vs 假設有資料的斷言)。
+  --    原版是無條件 `IF v_rows = 0 THEN RAISE` ⇒ 空的拋棄式叢集從零重放 migrations 時,
+  --    底表 0 列 ⇒ view 0 列 ⇒ 這條把「空庫」誤判成「壞掉」,**炸掉全部 25 支 record harness**。
+  --
+  -- 🔴 讓路條件寫得很窄,**不是「view 空就放行」**:
+  --      view 空 + 底表也空 → 正確行為(沒東西可投影)⇒ 跳過
+  --      view 空 + 底表**有資料** → 真的壞了(anti-join 或 UNION 出事)⇒ **照樣炸**
+  --
+  -- 🔴🔴 **不要把上面誤讀成「判別力完全保留」——我原本就是這樣寫的,codex 窄審擊破了**:
+  --    在**空庫那條路**上,所有資料面斷言(①②③④⑤)都是「空集合減空集合 = 0」⇒ 全數通過。
+  --    也就是說**空庫重放時,把任一 UNION 分支刪掉、或讓 anti-join 恆不成立,都不會被抓到**。
+  --    ⇒ 為了把那條路的判別力補回來一些,下面加了一條**與資料量無關的結構檢查**
+  --      (view 定義必須同時引用兩張底表)。它擋得住「整個分支消失」,
+  --      但**擋不住語意寫錯**(例如 anti-join 條件寫反)—— 這是誠實的缺口,不是宣稱的覆蓋。
+  --    ⚠️ 真正要驗投影語意就得在空庫裡塞 fixture 再驗,那等於讓 migration 寫入底表,
+  --      風險與範圍都超出「修 harness」這件事 ⇒ **沒做,列為決策題交主視窗**。
+  --
+  -- ⚠️ **另一個被放掉的情境(codex 窄審點名,承認)**:非 harness 環境的底表若在 apply 前被誤清空,
+  --    也會走進「正常空庫」這條。要分辨得靠明確的 replay 訊號或 fixture,**光看資料為空推不出來**。
+  --    本檔不攔它:一支 migration 的檔尾斷言本來就不是持續監控,清空事故該由別的機制發現。
   SELECT count(*) INTO v_rows FROM public.vehicle_taxonomy_public;
   IF v_rows = 0 THEN
-    RAISE EXCEPTION '#277c: view 是空的 —— 底表或 anti-join 出事了';
+    IF EXISTS (SELECT 1 FROM public.product_fitments)
+       OR EXISTS (SELECT 1 FROM public.product_fitments_effective) THEN
+      RAISE EXCEPTION '#277c: view 是空的、但底表有資料 —— 底表或 anti-join 出事了';
+    END IF;
+    RAISE NOTICE '#277c: 底表為空(空庫重放)⇒ 跳過資料量斷言,結構性斷言照跑';
+  END IF;
+
+  -- 🔴 結構檢查:view 定義必須**同時引用兩張底表**。
+  --    這條與資料量無關 ⇒ **空庫重放時照樣有效**,補回上面說的那半判別力:
+  --    誰把 UNION 的任一半刪掉(codex 窄審舉的例子),這條會炸。
+  --    ⚠️ 它證的是「兩張表都還在定義裡」,**不是**「投影語意正確」。
+  IF pg_get_viewdef('public.vehicle_taxonomy_public'::regclass, true) NOT LIKE '%product_fitments_effective%'
+     OR pg_get_viewdef('public.vehicle_taxonomy_public'::regclass, true) NOT LIKE '%UNION ALL%' THEN
+    RAISE EXCEPTION
+      '#277c: view 定義少了 effective 那半或 UNION ALL —— 車型聯集沒了,純推導子款會整批消失。現行定義=%',
+      pg_get_viewdef('public.vehicle_taxonomy_public'::regclass, true);
   END IF;
 
   -- ① 車型集合必須是兩張表的超集(這條才真的守住「車型不會不見」;

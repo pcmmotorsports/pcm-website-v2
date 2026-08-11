@@ -175,3 +175,47 @@ describe('#269-b 新品退回(Q20=C / Q23=A / Q24=A)', () => {
     expect(fb?.p_category, '退回不得把分類篩選放掉').toBe('碳纖');
   });
 });
+
+// ── #393-A(Sean 2026-08-11 拍 A):一般型錄路徑翻過尾頁 ────────────────────────
+//
+// 這是把上面 `filter=new` 的探查解**推廣到沒帶 filter 的一般型錄**,不是新機制。
+// 🔴 為什麼它壞掉時沒人會叫:`?page=999` 回 0 列 ⇒ total 讀成 0 ⇒ 畫面說「找不到商品」,
+//   但其實還有一萬多件。不 crash、不紅、客人只覺得這網站怪怪的。
+describe('#393-A 一般型錄翻過尾頁', () => {
+  it('🔴 沒帶 filter 翻過尾頁 ⇒ 探查真總數,不可回 0', async () => {
+    rpc
+      .mockResolvedValueOnce({ data: [], error: null }) // ?page=999 → 0 列
+      .mockResolvedValueOnce({ data: [row(19017)], error: null }); // 探查:其實有 19,017 件
+    const out = await fetchCatalogPage(parseCatalogQuery(params('page=999')));
+
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(
+      out.total,
+      '回 0 的話畫面會說「找不到商品」,而其實還有一萬多件(backlog #393 第 2 條)',
+    ).toBe(19017);
+    expect(argsOf(1)?.p_offset, '探查要問整個結果集,不是這一頁').toBe(0);
+    expect(argsOf(1)?.p_limit).toBe(1);
+    expect(argsOf(1)?.p_new_since, '一般路徑不該憑空帶時間窗').toBeNull();
+  });
+
+  it('🔴 第 1 頁就 0 列 ⇒ 總數真的是 0,不可多打一次 RPC', async () => {
+    rpc.mockResolvedValueOnce({ data: [], error: null });
+    const out = await fetchCatalogPage(
+      parseCatalogQuery(params('category=%E4%B8%8D%E5%AD%98%E5%9C%A8')),
+    );
+
+    expect(
+      rpc,
+      'page=1 的 offset 就是 0,探查只會拿到同一個 0 ⇒ 多打就是純浪費',
+    ).toHaveBeenCalledTimes(1);
+    expect(out.total).toBe(0);
+  });
+
+  it('有列的一般路徑完全不受影響(不得多打探查)', async () => {
+    rpc.mockResolvedValueOnce({ data: [row(19017)], error: null });
+    const out = await fetchCatalogPage(parseCatalogQuery(params('page=2')));
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(out.total).toBe(19017);
+  });
+});
