@@ -183,4 +183,30 @@ describe('ItemProcurementSection — 供應商清單', () => {
     );
     expect(getByText(/供應商清單載入失敗/)).toBeTruthy();
   });
+  // 🔴 #352-b 入口 1 的**正向**格 —— 沒有這一格,「截斷時收起來」那兩格會變成恆真:
+  //    把 ReceiptRecordForm 整個刪掉,截斷格照樣綠(本來就沒鈕),而入口就這樣悄悄消失了。
+  //    ⇒ 正負成對:沒截斷要看得到、截斷要看不到。
+  it('沒截斷 → 每列採購都有「登錄到貨」入口', () => {
+    const { getAllByText } = render(
+      <ItemProcurementSection
+        returnTo={RETURN_TO}
+        detail={detail()}
+        suppliers={[]}
+        suppliersFailed={false}
+      />,
+    );
+    expect(getAllByText('登錄到貨').length).toBeGreaterThan(0);
+  });
+
+  it('截斷 → 「登錄到貨」入口收起來(與警告文案「不能編輯採購」同一條不變式)', () => {
+    const { queryByText } = render(
+      <ItemProcurementSection
+        returnTo={RETURN_TO}
+        detail={detail({ itemsTruncated: true })}
+        suppliers={[]}
+        suppliersFailed={false}
+      />,
+    );
+    expect(queryByText('登錄到貨')).toBeNull();
+  });
 });

@@ -98,6 +98,7 @@ const RANDOMNESS = /randomUUID|Math\s*\.\s*random|getRandomValues/g;
  * | `admin/.../note-compose-form.tsx` | 3 | **是**(備註線) | 刻意:bfcache 還原要換一把新鍵,而 bfcache 的定義就是不重新渲染 ⇒ server 鑄不到。含 `Math.random` fallback 是因為真機 LAN http 非 secure context 沒有 `randomUUID`。⚠️ 主鍵仍是 server 鑄的,client 只鑄「換鍵」那一把。 |
  * | `admin/.../shipment-launcher.tsx` | 1 | **是**(出貨線) | 100% client 鑄鍵:鍵在按下去那一刻生成一次、重試沿用同一把。**本片之前完全沒被登記**。 |
  * | `admin/.../shipment-void-button.tsx` | 1 | **是**(出貨線) | 同上,作廢那一支。 |
+ * | `admin/.../receipt-record-form.tsx` | 3 | **是**(#352-b 到貨登錄) | 100% client 鑄鍵,而且**必須**是 client:server 一次 render 只鑄得出一把,若走 bfcache 還原或同一頁連續登錄兩筆不同到貨,第二筆會沿用第一把鍵而被判成 `DUPLICATE_REQUEST` —— 那是「貨沒記進去卻顯示已登錄」。三顆的形狀同備註線(判斷、呼叫、`Math.random` fallback);fallback 存在的理由也同它:真機 LAN http 非 secure context 沒有 `randomUUID`。 |
  * | `admin/.../ui/sidebar.tsx` | 1 | **不是** | skeleton 骨架的隨機寬度(`Math.floor(Math.random() * 40) + 50`%)。登記它是因為守門刻意掃「亂數」而非「token」。 |
  *
  * 🔴 **命中數是「字面出現次數」不是「產生點數」**,而且兩個 3 的來源形狀**不一樣**(R2 nit-5 更正):
@@ -118,6 +119,7 @@ const REGISTERED: Record<string, number> = {
   'apps/admin/src/components/orders/note-compose-form.tsx': 3,
   'apps/admin/src/components/orders/shipment-launcher.tsx': 1,
   'apps/admin/src/components/orders/shipment-void-button.tsx': 1,
+  'apps/admin/src/components/orders/receipt-record-form.tsx': 3,
   'apps/admin/src/components/ui/sidebar.tsx': 1,
 };
 
