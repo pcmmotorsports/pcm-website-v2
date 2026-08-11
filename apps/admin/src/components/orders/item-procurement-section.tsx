@@ -4,7 +4,7 @@ import {
   buildSupplierChoices,
   type SupplierOption,
 } from '../../lib/orders/procurement-suppliers';
-import { REPLY_STATUS_LABEL } from '../../lib/orders/procurement-view';
+import { REPLY_STATUS_LABEL, unsourcedQuantity } from '../../lib/orders/procurement-view';
 import { ItemProcurementForm } from './item-procurement-form';
 import { ReceiptRecordForm } from './receipt-record-form';
 
@@ -34,6 +34,41 @@ function TruncationWarning({ scope }: { scope: 'item' | 'order' }) {
         : '這個品項的採購紀錄這次沒有完整載入,下面看到的可能不是全部。'}
       請重新整理這張單;在完整載入之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。
     </div>
+  );
+}
+
+/**
+ * 「還有 N 件沒有登記來源」(#352-b-2 衍生指標;plan §5.4)。
+ *
+ * 🔴 **它是查出來的、不是記住的** ⇒ 重整、換裝置、隔天再看都還在。
+ *    plan v3.2 原本要用「server action 記錄進行到哪一步 → 顯示未完成橫幅」,被 R3 打掉:
+ *    那個橫幅**會蒸發**(員工關掉瀏覽器就沒了),而帳面短少**靜默留著**。
+ *
+ * 🔴 **`null` = 不知道,誠實說不知道** —— 不補 0(補 0 會讓畫面講一句它證明不了的話)。
+ *
+ * ⚠️ **文案不得寫「流程中斷」**:本值分不出「從沒開始採購」與「三步做到一半」,
+ *    而那兩件事員工的下一步動作本來就一樣(都是去下面把來源補上)。
+ */
+function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
+  const unsourced = unsourcedQuantity(item.quantitySummary);
+
+  if (unsourced === null) {
+    return (
+      <p className='text-muted-foreground mb-2 text-xs'>
+        這個品項的數量資料還沒就緒,暫時算不出「還有幾件沒有登記來源」。
+      </p>
+    );
+  }
+  if (unsourced === 0) return null;
+
+  return (
+    <p
+      role='status'
+      className='mb-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
+    >
+      這個品項還有 <strong>{unsourced}</strong> 件沒有登記來源。請在下面補上要向誰訂
+      (或選「店內現貨」),再登錄到貨。
+    </p>
   );
 }
 
@@ -170,6 +205,8 @@ export function ItemProcurementSection({
               {item.procurementTruncated && !detail.itemsTruncated && (
                 <TruncationWarning scope='item' />
               )}
+
+              <UnsourcedNotice item={item} />
 
               <ProcurementRows
                 item={item}

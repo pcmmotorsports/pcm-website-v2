@@ -7,6 +7,7 @@ vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: () => ({ rpc: mocks.rpc, from: mocks.from }),
 }));
 
+import { readFileSync } from 'node:fs';
 import {
   RECEIPT_RECORD_RESULT_CODES,
   ReceiptCallerBugError,
@@ -175,5 +176,25 @@ describe('findProcurementRemaining', () => {
     const boom = { message: 'boom' };
     row(null, boom);
     await expect(findProcurementRemaining('p-1')).rejects.toBe(boom);
+  });
+});
+
+// ── #352-b-2 I1 第三道:逐欄具名 select(不得 `*`)──────────────────────
+describe('listProcurementChoices — 欄位白名單', () => {
+  // 🔴 **掃原始碼**:這一條擋的是「日後有人加欄時**自動**把它送到 client」,
+  //    而那件事在行為測試裡看不到(mock 回什麼就是什麼)⇒ 只能在文字層釘。
+  //    ⚠️ 它擋不住「有人具名多加一個敏感欄」——那要靠 review;這裡守的是 `*` 這個**類別**的錯。
+  const RAW = readFileSync(new URL('./receipt-repository.ts', import.meta.url), 'utf8');
+
+  it('🔴 採購列查詢逐欄具名,沒有 select(\'*\')', () => {
+    const line = RAW.split('\n').find((l) => l.includes(".from('order_item_procurement')"));
+    expect(line, "找不到採購列查詢 —— 這格的錨點沒了,不是通過").toBeTruthy();
+    expect(RAW).not.toMatch(/\.select\(\s*['"`]\*/);
+  });
+
+  it('🔴 回傳形狀不含價格類欄名', () => {
+    const banned = ['unit_price', 'line_total', 'price', 'cost', 'amount'];
+    const hit = banned.filter((w) => RAW.includes(w));
+    expect(hit, `receipt-repository.ts 出現價格欄名:${hit.join(', ')}`).toEqual([]);
   });
 });

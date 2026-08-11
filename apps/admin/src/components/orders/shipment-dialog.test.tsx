@@ -14,16 +14,24 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 // 🔴 `vi.hoisted`:`vi.mock` 的工廠會被提升到檔頭,直接引用上面宣告的變數會炸
 //    (`Cannot access 'submitShipment' before initialization`)。
-const { submitShipment } = vi.hoisted(() => ({ submitShipment: vi.fn() }));
+const { submitShipment, fetchItemProcurementChoices, recordItemReceiptAction } = vi.hoisted(() => ({
+  submitShipment: vi.fn(),
+  fetchItemProcurementChoices: vi.fn(),
+  recordItemReceiptAction: vi.fn(),
+}));
 vi.mock('server-only', () => ({}));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ submitShipment }));
+vi.mock('../../lib/orders/receipt-actions', () => ({
+  fetchItemProcurementChoices,
+  recordItemReceiptAction,
+}));
 
 import { ShipmentDialog } from './shipment-dialog';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
 const CANDIDATES: ShipmentCandidateItem[] = [
-  { orderItemId: 'oi-1', orderDisplayId: 'PCM-0001', variantSku: 'S-Y10E9-HGEH', title: '鈦合金頭段', remaining: 2, blockedReason: null },
-  { orderItemId: 'oi-2', orderDisplayId: 'PCM-0002', variantSku: 'K-9921-BLK', title: '把手端子', remaining: 1, blockedReason: null },
+  { orderId: 'ord-uuid-1', orderItemId: 'oi-1', orderDisplayId: 'PCM-0001', variantSku: 'S-Y10E9-HGEH', title: '鈦合金頭段', remaining: 2, blockedReason: null },
+  { orderId: 'ord-uuid-2', orderItemId: 'oi-2', orderDisplayId: 'PCM-0002', variantSku: 'K-9921-BLK', title: '把手端子', remaining: 1, blockedReason: null },
 ];
 
 const noop = () => {};
@@ -234,7 +242,7 @@ describe('#351③ 半成品箱(建箱成功、後續失敗)的提示', () => {
 // ─────────────────────────────────────────────────────────────
 describe('#351② 出不了的品項:留在清單裡 + 標出原因 + 不可選', () => {
   const blocked = (reason: ShipmentCandidateItem['blockedReason']): ShipmentCandidateItem[] => [
-    { orderItemId: 'oi-9', orderDisplayId: 'PCM-0009', variantSku: 'X-0001', title: '還沒到的東西', remaining: 0, blockedReason: reason },
+    { orderId: 'ord-uuid-1', orderItemId: 'oi-9', orderDisplayId: 'PCM-0009', variantSku: 'X-0001', title: '還沒到的東西', remaining: 0, blockedReason: reason },
   ];
 
   // 🔴 標題不寫「整列消失就是 #351 的症狀」:整列消失發生在**資料層的 filter**,彈窗從來不過濾
@@ -281,8 +289,8 @@ describe('#351② 出不了的品項:留在清單裡 + 標出原因 + 不可選'
   it('🔴 混合清單:只有出得了的那件進 payload,blocked 那件不進去', async () => {
     open({
       candidates: [
-        { orderItemId: 'oi-blocked', orderDisplayId: 'PCM-0009', variantSku: 'X-0001', title: '還沒到的東西', remaining: 0, blockedReason: 'not_arrived' },
-        { orderItemId: 'oi-ok', orderDisplayId: 'PCM-0001', variantSku: 'S-Y10E9-HGEH', title: '到了的東西', remaining: 2, blockedReason: null },
+        { orderId: 'ord-uuid-1', orderItemId: 'oi-blocked', orderDisplayId: 'PCM-0009', variantSku: 'X-0001', title: '還沒到的東西', remaining: 0, blockedReason: 'not_arrived' },
+        { orderId: 'ord-uuid-1', orderItemId: 'oi-ok', orderDisplayId: 'PCM-0001', variantSku: 'S-Y10E9-HGEH', title: '到了的東西', remaining: 2, blockedReason: null },
       ],
     });
     fireEvent.click(screen.getByText('只建箱、先不出貨'));
@@ -313,5 +321,180 @@ describe('#351② 出不了的品項:留在清單裡 + 標出原因 + 不可選'
       submitShipment,
       '整箱都是出不了的品項卻送得出去 ⇒ 建出一個空箱(#359 那個找不到的孤兒箱)。',
     ).not.toHaveBeenCalled();
+  });
+});
+
+// ── #352-b-2 入口 2 + 驗收 23a ──────────────────────────────────────────
+describe('ShipmentDialog — #352-b-2 入口 2「貨到了」', () => {
+  const NOT_ARRIVED: ShipmentCandidateItem = {
+    orderId: 'ord-uuid-1',
+    orderItemId: 'oi-na',
+    orderDisplayId: 'PCM-0009',
+    variantSku: 'X-0001',
+    title: '還沒到的東西',
+    remaining: 0,
+    blockedReason: 'not_arrived',
+  };
+
+  function open(items: ShipmentCandidateItem[], onRefresh = vi.fn()) {
+    return {
+      onRefresh,
+      ...render(
+        <ShipmentDialog
+          candidates={items}
+          recipient={{ name: '客', phone: '09', line: null }}
+          idempotencyKey='key-1'
+          onClose={noop}
+          onDone={noop}
+          onRefreshCandidates={onRefresh}
+        />,
+      ),
+    };
+  }
+
+  // 🔴 只給 `not_arrived`:四個原因各代表完全不同的下一步,給 `all_boxed`/`cancelled`
+  //    一顆「貨到了」是假話,還會把員工指去追一批不會來的貨。
+  it('🔴 只有 not_arrived 那件有「貨到了」', () => {
+    const { queryAllByText } = open([
+      NOT_ARRIVED,
+      { ...NOT_ARRIVED, orderItemId: 'oi-c', blockedReason: 'cancelled' },
+      { ...NOT_ARRIVED, orderItemId: 'oi-b', blockedReason: 'all_boxed' },
+      { ...NOT_ARRIVED, orderItemId: 'oi-u', blockedReason: 'unknown' },
+    ]);
+    expect(queryAllByText('貨到了')).toHaveLength(1);
+  });
+
+  it('可以出的品項不出現「貨到了」', () => {
+    const { queryByText } = open([{ ...NOT_ARRIVED, remaining: 2, blockedReason: null }]);
+    expect(queryByText('貨到了')).toBeNull();
+  });
+
+  it('按下去 → 先顯示讀取中,再列出採購列', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    fetchItemProcurementChoices.mockReturnValue(new Promise((r) => (resolve = r)));
+    const { getByText, findByText } = open([NOT_ARRIVED]);
+    fireEvent.click(getByText('貨到了'));
+    expect(await findByText(/正在讀取/)).toBeTruthy();
+    resolve([
+      { procurementId: 'p-1', supplierLabel: 'RPM', allocatedQuantity: 3, receivedQuantity: 1 },
+    ]);
+    expect(await findByText(/RPM/)).toBeTruthy();
+  });
+
+  // 🔴 `null` = 被拒或查詢失敗,**不是**「這件沒有採購列」——文案必須分開,
+  //    因為員工的下一步完全不同(重試/找工程 vs 去採購區塊建一筆)。
+  it('🔴 抓失敗 → 文案寫「怎麼辦」,而且不能長得像「沒有採購列」', async () => {
+    fetchItemProcurementChoices.mockResolvedValue(null);
+    const { getByText, findByRole } = open([NOT_ARRIVED]);
+    fireEvent.click(getByText('貨到了'));
+    const alert = await findByRole('alert');
+    expect(alert.textContent).toContain('重新整理');
+    expect(alert.textContent).toContain('先不要出');
+  });
+
+  it('真的沒有採購列 → 指去採購區塊補來源(與抓失敗分開的文案)', async () => {
+    fetchItemProcurementChoices.mockResolvedValue([]);
+    const { getByText, findByText } = open([NOT_ARRIVED]);
+    fireEvent.click(getByText('貨到了'));
+    expect(await findByText(/還沒有任何採購紀錄/)).toBeTruthy();
+  });
+
+  // 🔴🔴 驗收 23a:登錄成功後**不重整**就要就地更新 ⇒ 這格釘住彈窗真的去重取了。
+  //    沒有它的話,`onRefreshCandidates` 整條拿掉也全綠,而症狀是「按完沒反應、要重整才看得到」。
+  it('🔴 登錄成功 → 彈窗就地重取候選(驗收 23a)', async () => {
+    fetchItemProcurementChoices.mockResolvedValue([
+      { procurementId: 'p-1', supplierLabel: 'RPM', allocatedQuantity: 3, receivedQuantity: 1 },
+    ]);
+    recordItemReceiptAction.mockResolvedValue({
+      status: 'recorded_inline',
+      outcome: 'recorded',
+      procurementId: 'p-1',
+    });
+    const onRefresh = vi.fn().mockResolvedValue(undefined);
+    const { getByText, container } = open([NOT_ARRIVED], onRefresh);
+    fireEvent.click(getByText('貨到了'));
+    await waitFor(() => expect(container.querySelector('input[name="request_id"]')).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        (container.querySelector('input[name="request_id"]') as HTMLInputElement).value,
+      ).not.toBe(''),
+    );
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ── R2 N2:員工刻意填 0 的品項,重取後不得被靜默補回滿量 ────────────────
+describe('ShipmentDialog — 手動填 0 不被自動補回(N2)', () => {
+  const ITEM: ShipmentCandidateItem = {
+    orderId: 'ord-uuid-1',
+    orderItemId: 'oi-1',
+    orderDisplayId: 'PCM-0001',
+    variantSku: 'S-1',
+    title: '甲',
+    remaining: 2,
+    blockedReason: null,
+  };
+
+  function view(items: ShipmentCandidateItem[]) {
+    return render(
+      <ShipmentDialog
+        candidates={items}
+        recipient={{ name: '客', phone: '09', line: null }}
+        idempotencyKey='k'
+        onClose={noop}
+        onDone={noop}
+        onRefreshCandidates={async () => {}}
+      />,
+    );
+  }
+
+  // 🔴🔴 拿掉 `touchedRef` 那道跳過(V2 突變)⇒ 這格必紅。
+  //    失效症狀是**靜默的**:員工把某件改成 0(這箱不出這件),重取後被補回滿量,
+  //    他不重看一眼就把不該出的東西裝進箱子。
+  //    ⇒ 判準必須是「**員工碰過沒有**」,不是「值是不是 0」——0 是合法且有意義的輸入。
+  it('🔴 員工把數量改成 0,重取之後仍然是 0(不是被當成「沒填」補回滿量)', () => {
+    const { container, rerender } = view([ITEM]);
+    const box = () =>
+      container.querySelector('input[aria-label="甲 要出的數量"]') as HTMLInputElement;
+    expect(box().value).toBe('2');
+
+    fireEvent.change(box(), { target: { value: '0' } });
+    expect(box().value).toBe('0');
+
+    // 23a 重取:換一份**新的** candidates 陣列(身分變了、內容相同)⇒ 補量的 effect 會跑。
+    rerender(
+      <ShipmentDialog
+        candidates={[{ ...ITEM }]}
+        recipient={{ name: '客', phone: '09', line: null }}
+        idempotencyKey='k'
+        onClose={noop}
+        onDone={noop}
+        onRefreshCandidates={async () => {}}
+      />,
+    );
+
+    expect(box().value, '員工刻意填的 0 被當成「沒填」而補回滿量了').toBe('0');
+  });
+
+  // 正向對照:**沒被碰過**的品項由 0 變可出時,該補還是要補(否則 M1 就沒做事)。
+  it('沒碰過的品項:remaining 由 0 變 2 → 自動補上(M1 仍然有效)', () => {
+    const blocked: ShipmentCandidateItem = { ...ITEM, remaining: 0, blockedReason: 'not_arrived' };
+    const { container, rerender } = view([blocked]);
+    const box = () =>
+      container.querySelector('input[aria-label="甲 要出的數量"]') as HTMLInputElement;
+    expect(box().value).toBe('0');
+
+    rerender(
+      <ShipmentDialog
+        candidates={[{ ...ITEM, remaining: 2, blockedReason: null }]}
+        recipient={{ name: '客', phone: '09', line: null }}
+        idempotencyKey='k'
+        onClose={noop}
+        onDone={noop}
+        onRefreshCandidates={async () => {}}
+      />,
+    );
+    expect(box().value).toBe('2');
   });
 });

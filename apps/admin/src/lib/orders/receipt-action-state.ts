@@ -38,6 +38,18 @@ export const RCPT_RECEIVED_AT_LOCAL_FIELD = 'received_at_local';
  */
 export const RCPT_REQUEST_ID_FIELD = 'request_id';
 
+/**
+ * 🔴 **彈窗模式旗標**(#352-b-2 入口 2;主視窗 2026-08-11 裁 E1)。值 `'1'` = 這次送出來自出貨彈窗。
+ *
+ * 差別**只有成功那一半**:彈窗模式成功時 action **回 state 不 redirect**。
+ * 理由:`redirect()` 會整頁重載 ⇒ 彈窗連同員工還沒送出的數量/物流/備註一起消失、
+ * 出貨的冪等鍵也會換一把(= 變成另一箱),而驗收 23a 逐字要求「**不重整**就能出」。
+ *
+ * ⚠️ **這是「成功一律 PRG」的具名例外,不是把慣例改掉** ——
+ * 列表模式(採購區塊)照舊 redirect;兩邊各有一格釘住,免得例外倒灌成常態。
+ */
+export const RCPT_INLINE_FIELD = 'inline';
+
 export type ReceiptFailureCode =
   // ── 可改輸入型(RPC 回傳碼)
   | 'EXCEEDS_ROOM_AFTER_CANCELLATION'
@@ -120,6 +132,21 @@ export const EMPTY_RECEIPT_VALUES: ReceiptFormValues = {
 
 export type ReceiptActionState =
   | { status: 'idle' }
+  /**
+   * 🔴 **「成功了,而且請你就地處理」**(#352-b-2 E1)—— **不是** `'success'` 的別名,
+   * 也**不是** redirect 成功的替代品。它只在**彈窗模式**出現,語意是:
+   * 「到貨已經寫進去了,接下來由呼叫端自己重取資料、就地更新畫面」。
+   *
+   * 列表模式成功**看不到這個 state**(那條路走 redirect,函式根本不返回)。
+   * ⇒ 收到它的呼叫端**有義務**做那件就地更新;把它當成普通成功、只顯示一句話就結束,
+   * 會讓員工看著一個沒更新的彈窗以為沒生效。
+   */
+  | {
+      status: 'recorded_inline';
+      /** 這次是真的寫進去了(`RECORDED`),還是冪等重放且產物仍在(`DUPLICATE_REQUEST`)。 */
+      outcome: 'recorded' | 'duplicate';
+      procurementId: string;
+    }
   | {
       status: 'failed';
       code: ReceiptFailureCode;

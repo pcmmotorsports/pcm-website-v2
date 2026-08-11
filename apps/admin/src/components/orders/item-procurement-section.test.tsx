@@ -55,6 +55,15 @@ function detail(over: Partial<AdminOrderDetail> = {}): AdminOrderDetail {
         lineTotal: { amount: 400, currency: 'TWD' },
         procurements: [proc()],
         procurementTruncated: false,
+        // 🔴 這個 fixture 走 `as unknown as AdminOrderDetail` ⇒ 型別**擋不住漏欄**。
+        //    #352-b-2 的衍生指標讀這一欄,漏給時整檔 8 格一起炸(本片實錘)⇒ 顯式給。
+        quantitySummary: {
+          quantity: 4,
+          orderedQuantity: 4,
+          instockQuantity: 1,
+          cancelledQuantity: 0,
+          cancellableQuantity: 3,
+        },
       },
     ],
     itemsTruncated: false,
@@ -208,5 +217,86 @@ describe('ItemProcurementSection — 供應商清單', () => {
       />,
     );
     expect(queryByText('登錄到貨')).toBeNull();
+  });
+});
+
+describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有登記來源」', () => {
+  /** 覆寫第一個品項的摘要(fixture 走 as-cast,型別擋不住,故逐欄給滿)。 */
+  function withSummary(summary: unknown) {
+    const d = detail();
+    return { ...d, items: [{ ...d.items[0]!, quantitySummary: summary }] } as never;
+  }
+
+  it('還有件數沒著落 → 講出確切件數,並指去下面補來源', () => {
+    const { getByRole } = render(
+      <ItemProcurementSection
+        returnTo={RETURN_TO}
+        detail={withSummary({
+          quantity: 5,
+          orderedQuantity: 2,
+          instockQuantity: 0,
+          cancelledQuantity: 1,
+          cancellableQuantity: 5,
+        })}
+        suppliers={[]}
+        suppliersFailed={false}
+      />,
+    );
+    // 5 − 1 − 2 = 2
+    expect(getByRole('status').textContent).toContain('2');
+    expect(getByRole('status').textContent).toContain('沒有登記來源');
+  });
+
+  it('全部都有來源 → 不出現任何提示(不製造雜訊)', () => {
+    const { queryByRole, queryByText } = render(
+      <ItemProcurementSection
+        returnTo={RETURN_TO}
+        detail={withSummary({
+          quantity: 3,
+          orderedQuantity: 3,
+          instockQuantity: 0,
+          cancelledQuantity: 0,
+          cancellableQuantity: 3,
+        })}
+        suppliers={[]}
+        suppliersFailed={false}
+      />,
+    );
+    expect(queryByRole('status')).toBeNull();
+    expect(queryByText(/沒有登記來源/)).toBeNull();
+  });
+
+  // 🔴 `null` = 不知道 ⇒ 說「算不出來」,**不得**說「還有 0 件」或「還有 N 件」——
+  //    那是它證明不了的話(摘要列由 A4a 惰性建立,沒列只代表沒被碰過)。
+  it('🔴 摘要讀不到 → 誠實說算不出來,不假裝知道', () => {
+    const { getByText, queryByRole } = render(
+      <ItemProcurementSection
+        returnTo={RETURN_TO}
+        detail={withSummary(null)}
+        suppliers={[]}
+        suppliersFailed={false}
+      />,
+    );
+    expect(getByText(/數量資料還沒就緒/)).toBeTruthy();
+    // 🔴 不變式是「**不得宣稱一個件數**」,不是「不得出現『沒有登記來源』這幾個字」——
+    //    誠實的 fallback 本來就寫著「算不出『還有幾件沒有登記來源』」,那句合法。
+    //    (第一版我把斷言寫成後者,當場被自己這格打回:**測的東西比要守的不變式更寬**。)
+    //    ⇒ 改釘那顆 `role="status"` 的橘色提示不存在 —— 它才是「我知道是 N 件」的那個宣稱。
+    expect(queryByRole('status')).toBeNull();
+  });
+
+  // 🔴 欄位整個不見(fixture as-cast 的世界)也不能白畫面 —— 降級成「算不出來」。
+  it('🔴 摘要欄位缺席 → 降級,不炸整頁', () => {
+    const d = detail();
+    const noField = { ...d, items: [{ ...d.items[0]!, quantitySummary: undefined }] } as never;
+    const { getByText } = render(
+      <ItemProcurementSection
+        returnTo={RETURN_TO}
+        detail={noField}
+        suppliers={[]}
+        suppliersFailed={false}
+      />,
+    );
+    expect(getByText(/數量資料還沒就緒/)).toBeTruthy();
   });
 });

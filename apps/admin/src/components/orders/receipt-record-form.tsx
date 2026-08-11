@@ -1,9 +1,10 @@
 'use client';
 
-import { useActionState, useEffect, useId, useState } from 'react';
+import { useActionState, useEffect, useId, useRef, useState } from 'react';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { recordItemReceiptAction } from '../../lib/orders/receipt-actions';
 import {
+  RCPT_INLINE_FIELD,
   RCPT_NOTE_FIELD,
   RCPT_ORDER_ID_FIELD,
   RCPT_ORDER_ITEM_ID_FIELD,
@@ -58,12 +59,20 @@ export function ReceiptRecordForm({
   returnTo,
   /** 這筆採購還沒到的件數(= `allocated − received`)—— 預設值,不是上限守門(守門在 RPC)。 */
   remaining,
+  /**
+   * 彈窗模式(#352-b-2 E1):成功時 action **回 state 不 redirect**,由 `onRecorded` 接手就地更新。
+   * 不給 = 列表模式(採購區塊),成功照舊 redirect。
+   */
+  inline = false,
+  onRecorded,
 }: {
   orderId: string;
   orderItemId: string;
   procurementId: string;
   returnTo: string;
   remaining: number;
+  inline?: boolean;
+  onRecorded?: () => void;
 }) {
   const [state, formAction] = useActionState<ReceiptActionState, FormData>(
     recordItemReceiptAction,
@@ -104,6 +113,66 @@ export function ReceiptRecordForm({
     state.status === 'failed' &&
     (state.procurementId === procurementId || state.procurementId === null);
 
+  // 🔴 彈窗模式成功:①通知呼叫端就地重取 ②**換一把新的冪等鍵**。
+  //
+  //    ⚠️ **兩把鍵語意相反,別混為一談**(主視窗 E1 要求①的釐清):
+  //    · 出貨的 `idempotencyKey`(彈窗持有)**不換** —— 彈窗沒關、還是同一箱。我這一層完全沒碰它。
+  //    · 到貨的 `request_id`(本表單持有)**必須換** —— 它已經被消費掉了(冪等帳記著)。
+  //      不換的話,員工要登錄**第二批**真的到貨時會永遠拿到 `DUPLICATE_REQUEST`、
+  //      而畫面會說「先前已經登錄過」⇒ 那批貨再也記不進去。
+  //      (列表模式不用管這件事:它 redirect 後整個表單重新掛載,自然就是新鍵。)
+  //    🔴 這不會削弱防連點:連點發生在**送出中**,由 pending 狀態擋;換鍵只在**成功之後**。
+  //
+  // 🔴🔴 **`onRecorded` 走 ref、不進 deps**(R1 Critical C1,實測 321 次重取 / 400ms):
+  //    呼叫端每次 render 都會給一個**新的箭頭函式**(彈窗 → launcher 的 `setOpen({...o, data})`
+  //    每次也是新物件)⇒ 把它放進 deps 會變成:
+  //    成功 → 重取 → setState → re-render → `onRecorded` 換身分 → effect 又跑(`state` 還是
+  //    `recorded_inline`)→ 再重取 …… **無窮迴圈**。寫入不會重複(action 只跑一次),
+  //    但彈窗失控 + 請求風暴,而且是 Sean 肉眼驗第一下就會撞到的路。
+  //    ⇒ deps 只留**真的代表「發生了一件新事」的東西**(`state` / `procurementId`);
+  //    回呼本身用 ref 取最新的,身分變動不該重新觸發任何事。
+  const onRecordedRef = useRef(onRecorded);
+  useEffect(() => {
+    onRecordedRef.current = onRecorded;
+  });
+
+  // 🔴🔴 **「這件事處理過了沒」用 state 物件本身當身分,不要用資料值**(R2 N1)。
+  //    上一版 deps 是 `[state, procurementId, remaining]`,而 M2 成功後會重抓採購列、
+  //    把 `received` 推上去 ⇒ `remaining` 跟著變 ⇒ **同一次成功** effect 被觸發第二次,
+  //    把四個欄位再重置一遍 —— 員工正在打第二批的數字會被當場清空。
+  //    (那不是迴圈、會收斂,所以更難發現;而我 C1b 那格的 mock 兩次回同一份 `received`
+  //     ⇒ `remaining` 恆等、第二發永遠不發生 ⇒ **那個「恰 1 次」的斷言在真資料下是假的**。)
+  //    ⇒ 判準改成「**這個 `state` 物件我處理過沒有**」:一次成功只有一個 state 物件,
+  //    資料值怎麼變都不會讓它變成「新事」。
+  const handledRef = useRef<ReceiptActionState | null>(null);
+
+  // 🔴 `remaining` 也走 ref(終輪 nit):它**不在 deps 裡**(在的話就是 N1),
+  //    所以 effect body 讀到的會是「`state` 變成 recorded_inline 那一刻」的舊值。
+  //    而 M2 緊接著把 `received` 推上去 ⇒ 舊值**偏大** ⇒ 第二批的預設件數填太多、
+  //    員工按下去會吃一個 `QUANTITY_EXCEEDS_ALLOCATED`。RPC 會擋住、不會寫壞資料,
+  //    但那是**我們預先幫他填錯再讓他撞**,與 M2 修的是同一種帳。
+  const remainingRef = useRef(remaining);
+  useEffect(() => {
+    remainingRef.current = remaining;
+  });
+
+  useEffect(() => {
+    if (state.status !== 'recorded_inline' || state.procurementId !== procurementId) return;
+    if (handledRef.current === state) return;
+    handledRef.current = state;
+    setRequestId(mintRequestId());
+    setValues({
+      quantity: String(remainingRef.current),
+      surplusQuantity: '0',
+      receivedAtLocal: toTaipeiInputValue(new Date().toISOString()),
+      note: '',
+    });
+    onRecordedRef.current?.();
+    // 🔴 deps 刻意**不含** `onRecorded`(身分每 render 都變 ⇒ 會變成迴圈)、
+    //    也**不含** `remaining`(它會被本次成功自己推動 ⇒ 會變成第二次觸發,見上)。
+    //    真正代表「發生了一件新事」的只有 `state` 這個物件。
+  }, [state, procurementId]);
+
   // 🔴 失敗回來時把員工打的四欄**寫回 state**,不是在 `value=` 上三元切換 ——
   //    三元的話輸入框會被 `state.values` 釘死、`onChange` 改不動它(受控值來自一個不會因打字
   //    而變的來源)⇒ 員工修不了輸入、只能重整。以 `state` 為相依:同一次失敗只同步一次,之後打字照常。
@@ -126,6 +195,7 @@ export function ReceiptRecordForm({
         <input type='hidden' name={RCPT_PROCUREMENT_ID_FIELD} value={procurementId} />
         <input type='hidden' name={RCPT_REQUEST_ID_FIELD} value={requestId} />
         <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
+        {inline && <input type='hidden' name={RCPT_INLINE_FIELD} value='1' />}
 
         {failed && (
           <p

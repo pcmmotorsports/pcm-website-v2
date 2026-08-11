@@ -15,6 +15,7 @@ import {
   EMPTY_RECEIPT_VALUES,
   RCPT_ORDER_ID_FIELD,
   RCPT_ORDER_ITEM_ID_FIELD,
+  RCPT_INLINE_FIELD,
   RCPT_PROCUREMENT_ID_FIELD,
   RECEIPT_DUPLICATE_RESULT_CODE,
   RECEIPT_RECORDED_RESULT_CODE,
@@ -26,7 +27,9 @@ import {
   ReceiptCallerBugError,
   findDuplicateOutcome,
   findProcurementRemaining,
+  listProcurementChoices,
   recordItemReceipt,
+  type ItemProcurementChoice,
 } from './receipt-repository';
 import { findOrderIdForItem } from './procurement-repository';
 
@@ -63,6 +66,9 @@ export async function recordItemReceiptAction(
   //    ⚠️ 解析失敗時整份 FormData 都不可信,但這個 hidden 欄**只用來決定顯示在哪一份表單上**、
   //    不參與任何寫入決策 ⇒ 讀它是安全的(值壞掉最多是橫幅沒顯示,回到今天的行為)。
   const scopeId = readSingleString(formData, RCPT_PROCUREMENT_ID_FIELD);
+  // 🔴 彈窗模式(E1):成功回 state 不 redirect。**fail-closed 判法** —— 只有明確送 `'1'` 才算,
+  //    送兩份 / 缺欄一律當列表模式(走 redirect,那是既有且已審過的路)。
+  const inline = readSingleString(formData, RCPT_INLINE_FIELD) === '1';
 
   const parsed = parseReceiptForm(formData);
   if (!parsed) {
@@ -156,6 +162,9 @@ export async function recordItemReceiptAction(
   // ③ 固定碼分派。
   if (result === 'RECORDED') {
     revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+    if (inline) {
+      return { status: 'recorded_inline', outcome: 'recorded', procurementId: parsed.procurementId };
+    }
     redirect(appendResultQuery(returnTo, RECEIPT_RECORDED_RESULT_CODE));
   }
 
@@ -174,6 +183,9 @@ export async function recordItemReceiptAction(
       outcome = 'unknown';
     }
     revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+    if (inline && outcome === 'alive') {
+      return { status: 'recorded_inline', outcome: 'duplicate', procurementId: parsed.procurementId };
+    }
     if (outcome === 'deleted') {
       return receiptFailure('DUPLICATE_DELETED', parsed.procurementId, carried);
     }
@@ -203,4 +215,44 @@ export async function recordItemReceiptAction(
   }
 
   return receiptFailure(result, parsed.procurementId, carried);
+}
+
+/**
+ * 入口 2 用:抓某個品項的採購列供小視窗選擇(#352-b-2,主視窗裁 C 案)。
+ *
+ * 🔴 **閘的順序逐字沿用本檔的寫入路徑**,不因為「這只是讀」就放寬:
+ *    ① 授權閘**絕對第一** ② 品項歸屬閘(不信任 client 送的 id)。
+ *    這條路吐的是**供應商身分**(`service_role only` 的內部資料)⇒ 讀路徑同樣要證明
+ *    「這個品項真的屬於這張單」,否則它就是一支「給我任意品項的供應商」的查詢。
+ *
+ * 回傳 `null` = 拒絕或失敗;呼叫端一律當「抓不到」處理並顯示可操作的文案,
+ * **不得**把 null 當成「這個品項沒有採購列」(那兩件事員工的下一步完全不同)。
+ */
+export async function fetchItemProcurementChoices(
+  orderId: string,
+  orderItemId: string,
+): Promise<ItemProcurementChoice[] | null> {
+  const authorization = await authorizeAdminMutation();
+  if (!authorization) return null;
+
+  const requestId = await getRequestId();
+  try {
+    const ownerOrderId = await findOrderIdForItem(orderItemId);
+    if (ownerOrderId === null || ownerOrderId !== orderId) {
+      console.error('[admin/orders/receipt] 品項不屬於這張訂單,拒絕回傳採購列', {
+        request_id: requestId,
+        form_order_id: orderId,
+        owner_order_id: ownerOrderId,
+        order_item_id: orderItemId,
+      });
+      return null;
+    }
+    return await listProcurementChoices(orderItemId);
+  } catch (error) {
+    console.error('[admin/orders/receipt] 採購列查詢失敗', {
+      request_id: requestId,
+      message: String((error as { message?: unknown })?.message ?? '').slice(0, 200),
+    });
+    return null;
+  }
 }

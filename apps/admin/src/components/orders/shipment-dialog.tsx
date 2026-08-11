@@ -28,10 +28,12 @@
 // ⚠️ 這裡的表單檢查是**體驗層不是正確性層**:真正擋住壞資料的是 DB 的 CHECK。
 //    先擋只是不要讓員工按了才看到錯誤。
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ReceiptPanel, useReceiptEntry } from './receipt-panel';
 import { toMessage } from '../../lib/shipping/error-message';
 import { parseShipmentError } from '../../lib/shipping/shipment-error-view';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
+import { blockedText, emptySelectionMessage } from './shipment-dialog-copy';
 import { submitShipment, type SubmitShipmentResult } from '../../lib/shipping/shipment-actions';
 
 type Recipient = { name: string | null; phone: string | null; line: string | null };
@@ -42,27 +44,6 @@ const CARRIERS = [
   { code: 'other', label: '其他' },
 ] as const;
 
-/**
- * 出不了的原因 → 給員工看的一句話(#351②)。
- *
- * 🔴 **用 switch 不用查表物件**:`TABLE[reason]` 那種寫法在 `reason` 是非預期字串時會取到
- *    原型鏈上的東西(`constructor` / `toString` 都是 truthy),本 repo 為這個形狀修過 6 頁
- *    (memory `reference_js-index-lookup-hits-prototype-chain`)。switch 沒有這個面。
- * 🔴 `default` 走「數量資料尚未就緒」而不是「未到貨」:漏帶或非預期值代表**我們不知道**,
- *    此時編一個具體的原因給員工 = 把不知道偽裝成事實,他會照著去做錯的下一步。
- */
-function blockedText(reason: ShipmentCandidateItem['blockedReason']): string {
-  switch (reason) {
-    case 'cancelled':
-      return '已取消';
-    case 'all_boxed':
-      return '已全數配箱';
-    case 'not_arrived':
-      return '未到貨';
-    default:
-      return '數量資料尚未就緒';
-  }
-}
 
 export function ShipmentDialog({
   candidates,
@@ -70,6 +51,7 @@ export function ShipmentDialog({
   idempotencyKey,
   onClose,
   onDone,
+  onRefreshCandidates,
 }: {
   candidates: readonly ShipmentCandidateItem[];
   recipient: Recipient;
@@ -77,6 +59,14 @@ export function ShipmentDialog({
   idempotencyKey: string;
   onClose: () => void;
   onDone: () => void;
+  /**
+   * 登錄到貨成功後重取候選(驗收 23a)。回傳新的清單;呼叫端負責把它換進 state。
+   *
+   * 🔴 **不能只靠 `revalidatePath`** —— 彈窗是 client 狀態,#351④ 肉眼驗已實錘
+   * 「作廢空箱後列不會從當下明細頁消失、要重整才消」⇒ 必須**明確重取**,
+   * 不是假設頁面刷新會帶到。
+   */
+  onRefreshCandidates?: () => Promise<void>;
 }) {
   /** 每個品項要出的數量;0 = 這次不寄。預設全出。 */
   const [qty, setQty] = useState<Record<string, number>>(() =>
@@ -85,8 +75,47 @@ export function ShipmentDialog({
   const [carrier, setCarrier] = useState<'hct' | 'sf' | 'other'>('hct');
   const [note, setNote] = useState('');
   const [tracking, setTracking] = useState('');
+  /** 🔴 員工**親手動過**的品項(R2 N2)。用 ref:它不影響渲染,只用來決定「這格能不能自動補」。 */
+  const touchedRef = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SubmitShipmentResult | null>(null);
+
+  // 入口 2(#352-b-2):狀態機抽到 `receipt-panel.tsx`(鐵則 6,見該檔頭)。
+  const { receiptFor, choices, choicesState, openReceipt, closeReceipt, refreshChoices } =
+    useReceiptEntry();
+
+  // ⚠️ **這裡的 `useCallback` 並沒有讓身分真的穩定**(R2 更正,別照句拿掉別處的 ref):
+  //    deps 含 `candidates`,而 23a 成功後 `candidates` 就會換一份 ⇒ 這顆回呼照樣換身分。
+  //    真正擋住 C1 那條迴圈的是 **`receipt-record-form.tsx` 那邊的 `onRecordedRef`**;
+  //    這顆 `useCallback` 只是少掉「每次 render 都重建」的雜訊,不是防線。
+  const handleRecorded = useCallback(() => {
+    void onRefreshCandidates?.();
+    // M2:採購列的 `received` 剛被推上去了 ⇒ 一起重抓,否則第二批的預設值是舊的。
+    const item = candidates.find((c) => c.orderItemId === receiptFor);
+    if (item) void refreshChoices(item.orderId, item.orderItemId);
+  }, [onRefreshCandidates, candidates, receiptFor, refreshChoices]);
+
+  // 🔴 **M1:重取之後,剛登錄那件的數量框要跟著補上** —— `qty` 只在掛載時初始化,
+  //    23a 重取後該品項 `remaining` 由 0 變 N 但框裡還是 0 ⇒ 員工讀成**按了沒生效**。
+  //    🔴🔴 **判準是「員工碰過沒有」,不是「值是不是 0」**(R2 N2)。
+  //    上一版寫 `(prev[id] ?? 0) === 0` 才補,並在註解宣稱「手動調過的不會被蓋掉」——
+  //    那句話**對 1 成立、對 0 不成立**:員工刻意把某件改成 0(這箱不出這件)會被當成
+  //    「還沒填」而**靜默補回滿量**,他不重看一眼就會把不該出的東西裝進箱子。
+  //    ⇒ 用 ref 記下他真的動過哪些,填補時跳過。
+  useEffect(() => {
+    setQty((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const c of candidates) {
+        if (touchedRef.current.has(c.orderItemId)) continue;
+        if ((prev[c.orderItemId] ?? 0) === 0 && c.remaining > 0) {
+          next[c.orderItemId] = c.remaining;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [candidates]);
 
   const chosen = useMemo(
     () =>
@@ -98,11 +127,13 @@ export function ShipmentDialog({
 
   // 🔴 送出前的體驗層檢查。每一條都對應一個 DB 端的 CHECK,措辭盡量貼近 DB 的訊息。
   const blocker = useMemo<string | null>(() => {
-    if (chosen.length === 0) return '這箱還沒有任何品項。至少要選一件才能建箱。';
+    if (chosen.length === 0) {
+      return emptySelectionMessage(candidates);
+    }
     if (carrier === 'other' && note.trim() === '') return '快遞商選「其他」時必須填寫送法說明。';
     if (carrier !== 'other' && note.trim() !== '') return '說明欄只給「其他」用,選新竹或順豐時請清空。';
     return null;
-  }, [chosen.length, carrier, note]);
+  }, [chosen.length, carrier, note, candidates]);
 
   /** 標出貨還多一道:非「其他」必須有單號。只建箱不受這條限制。 */
   const shipBlocker = useMemo<string | null>(
@@ -220,17 +251,39 @@ export function ShipmentDialog({
                   disabled={c.remaining === 0}
                   value={qty[c.orderItemId] ?? 0}
                   aria-label={`${c.title ?? '品項'} 要出的數量`}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    touchedRef.current.add(c.orderItemId);
                     setQty((p) => ({
                       ...p,
                       [c.orderItemId]: Math.max(0, Math.min(c.remaining, Number(e.target.value) || 0)),
-                    }))
-                  }
+                    }));
+                  }}
                   className='w-16 shrink-0 rounded border px-2 py-1 text-sm disabled:opacity-50'
                 />
+                {/* 🔴 入口 2 只給 `not_arrived`(plan §5.2):四個原因各代表完全不同的下一步,
+                    給 `all_boxed` 或 `cancelled` 一顆「貨到了」是**假話**,還會把員工指去
+                    追一批根本不會來的貨(`shipment-candidates.ts:81-86` 逐字)。 */}
+                {c.blockedReason === 'not_arrived' && receiptFor !== c.orderItemId && (
+                  <button
+                    type='button'
+                    onClick={() => void openReceipt(c)}
+                    className='shrink-0 rounded border px-2 py-1 text-xs'
+                  >
+                    貨到了
+                  </button>
+                )}
               </li>
             ))}
           </ul>
+
+          <ReceiptPanel
+            candidates={candidates}
+            receiptFor={receiptFor}
+            choices={choices}
+            choicesState={choicesState}
+            onCancel={closeReceipt}
+            onRecorded={handleRecorded}
+          />
 
           <div className='grid gap-3 sm:grid-cols-2'>
             <label className='text-xs font-semibold'>

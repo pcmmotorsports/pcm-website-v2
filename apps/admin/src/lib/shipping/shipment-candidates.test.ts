@@ -83,7 +83,12 @@ describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
     ).toEqual([]);
   });
 
-  it('🔴 實際回傳的品項物件只有白名單六個鍵(逐鍵檢查,不是只看型別)', async () => {
+  // 🔴 白名單從六鍵擴成七鍵(#352-b-2 加 `orderId`,主視窗裁 D1)。
+  //    **擴白名單是刻意動作、不是修紅**:判準見 `shipment-candidates.ts` 檔頭 ——
+  //    這條守的是**資訊類別**(價格 / 客人 PII / 供應商身分),不是欄位數。
+  //    `orderId` 是 uuid、且 client 本來就整組持有 `orderIds` ⇒ 零新類別。
+  //    ⚠️ 下一個要擴它的人:先答「這個欄位屬於上面三類的哪一類」,答得出來就別加。
+  it('🔴 實際回傳的品項物件只有白名單七個鍵(逐鍵檢查,不是只看型別)', async () => {
     findAdminOrderDetail.mockResolvedValue(detail());
     const { loadShipmentCandidates } = await import('./shipment-candidates');
     const r = await loadShipmentCandidates(['o1']);
@@ -91,7 +96,15 @@ describe('🔴🔴 鐵則 12 — DTO 不得帶任何金額', () => {
     expect(
       Object.keys(r.items[0]!).sort(),
       '品項 DTO 的鍵不是白名單那六個 ⇒ 有人把 detail 的欄位整包展開進來了',
-    ).toEqual(['blockedReason', 'orderDisplayId', 'orderItemId', 'remaining', 'title', 'variantSku']);
+    ).toEqual([
+      'blockedReason',
+      'orderDisplayId',
+      'orderId',
+      'orderItemId',
+      'remaining',
+      'title',
+      'variantSku',
+    ]);
   });
 
   it('前提 — 本檔必須有 `import \'server-only\'`(誤用變建置期錯誤,不是上線才發現)', () => {

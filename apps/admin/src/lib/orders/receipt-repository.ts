@@ -196,3 +196,48 @@ export async function findProcurementRemaining(procurementId: string): Promise<n
   if (!data) return null;
   return data.allocated_quantity - data.received_quantity;
 }
+
+/**
+ * 一個品項的採購列(#352-b-2 入口 2 用;**按下「貨到了」那一刻才抓**)。
+ *
+ * 🔴 **為什麼不放進出貨彈窗的 candidates DTO**(主視窗 2026-08-11 裁 C):
+ *    `shipment-candidates.ts` 檔頭自陳它是「**刻意很窄的 DTO**」——
+ *    只帶單號/品名/料號/還能出幾件,理由是 `AdminOrderDetail` 含成交價與客人 PII。
+ *    把採購列(含供應商身分)塞進去 = **為了便利改寫一條安全不變式**,
+ *    而且多一條路徑就多一個未來要記得守的出口。
+ *    ⇒ 改成按下去才抓;代價(一次往返)只發生在那一刻。
+ *
+ * 🔴 **回傳欄位是最小集,一個價格欄都沒有**:id / 供應商 label / 訂購 / 已到貨。
+ *    `order_item_procurement` 本身沒有價格欄,但這裡仍逐欄具名 select ——
+ *    `select('*')` 會讓日後有人加欄時**自動**把它送到 client。
+ */
+export type ItemProcurementChoice = {
+  procurementId: string;
+  supplierLabel: string | null;
+  allocatedQuantity: number;
+  receivedQuantity: number;
+};
+
+export async function listProcurementChoices(
+  orderItemId: string,
+): Promise<ItemProcurementChoice[]> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('order_item_procurement')
+    .select('id, allocated_quantity, received_quantity, suppliers(label)')
+    .eq('order_item_id', orderItemId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+
+  return (data ?? []).map((row) => {
+    // 內嵌回來的形狀依關聯基數可能是物件或陣列 ⇒ 兩種都收,取不到就誠實回 null
+    // (`null` = 「這次沒帶回來」,**不是**「這家沒有名字」—— 同 A9a-2 對 supplierLabel 的立場)。
+    const s = row.suppliers as { label?: string | null } | { label?: string | null }[] | null;
+    const label = Array.isArray(s) ? (s[0]?.label ?? null) : (s?.label ?? null);
+    return {
+      procurementId: row.id,
+      supplierLabel: label,
+      allocatedQuantity: row.allocated_quantity,
+      receivedQuantity: row.received_quantity,
+    };
+  });
+}

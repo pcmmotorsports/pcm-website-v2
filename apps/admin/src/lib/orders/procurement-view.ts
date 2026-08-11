@@ -1,4 +1,4 @@
-import type { AdminOrderItemProcurement, AdminProcurementReplyStatus } from '@pcm/domain';
+import type { AdminOrderItemProcurement, AdminProcurementReplyStatus, AdminOrderItemQuantitySummary } from '@pcm/domain';
 import type { ProcurementFormValues } from './procurement-action-state';
 import { EMPTY_PROCUREMENT_VALUES } from './procurement-action-state';
 
@@ -100,4 +100,41 @@ export function hydrateFormValues(
     exceptionReason: row.exceptionReason ?? '',
     expectedArrivalDate: row.expectedArrivalDate ?? '',
   };
+}
+
+/**
+ * 「還有幾件沒有登記來源」(#352-b-2 衍生指標;plan §5.4)。
+ *
+ * `未登記件數 = quantity − cancelled_quantity − ordered_quantity`,
+ * **三個欄位全部取自 `order_item_quantity_summary` 的同一列**。
+ *
+ * 🔴 **`ordered_quantity` 就是 `SUM(allocated)`**(`20260730150000:12` 逐字:「已向供應商訂了幾件
+ *    ← A2 `order_item_procurement.allocated_quantity` 之和」,由 A4a trigger 維護)
+ *    ⇒ **不要自己再寫一個 `SUM(allocated)`**,那會是同一個數字的第二真相。
+ *    讀模型本來就帶著這個摘要(A9c 的 nested embed)⇒ **零新查詢**。
+ *
+ * 🔴 **`summary === null` 回 `null`,不補 0** —— `null` 的意思是「不知道」不是「都是 0」
+ *    (`types.ts:638-660` 逐字;摘要列由 A4a **惰性建立**,從未被採購也從未被取消的品項沒有那一列)。
+ *    補 0 會讓畫面對員工說「還有 3 件沒登記」這種**它證明不了的話**。
+ *    ⚠️ 這裡回 null 不是 fail-closed 守門(本值不擋任何動作),是**誠實**:不知道就說不知道。
+ *
+ * **非負性有保證**:A2b1 守 `SUM(allocated) ≤ quantity − SUM(cancelled)`(`20260803130000:164`)
+ * ⇒ 本式不會是負數,呼叫端不必處理負值分支。⚠️ 仍夾 0 —— 那是給「守門日後被改動」留的餘地,
+ * 不是因為現在算得出負數。
+ *
+ * ⚠️ **語意誠實**:它說的是「還有 N 件沒著落」,**不是**「流程斷在第幾步」——
+ * 它分不出「從沒開始採購」與「三步做到一半」,而那兩件事員工的下一步動作本來就一樣。
+ * ⇒ 文案不得寫「流程中斷」之類它證明不了的話。
+ */
+export function unsourcedQuantity(
+  summary: AdminOrderItemQuantitySummary | null | undefined,
+): number | null {
+  // 🔴 `== null` 收 `null` **與** `undefined`,刻意不用 `=== null`:
+  //    契約上只會是 `null`,但少一個欄位就讓**整張訂單明細頁白畫面**的代價遠高於多寫一個字元
+  //    —— 而「欄位不見了」正好與 `null` 同義(不知道),降級成「算不出來」是誠實且無損的。
+  //    實錘:本片加上這個指標時,`item-procurement-section.test.tsx` 的 fixture 用
+  //    `as unknown as AdminOrderDetail` 繞過型別、根本沒給這個欄位 ⇒ `=== null` 版當場把
+  //    該檔 8 格全炸。型別擋不住的東西,執行期要自己站得住。
+  if (summary == null) return null;
+  return Math.max(0, summary.quantity - summary.cancelledQuantity - summary.orderedQuantity);
 }

@@ -226,3 +226,61 @@ describe('ReceiptRecordForm — 失敗回來要真的看得到', () => {
     expect(container.querySelector<HTMLInputElement>('input[name="quantity"]')?.value).toBe('3');
   });
 });
+
+// ── #352-b-2 I2:彈窗模式成功後換新冪等鍵 ──────────────────────────────
+describe('ReceiptRecordForm — 彈窗模式成功後的冪等鍵', () => {
+  const RECORDED = {
+    status: 'recorded_inline' as const,
+    outcome: 'recorded' as const,
+    procurementId: 'p-1',
+  };
+
+  async function mounted() {
+    const r = renderForm();
+    await waitFor(() =>
+      expect(
+        (r.container.querySelector('input[name="request_id"]') as HTMLInputElement).value,
+      ).not.toBe(''),
+    );
+    return r;
+  }
+  const keyOf = (c: HTMLElement) =>
+    (c.querySelector('input[name="request_id"]') as HTMLInputElement).value;
+
+  // 🔴🔴 失效症狀是註解自己寫的那句:員工登錄**第二批**真到貨會永遠拿到 DUPLICATE_REQUEST,
+  //    畫面說「先前已經登錄過」⇒ 那批貨再也記不進去。拿掉換鍵那行 ⇒ 這格必紅。
+  it('🔴 成功之後換一把新鍵(否則第二批到貨永遠 DUPLICATE)', async () => {
+    action.mockResolvedValue(RECORDED);
+    const { container } = await mounted();
+    const before = keyOf(container);
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(keyOf(container)).not.toBe(before));
+    expect(keyOf(container)).not.toBe('');
+  });
+
+  // 🔴 失敗路徑**不換鍵** —— 同一次嘗試重送必須還是同一把,否則「重試」會變成第二筆到貨。
+  it('🔴 失敗之後**不**換鍵(重試仍是同一次嘗試)', async () => {
+    action.mockResolvedValue({
+      status: 'failed',
+      code: 'RECEIVED_AT_IN_FUTURE',
+      message: 'x',
+      procurementId: 'p-1',
+      values: { quantity: '', surplusQuantity: '', receivedAtLocal: '', note: '' },
+    } as ReceiptActionState);
+    const { container } = await mounted();
+    const before = keyOf(container);
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(action).toHaveBeenCalled());
+    expect(keyOf(container)).toBe(before);
+  });
+
+  // 🔴 別筆採購的成功不得換掉這一份的鍵。
+  it('別筆採購的 recorded_inline 不換本表單的鍵', async () => {
+    action.mockResolvedValue({ ...RECORDED, procurementId: 'p-OTHER' });
+    const { container } = await mounted();
+    const before = keyOf(container);
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(action).toHaveBeenCalled());
+    expect(keyOf(container)).toBe(before);
+  });
+});
