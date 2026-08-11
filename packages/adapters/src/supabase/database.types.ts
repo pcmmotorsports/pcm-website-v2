@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**七個函式、共二十一處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**八個函式、共二十二處**手動校正
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
@@ -13,6 +13,8 @@
 //   ⑦ `admin_cancel_order.Args` **一處**(p_reason_detail 的 `| null`;2026-08-05 A9d2-2 起)
 //      —— 🔴 `p_items` **不在校正之列**:生成型別是 `Json`,而本檔 `Json` 聯集本身已含 `null`
 //      (見下方 `export type Json`)⇒ 整單取消送 null 本來就過,再加 `| null` 是重複且誤導。
+//   ⑧ `admin_record_item_receipt.Args` **一處**(p_note 的 `| null`;2026-08-11 #352-b 起 ——
+//      到貨備註留空是常態呼叫;理由與「其餘六個為何不補」寫在該函式區塊)
 //   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」,一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
 //   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
@@ -39,10 +41,13 @@
 //      ⇒ 它的產物**不在本檔=正確**,不得手補(同 2026-08-07 a9v/a9b2_m 的形狀)。
 //   🔴 那些**不是本片的產物、形狀一律照生成值原樣收下**(主視窗 `P-226-A` ③:只貼回校正、
 //      不順手改別人的形狀)。
-//   🔴 二十一處校正的重貼方式(留給下一個重 gen 的人):**逐函式整塊替換 + 參數名集合比對** ——
+//   🔴 校正的重貼方式(留給下一個重 gen 的人;**筆數見檔頭 `:2`,此處刻意不複述**):
+//      **逐函式整塊替換 + 參數名集合比對** ——
 //      先確認該函式在新舊兩版的參數集合完全相同(= 只有校正被沖掉、沒有真的簽章變更),
 //      才用舊版區塊蓋回去;任一函式參數有增減就停下人工判斷,不硬蓋。
-//      本次七支**機械比對**(非肉眼)全數通過:參數集合 7/7 相等、重貼後 21/21 處校正逐條實查在位。
+//      **那一次**(08-11 regen 當下)七支**機械比對**(非肉眼)全數通過:參數集合 7/7 相等、
+//      重貼後 21/21 處逐條實查在位。⚠️ 這兩個數字是**該時點的紀錄、不是現行計數** ——
+//      同日稍晚 #352-b 補上第 ⑧ 支(`admin_record_item_receipt.p_note`)⇒ 現行計數見 `:2`。
 //   🔴 切「檔頭 vs 本體」的分界**必用行首錨點**(`^export type Json`)—— 檔頭註解自己就提到那個字串
 //      (見上方 ⑦ 的 `p_items` 說明)⇒ 用裸子字串切會在第 14 行攔腰砍掉整段檔頭。
 //      2026-08-11 本次真的踩了、當場 `git checkout HEAD --` 復原重做;下一個人別再踩。
@@ -2806,9 +2811,18 @@ export type Database = {
         Returns: Json
       }
       admin_record_item_receipt: {
+        // 🔴 手動校正一處(重 gen 後需重貼;2026-08-11 #352-b 開工補上 —— 呼叫端到此才存在)。
+        //   `p_note` 送 NULL = 沒有備註,是合法且**常態**的呼叫:RPC `20260811010000:127-136`
+        //   先 `v_note := p_note`,再 `IF v_note IS NOT NULL THEN`(btrim / 長度)才動它,
+        //   而且全空白備註會被**正規化回 NULL**(`:131` 逐字「不製造『看起來有、其實沒有』的假資料」)。
+        //   PostgREST 的型別產生器表達不了「必填但可為 null」⇒ 不校正的話,員工不填備註就型別紅。
+        //   其餘六個**不補**:p_actor / p_request_id 在 RPC 內 fail-closed RAISE(`:88-103`);
+        //   p_procurement_id 送 NULL 只會拿到 `PROCUREMENT_NOT_FOUND`;
+        //   p_quantity / p_surplus_quantity / p_received_at 送 NULL 只會拿到固定錯誤碼
+        //   (`INVALID_QUANTITY` / `RECEIVED_AT_REQUIRED`)—— 都不是合法用法,型別非 null 是對的。
         Args: {
           p_actor: string
-          p_note: string
+          p_note: string | null
           p_procurement_id: string
           p_quantity: number
           p_received_at: string

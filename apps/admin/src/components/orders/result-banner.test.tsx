@@ -8,6 +8,10 @@ import {
   PROCUREMENT_NO_CHANGE_RESULT_CODE,
   PROCUREMENT_UPDATED_RESULT_CODE,
 } from '../../lib/orders/procurement-action-state';
+import {
+  RECEIPT_DUPLICATE_RESULT_CODE,
+  RECEIPT_RECORDED_RESULT_CODE,
+} from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
@@ -55,6 +59,27 @@ describe('ResultBanner — A9d2-1 新增的備註成功碼', () => {
 
   it('缺 code → 不渲染', () => {
     expect(render(<ResultBanner code={undefined} />).container.textContent).toBe('');
+  });
+});
+
+describe('ResultBanner — #352-b 到貨登錄兩個成功碼', () => {
+  // 🔴 R1 must-fix 3 的守門:action 只驗 redirect 的 URL,**沒驗員工最終看到什麼**。
+  //    這兩碼原本根本沒登記進 MESSAGES ⇒ PRG 之後 details 收合、橫幅回 null,
+  //    而「到貨 0 件 / 溢收 N 件」連採購列的數字都不會動 ⇒ 成功、失敗、沒送出三者不可分辨。
+  it.each([
+    [RECEIPT_RECORDED_RESULT_CODE, '已登錄這筆到貨'],
+    [RECEIPT_DUPLICATE_RESULT_CODE, '先前已經登錄過'],
+  ])('%s → 渲染得出文字', (code, text) => {
+    const { container } = render(<ResultBanner code={code} />);
+    expect(container.textContent).toContain(text);
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  // 🔴 「溢收不計入到貨欄」那半句是**功能性的**,不是修辭:少了它,員工在本片主打的
+  //    取消後到貨情境按完會看到數字沒變而重按。⇒ 釘住它,別讓後人當贅字刪掉。
+  it('成功文案要解釋「為什麼到貨欄沒動」(溢收情境)', () => {
+    const { container } = render(<ResultBanner code={RECEIPT_RECORDED_RESULT_CODE} />);
+    expect(container.textContent).toContain('溢收');
   });
 });
 
@@ -194,6 +219,8 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       PROCUREMENT_CREATED_RESULT_CODE,
       PROCUREMENT_UPDATED_RESULT_CODE,
       PROCUREMENT_NO_CHANGE_RESULT_CODE,
+      RECEIPT_RECORDED_RESULT_CODE,
+      RECEIPT_DUPLICATE_RESULT_CODE,
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

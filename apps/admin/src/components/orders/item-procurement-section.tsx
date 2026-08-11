@@ -6,6 +6,7 @@ import {
 } from '../../lib/orders/procurement-suppliers';
 import { REPLY_STATUS_LABEL } from '../../lib/orders/procurement-view';
 import { ItemProcurementForm } from './item-procurement-form';
+import { ReceiptRecordForm } from './receipt-record-form';
 
 // M-4b E10 A10b:訂單明細的採購區塊(server-render 清單 + 每個品項一份表單)。
 // 🔴 中文字面全部暫定、待 Sean 肉眼定稿(結構鎖、字不鎖)。
@@ -36,7 +37,25 @@ function TruncationWarning({ scope }: { scope: 'item' | 'order' }) {
   );
 }
 
-function ProcurementRows({ item }: { item: AdminOrderDetailItem }) {
+function ProcurementRows({
+  item,
+  orderId,
+  returnTo,
+  truncated,
+}: {
+  item: AdminOrderDetailItem;
+  orderId: string;
+  returnTo: string;
+  /**
+   * 🔴 採購清單可能不完整時**連「登錄到貨」也一起收起來**。
+   *
+   * 技術上到貨登錄是 append + 指名 `procurement_id`,截斷不會讓看得見的那一列變錯
+   * ⇒ 送出去其實是安全的。收起來的理由是**文案與程式必須是同一條不變式**:
+   * 上面那張警告逐字對員工說「在完整載入之前不能編輯採購」,而旁邊擺一顆按得下去的鈕
+   * 就是當面打臉那句話。員工重新整理一次就好,代價遠低於「畫面自相矛盾」。
+   */
+  truncated: boolean;
+}) {
   if (item.procurements.length === 0) {
     return <p className='text-muted-foreground text-sm'>這個品項還沒有採購紀錄。</p>;
   }
@@ -53,6 +72,7 @@ function ProcurementRows({ item }: { item: AdminOrderDetailItem }) {
             <th className={TH}>預計到貨</th>
             <th className={TH}>異常原因</th>
             <th className={TH}>送出時間</th>
+            <th className={TH}>到貨登錄</th>
           </tr>
         </thead>
         <tbody>
@@ -76,6 +96,20 @@ function ProcurementRows({ item }: { item: AdminOrderDetailItem }) {
               <td className={`${TD} text-xs`}>{p.exceptionReason ?? '—'}</td>
               <td className={`${TD} text-xs whitespace-nowrap`}>
                 {p.submittedAt ? formatOrderDateTime(p.submittedAt) : '—'}
+              </td>
+              {/* #352-b 入口 1:每列尾端一顆「登錄到貨」(plan §5.2) */}
+              <td className={TD}>
+                {truncated ? (
+                  <span className='text-muted-foreground text-xs'>—</span>
+                ) : (
+                  <ReceiptRecordForm
+                    orderId={orderId}
+                    orderItemId={item.id}
+                    procurementId={p.id}
+                    returnTo={returnTo}
+                    remaining={Math.max(0, p.allocatedQuantity - p.receivedQuantity)}
+                  />
+                )}
               </td>
             </tr>
           ))}
@@ -137,7 +171,12 @@ export function ItemProcurementSection({
                 <TruncationWarning scope='item' />
               )}
 
-              <ProcurementRows item={item} />
+              <ProcurementRows
+                item={item}
+                orderId={detail.id}
+                returnTo={returnTo}
+                truncated={truncated}
+              />
 
               <ItemProcurementForm
                 orderId={detail.id}

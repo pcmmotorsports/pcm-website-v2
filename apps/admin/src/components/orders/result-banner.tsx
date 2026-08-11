@@ -6,6 +6,10 @@ import {
   PROCUREMENT_NO_CHANGE_RESULT_CODE,
   PROCUREMENT_UPDATED_RESULT_CODE,
 } from '../../lib/orders/procurement-action-state';
+import {
+  RECEIPT_DUPLICATE_RESULT_CODE,
+  RECEIPT_RECORDED_RESULT_CODE,
+} from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
@@ -62,6 +66,20 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   [PROCUREMENT_UPDATED_RESULT_CODE]: { text: '已更新這筆採購。', tone: 'ok' },
   [PROCUREMENT_NO_CHANGE_RESULT_CODE]: {
     text: '沒有變更(送出的內容與目前的採購紀錄完全相同)。',
+    tone: 'ok',
+  },
+  // 🔴 M-4b E10 **#352-b**:到貨登錄同樣只有成功走 redirect(失敗回 action state、保留輸入)。
+  //    🔴 **括號那半句不是贅字**:本片主打的出路是「到貨 0 件 / 溢收 N 件」(取消後到貨),
+  //    那種登錄**不會讓採購列的「到貨」欄動一格** ⇒ 只寫「已登錄」的話,員工按完看到數字沒變,
+  //    會以為沒成功而再按一次。一句話把「為什麼看起來沒變」講掉。
+  [RECEIPT_RECORDED_RESULT_CODE]: {
+    text: '已登錄這筆到貨(溢收的件數不計入「到貨」欄)。',
+    tone: 'ok',
+  },
+  //    `DUPLICATE_REQUEST` **只有在產物仍在時**才走到這裡 —— 產物已被刪的那條回 action state
+  //    的 `DUPLICATE_DELETED`(RPC 不重新建立 ⇒ 顯示成功會是謊)。兩者刻意不共用一則。
+  [RECEIPT_DUPLICATE_RESULT_CODE]: {
+    text: '這筆到貨先前已經登錄過了,沒有重複記帳。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 **A13b D1**:取消線改走 PRG 整頁化 ⇒ 這是它第一次有結果提示。

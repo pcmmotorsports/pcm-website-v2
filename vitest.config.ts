@@ -52,6 +52,16 @@ export default defineConfig({
       '**/e2e-prod/**',
     ],
     environment: 'node',
+    // 🔴 **釘死測試時區 = Asia/Taipei**(#352-b-1 R3):
+    //    本專案所有牆鐘語意都是台北(A5a `submitted_at` 由 server 補 +08:00、到貨時間同款),
+    //    而 CI 跑在 **UTC** 的 ubuntu ⇒ 任何「算錯時區」的 bug 在 CI 上**恰好可能等價於正確**。
+    //    實錘:`new Date(t + (8*60 + getTimezoneOffset())*60_000)` 這個錯式
+    //    在 UTC 下產出的正是正確值(offset=0 ⇒ 恰好 +8h)、在台北下少 8 小時
+    //    ⇒ 守門在 CI 恆綠、在真實使用者的機器上失效。**這正是本片 R1 那個 bug 的形狀。**
+    //    釘死之後:本地與 CI 都在台北牆鐘下驗,整族時區守門才有判別力。
+    //    ⚠️ 拿掉這行不會讓任何測試轉紅 —— 它會讓時區類守門**靜默失去判別力**;
+    //    故 `receipt-record-form.test.tsx` 有一格**前置斷言**直接檢查現行時區,拿掉這行那格會紅。
+    env: { TZ: 'Asia/Taipei' },
   },
   // React component test(.tsx)JSX 轉譯(WO-2 storefront 測試 infra)。
   // 純 TS 測試(domain / adapters)無 JSX、plugin 不影響。
