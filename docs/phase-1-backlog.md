@@ -7313,7 +7313,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     3. **`#288`(production build E2E)仍未做,而本條的框架層行為只有 production build 驗得到**
        —— 單元測試驗得到「送出去的網址對不對」,驗不到「Next 有沒有真的重抓」。本片**未跑**真瀏覽器
        production 實測(S 樹沒有 `.env.local`,跨樹複製 secret 不在施工窗權限內)⇒ 已在信箱
-       `S-050-STOP` 列為待辦/待裁,**不是已驗**。
+       `S-050-STOP` 列為待辦/待裁,~~不是已驗~~。
+       **→ 框架層已驗(2026-08-11 晚,主視窗代跑於主樹,S-051-A B 變體)**:`next build`+`next start`
+       (port 3111)+真瀏覽器實測——勾三品牌逐步 `?pbrands=akrapovic`→`,bonamici`→`,cnc-racing` 單鍵演進;
+       取消非字母序最後的 BONAMICI ⇒ **恰 1 個 RSC 請求**(`/products?pbrands=akrapovic,cnc-racing&_rsc=…`,
+       數法=performance resource entries 前後差)、URL 與卡片內容同步正確;舊格式分享連結
+       `?pbrand=cnc-racing&pbrand=akrapovic&page=2` 進站=URL 原樣不改寫、兩品牌勾選還原、
+       **page=2 保住**(#289 回歸鎖 production 實證)。#288 的 E2E 自動化仍未做(本條驗的是一次性手測)。
 - **舊狀態(留存):** ⏳ 待執行
 - **優先級:** 🟠 中
 - **問題:**
