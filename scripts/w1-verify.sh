@@ -27,7 +27,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 #    改成可覆寫,預設值不變(單窗行為一致)。
 D="${W1DB:-/tmp/w1db}"; SOCK="${W1SOCK:-/tmp/w1sk}"; P="${W1PORT:-54375}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=52
+EXPECT_TOTAL=54
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-30s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-30s %s\n' "$1" "$2"; }
 
@@ -178,8 +178,15 @@ done
 echo "══ 1c. 🔴 F2:錯誤碼 + CONSTRAINT 名逐支斷言(不是比訊息子字串)══"
 # 🔴 首版只比訊息子字串 ⇒ 把 P2B20/P2B02 全改 P0001、constraint 名改 bogus 仍 33/0(實測)。
 #    W2/W3 要靠這兩碼分派,漂了無人紅。
-cap() {  # $1=呼叫式 → 印 "SQLSTATE|CONSTRAINT"
-  psql -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "DO \$\$ DECLARE c text; n text; BEGIN BEGIN PERFORM public.$1; EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS c = RETURNED_SQLSTATE, n = CONSTRAINT_NAME; RAISE NOTICE 'CAP|%|%', c, coalesce(n,'(null)'); END; END \$\$;" 2>&1 \
+cap() {  # $1=呼叫式  $2=(選填)前置 SQL → 印 "SQLSTATE|CONSTRAINT"
+  # 🔴 **#420-3:第二參數是為了讓突變用「守門自己的觀察式」去量。**
+  #    沒給 $2 時,送出的 SQL 與加參數前**逐字相同**(正向五格行為不變);
+  #    給了 $2 就把「突變 + 觀察」包進**同一次 psql 的同一個交易**並 ROLLBACK ——
+  #    分兩次 psql 不行:DDL 突變會留在庫裡污染後面每一格(TMUT-ROLLBACK-CLEAN 正是抓這個)。
+  local obs="DO \$\$ DECLARE c text; n text; BEGIN BEGIN PERFORM public.$1; EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS c = RETURNED_SQLSTATE, n = CONSTRAINT_NAME; RAISE NOTICE 'CAP|%|%', c, coalesce(n,'(null)'); END; END \$\$;"
+  local sql="$obs"
+  [ -n "${2:-}" ] && sql="BEGIN; $2 $obs ROLLBACK;"
+  psql -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$sql" 2>&1 \
     | sed -n 's/.*CAP|\(.*\)/\1/p' | tr -d '\n'
 }
 for pair in "admin_create_shipment('k',gen_random_uuid(),'{}'::jsonb,'hct')" \
@@ -372,6 +379,31 @@ done
 [ -z "$ACLSET_BAD" ] && ok TMUT-ACLSET "**五支逐一**多 GRANT ⇒ 每支的集合比對都看到 2 個 grantee = 整族抓得到「第五個意外角色」" \
                      || bad TMUT-ACLSET "有成員不敏感:$ACLSET_BAD"
 
+# ④ ERRCODE 族(#420-3 補靶:本族原本**零靶**)——**逐支**把骨架換成擲別的錯誤碼。
+# 🔴 觀察式**用守門自己的那一支** `cap()`,不另寫一份:另寫一份就只證明「我新寫的那條
+#    查詢會變」,證不到 `W1-ERRCODE-*` 那五格會不會紅(#420-2 已立的形狀)。
+# 🔴 突變 + 觀察包在 `cap()` 的**同一個交易**裡 ROLLBACK ⇒ 不污染後面的格
+#    (分兩次 psql 會把 DDL 留在庫裡,那正是 TMUT-ROLLBACK-CLEAN 在抓的東西)。
+# 🔴🔴 R1 MF-1:判定式必須是**正向斷言**,不能寫「不等於原值就算翻面」。
+#    首版 `[ "$MC" != 原值 ]` 是 fail-open:突變 SQL 只要失敗(單次 `-c` 是隱式交易,
+#    前面一炸後面整串都不跑)⇒ 觀察 DO block 沒跑 ⇒ `MC=""` ⇒ `"" != 原值` 為真 ⇒ **綠**。
+#    reviewer 在拋棄式 PG17 上**實測**:故意寫壞的突變仍印「敏感(PASS)」而函式從未被改。
+#    ⇒ 空觀察與「守門真的翻面」在這條判定式下不可分辨,只認**指定的那個值**。
+#    (同族=memory `feedback_negative-test-harness-self-false-green`;這正是本片 §3 自陳
+#     踩過的那次引號失誤 —— 那次靠肉眼發現,這次做成機制。)
+ERRC_BAD=""
+# 🔴 期望值是**量出來的**:`RAISE EXCEPTION` 不帶 constraint 時 `CONSTRAINT_NAME` 取到的是
+#    **空字串**(不是 NULL ⇒ `cap()` 裡的 coalesce 不發火)⇒ 觀察值尾巴是空的。
+ERRC_WANT='P0001|'
+for fn in $FIVE; do
+  AR="$(fargs "$fn")"; C="$(call_of "$fn")"
+  MUT="CREATE OR REPLACE FUNCTION public.$fn($AR) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS \$m\$ BEGIN RAISE EXCEPTION 'mutated' USING ERRCODE='P0001'; END \$m\$;"
+  MC="$(cap "$C" "$MUT")"
+  [ "$MC" = "$ERRC_WANT" ] || ERRC_BAD="$ERRC_BAD $fn[實得 ${MC:-空}]"
+done
+[ -z "$ERRC_BAD" ] && ok TMUT-ERRCODE "🔴 **五支逐一**改擲 P0001 ⇒ 每支的 cap() 觀察值都**逐字等於 $ERRC_WANT**(不是「不等於原值」)= 整族有判別力" \
+                   || bad TMUT-ERRCODE "有成員沒量到 $ERRC_WANT ⇒ 要嘛那格恆真(換了錯誤碼仍量到原值)、要嘛突變根本沒套上(實得空):$ERRC_BAD"
+
 # 🔴 F14(nit):首版標題寫「每一族至少一發」,但 GEN / FAILCLOSED / ISO / ACTION-MAP 四族零靶
 #    —— 與本檔 :11 自訂判準第一句衝突。以下補齊,全部在交易內或用完即還原。
 # ① GEN 族:抽出來的正規式本身要有正負判別力(否則「200 抽全過」可能是因為那條式子什麼都收)
@@ -384,25 +416,89 @@ REPOS="$(Q "SELECT ('4TFBFH' ~ '$RE')::text || '|' || ('abc' ~ '$RE')::text || '
 #    要嘛用 `pg_get_functiondef` 回讀 —— 但 `Q()` 有 `tr -d '\n'`(`:118`),多行定義會被壓成一行、
 #    `--` 註解會吃掉後面整段。交易回滾沒有這兩個問題,DDL 在 PG 是交易性的。
 # ⚠️ 兩種結束路徑都會還原:無錯誤 ⇒ 明寫的 ROLLBACK 跑到;有錯誤 ⇒ 整個隱式交易中止。
+# 🔴 N-2:這兩族原本也是 fail-open(判定式寫「沒看到原本那個症狀就算翻面」)——
+#    突變 SQL 一失敗就兩邊都靜默變綠,與 MF-1/MF-2 同一個病。既然同檔已被抓出來,
+#    一併改成正向斷言,四格同形(memory `feedback_knowing-rule-is-not-executing-rule`:
+#    知道規則不等於執行規則 —— 只修被點名的兩格、把同病留在旁邊,就是那條教訓本身)。
+# 🔴 ISO 這族的正向化要多做一件事:突變成功時**本來就不會有例外** ⇒ 觀察值天生是空的,
+#    與「psql 死了」不可分辨。⇒ 在 DO block 的無例外路徑補一個明確標記,空值才變成錯誤訊號。
 FC_BAD=""; ISO_BAD=""
 for fn in $FIVE; do
   AR="$(fargs "$fn")"; C="$(call_of "$fn")"
   STUB="CREATE OR REPLACE FUNCTION public.$fn($AR) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$m\$ BEGIN RETURN '{}'::jsonb; END \$m\$;"
   MFC="$(QM "BEGIN; $STUB SELECT public.$C; ROLLBACK;")"
-  case "$MFC" in *'尚未實作'*) FC_BAD="$FC_BAD $fn" ;; esac
-  MISO="$(psql -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "BEGIN ISOLATION LEVEL REPEATABLE READ; $STUB DO \$\$ DECLARE c text; BEGIN BEGIN PERFORM public.$C; EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS c = RETURNED_SQLSTATE; RAISE NOTICE 'CAP|%', c; END; END \$\$; ROLLBACK;" 2>&1 | sed -n 's/.*CAP|\(.*\)/\1/p' | tr -d '\n')"
-  [ "$MISO" != "P2B02" ] || ISO_BAD="$ISO_BAD $fn"
+  # 🔴🔴 R2 MF-4:必須**精確相等**,不能用 `*'{}'*` 子字串比對 —— psql 遇語法錯誤會把
+  #    STUB 自己的 SQL **回音**出來(`LINE 1: … RETURN '{}'::jsonb …`),那段回音裡就有 `{}`
+  #    ⇒ 突變根本沒套上也照樣綠。reviewer 實測:STUB 尾端加 `ZZJUNKSYNTAX;`(錯誤位置在
+  #    `{}` **之後**)⇒ 本格綠、ISO 紅;我上一輪那發 `ZZBROKENSQL` 會紅只是因為錯誤位置在
+  #    句首、回音窗沒帶到 `{}` —— **那是運氣,不是判別力**。
+  # 🔴 這形狀可達、不是理論:`fargs()` 走 `Q()`(`:118` 帶 `2>&1`),查詢一失敗 `AR` 就是
+  #    ERROR 字串 ⇒ STUB 直接組成語法垃圾(`:344-345` 我自己記過這族)。
+  # 🔴 清潔跑時 `QM` 的輸出逐字就是 `{}`(`-q` 吃掉 BEGIN/CREATE/ROLLBACK 的命令標籤,
+  #    `-t -A` 只留那一列值)⇒ 精確相等在正向路徑成立,這點由下面的清潔跑實證。
+  [ "$MFC" = "{}" ] || FC_BAD="$FC_BAD $fn[實得 $(printf '%s' "${MFC:-空}" | tr '\n' ' ')]"
+  MISO="$(psql -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "BEGIN ISOLATION LEVEL REPEATABLE READ; $STUB DO \$\$ DECLARE c text; BEGIN BEGIN PERFORM public.$C; c := 'NOEXC'; EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS c = RETURNED_SQLSTATE; END; RAISE NOTICE 'CAP|%', c; END \$\$; ROLLBACK;" 2>&1 | sed -n 's/.*CAP|\(.*\)/\1/p' | tr -d '\n')"
+  [ "$MISO" = "NOEXC" ] || ISO_BAD="$ISO_BAD $fn[實得 ${MISO:-空}]"
 done
-[ -z "$FC_BAD" ] && ok TMUT-FAILCLOSED "🔴 **五支逐一**換成靜默回傳 ⇒ 每支的呼叫都**成功**(不再拋未實作)= 整族有判別力" \
-                 || bad TMUT-FAILCLOSED "換成靜默回傳後仍拋未實作 ⇒ 這幾支的 FAILCLOSED 格量錯東西:$FC_BAD"
-[ -z "$ISO_BAD" ] && ok TMUT-ISO "🔴 **五支逐一**拿掉隔離閘 ⇒ RR 下每支都不再回 P2B02 = 整族有判別力" \
-                  || bad TMUT-ISO "拿掉閘後 RR 仍回 P2B02 ⇒ 這幾支的 ISO 格守的不是那段閘:$ISO_BAD"
+[ -z "$FC_BAD" ] && ok TMUT-FAILCLOSED "🔴 **五支逐一**換成靜默回傳 ⇒ 每支的輸出都**逐字等於 {}**(精確相等,不是子字串比對 ⇒ psql 錯誤回音偽造不了)= 整族有判別力" \
+                 || bad TMUT-FAILCLOSED "有成員的觀察不對 ⇒ 要嘛那格量錯東西(換成靜默回傳仍拋未實作)、要嘛突變根本沒套上(看不到 stub 回傳):$FC_BAD"
+[ -z "$ISO_BAD" ] && ok TMUT-ISO "🔴 **五支逐一**拿掉隔離閘 ⇒ RR 下每支都**逐字量到 NOEXC**(明確的無例外標記,不是「沒看到 P2B02」)= 整族有判別力" \
+                  || bad TMUT-ISO "有成員沒量到 NOEXC ⇒ 要嘛那格守的不是那段閘(拿掉閘後 RR 仍回 P2B02)、要嘛突變根本沒套上(實得空):$ISO_BAD"
 # 🔴 還原的**負向自證**:交易若沒還原,下面這格會看到殘留的 stub(骨架應恆拋未實作)。
-RESTORED="$(QM "SELECT public.admin_unvoid_shipment('k', gen_random_uuid());")"
-case "$RESTORED" in
-  *'尚未實作'*) ok TMUT-ROLLBACK-CLEAN "突變交易已回滾:骨架回到「呼叫必拋未實作」⇒ 上面兩族沒有把 DB 留在突變狀態 ✓" ;;
-  *) bad TMUT-ROLLBACK-CLEAN "🔴 突變沒還原!呼叫回 [${RESTORED:-空}] 而非未實作 ⇒ 後面所有格都在被污染的 DB 上跑" ;;
-esac
+# 🔴 N-1:**逐支探**,不再只探 admin_unvoid_shipment 一支 —— 上面兩族是五支各突變一次,
+#    只探一支等於其餘四支的還原從來沒被看過(這是本片放大的曝險,不是原本就只探一支的理由)。
+RST_BAD=""
+for fn in $FIVE; do
+  C="$(call_of "$fn")"
+  RESTORED="$(QM "SELECT public.$C;")"
+  case "$RESTORED" in
+    *'尚未實作'*) : ;;
+    *) RST_BAD="$RST_BAD $fn[回 ${RESTORED:-空}]" ;;
+  esac
+done
+[ -z "$RST_BAD" ] && ok TMUT-ROLLBACK-CLEAN "突變交易已回滾:**五支**骨架都回到「呼叫必拋未實作」⇒ 上面兩族沒有把 DB 留在突變狀態 ✓" \
+                  || bad TMUT-ROLLBACK-CLEAN "🔴 突變沒還原!$RST_BAD ⇒ 後面所有格都在被污染的 DB 上跑"
+
+# ⑤ SIG 族(#420-3 補靶:本族原本**零靶**)——**逐支**把參數名改掉。
+# 🔴 為什麼是「改參數名」而不是改型別:PostgREST 走**具名參數**,參數名漂了就是 PGRST202
+#    (a9h 事故的形狀、正式站壞 8 小時)。改型別也紅得到,但不是這一族要守的那件事。
+#    五支都有 `p_idempotency_key`,同一發改法對整族成立。
+# 🔴 觀察式**逐字沿用守門自己那條**(`pg_get_function_arguments` 對 `sig_expect`),不另寫比對:
+#    另寫就變成證明「我新寫的查詢會變」,而不是「W1-SIG-* 那五格會紅」。
+# 🔴 `CREATE OR REPLACE` **改不了參數名**(PG 報 cannot change name of input parameter)
+#    ⇒ 必須 DROP+CREATE;而那正是要包進交易 ROLLBACK 的理由:骨架不能真的被刪掉。
+# 🔴🔴 R1 MF-2:判定式與 MF-1 同病(fail-open),而且**我原本那兩道自保都攔不到它**:
+#    `MUTAR = AR`(sed 沒換到)只擋得住「突變字串沒組出來」,擋不住「DDL 送出去失敗」;
+#    reviewer 實測 DROP 失敗路徑 `MSIG=[]` 照樣判 PASS。⇒ 改**正向斷言**:
+#    突變後的簽章必須逐字等於「凍結期望套上同一發改名」,空觀察即紅。
+SIG_BAD=""
+for fn in $FIVE; do
+  ID="$(ident "$fn")"; AR="$(fargs "$fn")"
+  MUTAR="$(printf '%s' "$AR" | sed 's/p_idempotency_key/p_idem_key/')"
+  # 🔴 期望值從**守門自己的凍結表** `sig_expect` 導出、套同一發 sed ——
+  #    不拿 `$MUTAR` 當期望:那是我送進去的東西,拿它當期望等於自己對自己點頭。
+  SIGWANT="$(sig_expect "$fn" | sed 's/p_idempotency_key/p_idem_key/')"
+  # 🔴 突變若沒真的換到名字,這一發就沒打中 ⇒ 當場認列不敏感,不讓它靜默變成「通過」。
+  if [ "$MUTAR" = "$AR" ]; then SIG_BAD="$SIG_BAD $fn[參數名沒換到]"; continue; fi
+  MSIG="$(psql -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "BEGIN; DROP FUNCTION public.$fn($ID); CREATE FUNCTION public.$fn($MUTAR) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS \$m\$ BEGIN RETURN '{}'::jsonb; END \$m\$; DO \$\$ BEGIN RAISE NOTICE 'SIG|%', (SELECT pg_catalog.pg_get_function_arguments(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'); END \$\$; ROLLBACK;" 2>&1 | sed -n 's/.*SIG|\(.*\)/\1/p' | tr -d '\n')"
+  [ "$MSIG" = "$SIGWANT" ] || SIG_BAD="$SIG_BAD $fn[實得 ${MSIG:-空}]"
+done
+# 🔴🔴 R1 MF-3:還原自證**必須排在 ok/bad 之前、且併進 `SIG_BAD`**,不能自己去呼叫 `bad`。
+#    `bad()`(:32)會 FAIL+1 並把鍵塞進 KEYS ⇒ 交易真的沒回滾時,下面先 `ok TMUT-SIG`、
+#    這裡再 `bad TMUT-SIG` ⇒ 同名兩格:TOT=55(CELL-ACCOUNT 紅)+ CELL-DUP 紅 + CELL-KEYSET 紅,
+#    三個帳一起爆,也推翻我 §3 自陳的「兩道自保都不新增格數」。⇒ 併帳、格數才真的不變。
+# 🔴 N-1:還原自證**逐支探**,不再只探 admin_unvoid_shipment 一支
+#    ——SIG 這發是 DROP+CREATE(比 CREATE OR REPLACE 更狠),只探一支等於其餘四支的還原沒人看。
+for fn in $FIVE; do
+  C="$(call_of "$fn")"
+  SIGRESTORED="$(QM "SELECT public.$C;")"
+  case "$SIGRESTORED" in
+    *'尚未實作'*) : ;;
+    *) SIG_BAD="$SIG_BAD $fn[突變沒還原:回 ${SIGRESTORED:-空}]" ;;
+  esac
+done
+[ -z "$SIG_BAD" ] && ok TMUT-SIG "🔴 **五支逐一**把 p_idempotency_key 改名 ⇒ 每支的簽章觀察值都逐字變成改名後的期望、且五支骨架都已回滾還原 = 整族有判別力" \
+                  || bad TMUT-SIG "有成員沒量到改名後的期望 ⇒ 那格恆真(改了參數名仍等於凍結期望)、突變沒套上(實得空)、或突變交易沒回滾:$SIG_BAD"
 # ④ ACTION-MAP 族:多長一支同名族的函式 ⇒ 集合格必須紅
 Q "CREATE FUNCTION public.admin_bogus_shipment_writer() RETURNS int LANGUAGE sql AS 'SELECT 1';" >/dev/null
 MSET="$(Q "SELECT pg_catalog.string_agg(p.proname, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'admin_%shipment%'")"
@@ -422,7 +518,7 @@ DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\
 # 🔴 F10(consider):只數總數的話,「刪一格 + 別處加一格」= 總數不變、照樣全綠。
 #    ⇒ 把**格名集合**也凍結。新增/改名/刪格都必須同批更新這份清單。
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-ACLSET TMUT-FAILCLOSED TMUT-FN-SET TMUT-GEN-RE TMUT-ISO TMUT-PROPS TMUT-ROLLBACK-CLEAN W1-ACL-admin_add_shipment_items W1-ACL-admin_create_shipment W1-ACL-admin_mark_shipment_shipped W1-ACL-admin_unvoid_shipment W1-ACL-admin_void_shipment W1-ACLSET-admin_add_shipment_items W1-ACLSET-admin_create_shipment W1-ACLSET-admin_mark_shipment_shipped W1-ACLSET-admin_unvoid_shipment W1-ACLSET-admin_void_shipment W1-ACTION-SET W1-ERRCODE-admin_add_shipment_items W1-ERRCODE-admin_create_shipment W1-ERRCODE-admin_mark_shipment_shipped W1-ERRCODE-admin_unvoid_shipment W1-ERRCODE-admin_void_shipment W1-FAILCLOSED-admin_add_shipment_items W1-FAILCLOSED-admin_create_shipment W1-FAILCLOSED-admin_mark_shipment_shipped W1-FAILCLOSED-admin_unvoid_shipment W1-FAILCLOSED-admin_void_shipment W1-FN-SET W1-GEN-MATCHES-SHIPMENTS W1-GEN-RE-EXTRACT W1-GEN-VARIES W1-GEN-ZERO-GRANT W1-ISO-admin_add_shipment_items W1-ISO-admin_create_shipment W1-ISO-admin_mark_shipment_shipped W1-ISO-admin_unvoid_shipment W1-ISO-admin_void_shipment W1-NO-OVERLOAD W1-PROPS-admin_add_shipment_items W1-PROPS-admin_create_shipment W1-PROPS-admin_mark_shipment_shipped W1-PROPS-admin_unvoid_shipment W1-PROPS-admin_void_shipment W1-SIG-admin_add_shipment_items W1-SIG-admin_create_shipment W1-SIG-admin_mark_shipment_shipped W1-SIG-admin_unvoid_shipment W1-SIG-admin_void_shipment"
+KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-ACLSET TMUT-ERRCODE TMUT-FAILCLOSED TMUT-FN-SET TMUT-GEN-RE TMUT-ISO TMUT-PROPS TMUT-ROLLBACK-CLEAN TMUT-SIG W1-ACL-admin_add_shipment_items W1-ACL-admin_create_shipment W1-ACL-admin_mark_shipment_shipped W1-ACL-admin_unvoid_shipment W1-ACL-admin_void_shipment W1-ACLSET-admin_add_shipment_items W1-ACLSET-admin_create_shipment W1-ACLSET-admin_mark_shipment_shipped W1-ACLSET-admin_unvoid_shipment W1-ACLSET-admin_void_shipment W1-ACTION-SET W1-ERRCODE-admin_add_shipment_items W1-ERRCODE-admin_create_shipment W1-ERRCODE-admin_mark_shipment_shipped W1-ERRCODE-admin_unvoid_shipment W1-ERRCODE-admin_void_shipment W1-FAILCLOSED-admin_add_shipment_items W1-FAILCLOSED-admin_create_shipment W1-FAILCLOSED-admin_mark_shipment_shipped W1-FAILCLOSED-admin_unvoid_shipment W1-FAILCLOSED-admin_void_shipment W1-FN-SET W1-GEN-MATCHES-SHIPMENTS W1-GEN-RE-EXTRACT W1-GEN-VARIES W1-GEN-ZERO-GRANT W1-ISO-admin_add_shipment_items W1-ISO-admin_create_shipment W1-ISO-admin_mark_shipment_shipped W1-ISO-admin_unvoid_shipment W1-ISO-admin_void_shipment W1-NO-OVERLOAD W1-PROPS-admin_add_shipment_items W1-PROPS-admin_create_shipment W1-PROPS-admin_mark_shipment_shipped W1-PROPS-admin_unvoid_shipment W1-PROPS-admin_void_shipment W1-SIG-admin_add_shipment_items W1-SIG-admin_create_shipment W1-SIG-admin_mark_shipment_shipped W1-SIG-admin_unvoid_shipment W1-SIG-admin_void_shipment"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-30s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
