@@ -105,7 +105,7 @@
 | 10 | **訂貨** | 品項 | `order_item_quantity_summary` 的 `ordered_quantity`/`quantity` | ✅ **有(A9c 2026-08-06 落地)** —— nested left embed 已進 `ADMIN_ORDER_LIST_SELECT`,型別 `AdminOrderLine.quantitySummary` **非 nullable**(缺列由 mapper 補三軸 0、分母用品項 quantity)|
 | 11 | **出貨** | 品項 | `shipments` / `shipment_items` | 🔴 **無** —— 第 2 批才建表(母 plan §5.2);A11b(row 60,`:452`)定「唯讀灰」 |
 | 12 | **發票** | 訂單 | `orders.invoice_status`(三態) | ✅ **有(A9c 2026-08-06 落地,Q2=A)** —— 只加 `invoice_status`,**不加載具別**(Q2b=A;載具別在 `orders.invoice` jsonb,拉進列表會破壞零 PII 邊界)。型別 `AdminOrderSummary.invoiceStatus` |
-| 13 | **操作** | 訂單 | 取消入口 = A13a/A13b(母 plan rows 65-66(A13a/A13b,`:457-458`));檢視入口 = 現行單號連結 | ⚠️ **半有**(取消動作在 A11a 之後才存在) |
+| 13 | **操作** | 訂單 | 取消入口 = A13a/A13b(母 plan rows 65-66(A13a/A13b,`:457-458`));檢視入口 = 現行單號連結 | ✅ **有(2026-08-12 落地)** —— 訂單層 rowSpan 一格,內容是連到取消區塊的**連結**(`…#cancel`,錨點在 `order-cancel-block.tsx`),桌機走注入的面板 href、手機走整頁路徑;已取消的單顯示「—」。🔴 **只放連結不放按鈕**是刻意的:雙 markup 到期日(`orders-table.tsx:50-53`)⇒ 帶互動控件會變成兩份表單兩份 state,那題另立 **backlog #447** |
 
 ### 2.1 金額合併規則(§5.1a `:553` 逐字(「合併 | 單價 + 總金額 → 金額」那列),含一條 v1 寫錯已更正的半條)
 

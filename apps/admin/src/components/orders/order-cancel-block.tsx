@@ -63,7 +63,14 @@ export function OrderCancelBlock({
   const showForms = view.canCancel && formsAllowed === true;
 
   return (
-    <>
+    // 🔴 `id='cancel'` 是**跨檔契約**,不是裝飾(A13 訂單列表操作欄):列表那一欄的連結是
+    //    `…#cancel`,靠這個錨點把員工直接帶到取消區塊,而不是丟在頁面/面板最上面自己找。
+    //    ⇒ 改名或拿掉它 = 那些連結全部落空(而畫面看起來「有反應」,最難察覺)。
+    //    守門在 `orders-table.test.tsx` 那一格(斷言錨點字面存在),改這裡要連那格一起改。
+    // 🔴 `space-y-4` 是為了**維持原樣**:原本這裡是 Fragment、兩個子節點直接落在父層的
+    //    `space-y-4`(`order-detail.tsx:279`)裡各拿一份間距;包一層 div 會讓它們變成同一個子節點
+    //    ⇒ 內部間距要自己補回來,否則視覺會縮一格(視覺凍結期間不接受任何順手的位移)。
+    <div id='cancel' className='space-y-4'>
       {/* 🔴 **複核區塊永遠掛著**(即使已取消 / 不能取消)—— 關單之後員工仍要看得到
           「取消了什麼」,那是義務 5 的比對面。 */}
       <CancelReviewSection detail={detail} />
@@ -81,6 +88,6 @@ export function OrderCancelBlock({
           />
         </div>
       )}
-    </>
+    </div>
   );
 }

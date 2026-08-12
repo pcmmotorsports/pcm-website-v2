@@ -18,6 +18,9 @@ import type { ReactNode } from 'react';
 //   **那個 cell 已下架,orders-table 現在零互動、零 client 邊界** ⇒ 這個特定阻礙不再成立。
 //   但雙渲染對「任何帶互動的欄位」的顧慮仍在:A11a-3 的操作欄(取消鈕)一落地就會重現同一個問題
 //   ⇒ 屆時改成單一 markup + CSS reflow,或讓帶互動的欄位只在 title/trailing 槽出現一次。
+//   🔴 **2026-08-12 更新**:那個操作欄已落地(改名 A13、`orders-table.tsx` 第 13 欄),
+//   但它**只放連結不放按鈕**(零 client 狀態)⇒ 上述情形被繞開、**不是被解決**。
+//   真正的到期日 = 下一個帶互動控件(按鈕/表單)的欄位;重構已立案 **backlog #447**。
 
 export type AdminColumn<T> = {
   /** React key 與除錯用;不顯示。 */

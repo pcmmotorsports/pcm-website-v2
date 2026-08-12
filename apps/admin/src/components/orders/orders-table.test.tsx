@@ -132,7 +132,10 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
   };
 }
 
-/** 表頭欄名(唯一權威 = 母 plan §5.1a;A11a-1 = 9 欄 → A11a-4 加訂貨 = 10 → **A11a-5 加發票 = 11**)。 */
+/**
+ * 表頭欄名(唯一權威 = 母 plan §5.1a;A11a-1 = 9 欄 → A11a-4 加訂貨 = 10 → A11a-5 加發票 = 11
+ * → 2b-1 勾選欄 = 12 → **A13 加操作 = 13**)。
+ */
 const EXPECTED_HEADERS = [
   // 2b-1:勾選欄(訂單層)。**無欄名**(表頭是空的 <th aria-label='選取' />)——
   // 刻意沒有全選框:全選必然跨客人,而跨客人裝同一箱一定被 DB 退件。
@@ -147,33 +150,36 @@ const EXPECTED_HEADERS = [
   '金額',
   '客戶',
   '訂貨', // A11a-4(品項層)
-  '發票', // A11a-5(訂單層);出貨/操作仍分屬 A11a-6 與 A13
+  '發票', // A11a-5(訂單層)
+  '操作', // A13(訂單層)。🔴 **出貨欄(A11a-6)仍缺席** —— 那是另一片,別順手補進期望值
 ];
 
 // ── V1:欄數 ───────────────────────────────────────────────────────────
 describe('V1 — 表頭欄數與內容欄數一致', () => {
-  // 🔴 期望值**不寫死**上限:Q5b=A 已把 A11a-3(操作欄)整片移到 A13 ⇒ 本線上限是 **12**(不是 13)。
-  //    每片收工值 = 前一片 +1(plan §3);寫死任何終值都會讓中間片永遠過不了驗收。
-  it('表頭恰為 12 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面;A11a-4/-5 起含訂貨、發票)', () => {
+  // 🔴 期望值**不寫死**終局:每片收工值 = 前一片 +1(plan §3)。A13(操作欄)落地 ⇒ 本線現值 **13**;
+  //    **出貨欄(A11a-6)還沒做** ⇒ 13 不是終值,那片落地時這裡再 +1。
+  it('表頭恰為 13 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面;A11a-4/-5 + A13 起含訂貨、發票、操作)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
   });
 
-  it('單品項單:該列 <td> 數 = 12(訂單層與品項層都在同一列)', () => {
+  it('單品項單:該列 <td> 數 = 13(訂單層與品項層都在同一列)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
-    expect(cells.length).toBe(12); // 2b-1:+1 勾選欄(訂單層)
+    expect(cells.length).toBe(13); // 2b-1:+1 勾選欄;A13:+1 操作欄(皆訂單層)
   });
 
-  it('三品項單:第一列 <td> 數 + 後續列 <td> 數 = 12 + 品項欄數×2', () => {
+  it('三品項單:第一列 <td> 數 + 後續列 <td> 數 = 13 + 品項欄數×2', () => {
     // 🔴 這條是「表頭與 rowSpan 佔位一致」的真正斷言:訂單層 4 欄(單號/日期/金額合併/客戶)
     //    訂單層現為 **5** 欄(單號/日期/金額合併/客戶/發票),只在第一列出現;
     //    後兩列各只有 **6** 個品項欄(品牌/料號/品名/車種/數量 + **A11a-4 訂貨**)。
     //    A11a-5 的發票欄是**訂單層** ⇒ 只加在第一列、不影響後續列的 6。
-    //    2b-1 再加**訂單層**勾選欄 ⇒ 總格數 = **12** + 6 + 6。
+    //    2b-1 再加**訂單層**勾選欄、A13 再加**訂單層**操作欄 ⇒ 總格數 = **13** + 6 + 6。
+    //    🔴 操作欄是**訂單層 rowSpan**:它進第一列的 13、**不進**後續列的 6。
+    //    後續列若也變成 7,代表有人把取消入口畫成逐品項 —— 一張三品項的單會冒出三個「取消」。
     // ⚠️ **這條守的是「格數與 rowSpan 佔位」,不是「渲染後落在第幾欄」**(R1 抓到我原本的註解
     //    宣稱過頭):jsdom **沒有 table layout 引擎**,把 `<th>訂貨</th>` 搬到表頭第一位而 `<td>` 不動,
     //    這三條照樣全綠。真正保證落點的是 HTML 表格模型 + `shouldMergeAmount` 對多列恆真
@@ -183,8 +189,8 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
-    // 2b-1:訂單層由 5 欄變 **6**(+勾選)⇒ 第一列 12;後續列仍只有 6 個品項欄(勾選是訂單層、不逐列)。
-    expect(rows[0]!.querySelectorAll('td').length).toBe(12);
+    // 2b-1 +勾選、A13 +操作 ⇒ 訂單層 7 欄、第一列 13;後續列仍只有 6 個品項欄(那兩欄都是訂單層)。
+    expect(rows[0]!.querySelectorAll('td').length).toBe(13);
     expect(rows[1]!.querySelectorAll('td').length).toBe(6);
     expect(rows[2]!.querySelectorAll('td').length).toBe(6);
   });
@@ -215,8 +221,8 @@ describe('V3 — rowSpan 分組', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
     const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
 
-    // 訂單層 6 格:**勾選(2b-1)** / 單號 / 日期 / 金額(本例合併)/ 客戶 / 發票(A11a-5)
-    expect(spanned.length).toBe(6);
+    // 訂單層 7 格:**勾選(2b-1)** / 單號 / 日期 / 金額(本例合併)/ 客戶 / 發票(A11a-5)/ **操作(A13)**
+    expect(spanned.length).toBe(7);
     expect(spanned.every((td) => td.getAttribute('rowspan') === '3')).toBe(true);
     // 🔴 「只渲染一次」要另外釘:rowSpan 值對、但每列都畫一次的話上面那條仍會過
     //    (它只數帶 rowspan 屬性的格子總數 —— 訂單層現為 **5** 格,每列都畫會變 **15** 而不是 5,
@@ -234,8 +240,8 @@ describe('V3 — rowSpan 分組', () => {
     const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
 
     // 🔴 先釘數量再釘值:`every` 對空陣列恆真 ⇒ 把 rowSpan 整個拿掉時上一版仍會綠(R1 nit)。
-    //    單品項單金額不合併 ⇒ 訂單層 5 格:**勾選(2b-1)** / 單號 / 日期 / 客戶 / 發票。
-    expect(spanned.length).toBe(5);
+    //    單品項單金額不合併 ⇒ 訂單層 6 格:**勾選(2b-1)** / 單號 / 日期 / 客戶 / 發票 / **操作(A13)**。
+    expect(spanned.length).toBe(6);
     expect(spanned.every((td) => td.getAttribute('rowspan') === '1')).toBe(true);
   });
 });
@@ -258,8 +264,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 
     expect(container.textContent).toContain('NT$ 12,000');
     expect(container.textContent).not.toContain('NT$ 12,100');
-    // 金額格不帶 rowspan ⇒ 訂單層帶 rowspan 的格子剩 5 個(**勾選**/單號/日期/客戶/發票)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
+    // 金額格不帶 rowspan ⇒ 訂單層帶 rowspan 的格子剩 6 個(**勾選**/單號/日期/客戶/發票/**操作**)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(6);
   });
 
   it('1 品項 × 數量 3 → 合併格顯示整單總額', () => {
@@ -268,8 +274,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     );
 
     expect(container.textContent).toContain('NT$ 36,000');
-    // 合併態:訂單層 6 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(6);
+    // 合併態:訂單層 7 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5/**操作 A13**)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(7);
   });
 
   it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
@@ -286,8 +292,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     expect(table.textContent).toContain('NT$ 25,000');
     // 反面:不得再逐列顯示各列小計
     expect(table.textContent).not.toContain('NT$ 8,000');
-    // 合併態:訂單層 6 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(6);
+    // 合併態:訂單層 7 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5/**操作 A13**)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(7);
   });
 
   it('2 品項 × 其中一列數量 2 → 合併並顯示整單總額', () => {
@@ -298,8 +304,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 
     // 🔴 A11c:同上,鎖進 `<table>`(這格連負向斷言都沒有,更需要限定供應者)
     expect(container.querySelector('table')!.textContent).toContain('NT$ 29,000');
-    // 合併態:訂單層 6 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(6);
+    // 合併態:訂單層 7 格(**勾選** 2b-1/單號/日期/金額合併/客戶/發票 A11a-5/**操作 A13**)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(7);
   });
 });
 
@@ -310,7 +316,7 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(12); // A11a-4/-5 起含訂貨、發票欄;2b-1 起 +勾選欄
+    expect(rows[0]!.querySelectorAll('td').length).toBe(13); // A11a-4/-5 訂貨+發票;2b-1 勾選;A13 操作
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -350,7 +356,7 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
 
 // ── V8 + V6 接線:A11a-2(付款軸小字 / 列表日期格式;兩者都塞既有格、不加欄)────────────
 describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
-  it('小字與單號在**同一格**(索引 0),且表頭仍是 11 欄、無「付款」欄', () => {
+  it('小字與單號在**同一格**(索引 0),且表頭欄名恆等於 EXPECTED_HEADERS、無「付款」欄', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
     // 🔴 同 V7 的理由用**固定索引**:訂單編號恆在該列的固定位置,不靠「第一個帶 rowspan 的格」推。
@@ -875,5 +881,92 @@ describe('A11c — 手機卡片版', () => {
     expect(code).not.toContain('use client');
     // 🔴 通用式而非枚舉(階段 C nit:枚舉寫下即過期,漏 useRouter/useSearchParams/useActionState…)
     expect(code).not.toMatch(/\buse[A-Z]\w*\s*\(/);
+  });
+});
+
+// ── A13(訂單列表操作欄)─────────────────────────────────────────────────
+//
+// plan `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md:108` 第 13 欄:
+// 取消入口 = A13a/A13b(已完工的明細端流程),檢視入口 = 現行單號連結。
+// 🔴 **本欄只放連結、零 client 狀態** —— 理由見 `orders-table.tsx:50-53` 的雙 markup 到期日:
+//    桌機列與手機卡各渲染一次,帶互動控件就會變成兩份表單、兩份 client state。
+// 🔴 與 backlog #372 的 **OP-A13(退款態沖銷入口)無關**,只是撞字面。
+describe('A13 — 操作欄(取消入口)', () => {
+  const card = (c: HTMLElement) => c.querySelector(':scope > ul')!;
+  const deskCancel = (c: HTMLElement) =>
+    [...c.querySelectorAll('table a')].find((a) => a.textContent === '取消') ?? null;
+  const cardCancel = (c: HTMLElement) =>
+    [...card(c).querySelectorAll('a')].find((a) => a.textContent === '取消') ?? null;
+
+  it('🔴 桌機:每張訂單恰**一個**取消入口(3 品項單不會冒出三個)', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
+    );
+    const found = [...container.querySelectorAll('table a')].filter((a) => a.textContent === '取消');
+    expect(found.length, '取消入口畫成逐品項 ⇒ 一張三品項的單三個「取消」,員工不知道按哪個').toBe(1);
+  });
+
+  it('🔴🔴 桌機的取消連結必須在 `relative z-10` 容器內 —— 否則被整列的 stretched link 蓋住', () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const cell = deskCancel(container)!.closest('td')!;
+    // 🔴 這一格是本片**最值錢**的驗收(主視窗逐字):沒有 z-10 時,點「取消」會被整列覆蓋層接走
+    //    ⇒ 員工被帶進面板頂端(畫面**確實有反應**)⇒ 看起來像功能好了,肉眼驗抓不到。
+    //    `classList.contains` 而非子字串比對:`z-100`/`md:z-10` 之類會被子字串放過。
+    expect(cell.classList.contains('relative'), '取消格少了 relative ⇒ z-10 沒有定位脈絡、等於沒設').toBe(true);
+    expect(cell.classList.contains('z-10'), '取消連結被整列 stretched link 蓋住 ⇒ 點下去進面板而不是取消').toBe(true);
+  });
+
+  it('🔴🔴 手機:取消連結同樣要 `relative z-10`(整卡也是 stretched link)', () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const link = cardCancel(container)!;
+    expect(link.classList.contains('relative')).toBe(true);
+    expect(link.classList.contains('z-10')).toBe(true);
+  });
+
+  it('🔴 手機卡片也要有取消入口(2b-1 教訓:只改桌機、桌機測試全綠而手機沒得按)', () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    expect(cardCancel(container), 'Sean 常用手機看後台;只做桌機等於這片對他不存在').not.toBeNull();
+  });
+
+  it('🔴 兩槽的目的地各自沿用同槽的單號連結:桌機走注入的面板 href、手機走整頁路徑', () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    // 🔴 **不要為了「一致性」把兩槽統一**(主視窗逐字):兩槽本來就不同去處,那是 #350c 的動線決定。
+    expect(deskCancel(container)!.getAttribute('href')).toBe('/orders?panel=ord-1#cancel');
+    expect(cardCancel(container)!.getAttribute('href')).toBe('/orders/ord-1#cancel');
+  });
+
+  it('🔴 錨點字面是 `#cancel`,對得上 `order-cancel-block.tsx` 的 id(跨檔契約)', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const raw = await readFile(join(__dirname, 'order-cancel-block.tsx'), 'utf8');
+    // 🔴 **先剝註解再找**(突變實測當場抓到的):那個檔的註解裡就寫著 `id='cancel'` 在解釋這條契約
+    //    ⇒ 不剝的話,把**真正的屬性**改名而註解沒跟著改,這一格照樣綠 —— 守門被自己的說明文字餵飽。
+    const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    // 前提:剝完之後元件本體還在(讀錯檔 / 剝過頭 ⇒ 下面會恆假,寧可紅也不要恆綠)。
+    expect(code, '剝完註解連元件都不見了 ⇒ 這格在量錯東西').toContain('OrderCancelBlock');
+    // 連結指的錨點被改名/拿掉 ⇒ 連結全部落空,而畫面「有反應」(跳到頁頂)最難察覺。
+    expect(code, '`order-cancel-block.tsx` 的 id=cancel 不見了 ⇒ 列表那些 #cancel 連結全部落空').toContain(
+      "id='cancel'",
+    );
+  });
+
+  it('🔴 已取消的單:兩槽都不出現取消入口(桌機顯示「—」)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
+    );
+    expect(deskCancel(container), '已取消的單還給取消入口 ⇒ 員工按進去只會看到一個不能用的表單').toBeNull();
+    expect(cardCancel(container)).toBeNull();
+    // 🔴 codex R1 must-fix:只驗「沒有連結」擋不住「把那格連『—』一起刪掉」——
+    //    那樣桌機該欄變空白格,員工看到的是一欄莫名其妙的空,而上面兩條照樣綠。
+    //    ⇒ 直接定位操作欄(訂單層 rowSpan 的**最後**一格)斷言字面恰為「—」。
+    const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
+    expect(spanned.at(-1)?.textContent, '已取消的單:操作欄要明確顯示「—」,不是留一個空格子').toBe('—');
+  });
+
+  it('前提 — 沒取消的單這兩個入口是真的存在(不然上一格恆綠)', () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    expect(deskCancel(container)).not.toBeNull();
+    expect(cardCancel(container)).not.toBeNull();
   });
 });
