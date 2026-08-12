@@ -11431,6 +11431,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   2. 排程 workflow 帶 `--expect-groups`:現況 `grep -c 'expect-groups' .github/workflows/rpm-sync.yml`
      = **0**(`:100` 實際只有 `--confirm-write --supplier=`)⇒ M2 群數指紋 gate 在每日排程裡**從未生效**
      (8/11 那輪 log 逐字:「未帶 --expect-groups…不強制」)。
+     🔴 **但不能只寫「帶上 `--expect-groups`」——必須方向不對稱**:2026-08-12 bonamici 輪
+     (run `31568037161`)active `455 → 1146`(+152%)是**正確且期望的復架行為**,
+     若當時排程帶了以昨日群數為基線的 `--expect-groups`,這一輪**會被誤擋**。
+     ⇒ 縮的方向硬擋(已有 `DELIST_RATIO_ABORT`),漲的方向只告警不 abort;
+     或基線改取**來源側群數**而非我方 active 數。(出處:今日輪 + `S-124-NOTE` §「真正值得補進 #431 的一件新東西」)
   3. 評估是否禁止「非 CI 環境帶 `--allow-large-delist`」(要先確認人工救火場景不會被鎖死)。
 - **不修未來會痛在哪:**
   - **bug 可追蹤性**:下一次大批商品消失,值班第一個問題是「是來源掉了還是有人跑了什麼」——
