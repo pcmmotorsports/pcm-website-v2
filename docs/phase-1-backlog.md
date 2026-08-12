@@ -9954,7 +9954,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **來源**:Sean 實測「沒進貨就不能出貨嗎?」。🔴 **前提更正(D-435/D-443 親驗)**:原句「呼叫**既有**採購/到貨寫入面」為假——`order_item_procurement_receipts` 零寫入路徑(ACL `20260729020000:237-238` REVOKE 全部+只 GRANT SELECT;app 層零 INSERT)⇒ 正式站已到貨恆 0、一件都出不了=系統現況非現貨特例。v2 特殊通道案(虛擬供應商搬配額)四麻煩全是繞路產物,廢棄。
 - **要做什麼(v3)**:先做「登錄到貨」,現貨只是其一來源。**#352-a(DB)**=「店內現貨」供應商種子列+`admin_record_item_receipt`+`admin_delete_item_receipt`+harness(新表寫入面+ACL=**鐵則 12③ codex 不降級**;不新寫建列 RPC,用既有 A5a `20260803160000:107-119`)。**#352-b(app)**=共用「登錄到貨」小視窗+兩入口(採購區塊每列/出貨彈窗「貨到了」)+server action+smoke test;**a 未 apply 前 b 不上線**。溢餘=甲+乙:當場請員工調降供應商訂購量(系統不背著搬)+真多到允許登記「溢收」(查得到、不能自動出別單;獨立庫存=#374 不偷跑)。刪除守門唯一一條=不得刪到低於已裝箱/已出貨量+稽核 log。
 - **不修會痛在哪**:出貨線整條卡死(每品項恆「未到貨」);現貨/急件員工最高頻動作繞遠路。
-- **排程**:訂單後台完整化線內(見 memory `project_m4b-order-admin-complete-then-test`),序在 #351 後;D 窗施工中(拍板全文=memory `project_m4b-352-spot-stock-supplier-decision`)。
+- **排程**:✅ **整條完工(08-12 盤整輪對帳更正;原「D 窗施工中」字面落後三天)**:a=migration `20260810233000`(admin_record_item_receipt/admin_delete_item_receipt,已 apply=APPLIED.tsv :169)+`scripts/352a2-verify.sh`;b-1=`577cae48`、b-2=`ce91891e` 皆在 dev。拍板全文=memory `project_m4b-352-spot-stock-supplier-decision`。⚠️ 本條目其餘段落的「現況描述」為立案當時字面,引用前以 git log/catalog 為準。
 
 ### #356. 🕳️ 多分頁重複部分取消可疊加(換 token 重送同 payload,殘量夠就再扣一次)(原取 #353,08-10 主視窗改派 #356 解三重撞號)
 
