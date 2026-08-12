@@ -237,6 +237,76 @@ export async function recordManualPayment(args: {
  * ⚠️ 這裡**不驗 `payment_id` 是不是 uuid 字面**:它由 `RETURNING id` 來、型別是 uuid,
  *    再寫一份格式規則會變第二真相;只驗「是非空字串」= 拿得到就能拿去查。
  */
+// ────────────────────────────────────────────────────────────────────────────
+// #372-A12:沖銷(`admin_reverse_manual_payment`,`20260810210000` 建、`20260812150000` 加同交易稽核)
+// ────────────────────────────────────────────────────────────────────────────
+
+export type ReverseOutcome = { reversalId: string };
+
+/**
+ * 沖銷一筆人工軌收款。
+ *
+ * 🔴 **三個參數就是全部**(`database.types.ts` 的 `Args` 逐字
+ *    `{ p_actor: string; p_payment_id: string; p_reason: string }`)——
+ *    **沒有 `p_request_id`**,所以本支**沒有冪等**,別照抄登錄那支的印章機制。
+ *    防重送由 RPC 的 G8 負責(`20260812150000:414-422`:同一列不可能被沖兩次)。
+ *
+ * 🔴 **錯誤一律帶著 SQLSTATE 上去**,由 `reverseFailureCodeFor` 逐碼映射;
+ *    在這裡翻成人話會讓具名碼消失,下游只剩「稍後再試」可以說(#371 的症狀)。
+ */
+export async function reverseManualPayment(args: {
+  paymentId: string;
+  actor: string;
+  reason: string;
+}): Promise<ReverseOutcome> {
+  const client = createSupabaseServiceClient();
+  const { data, error } = await client.rpc('admin_reverse_manual_payment', {
+    p_payment_id: args.paymentId,
+    p_actor: args.actor,
+    p_reason: args.reason,
+  });
+
+  if (error) {
+    const code = typeof error.code === 'string' ? error.code : null;
+    throw new PaymentWriteError(
+      code,
+      `admin_reverse_manual_payment 拒收(${code ?? 'no-code'}):${String(error.message ?? '').slice(
+        0,
+        200,
+      )}`,
+    );
+  }
+
+  return parseReverseResult(data);
+}
+
+/**
+ * 成功 payload 的形狀驗證。
+ *
+ * 🔴 **本函式只在 `error == null` 之後跑 ⇒ 交易已經 COMMIT** ⇒ 形狀不對要拋
+ *    `PaymentWroteButUnreadableError`(`wrote = true`),**不是** `PaymentWriteError`。
+ *    拋錯類別在這裡不是風格問題:上層靠 `wrote` 這個旗標分辨「已完成」與「沒沖成」,
+ *    給錯類別 ⇒ 員工會拿到「這次沒有沖成」⇒ 他回頭去沖列表上新出現的那列負數
+ *    ⇒ **原本那筆收款被加回帳上**。
+ * 🔴 `reversed` 必須逐字是 `true`:那是 RPC 對「沖銷列真的落了」的唯一宣稱
+ *    (`20260812150000:473` 是它唯一的 RETURN 出口)。
+ */
+function parseReverseResult(raw: unknown): ReverseOutcome {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new PaymentWroteButUnreadableError('admin_reverse_manual_payment:回傳不是物件');
+  }
+  const r = raw as Record<string, unknown>;
+  if (r.reversed !== true) {
+    throw new PaymentWroteButUnreadableError(
+      `admin_reverse_manual_payment:reversed 不是 true(拿到 ${JSON.stringify(r.reversed)})`,
+    );
+  }
+  if (typeof r.reversal_id !== 'string' || r.reversal_id === '') {
+    throw new PaymentWroteButUnreadableError('admin_reverse_manual_payment:reversal_id 不是非空字串');
+  }
+  return { reversalId: r.reversal_id };
+}
+
 function parseRecordResult(raw: unknown): ManualPaymentOutcome {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new PaymentWroteButUnreadableError('admin_record_manual_payment:回傳不是物件');

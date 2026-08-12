@@ -24,6 +24,15 @@ vi.mock('../../../lib/orders/payment-actions', () => ({
   recordManualPaymentAction: (prev: PaymentActionState, form: FormData) => actionMock(prev, form),
 }));
 
+// 🔴 #372-A12 之後 `PaymentSection` 會 transitively 拉到沖銷 action(收款列上的 client island
+//    直接 import 它)⇒ 那條鏈末端是 `server-only`,jsdom 載不了、整個檔在 import 期就爆。
+//    本檔測的是**印章生命週期**,與沖銷無關 ⇒ mock 掉。
+//    ⚠️ 這不是「順手讓它綠」:不 mock 的話這一整族(7 格印章守門)會**因為別片的相依而全部消失**,
+//    而消失的守門不會有人發現 —— 沖銷自己的接線在 `payment-list.test.tsx`,沒有被這個 mock 蓋掉。
+vi.mock('../../../lib/orders/payment-reverse-actions', () => ({
+  reversePaymentAction: () => Promise.resolve({ ok: true as const }),
+}));
+
 import { PaymentRecordForm } from '../../../components/orders/payment-record-form';
 import { PaymentSection } from '../../../components/orders/payment-section';
 // 🔴 **真的那支**,不是 mock:S5 要驗的是「server 清空規則 × client 重鑄」這兩端的契約。

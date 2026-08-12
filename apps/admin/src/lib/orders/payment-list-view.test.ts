@@ -118,15 +118,27 @@ describe('金額', () => {
   });
 });
 
+/**
+ * 「沒有任何列被沖銷」的第二參數。
+ *
+ * ⚠️ 具名而不是每處寫 `new Set()`:這個值會讓 `isReversed` 恆為 false、`canReverseByRow`
+ * 只受 rail 影響 —— 對**不驗沖銷面**的格子是正確的中性值,但它同時讓那一面恆真。
+ * 具名之後,哪些格子跑在這個前提下一眼看得出來(要驗沖銷面的格子自己傳真的集合)。
+ */
+const NONE_REVERSED: ReadonlySet<string> = new Set<string>();
+
 describe('🔴 沖銷只認具名旗標,不看金額正負', () => {
   it('正額的沖銷列仍是沖銷(沖銷之沖銷可為正:500−500+500=500)', () => {
-    const e = toPaymentListEntry({ ...ROW, amount: 500, isReversal: true, reversalReason: '打錯' });
+    const e = toPaymentListEntry(
+      { ...ROW, amount: 500, isReversal: true, reversalReason: '打錯' },
+      NONE_REVERSED,
+    );
     expect(e.isReversal).toBe(true);
     expect(e.amountLabel).toBe('500 元');
   });
 
   it('負額但不是沖銷列時,isReversal 仍為 false(旗標才是真相)', () => {
-    const e = toPaymentListEntry({ ...ROW, amount: -1, isReversal: false });
+    const e = toPaymentListEntry({ ...ROW, amount: -1, isReversal: false }, NONE_REVERSED);
     expect(e.isReversal).toBe(false);
   });
 
@@ -135,21 +147,25 @@ describe('🔴 沖銷只認具名旗標,不看金額正負', () => {
 
 describe('憑證欄', () => {
   it('匯款看單號', () => {
-    expect(toPaymentListEntry({ ...ROW, bankReference: 'B123' }).referenceLabel).toBe('B123');
+    expect(toPaymentListEntry({ ...ROW, bankReference: 'B123' }, NONE_REVERSED).referenceLabel).toBe(
+      'B123',
+    );
   });
 
   it('卡軌看交易序號', () => {
-    expect(toPaymentListEntry({ ...ROW, recTradeId: 'RCPVVJ' }).referenceLabel).toBe('RCPVVJ');
+    expect(toPaymentListEntry({ ...ROW, recTradeId: 'RCPVVJ' }, NONE_REVERSED).referenceLabel).toBe(
+      'RCPVVJ',
+    );
   });
 
   it('兩個都沒有 ⇒ null(誠實,不編一個)', () => {
-    expect(toPaymentListEntry(ROW).referenceLabel).toBeNull();
+    expect(toPaymentListEntry(ROW, NONE_REVERSED).referenceLabel).toBeNull();
   });
 });
 
 describe('received_at 與 created_at 是不同的東西', () => {
   it('兩欄分開輸出,不可混用(對帳看 received_at)', () => {
-    const e = toPaymentListEntry(ROW);
+    const e = toPaymentListEntry(ROW, NONE_REVERSED);
     expect(e.receivedAtDisplay).toBe('2026-08-01 10:00');
     expect(e.createdAtDisplay).toBe('2026-08-11 12:55');
     expect(e.receivedAtDisplay).not.toBe(e.createdAtDisplay);
