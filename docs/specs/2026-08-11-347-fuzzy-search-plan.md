@@ -137,6 +137,15 @@ GIN trigram 索引建在原欄、而查詢對欄套函式 ⇒ 索引用不到;`s
 
 **本片現況實查=不受影響,但方向相反的風險是真的**:
 
+- 🔴 **先確定「現行定義」在哪一支**(不能只挑一個檔就宣稱現況 —— 後面的 migration 會 DROP/REPLACE 前面的,
+  文字掃描看不到;memory `reference_count-objects-from-catalog-not-create-statements`)。
+  全 migrations 掃 `admin_search_orders` 共 **3 支**
+  (`grep -rln "admin_search_orders" supabase/migrations/`):
+  · `20260809180000` = `CREATE OR REPLACE …(text, integer)`(`:158`)= **舊 2 參版**
+  · `20260810120000` = `DROP FUNCTION …(text, integer)`(`:58`)+ `CREATE FUNCTION …`(`:65`)四參版
+    (`text, integer, timestamptz, timestamptz`)⇒ **這支才是現行函式本體**
+  · `20260810150000` = **只動 `COMMENT ON FUNCTION`**(`:77`),不碰函式體
+  ⇒ 下面的斷言對象=`20260810120000` 那支,不是「隨便挑的一個檔」。
 - **現行大框(`20260810120000_m4b_347_3a_admin_search_orders_date_range.sql`)讀的全是 base 表**:
   `public.orders` / `public.customers` / `public.order_items` /
   `public.product_variants` → `public.products` → `public.brands`(`:160-179` 品名·品牌·供應商單號那段)/
