@@ -21,7 +21,7 @@
 12(憑印象)→ 14(逐段加)→ **16**(④ 由 1 格切成 3 片,E 七代 `paid-cancel-refund-integration-plan.md:89-90`)
 → **19**(⑤ 的前置畫面片被 S 五代切成 U1/U2/U3,`refund-ledger-ui-plan.md:164-166`)。
 
-**8~9 停點的數法**:②的三批 apply(2e/2f/2g 同批 / 2k / 2m)=**3**,③沖銷片 **1**(Q1=B ⇒ 動 schema),
+**8~9 停點的數法**:②的三批 apply(2e/2f/2g 同批 / 2k / 2m)=**3**,③沖銷片 **1**(Q1=B ⇒ 動 schema;**✅ 2026-08-12 已消耗**),
 ④ **1~2**(④-a 必有;④-d 可能再一個,E 檔 `:82`/`:84`),⑤ 的 U1 **1**(migration,S 檔 `:169`),
 開燈 **1**,真退款 **1** ⇒ **3+1+1~2+1+1+1 = 8~9**。
 🔴 **① RF7 的停點=0**(已查證,不是未知):`git show --name-only 3e542afc | grep -c '^supabase/migrations/'` → **0**。
@@ -59,15 +59,19 @@
 
 🔴 **2e / 2f 是全線最危險的兩片**(動正在收錢/退錢的 RPC)⇒ 母 plan 要求**各自單獨過對抗審查、不合併審**。
 
-## ③ 沖銷片(#405 + #417)—— plan 已寫,卡在一題
+## ③ 沖銷片(#405 + #417)—— ✅ **已上正式庫(2026-08-12)**
 
 | 欄 | 值 |
 |---|---|
-| 狀態 | ✅ **plan v5**(關卡1 R1+R2 共 16 條全折;Q1=B / Q2=A / Q3=A 已拍;Q2 語意由 `P-523-A` 校正=每筆終局至多一沖、修正鏈狀)⇒ 實作歸 P 八代(`docs/specs/2026-08-11-refund-manual-reversal-plan.md`)。⏳ **卡一題**:「有效 `manual` 但 `refunded=false` 算什麼」已送 Sean(`P-525-Q`),未回不進實作 |
+| 狀態 | ✅ **完成並 apply**。plan **v13**(`docs/specs/2026-08-11-refund-manual-reversal-plan.md`);migration `20260812140000`;commit `8232dc13`(+`a62ec16d` / `bc8bab64` 兩顆連動)。**Q-425=B 已拍**(2026-08-12,`P-533-A`)⇒ 有效 `manual` + `refunded=false` **可自動結清**,安全網=員工可用 RPC 改回來 |
 | 是什麼 | `manual` 判定填錯之後的合法修正路徑(#405)+ 2d 回退閘那句「先由人處理」的出口(#417) |
-| 依賴 | 🔴 **Sean 2026-08-11 23:15 拍 Q1=B 之後,序反過來:沖銷片排在 2e 之前** —— 它交付的是「有效事件」的正準語意(canonical predicate),**2e 直接蓋在它上面**,免回頭改 |
-| apply 停點 | 視 Q1 而定(最小出口案=**零 schema、零停點**) |
-| 🔴 卡點 | 關卡1 推翻了我原本的推薦:**沒有 UI、沒有讀取面時先做 DB+RPC = 凍住一份高風險契約而員工那邊沒變** |
+| 交付物 | ①`manual_reversal` 事件型別 + 三欄 + 複合自我 FK ②「至多一個有效終局」從**索引級降級成 trigger 級**(`pre_one_terminal_uniq` 已 DROP)③**canonical view `payment_refund_effective_terminal`**=有效事件的單一權威 ④RPC `admin_correct_refund_manual_verdict`(七道守門 + CAS)⑤`op6a` 改吃 view |
+| 依賴 | 沖銷片排在 2e 之前(Q1=B)—— 它交付的正準語意,**2e/2f 直接蓋在它上面** |
+| apply 停點 | ✅ **已消耗**(2026-08-12,Sean 預批〔`P-547-A` 逐字:「08-12 午『好,上吧』」〕、主視窗執行;七組後置斷言 NOTICE 逐字命中檢查表判準) |
+| 🔴 上線後仍成立的三件事 | ①**第一筆沖銷寫入後,本片回退永久關閉**(實測 `23505`/`pre_one_terminal_uniq`;要改判定邏輯不需回退,view/trigger 可 `CREATE OR REPLACE` 換述詞)②翻面 C:同顆 refund 有 `result_success`+`result_failed` 者從 `needs_human` **變成可自動結清**(方向變寬,已列給 Sean)③`actor` 欄**不是稽核依據**(存在性驗證非身分驗證,全線既有性質)⇒ **#436** |
+| 審查 | R1 code-reviewer FAIL(6MF+7nit)→ R2 FAIL(2MF+5nit,**兩條都是折 R1 的修法製造的**)→ 關卡2 codex 4 findings,全折。逐條在 plan §14/§15/§16 |
+| 驗證 | `scripts/refund-manual-reversal-verify.sh` **84/84**、突變 **13 靶**逐靶紅格非空;`op6a-verify` 51/51、`l5b2-2d-verify` 37/37、`l5b2-2c-verify` 42/42 |
+| 🔴 給 2e/2f 的交接 | **讀取面一律消費 canonical view,不得自己再問「有沒有 manual」**(plan §2d-1 契約)。母 plan §4b `:457` 要求 2e 的排除條件認 `result_confirmed` —— 現在改成:**認 view**,語意由 view 定義 |
 
 ## ④ 已付款取消 × 退款整合 —— **片界已切**(E 七代,2026-08-11)
 
@@ -130,7 +134,7 @@ E 的理由逐字:「已付款取消」與退款線**互相不知道對方存在
 ```
 ① RF7(E)                                    零 apply 停點,與下面無依賴
 
-③ 沖銷片  ──[停點:沖銷]                      🔴 全線共同上游,它卡住=全線卡住
+③ 沖銷片  ──[停點:沖銷 ✅已消耗 08-12]     ✅ 已上正式庫 ⇒ 全線共同上游**已解除**
    ├─→ ② 2e ‖ 2f → 2g ──[停點:2efg 同批] → 2h → 2i → 2j
    │        │                └─→ ④-a ──[停點:④-a] → ④-b
    │        │                     (④-a 的依賴=④-0 + 2g + ①RF7,**不是直接掛 ③**)
