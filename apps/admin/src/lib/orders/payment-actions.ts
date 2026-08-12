@@ -29,15 +29,23 @@ import { recordManualPayment } from './payment-repository';
 // 🔴 **catch 一律走 `paymentFailureCodeForThrown`**,不自己判斷:
 //    通用的 `catch → 'bug'` 會把「已經寫進去但讀不懂回應」講成「沒有寫入」——同上,重複入帳。
 //
-// 🔴🔴 **稽核的實況(我原本在這裡寫錯,關卡2 抓到)**:
-//    我原本逐字寫「RPC 在同交易寫 `admin_audit_log`」—— **那是假的**。
-//    實查:`grep -c admin_audit_log 20260810200000_m4b_e10_op5_record_manual_payment.sql` = **0**。
-//    ⇒ 手動收款登錄**沒有 `admin_audit_log` 條目**,與備註線(A6)、取消線(A9d2)不同。
-//    今天能追到「誰登的」只有 `order_payments.actor` 這一欄(RPC 的 G2 驗它存在且啟用),
-//    而 `actor` 是 picker cookie 選出來的、`session/actor.ts:6-7` 逐字自陳「不是授權邊界」
-//    ⇒ **它是「畫面上被選的人」,不是責任歸屬證據**。
-//    ⚠️ 這是**現況的缺口、不是本片造成的**,但本片是第一個把這條路走通的入口
-//    ⇒ 已回報主視窗立案;**本層不自己補寫稽核**(那要動錢的路徑與權限面,不是 action 層自己能拍的)。
+// 🔴 **稽核的實況(#423 之後已改;這段留著是因為它的歷史很重要)**:
+//    · 一度寫「RPC 在同交易寫 `admin_audit_log`」= **假的**(關卡2 抓到)。
+//    · 改成「手動收款登錄**沒有**稽核條目」= 當時**是真的**,並據此立案 #423。
+//    · **#423 落地後這句又成假了** —— `20260812150000` 讓 OP5 與沖銷(OP-A12)兩支
+//      都在**同交易**寫 `admin_audit_log`:成功走 `payment.record`、
+//      冪等重放走 `payment.record.replay`(Sean 線 Q-D16=B:重送那條路要留痕)、
+//      沖銷走 `payment.reverse`。三者都有「筆數恰 1」的守門,寫不進去就整筆回滾。
+//    ⚠️ 同一句話在**兩天內**是真、是假、又是真(本檔建於 `6e0062c1` 2026-08-11、#423 是 08-12)
+//      —— 所以**引用它之前先看 migration 現況**,
+//      別把註解當事實來源(這正是它兩次寫錯的原因)。
+//    ⓘ `order_payments.actor` 的誠實邊界**沒有改變**:它仍是 picker cookie 選出來的、
+//      `session/actor.ts:6-7` 逐字自陳「不是授權邊界」⇒ 稽核列補的是「有沒有紀錄」,
+//      **不是**「這個名字可信」。真身分綁定仍在 E8-B 那條線。
+//    🔴 **本層仍然不自己寫稽核**:錢的路徑一律由 RPC 同交易寫。
+//      ⚠️ 別把它讀成「全 repo 一致」—— 那句話是假的:`staff-actions.ts:61` 就是從 app 層
+//      直接 `getAdminAuditLogRepository().record(...)` 寫進 `admin_audit_log`(非交易性)。
+//      分界是**有沒有錢/有沒有交易邊界**,不是「app 層從不寫稽核」。
 //
 // 🔴 **授權面的誠實話**(與讀路徑同一個現況):`authorizeAdminMutation` 驗的是
 //    「有沒有有效的 admin session + Origin + 具名 actor」,**不驗這個人能不能碰這張單** ——
@@ -45,8 +53,11 @@ import { recordManualPayment } from './payment-repository';
 //    這是 repo 現況、不是本片新增的洞;真身分綁定是 E8-B 那條線。
 //    ⇒ 所以**不做**「這張單屬不屬於你」那種檢查(做了也只是假的安心)。
 //    ⚠️ 但 `actor` 仍然要送:RPC 的 G2 會驗它存在且啟用(`20260810200000:148`),
-//    而且在**沒有稽核條目**的現況下(見上),`order_payments.actor` 是全系統唯一
-//    寫著「誰登的」的地方 —— 不是稽核列,是收款列本身。
+//    而且 **#423 之後它一送兩用** —— 同一個值同時寫進 `order_payments.actor` 與
+//    `admin_audit_log.actor`(`payment.record` / `payment.record.replay` 那兩列)。
+//    ⇒ 送錯人的話,帳本列與稽核列會**一起**記錯,對帳時兩邊互相佐證不出任何東西。
+//    (這段原本寫「在沒有稽核條目的現況下,actor 是全系統唯一寫著誰登的地方」——
+//     #423 落地後那句已成假,與上面那段同一次更新漏改,2026-08-12 關卡2 R2 抓到。)
 
 export async function recordManualPaymentAction(
   _prev: PaymentActionState,

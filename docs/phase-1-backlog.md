@@ -11272,7 +11272,18 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #423. 🔒 手動收款登錄(OP5)**零稽核**:錢進帳了,但系統沒有任何「誰登的」的稽核紀錄
 
-- **狀態:** ⏳ 待排(2026-08-11 深夜 #15-B2-b2 關卡2 抓到;主視窗發號、P1)
+- **狀態:** ✅ 已修(`20260812150000_m4b_e10_423_payment_audit.sql`,與本條目同一批 commit;
+  ⛔ **尚未 apply 到正式庫** —— apply 是主視窗的停點)。立案=2026-08-11 深夜 #15-B2-b2 關卡2、主視窗發號、P1
+- **🔴 已修之後仍在的缺口(2026-08-12 關卡2 R2 實測,別讀成全清)**:三道稽核筆數守擋的是「寫不進去」,
+  **擋不到「寫進去又被 AFTER INSERT trigger 刪掉」**(ROW_COUNT 仍為 1、函式回 `recorded: true`、稽核零列)。
+  根因不在函式在表:`admin_audit_log` 的 append-only **只靠 GRANT**(該表 trigger 數實查=0),
+  而 SECURITY DEFINER 是用**表 owner** 身分寫的、owner 刪得掉;對照 `order_payments` 早有
+  `order_payments_no_delete_bd` 等四支 trigger 把這條路封死。⇒ 正確的面是**表層 append-only trigger**,
+  不是在每支函式裡補檢查(函式內檢查擋不到 `CONSTRAINT TRIGGER ... INITIALLY DEFERRED`,那種在 COMMIT 才跑)。
+  同族第二條:重放路徑的稽核若拋 `unique_violation`,會被函式尾 handler 收成通用訊息「收款登錄失敗」,
+  而那時錢已在帳上 ⇒ 可能誘發換鍵重登=重複入帳;**今日不可構造**(該表唯一索引只有 uuid 主鍵、
+  其餘四支非 unique),但有人替它加 unique 索引時就活了。⇒ 兩條歸 **#439**(表層 append-only),
+  它同時保護 A6 備註線 / A9d2 取消線 / A7 等既有寫入者、不只本片兩支。
 - **優先級:** **P1**(錢的路徑、且唯一的追人欄位其來源自陳「不是授權邊界」)
 - **實查(兩層都證過,不只文字掃描)**:
   - 檔案層:`grep -c admin_audit_log supabase/migrations/20260810200000_m4b_e10_op5_record_manual_payment.sql` = **0**
@@ -11280,9 +11291,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     對 `admin_audit_log` **零命中**;`order_payments` 上**恰四支 trigger**
     (immutable / no_delete / received_at / reversal)**無一支寫稽核**
     ⇒ 缺口在**正式庫層面成立**,不是「migration 沒寫但 trigger 有補」。
-- **對比**:同域的四支寫入 RPC **都有**寫稽核(各自 migration `grep -c admin_audit_log`:
-  到貨 `20260811010000`=1 / 採購 `20260803160000`=13 / 備註 `20260802150000`=22 / 取消 `20260805100000`=7)
-  ⇒ **OP5 是這一族裡唯一的例外**,不是全線都沒有。
+- 🔴 **原本這裡寫「OP5 是這一族裡唯一的例外」—— 那是錯的**(2026-08-12 D 窗偵察,catalog 全掃):
+  `admin_*` 的 volatile 函式共 19 支,**零稽核的有 7 支**:
+  `admin_add_shipment_items` / `admin_create_shipment` / `admin_mark_shipment_shipped` /
+  `admin_record_manual_payment`(本條)/ `admin_reverse_manual_payment`(**沖銷,也在錢的路徑上**)/
+  `admin_unvoid_shipment` / `admin_void_shipment`。
+  間接路徑已排除:非 `admin_` 開頭而會 `INSERT INTO admin_audit_log` 的函式**零支**、
+  那七支的 prosrc 連 `audit` 字樣都沒有、app 層也不補(全 repo 立場一致:稽核由 RPC 同交易寫)。
+  ⚠️ 原句引的是**檔案層 grep**(含註解與多次敘述),與 catalog 的 prosrc 命中數不可直接比;
+  方向沒錯(那幾支確實有寫),錯的是「唯一」兩個字造成的**範圍印象**。
+- **處置**:主視窗裁 Q-D13=B ⇒ **本條 = OP5 + 沖銷兩支一片**(同表/同 actor 來源/同 audit 欄位);
+  出貨那五支另立 **#435**。
+- 🔴 **落地後 `payment.*` 三個 action 的 `request_id` 全部不是 correlation id(讀稽核的人要知道)**
+  ——原本這裡寫「有**一個**語意例外」,R3 Fable C2 指出那是**錯的範圍**:例外不是一個、是三個。
+  - `payment.reverse` = **沖銷列自己的 id**(F1 裁定)—— 因為 `admin_reverse_manual_payment` 的介面
+    只收 (payment_id, actor, reason)、**沒有 request_id 參數**,而 F1 要的是「這列指得回那筆沖銷」。
+  - `payment.record` / `payment.record.replay` = **表單送來的冪等鍵 uuid**,由呼叫端產生、
+    用途是「同一次互動重送要認得出來」,同樣**不是**貫穿 middleware→handler→audit 的那把 id。
+  ⇒ 三者都與欄位 COMMENT 的 correlation id 語意(`20260712210000:63-64`)**不同**。
+  數法(可覆驗):`20260812150000` 全檔兩處 audit INSERT 的 `request_id` 位置分別寫
+  `p_request_id::text`(record / replay)與 `v_reversal_id::text`(reverse),
+  **沒有一處**讀 middleware 產的那把 id ⇒ 拿 `req_` 那把去查這三個 action 是零命中。
+  ⇒ 跨層追蹤時 `payment.*` **整族**要另外處理,不是只有 `payment.reverse` 一個。
 - **今天唯一追得到「誰」的東西**:`order_payments.actor`(RPC 的 G2 只驗它存在且啟用)。
   🔴 而 `actor` 來自 picker cookie,`apps/admin/src/lib/session/actor.ts:6-7` **逐字自陳
   「這不是登入 / 授權邊界」** ⇒ 它記的是「畫面上被選的人」,**不得單獨作為責任歸屬證據**。
@@ -11633,3 +11663,86 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   2. 定案後,`p_actor` 改成「從身分推導」或「與身分交叉驗證」,失敗一律具名拒。
   3. 既有 17 支引用逐支評估(有些是 backfill/系統寫入,不適用)。
 - **不修的話**:apply 檢查表 §六(知情缺口)已明寫這條,操作程序不得宣稱 `actor` 欄可當稽核依據。
+
+### #435. 🔒 出貨線**五支** RPC 零稽核:箱子建了、作廢了、復原了,都沒有「誰做的」
+
+- **狀態:** ⏳ 待排(2026-08-12 D 窗 #423 偵察時 catalog 全掃抓到;主視窗 `D-567-A:2` 裁定立案)
+- **優先級:** P2(不是錢,但**是可對外的動作**:出貨影響客人收不收得到貨)
+- **實查(catalog,不是掃 migration 檔)**:全掃 `public` 底下 `admin_*` 的 volatile 函式,
+  比 `pg_proc.prosrc` 對 `admin_audit_log` 的命中數 —— 19 支裡 **7 支為 0**,其中五支是出貨線:
+  - `admin_create_shipment`(建箱)
+  - `admin_add_shipment_items`(加品項)
+  - `admin_mark_shipment_shipped`(標記出貨)
+  - `admin_void_shipment`(作廢)
+  - `admin_unvoid_shipment`(復原)
+  另兩支是 `admin_record_manual_payment` + `admin_reverse_manual_payment` ⇒ 已由 **#423** 處理。
+- 🔴 **間接路徑已排除**(不是「透過 helper 寫」):
+  - 非 `admin_` 開頭而會 `INSERT INTO admin_audit_log` 的函式:**零支**。
+  - 那五支的 prosrc **連 `audit` 字樣都沒有**(逐支 `~* 'audit'` = false)。
+  - app 層也不補 —— 但**理由不是「app 層從不寫稽核」**(2026-08-12 關卡2 R2 更正:原本這裡逐字寫
+    「全樹 grep `admin_audit_log` 只有註解」,那句是**假的**)。實況:`apps/admin/src/lib/audit/`
+    底下有活的 `SupabaseAuditLogRepository`(`supabase-repository.ts:22` 真的 `.insert(...)`),
+    工廠在 `orders/order-repository.ts:39`。**但它的呼叫端只有一個**:`staff-actions.ts:61`(人員 CRUD)。
+    ⇒ 逐支查過:出貨那五支**沒有任何 app 層呼叫端**在旁邊補寫稽核,結論不變、證據換成真的。
+    錢與出貨這類有交易邊界的路徑,立場仍一致走 RPC 同交易寫
+    (`supplier-repository.ts:101` 逐字「稽核由 RPC 同交易寫,本層不碰」)。
+- **為什麼不併進 #423**:出貨的語意(建箱 / 加品項 / 出貨 / 作廢 / 復原)與收款不同 ——
+  `action` 命名、`before`/`after` 要放什麼、哪些欄位算敏感,都要各自設計。
+  硬併會讓那一片遠超 15-45 分(鐵則 4),而且審查焦點會被稀釋。
+- **不修未來會痛在哪:**
+  - **bug 可追蹤性**:客人說「我的東西被拆成兩箱寄」或「這箱怎麼被作廢了」,
+    今天**答不出是誰、什麼時候做的**。作廢/復原尤其:那是一組可以互相抵銷的動作,
+    沒有紀錄的話連「有沒有人反覆作廢又復原」都看不出來。
+  - **可維護性**:#423 落地後,錢的兩支有稽核、出貨五支沒有 ⇒
+    「這個系統到底有沒有稽核」變成要逐支查的問題,而不是一句話能回答的。
+  - **擴充性**:未來要做「今天員工做了什麼」的檢視器(#423 的 `has_*` 設計已為它留縱深),
+    出貨這一大塊會是空白。
+- **預期解法**:照 #423 的形狀逐支補(同交易 INSERT + 筆數守恰 1 + 檔尾碼錨),
+  但 `action`/`before`/`after` 各自設計;可拆兩片(建箱族三支 / 作廢復原兩支)。
+- **估時:** 60-90 分(五支 + harness),**建議拆兩片**。
+- **依賴:** 無。可在 #423 之後任何時間做;兩者不共用程式碼,只共用形狀。
+- **發現於:** 2026-08-12 / D 窗 #423 偵察 pass(`D-566-NOTE` §3);
+  🔴 這條的存在本身是個教訓:#423 原本逐字寫「OP5 是這一族裡唯一的例外」,
+  **那句話是照檔案層 grep 寫的**;改用 catalog 全掃才看到真正的範圍。
+- **分流標籤:** `P2-post-launch`
+
+### #439. 🔒 `admin_audit_log` 的 append-only 只靠 GRANT:表 owner 刪得掉,所有稽核筆數守都繞得過
+
+- **狀態:** ⏳ 待排(2026-08-12 D 窗 #423 關卡2 R2 codex 抓到 + 拋棄式叢集實測;D 窗立案、號碼待主視窗確認)
+- **優先級:** P1(它是**所有**稽核保證的地基:錢的兩支 #423、備註線 A6、取消線 A9d2 全躺在上面)
+- **現況(實測,不是推論)**:
+  - 掛一支 `AFTER INSERT ... FOR EACH ROW` 刪掉剛寫的列之後,`admin_record_manual_payment(...)`
+    回 `{"recorded": true, ...}`、`order_payments` 有 1 列、`admin_audit_log` **0 列** ——
+    筆數守沒發火,因為 `GET DIAGNOSTICS ROW_COUNT` 看到的仍是 1。
+  - `SELECT count(*) FROM pg_trigger WHERE tgrelid='public.admin_audit_log'::regclass AND NOT tgisinternal` = **0**。
+  - 對照組:`order_payments` 有四支 trigger,其中 `order_payments_no_delete_bd` / `order_payments_immutable_bu`
+    把刪改整條封死(實測刪列被擋、錯誤訊息逐字「收款帳本不得刪列」)。
+  - 該表現行 append-only 只到 GRANT 層(service_role 無 UPDATE/DELETE),而 SECURITY DEFINER
+    是用**表 owner** 身分寫的 ⇒ owner 這條路沒人擋。
+- **預期解法**:照 `order_payments` 的形狀,在 `admin_audit_log` 上加 BEFORE UPDATE / BEFORE DELETE
+  的 RAISE trigger(一支或兩支)。⚠️ 這是**表層**修法、刻意不在每支函式裡補「寫完再 SELECT 確認還在」——
+  後者擋不到 `CONSTRAINT TRIGGER ... INITIALLY DEFERRED`(COMMIT 才跑,函式內看不到),補了是半套。
+- **同批一起收的第二條**:重放路徑的稽核 INSERT 若拋 `unique_violation`,會被 OP5 函式尾的
+  `WHEN unique_violation` handler 收成通用訊息「收款登錄失敗」—— 而那時錢**已經在帳上**,
+  員工可能換一把 `request_id` 重登 = 重複入帳。**今日不可構造**(該表唯一索引只有 `admin_audit_log_pkey`、
+  uuid 預設值;其餘四支索引皆非 unique,實查)⇒ 它是**未來替該表加 unique 索引時才會活**的地雷。
+  處置=加 unique 索引的那一片必須同時收窄 handler,或本片就先把 handler 收窄到只包 `order_payments` 那段。
+- **不修未來會痛在哪**:稽核的價值全部建立在「有寫就一定在」。這道沒補之前,
+  「查不到那列」與「本來就沒發生」在事後**分不出來**,而稽核存在的唯一理由就是分辨這兩件事。
+  且它是靜默的:出事當下零錯誤、函式回成功。
+- 🔴 **本案上 trigger 的同一片必須一起收的第三條(R3 Fable C1)**:OP5 重放路徑的稽核筆數守
+  (`20260812150000` 的 `pcm_op5_audit_replay_row_count`)觸發時,**錢早已在前一個交易 commit**,
+  它回滾的只有本次重送。但 app 層 `payment-action-state.ts` 對這一路的文案逐字是「已整筆回滾」
+  —— 對重放這一案**是假的**(回滾的不是那筆錢)。今日不可達(該表 trigger=0 ⇒ 稽核不會被吞),
+  **本案上 trigger 之後就可達**。⇒ 驗收條款:本案同片要把重放守換成**專屬 SQLSTATE**
+  (不與正常路徑共用 `P2B40`),並讓 app 層對它給「這筆收款先前已入帳、請勿重新登錄」的文案。
+  ⚠️ 這條是「修 A 開了 B」的典型:沒有本案的 trigger,C1 永遠不會發生;有了 trigger,它就成真。
+- **依賴:** 無。可獨立做;做完 #423 檔頭與 COMMENT 裡的「擋不到刪列」那段申報要一起撤。
+- **估時:** 30-45 分(一支 migration + 負測:掛刪列 trigger 後應被表層擋下、且 #423 的三道守門行為不變)
+  + C1 的 SQLSTATE 與文案(含一格負測:重放守觸發時員工看到的字不得是「已整筆回滾」)。
+- **發現於:** 2026-08-12 / D 窗 #423 關卡2 R2(codex 小包 P1 ①②③)+ D 窗拋棄式叢集實測驗證;
+  C1 由 R3 Fable 補。🔴 **#438 為作廢號**(S 線上午提案佔號、中午自查發現與 #431 重複而退號,
+  主視窗裁作廢封存不回收,`S-127-A §1`)—— 本案原誤取 #438 後依 `D-591-A:9` 改 **#439**。
+  誤取的成因值得記:我的取號數法是「worktree backlog 最大 + `dev` 端 backlog 最大」,
+  而**退號不會在任何一份 backlog 留下條目** ⇒ 那個數法對已退號永遠盲。取號要另外問主視窗台帳。
+- **分流標籤:** `P1-pre-launch`
