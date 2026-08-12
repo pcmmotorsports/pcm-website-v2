@@ -108,9 +108,73 @@ export function formatTaipei(iso: string): string | null {
   return `${y}-${mo}-${d} ${h}:${mi}`;
 }
 
+/**
+ * 短時點(#437 ②:精簡單行用 `08/11 02:10`)。
+ *
+ * 🔴 **刻意不帶年份**:單行是給「一眼掃過去」用的,年份在那個情境是雜訊。
+ *    要看完整時點的人會點開,那裡有 `formatTaipei` 的完整字面 ⇒ 資訊沒有消失、只是分層。
+ * 🔴 解析失敗同樣回 `null`,不 fallback —— 理由與 `formatTaipei` 同一條。
+ */
+export function formatTaipeiShort(iso: string): string | null {
+  const full = formatTaipei(iso);
+  if (full === null) return null;
+  // full = `YYYY-MM-DD HH:mm` ⇒ 取 `MM/DD HH:mm`。從已驗過的字面切,不另開一組 Intl 設定
+  // (兩組設定會各自漂;這裡多一份格式就是多一個要對齊的字面)。
+  const [date, time] = full.split(' ');
+  const parts = (date ?? '').split('-');
+  const mo = parts[1];
+  const d = parts[2];
+  if (mo === undefined || d === undefined || time === undefined) return null;
+  return `${mo}/${d} ${time}`;
+}
+
 /** 金額顯示。整數元 ⇒ 千分位 + 元;**沖銷列保留負號原樣**,不取絕對值。 */
 export function formatAmount(amount: number): string {
   return `${amount.toLocaleString('zh-TW')} 元`;
+}
+
+/**
+ * 精簡單行用的金額(#437 ②:Sean 逐字 `340元`,無空格)。
+ *
+ * ⚠️ 與 `formatAmount` **刻意不合併**:展開區沿用有空格那份,單行用這份 ——
+ *    Sean 肉眼驗給的字面就是無空格,合併等於替他決定另一種。
+ */
+export function formatAmountCompact(amount: number): string {
+  return `${amount.toLocaleString('zh-TW')}元`;
+}
+
+/**
+ * 卡頂彙總三態(#437 ④;Sean 08-12 肉眼驗拍板,`Q-溢收=A` 只標不擋)。
+ *
+ * 🔴 `rows === null` = **讀不到**(`unreadable` / `order_not_found`)⇒ 回 `unknown`,
+ *    **不得**拿 0 當已收去算 —— 那會在讀取失敗時畫出「還差 <全額> 元」,
+ *    而員工看到的會是一句他無法分辨真假的催款訊息。同一條理由已經寫在
+ *    `payment-list.tsx` 的「讀不到時不可顯示 0 筆」,這裡是它在金額面的同族。
+ *
+ * 🔴 **單位**:`orders` 金額與 `order_payments.amount` **都是整數元**(非分)——
+ *    前者見 `order-list-view.ts:675` 逐字(migration `20260604120000`「金額一律 integer 元位」),
+ *    後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 直接相減,零換算。
+ *
+ * 🔴 **只標不擋**:溢收在業務上是合法的(收兩筆定金、客人多匯),DB 的 G3 也只擋 <= 0、不擋超額
+ *    (`20260810200000:168`)⇒ 這裡只負責讓它**看得見**,不做任何阻擋。
+ */
+export type PaymentSummary =
+  | { kind: 'unknown' }
+  | { kind: 'settled'; due: number; received: number }
+  | { kind: 'short'; due: number; received: number; gap: number }
+  | { kind: 'over'; due: number; received: number; excess: number };
+
+export function toPaymentSummary(
+  amountDue: number,
+  rows: readonly OrderPaymentRow[] | null,
+): PaymentSummary {
+  if (rows === null) return { kind: 'unknown' };
+  const received = sumReceived(rows);
+  if (received === amountDue) return { kind: 'settled', due: amountDue, received };
+  if (received < amountDue) {
+    return { kind: 'short', due: amountDue, received, gap: amountDue - received };
+  }
+  return { kind: 'over', due: amountDue, received, excess: received - amountDue };
 }
 
 export type PaymentListEntry = {
@@ -122,6 +186,10 @@ export type PaymentListEntry = {
   /** 登錄進系統的時點 —— 與 `receivedAt` **意義不同,不可混用**。 */
   createdAtDisplay: string | null;
   actorLabel: string;
+  /** 精簡單行用的短時點(#437 ②);無法判讀時為 `null`,由呼叫端兜字。 */
+  receivedAtShort: string | null;
+  /** 精簡單行用的金額(無空格,Sean 逐字)。 */
+  amountLabelCompact: string;
   /** 憑證:匯款單號或卡片交易序號,兩個都沒有時為 `null`。 */
   referenceLabel: string | null;
   payerNote: string | null;
@@ -137,6 +205,8 @@ export function toPaymentListEntry(row: OrderPaymentRow): PaymentListEntry {
     receivedAtDisplay: formatTaipei(row.receivedAt),
     createdAtDisplay: formatTaipei(row.createdAt),
     actorLabel: actorLabel(row.actor),
+    receivedAtShort: formatTaipeiShort(row.receivedAt),
+    amountLabelCompact: formatAmountCompact(row.amount),
     // 匯款軌看單號、卡軌看交易序號;兩個都空 = 這筆沒有可對的憑證(誠實回 null,不編一個)。
     referenceLabel: row.bankReference ?? row.recTradeId ?? null,
     payerNote: row.payerNote,
@@ -152,8 +222,9 @@ export function toPaymentListEntry(row: OrderPaymentRow): PaymentListEntry {
  *    (`order_payments.amount` 欄 COMMENT 逐字:「⇒『已收』= SUM(amount)」)。
  *    **不要**把沖銷列濾掉再加,那會把被沖掉的那筆重複算進去。
  *
- * ⚠️ 本片(§8 主視窗裁 A)**不顯示**這個數字 —— 這支只給測試與 B2-b 用,
- *    畫面上要不要出現是第二段的事。留在這裡是因為它是**語意**,不是排版。
+ * ⚠️ ~~本片(§8 主視窗裁 A)不顯示這個數字 —— 畫面上要不要出現是第二段的事。~~
+ *    **#437 起已經顯示了**(卡頂彙總行的「已收 Y」與三態都由 `toPaymentSummary` 走這支算)。
+ *    那句話寫的是 B2-a 當下的事實,第二段就是這片 ⇒ 同批更新,不留過期字面。
  */
 export function sumReceived(rows: readonly OrderPaymentRow[]): number {
   return rows.reduce((acc, r) => acc + r.amount, 0);

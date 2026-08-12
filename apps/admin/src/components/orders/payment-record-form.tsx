@@ -108,6 +108,8 @@ export function PaymentRecordForm({
   const [pinnedStamp, setPinnedStamp] = useState<PaymentFormStamp | null>(null);
   /** 🔴 被按過「開始下一筆」的那個 `state` 物件(用**身分**比,不是比 code/message)。 */
   const [dismissedState, setDismissedState] = useState<PaymentActionState | null>(null);
+  /** #437 ③:表單收合狀態(預設收起來);`formOpen` 才是實際餵給 `details` 的值。 */
+  const [open, setOpen] = useState(false);
   /** 🔴 Sean 2026-08-12 拍 Q-D8=B:全新掛載預設停用送出,勾了才啟用。 */
   const [confirmed, setConfirmed] = useState(false);
 
@@ -180,9 +182,32 @@ export function PaymentRecordForm({
   const isCash = values.rail === 'cash';
   const submitDisabled = isPending || !detailsReadable || !confirmed;
 
+  /**
+   * #437 ③ 的收合狀態。預設 `false`(收起來)。
+   *
+   * 🔴 `mustStayOpen` 為真時**不准收**:那兩塊(失敗訊息 / 開始下一筆鈕)畫在 `details` 裡面,
+   *    收起來 = 送出後畫面看起來什麼都沒發生,而這條路上的「沒發生」會被讀成「沒送出去」。
+   *    ⇒ 用 `formOpen = open || mustStayOpen`,連使用者手動收合都蓋過去
+   *    (他可以收,但只要還有話要對他說就會再張開)。
+   */
+  const mustStayOpen = isLiveFailure || showNextButton;
+  const formOpen = open || mustStayOpen;
+
   return (
-    <form action={formAction} className='mt-4 border-t pt-4'>
-      <h3 className='text-muted-foreground mb-3 text-xs font-medium'>登錄一筆收款</h3>
+    // #437 ③:預設收合、點開才展開欄位(Sean 肉眼驗:平常用不到,攤開來只是佔掉明細的位置)。
+    // 🔴 **有話要對員工說的時候一律強制展開** —— 失敗訊息(`:isLiveFailure`)與
+    //    「開始下一筆」鈕(`showNextButton`)都畫在裡面,收著就等於送出後畫面毫無反應,
+    //    而這條路上「毫無反應」會被讀成「沒送出去」⇒ 他再送一次 ⇒ 重複入帳。
+    // 🔴 收合狀態下欄位仍在 DOM 裡、送得出去(`details` 只是不顯示)⇒ 隱藏欄位不必搬出去。
+    <details
+      open={formOpen}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+      className='mt-4 border-t pt-4'
+    >
+      <summary className='text-muted-foreground mb-3 cursor-pointer text-xs font-medium'>
+        新增收款
+      </summary>
+      <form action={formAction}>
 
       <input type='hidden' name={PAY_ORDER_ID_FIELD} value={orderId} />
       <input type='hidden' name={ORDER_RETURN_TO_FIELD} value={returnTo} />
@@ -323,6 +348,7 @@ export function PaymentRecordForm({
       >
         {isPending ? '登錄中…' : '登錄這筆收款'}
       </button>
-    </form>
+      </form>
+    </details>
   );
 }

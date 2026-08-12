@@ -301,11 +301,11 @@ describe('S2:換單必須換掉整個表單實例(key={orderId})', () => {
   it('A 單失敗後導覽到 B 單,送出的不是 A 單那把鍵', async () => {
     const payments = { status: 'ok', rows: [] } as const;
     const { container, rerender } = render(
-      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={payments} />,
+      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={payments} amountDue={0} />,
     );
     await failWith(container, 'error', failureValues(STAMP_A));
 
-    rerender(<PaymentSection orderId={ORDER_B} returnTo={RETURN_TO} payments={payments} />);
+    rerender(<PaymentSection orderId={ORDER_B} returnTo={RETURN_TO} payments={payments} amountDue={0} />);
 
     actionMock.mockResolvedValue({ status: 'idle' });
     arm(container);
@@ -322,7 +322,7 @@ describe('S3:明細讀不到 ⇒ 表單留著、只停用送出', () => {
   //    重新掛載 = 新印章 = 重複入帳那條路 ⇒ 本格紅。
   it.each(['unreadable', 'order_not_found'] as const)('%s:表單在、送出停用', (status) => {
     const { container } = render(
-      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status }} />,
+      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status }} amountDue={0} />,
     );
     expect(container.querySelector('form')).not.toBeNull();
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
@@ -338,14 +338,14 @@ describe('S3:明細讀不到 ⇒ 表單留著、只停用送出', () => {
   it('失敗態 + 明細讀不到:畫面上不得出現叫他「重新整理」的話', async () => {
     const ok = { status: 'ok', rows: [] } as const;
     const { container, rerender } = render(
-      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={ok} />,
+      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={ok} amountDue={0} />,
     );
     await failWith(container, 'error', failureValues(STAMP_A));
     // 前提自斷言:失敗訊息真的在畫面上(否則下面等於在空畫面上驗「沒有那四個字」)。
     expect(container.textContent).toContain('可能已經寫進去了');
 
     rerender(
-      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status: 'unreadable' }} />,
+      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status: 'unreadable' }} amountDue={0} />,
     );
     const text = container.querySelector('form')!.textContent ?? '';
     expect(text).toContain('可能已經寫進去了'); // 失敗訊息還在 ⇒ 兩段確實同框
@@ -360,7 +360,7 @@ describe('S3:明細讀不到 ⇒ 表單留著、只停用送出', () => {
   // 🔴 少了這格,上面那條可以用「把兩段字都刪光」通過 —— 那不是修好,是把話說沒了。
   it('沒有失敗態、只是明細讀不到:仍然要叫他重新整理', () => {
     const { container } = render(
-      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status: 'unreadable' }} />,
+      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status: 'unreadable' }} amountDue={0} />,
     );
     expect(container.querySelector('form')!.textContent).toContain('請先重新整理');
   });
@@ -373,17 +373,17 @@ describe('S3:明細讀不到 ⇒ 表單留著、只停用送出', () => {
   it('失敗後明細一度讀不到、再恢復 —— 送出的仍是失敗那次的舊鍵', async () => {
     const ok = { status: 'ok', rows: [] } as const;
     const { container, rerender } = render(
-      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={ok} />,
+      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={ok} amountDue={0} />,
     );
     await failWith(container, 'error', failureValues(STAMP_A));
 
     rerender(
-      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status: 'unreadable' }} />,
+      <PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={{ status: 'unreadable' }} amountDue={0} />,
     );
     // 讀不到的那一刻送不出去(前提自斷言:閘真的關了,不然下面的恢復沒有意義)。
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
 
-    rerender(<PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={ok} />);
+    rerender(<PaymentSection orderId={ORDER_A} returnTo={RETURN_TO} payments={ok} amountDue={0} />);
 
     actionMock.mockResolvedValue({ status: 'idle' });
     arm(container);

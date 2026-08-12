@@ -146,7 +146,10 @@ async function renderPage() {
  */
 function expectPageRendered(container: HTMLElement) {
   expect(container.textContent).toContain('ABC123');
-  expect(container.textContent).toContain('已登錄的收款');
+  // 🔴 #437 ① 把標題改成「收款」之後**不能**再拿它當子字串錨 ——
+  //    「尚未登錄任何收款」「新增收款」都含這兩個字 ⇒ 收款區塊整個消失也照樣綠。
+  //    改用結構錨:`paymentSection()` 找不到 `<h2>收款</h2>` 的 section 會 throw。
+  expect(paymentSection(container)).not.toBeNull();
 }
 
 /**
@@ -155,15 +158,15 @@ function expectPageRendered(container: HTMLElement) {
  *  · `'0 筆'` —— 備註區塊逐字也有「0 筆」。
  *  ⇒ 拿整頁比對的話,`not.toContain` 會被**別人的**文字弄紅(這次),
  *    而反過來 `toContain` 會被別人的文字弄**綠**(更糟:收款區塊整個消失也照樣過)。
- *  取區塊的錨 = `<h2>已登錄的收款</h2>` 所在的 `<section>`(`payment-list.tsx` 逐字)。
+ *  取區塊的錨 = `<h2>收款</h2>` 所在的 `<section>`(`payment-list.tsx` 逐字)。
  * ⚠️ 找不到就 throw,不回 null —— 回 null 會讓後面每一條斷言變成對空字串發問。
  */
 function paymentSection(container: HTMLElement): HTMLElement {
   const heading = Array.from(container.querySelectorAll('h2')).find(
-    (h) => h.textContent === '已登錄的收款',
+    (h) => h.textContent === '收款',
   );
   const section = heading?.closest('section');
-  if (!section) throw new Error('找不到收款區塊(<h2>已登錄的收款</h2> 的 section)');
+  if (!section) throw new Error('找不到收款區塊(<h2>收款</h2> 的 section)');
   return section as HTMLElement;
 }
 

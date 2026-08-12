@@ -20,14 +20,17 @@ export function PaymentSection({
   orderId,
   returnTo,
   payments,
+  amountDue,
 }: {
   orderId: string;
   returnTo: string;
   payments: PaymentListData;
+  /** 應收總額(整數元)——#437 ④ 卡頂彙總行用;由 order-detail 從 `detail.total.amount` 直傳。 */
+  amountDue: number;
 }) {
   const stamp = mintPaymentFormStamp(new Date());
   return (
-    <PaymentList data={payments}>
+    <PaymentList data={payments} amountDue={amountDue}>
       {/* 🔴 `key={orderId}`:換單必須換掉整個表單實例 —— 冪等鍵的作用域是**這張單**
           (`payment-action-state.ts:24-28` 逐字:同一把鍵用在另一張單上 DB 擋不到)。
           少了它,從 A 單的失敗態導覽到 B 單會把 A 的舊鍵帶過去。 */}

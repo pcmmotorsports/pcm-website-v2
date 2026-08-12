@@ -641,7 +641,10 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     });
     expect(panelUi).not.toBeNull();
     const panel = render(panelUi as React.ReactElement).container;
-    expect(panel.textContent, '面板版少了收款明細').toContain('已登錄的收款');
+    // 🔴 #437 ① 把標題改成「收款」之後,拿它當子字串錨判別力太弱
+    //    (「尚未登錄任何收款」「新增收款」都含它)⇒ 改用結構錨:
+    //    `paymentSection()` 找不到 `<h2>收款</h2>` 的 section 會 throw。
+    expect(paymentSection(panel), '面板版少了收款明細').not.toBeNull();
     expect(panel.textContent).toContain('7,531');
 
     const DetailPage = (await import('../orders/[id]/page')).default;
@@ -650,7 +653,7 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
       searchParams: Promise.resolve({}),
     });
     const { container } = render(ui as React.ReactElement);
-    expect(container.textContent, '整頁版少了收款明細').toContain('已登錄的收款');
+    expect(paymentSection(container), '整頁版少了收款明細').not.toBeNull();
     expect(container.textContent).toContain('7,531');
   });
 
@@ -695,10 +698,10 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
 /** 收款那張卡(用區塊標題錨定;找不到就 throw,不讓「找不到」偽裝成「值是 null」)。 */
 function paymentSection(container: HTMLElement): HTMLElement {
   const heading = Array.from(container.querySelectorAll('h2')).find(
-    (h) => h.textContent === '已登錄的收款',
+    (h) => h.textContent === '收款',
   );
   const section = heading?.closest('section');
-  if (!section) throw new Error('找不到收款區塊(<h2>已登錄的收款</h2> 的 section)');
+  if (!section) throw new Error('找不到收款區塊(<h2>收款</h2> 的 section)');
   return section as HTMLElement;
 }
 
