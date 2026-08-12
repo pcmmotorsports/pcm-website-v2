@@ -11510,3 +11510,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   🔴 條目本身經過一次自我更正:原提案「補閾值告警」在開檔實查後發現守門已存在,
   才收斂成現在的「bypass 無稽核」——**記在這裡免得下一個人又提一次已經存在的東西**。
 - **分流標籤:** `P1-before-launch`
+
+### #434. 🧹 Next 16.3.0 `next dev` 自動產 app 層 `AGENTS.md`/`CLAUDE.md` —— 治本=`agentRules: false`(現行只用 .gitignore 擋)
+
+- **現況:** Next 16.3.0 起 `next dev` 啟動即在 app 目錄產 `AGENTS.md` + `CLAUDE.md`(後者內容=`@AGENTS.md` 一行 @import;D 窗 08-12 實測於 `apps/admin/`,storefront 未測、同版推測相同)。Claude Code 對目錄層 `CLAUDE.md` 自動載入 ⇒ Next 的規則被注入每個在該目錄工作的視窗 context,與常載規則「永不加 @import」牴觸。
+- **已做(治標):** `.gitignore` 加 `apps/*/AGENTS.md` + `apps/*/CLAUDE.md`(Sean 2026-08-12 拍 Q-D11=A)——只解樹髒,**擋不住自動載入**(檔案仍會被產出、仍在磁碟上)。
+- **治本做法:** `next.config` 設 `agentRules: false`(啟動訊息自帶提示)。動 next.config=鐵則 8+12④ ⇒ 要小 plan+對抗審查,**隨下一個動 next.config 的片一起帶**、不單獨開片。
+- **不修未來會痛在哪:** 可維護性=每個開 dev server 的視窗都被塞一份外來 agent 規則,與 PCM 制度檔打架時無人察覺;bug 可追蹤性=視窗行為異常時多一個看不見的規則來源要排除。
+- **估時:** 併片 5 分(單一 config 鍵)。
+- **依賴:** 無;等任一動 next.config 的片。
+- **發現於:** 2026-08-12 / D 窗八代(`D-545-NOTE` §4)。
+- **分流標籤:** `P2-after-launch-ok`

@@ -92,3 +92,8 @@ graphify-out/
 # 例外必須放在廣義規則之後、否則會被上面那行蓋掉(範例檔無真密碼、需入 git 供對照)
 !.env.example
 !**/.env.example
+# Next 16.3.0 起 next dev 自動產 app 層 agent 檔(內容=@import,會被 Claude Code 自動載入=外來規則注入)。
+# Sean 2026-08-12 拍 Q-D11=A:先擋;治本=next.config agentRules:false(#434,隨下一個動 next.config 的片)。
+# 只擋 apps/ 層,repo 根目錄的 CLAUDE.md/AGENTS.md 是我們自己的制度檔、不受影響。
+apps/*/AGENTS.md
+apps/*/CLAUDE.md
