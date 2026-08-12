@@ -35,6 +35,22 @@ PORT="${PORT:?🔴 PORT 必須顯式帶(本支無預設值;建議 54375)}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 FN="public.admin_compute_order_settlement"
 MIG="supabase/migrations/20260811030000_m4b_e10_op6a_compute_order_settlement.sql"
+# 🔴 沖銷片(`20260812140000`)用 CREATE OR REPLACE **改寫了本函式的退款面②**(改吃 canonical view)。
+#    本檔原本的還原動作是 `psql -f "$MIG"` = 重放**原版**定義 ⇒ 會把沖銷片的改寫默默蓋掉,
+#    突變段之後的每一格(含 P6-2c/2d)都在測舊版。⇒ 還原一律走 restore_op6a(),不要直接 -f "$MIG"。
+# 可覆寫僅供突變驗 MR 這道守門(指到不含 op6a 定義的檔 ⇒ 疊回去變 no-op ⇒ MR 必紅)
+SIC_MIG="${SIC_MIG:-supabase/migrations/20260812140000_m4b_lifecycle_refund_manual_reversal.sql}"
+restore_op6a () {
+  psql "$URL" -qtA -v ON_ERROR_STOP=1 -f "$MIG" >/dev/null || return 1
+  # 沖銷片已 apply(以 canonical view 是否存在判斷)⇒ 把它那版 op6a 疊回去
+  if [ "$(psql "$URL" -qtA -c "SELECT count(*) FROM pg_class WHERE relname='payment_refund_effective_terminal';")" != "0" ]; then
+    test -f "$SIC_MIG" || return 1
+    # 🔴 單引號:雙引號裡 `\$fn` 會被 shell 當變數展開、把 sed 樣式打爛(實測還原失敗)
+    sed -n '/^CREATE OR REPLACE FUNCTION public.admin_compute_order_settlement/,/^[$]fn[$];/p' "$SIC_MIG" \
+      | psql "$URL" -qtA -v ON_ERROR_STOP=1 -f - >/dev/null || return 1
+  fi
+  return 0
+}
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ✅ $*"; }
@@ -292,7 +308,7 @@ mutate_and_check () {  # $1=標籤 $2=sed 表達式 $3=order_id $4=突變後期�
   psql "$URL" -qtA -v ON_ERROR_STOP=1 -c "DROP FUNCTION public.admin_compute_order_settlement(uuid);" >/dev/null
   # 突變版跳過結構斷言(它會因為碼錨消失而紅——那正是碼錨在做事,但這裡要測行為)
   sed -n "/^CREATE FUNCTION/,/^\\\$fn\\\$;/p" "$tmp" | psql "$URL" -qtA -v ON_ERROR_STOP=1 -f - >/dev/null 2>&1 \
-    || { bad "$1 突變版套不上"; psql "$URL" -qtA -v ON_ERROR_STOP=1 -f "$MIG" >/dev/null 2>&1; return; }
+    || { bad "$1 突變版套不上"; restore_op6a >/dev/null 2>&1; return; }
   # 🔴 **必須連 REVOKE/GRANT 一起重放**:第一版只 CREATE FUNCTION ⇒ 突變期間那支函式的 ACL
   #    回到 PG 預設的 **PUBLIC 可 EXECUTE**(關卡2 與 reviewer I4 同抓)。
   psql "$URL" -qtA -v ON_ERROR_STOP=1 -c "
@@ -304,8 +320,8 @@ mutate_and_check () {  # $1=標籤 $2=sed 表達式 $3=order_id $4=突變後期�
   # 🔴 還原用**整檔 -f 重放**(含 REVOKE/GRANT 與全部結構/ACL gate)且**檢查成功**:
   #    第一版只重建函式本體、也沒檢查 ⇒ 還原後的狀態沒有任何人驗過(reviewer I4)。
   psql "$URL" -qtA -c "DROP FUNCTION public.admin_compute_order_settlement(uuid);" >/dev/null
-  psql "$URL" -qtA -v ON_ERROR_STOP=1 -f "$MIG" >/dev/null \
-    || die "$1 還原失敗:原版 migration 重放不回去 ⇒ 後面每一格都在測一個沒人驗過的狀態"
+  restore_op6a \
+    || die "$1 還原失敗:op6a 重放不回去(原版或沖銷片改寫版)⇒ 後面每一格都在測一個沒人驗過的狀態"
 }
 mutate_and_check "M1 P1 恆真" "s/(o.ps IN ('unpaid','paid','partiallyPaid')) IS TRUE/(true) IS TRUE/" "$O_P1" settled
 # 🔴 M2 拆成**逐腿**:P2 是三個子條件的 AND,只鬆一腿而 fixture 踩的是另一腿 ⇒ 翻不動,
@@ -330,6 +346,18 @@ mutate_and_check "M2b P2 的 canc.n 腿恆真" \
 #    (「誰引用了我剛改的東西」——突變靶就是引用者)。改 migration 那一行時要同步改這裡。
 mutate_and_check "M3 P3 恆真" "s/(items.n > 0 AND items.sum_line = o.subtotal::bigint) IS TRUE/(true) IS TRUE                                     /" "$O_P3" settled
 mutate_and_check "M6 P6 恆真" "s/AND ref.anom_n = 0) IS TRUE/AND ref.anom_n >= 0) IS TRUE/" "$O_R4" settled
+
+# 🔴 突變段的還原若把沖銷片的改寫蓋掉,上面每一格與下面每一格都在測**舊 op6a**,而且全綠。
+#    這一格就是 restore_op6a() 自己的守門:拿掉它那段疊回去的邏輯 ⇒ 本格必紅。
+if [ "$(psql "$URL" -qtA -c "SELECT count(*) FROM pg_class WHERE relname='payment_refund_effective_terminal';")" != "0" ]; then
+  if [ "$(psql "$URL" -qtA -c "SELECT (p.prosrc LIKE '%payment_refund_effective_terminal%')::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='admin_compute_order_settlement';")" = "true" ]; then
+    ok "MR 突變還原後 op6a 仍是沖銷片那版(吃 canonical view)"
+  else
+    bad "MR 突變還原把沖銷片的 op6a 改寫蓋掉了 ⇒ 本檔從突變段之後都在測舊版(全綠也不算數)"
+  fi
+else
+  ok "MR 沖銷片未 apply(canonical view 不存在)⇒ 本格不適用,原版 op6a 即正確狀態"
+fi
 echo "  ℹ️  M4(前提 4)**刻意不做恆真突變**:四個子條件全被 DDL/trigger 先擋"
 echo "     (op2a P2B31 未來時間 / composite FK 同單 / one_reversal_uniq / OP2b P2B33 反號)"
 echo "     ⇒ 沒有可構造樣本會翻。要真測必須先 DISABLE TRIGGER/DROP CONSTRAINT 灌毒列,"
@@ -460,7 +488,19 @@ mutate_and_check "M7 P7 恆真" \
 
 # 🔴🔴 本檔自己的假綠守門(實錘:一個多餘的反斜線讓 M2b 變成上一行的參數、整格沒跑,
 #    而 PASS=33 FAIL=0 看起來完全健康)。⇒ 宣告格數與實跑格數必須相等。
-EXPECTED_CELLS="${EXPECTED_CELLS:-49}"   # 純測試格數(不含 provision/teardown);可覆寫僅供突變驗這道守門
+# 🔴 **R1 nit #13**:MR 格原本插在 M6 與 M7 之間,而 M7 之後還會再跑一次 restore_op6a ——
+#    那一次沒有任何格子看著。守門要畫在「最後一次還原之後」,不是中間。
+if [ "$(psql "$URL" -qtA -c "SELECT count(*) FROM pg_class WHERE relname='payment_refund_effective_terminal';")" != "0" ]; then
+  if [ "$(psql "$URL" -qtA -c "SELECT (p.prosrc LIKE '%payment_refund_effective_terminal%')::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='admin_compute_order_settlement';")" = "true" ]; then
+    ok "MR2 **最後一次**突變還原後 op6a 仍是沖銷片那版"
+  else
+    bad "MR2 最後一次還原把沖銷片的 op6a 蓋掉了(M7 之後那次沒人看著)"
+  fi
+else
+  ok "MR2 沖銷片未 apply ⇒ 本格不適用"
+fi
+
+EXPECTED_CELLS="${EXPECTED_CELLS:-51}"   # 純測試格數(49→51:沖銷片加了 MR/MR2 兩道還原守門格)(不含 provision/teardown);可覆寫僅供突變驗這道守門
 echo ""
 if [ $((PASS + FAIL)) -ne "$EXPECTED_CELLS" ]; then
   echo "🔴 實跑格數 $((PASS + FAIL)) ≠ 宣告 $EXPECTED_CELLS ⇒ **有格子沒被執行**(語法接錯/提早 return),"

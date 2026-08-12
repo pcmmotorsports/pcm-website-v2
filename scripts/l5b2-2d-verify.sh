@@ -105,6 +105,22 @@ if [ -z "$LIVE_ID" ] || [ "$LIVE_ID" != "$WANT_ID" ]; then
 fi
 ok "叢集身分閘:PORT=$PORT 確認是本 workdir provision 的那個叢集"
 
+# ── 🔴 沖銷片(`20260812140000`)疊在 2d 之上,先把它退掉 ────────────────────────
+# 它 DROP 了 `pre_one_terminal_uniq`,而本檔整套 pre-image 斷言與 `l5b2-2d-rollback.sql`
+# 的第一道閘都以那顆索引存在為前提 ⇒ 不先退它,`reset_preimage` 第一次就會死在別人的閘上。
+# **只在它的產物還在時退一次**:退完 canonical view 就不在了,重複呼叫會把值域推回錯的方向
+# (2d-rollback 之後值域是六值,再跑一次沖銷片回退會變回七值)。
+SIC_ROLLBACK="scripts/refund-manual-reversal-rollback.sql"
+if [ "$(q "SELECT count(*) FROM pg_class WHERE relname='payment_refund_effective_terminal';")" != "0" ]; then
+  test -f "$SIC_ROLLBACK" || { echo "🔴 找不到 $SIC_ROLLBACK,但庫內有沖銷片的產物 ⇒ 退不掉,拒跑"; exit 1; }
+  if ! psql "$URL" -v ON_ERROR_STOP=1 -f "$SIC_ROLLBACK" > "$MUTDIR/sic-rollback.log" 2>&1; then
+    echo "🔴 沖銷片回退失敗 ⇒ 本檔的 pre-image 前提不成立,停止。log:"; tail -5 "$MUTDIR/sic-rollback.log"; exit 1
+  fi
+  # 🔴 用 echo 不用 ok():這一步在 run 模式下不一定觸發(叢集可能已退過)
+  #    ⇒ 計進 PASS 會讓釘死的 EXPECT_TOTAL 忽大忽小。失敗路徑上面已 exit 1。
+  echo "  --   沖銷片已退回(pre_one_terminal_uniq 已還原,2d 的 pre-image 前提恢復)"
+fi
+
 # 🔴 **必須把 exit code 併進輸出**(2c 的 R2 實測命中):psql 連線失敗印的是小寫
 #    `psql: error: connection to server … failed`、exit=2,輸出裡**沒有大寫 ERROR**
 #    ⇒ 所有 `grep -qE 'ERROR'` 的正向格會判成成功。最壞情況=叢集掛掉而 PASS=EXPECT_TOTAL。

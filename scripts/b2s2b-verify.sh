@@ -451,8 +451,20 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    ⚠️ **D 窗原本寫的理由是錯的**(「grep 命中兩處皆註解」):甲片正是**透過 trigger 間接動 oiqs**,
 #    而**文字 grep 對 trigger 的間接效果全盲** —— 那條理由在這片剛好不成立,已由 B 窗實測更正。
 #    (判準本身要不要改成「有沒有重定義被釘的 helper」= B 窗另出小片,不在甲片。)
-[ "$NEWEST_TS" = "20260811110000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260811110000 ——
+# 🔴 重釘 2026-08-12(沖銷片):20260811110000 -> 20260812140000 = **兩顆** delta,不是一顆:
+#    ①`20260811120000`(#412 服務與其他分類,S 窗)—— 只 INSERT/UPDATE `categories`,零 DDL;
+#      🔴 它落地時**沒有人重釘這八個錨** ⇒ 本檔在沖銷片之前就已經是過期的、跑起來就 die。
+#    ②`20260812140000`(沖銷片,P 窗)—— payment_refund_events 加三欄+沖銷 trigger/canonical view/
+#      修改判定 RPC,並 CREATE OR REPLACE 改寫 op6a 的退款面②。
+#    交集量測(排除註解與錨行本身,因為錨行自己就含那些字面 —— 見 w6b3:208 記載的自我否證):
+#      `grep -v '20260812140000' <本檔> | grep -v '^#' | grep -c -E 'payment_refund_events|payment_refunds|
+#       pre_one_terminal_uniq|pre_event_type_chk|payment_refund_effective_terminal|
+#       admin_compute_order_settlement|admin_correct_refund_manual_verdict|pre_one_reversal_uniq|categories'`
+#      → **八支全部 0 命中**(2026-08-12 實跑)⇒ 與本檔被測面(出貨/取消/收款競態)無交集。
+#    🔴 本檔的錨是**行內字面、不叫 LINE_TIP**(:419 自陳的坑:換個錨名就逃過重釘檢查)⇒
+#       這次是照那條教訓 grep 舊值 `20260811110000` 找到的,不是 grep 變數名。
+[ "$NEWEST_TS" = "20260812140000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260812140000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 
