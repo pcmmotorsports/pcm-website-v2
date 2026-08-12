@@ -29,11 +29,12 @@
 //    先擋只是不要讓員工按了才看到錯誤。
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { unstable_isUnrecognizedActionError } from 'next/navigation';
 import { ReceiptPanel, useReceiptEntry } from './receipt-panel';
 import { toMessage } from '../../lib/shipping/error-message';
 import { parseShipmentError } from '../../lib/shipping/shipment-error-view';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
-import { blockedText, emptySelectionMessage } from './shipment-dialog-copy';
+import { blockedText, emptySelectionMessage, staleDeploymentMessage } from './shipment-dialog-copy';
 import { submitShipment, type SubmitShipmentResult } from '../../lib/shipping/shipment-actions';
 
 type Recipient = { name: string | null; phone: string | null; line: string | null };
@@ -104,6 +105,15 @@ export function ShipmentDialog({
    * 不是這顆旗標;旗標**做不到**,因為 client 手上根本沒有那一次的結果。
    */
   const everCreatedRef = useRef(false);
+  /**
+   * 🔴 **有沒有任何一次送出「結果不明」**(R3 F1)—— 傳輸層 throw 時設 true,只增不減。
+   *
+   * 為什麼不能用 `everCreatedRef` 代替:那顆只在**拿到回傳**時才變 true,而傳輸層 throw
+   * 的定義就是「沒拿到回傳」—— 那一次 server 端可能**已經 commit 了箱**(見上面那條殘留邊界)。
+   * ⇒ 「這個彈窗有沒有可能已經在後端留下一個箱」= `everCreatedRef || unknownOutcomeRef`,
+   *   而不是單看前者。換版文案的「不會多出一箱」就是掛在這個判準上。
+   */
+  const unknownOutcomeRef = useRef(false);
 
   // 入口 2(#352-b-2):狀態機抽到 `receipt-panel.tsx`(鐵則 6,見該檔頭)。
   const { receiptFor, choices, choicesState, openReceipt, closeReceipt, refreshChoices } =
@@ -197,6 +207,29 @@ export function ShipmentDialog({
         //      ⇒ **空箱在出貨卡上根本看不到**,叫他去那裡找等於叫他去看一個不會顯示的東西。
         //    ⇒ 正解就是本檔開頭那條紀律:**同一把鍵再送一次**,建箱會被認成重放(不會多一箱),
         //      掛品項接著補上。(codex R3 抓到:我的文案與本檔自己寫的復原路徑互相矛盾。)
+        // 🔴🔴 **換版與斷線要分流,因為「再按一次」在換版下是錯的指示。**
+        //    部署換版後,這個分頁載入的是舊 build,它編出來的 action id 在新 deployment 上不存在
+        //    ⇒ Next 在**收到回應標頭之後**丟 `UnrecognizedActionError`
+        //    (`server-action-reducer.js:94-100`;自動重送只涵蓋離線那條 `:78-90`)。
+        //    再按一次送的是**同一個 id**(id 綁在已載入的 bundle 裡)⇒ 永遠拿到同一顆錯誤。
+        //    ⇒ 唯一出路是重新整理讓瀏覽器換到新 build。
+        // 🔴 文案本體(含「什麼都沒送出去」的原始碼依據、以及半成品箱那條分岔)在
+        //    `shipment-dialog-copy.ts` 的 `staleDeploymentMessage()` —— 抽出去的理由同本檔其他文案:
+        //    鐵則 6(本檔已過 400 行),而且文案這種東西要能被單獨測、不必先 render 整個彈窗。
+        if (unstable_isUnrecognizedActionError(e)) {
+          setResult({
+            ok: false,
+            // 🔴 判準是「**可能**建出過」(R1 must-fix 1 + R3 F1):確定建出過(半成品箱)
+            //    與結果不明(前一次撞斷線)兩種都會讓「不會多出一箱」變成假話。
+            message: staleDeploymentMessage(everCreatedRef.current || unknownOutcomeRef.current),
+            shipmentReference: null,
+            code: null,
+          });
+          return;
+        }
+        // 🔴 **這一次的結果不明**(R3 F1):沒拿到回傳 ⇒ server 可能已 commit 箱、也可能沒有。
+        //    記下來,之後若撞上換版分支,那句「不會多出一箱」才不會說謊。
+        unknownOutcomeRef.current = true;
         setResult({
           ok: false,
           message: `${toMessage(e)}(送出中斷線或伺服器沒回應。⚠️ 請**直接再按一次同一顆按鈕** —— 這個視窗還握著同一把冪等鍵,重送不會重複建箱。🔴 不要關掉視窗重來:關掉就換一把鍵了,那才會真的多出一箱。)`,

@@ -21,7 +21,7 @@
 //    帶成交價與會員等級,整包進 client props = 序列化進 RSC payload。
 
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, unstable_isUnrecognizedActionError } from 'next/navigation';
 import { ShipmentDialog } from './shipment-dialog';
 import { toMessage } from '../../lib/shipping/error-message';
 import { fetchShipmentCandidates } from '../../lib/shipping/shipment-actions';
@@ -111,6 +111,15 @@ export function useShipmentLauncher(
       }
       setOpen({ key: crypto.randomUUID(), data });
     } catch (e) {
+      // 🔴 **換版要單獨分流**:部署換版後,舊分頁編出來的 server action id 在新 deployment 上不存在
+      //    ⇒ Next 丟 `UnrecognizedActionError`,而 `toMessage` 會把它的英文原文
+      //    (`Server Action "…" was not found on the server.`)整句丟給員工 = 純噪音、零指示。
+      //    本檔這條路**零副作用**(只是讀候選、還沒建任何箱)⇒ 文案就是「重新整理」,
+      //    **不要**複製建箱彈窗那套冪等鍵論述(那套的前提是東西可能已經送出去了)。
+      if (unstable_isUnrecognizedActionError(e)) {
+        setError('這個頁面是舊版本,系統剛更新過。請重新整理頁面再試一次(這次沒有送出任何東西)。');
+        return;
+      }
       // 🔴 走共用的 `toMessage`,不要自己寫 `String(e)` —— Supabase 丟的 `PostgrestError`
       //    不是 `Error` 實例,`String(e)` 會印出 `[object Object]`(2026-08-09 正式站實測過的症狀)。
       setError(toMessage(e));

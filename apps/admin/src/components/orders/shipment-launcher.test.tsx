@@ -28,7 +28,14 @@ const {
   recordItemReceiptAction: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
+// 🔴 **保留真模組、只換掉 `useRouter`**(原本是整包替換)。
+//    整包替換的話 `unstable_isUnrecognizedActionError` 會是 `undefined` ⇒ 元件的 catch 一走就 TypeError
+//    (實測:本檔既有兩格當場紅)。而且**不可以拿假的 predicate 頂替** —— 那樣這裡驗的是
+//    我自己寫的假設,不是 Next 真的怎麼判(換版分支的唯一判準就是它)。
+vi.mock('next/navigation', async () => ({
+  ...(await vi.importActual<typeof import('next/navigation')>('next/navigation')),
+  useRouter: () => ({ refresh }),
+}));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ fetchShipmentCandidates, submitShipment }));
 vi.mock('../../lib/orders/receipt-actions', () => ({
   fetchItemProcurementChoices,
@@ -36,6 +43,7 @@ vi.mock('../../lib/orders/receipt-actions', () => ({
 }));
 
 import { OrderShipButton } from './shipment-launcher';
+import { UnrecognizedActionError } from 'next/dist/client/components/unrecognized-action-error';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
 // 🔴 **標型別**(2026-08-10 R2 抓到):不標的話漏一個欄位 `vi.fn()` 不會有任何抱怨,
@@ -94,6 +102,21 @@ describe('🔴🔴 錯誤訊息 — PostgrestError 是普通物件,不是 Error 
     render(<OrderShipButton orderId='o1' />);
     click();
     await waitFor(() => expect(screen.queryByText('伺服器沒有回應')).not.toBeNull());
+  });
+
+  it('🔴 **換版**時不得把 Next 的英文原文丟給員工,要講「重新整理」', async () => {
+    // 🔴 真的 `UnrecognizedActionError`(深引入理由同 `shipment-dialog.test.tsx`):
+    //    元件的判定是 instanceof,假物件驗不到真分支。
+    fetchShipmentCandidates.mockRejectedValue(
+      new UnrecognizedActionError('Server Action "abc" was not found on the server.'),
+    );
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByText(/重新整理/)).not.toBeNull());
+    const text = document.body.textContent ?? '';
+    expect(text, '英文原文對非工程師是純噪音,而且零指示').not.toMatch(/was not found on the server/);
+    // 🔴 這條路是**讀候選**、零副作用 ⇒ 不得複製建箱那套冪等鍵論述(會讓員工以為東西送出去了)。
+    expect(text, '這裡沒有冪等鍵可言,講它只會讓員工更怕').not.toMatch(/冪等|再按一次/);
   });
 });
 
