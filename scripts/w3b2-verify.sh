@@ -23,7 +23,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W3BDB:-/tmp/w3bdb}"; SOCK="${W3BSOCK:-/tmp/w3bsk}"; P="${W3BPORT:-54395}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=32   # 🔴 量出來的。全綠時 PASS = 32 + CELL-ACCOUNT + CELL-KEYSET = 34。(#420-4 加 TMUT-SHAPE)
+EXPECT_TOTAL=34   # 🔴 量出來的。全綠時 PASS = 34 + CELL-ACCOUNT + CELL-KEYSET = 36。(#420-4 加 TMUT-SHAPE;#441②③ 加 SHAPE-12/13)
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -246,13 +246,15 @@ for t in "NULL|pcm_b2_w3b2_items_shape" \
          "'[{\"order_item_id\":null,\"quantity\":1}]'::jsonb|pcm_b2_w3b2_items_shape" \
          "'[{\"order_item_id\":\"not-a-uuid\",\"quantity\":1}]'::jsonb|pcm_b2_w3b2_items_shape" \
          "'[{\"order_item_id\":\"$OI1\",\"quantity\":10000000000}]'::jsonb|pcm_b2_w3b2_items_shape" \
-         "'[{\"order_item_id\":\"$OI1\",\"quantity\":1},{\"order_item_id\":\"$OI1\",\"quantity\":1}]'::jsonb|pcm_b2_w3b2_items_duplicate"; do
+         "'[{\"order_item_id\":\"$OI1\",\"quantity\":1},{\"order_item_id\":\"$OI1\",\"quantity\":1}]'::jsonb|pcm_b2_w3b2_items_duplicate" \
+         "'5'::jsonb|pcm_b2_w3b2_items_shape" \
+         "'[{\"order_item_id\":\"$OI1\",\"quantity\":\"3\"}]'::jsonb|pcm_b2_w3b2_items_shape"; do
   i=$((i+1)); ARG="${t%%|*}"; WANT="P2B26|${t#*|}"
   C="$(cap "public.admin_add_shipment_items('sh-$i','$SHIP',$ARG)")"
   [ "$C" = "$WANT" ] && ok "W3B2-SHAPE-$i" "形狀契約逐字($WANT)✓" || bad "W3B2-SHAPE-$i" "實得 [$C] 期望 [$WANT]"
   # 🔴 #420-4:把**這一格用過的那個 payload 與期望值**存下來給下方 `TMUT-SHAPE` 重用。
   #    不讓突變靶自己另抄一份清單 —— 抄一份就會漂,而漂了以後靶紅的是「靶自己的輸入」、
-  #    不是「這十一格的輸入」(同族=`feedback_assertion-measures-the-wrong-thing` 的冒領形狀)。
+  #    不是「這十三格的輸入」(同族=`feedback_assertion-measures-the-wrong-thing` 的冒領形狀)。
   SHAPE_ARGS="$SHAPE_ARGS$ARG@@"; SHAPE_WANT="$SHAPE_WANT$WANT@@"
 done
 
@@ -408,11 +410,11 @@ case "$C" in
 esac
 
 echo "══ 6. 🔴 突變靶 ═══════════════════════════════════════════"
-# ══ #420-4:形狀契約整族(W3B2-SHAPE-1..11)本來**零靶** ══════════════
-# 🔴 為什麼不能「拿掉整段形狀驗證、看十一格一起紅」:那只證明「有東西在擋」,
-#    證不到**每一格各自守的那個子條件**還在。這十一格其實打在 **6 道閘**上,
+# ══ #420-4:形狀契約整族本來**零靶**(當時為 `W3B2-SHAPE-1..11`;#441②③ 後擴為 `1..13`)══
+# 🔴 為什麼不能「拿掉整段形狀驗證、看十三格一起紅」:那只證明「有東西在擋」,
+#    證不到**每一格各自守的那個子條件**還在。這十三格其實打在 **6 道閘**上,
 #    而同一道閘裡的子條件彼此蘊含(例:`order_item_id: null` 就算穿過型別那半,
-#    也會被同閘的 uuid 正規式接住)⇒ 整族一發打完 = 十一格共用一個結論。
+#    也會被同閘的 uuid 正規式接住)⇒ 整族一發打完 = 十三格共用一個結論。
 #    ⇒ 靶必須**逐子條件放寬**,而且每一發都要驗「**只**紅它對應的那幾格、其餘保持綠」。
 # 🔴 突變體怎麼產:用 `pg_get_functiondef` 回讀**現行定義**、在 SQL 層 `replace` 一個子條件、
 #    再 `\gexec` 套回去 —— **不手抄函式本體**(手抄會漂、抄錯還會靜默放行)。
@@ -420,8 +422,8 @@ echo "══ 6. 🔴 突變靶 ════════════════�
 # 🔴 每一發都有三道自證,少一道就會把「我的突變沒套上」講成「守門歸屬錯」
 #    (這正是本檔 `DDL-SYNTAX` 與 `TMUT-FRONTEDGE` 記過的那族,#420-3 也才因此被審回兩輪):
 #    ① needle 在定義裡**恰好出現 1 次**(出現 0 次=沒打中;>1 次=順手改壞了別的地方)
-#    ② 套用後 needle **真的不見了**  ③ 十一格的觀察值逐格回報,紅格集合要**逐字等於**預期。
-# 🔴 payload 不另抄一份,直接重用上面那十一格用過的 `$SHAPE_ARGS`(見 :2 節迴圈尾)。
+#    ② 套用後 needle **真的不見了**  ③ 十三格的觀察值逐格回報,紅格集合要**逐字等於**預期。
+# 🔴 payload 不另抄一份,直接重用上面那十三格用過的 `$SHAPE_ARGS`(見 :2 節迴圈尾)。
 shape_mut() {   # $1=needle  $2=replacement  $3=(選填)訊息自證 "<格號>:<期望子字串>" → 印「紅格索引」或 ERR:<原因>
   local rest vals a n out i got want mi msub mgot
   rest="$SHAPE_ARGS"; vals=""; n=0
@@ -430,7 +432,7 @@ shape_mut() {   # $1=needle  $2=replacement  $3=(選填)訊息自證 "<格號>:<
     vals="$vals,($n,($a)::jsonb)"
   done
   vals="${vals#,}"
-  [ "$n" = "11" ] || { echo "ERR:payload 只湊到 $n 個(期望 11)"; return; }
+  [ "$n" = "13" ] || { echo "ERR:payload 只湊到 $n 個(期望 13)"; return; }
   out="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA \
           -v ON_ERROR_STOP=1 -v needle="$1" -v repl="$2" -f - 2>&1 <<EOSQL
 BEGIN;
@@ -443,10 +445,10 @@ DO \$p\$
 DECLARE r record; c text; nm text; mg text;
 BEGIN
   FOR r IN SELECT * FROM (VALUES $vals) v(i, items) ORDER BY 1 LOOP
-    -- R1 nit:十一個 payload 跑在同一個交易裡,放寬 quantity 那幾發會讓前面的格**真的寫進列**,
+    -- R1 nit:十三個 payload 跑在同一個交易裡,放寬 quantity 那幾發會讓前面的格**真的寫進列**,
     -- 後面的格就在被前面的格改過的狀態上量。⇒ 每一格跑完都要把自己的寫入收掉。
     -- 🔴 **不能用 SAVEPOINT**:plpgsql 不允許區塊內做交易控制(首版這樣寫 ⇒ DO block 整個炸掉、
-    --    十一發全報「沒有觀察值」—— 又是被三道自證擋下來的,不是靜默變綠)。
+    --    當時十一發全報「沒有觀察值」—— 又是被三道自證擋下來的,不是靜默變綠)。
     --    帶 EXCEPTION 的區塊本身就是隱式 savepoint ⇒ 成功路徑**故意擲一個哨兵例外**讓它回滾,
     --    再於 handler 裡把哨兵翻譯回「無例外」。
     BEGIN
@@ -457,7 +459,7 @@ BEGIN
       IF mg = 'ZZPROBE_OK' THEN c := '(無例外)'; nm := NULL; mg := ''; END IF;
     END;
     -- R1 nit:第三欄的空值表示法**逐字對齊 cap()**(:120 用 '(null)'),兩個觀察面才可互相比對;
-    -- 上面那十一格的期望值就是 cap() 產的,這裡不一致的話比對會在「無 constraint」那類錯上分岔。
+    -- 上面那十三格的期望值就是 cap() 產的,這裡不一致的話比對會在「無 constraint」那類錯上分岔。
     RAISE NOTICE 'SHP|%|%|%', r.i, c, coalesce(nm,'(null)');
     RAISE NOTICE 'SHM|%|%', r.i, coalesce(mg,'');
   END LOOP;
@@ -478,7 +480,7 @@ EOSQL
   while [ -n "$rest" ]; do
     want="${rest%%@@*}"; rest="${rest#*@@}"; i=$((i+1))
     # 🔴 錨點**不能**用 `^SHP|`:psql 的 NOTICE 帶 `NOTICE:  ` 前綴 ⇒ 行首不是 SHP。
-    #    同檔 `cap()`(:120)用的就是 `.*CAP|`,這裡對齊它。首版寫 `^P|` ⇒ 十一發全部
+    #    同檔 `cap()`(:120)用的就是 `.*CAP|`,這裡對齊它。首版寫 `^P|` ⇒ 當時十一發全部
     #    回報「沒有觀察值」—— 被自證擋下來了,而不是靜默判成通過(這正是三道自證的用處)。
     a="$(printf '%s' "$out" | sed -n "s/.*SHP|$i|\(.*\)/\1/p" | head -1)"
     [ -n "$a" ] || { echo "ERR:第 $i 格沒有觀察值(DO block 沒跑完)"; return; }
@@ -506,7 +508,7 @@ while IFS= read -r m; do
   [ "$MFN" = "4" ] || { SHAPE_MUT_BAD="$SHAPE_MUT_BAD [突變表第 $((SHAPE_MUT_N+1)) 行欄位數 $MFN != 4]"; SHAPE_MUT_N=$((SHAPE_MUT_N+1)); continue; }
   NEEDLE="${m%%~~*}"; MREST="${m#*~~}"; REPL="${MREST%%~~*}"; MREST="${MREST#*~~}"
   REDWANT="${MREST%%~~*}"; MSGCHK="${MREST#*~~}"
-  SHAPE_NEEDLES="$SHAPE_NEEDLES$NEEDLE@@"   # 供下方「十一發全還原」逐發掃描
+  SHAPE_NEEDLES="$SHAPE_NEEDLES$NEEDLE@@"   # 供下方「十三發全還原」逐發掃描
   SHAPE_MUT_N=$((SHAPE_MUT_N+1))
   GOT="$(shape_mut "$NEEDLE" "$REPL" "$MSGCHK")"
   case "$GOT" in
@@ -525,18 +527,20 @@ pg_catalog.jsonb_typeof(e.value -> 'order_item_id') <> 'string'~~false~~8~~
 (e.value ->> 'order_item_id') !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'~~false~~9~~
 (e.value ->> 'quantity')::numeric > 10000~~false~~10~~
 IF v_n > 0 THEN~~IF false THEN~~11~~
+pg_catalog.jsonb_typeof(p_items) <> 'array' OR ~~~~12~~
+pg_catalog.jsonb_typeof(e.value -> 'quantity') <> 'number'~~false~~13~~
 EOM
 # 🔴 發數也要凍結:少寫一發 = 少一格沒靶,而上面那個迴圈**不會因此變紅**(它只檢查寫下的那幾發)。
-[ "$SHAPE_MUT_N" = "11" ] || SHAPE_MUT_BAD="$SHAPE_MUT_BAD [突變發數 $SHAPE_MUT_N != 11]"
-# 🔴 R1 nit:十一發都靠交易 ROLLBACK 還原,但「還原了」一路上都是**推論**、沒有常設斷言。
-#    補一道正向。🔴 R2 殘 nit:錨**十一發全掃**、不是只挑第一發 —— 只驗第一發的話,
-#    第 2..11 發任何一發沒還原都看不到,而那正是這道斷言存在的理由(挑一個成員驗整族
+[ "$SHAPE_MUT_N" = "13" ] || SHAPE_MUT_BAD="$SHAPE_MUT_BAD [突變發數 $SHAPE_MUT_N != 13]"
+# 🔴 R1 nit:十三發都靠交易 ROLLBACK 還原,但「還原了」一路上都是**推論**、沒有常設斷言。
+#    補一道正向。🔴 R2 殘 nit:錨**十三發全掃**、不是只挑第一發 —— 只驗第一發的話,
+#    第 2..13 發任何一發沒還原都看不到,而那正是這道斷言存在的理由(挑一個成員驗整族
 #    = 本檔判準四句的第四句「家族格的靶不得只打一個成員」,自己也不能犯)。
-#    壞了併進 SHAPE_MUT_BAD、不另開格(格數維持 32)。
+#    壞了併進 SHAPE_MUT_BAD、不另開格(格數維持 34 = `EXPECT_TOTAL`,見 :26)。
 SHAPE_RST_BAD=""; rest="$SHAPE_NEEDLES"
 while [ -n "$rest" ]; do
   a="${rest%%@@*}"; rest="${rest#*@@}"
-  # 🔴 `:'needle'` 的代換**只在 `-f` 路徑成立**,`-c` 下不代換(首版寫 -c ⇒ 十一發全報
+  # 🔴 `:'needle'` 的代換**只在 `-f` 路徑成立**,`-c` 下不代換(首版寫 -c ⇒ 當時十一發全報
   #    `syntax error at or near ":"`)。上面的 shape_mut 用的就是 `-f -`,這裡對齊它。
   v="$(psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -v needle="$a" -f - 2>&1 <<'EOSQL2' | tr -d '\n'
 SELECT (pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.admin_add_shipment_items(text,uuid,jsonb)'::regprocedure), :'needle') > 0)::text;
@@ -544,9 +548,9 @@ EOSQL2
 )"
   [ "$v" = "true" ] || SHAPE_RST_BAD="$SHAPE_RST_BAD [$(printf '%s' "$a" | cut -c1-30)…=${v:-空}]"
 done
-[ -z "$SHAPE_RST_BAD" ] || SHAPE_MUT_BAD="$SHAPE_MUT_BAD [十一發跑完後函式沒還原:$SHAPE_RST_BAD ⇒ 後面的格全部不可信]"
+[ -z "$SHAPE_RST_BAD" ] || SHAPE_MUT_BAD="$SHAPE_MUT_BAD [十三發跑完後函式沒還原:$SHAPE_RST_BAD ⇒ 後面的格全部不可信]"
 # 🔴🔴 **本格的結論要照事實寫,不是照計畫寫**(#420-4 實跑發現,不是設計時就知道的):
-#    十一發裡有 **十發**如預期「只紅它對應的那一格、其餘十格保持綠」;
+#    十三發裡有 **十二發**如預期「只紅它對應的那一格、其餘十二格保持綠」;
 #    **第 3 發(元素須為物件)紅格集合是空的** —— 拿掉那個子條件後,`[1,2]` 的元素
 #    照樣被同閘的**下一個**子條件(欄位集合須恰為兩欄)擋住,`?&` 對非物件回 false ⇒
 #    `NOT (...)` 為真 ⇒ SQLSTATE 與 CONSTRAINT **完全不變**。
@@ -556,7 +560,7 @@ done
 # 🔴 R1 MF-1:訊息裡**不得用反引號** —— 雙引號內的反引號是命令替換,實跑會吐
 #    W3B2-SHAPE-3: command not found 到 stderr、而 PASS 那行的格名**被吃掉印成空白**
 #    ⇒ 原始碼寫了、輸出沒有,「已寫明」在執行面不成立。改用中括號。
-[ -z "$SHAPE_MUT_BAD" ] && ok TMUT-SHAPE "🔴 十一發逐子條件放寬:**十發**各自只紅它對應的那一格、其餘保持綠;**第 3 發**紅格為空且由訊息換人自證 ⇒ [W3B2-SHAPE-3] 對「元素須為物件」無判別力(見上方註解,已知並寫明,非恆真)" \
+[ -z "$SHAPE_MUT_BAD" ] && ok TMUT-SHAPE "🔴 十三發逐子條件放寬:**十二發**各自只紅它對應的那一格、其餘保持綠;**第 3 發**紅格為空且由訊息換人自證 ⇒ [W3B2-SHAPE-3] 對「元素須為物件」無判別力(見上方註解,已知並寫明,非恆真)" \
                        || bad TMUT-SHAPE "有發次不成立:$SHAPE_MUT_BAD"
 
 # ① 前緣拒絕族:拿掉那一段 ⇒ 超量**真的裝得進箱**(這正是它守的東西)
@@ -590,7 +594,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP]"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="DDL-SYNTAX TMUT-FRONTEDGE TMUT-SHAPE W3B2-ADD-OK W3B2-BOUNDARY W3B2-CROSS-CUSTOMER W3B2-DUP-CASE W3B2-EXCEEDS W3B2-EXCEEDS-MESSAGE W3B2-M3-NO-C9-AT-ADD W3B2-M3-WINDOW-RAW W3B2-NO-SUMMARY-ROW W3B2-PENDING-ACCUM W3B2-PENDING-MESSAGE W3B2-QTY-SCALE W3B2-REPLAY-IDENTICAL W3B2-REPLAY-NO-DOUBLE W3B2-ROWS W3B2-SHAPE-1 W3B2-SHAPE-10 W3B2-SHAPE-11 W3B2-SHAPE-2 W3B2-SHAPE-3 W3B2-SHAPE-4 W3B2-SHAPE-5 W3B2-SHAPE-6 W3B2-SHAPE-7 W3B2-SHAPE-8 W3B2-SHAPE-9 W3B2-SHIP-MISSING W3B2-SHIP-SHIPPED W3B2-SHIP-VOIDED"
+KEYS_FROZEN="DDL-SYNTAX TMUT-FRONTEDGE TMUT-SHAPE W3B2-ADD-OK W3B2-BOUNDARY W3B2-CROSS-CUSTOMER W3B2-DUP-CASE W3B2-EXCEEDS W3B2-EXCEEDS-MESSAGE W3B2-M3-NO-C9-AT-ADD W3B2-M3-WINDOW-RAW W3B2-NO-SUMMARY-ROW W3B2-PENDING-ACCUM W3B2-PENDING-MESSAGE W3B2-QTY-SCALE W3B2-REPLAY-IDENTICAL W3B2-REPLAY-NO-DOUBLE W3B2-ROWS W3B2-SHAPE-1 W3B2-SHAPE-10 W3B2-SHAPE-11 W3B2-SHAPE-12 W3B2-SHAPE-13 W3B2-SHAPE-2 W3B2-SHAPE-3 W3B2-SHAPE-4 W3B2-SHAPE-5 W3B2-SHAPE-6 W3B2-SHAPE-7 W3B2-SHAPE-8 W3B2-SHAPE-9 W3B2-SHIP-MISSING W3B2-SHIP-SHIPPED W3B2-SHIP-VOIDED"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單"; PASS=$((PASS+1))
 else
