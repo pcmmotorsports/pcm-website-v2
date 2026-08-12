@@ -2,6 +2,10 @@
 // ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
 import {
+  PAYMENT_DUPLICATE_RESULT_CODE,
+  PAYMENT_RECORDED_RESULT_CODE,
+} from '../../lib/orders/payment-action-state';
+import {
   PROCUREMENT_CREATED_RESULT_CODE,
   PROCUREMENT_NO_CHANGE_RESULT_CODE,
   PROCUREMENT_UPDATED_RESULT_CODE,
@@ -80,6 +84,16 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    的 `DUPLICATE_DELETED`(RPC 不重新建立 ⇒ 顯示成功會是謊)。兩者刻意不共用一則。
   [RECEIPT_DUPLICATE_RESULT_CODE]: {
     text: '這筆到貨先前已經登錄過了,沒有重複記帳。',
+    tone: 'ok',
+  },
+  // 🔴 M-4b E10 **#15-B2-c 片2**:手動收款登錄同樣只有成功走 redirect(失敗回 action state)。
+  //    **兩碼刻意不共用一則**(主視窗裁 Q-D6=A):「剛記好」與「先前已登錄過」是不同事實,
+  //    講成同一句會讓員工分不出這次到底有沒有真的寫進去。
+  //    🔴 **不加回讀核對**(對照 `order_cancelled` 那段的立場):偽造 `?r=` 的綠字會被**同一張卡**
+  //    下面的真實收款明細當場打臉(H6② 保證兩者同掛)—— 取消線當年沒有那個對照物,這裡有。
+  [PAYMENT_RECORDED_RESULT_CODE]: { text: '已登錄這筆收款。', tone: 'ok' },
+  [PAYMENT_DUPLICATE_RESULT_CODE]: {
+    text: '這筆收款先前已經登錄過了,沒有重複入帳。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 **A13b D1**:取消線改走 PRG 整頁化 ⇒ 這是它第一次有結果提示。

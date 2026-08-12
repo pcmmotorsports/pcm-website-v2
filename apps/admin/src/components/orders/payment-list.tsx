@@ -53,7 +53,18 @@ function Row({ row }: { row: OrderPaymentRow }) {
   );
 }
 
-export function PaymentList({ data }: { data: PaymentListData }) {
+/**
+ * @param children 片2a 起:登錄表單塞進**同一張卡**的下半(Sean 拍板 Q-D2=A + H6②)——
+ *   員工看完「已經有哪幾筆」下一個動作就是登錄,兩者分卡會出現「看一張、填另一張」的斷點。
+ *   🔴 本元件仍然只排版:表單自己的狀態機在 `payment-record-form.tsx`,這裡不知道它的存在。
+ */
+export function PaymentList({
+  data,
+  children,
+}: {
+  data: PaymentListData;
+  children?: React.ReactNode;
+}) {
   return (
     <section className='bg-card text-card-foreground rounded-lg border p-4'>
       <div className='mb-3 flex flex-wrap items-center gap-2'>
@@ -83,6 +94,8 @@ export function PaymentList({ data }: { data: PaymentListData }) {
           ))}
         </ul>
       )}
+
+      {children}
     </section>
   );
 }

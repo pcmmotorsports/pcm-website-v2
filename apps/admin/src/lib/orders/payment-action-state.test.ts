@@ -178,8 +178,12 @@ describe('🔴 文案與程式是同一條不變式(窄確認輪 MF4:兩個折�
   it('🔴 `rejected` 必須把「先看明細」排在「重新整理」前面(P0001 含 G8 同鍵不同內容)', () => {
     const s = paymentFailure('rejected', EMPTY_PAYMENT_VALUES);
     const msg = s.status === 'failed' ? s.message : '';
-    expect(msg).toContain('先看收款明細');
-    // 順序也要對:確認過才准重整,不是一上來就叫他重整。
-    expect(msg.indexOf('先看收款明細')).toBeLessThan(msg.indexOf('重新整理'));
+    // 🔴 錨從逐字的「先看收款明細」放寬成「收款明細」+ 順序 —— 片2a 在中間插了方位詞
+    //    (「先看**上方的**收款明細」,code-reviewer must-fix 2)⇒ 原錨被自己的正確修法打斷。
+    //    守的東西沒變:**要先叫他看明細,確認過才准重整**。錨釘在會變的措辭上,改字就會假紅。
+    expect(msg).toContain('收款明細');
+    expect(msg.indexOf('收款明細')).toBeLessThan(msg.indexOf('重新整理'));
+    // 前提自斷言:訊息裡真的有「重新整理」(否則 indexOf 回 -1,上面那條會恆真)。
+    expect(msg).toContain('重新整理');
   });
 });

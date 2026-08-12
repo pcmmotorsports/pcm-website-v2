@@ -4,6 +4,10 @@ import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
 import {
+  PAYMENT_DUPLICATE_RESULT_CODE,
+  PAYMENT_RECORDED_RESULT_CODE,
+} from '../../lib/orders/payment-action-state';
+import {
   PROCUREMENT_CREATED_RESULT_CODE,
   PROCUREMENT_NO_CHANGE_RESULT_CODE,
   PROCUREMENT_UPDATED_RESULT_CODE,
@@ -80,6 +84,30 @@ describe('ResultBanner — #352-b 到貨登錄兩個成功碼', () => {
   it('成功文案要解釋「為什麼到貨欄沒動」(溢收情境)', () => {
     const { container } = render(<ResultBanner code={RECEIPT_RECORDED_RESULT_CODE} />);
     expect(container.textContent).toContain('溢收');
+  });
+});
+
+describe('ResultBanner — #15-B2-c 片2 手動收款兩個成功碼', () => {
+  // 🔴 同到貨線那一格的理由:action 測試只驗 redirect 的 URL、沒驗員工最終看到什麼
+  //    ⇒ 這兩碼沒登記進 MESSAGES 的話,PRG 之後橫幅回 null,而收款明細本來就會多一列
+  //    ⇒ 員工分不出「我剛登的那筆」與「本來就在的那筆」。
+  it.each([
+    [PAYMENT_RECORDED_RESULT_CODE, '已登錄這筆收款'],
+    [PAYMENT_DUPLICATE_RESULT_CODE, '先前已經登錄過'],
+  ])('%s → 渲染得出文字', (code, text) => {
+    const { container } = render(<ResultBanner code={code} />);
+    expect(container.textContent).toContain(text);
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  // 🔴 兩碼**不可共用文案**(主視窗裁 Q-D6=A):「剛記好」與「先前已登錄過」是不同事實。
+  //    共用之後員工看到綠字無法判斷這次到底有沒有真的寫進去 —— 而這條線是錢。
+  it('兩碼的文案不相同', () => {
+    const recorded = render(<ResultBanner code={PAYMENT_RECORDED_RESULT_CODE} />).container
+      .textContent;
+    const duplicate = render(<ResultBanner code={PAYMENT_DUPLICATE_RESULT_CODE} />).container
+      .textContent;
+    expect(recorded).not.toBe(duplicate);
   });
 });
 
@@ -221,6 +249,8 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       PROCUREMENT_NO_CHANGE_RESULT_CODE,
       RECEIPT_RECORDED_RESULT_CODE,
       RECEIPT_DUPLICATE_RESULT_CODE,
+      PAYMENT_RECORDED_RESULT_CODE,
+      PAYMENT_DUPLICATE_RESULT_CODE,
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

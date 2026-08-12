@@ -22,7 +22,8 @@ import { OrderCancelBlock } from './order-cancel-block';
 import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
-import { PaymentList, type PaymentListData } from './payment-list';
+import type { PaymentListData } from './payment-list';
+import { PaymentSection } from './payment-section';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
@@ -346,11 +347,10 @@ export function OrderDetail({
         </section>
       </div>
 
-      {/* #15-B2-c 片1a:已登錄的收款明細(唯讀)。
+      {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。
           🔴 位置 = 緊接「付款」卡之後:員工看完付款狀態,下一個問題就是「錢收了哪幾筆」。
-          退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。
-          ⚠️ 登錄表單是**片2** —— 本片只有「看」,畫面上不會出現任何登錄入口。 */}
-      <PaymentList data={payments} />
+          退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。 */}
+      <PaymentSection orderId={detail.id} returnTo={returnTo} payments={payments} />
 
       {cancelled && (
         <div className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>

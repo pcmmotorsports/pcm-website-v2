@@ -232,12 +232,26 @@ describe('#15-B2-c 片1a:listOrderPayments 的三種回法 → 畫面三句不�
     expect(container.textContent).toContain('客戶資訊');
   });
 
-  it('本片是唯讀:畫面上不得出現任何登錄收款的表單入口(片2 才有)', async () => {
+  // 🔴 **本格在片2a 被刻意翻面,不是刪掉**:片1a 原本逐字斷言「本片是唯讀、不得出現任何
+  //    登錄收款的表單入口(片2 才有)」——片2a 落地之後那句話**應該**不成立了。
+  //    刪掉它等於讓「表單掛沒掛上」重新變成無人看守;翻成正面斷言才保得住同一個觀察點。
+  it('片2a 起:登錄表單掛在同一張卡裡,而且帶著整組 server 章', async () => {
     mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
     const { container } = await renderPage();
     expectPageRendered(container);
     // 錨 = 收款表單專屬的欄位名(`payment-action-state.ts` 的 `PAY_RAIL_FIELD` 等)。
-    expect(container.querySelector('input[name="cash_received_at"]')).toBeNull();
-    expect(container.querySelector('input[name="rail"]')).toBeNull();
+    const section = paymentSection(container);
+    expect(section.querySelector('input[name="rail"]')).not.toBeNull();
+    // 🔴 印章**兩格都要在**:`payment-form.ts:160-166` 逐字「兩軌都驗」——
+    //    只掛一半的表單送出去會被解析器判 invalid,而畫面上完全看不出來。
+    const requestId = section.querySelector('input[name="request_id"]');
+    const cashReceivedAt = section.querySelector('input[name="cash_received_at"]');
+    expect(requestId).not.toBeNull();
+    expect(cashReceivedAt).not.toBeNull();
+    // 🔴 **不可以用 `not.toBe('')` 驗非空**(codex 關卡2 nit2):`value` 屬性整個被拿掉時
+    //    `getAttribute()` 回的是 `null`,而 `null !== ''` ⇒ 那條斷言照樣過、什麼也沒驗到。
+    //    ⇒ 改成比對形狀:uuid 與 ISO 時點各自要長得像自己。
+    expect(requestId?.getAttribute('value')).toMatch(/^[0-9a-f-]{36}$/);
+    expect(cashReceivedAt?.getAttribute('value')).toMatch(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/);
   });
 });
