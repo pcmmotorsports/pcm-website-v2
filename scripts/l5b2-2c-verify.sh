@@ -38,6 +38,11 @@ ROLLBACK="scripts/l5b2-2c-rollback.sql"
 # 🔴 2026-08-11 片 2d 起,本 harness 的 reset **依賴 2d 的回退腳本**(provision 會把 2d 一起套上,
 #    而 2c rollback 有順序閘)⇒ 它是依賴檔,照同一條紀律釘 SHA,不然它改了本檔照樣全綠。
 RB2D="scripts/l5b2-2d-rollback.sql"
+# 🔴 2026-08-12 沖銷片(`20260812140000`)落地:provision 現在也會把它套上,而它 **DROP 了
+#    `pre_one_terminal_uniq`** ⇒ 2d 回退的第一道閘(`l5b2-2d-rollback.sql:139`)會正確拒退
+#    ⇒ 本 harness 的 reset 第一棒就死。**閘是有效的、斷的是鏈** ⇒ reset 序補第一棒。
+#    (主視窗 record all 抓到、`P-553-A` 派工;判準同樣用**庫的狀態**不是檔案在不在。)
+RBSIC="scripts/refund-manual-reversal-rollback.sql"
 
 # 🔴 依賴檔 SHA 釘死(2a 的 R2 教訓):w7 收據只記 harness 自己的 SHA 與 migration 目錄尾碼
 #    ⇒ 同一尾碼下改了 migration 或 rollback 而不動 harness,帳面照樣全綠。釘在這裡才閉合。
@@ -46,6 +51,7 @@ MIG_SHA_EXPECT="475ae0d6fc3f9ea507291efc7fde8b2c9023dc8f"
 #    取值用 `shasum scripts/l5b2-2c-rollback.sql`,不手抄。
 RB_SHA_EXPECT="2aa8a87da1f858982c566f5041e92652ba2f0f36"
 RB2D_SHA_EXPECT="c34a95e5d79048a1a14b42b4ab9e5acff8cec253"
+RBSIC_SHA_EXPECT="6c4ea4b8435141052389391071b60356f1da2a74"
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;它就是「刪格會紅」那道守門)
 #    ⚠️ 病史(這道閘總共擋下我自己**四次**,每次都是同一個動作:用加減算而不是用跑的):
@@ -67,7 +73,7 @@ q()   { psql "$URL" -qtAX -c "$1" 2>&1; }
 test -f "$MIG"      || { echo "🔴 找不到 $MIG(請在 repo 根目錄跑)"; exit 1; }
 test -f "$ROLLBACK" || { echo "🔴 找不到 $ROLLBACK"; exit 1; }
 test -f "$RB2D"     || { echo "🔴 找不到 $RB2D(2c rollback 的順序閘要它才退得動 2d)"; exit 1; }
-for pair in "$MIG:$MIG_SHA_EXPECT" "$ROLLBACK:$RB_SHA_EXPECT" "$RB2D:$RB2D_SHA_EXPECT"; do
+for pair in "$MIG:$MIG_SHA_EXPECT" "$ROLLBACK:$RB_SHA_EXPECT" "$RB2D:$RB2D_SHA_EXPECT" "$RBSIC:$RBSIC_SHA_EXPECT"; do
   _f="${pair%%:*}"; _want="${pair##*:}"; _got="$(shasum "$_f" | cut -d' ' -f1)"
   [ "$_got" = "$_want" ] || { echo "🔴 $_f 的 SHA=[$_got] 與本檔釘住的 [$_want] 不符 ⇒ 依賴檔改過但本檔沒同步。"; \
       echo "   改法:確認改動是預期的,更新本檔的 *_SHA_EXPECT,然後 record 重跑(不要只改常數不重跑)。"; exit 1; }
@@ -114,6 +120,16 @@ fi
 ok "叢集身分閘:PORT=$PORT 確認是本 workdir provision 的那個叢集"
 
 reset_preimage() {
+  # 🔴🔴 **2026-08-12 沖銷片落檔後補(第一棒)**:沖銷片 DROP 了 `pre_one_terminal_uniq`,
+  #    而 2d 回退第一件事就是讀它的 indexdef、讀不到就 RAISE ⇒ 不先退沖銷片,下面那棒必死。
+  #    判準=**canonical view 在不在**(庫的狀態);退完它就不在了,第二輪起自動跳過。
+  #    ⚠️ 沖銷片回退對「庫內已有 manual_reversal」會**正當拒退**(永久關閉,見它的檔頭)——
+  #    本 harness 跑在拋棄式空帳本上,不會踩到;真的踩到就是叢集不乾淨,該停。
+  if [ "$(q "SELECT count(*) FROM pg_catalog.pg_class WHERE relname='payment_refund_effective_terminal';")" != "0" ]; then
+    if ! psql "$URL" -v ON_ERROR_STOP=1 -f "$RBSIC" > "$MUTDIR/reset-sic.log" 2>&1; then
+      echo "🔴🔴 reset 的前置(退沖銷片)失敗 ⇒ 後面每一格都不算數,停止。log:"; tail -5 "$MUTDIR/reset-sic.log"; exit 1
+    fi
+  fi
   # 🔴🔴 **2026-08-11 片 2d 落檔後補**:provision 會把 `20260811110000`(2d)一起套上去,
   #    而 2c rollback 現在有順序閘(2d 還在 ⇒ 拒退)⇒ 不先退 2d 的話,本 harness 第一發 reset 就死。
   #    ⚠️ 條件式不是裝飾:2d rollback 的自驗釘的 pre-image **含 2c 那條 CHECK**,

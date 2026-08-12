@@ -85,7 +85,7 @@ apply 成功的判準=看到這行 NOTICE:
 | # | 動作 | 為什麼 |
 |---|---|---|
 | 1 | `database.types.ts` regen(F7) | 三新欄 + 新 view;**必須 apply 後才做**,apply 前產的型別會缺新欄 |
-| 2 | PostgREST 具名參數 smoke:呼叫一次 `admin_correct_refund_manual_verdict`(可用不存在的 refund_id,期望 `P8C03`) | memory `feedback_app-layer-must-not-ship-before-migration-apply`:應用層看不到 schema 漂移,這道是唯一的觀測點 |
+| 2 | PostgREST 具名參數 smoke:呼叫一次 `admin_correct_refund_manual_verdict`。**期望值取決於 actor**:<br>· actor 用**真的在職員工代號** + 不存在的 refund_id ⇒ `P8C03`/`pcm_prmr_parent_row_required`<br>· actor 用**假代號** ⇒ `P2B42`/`pcm_prmr_actor_invalid`(**G2 排在任何資料讀取之前**,`:604`,所以它先開火)<br>🔴 **本表 v1 只寫了「期望 P8C03」而沒寫 actor 要真的** —— 2026-08-12 apply 當下的 smoke 用假 actor,實得 `P2B42`。**那是閘序正確,不是失敗**;是我這張表寫得不夠精確,已更正 | memory `feedback_app-layer-must-not-ship-before-migration-apply`:應用層看不到 schema 漂移,這道是唯一的觀測點 |
 | 3 | APPLIED.tsv 追加 + commit | 主視窗義務 |
 
 ## 五、過渡期操作程序(Fable F5;開燈前的「修改判定」怎麼用)
