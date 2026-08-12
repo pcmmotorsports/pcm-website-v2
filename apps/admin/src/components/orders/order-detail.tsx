@@ -350,7 +350,15 @@ export function OrderDetail({
       {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。
           🔴 位置 = 緊接「付款」卡之後:員工看完付款狀態,下一個問題就是「錢收了哪幾筆」。
           退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。 */}
-      <PaymentSection orderId={detail.id} returnTo={returnTo} payments={payments} />
+      {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
+          前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
+          後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 彙總行直接相減、零換算。 */}
+      <PaymentSection
+        orderId={detail.id}
+        returnTo={returnTo}
+        payments={payments}
+        amountDue={detail.total.amount}
+      />
 
       {cancelled && (
         <div className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
