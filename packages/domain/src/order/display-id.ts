@@ -27,22 +27,23 @@
  *   新格式**刻意不帶任何可推導資訊**(那正是改制的目的)。留著它等於留一個
  *   對新格式必然失敗、且語意上不該存在的 API。
  *
- * 🔴 **搜尋既有訂單請用 `./order-number-search`**(它處理使用者輸入的正規化與注入面)；
- * 本模組只做「這個字串是不是一個合法的 displayId」這件事。
+ * 🔴 **搜尋既有訂單請用關鍵字搜尋**(`admin_search_orders` 的 #1 新單號 / #12 舊單號 分支)——
+ * 原本那支 `./order-number-search` 已隨 #347-B(Q-347-B1=B)刪除,兩條 regex 移到
+ * `./order-number-format`。本模組只做「這個字串是不是一個合法的 displayId」這件事。
  *
- * @see packages/domain/src/order/order-number-search.ts — 兩條 regex 的唯一來源
+ * @see packages/domain/src/order/order-number-format.ts — 兩條 regex 的唯一來源
  * @see packages/domain/src/order/types.ts:DisplayId
  * @see docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md §5.4a — 新格式合約
  */
 
 import type { DisplayId } from './types';
 import { OrderError } from './errors';
-import { LEGACY_ORDER_NUMBER_RE, ORDER_NUMBER_RE } from './order-number-search';
+import { LEGACY_ORDER_NUMBER_RE, ORDER_NUMBER_RE } from './order-number-format';
 
 /**
  * isValidDisplayId：檢查字串是否為合法訂單編號(新舊兩種格式皆可)。不 throw。
  *
- * 🔴 **regex 刻意 import 自 `order-number-search`、不在本檔重寫一份**：
+ * 🔴 **regex 刻意 import 自 `order-number-format`、不在本檔重寫一份**：
  * 同一組形狀原本會散落三處(D0 migration 的 CHECK、搜尋、本檔)。
  * CHECK 那份活在 DB 裡無法共用，但 TS 這兩份沒有理由不共用 ——
  * 各寫一份的結局必然是某天改了字母表卻只改到其中一處(`feedback_claimed-sync-but-only-patched-touched-lines`)。

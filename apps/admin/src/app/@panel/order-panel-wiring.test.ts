@@ -157,16 +157,18 @@ describe('#350c 守門 1:退款 action 的 segment 時限三處同值', () => {
 
 // ── 2. 面板連結不得吃掉列表狀態 ────────────────────────────────────────────────
 describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
-  // 🔴 `order-list-view.ts:316-321` 已經為同一個坑寫過兩次警告:href builder 漏帶參數
-  //    = 翻頁/回跳時搜尋詞被靜默丟掉、列表 fail-open 變成全部訂單。
+  // 🔴 `order-list-view.ts` 的 href builder 已經為同一個坑寫過兩次警告:漏帶任一軸
+  //    = 翻頁/回跳時該軸被靜默丟掉、列表 fail-open 變成全部訂單。
   //    面板連結是這個坑的第三次機會 —— 員工點開一張單就把篩選洗掉。
+  // ⚠️ #347-B:原本這份 fixture 還帶 `orderNumber: 'PCM-123'`(當時最能代表「漏帶就出事」
+  //    的那一軸)。兩個專用搜尋軸隨 Q-347-B1=B 退場 ⇒ 改讓 `paymentChannels` 帶值,
+  //    **保持「單值軸 + 多值軸 + 布林開關」三種形狀都在** —— fixture 退化成只剩單值軸,
+  //    「多值軸被漏帶」那個突變就構造不出來了(空陣列的多值軸是恆真格)。
   const filter: AdminOrderFilter = {
     paymentStatus: 'paid',
     fulfillmentStatus: undefined,
     orderSources: ['web'],
-    paymentChannels: [],
-    orderNumber: 'PCM-123',
-    supplierOrderNo: undefined,
+    paymentChannels: ['tappay'],
     includeUnpaidCardOrders: true,
   };
 
@@ -177,7 +179,7 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
     // 突變:builder 少列任何一個 entry ⇒ 下面對應那條紅。
     expect(qs.get('payment_status')).toBe('paid');
     expect(qs.getAll('order_source')).toEqual(['web']);
-    expect(qs.get('order_no')).toBe('PCM-123');
+    expect(qs.getAll('payment_channel')).toEqual(['tappay']);
     expect(qs.get('show_unpaid_card')).toBe('1');
     expect(qs.get('page')).toBe('3');
     expect(qs.get(ORDER_PANEL_PARAM)).toBe('ord-1');

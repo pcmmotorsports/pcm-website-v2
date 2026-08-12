@@ -21,11 +21,7 @@ import type {
 //    本片後它全 repo 零 consumer;item writer 驗形狀用的是 workflow-form.ts 自己的 local RE。
 import {
   toMoneyAmount,
-  normalizeOrderNumberSearch,
-  normalizeSupplierOrderNoSearch,
   normalizeOrderKeywordSearch,
-  SupplierOrderNoSearchTooManyError,
-  SupplierOrderNoSearchShapeError,
   OrderKeywordSearchShapeError,
 } from '@pcm/domain';
 import type { Database, Json } from './database.types';
@@ -93,19 +89,28 @@ export const ADMIN_ORDER_LIST_SELECT =
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
 // (URL 參數與 UI 皆已不存在)⇒ 留著就是一份沒有呼叫端、卻仍要維護「與主常數逐欄相同」的白名單。
-// 🔴 A9b2-A 刻意**不把它復活**:供應商單號搜尋改走兩段式查詢,
-//    `ADMIN_ORDER_LIST_SELECT` 一個字都不動(理由見 `listOrderSummariesForAdmin` 內註解)。
+// 🔴 A9b2-A 當時刻意**不把它復活**:供應商單號搜尋改走兩段式查詢、`ADMIN_ORDER_LIST_SELECT`
+//    一個字都不動。⚠️ #347-B 之後**連那條兩段式查詢本身都退場了**(Q-347-B1=B)——
+//    這段留作紀錄:`!inner` 版投影至今仍沒有呼叫端,誰要復活它都得先讀鐵則 12 的 byte-equal 守門。
 
 /**
  * 用 `.in('id', …)` 帶進第二段查詢的 order id **筆數上限**(#347-2a 抽出的單一來源)。
  *
- * 供應商單號({@link SUPPLIER_ORDER_NO_MATCH_CAP})與關鍵字搜尋(RPC 的 `p_limit`)**共用這一個數字**
- * —— 它們受的是**同一條物理限制**:PostgREST 的 GET query string 長度(量法與 byte 表見上方)。
- * 兩邊各寫一個 100 才是真的危險:改了一邊、另一邊靜默不動。
+ * ⚠️ #347-B:原本**供應商單號**與**關鍵字搜尋**兩條路共用這一個數字(前者另有自己的常數
+ *    指過來)。供應商那條隨 Sean 拍板 Q-347-B1=B 退場,現在只剩關鍵字一個 consumer。
  *
- * 🔴🔴 **抽成共用常數會製造一個新的漂綠面,所以配了一道釘值**(關卡1 R2-M5):
- * 既有的供應商邊界測試是**拿這個常數**產測資料的 ⇒ 有人把它改成 200,
- * **production 與測試會一起漂**、8KB URL 的病無聲復活,而全部測試仍然綠。
+ * 🔴 **這個值受的是物理限制:PostgREST 的 GET query string 長度。**
+ * 量法=量**完整 query string**(含 `select` + `order`),不是只算 `in` 那一項:
+ *     0 筆(只有 select + order)→   551 bytes
+ *   100 筆                      → 4,461 bytes  ← 本值
+ *   200 筆                      → 8,361 bytes  ← 已越過 8KB 常見預設
+ * ⚠️ **這張表原本寫在供應商那支常數的 docstring 裡,而那支已隨 #347-B 刪除** ——
+ *    表跟著沒了,這裡當時只剩一句「見上方」指向空氣(R1 Imp-5 抓到)。
+ *    ⇒ 搬回這裡:量法與它量的那個數字放同一處,才不會再被別處的刪除連帶掏空。
+ * ⚠️ 誠實邊界:8KB 是常見的伺服器預設,**未在正式站的 PostgREST 前緣實測過**。
+ *
+ * 🔴🔴 **釘值那道守門仍然必要**(關卡1 R2-M5):有人把它改成 200 時,
+ * **production 與拿它產測資料的測試會一起漂**、8KB URL 的病無聲復活而全部測試仍然綠。
  * ⇒ `SupabaseOrderAdapter.test.ts` 有一格**獨立釘死字面 100**(不從本常數導出),
  * 要改必須先重量 URL 預算、並同步 migration 裡 RPC 的硬夾值。
  *
@@ -140,34 +145,6 @@ function emptyAdminOrderList(): AdminOrderListResult {
 }
 
 /**
- * 供應商單號搜尋(A9b2-A)**去重後訂單數**的上限。
- *
- * 🔴 **推導自實測的 URL 長度**(同 A9b1 `MAX_ORDER_NUMBER_SEARCH_LENGTH` 的形狀)。
- * 第二段是 `.in('id', ids)`,值會 append 進 GET query string —— 但 query string **不只有它**,
- * 還有整條 `select` 投影。當場量(`URLSearchParams` 編碼後):
- *
- * 量法(可重現):`new URLSearchParams()` 依序 append `select`(本檔的 `ADMIN_ORDER_LIST_SELECT`,
- * 原始 446 字)、`order=created_at.desc`、`id=in.(n 筆 UUID)`,取 `.toString().length`。
- *
- * | n | 完整 query string bytes |
- * |---|---|
- * | 0(只有 `select` + `order`)| 551 |
- * | **100** | **4,461** |
- * | 200 | 8,361 |
- *
- * ⚠️ **原本這裡寫 200、並宣稱「≈7.8KB、低於 8KB 且留兩倍餘裕」——那是錯的**(階段 C must-fix):
- * 我只算了 `in` 這一項、**漏算 `select`**,實際 8,361 bytes 已經越過自己引用的 8KB 線。
- * ⇒ 改成 **100**(4,461 bytes),這才是真的留兩倍餘裕。
- * (🔴 二修:第一版的分項表 550 + 7,802 **自己加不起來** = 8,352 ≠ 8,361,因為漏算了參數名與 `&`
- *  —— Fable F3。改成直接列「完整 query string 長度」,不再拆分項,免得再出現加不起來的字面。)
- *
- * 超過時**擲 {@link SupplierOrderNoSearchTooManyError}、不截斷**(截斷 = 讓使用者以為那就是全部)。
- * ⚠️ 誠實邊界:8KB 是常見的伺服器預設,**未在正式站的 PostgREST 前緣實測過真實上限**。
- */
-export const SUPPLIER_ORDER_NO_MATCH_CAP: number = ADMIN_ORDER_ID_IN_CAP;
-
-
-/**
  * `#347-1` 建的搜尋 RPC 名稱。**全 repo 只有一處呼叫它**,由
  * `admin-search-orders-post-only.test.ts` 的原始碼掃描守著(連同「不得改成 GET/HEAD」那幾條)。
  */
@@ -191,7 +168,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  *
  * 🔴 **為什麼不硬轉**:RPC 回的是 `jsonb`,PostgREST 原封轉成 JSON ⇒ **型別系統一個字都保證不了**。
  * 硬轉 = 把「DB 到底回了什麼」變成沒人驗的假設,而 mock 餵的一定是對的形狀
- * ⇒ **測試全綠、功能壞掉**(`SupplierOrderNoSearchShapeError` 檔頭記的就是這個形狀)。
+ * ⇒ **測試全綠、功能壞掉**。(這個形狀原本記在 `SupplierOrderNoSearchShapeError` 的檔頭,
+ * 那支類別已隨 #347-B 刪除 ⇒ 判準搬到這裡,不留指向已刪符號的指標。)
  *
  * 四道,任一不符就擲、且**吵**(關卡1 R2-M5 把後兩道補上):
  * ① `data` 是非陣列物件 ② `ids` 是陣列且**每顆**都是 UUID 形狀
@@ -237,52 +215,6 @@ function describeType(v: unknown): string {
   if (v === null) return 'null';
   return Array.isArray(v) ? 'array' : typeof v;
 }
-
-/**
- * 兩個 id 來源取交集;任一為 `null`(= 該維度沒搜)就直接用另一個;兩個都 `null` 回 `null`(= 不篩 id)。
- *
- * 🔴 在 JS 內取交集、而不是送兩次 `.in('id', …)`:理由見呼叫處(重複同名 query param 的合併語意
- * 未文件化,押錯 = 條件變寬 = fail-open)。
- */
-function intersectOrderIds(a: string[] | null, b: string[] | null): string[] | null {
-  if (a === null) return b;
-  if (b === null) return a;
-  const inB = new Set(b);
-  return a.filter((id) => inB.has(id));
-}
-
-/**
- * 第一段查詢的**採購列**取數上限(與 {@link SUPPLIER_ORDER_NO_MATCH_CAP} 是**兩個不同的量**)。
- *
- * 🔴 **為什麼要分兩道**(階段 C must-fix 的根因):`.limit()` 限的是**採購列數**,
- * 而 URL 長度取決於**去重後的訂單數**。原本只有一道 `.limit(CAP+1)` + `ids.length > CAP` 判斷 ——
- * 兩邊量的不是同一件事 ⇒ 「列被截斷、但去重後 ≤ CAP」時**不擲錯、靜默少回訂單**,
- * 正是這個上限本來要防的病。(一張 PO 覆蓋 80 張訂單共 250 列完全正常:
- * A2 的業務鍵是 `(order_item_id, supplier_canonical_key)`,一單多品項就是多列。)
- * ⇒ 現在:**列數觸頂 = 明示擲錯**(不知道真集合)、**去重後訂單數超標 = 明示擲錯**(URL 會爆)。
- *
- * 🔴 **取值必須嚴格低於伺服器 `max-rows`**(2026-08-02 production 實測 **1000**,
- * 見 `mappers/order-cancellations.ts:31`)—— 否則截斷發生在伺服器那一側,
- * `rows.length` 永遠碰不到我的上限,**這道偵測就變成恆假**。500 留一半餘裕。
- * (`max-rows` 日後被調低於本值時本判定同樣看不見 —— 同 backlog **#325** 的漂移問題。)
- */
-export const SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT = 500;
-
-/**
- * A9b2-A 第一段查詢的回傳列形狀:`order_item_procurement` → `order_items!inner(order_id)`。
- *
- * 🔴 走 `as unknown as` cast 的理由與本檔其他 embed 一致:forward FK 的 many-to-one embed
- * 在生成型別上推斷不穩(而且 `supplier_order_no_upper` 在 A9b2-M apply 前根本不在型別裡)。
- * 🔴 `order_items` 宣告成**可選**是為了讓「形狀不符」在型別上表達得出來 —— 但 runtime 的處置是
- * **擲 {@link SupplierOrderNoSearchShapeError}、不是靜默濾掉**(Fable F1;理由見查詢處註解)。
- */
-type SupplierOrderNoProbeRow = {
-  order_items?: { order_id?: string | null } | null;
-  /** #338:這一列是哪一家的。DB 上 NOT NULL,宣告成可選只為了讓「形狀不符」表達得出來。 */
-  supplier_id?: string | null;
-  /** #338:many-to-one embed;投影退版時整個沒有這個鍵 ⇒ 拿不到 `label`,UI 退回警語不假裝知道。 */
-  suppliers?: { label?: string | null } | null;
-};
 
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
@@ -540,76 +472,34 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   ): Promise<AdminOrderListResult> {
     const offset = pagination.offset ?? 0;
 
-    // ── #347-2a:三個搜尋維度的正規化**全部排在任何 I/O 之前** ──────────────────
-    // 🔴 **順序是修過的 bug、不是排版**(關卡1 R1-M2):原本關鍵字正規化排在供應商查詢之後,
-    //    ⇒「關鍵字不合法 + 供應商命中過多」時會先擲 `SupplierOrderNoSearchTooManyError`,
-    //    而正確答案是**零筆**(不合法的搜尋詞不可能有結果)—— 而且白打一次 DB。
-    //    ⇒ 先把所有輸入驗完、任一不合法就零 I/O 早退,錯誤優先序才不依賴查詢的先後。
+    // ── #347-B:搜尋維度只剩**關鍵字**一個 ─────────────────────────────────────
+    // 🔴 **正規化仍排在任何 I/O 之前**:不合法的搜尋詞不可能有結果 ⇒ 零 I/O 早退。
+    //    (原本這裡驗三個維度、順序本身是修過的 bug;訂單編號與供應商單號兩個專用維度
+    //     已隨 Q-347-B1=B 退場、併入關鍵字的 `admin_search_orders` #1 新單號 / #12 舊單號 / #11 供應商單號分支,
+    //     只剩一個維度之後「錯誤優先序依賴查詢先後」那個坑自然消失。)
     const keywordSearch = normalizeOrderKeywordSearch(filter.keyword);
 
-    // 單號搜尋(M-4b E10 A9b1):同時比對 display_id 與 legacy_display_id,
-    // 讓 D1 改號之後客人手上的舊單號永遠查得到。
-    // 🔴 fail-closed:輸入了但格式不符 ⇒ **直接回零筆**,不得退化成「不篩選」——
-    //    退化的話,客服打錯一個字就會看到全部訂單、還以為那就是搜尋結果。
-    // 🔴🔴 **runtime 前置:本路徑要求 D0 migration 已 apply**
-    //    (`supabase/migrations/20260729010000_m4b_e10_d0_display_id_expand.sql`)。
-    //    `legacy_display_id` 目前**不在** database.types.ts(欄位尚未 apply、型別未重生),
-    //    typecheck 因此抓不到 —— `.or()` 收的是純字串。
-    //    D0 未 apply 時打這條 filter ⇒ PostgREST 42703(欄位不存在)⇒ 本方法裸 throw
-    //    ⇒ **整個後台訂單列表**(不只搜尋)進錯誤態。
-    //    現況安全靠 **env flag `ADMIN_E10_ORDER_NUMBER_SEARCH` 預設 off**
-    //    (`apps/admin/src/app/orders/page.tsx`;A10c1 已接 query param,flag off 時整個不解析)。
-    //    ⇒ **D0 apply 之前不得開這個 flag。**
-    const orderNumberSearch = normalizeOrderNumberSearch(filter.orderNumber);
-    if (orderNumberSearch.kind === 'invalid') {
-      return emptyAdminOrderList();
-    }
-
-    // 供應商單號搜尋(M-4b E10 A9b2-A)= **兩段式**,不是內嵌欄下推。
-    // 🔴 為什麼不下推:本欄的真相在 `order_item_procurement`,而 `ADMIN_ORDER_LIST_SELECT`
-    //    **沒有內嵌那張表**(明細投影才有)⇒ 內嵌 filter 這條路要先復活 A9w3 刻意刪掉的
-    //    `!inner` 版投影(見上方 :89-91)、動到鐵則 12 的 byte-equal 守門,
-    //    而且會押在「不加 !inner 時內嵌欄 filter 是否影響最上層」這個**本專案無法實測**的
-    //    PostgREST 行為上(本機叢集是裸 PG、沒有 PostgREST)。
-    //    ⇒ 改成先對採購表**自己**做 top-level 查詢拿 order_id,語意無歧義。
-    //    路線裁定與完整理由:`docs/specs/2026-08-07-e10-a9b2-a-supplier-order-no-search-plan.md` §1。
-    // 🔴🔴 **runtime 前置(與 A9b1 同族)**:本路徑要求 A9b2-M 已 apply
-    //    (`supabase/migrations/20260807130000_m4b_e10_a9b2_m_supplier_order_no_upper.sql`)。
-    //    `supplier_order_no_upper` 目前**不在** database.types.ts(欄位尚未 apply、型別未重生)
-    //    ⇒ 用 `.filter()` 而非 `.eq()`(`.filter` 的 column 收 `string`、不吃生成型別);
-    //    兩者序列化**完全相同**(`@supabase/postgrest-js@2.105.3/src/PostgrestFilterBuilder.ts`
-    //    `.eq` :172 與 `.filter` 皆為 `searchParams.append(column, \`op.${value}\`)`)。
-    //    未 apply 時打這條 ⇒ PostgREST 42703 ⇒ 裸 throw ⇒ 整個列表進錯誤態
-    //    ⇒ **A9b2-M apply 之前不得開 A10c2 的 flag**(本片零 producer)。
-    // 🔴 值的安全性押在**正規化層**:`normalizeSupplierOrderNoSearch` 已擋掉 `,` `(` `)` `"` `\`
-    //    —— 因為 `.eq`/`.filter` **不會**替保留字元加引號:那組字元定義在 `:36`
-    //    (字面是 `new RegExp('[,()]')`),而只有 `.in()` `:815` 與 `.notIn()` `:843` 在用它。
-    // 🔴 **本搜尋沒有供應商維度**:`supplier_order_no` 在 DB 層無跨供應商唯一性
-    //    (A2 `:70` 的業務鍵是 `(order_item_id, supplier_canonical_key)`)⇒ 兩家供應商用同一組
-    //    單號時會一起回來。**#338 起下方探測會把命中的供應商帶回來**(結果集層消歧、非逐列),
-    //    畫面三態顯示;仍**沒有**供應商 filter 軸(裁定不做,理由見 domain 檔頭)。(完整理由見
-    //    `packages/domain/src/order/supplier-order-no-search.ts` 檔頭的誠實邊界段)。
-    const supplierSearch = normalizeSupplierOrderNoSearch(filter.supplierOrderNo);
-    if (supplierSearch.kind === 'invalid') {
-      return emptyAdminOrderList();
-    }
-    // 🔴 關鍵字不合法的早退**也在這裡**(所有正規化之後、任何 I/O 之前),理由見方法開頭那段。
+    // 🔴 關鍵字不合法就零 I/O 早退(原本這裡還有訂單編號與供應商單號兩段各自的
+    //    正規化與 fail-closed 早退,隨 Q-347-B1=B 一起退場)。
     if (keywordSearch.kind === 'invalid') {
       return emptyAdminOrderList();
     }
 
     // ── #347-2a 關鍵字搜尋:走 `admin_search_orders` RPC,拿 order id 清單 ──────────
-    // 🔴🔴 **排在供應商 probe 之前是語意的一部分,不是排版**(關卡1 R3-F1,Fable 抓到):
-    //    「關鍵字命中 150 筆(truncated)+ 供應商單號命中 0 筆」這個輸入下 ——
-    //    供應商先跑 ⇒ 它的零命中早退,RPC 根本沒打 ⇒ 回 `keywordTruncated:false` ⇒ **畫面沒有提示**;
-    //    關鍵字先跑 ⇒ 回 `truncated:true` ⇒ 畫面有「結果太多請更精確」。
-    //    兩種寫法各自的測試都會全綠,但只有後者符合合約(`AdminOrderListResult` 的 docstring:
-    //    truncated 時**含 0 筆**一律顯示提示)。⇒ 誰要調整這裡的順序,先讀那段。
+    // ⚠️ **原本這裡有一條「必須排在供應商 probe 之前」的順序規則**(關卡1 R3-F1,Fable 抓到:
+    //    供應商先跑會讓它的零命中早退把 RPC 整個跳過 ⇒ `keywordTruncated` 假性為 false)。
+    //    供應商 probe 隨 Q-347-B1=B 退場之後**沒有第二個查詢可以排前面了**,那條規則自然失效 ——
+    //    留著這段是為了讓下一代知道它是**被移除的**、不是被忘記的。
+    //    合約本身沒變:`AdminOrderListResult` 的 docstring 仍要求 truncated 時**含 0 筆**一律提示。
     // 🔴 為什麼是 RPC 而不是把欄位加進投影:命中面含 `shipping_address_snapshot`,
     //    那一欄在鐵則 12 的 forbidden 清單裡 ⇒ 擴投影 = 親手拆守門。走 RPC 之後
     //    **PII 只在 SQL 內比對,一個字都不進讀模型、不進 RSC payload**(migration `:9-17`)。
     // #338:這次搜尋命中了哪幾家供應商。`null` = 這次不是供應商單號搜尋(見 domain docstring)。
-    let supplierOrderNoMatchedSuppliers: { id: string; label: string | null }[] | null = null;
+    // 🔴 `const` 不是 `let`(R1 m3):#347-B 之後**沒有任何 producer 會改寫它**,
+    //    唯一的 producer(供應商兩段式 probe)已退場 ⇒ 恆 `null`,語意見
+    //    `IOrderRepository.listOrderSummariesForAdmin` 的 docstring(「本片起恆 null,producer 待片 B-2」)。
+    //    寫成 `let` 會讓讀者以為下面某處會賦值,那是假訊號。
+    const supplierOrderNoMatchedSuppliers: { id: string; label: string | null }[] | null = null;
     let keywordOrderIds: string[] | null = null;
     let keywordTruncated = false;
     let keywordMatchCount: number | null = null;
@@ -660,94 +550,21 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       keywordOrderIds = parsed.ids;
     }
 
-    let supplierOrderIds: string[] | null = null;
-    if (supplierSearch.kind === 'ok') {
-      const { data: procRows, error: procError } = await this.supabase
-        .from('order_item_procurement')
-        // 🔴 #338:多取 `supplier_id, suppliers(label)` —— **同一次往返**,不新增第二段讀模型
-        //    (backlog 條目原本估成「新增第二段批次讀」,實作時發現這段查詢本來就打在這張表上)。
-        //    ⚠️ **不動 `ADMIN_ORDER_LIST_SELECT`**:那條是鐵則 12 的 byte-equal 白名單,
-        //    本案完全不碰它;這裡是本檔自己的探測查詢,兩者不同。
-        .select('order_items!inner(order_id), supplier_id, suppliers(label)')
-        // 🔴 排序不是排版:沒有 `.order()` 時 PostgREST 在 `limit` 下回**哪些**列未定義。
-        //    ⚠️ **誠實界(Fable F4)**:兩道界修完後「凡截斷必擲錯」⇒ 沒擲錯時拿到的必是完整集合,
-        //    所以「分頁不同頁拿到不同 id 集合」這個失敗模式**現在已不可達**。本行留作縱深 ——
-        //    日後若有人把截斷改回靜默容忍,它是第二道防線。
-        //    (同款理由的本檔既有先例:下方列表查詢的 `id` 次鍵排序,Fable D-2 verdict n1。)
-        .order('id', { ascending: true })
-        // 多取一筆才分辨得出「剛好觸頂」與「超過」(只取上限時兩者長得一樣)。
-        .limit(SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT + 1)
-        .filter('supplier_order_no_upper', 'eq', supplierSearch.value);
-      if (procError) {
-        throw procError;
-      }
-      const rows = (procRows as unknown as SupplierOrderNoProbeRow[] | null) ?? [];
-      // 🔴 **第一道:採購列被截斷 ⇒ 明示擲錯**。截斷之後我們**不知道真正的訂單集合**,
-      //    此時去重結果可能仍 ≤ CAP ⇒ 看起來一切正常、實際少回訂單(階段 C must-fix 的病灶)。
-      if (rows.length > SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT) {
-        throw new SupplierOrderNoSearchTooManyError(SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT);
-      }
-      // 🔴 **萃不出 id ⇒ 擲錯,不是把那列濾掉**(Fable 對抗審查 F1)。
-      //    DB 約束保證這不可能發生(`order_item_id` NOT NULL `20260729020000:43` +
-      //    `order_items.order_id` NOT NULL `20260604120000:142` + `!inner`)⇒ 萃不出來只代表
-      //    **回傳形狀與假設不符**(例如 embed 回陣列而非物件)。濾掉的話會靜默變成「查無此單」,
-      //    而且 mock 餵的是符合假設的形狀 ⇒ **測試全綠、功能壞掉**。
-      //    🔴 判斷是**逐列**的、不是「全部都萃不出才算」:FK 保證**每一列**都萃得出來,
-      //    所以只要少一列就代表假設破了。若只在「全部失敗」時擲,部分失敗仍會靜默少回訂單。
-      const extracted = rows
-        .map((row) => row.order_items?.order_id)
-        .filter((id): id is string => typeof id === 'string' && id !== '');
-      if (extracted.length !== rows.length) {
-        throw new SupplierOrderNoSearchShapeError(rows.length);
-      }
-      // 🔴 #338:把命中的供應商去重帶出來。**去重的鍵是 `supplier_id` 不是 `label`** ——
-      //    同一家在多張單上會有多列(那正是搜尋會列出多筆的原因),不去重就會顯示成「N 家」。
-      // 🔴 **有任何一列認不出 `supplier_id` ⇒ 整份回 `[]`(= 一家都認不出來)**,而不是回
-      //    「我認得出來的那幾家」—— 後者會**少報**,而少報正是本條 backlog 要修的傷害本身
-      //    (員工看到「只有 A 家」就放心登錄,實際上還有 B 家)。`[]` 會讓 UI 退回原本的警語。
-      //    ⚠️ 這裡刻意**不擲錯**(與上面 order_id 那道不同):供應商只是顯示用的加值資訊,
-      //    為了它把整個搜尋打掛,是拿員工找得到單的能力去換一個標示。
-      const supplierById = new Map<string, string | null>();
-      let supplierShapeOk = true;
-      for (const row of rows) {
-        const sid = row.supplier_id;
-        if (typeof sid !== 'string' || sid === '') {
-          supplierShapeOk = false;
-          break;
-        }
-        // label 缺鍵 / null ⇒ 保留該家但 label 為 null:UI 據此退回警語(不假裝知道是誰)。
-        if (!supplierById.has(sid)) supplierById.set(sid, row.suppliers?.label ?? null);
-      }
-      supplierOrderNoMatchedSuppliers = supplierShapeOk
-        ? Array.from(supplierById, ([id, label]) => ({ id, label }))
-        : [];
-      const ids = Array.from(new Set(extracted));
-      // 🔴 **第二道:去重後訂單數超過上限 ⇒ 明示擲錯,不截斷假裝那就是全部**
-      //    (Sean 2026-08-07 Q1=A「不默默降級」的同一精神;主視窗 E-142-A 批准)。
-      //    這一道守的是**第二段的 URL 長度**,與上一道守的「集合完整性」是兩件事。
-      if (ids.length > SUPPLIER_ORDER_NO_MATCH_CAP) {
-        throw new SupplierOrderNoSearchTooManyError(SUPPLIER_ORDER_NO_MATCH_CAP);
-      }
-      // 零命中 ⇒ 直接回零筆、**不打第二段**(省一次往返,且不押 `.in('id', [])` 的行為)。
-      if (ids.length === 0) {
-        return { items: [], total: 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
-      }
-      supplierOrderIds = ids;
-    }
-
-    // ── 兩個 id 來源合併:**在 JS 內取交集,只送一次 `.in('id', …)`** ────────────────
-    // 🔴 **不得送兩次 `.in('id', …)`**:那會產生兩個同名 `id=in.(…)` query param,而
-    //    「重複的同欄 filter 怎麼合併」屬本檔 `:542-546` 明文拒絕押的那類**未文件化**的
-    //    PostgREST 行為 —— 押錯的後果是其中一半靜默失效 = 條件變寬 = fail-open。
-    // 🔴 交集後**必然 ≤ 兩者中較小的那個**,而兩者都 ≤ ADMIN_ORDER_ID_IN_CAP
-    //    ⇒ URL 長度預算不會因為合併而變差(這是「只送一次」的附帶好處,不是它的理由)。
-    const orderIdFilter = intersectOrderIds(keywordOrderIds, supplierOrderIds);
-    // 交集為空 ⇒ 回零筆、不打第二段(同上兩處的既有處置)。
-    // ⚠️ 這一格正是 `keywordMatchCount` 存在的理由:關鍵字明明有命中、卻被交集砍光,
-    //    畫面上與「關鍵字零命中」完全同形。沒有這個計數,災難當天分不出是哪一種。
-    if (orderIdFilter !== null && orderIdFilter.length === 0) {
-      return { items: [], total: 0, keywordTruncated, keywordMatchCount, supplierOrderNoMatchedSuppliers };
-    }
+    // ── id 來源:#347-B 之後**只剩關鍵字 RPC 一個** ────────────────────────────────
+    // ⚠️ 原本這裡把「關鍵字」與「供應商單號」兩份 id 在 JS 內取交集,只送一次 `.in('id', …)`
+    //    (理由=送兩次會產生兩個同名 `id=in.(…)`,而重複同欄 filter 的合併語意未文件化
+    //     ⇒ 押錯 = 其中一半靜默失效 = fail-open)。供應商那一份隨 Q-347-B1=B 退場,
+    //    交集退化成直接取用 —— **但「只送一次 `.in`」這條規則本身仍然成立**:
+    //    片 B-2 把供應商能力接回來時,要接回的是那個交集,不是第二次 `.in`。
+    const orderIdFilter = keywordOrderIds;
+    // 🔴 **這裡原本還有一條 `orderIdFilter.length === 0` 的早退,R1 Imp-3 指出它恆假、已刪。**
+    //    理由:上面 `parsed.ids.length === 0` 已經早退,而 `keywordOrderIds` 只在那之後才被賦值
+    //    ⇒ 走到這裡時它要嘛是 `null`(沒搜關鍵字)、要嘛是**非空**陣列,長度不可能為 0。
+    //    ⚠️ 我當時給它寫的理由「關鍵字有命中卻被其他篩選砍光」**也是錯的** —— 其他篩選是
+    //      在下面 `.eq/.in/.gte` 下推給 PostgREST 的,砍的是 DB 端結果,砍不到這個 JS 陣列。
+    //      (兩軸取交集的年代它才可達;交集隨供應商維度一起退場。)
+    // ✅ `keywordMatchCount` 本身仍然必要,只是理由在**別處**:關鍵字命中 N 筆、但下推的其他
+    //    篩選把最終列表砍成 0 筆時,畫面與「關鍵字零命中」完全同形 —— 那個分辨靠它,不靠這條分支。
 
     let query = this.supabase
       .from('orders')
@@ -755,13 +572,6 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (orderIdFilter) query = query.in('id', orderIdFilter);
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
-    if (orderNumberSearch.kind === 'ok') {
-      // 兩欄對稱查:新 6 碼打 legacy 欄那半邊恆 0 命中(D0 的 CHECK 禁新格式進 legacy 欄),
-      // 舊號打 display_id 那半邊在改號後也恆 0 —— 刻意保持對稱,呼叫端不必知道這張單改過號沒有。
-      query = query.or(
-        `display_id.eq.${orderNumberSearch.value},legacy_display_id.eq.${orderNumberSearch.value}`,
-      );
-    }
     if (filter.orderSources?.length) {
       query = query.in('order_source', [...filter.orderSources]);
     }
@@ -784,49 +594,33 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     // ── M-4b 生命週期 L6:預設隱藏「刷卡未付款」單 ────────────────────────────
     // NOT(tappay AND unpaid) 依 De Morgan = (channel<>tappay) OR (status<>unpaid)。
     //
-    // 🔴 **單號搜尋啟用時刻意不套用**,兩個理由缺一不可:
-    //   ① 產品面:客服拿著單號查**特定一張單**,查不到會比看到它更困惑 ——
-    //      隱藏規則要治的是「瀏覽列表時的噪音」,不是「精準查詢」。
-    //   ② 技術面:上面單號搜尋那段已經用掉一個 `or=` 參數。兩個 `.or()` 會產生**兩個同名
-    //      `or=` query param**(實測 URL:`?…&or=(…)&or=(…)`),而 PostgREST 官方文件
-    //      **沒有明說**重複的頂層邏輯運算子怎麼合併(只寫了「不同欄位的條件預設 AND」)。
-    //      沒有來源就不押 —— 押錯的後果是單號搜尋那半靜默失效 = 列出全部訂單(fail-open),
-    //      正是本 repo 被咬過好幾次的形狀。
-    //   ⇒ 兩者合起來:任一時刻最多只有一個 `or=`,語意不依賴未文件化的行為。
-    // 🔴 供應商單號搜尋**也豁免**(code-reviewer must-fix 3):它走 `.in('id', ids)`、與 `or=` 零衝突,
-    //    所以技術理由②對它不成立 —— 但**產品理由①逐字成立**:員工拿供應商給的單號反查,
-    //    命中的單若剛好是 tappay+unpaid,畫面會吐「共 0 筆 / 沒有符合條件的訂單」,
-    //    而 `apps/admin/src/app/orders/page.tsx` 明文寫著這個結論正是 Q1=A 拍板要禁的。
-    //    先前只豁免 orderNumber 是**遺漏、不是決定**。
+    // 🔴🔴 **豁免已整條退場(#347-B;Sean 拍板 Q-347-B1=B)—— 這不是遺漏,是決定。**
+    //
+    // 原本的規則是 D-385-A 裁定的「**豁免綁精準鍵**」:查詢含訂單編號 / 供應商單號等
+    // 精準識別鍵 ⇒ 豁免隱藏;純關鍵字不豁免。它的實作就掛在那兩個專用搜尋維度上
+    // (`orderNumberSearch.kind !== 'ok' && supplierSearch.kind !== 'ok'`)。
+    // 兩個維度隨 Q-347-B1=B 退場之後,**那條規則沒有實作了** —— Sean 拍板逐字:
+    //   「收掉兩舊搜尋欄後,**不保留**『打單號自動不藏刷卡未付款單』的豁免能力;
+    //     **查無時提示**『可能有未付款的單被隱藏,勾起來再查一次』。」
+    //
+    // 🔴 **「不默默降級」現在由誰承載**:`apps/admin/src/app/orders/page.tsx` 的
+    //    `UNPAID_CARD_HIDDEN_HINT` —— 關鍵字搜尋 + 本規則生效 + 0 筆 ⇒ 明示提示 +
+    //    指向篩選列那個勾(唯一逃生口)。**改動本條件式的人必須連那句提示一起看**:
+    //    這裡多藏一種情況,那邊就少講一種情況。
+    //
+    // ⚠️ **RPC 回不出「以哪一支分支命中」**(`admin_search_orders` 只回 `{ids, truncated}`)
+    //    ⇒ 就算想恢復「精準鍵豁免」也做不到,除非改 RPC 回傳形狀(而「以哪一欄命中」
+    //    本身帶 PII 指向性,要重走 2b 的紅線審查)。這是**能力上的**限制、不是懶。
+    //
     // ⚠️ 前提(nit 8):De Morgan 等價只在兩欄皆 NOT NULL 時成立(SQL 三值邏輯:`neq` 遇 NULL
     //    回 NULL、該列被丟掉 = 靜默多藏單)。實查兩欄都安全:`payment_channel` NOT NULL DEFAULT 'tappay'
     //    (`20260712203000_m4a_orders_admin_columns.sql`)、`payment_status` NOT NULL(`20260604120000`)。
     //    誰把任一欄改成 nullable,必須回頭重看這一行。
-    // ⚠️ 現況(nit 9):`ADMIN_E10_ORDER_NUMBER_SEARCH` 預設 off ⇒ `filter.orderNumber` 恆 undefined
-    //    ⇒ 單號那半的豁免**現在是死路徑**、flag 開了才生效;供應商單號那半同理受自己的 flag 管。
-    //    ⇒ 目前唯一實際打得開的逃生口是篩選列上的那個勾。
     //
-    // ── 🔴🔴 #347-2a 關鍵字搜尋**刻意不在豁免名單裡**(主視窗 `D-385-A` 裁決)────────────
-    // 統一敘述(逐字,這是規則本身、不是本片的例外):
-    //   「**豁免綁精準鍵**:查詢含訂單編號 / 供應商單號等**精準識別鍵** = 豁免隱藏(既有核准);
-    //     **純關鍵字不豁免**;關鍵字與精準鍵**並用**時,豁免由精準鍵帶入。」
-    // ⇒ 下面的條件式**一個字都不用改** —— `keywordSearch` 不出現在裡面,正是上面那句話的實作。
-    // 理由:既有豁免的字面理由是「客服拿著單號查**特定一張單**」,而關鍵字是**八維度子字串**搜尋
-    //   —— 搜「王」或一個品牌名會一次撈回大量 tappay×unpaid 單,正是 Sean 逐字要求藏起來的那批
-    //   (`types.ts` 的 `includeUnpaidCardOrders` docstring)。豁免它 = 悄悄推翻那個拍板。
-    // 🔴 **已知的代價,已寫成 2b 的硬前置**:精準搜一個料號、命中的單剛好是 tappay×unpaid ⇒
-    //   RPC 回 1 筆、`truncated=false`、這一行把它濾成 0 筆 ⇒ 畫面吐「共 0 筆」。
-    //   ⇒ 2b **必須**在「關鍵字搜尋 + 本規則生效 + 0 筆」時顯示條件式提示
-    //   (「可能有刷卡未付款的單被隱藏,勾『連未付款一起顯示』再查一次」)。
-    //   刻意不多打一次 count 去確認真的有被藏 —— 那是為一句提示多掃一次全表;條件式措辭不需要它。
-    // ⚠️ **這不是 bug,不要「修好」它**:關鍵字 + 供應商單號**並用**時會經由
-    //   `supplierSearch.kind !== 'ok'` 這一項而豁免 ⇒ 同一張 tappay×unpaid 單「只搜關鍵字被藏、
-    //   併搜出現」。那是「豁免綁精準鍵」的**正確結果**(關卡1 R3-n2 提出、主視窗裁定不改)。
-    if (
-      !filter.includeUnpaidCardOrders &&
-      orderNumberSearch.kind !== 'ok' &&
-      supplierSearch.kind !== 'ok'
-    ) {
+    // 🔴 關鍵字**本來就不在豁免名單裡**(D-385-A 同一段),理由不因本片改變:關鍵字是
+    //    多維度子字串搜尋,搜「王」或一個品牌名會一次撈回大量 tappay×unpaid 單,
+    //    正是 Sean 逐字要求藏起來的那批(`types.ts` 的 `includeUnpaidCardOrders` docstring)。
+    if (!filter.includeUnpaidCardOrders) {
       query = query.or('payment_channel.neq.tappay,payment_status.neq.unpaid');
     }
     const { data, error, count } = await query
