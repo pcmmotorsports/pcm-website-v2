@@ -28,27 +28,12 @@ export { AuthError } from './identity/auth';
 export type { NotOwnedResource } from './identity/ownership';
 export { NotOwnedError } from './identity/ownership';
 
-// 單號搜尋正規化與形狀守門(M-4b E10 A9b1;解析層與 adapter .or 內插前共用單一來源)
-export type { OrderNumberSearch } from './order/order-number-search';
-export {
-  normalizeOrderNumberSearch,
-  LEGACY_ORDER_NUMBER_RE,
-  ORDER_NUMBER_RE,
-} from './order/order-number-search';
-
-// 供應商單號搜尋正規化(M-4b E10 A9b2-A;解析層與 adapter .eq 比對前共用單一來源)
-// 🔴 與 A9b1 分立、不合併:兩者的合法形狀完全不同(訂單編號有格式、供應商單號沒有),
-//    合成一支會讓其中一邊的守門變成裝飾。
-export type {
-  SupplierOrderNoSearch,
-  SupplierOrderNoSearchInvalidReason,
-} from './order/supplier-order-no-search';
-export {
-  normalizeSupplierOrderNoSearch,
-  MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH,
-  SupplierOrderNoSearchTooManyError,
-  SupplierOrderNoSearchShapeError,
-} from './order/supplier-order-no-search';
+// #347-B(Sean 拍板 Q-347-B1=B):`order-number-search` 與 `supplier-order-no-search`
+// 兩支模組連同它們的匯出**整支刪除** —— 兩個專用搜尋欄退場後全 repo 零 consumer。
+// 🔴 它們存在的唯一理由是「值會被內插進 PostgREST 的 GET query string」需要字元集守門
+//    (`.or()` 字串內插、`.eq()` 對保留字元不加引號)。關鍵字維度走 `.rpc()` = POST + JSON body,
+//    值不進 URL、不參與 filter 語法拼接 ⇒ **那個威脅面本身消失了**,不是把守門拿掉不管。
+//    完整對照見 `order/keyword-search.ts` 檔頭那段。
 
 // 建立日期範圍的曆面換算(M-4b #347-3b;台北午夜邊界,adapter 與 3c UI 共用單一來源)
 export {

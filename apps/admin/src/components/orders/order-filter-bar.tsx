@@ -26,18 +26,12 @@ export function OrderFilterBar({
   filter,
   datePresetOptions,
   selectedDatePresetKey,
-  orderNumberSearchEnabled = false,
-  supplierOrderNoSearchEnabled = false,
 }: {
   filter: AdminOrderFilter;
   /** #347-3c-2:日期下拉的選項(server 算好區間;client 不碰時鐘)。 */
   datePresetOptions: OrderDatePresetOption[];
   /** #347-3c-2:選中的那一格 —— 與**真正生效的區間**同源(見 `resolveOrderDateRange`)。 */
   selectedDatePresetKey: string;
-  /** M-4b E10 A10c1 單號搜尋開關(§7.1 逐批啟用閘;D0 apply 前一律 false)。 */
-  orderNumberSearchEnabled?: boolean;
-  /** M-4b E10 A10c2 供應商單號搜尋開關(A9b2-M `20260807130000` apply 前一律 false)。 */
-  supplierOrderNoSearchEnabled?: boolean;
 }) {
   return (
     <div className='bg-card text-card-foreground flex flex-wrap items-end gap-3 rounded-lg border p-4'>
@@ -47,15 +41,11 @@ export function OrderFilterBar({
         fulfillmentOptions={FULFILLMENT_STATUS_OPTIONS}
         sourceOptions={ORDER_SOURCE_OPTIONS}
         channelOptions={PAYMENT_CHANNEL_OPTIONS}
-        orderNumberSearchEnabled={orderNumberSearchEnabled}
-        supplierOrderNoSearchEnabled={supplierOrderNoSearchEnabled}
         initial={{
           pay: filter.paymentStatus ?? '',
           ful: filter.fulfillmentStatus ?? '',
           src: filter.orderSources ?? [],
           ch: filter.paymentChannels ?? [],
-          no: filter.orderNumber ?? '',
-          supplierNo: filter.supplierOrderNo ?? '',
           // L6:server 端解析出來的開關要餵回勾選框,否則重新整理後「勾沒了、列表卻是全顯示」。
           showUnpaidCard: filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : '',
           // #347-3c-1:日期兩軸**純透傳**(沒有可見控制項,下拉是 3c-2)。

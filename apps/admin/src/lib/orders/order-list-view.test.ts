@@ -3,7 +3,6 @@
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
 import { describe, it, expect } from 'vitest';
-import { normalizeOrderNumberSearch } from '@pcm/domain';
 import type { AdminOrderFilter } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
@@ -245,126 +244,11 @@ describe('formatOrderItemVehicle（V-3b 年份廠牌車種欄）', () => {
   });
 });
 
-// ── M-4b E10 A10c1:單號搜尋參數 ────────────────────────────────────────────
-describe('parseOrderListSearchParams — A10c1 單號搜尋(order_no)', () => {
-  const on = { orderNumberSearchEnabled: true };
-
-  it('🔴 flag 未開 → 整個不解析(D0 未 apply 時打這條 filter 會 42703、整頁掛掉)', () => {
-    const { filter } = parseOrderListSearchParams({ order_no: 'YWP3PC' });
-    expect(filter.orderNumber).toBeUndefined();
-  });
-
-  it('flag 開啟 + 合法新格式 → 正規化後帶入', () => {
-    const { filter } = parseOrderListSearchParams({ order_no: 'ywp3pc' }, on);
-    expect(filter.orderNumber).toBe('YWP3PC');
-  });
-
-  it('flag 開啟 + 合法舊格式 → 帶入(改號後舊號仍可查)', () => {
-    const { filter } = parseOrderListSearchParams({ order_no: ' pcm-2026-0104 ' }, on);
-    expect(filter.orderNumber).toBe('PCM-2026-0104');
-  });
-
-  it('缺參數 / 空字串 → undefined(不篩選)', () => {
-    expect(parseOrderListSearchParams({}, on).filter.orderNumber).toBeUndefined();
-    expect(parseOrderListSearchParams({ order_no: '   ' }, on).filter.orderNumber).toBeUndefined();
-  });
-
-  it('🔴 格式不符不得吞成 undefined —— 吞掉就變成「打錯字 = 列出全部訂單」的 fail-open', () => {
-    const { filter } = parseOrderListSearchParams({ order_no: 'YWP3P0' }, on);
-    expect(filter.orderNumber).toBe('YWP3P0'); // 原樣往下傳,adapter 端 fail-closed 回零筆
-  });
-
-  it('🔴 超長輸入被截斷,不把上萬字帶進 filter 與後續 URL', () => {
-    const huge = `PCM-2026-${'9'.repeat(5000)}`;
-    const { filter } = parseOrderListSearchParams({ order_no: huge }, on);
-    expect(filter.orderNumber).toBeDefined();
-    // 🔴 上界是 **32 + 1**:截到剛好 32 的話那個值自己會通過下一次正規化,
-    //    而 adapter 收到 filter 後真的會再跑一次 ⇒「太長」被靜默改寫成「前 32 字」去查。
-    //    (A9b2-A 階段 C 在姊妹函式抓到同形狀 bug,根因一致、一起修。)
-    expect(filter.orderNumber?.length).toBeLessThanOrEqual(33);
-    // 🔴 真正的不變量:進了 filter 的值再正規化一次**必須仍是 invalid**(修前實測為 `ok`)。
-    expect(normalizeOrderNumberSearch(filter.orderNumber).kind).toBe('invalid');
-  });
-
-  it('同鍵重複 param 取第一個(URL 被手動塞多值時行為明確)', () => {
-    const { filter } = parseOrderListSearchParams({ order_no: ['YWP3PC', 'BKPR5M'] }, on);
-    expect(filter.orderNumber).toBe('YWP3PC');
-  });
-});
-
-describe('buildOrderListHref — A10c1 單號搜尋要跟著翻頁與回跳走', () => {
-  it('🔴 帶單號時 href 必須保留 order_no(漏帶 = 翻第 2 頁就變回全部訂單)', () => {
-    const href = buildOrderListHref({ orderNumber: 'YWP3PC' }, 2);
-    expect(href).toContain('order_no=YWP3PC');
-    expect(href).toContain('page=2');
-  });
-
-  it('單號與其他篩選並存時兩者都在', () => {
-    const href = buildOrderListHref({ orderNumber: 'PCM-2026-0104', paymentStatus: 'paid' }, 1);
-    expect(href).toContain('order_no=PCM-2026-0104');
-    expect(href).toContain('payment_status=paid');
-  });
-
-  it('無單號 → href 不出現 order_no', () => {
-    expect(buildOrderListHref({ paymentStatus: 'paid' }, 1)).not.toContain('order_no');
-  });
-});
-
-// ── M-4b E10 A10c2:供應商單號搜尋參數(supplier_no)────────────────────────
-describe('parseOrderListSearchParams — A10c2 供應商單號搜尋(supplier_no)', () => {
-  const on = { supplierOrderNoSearchEnabled: true };
-
-  it('🔴 flag 未開 → 整個不解析(A9b2-M apply 前開了會讓整個列表進錯誤態)', () => {
-    const r = parseOrderListSearchParams({ supplier_no: 'SO-123' });
-    expect(r.filter.supplierOrderNo).toBeUndefined();
-    expect(r.supplierOrderNoSearch).toEqual({ kind: 'empty' });
-  });
-
-  it('flag 開 → 正規化成大寫形進 filter', () => {
-    const { filter } = parseOrderListSearchParams({ supplier_no: ' so-123 ' }, on);
-    expect(filter.supplierOrderNo).toBe('SO-123');
-  });
-
-  it('🔴 不合法不吞掉、原樣往下傳(adapter 才 fail-closed 回零筆)', () => {
-    const r = parseOrderListSearchParams({ supplier_no: 'SO,123' }, on);
-    // 若這裡回 undefined,就變成「打錯字 = 不篩選 = 列出全部訂單」的 fail-open
-    expect(r.filter.supplierOrderNo).toBe('SO,123');
-    expect(r.supplierOrderNoSearch).toEqual({
-      kind: 'invalid',
-      reason: 'reserved_char',
-      input: 'SO,123',
-    });
-  });
-
-  it('🔴 同鍵重複 param → 收斂取第一個,**不得**變成不篩選', () => {
-    // `?supplier_no=a&supplier_no=b` 解析出來是陣列;normalize 對非字串回 empty = 不篩選
-    // = 列出全部訂單。少了 firstValue 這道收斂,一條手打的 URL 就是 fail-open(Fable F6)。
-    const { filter } = parseOrderListSearchParams({ supplier_no: ['SO-1', 'SO-2'] }, on);
-    expect(filter.supplierOrderNo).toBe('SO-1');
-  });
-
-  it('reason 三種都原樣回傳(UI 要靠它顯示不同訊息)', () => {
-    const reason = (v: string) =>
-      (parseOrderListSearchParams({ supplier_no: v }, on).supplierOrderNoSearch as {
-        reason?: string;
-      }).reason;
-    expect(reason('單號123')).toBe('non_ascii');
-    expect(reason('SO(1)')).toBe('reserved_char');
-    expect(reason('x'.repeat(33))).toBe('too_long');
-  });
-
-  it('🔴 buildOrderListHref 必須保留 supplier_no —— 漏了就是「翻頁後搜尋詞消失、變回全部訂單」', () => {
-    const href = buildOrderListHref({ supplierOrderNo: 'SO-123' }, 2);
-    expect(href).toContain('supplier_no=SO-123');
-    expect(href).toContain('page=2');
-  });
-
-  it('與訂單編號搜尋併存於同一條 href(兩軸不互相覆蓋)', () => {
-    const href = buildOrderListHref({ orderNumber: 'YWP3PC', supplierOrderNo: 'SO-1' }, 1);
-    expect(href).toContain('order_no=YWP3PC');
-    expect(href).toContain('supplier_no=SO-1');
-  });
-});
+// ── #347-B(Sean 拍板 Q-347-B1=B):`order_no` / `supplier_no` 兩個 query key 已退場,
+//    它們的解析、fail-closed、href 保留、同鍵重複收斂等三個 describe 一併刪除。
+// 🔴 **白名單守門那一族仍然蓋得住它們**:上面「非法篩選值一律忽略」與
+//    「A9w2 九碼下架」兩格證的是同一件事 —— 不在白名單的鍵進不了 filter。
+//    URL 手打 `?order_no=…` 自此與 `?workflow_status=…` 同待遇:被忽略。
 
 describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關解析', () => {
   // Sean 逐字「刷卡單失敗直接不顯示在後台就好」(P-233-A)。預設隱藏 ⇒ 解析出錯時

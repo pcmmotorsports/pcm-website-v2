@@ -11,19 +11,12 @@ import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
 import type { AdminOrderFilter, PlaceOrderInput } from '@pcm/domain';
-import {
-  SupplierOrderNoSearchTooManyError,
-  SupplierOrderNoSearchShapeError,
-  OrderKeywordSearchShapeError,
-  MAX_ORDER_KEYWORD_LENGTH,
-} from '@pcm/domain';
+import { OrderKeywordSearchShapeError, MAX_ORDER_KEYWORD_LENGTH } from '@pcm/domain';
 import {
   SupabaseOrderAdapter,
   ORDER_LIST_SELECT,
   ADMIN_ORDER_LIST_SELECT,
   ADMIN_ORDER_DETAIL_SELECT,
-  SUPPLIER_ORDER_NO_MATCH_CAP,
-  SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT,
   ADMIN_ORDER_ID_IN_CAP,
   ADMIN_SEARCH_ORDERS_FN,
 } from './SupabaseOrderAdapter';
@@ -1339,451 +1332,10 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
 //    (A9w4c 後半,2026-08-06)。order 層的 `updateAdminOrderWorkflow` 那組原封保留 —— 兩者是不同的
 //    寫入面,只有 item 那支退場。
 
-// ── M-4b E10 A9b1:單號搜尋(display_id + legacy_display_id 同時比對)───────────
-// 規格 = docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md §5.1 A9b1。
-// 走 adapter 投影、不開 DB RPC;.or() 是字串內插 ⇒ 值必先過 normalizeOrderNumberSearch。
-describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋', () => {
-  it('舊號搜尋 → .or 同時比對 display_id 與 legacy_display_id(改號後舊號仍查得到)', async () => {
-    const { client, or, select } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'PCM-2026-0104' },
-      { limit: 20 },
-    );
-    expect(or).toHaveBeenCalledWith(
-      'display_id.eq.PCM-2026-0104,legacy_display_id.eq.PCM-2026-0104',
-    );
-    // 單號搜尋不改投影(A9b1 是查詢合約、不是投影改造)
-    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-  });
-
-  it('新 6 碼搜尋 → 同一條 .or', async () => {
-    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'YWP3PC' },
-      { limit: 20 },
-    );
-    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
-  });
-
-  it('小寫與前後空白先正規化再內插(客服貼上的值不該查不到)', async () => {
-    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: '  ywp3pc  ' },
-      { limit: 20 },
-    );
-    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
-  });
-
-  it('未給 / 空字串 → 不篩選(不呼叫 .or、也不提前回零筆)', async () => {
-    const a = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(a.client).listOrderSummariesForAdmin({}, { limit: 20 });
-    // 🔴 L6 起「`.or` 完全沒被呼叫」不再是有效代理 —— 預設的隱藏規則自己就用 `.or`。
-    //    這條要證的是「**單號/九碼沒有被下推**」,所以改成比對字面(意圖不變、只是量對東西)。
-    expect(a.or.mock.calls).toEqual([[L6_HIDE_OR]]);
-    expect(a.range).toHaveBeenCalled();
-
-    const b = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(b.client).listOrderSummariesForAdmin(
-      { orderNumber: '   ' },
-      { limit: 20 },
-    );
-    expect(b.or.mock.calls).toEqual([[L6_HIDE_OR]]);
-    expect(b.range).toHaveBeenCalled();
-  });
-
-  it('🔴 fail-closed:格式不符 → 直接回零筆,且完全不查 DB(不得退化成列出全部)', async () => {
-    for (const bad of ['YWP3P0', 'YWP3P', 'YWP3PCX', 'PCM-2026-104', '王小明']) {
-      const { client, from, or, range } = makeAdminListClient({
-        data: [{ id: 'should-never-be-returned' }],
-        error: null,
-        count: 999,
-      });
-      const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-        { orderNumber: bad },
-        { limit: 20 },
-      );
-      expect(res, `格式不符應回零筆:${bad}`).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
-      expect(from, `格式不符不該碰 DB:${bad}`).not.toHaveBeenCalled();
-      expect(or).not.toHaveBeenCalled();
-      expect(range).not.toHaveBeenCalled();
-    }
-  });
-
-  it('🔴 .or 內插注入形狀在 adapter 層 fail-closed(回零筆、不查 DB)', async () => {
-    for (const attack of [
-      'YWP3PC,payment_status.eq.paid',
-      'PCM-2026-0104,legacy_display_id.is.null',
-      'display_id.is.null',
-      'YWP3PC)',
-    ]) {
-      const { client, from } = makeAdminListClient({ data: [], error: null, count: 0 });
-      const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-        { orderNumber: attack },
-        { limit: 20 },
-      );
-      expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
-      expect(from, `注入形狀不該碰 DB:${attack}`).not.toHaveBeenCalled();
-    }
-  });
-
-  it('單號搜尋可與既有雙軸篩選並用(各自下推、互不吃掉)', async () => {
-    const { client, or, eq } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'YWP3PC', paymentStatus: 'paid' },
-      { limit: 20 },
-    );
-    expect(eq).toHaveBeenCalledWith('payment_status', 'paid');
-    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
-  });
-});
-
-// A9b1 補強(code-reviewer nit)原本測的是「orderNumber + workflowStatuses 併用 = 同一 query
-// 兩次 .or(key 分別是 `or` 與 `order_items.or`)不會互相覆蓋」。
-// 🔴 A9w3 後那個情境**構造不出來**:九碼下推已移除 ⇒ 全 adapter 只剩單號那一條 .or,
-//    「兩條 .or 互相覆蓋」在物理上不可能發生。留著一條假裝在測併用的測試比刪掉更糟
-//    (memory `feedback_unconstructible-negative-test-means-noop-guard`)⇒ 刪那條、留下面這條
-//    (它測的是單號守門本身,與九碼無關)。日後若再出現第二條 referencedTable .or,
-//    這段註解就是「該把併用測試加回來」的觸發點。
-describe('SupabaseOrderAdapter — A9b1 單號搜尋守門', () => {
-  it('🔴 單號格式不符時,即使有其他篩選也一律回零筆、完全不查 DB', async () => {
-    const { client, from } = makeAdminListClient({ data: [], error: null, count: 5 });
-    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'BAD!', paymentStatus: 'paid' },
-      { limit: 20 },
-    );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
-    expect(from).not.toHaveBeenCalled();
-  });
-});
-
-// ── M-4b E10 A9b2-A:依供應商單號跨單搜尋(兩段式查詢)──────────────
-// 🔴 這裡**另立** client harness、不改 `makeAdminListClient` —— 本片對既有路徑零行為改動,
-//    既有那些測試必須一格不動仍綠(改了就分不清「新片沒壞東西」還是「我把斷言改成配合新行為」)。
-// mock:from('order_item_procurement').select(...).limit(n).filter(col,'eq',v) → 終端 await
-//       from('orders') 那半邊與 makeAdminListClient 同形。
-function makeSupplierSearchClient(opts: {
-  proc: { data: unknown; error: unknown };
-  list?: { data: unknown; error: unknown; count: number | null };
-}) {
-  const procFilter = vi.fn().mockResolvedValue(opts.proc);
-  const procLimit = vi.fn().mockReturnValue({ filter: procFilter });
-  const procOrder = vi.fn().mockReturnValue({ limit: procLimit });
-  const procSelect = vi.fn().mockReturnValue({ order: procOrder });
-
-  const listResult = opts.list ?? { data: [], error: null, count: 0 };
-  const range = vi.fn().mockResolvedValue(listResult);
-  const order = vi.fn();
-  order.mockReturnValue({ order, range });
-  const eq = vi.fn();
-  const inFn = vi.fn();
-  const or = vi.fn();
-  const gte = vi.fn();
-  const lt = vi.fn();
-  const builder = { eq, is: vi.fn(), in: inFn, or, gte, lt, order };
-  or.mockReturnValue(builder);
-  eq.mockReturnValue(builder);
-  inFn.mockReturnValue(builder);
-  gte.mockReturnValue(builder);
-  lt.mockReturnValue(builder);
-  const listSelect = vi.fn().mockReturnValue(builder);
-
-  const from = vi.fn((table: string) =>
-    table === 'order_item_procurement' ? { select: procSelect } : { select: listSelect },
-  );
-  return {
-    client: { from } as unknown as SupabaseClient,
-    from,
-    procSelect,
-    procOrder,
-    procLimit,
-    procFilter,
-    listSelect,
-    eq,
-    or,
-    in: inFn,
-    range,
-  };
-}
-
-const procRow = (orderId: string, supplierId = 'sup-1', label: string | null = 'A 商行') => ({
-  order_items: { order_id: orderId },
-  // #338:探測查詢多取的兩欄。預設給一家有名字的,既有測試的斷言因此一個字都不用改。
-  supplier_id: supplierId,
-  suppliers: { label },
-});
-
-describe('#338 命中的供應商帶出來(同一次往返)', () => {
-  const run = async (procData: unknown[]) => {
-    const h = makeSupplierSearchClient({
-      proc: { data: procData, error: null },
-      list: { data: [], error: null, count: 0 },
-    });
-    return new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-  };
-
-  it('🔴 同一家跨多張單 ⇒ 去重成一家(去重鍵是 supplier_id,不是 label)', async () => {
-    // 突變:拿掉去重 ⇒ 這格紅,而畫面會把「一家」說成「2 家供應商都有」= 憑空製造一個不存在的警訊。
-    const res = await run([procRow('o-1'), procRow('o-2')]);
-    expect(res.supplierOrderNoMatchedSuppliers).toEqual([{ id: 'sup-1', label: 'A 商行' }]);
-  });
-
-  it('🔴 兩家共用同一組單號 ⇒ 兩家都帶出來(這就是本條 backlog 的情境)', async () => {
-    const res = await run([procRow('o-1'), procRow('o-2', 'sup-2', 'B 貿易')]);
-    expect(res.supplierOrderNoMatchedSuppliers).toEqual([
-      { id: 'sup-1', label: 'A 商行' },
-      { id: 'sup-2', label: 'B 貿易' },
-    ]);
-  });
-
-  it('🔴 有任何一列認不出 supplier_id ⇒ 整份回 `[]`,不回「我認得的那幾家」', async () => {
-    // 🔴 少報比不報更危險:員工看到「只有 A 家」會放心登錄,而實際上還有一家沒被認出來。
-    //    突變:改成「濾掉認不出的、其餘照回」⇒ 這格紅。
-    const res = await run([procRow('o-1'), { order_items: { order_id: 'o-2' }, suppliers: null }]);
-    expect(res.supplierOrderNoMatchedSuppliers).toEqual([]);
-  });
-
-  it('🔴 label 拿不到(內嵌沒回來)⇒ 該家仍在清單裡但 label 為 null(交給 UI 退回警語)', async () => {
-    const res = await run([procRow('o-1', 'sup-9', null)]);
-    expect(res.supplierOrderNoMatchedSuppliers).toEqual([{ id: 'sup-9', label: null }]);
-  });
-
-  it('🔴 R2:第三個 null 成因 —— 單號合法,但關鍵字先零命中而早退(探測排在關鍵字之後)', async () => {
-    // 這一格釘的是**契約**:照「null = 沒搜單號」推導會錯,因為這條路上單號是合法且有給的。
-    // 沒有它,把 domain docstring 改回「只有兩個成因」也不會有任何測試轉紅。
-    const h = makeKeywordSearchClient({
-      rpc: { data: { ids: [], truncated: false }, error: null },
-      proc: { data: [procRow('o-1')], error: null },
-    });
-    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { keyword: '找不到的詞', supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    expect(res.supplierOrderNoMatchedSuppliers).toBeNull();
-    expect(res.keywordMatchCount).toBe(0);
-  });
-
-  it('🔴 探測整條沒跑(輸入不合法)⇒ `null`,與 `[]` 不同', async () => {
-    const h = makeSupplierSearchClient({ proc: { data: [], error: null } });
-    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'bad,input' },
-      { limit: 20 },
-    );
-    expect(res.supplierOrderNoMatchedSuppliers).toBeNull();
-  });
-});
-
-describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商單號搜尋', () => {
-  it('命中 → 第一段對採購表 eq 比對大寫欄;第二段 .in(id) 且**投影仍是主常數**', async () => {
-    const h = makeSupplierSearchClient({
-      proc: { data: [procRow('o-1'), procRow('o-2')], error: null },
-      list: { data: [], error: null, count: 0 },
-    });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: ' so-123 ' },
-      { limit: 20 },
-    );
-    // 第一段:比對的是 A9b2-M 的產生欄、值是正規化後的大寫形(不是使用者原輸入)
-    // 🔴 #338:這一行**改過**(原為 `'order_items!inner(order_id)'`)。它紅過一次,而且**紅得對** ——
-    //    這正是這道守門存在的意義:探測查詢的投影不該被誰順手改掉而沒人知道。
-    //    多取的兩欄只餵「命中了哪幾家供應商」的提示,**不進列表投影白名單**(下一行照舊釘住)。
-    expect(h.procSelect).toHaveBeenCalledWith(
-      'order_items!inner(order_id), supplier_id, suppliers(label)',
-    );
-    expect(h.procFilter).toHaveBeenCalledWith('supplier_order_no_upper', 'eq', 'SO-123');
-    // 🔴 第二段的投影一個字都沒動(鐵則 12 byte-lock 白名單不因搜尋而換版本)
-    expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-    expect(h.in).toHaveBeenCalledWith('id', ['o-1', 'o-2']);
-  });
-
-  it('🔴 L6-A6 供應商單號搜尋時**不套用**隱藏規則(否則命中的 tappay+unpaid 單會吐「共 0 筆」)', async () => {
-    // code-reviewer must-fix 3:先前只豁免了 orderNumber,這條是遺漏不是決定。
-    // 技術理由(兩個 `or=`)對這條路徑**不成立**(它走 `.in('id',…)`、不同 param);
-    // 站得住的是產品理由:拿供應商給的單號反查,查不到比看到更困惑。
-    const h = makeSupplierSearchClient({
-      proc: { data: [procRow('o-1')], error: null },
-      list: { data: [], error: null, count: 0 },
-    });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    expect(h.or).not.toHaveBeenCalled();
-  });
-
-  it('同一張訂單有多列採購 → id 去重後才進 .in', async () => {
-    const h = makeSupplierSearchClient({
-      proc: { data: [procRow('o-1'), procRow('o-1'), procRow('o-2')], error: null },
-    });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    expect(h.in).toHaveBeenCalledWith('id', ['o-1', 'o-2']);
-  });
-
-  it('零命中 → 回零筆,且**第二段完全沒被打**(省一次往返、不押 .in([]) 的行為)', async () => {
-    const h = makeSupplierSearchClient({ proc: { data: [], error: null } });
-    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-NOPE' },
-      { limit: 20 },
-    );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: [] });
-    expect(h.listSelect).not.toHaveBeenCalled();
-    expect(h.from).not.toHaveBeenCalledWith('orders');
-  });
-
-  it('🔴 fail-closed:不合法輸入 → 回零筆,且**兩段都沒被打**(不得退化成不篩選)', async () => {
-    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
-    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-123ß' }, // 非 ASCII
-      { limit: 20 },
-    );
-    expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
-    expect(h.from).not.toHaveBeenCalled();
-  });
-
-  it('🔴 去重後訂單數超過上限 → 擲 TooMany,**不截斷**假裝那就是全部', async () => {
-    const rows = Array.from({ length: SUPPLIER_ORDER_NO_MATCH_CAP + 1 }, (_, i) =>
-      procRow(`o-${i}`),
-    );
-    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
-    await expect(
-      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-        { supplierOrderNo: 'SO-MANY' },
-        { limit: 20 },
-      ),
-    ).rejects.toBeInstanceOf(SupplierOrderNoSearchTooManyError);
-    // 截斷式實作會走完第二段 ⇒ 這條把「悄悄回前 N 筆」那個修法釘死
-    expect(h.listSelect).not.toHaveBeenCalled();
-  });
-
-  it('🔴🔴 採購列觸頂、但去重後訂單數遠低於上限 → **仍須擲錯**(階段 C must-fix 的觀察面)', async () => {
-    // 這一格就是舊版(只有一道 `.limit(CAP+1)` + `ids.length > CAP`)會**全綠**的情境:
-    // 列被截斷 ⇒ 我們根本不知道真正的訂單集合,而去重後只有 3 筆、遠低於 CAP
-    // ⇒ 舊版會安靜地回那 3 張訂單,員工以為那就是全部 —— 正是這個上限本來要防的病。
-    // 一張 PO 覆蓋大量列完全正常:A2 的業務鍵是 (order_item_id, supplier_canonical_key),
-    // 一單多品項就是多列。
-    const rows = Array.from({ length: SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT + 1 }, (_, i) =>
-      procRow(`o-${i % 3}`),
-    );
-    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
-    await expect(
-      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-        { supplierOrderNo: 'SO-WIDE' },
-        { limit: 20 },
-      ),
-    ).rejects.toBeInstanceOf(SupplierOrderNoSearchTooManyError);
-    expect(h.listSelect).not.toHaveBeenCalled();
-  });
-
-  it('採購列剛好觸頂上限、訂單數合法 → 正常查(邊界不誤殺;刻意取 +1 才分辨得出)', async () => {
-    const rows = Array.from({ length: SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT }, (_, i) =>
-      procRow(`o-${i % 10}`),
-    );
-    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-EDGE' },
-      { limit: 20 },
-    );
-    expect(h.procLimit).toHaveBeenCalledWith(SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT + 1);
-    expect(h.listSelect).toHaveBeenCalledTimes(1);
-  });
-
-  it('🔴 第一段必須帶確定性排序 —— 沒有它,分頁每頁可能拿到不同的 id 集合', async () => {
-    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    expect(h.procOrder).toHaveBeenCalledWith('id', { ascending: true });
-  });
-
-  it('與其他篩選併用 → 同一個 query 同時下推(不是二選一)', async () => {
-    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-1', paymentStatus: 'paid' },
-      { limit: 20 },
-    );
-    expect(h.in).toHaveBeenCalledWith('id', ['o-1']);
-    expect(h.eq).toHaveBeenCalledWith('payment_status', 'paid');
-  });
-
-  it('第一段 DB error → 裸 throw(對齊本檔既有慣例,不吞成零筆)', async () => {
-    const boom = { message: 'boom' };
-    const h = makeSupplierSearchClient({ proc: { data: null, error: boom } });
-    await expect(
-      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-        { supplierOrderNo: 'SO-1' },
-        { limit: 20 },
-      ),
-    ).rejects.toBe(boom);
-  });
-
-  it('🔴 回傳形狀不符(embed 回陣列)→ 擲 ShapeError,**不是靜默濾掉變成查無此單**', async () => {
-    // Fable F1:DB 約束保證每列都萃得出 order_id(order_item_id NOT NULL + order_items.order_id
-    // NOT NULL + !inner)⇒ 萃不出來只代表**我的形狀假設破了**。濾掉的話會回零筆、員工以為
-    // 真的沒這張單,而 mock 餵的是符合假設的形狀 ⇒ 測試全綠、功能壞掉。
-    const h = makeSupplierSearchClient({
-      proc: { data: [{ order_items: [{ order_id: 'o-1' }] }], error: null },
-    });
-    await expect(
-      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-        { supplierOrderNo: 'SO-1' },
-        { limit: 20 },
-      ),
-    ).rejects.toBeInstanceOf(SupplierOrderNoSearchShapeError);
-    expect(h.listSelect).not.toHaveBeenCalled();
-  });
-
-  it('🔴 **部分**列萃不出 id → 一樣擲 ShapeError(不是「全部失敗才算」)', async () => {
-    // 只在「全部萃不出」時擲的話,部分失敗仍會靜默少回訂單 —— 同一個病的小一號版本。
-    const h = makeSupplierSearchClient({
-      proc: { data: [procRow('o-1'), { order_items: null }], error: null },
-    });
-    await expect(
-      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-        { supplierOrderNo: 'SO-1' },
-        { limit: 20 },
-      ),
-    ).rejects.toBeInstanceOf(SupplierOrderNoSearchShapeError);
-  });
-
-  it('去重後訂單數**恰好**等於上限 → 不誤殺(邊界的另一側)', async () => {
-    const rows = Array.from({ length: SUPPLIER_ORDER_NO_MATCH_CAP }, (_, i) => procRow(`o-${i}`));
-    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-EXACT' },
-      { limit: 20 },
-    );
-    expect(h.listSelect).toHaveBeenCalledTimes(1);
-    expect(h.in).toHaveBeenCalledWith(
-      'id',
-      Array.from({ length: SUPPLIER_ORDER_NO_MATCH_CAP }, (_, i) => `o-${i}`),
-    );
-  });
-
-  it('與訂單編號搜尋併用 → 兩條都下推到同一個 query(不是二選一)', async () => {
-    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { supplierOrderNo: 'SO-1', orderNumber: 'PCM-2026-0001' },
-      { limit: 20 },
-    );
-    expect(h.in).toHaveBeenCalledWith('id', ['o-1']);
-    expect(h.or).toHaveBeenCalledWith(
-      'display_id.eq.PCM-2026-0001,legacy_display_id.eq.PCM-2026-0001',
-    );
-  });
-
-  it('沒給 supplierOrderNo → 完全不碰採購表(既有路徑零行為改動)', async () => {
-    const h = makeSupplierSearchClient({ proc: { data: [], error: null } });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({}, { limit: 20 });
-    expect(h.from).not.toHaveBeenCalledWith('order_item_procurement');
-    expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-  });
-});
+// ── #347-B(Q-347-B1=B):A9b1 單號搜尋 / A9b2-A 供應商兩段式查詢的整組 harness 與說明
+//    連同它們的測試一起刪除。R1 Imp-7 抓到我第一輪只刪了 describe、**留下 43 行的
+//    `makeSupplierSearchClient` 與 6 行說明**零呼叫 —— 正是我自己在 B-531 §4(d) 寫過的形狀:
+//    **lint 綠不等於沒有死碼**(私有函式零 consumer 不報)。這次是 reviewer 抓到、不是 lint。
 
 describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付款」單', () => {
   // Sean 逐字「刷卡單失敗直接不顯示在後台就好」(P-233-A)。
@@ -1806,28 +1358,7 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
     expect(or).not.toHaveBeenCalledWith(HIDE);
   });
 
-  it('🔴 L6-A3 單號搜尋時不套用隱藏 —— 且全程只用掉一個 or=', async () => {
-    // 兩個理由(缺一不可,adapter 註解有全文):
-    //   ① 產品面:拿單號查特定一張單,查不到比看到更困惑;
-    //   ② 技術面:兩個 .or() 會產生兩個同名 `or=` param,而 PostgREST 官方文件**沒有明說**
-    //      重複的頂層邏輯運算子怎麼合併 —— 押錯的後果是單號搜尋靜默失效 = 列出全部訂單。
-    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'PCM-2026-0001' },
-      listArgs,
-    );
-    expect(or).toHaveBeenCalledTimes(1); // 只有單號那一個
-    expect(or).not.toHaveBeenCalledWith(HIDE);
-  });
 
-  it('🔴 L6-A4 單號搜尋 + 明確要求顯示 → 一樣只有一個 or=(兩條路徑不會疊加)', async () => {
-    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'PCM-2026-0001', includeUnpaidCardOrders: true },
-      listArgs,
-    );
-    expect(or).toHaveBeenCalledTimes(1);
-  });
 
   it('L6-A5 隱藏條件與其他篩選軸並存(不互相取代)', async () => {
     const { client, or, eq, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
@@ -1846,15 +1377,10 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
 //    既有測試必須一格不動仍綠(改了就分不清「新片沒壞東西」還是「我把斷言改成配合新行為」)。
 function makeKeywordSearchClient(opts: {
   rpc?: { data: unknown; error: unknown };
-  proc?: { data: unknown; error: unknown };
+
   list?: { data: unknown; error: unknown; count: number | null };
 }) {
   const rpc = vi.fn().mockResolvedValue(opts.rpc ?? { data: { ids: [], truncated: false }, error: null });
-
-  const procFilter = vi.fn().mockResolvedValue(opts.proc ?? { data: [], error: null });
-  const procLimit = vi.fn().mockReturnValue({ filter: procFilter });
-  const procOrder = vi.fn().mockReturnValue({ limit: procLimit });
-  const procSelect = vi.fn().mockReturnValue({ order: procOrder });
 
   const listResult = opts.list ?? { data: [], error: null, count: 0 };
   const range = vi.fn().mockResolvedValue(listResult);
@@ -1873,14 +1399,14 @@ function makeKeywordSearchClient(opts: {
   lt.mockReturnValue(builder);
   const listSelect = vi.fn().mockReturnValue(builder);
 
-  const from = vi.fn((table: string) =>
-    table === 'order_item_procurement' ? { select: procSelect } : { select: listSelect },
-  );
+  // ⚠️ #347-B:這裡原本依 `table` 分派到採購表的 mock 鏈(供應商兩段式 probe 用)。
+  //    probe 退場後那條鏈零觸發 ⇒ 連同 `procRow` / `procSelect` 整組移除。
+  //    `from` 本身留著:下面兩格用 `expect(h.from).not.toHaveBeenCalled()` 證「零 I/O」。
+  const from = vi.fn(() => ({ select: listSelect }));
   return {
     client: { from, rpc } as unknown as SupabaseClient,
     from,
     rpc,
-    procSelect,
     listSelect,
     or,
     in: inFn,
@@ -1958,12 +1484,15 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — #347-2a 關鍵字�
   });
 
   it('🔴 fail-closed:搜尋詞不合法 → 回零筆,且 **RPC 與第二段都沒被打**(零 I/O)', async () => {
-    const h = makeKeywordSearchClient({ proc: { data: [procRow(uuid(1))], error: null } });
+    const h = makeKeywordSearchClient({});
     const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      // 🔴 **一定要同時給一個有效的 supplierOrderNo**(關卡2 R1 抓到):不給的話供應商 probe
-      //    本來就不會跑 ⇒ 就算有人把關鍵字驗證移回 probe 之後,`h.from` 仍然沒被呼叫、這格照樣綠
-      //    = 這格量的其實不是「驗證排在 I/O 之前」。給了才構造得出那個突變。
-      { keyword: 'x'.repeat(MAX_ORDER_KEYWORD_LENGTH + 1), supplierOrderNo: 'SO-1' },
+      // ⚠️ **這格的判別力在 #347-B 之後變弱了,誠實寫出來**:原本它同時給一個有效的
+      //    `supplierOrderNo`,因為那樣才構造得出「有人把關鍵字驗證移到供應商 probe 之後」
+      //    這個突變(不給的話 probe 本來就不會跑、`h.from` 沒被呼叫 = 這格照樣綠 = 恆真格)。
+      //    供應商兩段式 probe 隨 Q-347-B1=B 退場之後**沒有第二段查詢可以排在後面了** ——
+      //    現在這格只證得了「不合法 ⇒ 零筆、且 RPC 沒被打」,證不了「驗證排在所有 I/O 之前」。
+      //    🔴 片 B-2 把第二段接回來時,**必須同批把這格的判別力補回去**。
+      { keyword: 'x'.repeat(MAX_ORDER_KEYWORD_LENGTH + 1) },
       { limit: 20 },
     );
     expect(res).toEqual({ items: [], total: 0, keywordTruncated: false, keywordMatchCount: null, supplierOrderNoMatchedSuppliers: null });
@@ -2023,7 +1552,10 @@ describe('#347-2a 關鍵字搜尋 · RPC 回傳形狀 fail-closed(硬轉 = 假�
     ).rejects.toBeInstanceOf(OrderKeywordSearchShapeError);
   });
 
-  it('🔴 ids 有重複 → 擲錯(不靜默去重:重複會灌水 URL,且讓 matchCount 大於真實訂單數)', async () => {
+  // ⚠️ codex R2 nit:原本標題寫「重複會灌水 URL」—— **那是假的**,adapter 自己的註解已經
+  //    更正過(`postgrest-js` 的 `.in()` 先跑 `Array.from(new Set(values))`,重複值到不了 URL)。
+  //    我把已被更正的舊理由抄進了測試標題 ⇒ 這格實際只證「matchCount 防腐」那一半。
+  it('🔴 ids 有重複 → 擲錯(不靜默去重:重複會讓 matchCount 大於真實訂單數)', async () => {
     const h = makeKeywordSearchClient({
       rpc: { data: { ids: [uuid(1), uuid(1), uuid(2)], truncated: false }, error: null },
     });
@@ -2069,85 +1601,6 @@ describe('#347-2a 關鍵字搜尋 · RPC 回傳形狀 fail-closed(硬轉 = 假�
   });
 });
 
-describe('#347-2a 關鍵字 × 供應商單號:交集只送一次 .in(id)', () => {
-  it('🔴 兩個維度並用 → **只呼叫一次 .in(id)**、值是交集(送兩次 = 兩個同名 query param,合併語意未文件化)', async () => {
-    const h = makeKeywordSearchClient({
-      rpc: { data: { ids: [uuid(1), uuid(2), uuid(3)], truncated: false }, error: null },
-      proc: { data: [procRow(uuid(2)), procRow(uuid(3)), procRow(uuid(4))], error: null },
-    });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { keyword: '王', supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    const idCalls = h.in.mock.calls.filter((c) => c[0] === 'id');
-    expect(idCalls).toHaveLength(1);
-    expect(idCalls.map((c) => c[1])).toEqual([[uuid(2), uuid(3)]]);
-  });
-
-  it('🔴 交集為空 → 回零筆、第二段不打;matchCount 仍回報關鍵字**真的有命中**', async () => {
-    const h = makeKeywordSearchClient({
-      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
-      proc: { data: [procRow(uuid(9))], error: null },
-    });
-    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { keyword: '王', supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    // 🔴 這一格正是 keywordMatchCount 存在的理由:畫面上與「關鍵字零命中」完全同形,
-    //    只有這個數字分得出來是「找到了、但被交集砍光」。
-    // 🔴 #338:供應商探測**跑過而且有命中**(交集為空是關鍵字那側砍掉的)⇒ 照實帶出來,不是 null。
-    //    畫面上不會顯示 —— `describeSupplierMatch` 的第二個參數(有沒有列出訂單)是 false。
-    expect(res).toEqual({
-      items: [],
-      total: 0,
-      keywordTruncated: false,
-      keywordMatchCount: 1,
-      supplierOrderNoMatchedSuppliers: [{ id: 'sup-1', label: 'A 商行' }],
-    });
-    expect(h.in).not.toHaveBeenCalled();
-  });
-
-  it('🔴 關鍵字零命中 + 供應商命中過多 → 回零筆、**不擲 TooMany**(關鍵字已證明交集必為空)', async () => {
-    const h = makeKeywordSearchClient({
-      rpc: { data: { ids: [], truncated: false }, error: null },
-      proc: { data: Array.from({ length: 9999 }, (_, i) => procRow(uuid(i))), error: null },
-    });
-    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { keyword: 'zzz', supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    // 順序載重:關鍵字 RPC 排在供應商 probe 之前 ⇒ 這裡根本走不到供應商那段。
-    expect(res).toMatchObject({ items: [], total: 0, keywordMatchCount: 0 });
-    expect(h.from).not.toHaveBeenCalled();
-  });
-});
-
-describe('#347-2a 關鍵字 × 供應商零命中:早退也要帶出 truncated / matchCount', () => {
-  it('🔴 關鍵字 truncated + 供應商零命中 → 早退,但**兩個訊號照實帶出去**', async () => {
-    // 🔴 這一格補的是「供應商零命中」那條早退(關卡2 R1 抓到沒人測):
-    //    把它改回一個不帶訊號的空回傳 ⇒ truncated 靜默消失、畫面不再顯示「結果太多」,
-    //    而在補這格之前,其餘 23 格全部照綠。
-    const ids = Array.from({ length: ADMIN_ORDER_ID_IN_CAP }, (_, i) => uuid(i + 1));
-    const h = makeKeywordSearchClient({
-      rpc: { data: { ids, truncated: true }, error: null },
-      proc: { data: [], error: null },
-    });
-    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { keyword: '王', supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    expect(res).toEqual({
-      items: [],
-      total: 0,
-      keywordTruncated: true,
-      keywordMatchCount: ADMIN_ORDER_ID_IN_CAP,
-      // #338:探測跑過、零列 ⇒ `[]`(查過了、一家都沒有),與「沒查過」的 `null` 不同。
-      supplierOrderNoMatchedSuppliers: [],
-    });
-    expect(h.in).not.toHaveBeenCalled();
-  });
-});
-
 describe('#347-2a 關鍵字 × L6 隱藏規則(豁免綁精準鍵)', () => {
   const HIDE = 'payment_channel.neq.tappay,payment_status.neq.unpaid';
 
@@ -2162,17 +1615,6 @@ describe('#347-2a 關鍵字 × L6 隱藏規則(豁免綁精準鍵)', () => {
     expect(h.or).toHaveBeenCalledWith(HIDE);
   });
 
-  it('關鍵字 + 供應商單號並用 → 豁免**由精準鍵帶入**(這是規則的正確結果,不是 bug)', async () => {
-    const h = makeKeywordSearchClient({
-      rpc: { data: { ids: [uuid(1)], truncated: false }, error: null },
-      proc: { data: [procRow(uuid(1))], error: null },
-    });
-    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
-      { keyword: '王', supplierOrderNo: 'SO-1' },
-      { limit: 20 },
-    );
-    expect(h.or).not.toHaveBeenCalled();
-  });
 
   it('關鍵字 + 員工手動勾「連未付款一起顯示」→ 不套隱藏(既有逃生口對關鍵字一樣有效)', async () => {
     const h = makeKeywordSearchClient({
@@ -2207,12 +1649,15 @@ describe('#347-2a 早退回傳 · 每次都是新物件(不得共用可變實例
 
 describe('#347-2a 上限常數 · 獨立釘值(抽共用後的漂綠面)', () => {
   it('🔴 ADMIN_ORDER_ID_IN_CAP 必須是字面 100 —— 要改先重量 URL 預算', () => {
-    // 🔴 **刻意寫死 100、不從常數導出**:供應商邊界測試是拿這個常數產資料的,
+    // 🔴 **刻意寫死 100、不從常數導出**:邊界測試是拿這個常數產資料的,
     //    有人改成 200 ⇒ production 與那些測試會**一起漂綠**、8KB URL 的病無聲復活。
-    //    來源:adapter `SupabaseOrderAdapter.ts:138-155` 那張 byte 表(100 筆 = 4,461 / 200 筆 = 8,361 越 8KB 線)
+    // ⚠️ codex R2 nit:原本這裡寫「**供應商**邊界測試」—— 那一族已隨 #347-B 刪除,
+    //    現在拿這個常數產資料的是**關鍵字**邊界測試(上方 truncated / CAP+1 那幾格)。
+    //    來源=`ADMIN_ORDER_ID_IN_CAP` 自己的 docstring 那張 byte 表(100 筆 = 4,461 / 200 筆 = 8,361 越 8KB 線)。
+    //    ⚠️ 刻意**不寫行號**:那張表在 #347-B 剛被別處的刪除連帶掏空過一次(R1 Imp-5),
+    //       行號指標同樣會被下一次編輯推掉 —— 用常數名指位,它跟著常數走。
     //    + migration `:198` RPC 自己的硬夾值。三者要一起改,不是改一個。
     expect(ADMIN_ORDER_ID_IN_CAP).toBe(100);
-    expect(SUPPLIER_ORDER_NO_MATCH_CAP).toBe(100);
   });
 });
 

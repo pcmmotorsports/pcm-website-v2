@@ -3281,6 +3281,7 @@ export type Database = {
         Args: { p_order_id: string }
         Returns: number
       }
+      pcm_spec_text: { Args: { p: Json }; Returns: string }
       pfe_staging_reset: { Args: never; Returns: number }
       pfe_sync_commit: {
         Args: {

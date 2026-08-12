@@ -13,8 +13,6 @@ import type {
   OrderItemVehicleSnapshot,
   InvoiceStatus,
 } from '@pcm/domain';
-import { normalizeOrderNumberSearch, normalizeSupplierOrderNoSearch } from '@pcm/domain';
-import type { SupplierOrderNoSearch } from '@pcm/domain';
 import {
   pickEnum,
   pickEnumMulti,
@@ -46,13 +44,9 @@ export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
 // A9w2(九碼退場):`workflow_status` 查詢鍵、`unset` 哨兵與其解析函式已下架 ——
 // URL 帶 `?workflow_status=…` 自此**被忽略**(白名單只認下列鍵),不再進 `AdminOrderFilter`。
-/**
- * 訂單編號搜尋(M-4b E10 A10c1)。同時比對 `display_id` 與 `legacy_display_id`,
- * 讓 D1 改號後客人手上的舊單號仍查得到(合約 = A9b1)。
- */
-export const ORDER_NUMBER_PARAM = 'order_no';
-/** 供應商單號搜尋 query param(M-4b E10 A10c2;與 A9b1 的 `order_no` **分立**、語意完全不同)。 */
-export const SUPPLIER_ORDER_NO_PARAM = 'supplier_no';
+// #347-B(Q-347-B1=B):`order_no` / `supplier_no` 兩個專用搜尋 query key 已隨兩個搜尋欄一起退場。
+// URL 帶 `?order_no=…` 或 `?supplier_no=…` 自此**被忽略**(白名單只認下列鍵)——
+// 兩者的能力併入關鍵字搜尋(`admin_search_orders` 的 #1 新單號 / #12 舊單號 / #11 供應商單號)。
 /**
  * 「連刷卡未付款一起顯示」切換(M-4b 生命週期 L6)。
  * 🔴 **只有字面 `'1'` 才算開**:任何其他值(`'true'` / `'0'` / 空字串 / 未知字串)一律當關 ——
@@ -288,8 +282,6 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
 export function parseOrderListSearchParams(
   raw: RawSearchParams,
   options?: {
-    orderNumberSearchEnabled?: boolean;
-    supplierOrderNoSearchEnabled?: boolean;
     /**
      * #347-3c-2「未選預設近半年」用的**現在時刻**。
      *
@@ -302,39 +294,23 @@ export function parseOrderListSearchParams(
 ): {
   filter: AdminOrderFilter;
   page: number;
-  /**
-   * 供應商單號搜尋的正規化結果(M-4b E10 A10c2)。
-   *
-   * 🔴 **為什麼要一起回傳、而不是讓頁面自己再 normalize 一次**:Sean Q1=A 要求
-   * 「非 ASCII 要**明示**是什麼問題」,而 adapter 對三種 invalid 一視同仁(都回零筆)——
-   * 理由只有正規化那一刻知道。若頁面自己再跑一次,就變成**兩個呼叫點各自正規化**,
-   * 哪天其中一邊改了參數(例如 flag 判斷)兩邊就會不一致 ⇒ 顯示的理由與實際篩的東西對不上。
-   * flag 未開時恆為 `empty`(與 `filter.supplierOrderNo` 同一個閘)。
-   */
-  supplierOrderNoSearch: SupplierOrderNoSearch;
   /** #347-3c-2:日期下拉的選項(server 算好;沒給 `now` 時為空陣列 = 不顯示下拉)。 */
   datePresetOptions: OrderDatePresetOption[];
   /** #347-3c-2:選中的那一格(`custom` = 兩個日期輸入)。 */
   selectedDatePresetKey: string;
 } {
-  const supplierOrderNoSearch: SupplierOrderNoSearch = options?.supplierOrderNoSearchEnabled
-    ? normalizeSupplierOrderNoSearch(firstValue(raw[SUPPLIER_ORDER_NO_PARAM]))
-    : { kind: 'empty' };
   const dateRange = resolveOrderDateRange(raw, options?.now);
   const filter: AdminOrderFilter = {
     paymentStatus: pickEnum(raw[PAYMENT_STATUS_PARAM], PAYMENT_STATUS_VALUES),
     fulfillmentStatus: pickEnum(raw[FULFILLMENT_STATUS_PARAM], FULFILLMENT_STATUS_VALUES),
     orderSources: pickEnumMulti(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
-    orderNumber: options?.orderNumberSearchEnabled
-      ? parseOrderNumberParam(raw[ORDER_NUMBER_PARAM])
-      : undefined,
-    supplierOrderNo: supplierOrderNoToFilterValue(supplierOrderNoSearch),
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
     includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
     // #347-3c-1:曆面日 → 絕對時刻。形狀不合 ⇒ `undefined`(該側不限)、不是回零筆
     //    —— 日期打錯字只是「這一軸不篩」,其他軸照舊生效,不會造出假的查無
-    //    (與 `orderNumber` / `supplierOrderNo` 相反,理由在 domain `date-range.ts`)。
+    //    (與已退場的兩個專用單號欄相反 —— 它們是打錯字就回零筆的 fail-closed;
+    //    日期這一軸的理由在 domain `date-range.ts`)。
     // 🔴 **#347-3c-2 起這裡有預設了**(3c-1 那句「本片沒有預設」已被推翻,不要照舊讀):
     //    呼叫端給 `options.now` 才套(見 `resolveOrderDateRange`)—— 給不給是呼叫端明講的事,
     //    因為這一軸會**藏掉半年前的單**。可見性由同一份結果的 `selectedDatePresetKey` 保證。
@@ -344,7 +320,6 @@ export function parseOrderListSearchParams(
   return {
     filter,
     page: parsePage(raw.page),
-    supplierOrderNoSearch,
     datePresetOptions: dateRange.options,
     /** 篩選列要把哪一格顯示成選中(= 真正生效的那段期間;兩者同源,不可能對不上)。 */
     selectedDatePresetKey: dateRange.selectedKey,
@@ -403,43 +378,6 @@ function resolveOrderDateRange(
   };
 }
 
-/**
- * 單號搜尋參數解析(M-4b E10 A10c1)。
- *
- * 🔴 **flag 未開時整個不解析**(見 {@link parseOrderListSearchParams} 的 options):
- * 本功能的 DB 前置是 D0 migration 的 `orders.legacy_display_id` 欄。D0 未 apply 時
- * 打這條 filter 會讓 PostgREST 回 42703(欄位不存在)⇒ **整個訂單列表**(不只搜尋)
- * 進錯誤態。⇒ D0 apply 之前 flag 一律 off。
- *
- * 🔴 **`invalid` 不吞掉、原樣往下傳**:adapter 對 invalid 會 fail-closed 回零筆。
- * 若這裡把 invalid 當成 `undefined`,就變成「打錯字 = 不篩選 = 列出全部訂單」的 fail-open。
- * (`normalizeOrderNumberSearch` 已把 invalid 的回傳值截到 32 字上限,不會把超長字串帶進 URL。)
- */
-function parseOrderNumberParam(raw: string | string[] | undefined): string | undefined {
-  const parsed = normalizeOrderNumberSearch(firstValue(raw));
-  if (parsed.kind === 'empty') return undefined;
-  return parsed.kind === 'ok' ? parsed.value : parsed.input;
-}
-
-/**
- * 供應商單號搜尋參數解析(M-4b E10 A10c2)。
- *
- * 🔴 **flag 未開時整個不解析**(同 A10c1 的理由,但前置不同):本功能的 DB 前置是
- * A9b2-M 的產生欄 `order_item_procurement.supplier_order_no_upper`
- * (`supabase/migrations/20260807130000_…`)。未 apply 就開 ⇒ PostgREST 42703 ⇒
- * **整個訂單列表**(不只搜尋)進錯誤態。⇒ A9b2-M apply 之前 flag 一律 off。
- *
- * 🔴 **`invalid` 不吞掉、原樣往下傳**:adapter 對 invalid 會 fail-closed 回零筆。
- * 這裡若把它當成 `undefined`,就變成「打錯字 = 不篩選 = 列出全部訂單」的 fail-open。
- *
- * 🔴 **`firstValue` 是必要的、不是排版**:`?supplier_no=a&supplier_no=b` 解析出來是**陣列**,
- * 而 `normalizeSupplierOrderNoSearch` 對非字串回 `empty` = 不篩選 = **列出全部訂單**。
- * 少了這道收斂,一條手打的 URL 就能把搜尋變成 fail-open(Fable F6)。
- */
-function supplierOrderNoToFilterValue(parsed: SupplierOrderNoSearch): string | undefined {
-  if (parsed.kind === 'empty') return undefined;
-  return parsed.kind === 'ok' ? parsed.value : parsed.input;
-}
 
 /**
  * 右側面板要開哪一張單(#350c;主視窗 2026-08-10 裁 A 案)。
@@ -586,11 +524,7 @@ export function buildOrderListHref(
     fulfillmentStatus: [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
     orderSources: [ORDER_SOURCE_PARAM, filter.orderSources],
     paymentChannels: [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
-    // 🔴 分頁與 returnTo 都走這裡:漏列 = 翻頁或改狀態回跳時搜尋詞被靜默丟掉、
-    //    列表突然變成全部訂單(fail-open)。
-    orderNumber: [ORDER_NUMBER_PARAM, filter.orderNumber],
-    supplierOrderNo: [SUPPLIER_ORDER_NO_PARAM, filter.supplierOrderNo],
-    // 🔴 L6 的開關同理必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
+    // 🔴 L6 的開關必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁
     //    就被打回預設隱藏,而畫面上的勾還打著 = 顯示與實際篩的東西不一致。
     includeUnpaidCardOrders: [
       SHOW_UNPAID_CARD_PARAM,
