@@ -653,6 +653,53 @@ describe('#350d 守門 9:return_to = 這個視圖自己的網址(契約 C1)', ()
     expect(container.textContent, '整頁版少了收款明細').toContain('已登錄的收款');
     expect(container.textContent).toContain('7,531');
   });
+
+  // 🔴 **片2:登錄表單也要兩個消費者都掛得到**(plan v4 §2 的 2b 檔案清單)。
+  //    上面那格只證明「明細」兩邊都在;表單是另一個元件、走另一條 prop
+  //    ⇒ 只掛在整頁版而漏掉面板版的話,員工從列表開面板時**看得到帳、卻登不了款**,
+  //    而上面那格照樣綠。
+  //    🔴 錨用**印章 hidden input**、不用文案:文案是暫定稿(Sean 還沒定字),
+  //    把守門綁在一個明說會改的東西上,改字的人就得順手改守門 —— 那是製造假紅。
+  it('片2:登錄表單的 server 章在面板版與整頁版都掛得到', async () => {
+    mocks.listOrderPayments.mockResolvedValue([]);
+
+    const PanelPage = (await import('./orders/page')).default;
+    const panelUi = await PanelPage({
+      searchParams: Promise.resolve({ [ORDER_PANEL_PARAM]: PANEL_ID }),
+    });
+    const panel = render(panelUi as React.ReactElement).container;
+    // 🔴 **錨要限定在收款區塊裡**(片2a code-reviewer minor5):`request_id` 這個欄位名
+    //    到貨表單也在用(`receipt-action-state.ts:39` 逐字同名)⇒ 不限範圍的話,
+    //    收款表單整個不見時還可能撈到到貨表單那顆、這格照樣綠。今天靠 DOM 順序僥倖而已。
+    const panelStamp = paymentSection(panel).querySelector('input[name="request_id"]');
+    expect(panelStamp, '面板版少了收款登錄表單').not.toBeNull();
+    expect(panelStamp?.getAttribute('value')).toMatch(/^[0-9a-f-]{36}$/);
+
+    const DetailPage = (await import('../orders/[id]/page')).default;
+    const ui = await DetailPage({
+      params: Promise.resolve({ id: PANEL_ID }),
+      searchParams: Promise.resolve({}),
+    });
+    const { container } = render(ui as React.ReactElement);
+    const pageStamp = paymentSection(container).querySelector('input[name="request_id"]');
+    expect(pageStamp, '整頁版少了收款登錄表單').not.toBeNull();
+    expect(pageStamp?.getAttribute('value')).toMatch(/^[0-9a-f-]{36}$/);
+
+    // 🔴 **兩個視圖各自拿到自己的一把鍵**:同一把鍵若在兩張分頁上開著,先送的那張成功、
+    //    後送的那張會被 RPC 的 G8 當成重送而**靜默吃掉**(員工以為沒記到、再登一次)。
+    //    突變:把鑄章從 `PaymentSection` 提到某個跨請求共用的地方 ⇒ 兩值相同 ⇒ 這條紅。
+    expect(pageStamp?.getAttribute('value')).not.toBe(panelStamp?.getAttribute('value'));
+  });
 });
+
+/** 收款那張卡(用區塊標題錨定;找不到就 throw,不讓「找不到」偽裝成「值是 null」)。 */
+function paymentSection(container: HTMLElement): HTMLElement {
+  const heading = Array.from(container.querySelectorAll('h2')).find(
+    (h) => h.textContent === '已登錄的收款',
+  );
+  const section = heading?.closest('section');
+  if (!section) throw new Error('找不到收款區塊(<h2>已登錄的收款</h2> 的 section)');
+  return section as HTMLElement;
+}
 
 afterEach(() => cleanup());
