@@ -158,8 +158,12 @@ const FAILURE_MESSAGES: Record<PaymentFailureCode, string> = {
   received_at_out_of_range:
     '收款時點不在可接受的範圍 —— 不能填未來的時間,也不能早於這張單成立的時間。請改日期。',
   refunded_state: '這張單已經有退款紀錄,不能再登錄收款。',
+  // 🔴 **本表的字串會被原樣塞進 DOM**(`payment-record-form.tsx` 直接渲染 `state.message`)
+  //    ⇒ **不得寫 markdown 記號或 emoji**:`**…**` 與 🔴 在畫面上就是字面上的星號跟紅點,
+  //    姊妹線 receipt 的同名表零 markdown(`grep -c '\*\*'` = 0)——本表原本是唯一的例外。
+  //    要強調就把重點寫進句子結構,不要靠記號。
   row_count:
-    '收款帳本沒有收到這筆(系統異常,已整筆回滾)。🔴 **請不要重複按送出**,先找工程確認。',
+    '收款帳本沒有收到這筆(系統異常,已整筆回滾)。請不要重複按送出,先找工程確認。',
   // 🔴🔴 `P0001` **不只是「這張單不能登錄」** —— 它也涵蓋 RPC 的 G8「同一把鍵、內容不一樣」
   //    (`20260810200000:271-284`:六欄有一欄對不上就走通用 RAISE)。
   //    而「同一把鍵已經有一筆」意味著**那一筆已經 commit 了**。⇒ 災難序(Fable R4 F1):
@@ -168,7 +172,7 @@ const FAILURE_MESSAGES: Record<PaymentFailureCode, string> = {
   //    ⇒ 這句**必須先叫他看明細**,重新整理只能排在確認之後。
   rejected:
     '這張單現在不能登錄收款,或是送出的內容不正確。' +
-    '🔴 **先看收款明細有沒有已經登錄的那一筆**(可能上一次其實已經記進去了);' +
+    '請先看上方的收款明細有沒有已經登錄的那一筆(可能上一次其實已經記進去了);' +
     '確認沒有之後,再重新整理頁面確認這張單的狀態、重新送一次。',
   forbidden: '沒有權限執行這個動作,這筆收款沒有寫入。請找工程確認權限設定。',
   denied: '沒有權限或登入狀態已失效,這筆收款沒有寫入。',
@@ -180,11 +184,16 @@ const FAILURE_MESSAGES: Record<PaymentFailureCode, string> = {
   // 🔴🔴 **這句話絕對不可以叫員工「重新整理」**(窄確認輪 MF4:折面②與折面③互打)——
   //    重新整理會讓 server 重新 render ⇒ **重鑄一把新的 `request_id`** ⇒ 再送出時
   //    RPC 的 G8 認不出這是同一次 ⇒ **擋不到 ⇒ 真的變成第二筆收款**。
-  //    ⇒ 文案只准叫他**往下看列表**,並明說重新整理會發生什麼事。
+  //    ⇒ 文案只准叫他**去看列表**,並明說重新整理會發生什麼事。
+  // 🔴🔴 **方位字面是「上方」不是「下方」**(片2a code-reviewer must-fix 2):
+  //    片2 把登錄表單掛在收款明細**底下**(同一張卡)⇒ 對站在表單前的員工來說,明細在**上方**。
+  //    這句原本寫「下方」——而它正好是最貴的那一句(RPC 可能已 commit 時的唯一指引):
+  //    員工往下找不到東西 ⇒ 當成沒記到 ⇒ 再送一次 ⇒ 第二筆入帳。
+  //    ⚠️ 改版面(表單移到明細上面)就要回來改這裡,兩者是同一條不變式。
   error:
-    '寫入失敗,但這筆收款**可能已經寫進去了**。請直接看下方的收款明細裡有沒有這一筆:' +
+    '寫入失敗,但這筆收款可能已經寫進去了。請直接看上方的收款明細裡有沒有這一筆:' +
     '有就是已經記好了(不用再送);沒有才重新送出這張表單。' +
-    '🔴 **先不要重新整理頁面** —— 重新整理會換一把新的鍵,那時再送就會變成第二筆收款。',
+    '在確認之前先不要重新整理頁面 —— 重新整理會換一把新的鍵,那時再送就會變成第二筆收款。',
 };
 
 /**
@@ -267,4 +276,21 @@ export function paymentFailure(
   values: PaymentFormValues,
 ): PaymentActionState {
   return { status: 'failed', code, message: FAILURE_MESSAGES[code], values };
+}
+
+/** 表單印章:冪等鍵 + 現金軌時點。🔴 **整組兩格必填**,型別上不存在「只傳一半」。 */
+export type PaymentFormStamp = { requestId: string; cashReceivedAt: string };
+
+/**
+ * 印章 → 兩個 hidden input 的資料(表單 `map` 成 `<input type="hidden">`)。
+ *
+ * 🔴 成組展開的用意:讓「只放其中一個」在**寫法上**就要刻意 ——
+ *    B2-c 拿到的是一個陣列,少放一格是看得見的動作,不是忘記。
+ *    (仍然不是物理封裝,見 `mintPaymentFormStamp` 的誠實邊界。)
+ */
+export function paymentStampFields(stamp: PaymentFormStamp): ReadonlyArray<{ name: string; value: string }> {
+  return [
+    { name: PAY_REQUEST_ID_FIELD, value: stamp.requestId },
+    { name: PAY_CASH_RECEIVED_AT_FIELD, value: stamp.cashReceivedAt },
+  ];
 }

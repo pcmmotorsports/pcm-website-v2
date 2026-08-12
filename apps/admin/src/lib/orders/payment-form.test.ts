@@ -15,9 +15,12 @@ import {
   INT4_MAX,
   mintPaymentFormStamp,
   parsePaymentForm,
-  paymentStampFields,
   PAYMENT_SINGLE_FIELDS,
 } from './payment-form';
+// 🔴 片2a minor7 起 `paymentStampFields` 搬到 client-safe 的 `payment-action-state.ts`
+//    (表單是 client 元件,從 `payment-form` 拿展開器等於把鑄章函式一起拉進 client 可達範圍)。
+//    本格仍留在這裡:它驗的是**展開器與解析器欄位名同一份字面**,那是 `payment-form` 這側的契約。
+import { paymentStampFields } from './payment-action-state';
 
 // payment-form.test.ts — #15-B2-b 表單解析(server 端)。
 //

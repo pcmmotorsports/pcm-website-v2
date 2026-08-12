@@ -245,9 +245,19 @@ export function carryBackPaymentValues(form: FormData): PaymentFormValues {
  * (`20260810200000:271-283`)對不上、把一次**合法的首次送出**變成通用 RAISE。
  *
  * ⚠️ **誠實邊界(窄確認輪 MF3 更正我原本的宣稱)**:本函式**擋不住**「呼叫兩次、各取一半」
- *    或「只把其中一個放進表單」——它是單一入口,**不是**物理封裝。真正的封裝只能在 B2-c:
- *    鑄章與兩個 hidden input 要包在**同一個 server 元件**裡,外面拿不到單獨的欄位。
- *    ⇒ **這是 B2-c 的驗收硬條款**,不是建議。本檔能給的是入口與成組展開(見 `paymentStampFields`)。
+ *    或「只把其中一個放進表單」——它是單一入口,**不是**物理封裝。
+ *
+ * 🔴🔴 **偏離申報:原本這裡寫的「真正的封裝只能在 B2-c:鑄章與兩個 hidden input 包在同一個
+ *    server 元件裡」——B2-c 落地時證實那條做不到,已由主視窗 `D-527-A` 裁 Q-D1=A 正式改掉。**
+ *    做不到的原因是它與另一條硬條款互斥:失敗時要沿用**舊**印章,而「這次該用哪一組」
+ *    只存在於 `useActionState` 的 state 裡 —— server 元件讀不到 state,挑不了。
+ *    ⇒ 現行條款(**這是驗收硬條款,不是建議**):
+ *      ① 鑄章在 server 元件(`payment-section.tsx`),client 不得自己補鑄任何一半;
+ *      ② client 收的是**整組兩格必填的物件** prop(`PaymentFormStamp`)——
+ *         「只傳一半」在**型別層就編不過**,這是本條的執行機制;
+ *      ③ 展開一律走 `paymentStampFields()`(成組展開,見下)。
+ *    ⇒ 從「物理不可能」降級為「型別 + 單一入口」,天花板誠實寫在這裡:
+ *      **繞得過**(有人可以自己手寫兩個 hidden input),擋的是「不小心」不是「刻意」。
  *
  * 生命週期(🔴 三條都是硬規則,B2-c 照做):
  *  · **成功之後**才重鑄(整組換掉);
@@ -272,19 +282,9 @@ export function mintPaymentFormStamp(now: Date): { requestId: string; cashReceiv
   return { requestId: crypto.randomUUID(), cashReceivedAt: now.toISOString() };
 }
 
-/**
- * 印章 → 兩個 hidden input 的資料(B2-c `map` 成 `<input type="hidden">`)。
- *
- * 🔴 成組展開的用意:讓「只放其中一個」在**寫法上**就要刻意 ——
- *    B2-c 拿到的是一個陣列,少放一格是看得見的動作,不是忘記。
- *    (仍然不是物理封裝,見 `mintPaymentFormStamp` 的誠實邊界。)
- */
-export function paymentStampFields(stamp: {
-  requestId: string;
-  cashReceivedAt: string;
-}): ReadonlyArray<{ name: string; value: string }> {
-  return [
-    { name: PAY_REQUEST_ID_FIELD, value: stamp.requestId },
-    { name: PAY_CASH_RECEIVED_AT_FIELD, value: stamp.cashReceivedAt },
-  ];
-}
+// 🔴 `paymentStampFields` 與 `PaymentFormStamp` **已搬到 `payment-action-state.ts`**
+//    (片2a code-reviewer minor7):表單是 client 元件,從這裡 import 展開器等於把**整個本檔**
+//    拉進 client 可達範圍 —— 而本檔同時 export `mintPaymentFormStamp`(鑄章)與 `parsePaymentForm`。
+//    硬條款①「client 不得自己補鑄任何一半」原本只靠自律,搬走之後**模組邊界替它撐著**:
+//    client 那邊 import 不到鑄章函式。本檔自此是 server 側專用(action + 頁層 server 元件)。
+
