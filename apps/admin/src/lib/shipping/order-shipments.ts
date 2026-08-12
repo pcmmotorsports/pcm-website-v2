@@ -93,12 +93,19 @@ export async function loadOrderShipments(
  * ⇒ 這兩者的差別是「誤判 vs 漏判」,不是機率大小。同一族的兩條上限要分開判。
  * ⚠️ 已知未守的第三條:`open` 很多時 `.in('shipment_id', …)` 的 URL 可能過長而 throw
  * ⇒ `Promise.all` 會連坐整張出貨卡。可達性極低(要同一客人幾百個未出貨箱),記在這裡不假裝沒有。
+ *
+ * 🔴 **回傳 `null` = 「這區算不出來」,與 `[]`(真的沒有空箱)是兩件事**(2026-08-12 codex R1 MF2)。
+ * 兩個 fail-closed 分支(查不到客人 / 品項列被截斷)原本都吐 `[]` ⇒ 畫面上與「沒有空箱」
+ * **長得一模一樣**:整區靜默消失。而建箱彈窗的文案叫員工「到訂單頁找『未收尾的空箱』」,
+ * 他會找到一張什麼都沒有的頁面 —— 那正是 #351 整條要修的「以為系統壞了」。
+ * ⇒ fail-closed 的**行為**不變(絕不列出可能錯的箱),但它要**看得見**;由呼叫端畫成一句話。
  */
-export async function loadEmptyShipments(orderId: string): Promise<ShipmentRow[]> {
+export async function loadEmptyShipments(orderId: string): Promise<ShipmentRow[] | null> {
   const byOrder = await listOrderCustomerUserIds([orderId]);
   const customerUserId = byOrder.get(orderId);
-  // 查不到客人 ⇒ 什麼都不列(fail-closed):寧可少一區,也不要列出**別人的**箱。
-  if (customerUserId === undefined) return [];
+  // 查不到客人 ⇒ 不列任何箱(fail-closed):寧可少一區,也不要列出**別人的**箱。
+  // 🔴 但回 `null` 不回 `[]` —— 「查不到客人」不是「這位客人沒有空箱」。
+  if (customerUserId === undefined) return null;
 
   // 🔴 未出貨**且**未作廢才算「還沒收尾」:已出貨的箱不是問題;
   //    已作廢的箱是**已經處理過**的,再列一次等於叫員工重做一件他做完的事。
@@ -109,8 +116,9 @@ export async function loadEmptyShipments(orderId: string): Promise<ShipmentRow[]
 
   const itemRows = await listShipmentItemsByShipmentIds(open.map((s) => s.id));
   // 🔴 拿到 N+1 筆 ⇒ 這份清單**可能**不完整,而不完整的分母會把有貨的箱算成空箱(見上方 JSDoc)。
-  //    ⇒ 整區不顯示。**不要**改成「就用手上這些算」——那正好是危險的那個方向。
-  if (itemRows.length > SHIPMENT_ITEM_ROWS_LIMIT) return [];
+  //    ⇒ 一個箱都不列。**不要**改成「就用手上這些算」——那正好是危險的那個方向。
+  //    🔴 回 `null`:這是「算不出來」,不是「沒有空箱」——後者會讓整區靜默消失(見上方 JSDoc)。
+  if (itemRows.length > SHIPMENT_ITEM_ROWS_LIMIT) return null;
 
   const withItems = new Set(itemRows.map((i) => i.shipmentId));
   return open.filter((s) => !withItems.has(s.id));

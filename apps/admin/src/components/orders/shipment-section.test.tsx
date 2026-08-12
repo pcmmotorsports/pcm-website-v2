@@ -85,6 +85,50 @@ describe('#351④ 空箱區', () => {
     expect(screen.queryByText(/未收尾的空箱/), '沒有空箱卻掛著空箱區').toBeNull();
   });
 
+  // 🔴 2026-08-12(codex R1 nit3):這一格守的是**跨檔的字面契約**。
+  //    建箱彈窗的半成品箱文案叫員工「到『未收尾的空箱』作廢它」,而那個標題住在本檔測的元件裡。
+  //    沒有這一格的話,標題改名 / 整區被拿掉,**兩邊的測試都照樣綠**,而員工被指去一個不存在的區塊
+  //    —— 那正是 #351③ 當初刪掉地點的那個病復發。
+  it('🔴 標題字面就是「未收尾的空箱」(彈窗文案指著它,改名要兩邊一起改)', async () => {
+    loadEmptyShipments.mockResolvedValue([emptyBox('EMPTY1')]);
+    render(await ShipmentSection({ detail }));
+    const heading = screen.queryByRole('heading', { name: /未收尾的空箱/ });
+    expect(
+      heading,
+      'shipment-dialog.tsx 的半成品箱文案逐字指向這個標題;它改名或消失 = 文案指向不存在的東西。',
+    ).not.toBeNull();
+  });
+
+  // ── fail-closed 要看得見(codex R1 MF2)────────────────────────────────
+  //
+  // 🔴 `null` = 算不出來(查不到客人 / 品項列被截斷),`[]` = 真的沒有空箱。
+  //    這兩者原本畫出來**一模一樣**(整區不出現)⇒ 員工照彈窗文案來這裡,看到一張空白頁。
+  describe('算不出來時(null)', () => {
+    it('🔴 要講出來,不是靜默消失', async () => {
+      loadEmptyShipments.mockResolvedValue(null);
+      render(await ShipmentSection({ detail }));
+      expect(
+        screen.queryByText(/沒能算出來/),
+        'fail-closed 靜默 ⇒ 與「沒有空箱」畫面相同,員工找不到彈窗叫他來作廢的那個箱。',
+      ).not.toBeNull();
+    });
+
+    it('🔴 要叫他留住箱號(這是他此刻唯一握得住的線索)', async () => {
+      loadEmptyShipments.mockResolvedValue(null);
+      render(await ShipmentSection({ detail }));
+      expect(screen.queryByText(/箱號記下來/)).not.toBeNull();
+    });
+
+    it('🔴 **不得**畫出任何箱子(fail-closed 的行為本身不可放寬)', async () => {
+      loadEmptyShipments.mockResolvedValue(null);
+      render(await ShipmentSection({ detail }));
+      expect(
+        screen.queryByText('空箱'),
+        '算不出來卻照樣列箱 ⇒ 可能指著一個其實裝著貨的箱叫員工作廢,比不列更糟。',
+      ).toBeNull();
+    });
+  });
+
   // 🔴 R1 抓到的洞:原本 5 格全部沿用 `loadOrderShipments → []`,**沒有一格同時有包裹與空箱**
   //    ⇒ 把空箱區搬進「這張訂單還沒有任何包裹」那個真分支裡,5 格照樣全綠,
   //    而空箱在「這位客人**別張**有包裹的訂單頁」上全部消失 —— 那正是這區跨單語意的主場景。

@@ -124,7 +124,7 @@ describe('#351④ loadEmptyShipments — 這位客人還沒收尾的空箱', () 
     listItemsByShipment.mockResolvedValue([]); // 一件都沒裝
     const { loadEmptyShipments } = await import('./order-shipments');
     expect(
-      (await loadEmptyShipments('o1')).map((s) => s.shipmentReference),
+      (await loadEmptyShipments('o1'))?.map((s) => s.shipmentReference),
       '空箱沒被列出來 ⇒ 員工還是找不到它、作廢不了,#351④ 等於沒做。',
     ).toEqual(['EMPTY1']);
   });
@@ -157,10 +157,14 @@ describe('#351④ loadEmptyShipments — 這位客人還沒收尾的空箱', () 
     expect(await loadEmptyShipments('o1'), '已作廢的空箱又被列出來').toEqual([]);
   });
 
-  it('🔴 查不到這張單的客人 → 一個都不列(fail-closed,寧可少一區也不列到別人的箱)', async () => {
+  // 🔴 2026-08-12(codex R1 MF2):期望值從 `[]` 改成 `null`。
+  //    `[]` = 這位客人**沒有**空箱;`null` = 這一區**算不出來**。兩者畫出來原本一模一樣
+  //    (整區不出現)⇒ 建箱彈窗叫員工來這裡作廢半成品箱時,他會看到一張空白頁。
+  //    fail-closed 的**行為**沒放寬(仍然一個箱都不列),變的是它從此**講得出來**。
+  it('🔴 查不到這張單的客人 → 一個都不列,而且回 `null`(算不出來 ≠ 沒有空箱)', async () => {
     listOrderCustomers.mockResolvedValue(new Map()); // 查無
     const { loadEmptyShipments } = await import('./order-shipments');
-    expect(await loadEmptyShipments('o1'), '查不到客人卻照樣列箱').toEqual([]);
+    expect(await loadEmptyShipments('o1'), '查不到客人卻照樣列箱').toBeNull();
     expect(
       listByCustomer,
       '查不到客人還去查箱 ⇒ 不是多打一次 DB 的問題,是根本不知道要查誰的箱。',
@@ -184,11 +188,11 @@ describe('#351④ loadEmptyShipments — 這位客人還沒收尾的空箱', () 
     ]);
     const { loadEmptyShipments } = await import('./order-shipments');
     expect(
-      (await loadEmptyShipments('o1')).map((s) => s.shipmentReference),
+      (await loadEmptyShipments('o1'))?.map((s) => s.shipmentReference),
       '集合差算錯 ⇒ 要嘛漏掉空箱、要嘛把有貨的箱標成空箱叫員工去作廢。',
     ).toEqual(['EMPTY1']);
   });
-  it('🔴 品項清單回傳超過自夾上限 → 整區不顯示(fail-closed)', async () => {
+  it('🔴 品項清單回傳超過自夾上限 → 一個箱都不列,回 `null`(fail-closed 且講得出來)', async () => {
     const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repository');
     listByCustomer.mockResolvedValue([
       box({ id: 'sh-full', shipmentReference: 'FULL1', shippedAt: null }),
@@ -208,8 +212,9 @@ describe('#351④ loadEmptyShipments — 這位客人還沒收尾的空箱', () 
     expect(
       await loadEmptyShipments('o1'),
       '截斷時照樣算集合差 ⇒ 被截掉的箱進不了 withItems ⇒ **裝著貨的箱被吐成空箱**,' +
-        '畫面會叫員工去作廢一個真的有貨的箱。方向是誤判不是漏判,所以這裡必須 fail-closed。',
-    ).toEqual([]);
+        '畫面會叫員工去作廢一個真的有貨的箱。方向是誤判不是漏判,所以這裡必須 fail-closed。' +
+        '⚠️ 回 `[]` 也不行:那會被畫成「沒有空箱」而靜默(見本檔上方 codex R1 MF2 那段)。',
+    ).toBeNull();
   });
 
   it('剛好等於上限(沒有第 N+1 筆)⇒ 正常算,不誤擋', async () => {
@@ -228,7 +233,7 @@ describe('#351④ loadEmptyShipments — 這位客人還沒收尾的空箱', () 
     );
     const { loadEmptyShipments } = await import('./order-shipments');
     expect(
-      (await loadEmptyShipments('o1')).map((s) => s.shipmentReference),
+      (await loadEmptyShipments('o1'))?.map((s) => s.shipmentReference),
       '把 `>` 寫成 `>=` ⇒ 剛好取滿(但沒被截斷)的合法情況被誤擋,空箱區平白消失。',
     ).toEqual(['EMPTY1']);
   });

@@ -113,7 +113,23 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
           ⇒ 本來就不該加),而空箱連品項都沒有、與這張訂單之間一條線都沒有。
           ⇒ 文案必須講實話「可能來自別張訂單」,不可假裝是本單的。
           🔴 這是**可見化不是止血**:空箱會繼續產生(源頭 = #359,建箱與掛品項非原子)。 */}
-      {empties.length > 0 && (
+      {/* 🔴 `null` = 空箱區**算不出來**(查不到客人 / 品項列被截斷),不是「沒有空箱」
+          (2026-08-12 codex R1 MF2)。這兩者原本都畫成「整區不出現」= 一模一樣的畫面,
+          而建箱彈窗的文案剛叫員工來這裡找那個箱 ⇒ 他會找到一張什麼都沒有的頁面。
+          ⇒ fail-closed 的行為不變(絕不列出可能錯的箱),但要**講出來**。
+          🔴 文案給的是**下一步**而不是狀態碼:箱號他手上有(彈窗給過),要他別丟。 */}
+      {empties === null && (
+        <div className='mt-4 border-t pt-3'>
+          <h3 className='text-sm font-semibold'>未收尾的空箱</h3>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            這一區這次<b>沒能算出來</b>,先不列(寧可不列,也不要指錯箱子)。
+            如果你正要作廢一個剛建出來的空箱,請把<b>箱號記下來</b>,重新整理這一頁再看一次;
+            還是沒有的話請找工程師,不要憑印象作廢別的箱子。
+          </p>
+        </div>
+      )}
+
+      {empties !== null && empties.length > 0 && (
         <div className='mt-4 border-t pt-3'>
           <h3 className='text-sm font-semibold'>
             未收尾的空箱 <span className='text-muted-foreground font-normal'>({empties.length})</span>

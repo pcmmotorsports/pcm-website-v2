@@ -213,17 +213,97 @@ describe('#351③ 半成品箱(建箱成功、後續失敗)的提示', () => {
     await waitFor(() => expect(screen.queryByText(/不會重複建/)).not.toBeNull());
   });
 
-  it('🔴 **不得**叫員工去「訂單頁」找這個箱(空箱在那裡看不到 —— #351④ 未修)', async () => {
+  // 🔴 2026-08-12:這條斷言**翻面**了(舊版是「**不得**出現訂單頁」)。
+  //    ④(`5d891eb3` 的「未收尾的空箱」區)落地前,空箱在訂單頁結構上畫不出來
+  //    ⇒ 指那裡 = 指一個找不到東西的地方;落地後不指,才是把答案藏起來。
+  //    ⚠️ 翻面的前提是那一區真的存在:它由 `loadEmptyShipments` + `shipment-section.tsx` 供著,
+  //    哪天那區被拿掉,這條會變成「文案指著一個不存在的區塊」而**照樣綠** —— 那是本檔看不到的面。
+  it('🔴 要指出去哪裡作廢它(④ 已落地 ⇒ 空箱在訂單頁真的看得到了)', async () => {
     halfDone();
     open();
     fireEvent.click(screen.getByText('只建箱、先不出貨'));
     await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
     expect(
-      screen.queryByText(/訂單頁/),
-      '掛品項失敗留下的是**空箱**,而出貨卡是由品項反查箱畫的 ⇒ 空箱在訂單頁看不到。' +
-        '指一個找不到東西的地方,員工會在那裡繞半天(這正是 #351④ 記著的盲點)。' +
-        '④ 落地後可以把地點加回來,那時要連這條斷言一起改。',
-    ).toBeNull();
+      screen.queryByText(/未收尾的空箱/),
+      '只講「要去作廢它」而不講在哪 ⇒ 員工又回到 Sean 08-09 逐字「我也找不到那個箱子在哪裡」。' +
+        '這裡要的是 `shipment-section.tsx` 那一區的**字面**標題,不是隨便一句「去訂單頁」。',
+    ).not.toBeNull();
+  });
+
+  it('🔴 講的是「這位客人任一張訂單頁」,不是含糊的「訂單頁」', async () => {
+    halfDone();
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
+    expect(
+      screen.queryByText(/這位客人任一張訂單頁/),
+      '空箱掛客人不掛訂單(shipments 沒有 order_id),而彈窗可能是從訂單列表勾多張單開的 ⇒ ' +
+        '單講「訂單頁」員工不知道該回哪一張。',
+    ).not.toBeNull();
+  });
+
+  // 🔴 文案叫他去訂單頁找,而**失敗路徑不會呼叫 `onDone`** ⇒ 頁面沒被重取、空箱區不會出現。
+  //    這一格釘的是「關窗時要把『有建出箱』這件事告訴呼叫端」;真正去刷的是 launcher。
+  //    ⚠️ 誠實邊界:launcher 那一端(`router.refresh()` 有沒有真的被叫)本檔測不到。
+  it('🔴 半成品箱關窗時,要通知呼叫端「有建出箱」(否則頁面是舊的、文案指的那一區不會出現)', async () => {
+    halfDone();
+    const onClose = vi.fn();
+    open({ onClose });
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /關閉/ }));
+    expect(
+      onClose.mock.calls[0]?.[0],
+      '半成品箱關窗卻回報「沒建出箱」⇒ 呼叫端不會重取,員工照文案回訂單頁看不到那個箱。',
+    ).toBe(true);
+  });
+
+  it('沒建出箱就關窗時回報 false(白刷一次頁面是雜訊,不是安全的預設)', () => {
+    const onClose = vi.fn();
+    open({ onClose });
+    fireEvent.click(screen.getByRole('button', { name: /關閉/ }));
+    expect(onClose.mock.calls[0]?.[0]).toBe(false);
+  });
+
+  // 🔴 codex R1 nit4:上面那格只走「**沒送出**就關窗」⇒ 把判斷寫成 `result !== null` 也全綠。
+  //    這格補的是「送出了、但**建箱那一步就失敗**(沒有箱號)」⇒ 沒有東西要去作廢,不該刷。
+  it('送出失敗但**沒有**建出箱(建箱那步就被擋)⇒ 關窗回報 false', async () => {
+    submitShipment.mockResolvedValue({
+      ok: false,
+      message: '這位客人不存在,無法建立包裹。',
+      shipmentReference: null,
+      code: '23503',
+    });
+    const onClose = vi.fn();
+    open({ onClose });
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText(/這位客人不存在/)).not.toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /關閉/ }));
+    expect(onClose.mock.calls[0]?.[0]).toBe(false);
+  });
+
+  // 🔴🔴 codex R1 MF1:半成品箱之後**再按一次**、這次撞傳輸層 throw。
+  //    `run()` 開頭 `setResult(null)`、`catch` 寫回的 result 帶 `shipmentReference: null`
+  //    ⇒ 只看 `result` 的話會回報「沒建出箱」,而那個箱**是真的存在的**(員工正要去作廢它)。
+  //    ⇒ 判準必須是「**曾經**建出過」。
+  it('🔴🔴 半成品箱 → 再按一次撞斷線 → 關窗仍要回報 true(箱子沒有因為斷線而消失)', async () => {
+    halfDone();
+    const onClose = vi.fn();
+    open({ onClose });
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
+
+    // 第二次:傳輸層直接 throw(斷網 / 部署換版),彈窗手上的 result 被換掉、箱號不見了。
+    submitShipment.mockRejectedValue(new Error('Failed to fetch'));
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText(/Failed to fetch/)).not.toBeNull());
+    expect(screen.queryByText('K7X2MP'), '前提:這時畫面上已經沒有箱號了(result 被換掉)').toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /關閉/ }));
+    expect(
+      onClose.mock.calls[0]?.[0],
+      '斷線把「已經建出一個箱」這件事抹掉了 ⇒ 不重取 ⇒ 員工回訂單頁找不到那個真的存在的箱。',
+    ).toBe(true);
   });
 
   it('成功時不出現半成品警告(那是只在失敗路徑才該講的話)', async () => {

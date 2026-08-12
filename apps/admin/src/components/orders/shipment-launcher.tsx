@@ -72,6 +72,7 @@ export function useShipmentLauncher(
   orderIds: readonly string[],
   onDone?: () => void,
 ): ShipmentLauncher {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /**
@@ -124,7 +125,14 @@ export function useShipmentLauncher(
         candidates={open.data.items}
         recipient={open.data.recipient ?? { name: null, phone: null, line: null }}
         idempotencyKey={open.key}
-        onClose={() => setOpen(null)}
+        onClose={(createdShipment) => {
+          setOpen(null);
+          // 🔴 半成品箱(建箱成功、掛品項失敗)走**失敗路徑** ⇒ 不會呼叫 `onDone`,
+          //    頁面上的出貨卡還是舊的、空箱區不出現。而彈窗那句文案剛叫員工去那裡作廢它
+          //    ⇒ 不刷的話他關掉視窗會看到一張沒有那個箱子的頁面(#351③ 的地點問題復發)。
+          //    詳情頁刷的是自己的出貨卡;列表頁刷了也無害(那箱確實存在)。
+          if (createdShipment) router.refresh();
+        }}
         onRefreshCandidates={async () => {
           // 驗收 23a:登錄到貨後**就地**重取候選,不靠整頁刷新。
           // 🔴 **只換 `data`、`key` 原封不動** —— `key` 是這一箱的冪等鍵(見檔頭),
