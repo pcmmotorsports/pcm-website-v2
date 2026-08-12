@@ -193,6 +193,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       admin_audit_log: {
@@ -1820,30 +1845,39 @@ export type Database = {
       }
       payment_refund_events: {
         Row: {
+          actor: string | null
           created_at: string
           event_type: string
           id: string
           lease_token: number
           record_snapshot: Json | null
           refund_id: string
+          reversal_reason: string | null
+          reverses_event_id: string | null
           seq: number
         }
         Insert: {
+          actor?: string | null
           created_at?: string
           event_type: string
           id?: string
           lease_token: number
           record_snapshot?: Json | null
           refund_id: string
+          reversal_reason?: string | null
+          reverses_event_id?: string | null
           seq: number
         }
         Update: {
+          actor?: string | null
           created_at?: string
           event_type?: string
           id?: string
           lease_token?: number
           record_snapshot?: Json | null
           refund_id?: string
+          reversal_reason?: string | null
+          reverses_event_id?: string | null
           seq?: number
         }
         Relationships: [
@@ -1853,6 +1887,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "payment_refunds"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pre_reversal_same_refund_fk"
+            columns: ["refund_id", "reverses_event_id"]
+            isOneToOne: false
+            referencedRelation: "payment_refund_effective_terminal"
+            referencedColumns: ["refund_id", "event_id"]
+          },
+          {
+            foreignKeyName: "pre_reversal_same_refund_fk"
+            columns: ["refund_id", "reverses_event_id"]
+            isOneToOne: false
+            referencedRelation: "payment_refund_events"
+            referencedColumns: ["refund_id", "id"]
           },
         ]
       }
@@ -2588,6 +2636,41 @@ export type Database = {
           },
         ]
       }
+      payment_refund_effective_terminal: {
+        Row: {
+          created_at: string | null
+          event_id: string | null
+          event_type: string | null
+          indicates_refund: boolean | null
+          refund_id: string | null
+          seq: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          event_id?: string | null
+          event_type?: string | null
+          indicates_refund?: never
+          refund_id?: string | null
+          seq?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          event_id?: string | null
+          event_type?: string | null
+          indicates_refund?: never
+          refund_id?: string | null
+          seq?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_refund_events_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "payment_refunds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_variants_public: {
         Row: {
           availability: string | null
@@ -2800,6 +2883,16 @@ export type Database = {
       }
       admin_compute_order_settlement: {
         Args: { p_order_id: string }
+        Returns: Json
+      }
+      admin_correct_refund_manual_verdict: {
+        Args: {
+          p_actor: string
+          p_expected_event_id: string
+          p_reason: string
+          p_refund_id: string
+          p_refunded: boolean
+        }
         Returns: Json
       }
       admin_create_shipment: {
@@ -3427,6 +3520,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       fulfillment_status: ["notOrdered", "ordered", "inStock", "shipped"],
