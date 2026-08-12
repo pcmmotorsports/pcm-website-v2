@@ -410,7 +410,14 @@ v2 拆的三片(RF7-0/a/b/c)全部作廢 —— 那是為了「讀帳本」而�
 |---|---|---|---|
 | ① | `if (attempt.orderPaymentStatus === 'paid') { … return paid }` —— **已 paid 的單根本不查 Record** | `settle-charge.ts:68-71` | v3-§2 說「其餘(含 Portal)維持現況告警」**是假的**:Portal 對**已 paid** 單退款,今天**連告警都不會有**(它在 Record 查詢之前就返回了)。⚠️ 該處註解自己寫「嚴格 `=== 'paid'`…避免誤短路退款/partiallyPaid 態」——**作者想過這件事,是我沒讀到那一行** |
 | ② | webhook inbox 的 claim **不濾 `orders.payment_status`** | 4a1 webhook migration(grep `payment_status` 該檔 = 0 命中) | v3-§1 ③ 只對 **sweeper 的 attempt claim** 成立;**inbox 那條路照樣重試到 8 次並轉人工** ⇒「不會進人工佇列」為假 |
-| ③ | **`flagNonUnpaidActive`** 存在 —— 專門把「訂單非 unpaid 但 attempt 仍 active」標成人工 | `PgChargeAttemptAdapter.ts:210` | 系統**本來就有**一條針對這個狀態的設計動作。我完全沒盤到它 ⇒ RF7 的問題框架可能一開始就該從它出發 |
+| ③ | **`flagNonUnpaidActive`** 存在 —— 把「訂單非 unpaid **且非 paid** 但 attempt 仍 active」標成人工 | `packages/adapters/src/payment/PgChargeAttemptAdapter.ts:210`;本體 `20260615120001…sql:155` | 系統**本來就有**一條針對這個狀態的設計動作。我完全沒盤到它 ⇒ RF7 的問題框架可能一開始就該從它出發 |
+
+🔴 **2026-08-12 精化(④ 線讀本表出錯後回補)**:③ 原寫「非 unpaid」,**漏了排除集合的另一半**。
+本體 `WHERE` 逐字 `o.payment_status NOT IN ('unpaid'…, 'paid'…)` ⇒ **`paid` 不在它射程**。
+⚠️ 值得記一筆:**同一張表的 ① 已經寫了「已 paid 的單根本不查 Record」(`settle-charge.ts:68-71` 短路)**
+—— ①③ 兩列對 `paid` 的說法其實互相牴觸,而它們並排放了一天沒人看出來。
+④ 線後來照 ③ 的字面寫出「已取消+仍 paid 會被標人工」= 錯的
+(更正見 `docs/specs/2026-08-12-4a-paid-cancel-rpc-plan.md` §7-2)。
 
 ### 7.2 另一條方向最危險的(審查者提、我認,未實跑構造)
 

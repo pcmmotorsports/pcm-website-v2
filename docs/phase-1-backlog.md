@@ -11511,6 +11511,41 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   才收斂成現在的「bypass 無稽核」——**記在這裡免得下一個人又提一次已經存在的東西**。
 - **分流標籤:** `P1-before-launch`
 
+### #433. ⏳ `flag_non_unpaid_active_attempts` 的兩個「Phase 1 不可達」盲點 —— **當初的不可達論證前提已被退款 RPC 上線推翻**
+
+- **狀態:** ⏳ 待排(2026-08-12 / E 窗八代寫 ④-a plan 草稿時順手量到;主視窗 `E-352-A` §3 批准配號)。
+- **優先級:** 🟠 中(**不是已知正在漏,是「當初證明它不會漏的理由已經過期、沒人重估過」**)
+- **問題:**
+  - `supabase/migrations/20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql:27-35` 有一段 forward note〔F〕,
+    誠實揭示同一根因的**兩面**盲點:
+    ① `flag_non_unpaid_active_attempts` 的 `a.status IN ('pending','charged')` 閘 ⇒ **不收 `released`**;
+    ② `mark_attempt_settle_retry` 的 order-`unpaid` 閘使其永不 fire ⇒ **12h `released_manual_review_at` marker 永不寫**
+    (marker 唯一寫者=`mark_retry`)⇒ 該 `released` **完全隱形:不對帳、不掛人工**。
+  - 🔴 它當初宣告「兩面皆不可達」的**理由**逐字是:
+    「Phase 1 `released` 僅由 R1a3 CAS(order unpaid)產生、其 order **無正常路徑變 refunded/partiallyPaid**
+     (…**Phase 1 無退款流程**)」,並自己註明「**Phase II 開退款前置**須一併處理」。
+  - **那個前提今天不成立了**:M3 退款寫入 RPC(`supabase/migrations/20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql`)
+    已上線,訂單**確實有路徑**變 `partiallyRefunded` / `refunded`。
+    ⇒ 〔F〕**自己寫下的失效條件已經到了**,但沒有人回來重估。
+- **🔴 誠實界(這條**不**宣稱什麼):**
+  - **沒有量過「是否真的存在同時有 `released` attempt 且已退款的單」** ⇒ **不宣稱它正在漏**,
+    只宣稱**不可達論證已過期、需要重估**。要立案的是「重估」這件事,不是「修一個已證實的 bug」。
+  - 難得的是原作者**寫了失效條件**,所以這條撿得起來
+    (對照 memory `feedback_withdrawal-reason-needs-expiry-condition`:多數撤回理由沒寫到期日,過期了也沒人知道)。
+- **不修未來會痛在哪:**
+  退款單若殘留 `released` attempt,今天是**零告警、零標記、零對帳** —— 它不會出現在任何人工佇列裡。
+  ⇒ 發現它的路徑只剩「客人打電話來」,而那時已經是客訴,且要靠鑑識回推(同 #431 的形狀:**沒紀錄,只能靠鑑識**)。
+- **預期解法(重估後再定,不預先拍):**
+  1. 先**量**:正式庫有沒有「`status='released'` 且其 order `payment_status` 非 unpaid」的列(catalog/資料面問,不是數 CREATE 敘述)。
+  2. 若有 ⇒ 照〔F〕自己開的方子:`flag` 納 `released` + 12h marker 脫鉤 `unpaid` 閘(**兩面同一根因、同一片修**)。
+  3. 若沒有 ⇒ 仍要把〔F〕那段的「Phase 1 不可達」改寫成**現況成立的理由**,不能留著已過期的論證(它會再騙下一個人一次)。
+- **估時:** 量 15-20 分;若要修=高風險片(動 sweeper RPC 與 attempt 狀態機、鐵則 12③),另估。
+- **依賴:** 無;不擋 ④ 線任何一片。
+- **發現於:** 2026-08-12 / E 窗八代寫 ④-a plan 草稿(`docs/specs/2026-08-12-4a-paid-cancel-rpc-plan.md` §8)時,
+  為了查清 `flag_non_unpaid_active_attempts` 的真實掃描條件而讀到 `20260624120008`。
+  🔴 同一次查證還翻掉了 ④ 母 plan 的一條錯斷言(`paid` 不在該 RPC 射程,同 commit 已修)。
+- **分流標籤:** `P1-before-launch`
+
 ### #434. 🧹 Next 16.3.0 `next dev` 自動產 app 層 `AGENTS.md`/`CLAUDE.md` —— 治本=`agentRules: false`(現行只用 .gitignore 擋)
 
 - **現況:** Next 16.3.0 起 `next dev` 啟動即在 app 目錄產 `AGENTS.md` + `CLAUDE.md`(後者內容=`@AGENTS.md` 一行 @import;D 窗 08-12 實測於 `apps/admin/`,storefront 未測、同版推測相同)。Claude Code 對目錄層 `CLAUDE.md` 自動載入 ⇒ Next 的規則被注入每個在該目錄工作的視窗 context,與常載規則「永不加 @import」牴觸。

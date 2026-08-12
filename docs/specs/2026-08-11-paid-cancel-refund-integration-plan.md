@@ -118,9 +118,18 @@ IF v_payment_status IS NULL
 「已取消」既**不阻止**退款、也**不要求**退款 ⇒ **「不允許取消完不管錢」完全靠 ④-Q2=A 那顆必填參數撐**,
 沒有第二道網。這一點要在 ④-a 的驗收條件裡明寫。
 
-**剩餘語意題(移交 ④-a plan)**:`flagNonUnpaidActive`(`PgChargeAttemptAdapter.ts:210`)會把
-「非 unpaid + attempt 仍 active」標人工;④-Q1=A 之後「**已取消 + 仍 paid + attempt 仍 active**」是新形狀,
-它會被標人工 —— **那是對的還是噪音**,④-a 要答(即 §6 的 7-1 重問)。
+**剩餘語意題(移交 ④-a plan)** —— 🔴 **本段 v2 原文方向寫錯,2026-08-12 由 ④-a 草稿讀 SQL 本體更正**
+(`docs/specs/2026-08-12-4a-paid-cancel-rpc-plan.md` §7-2):
+
+`flagNonUnpaidActive`(**真路徑** `packages/adapters/src/payment/PgChargeAttemptAdapter.ts:210`)背後那支
+`flag_non_unpaid_active_attempts`(`20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:155` 起)的 `WHERE` 逐字是
+`o.payment_status NOT IN ('unpaid'::public.payment_status, 'paid'::public.payment_status)`
+⇒ **`paid` 在排除集合裡**。
+⇒ ④-Q1=A 之後「**已取消 + 仍 paid + attempt 仍 active**」**不會**被它標人工。
+
+~~它會被標人工 —— 那是對的還是噪音~~ ⇒ **真題改成「那這個形狀今天誰在管」**,④-a 要答(即 §6 的 7-1 重問)。
+📌 病根備查:原文引的是 adapter 的**註解**(「標 refunded/partiallyPaid 殘留 active attempt」),沒下去看 SQL 本體
+—— 註解沒說錯,是把「**沒列 paid**」讀成「**涵蓋 paid**」。
 
 ### §4b-2 ④-Q1=A 的第二個連帶:**部分取消不會扣減「帳本未登記額」的基數**
 
@@ -198,7 +207,7 @@ IF v_payment_status IS NULL
 
 | 題 | 對 RF7 的狀態 | 🔴 對 ④ 的狀態 |
 |---|---|---|
-| 7-1 `flagNonUnpaidActive` 算不算已處理「非 unpaid + active attempt」 | 已答(fix-plan §1) | 🔁 **已移交 ④-a**(`E-341-A` §2)。④-Q1=A 之後「**已取消 + 仍 paid + attempt 仍 active**」是新形狀,`flagNonUnpaidActive`(`PgChargeAttemptAdapter.ts:210`)會把它標人工 —— 那是對的還是噪音,由 ④-a 的 plan 答(詳 §4b-1) |
+| 7-1 `flagNonUnpaidActive` 算不算已處理「非 unpaid + active attempt」 | 已答(fix-plan §1) | 🔁 **已移交 ④-a**(`E-341-A` §2)。④-Q1=A 之後「**已取消 + 仍 paid + attempt 仍 active**」是新形狀,🔴 **2026-08-12 更正**:`flagNonUnpaidActive`(`packages/adapters/src/payment/PgChargeAttemptAdapter.ts:210`)**不會**標它 —— `20260615120001…sql:155` 的 `WHERE` 逐字排除 `paid`。⇒ 真題是「**這個形狀今天誰在管**」,由 ④-a 答(詳 §4b-1 與 ④-a 草稿 §7-2) |
 | 7-2 inbox 路 1 要不要濾訂單狀態(#422) | 待裁,**不阻塞 RF7** | **同樣不阻塞 ④**,但 ④-a 會讓「已取消的單」也走進那條重試路 ⇒ #422 的裁定面積變大,建議連帶重估 |
 | 7-3 「這一次」的證據粒度 | 對 RF7 已被繞開(fix-plan §3) | 🔴 **回來了,但來源已定**:④-d 判「有沒有退款」**一律引 P 的 canonical view**(`E-341-A` §3 明示;Q-425=B 已拍、P 已解鎖),**本片不自定義**。🔴 仍然**不得用 `orders.payment_status` 當證據** —— ④-Q1=A 之後它連「有沒有取消」都不反映了,拿它當退款證據會更錯 |
 
@@ -211,7 +220,7 @@ IF v_payment_status IS NULL
 
 1. **零實跑**。全部是讀 migration / code 得到的靜態盤點,沒有跑過任何一格。
 2. **F3 的範圍是 `apps/admin/src/lib/payment/` 與那一支 migration,不是全 repo**;`packages/` 側沒掃。
-3. **沒查 `flagNonUnpaidActive` 的掃描條件與觸發頻率** —— 與矩陣 §6-2 同一個未查項,我沒補上。
+3. ~~**沒查 `flagNonUnpaidActive` 的掃描條件與觸發頻率**~~ 🔴 **掃描條件 2026-08-12 已查**(④-a 草稿 §7-2,讀 `20260615120001…sql:155` 本體)—— **而一查就翻掉了本檔 §4b-1 與 §6-7-1 的斷言**,兩處已同批更正。**觸發頻率仍未查**:只量到 `vercel.json` 與 `apps/admin/vercel.json` 兩檔皆無 `cron` 字樣,沒查 Vercel 後台 ⇒ 不下「它不會跑」的結論。
 4. **沒查「復原」今天有沒有任何既有實作**(我只確認 Sean 拍過板,沒 grep 過 restore/uncancel 面)⇒ ④-d 的片界是**四片裡最軟的一格**。
 5. **片數 16 是「按本檔片界」的數**。~~④-0 若拍出 ④-Q1=B,④-a 會再長大~~ **④-Q1=A 已拍 ⇒ 這個放大路徑關閉**;但 §4b-3 的簽章改版(DROP+CREATE + 四道 overload 閘重定期望值)是 v1 沒看到的體積,**④-a 仍可能自己要再拆**。
 6. **§4b-2 我只證了那支函式的式子裡沒有取消項,沒有窮舉「還有誰在算可退額」** —— 若別處另有一份基數計算,那格的結論要重估。

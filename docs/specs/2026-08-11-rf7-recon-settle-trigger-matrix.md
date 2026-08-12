@@ -133,8 +133,16 @@ v3 只看了第 2 條(sweeper·attempt)就下了全稱結論。
 而 `unpaid` 正是 24 格裡最大的一列(9 格)。已拆開逐條標。
 
 🔴 **另有一條與 D 類無關、但同樣把單子送進人工的既有機制**:
-**`flagNonUnpaidActive`**(`PgChargeAttemptAdapter.ts:210`)—— 專門把「**訂單非 unpaid 但 attempt 仍 active**」標成人工。
+**`flagNonUnpaidActive`**(`packages/adapters/src/payment/PgChargeAttemptAdapter.ts:210`)—— 把「**訂單非 unpaid 但 attempt 仍 active**」標成人工。
 ⇒ 已退款的單只要 attempt 還活著,**不需要經過 RF7 的路徑就會被標人工**。
+
+🔴 **2026-08-12 精化 —— 這一行的模糊正是後來一條錯斷言的源頭**:
+本體 `WHERE` 逐字是 `o.payment_status NOT IN ('unpaid'::public.payment_status, 'paid'::public.payment_status)`
+(`20260615120001_m3_3ds_4a2_attempt_sweeper_rpc.sql:155` 起)⇒ 它是「非 unpaid **且非 paid**」,**`paid` 不在射程**。
+上面寫「非 unpaid」在 RF7 的語境裡不礙事(那時 `paid` 走短路、不是議題),但 ④ 線讀到這句時把它讀成
+「**涵蓋 paid**」,於是在 `paid-cancel-refund-integration-plan` §4b-1 寫出「已取消+仍 paid 會被標人工」——
+**錯的**。更正見 `docs/specs/2026-08-12-4a-paid-cancel-rpc-plan.md` §7-2。
+📌 教訓:**寫「非 X」的時候要把整個排除集合寫完**,否則下游會把沒列到的成員當成被涵蓋。
 **這是設計上已經存在的處置**,RF7-fix 必須先回答「它算不算已經解決了那一類」,而不是另外再發明一套。
 
 ---
@@ -144,7 +152,7 @@ v3 只看了第 2 條(sweeper·attempt)就下了全稱結論。
 1. **沒有實跑任何一格** —— 全部是讀 code / migration / catalog 得出的靜態盤點。
    `order_refunds` 正式庫 0 列 ⇒ D 類的格今天**構造不出真資料**(constructibility 標記:
    要造得先有一筆真退款,而那要 flag 開 + Sean 動作)。
-2. **沒查 `flagNonUnpaidActive` 的觸發頻率與實際掃描條件**(只確認它存在與它的意圖)。
+2. ~~**沒查 `flagNonUnpaidActive` 的觸發頻率與實際掃描條件**~~ **實際掃描條件 2026-08-12 已補查**(見 §5 末的精化區塊);**觸發頻率仍未查**。
 3. **軸 3 的 E 類(未知碼)沒有窮舉 TapPay 官方碼表** —— 只知道「switch 沒列到的一律 fail-closed」。
 4. **表 A 的閘我讀的是 code 與 migration 原文,沒有實跑驗證任一格的閘真的擋得住**。
 5. `paid` 欄標 N/A 的依據是 `settle-charge.ts:68` 那一行 —— **它是 `===` 不是 `!==`**,
@@ -153,8 +161,11 @@ v3 只看了第 2 條(sweeper·attempt)就下了全稱結論。
 ## §7 給 RF7-fix 的三個「先回答再動手」
 
 1. **`flagNonUnpaidActive` 算不算已經處理了「非 unpaid + active attempt」那一類?** 若算,RF7 的範圍再縮。
-   ⚠️ **這題我沒有答案**:我只確認它存在(`PgChargeAttemptAdapter.ts:210`)與它的意圖(方法名 + 該檔註解),
+   ⚠️ **這題我沒有答案**:我只確認它存在(`packages/adapters/src/payment/PgChargeAttemptAdapter.ts:210`)與它的意圖(方法名 + 該檔註解),
    **沒查它的掃描條件、觸發頻率、以及被標人工之後誰會處理** ⇒ 標**未查**,不得當成「已經有解」。
+   🔴 **2026-08-12 部分補答**:**掃描條件已查** —— `NOT IN ('unpaid','paid')`(§5 末精化)⇒ 對 RF7 語境的答案是
+   「**它涵蓋 `partiallyPaid`/`refunded`/`partiallyRefunded`,不涵蓋 `paid`**」。**觸發頻率、以及被標人工之後誰處理,兩項仍未查**
+   —— 後者尤其別當成已有解(`needs_manual_review` 只是 durable 旗標,`rf7-fix-plan` §1 同一句)。
 2. **inbox 那條路(路 1)要不要也濾訂單狀態?** 它是唯一「訂單已退款仍會重試到人工」的路 ——
    而那可能是 **inbox 的 bug、不是 RF7 的範圍**。
 3. **證據的粒度**:v3 用 `orders.payment_status`(訂單層累積狀態)當「這一次 Record 事件」的證據被打穿。
