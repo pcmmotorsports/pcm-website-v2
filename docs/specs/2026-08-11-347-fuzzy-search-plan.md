@@ -97,6 +97,55 @@
 `CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;`(單獨 migration 第一段)。
 驗收 1 fail-closed:裝不上就整片停。
 
+### A2c 🔴 驗收格:**函式層 0.4 真的在生效**(不是「proconfig 裡有這一行」)
+
+**為什麼要這格**(code-reviewer 2026-08-12 MF5):斷言 D2 只驗 `proconfig` **存在**那個設定。
+若它沒真的套用,模糊就退回 session 預設 **0.6** ⇒ 招牌能力靜默縮水,而**所有結構斷言照樣全綠**。
+
+**四格一組(缺一不可;2026-08-12 已實跑,拉丁 corpus,交易內做完 ROLLBACK)**:
+
+| | 動作 | 期望 | 實得 |
+|---|---|---|---|
+| ① | needle 相似度**落在 0.4 與 0.6 之間**(實例:`bonzmici rzcing` vs `bonamici racing` = **0.455**)⇒ 呼叫函式 | ≥1 筆 | ✅ 1 |
+| ② | 同 corpus,**正確拼字** | ≥1 筆 | ✅ 1 |
+| ③ | **突變:`ALTER FUNCTION … RESET pg_trgm.word_similarity_threshold`**(退回 session 0.6)⇒ 再查 ① 那個 needle | **0 筆** | ✅ 0 |
+| ④ | 突變狀態下再查 ② 那個**正確拼字** | 仍 ≥1 筆 | ✅ 1 |
+
+🔴 **④ 是特異性對照,缺它整組作廢**:沒有 ④,③ 的「0 筆」可能只代表**我把函式弄壞了**,
+而不是「閾值變嚴了」。① 與 ③ 的差別必須**只有那一個設定**。
+🔴 **needle 必須真的落在區間內、且要把相似度數字寫進測試註解** —— 隨便挑一個 needle
+多半 >0.6(實測:`bonam` 0.833、`bona` 0.800、`bonamiciracing` 0.722)⇒ ③ 不會變 0、這組恆真。
+
+⚠️ 本組**只能用拉丁 corpus**跑(理由見 §A2b:本機對 CJK 零 trigram)。
+
+### A2b 🔴 模糊那一半的**平台盲區**(2026-08-12 實測 + 正式站探測)
+
+**本機 harness 驗不到中文模糊。** macOS(Homebrew PG 17.10)下 pg_trgm 對 CJK **抽不出任何 trigram**:
+`show_trgm('演練品牌')` = `{}`、`word_similarity('演練品牌','演練品牌')` = **0**(連相同字串都是 0);
+ASCII 正常(`bonamici` = 9 個)。**三種 locale 各建乾淨叢集實測、結果逐字相同**
+(`C` / `en_US.UTF-8` / `zh_CN.UTF-8`)⇒ **不是 locale 設定問題**,是 BSD libc 的 CJK 字元分類。
+
+🟢 **正式站不受影響**(2026-08-12 12:3x,Sean 於 SQL Editor 貼交易模擬探測、零留痕):
+CJK trigram **5 個**、相同字串相似度 **1**、ASCII 9 個、`PostgreSQL 17.6 … linux-gnu`。
+⇒ **功能交付成立**;病灶純屬本機。
+
+⚠️ **但驗收面的後果是真的、且永久**:凡跑在本機的模糊驗收格,**對中文一律不會紅**
+(那條路根本沒被走到)= 恆真格。⇒ **模糊相關格一律標註**:
+> 本機只證得了拉丁(macOS libc 對 CJK 零 trigram = 已知盲區);
+> 中文那半由正式站探測證實「trigram 抽取正常」,**行為證據補在 apply 後的煙測**。
+
+⇒ **apply 檢查表加一格**:130000 apply 後跑一次唯讀 CJK 模糊查詢
+(真中文品名**打錯一個字** ⇒ 必須命中),把中文那半從「探測證據」升為「行為證據」。
+
+⇒ 🔴 **apply 檢查表再加一格:apply 完跟一次 `VACUUM ANALYZE`**
+(至少 `order_items` / `customers` / `orders`)。2026-08-12 A0-F 實測:同一組查詢在
+`VACUUM ANALYZE` **之前是 115–330 ms**、之後掉到零命中 2.2 ms / 訂單編號 3.7 ms。
+當時 EXPLAIN 顯示 #3 會員姓名那條走 `Seq Scan on customers`(22.7 ms)—— **索引在、
+但統計值過期讓規劃器不用它**。⇒ 不跟這一步的話,首批搜尋會慢得莫名其妙,
+而且**症狀看起來像索引沒建成功**(最容易被誤診成 apply 失敗而回滾)。
+⚠️ 誠實:我**沒有分離 VACUUM 與 ANALYZE 哪一個是關鍵**,兩者各只量一次;
+造數情境(2 萬筆 UPDATE + 5 萬筆 INSERT)也比正式站的日常寫入激烈得多。
+
 ### A2 三類比對(規則本體見 §4)
 - **識別碼類**(#1 訂單編號、#7 料號、#11 供應商單號):正規化子字串,**不套模糊**。
 - **文字類**(#2 會員姓名、#4 收件人姓名、#6 收件地址、#8 品名、#9 規格、#10 品牌):子字串 **OR** 詞相似度。
@@ -190,10 +239,22 @@ pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[-_[:space:]\u3000\
 pg_catalog.regexp_replace(pg_catalog.lower(COALESCE(x,'')), '[^0-9]', '', 'g')
 -- NORM_TXT(x):文字類。lower + btrim
 pg_catalog.lower(pg_catalog.btrim(COALESCE(x,'')))
+-- ⚠️ **已知邊界(窄 R2 後 code-reviewer minor 14,2026-08-12)**:空輸入短路那道用的修剪字元集
+--    顯式含 tab / U+3000 / NBSP / U+202F / U+200B / BOM,但 **NORM_TXT 用的是裸 `btrim()`
+--    = 只清 ASCII 空白** ⇒ 兩者不同集。後果:欄值開頭帶全形空白的姓名,
+--    正規化後仍留著那顆 ⇒ **子字串那半比不中**,只剩 `<%` 那半可能撈到。
+--    ⇒ 這是**現況記錄、本片不改行為**(改它要連索引表達式一起改 = 另一批索引重建)。
+--    要修的話是 plan 級議題,不是實作細節。
 -- spec 專用(A0 實測:spec 是 jsonb 物件,不是字串)
+-- 🔴 `ORDER BY key` 不可拿掉(codex K2 2026-08-12 must-fix 1):沒有它,`string_agg` 的輸入
+--    順序 SQL 不保證 ⇒ `IMMUTABLE` 站不住,而 #9 的**表達式索引就建在這支函式的回傳值上**
+--    ⇒ 索引存的字串與查詢當下算的字串可能不同序、比不中、**靜默少回訂單**(不報錯、不會紅)。
+-- ⚠️ 行為變更(2026-08-12):改前是 jsonb 儲存鍵序(短鍵在前)⇒ `{"color":"黑","size":"M"}`
+--    攤成 `M 黑`;改後是鍵名字典序 ⇒ `黑 M`。單值子字串搜尋不受影響,
+--    **跨欄多詞 needle 的匹配位置會變**。migration 的斷言 I-2 用固定 literal 守這個順序。
 CREATE FUNCTION public.pcm_spec_text(p jsonb) RETURNS text
   LANGUAGE sql IMMUTABLE PARALLEL SAFE AS
-$$ SELECT COALESCE((SELECT pg_catalog.string_agg(value, ' ') FROM pg_catalog.jsonb_each_text(p)), '') $$;
+$$ SELECT COALESCE((SELECT pg_catalog.string_agg(value, ' ' ORDER BY key) FROM pg_catalog.jsonb_each_text(p)), '') $$;
 ```
 
 ### 4.2 needle 側(函式開頭算一次,三份各自檢查非空)
@@ -259,13 +320,55 @@ SELECT pg_catalog.array_agg(h.id ORDER BY h.created_at DESC, h.id DESC)
 | 6 | `NORM_TXT(o.shipping_address_snapshot ->> 'line')` | 文字 | ✅ | ✅ | ✅ |
 | 7 | `NORM_ID(oi.variant_sku)` | 識別碼 | ✅ | ❌ | ✅ |
 | 8 | `NORM_TXT(oi.product_snapshot ->> 'title')` | 文字 | ✅ | ✅ | ✅ |
-| 9 | `NORM_TXT(public.pcm_spec_text(oi.product_snapshot -> 'spec'))`(**新增**) | 文字 | ✅ | ✅ | **可選**(A0-3:低基數時索引不划算) |
-| 10 | `NORM_TXT(br.name)` | 文字 | ✅ | ✅ | 可選(brands 是小表,規劃器多半不用) |
+| 9 | `NORM_TXT(public.pcm_spec_text(oi.product_snapshot -> 'spec'))`(**新增**) | 文字 | ✅ | ✅ | 🔴 **要建**(2026-08-12 推翻原判:見下方 A0-E) |
+| 10 | `NORM_TXT(br.name)` | 文字 | ✅ | ✅ | **不建**(A0-E 實測:零命中 0.127ms / 最壞 18ms) |
 | 11 | `NORM_ID(pc.supplier_order_no)` | 識別碼 | ✅ | ❌ | ✅ |
 | 12 | `NORM_ID(o.legacy_display_id)`(**關卡1 R1 must-fix ① 補**) | 識別碼 | ✅ | ❌ | ✅ **但要 partial**(見下) |
 
 索引一律 `CREATE INDEX … USING gin ((<上表表達式>) extensions.gin_trgm_ops)`。
 **模糊六欄**=#2/#4/#6/#8/#9/#10;**禁模糊六欄**=#1/#3/#5/#7/#11/#12 ⇒ 這兩個數字驅動 §5 的格數。
+索引支數 = **11**(12 個維度扣掉 #10 品牌不建)。
+
+#### 4.4a A0-E 量測(2026-08-12):#9 從「不建」翻成「要建」,#10 維持不建
+
+原本 #9 標「可選 —— A0-3 量到低基數時索引不划算」。**低基數這個事實沒錯,推論錯**:
+它只涵蓋「使用者真的搜規格值」那幾次。實際上 **#9 是 UNION 的一支,每一次搜尋都會完整跑它**,
+而 `pcm_spec_text()` 是逐列函式呼叫 ⇒ **這條的成本與「有沒有人搜規格」無關**。
+
+50k 級拋棄式庫實測(`orders=50031 / items=50041 / customers=20002`,已 ANALYZE;
+反事實索引在交易內建、量完 ROLLBACK,零留痕已驗):
+
+| needle | 語意 | 無 spec 索引 | 有 spec 索引 |
+|---|---|---|---|
+| `zzqqxxwv` | 零命中 | **329.8 / 349.8 ms** | **6.8 / 2.1 ms** |
+| `PCM-2025-04321` | 訂單編號(該分支本來就有索引) | **331.8 ms** | **3.7 ms** |
+| `black` | 規格寬 needle(10,000 命中) | 342.2 / 292.5 ms | 73.9 / 71.3 ms |
+| `m titanium` | 規格中 needle(3,334 命中) | 325.2 ms | 118.8 ms |
+
+🔴 第二列是關鍵:**搜訂單編號**從 331.8ms 掉到 3.7ms —— 慢的從來不是訂單編號那條,
+是坐在它旁邊、每次都被完整求值的 #9。**四格全變快、零格變慢**(寬 needle 那格是特地量的:
+只證「零命中變快」會漏掉「拿寬 needle 效能換來的」那種可能)。
+
+分支層零命中對照(同形狀、同 needle,只差有沒有索引):#3 姓名 0.055ms / #5 收件人 0.060ms /
+#6 料號 0.032ms / #7 品名 0.311ms(以上皆有索引)vs **#9 規格 179.780ms**(無索引,
+`Parallel Seq Scan on order_items`)/ **#10 品牌 0.127ms**(無索引,但 brands 先過濾、
+後面三跳全是 `never executed`)。
+
+代價:索引 **936 kB**(order_items 現有索引合計 22MB ⇒ +4%)、建立 177ms、
+寫入 1000 筆 22.8ms → 93.3ms(**各只量一次、未重複,倍數別當精確值**;
+每月 100-300 筆訂單量下看不到)。
+
+⚠️ **誠實邊界**:全部量在 macOS 本機 PG17、全暖快取、C locale、**拉丁 corpus**。
+比值(330 vs 2)可搬,絕對毫秒不可搬。**中文沒量到** —— 正式站 spec 值是中文,
+而本機 macOS libc 對 CJK 抽零 trigram ⇒ 短的中文 needle 在正式站走不走得到 gin_trgm
+**未量測**,列進 apply 後煙測。另外本輪**沒造 procurement 那 3 萬列**(#9/#10 不碰它)⇒
+端到端絕對值在正式站會再高一些。
+
+🔴 **這支索引的代價不只效能**:它建在 `pcm_spec_text()` 的**回傳值**上 ⇒
+改那支函式而沒有 `REINDEX INDEX public.idx_order_items_spec_trgm`,索引會**靜默過期**
+(PG 不擋、不報錯,查詢照回答案、只是少回訂單)。migration 的斷言 I-3(定義指紋)擋
+「重放時已被改過」;**擋不住「本片 apply 之後、未來某支 migration 改了函式卻沒 REINDEX」**
+—— 那是誠實缺口,由錯誤訊息與索引旁的硬警告承載。
 
 🔴 **#12 的索引與 #1 不同形,不可照抄**:`legacy_display_id` 只有**改過號的單**才有值
 (其餘為 NULL ⇒ 經 `NORM_ID` 的 `COALESCE(x,'')` 一律變成空字串)。整表建 gin 會把絕大多數列
@@ -611,7 +714,7 @@ NULL 那些列本來就不可能命中非空 needle,加它只為讓規劃器對�
 | 空 needle / 純標點 | §A2 逐類非空閘 + 驗收 6 兩格 |
 | 全形空白 | 正規化字元類明列 + 驗收 8 |
 | 閾值 | 釘死 0.4 + 驗收 12 的 12 個邊界期望值 |
-| **回滾(順序固定)** | ①`DROP INDEX` 逐支列名(**含 #12 那支 partial**)②`CREATE OR REPLACE` 換回現行 RPC ③**`DROP FUNCTION public.pcm_spec_text(jsonb)`** ④**把 RPC 的 `COMMENT ON FUNCTION` 還原成現行字面**(本片會改寫它)—— 🔴 **來源必須指名**(窄 R2 N1):現行 COMMENT 的權威版是 `supabase/migrations/20260810150000_m4b_347_3c_3_admin_search_orders_comment.sql:77`,**不是** `20260810120000` 那版(本 plan 多處引 `120000` 只是為了引它的字面內容,那是**已被 150000 取代的舊版**)。⇒ 回滾時取 **150000 的字面**,或直接取 apply 前的 catalog pre-image(`obj_description`);**照 120000 還原 = 把過期字面寫回正式站**。⚠️ 我實查過:兩句關鍵字面(「本函式無任何 RAISE」與「UI 必須顯示「結果太多請更精確」」)在 150000 版**都還在** ⇒ 本 plan 依據那兩句的論證不受影響,錯的只有**引用來源**。⑤確認零其他依賴後才 `DROP EXTENSION`。⚠️ `DROP EXTENSION` 預設 RESTRICT **不會**連帶刪索引(會報錯);`CASCADE` 可能刪到別人的 |
+| **回滾(順序固定)** | ①`DROP INDEX` 逐支列名(**11 支;含 #12 那支 partial,也含 2026-08-12 新增的 `idx_order_items_spec_trgm`** —— 🔴 這支要**排在 `DROP FUNCTION public.pcm_spec_text` 之前**:索引相依於那支函式,順序反了 DROP FUNCTION 會被相依擋下)②`CREATE OR REPLACE` 換回現行 RPC ③**`DROP FUNCTION public.pcm_spec_text(jsonb)`** ④**把 RPC 的 `COMMENT ON FUNCTION` 還原成現行字面**(本片會改寫它)—— 🔴 **來源必須指名**(窄 R2 N1):現行 COMMENT 的權威版是 `supabase/migrations/20260810150000_m4b_347_3c_3_admin_search_orders_comment.sql:77`,**不是** `20260810120000` 那版(本 plan 多處引 `120000` 只是為了引它的字面內容,那是**已被 150000 取代的舊版**)。⇒ 回滾時取 **150000 的字面**,或直接取 apply 前的 catalog pre-image(`obj_description`);**照 120000 還原 = 把過期字面寫回正式站**。⚠️ 我實查過:兩句關鍵字面(「本函式無任何 RAISE」與「UI 必須顯示「結果太多請更精確」」)在 150000 版**都還在** ⇒ 本 plan 依據那兩句的論證不受影響,錯的只有**引用來源**。⑤確認零其他依賴後才 `DROP EXTENSION`。⚠️ `DROP EXTENSION` 預設 RESTRICT **不會**連帶刪索引(會報錯);`CASCADE` 可能刪到別人的 |
 | 🔴 **回滾漏物件(關卡1 R1 must-fix ③)** | 原三步**只還原了 RPC 與索引**,漏兩個本片自己建/改的物件:①`public.pcm_spec_text(jsonb)` 是本片 `CREATE FUNCTION` 出來的(§4.1 逐字)、三步裡沒有 drop 它 ⇒ 回滾後**殘留一個沒人叫的函式**,下次有人 `CREATE OR REPLACE` 會撞到不同簽章 ②RPC 的 `COMMENT` 被本片改過、三步沒還原 ⇒ 正式站 COMMENT 與行為不符(**同型債正式站已有一筆**,見 memory `project_347-3-date-range-default-belongs-to-3c`)。⇒ 已補成上格的 ③④ |
 | 🔴 **回滾的應用層那半(Q4=B 新增)** | 上面三步只還原 **DB 物件**。Q4=B 之後,舊欄與 adapter 兩段式路徑**在同一批被刪掉** ⇒ 只滾 DB 會得到「新搜尋沒了、舊欄也沒了」=**比事故前更糟的零入口狀態**。⇒ 回滾**必須連應用層一起回**,**但不是靠 `git revert`**(關卡1 R1 must-fix ⑦ 更正,詳下格)。⇒ **回滾單位=整批,不是 migration** |
 | 🔴 **回滾手段=內容型 patch,不是 `git revert`**(關卡1 R1 must-fix ⑦) | 原字面寫「`git revert` 掉那顆、與 DB 三步**同一次**完成」,**兩個假設都站不住**:①**那顆未必還單獨存在**——`git revert <sha>` 需要一顆內容剛好等於「拿掉舊欄」的 commit,整批被 squash/rebase 過之後就沒有了;②**兩者無法原子**——git 與 DB 是兩個系統、沒有跨系統交易,「同一次完成」是願望不是機制。⇒ 改成 **事故當下把「恢復舊入口」寫成一個新的內容型 patch**(不查 sha、不依賴歷史形狀),順序=**先恢復應用層舊入口 → 實際驗一次搜得到 → 再回 DB 那五步**。理由:應用層先回=員工至少有舊欄可用(新 RPC 還在、兩套並存無害);**DB 先回=舊欄還沒回來的那段時間兩套都沒有**=正是要避免的零入口狀態。⇒ **回滾 runbook 在片組 B 的 commit body 裡逐字寫出來**(要恢復哪四處:兩個 flag、兩個 `<form>`、adapter 兩段式路徑、`page.test.tsx` 四處),不留「revert 那顆」這種指不到東西的字面 |
@@ -624,12 +727,22 @@ NULL 那些列本來就不可能命中非空 needle,加它只為讓規劃器對�
 
 **動作**:①拿掉 `ADMIN_E10_ORDER_NUMBER_SEARCH` / `ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH` 兩個 flag
 與對應 UI 欄位(`order-filter-controls.tsx:222` / `:265`)②拿掉 adapter 的供應商兩段式路徑
-(`SupabaseOrderAdapter.ts:663-736`)③**測試面**(原 plan 漏列、窄 R2 補):
-`apps/admin/src/app/orders/page.test.tsx` **四處**設這兩個 flag(`:70` / `:72` / `:78` / `:138`)
+(`SupabaseOrderAdapter.ts:663-736`)③**測試面**(原 plan 漏列、窄 R2 補;**2026-08-12 再實查更正**):
+`apps/admin/src/app/orders/page.test.tsx` 四處(`:70` / `:72` / `:78` / `:138`)
 ⇒ flag 拿掉後那些格會變孤兒或假綠,**同批刪或改寫**。
+🔴 **更正**:原字面寫「四處設**這兩個** flag」**不對** —— 實查四處**全部是
+`ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH`**,`ADMIN_E10_ORDER_NUMBER_SEARCH` 在測試檔裡**零命中**。
 ④~~評估 `supplier_order_no_upper` 生成欄是否成死欄~~ **不隨本批進來**(主視窗 `B-473-A` §1 裁):
 drop 生成欄+索引=不可逆 schema 動作,綁進來會把回滾面從「換回舊 RPC」擴大成「重建欄與索引+回填」;
 死欄清理零急迫 ⇒ **另片**(A6 維持「本片不改」)。
+⑤🔴 **註解面(2026-08-12 新增,原 plan 兩版都漏)**:`SupabaseOrderAdapter.ts` 有 **2 處註解**
+在敘述「`ADMIN_E10_ORDER_NUMBER_SEARCH` 預設 off ⇒ 單號豁免是死路徑」(`:560` / `:805`)。
+flag 被刪之後,那兩句會變成**在描述一個不存在的東西** = 典型的「撤回實作卻沒改宣稱它的註解」
+(memory `feedback_line-numbers-go-stale-from-your-own-later-edits` 的變形)⇒ **同批改寫**。
+⚠️ 數法(收工前重數一次,別照抄這裡的行號):
+`grep -rn 'ADMIN_E10_ORDER_NUMBER_SEARCH\|ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH' --include='*.ts' --include='*.tsx' apps packages | grep -v node_modules`
+⇒ 2026-08-12 實查共 **8 命中**:`page.tsx` 2(真取值點,`:71`/`:77`)、
+`page.test.tsx` 4(全供應商)、`SupabaseOrderAdapter.ts` 2(**皆註解**)。
 
 ### 7.1 🔴 「順序不可倒」在 Q4=B 之下換了形狀(**本片最實的風險**)
 

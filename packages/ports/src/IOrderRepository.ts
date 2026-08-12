@@ -83,8 +83,18 @@ export interface IOrderRepository {
    * 以及 `supplierOrderNoMatchedSuppliers`(#338:供應商單號命中了哪幾家)。
    * 三者都是**必填**:adapter 的每一條 return 路徑都必須明確表態,
    * 不能讓「忘了填」變成合法寫法 —— 那正好等於靜默截斷。語意全文見該型別的 docstring。
-   * ⚠️ 實作端共有 **7 條 return 路徑**(6 條早退 + 1 條正常);其中前 3 條是「正規化就判定不可能有結果」、
-   *    `keywordMatchCount` 必為 `null`,後 3 條是「查過了但零筆」、必須帶真實計數。**兩者不可混用**。
+   *
+   * 🔴🔴 **`supplierOrderNoMatchedSuppliers` 本片起恆 `null`,producer 待片 B-2**
+   *    (#347-B;Sean 拍板 Q-347-B1=B 收掉兩個專用搜尋欄 + Q-347-B2=C 供應商能力挪片 B-2 重建)。
+   *    它的唯一 producer 是 adapter 的供應商單號兩段式探測,已隨那兩個欄一起退場。
+   *    **契約本身刻意不動** —— 片 B-2 要接回來的就是這一欄,刪掉再加回是白工。
+   *    ⚠️ 在那之前,拿本欄推導任何事情都會得到「一律沒有」;消費端請依值自己的形狀分支。
+   *
+   * ⚠️ return 路徑條數:原本 **7 條**(6 早退 + 1 正常)。#347-B 拿掉訂單編號與供應商單號兩個
+   *    維度之後,它們各自的 fail-closed 早退與零命中早退一併消失 ⇒ **條數已變**,
+   *    要引用請現數 `SupabaseOrderAdapter.listOrderSummariesForAdmin` 的 `return`,不要照抄這行。
+   *    不變的是分類:「正規化就判定不可能有結果」那類 `keywordMatchCount` 必為 `null`,
+   *    「查過了但零筆」那類必須帶真實計數。**兩者不可混用**。
    */
   listOrderSummariesForAdmin(
     filter: AdminOrderFilter,

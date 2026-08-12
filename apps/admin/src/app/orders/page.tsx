@@ -1,10 +1,5 @@
 import { cookies } from 'next/headers';
-import type {
-  AdminOrderFilter,
-  AdminOrderListResult,
-  SupplierOrderNoSearchInvalidReason,
-} from '@pcm/domain';
-import { SupplierOrderNoSearchTooManyError } from '@pcm/domain';
+import type { AdminOrderFilter, AdminOrderListResult } from '@pcm/domain';
 import {
   ORDER_KEYWORD_COOKIE,
   readOrderKeywordCookie,
@@ -46,16 +41,18 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 /**
- * 供應商單號搜尋詞不合法時的**明示**訊息(M-4b E10 A10c2;Sean 2026-08-07 Q1=A)。
+ * 🔴 **「刷卡未付款單被藏起來」的提示文案**(#347-B;Sean Q-347-B1=B 拍板字面)。
  *
- * 🔴 三種 reason 的訊息**刻意不同** —— 使用者要能從訊息知道「我該怎麼改」。
- * 全部合成一句「查無此單」就是 Q1=A 要禁的默默降級。
+ * 為什麼需要它:兩個專用搜尋欄退場之後,「打單號自動豁免隱藏規則」那條路
+ * (D-385-A 的「豁免綁精準鍵」)**沒有實作了** —— 拍板同時要求「查無時提示」來承接,
+ * 而這句話就是那個承接體。沒有它,客服用單號查一張刷卡未付款的單會得到
+ * 「共 0 筆 / 目前沒有符合條件的訂單」,也就是 Q1=A 明文要禁的「默默降級」。
+ *
+ * 🔴 **逐字引用畫面上真的看得到的那個勾**(操作直覺化準則:寫怎麼做、不寫內部語彙)——
+ * 括號裡那串必須與 `order-filter-controls.tsx` 的 label 一致,改一邊要改兩邊。
  */
-const SUPPLIER_SEARCH_INVALID_MESSAGE: Record<SupplierOrderNoSearchInvalidReason, string> = {
-  non_ascii: '這個供應商單號含有中文或特殊符號,目前的搜尋只支援英數與常見標點;請改用訂單編號或客戶姓名查詢。',
-  reserved_char: '供應商單號不能含有逗號、括號、引號或反斜線;請去掉這些符號再查一次。',
-  too_long: '供應商單號太長(上限 32 字);請只輸入單號本身。',
-};
+const UNPAID_CARD_HIDDEN_HINT =
+  '找不到單?列表預設不顯示「刷卡未付款」的訂單。勾選下方的「顯示刷卡未付款(預設隱藏)」再查一次。';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -65,25 +62,15 @@ export default async function OrdersPage({
   searchParams: Promise<SearchParams>;
 }) {
   const rawSearchParams = await searchParams;
-  // M-4b E10 A10c1 單號搜尋:§7.1 逐批啟用閘,U 片一律掛 env flag、預設 off。
-  // 🔴 硬前置 = D0 migration 已 apply(orders.legacy_display_id)。未 apply 就開 ⇒
-  //    PostgREST 42703 ⇒ 整個訂單列表進錯誤態(不只搜尋壞掉)。
-  const orderNumberSearchEnabled = process.env.ADMIN_E10_ORDER_NUMBER_SEARCH === '1';
-  // M-4b E10 A10c2 供應商單號搜尋:同一個逐批啟用閘,前置不同。
-  // 🔴 硬前置 = A9b2-M migration 已 apply(`supplier_order_no_upper` 產生欄,
-  //    `supabase/migrations/20260807130000_…`)。未 apply 就開 ⇒ PostgREST 42703 ⇒
-  //    **整個訂單列表**進錯誤態(不只搜尋壞掉),與 A10c1/D0 同族。
-  const supplierOrderNoSearchEnabled =
-    process.env.ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH === '1';
+  // #347-B(Q-347-B1=B):`ADMIN_E10_ORDER_NUMBER_SEARCH` / `ADMIN_E10_SUPPLIER_ORDER_NO_SEARCH`
+  //    兩個逐批啟用閘連同它們的搜尋欄一起退場 —— 兩者的能力併入關鍵字搜尋
+  //    (`admin_search_orders` 的 #1 訂單編號 / #12 舊訂單編號 / #11 供應商單號分支)。
   const {
     filter: urlFilter,
     page,
-    supplierOrderNoSearch,
     datePresetOptions,
     selectedDatePresetKey,
   } = parseOrderListSearchParams(rawSearchParams, {
-    orderNumberSearchEnabled,
-    supplierOrderNoSearchEnabled,
     // 🔴🔴 #347-3c-2:**給 `now` = 開啟「未選預設近半年」**(Sean Q14=A)。
     //    這一行是這一軸唯一「會藏掉舊單」的地方,所以它明著寫在頁層、不藏在 lib 的預設參數裡。
     //    可見性由 `selectedDatePresetKey` 保證:篩選列會把「近半年」顯示成**選中**,員工改得動。
@@ -119,15 +106,10 @@ export default async function OrdersPage({
   // 🔴 搜尋層的**明示訊息**(Sean 2026-08-07 Q1=A:不默默降級)。
   //    與 `loadFailed` 分開:這些是「使用者可以自己處理」的狀況(改個輸入就好),
   //    混進通用錯誤態會讓人以為系統壞了。
-  // 🔴 命中過多時**不渲染筆數與空表**(階段 C must-fix 2)。
-  //    不擋的話同一畫面會吐三句互相打臉的字面:橫幅說「太多」、標題說「共 0 筆」、
-  //    表格說「目前沒有符合條件的訂單」。員工的閱讀順序常是先看表格 ⇒ 直接判定這個單號不存在,
-  //    正是 Q1=A 拍板要禁的那個結論。
-  let searchBlocked = false;
-  let searchNotice: string | null =
-    supplierOrderNoSearch.kind === 'invalid'
-      ? SUPPLIER_SEARCH_INVALID_MESSAGE[supplierOrderNoSearch.reason]
-      : null;
+  // ⚠️ #347-B:本頁原本還有「供應商單號命中過多 ⇒ 明示訊息 + 不渲染筆數與空表」那條分流
+  //    (`SupplierOrderNoSearchTooManyError` / `searchBlocked`)。供應商兩段式查詢已退場
+  //    ⇒ 那個例外**沒有 producer 了**,連同它的旗標一起收掉,不留恆假分支。
+  //    現在唯一的搜尋層訊息是下方的「刷卡未付款被藏起來」提示,它是**算出來的**、不靠例外。
   try {
     // repo 建構(env 缺 requireEnv)是**同步 throw** ⇒ 必須在 try 內建構,不能先建構再 await。
     result = await getAdminOrderRepository().listOrderSummariesForAdmin(filter, {
@@ -135,23 +117,36 @@ export default async function OrdersPage({
       offset,
     });
   } catch (e) {
-    // 🔴 **分流**:命中數過多是使用者可處理的狀況 ⇒ 明示訊息 + 空列表,不進通用錯誤態。
-    //    其餘(含 `SupplierOrderNoSearchShapeError` = 回傳形狀與假設不符)一律進錯誤態並
-    //    `console.error` 留鑑識 —— 那類是**程式壞了**、要工程師看,不該被當成使用者問題吞掉。
-    if (e instanceof SupplierOrderNoSearchTooManyError) {
-      // 🔴 刻意不寫「訂單超過 N 筆」:`cap` 可能是**採購列**上限(500)、也可能是**去重後訂單數**
-      //    上限(100),兩個是不同的量(adapter 檔內明文)。寫死其中一種就會有一半的情況對不上事實。
-      searchNotice = `符合這個供應商單號的資料太多(超過 ${e.cap} 筆),請加上其他篩選條件縮小範圍。`;
-      // 🔴 **同時擋掉「共 0 筆」與空表** —— 見下方 searchBlocked。
-      searchBlocked = true;
-      console.warn('[admin/orders] 供應商單號搜尋命中過多', e.cap);
-    } else {
-      console.error('[admin/orders] 訂單列表載入失敗', e);
-      loadFailed = true;
-    }
+    console.error('[admin/orders] 訂單列表載入失敗', e);
+    loadFailed = true;
   }
 
   const orders = result?.items ?? [];
+  /**
+   * 🔴 **查無時的「可能被藏起來了」提示**(Q-347-B1=B 拍板要求的承接體)。
+   *
+   * 三個條件缺一不可,理由各自不同:
+   * - `keyword` —— 只有「員工在找特定一張單」時這句話才成立;瀏覽列表時它是噪音。
+   * - `!includeUnpaidCardOrders` —— 勾已經打開就沒有東西被藏,再提示就是在說謊。
+   * - `orders.length === 0` —— 有結果時員工不需要逃生口。
+   *
+   * ⚠️ **刻意不多打一次 count 去確認「真的有單被藏」**:那要為一句提示多掃一次全表,
+   *    而措辭已經寫成條件式(「可能」)、不宣稱一定有。
+   *
+   * 🔴 **兩個已知的不精確,判斷後決定不修 —— 寫出來、不默默放過**(R1 m5/m6):
+   * ① **不看其他篩選軸**:`?payment_status=paid` 之下 0 筆時這句照樣出現,而真正的原因
+   *    可能是那個篩選。要修得把「哪一軸造成 0 筆」算出來 —— 那需要逐軸再查一次。
+   *    ⇒ 判斷=**不修**。措辭是條件式的「可能」,而它指的逃生口(勾起來再查)成本極低、
+   *    試一次就知道;為了措辭精確去多打 N 次 DB,代價與收益不成比例。
+   * ② **可能與截斷提示同時出現**:`truncated=true` + 0 筆 + 隱藏生效時,畫面會有兩條琥珀
+   *    橫幅各講一個原因。⇒ 判斷=**不合併**。兩者是**真的兩個原因**(結果太多 / 有單被藏),
+   *    合併成一句會讓員工只處理其中一個;而這個組合在真實資料上罕見。
+   *    ⚠️ 若日後回報「橫幅太吵」,正確修法是排序與收合,不是刪掉其中一條。
+   */
+  const searchNotice: string | null =
+    !loadFailed && filter.keyword && !filter.includeUnpaidCardOrders && orders.length === 0
+      ? UNPAID_CARD_HIDDEN_HINT
+      : null;
   // #338:命中的供應商 → 三態提示(語意在 lib,本檔只排版)。
   const supplierMatch = describeSupplierMatch(
     result?.supplierOrderNoMatchedSuppliers ?? null,
@@ -163,9 +158,7 @@ export default async function OrdersPage({
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
         <h1 className='text-2xl font-semibold'>訂單</h1>
-        {!loadFailed && !searchBlocked && (
-          <p className='text-muted-foreground text-sm'>共 {total} 筆</p>
-        )}
+        {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
       </div>
 
       {!panelOpen && <ResultBanner code={resultCode} />}
@@ -201,7 +194,11 @@ export default async function OrdersPage({
           現在 adapter 在**同一次往返**裡把命中的供應商帶回來(不動列表投影白名單),分三態顯示:
           一家 ⇒ 直接具名 / 多家 ⇒ 示警並列名(真正會出事的情況)/ 認不出來 ⇒ 退回原本那句警語。
           語意在 `lib/orders/supplier-match-notice.ts`(純函式 + 守門),本檔只排版。 */}
-      {supplierOrderNoSearch.kind === 'ok' && !loadFailed && !searchBlocked && (
+      {/* 🔴 **閘改成看提示自己的形狀,不看「這次是不是供應商單號搜尋」**(#347-B):
+          那個判斷來自已退場的 `supplierOrderNoSearch`。`describeSupplierMatch(null, …)`
+          回 `none` ⇒ Q-347-B5=C 之下(`supplierOrderNoMatchedSuppliers` 恆 `null`)
+          整塊**不渲染**,而不是渲染成空殼。片 B-2 把 producer 接回來時這裡不用改。 */}
+      {supplierMatch.kind !== 'none' && !loadFailed && (
         <>
           {supplierMatch.kind === 'single' && (
             <div className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
@@ -226,16 +223,12 @@ export default async function OrdersPage({
         filter={filter}
         datePresetOptions={datePresetOptions}
         selectedDatePresetKey={selectedDatePresetKey}
-        orderNumberSearchEnabled={orderNumberSearchEnabled}
-        supplierOrderNoSearchEnabled={supplierOrderNoSearchEnabled}
       />
 
-      {loadFailed || searchBlocked ? (
-        loadFailed && (
-          <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
-            訂單列表載入失敗,請稍後再試或聯絡系統維護。
-          </div>
-        )
+      {loadFailed ? (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          訂單列表載入失敗,請稍後再試或聯絡系統維護。
+        </div>
       ) : (
         <>
           {/* 2b-1:勾選狀態的 client provider。**只包住表格**,頁面其餘部分仍是純 server render。

@@ -224,15 +224,10 @@ export type AdminOrderFilter = {
   // M-4b E10 A9w3(九碼契約收縮):`workflowStatuses` 已移除 —— 篩選 UI 與 URL 參數在 A9w2 下架
   // (零 producer),adapter 的 `order_items!inner` 下推同片一併移除(零 consumer)。
   // 型別留著會讓「把某個舊 filter 物件塞回去」看起來仍然有效,而實際上不會篩到任何東西。
-  /**
-   * 訂單編號搜尋(M-4b E10 A9b1):**同時**比對 `display_id` 與 `legacy_display_id`,
-   * 讓改號後的舊單號永遠查得到(v2 §5.1 A9b1;D1 改號的開工前置)。
-   *
-   * - `undefined` / 空字串 = 不篩;
-   * - 值由 {@link normalizeOrderNumberSearch} 正規化(trim + 轉大寫)後才可進 adapter;
-   * - 🔴 **格式不符時 adapter 回零筆、不得退化成不篩選** —— 打錯字靜默列出全部訂單是 fail-open。
-   */
-  orderNumber?: string;
+  // #347-B(Sean 拍板 Q-347-B1=B):`orderNumber` 與 `supplierOrderNo` 兩個**專用搜尋軸已移除**
+  // —— 兩者的能力併入下面的 `keyword`(`admin_search_orders` 的 #1 訂單編號 / #12 舊訂單編號 / #11 供應商單號分支)。
+  // 型別留著會讓「把某個舊 filter 物件塞回去」看起來仍然有效,而實際上不會篩到任何東西
+  // (與上面 `workflowStatuses` 退場時的同一條理由)。
   /**
    * 是否**連刷卡未付款的單一起顯示**(M-4b 生命週期 L6;Sean 2026-08-09 逐字
    * 「我覺得刷卡單失敗直接不顯示在後台就好」,經主視窗 P-233-A 轉達)。
@@ -242,33 +237,16 @@ export type AdminOrderFilter = {
    *
    * 🔴 **這是顯示層,不是資料層**:被隱藏的單一個都沒有被改動或刪除,轉成 paid 會自動再出現;
    *    與件①(1 天寫 `cancelled_at`)是**兩件獨立的事**,不要互相推論。
-   * 🔴 **兩個豁免(合約的一部分,不要只讀上面那兩行)**:即使本欄為 false,
-   *    **單號搜尋**或**供應商單號搜尋**啟用時,隱藏規則一律不套用 —— 精準查一張單卻查不到,
-   *    比看到它更困惑(理由全文在 `SupabaseOrderAdapter.listOrderSummariesForAdmin`)。
+   * 🔴 **原本的兩個豁免已退場(#347-B;Sean 拍板 Q-347-B1=B)**:舊合約是「單號搜尋 /
+   *    供應商單號搜尋啟用時隱藏規則一律不套用」(D-385-A「豁免綁精準鍵」),而它的實作
+   *    掛在那兩個專用搜尋軸上、隨它們一起消失。**現在本欄是唯一的開關**,沒有任何隱含豁免。
+   *    「精準查一張單卻查不到比看到它更困惑」這個顧慮由**查無時的提示**承接
+   *    (`apps/admin/src/app/orders/page.tsx` 的 `UNPAID_CARD_HIDDEN_HINT`),不是由豁免承接。
    * 🔴 **邊界寫死(P-233-A ④)**:規則只認 `payment_channel='tappay'`。
    *    未來開匯款(後台第 15 項)時,`bank_transfer` 的未付款單**不在**隱藏規則內 ——
    *    那種單「未付款」是正常待辦、不是失敗,藏起來會讓員工漏掉要對帳的匯款。
    */
   includeUnpaidCardOrders?: boolean;
-  /**
-   * 供應商單號跨單搜尋(M-4b E10 A9b2-A):到貨登錄時靠供應商給的單號反查是哪幾張訂單
-   * (UX §2 #7;母 plan `:431` row 39)。
-   *
-   * - `undefined` / 空字串 = 不篩;
-   * - 值由 {@link normalizeSupplierOrderNoSearch} 正規化後才可進 adapter
-   *   (trim + 擋非 ASCII/PostgREST 保留字元 + 轉大寫);
-   * - 🔴 **不合法時 adapter 回零筆、不得退化成不篩選**(同 `orderNumber` 的理由)。
-   *
-   * 🔴 **下推方式與 `orderNumber` 不同、不要照抄**:本欄的真相在 `order_item_procurement`,
-   * 而列表投影 `ADMIN_ORDER_LIST_SELECT` **沒有內嵌那張表** ⇒ adapter 走**兩段式查詢**
-   * (先查採購表拿 order_id、再 `.in('id', …)`),**列表投影一個字都不動**。
-   * 理由見 `docs/specs/2026-08-07-e10-a9b2-a-supplier-order-no-search-plan.md` §1。
-   *
-   * 🔴 **啟用前置**:DB 側的 `supplier_order_no_upper` 產生欄由 A9b2-M(`20260807130000`)建立、
-   * **尚未 apply**;在那之前本欄零 producer(URL 參數與 flag 在 A10c2)——
-   * 未 apply 時打這條 filter 會 PostgREST 42703 ⇒ 整個列表進錯誤態(D0/A10c1 同族)。
-   */
-  supplierOrderNo?: string;
   /**
    * 八維度「關鍵字」搜尋(M-4b #347-2a;Sean 拍板 #347「八維度一框」)。
    *
@@ -319,7 +297,7 @@ export type AdminOrderFilter = {
  * = `Paginated<AdminOrderSummary>` **加上關鍵字搜尋的兩個訊號**。
  *
  * 🔴 **為什麼不直接加寬 `Paginated<T>`**:那會為了一個少數分支去加寬**所有**消費端都看得到的共用型別
- * (`supplier-order-no-search.ts:48` 已就同一問題寫下這條判準)。這裡加寬的是**這一支方法的回傳**,
+ * (這條判準原本記在 `supplier-order-no-search.ts`,該檔已隨 #347-B 刪除)。這裡加寬的是**這一支方法的回傳**,
  * 會員側 / 客戶列表的 `Paginated` 一個字不動。
  */
 export type AdminOrderListResult = Paginated<AdminOrderSummary> & {
@@ -348,7 +326,9 @@ export type AdminOrderListResult = Paginated<AdminOrderSummary> & {
    *
    * 🔴 **存在的唯一理由是「災難當天查得出來」**:三個月後員工說「搜料號 X 查無此單」時,
    * 下面三種成因在畫面上**完全同形**(都是 0 筆):
-   * ① RPC 零命中 ② RPC 有命中但與供應商單號的 ids 交集砍光 ③ 交集非空但被 L6 / 付款狀態篩掉。
+   * ① RPC 零命中 ② 有命中但被 L6 / 付款狀態等其他篩選軸砍光。
+   * ⚠️ codex R2 nit:原本這裡還列了「與供應商單號的 ids 交集砍光」當成因之一 ——
+   *    **那條交集鏈已隨 #347-B 退場**(供應商維度收掉);片 B-2 接回來時要同批加回這張清單。
    * 而**搜尋詞禁止落 log**(migration `:50-74`,那是 PII)⇒ 唯一合法的觀測物就是**非 PII 的計數**。
    * `ids.length` 在 adapter 手上,不帶出來就等於自願把診斷能力丟掉。
    * ⇒ 2b 可以據此對員工說人話(「找到 3 筆,但都被目前的篩選條件排除了」),
@@ -358,12 +338,17 @@ export type AdminOrderListResult = Paginated<AdminOrderSummary> & {
   /**
    * 供應商單號搜尋**命中了哪幾家供應商**(#338;已去重、順序不保證)。
    *
+   * 🔴🔴 **本片起恆 `null`,producer 待片 B-2**(#347-B;Sean 拍板 Q-347-B1=B + Q-347-B2=C)。
+   *    唯一的 producer 是 adapter 的供應商單號兩段式探測,它隨兩個專用搜尋欄一起退場;
+   *    Q-347-B2=C 已拍板「供應商那兩項能力在**片 B-2** 重建」⇒ 本欄**不是死碼、是待接的契約**,
+   *    刻意保留以免片 B-2 又要把它從 port 契約加回來。
+   *    ⚠️ 在片 B-2 接回 producer 之前,**任何依賴本欄有值的邏輯都是恆假分支** ——
+   *      消費端請走「值自己的形狀」判斷(見 `describeSupplierMatch`:`null` ⇒ `none` ⇒ 整塊不渲染),
+   *      不要改寫成「因為現在恆 null 所以可以刪掉那個分支」。
+   *
    * **`null` = 這次沒有真的去查供應商**;`[]` = **查過了、但一家都認不出來**。兩者**不可互換**。
-   * 🔴 **`null` 有三個成因,不是只有「沒給單號」**(R2 抓到 —— 而這正是同一顆 commit 裡
-   *    `customerNotified` 剛修過的**同一種錯**:改了行為卻沒回頭改契約):
-   *      ①根本沒給供應商單號;②給了但在正規化階段被判不合法(探測不跑);
-   *      ③**給了合法單號,但關鍵字先零命中而提早回傳** —— 探測排在關鍵字之後,那條路上它沒跑到。
-   *    ⇒ **照契約推導「null = 沒搜單號」會錯**。要判斷「有沒有搜」請看 `filter.supplierOrderNo`。
+   * 🔴 片 B-2 接回 producer 之後,`null` 會有多個成因(沒給單號 / 給了但不合法 / 給了合法值但
+   *    關鍵字先零命中而提早回傳)⇒ **屆時不可照契約推導「null = 沒搜單號」**。
    *
    * 🔴 **存在的理由是「員工手上只有一張單號」**:`supplier_order_no` 在 DB 層沒有跨供應商唯一性
    * (A2 `20260729020000:70` 的業務鍵是 `(order_item_id, supplier_canonical_key)`)⇒ 兩家用同一組

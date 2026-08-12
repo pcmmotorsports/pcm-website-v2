@@ -117,9 +117,9 @@ describe('🔴 regex 單一來源:display-id.ts 必須 import,不得自寫 regex
     'utf8',
   );
 
-  it('有從 ./order-number-search import 兩條 regex', () => {
+  it('有從 ./order-number-format import 兩條 regex', () => {
     expect(SRC).toMatch(
-      /import\s*\{[^}]*LEGACY_ORDER_NUMBER_RE[^}]*ORDER_NUMBER_RE[^}]*\}\s*from\s*'\.\/order-number-search'/s,
+      /import\s*\{[^}]*LEGACY_ORDER_NUMBER_RE[^}]*ORDER_NUMBER_RE[^}]*\}\s*from\s*'\.\/order-number-format'/s,
     );
   });
 
