@@ -264,8 +264,22 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     ).toBe(2);
   });
 
+  // 🔴 2026-08-12(A13 操作欄):`relative z-10` 的用途從**一種變兩種** ——
+  //    ①勾選格(2b-1)②操作欄的取消連結(A13)。兩者的失效症狀相同(被 stretched link 蓋住、
+  //    點下去變成進面板/詳情,而畫面**確實有反應**),所以下面**分開數**:
+  //    只數總數會讓「刪掉勾選格的 z-10、同時有人多加一個別的」互相抵銷而全綠。
+  //    ⚠️ 視窗要從**這個標籤自己的 `<`** 起算,不是從 `relative z-10` 那個字往後 ——
+  //    手機那顆取消連結把 `href={…#cancel}` 寫在 `className` **前面**,只往後看就會漏掉它
+  //    (實測:漏掉 ⇒ 取消那格數到 1、前提格說它「兩種都不是」)。
+  const zSlots = () =>
+    [...TABLE.matchAll(/relative z-10[^>]*>/g)].map((m) => {
+      const i = m.index ?? 0;
+      const tagStart = TABLE.lastIndexOf('<', i);
+      return TABLE.slice(tagStart === -1 ? i : tagStart, i + 400);
+    });
+
   it('🔴 勾選格必須浮在覆蓋層上(`z-10`)—— 否則點勾選會變成進詳情', () => {
-    const hits = [...TABLE.matchAll(/relative z-10/g)].length;
+    const hits = zSlots().filter((s) => /<OrderShipCheckbox/.test(s)).length;
     expect(
       hits,
       `勾選格的 relative z-10 出現 ${hits} 次,期望 2(桌機格 + 手機卡各一)。` +
@@ -273,13 +287,54 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     ).toBe(2);
   });
 
-  it('前提 — 勾選框確實在那個 z-10 容器裡(不是各自為政)', () => {
-    for (const m of TABLE.matchAll(/relative z-10[^>]*>/g)) {
-      const after = TABLE.slice(m.index ?? 0, (m.index ?? 0) + 400);
+  // 🔴🔴 codex R1 must-fix(2026-08-12):上面兩格只證「該浮的東西有 z-10」,**沒有證覆蓋層比它低**。
+  //    覆蓋層加一個 `after:z-20` ⇒ 勾選框與取消連結**全部被蓋回去**、點哪裡都進面板,
+  //    而所有 class 斷言照樣全綠(它們各量各的,沒有人比較過兩者的層級)。
+  //    ⇒ 這一格量的是**相對關係**:stretched overlay 一律不得自帶 z-index。
+  //    ⚠️ 誠實邊界:這是**原始碼層**的規則,不是真的層疊計算 —— 真的命中要瀏覽器才證得了。
+  //    🔴 而且它只擋得住「**覆蓋層自己**加 z」這一條路:**祖先**元素抬 z(或 `isolate` 開新的
+  //    stacking context)一樣能把兩者的相對關係翻過來,而本格照樣綠 —— 那條**繞得過去**,
+  //    只有真瀏覽器的命中測試證得了。寫在這裡免得有人把這格當成完整保證。
+  //    哪天真的需要給覆蓋層一個 z,就要回來連同上面兩格一起重訂(那時 z-10 也要跟著抬)。
+  it('🔴🔴 stretched overlay 不得自帶 z-index(否則會蓋回勾選框與取消連結,而上面兩格全綠)', () => {
+    const overlays = [...TABLE.matchAll(/after:absolute after:inset-0/g)];
+    expect(overlays.length, '前提:兩個版面各一條覆蓋層(數量變了代表結構換了,規則要重想)').toBe(2);
+    for (const m of overlays) {
+      const i = m.index ?? 0;
+      const tagStart = TABLE.lastIndexOf('<', i);
+      const tag = TABLE.slice(tagStart === -1 ? i : tagStart, i + 200);
       expect(
-        after,
-        'z-10 容器後面找不到 <OrderShipCheckbox ⇒ 浮起來的可能是別的東西,勾選框仍被蓋住',
-      ).toMatch(/<OrderShipCheckbox/);
+        tag,
+        '覆蓋層自帶 z-index ⇒ 它可能高於勾選框/取消連結的 z-10,兩者被蓋回去而所有 class 斷言仍綠',
+        // 🔴 `/after:z-/` 不寫 `\d`(R2 F1,node 實跑證):Tailwind 任意值語法 `after:z-[20]`
+        //    第一個字元是 `[` 不是數字 ⇒ `/after:z-\d/` 對它 **false**、守門靜默漏掉。
+      ).not.toMatch(/after:z-/);
+    }
+  });
+
+  it('🔴 A13 操作欄的取消連結也必須浮起來(桌機格 + 手機卡各一)', () => {
+    const hits = zSlots().filter((s) => /#cancel/.test(s)).length;
+    expect(
+      hits,
+      `取消連結的 relative z-10 出現 ${hits} 次,期望 2。少了它,點「取消」會被整列/整卡的` +
+        'stretched link 接走 ⇒ 員工被帶到面板頂端,看起來像功能好了(肉眼驗抓不到)。',
+    ).toBe(2);
+  });
+
+  it('前提 — 每個 z-10 容器都真的裝著那兩種東西之一(不是各自為政)', () => {
+    const slots = zSlots();
+    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(4);
+    // 🔴 兩種用途不得互相冒充:同一個視窗兩個特徵都命中 ⇒ 分類失效,上面兩格會互相補位而全綠。
+    expect(
+      slots.filter((s) => /<OrderShipCheckbox/.test(s) && /#cancel/.test(s)).length,
+      '有視窗同時看到勾選框與取消連結 ⇒ 視窗開太大、分類已經沒有判別力',
+    ).toBe(0);
+    for (const s of slots) {
+      expect(
+        s,
+        'z-10 容器後面既沒有 <OrderShipCheckbox 也沒有 #cancel 連結 ⇒ 浮起來的是別的東西,' +
+          '而該浮的那個仍被蓋住',
+      ).toMatch(/<OrderShipCheckbox|#cancel/);
     }
   });
 });

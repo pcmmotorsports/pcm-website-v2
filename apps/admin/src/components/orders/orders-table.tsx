@@ -22,6 +22,7 @@ import {
 //    這是**列表側最後一個九碼消費端**。同批移除「來源 · 管道」欄(母 plan §5.1a:明細頁已有、
 //    不是每天要看的資訊)、單價與總金額合併為「金額」、會員等級併入客戶格小字。
 //    ⇒ A11a-1 收工為 **9 欄**;訂貨 / 出貨 / 發票 / 操作四欄依 plan 分屬 A11a-4/-6/-5 與 A13。
+//    (2026-08-12:操作欄由 A13 落地 ⇒ **現為 13 欄**;四欄裡只剩**出貨欄 A11a-6 仍缺席**。)
 //
 // 🔴 **A11a-2(2026-08-06)**:付款軸小字進訂單編號格、日期改接 `formatOrderListDate`
 //    (同年 `07/25` / 跨年 `2025/06/27`)。**兩者都塞進既有格、該片收工時欄數仍是 9**(plan 逐字)。
@@ -50,6 +51,14 @@ import {
 //    今天安全,因為**本檔零互動、零 client 邊界**。但 **A13 的操作欄(取消鈕)一落地就會重現
 //    重複表單與重複 client 狀態** ⇒ 屆時改成單一 markup + CSS reflow,或讓帶互動的欄位
 //    只在主標/靠右槽出現一次。**動 A13 前先回來讀這段。**
+//    🔴 **2026-08-12 更新:A13 操作欄已落地,而到期日「還沒到」—— 那是刻意繞開的,不是解決了。**
+//    做法 = 那一欄**只放連結**(`…#cancel`,零 client 狀態)⇒ 重複的只是一個 `<a>`,
+//    沒有重複表單、沒有重複 state,上面那句話描述的情形因此沒有發生。
+//    ⚠️ **代價照收**:那一欄的每一條紀律都要寫兩遍(`relative z-10` / 已取消不給入口 /
+//    目的地各自沿用同槽),靠 `orders-table.test.tsx` 的 A13 那組 + `shipping-selection.test.tsx`
+//    的 z-10 分類格兩邊各釘一次才擋得住。
+//    ⇒ **下一個帶互動控件的欄位(按鈕/表單)才是真正的到期日**,那時這段話原封成立。
+//    重構本身已立案 = **backlog #447**(含鐵則 6 的拆檔:拆檔就是在決定兩份 markup 怎麼切)。
 //
 // 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
 //    SSO 閘後 admin-only。**本片拆掉唯一的 client 元件(狀態欄下拉)後,本檔已無任何 client 邊界。**
@@ -243,6 +252,28 @@ function OrderGroup({
               {INVOICE_STATUS_LABEL[order.invoiceStatus]}
             </td>
           )}
+          {/* A13 操作欄(**訂單層** rowSpan:取消是整單的入口,不是逐品項 —— 放品項列的話
+              一張三品項的單會冒出三個「取消」,同勾選格那條教訓)。
+              🔴🔴 **`relative z-10` 是承重的,不是排版**:整列被單號那個 stretched link 的
+              覆蓋層蓋滿(`:123-127`),沒有它這顆連結**點不到** —— 而且點下去畫面**確實有反應**
+              (整列連結把人帶進面板),看起來像「功能好了」⇒ 這種錯不會被肉眼驗抓到,
+              守門釘在 `orders-table.test.tsx`(拿掉 z-10 就紅)。
+              🔴 **目的地刻意與同槽的單號連結一致**(桌機=面板 `buildPanelHref`,手機=整頁)——
+              兩槽本來就不同(`:145` vs `:284`,#350c 的動線決定),**不要為了「一致性」統一它**。
+              🔴 已取消的單顯示「—」:這只是「明顯不該出現時不出現」,**不是權威閘** ——
+              能不能取消由明細端 `buildOrderCancelView` / `cancelFormsAllowed` 判(fail-closed),
+              這裡不重算一份(重算一份就會漂;同 `order-cancel-block.tsx` 檔頭紀律)。 */}
+          {i === 0 && (
+            <td className={`${TD} relative z-10 text-xs`} rowSpan={rowSpan}>
+              {cancelled ? (
+                <span className='text-muted-foreground'>—</span>
+              ) : (
+                <Link href={`${buildPanelHref(order.id)}#cancel`} className='hover:underline'>
+                  取消
+                </Link>
+              )}
+            </td>
+          )}
         </tr>
       ))}
     </tbody>
@@ -299,6 +330,20 @@ function OrderCard({ order }: { order: AdminOrderSummary }) {
           <span className='text-muted-foreground text-xs'>
             {INVOICE_STATUS_LABEL[order.invoiceStatus]}
           </span>
+          {/* A13 操作欄的手機版:桌機是一欄,手機放靠右槽**一次**(§4-1「金額/狀態靠右」)。
+              🔴 **必須跟桌機一起加**(2b-1 那次的教訓逐字寫在 `:277-279`:只改桌機的話
+              手機上根本沒得按、而桌機測試全綠;Sean 常用手機看後台)。
+              🔴 `relative z-10` 同勾選格:沒有它會被整卡的 stretched link 蓋住(`:283`)。
+              🔴 目的地 = `/orders/<id>#cancel`(**整頁**版),與同卡單號連結同槽同去處;
+              桌機那槽走面板 —— 兩槽不同是 #350c 的動線決定,不要統一。 */}
+          {!cancelled && (
+            <Link
+              href={`/orders/${order.id}#cancel`}
+              className='relative z-10 shrink-0 text-xs hover:underline'
+            >
+              取消
+            </Link>
+          )}
         </div>
       </div>
 
@@ -409,6 +454,9 @@ export function OrdersTable({
             <th className={TH}>訂貨</th>
             {/* A11a-5:發票欄(訂單層)。出貨欄(A11a-6)前置在第 2 批,故本表暫時是訂貨→發票相鄰。 */}
             <th className={TH}>發票</th>
+            {/* A13(訂單列表操作欄):plan `2026-08-06-e10-a11a-list-rebuild-plan.md:108` 第 13 欄。
+                🔴 **與 backlog #372 的 OP-A13(沖銷入口)是兩件事**,別靠字面認親。 */}
+            <th className={TH}>操作</th>
           </tr>
         </thead>
         {orders.map((order) => (
