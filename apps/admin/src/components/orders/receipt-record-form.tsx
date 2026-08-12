@@ -18,6 +18,7 @@ import {
 } from '../../lib/orders/receipt-action-state';
 import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
+import { ReceiptUndoBar } from './receipt-undo-bar';
 
 // M-4b E10 #352-b:單筆採購的「登錄到貨」小視窗。
 // 🔴 中文字面全部暫定、待 Sean 肉眼定稿(結構鎖、字不鎖)。
@@ -79,6 +80,13 @@ export function ReceiptRecordForm({
     { status: 'idle' },
   );
   const [requestId, setRequestId] = useState('');
+  /**
+   * 上一次**成功登錄**用掉的冪等鍵;`null` = 這個表單還沒成功過。
+   *
+   * 🔴 撤銷入口靠它換 receipt id(逐筆到貨沒被投影,見 `receipt-undo-bar.tsx` 檔頭)。
+   *    只在彈窗模式會有值 —— 列表模式成功走 redirect、表單整個重新掛載。
+   */
+  const [undoKey, setUndoKey] = useState<string | null>(null);
   // 🔴 **四個欄位全部受控**(R1 Important 6)。原本 quantity / surplus / note 走 `defaultValue`,
   //    而 `defaultValue` 只在**掛載那一次**寫進 DOM —— 失敗回來時 `state.values` 根本不會被
   //    任何一次 render 消費 ⇒ 「保留員工輸入」是空頭支票(姊妹片 `item-procurement-form.tsx:57-59`
@@ -160,6 +168,14 @@ export function ReceiptRecordForm({
     if (state.status !== 'recorded_inline' || state.procurementId !== procurementId) return;
     if (handledRef.current === state) return;
     handledRef.current = state;
+    // 🔴 **把剛剛用掉的那把鍵留下來** —— 撤銷入口唯一拿得到 receipt id 的路就是它
+    //    (逐筆到貨沒有被投影,見 `receipt-undo-bar.tsx` 檔頭)。
+    // ⚠️ **這裡的正確性不靠兩行的先後順序**(我上一版註解宣稱「順序寫反就會拿到新鍵」——
+    //    那句是假的,實測換順序四格照樣綠):`requestId` 是**這次 render 的 closure 值**,
+    //    `setRequestId` 只排程下一次 render,不會就地改掉它 ⇒ 兩行怎麼排都捕捉到消費掉的那把。
+    //    真正承重的是「**捕捉 closure 值、不要改讀 ref**」 —— 若日後有人為了少一個 deps 警告
+    //    把它換成 `requestIdRef.current`,那顆 ref 可能已被下一次 render 更新成新鍵。
+    setUndoKey(requestId);
     setRequestId(mintRequestId());
     setValues({
       quantity: String(remainingRef.current),
@@ -261,6 +277,22 @@ export function ReceiptRecordForm({
           {requestId === '' ? '載入中…' : '登錄到貨'}
         </button>
       </form>
+
+      {/* 🔴 **在登錄表單之外**:HTML 不准巢狀 `<form>`,塞進去的話撤銷那顆會變成登錄表單的
+          submit(按下去等於再登錄一筆)。⇒ 放 `</form>` 之後、`</details>` 之內。 */}
+      {/* 🔴🔴 `key={undoKey}` 是**承重的**(R1 must-fix 1):撤銷列自己有 `useActionState`,
+          不換 key 的話那顆終態會**跨批殘留** —— 登錄第 1 批 → 撤銷成功 → 登錄第 2 批,
+          畫面仍寫「已撤銷剛剛那筆」而第 2 批其實已寫入且沒被撤銷,連撤銷鈕都不會回來。
+          「員工要登錄第二批」是本檔 `:126-131` 自己寫過的設計內路徑,不是邊角。 */}
+      {undoKey !== null && (
+        <ReceiptUndoBar
+          key={undoKey}
+          consumedKey={undoKey}
+          orderId={orderId}
+          orderItemId={orderItemId}
+          returnTo={returnTo}
+        />
+      )}
     </details>
   );
 }

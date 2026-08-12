@@ -9,10 +9,13 @@ vi.mock('@pcm/adapters/server', () => ({
 
 import { readFileSync } from 'node:fs';
 import {
+  RECEIPT_DELETE_RESULT_CODES,
   RECEIPT_RECORD_RESULT_CODES,
   ReceiptCallerBugError,
+  deleteItemReceipt,
   findDuplicateOutcome,
   findProcurementRemaining,
+  findReceiptIdByRequestId,
   recordItemReceipt,
 } from './receipt-repository';
 
@@ -196,5 +199,93 @@ describe('listProcurementChoices — 欄位白名單', () => {
     const banned = ['unit_price', 'line_total', 'price', 'cost', 'amount'];
     const hit = banned.filter((w) => RAW.includes(w));
     expect(hit, `receipt-repository.ts 出現價格欄名:${hit.join(', ')}`).toEqual([]);
+  });
+});
+
+// ── 「改軟」線片 1:撤銷到貨 ────────────────────────────────────────────
+describe('deleteItemReceipt — 三類結果嚴格分開', () => {
+  const DEL = { receiptId: 'r-1', actor: 'staff-1', requestId: 'req-1' };
+
+  /**
+   * DB 原文的形狀。**這是手抄的副本,不是從正式庫撈的** ——
+   * 來源 = `supabase/migrations/20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:428-433`
+   * (那段 RAISE 的註解也指回本 fixture)。改那段 SQL 的訊息時要回來對一次;
+   * 🔴 刻意**不做自動同步**:自動抓字串會讓「訊息被改壞」也一起同步過來、守門變恆真。
+   */
+  const P4A03_MESSAGE =
+    '刪不掉這筆到貨紀錄:刪掉之後這個品項的可出數量會不夠。\n' +
+    '已出貨 1 件、已裝進尚未出貨的包裹 2 件,而刪除後只剩 2 件。\n' +
+    '尚未出貨的包裹:\n  K7X2MP:1 件\n  M3QQ8Z:1 件\n' +
+    '要先把那些包裹作廢、或從包裹裡移除這個品項,才能刪掉這筆到貨紀錄。';
+
+  it('三個固定碼原樣回傳', async () => {
+    for (const code of RECEIPT_DELETE_RESULT_CODES) {
+      mocks.rpc.mockResolvedValueOnce({ data: code, error: null });
+      await expect(deleteItemReceipt(DEL)).resolves.toEqual({ kind: 'code', code });
+    }
+  });
+
+  it('🔴🔴 P4A03 = 業務拒絕:訊息**一個字都不准少**(硬條款)', async () => {
+    // 🔴 這格守的是原作者交辦的那條:DB 訊息逐箱列出包裹編號與件數,是員工唯一能照做的資訊。
+    //    在這層做任何 slice / 改寫(同檔 `recordItemReceipt` 就有 `.slice(0, 200)` 的前例)
+    //    都會把它切掉,而 UI 那 7 格因為 mock 掉 action **照樣全綠** —— 所以這格必須在這裡。
+    mocks.rpc.mockResolvedValue({
+      data: null,
+      error: { code: 'P4A03', message: P4A03_MESSAGE },
+    });
+    const out = await deleteItemReceipt(DEL);
+    expect(out).toEqual({ kind: 'blocked', message: P4A03_MESSAGE });
+    if (out.kind !== 'blocked') throw new Error('unreachable');
+    expect(out.message, '包裹清單被切掉了').toContain('M3QQ8Z');
+    expect(out.message.length, `訊息被截短:${out.message.length} < ${P4A03_MESSAGE.length}`).toBe(
+      P4A03_MESSAGE.length,
+    );
+  });
+
+  it('🔴 P0001 / P2B02 = 呼叫端 bug,拋 `ReceiptCallerBugError`(不得回成功)', async () => {
+    for (const code of ['P0001', 'P2B02']) {
+      mocks.rpc.mockResolvedValueOnce({ data: null, error: { code, message: 'x' } });
+      await expect(deleteItemReceipt(DEL)).rejects.toBeInstanceOf(ReceiptCallerBugError);
+    }
+  });
+
+  it('🔴 未知碼一律拋,**不得靜默當成功**(「以為撤掉了、其實沒撤」)', async () => {
+    mocks.rpc.mockResolvedValue({ data: 'SOMETHING_NEW', error: null });
+    await expect(deleteItemReceipt(DEL)).rejects.toBeInstanceOf(ReceiptCallerBugError);
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'denied' } });
+    await expect(deleteItemReceipt(DEL)).rejects.toBeTruthy();
+  });
+
+  it('🔴 參數逐欄具名送(欄名錯了 RPC 會吃到 null)', async () => {
+    mocks.rpc.mockResolvedValue({ data: 'DELETED', error: null });
+    await deleteItemReceipt(DEL);
+    expect(mocks.rpc).toHaveBeenCalledWith('admin_delete_item_receipt', {
+      p_receipt_id: 'r-1',
+      p_actor: 'staff-1',
+      p_request_id: 'req-1',
+    });
+  });
+});
+
+describe('findReceiptIdByRequestId — 撤銷唯一拿得到 receipt id 的路', () => {
+  function ledger(data: unknown, error: unknown = null) {
+    mocks.from.mockReturnValue({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data, error }) }) }),
+    });
+  }
+
+  it('查到就回 id', async () => {
+    ledger({ receipt_id: 'r-9' });
+    await expect(findReceiptIdByRequestId('k-1')).resolves.toBe('r-9');
+  });
+
+  it('🔴 查無回 null(呼叫端要當「這把鍵沒登錄成功過」,不是「本來有、現在沒了」)', async () => {
+    ledger(null);
+    await expect(findReceiptIdByRequestId('k-1')).resolves.toBeNull();
+  });
+
+  it('🔴 查詢本身失敗要拋,不得回 null(fail-closed:回 null 會被讀成查無)', async () => {
+    ledger(null, { message: 'boom' });
+    await expect(findReceiptIdByRequestId('k-1')).rejects.toBeTruthy();
   });
 });

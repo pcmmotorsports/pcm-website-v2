@@ -14,19 +14,27 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 // 🔴 `vi.hoisted`:`vi.mock` 的工廠會被提升到檔頭,直接引用上面宣告的變數會炸
 //    (`Cannot access 'submitShipment' before initialization`)。
-const { submitShipment, fetchItemProcurementChoices, recordItemReceiptAction } = vi.hoisted(() => ({
+const { submitShipment, fetchItemProcurementChoices, recordItemReceiptAction, undoItemReceiptAction } = vi.hoisted(() => ({
   submitShipment: vi.fn(),
   fetchItemProcurementChoices: vi.fn(),
   recordItemReceiptAction: vi.fn(),
+  undoItemReceiptAction: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ submitShipment }));
+// 🔴 `undoItemReceiptAction` 也要給:`ReceiptRecordForm` 成功後會渲染 `ReceiptUndoBar`,
+//    它 `useActionState` 吃那支。少給 = 整包 mock 抹掉具名匯出 ⇒ **Unhandled Error**
+//    (詭異之處:每一格都綠、`vitest run` 卻 exit 1 ⇒ 只看「N passed」會漏掉)。
 vi.mock('../../lib/orders/receipt-actions', () => ({
   fetchItemProcurementChoices,
   recordItemReceiptAction,
+  undoItemReceiptAction,
 }));
 
 import { ShipmentDialog } from './shipment-dialog';
+// 🔴 深引入是**刻意的**:這個類別沒有公開匯出口,而元件用的判定式是 `instanceof`
+//    ⇒ 只有真的實例才餵得進那條分支。Next 若搬走它,這一格會**直接爆**(不是靜默轉綠)= 對的訊號。
+import { UnrecognizedActionError } from 'next/dist/client/components/unrecognized-action-error';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 
 const CANDIDATES: ShipmentCandidateItem[] = [
@@ -134,6 +142,23 @@ describe('🔴🔴 送出中不給關窗(關掉再開 = 新的冪等鍵 = 同一
     //    `createShipment` 成功、掛品項前斷線留下的是**空箱**,而出貨卡是由品項反查箱畫出來的
     //    (`loadOrderShipments`)⇒ 空箱在那張卡上看不到,那個指引找不到東西。
     expect(text, '又叫員工去出貨卡找箱子了 ⇒ 空箱在那張卡上不會顯示').not.toMatch(/出貨卡/);
+    // 🔴 分流的另一半:斷線這條**不得**跑進換版文案(否則兩格會同時綠 = 零判別力)。
+    expect(text, '斷線卻叫他重新整理 ⇒ 白白丟掉手上那把冪等鍵').not.toMatch(/重新整理/);
+  });
+
+  it('🔴🔴 **換版**(server action id 不存在)要叫他「重新整理」,不是「再按一次」', async () => {
+    // 🔴 用**真的** `UnrecognizedActionError`,不是自己造一個 name 對的假物件:
+    //    元件走的是 `unstable_isUnrecognizedActionError`(instanceof 判定),
+    //    餵假物件的話這一格驗的是我自己的假設,不是 Next 真的怎麼判。
+    submitShipment.mockRejectedValue(new UnrecognizedActionError('Server Action "abc" was not found on the server.'));
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(document.body.textContent).toMatch(/重新整理/));
+    const text = document.body.textContent ?? '';
+    // 🔴 這是本片的**核心斷言**:換版下叫他再按一次 = 叫他做一件永遠不會成功的事
+    //    (id 綁在已載入的 bundle 裡,再按送的是同一個 id)。
+    expect(text, '換版卻叫他再按一次 ⇒ 按到天荒地老都是同一顆錯誤').not.toMatch(/再按一次/);
+    expect(text, '沒講「這次什麼都沒送出去」⇒ 員工會怕重整之後多出一箱、卡在原地').toMatch(/什麼都沒有送出去/);
   });
 
   it('🔴🔴 斷線後**同一個彈窗**再送一次,用的還是同一把鍵(這才是復原路徑本身)', async () => {
@@ -304,6 +329,43 @@ describe('#351③ 半成品箱(建箱成功、後續失敗)的提示', () => {
       onClose.mock.calls[0]?.[0],
       '斷線把「已經建出一個箱」這件事抹掉了 ⇒ 不重取 ⇒ 員工回訂單頁找不到那個真的存在的箱。',
     ).toBe(true);
+  });
+
+  it('🔴🔴 半成品箱 → 再按一次撞**換版** ⇒ 不得說「不會多出一箱」(那時真的會)', async () => {
+    // 🔴 R1 must-fix 1:換版本身確實零副作用,但**這個彈窗先前已經建出過一個箱**。
+    //    叫他重整 = 丟掉冪等鍵;他照原樣再建一次就是第二箱。⇒ 兩種狀態要講不同的話。
+    halfDone();
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
+
+    submitShipment.mockRejectedValue(new UnrecognizedActionError('Server Action "abc" was not found on the server.'));
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(document.body.textContent).toMatch(/重新整理/));
+    const text = document.body.textContent ?? '';
+    expect(text, '這時說「不會多出一箱」是假的 —— 前面那箱還在,重建就是第二箱').not.toMatch(/不會多出一箱/);
+    // 🔴 R3 F1 之後文案改成 hedge 版(「可能已經建出箱子」)—— 因為判準從「確定建出過」
+    //    放寬成「可能建出過」,同一句話要同時涵蓋半成品箱與斷線結果不明兩型。
+    expect(text, '沒警告他先前已建出過箱 ⇒ 他重整後會原樣再建一次').toMatch(/可能已經建出箱子/);
+  });
+
+  it('🔴🔴 **先斷線一次、再撞換版** ⇒ 也不得說「不會多出一箱」(斷線那次可能已建成)', async () => {
+    // 🔴 R3 F1(穿透 R1+R2 的那條):`everCreatedRef` 只在**拿到回傳**時才變 true,
+    //    而斷線的定義就是沒拿到回傳 —— 那一次 server 可能已經 commit 了箱。
+    //    只看 everCreatedRef 的話,這一格會讓「不會多出一箱」這句假話通過。
+    submitShipment.mockRejectedValue(new Error('Failed to fetch'));
+    open();
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(document.body.textContent).toMatch(/再按一次/));
+
+    submitShipment.mockRejectedValue(new UnrecognizedActionError('Server Action "abc" was not found on the server.'));
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(document.body.textContent).toMatch(/重新整理/));
+    const text = document.body.textContent ?? '';
+    expect(text, '前一次斷線可能已經建出箱 ⇒ 這句是假話,而員工會照它重建成第二箱').not.toMatch(
+      /不會多出一箱/,
+    );
+    expect(text, '沒警告他先前那次可能已經建成 ⇒ 他會原樣重建').toMatch(/可能已經建出箱子/);
   });
 
   it('成功時不出現半成品警告(那是只在失敗路徑才該講的話)', async () => {

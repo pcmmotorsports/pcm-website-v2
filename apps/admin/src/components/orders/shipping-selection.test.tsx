@@ -38,7 +38,14 @@ vi.mock('server-only', () => ({}));
 //    ⇒ 真的 `useRouter` 丟 `invariant expected app router to be mounted`,本檔五格全紅(實測)。
 //    ⚠️ 這是**測試環境**的缺口、不是正式環境的:`ShippingSelectionBar` 只出現在 App Router
 //    的 `/orders` 頁上,那裡 router 恆掛載。替身只還原那個前提,不放寬本檔任何斷言。
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }));
+// 🔴 **2026-08-12(換版分流片)改成保留真模組、只換 `useRouter`**:本檔經 `shipping-selection.tsx`
+//    載入 `shipment-launcher.tsx`,而它的 catch 現在會呼叫 `unstable_isUnrecognizedActionError`。
+//    整包替換的話那支是 `undefined` ⇒ 任何人日後在本檔補一格「讀候選失敗」就吃 TypeError
+//    (今天不紅只因本檔沒有 reject 路徑)。⇒ 不留這顆地雷。
+vi.mock('next/navigation', async () => ({
+  ...(await vi.importActual<typeof import('next/navigation')>('next/navigation')),
+  useRouter: () => ({ refresh: () => {} }),
+}));
 
 
 const HERE = dirname(fileURLToPath(import.meta.url));
