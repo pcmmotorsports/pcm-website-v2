@@ -57,7 +57,16 @@ export function ShipmentDialog({
   recipient: Recipient;
   /** 🔴 由呼叫端生成、整段重試沿用同一把(見檔頭)。 */
   idempotencyKey: string;
-  onClose: () => void;
+  /**
+   * 關窗。參數 = **這個彈窗從開到關有沒有建出過箱子**(半成品箱:建箱成功、掛品項失敗)。
+   * 🔴 是「曾經」不是「這次」—— 來源是 `everCreatedRef`,理由見它的宣告處(codex R1 MF1)。
+   *
+   * 🔴 呼叫端要拿它決定「關窗後要不要重取頁面」:半成品箱走的是**失敗路徑**,
+   * 而失敗路徑不會呼叫 `onDone`(那是成功才走的收尾)⇒ 頁面上的出貨卡是舊的,
+   * 空箱區不會出現。上面那句文案叫員工「到訂單頁找『未收尾的空箱』」,
+   * 他關掉視窗卻看不到 = 字面與事實不符,而這正是 #351③ 當初刪掉地點的那個病。
+   */
+  onClose: (createdShipment: boolean) => void;
   onDone: () => void;
   /**
    * 登錄到貨成功後重取候選(驗收 23a)。回傳新的清單;呼叫端負責把它換進 state。
@@ -79,6 +88,22 @@ export function ShipmentDialog({
   const touchedRef = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SubmitShipmentResult | null>(null);
+  /**
+   * 🔴 **這個彈窗到目前為止有沒有建出過箱子** —— 只增不減(false → true,永不回頭)。
+   *
+   * 🔴 **為什麼不能直接看 `result`**(codex R1 MF1):`result` 是**這一次送出**的結果,
+   * 而 `run()` 開頭就 `setResult(null)`、`catch` 寫回的 result 帶 `shipmentReference: null`。
+   * ⇒ 「半成品箱 → 再按一次 → 這次撞傳輸層斷線」之後,`result` 已經不記得箱號了,
+   *   關窗會回報「沒建出箱」⇒ 不重取 ⇒ 員工照文案回訂單頁,那個**真的存在**的箱不在畫面上。
+   * ⇒ 判準是「**曾經**建出過」,不是「這次的結果裡有沒有箱號」。
+   * 用 ref:它不影響渲染,只在關窗那一刻被讀一次。
+   *
+   * ⚠️ **殘留邊界(R2 nit①,記著不假裝沒有)**:「**第一次**送出就撞傳輸層 throw」時,
+   * 建箱可能**已經在 server 端成立**、而箱號從來沒回到瀏覽器 ⇒ 這顆旗標認不得它,關窗不重取。
+   * 兜住它的是 `catch` 那段文案(叫他**用同一把鍵再按一次** —— 重送會被認成重放、不會多一箱),
+   * 不是這顆旗標;旗標**做不到**,因為 client 手上根本沒有那一次的結果。
+   */
+  const everCreatedRef = useRef(false);
 
   // 入口 2(#352-b-2):狀態機抽到 `receipt-panel.tsx`(鐵則 6,見該檔頭)。
   const { receiptFor, choices, choicesState, openReceipt, closeReceipt, refreshChoices } =
@@ -156,6 +181,8 @@ export function ShipmentDialog({
           markShipped,
         });
         setResult(r);
+        // 🔴 成功或半成品都算「建出過箱」;之後任何一次重試都不得把它抹回 false(見宣告處)。
+        if (r.shipmentReference !== null) everCreatedRef.current = true;
         if (r.ok) onDone();
       } catch (e) {
         // 🔴🔴 **這個 catch 是承重的。** `submitShipment` 是 server action:它**自己內部**的錯誤
@@ -204,7 +231,7 @@ export function ShipmentDialog({
           <button
             type='button'
             disabled={busy}
-            onClick={onClose}
+            onClick={() => onClose(everCreatedRef.current)}
             className='text-muted-foreground px-2 disabled:opacity-40'
             aria-label={busy ? '送出中,請等結果出來再關閉' : '關閉'}
             title={busy ? '送出中,關掉會讓同一批貨可能被建成兩箱' : undefined}
@@ -351,14 +378,18 @@ export function ShipmentDialog({
                   🔴 **保留的是箱號與「再按一次不會重複建」** —— 前者是 Sean 08-09 逐字
                      「我也找不到那個箱子在哪裡」的答案,後者是解除「不敢再按」的那句;
                      兩句都拿掉就等於叫員工自己猜,那不是精簡是丟資訊。
-                  🔴 **刪掉的是「請去『訂單頁』作廢它」的地點**,不只是為了短:
-                     掛品項失敗留下的是**空箱**,而出貨卡是**由品項反查箱**畫的
-                     ⇒ 空箱在訂單頁**看不到**(#351 ④ 逐字記著這個盲點,尚未修)。
-                     指一個找不到東西的地方 = 字面與事實不符。④ 落地後再把地點加回來。 */}
+                  🔴 **地點在 2026-08-12 加回來了**(③ 當初刪掉它,是因為那時空箱在訂單頁
+                     結構上畫不出來,指一個找不到東西的地方 = 字面與事實不符)。
+                     ④ 已落地(`5d891eb3`:`shipment-section.tsx` 的「未收尾的空箱」區)
+                     ⇒ 空箱現在**真的看得到**,不講地點反而變成把答案藏起來。
+                  🔴 **講「這位客人任一張訂單頁」不是囉嗦**:空箱掛客人不掛訂單
+                     (`shipments` 沒有 order_id),彈窗又可能是從訂單列表勾多張單開的
+                     ⇒ 「訂單頁」單講會讓員工不知道該回哪一張。 */}
               {result.shipmentReference !== null && (
                 <p>
                   ⚠️ 已建出箱 <b className='font-mono'>{result.shipmentReference}</b>
-                  (未出貨)。再按一次沿用同一箱、不會重複建;放棄的話要去作廢它。
+                  (未出貨)。再按一次沿用同一箱、不會重複建;不要了的話,關掉視窗,
+                  到這位客人任一張訂單頁的「出貨」找「未收尾的空箱」作廢它。
                 </p>
               )}
             </div>

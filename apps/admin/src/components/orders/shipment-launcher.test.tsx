@@ -16,18 +16,20 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 // 🔴 `vi.hoisted`:mock 工廠會被提升到檔頭,直接引用下面的 const 會炸。
 const {
   fetchShipmentCandidates,
+  submitShipment,
   refresh,
   fetchItemProcurementChoices,
   recordItemReceiptAction,
 } = vi.hoisted(() => ({
   fetchShipmentCandidates: vi.fn(),
+  submitShipment: vi.fn(),
   refresh: vi.fn(),
   fetchItemProcurementChoices: vi.fn(),
   recordItemReceiptAction: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
-vi.mock('../../lib/shipping/shipment-actions', () => ({ fetchShipmentCandidates }));
+vi.mock('../../lib/shipping/shipment-actions', () => ({ fetchShipmentCandidates, submitShipment }));
 vi.mock('../../lib/orders/receipt-actions', () => ({
   fetchItemProcurementChoices,
   recordItemReceiptAction,
@@ -60,6 +62,7 @@ beforeEach(() => {
   //    ⚠️ 加新 mock 時**同一個動作**把它加進來,別等到有人斷言次數才想起。
   fetchItemProcurementChoices.mockReset();
   recordItemReceiptAction.mockReset();
+  submitShipment.mockReset();
 });
 afterEach(cleanup);
 
@@ -204,6 +207,59 @@ describe('詳情頁入口 — 只送這一張單', () => {
     click();
     await waitFor(() => expect(fetchShipmentCandidates).toHaveBeenCalled());
     expect(fetchShipmentCandidates.mock.calls[0]?.[0]).toEqual(['o-this-one']);
+  });
+});
+
+// ── #351③ 收尾:半成品箱關窗後要重取頁面(整合) ──────────────────────────
+//
+// 🔴🔴 **為什麼守在這一層**:彈窗那端只做得到「關窗時回報有沒有建出箱」
+//    (`shipment-dialog.test.tsx` 有那兩格);**真的去刷的是 launcher**。
+//    只守元件那一端 = 透傳一跳無人守:把這裡的 `if (createdShipment) router.refresh()`
+//    整行刪掉,元件層照樣全綠,而員工照文案回訂單頁看到的還是沒有那個箱子的舊畫面。
+describe('#351③ 半成品箱 — 關窗後重取(整合)', () => {
+  const openHalfDone = async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [CANDIDATE],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    // 建箱成功、掛品項失敗 ⇒ 失敗路徑但帶著箱號(= 半成品箱)。
+    submitShipment.mockResolvedValue({
+      ok: false,
+      message: '掛品項:有品項的出貨數量超過現有可出數量。',
+      shipmentReference: 'K7X2MP',
+      code: 'P2B27',
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeNull());
+    fireEvent.click(screen.getByText('只建箱、先不出貨'));
+    await waitFor(() => expect(screen.queryByText('K7X2MP')).not.toBeNull());
+  };
+
+  it('🔴 半成品箱關窗 → `router.refresh()` 恰 1 次(不刷的話文案指的那一區不會出現)', async () => {
+    await openHalfDone();
+    // 🔴 先驗這時候還沒刷過:失敗路徑不走 `onDone` ⇒ 刷的動作只可能來自關窗那一下。
+    expect(refresh, '還沒關窗就刷了 ⇒ 這格證不了「關窗」是刷的原因').not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /關閉/ }));
+    expect(refresh.mock.calls.length).toBe(1);
+    // 🔴 codex R1 nit1:也要驗**窗真的關了** —— 只斷言有刷的話,把 `setOpen(null)` 刪掉照樣全綠,
+    //    而那個彈窗會繼續蓋在畫面上,擋住文案剛叫他去看的那一區。
+    expect(screen.queryByRole('dialog'), '刷了但窗沒關 ⇒ 員工看不到底下那一區').toBeNull();
+  });
+
+  it('沒建出箱就關窗 → 不刷(白刷一次是雜訊)', async () => {
+    fetchShipmentCandidates.mockResolvedValue({
+      items: [CANDIDATE],
+      customerUserId: 'cu-A',
+      recipient: RECIPIENT,
+    });
+    render(<OrderShipButton orderId='o1' />);
+    click();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /關閉/ }));
+    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog'), '按了關閉窗卻沒關').toBeNull();
   });
 });
 

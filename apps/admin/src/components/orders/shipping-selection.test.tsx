@@ -33,6 +33,13 @@ import {
 //    全域替身會把那條的驗證機制整個拆掉 —— 實測會讓它從綠變紅。所以只在需要的檔各自 mock。
 vi.mock('server-only', () => ({}));
 
+// 🔴 2026-08-12(#351③ 收尾片):`useShipmentLauncher` 現在會呼叫 `useRouter()`
+//    (半成品箱關窗後要重取頁面,見該檔 `onClose`)。jsdom 下沒有掛載中的 App Router
+//    ⇒ 真的 `useRouter` 丟 `invariant expected app router to be mounted`,本檔五格全紅(實測)。
+//    ⚠️ 這是**測試環境**的缺口、不是正式環境的:`ShippingSelectionBar` 只出現在 App Router
+//    的 `/orders` 頁上,那裡 router 恆掛載。替身只還原那個前提,不放寬本檔任何斷言。
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }));
+
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, ' '));
