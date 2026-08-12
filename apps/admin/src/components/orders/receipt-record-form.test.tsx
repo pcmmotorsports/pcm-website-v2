@@ -1,14 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReceiptActionState } from '../../lib/orders/receipt-action-state';
 
 vi.mock('server-only', () => ({}));
 
 // action 本體不在本檔的射程內 —— 這裡量的是**畫面**。
 // `vi.mock` 的 factory 被提升到檔首 ⇒ 引用的變數必須走 `vi.hoisted`,否則 TDZ。
-const mocks = vi.hoisted(() => ({ action: vi.fn() }));
-vi.mock('../../lib/orders/receipt-actions', () => ({ recordItemReceiptAction: mocks.action }));
+// 🔴 `undoItemReceiptAction` 也要給 —— 本表單成功後會渲染 `ReceiptUndoBar`,它 `useActionState`
+//    吃那支。只 mock 登錄那支的話,撤銷那支是 `undefined` ⇒ 成功路徑當場炸(實測:本檔兩格紅,
+//    其中一格是**既有**的「成功後換新鍵」)。這是今天第三次撞到「整包 mock 抹掉具名匯出」。
+const mocks = vi.hoisted(() => ({ action: vi.fn(), undo: vi.fn() }));
+vi.mock('../../lib/orders/receipt-actions', () => ({
+  recordItemReceiptAction: mocks.action,
+  undoItemReceiptAction: mocks.undo,
+}));
 const action = mocks.action as unknown as ReturnType<
   typeof vi.fn<(prev: ReceiptActionState, form: FormData) => Promise<ReceiptActionState>>
 >;
@@ -282,5 +288,57 @@ describe('ReceiptRecordForm — 彈窗模式成功後的冪等鍵', () => {
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(action).toHaveBeenCalled());
     expect(keyOf(container)).toBe(before);
+  });
+
+  // 🔴🔴 R2 must-fix 1:`<ReceiptUndoBar key={undoKey}>` 那把 key 是承重的,而它原本零守門
+  //    (刪掉那行,`orders/` 底下 1482 格全綠)。跨批殘留的症狀:登錄第 1 批 → 撤銷成功 →
+  //    登錄第 2 批,撤銷列仍停在「已撤銷剛剛那筆」而第 2 批**已寫入且沒被撤銷**,鈕也不回來。
+  //    ⚠️ 寫這格的陷阱(審查者踩過、我照抄他的提醒):兩次成功要用 `mockImplementation`
+  //    產出**不同的 state 物件** —— `mockResolvedValue` 會回同一個物件,而元件用
+  //    `handledRef.current === state` 判「這件事處理過沒」⇒ 第二次直接被 early return,
+  //    測試會**假紅**,讓人誤以為修法無效。
+  it('🔴 撤銷成功後再登錄第二批,撤銷鈕要回來(終態不得跨批殘留)', async () => {
+    // 🔴 **第一版這格是 no-op**:我斷言撤銷表單的 hidden `request_id` 有換掉 —— 那個值吃的是
+    //    `consumedKey` **prop**,prop 換了就會重畫,**不論有沒有 key** ⇒ 刪掉 key 照樣全綠。
+    //    真正會殘留的是撤銷列自己的 `useActionState`:撤銷成功後 state=`undone` ⇒ 表單不渲染
+    //    ⇒ **第二批沒有鈕**。⇒ 要斷言的是「鈕回來了沒」,不是 hidden 欄的值。
+    action.mockImplementation(async () => ({ ...RECORDED }));
+    mocks.undo.mockImplementation(async () => ({ status: 'undone' as const }));
+    const { container } = await mounted();
+
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(screen.queryByText('撤銷剛剛那筆')).not.toBeNull());
+
+    fireEvent.click(screen.getByText('撤銷剛剛那筆'));
+    await waitFor(() => expect(screen.queryByText(/已撤銷剛剛那筆到貨/)).not.toBeNull());
+    expect(screen.queryByText('撤銷剛剛那筆'), '前提:撤銷成功後這一批的鈕確實收起來了').toBeNull();
+
+    // 第二批:同一個表單再登錄一次。
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() =>
+      expect(
+        screen.queryByText('撤銷剛剛那筆'),
+        '撤銷列停在上一批的「已撤銷」終態 ⇒ 第二批已寫入卻沒有撤銷入口(而畫面還說已撤銷)',
+      ).not.toBeNull(),
+    );
+  });
+
+  // 🔴🔴 撤銷入口拿到的必須是**剛剛消費掉的那把鍵**,不是成功後新鑄的那把(「改軟」線片 1)。
+  //    拿到新鍵的話,action 反查冪等帳查無產物 ⇒ 一律當呼叫端 bug ⇒ **撤銷鈕永遠按不動**,
+  //    而且症狀是沉默的(畫面只說「被系統擋下」,沒人會想到是鍵拿錯了)。
+  //    這條接線在本片之前零守門 —— 我拿它做突變時才發現自己寫的因果註解是假的(順序無關)。
+  it('🔴 成功後出現的撤銷鈕,帶的是剛剛用掉的那把鍵(不是新鑄的)', async () => {
+    action.mockResolvedValue(RECORDED);
+    const { container } = await mounted();
+    const consumed = keyOf(container);
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(action).toHaveBeenCalled());
+
+    // 成功後本表單已換新鍵(既有格釘過),而撤銷表單要留住舊的那把。
+    await waitFor(() => expect(container.querySelectorAll('form').length).toBe(2));
+    expect(keyOf(container), '前提:登錄表單自己已經換過鍵了').not.toBe(consumed);
+    const undoForm = container.querySelectorAll('form')[1]!;
+    const undoKey = undoForm.querySelector<HTMLInputElement>('input[name="request_id"]')?.value;
+    expect(undoKey, '撤銷帶的鍵不是剛剛消費掉的那把 ⇒ 反查不到產物、鈕永遠按不動').toBe(consumed);
   });
 });

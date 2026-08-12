@@ -177,6 +177,144 @@ export async function findDuplicateOutcome(requestId: string): Promise<ReceiptDu
   return receipt.data ? 'alive' : 'deleted';
 }
 
+/** `admin_delete_item_receipt` 的固定碼(逐字取自 `20260810233000` 的 `RETURN '…'`,共 3 個)。 */
+export const RECEIPT_DELETE_RESULT_CODES = [
+  'DELETED', //           `:452`
+  'ALREADY_DELETED', //   `:353`(冪等重放)、`:390`(列已不在)
+  'RECEIPT_NOT_FOUND', // `:355`
+] as const;
+
+export type ReceiptDeleteResultCode = (typeof RECEIPT_DELETE_RESULT_CODES)[number];
+
+const DELETE_CODE_SET = new Set<string>(RECEIPT_DELETE_RESULT_CODES);
+
+/**
+ * 撤銷的結果。**業務拒絕不是例外** —— 它是一個要原文轉給員工的答案。
+ *
+ * 🔴 `blocked` 帶的 `message` 是 **DB 原文**(主枝 `20260810233000:428-433`):它已經寫成白話,
+ *    而且**逐箱列出未出貨的包裹編號與件數**、還講了出路(先作廢包裹或從包裹移除品項)。
+ *    ⇒ **不准**在這層或 UI 層壓成一句「刪不掉」——那正是本檔檔頭交辦的第一條。
+ * 🔴 **fixture 的回指住在這裡,不在 SQL 檔裡**(2026-08-13:我原本要照裁示在那段 RAISE 上加註解,
+ *    但那支 migration **已 apply**,`supabase/APPLIED.tsv:169` 記著它的 sha256
+ *    ——我改完實測雜湊當場對不上(`54121aba…` → `80ae4f83…`),已 `git checkout` 還原。
+ *    ⇒ **已 apply 的 migration 連註解都不能動**;回指改放本檔:
+ *    P4A03 的原文在測試裡有兩份**手抄副本**當 fixture
+ *    (`receipt-repository.test.ts` / `components/orders/receipt-undo-bar.test.tsx`,兩處都註了來源),
+ *    **改那段 SQL 訊息時要回來對這兩份**,否則守門會對著舊字面恆綠。
+ *    ⚠️ 已 apply 的那支動不了,但**新 migration 可以改到這段訊息** —— 那條路要接住:
+ *    **若日後有新 migration 改動此訊息,必須同步本檔 fixture 與三層守門格**
+ *    (repository / action / UI 各一格,見那三檔的「原文不准壓成一句」註解)。
+ *
+ * ⚠️ **P4A03 有兩個發出點,兩者的訊息長得不一樣**(R1 nit:我原本只描述了主枝):
+ *    另一枝 `:407-408` 是「讀不到品項 `<uuid>` 的數量摘要 —— 拒絕刪除」的 fail-closed,
+ *    訊息帶內部 uuid、對員工沒有可照做的資訊。行為上歸 `blocked` 是對的(確實是業務拒絕、
+ *    確實沒刪),但**畫面會出現一句內部訊息** —— 那一枝依 RPC 自陳「在正常路徑上構造不出來」
+ *    (`20260810233000:401-405` 逐字「這一枝在正常路徑上構造不出來」「保留它的理由是 trigger 壞掉/有人直寫 DB 的世界」),所以本片不另做文案分流,只記在這裡。
+ */
+export type ReceiptDeleteOutcome =
+  | { kind: 'code'; code: ReceiptDeleteResultCode }
+  | { kind: 'blocked'; message: string };
+
+/** P4A03 = 業務拒絕(已出貨/已裝箱的不給刪),**不是**呼叫端 bug。 */
+const DELETE_BLOCKED_SQLSTATE = 'P4A03';
+
+/**
+ * 撤銷一筆到貨。
+ *
+ * 🔴 **三類結果嚴格分開**(同本檔「固定碼窮盡收斂」的立場):
+ *   ① 固定碼 3 個 → `kind: 'code'`
+ *   ② `P4A03` → `kind: 'blocked'`,**原文往上帶**
+ *   ③ `P0001` / `P2B02` → `ReceiptCallerBugError`(呼叫端契約違反,叫員工停手重新整理)
+ *   ④ 其他 → 原樣往上拋。**未知碼絕不靜默當成功** —— 「以為撤掉了、其實沒撤」會讓員工
+ *      照著錯的庫存去出貨,和登錄那支「以為記進去了、其實沒有」是同一種最貴的失敗形狀。
+ *
+ * 🔴 `p_request_id` 在**這支不是冪等鍵**(檔頭 `20260810233000:283` 逐字「不用於冪等判斷」)
+ *    ⇒ 傳 HTTP request id 即可,不必、也不該沿用表單那把一次性鍵。
+ */
+export async function deleteItemReceipt(args: {
+  receiptId: string;
+  actor: string;
+  requestId: string;
+}): Promise<ReceiptDeleteOutcome> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_delete_item_receipt', {
+    p_receipt_id: args.receiptId,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+
+  if (error) {
+    if (errorCode(error) === DELETE_BLOCKED_SQLSTATE) {
+      return { kind: 'blocked', message: String(error.message) };
+    }
+    if (isCallerBugRaise(error)) {
+      throw new ReceiptCallerBugError(
+        `admin_delete_item_receipt 拒收本次呼叫(${String(errorCode(error))}):${String(
+          error.message,
+        ).slice(0, 200)}`,
+      );
+    }
+    throw error;
+  }
+
+  if (typeof data === 'string' && DELETE_CODE_SET.has(data)) {
+    return { kind: 'code', code: data as ReceiptDeleteResultCode };
+  }
+
+  throw new ReceiptCallerBugError(
+    `admin_delete_item_receipt 回傳非預期碼:${JSON.stringify(data)}`,
+  );
+}
+
+/**
+ * 由冪等鍵反查那次登錄產出的 `receipt_id`。查無 → `null`。
+ *
+ * 🔴 **這是「撤銷剛剛那筆」唯一拿得到 receipt id 的路** —— 逐筆到貨**沒有被投影**到讀模型
+ *    (`packages/adapters/src/supabase/mappers/order-procurement.ts:16-20` 逐字「本片不投影逐批到貨明細」),畫面上沒有 id 可拿。
+ *    冪等帳 `order_item_receipt_requests` 是 `request_id` PK(`20260810230000:130`)、
+ *    有 `receipt_id` 欄、`GRANT SELECT TO service_role`(`:199`)⇒ 走它。
+ *    (同一條反查 `findDuplicateOutcome` 已經在用,不是新開的查詢面。)
+ *
+ * ⚠️ 回 id **不代表那筆還在** —— 冪等帳列不可刪,產物被刪之後這裡照樣查得到 id。
+ *    「還在不在」由 RPC 自己答(`ALREADY_DELETED`),不要在這裡多查一次製造第二真相。
+ */
+/**
+ * 這筆到貨掛在哪一個 `order_item` 底下。查無 → `null`。
+ *
+ * 🔴 **為什麼需要它**(主視窗裁,鐵則 12② 權限面不降級):撤銷的目標 id 是由**冪等鍵反查**來的,
+ *    而歸屬閘只驗「表單送來的 item 屬於這張單」⇒ 中間那段「這筆 receipt 真的屬於這個 item」
+ *    **沒有任何 code 在管**。上一版靠兩個**外部條件**撐:①冪等鍵是 client mint 的 uuid、猜不到
+ *    ②admin 全在 SSO 閘後。那兩件**這段 code 都管不到** —— 鍵的產生方式改成可預測、或 SSO
+ *    邊界變動,防護就沒了,而且**不會有任何一格轉紅**。⇒ 改成這一層自己證得出來的事實。
+ *
+ * 鏈是兩跳:`receipts.procurement_id`(FK,`20260729020000:186`)→
+ * `order_item_procurement.order_item_id`。**用內嵌一次讀完**,不拆兩次查(兩次之間可以被改)。
+ */
+export async function findOrderItemIdForReceipt(receiptId: string): Promise<string | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('order_item_procurement_receipts')
+    .select('order_item_procurement(order_item_id)')
+    .eq('id', receiptId)
+    .maybeSingle();
+  if (error) throw error;
+  // 🔴 內嵌 many-to-one 的生成型別對「單物件 / 陣列」推斷不穩(同 `mappers/order.ts` 對
+  //    `customers` 的慣例)⇒ 兩形都接;接不出字串一律回 null = fail-closed,呼叫端會拒撤。
+  const embedded = (data as { order_item_procurement?: unknown } | null)?.order_item_procurement;
+  const row = Array.isArray(embedded) ? embedded[0] : embedded;
+  const orderItemId = (row as { order_item_id?: unknown } | undefined)?.order_item_id;
+  return typeof orderItemId === 'string' ? orderItemId : null;
+}
+
+export async function findReceiptIdByRequestId(requestId: string): Promise<string | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('order_item_receipt_requests')
+    .select('receipt_id')
+    .eq('request_id', requestId)
+    .maybeSingle();
+  if (error) throw error;
+  const receiptId = data?.receipt_id;
+  return typeof receiptId === 'string' ? receiptId : null;
+}
+
 /**
  * 這筆採購還能再登錄幾件(= `allocated − received`)。查無 → null。
  *

@@ -17,16 +17,22 @@ import {
   RCPT_ORDER_ITEM_ID_FIELD,
   RCPT_INLINE_FIELD,
   RCPT_PROCUREMENT_ID_FIELD,
+  RCPT_REQUEST_ID_FIELD,
   RECEIPT_DUPLICATE_RESULT_CODE,
   RECEIPT_RECORDED_RESULT_CODE,
   receiptFailure,
+  receiptUndoFailure,
   type ReceiptActionState,
+  type ReceiptUndoState,
 } from './receipt-action-state';
 import { carryBackReceiptValues, parseReceiptForm } from './receipt-form';
 import {
   ReceiptCallerBugError,
+  deleteItemReceipt,
   findDuplicateOutcome,
   findProcurementRemaining,
+  findOrderItemIdForReceipt,
+  findReceiptIdByRequestId,
   listProcurementChoices,
   recordItemReceipt,
   type ItemProcurementChoice,
@@ -218,6 +224,145 @@ export async function recordItemReceiptAction(
   }
 
   return receiptFailure(result, parsed.procurementId, carried);
+}
+
+/**
+ * 撤銷**剛剛登錄的那一筆**到貨(「改軟」線片 1;Sean 逐字「登入到貨也要可以取消」)。
+ *
+ * 🔴 **只撤得掉「這個表單這次登錄的那筆」,不是任意一筆** —— 逐筆到貨沒有被投影到讀模型
+ *    (`mappers/order-procurement.ts:16-20`)⇒ 畫面上沒有 receipt id 可拿,唯一的來源是
+ *    表單手上那把已消費的冪等鍵。**事後才發現記錯**(Sean 另一句「其實要先給另外一個訂單」)
+ *    **本片不覆蓋**,那要等逐筆列表(主視窗記帳中,我不自行編號)。
+ *
+ * 🔴 閘的順序沿用本檔寫入路徑:①授權**絕對第一** ②品項歸屬(不信任 client 送的 id)。
+ *    撤銷會動 `instock` ⇒ 它是寫入路徑,不因為「只是刪一筆」而放寬。
+ * 🔴 **歸屬是兩道、不是一道**(主視窗裁,鐵則 12② 權限面不降級):
+ *    ①`order_item ↔ order`:表單送來的品項真的屬於這張單(擋 client 亂送 order/item)
+ *    ②`receipt ↔ order_item`:**被刪的那筆**真的掛在這個品項底下 —— receipt id 是由
+ *      client 送來的冪等鍵反查出來的,少了這道就沒有任何 code 在管中間那一段。
+ *    ⚠️ 上一版只有 ①,並在註解裡宣稱「同登錄路徑的歸屬閘」—— 那是**量錯東西**:
+ *    當時真正撐住的是「冪等鍵猜不到 + 有 SSO」這兩個**本檔管不到的外部條件**,
+ *    它們哪天變了不會有任何一格轉紅。現在兩道都由本檔自己證,不再依賴那兩個條件。
+ */
+export async function undoItemReceiptAction(
+  _prev: ReceiptUndoState,
+  formData: FormData,
+): Promise<ReceiptUndoState> {
+  const authorization = await authorizeAdminMutation();
+  if (!authorization) return receiptUndoFailure('denied');
+
+  const orderId = readSingleString(formData, RCPT_ORDER_ID_FIELD) ?? '';
+  const orderItemId = readSingleString(formData, RCPT_ORDER_ITEM_ID_FIELD) ?? '';
+  const consumedKey = readSingleString(formData, RCPT_REQUEST_ID_FIELD) ?? '';
+  if (orderId === '' || orderItemId === '' || consumedKey === '') return receiptUndoFailure('bug');
+
+  const requestId = await getRequestId();
+
+  let ownerOrderId: string | null;
+  try {
+    ownerOrderId = await findOrderIdForItem(orderItemId);
+  } catch (error) {
+    console.error('[admin/orders/receipt] 撤銷前品項歸屬查詢失敗', {
+      request_id: requestId,
+      message: String((error as { message?: unknown })?.message ?? '').slice(0, 200),
+    });
+    return receiptUndoFailure('error');
+  }
+  if (ownerOrderId === null || ownerOrderId !== orderId) {
+    console.error('[admin/orders/receipt] 品項不屬於這張訂單,拒絕撤銷', {
+      request_id: requestId,
+      form_order_id: orderId,
+      owner_order_id: ownerOrderId,
+      order_item_id: orderItemId,
+    });
+    return receiptUndoFailure('bug');
+  }
+
+  const returnTo = parseOrderReturnTo(readSingleString(formData, ORDER_RETURN_TO_FIELD), orderId);
+
+  // 🔴 由冪等鍵反查 receipt id。查無 = 那把鍵從來沒登錄成功過 ⇒ 沒有東西可撤,
+  //    當 `bug`(呼叫端拿了不存在的鍵)而不是 `already_gone`(那會謊稱「本來有、現在沒了」)。
+  let receiptId: string | null;
+  try {
+    receiptId = await findReceiptIdByRequestId(consumedKey);
+  } catch (error) {
+    console.error('[admin/orders/receipt] 冪等帳反查失敗', {
+      request_id: requestId,
+      message: String((error as { message?: unknown })?.message ?? '').slice(0, 200),
+    });
+    return receiptUndoFailure('error');
+  }
+  if (receiptId === null) {
+    console.error('[admin/orders/receipt] 撤銷用的冪等鍵查無產物', { request_id: requestId });
+    return receiptUndoFailure('bug');
+  }
+
+  // 🔴🔴 **交叉檢查:那筆 receipt 真的掛在這個品項底下嗎**(主視窗裁,鐵則 12② 不降級)。
+  //    上面那道歸屬閘只證「表單送來的 item 屬於這張單」,證不到「被刪的那筆屬於這個 item」——
+  //    receipt id 是**冪等鍵反查**來的,鍵是 client 送的。少了這一道,防護就只剩
+  //    「鍵猜不到 + 有 SSO」這兩個**這段 code 管不到的外部條件**,而且它們哪天破了不會有任何一格轉紅。
+  //    🔴 fail-closed:查不到 / 對不起來 / 查詢本身炸掉,一律不刪(與登錄路徑同一個立場)。
+  let receiptOwnerItemId: string | null;
+  try {
+    receiptOwnerItemId = await findOrderItemIdForReceipt(receiptId);
+  } catch (error) {
+    console.error('[admin/orders/receipt] 撤銷目標歸屬查詢失敗', {
+      request_id: requestId,
+      message: String((error as { message?: unknown })?.message ?? '').slice(0, 200),
+    });
+    return receiptUndoFailure('error');
+  }
+  if (receiptOwnerItemId === null || receiptOwnerItemId !== orderItemId) {
+    console.error('[admin/orders/receipt] 撤銷目標不屬於這個品項,拒絕刪除', {
+      request_id: requestId,
+      form_order_item_id: orderItemId,
+      receipt_owner_item_id: receiptOwnerItemId,
+    });
+    return receiptUndoFailure('bug');
+  }
+
+  console.info('[admin/orders/receipt] receipt.undo.attempt', {
+    request_id: requestId,
+    sid: authorization.sid,
+    actor: authorization.actorId,
+    order_id: orderId,
+    order_item_id: orderItemId,
+  });
+
+  let outcome: Awaited<ReturnType<typeof deleteItemReceipt>>;
+  try {
+    // 🔴 這支的 `p_request_id` **不是冪等鍵**(`20260810233000:283` 逐字)⇒ 給 HTTP request id
+    //    做稽核關聯即可;沿用表單那把一次性鍵反而會讓稽核指向錯的請求。
+    outcome = await deleteItemReceipt({
+      receiptId,
+      actor: authorization.actorId,
+      requestId,
+    });
+  } catch (error) {
+    // 🔴 失敗也要 revalidate:`error` 涵蓋「RPC 已 commit、回應斷在路上」⇒ 不重取的話
+    //    員工會停在一個「撤銷失敗」但數字其實已經變了的畫面。
+    revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+    if (error instanceof ReceiptCallerBugError) {
+      console.error('[admin/orders/receipt] 撤銷:呼叫端契約違反', {
+        request_id: requestId,
+        message: error.message.slice(0, 200),
+      });
+      return receiptUndoFailure('bug');
+    }
+    console.error('[admin/orders/receipt] 撤銷失敗', {
+      request_id: requestId,
+      message: String((error as { message?: unknown })?.message ?? '').slice(0, 200),
+    });
+    return receiptUndoFailure('error');
+  }
+
+  revalidateOrderViews({ orderId, returnTo, scope: 'procurement', requestId });
+
+  // 🔴 **業務拒絕原文往上帶,不改寫**(`receipt-repository.ts` 檔頭交辦):DB 訊息已寫成白話,
+  //    還逐箱列出未出貨的包裹編號與件數 + 出路。壓成「刪不掉」等於把員工唯一能照做的資訊丟掉。
+  if (outcome.kind === 'blocked') return { status: 'blocked', message: outcome.message };
+  if (outcome.code === 'DELETED') return { status: 'undone' };
+  return { status: 'already_gone' };
 }
 
 /**

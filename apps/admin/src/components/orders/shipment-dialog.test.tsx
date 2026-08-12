@@ -14,16 +14,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 
 // 🔴 `vi.hoisted`:`vi.mock` 的工廠會被提升到檔頭,直接引用上面宣告的變數會炸
 //    (`Cannot access 'submitShipment' before initialization`)。
-const { submitShipment, fetchItemProcurementChoices, recordItemReceiptAction } = vi.hoisted(() => ({
+const { submitShipment, fetchItemProcurementChoices, recordItemReceiptAction, undoItemReceiptAction } = vi.hoisted(() => ({
   submitShipment: vi.fn(),
   fetchItemProcurementChoices: vi.fn(),
   recordItemReceiptAction: vi.fn(),
+  undoItemReceiptAction: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ submitShipment }));
+// 🔴 `undoItemReceiptAction` 也要給:`ReceiptRecordForm` 成功後會渲染 `ReceiptUndoBar`,
+//    它 `useActionState` 吃那支。少給 = 整包 mock 抹掉具名匯出 ⇒ **Unhandled Error**
+//    (詭異之處:每一格都綠、`vitest run` 卻 exit 1 ⇒ 只看「N passed」會漏掉)。
 vi.mock('../../lib/orders/receipt-actions', () => ({
   fetchItemProcurementChoices,
   recordItemReceiptAction,
+  undoItemReceiptAction,
 }));
 
 import { ShipmentDialog } from './shipment-dialog';

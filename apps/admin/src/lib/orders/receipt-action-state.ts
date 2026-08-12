@@ -162,6 +162,39 @@ export type ReceiptActionState =
     };
 
 /**
+ * 「撤銷剛剛登錄的那筆」的結果(#352-b「改軟」線片 1;Sean 逐字「登入到貨也要可以取消」)。
+ *
+ * 🔴 **與 `ReceiptActionState` 分開、不共用** —— 兩者失敗語意不同:登錄失敗要**帶回輸入值**
+ *    讓員工改;撤銷沒有輸入可帶,卻多一個登錄沒有的形狀(`blocked` = 業務拒絕 + DB 原文)。
+ *    塞進同一個聯集會讓兩邊欄位互相汙染(登錄的 `values` 對撤銷永遠是空殼)。
+ *
+ * 🔴 `blocked.message` 是 **DB 原文**(`20260810233000:428-433`,逐箱列出未出貨包裹編號與件數)
+ *    ⇒ 原文畫給員工,**不准**壓成一句「刪不掉」(`receipt-repository.ts` 檔頭交辦)。
+ */
+export type ReceiptUndoState =
+  | { status: 'idle' }
+  | { status: 'undone' }
+  /** `ALREADY_DELETED` / `RECEIPT_NOT_FOUND`:對員工是同一件事 —— 那筆已經不在了。 */
+  | { status: 'already_gone' }
+  | { status: 'blocked'; message: string }
+  | { status: 'failed'; code: ReceiptUndoFailureCode; message: string };
+
+export type ReceiptUndoFailureCode = 'denied' | 'bug' | 'error';
+
+/** 撤銷失敗的三句話。與碼一對一 ⇒ 新增碼忘了寫訊息會型別紅。 */
+const UNDO_FAILURE_MESSAGES: Record<ReceiptUndoFailureCode, string> = {
+  denied: '你目前沒有權限撤銷到貨紀錄。請重新登入後再試。',
+  bug: '這次撤銷被系統擋下(送出的資料不符合規則)。請重新整理這一頁再確認一次,不要重複按。',
+  // 🔴 不寫「請再按一次」:撤銷**沒有冪等鍵**(`p_request_id` 那支不用於冪等判斷),
+  //    而 error 涵蓋「RPC 已 commit、回應斷在路上」⇒ 叫他先確認狀態,不是叫他重按。
+  error: '撤銷沒有完成(系統忙線或連線中斷)。請重新整理這一頁,確認那筆到貨還在不在,再決定要不要重按。',
+};
+
+export function receiptUndoFailure(code: ReceiptUndoFailureCode): ReceiptUndoState {
+  return { status: 'failed', code, message: UNDO_FAILURE_MESSAGES[code] };
+}
+
+/**
  * 組失敗 state。訊息表與碼一對一 ⇒ 新增碼卻忘了寫訊息會在型別層轉紅。
  *
  * `detail` = `QUANTITY_EXCEEDS_ALLOCATED` 的拆分建議(由 action 算出後接在基本訊息之後)。

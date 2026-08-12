@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   findDuplicateOutcome: vi.fn(),
   findProcurementRemaining: vi.fn(),
   listProcurementChoices: vi.fn(),
+  deleteItemReceipt: vi.fn(),
+  findReceiptIdByRequestId: vi.fn(),
+  findOrderItemIdForReceipt: vi.fn(),
   findOrderIdForItem: vi.fn(),
   revalidatePath: vi.fn(),
   redirect: vi.fn(),
@@ -30,6 +33,9 @@ vi.mock('./receipt-repository', async (importOriginal) => {
     findDuplicateOutcome: mocks.findDuplicateOutcome,
     findProcurementRemaining: mocks.findProcurementRemaining,
     listProcurementChoices: mocks.listProcurementChoices,
+    deleteItemReceipt: mocks.deleteItemReceipt,
+    findReceiptIdByRequestId: mocks.findReceiptIdByRequestId,
+    findOrderItemIdForReceipt: mocks.findOrderItemIdForReceipt,
   };
 });
 vi.mock('./procurement-repository', async (importOriginal) => {
@@ -38,7 +44,11 @@ vi.mock('./procurement-repository', async (importOriginal) => {
 });
 
 // 🔴 解析器**刻意不 mock** —— 餵真 FormData 走真解析器,否則「爛表單擋得住」是恆真斷言。
-import { fetchItemProcurementChoices, recordItemReceiptAction } from './receipt-actions';
+import {
+  fetchItemProcurementChoices,
+  recordItemReceiptAction,
+  undoItemReceiptAction,
+} from './receipt-actions';
 import { ReceiptCallerBugError } from './receipt-repository';
 import {
   RCPT_NOTE_FIELD,
@@ -403,5 +413,128 @@ describe('fetchItemProcurementChoices — 三道閘', () => {
   it('🔴 沒有採購列回 [](不是 null)—— 兩者語意不可合併', async () => {
     mocks.listProcurementChoices.mockResolvedValue([]);
     await expect(fetchItemProcurementChoices(ORDER_ID, ITEM_ID)).resolves.toEqual([]);
+  });
+});
+
+// ── 「改軟」線片 1:撤銷到貨的四道閘 ───────────────────────────────────
+describe('undoItemReceiptAction — 閘序與結果分派', () => {
+  const OWNER = '11111111-1111-4111-8111-111111111111';
+
+  function undoForm(over: Record<string, string> = {}) {
+    const fd = new FormData();
+    fd.set(RCPT_ORDER_ID_FIELD, OWNER);
+    fd.set(RCPT_ORDER_ITEM_ID_FIELD, 'i-1');
+    fd.set(RCPT_REQUEST_ID_FIELD, 'k-consumed');
+    for (const [k, v] of Object.entries(over)) fd.set(k, v);
+    return fd;
+  }
+
+  function ok() {
+    mocks.authorizeAdminMutation.mockResolvedValue({ actorId: 'staff-1', sid: 's-1' });
+    mocks.getRequestId.mockResolvedValue('http-req-1');
+    mocks.findOrderIdForItem.mockResolvedValue(OWNER);
+    mocks.findReceiptIdByRequestId.mockResolvedValue('r-1');
+    mocks.findOrderItemIdForReceipt.mockResolvedValue('i-1');
+  }
+
+  it('🔴 未授權 → denied,而且**一個 byte 都不送 RPC**(授權閘絕對第一)', async () => {
+    mocks.authorizeAdminMutation.mockResolvedValue(null);
+    const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(out.status).toBe('failed');
+    expect(mocks.deleteItemReceipt).not.toHaveBeenCalled();
+    expect(mocks.findReceiptIdByRequestId, '未授權卻已經去查冪等帳了').not.toHaveBeenCalled();
+  });
+
+  // ⚠️ 這道閘守的範圍**比登錄路徑窄**:它只證「表單送來的 item 屬於這張單」,
+  //    沒有證「被刪的那筆 receipt 屬於這個 item」(receipt id 是冪等鍵反查來的)。
+  //    殘餘風險已寫進 action 的 docstring 與 commit body,不在這格假裝守到了。
+  it('🔴🔴 品項不屬於這張單 → 拒撤,不送 RPC(撤銷也是寫入路徑,閘不放寬)', async () => {
+    ok();
+    mocks.findOrderIdForItem.mockResolvedValue('99999999-9999-4999-8999-999999999999');
+    const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(out).toMatchObject({ status: 'failed', code: 'bug' });
+    expect(mocks.deleteItemReceipt).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 **被刪的那筆不屬於這個品項 → 拒刪**(第二道歸屬,鐵則 12② 不降級)', async () => {
+    // 🔴 這道閘擋的是「receipt id 由 client 送來的冪等鍵反查」這條路:上一版沒有它,
+    //    真正撐住的是「鍵猜不到 + 有 SSO」兩個**本檔管不到的外部條件**,而它們破了不會有格轉紅。
+    // 🔴 **對不起來與查不到放同一格**:兩者是**同一道閘**的兩半(`=== null || !==`)⇒
+    //    拆兩格的話拿掉那道閘會紅兩格,而「恰 1 紅」才證得出這格對準的就是它。
+    ok();
+    for (const owner of ['i-OTHER', null]) {
+      mocks.deleteItemReceipt.mockClear();
+      mocks.findOrderItemIdForReceipt.mockResolvedValue(owner);
+      const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+      expect(out, `owner=${String(owner)}`).toMatchObject({ status: 'failed', code: 'bug' });
+      expect(mocks.deleteItemReceipt, '不屬於這個品項卻已經把刪除送出去了').not.toHaveBeenCalled();
+    }
+  });
+
+  it('🔴 第二道歸屬**查詢本身炸掉** → error 且不刪(這格對準 try/catch,不是那道 if)', async () => {
+    ok();
+    mocks.deleteItemReceipt.mockClear();
+    mocks.findOrderItemIdForReceipt.mockRejectedValue(new Error('boom'));
+    expect(await undoItemReceiptAction({ status: 'idle' }, undoForm())).toMatchObject({
+      status: 'failed',
+      code: 'error',
+    });
+    expect(mocks.deleteItemReceipt).not.toHaveBeenCalled();
+  });
+
+  it('🔴 冪等鍵查無產物 → bug,不是 already_gone(別謊稱「本來有、現在沒了」)', async () => {
+    ok();
+    mocks.findReceiptIdByRequestId.mockResolvedValue(null);
+    const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(out).toMatchObject({ status: 'failed', code: 'bug' });
+    expect(mocks.deleteItemReceipt).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 P4A03 的訊息**原文往上帶**,不改寫、不截短(硬條款)', async () => {
+    ok();
+    const msg = '刪不掉這筆到貨紀錄:…\n尚未出貨的包裹:\n  K7X2MP:1 件\n  M3QQ8Z:1 件\n要先把那些包裹作廢…';
+    mocks.deleteItemReceipt.mockResolvedValue({ kind: 'blocked', message: msg });
+    const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(out).toEqual({ status: 'blocked', message: msg });
+  });
+
+  it('DELETED → undone;ALREADY_DELETED / RECEIPT_NOT_FOUND → already_gone', async () => {
+    ok();
+    mocks.deleteItemReceipt.mockResolvedValue({ kind: 'code', code: 'DELETED' });
+    expect((await undoItemReceiptAction({ status: 'idle' }, undoForm())).status).toBe('undone');
+    for (const code of ['ALREADY_DELETED', 'RECEIPT_NOT_FOUND']) {
+      mocks.deleteItemReceipt.mockResolvedValue({ kind: 'code', code });
+      expect((await undoItemReceiptAction({ status: 'idle' }, undoForm())).status).toBe(
+        'already_gone',
+      );
+    }
+  });
+
+  it('🔴 例外路徑也要 revalidate(RPC 可能已 commit、回應斷在路上)', async () => {
+    ok();
+    mocks.revalidatePath.mockClear();
+    mocks.deleteItemReceipt.mockRejectedValue(new Error('boom'));
+    const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(out).toMatchObject({ status: 'failed', code: 'error' });
+    expect(mocks.revalidatePath, '不重取 ⇒ 員工停在一個數字其實已經變了的畫面').toHaveBeenCalled();
+  });
+
+  it('🔴 `ReceiptCallerBugError` 分到 bug、不分到 error(兩者對員工的下一步不同)', async () => {
+    ok();
+    mocks.deleteItemReceipt.mockRejectedValue(new ReceiptCallerBugError('契約違反'));
+    const out = await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(out).toMatchObject({ status: 'failed', code: 'bug' });
+  });
+
+  it('🔴 撤銷送的 `p_request_id` 是 HTTP request id、不是表單那把冪等鍵', async () => {
+    // 🔴 那支的 `p_request_id` 不用於冪等判斷(`20260810233000:283`)⇒ 沿用表單鍵會讓稽核指向錯的請求。
+    ok();
+    mocks.deleteItemReceipt.mockResolvedValue({ kind: 'code', code: 'DELETED' });
+    await undoItemReceiptAction({ status: 'idle' }, undoForm());
+    expect(mocks.deleteItemReceipt).toHaveBeenCalledWith({
+      receiptId: 'r-1',
+      actor: 'staff-1',
+      requestId: 'http-req-1',
+    });
   });
 });

@@ -20,12 +20,14 @@ const {
   refresh,
   fetchItemProcurementChoices,
   recordItemReceiptAction,
+  undoItemReceiptAction,
 } = vi.hoisted(() => ({
   fetchShipmentCandidates: vi.fn(),
   submitShipment: vi.fn(),
   refresh: vi.fn(),
   fetchItemProcurementChoices: vi.fn(),
   recordItemReceiptAction: vi.fn(),
+  undoItemReceiptAction: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 // 🔴 **保留真模組、只換掉 `useRouter`**(原本是整包替換)。
@@ -37,9 +39,13 @@ vi.mock('next/navigation', async () => ({
   useRouter: () => ({ refresh }),
 }));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ fetchShipmentCandidates, submitShipment }));
+// 🔴 `undoItemReceiptAction` 也要給:`ReceiptRecordForm` 成功後會渲染 `ReceiptUndoBar`,
+//    它 `useActionState` 吃那支。少給 = 整包 mock 抹掉具名匯出 ⇒ **Unhandled Error**
+//    (詭異之處:每一格都綠、`vitest run` 卻 exit 1 ⇒ 只看「N passed」會漏掉)。
 vi.mock('../../lib/orders/receipt-actions', () => ({
   fetchItemProcurementChoices,
   recordItemReceiptAction,
+  undoItemReceiptAction,
 }));
 
 import { OrderShipButton } from './shipment-launcher';
@@ -70,6 +76,7 @@ beforeEach(() => {
   //    ⚠️ 加新 mock 時**同一個動作**把它加進來,別等到有人斷言次數才想起。
   fetchItemProcurementChoices.mockReset();
   recordItemReceiptAction.mockReset();
+  undoItemReceiptAction.mockReset();
   submitShipment.mockReset();
 });
 afterEach(cleanup);
