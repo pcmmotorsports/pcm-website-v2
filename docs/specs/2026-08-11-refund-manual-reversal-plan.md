@@ -1,6 +1,10 @@
-# 退款帳本 `manual` 沖銷 — 片級 plan **v9**(#405 + #417)
+# 退款帳本 `manual` 沖銷 — 片級 plan **v13**(#405 + #417)
 
-> **v9 = 折 Fable R3 的 4 must-fix + 2 consider + 1 nit**(2026-08-12,主視窗 `P-536-A`;逐條處置=**§12**)。
+> **v13 = v12 + §16 折關卡2 codex(4 findings,全折;含立案 #436)**
+> v12 = v11 + §15 折 code-reviewer R2(2 must-fix + 5 nit,全折;兩條 must-fix 都是折 R1 時新製造的)**
+> v11 = v10 + §14 折 R1(6 must-fix + 7 nit)
+> v10 = v9 + §13 實作實跑紀錄 + §2c generation 殘句更正
+> v9 =(2026-08-12,主視窗 `P-536-A`;逐條處置=**§12**)。
 > 🔴 **最重的 F1**:本片把唯一性從索引級降成 trigger 計數級,卻**沒有隔離閘** ——
 > REPEATABLE READ 下計數看不到兄弟已提交的列,而索引後盾已被本片 DROP、**沒有任何一層接得住**。
 > 🔴 **F4**:fail-closed 原本只對 NULL 成立;jsonb 字串 `"true"` 求值是 **false 不是 NULL** ⇒ COALESCE 不觸發 ⇒ **fail-open**。
@@ -98,7 +102,10 @@
 1. **L5b 帳本目前零 admin UI**:`grep -rl 'payment_refund_events' apps/ | wc -l` → **0**;`payment_refunds` 同樣 **0**。
    現有的退款畫面(`refund-section.tsx` 等)寫的是 **M3 舊帳本 `order_refunds`**(`20260725130100:80`),**不同表**。
    ⇒ **Sean 的 UI 鐵律目前沒有可掛的畫面** —— 「員工面直接改」預設有一個顯示 manual 判定的地方,而它不存在。
-2. **這條金流線不寫 `admin_audit_log`**:`opa12` 與 OP5 兩支 RPC 內 `grep -n admin_audit_log` 皆零命中;
+2. **這條金流線不寫 `admin_audit_log`**:`opa12` 與 OP5 兩支 RPC 內 `grep -n admin_audit_log` 皆零命中
+   ⏰ **(150000/#423 補稽核後此句過期,當時為真)**——D 窗 #423 會給 OP5+A12 補 `admin_audit_log`,
+   apply 後這個「零命中」不再成立。引用本句前先重跑那條 grep;
+
    慣例是**帳本列本身即稽核**(actor + reason + append-only + 不可變欄)。
    ⇒ 本片若沿用形制,**不另接 audit log**;但 `payment_refund_events` 現在**沒有 actor 欄**(§1a)⇒ 得補。
 
@@ -205,12 +212,15 @@ view 要明定 owner、`security_invoker`、**零 GRANT**,並對「被 SECDEF �
 後到的那個會**改沖到前一個剛寫進去的新 manual**,兩邊都成功而員工以為只改了一次。
 鎖父列之後先做 CAS(現行有效終局 ≠ 期望值 ⇒ 拒),這是**併發正確性的本體**,不是參數美觀。
 —— SECURITY DEFINER、`SET search_path=''`、EXECUTE 只給 `service_role`(逐字對照 opa12 的開權段)。
-內部一交易做三件:①鎖父列 ②寫 `manual_reversal`(指向現行 manual、帶 reason 與 actor)③寫新的 `manual`(generation+1、帶新 verdict)。
+內部一交易做三件:①鎖父列 ②寫 `manual_reversal`(指向現行 manual、帶 reason 與 actor)③寫新的 `manual`(帶新 verdict)。
+🔴 **v10 更正**:此處 v6-v9 寫的是「`generation+1`」—— 那是 **v1 設計的殘句**,`generation` 欄在 §2b 就被打掉重畫(`:128` 逐字「關卡1 打掉它」),`payment_refund_events` **沒有這一欄**
+(數法:`grep -c generation supabase/migrations/20260810140000_*.sql` → 0)。實作改用既有的 `(refund_id, seq)` 唯一序往後接。
+(`generation` 在 `order_refund_jobs` 上確實存在,那是 a7b 的另一張表 —— 兩者無關,別被 grep 命中誤導。)
 守門沿用 opa12 十道的形制:**G1 隔離閘(`transaction_isolation` 必須是 `read committed`,ERRCODE `P8C01`,排最前)**
 → actor 存在且 active(`staff`)→ reason 必填非空白 → 鎖序 → 已被沖銷拒 → row_count 守。
 ⚠️ **RPC 與 trigger 兩邊都要**:RPC 那道擋的是「呼叫端把交易開成 RR」,trigger 那道擋的是「繞過 RPC 直接寫入」。
 
-⇒ **員工看到的是「修改判定」一個按鈕**;沖銷、generation、兩列寫入全在 RPC 裡面,員工不需要知道。
+⇒ **員工看到的是「修改判定」一個按鈕**;沖銷、序號、兩列寫入全在 RPC 裡面,員工不需要知道。
 
 ---
 
@@ -252,6 +262,11 @@ v1 寫「三欄 + 一索引 + 一 RPC,皆純加法」。**關卡1 指出不實**
 ## §5 知情缺口
 - **本片不含 UI**(§1c-1:L5b 帳本零畫面)⇒ Sean 的 UI 鐵律**這一片還兌現不了**,只能保證 RPC 的形狀讓 UI 之後接得上(一個動作、三個參數)。
 - 不寫 `admin_audit_log`(沿用本線慣例);稽核靠帳本列本身 ⇒ **actor 欄是承重的**,不是裝飾。
+  🔴 **與 #423 不是矛盾,判準在這裡**(主視窗 `P-550-A`,免得下一個人讀成兩線打架):
+  「帳本列即稽核」**只在該列自帶外部不可否認材料時成立**(D-569-A);
+  人工收款軌沒有外部佐證 ⇒ 走 `admin_audit_log`(#423)。本線的退款帳本列帶 TapPay 側材料,故沿用帳本。
+  ⚠️ 但 **actor 欄本身的可信度另有缺口 ⇒ 見 #436**(存在性驗證不是身分驗證)——
+  「actor 欄是承重的」講的是它在設計上承重,不是它今天擋得住冒名。
 - #417 的回退閘訊息要改指沖銷路——**那要等本片的 RPC 存在**,所以放本片收尾、不放前面。
 - 🔴🔴 **B 的回頭路有有效窗:只到「判定被執行消費」之前**(Fable R3 F3,採納)。
   Q-425=B 的安全網逐字是「員工看錯就沖銷改回、判定即時重算」——**那只在判定還沒被拿去做事時成立**。
@@ -620,3 +635,211 @@ R2 說「仍漏列會翻面的混合形狀」,舉三個。**我逐值走過,兩�
 **判停**:Fable 明判「修完免 R4」⇒ 折完交主視窗窄核,不再開審查輪。
 
 — v6,P 八代 2026-08-12 00:5x
+
+---
+
+## §13 實作實跑紀錄(v10,P 九代 2026-08-12)—— 寫進 plan 的是**量到的**,不是預期的
+
+### 13-1 三支 harness 的實跑格數(字面已釘進各檔)
+
+| harness | 結果 | 釘住的常數 |
+|---|---|---|
+| `scripts/refund-manual-reversal-verify.sh`(本片新增) | PASS=**67** FAIL=0 | `EXPECT_TOTAL=67` |
+| `scripts/op6a-verify.sh`(本片改) | PASS=**50** FAIL=0 | `EXPECTED_CELLS=50`(49→50) |
+| `scripts/l5b2-2d-verify.sh`(本片改) | PASS=**37** FAIL=0 | `EXPECT_TOTAL=37`(未變) |
+
+migration 本體:乾淨叢集 apply `EXIT=0`、`grep -c ERROR <provision.log>` → **0**、⑩ 後置斷言七組全過。
+
+### 13-2 突變輪(§3-9;紅格由實跑決定)—— **折 R1 後重跑為 9 靶**
+
+靶由程式從 migration 生成、只改**庫內物件**不改檔案(SHA 閘因此不會誤擋)。完整表在
+`scripts/refund-manual-reversal-verify.sh` 檔頭(數法:`grep -n "突變輪" <該檔>` 找表頭)。
+摘要:**9 靶(折 R1 後新增 M9=拿掉父列鎖)逐靶紅格欄皆非空,無恆真守門**
+(數法:`awk -F"紅格=\\[" '/::/ {split($2,a,"]"); print a[1]}' /tmp/prmr-mut3-report.txt` 九行皆非空)。
+🔴 **M9 是 R1 must-fix #2 的直接產物**:拿掉父列鎖之後**只有 §L 的 L1 兩子格紅**,其餘 77 格照樣綠
+⇒ 折 R1 之前,「承重的那把鎖被拿掉」在全鏈零訊號。
+
+🔴 兩條誠實邊界(**不得**說成「已被守住」):
+1. **M2(view 兜底翻 fail-open)與 M3(拿掉 `jsonb_typeof`)只紅在定義層 A7/A8,行為層零紅** ——
+   因為 2c 的 verdict CHECK 讓 `refunded` 的非布林形狀寫不進去 ⇒ 那條路徑**不可達、沒有行為可測**。
+   它們擋的是「有人順手改掉方向」這個**編輯**,不是執行。(此即 §11-4 nit 預先寫明的性質,實跑證實。)
+2. M7/M8 連帶紅 F1/F2(零留痕)是**副作用不是判別力**:守門沒了之後,本來預期被擋的 INSERT 真的寫進去。
+   判別力來自 B2/C2/D1 那幾格。
+
+### 13-3 回退鏈:一次性端到端實測
+
+`本片回退 → l5b2-2d-rollback.sql` 兩棒接得上(EXIT=0,2d 印出它自己的完成 NOTICE)。
+🔴 **v13 縮小宣稱(關卡2 codex RB-3)**:這句只到 **schema 字面入口**那一層,**不等於「2d 回退一定跑得完」** ——
+2d 有自己的**資料閘**(`l5b2-2d-rollback.sql:118-137`):同一顆 refund 同時有 `result_success`+`result_failed`、
+或庫內存在任何 `result_confirmed`,都會讓**第二棒**拒退。本片前置閘只計新 terminal 集合、對前者放行。
+⇒ 上面那次端到端實測是在**空帳本**上跑的,不能外推到有資料的庫。
+**突變**:回退完把 `pre_one_terminal_uniq` 拿掉再跑 2d 回退 ⇒ 它停在第一道閘
+(`P0001`「pre_event_type_chk 或 pre_one_terminal_uniq 不存在」)⇒ §10c-1 的因果**是量到的,不是推的**。
+
+「回退永久關閉」的物理原因也直接量了:有沖銷列的庫上重建 2d post-image 唯一索引 ⇒ **`23505`**,
+且已排除殘留干擾(我造的那顆 refund 自己就有 2 列落在索引述詞集合內)。
+
+### 13-4 實作當天發現、plan 沒寫到的四件事
+
+1. 🔴 **`op6a-verify.sh` 會默默把本片對 op6a 的改寫蓋掉**(比 §8-F2 講的更嚴重):
+   它的突變還原是 `psql -f "$MIG"` 重放**原版** op6a migration ⇒ 突變段(`:283-312`)之後的每一格、
+   包含 F2 點名的 P6-2c/2d,測的都是**舊 op6a**,而且全綠。
+   修法=`restore_op6a()` 疊回本片那版 + 新增 **MR 格**守它。MR 有牙:把 `SIC_MIG` 指向回退腳本
+   (裡面嵌著舊版 op6a 的 `CREATE OR REPLACE`)⇒ MR 紅、`PASS=49 FAIL=1`。
+2. **8 個 LINE_TIP 錨在本片之前就已過期**:全釘 `20260811110000`,而尖端早已是 `20260811120000`
+   (#412,S 窗落地時沒人重釘)⇒ 本片重釘註解要交代**兩顆** delta。交集量測(排除註解與錨行本身)
+   八支皆 **0 命中**。
+3. **`lease_token` 決定**(plan 未規定,實作當天定、主視窗 `P-542-A` 批准附兩條件):
+   沖銷列與更正後的 manual **繼承被沖那列的值**。全 repo 唯一讀這欄的地方是本片 RPC
+   (`20260812140000:669`),比較用法零命中 ⇒ 今天不會被誤判;**失效條件**(sweeper 哪天拿它分組/CAS)
+   已寫進 `COMMENT ON COLUMN`。
+4. **判別力**:複合自我 FK 與 `pre_reversal_shape_chk` 的沖銷分支,在 INSERT 路徑上被 trigger
+   **嚴格蔭蔽**(BEFORE ROW 先於約束檢查開火,實測得到 `P8C02` 而非 `23503`)⇒ 要量到它們自己
+   必須先 `DISABLE TRIGGER`;那幾格量的是「trigger 被停用/繞過時還有沒有第二層」。
+
+### 13-5 實跑抓到的兩個真 bug(不跑就看不到)
+
+1. `pg_catalog.coalesce(...)` —— **COALESCE 是 SQL 語法構造、不是 pg_catalog 函式**,加了前綴就 42883。
+   修後把檔內 **16 個** `pg_catalog.` 函式逐一問 catalog 確認存在。
+2. 本片 harness 第一版正向格沒包 `BEGIN/ROLLBACK` ⇒ `psql -c` 自動提交、23 格全綠卻真的寫進 14 列。
+   補了 §F 零留痕自檢,並用突變證明它有牙(拿掉 ROLLBACK ⇒ F1/F2 立刻紅)。
+
+### 13-6 F7 的排程更正
+
+`database.types.ts` regen **只能 apply 之後做**:它從正式庫產型別,本片未 apply ⇒ 現在跑會產出
+**不含新欄**的型別。本片零 app 層 code ⇒ typecheck 不受影響,延到 apply 後安全。
+
+— v10,P 九代 2026-08-12
+
+---
+
+## §14 code-reviewer R1 逐條處置(v11,2026-08-12)—— **FAIL**,6 must-fix + 7 nit,全折
+
+R1 給的每一條我都**親驗才折**(審查者給的事實同樣會錯)。六條 must-fix **全部成立**。
+
+| # | finding | 親驗 | 處置 |
+|---|---|---|---|
+| **1** | migration 全檔零 `SET LOCAL *timeout` | ✅ `grep -c 'SET LOCAL'` → **0**;同線 2c/2d 各 **3** | 全折:三個 timeout 補在 `BEGIN;` 之後,值逐字對齊 `20260811110000:67-69` |
+| **2** | §3-7 並發兩條**零覆蓋**,且 §13 沒揭示 | ✅ 全檔每發 psql 都是單發 `-c`/`-f`,無第二 session;§D 量的是隔離**前提**不是序列化 | 全折:新增 **§L 真並發**(編排沿用 `w6a-unvoid-race.sh:257-284`,零 FIFO、有界輪詢);**barrier 自己也是一格**,沒卡上就不算併發證據 |
+| **3** | ⑧ 宣稱「⑩ 會重驗 COMMENT/ACL」,⑩ 實際只比 `prosrc`+`prosecdef` | ✅ 逐行讀 ⑩-5,確實沒有 | 全折:⑩-5 補 `obj_description` / `proconfig` / `role_routine_grants` 三道;⑧ 的宣稱句改成事實並註明原本大於事實 |
+| **4** | §3-6「既有約束一條都沒被動到」post 面零驗證 | ✅ ⑩ 只數兩條**新** CHECK;`pre_one_success_uniq` 全檔 0 命中 | 全折:⑩-7 改成釘 **完整**約束集合 + **完整**索引集合(逐字、按名排序) |
+| **5** | 回退第二道閘 `prmr_rollback_unbuildable` **從未被執行過** | ✅ K1 必定短路在閘 ①;K2/K3 量的是別的東西 | 全折:新增 **§F2**,排在**任何沖銷列寫入之前**(否則閘 ① 會短路它);構造=停 trigger + 兩筆 manual + 零沖銷 ⇒ 實測 `P5B03/prmr_rollback_unbuildable` |
+| **6** | `b2s2b-verify.sh` 重釘只改判斷式、die 訊息仍印舊值 | ✅ `:466` 已改 / `:468` 仍寫 `20260811110000` | 全折(這正是「只改被點名那一處」的形狀) |
+
+nit 一次清完:**#7** 補欄級 ACL 兩格(A10b/A10c)/ **#8** ① 的宣稱句縮到它實際量的範圍 /
+**#9** §A 的「獨立重量」改成誠實邊界(與 ⑩ 多為同一組判準換寫法,只有 A2 走不同 catalog 路徑)/
+**#10** 三處版號字面 v9→v10 /
+**#11** RPC 的 `seq` 對非終局寫入者的重試契約寫進 `COMMENT` /
+**#12** backlog #427 刪節線壞掉(改 `<details>`)/ **#13** `op6a-verify` 的 MR 守門補 **MR2**(守 M7 之後那次還原)。
+
+### 14-1 折完之後重跑(數字是量的)
+
+| harness | 折前 | 折後 |
+|---|---|---|
+| `refund-manual-reversal-verify.sh` | 67 | **79**(+12:F2 四格、L 六格、A10b/A10c 兩格) |
+| `op6a-verify.sh` | 50 | **51**(+MR2) |
+
+🔴 **折的過程自己又抓到一個**:⑩ 新加的 `proconfig` 斷言我憑推理寫成 `'search_path='`,
+**實際字面是 `'search_path=""'`(帶兩個雙引號)**⇒ apply 當場紅。
+—— 補守門也要實跑,推出來的期望值和推出來的結論一樣會錯。
+
+
+---
+
+## §15 code-reviewer R2 逐條處置(v12,2026-08-12)—— **FAIL**,2 must-fix + 5 nit,全折
+
+🔴 **R2 的兩條 must-fix,病灶都在「折 R1 的過程」本身**——不是原設計的問題,是修法製造的新問題。
+
+| # | 我折 R1 時做了什麼 | 掏空了什麼 | 修法 |
+|---|---|---|---|
+| **A** | 加 §L 並發段時裝了第二個 `trap 'rm -rf "$RD"' EXIT` | bash 的**後裝 EXIT trap 取代前裝的**(實測 `trap "echo FIRST" EXIT; trap "echo SECOND" EXIT` 只印 SECOND)⇒ `teardown_and_verify` 整個失效:`all` 模式跑完不收叢集、「PORT 仍有人聽 ⇒ 零留痕不成立」永不執行。而該 trap 的註解逐字寫著它是為了修「留下活叢集佔埠」才搬到 provision 之前 | 併成單一 EXIT handler;**實測** `lsof -iTCP:54581` → 0,teardown 真的是 trap 幹的 |
+| **B** | §F2 為了測回退第二道閘,**commit** 了一顆有兩筆 `manual` 的 refund | K3 的探針索引是**全域**的 ⇒ 即使沖銷機制整段失效、`$R1` 一列重複都沒有,K3 照樣拿到 23505 ⇒ **恆真** | 述詞加 `AND refund_id = '$R1'` |
+
+🔴 **B 是同族第二犯**:R1 的 must-fix #6 就是「只改被點名那一處」(b2s2b 的 die 訊息);
+我在 K2 已經為**同一個形狀**把述詞縮到 `$R1`,**K3 沒跟上** —— 折完 R1 之後在同一個檔案裡又犯一次。
+⇒ 教訓不是「記得改 K3」,是**折 finding 時要把同形狀的地方一起列出來掃**(同族 memory
+`feedback_claimed-sync-but-only-patched-touched-lines`)。
+
+🔴 **A 為什麼一路沒被發現**:每次跑完我都手動 teardown,把失效的 trap 遮住了。
+我觀察的是「叢集有沒有留著」,不是「**誰**把它收掉的」——
+同族 memory `feedback_assertion-measures-the-wrong-thing` 的第五形狀(觀察點選錯給出正確假象)。
+
+nit 五條一次清:**C** §13-2「8 靶」→ 9 靶(現為 13 靶)/ **D** apply 檢查表版號 v10→v11 /
+**E** `RD` 變數撞名(refund id vs tempdir)→ 改名 `RACEDIR` / **F** ⑩ 那四道**只在 apply 跑一次**
+的斷言補了 §A 等價格(A12-A16,可事後重跑、也進得了突變輪)/ **G** M7 那輪「§F2 的
+`ENABLE TRIGGER` 會把 M7 突變修好」的揭露寫進表註。
+
+### 15-1 折完之後重跑
+
+| 項 | 折 R1 後 | 折 R2 後 |
+|---|---|---|
+| `refund-manual-reversal-verify.sh` | 79 | **84**(+5:A12-A16) |
+| 突變靶數 | 9 | **13**(+M10-M13,專打 A12/A13/A14/A15) |
+
+**十三靶逐靶紅格欄皆非空、算術逐行自洽**(`84 − FAIL = PASS`)。
+M10-M13 各自**精準打紅一格** ⇒ nit F 補的五格全部有牙(A16 由 M8 打紅)。
+
+🔴 折的過程又摔一次:A13 的期望值我用 python 寫入時多帶了跳脫反斜線 ⇒ 期望 `search_path=\"\"`
+而實得 `search_path=""`、當場紅。**同一個字面在同一天錯兩次**(第一次是 ⑩ 憑推理寫成 `search_path=`)。
+
+### 15-2 輪次判斷(為什麼沒停下來 raise 主視窗)
+
+R2 的 findings **不是重複前輪、也不在同一層打轉** —— 是「折 R1 的修法製造的新問題」,
+屬於「還在抓到真 finding」⇒ 照 2026-08-07 的紀律繼續。
+**下一輪=關卡2 codex,本來就是不同模型、不同角度**,正好落在「第 3 輪起必須換角度換模型」上。
+
+
+---
+
+## §16 關卡2 codex 逐條處置(v13,2026-08-12)—— 4 findings,全折
+
+⚠️ **執行方式**:主視窗預警「codex 今天 62 行 prompt 會零輸出」⇒ 本輪切成**四個小塊**分次餵,
+每塊自帶 `NO-FINDING-x` 判準(**零輸出 = 沒跑,不是 PASS**)。四塊皆真的跑了
+(輸出 3655 / 4785 / 4434 / 5378 行,含真實 `rg` 呼叫與逐行推理)。
+唯讀紀律:跑前後 `git status --porcelain` **逐字相同**(codex 零留痕)。
+
+| 塊 | 標的 | 結果 |
+|---|---|---|
+| 1 | ⑥ trigger:找「寫進兩筆有效終局」的路徑 | **NO-FINDING-6** |
+| 2 | ⑨ RPC:守門順序 / CAS / 半套寫入 / SECDEF 邊界 | **1 finding**(actor 身分) |
+| 3 | ⑦ view + ⑧ op6a②:錢的判定方向、雙重否定 | **NO-FINDING-78** |
+| 4 | 回退腳本的三個宣稱 | **3 findings**(RB-1/2/3) |
+
+### 16-1 逐條
+
+**RPC-actor(不在本片射程,已立案 #436)** — `p_actor` 是**存在性驗證不是身分驗證**:
+拿得到 `service_role` 的人可以填別人的員工代號,而帳本 append-only 改不掉。
+親驗:**同一形制在全線 5 支 migration 上一模一樣**(`grep -rln "s.id = p_actor AND s.is_active" supabase/migrations/*.sql | wc -l` → 5;
+`grep -rl p_actor` → 17),最直接的先例 `admin_reverse_manual_payment`(`20260810210000` G2)**逐字相同**
+⇒ **不是本片引入的**,修它=決定身分來源(E8-B 真認證線射程)+ 改 17 支引用,是跨線架構決定。
+⇒ 立案 **#436** + 寫進 apply 檢查表 §六「`actor` 欄不是稽核依據」。
+
+**RB-1 全折(最實的一條)** — 2d **有**給 `pre_event_type_chk`(`20260811110000:190`)與
+`pre_one_terminal_uniq`(`:203`)COMMENT,而我的回退①DROP+重建前者時弄丟它 ②對後者明確寫
+`COMMENT ... IS NULL`。
+🔴 **病因值得記**:那行 `IS NULL` 是我從 `l5b2-2d-rollback.sql` **抄來的** —— 在**它的**脈絡完全正確
+(它退回 `20260810140000` 建表期,當時沒有 COMMENT);抄進**我的**脈絡就錯了(我退回 2d post-image,那時有)。
+**沿用先例卻沒查先例的前提**。修法=逐字還原兩個 COMMENT + 自驗補比對(原本整段不比 COMMENT ⇒ 弄丟也全過)。
+**實跑驗證**:乾淨庫跑回退 EXIT=0、兩個 COMMENT 查得到、接著跑 2d 回退 EXIT=0。
+
+**RB-2 全折** — `DROP ... IF EXISTS` 對「被改名的物件」是靜默 no-op,而本片加的 `pre_refund_id_uniq`
+不依賴三新欄、不會隨 `DROP COLUMN` 消失 ⇒ 有人 rename 過它,回退會**留下半套而自驗全過**。
+修法=自驗改比**完整**約束集合 + 索引集合(形制同 migration ⑩-7)。
+
+**RB-3 全折(縮小宣稱)** — 「兩棒接得上」只到 **schema 字面入口**這一層,**不等於 2d 回退跑得完**:
+2d 有自己的**資料閘**(`l5b2-2d-rollback.sql:118-137`),同一顆 refund 有 `result_success`+`result_failed`、
+或庫內存在任何 `result_confirmed`,都會讓第二棒拒退;本片前置閘只計新 terminal 集合、對前者放行。
+⇒ §13-3 的宣稱已縮,並註明那次端到端實測是在**空帳本**上跑的、不能外推。
+
+### 16-2 三輪審查的模式(值得記進 lessons 的部分)
+
+| 輪 | 模型 | 結果 | findings 的性質 |
+|---|---|---|---|
+| R1 | code-reviewer(opus) | FAIL | **原設計的缺**(缺 timeout、並發零覆蓋、宣稱大於事實) |
+| R2 | code-reviewer(opus) | FAIL | **折 R1 的修法製造的新問題**(trap 相蓋、K3 恆真) |
+| 關卡2 | codex(不同模型) | 4 findings | **抄來的先例沒查前提**(RB-1)+ **跨片宣稱的邊界**(RB-3)+ **整條線的既有性質**(actor) |
+
+三輪**沒有一輪的 finding 與前輪重疊**,也沒有在同一層打轉 ⇒ 照 2026-08-07 紀律該繼續、而不是收斂判停。
+🔴 值得注意的是 **R2 的兩條都是 R1 修法的副產物** —— 折 findings 本身就是一個會製造 bug 的動作,
+而它發生在「以為已經修完」的心態下,是本線最危險的時刻之一。
+

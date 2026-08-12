@@ -203,7 +203,17 @@ QF() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qt
 #    (writes orders.cancelled_at only) + pg_cron schedule. No shipping tables/functions touched;
 #    grep recompute|order_item_qty|oiqs|shipment = comment-only hit => shipping oracles unchanged.
 #    Main-window re-pin + full re-record.
-LINE_TIP="20260811110000"  # 2026-08-11 重釘 20260811030000->20260811060000(L5b-2 片 2a=P 窗;claim RPC DROP+重建、回傳三欄->四欄。**述詞一字未動**〔md5(split_part(prosrc,'RETURNING',1)) 兩版皆 f15644b5…〕⇒ 對本檔被測面無交集;唯一連動是 l5b0-verify 的 claim 身分閘,已同批重釘);後續重釘 ->070000(D 翻種子收割)->080000(P 2c 收割;兩次皆主視窗收割時代釘,值已對、本註解 08-11 補齊);->110000(L5b-2 片 2d=P 窗;payment_refund_events 值域加 result_confirmed + pre_one_terminal_uniq 述詞換 terminal 集合。**除本行註解外**,本檔對 payment_refund_events / pre_one_terminal_uniq / pre_event_type_chk 三個字面命中 0 —— 數法 `grep -v '^LINE_TIP=' <本檔> | grep -c -E 'payment_refund_events|pre_one_terminal_uniq|pre_event_type_chk'`;⚠️ v1 寫「命中 0」而沒排除自己這行,寫下去的當下就自我否證〔code-reviewer 實測 7 檔皆 1〕⇒ 對本檔被測面無交集,連動只在 l5b2-2c/2d 兩支 harness 自己)
+# 🔴 重釘 2026-08-12(沖銷片):20260811110000 -> 20260812140000 = **兩顆** delta,不是一顆:
+#    ①`20260811120000`(#412 服務與其他分類,S 窗)—— 只 INSERT/UPDATE `categories`,零 DDL;
+#      🔴 它落地時**沒有人重釘這八個錨** ⇒ 本檔在沖銷片之前就已經是過期的、跑起來就 die。
+#    ②`20260812140000`(沖銷片,P 窗)—— payment_refund_events 加三欄+沖銷 trigger/canonical view/
+#      修改判定 RPC,並 CREATE OR REPLACE 改寫 op6a 的退款面②。
+#    交集量測(排除註解與錨行本身,因為錨行自己就含那些字面 —— 見 w6b3:208 記載的自我否證):
+#      `grep -v '^LINE_TIP=' <本檔> | grep -v '^#' | grep -c -E 'payment_refund_events|payment_refunds|
+#       pre_one_terminal_uniq|pre_event_type_chk|payment_refund_effective_terminal|
+#       admin_compute_order_settlement|admin_correct_refund_manual_verdict|pre_one_reversal_uniq|categories'`
+#      → **八支全部 0 命中**(2026-08-12 實跑)⇒ 與本檔被測面(出貨/取消/收款競態)無交集。
+LINE_TIP="20260812140000"  # 2026-08-11 重釘 20260811030000->20260811060000(L5b-2 片 2a=P 窗;claim RPC DROP+重建、回傳三欄->四欄。**述詞一字未動**〔md5(split_part(prosrc,'RETURNING',1)) 兩版皆 f15644b5…〕⇒ 對本檔被測面無交集;唯一連動是 l5b0-verify 的 claim 身分閘,已同批重釘);後續重釘 ->070000(D 翻種子收割)->080000(P 2c 收割;兩次皆主視窗收割時代釘,值已對、本註解 08-11 補齊);->110000(L5b-2 片 2d=P 窗;payment_refund_events 值域加 result_confirmed + pre_one_terminal_uniq 述詞換 terminal 集合。**除本行註解外**,本檔對 payment_refund_events / pre_one_terminal_uniq / pre_event_type_chk 三個字面命中 0 —— 數法 `grep -v '^LINE_TIP=' <本檔> | grep -c -E 'payment_refund_events|pre_one_terminal_uniq|pre_event_type_chk'`;⚠️ v1 寫「命中 0」而沒排除自己這行,寫下去的當下就自我否證〔code-reviewer 實測 7 檔皆 1〕⇒ 對本檔被測面無交集,連動只在 l5b2-2c/2d 兩支 harness 自己)
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
