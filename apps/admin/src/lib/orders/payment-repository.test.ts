@@ -13,6 +13,7 @@ import {
   PaymentListShapeError,
   PaymentWroteButUnreadableError,
   recordManualPayment,
+  reverseManualPayment,
 } from './payment-repository';
 
 // payment-repository.test.ts — #15-B2-a(讀)+ B2-b(寫)。
@@ -278,6 +279,90 @@ describe('🔴 成功 payload 形狀不完整 ⇒ 拋「已寫入但讀不懂」
     makeClient({ data, error: null });
     await expect(recordManualPayment(CASH_ARGS)).rejects.toBeInstanceOf(
       PaymentWroteButUnreadableError,
+    );
+  });
+});
+
+// ── #372-A12 沖銷 ────────────────────────────────────────────────────────────
+// 🔴 **本節是關卡2 R1 MF3 補的**:原本 `wrote` 那條路只在碼表層用手捏的 `{wrote:true}` 測,
+//    **畸形的成功 payload 從來沒有真的走過 `parseReverseResult`** ⇒ 那支若改拋
+//    `PaymentWriteError`(沒有 `wrote` 旗標),**已經沖掉的那筆會被講成「這次沒有沖成」**,
+//    員工回頭去沖列表上新出現的負數列 ⇒ 原款被加回帳上 —— 而整套測試照樣全綠。
+
+describe('🔴 沖銷:成功 payload 形狀不完整 ⇒ 拋「已寫入但讀不懂」(不是「沒寫入」)', () => {
+  it.each([
+    ['不是物件', 'not-an-object'],
+    ['是陣列', [{ reversed: true, reversal_id: 'r1' }]],
+    ['reversed 不是 true', { reversed: 'true', reversal_id: 'r1' }],
+    ['reversed 是 false', { reversed: false, reversal_id: 'r1' }],
+    ['缺 reversal_id', { reversed: true }],
+    ['reversal_id 是空字串', { reversed: true, reversal_id: '' }],
+  ])('%s ⇒ PaymentWroteButUnreadableError 且 wrote === true', async (_label, data) => {
+    makeClient({ data, error: null });
+    await expect(
+      reverseManualPayment({ paymentId: 'p1', actor: 'staff-1', reason: '登錯' }),
+    ).rejects.toBeInstanceOf(PaymentWroteButUnreadableError);
+  });
+
+  it('🔴 `wrote` 旗標要真的在丟出來的物件上(下游靠它分派,不靠 instanceof)', async () => {
+    makeClient({ data: { reversed: false }, error: null });
+    await reverseManualPayment({ paymentId: 'p1', actor: 'staff-1', reason: '登錯' }).then(
+      () => {
+        throw new Error('不該成功');
+      },
+      (e: unknown) => {
+        expect((e as { wrote?: unknown }).wrote).toBe(true);
+      },
+    );
+  });
+
+  it('形狀完整 ⇒ 回 reversalId', async () => {
+    makeClient({ data: { reversed: true, reversal_id: 'rev-9' }, error: null });
+    await expect(
+      reverseManualPayment({ paymentId: 'p1', actor: 'staff-1', reason: '登錯' }),
+    ).resolves.toEqual({ reversalId: 'rev-9' });
+  });
+});
+
+describe('🔴 沖銷:送出去的 args 三欄逐字(接錯 = 沖錯列)', () => {
+  it('p_payment_id / p_actor / p_reason,且沒有 p_request_id 這個鍵', async () => {
+    const rpc = makeClient({ data: { reversed: true, reversal_id: 'rev-9' }, error: null });
+    await reverseManualPayment({ paymentId: 'p1', actor: 'staff-1', reason: '登錯' });
+    expect(rpc).toHaveBeenCalledWith('admin_reverse_manual_payment', {
+      p_payment_id: 'p1',
+      p_actor: 'staff-1',
+      p_reason: '登錯',
+    });
+  });
+
+  it('🔴 error 沒有 code 欄(閘道 502/504 那種非 JSON body)⇒ sqlstate 帶 null', async () => {
+    // `typeof error.code === 'string'` 的 **false 側**原本零覆蓋(關卡2 R2 nit5)。
+    // 這條路真的會發生:postgrest-js 對非 2xx 走 `JSON.parse(body)`,而閘道回的
+    // 502/504 是 HTML/純文字 ⇒ 解出來的物件沒有 `code`。
+    // 帶 null 才會被映成 `unknown`(可能已 commit);若改寫成 `String(error.code)`
+    // 會得到字串 `"undefined"` ⇒ 落 `bug` ⇒ 逐字對員工說「這次沒有沖成」,而錢可能已經沖掉了。
+    makeClient({ data: null, error: { message: 'Bad Gateway' } });
+    await reverseManualPayment({ paymentId: 'p1', actor: 'staff-1', reason: '登錯' }).then(
+      () => {
+        throw new Error('不該成功');
+      },
+      (e: unknown) => {
+        expect((e as { sqlstate?: unknown }).sqlstate).toBeNull();
+      },
+    );
+  });
+
+  it('🔴 RPC 拒收時 SQLSTATE 原樣帶出去', async () => {
+    makeClient({ data: null, error: { code: 'P2B44', message: '該列已被沖銷' } });
+    await reverseManualPayment({ paymentId: 'p1', actor: 'staff-1', reason: '登錯' }).then(
+      () => {
+        throw new Error('不該成功');
+      },
+      (e: unknown) => {
+        expect((e as { sqlstate?: unknown }).sqlstate).toBe('P2B44');
+        // 反面:**不可**帶 `wrote` —— 它代表已 commit,而拒收那條路什麼也沒寫。
+        expect((e as { wrote?: unknown }).wrote).toBeUndefined();
+      },
     );
   });
 });

@@ -195,10 +195,54 @@ export type PaymentListEntry = {
   payerNote: string | null;
   isReversal: boolean;
   reversalReason: string | null;
+  /**
+   * **這一列已經被別的列沖銷掉了**(#372-A12)。
+   * 🔴 與 `isReversal` 方向相反,別混:`isReversal` = 我**是**一列沖銷紀錄;
+   *    `isReversed` = 我**被**沖銷了。同一列兩者可以同時為真(沖銷之沖銷)。
+   */
+  isReversed: boolean;
+  /**
+   * **這一列的形狀准不准沖銷**(#372-A12)。
+   *
+   * 🔴 名字刻意帶 `ByRow`:它只答「列層准不准」,**答不了「這次呼叫會不會成功」**——
+   *    G1 隔離閘(`20260812150000:366-368`,P8C01)、G2 actor 失效(`:371-376`,P2B42)、
+   *    無 EXECUTE 權限(42501)都會在同一列上把一次合法呼叫打掉。
+   *    叫 `canReverse` 就是宣稱了它證明不了的事。
+   */
+  canReverseByRow: boolean;
 };
 
-export function toPaymentListEntry(row: OrderPaymentRow): PaymentListEntry {
+/**
+ * 「哪些列已經被沖掉了」——一次掃出來,不要每列各掃一遍。
+ *
+ * 🔴 判準是 `reversesPaymentId` 這個**具名欄位**,不是金額正負:
+ *    沖銷之沖銷的金額可以是正的(同本檔 :28-32 已經立過的那條)。
+ */
+export function reversedPaymentIds(rows: readonly OrderPaymentRow[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const r of rows) {
+    if (r.reversesPaymentId !== null) ids.add(r.reversesPaymentId);
+  }
+  return ids;
+}
+
+/**
+ * @param reversedIds `reversedPaymentIds(rows)` 的結果。
+ *   🔴 **必填,不給預設值**:預設空集合的話,呼叫端忘了傳 = 每一列都被算成「還沒被沖」
+ *   ⇒ 已沖銷的列會再長出一顆沖銷鈕,而 UI 層完全沒有訊號(DB 的 G8 才會擋)。
+ *   讓它在型別層就必須傳,忘記=編譯不過。
+ */
+export function toPaymentListEntry(
+  row: OrderPaymentRow,
+  reversedIds: ReadonlySet<string>,
+): PaymentListEntry {
+  const isReversed = reversedIds.has(row.id);
   return {
+    isReversed,
+    // 🔴 兩個條件都是 RPC 會硬拒的(卡軌 `:407-410` / 已被沖銷 `:414-422`)⇒ 這裡先擋是體驗層,
+    //    真正擋住的是 DB。**刻意不看 `isReversal`**:沖銷列本身仍可沖
+    //    (誤沖的更正方式就是沖銷之沖銷,Sean 2026-08-10 拍板)。
+    canReverseByRow: row.rail !== 'card' && !isReversed,
     id: row.id,
     railLabel: railLabel(row.rail),
     amountLabel: formatAmount(row.amount),

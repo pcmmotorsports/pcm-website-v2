@@ -1,6 +1,15 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render } from '@testing-library/react';
+import type { ReverseResult } from '../../lib/orders/payment-reverse-state';
+
+// 🔴 mock 掉沖銷 server action(transitively 拉 next/cache 與 session,jsdom 載不了);
+//    action 自己的語意在 `payment-reverse-state.test.ts` 測,本檔測的是**元件接了哪一句**。
+const reverseMock = vi.fn<(args: unknown) => Promise<ReverseResult>>();
+vi.mock('../../lib/orders/payment-reverse-actions', () => ({
+  reversePaymentAction: (args: unknown) => reverseMock(args),
+}));
+
 import { PaymentList, type PaymentListData } from './payment-list';
 import type { OrderPaymentRow } from '../../lib/orders/payment-list-view';
 
@@ -33,8 +42,14 @@ afterEach(cleanup);
 //    (memory `fixture-value-makes-guard-vacuous`)。預設用一個與各格 fixture 金額
 //    (6800)不同的數,任何一格意外落到 settled 都看得出來;要驗三態的格子自己傳。
 const DEFAULT_DUE = 1180;
+const ORDER_ID = 'ord-1';
+const RETURN_TO = '/orders/ord-1';
+const view = (data: PaymentListData, amountDue: number = DEFAULT_DUE) =>
+  render(
+    <PaymentList data={data} amountDue={amountDue} orderId={ORDER_ID} returnTo={RETURN_TO} />,
+  );
 const text = (data: PaymentListData, amountDue: number = DEFAULT_DUE): string =>
-  render(<PaymentList data={data} amountDue={amountDue} />).container.textContent ?? '';
+  view(data, amountDue).container.textContent ?? '';
 
 describe('三態分得開', () => {
   it('讀取失敗 ⇒ 明說「不知道有沒有」且叫他不要再登一筆', () => {
@@ -123,7 +138,7 @@ describe('列的內容', () => {
 //    `textContent` 照樣讀得到 ⇒ 拿 `toContain` 驗「有沒有收起來」是恆真。
 //    要驗就驗 `details.open` 這個真的會變的東西。
 const dom = (data: PaymentListData, amountDue: number = DEFAULT_DUE): HTMLElement =>
-  render(<PaymentList data={data} amountDue={amountDue} />).container;
+  view(data, amountDue).container;
 
 describe('#437 ① 標題', () => {
   it('標題是「收款」,不再是「已登錄的收款」', () => {
@@ -213,5 +228,203 @@ describe('#437 ④ 卡頂彙總三態', () => {
       expect(t).not.toContain('溢收');
       expect(t).not.toContain('已收足');
     }
+  });
+});
+
+// ── #372-A12 沖銷入口 ────────────────────────────────────────────────────────
+// 🔴 這一族**量的是 render 出來的字**,不是常數表(關卡1 R3 F3):
+//    只讀常數的話,元件把「一般收款」與「沖銷列」兩句確認詞接反照樣全綠,
+//    而那正是會害員工把原款加回帳上的那個錯。
+
+/** 可沖銷的一列(ROW 是 card 軌,RPC 硬拒 ⇒ 沖銷這一族不能用它當主角)。 */
+const CASH: OrderPaymentRow = { ...ROW, id: 'c1', rail: 'cash', recTradeId: null };
+
+beforeEach(() => {
+  reverseMock.mockReset();
+  reverseMock.mockResolvedValue({ ok: true });
+});
+
+const btn = (c: HTMLElement, name: string): HTMLButtonElement | undefined =>
+  [...c.querySelectorAll('button')].find((b) => b.textContent === name);
+
+describe('#372-A12 哪幾列有沖銷鈕', () => {
+  it('人工軌(現金)有鈕', () => {
+    expect(btn(dom({ status: 'ok', rows: [CASH] }), '沖銷這一筆')).toBeDefined();
+  });
+
+  it('🔴 卡軌沒有鈕,而且要說明為什麼(空白會被讀成壞了)', () => {
+    const c = dom({ status: 'ok', rows: [ROW] });
+    expect(btn(c, '沖銷這一筆')).toBeUndefined();
+    expect(c.textContent).toContain('刷卡收款的更正走 TapPay 退款,不在這裡沖銷。');
+  });
+
+  it('🔴 已被沖銷的列沒有鈕,而且掛「已沖銷」標記(留痕可見)', () => {
+    const c = dom({
+      status: 'ok',
+      rows: [CASH, { ...CASH, id: 'c2', amount: -6800, isReversal: true, reversesPaymentId: 'c1' }],
+    });
+    expect(c.textContent).toContain('已沖銷');
+    // c1 被沖 ⇒ 只剩沖銷列 c2 自己那一顆鈕。
+    expect([...c.querySelectorAll('button')].filter((b) => b.textContent === '沖銷這一筆')).toHaveLength(1);
+  });
+
+  it('🔴 沖銷列本身仍可沖(誤沖的更正 = 沖銷之沖銷,Sean 2026-08-10 拍板)', () => {
+    const c = dom({
+      status: 'ok',
+      rows: [{ ...CASH, id: 'r1', amount: -6800, isReversal: true, reversesPaymentId: 'gone' }],
+    });
+    expect(btn(c, '沖銷這一筆')).toBeDefined();
+  });
+});
+
+describe('🔴 兩句確認詞不可接反', () => {
+  const openPanel = (rows: OrderPaymentRow[]): string => {
+    const c = dom({ status: 'ok', rows });
+    fireEvent.click(btn(c, '沖銷這一筆')!);
+    return c.textContent ?? '';
+  };
+
+  it('一般收款列 ⇒ 講「從『已收』裡扣掉」,不講恢復', () => {
+    const t = openPanel([CASH]);
+    expect(t).toContain('這筆錢會從「已收」裡扣掉');
+    expect(t).not.toContain('恢復到帳上');
+  });
+
+  it('沖銷列 ⇒ 講「恢復到帳上」', () => {
+    const t = openPanel([
+      { ...CASH, id: 'r1', amount: -6800, isReversal: true, reversesPaymentId: 'gone' },
+    ]);
+    expect(t).toContain('恢復到帳上');
+    expect(t).not.toContain('這筆錢會從「已收」裡扣掉');
+  });
+
+  // 突變靶:把 payment-reverse-button.tsx 的 `isReversal ? B : A` 對調 ⇒ 上面兩格都紅、其餘不動。
+});
+
+describe('🔴 原因必填擋在前端(DB 的 G3 是 btrim 後判空)', () => {
+  const confirmBtn = (reason: string): HTMLButtonElement => {
+    const c = dom({ status: 'ok', rows: [CASH] });
+    fireEvent.click(btn(c, '沖銷這一筆')!);
+    fireEvent.change(c.querySelector('input')!, { target: { value: reason } });
+    return btn(c, '確認沖銷')!;
+  };
+
+  it.each(['', '   ', '　'])('空白原因「%s」⇒ 送不出去', (reason) => {
+    expect(confirmBtn(reason).disabled).toBe(true);
+  });
+
+  it('填了字才送得出去', () => {
+    expect(confirmBtn('登錯金額').disabled).toBe(false);
+  });
+});
+
+describe('🔴 失敗訊息就地顯示(而且是核可句本身)', () => {
+  it('拿到 not_reversible ⇒ 畫出那一句,零重試指令', async () => {
+    reverseMock.mockResolvedValue({
+      ok: false,
+      code: 'not_reversible',
+      message: '這一筆現在不能沖銷。',
+    });
+    const c = dom({ status: 'ok', rows: [CASH] });
+    fireEvent.click(btn(c, '沖銷這一筆')!);
+    fireEvent.change(c.querySelector('input')!, { target: { value: '登錯' } });
+    fireEvent.click(btn(c, '確認沖銷')!);
+    await vi.waitFor(() => expect(c.textContent).toContain('這一筆現在不能沖銷。'));
+  });
+});
+
+describe('🔴 島送出去的參數逐欄對(關卡2 R1 MF4:接錯欄位 = 沖錯列,畫面看不出來)', () => {
+  const submit = async (rows: OrderPaymentRow[], nth: number, reason: string) => {
+    const c = dom({ status: 'ok', rows });
+    const buttons = [...c.querySelectorAll('button')].filter((b) => b.textContent === '沖銷這一筆');
+    fireEvent.click(buttons[nth]!);
+    fireEvent.change(c.querySelector('input')!, { target: { value: reason } });
+    fireEvent.click([...c.querySelectorAll('button')].find((b) => b.textContent === '確認沖銷')!);
+    await vi.waitFor(() => expect(reverseMock).toHaveBeenCalled());
+    return c;
+  };
+
+  it('第一列 ⇒ 帶第一列的 id;orderId / returnTo 照 props;reason 是 trim 過的', async () => {
+    await submit([CASH], 0, '  登錯金額  ');
+    expect(reverseMock).toHaveBeenCalledWith({
+      paymentId: 'c1',
+      orderId: ORDER_ID,
+      returnTo: RETURN_TO,
+      reason: '登錯金額',
+    });
+  });
+
+  it('🔴 第二列 ⇒ 帶的是**第二列**的 id(釘住「哪一顆鈕對應哪一列」)', async () => {
+    const second = { ...CASH, id: 'c9' };
+    await submit([CASH, second], 1, '沖第二筆');
+    expect(reverseMock).toHaveBeenCalledWith(expect.objectContaining({ paymentId: 'c9' }));
+  });
+});
+
+describe('🔴 action 呼叫本身 reject(斷線)⇒ 要畫出雙分支那句,鈕不可卡死', () => {
+  it('關卡2 R1 MF1:沒有 catch 的話這裡會靜默、busy 永久 true', async () => {
+    reverseMock.mockRejectedValue(new Error('network down'));
+    const c = dom({ status: 'ok', rows: [CASH] });
+    fireEvent.click([...c.querySelectorAll('button')].find((b) => b.textContent === '沖銷這一筆')!);
+    fireEvent.change(c.querySelector('input')!, { target: { value: '登錯' } });
+    fireEvent.click([...c.querySelectorAll('button')].find((b) => b.textContent === '確認沖銷')!);
+
+    await vi.waitFor(() =>
+      expect(c.textContent).toContain('如果它沒有「已沖銷」的標記,代表沖銷沒有完成,請回到原本那一筆再沖一次'),
+    );
+    // 🔴 鈕要回得來(finally):卡死的話員工連重試都做不到。
+    const confirm = [...c.querySelectorAll('button')].find(
+      (b) => b.textContent === '確認沖銷',
+    ) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(false);
+  });
+});
+
+describe('🔴 成功後要有正面確認(R2 nit7:面板收起來 = 什麼都沒發生,兩者長得一樣)', () => {
+  it('成功 ⇒ 畫出成功那句', async () => {
+    const c = dom({ status: 'ok', rows: [CASH] });
+    fireEvent.click([...c.querySelectorAll('button')].find((b) => b.textContent === '沖銷這一筆')!);
+    fireEvent.change(c.querySelector('input')!, { target: { value: '登錯' } });
+    fireEvent.click([...c.querySelectorAll('button')].find((b) => b.textContent === '確認沖銷')!);
+    await vi.waitFor(() => expect(c.textContent).toContain('沖銷完成了'));
+    // 反面:失敗時不可出現它(否則這格對「永遠畫成功」也會綠)。
+    expect(c.textContent).not.toContain('這一筆現在不能沖銷');
+  });
+
+  it('失敗 ⇒ 不可出現成功那句', async () => {
+    reverseMock.mockResolvedValue({
+      ok: false,
+      code: 'not_reversible',
+      message: '這一筆現在不能沖銷。',
+    });
+    const c = dom({ status: 'ok', rows: [CASH] });
+    fireEvent.click([...c.querySelectorAll('button')].find((b) => b.textContent === '沖銷這一筆')!);
+    fireEvent.change(c.querySelector('input')!, { target: { value: '登錯' } });
+    fireEvent.click([...c.querySelectorAll('button')].find((b) => b.textContent === '確認沖銷')!);
+    await vi.waitFor(() => expect(c.textContent).toContain('這一筆現在不能沖銷。'));
+    expect(c.textContent).not.toContain('沖銷完成了');
+  });
+});
+
+describe('🔴 溢收 → 沖掉之後翻回正確態(R2 nit4:Sean 肉眼驗走的正是這條算術)', () => {
+  it('應收 5000、已收 6800(溢收 1,800)⇒ 沖掉那筆 ⇒ 已收 0 ⇒ 還差 5,000', () => {
+    const before = text({ status: 'ok', rows: [{ ...CASH, amount: 6800 }] }, 5000);
+    expect(before).toContain('溢收 1,800 元');
+
+    cleanup();
+    const after = text(
+      {
+        status: 'ok',
+        rows: [
+          { ...CASH, amount: 6800 },
+          { ...CASH, id: 'c2', amount: -6800, isReversal: true, reversesPaymentId: 'c1' },
+        ],
+      },
+      5000,
+    );
+    // 🔴 這條分支既有格子沒走過(既有的只走「已收足 → 還差」)。
+    expect(after).toContain('還差 5,000 元');
+    expect(after).not.toContain('溢收');
+    expect(after).not.toContain('已收足');
   });
 });

@@ -1,10 +1,12 @@
 import {
   formatAmount,
+  reversedPaymentIds,
   toPaymentListEntry,
   toPaymentSummary,
   type OrderPaymentRow,
   type PaymentSummary,
 } from '../../lib/orders/payment-list-view';
+import { PaymentReverseButton } from './payment-reverse-button';
 
 // payment-list.tsx — M-4b E10 #15-B2-a:訂單收款列表(server-render、唯讀)。
 // 語意全在 `lib/orders/payment-list-view.ts`,本檔只排版(同 A10a 的 notes-timeline 分工)。
@@ -36,8 +38,18 @@ export type PaymentListData =
  * 🔴 **沖銷徽章留在單行上**(不收進細節):沖銷列的金額是負數,
  *    看到 `-340元` 卻沒有任何標記時,最省力的解讀是「畫錯了」。
  */
-function Row({ row }: { row: OrderPaymentRow }) {
-  const e = toPaymentListEntry(row);
+function Row({
+  row,
+  reversedIds,
+  orderId,
+  returnTo,
+}: {
+  row: OrderPaymentRow;
+  reversedIds: ReadonlySet<string>;
+  orderId: string;
+  returnTo: string;
+}) {
+  const e = toPaymentListEntry(row, reversedIds);
   return (
     <li className='border-t text-sm first:border-t-0'>
       <details className='group'>
@@ -49,6 +61,13 @@ function Row({ row }: { row: OrderPaymentRow }) {
           {e.isReversal && (
             <span className='bg-destructive/10 text-destructive inline-flex rounded-full px-2 py-0.5 text-xs font-medium'>
               沖銷更正
+            </span>
+          )}
+          {/* 🔴 「已沖銷」要看得見(#372-A12 留痕):沒有標記的話,員工分不出
+              「這筆還在」與「這筆已經被沖掉、下面那列負數就是它的沖銷紀錄」。 */}
+          {e.isReversed && (
+            <span className='bg-muted text-muted-foreground inline-flex rounded-full px-2 py-0.5 text-xs font-medium'>
+              已沖銷
             </span>
           )}
           {/* 對帳看 received_at(欄 COMMENT 逐字);登錄時點收進細節區,兩者不可混用。 */}
@@ -68,6 +87,20 @@ function Row({ row }: { row: OrderPaymentRow }) {
           {e.reversalReason !== null && <p className='break-words'>沖銷原因:{e.reversalReason}</p>}
           {e.payerNote !== null && (
             <p className='text-foreground whitespace-pre-wrap break-words'>{e.payerNote}</p>
+          )}
+
+          {/* 🔴 card 列沒有鈕,但**不能零解釋**:正式站的歷史收款列是 card 佔多數
+              (`payment-list-view.ts:38-40` 記著 2026-08-11 實查 6 列全是 card)⇒
+              一個「別人有、我這列沒有」的空白會被讀成壞了。 */}
+          {row.rail === 'card' && <p>刷卡收款的更正走 TapPay 退款,不在這裡沖銷。</p>}
+
+          {e.canReverseByRow && (
+            <PaymentReverseButton
+              paymentId={row.id}
+              orderId={orderId}
+              returnTo={returnTo}
+              isReversal={e.isReversal}
+            />
           )}
         </div>
       </details>
@@ -124,11 +157,17 @@ function SummaryLine({ summary }: { summary: PaymentSummary }) {
 export function PaymentList({
   data,
   amountDue,
+  orderId,
+  returnTo,
   children,
 }: {
   data: PaymentListData;
   /** 這張單的應收總額(整數元,同 `order_payments.amount` 單位;#437 ④ 的彙總行用)。 */
   amountDue: number;
+  /** #372-A12:沖銷 action 要用(revalidate 這張單 + 寫 log)。 */
+  orderId: string;
+  /** #372-A12:沖銷後要重取的那條路由(面板版帶 `?panel=…`)。 */
+  returnTo: string;
   children?: React.ReactNode;
 }) {
   const summary: PaymentSummary = toPaymentSummary(
@@ -163,9 +202,20 @@ export function PaymentList({
         <p className='text-muted-foreground py-2 text-sm'>尚未登錄任何收款。</p>
       ) : (
         <ul>
-          {data.rows.map((row) => (
-            <Row key={row.id} row={row} />
-          ))}
+          {/* 🔴 一次算好整組「誰被沖掉了」再逐列問,不要每列各掃一遍(N² 之外,
+              更重要的是單一真相:兩處各算一次就會漂)。 */}
+          {(() => {
+            const reversedIds = reversedPaymentIds(data.rows);
+            return data.rows.map((row) => (
+              <Row
+                key={row.id}
+                row={row}
+                reversedIds={reversedIds}
+                orderId={orderId}
+                returnTo={returnTo}
+              />
+            ));
+          })()}
         </ul>
       )}
 
