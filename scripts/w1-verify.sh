@@ -27,7 +27,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 #    改成可覆寫,預設值不變(單窗行為一致)。
 D="${W1DB:-/tmp/w1db}"; SOCK="${W1SOCK:-/tmp/w1sk}"; P="${W1PORT:-54375}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=51
+EXPECT_TOTAL=52
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-30s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-30s %s\n' "$1" "$2"; }
 
@@ -325,20 +325,52 @@ GACL="$(Q "SELECT coalesce(pg_catalog.string_agg(DISTINCT a.grantee::text, ','),
 [ "$GACL" = "(空)" ] && ok W1-GEN-ZERO-GRANT "產號器非 owner grantee 集合為空(N3a 的零 GRANT 設計仍成立)✓" \
                      || bad W1-GEN-ZERO-GRANT "🔴 產號器被 GRANT 給 [$GACL] ⇒ 可被取樣、單號可預測性下降"
 
-echo "══ 7. 🔴 突變靶(每一族至少一發,證這些格紅得起來) ═════════"
-Q "ALTER FUNCTION public.admin_void_shipment(text, uuid, text) SECURITY INVOKER;" >/dev/null
-MV="$(Q "SELECT prosecdef::text FROM pg_proc WHERE proname='admin_void_shipment'")"
-[ "$MV" = "false" ] && ok TMUT-PROPS "把一支改成 SECURITY INVOKER ⇒ 屬性格的觀察值真的變了(false)= 該族有判別力" \
-                    || bad TMUT-PROPS "改成 INVOKER 後 prosecdef 仍是 [$MV] ⇒ 屬性格量錯東西"
-Q "ALTER FUNCTION public.admin_void_shipment(text, uuid, text) SECURITY DEFINER;" >/dev/null
-Q "GRANT EXECUTE ON FUNCTION public.admin_unvoid_shipment(text, uuid) TO anon;" >/dev/null
-MA="$(Q "SELECT has_function_privilege('anon','public.admin_unvoid_shipment(text,uuid)','EXECUTE')")"
-[ "$MA" = "t" ] && ok TMUT-ACL "多 GRANT 一個角色 ⇒ ACL 點名格的觀察值真的變了(t)= 該族有判別力" \
-                || bad TMUT-ACL "多 GRANT 之後仍是 [$MA] ⇒ ACL 格量錯東西"
-MS="$(Q "SELECT pg_catalog.count(DISTINCT a.grantee::text) FROM pg_proc p, pg_catalog.aclexplode(p.proacl) a WHERE p.proname='admin_unvoid_shipment' AND a.grantee <> p.proowner")"
-[ "$MS" = "2" ] && ok TMUT-ACLSET "集合比對同時看到 2 個 grantee ⇒ 「第五個意外角色」確實抓得到" \
-                || bad TMUT-ACLSET "集合比對只看到 $MS 個 ⇒ 它對多出來的角色不敏感"
-Q "REVOKE ALL ON FUNCTION public.admin_unvoid_shipment(text, uuid) FROM anon;" >/dev/null
+echo "══ 7. 🔴 突變靶(**逐成員打、全部翻面才算**;判準見 :11 第二句)═════"
+# 🔴 **#420-2(2026-08-12)**:首版五族**各只打一支**(PROPS 打 void、ACL/ACLSET/FAILCLOSED/ISO
+#    打 unvoid)⇒ 其餘四支的同族格**沒有任何東西在背書** —— 把 create/add/mark 三支的屬性、ACL、
+#    fail-closed 或隔離閘改壞,整族照樣全綠。這正是 `scripts/w2-verify.sh:18` 逐字立的判準
+#    (「本檔的 `TMUT-ACL` / `TMUT-WIRED` 因此逐成員打,全部翻面才算」)在 w1 沒回頭補的那筆。
+#    形狀照 `scripts/w2-verify.sh:600`:累積不敏感的成員名、**任一支沒翻面即紅**。
+#    ⚠️ **五族仍是一族一格**(逐支打、只在全部翻面時給一個 PASS)⇒ 這五格的格數不變;
+#       但本次**另加一格** `TMUT-ROLLBACK-CLEAN`(見下方 ②③ 尾端)⇒ `EXPECT_TOTAL` 51→52、
+#       `KEYS_FROZEN` 同批補該格名。
+# ⚠️ 簽章一律**從 DB 量**(`pg_get_function_identity_arguments`),不手抄 —— 手抄的話簽章漂了
+#    這裡會靜默打不到函式(`ALTER … does not exist` 被 `2>&1` 吞成觀察值)而不是紅在 W1-SIG-*。
+ident() { Q "SELECT pg_catalog.pg_get_function_identity_arguments(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$1'"; }
+fargs() { Q "SELECT pg_catalog.pg_get_function_arguments(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$1'"; }
+call_of() { printf '%s\n' "$CALLS" | grep "^$1(" ; }
+
+# ① PROPS 族:**逐支**改 SECURITY INVOKER ⇒ 每一支的 prosecdef 都要翻面
+PROPS_BAD=""
+for fn in $FIVE; do
+  ID="$(ident "$fn")"
+  Q "ALTER FUNCTION public.$fn($ID) SECURITY INVOKER;" >/dev/null
+  MV="$(Q "SELECT prosecdef::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
+  [ "$MV" = "false" ] || PROPS_BAD="$PROPS_BAD $fn[實得 ${MV:-空}]"
+  Q "ALTER FUNCTION public.$fn($ID) SECURITY DEFINER;" >/dev/null
+done
+[ -z "$PROPS_BAD" ] && ok TMUT-PROPS "**五支逐一**改 SECURITY INVOKER ⇒ 每支 prosecdef 都翻面(false)= 整族有判別力,不是單一成員" \
+                    || bad TMUT-PROPS "有成員不敏感:$PROPS_BAD"
+
+# ②③ ACL / ACLSET 族:**逐支**多 GRANT 一個角色(同一發突變、兩個不同觀察點)
+ACL_BAD=""; ACLSET_BAD=""
+for fn in $FIVE; do
+  ID="$(ident "$fn")"
+  Q "GRANT EXECUTE ON FUNCTION public.$fn($ID) TO anon;" >/dev/null
+  # 🔴 用 **OID 形式**、不組簽章字串:`has_function_privilege` 的 text 形式只吃**型別**,
+  #    而 `pg_get_function_identity_arguments` 在本機 PG 17 實測**會帶參數名**
+  #    (實證=第一版跑出 `CONTEXT: invalid type name "p_idempotency_key text"`,五支全紅)。
+  #    OID 形式沒有這個歧義,也不必知道哪個內建函式帶不帶名字。
+  MA="$(Q "SELECT has_function_privilege('anon', p.oid, 'EXECUTE') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
+  [ "$MA" = "t" ] || ACL_BAD="$ACL_BAD $fn[實得 ${MA:-空}]"
+  MS="$(Q "SELECT pg_catalog.count(DISTINCT a.grantee::text) FROM pg_proc p, pg_catalog.aclexplode(p.proacl) a WHERE p.proname='$fn' AND a.grantee <> p.proowner")"
+  [ "$MS" = "2" ] || ACLSET_BAD="$ACLSET_BAD $fn[實得 ${MS:-空}]"
+  Q "REVOKE ALL ON FUNCTION public.$fn($ID) FROM anon;" >/dev/null
+done
+[ -z "$ACL_BAD" ] && ok TMUT-ACL "**五支逐一**多 GRANT anon ⇒ 每支的 ACL 點名格觀察值都翻面(t)= 整族有判別力" \
+                  || bad TMUT-ACL "有成員不敏感:$ACL_BAD"
+[ -z "$ACLSET_BAD" ] && ok TMUT-ACLSET "**五支逐一**多 GRANT ⇒ 每支的集合比對都看到 2 個 grantee = 整族抓得到「第五個意外角色」" \
+                     || bad TMUT-ACLSET "有成員不敏感:$ACLSET_BAD"
 
 # 🔴 F14(nit):首版標題寫「每一族至少一發」,但 GEN / FAILCLOSED / ISO / ACTION-MAP 四族零靶
 #    —— 與本檔 :11 自訂判準第一句衝突。以下補齊,全部在交易內或用完即還原。
@@ -346,15 +378,31 @@ Q "REVOKE ALL ON FUNCTION public.admin_unvoid_shipment(text, uuid) FROM anon;" >
 REPOS="$(Q "SELECT ('4TFBFH' ~ '$RE')::text || '|' || ('abc' ~ '$RE')::text || '|' || ('4TFBF' ~ '$RE')::text")"
 [ "$REPOS" = "true|false|false" ] && ok TMUT-GEN-RE "抽出的正規式:合法碼過 / 小寫不過 / 短一碼不過 ⇒ 它不是什麼都收 ✓" \
                                  || bad TMUT-GEN-RE "正規式判別力不足:[$REPOS](期望 true|false|false)"
-# ② FAILCLOSED 族:把一支換成靜默回傳 ⇒ 該格必須翻面
-Q "CREATE OR REPLACE FUNCTION public.admin_unvoid_shipment(p_idempotency_key text, p_shipment_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$m\$ BEGIN RETURN '{}'::jsonb; END \$m\$;" >/dev/null
-MFC="$(QM "SELECT public.admin_unvoid_shipment('k', gen_random_uuid());")"
-case "$MFC" in *'尚未實作'*) bad TMUT-FAILCLOSED "換成靜默回傳後仍拋未實作 ⇒ FAILCLOSED 族量錯東西" ;;
-  *) ok TMUT-FAILCLOSED "🔴 換成靜默回傳 ⇒ 呼叫**成功**(實得 [$MFC])= FAILCLOSED 族有判別力" ;; esac
-# ③ ISO 族:上面那支現在**沒有隔離閘** ⇒ RR 下不該再是 P2B02
-MISO="$(psql -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "BEGIN ISOLATION LEVEL REPEATABLE READ; DO \$\$ DECLARE c text; BEGIN BEGIN PERFORM public.admin_unvoid_shipment('k', gen_random_uuid()); EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS c = RETURNED_SQLSTATE; RAISE NOTICE 'CAP|%', c; END; END \$\$; ROLLBACK;" 2>&1 | sed -n 's/.*CAP|\(.*\)/\1/p' | tr -d '\n')"
-[ "$MISO" != "P2B02" ] && ok TMUT-ISO "🔴 拿掉某支的隔離閘 ⇒ RR 下不再是 P2B02(實得 [${MISO:-無錯誤}])= ISO 族有判別力" \
-                       || bad TMUT-ISO "拿掉閘之後 RR 仍回 P2B02 ⇒ ISO 族守的不是那段閘"
+# ②③ FAILCLOSED / ISO 族:**逐支**換成靜默回傳(=同時拿掉未實作閘與隔離閘),兩個觀察點各自一格。
+# 🔴 突變**包在交易裡、以 ROLLBACK 還原**(本節上方逐字承諾「全部在交易內或用完即還原」)。
+#    為什麼不是「改完再改回來」:還原要嘛手抄骨架本體(違反本檔不手抄原則、且抄錯會靜默放行),
+#    要嘛用 `pg_get_functiondef` 回讀 —— 但 `Q()` 有 `tr -d '\n'`(`:118`),多行定義會被壓成一行、
+#    `--` 註解會吃掉後面整段。交易回滾沒有這兩個問題,DDL 在 PG 是交易性的。
+# ⚠️ 兩種結束路徑都會還原:無錯誤 ⇒ 明寫的 ROLLBACK 跑到;有錯誤 ⇒ 整個隱式交易中止。
+FC_BAD=""; ISO_BAD=""
+for fn in $FIVE; do
+  AR="$(fargs "$fn")"; C="$(call_of "$fn")"
+  STUB="CREATE OR REPLACE FUNCTION public.$fn($AR) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$m\$ BEGIN RETURN '{}'::jsonb; END \$m\$;"
+  MFC="$(QM "BEGIN; $STUB SELECT public.$C; ROLLBACK;")"
+  case "$MFC" in *'尚未實作'*) FC_BAD="$FC_BAD $fn" ;; esac
+  MISO="$(psql -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "BEGIN ISOLATION LEVEL REPEATABLE READ; $STUB DO \$\$ DECLARE c text; BEGIN BEGIN PERFORM public.$C; EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS c = RETURNED_SQLSTATE; RAISE NOTICE 'CAP|%', c; END; END \$\$; ROLLBACK;" 2>&1 | sed -n 's/.*CAP|\(.*\)/\1/p' | tr -d '\n')"
+  [ "$MISO" != "P2B02" ] || ISO_BAD="$ISO_BAD $fn"
+done
+[ -z "$FC_BAD" ] && ok TMUT-FAILCLOSED "🔴 **五支逐一**換成靜默回傳 ⇒ 每支的呼叫都**成功**(不再拋未實作)= 整族有判別力" \
+                 || bad TMUT-FAILCLOSED "換成靜默回傳後仍拋未實作 ⇒ 這幾支的 FAILCLOSED 格量錯東西:$FC_BAD"
+[ -z "$ISO_BAD" ] && ok TMUT-ISO "🔴 **五支逐一**拿掉隔離閘 ⇒ RR 下每支都不再回 P2B02 = 整族有判別力" \
+                  || bad TMUT-ISO "拿掉閘後 RR 仍回 P2B02 ⇒ 這幾支的 ISO 格守的不是那段閘:$ISO_BAD"
+# 🔴 還原的**負向自證**:交易若沒還原,下面這格會看到殘留的 stub(骨架應恆拋未實作)。
+RESTORED="$(QM "SELECT public.admin_unvoid_shipment('k', gen_random_uuid());")"
+case "$RESTORED" in
+  *'尚未實作'*) ok TMUT-ROLLBACK-CLEAN "突變交易已回滾:骨架回到「呼叫必拋未實作」⇒ 上面兩族沒有把 DB 留在突變狀態 ✓" ;;
+  *) bad TMUT-ROLLBACK-CLEAN "🔴 突變沒還原!呼叫回 [${RESTORED:-空}] 而非未實作 ⇒ 後面所有格都在被污染的 DB 上跑" ;;
+esac
 # ④ ACTION-MAP 族:多長一支同名族的函式 ⇒ 集合格必須紅
 Q "CREATE FUNCTION public.admin_bogus_shipment_writer() RETURNS int LANGUAGE sql AS 'SELECT 1';" >/dev/null
 MSET="$(Q "SELECT pg_catalog.string_agg(p.proname, ',' ORDER BY p.proname) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'admin_%shipment%'")"
@@ -374,7 +422,7 @@ DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\
 # 🔴 F10(consider):只數總數的話,「刪一格 + 別處加一格」= 總數不變、照樣全綠。
 #    ⇒ 把**格名集合**也凍結。新增/改名/刪格都必須同批更新這份清單。
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-ACLSET TMUT-FAILCLOSED TMUT-FN-SET TMUT-GEN-RE TMUT-ISO TMUT-PROPS W1-ACL-admin_add_shipment_items W1-ACL-admin_create_shipment W1-ACL-admin_mark_shipment_shipped W1-ACL-admin_unvoid_shipment W1-ACL-admin_void_shipment W1-ACLSET-admin_add_shipment_items W1-ACLSET-admin_create_shipment W1-ACLSET-admin_mark_shipment_shipped W1-ACLSET-admin_unvoid_shipment W1-ACLSET-admin_void_shipment W1-ACTION-SET W1-ERRCODE-admin_add_shipment_items W1-ERRCODE-admin_create_shipment W1-ERRCODE-admin_mark_shipment_shipped W1-ERRCODE-admin_unvoid_shipment W1-ERRCODE-admin_void_shipment W1-FAILCLOSED-admin_add_shipment_items W1-FAILCLOSED-admin_create_shipment W1-FAILCLOSED-admin_mark_shipment_shipped W1-FAILCLOSED-admin_unvoid_shipment W1-FAILCLOSED-admin_void_shipment W1-FN-SET W1-GEN-MATCHES-SHIPMENTS W1-GEN-RE-EXTRACT W1-GEN-VARIES W1-GEN-ZERO-GRANT W1-ISO-admin_add_shipment_items W1-ISO-admin_create_shipment W1-ISO-admin_mark_shipment_shipped W1-ISO-admin_unvoid_shipment W1-ISO-admin_void_shipment W1-NO-OVERLOAD W1-PROPS-admin_add_shipment_items W1-PROPS-admin_create_shipment W1-PROPS-admin_mark_shipment_shipped W1-PROPS-admin_unvoid_shipment W1-PROPS-admin_void_shipment W1-SIG-admin_add_shipment_items W1-SIG-admin_create_shipment W1-SIG-admin_mark_shipment_shipped W1-SIG-admin_unvoid_shipment W1-SIG-admin_void_shipment"
+KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-ACLSET TMUT-FAILCLOSED TMUT-FN-SET TMUT-GEN-RE TMUT-ISO TMUT-PROPS TMUT-ROLLBACK-CLEAN W1-ACL-admin_add_shipment_items W1-ACL-admin_create_shipment W1-ACL-admin_mark_shipment_shipped W1-ACL-admin_unvoid_shipment W1-ACL-admin_void_shipment W1-ACLSET-admin_add_shipment_items W1-ACLSET-admin_create_shipment W1-ACLSET-admin_mark_shipment_shipped W1-ACLSET-admin_unvoid_shipment W1-ACLSET-admin_void_shipment W1-ACTION-SET W1-ERRCODE-admin_add_shipment_items W1-ERRCODE-admin_create_shipment W1-ERRCODE-admin_mark_shipment_shipped W1-ERRCODE-admin_unvoid_shipment W1-ERRCODE-admin_void_shipment W1-FAILCLOSED-admin_add_shipment_items W1-FAILCLOSED-admin_create_shipment W1-FAILCLOSED-admin_mark_shipment_shipped W1-FAILCLOSED-admin_unvoid_shipment W1-FAILCLOSED-admin_void_shipment W1-FN-SET W1-GEN-MATCHES-SHIPMENTS W1-GEN-RE-EXTRACT W1-GEN-VARIES W1-GEN-ZERO-GRANT W1-ISO-admin_add_shipment_items W1-ISO-admin_create_shipment W1-ISO-admin_mark_shipment_shipped W1-ISO-admin_unvoid_shipment W1-ISO-admin_void_shipment W1-NO-OVERLOAD W1-PROPS-admin_add_shipment_items W1-PROPS-admin_create_shipment W1-PROPS-admin_mark_shipment_shipped W1-PROPS-admin_unvoid_shipment W1-PROPS-admin_void_shipment W1-SIG-admin_add_shipment_items W1-SIG-admin_create_shipment W1-SIG-admin_mark_shipment_shipped W1-SIG-admin_unvoid_shipment W1-SIG-admin_void_shipment"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-30s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else
