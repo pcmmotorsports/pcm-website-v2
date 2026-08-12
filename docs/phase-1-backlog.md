@@ -11045,7 +11045,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #409. 🔤 `Panigale V4` / `panigale v4` 雙字面:同一台車兩個大小寫版本,顯示名與寫入驗證都受影響
 
-- **狀態:** ⏳ 待排(2026-08-11 #277 C 案實作時量到;主視窗 S-033-A 配號、Sean §3 拍 A「照現狀 apply、另立本條」)
+- **狀態:** 🔶 源頭已修、待 08-13 同步後驗收即可結案(2026-08-12 報價單側交接 `pcm-quote-v2@4d63acc` `docs/handoff/2026-08-12-409-model-name-cleanup-for-website.md`:小寫 2 筆=審核卡手填未正規化,程式+資料雙修、重複列已刪、正寫法 2,547 筆未動;`Forza 250 ` 尾空格=字典源頭修+全庫三輪掃歸零;皆非刻意保留)。原狀態:⏳ 待排(2026-08-11 #277 C 案實作時量到;主視窗 S-033-A 配號、Sean §3 拍 A)
+- **⚠️ 驗收式已被報價單側修正**(我方原式尾空格那半跑錯表——effective 管線本來就 TRIM,該表今天就是 0=零判別力):08-13 我方 import 跑完後,三句**全部=0** 才結案:
+  ```sql
+  SELECT count(*) FROM product_fitments_effective WHERE model_code = 'panigale v4';
+  SELECT count(*) FROM product_fitments        WHERE model_code = 'panigale v4' OR model_code LIKE '% ';
+  SELECT count(*) FROM vehicle_taxonomy_public WHERE model_code = 'panigale v4' OR model_code LIKE '% ';
+  ```
+- 防再犯(報價單側,實作中):手填通道自動對齊字典寫法。
 - **優先級:** 🟡 低-中(**今天零客人受影響**,但會讓下拉顯示一個小寫的車名,且有潛在拒寫風險)
 - **問題**:資料裡同一台 Ducati 有兩個只差大小寫的字面 —— `"Panigale V4"` 與 `"panigale v4"`,
   **兩張表都各有兩種**,而且小寫版是**極少數**(2026-08-11 實查):
