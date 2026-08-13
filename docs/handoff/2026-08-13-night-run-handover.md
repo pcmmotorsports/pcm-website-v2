@@ -148,6 +148,14 @@ grep -oE '^### #[0-9]+[a-z]*\.' docs/phase-1-backlog.md | sed -E 's/### #([0-9]+
   `pcm-procure-undo`(D,已 merge 可回收)/ `pcm-backlog-renumber`(B,已 merge 可回收)。
 - **codex**:`codex exec -m gpt-5.6-sol -s read-only "$(cat prompt.txt)" < /dev/null > out.txt 2>&1`
   ⚠️ **`< /dev/null` 不可省**(省了會睡死,而且外觀與「正在深度思考」相同)。
+- 🟡 **一次未查明的 `vitest` exit 1**(E 窗 8/13 折 L2 時):`npx vitest run` 回 exit 1,
+  **而同一輪輸出是零失敗**;之後連跑多次皆 exit 0、數字相同。**E 窗刻意不宣稱是 flake**(沒查出原因),
+  逐字留在 `54032849` 的 commit body ——**留著是為了下次發生時有第二個資料點,現在丟掉的話下次等於第一次。**
+  當時裁決:commit 前連跑 3 次皆 exit 0 就放行。**再遇到請當場查,別直接沿用這個放行條件。**
+- 🟡 **已知債:`STATUS.md` 主表 34 行 > 30 行上限**(規則在 `CLAUDE.md`「STATUS.md 維護」)。
+  超出的來源是「最後更新」9 列歷史(規則明寫**不寫歷史、去 `PROGRESS.md`**)。
+  我今晚只把自己加的那 11 行壓成 2 行(43→34),**沒動歷史列** —— 那要逐列搬進 PROGRESS,是盤整工作。
+  ⇒ 下一個 milestone 收尾跑 `/pcm-housekeeping` 時處理。
 
 ---
 
