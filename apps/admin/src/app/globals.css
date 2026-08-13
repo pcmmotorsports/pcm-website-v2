@@ -288,16 +288,29 @@
     font-weight: 600;
   }
 
-  .orders-grid .col-date {
+  /* 🔴 **L3 片1:狀態八值欄緊接在單號下面** —— 它是**訂單層**,屬於卡片的抬頭段,
+     不能掉進品項段(掉進去會讀成「這個品項的狀態」,而它講的是整張單)。
+     落點逐字照 OD `overview-desktop.html:157-158`(`k-oid` 之後緊接 `k-st`,並帶 `padding-bottom:3px`)。
+     ⚠️ 它同時接手了原本擠在單號格裡的付款膠囊(本片已下架)—— 收款軸現在由本格膠囊上的紅框帶。
+     ⚠️ 這一條讓下面整段的 `order` 全部 +1(原 3-12 → 4-13);`.col-qty` 遞補到的 13 原本是
+        `.col-ordered` 的槽,而那條規則**已於同片刪除**(R 審 F2:不刪的話它與 `.col-qty` 同為 13 = 重號,
+        今天零視覺影響只因為它零 renderer,但誰把那個 class 用回去就是靜默版面錯位)。
+        ⇒ 本區塊現在的完整序列 = **1..14 連號、無重號、無跳號**。 */
+  .orders-grid .col-status {
     order: 3;
+    padding-bottom: 0.1875rem;
   }
 
-  .orders-grid .col-customer {
+  .orders-grid .col-date {
     order: 4;
   }
 
-  .orders-grid .col-invoice {
+  .orders-grid .col-customer {
     order: 5;
+  }
+
+  .orders-grid .col-invoice {
+    order: 6;
   }
 
   /* 🔴🔴 **金額那格的落點要看它現在是哪一層 —— 這是 430 截圖實看抓到的,不是預先設計的。**
@@ -306,12 +319,12 @@
      不分流的第一版截圖長這樣:多品項單的「金額 NT$ 48,600」被排到第一個商品的欄位後面
      ⇒ 讀起來像「第一個商品賣 48,600」。桌機有表頭不會誤讀,**卡片沒有表頭就會**。 */
   .orders-grid .col-amount[data-l='金額'] {
-    order: 6;
+    order: 7;
   }
 
   /* 取消是**整單**的動作 ⇒ 留在訂單層那一段,不能掉進第一個商品的區塊裡(同上,截圖抓到) */
   .orders-grid .col-ops {
-    order: 7;
+    order: 8;
     justify-content: flex-end;
   }
 
@@ -343,7 +356,7 @@
 
   /* 品名 = 品項段的主標,兼作「訂單層欄到此結束」的分隔線 */
   .orders-grid .col-title {
-    order: 8;
+    order: 9;
     margin-top: 0.4375rem;
     border-top: 1px solid var(--border);
     padding-top: 0.4375rem;
@@ -358,22 +371,18 @@
   }
 
   .orders-grid .col-sku {
-    order: 9;
-  }
-
-  .orders-grid .col-vehicle {
     order: 10;
   }
 
-  .orders-grid .col-brand {
+  .orders-grid .col-vehicle {
     order: 11;
   }
 
-  .orders-grid .col-qty {
+  .orders-grid .col-brand {
     order: 12;
   }
 
-  .orders-grid .col-ordered {
+  .orders-grid .col-qty {
     order: 13;
   }
 

@@ -4,14 +4,12 @@ import type { AdminOrderSummary } from '@pcm/domain';
 import {
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
-  PAYMENT_STATUS_CAPSULE,
-  PAYMENT_STATUS_LABEL,
-  STATUS_CAPSULE,
   formatOrderAmount,
   formatOrderItemVehicle,
   formatOrderListDate,
-  orderedCapsuleClass,
 } from '../../lib/orders/order-list-view';
+// L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
+import { orderStatusView } from '../../lib/orders/order-status-axes';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
 // 需求(Sean):一張訂單多商品 → 拆多列(各商品到貨時間不同、要個別看);同單分組 = 訂單層欄
@@ -90,18 +88,6 @@ function shouldMergeAmount(order: AdminOrderSummary): boolean {
 }
 
 /**
- * 付款軸膠囊 class。
- *
- * 🔴 收斂成單一 markup 之後,「桌機與卡片拿到的 class 結構上相等」這件事**不再需要靠這支保證**
- * —— 它現在整張表只被渲染一次,「兩份 markup 漂移」這個失效模式**結構上消失了**。
- * 本支保留的理由改成:配色表集中在 `order-list-view.ts`、呼叫端不自己拼字串。
- * ⚠️ 本支與付款膠囊本身將隨 **L3**(Sean 拍 Q2=A:狀態欄獨扛)一起下架。
- */
-function paymentCapsuleClass(status: AdminOrderSummary['paymentStatus']): string {
-  return `${STATUS_CAPSULE} ${PAYMENT_STATUS_CAPSULE[status]}`;
-}
-
-/**
  * 手機卡片模式的欄位排序與標籤,由 `<td>` 上的 `col-*` class 與 `data-l` 承載
  * (CSS 在 `app/globals.css` 的 `.orders-grid` 區塊)。
  *
@@ -120,7 +106,9 @@ const CELL = {
   qty: 'col-qty',
   amount: 'col-amount',
   customer: 'col-customer',
-  ordered: 'col-ordered',
+  // L3 片1:`ordered`(訂貨,品項層)已下架,原槽換成 `status`(狀態八值,**訂單層**)。
+  // 🔴 兩者的層級不同,不是換個名字 —— 訂貨是逐列各有值,狀態只在該單第一列出值。
+  status: 'col-status',
   invoice: 'col-invoice',
   ops: 'col-ops',
 } as const;
@@ -136,6 +124,8 @@ function OrderGroup({
   // 品項展開;空陣列(理論不發生,create_order 保證 ≥1 line)→ 兜一列 null 佔位、顯示「—」。
   const rows = order.lines.length > 0 ? order.lines : [null];
   const mergeAmount = shouldMergeAmount(order);
+  // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
+  const status = orderStatusView(order);
 
   return (
     // 🔴 **無障礙:拆掉 `rowSpan` 掉了什麼,精確版**(模糊版「分組語意變純視覺」不可測、不要用):
@@ -222,27 +212,11 @@ function OrderGroup({
                     已取消
                   </span>
                 )}
-                {/* A11a-2:付款軸小字。母 plan §5.1a 三軸落點**整句**逐字 = 「付款 = 訂單層(rowSpan
-                    合併格內小字,『待付款』紅 = design token `--c-red`(#dc2626,`tokens.css:16`)」。
-                    形狀同客戶格的等級小字、**不另立欄**。
-
-                    🔴 **顏色刻意偏離該句字面,理由實查如下(鐵則 11:偏離要寫在字面上)**:
-                    ① `--c-red` 是 **storefront** 的 token,`apps/admin/src/app/globals.css` 全檔無此顆;
-                    ② 它現值已不是 #dc2626 —— `apps/storefront/src/styles/tokens.css:79` 逐字
-                       `--c-red: #f26722`(D 線改成亮熔橘),母 plan 引的 `:16` 行號也已漂掉;
-                    ③ admin 的網站 token 是 `--destructive`(`globals.css:27` → `:91 --color-destructive`)。
-                    ⇒ 照該句的**用意**(用網站 token、不照抄外部 hex)走 admin 自己那顆。
-
-                    🏁 **A11b(2026-08-07)加色**:五態改膠囊,`refunded` / `partiallyRefunded` 不再與
-                    `paid` 同灰(訊號塌陷解除)。配色表 `PAYMENT_STATUS_CAPSULE`(`order-list-view.ts`)。
-                    ⚠️ 母 plan 那句寫的「rowSpan 合併格內」已隨本片的 rowSpan 拆除而過期;
-                    **落點沒變**(仍在訂單編號格內),變的只是那格不再跨列合併。
-                    ⚠️ 整塊將隨 **L3**(Sean 拍 Q2=A)下架 —— 屆時付款軸併入狀態八值欄。 */}
-                <div className='mt-1'>
-                  <span className={paymentCapsuleClass(order.paymentStatus)}>
-                    {PAYMENT_STATUS_LABEL[order.paymentStatus]}
-                  </span>
-                </div>
+                {/* 🏁 **L3 片1:A11a-2 / A11b 的付款軸小字膠囊已於此下架**(Sean 拍 Q2=A:狀態欄獨扛)。
+                    收款軸沒有消失,它變成狀態八值的**前半**(`orderPayAxis`);
+                    「未收」的訊號改由狀態膠囊上那圈紅框帶(`order-status-axes.ts` 的 `PAY_MARK`)。
+                    🔴 **這是刻意的資訊減量,不是漏掉**:原本一張單同時有「付款膠囊 + 訂貨膠囊 + 已取消 badge」
+                    三個訊號,Sean 要的是**一欄看完**。 */}
               </td>
             ) : (
               <td className={`${TD} ${CELL.oid}`} />
@@ -319,26 +293,28 @@ function OrderGroup({
               <td className={`${TD} ${CELL.customer}`} />
             )}
 
-            {/* 訂貨(A11a-4 純文字 → A11b 加膠囊上色):**品項層**、逐列顯示 `已訂/買了`。`n/m` 那一段
-                與明細頁 `ItemAxisCell` 同源;明細那格另有「訂貨」標籤、到貨列與已取消列,列表只取分數本身。
-                🏁 A11b:三段完成度配色(灰/琥珀/綠)由 `orderedCapsuleClass` 算,佔位列(`line` 為 null)
-                維持純文字「—」、不套膠囊(它不是一個可辨識的完成度)。
-                🔴 **UI 端零 `?? 0`、零 join**(V9):`quantitySummary` 是 A9c 已正規化的**非 nullable** 型別,
-                缺列補 0 的責任在 adapter mapper。這裡拿到 nullable 就是 A9c 沒做完,退回去、不要在這補。
-                ⚠️ 代價(A9c commit body 與型別 docstring 已記):列表補 0 之後「資料損壞」與「真的還沒訂」
-                長得一樣;明細頁那格才會顯示「數量資料尚未就緒」。**取消入口(A13)不得吃本欄。**
-                ⚠️ 整欄將隨 **L3**(Sean 拍 Q2=A)下架 —— 屆時貨品軸併入狀態八值欄。 */}
-            <td className={`${TD} ${CELL.ordered}`} data-l='訂貨'>
-              {line ? (
-                <span
-                  className={`${orderedCapsuleClass(line.quantitySummary.orderedQuantity, line.quantitySummary.quantity)} tabular-nums`}
-                >
-                  {line.quantitySummary.orderedQuantity}/{line.quantitySummary.quantity}
-                </span>
-              ) : (
-                '—'
-              )}
-            </td>
+            {/* 🏁 **L3 片1:狀態八值欄上場,原地換掉訂貨欄**(Sean 拍 Q2=A)。
+
+                🔴 **層級變了,不只是換個欄名**:訂貨是**品項層**(逐列各有 `n/m`),
+                   狀態是**訂單層**(整張單走到哪)⇒ 改成「只在第一列出值、其餘列渲染真的空 `<td>`」,
+                   與單號 / 日期 / 客戶 / 發票 同一套。⚠️ 空格必須是真的空(`<td className={…} />`),
+                   否則卡片模式的 `td:empty{display:none}` 不成立、卡片會冒出一排空標籤。
+
+                🔴 **字面與 class 全部由 `orderStatusView` 算,本檔不自己拼**
+                   —— L1(`f745e04e`)那支已把八值字面、貨品軸配色、未收紅框、已取消虛線框
+                   全部收在 `order-status-axes.ts`;在這裡再拼一次就是第二份會漂的字面。
+                   ⚠️ 它回傳的 `capsuleClass` **已含**共用膠囊形狀 `STATUS_CAPSULE`,不要再串一次。
+
+                ⚠️ **訂貨的資訊沒有消失、只是離開列表**:品項層的 `n/m` 仍在明細頁
+                   (`ItemAxisCell`),而狀態欄的貨品軸是**整單彙總**(所有品項都到齊才進下一階段,
+                   `orderGoodsAxis` docstring 逐字)⇒ 兩者不是同一個數字,**不要拿列表這格去對明細那格**。 */}
+            {first ? (
+              <td className={`${TD} ${CELL.status}`} data-l='狀態'>
+                <span className={status.capsuleClass}>{status.label}</span>
+              </td>
+            ) : (
+              <td className={`${TD} ${CELL.status}`} />
+            )}
 
             {/* 發票(A11a-5):**訂單層**(開票是整單的事,不是逐品項)。
                 🔴 字面**複用** `INVOICE_STATUS_LABEL` —— 明細頁的「開立狀態」欄用的是同一份。
@@ -440,8 +416,9 @@ export function OrdersTable({
             <th className={`${TH} text-right`}>數量</th>
             <th className={`${TH} text-right`}>金額</th>
             <th className={TH}>客戶</th>
-            {/* A11a-4:訂貨欄(品項層)。plan §1.2 目標欄序 = …客戶 / **訂貨** / 出貨 / 發票 / 操作 */}
-            <th className={TH}>訂貨</th>
+            {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
+                欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}
+            <th className={TH}>狀態</th>
             {/* A11a-5:發票欄(訂單層)。出貨欄(A11a-6)前置在第 2 批,故本表暫時是訂貨→發票相鄰。 */}
             <th className={TH}>發票</th>
             {/* A13(訂單列表操作欄)。
