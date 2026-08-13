@@ -1,13 +1,15 @@
-# #445 超退閘 — slice plan **v2**
+# #445 超退閘 — slice plan **v3**
 
-> 2026-08-13 · 主視窗十四代重寫 · **codex 關卡1 R1 判 FAIL(19 must-fix + 12 important),本版逐條折**
+> 2026-08-13 · 主視窗十四代 · **R1 codex FAIL(33 條)→ v2 全折 → R2 換模型 FAIL(1 BLOCKER + 13 MF)→ 本版**
 > 片型 = **高風險片**(鐵則 12①**錢**;12③ schema/RPC)⇒ 鐵則 8 提 plan 等批 + 對抗審查不降級
 > 來源 = backlog `#445`(Sean 2026-08-12 **知情推翻拍板⑤**,排 2g 之前)
-> v1 = 同檔 git 歷史(`5a7497c1`)。**v1 的 §4-2「算兩本帳」整段作廢**,理由見 §0-B。
+> 版本史:v1 `5a7497c1` / v2 `e3573f8b`(§4-2「算兩本帳」作廢)/ **v3 = 本版**。
+> 🔴 **v3 的存在理由**:v2 §0-B 是主視窗寫下的**假的「做不到」**,而 Sean 的 Q-445-1 拍板建立在它上面。
+> R2 抓到後已請 Sean 重拍(=C)。**v2 的 §0-C/§0-D 整段作廢**,理由見 §0-B/§0-C。
 
 ---
 
-## §0 v1 → v2:三個把設計方向改掉的發現
+## §0 v3 的設計方向(含 v2 的自我更正)
 
 ### §0-A 🔴 `payment_refunds` **不是**訂單退款帳(codex F09/F10;主視窗開檔複驗)
 
@@ -22,55 +24,69 @@ v1 §4-2 第 2 點寫「算兩本帳:`order_refunds` ∪ `payment_refunds`」。
 **Sean 的 Q3=A 建立在「它是另一本訂單退款帳」這個錯前提上,主視窗已當面撤回(Q12=A)。**
 照 v1 寫法的真實後果:客人被重複扣款、我方退了 100 元補償 → 之後**合法的取消訂單退款 100 元會被錯擋**。
 
-### §0-B 🔴 RPC **拿不到** TapPay Record —— Q9/Q10 的落點只能在 app 層(主視窗新發現)
+### §0-B 🔴🔴 **v2 的自我更正**:「RPC 拿不到 TapPay Record」是**假的**(R2 抓到,BLOCKER)
 
-新方案本來是「`order_refunds`(在途)+ **TapPay Record**(已退)取小」。但 Record 要打 TapPay API,而:
+v2 §0-B 原本寫「RPC 拿不到 Record ⇒ Q9/Q10 只能落 app 層」,並據此改掉整個設計方向。**那是錯的。**
 
-1. `pg_net` 是**非同步**的。repo 內唯一用法 `20260723120000_m3_s2_settle_sweep_pgcron.sql:113`
-   `SELECT net.http_get(...)`,包它的 `pcm_cron.invoke_cron_route` **RETURNS bigint**(request_id);
-   檔頭 `:37` 逐字「6h TTL 只管 `net._http_response`」⇒ **回應事後才進另一張表**,
-   同一個交易裡拿不到。
-2. 就算拿得到也不該:`admin_initiate_order_refund` 步 3 持著 order advisory lock,
-   在鎖內等外部 API = **把鎖持有時間綁在 TapPay 上**(adapter 30s 上限)。
+**我證明的是**:RPC **自己打不了 HTTP**(`pg_net` 非同步;`20260723120000:113` `net.http_get`、
+包它的 `pcm_cron.invoke_cron_route` RETURNS bigint;`:37`「6h TTL 只管 `net._http_response`」)。**這部分是真的。**
 
-⇒ **Q9/Q10「問 TapPay Record」只能落在 app 層,不能落在 RPC 層。**
-   這同時解掉 codex F10(「`payment_refunds` 沒 status,SQL 無從照規格實作」)——
-   **RPC 層本來就不該算那本帳**,它只該守 DB 內看得到的 `order_refunds`。
+**我寫下的結論是**:RPC **拿不到** Record。**這是假的** —— 因為 RPC 從來不需要自己打:
 
-### §0-C 🔴 app 層加業務判定會**製造**超退(codex F16 + 主視窗把後果推到底)
+| 證據 | 逐字 |
+|---|---|
+| `apps/admin/src/lib/payment/refund-baseline.ts:3-5` | 「DB 打不了 HTTP ⇒ S2 baseline(`record_refunded_before`)與 full 凍結額(`record_amount`)由 server action 從 TapPay Record API 查得後**餵給** RPC」 |
+| `20260803150000...sql:427` | 簽章上就有 `p_record_refunded_before bigint` —— 註解逐字「G0 baseline(action 從 Record 查得;缺欄時 action 已 abort)」 |
+| `apps/admin/src/lib/payment/refund-actions.ts:230` | **partial 路徑此刻已經在傳** `recordRefundedBefore: baseline.refundedBefore` |
 
-v1 §5 的 445a 是「`refund-form.ts` 上界 `MAX_AMOUNT` → 改成帳本未登記額」。
-`refund-actions.ts:112` 的 `parseRefundForm` 在 **RPC 之前**跑,而 RPC 的順序是
-`步 4 冪等 G4 → 步 6 守門`。⇒ **同 token 重播會先被 app 層的上界擋掉**:
+🔴 **病根**:證據句的主詞是「打」,結論句的主詞是「拿」。**動詞換了,那就是兩件事。**
+(已寫進 memory `feedback_false-unconstructible-claim-is-worse-than-false-verified` 形狀二。)
 
-前次退款已成功 → 帳本額度變小 → 重播請求被 parser 判「金額不合法」→
-**永遠走不到 `refund-actions.ts:280` 的 `DUPLICATE_REQUEST` + `rowStatus='confirmed'` ⇒ 視同成功**那條路。
-員工看到「金額不合法」以為沒退成功 → 換一張表單再退一次 → **真的退兩次**。
+### §0-C ✅ v2 §0-C 隨 §0-B 一起作廢(但它描述的坑是真的,只是換一種方式消失)
 
-**一個防超退的改動,製造出超退。**
+v2 §0-C 說「app 層加業務判定 ⇒ 上界先於 G4 ⇒ 同 token 重播被判『金額不合法』⇒ 員工換表單再退一次 ⇒ 真的退兩次」。
 
-而且 repo 自己的契約早就寫了:`refund-actions.ts:111` 逐字
-「解析(純形狀;**業務判定單一真相在 RPC**)」⇒ v1 的 445a 違反既有契約。
+**這個失敗情境本身是真的**,但它只在「比對留在 app 層」時成立。
+比對搬進 RPC 步 4 之後 ⇒ **重播在步 4 就 `DUPLICATE_REQUEST` 返回、根本走不到比對** ⇒ 坑自動消失。
 
-### §0-D 🏁 Q-445-1 = **A**(Sean 2026-08-13 拍板)
+⇒ v2 §0-D 那道額外 SELECT、三條實作契約、+10ms、+20-30 分鐘、驗收 11 a/b/c —— **全部不需要存在**。
+它們是為了繞開一個不存在的限制而發明的機制。
+
+### §0-D 🏁 Q-445-1 = **C**(Sean 2026-08-13 二次拍板,推翻同日稍早的 A)
 
 ```
-Q-445-1: TapPay Record 檢查(Q9/Q10)要放在退款流程的哪一步?
-拍板 = A:放 RPC 之前,但**先花一次 SELECT 查「這個 token 是否已在帳本」**——
-       已在 = 重播 ⇒ 跳過 Record 檢查,直接送 RPC 讓冪等 G4 處理;
-       不在 = 首次 ⇒ 做 Record 檢查。
+Q-445-1(重問): 「已經退多少」的比對要放哪?
+拍板 = C:照現有做法把 TapPay Record 的值當參數餵進 RPC,
+       比對放在 RPC 內「認出重播」(步 4 G4)之後。
+(同日稍早拍的 A —— app 層先查一次是否重播 —— 作廢;
+ A 是在主視窗 §0-B 的假前提下拍的,不是 Sean 判斷失誤。)
 ```
 
-**代價(已知情接受)**:每次退款多一次 DB 查詢(~10ms);445a 片體積 +20-30 分鐘。
+🔴 **C 案的實作比想像的更小 —— 值已經到位,只是沒人用它做判斷**(主視窗實查):
 
-🔴 **A 案的實作契約(三條,缺一條就退化成 §0-C 那個會製造超退的形狀)**:
+- `p_record_refunded_before` **對兩種 kind 都已生效**:`:475-476` 逐字
+  「須為非負整數(G0 baseline;Record 欄缺時 action 必須 abort、**不得傳 0 充數**)」——
+  這道 RAISE **不分 partial/full**。
+- `:551-554` 已寫進 `order_refunds.record_refunded_before` 欄;`:588` 已進稽核 payload。
+- **但全檔沒有任何一處拿它做守門判斷** —— 它只被記錄,不被使用。
 
-1. **重播查詢的鍵 = `request_token`**,與 RPC 步 4 冪等 G4 用的**同一把鍵**。
-   用別的鍵(例如 order_id + amount)會把「同單同額的第二筆合法退款」誤判成重播 ⇒ 放行超退。
-2. **查詢結果為「查不到」時走首次路徑**(做 Record 檢查),不是走重播路徑。
-   fail-closed 方向:讀不到帳本 ⇒ 當成首次 ⇒ 做檢查 ⇒ 擋得住;反過來會放行。
-3. 🔴 **這道查詢本身不是守門,是分流**。它判錯的後果只有「多做/少做一次 Record 檢查」,
-   真正的冪等權威仍在 RPC 步 4 的 G4。**不得**因為有了這道查詢就把 G4 當成備援。
+⇒ 這與 §2-1 的形狀完全相同:**「算得出來但沒人用」**。本片是把兩個現成的東西接起來,不是新建。
+
+🔴 **R2 說「445a 不得先送、順序要對調」的顧慮不成立**:那條建立在「要放寬 partial 傳 `record_amount`」上
+(`:483-485` 確實 RAISE 禁止)。但守門要的是「**已經退了多少**」= `record_refunded_before` 的語意,
+**不是** `record_amount`(那是 full 的凍結額)。⇒ **不需要動那道 RAISE,片界順序維持 445a 先。**
+
+### §0-E 🏁 Sean 的驗收定調:**「我要求的是使用上直覺、好用即可」**(2026-08-13)
+
+這句是**驗收條件**,不是感想。轉成可 yes/no 的三條(進 §6):
+
+1. **擋下來的時候,員工看得懂下一步做什麼** —— 不是丟 `REFUND_EXCEEDS_REMAINING`,
+   而是「這張單最多還能退 N 元」或「有一筆退款卡住,先去處理它」+ **可以點過去的連結**。
+2. **不能擋得莫名其妙** —— 每一種擋下來的情況,訊息都要能讓員工分辨
+   「我打太多」/「有東西卡住」/「系統查不到資料」這三種,因為**這三種的處置完全不同**。
+3. **正常退款不能因為這片變麻煩** —— 沒有多出來的確認步驟、沒有多一個要填的欄位。
+
+配套 memory:`project_admin-ux-operation-intuitiveness`(後台每片驗收含「不用人教能做對嗎」)。
 
 ---
 
@@ -214,158 +230,215 @@ v1 §6 驗收第 3 條「讀不到 ⇒ 擋」會**封死每一張訂單的第一
 
 | 題 | 拍板 | 狀態 |
 |---|---|---|
-| Q1 幾層 | 前台 + RPC 兩層(不做 DB trigger 層) | 有效,但**兩層能力邊界改變**,見 §4-1 |
-| Q2 算式 | 另寫守門版,方向翻成 blocklist | 有效,**但 blocklist 的內容要對齊 §2-8**,不是單純 `<> 'failed'` |
+| Q1 幾層 | 前台 + RPC 兩層(不做 DB trigger 層) | 有效;**前台降為提示、守門集中 RPC**,見 §4-1 |
+| Q2 算式 | 另寫守門版,方向翻成 blocklist | 有效,**但 `failed` 要三分不是一坨**(§4-2)—— v2 與 codex R1 都寫太粗 |
 | ~~Q3 兩本帳~~ | ~~現在就把 `payment_refunds` 算進去~~ | 🔴 **已撤回(Q12=A)** —— 前提錯,見 §0-A |
-| Q4 卡單擋到合法退款 | 擋死,但訊息直接指出是哪一筆卡住 | 有效,**但要回傳列 ID 才做得到**,見 §4-4 |
+| Q4 卡單擋到合法退款 | 擋死,但訊息直接指出是哪一筆卡住 | 🔴 **實質縮減**:守門是 SUM 語意,「哪一筆」不存在 ⇒ 改成**指向帳本區塊**(§4-4)。**Sean 有權推翻** |
 | Q5 場外退款登記入口 | 不做,守住範圍、另立 backlog | 有效 |
-| Q9 partial 也問 TapPay Record | 是 | 有效,**落點改 app 層**(§0-B);放哪一步待 Q-445-1 |
-| Q10 Record 連不上就擋 | 是 | 同上 |
+| Q9 partial 也問 TapPay Record | 是 | ✅ **本來就在問**(`refund-actions.ts:230` 已傳 `recordRefundedBefore`)—— 缺的只是「拿它做判斷」(§0-D) |
+| Q10 Record 連不上就擋 | 是 | ✅ **本來就會擋**(`refund-baseline.ts:5` 逐字「任一不成立 → action abort、**RPC 零呼叫**」)—— 本片零新增 |
+| Q-445-1 比對放哪 | **C**(值當參數傳進 RPC、比對放 G4 之後) | 2026-08-13 二次拍板,推翻同日的 A(§0-D) |
+| Q-445-E 驗收定調 | 「使用上直覺、好用即可」 | 轉成 §0-E 三條可 yes/no 條件,進 §6 |
 
 ---
 
 ## §4 設計
 
-### 4-1 兩層各自擋什麼(能力邊界已依 §0-B 修正)
+### 4-1 三層各自擋什麼(依 §0-B 更正後重寫)
 
 | 層 | 擋什麼 | **擋不到什麼** |
 |---|---|---|
-| **前台提示**(`order-detail` 表單) | 手滑打太多 —— 最大宗,當場看得到 | 竄改 DOM;繞過前台;兩人同時送 |
-| **app 層 Record 閘**(Q9/Q10) | Portal 場外已退的部分;Record 連不上 | 繞過 app 直呼 RPC |
-| **RPC 步 6**(2f 鎖之後) | 繞過前台;**並發**(2f 已序列化);DB 帳本超額 | 🔴 **Portal 場外退款**(RPC 看不到 Record,§0-B);直接 `INSERT`(需 service_role) |
-| TapPay(不動) | 最後一道 | partial 我方仍不查帳;正式環境行為只有 sandbox 實證 |
+| **前台上界**(`refund-section.tsx` 的 `max` + 即時提示) | 手滑打太多 —— 最大宗,當場看得到 | 竄改 DOM;繞過前台;兩人同時送 |
+| **RPC 步 6**(2f 鎖之後、G4 之後、2f veto 之後) | 繞過前台;**並發**(2f 已序列化);帳本超額;**Portal 場外已退**(靠 `record_refunded_before`) | 直接 `INSERT`(需 service_role = 我方自己的程式) |
+| TapPay(不動) | 最後一道 | 正式環境拒絕行為只有 sandbox 實證 |
 
-🔴 **與 v1 的差別**:v1 以為 RPC 層是最完整的一層。實際上 **RPC 層看不到 Portal 場外退款**,
-而 app 層看得到 Record 卻擋不住繞過。**沒有任何單一層是完整的** —— 這句要進 §8。
+🔴 **與 v2 的差別**:v2 以為 RPC 層看不到 Portal 場外退款。**看得到** —— `record_refunded_before`
+就是 TapPay 對「這筆刷卡退了多少」的權威視角,**含 Portal 場外退的**。
+⇒ 守門集中在 RPC 一層,前台只做提示。這同時滿足 `refund-actions.ts:111` 既有契約
+「解析(純形狀;**業務判定單一真相在 RPC**)」。
 
-🔴 **前台層的角色從「守門」降級為「提示」**:業務判定單一真相留在 RPC
-(`refund-actions.ts:111` 既有契約),理由見 §0-C。
+### 4-2 守門式:兩個來源取嚴,`failed` 必須**三分**不是一坨
 
-### 4-2 守門專用算式(新函式,與顯示用那條並存)
+**可退額 = 訂單總額 − max(TapPay 已退, 帳本佔額度合計)**
 
-新函式 `pcm_order_refund_guard_remaining(uuid)`,與 `pcm_order_refundable_remaining` 的差異:
+- **TapPay 已退** = `p_record_refunded_before`(action 已查、已傳、已驗非負;`:475-476`)。
+  它含 Portal 場外退款 ⇒ 這是唯一看得到場外的來源。
+- **帳本佔額度合計** = `order_refunds` 中**佔額度**的列的 `refund_amount` 合計。
 
-1. **方向翻轉為 blocklist**:只有**明確證實不佔額度**的列才扣掉,其餘一律**佔額度**(fail-closed)。
-   🔴 **「明確證實」的定義對齊 §2-8,不是 `status <> 'failed'`**:
-   `failed` **只有值域 CHECK、沒有任何約束保證外呼沒發生過** ⇒ 本函式**把 `failed` 也算進佔額度**,
-   除非該列有補償帳的有效終局證據。
-   ⚠️ 這比 v1 更保守 ⇒ **會產生「明明退失敗了卻退不了」的卡單**,由 Q4=A 的訊息把那一筆指出來。
-2. **只算 `order_refunds`**(§0-A:`payment_refunds` 不是訂單退款帳)。
-3. **NULL 語意**:查無訂單回 NULL;守門遇 NULL 一律擋(fail-closed)。
+🔴 **「佔額度」的判準(v2 與 codex R1 都寫太粗,本版更正)**:
 
-🔴 **兩條式子並存 = 漂移風險,機械守門要能真的抓到漂移(codex F13/F14)**:
-v1 寫「在現行狀態集合下兩式相等」——**固定 fixture 不會因未來 CHECK 新增狀態自動長出案例**,
-兩條公式可以一起漂、測試永遠綠。改成:
+| 列的狀態 | 佔不佔 | 依據 |
+|---|---|---|
+| `processing` / `confirmed` | **佔** | 在途或已成立 |
+| `deferred` | **不佔** | `:370-372` 逐字「三者語意=**確定沒動錢**」 |
+| `failed` + `failed_reason IN ('rejected_out_of_range','not_sent')` | **不佔** | 同上,且 **P7C15 結構保證**(`:373-378`):證據欄非空的列**不得**走這三個終態 ⇒ 能走到的列證據必為空 = TapPay 未曾受理 |
+| `failed` + `failed_reason = 'manual_failed'` | **佔** | RW4 人工判定出口,**無結構保證** |
+| `failed` + `failed_reason IS NULL` | **佔** | fail-closed |
+| **任何其他值(含未來新增)** | **佔** | blocklist 方向(Q2=A) |
 
-- 測試從 **`information_schema` 實讀 `order_refunds.status` 的 CHECK 白名單**,對每個值各造一列;
-  新增狀態時案例自動長出來。
-- 方向翻轉的負測要能跑得出資料:**新增假狀態會先被現行 CHECK 擋掉**(codex F15)⇒
-  負測在**拋棄式資料庫**裡先 `ALTER TABLE ... DROP CONSTRAINT` 再造列,跑完整庫丟掉。
-  (2e/2f 的 harness 已有拋棄式庫慣例,沿用同一套。)
+🔴 **為什麼一定要三分**:v2 寫「`failed` 一律佔額度」會讓**網路斷線**(`not_sent`,最常見的暫時性失敗)
+**永久卡死那張單** —— 而 v2 給的解鎖出口是「補償帳的有效終局證據」,那要等 2g,
+而 #445 明定排在 2g **之前** ⇒ **結構上無解**。三分之後這個死結不存在:`not_sent` 本來就不佔。
 
-### 4-3 RPC 步 6 的改法
+> 為什麼不改顯示版 `pcm_order_refundable_remaining`:它已被驗收、有措辭鐵律與負向測試綁著。
+> **但兩式並存有 4-5 的硬條件。**
+
+### 4-3 RPC 步 6 的改法:partial **與 full 都要**
 
 ```
-步 6(現況只管 full)→ 擴成:
-  full   : v_frozen < 1                    → REFUND_NOTHING_LEFT(不動,既有語意)
-  partial: v_frozen > guard_remaining()    → REFUND_EXCEEDS_REMAINING(新第 9 碼)
-  guard_remaining() IS NULL                → REFUND_EXCEEDS_REMAINING(fail-closed)
+步 6 擴成(位置紀律見下):
+  可退額 := 訂單總額 - GREATEST(p_record_refunded_before, 帳本佔額度合計)
+  guard  := 可退額
+
+  full   : v_frozen < 1                     → REFUND_NOTHING_LEFT(既有語意,不動)
+  full   : v_frozen > guard                 → REFUND_EXCEEDS_REMAINING(新;見下)
+  partial: guard IS NULL OR v_frozen > guard → REFUND_EXCEEDS_REMAINING
 ```
 
-🔴 **SQL 陷阱(codex F17)**:`IF v_frozen > NULL` 不會進分支(結果是 NULL 不是 true)⇒
-**必須明寫 `guard_remaining IS NULL OR v_frozen > guard_remaining`**,不能靠比較運算自然擋。
+🔴 **full 也要管(v2 漏了,R2 M4)**:v2 只改 partial,而 full 的凍結額來自 TapPay Record、不看帳本
+⇒ 員工被擋掉 100 元部分退款後,改按「全額退款」就會被放行。**守門擋住小的、放行大的**,
+這是最不直覺的行為(違反 §0-E 第 2 條)。
 
-位置紀律:**必須在步 3(2f advisory lock)之後**,否則並發防不住。
-順序紀律:**必須在步 4 冪等 G4 之後**,否則同 token 重播拿到超退碼而非 `DUPLICATE_REQUEST`。
-🔴 **且必須在 2f 的 payment-refund veto 之後**(codex F18):v1 放「步 6」會早於那道 veto,
-在途補償退款會被改回超額碼,**吃掉原本帶 blocking ID 的 `REFUND_IN_FLIGHT`** ——
-員工會收到「打太多」而不是「有一筆卡住」。實作時要在 2f post-image 上定位 veto 的實際位置再插入。
+🔴 **SQL 陷阱**:`IF v_frozen > NULL` 不會進分支(結果是 NULL 不是 true)
+⇒ **必須明寫 `guard IS NULL OR v_frozen > guard`**。
 
-### 4-4 第 9 碼與訊息(Q4=A 的落點)
+**位置紀律(三條都要滿足)**:
+1. 步 3(2f advisory lock)**之後** —— 否則並發防不住。
+2. 步 4(冪等 G4)**之後** —— 否則同 token 重播拿到超退碼而非 `DUPLICATE_REQUEST`。
+   **這條就是 Q-445-1=C 的落點**(§0-C:重播走不到比對)。
+3. 2f 的 payment-refund veto **之後** —— 否則在途補償退款會被改回超額碼,
+   吃掉原本帶 blocking ID 的 `REFUND_IN_FLIGHT`。
+   2f 自帶結構錨 `l5b2_2f_anchor_veto_after_g4` / `..._before_insert`(`20260812170000:792-804`)
+   ⇒ **實作時在 2f post-image 上定位這兩個錨之間插入**。
 
-新碼 `REFUND_EXCEEDS_REMAINING`。回傳除 `result` 外附帶:
-- `remaining`:守門算出的額度
-- `blocked_by_refund_id`:🔴 **列 ID,不是布林**(codex F22)——
-  v1 的 `blocked_by_pending` 是布林,**指不出「是哪一筆」,做不到 Q4=A 承諾的事**。
-- `blocked_by_pending` 保留為布林,但只當文案分流用。
+### 4-4 訊息:員工要分得出三種情況(§0-E 第 2 條的落點)
 
-前台文案分流:
-- 無阻擋列 → 「這張單的帳本未登記額是 N 元」(單純打太多)
-- 有阻擋列 → 「有一筆退款(單號 X)正佔著額度,先去處理那一筆」+ 連到帳本那一列
-  (backlog `#442` 的卡單;Q4=A 的用意是逼人面對它)
+新碼 `REFUND_EXCEEDS_REMAINING`,回傳附帶 `remaining`(可退額)。
 
-🔴 **repository 要驗欄位型別(codex F03)**:`remaining` / `blocked_by_refund_id` 是新欄位,
-畸形 RPC 回應不得直接流進 UI —— parser 對這兩個欄位做型別檢查,不合格 = 走既有的未知形狀路徑。
+**三種擋下來的情況,訊息必須不同**(因為處置完全不同):
 
----
+| 情況 | 判斷依據 | 員工看到 | 他該做什麼 |
+|---|---|---|---|
+| 單純打太多 | 無 `processing` 列 | 「這張單最多還能退 N 元」 | 改金額重打 |
+| 有東西卡住 | 有 `processing` 列 | 「有一筆退款還在處理中,先去處理它」+ **連到帳本那一列** | 點過去處理 |
+| 系統查不到 | `guard IS NULL` | 「查不到這張單的退款額度,**不是**金額問題,請找工程師」 | 回報,不要重試 |
 
-## §5 片界:拆兩片,順序不可顛倒
+🔴 **`blocked_by_refund_id` 不做(R2 M5)**:守門是 **SUM 語意** —— 三筆各 40 元的列讓 50 元退款被擋時,
+**沒有任何一筆是「那一筆」**;回一個列 ID 只會指到任意一筆,員工去處理它之後仍然被擋,
+比不給更不直覺。
+⇒ Q4=A「訊息直接指出是哪一筆」在 SUM 語意下**做不到**,改成**指向帳本區塊**(那裡列出所有在途的列)。
+**這是對 Q4=A 的實質縮減,已寫進 §8,Sean 有權推翻。**
+
+### 4-5 🔴 UI 上界與 RPC 守門線**必須是同一條式子**(R2 M8;§0-E 第 2 條的硬條件)
+
+v2 的形狀:UI 的 `max` 來自 `getLedgerUnregisteredAmount()` → `pcm_order_refundable_remaining`
+(顯示版,`failed` **不**佔額度)、RPC 用新守門式(部分 `failed` **佔**額度)
+⇒ **顯示式恆 ≥ 守門式** ⇒ 員工照表單填了「看起來合法」的金額,送出後被 RPC 擋。
+
+**這是本片最容易做出來的「不直覺」**,而且它不是 bug、是兩條式子必然的差。
+
+⇒ **硬條件:445a 的 UI 上界改讀新守門式**(新增一支 read 函式包 `pcm_order_refund_guard_remaining`),
+**不得**沿用 `getLedgerUnregisteredAmount()`。
+⚠️ 措辭仍守 §2-7 鐵律:UI 上顯示的字**不得**寫「還能退」「剩餘可退」——
+新值的顯示名稱在 445a 決定並寫進 `refund-ledger-view.ts` 的措辭清單(見 §6-9 的 oracle 問題)。
+
+## §5 片界:**拆三片**(v2 是兩片,§4-5 的硬條件逼出第三片),順序不可顛倒
 
 > 依據:「一片=一支 migration **或**一個純應用層改動,**不混**」;
 > memory `feedback_app-layer-must-not-ship-before-migration-apply`(08-07 A9h 正式站壞 8 小時)。
 
-### 445a —— 應用層(**標準片**,先做)
+🔴 **為什麼從兩片變三片**:§4-5 要求 UI 上界改讀**新守門式**,而新守門式是 445b 才建的
+⇒ 若把它塞進 445a,445a 就依賴一支還沒 apply 的函式 = 正是那條 memory 講的事故形狀。
+⇒ **UI 上界獨立成 445c,排在 445b apply 之後。**
 
-🔴 **v1 說「純前端 45 分」是錯的**(codex F23)。實際碰到的檔:
+### 445a —— 應用層前置(**輕量片**,先做,純向後相容)
 
 | 檔 | 改什麼 |
 |---|---|
-| `order-detail-route.tsx:140-141` | 刪掉 `if (refunds.length > 0)` 短路(§2-6) |
-| `order-detail.tsx:408-435` | 把上界值傳進表單區(v1 只算到 `RefundLedgerSection`,漏了 `RefundSection`;codex F04) |
-| `refund-section.tsx:56-70` | 表單 `max` 屬性 + 即時提示文案 |
-| `refund-repository.ts:17-26,211` | allowlist 加第 9 碼 + outcome union + parser 型別檢查 |
-| `refund-action-state.ts` | 兩支文案 |
+| `refund-repository.ts:17-26,211` | allowlist 加第 9 碼 + outcome union + parser 型別檢查(`remaining`) |
 | `refund-repository.test.ts:72-84,168-177` | 釘死的碼表更新 |
-| `refund-actions.ts` | 🏁 **Q-445-1=A**:重播分流查詢(`request_token`)→ 首次才走 Record 閘 |
-| `refund-read.ts` | 重播分流用的 token 查詢(新函式;單一 SELECT) |
+| `refund-action-state.ts` | **三支**文案(§4-4 三種情況),措辭守 §2-7 |
+| `refund-actions.ts` | 新碼的 switch 分支 → 對應 failure 態 |
+| `order-detail-route.tsx:140-141` | 刪掉 `if (refunds.length > 0)` 短路(§2-6) |
 
-🔴 **445a 不做 server 端金額擋**(§0-C)——只做:①UI 提示 ②認得第 9 碼 ③(視 Q-445-1)Record 閘。
-🔴 **445a 的碼處理必須先於 445b apply**,反過來 = migration 產出 app 不認得的碼 = caller bug 路徑。
+🔴 **445a 此時該碼還不會出現** ⇒ 純向後相容,單獨上線零行為變化(除了刪短路多一趟 RPC)。
+🔴 **445a 不做任何金額判定**(§0-C 的教訓 + `refund-actions.ts:111` 既有契約)。
 
-### 445b —— 純 migration(**高風險片**,後做)
+### 445b —— 純 migration(**高風險片**,中間做)
 
-1. 新守門函式(§4-2)
-2. `admin_initiate_order_refund` 步 6 擴充(§4-3)+ 第 9 碼
-3. 後置斷言(§2-5 第 3 處;**寫在 445b 自己的 migration**,不動 2f 凍結檔)
-4. 同步 `scripts/l5b2-2f-verify.sh` 三格(§2-5 第 8 處)
-5. **apply = Sean 停點**;停點素材以 **migration 檔頭為準**(2f 停點教訓)
+1. 新守門函式 `pcm_order_refund_guard_remaining(uuid, bigint)`
+   —— 🔴 **吃兩個參數**(order_id + record_refunded_before),因為 TapPay 那半是 caller 餵的(§4-2)
+2. `admin_initiate_order_refund` 步 6 擴充(§4-3;partial **與 full** 都要)+ 第 9 碼
+3. **ACL 照 repo 樣板**(`20260801120000...sql:478-479`):
+   `REVOKE ALL FROM PUBLIC, anon, authenticated, service_role` + `GRANT EXECUTE TO service_role`,
+   並配正負斷言(同檔 `:639-648` 是範本)
+4. 後置斷言(§2-5 第 3 處;寫在 445b 自己的 migration,**不動 2f 凍結檔**)
+5. 同步 `scripts/l5b2-2f-verify.sh` 三格 + `refund-actions-dispatch.test.ts:363` + `scripts/a7c-rw1b-verify.sh:516-522`
+   (後兩處是 R2 M10 補的,v2 的八處清單漏了)
+6. **apply = Sean 停點**;停點素材以 **migration 檔頭為準**(2f 停點教訓)
 
----
+### 445c —— 應用層收尾(**標準片**,445b apply 之後才做)
 
-## §6 驗收條件(逐條 yes/no)
-
-**445a**
-1. ☐ **零帳本列的訂單(第一筆退款)** ⇒ 表單拿得到上界(=訂單總額)、**不被擋**(codex F21/F26 的直接反例)
-2. ☐ partial 輸入超過未登記額 ⇒ UI 當場提示(不送出)
-3. ☐ partial 輸入等於未登記額 ⇒ 放行(邊界,防 off-by-one)
-4. ☐ **同 token 重播已成功的退款** ⇒ 拿到 `DUPLICATE_REQUEST`/視同成功,**不是**「金額不合法」(§0-C;codex F16/F26)
-5. ☐ 查無訂單(真 null)⇒ 擋
-6. ☐ app 收到 `REFUND_EXCEEDS_REMAINING` ⇒ 不進 unknown-code 路徑、吐兩支文案之一
-7. ☐ RPC 回傳 `remaining`/`blocked_by_refund_id` **型別畸形** ⇒ 不流進 UI(codex F03)
-8. ☐ 文案零命中「還能退」「剩餘可退」(§2-7,機械 grep,**掃畫面字串、不掃註解**)
-9. ☐ 三綠 + `vitest run` 全綠
-10. ☐ Record 連不上 ⇒ 擋 + 文案講清楚**是查不到、不是超額**(Q10;誤導文案會讓員工換路再退)
-11. ☐ 🔴 **重播分流三條契約各一格**(§0-D):
-    a. 分流查詢用的鍵**就是** `request_token`(與 RPC G4 同一把)—— 用同單同額造第二筆**合法**退款,
-       必須走**首次**路徑(證明沒把它誤判成重播)
-    b. 分流查詢**查不到** ⇒ 走首次路徑做 Record 檢查(fail-closed 方向)
-    c. 分流判成重播 ⇒ 跳過 Record 檢查、直接送 RPC,且最終結果由 G4 決定(不是由分流決定)
-
-**445b**
-12. ☐ 守門函式對 **`information_schema` 實讀的 CHECK 白名單**逐值測(§4-2;不是固定 fixture)
-13. ☐ 拋棄式庫裡 DROP CONSTRAINT 後加假狀態 ⇒ 守門版佔額度、顯示版不佔(方向翻轉負測)
-14. ☐ `guard_remaining IS NULL` ⇒ 擋(§4-3 的 SQL 陷阱,要有獨立一格)
-15. ☐ partial 超額 ⇒ `REFUND_EXCEEDS_REMAINING`,`blocked_by_refund_id` **指到正確那一列**
-16. ☐ partial 恰等於額度 ⇒ `INITIATED`(邊界)
-17. ☐ 同 token 重播超額 ⇒ `DUPLICATE_REQUEST`(順序負測)
-18. ☐ **在途補償退款存在時** ⇒ 回 `REFUND_IN_FLIGHT`(帶 blocking ID)**不是**超退碼(§4-3 veto 順序;codex F18/F19)
-19. ☐ 🔴 **兩個不同 token 並發、各自合法、合計超額** ⇒ 只有一筆成立(codex F24;**這片的核心失敗情境**)
-20. ☐ `CREATE OR REPLACE` 後回歸:full 路徑、advisory lock 位置、G4、2f veto、`lock_timeout`、
-    `SECURITY DEFINER`/ACL 全部保存(codex F25;整支 RPC 被改壞仍可能全綠)
-21. ☐ 後置⑦ 閉集斷言含第 9 碼且通過;`l5b2-2f-verify.sh` E1a/E1b/**M15** 三格同步後全綠(§2-5)
-22. ☐ 回退腳本可單獨跑 + 負測
+| 檔 | 改什麼 |
+|---|---|
+| `refund-read.ts` | 新增一支包 `pcm_order_refund_guard_remaining` 的 read 函式 |
+| `order-detail-route.tsx` | 改呼叫新函式(順手併進既有的 `Promise.allSettled`,見 R2 C3) |
+| `order-detail.tsx` / `refund-section.tsx` | UI 上界改讀新值(§4-5 硬條件)+ 顯示名稱 |
+| `refund-ledger-view.ts` | 新值的**顯示名稱**寫進措辭清單(§6-9 的 oracle 問題) |
 
 ---
+
+## §6 驗收條件(逐條 yes/no,不可用「應該」回答)
+
+### 445a
+
+1. ☐ **零帳本列的訂單(第一筆退款)** ⇒ 頁面正常渲染、退款入口開著(刪短路的正測)
+2. ☐ app 收到 `REFUND_EXCEEDS_REMAINING` ⇒ 不進 unknown-code 路徑
+3. ☐ 🔴 **三種擋下來的情況各吐各的文案**(§0-E 第 2 條):打太多 / 有東西卡住 / 查不到資料
+4. ☐ RPC 回傳 `remaining` **型別畸形** ⇒ 不流進 UI(codex F03)
+5. ☐ 445a 單獨上線 ⇒ **既有退款流程行為零變化**(回歸;§0-E 第 3 條)
+6. ☐ 三綠 + `vitest run` 全綠
+
+### 445b
+
+7. ☐ 🔴 **`failed` 三分各一格**(§4-2 表):
+   a. `failed`+`not_sent` ⇒ **不佔額度**(= 網路斷線後可以重退。R2 M1 的直接反例)
+   b. `failed`+`rejected_out_of_range` ⇒ 不佔額度
+   c. `failed`+`manual_failed` ⇒ **佔額度**
+   d. `failed`+`failed_reason IS NULL` ⇒ 佔額度(fail-closed)
+8. ☐ `deferred` ⇒ 不佔額度
+9. ☐ 拋棄式庫 DROP CONSTRAINT 後加**未來新狀態** ⇒ **佔額度**(blocklist 方向的負測)
+10. ☐ `guard IS NULL` ⇒ 擋(§4-3 SQL 陷阱,獨立一格)
+11. ☐ **TapPay 已退 > 帳本合計**時,以 TapPay 為準(Portal 場外退款的正測)
+12. ☐ **帳本合計 > TapPay 已退**時,以帳本為準(在途尚未反映到 Record 的正測)
+13. ☐ partial 超額 ⇒ `REFUND_EXCEEDS_REMAINING` + `remaining` 值正確
+14. ☐ 🔴 **full 超額 ⇒ 也擋**(R2 M4:v2 漏了 full,會變成「擋小的、放行大的」)
+15. ☐ partial 恰等於可退額 ⇒ `INITIATED`(邊界)
+16. ☐ 同 token 重播超額 ⇒ `DUPLICATE_REQUEST`(**Q-445-1=C 的核心驗收**:證明比對在 G4 之後)
+17. ☐ 在途補償退款存在時 ⇒ `REFUND_IN_FLIGHT`(帶 blocking ID)**不是**超退碼(veto 順序)
+    🔴 **要在拋棄式庫手造** `payment_refunds` + `payment_charge_attempts` + terminal 事件列
+    (2f 檔頭 `:39` 逐字「否決條件**現在恆假** —— `payment_refunds` 尚無 writer」;R2 M12)
+18. ☐ 🔴 **序列兩筆**:第一筆 confirmed 後,第二筆合計超額 ⇒ 擋
+    (R2 M6:**不是**兩 token 並發 —— 那個由既有唯一索引
+    `order_refunds_single_processing_per_order`(`:197-198`)保證,量不到新守門)
+19. ☐ `CREATE OR REPLACE` 後回歸:full 既有語意、advisory lock 位置、G4、2f veto、`lock_timeout`、
+    `SECURITY DEFINER`/ACL 全保存
+20. ☐ **新函式 ACL 正負斷言**(R2 M9:`public` schema 對 PostgREST 曝露,漏 REVOKE = anon 帶 order UUID
+    就能問出金流狀態)
+21. ☐ 後置⑦ 閉集斷言含第 9 碼;`l5b2-2f-verify.sh` 三格 + 另兩支 harness 同步後全綠
+22. ☐ 回退腳本可單獨跑 + 負測 + **驗 2f post-image 指紋**(§7)
+
+### 445c
+
+23. ☐ 🔴 **UI 顯示的上界 = RPC 實際擋的線**(§4-5 硬條件;R2 M8)——
+    造一張有 `manual_failed` 列的單,UI 上界必須與 RPC 守門線**同值**(v2 的形狀下會差一截)
+24. ☐ 措辭:新值的顯示名稱**不得**是「還能退」「剩餘可退」(§2-7)
+    🔴 **驗法不能寫成「全樹零命中」**(R2 M7):既有 oracle
+    `refund-wiring.test.tsx:336-347` 斷言命中**恰好等於** `['components/orders/refund-section.tsx']`
+    (合法:`refund-section.tsx:110-111` 是 TapPay 端語意)⇒ 驗收改成「**白名單不變**」,
+    且 445c 塞進 `refund-section.tsx` 的新數字**必須進 oracle 的掃描面**,否則那個檔是唯一盲區
+25. ☐ 第一筆退款(零帳本列)⇒ UI 上界 = 訂單總額 − TapPay 已退
+26. ☐ 三綠 + 回歸
 
 ## §7 回退
 
@@ -376,6 +449,11 @@ v1 寫「在現行狀態集合下兩式相等」——**固定 fixture 不會因
 - ⚠️ 回退腳本連線拓樸沿用 2f:**直連 5432、不走 pooler 6543**。
 - 🔴 **回退不是零風險**(codex F28):不動資料列,但**立即重新開放超退路徑**。
   回退決策要當作「暫時關掉一道錢的守門」來處理,不是「反正沒動資料」。
+- 🔴🔴 **445b 上線後,既有的 2f 回退腳本會恆 abort —— 半夜撞到會誤判成「有人偷改函式」**(R2 M11)。
+  `scripts/l5b2-2f-rollback.sql:28-29` 的閘② 是**三態閘**:只接受「現況=2f post-image」或
+  「現況=2f pre-image」,**其餘一律 abort**;445b 的 `CREATE OR REPLACE` 就是第三態。
+  ⇒ **正確動作是先跑 445b 的回退、再跑 2f 的回退**。這句必須同時寫進:
+  ①445b migration 檔頭 ②445b 回退腳本開頭 ③本節。(三處同動,否則值班的人看不到。)
 
 ---
 
@@ -384,14 +462,24 @@ v1 寫「在現行狀態集合下兩式相等」——**固定 fixture 不會因
 **能宣稱**:擋得住**經由 `admin_initiate_order_refund` 的**超退(前台手滑、繞過前台的 RPC 呼叫、同單並發)。
 
 **不能宣稱**:
-1. 🔴 **沒有任何單一層是完整的**(§4-1):RPC 層看不到 Portal 場外退款;app 層看得到 Record 但擋不住繞過。
-2. 🔴 **Portal 場外退款**:Q-445-1 選 C 時完全不擋;選 A/B 時只在 app 路徑擋。
-   `:411` 逐字「真實剩餘額 ≤ 本值」⇒ 我方算出的額度**只會高估**。
-3. 🔴 **繞過 RPC 直接 INSERT** 擋不到(Q1=A 不做 trigger 層)。
-4. 🔴 **`failed` 的語意靠營運紀律**(codex F29;§2-8):`failed` 只有值域 CHECK、
-   沒有結構保證「外呼沒發生過」。v2 選擇把 `failed` 算進佔額度(保守),代價是會卡住合法退款。
-5. TapPay 正式環境拒絕行為**仍只有 sandbox 實證**。
-6. 445a 單獨上線期間,**RPC 仍不查 partial 的帳**。
+1. 🔴 **繞過 RPC 直接 `INSERT` 擋不到**(Q1=A 不做 trigger 層)。能這樣做的身分 = service_role
+   = **我方自己的程式**。⇒ 本片守的是「我方經由這支 RPC 造成的超退」,不是「超退不可能發生」。
+2. 🔴 **Q4=A 被實質縮減**:守門是 SUM 語意,「是哪一筆卡住」在數學上不存在(§4-4)
+   ⇒ 訊息只能指向帳本區塊、不能指向某一列。**這是對已拍板內容的縮減,Sean 有權推翻。**
+3. 🔴 **`manual_failed` 的語意靠人工判定**(§4-2):`rejected_out_of_range` / `not_sent` 有 **P7C15
+   結構保證**(證據欄必為空),但 `manual_failed` 沒有 ⇒ 本片把它算進佔額度(保守),
+   代價是**人工判定為失敗的退款會卡住後續退款**,解鎖要靠人再判一次。
+4. TapPay 正式環境拒絕行為**仍只有 sandbox 實證**,本片不改變這件事。
+5. 🔴 **445a→445b→445c 三片之間的窗口**(R2 M13,v2 這條講小了):
+   · 445a 之後、445b apply 前:**行為零變化**(新碼不會出現)—— 這段是安全的。
+   · 445b apply 之後、445c 上線前:**RPC 已經開始擋,但 UI 上界還是舊的顯示式**
+     ⇒ 員工會看到「表單說可以、送出被擋」。**這段是三片裡最不直覺的窗口**,
+     直接違反 §0-E 第 2 條。⇒ **445b 與 445c 之間的間隔要壓到最短**(同一個工作段內完成),
+     若當天做不完,445b 的 apply 就往後排。
+6. 🔴 **Portal 場外退款現在擋得住,但只在 Record 查得到的範圍內**:
+   `record_refunded_before` 是 TapPay 的權威視角,含場外退款 ⇒ 這個洞比 v1/v2 以為的小很多。
+   但 Record 查詢失敗時 action 會 abort(`refund-baseline.ts:5`)⇒ **TapPay 掛掉時退款全部停擺**,
+   這是 Q10=A 已知情接受的代價。
 
 > **名字大於實力的防護比沒有防護更危險**。任何 UI 文案、commit body、STATUS
 > 不得出現「已防止超額退款」這種全稱句。
@@ -412,9 +500,44 @@ v1 寫「在現行狀態集合下兩式相等」——**固定 fixture 不會因
 
 ## §10 估時(v1 低估,重估)
 
-- 445a:**90-120 分**(v1 說 45-60;標準片,七個檔 + 型別驗證 + 重播格)
-  + Q-445-1 選 A/B 再 **+20-30 分**
-- 445b:**150-210 分**(v1 說 90-120;八處同步 + 11 個驗收格 + 拋棄式庫負測 + 並發格 + 回歸包 + 對抗審查)
+- **445a**:**60-90 分**(輕量片;五個檔、純向後相容、6 個驗收格)
+- **445b**:**150-210 分**(高風險片;守門式 + 步 6 partial&full + 第 9 碼十處同步 + 16 個驗收格
+  + 拋棄式庫負測(`failed` 三分 + 未來狀態 + 補償退款 veto)+ ACL 正負斷言 + 回歸包 + 對抗審查)
+- **445c**:**45-60 分**(標準片;四個檔 + 4 個驗收格)
+  🔴 **必須與 445b 同一個工作段完成**(§8-5:中間的窗口最不直覺)
+
+⚠️ Q-445-1=C 讓 v2 的「+20-30 分」消失(那道額外 SELECT 不需要了),但 §4-5 逼出的 445c 是新增的。
+
+---
+
+## §11-R2 R2(adversarial-reviewer,換模型)findings 逐條折(1 BLOCKER + 13 MF + 4 nit)
+
+| # | 嚴重度 | 摘要 | 折法 | 落點 |
+|---|---|---|---|---|
+| FW1 | 🔴BLOCKER | 「RPC 拿不到 Record」是假的全稱句 | 整段自我更正 + 三條證據 | §0-B |
+| FW2 | MF | FW1 成立則 §0-C/§0-D 作廢、Q-445-1 要重問 | 已請 Sean 重拍 = **C** | §0-C/§0-D |
+| FW3 | MF | Record 閘沒有落點檔;Q10 今天就已經是行為 | §3 表改成「本來就在做」、零新增 | §3 |
+| M1 | MF | `failed` 一律佔額度 ⇒ 網路斷線的單**永久退不了** | `failed` 三分(`not_sent` 不佔) | §4-2 / §6-7a |
+| M2 | MF | 解鎖出口要等 2g、2g 排在本片後 ⇒ 結構無解 | 隨 M1 消滅(不再需要解鎖出口) | §4-2 |
+| M3 | MF | 分辨力應落在 `failed_reason` 不是 `status` | 採納,並補 **P7C15 結構保證**依據 | §4-2 |
+| M4 | MF | 守門只管 partial ⇒ 擋小的放行大的 | **full 也納入**步 6 | §4-3 / §6-14 |
+| M5 | MF | SUM 語意下「是哪一筆」不存在 | 撤 `blocked_by_refund_id`、改指向帳本區塊;**Q4=A 實質縮減**已入誠實邊界 | §4-4 / §8-2 |
+| M6 | MF | 驗收「兩 token 並發」零判別力(既有唯一索引已保證) | 改成**序列兩筆** | §6-18 |
+| M7 | MF | 措辭「零命中」與既有 oracle 白名單牴觸 | 改成「**白名單不變**」+ 新數字必須進 oracle 掃描面 | §6-24 |
+| M8 | MF | UI 上界(顯示式)≠ RPC 守門線 ⇒ 表單說可以、送出被擋 | **同一條式子**;逼出 445c | §4-5 / §5 / §6-23 |
+| M9 | MF | 新 SECURITY DEFINER 函式無 ACL ⇒ anon 可問金流狀態 | 照 repo 樣板 REVOKE+GRANT+正負斷言 | §5(445b-3)/ §6-20 |
+| M10 | MF | 八處清單仍漏兩支 harness | 補 `refund-actions-dispatch.test.ts:363`、`a7c-rw1b-verify.sh:516-522` | §5(445b-5) |
+| M11 | MF | 445b 後 2f 回退腳本恆 abort(三態閘) | 三處同動寫明「先回退 445b」 | §7 |
+| M12 | MF | 驗收「在途補償退款」跑不出資料(2g 未建) | 明寫拋棄式庫手造三張表 | §6-17 |
+| M13 | MF | §8-6 講小了 | 改成三片之間**兩個窗口**分別評估 | §8-5 |
+| C1 | nit | `information_schema` 讀 CHECK 已被判不夠 | 驗收 9 改行為探針(拋棄式庫加未來狀態) | §6-9 |
+| C2 | nit | 「查無訂單真 null」頁面路徑不可達 | 該格移除(445a 不再做金額判定) | §6 |
+| C3 | nit | 刪短路後多一趟**序列** RPC | 445c 併進既有 `Promise.allSettled` | §5(445c) |
+| C4 | nit | `remaining` 進 UI 會撞措辭鐵律 | 顯示名稱在 445c 決定並寫進措辭清單 | §5(445c)/ §6-24 |
+
+🔴 **R2 有一條我駁回**:「445a 不得先送、順序要對調」——
+它建立在「要放寬 partial 傳 `record_amount`」上,但守門要的是 `record_refunded_before`(§0-D),
+**不需要動那道 RAISE**。⇒ 片界順序維持 445a 先。(依據已寫在 §0-D,可被下一輪推翻。)
 
 ---
 
@@ -459,8 +582,17 @@ v1 寫「在現行狀態集合下兩式相等」——**固定 fixture 不會因
 
 ## §12 這份 plan 還沒過的關
 
-1. 🏁 **Q-445-1 = A,Sean 2026-08-13 已拍**(§0-D)—— §5/§6 已依 A 案落定
-2. ☐ **關卡1 R2 對抗審查**:🔴 **換模型**(R1 是 codex;R2 走 adversarial-reviewer/Fable,
-   00-work-rules §5「第 3 輪起換角度換模型」的精神——本 plan 被大幅重寫,等同新 plan)
-3. ☐ **Sean 批准**(鐵則 8)
-4. ☐ 445b 的 **apply 停點**(素材以 migration 檔頭為準)
+1. 🏁 **Q-445-1 = C,Sean 2026-08-13 二次拍板**(§0-D);**Q-445-E 驗收定調**已轉成 §0-E 三條
+2. 🏁 **R1(codex)FAIL 33 條 → v2 全折**
+3. 🏁 **R2(adversarial-reviewer,換模型)FAIL 1 BLOCKER + 13 MF → v3 全折**(§11-R2)
+4. ☐ **R3 對抗審查:🔴 必須第三次換角度換模型**(00-work-rules §5:第 3 輪起換角度;
+   R1=codex、R2=opus adversarial-reviewer ⇒ **R3 走 Fable 或 codex 換 prompt 角度**)。
+   🔴 **R3 要特別打的**:①`failed` 三分的依據(P7C15)我只讀了那一處,**還有沒有別的路徑
+   能讓證據欄為空但錢已經動了** ②三片窗口(§8-5)的風險評估是我自己寫的、沒被驗過
+   ③§4-5 逼出的 445c 有沒有更簡單的解法(例如 UI 乾脆不顯示上界)
+5. ☐ **Sean 批准**(鐵則 8)
+6. ☐ 445b 的 **apply 停點**(素材以 migration 檔頭為準)
+
+> 🔴 **本 plan 的自我評價(誠實條款)**:v1→v2→v3 三版,**每一版都有一條方向級的錯**
+> (v1 算錯帳本 / v2 假的「做不到」/ v3 待驗)。三版的共同病根都是
+> **「我證明了 A、寫下了 B」** —— 下一輪審查請把這當成最可能的失敗形狀來找。
