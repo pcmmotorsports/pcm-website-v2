@@ -73,9 +73,38 @@
 | 已收已定 | `paymentStatus='paid'` × 訂貨分數 `ordered >= quantity` |
 | 已收未定 | `paymentStatus='paid'` × `ordered < quantity` |
 | 未收已定 | `paymentStatus='unpaid'` × `ordered >= quantity` |
-| 出貨完成 | `fulfillmentStatus` 已出貨(主雙軸的第二軸) |
+| 出貨完成 | ~~`fulfillmentStatus` 已出貨(主雙軸的第二軸)~~ 🔴 **這格是錯的,見下方更正** |
 
-證據:`packages/domain/src/order/types.ts:213` 逐字「主雙軸 = `paymentStatus` × `fulfillmentStatus`」;
+> ### 🔴🔴 更正(2026-08-13,E 窗實查 + 主視窗複驗):上表「出貨完成」那一格不得照做
+>
+> **① `orders.fulfillment_status` 已被明文凍結,新程式不得讀。**
+> `supabase/migrations/20260729010000_m4b_e10_d0_display_id_expand.sql:87-88` COMMENT 逐字:
+> 「E10 起停止維護、值為 legacy stale、不得當現況真相。Sean 2026-07-28 拍 Q1=B:
+> 訂單層彙總狀態不維護,出貨/訂貨進度的真相在 `order_items` 的計數器與其明細表。
+> …**任何新程式不得讀取本欄做判斷**。」
+> ⇒ 本需求檔寫於 08-12、該欄凍結於 07-28 ⇒ **這是漏查,不是推翻拍板。**
+>
+> **② 上表引的證據句講的是另一件事。** `packages/domain/src/order/types.ts:213`
+> 那句「主雙軸 = `paymentStatus` × `fulfillmentStatus`」是 **`AdminOrderFilter`(篩選器)** 的註解,
+> 不是「出貨完成怎麼判斷」的依據。引用時要看它屬於哪個型別。
+>
+> **③ 照原字面做的真實後果:最會賠錢的那格會顯示成反的。**
+> Sean 08-05 拍板逐字「出貨必先到貨、無直送」⇒ `shipped ⊆ instock`
+> (`types.ts:695-701`,CHECK `oiqs_shipped_le_instock` 承重)⇒ 已出貨的單 `instock >= quantity` 恆成立
+> ⇒ 貨品軸會判成 `instock` ⇒ **`未收出貨` 顯示成 `未收現貨`**。
+> 而 `未收出貨` 正是 §0-H 點名**唯一真的會賠錢**、OD 給全檔唯一實心深紅的那格。
+> **名字不只比實力大,名字是反的** —— 員工會把該追的單當成已經好了。
+>
+> **④ 正解**:貨品軸的「出貨」讀 `order_item_quantity_summary.shipped_quantity`
+> (B2-S2b `20260806180000` 已接 trigger + backfill;generated Row 在
+> `packages/adapters/src/supabase/database.types.ts:823`)。
+> DB 有、generated types 有,但 **domain TS 型別與列表投影都還沒撈** ⇒ 由 **E-L0 片**補上
+> (純加法、零 migration、零權限面;主視窗 08-13 裁准)。
+>
+> **⑤ 既有債(未立案,號池解凍後補)**:`AdminOrderFilter` 的篩選器**仍在用** `fulfillment_status`,
+> 同樣踩到凍結欄。本輪不動(不在片界內),但它是真的債 —— 篩選結果可能與畫面上的狀態欄不一致。
+
+證據(付款軸與訂貨軸,這兩軸沒問題):
 付款軸值域 `:41-42`(`paid`/`unpaid`/…);訂貨軸是**品項層分數** `orderedQuantity/quantity`
 (`apps/admin/src/components/orders/orders-table.tsx:234-236`),已有三段配色
 `orderedCapsuleClass()`(`apps/admin/src/lib/orders/order-list-view.ts:140-148`:0=灰 / 未滿=琥珀 / 滿=綠),
@@ -429,6 +458,71 @@ Sean 逐字:「我發現 OD 沒設計刷卡與退刷部分,應該忘記了。**�
 在 Sean 這個拍板之下 **不向客人扣回** ⇒ 那筆差額由公司吃掉。
 ⚠️ **但帳本欄位仍存在** —— 設計要標明「這筆差額 = 公司吸收」,讓它在帳上看得見,
 不要因為不跟客人收就不記。**看不見的成本是最貴的成本。**
+
+---
+
+## §0-J 🔴 補回寫:備註搬家 + 客人明細入口(第十二輪定案,本檔原本零記載)
+
+> **為什麼補這段**:S 窗 2026-08-13 開工前 grep 本檔全 620 行
+> (`備註|明細|iframe|customer_notified|note_type|發票|客人|告知義務|嵌入|按一下`)**兩件都零命中** ——
+> 定案是真的、但**只活在 OD 成品裡,本檔沒回寫** ⇒ 下一個窗一樣會 grep 落空。
+> 以下逐字引用由主視窗用 OD MCP **自行複驗**(不是轉抄 S 窗)。
+
+### J-1 備註整塊搬到發票下方
+
+OD `overview-desktop.html:1171` 逐字:
+「🔴 第十二輪:既有的「訂單備註 / 聯絡紀錄」**整塊搬到發票下方**(原本在頁面最底)。」
+同檔 `:750`(給 Sean 看的說明文字)補充逐字:
+「上一輪我在這裡放了一個單行備註輸入框,**那是照錯誤資訊做的,已經移除**。
+備註不是文字框,是 `order_notes` 的 **append-only 時間軸**:寫進去刪不掉,
+所以每一筆旁邊有「更正」,按了會補一筆更正紀錄。發文表單保留**聯絡管道**與**發生時間**。」
+
+🔴 **這是既有功能、不是新功能**(`notes-timeline.tsx` / `note-compose-form.tsx` 都已上線,
+含 seq 編號、更正入口、`已更正` badge、`#328` 讀取失敗 vs 尚無備註分流)。
+**本片只搬位置 + 改樣式,不動 `lib/orders/note-timeline.ts` 語意層**(該檔有 21 格突變測試釘死)。
+
+⚠️ 檔名差一個 s,很容易抄錯:
+- `lib/orders/note-timeline.ts` = **語意層**,本片不動
+- `components/orders/notes-timeline.tsx` = **元件層**,要改的是這支
+
+### J-2 `note_type` 三類分色
+
+OD `:306-312` 逐字:「🔴 `note_type` 三類要一眼分得出,不是靠讀內容猜。
+**`customer_notified` 給最強的視覺份量:它是告知義務的稽核證據,不是一般聯絡紀錄。**」
+
+實際值:`.nt-internal` 灰 / `.nt-contact` 藍 / `.nt-notified` 綠
+(底 `oklch(0.90 0.09 152)` + 字 `oklch(0.28 0.09 152)`)。
+現況三類同一個灰(`notes-timeline.tsx:27` `bg-muted text-foreground`)= 一眼分不出,正是這條要修的。
+
+🔴 **別混淆**:頂部那顆 `NOTIFIED_BADGE` 是**整單**告知旗標;這裡講的是**每筆**分色,兩件事。
+
+### J-3 收合:**收合,但有未更正的 `customer_notified` 時預設展開**
+
+Sean 拍 Q18=丙(收合),收合頭顯示「N 筆 · 已告知客人 M 筆 · 最後 08/12 14:12」。
+
+🔴 **主視窗 2026-08-13 加一條例外並裁定**:純收合會把**告知義務的稽核證據預設藏起來**。
+Sean 拍收合的用意是**版面精簡**,不是藏證據 ⇒ 兩者兼顧的形狀是
+`<details open={hasUncorrectedNotified}>` —— 一個 server 端布林、零 client JS。
+(這不是推翻 Q18=丙,是補足它。Sean 有權推翻本裁定。)
+
+### J-4 客人明細入口:按 1 下,用 iframe 嵌既有那份
+
+OD `:229` 逐字:「**刻意不複製一份 markup 過來,不然兩邊遲早會長不一樣。**」
+內容 = `<iframe>` 指到 `customer-card-summary.html?embed=1`;入口做在**詳情頁標題列的客人名字**上
+(`:1109-1112`);lazy 載入(第一次點才給 `src`,`:1510`)。
+
+🔴 **有一個硬前置缺口**(S 窗 2026-08-13 實查):`AdminOrderDetail.customer`
+(`packages/domain/src/order/types.ts:872`)只有 `{name, email, phone}`、**沒有 id**;
+`customerUserId` 只存在於 `AdminOrderSummary`(列表用)。
+⇒ 要補一條資料線:投影 + Row type + mapper + domain type 四處,
+且會動到 `ADMIN_ORDER_DETAIL_SELECT` 的 **byte-equal 鐵則 12 守門測試**
+(`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:722-723`)。
+**主視窗 08-13 裁准**(非成本欄、`AdminOrderSummary` 已有同款先例、不動 schema/RLS/RPC),
+但照鐵則 12「加審不免審」⇒ **該片 commit 前跑 codex 對抗審查**。
+
+另兩件已排除的風險:`apps/admin/next.config.ts` 是空 config(全檔 7 行 `{}`)、無 middleware
+⇒ same-origin iframe 不會被自己擋掉;`/customers/[id]/page.tsx` 存在且 `force-dynamic`,
+但**現在沒有 embed 模式**(會連側欄外框一起嵌進來)⇒ 需要一個去框開關。
 
 ---
 
