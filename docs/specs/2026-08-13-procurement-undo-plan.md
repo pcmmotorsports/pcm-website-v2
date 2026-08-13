@@ -29,7 +29,9 @@
 ### §0-B 表與約束(`20260729020000_m4b_e10_a2_order_item_procurement.sql`)
 
 - `:43` `order_item_id uuid NOT NULL REFERENCES public.order_items(id) **ON DELETE RESTRICT**`
-- `:69-70` `UNIQUE (order_item_id, supplier_canonical_key)` = 業務鍵(A5a 冪等重放靠它)
+- 🔴 **業務鍵的現行字面在 S1b、不在建表檔**:建表檔 `:69-70` 寫的 `UNIQUE (order_item_id, supplier_canonical_key)` **已作廢** —— `20260801150000_m4b_e10_s1b_procurement_supplier_fk.sql:121-123` 把 `supplier_name` / `supplier_canonical_key` 兩欄 `DROP COLUMN`,`:137-143` 改成 `supplier_id uuid NOT NULL` FK → `public.suppliers(id)` + `ADD CONSTRAINT order_item_procurement_business_key **UNIQUE (order_item_id, supplier_id)**`。
+  ⇒ **現行業務鍵 = `(order_item_id, supplier_id)`**。
+  ⚠️ 自我更正:本 plan v1 初稿在此格與 §2 案 B 都抄了建表檔的舊字面 —— 那是「讀了建表檔就以為讀完了」的形狀,S1b 改過欄位。已全樹銷帳(`grep -n "canonical_key" docs/specs/2026-08-13-procurement-undo-plan.md` 命中 2 處,兩處皆已改)。
 - `:73-74` `CHECK (allocated_quantity BETWEEN **1** AND 100000)` ← **允許值不含 0**(案 C 的硬阻礙)
 - `:76-77` `CHECK (received_quantity BETWEEN 0 AND allocated_quantity)`
 - `:186` 子表 `order_item_procurement_receipts.procurement_id … **ON DELETE RESTRICT**`
@@ -219,7 +221,7 @@ RAISE 面(= 呼叫端 bug,非固定碼):actor / request_id 缺失或非法、隔
 | 資料風險 | 🔴 **高**。要改三支已 apply 的守門/重算函式:A2b1 的 SUM 要排除作廢列(`20260803130000:144-146`)、A4a 的三軸重算要排除(`20260803140000:166-173`)、A5a 的存在性分流要排除(否則作廢後重建同一家會撞業務鍵)。**漏改任一支 = 額度沒釋放(白做)或摘要算錯(帳實不符)。** |
 | 可逆性 | 🟢 最好 —— 反作廢就是清欄位。 |
 | 對員工的差別 | 作廢的列**還留在畫面上**。Sean 的原始場景是「key 錯資訊」= 他不想再看到它;留著一列灰字反而增加噪音,與片 3「欄位精簡」的方向相反。 |
-| 業務鍵衝突 | 🔴 `UNIQUE (order_item_id, supplier_canonical_key)`(`20260729020000:69-70`)不含作廢旗標 ⇒ 作廢後對**同一家**重下單會撞鍵。要改成 partial unique index = 動已 apply 的約束。 |
+| 業務鍵衝突 | 🔴 現行業務鍵 `order_item_procurement_business_key UNIQUE (order_item_id, **supplier_id**)`(`20260801150000:143`;**不是**建表檔那條已作廢的 canonical_key 版)不含作廢旗標 ⇒ 作廢後對**同一家**重下單會撞鍵。要改成 partial unique index = 動已 apply 的約束。 |
 | 有沒有先例 | 有,但**理由不轉移**:`shipments` 走 `deleted_at` 軟作廢並用 trigger 擋硬刪(`20260805170000:243`),理由逐字是「**包裹編號的「永不重用」保證**」。採購列沒有對外編號、沒有永不重用的承諾 ⇒ 那個理由在本表不成立。 |
 | rollback | 難:欄位加了、三支函式改了,要退回得再寫一支反向 migration + 處理已寫入的作廢列。 |
 
@@ -417,5 +419,213 @@ A: A|B
 - memory `feedback_honest-gap-is-for-unconstructible-not-for-cheap` —— §8 的收斂紀律
 - `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md:511` —— 第 3 批採購退貨線的落點
 - 片 1 產物(`4d774876`):`admin_delete_item_receipt` 的 RPC / repository / UI 三層,本片逐層照抄形狀
+
+## §12 附錄 A — apply 前置唯讀檢查(給 Sean 的單一 code block)
+
+> 主視窗交辦(MAIN-903-A-D §4 第一件):把 §8 G1 那兩條寫成 Sean 可以**一次複製、一次貼上**的東西。
+> **全部都是 `SELECT`,不會改到任何資料。** 貼進 Supabase → SQL Editor → Run,把整張結果表貼回來。
+> 🔴 **時機 = migration apply 之前**(第 8 條會因為 apply 而翻面,那是預期的)。
+
+```sql
+WITH chk(seq, item, actual, expected) AS (VALUES
+  (1, '採購表上的 trigger 清單(應恰三支)',
+      (SELECT coalesce(pg_catalog.string_agg(tgname, ' | ' ORDER BY tgname), '(無)')
+         FROM pg_catalog.pg_trigger
+        WHERE tgrelid = 'public.order_item_procurement'::regclass AND NOT tgisinternal),
+      'order_item_procurement_allocation_guard_ac | order_item_procurement_received_quantity_guard_bt | order_item_procurement_summary_recompute_zc'),
+  (2, '到貨表上的 trigger 清單(應恰一支)',
+      (SELECT coalesce(pg_catalog.string_agg(tgname, ' | ' ORDER BY tgname), '(無)')
+         FROM pg_catalog.pg_trigger
+        WHERE tgrelid = 'public.order_item_procurement_receipts'::regclass AND NOT tgisinternal),
+      'order_item_procurement_receipts_received_sync_ac'),
+  (3, '採購表的 trigger 全部在啟用狀態',
+      (SELECT count(*)::text FROM pg_catalog.pg_trigger
+        WHERE tgrelid = 'public.order_item_procurement'::regclass
+          AND NOT tgisinternal AND tgenabled = 'O'),
+      '3'),
+  (4, '三個應用 role 對採購表的寫入權限(應為零)',
+      (SELECT count(*)::text
+         FROM (VALUES ('anon'), ('authenticated'), ('service_role')) AS r(rn)
+        CROSS JOIN (VALUES ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) AS p(pv)
+        WHERE pg_catalog.has_table_privilege(r.rn, 'public.order_item_procurement', p.pv)),
+      '0'),
+  (5, 'service_role 讀得到採購表',
+      (SELECT pg_catalog.has_table_privilege('service_role', 'public.order_item_procurement', 'SELECT')::text),
+      'true'),
+  (6, '採購表上非預期的授權對象(應為零)',
+      (SELECT count(*)::text
+         FROM pg_catalog.pg_class c
+        CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) AS a
+        WHERE c.oid = 'public.order_item_procurement'::regclass
+          AND a.grantee <> 0 AND a.grantee <> c.relowner
+          AND pg_catalog.pg_get_userbyid(a.grantee) <> 'service_role'),
+      '0'),
+  (7, '到貨表的外鍵是 ON DELETE RESTRICT(有到貨就刪不掉採購列的那道)',
+      (SELECT count(*)::text FROM pg_catalog.pg_constraint
+        WHERE conrelid = 'public.order_item_procurement_receipts'::regclass
+          AND contype = 'f' AND confdeltype = 'r'),
+      '1'),
+  (8, '這次要新建的函式目前不存在(撞名就停)',
+      (SELECT count(*)::text FROM pg_catalog.pg_proc
+        WHERE proname = 'admin_delete_item_procurement'
+          AND pronamespace = 'public'::regnamespace),
+      '0')
+)
+SELECT seq AS "#", item AS "檢查項", actual AS "實際看到的", expected AS "應該是",
+       CASE WHEN actual = expected THEN '✅ 通過' ELSE '🔴 停下來' END AS "判定"
+  FROM chk ORDER BY seq;
+```
+
+### 看到什麼算通過 / 看到什麼要停
+
+| 情況 | 意思 | 怎麼辦 |
+|---|---|---|
+| 八列的「判定」**全部** ✅ | 正式庫的守門與權限,跟我在 plan 裡依 migration 檔算出來的完全一樣 | ✅ 可以 apply |
+| 第 **1 / 2 / 3** 列 🔴 | 正式庫的 trigger 跟檔案對不上(少一支、多一支、或被停用) | 🔴 **停**。整張表貼回來,我重算 §1b 的守門論證 —— 那條論證的承重點就是這幾支 trigger |
+| 第 **4 / 5 / 6** 列 🔴 | 有人手動改過授權 ⇒ 「應用層刪不掉本表」這個前提可能不成立 | 🔴 **停**。這是 §0-F 整節的地基 |
+| 第 **7** 列 🔴 | 「有到貨就刪不掉」那道物理防線不在了 | 🔴 **停**。案 A 的守門會少一層 |
+| 第 **8** 列 🔴 | 已經有同名函式(可能是別人建的、或這支已經 apply 過了) | 🔴 **停**。不要覆蓋,先問清楚 |
+| 整段報錯跑不動 | 表名或物件不存在 | 🔴 **停**,把錯誤訊息原文貼回來 |
+
+### 🟢 這段 SQL 已在拋棄式庫實跑過(不是「看起來對」)
+
+2026-08-13,本機起一個 PG 17.10 拋棄式庫(`initdb` → 建 stub 表與三個 role → 跑完拆掉、`rm -rf` 後零目錄殘留)。
+**做了兩件事,分開講**:
+
+1. **語法與可執行性**:整段**逐字**(從本檔用 `sed`+`awk` 抽出來、不是重打)貼進 `psql -f` ⇒ 八列全部回值、零錯誤。
+   ⇒ Sean 貼進 SQL Editor 不會吃到語法錯。
+2. **判別力(每一列都要能翻紅,否則是恆真守門)**:逐列做反向突變、逐列確認翻紅 ——
+
+   | 列 | 突變 | 結果 |
+   |---|---|---|
+   | 1 / 2 | 不建 trigger → 建齊四支 | `(無)` 🔴 → 清單相符 ✅ |
+   | 3 | `DISABLE TRIGGER` 一支 | `3` ✅ → `2` 🔴 |
+   | 4 | `GRANT DELETE … TO service_role` | `0` ✅ → `1` 🔴 |
+   | 5 | `REVOKE SELECT … FROM service_role` | `true` ✅ → `false` 🔴 |
+   | 6 | 建一個 `outsider` role 並 `GRANT SELECT` | `0` ✅ → `1` 🔴 |
+   | 7 | FK 改成 `ON DELETE CASCADE` | `1` ✅ → `0` 🔴 |
+   | 8 | 先建一支同名函式 | `0` ✅ → `1` 🔴 |
+
+   **八列全部有判別力,零恆真格。**
+
+⚠️ **這次實跑證到的與沒證到的,分清楚**:證到「這段 SQL 跑得動、而且每一列都會對它要看的東西翻紅」。
+**沒有**證到「正式庫的值是對的」—— 那正是要 Sean 跑一次的原因(§8 G1)。stub 表也不是真表(欄位是空殼),
+所以這次實跑**不能**用來背書任何關於正式庫的斷言。
+
+⚠️ **這段檢查的天花板(誠實列出,不宣稱完備)**:
+- 第 6 列靠 `relacl`;`relacl` 為 NULL 時 `aclexplode` 回零列 ⇒ 也會算成 0 而通過。這與建表檔自己的斷言(`20260729020000:286-295`)同形狀,不是本片新引入的洞。
+- role 繼承(某 role 被加進 `service_role`)與 `pg_read_all_data` 這類叢集層授權**不在 `relacl` 裡**,表層查詢物理上看不到(建表檔 `:257-258` 已載明同一條界)。
+- `tgenabled` 只反映 trigger 的啟用旗標;`session_replication_role = replica` 仍可整批跳過(§8 G4)。
+
+---
+
+## §13 附錄 B — §7c 四個負測的可執行骨架
+
+> 主視窗交辦(MAIN-903-A-D §4 第二件):先寫骨架,批准後直接跑,省一輪。
+> 🔴 **狀態 = 骨架,未跑過**(RPC 還不存在)。這裡**不宣稱任何一格已驗**。
+> 跑的地方 = **拋棄式庫**(`scripts/d1t2-rehearsal.sh provision <workdir>`,同 `scripts/352a2-verify.sh` 的做法),不碰正式庫。
+
+### 共用 fixture(照 `scripts/352a2-verify.sh:563-568` 的形狀)
+
+```sql
+-- 建一個 quantity=3 的品項 + 一列 allocated=3 的採購(零到貨)
+-- ⚠️ 直接 INSERT 是 harness 用 owner 身分做的;應用層做不到(§0-F)
+CREATE OR REPLACE FUNCTION pg_temp.mkfix(OUT o_item uuid, OUT o_proc uuid) AS $mk$
+DECLARE v_ord uuid;
+BEGIN
+  SELECT id INTO v_ord FROM public.orders ORDER BY created_at LIMIT 1;
+  o_item := gen_random_uuid();
+  INSERT INTO public.order_items(id, order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (o_item, v_ord, 'SKU-UNDO',
+          '{"title":"零件","sku":"S1","spec":{"color":"black"}}'::jsonb, 3, 10, 30);
+  o_proc := gen_random_uuid();
+  INSERT INTO public.order_item_procurement(id, order_item_id, allocated_quantity, supplier_id, reply_status)
+  VALUES (o_proc, o_item, 3,
+          '00000000-0000-4000-8000-000000000352'::uuid,   -- SPOT 虛擬供應商,同 352a2 harness
+          'confirmed');
+END $mk$ LANGUAGE plpgsql;
+```
+
+### N3 隔離閘(一句 `BEGIN` 就構造得出來 —— 這就是它不准放進誠實缺口的理由)
+
+```sql
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+  SELECT * FROM pg_temp.mkfix();  \gset
+  -- 期望:SQLSTATE = P2B02
+  SELECT public.admin_delete_item_procurement(:'proc'::uuid, 'staff_1', 'n3-iso');
+ROLLBACK;
+```
+判準:**必須** raise `P2B02`。回了任何固定碼 = 閘沒發火 ⇒ 紅。
+🔴 正向對照(同一組 fixture 走 read committed 必須回 `DELETED`)—— 少了對照組,「它一直紅」也會被誤讀成通過。
+
+### N5 / N6 request_id 零寬正規化(與登錄那支必須結論一致)
+
+```sql
+-- N5:四種壞形狀,每一種都必須 RAISE(不是回固定碼)
+--   ① 'ABC-123'(大寫)② 'a b'(含空白)③ U&'\200B\200B'(純零寬)④ repeat('a',201)
+-- N6:同一個「前置零寬 + 合法字串」送兩支 RPC,結論必須相同
+DO $n6$
+DECLARE v_key text := U&'\200B' || 'n6-same-key';
+        v_a text; v_b text; v_item uuid; v_proc uuid;
+BEGIN
+  SELECT * INTO v_item, v_proc FROM pg_temp.mkfix();
+  -- 登錄那支:收得下(它會把零寬剝掉)
+  BEGIN v_a := public.admin_record_item_receipt(v_proc, 1, 0, now() - interval '1 hour',
+                                                NULL, 'staff_1', v_key);
+  EXCEPTION WHEN others THEN v_a := 'RAISE:' || SQLSTATE; END;
+  -- 刪除那支:必須做同一件事
+  BEGIN v_b := public.admin_delete_item_procurement(v_proc, 'staff_1', v_key);
+  EXCEPTION WHEN others THEN v_b := 'RAISE:' || SQLSTATE; END;
+  IF (v_a LIKE 'RAISE:%') <> (v_b LIKE 'RAISE:%') THEN
+    RAISE EXCEPTION 'N6 兩支對同一個 request_id 結論相反:登錄=% / 刪除=%', v_a, v_b;
+  END IF;
+END $n6$;
+```
+🔴 這一格的存在理由逐字在 `20260810233000:291-295`(同一個病灶已經發生過一次:兩支的**形狀閘相同但正規化不同**)。骨架特意讓兩支吃**同一個字串**,不各寫各的。
+
+### B4 稽核 before-image 完整性(一句 `jsonb_object_keys` 差集)
+
+```sql
+DO $b4$
+DECLARE v_item uuid; v_proc uuid; v_missing text;
+BEGIN
+  SELECT * INTO v_item, v_proc FROM pg_temp.mkfix();
+  PERFORM public.admin_delete_item_procurement(v_proc, 'staff_1', 'b4-audit');
+  SELECT pg_catalog.string_agg(c.column_name, ', ') INTO v_missing
+    FROM information_schema.columns c
+   WHERE c.table_schema = 'public' AND c.table_name = 'order_item_procurement'
+     AND c.column_name NOT IN (
+       SELECT pg_catalog.jsonb_object_keys(a.before)
+         FROM public.admin_audit_log a
+        WHERE a.action = 'procurement.delete'
+          AND a.target = 'procurement:' || v_proc::text);
+  IF v_missing IS NOT NULL THEN
+    RAISE EXCEPTION 'B4 before-image 少了這些欄:%', v_missing;
+  END IF;
+END $b4$;
+```
+🔴 判準是**欄名差集為空**,不是「有寫一筆稽核」。差別:寫了一筆但只存三欄,照樣叫「有稽核」而查不回內容 —— 而本片刪掉之後就只剩這一份。
+
+### N7 併發雙刪(兩個終端機,不是一個)
+
+```bash
+# 終端機 1
+psql "$D1_DB_URL" <<'SQL'
+BEGIN;
+  SELECT public.admin_delete_item_procurement('<PROC_ID>', 'staff_1', 'n7-a');
+  -- 停在這裡不要 COMMIT,先去跑終端機 2
+SQL
+
+# 終端機 2(會卡住等鎖 —— 卡住本身就是「取鎖有效」的證據)
+psql "$D1_DB_URL" -c \
+  "SELECT public.admin_delete_item_procurement('<PROC_ID>', 'staff_1', 'n7-b');"
+
+# 回終端機 1 送出 COMMIT ⇒ 終端機 2 解鎖
+```
+判準:終端機 1 回 `DELETED`、終端機 2 回 **`ALREADY_DELETED`**。
+🔴 **回 `DELETED` 兩次 = 紅**(那代表 `ROW_COUNT` 判定沒承重,理由逐字在 `20260810233000:381-385`)。
+⚠️ 骨架限制:兩個終端機要人手動接力。要進 CI 得改成背景 job + `pg_sleep`,那不在本附錄範圍(**未做**)。
+
+---
 
 — END —
