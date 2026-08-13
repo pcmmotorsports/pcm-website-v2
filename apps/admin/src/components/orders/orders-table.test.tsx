@@ -26,11 +26,15 @@ import { OrdersTable } from './orders-table';
 const panelHref = (orderId: string) => `/orders?panel=${orderId}`;
 
 import {
-  PAYMENT_STATUS_CAPSULE,
   PAYMENT_STATUS_LABEL,
   STATUS_CAPSULE,
-  orderedCapsuleClass,
 } from '../../lib/orders/order-list-view';
+// L3 片1:狀態八值的期望值一律從這裡取,不在本檔重打一份中文字面。
+import {
+  ORDER_STATUS_CANCELLED_LABEL,
+  ORDER_STATUS_LABEL,
+  orderStatusView,
+} from '../../lib/orders/order-status-axes';
 
 // 🔴 `server-only` 在**本檔**換成空替身 —— **不是放寬護欄,而且刻意不做成全域 alias。**
 //    真的 `server-only` 被 client 模組載入時會丟錯,那正是我們要的
@@ -139,7 +143,7 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
 }
 
 /**
- * 表頭欄名(唯一權威 = 母 plan §5.1a;A11a-1 = 9 欄 → A11a-4 加訂貨 = 10 → A11a-5 加發票 = 11
+ * 表頭欄名(唯一權威 = 母 plan §5.1a + `design-brief` §0-B;A11a-1 = 9 欄 → A11a-4 加訂貨 = 10 → A11a-5 加發票 = 11
  * → 2b-1 勾選欄 = 12 → **A13 加操作 = 13**)。
  */
 const EXPECTED_HEADERS = [
@@ -155,7 +159,9 @@ const EXPECTED_HEADERS = [
   '數量',
   '金額',
   '客戶',
-  '訂貨', // A11a-4(品項層)
+  // 🏁 L3 片1:A11a-4 的「訂貨」(品項層)原地換成「狀態」(**訂單層**,八值 = 收款軸 × 貨品軸)。
+  //    欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單。
+  '狀態',
   '發票', // A11a-5(訂單層)
   '操作', // A13(訂單層)。🔴 **出貨欄(A11a-6)仍缺席** —— 那是另一片,別順手補進期望值
 ];
@@ -173,6 +179,9 @@ const ORDER_LEVEL_COLUMNS = [
   'col-oid',
   'col-date',
   'col-customer',
+  // 🏁 L3 片1 新入列:狀態是**整張單**走到哪,不是某個品項走到哪 ——
+  //    它從品項層的訂貨欄原地換過來,層級跟著換,這一行就是那個換法的守門。
+  'col-status',
   'col-invoice',
   'col-ops',
 ] as const;
@@ -181,7 +190,7 @@ const ORDER_LEVEL_COLUMNS = [
 describe('V1 — 表頭欄數與內容欄數一致', () => {
   // 🔴 期望值**不寫死**終局:每片收工值 = 前一片 +1(plan §3)。A13(操作欄)落地 ⇒ 本線現值 **13**;
   //    **出貨欄(A11a-6)還沒做** ⇒ 13 不是終值,那片落地時這裡再 +1。
-  it('表頭恰為 13 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面;A11a-4/-5 + A13 起含訂貨、發票、操作)', () => {
+  it('表頭恰為 13 欄,且欄名與期望一致(Q6=A 短字面;L3 片1 起含**狀態**、發票、操作)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
@@ -204,7 +213,7 @@ describe('V1 — 表頭欄數與內容欄數一致', () => {
     //    那條被它守住的東西(取消入口不得逐品項冒出三個)改由下面的 `ORDER_LEVEL_COLUMNS`
     //    那組守 —— 而且更準:它直接數「有值的格子」,不靠格數推。
     // ⚠️ **這條守的是格數對齊,不是「渲染後落在第幾欄」**(R1 抓到原註解宣稱過頭):
-    //    jsdom **沒有 table layout 引擎**,把 `<th>訂貨</th>` 搬到表頭第一位而 `<td>` 不動,
+    //    jsdom **沒有 table layout 引擎**,把 `<th>狀態</th>` 搬到表頭第一位而 `<td>` 不動,
     //    這條照樣全綠。落點最終仍要 Sean 肉眼驗。
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
@@ -363,7 +372,7 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(13); // A11a-4/-5 訂貨+發票;2b-1 勾選;A13 操作
+    expect(rows[0]!.querySelectorAll('td').length).toBe(13); // L3 片1 起是狀態+發票;2b-1 勾選;A13 操作
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -401,161 +410,174 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
   });
 });
 
-// ── V8 + V6 接線:A11a-2(付款軸小字 / 列表日期格式;兩者都塞既有格、不加欄)────────────
-describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
-  it('小字與單號在**同一格**(索引 0),且表頭欄名恆等於 EXPECTED_HEADERS、無「付款」欄', () => {
+// ── L3 片1(2026-08-14):付款膠囊下架 + 狀態八值欄上場(Sean 拍 Q2=A:狀態欄獨扛)──────
+//
+// 🔴🔴 **本段取代了三個舊 describe,取代不是刪除 —— 三個都是在測「已經不存在的 UI」**:
+//    ① `V8 — 付款軸小字在訂單編號格內` ② `A11b — 付款軸膠囊配色(五態)`
+//    ③ `A11b — 訂貨軸膠囊配色(三段完成度 + 邊界)`
+//    留著它們不是「多守一點」——那三組會**恆炸**(它們 querySelector 的節點已不存在、`!` 會丟)
+//    ⇒ 唯一的選擇是換掉,不是保留。
+// ⚠️ **舊守門守的東西沒有全部消失,要逐項交代去哪了**(不交代就是偷偷放寬):
+//    · 「付款軸不另立欄」→ 由本段第一組的 `toEqual(EXPECTED_HEADERS)` 接手(欄集合仍是全額比對)
+//    · 「五態各自可辨識、不塌陷成同色」→ **降級了**:狀態八值的收款軸只有 `paid` / 非 `paid` 兩態
+//      (`orderPayAxis` 的誠實邊界),`refunded` 與 `unpaid` 在列表上**現在真的同色**。
+//      🔴 這是 Sean 拍 Q2=A 的**已知代價**,不是本片弄丟的;`order-status-axes.test.ts`
+//      有一格專釘 `refunded` 落在哪一軸。**本檔不再宣稱列表能分辨五態。**
+//    · 「訂貨三段完成度配色」→ 移到明細頁(`ItemAxisCell`);列表這格換成**整單彙總**的貨品軸,
+//      兩者不是同一個數字(`orderGoodsAxis` docstring 逐字:所有品項都到齊才進下一階段)。
+
+describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
+  it('表頭恆等於 EXPECTED_HEADERS(「狀態」進、「訂貨」出),且**無**「付款」欄', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
-    // 🔴 同 V7 的理由用**固定索引**:訂單編號恆在該列的固定位置,不靠「第一個帶 rowspan 的格」推。
-    //    2b-1 起第 0 格是**勾選欄**(訂單層)⇒ 訂單編號是第 **1** 格。
-    const idCell = [...container.querySelectorAll('tbody tr td')][1]!;
 
-    // 🔴 「沒有付款欄」由這條 `toEqual` 全額涵蓋。原本多寫的 `not.toContain('付款')` 已刪:它被嚴格蘊含,
-    //    **且**陣列 `toContain` 是整格相等 ⇒ 欄名若叫「付款狀態」它照樣綠(R1 抓到,名實不符)。
     expect(headers).toEqual(EXPECTED_HEADERS);
-    expect(idCell.textContent).toContain('PCM-0001');
-    // 字面取自 `PAYMENT_STATUS_LABEL.paid`(`order-list-view.ts`)的**真實值**,不是自己編的中文。
-    expect(idCell.textContent).toContain('已付款');
   });
 
-  // 🔴 **A11b(2026-08-07)改寫**:付款軸小字改膠囊,結構從 `<div>純文字</div>` 變成
-  //    `<div class="mt-1"><span class="…膠囊…">文字</span></div>` —— 原本 `:scope > div` 直接
-  //    命中文字節點的做法會撲空(className 只剩 `mt-1`),改查 `:scope > div > span`。
-  //    **`paid` 的期望值也跟著改**:A11b 之前 `paid` 走 `text-muted-foreground`(與 `refunded`/
-  //    `partiallyRefunded` 同灰、正是本片要治的訊號塌陷);A11b 之後 `paid` 是 emerald,
-  //    不再是 muted ⇒ 舊的 `toContain('text-muted-foreground')` 若照抄會**假紅**,已改斷言方向。
-  it('🔴 待付款上紅、已付款走綠(emerald):兩格正負對照(只驗字面會讓上色整段拿掉仍全綠)', () => {
-    const { container: unpaidBox } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: 'unpaid' })]} />,
-    );
-    const unpaidCell = [...unpaidBox.querySelectorAll('tbody tr td')][1]!; // 2b-1:第 0 格是勾選欄
-    const unpaidCapsule = unpaidCell.querySelector(':scope > div > span')!;
-
-    expect(unpaidCapsule.textContent).toBe('待付款');
-    expect(unpaidCapsule.className).toContain('text-destructive');
-
-    // 反面:`paid` 那格**不得**是 destructive、也**不得**再是 muted 灰(訊號塌陷解除)。
-    const { container: paidBox } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l2', 1, 12000)] })]} />,
-    );
-    const paidCapsule = [...paidBox.querySelectorAll('tbody tr td')][1]!.querySelector(
-      ':scope > div > span',
-    )!;
-
-    expect(paidCapsule.textContent).toBe('已付款');
-    expect(paidCapsule.className).not.toContain('text-destructive');
-    expect(paidCapsule.className).not.toContain('text-muted-foreground');
-    expect(paidCapsule.className).toContain('bg-emerald-100');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────
-// A11b(2026-08-07):付款軸與訂貨軸膠囊上色(plan
-// `docs/specs/2026-08-07-e10-a11b-status-capsule-plan.md`)。出貨軸不做(§1)。
-// ─────────────────────────────────────────────────────────────
-
-describe('A11b — 付款軸膠囊配色(五態,§4 表)', () => {
-  it.each([
-    // 🔴 用**完整色 token**(`bg-…`)而非 'emerald' 這種子字串:後者在「色 class 被刪掉、
-    //    但同一串裡還有別的含該字樣的 class」時仍會過(subagent 自陳的弱點,主對話收緊)。
-    //    色階要調(如 amber-100 → amber-50)本來就該是**刻意動測試**的設計決定,不是彈性。
-    ['paid', '已付款', 'bg-emerald-100'],
-    ['unpaid', '待付款', 'bg-destructive/10'],
-    ['partiallyPaid', '付款確認中', 'bg-amber-100'],
-    ['refunded', '已退款', 'bg-muted'],
-    ['partiallyRefunded', '已退部分', 'bg-amber-100'],
-  ] as const)('%s → 文字「%s」、顏色含 %s', (status, label, colorToken) => {
-    const { container } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
-    );
-    const capsule = [...container.querySelectorAll('table tbody tr td')][1]!.querySelector(
-      ':scope > div > span',
-    )!; // 2b-1:第 0 格是勾選欄,付款軸小字在訂單編號格
-
-    expect(capsule.textContent).toBe(label);
-    expect(capsule.className).toContain(colorToken);
-    // 每一態都是同一個共用形狀,不是各自另組的 class。
-    expect(capsule.className).toContain(STATUS_CAPSULE);
-    // 🔴 上一行**單獨看是恆真的**:`STATUS_CAPSULE` 若被改成 `''`,`includes('')` 永遠 true
-    //    ⇒ 膠囊的「形狀」在測試層等於沒人釘(階段 C MF3)。補一條硬字面。
-    expect(capsule.className).toContain('rounded-full');
-  });
-
-  // 🔴 這是擋「訊號塌陷回歸」的直接觀察面:`refunded` / `partiallyRefunded` 一旦被改回與
-  // `paid` 同色,這條會紅(§5-1、A11b plan `:46-49` 逐字病灶)。
-  it('🔴 相異色數 ≥ 4,且 refunded/partiallyRefunded/unpaid 皆不與 paid 同色(擋訊號塌陷回歸)', () => {
-    const statuses = ['paid', 'unpaid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const;
-    const colors = statuses.map((status) => {
-      const { container } = render(
+  // 🔴 **這一格是「下架」的正向守門,不是註解**:把付款膠囊那段 JSX 貼回 `orders-table.tsx`
+  //    就會紅。用**五態全掃**而不是只掃 `已付款`:只掃一態的話,有人把它改成永遠顯示
+  //    `待付款` 仍然全綠。
+  it('🔴 整張表零付款軸字面(五態逐一掃),且單號格內零膠囊 `<span>`', () => {
+    for (const status of ['paid', 'unpaid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const) {
+      const { container, unmount } = render(
         <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
       );
-      return [...container.querySelectorAll('table tbody tr td')][1]!.querySelector(
-        ':scope > div > span',
-      )!.className; // 2b-1:同上
-    });
+      // 2b-1:第 0 格是勾選欄 ⇒ 訂單編號是第 1 格。
+      const idCell = [...container.querySelectorAll('tbody tr td')][1]!;
 
-    expect(colors[3]).not.toBe(colors[0]); // refunded ≠ paid
-    expect(colors[4]).not.toBe(colors[0]); // partiallyRefunded ≠ paid
-    expect(colors[1]).not.toBe(colors[0]); // unpaid ≠ paid
-    expect(colors[3]).not.toBe(colors[1]); // refunded ≠ unpaid
-    expect(new Set(colors).size).toBeGreaterThanOrEqual(4);
+      expect(idCell.textContent).toContain('PCM-0001');
+      // 🔴 掃的是**整張表**、不是只掃單號格:膠囊被搬到別格也算沒下架。
+      expect(container.textContent).not.toContain(PAYMENT_STATUS_LABEL[status]);
+      // 單號格內剩下的 `<span>` 只可能是「已取消」badge,本 fixture 沒取消 ⇒ 應為 0。
+      expect(idCell.querySelectorAll('span').length).toBe(0);
+      unmount();
+    }
   });
 });
 
-describe('A11b — 訂貨軸膠囊配色(三段完成度 + 邊界,§4 表)', () => {
+// ─────────────────────────────────────────────────────────────
+// 狀態八值欄(L1 `f745e04e` 的純函式第一次上畫面)。
+// 🔴 期望值**全部從 `order-status-axes.ts` 的 export 取**,不在本檔重打一份中文字面 ——
+//    重打一份的話,那支改字面時本檔仍全綠(= 守門看不到真正的回歸)。
+// ─────────────────────────────────────────────────────────────
+
+/** 狀態欄在該列的固定索引:0 勾選 / 1 單號 / 2 日期 / 3 廠牌 / 4 料號 / 5 品名 / 6 車種 / 7 數量 / 8 金額 / 9 客戶 / **10 狀態** / 11 發票 / 12 操作 */
+const STATUS_CELL_INDEX = 10;
+
+/** 把一列的四軸數量推到指定階段(`orderGoodsAxis` 的判序是 shipped ⊆ instock ⊆ ordered)。 */
+function lineAt(id: string, quantity: number, stage: 'none' | 'ordered' | 'instock' | 'shipped'): AdminOrderLine {
+  const l = line(id, quantity, 12000);
+  const n = quantity;
+  return {
+    ...l,
+    quantitySummary: {
+      ...l.quantitySummary,
+      orderedQuantity: stage === 'none' ? 0 : n,
+      instockQuantity: stage === 'instock' || stage === 'shipped' ? n : 0,
+      shippedQuantity: stage === 'shipped' ? n : 0,
+    },
+  };
+}
+
+describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
   it.each([
-    // 🔴 與付款軸同一條政策:用完整色 token。用 'muted' 的話,把 `bg-muted` 拿掉、只留
-    //    `text-muted-foreground`(= 膠囊變成沒有底色的裸文字,正是本片要治的東西)仍會全綠。
-    [0, 5, 'bg-muted'],
-    [3, 5, 'bg-amber-100'],
-    [5, 5, 'bg-emerald-100'],
-  ] as const)('ordered=%s quantity=%s → 顏色含 %s', (ordered, quantity, colorToken) => {
-    const l = line('l1', quantity, 12000);
-    const withOrdered: AdminOrderLine = {
-      ...l,
-      quantitySummary: { ...l.quantitySummary, orderedQuantity: ordered, cancellableQuantity: quantity - ordered },
-    };
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [withOrdered] })]} />);
-    const cell = [...container.querySelectorAll('table tbody tr td')][10]!;
+    ['paid', 'none'],
+    ['paid', 'ordered'],
+    ['paid', 'instock'],
+    ['paid', 'shipped'],
+    ['unpaid', 'none'],
+    ['unpaid', 'ordered'],
+    ['unpaid', 'instock'],
+    ['unpaid', 'shipped'],
+  ] as const)('%s × %s → 字面與 class 皆等於 orderStatusView 的回傳(不在 UI 端重拼)', (pay, goods) => {
+    const testOrder = order({ lines: [lineAt('l1', 2, goods)], paymentStatus: pay });
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
+    const cell = [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!;
     const capsule = cell.querySelector('span')!;
+    const expected = orderStatusView(testOrder);
 
-    expect(capsule.textContent).toBe(`${ordered}/${quantity}`);
-    expect(capsule.className).toContain(colorToken);
+    // 🔴 正向:純函式算出來的軸真的是我們想測的那一格(否則八格可能全落在同一個狀態上而仍全綠)。
+    expect([expected.payAxis, expected.goodsAxis]).toEqual([pay, goods]);
+    expect(capsule.textContent).toBe(ORDER_STATUS_LABEL[pay][goods]);
+    expect(capsule.className).toBe(expected.capsuleClass);
+    // 🔴 **獨立字面,不是重複上一行**(R 審 F1):上一行兩邊都來自 `orderStatusView`
+    //    ⇒ 把 `order-status-axes.ts:162` 的 `STATUS_CAPSULE` 拿掉,期望值會跟著變、那行**不會紅**。
+    //    這行拿的是共用形狀常數本身 ⇒ 膠囊被改成沒有 `rounded-full`/`px-2` 的裸文字時它會紅。
+    expect(capsule.className).toContain(STATUS_CAPSULE);
   });
 
-  // 🔴 邊界值(plan §5-2 逐字要求):`ordered === quantity`(齊了、綠)與
-  // `ordered === quantity - 1`(仍差一件、琥珀)—— 這兩格緊鄰,擋 `>=` 誤寫成 `>` 或 `>` 誤寫成 `>=`。
-  it('邊界:ordered === quantity → 綠;ordered === quantity - 1 → 琥珀(非綠)', () => {
-    const quantity = 4;
-    const full = line('l-full', quantity, 12000);
-    const fullOrdered: AdminOrderLine = {
-      ...full,
-      quantitySummary: { ...full.quantitySummary, orderedQuantity: quantity, cancellableQuantity: 0 },
-    };
-    const { container: fullBox } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [fullOrdered] })]} />);
-    const fullCapsule = [...fullBox.querySelectorAll('table tbody tr td')][10]!.querySelector('span')!;
+  it('🔴 八值字面互不相同(擋「兩格顯示同一個詞」——那等於員工分不出來)', () => {
+    const labels = (['paid', 'unpaid'] as const).flatMap((pay) =>
+      (['none', 'ordered', 'instock', 'shipped'] as const).map((goods) => ORDER_STATUS_LABEL[pay][goods]),
+    );
 
-    expect(fullCapsule.className).toContain('bg-emerald-100');
-    expect(fullCapsule.className).not.toContain('bg-amber-100');
-
-    const near = line('l-near', quantity, 12000);
-    const nearOrdered: AdminOrderLine = {
-      ...near,
-      quantitySummary: { ...near.quantitySummary, orderedQuantity: quantity - 1, cancellableQuantity: 1 },
-    };
-    const { container: nearBox } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [nearOrdered] })]} />);
-    const nearCapsule = [...nearBox.querySelectorAll('table tbody tr td')][10]!.querySelector('span')!;
-
-    expect(nearCapsule.className).toContain('bg-amber-100');
-    expect(nearCapsule.className).not.toContain('bg-emerald-100');
+    expect(labels.length).toBe(8);
+    expect(new Set(labels).size).toBe(8);
   });
 
-  it('佔位列(空 lines):訂貨格仍是純文字「—」,不套膠囊(不是一個可辨識的完成度)', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [] })]} />);
-    const cell = [...container.querySelectorAll('table tbody tr td')][10]!;
+  // 🔴 這格守的是 Sean 拍 Q28=A 那個**唯一例外**:未收 × 出貨 = 全檔唯一的實心深紅。
+  //    正負對照缺一不可 —— 只驗「未收出貨是深紅」的話,把所有格都改成深紅仍然綠。
+  it('🔴 未收出貨 = 唯一實心深紅;已收出貨走淡綠(正負對照)', () => {
+    const risk = order({ lines: [lineAt('l1', 1, 'shipped')], paymentStatus: 'unpaid' });
+    const safe = order({ lines: [lineAt('l1', 1, 'shipped')], paymentStatus: 'paid' });
+    const cls = (o: AdminOrderSummary) => {
+      const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[o]} />);
+      return [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!.className;
+    };
 
-    expect(cell.querySelector('span')).toBeNull();
-    expect(cell.textContent).toBe('—');
+    const riskCls = cls(risk);
+    const safeCls = cls(safe);
+
+    expect(riskCls).toContain('text-white');
+    expect(riskCls).not.toContain('bg-emerald-100');
+    expect(safeCls).toContain('bg-emerald-100');
+    expect(safeCls).not.toContain('text-white');
+  });
+
+  // 🔴 未收的紅框:它是**收款軸的唯一視覺載體**(付款膠囊下架之後)。
+  //    ⚠️ 例外格(未收出貨)刻意不吃紅框 ⇒ 這格用 `instock` 而不是 `shipped`。
+  it('🔴 未收 × 在庫 → 帶紅框;已收 × 在庫 → 不帶(付款膠囊下架後,紅框是收款軸唯一的視覺載體)', () => {
+    const cls = (paymentStatus: 'paid' | 'unpaid') => {
+      const { container } = render(
+        <OrdersTable
+          buildPanelHref={panelHref}
+          orders={[order({ lines: [lineAt('l1', 1, 'instock')], paymentStatus })]}
+        />,
+      );
+      return [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!.className;
+    };
+
+    expect(cls('unpaid')).toContain('shadow-[');
+    expect(cls('paid')).not.toContain('shadow-[');
+    // 兩者的底色相同 ⇒ 證明差別真的只在紅框那一項,不是整個換了配色。
+    expect(cls('unpaid')).toContain('bg-sky-100');
+    expect(cls('paid')).toContain('bg-sky-100');
+  });
+
+  it('已取消單:狀態格顯示「已取消」、不落進 2×4 矩陣的任何一格', () => {
+    const testOrder = order({ lines: [lineAt('l1', 1, 'ordered')], cancelledAt: '2026-08-12T06:00:00.000Z' });
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
+    const capsule = [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!;
+
+    expect(capsule.textContent).toBe(ORDER_STATUS_CANCELLED_LABEL);
+    // 已取消走的是 `orderStatusView` 的**另一條 return**(早退分支)⇒ 共用形狀各釘各的,不靠上面那格蘊含。
+    expect(capsule.className).toContain(STATUS_CAPSULE);
+    // 反面:它不得同時是矩陣裡的任何一個字面(擋「已取消被畫成已收已定」)。
+    const matrix = (['paid', 'unpaid'] as const).flatMap((p) =>
+      (['none', 'ordered', 'instock', 'shipped'] as const).map((g) => ORDER_STATUS_LABEL[p][g]),
+    );
+    expect(matrix).not.toContain(capsule.textContent);
+  });
+
+  // 🔴 空 lines 的貨品軸必須是 `none` 而不是 `shipped` —— `[].every()` 恆真,
+  //    不擋的話一張沒有品項的單會顯示「出貨完成」(`orderGoodsAxis` docstring 記的那個坑)。
+  it('🔴 空 lines 佔位單:狀態走 none 那一格,不是 shipped', () => {
+    const testOrder = order({ lines: [] });
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
+    const capsule = [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!;
+
+    expect(capsule.textContent).toBe(ORDER_STATUS_LABEL.paid.none);
+    expect(capsule.textContent).not.toBe(ORDER_STATUS_LABEL.paid.shipped);
   });
 });
 
@@ -571,32 +593,25 @@ describe('A11b — 訂貨軸膠囊配色(三段完成度 + 邊界,§4 表)', () 
  *    有人日後為了「手機好看」再補一份卡片 markup 回來,這組會直接紅。
  */
 describe('L2 — 收斂後每顆膠囊只渲染一次(取代雙 markup 一致性 S4)', () => {
-  it('付款軸:整張表恰一顆、class 走共用配色表', () => {
-    const testOrder = order({ lines: [line('l1', 1, 12000)], paymentStatus: 'partiallyRefunded' });
+  // 🏁 **L3 片1:原本這裡守兩顆膠囊(付款軸 / 訂貨軸),兩顆都已下架 ⇒ 改守狀態膠囊那一顆。**
+  //    守門的**用意沒有變**:「同一顆膠囊在整張表恰好渲染一次」——
+  //    有人日後為了「手機好看」再補一份卡片 markup 回來,這格會直接紅。
+  //    ⚠️ 三品項單是**承重的 fixture**,不是隨手挑的:狀態是訂單層 ⇒ 它必須只在第一列出現;
+  //    若有人把它寫成逐列(照抄舊訂貨欄那個分支),這格會數到 3 顆而不是 1 顆。
+  it('狀態軸:三品項單整張表恰一顆、class 走 orderStatusView', () => {
+    const testOrder = order({
+      lines: [line('l1', 1, 4000), line('l2', 1, 4000), line('l3', 1, 4000)],
+      total: { amount: toMoneyAmount(12000), currency: 'TWD' },
+    });
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[testOrder]} />);
-    const expected = `${STATUS_CAPSULE} ${PAYMENT_STATUS_CAPSULE.partiallyRefunded}`;
+    const expected = orderStatusView(testOrder);
 
     const capsules = [...container.querySelectorAll('span')].filter(
-      (el) => el.textContent === PAYMENT_STATUS_LABEL.partiallyRefunded,
+      (el) => el.textContent === expected.label,
     );
 
     expect(capsules.length).toBe(1);
-    expect(capsules[0]!.className).toBe(expected);
-  });
-
-  it('訂貨軸:整張表恰一顆、class 走共用配色表', () => {
-    const l = line('l1', 5, 12000);
-    const withOrdered: AdminOrderLine = {
-      ...l,
-      quantitySummary: { ...l.quantitySummary, orderedQuantity: 3, cancellableQuantity: 2 },
-    };
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [withOrdered] })]} />);
-    const expected = `${orderedCapsuleClass(3, 5)} tabular-nums`;
-
-    const capsules = [...container.querySelectorAll('span')].filter((el) => el.textContent === '3/5');
-
-    expect(capsules.length).toBe(1);
-    expect(capsules[0]!.className).toBe(expected);
+    expect(capsules[0]!.className).toBe(expected.capsuleClass);
   });
 
   it('🔴 收斂的結構斷言:整個元件不再有第二份列表容器(零 `<ul>`)', () => {
@@ -631,54 +646,55 @@ describe('V6 接線 — 日期格吃的是 formatOrderListDate,不是 formatOrde
   });
 });
 
-// ── V9:訂貨欄(A11a-4)────────────────────────────────────────────────
-describe('V9 — 訂貨欄接 A9c 的非 nullable 三軸(零 join 由型別層天然成立,本組不另量)', () => {
-  it('逐列顯示 `已訂/買了`,分子分母各自接對線', () => {
-    // 🔴 三個值刻意互不相等(已訂 2 / 買了 5 / 到貨 1):分子分母對調、或分母誤接
-    //    `instockQuantity` / `cancellableQuantity` 都會紅。fixture 預設的 `orderedQuantity: 0`
-    //    在這裡不夠用 —— 0 與任何接錯線的結果太容易巧合相同。
-    // ⚠️ 誠實邊界(R1):`quantitySummary.quantity` 與 `line.quantity` 依 A9c 合約**恆等**
-    //    (複合 FK 物理保證)⇒ 分母若被誤接成 `line.quantity`,本組**抓不到**。那是構造不出的資料,
-    //    不是漏測,但別把這條讀成「分母接哪都會紅」。
-    const l = line('l1', 5, 60000);
-    const withOrdered: AdminOrderLine = {
-      ...l,
-      quantitySummary: { ...l.quantitySummary, orderedQuantity: 2, instockQuantity: 1, cancellableQuantity: 4 },
-    };
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [withOrdered] })]} />);
-    const cell = [...container.querySelectorAll('tbody tr td')][10]!;
-
-    expect(cell.textContent).toBe('2/5');
-  });
-
-  it('多品項單:訂貨是**品項層**,每列各自一格且都有值(不是訂單層)', () => {
-    // 🔴 這條擋「順手把訂貨也寫成 `first ?` 分支」——那會讓第二個品項的進度變成空格。
+// ── V9(L3 片1 改寫):原本守「訂貨欄是品項層」,訂貨欄已下架 ⇒ 守門對象換人 ────────────
+//
+// 🔴🔴 **這一段是覆蓋差集的落點,不是順手保留** —— 舊 V9 有三格,標的各自的去處:
+//   ① 「逐列顯示 `已訂/買了`、分子分母各自接對線」= `quantitySummary` 三軸有沒有流到畫面。
+//      **標的仍在**,但流去的地方換了:現在流進 `orderGoodsAxis` ⇒ 由狀態八值那組的
+//      `expect([expected.payAxis, expected.goodsAxis]).toEqual([pay, goods])` 加
+//      `order-status-axes.test.ts`(34 格)接手。⚠️ **粒度降低了**:舊格分得出「分子分母對調」,
+//      新格只分得出「整單走到哪一階段」。**這是真的損失,寫在這裡不掩蓋。**
+//   ② 「品項層欄不得被寫成 `first ?` 分支」= **標的完全還在**(料號 / 品名 / 數量 / 車種 / 廠牌
+//      五欄仍是品項層)⇒ 就是下面這一格,只是換成拿料號與數量當標的。
+//      **若把它跟訂貨欄一起刪掉,片2 重排欄序時沒有任何東西會攔「把品項層寫成訂單層」。**
+//   ③ 「佔位列不畫 `0/0`」= 隨訂貨欄一起走(那是訂貨欄專屬的字面);
+//      「空 lines 仍渲染一列」由 V5 與狀態八值那組的空 lines 格接手。
+describe('V9(改寫)— 品項層欄位逐列都有值,不得被寫成訂單層的 `first ?` 分支', () => {
+  it('🔴 兩品項單:料號與數量兩欄的**每一列**都有各自的值', () => {
     const a = line('l1', 3, 12000);
     const b = line('l2', 4, 8000);
     const lines: AdminOrderLine[] = [
-      { ...a, quantitySummary: { ...a.quantitySummary, orderedQuantity: 3, cancellableQuantity: 3 } },
-      { ...b, quantitySummary: { ...b.quantitySummary, orderedQuantity: 1, cancellableQuantity: 4 } },
+      { ...a, variantSku: 'SKU-AAA' },
+      { ...b, variantSku: 'SKU-BBB' },
     ];
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
     );
     const rows = [...container.querySelectorAll('tbody tr')];
 
-    // 🔴 L2 起兩列都是 13 格 ⇒ 索引在兩列**相同**(收斂前第二列只有 6 格、索引要各寫一個)。
-    //    改用 `col-ordered` 這個 class 選,比索引更抗欄序變動(L3 會重排欄序)。
-    expect(rows.map((r) => r.querySelector('td.col-ordered')!.textContent)).toEqual(['3/3', '1/4']);
-    // 訂貨格**不得**變成訂單層:兩列都要有值(其中一列變空 = 被寫成 `first ?` 分支)
-    expect(
-      [...container.querySelectorAll('td.col-ordered')].filter((td) => td.childNodes.length > 0).length,
-    ).toBe(2);
+    // 🔴 用 `col-*` class 選、不用索引:比索引更抗欄序變動(片2 就要重排欄序)。
+    expect(rows.map((r) => r.querySelector('td.col-sku')!.textContent)).toEqual(['SKU-AAA', 'SKU-BBB']);
+    expect(rows.map((r) => r.querySelector('td.col-qty')!.textContent)).toEqual(['3', '4']);
+    // 兩欄都不得變成訂單層:兩列都要有子節點(其中一列變空 = 被寫成 `first ?` 分支)
+    for (const col of ['col-sku', 'col-qty'] as const) {
+      expect(
+        [...container.querySelectorAll(`td.${col}`)].filter((td) => td.childNodes.length > 0).length,
+        `${col} 應是品項層(兩列都有值)`,
+      ).toBe(2);
+    }
   });
 
-  it('佔位列(空 lines)→ 訂貨顯示「—」,不畫出 `0/0`', () => {
-    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [] })]} />);
-    const cell = [...container.querySelectorAll('tbody tr td')][10]!;
+  // 🔴 反面對照:同一張單上,**訂單層**的狀態欄只有第一列有值。
+  //    兩格一起看才守得住「層級」這件事 —— 只驗品項層的話,把所有欄都寫成品項層仍全綠。
+  it('🔴 同一張兩品項單:狀態欄(訂單層)只有第一列有值', () => {
+    const lines = [line('l1', 1, 4000), line('l2', 1, 8000)];
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines, total: { amount: toMoneyAmount(12000), currency: 'TWD' } })]} />,
+    );
+    const cells = [...container.querySelectorAll('td.col-status')];
 
-    expect(cell.textContent).toBe('—');
-    expect(container.textContent).not.toContain('0/0');
+    expect(cells.length).toBe(2);
+    expect(cells.filter((td) => td.childNodes.length > 0).length).toBe(1);
   });
 });
 
@@ -953,7 +969,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
         'col-qty',
         'col-amount',
         'col-customer',
-        'col-ordered',
+        'col-status',
         'col-invoice',
         'col-ops',
       ]) {
@@ -1047,7 +1063,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       'col-qty',
       'col-amount',
       'col-customer',
-      'col-ordered',
+      'col-status',
       'col-invoice',
       'col-ops',
     ]);
@@ -1067,7 +1083,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(labelOf('col-vehicle')).toBe('車種');
     expect(labelOf('col-qty')).toBe('數量');
     expect(labelOf('col-customer')).toBe('客戶');
-    expect(labelOf('col-ordered')).toBe('訂貨');
+    expect(labelOf('col-status')).toBe('狀態');
     expect(labelOf('col-invoice')).toBe('發票');
     expect(labelOf('col-brand')).not.toBe(labelOf('col-vehicle'));
 
@@ -1112,7 +1128,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     ).toBe(true);
   });
 
-  it('卡片含訂單層全部欄位:單號 / 金額 / 發票 / 日期 / 客戶 / 等級 / 付款軸', () => {
+  it('卡片含訂單層全部欄位:單號 / 金額 / 發票 / 日期 / 客戶 / 等級 / **狀態**', () => {
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
     const { container } = render(
       <OrdersTable
@@ -1129,17 +1145,17 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(text).toContain('王小明');
     // 🔴 字面取自 `MEMBER_TIER_LABEL.general` 實值(是「一般」不是「一般會員」)—— 猜錯過一次
     expect(text).toContain('一般');
-    expect(text).toContain('已付款');
+    // 🏁 L3 片1:原本這裡驗的是付款膠囊「已付款」,那顆已下架 ⇒ 換成狀態八值那顆。
+    //    字面從 `ORDER_STATUS_LABEL` 取(fixture 是 paid × 三軸皆 0 ⇒ `已收未定`),不自己打中文。
+    expect(text).toContain(ORDER_STATUS_LABEL.paid.none);
   });
 
-  it('品項層欄位:品名 / 料號 / 數量 / 訂貨 n/m', () => {
+  it('品項層欄位:品名 / 料號 / 數量(訂貨 n/m 已隨 L3 片1 下架)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 2, 24000)] })]} />);
 
     expect(container.querySelector('td.col-title')!.textContent).toBe('排氣管');
     expect(container.querySelector('td.col-sku')!.textContent).toBe('SKU-001');
     expect(container.querySelector('td.col-qty')!.textContent).toBe('2');
-    // 分母跟著 quantity 走(fixture 由 quantity 推出)
-    expect(container.querySelector('td.col-ordered')!.textContent).toBe('0/2');
   });
 
   it('🔴 金額語意與桌機同源:合併態只在卡頭、非合併態逐品項', () => {
@@ -1189,19 +1205,19 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(container.querySelector('ul')).toBeNull(); // 不綁斷點 class,與本區政策一致
   });
 
-  // 🔴 nit-5:卡片的這兩條分支原本零覆蓋 —— 刪掉 `text-destructive` 三元式或佔位 `[null]`
-  //    都不會有任何一格轉紅(桌機有覆蓋、卡片沒有)。補上正負對照。
-  it('付款軸 unpaid 上紅、paid 不上紅(刪掉付款膠囊的 destructive 配色這格會紅)', () => {
-    const { container: unpaid } = render(
-      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: 'unpaid' })]} />,
-    );
-    const red = unpaid.querySelector('.text-destructive');
-    expect(red).not.toBeNull();
-    expect(red!.textContent).toContain('待付款');
+  // 🏁 **L3 片1 改寫**:原本這格守「卡片上付款軸 unpaid 上紅」(nit-5 補的正負對照)。
+  //    付款膠囊已下架 ⇒ 標的換成**同一件事的新載體**:狀態膠囊上的未收紅框。
+  //    🔴 標的沒有變 —— 都是「收款軸在卡片上看不看得出來」;變的只是它畫在哪一顆上。
+  it('卡片上收款軸仍看得出來:unpaid 的狀態膠囊帶紅框、paid 不帶(正負對照)', () => {
+    const capsuleCls = (paymentStatus: 'paid' | 'unpaid') => {
+      const { container } = render(
+        <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus })]} />,
+      );
+      return container.querySelector('td.col-status span')!.className;
+    };
 
-    const { container: paid } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
-    // fixture 預設 paid ⇒ 不得有紅字(badge 那顆紅屬已取消、本例未取消)
-    expect(paid.querySelector('.text-destructive')).toBeNull();
+    expect(capsuleCls('unpaid')).toContain('shadow-[');
+    expect(capsuleCls('paid')).not.toContain('shadow-[');
   });
 
   it('空 lines 的佔位:仍渲染一列、品項欄顯示「—」(不是整段消失)', () => {
