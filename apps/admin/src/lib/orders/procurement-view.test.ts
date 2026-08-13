@@ -204,6 +204,7 @@ describe('unsourcedQuantity — #352-b-2 衍生指標', () => {
     quantity: 5,
     orderedQuantity: 2,
     instockQuantity: 0,
+    shippedQuantity: 0,
     cancelledQuantity: 1,
     cancellableQuantity: 4,
     ...over,

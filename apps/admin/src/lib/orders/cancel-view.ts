@@ -168,6 +168,23 @@ export type CancelItemView = {
   quantity: number;
   /** 已到貨數量;`null` = 不知道(摘要缺列且推不出 0,見 `ZERO_INFERENCE`) */
   instockQuantity: number | null;
+  /**
+   * 🔴🔴 **本視圖刻意不帶 `shippedQuantity`(L0,2026-08-13)。**
+   *
+   * L0 把第四軸 `shipped` 補進了 `AdminOrderItemQuantitySummary`,但**取消流程不得看它**:
+   * 可取消量 = `quantity − instock − cancelled`,而 `shipped ⊆ instock`(Sean 2026-08-05 拍板
+   * 「出貨必先到貨、無直送」)⇒ 再減一次 shipped 是**重複扣**,會把可取消量算小、
+   * 讓畫面顯示「不能取消」而實際上還能取消。
+   * ⇒ 不把它放進本視圖 = 讓**下游消費端**寫不出這個錯。
+   *
+   * 🔴🔴 **但這道防線只蓋到下游,不蓋到本檔(R1 MF4 收窄我原本的宣稱)**:
+   * 本檔 `buildCancelItemView` 拿到的是**完整的** `AdminOrderItemQuantitySummary`,
+   * 而可取消量的算式就在同一支函式裡 ⇒ **`summary.shippedQuantity` 在那一行完全可及、零型別阻力**。
+   * 「順手減一下」最可能被寫的地方**就是那一行**,而它在本防線之外。
+   * ⇒ 我原本寫「結構上讓這個錯寫不出來」是**宣稱過強**;真正蓋住那一行的是
+   *   `cancel-view.test.ts` 的 source-scan 守門(形狀照 `shipment-repository.test.ts` 的同型先例)。
+   * ⚠️ 要拿 shipped 做取消判斷得先推翻那條拍板,不是在這裡加一個欄位。
+   */
   /** 已取消數量(歷次累計);`null` = 不知道(同上) */
   cancelledQuantity: number | null;
   /**

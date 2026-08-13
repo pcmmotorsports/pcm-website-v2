@@ -82,6 +82,7 @@ function line(id: string, quantity: number, lineTotal: number): AdminOrderLine {
       quantity,
       orderedQuantity: 0,
       instockQuantity: 0,
+      shippedQuantity: 0,
       cancelledQuantity: 0,
       cancellableQuantity: quantity,
     },

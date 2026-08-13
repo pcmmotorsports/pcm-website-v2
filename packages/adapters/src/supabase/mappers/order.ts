@@ -313,6 +313,11 @@ function mapListQuantitySummary(
       orderedQuantity: 0,
       instockQuantity: 0,
       cancelledQuantity: 0,
+      // 🔴 L0:補 0 在這裡**不是猜,是被資料結構蘊含的** —— 缺列 = A4a trigger 從沒為這個品項建過列
+      //    = 從沒被採購也沒被取消過;而 `shipped ⊆ instock`、`instock` 同樣來自這張表
+      //    ⇒ 沒有那一列就**不可能有已出貨的量**。⇒ 0 是事實不是預設值。
+      //    ⚠️ 這條推論若哪天不成立(例如出貨改成可跳過到貨),這裡要跟著改成 fail-closed。
+      shippedQuantity: 0,
       cancellableQuantity: itemQuantity, // = quantity − 0 − 0,與 mapQuantitySummary 的算式一致
     }
   );
@@ -423,7 +428,13 @@ export const CHARGE_ATTEMPT_TERMINAL_FAILED = 'failed';
  */
 export type SupabaseOrderItemQuantitySummaryRow = Pick<
   Database['public']['Tables']['order_item_quantity_summary']['Row'],
-  'quantity' | 'ordered_quantity' | 'instock_quantity' | 'cancelled_quantity'
+  | 'quantity'
+  | 'ordered_quantity'
+  | 'instock_quantity'
+  | 'cancelled_quantity'
+  // 🔴 L0(2026-08-13):第四軸。DB 早就有這欄(B2-S2b `20260806180000` 已接 trigger + backfill),
+  //    只是 TS 這側沒撈 —— 缺它會讓「已出貨」判不出來,見 `AdminOrderItemQuantitySummary` 的 docstring。
+  | 'shipped_quantity'
 >;
 
 export type SupabaseAdminOrderDetailRow = Pick<
@@ -543,24 +554,37 @@ function mapQuantitySummary(
   const row = Array.isArray(rows) ? rows[0] : rows;
   if (!row) return null; // 🔴 缺鍵/空陣列/null = 不知道。不是 0。
 
-  const { quantity, ordered_quantity, instock_quantity, cancelled_quantity } = row;
-  // 🔴 MF1:四欄逐一驗;`{}` / 缺欄 / 非數 一律當作沒讀到(型別層擋不住,見 docstring)。
+  const { quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity } = row;
+  // 🔴 MF1:**五**欄逐一驗;`{}` / 缺欄 / 非數 一律當作沒讀到(型別層擋不住,見 docstring)。
+  //    L0 加入 `shipped_quantity` 時**同步加進這個檢查** —— 漏加的話它會是 `undefined`,
+  //    而 `undefined` 進下游的比較(`shipped >= quantity`)恆為 false ⇒ 「已出貨」永遠判不出來,
+  //    **零錯誤訊息**。這正是本函式 docstring 說的「型別層擋不住」那條路。
   if (
     !Number.isFinite(quantity) ||
     !Number.isFinite(ordered_quantity) ||
     !Number.isFinite(instock_quantity) ||
-    !Number.isFinite(cancelled_quantity)
+    !Number.isFinite(cancelled_quantity) ||
+    !Number.isFinite(shipped_quantity)
   ) {
     return null;
   }
   // 🔴 MF2:C7 不變式被違反 = 資料已損壞,走同一個 fail-closed 出口,**不夾成 0 假裝正常**。
   if (instock_quantity + cancelled_quantity > quantity) return null;
+  // 🔴 L0:C9 `oiqs_shipped_le_instock` 同型處置 —— Sean 2026-08-05 拍板「出貨必先到貨、無直送」
+  //    ⇒ `shipped <= instock` 由 DB CHECK 保證。違反 = 資料已損壞 ⇒ 同一個 fail-closed 出口。
+  //    ⚠️ 與 C7 那條一樣**不夾值**:夾成合法值會讓壞資料看起來正常,員工永遠不知道。
+  if (shipped_quantity > instock_quantity) return null;
 
   return {
     quantity,
     orderedQuantity: ordered_quantity,
     instockQuantity: instock_quantity,
     cancelledQuantity: cancelled_quantity,
+    shippedQuantity: shipped_quantity,
+    // 🔴🔴 **`cancellableQuantity` 的算式刻意不減 `shipped`**(Sean 2026-08-05 拍 Q1=A/Q2=A 終案)。
+    //    理由:`shipped ⊆ instock` ⇒ 已出貨的量**本來就含在 instock 裡**,再減一次 = **重複扣**,
+    //    會把可取消量算得比實際少。⚠️ L0 把 `shippedQuantity` 帶進來之後,
+    //    「看到有 shipped 就順手減一下」變成一個**新的、看起來很合理的**改壞方式 ⇒ 這段留著擋它。
     cancellableQuantity: quantity - instock_quantity - cancelled_quantity,
   };
 }

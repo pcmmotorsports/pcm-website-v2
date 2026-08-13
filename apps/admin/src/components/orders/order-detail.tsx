@@ -69,9 +69,12 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
  *    品項從未被採購也從未被取消時根本沒有那一列)⇒ 這裡顯示「數量資料尚未就緒」、**不補 0**。
  *    純顯示補 0 的最壞後果只是少顯示資訊,但同一個 `?? 0` 一旦被抄進取消流程就會放行超量取消
  *    ⇒ 這一格從一開始就不留那個寫法可抄。
- * 🔴 **出貨軸本片不畫**:`shipped_quantity` 目前不存在,是第 2 批包裹模型的契約債
- *    (`types.ts:530-532` 逐字「現況 `shipped` 欄不存在 ⇒ 完整式**退化**」)⇒ 畫一個恆為
- *    em-dash 的出貨欄等於假裝有這個軸。母 plan `:426` row 60(A11b)才是出貨軸唯讀灰的去處。
+ * 🔴 **出貨軸本片仍不畫,但理由已經換了(L0,2026-08-13)**:
+ *    ⚠️ 這段原本寫「`shipped_quantity` **目前不存在**」—— **那句現在是假的**:
+ *    L0 已把它補進 `AdminOrderItemQuantitySummary` 與兩條投影(DB 側自 B2-S2b 就有)。
+ *    🔴 留著錯字面的代價是具體的:下一個做狀態八值的人 grep 到這句,會得出
+ *    「欄還沒有、要先做前置」的**反向結論**,而欄已經在手上。
+ *    ⇒ 現在的正確理由是:**本片(明細頁)沒有要畫它**,不是拿不到它。
  */
 function ItemAxisCell({ summary }: { summary: AdminOrderItemQuantitySummary | null }) {
   // 型別是 `| null`,但這裡刻意用 falsy 判斷。

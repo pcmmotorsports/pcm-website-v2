@@ -271,7 +271,7 @@ const L6_HIDE_OR = 'payment_channel.neq.tappay,payment_status.neq.unpaid';
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))',
     );
   });
 
@@ -333,7 +333,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           created_at: '2099-04-15T10:00:00Z',
           payment_status: 'paid',
           fulfillment_status: 'notOrdered',
-          total: 5200,
+          total: 10200,
           order_source: 'web',
           payment_channel: 'tappay',
           display_position: null,
@@ -348,17 +348,26 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
             {
               id: 'oi-1',
               variant_sku: 'BMS-13OEM-G-F',
-              quantity: 2,
+              // 🔴 L0/R1-MF2:`quantity` 從 2 拉到 4 是為了讓**五個軸兩兩相異**(見下方摘要列)。
+              //    2 太小,湊不出「quantity/ordered/instock/shipped/cancelled 互不相等」的合法組合,
+              //    而軸值撞在一起 = 那兩軸接錯線不會紅。`line_total` 同步 4 × 2500 = 10000。
+              quantity: 4,
               unit_price: 2500,
-              line_total: 5000,
+              line_total: 10000,
               product_snapshot: { sku: 'BMS-13OEM-G-F', title: '下導流' },
               workflow_status: 'received_confirmed', // D-2 per-item 真相
               version: 3,
               vehicle_snapshot: { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' }, // V-3b
               product_variants: { products: { brands: { name: 'Bonamici' } } }, // variant→product→brand
-              // 🔴 A9c:本品項**有**摘要列。四個值刻意互不相等且非 0 ⇒ 任兩軸接錯線都會紅。
+              // 🔴 A9c:本品項**有**摘要列。**五個值刻意讓可比較的軸互不相等** ⇒ 任兩軸接錯線都會紅。
+              // 🔴🔴 **L0 補第四軸時我在這裡留了一個假綠,R1 抓到**:原本 `instock 1 / shipped 1` 撞值
+              //    ⇒ mapper 若把 `instockQuantity` 誤抄進 `shippedQuantity`,這一格照樣綠,
+              //    **而它的註解還逐字宣稱「任兩軸接錯線都會紅」= 宣稱 > 事實**。
+              //    ⇒ 改成 `quantity 3 / ordered 3 / instock 2 / shipped 1 / cancelled 0`,四個可比軸兩兩相異。
+              //    ⚠️ 不變式要自洽:C5 `instock <= ordered`、C7 `instock + cancelled <= quantity`、
+              //       C9 `shipped <= instock` —— 這組全過。
               order_item_quantity_summary: [
-                { quantity: 2, ordered_quantity: 2, instock_quantity: 1, cancelled_quantity: 0 },
+                { quantity: 4, ordered_quantity: 3, instock_quantity: 2, cancelled_quantity: 0, shipped_quantity: 1 },
               ],
             },
             {
@@ -418,7 +427,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           fulfillmentStatus: 'notOrdered',
           orderSource: 'web',
           paymentChannel: 'tappay',
-          total: { amount: 5200, currency: 'TWD' },
+          total: { amount: 10200, currency: 'TWD' },
           displayPosition: null,
           cancelledAt: null,
           tierAtCheckout: 'store',
@@ -429,19 +438,20 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               variantSku: 'BMS-13OEM-G-F',
               title: '下導流',
               brand: 'Bonamici',
-              quantity: 2,
+              quantity: 4,
               unitPrice: { amount: 2500, currency: 'TWD' },
-              lineTotal: { amount: 5000, currency: 'TWD' },
+              lineTotal: { amount: 10000, currency: 'TWD' },
               workflowStatus: 'received_confirmed',
               version: 3,
               vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' },
-              // A9c 有摘要列:四軸直送 + `cancellableQuantity = 2 − 1 − 0`(算式與明細側同一支)
+              // A9c 有摘要列:五軸直送 + `cancellableQuantity = 4 − 2 − 0`(算式與明細側同一支)
               quantitySummary: {
-                quantity: 2,
-                orderedQuantity: 2,
-                instockQuantity: 1,
+                quantity: 4,
+                orderedQuantity: 3,
+                instockQuantity: 2,
+                shippedQuantity: 1,
                 cancelledQuantity: 0,
-                cancellableQuantity: 1,
+                cancellableQuantity: 2,
               },
             },
             {
@@ -461,6 +471,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
                 quantity: 1,
                 orderedQuantity: 0,
                 instockQuantity: 0,
+                shippedQuantity: 0,
                 cancelledQuantity: 0,
                 cancellableQuantity: 1,
               },
@@ -633,7 +644,7 @@ const DETAIL_ROW = {
   subtotal: 5000,
   shipping_fee: 200,
   discount_total: 0,
-  total: 5200,
+  total: 10200,
   shipping_method: 'home',
   shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
   invoice: { type: 'personal', taxId: '', title: '', carrier: '', donateCode: '' },
@@ -721,7 +732,7 @@ const DETAIL_ROW = {
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -779,21 +790,29 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
   //    明寫「三軸欄位進 `ADMIN_ORDER_LIST_SELECT`」= 已排定的合法去處。
   //    若把兩者寫成同一個「全部列表都禁」的迴圈,A9c 當天這條必紅,而**最省事的修法是刪掉整段**
   //    —— 連 storefront 那半永久性的保護一起陪葬。所以先把「永不放寬」與「待 A9c 解禁」拆開。
-  it('🔴 三軸數量摘要:storefront 投影**永久**零滲入(客人看得到已訂幾件 = 看得到採購節奏)', () => {
+  it('🔴 數量摘要**四軸**:storefront 投影**永久**零滲入(客人看得到已訂/已出幾件 = 看得到採購節奏)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toContain('order_item_quantity_summary(');
 
     // storefront 那條是 authenticated client 打的、回到客人瀏覽器 ⇒ 這段**沒有**未來解禁計畫。
+    // 🔴🔴 **L0(2026-08-13)補 `shipped_quantity` —— R1 抓到我漏了這條。**
+    //    我當時只改了「被我摸到的那兩條守門」(byte-equal + 五欄片段比對),**沒回頭數第三條**。
+    //    ⇒ 三個兄弟軸都在清單裡、第四軸沒進 = 它可以滲進 storefront 投影而**零測試轉紅**。
+    //    (memory `feedback_claimed-sync-but-only-patched-touched-lines`,本 repo 復發最多的那條。)
+    // 🔴 為什麼欄名 token 不是冗餘(同下方那條的理由,逐字照抄):禁掉表名只擋得住「內嵌那張表」,
+    //    擋不住日後有人開一個 view 再投影同名欄 —— 那條字面裡沒有表名。
+    //    ⚠️ `shipped_quantity` 對客人的敏感度**不低於**其他三軸:它洩漏的是出貨節奏。
     for (const token of [
       'order_item_quantity_summary',
       'instock_quantity',
       'ordered_quantity',
       'cancelled_quantity',
+      'shipped_quantity',
     ]) {
       expect(`ORDER_LIST_SELECT:${ORDER_LIST_SELECT}`).not.toContain(token);
     }
   });
 
-  it('🟢 三軸數量摘要:admin 列表投影**已由 A9c 合法解禁**,但只准那四欄', () => {
+  it('🟢 數量摘要:admin 列表投影**已由 A9c 合法解禁**,但只准那**五**欄(L0 起含 shipped)', () => {
     // 🔴 本條與上一條的差別是**壽命**,不是嚴格度。A9c(2026-08-06)如期把它翻面;
     //    **上面 storefront 那條原封未動** —— 前一棒逐字交代「改它的人請只改這條」,照辦。
     const adminListSelects = Object.entries(adapterModule).filter(
@@ -807,10 +826,13 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(adminListSelects.map(([name]) => name).sort()).toEqual(['ADMIN_ORDER_LIST_SELECT']);
     for (const [, value] of adminListSelects) {
       const projection = String(value); // filter 已保證是 string,Object.entries 的型別不會 narrow
-      // 🔴 **解禁 ≠ 開放**:內嵌逐字只有那四欄。用完整片段比對、不是 `toContain('order_item_quantity_summary')`
+      // 🔴 **解禁 ≠ 開放**:內嵌逐字只有那五欄。用完整片段比對、不是 `toContain('order_item_quantity_summary')`
       //    —— 後者對「多帶一欄」完全盲,該表日後加欄時會靜默滲進 admin 列表投影。
+      // 🔴 **L0(2026-08-13)由四欄改五欄**:加 `shipped_quantity`。這是**擴大**投影,
+      //    所以本條的期望值必須跟著改 —— 而不是把比對放寬成前綴。
+      //    ⚠️ 那張表**還有欄沒被放行**(它不是「全部五欄」而是「這五欄」)⇒ 日後再加欄仍會在這裡紅。
       expect(projection).toContain(
-        'order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)',
+        'order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)',
       );
       // 且**只內嵌一次**:重複內嵌會讓 PostgREST 回意料外的形狀,而 mapper 只讀第一筆。
       expect(projection.split('order_item_quantity_summary').length - 1).toBe(1);
@@ -993,7 +1015,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       subtotal: { amount: 5000, currency: 'TWD' },
       shippingFee: { amount: 200, currency: 'TWD' },
       discountTotal: { amount: 0, currency: 'TWD' },
-      total: { amount: 5200, currency: 'TWD' },
+      total: { amount: 10200, currency: 'TWD' },
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
       customer: { name: '王小明', email: 'a@b.c', phone: '0912345678' },

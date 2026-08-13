@@ -102,7 +102,9 @@ export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
 };
 
 // ── 狀態膠囊配色(M-4b E10 A11b,2026-08-07:訂單列表付款軸/訂貨軸從純文字改膠囊上色)──
-// 出貨軸本片不做(A11b plan §1:`AdminOrderItemQuantitySummary` 無 shipped 欄,前置 = A11a-6)。
+// 出貨軸 A11b 當時不做,理由是「`AdminOrderItemQuantitySummary` 無 shipped 欄」。
+// 🔴 **那個理由已於 L0(2026-08-13)失效**:該型別現在**有** `shippedQuantity`,列表投影也撈了。
+//    ⇒ 出貨軸現在缺的是**畫法**(狀態八值欄,L3),不是資料。留著舊句會讓人以為前置還沒到。
 // 形狀逐字元同 `notes-timeline.tsx:89`(含 `font-medium`);`customer-detail-sections.tsx:23` 那族
 // 少一個 `font-medium`、不是同款。Record 驅動配色的先例 =
 // `notes-timeline.tsx:15-19`,語彙 = 綠完成 / 琥珀進行中或要注意 / 灰中性或未開始 / 紅要處理。

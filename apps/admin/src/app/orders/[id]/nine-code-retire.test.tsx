@@ -78,6 +78,7 @@ const SUMMARY: AdminOrderItemQuantitySummary = {
   quantity: 4,
   orderedQuantity: 3,
   instockQuantity: 1,
+  shippedQuantity: 1,
   cancelledQuantity: 2,
   cancellableQuantity: 1,
 };
