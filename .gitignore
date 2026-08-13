@@ -97,3 +97,6 @@ graphify-out/
 # 只擋 apps/ 層,repo 根目錄的 CLAUDE.md/AGENTS.md 是我們自己的制度檔、不受影響。
 apps/*/AGENTS.md
 apps/*/CLAUDE.md
+
+# Sean 2026-08-14 家目錄整理:PCM 網站截圖存查(本機參考、不入 git)
+.screenshots/
