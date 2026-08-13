@@ -192,20 +192,28 @@ function OrderGroup({
                 {/* #350c:桌機開右側面板(`/orders?…&panel=<id>`)、手機走整頁 `/orders/[id]`。
                     🔴 **兩個目的地是拍板過的,收斂 markup 不得順手統一它**(主視窗 2026-08-10 裁③、Q5:
                     小螢幕沒有分割空間)⇒ 這一格是全表**唯二**保留雙份 DOM 的地方(另一處是操作格)。
-                    代價講明白:兩個 `<a>` 各渲染一次,由 `hidden md:inline` / `md:hidden` 分流。
+                    代價講明白:兩個 `<a>` 各渲染一次。
+                    🔴🔴 **L3 片3 起分流不在本檔** —— 舊做法是 `hidden md:inline` / `md:hidden`(**視窗**斷點),
+                    而片3 把卡片化換成**容器**斷點(`@container (max-width: 520px)`)⇒ 兩者會在
+                    「面板開著、容器 <520 但視窗很寬」時錯配(卡片模式配桌機面板連結),**而且沒有東西會叫**。
+                    ⇒ 顯隱改由 `app/globals.css` 用 `a[data-nav='panel'|'page']` 與卡片化**同一條規則**決定
+                    (主視窗 E-419 裁 B:同一條規則 ⇒ 不可能不一致 = 機制,不是慣例)。
+                    ⚠️ **在本檔看不出哪顆會顯示** —— 那是這個做法的代價,故留這段指回 CSS。
                     **這與 #447 要解的問題不是同一件** —— #447 是「13 欄的 cell 各寫兩遍」,
                     這裡是「1 個 href 有兩個目的地」;收斂欄位並不會讓兩個目的地變成一個。
                     🔴 兩個都是**真的 `<Link href>`**、不是 onClick ⇒ 鍵盤 Tab、中鍵開新分頁、
                     右鍵複製網址一條都沒有失去。 */}
                 <Link
                   href={buildPanelHref(order.id)}
-                  className='hidden font-medium after:absolute after:inset-0 hover:underline md:inline'
+                  data-nav='panel'
+                  className='font-medium after:absolute after:inset-0 hover:underline'
                 >
                   {order.displayId}
                 </Link>
                 <Link
                   href={`/orders/${order.id}`}
-                  className='font-medium after:absolute after:inset-0 hover:underline md:hidden'
+                  data-nav='page'
+                  className='font-medium after:absolute after:inset-0 hover:underline'
                 >
                   {order.displayId}
                 </Link>
@@ -365,11 +373,16 @@ function OrderGroup({
                   <>
                     <Link
                       href={`${buildPanelHref(order.id)}#cancel`}
-                      className='hidden hover:underline md:inline'
+                      data-nav='panel'
+                      className='hover:underline'
                     >
                       取消
                     </Link>
-                    <Link href={`/orders/${order.id}#cancel`} className='hover:underline md:hidden'>
+                    <Link
+                      href={`/orders/${order.id}#cancel`}
+                      data-nav='page'
+                      className='hover:underline'
+                    >
                       取消
                     </Link>
                   </>
@@ -420,7 +433,7 @@ export function OrdersTable({
         <thead>
           <tr>
             {/* 2b-1:勾選欄(訂單層)。**刻意沒有全選框** —— 理由見 OrderGroup 內同格註解。 */}
-            <th className={`${TH} w-8`} aria-label='選取' />
+            <th className={`${TH} ${CELL.pick}`} aria-label='選取' />
             {/* 🏁 **L3 片2:欄序與四個欄名逐字照 `design-brief` §0-B:1(Sean 2026-08-12 口述的那張清單)。**
                 逐字 = `單號 / 日期 / 車種 / 廠牌 / 料號 / 物品名稱 / 數量 / 單價 / 金額 / 客戶 / 狀態 / 發票`
                 (勾選與操作是功能欄,不在他那張清單裡、照第二輪處理保留)。
@@ -437,13 +450,13 @@ export function OrdersTable({
 
                 🔴 **真正搬家的只有一件:車種與廠牌對調**(車種提到廠牌之前)。其餘欄的位移全是被
                    新增的「單價」推的連帶,不是各自搬家 —— 讀 diff 時別把連帶當成重排。 */}
-            <th className={TH}>單號</th>
-            <th className={TH}>日期</th>
-            <th className={TH}>車種</th>
-            <th className={TH}>廠牌</th>
-            <th className={TH}>料號</th>
-            <th className={TH}>物品名稱</th>
-            <th className={`${TH} text-right`}>數量</th>
+            <th className={`${TH} ${CELL.oid}`}>單號</th>
+            <th className={`${TH} ${CELL.date}`}>日期</th>
+            <th className={`${TH} ${CELL.vehicle}`}>車種</th>
+            <th className={`${TH} ${CELL.brand}`}>廠牌</th>
+            <th className={`${TH} ${CELL.sku}`}>料號</th>
+            <th className={`${TH} ${CELL.title}`}>物品名稱</th>
+            <th className={`${TH} ${CELL.qty} text-right`}>數量</th>
             {/* 🆕 L3 片2 新欄:單價(**品項層**、成交價)。
                 🔴 **零資料層工作** —— `unitPrice` 早就在投影裡:型別 `packages/domain/src/order/types.ts:384`、
                    mapper `packages/adapters/src/supabase/mappers/order.ts:334`、
@@ -455,17 +468,17 @@ export function OrdersTable({
                 ⚠️ 名字很像但**不是**同一個常數:`ORDER_LIST_SELECT`(會員端 own-only)有一條
                    byte-equal 白名單明文**零 `unit_price`**(`SupabaseOrderAdapter.test.ts:175`);
                    後台走的是 `ADMIN_ORDER_LIST_SELECT`。**兩者只差前綴,不看清楚會誤判成違規。** */}
-            <th className={`${TH} text-right`}>單價</th>
-            <th className={`${TH} text-right`}>金額</th>
-            <th className={TH}>客戶</th>
+            <th className={`${TH} ${CELL.unit} text-right`}>單價</th>
+            <th className={`${TH} ${CELL.amount} text-right`}>金額</th>
+            <th className={`${TH} ${CELL.customer}`}>客戶</th>
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
                 欄名逐字取自 `design-brief` §0-B:1 那張 Sean 給的欄序清單(`…客戶 / 狀態 / 發票`)。 */}
-            <th className={TH}>狀態</th>
+            <th className={`${TH} ${CELL.status}`}>狀態</th>
             {/* A11a-5:發票欄(訂單層)。出貨欄(A11a-6)前置在第 2 批,故本表暫時是訂貨→發票相鄰。 */}
-            <th className={TH}>發票</th>
+            <th className={`${TH} ${CELL.invoice}`}>發票</th>
             {/* A13(訂單列表操作欄)。
                 🔴 **與 backlog #372 的 OP-A13(沖銷入口)是兩件事**,別靠字面認親。 */}
-            <th className={TH}>操作</th>
+            <th className={`${TH} ${CELL.ops}`}>操作</th>
           </tr>
         </thead>
         {orders.map((order) => (

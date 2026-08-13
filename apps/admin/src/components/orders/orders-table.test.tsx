@@ -829,11 +829,12 @@ describe('V11b — Q2b=A:列表**不顯示**載具別', () => {
 //   「手機版列表一律轉卡片,不做橫向捲動表格。主要欄位加粗置頂、次要副行、金額/狀態靠右。」
 //
 // 🔴🔴 **本區的量測對象整個換過:A11c 量的是「卡片那份 markup」,現在沒有那份了。**
-//    卡片化改由 `app/globals.css` 的 `.orders-grid` 區塊(`@media (width < 48rem)`)完成
+//    卡片化改由 `app/globals.css` 的 `.orders-grid` 區塊完成(**L3 片3 起是 `@container (max-width: 520px)`**)
 //    🔴 **斷點字面全檔只准有一個版本**(R2 F1 + R3):這裡先後殘留過 `767px` 與 `47.99rem`,
 //       都與當時的 CSS 互斥 ⇒ 後人照舊字面去改 CSS 會讓 M2 回歸,而守門會紅,
 //       **他最可能去改守門而不是改回來**。字面漂移比缺守門更會誤導人。
-//       現行唯一正確字面 = `width < 48rem`,由 `CARD_QUERY` 以 postcss **全等**比對 params 釘住。
+//       現行唯一正確字面 = `(max-width: 520px)`,由 `CARD_QUERY` 以 postcss **全等**比對 params 釘住。
+//       🔴 **L3 片3 起它也是雙份連結顯隱的斷點**(`a[data-nav]`)—— 同一條規則 ⇒ 不可能不一致。
 //    ⇒ **版面本身在 jsdom 量不到**(沒有 layout 引擎、也不套 media query)。
 //    ⇒ 本區只能守**卡片化所依賴的 DOM 契約**:掛勾 class、`col-*` 欄位 class、`data-l` 標籤、
 //      `:empty` 賴以成立的真空格(在 V3)。**版面對不對仍要真瀏覽器 + Sean 肉眼驗**,
@@ -875,13 +876,15 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
      *    我第一版寫成不含括號,五格全紅;**是實跑告訴我的,不是我事先知道**。
      *    寫在這裡免得下一個人以為可以省括號。
      */
-    const CARD_QUERY = '(width < 48rem)';
+    // 🏁 **L3 片3:從 `@media (width < 48rem)`(視窗)換成 `@container (max-width: 520px)`(容器)。**
+    //    斷點值也從 Tailwind 的 `md` 換成 OD 的 520(`overview-desktop.html:139` 逐字)。
+    const CARD_QUERY = '(max-width: 520px)';
     const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 
     /** params 全等於 `CARD_QUERY` 的所有 `@media`(數量本身就是斷言對象)。 */
     const cardMedias = () => {
       const out: import('postcss').AtRule[] = [];
-      ROOT.walkAtRules('media', (r) => {
+      ROOT.walkAtRules('container', (r) => {
         if (norm(r.params) === CARD_QUERY) out.push(r);
       });
       return out;
@@ -931,7 +934,7 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     });
 
     it('🔴 斷點 params **全等**,不是前綴命中(擋「後面接一個永假條件」)', () => {
-      // R3 ①:`indexOf` 版對 `@media (width < 48rem) and (min-width: 99999px)` 照樣命中。
+      // R3 ①:`indexOf` 版對 `@container (max-width: 520px) and (min-width: 99999px)` 照樣命中。
       // postcss 給的是 params 本身 ⇒ 全等比對讓那個突變直接紅。
       expect(norm(cardMedias()[0]!.params)).toBe(CARD_QUERY);
     });
@@ -1323,9 +1326,13 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
 //       (唯一 island 是勾選框),帶表單的控件仍不屬於這裡。
 // 🔴 與 backlog #372 的 **OP-A13(退款態沖銷入口)無關**,只是撞字面。
 describe('A13 — 操作欄(取消入口)', () => {
-  // 🔴 L2 起兩槽是**同一格裡的兩個 `<a>`**,由 `md:hidden` / `hidden md:inline` 分流
-  //    (#350c 拍板:桌機開面板、手機走整頁;收斂 markup 不得順手統一目的地)。
-  //    ⇒ 選擇器改用 href 形狀認槽,不再靠「在 table 裡還是在 ul 裡」。
+  // 🔴 L2 起兩槽是**同一格裡的兩個 `<a>`**(#350c 拍板:桌機開面板、手機走整頁;
+  //    收斂 markup 不得順手統一目的地)。⇒ 選擇器用 href 形狀認槽。
+  // 🏁 **L3 片3:分流從元件的 `md:hidden`/`hidden md:inline` 換成 CSS 的 `a[data-nav]`**
+  //    —— 理由是機制:顯隱與卡片化在 `globals.css` 的**同一條 `@container` 規則**裡,
+  //    兩者不可能不一致(舊做法是兩處靠人保持一致,而失效是安靜的)。
+  //    ⇒ 本區的 class 斷言換成 `data-nav` 屬性斷言。**守的東西沒變:兩槽各恰一顆、目的地各自不同。**
+  //    ⚠️ **屬性在不在 ≠ 真的顯隱** —— 真實顯隱只有真瀏覽器量得到,交件的負向 hit test 才是那一面。
   const cancels = (c: HTMLElement) =>
     [...c.querySelectorAll('a')].filter((a) => a.textContent === '取消');
   const deskCancel = (c: HTMLElement) =>
@@ -1370,10 +1377,29 @@ describe('A13 — 操作欄(取消入口)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const link = cardCancel(container);
     expect(link, 'Sean 常用手機看後台;只做桌機等於這片對他不存在').not.toBeNull();
-    // 🔴 兩槽靠斷點 class 分流 —— 沒有它會**同時**出現兩顆「取消」,桌機手機都是。
-    expect(link!.classList.contains('md:hidden'), '手機槽少了 md:hidden ⇒ 桌機會出現兩顆取消').toBe(true);
-    expect(deskCancel(container)!.classList.contains('hidden'), '桌機槽少了 hidden ⇒ 手機會出現兩顆取消').toBe(true);
-    expect(deskCancel(container)!.classList.contains('md:inline')).toBe(true);
+    // 🔴 兩槽靠 `data-nav` 分流 —— 少了它 CSS 選不到,兩顆「取消」會**同時**出現。
+    expect(link!.getAttribute('data-nav'), "手機槽少了 data-nav='page' ⇒ CSS 選不到它").toBe('page');
+    expect(deskCancel(container)!.getAttribute('data-nav'), "桌機槽少了 data-nav='panel'").toBe('panel');
+  });
+
+  // 🔴🔴 **R 審 F1(片3):`data-nav` 有兩對,原本只釘了取消那對。**
+  //    失敗情境:拿掉**單號**那顆的 `data-nav='panel'` ⇒ 桌機看起來正常(基底只藏 `page`),
+  //    但**卡片模式下它不再被藏** ⇒ 同一張卡上兩顆 stretched link 重疊,其中一顆去手機不該去的面板,
+  //    而**零測試會紅** —— 正是 `orders-table.tsx:197-198` 自己寫的「而且沒有東西會叫」。
+  //    ⚠️ 這條與上面取消那對是**同一個守門的兩半**,擺在一起才看得出「兩對都要有」。
+  it("🔴 單號那對也要有 data-nav(兩對都掛才防得住錯配;R 審 F1)", () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const oidLinks = [...container.querySelectorAll('td.col-oid a')];
+
+    // 前提:這一格真的有兩顆(不然下面兩條會在空集合上恆真)
+    expect(oidLinks.length, '單號格應恰有兩顆連結(桌機面板 + 手機整頁)').toBe(2);
+    expect(
+      oidLinks.map((a) => a.getAttribute('data-nav')),
+      "單號那對少了 data-nav ⇒ CSS 選不到 ⇒ 卡片上兩顆 stretched link 會重疊",
+    ).toEqual(['panel', 'page']);
+    // 目的地與 data-nav 必須對得上(標對了但接錯 href,屬性斷言本身看不出來)
+    expect(oidLinks[0]!.getAttribute('href')).toBe('/orders?panel=ord-1');
+    expect(oidLinks[1]!.getAttribute('href')).toBe('/orders/ord-1');
   });
 
   it('🔴 兩槽的目的地各自沿用同槽的單號連結:桌機走注入的面板 href、手機走整頁路徑', () => {

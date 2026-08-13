@@ -150,36 +150,203 @@
   max-width: calc(100% - 480px);
 }
 
+/* ═══ 訂單列表 L3 片3:14 欄欄寬 + 容器斷點 ═══════════════════════════════════
+   真權威 = OD project `pcm-admin-order-ui` 的 `overview-desktop.html:121-124` 的 CSS 宣告。
+   🔴 **不要抄同檔 `:1585` 的 `const R5`** —— 那是第十一輪之前的量測殘留,單號與品名兩顆是舊值。
+      (已釘進 `docs/specs/2026-08-12-admin-order-ui-design-brief.md` §0-D。)
+   🔴 **OD 那份是 13 欄、沒有勾選欄**;Sean 拍 Q1=A 保留勾選 ⇒ 勾選 28px **從物品名稱的 350 扣**
+      (→ 322),**總寬不變 = 1362**(28+76+56+180+96+188+322+38+74+76+62+88+44+34,我逐項加過)。
+
+   🔴🔴 **`container-type: inline-size` 掛在 `.orders-grid` 自己**(主視窗 E-419 核可)。
+      **兩條副作用是給未來的人的警告,不是現況描述**(現況描述會過期、警告不會):
+      ① 它帶 `contain: layout` ⇒ **這個元素會成為 `position: fixed` 子孫的 containing block**
+         —— 誰日後把 `fixed inset-0` 的覆蓋層(例如 `shipment-dialog.tsx` 那種)渲染進訂單列表裡,
+         那個覆蓋層**會被困在表格框內、而不是蓋滿視窗**。解法是 portal,不是改這裡。
+         前例與同款警告見 `app/@panel/orders/page.tsx:132-136`。
+      ② `container-type: inline-size` 讓本元素的 inline 尺寸**不再由內容決定** ——
+         本框本來就是 `overflow-x-auto` 的固定寬容器,故今天無差別;但誰把 `overflow` 拿掉時要一起想。 */
+.orders-grid {
+  container-type: inline-size;
+}
+
+/* 🔴 `table-layout: fixed` 是欄寬**生效的前提**(OD `overview-desktop.html:103` 逐字同款):
+   auto 版面下 `width` 只是建議值,長品名照樣把欄撐開 ⇒ 1440 橫向溢位(片2 實測 1664 > 1414)。
+   ⚠️ fixed 之下**只有第一列(= `<thead>` 的 `<th>`)的寬度算數** ⇒ 片3 一併把 `col-*` 掛到每個 `<th>` 上,
+      不是為了整齊,是**不掛就沒有寬度來源**。 */
+.orders-grid table {
+  table-layout: fixed;
+}
+
+/* 🔴🔴 **`table-layout: fixed` 必須配截斷,缺一就是壞掉的版面(我實測撞到的)。**
+   元件的格內 utility 是 `whitespace-nowrap`(不換行)而**沒有 `overflow`** ⇒ fixed 版面下
+   放不下的內容**不會被裁、會直接壓到隔壁欄上**:第一版截圖裡「單號壓日期、金額壓客戶、發票壓操作」。
+   ⚠️ **這不是欄寬給錯**,是 fixed + nowrap + visible 三者的必然結果 ——
+      OD `overview-desktop.html:107` 逐字就是 `white-space:nowrap;overflow:hidden;text-overflow:ellipsis` 三件一起。
+   ⚠️ 卡片模式那段有對應的解除(`white-space: normal` + 本區 `overflow` 不套到 flex 的格),見下方。 */
+.orders-grid th,
+.orders-grid td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 🔴 **左右內距要跟著 OD 走,否則欄寬表整組對不上**(`overview-desktop.html:105-107` 逐字 `padding:0 8px`)。
+     元件的格內 utility 是 `px-3`(= 12px 兩側 = 24px),比 OD 多吃 **8px/欄** ——
+     在 44px 的發票欄與 62px 的客戶欄上,那 8px 就是「看得到三個字」與「看到『未…』」的差別(我實測撞到)。
+     ⚠️ **上下內距不動**(仍是元件的 `py-2`):列高屬密度那軸,是片4 的事,本片不碰。 */
+  padding-right: 0.5rem;
+  padding-left: 0.5rem;
+}
+
+.orders-grid .col-pick {
+  width: 28px;
+}
+
+.orders-grid .col-oid {
+  width: 76px;
+}
+
+.orders-grid .col-date {
+  width: 56px;
+}
+
+.orders-grid .col-vehicle {
+  width: 180px;
+}
+
+.orders-grid .col-brand {
+  width: 96px;
+}
+
+.orders-grid .col-sku {
+  width: 188px;
+}
+
+/* 350 − 28(勾選欄)= 322。OD 那份是 350,差額就是勾選欄。 */
+.orders-grid .col-title {
+  width: 322px;
+}
+
+.orders-grid .col-qty {
+  width: 38px;
+}
+
+.orders-grid .col-unit {
+  width: 74px;
+}
+
+.orders-grid .col-amount {
+  width: 76px;
+}
+
+.orders-grid .col-customer {
+  width: 62px;
+}
+
+.orders-grid .col-status {
+  width: 88px;
+}
+
+.orders-grid .col-invoice {
+  width: 44px;
+}
+
+/* 🔴 內距要用對等特異性覆蓋(OD `:114-116` 逐字記過同一個坑):`.orders-grid td` 是 (0,1,1)、
+   `.col-ops` 只有 (0,1,0) ⇒ 只寫 `.col-ops{padding-left:2px}` 不會生效,34px 的欄會被內距吃光。 */
+.orders-grid .col-ops {
+  width: 34px;
+}
+
+.orders-grid td.col-ops,
+.orders-grid th.col-ops {
+  padding-right: 0.125rem;
+  padding-left: 0.125rem;
+}
+
+/* 🔴 **窄版收哪些欄是 Sean 逐字定的**,OD `overview-desktop.html:129-131` 註解原文:
+   「料號不再被收起來(Sean:我反而要看料號,中文可以被截斷)。窄版收的是
+     日期/車種/廠牌/單價/客戶/發票;客戶收掉的理由=面板開著時右邊就有客戶。」
+   ⇒ 基底隱藏、`@container (min-width: 900px)` 才顯示。**基底是隱藏那一側**,與 OD 同向:
+      這樣「新加的欄忘記寫規則」時是**露出來**(看得見、會被發現),而不是靜默消失。 */
+.orders-grid .col-date,
+.orders-grid .col-vehicle,
+.orders-grid .col-brand,
+.orders-grid .col-unit,
+.orders-grid .col-customer,
+.orders-grid .col-invoice {
+  display: none;
+}
+
+@container (min-width: 900px) {
+  .orders-grid .col-date,
+  .orders-grid .col-vehicle,
+  .orders-grid .col-brand,
+  .orders-grid .col-unit,
+  .orders-grid .col-customer,
+  .orders-grid .col-invoice {
+    display: table-cell;
+  }
+}
+
+/* 窄版(900 以下、**卡片斷點以上**)的欄寬,逐字照 OD `:133-135`。
+   ⚠️ 這句刻意**不重複卡片斷點的數字**(R 審 nit):重複一次就多一個改斷點時會變錯、
+      而且沒有東西會紅的地方。斷點值只住在下面那個 `@container` 的 params 裡。 */
+@container (max-width: 899px) {
+  .orders-grid .col-sku {
+    width: 180px;
+  }
+
+  .orders-grid .col-title {
+    width: 152px;
+  }
+
+  .orders-grid .col-qty {
+    width: 34px;
+  }
+
+  .orders-grid .col-amount {
+    width: 72px;
+  }
+
+  .orders-grid .col-status {
+    width: 84px;
+  }
+}
+
+/* 🔴🔴 **雙份連結的顯隱:與卡片斷點在同一個 `@container` 區塊裡,這是機制不是慣例**
+   (主視窗 E-419 裁 B)。#350c 拍板兩個目的地:桌機開右側面板、手機走整頁 `/orders/[id]`。
+   收斂前那兩對是元件裡的 `hidden md:inline` / `md:hidden`(**視窗**斷點)——
+   片3 把卡片化換成**容器**斷點之後,那組會在「面板開著、容器 <520 但視窗很寬」時
+   給出 **卡片模式 + 桌機面板連結** 的錯配,而**沒有任何東西會叫**。
+   ⇒ 顯隱搬進本檔:它與卡片化用的是**同一條 `@container` 規則**,兩者**不可能不一致**。
+   ⚠️ 讀 `orders-table.tsx` 的人看不到這件事 ⇒ 那邊留了指回本段的註解。 */
+.orders-grid a[data-nav='page'] {
+  display: none;
+}
+
 /* ═══ 訂單列表:單一 markup 的手機卡片模式(backlog #447 / OD 改版 L2)═══════════
    🔴 **為什麼是 CSS 不是 Tailwind utility**:卡片化需要 `thead{display:none}`、
       `td:empty{display:none}`、`td::before{content:attr(data-l)}` 這類**選擇器層**的規則,
       utility 表達不出來(前兩條沒有對應 utility,第三條要逐格重複十幾個 class)。
       收斂前那份手機卡片是**另寫一份 JSX**;現在改成同一份 DOM + 這一塊 CSS。
-   🔴🔴 **斷點必須跟著 Tailwind 的 `md` 走、不得寫死 px(code-reviewer M2)**:元件裡單號格與操作格的
-      雙目的地連結用的是 `hidden md:inline` / `md:hidden`(#350c 拍板:桌機開面板、手機走整頁),
-      而 Tailwind 的 `md` 是 **`48rem` 不是 `768px`** —— 兩者只有在 root font-size = 16px 時相等。
-      使用者把瀏覽器字級調成 12px(標準無障礙操作)⇒ `md` 變 576px,而寫死的 767px 不動
-      ⇒ **576–767px 之間會出現「卡片模式 + 桌機的面板連結」**,正是下面那段要防的錯配。
-      ⇒ 用 `rem` 讓兩邊跟著同一個基準走(M2 當時寫 `max-width: 47.99rem`,已被下一段取代)。改一邊要改兩邊。
-   🔴🔴 **用 range 語法 `width < 48rem`,不是 `max-width: 47.99rem`(R3 推翻我 R2 的裁量)**:
-      我 R2 判「0.01rem 無人區實務碰不到」⇒ **不成立**。W3C Media Queries 5 §mq-min-max 逐字
-      (親讀 `https://www.w3.org/TR/mediaqueries-5/#mq-min-max`):
-        「it does not take into account the possibility of **fractional viewport sizes** which can occur
-         as a result of non-integer pixel densities (e.g. on high-dpi displays or as a result of
-         zooming/scaling). Any viewport widths that fall between 320px and 321px will result in
-         **none of the styles being applied**.」
-      ⇒ 高 DPI 與縮放會產生小數 viewport,而使用者自訂 root 字級還會**改變縫隙大小**。
-      相容性也是 range 這邊比較安全:本 repo `next@16.3.0`,Next 16 升級指南的瀏覽器下限逐字
-      「Chrome 111+, Edge 111+, Firefox 111+, **Safari 16.4+**」,而 range 語法**正是 Safari 16.4 加的**
-      (WebKit 16.4 features 逐字示範 `@media (400px <= width < 900px)`)⇒ 下限即支援線,零風險。
-      ⚠️ 這個 query 字面在三處必須一致:本檔、`orders-table.tsx` 的兩段註解、
-      `orders-table.test.tsx` 的 `CARD_QUERY`(測試用 postcss **全等**比對 params,不是前綴)。
-   ⚠️ **本區塊不設任何欄寬**:OD 那份的 13 欄寬與 900/520 container query 屬 L3,
-      本片(L2)只做 markup 收斂、桌機視覺維持與收斂前一致。
-   ⚠️ 這是 **media query(吃視窗寬)**,不是 container query ⇒ **面板開合不會觸發卡片模式**。
+   🏁🏁 **L3 片3:整段斷點機制換掉了 —— 以下是換掉了什麼、以及為什麼舊理由已作廢。**
+
+      **舊狀態(L2)**:`@media (width < 48rem)`(**視窗**寬),而元件裡雙目的地連結用
+      `hidden md:inline` / `md:hidden`(也是視窗)。M2 當時的整段論證(必須用 `rem` 跟著 Tailwind
+      的 `md` 走、不得寫死 px)成立的**前提就是「兩邊都吃視窗」** —— 那個前提本片已經不在了。
+      ~~用 rem 讓兩邊跟同一個基準~~ / ~~range 語法防小數 viewport~~:**兩條都隨視窗斷點一起退場**,
+      不是被判定為錯。(R3 那段 W3C `mq-min-max` 的引用留在 git 歷史,`025a7e7e` 的 commit body 有全文。)
+
+      **新狀態(片3)**:`@container (max-width: 520px)`(**容器**寬,值逐字取自 OD
+      `overview-desktop.html:139`),`container-type` 掛在 `.orders-grid` 自己(見本檔上方那段)。
+      🔴 雙目的地連結的顯隱**也搬進同一個 `@container` 區塊**(`a[data-nav='panel'|'page']`)——
+         **那正是舊註解裡「576–767px 之間會出現卡片模式 + 桌機面板連結」那個錯配的根治**:
+         現在兩者是**同一條規則**,不可能不一致(主視窗 E-419 裁 B:機制 > 慣例)。
+      ⚠️ **斷點字面現在只有兩處**(實測,`grep -n '520' <各檔>`):本檔的 `@container` 那行,
+         與 `orders-table.test.tsx` 的 `CARD_QUERY`。第二處是**釘住第一處的守門**、不是複製品
+         (它用 postcss **全等**比對 params,不是前綴)。~~三處必須一致~~ 已作廢。
+   ⚠️ **這是 container query(吃容器寬)** ⇒ **面板開合會觸發卡片模式** ——
+      這是刻意的、也是 L3 才做的原因;交件附「面板開著列表變窄」的截圖就是為了讓 Sean 看見它。
    ⚠️ 未包在 `@layer` 內 = 恆勝 Tailwind 的 utilities layer(v4 分層規則),
       所以 `whitespace-nowrap` / `text-right` / `px-3 py-2` 那些格內 utility 在卡片模式會被壓掉。 */
-@media (width < 48rem) {
+@container (max-width: 520px) {
   /* 外框讓給每一張卡自己畫;桌機那層 border/bg/橫捲在卡片模式沒有意義 */
   .orders-grid {
     overflow-x: visible;
@@ -245,6 +412,11 @@
     text-align: left;
     vertical-align: baseline;
     white-space: normal;
+    /* 🔴 解除桌機的截斷(OD `overview-desktop.html:150` 逐字同款
+       `white-space:normal;overflow:visible;text-overflow:clip`):卡片是縱向的、沒有欄寬,
+       留著 `overflow:hidden` 會把換行後的第二行裁掉。 */
+    overflow: visible;
+    text-overflow: clip;
   }
 
   /* 🔴 承重:訂單層欄在第二列之後渲染成**真的空** `<td>`(元件端 `<td className={…} />`),
@@ -252,6 +424,29 @@
      卡片會冒出一排只有標籤沒有值的空行 —— 守門在 `orders-table.test.tsx`。 */
   .orders-grid td:empty {
     display: none;
+  }
+
+  /* 🔴 **窄版的收欄規則在卡片模式一律作廢** —— 卡片是縱向的,十四欄全部看得到
+     (OD `overview-desktop.html:139-141` 註解逐字:「收欄位的規則同時作廢」)。
+     ⚠️ 特異性:上面那條 `.orders-grid td{display:flex}` 是 (0,1,1),
+        而基底的 `.orders-grid .col-date{display:none}` 是 (0,2,0) ⇒ **後者贏** ⇒ 不寫這條的話
+        日期/車種/廠牌/單價/客戶/發票六欄在手機上會**靜默消失**。 */
+  .orders-grid .col-date,
+  .orders-grid .col-vehicle,
+  .orders-grid .col-brand,
+  .orders-grid .col-unit,
+  .orders-grid .col-customer,
+  .orders-grid .col-invoice {
+    display: flex;
+  }
+
+  /* 🔴 雙份連結對調(見上方 `a[data-nav='page']` 那段的理由):卡片模式走整頁、不走面板。 */
+  .orders-grid a[data-nav='panel'] {
+    display: none;
+  }
+
+  .orders-grid a[data-nav='page'] {
+    display: inline;
   }
 
   .orders-grid td::before {
