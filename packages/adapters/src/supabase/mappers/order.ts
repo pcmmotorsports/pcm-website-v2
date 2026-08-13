@@ -450,6 +450,9 @@ export type SupabaseAdminOrderDetailRow = Pick<
   | 'cancelled_at'
   | 'cancelled_reason'
   | 'version'
+  // OD 片 2(需求檔 §0-J J-4):詳情頁「客人明細入口」要連 `/customers/[id]`,得先有 id。
+  // 非成本欄、orders 自己的欄位 —— 同 `SupabaseAdminOrderRow` 那條的理由(見 `:239`)。
+  | 'customer_user_id'
 > & {
   /** 同 SupabaseAdminOrderRow.customers:many-to-one 單物件、防禦容陣列/null。 */
   customers:
@@ -693,6 +696,20 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
       phone: pickString(row.shipping_address_snapshot, 'phone'),
       line: pickString(row.shipping_address_snapshot, 'line'),
     },
+    /**
+     * OD 片 2:客人明細入口的 id。
+     *
+     * 🔴 **不能直送**(codex 關卡2 important 抓到):DB 端是 `uuid NOT NULL`
+     * (建表 `20260604120000:95`),但那保證的是**列裡有值**、不是**wire row 裡有這個鍵**——
+     * 投影退版時整個鍵會消失,直送就產出一個型別說 `string`、實際 `undefined` 的值,
+     * 下游拼成 `/customers/undefined`,**沒有任何一步會失敗**。
+     * 🔴 也**不寫 `?? ''`**:空字串會拼成 `/customers/`,同樣是「看起來合法的壞路徑」。
+     * ⇒ 缺鍵/非字串/空字串一律收斂成 `null` = 「沒讀到」,由型別逼消費端 fail-closed。
+     */
+    customerUserId:
+      typeof row.customer_user_id === 'string' && row.customer_user_id !== ''
+        ? row.customer_user_id
+        : null,
     customer: {
       name: customer?.name ?? null,
       email: customer?.email ?? null,

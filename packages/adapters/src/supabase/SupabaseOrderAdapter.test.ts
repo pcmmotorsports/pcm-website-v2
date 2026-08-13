@@ -622,6 +622,10 @@ function makeDetailClient(result: { data: unknown; error: unknown }) {
 
 const DETAIL_ROW = {
   id: 'o1',
+  // 🔴 codex 關卡2 important:這個 fixture 原本**沒有**這一欄,而 `toEqual` 會忽略值為
+  //    `undefined` 的鍵 ⇒ 「mapper 產出 undefined」那個錯誤形狀在這裡是**假綠**的。
+  //    補上真實值,讓下方期望物件的 `customerUserId` 成為有判別力的斷言。
+  customer_user_id: 'cu-detail-1',
   display_id: 'PCM-2099-0001',
   created_at: '2099-04-15T10:00:00Z',
   payment_status: 'paid',
@@ -718,10 +722,79 @@ const DETAIL_ROW = {
   ],
 };
 
+/**
+ * PostgREST select 字串的**作用域感知**判別函式(2026-08-13 OD 片 2 加,codex 關卡2 must-fix 的修法)。
+ *
+ * 為什麼需要它們:投影守門原本一律用「整條字串 `toContain` / `not.toContain`」,
+ * 那種守法**看不見層級** —— 同一個欄名在 orders 層是合法的、在某張內嵌表裡是洩漏。
+ * 兩者的差別是**位置**,而子字串比對不看位置。
+ */
+
+/**
+ * 取出**每一個** `payment_charge_attempts` 內嵌所帶的欄位,攤平成一個陣列。
+ *
+ * 🔴 用 `matchAll` 不用 `exec`:`exec` 只回**第一個**匹配 ⇒ 第二個 alias 內嵌會被完全忽略
+ * (codex 關卡2 的 must-fix 反例就是這樣繞過的)。
+ * 🔴 hint 段寫 `(?:![A-Za-z0-9_]+)?`,涵蓋 `!inner` / `!left` / `!fk_name` / **含數字的 hint** /
+ * 以及沒有 hint 的裸內嵌 —— 舊版寫 `![a-z_]+`,認不得數字、也強制要有 hint。
+ *
+ * 🔴🔴 **`[^()]*` 對巢狀括號是盲的,而巢狀在這裡是「構造得出來」的**(R2 抓,2026-08-13)。
+ *    我原本在這裡寫「`payment_charge_attempts` 是 orders 的直接關聯……**目前構造不出巢狀的合法形狀**」
+ *    —— **那句是錯的**。事實(自查 `database.types.ts:1707-1721` 的 Relationships):
+ *    該表有**兩條** FK 指向 `orders` —— `payment_charge_attempts_order_id_fkey`(`order_id`)與
+ *    `payment_charge_attempts_superseded_by_order_id_fkey`(`superseded_by_order_id`)
+ *    ⇒ `payment_charge_attempts(status, orders!hint(customer_user_id))` 是**完全合法**的 PostgREST 巢狀內嵌,
+ *    而本函式**看不見它**(內層 `(` 讓整條匹配失敗 ⇒ `matchAll` 直接漏掉那個內嵌)。
+ *    ⇒ **本函式單獨不足以守住洩漏**,必須與下方的「總量」計數併用,理由見那兩行的註解。
+ *    (病名:假的「構造不出來」——它披謙虛外衣把工作從設計裡拿掉,且不需要任何證據。)
+ */
+function chargeEmbedFields(select: string): string[] {
+  return [
+    ...select.matchAll(/payment_charge_attempts(?:![A-Za-z0-9_]+)?\(([^()]*)\)/g),
+  ].flatMap((m) =>
+    (m[1] ?? '')
+      .split(',')
+      .map((field) => field.trim())
+      .filter(Boolean),
+  );
+}
+
+/**
+ * 取出投影的**頂層(orders 層)**欄位 —— 反覆剝掉最內層括號直到沒有括號,剩下的就是頂層。
+ *
+ * 這是**位置**檢查,不是計數。純計數(「整條只出現 1 次」)守不住「orders 層那顆拿掉、
+ * 改從某個內嵌帶進來」這種**移位**:數量沒變、位置變了(codex 關卡2 指定五題第 3 題)。
+ */
+function topLevelFields(select: string): string[] {
+  let stripped = select;
+  while (/\([^()]*\)/.test(stripped)) stripped = stripped.replace(/\([^()]*\)/g, '');
+  return stripped
+    .split(',')
+    .map((field) => field.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 「這條投影有沒有從 orders 以外的地方帶出客人識別?」的**單一判別點**。
+ *
+ * 🔴 三條缺一都有洞(R2 實測,理由逐條寫在呼叫端的 docstring):
+ *   ①**總量** —— 不看語法,正則盲區繞不過它,是最後一道
+ *   ②**位置** —— 擋「orders 層拿掉、改從內嵌帶」的移位(總量不變)
+ *   ③**內嵌內容** —— 擋 `payment_charge_attempts` 帶出其他識別碼
+ *
+ * 抽成函式的理由:主格與下方負測**共用同一份判別邏輯**。若各寫一份,
+ * 負測綠只證明「負測那份邏輯會紅」,不證明真投影受同一份保護 —— 那正是這片一路在犯的病。
+ */
+function assertNoCustomerIdLeak(select: string): void {
+  expect(select.split('customer_user_id').length - 1).toBe(1);
+  expect(topLevelFields(select)).toContain('customer_user_id');
+  expect(chargeEmbedFields(select)).toEqual(['status']);
+}
+
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -831,16 +904,161 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(ADMIN_ORDER_DETAIL_SELECT).toContain(
       'payment_charge_attempts!payment_charge_attempts_order_id_fkey(status)',
     );
+    /**
+     * ⚠️ **這五顆同樣有作用域過寬的問題**(2026-08-13 codex 關卡2 important,本片不修、立案追):
+     * 守法是對整條字串子字串比對,而 `rec_trade_id` 同時存在多張付款/退款表、
+     * `bank_transaction_id` 也存在 `payment_webhook_events` ⇒ 日後若有**合法**投影需要那些表的
+     * 同名欄,會再次逼人削弱這張清單(就像 `customer_user_id` 這次逼我做的一樣)。
+     * 剩下三顆(`fallback_token_hash` / `failure_observed_status` / `last_settle_error`)
+     * 目前只出現在扣款嘗試表,暫時安全。
+     * ⇒ **backlog #458**:把這張清單整體改成「作用域感知」的守法。
+     * 🔴 #458 的真正解法不是再補一條字串斷言 —— **字串比對本質上守不住所有構造**
+     *    (本片三輪審查各找到一種新繞法就是證據)。要根治得**把投影字串解析成結構再斷言**,
+     *    那是另一片的工作。(`docs/phase-1-backlog.md` 當下由 B 窗 #376 重編號片持有,
+     *    條目本文由主視窗統一寫入,本片只引用號碼。)
+     * 不現在做的理由:那要改的是這五顆各自的守門語意,與本片(加一個 orders 欄)無關,
+     * 混進來會讓 diff 跨兩個目的、也讓這次的審查對象變模糊。
+     */
     for (const token of [
       'rec_trade_id',
       'bank_transaction_id',
       'fallback_token_hash',
-      'customer_user_id',
       'failure_observed_status',
       'last_settle_error',
     ]) {
       expect(ADMIN_ORDER_DETAIL_SELECT).not.toContain(token);
     }
+
+    /**
+     * 🔴 **2026-08-13 OD 片 2:`customer_user_id` 從上面那張禁止清單移出**。
+     *
+     * 為什麼移出:那張清單列的是 `payment_charge_attempts` 的欄位名,守法卻是對**整條字串**
+     * 子字串比對。`customer_user_id` 與清單裡其他五顆不同 —— 它**同時**是 `orders` 自己的
+     * 合法欄位(`database.types.ts:1503`、建表 `20260604120000:95` `uuid NOT NULL`),
+     * 不是該表獨佔的名字。片 2 在 orders 層合法加它(需求檔 §0-J J-4)⇒ 子字串守門必然誤紅。
+     *
+     * 🔴🔴 **第一版補償是錯的,codex 關卡2 抓出反例(must-fix)——留著這段是因為錯法比修法值得記**:
+     *   第一版寫 `exec()` 取**第一個**內嵌 + 全字串出現次數 = 1。反例:
+     *   `payment_charge_attempts!fk_a(status), payment_charge_attempts!fk_b(customer_user_id)`
+     *   **同時把 orders 層那顆拿掉** ⇒ `exec()` 只讀第一個拿到 `status`(綠)、
+     *   總數仍是 1(綠)⇒ **兩條全綠而識別碼已從扣款嘗試表洩漏**。
+     *   病名:**斷言量到的比它宣稱的窄**(宣稱守「內嵌」、實際只守「第一個內嵌」)。
+     *   純計數則守不住「A 拿掉、B 補上」這種**移位**——數量不變、位置變了。
+     *
+     * 🔴🔴 **第二版也不夠(R2 抓,2026-08-13)—— 病根是我「換掉」而不是「增加」**:
+     *   第二版把計數換成了位置檢查,而**兩者守的是不同的軸**:計數守「**總量**」、位置守「**在哪**」。
+     *   拿掉計數之後,三種構造全綠而洩漏成立(reviewer 用 node 直接餵這兩個純函式實測):
+     *     A 巢狀:`…!order_id_fkey(status), superseded:…!superseded_by_order_id_fkey(status, orders!hint(customer_user_id))`
+     *       ⇒ 內層 `(` 讓那個內嵌整條匹配失敗 ⇒ ①看不見它;orders 層那顆還在 ⇒ ②綠。
+     *     C 別的內嵌:`order_cancellations(id, orders(customer_user_id), …)`
+     *       ⇒ ①只看 `payment_charge_attempts`、**完全不看別的內嵌** ⇒ 綠;②綠。
+     *   🔴 C 這條特別要記:**原本那條 `not.toContain` 擋得住它**(它看整條字串)
+     *      ⇒ 我的「升級」在這個軸上**比它取代的那條還窄**。刪掉一條守門之前,
+     *      要先問「它守的是哪個軸」,而不是只問「我的新條有沒有更精確」。
+     *
+     * 現在這版守三件事,**缺一都有洞**:
+     *   ①**總量**:整條投影裡 `customer_user_id` 只出現一次 —— 巢狀、別的內嵌、任何我沒想到的
+     *     語法形狀,只要多帶一顆就會變 2。這條**不看語法、不會被正則的盲區繞過**,是最後一道。
+     *   ②**位置**:那唯一一顆必須在**頂層(orders 層)** —— 擋「A 拿掉、B 補上」的移位(總量不變)。
+     *   ③**內嵌內容**:每一個 `payment_charge_attempts` 內嵌的欄位集合 === `['status']` ——
+     *     擋該表帶出**其他**識別碼(那五顆 token 之外的、未來新增的欄)。
+     */
+    assertNoCustomerIdLeak(ADMIN_ORDER_DETAIL_SELECT);
+  });
+
+  /**
+   * 🔴 上面那兩條守門的**負測**(codex 關卡2 must-fix 要求:雙 alias 反例,修前紅、修後綠)。
+   *
+   * 為什麼對構造字串測、而不是突變真常數:真常數被 byte-equal 釘死,一改就先紅在那條上,
+   * 量到的會是 byte-equal 而不是這兩條(這正是我上一輪驗補償時特地繞開的同一個陷阱)。
+   * 把判別邏輯抽成 `chargeEmbedFields` / `topLevelFields` 兩個純函式後,反例可以直接餵給它們。
+   */
+  /**
+   * 🔴 `assertNoCustomerIdLeak` 的**負測**:每一格都是一條「能讓客人識別從 orders 以外的地方出去」
+   * 的構造,期望**整個判別點**擋下(`toThrow`),不是期望某一條斷言紅。
+   *
+   * 為什麼測 `toThrow` 而不是各測各的函式(R2 nit-1):上一版 4 格負測**全部只餵純函式**,
+   * 沒有一格釘住那些函式真的被套在 `ADMIN_ORDER_DETAIL_SELECT` 上
+   * ⇒ 把主格那兩行刪掉,負測全綠、byte-equal 全綠、**守門靜默消失**。
+   * 現在主格與負測共用 `assertNoCustomerIdLeak` 這一個判別點,刪掉它兩邊一起紅。
+   *
+   * 為什麼不突變真常數:真常數被 byte-equal 釘死,一改就先紅在那條上,量到的會是 byte-equal。
+   */
+  describe('assertNoCustomerIdLeak — 洩漏構造負測', () => {
+    const LEAKS: readonly (readonly [string, string])[] = [
+      // ── R2 reviewer 實測出的三種(第二版全綠) ──
+      [
+        'A 巢狀內嵌:第二條 FK alias 內嵌 orders(內層括號讓 chargeEmbedFields 整條看不見)',
+        'id, version, customer_user_id, payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), superseded:payment_charge_attempts!payment_charge_attempts_superseded_by_order_id_fkey(status, orders!payment_charge_attempts_order_id_fkey(customer_user_id))',
+      ],
+      [
+        'B hint 修飾:!inner 內嵌帶巢狀 orders',
+        'id, version, customer_user_id, payment_charge_attempts!inner(status, orders!inner(customer_user_id))',
+      ],
+      [
+        'C 別的內嵌:根本不經過 payment_charge_attempts(舊 not.toContain 擋得住、第二版擋不住)',
+        'id, version, customer_user_id, payment_charge_attempts!fk_a(status), order_cancellations(id, orders(customer_user_id), reason_code)',
+      ],
+      // ── codex 關卡2 那條(第一版全綠),續留當回歸 ──
+      [
+        'D 雙 alias + orders 層那顆被拿掉(移位:總量仍為 1)',
+        'id, display_id, version, customers(name), payment_charge_attempts!fk_a(status), payment_charge_attempts!fk_b(customer_user_id)',
+      ],
+      // ── 以下是我自己往「我的設計可能漏掉什麼」方向構造的(R2 nit-3:
+      //    前兩輪的突變都只打我本來就要抓的形狀) ──
+      [
+        'E 三層巢狀:洩漏藏在第三層(每多一層,靠語法解析的守門就多一個盲點)',
+        'id, version, customer_user_id, order_items(id, order_item_procurement(id, orders(customer_user_id)))',
+      ],
+      [
+        'F 頂層 alias 改名:cid:customer_user_id(欄還是那一欄,只是換了顯示名)',
+        'id, version, cid:customer_user_id, customer_user_id, payment_charge_attempts!fk_a(status)',
+      ],
+      [
+        'G orders 層那顆整個不見(片 3 的入口會拿到 undefined,屬另一種壞法)',
+        'id, version, payment_charge_attempts!fk_a(status), customers(name)',
+      ],
+      /**
+       * 🔴🔴 H 與 I 是**突變實測逼出來的**,不是想出來的 —— 這兩格的來歷值得留著。
+       *
+       * 我在上面寫了「三條缺一都有洞」,然後照紀律各拿掉一條各跑一次。結果:
+       * 拿掉①→ A/C/F 三格失去保護(①確實必要);**拿掉②或拿掉③→ 85 格全綠**。
+       * ⇒ 在 A–G 這個集合下,②③其實**被①嚴格蘊含**、是 no-op。
+       * (更難堪的是 D:我當初就是設計它來測②的,實測它是被③擋下的 ——
+       *  又一次「斷言量到的不是我以為的那條」,同一片第三次。)
+       * ⇒ 缺的是「**只有**②會紅」與「**只有**③會紅」的構造,補上才叫三條各封一個軸。
+       */
+      [
+        'H 只有②抓得到:總量 1、charge 內嵌乾淨,但那一顆藏在別的內嵌裡(不在頂層)',
+        'id, version, payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, orders(customer_user_id))',
+      ],
+      [
+        'I 只有③抓得到:總量 1、頂層有,但 charge 內嵌多帶一個「今天還不在禁止清單上」的欄',
+        'id, version, customer_user_id, payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, settle_attempt_count)',
+      ],
+    ];
+
+    it.each(LEAKS)('🔴 %s ⇒ 必須被擋下', (_label, select) => {
+      expect(() => assertNoCustomerIdLeak(select)).toThrow();
+    });
+
+    it('🔴 正向對照:合法投影必須放行(否則上面七格可以靠「一律擋下」全綠)', () => {
+      expect(() =>
+        assertNoCustomerIdLeak(
+          'id, version, customer_user_id, customers(name, email, phone), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status)',
+        ),
+      ).not.toThrow();
+    });
+
+    it('hint 形狀涵蓋:!inner / 含數字的 FK hint / 裸內嵌都要被 chargeEmbedFields 看見', () => {
+      // codex important:舊正則 `![a-z_]+` 認不得數字、也強制要有 hint。
+      // ⚠️ 這格測的是 chargeEmbedFields 的**辨識範圍**,不是洩漏判定 —— 與上面七格不重複。
+      expect(
+        chargeEmbedFields(
+          'id, payment_charge_attempts!inner(status), payment_charge_attempts!fk_2(customer_user_id), payment_charge_attempts(bank_transaction_id)',
+        ),
+      ).toEqual(['status', 'customer_user_id', 'bank_transaction_id']);
+    });
   });
 
   it('🔴 扣款嘗試**永久**不得滲入 storefront 投影(客人不該看到自己的扣款重試軌跡)', () => {
@@ -996,6 +1214,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       total: { amount: 5200, currency: 'TWD' },
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
+      customerUserId: 'cu-detail-1',
       customer: { name: '王小明', email: 'a@b.c', phone: '0912345678' },
       invoiceRequest: { type: 'personal', taxId: null, title: null, carrier: null, donateCode: null }, // 空字串 → null
       invoiceNumber: null,
