@@ -40,12 +40,18 @@ import io, os, sys
 ROOT = sys.argv[1] if len(sys.argv) > 1 else '.'
 
 MIG = 'supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql'
+# 🔴 2026-08-13(#452):helper 被 20260813120000 以 CREATE OR REPLACE 再次替換 ⇒
+#    **apply 之後,helper 的定義權威在那一支,不在 MIG**。
+#    不把它加進 SITES 的話,本守門會繼續比對 MIG(死檔)並保持全綠,
+#    而「唯一 writer」(MIG:220 逐字)已經脫離同步集合 —— 那正是本守門要防的事。
+MIG452 = 'supabase/migrations/20260813120000_m4b_e10_452_procurement_void_schema.sql'
 RB = 'docs/runbooks/a4a-summary-rollback.md'
 AV = 'scripts/a4a-verify.sh'
 
 # (key, 檔案, 該檔內第幾個標記區塊, 是否參與全等半)
 SITES = [
     ('helper',        MIG, 1, False),
+    ('helper-452',    MIG452, 1, False),   # #452:helper 的現行定義處
     ('backfill',      MIG, 2, True),
     ('rb-div-col',    RB,  1, True),
     ('rb-div-where',  RB,  2, True),
@@ -55,9 +61,9 @@ SITES = [
 # 🔴 **凍結的是 key 集合,不是只有個數**(R1 must-fix 1 實測:只凍 `len(SITES)==6` 時,
 #    「刪掉 rb-step5 + 重複一份 rb-div-col」照樣 6 個 ⇒ 守門零輸出全綠、那一塊從此無人守)。
 #    這正是本 repo 在 harness 計數上中過三次的同一族。
-SITES_KEYS_FROZEN = ['av-oracle', 'backfill', 'helper', 'rb-div-col', 'rb-div-where', 'rb-step5']
+SITES_KEYS_FROZEN = ['av-oracle', 'backfill', 'helper', 'helper-452', 'rb-div-col', 'rb-div-where', 'rb-step5']
 # 每個檔案應有的標記區塊數(BEGIN 與 END 都算;檔尾多一個沒配對的 BEGIN 只靠抽取抓不到 —— R1 nit 6)
-BLOCKS_PER_FILE = {MIG: 2, RB: 3, AV: 1}
+BLOCKS_PER_FILE = {MIG: 2, RB: 3, AV: 1, MIG452: 1}
 
 # ── 凍結值(**測量值**,2026-08-06 S2b-3a 後段對 commit ff366bf 實測)──────────
 # 🔴 全部是**常數字面**,不是執行期自算再跟自己比(小線 R1 實錘:自算 = 恆綠)。
@@ -82,6 +88,16 @@ BLOCKS = {
         'AND s.deleted_at IS NULL          -- Q3=A:作廢即退量',
         'AND s.shipped_at IS NOT NULL;     -- 未寄出的草稿箱不算',
     ],
+    # 🔴 與 'helper' **逐字相同**:#452 只改了 ordered 軸的述詞,SHIPPED-TRUTH 區塊一個字都沒動。
+    #    兩處都凍同一份內容 = 它們必須保持一致(任何一邊漂了都紅)。
+    'helper-452': [
+        'SELECT COALESCE(sum(si.shipped_quantity), 0) INTO v_shipped',
+        'FROM public.shipment_items si',
+        'JOIN public.shipments s ON s.id = si.shipment_id',
+        'WHERE si.order_item_id = p_order_item_id',
+        'AND s.deleted_at IS NULL          -- Q3=A:作廢即退量',
+        'AND s.shipped_at IS NOT NULL;     -- 未寄出的草稿箱不算',
+    ],
     'backfill':     embed('WHERE si.order_item_id = s.order_item_id'),
     'rb-div-col':   embed('WHERE si.order_item_id = u.order_item_id'),
     'rb-div-where': embed('WHERE si.order_item_id = u.order_item_id'),
@@ -89,7 +105,11 @@ BLOCKS = {
     'av-oracle':    embed('WHERE si.order_item_id = s.order_item_id'),
 }
 COMMON = [l for l in EMBED if l is not None]          # 全等半(5 行)
-PERSITE = {k: ([v[3]] if k != 'helper' else list(v)) for k, v in BLOCKS.items()}
+# 🔴 2026-08-13(#452)修法:原式用**寫死的 key 名字** `k != 'helper'` 判「參不參與全等半」,
+#    而那個語意的真正載體是 SITES 的 `in_common` 旗標 ⇒ 一加第二個整塊比對的位置就會誤判。
+#    改成讀旗標本身。**這是把判準對齊它自己的定義,不是放寬。**
+IN_COMMON = {k: c for k, _f, _i, c in SITES}
+PERSITE = {k: ([v[3]] if IN_COMMON[k] else list(v)) for k, v in BLOCKS.items()}
 
 reds = []
 def red(key, why):
