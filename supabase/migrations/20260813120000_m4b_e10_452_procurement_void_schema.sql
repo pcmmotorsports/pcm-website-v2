@@ -25,8 +25,16 @@
 --    ⇒ 只要沒有人手動去填,全表的作廢欄就恆為空 ⇒ 本片新加的兩個計算條件**恆真**
 --      ⇒ 算出來的數字與現在逐字相同。**apply 前會實際查一次**,查法逐字見下方「apply 前置查詢」。
 --
+-- ②-0 🔴 **apply 當下會鎖表 —— 這關係到你要挑什麼時間按**(R3 抓到三句話漏了這件)。
+--    這支會跑幾個 `ALTER TABLE`,並且**重建一個唯一索引(不是 `CONCURRENTLY`)**。
+--    ⇒ 拿到鎖之後,**對這張表的正式寫入可能一路被擋到整支跑完**,上限受 `statement_timeout = 120s` 控。
+--    白話:**最壞情況下,按下去的那兩分鐘內,員工在後台存採購可能會卡住。**
+--    ⇒ 挑一個沒有人在用後台的時間按(採購列數以千計、實際多半遠快於上限,但**要照最壞情況挑時間**)。
+--
 -- ② **出事會怎樣**:apply 的過程若有任何一項驗收不過,整支**當場全部回滾**(不會留半套)。
---    apply 成功之後若要反悔,回退 = 把兩個欄位刪掉、把索引改回原樣(見檔尾「怎麼退」)。
+--    apply 成功之後若要反悔,**回退有一份寫好、而且真的演練過的程序**:
+--    `docs/runbooks/2026-08-13-452-procurement-void-rollback.md` + 可直接跑的 `scripts/452-down.sql`。
+--    🔴 **不要照舊版檔尾那四行「怎麼退」做** —— R3 抓到那樣做**會把系統弄壞**(詳見檔尾)。
 --    🔴 **同一個前提**:只要沒有人手動填過那兩欄,回退時**不會有資料要處理**;
 --    但**若有人手動填過**,回退就會遇到資料 —— 而且把索引改回「不分作廢與否」的唯一鍵時,
 --    那些列還可能**撞重複鍵**而讓回退失敗。⇒ 回退前要先查一次有沒有人填過(語法見檔尾)。
@@ -36,6 +44,15 @@
 --    這正是它可以安全先上的原因,也是它必須跟撤銷按鈕分開兩片的原因。
 --
 -- ══════════════════════════════════════════════════════════════════════════
+--
+-- ── 🔴 給下一個「寫停點說明」的人:三句話是起點,不是終點 ────────────────────
+--   本檔前面那幾句被三輪審查各抓過一次,而且**每輪抓的是不同句**:
+--     · R1(codex)        :①② 是**未附前提的絕對敘述**(沒講「除非有人拿最高權限直接下 SQL」)
+--     · R2(opus)         :① **漏掉 partial unique index** 這個唯一非惰性的結構改動;③「一個字都沒動」是假的
+--     · R3(codex 換角度) :② 會讓他以為「所有事故都會完整恢復、而且已備妥 rollback」;**漏掉 apply 鎖表**
+--   ⇒ 三句都被抓過。**這不是某一句寫得差,是「用三句話概括一支五百多行的 migration」這件事本身**
+--     —— 每次概括都會丟掉一個他其實需要的東西,而**丟掉哪一個要靠別人從不同角度看才知道**。
+--   ⇒ 下一個人:**先寫三句,然後假設它漏了東西,再去找漏了什麼。** 不要把三句話當成完成品。
 --
 -- 規格:docs/specs/2026-08-13-procurement-undo-plan.md v5(Sean 2026-08-13 拍板 Q1=E)
 -- 拍板逐字:`q1: a` / `q2: a, 但是不要增加太多欄位` / `q3: A, 但是到貨的商品要可以轉去庫存那邊`
@@ -167,27 +184,40 @@
 --     · 🔴 who 不是 postgres / service_role ⇒ **停下來問**,不論其他三欄長怎樣
 --       (「不知道自己用什麼身分在查」會讓後面每一句話都少一層保證)。
 --
--- ── 怎麼退(down;先讀完再動)────────────────────────────────────────────────
---   BEGIN;
---     -- ① 索引改回表約束(本片沒有 writer ⇒ 不會有 voided_at 非 NULL 的列擋著)
---     DROP INDEX public.order_item_procurement_business_key;
---     ALTER TABLE public.order_item_procurement
---       ADD CONSTRAINT order_item_procurement_business_key UNIQUE (order_item_id, supplier_id);
---     -- ② 兩支函式還原成本片之前的版本(逐字取自 20260803130000:102-161 與 20260806180000:180-242)
---     --    🔴 不可只把述詞刪掉了事 —— 還原後要重跑步 6 的錨與指紋閘確認回到原狀。
---     -- ③ 欄位與 CHECK
---     ALTER TABLE public.order_item_procurement DROP CONSTRAINT order_item_procurement_void_pair;
---     ALTER TABLE public.order_item_procurement DROP COLUMN void_reason, DROP COLUMN voided_at;
---   COMMIT;
+-- ── 🔴 怎麼退(這一段以前是錯的,留著當警告)──────────────────────────────────
+--   **舊版這裡是四行 SQL 草稿,而照它做會把系統弄壞。** R3 逐字抓到:
+--   「半夜若只執行看得到的 SQL,最後刪掉 `voided_at`,**但兩支函式仍在引用它;
+--     下一次 trigger 發火就會炸**。」
+--   我在拋棄式庫上照錯順序退過一次,下一筆採購寫入的實際錯誤是:
+--       ERROR:  column p.voided_at does not exist
+--   ⇒ **回退不是「不完整」,是「照做會壞」** —— 沒有回退的人會停下來想,
+--     照著壞的回退做的人**當場把正式庫弄爛**。
+--   (同型前例:`docs/runbooks/2026-07-30-a7-rollback.md` 檔頭 v2 擴列③「DROP 後 42P01 寫入炸彈」。)
 --
---   🔴 **回退前先跑這一句**(關卡2 M2:若有人手動填過,回退會遇到資料、還可能撞重複鍵):
---     SELECT count(*) FROM public.order_item_procurement WHERE voided_at IS NOT NULL;   -- 必須 = 0
---     -- >0 ⇒ **停**。要先決定那幾列怎麼處置(它們在回退後會變成「作廢資訊消失但列還在」),
---     --      而且同 (order_item_id, supplier_id) 若有兩列,①的 ADD CONSTRAINT 會直接失敗。
---   🔴 ①之後要把約束註解一併還原(關卡2 nit:照原指引退回,catalog 不是原樣):
---     COMMENT ON CONSTRAINT order_item_procurement_business_key ON public.order_item_procurement IS
---       (原文逐字取自 20260801150000:173-183,退回時照抄回去)
+--   ✅ **現在請用**:`docs/runbooks/2026-08-13-452-procurement-void-rollback.md`
+--      + 可直接執行的 `scripts/452-down.sql`(四道前置閘 / 四個有序步驟 / 後置指紋斷言)。
+--      🔴 **順序承重**:先還原兩支函式,才可以刪欄。**已用負向演練證明反過來會壞。**
+--      🔴 **2a-2 若已 apply,必須先逆序回退 2a-2**(runbook §1 P4;⚠️ 那道閘沒被演練過,2a-2 當時不存在)。
+--      ⚠️ 回退**不會**把 history 那一列拿掉(forward-only)⇒ 回退當天必須在
+--         `supabase/APPLIED.tsv` 與 handoff 寫明「已回退」,並把 truth-sync 的
+--         `helper-452` 位置拿掉(runbook §5)。
 -- ============================================================
+
+-- ── 🔴 顯式 BEGIN/COMMIT 造成的「schema 已落地、history 未登記」窗口(R3 MF)────────
+--   本檔自帶 `BEGIN … COMMIT` ⇒ schema 的變更在 `COMMIT` 那一刻就落地,
+--   而 `supabase db push` 把版本號寫進 `supabase_migrations.schema_migrations` 是**另一件事**
+--   ⇒ 兩者之間有窗口:**schema 已經變了,但 history 還沒登記**。
+--   在那個窗口斷線 / 失敗,現場會是「表已經有兩個新欄位,但 history 說這支沒 apply 過」
+--   ⇒ 下一次 push 會**再跑一次本檔**,而步 1f(作廢欄尚不存在)會**當場擋下來**
+--      —— 那是**設計好的 fail-closed,不是故障**。撞到時的正解 = 對帳 + 手動補登 history,
+--      🔴 **不是把 1f 拿掉重跑**。
+--
+--   ⚠️ **這不是本片引入的**,是本 repo 既有的 apply 模型:實查 **167 支 migration 中 82 支自帶
+--   `^BEGIN;`、82 支自帶 `^COMMIT;`**(`ls supabase/migrations/*.sql | wc -l`
+--   / `grep -lE '^BEGIN;' supabase/migrations/*.sql | wc -l`,2026-08-13 實跑)。
+--   ⇒ 修法**不是**由本片去換整個 repo 的 apply 模型(那遠超本片範圍),
+--     而是把窗口與撞到時的處置寫在這裡,讓 apply 的人知道那個畫面代表什麼。
+--   🔴 **apply 當下的處置**:push 若中斷,**先查 history 再查 schema,兩邊都看過才決定重跑或補登**。
 
 BEGIN;
 
