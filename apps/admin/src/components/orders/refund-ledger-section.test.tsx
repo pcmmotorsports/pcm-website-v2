@@ -89,6 +89,40 @@ describe('RefundLedgerSection — RW3', () => {
     expect(text).not.toContain('剩餘可退');
   });
 
+  // 🏁 **2026-08-14 新增(Sean 在正式站退了兩筆真錢之後回報的口徑)。**
+  //    立這格的理由:換字面的那一刻,這條規則在帳本這一面**零守門** ——
+  //    本檔既有的引用是 `refundStatusLabel('confirmed')`(間接),改回舊字面不會有任何一格紅。
+  //    **一條沒有守門的鐵律就是一句註解**,而註解會被下一個人順手改回去(同族:`#470`)。
+  // 🔴 **正向與負向必須成對**:只留負向的話,選擇器/取值路徑失效時 `not.toContain` 恆真
+  //    ⇒ 那格會變成「永遠綠的守門」。正向那條就是用來證明我們真的取到那段文字。
+  it('[4b] 🔴 `confirmed` 的字面 = 「退款完成」,不得回頭寫「已受理」', () => {
+    const { container } = render(
+      <RefundLedgerSection rows={[row({ status: 'confirmed' })]} unregisteredAmount={500} nowMs={NOW} />,
+    );
+    // 🔴 **只取狀態格,不掃整個區塊** —— 區塊的劃界小字裡有「處理中+已受理佔額」這個**合法**的
+    //    「已受理」(`refund-ledger-section.tsx:91`);掃整塊會讓下面那條負向恆紅,而它守的是
+    //    **狀態欄的字面**,不是「這三個字不准出現在畫面上」。
+    // ⚠️ 用固定索引 3 ⇒ 欄一搬家這格會靜默指到別格 ⇒ 先釘表頭第 4 欄是「狀態」,
+    //    搬欄的人拿到的會是「表頭對不上」而不是一條莫名其妙的措辭紅。
+    const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+    expect(headers[3]).toBe('狀態');
+    const statusCell = [...container.querySelectorAll('tbody tr td')][3]!;
+    const text = statusCell.textContent!;
+    // 正向(先證明真的取到了那一格的文字;沒有這兩條,下面的負向在取值失敗時恆真)
+    expect(text).toContain('退款完成');
+    expect(text).toContain('客人入帳時間依照各家銀行而定');
+    // 🔴 負向:`confirmed` 已經帶著 TapPay 憑證(`20260801120000:337-339` UPDATE 守門**本體**,
+    //    `ERRCODE = 'P7C09'`)⇒ 再寫「已受理」是把已知講成未知,員工會以為還要再追一次。
+    expect(text).not.toContain('已受理');
+    // 🔴 入帳時間只准講**條件**、不准講**時長或時點**(依各家銀行而定;講死就是對員工說謊)。
+    //    ⚠️ **字集要與宣稱一樣寬**:第一版只掃 `:`/`點`/`時`,而「約 3 個工作天」不會紅 ——
+    //       我在上一行才寫「掃描字集比宣稱窄是老坑」,下一行就犯了(D 窗審查抓到)。
+    //       現在的字集 = 阿拉伯數字與中文數字 × {點,時,小時,分鐘,天,工作天,日,週},外加無數字的「隔日/次日/翌日/明天」。
+    expect(text).not.toMatch(
+      /[0-9０-９一二三四五六七八九十兩幾數]+\s*(個)?\s*(工作天|小時|分鐘|點|時|天|日|週|[:：])|隔日|次日|翌日|明天|每日|每天|當天|當日|即時|馬上|立即|立刻/,
+    );
+  });
+
   it('[5] 未登記額 null → 顯「查無」而非 0(0 是會被照著操作的數字)', () => {
     const { container } = render(
       <RefundLedgerSection rows={[row()]} unregisteredAmount={null} nowMs={NOW} />,

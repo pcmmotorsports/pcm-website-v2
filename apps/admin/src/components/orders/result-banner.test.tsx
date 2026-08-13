@@ -48,10 +48,24 @@ describe('ResultBanner — A9d2-1 新增的備註成功碼', () => {
   });
 
   // M-3 RW2c:退款成功碼(關卡2 兩線同抓:漏掛/空白/tone 錯都不會有別的守門紅)。
-  it('退款成功碼渲染得出文字,且措辭守「受理 ≠ 已入帳」口徑(plan §3 第一列)', () => {
+  // 🏁 **2026-08-14 換口徑**:舊期望值釘的是「受理不等於已入帳」,那條鐵律已作廢
+  //    (理由在 `result-banner.tsx` 那格註解:`confirmed` 必然帶 TapPay 憑證=結構保證)。
+  //    ⚠️ 改期望值必附突變 —— 見 commit body 的 M1/M2 兩發。
+  it('退款成功碼:講「完成」而不是「已受理」,且入帳時間不寫死鐘點', () => {
     const { container } = render(<ResultBanner code={REFUND_SUBMITTED_RESULT_CODE} />);
-    expect(container.textContent).toContain('退款已送出');
-    expect(container.textContent).toContain('受理不等於已入帳');
+    expect(container.textContent).toContain('退款完成');
+    // 🔴 正向不夠:只驗「有講完成」的話,把舊句原封不動貼回來也會綠(舊句開頭是「退款已送出」,
+    //    但只要有人寫成「退款已送出,退款完成…」就過)⇒ 補一條負向,釘死舊口徑不得回歸。
+    expect(container.textContent).not.toContain('已受理');
+    expect(container.textContent).not.toContain('受理不等於已入帳');
+    // 🔴 入帳時間只准講**條件**、不准講**時長或時點**(依各家銀行而定;講死就是對員工說謊)。
+    //    ⚠️ **字集要與宣稱一樣寬**:第一版只掃 `:`/`點`/`時`,而「約 3 個工作天」不會紅 ——
+    //       我在註解裡才寫「掃描字集比宣稱窄是老坑」,下一行就犯了(D 窗審查抓到)。
+    //       現在的字集 = 阿拉伯/中文數字 × {點,時,小時,分鐘,天,工作天,日,週},外加無數字的「隔日/次日/翌日/明天」。
+    expect(container.textContent).toMatch(/客人入帳時間依照各家銀行而定/);
+    expect(container.textContent).not.toMatch(
+      /[0-9０-９一二三四五六七八九十兩幾數]+\s*(個)?\s*(工作天|小時|分鐘|點|時|天|日|週|[:：])|隔日|次日|翌日|明天|每日|每天|當天|當日|即時|馬上|立即|立刻/,
+    );
     expect(container.querySelector('[role="status"]')).not.toBeNull();
   });
 

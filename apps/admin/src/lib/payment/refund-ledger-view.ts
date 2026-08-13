@@ -10,7 +10,16 @@
 /** 帳本列狀態 → 員工字面(語意=值班該做什麼,不是技術狀態名)。 */
 export const REFUND_STATUS_LABEL: Record<string, string> = {
   processing: '處理中(勿重複發起)',
-  confirmed: '已受理(不等於已入帳,入帳以對帳為準)',
+  // 🏁 **2026-08-14 換口徑(Sean 在正式站退了兩筆真錢之後回報)**:舊字面是
+  //    「已受理(不等於已入帳,入帳以對帳為準)」。理由不是措辭偏好,是**我們手上已經有憑證**——
+  //    `supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:337-339` 的 UPDATE 守門
+  //    **本體**(`IF NEW.status = 'confirmed' AND NEW.tappay_refund_id IS NULL THEN RAISE`,
+  //    `ERRCODE = 'P7C09'`、constraint `a7c_confirm_requires_tappay_refund_id`)
+  //    ⇒ **能走到 `confirmed` 的列必然帶著 TapPay 退款憑證**
+  //    (**結構保證**,不是「那兩筆剛好有」的歸納)。把已知的事寫成未知 = 員工以為還要再追一次。
+  //    ⚠️ 括號那句**不准寫死鐘點**:入帳依各家銀行而定,寫死一個時間就是對員工說謊。
+  //    ⚠️ **只換這一態** —— 下一行 `processing` 的「已受理」是準確的,一個字都不要動。
+  confirmed: '退款完成(客人入帳時間依照各家銀行而定)',
   deferred: '尚未請款、本筆已作廢(請款完成後可重新發起)',
   failed: '失敗(錢沒有動)',
 };
