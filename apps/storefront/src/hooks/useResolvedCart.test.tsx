@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// useResolvedCart 自我修復守門(#375 角標脫鉤 / #343 幽靈行刪不掉;2026-08-10)。
+// useResolvedCart 自我修復守門(#375 角標脫鉤 / #455 幽靈行刪不掉;2026-08-10)。
 //
 // 本檔只守一件事:**「什麼時候可以動客人的購物車」**。
 //   ① resolve 成功、server 對某行明確判定 found:false → 那行(只有那行)被 removeItem 掉。
@@ -98,7 +98,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('useResolvedCart 自我修復(#375/#343)', () => {
+describe('useResolvedCart 自我修復(#375/#455)', () => {
   it('① resolve 成功 + server 明確 found:false → 只移除那一行', async () => {
     setCart([REAL, GHOST]);
     resolveMock.mockResolvedValue([

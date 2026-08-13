@@ -12,7 +12,7 @@
 // 狀態機(resolvedSignature):loading(hydrate 前 / resolve 未跟上行集合)→ empty(空車 / 全 stale)
 //   → ready;qty 變動不改 lineSignature 故不 re-resolve、不閃載入;resolveSeq 防 race。
 //
-// 🔴 自我修復(#375 / #343,2026-08-10):resolve **成功**回來時,server 明確判定 found:false 的行
+// 🔴 自我修復(#375 / #455,2026-08-10):resolve **成功**回來時,server 明確判定 found:false 的行
 //   當場 removeItem 掉 —— 那些行渲染不出來、客人刪不掉,留著只會讓 Header 角標永遠多算。
 //   移除只寫在 `.then()` 內(形狀即護欄,理由與突變靶見該處註解);`.catch()` 一行都不刪。
 //
@@ -102,7 +102,7 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
         if (!active || seq !== resolveSeq.current) return;
         setResolved(lines);
         setResolvedSignature(lineSignature);
-        // 🔴 #375 / #343 自我修復:server **對該行明確判定** found:false → 當場從 cart 移除。
+        // 🔴 #375 / #455 自我修復:server **對該行明確判定** found:false → 當場從 cart 移除。
         //
         //   為什麼要修:角標數的是 raw items(`CartContext.tsx:298-301` → `Header.tsx:170,219`),
         //   購物車頁與結帳頁數的是過濾後的行(下方 `!r.found → null`)⇒ 幽靈行渲染不出來
