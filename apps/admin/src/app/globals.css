@@ -149,3 +149,236 @@
   min-width: 320px;
   max-width: calc(100% - 480px);
 }
+
+/* ═══ 訂單列表:單一 markup 的手機卡片模式(backlog #447 / OD 改版 L2)═══════════
+   🔴 **為什麼是 CSS 不是 Tailwind utility**:卡片化需要 `thead{display:none}`、
+      `td:empty{display:none}`、`td::before{content:attr(data-l)}` 這類**選擇器層**的規則,
+      utility 表達不出來(前兩條沒有對應 utility,第三條要逐格重複十幾個 class)。
+      收斂前那份手機卡片是**另寫一份 JSX**;現在改成同一份 DOM + 這一塊 CSS。
+   🔴🔴 **斷點必須跟著 Tailwind 的 `md` 走、不得寫死 px(code-reviewer M2)**:元件裡單號格與操作格的
+      雙目的地連結用的是 `hidden md:inline` / `md:hidden`(#350c 拍板:桌機開面板、手機走整頁),
+      而 Tailwind 的 `md` 是 **`48rem` 不是 `768px`** —— 兩者只有在 root font-size = 16px 時相等。
+      使用者把瀏覽器字級調成 12px(標準無障礙操作)⇒ `md` 變 576px,而寫死的 767px 不動
+      ⇒ **576–767px 之間會出現「卡片模式 + 桌機的面板連結」**,正是下面那段要防的錯配。
+      ⇒ 用 `rem` 讓兩邊跟著同一個基準走(M2 當時寫 `max-width: 47.99rem`,已被下一段取代)。改一邊要改兩邊。
+   🔴🔴 **用 range 語法 `width < 48rem`,不是 `max-width: 47.99rem`(R3 推翻我 R2 的裁量)**:
+      我 R2 判「0.01rem 無人區實務碰不到」⇒ **不成立**。W3C Media Queries 5 §mq-min-max 逐字
+      (親讀 `https://www.w3.org/TR/mediaqueries-5/#mq-min-max`):
+        「it does not take into account the possibility of **fractional viewport sizes** which can occur
+         as a result of non-integer pixel densities (e.g. on high-dpi displays or as a result of
+         zooming/scaling). Any viewport widths that fall between 320px and 321px will result in
+         **none of the styles being applied**.」
+      ⇒ 高 DPI 與縮放會產生小數 viewport,而使用者自訂 root 字級還會**改變縫隙大小**。
+      相容性也是 range 這邊比較安全:本 repo `next@16.3.0`,Next 16 升級指南的瀏覽器下限逐字
+      「Chrome 111+, Edge 111+, Firefox 111+, **Safari 16.4+**」,而 range 語法**正是 Safari 16.4 加的**
+      (WebKit 16.4 features 逐字示範 `@media (400px <= width < 900px)`)⇒ 下限即支援線,零風險。
+      ⚠️ 這個 query 字面在三處必須一致:本檔、`orders-table.tsx` 的兩段註解、
+      `orders-table.test.tsx` 的 `CARD_QUERY`(測試用 postcss **全等**比對 params,不是前綴)。
+   ⚠️ **本區塊不設任何欄寬**:OD 那份的 13 欄寬與 900/520 container query 屬 L3,
+      本片(L2)只做 markup 收斂、桌機視覺維持與收斂前一致。
+   ⚠️ 這是 **media query(吃視窗寬)**,不是 container query ⇒ **面板開合不會觸發卡片模式**。
+   ⚠️ 未包在 `@layer` 內 = 恆勝 Tailwind 的 utilities layer(v4 分層規則),
+      所以 `whitespace-nowrap` / `text-right` / `px-3 py-2` 那些格內 utility 在卡片模式會被壓掉。 */
+@media (width < 48rem) {
+  /* 外框讓給每一張卡自己畫;桌機那層 border/bg/橫捲在卡片模式沒有意義 */
+  .orders-grid {
+    overflow-x: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .orders-grid table {
+    display: block;
+  }
+
+  /* 表頭整排收起 —— 卡片模式的欄名由每格的 `data-l` 就地標示 */
+  .orders-grid thead {
+    display: none;
+  }
+
+  /* 一個 `<tbody>` = 一張訂單 = 一張卡(與桌機的分組單位相同) */
+  .orders-grid tbody.orders-group {
+    display: block;
+    margin-bottom: 0.5rem;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    /* 🔴🔴 **承重,不是排版(code-reviewer M4)**:整卡可點靠的是單號那條 stretched link
+       (`after:absolute after:inset-0`),而 `inset-0` 是對**最近的已定位祖先**解析。
+       元件把 `relative` 放在 `<tr>` 上(桌機要的是「整列」可點)⇒ 在卡片模式下覆蓋層只會蓋住
+       **第一段**,多品項單的第 2、3 個品項**點下去沒有反應**。
+       ⚠️ 這個病桌機看不到、**截圖也看不到**(截圖不會告訴你哪裡可點)⇒ 只能靠這兩條 CSS
+       把定位脈絡抬到整張卡,並由 `orders-table.test.tsx` 的 CSS 守門釘住這兩行在。
+       ⚠️ **收斂前沒有這個病**:舊版手機是獨立的 `<li className='relative p-3'>` 包住整張卡。 */
+    position: relative;
+  }
+
+  .orders-grid tbody.orders-group:last-child {
+    margin-bottom: 0;
+  }
+
+  /* 一個 `<tr>` = 卡內一段(第一段帶訂單層欄,其後每段是一個品項) */
+  .orders-grid tr {
+    display: flex;
+    flex-direction: column;
+    padding: 0.75rem;
+    border: 0;
+    /* 🔴 與上面那條成對:`<tr>` 必須讓出定位脈絡,否則它仍是最近的已定位祖先、上面那條白寫。 */
+    position: static;
+  }
+
+  .orders-grid tr + tr {
+    border-top: 1px dashed var(--border);
+  }
+
+  .orders-grid td {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: baseline;
+    width: auto;
+    height: auto;
+    padding: 0.125rem 0;
+    border: 0;
+    text-align: left;
+    vertical-align: baseline;
+    white-space: normal;
+  }
+
+  /* 🔴 承重:訂單層欄在第二列之後渲染成**真的空** `<td>`(元件端 `<td className={…} />`),
+     這條把它們從卡片裡收掉。若哪天有人寫成 `<td> </td>`,`:empty` 就不成立、
+     卡片會冒出一排只有標籤沒有值的空行 —— 守門在 `orders-table.test.tsx`。 */
+  .orders-grid td:empty {
+    display: none;
+  }
+
+  .orders-grid td::before {
+    content: attr(data-l);
+    flex: 0 0 3rem;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+
+  /* 沒掛 `data-l` 的格(勾選 / 單號 / 品名 / 操作)在卡片上是主標或純控件,不長標籤欄 */
+  .orders-grid td:not([data-l])::before {
+    display: none;
+  }
+
+  /* 🔴 **沒有值的次要欄整格收起(code-reviewer N2)**:桌機那格要印 `—`(欄位存在、值是空),
+     但卡片上「廠牌 —」「車種 —」是兩行純噪音,而 **Sean 第 5/6 輪連續抱怨手機太鬆**
+     ⇒ 印它等於往反方向走。收斂前的 `OrderCard` 是用 `.filter()` 在 JS 層拿掉,
+     收斂後同一份 markup 兩邊共用 ⇒ 改由元件標 `data-empty`、CSS 只在卡片模式收。
+     ⚠️ **只收 brand 與 vehicle 兩欄**(= 舊版 `.filter()` 真正過濾的那兩個),
+     不擴大到料號/品名/數量:那三個是品項的識別欄,空了要看得見「這裡沒有」。 */
+  .orders-grid td[data-empty] {
+    display: none;
+  }
+
+  /* ── 卡內縱向順序(桌機的左右欄序在卡片上讀起來不對:單號要在最上、品項細節在下)── */
+  .orders-grid .col-pick {
+    order: 1;
+  }
+
+  .orders-grid .col-oid {
+    order: 2;
+    align-items: center;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .orders-grid .col-date {
+    order: 3;
+  }
+
+  .orders-grid .col-customer {
+    order: 4;
+  }
+
+  .orders-grid .col-invoice {
+    order: 5;
+  }
+
+  /* 🔴🔴 **金額那格的落點要看它現在是哪一層 —— 這是 430 截圖實看抓到的,不是預先設計的。**
+     `shouldMergeAmount` 為真時它是**整單總額**、為假時是**該品項的小計**;
+     兩態的 `data-l` 本來就不同(金額 / 小計)⇒ 直接拿它當選擇器分流。
+     不分流的第一版截圖長這樣:多品項單的「金額 NT$ 48,600」被排到第一個商品的欄位後面
+     ⇒ 讀起來像「第一個商品賣 48,600」。桌機有表頭不會誤讀,**卡片沒有表頭就會**。 */
+  .orders-grid .col-amount[data-l='金額'] {
+    order: 6;
+  }
+
+  /* 取消是**整單**的動作 ⇒ 留在訂單層那一段,不能掉進第一個商品的區塊裡(同上,截圖抓到) */
+  .orders-grid .col-ops {
+    order: 7;
+    justify-content: flex-end;
+  }
+
+  /* 🔴🔴 **觸控熱區擴大到 ≥44×44,但視覺尺寸一個像素都不動**(backlog #466,Sean 拍 A)。
+     量到的問題:手機「取消」鈕實測 **24×16px**,而**離開它 6px 就落進整列的 stretched link**
+     ⇒ 兩個動作差 6 個像素,其中一個是**取消訂單**。Sean 常用手機操作後台。
+
+     🔴 為什麼是 `::after` 熱區而不是 `padding` / 加大字級:
+     後者會**拉高卡片**,而 Sean 第 5、6 輪連續抱怨手機**太鬆** —— 那兩個需求會直接打架。
+     `::after` 用絕對定位撐出命中區,**不參與版面計算** ⇒ 卡片高度不變、密度不受影響。
+     ⇒ 「視覺尺寸」與「觸控尺寸」本來就是兩件事,把它們分開就沒有取捨。
+
+     ⚠️ **只在卡片模式做**:桌機是滑鼠、精度不同(WCAG 2.2 的 24×24 AA 桌機已達標),
+     而桌機那顆的周圍是同一列的其他欄,擴熱區會吃到它們。
+
+     ⚠️ **代價要講明白**:熱區擴大 = **吃掉 stretched link 的可點面積**。方向上正確
+     (要取消的人優先於要打開訂單的人),但「取消鈕周圍 12/14px 內點下去會取消而不是開單」
+     是**新行為**,不是原本就有的。已重量三個 hit point 確認沒有蓋到勾選框或隔壁那張單。 */
+  .orders-grid .col-ops a {
+    position: relative;
+  }
+
+  .orders-grid .col-ops a::after {
+    content: '';
+    position: absolute;
+    /* 24×16 + 左右各 12 + 上下各 14 = **48×44** ⇒ 過 44×44 */
+    inset: -14px -12px;
+  }
+
+  /* 品名 = 品項段的主標,兼作「訂單層欄到此結束」的分隔線 */
+  .orders-grid .col-title {
+    order: 8;
+    margin-top: 0.4375rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.4375rem;
+    font-weight: 600;
+  }
+
+  /* 第二段之後,`tr + tr` 已經有虛線分隔 ⇒ 品名不必再畫一條 */
+  .orders-grid tr + tr .col-title {
+    margin-top: 0;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .orders-grid .col-sku {
+    order: 9;
+  }
+
+  .orders-grid .col-vehicle {
+    order: 10;
+  }
+
+  .orders-grid .col-brand {
+    order: 11;
+  }
+
+  .orders-grid .col-qty {
+    order: 12;
+  }
+
+  .orders-grid .col-ordered {
+    order: 13;
+  }
+
+  /* 非合併態的金額 = 該品項的小計 ⇒ 留在品項段最後 */
+  .orders-grid .col-amount[data-l='小計'] {
+    order: 14;
+  }
+}
