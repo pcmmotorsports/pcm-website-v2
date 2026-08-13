@@ -12231,3 +12231,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** `#445b` 的 apply 停點(硬前置,見上);方案 1 命中鐵則 12③ ⇒ 需 Sean 批准 plan。
 - **發現於:** 2026-08-14 · R 窗 · `#445` plan v3 R3 對抗審查(findings 見 `~/pcm-mailbox/附件-R-445-R3-findings.md` E1)
 - **相關:** `#445`(超退閘,硬綁)/ `#442`(卡住的補償退款永久隱形,同族)/ `#443`(異常清單只讀一本帳)
+
+### #474. 🧪 測試檔全域被 lint 豁免:本專案主要靠測試守門,而守門本身零 lint 訊號
+
+- **狀態:** ⏳ 待執行
+- **分流:** `P1-before-launch`
+- **優先級:** 🟠 中(不是會壞掉的東西,是**看不見的東西**;先量再決定範圍)
+- **問題:** `eslint.config.js:41-44` 的全域 `ignores` 含四條 glob:`**/*.test.ts` / `**/*.test.tsx` / `**/*.spec.ts` / `**/*.spec.tsx` ⇒ **所有測試檔完全不進 lint**。實測(主視窗跑,R 窗未複跑):`npx eslint src/components/orders/orders-table.test.tsx --max-warnings 0` 回 `File ignored because of a matching ignore pattern`。
+- **🔴 豁免的來由本身就是形狀:** 同檔 `:116` 註解逐字「test / spec 已在全域 ignores(L41-44)豁免(**測試需動態存取 env 做 setup/teardown**)」—— 為了豁免 **`no-restricted-syntax` 那一條**(擋 `process.env[...]` computed access),做法卻是把**整個檔案排除在所有規則之外**。想關一盞燈、拉了總電閘。
+- **實錘(不是假設):** 2026-08-14 E 窗 L3 片1,`apps/admin/src/components/orders/orders-table.test.tsx:30` 留下一個未使用的 `STATUS_CAPSULE` import(量法:`grep -c "STATUS_CAPSULE" <該檔>` = 1,而該行就是 import),而該片自報 `LINT_EXIT=0`。**兩者都是真的** —— 因為那個檔根本沒被 lint。它同時也是 R 窗審查抓到的 F1(那個 import 是一條被刪掉的斷言留下的化石)。
+- **不修會痛在:**
+  - **bug 可追蹤性(主因):** 本專案的安全機制**重度依賴測試**(三綠、突變測試、oracle、負向格)。守門本身零 lint ⇒ 死 import、沒清掉的 mock、打錯的 import 路徑、`await` 漏掉、`only` 忘了拿掉…**全部要等人肉眼看到才發現**,而審查者看的是 diff、看不到整檔。
+  - **可維護性:** 測試檔是本 repo **改動量最大**的一類檔(單這一片就 428 行)。改動量最大 × 訊號為零 = 最容易長出無人知道的殘留。
+  - **擴充性:** 未來要加任何「測試檔專屬」的 lint 規則(例如禁 `it.only`、禁 `expect` 出現在 `describe` 外),現行結構下**加了也不會生效** —— 得先把這條 ignore 處理掉才有地方掛。
+- **可能解法(未拍板,不要自己選):**
+  1. 拿掉全域 ignore,改成**只對 `no-restricted-syntax` 那一條**加 `files: ['**/*.test.*', '**/*.spec.*']` 的 override 關掉。範圍最小、方向最正。
+  2. 保留 ignore,另加一支專跑測試檔的 lint task(較笨,但不動既有設定的行為面)。
+- **🔴 先量再決定,不要寫成「改個設定就好」:** 兩條解法都會讓所有測試檔**第一次**被 lint ⇒ 可能一次噴出大量既有違規。
+  **量法(先跑這個,拿到數字再談範圍與工時):** `npx eslint '**/*.test.tsx' '**/*.test.ts' --no-ignore --format compact | tail -5`
+  **目前受影響的檔數:** `find apps packages \( -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.spec.ts' -o -name '*.spec.tsx' \) | grep -v node_modules | wc -l` = **433**(R 窗實測,worktree `pcm-refund-guard` @ `ca858336`)。
+  ⚠️ E 窗同日的 vitest 報 `Test Files 456 passed` —— **兩個數的母體不同**(find 只掃 `apps/`+`packages/` 四個副檔名;vitest 的收集範圍由它自己的 config 決定),**未對齊、不要混用**。
+- **估時:** 量的那一步 15-30 分;修的那一步**未知**(取決於噴出幾條)。
+- **依賴:** 🔴 動 `eslint.config.js` = **根層設定 ⇒ 鐵則 12④**(平台設定)⇒ 需 plan + 對抗審查 + Sean 批准。本條目只立案、**不動設定**。
+- **發現於:** 2026-08-14 · R 窗審 E 窗 L3 片1(`~/pcm-mailbox/附件-R-E408-review.md` F1/F5);F5 由 R 窗標【未確認】、主視窗實跑關掉。
+- **相關:** `#470`(訂單列表守門群的突變靶全在被守的 code 上、零個在守門本身)—— **同族:守門沒有人守**。
