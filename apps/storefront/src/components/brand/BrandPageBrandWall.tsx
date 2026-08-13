@@ -87,7 +87,7 @@ export function BrandPageBrandWall({
                            + 可見的 `.bp-others-name` ⇒ 報讀器會連播三次(R1 更正:我原本只認領
                            alt 那一半)。兩個都是設計稿字面 ⇒ 改成 `alt=""` + 拿掉 title
                            屬偏離鐵則 1、走拍板路徑,與 backlog **#308**(品牌頁 band logo 的
-                           alt 與 h1 重複,`docs/phase-1-backlog.md:8125`)是同一個題目、一起解。 */}
+                           alt 與 h1 重複)是同一個題目、一起解。 */}
                     <img src={brandTrimLogo(item.slug)} alt={item.name} loading="lazy" />
                   </span>
                   <span className="bp-others-name">
