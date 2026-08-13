@@ -5,6 +5,7 @@ import {
   isOrderId,
   invoiceTypeLabel,
   shippingMethodLabel,
+  customerDetailHref,
   formatOrderDateTime,
 } from './order-detail-view';
 
@@ -42,5 +43,32 @@ describe('formatOrderDateTime — Asia/Taipei YYYY-MM-DD HH:mm', () => {
   it('UTC → 台北(+8)含時分、跨日正確', () => {
     expect(formatOrderDateTime('2099-04-15T16:30:00Z')).toBe('2099-04-16 00:30');
     expect(formatOrderDateTime('2099-04-15T02:05:00Z')).toBe('2099-04-15 10:05');
+  });
+});
+
+// OD 片 2(R2 important①):fail-closed 從 docstring 改成機制,這裡是那個機制的守門。
+describe('customerDetailHref — 客人明細入口網址', () => {
+  it('有 id → 拼出 /customers/<id>', () => {
+    expect(customerDetailHref('cu-1')).toBe('/customers/cu-1');
+  });
+
+  /**
+   * 🔴 這兩格是本片存在的理由。上一版靠「型別 string | null 會逼消費端處理」,
+   * 但 TS 樣板字串接受 null、本 repo 未開 restrict-template-expressions
+   * ⇒ `/customers/${x}` 在 x=null 時 typecheck 綠 lint 綠、產出 `/customers/null`。
+   * 收斂到這一個函式之後,呼叫端拿到 null 只能不渲染,拼不出壞路徑。
+   */
+  it.each([
+    ['null(投影退版 / 讀不到)', null],
+    ['空字串(拼出來會變 /customers/)', ''],
+  ])('🔴 %s → 回 null,不得拼出網址', (_label, input) => {
+    expect(customerDetailHref(input)).toBeNull();
+  });
+
+  it('🔴 回傳值不得含字面 null / undefined(擋「把缺值 stringify 進網址」那種寫法)', () => {
+    for (const input of [null, '']) {
+      const href = customerDetailHref(input);
+      expect(href === null || (!href.includes('null') && !href.includes('undefined'))).toBe(true);
+    }
   });
 });

@@ -160,3 +160,159 @@ describe('#328 讀取失敗 ≠ 尚無備註', () => {
     expect(container.textContent).not.toContain('讀取失敗');
   });
 });
+
+// OD 詳情頁片 1(2026-08-13,主視窗 MAIN-902-A 裁 Q3=C):收合 + note_type 三類分色。
+describe('OD 片 1 — note_type 分色', () => {
+  const ID = '3f2f2c1e-0000-4000-8000-000000000001';
+  const badgeOf = (container: HTMLElement, label: string): string =>
+    [...container.querySelectorAll('span')].find((el) => el.textContent === label)?.className ?? '';
+
+  it('🔴 三類各自不同色:同一份灰底 = 這片沒做到「一眼分得出」', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [
+            note({ id: 'a', noteType: 'internal' }),
+            note({ id: 'b', noteType: 'contact_log', channel: 'line', occurredAt: '2026-08-01T00:00:00+00:00' }),
+            note({ id: 'c', noteType: 'customer_notified', channel: 'phone', occurredAt: '2026-08-01T00:00:00+00:00' }),
+          ],
+          notesTruncated: false,
+          customerNotified: true,
+        }}
+      />,
+    );
+    const internal = badgeOf(container, '內部備註');
+    const contact = badgeOf(container, '聯絡紀錄');
+    const notified = badgeOf(container, '已告知客人');
+    expect(new Set([internal, contact, notified]).size).toBe(3);
+    // customer_notified = 告知義務稽核證據 ⇒ OD 逐字要求「最強的視覺份量」,不得是灰的。
+    expect(notified).toContain('emerald');
+    expect(internal).toContain('muted');
+  });
+
+  it('🔴 上色吃 noteType enum 而非中文字面:換掉 label 文字顏色不得跟著消失', () => {
+    // 這格擋的是「用 typeLabel 中文字串比對上色」那種寫法 —— lib 檔頭明寫文案是暫定稿、Sean 會改。
+    // 做法:兩筆同型別但 body 不同,兩者 badge class 必須一致(顏色由 enum 決定、與內容無關)。
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [
+            note({ id: 'a', noteType: 'customer_notified', body: '缺貨通知', channel: 'line', occurredAt: '2026-08-01T00:00:00+00:00' }),
+            note({ id: 'b', noteType: 'customer_notified', body: '到貨通知', channel: 'phone', occurredAt: '2026-08-02T00:00:00+00:00' }),
+          ],
+          notesTruncated: false,
+          customerNotified: true,
+        }}
+      />,
+    );
+    const badges = [...container.querySelectorAll('span')].filter(
+      (el) => el.textContent === '已告知客人' && el.className.includes('rounded-full'),
+    );
+    // 兩筆的類型膠囊 + 整單彙總徽章都叫「已告知客人」⇒ 至少 2 顆類型膠囊
+    expect(badges.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(badges.map((el) => el.className)).size).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('OD 片 1 — 收合(Q3=C)', () => {
+  const ID = '3f2f2c1e-0000-4000-8000-000000000001';
+  const details = (container: HTMLElement): HTMLDetailsElement =>
+    container.querySelector('details') as HTMLDetailsElement;
+
+  it('有未更正的「已告知客人」⇒ 預設展開(稽核證據不預設藏起來)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [note({ id: 'a', noteType: 'customer_notified', channel: 'line', occurredAt: '2026-08-01T00:00:00+00:00' })],
+          notesTruncated: false,
+          customerNotified: true,
+        }}
+      />,
+    );
+    expect(details(container).open).toBe(true);
+    expect(container.textContent).toContain('已告知客人 1 筆');
+  });
+
+  it('🔴 正向對照:沒有告知紀錄時**要收起來**(否則 Q3=C 退化成「永遠展開」、精簡的目的沒達成)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [note({ id: 'a', noteType: 'internal' })],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    expect(details(container).open).toBe(false);
+    expect(container.textContent).toContain('1 筆 · 已告知客人 0 筆');
+  });
+
+  it('🔴 被更正掉的「已告知客人」不算數:誤選更正後不得再撐開、也不得計入筆數', () => {
+    // types.ts:899-900 逐字:「不得寫成『有 customer_notified』—— 被更正掉的誤選要排除」。
+    // 少了這格,`filter(noteType === 'customer_notified')` 漏掉 `!corrected` 會全綠。
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [
+            note({ id: 'a', noteType: 'customer_notified', channel: 'line', occurredAt: '2026-08-01T00:00:00+00:00', corrected: true }),
+            note({ id: 'b', noteType: 'internal', body: '更正:上一筆選錯類型', correctsNoteId: 'a', createdAt: '2026-08-02T00:00:00+00:00' }),
+          ],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    expect(details(container).open).toBe(false);
+    expect(container.textContent).toContain('已告知客人 0 筆');
+  });
+
+  it('🔴 讀取失敗:必須展開(收起來 = 把「讀取失敗」紅字藏起來,等於換位置重犯 #328)+ 不顯示 0 筆', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{ notes: [], notesTruncated: false, customerNotified: null }}
+      />,
+    );
+    expect(details(container).open).toBe(true);
+    expect(container.textContent).toContain('筆數未知');
+    expect(container.textContent).not.toContain('0 筆');
+  });
+
+  // 🔴 這兩格刻意拆開,是突變測試逼出來的:原本合成一格時資料裡有一筆未更正的 customer_notified,
+  //    於是 `open` 是被「有告知筆數」那個理由滿足的 —— 把 `|| view.truncated` 整段拿掉,那格照樣綠。
+  //    斷言量到的不是它宣稱在量的東西。拆開後「撐開」那格的資料裡零告知紀錄,truncated 是唯一可能的原因。
+  it('🔴 截斷:必須展開(唯一撐開原因 = truncated,資料裡零告知紀錄)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [note({ id: 'a', noteType: 'internal' })],
+          notesTruncated: true,
+          customerNotified: null,
+        }}
+      />,
+    );
+    expect(details(container).open).toBe(true);
+    expect(container.textContent).toContain('僅最新 1 筆');
+  });
+
+  it('🔴 截斷:不得報「已告知客人 M 筆」(告知列可能被擠出載入窗 ⇒ 那個數字會少報證據)', () => {
+    const { container } = render(
+      <NotesTimeline
+        orderId={ID}
+        detail={{
+          notes: [note({ id: 'a', noteType: 'customer_notified', channel: 'line', occurredAt: '2026-08-01T00:00:00+00:00' })],
+          notesTruncated: true,
+          customerNotified: null,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain('僅最新 1 筆');
+    expect(container.textContent).not.toContain('已告知客人 1 筆');
+  });
+});

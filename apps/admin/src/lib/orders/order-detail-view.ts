@@ -44,3 +44,26 @@ export function formatOrderDateTime(iso: string): string {
   });
   return `${day} ${time}`;
 }
+
+/**
+ * 客人明細入口的網址(OD 片 3 用;需求檔 §0-J J-4「按 1 下,用 iframe 嵌既有那份」)。
+ *
+ * 🔴 **為什麼這個函式要存在 —— 機制優先律**(R2 important①,2026-08-13):
+ *    上一版我把 `customerUserId` 宣告成 `string | null`,並在 docstring 寫「型別會逼消費端處理」。
+ *    **那句實測不成立**:TS 的樣板字串**接受 `null`**,而本 repo 的 `eslint.config.js` 沒開
+ *    `@typescript-eslint/restrict-template-expressions`(未開任何 type-checked rule set)
+ *    ⇒ `` `/customers/${detail.customerUserId}` `` **typecheck 綠、lint 綠**,產出 `/customers/null`。
+ *    也就是說 codex 擔心的 `/customers/undefined` 只是被**改名**成 `/customers/null`,壞法一模一樣,
+ *    而 fail-closed 只活在註解裡 —— 那不算防護,那叫叮嚀。
+ *
+ * ⇒ 拼網址這件事收斂到**這一個地方**:拼不出來就回 `null`,呼叫端拿到 `null` 只能選擇不渲染入口,
+ *    **語法上就沒有把壞路徑拼出來的機會**(消費端不再碰裸 id)。
+ *
+ * ⚠️ 放在 admin 的 view 層、**不放 `packages/domain`** —— 這是我對 reviewer 建議的一處偏離,
+ *    理由:`/customers/[id]` 是 **admin 的路由**,而 `packages/domain` 同時被 storefront 用,
+ *    storefront 沒有這個頁面。把 admin 路由寫進共用 domain 型別會讓兩邊耦合到一條只有一邊存在的路徑。
+ *    機制強度不變(仍是單一決定點),變的只是它住哪一層。
+ */
+export function customerDetailHref(customerUserId: string | null): string | null {
+  return customerUserId === null || customerUserId === '' ? null : `/customers/${customerUserId}`;
+}

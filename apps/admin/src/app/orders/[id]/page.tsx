@@ -4,6 +4,7 @@ import {
   CANCEL_RESULT_PARAM,
 } from '../../../lib/orders/cancel-action-state';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
+import { customerDetailHref } from '../../../lib/orders/order-detail-view';
 
 // 相對 import(非 `@/`):root vitest.config 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話這一頁
 // **完全沒辦法被單測載入**(A10b 關卡2 codex MF10 要求補頁層接線測試時當場踩到)。
@@ -82,6 +83,11 @@ export default async function OrderDetailPage({
     //    刻意不寫 `back.href` —— 那是「回列表」,拿它當 return_to 會讓改單完被踢出明細(回歸)。
     returnTo: `/orders/${id}`,
     missing: 'not-found',
+    // OD 片 3b:整頁版沒有面板槽(`@panel` 掛在 `/orders` 那條路徑上)⇒ 入口是**整頁跳轉**。
+    // 🔴 直接把收斂函式本人傳進去,**不在這裡補 fallback**:拼不出來就回 `null`,
+    //    route 層照著不渲染入口。寫成 `?? '/customers'` 會把「讀不到這個客人」偽裝成
+    //    「去客戶列表看看」—— 那是假裝處理了(理由見 `customerDetailHref()` docstring)。
+    buildCustomerHref: customerDetailHref,
   });
 
   // #350c:`@container` 是 `order-detail.tsx:275` 容器斷點的參照對象,漏了會退回單欄。

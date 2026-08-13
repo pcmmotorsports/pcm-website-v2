@@ -47,6 +47,19 @@ export const RESULT_ONLY_PARAMS: readonly string[] = [
 export const ORDER_PANEL_PARAM = 'panel';
 
 /**
+ * 客人明細面板的 searchParam(OD 片 3b;需求檔 §0-J J-4)。
+ *
+ * `/orders?panel=<orderId>&customer=<customerId>` = **客人卡蓋掉訂單面板**;
+ * 拿掉這一顆就回到原本那張單 —— Sean 2026-08-13 逐字「點客人變成看向訂單一樣,
+ * 然後再點訂單或者回去變成看訂單」,OD `overview-desktop.html:625` 逐字
+ * 「蓋在詳情面板上,不另開頁、不彈窗;關掉就回到原本那張單」。
+ *
+ * 🔴 **`panel` 不會被一起拿掉**:兩顆並存時客人卡在上,移除本顆 ⇒ `panel` 還在
+ * ⇒ **結構上必然回到原本那張單**,不靠瀏覽器歷史、也不會回到列表或關閉狀態。
+ */
+export const CUSTOMER_PANEL_PARAM = 'customer';
+
+/**
  * `return_to` 的**表單欄名**(wire 契約)。
  *
  * 🔴 order 域五支表單共用同一顆 —— 改單線原本把它定義在 `workflow-form.ts`(現改為 re-export),

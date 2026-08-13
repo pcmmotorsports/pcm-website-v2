@@ -29,9 +29,20 @@ function SectionFailed({ what }: { what: string }) {
 export function CustomerOrdersSection({
   orders,
   loadFailed,
+  orderHref = (orderId) => `/orders/${orderId}`,
 }: {
   orders: OrderListItem[];
   loadFailed: boolean;
+  /**
+   * OD 片 3b:單號連到哪。**預設 = 整頁版**(既有呼叫端行為一個字不變)。
+   *
+   * 🔴 訂單面板版傳的是「**換成那張訂單的面板**」連結,兌現 Sean 2026-08-13 逐字
+   *    「點客人變成看向訂單一樣,**然後再點訂單**或者回去變成看訂單」——
+   *    在面板裡點一張單要**換面板內容**,不是把員工丟去整頁版、把面板弄不見。
+   * ⚠️ 這是**注入而不是判斷**:本元件不知道自己在面板還整頁裡,也不該知道
+   *    (它同時被兩邊用)。由呼叫端決定連去哪。
+   */
+  orderHref?: (orderId: string) => string;
 }) {
   return (
     <section className={CARD}>
@@ -57,7 +68,7 @@ export function CustomerOrdersSection({
               {orders.map((order) => (
                 <tr key={order.id} className='border-t'>
                   <td className={`${TD} whitespace-nowrap font-medium`}>
-                    <Link href={`/orders/${order.id}`} className='hover:underline'>
+                    <Link href={orderHref(order.id)} className='hover:underline'>
                       {order.displayId}
                     </Link>
                   </td>

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
 import {
   PAYMENT_STATUS_LABEL,
@@ -234,6 +235,7 @@ export function OrderDetail({
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
   cancelFormsAllowed = false,
+  customerHref = null,
   payments,
 }: {
   detail: AdminOrderDetail;
@@ -264,6 +266,16 @@ export function OrderDetail({
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
   /**
+   * OD 片 3b:標題列「客人明細」入口的連結;**`null` = 不渲染入口**(需求檔 §0-J J-4)。
+   *
+   * 🔴 **由呼叫端決定連去哪**,本元件不知道自己在面板還整頁版裡(它同時被兩邊渲染):
+   *    面板版 = `?panel=<單>&customer=<客>`(客人卡蓋上來);整頁版 = `/customers/<客>`。
+   * 🔴 **`null` 必須真的不渲染**(fail-closed):`AdminOrderDetail.customerUserId` 在投影退版時
+   *    是 `null`,而拼網址的決定點在 `order-detail-view.ts` 的 `customerDetailHref()` ——
+   *    拼不出來就回 `null`,這裡照著不畫。**不得 `?? ''`、不得畫一個連到 `/customers/null` 的連結。**
+   */
+  customerHref?: string | null;
+  /**
    * #15-B2-c 片1a:收款明細三態(頁層讀 `listOrderPayments` 折出來)。
    *
    * 🔴 **必填、無預設**(同 `returnTo` 的立場):給預設值等於「忘了接就靜默顯示成某一態」——
@@ -279,6 +291,22 @@ export function OrderDetail({
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>{detail.displayId}</h1>
+        {/* 🔴 入口位置照 OD `overview-desktop.html:1109-1112` 逐字:「客人明細的入口。
+            **做在標題列的名字上**,因為那是『這張單是誰的』唯一會被讀的位置,
+            員工要查電話/地址時眼睛本來就落在這裡。一下就開,不用先跳到客戶頁再搜尋。」
+            ⚠️ 名字可能是 null(join 缺)⇒ 那時仍要給入口(id 在就開得了),文案退成「客人明細」。
+               這一句退場文案是**我自己決定的**,OD 沒有畫這個狀態。 */}
+        {customerHref !== null && (
+          <Link
+            href={customerHref}
+            className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-sm'
+          >
+            {detail.customer.name ?? '客人明細'}
+            <span aria-hidden='true' className='text-muted-foreground'>
+              ›
+            </span>
+          </Link>
+        )}
         {/* A9w1:整單九碼彙總 badge 退場。付款軸(三軸的訂單層)在下方「付款」卡的付款狀態,
             訂貨/到貨在品項列 —— 不另補一顆彙總 badge,那正是九碼被退場的東西。 */}
         {cancelled && (
@@ -347,8 +375,30 @@ export function OrderDetail({
         </section>
       </div>
 
+      {/* A10a-2/-3:備註時間軸 + 表單。
+          🔴 位置 = **發票卡下方**(OD 第十二輪定案 `overview-desktop.html:1171-1173` 逐字
+          「既有的『訂單備註 / 聯絡紀錄』整塊搬到發票下方(原本在頁面最底)」;
+          主視窗 MAIN-902-A 裁 Q1=A)。發票是上面那個 grid 的最後一張卡 ⇒ 這裡 = 緊接 grid 之後,
+          DOM 順序上在發票之後,OD 那支驗證器(`:1656-1662` 用 compareDocumentPosition 比 DOM 順序)認的就是這個。
+          ⚠️ 已知代價(主視窗接受、待 Sean 肉眼驗):視覺上橫跨全寬,不是貼在發票那一格正下方——
+          要做到後者得把發票卡拆出 grid(Q1 的 B 案),那是版面改動、本輪不做。
+          token 在本 server component 渲染期產(Q2=C;頁層 force-dynamic、此處零快取層 ——
+          契約債①的「不得落快取層」就是指這一行)。
+          key 綁更正目標:進出更正模式必 remount ⇒ noteType 初值恆新鮮(MF1)。 */}
+      <NotesTimeline detail={detail} orderId={detail.id} />
+      <NoteComposeForm
+        key={correctTarget?.id ?? 'compose-new'}
+        orderId={detail.id}
+        returnTo={returnTo}
+        serverToken={generateNoteRequestToken()}
+        correctTarget={correctTarget}
+        correctionMissing={correctNoteId !== null && correctTarget === null}
+      />
+
       {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。
-          🔴 位置 = 緊接「付款」卡之後:員工看完付款狀態,下一個問題就是「錢收了哪幾筆」。
+          🔴 位置 = 收款緊跟在付款狀態與發票這一組之後:員工看完付款狀態,下一個問題就是「錢收了哪幾筆」。
+          ⚠️ 2026-08-13 OD 片 1 更正字面:原本寫「緊接『付款』卡之後」,備註搬進中間後那句已不成立
+          (現在順序 = grid〔含付款卡、發票卡〕→ 備註 → 收款)。改的是描述、不是位置意圖。
           退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。 */}
       {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
           前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
@@ -390,18 +440,9 @@ export function OrderDetail({
           放在採購之後、備註之前 —— 採購(進貨)→ 出貨(出貨)是員工的實際時序。 */}
       <ShipmentSection detail={detail} />
 
-      {/* A10a-2/-3:備註時間軸 + 表單。token 在本 server component 渲染期產(Q2=C;
-          頁層 force-dynamic、此處零快取層 —— 契約債①的「不得落快取層」就是指這一行)。
-          key 綁更正目標:進出更正模式必 remount ⇒ noteType 初值恆新鮮(MF1)。 */}
-      <NotesTimeline detail={detail} orderId={detail.id} />
-      <NoteComposeForm
-        key={correctTarget?.id ?? 'compose-new'}
-        orderId={detail.id}
-        returnTo={returnTo}
-        serverToken={generateNoteRequestToken()}
-        correctTarget={correctTarget}
-        correctionMissing={correctNoteId !== null && correctTarget === null}
-      />
+      {/* 🔴 備註時間軸 + 表單原本在這裡(頁尾、退款帳本之前),2026-08-13 OD 片 1 已搬到發票卡下方。
+          搬走的是**同兩個元件**、不是複製一份 —— 這裡不得再渲染第二份(重複的 NoteComposeForm
+          會產第二顆 token、兩張表單同時存在)。 */}
 
       {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
           nowMs 在 server render 期取 —— 列級「滯留逾閾」判定的現在時刻。 */}

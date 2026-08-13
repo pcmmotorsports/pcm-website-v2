@@ -394,6 +394,9 @@ function detailRow(
     payment_channel: 'none',
     payment_method: null,
     paid_at: null,
+    // OD 片 2:orders.customer_user_id 為 NOT NULL(`database.types.ts:1503` 生成型別 `string`)
+    // ⇒ fixture 給最小合法值;客人明細入口的映射由本檔另一組測試釘。
+    customer_user_id: 'cu-1',
     subtotal: 1000,
     shipping_fee: 0,
     discount_total: 0,
@@ -425,6 +428,43 @@ function detailRow(
     ],
   };
 }
+
+// OD 片 2(需求檔 §0-J J-4):詳情頁「客人明細入口」的資料線。
+describe('mapSupabaseAdminOrderDetailRowToDetail — customerUserId(OD 片 2)', () => {
+  it('🔴 customer_user_id 原樣映到 customerUserId(入口要拿它連 /customers/[id])', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(detailRow(undefined));
+    expect(res.customerUserId).toBe('cu-1');
+  });
+
+  // ⚠️ 這格原本寫成「embed 整個缺時仍要有值」,但 base fixture 的 `customers` **本來就是 null**
+  //    ⇒ 相同輸入、零新增判別力(codex 關卡2 nit 抓到)。改成擋「值被寫死」這個真實錯法。
+  it('🔴 值跟著 row 走、不是寫死:換一個 customer_user_id,映射結果要跟著換', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail({
+      ...detailRow(undefined),
+      customer_user_id: 'cu-2',
+    });
+    expect(res.customerUserId).toBe('cu-2');
+  });
+
+  /**
+   * 🔴 fail-closed 負測(codex 關卡2 important:原本直送會產出型別說 `string`、實際 `undefined`
+   * 的值,下游拼成 `/customers/undefined` 而**沒有任何一步失敗**)。
+   * DB 端 `uuid NOT NULL` 保證的是「列裡有值」,不是「wire row 裡有這個鍵」——
+   * 投影退版時整個鍵會消失,那正是這三格在守的形狀。
+   */
+  it.each([
+    ['鍵整個不存在(投影退版)', {}],
+    ['值是空字串(拼出來會變 /customers/)', { customer_user_id: '' }],
+    ['值不是字串(wire 腐壞)', { customer_user_id: 123 as unknown as string }],
+  ])('🔴 %s → customerUserId 收斂成 null,不得產出壞路徑', (_label, override) => {
+    const row = { ...detailRow(undefined), ...override };
+    if ('customer_user_id' in override === false) {
+      delete (row as { customer_user_id?: string }).customer_user_id;
+    }
+    const res = mapSupabaseAdminOrderDetailRowToDetail(row);
+    expect(res.customerUserId).toBeNull();
+  });
+});
 
 describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fail-closed', () => {
   it('🔴 內嵌鍵整個不存在(投影退版)→ null,不得補 0', () => {

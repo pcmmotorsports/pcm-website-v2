@@ -5,6 +5,7 @@ import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { isOrderId } from '../../lib/orders/order-detail-view';
 import { isRefundUiEnabled } from '../../lib/payment/refund-ui-flag';
+import { isUuid } from '../../lib/orders/note-action-state';
 import {
   getLedgerUnregisteredAmount,
   listOrderRefunds,
@@ -49,6 +50,7 @@ export async function OrderDetailRoute({
   back,
   returnTo,
   missing,
+  buildCustomerHref,
 }: {
   id: string;
   /**
@@ -68,6 +70,17 @@ export async function OrderDetailRoute({
   correctNoteId: string | null;
   /** 返回連結:整頁版 = 回列表;面板版 = 關閉面板(同一份列表 href、不帶 `panel`)。 */
   back: { href: string; label: string };
+  /**
+   * OD 片 3b:給定客人 id → 「客人明細」入口的連結。**不傳 = 不顯示入口。**
+   *
+   * 🔴 收 **builder 而不是現成字串**:本層才知道 `detail.customerUserId`(它在投影裡),
+   *    而**連去哪**只有呼叫端知道(面板版換 param、整頁版換路徑)。
+   *    傳現成字串的話,呼叫端得先自己拿到客人 id —— 那要嘛多一次查詢,要嘛把 id 從別處抄一份。
+   * 🔴 **fail-closed 的決定點不在這裡**:`customerUserId` 為 `null`(投影退版)時本層直接不呼叫
+   *    builder、傳 `null` 下去 ⇒ 入口不渲染。拼網址的收斂點見
+   *    `lib/orders/order-detail-view.ts` 的 `customerDetailHref()`。
+   */
+  buildCustomerHref?: (customerId: string) => string | null;
   /**
    * #350d C1:**這個視圖自己的網址** —— 表單裡的 `return_to` hidden 欄位吃它,
    * server action 動作做完就導回這裡(整頁版 = `/orders/{id}`;面板版 = 帶 `panel` 的列表網址)。
@@ -220,6 +233,21 @@ export async function OrderDetailRoute({
           refundUnregisteredAmount={refundUnregisteredAmount}
           refundUnregisteredFailed={refundUnregisteredFailed}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
+          customerHref={
+            // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是
+            //    `undefined`(手寫 detail 物件缺這一欄)、空字串、或**任何非 UUID 字串**。
+            //    第一版寫 `=== null` 漏掉 undefined;第二版改 falsy **仍漏掉第四類**
+            //    ——`'null'`、空白字串、亂碼都會產生一個點下去沒反應(面板版)或 404(整頁版)的入口
+            //    (codex 關卡2 important:**我的「fail-closed」宣稱當時沒有涵蓋那一類**)。
+            //    ⇒ 改用與槽頁同一支 `isUuid`,讓**宣稱與實作一致**:進不了閘就不渲染入口。
+            //    ⚠️ 這不是在擋洩漏(DB 端是 uuid 欄、值本來就合法),是讓壞形狀**當場不出現**
+            //    而不是變成一條壞連結。
+            buildCustomerHref === undefined ||
+            typeof detail.customerUserId !== 'string' ||
+            !isUuid(detail.customerUserId)
+              ? null
+              : buildCustomerHref(detail.customerUserId)
+          }
           payments={payments}
         />
       )}

@@ -455,6 +455,16 @@ export type AdminOrderSummary = {
    *
    * 🔴 非成本欄、不新增 join ——`orders` 自己的欄位;`ADMIN_ORDER_LIST_SELECT` 的 forbidden 清單
    * (price_store / price_by_tier / price_general / cost / address_id …)逐字比對零碰撞。
+   *
+   * ⚠️🔴 **已知缺陷,待修(2026-08-13 R2 抓,OD 片 2 未修、已請主視窗立案)**:
+   *    這裡宣告非 nullable、mapper `mappers/order.ts:352` 直送,但 DB 的 `uuid NOT NULL`
+   *    保證的是「**列裡**有值」、不是「**wire row 裡**有這個鍵」——**投影退版時整個鍵會消失**,
+   *    此時本欄實際值是 `undefined`,而型別說它是 `string`。
+   *    ⇒ 上面 `:452-456` 自己警告的那個 bug 會**真的發生**:同客人閘
+   *    (`apps/admin/src/components/shipping/shipping-selection.tsx`)比對兩個 `undefined`
+   *    得到相等 ⇒ **兩位不同客人的訂單裝進同一箱**,而且如該段所寫「零症狀直到有人按下去」。
+   *    對照修法見 `AdminOrderDetail.customerUserId`(本檔下方,已收斂成 `string | null`)。
+   *    本片不修的理由:非本片造成,動它會碰出貨閘的活路徑、超出 OD 片 2 的片界。**backlog #457**。
    */
   customerUserId: string;
   /** 客人顯示名(join customers.name;缺 → null) */
@@ -868,6 +878,37 @@ export type AdminOrderDetail = {
   shippingMethod: string;
   /** 收件快照 PII(orders.shipping_address_snapshot jsonb {name,phone,line};防禦容缺) */
   shippingAddress: { name: string | null; phone: string | null; line: string | null };
+  /**
+   * 客人 id(`orders.customer_user_id` 原樣)。**OD 片 2 為了詳情頁的「客人明細入口」而加**
+   * (按 1 下開既有客戶明細,需求檔 §0-J J-4;入口要連 `/customers/[id]` 就得先有這個 id)。
+   *
+   * 🔴 **不能用 `customer.name` 代替**,理由與 `AdminOrderSummary.customerUserId` 同一條:
+   *    姓名不唯一、且可為 null ⇒ 拿名字當識別會把兩個人指到同一頁,而這個錯**零症狀**。
+   * 🔴 非成本欄、不新增 join —— `orders` 自己的欄位,與 `AdminOrderSummary` 同款先例
+   *    (`mappers/order.ts:239` 逐字寫過理由);不動 schema / RLS / RPC。
+   *
+   * 🔴 **`| null` 的理由(codex 關卡2 important:原本宣告 `string` 是型別謊言)**:
+   *    DB 端這一欄是 `uuid NOT NULL`(建表 `20260604120000:95`、生成型別 `database.types.ts:1503`),
+   *    但那保證的是「**列裡**有值」、不是「**wire row 裡**有這個鍵」——**投影退版**時整個鍵會消失,
+   *    直送就產出一個型別說 `string`、實際 `undefined` 的值。
+   *
+   * ⚠️ **更正(R2 important①,2026-08-13):我原本在這裡寫「型別留 null 是為了讓 TS 逼消費端處理」——
+   *    那句實測不成立。** TS 的樣板字串**接受 `null`**,且本 repo 的 eslint 未開
+   *    `@typescript-eslint/restrict-template-expressions` ⇒ `` `/customers/${x}` `` 在 `x=null` 時
+   *    typecheck 綠、lint 綠,只是把 `/customers/undefined` **改名**成 `/customers/null`。
+   *    ⇒ 這個型別**只表達事實**(讀不到就是讀不到),**不是防護**。
+   *    真正的防護是機制:拼網址收斂在 `apps/admin/src/lib/orders/order-detail-view.ts`
+   *    的 `customerDetailHref()` 一處,拼不出來回 `null`,消費端只能選擇不渲染入口。
+   *
+   * 🔴 **同病未修、有活的消費端(pre-existing,本片不修)**:`AdminOrderSummary.customerUserId`
+   *    (`:459`)仍宣告非 nullable、mapper `mappers/order.ts:352` 仍直送 ——
+   *    上面那段「NOT NULL 不保證 wire row 有鍵」的推論**逐字適用於它**。
+   *    而它有活的消費端 `apps/admin/src/components/shipping/shipping-selection.tsx`
+   *    的同客人閘:兩邊都 `undefined` 時 `undefined === undefined` 為真
+   *    ⇒ **兩位不同客人的訂單會被判成同一位**(該型別 `:452-456` 自己就警告過這個 bug 零症狀)。
+   *    不在本片修的理由:非本片造成,且動它會碰出貨閘的活路徑、超出片界。**已立案 backlog #457。**
+   */
+  customerUserId: string | null;
   /** 客人資訊 PII(join customers;姓名/email/電話) */
   customer: { name: string | null; email: string | null; phone: string | null };
   /** 結帳開票需求(orders.invoice jsonb;type/taxId/title/carrier/donateCode,防禦容缺) */

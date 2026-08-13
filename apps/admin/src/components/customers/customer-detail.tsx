@@ -43,7 +43,20 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function WalletLedgerTable({ entries }: { entries: WalletLedgerEntry[] }) {
+/**
+ * 🔴 **這張表裡也有一個「訂單連結」**(關聯訂單欄的「查看訂單」)——
+ * codex 關卡2(2026-08-13)抓到:片 3b 第一版只接了下方「訂單歷史」那個,**漏了這一個**。
+ * Sean 的逐字是「點客人變成看向訂單一樣,**然後再點訂單**或者回去變成看訂單」,
+ * 而**「再點訂單」沒有限定是哪一個訂單連結** ⇒ 客人卡裡**每一個能點到訂單的地方**都要換回訂單面板,
+ * 否則員工在面板點這一顆會被整頁跳走、**遺失原列表篩選與面板狀態**。
+ */
+function WalletLedgerTable({
+  entries,
+  orderHref = (orderId) => `/orders/${orderId}`,
+}: {
+  entries: WalletLedgerEntry[];
+  orderHref?: (orderId: string) => string;
+}) {
   if (entries.length === 0) {
     return <p className='text-muted-foreground py-2 text-sm'>目前沒有儲值金交易紀錄。</p>;
   }
@@ -74,7 +87,7 @@ function WalletLedgerTable({ entries }: { entries: WalletLedgerEntry[] }) {
               <td className={TD}>{entry.note || '—'}</td>
               <td className={`${TD} whitespace-nowrap`}>
                 {entry.relatedOrderId ? (
-                  <Link href={`/orders/${entry.relatedOrderId}`} className='underline'>
+                  <Link href={orderHref(entry.relatedOrderId)} className='underline'>
                     查看訂單
                   </Link>
                 ) : (
@@ -99,6 +112,8 @@ export function CustomerDetail({
   addressesLoadFailed,
   vehicles,
   vehiclesLoadFailed,
+  readOnly = false,
+  orderHref,
 }: {
   customer: Customer;
   walletEntries: WalletLedgerEntry[];
@@ -110,6 +125,26 @@ export function CustomerDetail({
   addressesLoadFailed: boolean;
   vehicles: CustomerVehicle[];
   vehiclesLoadFailed: boolean;
+  /**
+   * OD 片 3b:**唯讀模式**(訂單面板版用;主視窗 2026-08-13 裁 A)。
+   *
+   * 🔴 `true` 時**不渲染 `<TierEditForm>` 與 `<WalletAdjustForm>`** —— 那兩支分別**動權限**
+   *    (tier 決定經銷價可見性)與**動錢**(儲值金),而它們的 server action 把 `returnTo`
+   *    限定在站內 `/customers` 路徑(`lib/customers/wallet-actions.ts:23` 逐字)、
+   *    表單本身也沒有 `return_to` 欄 ⇒ 從訂單面板送出會把員工 redirect 到 `/customers`,
+   *    **他手上那張訂單面板就消失了**,而他只是「看一下客人」。
+   * 🔴 裁 A 的依據是 Sean 逐字全句都是「**看**」:「點客人變成**看**向訂單一樣,
+   *    然後再點訂單或者回去變成**看**訂單」⇒ 面板是看的地方,要編輯請開整頁版。
+   * ⚠️ 這是**縮減能力**不是擴張:面板版能力嚴格少於整頁版,整頁版行為一個字不變
+   *    (預設 `false` ⇒ 既有呼叫端不必改、也不會被靜默改掉行為)。
+   */
+  readOnly?: boolean;
+  /**
+   * OD 片 3b:**這張卡裡每一個訂單連結**連到哪(不傳 = 整頁版)。
+   * 🔴 消費端有**兩處**:下方「訂單歷史」的單號、以及儲值金交易紀錄的「查看訂單」。
+   *    第一版只接了前者(codex 關卡2 must-fix)—— 加新的訂單連結時記得一起接。
+   */
+  orderHref?: (orderId: string) => string;
 }) {
   return (
     <div className='space-y-4'>
@@ -128,14 +163,14 @@ export function CustomerDetail({
           <Field label='生日' value={customer.birthday} />
           <Field label='會員等級' value={TIER_LABEL[customer.tier]} />
           <Field label='註冊日期' value={formatCustomerDate(customer.createdAt)} />
-          <TierEditForm customerId={customer.id} currentTier={customer.tier} />
+          {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
         </section>
 
         <section className={CARD}>
           <h2 className={CARD_TITLE}>儲值金</h2>
           <Field label='目前餘額' value={formatWalletBalance(customer.walletBalance)} />
           <Field label='累積儲值' value={formatWalletBalance(customer.totalDeposit)} />
-          <WalletAdjustForm customerId={customer.id} />
+          {!readOnly && <WalletAdjustForm customerId={customer.id} />}
         </section>
       </div>
 
@@ -146,11 +181,11 @@ export function CustomerDetail({
             交易紀錄載入失敗,請稍後再試(基本資料不受影響)。
           </p>
         ) : (
-          <WalletLedgerTable entries={walletEntries} />
+          <WalletLedgerTable entries={walletEntries} orderHref={orderHref} />
         )}
       </section>
 
-      <CustomerOrdersSection orders={orders} loadFailed={ordersLoadFailed} />
+      <CustomerOrdersSection orders={orders} loadFailed={ordersLoadFailed} orderHref={orderHref} />
 
       <div className='grid gap-4 md:grid-cols-2'>
         <CustomerAddressesSection addresses={addresses} loadFailed={addressesLoadFailed} />
