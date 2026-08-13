@@ -104,6 +104,8 @@ const CELL = {
   title: 'col-title',
   vehicle: 'col-vehicle',
   qty: 'col-qty',
+  // 🆕 L3 片2:單價(品項層、成交價)。
+  unit: 'col-unit',
   amount: 'col-amount',
   customer: 'col-customer',
   // L3 片1:`ordered`(訂貨,品項層)已下架,原槽換成 `status`(狀態八值,**訂單層**)。
@@ -235,9 +237,25 @@ function OrderGroup({
             )}
 
             {/* 🔴 `data-empty` 只給**卡片模式**用(CSS `td[data-empty]{display:none}`):
-                桌機要印 `—`(欄位在、值是空),但卡片上「廠牌 —」是一行純噪音,而 Sean
+                桌機要印 `—`(欄位在、值是空),但卡片上「車種 —」是一行純噪音,而 Sean
                 第 5/6 輪連續抱怨手機太鬆。收斂前這件事是 `OrderCard` 用 `.filter()` 在 JS 層做的。
-                ⚠️ 只有 brand 與 vehicle 兩欄這樣做(= 舊版真正過濾的那兩個)。 */}
+                ⚠️ 只有 vehicle 與 brand 兩欄這樣做(= 舊版真正過濾的那兩個)。
+
+                🔴 **V-3b:本欄的「車種」= `order_items.vehicle_snapshot` 直出的「年份 車廠 車型」整串**
+                   (未帶車款/佔位列→「—」)。L3 片2 起欄名從「年份廠牌車種」縮成「車種」,**內容一個字沒改**。
+                ⚠️ **名詞陷阱(需求檔 §0-B:115 逐字):系統裡有兩個「廠牌」** ——
+                   下一格的 `brand` 是**零件品牌**(WRS / EaziGrip),本欄裡出現的廠牌是**車廠**(Honda / Yamaha)。
+                   兩者必須是各自獨立、標題不同的欄,**不得合併、不得共用同一個詞**。
+                🔴 **本片把車種提到廠牌之前 —— 這是整片唯一真正搬家的一件事**(`design-brief` §0-B:1
+                   逐字「車種 廠牌 料號」)。⚠️ 卡片模式的 `order` **不用動**:`col-vehicle`(11)本來就在
+                   `col-brand`(12)之前,與 OD `overview-desktop.html:161-166` 一致 ⇒ 只有桌機要對調。 */}
+            <td
+              className={`${TD} ${CELL.vehicle} text-muted-foreground text-xs`}
+              data-l='車種'
+              {...(vehicleText ? {} : { 'data-empty': '' })}
+            >
+              {vehicleText ?? '—'}
+            </td>
             <td
               className={`${TD} ${CELL.brand}`}
               data-l='廠牌'
@@ -249,20 +267,17 @@ function OrderGroup({
               {line?.variantSku ?? '—'}
             </td>
             <td className={`${TD} ${CELL.title}`}>{line?.title ?? '—'}</td>
-            {/* V-3b:年份廠牌車種(order_items.vehicle_snapshot 直出;未帶車款/佔位列→「—」)。
-                ⚠️ 名詞陷阱(需求檔 §0-B:115 逐字):系統裡有**兩個「廠牌」**——
-                `brand` 是**零件品牌**(WRS / EaziGrip),本欄裡的廠牌是**車廠**(Honda / Yamaha)。
-                兩者必須是各自獨立、標題不同的欄,**不得合併、不得共用同一個詞**
-                (手機卡片的 `data-l` 因此是「車種」,與品牌那格的「廠牌」分開)。 */}
-            <td
-              className={`${TD} ${CELL.vehicle} text-muted-foreground text-xs`}
-              data-l='車種'
-              {...(vehicleText ? {} : { 'data-empty': '' })}
-            >
-              {vehicleText ?? '—'}
-            </td>
             <td className={`${TD} ${CELL.qty} text-right tabular-nums`} data-l='數量'>
               {line ? line.quantity : '—'}
+            </td>
+            {/* 🆕 L3 片2:單價(**品項層**、該單成交價)。佔位列(`line` 為 null)→「—」,與同列其他品項欄一致。
+                🔴 **不自己算**:`unitPrice` 是下單當下 server 算好凍結的值,`lineTotal = unitPrice × quantity`
+                   由 domain 守門(`packages/domain/src/order/order.ts:90` 逐字)。UI 端**不得**用
+                   `lineTotal / quantity` 反推 —— 那會在有折扣或未來出現部分退款時給出不存在的數字。
+                🔴 **不掛 `data-empty`**:它是品項的識別欄之一,空了要在手機上看得見「這裡沒有」
+                   (同料號/品名/數量,只有車種與廠牌那兩欄收)。 */}
+            <td className={`${TD} ${CELL.unit} text-right tabular-nums`} data-l='單價'>
+              {line ? `NT$ ${formatOrderAmount(line.unitPrice.amount)}` : '—'}
             </td>
             {/* 金額:合併態 = 訂單層(只在第一列出值);非合併態 = 逐列該列小計(見 shouldMergeAmount)。
                 ⚠️ 兩態的 `data-l` 刻意不同(金額 / 小計)—— 手機卡片沒有表頭,
@@ -406,14 +421,41 @@ export function OrdersTable({
           <tr>
             {/* 2b-1:勾選欄(訂單層)。**刻意沒有全選框** —— 理由見 OrderGroup 內同格註解。 */}
             <th className={`${TH} w-8`} aria-label='選取' />
-            {/* Q6=A(Sean 2026-08-06):欄名改短字面 —— 商品品牌→品牌、物品名稱→品名、客戶名稱→客戶。 */}
-            <th className={TH}>訂單編號</th>
+            {/* 🏁 **L3 片2:欄序與四個欄名逐字照 `design-brief` §0-B:1(Sean 2026-08-12 口述的那張清單)。**
+                逐字 = `單號 / 日期 / 車種 / 廠牌 / 料號 / 物品名稱 / 數量 / 單價 / 金額 / 客戶 / 狀態 / 發票`
+                (勾選與操作是功能欄,不在他那張清單裡、照第二輪處理保留)。
+
+                🔴🔴 **~~Q6=A(Sean 2026-08-06)欄名改短字面 —— 商品品牌→品牌、物品名稱→品名、客戶名稱→客戶~~
+                   的「訂單編號 / 品名」兩項已於 2026-08-14 被 Sean 拍 Q3=B 推翻**,逐字選項
+                   「以 08-12 為準 —— 改成『單號』『物品名稱』」,而且他是在**選項裡寫明「那等於推翻 08-06 那次拍板」**
+                   的前提下選的。⇒ 上面那行舊註解是過期字面,本片一併更正、不留著讓下一個人以為還有效。
+                   ⚠️ **`客戶名稱→客戶` 那一項沒有被推翻**(§0-B 那張清單裡也是「客戶」)⇒ Q6=A 只有欄名的前兩項失效。
+
+                ⚠️ **本片只改訂單列表的欄名。** 別的畫面出現的「訂單編號」字面
+                   (`app/orders/page.tsx` 搜尋分支說明、`shipment-dialog` 出貨對話框、
+                   `refund-exception-resolve` 的 placeholder)是**別的語意**,主視窗明文裁不動。
+
+                🔴 **真正搬家的只有一件:車種與廠牌對調**(車種提到廠牌之前)。其餘欄的位移全是被
+                   新增的「單價」推的連帶,不是各自搬家 —— 讀 diff 時別把連帶當成重排。 */}
+            <th className={TH}>單號</th>
             <th className={TH}>日期</th>
-            <th className={TH}>品牌</th>
+            <th className={TH}>車種</th>
+            <th className={TH}>廠牌</th>
             <th className={TH}>料號</th>
-            <th className={TH}>品名</th>
-            <th className={TH}>年份廠牌車種</th>
+            <th className={TH}>物品名稱</th>
             <th className={`${TH} text-right`}>數量</th>
+            {/* 🆕 L3 片2 新欄:單價(**品項層**、成交價)。
+                🔴 **零資料層工作** —— `unitPrice` 早就在投影裡:型別 `packages/domain/src/order/types.ts:384`、
+                   mapper `packages/adapters/src/supabase/mappers/order.ts:334`、
+                   投影常數含 `unit_price`(由 `SupabaseOrderAdapter.test.ts:319` 釘著)。本片只是把它畫出來。
+                🔴 **鐵則 12② 不中標,但理由要寫下來**:這是**該單成交價**(下單當下實際賣價),
+                   不是經銷價表(`price_by_tier` / `price_store` / `cost` 型別層本來就沒有,
+                   `mappers/order.ts:129` 逐字「永不夾帶」)。同一列本來就在顯示 `lineTotal`(金額)
+                   ⇒ **不新增任何洩漏面**;admin 全 server-render、SSO 閘後。
+                ⚠️ 名字很像但**不是**同一個常數:`ORDER_LIST_SELECT`(會員端 own-only)有一條
+                   byte-equal 白名單明文**零 `unit_price`**(`SupabaseOrderAdapter.test.ts:175`);
+                   後台走的是 `ADMIN_ORDER_LIST_SELECT`。**兩者只差前綴,不看清楚會誤判成違規。** */}
+            <th className={`${TH} text-right`}>單價</th>
             <th className={`${TH} text-right`}>金額</th>
             <th className={TH}>客戶</th>
             {/* 🏁 L3 片1:**狀態**(訂單層,八值 = 收款軸 × 貨品軸)原地換掉 A11a-4 的訂貨欄。
