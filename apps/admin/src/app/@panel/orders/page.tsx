@@ -2,8 +2,12 @@ import { isUuid } from '../../../lib/orders/note-action-state';
 import {
   buildPanelCloseHref,
   buildPanelSelfHref,
+  buildCustomerPanelHref,
+  readOpenCustomerPanelId,
   readOpenPanelOrderId,
 } from '../../../lib/orders/order-list-view';
+import { loadCustomerDetail } from '../../../lib/customers/load-customer-detail';
+import { CustomerPanel } from '../../../components/customers/customer-panel';
 import { OrderDetailRoute } from '../../../components/orders/order-detail-route';
 import {
   CANCEL_REQUEST_TOKEN_PARAM,
@@ -52,6 +56,36 @@ export default async function OrderPanelPage({
   const panelId = readOpenPanelOrderId(raw);
   if (!panelId) return null;
 
+  /**
+   * 🔴 OD 片 3b:**客人卡蓋掉訂單面板**(需求檔 §0-J J-4;Sean 2026-08-13 逐字
+   * 「點客人變成看向訂單一樣,然後再點訂單或者回去變成看訂單」)。
+   *
+   * 位置在 `panelId` 閘之後:**`panel` 仍然必須是合法 UUID**,`?customer=<id>` 單獨出現不開任何東西
+   * —— 客人卡是「蓋在某張訂單的面板上」,不是獨立視圖。
+   * 「回訂單」= `buildPanelSelfHref`(它會剝掉 `customer` 再把 `panel` 加回去)
+   * ⇒ **結構上必然回到原本那張單**,不靠瀏覽器歷史。
+   *
+   * 🔴 **lazy 不是平行路由天然給的,是這個 early return 給的**:沒帶 `customer` 時
+   * `loadCustomerDetail` 一次都不會被呼叫(守門:`order-panel-wiring.test.ts` 有一格
+   * 斷言未帶 param 時五路 repository **零呼叫**)。
+   *
+   * ⚠️ 有 `customer` 時**訂單面板整棵樹都不渲染** —— 連同 8 支表單的未送出內容一起消失。
+   * Sean 2026-08-13 **知情拍板接受**(逐字「a」,問題含那張 8 支表單清單);已立案 `#467`。
+   */
+  const customerId = readOpenCustomerPanelId(raw);
+  if (customerId) {
+    return (
+      <div className='@container sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
+        <CustomerPanel
+          data={await loadCustomerDetail(customerId)}
+          backHref={buildPanelSelfHref(raw, panelId)}
+          fullPageHref={`/customers/${customerId}`}
+          orderHref={(orderId) => buildPanelSelfHref(raw, orderId)}
+        />
+      </div>
+    );
+  }
+
   // 🔴🔴 **#350d C2:`r` 歸誰,用 `panel` 的有無判定 —— 有 `panel` ⇒ 是面板的結果碼。**
   //    ⇒ 面板**畫**通用 `ResultBanner`(`showResultBanner` 不再傳 false),
   //      而 `app/orders/page.tsx` 在面板開著時**停畫**自己那條。
@@ -85,6 +119,8 @@ export default async function OrderPanelPage({
     //    拿它當 return_to 等於動作做完把面板關掉;契約字面更正見 `D-420-NOTE` §1)。
     returnTo: buildPanelSelfHref(raw, panelId),
     missing: 'inline',
+    // OD 片 3b:面板版的入口 = **同一個面板網址再加 `customer`** ⇒ 客人卡蓋上來、`panel` 還在。
+    buildCustomerHref: (customerId) => buildCustomerPanelHref(raw, panelId, customerId),
   });
 
   return (

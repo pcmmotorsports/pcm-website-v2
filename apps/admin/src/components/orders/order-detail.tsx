@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
 import {
   PAYMENT_STATUS_LABEL,
@@ -234,6 +235,7 @@ export function OrderDetail({
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
   cancelFormsAllowed = false,
+  customerHref = null,
   payments,
 }: {
   detail: AdminOrderDetail;
@@ -264,6 +266,16 @@ export function OrderDetail({
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
   /**
+   * OD 片 3b:標題列「客人明細」入口的連結;**`null` = 不渲染入口**(需求檔 §0-J J-4)。
+   *
+   * 🔴 **由呼叫端決定連去哪**,本元件不知道自己在面板還整頁版裡(它同時被兩邊渲染):
+   *    面板版 = `?panel=<單>&customer=<客>`(客人卡蓋上來);整頁版 = `/customers/<客>`。
+   * 🔴 **`null` 必須真的不渲染**(fail-closed):`AdminOrderDetail.customerUserId` 在投影退版時
+   *    是 `null`,而拼網址的決定點在 `order-detail-view.ts` 的 `customerDetailHref()` ——
+   *    拼不出來就回 `null`,這裡照著不畫。**不得 `?? ''`、不得畫一個連到 `/customers/null` 的連結。**
+   */
+  customerHref?: string | null;
+  /**
    * #15-B2-c 片1a:收款明細三態(頁層讀 `listOrderPayments` 折出來)。
    *
    * 🔴 **必填、無預設**(同 `returnTo` 的立場):給預設值等於「忘了接就靜默顯示成某一態」——
@@ -279,6 +291,22 @@ export function OrderDetail({
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>{detail.displayId}</h1>
+        {/* 🔴 入口位置照 OD `overview-desktop.html:1109-1112` 逐字:「客人明細的入口。
+            **做在標題列的名字上**,因為那是『這張單是誰的』唯一會被讀的位置,
+            員工要查電話/地址時眼睛本來就落在這裡。一下就開,不用先跳到客戶頁再搜尋。」
+            ⚠️ 名字可能是 null(join 缺)⇒ 那時仍要給入口(id 在就開得了),文案退成「客人明細」。
+               這一句退場文案是**我自己決定的**,OD 沒有畫這個狀態。 */}
+        {customerHref !== null && (
+          <Link
+            href={customerHref}
+            className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-sm'
+          >
+            {detail.customer.name ?? '客人明細'}
+            <span aria-hidden='true' className='text-muted-foreground'>
+              ›
+            </span>
+          </Link>
+        )}
         {/* A9w1:整單九碼彙總 badge 退場。付款軸(三軸的訂單層)在下方「付款」卡的付款狀態,
             訂貨/到貨在品項列 —— 不另補一顆彙總 badge,那正是九碼被退場的東西。 */}
         {cancelled && (

@@ -24,7 +24,7 @@ import {
 // #350d:面板判準要 uuid 閘;一次性參數清單與 `order-return-to.ts` 共用單一來源
 // (兩邊各寫一份 = 補了 `rt` 卻只補一邊,症狀是重複鍵讓取消面板永遠讀不到)。
 import { isUuid } from './note-action-state';
-import { ORDER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
+import { ORDER_PANEL_PARAM, CUSTOMER_PANEL_PARAM, RESULT_ONLY_PARAMS } from './order-return-to';
 // #347-3c-1:曆面日 ↔ 絕對時刻的換算只有 domain 一份(自己拼 `new Date(ymd)` 是 UTC 午夜、差 8 小時)。
 import {
   taipeiDayEndExclusiveIso,
@@ -390,7 +390,7 @@ function resolveOrderDateRange(
  * (契約 §6-1),而它不能反向 import 本檔(會成環)。這裡 re-export 讓既有 import 路徑不變 ——
  * 兩邊各寫一份字面才是真的坑。
  */
-export { ORDER_PANEL_PARAM } from './order-return-to';
+export { ORDER_PANEL_PARAM, CUSTOMER_PANEL_PARAM } from './order-return-to';
 
 /**
  * 建立日期範圍(#347-3c-1)。URL 上帶的是**曆面日 `YYYY-MM-DD`**(員工看得懂、網址可分享),
@@ -432,7 +432,15 @@ export function readOpenPanelOrderId(
  *    ⇒ 面板永遠只說「查不到取消紀錄」。第二道守門在 `order-return-to.ts` 的 `RESULT_ONLY_PARAMS`
  *    (那支是五支 action 的共同 choke point,擋的是手打 / 偽造的 `return_to`)。
  */
-const ONE_SHOT_PARAMS = new Set<string>([ORDER_PANEL_PARAM, ...RESULT_ONLY_PARAMS]);
+// 🔴 OD 片 3b 起 `customer` 也是一次性:關閉面板要把客人卡一起收掉,
+//    而 `buildPanelSelfHref`(= 本集合刪一輪後再把 `panel` 加回去)因此天然成為
+//    **「從客人卡回到原本那張訂單」** 的連結 —— 不需要另寫一支「回訂單」函式。
+//    ⚠️ 加入本集合對既有行為零影響:本片之前沒有任何 URL 帶 `customer`。
+const ONE_SHOT_PARAMS = new Set<string>([
+  ORDER_PANEL_PARAM,
+  CUSTOMER_PANEL_PARAM,
+  ...RESULT_ONLY_PARAMS,
+]);
 
 /**
  * 關閉面板的連結 = **拿掉一次性參數之後的當下 URL**(#350c)。
@@ -489,6 +497,40 @@ export function buildPanelSelfHref(
   const base = buildPanelCloseHref(raw);
   const sep = base.includes('?') ? '&' : '?';
   return `${base}${sep}${ORDER_PANEL_PARAM}=${panelOrderId}`;
+}
+
+/**
+ * 客人面板要開誰(OD 片 3b)。**形狀與 `readOpenPanelOrderId` 逐條對齊**:
+ * 非 UUID ⇒ 回 `null` = 不開客人卡、**不打 DB、不 `notFound()`**
+ * (在平行路由槽裡呼叫 `notFound()` 炸掉的是整個頁面 —— `app/@panel/orders/page.tsx:47-49`)。
+ *
+ * 🔴 同樣**正規化成小寫**(理由逐字同 `readOpenPanelOrderId` 的 R2 F1):`isUuid` 是 `/i`,
+ *    大寫 UUID 會過閘,而 DB 出來的 id 一律小寫 ⇒ 兩邊比對會判成不同人。
+ */
+export function readOpenCustomerPanelId(
+  raw: Record<string, string | string[] | undefined>,
+): string | null {
+  const value = raw[CUSTOMER_PANEL_PARAM];
+  return typeof value === 'string' && isUuid(value) ? value.toLowerCase() : null;
+}
+
+/**
+ * 「切到這位客人」的連結 = **面板自己這個視圖再加上 `customer`**。
+ *
+ * 🔴 復用 `buildPanelSelfHref` 而不是自己掃一遍 raw:那支已經被 codex 擊破過一次
+ * (2026-08-10,固定回 `/orders` = 關面板把篩選全洗掉),也已經有測試釘著「篩選逐字保留」。
+ * 重抄一份掃描只會多一個會漂移的規格 —— 同一個檔裡已經有兩支這樣復用了。
+ *
+ * ⚠️ `customerId` 呼叫端要先確定是 UUID(來源 = `AdminOrderDetail.customerUserId`,
+ * 由投影帶出、非使用者輸入);本支只負責拼。
+ */
+export function buildCustomerPanelHref(
+  raw: Record<string, string | string[] | undefined>,
+  panelOrderId: string,
+  customerId: string,
+): string {
+  const base = buildPanelSelfHref(raw, panelOrderId);
+  return `${base}&${CUSTOMER_PANEL_PARAM}=${customerId}`;
 }
 
 /**

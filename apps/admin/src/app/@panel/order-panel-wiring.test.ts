@@ -9,6 +9,7 @@ import {
   buildPanelCloseHref,
   buildPanelSelfHref,
   ORDER_PANEL_PARAM,
+  CUSTOMER_PANEL_PARAM,
 } from '../../lib/orders/order-list-view';
 
 // order-panel-wiring.test.ts — #350c 訂單面板接線的守門。
@@ -36,6 +37,13 @@ const mocks = vi.hoisted(() => ({
   //    ⇒ 折出 `{status:'ok', rows: undefined}` ⇒ 收款區塊渲染當場炸掉(而症狀會出現在
   //    與收款無關的那些格上,查起來完全不像本片造成的)。
   listOrderPayments: vi.fn(async () => [] as unknown[]),
+  // OD 片 3b:客人卡的五路取數。**要有 spy 而不只是 mock 掉** —— 「沒帶 customer 時零查詢」
+  // 這句話要有 `not.toHaveBeenCalled()` 才算被守住(同上面 repository 那條 codex 教訓)。
+  findCustomerById: vi.fn(),
+  listWalletEntries: vi.fn(),
+  listSummariesByCustomer: vi.fn(),
+  listAddressesByCustomer: vi.fn(),
+  listVehiclesByCustomer: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -60,9 +68,18 @@ vi.mock('../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({
     findAdminOrderDetail: mocks.findAdminOrderDetail,
     listOrderSummariesForAdmin: mocks.listOrderSummariesForAdmin,
+    // OD 片 3b:客人卡的訂單歷史走同一個 repository。
+    listSummariesByCustomer: mocks.listSummariesByCustomer,
   }),
 }));
 vi.mock('../../lib/supplier', () => ({ listSuppliers: mocks.listSuppliers }));
+// OD 片 3b:客人卡走 `loadCustomerDetail` → 這四支 getter(訂單那支在上面的 order-repository)。
+vi.mock('../../lib/customers/customer-repository', () => ({
+  getAdminCustomerRepository: () => ({ findById: mocks.findCustomerById }),
+  getAdminWalletRepository: () => ({ listEntries: mocks.listWalletEntries }),
+  getAdminAddressRepository: () => ({ listByCustomer: mocks.listAddressesByCustomer }),
+  getAdminVehicleRepository: () => ({ listByCustomer: mocks.listVehiclesByCustomer }),
+}));
 // 🔴 #15-B2-c 片1a:`payment-repository` → `createSupabaseServiceClient`(server-only)。
 //    ⚠️ **不 mock 也不會紅** —— 它會在呼叫時 throw、被 `allSettled` 接住折成 `unreadable`
 //    ⇒ 整個檔案靜默走在「讀不到」那條路上。要驗「面板真的拿得到收款列」就必須給它可控的替身。
@@ -100,6 +117,9 @@ function orderDetailFixture(id: string, over: Record<string, unknown> = {}): Adm
     total: money,
     shippingMethod: 'home',
     shippingAddress: { name: null, phone: null, line: null },
+    // OD 片 2 起 `AdminOrderDetail` 有這一欄;fixture 預設 null = 「投影退版讀不到」,
+    // 想測入口的格自己用 `over` 蓋成真 id。
+    customerUserId: null,
     customer: { name: null, email: null, phone: null },
     invoiceRequest: { type: null, taxId: null, title: null, carrier: null, donateCode: null },
     invoiceNumber: null,
@@ -708,3 +728,260 @@ function paymentSection(container: HTMLElement): HTMLElement {
 }
 
 afterEach(() => cleanup());
+
+// ── OD 片 3b:客人卡蓋在訂單面板上 ──────────────────────────────────────────────
+describe('OD 片 3b 守門:`?customer=` 分支', () => {
+  const PANEL_ID = '11111111-2222-4333-8444-555555555555';
+  const CUSTOMER_ID = '99999999-8888-4777-8666-555555555555';
+  const RELATED_ORDER_ID = 'aaaaaaaa-1111-4222-8333-444444444444';
+  const HISTORY_ORDER_ID = 'bbbbbbbb-1111-4222-8333-444444444444';
+  const load = async () => (await import('./orders/page')).default;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.findAdminOrderDetail.mockResolvedValue(null);
+    mocks.listSuppliers.mockResolvedValue([]);
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+    mocks.findCustomerById.mockResolvedValue({
+      id: CUSTOMER_ID,
+      name: '王小明',
+      email: 'a@b.c',
+      phone: '0912345678',
+      birthday: null,
+      tier: 'general',
+      walletBalance: 0,
+      totalDeposit: 0,
+      createdAt: '2026-01-01T00:00:00Z',
+    });
+    // 🔴 **fixture 的值決定了測試能發現什麼**(codex 關卡2 must-fix 的病根):
+    //    第一版把這兩個都設成 `[]` ⇒ 儲值金流水表與訂單歷史表**整段 markup 根本不渲染**
+    //    ⇒ 「客人卡裡的訂單連結有沒有換成面板 href」這條路徑**零覆蓋**,
+    //    而我漏接的正是流水表那一顆。空陣列不是「中性的預設值」,它是**把路徑關掉**。
+    mocks.listWalletEntries.mockResolvedValue([
+      {
+        id: 'w1',
+        entryDate: '2026-08-01',
+        entryType: 'deposit',
+        amount: 1000,
+        note: null,
+        relatedOrderId: RELATED_ORDER_ID,
+      },
+    ]);
+    mocks.listSummariesByCustomer.mockResolvedValue([
+      {
+        id: HISTORY_ORDER_ID,
+        displayId: 'PCM-2026-0009',
+        createdAt: '2026-08-01T00:00:00Z',
+        itemCount: 1,
+        total: { amount: 1000, currency: 'TWD' },
+        paymentStatus: 'paid',
+        fulfillmentStatus: 'notOrdered',
+      },
+    ]);
+    mocks.listAddressesByCustomer.mockResolvedValue([]);
+    mocks.listVehiclesByCustomer.mockResolvedValue([]);
+  });
+
+  const CUSTOMER_SPIES = [
+    ['客戶本體', () => mocks.findCustomerById],
+    ['儲值金流水', () => mocks.listWalletEntries],
+    ['訂單歷史', () => mocks.listSummariesByCustomer],
+    ['收件地址', () => mocks.listAddressesByCustomer],
+    ['車庫', () => mocks.listVehiclesByCustomer],
+  ] as const;
+
+  /**
+   * 🔴 **lazy 不是平行路由天然給的,是槽頁那個 early return 給的**。
+   * 我在 plan 裡原本寫「C 案 lazy 天然成立」——**那句話當時是錯的**(形狀是 searchParams 驅動、
+   * 不是路徑驅動的 slot),所以這條要用**實測**釘住,不能靠推論。
+   * ⚠️ 這格量的是「**程式碼路徑沒被呼叫**」(repository spy 零呼叫),
+   *    **不是**「網路請求沒發生」—— 在 server component 上兩者通常等價,但那是**推論**,我沒有量到後者。
+   */
+  it('🔴 沒帶 customer:五路客人查詢**一次都不呼叫**(lazy 的實測,五支全查)', async () => {
+    const Page = await load();
+    await Page({ searchParams: Promise.resolve({ [ORDER_PANEL_PARAM]: PANEL_ID }) });
+    for (const [label, spy] of CUSTOMER_SPIES) {
+      expect(spy(), `${label} 在沒點客人時就被查了 ⇒ lazy 破了`).not.toHaveBeenCalled();
+    }
+  });
+
+  it('🔴 customer 不是 UUID:同樣零查詢、且不影響訂單面板照常開', async () => {
+    const Page = await load();
+    const ui = await Page({
+      searchParams: Promise.resolve({
+        [ORDER_PANEL_PARAM]: PANEL_ID,
+        [CUSTOMER_PANEL_PARAM]: 'not-a-uuid',
+      }),
+    });
+    for (const [label, spy] of CUSTOMER_SPIES) {
+      expect(spy(), `${label} 被一條爛網址觸發了查詢`).not.toHaveBeenCalled();
+    }
+    // 訂單面板照常(這裡 findAdminOrderDetail 回 null ⇒ missing inline,但**有渲染**、不是 null)
+    expect(ui).not.toBeNull();
+  });
+
+  it('🔴 沒帶 panel 但帶了 customer:不開任何東西(客人卡是蓋在某張單上,不是獨立視圖)', async () => {
+    const Page = await load();
+    await expect(
+      Page({ searchParams: Promise.resolve({ [CUSTOMER_PANEL_PARAM]: CUSTOMER_ID }) }),
+    ).resolves.toBeNull();
+    for (const [label, spy] of CUSTOMER_SPIES) {
+      expect(spy(), `${label} 在沒有 panel 的情況下被查了`).not.toHaveBeenCalled();
+    }
+  });
+
+  it('🔴 帶合法 customer:渲染客人卡、五路都查、**訂單明細不查**(客人卡蓋掉訂單面板)', async () => {
+    const Page = await load();
+    const ui = await Page({
+      searchParams: Promise.resolve({
+        [ORDER_PANEL_PARAM]: PANEL_ID,
+        [CUSTOMER_PANEL_PARAM]: CUSTOMER_ID,
+      }),
+    });
+    expect(ui).not.toBeNull();
+    for (const [label, spy] of CUSTOMER_SPIES) {
+      expect(spy(), `${label} 沒被查 ⇒ 客人卡拿不到那一區塊`).toHaveBeenCalledWith(CUSTOMER_ID);
+    }
+    // 蓋掉:訂單那邊一次都不查(否則就是兩張卡都在抓資料)
+    expect(mocks.findAdminOrderDetail).not.toHaveBeenCalled();
+    const { container } = render(ui as React.ReactElement);
+    expect(container.textContent).toContain('王小明');
+  });
+
+  it('🔴 「回訂單」連結 = 拿掉 customer、panel 還在(結構上必然回到原本那張單)', async () => {
+    const Page = await load();
+    const ui = await Page({
+      searchParams: Promise.resolve({
+        [ORDER_PANEL_PARAM]: PANEL_ID,
+        [CUSTOMER_PANEL_PARAM]: CUSTOMER_ID,
+        payment_status: 'paid',
+      }),
+    });
+    const { container } = render(ui as React.ReactElement);
+    const back = [...container.querySelectorAll('a')].find((a) => a.textContent?.includes('回訂單'));
+    const href = back?.getAttribute('href') ?? '';
+    // 篩選逐字保留 + panel 還在 + customer 不見了
+    expect(href).toContain(`${ORDER_PANEL_PARAM}=${PANEL_ID}`);
+    expect(href).toContain('payment_status=paid');
+    expect(href).not.toContain(CUSTOMER_PANEL_PARAM);
+  });
+
+  it('🔴 唯讀:面板版**不出現**等級變更與儲值金調整兩支表單(它們會把員工丟去 /customers)', async () => {
+    const Page = await load();
+    const ui = await Page({
+      searchParams: Promise.resolve({
+        [ORDER_PANEL_PARAM]: PANEL_ID,
+        [CUSTOMER_PANEL_PARAM]: CUSTOMER_ID,
+      }),
+    });
+    const { container } = render(ui as React.ReactElement);
+    expect(container.querySelectorAll('form')).toHaveLength(0);
+    // 正向對照:卡本體有渲染(否則「零表單」可以靠「整張卡沒渲染」達成)
+    expect(container.textContent).toContain('儲值金');
+  });
+
+  /**
+   * 🔴 codex 關卡2 must-fix:Sean 逐字「**再點訂單**……變成看訂單」**沒有限定是哪一個連結**。
+   * 客人卡裡目前有**兩處**能點到訂單:①儲值金流水的「查看訂單」②訂單歷史的單號。
+   * 第一版只接了②,而①硬連 `/orders/<id>` ⇒ 員工點它會**整頁跳走、遺失列表篩選與面板狀態**。
+   * ⇒ 這格用**遍歷**而不是點名:凡指向訂單的連結,一律必須是面板形式。
+   *   新增第三處訂單連結卻忘了接時,這格會紅。
+   */
+  it('🔴 客人卡裡**每一個**訂單連結都換成面板 href(不是只有訂單歷史那個)', async () => {
+    const Page = await load();
+    const ui = await Page({
+      searchParams: Promise.resolve({
+        [ORDER_PANEL_PARAM]: PANEL_ID,
+        [CUSTOMER_PANEL_PARAM]: CUSTOMER_ID,
+      }),
+    });
+    const { container } = render(ui as React.ReactElement);
+    const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '');
+
+    // 前提斷言:兩處都真的渲染出來了(fixture 給空陣列的話這裡會紅,而不是靜默零覆蓋)
+    expect(container.textContent, '儲值金流水沒渲染 ⇒ 這格測不到它').toContain('查看訂單');
+    expect(container.textContent, '訂單歷史沒渲染 ⇒ 這格測不到它').toContain('PCM-2026-0009');
+
+    for (const id of [RELATED_ORDER_ID, HISTORY_ORDER_ID]) {
+      const toThisOrder = hrefs.filter((h) => h.includes(id));
+      expect(toThisOrder.length, `找不到指向 ${id} 的連結`).toBeGreaterThan(0);
+      for (const h of toThisOrder) {
+        expect(h, `${h} 是整頁跳轉 ⇒ 會弄丟面板與篩選`).toContain(`${ORDER_PANEL_PARAM}=${id}`);
+        expect(h).not.toMatch(new RegExp(`^/orders/${id}`));
+      }
+    }
+  });
+
+  it('「開整頁 ↗」出口存在且指向整頁版(OD `customer-card-summary.html:338`;`:310` 說明只放一個)', async () => {
+    const Page = await load();
+    const ui = await Page({
+      searchParams: Promise.resolve({
+        [ORDER_PANEL_PARAM]: PANEL_ID,
+        [CUSTOMER_PANEL_PARAM]: CUSTOMER_ID,
+      }),
+    });
+    const { container } = render(ui as React.ReactElement);
+    const full = [...container.querySelectorAll('a')].filter(
+      (a) => a.getAttribute('href') === `/customers/${CUSTOMER_ID}`,
+    );
+    // OD `:310` 逐字「整頁出口**只有一個**……不重複放第二個」⇒ 恰一個
+    expect(full).toHaveLength(1);
+  });
+});
+
+describe('OD 片 3b 守門:標題列的客人入口(fail-closed)', () => {
+  const PANEL_ID = '11111111-2222-4333-8444-555555555555';
+  const CUSTOMER_ID = '99999999-8888-4777-8666-555555555555';
+  const load = async () => (await import('./orders/page')).default;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listSuppliers.mockResolvedValue([]);
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+  });
+
+  async function renderPanel(over: Record<string, unknown>) {
+    mocks.findAdminOrderDetail.mockResolvedValue(orderDetailFixture(PANEL_ID, over));
+    const Page = await load();
+    const ui = await Page({ searchParams: Promise.resolve({ [ORDER_PANEL_PARAM]: PANEL_ID }) });
+    return render(ui as React.ReactElement).container;
+  }
+
+  it('🔴 有客人 id:入口出現,連結帶 customer + 保留 panel', async () => {
+    const container = await renderPanel({
+      customerUserId: CUSTOMER_ID,
+      customer: { name: '王小明', email: null, phone: null },
+    });
+    const link = [...container.querySelectorAll('a')].find((a) =>
+      a.getAttribute('href')?.includes(`${CUSTOMER_PANEL_PARAM}=${CUSTOMER_ID}`),
+    );
+    expect(link, '入口不見了').toBeTruthy();
+    expect(link?.getAttribute('href')).toContain(`${ORDER_PANEL_PARAM}=${PANEL_ID}`);
+    expect(link?.textContent).toContain('王小明');
+  });
+
+  /**
+   * 🔴 fail-closed 的三種缺值。**`undefined` 那格不是假想的**:
+   * 手寫的 detail 物件(本檔 fixture 在片 3b 之前就沒有這一欄)給的正是 `undefined`,
+   * 而 `undefined === null` 為 false ⇒ 早一版的 `=== null` 判斷會拿它去拼出
+   * `/customers/undefined` 或 `&customer=undefined`。空字串同理。
+   */
+  it.each([
+    ['null(投影退版讀不到)', null],
+    ['undefined(手寫物件缺這一欄)', undefined],
+    ['空字串', ''],
+    // 🔴 **第四類是 codex 關卡2 補的**:我前兩版寫「fail-closed」,但 `=== null` 漏 undefined、
+    //    falsy 又漏「長得不像 UUID 的字串」—— 那類會產生一個點下去沒反應(面板版)
+    //    或導到 404(整頁版)的入口。**宣稱涵蓋不到的那一類,就是宣稱說謊的那一類。**
+    ["字串 'null'(某處把缺值 stringify 過)", 'null'],
+    ['純空白字串', '   '],
+    ['非 UUID 亂碼', 'not-a-uuid-at-all'],
+  ])('🔴 客人 id 是 %s ⇒ 入口**不渲染**,且畫面上沒有 undefined/null 的網址', async (_l, value) => {
+    const container = await renderPanel({ customerUserId: value });
+    const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.some((h) => h.includes(CUSTOMER_PANEL_PARAM))).toBe(false);
+    for (const h of hrefs) {
+      expect(h, `拼出了壞路徑:${h}`).not.toMatch(/undefined|null/);
+    }
+  });
+});
