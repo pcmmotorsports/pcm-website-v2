@@ -21,7 +21,8 @@
 
 ## 下一步
 ①Sean 照 `docs/specs/2026-08-12-order-admin-acceptance-package.md` 跑訂單後台總驗收(🔴 六項優先;已推版、`REFUND_UI_ENABLED=1` 已設)。②Sean 看 OD 第四輪成果並拍狀態配色 A/B/C(OD 推薦 B)+ 密度預設檔 + 「未收未定」第五值。③~~2f apply 停點~~ **2026-08-13 已完成**(講完四條 → Sean 拍 A → 已上正式庫 → 台帳補登)⇒ 下一步是 **#445 超退閘**(排 2g 前)。④~~D 片 2 採購撤銷 plan~~ **v2 已寫、codex 判 FAIL 19MF 折中**;片 3 欄位精簡等 OD 定案。⑤#409 08-13 import 後三句 SQL 驗 0 結案。⑥2g→超退閘 #445→④-a/U1-U3 解鎖。
-🏁 **2026-08-13 四窗全收工 merge 入 dev**(B `2f91a7b3` / S `9fec15ce` / D `6bcba338` 台帳+已 apply / E `6f371758`;**全部未 push**,顆數當場 `git rev-list --count origin/dev..HEAD`)。**E 線 L1 `f745e04e` 停在 branch `od-order-list` 未 merge**。
+🏁 **2026-08-13 四窗全收工 merge 入 dev**(B `2f91a7b3` / S `9fec15ce` / D `6bcba338` 台帳+已 apply / E `6f371758`)—— 🔴 **2026-08-14 Sean 已全部 push 上 `origin/dev`(admin 正式站隨之重新部署)**;顆數一律當場 `git rev-list --count origin/dev..dev`、不看本行。**E 線 L1 `f745e04e` 停在 branch `od-order-list` 未 merge**。
+🧹 **2026-08-14 環境整理(新視窗照舊路徑會撲空,詳交接檔 §0-B)**:報價單 repo 已 clone 到本機 **`~/API大量上架/PCM報價單-V2`**(與 origin/main 同步、`.env` 三支就位;舊的 222 顆落後版改名 `.OLD-222落後` 封存,含 `data/` 461M 可當備料)/ `~/pcm-截圖` → `pcm-website-v2/.screenshots/`(gitignore)/ 報價單一次性腳本 4 組 → 該 repo `data/one-off-archive/` / worktree 18→4(留主樹 + `pcm-od-list` + `pcm-site-redesign` + detached JSDoc 那顆)/ `.turbo` 16G 快取已刪 ⇒ **下次 typecheck/lint 全量重跑會慢一輪,是預期不是故障**。
 🔴 **夜跑新視窗第一件事**:讀 `docs/handoff/2026-08-13-night-run-handover.md` —— 四線交接、各窗未落檔判斷、`#452` 開工前必讀、**E 線 L3 兩題待裁 + `order-list-view.ts` 668 行鐵則 6 判斷**(細節在 `~/pcm-mailbox/E-381-HANDOFF.md`,85 行必讀)。
 ## Sean 待決策
 🔴 **`#462` Q3 附加條件待釐清**(主視窗已問、Sean 未回):他拍 Q3=A 時逐字加了「**到貨的商品要可以轉去庫存那邊**」,而那與 08-12 Q6=A「不做庫存」+ 08-11 Q11「庫存落點在報價單 repo」的關係要他自己定 —— 選項 A=現在先記著、等庫存功能做出來再接(推薦,`#452` 已照此做完並落誠實缺口 G7);B=現在就要能轉(那要等報價單 repo,整條線停下來等)。

@@ -8,12 +8,37 @@
 ## §0 開工前三分鐘先確認
 
 ```bash
-cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --oneline -6 && git status --porcelain
+cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --oneline -6 && git status --porcelain && git rev-list --count origin/dev..dev
 ```
-預期:branch=`dev`、最新一顆是 STATUS/backlog 那顆、工作區乾淨。
-`git log origin/dev..HEAD | wc -l` ≈ **28**(全部未 push,**等 Sean 手動推**)。
+預期:branch=`dev`、工作區乾淨、**未推 = 0**。
 
-🔴 **不要自己 push。** 那是 Sean 的 review checkpoint。
+🔴 **2026-08-14 更新:昨夜那 29 顆 Sean 已全部推上 `origin/dev`(admin 正式站已隨之重新部署)。**
+本檔前一版寫的「≈28 顆未 push、等 Sean 手動推」**已過期**,別照著找。
+🔴 **不要自己 push 仍然成立** —— 那是 Sean 的 review checkpoint,每次都要他點頭。
+
+---
+
+## §0-B 2026-08-14 環境大搬風 —— **照舊路徑找檔會撲空,先讀這段**
+
+| 東西 | 舊位置(交接檔前一版/你記憶裡的) | **現在** |
+|---|---|---|
+| 報價單 repo | ~~mac mini 專屬,本機沒有~~ | **`~/API大量上架/PCM報價單-V2`(本機,與 origin/main 同步、`.env` 三支已就位)** |
+| ↑ 的舊 clone | 同上路徑 | **`~/API大量上架/PCM報價單-V2.OLD-222落後`(改名封存,2.9G,含 `data/` 461M 可當備料)** |
+| PCM 截圖 | `~/pcm-截圖` | **`pcm-website-v2/.screenshots/`**(已 gitignore) |
+| 報價單一次性腳本 4 組 | `~/pcm_gbracing_apply` 等 | **`API大量上架/PCM報價單-V2/data/one-off-archive/`**(gitignore 內、不弄髒樹) |
+| L2 前後對比截圖 | ~~E worktree~~ | **`pcm-website-v2/.playwright-mcp/l2-*.png`** |
+
+**worktree 從 18 個砍到 4 個**(其餘已併入 dev、分支都還在,要用 `git worktree add` 重開):
+留下 `pcm-website-v2`(主樹)、`pcm-od-list`(E 線 L1 未 merge)、`pcm-site-redesign`(含一個未進 git 的決策包)、
+`.claude/worktrees/practical-shannon-525b68`(一顆 JSDoc 修正未併)。
+
+🔴 **報價單 repo 的兩個地雷,開工前必知**:
+1. 它自己的 `CLAUDE.md:12` 寫死 `cd "$HOME/API大量上架/PCM報價單-V2"` ⇒ **路徑是它定的,別搬**。
+   (08-14 差點踩到:clone 放去 `~/PCM_Quote`,任何讀了規則檔的 session 都會 cd 進舊的那份。已修正。)
+2. **那個 repo 不能跑 `supabase db push`** —— 本地 migration 檔 146 個 vs 線上台帳 160 筆、版本號零重疊
+   (memory `reference_quote-repo-migration-ledger-desync`)。庫存表 schema 要走別的路,不是照 PCM 這邊的流程。
+
+⚠️ `~/pcm-website-v2/.turbo/`(16G 建置快取)已刪 ⇒ **下一次 typecheck/lint 會全量重跑、比平常慢一輪**,那是預期不是故障。
 
 ---
 
