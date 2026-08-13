@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AdminOrderLine } from '@pcm/domain';
 import {
@@ -46,6 +48,9 @@ function summary(
     quantity: number;
     orderedQuantity: number;
     instockQuantity: number;
+    // L0(2026-08-13):第四軸。覆寫型別要跟著 domain 型別走,否則測試想構造
+    // 「出貨了但可取消量沒被重複扣」這種情境時,覆寫參數會被 tsc 擋下來。
+    shippedQuantity: number;
     cancelledQuantity: number;
     cancellableQuantity: number;
   }> = {},
@@ -54,6 +59,7 @@ function summary(
     quantity: 5,
     orderedQuantity: 4,
     instockQuantity: 0,
+    shippedQuantity: 0,
     cancelledQuantity: 0,
     cancellableQuantity: 5,
     ...over,
@@ -765,6 +771,7 @@ describe('buildOrderCancelView 可取消量與模式', () => {
             quantity: 5, procurements: [], procurementTruncated: false, quantitySummary: summary({
               orderedQuantity: 5,
               instockQuantity: 5,
+              shippedQuantity: 5,
               cancellableQuantity: -3,
             }),
           },
@@ -792,6 +799,7 @@ describe('buildOrderCancelView 可取消量與模式', () => {
             quantitySummary: summary({
               orderedQuantity: 3,
               instockQuantity: 3,
+              shippedQuantity: 3,
               cancelledQuantity: 5,
               cancellableQuantity: 0,
             }),
@@ -888,5 +896,44 @@ describe('buildOrderCancelView 多條拒因的順序是穩定宣告序', () => {
       }),
     );
     expect(view.blockReasons).toEqual(['payment_not_unpaid', 'nothing_cancellable']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// L0 R1-MF4:`shippedQuantity` 不得進取消算式 —— **source-scan**,不是型別防線
+//
+// 🔴 為什麼型別擋不住:`buildCancelItemView` 拿到的是**完整的** `AdminOrderItemQuantitySummary`,
+//    可取消量的算式(`cancel-view.ts` 的 `derived`)就在同一支函式裡
+//    ⇒ `summary.shippedQuantity` 在那一行**完全可及、零型別阻力**。
+//    我原本宣稱「視圖型別不帶它 = 結構上寫不出這個錯」是**只蓋到下游**,R1 抓到。
+//
+// 🔴 為什麼這個錯特別容易被寫:它**看起來很合理** —— 「已出貨的當然不能取消」。
+//    但 Sean 2026-08-05 拍板「出貨必先到貨、無直送」⇒ `shipped ⊆ instock`
+//    ⇒ 已出貨的量**本來就含在 instock 裡**,再減一次 = **重複扣**,把可取消量算**小**,
+//    畫面會顯示「不能取消」而實際上還能取消。
+//
+// 形狀照同型先例 `lib/shipping/shipment-repository.test.ts` 那格(它禁的是同一張表的另一種誤用)。
+// ⚠️ **誠實邊界**:source-scan 只擋得住**這個檔**裡的直接引用。有人把 summary 傳給別的函式再減,
+//    本格看不到 —— 那一層由型別防線(視圖不帶該欄)接手,兩者互補、都不是全覆蓋。
+// ─────────────────────────────────────────────────────────────
+describe('L0 — `shippedQuantity` 不得進取消算式(source-scan)', () => {
+  const SRC = readFileSync(join(__dirname, 'cancel-view.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+
+  it('前提 — 真的讀到檔、且註解真的被剝掉(不然下面恆綠)', () => {
+    // 🔴 本檔的註解裡就逐字寫著 `shippedQuantity` 在解釋這條規則 ⇒ 不剝就恆紅;
+    //    而讀空字串會讓它恆綠。兩個方向都要釘。
+    expect(SRC).toContain('buildOrderCancelView');
+    expect(SRC, '剝註解沒作用 ⇒ 下面那格會被說明文字餵飽').not.toContain('🔴');
+  });
+
+  it('🔴 `cancel-view.ts` 的**程式碼**零 `shippedQuantity` 引用', () => {
+    expect(
+      SRC,
+      'cancel-view.ts 出現了 shippedQuantity ⇒ 極可能是把它減進可取消量。' +
+        '`shipped ⊆ instock`(Sean 2026-08-05 拍板「出貨必先到貨」)⇒ 再減一次是重複扣,' +
+        '會讓畫面顯示「不能取消」而實際上還能取消。要改請先推翻那條拍板。',
+    ).not.toContain('shippedQuantity');
   });
 });

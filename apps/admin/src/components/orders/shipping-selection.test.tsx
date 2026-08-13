@@ -71,37 +71,49 @@ function renderTwo() {
   );
 }
 
-describe('驗收字面① — 勾選欄桌機與手機**兩處**都要有', () => {
-  it('🔴 `<OrderShipCheckbox>` 在 orders-table.tsx 出現恰好 2 次(桌機 rowSpan 格 + 手機卡片)', () => {
+/**
+ * 🔴🔴 **2026-08-13 L2(#447 單一 markup 收斂):本組三格的期望值從 2 改成 1,這不是放寬守門。**
+ *
+ * 收斂前 `orders-table.tsx` 有兩份 markup(桌機表格 + 手機卡片 `OrderCard`),同一顆勾選框
+ * 要各掛一次 ⇒ 本組守的病是「只改桌機那份、手機那份沒得勾,而桌機測試全綠」。
+ * 收斂後**只有一份 markup**,那個病**結構上不存在** —— 掛 1 次就是兩個版面都有。
+ * ⇒ 期望值若還寫 2,反而是在要求把已經刪掉的第二份 markup 加回來。
+ *
+ * ⚠️ **原本被它守住的東西沒有變成無人守**,只是換了守法:
+ *    「一訂單一個框(不是逐品項冒出三個)」現在由 `orders-table.test.tsx` 的
+ *    `ORDER_LEVEL_COLUMNS` 那組(數 `col-pick` 有值的格數 = 1)承重,而且是**行為面**的量測,
+ *    比這裡的原始碼字串比對更準。
+ */
+describe('驗收字面① — 勾選欄(L2 收斂後:單一 markup ⇒ 掛一次)', () => {
+  it('🔴 `<OrderShipCheckbox>` 在 orders-table.tsx 出現恰好 1 次', () => {
     const hits = [...TABLE.matchAll(/<OrderShipCheckbox\b/g)].length;
     expect(
       hits,
-      `orders-table.tsx 裡的 <OrderShipCheckbox> 出現 ${hits} 次,期望 2(桌機表格 + 手機卡片各一)。` +
-        '🔴 只有 1 次 = 有一個版面沒得勾;桌機那份好好的、手機那份不見了,而所有桌機測試照樣全綠。' +
-        'Sean 常用手機看後台,漏掉手機那份等於這片對他沒用。',
-    ).toBe(2);
+      `orders-table.tsx 裡的 <OrderShipCheckbox> 出現 ${hits} 次,期望 1(收斂後只有一份 markup)。` +
+        '🔴 出現 2 次 = 有人把第二份 markup 加回來了(#447 的病復發);' +
+        '出現 0 次 = 整個版面沒得勾。',
+    ).toBe(1);
   });
 
-  it('🔴 兩處分別落在桌機 `<td rowSpan>` 與手機卡片裡(不是同一個版面塞了兩次)', () => {
-    const at = [...TABLE.matchAll(/<OrderShipCheckbox\b/g)].map((m) => m.index ?? -1);
-    expect(at.length).toBe(2);
-    const desktopEnd = TABLE.indexOf('function OrderCard');
-    expect(desktopEnd, 'orders-table.tsx 找不到 OrderCard(手機卡片)⇒ 版面結構變了,本條要重寫').toBeGreaterThan(-1);
-    expect(
-      at[0]! < desktopEnd && at[1]! > desktopEnd,
-      `兩個 checkbox 的位置 ${JSON.stringify(at)} 沒有分別落在 OrderCard 前後 ⇒ ` +
-        '可能同一個版面塞了兩次、另一個版面仍然沒有。',
-    ).toBe(true);
+  it('🔴 第二份 markup 不得復活:`OrderCard` 已刪除、且沒有第二個列表容器', () => {
+    // 這條接手了原本「兩處分別落在 OrderCard 前後」那格的角色 —— 方向反過來:
+    // 從「證明兩份都在」變成「證明只剩一份」。
+    expect(TABLE, 'OrderCard(收斂前的手機卡片)復活了 ⇒ #447 白做').not.toMatch(/function OrderCard\b/);
+    // 收斂前手機那份是 `<ul className='… md:hidden'>`;整支刪除後這個形狀不該再出現。
+    expect(TABLE).not.toMatch(/<ul className='[^']*md:hidden/);
   });
 
-  it('桌機那顆放在訂單層的 rowSpan 合併格(不是品項列 —— 否則三品項的訂單會冒出三個框)', () => {
+  it('🔴 勾選格是**訂單層**:掛在 `first ?` 分支裡(不是每個品項列都掛)', () => {
+    // 🔴 收斂前這條看的是 `rowSpan={rowSpan}`;rowSpan 已隨 L2 拆除
+    //    ⇒ 改看「掛在只有第一列會走到的分支」。同一件事、換了載體。
+    //    ⚠️ 原始碼比對本來就只能證形狀;真正證行為的是 `orders-table.test.tsx` 那組計數。
     const at = TABLE.indexOf('<OrderShipCheckbox');
-    const before = TABLE.slice(Math.max(0, at - 260), at);
+    const before = TABLE.slice(Math.max(0, at - 300), at);
     expect(
       before,
-      '桌機的 checkbox 前面找不到 `rowSpan={rowSpan}` ⇒ 它可能被放進品項層的 <td>,' +
+      'checkbox 前面找不到 `first ?` 分支 ⇒ 它可能被放進逐品項渲染的位置,' +
         '那會讓一張多品項訂單出現多個勾選框。',
-    ).toMatch(/rowSpan=\{rowSpan\}/);
+    ).toMatch(/first \?/);
   });
 });
 
@@ -119,7 +131,8 @@ describe('🔴🔴 驗收字面② — 鐵則 12:整包 summary 不得進 client
 
   it('🔴 呼叫端不得把整包 order 傳進去(只能傳 order.id 與 order.customerUserId 兩個欄位)', () => {
     const calls = [...TABLE.matchAll(/<OrderShipCheckbox([^/>]*)\/>/g)].map((m) => m[1] ?? '');
-    expect(calls.length, '掃不到 <OrderShipCheckbox … /> 的呼叫 ⇒ 掛法變了,本條要重寫').toBe(2);
+    // L2 收斂:1 份 markup ⇒ 1 個呼叫點(收斂前是 2)
+    expect(calls.length, '掃不到 <OrderShipCheckbox … /> 的呼叫 ⇒ 掛法變了,本條要重寫').toBe(1);
     for (const props of calls) {
       expect(
         props,
@@ -250,24 +263,25 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
   // 鍵盤/中鍵/右鍵複製網址都正常)。三個部件缺一就壞:
   //   ① 列 `relative`(覆蓋層的定位基準)② 連結 `after:absolute after:inset-0`(撐滿整列)
   //   ③ 勾選格 `relative z-10`(浮在覆蓋層上,否則點勾選會變成進詳情)
-  it('列本身是定位基準(`relative`)—— 桌機與手機卡片都要', () => {
+  // 🔴 **L2(#447)之後「桌機與手機卡片都要」這句話沒有對象了** —— 只有一份 markup、
+  //    一個 `<tr>` 同時服務兩個版面(手機由 CSS 把它攤成卡片的一段)。
+  //    ⇒ 本格從「兩個版面各驗一次」收斂成「那一個 `<tr>` 一定有 relative」。
+  it('列本身是定位基準(`relative`)', () => {
     const rows = [...TABLE.matchAll(/className=\{`([^`]*)`\}\s*\n\s*>/g)].map((m) => m[1] ?? '');
     expect(
       rows.some((c) => c.includes('relative')),
-      '桌機 <tr> 沒有 relative ⇒ stretched link 的 inset-0 會定位到更外層,命中區不是這一列',
+      '<tr> 沒有 relative ⇒ stretched link 的 inset-0 會定位到更外層,命中區不是這一列',
     ).toBe(true);
-    expect(
-      TABLE,
-      '手機卡片 <li> 沒有 relative ⇒ 手機上整卡不可點(而桌機測試全綠)',
-    ).toMatch(/<li className='[^']*relative[^']*p-3'/);
   });
 
-  it('🔴 兩個版面**各有一條** stretched link(`after:inset-0`)', () => {
+  it('🔴 **兩槽各有一條** stretched link(`after:inset-0`)', () => {
     const hits = [...TABLE.matchAll(/after:absolute after:inset-0/g)].length;
     expect(
       hits,
-      `after:inset-0 出現 ${hits} 次,期望 2(桌機列 + 手機卡各一)。` +
-        '只有 1 次 = 有一個版面整列不可點,而另一個版面的測試照樣綠。',
+      `after:inset-0 出現 ${hits} 次,期望 2。` +
+        '🔴 L2 之後這個 2 的意思**變了**:收斂前是「桌機列 + 手機卡各一份 markup」,' +
+        '現在是「同一格裡的桌機槽連結 + 手機槽連結」(#350c 兩槽去處不同 ⇒ 一個 <a> 當不了兩個 href)。' +
+        '數字沒變、理由換了 —— 只有 1 次 = 有一槽整列不可點。',
     ).toBe(2);
   });
 
@@ -285,13 +299,15 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
       return TABLE.slice(tagStart === -1 ? i : tagStart, i + 400);
     });
 
-  it('🔴 勾選格必須浮在覆蓋層上(`z-10`)—— 否則點勾選會變成進詳情', () => {
+  // 🔴 名字寫「**容器數**」不是「勾選框數」—— 這兩個在 L2 之後是不同的數字,
+  //    而**測試名字比斷言更容易被後人當成規格**(memory「測試名>斷言」那條)。
+  it('🔴 裝勾選框的 `relative z-10` **容器**恰 1 個 —— 少了它點勾選會變成進詳情', () => {
     const hits = zSlots().filter((s) => /<OrderShipCheckbox/.test(s)).length;
     expect(
       hits,
-      `勾選格的 relative z-10 出現 ${hits} 次,期望 2(桌機格 + 手機卡各一)。` +
+      `勾選格的 relative z-10 出現 ${hits} 次,期望 1(L2 收斂:一份 markup、一個勾選格)。` +
         '少了它,整列的 stretched link 會蓋在勾選框上面 ⇒ **點哪裡都進詳情、根本勾不了單**。',
-    ).toBe(2);
+    ).toBe(1);
   });
 
   // 🔴🔴 codex R1 must-fix(2026-08-12):上面兩格只證「該浮的東西有 z-10」,**沒有證覆蓋層比它低**。
@@ -319,18 +335,22 @@ describe('🔴 整列可點 — 點列進詳情、點勾選不誤觸(兩者不�
     }
   });
 
-  it('🔴 A13 操作欄的取消連結也必須浮起來(桌機格 + 手機卡各一)', () => {
+  // 🔴 同上:數的是**容器**,不是取消連結的數量(連結仍是 2 個 —— 桌機槽 + 手機槽,
+  //    #350c 兩槽去處不同)。名字若寫成「取消連結恰 1 個」會被後人讀成「兩槽被統一了」= 反的規格。
+  it('🔴 裝取消連結的 `relative z-10` **容器**恰 1 個(兩槽的 `<a>` 共用同一個 `<td>`)', () => {
     const hits = zSlots().filter((s) => /#cancel/.test(s)).length;
     expect(
       hits,
-      `取消連結的 relative z-10 出現 ${hits} 次,期望 2。少了它,點「取消」會被整列/整卡的` +
-        'stretched link 接走 ⇒ 員工被帶到面板頂端,看起來像功能好了(肉眼驗抓不到)。',
-    ).toBe(2);
+      `裝取消連結的 relative z-10 容器出現 ${hits} 個,期望 1(兩槽的 <a> 在同一個 <td> 裡)。` +
+        '少了它,點「取消」會被整列的 stretched link 接走 ⇒ 員工被帶到面板頂端,' +
+        '看起來像功能好了(肉眼驗抓不到)。',
+    ).toBe(1);
   });
 
   it('前提 — 每個 z-10 容器都真的裝著那兩種東西之一(不是各自為政)', () => {
     const slots = zSlots();
-    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(4);
+    // L2 收斂:2 個容器(勾選格 + 操作格),收斂前是 4(兩份 markup × 兩種用途)
+    expect(slots.length, 'z-10 一個都沒有 ⇒ 上面兩格會各自恆綠').toBe(2);
     // 🔴 兩種用途不得互相冒充:同一個視窗兩個特徵都命中 ⇒ 分類失效,上面兩格會互相補位而全綠。
     expect(
       slots.filter((s) => /<OrderShipCheckbox/.test(s) && /#cancel/.test(s)).length,

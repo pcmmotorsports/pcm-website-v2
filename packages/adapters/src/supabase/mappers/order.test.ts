@@ -278,13 +278,14 @@ describe('mapSupabaseAdminOrderRowToSummary — A9c 列表側三軸正規化', (
       listSummaryOf({
         quantity: 5,
         order_item_quantity_summary: [
-          { quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1 },
+          { quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1, shipped_quantity: 2 },
         ],
       } as Partial<AdminItemEmbed>),
     ).toEqual({
       quantity: 5,
       orderedQuantity: 4,
       instockQuantity: 2,
+      shippedQuantity: 2,
       cancelledQuantity: 1,
       cancellableQuantity: 2,
     });
@@ -297,6 +298,7 @@ describe('mapSupabaseAdminOrderRowToSummary — A9c 列表側三軸正規化', (
       quantity: 3,
       orderedQuantity: 0,
       instockQuantity: 0,
+      shippedQuantity: 0,
       cancelledQuantity: 0,
       cancellableQuantity: 3,
     });
@@ -308,8 +310,8 @@ describe('mapSupabaseAdminOrderRowToSummary — A9c 列表側三軸正規化', (
     // 這條的作用是把代價釘成規格、讓下一個人看得見,而不是讓它靜靜發生。
     // ⇒ 列表取消入口(A13)進來時**不得**吃本欄,要走明細那支 `| null` 的讀法。
     const broken: Array<Record<string, unknown>> = [
-      { quantity: 2, ordered_quantity: 0, instock_quantity: 2, cancelled_quantity: 1 }, // C7:2+1 > 2
-      { quantity: Number.NaN, ordered_quantity: 0, instock_quantity: 0, cancelled_quantity: 0 },
+      { quantity: 2, ordered_quantity: 0, instock_quantity: 2, cancelled_quantity: 1, shipped_quantity: 2 }, // C7:2+1 > 2
+      { quantity: Number.NaN, ordered_quantity: 0, instock_quantity: 0, cancelled_quantity: 0, shipped_quantity: 0 },
       {}, // 缺欄
     ];
     for (const row of broken) {
@@ -319,6 +321,7 @@ describe('mapSupabaseAdminOrderRowToSummary — A9c 列表側三軸正規化', (
         quantity: 2,
         orderedQuantity: 0,
         instockQuantity: 0,
+        shippedQuantity: 0,
         cancelledQuantity: 0,
         cancellableQuantity: 2,
       });
@@ -489,13 +492,14 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
   it('有列 → 四個原欄逐一透傳,cancellable = quantity − instock − cancelled', () => {
     const res = mapSupabaseAdminOrderDetailRowToDetail(
       detailRow([
-        { quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1 },
+        { quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1, shipped_quantity: 2 },
       ]),
     );
     expect(res.items[0]?.quantitySummary).toEqual({
       quantity: 5,
       orderedQuantity: 4,
       instockQuantity: 2,
+      shippedQuantity: 2,
       cancelledQuantity: 1,
       cancellableQuantity: 2, // 5 − 2 − 1;刻意選四個值互不相等,避免任一擺錯位置仍然過
     });
@@ -504,7 +508,7 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
   it('🔴 已到貨 ≠ 整個品項不可取消:買 5 到貨 2 → 仍可取消 3(A8a2 :395-406 的式子)', () => {
     const res = mapSupabaseAdminOrderDetailRowToDetail(
       detailRow([
-        { quantity: 5, ordered_quantity: 5, instock_quantity: 2, cancelled_quantity: 0 },
+        { quantity: 5, ordered_quantity: 5, instock_quantity: 2, cancelled_quantity: 0, shipped_quantity: 2 },
       ]),
     );
     expect(res.items[0]?.quantitySummary?.cancellableQuantity).toBe(3);
@@ -513,7 +517,7 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
   it('全數到貨 → 可取消 0(邊界,非負)', () => {
     const res = mapSupabaseAdminOrderDetailRowToDetail(
       detailRow([
-        { quantity: 5, ordered_quantity: 5, instock_quantity: 5, cancelled_quantity: 0 },
+        { quantity: 5, ordered_quantity: 5, instock_quantity: 5, cancelled_quantity: 0, shipped_quantity: 5 },
       ]),
     );
     expect(res.items[0]?.quantitySummary?.cancellableQuantity).toBe(0);
@@ -525,7 +529,7 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
   it('🔴 C7 不變式被違反(instock+cancelled > quantity)→ null,**不得**夾成看起來正常的「可取消 0」', () => {
     const res = mapSupabaseAdminOrderDetailRowToDetail(
       detailRow([
-        { quantity: 5, ordered_quantity: 5, instock_quantity: 4, cancelled_quantity: 3 },
+        { quantity: 5, ordered_quantity: 5, instock_quantity: 4, cancelled_quantity: 3, shipped_quantity: 4 },
       ]),
     );
     expect(res.items[0]?.quantitySummary).toBeNull();
@@ -560,6 +564,7 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
           quantity: 5,
           ordered_quantity: 'abc',
           instock_quantity: 2,
+          shipped_quantity: 2,
           cancelled_quantity: 1,
         }),
       ),
@@ -567,16 +572,78 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
     expect(res.items[0]?.quantitySummary).toBeNull();
   });
 
-  it('🔴 單物件(非陣列)且四欄齊全 → 正常解析(不賭 PostgREST 回哪種形狀)', () => {
+  it('🔴 單物件(非陣列)且五欄齊全 → 正常解析(不賭 PostgREST 回哪種形狀)', () => {
     const res = mapSupabaseAdminOrderDetailRowToDetail(
-      detailRow({ quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1 }),
+      detailRow({ quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1, shipped_quantity: 2 }),
     );
     expect(res.items[0]?.quantitySummary).toEqual({
       quantity: 5,
       orderedQuantity: 4,
       instockQuantity: 2,
+      shippedQuantity: 2,
       cancelledQuantity: 1,
       cancellableQuantity: 2,
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // L0(2026-08-13):第四軸 `shipped_quantity`
+  //
+  // 🔴🔴 **本組存在的第一個理由是一個我自己製造的假綠**:補這一軸時我把既有 fixture 的
+  //    `shipped_quantity` 全部設成**等於 `instock_quantity`** —— 那樣的話,mapper 若把
+  //    `instockQuantity` 誤抄進 `shippedQuantity`,**每一格都還是綠的**。
+  //    ⇒ 下面第一格刻意讓 `shipped ≠ instock`,那才是真的在驗接線。
+  //    (memory `feedback_fixture-value-makes-guard-vacuous` 同族:fixture 的值讓斷言失去意義。)
+  // ─────────────────────────────────────────────────────────────
+  describe('L0 — shipped 軸', () => {
+    it('🔴 `shipped ≠ instock` 才有判別力:到貨 4 出貨 1 ⇒ 兩欄各自透傳、不得互抄', () => {
+      const res = mapSupabaseAdminOrderDetailRowToDetail(
+        detailRow({ quantity: 5, ordered_quantity: 5, instock_quantity: 4, cancelled_quantity: 0, shipped_quantity: 1 }),
+      );
+      expect(res.items[0]?.quantitySummary?.instockQuantity, '到貨軸被出貨軸蓋掉').toBe(4);
+      expect(res.items[0]?.quantitySummary?.shippedQuantity, '出貨軸抄了到貨軸的值').toBe(1);
+    });
+
+    it('🔴 `cancellableQuantity` **不減 shipped**(減了 = 重複扣,因為 shipped ⊆ instock)', () => {
+      // 買 5、到貨 4、出貨 4、取消 0 ⇒ 可取消 = 5 − 4 − 0 = **1**。
+      // 若有人「順手」寫成 `quantity − instock − cancelled − shipped` = 5−4−0−4 = **−3**(夾成 0)
+      // ⇒ 畫面會顯示「不能取消」,而實際上還有 1 件沒到貨、可以取消。
+      const res = mapSupabaseAdminOrderDetailRowToDetail(
+        detailRow({ quantity: 5, ordered_quantity: 5, instock_quantity: 4, cancelled_quantity: 0, shipped_quantity: 4 }),
+      );
+      expect(res.items[0]?.quantitySummary?.cancellableQuantity).toBe(1);
+    });
+
+    it('🔴 C9 違反(`shipped > instock`)→ 走 fail-closed 出口回 null,**不夾值**', () => {
+      // Sean 2026-08-05 拍板「出貨必先到貨、無直送」⇒ DB CHECK `oiqs_shipped_le_instock` 保證。
+      // 違反 = 資料已損壞 ⇒ 同 C7 那條的處置:回 null,不夾成合法值假裝正常。
+      const res = mapSupabaseAdminOrderDetailRowToDetail(
+        detailRow({ quantity: 5, ordered_quantity: 5, instock_quantity: 2, cancelled_quantity: 0, shipped_quantity: 3 }),
+      );
+      expect(res.items[0]?.quantitySummary).toBeNull();
+    });
+
+    it('🔴 邊界:`shipped === instock` 合法(不是違反),要正常解析', () => {
+      // 上一格的正向對照 —— 少了它,把判準寫成 `>=` 也會全綠。
+      const res = mapSupabaseAdminOrderDetailRowToDetail(
+        detailRow({ quantity: 5, ordered_quantity: 5, instock_quantity: 3, cancelled_quantity: 0, shipped_quantity: 3 }),
+      );
+      expect(res.items[0]?.quantitySummary?.shippedQuantity).toBe(3);
+    });
+
+    it('🔴 `shipped_quantity` 缺欄 / 非數 → 當作沒讀到(回 null),不是當 0', () => {
+      // 🔴 這格擋的是「MF1 那串 `Number.isFinite` 忘了加第五欄」:漏加的話 `shipped` 會是 undefined,
+      //    而 `undefined >= quantity` 恆 false ⇒ 「已出貨」永遠判不出來,**零錯誤訊息**。
+      const res = mapSupabaseAdminOrderDetailRowToDetail(
+        detailRow({
+          quantity: 5,
+          ordered_quantity: 5,
+          instock_quantity: 3,
+          cancelled_quantity: 0,
+          shipped_quantity: Number.NaN,
+        }),
+      );
+      expect(res.items[0]?.quantitySummary).toBeNull();
     });
   });
 });
@@ -593,7 +660,7 @@ function detailRowWithAttempts(
   attempts?: { status: string }[] | null,
 ): SupabaseAdminOrderDetailRow {
   const base = detailRow([
-    { quantity: 5, ordered_quantity: 0, instock_quantity: 0, cancelled_quantity: 0 },
+    { quantity: 5, ordered_quantity: 0, instock_quantity: 0, cancelled_quantity: 0, shipped_quantity: 0 },
   ]);
   return attempts === undefined
     ? base

@@ -696,6 +696,22 @@ export type AdminOrderItemQuantitySummary = {
   /** 已取消數量(歷次累計) */
   cancelledQuantity: number;
   /**
+   * 已出貨數量(M-4b OD 改版 **L0**,2026-08-13)。
+   *
+   * 🔴 **為什麼現在才加**:欄位在 DB 早就有(B2-S2b `20260806180000` 已接重算 trigger + backfill),
+   * 但 TS 這側一直沒撈 ⇒ 顯示端判不出「已出貨」。後果不是「少一個狀態」而是**顯示成錯的**:
+   * 因為 Sean 2026-08-05 拍板「出貨必先到貨、無直送」⇒ `shipped ⊆ instock` ⇒ 已出貨的單
+   * `instock >= quantity` 恆成立 ⇒ 會被判成「在庫」。其中 **`未收出貨` 會顯示成 `未收現貨`** ——
+   * 那是需求檔 §0-H 點名**唯一真的會賠錢**的格子(錢沒收、貨已出去),**名字是反的**。
+   *
+   * 🔴🔴 **純顯示欄,絕不進任何可取消 / 上限 / 權限判斷**:
+   * `cancellableQuantity` 的算式是 `quantity − instock − cancelled`,**刻意不減 shipped**
+   * (`shipped ⊆ instock`,再減一次 = 重複扣、把可取消量算小)。
+   * ⚠️ 本欄存在之後,「看到 shipped 就順手減一下」變成一個**看起來很合理的**改壞方式 —— 別做。
+   * 出處與拍板:本檔 `cancellableQuantity` 的 docstring、`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10。
+   */
+  shippedQuantity: number;
+  /**
    * 尚可取消量 = `quantity − instock − cancelled`。
    *
    * 🔴 公式逐字對齊 A8a2 的可取消量守門(`20260805100000:395-406`);集中算一次是為了避免
