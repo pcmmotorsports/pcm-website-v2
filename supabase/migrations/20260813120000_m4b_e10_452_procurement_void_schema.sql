@@ -6,15 +6,21 @@
 -- 📖 給 Sean 看的三句話(apply 停點的決策依據;不寫術語)
 -- ══════════════════════════════════════════════════════════════════════════
 --
--- ① **這支 apply 之後,系統的行為完全不會變。**
+-- ① **這支 apply 之後,系統的行為不會變。**
 --    它只是幫「採購」這張表準備好兩個新欄位(作廢時間、作廢理由),
---    而**目前沒有任何一支程式能把那兩個欄位填進去** —— 撤銷的按鈕與後端在下一片(2a-2)才做。
+--    而**目前沒有任何一支程式會去填那兩個欄位** —— 撤銷的按鈕與後端在下一片(2a-2)才做。
+--    🔴 **除非有人拿最高權限直接下 SQL**(例如你自己開 Supabase 後台的 SQL 編輯器)。
+--    那條路**一直都在**(不是本片開的),本片也**沒有改變它**。
+--    ⇒ 對你的意思是:**不會有東西自己跑出來填它**;但**你自己從資料庫後台手動改,還是改得進去**。
 --    ⇒ 你現在要判的是「**結構對不對**」,不是「採購撤銷這個功能可不可以上線」。
---    ⇒ 全表的作廢欄恆為空 ⇒ 本片新加的兩個計算條件**恆真** ⇒ 算出來的數字與現在逐字相同。
+--    ⇒ 只要沒有人手動去填,全表的作廢欄就恆為空 ⇒ 本片新加的兩個計算條件**恆真**
+--      ⇒ 算出來的數字與現在逐字相同。(apply 前會再查一次現況確實是零筆,見「怎麼退」上方的 preflight 那條。)
 --
 -- ② **出事會怎樣**:apply 的過程若有任何一項驗收不過,整支**當場全部回滾**(不會留半套)。
 --    apply 成功之後若要反悔,回退 = 把兩個欄位刪掉、把索引改回原樣(見檔尾「怎麼退」)。
---    因為沒有人寫得進那兩欄,**回退時不會有資料要處理**。
+--    🔴 **同一個前提**:只要沒有人手動填過那兩欄,回退時**不會有資料要處理**;
+--    但**若有人手動填過**,回退就會遇到資料 —— 而且把索引改回「不分作廢與否」的唯一鍵時,
+--    那些列還可能**撞重複鍵**而讓回退失敗。⇒ 回退前要先查一次有沒有人填過(語法見檔尾)。
 --
 -- ③ **這支動到兩個已經在線上跑的計算**(採購數量的加總),但只加一個條件
 --    「**沒有被作廢的才算**」。今天沒有任何一列是作廢的 ⇒ 加了等於沒加。
@@ -71,6 +77,9 @@
 --   本片步 1b 的閘因此當場紅在 `4ac2989…`,錯誤沒有進到 Sean 面前。
 --
 --   **現行(四軸)指紋 = `4ac2989a58985beae91a491a816086f7`**
+--   🔴 **這顆有更強的出處**:s2b 自己在 apply 時就公告過它 —— 重放時的 NOTICE 逐字
+--   「S2b 四軸指紋公告(**下一片替換 helper 時 pin 這個**):4ac2989a58985beae91a491a816086f7」。
+--   ⇒ 它不只是我量到的,是**上一個改這支函式的人留給下一個人的交接值**,而我量到的與它一致。
 --   量法與來源:2026-08-13 於**本機拋棄式 PG 17.10** 依 `scripts/d1t2-rehearsal.sh provision` 的配方
 --   (initdb → `scripts/d1-supabase-shim.sql` → 依檔名序套用全部 migration,跳過兩支 pg_cron)
 --   重放到本片之前那一刻量得。
@@ -117,6 +126,14 @@
 --     ALTER TABLE public.order_item_procurement DROP CONSTRAINT order_item_procurement_void_pair;
 --     ALTER TABLE public.order_item_procurement DROP COLUMN void_reason, DROP COLUMN voided_at;
 --   COMMIT;
+--
+--   🔴 **回退前先跑這一句**(關卡2 M2:若有人手動填過,回退會遇到資料、還可能撞重複鍵):
+--     SELECT count(*) FROM public.order_item_procurement WHERE voided_at IS NOT NULL;   -- 必須 = 0
+--     -- >0 ⇒ **停**。要先決定那幾列怎麼處置(它們在回退後會變成「作廢資訊消失但列還在」),
+--     --      而且同 (order_item_id, supplier_id) 若有兩列,①的 ADD CONSTRAINT 會直接失敗。
+--   🔴 ①之後要把約束註解一併還原(關卡2 nit:照原指引退回,catalog 不是原樣):
+--     COMMENT ON CONSTRAINT order_item_procurement_business_key ON public.order_item_procurement IS
+--       (原文逐字取自 20260801150000:173-183,退回時照抄回去)
 -- ============================================================
 
 BEGIN;
@@ -159,8 +176,32 @@ BEGIN
       USING ERRCODE = 'P2B10';
   END IF;
 
-  -- 1c. A2b1 守門的結構錨(沒有現成的釘值 md5 可引 ⇒ 錨在「我要改的那一句」本身,
-  --     證明被替換的就是我以為的那一版。這比引一個我來源不明的 hash 誠實)
+  -- 1c. 🔴 A2b1 的**替換前整支指紋**(關卡2 M1;本片首版的洞就在這裡)
+  --
+  --   首版只用「三行 SUM 的結構錨」,理由寫的是「沒有現成的釘值 md5 可引」。
+  --   🔴 **那個理由是錯的,而且錯法值得留著**:s2b 那顆 md5 也是有人第一次量出來釘上去的
+  --   ——「這裡沒有現成的可以引」不是不做的理由,**所有現成的都是有人第一次做的**。
+  --   那句話長得像謹慎(不亂發明),實際是**降級**(退到一個更弱的守門)。
+  --   後果很具體:三行 SUM 以外的任何改動它都看不到,而本片是**整支 269 行 OR REPLACE**
+  --   ⇒ 正式庫若在別處長出新守門,會被本片**靜默覆蓋**。
+  --
+  --   量法逐字 = `md5(pg_get_functiondef('public.pcm_a2b1_procurement_allocation_guard()'::regprocedure))`
+  --   值的來源 = 2026-08-13 本機拋棄式 PG 17.10,依 d1t2-rehearsal 配方重放**到本片之前那一刻**量得。
+  --   ⚠️ 同 1b 的兩條誠實邊界:①本機重放值、**不是正式庫量得** ②`pg_get_functiondef` 格式
+  --      理論上可能隨 PG 版本異。🔴 **此閘若在正式庫紅了:先對帳、不要直接改這個值** ——
+  --      要先分辨「真的有人改過函式」與「格式差異」,兩者處置完全相反。
+  IF pg_catalog.md5(pg_catalog.pg_get_functiondef(
+       'public.pcm_a2b1_procurement_allocation_guard()'::regprocedure))
+     <> '39b9c3a446ad043c9681b0317f3e1961' THEN
+    RAISE EXCEPTION '452 前置閘 1c:A2b1 守門的**整支**指紋不符(實得 %,預期 39b9c3a446ad043c9681b0317f3e1961)。'
+                    '本片是整支 OR REPLACE ⇒ 繼續下去會把它現在的樣子覆蓋掉。停下來對帳,不要直接改這個值。',
+      pg_catalog.md5(pg_catalog.pg_get_functiondef(
+        'public.pcm_a2b1_procurement_allocation_guard()'::regprocedure))
+      USING ERRCODE = 'P2B10';
+  END IF;
+
+  -- 1c-2. 三行 SUM 的結構錨**保留但降級**:它不再是守門,是**錯誤訊息的線索**
+  --      (指紋紅的時候,這條能多告訴你一句「連我要改的那一句都不見了」)。
   v_def := pg_catalog.pg_get_functiondef(
              'public.pcm_a2b1_procurement_allocation_guard()'::regprocedure);
   IF pg_catalog.strpos(v_def,
@@ -416,6 +457,16 @@ BEGIN
       RAISE EXCEPTION '452 驗收 6a:替換後 owner/secdef/proconfig 被改掉(% / % / %)', v_owner, v_sec, v_cfg;
     END IF;
   END LOOP;
+  -- 🔴 6a-2(關卡2 important):首版沒讀 `proacl` ⇒ 「OR REPLACE 保留 ACL」只是引官方文件,**沒有當場驗**。
+  --    官方保證的是「保留」,不保證「保留的是對的」—— 若替換前就已經有 PUBLIC EXECUTE,兩支都會綠。
+  --    ⇒ 直接釘終態:兩支的 proacl 都必須恰為 owner 自己的 EXECUTE、零外部 grantee。
+  SELECT count(*) INTO v_cnt FROM pg_catalog.pg_proc p
+   WHERE p.oid IN ('public.pcm_a4a_recompute_order_item_summary(uuid)'::regprocedure,
+                   'public.pcm_a2b1_procurement_allocation_guard()'::regprocedure)
+     AND COALESCE(pg_catalog.array_to_string(p.proacl, ','), '<null>') = 'postgres=X/postgres';
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION '452 驗收 6a-2:兩支函式的 proacl 不是「只有 owner 的 EXECUTE」(符合的只有 % 支)', v_cnt;
+  END IF;
 
   -- ══ 6b. 兩處新述詞真的在函式體裡(不是我以為有加)═══════════════════════════
   v_def := pg_catalog.pg_get_functiondef('public.pcm_a2b1_procurement_allocation_guard()'::regprocedure);
