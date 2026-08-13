@@ -169,6 +169,52 @@
   container-type: inline-size;
 }
 
+/* ═══ L3 片4:密度三檔 ═══════════════════════════════════════════════════════
+   **值逐字取自 OD `overview-desktop.html:171-173` 的 CSS 宣告**(會生效的那一份)。
+   🔴 **不要照 `index.html:204` 那張說明表**(它寫緊湊檔 27px,是舊值)——
+      同一份 OD 內部有兩處這種矛盾,通則記在
+      `docs/specs/2026-08-12-admin-order-ui-design-brief.md` §0-D 開頭那張表。
+   🔴 預設 = **寬鬆**(OD `:170` 逐字「預設維持第五輪拍板的寬鬆 40」);
+      元件端 `density` 的預設值與這裡的**沒有 `data-den` 時**要指向同一檔,故基底就寫寬鬆的值。
+   ⚠️ **密度只動列高與字級,不動欄寬** —— 2026-08-14 實測:三檔字級下,
+      單價/金額/發票/舊格式單號四欄**全部仍被截斷**(緊湊檔最省也只差 8/6/3/49 px)
+      ⇒ **改密度不能拿來當「欄寬放不下」的答案**,那是兩件事(數字見 `~/pcm-mailbox/E-423-STOP.md`)。 */
+.orders-grid {
+  --od-row-h: 40px;
+  --od-fs: 0.875rem;
+  --od-fs-sm: 0.8125rem;
+}
+
+.orders-grid[data-den='std'] {
+  --od-row-h: 32px;
+  --od-fs: 0.8125rem;
+  --od-fs-sm: 0.75rem;
+}
+
+.orders-grid[data-den='tight'] {
+  --od-row-h: 26px;
+  --od-fs: 0.75rem;
+  --od-fs-sm: 0.6875rem;
+}
+
+/* 🔴 **列高由 `height` 帶、不是由上下 padding 帶**(OD `:105-107` 同款 `height:var(--row-h);padding:0 8px`)。
+   片3 刻意沒動上下內距(那時寫著「密度是片4」)⇒ 這裡接手:把元件的 `py-2` 壓成 0,
+   高度改吃 `--od-row-h`,否則三檔只有字級會變、列高不動 = 密度形同虛設。
+   ⚠️ 卡片模式那段有自己的 `padding: 0.125rem 0` 與 `height: auto`,**在本段之後**、不受影響。 */
+.orders-grid th,
+.orders-grid td {
+  height: var(--od-row-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--od-fs);
+}
+
+/* 次要欄的小字級(元件端掛 `text-xs` 的那幾格)。特異性 (0,2,1) > 上面那條 (0,1,1)。 */
+.orders-grid td.text-xs,
+.orders-grid th.text-xs {
+  font-size: var(--od-fs-sm);
+}
+
 /* 🔴 `table-layout: fixed` 是欄寬**生效的前提**(OD `overview-desktop.html:103` 逐字同款):
    auto 版面下 `width` 只是建議值,長品名照樣把欄撐開 ⇒ 1440 橫向溢位(片2 實測 1664 > 1414)。
    ⚠️ fixed 之下**只有第一列(= `<thead>` 的 `<th>`)的寬度算數** ⇒ 片3 一併把 `col-*` 掛到每個 `<th>` 上,

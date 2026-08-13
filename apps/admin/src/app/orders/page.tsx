@@ -15,6 +15,7 @@ import {
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
+import { OrderDensityToggle } from '../../components/orders/order-density-toggle';
 import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
@@ -68,6 +69,8 @@ export default async function OrdersPage({
   const {
     filter: urlFilter,
     page,
+    // L3 片4:密度是**顯示設定**、不是篩選 ⇒ 與 filter 分開拿,也不進 repository。
+    display,
     datePresetOptions,
     selectedDatePresetKey,
   } = parseOrderListSearchParams(rawSearchParams, {
@@ -158,7 +161,15 @@ export default async function OrdersPage({
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
         <h1 className='text-2xl font-semibold'>訂單</h1>
-        {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
+        <div className='flex items-center gap-4'>
+          {/* L3 片4:密度切換。🔴 `page` 帶**當下這一頁**、不是固定 1 ——
+              切密度不是換篩選條件,不該把人踢回第一頁(對照上面搜尋框那條刻意給 1 的理由)。 */}
+          <OrderDensityToggle
+            current={display.density}
+            buildHref={(density) => buildOrderListHref(filter, { density }, page)}
+          />
+          {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
+        </div>
       </div>
 
       {!panelOpen && <ResultBanner code={resultCode} />}
@@ -168,7 +179,7 @@ export default async function OrdersPage({
           其餘篩選軸照 `filter` 原樣帶回 ⇒ 搜尋不會把使用者的篩選洗掉。 */}
       <OrderKeywordSearch
         keyword={keyword}
-        listHref={buildOrderListHref(filter, 1)}
+        listHref={buildOrderListHref(filter, display, 1)}
         matchCount={result?.keywordMatchCount ?? null}
         truncated={result?.keywordTruncated ?? false}
       />
@@ -238,7 +249,8 @@ export default async function OrdersPage({
             {/* #350c:面板連結**帶著當下篩選與頁碼**一起走(同一支 builder)⇒ 點開一張單不會洗掉列表狀態。 */}
             <OrdersTable
               orders={orders}
-              buildPanelHref={(orderId) => buildOrderListHref(filter, page, orderId)}
+              density={display.density}
+              buildPanelHref={(orderId) => buildOrderListHref(filter, display, page, orderId)}
             />
           </ShippingSelectionProvider>
           <ListPagination
@@ -246,7 +258,7 @@ export default async function OrdersPage({
             total={total}
             pageSize={ORDERS_PAGE_SIZE}
             shownCount={orders.length}
-            buildHref={(p) => buildOrderListHref(filter, p)}
+            buildHref={(p) => buildOrderListHref(filter, display, p)}
             unit='筆'
           />
         </>

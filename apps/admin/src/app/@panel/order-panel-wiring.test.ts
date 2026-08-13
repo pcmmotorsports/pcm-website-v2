@@ -10,6 +10,7 @@ import {
   buildPanelSelfHref,
   ORDER_PANEL_PARAM,
   CUSTOMER_PANEL_PARAM,
+  ORDER_DENSITY_DEFAULT,
 } from '../../lib/orders/order-list-view';
 
 // order-panel-wiring.test.ts — #350c 訂單面板接線的守門。
@@ -145,6 +146,13 @@ vi.mock('../../lib/payment/refund-read', () => ({
 }));
 
 // ── 1. 三處 maxDuration:錢的那條 ──────────────────────────────────────────────
+/**
+ * L3 片4:`buildOrderListHref` 的顯示設定參數是**必填**(主視窗 E-424 裁)。
+ * 🔴 本檔多數格子與密度無關 ⇒ 統一給預設值,讓那些格子的斷言維持原意;
+ *    密度本身的三條守門在下方自己的 describe 裡,**不靠這個常數**。
+ */
+const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
+
 describe('#350c 守門 1:退款 action 的 segment 時限三處同值', () => {
   // 🔴 面板改成 searchParams 驅動之後,退款表單是在 `/orders?panel=<id>` 送出的
   //    ⇒ 吃的是 `/orders` 的時限,不再只有 `/orders/[id]`。三處任一漏掉 = 那條路徑
@@ -193,7 +201,7 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
   };
 
   it('同時帶 篩選 + page + panel', () => {
-    const href = buildOrderListHref(filter, 3, 'ord-1');
+    const href = buildOrderListHref(filter, DEN, 3, 'ord-1');
     const qs = new URLSearchParams(href.split('?')[1] ?? '');
     expect(href.startsWith('/orders?')).toBe(true);
     // 突變:builder 少列任何一個 entry ⇒ 下面對應那條紅。
@@ -206,8 +214,8 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
   });
 
   it('不給 panelOrderId = 關閉面板(其餘狀態原封不動)', () => {
-    const open = new URLSearchParams(buildOrderListHref(filter, 3, 'ord-1').split('?')[1]);
-    const closed = new URLSearchParams(buildOrderListHref(filter, 3).split('?')[1]);
+    const open = new URLSearchParams(buildOrderListHref(filter, DEN, 3, 'ord-1').split('?')[1]);
+    const closed = new URLSearchParams(buildOrderListHref(filter, DEN, 3).split('?')[1]);
     expect(closed.has(ORDER_PANEL_PARAM)).toBe(false);
     open.delete(ORDER_PANEL_PARAM);
     // 關閉前後除了 panel 以外**逐字相同** —— 這條才擋得住「關閉時順手弄丟篩選」。
