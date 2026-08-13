@@ -4,9 +4,11 @@ import type { AdminOrderSummary } from '@pcm/domain';
 import {
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
+  ORDER_DENSITY_DEFAULT,
   formatOrderAmount,
   formatOrderItemVehicle,
   formatOrderListDate,
+  type OrderDensity,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的字面與配色**全部**由 L1(`f745e04e`)那支純函式算,本檔不自己拼 class。
 import { orderStatusView } from '../../lib/orders/order-status-axes';
@@ -401,8 +403,17 @@ function OrderGroup({
 export function OrdersTable({
   orders,
   buildPanelHref,
+  density = ORDER_DENSITY_DEFAULT,
 }: {
   orders: AdminOrderSummary[];
+  /**
+   * L3 片4:列高與字級三檔(Sean 拍 Q3=A 走 URL 參數)。
+   * 🔴 **本檔只把它標成 `data-den`,三檔的實際數值全在 `globals.css`** ——
+   *    值是視覺規格(OD `overview-desktop.html:171-173`),不該有第二份落在元件裡。
+   * ⚠️ 有預設值是為了**呼叫端漏傳時倒向 Sean 拍的預設(寬鬆)**,不是為了讓它可以不傳;
+   *    真正防漏傳的是 `buildOrderListHref` 那道必填 + 窮舉守門(連結才是密度會掉的地方)。
+   */
+  density?: OrderDensity;
   /**
    * #350c:桌機單號連結要導去哪(= `/orders?…&panel=<id>`,開右側面板)。
    *
@@ -428,7 +439,7 @@ export function OrdersTable({
     //    「L2 — `globals.css` 卡片化區塊」那組釘在一起(它**真的讀** `globals.css`)。
     //    ⚠️ 這句話在 R1 時是**錯的字面**:當時測試從頭到尾沒讀過 `globals.css`,
     //    「有守門」是宣稱不是事實(code-reviewer M3、鐵則 11)。守門已於同批補上。
-    <div className='orders-grid bg-card overflow-x-auto rounded-lg border'>
+    <div className='orders-grid bg-card overflow-x-auto rounded-lg border' data-den={density}>
       <table className='w-full border-collapse'>
         <thead>
           <tr>

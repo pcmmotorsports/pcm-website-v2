@@ -57,6 +57,42 @@ export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
 export const SHOW_UNPAID_CARD_PARAM = 'show_unpaid_card';
 export const SHOW_UNPAID_CARD_ON = '1';
 
+// ── L3 片4:列表**顯示設定**(密度)。與上面那些**篩選**軸分開放,理由見 `OrderListDisplayState` ──
+
+/** 密度切換的 query key(Sean 拍 Q3=A:走 URL 參數,不走 cookie / localStorage)。 */
+export const ORDER_DENSITY_PARAM = 'den';
+
+/**
+ * 密度三檔的**值域**(哪三檔),真權威 = OD `overview-desktop.html:171-173` 的 CSS 宣告。
+ *
+ * 🔴 **這裡刻意不寫三檔的 px 值**(R 審 nit②):值只准住 `app/globals.css` 的
+ *    `--od-row-h` / `--od-fs` / `--od-fs-sm`。註解裡再抄一份是**第二份文字複本** ——
+ *    它不影響行為、但 CSS 改值時會**靜默過期**,而守門掃不到註解。
+ *    要看數字請直接看那三條 CSS 規則。
+ * ⚠️ **不要照 OD `index.html:204` 那張說明表**(它的緊湊檔是舊值)——
+ *    同一份 OD 內部有兩處這種矛盾,通則與另一處記在
+ *    `docs/specs/2026-08-12-admin-order-ui-design-brief.md` §0-D 開頭那張表。
+ */
+export const ORDER_DENSITY_VALUES = ['loose', 'std', 'tight'] as const;
+export type OrderDensity = (typeof ORDER_DENSITY_VALUES)[number];
+
+/** 預設 = **寬鬆**(OD `:170` 註解逐字要求維持第五輪拍板的寬鬆檔;px 值同上,只住 CSS)。 */
+export const ORDER_DENSITY_DEFAULT: OrderDensity = 'loose';
+
+/**
+ * 列表的**顯示狀態**(不是篩選)。
+ *
+ * 🔴🔴 **為什麼不塞進 `AdminOrderFilter`**(主視窗 E-407 §2 裁 A,理由是型別語意不是省工):
+ *    `AdminOrderFilter` 一路傳到 repository / DB 查詢層 ⇒ 把顯示設定混進去,
+ *    等於**讓查詢層看得到一個它永遠不該用的欄位**,而「這個欄位要不要進 SQL」
+ *    會變成每個讀 code 的人都要重新判斷一次。
+ * 🔴 但它**仍然要有窮舉守門** —— 見 `buildOrderListHref` 的 `byDisplayKey`:
+ *    這個型別加一軸而那裡沒列,`tsc` 直接紅。兩個型別語意乾淨分離、兩邊都有機制。
+ */
+export type OrderListDisplayState = {
+  density: OrderDensity;
+};
+
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
 
 // 🔴 手抄清單、typecheck 抓不到漏抄(`readonly PaymentStatus[]` 少一個元素不是型別錯誤)。
@@ -268,6 +304,8 @@ export function parseOrderListSearchParams(
 ): {
   filter: AdminOrderFilter;
   page: number;
+  /** L3 片4:顯示設定(密度)。**與 filter 分開回傳** —— 它不進 DB 查詢。 */
+  display: OrderListDisplayState;
   /** #347-3c-2:日期下拉的選項(server 算好;沒給 `now` 時為空陣列 = 不顯示下拉)。 */
   datePresetOptions: OrderDatePresetOption[];
   /** #347-3c-2:選中的那一格(`custom` = 兩個日期輸入)。 */
@@ -294,6 +332,11 @@ export function parseOrderListSearchParams(
   return {
     filter,
     page: parsePage(raw.page),
+    // 🔴 非法值倒向**預設**(同 L6 那條的 fail-safe 方向):`?den=xxx` 不該讓畫面壞掉,
+    //    也不該讓它變成「某個沒人選過的密度」。`pickEnum` 是本檔既有的白名單守門。
+    display: {
+      density: pickEnum(raw[ORDER_DENSITY_PARAM], ORDER_DENSITY_VALUES) ?? ORDER_DENSITY_DEFAULT,
+    },
     datePresetOptions: dateRange.options,
     /** 篩選列要把哪一格顯示成選中(= 真正生效的那段期間;兩者同源,不可能對不上)。 */
     selectedDatePresetKey: dateRange.selectedKey,
@@ -525,6 +568,19 @@ const ORDER_KEYWORD_URL_EXCLUDED = '__keyword_lives_in_httponly_cookie__';
 
 export function buildOrderListHref(
   filter: AdminOrderFilter,
+  /**
+   * L3 片4:顯示設定。**必填,刻意的**(主視窗 E-424 裁)。
+   *
+   * 🔴 做成選填會把下面那道窮舉守門的價值**整個**削掉,不是削一半:
+   *    那道守門的唯一功能是「漏了會在編譯期叫」;選填 ⇒ 病從「忘了列進表」搬到「忘了帶參數」,
+   *    而**新的位置沒有任何東西會叫**。改 7 個呼叫端是機械成本,`tsc` 會逐處指給你看。
+   * ⚠️ 位置放在第 2 個而不是主視窗字面說的「第 4 個」:**TypeScript 根本不允許必填參數排在選填之後**
+   *    —— 放第 4 個(在 `panelOrderId` 之後)會直接 `error TS1016: A required parameter cannot follow
+   *    an optional parameter.`(R 窗 2026-08-14 在自己的 worktree 跑探針實測)。
+   *    ⇒ **不是「可以但不安全」,是寫不出來。** 裁決的要求是「必填」這個性質,位置由語言規則決定。
+   *    🔴 我原本把理由寫成「語言層擋不住跳過它」——**那是我憑印象寫的、而且是錯的機制**,已更正。
+   */
+  display: OrderListDisplayState,
   page: number,
   /** 有值 = 這條連結把該訂單開進右側面板;不給 = 關閉面板(列表狀態照舊保留)。 */
   panelOrderId?: string,
@@ -566,10 +622,23 @@ export function buildOrderListHref(
         : (taipeiYmdFromDayEndExclusive(filter.createdTo) ?? undefined),
     ],
   };
+  // 🔴🔴 **第二道編譯期窮舉守門(L3 片4)** —— 與上面那道同構、但守的是**顯示軸**。
+  //    `OrderListDisplayState` 加一軸而這裡沒列 ⇒ `tsc` 直接紅。
+  //    ⚠️ 同樣**只保證「每個軸都被做過決定」**,保證不了那個決定是對的
+  //      ⇒ 那半靠 `order-list-view.test.ts` 的三條(帶著走 / 等於預設不寫進 URL / 往返)。
+  const byDisplayKey: Record<keyof OrderListDisplayState, HrefEntry> = {
+    // 🔴 **等於預設值就不寫進 URL**:否則每條連結都掛著 `den=loose`,而那是雜訊
+    //    (同 L6 的 `SHOW_UNPAID_CARD_PARAM` 關著時不留空參數那條)。
+    density: [
+      ORDER_DENSITY_PARAM,
+      display.density === ORDER_DENSITY_DEFAULT ? undefined : display.density,
+    ],
+  };
   return buildListHref(
     '/orders',
     [
       ...Object.values(byFilterKey),
+      ...Object.values(byDisplayKey),
       // #350c:面板目標(**不是 filter 的軸**,所以不在上面那個 Record 裡)。
       //    `undefined` 會被 buildListHref 略過 ⇒ 不給 = 關閉面板。
       [ORDER_PANEL_PARAM, panelOrderId] as HrefEntry,

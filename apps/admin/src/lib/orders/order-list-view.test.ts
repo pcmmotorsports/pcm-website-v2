@@ -7,6 +7,9 @@ import type { AdminOrderFilter } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
+  ORDER_DENSITY_DEFAULT,
+  ORDER_DENSITY_PARAM,
+  ORDER_DENSITY_VALUES,
   buildOrderDatePresetOptions,
   ORDER_DATE_DEFAULT_KEY,
   formatOrderListDate,
@@ -24,6 +27,13 @@ import {
   PAYMENT_CHANNEL_VALUES,
   SHOW_UNPAID_CARD_PARAM,
 } from './order-list-view';
+
+/**
+ * L3 片4:`buildOrderListHref` 的顯示設定參數是**必填**(主視窗 E-424 裁)。
+ * 🔴 本檔多數格子與密度無關 ⇒ 統一給預設值,讓那些格子的斷言維持原意;
+ *    密度本身的三條守門在下方自己的 describe 裡,**不靠這個常數**。
+ */
+const DEN = { density: ORDER_DENSITY_DEFAULT } as const;
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
   it('合法四軸值 → filter 帶入(來源/管道 D-1b 多勾選=陣列);page 解析', () => {
@@ -103,12 +113,13 @@ describe('parseOrderListSearchParams — A9w2 九碼篩選下架', () => {
 
 describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', () => {
   it('無篩選 + page 1 → /orders(乾淨)', () => {
-    expect(buildOrderListHref({}, 1)).toBe('/orders');
+    expect(buildOrderListHref({}, DEN, 1)).toBe('/orders');
   });
 
   it('帶篩選 + page>1 → 保留篩選 + page;多勾選=同鍵重複 param', () => {
     const href = buildOrderListHref(
       { paymentStatus: 'paid', orderSources: ['web', 'manual_line'] },
+      DEN,
       2,
     );
     expect(href).toContain('/orders?');
@@ -118,7 +129,7 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
   });
 
   it('page 1 省略 page 參數(但保留篩選)', () => {
-    const href = buildOrderListHref({ fulfillmentStatus: 'shipped' }, 1);
+    const href = buildOrderListHref({ fulfillmentStatus: 'shipped' }, DEN, 1);
     expect(href).toContain('fulfillment_status=shipped');
     expect(href).not.toContain('page=');
   });
@@ -129,6 +140,7 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
     // 會把死參數一路傳下去。
     const href = buildOrderListHref(
       { workflowStatuses: ['shipped_done', null], paymentStatus: 'paid' } as AdminOrderFilter,
+      DEN,
       2,
     );
     expect(href).not.toContain('workflow_status');
@@ -281,13 +293,51 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
   });
 
   it('🔴 L6-5 buildOrderListHref 會把開關帶著走(翻頁不掉)', () => {
-    const href = buildOrderListHref({ includeUnpaidCardOrders: true }, 3);
+    const href = buildOrderListHref({ includeUnpaidCardOrders: true }, DEN, 3);
     expect(href).toContain(`${SHOW_UNPAID_CARD_PARAM}=1`);
     expect(href).toContain('page=3');
   });
 
+  // ── L3 片4:密度(顯示軸)三條 ────────────────────────────────────────────
+  //
+  // 🔴🔴 **這三條守的是編譯期窮舉守門蓋不到的那一半。**
+  //    `Record<keyof OrderListDisplayState, HrefEntry>` 只保證「density 這個 key 被做過決定」,
+  //    保證不了 ①param 名對不對 ②該帶的時候有沒有帶 ③不該帶的時候有沒有忍住。
+  // ⚠️ **第二條最容易被抄漏**:只寫第一條的話,「永遠把 `den=loose` 寫進 URL」也會全綠,
+  //    而那會讓每一條連結都掛著雜訊參數。三條缺一都不行。
+  it('🔴 片4-1 非預設密度會被帶著走(翻頁不掉)', () => {
+    const href = buildOrderListHref({}, { density: 'tight' }, 3);
+    expect(href).toContain(`${ORDER_DENSITY_PARAM}=tight`);
+    expect(href).toContain('page=3');
+  });
+
+  it('🔴 片4-2 等於預設值時**不寫進 URL**(否則每條連結都掛著 den=loose 的雜訊)', () => {
+    const href = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT }, 1);
+    expect(href).not.toContain(ORDER_DENSITY_PARAM);
+    // 前提:這個 fixture 真的走得出一條 href(不然 `not.toContain` 在空字串上恆真)
+    expect(href).toBe('/orders');
+  });
+
+  it('🔴 片4-3 往返:URL → display → URL 逐字回到原樣', () => {
+    for (const den of ORDER_DENSITY_VALUES) {
+      const { filter, display } = parseOrderListSearchParams({ [ORDER_DENSITY_PARAM]: den });
+      expect(display.density, `${den} 應被解析回自己`).toBe(den);
+      const qs = new URLSearchParams(buildOrderListHref(filter, display, 1).split('?')[1] ?? '');
+      // 預設那一檔刻意不寫進 URL(片4-2)⇒ 往返的期望值要跟著分流,不是一律 `toBe(den)`。
+      expect(qs.get(ORDER_DENSITY_PARAM)).toBe(den === ORDER_DENSITY_DEFAULT ? null : den);
+    }
+  });
+
+  it('🔴 片4-4 非法值倒向預設,不是讓畫面壞掉、也不是變成沒人選過的密度', () => {
+    const { display } = parseOrderListSearchParams({ [ORDER_DENSITY_PARAM]: 'huge' });
+    expect(display.density).toBe(ORDER_DENSITY_DEFAULT);
+    // 同鍵重複取首值(與其他軸一致);首值非法 ⇒ 仍倒向預設
+    const dup = parseOrderListSearchParams({ [ORDER_DENSITY_PARAM]: ['tight', 'std'] });
+    expect(dup.display.density).toBe('tight');
+  });
+
   it('L6-6 關著的時候不留空參數在 URL 上', () => {
-    expect(buildOrderListHref({ includeUnpaidCardOrders: false }, 1)).not.toContain(
+    expect(buildOrderListHref({ includeUnpaidCardOrders: false }, DEN, 1)).not.toContain(
       SHOW_UNPAID_CARD_PARAM,
     );
   });
@@ -333,7 +383,7 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
     //    而症狀是員工每翻一頁結束日就往後跑一天。
     const raw = { date_from: '2026-02-10', date_to: '2026-08-10', payment_status: 'paid' };
     const { filter } = parseOrderListSearchParams(raw);
-    const qs = new URLSearchParams(buildOrderListHref(filter, 1).split('?')[1] ?? '');
+    const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 1).split('?')[1] ?? '');
     expect(qs.get('date_from')).toBe('2026-02-10');
     expect(qs.get('date_to')).toBe('2026-08-10');
     expect(qs.get('payment_status')).toBe('paid');
@@ -341,7 +391,7 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
 
   it('🔴 只給一邊也要往返得回來', () => {
     const { filter } = parseOrderListSearchParams({ date_to: '2026-08-10' });
-    const qs = new URLSearchParams(buildOrderListHref(filter, 1).split('?')[1] ?? '');
+    const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 1).split('?')[1] ?? '');
     expect(qs.get('date_to')).toBe('2026-08-10');
     expect(qs.has('date_from')).toBe(false);
   });
@@ -350,7 +400,7 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
     // 窮舉 Record 逼每個軸都要有一格,而 keyword 那格的值恆 undefined。
     // 突變:把 keyword 那格改成 `['keyword', filter.keyword]` ⇒ 這條紅,而症狀是
     // 客人姓名/電話跟著網址進 access log、CDN log、瀏覽器歷史。
-    const href = buildOrderListHref({ keyword: '王小明' }, 1);
+    const href = buildOrderListHref({ keyword: '王小明' }, DEN, 1);
     expect(href).not.toContain('王小明');
     expect(href).not.toContain(encodeURIComponent('王小明'));
     expect(href).toBe('/orders');
@@ -358,7 +408,7 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
 
   it('日期軸與面板連結並存(點開一張單不會把日期洗掉)', () => {
     const { filter } = parseOrderListSearchParams({ date_from: '2026-02-10' });
-    const qs = new URLSearchParams(buildOrderListHref(filter, 2, 'ord-1').split('?')[1] ?? '');
+    const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 2, 'ord-1').split('?')[1] ?? '');
     expect(qs.get('date_from')).toBe('2026-02-10');
     expect(qs.get('panel')).toBe('ord-1');
     expect(qs.get('page')).toBe('2');
@@ -426,7 +476,7 @@ describe('#347-3c-2 預設近半年 + 選中的選項', () => {
     //    首次載入的可見性完全由下拉那格承擔;這一格量的是 `buildOrderListHref` 的產出,
     //    也就是「按下去之後」那些連結。別把它讀成「網址列會顯示日期」。
     const r = parseOrderListSearchParams({}, { now: NOW });
-    const qs = new URLSearchParams(buildOrderListHref(r.filter, 1).split('?')[1] ?? '');
+    const qs = new URLSearchParams(buildOrderListHref(r.filter, DEN, 1).split('?')[1] ?? '');
     expect(qs.get('date_from')).toBe('2026-02-10');
     expect(qs.get('date_to')).toBe('2026-08-10');
   });

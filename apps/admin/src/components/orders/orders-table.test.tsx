@@ -27,6 +27,7 @@ const panelHref = (orderId: string) => `/orders?panel=${orderId}`;
 
 import {
   PAYMENT_STATUS_LABEL,
+  ORDER_DENSITY_DEFAULT,
   STATUS_CAPSULE,
 } from '../../lib/orders/order-list-view';
 // L3 片1:狀態八值的期望值一律從這裡取,不在本檔重打一份中文字面。
@@ -1325,6 +1326,60 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
 //       L2 之後那個理由消失了(只剩一份 markup),但**結論不變** —— 本表整體維持零 client 邊界
 //       (唯一 island 是勾選框),帶表單的控件仍不屬於這裡。
 // 🔴 與 backlog #372 的 **OP-A13(退款態沖銷入口)無關**,只是撞字面。
+// ── L3 片4:密度只在 DOM 面留一個掛勾,值全在 CSS ──────────────────────────
+describe('L3 片4 — 密度掛勾(`data-den`)', () => {
+  it('🔴 `data-den` 掛在 `.orders-grid` 上(CSS 的三檔選擇器認的就是它)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} density='tight' orders={[order({ lines: [line('l1', 1, 12000)] })]} />,
+    );
+    const grid = container.querySelector('.orders-grid')!;
+
+    expect(grid.getAttribute('data-den')).toBe('tight');
+  });
+
+  it('🔴 不傳 density 時倒向預設(寬鬆),不是變成沒有這個屬性', () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const grid = container.querySelector('.orders-grid')!;
+
+    // 🔴 期望值取自 `ORDER_DENSITY_DEFAULT` 常數本身,不在本檔重打 'loose'
+    //    —— 重打一份的話,那顆常數改值時本格仍全綠。
+    expect(grid.getAttribute('data-den')).toBe(ORDER_DENSITY_DEFAULT);
+  });
+
+  // 🔴🔴 **R 審 F1:本格的第一版把期望值 `['40px','32px','26px']` 重打在測試裡** ——
+  //    那禁的是**當下那三個值**,不是「值不准有第二份」。有人把 CSS 改成 38/30/24,
+  //    本格照樣全綠(它在禁已經不存在的值),而新值可以自由被複製進元件
+  //    ⇒ **它唯一要防的事,改一次值就完全失效。**
+  //    ⚠️ 諷刺的是 `:1344` 那格(兩格之前)就寫著這條規則的正面版
+  //      「期望值取自常數本身、不在本檔重打」—— **同一個檔、相隔兩格、自己違反自己寫的規則。**
+  //      本專案給這個形狀的名字是「知道規則不等於執行規則」。
+  //    ⇒ 改成**從 `globals.css` 抽出當下的值**再去掃,值改了守門跟著改。
+  it('🔴 CSS 三檔選擇器都在,而且密度值只住 globals.css(不得有第二份)', () => {
+    const css = readFileSync(join(__dirname, '../../app/globals.css'), 'utf8');
+    for (const den of ['std', 'tight']) {
+      expect(css, `${den} 那檔的選擇器不在 ⇒ 切過去不會有任何變化`).toContain(
+        `.orders-grid[data-den='${den}']`,
+      );
+    }
+
+    // 從 CSS 抽出**當下**的三個列高值(不是重打)
+    const rowHeights = [...css.matchAll(/--od-row-h:\s*([\d.]+px)/g)].map((m) => m[1]!);
+    // 🔴 **這一步不可省**(R 逐字要求):regex 失效時 `rowHeights` 為空 ⇒ 下面的迴圈不跑 ⇒ 整格恆真
+    //    = 用一個更隱蔽的假綠換掉原本那個。抽到的數量本身就是斷言對象。
+    expect(rowHeights.length, '抽不到三個 --od-row-h ⇒ 本格失去判別力,不是 CSS 沒問題').toBe(3);
+    expect(new Set(rowHeights).size, '三檔的列高值應互不相同').toBe(3);
+
+    // 反面:**本片動到的元件檔**都不得出現那些值(掃描面不再只有一個檔)
+    const scanned = ['orders-table.tsx', 'order-density-toggle.tsx'];
+    for (const file of scanned) {
+      const src = readFileSync(join(__dirname, file), 'utf8');
+      for (const px of rowHeights) {
+        expect(src, `${file} 裡出現了 ${px} ⇒ 密度值變成兩份、會漂`).not.toContain(px);
+      }
+    }
+  });
+});
+
 describe('A13 — 操作欄(取消入口)', () => {
   // 🔴 L2 起兩槽是**同一格裡的兩個 `<a>`**(#350c 拍板:桌機開面板、手機走整頁;
   //    收斂 markup 不得順手統一目的地)。⇒ 選擇器用 href 形狀認槽。
