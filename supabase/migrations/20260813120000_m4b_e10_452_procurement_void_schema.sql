@@ -6,7 +6,16 @@
 -- 📖 給 Sean 看的三句話(apply 停點的決策依據;不寫術語)
 -- ══════════════════════════════════════════════════════════════════════════
 --
--- ① **這支 apply 之後,系統的行為不會變。**
+-- ① **這支 apply 之後,系統的行為不會變。它做了三件事,不是兩件。**
+--    (a) 幫「採購」這張表加兩個新欄位(作廢時間、作廢理由)
+--    (b) 兩個既有的數量加總各加一個條件「沒被作廢的才算」
+--    🔴 (c) **把「同一個品項 + 同一家供應商只能有一列」這條規則,改成「只算沒被作廢的」** ——
+--        技術上是把一個約束換成一個同名的索引。**這是本片唯一一個真的動到結構的地方**,
+--        而它必須做:不然你撤銷之後,想對同一家重新下單會被擋住。
+--        ⚠️ R2 抓到我原本漏講這件:你要判的是「結構對不對」,
+--        而**我原本沒有把這個結構改動放進你看到的圖像裡**。
+--    以下講的「行為不會變」涵蓋 (a)(b)(c) 三件 —— (c) 在沒有任何列被作廢時,與原本那條規則**完全等價**。
+--
 --    它只是幫「採購」這張表準備好兩個新欄位(作廢時間、作廢理由),
 --    而**目前沒有任何一支程式會去填那兩個欄位** —— 撤銷的按鈕與後端在下一片(2a-2)才做。
 --    🔴 **除非有人拿最高權限直接下 SQL**(例如你自己開 Supabase 後台的 SQL 編輯器)。
@@ -14,7 +23,7 @@
 --    ⇒ 對你的意思是:**不會有東西自己跑出來填它**;但**你自己從資料庫後台手動改,還是改得進去**。
 --    ⇒ 你現在要判的是「**結構對不對**」,不是「採購撤銷這個功能可不可以上線」。
 --    ⇒ 只要沒有人手動去填,全表的作廢欄就恆為空 ⇒ 本片新加的兩個計算條件**恆真**
---      ⇒ 算出來的數字與現在逐字相同。(apply 前會再查一次現況確實是零筆,見「怎麼退」上方的 preflight 那條。)
+--      ⇒ 算出來的數字與現在逐字相同。**apply 前會實際查一次**,查法逐字見下方「apply 前置查詢」。
 --
 -- ② **出事會怎樣**:apply 的過程若有任何一項驗收不過,整支**當場全部回滾**(不會留半套)。
 --    apply 成功之後若要反悔,回退 = 把兩個欄位刪掉、把索引改回原樣(見檔尾「怎麼退」)。
@@ -77,9 +86,16 @@
 --   本片步 1b 的閘因此當場紅在 `4ac2989…`,錯誤沒有進到 Sean 面前。
 --
 --   **現行(四軸)指紋 = `4ac2989a58985beae91a491a816086f7`**
---   🔴 **這顆有更強的出處**:s2b 自己在 apply 時就公告過它 —— 重放時的 NOTICE 逐字
---   「S2b 四軸指紋公告(**下一片替換 helper 時 pin 這個**):4ac2989a58985beae91a491a816086f7」。
---   ⇒ 它不只是我量到的,是**上一個改這支函式的人留給下一個人的交接值**,而我量到的與它一致。
+--   🔴🔴 **這顆的出處我引錯過一次,更正留在這裡當警告(R2 CS-5)**:
+--   我原本引 `20260806180000:465` 的 NOTICE 當「上一個人留給下一個人的交接值」。
+--   **那句 NOTICE 印的是 `%`** —— 逐字 `RAISE NOTICE 'S2b 四軸指紋公告(…):%', v_md5;`,
+--   而 `v_md5` 就是同一個 DO 區塊**上一行剛算出來的** ⇒ 拿我的量測跟它比 =
+--   **拿今天的函式跟今天的函式比,是恆等式,不是佐證。**
+--   🔴 **下一個人若看到那句 NOTICE,不要重蹈** —— 它是「公告」不是「釘值」。
+--   **真正獨立、committed 的硬編碼釘值有兩顆**(實查):
+--     · `scripts/b2s2b-verify.sh:274`  MD5_HELPER_4AXIS = 4ac2989a58985beae91a491a816086f7
+--     · `scripts/w7d3-verify.sh:361`   HELPER_MD5_PIN   = 4ac2989a58985beae91a491a816086f7
+--   ⇒ 值本身是對的(兩顆獨立常數 + 我的重放,三者一致),**壞掉的是我原本那個論證**。
 --   量法與來源:2026-08-13 於**本機拋棄式 PG 17.10** 依 `scripts/d1t2-rehearsal.sh provision` 的配方
 --   (initdb → `scripts/d1-supabase-shim.sql` → 依檔名序套用全部 migration,跳過兩支 pg_cron)
 --   重放到本片之前那一刻量得。
@@ -88,9 +104,12 @@
 --     ② `pg_get_functiondef` 的輸出格式**理論上可能隨 PG 版本而異**;本機是 17.10。
 --     ⇒ 若此閘在正式庫 apply 時紅了,**先對帳、不要直接改這個值** ——
 --        要先分辨是「真的有人改過函式」還是「格式差異」,兩者的處置完全相反。
---   **本片替換後的新指紋 = `aea744ffb81be829627c978a72d494c3`**(同配方於本機重放實測;
+--   **本片替換後的新指紋 = `a03e50f7af8b58befceed66a826dd897`**
+--   ⚠️ **這顆換過一次**:首版是 `aea744ff…`,那是**函式體被我重打、少了 19 行註解**時的值;
+--   R2 MF-1 折完(逐字還原)之後變成上面這顆。**指紋會隨註解變** —— 這正是它釘得住漂移的原因,
+--   也是「重打 ≠ 照抄」在這裡留下的最直接證據。(同配方於本機重放實測;
 --   步 6g 也會在 apply 當下 RAISE NOTICE 印出來,兩者應一致 —— 不一致就是環境差異的訊號)。
---   ⇒ **下一個要改這支 helper 的人,前置閘請釘 `aea744ffb81be829627c978a72d494c3`**,
+--   ⇒ **下一個要改這支 helper 的人,前置閘請釘 `a03e50f7af8b58befceed66a826dd897`**,
 --     並且請先讀清楚它是「#452 之後」的版本(這正是本片首版踩過的那個坑)。
 --
 -- ── 🔴 一條由「推論」升級成「觀察」的事(本片最關鍵的一個假設)────────────────
@@ -113,6 +132,40 @@
 --     **本片一格都沒驗**(物理上構造不出來,那是 2a-2 的驗收範圍)。
 --   · `session_replication_role = replica` 仍可跳過 trigger(A2b1 `:85` 同天花板)。
 --   · owner / SECURITY DEFINER / 持 owner 憑證者仍可直寫本表(A5a `:90-91` 同界)。
+--
+-- ── 🔴 apply 前置查詢(R2 MF-3:首版這裡指向一個不存在的東西,現在指向真的)─────────
+--   **由主視窗在 apply 停點當著 Sean 的面跑;Sean 不用自己跑。**
+--
+--   🔴 為什麼不能只寫「數一下 voided_at 非 NULL 有幾筆」:apply **之前那個欄位還不存在**,
+--   任何文字裡出現 `voided_at` 的**單一敘述**會在**解析階段**就報錯(`CASE` 救不了它 ——
+--   CASE 是執行期分支、解析更早)。⇒ 必須拆兩步,而第一步不得提到那個欄名。
+--
+--   Q1(永遠可解析;表或欄不存在都不報錯):
+--     SELECT current_user AS who,
+--            to_regclass('public.order_item_procurement') IS NOT NULL AS table_visible,
+--            COALESCE((SELECT true FROM pg_catalog.pg_attribute
+--                       WHERE attrelid = to_regclass('public.order_item_procurement')
+--                         AND attname = 'voided_at' AND NOT attisdropped), false) AS col_exists,
+--            CASE WHEN to_regclass('public.order_item_procurement') IS NULL THEN NULL
+--                 ELSE pg_catalog.has_table_privilege(current_user,
+--                        to_regclass('public.order_item_procurement'), 'SELECT') END AS can_read;
+--
+--   判準(四格實測於本機拋棄式 PG 17.10,2026-08-13):
+--     情境 E 表不存在        → who=postgres / table_visible=f / col_exists=f / can_read=(null)
+--     情境 A 欄位不存在=預期 → who=postgres / t / f / t
+--     情境 B 欄位已存在      → who=postgres / t / t / t
+--     情境 D 無權限身分      → who=nopriv   / t / t / f
+--     · table_visible = f ⇒ 🔴 停(看不到表)
+--     · can_read = f      ⇒ 🔴 停 —— **這格是「假通過」的擋板**:
+--        `information_schema.columns` 會對無權限身分**隱藏欄位**(同庫實測:owner 回 1、無權限 role 回 0),
+--        而本表正是 REVOKE ALL FROM PUBLIC/anon/authenticated/service_role ⇒ 不是理論風險。
+--        本查詢因此改用 to_regclass / pg_attribute(catalog 不看權限)+ 明示 can_read。
+--     · col_exists = f    ⇒ ✅ 通過,**到此為止、不要送 Q2**(apply 前的預期狀態)
+--     · col_exists = t    ⇒ 才送 Q2:
+--         SELECT count(*) AS voided_rows FROM public.order_item_procurement WHERE voided_at IS NOT NULL;
+--       0 ⇒ ✅ 通過 / >0 ⇒ 🔴 停(「行為零變化」的前提破了,不要 apply)
+--     · 🔴 who 不是 postgres / service_role ⇒ **停下來問**,不論其他三欄長怎樣
+--       (「不知道自己用什麼身分在查」會讓後面每一句話都少一層保證)。
 --
 -- ── 怎麼退(down;先讀完再動)────────────────────────────────────────────────
 --   BEGIN;
@@ -305,8 +358,11 @@ COMMENT ON INDEX public.order_item_procurement_business_key IS
   '⚠️ 換成索引之後 pg_constraint 不再有這一列;任何靠 pg_constraint 找它的斷言都要改看 pg_index。';
 
 -- ── 步 4. A2b1 跨列總量守門:SUM 只算未作廢的列 ──────────────────────────────
--- 🔴 逐字取自 `20260803130000:102-161`,**只改一行**(採購 SUM 加 `AND p.voided_at IS NULL`)。
---    其餘一個字都沒動 —— 步 6 的 owner/secdef/proconfig 比對頂著這句話。
+-- 🔴 逐字取自 `20260803130000:102-161`,**只加一行**(採購 SUM 的 `AND p.voided_at IS NULL`)。
+--    🔴 **本片首版這裡是重打的、不是複製的**(R2 MF-1:共 19 行註解被刪或截半,
+--    而我當時寫的是「其餘一個字都沒動」)。現行版是**用程式從原檔逐字抽出來再插那一行**:
+--    A2b1 60 → 61 行、A4a 63 → 64 行,差額恰為插入的那一行。
+--    ⚠️ 病根:**「照抄」如果是用眼睛照抄,它就不是照抄。要抄就用機器抄。**
 CREATE OR REPLACE FUNCTION public.pcm_a2b1_procurement_allocation_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -320,13 +376,16 @@ DECLARE
   v_cancelled bigint;
 BEGIN
   -- ① 隔離閘(Q1=A + Q3=A gate-first):非 read committed 一律拒收。
+  --    RR 下等鎖後 SUM 用交易快照、看不到兄弟提交 ⇒ 守門會雙雙放行(實測);
+  --    SERIALIZABLE 拍板不信任 SSI、一律拒。
   IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
     RAISE EXCEPTION 'A2b1 隔離閘:守門僅在 read committed 下健全(目前 = %);拒收',
       pg_catalog.current_setting('transaction_isolation')
       USING ERRCODE = 'P2B02', CONSTRAINT = 'a2b1_isolation_read_committed_only';
   END IF;
 
-  -- ② skip:同 parent 且未調升 ⇒ 不守(row 28 delta 語意:調降/持平放行)。
+  -- ② skip:同 parent 且未調升 ⇒ 不守(row 28 delta 語意:調降/持平放行;
+  --    判定只用 OLD/NEW 實體值、不依賴快照)。
   IF TG_OP = 'UPDATE'
      AND NEW.order_item_id = OLD.order_item_id
      AND NEW.allocated_quantity <= OLD.allocated_quantity THEN
@@ -339,17 +398,17 @@ BEGIN
    WHERE oi.id = NEW.order_item_id
    FOR NO KEY UPDATE;
   IF NOT FOUND THEN
+    -- 防衛枝:FK RI trigger 依名序先發火(23503),本枝不可構造 ⇒ 不列守門計數、
+    -- 無負測、無突變格(plan §3.6;A6 [38] 死守門教訓的誠實寫法)。
     RAISE EXCEPTION 'A2b1 防衛枝:order_items % 不存在(FK 應已先擋;此枝理論不可達)',
       NEW.order_item_id;
   END IF;
 
   -- ④ 真相表重算(AFTER ⇒ 採購 SUM 已含 NEW 列)。
-  -- 🔴 #452 起加 `AND p.voided_at IS NULL`:作廢的採購列不佔額度。
-  --    今天沒有任何 writer 能把 voided_at 寫成非 NULL ⇒ 本述詞恆真 ⇒ 與改動前逐字等價。
   SELECT COALESCE(sum(p.allocated_quantity), 0) INTO v_alloc
     FROM public.order_item_procurement p
    WHERE p.order_item_id = NEW.order_item_id
-     AND p.voided_at IS NULL;
+     AND p.voided_at IS NULL;   -- 🔴 #452:作廢的採購列不佔額度(本片唯一改動)
 
   SELECT COALESCE(sum(c.cancelled_quantity), 0) INTO v_cancelled
     FROM public.order_cancellation_items c
@@ -367,8 +426,13 @@ END
 $$;
 
 -- ── 步 5. A4a 三軸重算 helper:ordered 軸只算未作廢的列 ───────────────────────
--- 🔴 逐字取自 `20260806180000:180-242`,**只改一行**(ordered 軸 SUM 加 `AND p.voided_at IS NULL`)。
--- 🔴 `SHIPPED-TRUTH-BEGIN/END` 標記與其內容**一個字都沒動**(s2b `:220-229` 的五處同步守門靠它)。
+-- 🔴 逐字取自 `20260806180000:180-242`,**只加一行**(ordered 軸 SUM 的 `AND p.voided_at IS NULL`)。
+-- 🔴 `SHIPPED-TRUTH` 區塊**含兩行行尾註解逐字保留**(`-- Q3=A:作廢即退量` /
+--    `-- 未寄出的草稿箱不算`)—— 首版把它們剝掉了,而 `scripts/b2s2b-truth-sync.py` 的
+--    `BLOCKS['helper']` 凍結表**逐字含那兩段註解** ⇒ 剝掉之後 helper 的定義權威換到本檔、
+--    而同步守門仍比對死檔並保持全綠(R2 MF-2)。
+-- 🔴 **本片已把自己加進那支守門的 `SITES`**(新增 `helper-452` 位置),並實測雙向:
+--    改本檔那兩行 ⇒ 紅在 `helper-452`;改舊檔 ⇒ 仍紅在 `helper`(既有覆蓋沒被弄壞)。
 CREATE OR REPLACE FUNCTION public.pcm_a4a_recompute_order_item_summary(p_order_item_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -377,27 +441,29 @@ SET search_path = public, pg_temp
 SET lock_timeout = '5s'
 AS $$
 DECLARE
-  v_qty       bigint;
-  v_ordered   bigint;
-  v_instock   bigint;
+  v_qty       bigint;   -- 🔴 全 bigint:危險在變數宣告(SUM(integer) 本回 bigint);
+  v_ordered   bigint;   --    寫回 integer 欄的指派在 quantity=INT_MAX 病理邊界可 22003,
+  v_instock   bigint;   --    誠實列界(harness R15 釘形狀)。
   v_cancelled bigint;
-  v_shipped   bigint;
+  v_shipped   bigint;   -- 🔴 B2-S2b 第四軸
 BEGIN
+  -- 鎖 parent(NKU;與 A2b1 同一把 ⇒ 重算彼此互斥、也與守門互斥)。
   SELECT oi.quantity INTO v_qty
     FROM public.order_items oi
    WHERE oi.id = p_order_item_id
    FOR NO KEY UPDATE;
   IF NOT FOUND THEN
+    -- 防衛枝:三張來源表對 order_items 全 FK RESTRICT ⇒ 事件存在時 parent 必在;
+    -- 不列守門計數、無負測、無突變格(A2b1 §3.6 同紀律)。
     RAISE EXCEPTION 'A4a 防衛枝:order_items % 不存在(FK 應已先擋;此枝理論不可達)',
       p_order_item_id;
   END IF;
 
-  -- 🔴 #452 起加 `AND p.voided_at IS NULL`:作廢的採購列不算進 ordered 軸。
-  --    今天沒有 writer 能寫 voided_at ⇒ 本述詞恆真 ⇒ 與改動前逐字等價。
+  -- 三軸真相直讀(instock 走 receipts JOIN,不經累計欄 —— 該欄有 bug 摘要仍對)。
   SELECT COALESCE(sum(p.allocated_quantity), 0) INTO v_ordered
     FROM public.order_item_procurement p
    WHERE p.order_item_id = p_order_item_id
-     AND p.voided_at IS NULL;
+     AND p.voided_at IS NULL;   -- 🔴 #452:作廢的採購列不算進 ordered 軸(本片唯一改動)
 
   SELECT COALESCE(sum(r.quantity), 0) INTO v_instock
     FROM public.order_item_procurement_receipts r
@@ -408,15 +474,18 @@ BEGIN
     FROM public.order_cancellation_items c
    WHERE c.order_item_id = p_order_item_id;
 
+  -- 🔴 第四軸真相式(plan §1)。本區塊是**五處同步守門**的第 1 處(唯一 writer)。
+  -- 標記區內含關聯述詞那一行;本體 md5 比對時才把述詞行扣掉(plan §1.1,守門由 S2b-3a 建)。
   -- SHIPPED-TRUTH-BEGIN
   SELECT COALESCE(sum(si.shipped_quantity), 0) INTO v_shipped
     FROM public.shipment_items si
     JOIN public.shipments s ON s.id = si.shipment_id
    WHERE si.order_item_id = p_order_item_id
-     AND s.deleted_at IS NULL
-     AND s.shipped_at IS NOT NULL;
+     AND s.deleted_at IS NULL          -- Q3=A:作廢即退量
+     AND s.shipped_at IS NOT NULL;     -- 未寄出的草稿箱不算
   -- SHIPPED-TRUTH-END
 
+  -- 惰性建列 + 冪等 upsert(quantity 由鎖下讀值寫入,複合 FK 物理釘死)。
   INSERT INTO public.order_item_quantity_summary
     (order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)
   VALUES (p_order_item_id, v_qty, v_ordered, v_instock, v_cancelled, v_shipped)
