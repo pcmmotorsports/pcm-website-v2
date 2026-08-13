@@ -46,10 +46,31 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    對員工就是同一件事(母 plan v4 §5 F3:顯示成別的會誘發他換一把 token 重送 = 製造重複備註)。
   [NOTE_ADDED_RESULT_CODE]: { text: '備註已新增。', tone: 'ok' },
   // 🔴 M-3 RW2c:退款也只有成功走 redirect(失敗全回 action state,同備註片 Q1=A 慣例)。
-  //    措辭鐵律:confirmed = TapPay **受理** ≠ 已入帳(入帳以對帳為準;plan §3 第一列)。
   //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。
+  //
+  // 🏁 **2026-08-14 措辭鐵律換版(Sean 在正式站退了兩筆真錢之後回報)。**
+  //    舊鐵律逐字 = 「confirmed = TapPay **受理** ≠ 已入帳(入帳以對帳為準;plan §3 第一列)」。
+  //    **它作廢了,而且不是刪掉、是換成下面這條 —— 理由寫在這裡,免得下一個人只看到規則消失:**
+  //    ① 本則**只在 `succeeded` 為真時**才被 redirect 帶出來(`refund-actions.ts:438`),
+  //       而 `succeeded` 全檔只有兩處賦值(`grep -n succeeded`):`:285`(`DUPLICATE_REQUEST`
+  //       且 `rowStatus === 'confirmed'`)與 `:371`(accepted → finalize `FINALIZED`)
+  //       ⇒ **兩處都落在 `confirmed`**,沒有第三條路徑會看到這則。
+  //    ② `supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:337-339` 的
+  //       UPDATE 守門**本體**:`IF NEW.status = 'confirmed' AND NEW.tappay_refund_id IS NULL THEN RAISE`
+  //       (`ERRCODE = 'P7C09'`、constraint `a7c_confirm_requires_tappay_refund_id`)
+  //       ⇒ **能走到 `confirmed` 的列必然帶著 TapPay 退款憑證**。這是**結構保證**,
+  //       不是「Sean 那兩筆剛好同步拿到憑證」的歸納。
+  //       ⚠️ 同檔 `:365` 的 COMMENT 只是這道守門的**描述**(「④結案必須帶 `tappay_refund_id`」)——
+  //          承重要引本體、不要引描述:COMMENT 改掉不會讓任何東西紅,守門本體改掉才會。
+  //    ⇒ 此刻「錢退了」不是待確認的事,我們有憑證。**把已知寫成未知,員工會以為還要再追一次。**
+  //
+  // 🔴 **新鐵律**:`confirmed` = 退款**成立**,講「完成」是準確的;
+  //    但**入帳時間不准寫死鐘點** —— 依各家銀行而定,寫死一個時間就是對員工說謊。
+  // ⚠️ **只換 `confirmed` 這一態**:`processing` 的「已受理」仍然準確
+  //    (`refund-ledger-view.ts:12`),**一個字都不要動**。整批換掉會製造反向的錯 ——
+  //    把不確定的講成確定的,那比原本這個 bug 嚴重。
   [REFUND_SUBMITTED_RESULT_CODE]: {
-    text: '退款已送出,TapPay 已受理。受理不等於已入帳,入帳以之後的對帳為準。',
+    text: '退款完成。客人入帳時間依照各家銀行而定。',
     tone: 'ok',
   },
   // 🔴 M-3 RW4:人工結案兩碼(同樣只有成功走 redirect;失敗全回 action state)。
