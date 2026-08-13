@@ -1091,7 +1091,19 @@ Sean **複判維持放行**(2026-08-12)⇒ **現在是知情之下的決定**。
     兩組互不重疊;M8 多紅的 C6 是**同一張單 O2 的 fixture 共用**造成、已照實入表),
     且**兩個 fixture 不得同時滿足兩條**(否則重演 R3 F1 的兩臂不可分辨)
 18. ☑ 🆕 carve-out 後置錨(後置⑥ 含左鄰 `AND ` 的形式 + 總數 = 1;負測 M6/M19、harness E2)
-19. ☐ 🆕 apply 停點對 Sean 講兩句:①`lock_timeout` 逾時是無名失敗(§9-9)②**TapPay 是唯一超退防線且 partial 不查帳**(§9-7)
+19. ☑ 🆕 apply 停點對 Sean 講兩句:①`lock_timeout` 逾時是無名失敗(§9-9)②**TapPay 是唯一超退防線且 partial 不查帳**(§9-7)
+    **2026-08-13 已講並已 apply**(主視窗銷帳)。實際講了四條 —— 除上述兩條,另加
+    ③回退必須直連 5432、**且這條無負測**、Supavisor 特例未確認(§9-10)
+    ④行為證據全產自 macOS / PG 17.10、正式庫 Linux / 17.6(§9-12)。
+    🔴 **主視窗在這裡犯了一個錯,照實記**:第一次講的時候**沒有先讀 migration 檔頭**,
+    只轉述本 plan §9 的素材 ⇒ 四條並排講出來,讓 Sean 以為 2f 帶來四個當下就活著的風險,
+    他當場反問「那為何還沒處理好的 2f 要先上」。**檔頭誠實邊界第 1 條逐字寫著
+    「否決條件現在恆假 —— `payment_refunds` 尚無 writer(2g 未建)⇒ apply 後行為零變化」**,
+    那是整件事最能左右決策的一句話,而它不在 §9 裡。已當場更正後 Sean 拍 A。
+    ⇒ 教訓與 memory `feedback_assert-scope-only-after-reading-source-file` 同型:
+    **apply 停點的風險陳述,素材要以 migration 檔頭為準,plan §9 只是補充。**
+    apply 實況:`supabase db push` 三行 NOTICE 逐字中預期、在途筆數 = **0**;
+    `APPLIED.tsv` 已補登(sha256 `7a467ffd…`),全樹 PENDING 掃描 = 零。
 
 ---
 
