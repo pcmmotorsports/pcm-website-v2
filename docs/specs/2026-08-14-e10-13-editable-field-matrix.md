@@ -32,20 +32,29 @@
 
 ## §1 `orders` 欄位矩陣
 
+🔴 **2026-08-14 用語更正(C 窗 n2 抓,我複驗成立且**擴大到同型的其他列**)**:
+本表原本有幾格寫「**全樹無其他 writer**」——**不準**。`create_order` 在**建單當下**就寫了一整批:
+`20260719120000_m4a_b2_create_order_notification_email.sql:472-480` 的 `INSERT INTO public.orders (...)`
+逐字含 `subtotal, shipping_fee, discount_total, total`、`customer_user_id`、`address_id`、
+`cart_session_id`、`notification_email` 等。
+⇒ 本表所有這類格一律改讀作「**建單後無 writer**」= 建單當下由 `create_order` 一次寫定,之後沒有任何路徑改它。
+⚠️ C 窗只點名了 `notification_email` 那一格;**同一句話還活在另外 4 格**,我一併改了(掃描命令
+`grep -n "無其他 writer\|無 writer" <本檔>`),**不是只改被指名那處**。
+
 | 欄 | 能改? | 擋它的是什麼(檔:行) | 連動 |
 |---|---|---|---|
 | `shipping_method` | ✅ 現在就能 | allowlist 內(`20260716130000:232`) | 無 |
 | `invoice_status` / `invoice_number` / `invoice_amount` | ✅ 現在就能 | 同上 | 無 |
-| `subtotal` / `total` / `shipping_fee` / `discount_total` | ❌ | **不在 allowlist ⇒ 送了會 RAISE**(`:258-259`);全樹無其他 writer | 改它要同時改 `order_items.line_total`,而後者無寫入路徑(§0-2) |
+| `subtotal` / `total` / `shipping_fee` / `discount_total` | ❌ | **不在 allowlist ⇒ 送了會 RAISE**(`:258-259`);**建單後**無 writer(建單當下由 `create_order` 寫,見上方更正) | 改它要同時改 `order_items.line_total`,而後者無寫入路徑(§0-2) |
 | `payment_status` / `paid_at` / `tappay_rec_trade_id` | ⛔ **不該由改單碰** | 專屬寫入路徑 = 付款/退款線;`#497` 還卡在 Sean 桌上 | 動它 = 動錢 |
 | `fulfillment_status` | ⛔ 同上 | 出貨線 RPC 專屬(`admin_mark_shipment_shipped` 等) | 出貨狀態 |
 | `cancelled_at` / `cancelled_reason` | ⛔ | `admin_cancel_order` 專屬 | 取消線 |
-| `customer_user_id` | ❌ | 無 writer;等於「把單換一個客人」 | 會員、經銷價、稽核全斷 |
+| `customer_user_id` | ❌ | **建單後**無 writer;等於「把單換一個客人」 | 會員、經銷價、稽核全斷 |
 | `display_id` / `legacy_display_id` | ❌ **永不** | 產號合約(6 碼、`orders_display_id_key`) | 客人手上的單號 |
 | `shipping_address_snapshot` / `invoice`(Json) / `tier_at_checkout` / `shipping_method_at_checkout` | ❌ | **快照欄** —— 存在的意義就是「當時長這樣」 | 改它 = 竄改歷史 |
 | `cart_session_id` / `order_source` / `payment_channel` / `created_at` | ❌ | 建單當下決定,無 writer | 無 |
-| 🔴 `notification_email` | ❌ **但這格可能是 `#13` 最該先做的** | 不在 allowlist ⇒ 送了 RAISE;全樹無其他 writer | **客人 Email 打錯就收不到任何通知**,而這是員工最常要改的東西之一。`20260718120000:137-138` 逐字「訂單通知信箱**快照**…客人結帳當下填寫、**凍結於訂單層**,不隨會員檔變動」⇒ 改它**不會**動到會員檔;同段另記 254 octet 上限、只收可列印 ASCII、禁 LINE 合成域 |
-| `payment_method` | ❌ | 無 writer | ⚠️ **不是** 上面那個 `payment_channel`,兩者並存(`20260712203000:46`) |
+| 🔴 `notification_email` | ❌ **但這格可能是 `#13` 最該先做的** | 不在 allowlist ⇒ 送了 RAISE;**建單後**無 writer(建單當下由 `create_order` 寫,`20260719120000:474,478`) | **客人 Email 打錯就收不到任何通知**,而這是員工最常要改的東西之一。`20260718120000:137-138` 逐字「訂單通知信箱**快照**…客人結帳當下填寫、**凍結於訂單層**,不隨會員檔變動」⇒ 改它**不會**動到會員檔;同段另記 254 octet 上限、只收可列印 ASCII、禁 LINE 合成域 |
+| `payment_method` | ❌ | **建單後**無 writer | ⚠️ **不是** 上面那個 `payment_channel`,兩者並存(`20260712203000:46`) |
 | `orders.workflow_status` | ⛔ 已停寫 | `20260716120000:75-76` | ⚠️ **不是** §2 那個 `order_items.workflow_status`,是另一欄、另一支 migration 停的 |
 | `shipping_free_threshold` / `shipping_home_fee` / `display_position` / `address_id` / `id` / `updated_at` / `version` | ❌ | 結構欄或建單當下決定,無 writer(`display_position` 實查:`grep -rln "display_position" supabase/migrations/` = **1 檔**,只有加欄那支、零 writer) | 無 |
 
@@ -73,7 +82,14 @@
 
   **正確的事實**:`REFERENCES order_items` 的 FK 共 **6 條**,數法
   `grep -rn "REFERENCES public.order_items\|REFERENCES order_items" supabase/migrations/*.sql`
-  (扣掉 3 行是斷言字串比對、不是 FK 定義)。**其中 5 條是 `ON DELETE RESTRICT`**:
+  ⇒ **10 行,扣掉 4 行是斷言字串比對**(`20260730130000:505` / `20260730150000:335` /
+  `20260731120000:670` / `20260805170200:292`)⇒ **10 − 4 = 6**。**其中 5 條是 `ON DELETE RESTRICT`**:
+
+  ⚠️ **這句減法我上一版寫成「扣掉 3 行」= 錯**(C 窗 n1 抓,我重跑逐行分類複驗)。
+  漏的是 `20260805170200:292` —— 那行是 `FOREACH … IN ARRAY ARRAY[…] LOOP`,**結尾是 `] LOOP` 不是 `THEN`**,
+  用「行尾 `THEN`」當斷言行的過濾條件就會把它算成 FK 定義。
+  🔴 **結論「6 條」本身是對的**(我當初是逐行看內容數的),**錯的只有那句解釋減法** ——
+  但下一個人是照那句話重跑的,所以它必須對。
 
   | FK 所在表 | 檔:行 |
   |---|---|
@@ -130,8 +146,10 @@
    ⇒ §1「無 writer」那幾格是**基於 allowlist 推論,不是逐支排除**。
 4. **地址那格未確認**(§1 末)。
 5. **「刪一列走取消線」是我的判斷,無拍板背書。**
-6. 🔴 **§4「加一列不撞任何 CHECK」我仍然沒有逐條核摘要表那 10 條 CHECK** —— 我用的是「新列四欄全 0」的直覺。
-   C 窗也明說這格它沒背書過。**這是本檔目前最大的未驗格。**
+6. ~~§3「加一列不撞任何 CHECK」是直覺、未逐條核~~ 🏁 **已由 C 窗確認輪逐條核完 10 條、全過**(`~/pcm-mailbox/C-009-STOP.md`)。
+   🔴 **順帶記一個坑**:`20260730150000:96` 註解逐字寫「**七條 CHECK**」——那是**建表當時**的數;
+   `shipped_quantity` 那三條是 `20260806100000:134-149` 後來加的
+   ⇒ **只讀那句註解會少數三條**。要數 CHECK 就數兩支 migration,別讀那行摘要。
 7. **本輪六條 finding 我逐條自己重跑驗過**(M1 的 6 條 FK / M2 的 `line_balances` 3 命中無 DROP /
    M3 的 `20260718120000:137-138` / N1 的 `20260807120000:150-151` 只查 UPDATE+INSERT /
    N3 的 `20260725130100:150-155`),**沒有轉抄 C 窗的理由當背書**。
