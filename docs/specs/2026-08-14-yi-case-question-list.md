@@ -5,17 +5,28 @@
 > 🔴 來源:報價單 repo 的 **`origin/main`**(本機 clone 落後 16 顆);**我沒有動那個 repo 任何東西,只讀**。
 > ⚠️ 不等於 mac mini 正本 —— 下面每一題都要以那邊的實況為準,我的引用只是「問題怎麼問」的依據。
 
-## A. 身分:我們的後台要用什麼身分寫進報價單?(**最硬的一題**)
+## A. 身分:我們的後台要用什麼身分寫進報價單?
 
-**現況**:報價單所有 admin API 都走 `requireAdmin()`(`lib/auth-server.ts:50-67`)=
-**瀏覽器 cookie session + SESSION_SECRET 驗章 + 2FA 開啟時拒純密碼 session**。
-我掃了 `app/api/*` 與 `lib/*` 找機器對機器的入站驗證(`api_key|bearer|x-api-key|service token`),
-命中的 `Bearer` 是**出站**打 Supabase 的 service-role key(如 `gbracing-pricing/route.ts:380`),**不是**入站機器身分。
-⇒ **據我所讀,報價單目前沒有「另一個系統呼叫我」的驗證方式,只有「人用瀏覽器登入」。**(未確認 mac mini 正本是否已有)
+> 🔴 **2026-08-14 夜訂正 —— 本節原本的答案是錯的。**
+> 原文寫「報價單沒有『另一個系統呼叫我』的驗證方式,只有人用瀏覽器登入」。**不成立。**
+> 錯因:當時跑 `git grep -l ... | head -10`(只給檔名 + 被截斷),再**只開其中 1 支**看,
+> 就把單一樣本推成全稱句 —— 分母 66 支 API 我只看了 1 支。
+> 訂正依據與全量重數見 `2026-08-14-quote-project-readthrough.md` §0。
 
-1. 我們的 admin 要以什麼身分呼叫?(a) 新開一組機器用 API key (b) 共用 Sean 的 session (c) 不呼叫 API、直接連 B 庫
-2. 若 (c) 直接連庫:要開哪個角色、只給哪幾張表哪幾欄的 UPDATE?(現行我們拿的是 **anon publishable key、唯讀**)
-3. 🔴 報價單的 2FA 是**全公司一組**(memory `project_m4b-real-auth-line-decisions`)⇒ 機器身分要怎麼繞過 2FA 而**不**把 2FA 變成擺設?這題是安全題,不是接線題。
+**現況(重數後)**:66 支 API 中 —— `requireAdmin`/`requireFull2FA` **26 支**、`CRON_SECRET` **3 支**、
+兩者皆無 **37 支**(那 37 支靠什麼保護**未逐支確認**)。
+報價單**已有兩套 server-to-server 驗證**:`CRON_SECRET`(三支 cron)與
+`PCM_SSO_EXCHANGE_SECRET`(`/api/sso/exchange`,檔頭逐字「server-to-server, 無 cookie」、`timingSafeEqual` 常數時間比對)。
+`middleware.ts:16-19,38-41` 逐條放行 `/api/line/*`、`/api/quote/*`、`/api/sso/exchange`。
+🔴 **而且第二套就是我們兩個專案之間的、已經在跑**:`apps/admin/src/lib/sso/config.ts:24` 讀該 secret、
+`lib/sso/exchange.ts` 正在 POST `quote/api/sso/exchange`。
+
+1. 新的寫入端點要沿用哪一套?(a) 比照 `/api/sso/exchange` 開一支共享 secret 的 server-to-server 端點
+   (b) 掛在既有 SSO 通道上 (c) 不走 API、直接連 B 庫(現行我們拿的是 **anon publishable key、唯讀**)
+2. 若 (c) 直接連庫:要開哪個角色、只給哪幾張表哪幾欄的 UPDATE?
+3. 🔴 2FA 那題**縮小但沒消失**:既有 server-to-server 端點是**繞過 cookie session 的正門**(`middleware.ts:22` 逐字說明
+   `/api/sso/authorize` 刻意**不**放行)⇒ 新開一支寫入端點等於**多一個不受 2FA 保護的入口**。
+   要不要?誰能呼叫?這仍是安全題,不是接線題 —— 只是**已有前例可循**,不是從零發明。
 
 ## B. 鎖本身:要鎖的欄和現有的鎖對不對得上?
 
@@ -47,5 +58,6 @@
 ## E. 我沒查的(別把這張清單當完整盤點)
 - mac mini 正本(以上全部讀 `origin/main`)。
 - 報價單側做這件事的**工時**——我只盤了「要問什麼」,沒盤「要做多久」。
-- 報價單是否已有我沒找到的機器身分機制(我掃的是 `app/api/*` 與 `lib/*` 兩個範圍,pattern 見 §A)。
+- ~~報價單是否已有我沒找到的機器身分機制~~ **這條當時就該是紅的,而它確實漏了(見 §A 訂正)。**
+  現況已重數:66 支逐支分類過。**新的未讀面 = 那 37 支「兩者皆無」的 route 靠什麼保護**,尚未逐支開檔。
 - **甲案的對應問題清單我沒寫** —— 這張只覆蓋乙。若 Sean 傾向甲,要另開一張。
