@@ -1,5 +1,6 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import type { ProductMediaRow } from './product-media';
 
 // M-4b #20 片1a:後台商品列表讀模型。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 //
@@ -117,7 +118,7 @@ export async function listProductsForAdmin(
 // ─────────────────────────── 片1b-1:單筆詳情 ───────────────────────────
 
 /** 詳情頁的原始 wire shape(逐欄對應下方 PRODUCT_DETAIL_COLUMNS)。 */
-export interface AdminProductDetailRow extends AdminProductRow {
+export interface AdminProductDetailRow extends AdminProductRow, ProductMediaRow {
   readonly subtitle: string | null;
   readonly supplier_slug: string;
   readonly handle: string;
@@ -132,11 +133,11 @@ export interface AdminProductDetailRow extends AdminProductRow {
  * 🔴 逐欄指名,理由同列表。**不得改成 `*`**,也不得加入
  * `price_store` / `price_by_tier` / `cost` / `metadata` 任一欄。這串字面被測試釘住。
  *
- * 片1b-2 才會加的欄(現在**刻意不撈**,因為 jsonb 元素形狀還沒實測過 —— plan §4 R4):
- * `description` / `highlights` / `fitments` / `images` / `manuals` / `video_url` / `sound_clips`。
+ * 片1b-2 加入內容與媒體七欄。**它們的 jsonb 元素形狀不保證**(見 `product-media.ts` 檔頭)
+ * ⇒ wire 型別寬鬆、由 `toProductMedia()` 的 runtime guard 收斂,**不在這裡假設形狀**。
  */
 const PRODUCT_DETAIL_COLUMNS =
-  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, created_at, updated_at' as const;
+  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, created_at, updated_at, description, highlights, fitments, images, video_url, manuals, sound_clips' as const;
 
 /**
  * 讀單筆商品(**含已下架** —— 後台要能把它撈回來)。查無回 `null`,不 throw。

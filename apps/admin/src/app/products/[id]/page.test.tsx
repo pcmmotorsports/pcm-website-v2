@@ -44,6 +44,15 @@ const PRODUCT = {
   delisted_at: null,
   created_at: '2026-08-01T02:00:00Z',
   updated_at: '2026-08-10T02:00:00Z',
+  // 片1b-2 媒體欄。刻意混入髒值:`highlights` 含非字串、`manuals` 有缺 url 的項、
+  // `sound_clips` 有非字串 title —— 渲染面要證明它吃得下,不是只吃乾淨資料。
+  description: '碳纖維前土除,亮面 3K 編織。',
+  highlights: ['輕量化', 42, '原廠級密合度'],
+  fitments: [{ brand: 'Ducati' }, { brand: 'BMW' }],
+  images: ['a.jpg', 'b.jpg', 'c.jpg'],
+  video_url: 'https://example.com/install.mp4',
+  manuals: [{ label: '安裝說明書', url: 'm.pdf', sizeKB: 320 }, { label: '缺網址' }],
+  sound_clips: [{ title: 'Idle', url: 's1.mp3' }, { title: 123, url: 's2.mp3' }],
 };
 
 async function renderPage(id = ID) {
@@ -186,6 +195,70 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     }
     expect(text).toContain('只能查看');
     expect(text).toContain('返回商品列表');
+  });
+
+  it('🔴🔴 驗收 6:圖片區必須寫明「同步會蓋回去」—— 這句從 plan 寫下起一直不存在,1b-2 才補上', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 依據 = plan §0 承重前提 3:圖片今天**只有防洗網、沒有旗標鎖** ⇒ 供應商換圖直接蓋掉。
+    expect(text).toContain('供應商每日同步');
+    expect(text).toContain('明天會被蓋回去');
+    // 🔴 不得把「沒有鎖」講成「有鎖」—— 那會讓員工以為改了就守得住。
+    expect(text).not.toContain('已鎖定');
+    expect(text).not.toContain('不會被覆蓋');
+  });
+
+  it('🔴 片1b-2:四個區塊都渲染,而且髒值不會漏到畫面上', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+
+    expect(text).toContain('碳纖維前土除,亮面 3K 編織。');
+    expect(text).toContain('輕量化');
+    expect(text).toContain('原廠級密合度');
+    // 🔴 髒值不得出現:highlights 裡的 42 被濾掉、manuals 缺 url 的整項丟掉。
+    expect(text).not.toContain('42');
+    expect(text).not.toContain('缺網址');
+    // 手冊只剩一份、且帶大小。
+    expect(text).toContain('安裝說明書');
+    expect(text).toContain('320 KB');
+    expect(text).toContain('1 份');
+    // 圖片 3 張、聲浪 2 段(url 都合法)、影片「有」。
+    expect(text).toContain('3 張');
+    expect(text).toContain('2 段');
+  });
+
+  it('🔴 適用車型只報 direct 筆數,而且畫面上要講明它不完整', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('2');
+    // 🔴 這句是「不對員工說謊」的機制面:`products.fitments` 只有 direct 那一半。
+    expect(text).toContain('不含');
+    expect(text).toContain('完整清單還沒做');
+  });
+
+  it('媒體欄全空 → 各區塊顯空狀態,不炸也不留空白格', async () => {
+    mocks.get.mockResolvedValue({
+      ...PRODUCT,
+      description: null,
+      highlights: [],
+      fitments: [],
+      images: [],
+      video_url: null,
+      manuals: [],
+      sound_clips: [],
+    });
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    expect(text).toContain('沒有商品說明');
+    // 🔴 空的時候警語仍要在 —— 「沒有圖片」不代表「同步不會蓋」。
+    expect(text).toContain('明天會被蓋回去');
   });
 
   it('沒值的欄位顯「—」,不留空白格', async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 import { availabilityLabel, formatTime } from './product-detail';
+import { toProductMedia } from '../../lib/products/product-media';
 
 // R2 nit-g:`formatTime` 的 NaN 分支原本零覆蓋 = 死防禦(沒人知道它還活著)。
 // 這支檔只測那一支純函式,不渲染元件(渲染面在 `app/products/[id]/page.test.tsx`)。
@@ -46,5 +47,101 @@ describe('availabilityLabel(#20 片1b-1)', () => {
   it('反面對照:已知值不得走進 passthrough —— 否則上面那格對「全部原樣回傳」恆綠', () => {
     // 若有人把整支寫成 `return raw;`,上一格照樣全過、這一格會紅。
     expect(availabilityLabel('in-stock')).not.toBe('in-stock');
+  });
+});
+
+// ── 片1b-2:jsonb 收斂 guard ──
+// 🔴 這批的價值全在**髒值**上。乾淨值誰寫都會過;能不能擋住髒值才是這層存在的理由。
+describe('toProductMedia(#20 片1b-2)', () => {
+  it('全部欄位缺席(undefined)→ 空陣列 / null,不炸', () => {
+    // 🔴 這格是**實際踩出來的**:第一版型別寫 `string | null`,fixture 少給欄位
+    //    ⇒ `undefined.trim()` 直接 TypeError,八格測試同時紅。null 與 undefined 是兩件事。
+    const media = toProductMedia({});
+    expect(media).toEqual({
+      description: null,
+      highlights: [],
+      fitmentCount: 0,
+      images: [],
+      videoUrl: null,
+      manuals: [],
+      soundClips: [],
+    });
+  });
+
+  it('🔴 非陣列的 jsonb(來源髒值)→ 一律收斂成空陣列,不往畫面漏', () => {
+    for (const dirty of [null, 'not-an-array', 42, {}] as unknown[]) {
+      const media = toProductMedia({
+        highlights: dirty as unknown[],
+        images: dirty as unknown[],
+        manuals: dirty as unknown[],
+        sound_clips: dirty as unknown[],
+        fitments: dirty as unknown[],
+      });
+      expect({ [String(dirty)]: media.highlights.length + media.images.length }).toEqual({
+        [String(dirty)]: 0,
+      });
+      expect(media.fitmentCount).toBe(0);
+    }
+  });
+
+  it('🔴 highlights / images 濾掉非字串元素,保留字串', () => {
+    const media = toProductMedia({ highlights: ['好', 1, null, '棒'], images: ['a.jpg', {}, 'b.jpg'] });
+    expect(media.highlights).toEqual(['好', '棒']);
+    expect(media.images).toEqual(['a.jpg', 'b.jpg']);
+  });
+
+  it('🔴 manuals:缺 label 或 url 的項整項丟掉;sizeKB 有才帶', () => {
+    const media = toProductMedia({
+      manuals: [
+        { label: '安裝說明', url: 'a.pdf', sizeKB: 120 },
+        { label: '缺網址' },
+        { url: 'b.pdf' },
+        { label: '無大小', url: 'c.pdf' },
+        'not-an-object',
+      ],
+    });
+    expect(media.manuals).toEqual([
+      { label: '安裝說明', url: 'a.pdf', sizeKB: 120 },
+      { label: '無大小', url: 'c.pdf' },
+    ]);
+  });
+
+  it('🔴 soundClips:url 空白的丟掉;非字串 title 收斂成 null(不讓髒值被當標題印出來)', () => {
+    const media = toProductMedia({
+      sound_clips: [
+        { title: 'Akrapovic idle', url: 'a.mp3' },
+        { title: null, url: 'b.mp3' },
+        { title: 123, url: 'c.mp3' },
+        { title: '沒網址', url: '   ' },
+      ],
+    });
+    expect(media.soundClips).toEqual([
+      { title: 'Akrapovic idle', url: 'a.mp3' },
+      { title: null, url: 'b.mp3' },
+      { title: null, url: 'c.mp3' },
+    ]);
+  });
+
+  it('videoUrl:空字串 / 全空白 → null(不是「有影片」)', () => {
+    expect(toProductMedia({ video_url: '' }).videoUrl).toBeNull();
+    expect(toProductMedia({ video_url: '   ' }).videoUrl).toBeNull();
+    expect(toProductMedia({ video_url: 'https://x/y.mp4' }).videoUrl).toBe('https://x/y.mp4');
+  });
+
+  it('反面對照:乾淨輸入不得被 guard 吃掉 —— 否則上面幾格對「全部回空」恆綠', () => {
+    const media = toProductMedia({
+      description: '碳纖維',
+      highlights: ['輕量'],
+      fitments: [{ a: 1 }, { b: 2 }],
+      images: ['a.jpg'],
+      manuals: [{ label: 'L', url: 'u' }],
+      sound_clips: [{ title: 't', url: 'u' }],
+    });
+    expect(media.description).toBe('碳纖維');
+    expect(media.highlights).toHaveLength(1);
+    expect(media.fitmentCount).toBe(2);
+    expect(media.images).toHaveLength(1);
+    expect(media.manuals).toHaveLength(1);
+    expect(media.soundClips).toHaveLength(1);
   });
 });

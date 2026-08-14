@@ -103,6 +103,16 @@ const DESIGN_TOKENS = ['price_general', 'delisted_at'] as const;
  * 全樹非測試檔 **196 支**,三個 token 的原始命中共 **4 行,全部在註解裡**
  * (`orders-table.tsx:513` JSX 註解 / `product-repository.ts:20,47,133`)
  * ⇒ 剝註解後 code 層**零命中、零誤報**。
+ *
+ * 🔴 **三個 token 不同級:`cost` 不是欄,是 `metadata` 這個 jsonb 裡的一個 key。**
+ * 這道守門讀起來像「守三個欄」,實際是「守**兩個欄** + **一個 jsonb key**」。實查:
+ * `products` 表**沒有 `cost` 欄**(數法 `grep -rnE "^\s+cost\s+|ADD COLUMN cost" supabase/migrations/`
+ * ⇒ 零命中);它出現在 `20260602135934:81-86`(`metadata - 'cost'` 洗值)與 `:90`
+ * (`CHECK (NOT (metadata ?| array[…'cost'…]))` ⇒ **DB 端已禁止它回到 metadata**)。
+ * ⇒ 守它的形狀是**字串 `'cost'` 與 `metadata.cost` 取值**,不是 select 欄名。
+ *
+ * ⇒ 這也解釋了為什麼 `cost` 與 `REPO_ONLY_TOKENS` 的 `metadata` **守備範圍天然重疊** ——
+ *   **那是縱深不是重工**。寫出來,免得下一個人來把其中一個「收斂」掉。
  */
 const LEAK_TOKENS = ['price_store', 'price_by_tier', 'cost'] as const;
 

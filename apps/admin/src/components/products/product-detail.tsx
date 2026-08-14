@@ -1,18 +1,20 @@
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+import { toProductMedia } from '../../lib/products/product-media';
 import {
   resolveListingState,
   resolvePrice,
   type AdminProductDetailRow,
 } from '../../lib/products/product-repository';
 
-// M-4b #20 片1b-1:商品詳情頁的顯示層(唯讀)。相對 import 理由同 products-table.tsx:11-12。
+// M-4b #20 片1b-1 + 1b-2:商品詳情頁的顯示層(唯讀)。相對 import 理由同 products-table.tsx:11-12。
 //
 // 🔴 **本檔不得直接讀 `row.price_general` / `row.delisted_at`** —— 一律經 `resolvePrice` /
 //    `resolveListingState`(片1a plan §3 的設計約束,由來源掃描測試釘住、不是靠這段註解)。
 //
-// 🔴 **本片刻意不顯示商品說明 / 賣點 / 適用車型 / 圖片影片手冊聲浪** —— 那七欄是片1b-2,
-//    因為它們的 jsonb 元素形狀還沒對正式庫實跑過(片1b plan §4 R4)。
-//    這裡**不寫「即將推出」之類對未來的承諾**(片1a 已有同型守門)。
+// 🔴 **1b-2 加入內容/賣點/適用車型/圖片影音四個區塊。** jsonb 元素形狀**不保證**
+//    ⇒ 一律先過 `toProductMedia()` 的 runtime guard,渲染層不碰原始 jsonb
+//    (理由與依據逐條在 `lib/products/product-media.ts` 檔頭)。
+//    ⚠️ 上一版這裡寫著「本片刻意不顯示…那七欄是片1b-2」—— **那句已經過期**,1b-2 就是這次。
 
 /**
  * `availability` 是 CHECK 二選一(`20260507004826:40-42`);非預期值原樣顯示,不猜、不吞。
@@ -54,6 +56,11 @@ export function formatTime(raw: string): string {
   return Number.isNaN(Date.parse(raw)) ? raw : formatOrderDateTime(raw);
 }
 
+/** 數量顯示:0 回 null ⇒ `Field` 自己顯「—」,不印「0 張」(0 與沒有在這裡是同一件事)。 */
+function countLabel(n: number, unit: string): string | null {
+  return n === 0 ? null : `${n} ${unit}`;
+}
+
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div className='space-y-0.5'>
@@ -77,6 +84,9 @@ export function ProductDetail({
 }) {
   const price = resolvePrice(product);
   const listed = resolveListingState(product) === 'listed';
+  // 🔴 收斂在這裡做一次,渲染層只碰收斂後的形狀 —— jsonb 來源 shape 不保證,
+  //    讓 JSX 直接 `.map` 原始 jsonb 就是把髒值一路帶到畫面上。
+  const media = toProductMedia(product);
 
   return (
     <div className='space-y-4'>
@@ -115,6 +125,77 @@ export function ProductDetail({
             <Field label='品牌' value={brandName} />
             <Field label='分類' value={categoryName} />
           </dl>
+        )}
+      </section>
+
+      <section className='rounded-lg border p-4'>
+        <h2 className='mb-3 text-sm font-medium'>商品說明與賣點</h2>
+        {media.description === null || media.description.trim() === '' ? (
+          <p className='text-muted-foreground text-sm'>沒有商品說明。</p>
+        ) : (
+          <p className='text-sm whitespace-pre-wrap'>{media.description}</p>
+        )}
+        {media.highlights.length > 0 && (
+          <ul className='mt-3 list-disc space-y-1 pl-5 text-sm'>
+            {media.highlights.map((h, i) => (
+              <li key={i}>{h}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className='rounded-lg border p-4'>
+        <h2 className='mb-3 text-sm font-medium'>適用車型</h2>
+        {/* 🔴 只顯示筆數,而且把「這不是完整清單」寫在畫面上 ——
+            `products.fitments` 只是 direct 那一半,繼承件在 `product_fitments_effective`
+            (`SupabaseProductAdapter.ts:327-328`)。印成完整清單等於對員工說謊。 */}
+        <p className='text-sm'>
+          這件商品自己標了 <strong>{media.fitmentCount}</strong> 筆適用車型。
+        </p>
+        <p className='text-muted-foreground mt-1 text-sm'>
+          這個數字<strong>不含</strong>從母車款繼承來的車型,所以會比前台看到的少。完整清單還沒做。
+        </p>
+      </section>
+
+      <section className='rounded-lg border p-4'>
+        <h2 className='mb-3 text-sm font-medium'>圖片與影音</h2>
+
+        {/* 🔴🔴 驗收 6:圖片同步警語。這句從 plan 寫下到現在一直不存在,本片補上。
+            依據 = 承重前提 3:圖片今天**只有防洗網、沒有旗標鎖** ⇒ 供應商換圖會直接蓋掉,
+            而「來源那天沒給值」才擋得住。不能讓員工以為後台看到的圖是最終定案。 */}
+        <p className='border-muted-foreground/30 bg-muted/40 mb-3 rounded border p-3 text-sm'>
+          這裡的圖片與影音來自供應商每日同步。<strong>在這裡改沒有用,明天會被蓋回去</strong>
+          ;供應商換圖也會直接覆蓋,目前沒有「鎖住不給改」的機制。
+        </p>
+
+        <dl className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+          <Field label='圖片' value={countLabel(media.images.length, '張')} />
+          <Field label='安裝手冊' value={countLabel(media.manuals.length, '份')} />
+          <Field label='聲浪音檔' value={countLabel(media.soundClips.length, '段')} />
+          <Field label='安裝影片' value={media.videoUrl === null ? null : '有'} />
+        </dl>
+
+        {media.manuals.length > 0 && (
+          <ul className='mt-3 space-y-1 text-sm'>
+            {media.manuals.map((m) => (
+              <li key={m.url}>
+                {m.label}
+                {typeof m.sizeKB === 'number' && (
+                  <span className='text-muted-foreground'> · {m.sizeKB} KB</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {media.soundClips.length > 0 && (
+          <ul className='mt-3 space-y-1 text-sm'>
+            {media.soundClips.map((c) => (
+              // 🔴 `title` 是英文原文、可為 null(實測約 4% 無標題,`domain/catalog/types.ts:230-232`)。
+              //    這裡**不烤中文標籤** —— 資料層不烤、顯示層才做,而後台不需要那層美化。
+              <li key={c.url}>{c.title ?? '(無標題)'}</li>
+            ))}
+          </ul>
         )}
       </section>
 
