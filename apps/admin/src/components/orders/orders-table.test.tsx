@@ -491,7 +491,25 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
 
       expect(idCell.textContent).toContain('PCM-0001');
       // 🔴 掃的是**整張表**、不是只掃單號格:膠囊被搬到別格也算沒下架。
-      expect(container.textContent).not.toContain(PAYMENT_STATUS_LABEL[status]);
+      //
+      // 🔴🔴 **`#494` 起 `refunded` 這一態是例外,而且是字面撞名、不是下架失敗**:
+      //    Sean 拍 `Q-494-2`=B 之後狀態膠囊自己會顯示「已退款」,而
+      //    `PAYMENT_STATUS_LABEL.refunded`(`order-list-view.ts:135`)**逐字也是「已退款」**。
+      //    共用同一個詞是刻意的:篩選下拉與膠囊講同一件事卻用兩個詞,正是 `#494` 要治的病。
+      //    ⇒ 這一態改判「**恰好出現一次,而且那一次在狀態格(td[11])**」。
+      //    **判別力沒有變弱**:付款膠囊貼回來 ⇒ 兩次(紅);膠囊被搬到別格 ⇒ 狀態格那條落空(紅)。
+      if (status === 'refunded') {
+        const statusCell = [...container.querySelectorAll('tbody tr td')][11]!;
+        // 🔴 codex 關卡2 F4:只驗「字面恰一次」不夠 —— 把舊付款膠囊塞進**狀態格**、
+        //    或把它渲染成沒有膠囊的裸文字,次數仍是 1 ⇒ 綠。
+        //    ⇒ 再釘形狀:狀態格內**恰一顆 `<span>`**,而且它就是那顆膠囊。
+        const spans = statusCell.querySelectorAll('span');
+        expect(spans.length).toBe(1);
+        expect(spans[0]!.textContent).toBe(PAYMENT_STATUS_LABEL.refunded);
+        expect(container.textContent!.split(PAYMENT_STATUS_LABEL.refunded).length - 1).toBe(1);
+      } else {
+        expect(container.textContent).not.toContain(PAYMENT_STATUS_LABEL[status]);
+      }
       // 🏁 **片6 起單號格內不再有任何 `<span>`**(「已取消」膠囊也下架了、`Q-E1` = A)
       //    ⇒ 這條從「本 fixture 沒取消所以是 0」變成「任何單都該是 0」,判別力**變強不是變弱**:
       //    誰把任何一顆膠囊搬回單號格,這裡就紅。

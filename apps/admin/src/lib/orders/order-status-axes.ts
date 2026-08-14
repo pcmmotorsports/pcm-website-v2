@@ -51,6 +51,15 @@ export const ORDER_STATUS_LABEL: Record<OrderPayAxis, Record<OrderGoodsAxis, str
 export const ORDER_STATUS_CANCELLED_LABEL = '已取消';
 
 /**
+ * 已退款也不在 2×4 矩陣裡(`#494`;**Sean 2026-08-14 拍板 `Q-494-2`=B**)。
+ *
+ * 🔴🔴 **這是刻意偏離 OD,不是漏做。** OD 後台設計的收款軸只有兩態,本值是第三種**矩陣外**的狀態
+ *    —— 與 `已取消` 同一形狀:**這張單不用再做事了**,貨走到哪不再是決策資訊。
+ *    偏離的來由與被推翻的那條裁定寫在下面 `orderPayAxis` 的 docstring,**要改先讀那段**。
+ */
+export const ORDER_STATUS_REFUNDED_LABEL = '已退款';
+
+/**
  * 🔴 **顏色由貨品軸決定,收款只是附加標記**(Sean 拍 Q27=B,推翻前一版)。
  *
  * 前一版是「收款軸在外、貨品軸在內」⇒ 八個狀態只用到四種顏色,而且四個擠在同一個紅
@@ -93,6 +102,16 @@ const RISK_TONE =
 /** 已取消:與「未定」同樣是灰,靠**虛線外框 + 透明底**分開 —— 灰不能同時代表兩件事。 */
 const CANCELLED_TONE = 'border border-dashed border-muted-foreground/50 text-muted-foreground';
 
+/**
+ * 已退款(`#494`):同樣是「不用再做事」的灰,靠**實線外框**與已取消的虛線分開
+ * —— 沿用本檔既有立場「灰不能同時代表兩件事」,現在是三件。
+ * 兩個獨立訊號:①框線樣式(虛 vs 實)②字面本身(已取消 / 已退款)。
+ *
+ * ⚠️ **這串 class 是我挑的,不是從 OD 搬的**(OD 沒有這一態)⇒ **視覺未經 Sean 或 Design 定稿**,
+ *    在列表上跟「未定」的灰底並排到底夠不夠分得出來,**沒有人用眼睛看過**。
+ */
+const REFUNDED_TONE = 'border border-muted-foreground/50 text-muted-foreground';
+
 export type OrderStatusView = {
   /** 給人看的字面(八值之一,或「已取消」) */
   label: string;
@@ -107,11 +126,20 @@ export type OrderStatusView = {
 /**
  * 收款軸。
  *
- * ⚠️ **誠實邊界(不是 bug,是照 OD 字面實作的已知落差)**:repo 的 `paymentStatus` 是**五態**
- * (`paid` / `unpaid` / `partiallyPaid` / `refunded` / `partiallyRefunded`),而 OD 只有兩態。
- * 這裡照 OD 字面收斂成 `paid` 以外皆 `unpaid` ⇒ **`refunded`(已退款)會落進「未收」並吃到紅框**。
- * 字面上不算錯(現在確實沒收到錢),但紅框的語意是「去催客人付錢」,對一張已退款的單是噪音。
- * ⇒ 主視窗 2026-08-13 裁「照 OD 字面做」,並要求**測試裡有一格專門釘它落在哪一軸**(註解會被讀漏,測試不會)。
+ * ⚠️ repo 的 `paymentStatus` 是**五態**(`paid` / `unpaid` / `partiallyPaid` / `refunded` /
+ * `partiallyRefunded`),而 OD 只有兩態 ⇒ 本函式照 OD 字面收斂成「`paid` 以外皆 `unpaid`」。
+ *
+ * 🔴🔴 **拍板歷史(`#494`;不要只讀最後一句就動手)**
+ * - **2026-08-13 · 主視窗裁「照 OD 字面做」**:當時已寫明後果 ——「`refunded` 會落進『未收』並吃到紅框」,
+ *   並要求測試裡有一格專門釘它落在哪一軸(註解會被讀漏,測試不會)。
+ * - **2026-08-14 · Sean 拍 `Q-494-1`=A,知情推翻上面那條裁定。** 起因是他肉眼撞到:
+ *   點「未收未定」的單要取消,一律被擋、而訊息說它「已付款」——**同一張單畫面講三句相反的話**。
+ *   ⇒ 新規則:**已退款單獨成一態**(`ORDER_STATUS_REFUNDED_LABEL`),由 `orderStatusView` 早退分支處理。
+ *
+ * 🔴 **本函式自己沒變、也刻意不改**:它是「兩軸相乘」那條路上的收款軸,而 `refunded` 從
+ *    `orderStatusView` 就早退了、根本走不到這裡。⇒ **單獨呼叫本函式仍會把 `refunded` 判成 `unpaid`,
+ *    那個回傳值不是這張單的狀態** —— 要狀態請用 `orderStatusView`,本函式不是真相的單一來源。
+ *    (釘在 `order-status-axes.test.ts` 的兩格:一格釘本函式仍回 `unpaid`、一格釘 `orderStatusView` 不再回「未收未定」。)
  */
 export function orderPayAxis(order: AdminOrderSummary): OrderPayAxis {
   return order.paymentStatus === 'paid' ? 'paid' : 'unpaid';
@@ -143,6 +171,16 @@ export function orderGoodsAxis(order: AdminOrderSummary): OrderGoodsAxis {
  * 訂單的狀態八值 + 膠囊 class。
  *
  * 🔴 已取消**先判**:它不在 2×4 矩陣裡(不是一個階段,是整張單沒了)。
+ * 🔴 **已退款第二判**(`#494`):同樣不在矩陣裡。
+ *    ⚠️ **「既取消又退款 ⇒ 顯示已取消」是沿用既有行為,不是 `#494` 拍板的內容**
+ *    (codex 關卡2 F1 指出我原本把它寫得像已拍板)。取消的早退分支在本片之前就在這裡,
+ *    本片只是在它**後面**插一條 ⇒ 那個交集的顯示結果**一個字都沒變**。
+ *    我的理由是「取消是整張單沒了、退款只是錢回去了」,但**那是我的判斷、沒有人拍過**
+ *    ⇒ 已列進交件的待決項;要改成「已取消・已退款」之類的合併字面請走拍板,不要就地改順序。
+ *    (下面那格測試釘的是**現況**,不是宣稱它一定對。)
+ * ⚠️ **`partiallyRefunded` 刻意不走這條**(驗收 6):它是「退了一部分」= **還有錢沒結、還有事要做**,
+ *    與 `refunded`(全退、結案)不是同一件事 ⇒ 維持落在收款軸的 `unpaid` 那半、照舊吃紅框。
+ *    🔴 **正式庫目前零筆 `partiallyRefunded` / `partiallyPaid`** ⇒ 這個判斷**只讀 code 推得,沒有實例驗過**。
  */
 export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
   if (order.cancelledAt !== null) {
@@ -152,6 +190,17 @@ export function orderStatusView(order: AdminOrderSummary): OrderStatusView {
       payAxis: null,
       goodsAxis: null,
       cancelled: true,
+    };
+  }
+
+  // 🔴 `=== 'refunded'` 而不是「含 refund 字樣」:`partiallyRefunded` 必須**不**進這條(見上方 docstring)。
+  if (order.paymentStatus === 'refunded') {
+    return {
+      label: ORDER_STATUS_REFUNDED_LABEL,
+      capsuleClass: `${STATUS_CAPSULE} ${REFUNDED_TONE}`,
+      payAxis: null,
+      goodsAxis: null,
+      cancelled: false,
     };
   }
 

@@ -94,6 +94,16 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
     'already_cancelled',
     'payment_expired',
     'payment_not_unpaid',
+    // 🔴 `#494` 的三條與 `payment_not_unpaid` **同一族**:它們是「這張單現在的業務狀態不允許」,
+    //    不是「系統讀不到 / 資料壞了」⇒ 員工有自己做得到的下一步(確認尾款要收還是要退),
+    //    叫他通知系統維護反而是把他擋在原地。
+    //    ⚠️ 豁免 = **不強制**要那句、不是不准寫:`payment_refunded` 的 hint 仍帶
+    //    「結案請通知系統維護」,因為結案確實不是他能做的。
+    //    ✅ 這三條**是被這道守門逼出來的**(豁免制的設計目的兌現了一次):我沒主動想到要分類,
+    //       是新碼預設落進嚴格桶、當場紅給我看的。
+    'payment_refunded',
+    'payment_partially_refunded',
+    'payment_partially_paid',
     'charge_attempt_blocked',
     'nothing_cancellable',
   ];
@@ -104,6 +114,43 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
   it('讀不全/異常那批一定叫他通知系統維護', () => {
     for (const code of NEEDS_MAINTENANCE) {
       expect(BLOCK_REASON_TEXT[code].hint, code).toContain('通知系統維護');
+    }
+  });
+
+  // 🔴🔴 `#494` 驗收 2:四種非 unpaid 的付款狀態**各自一句話**,不得共用「已付款」那一句。
+  //    起因是 Sean 對著一張**已退款**的單讀到「已付款的單…現在請走人工退款流程」——
+  //    ①它不是已付款 ②它已經退過款了。這一格把「不准共用」變成守門,不是註解。
+  it('🔴 四個付款狀態拒因各有各的話,且已退款/部分退款不得自稱「已付款」或叫人去退款', () => {
+    const PAYMENT_CODES = [
+      'payment_not_unpaid',
+      'payment_refunded',
+      'payment_partially_refunded',
+      'payment_partially_paid',
+    ] as const;
+    // 四句 title 兩兩不同 ⇒ 誰把新碼指回舊文案(或複製貼上忘了改),這裡紅。
+    const titles = PAYMENT_CODES.map((c) => BLOCK_REASON_TEXT[c].title);
+    expect(new Set(titles).size).toBe(PAYMENT_CODES.length);
+
+    // 🔴 codex 關卡2 F3:**只驗「四句不同」是不夠的** —— 把 `partiallyPaid` 與
+    //    `partiallyRefunded` 兩組文案整組互換,上面那行照樣全綠(四句仍然兩兩不同)。
+    //    ⇒ 每一碼再釘一個**只有它講得通**的詞,把「訊息真的對應那個 paymentStatus」量出來。
+    const MUST_SAY: Record<(typeof PAYMENT_CODES)[number], readonly string[]> = {
+      payment_not_unpaid: ['已付款'],
+      payment_refunded: ['退回去'],
+      payment_partially_refunded: ['退了一部分'],
+      payment_partially_paid: ['只收到一部分'],
+    };
+    for (const code of PAYMENT_CODES) {
+      for (const word of MUST_SAY[code]) {
+        expect(BLOCK_REASON_TEXT[code].title, code).toContain(word);
+      }
+    }
+
+    // 🔴 反向釘死具體字面:退款那兩條不得說「已付款」,也不得叫人再跑一次退款。
+    for (const code of ['payment_refunded', 'payment_partially_refunded'] as const) {
+      const { title, hint } = BLOCK_REASON_TEXT[code];
+      expect(title, code).not.toContain('已付款');
+      expect(`${title}${hint}`, code).not.toContain('請走人工退款流程');
     }
   });
 
