@@ -35,6 +35,25 @@ export function buildSupplierChoices(
   }
   for (const p of procurements) {
     if (byId.has(p.supplierId)) continue;
+    // 🔴 `#476` 片3:**作廢列不足以讓一家【已知停用】的供應商留在選單裡。**
+    //    上面那條例外的理由逐字是「這一列的事實記錄欄照常可以更新」—— 而**作廢的列沒有東西要更新**
+    //    (`#476` 片2 起表單只 hydrate 生效列;`editing` 也只看生效列)⇒ 留著只會讓員工選到
+    //    一張空表單、按下去被片2 擋住,而他不知道那家為什麼會出現在選單裡。
+    //
+    // 🔴🔴 **條件必須同時帶 `supplierIsActive === false`,少了它會關掉一條合法的路**
+    //    (`#476` 片3 兩關審查**各自獨立**抓到同一條,是本片最重的 finding):
+    //    ~~原本只寫 `if (p.voidedAt != null) continue;`~~ 的錯誤前提是「那家若仍啟用,
+    //    它早就從 `activeSuppliers` 進來了」—— **那句在 `suppliersFailed` 路徑上不成立**:
+    //    `order-detail-route.tsx` 供應商清單載入失敗時傳 `suppliers=[]`
+    //    ⇒ 上面那個迴圈是空的、**本迴圈是選單的唯一來源**。
+    //    可構造:員工作廢對 X 家的採購(`Q-S1=A` 就是要對 X 重下單)→ 這次 `listSuppliers()` 失敗
+    //    → 下拉裡沒有 X → **重下單做不了**,而畫面上的橫幅還說「選單只會列出這張單已經用過的供應商」。
+    //
+    // ⚠️ **`supplierIsActive === null` 刻意不算**(`null` = 內嵌沒回來 = **不知道**):
+    //    不知道就保留,移除是不可逆的體驗損失、保留只是多一個選項。方向與本檔既有立場一致
+    //    (下面 `inactive: p.supplierIsActive !== true` 逐字「不得靜默當啟用中」——
+    //     那條是**標記**從嚴,這條是**移除**從寬,兩者不衝突)。
+    if (p.voidedAt != null && p.supplierIsActive === false) continue;
     byId.set(p.supplierId, {
       id: p.supplierId,
       label: p.supplierLabel ?? `(未知供應商 ${p.supplierId.slice(0, 8)})`,

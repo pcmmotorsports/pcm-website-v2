@@ -111,11 +111,23 @@ function ProcurementRows({
           </tr>
         </thead>
         <tbody>
-          {item.procurements.map((p) => (
-            <tr key={p.id} className='border-t'>
+          {item.procurements.map((p) => {
+            // 🔴 `#476` 片3:作廢與否**從資料算、不寫死** —— 理由逐字同 `shipment-section.tsx`
+            //    那條(「寫死的話它會變成過濾條件的第二個真相源」)。
+            //    ⚠️ 用 `!= null` 而非 `!== null`,與 `procurement-view.ts:findActiveProcurement`
+            //    **同一個方向**(缺欄時退回「當生效」而不是「全部當作廢」)。兩處若不一致,
+            //    同一列會在表格上寫「已作廢」、在表單裡卻被當生效 hydrate 出來。
+            const voided = p.voidedAt != null;
+            return (
+            <tr key={p.id} className={voided ? 'border-t opacity-60' : 'border-t'}>
               <td className={TD}>
                 {/* 🔴 label 為 null = 內嵌沒回來(A9a-2),不是「這家沒有名字」⇒ 誠實顯示缺 */}
-                {p.supplierLabel ?? <span className='text-muted-foreground'>(供應商資料缺)</span>}
+                <span className={voided ? 'line-through' : undefined}>
+                  {p.supplierLabel ?? <span className='text-muted-foreground'>(供應商資料缺)</span>}
+                </span>
+                {/* 🔴 作廢標示排在停用標示**之前**:兩者可以同時成立,而「這筆撤了」比
+                    「這家停用了」更決定員工的下一步(撤了就別再看這一列)。 */}
+                {voided && <span className='text-muted-foreground ml-1 text-xs'>(已作廢)</span>}
                 {p.supplierIsActive === false && (
                   <span className='text-muted-foreground ml-1 text-xs'>(已停用)</span>
                 )}
@@ -134,7 +146,17 @@ function ProcurementRows({
               </td>
               {/* #352-b 入口 1:每列尾端一顆「登錄到貨」(plan §5.2) */}
               <td className={TD}>
-                {truncated ? (
+                {/* 🔴🔴 `#476` 片3:作廢的列不給到貨入口。**這是目前唯一的守門,不是 UX 便利。**
+                    ~~原註解寫「RPC 那端已經擋了 ⇒ 這裡不擋也不會寫壞資料」~~ **對現況為假**
+                    (兩關審查各自抓到):那道 RPC 守門在 `20260814100000` 步 6b,而
+                    `grep -c 20260814100000 supabase/APPLIED.tsv` = **0** ⇒ **甲片還沒 apply**。
+                    該 migration 自己逐字寫著少了直接斷言會怎樣:「那筆到貨就靜默掛在一筆
+                    已作廢的採購上,**沒有任何人擋**」(C5 只比品項層聚合,兄弟採購列撐著就撞不到)。
+                    ⇒ 甲片 apply 之前,拿掉這個 `voided` 條件 = 真的寫得進去。
+                    ✅ apply 之後它才降級成「不讓員工填完整張表才被拒」的 UX 前置(Sean「操作直覺化」),
+                    **在那之前不要照那個理由把它拿掉。**
+                    ⚠️ 顯示「—」而不是把整欄拿掉:欄位消失會讓表格對不齊,員工要數欄才知道少了哪個。 */}
+                {truncated || voided ? (
                   <span className='text-muted-foreground text-xs'>—</span>
                 ) : (
                   <ReceiptRecordForm
@@ -147,7 +169,8 @@ function ProcurementRows({
                 )}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -182,7 +205,10 @@ export function ItemProcurementSection({
           role='alert'
           className='border-destructive/30 bg-destructive/5 text-destructive mb-3 rounded-md border p-2.5 text-xs'
         >
-          供應商清單載入失敗,選單只會列出這張單已經用過的供應商。請重新整理;
+          {/* 🔴 `#476` 片3:原字面是「已經用過的供應商」,而片3 之後有一格例外
+              (**已停用 × 只剩作廢列** ⇒ 不列)⇒ 補「而且沒被作廢的」,否則這句是謊話。
+              ⚠️ 兩關審查抓到的字面,不是我自己想到要改的。 */}
+          供應商清單載入失敗,選單只會列出這張單已經用過、而且沒被作廢的供應商。請重新整理;
           在清單載入成功之前不要新增供應商,避免建立重複的資料。
         </div>
       )}
