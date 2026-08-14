@@ -12223,7 +12223,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **分流:** `P1-before-launch`
 - **優先級:** 🟠 中(**今天實害 0,但 `#445b` 上線前會升級成 🔴,見「不修會痛在」**)
 - **問題:** `apps/admin/src/lib/payment/refund-recovery-actions.ts:87` 逐字 `if (row.status !== 'processing') return { ok: false, code: 'already_finalized' };` ⇒ RW4 只吃 `processing` 列。而 `manual_failed` / `recovered_confirmed` 都是終態(`supabase/migrations/20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:211-215` 狀態機逐字「唯三合法轉移」`processing → confirmed/failed/deferred`,**終態不可再轉**)。⇒ **人判錯一次,後台沒有任何按鈕能更正**。異常清單也看不到它(`refund-read.ts:109-110` 只查 `status='processing'`)。唯一救濟 = 手動 SQL。
-- **員工會看到什麼:** `refund-recovery-state.ts:61-62` 逐字「這筆退款已不在『處理中』(可能剛被結案),沒有執行任何動作。請重新整理清單確認現況。」—— 訊息把它講成「別人剛處理掉了」,而實際情況是**這個狀態本身就沒有出口**,員工重新整理幾次都一樣。
+- **員工會看到什麼:** 🏁 **(a) 已於 2026-08-14 修掉**(commit 見下)。~~舊文案 `refund-recovery-state.ts:61-62` 逐字「這筆退款已不在『處理中』(可能剛被結案),沒有執行任何動作。請重新整理清單確認現況。」—— 訊息把它講成「別人剛處理掉了」,而實際情況是**這個狀態本身就沒有出口**,員工重新整理幾次都一樣。~~
+  🔴 **現行文案**(Sean 2026-08-14 逐字指示「沒有別的解決方法的話,文字就要改成請工程師處理之類」):結案 +「這一列會從異常清單消失,要看結果請打開該筆訂單頁的退款紀錄」+「若判定有誤需更正,這裡沒有可以改的地方,請聯絡工程師處理」。同片並補上該早退路徑的 `revalidatePath`(原本不重整,畫面會停在舊狀態)。
+  ⚠️ **本條沒有被 (a) 解掉** —— 出口本身仍不存在,(a) 只讓員工不再被誤導、知道要找人。`#445b` 的硬前置**維持**,要解掉要做 (b),見「預期解法」。
 - **觸發事件:** 2026-08-14 R 窗跑 `#445` plan v3 的 R3 對抗審查(codex 時間軸 D + Fable F5 獨立收斂);兩者都在找「`manual_failed` 佔額度之後怎麼解開」時撞到同一行。
 - **🔴 今天為什麼還沒出事(兩條,缺一都不成立):**
   1. 後台尚未啟用、只有 Sean 在測(memory `project_admin-preprod-planning-posture`)⇒ 沒有員工會按到。

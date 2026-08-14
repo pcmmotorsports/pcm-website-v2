@@ -177,6 +177,42 @@ describe('judgeRefundExceptionAction — 閘序與失敗碼', () => {
     });
   });
 
+  // 🔴 #473(Sean 2026-08-14):`already_finalized` 的文案**不得叫員工去做一件沒有結果的事**。
+  //    舊文案末句是「請重新整理清單確認現況」—— 而這個狀態**沒有出口**
+  //    (本檔 action 只吃 `processing`;狀態機三終態不可再轉)⇒ 他重新整理十次都一樣。
+  //    ⚠️ 做成守門而不是寫在註解裡:同日我已經兩次「知道規則卻沒執行」,靠記得不管用。
+  it('🔴 #473 already_finalized 文案:要給真的下一步(找工程師),不得叫人白做工', async () => {
+    mocks.findRefundForRecovery.mockResolvedValue(snapshot({ status: 'confirmed' }));
+    const state = (await judgeRefundExceptionAction(JUDGE_IDLE, judgeForm())) as {
+      message: string;
+    };
+    // ① 真的下一步:後台改不了 ⇒ 找人
+    expect(state.message).toContain('聯絡工程師');
+    // ② 「錢與帳有沒有被動到」必須明寫。
+    //    ⚠️ 用「沒有更動任何退款資料」不用「沒有執行任何動作」(關卡2 codex nit):
+    //    早退前確實有授權檢查、log 與兩次 DB 讀,後者按字面是假的。
+    expect(state.message).toContain('沒有更動任何退款資料');
+    // ③ 🔴 白做工字面。⚠️ 「重新整理」能被列進禁語**是因為下面第⑥道**:
+    //    action 在這條路徑上會 revalidate、清單自己會更新 ⇒ 不需要叫員工去手動整理。
+    //    (關卡2 codex 抓到我第一版:禁了「重新整理」卻沒讓畫面真的更新 ⇒ 反而封死了誠實的說法。)
+    expect(state.message).not.toMatch(/重新整理|稍後再試|再試一次|稍候/);
+    // ④ 擋 **ASCII 內部識別字**(表名/狀態值/RPC 名/SQL)。
+    //    ⚠️ **它的射程就到這裡** —— 擋不到中文的內部語彙(例:「狀態機終態」「CAS 已鎖」),
+    //    那類要靠人看(關卡2 code-reviewer 實測指出:註解若寫「不寫內部語彙」就是宣稱大於事實)。
+    //    ⚠️ 字集第一版只列 4 個 token,`confirmed`/`deferred`/RPC 名全漏(關卡2 codex)⇒ 已擴。
+    // ⑦ 要指出**真正看得到結果的地方**;結案後這一列會從異常清單消失,叫他看清單是白做工。
+    expect(state.message).toContain('訂單頁');
+    expect(state.message).not.toMatch(
+      /order_refunds|payment_refunds|manual_failed|not_sent|rejected_out_of_range|processing|confirmed|deferred|admin_[a-z_]+|SQL|status/i,
+    );
+    // ⑤ 純文字輸出不得混 Markdown。⚠️ 第一版只擋 `**`,反引號/`#`/連結/底線強調全漏
+    //    (關卡2 codex)⇒ 字集擴到整組。
+    expect(state.message).not.toMatch(/\*\*|`|^#|\[[^\]]*\]\([^)]*\)|_[^_]+_/m);
+    // ⑥ 🔴 這條路徑必須 revalidate,否則清單停在舊狀態、上面那句「清單已更新」就是假話。
+    //    這格紅的時候是誰讓它紅的:把早退裡的兩行 revalidatePath 拿掉。
+    expect(mocks.revalidatePath).toHaveBeenCalled();
+  });
+
   it('🔴 異常入口鏡像:滯留未逾閾且無證據 → not_exception_yet、零 Record 呼叫(同步流程可能還在跑)', async () => {
     mocks.findRefundForRecovery.mockResolvedValue(
       snapshot({ createdAt: new Date().toISOString() }),
