@@ -1,4 +1,18 @@
-# 片 2a-2 plan:採購作廢 / 取消作廢 兩支 RPC(`#452` 案 E 下半)
+# 片 2a-2 plan:採購作廢 RPC(`#452` 案 E 下半)
+
+> # 🏁 v3 = C 案瘦身版(2026-08-14)
+>
+> **Sean 拍 `Q-452-換路` = C:只做「作廢」,「取消作廢」不做。**
+> 他複製了警告行一起回 ⇒ **知情推翻 08-13「要能取消撤銷」那個拍板**(交接檔 `docs/handoff/2026-08-14-morning-window-rotation.md:67-69`)。
+>
+> **瘦身結果(先數後刪,數法與逐格判定在 `/Users/sean_1/pcm-mailbox/D-901-STOP.md`,主視窗 `D-902-A.md` 複驗背書)**:
+> **46 格 → 35 格**(消失 11:突變靶 7 + 正面格 4),**再加 1 發新探針 = 36 格**。
+>
+> 🔴 **刪掉的東西一律用刪除線留在原地、不清場** —— 日後若要補回 unvoid,這些刪除線是唯一的地圖
+> (Q-D1=A 的裁決理由,`D-902-A.md:18`)。**看到刪除線 = 「C 案下不做」,不是「做錯了」。**
+>
+> 🔴 **整包消失的五個設計**:`C1 advisory lock` / `U6` 總量重驗 / `U7` 兄弟列 /
+> 冪等的「產物驗證」那一半 / §8.6 競態例外。**每一個都在原處留了為什麼死。**
 
 > **本檔只是 plan。零 code、零 migration 執行、零正式庫連線。**
 > 上游 = `docs/specs/2026-08-13-procurement-undo-plan.md`(母 plan,案 E 已由 Sean 08-13 `q1: a` 拍板)。
@@ -20,12 +34,13 @@
 
 ## §0 這一片要做什麼(三句)
 
-1. **`admin_void_item_procurement` / `admin_unvoid_item_procurement` 兩支 SECURITY DEFINER RPC**,
+1. **`admin_void_item_procurement` 一支 SECURITY DEFINER RPC**(🏁 C 案:~~`admin_unvoid_item_procurement`~~ 不做),
    形狀照 `20260811010000`(#352 甲片 `admin_record_item_receipt`,同一張表的現行寫入樣板),
-   語意照 `20260807200000` / `20260807210000`(shipments 作廢 / 復原樣板,母 plan §2 案 E 的來源)。
-2. **兩支都在自己的函式體內各自守自己那條不變式,一行都不依賴 A2b1**(R1 MF-1 折:原句寫「兩支都重驗總量」
-   與 §2.2「void 不需要總量重驗」自相矛盾,而 V1-V7 也確實沒有那一步)。
-   精確版:**unvoid 重驗總量(U6);void 守的是「已有到貨不准作廢」(V7)** —— 理由與證明見 §2。
+   語意照 `20260807200000`(shipments 作廢樣板,母 plan §2 案 E 的來源;
+   ~~`20260807210000` 復原樣板~~ 隨 unvoid 一起不用了)。
+2. **它在自己的函式體內守自己那條不變式,一行都不依賴 A2b1**。
+   精確版:**void 守的是「已有到貨不准作廢」(V7)** —— 理由與證明見 §2。
+   ~~unvoid 重驗總量(U6)~~ 🏁 **C 案下整包消失**(§2.3 已標作廢)。
 3. **同一支 migration 另補兩個相鄰 writer 對 voided 列的分流**(`admin_upsert_item_procurement` = A5a、
    `admin_record_item_receipt`)—— 它們與本片是**同一個 apply 單位**,理由見 §3(Q-P2 已裁 A,見 §8.1)。
 
@@ -36,10 +51,11 @@
 🏁 **Q-S1 已於 2026-08-14 由 Sean 拍板 = A**(逐字「當成全新的一筆收下來,舊的作廢紀錄留著查帳」)⇒ **此硬前置已解除。**
 🔴 **R3 折:v2 這裡還寫著「未裁定之前不得寫 code」,而 §3.2 已記已拍、§8.6 引了逐字**
    ⇒ **同一份檔裡同一題同時是「未裁硬前置 / 排隊中 / 已拍定」三態 = 殭屍題**(memory 明文警告的形狀)。
-它決定的三件事現在都有答案的方向:①A5a 的 migration 內容 ②`scripts/452-verify.sh:197` B5 的新期望值(`CREATED`)
-③U7 與 A5a 的併發合約(§2.4,已定案 C1)。**三者仍不能各自先寫,但卡的是 C1 的實作,不是拍板。**
-⚠️ **Q-S2**(unvoid 被擋時的人話出口)未裁也會讓函式 COMMENT / 測試字面 / UI 文案再漂一次
-⇒ 可先寫 code、但 COMMENT 與訊息字面留佔位,裁定後同批補。
+它決定的兩件事現在都有答案:①A5a 的 migration 內容 ②`scripts/452-verify.sh:197` B5 的新期望值(`CREATED`)。
+~~③U7 與 A5a 的併發合約(§2.4,已定案 C1)~~ 🏁 **C 案下不存在**(沒有 unvoid 就沒有那條死結)。
+🏁 **硬前置全部解除,無殘留阻塞。**
+~~⚠️ **Q-S2**(unvoid 被擋時的人話出口)未裁~~ 🏁 **隨 C 案自動作廢** —— 沒有取消作廢就沒有那一題
+(交接檔 `docs/handoff/2026-08-14-morning-window-rotation.md:70` 逐字)。
 
 ---
 
@@ -76,9 +92,9 @@
 
 ---
 
-## §2 🔴 開工令 §3 那條 must-fix:兩支各自的守門在哪裡跑
+## §2 🔴 開工令 §3 那條 must-fix:守門在哪裡跑(🏁 C 案:原文「兩支各自」)
 
-### 2.1 為什麼 A2b1 對兩支都是零覆蓋(這是**字面**,不是推論)
+### 2.1 為什麼 A2b1 對它是零覆蓋(這是**字面**,不是推論;🏁 C 案:原文「對兩支都是」)
 
 - trigger 會發火(F9,無欄位清單);**早退發生在函式體內**(F8)。
 - void = `SET voided_at = now(), void_reason = …`;unvoid = `SET voided_at = NULL, void_reason = NULL`。
@@ -125,7 +141,26 @@ C5 比的是**品項層聚合**,不是這一列。若同品項還有**兄弟採�
    而 `20260811010000:190-191` 才剛逐字寫過「不靠 CHECK 兜底:那條吐 raw 23514、員工看不懂」。
 🔴 **判定**:Q3=A(擋掉、叫他先撤到貨)在本片**同時是正確性守門**,不是可降級的業務規則。
 
-### 2.3 unvoid 方向:總量重驗必須自己做(數量有 C4 兜底,**訊息沒有**)
+### ~~2.3 unvoid 方向:總量重驗必須自己做(數量有 C4 兜底,**訊息沒有**)~~
+
+> 🏁 **整節作廢(C 案)。以下全文保留當歷程,不執行。**
+> **這一節是本次瘦身最大的一塊,而它的死法有下游後果 —— 讀了再走:**
+> `U6` 消失 ⇒ **void 不【顯式、提前】取 `order_items` 鎖** ⇒ §2.4「C1 advisory lock」那條死結的**一條邊不存在**
+>
+> 🔴🔴 **更正(2026-08-14,codex 對抗審查抓到)**:本行原本寫「void **全程不取** `order_items` 鎖」——**那是假的**。
+> `pcm_a4a_recompute_order_item_summary(uuid)` 函式體內有 `FROM public.order_items oi … FOR NO KEY UPDATE`
+> (實查該函式定義第 17-19 行)⇒ **void 的 UPDATE 觸發 A4a 重算,A4a 會替它取 parent NKU。**
+> ⇒ 結論(不死結)沒變、而且是**量到的**;但**理由**我寫錯了。正確的機制:
+> - **量到的**:探針發④⑤ 兩個方向跑四次,`40P01` 皆 0;被擋那方等的是 `transactionid ShareLock`(採購列的列鎖)。
+> - **推的**(機制解釋,未直接觀察):死結環需要「**持 parent ∧ 等索引項**」同時成立。
+>   unvoid 是**先**顯式取 parent(U6)、**再**讓 UPDATE 去插索引項 ⇒ 兩者同時成立。
+>   void 相反:①A4a 是在列 UPDATE **之後**才取 parent ②`voided_at` 由 NULL 變非 NULL
+>   ⇒ 新列版**不再滿足** partial index 的 `WHERE voided_at IS NULL` ⇒ **void 根本不插索引項、無從等它**。
+> ⚠️ 這是 memory `feedback_new-rationale-written-while-folding-a-finding-is-unverified` 的實例。
+> ⇒ **C1 才跟著死**。⚠️ **順序是 `U6` 死 → `C1` 死,不是各自死。**
+> 日後若補回 unvoid,**這兩件事必須一起回來**,只補 `U6` 不補 `C1` = 直接復現 `40P01`。
+> 隨本節一起消失:`UNVOID_EXCEEDS_ORDERABLE` 碼、§2.5 第二個人話出口、`Q-S2` 整題、
+> `MUT-U6-neg`、`MUT-U6-bnd`。
 
 ⚠️ 標題刻意不寫「唯一沒有第二道」—— 那是全稱句,而我下面自己就找到 C4 是第二道。
 W3c-2 檔頭 `20260807210000:50-54` 記著同一句被跨模型審查打回的前例。
@@ -146,18 +181,19 @@ A 家 3 件作廢 → B 家補 3 件(合法,A2b1 放行,2a-1 **已觀察** = `sc
 - 🔴 **鎖**:重算前先鎖 `order_items` **NKU**,鎖序 = `procurement 列 → order_items`,
   與 `20260811010000:216-229`(F19)**逐字相同** ⇒ 不新增鎖序、不需要新的無環論證。
 
-### 2.4 兩支的守門清單(順序 = 合約)
+### 2.4 守門清單(順序 = 合約)
 
 **`admin_void_item_procurement(p_procurement_id uuid, p_void_reason text, p_actor text, p_request_id text) RETURNS text`**
 
 | 步 | 守門 | 失敗出口 | 依據 |
 |---|---|---|---|
-| **V0** 🔴 | **C1 advisory:`pg_advisory_xact_lock(hashtextextended(item||':'||sup,0))`** —— **必須是第一把鎖,排在所有 row lock 與 parent lock【之前】** | — | 🔴 **R3 折:步表原本沒有這一步,而位置是承重的。** 我的探針只實測了「advisory 最先取」這一種擺位;**若排在 U6(`order_items` NKU)之後**,unvoid(持 order_items 等 advisory)× A5a(持 advisory → INSERT → A2b1 要 order_items)是**一條新的死結環**。⇒ **合約必須釘死「advisory 第一」**,不能只說「動業務鍵之前」 |
+| ~~**V0**~~ | ~~**C1 advisory:`pg_advisory_xact_lock(...)`,必須是第一把鎖**~~ | — | 🏁 **C 案刪除,且已【實測】不需要。** C1 為 `unvoid × A5a` 的死結而設;C 案下 unvoid 不存在,而 **void 不【顯式、提前】取 `order_items` 鎖**(§2.3 已死)⇒ 環的一條邊不存在。
+🔴 **不是「不取」** —— A4a 的重算 helper 在列 UPDATE **之後**仍會取 parent NKU(見 §2.3 更正段)。<br>🔴 **這不是推的** —— 探針 `docs/probes/452-2a2-void-lockprobe.sh`(2026-08-14 跑兩次,結果相同):**發⓪ 正向對照(unvoid 形狀)`40P01=1`**、**發④(void 先持列鎖)`40P01=0`**、**發⑤(A5a 先持列鎖+parent)`40P01=0`**,且④⑤ 各有 **1 個 session 實際卡在 `wait_event_type='Lock'`** ⇒ 不是「沒併發」的假綠。⇒ 假設 `A7` 已從推論變成觀察 |
 | V1 | 隔離閘:非 read committed 拒收 | RAISE `P2B02` | `20260811010000:69-73` 樣板 |
 | V2 | `p_actor` / `p_request_id` 形狀 | **RAISE 不給固定碼**(caller bug) | `20260811010000:86-103` |
 | V3 | `p_void_reason` 空白 | RETURN `REASON_REQUIRED` | 配對 CHECK 的訊息層,`20260807200000:96-99` 樣板 |
 | V4 | 鎖採購列 `FOR NO KEY UPDATE`;查無 | RETURN `PROCUREMENT_NOT_FOUND` | `20260811010000:140-146` |
-| V5 | **冪等快篩(只讀,不寫帳)** —— 帳本表見 §2.4b | RETURN `DUPLICATE_REQUEST` / 🔴 **狀態已變 ⇒ `REQUEST_ID_REUSED_STATE_CHANGED`** / 內容不符 RAISE | F20 排序紀律 + `20260810230000` 樣板。🔴 **R3 折:出口欄原本漏了第三個碼**(fold ③ 的產物驗證) |
+| V5 | **冪等快篩(只讀,不寫帳)** —— 帳本表見 §2.4b | RETURN `DUPLICATE_REQUEST` / 內容不符 RAISE<br>~~/ 狀態已變 ⇒ `REQUEST_ID_REUSED_STATE_CHANGED`~~ 🏁 C 案刪(§2.4b 單調性段) | F20 排序紀律 + `20260810230000` 樣板 |
 | V6 | 已作廢 | RETURN `ALREADY_VOIDED`(**不做 no-op**) | F22 + 母 plan §6 Q4 |
 | V7 | 🔴 **已有到貨** —— **順序釘死:①先驗兩來源【一致】(不一致 ⇒ fail-loud RAISE)②再驗【非零】(非零 ⇒ RETURN)** | `HAS_RECEIPTS_UNDO_FIRST` / 不一致 RAISE | §2.2,承重。🔴 **R3 折:v2 沒定順序** ⇒ 若「非零就擋」排前面,**RAISE 分支不可達 = 死枝**(repo 紀律:負測構造不出來先懷疑它是 no-op)。負測構造法 = owner 開 `pcm_a4a.received_sync` 旗標直寫 |
 | **V8** 🔴 | **帳本 INSERT** —— 🔴 **必須排在【所有 RETURN 型守門之後】**(`20260811010000:192` 逐字「此時尚未寫入任何東西 ⇒ 可以用 RETURN」)。R3 折:步表原本沒有這一步 | 撞鍵 ⇒ 比對 payload 全欄 `IS NOT DISTINCT FROM` | §2.4b fold ② |
@@ -169,7 +205,17 @@ A 家 3 件作廢 → B 家補 3 件(合法,A2b1 放行,2a-1 **已觀察** = `sc
 `20260811010000:203-211` 逐字立過「讀真相表,不讀衍生值」的紀律;這裡兩個都讀、**任一非零就擋**,
 是 fail-closed 而不是選一個信。⚠️ 兩者不一致本身 = 不變式破損 ⇒ **fail-loud RAISE**,不靜默選大的。
 
-**`admin_unvoid_item_procurement(p_procurement_id uuid, p_actor text, p_request_id text) RETURNS text`**
+### ~~unvoid 的守門清單~~ 🏁 **整支 RPC 作廢(C 案)。下表保留當歷程,不實作。**
+
+> 隨它消失:`U0`(C1)/ `U5` `NOT_VOIDED` / `U6` `UNVOID_EXCEEDS_ORDERABLE` / `U7` `ACTIVE_SIBLING_EXISTS` / `UNVOIDED`
+> 以及 `MUT-U5` `MUT-U7` `MUT-ADV` `MUT-ADV-KEY`、正面格 `B-unvoid` `B-U7`、
+> `B-concurrent` 的兩個子格(unvoid×部分取消、unvoid×A5a)。
+> ⚠️ `U1`/`U2`/`U3` 不是「消失」而是**併回 void 那一支的 V1/V2/V4** —— 對應的 `MUT-V1 / MUT-U1`、
+> `MUT-V2 / MUT-U2`、`MUT-V4 / MUT-U3` 三列是**縮水成一半,不是整列刪掉**。
+> 🔴 **刪那三列的 unvoid 半邊時,R2/R3 折出來的「恆綠修法」必須留著**
+> (比對 `CONSTRAINT` 名 / 比對 `P0001` vs 帳本表 `23514`)—— 整列刪掉會把判準一起刪掉。
+
+**~~`admin_unvoid_item_procurement(p_procurement_id uuid, p_actor text, p_request_id text) RETURNS text`~~**
 
 | 步 | 守門 | 失敗出口 |
 |---|---|---|
@@ -195,7 +241,14 @@ UPDATE 當下就撞)⇒ 實際結果是**裸 23505 + 索引名**,員工看不懂
 
 🔴 **U7 的序列化機制 = C1(advisory lock)。主視窗 2026-08-14 定案,`/Users/sean_1/pcm-mailbox/D-808-STOP.md` 的裁決回信。**
 
-### 這一段的完整歷程(不刪掉死掉的候選 —— 下一個人會想知道它們為什麼死)
+### ~~這一段的完整歷程(不刪掉死掉的候選)~~ 🏁 **C 案下整段不執行,全文保留**
+
+> 🔴 **這一整段(含 C1 逐字實作、C2 比較、四個死掉的候選、40P01 實測表)是本 plan 最貴的資產,
+> 一個字都不刪。** 它回答的是「**為什麼 unvoid 這麼難**」——
+> 日後有人提議把「取消作廢」加回來時,這段是他唯一的地圖:
+> 他會先看到 `40P01` 是**實測**不是理論,再看到 (a)(b) 兩條直覺解都已經死過。
+> 🔴 **同時要讀 §2.4 V0 那列的新探針**:C 案下 `void × A5a` 已實測不死結(⓪1/④0/⑤0)
+> ⇒ **死結是 unvoid 帶進來的,不是這張表本身有問題。**
 
 **病名 = 鎖序反轉**(R1 MF-7 抓到方向、R2 用字面釘死、D 窗探針實測)。
 死結的兩條腿(**已實測**,不是推的):
@@ -292,14 +345,40 @@ PERFORM pg_catalog.pg_advisory_xact_lock(
   ⇒ 修法:**冪等【快篩】留在 V5(讀,不寫);冪等【帳】的 INSERT 移到所有 RETURN 守門之後。**
   這兩件事樣板本來就是分開的,是我把它們併成一句。
 
-🔴 **R2 折 ③:冪等只做「鍵在不在」,丟掉了樣板「產物驗證」那一半** ——
+🏁 **C 案更正:帳本表的 `op` 欄刪掉。** 原設計 `op ('void'|'unvoid')` 只剩一個值,表名 `..._void_requests` 已經表達了。
+   ⚠️ **payload 比對維持 `IS NOT DISTINCT FROM`,不改成 `=`** —— 它原本的理由(`void_reason` 在 unvoid 時為 NULL)
+   雖然隨 unvoid 消失(V3 保證 `void_reason` 永不為 NULL),但改成 `=` 是零收益的重新論證,不動。
+
+### ~~R2 折 ③:冪等的「產物驗證」那一半~~ 🏁 **C 案下整包消失 —— 但它的消失【有條件】,讀完再改**
+
+🔴 **為什麼能消失**:C 案下 `voided_at` 在**所有 RPC 路徑上單調**(`NULL → NOT NULL`,永不回頭)
+⇒ 原本的失敗情境(`void → unvoid → 原 request_id 重放 ⇒ 回 DUPLICATE_REQUEST 而那列其實不是作廢狀態`)
+**構造不出來** ⇒ `DUPLICATE_REQUEST` 恆為真話。
+單調性的依據:①本 repo `voided_at` 的 writer 零支 —— 數法 `grep -rc 'voided_at' supabase/migrations/* | grep -v ':0'`
+⇒ 只有 `20260813120000` 一檔命中 35 處,**逐行看過全是註解 / `ADD COLUMN`(`:342`)/ CHECK(`:349`)/
+索引述詞(`:381`)/ 讀取述詞(`:440` `:495`)/ 驗收斷言(`:571-692`),無一處寫入**(2026-08-14 實跑);
+②本片新增的 writer C 案下只有 void 一支,方向只有 `NULL → now()`;
+③相鄰兩個 writer(A5a / receipt)只**讀** `voided_at` 做分流,不寫它(§3.1 / §3.2)。
+
+🔴🔴 **邊界(這句是本次瘦身唯一會反咬未來的人的地方,必須進 COMMENT)**:
+單調性只涵蓋 **RPC 路徑**。**owner 直寫繞得過** —— 那是本 plan 已立案的天花板 `B-owner-bypass`,
+而 memory `project_0812-sean-order-ui-workflow-and-undo-needs` 逐字記著
+「**採購撤銷是刻意不做的已知債,現行唯一救濟 = 手動 SQL**」
+⇒ **半夜真的有人手動 SQL 把一列 unvoid 回去,這個簡化就破了、而且是 fail-open(靜默回 `DUPLICATE_REQUEST`)。**
+⇒ 函式與帳本表的 COMMENT 必須逐字寫:
+> 本冪等只做「鍵在不在」,**依賴 `voided_at` 單調**。若日後補上「取消作廢」、或有人手動 SQL 解除作廢,
+> **產物驗證那一半必須同批回來**,否則就是 fail-open。
+
+隨它消失:`REQUEST_ID_REUSED_STATE_CHANGED` 碼、`V5` 的第三個出口、`MUT-LEDGER-VERIFY`。
+
+### ~~R2 折 ③(原文,保留當歷程)~~ ——
   `20260811010000:178-181` 逐字立過「查驗式冪等:**看到鍵在 ≠ 產物存在且屬本目標**」。
   void/unvoid 是**可逆切換**,這一半特別致命:void → unvoid → 用原 `request_id` 重放
   ⇒ 回 `DUPLICATE_REQUEST`,而**那一列其實不是作廢狀態** ⇒ 呼叫端信了 = **fail-open**。
   ⇒ 修法:回 `DUPLICATE_REQUEST` 之前**必須再讀一次那一列的現況**,與帳上的 `op` 比對;
   不符 ⇒ 回一個**不同的碼**(語意 = 「這個提交編號用過,但東西後來又被改了」),不得靜默當成功。
 
-⚠️ **代價要講**:這是本片新增的**第三個物件**(兩支 RPC + 一張表),ponytail 階梯上多爬了一階。
+⚠️ **代價要講**:這是本片新增的**第二個物件**(🏁 C 案:一支 RPC + 一張表;原文「第三個/兩支 RPC」),ponytail 階梯上多爬了一階。
    我試過用既有物件解(稽核帳)——**它字面上做不到**,不是我懶得找。
 
 ### 2.4c 稽核與 `SET CONSTRAINTS` 立場(R1 important 折)
@@ -314,27 +393,31 @@ PERFORM pg_catalog.pg_advisory_xact_lock(
   🔴 harness 要有一格**逐欄斷言這八個面**(action / target / before / after / request_id / source_app / actor / reason)。
 - **`SET CONSTRAINTS` 立場 = 不下**,理由照 `20260811010000:75-83` 的形狀但**必須自己重證**:
   A4a 的採購重算 trigger 是 `DEFERRABLE INITIALLY IMMEDIATE`(F13)⇒ **caller 可以把它延到 COMMIT**。
-  ⇒ 本片兩支守門(V7 讀 receipts 真相、U6 讀採購列真相)**都不讀衍生的摘要表** ⇒ 不受 deferral 影響。
+  ⇒ 本片的守門 **V7(讀 receipts 真相)不讀衍生的摘要表** ⇒ 不受 deferral 影響(🏁 C 案:原文含 `U6 讀採購列真相`)。
   🔴 但 **C4/C5 的發作時機會被延到 COMMIT** ⇒ harness 必須跑 **immediate / deferred 兩種**,
   證明「錯誤在哪一刻出現」兩種模式下都仍被本片的人話守門先接住。**這一格 plan v1 沒有。**
 
 ### 2.4d 函式屬性(R2 important 折:v1 只在 MUT-ACL 出現,設計段零字面)
 
-兩支 RPC 逐字帶:`LANGUAGE plpgsql` / `SECURITY DEFINER` / `SET search_path = public, pg_temp`
+**這支 RPC** 逐字帶:`LANGUAGE plpgsql` / `SECURITY DEFINER` / `SET search_path = public, pg_temp`
 / 🔴 **`SET lock_timeout = '5s'`**(樣板 `20260813120000:469-470` 同款)。
-⚠️ **`lock_timeout` 不是裝飾**:C1 的 advisory lock 會讓兩支 RPC 真的互相等 ——
-沒有它,一支作廢 RPC 在鎖爭用時會**無限等**,而 §5.1 的 ACL 矩陣**驗不到 timeout**(它只看 `proconfig` 的 search_path)。
-⇒ ACL 矩陣要加一格:`proconfig` 含 `lock_timeout=5s`。
+
+🔴 **C 案:設定【照留】,但理由【必須重寫】—— 刪設定與留舊句子都是錯的(主視窗 `D-902-A.md:38-39` 點名)**
+~~舊理由:C1 的 advisory lock 會讓兩支 RPC 真的互相等。~~
+**C1 已刪 ⇒ 那句當場變成假話。** 但 `lock_timeout` 仍然承重,新理由是**實測**的:
+探針 `452-2a2-void-lockprobe.sh` 發④⑤ 各觀察到 **1 個 session 卡在 `wait_event_type='Lock'`**
+—— **採購列的 NKU 爭用是真的、只是不會成環**。沒有 `lock_timeout`,void 撞上一個長交易的 A5a 會**無限等**,
+員工那一按就是永遠轉圈。⇒ **爭用仍在,只是死結沒了。**
+⚠️ §5.1 的 ACL 矩陣**驗不到 timeout**(它只看 `proconfig` 的 search_path)⇒ 矩陣必須有一格:`proconfig` 含 `lock_timeout=5s`。
 
 ### 2.5 人話出口(引導訊息)
 
 - `HAS_RECEIPTS_UNDO_FIRST` ⇒ 「這筆採購已經登錄過到貨,不能直接作廢。請先到到貨紀錄把那幾筆撤掉,再回來作廢。」
   🔴 撤到貨的出口 = `admin_delete_item_receipt(uuid,text,text)`(`20260810233000:280-283`)。
   ⚠️ **撤完之後那批貨在系統裡沒有去處** = 已立案的 `#462`(`docs/phase-1-backlog.md:12137-12143`),本片不做。
-- `UNVOID_EXCEEDS_ORDERABLE` ⇒ 照 `20260807210000:141-144` 的形狀給**兩條出路**:
-  ①先把別家供應商的採購數量改小,再回來取消作廢;②不要取消作廢,直接對這家重新下一筆新的採購。
-  ⚠️ 出路②之所以成立,靠的是 F3/F4 的 partial unique 允許同鍵共存 —— **這句要寫進 COMMENT**,
-  否則下一個人會以為②做不到。
+- ~~`UNVOID_EXCEEDS_ORDERABLE` ⇒ 給兩條出路(①改小別家 ②直接重下一筆新的)~~
+  🏁 **C 案刪(隨 U6)。** ⚠️ 但 **F3/F4 的 partial unique 仍然承重** —— Q-S1=A 靠它讓「作廢後對同一家重下單」
+  不撞鍵(`20260813120000:383-385` 索引註解逐字)。**索引不動,只是不再需要 U7 去接它的裸 23505。**
 
 ---
 
@@ -398,9 +481,10 @@ C5 比的是品項層聚合 ⇒ 若同品項的**兄弟採購列**還撐著 orde
 
 **兩條路(Q-S1,產品題,§8)**:
 - **(i) 視同不存在、走新建**(在 `:315-318` 的 WHERE 加 `AND voided_at IS NULL`)—— 靠 partial unique 不撞鍵。
-  🔴 **R3 折:A5a 的改動不只這一行。** §2.4 的 C1 還要求 A5a **加一句 advisory(且必須是第一把鎖)+ 說明防什麼的註解**
-  ⇒ **A5a 共三處改動**(voided 述詞 / advisory / 註解)。照 §3.2 的舊字面實作會**漏掉 C1 的第三腿**,而那正是死結的一半。
-- **(ii) 回一個新固定碼**叫員工先「取消作廢」。
+  🏁 **Sean 已拍 (i)。C 案下 A5a 的改動 = 兩處:①那一行 `AND voided_at IS NULL` ②說明它在防什麼的註解。**
+  ~~🔴 R3 折:還要加一句 advisory(第一把鎖)⇒ 共三處~~ 🏁 **C 案刪第三處** ——
+  advisory 是為 `unvoid × A5a` 而設,已實測 C 案下不需要(§2.4 V0 那列的探針三發:⓪1 / ④0 / ⑤0)。
+- ~~**(ii) 回一個新固定碼**叫員工先「取消作廢」~~ 🏁 **C 案下這個選項不可能存在**(沒有取消作廢可叫他去做)。
 
 ⚠️ **(ii) 會讓 F4 那句索引註解變成空話**(「作廢後對同一家供應商重下單不得撞鍵」——
 如果根本不准重下單,partial unique 就沒有存在理由)。**我推薦 (i)**,但這是 Sean 的題(§8 Q-S1)。
@@ -455,15 +539,15 @@ C5 比的是品項層聚合 ⇒ 若同品項的**兄弟採購列**還撐著 orde
 ```
 BEGIN;
   步 0  前置閘(四道,全部會自己 RAISE)
-        P1 兩支 RPC 存在(不存在 ⇒ 沒 apply 過或已退過 ⇒ 不要重跑)
+        P1 🏁 **C 案:那【一支】RPC 存在**(原文「兩支」)(不存在 ⇒ 沒 apply 過或已退過 ⇒ 不要重跑)
         P2 🔴 **刪除** —— 見 §4.2「fail-DANGEROUS」段:2a-2 的回退零資料損失,
            設這道閘等於「第一筆真實作廢之後就再也關不掉那支 RPC」。
            改設後置斷言:DROP 之後已作廢的列維持作廢、無 writer 能再動它。
         P3 A5a / receipt RPC 的指紋 = 2a-2 的版本(不是,代表有人在中間又改過 ⇒ 停)
-        P4 2a-2 之後沒有新的 migration 引用這兩支 RPC
-  步 1  🔴 **先 DROP 兩支新 RPC**(拿掉唯一的 voided writer)
+        P4 2a-2 之後沒有新的 migration 引用這支 RPC 🏁 C 案:原文「這兩支」
+  步 1  🔴 **先 DROP 那支新 RPC**(拿掉唯一的 voided writer)🏁 C 案:原文「兩支」
   步 2  還原 A5a 與 admin_record_item_receipt 成 2a-2 之前的版本(CREATE OR REPLACE,逐字由程式從原檔抽出)
-  步 3  後置斷言:兩支 RPC 已消失 / 兩支相鄰 writer 指紋回到 2a-2 之前
+  步 3  後置斷言:那支 RPC 已消失(🏁 C 案:原文「兩支」)/ 兩支相鄰 writer 指紋回到 2a-2 之前
         / 帳本表已消失 / 🔴 **已作廢的列【維持作廢】且欄位值逐欄未變**
         ⚠️ **不得斷言「voided 列數 = 0」** —— R3 抓到:那等於把 P2 那道 fail-dangerous 閘
            從後門裝回來,第一筆真實作廢之後整支回退會在步 3 RAISE ⇒ **正是最需要關掉它的時刻。**
@@ -481,7 +565,7 @@ COMMIT;
 
 我把 2a-1 的閘照抄過來,但**兩片的回退代價完全不同**:
 - **2a-1 的回退 = 刪欄 = 資料損失** ⇒ 「有作廢列就擋下」是 fail-safe,對。
-- **2a-2 的回退 = DROP 兩支 RPC + 還原兩個 writer = 零資料損失** ⇒ 同一道閘變成
+- **2a-2 的回退 = DROP 那支 RPC + 還原兩個 writer = 零資料損失**(🏁 C 案:原文「兩支」)⇒ 同一道閘變成
   **「已經有一筆真實作廢之後,就再也關不掉那支會出事的 RPC」**。
 ⇒ **半夜出事時,那正是你最需要關掉它的時刻。**
 ⇒ 修法:**2a-2 的 down 不設「零筆被作廢」閘**(它不刪任何資料);
@@ -498,6 +582,12 @@ COMMIT;
 **2a-2 必須在 2a-1 之前回退。** 依據 = `docs/runbooks/2026-08-13-452-procurement-void-rollback.md:51`
 逐字寫的 P4 閘:「偵測到 `admin_void_item_procurement` / `admin_unvoid_item_procurement` ⇒
 **必須先逆序回退 2a-2**,否則那兩支會引用已刪的欄位」。
+
+🏁 **C 案下這兩處【刻意不改】,不是漏掉(全樹掃過,`grep -rn 'admin_unvoid_item_procurement'` 只有這兩處在 plan 外)**:
+`scripts/452-down.sql:24` 的 `proname IN ('admin_void_item_procurement','admin_unvoid_item_procurement')`
+與 `docs/runbooks/2026-08-13-452-procurement-void-rollback.md:51` 的同款描述。
+理由:那是 `IN` 清單,C 案下只會有 `admin_void_item_procurement` 命中 ⇒ **閘的行為完全不變**;
+留著多一個名字**零成本、且若日後補回 unvoid 就已經涵蓋**。⚠️ 這句必須留著,否則下一個人會把它當成過期字面去「修」。
 
 🔴 **誠實邊界**:該檔 §4 逐字自陳「**未演練**:2a-2 已 apply 的情況(那時 2a-2 還不存在)
 ⇒ P4 那道閘是**寫下來的、沒被跑過**」。
@@ -547,56 +637,80 @@ v1 寫「照錯的順序退 ⇒ 期望炸在 `column p.voided_at does not exist`
 |---|---|---|---|
 | **MUT-V7a** | 拿掉 V7,**fixture = 本品項只有這一列採購** | **紅在 raw 23514 / C5** | 🔴 **R3 折:我 v2 把 fixture 與期望配錯了。** 單列 fixture 下 void ⇒ A4a 重算 ordered=0、instock>0 ⇒ **當場撞 C5、RPC 中止** ⇒ 「靜默掛著」在這個 fixture 下**物理上到不了**。這一格證的是「**沒有 V7 就會吐員工看不懂的英文**」 |
 | **MUT-V7b** | 拿掉 V7,**fixture = 本品項另有兄弟採購列撐著 ordered** | **不紅、登錄成功** ⇒ 那筆到貨**靜默掛在已作廢的採購上** | 這一格證的是**更糟的那一半**:C5 只在部分情形接得住 ⇒ **不能把 C5 當這條的守門**。⚠️ 判準不是「有沒有 error」,是**查那一列的 `voided_at IS NOT NULL` 且它有 receipts** |
-| 🔴 **MUT-U6-neg** | 拿掉 unvoid 的總量重驗(U6) | A 家 3 作廢 → B 家補 3 → unvoid A ⇒ **紅在 raw 23514 / C4**(`oiqs_ordered_le_quantity`),**不是人話、也不是成功** | **把「A2b1 不會接住」從推論變成觀察** —— 本片最重要的一格。🔴 **R1 MF-5 折**:v1 寫「成功、ordered 變 6」與本檔 §2.3 自己承認的 C4 兜底矛盾 —— 拿掉 U6 之後 A4a 寫摘要當場撞 C4,**不可能成功**。判別力仍在:錯誤來源是 **C4 而不是 `a2b1_allocation_within_orderable`** ⇒ 證明 A2b1 真的沒出場 |
-| **MUT-U6-bnd** | U6 的 `>` 改成 `>=` | 恰好用滿的**合法** unvoid 被誤擋 | 邊界對齊 `20260813120000:447`,不多擋一件 |
-| **MUT-U7** | 拿掉 U7 兄弟列守門 | 作廢 → 同家重下單 → unvoid ⇒ 紅在**裸 23505 + 索引名** ✅ **已實測**(D 窗探針發③,`duplicate key … "order_item_procurement_business_key"`)| 🔴 **R2 折:fixture 前提必須明寫** —— 要紅在 23505,前提是 **U6 先放行** ⇒ 品項 `quantity` 必須容得下「作廢那筆 + 重下那筆」。照 §2.3 的 3+3 情境建 fixture 會**紅在 `UNVOID_EXCEEDS_ORDERABLE`(人話)、突變體存活**。探針用的是 `quantity=6` |
+| ~~🔴 **MUT-U6-neg**~~ 🏁C刪 | ~~拿掉 unvoid 的總量重驗(U6)~~ | A 家 3 作廢 → B 家補 3 → unvoid A ⇒ **紅在 raw 23514 / C4**(`oiqs_ordered_le_quantity`),**不是人話、也不是成功** | **把「A2b1 不會接住」從推論變成觀察** —— 本片最重要的一格。🔴 **R1 MF-5 折**:v1 寫「成功、ordered 變 6」與本檔 §2.3 自己承認的 C4 兜底矛盾 —— 拿掉 U6 之後 A4a 寫摘要當場撞 C4,**不可能成功**。判別力仍在:錯誤來源是 **C4 而不是 `a2b1_allocation_within_orderable`** ⇒ 證明 A2b1 真的沒出場 |
+| ~~**MUT-U6-bnd**~~ 🏁C刪 | ~~U6 的 `>` 改成 `>=`~~ | 恰好用滿的**合法** unvoid 被誤擋 | 邊界對齊 `20260813120000:447`,不多擋一件 |
+| ~~**MUT-U7**~~ 🏁C刪 | ~~拿掉 U7 兄弟列守門~~ | 作廢 → 同家重下單 → unvoid ⇒ 紅在**裸 23505 + 索引名** ✅ **已實測**(D 窗探針發③,`duplicate key … "order_item_procurement_business_key"`)| 🔴 **R2 折:fixture 前提必須明寫** —— 要紅在 23505,前提是 **U6 先放行** ⇒ 品項 `quantity` 必須容得下「作廢那筆 + 重下那筆」。照 §2.3 的 3+3 情境建 fixture 會**紅在 `UNVOID_EXCEEDS_ORDERABLE`(人話)、突變體存活**。探針用的是 `quantity=6` |
 | **MUT-Ra** | 拿掉 receipt voided 分流,**fixture = 本品項只有這一列採購** | **紅在 raw 23514 / C5** | 🔴 **自掃折**:單列 fixture 下,對已作廢列登錄到貨 ⇒ instock 上去、ordered 不含它 ⇒ **當場撞 C5** ⇒「靜默掛著」**物理上到不了** |
 | **MUT-Rb** | 同上,**fixture = 本品項另有兄弟採購列撐著 ordered** | **不紅、登錄成功** ⇒ 到貨**靜默掛在已作廢的採購上** | 🔴 **自掃折:MUT-R 與 MUT-V7 是同一個病,而 R3 只點名了 V7、我也只拆了 V7。**「**一處改了一處沒改**」**第三次**,而且這次是**在我剛被指出這個病的同一輪**。判準 = 查該列 `voided_at IS NOT NULL` 且 `EXISTS receipts`,不是查有沒有 error |
 | **MUT-A5a** | 拿掉 A5a 的 voided 分流(§3.2) | 對已作廢列重下單 ⇒ 回 `UPDATED` 而不是 `CREATED` | 復現 2a-1 B5 已觀察的行為(`452-verify.sh:192-200`)。✅ **R2 當時指出「`CREATED` 先於 Q-S1 裁定寫死」—— 裁定已於 2026-08-14 到達(Q-S1=A)**,期望值現在有正式依據 |
-| **MUT-IDEM** | 把 V5/U4 的冪等快篩移到 V6/V7 之後 | 合法重放被守門擋掉、拿不到 `DUPLICATE_REQUEST` | F20 那條紀律在本片成立(352c 實測抓過的真 bug) |
+| **MUT-IDEM** | 把 V5 的冪等快篩移到 V6/V7 之後(🏁 C 案:原文含 `U4`) | 合法重放被守門擋掉、拿不到 `DUPLICATE_REQUEST` | F20 那條紀律在本片成立(352c 實測抓過的真 bug) |
 | **MUT-PAIR** | void 的 UPDATE 只寫 `voided_at`、不寫 `void_reason` | 紅在 `order_item_procurement_void_pair` | 配對 CHECK 是活的(F2) |
 | ~~**MUT-TOCTOU**~~ | ~~UPDATE 的 WHERE 拿掉 `AND voided_at IS NULL`~~ | 🔴 **R1 折:撤下,它沒有鑑別力** —— 雙作廢會先被同一採購列的 NKU 鎖序列化,第二支就算拿掉述詞也會在 V6 回 `ALREADY_VOIDED` ⇒ 這一格**恆綠**。述詞本身**保留**(縱深),但**不宣稱它有測到** | 「恆真格」= 本 repo 明文禁止的形狀 |
 | 🔴 **MUT-LEDGER-POS** | 把帳本 INSERT 從「所有 RETURN 守門之後」搬回 V5 的位置 | **必須紅**:V7 拒絕(`HAS_RECEIPTS_UNDO_FIRST`)→ 撤到貨 → **同 request_id 重試** ⇒ 回 `DUPLICATE_REQUEST` 而不是成功 | 🔴 **R3 折:§2.4b fold ② 零驗收。** R2 給的失敗情境(「作廢永遠做不成」)**沒有任何一格在守**,把 INSERT 寫回守門之前的實作 **B-idem / B-idem-bad / MUT-IDEM 全綠通過** |
-| 🔴 **MUT-LEDGER-VERIFY** | 拿掉「產物驗證」那一半(只比對鍵存不存在) | **必須紅**:void → unvoid → **原 request_id 重放** ⇒ 回 `DUPLICATE_REQUEST`(fail-open)而不是新碼 | 🔴 **R3 折:§2.4b fold ③ 零驗收,而且那個碼【沒有名字】。** ⇒ 定名 **`REQUEST_ID_REUSED_STATE_CHANGED`**(語意=「這個提交編號用過,但那一列後來又被改了」),並寫進 §2.4b 與步表 |
+| ~~🔴 **MUT-LEDGER-VERIFY**~~ 🏁C刪(隨單調性,§2.4b)| ~~拿掉「產物驗證」那一半(只比對鍵存不存在)~~ | **必須紅**:void → unvoid → **原 request_id 重放** ⇒ 回 `DUPLICATE_REQUEST`(fail-open)而不是新碼 | 🔴 **R3 折:§2.4b fold ③ 零驗收,而且那個碼【沒有名字】。** ⇒ 定名 **`REQUEST_ID_REUSED_STATE_CHANGED`**(語意=「這個提交編號用過,但那一列後來又被改了」),並寫進 §2.4b 與步表 |
 | 🔴 **MUT-APPLY-GATE** | 把 §3.3 的 apply 前置閘(偵測 writer 分流字面)改成恆真 | **必須紅**:在**缺 writer 分流**的庫上跑 void migration ⇒ 應 RAISE 拒 apply | 🔴 **R3 折:§3.3 自稱「這道閘是本片唯一能證明順序被遵守的東西」,而 §5 零演練。** 閘寫壞(字面偵測打不中)= **順序保證整條蒸發且無人發現** |
-| 🔴 **MUT-ADV-KEY** | 把 advisory 的鍵改成**常數**(= 全碰撞) | **兩個觀察缺一不可**:①B-concurrent 全部仍通過(**不得紅**)②🔴 **兩組【不同業務鍵】的交易現在會互相 block** —— 用第三條連線觀察 `pg_stat_activity` 的 `wait_event_type='Lock'` / `wait_event='advisory'` | 🔴 **自掃折:R3 要我補這格,我補的版本只驗了宣稱的一半。** 宣稱有兩半 ——「碰撞**不影響正確性**」與「碰撞**只造成多餘序列化**」。只寫「不得紅」⇒ **分不出「碰撞了而且乖乖排隊」與「這組 fixture 根本沒碰撞」** ⇒ 第二半未觀察。<br>⚠️ 這也是「期望值 = 保持綠」的格的通病:**它必須自帶第二個觀察,否則零鑑別力** |
+| ~~🔴 **MUT-ADV-KEY**~~ 🏁C刪(隨 C1) | ~~把 advisory 的鍵改成**常數**(= 全碰撞)~~ | **兩個觀察缺一不可**:①B-concurrent 全部仍通過(**不得紅**)②🔴 **兩組【不同業務鍵】的交易現在會互相 block** —— 用第三條連線觀察 `pg_stat_activity` 的 `wait_event_type='Lock'` / `wait_event='advisory'` | 🔴 **自掃折:R3 要我補這格,我補的版本只驗了宣稱的一半。** 宣稱有兩半 ——「碰撞**不影響正確性**」與「碰撞**只造成多餘序列化**」。只寫「不得紅」⇒ **分不出「碰撞了而且乖乖排隊」與「這組 fixture 根本沒碰撞」** ⇒ 第二半未觀察。<br>⚠️ 這也是「期望值 = 保持綠」的格的通病:**它必須自帶第二個觀察,否則零鑑別力** |
 | **MUT-V7-CONSIST** | 拿掉 V7 的「兩來源不一致 ⇒ fail-loud RAISE」分支 | **必須紅**:owner 開 `pcm_a4a.received_sync` 旗標直寫 `received_quantity` 製造不一致 ⇒ 應 RAISE 而不是靜默走 RETURN | 🔴 **R3 折**:我沒定 V7 內部順序 ⇒ 若「任一非零就擋」排在前面,**RAISE 分支不可達 = 死枝**。⇒ §2.4 已改成**先驗一致、再驗非零** |
-| 🔴 **MUT-ADV** | 拿掉 **unvoid 或 A5a** 的 `pg_advisory_xact_lock` | **必須紅** —— 兩條連線 rendezvous 下重現 `40P01` ✅ **已實測**(基準線 40P01=1、C1 40P01=0) | 主視窗交辦的回歸靶:**C1 的保護力在鎖本身,拿掉會當場死結、不是安靜地壞掉**。🔴 **R3 折:原寫「三支任一」對 void 腿是過強宣稱** —— 死結的兩條腿是 **unvoid × A5a**;void 與 A5a 由**採購列 row lock** 就序列化了 ⇒ 拿掉 **void** 的 advisory **無任何可觀察紅** = 恆綠。⇒ **void 那一支要不要保留 advisory,是「一致性 vs 可證明性」的取捨,已列 §10 A7 當待驗假設** |
-| **MUT-ACL(擴)** | ①`GRANT … TO PUBLIC` ②改掉 `SECURITY DEFINER` ③拿掉 `SET search_path` ④改 owner | 四個各自紅在對應斷言 | 🔴 **R1 MF-11 折**:v1 只突變 ①,對高風險 SECDEF 遠遠不夠。ACL 斷言必須是**完整矩陣**:`prosecdef=true` / `proconfig` 含安全 `search_path` / 🔴 **`proconfig` 含 `lock_timeout=5s`**(R3 折:§2.4d 明令要加這一格,我卻沒加進矩陣 —— **「一處改了一處沒改」在同一輪內再現**)/ owner 正確 / `PUBLIC`·`anon`·`authenticated`·`authenticator` 四者皆無 EXECUTE 而 `service_role` 有 / **overload 數恰 1**(形狀照 `20260807200000:153-169`) |
+| ~~🔴 **MUT-ADV**~~ 🏁C刪(隨 C1);**其保護力已由新探針反向證明**(§5.2 `B-VOID-ADV-FREE`) | ~~拿掉 **unvoid 或 A5a** 的 `pg_advisory_xact_lock`~~ | **必須紅** —— 兩條連線 rendezvous 下重現 `40P01` ✅ **已實測**(基準線 40P01=1、C1 40P01=0) | 主視窗交辦的回歸靶:**C1 的保護力在鎖本身,拿掉會當場死結、不是安靜地壞掉**。🔴 **R3 折:原寫「三支任一」對 void 腿是過強宣稱** —— 死結的兩條腿是 **unvoid × A5a**;void 與 A5a 由**採購列 row lock** 就序列化了 ⇒ 拿掉 **void** 的 advisory **無任何可觀察紅** = 恆綠。⇒ **void 那一支要不要保留 advisory,是「一致性 vs 可證明性」的取捨,已列 §10 A7 當待驗假設** |
+| **MUT-ACL(擴)** 🏁C:矩陣從兩支 RPC 縮成**一支** | ①`GRANT … TO PUBLIC` ②改掉 `SECURITY DEFINER` ③拿掉 `SET search_path` ④改 owner | 四個各自紅在對應斷言 | 🔴 **R1 MF-11 折**:v1 只突變 ①,對高風險 SECDEF 遠遠不夠。ACL 斷言必須是**完整矩陣**:`prosecdef=true` / `proconfig` 含安全 `search_path` / 🔴 **`proconfig` 含 `lock_timeout=5s`**(R3 折:§2.4d 明令要加這一格,我卻沒加進矩陣 —— **「一處改了一處沒改」在同一輪內再現**)/ owner 正確 / `PUBLIC`·`anon`·`authenticated`·`authenticator` 四者皆無 EXECUTE 而 `service_role` 有 / **overload 數恰 1**(形狀照 `20260807200000:153-169`) |
 
-🔴 **R1 MF-10 折 —— v1 的靶只蓋了「貴」的守門,V1-V6 / U1-U5 全部零覆蓋。**
+🔴 **R1 MF-10 折 —— v1 的靶只蓋了「貴」的守門,V1-V6 ~~/ U1-U5~~ 全部零覆蓋。**
 本節標題宣稱「證明每道守門會紅」,而那是全稱句 ⇒ **每一道都要有靶,沒有例外**。補上:
+
+🔴 **C 案刪掉 unvoid 半邊時,下表三列的【恆綠修法】必須留著**(主視窗 `D-902-A.md:46-47` 點名):
+`MUT-V1` 要比對 `CONSTRAINT` 名(否則 A2b1 自己的隔離閘會讓它恆綠)、
+`MUT-V2` 要比對 `P0001` vs 帳本表 `23514`(否則形狀 CHECK 會讓它恆綠)。
+**整列刪掉 = 把 R2/R3 折出來的判準一起刪掉**,那是「一處改了一處沒改」的反向版。
 
 | 靶 | 改什麼 | 期望 |
 |---|---|---|
-| MUT-V1 / MUT-U1 | 拿掉隔離閘 | 🔴 **R2 折:這格恆綠,反證寫在本檔 §2.1** —— A2b1 自己的隔離閘(`20260813120000:410-414`)排在早退**之前**、任何 UPDATE 都會跑 ⇒ 拿掉 RPC 的 V1 之後,RR 下**照樣紅在 `P2B02`**。⇒ **判準必須比對 `CONSTRAINT` 名**(本片的 vs `a2b1_isolation_read_committed_only`),否則零鑑別力 |
-| MUT-V2 / MUT-U2 | 拿掉 actor / request_id 形狀閘 | 🔴 **R3 折:恆綠(第五個)。** 拿掉 V2 之後,非法 actor 仍被 **§2.4b ① 我自己規定要抄的帳本表形狀 CHECK** 以 **23514** 擋下 ⇒ 「被收下」**永不發生**。⇒ **判準必須比對錯誤來源**:本片的具名 `P0001` RAISE **vs** 帳本表的 `23514`。**與我已修的 MUT-V1/U1 同型,而我沒把同一個修法套過來** |
+| MUT-V1 ~~/ MUT-U1~~ 🏁C縮成一半 | 拿掉隔離閘 | 🔴 **R2 折:這格恆綠,反證寫在本檔 §2.1** —— A2b1 自己的隔離閘(`20260813120000:410-414`)排在早退**之前**、任何 UPDATE 都會跑 ⇒ 拿掉 RPC 的 V1 之後,RR 下**照樣紅在 `P2B02`**。⇒ **判準必須比對 `CONSTRAINT` 名**(本片的 vs `a2b1_isolation_read_committed_only`),否則零鑑別力 |
+| MUT-V2 ~~/ MUT-U2~~ 🏁C縮成一半 | 拿掉 actor / request_id 形狀閘 | 🔴 **R3 折:恆綠(第五個)。** 拿掉 V2 之後,非法 actor 仍被 **§2.4b ① 我自己規定要抄的帳本表形狀 CHECK** 以 **23514** 擋下 ⇒ 「被收下」**永不發生**。⇒ **判準必須比對錯誤來源**:本片的具名 `P0001` RAISE **vs** 帳本表的 `23514`。**與我已修的 MUT-V1/U1 同型,而我沒把同一個修法套過來** |
 | MUT-V3 | 拿掉理由空白閘 | 純空白理由 ⇒ 紅在裸 `order_item_procurement_void_pair` 而不是人話 |
-| MUT-V4 / MUT-U3 | 拿掉存在性判斷 | 不存在的 `procurement_id` ⇒ 不再回 `PROCUREMENT_NOT_FOUND` |
+| MUT-V4 ~~/ MUT-U3~~ 🏁C縮成一半 | 拿掉存在性判斷 | 不存在的 `procurement_id` ⇒ 不再回 `PROCUREMENT_NOT_FOUND` |
 | MUT-V6 | 拿掉「已作廢」判斷 | 🔴 **自掃折:原期望【物理上不可達】(第 6 個恆綠嫌疑)。** UPDATE 帶著 TOCTOU 述詞 `AND voided_at IS NULL`(§2.4 步表)⇒ 二次作廢**改到 0 列** ⇒ `ROW_COUNT <> 1` **一定會 RAISE** ⇒ **永遠不可能變成 no-op、也不可能靜默覆蓋理由**。<br>✅ **正確期望**:**紅的來源從 V6 的人話 `ALREADY_VOIDED` 退化成 rowcount 的通用訊息**(「狀態剛剛被別人改過」)⇒ **判準是比對碼/訊息來源,不是比對紅不紅**。⚠️ 與已修的 MUT-V1/U1、MUT-V2/U2 **同型第三次** |
-| MUT-U5 | 拿掉「本來就沒作廢」判斷 | 對未作廢列 unvoid ⇒ `ROW_COUNT=0` 紅在通用訊息、不是 `NOT_VOIDED` |
+| ~~MUT-U5~~ 🏁C刪 | ~~拿掉「本來就沒作廢」判斷~~ | 對未作廢列 unvoid ⇒ `ROW_COUNT=0` 紅在通用訊息、不是 `NOT_VOIDED` |
 | MUT-AUDIT | 把稽核 INSERT 包進 `EXCEPTION WHEN OTHERS THEN NULL` | 🔴🔴 **R3 折:我 v2 的修法【仍然】恆綠 —— 這是第四個恆綠格,而且是我修過之後還恆綠。** 「空字串 actor」**到不了稽核 INSERT**:V2 的形狀閘 `p_actor !~ '^[a-z0-9_]{1,64}$'`(`20260811010000:88-89` 樣板)**先 RAISE**;帳本表的 actor CHECK(`20260810230000:169-170` 同 regex)**第二道再攔**。⇒ **構造法要整個換成 fault injection**:harness 在跑該格前對 `admin_audit_log` **注入一條臨時 CHECK**(例如 `action <> 'procurement.void'`)讓稽核 INSERT 必失敗,跑完拆掉。⚠️ **這格若又構造不出來,先懷疑那個 handler 本來就是 no-op** |
 | MUT-AUDIT-FIELD | 把 `target` 寫成固定字串 | §2.4c 的逐欄斷言紅(v1 沒有這一格 ⇒ 寫錯欄位不會被發現) |
 | ~~MUT-IDEM-KEY~~ | 帳本表的 PK 拿掉 | 🔴 **R2 折:放錯章節,單 session 跑不出來。** 「同 `request_id` 打不同採購列雙雙成功」正是 §2.4b 說的「互相看不到對方未提交的列」⇒ **必須兩條真連線 rendezvous** ⇒ **移到 §5.2 `B-concurrent`**,不是 §5.1 突變表跑得動的格 |
 
 ### 5.2 正面格(不是突變,是「這件事真的發生了」)
 
+> 🔴 **正面格的計數法要寫明,否則下一個人數不出 21**(這不是 grep 得到的數,主視窗 `D-902-A.md:36-37` 點名):
+> 具名 4(`B-void` `B-unvoid` `B-idem` `B-idem-bad`)+ `B-concurrent` 拆 **4 個子格**
+> + R3 補 **7 格**(`B-DEFER` `B-AUDIT-8` `B-QS1-3` `B-RCPT-IDEM` `B-CODE-LITERAL` `B-ORPHAN` `B-U7`)
+> + `B-rollback` 拆 **3 發** + 天花板 **3** = **4+4+7+3+3 = 21**。
+> ⚠️ 下面那句「**下面六格**」是**字面錯,實際七格**(`B-U7` 是第七個)—— 已在該處標註。
+>
+> 🏁 **C 案後**:21 − 4(`B-unvoid` / `B-U7` / unvoid×部分取消 / unvoid×A5a)**+ 1**(新增 `B-VOID-ADV-FREE`)= **18 格**。
+> 全片合計 **突變靶 18 + 正面格 18 = 36 格**(原 46)。
+
 - B-void:void 之後 `ordered_quantity` 掉、`instock` 不變、額度真的放出來(對照 2a-1 B3/B4 的做法)。
-- B-unvoid:合法 unvoid 之後 `ordered_quantity` 加回來。
+- ~~B-unvoid:合法 unvoid 之後 `ordered_quantity` 加回來。~~ 🏁 **C 案刪。**
+- 🔴 **B-VOID-ADV-FREE(C 案新增,已跑完)**:證明拿掉 C1 之後 `void × A5a` 兩個方向都不死結。
+  **證據 = `docs/probes/452-2a2-void-lockprobe.sh`,2026-08-14 跑【四】次結果相同(最後一次為現行版本):**
+  發⓪ 正向對照(unvoid 形狀)`40P01=1` / 發④(void 先持列鎖)`40P01=0` / 發⑤(A5a 先持列鎖+parent)`40P01=0`,
+  且 ④⑤ 各觀察到 **1 個 session 卡在 `wait_event_type='Lock'`**。
+  🔴 **這一格的兩個觀察缺一不可**:沒有 ⓪ 就分不出「沒死結」與「harness 壞了」;
+  沒有阻擋數就分不出「沒死結」與「根本沒併發」。**期望值 = 保持綠 的格必須自帶第二觀察。**
+  ⇒ 假設 `A7` 已從推論變成觀察(§10)。
 - B-idem:同 request_id 同 payload 重放 ⇒ `DUPLICATE_REQUEST`、**零額外稽核列**。
 - B-idem-bad:同 request_id 不同 payload ⇒ RAISE(不是靜默吞)。
 - 🔴 **B-concurrent(R1 important 折:v1 只列 G8,漏了三個會改結論的競態)**:
-  - 🔴 **unvoid × 部分取消**(**R3 折:v2 寫成「void ×」是主詞錯** —— **void 沒有 U6**,§2.2 明言它不做總量重驗
+  - ~~🔴 **unvoid × 部分取消**~~ 🏁 **C 案刪**(**R3 折:v2 寫成「void ×」是主詞錯** —— **void 沒有 U6**,§2.2 明言它不做總量重驗
     ⇒ 照舊字面建格會測到一個**沒有互動的配對**):取消會改 `quantity − cancelled`(§2.3 U6 的右式)
     ⇒ 兩者交錯時 U6 讀到的是哪一版?⚠️ R3 另實查:摘要表**沒有** `ordered + cancelled ≤ quantity` 的 CHECK
     可以兜底(`20260730150000:103-123` 七條逐讀)⇒ **這一對沒有第二道**。
-  - **unvoid × A5a 新建同鍵**:就是 §2.4 MF-7 那條 —— 40P01 或裸 23505,**必須實測是哪一個**。
+  - ~~**unvoid × A5a 新建同鍵**:就是 §2.4 MF-7 那條 —— 40P01 或裸 23505,**必須實測是哪一個**。~~
+    🏁 **C 案刪 —— 但它【已經被實測完】**:姊妹探針 `452-2a2-lockprobe.sh` 發② = `40P01`(不是 23505),
+    新探針 `452-2a2-void-lockprobe.sh` 發⓪ 重現同一結果。**答案留著,格子隨 unvoid 走。**
   - **同 `request_id` × 不同採購列**:MF-6 那個洞的直接負測(帳本表 PK 上線前後各跑一次)。
   - **G8 併發首建撞 partial unique index** —— 2a-1 的誠實缺口,
   `/Users/sean_1/pcm-mailbox/D-704-STOP.md` §2 已明文**排進 2a-2**。做法 = **兩條真連線 rendezvous**,
   🔴 **不得用 heredoc**(codex #14 的教訓:連線到 EOF 就結束、交易回滾 ⇒ 根本沒測到 blocking)。
   ⚠️ **這一格不准放進誠實缺口** —— 它已經被指派,而且兩個 psql 程序 + FIFO 就構造得出來。
-- 🔴 **R3 折:下面六格是「某節明令要有、而 §5 沒有」的 —— 全部補進來**(每格附它是哪一節要求的):
+- 🔴 **R3 折:下面~~六~~【七】格是「某節明令要有、而 §5 沒有」的 —— 全部補進來**(每格附它是哪一節要求的)
+  (🏁 **字面更正**:原寫「六格」而下面實列七格,`B-U7` 是第七個 —— 主視窗 `D-902-A.md:35` 點名):
   - **B-DEFER**(§2.4c 要求,自注「plan v1 沒有」而 v2 仍沒有):同一組守門在 **immediate / deferred 兩種模式**下各跑一次,
     證明**人話守門仍先於 C4/C5 接住**。⚠️ 判準是「錯誤來源是本片的具名碼、不是裸 23514」,不是「跑了兩次」。
   - **B-AUDIT-8**(§2.4c 要求):稽核**八個面逐欄**斷言(action / target / before / after / request_id / source_app / **actor** / **reason**)。
@@ -605,10 +719,12 @@ v1 寫「照錯的順序退 ⇒ 期望炸在 `column p.voided_at does not exist`
     ①**舊 voided 列一個欄位都沒被動** ②**新的 active 列真的建起來** ③**摘要 `ordered_quantity` 是新列的量**。
   - **B-RCPT-IDEM**(§3.1 要求):「登錄成功 → 採購被作廢 → **同 request_id 合法重放**」⇒ 必須回 `DUPLICATE_REQUEST`
     而**不是** `PROCUREMENT_VOIDED`(證明那道閘排在冪等**之後**)。閘放錯位的實作照舊全綠。
-  - **B-CODE-LITERAL**:每個固定碼在正常路徑回**逐字正確的字串**(V3/V6/V7/U5/U6/U7 各一)。
+  - **B-CODE-LITERAL**:每個固定碼在正常路徑回**逐字正確的字串**(🏁 C 案:**V3/V6/V7 各一**;原文含 ~~U5/U6/U7~~)。
+    🔴 C 案下的完整碼集 = `REASON_REQUIRED` / `PROCUREMENT_NOT_FOUND` / `DUPLICATE_REQUEST` / `ALREADY_VOIDED`
+    / `HAS_RECEIPTS_UNDO_FIRST` / `VOIDED`,加 receipt 那支的新碼 `PROCUREMENT_VOIDED`。
     🔴 理由(R3):`#476` 之前**沒有應用層窮盡集接手** ⇒ **typo 的碼會全綠出廠**,日後 UI 片接上時直接「系統狀態異常」。
-  - **B-ORPHAN**(§4.2 第③發的觀察點):回退之後**呼叫任一支 void RPC** ⇒ 期望 `42703 undefined_column`。
-  - 🔴 **B-U7**(§2.4 `:194` 逐字承諾「harness 必須有一格把它變成觀察」而 §5.2 只有它的**字面**格,**行為格不存在**):
+  - **B-ORPHAN**(§4.2 第③發的觀察點):回退之後**呼叫那支 void RPC**(🏁 C 案:原文「任一支」)⇒ 期望 `42703 undefined_column`。
+  - ~~🔴 **B-U7**~~ 🏁 **C 案刪**(§2.4 `:194` 逐字承諾「harness 必須有一格把它變成觀察」而 §5.2 只有它的**字面**格,**行為格不存在**):
     作廢 → 同家重下單(Q-S1=A ⇒ 建出第二列)→ unvoid ⇒ **必須回 `ACTIVE_SIBLING_EXISTS` 的人話**,
     **不是**裸 23505。⚠️ fixture 沿用 MUT-U7 的 `quantity=6`(否則會先紅在 `UNVOID_EXCEEDS_ORDERABLE`)。
     ⇒ 這一格與 MUT-U7 是**成對**的:一個證「有 U7 會給人話」、一個證「沒 U7 會給裸錯」。
@@ -755,10 +871,9 @@ COMMIT 那一瞬」;而採購作廢線從 migration 檔名到 runbook 到開工�
 ⚠️ **競態窗有例外,見 §8.6** —— 那是拍板字面的邊界,不是推翻。
 🔴 **R3 折:v2 這裡還留著選項與推薦 = 殭屍題**;照它執行會把已拍的板重問一次。**已改成裁定紀錄。**
 
-**Q-S2 取消作廢被「額度不夠」擋下時,那句話要給哪一種出路?**
-- **A(推薦)= 給兩條路**:①先把別家供應商的採購數量改小,再回來取消作廢;②不要取消作廢,直接對這家下一筆新的。
-- B = 只給①(訊息短,但把②那條真的存在的路藏起來)。
-- C = 只說「額度不夠」,不給出路(現行 repo 慣例明文反對,`20260807210000:139-144`)。
+🏁 **~~Q-S2 取消作廢被「額度不夠」擋下時,那句話要給哪一種出路?~~ 隨 C 案自動作廢,不得再問。**
+交接檔 `docs/handoff/2026-08-14-morning-window-rotation.md:70` 逐字:「**沒有取消作廢就沒有這一題**」。
+~~A/B/C 三選項~~ 全部不適用。**§8.2 現在零待裁項。**
 
 ---
 
@@ -770,7 +885,11 @@ COMMIT 那一瞬」;而採購作廢線從 migration 檔名到 runbook 到開工�
 | R2 important | 「MUT-A5a 期望值 `CREATED` 先於 Q-S1 裁定寫死」 | ✅ **已解**:裁定到達(Q-S1=A) |
 | R1 CS(codex) | 「U7 在非併發下把裸 23505 轉成人話、不多餘」 | ✅ **兩輪都背書 + D 窗探針發③ 實測**(裸 23505 + 索引名)⇒ **保留 U7,問題從來不是「要不要」而是「靠什麼序列化」** |
 
-## §8.6 🔴 拍板字面的已知例外(要讓 Sean 知道,不是技術細節)
+## ~~§8.6 🔴 拍板字面的已知例外~~ 🏁 **整節作廢(C 案)**
+
+> **這個例外的成因是「unvoid 贏了與 A5a 的競賽」** —— 沒有 unvoid 就沒有那個窗口。
+> ⇒ **Sean 下一批決策題要把這條撤下來**,它本來排在那裡。
+> 全文保留當歷程:
 
 **Sean Q-S1=A 逐字**:「當成全新的一筆收下來,**舊的作廢紀錄留著查帳**」。
 
@@ -790,7 +909,12 @@ COMMIT 那一瞬」;而採購作廢線從 migration 檔名到 runbook 到開工�
    要嘛應用層片緊接著做,要嘛 2a-2 apply 但功能不對外開。**這是要 Sean 知道的,不是技術細節。**
 2. **`HAS_RECEIPTS_UNDO_FIRST` 指向的那條路現在不好走** —— `#450` 逐字說到貨「事後」撤銷只撤得掉剛剛那筆。
    ⇒ 訊息不能寫得像「去撤一下就好」。
-3. **U7 是我加的、母 plan 沒有** ⇒ 它沒有經過母 plan 那三十幾條審查。請審查者特別打這一條。
+3. ~~**U7 是我加的、母 plan 沒有** ⇒ 請審查者特別打這一條。~~ 🏁 **C 案刪(隨 U7)。**
+4. 🔴 **C 案新增的反對意見:這一片的簡化【依賴一個不受機器保護的前提】。**
+   §2.4b 的冪等簡化靠「`voided_at` 單調」,而**手動 SQL 解除作廢繞得過**
+   (memory `project_0812-sean-order-ui-workflow-and-undo-needs` 逐字:採購撤銷現行唯一救濟 = 手動 SQL)。
+   ⇒ 半夜有人手動 unvoid 一列之後,同 `request_id` 重放會**靜默回 `DUPLICATE_REQUEST`** = fail-open。
+   **現行只靠 COMMENT 攔,沒有機制。** 這要 Sean 知道,不是技術細節。
 
 ---
 
@@ -803,8 +927,8 @@ COMMIT 那一瞬」;而採購作廢線從 migration 檔名到 runbook 到開工�
 | A3 | 正式庫現況 = repo 字面(G1) | apply preflight 任一格不符 ⇒ 停 |
 | ~~A4~~ | ~~冪等用稽核帳(F21)~~ | 🔴 **R1 MF-6 已推翻,不再是假設**:`20260712210000:78` 的 `request_id` 索引**不是 unique** ⇒ 已改走專屬帳本表(§2.4b) |
 | ~~A5~~ | ~~U7 走「鎖兄弟列」~~ | 🔴 **已推翻並定案**:(a)(b) 皆死,改走 **C1 advisory lock**(主視窗 2026-08-14 裁),且已實測 40P01=0。**不再是假設。** |
-| A5b | advisory 的 hash 碰撞只造成多餘序列化 | 🔴 **R3 折:我原本寫的逃生口不成立** —— `pg_advisory_xact_lock(int,int)` 兩個 int4 合計**仍是 64-bit**,兩個 uuid「拆開放」**放不進去**、照樣要 hash。⇒ **被推翻時沒有退路**,只能改設計(例如把序列化推到別的層)。⚠️ 已加 **MUT-ADV-KEY**(常數鍵 = 全碰撞)把這條宣稱變成觀察 |
-| A7 | **void 那一支也取 advisory** 是為了一致性,不是因為它擋得住什麼 | R3 實查:void × A5a 由採購列 row lock 就序列化 ⇒ **拿掉 void 的 advisory 無可觀察紅**。⇒ 保留它是「三支一致、下一個人不會問為什麼少一支」的可讀性取捨;**若審查判定「無法證明的防護不該留」⇒ 拿掉並在註解寫明理由** |
+| ~~A5b~~ 🏁C刪(隨 C1) | ~~advisory 的 hash 碰撞只造成多餘序列化~~ | 🔴 **R3 折:我原本寫的逃生口不成立** —— `pg_advisory_xact_lock(int,int)` 兩個 int4 合計**仍是 64-bit**,兩個 uuid「拆開放」**放不進去**、照樣要 hash。⇒ **被推翻時沒有退路**,只能改設計(例如把序列化推到別的層)。⚠️ 已加 **MUT-ADV-KEY**(常數鍵 = 全碰撞)把這條宣稱變成觀察 |
+| ~~A7~~ 🏁 **已不是假設 —— 升級成【觀察】** | ~~void 那一支也取 advisory 是為了一致性~~ | 🔴 **2026-08-14 實測**(`docs/probes/452-2a2-void-lockprobe.sh`,跑兩次結果相同):發⓪ 正向對照 `40P01=1` / 發④ `40P01=0` / 發⑤ `40P01=0`,④⑤ 各有 1 個 session 實卡在 `wait_event_type='Lock'`。<br>⇒ **`void × A5a` 兩個方向都不死結,且不是「沒併發」的假綠。** C1 整包移除有觀察支撐,不再是推論。<br>⚠️ 前提照舊:拋棄式 PG 17.10、模擬鎖形狀而非真 RPC 行為 |
 | A6 | 兩支 migration 可用版本號排序保證 writer 先上(§3.3) | 若 `supabase db push` 的實際送出順序不照版本號 ⇒ 前置閘是唯一防線,要改成硬阻斷 |
 
 — END —
