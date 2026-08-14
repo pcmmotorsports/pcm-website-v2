@@ -55,8 +55,12 @@ admin 的 `shipment-dialog` / `shipment-section` / `shipment-launcher` 一整族
 | 🔴 缺 | ①**「放在哪」整個概念不存在**(數法 `grep -rn "location\|bin_\|warehouse\|shelf\|儲位" supabase/migrations/*.sql` 過濾欄位定義列 ⇒ **0**;PCM 代購、貨從供應商來,本來就沒有儲位模型)②🔴 **沒有品名、沒有料號、沒有訂單編號** —— 要 join `order_items` 才拿得到 | **金額**(`shipments` 無任何金額欄;金額在 `orders`,而一箱可跨單) |
 
 🔴 **第一版寫「揀貨單現在就印得出來」= 過樂觀(C 窗 M4)。**
-`shipment_items` 那 5 欄裡**沒有一欄是人看得懂的東西**;而現有唯一讀取投影只取兩欄
-(`apps/admin/src/lib/shipping/shipment-repository.ts:269` 逐字 `.select('order_item_id, shipped_quantity, shipments!inner(deleted_at)')`)。
+`shipment_items` 那 5 欄裡,**人看得懂的只有 `shipped_quantity`(數量)** —— 沒有品名、沒有料號、沒有訂單編號。
+⚠️ **第三版更正**:v2 寫「沒有一欄是人看得懂的」略過頭(數量是看得懂的),且寫「**唯一**讀取投影」也不對。
+實查 `grep -n "from('shipment_items')" apps/admin/src/lib/shipping/*.ts`(排除測試)⇒ **3 處**:
+`:269` 取兩欄 + `shipments!inner(deleted_at)`、`:382` 與 `:409` 各取四欄(`id, shipment_id, order_item_id, shipped_quantity`)。
+🔴 **而三處沒有一處 join `order_items`** ⇒ 品名 / 料號 / 訂單編號**確實三處都拿不到**。
+**份數改了,結論反而更強**:不是「只有那一支投影窄」,是**現有的每一支都窄**。
 ⇒ **資料在(join 得到),但沒有任何現成查法。** 正確講法是「**要新寫一個讀模型**」,不是「就印得出來」。
 
 ⇒ **修正後的結論**:兩張單都缺一個新讀模型;**出貨單只剩「金額怎麼算」一個真問題**(地址與收件人都在),
