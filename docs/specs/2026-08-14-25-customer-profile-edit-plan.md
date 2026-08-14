@@ -79,7 +79,10 @@
 4. 負測:A 客的 addressId 送 B 客的 action → 被拒、DB 零變更。
 5. 負測:表單送 `tier` / `wallet_balance` / `email` 欄 → 被 strip、DB 對應欄零變更。
 6. 🔴 **C1 生日留空存檔 → DB `birthday IS NULL` 且不報錯**(A 窗 N1:第一版只把 `'' → null` 寫進誠實缺口、**沒有任何一條驗收擋它** —— **知道 ≠ 有東西擋**;storefront 那行是 `parsed.data.birthday || null`,`actions.ts:68`,理由是 Postgres date 欄吃不下 `''`)。
-7. 🔴 **C4a 白名單不變式**:patch 的 key 集合 `⊆` 表單欄位常數;**任一不在常數裡的欄出現在 patch → 紅**,且負測至少涵蓋 `dictBrandName`(`.default(null)`)與 `isPrimary`(`.default(false)`)兩種成因(詳 c4-prep-notes §4)。
+7. 🔴 **C4a 白名單要綁「兩個方向」**(A 窗確認輪 F1:只綁一邊等於只擋一半):
+   ①patch 的 key 集合 `⊆` 表單欄位常數,且**斷言吃的是生產路徑吐出的 patch、不是測試自己組的**(F2:自己組 = 恆綠格);
+   ②**表單欄位常數 = 表單元件實際渲染的欄位**(來源取自另一側或手寫陣列,**不得只走訪常數自己** = 循環論證);
+   ③負測至少涵蓋 `dictBrandName`(`.default(null)`)與 `isPrimary`(`.default(false)`)兩種成因。詳 c4-prep-notes §4(五格)。
 8. 三綠(typecheck+lint+build)+ `vitest` 全綠,新增測試至少涵蓋 4、5、6、7。
 9. `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1-A `#25` 那列由 🟡 改標,且**明寫 Email 仍不可改**。
 
