@@ -65,6 +65,10 @@ q() { psql "$URL" -tAX -c "$1" 2>&1; }
 
 echo "══ 0. fixture(已提交,兩個 session 都要看得到)══════════════"
 FX=$(psql "$URL" -tAX <<'SQL' 2>&1
+-- #482:上一代是手動建表之後才跑的,全樹 grep 查無 CREATE TABLE probe_fx
+--       ⇒ 任何人重跑會當場紅在 relation 不存在。自足化,跟姊妹探針
+--       452-2a2-void-lockprobe.sh:72 同一行。
+CREATE TABLE IF NOT EXISTS public.probe_fx(item uuid, sup uuid);
 DO $b$
 DECLARE v_item uuid; v_a uuid; v_ord uuid;
 BEGIN
