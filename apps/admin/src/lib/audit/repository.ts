@@ -19,7 +19,15 @@ export interface AuditLogRepository {
  *    用站不住的理由撐一條規定,下一個人一戳就破。
  * ✅ **真正的理由 = 這個 GRANT 有到期日**(見 `20260815020000` 檔頭「外部前提 1」):
  *    規定留著 ⇒ 這個 SELECT 權限**只有一個消費者**(`#27` 檢視頁),要收回時關掉一頁就好;
- *    規定拿掉 ⇒ 每一條 audit insert 路徑(18 支 RPC + app 層)都可能開始回讀,要收回等於全面回歸。
+ *    規定拿掉 ⇒ **每一條 audit insert 路徑**都可能開始回讀,要收回等於全面回歸。
+ *    (路徑數 = **18 個 migration 檔含稽核 INSERT**(量法 `grep -rl "INSERT INTO public.admin_audit_log" supabase/migrations/ | wc -l` ⇒ 18) + **app 層 1 個真正的呼叫點**(`staff-actions.ts:61`;量法 `grep -rn 'getAdminAuditLogRepository()' apps/admin/src` ⇒ 4 命中,逐一開檔後只有 `:61` 是真呼叫,其餘 2 處是註解、1 處是 getter 定義本身)。
+ *     ⚠️ **原字面寫「18 支 RPC」——那是檔數冒充支數,已更正**;
+ *     🔴 **「有幾支函式真的寫稽核」= **23 支函式的函式體含稽核 INSERT**(2026-08-15 量,**三種量法互證**:E 窗①以 `CREATE FUNCTION` 切段計數 ②收集 `(檔, 函式名)` 配對去重;C 窗③獨立以 regex 切段 + 逐段判斷。三者皆得 **23**;前提檢查「稽核 INSERT 出現在函式外」⇒ **零命中**。⚠️ **共同限度**:三種都靠「`CREATE FUNCTION` 之間即函式邊界」,**巢狀定義會誤判**——未遇到、也未特別構造)
+ *        🔴 **而「三法互證」互證到的是「實作沒寫錯」,不是「那個假設成立」** —— 三種都用**同一個切段假設**(`CREATE FUNCTION` 之間即函式邊界),**同源的方法不會互相抵消共同限度**。⇒ 若那個假設不成立,**三個會一起錯**。。**
+ *        ⚠️ **前一版寫「沒有可信值,不要填」——那句是假的,已更正**:
+ *        「**我沒量**」是關於我自己的宣稱(真);「**沒有可信值**」是關於世界的宣稱(**假**)。
+ *        🔴 同一個分界我在 D1a-2 分清楚過(**我沒量到 ≠ 沒有差別**),**在同一支檔上又滑掉一次**。
+ *        (順帶:先前 31 vs 28 的分歧已解 —— **我那條不錨行首,把 3 行 SQL 註解算進去了**;28 才對。))
  *    **開一道有到期日的權限時,要讓依賴它的東西數得出來。**
  */
 export interface AuditLogInserter {
@@ -44,7 +52,9 @@ export function toInsertRow(entry: AuditEntry, context: AuditContext): AdminAudi
  * 稽核 log **讀取**埠(`#27` D1a-2)。
  *
  * 🔴 **為什麼另開一個埠、不加在 `AuditLogRepository` 上**:
- *   寫入端的消費者有 18 支 RPC 的 app 層對應 + `staff-actions.ts`,它們**只該 record、不該讀**
+ *   寫入端的消費者遍布 **18 個含稽核 INSERT 的 migration 檔** 與 **app 層那 1 個呼叫點**
+ *   (`staff-actions.ts:61`;量法見本檔上方 REQUIRED-2 段。⚠️ **原字面「18 支 RPC」是檔數冒充支數,已更正**),
+ *   它們**只該 record、不該讀**
  *   (`AuditLogRepository` 的檔頭逐字:「呼叫端只 record、不讀不改」)。
  *   把 `list` 併進去等於讓每個寫入端在型別上都拿到讀取能力 —— 而**這個 SELECT 權限有到期日**
  *   (`20260815020000` 檔頭「外部前提 1」),**消費者要數得出來**。

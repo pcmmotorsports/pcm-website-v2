@@ -1,5 +1,12 @@
 # #27 稽核 UI — 施工 plan(C 窗 2026-08-14 夜;**2026-08-15 Sean 拍 `Q-D1 = A` + `Q-D1b = A` 後更新**)
 
+> 🔴🔴 **本檔已被證實三次不準,引用前必須重驗**(2026-08-15):
+>   ① §1 的 action 代碼清單**漏了 `settings.staff.deactivate` / `settings.staff.reactivate`**
+>      —— 而它們與已收的 `create`/`update` **在同一支檔同一段**(`staff-actions.ts:274-275`)。
+>   ② §1 的「**18 支 SECURITY DEFINER RPC**」是**檔數冒充支數**(見 §1 該行的更正)。
+>   ③ §1 的「**共 19 支**」把 **app 層那個呼叫點也算成 RPC**(它不是)。
+>   ⚠️ **三次同源** —— 都是這份 08-14 清單。**下一個引用它的人:先重量,不要抄。**
+>
 > 🏁 **本檔狀態(2026-08-15 更新):D0 已完成並 commit `feaa91c3`,但 `apply` 尚未發生。**
 > **D0 走過**:codex R1 FAIL5 / codex R2 FAIL3+1(含 PG17 `pg_maintain` 權限洞)/ Fable R3 換模型 FAIL1+2+2
 > (must-fix 不在 SQL 裡、在驗證鏈)/ 自審 ×2 / **非作者窗 E 實跑 `scripts/27-d0-verify.sh` 四次,第四次零 finding**。
@@ -48,11 +55,22 @@ Sean 批的是「做這件事」;`~/pcm-mailbox/C-HANDOFF.md` 的授權邊界逐
 `id` uuid PK · `actor` text NOT NULL(具名 staff slug)· `action` text NOT NULL · `target` text(格式約定 `<entity>:<uuid>`,`:65-66` COMMENT)· `before` jsonb · `after` jsonb · `reason` text · `request_id` text NOT NULL(correlation id)· `source_app` text CHECK IN('admin','quote')· `created_at` timestamptz DEFAULT now()(DB 權威、server 不回填以防竄改,`:53`)。
 四個索引已經是為了這頁建的(`:72` created_at DESC / `:74` actor+created_at / `:76` target partial / `:78` request_id)——**列表、依人查、依單查、依 request 追蹤四條路都有索引,這頁不必自己加。**
 
-**寫入點兩類,共 19 支**(數法 `grep -rl "INSERT INTO public.admin_audit_log" supabase/migrations/` = 18 檔 + app 層 1 處):
+~~**寫入點兩類,共 19 支**~~ ⇒ **更正(2026-08-15)**:**18 個 migration 檔含稽核 INSERT + app 層 1 個呼叫點**。
+🔴 **原句錯在單位**:`19 = 18 檔 + 1 處`,而它被寫成「**19 支 RPC**」—— **app 層那一個不是 RPC**,
+且 18 是**檔數**不是支數。**兩個單位在同一句裡各錯一次。**
+量法:`grep -rl "INSERT INTO public.admin_audit_log" supabase/migrations/ | wc -l` ⇒ **18**;
+`grep -rn 'getAdminAuditLogRepository()' apps/admin/src` ⇒ 4 命中,**逐一開檔後只有 `staff-actions.ts:61` 是真呼叫**
+(其餘 2 處註解、1 處 getter 定義本身)⇒ **app 層確實是 1 處**。
+⚠️ **但那 1 個呼叫點會發出 4 種 action 代碼**(`:124` create / `:189` update / `:274-275` reactivate+deactivate)
+⇒ **「呼叫點數」與「代碼數」不是同一件事**,原句把兩者混在一個數字裡。
+🏁 **「有幾支函式真的寫稽核」已量(2026-08-15)= **23 支函式的函式體含稽核 INSERT**(2026-08-15 量,**三種量法互證**:E 窗①以 `CREATE FUNCTION` 切段計數 ②收集 `(檔, 函式名)` 配對去重;C 窗③獨立以 regex 切段 + 逐段判斷。三者皆得 **23**;前提檢查「稽核 INSERT 出現在函式外」⇒ **零命中**。⚠️ **共同限度**:三種都靠「`CREATE FUNCTION` 之間即函式邊界」,**巢狀定義會誤判**——未遇到、也未特別構造)
+🔴 **而「三法互證」互證到的是「實作沒寫錯」,不是「那個假設成立」** —— 三種都用**同一個切段假設**(`CREATE FUNCTION` 之間即函式邊界),**同源的方法不會互相抵消共同限度**。⇒ 若那個假設不成立,**三個會一起錯**。。**
+⚠️ **前一版寫「沒有可信值,不要填」是假的,已更正** ——「我沒量」是關於自己的宣稱(真),
+「沒有可信值」是關於世界的宣稱(假)。**31 vs 28 的分歧也解了**:31 那條不錨行首、把 3 行 SQL 註解算進去,**28 才對**。
 
 | 類 | 誰 | 形狀 |
 |---|---|---|
-| **DB 層(主流)** | 18 支 SECURITY DEFINER RPC(`20260714130000` 起算到 `20260814190000`) | 與主操作**同交易**寫,主操作 rollback 稽核也不留 |
+| **DB 層(主流)** | **18 個 migration 檔**含稽核 INSERT(`20260714130000`–`20260814190000`);**支數未量,見上方更正** | 與主操作**同交易**寫,主操作 rollback 稽核也不留 |
 | **app 層(唯一一處)** | `staff-actions.ts:61` → `getAdminAuditLogRepository().record()`(`orders/order-repository.ts:39-51`) | **非交易性**;`payment-actions.ts:47` 註解已標明這條路存在 |
 
 **已在用的 action 代碼 19 個**(數法 `grep -rhoE "'[a-z][a-z_]+\.[a-z_]+(\.[a-z_]+)?'" $(grep -rl "INSERT INTO public.admin_audit_log" supabase/migrations/) | sort -u`,濾掉 `public.*` 表名與 `v_before.*` 變數後):
@@ -87,7 +105,7 @@ Sean 批的是「做這件事」;`~/pcm-mailbox/C-HANDOFF.md` 的授權邊界逐
 > **正解**:D0 寫**自己的**新斷言陳述**新終態**,檔頭寫明取代 `20260712210000` §4 的最小權限意圖。
 > 先例 `20260807120000`(A9v):`:10`「REVOKE 不是 DROP、可逆」/`:118` 斷言**攤平後完整授權字串**而非只數筆數/`:106` **誤殺正控**/`:77-80` 自己標註某條恆真。
 > **D0 四條斷言**:①`service_role` 終態恰 `INSERT`+`SELECT`、其餘 5 權限零 ②`anon`/`authenticated` 7 權限仍全零
-> ③**誤殺正控:`INSERT` 仍在**(19 支 writer 的命脈,誤殺=後台所有寫入連帶死)④欄級 ACL 零殘留。
+> ③**誤殺正控:`INSERT` 仍在**(**18 個 migration 檔 + app 層 1 個呼叫點**的命脈;其中 **23 支函式**體內含稽核 INSERT(~~19 支 writer~~ 見 §1 更正),誤殺=後台所有寫入連帶死)④欄級 ACL 零殘留。
 > ⚠️ 誠實界:**forward-only 我沒實測**,依據是 migration 檔字面 + 「不得編輯已 apply migration」既有紀律。詳見 `2026-08-14-27-d1-prep-notes.md` §1。
 ⇒ **鐵則 12②(權限/GRANT)+ ③(schema)雙中標 ⇒ 獨立成片 D0。**
 **2026-08-15 更新**:Sean 已批(`Q-D1 = A`)⇒ D0 **可以寫**;
@@ -170,7 +188,7 @@ grep -rn "role_table_grants" supabase/migrations/*.sql | grep -i audit
 
 2. **自帶 fail-closed 斷言,終態恰 `{INSERT, SELECT}` 兩筆、不多不少。**
    形狀抄 `20260712210000:93-134`(那是原作者自己釘 ACL 的手法),四條:
-   - ①`service_role` **有** `INSERT`(誤殺正控 —— 19 支 writer 的命脈,誤殺=後台所有寫入連帶死)
+   - ①`service_role` **有** `INSERT`(誤殺正控 —— **18 個 migration 檔 + app 層 1 個呼叫點**的命脈;其中 **23 支函式**體內含稽核 INSERT(~~19 支 writer~~ 見 §1 更正),誤殺=後台所有寫入連帶死)
    - ②`service_role` **有** `SELECT`(本片的目的)
    - ③`service_role` 其餘 **5** 權限(`UPDATE`/`DELETE`/`TRUNCATE`/`REFERENCES`/`TRIGGER`)**全零**
    - ④`role_table_grants` 對 `service_role` **恰 2 筆**,`anon`/`authenticated`/`PUBLIC` **仍零**
@@ -337,7 +355,7 @@ literal-sweep 'REQUIRED-2'  ⇒ 命中 5 支:上面 4 支 + types.ts:36
 
 **採用的理由 = 「這個 GRANT 有到期日」**(扣回 §0):
 - 規定**留著** ⇒ 這個 SELECT 權限**只有一個消費者**(檢視頁)。要收回時,關掉一頁就好。
-- 規定**拿掉** ⇒ 每一條 audit insert 路徑(**19 支 RPC + app 層**)都可能開始回讀
+- 規定**拿掉** ⇒ **每一條 audit insert 路徑**(**18 個 migration 檔 + app 層 1 個呼叫點**;~~19 支 RPC~~ 見 §1 更正)都可能開始回讀
   ⇒ 消費者從 1 個變成幾十個、**散在所有寫入路徑裡**;要收回等於全面回歸。
 
 > **一句話:開一道有到期日的權限時,要讓依賴它的東西數得出來。**
@@ -398,7 +416,7 @@ bash scripts/literal-sweep.sh '禁鏈'           ⇒ repository.ts:15 / supabase
 **改法(主視窗 2026-08-15 裁定)**:**規定留、理由換掉。**
 - ❌ **不採用**「不回讀 = append-only 的手癖防線」—— **站不住**:append-only 是「不能改、不能刪」,**讀不在裡面**。
 - ✅ **採用**「**這個 GRANT 有到期日**」:規定留著 ⇒ SELECT 只有一個消費者(檢視頁),要收回關掉一頁就好;
-  規定拿掉 ⇒ 19 支 RPC + app 層都可能開始回讀,要收回等於全面回歸。
+  規定拿掉 ⇒ **18 個 migration 檔 + app 層 1 個呼叫點**(~~19 支 RPC~~ 見 §1 更正)都可能開始回讀,要收回等於全面回歸。
   > **開一道有到期日的權限時,要讓依賴它的東西數得出來。**
 - 🔴 **絕不可以只把「無 SELECT」四個字刪掉** —— 那會留下一條**沒有理由的禁令**,下一個人會順手拿掉它。
   每一處都要**換成上面那個理由**並**指向 §0 的到期日前提**。
