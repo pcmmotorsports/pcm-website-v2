@@ -3,6 +3,8 @@
 > 產生指令:`bash scripts/state-gates.sh`。**改了 migration 就重跑**,不要手工維護。
 > 用途 = 回答「**這條路走得到嗎**」。寫 finding、寫 plan、判 BLOCKER 之前先查這張表。
 >
+> ⚠️ **2026-08-14:本表尚未被實際使用驗證。** 兩次派 code-reviewer 都提供了 `scripts/state-gates.sh`,兩次的工具回報欄都沒有列到它 ⇒ **「它有用」目前是設計意圖,不是觀察。** 用過的人請回報有沒有幫上忙;在那之前不要引用本表當作「已被驗證的工具」。
+>
 > 🔴 **強度 = 「經由 RPC」,不是「絕對」。** service_role 可以直接 UPDATE 繞過下面所有閘
 > (`supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql:230` 逐字寫著這件事)。
 > 🔴 **閘是字面比對抽出來的,不是 SQL 語意分析** ⇒ 可能漏掉「用變數繞一手」寫的閘。
