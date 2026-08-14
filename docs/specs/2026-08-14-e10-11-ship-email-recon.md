@@ -97,7 +97,8 @@
 > **等於變相少給 Sean 一個選項**。已拆成 A1/A2 兩段。
 >
 > **我不推薦** —— 這是「客人體驗」與「帳要怎麼對」的取捨,是 Sean 的題。
-> ⚠️ 兩案都不影響前面的結論(觸發點、鏈的其餘六環),只影響 `dedup_key` 與要不要 migration。
+> ⚠️ **三案**都不影響前面的結論(觸發點、鏈的其餘六環),只影響 `dedup_key` 與要不要 migration。
+> (原字面「兩案」是拆成 A1/A2/B 之前的殘留 —— **同一次拆分留下的第八處載體**,B 窗沒點名,我自己掃到的。)
 
 ## §4 🔴 會不會撞 M-4a?會 —— 但撞的不是守門,是**跨 app 邊界**
 
@@ -141,7 +142,7 @@
 |---|---|---|
 | ⑤ 對外不可回收 | 🔴 **是** | 寄信給客人 |
 | ②權限 | **是** | admin 要拿 `service_role` 寫 `email_outbox`(該表含 `recipient_email` = PII,`composition.ts:9` 逐字「anon/authenticated 零權限」) |
-| ③DB | **看 Q-11-1 怎麼拍**:B 案(一單一封)⇒ 零 migration;A 案(一箱一封)可能要動 `email_outbox.order_id` 的 NOT NULL ⇒ **有 migration** | `20260717020000:300`/`:377`;`:654` |
+| ③DB | **看 Q-11-1 怎麼拍(逐案,不要合併講)**:**A1 ⇒ 零 migration**(挑代表訂單,`order_id` NOT NULL 本來就滿足)/ **A2 ⇒ 有 migration + Sean apply 停點** / **B ⇒ 零 migration**。⚠️ **不得寫成「拍 A 就要 migration」** —— A1 不用,寫重了會讓排片的人多押一個停點 | `20260717020000:300`/`:377`;`:654` |
 | ⑥共用元件 | ❌ **不命中(第二版更正)** | `CLAUDE.md:41` 逐字只涵蓋「**共用元件 `packages/ui` 行為改動**」;`#11` 動的是 `packages/ports` + `packages/adapters`,**不在 ⑥ 的字面內**。我上一版把它讀成「⑥ 涵蓋整個 `packages/`」= 引錯編號(B 窗 NEW-1)|
 | ①錢 / ④平台設定 | 否 | 不碰 |
 
