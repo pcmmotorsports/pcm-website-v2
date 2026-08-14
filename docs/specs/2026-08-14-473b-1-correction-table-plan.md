@@ -1,6 +1,9 @@
-# `473b-1` plan **v2** —— 更正表 + 更正 RPC(**等 Sean 批**)
+# `473b-1` plan **v3** —— 更正表 + 更正 RPC(**已實作、等審查收尾**)
 
-> **鐵則 8 + 鐵則 12③**(新開表 = 動 schema)。**本檔只是 plan,不含 migration。**
+> **鐵則 8 + 鐵則 12③**(新開表 = 動 schema)。
+> 🔴 **狀態(2026-08-14 傍晚,codex R2 抓到檔頭與內文不一致後更正)**:plan v2 已批准(Sean 逐字「懶得看,你處理」把裁量權交回主視窗、主視窗據此批准) ⇒ **migration / 回退腳本 / 守門 / probe 都已實作並實跑**。
+> **仍未 apply、未 push** —— apply 是 Sean 的停點,一個字都沒鬆。
+> ⚠️ 本檔 v3 = 依實作與兩輪 codex 審查回填的**現況**;v2 的字面若與本檔衝突,以本檔為準。
 > 依據拍板:`Q-473-1 = A`(最新一筆說了算)、`Q-473-2 = A`(新開小表),2026-08-14 Sean 拍。
 > 🔴 **v2 新增**:Sean 同意 A 的**前提條件** —— 「**用機制證明沒有任何路能繞過更正拿到未更正的『還能退多少』**」。
 > 兌現在 `§2a`(反向盤點)+ `§2b`(機制三件 + 刻意不做的第四件)。**文字條款不算數**,該形狀復發 9+ 次。
@@ -19,9 +22,9 @@
 | `refund_id` | `uuid NOT NULL REFERENCES order_refunds(id)` | 他在**哪一列**按「修改判定」 |
 | `seq` | `integer NOT NULL`,`UNIQUE (refund_id, seq)` | 「**最新一筆說了算**」的排序權威(見 §2) |
 | `corrected_to` | `text NOT NULL CHECK (corrected_to IN ('money_moved','no_money_moved'))` | 他**改成什麼**:錢其實有動 / 錢確實沒動 |
-| `reason` | `text NOT NULL CHECK (btrim(reason) <> '')` | 他**為什麼**改 —— 稽核第一個問的就是這個 |
+| `reason` | `text NOT NULL CHECK (btrim(reason, E' \t\r\n') <> '') CHECK (char_length(reason) <= 500)` | 他**為什麼**改 —— 稽核第一個問的就是這個。🔴 `btrim` 單參數只剝一般空格 ⇒ 只送換行/Tab 會過(codex R1) |
 | `actor` | `text NOT NULL CHECK (actor ~ '^[a-z0-9_]{1,64}$')` | **誰**改的 |
-| `request_id` | `text NOT NULL`,`UNIQUE` | 他**手滑連按兩次**時的冪等鍵(對齊 `order_refunds.request_id` 既有慣例) |
+| `request_id` | `text NOT NULL UNIQUE CHECK (btrim(request_id, E' \t\r\n') <> '') CHECK (char_length(request_id) <= 64)` | 他**手滑連按兩次**時的冪等鍵(對齊 `order_refunds.request_id` 既有慣例) |
 | `created_at` | `timestamptz NOT NULL DEFAULT now()` | 時間軸,給人看 |
 
 **為什麼是這些、不是更多**
@@ -53,10 +56,10 @@
 
 | 載體 | 分母 | 命中 |
 |---|---|---|
-| `supabase/migrations/*.sql` | 169 檔 | R1 / R2 / R3 |
-| `apps/**/*.ts` + `*.tsx` | 412 + 419 檔 | R4-R9 |
-| `scripts/*.sql` + `*.sh` | 17 + 89 檔 | R10 |
-| `packages/**/*.ts` | 206 檔 | R11 |
+| `supabase/migrations/*.sql` | **170** 檔 | R1 / R2 / R3 |
+| `apps/**/*.ts` + `*.tsx` | **413 + 419** 檔 | R4-R9、**R12 / R13** |
+| `scripts/*.sql` + `*.sh` | **18 + 90** 檔 | R10 |
+| `packages/**/*.ts` | **208** 檔 | R11 |
 | `docs/probes/*` | 4 檔 | 0 命中 |
 
 用的 pattern:`refundable_remaining` / `sum\(\s*(r\.)?refund_amount` / `partiallyRefunded` / `已退|可退|未登記額` / `refundedAmount|totalRefunded|remainingRefund`。
@@ -74,6 +77,15 @@
 | **R9** | `refund-entry-gate.ts` / `order-detail-route.tsx:175` / `order-detail.tsx:262` | 不回答金額,只 fail-closed 依賴 R1 **可用性** | ✅ 零改動 |
 | **R10** | `scripts/a7c-rw1b-verify.sh:344` 斷言 `= 57` | 驗證腳本 | ⚠️ 若該筆訂單將來有更正,期望值要重算;**apply 當天回跑一次** |
 | **R11** | `database.types.ts:3280` | 產生的型別(簽章不變 ⇒ 不需重產) | ✅ 零改動 |
+| **R12** 🔴 | `refund-recovery-read.ts:119` `ledgerConfirmedSum: confirmed.reduce((sum, row) => sum + row.refund_amount, 0)` | **在 TS 裡自己 SUM** 該訂單所有 `confirmed` 列 | 🔴 **完全繞過 R1**;本片不修(§6-4) |
+| **R13** 🔴 | `refund-recovery-actions.ts:203` `row.ledgerConfirmedSum + row.refundAmount` | 「恢復結案之後的累計已退」推算,吃 R12 | 🔴 隨 R12 |
+
+> 🔴🔴 **R12 / R13 是 v2 的反向盤點漏抓的,由 codex 關卡2 補上(v3 補登)。**
+> **漏抓的原因可量**:我 v2 用的關鍵字是 `已退|可退|未登記額` 與 `refundedAmount|totalRefunded|remainingRefund`,
+> 而它叫 **`ledgerConfirmedSum`** —— **一個都對不上**。
+> ⇒ 教訓:反向盤點用「**概念的別名**」當關鍵字必然有漏;真正 fail-closed 的做法是
+> **從資料本身出發**(掃 `refund_amount` 這個欄位被誰碰),那才是我改守門的方向(§2b-2)。
+> 顯示位置 = `refund-exception-resolve.tsx:117,140`「現在累計已退」—— **值班決定要不要恢復結案的那一刻看的就是它**。
 
 ## §2b 機制(**不是文字條款**)—— 三件,以及刻意不做的第四件
 
@@ -85,25 +97,43 @@ R1 內部改成:再扣掉「有更正說錢動過」的 `failed` 列(join `order
 > 它不是「規定所有讀取都走新入口」——**根本沒有新入口**,舊的那支就是唯一那支。
 > 對照 `#476` 片2 `findActiveProcurement` 判例:那支是把「挑哪一列」收斂成單一函式;本片是把「算多少」收斂在原地。
 
-**2️⃣ 守門測試 + 定向突變:證明「第三處手寫 SUM」會紅**
+**2️⃣ 守門測試 + 定向突變:證明「多一處自己算」會紅**
 
-一條測試掃 `supabase/migrations/*.sql`(**分母 169 檔**),pattern = `sum\(\s*(coalesce\(\s*)?(r\.)?refund_amount`。
+🔴 **v3 改法(v2 的描述已作廢,codex R2 抓到 plan 與 code 不同步)**:
+v2 寫的是「掃 `sum\(…refund_amount` 的形狀、3 命中、行內容錨定」。**實作已經不是那樣了** ——
+codex R1 指出 `SUM(r1.refund_amount)`(alias 帶數字)、`SUM(CASE … refund_amount …)`、quoted identifier 都能繞過。
 
-🔴 **實測命中 = 3 處,不是 2 處**(我第一版寫「只有 R1 與 R2」是錯的,當場重數修正):
+**現行實作** = `packages/domain/src/order/refund-remaining-single-source.test.ts`,兩個載體:
 
-| 命中 | 是誰 |
-|---|---|
-| `20260803150000:402` | **R1** 現行本體 |
-| `20260803150000:776` | **R2** 步 7 手寫 SUM(附 backlog 編號當豁免理由) |
-| `20260801120000:458` | **R3** 同函式的**歷史版本** |
+| 載體 | 分母 | pattern | allowlist |
+|---|---|---|---|
+| `supabase/migrations/*.sql` | **170** 檔 | **裸欄位** `"?\brefund_amount\b"?`(剝註解後) | **6 檔**:`5 / 6 / 12 / 19 / 9 / 2` |
+| `apps/` + `packages/` 的 `.ts`/`.tsx` | **413 + 419 + 208** 檔 | 聚合字樣鄰近 `refund_?[aA]mount` | **2 檔**:`1 / 1`(R12 / R13) |
 
-⚠️ **這道守門有一個先天上限,寫出來不藏**:migration 是 forward-only、歷史檔永不修改 ⇒ **每一次 `CREATE OR REPLACE` 都會在 allowlist 留下一筆永久命中**。所以它擋的是「**冒出第四個檔**」,不是「同一支函式改了幾版」。allowlist 要用 `檔名:行號 + 該行內容` 錨定,不能只記檔名。
+改抓**裸欄位**的理由:寬 = fail-closed = **免疫「換個寫法」的規避**;代價是新 migration 用到該欄要補一行 allowlist,而那一步**正是要的停點**(migration append-only ⇒ 既有檔永不變、不會無謂 churn)。
 
-**定向突變兩發**(缺一就是恆綠格):① 把 R2 從 allowlist 拿掉 ⇒ 測試**必須紅**(證明它真的掃得到)② 把 R1 裡的更正 join 拿掉 ⇒ 行為測試(`§5` 第 6 條)**必須紅**。
+⚠️ **三個先天上限,寫出來不藏**:
+① migration forward-only ⇒ 每次 `CREATE OR REPLACE` 都留一筆永久命中,它擋的是「**冒出新的檔**」。
+② **TS 側是啟發式**(抓聚合字樣鄰近欄名),比 SQL 側弱 —— **先把值存進變數再跨行迴圈聚合仍可繞過**(codex R2 指出,屬實)。不做成「凡提到 `refundAmount` 都列管」的理由:那是 35 個檔,churn 大到沒人會看 = 更糟的守門。
+③ **allowlist 只鎖「檔名 → 命中數」,不鎖行內容** ⇒ 同一個 allowlist 檔內「刪一個無害命中、加一個危險聚合」總數不變仍會綠(codex R2)。**這是已知洞、不是沒想到**;鎖行內容的代價是每次改動都要更新指紋、實務上會被繞著走。
 
-**3️⃣ apply 閘:R1 換過之後、應用層上線之前,實跑一發「有更正的訂單」**
+**定向突變(實跑過、不是計畫)**:① 把 R2 從 allowlist 拿掉 ⇒ **紅**(訊息指名正確的檔)② allowlist 數字改 2→1 ⇒ **紅** ③ 把 R1 本體的更正 join 整段刪掉 ⇒ **紅**。
+🔴 突變 ③ 第一次跑時**照樣綠** —— 因為原本比對的是「整個檔有沒有提到那個 view 名字」,而 view 自己的 `CREATE VIEW` 與兩段 `COMMENT ON` 裡都有。**恆綠格是突變抓出來的,不是想出來的**;已改成只看函式本體。
 
-見 `§5` 第 6 條。
+**3️⃣ 🏁 實跑(不是 apply 才驗,是 commit 前就跑掉了)**
+
+`scripts/473b1-concurrency-probe.sh` —— 對 `d1t2-rehearsal.sh provision` 起的拋棄式 PG(套全部 migration)實跑 **15 格全綠**:
+繞路被擋 / remaining 10000→7000 / 改回來回升 / CAS 過期被拒 / 冪等 / token 撞別筆被拒 / RR 隔離閘 / **觀察到真重疊 + 雙連線恰一個成功 + 另一個被 CAS 擋 + 零 40P01 死結** / view 最新一筆說了算。
+
+> 🔴🔴 **S9 第一版是假的併發,codex R2 抓到、屬實**:兩邊各 `pg_sleep(0.2)` 之後才呼叫 ——
+> **完全序列執行也會得到「一成功一 CAS、零死結」**,那個結果對「有沒有真的重疊」**零判別力**。
+> ⇒ 已改成真 barrier:A **先取住父列鎖並握著 4 秒**,B 在 A 還握著時進來,
+> 並用 `pg_blocking_pids()` **實地觀察「擋住 B 的就是 A」**(a2b2 判例形狀);**觀察不到重疊就直接紅、後三格不採計**。
+
+> 🔴 **這一輪抓到兩個「看程式碼看不出來」的真 bug,兩個都是本片原本會帶上正式站的**:
+> ① `GRANT SELECT ON … TO service_role` **一點限制作用都沒有** —— Supabase 的 `pg_default_acl` 對 `public` 新表**預設就給 service_role 全套八項權限**(`aclexplode` 實測)。⇒ 必須先 `REVOKE ALL … FROM service_role`,否則 `2️⃣` 守的那條繞路**一直是開的**。
+> ② `pg_catalog.coalesce(...)` **不存在**(COALESCE 是 SQL 構造)。plpgsql 本體在 `CREATE` 時不求值 ⇒ **migration 套用成功、apply 斷言全過,第一個按下去的員工才爆**。
+> ⇒ 通則:**動 plpgsql 的片,apply 斷言之外必須有一次真的呼叫。**
 
 **4️⃣ ❌ 刻意不做:TS 側的品牌型別(`correctionsApplied` brand)**
 
@@ -152,7 +182,9 @@ R1 內部改成:再扣掉「有更正說錢動過」的 `failed` 列(join `order
 
 ## §6 誠實缺口
 
-**真的構造不出來的:目前一格都沒有。** 這是刻意的答案 —— 並發 CAS、ACL 正負、「最新一筆」的序、舊列零改動,四樣全部可構造 ⇒ **不得拿本節豁免任何一樣**。寫不出負測的守門,要先懷疑它是 no-op。
+**真的構造不出來的:一格都沒有,而且四樣全部已經實跑過了。**
+並發 CAS / ACL 正負 / 「最新一筆」的序 / 舊列零改動 —— 見 `§2b-3` 的 probe 14 格。
+🔴 **v2 曾經想把「雙連線併發」列成缺口,那是錯的** —— repo 內就有 `d1t2-rehearsal.sh` 這個拋棄式 PG harness,**構造得出來**。假的「構造不出來」比假的「已驗證」更毒(memory `feedback_false-unconstructible-claim-is-worse-than-false-verified`)。
 
 **以下兩條是「刻意不做」,不是「做不到」—— 分開列,不混進上面那句:**
 
@@ -177,6 +209,78 @@ R1 內部改成:再扣掉「有更正說錢動過」的 `failed` 列(join `order
 
 **驗收**沿用上位 plan `§5` 八條,並補一條:
 9. ☐ 同一列連續更正兩次 ⇒ view 只回**最後那筆**,且前一筆**仍查得到**(A 案的整個賣點)。
+
+4. 🔴 **`R12` / `R13`(TS 側自己聚合)本片不修 —— 這是 §6-3 的同一個病,不同位置。**
+   - `refund-recovery-read.ts:119` 在 TS 裡 `reduce` 加總 `confirmed` 列 ⇒ **DB 側的更正扣減對它完全無效**。
+   - 顯示位置 = `refund-exception-resolve.tsx:117,140`「現在累計已退」——**值班決定要不要恢復結案的那一刻看的就是它**。
+   - **不在本片修的理由**:那個數字的語意是「TapPay Record 對帳用的累計」,要不要把「人工更正」算進去
+     **是一個方向題**(算進去 = 拿我們自己的判定去對外部權威的帳),要 Sean 拍,不是實作取捨。
+   - 🔴 **承接點**:與 `#497` 同一批,**送 Sean 批本片時一起講**;守門的 `TS_ALLOWLIST` 已經把這兩處列管,
+     再多一處會紅。**這是「已知會讓值班看到偏低的已退額」,不是「未來優化」。**
+   - ⚠️ `#497` 我開檔核過**確實存在**(主樹 `docs/phase-1-backlog.md:12865`,commit `dd56959a`)——
+     codex R2 報「backlog 查無 #497」是因為它掃的是**我這個 worktree**,而 worktree 落後於主樹。**此條不採納。**
+
+## §6-5 🔴 換模型審查(opus / fresh context)抓到的四件,逐條記在這裡
+
+**1. 我把「shim 量到的」當成「正式庫事實」寫進 migration 註解。**
+原句:「`pg_default_acl` 對 public 新表**預設給 service_role 全套八項**(實測)」。
+那個「實測」量的是**我們自己手寫的** `scripts/d1-supabase-shim.sql:50`;本 repo 唯一一次**正式庫實查**
+(`20260814140000:142`)逐字只有 `anon=arwdDxtm, authenticated=arwdDxtm`,**`service_role` 沒出現**。
+🔴 後果不只引用錯:原本寫死三個角色名的 REVOKE + 「relacl 只准 service_role 的 SELECT」斷言,
+**在正式庫多一個 defacl grantee 時會當場 RAISE、整支退回,而本機恆綠**(只有上線那天才發現)。
+⇒ 修法不是改字面而已:REVOKE 改成**動態枚舉 relacl 逐一收**,結果不依賴我對 defacl 的任何假設。
+⇒ **上位教訓:shim / 拋棄式環境量到的,不等於正式庫事實。**
+
+**2. 我自己寫下的通則沒套回自己。** plan §2b-3 寫「動 plpgsql 的片,apply 斷言之外必須有一次真的呼叫」,
+而我的 migration 斷言區 `SELECT public.` / `PERFORM public.` **全檔零命中**。已補兩發真呼叫
+(`PERFORM pcm_order_refundable_remaining(NULL)` + 對不存在 refund 呼叫 RPC 期望 `P8C03`)。
+🔴 **並且用突變證明它紅得起來**:把 `pg_catalog.coalesce` 種回去 ⇒ apply **exit=3、整支回滾、表不存在**。
+
+**3. 新表沒開 RLS,而斷言只查 `relacl` 不查 `relrowsecurity` ⇒ 這一層缺席沒有任何一格會紅。**
+同族金流表一律有(`order_refunds` `20260725130100:318` / `admin_audit_log` `20260712210000:82` /
+`payment_refunds` `20260810140000:150`)。已補 `ENABLE ROW LEVEL SECURITY` + 斷言。
+
+**4. 函式側 ACL 是抽樣、表側是全枚舉(不對稱)。** 已改成 `proacl` 全枚舉 + 連 `authenticator` 一起收 + 檢 `is_grantable`。
+
+### 🔴 我在修這批時又犯一次「拿相鄰的東西當成要問的那個」
+跑突變驗證時,我 `sed` 的 anchor 沒對上真正的程式碼行,而 `grep -c` 回 **1** ——
+**那個 1 是我自己寫的註解**,不是突變。我差點據此宣告「apply 斷言抓不到這個 bug」。
+⇒ 修法:**`grep -c` 的數字要能指出「第幾行、那一行長什麼樣」**,只看數字不看內容 = 沒量。
+
+### ⚠️ consider 8 我判「記錄、不修」(換模型審查提的,理由成立)
+更正的效力綁在 `r.status='failed' AND r.failed_reason='manual_failed'`,而 `20260803150000:759`
+COMMENT 逐字寫著這兩欄「刻意留可變」⇒ 有人直連 UPDATE 改掉 `failed_reason`,該列會掉出第二段 SUM、
+**未登記額無聲回升**,而更正列還在、view 還照顯示,**沒有一格會紅**。
+**不修的理由**:要擋它得把那兩欄改成不可變,那是動 `order_refunds` 的既有契約 = 本片明確承諾不碰的東西。
+⇒ **列為已知缺口**,承接點與 `#497` / R12 同一批送 Sean。
+
+## §7-1 🔴 審查鏈的誠實缺口:**鐵則 12③ 的「換模型第二意見」那一輪還沒跑**
+
+| 輪 | 誰 | 性質 |
+|---|---|---|
+| R1 | codex `gpt-5.6-sol` | 對抗審查,**FAIL(14 must-fix)** —— 全部處理完 |
+| R2 | codex `gpt-5.6-sol`(**同一支模型**) | **驗證輪,不是模型多樣性第二意見** |
+| R3 | **尚未跑** | 🔴 換模型那一輪 = 鐵則 12③ 要求的第二意見 |
+
+**R2 的 prompt 與 R1 刻意不同**(否則同模型第二次只會在同一個框架裡找更細的問題):列出 R1 十四條的**折法**,要它專攻「①折壞了沒 ②折的過程引入什麼新錯 ③新增的 probe 與守門有沒有恆綠格 ④ allowlist 數字自己重數」,並**明文要求不要重報 R1 那些**。
+
+🔴 **為什麼沒跑 R3(兩條路都關著,不是懶得跑)**:
+- **subagent(opus / adversarial-reviewer)**:本 session 有明文限制 —— 未經 Sean 要求不得呼叫 Agent tool。**同儕窗的指示不算授權。**
+- **codex 換模型**:`~/.codex/config.toml` 只宣告 `model = "gpt-5.6-sol"`;`codex --help`(v0.144.1)**沒有可用模型清單**,唯一出現的 `-c model="o3"` 是語法範例、不是存在性宣告。⇒ **給不出一個「確認存在」的 model id,不猜**(字面值三來源律)。主視窗獨立查證後同意此結論。
+
+⇒ **這是誠實缺口,不是瑕疵。不要因為看到「跑過兩輪 codex」就以為鐵則 12③ 那一輪已經滿足。**
+
+## §7-2 相鄰影響盤點:對 `#498`(採購作廢線)**零命中**
+
+零命中要帶分母,不能只寫「沒事」:
+
+| 方向 | 分母 | pattern | 命中 |
+|---|---|---|---|
+| 本片 → 採購線 | 本片 staged **7 個檔**的全部新增行 | `voided\|void_reason\|procurement\|order_item_procurement\|zeroInferable` | **0** |
+| 採購線 → 本片 | `20260814100000`(**1187 行**)+ `20260813120000`(**696 行**) | `order_refunds\|refund_amount\|pcm_order_refundable` | **0 / 0** |
+| 我改的 `remaining` 被採購線讀? | `supabase/migrations/2026081[34]*.sql` | `pcm_order_refundable_remaining` | **0** |
+
+⚠️ 第二列第一次跑時**輸出是空白**、而我差點把空白當成「查過了」—— 空的 `grep` 接 `head` 會讓 `||` 那半永遠不執行。**改成逐檔印「總行數 + 命中數」才有分母。**
 
 ## §8 對 Sean「邏輯太複雜、太多沒意義的事情」那句的回應(**不替既有設計圓場**)
 
