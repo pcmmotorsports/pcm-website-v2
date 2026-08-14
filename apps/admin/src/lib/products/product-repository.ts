@@ -20,6 +20,18 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 **select 逐欄指名、禁 select('*')**:base 表含 `price_store`(經銷價)。本片唯讀不寫,
 //    但讀路徑碰得到那張表 ⇒ 逐欄指名是唯一讓「沒撈到經銷價」可被機械檢查的寫法(plan 驗收 4)。
 
+// ── #20 片1b-1 增補 ──
+// 🔴 **`metadata` 進禁字、`supplier_slug` 出禁字**(片1a nit N2 + 片1b plan §1.2):
+//    · `supplier_slug`:唯一鍵是複合的 `(supplier_slug, external_id)`(`20260602192455:53`)
+//      ⇒ **料號不是全域唯一**,詳情頁不顯示供應商,員工分不出同料號的兩筆。它本來就投射在公開 view
+//      的末欄(`20260602135934:100` 那支 `products_public`)⇒ 不是敏感欄。
+//    · `metadata`:`20260602135934:84-90` 先洗掉 4 個敏感 key 再加 CHECK,但**那條 CHECK 只擋那 4 個具名 key**
+//      ⇒「整包印出來安不安全」等同於「它現在還裝著什麼」——**沒有人盤過** ⇒ 盤完之前不撈、不印。
+//
+// 🔴 **品牌/分類用「另外兩支查詢」而不是 PostgREST 內嵌關聯**:內嵌關聯的實際回傳形狀我沒有正式庫可實跑
+//    (plan §4 R2)。改成對 `brands`/`categories` 各查一次 `id,name`(`20260505130758:24,41`)
+//    ⇒ 形狀是已知的、R2 這個未知數整個消失。代價 = 詳情頁多兩趟往返,單筆頁面可接受。
+
 /** 列表一列的原始 wire shape(逐欄對應下方 PRODUCT_LIST_COLUMNS)。 */
 export interface AdminProductRow {
   readonly id: string;
@@ -69,8 +81,20 @@ export interface AdminProductPage {
 /**
  * 依頁碼讀一頁商品(**含已下架**)。
  *
- * 🔴 排序釘死 `id` 升冪:`title` 排序取決於連線 collation(本機 C locale ≠ 正式站),
- * 同一頁在不同環境會給不同結果 —— 同樣的理由見 lib/supplier-repository.ts:23-25。
+ * 🔴 **排序 = `created_at DESC, id ASC`**(片1a nit N1,片1b-1 折)。
+ *
+ * · 為什麼不是 `id`:`id` 是 `gen_random_uuid()`(`20260507004826:24`)⇒ 升冪等於**亂序**,
+ *   員工看不到「最近進了什麼」。
+ * · 為什麼不是 `title`:排序結果取決於連線 collation(本機 C locale ≠ 正式站)
+ *   ⇒ 同一頁在不同環境給不同結果(同 lib/supplier-repository.ts:23-25 的理由)。
+ * · 🔴 **`id` 是必要的第二鍵**:`created_at` 同值時單靠它分頁會漂 —— 同一筆可能兩頁都出現、
+ *   也可能兩頁都不出現。這不是理論,是 `.range()` 分頁對非唯一排序鍵的固有行為。
+ * · **不需要 migration**:`products.created_at` 無索引,但 `20260811040000:130-136` 有正式庫
+ *   `EXPLAIN(ANALYZE)` 實測 —— 全表 seq scan **4,389 buffers / 48.053 ms**,且 admin 走
+ *   service_role(不吃 anon 的 3s statement_timeout)。
+ *   ⚠️ 那是 **2026-08-11 的量測、量的是型錄那支 RPC 不是本函式** ⇒ 是量級參考,不是保證。
+ *   真的慢了 → 退回 `id` 排序並開決策題,**不得默默加索引**(那是 migration、要 Sean)。
+ *
  * `count: 'exact'` 取總數供分頁列顯示。
  */
 export async function listProductsForAdmin(
@@ -80,9 +104,80 @@ export async function listProductsForAdmin(
   const { data, error, count } = await createSupabaseServiceClient()
     .from('products')
     .select(PRODUCT_LIST_COLUMNS, { count: 'exact' })
+    .order('created_at', { ascending: false })
     .order('id', { ascending: true })
     .range(offset, offset + limit - 1);
 
   if (error) throw error;
   return { items: data ?? [], total: count ?? 0 };
+}
+
+// ─────────────────────────── 片1b-1:單筆詳情 ───────────────────────────
+
+/** 詳情頁的原始 wire shape(逐欄對應下方 PRODUCT_DETAIL_COLUMNS)。 */
+export interface AdminProductDetailRow extends AdminProductRow {
+  readonly subtitle: string | null;
+  readonly supplier_slug: string;
+  readonly handle: string;
+  readonly brand_id: string;
+  readonly category_id: string;
+  readonly availability: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+/**
+ * 🔴 逐欄指名,理由同列表。**不得改成 `*`**,也不得加入
+ * `price_store` / `price_by_tier` / `cost` / `metadata` 任一欄。這串字面被測試釘住。
+ *
+ * 片1b-2 才會加的欄(現在**刻意不撈**,因為 jsonb 元素形狀還沒實測過 —— plan §4 R4):
+ * `description` / `highlights` / `fitments` / `images` / `manuals` / `video_url` / `sound_clips`。
+ */
+const PRODUCT_DETAIL_COLUMNS =
+  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, created_at, updated_at' as const;
+
+/**
+ * 讀單筆商品(**含已下架** —— 後台要能把它撈回來)。查無回 `null`,不 throw。
+ *
+ * `maybeSingle()`:查無回 `data === null` 且 `error === null`(不像 `single()` 會給 PGRST116)
+ * ⇒ 「查無」與「讀取失敗」在呼叫端分得開,404 與錯誤態才不會混成同一條路。
+ */
+export async function getProductForAdmin(
+  id: string,
+): Promise<AdminProductDetailRow | null> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('products')
+    .select(PRODUCT_DETAIL_COLUMNS)
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ?? null;
+}
+
+export interface ProductTaxonomyNames {
+  readonly brandName: string | null;
+  readonly categoryName: string | null;
+}
+
+/**
+ * 品牌名 / 分類名。**兩支獨立查詢,不用 PostgREST 內嵌關聯**(理由見檔頭:內嵌的回傳形狀沒實跑驗過)。
+ * 查無回 `null`(顯示層自己決定顯示什麼);讀取失敗照樣 throw,由呼叫端當成「這一區塊壞了」處理。
+ */
+export async function getProductTaxonomyNames(
+  brandId: string,
+  categoryId: string,
+): Promise<ProductTaxonomyNames> {
+  const supabase = createSupabaseServiceClient();
+  const [brand, category] = await Promise.all([
+    supabase.from('brands').select('id, name').eq('id', brandId).maybeSingle(),
+    supabase.from('categories').select('id, name').eq('id', categoryId).maybeSingle(),
+  ]);
+
+  if (brand.error) throw brand.error;
+  if (category.error) throw category.error;
+  return {
+    brandName: brand.data?.name ?? null,
+    categoryName: category.data?.name ?? null,
+  };
 }

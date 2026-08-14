@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {
   AdminDataTable,
   type AdminColumn,
@@ -22,7 +23,18 @@ function priceCell(row: AdminProductRow) {
 }
 
 const COLUMNS: ReadonlyArray<AdminColumn<AdminProductRow>> = [
-  { key: 'title', header: '商品名稱', cell: (row) => row.title, mobile: 'title' },
+  {
+    key: 'title',
+    header: '商品名稱',
+    // 片1b-1:名稱點進詳情頁。做法沿用 components/customers/customers-table.tsx:18
+    // (`AdminDataTable` 沒有整列連結的 API ⇒ 連結包在名稱欄,不去改共用表格元件)。
+    cell: (row) => (
+      <Link href={`/products/${row.id}`} className='hover:underline'>
+        {row.title}
+      </Link>
+    ),
+    mobile: 'title',
+  },
   { key: 'external_id', header: '料號', cell: (row) => row.external_id, mobile: 'sub' },
   {
     key: 'price',

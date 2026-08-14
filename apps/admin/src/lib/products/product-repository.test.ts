@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { stripComments } from '../test-support/strip-comments';
 
 // 受測檔頂層 `import 'server-only'`(它是 server-only 模組,這是對的)⇒ 測試裡要 stub 掉,
 // 否則整支載入即炸(同 `app/customers/page.test.tsx:10` 紀律)。
@@ -23,6 +24,10 @@ const TABLE_FILE = path.join(
   REPO_ROOT,
   'apps/admin/src/components/products/products-table.tsx',
 );
+const DETAIL_FILE = path.join(
+  REPO_ROOT,
+  'apps/admin/src/components/products/product-detail.tsx',
+);
 
 /**
  * 🔴 **消費面掃整個目錄樹,不硬寫檔名**(code-reviewer MF5)。
@@ -43,16 +48,41 @@ function sourceFiles(root: string): string[] {
 }
 
 /**
- * 剝註解 —— 形狀沿用 `lib/orders/nine-code-rpc-retired.test.ts:76-88`。
+ * 🔴 **禁字兩組,用途不同,不要混成一組看**(片1b-1 折主視窗 MUST-FIX):
  *
- * 🔴 **本檔非剝不可**:`products-table.tsx` 的註解裡逐字寫著「不得直接讀 `row.price_general`」,
- *    不剝的話這格會**被自己的註解命中** = 假紅(memory `feedback_assertion-measures-the-wrong-thing`
- *    的「偵測字串自命中」)。
- * 只剝「行首 `//`」與「行首 `*` 且後接空白或 `/`」,不剝整個 `/* … *\/` 區塊(後者會吃掉真程式碼)。
+ * · `DESIGN_TOKENS` —— 釘「B 案只改兩處」那條**設計約束**:消費面不得繞過 `resolvePrice` /
+ *   `resolveListingState` 直讀 DB 欄。
+ * · `LEAK_TOKENS` —— 釘**經銷價不得外洩**。
+ *
+ * 🔴 **片1a 的缺口就在這裡**:遞迴掃消費面那道(驗收 5)當時**只掃 `DESIGN_TOKENS`**,
+ *    `LEAK_TOKENS` 只在「單掃 repository 一支檔」那道(驗收 4)⇒ **詳情頁印經銷價,沒有一格會紅。**
+ *    片1a MF5 修的是**掃描範圍**,這次補的是**掃描字集** —— 同一個病的另一個作用域
+ *    (memory `feedback_claim-scope-exceeds-fact-three-shapes`「細緻度被誤讀成覆蓋度」)。
+ *    落地前實測過:在 `products-table.tsx` 塞一行 `price_store`,補字集前 **11/11 全綠**。
  */
-function stripComments(src: string): string {
-  return src.replace(/^\s*\/\/.*$/gm, '').replace(/^\s*\*[\s/].*$/gm, '');
-}
+const DESIGN_TOKENS = ['price_general', 'delisted_at'] as const;
+const LEAK_TOKENS = ['price_store', 'price_by_tier', 'cost'] as const;
+
+/**
+ * 🔴 **`metadata` 只釘在 repository、不進消費面遞迴掃**,理由要寫清楚:
+ * Next.js 頁面本來就有 `export const metadata` 這個官方 API ⇒ 把裸 token `metadata`
+ * 加進消費面掃描,會在**完全正當**的寫法上誤報。而它真正的外洩入口是 `select` 欄位清單:
+ * 只要 `metadata` 進不了 row 型別,消費面寫 `product.metadata` 就是 **TS2339**、typecheck 會擋
+ * ⇒ 那一層已經有人守,不需要在這裡用一個會誤報的字面重守一次。
+ */
+const REPO_ONLY_TOKENS = ['metadata'] as const;
+
+/**
+ * 🔴 **改用共用版剝註解**(片1a nit N3,片1b-1 折):`lib/test-support/strip-comments.ts:13`。
+ *
+ * 這不是整理,是**修一個真漏洞**:片1a 自己寫的那版只剝行首 `//` 與行首 `*`、
+ * **不剝 `/* … *\/` 區塊** ⇒ 把違規那行用區塊註解包起來就能繞過整組守門。
+ * 共用版連區塊一起剝,而且用 `(?<!:)` 避免 `https://` 被當行註解截斷。
+ *
+ * 為什麼非剝不可:`products-table.tsx` / `product-detail.tsx` 的註解裡逐字寫著
+ * 「不得直接讀 `row.price_general`」,不剝的話這格會**被自己的註解命中** = 假紅
+ * (memory `feedback_assertion-measures-the-wrong-thing` 的「偵測字串自命中」)。
+ */
 
 describe('#20 片1a — 讀取層守門', () => {
   it('🔴 驗收 4:select 逐欄指名,且零經銷價 / 成本欄', () => {
@@ -66,9 +96,12 @@ describe('#20 片1a — 讀取層守門', () => {
     //    第一版只禁呼叫字面 ⇒ 把 PRODUCT_LIST_COLUMNS 改成 `'*'` 照樣全綠 = 恆綠格。
     //    實測:reviewer 把該常數改成 `'*' as const` 後,舊版五條斷言全過。
     expect(code).toContain("'id, title, external_id, price_general, delisted_at'");
+    // 片1b-1 新增的詳情欄位清單,同樣釘值不釘呼叫字面。
+    expect(code).toContain('supplier_slug, handle, brand_id, category_id');
     expect(code.includes(".select('*')")).toBe(false);
     expect(code.includes('select("*")')).toBe(false);
-    for (const forbidden of ['price_store', 'price_by_tier', 'cost', 'supplier_slug']) {
+    // 🔴 `supplier_slug` 已從禁字移出(nit N2:唯一鍵是複合鍵 ⇒ 料號非全域唯一,詳情頁必顯供應商)。
+    for (const forbidden of [...LEAK_TOKENS, ...REPO_ONLY_TOKENS]) {
       expect({ [forbidden]: code.includes(forbidden) }).toEqual({ [forbidden]: false });
     }
   });
@@ -90,7 +123,9 @@ describe('#20 片1a — 讀取層守門', () => {
       expect({ [rel]: src.length > 500 }).toEqual({ [rel]: true });
 
       const code = stripComments(src);
-      for (const raw of ['price_general', 'delisted_at']) {
+      // 🔴 兩組一起掃(片1b-1 折 MUST-FIX):設計約束 + 經銷價外洩。
+      //    片1a 這裡只有 DESIGN_TOKENS ⇒ 消費面印經銷價零告警。
+      for (const raw of [...DESIGN_TOKENS, ...LEAK_TOKENS]) {
         expect({ [`${rel}:${raw}`]: code.includes(raw) }).toEqual({
           [`${rel}:${raw}`]: false,
         });
@@ -103,14 +138,30 @@ describe('#20 片1a — 讀取層守門', () => {
     //    **今天是空的(vacuous)**:沒有東西會讓它紅。我把這件事寫出來而不是把斷言放寬到假裝有效:
     //    · 對 `products-table.tsx`:禁令有判別力,反面對照證明它不是「因為根本沒顯示」才綠。
     //    · 對 `page.tsx`:禁令是**預防性**的 —— 哪天有人把售價搬到頁面層直讀,它才會紅。
-    const tableCode = stripComments(readFileSync(TABLE_FILE, 'utf8'));
-    expect(tableCode.includes('resolvePrice')).toBe(true);
-    expect(tableCode.includes('resolveListingState')).toBe(true);
+    //    · 片1b-1 起 `product-detail.tsx` 也顯示售價與上架狀態 ⇒ **它也進反面對照**,
+    //      否則「詳情頁把售價改成直讀」這件事一樣沒有一格會紅。
+    for (const file of [TABLE_FILE, DETAIL_FILE]) {
+      const rel = path.relative(REPO_ROOT, file);
+      const code = stripComments(readFileSync(file, 'utf8'));
+      expect({ [`${rel}:resolvePrice`]: code.includes('resolvePrice') }).toEqual({
+        [`${rel}:resolvePrice`]: true,
+      });
+      expect({
+        [`${rel}:resolveListingState`]: code.includes('resolveListingState'),
+      }).toEqual({ [`${rel}:resolveListingState`]: true });
+    }
   });
 
   it('前提斷言:剝註解本身有效(用合成字串驗,不拿 production 註解當供應者)', () => {
     expect(stripComments('// price_general\nconst a = 1;')).not.toContain('price_general');
-    expect(stripComments(' * delisted_at\nconst b = 2;')).not.toContain('delisted_at');
+    // 🔴 **這一格是換共用版之後才成立的**:整個 `/* … */` 區塊要被剝掉。
+    //    片1a 自己那版只剝行首 `*`,區塊的頭尾留著 ⇒ 把違規那行包進區塊註解就能繞過守門。
+    expect(stripComments('/**\n * delisted_at\n */\nconst b = 2;')).not.toContain(
+      'delisted_at',
+    );
+    // 🔴 反面:`https://` 的雙斜線**不得**被當成行註解 —— 被截斷的話那一行後面的內容
+    //    會整段從掃描結果消失(= 假綠)。共用版的 `(?<!:)` 就是在擋這個。
+    expect(stripComments("const u = 'https://x/price_store';")).toContain('price_store');
     // 🔴 反面:真程式碼不得被剝掉,否則上面兩格會變成「什麼都掃不到」的假綠。
     expect(stripComments('const c = row.price_general;')).toContain('price_general');
   });
