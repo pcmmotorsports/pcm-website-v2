@@ -172,6 +172,27 @@ export async function unvoidShipment(args: {
 // 🔴 讀**不走 RPC**:`shipments` / `shipment_items` 都有 `GRANT SELECT … TO service_role`
 //    (s1a1:277 / s1b:254)⇒ 直接 SELECT。不為了對稱而多包一層沒有的 RPC。
 
+/**
+ * 兩支讀取面**共用**的投影。
+ *
+ * 🔴 **抽成常數是為了讓一整類 bug 消失,不是為了少打字**(R2 nit-3):
+ * 原本兩支各自逐字寫一份 10 欄 ⇒ 「其中一支漏撈 `recipient_snapshot`」是個真的會發生、
+ * 而且畫面上完全看不出來的漂移(詳情卡本來就不顯示收件人)。
+ * 共用之後那個漂移**構造不出來**。
+ * **讓 bug 不可能 > 守著 bug**,所以這個交換划算。
+ *
+ * 🔴🔴 **這個常數的欄位完整性由 `typecheck` 守,不另立測試格 —— 不要再加一格回來。**
+ * R2 實測(2026-08-15,把 `recipient_snapshot` 從本常數刪掉再跑 `pnpm run typecheck`):
+ * **`(280,46)` 與 `(302,46)` 兩處 TS2339 當場紅**(兩個 mapper 各一),因為 supabase-js
+ * 由 select 字面推導回傳型別。
+ * ⇒ 原本那格「兩支都要撈 `recipient_snapshot`」**被 typecheck 嚴格蘊含**:三綠每次都跑 typecheck,
+ *   那格**永遠不可能是第一個紅的** = 恆綠格,已刪。
+ * ⚠️ 值路徑(撈到之後有沒有正確映射、空字串會不會被折成 null)**typecheck 守不到**,
+ *   那幾格留著,見 `shipment-repository.test.ts` 的 `readBoth()` 族。
+ */
+const SHIPMENT_ROW_SELECT =
+  'id, shipment_reference, customer_user_id, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at, void_reason, recipient_snapshot';
+
 /** 畫面用的一箱。`voidedAt` 非 null = 已作廢;`shippedAt` 非 null = 已出貨。 */
 export type ShipmentRow = {
   id: string;
@@ -183,7 +204,49 @@ export type ShipmentRow = {
   shippedAt: string | null;
   voidedAt: string | null;
   voidReason: string | null;
+  /**
+   * 這箱**實際寄達**的收件資料(`#10` 片2a 起才撈;在此之前 TS 側從不讀它,只寫)。
+   *
+   * 🔴🔴 **三個欄位都可能是空字串 `''`,而且那是合法寫入、不是髒資料。** 寫入鏈四層,沒有一層擋空:
+   *   `shipment-launcher.tsx:135` 缺資料時給 `{name:null,phone:null,line:null}`
+   *   → `shipment-dialog.tsx:186` `recipient.name ?? ''` **把 null 折成空字串**
+   *   → `shipment-actions.ts:40/100` 原封轉送、零驗證零 trim
+   *   → DB CHECK `shipments_recipient_snapshot_shape`
+   *     (`20260805170000:120-125`)只要求「物件 + 恰三鍵 + 值皆為 string」——**`''` 是 string,過**。
+   * ⇒ **CHECK 保證的是鍵存在,不保證值有內容。** 要印在紙上的地方**必須自己判空並 fail-closed**,
+   *   不可以假設有地址。(一張沒有收件人的出貨單被印出來,會有人真的拿去寄。)
+   *
+   * 🔴 **`null` = 「這欄讀不出來」**(jsonb 形狀不符),與「三個空字串」是兩件事:
+   * 前者是我們讀壞了,後者是建箱當下真的沒填。兩者都不可印,但原因不同、文案該不同。
+   * 用 `X | null` 表達「不知道」是本 repo 的既有 idiom(`packages/domain/src/order/types.ts:1121`)。
+   *
+   * 🔴🔴 **本欄讓 `ShipmentRow` 自 `#10` 片2a 起帶 PII(收件人姓名 / 電話 / 地址)。**
+   * 在此之前這個型別全是箱號與狀態,可以隨手往下傳;**現在不行了。**
+   * ⇒ **絕不可以把整個 `ShipmentRow` 展開丟進 client component**(`{...shipment}` / 當 prop 整包傳)——
+   *   那會把收件人 PII 送進瀏覽器。要用就**逐欄挑**你真的要顯示的那幾個。
+   * (現況零 client 消費端:`shipment-section.tsx` 是 server component、只往下傳純量;
+   *  但型別上沒有任何東西擋住下一個人,所以把話寫在這裡。)
+   */
+  recipientSnapshot: RecipientSnapshot | null;
 };
+
+/**
+ * 把 DB 的 jsonb 收成 `RecipientSnapshot`;形狀不符回 `null`(**不 throw**)。
+ *
+ * 🔴 **為什麼不比照 `toWriteResult()` 直接 throw**:那支守的是**寫入**回傳,炸掉是對的
+ * (寫壞了要當場知道)。本支餵的是**訂單詳情頁的出貨卡**——為了一箱的收件快照形狀怪
+ * 而讓整張詳情頁掛掉,代價遠大於「那一箱的收件人顯示為不可用」。
+ * ⚠️ 但**不可以靜默補空物件** —— 那會讓「讀壞了」長得跟「沒填」一模一樣。回 `null`,呼叫端分得出來。
+ */
+function toRecipientSnapshot(raw: unknown): RecipientSnapshot | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const { name, phone, line } = o;
+  if (typeof name !== 'string' || typeof phone !== 'string' || typeof line !== 'string') return null;
+  // 🔴 **不 trim、不補值**:原樣回傳,讓呼叫端自己判空。
+  //    在這裡 trim 會讓「只打了幾個空白」與「真的填了」在上層分不出來。
+  return { name, phone, line };
+}
 
 /** 一箱裡的一個品項。 */
 export type ShipmentItemRow = {
@@ -207,7 +270,7 @@ export async function listShipmentsByIds(ids: readonly string[]): Promise<Shipme
   if (ids.length === 0) return [];
   const { data, error } = await createSupabaseServiceClient()
     .from('shipments')
-    .select('id, shipment_reference, customer_user_id, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at, void_reason')
+    .select(SHIPMENT_ROW_SELECT)
     .in('id', [...ids])
     .order('created_at', { ascending: true });
   if (error) throw error;
@@ -221,6 +284,7 @@ export async function listShipmentsByIds(ids: readonly string[]): Promise<Shipme
     shippedAt: r.shipped_at,
     voidedAt: r.deleted_at,
     voidReason: r.void_reason,
+    recipientSnapshot: toRecipientSnapshot(r.recipient_snapshot),
   }));
 }
 
@@ -228,7 +292,7 @@ export async function listShipmentsByIds(ids: readonly string[]): Promise<Shipme
 export async function listShipmentsByCustomer(customerUserId: string): Promise<ShipmentRow[]> {
   const { data, error } = await createSupabaseServiceClient()
     .from('shipments')
-    .select('id, shipment_reference, customer_user_id, carrier_code, carrier_note, tracking_number, shipped_at, deleted_at, void_reason')
+    .select(SHIPMENT_ROW_SELECT)
     .eq('customer_user_id', customerUserId)
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -242,6 +306,7 @@ export async function listShipmentsByCustomer(customerUserId: string): Promise<S
     shippedAt: r.shipped_at,
     voidedAt: r.deleted_at,
     voidReason: r.void_reason,
+    recipientSnapshot: toRecipientSnapshot(r.recipient_snapshot),
   }));
 }
 
@@ -317,10 +382,18 @@ export async function listOrderCustomerUserIds(
  * 從**品項本身**反查,而不是收 client 送來的客人 id:client 就算竄改品項清單,
  * 推出來的也是那些品項真正的擁有者 ⇒ 建箱與掛品項對得起來,構造不出跨客人的箱。
  *
- * ⚠️ **刻意分兩次查、不用內嵌 join**:內嵌層的過濾/展開語意押在
- * **本專案無法實測**的 PostgREST 行為上(本機是裸 PG、沒有 PostgREST;
- * `SupabaseOrderAdapter.ts:408-413` 那段註解逐字說明過這件事)。
- * 兩次平凡的 `.in()` 查詢沒有這個不確定性,而這條路徑上的筆數是個位數。
+ * ⚠️ **刻意分兩次查、不用內嵌 join**:內嵌層的過濾/展開語意押在**本機測不到**的 PostgREST 行為上
+ * (本機是裸 PG、沒有 PostgREST)。兩次平凡的 `.in()` 查詢沒有這個不確定性,
+ * 而這條路徑上的筆數是個位數。
+ *
+ * 🔴 **更正(`#10` 片2a R2 nit-1)**:原文寫「**本專案**無法實測」並引
+ * `SupabaseOrderAdapter.ts:408-413` 稱「那段註解逐字說明過這件事」——**兩件都不成立**:
+ *   · 該檔 `:408-413`(HEAD 版逐字相同)是 **server-only / root barrel** 那段,與 PostgREST 內嵌無關;
+ *   · `grep -n "本專案無法實測|裸 PG" SupabaseOrderAdapter.ts` ⇒ **0 命中** —— 那句話在該檔裡不存在。
+ * 而真正相關的 `PROCUREMENT_EMBED_PATH` docstring(`SupabaseOrderAdapter.ts:375-382`)講的**恰恰相反**:
+ * 2026-08-03 對 production 唯讀實跑,**兩層深內嵌的 order/limit 確實驗過**。
+ * ⇒ 正確口徑是「**本機**測不到」,不是「本專案無法實測」。引用已移除(**指錯位置比不指更糟**);
+ *   分兩次查的**理由不變** —— 能不押在本機測不到的語意上就不押。
  */
 export async function listCustomerUserIdsByOrderItemIds(
   orderItemIds: readonly string[],
