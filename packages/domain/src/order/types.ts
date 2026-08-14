@@ -603,6 +603,34 @@ export type AdminOrderItemProcurement = {
   /** 最後一次更新時間(A5a 每次更新填) */
   statusChangedAt: string | null;
   createdAt: string;
+  /**
+   * 作廢時間。`null` = **這筆採購還生效中**;非 null = 已作廢(#452 片 2a-1)。
+   *
+   * 🔴 **DB 早就照它分流了,應用層一直沒有**(`#476` 的病根):建表檔
+   * `20260813120000_m4b_e10_452_procurement_void_schema.sql:352-355` COMMENT 逐字
+   * 「作廢的採購列**不算進任何額度**:A2b1 跨列總量守門與 A4a 三軸重算都只 SUM
+   * `voided_at IS NULL` 的列」⇒ 畫面列得出 3 件、`orderedQuantity` 卻說 0 件,
+   * 兩個數字互相矛盾而沒有任何一行字解釋。
+   *
+   * 🔴 **同一個 `(order_item_id, supplier_id)` 可以有兩列**:business key 是 partial unique
+   * (`WHERE voided_at IS NULL`,同檔 `:379-381`)+ Sean `Q-S1=A` 允許對同一家重下單
+   * ⇒ **任何 `find`/`some`/`length` 只要不帶 `voidedAt === null` 就可能命中作廢那列**。
+   * 表單 hydrate 命中它 = 舊值寫進生效列(`#476` 的靜默資料損壞)。
+   *
+   * ⚠️ 語意是**邏輯刪除**、可 unvoid(清回 NULL,需同時清 `voidReason`)⇒ 讀取端不得把它
+   * 整個濾掉當「不存在」;顯示端要標示它(樣板 = shipments 線
+   * `apps/admin/src/lib/shipping/order-shipments.ts:11` 逐字「否則畫面上會變成貨憑空消失」)。
+   */
+  voidedAt: string | null;
+  /**
+   * 作廢理由(與 `voidedAt` 由 DB `order_item_procurement_void_pair` 雙向配對:
+   * 同進同出、不得純空白 —— 建表檔 `:347-350`)。
+   *
+   * 🔴 **「誰撤的」不在本型別也不在本表**(Sean 2026-08-13「不要增加太多欄位」⇒ DB 只加兩欄),
+   * 走 `admin_audit_log` ⇒ 顯示端**不得**寫「由 XXX 作廢」這種它證明不了的話。
+   * ⚠️ 建表檔 `:356` 逐字:`void_reason` + 稽核是唯一事後追溯手段,**不得宣稱「作廢有防呆」**。
+   */
+  voidReason: string | null;
 };
 
 /**

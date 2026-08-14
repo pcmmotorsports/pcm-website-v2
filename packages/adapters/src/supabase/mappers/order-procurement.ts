@@ -70,6 +70,48 @@ export type SupabaseOrderItemProcurementRow = Pick<
   | 'created_at'
 > & {
   /**
+   * 🔴 **#476 片1:作廢兩欄。這裡手寫、不從 `Database` derive —— 因為生成型別落後 migration 兩支。**
+   *
+   * 實查(2026-08-14):`database.types.ts` 的 `order_item_procurement.Row` 只有 15 欄、
+   * **`voided_at` 與 `void_reason` 都不在**;最後一次重 gen 是 **2026-08-11 晚**(該檔檔頭 `:42` 逐字),
+   * 而加這兩欄的 `20260813120000_m4b_e10_452_procurement_void_schema.sql:342-343` 是 **08-13 才 apply**
+   * (STATUS「2026-08-13 深夜 98」逐字:兩欄在、`voided_rows=0`)⇒ 生成檔尚未跟上。
+   * ⇒ 寫進 `Pick<>` 會直接 typecheck 失敗(`Type '"void_reason"' is not assignable`,實跑)。
+   *
+   * 🔴 **不手改 `database.types.ts`**:該檔 `:1` 逐字「勿手改」,且它有既定重 gen 流程與 26 處
+   * 手動校正要保留(`:2`、合併腳本 `scripts/regen-types-merge.py`)—— 重 gen 會拉進 08-11 之後
+   * **所有**表的漂移,那是另一片的範圍,不該夾帶在本片裡。
+   *
+   * ⚠️ **代價寫清楚**:手寫 = 這兩欄的型別**不再由生成器背書**,DB 改了它們的可空性不會有任何一格紅。
+   * 形狀依據 = 建表檔 `:342-343`(`voided_at timestamptz` / `void_reason text`,兩者皆可空)
+   * + 生成檔裡 **shipments 樣板已經生成出來的同名欄**(`deleted_at: string | null` /
+   * `void_reason: string | null`)⇒ 不是憑感覺挑的。
+   * 🔧 **還債動作**:下次重 gen 之後,把這兩欄搬回上面的 `Pick<>` 清單、刪掉本段。
+   *
+   * ⚠️ **必填、不是 `?` 選填** —— 刻意跟隔壁 `suppliers?` 走不同路:那個選填是因為它是**巢狀 embed**、
+   * 生成型別對它的基數推斷不穩;這兩欄是**同表純量欄**,與上面 `Pick<>` 的 13 個兄弟同類,
+   * 而那 13 個全是必填。跟最接近的前例走,不為本片發明第三種寫法。
+   * 🔴 **殘餘風險(不宣稱涵蓋)**:投影退版把這兩欄拿掉時,執行期會是 `undefined` 而型別說它是
+   * `string | null` ⇒ 下游 `voidedAt === null` 判成 false = **生效的採購被當成已作廢**。
+   * 擋這件事的不是型別,是 `SupabaseOrderAdapter.test.ts` 的投影 byte-equal
+   * (**認字面不認行號**:`expect(ADMIN_ORDER_DETAIL_SELECT).toBe(` 那條;2026-08-14 當下在 `:815`,
+   *  🔴 但本片施工過程中我自己的後續編輯已經把這個行號推漂三次 ⇒ 引用一律以字面為準)
+   * (立場同本檔下方 `mapSupabaseProcurementRowsToProjection` 內對缺鍵那段逐字
+   *  「真正擋住退版的是…投影 byte-equal + `toContain` 兩道」)。
+   *
+   * 🔴 **正面回應一條反例**(關卡 code-reviewer R1 must-fix3):隔壁 `suppliers?` 那段逐字寫著
+   * 「宣告成必填會讓型別對呼叫端說謊」—— 那句**如果適用於這兩欄,就會反對本處的必填**。
+   * 它不適用,理由是兩者的「缺」來自不同機制:`suppliers` 是**巢狀 embed**,生成型別對它的
+   * 基數推斷本來就不穩、**同一份投影下**都可能回單物件/陣列/null ⇒ 缺是常態、型別必須容它。
+   * 這兩欄是**同表純量欄**,只有在「有人改掉 `ADMIN_ORDER_DETAIL_SELECT`」時才會缺,
+   * 而那個動作**恰好**是 byte-equal 釘住的唯一事件 ⇒ 缺不是常態、是一次可偵測的改動。
+   * ⚠️ **殘餘風險誠實記**:byte-equal 釘的是**投影字串**,「字串 ↔ 本 Row 型別」兩者一致性
+   * **全 repo 對所有欄位都沒有守門**(非本片新增的缺口)。⇒ 兩者同時被改成一致但錯的內容時,
+   * 沒有任何一格會紅。
+   */
+  voided_at: string | null;
+  void_reason: string | null;
+  /**
    * 🔴 optional + nullable 是**刻意的**(同 `order.ts` 對 `order_notes` 的理由):投影退版或舊 row
    * 會整個沒有這個鍵,mapper 端承接;宣告成必填會讓型別對呼叫端說謊。
    */
@@ -121,6 +163,31 @@ export function mapSupabaseProcurementRowsToProjection(
       firstOrderedAt: row.first_ordered_at,
       statusChangedAt: row.status_changed_at,
       createdAt: row.created_at,
+      // 🔴 #476 片1:作廢兩欄逐欄搬(不用 spread —— 同本檔既有慣例:新增欄位時型別會逼人來改這裡)。
+      //    ⚠️ **本 mapper 刻意不濾掉作廢列**:語意是邏輯刪除、可 unvoid,濾掉會讓員工按下作廢後
+      //    畫面上什麼都沒留下(shipments 樣板 `order-shipments.ts:11` 逐字「貨憑空消失」)。
+      //    分流是下游各面自己的責任(#476 片2 挑列 / 片3 顯示 / 片4 選單),不是這裡。
+      //    ⚠️ **「不濾」的下游代價,記在做這個決定的地方**:作廢列會吃掉
+      //    `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`(本檔 `:44` = 50)的格子。
+      //
+      //    🔴 ~~原字面「`Q-S1=A` 下生效列恆為最新 ⇒ 被切掉的是舊的作廢列」~~ **是錯的,已撤**
+      //    (codex 關卡2 must-fix)。正確版:
+      //    · **同一家供應商內**,重下單產生的生效列確實比它的作廢列新(作廢不動 `created_at`)。
+      //    · **但跨供應商不成立**:A 家一列很早建、從未作廢;之後 B..Z 家產生 50 筆更新的作廢列
+      //      ⇒ 請求端 `created_at` **DESC** + limit 50 會把**唯一那筆生效列切掉**。
+      //      ⚠️ 這個構造**走得到**(不需要 unvoid)。
+      //    · codex 原本的構造(先建舊列 → 50 筆新作廢列 → **unvoid** 舊列)**今天走不到**:
+      //      採購側沒有 unvoid RPC(`grep -rn "unvoid_procurement" supabase/migrations/` 零命中),
+      //      Sean 已拍 `Q-452-換路 = C`「只做作廢,取消作廢不做」
+      //      (`docs/specs/2026-08-14-452-2a2-procurement-void-rpc-plan.md:5` 逐字)。
+      //      ⇒ **病是真的,但要用走得到的那個構造講,不要用走不到的那個。**
+      //
+      //    ✅ **後果仍是 fail-closed**:真被切到時 `safeRows.length >= 上限` ⇒ `procurementTruncated`
+      //    翻 true ⇒ 表單停手、不送出(見上方缺鍵那段的既有立場)。**不會靜默寫壞資料。**
+      //    ⚠️ 但員工會看到「採購清單不完整」而**不知道是被作廢列擠掉的** —— 那是 UX 缺口,
+      //    真要治本得在請求端就把作廢列排到後面(`voided_at NULLS FIRST` 之類),**不在本片**。
+      voidedAt: row.voided_at,
+      voidReason: row.void_reason,
     };
   });
   return {

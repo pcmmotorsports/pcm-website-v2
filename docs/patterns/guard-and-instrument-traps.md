@@ -19,9 +19,35 @@
 - `apps/admin/src/lib/payment/refund-repository.ts:233` 註解逐字記著:我一度加了一道 `if (!(key in row)) throw`,**實測紅不起來**(缺欄 = `undefined`,下面的型別檢查本來就會拋)⇒ 判定 no-op、**已刪**。
 - `docs/specs/2026-08-13-445-overrefund-guard-plan.md:879`:驗收格 11 被判恆綠 —— `guard IS NULL` 在 RPC 路徑上不可達,而 plan 原本稱它是「本輪最重的負測」。**R3 的頭號 finding 配了一格無法擊發的負測。**
 
-**常見形狀**:被更嚴格的守門**嚴格蘊含** / 斷言的是 fixture 自己設的值 / 條件不可達 / 措辭 oracle 是**檔案粒度**白名單而不是字串粒度。
+**常見形狀**:被更嚴格的守門**嚴格蘊含** / 斷言的是 fixture 自己設的值 / 條件不可達 / 措辭 oracle 是**檔案粒度**白名單而不是字串粒度 / **`toEqual` 的期望與 fixture 同時缺同一個鍵**(見 ①-a)。
 
 **開工前那一條動作**:寫完守門,**當場把它弄壞一次**,看該紅的格有沒有紅。沒紅就別說「已驗證」。
+🔴 **補一句(2026-08-14 V 窗實錘)**:「弄壞一次」只證明**被你弄壞的那一點**。
+弄壞的位置若全落在**自己剛改過的行**,證到的覆蓋面等於零 —— 要挑**自己沒碰過**的同族位置也弄壞一次。
+
+### ①-a `toEqual` + fixture 缺鍵 = 對那個鍵恆綠(2026-08-14 V 窗 `#476` 片1)
+
+**本 repo 實測(不是引述 Vitest 文件)**:`toEqual` 比對時,「值為 `undefined` 的鍵」與「鍵不存在」**在本次量到的這一格上行為相同**。
+數法(可重跑,`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts` 的 `DETAIL_ROW` × `findAdminOrderDetail` 那格):
+```
+# 把 DETAIL_ROW 裡的 voided_at 那一行刪掉,然後
+npx vitest run packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts
+```
+**補期望鍵之前 = 綠(87 passed);補之後 = `1 failed | 86 passed`。同一發突變、兩種結果。**
+⚠️ **未確認**:這是對 Vitest 全版本/全比對器成立,還是只對本格這種形狀成立 —— **我只量了這一格**。
+⇒ 端對端測試的 **wire fixture 少一個欄** ⇒ mapper 吐 `undefined` ⇒ **期望物件不寫那個鍵也照過**。
+那格的檔內自陳可能還逐字寫著「精確比對…若被接回投影,本條會立刻紅」——**它對別的鍵是真的,對這個鍵是假的**。
+
+- 實例:`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts` 的 `DETAIL_ROW` × `findAdminOrderDetail` 那格。
+  作者為 `#476` 片1 加 `voided_at` / `void_reason` 時補了**三支** admin fixture 與 mapper fixture,
+  **唯獨漏了 adapter 端的 wire fixture** ⇒ 該格對這兩欄恆綠。作者自跑的三發突變**全綠通過**
+  (因為只突變了自己改過的地方),是 fresh-context reviewer 找出來的。
+- 🔴 **與 `feedback_claimed-sync-but-only-patched-touched-lines` 同病**:「補了我摸到的那幾支」。
+  差別在**這裡不會有任何一格轉紅來提醒你**。
+
+**動作(兩條,都機械)**
+1. 加欄之後 `grep -rn "<新欄名>" --include='*.test.*'`,**數出來的支數要等於**「構造該型別的 fixture」清單長度。
+2. 對每一支 fixture **拿掉新欄各跑一次**;沒紅的那支就是恆綠格。`toEqual` 那格要**單獨**試,別與別的突變合併跑。
 
 ---
 

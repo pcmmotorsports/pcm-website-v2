@@ -25,6 +25,9 @@ function proc(
     first_ordered_at: null,
     status_changed_at: null,
     created_at: '2026-08-03T10:00:00+00:00',
+    // #476 片1:預設 = **生效中**(兩欄由 DB `void_pair` 強制同進同出 ⇒ fixture 也成對給)
+    voided_at: null,
+    void_reason: null,
     suppliers: { label: 'RPM Carbon', is_active: true },
     ...over,
   };
@@ -208,7 +211,30 @@ describe('mapSupabaseProcurementRowsToProjection — 欄位對映(A5a 全量 pay
       firstOrderedAt: '2026-08-01T02:00:00+00:00',
       statusChangedAt: '2026-08-02T02:00:00+00:00',
       createdAt: '2026-08-01T02:00:00+00:00',
+      // #476 片1:本列 fixture 是生效中 ⇒ 兩欄皆 null。`toEqual` 是**全等比對**,
+      // 少寫這兩把這條轉紅 —— 那正是它作為「hydrate 面完整」守門的判別力來源。
+      voidedAt: null,
+      voidReason: null,
     });
+  });
+
+  // 🔴 #476 片1:作廢兩欄**帶得出來**。這條與上面那條是一對(生效 / 已作廢),
+  //    分開寫的理由 = 上面那條的語意是「hydrate 面完整」,而**作廢的列本來就不該被 hydrate**
+  //    ⇒ 把非 null 的作廢值塞進那條會讓它的標題與內容互相矛盾。
+  //    ⚠️ 本條只證「值搬得過來」,**不證任何分流行為** —— 誰該濾掉作廢列是片2/3/4 的事,
+  //      本片刻意不改任何行為(mapper 不濾、不排除)。
+  it('#476 片1:已作廢的列 voided_at / void_reason 原樣帶出(mapper 不濾掉它)', () => {
+    const res = mapSupabaseProcurementRowsToProjection([
+      proc({
+        id: 'p-void',
+        voided_at: '2026-08-14T03:00:00+00:00',
+        void_reason: '供應商回報缺料、改下另一家',
+      }),
+    ]);
+    // 仍然在清單裡(不是被濾掉)—— 樣板 `order-shipments.ts:11`「否則畫面上會變成貨憑空消失」
+    expect(res.procurements).toHaveLength(1);
+    expect(res.procurements[0]?.voidedAt).toBe('2026-08-14T03:00:00+00:00');
+    expect(res.procurements[0]?.voidReason).toBe('供應商回報缺料、改下另一家');
   });
 
   it('五種 reply_status 都原樣帶出(建表檔 :86-87 allowlist)', () => {
