@@ -4,6 +4,19 @@
 > **本檔零 code。四片全部 ≥3 檔 ⇒ 全部命中鐵則 8,一片都不准先動。**
 > 條目引用複驗:`customer-detail.tsx:161-166` ✅ 逐字符合;`customer-detail-sections.tsx:94-138` ✅ 但**那是地址**,愛車在 `:140-185`(條目行號少寫一段,本檔更正)。
 
+## 0. Sean 已拍板(2026-08-14)
+
+- **Q-C-1 = A**:Email 欄**維持唯讀**,欄位旁加一行說明「**Email 是登入帳號,要另開片**」。⇒ C2 不排進本批。
+- **Q-C-2 = A**:員工編輯存量沒有 Email 的舊地址時,**逼他當場補**,沿用同一支 `AddressInput`、**不為後台開特例**。
+
+> 🔴 **Q-C-1 拍板當下的成本估計偏高,而那個估計是我給的。**
+> 我在 Q 信裡把 C2 描述成「要新開 migration + **接** Supabase Auth Admin API + 處理半套失敗」,語氣像是連管道都要從零建。
+> 事後實查:同一支 Admin API **已經在用**(`apps/storefront/src/lib/auth/line-admin.ts:38` `generateLink` / `:65` `createUser`),
+> client 來自 `createSupabaseServiceClient()`(`:21`)= **admin 端 `customer-repository.ts:24` 用的同一支 factory** ⇒ **管道現成,缺的只是沒人呼叫 `updateUserById`**。
+> **真正的擋點只剩兩條**(仍然成立、仍然要 migration + Sean 批):①DB 欄級 GRANT 不含 email(`20260717010000:174-175`,`:193-198` 斷言釘死)②`customers.email` 與 `auth.users.email` 無 UPDATE 方向同步 trigger。
+> ⇒ **Q-C-1 = A 依然是一個合理的選擇**(兩條擋點沒消失),但**它是在一個被誇大的成本前提下拍的**。
+> **依據寫在這裡供 Sean 隨時重估;我不替他改答案,本 plan 一律照 A 執行。**
+
 ## 1. 逐欄盤點(每格都開過檔)
 
 | 欄 | 存哪 | 可不可寫 | 現成的路 |
@@ -26,8 +39,8 @@
 3. **Auth 端沒有這支方法,但管道是通的(2026-08-14 夜自我更正)**:`SupabaseAuthAdapter.ts` 只有 signUp(:41)/signIn(:63)/`sendPasswordResetEmail`(:88-90)/`updateUser({password})`(:99)。改**別人**的 email 要走 Admin API `auth.admin.updateUserById` —— 該字面在 1083 個 `.ts`/`.tsx` 檔中零命中(數法 `grep -rn "updateUserById" --include='*.ts' --include='*.tsx' apps packages scripts`,分母 `grep -rl "" --include='*.ts' --include='*.tsx' apps packages scripts | wc -l` = 1083)。
    ⚠️ **但「零命中」不等於「做不到」**:同一個 Admin API 在 `apps/storefront/src/lib/auth/line-admin.ts:38`(`generateLink`)與 `:65`(`createUser`)**已經在用**,client 由 `createSupabaseServiceClient()` 建(`:21`)—— 那正是 admin 端 `customer-repository.ts:24` 用的同一支 factory。⇒ **管道現成,缺的只是沒人呼叫 `updateUserById`**,C2 的成本比本檔第一版寫的低。真正的擋點是上面第 1、2 條(DB 欄級 GRANT + 無同步 trigger),不是第 3 條。
 
-⇒ 要做就得同時開:新 migration(欄級 GRANT 或 SECURITY DEFINER RPC)+ 接 Auth Admin API + 處理「auth 改了 / customers 沒改」的半套失敗(客人用新信箱登入但後台顯示舊的,或客人直接登不進去)。
-**建議:本批不做,`customers.email` 該欄維持唯讀並加一行說明「Email = 登入帳號,要另開片」。**
+⇒ 要做就得同時開:新 migration(欄級 GRANT 或 SECURITY DEFINER RPC)+ **呼叫**既有的 Auth Admin API(管道已在、見上)+ 處理「auth 改了 / customers 沒改」的半套失敗(客人用新信箱登入但後台顯示舊的,或客人直接登不進去)。
+**✅ Sean 2026-08-14 拍板 Q-C-1 = A:本批不做,`customers.email` 維持唯讀並加一行說明「Email 是登入帳號,要另開片」。**(拍板前提的更正見 §0,不影響本片執行。)
 
 ## 3. 地址 / 愛車 一對多的三種操作形狀
 
@@ -62,5 +75,5 @@
 **誠實缺口(我沒驗的)**
 - ❌ **沒對正式庫跑過任何查詢** —— §1/§2 的 GRANT 結論全部來自 migration 檔字面。migration 有 fail-closed 斷言(`20260717010000:193-198`)所以可信度高,但**「repo 裡的註解不是正式庫事實」這條教訓照樣適用**;C2 開工前要對正式庫實查 `has_column_privilege`。
 - ❌ 沒量過改完之後的視覺(表單塞進兩張卡會不會擠爆);C1 交件時要附真瀏覽器截圖。
-- ⚠️ `AddressInput.email` 現在是**必填**(`index.ts:125`,TapPay ≤40 字限制)⇒ 員工去編輯一筆**存量沒有 Email 的舊地址**時會被逼著填一個。這是既有規則的連帶效果、不是本片引入的,但員工會撞到 ⇒ 已寫成 Q-C-2 問 Sean。
+- ⚠️ `AddressInput.email` 是**必填**(`index.ts:125`,TapPay ≤40 字限制)⇒ 員工編輯一筆**存量沒有 Email 的舊地址**時會被逼著填。**✅ Sean 2026-08-14 拍板 Q-C-2 = A:就是要逼他補,沿用同一支 schema、不為後台開特例。** ⇒ C3 的 UI 要把這件事講清楚(欄位標必填 + 一行說明「沒有 Email 的地址結帳會被擋」),不能讓員工以為是系統壞了。
 - ⚠️ 未擴張:`#28` 會員密碼重設(機制在 `SupabaseAuthAdapter.ts:87-90`、admin 端零觸發入口)與 `#26` 員工帳號,**兩項都不在本 plan 內**。
