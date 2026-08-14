@@ -78,6 +78,60 @@ E0 搜尋 / E1 客戶累計消費 / E2 內容發布合約 / E3 圖片上傳 / E4
 
 ---
 
+## 1-A. 🔴 2026-08-14 重盤(**這一節是現行事實;下方 §1 原表為 2026-08-06 快照,已過期、保留供對照**)
+
+> **重盤起因**:Sean 2026-08-14 夜拍 `Q1`=A。原表最後更新 **2026-08-06**(`d5901858`),
+> 其間 `#19 取消訂單`、`#15 匯款確認收款`、`#17 退款操作` 皆已可用而表內仍標 ❌
+> ⇒ **拿舊尺量新東西,回答不了「今天前進幾項」**。
+> **方法**:三組唯讀 subagent 分頭實查(1-11 / 12-22 / 23-33),每項必附 `檔案:行號`,
+> 判「做不到」須至少試兩種命名變體並附 pattern 與範圍。主視窗對其中兩條結論開檔複驗(見末段)。
+
+**盤點結果:✅ 10 / 🟡 5 / ❌ 18(共 33 項)**(對照 §1 原表自陳的 ✅2 / ⚠️5 / ❌20)
+
+### ✅ 現在做得到(10)
+| # | 事 | 證據 |
+|---|---|---|
+| 2 | 看訂單明細 | `apps/admin/src/components/orders/order-detail.tsx:1-40` |
+| 3 | 訂單寫備註 | `apps/admin/src/lib/orders/note-actions.ts:95` 三型別 |
+| 5 | 標「已向供應商下單」**逐品項** | `item-procurement-form.tsx:69-88`(upsert 鍵 = order_item_id + supplier_id) |
+| 6 | 記供應商單號 / 預計到貨 | `item-procurement-form.tsx:296-304`、`:317-326` |
+| 7 | 缺貨要等 | `procurement-form.ts:41-47` 含 `out_of_stock` |
+| 8 | 輸入快遞單號 | `shipment-dialog.tsx:87,366` |
+| 14 | 刷卡收款 | TapPay 3DS 生產路徑 |
+| 15 | 匯款確認收款 | `payment-record-form.tsx:44-60`(bank_transfer 軌 + 入帳日 + 單號) |
+| 17 | 退款操作 | `refund-section.tsx:56-60` 全額/部分 |
+| 19 | 取消訂單 | `cancel-actions.ts:127` + `order-cancel-block.tsx:80-88` |
+
+### 🟡 部分做得到(5)
+| # | 事 | 缺的那半 | 證據 |
+|---|---|---|---|
+| 1 | 看今天要處理什麼 | 只有寫死兩顆 chip,**無可存的自訂檢視** | `order-filter-chips.tsx:52-55`;`order-list-view.ts` 全檔無 saved-view |
+| 9 | 單號追蹤 | **只顯示文字,無法查貨態** | `shipment-section.tsx:91` |
+| 22 | 改價格 / 上下架 | 🔴 **引擎已寫好、零呼叫端**(adapter 自己的 JSDoc 承認「今天沒有正式呼叫點…是死路」) | `IProductRepository.ts:154` + `SupabaseProductAdapter.ts:431-466`、自陳在 `:454-456` |
+| 25 | 改客人資料 | **只能改等級 + 儲值金**;姓名/電話/Email/生日/地址/愛車**全部唯讀** | `customer-detail.tsx:161-166`;`customer-detail-sections.tsx:94-138` 純 `<ul>` |
+| 26 | 員工帳號與權限 | 名單與 `is_manager` 分級有 CRUD,**但「操作者是誰」仍是自選** | `session/actor.ts:6-7` 自陳非授權邊界;`staff` 表無密碼欄 |
+
+### ❌ 做不到(18)
+`4` 批次標商品進度(plan 卡關卡1、零行 code)/ `10` 列印出貨單揀貨單(整個能力不存在)/
+`11` 出貨 Email 通知(outbox 在 storefront cron,**出貨時零 writer**)/ `12` 手動建單 /
+`13` 改訂單內容 / `16` 今日對帳(首頁仍是骨架 `app/page.tsx:5-21`)/ `18` 退貨收回 /
+`20` 新增編輯商品(**`apps/admin` 底下 products route 零命中**)/ `21` 上傳商品圖片(**`supabase.storage` 全 repo 零命中 = 連底層都沒接**)/
+`23` 匯入供應商 Excel(**見下方 🔴**)/ `24` 匯出訂單商品 / `27` 稽核 UI(有寫入介面、**連讀取 API 都沒有**)/
+`28` 會員密碼重設(機制在 `SupabaseAuthAdapter.ts:87-90`,**admin 端零觸發入口**)/ `29` 後台對客發信 /
+`30` 月報表 / `31` 成本(🔴 DB 層主動擋:`20260602135934:90,93` CHECK 硬擋 cost 寫 metadata)/
+`32` 會計收支帳 / `33` 成本精算報表
+
+### 🔴 主視窗複驗並更正 subagent 兩處結論
+1. **`#26` 判「不跨 repo」不成立。** subagent 量的是「今天的 actor picker 程式住在哪」,
+   而問題是「**要讓每個員工有自己的帳號,得改哪裡**」。
+   `apps/admin/src/lib/session/session.ts:12` 逐字:「**報價單=共用密碼登入,SSO 只帶認證(amr/auth_time)、無 per-user 身分**」
+   ⇒ 真正的登入在**報價單專案**(且該專案正本在 mac mini)⇒ **確為跨 repo + 跨機器**。
+   ⚠️ 同族於「量錯東西」:**量了程式住哪,沒量修法住哪。**
+2. **`#23` 比表面更糟,而且它不是「純本 repo」的線。** 全 repo 對 `xlsx`/`.xls` **零命中**
+   ⇒ **沒有任何程式碼解析 Excel**;而 `scripts/rpm-*.ts` 那條 CLI 做的是
+   **跨專案 DB→DB 同步**(來源 = 報價單專案的唯讀 view `storefront_catalog_v`,見 `rpm-import.ts:1-14`),
+   **不是解析 Excel 檔**。⇒ 若 Sean 要的是「上傳 Excel」,現況是 0 且**不能靠把既有 CLI 包一層 UI 解決**。
+
 ## 1. 驗收標準:員工的一天
 
 每一片實作都要能回答「這片讓員工多做完哪一件事」。答不出來 → 延後。
