@@ -291,6 +291,33 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     expect(hasRefundEntry(container)).toBe(false);
   });
 
+  // 🔴 #445a-3 的**核心行為改動就是這一格**(關卡2 codex MF3 抓到我沒有 oracle):
+  //    445a-3 之前 `order-detail-route.tsx` 只在 `refunds.length > 0` 才呼叫
+  //    `getLedgerUnregisteredAmount` ⇒ **每一張訂單的第一筆退款拿不到任何金額參考**。
+  //    ⚠️ 我原本只寫了純 helper 的條件級測試(`refund-entry-gate` 那支)——
+  //    **那些格在短路復活時一格都不會紅**,因為它們根本不執行 route。
+  //    ⇒ 這格紅的時候是誰讓它紅的:把 `if (refunds.length > 0)` 那道短路加回去。
+  it('🔴 RW3 #445a-3:**零帳本列也要查未登記額**(短路復活時本格必紅)', async () => {
+    delete process.env.REFUND_UI_ENABLED;
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(1000);
+    await renderPage();
+    expect(mocks.getLedgerUnregisteredAmount).toHaveBeenCalledTimes(1);
+    expect(mocks.getLedgerUnregisteredAmount.mock.calls[0]).toEqual([ORDER]);
+  });
+
+  // §6-33:零列 + 查成功 ⇒ 帳本區塊行為與現況一致(不因刪短路多冒一個空區塊出來)。
+  // ⚠️ 與上一格**刻意分開**:上一格證「有呼叫」,本格證「有呼叫但畫面不變」。
+  //    併成一格的話,把區塊改成零列也渲染時上一格照樣綠。
+  it('🔴 RW3 #445a-3:零帳本列 + 查成功 ⇒ 帳本區塊仍不渲染(不多冒空區塊)', async () => {
+    delete process.env.REFUND_UI_ENABLED;
+    mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(1000);
+    const { container } = await renderPage();
+    expect(container.textContent).not.toContain('退款紀錄');
+    expect(container.textContent).not.toContain('帳本未登記額');
+  });
+
   it('🔴 RW3 未登記額讀取失敗 → 錯誤態(非查無)+ 發起入口 fail-closed(codex MF2)', async () => {
     process.env.REFUND_UI_ENABLED = '1';
     mocks.listOrderRefunds.mockResolvedValue({

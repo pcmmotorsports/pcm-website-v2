@@ -127,13 +127,19 @@ export async function OrderDetailRoute({
   //    ⚠️ **不是授權邊界**(`session/actor.ts:6-7` 自陳:cookie 承載、使用者自選、未驗證)——
   //    只做顯示層比對;`null`(尚未選人)時 D3 會 fail-closed 走 `match_other_actor`。
   const actor = await getSessionActor();
-  const [detailSettled, suppliersSettled, refundsSettled, paymentsSettled] =
+  const [detailSettled, suppliersSettled, refundsSettled, paymentsSettled, unregisteredSettled] =
     await Promise.allSettled([
       (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
       (async () => listSuppliers())(),
       (async () => listOrderRefunds(id))(),
       // #15-B2-c 片1a:收款明細(獨立容錯 —— 讀不到**不是**「沒收過款」,見下方折三態)。
       (async () => listOrderPayments(id))(),
+      // 🔴 #445a-3:帳本未登記額**併進這一批平行查**,不放在下面串著等。
+      //    它不依賴 `refunds`(445a-3 之後是無條件查)⇒ 沒有理由多一趟往返。
+      //    ⚠️ 第一版我寫在 `refundsSettled` 的 fulfilled 區塊裡 `await` ——
+      //    那是**串行**的第二趟,而且位置在 `detail === null → notFound()` 之前
+      //    ⇒ **連「找不到訂單」的 404 頁都要先等這支 RPC**。關卡2 codex 抓到。
+      (async () => getLedgerUnregisteredAmount(id))(),
     ]);
   if (detailSettled.status === 'fulfilled') {
     detail = detailSettled.value;
@@ -150,19 +156,34 @@ export async function OrderDetailRoute({
   if (refundsSettled.status === 'fulfilled') {
     refunds = refundsSettled.value.rows;
     refundsTruncated = refundsSettled.value.truncated;
-    // 有帳本列才查未登記額(零列時該數=訂單總額,無資訊、省一趟)。
-    if (refunds.length > 0) {
-      try {
-        refundUnregisteredAmount = await getLedgerUnregisteredAmount(id);
-      } catch (error) {
-        // 🔴 失敗≠查無(codex MF2):壓成 null 會顯示成普通「查無」被照著操作。
-        console.error('[admin/order-detail] 帳本未登記額查詢失敗(顯錯誤態+入口 fail-closed)', error);
-        refundUnregisteredFailed = true;
-      }
-    }
   } else {
     console.error('[admin/order-detail] 退款帳本載入失敗(區塊顯示警告、入口 fail-closed)', refundsSettled.reason);
     refundsFailed = true;
+  }
+  // 🔴 #445a-3:帳本未登記額改成**無條件查**(原本只在 `refunds.length > 0` 才查)。
+  // ⚠️ **本片只鋪管線,不負責把那個數字顯示出來** —— 零帳本列時
+  //    `RefundLedgerSection` 仍然整區不渲染(plan §6-33 明文要求「不因刪短路多冒空區塊」),
+  //    **顯示是 445c 的工作**(開退款面板時顯示可受理上限)。
+  //    🔴 我第一版註解寫成「省掉的那趟正是員工最需要金額參考的時候」——
+  //    那句把**本片的收益**講成已經兌現,實際上零列訂單今天看到的仍是空的。
+  //    code-reviewer 與 codex 各自獨立抓到同一句。**照 plan 排序上,但字面不准灌水。**
+  //    ⇒ 本片此刻的淨效果 = 零列訂單多一趟(已併平行、零額外往返)+ 一條新的
+  //    fail-closed 失敗路徑;收益要等 445c。主視窗 2026-08-14 裁「照 plan 排序、不綁 445c」,
+  //    理由 = 後台尚未啟用、只有 Sean 在測(memory `project_admin-preprod-planning-posture`)
+  //    ⇒ 那條失敗路徑的代價落在他自己身上,而綁著等會讓 diff 長大、關卡 2 難審。
+  // ⚠️ **這不是零行為變化**:每一張訂單的退款入口自此新增一條對
+  //    `pcm_order_refundable_remaining` 可用性的 **fail-closed 依賴**
+  //    (`refund-entry-gate.ts` 的 `!refundUnregisteredFailed`)——
+  //    以前零列時根本不呼叫、不可能失敗;現在會。**不得宣稱「零變化」。**
+  if (unregisteredSettled.status === 'fulfilled') {
+    refundUnregisteredAmount = unregisteredSettled.value;
+  } else {
+    // 🔴 失敗≠查無(codex MF2):壓成 null 會顯示成普通「查無」被照著操作。
+    console.error(
+      '[admin/order-detail] 帳本未登記額查詢失敗(顯錯誤態+入口 fail-closed)',
+      unregisteredSettled.reason,
+    );
+    refundUnregisteredFailed = true;
   }
 
   // 🔴🔴 #15-B2-c 片1a:**三態不可收斂成兩態**(`payment-repository.ts:93-96` 逐字)——

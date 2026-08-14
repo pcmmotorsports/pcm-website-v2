@@ -31,7 +31,11 @@ const mocks = vi.hoisted(() => ({
   listOrderSummariesForAdmin: vi.fn(),
   listSuppliers: vi.fn(),
   listOrderRefunds: vi.fn(),
-  getLedgerUnregisteredAmount: vi.fn(),
+  // 🔴 #445a-3:刪短路之後**每次 render 都會呼叫它**(以前零帳本列時不呼叫)。
+  //    裸 `vi.fn()` 回 `undefined`,而契約型別是 `number | null` ⇒ 今天本檔 rows 皆 `[]` 所以無害,
+  //    但下一個人加一列 fixture 就會撞 `formatOrderAmount(undefined)`。
+  //    ⇒ 給一個型別內的預設值,不留這顆地雷。(code-reviewer nit)
+  getLedgerUnregisteredAmount: vi.fn(async () => null),
   // #15-B2-c 片1a:收款明細 —— 兩個消費者都要拿得到(守門在檔尾)。
   // 🔴 **預設值寫在 hoisted 這裡、不寫在某個 describe 的 `beforeEach`**:本檔有多個 describe
   //    各自帶 `beforeEach`,寫進其中一個的話,其他 describe 的替身會回 `undefined`

@@ -52,10 +52,34 @@ export function RefundLedgerSection({
       </section>
     );
   }
-  // ⚠️ 不變式(opus R2b):零列時本區回 null ⇒ 「零列 && unregisteredFailed」若可達,
-  //    值班會看到「按鈕不見了、又沒有任何說明」。目前不可達的保證住在呼叫端
-  //    ([id]/page.tsx:僅 rows.length>0 才打 RPC、才可能設 unregisteredFailed)——
-  //    若日後改成無條件打 RPC,這裡要先於零列早退補一個失敗顯示分支。
+  // 🏁 #445a-3 兌現了這個檔自己寫的交辦。原文(保留備查):
+  //    「零列時本區回 null ⇒『零列 && unregisteredFailed』若可達,值班會看到
+  //     『按鈕不見了、又沒有任何說明』。目前不可達的保證住在呼叫端(僅 rows.length>0
+  //     才打 RPC)—— 若日後改成無條件打 RPC,這裡要先於零列早退補一個失敗顯示分支。」
+  // ⚠️ 原註解把呼叫端寫成 `[id]/page.tsx`,**那是過期字面** —— 實際在
+  //    `order-detail-route.tsx`(該檔自己就是被改的那一支)。引用前一律用字面 anchor。
+  // 🔴 445a-3 做的正是它說的「改成無條件打 RPC」⇒ 「零列 && 讀取失敗」**現在可達了**,
+  //    所以這個分支必須**排在零列早退之前**。順序反了 = 症狀原樣復活,而且測試若只造
+  //    「有列 + 失敗」是驗不到的(那條路徑本來就會渲染)。
+  if (unregisteredFailed && rows.length === 0) {
+    return (
+      <section className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
+        <h2 className='text-destructive mb-1 text-sm font-semibold'>退款紀錄</h2>
+        {/* 🔴 Sean 08-13 定調「使用上直覺、好用即可」⇒ 要回答:發生什麼 / 錢有沒有動 / 他該做什麼。
+            ⚠️ **不得宣稱「退款按鈕被關掉了」** —— 本區塊刻意不吃退款入口旗標(見檔頭 :17-19),
+            也看不到 channel 與 payment status ⇒ 轉帳/現金單、未付款單、或旗標關著時,
+            入口**本來就不存在**,不是被這個錯誤關掉的。講了就是對值班說一句假話。
+            (code-reviewer 抓到;我第一版真的寫了「退款按鈕暫時收起來了」。)
+            ⚠️ **不得混 Markdown 星號** —— 這是 `<p>` 純文字輸出,`**` 會原樣顯示。
+            我在同一天的 `refund-action-state.ts` 才被 codex 抓過一次,一小時後又犯。 */}
+        <p className='text-destructive'>
+          查不到這張單的退款金額參考(系統讀取失敗,不是這張單不能退)。
+          這張單目前沒有任何退款紀錄,也沒有任何退款被發起、錢沒有動。
+          請先重新整理頁面;如果重新整理幾次都一樣,請通知系統維護。
+        </p>
+      </section>
+    );
+  }
   if (rows.length === 0) return null;
 
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
