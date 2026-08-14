@@ -200,7 +200,13 @@ describe('judgeRefundExceptionAction — 閘序與失敗碼', () => {
     //    ⚠️ **它的射程就到這裡** —— 擋不到中文的內部語彙(例:「狀態機終態」「CAS 已鎖」),
     //    那類要靠人看(關卡2 code-reviewer 實測指出:註解若寫「不寫內部語彙」就是宣稱大於事實)。
     //    ⚠️ 字集第一版只列 4 個 token,`confirmed`/`deferred`/RPC 名全漏(關卡2 codex)⇒ 已擴。
-    // ⑦ 要指出**真正看得到結果的地方**;結案後這一列會從異常清單消失,叫他看清單是白做工。
+    // ⑦ 要指出**真正看得到結果的地方** = 訂單頁的退款紀錄。
+    //    ⚠️ 原註解寫「結案後這一列會從異常清單消失,叫他看清單是白做工」——
+    //       `#473b-2` 之後那句**只對 confirmed/deferred 成立**,`manual_failed` 的列**留在清單上**。
+    //       文案本身已刪掉那個宣稱(`refund-recovery-state.ts` v4);理由一併更正為:
+    //       指向訂單頁不是因為「清單那筆會消失」,而是**訂單頁看得到結果、清單不一定**。
+    //       ⚠️ 不寫「一定」(關卡2 codex nit):訂單頁的帳本區塊也有上限
+    //          (`ORDER_REFUNDS_LIMIT`),同一張訂單退款筆數爆量時較舊的列一樣會被截掉。
     expect(state.message).toContain('訂單頁');
     expect(state.message).not.toMatch(
       /order_refunds|payment_refunds|manual_failed|not_sent|rejected_out_of_range|processing|confirmed|deferred|admin_[a-z_]+|SQL|status/i,

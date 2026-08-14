@@ -4,6 +4,7 @@ import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
 import {
   isRefundException,
+  isStuckManualVerdict,
   refundFailedReasonLabel,
   refundStatusLabel,
 } from '../../lib/payment/refund-ledger-view';
@@ -145,6 +146,15 @@ export function RefundLedgerSection({
                 },
                 nowMs,
               );
+              // 🔴 `#483`(`#473b-2` 沒收完的尾):清單那邊已經看得見卡住的列了,
+              //    訂單頁卻還是不說 —— 而**訂單頁才是員工每天在看的那頁**,
+              //    異常清單是值班才開的 ⇒ 兩邊說法不一致時他會相信訂單頁。
+              //    ⚠️ 與 `exception` **刻意分成兩個 boolean**:那個代表「這列可以按對帳判定」,
+              //       這個代表「這列**沒有動作可按**」—— 併成一個徽章會讓兩種列長得一樣。
+              const stuck = isStuckManualVerdict({
+                status: row.status,
+                failedReason: row.failedReason,
+              });
               const failedLabel = refundFailedReasonLabel(row.failedReason);
               return (
                 <tr key={row.id} className='border-t'>
@@ -164,7 +174,31 @@ export function RefundLedgerSection({
                           href='/orders/refund-exceptions'
                           className='text-destructive text-xs font-medium underline'
                         >
-                          ⚠ 已進退款異常清單(勿重複發起,待對帳處理)
+                          ⚠ 已列入退款異常清單(勿重複發起,待對帳處理)
+                        </Link>
+                      </div>
+                    )}
+                    {stuck && (
+                      <div className='mt-1'>
+                        {/* 🔴 措辭與上面那顆**刻意不同**:那顆說「待對帳處理」(有事可做),
+                            這顆的重點是「**這裡沒有可以按的動作**」+ 下一步找誰。
+                            ⚠️ 不得在這裡寫「錢沒有動」—— 那正是可能判錯、需要更正的東西
+                            (`#473b-2` 兩關同抓)。狀態欄顯示的是判定內容,這裡不再複述。
+                            ponytail: 天花板 —— 異常清單那半有 `REFUND_STUCK_LIMIT` 上限且**舊的排前**,
+                            全站卡住列超過上限時,較新的那些點進去會找不到自己。今天可接受
+                            (卡住列要人判錯才會產生、後台未啟用),而且本文案的**下一步本來就是
+                            「聯絡工程師」不是「去清單處理」** ⇒ 連結是便利、不是指示。
+                            要處理就是給清單加分頁,不是把徽章拿掉。 */}
+                        <Link
+                          href='/orders/refund-exceptions'
+                          // 🔴 不用 text-muted-foreground(關卡1 nit):那是同列 failedLabel /
+                          //    failedDetail 的最低對比 token —— 本片的存在理由就是「訂單頁要說話」,
+                          //    用畫面上最不會被看到的顏色講等於沒說。也不用 text-destructive:
+                          //    那顆是「有事快做」,這顆是「沒事可做」,兩種列不該搶同一種急迫感。
+                          //    ⚠️ 顏色最終由 Sean 肉眼定稿(結構鎖、字與色不鎖)。
+                          className='text-foreground text-xs font-medium underline'
+                        >
+                          ⚠ 已列入退款異常清單(這裡沒有可以改的動作,需要更正請聯絡工程師)
                         </Link>
                       </div>
                     )}

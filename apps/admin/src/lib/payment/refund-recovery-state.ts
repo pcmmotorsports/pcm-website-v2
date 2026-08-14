@@ -86,8 +86,8 @@ const FAILURE_MESSAGES: Record<RecoveryFailureCode, string> = {
   //       v3 = 講**真正看得到結果的地方**:該筆訂單頁的退款紀錄。
   //       v4(現行)= **刪掉「這一列會從異常清單消失」那句** ——
   //          🔴 `#473b-2` 之後那句**不再恆真**:`manual_failed` 結案的列**留在清單上**
-  //          (清單述詞見 `refund-read.ts` 的 `listRefundExceptions`,已從 `.eq()` 改成兩支
-  //          `and(...)`),而 `confirmed` / `deferred` 結案的列會消失。
+  //          (清單述詞見 `refund-read.ts` 的 `listRefundExceptions`,已改成**兩支獨立查詢**),
+  //          而 `confirmed` / `deferred` 結案的列會消失。
   //          ⇒ 同一句文案對不同結案結果**一句真一句假** ⇒ 兩邊都不宣稱,只講看得到結果的地方。
   //          (這條是 `#473b-2` 的 code-reviewer MF1:**改 A 讓 B 的文案變成謊話**。)
   already_finalized:

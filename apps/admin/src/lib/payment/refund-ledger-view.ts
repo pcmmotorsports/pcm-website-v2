@@ -52,7 +52,8 @@ export function refundFailedReasonLabel(reason: string | null): string | null {
 
 /**
  * 異常滯留閾值(plan §4-1 逐字:30 分 = 保守異常閾;同步流程正常 = 秒級)。
- * 🔴 異常清單頁的 DB 查詢與訂單頁的列級警示都吃本常數 —— 兩處各寫一個 30 就會漂。
+ * 🔴 異常清單頁的 DB 查詢(**可處理那支**)與訂單頁的列級警示都吃本常數 —— 兩處各寫一個 30 就會漂。
+ * ⚠️ 「卡住」那半(`isStuckManualVerdict`)**不吃本常數**:它與滯留時間無關,改本值不影響它。
  */
 export const REFUND_EXCEPTION_STALL_MS = 30 * 60 * 1000;
 
@@ -78,7 +79,10 @@ export const STUCK_MANUAL_VERDICT_FAILED_REASON = 'manual_failed';
  *    它回 true 代表「這列可以按對帳判定」。
  *  - 本函式回 true 代表「這列**沒有任何動作可按**,但員工仍必須看得見它」。
  *  把兩者併成一個 boolean 會讓畫面對這兩種列長得一樣 —— 而它們該做的事完全相反。
- * ⚠️ 本函式**不代表出口存在**;出口是 `#473(b)`,尚未實作。
+ * ⚠️ 本函式**不代表出口存在** —— **更正入口到今天仍然不存在**。
+ *    已做的只有「看得見」兩片(`#473b-2` 清單 + `#483` 訂單頁徽章);
+ *    真正的出口是 `473b-1`(新 RPC),**尚未實作、plan 等 Sean 批**。
+ *    (命名易混:`#473b-2` 已 commit ≠ 出口做好了。)
  */
 export function isStuckManualVerdict(row: {
   status: string;
