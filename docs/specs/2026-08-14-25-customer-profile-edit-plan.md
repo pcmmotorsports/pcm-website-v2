@@ -23,7 +23,8 @@
 實查三件事,三件都擋:
 1. **DB 端根本沒開**:`20260717010000:174-175` 把 service_role 的表級 UPDATE 撤掉、只回 `(name, phone, birthday, updated_at)`;`:193-198` 還有 fail-closed 斷言釘死。`authenticated` 同樣不含 email(`20260523034911:227,231`)。⇒ **service key 直接 update email 會被 DB 擋**,不是「沒人寫」而是「寫了會炸」。
 2. **登入帳號在 Supabase Auth**:`customers.email` 只在 `handle_new_auth_user`(`20260523034911:281-284`)建列時抄一次,**全 repo 沒有 UPDATE 方向的同步 trigger**(grep `auth.users` 全 migrations 只命中 INSERT trigger)。
-3. **Auth 端也沒有方法**:`SupabaseAuthAdapter.ts` 只有 signUp(:41)/signIn(:63)/`sendPasswordResetEmail`(:88-90)/`updateUser({password})`(:99)。改**別人**的 email 要走 Admin API `auth.admin.updateUserById`,**全 repo 零命中**。
+3. **Auth 端沒有這支方法,但管道是通的(2026-08-14 夜自我更正)**:`SupabaseAuthAdapter.ts` 只有 signUp(:41)/signIn(:63)/`sendPasswordResetEmail`(:88-90)/`updateUser({password})`(:99)。改**別人**的 email 要走 Admin API `auth.admin.updateUserById` —— 該字面在 1083 個 `.ts`/`.tsx` 檔中零命中(數法 `grep -rn "updateUserById" --include='*.ts' --include='*.tsx' apps packages scripts`,分母 `grep -rl "" --include='*.ts' --include='*.tsx' apps packages scripts | wc -l` = 1083)。
+   ⚠️ **但「零命中」不等於「做不到」**:同一個 Admin API 在 `apps/storefront/src/lib/auth/line-admin.ts:38`(`generateLink`)與 `:65`(`createUser`)**已經在用**,client 由 `createSupabaseServiceClient()` 建(`:21`)—— 那正是 admin 端 `customer-repository.ts:24` 用的同一支 factory。⇒ **管道現成,缺的只是沒人呼叫 `updateUserById`**,C2 的成本比本檔第一版寫的低。真正的擋點是上面第 1、2 條(DB 欄級 GRANT + 無同步 trigger),不是第 3 條。
 
 ⇒ 要做就得同時開:新 migration(欄級 GRANT 或 SECURITY DEFINER RPC)+ 接 Auth Admin API + 處理「auth 改了 / customers 沒改」的半套失敗(客人用新信箱登入但後台顯示舊的,或客人直接登不進去)。
 **建議:本批不做,`customers.email` 該欄維持唯讀並加一行說明「Email = 登入帳號,要另開片」。**
