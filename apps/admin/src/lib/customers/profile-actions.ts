@@ -24,7 +24,9 @@ import { parseProfileEditForm } from './profile-form';
 // ⚠️ **已知缺口(不擴張,寫在這裡不是忘了)**:本片**不寫 `admin_audit_log`**。
 //   tier / 儲值金是 owner RPC 在同交易寫稽核,本片走 adapter ⇒ 沒有那條路;
 //   要補得走 app 層 `getAdminAuditLogRepository().record(...)`(先例 `staff-actions.ts:61`,非交易性)。
-//   plan 的 8 檔與驗收都沒有這一項 ⇒ **另立案**,不在本片自行擴張。
+//   plan 的 8 檔與驗收都沒有這一項 ⇒ 不在本片自行擴張,**已立案 `#501`**(主視窗 2026-08-15 發號,
+//   兩條掃描都跑過;`docs/phase-1-backlog.md` 有條目)。🔴 只寫「另立案」三個字會蒸發 —— 所以號寫在這裡。
+//   `#501` 同時掛著上面第 22 行那條殘餘風險(改到誰只靠 hidden 欄 + UUID 形狀驗、**零確認步驟**)。
 
 type ResultCode = 'saved' | 'not_found' | 'invalid' | 'denied' | 'error';
 
