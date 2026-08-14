@@ -1,6 +1,9 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
-import { REFUND_EXCEPTION_STALL_MS } from './refund-ledger-view';
+import {
+  REFUND_EXCEPTION_STALL_MS,
+  STUCK_MANUAL_VERDICT_FAILED_REASON,
+} from './refund-ledger-view';
 
 // refund-read.ts — M-3 A7c RW3:退款帳本唯讀查詢(訂單頁帳本區塊 + 異常清單頁)。
 //
@@ -67,6 +70,11 @@ function toRow(raw: RawRow): OrderRefundRow {
  */
 export const ORDER_REFUNDS_LIMIT = 100;
 export const REFUND_EXCEPTIONS_LIMIT = 200;
+/**
+ * 「卡住」那半的獨立上限(`#473b-2`)。刻意小於 ①類:它是**人判錯**才會產生的列,
+ * 正常量應該接近 0;真的堆到這個數,truncated 橫幅本身就是要人去看的訊號。
+ */
+export const REFUND_STUCK_LIMIT = 50;
 
 /** 某訂單的退款帳本列(新到舊;truncated=還有更舊的列沒顯示)。 */
 export async function listOrderRefunds(
@@ -105,38 +113,77 @@ export type RefundExceptionRow = OrderRefundRow & {
   orderDisplayId: string;
 };
 
+type RawException = RawRow & { order_id: string; orders: { display_id: string } | null };
+
+/** 共用投影:embed 無空格 = house 字面(SupabaseOrderAdapter 八處同款)。 */
+const EXCEPTION_SELECT = `${ROW_COLUMNS}, order_id, orders(display_id)`;
+
+function toExceptionRow(row: RawException): RefundExceptionRow {
+  return {
+    ...toRow(row),
+    orderId: row.order_id,
+    // FK 保證有母單;防禦性 fallback 只為了不讓顯示層炸(顯示 id 前 8 碼可辨認)。
+    orderDisplayId: row.orders?.display_id ?? row.order_id.slice(0, 8),
+  };
+}
+
 /**
- * 異常清單(plan §4-1 逐字):`status='processing' AND (created_at < now()-30min
- * OR provider_refund_id_evidence IS NOT NULL)`;舊的排前(滯留最久=最該先處理)。
- * 🔴 30 分閾與訂單頁列級警示共用 REFUND_EXCEPTION_STALL_MS —— 兩處各寫 30 就會漂。
+ * 異常清單。**兩類列,兩支獨立查詢**(`#473b-2` 起):
+ *  ① 可處理(plan §4-1 逐字):`processing AND (created_at < now()-30min OR 證據非空)`
+ *  ② 🆕 **卡住**(backlog `#473`):`failed AND failed_reason='manual_failed'` ——
+ *     這類列**沒有任何動作可按**,但不列出來就等於沒人知道那張訂單上有一筆改不了的判定。
+ *
+ * 🔴 **為什麼是兩支查詢、不是一支加寬的 `.or()`**(關卡2 codex must-fix,第一版就是那樣寫的):
+ *    合成一支的話兩類列**共用同一個 limit 與同一條排序** ⇒ 只要累積 201 筆較舊的②類,
+ *    **所有較新的①類就全部拿不到**,而①類正是唯一有動作可做的那半。
+ *    ②類在 `#473(b)` 出口做出來之前**永遠不會離開清單** ⇒ 那不是假設情境,是設計上的必然累積。
+ *    ⇒ **各自一支、各自一個上限、各自一個截斷旗標**,一邊爆量不會餓死另一邊。
+ * 🔴 附帶好處:①類那支的 `.or()` **字面與改動前完全相同** ——
+ *    改動前的形狀(embed / `or` 的 `not.is.null` / ISO cutoff parse)在 local 真 PostgREST 14.16
+ *    實跑過(handoff §3h 真機段);合成一支會把 `not.is.null` 推進巢狀深度 2,
+ *    那是**沒有先例也沒實跑過**的形狀。拆開之後這個賭注不存在。
+ * 🔴 30 分閾與訂單頁列級警示共用 REFUND_EXCEPTION_STALL_MS;`manual_failed` 字面走
+ *    STUCK_MANUAL_VERDICT_FAILED_REASON —— 兩處各寫一份就會漂。
  * ⚠️ cutoff 用 app 時鐘(DB 打不了 app、`.or()` 塞不進 `now()`):與 DB now() 的秒級漂移
  *    對 30 分保守閾無害;列級 isRefundException 同用 app 時鐘,兩處同源。
+ * ⚠️ 回傳順序 = ①類在前、②類在後(①類才有動作可做);兩類內部各自舊的排前。
  */
 export async function listRefundExceptions(): Promise<{
   rows: RefundExceptionRow[];
   truncated: boolean;
 }> {
   const cutoffIso = new Date(Date.now() - REFUND_EXCEPTION_STALL_MS).toISOString();
-  const { data, error } = await createSupabaseServiceClient()
-    .from('order_refunds')
-    // embed 無空格 = house 字面(SupabaseOrderAdapter 八處同款;opus R1 MF:少押一個語法賭注)。
-    // 🔴 本查詢全形狀(embed / or 的 not.is.null / ISO cutoff parse)已在 local 真 PostgREST
-    //    14.16 實跑過:清單頁渲染出真 display_id(物件非陣列)—— 證據=handoff §3h 真機段。
-    .select(`${ROW_COLUMNS}, order_id, orders(display_id)`)
-    .eq('status', 'processing')
-    .or(`created_at.lt.${cutoffIso},provider_refund_id_evidence.not.is.null`)
-    .order('created_at', { ascending: true })
-    .limit(REFUND_EXCEPTIONS_LIMIT + 1);
-  if (error) throw error;
-  type RawException = RawRow & { order_id: string; orders: { display_id: string } | null };
-  const raw = data as RawException[];
+  const supabase = createSupabaseServiceClient();
+  const [actionable, stuck] = await Promise.all([
+    supabase
+      .from('order_refunds')
+      .select(EXCEPTION_SELECT)
+      .eq('status', 'processing')
+      .or(`created_at.lt.${cutoffIso},provider_refund_id_evidence.not.is.null`)
+      .order('created_at', { ascending: true })
+      .limit(REFUND_EXCEPTIONS_LIMIT + 1),
+    supabase
+      .from('order_refunds')
+      .select(EXCEPTION_SELECT)
+      // 🔴 兩個 `.eq()` 缺一不可:少了 status 會撈到不存在但形狀上可能的列;
+      //    少了 failed_reason 會把 rejected_out_of_range / not_sent 一起撈進來 ——
+      //    那兩個是**正常的失敗結果**,不是卡住。測試對這兩顆各有一發突變。
+      .eq('status', 'failed')
+      .eq('failed_reason', STUCK_MANUAL_VERDICT_FAILED_REASON)
+      .order('created_at', { ascending: true })
+      .limit(REFUND_STUCK_LIMIT + 1),
+  ]);
+  if (actionable.error) throw actionable.error;
+  if (stuck.error) throw stuck.error;
+  const actionableRaw = actionable.data as RawException[];
+  const stuckRaw = stuck.data as RawException[];
   return {
-    rows: raw.slice(0, REFUND_EXCEPTIONS_LIMIT).map((row) => ({
-      ...toRow(row),
-      orderId: row.order_id,
-      // FK 保證有母單;防禦性 fallback 只為了不讓顯示層炸(顯示 id 前 8 碼可辨認)。
-      orderDisplayId: row.orders?.display_id ?? row.order_id.slice(0, 8),
-    })),
-    truncated: raw.length > REFUND_EXCEPTIONS_LIMIT,
+    rows: [
+      ...actionableRaw.slice(0, REFUND_EXCEPTIONS_LIMIT).map(toExceptionRow),
+      ...stuckRaw.slice(0, REFUND_STUCK_LIMIT).map(toExceptionRow),
+    ],
+    // 任一半被截斷都要讓橫幅出現(合成一個旗標 = 頁面不必知道有兩支查詢)。
+    truncated:
+      actionableRaw.length > REFUND_EXCEPTIONS_LIMIT || stuckRaw.length > REFUND_STUCK_LIMIT,
   };
 }
