@@ -638,10 +638,15 @@ export type AdminOrderItemProcurement = {
    * 作廢時間。`null` = **這筆採購還生效中**;非 null = 已作廢(#452 片 2a-1)。
    *
    * 🔴 **DB 早就照它分流了,應用層一直沒有**(`#476` 的病根):建表檔
-   * `20260813120000_m4b_e10_452_procurement_void_schema.sql:352-355` COMMENT 逐字
-   * 「作廢的採購列**不算進任何額度**:A2b1 跨列總量守門與 A4a 三軸重算都只 SUM
-   * `voided_at IS NULL` 的列」⇒ 畫面列得出 3 件、`orderedQuantity` 卻說 0 件,
-   * 兩個數字互相矛盾而沒有任何一行字解釋。
+   * `20260813120000_m4b_e10_452_procurement_void_schema.sql:495` 在 A4a 的 **ordered 軸**
+   * 加了 `AND p.voided_at IS NULL`(行內註解逐字「**本片唯一改動**」)
+   * ⇒ 畫面列得出 3 件、`orderedQuantity` 卻說 0 件,兩個數字互相矛盾而沒有一行字解釋。
+   *
+   * 🔴 ⚠️ **不要照抄同檔 `:355` 那句 COLUMN COMMENT**(我片1 抄了,片4 被審查抓到):
+   * 它逐字寫「A2b1 跨列總量守門與 **A4a 三軸重算都**只 SUM `voided_at IS NULL` 的列」——
+   * **對 `instock` 軸為假**:同檔 `:497-500` 的 receipts JOIN 沒有任何 voided 述詞
+   * ⇒ **掛在作廢採購上的到貨仍然算進 `instockQuantity`**。
+   * 那句 COMMENT 與它自己下面的「本片唯一改動」互相矛盾;以**算式**為準,不以 COMMENT 為準。
    *
    * 🔴 **同一個 `(order_item_id, supplier_id)` 可以有兩列**:business key 是 partial unique
    * (`WHERE voided_at IS NULL`,同檔 `:379-381`)+ Sean `Q-S1=A` 允許對同一家重下單

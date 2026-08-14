@@ -16,6 +16,7 @@ import {
   findDuplicateOutcome,
   findProcurementRemaining,
   findReceiptIdByRequestId,
+  listProcurementChoices,
   recordItemReceipt,
 } from './receipt-repository';
 
@@ -179,6 +180,53 @@ describe('findProcurementRemaining', () => {
     const boom = { message: 'boom' };
     row(null, boom);
     await expect(findProcurementRemaining('p-1')).rejects.toBe(boom);
+  });
+});
+
+// ── `#476` 片4:「貨到了」選單不得列出已作廢的採購 ────────────────────────
+// ⚠️ 名稱只講**本檔證得到**的事:這三格量的是「送出去的查詢參數」,mock 不會真的過濾。
+//    「作廢的採購不會出現在選單上」是 DB 那一側的行為,本檔證不到(自己的 §②-a 判準)。
+describe('listProcurementChoices — 查詢帶 voided_at IS NULL(#476 片4)', () => {
+  /** 串接式 query builder 的 mock:每一段都回自己,最後一段回資料。 */
+  function builder(rows: unknown[]) {
+    const calls: Array<[string, unknown[]]> = [];
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'is', 'order']) {
+      chain[m] = vi.fn((...args: unknown[]) => {
+        calls.push([m, args]);
+        return m === 'order' ? { data: rows, error: null } : chain;
+      });
+    }
+    return { chain, calls };
+  }
+
+  // 🔴 **行為格,不是掃字面**:掃 `RAW.includes(".is('voided_at', null)")` 擋得住「整段被刪」,
+  //    擋不住「呼叫了但參數寫錯」(例如 `.is('voided_at', false)` 或 filter 掛錯欄)。
+  //    ⇒ 直接量**真的送出去的那組參數**。
+  it('🔴 查詢帶 voided_at IS NULL(參數逐字比對,不只是「有呼叫」)', async () => {
+    const { chain, calls } = builder([]);
+    mocks.from.mockReturnValue(chain);
+    await listProcurementChoices('item-1');
+    const isCall = calls.find(([m]) => m === 'is');
+    expect(isCall, '沒有 .is(…) ⇒ 作廢列會進選單').toBeTruthy();
+    expect(isCall![1]).toEqual(['voided_at', null]);
+  });
+
+  it('品項 id 那道 filter 沒有被順手弄壞(改一處不得掉另一處)', async () => {
+    const { chain, calls } = builder([]);
+    mocks.from.mockReturnValue(chain);
+    await listProcurementChoices('item-1');
+    expect(calls.find(([m]) => m === 'eq')![1]).toEqual(['order_item_id', 'item-1']);
+  });
+
+  it('回傳形狀不變(加 filter 不該動到映射)', async () => {
+    const { chain } = builder([
+      { id: 'p-1', allocated_quantity: 3, received_quantity: 1, suppliers: { label: 'RPM Carbon' } },
+    ]);
+    mocks.from.mockReturnValue(chain);
+    await expect(listProcurementChoices('item-1')).resolves.toEqual([
+      { procurementId: 'p-1', supplierLabel: 'RPM Carbon', allocatedQuantity: 3, receivedQuantity: 1 },
+    ]);
   });
 });
 

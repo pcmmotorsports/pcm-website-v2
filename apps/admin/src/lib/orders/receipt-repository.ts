@@ -374,6 +374,19 @@ export async function listProcurementChoices(
     .from('order_item_procurement')
     .select('id, allocated_quantity, received_quantity, suppliers(label)')
     .eq('order_item_id', orderItemId)
+    // 🔴 `#476` 片4:**已作廢的採購不進「貨到了」選單。**
+    //    ⚠️ 這裡用 filter(而不是像片3 的表格那樣「帶回來 + 標示」)是**刻意的分工**:
+    //    片3 那張表是**狀態顯示面** —— 作廢列必須留著,否則員工按下作廢後畫面什麼都不剩
+    //    (方向 B 的全部理由)。本函式回的是**動作選擇器**的選項:列一個選了必被拒的選項
+    //    只是雜訊,而「那筆撤了」這件事**片3 的表格已經說過了**。
+    //    ⇒ 兩處方向不同不是不一致,是「顯示狀態」與「提供動作」本來就不是同一個問題。
+    //    🔴 寫入端的守門在 RPC(`20260814100000` 步 6b)—— 但**甲片尚未 apply**
+    //    (`grep -c 20260814100000 supabase/APPLIED.tsv` = 0)⇒ 在那之前,本 filter 與片3 的
+    //    「作廢列不給到貨鈕」是**僅有的兩道**。不要因為「RPC 會擋」就把任一道拿掉。
+    //    ⚠️ **本函式只給「登錄到貨」用**(唯一呼叫端 = `receipt-actions.ts` 的
+    //    `fetchItemProcurementChoices`)。`#462`「撤到貨」的前端日後若重用這支,
+    //    會**靜默拿不到作廢列上的到貨** —— 而那正是最需要撤的那些。⇒ 重用前先看這一段。
+    .is('voided_at', null)
     .order('created_at', { ascending: true });
   if (error) throw error;
 
