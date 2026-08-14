@@ -201,6 +201,103 @@ describe('RefundLedgerSection — RW3', () => {
     expect(links).toHaveLength(1);
   });
 
+  // ── #483:卡住的人工判定列在訂單頁也要說話(#473b-2 沒收完的尾)───────────────
+  //    病:清單那邊已經看得見了、訂單頁卻不說。而**訂單頁才是員工每天在看的那頁**
+  //    ⇒ 兩邊說法不一致時他會相信訂單頁。
+  const stuckRow = (over: Partial<OrderRefundRow> = {}) =>
+    row({
+      id: 'r-stuck',
+      status: 'failed',
+      failedReason: 'manual_failed',
+      failedDetail: 'Record 差額 0',
+      ...over,
+    });
+
+  it('[6b] 🔴 卡住的人工判定列 → 訂單頁也掛徽章(原本只有清單看得見)', () => {
+    const { container } = render(
+      <RefundLedgerSection rows={[stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
+    );
+    const badge = container.querySelector('a[href="/orders/refund-exceptions"]');
+    expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(1);
+    expect(container.textContent).toContain('這裡沒有可以改的動作');
+    // 🔴 兩關同抓:第一版把「需要更正請聯絡工程師」整段刪掉**四格全綠** ——
+    //    而那句正是這顆徽章唯一新增的價值(**講下一步找誰**)。零斷言 = 零守門。
+    expect(container.textContent).toContain('聯絡工程師');
+    // 🔴 欄位歸屬(關卡1 nit):把整塊搬到「原因/說明」欄也會全綠 ⇒ 釘在狀態欄裡。
+    expect(badge?.closest('td')?.textContent ?? '').toContain(refundStatusLabel('failed'));
+  });
+
+  it('[6b2] 🔴 `failedDetail` 為 null 的卡住列同樣要掛(關卡2 codex:正例全帶 detail ⇒ 偷加 detail 條件會全綠)', () => {
+    // 清單那支查詢**不看** failed_detail(只看 status + failed_reason)⇒ UI 若偷加
+    // `&& row.failedDetail !== null`,清單收得到、訂單頁卻不掛 = 兩頁再次漂移。
+    const { container } = render(
+      <RefundLedgerSection
+        rows={[stuckRow({ failedDetail: null })]}
+        unregisteredAmount={500}
+        nowMs={NOW}
+      />,
+    );
+    expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(1);
+  });
+
+  it('[6d2] 🔴 **未來新增**的 failed_reason 與未知 status 都不掛(關卡2 codex:blocklist 寫法會全綠)', () => {
+    // [6d] 只證了「今天已知的兩個正常碼不掛」⇒ 把判定式改成「排除那兩碼」的 blocklist
+    // 照樣全綠,而未來新增一個 failed_reason 就會被誤標成卡住。這格釘 allowlist 語意。
+    const { container } = render(
+      <RefundLedgerSection
+        rows={[
+          stuckRow({ id: 'r-future', failedReason: 'some_future_reason_2027' }),
+          stuckRow({ id: 'r-unknown-status', status: 'some_future_status' }),
+        ]}
+        unregisteredAmount={500}
+        nowMs={NOW}
+      />,
+    );
+    expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(0);
+  });
+
+  it('[6c] 🔴 兩顆徽章措辭不同:卡住的那顆不得說「待對帳處理」(它沒有事可做)', () => {
+    const { container } = render(
+      <RefundLedgerSection rows={[stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('待對帳處理');
+    expect(text).not.toContain('勿重複發起');
+    // 🔴 徽章本身不得複述「錢沒有動」—— 那正是可能判錯、要更正的東西(#473b-2 兩關同抓)。
+    //    ⚠️ 只掃徽章、不掃整區:狀態欄本來就會顯示判定內容,掃整區會誤紅。
+    const badge = container.querySelector('a[href="/orders/refund-exceptions"]');
+    expect(badge?.textContent ?? '').not.toContain('錢沒有動');
+  });
+
+  it('[6d] 🔴 其他 failed_reason 不掛這顆徽章 —— 它們是正常的失敗結果、不是卡住', () => {
+    const { container } = render(
+      <RefundLedgerSection
+        rows={[
+          stuckRow({ id: 'r-ns', failedReason: 'not_sent' }),
+          stuckRow({ id: 'r-oor', failedReason: 'rejected_out_of_range' }),
+        ]}
+        unregisteredAmount={500}
+        nowMs={NOW}
+      />,
+    );
+    expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(0);
+  });
+
+  it('[6e] 同一張訂單混合時,兩種列**各自**掛自己那顆(不是整張單一種說法)', () => {
+    const stale = row({
+      id: 'r-stale',
+      status: 'processing',
+      createdAt: new Date(NOW - REFUND_EXCEPTION_STALL_MS - 60_000).toISOString(),
+    });
+    const { container } = render(
+      <RefundLedgerSection rows={[stale, stuckRow()]} unregisteredAmount={500} nowMs={NOW} />,
+    );
+    expect(container.querySelectorAll('a[href="/orders/refund-exceptions"]')).toHaveLength(2);
+    const text = container.textContent ?? '';
+    expect(text).toContain('待對帳處理');
+    expect(text).toContain('這裡沒有可以改的動作');
+  });
+
   it('[7] G7-hold(有受理證據)→ 不等 30 分、立即標異常(fable N4)', () => {
     const held = row({ id: 'r-held', status: 'processing', providerEvidence: 'DR999' });
     const { container } = render(

@@ -90,7 +90,8 @@ async function loadExceptionRow(refundId: string, logError: LogError): Promise<L
     //    因為畫面根本不會變。⇒ **根因修法 = 讓畫面自己更新**,而不是寫一句話解釋畫面是舊的。
     //    (成功路徑本來就這樣做;這裡只是把它補齊。)
     // ⚠️ 原註解在這裡寫「異常清單只載 `processing`(`refund-read.ts:126` `.eq()`)」當**現行事實** ——
-    //    `#473b-2` 已把那行刪掉(清單改吃兩支 `and(...)`,`manual_failed` 列**留在清單上**)。
+    //    `#473b-2` 已把那行刪掉(清單改成**兩支獨立查詢**——可處理那支仍是 `.eq('status','processing')`,
+    //    卡住那支是 `.eq('status','failed').eq('failed_reason', …)`;`manual_failed` 列**留在清單上**)。
     //    revalidate 的必要性**不因此改變**(那一列的顯示內容仍要更新),但別再拿舊述詞當理由。
     revalidatePath(EXCEPTIONS_PATH);
     revalidatePath(`/orders/${row.orderId}`);
