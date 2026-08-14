@@ -189,15 +189,38 @@ behave "B4 作廢後對 B 家建 3 件 = CREATED(額度真的放出來)" "
 
 # 🔴 B5 = plan §3-4 那張表的第⑤格。首版 plan 宣稱「harness 已觀察」,但腳本在 B4 就結束
 #    (關卡2 抓到的字面 vs 事實)⇒ 補上,讓宣稱與腳本一致。
-behave "B5 對【已作廢的 A 家】再下單 = UPDATED(= 2a-2 的 must-fix,不是本片的 bug)" "
+#
+# 🔴🔴 **規格變更於 2a-2 甲(不是「把紅的格子調綠」)**
+#   出處 = `docs/specs/2026-08-14-452-2a2-procurement-void-rpc-plan.md` §3.2
+#        + `supabase/migrations/20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql`
+#   Sean 2026-08-14 拍 `Q-S1 = A`,逐字:「**當成全新的一筆收下來,舊的作廢紀錄留著查帳**」
+#   ⇒ A5a 存在性查詢加 `AND voided_at IS NULL` ⇒ 已作廢列**視同不存在、走新建**
+#   ⇒ 本格期望值 `UPDATED` → `CREATED`。
+#   ⚠️ **舊註解預告的是「若 2a-2 改成【拒絕】」—— 那個方向沒有發生**,該預告是過期字面,已刪。
+#      改期望值的正當性來自 Sean 的正式裁定,**不來自那句預告**(plan §3.2 R1 important 折)。
+#   🔴 codex R1「條件式同意」的三格證明一併補齊:①舊列一個欄位都沒被動 ②新 active 列真的建起來
+#      ③摘要 ordered_quantity 是新列的量。
+behave "B5 對【已作廢的 A 家】再下單 = CREATED(Q-S1=A;規格變更於 2a-2 甲)" "
   PERFORM public.admin_upsert_item_procurement(v_item, v_a, 3, 'confirmed', 'email', NULL, NULL, NULL, NULL, 'staff_1', 'b5a', false);
   UPDATE public.order_item_procurement SET voided_at = now(), void_reason = 'x'
    WHERE order_item_id = v_item AND supplier_id = v_a;
   v_r := public.admin_upsert_item_procurement(v_item, v_a, 1, 'confirmed', 'email', NULL, NULL, NULL, NULL, 'staff_1', 'b5b', false);
-  IF v_r IS DISTINCT FROM 'UPDATED' THEN RAISE EXCEPTION 'B5 實得 [%](若 2a-2 已改成拒絕,請同步改 plan §3-4)', COALESCE(v_r,'<NULL>'); END IF;
-  SELECT voided_at IS NOT NULL INTO v_ok FROM public.order_item_procurement
+  IF v_r IS DISTINCT FROM 'CREATED' THEN RAISE EXCEPTION 'B5 實得 [%](期望 CREATED;出處 = 2a-2 甲 + Sean Q-S1=A)', COALESCE(v_r,'<NULL>'); END IF;
+  SELECT voided_at IS NOT NULL AND allocated_quantity = 3 INTO v_ok
+    FROM public.order_item_procurement
+   WHERE order_item_id = v_item AND supplier_id = v_a AND voided_at IS NOT NULL;
+  IF NOT FOUND OR v_ok IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'B5-1 舊作廢列不見了、或被改動過(作廢紀錄必須原封留著查帳)'; END IF;
+  SELECT allocated_quantity = 1 INTO v_ok FROM public.order_item_procurement
+   WHERE order_item_id = v_item AND supplier_id = v_a AND voided_at IS NULL;
+  IF NOT FOUND OR v_ok IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'B5-2 新的生效中列沒建起來、或量不對'; END IF;
+  SELECT count(*) INTO v_q FROM public.order_item_procurement
    WHERE order_item_id = v_item AND supplier_id = v_a;
-  IF v_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'B5 那一列竟然不再是作廢狀態'; END IF;"
+  IF v_q IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'B5-3 同鍵應共存 2 列(一作廢一生效),實 %', v_q; END IF;
+  SELECT ordered_quantity = 1 INTO v_ok FROM public.order_item_quantity_summary WHERE order_item_id = v_item;
+  IF NOT FOUND OR v_ok IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'B5-4 摘要 ordered_quantity 應等於新列的量(作廢列不得計入)'; END IF;"
 
 # 🔴 B6:檔頭原本宣稱「驗到 unique-index 違規的 CONSTRAINT_NAME」但全檔沒有這格(字面 vs 事實)⇒ 真的撞一次。
 behave "B6 真的撞一次唯一索引:CONSTRAINT_NAME 必須回索引名(A5a :435 的名字比對靠它)" "

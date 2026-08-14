@@ -12283,7 +12283,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-08-14 · R 窗審 E 窗 L3 片1(`~/pcm-mailbox/附件-R-E408-review.md` F4)。號碼由主視窗指派(`E-414`)。
 - **相關:** `#470`(突變靶全在被守的 code 上、零個在守門本身)、`#474`(測試檔零 lint 訊號)—— **三條同族:守門沒有人守**。
 
-### #476. 👁️ 採購作廢上線後,後台 13 支讀者面一個都不認得「已作廢」—— 員工看到的是一筆還在的採購
+### #476. 🔴 採購作廢上線後,**編輯表單會用已作廢的舊資料覆寫生效中的採購**(靜默資料損壞);兼 13 支讀者面不認得「已作廢」
+
+> 🔴🔴 **2026-08-14 嚴重度上修 —— 原標題只寫「員工看到一筆還在的採購」= 低估。**
+> R3 換模型換角度(`gpt-5.6-terra`)抓到,D 窗與主視窗**各自開檔複核過**這兩處:
+> - `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` 的 `ADMIN_ORDER_DETAIL_SELECT`,
+>   內嵌 `order_item_procurement(...)` 欄位清單**沒有 `voided_at`**,且**無 filter、無 order**
+> - `apps/admin/src/lib/orders/procurement-view.ts` 的 `hydrateFormValues`
+>   = `find((p) => p.supplierId === supplierId)` ⇒ **同供應商取第一筆**
+>
+> **失敗鏈(每一步都是已拍板的正常操作,沒有一步是異常)**:
+> 作廢 A 家 → `Q-S1=A` 允許對 A 家重下單 ⇒ **同鍵兩列** → 員工點開 A 家採購編輯表單
+> ⇒ 可能 hydrate 出**作廢那列**的舊值 → 按儲存 → A5a(2a-2 甲改的)跳過作廢列、命中**生效列**
+> ⇒ **舊資料寫進新列**。**零錯誤、零固定碼、稽核看起來完全正常。**
+>
+> 🔴 **所以本條是「採購作廢 RPC(`#452` 片 2a-2 乙)」的【硬前置】,不只是「同批上線」。**
+> 🔴 **2a-2 甲(相鄰 writer 分流)不受影響**:甲片不產生任何 voided 列
+>   ⇒ 正式庫零 voided 列 ⇒ `find()` 只可能命中一列 ⇒ **這條路徑在甲片單獨上線時不可達**。
+>   該不可達性已寫成甲片的 **apply preflight P5**(正式庫 `voided_at IS NOT NULL` 列數 = 0,非 0 即停)。
+> ⚠️ **三個成因各自無害**(允許同鍵兩列 / 投影少一欄 / `find` 取第一筆)—— 它是被**湊**出來的,
+>   **不是任何一輪 line-level review 抓得到的**。修的時候三個面都要看,只補投影不夠。
+
+**(原標題保留)👁️ 採購作廢上線後,後台 13 支讀者面一個都不認得「已作廢」—— 員工看到的是一筆還在的採購**
 - **來源:** `#452` 片 2a-2 對抗審查(R2 opus 2026-08-14)點名「12 個讀者面只證了 3 支」;D 窗實查後為 **13 支**。號由主視窗指派。
 - **數法(2026-08-14 實跑,可重數):** `grep -rln "order_item_procurement\|voided_at" apps packages` = **13 支**
   (`apps/admin/src/lib/orders/` 四支:`cancel-view.ts` / `procurement-form.ts` / `procurement-repository.ts` / `procurement-view.ts`;
