@@ -318,3 +318,25 @@ codex exec -m gpt-5.6-sol -s read-only "$(cat prompt.txt)" < /dev/null > out.txt
 ```
 ⚠️ 更好的修法是把「背景」包進呼叫端(wrapper 或 skill),讓它不靠人記得 —— **機制優先律**。
 本條先以文字立,**再犯一次就該做成 wrapper**。
+
+### C-8 sessionId 反查 pid **可能命中多個** —— `grep -l` 會挑錯,`ppid` 才是決定性的(2026-08-14 D 窗實測後立)
+
+**現行做法的缺陷**(本檔 §C 與各窗開窗提示詞都寫過這條):
+```
+grep -l "<你的 sessionId>" ~/.claude/sessions/*.json   # ← 這一步可能回兩個以上
+```
+🔴 **實測**:D 窗 resume 過之後,同一個 sessionId **命中兩個 pid(30961 / 31647),而且兩者都活著、都有 socket**。
+⇒ 挑錯的話,位址檔會指向一個**活著但不是你**的 session ⇒ 門鈴投到別人家、而且 **`SendMessage` 照樣回 success**
+(同族:`reference_sendmessage-success-not-delivery`)。
+
+**正確做法**:
+```
+grep -l "<sessionId>" ~/.claude/sessions/*.json     # 先縮小候選
+ps -o ppid= -p $$                                    # ← 決定性:這個才是「我自己」
+```
+命中一個時兩者一致;**命中多個時以 `ppid` 為準**。
+
+⚠️ **主視窗給窗的提示詞要一起改** —— 只寫 `grep -l` 的版本在 **resume 過的 session 上會失準**,
+而 resume 在長夜跑裡是常態。
+🔴 **更一般的形狀**:「用一個**不保證唯一**的鍵去查身分」= 這個坑的通式。
+查之前先問「**這個鍵會不會命中多個**」,而不是查完看到一個就當答案。
