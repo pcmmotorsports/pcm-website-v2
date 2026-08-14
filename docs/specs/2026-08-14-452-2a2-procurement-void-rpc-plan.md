@@ -932,3 +932,106 @@ COMMIT 那一瞬」;而採購作廢線從 migration 檔名到 runbook 到開工�
 | A6 | 兩支 migration 可用版本號排序保證 writer 先上(§3.3) | 若 `supabase db push` 的實際送出順序不照版本號 ⇒ 前置閘是唯一防線,要改成硬阻斷 |
 
 — END —
+
+---
+
+# 附錄 A(V 窗補,2026-08-14):**DB 端**反向盤點
+
+> ## 這份附錄的邊界 —— 先讀這段再看表
+>
+> - **誰寫的**:V 窗(`pcm-void-readers` worktree),2026-08-14 傍晚,**在甲片 `20260814100000` 已 apply 之後**。
+> - **為什麼補**:本 plan 的 `§6.2「連動檔」`涵蓋的是**應用層 + 腳本**那一類;
+>   「哪些 **DB 物件**會讀 `order_item_procurement`、某一列被作廢之後它們各自怎麼走」**原本沒有一節在答**。
+> - 🔴 **本附錄只補那一半。** 它**不對本 plan 既有段落的品質背書** ——
+>   V 窗只讀了 `§0 / §0.5 / §2.4 / §3.3 / §4.1 / §6.2 / §7 / §8.2 / §8.5` 九節,
+>   **934 行沒有全讀**,也**沒有複驗既有段落內部的 `檔案:行號` 是否仍成立**。
+> - **不改本 plan 任何既有文字。** 有衝突以既有段落為準、回報而不就地改。
+
+## A.1 掃描範圍與**三組**分母(零命中的類別也印)
+
+一個 pattern 不夠:**認表名會漏掉引用 domain 型別的消費端** —— 那正是 `#476` 從「13 支」更正成
+「14 個面 / 8 支檔」的原因。故三組分開數,**分母 = 該目錄下所有檔**(`find -type f`,排除 `node_modules`)。
+
+| 載體 | ① 表名 `order_item_procurement` | ② `AdminOrderItemProcurement`\|`procurements` | ③ `voided_at`\|`voidedAt` |
+|---|---|---|---|
+| `supabase/migrations/` | **23** / 169 | 0 / 169 | **2** / 169 |
+| `scripts/` | **39** / 169 | 0 / 169 | **5** / 169 |
+| `packages/` | **7** / 239 | **6** / 239 | **5** / 239 |
+| `apps/admin/src/` | **6** / 323 | **14** / 323 | **15** / 323 |
+| `apps/storefront/src/` | **0** / 525 | **0** / 525 | **0** / 525 |
+| `docs/` | **52** / 599 | **7** / 599 | **12** / 599 |
+
+🔴 **`apps/storefront/` 三組全 0** —— 顧客站**完全不讀這張表**。這是「零命中也要印」的那一格:
+它讓「作廢會不會漏到前台」這個問題有答案,而不是沒人問過。
+
+🔴 **23 支 migration 命中表名,只有 2 支出現過 `voided_at`**(`comm -12` 取交集實算:
+`20260813120000` 建欄、`20260814100000` 甲片分流)。
+⚠️ **這個數字的意思只到「檔」這一層,不等於「21 個物件不認得作廢」** ——
+migration 是歷史,物件的現行定義取最後一次 `CREATE OR REPLACE`。物件層的答案在 A.2。
+
+## A.2 現行 DB 物件逐一(作廢之後它們怎麼走)
+
+> 「現行定義」= 最後一次 `CREATE (OR REPLACE)` 的位置。
+
+| 物件 | 種類 | 現行定義 | 怎麼讀本表 | `voided_at` 述詞 | 一列被作廢之後 |
+|---|---|---|---|---|---|
+| `admin_upsert_item_procurement`(A5a) | FUNCTION | `20260814100000:168` | 存在性查詢 `:403-406` | ✅ **有**`:406` | 視同不存在 ⇒ 走新建(`Q-S1`=A) |
+| `pcm_a4a_recompute_order_item_summary` | FUNCTION | `20260813120000:465` | ordered 軸 `:493-495` / instock 軸 `:499` | ⚠️ **部分**:ordered 有、**instock 沒有** | ordered 扣掉作廢列;**instock 仍含**(檔內 `:589` 自承刻意) |
+| `pcm_a2b1_procurement_allocation_guard` | FUNCTION+CONSTRAINT TRIGGER | FN `20260813120000:395`;TRIGGER 仍是 `20260803130000:176-177` | `SUM(allocated_quantity)` `:438-440` | ✅ **有**`:440` | 作廢列不佔額度 ⇒ 總量守門單調放寬 |
+| `admin_record_item_receipt` | FUNCTION | `20260814100000:608` | 鎖後讀 `voided_at IS NOT NULL` `:775` | ✅ **有** | 拒絕登錄到貨,新碼 `PROCUREMENT_VOIDED` |
+| 🔴 `admin_cancel_order` | FUNCTION | `20260805100000:80` | JOIN receipts 算 room `:380-381` / `:400-401` / `:412-413` | ❌ **查無**(全檔 `grep -c voided` = **0**) | **見 A.3 缺口①** |
+| 🔴 `admin_delete_item_receipt` | FUNCTION | `20260810233000:280` | `FOR NO KEY UPDATE` `:373` | ❌ **查無**(全檔 = **0**) | **見 A.3 缺口②** |
+| 🔴 `admin_search_orders` | FUNCTION(動態 EXECUTE) | `20260812130000:182` | `JOIN … pc ON pc.order_item_id = oi.id` `:370` | ❌ **無** | **見 A.3 缺口③** |
+| `pcm_a4a_receipts_received_sync` | TRIGGER FN | `20260803140000:258` | `FOR NO KEY UPDATE` `:292-294` | ❌ 無 | 由 V7 擋在上游(作廢列不該有到貨) |
+| `pcm_a4a_cancellation_summary_recompute` | TRIGGER FN | `20260803140000:322` | `UPDATE … p` `:379` | ❌ 無 | 同上 |
+| `pcm_a4a_shipments_summary_recompute` | TRIGGER FN | `20260806180000:319` | — | ❌ 無 | 同上 |
+| `pcm_a4a_procurement_summary_recompute` | TRIGGER FN(DEFERRABLE) | `20260803140000:220` | 不直接 SELECT,轉呼重算 helper | 不適用 | 隨 helper |
+| `pcm_a4a_received_quantity_guard` | TRIGGER FN | `20260803140000:195` | 讀 NEW/OLD,非 SELECT | 不適用 | 不受影響 |
+
+**索引與約束(現行)**
+- `order_item_procurement_business_key` —— **partial unique index** `ON (order_item_id, supplier_id) WHERE voided_at IS NULL`,`20260813120000:376-381`(由表級 UNIQUE 改建)。**這是 `Q-S1`=A「同一家可重下單」的承重物**。
+- `order_item_procurement_void_pair` CHECK `20260813120000:347-350` —— 兩欄配對(同時有或同時無)+ 原因不得空白。
+- 其餘 CHECK 皆未動:`allocated_range`(1..100000)/`received_range`(0..allocated)/`reply_status_check`/`exception_reason_nonempty`/`contact_channel_nonempty`,均 `20260729020000` 建。
+- `idx_order_item_procurement_supplier_no_trgm`(GIN trgm)`20260812130000:460-461`,供 `admin_search_orders` 用,無 voided 分流。
+- **VIEW / MATERIALIZED VIEW:0 個**。掃過全部 23 個命中檔、pattern `CREATE.*VIEW`(含 MATERIALIZED、不分大小寫)⇒ 零命中。
+
+## A.3 三個缺口,以及**為什麼現在還沒出事**
+
+**① `admin_cancel_order` 的 room 計算不排除作廢列 —— 但它是【潛伏】的,守它的正是 V7**
+它算的是 **receipts 的 `sum(r.quantity)`**、不是 `allocated_quantity`(`:380-381` 逐字)。
+⇒ 作廢列**若沒有到貨**,JOIN 貢獻 0、**行為零差異**。
+🔴 **而「作廢列不會有到貨」正是本 plan 的 V7 在保證的事。**
+⇒ **V7 不只是 UX 守門,它是 `admin_cancel_order` 正確性的承重點。**
+V7 一旦被放寬、或有人繞過 RPC 直接 UPDATE 標作廢,`admin_cancel_order` 會把「掛在已作廢採購上的到貨」
+算進已收量 ⇒ **可取消量被低估** ⇒ 員工取消不了本來可以取消的數量,而畫面不會說為什麼。
+**建議**:本片**不改** `admin_cancel_order`(改它超出本片範圍、且需自己的審查),
+但**把這條依賴寫進 V7 的註解**,讓下一個想放寬 V7 的人先撞到它。
+
+**② `admin_delete_item_receipt` 沒有作廢分流**
+撤到貨時不檢查該採購是否已作廢。與 `#462`「撤到貨」線相關。
+⇒ 若 V7 成立,已作廢的採購沒有到貨可撤 ⇒ 同樣**潛伏**。列出來是因為它與①共用同一個前提。
+
+**③ `admin_search_orders` 的供應商單號模糊搜尋含作廢列**
+`:370` 的 JOIN 無 voided 過濾 ⇒ 用已作廢那筆的供應商單號去搜,**仍搜得到那張訂單**。
+🔴 **這一條不建議修**:查帳查得到才是對的(`Q-S1`=A 逐字「舊的作廢紀錄留著查帳」)。
+列出來是要**明寫它是刻意的**,免得日後有人當 bug 修掉。
+
+## A.4 這份盤點怎麼來的、我自己驗了哪幾條
+
+- 物件清單由唯讀 subagent(sonnet)掃 `supabase/migrations/` + `scripts/` 產出。
+- **V 窗自己開檔抽驗了三條**(不是原樣轉貼):
+  ① `grep -c voided 20260805100000…` = **0**,且 `grep -iE 'create (or replace )?function.*admin_cancel_order'` 全樹只有兩處、
+     現行是 `20260805100000:80`(`20260804180000:83` 是被取代的 5 參版)。
+  ② `grep -c voided 20260810233000*` = **0**。
+  ③ `20260812130000:370` 的 JOIN 逐字讀過,無 voided 述詞。
+- **A4a instock 軸沒有 voided 述詞**這條與 V 窗在 `#476` 片4 獨立得到的結論一致
+  (當時的依據:`20260813120000:495` 只在 ordered 軸加述詞,行內註解逐字「本片唯一改動」)⇒ 兩條路互相印證。
+
+## A.5 誠實缺口(本附錄自己的)
+
+- **`scripts/` 那 39 個命中檔沒有逐檔列**。它們是 psql/bash 驗收腳本、**不是 DB 物件本身**,
+  不在本附錄自定的範圍內。⚠️ **這是範圍聲明,不是「查過沒問題」** —— 要對照表得另跑一輪。
+- **全部結論來自 repo 檔面,零正式庫連線**(同本 plan `§7 G1`)。
+  「現行定義 = 最後一次 CREATE OR REPLACE」是**對 migration 序列的推論**,
+  不是對正式庫 `pg_get_functiondef` 的實查。⇒ 真正的驗證點在 **apply 前置閘**,由 Sean 當面跑。
+- 本附錄**沒有**檢查 `packages/` 與 `apps/admin/` 那 20 個 pattern-② 命中檔 —— 那是 `#476` 的範圍,已完工收割。
