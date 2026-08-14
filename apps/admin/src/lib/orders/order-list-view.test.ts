@@ -39,14 +39,14 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
   it('合法四軸值 → filter 帶入(來源/管道 D-1b 多勾選=陣列);page 解析', () => {
     const { filter, page } = parseOrderListSearchParams({
       payment_status: 'paid',
-      fulfillment_status: 'shipped',
+      goods_axis: 'shipped',
       order_source: 'manual_line',
       payment_channel: 'bank_transfer',
       page: '3',
     });
     expect(filter).toEqual({
       paymentStatus: 'paid',
-      fulfillmentStatus: 'shipped',
+      goodsAxes: ['shipped'],
       orderSources: ['manual_line'],
       paymentChannels: ['bank_transfer'],
       // L6:filter 是整包比對 ⇒ 新增鍵一定要在這裡出現(這正是它的價值:
@@ -54,6 +54,34 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       includeUnpaidCardOrders: false,
     });
     expect(page).toBe(3);
+  });
+
+  // 🔴 `#484a` A2:舊鍵**不是**「暫時還相容」,是**必須被忽略**。
+  //    留著解析的話,舊書籤會安靜地變成「篩了一個永遠零筆的條件」——
+  //    而零筆與「真的沒有這種單」在畫面上長得一模一樣。
+  it('🔴 A2:舊的 fulfillment_status 鍵一律忽略(不得回退成任何篩選)', () => {
+    const { filter } = parseOrderListSearchParams({ fulfillment_status: 'shipped' });
+    expect(filter.goodsAxes).toBeUndefined();
+    expect(filter).not.toHaveProperty('fulfillmentStatus');
+  });
+
+  // 🔴 M6:多值來源只可能是手工網址(可見控制項是單選下拉)。
+  //    不 clamp 的話會變成「列表篩兩值、下拉顯示一值、一動別的篩選就掉一值」。
+  it('🔴 A2:多值 URL 先 clamp 成 1 值(片 B 的 chip UI 才放開)', () => {
+    const { filter } = parseOrderListSearchParams({ goods_axis: ['ordered', 'instock'] });
+    expect(filter.goodsAxes).toEqual(['ordered']);
+  });
+
+  // 貨品軸的白名單:四值 = `none/ordered/instock/shipped`。
+  // ⚠️ 舊軸的 `notOrdered` / `inStock` **在這裡必須被剔除** —— 兩個字面在新欄不存在。
+  it('🔴 A2:貨品軸只認四值,舊軸字面被剔除', () => {
+    // 🔴 非法值**排在最前面**是刻意的:若把它們排後面,clamp 成 1 值之後
+    //    「非法值被剔除」與「被 clamp 截掉」兩件事會長得一模一樣 ⇒ 這一格就失去判別力。
+    //    現在期望值是 `instock`(第三個輸入)⇒ 只有「前兩個真的被剔除」才可能出現。
+    const { filter } = parseOrderListSearchParams({
+      goods_axis: ['notOrdered', 'inStock', 'instock', 'HACK'],
+    });
+    expect(filter.goodsAxes).toEqual(['instock']);
   });
 
   it('非法篩選值一律忽略(等同不篩選、注入不透傳)', () => {
@@ -65,7 +93,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
     });
     expect(filter).toEqual({
       paymentStatus: undefined,
-      fulfillmentStatus: undefined,
+      goodsAxes: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
       includeUnpaidCardOrders: false,
@@ -87,7 +115,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
     const { filter, page } = parseOrderListSearchParams({});
     expect(filter).toEqual({
       paymentStatus: undefined,
-      fulfillmentStatus: undefined,
+      goodsAxes: undefined,
       orderSources: undefined,
       paymentChannels: undefined,
       includeUnpaidCardOrders: false,
@@ -129,8 +157,10 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
   });
 
   it('page 1 省略 page 參數(但保留篩選)', () => {
-    const href = buildOrderListHref({ fulfillmentStatus: 'shipped' }, DEN, 1);
-    expect(href).toContain('fulfillment_status=shipped');
+    const href = buildOrderListHref({ goodsAxes: ['shipped'] }, DEN, 1);
+    expect(href).toContain('goods_axis=shipped');
+    // 🔴 `#484a` A2:舊鍵不得再出現 —— 它的值篩不到任何東西(正式站實測 `notOrdered` = 0 筆)。
+    expect(href).not.toContain('fulfillment_status=');
     expect(href).not.toContain('page=');
   });
 

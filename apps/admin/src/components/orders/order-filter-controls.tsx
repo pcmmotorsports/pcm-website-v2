@@ -6,7 +6,7 @@ import type { FilterOption } from '../../lib/shared/list-params';
 import { buildListHref } from '../../lib/shared/list-params';
 import {
   PAYMENT_STATUS_PARAM,
-  FULFILLMENT_STATUS_PARAM,
+  GOODS_AXIS_PARAM,
   ORDER_SOURCE_PARAM,
   SHOW_UNPAID_CARD_PARAM,
   DATE_FROM_PARAM,
@@ -24,14 +24,14 @@ import { AutoApplySelect } from '../shared/auto-apply-select';
 // 🔴 競態設計:各軸值收成**單一 client state、URL 全量由 state 導出**(buildListHref、page 恆回 1、
 //   r 不帶=清 stale banner)——不讀 useSearchParams/window.location 當基底,RSC 往返(數百 ms)中
 //   快速連勾/跨軸交錯也不會用 stale 快照互相蓋寫,checkbox/select 顯示同源自 state=無延遲窗回彈。
-//   前提:/orders 的 query 全集=**九**個鍵(付款 / 出貨 / 來源 / 管道 /
-//   **單號搜尋 order_no**,M-4b E10 A10c1 新增;**供應商單號 supplier_no**,A10c2 新增;
-//   **show_unpaid_card**,M-4b 生命週期 L6 新增;**date_from / date_to**,#347-3c-1 新增)
-//   +page+r,無其他要保留的鍵
-//   🔴 **「七」是 #347-3c-1 之前的數字,已過期**:那一片把日期兩軸加進 `parseOrderListSearchParams`,
-//     而本檔的 `href()` 是**第二個 URL builder**、不受 `buildOrderListHref` 的編譯期窮舉守門保護
-//     ⇒ 不同步的話,分享一條帶日期的網址、使用者一動任何下拉,日期就靜默消失。
-//     ⇒ 3c-1 已把兩軸接成 **state 透傳**(沒有可見控制項;下拉是 3c-2)。
+//   前提:/orders 的 query 全集 = **下面 `href()` 逐行列的那幾個鍵** + `page` + `r`,無其他要保留的鍵。
+//   🔴 **鍵的數量不再寫在這段散文裡**(`#484a` A2 起)—— 它已經錯過兩次:先是「七」在 #347-3c-1
+//     之後過期,接著改成「九」時把 `order_no`/`supplier_no` 兩個 **#347-B 已退場**的鍵算了進去。
+//     這段是「新增鍵要記得進 state」的檢查清單;清單上留一個知道是錯的數字,下一個人照它數就會漏。
+//     ⇒ **權威 = 下面 `href()` 的那份陣列**(它是唯一會讓行為改變的地方),要數就數那裡。
+//   🔴 本檔的 `href()` 是**第二個 URL builder**、不受 `buildOrderListHref` 的編譯期窮舉守門保護
+//     ⇒ 不同步的話,分享一條帶篩選的網址、使用者一動任何下拉,那一軸就靜默消失。
+//     踩過這條的實例:#347-3c-1 的日期兩軸;`#484a` A2 把出貨鍵名換成 `goods_axis`(值也換了一套)。
 //   (A9w2:原第六軸「商品狀態 workflow_status」隨九碼退場已下架 —— state、URL 參數、
 //    MultiCheckFilter 三處同時移除;少移一處都會留下「改別軸就把它丟掉」或「丟不掉」的半殘狀態)
 //   (新增鍵時須進 state 或此處明列 —— 漏了就是「改任一篩選就把該鍵丟掉」的 fail-open)。
@@ -42,7 +42,13 @@ import { AutoApplySelect } from '../shared/auto-apply-select';
 type FilterState = {
   /** '' = 全部 */
   pay: string;
-  ful: string;
+  /**
+   * 貨品軸(`#484a` A2;'' = 全部)。**原本叫 `ful`、篩的是 `fulfillment_status`。**
+   *
+   * 🔴 這裡是 `string` 而不是陣列:下拉是**單選**,型別上的陣列(`AdminOrderFilter.goodsAxes`)
+   *    要到片 B 的 chip UI 才會有第二個值。`href()` 送出去時包成單元素陣列。
+   */
+  goods: string;
   src: readonly string[];
   ch: readonly string[];
   /**
@@ -75,7 +81,7 @@ function href(state: FilterState): string {
     '/orders',
     [
       [PAYMENT_STATUS_PARAM, state.pay || undefined],
-      [FULFILLMENT_STATUS_PARAM, state.ful || undefined],
+      [GOODS_AXIS_PARAM, state.goods || undefined],
       [ORDER_SOURCE_PARAM, state.src],
       [PAYMENT_CHANNEL_PARAM, state.ch],
       [SHOW_UNPAID_CARD_PARAM, state.showUnpaidCard || undefined],
@@ -95,7 +101,7 @@ function toggled(list: readonly string[], value: string): string[] {
 export function OrderFilterControls({
   datePresetOptions,
   paymentOptions,
-  fulfillmentOptions,
+  goodsAxisOptions,
   sourceOptions,
   channelOptions,
   initial,
@@ -103,7 +109,8 @@ export function OrderFilterControls({
   /** #347-3c-2:日期下拉的選項(server 已把每格的區間算好;client 不碰時鐘)。 */
   datePresetOptions: OrderDatePresetOption[];
   paymentOptions: FilterOption[];
-  fulfillmentOptions: FilterOption[];
+  /** `#484a` A2:貨品軸四值(未訂貨/已向廠商訂貨/已到貨/已出貨)。標籤與舊的出貨狀態逐字相同。 */
+  goodsAxisOptions: FilterOption[];
   sourceOptions: FilterOption[];
   channelOptions: FilterOption[];
   initial: FilterState;
@@ -190,9 +197,9 @@ export function OrderFilterControls({
       />
       <AutoApplySelect
         label='出貨狀態'
-        value={state.ful}
-        options={fulfillmentOptions}
-        onChange={(v) => apply({ ...state, ful: v })}
+        value={state.goods}
+        options={goodsAxisOptions}
+        onChange={(v) => apply({ ...state, goods: v })}
       />
       <MultiCheckFilter
         label='來源'

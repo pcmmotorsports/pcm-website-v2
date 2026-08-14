@@ -395,23 +395,32 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       {
         paymentStatus: 'paid',
-        fulfillmentStatus: 'notOrdered',
+        // `#484a` A2:出貨那一軸改成貨品軸 `goodsAxes`(多值 .in)。
+        goodsAxes: ['instock'],
         orderSources: ['web'],
         paymentChannels: ['tappay'],
       },
       { limit: 20, offset: 40 },
     );
 
-    expect(from).toHaveBeenCalledWith('orders');
+    // 🔴 `#484a` A2:列表換源到 view。這一格與本檔 `#484a A2` 那組的 `from` 斷言**共兩處**守著它
+    //    (原本這裡寫「唯一守門」是錯的 —— code-reviewer R1 抓到)。
+    //    換回 `orders` 的後果**已實測**(2026-08-14 對正式站):`GET /rest/v1/orders?select=id,goods_axis`
+    //    ⇒ `HTTP 400` + `{"code":"42703","message":"column orders.goods_axis does not exist"}`
+    //    —— 執行期才炸,型別層看不到(投影是字串常數)。
+    expect(from).toHaveBeenCalledWith('admin_order_list_v');
     // A9w3:九碼篩選退場後投影恆為主常數(不再有 !inner 版)。
     expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-    // 四軸篩選各下推一次 DB where(非前端過濾);雙軸單值 .eq、多勾選軸 .in(D-1b)。
+    // 四軸篩選各下推一次 DB where(非前端過濾);付款軸單值 .eq、其餘三軸 .in。
     expect(eq).toHaveBeenCalledWith('payment_status', 'paid');
-    expect(eq).toHaveBeenCalledWith('fulfillment_status', 'notOrdered');
+    expect(inFn).toHaveBeenCalledWith('goods_axis', ['instock']);
     expect(inFn).toHaveBeenCalledWith('order_source', ['web']);
     expect(inFn).toHaveBeenCalledWith('payment_channel', ['tappay']);
-    expect(eq).toHaveBeenCalledTimes(2);
-    expect(inFn).toHaveBeenCalledTimes(2);
+    // 🔴 次數斷言跟著換家:`.eq` 從 2 次降為 1、`.in` 從 2 升為 3。
+    //    **這兩行不是配合新行為改的數字** —— 它們守的是「沒有多下推一條沒人要的 where」,
+    //    把 `.in('goods_axis')` 寫成 `.eq` 會讓兩行同時紅(實測見本片 commit body 的突變表)。
+    expect(eq).toHaveBeenCalledTimes(1);
+    expect(inFn).toHaveBeenCalledTimes(3);
     expect(order).toHaveBeenNthCalledWith(1, 'created_at', { ascending: false });
     expect(order).toHaveBeenNthCalledWith(2, 'id', { ascending: false }); // n1 次鍵:同秒單分頁穩定
     expect(range).toHaveBeenCalledWith(40, 59); // offset 40、limit 20 → [40, 59] 含端
@@ -1638,14 +1647,71 @@ describe('🔴 M-4b 生命週期 L6 — 後台列表預設隱藏「刷卡未付�
 
 
   it('L6-A5 隱藏條件與其他篩選軸並存(不互相取代)', async () => {
-    const { client, or, eq, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const { client, or, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { fulfillmentStatus: 'shipped', paymentChannels: ['bank_transfer'] },
+      { goodsAxes: ['shipped'], paymentChannels: ['bank_transfer'] },
       listArgs,
     );
     expect(or).toHaveBeenCalledWith(HIDE);
-    expect(eq).toHaveBeenCalledWith('fulfillment_status', 'shipped');
+    expect(inFn).toHaveBeenCalledWith('goods_axis', ['shipped']);
     expect(inFn).toHaveBeenCalledWith('payment_channel', ['bank_transfer']);
+  });
+});
+
+// ── `#484a` 片 A2:貨品軸換源 + 下推 ─────────────────────────────────────────────
+// 🔴 這一組守的是**兩件會靜默壞掉的事**:①換源被改回 `orders`(症狀在執行期才出現、
+//    型別看不到,因為投影是字串常數)②空陣列被押成 `.in('goods_axis', [])`
+//    (PostgREST 對空清單的行為未文件化 ⇒ 可能篩成零筆 = 假的「查無此單」)。
+describe('#484a A2:貨品軸', () => {
+  const axisListArgs = { limit: 20, offset: 0 };
+
+  it('未給 goodsAxes ⇒ 不下推那一軸(不是押空陣列)', async () => {
+    const { client, from, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, axisListArgs);
+    expect(from).toHaveBeenCalledWith('admin_order_list_v');
+    expect(inFn).not.toHaveBeenCalledWith('goods_axis', expect.anything());
+  });
+
+  it('goodsAxes 空陣列 ⇒ 視為不限、同樣不下推', async () => {
+    const { client, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { goodsAxes: [] },
+      axisListArgs,
+    );
+    expect(inFn).not.toHaveBeenCalledWith('goods_axis', expect.anything());
+  });
+
+  // 🔴🔴 A1 migration `:171-173` 的硬條款(逐字要求「要有一格負向測試」)。
+  //    ⚠️ **誠實邊界**:這裡是 mock,量到的是「述詞有沒有被下推」,**不是**「已取消的單真的沒被撈回」——
+  //    後者是 DB 語意,mock 天生量不到。真的那一格由**正式站唯讀實測**補(見本片 commit body)。
+  //    ⇒ 這一格能抓到的失敗是:有人把 `.is('cancelled_at', null)` 刪掉、或搬出這個 `if`。
+  it('🔴 下推貨品軸時必須同時排除已取消單(A1 硬條款)', async () => {
+    const { client, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { goodsAxes: ['instock'] },
+      axisListArgs,
+    );
+    expect(is).toHaveBeenCalledWith('cancelled_at', null);
+  });
+
+  // 🔴 **配對的正向對照**:沒選貨品軸時**不得**排除已取消單 ——
+  //    列表本來就要看得到已取消的單;把它做成全域條件是另一件事,而且沒有人拍板過。
+  //    (少了這一格,「把 `.is` 提到 `if` 外面」這個突變不會有任何測試紅。)
+  it('🔴 未選貨品軸 ⇒ 不得排除已取消單(不是全域條件)', async () => {
+    const { client, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, axisListArgs);
+    expect(is).not.toHaveBeenCalledWith('cancelled_at', null);
+  });
+
+  it('多值 ⇒ 只押一次 .in、原序帶過去', async () => {
+    const { client, in: inFn } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { goodsAxes: ['ordered', 'instock', 'shipped'] },
+      axisListArgs,
+    );
+    expect(inFn).toHaveBeenCalledWith('goods_axis', ['ordered', 'instock', 'shipped']);
+    // 🔴 一次、不是三次 —— 同欄押兩次 `.in` 的合併語意未文件化(理由同 adapter 內 `orderIdFilter` 那段)。
+    expect(inFn.mock.calls.filter((c: unknown[]) => c[0] === 'goods_axis')).toHaveLength(1);
   });
 });
 

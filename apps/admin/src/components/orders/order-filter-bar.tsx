@@ -3,7 +3,7 @@ import { taipeiYmdFromDayEndExclusive, taipeiYmdFromInstantIso } from '@pcm/doma
 import { OrderFilterControls } from './order-filter-controls';
 import {
   PAYMENT_STATUS_OPTIONS,
-  FULFILLMENT_STATUS_OPTIONS,
+  GOODS_AXIS_OPTIONS,
   ORDER_SOURCE_OPTIONS,
   PAYMENT_CHANNEL_OPTIONS,
   SHOW_UNPAID_CARD_ON,
@@ -38,12 +38,15 @@ export function OrderFilterBar({
       <OrderFilterControls
         datePresetOptions={datePresetOptions}
         paymentOptions={PAYMENT_STATUS_OPTIONS}
-        fulfillmentOptions={FULFILLMENT_STATUS_OPTIONS}
+        goodsAxisOptions={GOODS_AXIS_OPTIONS}
         sourceOptions={ORDER_SOURCE_OPTIONS}
         channelOptions={PAYMENT_CHANNEL_OPTIONS}
         initial={{
           pay: filter.paymentStatus ?? '',
-          ful: filter.fulfillmentStatus ?? '',
+          // `#484a` A2:單選下拉 ⇒ 只取第一個值(型別是陣列、片 B 的 chip UI 才會有第二個)。
+          //    🔴 用 `?? ''` 而不是 `?.[0] ?? ''` 之外再判空陣列 —— 空陣列的 `[0]` 就是 undefined,
+          //    兩者都折成 '' = 全部,與其他軸的既有處置一致。
+          goods: filter.goodsAxes?.[0] ?? '',
           src: filter.orderSources ?? [],
           ch: filter.paymentChannels ?? [],
           // L6:server 端解析出來的開關要餵回勾選框,否則重新整理後「勾沒了、列表卻是全顯示」。

@@ -21,13 +21,13 @@ const DATE_OPTIONS = [
 const PROPS = {
   datePresetOptions: DATE_OPTIONS,
   paymentOptions: [{ value: 'paid', label: '已付款' }],
-  fulfillmentOptions: [{ value: 'shipped', label: '已出貨' }],
+  goodsAxisOptions: [{ value: 'shipped', label: '已出貨' }],
   sourceOptions: [
     { value: 'web', label: '網站' },
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { pay: '', ful: '', src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
+  initial: { pay: '', goods: '', src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
 beforeEach(() => replace.mockClear());

@@ -6,7 +6,15 @@ import { join } from 'node:path';
 import postcss from 'postcss';
 import { cleanup, render as rtlRender } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
+// 🔴 `#484a` A2:四值**不再手寫**(本檔原本有三處各自硬寫,改 domain 常數不會讓它們紅)。
+//    綁上去之後,`ORDER_GOODS_AXIS_VALUES` 少一個值 ⇒ 這裡的 8 值斷言當場紅。
+import {
+  ORDER_GOODS_AXIS_VALUES,
+  toMoneyAmount,
+  type AdminOrderLine,
+  type AdminOrderSummary,
+  type OrderGoodsAxis,
+} from '@pcm/domain';
 import { ShippingSelectionProvider } from './shipping-selection';
 
 /**
@@ -507,7 +515,7 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
 const STATUS_CELL_INDEX = 11;
 
 /** 把一列的四軸數量推到指定階段(`orderGoodsAxis` 的判序是 shipped ⊆ instock ⊆ ordered)。 */
-function lineAt(id: string, quantity: number, stage: 'none' | 'ordered' | 'instock' | 'shipped'): AdminOrderLine {
+function lineAt(id: string, quantity: number, stage: OrderGoodsAxis): AdminOrderLine {
   const l = line(id, quantity, 12000);
   const n = quantity;
   return {
@@ -550,7 +558,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
 
   it('🔴 八值字面互不相同(擋「兩格顯示同一個詞」——那等於員工分不出來)', () => {
     const labels = (['paid', 'unpaid'] as const).flatMap((pay) =>
-      (['none', 'ordered', 'instock', 'shipped'] as const).map((goods) => ORDER_STATUS_LABEL[pay][goods]),
+      ORDER_GOODS_AXIS_VALUES.map((goods) => ORDER_STATUS_LABEL[pay][goods]),
     );
 
     expect(labels.length).toBe(8);
@@ -606,7 +614,7 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     expect(capsule.className).toContain(STATUS_CAPSULE);
     // 反面:它不得同時是矩陣裡的任何一個字面(擋「已取消被畫成已收已定」)。
     const matrix = (['paid', 'unpaid'] as const).flatMap((p) =>
-      (['none', 'ordered', 'instock', 'shipped'] as const).map((g) => ORDER_STATUS_LABEL[p][g]),
+      ORDER_GOODS_AXIS_VALUES.map((g) => ORDER_STATUS_LABEL[p][g]),
     );
     expect(matrix).not.toContain(capsule.textContent);
   });

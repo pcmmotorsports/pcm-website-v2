@@ -219,11 +219,12 @@ export type PaymentChannel = 'tappay' | 'bank_transfer' | 'cash' | 'none';
  *    **不要為了「整齊」統一它們。**
  * 🔴 **這裡是「型別」的唯一權威**(不是「所有字面」的):`apps/admin/src/lib/orders/order-status-axes.ts` 已改成
  *    `export type { OrderGoodsAxis }` 真的 re-export(`#484a` 前它自己宣告了第二份)。
- * ⚠️ **還有三份手寫字面沒被綁住**(code-reviewer 實查):`orders-table.test.tsx:510/553/609`
- *    各自硬寫了四值 ⇒ 改本檔的常數**不會讓它們紅**。要收要等 A2 一起改。
- * ⚠️ **SQL 那一份也綁不住** —— migration `admin_order_list_v` 的 CASE 是另一份字面,
- *    TS 型別管不到它。**綁它的守門要等 A2**(拿 view 的實際輸出對這四值)。
- *    在那之前**不要宣稱「三處同源」**,只能說 TS 兩處同源。
+ * ✅ **A2 已收:`orders-table.test.tsx` 原本三處手寫四值,現已改吃 `ORDER_GOODS_AXIS_VALUES`**
+ *    ⇒ 本檔常數少一個值,那三格會當場紅(實測:改常數 → 八值斷言紅)。
+ * 🔴 **SQL 那一份仍然綁不住,而且 A2 沒有做到** —— migration `admin_order_list_v` 的 CASE 是另一份字面,
+ *    TS 型別管不到它。**A1 當時說「守門要等 A2」,A2 評估後改判:那道守門要連線才驗得到、進不了 CI**
+ *    ⇒ **不是做了,是改判成缺口並立案:`#498`**(裡面列了三條候選修法)。
+ *    ⇒ 仍然**不要宣稱「三處同源」**,只能說 TS 兩處同源 + SQL 那份是人工比對過的(2026-08-14)。
  * ⚠️ **片 A1 當下這個型別還沒有消費端** —— 它先落地是為了讓 migration 的 `goods_axis` 四值
  *    在 TS 這一側有一個唯一權威。接上篩選軸(`AdminOrderFilter.goodsAxes`)是**片 A2**,
  *    那一片才會同時改 `buildOrderListHref` 的窮舉守門(A1 加欄位會讓它紅 —— 實測 TS2741,
@@ -241,17 +242,39 @@ export type OrderGoodsAxis = (typeof ORDER_GOODS_AXIS_VALUES)[number];
 /**
  * AdminOrderFilter: 後台訂單列表雙軸 + 次要篩選(value-object;全欄可選、缺 = 不限)。
  *
- * 主雙軸 = `paymentStatus` × `fulfillmentStatus`(營運最常查「已付未出」);
+ * 主雙軸 = `paymentStatus` × `goodsAxes`(營運最常查「已付未出」)。
+ * ⚠️ **`#484a` A2 起第二軸不再是 `fulfillmentStatus`** —— 那個欄位已從本型別移除(見下方退場註記),
+ *    寫在這裡是因為上一版 docstring 指著它,而讀的人會去找一個不存在的欄位。
  * 次要 = `orderSource` / `paymentChannel`。全部走 DB where 下推(server 端篩選、非前端過濾)。
  * (對比會員側 `OrderStatusFilter` 只有雙軸;admin 多來源/管道兩軸、故另立型別、不擴會員側。)
  */
 export type AdminOrderFilter = {
   paymentStatus?: PaymentStatus;
-  fulfillmentStatus?: FulfillmentStatus;
+  /**
+   * 貨品軸多勾選(`#484a` 片 A2;undefined/空陣列=不限、多值=OR〔IN〕)。
+   *
+   * 🔴 **這一軸取代了 `fulfillmentStatus`,而那不是重構、是修一個正在騙人的篩選器**:
+   *    `orders.fulfillment_status` 這一欄在正式站**13/13 全是 `notOrdered`、從來沒有被推進過**
+   *    (`#488`)⇒ 員工選「已到貨」得到的零筆**不是「沒有這種單」,是那一欄沒人寫**。
+   *    現在改篩 `admin_order_list_v.goods_axis` —— 由品項層的數量摘要在 SQL 內即時彙總,
+   *    與畫面上狀態膠囊(`orderGoodsAxis()`)**同一套判序**。
+   * 🔴 **值不是 `FulfillmentStatus`**:四值是 `none/ordered/instock/shipped`
+   *    (對照舊軸 `notOrdered/ordered/inStock/shipped` —— 第一與第三個字面**不同**,
+   *    照抄舊 URL 參數值會全部篩不到)。
+   * ⚠️ 現行 producer(單選下拉)只會給 0 或 1 個值;複選是片 B 的 chip UI。
+   *    型別先做成陣列是照 plan 的字面(`docs/specs/2026-08-14-484a-order-goods-axis-view-plan.md:59`
+   *    的檔案表逐字「多值,與既有 `orderSources` 同形」;§7b 只說它**不在 A1**、沒說形狀),不是預留抽象。
+   */
+  goodsAxes?: readonly OrderGoodsAxis[];
   /** 來源多勾選(D-1b;undefined/空陣列=不限、多值=OR〔IN〕)。 */
   orderSources?: readonly OrderSource[];
   /** 管道多勾選(D-1b;同上)。 */
   paymentChannels?: readonly PaymentChannel[];
+  // `#484a` 片 A2:`fulfillmentStatus` **已移除**(不是忘了列)—— 篩選改走上面的 `goodsAxes`。
+  // 留著會讓「把某個舊 filter 物件塞回去」看起來仍然有效,而它篩的是那一欄從沒被寫過的值
+  // ⇒ 症狀是**零筆**,而零筆與「真的沒有這種單」長得一模一樣(同下面兩條退場的理由)。
+  // ⚠️ `orders.fulfillment_status` **欄位本身沒有動**:列表投影仍撈它、明細頁仍顯示它
+  // (`order-detail.tsx` 的「出貨狀態」欄),本片只是**不再靠它篩**。要不要一起修/退場 = `#488`。
   // M-4b E10 A9w3(九碼契約收縮):`workflowStatuses` 已移除 —— 篩選 UI 與 URL 參數在 A9w2 下架
   // (零 producer),adapter 的 `order_items!inner` 下推同片一併移除(零 consumer)。
   // 型別留著會讓「把某個舊 filter 物件塞回去」看起來仍然有效,而實際上不會篩到任何東西。

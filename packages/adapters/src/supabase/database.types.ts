@@ -179,6 +179,29 @@
 //   Insert / Update 型別(CLI 依 view 可更新性判定)。已實查:三者的消費端全是 .select() 讀路徑,
 //   寫入一律走 base products 表(SupabaseProductAdapter 註解逐字「save 走 base products 表」)⇒ 移除無影響,
 //   由 typecheck 把關。若日後真要寫 view,先確認 view 可更新性再處理,勿手動補型別。
+//
+// ── 2026-08-14 重 gen(#484a 片 A2)——三件要知道的 ─────────────────────────────
+// ① 🔴 **這次重 gen 服務的不只一條線**:除了 `admin_order_list_v`(#484a、E 線),
+//    同時帶進 `order_item_procurement` 的 `void_reason` / `voided_at`(**#452 甲片、V 線**)。
+//    ⇒ 看到本檔變動時不要只對照 #484a 的 diff。
+//    ✅ `#489` 的兩個結案動作**本片都做了**:①`order_item_procurement.Row` 實查 **17 欄**、
+//    兩欄都在(數法用 `#489` 自己寫的 awk)②`mappers/order-procurement.ts` 的兩欄已從交集側
+//    **搬回 `Pick<>`**、還債註解已刪 ⇒ **這一刻起改 DB 的可空性真的會有一格轉紅**。
+//    (只做①不做② = 「有 typecheck 保護」這句話是假的 —— 消費端還是手寫的。)
+// ② ⚠️ **`graphql_public` schema 整段從生成輸出消失了**(舊檔 `:196-220`,CLI v2.98.1 產不出來)。
+//    落筆當下實查:**TS/TSX 消費端 0 命中**(`grep -rn graphql_public --include='*.ts' --include='*.tsx'`
+//    排除本檔)⇒ 移除無影響。
+//    ⚠️ **不要寫成「grep 0 命中」** —— 全 repo 純文字 grep 實得 **6 命中**(`.claude/settings.json`、
+//    兩份 docs、一支 migration 等散文提及)。0 的是**程式碼消費端**,不是字串出現次數;
+//    寫成前者會讓下一個人以為 grep 是空的,而他一跑就看到 6 筆、然後不知道該信哪一句。
+//    若日後要用 pg_graphql,重 gen 也不會把它帶回來 —— 那時要先查 CLI 的 `--schema` 旗標,別手貼。
+// ③ **上面 26 處校正這次是用腳本貼回、且有機械驗證**,不是逐處手貼:
+//    把「貼回後的檔」與「原始生成檔」**各自去掉註解行再 diff**,結果**必須恰好是那 26 處 `| null`、
+//    不能多也不能少**(2026-08-14 實跑:恰 26,與上方「唯一權威」計數逐字對上)。
+//    🔴 這道驗證的價值在於它**分得出「貼漏了」與「簽章真的變了」** —— 腳本在貼之前先比對
+//    「兩邊只差註解與 `| null`」,差到別的東西就中止;直接貼回去會讓「DB 簽章變了」變成看不見的事。
+//    ⚠️ 但它**驗不到**「這 26 處本身還對不對」:那要靠呼叫端 typecheck,而檔頭只點名 ①②③④⑤
+//    漏貼會紅在哪 —— ⑥⑦⑧⑨⑩ 有沒有呼叫端守著,**沒有人驗過**。
 export type Json =
   | string
   | number
@@ -192,31 +215,6 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
-  }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
   }
   public: {
     Tables: {
@@ -588,6 +586,13 @@ export type Database = {
             foreignKeyName: "email_outbox_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
           },
@@ -699,6 +704,13 @@ export type Database = {
             foreignKeyName: "order_cancellations_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
           },
@@ -721,6 +733,8 @@ export type Database = {
           supplier_id: string
           supplier_order_no: string | null
           supplier_order_no_upper: string | null
+          void_reason: string | null
+          voided_at: string | null
         }
         Insert: {
           allocated_quantity: number
@@ -738,6 +752,8 @@ export type Database = {
           supplier_id: string
           supplier_order_no?: string | null
           supplier_order_no_upper?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
         }
         Update: {
           allocated_quantity?: number
@@ -755,6 +771,8 @@ export type Database = {
           supplier_id?: string
           supplier_order_no?: string | null
           supplier_order_no_upper?: string | null
+          void_reason?: string | null
+          voided_at?: string | null
         }
         Relationships: [
           {
@@ -936,6 +954,13 @@ export type Database = {
             foreignKeyName: "order_items_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
           },
@@ -981,6 +1006,13 @@ export type Database = {
           terms_version?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "order_legal_consents_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "order_legal_consents_order_id_fkey"
             columns: ["order_id"]
@@ -1038,6 +1070,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "order_notes"
             referencedColumns: ["id", "order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "order_notes_order_id_fkey"
@@ -1109,6 +1148,13 @@ export type Database = {
             columns: ["actor"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
             referencedColumns: ["id"]
           },
           {
@@ -1458,6 +1504,13 @@ export type Database = {
             foreignKeyName: "order_refunds_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
             referencedColumns: ["id"]
           },
@@ -1709,7 +1762,21 @@ export type Database = {
             foreignKeyName: "payment_charge_attempts_order_id_fkey"
             columns: ["order_id"]
             isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_charge_attempts_superseded_by_order_id_fkey"
+            columns: ["superseded_by_order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
             referencedColumns: ["id"]
           },
           {
@@ -1788,6 +1855,13 @@ export type Database = {
             columns: ["old_attempt_id"]
             isOneToOne: true
             referencedRelation: "payment_charge_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
             referencedColumns: ["id"]
           },
           {
@@ -2056,6 +2130,13 @@ export type Database = {
           status?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "pending_invoices_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: true
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "pending_invoices_order_id_fkey"
             columns: ["order_id"]
@@ -2619,6 +2700,144 @@ export type Database = {
       }
     }
     Views: {
+      admin_order_list_v: {
+        Row: {
+          address_id: string | null
+          cancelled_at: string | null
+          cancelled_reason: string | null
+          cart_session_id: string | null
+          created_at: string | null
+          customer_user_id: string | null
+          discount_total: number | null
+          display_id: string | null
+          display_position: number | null
+          fulfillment_status:
+            | Database["public"]["Enums"]["fulfillment_status"]
+            | null
+          goods_axis: string | null
+          id: string | null
+          invoice: Json | null
+          invoice_amount: number | null
+          invoice_number: string | null
+          invoice_status: string | null
+          legacy_display_id: string | null
+          notification_email: string | null
+          order_source: string | null
+          paid_at: string | null
+          payment_channel: string | null
+          payment_method: string | null
+          payment_status: Database["public"]["Enums"]["payment_status"] | null
+          shipping_address_snapshot: Json | null
+          shipping_fee: number | null
+          shipping_free_threshold: number | null
+          shipping_home_fee: number | null
+          shipping_method: string | null
+          shipping_method_at_checkout: string | null
+          subtotal: number | null
+          tappay_rec_trade_id: string | null
+          tier_at_checkout: Database["public"]["Enums"]["member_tier"] | null
+          total: number | null
+          updated_at: string | null
+          version: number | null
+          workflow_status: string | null
+        }
+        Insert: {
+          address_id?: string | null
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
+          cart_session_id?: string | null
+          created_at?: string | null
+          customer_user_id?: string | null
+          discount_total?: number | null
+          display_id?: string | null
+          display_position?: number | null
+          fulfillment_status?:
+            | Database["public"]["Enums"]["fulfillment_status"]
+            | null
+          goods_axis?: never
+          id?: string | null
+          invoice?: Json | null
+          invoice_amount?: number | null
+          invoice_number?: string | null
+          invoice_status?: string | null
+          legacy_display_id?: string | null
+          notification_email?: string | null
+          order_source?: string | null
+          paid_at?: string | null
+          payment_channel?: string | null
+          payment_method?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+          shipping_address_snapshot?: Json | null
+          shipping_fee?: number | null
+          shipping_free_threshold?: number | null
+          shipping_home_fee?: number | null
+          shipping_method?: string | null
+          shipping_method_at_checkout?: string | null
+          subtotal?: number | null
+          tappay_rec_trade_id?: string | null
+          tier_at_checkout?: Database["public"]["Enums"]["member_tier"] | null
+          total?: number | null
+          updated_at?: string | null
+          version?: number | null
+          workflow_status?: string | null
+        }
+        Update: {
+          address_id?: string | null
+          cancelled_at?: string | null
+          cancelled_reason?: string | null
+          cart_session_id?: string | null
+          created_at?: string | null
+          customer_user_id?: string | null
+          discount_total?: number | null
+          display_id?: string | null
+          display_position?: number | null
+          fulfillment_status?:
+            | Database["public"]["Enums"]["fulfillment_status"]
+            | null
+          goods_axis?: never
+          id?: string | null
+          invoice?: Json | null
+          invoice_amount?: number | null
+          invoice_number?: string | null
+          invoice_status?: string | null
+          legacy_display_id?: string | null
+          notification_email?: string | null
+          order_source?: string | null
+          paid_at?: string | null
+          payment_channel?: string | null
+          payment_method?: string | null
+          payment_status?: Database["public"]["Enums"]["payment_status"] | null
+          shipping_address_snapshot?: Json | null
+          shipping_fee?: number | null
+          shipping_free_threshold?: number | null
+          shipping_home_fee?: number | null
+          shipping_method?: string | null
+          shipping_method_at_checkout?: string | null
+          subtotal?: number | null
+          tappay_rec_trade_id?: string | null
+          tier_at_checkout?: Database["public"]["Enums"]["member_tier"] | null
+          total?: number | null
+          updated_at?: string | null
+          version?: number | null
+          workflow_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_address_id_fkey"
+            columns: ["address_id"]
+            isOneToOne: false
+            referencedRelation: "customer_addresses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       customer_wallet_balance_check: {
         Row: {
           computed_balance: number | null
@@ -3521,9 +3740,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       fulfillment_status: ["notOrdered", "ordered", "inStock", "shipped"],

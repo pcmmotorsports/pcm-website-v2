@@ -198,7 +198,7 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
   //    「多值軸被漏帶」那個突變就構造不出來了(空陣列的多值軸是恆真格)。
   const filter: AdminOrderFilter = {
     paymentStatus: 'paid',
-    fulfillmentStatus: undefined,
+    goodsAxes: undefined,
     orderSources: ['web'],
     paymentChannels: ['tappay'],
     includeUnpaidCardOrders: true,
@@ -410,7 +410,9 @@ describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給�
           customerName: null,
           createdAt: '2026-08-10T00:00:00.000Z',
           paymentStatus: 'paid',
-          fulfillmentStatus: 'pending',
+          // `notOrdered` 不是 `'pending'`:後者不在 `FulfillmentStatus` 四值裡,
+          // 靠 mock 的鬆型別才過得去(既存問題,順手修)。
+          fulfillmentStatus: 'notOrdered',
           orderSource: 'web',
           paymentChannel: 'tappay',
           cancelledAt: null,
