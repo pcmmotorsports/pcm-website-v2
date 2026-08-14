@@ -261,25 +261,14 @@ describe('🔴 #476 片2:同供應商「一作廢一生效」時,表單不得用
     });
   });
 
-  // 🔴 codex 關卡2 finding 9:片2 讓「停用供應商 × 走新建」多一條入口 ⇒ 一次修整條。
-  it('停用供應商 + 只剩作廢列 ⇒ 送出鈕停用(不給按了才被拒),文案講下一步', () => {
-    const { container } = setup({
-      procurements: [proc({ id: 'p-void', supplierId: SUP_B, voidedAt: '2026-08-10T00:00:00+00:00', voidReason: '缺料' })],
-    });
-    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
-      target: { value: SUP_B }, // SUP_B 在 CHOICES 裡 inactive: true
-    });
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-    expect(container.textContent).toContain('請先重新啟用它');
-  });
+  // 🔴 `#476` 片5:~~原本這裡有一格「停用供應商 + 只剩作廢列 ⇒ 鈕停用」~~ **已刪除,因為那個狀態不存在**
+  //    ——「已停用 × 只剩作廢列」的供應商從片3 起就不進選單(`procurement-suppliers.ts:56`),
+  //    它進不了選單就不可能被選到。那一格與下面 `停用供應商` describe 的那格本來也是重複的,
+  //    合併成一格、改寫成**真正走得到的那條路**(見該 describe)。
 
-  it('停用供應商但**有**生效列 ⇒ 鈕仍可按(更新紀錄欄本來就允許,不得誤擋)', () => {
-    const { container } = setup({ procurements: [proc({ supplierId: SUP_B })] });
-    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
-      target: { value: SUP_B },
-    });
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
-  });
+  // 🔴 `#476` 片5:~~這裡原本還有一格「狀態非啟用但有生效列 ⇒ 鈕仍可按」~~ **已刪除,它是重複格**
+  //    —— 定向突變 M2(`blockedInactiveNew` 拿掉 `&& !editing`)**同時紅它與下面 describe 那格**,
+  //    而那格的斷言嚴格覆蓋它(多驗一句文案)。坑集 ③:一發紅多格 ⇒ 後面那幾格沒有被額外證到。
 
   it('這家只剩作廢列 ⇒ 鈕是「新增採購」而不是「更新這筆採購」(Q-S1=A 允許重下單)', () => {
     const { container } = setup({ procurements: [VOIDED] });
@@ -336,31 +325,55 @@ describe('🔴 #476 片2:同供應商「一作廢一生效」時,表單不得用
   });
 });
 
-describe('ItemProcurementForm — 停用供應商', () => {
-  it('停用的仍在選單、標記「已停用」', () => {
+describe('ItemProcurementForm — 狀態非啟用的供應商(inactive 選項)', () => {
+  // ⚠️ 本 describe 只測**表單拿到一個 `inactive: true` 的選項之後怎麼表現**;
+  //    「誰會被標成 inactive、誰進不了選單」是 `buildSupplierChoices` 的事,
+  //    釘在 `procurement-view.test.ts:91-141` 與 `item-procurement-section.test.tsx:479,492`。
+  //    (兩邊刻意分檔:`procurement-suppliers.ts:7-9` —— 它拉 server-only,jsdom 測試不能 import。)
+  it('選項文字把 inactive 標成「已停用」', () => {
     const { container } = setup();
     const options = [...container.querySelectorAll('option')].map((o) => o.textContent);
     expect(options).toContain('Webike JP(已停用)');
   });
 
-  // 🔴 **本格的期望被 `#476` 片2 改過,是刻意的,不是遷就紅燈。**
-  //    原本:選到停用供應商 → 一律顯示「可以更新紀錄欄,但不能新建採購」。
-  //    問題:這個 setup 的 `procurements` 只有 SUP_A 的列 ⇒ 選 SUP_B 時**根本沒有東西可以更新**,
-  //    那句話對員工說了一個他做不到的選項,而旁邊還擺著一顆按下去必被 A5a 拒絕的「新增採購」。
-  //    ⇒ 片2 把「停用 × 走新建」這個組合改成**擋在按下之前 + 文案講下一步**(見元件 `blockedInactiveNew`)。
-  //    「有生效列時仍可更新紀錄欄」那半沒變,由下面那格與 `#476` 片2 那組守著。
-  it('選到停用的、且沒有可更新的生效列 → 講清楚只能新建而新建被擋,並給下一步', () => {
-    const { container, getByText } = setup();
-    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
-      target: { value: SUP_B },
+  // 🔴🔴 **`#476` 片5:本格的名字與 fixture 被改過 —— 舊的那個狀態不存在。**
+  //    舊名逐字「選到**停用**的、且沒有可更新的生效列」,而 `inactive: true × 沒有生效列`
+  //    現在**只有 `supplierIsActive === null`(供應商內嵌沒回來)走得到**
+  //    (枚舉見元件 `item-procurement-form.tsx` 的 `blockedInactiveNew` docstring;
+  //     `=== false` 那半被片3 `procurement-suppliers.ts:56` 移出選單,釘在
+  //     `item-procurement-section.test.tsx:479`)。
+  //    ⇒ 舊名宣稱守著「已停用 × 新建」,事實上守的是「狀態不明 × 新建」= **字面比事實寬**。
+  //    ⚠️ fixture 的 `supplierIsActive: null` 是**共同可產生性的宣告**:表單自己不讀這個欄位
+  //    (它只看 `supplierChoices` 的 `inactive`),但寫成 `false` 的話這組
+  //    (procurements, choices) 就是 `buildSupplierChoices` 產不出來的一對。
+  it('🔴 供應商狀態不明(內嵌沒回來)× 沒有生效列 ⇒ 鈕停用、文案不得把「已停用」講成原因', () => {
+    const { container, getByText } = setup({
+      procurements: [
+        proc({
+          id: 'p-void',
+          supplierId: SUP_B,
+          supplierLabel: 'Webike JP',
+          supplierIsActive: null,
+          voidedAt: '2026-08-10T00:00:00+00:00',
+          voidReason: '缺料',
+        }),
+      ],
     });
-    expect(getByText(/停用的供應商不能新建/)).toBeTruthy();
-    expect(getByText(/請先重新啟用它/)).toBeTruthy();
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_B }, // SUP_B 在 CHOICES 裡 inactive: true
+    });
     expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+    expect(getByText(/現在不能新開採購/)).toBeTruthy();
+    expect(getByText(/確認這家是不是被停用了/)).toBeTruthy(); // 下一步照舊要講(操作直覺化)
+    // 🔴 反向釘死:不得再把「已停用」當成這條路的**原因**斷言出去
+    expect(container.textContent).not.toContain('這家供應商已停用,');
+    expect(container.textContent).not.toContain('請先重新啟用它');
   });
 
-  it('選到停用的、但**有**生效列 → 仍是舊那句(可更新紀錄欄),鈕可按', () => {
-    const { container, getByText } = setup({ procurements: [proc({ supplierId: SUP_B })] });
+  it('狀態非啟用、但**有**生效列 → 仍是舊那句(可更新紀錄欄),鈕可按', () => {
+    const { container, getByText } = setup({
+      procurements: [proc({ supplierId: SUP_B, supplierIsActive: false })],
+    });
     fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
       target: { value: SUP_B },
     });

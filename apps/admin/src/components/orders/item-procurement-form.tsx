@@ -227,6 +227,15 @@ export function ItemProcurementForm({
    * ⚠️ **既有缺陷、不是片2 造成的**(片2 之前「停用 × 這家從沒採購過」就已一邊寫「不能新建」
    * 一邊給一顆按得下去的鈕);片2 讓它多一條入口(只剩作廢列時 `editing` 翻 false)
    * ⇒ 一次修整條,不只修我加寬的那半。(codex 關卡2 finding 9)
+   *
+   * 🔴🔴 **`#476` 片5:這一格現在唯一走得到的路 = `supplierIsActive === null`(供應商內嵌沒回來)。**
+   * 枚舉 `procurement-suppliers.ts:32-63` 的兩個迴圈即得,`inactive === true` 只可能來自 procurements
+   * 那圈(`:62` `inactive: p.supplierIsActive !== true`;activeSuppliers 那圈恆 `false`),
+   * 而 `!editing` 要求這家**沒有生效列**⇒ 它的列全是作廢的 ⇒ 片3 的 `:56`
+   * (`voidedAt != null && supplierIsActive === false` ⇒ `continue`)把 `false` 那半整個移出選單了
+   * (該行為由 `item-procurement-section.test.tsx:479` 釘住,**本片不得放寬它**)。
+   * ⇒ 剩下的只有 `null`。**故下面的文案不得斷言「已停用」當原因** —— 那是這條路上唯一講不出口的事。
+   * ⚠️ 另一半 `chosen.inactive && editing`(有生效列)**照舊兩種原因都走得到**,文案不動。
    */
   const chosen = supplierChoices.find((c) => c.id === selectedSupplier);
   const blockedInactiveNew = chosen?.inactive === true && !editing;
@@ -363,7 +372,7 @@ export function ItemProcurementForm({
         {chosen?.inactive && (
           <span className='mr-auto text-xs text-amber-700'>
             {blockedInactiveNew
-              ? '這家供應商已停用,而且這個品項目前沒有生效中的採購 ⇒ 只能新建,而停用的供應商不能新建。要對這家下單請先重新啟用它。'
+              ? '這家供應商現在不能新開採購,而這個品項也沒有生效中的採購可以更新。請先重新整理這一頁;若還是這樣,到供應商管理確認這家是不是被停用了。'
               : '這家供應商已停用:可以更新紀錄欄,但不能新建採購、也不能調高訂購數量。'}
           </span>
         )}
