@@ -13045,6 +13045,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   4. `supabase/migrations/20260805170000_m4b_e10_b2_s1a1_shipments.sql:120-125`
      —— CHECK `shipments_recipient_snapshot_shape` 只驗「物件 + 恰三鍵 + `m3_jsonb_values_all_string`」。
      🔴 **`''` 是 string ⇒ 過關。CHECK 保證的是鍵存在,不保證值有內容。**
+     ⚠️ **這句是讀函式本體確認的、不是照名字推的**(修這條的人會需要知道它到底做什麼):
+     `m3_jsonb_values_all_string`(`20260604120000_m3_s2a_orders_order_items.sql:73-87`)的本體是
+     「逐個 top-level value 檢查 `jsonb_typeof(v) <> 'string'` 就回 false」——
+     **它管的是型別、完全不看長度**,空字串是合法的 JSON string scalar。
+     ⇒ 修法②(收嚴 CHECK)**不能只換這支函式的呼叫方式**,要另外加一條非空判斷。
 - **🔴 不修未來會痛在哪(鐵則 10):**
   1. **出貨單印出來沒有收件人,而員工會真的拿去寄。** `#10` 片2b 那張紙就是印這個欄位。
      (片2b 會自己判空 fail-closed,但那是**下游擋**,不是把洞補起來 —— 下一個下游還會再踩一次。)
