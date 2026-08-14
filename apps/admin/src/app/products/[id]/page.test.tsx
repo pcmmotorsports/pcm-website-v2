@@ -87,12 +87,39 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     // `updated_at = 2026-08-10T02:00:00Z` ⇒ 台北 08-10 10:00。
     expect(text).toContain('2026-08-10 10:00');
 
-    // 🔴 這格的判別力靠「測試程序自己不在台北時區也會紅」——
-    //    本機 TZ=Asia/Taipei 時,沒釘時區的實作也會湊巧給對答案。
-    //    所以額外釘死格式字面(`YYYY-MM-DD HH:mm`):改回 `toLocaleString('zh-TW')`
-    //    會印成 `2026/8/1 上午10:00:00`,上面三條會全紅。
+    // 格式字面也釘住(`YYYY-MM-DD HH:mm`):改回 `toLocaleString('zh-TW')` 會印成
+    // `2026/8/1 上午10:00:00`。⚠️ **這兩條只擋格式,不擋時區** —— 見下一格。
     expect(text).not.toContain('上午');
     expect(text).not.toContain('2026/8/1');
+  });
+
+  it('🔴 R2 MF2:執行環境在 UTC 時仍印台北時間(唯一能證明 timeZone 有效的一格)', async () => {
+    // ⚠️ **上一格對「沒釘 timeZone」零判別力,我 R1 折的時候寫反了。**
+    //    `vitest.config.ts:64` 把 `env: { TZ: 'Asia/Taipei' }` 釘死在所有測試上
+    //    ⇒ 我當時寫的「測試程序自己不在台北時區也會紅」**永遠不會發生**。
+    //    實測:不帶 `timeZone` 的 `toLocaleDateString('en-CA')` + `toLocaleTimeString('en-GB',…)`
+    //    在 Taipei 下輸出 `2026-08-01 10:00` —— **與正確實作逐字相同、五條斷言全綠**。
+    //    🔴 病根:**判別力要對著「壞實作」量,不能對著「好實作」量** ——
+    //    我為了修一個恆綠格,做出了另一個恆綠格。
+    //    形狀照抄屋內既有解(`lib/orders/payment-list-view.test.ts:96-107`),不自己想新寫法。
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+
+    vi.stubEnv('TZ', 'UTC');
+    try {
+      // 前置斷言:先確認 stub 真的改到執行期時區 —— 沒改到的話下面那句在台北下恆綠,
+      // 又是一個「偵測器根本沒吐東西」的假綠。
+      expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('UTC');
+      const { container } = await renderPage();
+      const text = container.textContent ?? '';
+      // 🔴 這一條是「`formatOrderDateTime` 裡那兩行 `timeZone` 消失就會紅」的唯一憑據。
+      expect(text).toContain('2026-08-01 10:00');
+      expect(text).not.toContain('2026-08-01 02:00');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    // 收尾也驗:時區有還原,否則本檔後面的格子會在 UTC 下跑。
+    expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('Asia/Taipei');
   });
 
   it('🔴 驗收 2:已下架的商品進得去,而且狀態顯示「已下架」(不是 404)', async () => {

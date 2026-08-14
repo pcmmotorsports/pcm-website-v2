@@ -46,7 +46,7 @@
 ### 1.2 **不顯示**(硬清單,由測試釘死)
 `price_store`(經銷價)、`price_by_tier`(內含 `store` / `premiumStore` 兩個經銷價 key)、`cost`、`metadata`。
 
-片1a 的守門(`product-repository.test.ts:71`)實際釘的是 **4 個 token**:
+片1a 的守門實際釘的是 **4 個 token**:
 `price_store` / `price_by_tier` / `cost` / **`supplier_slug`** —— **`metadata` 不在裡面。**
 ⇒ 本片對這份清單做兩件事:**移出 `supplier_slug`**(§5-N2)、**補進 `metadata`**
 。淨結果:禁字仍是 4 個。
@@ -80,7 +80,10 @@
 
 ## 3. 驗收條件(每條可 yes/no,不可寫「應該會過」)
 
-1. `/products/[id]` 用列表上任一列的 id 進得去,§1.1 九個區塊的欄位都看得到。
+1. `/products/[id]` 用列表上任一列的 id 進得去,§1.1 **九個區塊**的欄位都看得到。
+   🔴 **這條在 1b-1 只達成六個區塊,不是九個**(R2 MF3):內容 / 適用 / 媒體三個區塊、
+   共七欄(`description`/`highlights`/`fitments`/`images`/`video_url`/`manuals`/`sound_clips`)
+   **在 1b-2 才做**。⇒ **驗收 1 = 部分達成,1b-2 完成前不得宣稱它過了。**
 2. **已下架的商品也進得去**,而且狀態欄顯示「已下架」(不是 404 —— 後台存在的理由之一就是把它撈回來)。
 3. 非 UUID 的 id → **404,且不打 DB**(鏡像 `app/customers/[id]/page.tsx:22-25`)。
 4. 查無此商品 → 404;**讀取失敗 → 錯誤態 200**,DB error 字面不外洩到畫面(鏡像 `customers/[id]` 的兩路分流)。
@@ -89,10 +92,20 @@
    ⚠️ **本條第一版寫錯了,而且錯在「會漏經銷價」的方向。** 原句寫「四個 token 零命中、遞迴掃兩個目錄樹
    ⇒ 本片新檔一落地就自動被納入,**不需要改守門清單**」——**那是把兩道守門併成一道在講。** 實際:
 
-   | 守門 | 掃描範圍 | 禁的 token |
+   ⚠️ **下表寫的是「片1a 當時」的狀態,不是現況** —— 現況見其下的「折完之後」。
+   🔴 **本表刻意不再寫 `檔案:行號`**(R2 nit-c):第一版寫的六個行號,在同一片後續往那支測試檔
+   插了 44 行之後**整組過期**。plan 引用**同一片正在改的檔**的行號 = 保證會過期的字面。
+   要看實況請直接開 `apps/admin/src/lib/products/product-repository.test.ts`
+   (數法:`grep -n "驗收 4\|驗收 5\|^const .*_TOKENS\|^const .*_ROOTS\|^const REPO_FILE"`)。
+
+   | 片1a 當時的守門 | 掃描範圍 | 禁的 token |
    |---|---|---|
-   | 驗收 4(`product-repository.test.ts:58`) | **只有 `REPO_FILE` 一支檔**(`:21`) | `price_store`/`price_by_tier`/`cost`/`supplier_slug`(`:71`) |
-   | 驗收 5(`:76`) | ✅ 遞迴掃 `CONSUMER_ROOTS`(`:32`) | **只有 `price_general`/`delisted_at`**(`:93`) |
+   | 驗收 4 | **只有 `REPO_FILE` 一支檔** | `price_store`/`price_by_tier`/`cost`/`supplier_slug` |
+   | 驗收 5 | ✅ 遞迴掃 `CONSUMER_ROOTS` | **只有 `price_general`/`delisted_at`** |
+
+   **折完之後(片1b-1 + R1 + R2)**:驗收 4 = 單掃 repository、字集 `LEAK`+`REPO_ONLY`;
+   **驗收 4b = 遞迴掃 `lib/products`**、同一組字集;驗收 5 = 遞迴掃消費面、字集 `DESIGN`+`LEAK`
+   **外加 `createSupabaseServiceClient` 零命中(含正向對照)**。
 
    ⇒ **遞迴的那道根本沒在掃經銷價** ⇒ 詳情頁印了 `price_store` **現行沒有任何一格會紅**。
 
@@ -197,8 +210,10 @@
 
 
 
-- **片1b-1 ✅ 已完工**(commit `d7ea56a2` + R1 folds):路由 + id 守門 + 404/錯誤態分流 +
-  標題/識別/分類/狀態/售價/時間六個區塊 + 列表可點進來。→ 驗收 1-5、7、8。
+- **片1b-1 ✅ 已完工**(commit `d7ea56a2` + R1/R2 folds):路由 + id 守門 + 404/錯誤態分流 +
+  標題/識別/分類/狀態/售價/時間**六個區塊** + 列表可點進來。
+  → 驗收 **2、3、4、5、7、8 全達成;驗收 1 只達成六/九個區塊**(R2 MF3:上一次折把「建議先做」
+  升格成「已完工 → 驗收 1-5」,而驗收 1 的字面是九個區塊 ⇒ **同一份檔內自相矛盾**,已改)。
 - **片1b-2(未開工)**:內容與媒體(`description`/`highlights`/`fitments`/`images`/`video_url`/
   `manuals`/`sound_clips`)+ **圖片同步警語**。→ **驗收 6**。
   🔴 **驗收 6 那句「圖片來自每日同步,改了會被蓋回去」現在還不存在** —— 1b-1 過了不代表它被涵蓋。

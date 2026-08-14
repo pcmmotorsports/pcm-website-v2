@@ -37,7 +37,12 @@ function availabilityLabel(raw: string): string {
  * `formatOrderDateTime` 名字帶 order,但本體零訂單語意、零 `server-only`、零 `@/`
  * ⇒ 直接重用;**改名/搬家不是這片的事**,不順手擴張範圍。
  */
-function formatTime(raw: string): string {
+export function formatTime(raw: string): string {
+  // 🔴 **R2 nit-g:這個 NaN 分支今天走不到** —— `created_at`/`updated_at` 是
+  //    `NOT NULL timestamptz`(`20260507004826:37-38`)⇒ 拿不到爛字串。
+  //    留著 + 補一格直接測它(下方 export 就是為了讓那格構造得出來),因為它零成本,
+  //    而 1b-2 要顯示的 `video_url` 之類欄位**沒有**同樣的 NOT NULL 保護。
+  //    **但不假裝它被觸發過** —— 它是「有測試在守的防禦」,不是「已知會發生的路徑」。
   return Number.isNaN(Date.parse(raw)) ? raw : formatOrderDateTime(raw);
 }
 

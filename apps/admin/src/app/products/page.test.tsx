@@ -117,7 +117,11 @@ describe('/products 列表(#20 片1a)', () => {
   it('N-b 反面對照:更大的輸入會算出不安全整數 —— 上界確實不存在,不是我沒測到', async () => {
     mocks.list.mockResolvedValue({ items: [], total: 0 });
     await renderPage({ page: '99999999999999999' });
+    // 🔴 前提斷言(R2 nit-b):沒有這條,`mocks.list` 沒被呼叫時 `offset === undefined`,
+    //    而 `Number.isSafeInteger(undefined) === false` **照樣過** ⇒ 整格恆綠。
+    expect(mocks.list).toHaveBeenCalled();
     const offset = mocks.list.mock.calls[0]?.[1];
+    expect(typeof offset).toBe('number');
     // 🔴 這格**故意斷言「不安全」** —— 把已知缺口釘成事實,而不是留一句樂觀的測試名。
     //    哪天有人加了上界,這格會紅,那時再把它改掉(紅了才會有人想起這件事)。
     expect(Number.isSafeInteger(offset)).toBe(false);

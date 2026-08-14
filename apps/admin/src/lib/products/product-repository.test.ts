@@ -184,6 +184,12 @@ describe('#20 片1a — 讀取層守門', () => {
       });
     }
 
+    // 🔴 **正向對照(R2 nit-d)**:上面那條是「零命中」型斷言 ⇒ `@pcm/adapters/server` 哪天把
+    //    `createSupabaseServiceClient` 改名,禁令會**靜默變恆綠**(掃一個沒人再用的字面)。
+    //    這條證明那個字面此刻**真的是取數的入口**、掃的是活的東西。
+    const repoCode = stripComments(readFileSync(REPO_FILE, 'utf8'));
+    expect(repoCode.includes('createSupabaseServiceClient')).toBe(true);
+
     // 🔴 **反面對照只釘在表格上,而且要說清楚為什麼不釘頁面。**
     //    第一版我對兩個檔都要求「必須用到那兩支具名函式」,**跑起來紅了** ——
     //    `page.tsx` 根本不顯示售價/狀態(那是 `ProductsTable` 的職責)⇒ 它對那兩欄的禁令
@@ -217,16 +223,22 @@ describe('#20 片1a — 讀取層守門', () => {
     // 🔴 反面:真程式碼不得被剝掉,否則上面兩格會變成「什麼都掃不到」的假綠。
     expect(stripComments('const c = row.price_general;')).toContain('price_general');
 
-    // 🔴 **共用版的兩個已知上限,釘成事實而不是寫成註解**(code-reviewer R1 N-g)。
-    //    兩者都是「剝過頭 ⇒ 該掃到的字消失 ⇒ 假綠」,不是漏剝。**不改實作**
-    //    (共用版對片1a 版仍是嚴格變強),但要有人記得它們存在 —— 哪天真被踩到,
-    //    這兩格會逼下一個人來讀這段,而不是讓他重新發現一次。
-    //    ① protocol-relative URL(`//cdn/...`)被當行註解,整行後半消失:
-    expect(stripComments("const u = '//cdn/x/price_store';")).not.toContain('price_store');
-    //    ② 字串裡有 `/*`、後面某處又有 `*/` ⇒ 中間的真程式碼被整段吃掉:
-    expect(stripComments("const a = '/*'; const b = row.price_store; const c = '*/';")).not.toContain(
-      'price_store',
-    );
+  });
+
+  // 🔴 **共用版的兩個已知上限。這是「特徵測試」不是「規格」**(R1 N-g 提出,R2 nit-f 修正形狀)。
+  //
+  // ⚠️ R2 nit-f 指出我上一版把它們寫成一般斷言的問題:那是**修好就會紅**的格子 ——
+  //    有人哪天把 `strip-comments.ts:13` 補完(例如讓 `(?<!:)` 也擋 `//cdn`),
+  //    會看到紅並讀成「我造成回歸」。改用 `it.fails`:**行為修好時這格自己會紅**,
+  //    而紅的訊息會把人帶到這段字,他就知道**該做的事是刪掉這格**、不是回退他的修好。
+  it.fails('已知上限①:protocol-relative URL 被當行註解吃掉(修好了就刪這格)', () => {
+    expect(stripComments("const u = '//cdn/x/price_store';")).toContain('price_store');
+  });
+
+  it.fails('已知上限②:字串內的 /* … */ 會把中間真程式碼吃掉(修好了就刪這格)', () => {
+    expect(
+      stripComments("const a = '/*'; const b = row.price_store; const c = '*/';"),
+    ).toContain('price_store');
   });
 });
 
