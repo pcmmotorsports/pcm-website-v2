@@ -26,7 +26,14 @@
 
 ⇒ **RLS 在這裡是「誰看得到哪些列」,不是「哪些欄不能被改」。** 對乙案的鎖零貢獻。
 
-## 1b. 🔴 第七套:**欄級 GRANT** —— 而且它推翻我上一段剛寫的話
+## 1b. 🔴 第七套:**欄級 GRANT**
+
+> 🔴🔴 **給下一個讀這份檔的人:不要把第七套當成一層保護。**
+> 它**只約束 `pcm_reparse_owner` 這一個特殊角色**;fetcher 與所有維運腳本走的 `service_role`
+> 拿的是 `GRANT ALL`(`:7675`)= **整表全欄可寫,第七套對它零效力**。
+> **在「乙案新增鎖欄要同步哪幾套」這題上,第七套不算數。**
+
+以下是它推翻我上一段剛寫的話的部分:
 補掃 `GRANT ...(欄) ON TABLE public.products` 之後:`pcm_reparse_owner` 的 RLS 雖然 `WITH CHECK (true)`,
 但它**只拿到 9 個欄的 UPDATE**(`:7707,7715,7722,7729,7786,7821,7828,7835,7842`)=
 `brand` `model` `year_start` `year_end` `fitment_parsed` + `manually_corrected` `corrected_at` `corrected_by` `corrected_source_audit_id`。
