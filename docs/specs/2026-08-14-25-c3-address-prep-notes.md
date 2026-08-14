@@ -70,7 +70,7 @@ UI 要求:欄位標必填 + 一行說明「**沒有 Email 的地址,客人結帳
 
 ## 7. C3 檔案清單(暫估,待 plan 批准後定稿)
 
-`address-form.ts`(新,解析 + `ADDRESS_SINGLE_FIELDS`)· `address-actions.ts`(新,三個 action + state 型別)· `address-action-state.ts`(新,client 可 import、零 server import —— 照 `procurement-action-state.ts:3-4` 那條硬規則)· `address-edit-form.tsx`(新,client)· `customer-detail-sections.tsx`(接 `readOnly` + 掛表單)· `customer-detail.tsx`(傳 `readOnly`)· `apps/admin/package.json`(`@pcm/schemas` 若 C1 已加則免)· `address-form.test.ts`(新)= **7-8 檔**。
+`address-form.ts`(新,解析 + `ADDRESS_SINGLE_FIELDS`)· `address-actions.ts`(新,三個 action + state 型別)· `address-action-state.ts`(新,client 可 import、零 server import —— 照 `procurement-action-state.ts:3-4` 那條硬規則)· `address-edit-form.tsx`(新,client)· `customer-detail-sections.tsx`(接 `readOnly` + 掛表單)· `customer-detail.tsx`(傳 `readOnly`)· `apps/admin/package.json` **+ `pnpm-lock.yaml`**(兩者成對;**若 C1 已加則兩個都免** —— lockfile 這顆是 A 窗 M3 抓到 C1 漏算的,同一個坑寫在這裡免得 C3 再踩)· `address-form.test.ts`(新)= **7-8 檔**。
 🔴 **Q-C-3=B 之後,上面這張清單少了一支 migration**:「設預設 / 刪除」要走 **SECURITY DEFINER RPC 單交易**
 ⇒ 多一支 `supabase/migrations/<版本號>` (**版本號跟主視窗要,不自己編** —— 全域唯一資源)。
 

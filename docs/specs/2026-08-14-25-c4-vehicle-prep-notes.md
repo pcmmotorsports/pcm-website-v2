@@ -3,7 +3,11 @@
 > 讀過的檔(7 支):`schemas/src/index.ts`(§VehicleInput `:135-160`)`mappers/vehicle.ts:70-87` `SupabaseVehicleAdapter.ts:60-82` `_vehicle-primary.ts` `delete-vehicle.ts` `app/account/vehicle/actions.ts:37-48,93-95,144-147` `20260716150000`(dict 欄 migration)`storefront/src/lib/products.ts:695-739`。
 > **未讀**:`add-vehicle.ts` `update-vehicle.ts` 全文、`InlineVehicleForm.tsx`(364 行)。
 
-## 1. 🔴🔴 本片最重要的一條:照抄 storefront 會**靜默清掉客人的字典鍵**
+## 1. 🔴🔴 本片最重要的一條:照抄 storefront 會**靜默清掉客人的資料**
+
+> 🔴 **2026-08-14 夜第二版(A 窗 fresh-context 複驗 M1/M2,我逐項自己開檔驗過才折)**:
+> **本節第一版把病灶框窄了兩層。** ①漏了同一條鏈上的第二顆欄位 `isPrimary` ②修法寫成**黑名單**(只剔掉我剛好發現的那兩顆)。
+> 我在 `C-004` 信裡親手寫過「**折 finding 的預設動作 = 只處理被指名那一處**」,然後**犯在自己身上**。標題從「字典鍵」改成「資料」就是因為受害欄位不只 dict。
 
 三個事實疊起來變成一個無症狀的資料損壞:
 
@@ -11,14 +15,36 @@
 2. `mapVehiclePatchToRow`(`mappers/vehicle.ts:85-86`)對 dict 兩欄的判準是 **`!== undefined` 就寫**,註解 `:83-84` 逐字:「schema default 保證 delivery 層**恆帶**、含雙 null」。
 3. storefront 就是這樣用的(`vehicle/actions.ts:144-147`)—— 對它是**正確的**,因為客人在表單上真的能把 dict 車改成自由輸入,那時**必須**用雙 null 覆蓋、不能殘留舊對。
 
-⇒ **後台表單不會有 dict 欄位**(員工編的是車型/年份/引擎號/里程/改裝/保養)。
-若 C4 照抄 storefront 的 `patch = parsed.data`,**每一次員工存檔都會把 `dict_brand_name` / `dict_model_name` 寫成 null**。
-**症狀:沒有症狀。** 三綠會綠、DB CHECK 會過(雙 null 成對合法)、schema `.refine` 會過(成對)。
-壞的地方在別處:那對鍵是**首頁愛車 chips 走「精確 lookup 直套」用的**(`20260716150000:31` COMMENT 逐字)⇒ 客人的愛車從此改走字面比對流,**而沒有人會收到通知**。
+⇒ **C4a 的表單只有六個欄**(車型/年份/引擎號/里程/改裝/保養)。若照抄 storefront 的 `patch = parsed.data`,
+**每一個「表單沒有、但 schema 有 `.default()`」的欄,都會在每次存檔被寫成那個 default。**
+**症狀:沒有症狀。** 三綠會綠、DB CHECK 會過、schema `.refine` 會過。
 
-**修法(一行,而且 mapper 明文支援)**:admin 的 patch **不要帶** dict 兩欄 ——
-`mappers/vehicle.ts:86` 註解逐字留了這條路:「**`undefined`(非表單路徑)才略過**」。
-⇒ `const { dictBrandName, dictModelName, ...patch } = parsed.data;` 丟掉那兩顆即可,dict 對原樣保留。
+**受害欄位不只 dict —— 這是完整清單(逐欄開檔驗過,不是推的)**:
+
+| 欄 | schema 預設 | 存檔後被寫成 | 壞在哪 |
+|---|---|---|---|
+| `dictBrandName` / `dictModelName` | `.default(null)`(`schemas/src/index.ts:153-154`) | `null` / `null` | 首頁愛車 chips 的「精確 lookup 直套」失效(`20260716150000:31` COMMENT)⇒ 改走字面比對流 |
+| 🔴 **`isPrimary`** | **`.default(false)`**(`:137`) | **`false`** | **員工只是改個里程,那台車就不再是主車 ⇒ 客人從此零主車** |
+
+🔴 **`isPrimary` 這顆比 dict 更毒,而且三層守門全部擋不住**(A 窗 M1,我逐項開檔驗):
+- mapper 判準是 `!== undefined`(`mappers/vehicle.ts:76` 逐字 `if (patch.isPrimary !== undefined) row.is_primary = patch.isPrimary;`)⇒ **`false !== undefined` ⇒ 照寫**;
+- partial unique index 是 `WHERE is_primary = true`(`20260523034911:88-89`)⇒ 只擋「**至多**一筆」、**不擋零筆**;
+- `updateVehicle` 的補償分支是 `if (patch.isPrimary)`(`update-vehicle.ts:32`)⇒ `false` 走 else、**不跑補償**。
+
+### 🔴 修法 = **白名單,不是剔掉那幾顆**(A 窗 M2;第一版寫的黑名單是錯的)
+
+第一版寫 `const { dictBrandName, dictModelName, ...patch } = parsed.data;` —— **那是黑名單**:
+只剔掉我剛好發現的兩顆,`isPrimary` 還在 `...patch` 裡,而 `year`/`engine`/`km`/`mods`/`service` 全是 `.default('')`(`schemas/src/index.ts:141-149`)
+⇒ **將來任何一欄從表單拿掉,同一個 bug 原樣回來。**
+
+**正確修法**:patch **只由表單真有的欄組成**,其餘一律不出現(留 `undefined`,mapper `:76-86` 的 `!== undefined` 判準會整批略過 —— 這條路是它明文留的:「`undefined`(非表單路徑)才略過」)。
+
+```ts
+// 形狀示意(非最終 code):白名單常數 = 表單欄位的單一真相,parse 與 patch 都讀它
+const C4A_FORM_FIELDS = ['name', 'year', 'engine', 'km', 'mods', 'service'] as const;
+const patch = Object.fromEntries(C4A_FORM_FIELDS.map((k) => [k, parsed.data[k]]));
+```
+⇒ 加欄位時只改那個常數一處;**沒被加進去的欄永遠不會被寫**。
 
 ### ✅ 已裁定(主視窗 2026-08-14 夜):reuse `VehicleInput`,但**理由換掉、且附條件**
 
@@ -27,13 +53,13 @@
 
 ⇒ **C4 仍 reuse,但理由改成「省掉手抄整份形狀」** —— 這是個弱得多的理由,所以配了硬條件:
 
-> 🔴 **§4-2 那格負測(把 dict 兩欄放回 patch → 必須紅)是 reuse 的「條件」,不是附加項。**
+> 🔴 **§4-2 那格負測(不在 `C4A_FORM_FIELDS` 裡的欄出現在 patch → 必須紅)是 reuse 的「條件」,不是附加項。**
 > **沒有那格負測,就不准 reuse `VehicleInput`** —— 因為 reuse 帶進來的正是那個陷阱,
 > 而唯一擋住它的東西就是那格測試。拿掉測試留下 reuse = 把陷阱裝上、把守門拆掉。
 
 ### 🔴 開工紀律(主視窗裁定,寫死):**先讓它紅一次,紅了才修**
 
-C4 開工第一件事**不是**寫修法,是把 §4-1/§4-2 兩格做出來、**跑到紅**。
+C4 開工第一件事**不是**寫修法,是把 §4-1/§4-2 兩格(不變式 + 負測)做出來、**跑到紅**。
 理由(逐字帶過來):如果 §1 那條推論其實不成立(例如 admin 表單根本走另一條路),
 **你會在寫完修法之後才發現,而那時測試是綠的、你會以為修好了**。
 ⇒ **紅過一次是這條推論成立的唯一證據。** 不是「寫測試順便驗」,是**先重現、再修**。
@@ -44,8 +70,10 @@ C4 開工第一件事**不是**寫修法,是把 §4-1/§4-2 兩格做出來、**
 - 「存在於 taxonomy」的 fail-closed 驗證**只在 storefront server action**:`validateDictPair`(`vehicle/actions.ts:41-48`),而它依賴 `fetchVehicleTaxonomy`。
 - 🔴 `fetchVehicleTaxonomy` 住在 **`apps/storefront/src/lib/products.ts:732`**(數法 `grep -rln "export async function fetchVehicleTaxonomy" apps packages` = 1 檔)⇒ **admin 跨 app 匯入不到**;而它是分頁查 view + `unstable_cache` 900s + `MAX_PAGES` 截斷保護的一大坨,**搬過去不便宜**。
 
-⇒ **結論:C4 不提供 dict 編輯功能。** 這不是偷懶,是 §1 的修法本身就把 dict 對變成「後台只讀不寫」⇒ **admin 路徑永遠不會寫入未經驗證的 dict 對**,存在性驗證的需求從源頭消失。
-⚠️ 代價寫清楚:**後台無法修正一筆「dict 對已失效」的舊資料**(例如 taxonomy 改名後)。這是既有債、不是本片引入的,列進誠實缺口、不擴張。
+⇒ **本片決定不做 dict 編輯**(理由 = 上面三條:admin 匯入不到 taxonomy、搬過去不便宜、而 §1 的白名單本來就不會帶那兩欄)。
+⚠️ **這是設計選擇,不是事實**(A 窗 N2;第一版把「後台表單不會有 dict 欄位」當事實寫,那是還不存在的表單)。
+分清楚很重要:**若 Sean 之後要「後台能修正失效的 dict 對」,§1 的白名單與 §4-2 的負測方向會相反**(那時要的是「能寫」不是「不能寫」)⇒ 那是**改設計**,不是修 bug,要重開一片並回頭改這兩處。
+⚠️ 現行代價:**後台無法修正一筆「dict 對已失效」的舊資料**(例如 taxonomy 改名後)。既有債、非本片引入,列進誠實缺口、不擴張。
 
 ## 3. 與 C3 同族的兩個前提(同樣不成立)—— 且我的 Q-C-3 問窄了
 
@@ -62,13 +90,20 @@ C4 開工第一件事**不是**寫修法,是把 §4-1/§4-2 兩格做出來、**
 ⇒ 拆片性質改變:**C4a(新增+編輯)= 標準片、可先動;C4b(刪除+設主要)= 高風險片、卡 migration + apply**。
 過程記錄(不抹平):我當初推薦 A 並附「這是推論不是量測」——Sean 選 B 後,那句的意義是**「判競態窄的依據沒被量測過,而拍板往安全側走」**,不是為 A 辯護。
 
-## 4. 驗收要多的三格(C3 沒有、C4 才有)
+## 4. 驗收要多的四格(C3 沒有、C4 才有)
 
-1. 🔴 **dict 對保留**:拿一筆 `dict_brand_name` 有值的愛車,從後台改「里程」存檔 → 重讀 DB,**兩欄仍是原值**。
-   這格**必須打 DB 或打 mapper 的實際輸出**,不能只斷言表單送了什麼 —— 病灶在 mapper 那層。
-2. **負測**:故意把 dict 兩欄放進 patch(模擬照抄 storefront 的寫法)→ 該格**必須紅**。
-   (這是 §1 那條的守門;沒有這格,未來有人「順手對齊 storefront」就會把 bug 裝回來、而且照樣全綠。)
-3. **A 客的 vehicleId 送 B 客的頁面 → 被拒且 DB 零變更**(同 C3,理由見 §3)。
+> 🔴 **這幾格在第二版全部改寫過(且從三格變四格)(A 窗 M2 的連帶)**:第一版的守門**釘的是 dict 兩欄**,
+> 也就是說 —— **病灶改成白名單了,守門卻還是黑名單形狀**。那等於修了病、守門還在守症狀,
+> **下一個人加/減欄位時它照樣綠**。守門必須跟病灶同形狀。
+
+1. 🔴 **不變式格(取代原本的「dict 對保留」)**:斷言 **patch 的 key 集合 `⊆` `C4A_FORM_FIELDS`**。
+   這格不點名任何欄位 ⇒ **加減表單欄位時它自動跟著動**,不需要有人記得回來改測試。
+2. 🔴 **負測(取代原本的「把 dict 兩欄放回去」)**:**任何一個不在 `C4A_FORM_FIELDS` 裡的欄出現在 patch → 必須紅。**
+   實作上至少涵蓋兩顆**不同成因**的:`dictBrandName`(`.default(null)`)與 **`isPrimary`(`.default(false)`)** ——
+   後者是第一版整個漏掉的那顆,**只測 dict 這格會綠得毫無意義**。
+3. **端到端保值格**:拿一筆 `dict_brand_name` 有值**且** `is_primary=true` 的愛車,從後台只改「里程」存檔 → 重讀 DB,
+   **dict 兩欄與 `is_primary` 皆為原值**。這格**必須打 DB 或 mapper 的實際輸出**,不能只斷言表單送了什麼(病灶在 mapper 那層)。
+4. **A 客的 vehicleId 送 B 客的頁面 → 被拒且 DB 零變更**(同 C3,理由見 §3)。
 
 ## 5. 片型 · 檔數 · 誠實缺口
 
@@ -78,6 +113,6 @@ C4 開工第一件事**不是**寫修法,是把 §4-1/§4-2 兩格做出來、**
 
 **誠實缺口**
 - 全部來自讀 repo,**零執行**:沒跑測試、沒開瀏覽器、**沒對正式庫查過任何一筆愛車資料**。
-- §1 的「靜默清空」我**沒有實跑構造過**,是從三處字面(schema `.default(null)` / mapper `!== undefined` / storefront 的用法)推出來的。**推論鏈每一環都有 `檔案:行號`,但推論不等於量測** ⇒ C4 開工第一件事就是把它變成 §4 那兩格測試,**先讓它紅一次**再修。
+- §1 的「靜默清空」我**沒有實跑構造過**,是從三處字面(schema 的 `.default(…)` / mapper `!== undefined` / storefront 的用法)推出來的;`isPrimary` 那顆是 **A 窗複驗才補上的**,我第一版漏了。**推論鏈每一環都有 `檔案:行號`,但推論不等於量測** ⇒ C4 開工第一件事就是把它變成 §4 那兩格測試,**先讓它紅一次**再修。
 - **沒讀** `InlineVehicleForm.tsx`(364 行)與 `add/update-vehicle.ts` 全文 ⇒ 可能有我沒看到的 dict 相關分支。
 - **沒查**:正式庫現在有幾筆愛車帶著非空 dict 對(= §1 這條的實際影響面)。要數得對 DB 跑,今晚不做。
