@@ -6,7 +6,7 @@ import {
   type AdminProductDetailRow,
 } from '../../lib/products/product-repository';
 
-// M-4b #20 片1b-1 + 1b-2:商品詳情頁的顯示層(唯讀)。相對 import 理由同 products-table.tsx:11-12。
+// M-4b #20 片1b-1 + 1b-2:商品詳情頁的顯示層(唯讀)。相對 import 理由同 products-table.tsx:12-13。
 //
 // 🔴 **本檔不得直接讀 `row.price_general` / `row.delisted_at`** —— 一律經 `resolvePrice` /
 //    `resolveListingState`(片1a plan §3 的設計約束,由來源掃描測試釘住、不是靠這段註解)。
@@ -149,11 +149,13 @@ export function ProductDetail({
         {/* 🔴 只顯示筆數,而且把「這不是完整清單」寫在畫面上 ——
             `products.fitments` 只是 direct 那一半,繼承件在 `product_fitments_effective`
             (`SupabaseProductAdapter.ts:327-328`)。印成完整清單等於對員工說謊。 */}
+        {/* 🔴 N10:單位是「條」不是「台」—— 一條可能涵蓋一個年份區間的多台車。 */}
         <p className='text-sm'>
-          這件商品自己標了 <strong>{media.fitmentCount}</strong> 筆適用車型。
+          這件商品自己標了 <strong>{media.fitmentCount}</strong> 條適用車型設定。
         </p>
         <p className='text-muted-foreground mt-1 text-sm'>
-          這個數字<strong>不含</strong>從母車款繼承來的車型,所以會比前台看到的少。完整清單還沒做。
+          一條可能涵蓋好幾年份,所以這不是「幾台車」。這個數字<strong>不含</strong>從母車款繼承來的,
+          <strong>不會多於前台看到的</strong>。完整清單還沒做。
         </p>
       </section>
 
@@ -164,21 +166,33 @@ export function ProductDetail({
             依據 = 承重前提 3:圖片今天**只有防洗網、沒有旗標鎖** ⇒ 供應商換圖會直接蓋掉,
             而「來源那天沒給值」才擋得住。不能讓員工以為後台看到的圖是最終定案。 */}
         <p className='border-muted-foreground/30 bg-muted/40 mb-3 rounded border p-3 text-sm'>
-          這裡的圖片與影音來自供應商每日同步。<strong>在這裡改沒有用,明天會被蓋回去</strong>
-          ;供應商換圖也會直接覆蓋,目前沒有「鎖住不給改」的機制。
+          <strong>這裡的東西不能在後台改</strong>,而且圖片每天都會被供應商的資料蓋過去 ——
+          就算之後開放編輯,改了明天也會被蓋回去。目前沒有「鎖住不給改」的機制。
+          <br />
+          手冊、影片、聲浪<strong>要看供應商</strong>:多數供應商會覆蓋,少數是凍結不動的。
         </p>
 
         <dl className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
-          <Field label='圖片' value={countLabel(media.images.length, '張')} />
+          {/* 🔴 MF1:不顯示「張數」。同步管線寫進來的永遠是一張代表圖,沒圖時塞預設圖
+              ⇒ 「N 張」對每件商品恆等於 1,而且沒圖的也顯示 1。 */}
+          <Field
+            label='代表圖'
+            value={media.representativeImage === null ? '沒有(顯示預設圖)' : '有'}
+          />
           <Field label='安裝手冊' value={countLabel(media.manuals.length, '份')} />
           <Field label='聲浪音檔' value={countLabel(media.soundClips.length, '段')} />
           <Field label='安裝影片' value={media.videoUrl === null ? null : '有'} />
         </dl>
+        <p className='text-muted-foreground mt-2 text-sm'>
+          這裡只有一張代表圖。商品的完整圖庫在「變體」那一層,後台還沒做。
+        </p>
 
         {media.manuals.length > 0 && (
           <ul className='mt-3 space-y-1 text-sm'>
-            {media.manuals.map((m) => (
-              <li key={m.url}>
+            {/* 🔴 N8:用 index 當 key —— 同一件商品出現重複 url 時,`key={m.url}` 會 React duplicate key。
+                來源不保證去重,而這裡是唯讀清單、順序不會變動,index key 是安全的。 */}
+            {media.manuals.map((m, i) => (
+              <li key={i}>
                 {m.label}
                 {typeof m.sizeKB === 'number' && (
                   <span className='text-muted-foreground'> · {m.sizeKB} KB</span>
@@ -190,10 +204,10 @@ export function ProductDetail({
 
         {media.soundClips.length > 0 && (
           <ul className='mt-3 space-y-1 text-sm'>
-            {media.soundClips.map((c) => (
+            {media.soundClips.map((c, i) => (
               // 🔴 `title` 是英文原文、可為 null(實測約 4% 無標題,`domain/catalog/types.ts:230-232`)。
               //    這裡**不烤中文標籤** —— 資料層不烤、顯示層才做,而後台不需要那層美化。
-              <li key={c.url}>{c.title ?? '(無標題)'}</li>
+              <li key={i}>{c.title ?? '(無標題)'}</li>
             ))}
           </ul>
         )}

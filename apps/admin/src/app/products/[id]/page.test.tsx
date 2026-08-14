@@ -48,7 +48,14 @@ const PRODUCT = {
   // `sound_clips` 有非字串 title —— 渲染面要證明它吃得下,不是只吃乾淨資料。
   description: '碳纖維前土除,亮面 3K 編織。',
   highlights: ['輕量化', 42, '原廠級密合度'],
-  fitments: [{ brand: 'Ducati' }, { brand: 'BMW' }],
+  // 🔴 MF3 連帶:第一版用 `{brand:…}` —— **那不是 `FitmentSpec` 的形狀**(真欄名是
+  //    `motoBrand`/`modelCode`,`domain/catalog/types.ts:109-113`)⇒ 消毒上線後會全變 0,
+  //    而測試會「照樣綠」地測著一個假形狀。這裡換成真形狀,並刻意混一筆雙空髒條目。
+  fitments: [
+    { motoBrand: 'Ducati', modelCode: 'Panigale V4' },
+    { motoBrand: 'BMW', modelCode: 'S1000RR' },
+    { motoBrand: null, modelCode: null },
+  ],
   images: ['a.jpg', 'b.jpg', 'c.jpg'],
   video_url: 'https://example.com/install.mp4',
   manuals: [{ label: '安裝說明書', url: 'm.pdf', sizeKB: 320 }, { label: '缺網址' }],
@@ -203,11 +210,24 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     // 依據 = plan §0 承重前提 3:圖片今天**只有防洗網、沒有旗標鎖** ⇒ 供應商換圖直接蓋掉。
-    expect(text).toContain('供應商每日同步');
-    expect(text).toContain('明天會被蓋回去');
-    // 🔴 不得把「沒有鎖」講成「有鎖」—— 那會讓員工以為改了就守得住。
-    expect(text).not.toContain('已鎖定');
-    expect(text).not.toContain('不會被覆蓋');
+    // 🔴 **三個承重片段逐條正向斷言**(R1 MF4:上一版只釘了前兩段,
+    //    「沒有鎖住不給改的機制」——**最承重的那半句**——零斷言,而交件信說「測試釘死該字串」)。
+    for (const must of [
+      '不能在後台改',
+      '每天都會被供應商的資料蓋過去',
+      '沒有「鎖住不給改」的機制',
+      // 🔴 MF5:手冊/影片/聲浪**不是**一律被覆蓋(`supplier-config.ts` 逐家 flag,
+      //    rpm 等家 `syncInstallResources: false` = 凍結)⇒ 畫面必須寫「要看供應商」。
+      '要看供應商',
+    ]) {
+      expect({ [must]: text.includes(must) }).toEqual({ [must]: true });
+    }
+    // 🔴 反向:不得把「沒有鎖」講成「有鎖」—— 那會讓員工以為改了就守得住。
+    //    R1 N7:上一版只擋兩個字面,近義改寫照樣全綠 ⇒ 這裡列近義詞,
+    //    但**真正的判別力在上面那組正向斷言**,反向只是補漏。
+    for (const forbidden of ['已鎖定', '已鎖住', '不會被覆蓋', '不會被蓋掉', '可以編輯']) {
+      expect({ [forbidden]: text.includes(forbidden) }).toEqual({ [forbidden]: false });
+    }
   });
 
   it('🔴 片1b-2:四個區塊都渲染,而且髒值不會漏到畫面上', async () => {
@@ -226,9 +246,18 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     expect(text).toContain('安裝說明書');
     expect(text).toContain('320 KB');
     expect(text).toContain('1 份');
-    // 圖片 3 張、聲浪 2 段(url 都合法)、影片「有」。
-    expect(text).toContain('3 張');
+    // 🔴 MF1:不再有「N 張」。同步管線 `rpm-transform.ts:347` 寫的永遠是 `[repImage]`
+    //    ⇒ 張數對每件商品恆等於 1、資訊量為零,而且沒圖時塞 placeholder 也算 1 張。
+    //    ⚠️ 不能斷言「整頁沒有『張』字」—— 說明文案本身就有「只有一張代表圖」。
+    //    要釘的是**計數形式消失了**,不是那個字消失了。
+    expect(text).not.toContain('3 張');
+    expect(text).not.toContain('1 張');
+    expect(text).toContain('代表圖');
+    expect(text).toContain('完整圖庫在「變體」那一層');
     expect(text).toContain('2 段');
+    // 🔴 N6:髒 title(數字 123)不得外洩;它應被收斂成 null 並顯示 `(無標題)`。
+    expect(text).not.toContain('123');
+    expect(text).toContain('(無標題)');
   });
 
   it('🔴 適用車型只報 direct 筆數,而且畫面上要講明它不完整', async () => {
@@ -236,9 +265,15 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
     const { container } = await renderPage();
     const text = container.textContent ?? '';
-    expect(text).toContain('2');
-    // 🔴 這句是「不對員工說謊」的機制面:`products.fitments` 只有 direct 那一半。
+    // 🔴 R1 MF2:上一版寫 `toContain('2')` = **恆綠** —— 同頁 `created_at` 渲染成
+    //    `2026-08-01 10:00` 本身就含 `2`,把 fitmentCount 改成恆 0 這格照樣過。
+    //    改釘完整片語,而且數字是**消毒後**的:三筆進去、一筆雙空被 drop ⇒ 2。
+    expect(text).toContain('2 條適用車型設定');
+    expect(text).not.toContain('3 條適用車型設定');
+    // 🔴 這句是「不對員工說謊」的機制面:`products.fitments` 只有 direct 那一半,
+    //    而且我沒消毒的話數字會比前台**多**(前台雙空 drop)。
     expect(text).toContain('不含');
+    expect(text).toContain('不會多於前台看到的');
     expect(text).toContain('完整清單還沒做');
   });
 
@@ -257,8 +292,12 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('沒有商品說明');
-    // 🔴 空的時候警語仍要在 —— 「沒有圖片」不代表「同步不會蓋」。
-    expect(text).toContain('明天會被蓋回去');
+    // 🔴 空的時候警語仍要在 —— 「沒有圖片」不代表「同步不會蓋」。三段都要在。
+    for (const must of ['不能在後台改', '每天都會被供應商的資料蓋過去', '沒有「鎖住不給改」的機制']) {
+      expect({ [must]: text.includes(must) }).toEqual({ [must]: true });
+    }
+    // 🔴 無圖時代表圖欄要說「沒有」,不得因為 placeholder 而說「有」。
+    expect(text).toContain('沒有(顯示預設圖)');
   });
 
   it('沒值的欄位顯「—」,不留空白格', async () => {

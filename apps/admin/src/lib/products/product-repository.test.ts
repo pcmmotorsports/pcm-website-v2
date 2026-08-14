@@ -107,7 +107,8 @@ const DESIGN_TOKENS = ['price_general', 'delisted_at'] as const;
  * 🔴 **三個 token 不同級:`cost` 不是欄,是 `metadata` 這個 jsonb 裡的一個 key。**
  * 這道守門讀起來像「守三個欄」,實際是「守**兩個欄** + **一個 jsonb key**」。實查:
  * `products` 表**沒有 `cost` 欄**(數法 `grep -rnE "^\s+cost\s+|ADD COLUMN cost" supabase/migrations/`
- * ⇒ 零命中);它出現在 `20260602135934:81-86`(`metadata - 'cost'` 洗值)與 `:90`
+ * ⇒ 零命中);它出現在 `20260602135934:80-82`(**products** 的洗值 —— `:84-86` 是
+ * `product_variants` 的、不是這張表)與 `:88-90`
  * (`CHECK (NOT (metadata ?| array[…'cost'…]))` ⇒ **DB 端已禁止它回到 metadata**)。
  * ⇒ 守它的形狀是**字串 `'cost'` 與 `metadata.cost` 取值**,不是 select 欄名。
  *

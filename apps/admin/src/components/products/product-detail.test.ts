@@ -62,6 +62,7 @@ describe('toProductMedia(#20 片1b-2)', () => {
       highlights: [],
       fitmentCount: 0,
       images: [],
+      representativeImage: null,
       videoUrl: null,
       manuals: [],
       soundClips: [],
@@ -77,10 +78,16 @@ describe('toProductMedia(#20 片1b-2)', () => {
         sound_clips: dirty as unknown[],
         fitments: dirty as unknown[],
       });
-      expect({ [String(dirty)]: media.highlights.length + media.images.length }).toEqual({
-        [String(dirty)]: 0,
-      });
+      // 🔴 N5:標題說「一律收斂成空陣列」,就要**每個陣列欄都斷言**,不能只斷言兩個。
+      expect({
+        [String(dirty)]:
+          media.highlights.length +
+          media.images.length +
+          media.manuals.length +
+          media.soundClips.length,
+      }).toEqual({ [String(dirty)]: 0 });
       expect(media.fitmentCount).toBe(0);
+      expect(media.representativeImage).toBeNull();
     }
   });
 
@@ -128,11 +135,40 @@ describe('toProductMedia(#20 片1b-2)', () => {
     expect(toProductMedia({ video_url: 'https://x/y.mp4' }).videoUrl).toBe('https://x/y.mp4');
   });
 
+  it('🔴 MF3:fitment 鏡像前台雙空 drop —— 髒條目不算,數字不得多於前台', () => {
+    const media = toProductMedia({
+      fitments: [
+        { motoBrand: 'Ducati', modelCode: 'V4' },
+        { motoBrand: null, modelCode: null }, // 雙空 → drop(prod 實證 55 商品/82 條目)
+        { motoBrand: '', modelCode: '' }, // 雙空字串 → drop
+        { motoBrand: 'BMW', modelCode: null }, // 有一邊 → 保留(鏡像前台)
+        'not-an-object',
+      ],
+    });
+    expect(media.fitmentCount).toBe(2);
+    // 🔴 反面對照:沒消毒的話會是 5 —— 這格證明消毒真的有跑,不是湊巧。
+    expect(media.fitmentCount).not.toBe(5);
+  });
+
+  it('🔴 MF1:placeholder 代表圖視同沒有圖(同步管線沒圖時會塞它)', () => {
+    expect(toProductMedia({ images: ['/placeholder-product.png'] }).representativeImage).toBeNull();
+    expect(toProductMedia({ images: [] }).representativeImage).toBeNull();
+    // 反面:真圖要拿得到,否則上面兩格對「永遠回 null」恆綠。
+    expect(toProductMedia({ images: ['https://cdn/x.jpg'] }).representativeImage).toBe(
+      'https://cdn/x.jpg',
+    );
+  });
+
   it('反面對照:乾淨輸入不得被 guard 吃掉 —— 否則上面幾格對「全部回空」恆綠', () => {
     const media = toProductMedia({
       description: '碳纖維',
       highlights: ['輕量'],
-      fitments: [{ a: 1 }, { b: 2 }],
+      // 🔴 真形狀:`FitmentSpec` 是 `motoBrand`/`modelCode`。第一版寫 `{a:1}`,
+      //    消毒上線後會變 0 —— 反面對照本身就會失效(R1 MF3 連帶)。
+      fitments: [
+        { motoBrand: 'Ducati', modelCode: 'V4' },
+        { motoBrand: 'BMW', modelCode: 'S1000RR' },
+      ],
       images: ['a.jpg'],
       manuals: [{ label: 'L', url: 'u' }],
       sound_clips: [{ title: 't', url: 'u' }],

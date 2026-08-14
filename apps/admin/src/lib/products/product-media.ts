@@ -6,9 +6,11 @@ import type { ProductManual, ProductSoundClip } from '@pcm/domain';
 // 🔴 **R4 的答案不是「撈一筆看形狀」,是「這個 repo 的立場就是不保證形狀」。**
 //    plan §4-R4 原本寫「落地第一動 = 先撈一筆真實列印出形狀,再寫渲染」。**那一步我做不到**
 //    (本機無正式庫連線),但我沒有因此用猜的 —— 我去讀了**寫入端與既有讀取端的契約**:
-//    `packages/adapters/src/supabase/mappers/product.ts:56-68` 逐字把這些欄的 wire 型別標成
-//    `unknown[] | null`,理由寫著「**jsonb 來源 shape 不保證(元素可能缺 label/url)**
-//    → mapper runtime guard 收斂」。
+//    `packages/adapters/src/supabase/mappers/product.ts` 把 **jsonb 那幾欄**(`:57` highlights /
+//    `:59` manuals / `:68` sound_clips)標成 `unknown[] | null`,理由寫著
+//    「**jsonb 來源 shape 不保證(元素可能缺 label/url)**→ mapper runtime guard 收斂」。
+//    ⚠️ **同段的 `description`(`:55`)與 `video_url`(`:60`)不是 `unknown[]`、是 `string | null`**
+//    —— 我第一版寫成「`:56-68` 全標 `unknown[] | null`」,那句把範圍講大了(R1 N4)。
 //    ⇒ **撈一筆也證明不了通則**(一筆乾淨不代表全部乾淨);正確做法是**照同一套 guard 收斂**。
 //    ⇒ 本檔的 guard 逐條鏡像 `mappers/product.ts:234-263`,不自創寬鬆版。
 //
@@ -45,8 +47,11 @@ export interface ProductMediaRow {
 export interface ProductMedia {
   readonly description: string | null;
   readonly highlights: readonly string[];
+  /** 🔴 **消毒後**的 direct 條目數(鏡像前台雙空 drop)——不是 `fitments.length`。 */
   readonly fitmentCount: number;
   readonly images: readonly string[];
+  /** 代表圖(`images[0]`);無圖或只有 placeholder → `null`(R1 MF1)。 */
+  readonly representativeImage: string | null;
   readonly videoUrl: string | null;
   readonly manuals: readonly ProductManual[];
   readonly soundClips: readonly ProductSoundClip[];
@@ -93,26 +98,57 @@ function toSoundClips(raw: unknown): ProductSoundClip[] {
 }
 
 /**
- * 🔴 **`fitments` 只回「筆數」不回內容**(本片刻意的範圍界線)。
+ * 🔴 **`fitments` 只回「消毒後的條目數」**(本片刻意的範圍界線 + R1 MF3 的修正)。
  *
- * 理由:適用車型的正確渲染牽涉 `product_fitments` / `product_fitments_effective` 兩張表的
+ * 範圍界線:適用車型的正確渲染牽涉 `product_fitments` / `product_fitments_effective` 兩張表的
  * direct ∪ inherited 語意(`SupabaseProductAdapter.ts:327-328`、`:353-354`),
- * 而 `products.fitments` jsonb 只是 **direct 那一半**。
- * ⇒ 在詳情頁直接把它印成「適用車型」會**少算繼承件、對員工說謊**。
- * ⇒ 本片只顯示「direct 筆數」並在畫面上寫明它不是完整清單;完整清單另開片。
- * **這是刻意縮範圍並寫出來,不是忘了做。**
+ * 而 `products.fitments` jsonb 只是 **direct 那一半** ⇒ 印成完整清單會**少算繼承件**。
+ *
+ * ⚠️ **R1 MF3:第一版直接數 `raw.length`,那是錯的,而且錯的方向讓畫面上的話說反。**
+ * 前台在資料進入點做**雙空 drop**(`apps/storefront/src/lib/products.ts:127-130`,
+ * 註解逐字「**prod 實證 55 商品 / 82 條目 `motoBrand`/`modelCode` 為 null**」、
+ * 「PDP SSR `.trim()` 炸頁 31 次」)⇒ 髒條目**前台根本不算**。
+ * 我不消毒就數 ⇒ **後台的數字可能比前台多**,而我畫面上寫著「會比前台看到的少」——**同時說反**。
+ * ⇒ 這裡鏡像前台的雙空 drop 再數;文案改成「**不會多於前台**」。
  */
 function toFitmentCount(raw: unknown): number {
-  return Array.isArray(raw) ? raw.length : 0;
+  if (!Array.isArray(raw)) return 0;
+  return raw.filter((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const { motoBrand, modelCode } = item as Record<string, unknown>;
+    // 鏡像 `products.ts:127-130`:非 string 視為空;兩個都空 → drop。
+    const brand = typeof motoBrand === 'string' ? motoBrand : '';
+    const model = typeof modelCode === 'string' ? modelCode : '';
+    return brand !== '' || model !== '';
+  }).length;
+}
+
+/**
+ * 🔴 **同步管線寫進 `images` 的永遠是「一張代表圖」,而且沒圖時塞 placeholder**
+ * (R1 MF1;`scripts/rpm-transform.ts:286-289` 取圖、`:347` `images: [repImage]`、
+ * `:36` `PLACEHOLDER_IMAGE = '/placeholder-product.png'`)。
+ *
+ * ⇒ **「圖片 N 張」對每一件同步商品恆等於 1**(資訊量為零),
+ *   而且**一張圖都沒有的商品也會顯示「1 張」** —— 員工問「這件有沒有圖」,畫面給相反答案。
+ * ⇒ 本片改成回報「**有沒有真正的代表圖**」,並在畫面寫明完整圖庫在變體層。
+ */
+const PLACEHOLDER_IMAGE = '/placeholder-product.png';
+
+export function isPlaceholderImage(url: string): boolean {
+  return url === PLACEHOLDER_IMAGE;
 }
 
 export function toProductMedia(row: ProductMediaRow): ProductMedia {
+  const images = toStringList(row.images);
   return {
     description: row.description ?? null,
     highlights: toStringList(row.highlights),
     fitmentCount: toFitmentCount(row.fitments),
-    images: toStringList(row.images),
-    // 空字串 / 空白 → null(鏡像 `mappers/product.ts:247`,那裡收斂成 undefined)。
+    images: images,
+    // 🔴 placeholder 視同「沒有圖」—— 它是同步管線的 fallback,不是商品真的有圖。
+    representativeImage:
+      images[0] !== undefined && !isPlaceholderImage(images[0]) ? images[0] : null,
+    // 空字串 / 空白 → null(鏡像 `mappers/product.ts:248`;`:247` 是註解行,程式在下一行 —— R1 N2)。
     videoUrl:
       typeof row.video_url === 'string' && row.video_url.trim() !== '' ? row.video_url : null,
     manuals: toManuals(row.manuals),
