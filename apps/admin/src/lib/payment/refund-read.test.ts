@@ -14,11 +14,16 @@ vi.mock('@pcm/adapters/server', () => ({
 import {
   ORDER_REFUNDS_LIMIT,
   REFUND_EXCEPTIONS_LIMIT,
+  REFUND_STUCK_LIMIT,
   getLedgerUnregisteredAmount,
   listOrderRefunds,
   listRefundExceptions,
 } from './refund-read';
-import { REFUND_EXCEPTION_STALL_MS } from './refund-ledger-view';
+import {
+  REFUND_EXCEPTION_STALL_MS,
+  STUCK_MANUAL_VERDICT_FAILED_REASON,
+  isStuckManualVerdict,
+} from './refund-ledger-view';
 
 // M-3 A7c RW3:唯讀查詢的投影與過濾形狀。
 // 🔴 誠實邊界(memory reference_supabase-update-needs-select-and-chain-mock-fake-green):
@@ -172,60 +177,160 @@ describe('getLedgerUnregisteredAmount', () => {
   });
 });
 
+/**
+ * `listRefundExceptions` 現在跑**兩支**查詢(#473b-2):①可處理 ②卡住。
+ * 兩支的 builder 必須分開,否則兩邊的 calls 會混在一起 ——
+ * 混在一起的話「①的述詞跑到②上」這種錯誤會完全看不出來(恆綠)。
+ * 呼叫順序 = Promise.all 陣列字面序:先①後②。
+ */
+function exceptionChains(actionable: ChainResult, stuck: ChainResult) {
+  const a = chain(actionable);
+  const s = chain(stuck);
+  mocks.from.mockReturnValueOnce(a.builder).mockReturnValueOnce(s.builder);
+  return { a, s };
+}
+const emptyData: ChainResult = { data: [], error: null };
+const exceptionRaw = (over: Record<string, unknown> = {}) => ({
+  ...rawRow(over),
+  order_id: ORDER_ID,
+  orders: { display_id: 'PCM-2026-0001' },
+});
+
 describe('listRefundExceptions', () => {
-  it('🔴 §4-1 判準形狀:processing + (滯留 30 分 OR 證據非空);舊的排前;上限 N+1', async () => {
+  it('🔴 ①可處理那支:述詞字面與改動前**完全相同**(這是本片沒有動到的那半)', async () => {
     const before = Date.now();
-    const { builder, calls } = chain({ data: [], error: null });
-    mocks.from.mockReturnValue(builder);
+    const { a } = exceptionChains(emptyData, emptyData);
     await listRefundExceptions();
-    expect(calls.eq![0]).toEqual(['status', 'processing']);
-    const orArg = String(calls.or![0]![0]);
+    expect(mocks.from.mock.calls[0]![0]).toBe('order_refunds');
+    // 整串錨定,不是 toContain 片段:多一段、少一段、換順序都會紅。
+    expect(a.calls.eq!).toEqual([['status', 'processing']]);
+    const orArg = String(a.calls.or![0]![0]);
     const match = orArg.match(
       /^created_at\.lt\.([^,]+),provider_refund_id_evidence\.not\.is\.null$/,
     );
-    expect(match, `or() 形狀不符:${orArg}`).not.toBeNull();
+    expect(match, `①的 or() 形狀不符:${orArg}`).not.toBeNull();
+    expect(a.calls.or!).toHaveLength(1);
     // cutoff 必須是「現在 - 30 分」(允許測試執行的數秒誤差;30 分常數本身另有專格)
     const cutoff = Date.parse(match![1]!);
-    const expected = before - REFUND_EXCEPTION_STALL_MS;
-    expect(Math.abs(cutoff - expected)).toBeLessThan(10_000);
-    expect(calls.order![0]).toEqual(['created_at', { ascending: true }]);
-    expect(calls.limit![0]).toEqual([REFUND_EXCEPTIONS_LIMIT + 1]);
+    expect(Math.abs(cutoff - (before - REFUND_EXCEPTION_STALL_MS))).toBeLessThan(10_000);
+    expect(a.calls.order![0]).toEqual(['created_at', { ascending: true }]);
+    expect(a.calls.limit![0]).toEqual([REFUND_EXCEPTIONS_LIMIT + 1]);
+  });
+
+  it('🔴 ②卡住那支:兩顆 eq 缺一不可,且**沒有**任何 or()(關卡2 codex:尾巴多接一顆 eq 就會靜默改變集合)', async () => {
+    const { s } = exceptionChains(emptyData, emptyData);
+    await listRefundExceptions();
+    expect(mocks.from.mock.calls[1]![0]).toBe('order_refunds');
+    // 🔴 **完整比對整個 eq 清單**(不是 toContain):
+    //    少 status → 撈到形狀外的列;少 failed_reason → rejected_out_of_range / not_sent
+    //    這兩個**正常的失敗結果**會一起被當成卡住;多一顆 → 靜默縮小集合。
+    expect(s.calls.eq!).toEqual([
+      ['status', 'failed'],
+      ['failed_reason', STUCK_MANUAL_VERDICT_FAILED_REASON],
+    ]);
+    expect(s.calls.or!).toHaveLength(0);
+    expect(s.calls.order![0]).toEqual(['created_at', { ascending: true }]);
+    expect(s.calls.limit![0]).toEqual([REFUND_STUCK_LIMIT + 1]);
+  });
+
+  it('🔴 兩支各自一個上限:①爆量不得餓死②,②爆量也不得餓死①(關卡2 codex must-fix 本體)', async () => {
+    const stuckFlood = Array.from({ length: REFUND_STUCK_LIMIT + 1 }, (_, i) =>
+      exceptionRaw({ id: `s-${i}`, status: 'failed', failed_reason: 'manual_failed' }),
+    );
+    exceptionChains({ data: [exceptionRaw({ id: 'a-1', status: 'processing' })], error: null }, {
+      data: stuckFlood,
+      error: null,
+    });
+    const { rows, truncated } = await listRefundExceptions();
+    // ②塞爆的情況下,①那一筆**仍然拿得到**(合成一支查詢時它會被擠掉 = 那個 must-fix)。
+    expect(rows.map((r) => r.id)).toContain('a-1');
+    expect(rows.filter((r) => r.status === 'failed')).toHaveLength(REFUND_STUCK_LIMIT);
+    expect(truncated).toBe(true);
+    // 🔴 **結構釘死**:必須是兩支獨立查詢。上面三條斷言在「合回一支」時**不一定會紅**
+    //    (①排在前面,合併後的 slice 未必切到它)⇒ 真正守住「不要合回去」的是這一條。
+    expect(mocks.from).toHaveBeenCalledTimes(2);
+  });
+
+  it('順序:①可處理在前、②卡住在後(有動作可做的排前面)', async () => {
+    exceptionChains(
+      { data: [exceptionRaw({ id: 'a-1', status: 'processing' })], error: null },
+      {
+        data: [exceptionRaw({ id: 's-1', status: 'failed', failed_reason: 'manual_failed' })],
+        error: null,
+      },
+    );
+    const { rows } = await listRefundExceptions();
+    expect(rows.map((r) => r.id)).toEqual(['a-1', 's-1']);
   });
 
   it('帶回母單 display_id;orders 缺(防禦)→ 以 order_id 前 8 碼辨認', async () => {
-    const { builder } = chain({
-      data: [
-        { ...rawRow({ status: 'processing' }), order_id: ORDER_ID, orders: { display_id: 'PCM-2026-0001' } },
-        { ...rawRow({ id: 'r-2', status: 'processing' }), order_id: ORDER_ID, orders: null },
-      ],
-      error: null,
-    });
-    mocks.from.mockReturnValue(builder);
+    exceptionChains(
+      {
+        data: [
+          exceptionRaw({ status: 'processing' }),
+          { ...rawRow({ id: 'r-2', status: 'processing' }), order_id: ORDER_ID, orders: null },
+        ],
+        error: null,
+      },
+      emptyData,
+    );
     const { rows } = await listRefundExceptions();
     expect(rows[0]!.orderDisplayId).toBe('PCM-2026-0001');
     expect(rows[1]!.orderDisplayId).toBe(ORDER_ID.slice(0, 8));
   });
 
-  it('🔴 截斷旗標:N+1 筆 → 回 N + truncated=true(清單爆量必須可見,不得靜默少頁)', async () => {
-    const data = Array.from({ length: REFUND_EXCEPTIONS_LIMIT + 1 }, (_, i) => ({
-      ...rawRow({ id: `r-${i}`, status: 'processing' }),
-      order_id: ORDER_ID,
-      orders: { display_id: 'PCM-2026-0001' },
-    }));
-    const { builder } = chain({ data, error: null });
-    mocks.from.mockReturnValue(builder);
+  it('🔴 截斷旗標:①的 N+1 筆 → 回 N + truncated=true(爆量必須可見,不得靜默少頁)', async () => {
+    const data = Array.from({ length: REFUND_EXCEPTIONS_LIMIT + 1 }, (_, i) =>
+      exceptionRaw({ id: `r-${i}`, status: 'processing' }),
+    );
+    exceptionChains({ data, error: null }, emptyData);
     const { rows, truncated } = await listRefundExceptions();
     expect(rows).toHaveLength(REFUND_EXCEPTIONS_LIMIT);
     expect(truncated).toBe(true);
   });
 
-  it('🔴 error → throw(codex MF6:查詢層吞錯回空=清單顯示「目前沒有異常」的假安全)', async () => {
-    const { builder } = chain({ data: null, error: { message: 'boom' } });
-    mocks.from.mockReturnValue(builder);
-    await expect(listRefundExceptions()).rejects.toBeTruthy();
+  // 🔴 兩格都用 `data: []`(**不是** `data: null`)+ `rejects.toBe(boom)` —— 這是突變測出來的:
+  //    原本寫 `data: null` + `rejects.toBeTruthy()`,把 `throw stuck.error` 整行刪掉**照樣全綠**,
+  //    因為 `null.slice()` 自己會炸。⇒ 那格證的是「有東西丟出來」,不是「那顆 error 被丟出來」。
+  it('🔴 ①的 error → 原樣 throw(codex MF6:查詢層吞錯回空=清單顯示「目前沒有異常」的假安全)', async () => {
+    const boom = { message: 'boom-actionable' };
+    exceptionChains({ data: [], error: boom }, emptyData);
+    await expect(listRefundExceptions()).rejects.toBe(boom);
+  });
+
+  it('🔴 ②的 error 同樣要原樣 throw(只守①=②靜默消失,而②正是這片要讓人看見的東西)', async () => {
+    const boom = { message: 'boom-stuck' };
+    exceptionChains(emptyData, { data: [], error: boom });
+    await expect(listRefundExceptions()).rejects.toBe(boom);
   });
 
   it('30 分常數本體(plan §4-1 字面;改值要同時想清單查詢與訂單頁警示兩處)', () => {
     expect(REFUND_EXCEPTION_STALL_MS).toBe(30 * 60 * 1000);
+  });
+});
+
+describe('isStuckManualVerdict(#473 卡住的人工判定列)', () => {
+  it('正:failed + manual_failed', () => {
+    expect(isStuckManualVerdict({ status: 'failed', failedReason: 'manual_failed' })).toBe(true);
+  });
+
+  it('🔴 負:其他 failed_reason 不算 —— rejected_out_of_range / not_sent 是正常失敗、不是卡住', () => {
+    expect(isStuckManualVerdict({ status: 'failed', failedReason: 'rejected_out_of_range' })).toBe(
+      false,
+    );
+    expect(isStuckManualVerdict({ status: 'failed', failedReason: 'not_sent' })).toBe(false);
+    expect(isStuckManualVerdict({ status: 'failed', failedReason: null })).toBe(false);
+  });
+
+  it('🔴 負:狀態沒到 failed 就不算(processing 那半歸 isRefundException,兩個判準不重疊)', () => {
+    expect(isStuckManualVerdict({ status: 'processing', failedReason: 'manual_failed' })).toBe(
+      false,
+    );
+    expect(isStuckManualVerdict({ status: 'confirmed', failedReason: null })).toBe(false);
+    expect(isStuckManualVerdict({ status: 'deferred', failedReason: null })).toBe(false);
+  });
+
+  it('常數本體 = DB 側 RW4 出口寫的機器碼(20260803150000:760)', () => {
+    expect(STUCK_MANUAL_VERDICT_FAILED_REASON).toBe('manual_failed');
   });
 });

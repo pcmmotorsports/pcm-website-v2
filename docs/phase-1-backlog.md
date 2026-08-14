@@ -11962,7 +11962,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 ### #443. 🔒 退款異常清單只讀 `order_refunds`,看不到 `payment_refunds` ⇒ 員工看到的文案承諾不會兌現
 
 - **狀態:** ⏳ 待排(2026-08-12 P 窗 2f 自查 + R2 Opus IMP-19 獨立命中同一處;**2g 硬前置**)。
-- **文案 vs 程式是同一條不變式,現在兩邊各自綠:** `REFUND_IN_FLIGHT` → `apps/admin/src/lib/payment/refund-actions.ts:290-291` → 文案 `refund-action-state.ts:123-124` 逐字「…**若超過 30 分鐘未完成,會出現在異常清單**」;而異常清單 `refund-read.ts:121` 逐字 `.from('order_refunds')`、`:126` `.eq('status','processing')` ⇒ **對 `payment_refunds` 零可見度**。
+- **文案 vs 程式是同一條不變式,現在兩邊各自綠:** `REFUND_IN_FLIGHT` → `apps/admin/src/lib/payment/refund-actions.ts:290-291` → 文案 `refund-action-state.ts:123-124` 逐字「…**若超過 30 分鐘未完成,會出現在異常清單**」;而異常清單的 `listRefundExceptions`(`apps/admin/src/lib/payment/refund-read.ts`)**兩支查詢都是 `.from('order_refunds')`** ⇒ **對 `payment_refunds` 零可見度**。
+  ⚠️ **2026-08-14 行號更正**:原句釘 `:121` / `:126`,`473b-2` 改成兩支查詢後那兩個行號已失效;**本條結論不受影響**(換的是查詢結構,不是查哪張表)。此處刻意改成不寫死行號。
 - **2g 之後就會發生:** 阻擋源是 `payment_refunds` 那半時,員工照文案等,**那筆永遠不會出現在清單裡**;而且 caller 把 `blocking_payment_refund_id` 丟掉(`refund-repository.ts`),員工也**無從分辨兩種阻擋源**。
 - **修法二擇一:** ①清單擴到兩本帳(與 #442 同一個式子,建議合併做)②改文案、並把 blocking id 帶到畫面。
 - **不修未來會痛在哪:** 可維護性=文案承諾一件系統做不到的事,員工的等待是白等;bug 可追蹤性=值班分不出被擋的原因來自哪本帳。
@@ -12225,7 +12226,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **狀態:** ⏳ 待執行
 - **分流:** `P1-before-launch`
 - **優先級:** 🟠 中(**今天實害 0,但 `#445b` 上線前會升級成 🔴,見「不修會痛在」**)
-- **問題:** `apps/admin/src/lib/payment/refund-recovery-actions.ts:87` 逐字 `if (row.status !== 'processing') return { ok: false, code: 'already_finalized' };` ⇒ RW4 只吃 `processing` 列。而 `manual_failed` / `recovered_confirmed` 都是終態(`supabase/migrations/20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:211-215` 狀態機逐字「唯三合法轉移」`processing → confirmed/failed/deferred`,**終態不可再轉**)。⇒ **人判錯一次,後台沒有任何按鈕能更正**。異常清單也看不到它(`refund-read.ts:109-110` 只查 `status='processing'`)。唯一救濟 = 手動 SQL。
+- **問題:** `apps/admin/src/lib/payment/refund-recovery-actions.ts:87` 逐字 `if (row.status !== 'processing') return { ok: false, code: 'already_finalized' };` ⇒ RW4 只吃 `processing` 列。而 `manual_failed` / `recovered_confirmed` 都是終態(`supabase/migrations/20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:211-215` 狀態機逐字「唯三合法轉移」`processing → confirmed/failed/deferred`,**終態不可再轉**)。⇒ **人判錯一次,後台沒有任何按鈕能更正**。唯一救濟 = 手動 SQL。
+  🏁 **2026-08-14 更正**:原句還寫「異常清單也看不到它(`refund-read.ts:109-110` 只查 `status='processing'`)」—— **`473b-2` 已把那半解掉**,卡住的列現在會出現在異常清單(零按鈕 + 誠實文案)。**本條的核心(沒有更正入口)不變**,只是「看不見」那一半不再成立。
 - **員工會看到什麼:** 🏁 **(a) 已於 2026-08-14 修掉**(commit 見下)。~~舊文案 `refund-recovery-state.ts:61-62` 逐字「這筆退款已不在『處理中』(可能剛被結案),沒有執行任何動作。請重新整理清單確認現況。」—— 訊息把它講成「別人剛處理掉了」,而實際情況是**這個狀態本身就沒有出口**,員工重新整理幾次都一樣。~~
   🔴 **現行文案**(Sean 2026-08-14 逐字指示「沒有別的解決方法的話,文字就要改成請工程師處理之類」):結案 +「這一列會從異常清單消失,要看結果請打開該筆訂單頁的退款紀錄」+「若判定有誤需更正,這裡沒有可以改的地方,請聯絡工程師處理」。同片並補上該早退路徑的 `revalidatePath`(原本不重整,畫面會停在舊狀態)。
   ⚠️ **本條沒有被 (a) 解掉** —— 出口本身仍不存在,(a) 只讓員工不再被誤導、知道要找人。`#445b` 的硬前置**維持**,要解掉要做 (b),見「預期解法」。

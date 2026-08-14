@@ -85,11 +85,13 @@ async function loadExceptionRow(refundId: string, logError: LogError): Promise<L
   }
   if (!row) return { ok: false, code: 'not_found' };
   if (row.status !== 'processing') {
-    // 🔴 #473(關卡2 codex MF1):這條早退原本**不 revalidate** ⇒ 異常清單只載 `processing`
-    //    (`refund-read.ts:126` `.eq('status','processing')`),員工按下去之後畫面仍停在舊的那一列。
+    // 🔴 #473(關卡2 codex MF1):這條早退原本**不 revalidate**,員工按下去之後畫面仍停在舊的那一列。
     //    我第一版把文案寫成「看清單上的最新狀態即可」—— **那句和舊文案一樣是白做工**,
     //    因為畫面根本不會變。⇒ **根因修法 = 讓畫面自己更新**,而不是寫一句話解釋畫面是舊的。
     //    (成功路徑本來就這樣做;這裡只是把它補齊。)
+    // ⚠️ 原註解在這裡寫「異常清單只載 `processing`(`refund-read.ts:126` `.eq()`)」當**現行事實** ——
+    //    `#473b-2` 已把那行刪掉(清單改吃兩支 `and(...)`,`manual_failed` 列**留在清單上**)。
+    //    revalidate 的必要性**不因此改變**(那一列的顯示內容仍要更新),但別再拿舊述詞當理由。
     revalidatePath(EXCEPTIONS_PATH);
     revalidatePath(`/orders/${row.orderId}`);
     return { ok: false, code: 'already_finalized' };
