@@ -88,7 +88,7 @@ export const ORDER_LIST_SELECT =
 //    **必須先重建 view**,否則執行期 `42703`(已實測:對 `orders` 打 `goods_axis` 回
 //    `{"code":"42703"}`;反過來也一樣)。契約全文見
 //    `supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql` 檔頭「寫作契約」。
-//    ⚠️ 這一條**沒有守門**,只有這行字(候選修法列在 `#498`)。
+//    ⚠️ 這一條**沒有守門**,只有這行字(候選修法列在 `#499`)。
 export const ADMIN_ORDER_LIST_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
 
@@ -631,7 +631,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     // ⚠️ `goods_axis` **沒有加進投影** —— 列表顯示用的貨品軸由 `orderGoodsAxis()` 從品項數量算
     //    (狀態膠囊那條路),撈回來就是第二份真相。本片只拿它**下推篩選**。
     //    ⚠️ 因此「SQL 的判序」與「JS 的判序」目前**沒有任何守門綁著**,兩邊都是照
-    //    「shipped ⊆ instock ⊆ ordered」手寫的 —— 缺口記在 **`#498`**(不是 `#488`;
+    //    「shipped ⊆ instock ⊆ ordered」手寫的 —— 缺口記在 **`#499`**(不是 `#488`;
     //    `#488` 問的是「誰該寫 `fulfillment_status` 那個欄」,是另一題)。不要當作已對齊。
     let query = this.supabase
       .from('admin_order_list_v')
