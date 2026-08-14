@@ -12584,7 +12584,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   1. **chip 是互斥的,而「待處理」與「未到貨」母體大量重疊** ⇒ 員工按了一顆就看不到另一顆的內容,
      而兩顆講的是同一批單的不同面向。**這是 UI 形狀的問題,不是定義的問題,C 案沒有解它。**
   2. 🔴 **「還沒收錢」要不要含 `partiallyPaid` / `partiallyRefunded`?——Sean 沒有被問過這題。**
-     照抄現行收款軸(`order-status-axes.ts:117` 的 `!== 'paid'` 全收斂成 unpaid)會讓
+     照抄現行收款軸(`order-status-axes.ts:145` 逐字 `order.paymentStatus === 'paid' ? 'paid' : 'unpaid'`
+     ⇒ 非 paid 全收斂成 unpaid)會讓
+     <!-- 2026-08-15 更正:原寫「`:117` 的 `!== 'paid'`」= 假字面。實查 `grep -n "!== 'paid'"` 零命中、
+          `:117` 是 `label: string;`。語意同、位置與字面都不同。C 窗自查抓到,主視窗複跑對上。 -->
      **已退款的單出現在「待處理」** ⇒ 那正是 `#494` 剛修掉的病在新地方復發。**開工前必問。**
   3. **`.or()` 與關鍵字那條 `.in('id',…)` 疊起來的括號優先序沒查** ⇒ **可能讓 L6 隱藏規則失效**。
      ⚠️ 這比「兩個 `.or()` 疊起來」那條更具體:兩者是不同的組合,**要各自查**。
@@ -12830,7 +12833,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **兩份規格在同一張單上打架(各附行號):**
   | 層 | 檔案:行號 | 邏輯 | 對 `refunded` 的結果 |
   |---|---|---|---|
-  | 顯示 | `apps/admin/src/lib/orders/order-status-axes.ts:117` | `paymentStatus === 'paid' ? 'paid' : 'unpaid'` | 印成**未收** |
+  | 顯示 | `apps/admin/src/lib/orders/order-status-axes.ts:145` | `paymentStatus === 'paid' ? 'paid' : 'unpaid'` | 印成**未收** |
   | 取消閘 | `apps/admin/src/lib/orders/cancel-view.ts:543` | `paymentStatus !== 'unpaid'` ⇒ `payment_not_unpaid` | **擋住** |
 - **🔴 那行早就自己寫過了:** `order-status-axes.ts:112` 逐字「**`refunded`(已退款)會落進「未收」並吃到紅框**」
   ⇒ **這個後果被寫下來過,但沒有人把它接到取消那一側。** 病灶不是沒想到,是**想到了只記在原地**。
