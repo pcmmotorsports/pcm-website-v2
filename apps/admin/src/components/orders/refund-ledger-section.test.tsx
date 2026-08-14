@@ -41,6 +41,37 @@ describe('RefundLedgerSection — RW3', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  // 🔴 #445a-3 驗收 §6-32:445a-3 刪掉呼叫端「有列才打 RPC」的短路 ⇒
+  //    「零列 && 未登記額讀取失敗」**從不可達變成可達**。這個組合若落回 [1] 的
+  //    「整區不渲染」,值班看到的是「退款鈕不見了、頁面上一個字都沒有」。
+  //    ⇒ 這格紅的時候是誰讓它紅的:把失敗分支挪到 `rows.length === 0` 早退**之後**。
+  it('[1b] 🔴 零列 + 未登記額讀取失敗 → 要看得到說明,不得整區不渲染', () => {
+    const { container } = render(
+      <RefundLedgerSection rows={[]} unregisteredAmount={null} unregisteredFailed nowMs={NOW} />,
+    );
+    expect(container.innerHTML).not.toBe('');
+    expect(container.textContent).toContain('讀取失敗');
+    // 要講出「錢沒動」與「下一步」(Sean 08-13:使用上直覺、好用即可)
+    expect(container.textContent).toContain('錢沒有動');
+    expect(container.textContent).toContain('重新整理');
+    // 🔴 **不得宣稱按鈕被關掉** —— 本區塊看不到旗標/channel/status,
+    //    轉帳單或旗標關時入口本來就不存在,講了就是假話(code-reviewer 抓到我第一版寫了)。
+    expect(container.textContent).not.toMatch(/入口已.*關閉|按鈕.*收起/);
+    // 措辭鐵律:禁語不准出現(與資料來源無關)
+    expect(container.textContent).not.toMatch(/還能退|剩餘可退/);
+    // 🔴 純文字輸出不得混 Markdown —— 員工會看到字面星號。
+    //    同日我在 `refund-action-state.ts` 被 codex 抓過一次、一小時後又犯 ⇒ 做成守門。
+    expect(container.textContent).not.toContain('**');
+  });
+
+  // §6-33:零列 + 成功 ⇒ 行為與現況一致,不因刪短路多冒一個空區塊出來。
+  it('[1c] 零列 + 讀取成功(拿到數字)→ 仍然整區不渲染', () => {
+    const { container } = render(
+      <RefundLedgerSection rows={[]} unregisteredAmount={1000} nowMs={NOW} />,
+    );
+    expect(container.innerHTML).toBe('');
+  });
+
   it('[2] 載入失敗 → 警告(不靜默;明寫勿在此期間發起退款)', () => {
     const { container } = render(
       <RefundLedgerSection rows={[]} unregisteredAmount={null} loadFailed nowMs={NOW} />,

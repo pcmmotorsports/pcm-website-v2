@@ -23,6 +23,7 @@ import { OrderCancelBlock } from './order-cancel-block';
 import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
+import { shouldShowRefundEntry } from './refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
@@ -41,13 +42,9 @@ import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 // M-3 RW2d:退款入口的**顯示層**狀態閘(權威在 RPC 步 5 白名單 `20260803150000:530-532`:
 // paid/partiallyRefunded 可退、refunded 回 LEDGER_FULL、其餘 NOT_REFUNDABLE)——
-// 這裡只決定「入口值不值得渲染」,判錯的後果 = 員工按了拿到 action 的具名失敗訊息,不是繞過。
-// 型別釘 enum(R1 N4):日後 payment status 改名時這裡編譯紅,而不是入口靜默消失。
-const REFUND_ENTRY_STATUSES: readonly AdminOrderDetail['paymentStatus'][] = [
-  'paid',
-  'partiallyRefunded',
-];
-
+// 🔴 判斷本體與 `REFUND_ENTRY_STATUSES` 已於 **#445a-3** 搬到 `refund-entry-gate.ts`,
+//    理由:445a-3 讓「未登記額讀取失敗」變成每張單都可達的狀態,那個閘需要 oracle,
+//    而純判斷不該為了被測而在測試裡 mock `server-only`。**邏輯未變,只是換了位置。**
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
 const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-medium';
 const ROW = 'flex justify-between gap-4 py-1 text-sm';
@@ -467,12 +464,14 @@ export function OrderDetail({
           或未登記額為**負**(帳本登記已超過訂單總額=對帳異常,區塊明寫「勿再發起」)
           ⇒ 入口 fail-closed —— 同一頁「文字叫你別按、按鈕還亮著」就是自打嘴巴。
           負值下錢仍安全(S5 single-flight 擋下一發),關的是矛盾畫面。 */}
-      {refundEnabled &&
-        !refundsFailed &&
-        !refundUnregisteredFailed &&
-        !(refundUnregisteredAmount !== null && refundUnregisteredAmount < 0) &&
-        detail.paymentChannel === 'tappay' &&
-        REFUND_ENTRY_STATUSES.includes(detail.paymentStatus) && (
+      {shouldShowRefundEntry({
+        refundEnabled,
+        refundsFailed,
+        refundUnregisteredFailed,
+        refundUnregisteredAmount,
+        paymentChannel: detail.paymentChannel,
+        paymentStatus: detail.paymentStatus,
+      }) && (
           <RefundSection
             orderId={detail.id}
             returnTo={returnTo}
