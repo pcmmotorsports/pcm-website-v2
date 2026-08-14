@@ -7,12 +7,16 @@ import type {
   AdminOrderFilter,
   PaymentStatus,
   FulfillmentStatus,
+  OrderGoodsAxis,
   OrderSource,
   PaymentChannel,
   MemberTier,
   OrderItemVehicleSnapshot,
   InvoiceStatus,
 } from '@pcm/domain';
+// 🔴 `#484a` A2:四值的**唯一權威**在 domain(migration 的 `goods_axis` 與本檔的下拉是兩個消費者)。
+//    本檔不自己抄一份陣列 —— 抄了就是第三份字面,而三份只會在其中一份改動時才發現不同步。
+import { ORDER_GOODS_AXIS_VALUES } from '@pcm/domain';
 import {
   pickEnum,
   pickEnumMulti,
@@ -39,7 +43,19 @@ export const ORDERS_PAGE_SIZE = 20;
 
 /** 查詢字串鍵名(與 DB 欄對齊、URL 可讀)。 */
 export const PAYMENT_STATUS_PARAM = 'payment_status';
-export const FULFILLMENT_STATUS_PARAM = 'fulfillment_status';
+/**
+ * `#484a` A2:貨品軸的查詢鍵。**取代了舊的出貨狀態鍵**。
+ *
+ * 🔴 **舊鍵自此被忽略**(白名單只認下列鍵)。這不是為了乾淨,是因為**舊鍵的值篩不到任何東西**:
+ *    舊值是 `notOrdered/ordered/inStock/shipped`,新欄的值是 `none/ordered/instock/shipped`
+ *    —— 第一與第三個字面不同。正式站實測 `goods_axis=in.(notOrdered)` ⇒ **0 筆**;
+ *    `in.(none)` ⇒ 12 筆、`in.(ordered,instock,shipped)` ⇒ 1 筆(合計 13 = 全部)。
+ *    ⇒ 若留著舊鍵讓它「照樣解析」,舊書籤會安靜地變成「篩了一個永遠零筆的條件」。
+ * ⚠️ **殘留的死參數會被帶著走、但不影響行為**:`buildPanelCloseHref` 逐字複製 raw searchParams
+ *    ⇒ 舊書籤上的 `fulfillment_status=…` 會一路留在面板連結與 `return_to` 的網址上。
+ *    解析端已經忽略它 ⇒ **零行為影響**,只是網址上會留一個看起來還有效的死參數。
+ */
+export const GOODS_AXIS_PARAM = 'goods_axis';
 export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
 // A9w2(九碼退場):`workflow_status` 查詢鍵、`unset` 哨兵與其解析函式已下架 ——
@@ -105,6 +121,12 @@ export const PAYMENT_STATUS_VALUES: readonly PaymentStatus[] = [
   'refunded',
   'partiallyRefunded',
 ];
+/**
+ * ⚠️ `#484a` A2 起**零生產端** —— 篩選白名單已改用 `ORDER_GOODS_AXIS_VALUES`,
+ *    這一份現在只剩 `order-list-view.test.ts` 的「標籤完整性」測試在用。
+ * 🔴 **不刪**(對照 A9w2/A9w3 刪 export 的慣例):它是 `FULFILLMENT_STATUS_LABEL` 的窮舉來源,
+ *    而那張表還有兩個顯示端(明細頁 / 客戶頁)。刪了那格完整性測試就沒有東西可窮舉。
+ */
 export const FULFILLMENT_STATUS_VALUES: readonly FulfillmentStatus[] = [
   'notOrdered',
   'ordered',
@@ -157,10 +179,33 @@ export const STATUS_CAPSULE = 'inline-flex rounded-full px-2 py-0.5 text-xs font
    ⚠️ `PAYMENT_STATUS_LABEL` **不刪** —— 它還有三個消費端(篩選選項 `PAYMENT_STATUS_OPTIONS`、
       `order-detail.tsx:349`、`customer-detail-sections.tsx:80`)。 */
 
+/**
+ * 出貨狀態(`orders.fulfillment_status`)的中文標籤。
+ *
+ * ⚠️ `#484a` A2 起**只剩顯示用**(訂單明細頁「出貨狀態」欄、客戶頁的訂單列)——
+ *    篩選那一邊已改用下面的 `GOODS_AXIS_LABEL`。兩張表**刻意保持字面相同**,
+ *    因為它們對員工是同一件事;不同的是**資料從哪來**(這一張讀那個從沒被推進過的欄位)。
+ */
 export const FULFILLMENT_STATUS_LABEL: Record<FulfillmentStatus, string> = {
   notOrdered: '未訂貨',
   ordered: '已向廠商訂貨',
   inStock: '已到貨',
+  shipped: '已出貨',
+};
+
+/**
+ * 貨品軸的中文標籤(`#484a` A2 的篩選下拉)。
+ *
+ * 🔴 **字面逐字沿用上面那張表**(未訂貨 / 已向廠商訂貨 / 已到貨 / 已出貨):
+ *    這一片修的是「選了篩不到」,**不是改文案** —— 員工看到的下拉應該一個字都沒變,
+ *    變的是選下去之後真的篩得到。任何文案調整都要另外走 Sean,不夾帶在這一片。
+ * ⚠️ 這與狀態膠囊的八值(`order-status-axes.ts` 的 `ORDER_STATUS_LABEL`)**不是同一套詞** ——
+ *    那邊是「收款軸 × 貨品軸」相乘後的複合詞(如「未收現貨」),這邊是單軸。
+ */
+export const GOODS_AXIS_LABEL: Record<OrderGoodsAxis, string> = {
+  none: '未訂貨',
+  ordered: '已向廠商訂貨',
+  instock: '已到貨',
   shipped: '已出貨',
 };
 
@@ -211,10 +256,7 @@ function toOptions<T extends string>(
 }
 
 export const PAYMENT_STATUS_OPTIONS = toOptions(PAYMENT_STATUS_VALUES, PAYMENT_STATUS_LABEL);
-export const FULFILLMENT_STATUS_OPTIONS = toOptions(
-  FULFILLMENT_STATUS_VALUES,
-  FULFILLMENT_STATUS_LABEL,
-);
+export const GOODS_AXIS_OPTIONS = toOptions(ORDER_GOODS_AXIS_VALUES, GOODS_AXIS_LABEL);
 export const ORDER_SOURCE_OPTIONS = toOptions(ORDER_SOURCE_VALUES, ORDER_SOURCE_LABEL);
 export const PAYMENT_CHANNEL_OPTIONS = toOptions(PAYMENT_CHANNEL_VALUES, PAYMENT_CHANNEL_LABEL);
 
@@ -314,7 +356,16 @@ export function parseOrderListSearchParams(
   const dateRange = resolveOrderDateRange(raw, options?.now);
   const filter: AdminOrderFilter = {
     paymentStatus: pickEnum(raw[PAYMENT_STATUS_PARAM], PAYMENT_STATUS_VALUES),
-    fulfillmentStatus: pickEnum(raw[FULFILLMENT_STATUS_PARAM], FULFILLMENT_STATUS_VALUES),
+    // 🔴 `#484a` A2:`pickEnumMulti` 不是 `pickEnum` —— 型別是陣列(片 B 的 chip UI),
+    //    而白名單守門照舊:URL 帶不認得的值 ⇒ 那個值被丟掉,不是整軸 fail-open。
+    // 🔴🔴 **但這一片先 clamp 成最多 1 值**(code-reviewer R1 M6 抓到的真分岔):
+    //    可見控制項是**單選下拉**(`order-filter-bar.tsx` 取 `?.[0]`),而 `buildOrderListHref`
+    //    會把 N 個值原樣帶著走 ⇒ 手工網址 `?goods_axis=ordered&goods_axis=instock` 會造出
+    //    「列表篩兩值、下拉只顯示第一個」的狀態,員工一動任何其他篩選,第二個值就**靜默消失**
+    //    —— 那正是本檔記過三次的 fail-open 形狀。
+    //    ⇒ 在 chip UI(片 B)把第二個 producer 補上之前,**寧可少篩一個值也不要顯示與實際不一致**。
+    //    ⚠️ 片 B 要拿掉這個 `.slice(0, 1)`,同時把 `FilterState.goods` 改成陣列 —— 兩件事必須同一片。
+    goodsAxes: pickEnumMulti(raw[GOODS_AXIS_PARAM], ORDER_GOODS_AXIS_VALUES)?.slice(0, 1),
     orderSources: pickEnumMulti(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
@@ -593,7 +644,7 @@ export function buildOrderListHref(
   //      或該帶卻寫 `undefined`,型別一樣過。那半靠 `order-list-view.test.ts` 的往返測試。
   const byFilterKey: Record<keyof AdminOrderFilter, HrefEntry> = {
     paymentStatus: [PAYMENT_STATUS_PARAM, filter.paymentStatus],
-    fulfillmentStatus: [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
+    goodsAxes: [GOODS_AXIS_PARAM, filter.goodsAxes],
     orderSources: [ORDER_SOURCE_PARAM, filter.orderSources],
     paymentChannels: [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
     // 🔴 L6 的開關必須帶著走:漏列 = 員工打開「連未付款一起看」之後一翻頁

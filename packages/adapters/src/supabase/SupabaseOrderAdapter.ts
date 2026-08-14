@@ -83,6 +83,12 @@ export const ORDER_LIST_SELECT =
  *      admin adapter 本來就走 service_role,且明細投影自 A9g-1 起已在讀同一張表。
  * module-level `export const` → 測試 byte-equal + forbidden-token + spy 守門。
  */
+// 🔴 `#484a` A2 起本常數是**打在 view `admin_order_list_v` 上**的(不是 `orders`)。
+//    view 是建立當下 `SELECT o.*` 的**凍結快照** ⇒ 日後往 `orders` 加新欄、想在這裡投影它,
+//    **必須先重建 view**,否則執行期 `42703`(已實測:對 `orders` 打 `goods_axis` 回
+//    `{"code":"42703"}`;反過來也一樣)。契約全文見
+//    `supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql` 檔頭「寫作契約」。
+//    ⚠️ 這一條**沒有守門**,只有這行字(候選修法列在 `#499`)。
 export const ADMIN_ORDER_LIST_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
 
@@ -502,7 +508,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * - 投影 `ADMIN_ORDER_LIST_SELECT` 具名白名單(禁 `select('*')`;內嵌 customers(name) + tier_at_checkout(會員等級)
    *   + order_items 成交價/品名 + brand join〔穿越 product_variants/products 只取 brands(name)、經銷價成本欄零投影,
    *   縱深防線見 const docstring〕;M-4a Slice D-1a「每商品一列」);
-   * - 雙軸 + 次要篩選走 **DB where 下推**(payment_status / fulfillment_status 單值 .eq;order_source /
+   * - 雙軸 + 次要篩選走 **DB where 下推**(payment_status 單值 .eq;goods_axis 多值 .in〔`#484a` A2 起,
+   *   取代原本的 fulfillment_status .eq —— 那一欄正式站 13/13 全是 `notOrdered`,
+   *   ⇒ 四值裡**只有 `notOrdered` 篩得到(13 筆),其餘三值必定零筆**〕;order_source /
    *   payment_channel D-1b 起多勾選 .in;缺欄 / 空陣列 = 不限;全在 FilterBuilder 階段套用、避免 order/range 後改鏈型別);
    * - **server 端分頁** `.range(offset, offset+limit-1)`(offset 預設 0)+ 排序 `created_at` DESC(新到舊)+
    *   `count: 'exact'` 取符合條件總筆數(供 UI「共 N 筆」+ 分頁控制);
@@ -612,12 +620,38 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     // ✅ `keywordMatchCount` 本身仍然必要,只是理由在**別處**:關鍵字命中 N 筆、但下推的其他
     //    篩選把最終列表砍成 0 筆時,畫面與「關鍵字零命中」完全同形 —— 那個分辨靠它,不靠這條分支。
 
+    // ── `#484a` 片 A2:列表**改讀 view**(`admin_order_list_v` = orders 全欄 + `goods_axis`)──
+    // 🔴 只有這一支換源。**本檔**其餘三處 `.from('orders')`(會員側列表 / 明細 / 單欄查 total)**刻意不動** ——
+    //    (repo 內另有三處在別的 repository:退款 / 出貨 / storefront 付款狀態 —— 同樣不需要 `goods_axis`。)
+    //    它們不需要 `goods_axis`,而換源會讓它們一起吃到 view 的 GRANT 面(view 只開 service_role)。
+    // 🔴 **投影字串一個字都沒改**:view 是 `SELECT o.*` 的純加法投影 ⇒ 既有 15 個頂層欄與四層 embed
+    //    全部原樣可用。**這不是推的** —— apply 之後拿 `ADMIN_ORDER_LIST_SELECT` 逐字對正式站打過:
+    //    `HTTP=200`,`customers` / `order_items` / `product_variants` / `order_item_quantity_summary`
+    //    四層 embed 全回得來(這是 plan §8 列的「本片最大未知」,現已關掉)。
+    // ⚠️ `goods_axis` **沒有加進投影** —— 列表顯示用的貨品軸由 `orderGoodsAxis()` 從品項數量算
+    //    (狀態膠囊那條路),撈回來就是第二份真相。本片只拿它**下推篩選**。
+    //    ⚠️ 因此「SQL 的判序」與「JS 的判序」目前**沒有任何守門綁著**,兩邊都是照
+    //    「shipped ⊆ instock ⊆ ordered」手寫的 —— 缺口記在 **`#499`**(不是 `#488`;
+    //    `#488` 問的是「誰該寫 `fulfillment_status` 那個欄」,是另一題)。不要當作已對齊。
     let query = this.supabase
-      .from('orders')
+      .from('admin_order_list_v')
       .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
     if (orderIdFilter) query = query.in('id', orderIdFilter);
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
-    if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
+    // 🔴 `.in()` 不是 `.eq()`:現行 producer(單選下拉)只給 0 或 1 個值,但型別是陣列(片 B 的 chip UI)。
+    //    ⚠️ 空陣列 = 不限(`?.length` 擋掉)—— 押 `.in('goods_axis', [])` 的行為在 PostgREST 未文件化,
+    //    與上下兩軸的既有處置一致,不另立一套。
+    if (filter.goodsAxes?.length) {
+      query = query.in('goods_axis', [...filter.goodsAxes]);
+      // 🔴🔴 **A1 migration `:171-173` 的硬條款,不是我加的謹慎**(逐字:「A2 下推 `goods_axis` 時
+      //    必須同時加 `.is('cancelled_at', null)`,並且要有一格負向測試」)。
+      //    理由:view 的 `goods_axis` 對**已取消的單照樣算得出四值之一**,而畫面的
+      //    `orderStatusView()`(`order-status-axes.ts:147-156`)對已取消單**先早退**、膠囊寫「已取消」
+      //    ⇒ 不加這一條,員工選「已到貨」會撈回一張膠囊寫著「已取消」的單。
+      // 🔴 **綁在這個 `if` 裡面、不是全域**:沒有選貨品軸時,已取消的單**照舊要看得到**
+      //    (列表本來就要顯示已取消單,把它全域藏掉是另一件事、而且沒有人拍板過)。
+      query = query.is('cancelled_at', null);
+    }
     if (filter.orderSources?.length) {
       query = query.in('order_source', [...filter.orderSources]);
     }
