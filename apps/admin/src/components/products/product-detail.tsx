@@ -14,8 +14,16 @@ import {
 //    因為它們的 jsonb 元素形狀還沒對正式庫實跑過(片1b plan §4 R4)。
 //    這裡**不寫「即將推出」之類對未來的承諾**(片1a 已有同型守門)。
 
-/** `availability` 是 CHECK 二選一(`20260507004826:40-42`);非預期值原樣顯示,不猜、不吞。 */
-function availabilityLabel(raw: string): string {
+/**
+ * `availability` 是 CHECK 二選一(`20260507004826:40-42`);非預期值原樣顯示,不猜、不吞。
+ *
+ * 🔴 **R3 n1:這個 passthrough 分支與 `formatTime` 的 NaN 分支同型** —— 都是「CHECK/NOT NULL
+ * 保護下今天走不到的死防禦」。我上一輪折了後者卻沒折前者 = **同型的東西用了兩套標準**。
+ * ⇒ 一起 `export` + 一起補測試。**兩個都折,不是兩個都不折** ——
+ * 因為 CHECK 是**今天**的約束,而 `availability` 將來要加第三個值(預購/停產)是很可能的事,
+ * 屆時這個分支就是真的活路徑。
+ */
+export function availabilityLabel(raw: string): string {
   if (raw === 'in-stock') return '有庫存';
   if (raw === 'out-of-stock') return '無庫存';
   return raw;

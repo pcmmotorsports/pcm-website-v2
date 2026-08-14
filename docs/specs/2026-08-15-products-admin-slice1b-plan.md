@@ -103,9 +103,17 @@
    | 驗收 4 | **只有 `REPO_FILE` 一支檔** | `price_store`/`price_by_tier`/`cost`/`supplier_slug` |
    | 驗收 5 | ✅ 遞迴掃 `CONSUMER_ROOTS` | **只有 `price_general`/`delisted_at`** |
 
-   **折完之後(片1b-1 + R1 + R2)**:驗收 4 = 單掃 repository、字集 `LEAK`+`REPO_ONLY`;
-   **驗收 4b = 遞迴掃 `lib/products`**、同一組字集;驗收 5 = 遞迴掃消費面、字集 `DESIGN`+`LEAK`
-   **外加 `createSupabaseServiceClient` 零命中(含正向對照)**。
+   **折完之後(片1b-1 + R1 + R2 + R3)**:
+   · **經銷價三 token = 掃 `apps/admin/src` 全樹**(R3 F1;`cost` 用字界比對)——
+     🔴 **這條把「每片手工擴目錄清單」這個病類整個移除**,不是再補一個枚舉項。
+   · `metadata` = 只掃 `lib/products`(不能全樹:Next 頁面有官方的 `export const metadata`)。
+   · 設計約束(`price_general`/`delisted_at`)+ `createSupabaseServiceClient` 零命中 = 掃消費面兩根。
+
+   🔴 **本 plan 原本有一句假的「構造不出來」,作廢**:R1 我寫過「沒有機制保證未來所有
+   商品相關目錄都被涵蓋 —— 這句是限制不是保證」。**那是假的**:機制存在、成本一次目錄走訪、
+   實測零誤報(全樹 196 支非測試檔,三 token 原始命中 4 行**全在註解裡**)。
+   我甚至在同一段自己舉了 `components/product-media/` 當例子,還是沒去做。
+   **假的「構造不出來」比假的「已驗證」更毒 —— 它披謙虛外衣把工作從待辦裡拿掉。**
 
    ⇒ **遞迴的那道根本沒在掃經銷價** ⇒ 詳情頁印了 `price_store` **現行沒有任何一格會紅**。
 
