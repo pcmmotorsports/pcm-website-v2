@@ -19,6 +19,7 @@
 | `codex-review-packet.md` | Codex Review Packet 流程(歷史備查;2026-07-21 起鐵則 12 改直呼 codex CLI) |
 | `codex-inspector-role.md` | 給新 Codex 視窗的「檢查者」角色說明(唯讀審查) |
 | `cowork-review-chain.md` | Cowork 五階段對抗審查鏈規範 |
+| `guard-and-instrument-traps.md` | **守門與量具的六個坑**(恆綠格 / 紅錯地方 / 一發紅多格 / 恆紅閘 / 掃描字集太窄 / 證據可不可重跑)。**寫完守門要說「已驗證」之前、下全稱句之前、審別人驗收表之前**各查一次;每條附 2026-08-14 當天實例 + `檔案:行號` |
 
 ---
 
