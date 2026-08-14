@@ -265,6 +265,20 @@ ls supabase/migrations/ | grep -c "^20260815"
 | 9 | `lib/audit/types.ts` | `:36` | 「對齊 REQUIRED-2 return=minimal(不回讀 id)」 |
 | 10 | `lib/audit/repository.test.ts` | `:92` | 「service_role **無 SELECT** 下 return=minimal 不炸 42501」 |
 
+🔴 **收尾掃描用 `bash scripts/literal-sweep.sh '<舊字面>'`,不要手寫 grep 組合**
+(全窗通報 2026-08-15;它在本 worktree 就有,實測 2105 個文字檔約 1.2 秒、自帶 6 發負測)。
+
+⚠️ **而且這一組要掃兩個字面才掃得全** —— 實跑證據:
+```
+literal-sweep '無 SELECT'   ⇒ 命中 4 支:repository.ts:13 / supabase-repository.ts:14
+                                        / order-repository.ts:35 / repository.test.ts:92
+literal-sweep 'REQUIRED-2'  ⇒ 命中 5 支:上面 4 支 + types.ts:36
+```
+⇒ **`types.ts:36` 寫的是「對齊 REQUIRED-2 return=minimal」、句子裡沒有「無 SELECT」四個字**
+⇒ **只掃「無 SELECT」會漏掉它**,而它同樣是靠那個前提寫的。
+🔴 **這正是工具自己的限度第 4 條**:「它告訴你**哪裡還有這個字面**,不告訴你**那句話現在是真是假**」——
+**判斷『哪些字面算同一件事』仍然是人的工作**,工具只保證掃得乾淨。
+
 🔴 **為什麼必須同片改、不能另立案**(主視窗 2026-08-15 裁定):
 那 5 處寫的是**一句安全性質的宣稱**。留著它,下一個讀的人會以為「這張表對 server 也是唯寫的」,
 而 apply 之後**整張表對 server 全開讀**。⇒ D1 是 D0 之後**第一片碰這條線的**,**沒有比這更晚可以修的時機**。
