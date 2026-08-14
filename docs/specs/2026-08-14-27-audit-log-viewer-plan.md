@@ -39,7 +39,17 @@
 
 **現在沒有任何角色讀得到這張表。** `20260712210000:85` 先 `REVOKE ALL ... FROM PUBLIC, anon, authenticated, service_role`,`:89` 只補回 `GRANT INSERT TO service_role`。`:88` 逐字:「**不給 SELECT(最小權限;稽核 viewer slice 才顯式 GRANT SELECT TO service_role)**」—— **這片就是那個 viewer slice,建表當天就預告了。**
 `:113-117` 還有 fail-closed 斷言:service_role 有 SELECT 就 `RAISE EXCEPTION`;`:127-133` 另斷言 service_role 的 grant 列數**恰為 1**。
-⇒ 必須新開一支 migration:`GRANT SELECT ON public.admin_audit_log TO service_role`,並**同時把上面兩條斷言的終態改寫**(1 筆 → 2 筆、SELECT 從禁改成必須),否則新舊斷言互相矛盾。
+⇒ 必須新開一支 migration:`GRANT SELECT ON public.admin_audit_log TO service_role`。
+
+> 🔴 **2026-08-14 夜自我更正(本段第一版寫錯了機制)**:第一版寫「**同時把上面兩條斷言的終態改寫**,否則新舊斷言互相矛盾」。
+> **「矛盾」不成立、「改寫」更是錯的做法。** migration **forward-only、只跑一次**(`20260712210000:140` 逐字),
+> 那兩個 `DO $$` 是 **apply 那一刻**的檢查、**不會再跑** ⇒ 執行期沒有矛盾;
+> 而編輯一支**已 apply 的** migration = **改歷史**,明文禁止。**照第一版那句做,下一個人會去動已上庫的檔。**
+> **正解**:D0 寫**自己的**新斷言陳述**新終態**,檔頭寫明取代 `20260712210000` §4 的最小權限意圖。
+> 先例 `20260807120000`(A9v):`:10`「REVOKE 不是 DROP、可逆」/`:118` 斷言**攤平後完整授權字串**而非只數筆數/`:106` **誤殺正控**/`:77-80` 自己標註某條恆真。
+> **D0 四條斷言**:①`service_role` 終態恰 `INSERT`+`SELECT`、其餘 5 權限零 ②`anon`/`authenticated` 7 權限仍全零
+> ③**誤殺正控:`INSERT` 仍在**(19 支 writer 的命脈,誤殺=後台所有寫入連帶死)④欄級 ACL 零殘留。
+> ⚠️ 誠實界:**forward-only 我沒實測**,依據是 migration 檔字面 + 「不得編輯已 apply migration」既有紀律。詳見 `2026-08-14-27-d1-prep-notes.md` §1。
 ⇒ **鐵則 12②(權限/GRANT)+ ③(schema)雙中標 ⇒ 獨立成片 D0、要 Sean 批、要 apply,今晚一行都不動。**
 ⚠️ 順帶一提:migration `:27` 說「安全來自**無人能 SELECT**」。開了 SELECT 之後那句話就不再成立,威脅模型變成「靠 admin 登入閘」—— 而 `#26` 說登入身分**目前仍是自選**(`session/actor.ts:6-7` 自陳非授權邊界)。**這是要送給 Sean 的那顆決策,不是我能拍的。**
 
@@ -47,7 +57,7 @@
 
 | 片 | 內容 | 檔數 | 片型 | 鐵則 |
 |---|---|---|---|---|
-| **D0** | migration:GRANT SELECT + 改寫兩條斷言 | 1(新 migration) | **高風險片** | **8 + 12②③**,要 Sean 批 + apply |
+| **D0** | migration:`GRANT SELECT` + **本支自己的**四條新斷言(**不碰已 apply 的 `20260712210000`**) | 1(新 migration) | **高風險片** | **8 + 12②③**,要 Sean 批 + apply |
 | **D1** | 讀取 API + 頁面 + 篩選 | 8 = `lib/audit/repository.ts` + `lib/audit/supabase-repository.ts` + `lib/audit/audit-list-view.ts`(新) + `lib/orders/order-repository.ts`(getter) + `app/settings/audit/page.tsx`(新) + `components/audit/audit-table.tsx`(新) + `components/layout/app-sidebar.tsx`(加一列,現有 `:30-31` 慣例) + `audit-list-view.test.ts`(新) | 標準片 | **鐵則 8 命中**;D0 未 apply 前**不得上線**(跨 apply 停點) |
 
 **驗收條件(每條 yes/no)**
