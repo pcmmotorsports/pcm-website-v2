@@ -50,9 +50,18 @@ fi
 # 🔴 比 'true' 不是 't':`boolean::text` 回的是 **'true'**,`psql` 直接印 boolean 才是 't'。
 #    首版寫成 != "t" ⇒ 這道閘在**正確的庫上恆紅**(方向是 fail-closed 所以沒放行錯的東西,
 #    但它會把對的擋掉、而且訊息說「甲沒套上」= 說謊)。實測時當場踩到,留著記。
-if [ "$(q "SELECT (strpos(regexp_replace(prosrc,'--[^'||chr(10)||']*','','g'),'AND voided_at IS NULL')>0)::text FROM pg_proc WHERE oid='public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)'::regprocedure")" != "true" ]; then
+# 🔴🔴 **兩段剝(先 `/* */` 再 `--`)—— 這是同一個錯的【第三輪】。**
+#    R1 抓「沒剝註解」、R2 抓「只剝 `--` 沒剝 `/* */`」(我在 migration `:965-971` 自己寫下判詞),
+#    而**這道前提閘我當時沒跟著改** ⇒ `code-reviewer` 2026-08-14 nit 2 抓到,對。
+#    不修的話 `/* AND voided_at IS NULL */` 就能騙過這道閘 ⇒ 整個 harness 在沒套上甲片的庫上全綠。
+if [ "$(q "SELECT (strpos(regexp_replace(regexp_replace(prosrc,'/\*.*?\*/','','gs'),'--[^'||chr(10)||']*','','g'),'AND voided_at IS NULL')>0)::text FROM pg_proc WHERE oid='public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)'::regprocedure")" != "true" ]; then
   echo "🔴 前提閘:A5a 沒有 voided 分流 ⇒ 2a-2 甲沒套上,跑下去只是證明歷史。停。"; exit 1
 fi
+
+# 🔴 格數守門(`code-reviewer` nit 1;姊妹檔 `452-verify.sh:42-43,308-309` 有雙守、本檔原本零守)。
+#    沒有它,**刪掉一整格**(例如 C3 或 C7)不會有任何紅 —— 其他格照樣全綠 ⇒ 零訊號。
+EXPECTED_CELLS=9
+EXPECTED_MUTS=2
 
 # ══════════════════════════════════════════════════════════════
 # 行為格。每格獨立交易 + ROLLBACK(零留痕);一律 IS DISTINCT FROM(NULL-safe)。
@@ -83,15 +92,18 @@ END \$b\$;
 ROLLBACK;
 SQL
 )"
+  local tag="${name%% *}"          # 格名(C1 / C2 …),給「只紅哪一格」的判定用
   if printf '%s' "$out" | grep -qi 'ERROR'; then
-    FAIL=$((FAIL+1)); printf '  FAIL %s\n       %s\n' "$name" "$(printf '%s' "$out" | grep -i -m1 ERROR | cut -c1-150)"
+    FAIL=$((FAIL+1)); RED_CELLS="$RED_CELLS$tag "
+    printf '  FAIL %s\n       %s\n' "$name" "$(printf '%s' "$out" | grep -i -m1 ERROR | cut -c1-150)"
   else
     PASS=$((PASS+1)); printf '  ok   %s\n' "$name"
   fi
+  CELL_COUNT=$((CELL_COUNT+1))
 }
 
 run_cells() {
-  PASS=0; FAIL=0
+  PASS=0; FAIL=0; RED_CELLS=""; CELL_COUNT=0
 
   behave "C1 A5a 對已作廢列重下單 = CREATED(Q-S1=A)" "
     PERFORM public.admin_upsert_item_procurement(v_item, v_a, 3, 'confirmed', 'email', NULL,NULL,NULL,NULL, 'staff_1','c1a', false);
@@ -235,19 +247,43 @@ restore_fn() { psql "$URL" -q -v ON_ERROR_STOP=1 -f "$1" >/dev/null 2>&1; }
 
 MUT_BAD=0   # 🔴 突變存活 / 突變沒套上的累計數。**它決定 exit code。**
 
+# 🔴 **錨點與替換字串一律走 psql 變數(`-v` + `-f`),不做字串內插。**
+#    首版用 `-c "… '$2' …"` 內插 ⇒ **錨點裡的單引號會提前關掉 SQL 字面**
+#    (C8/C9 的錨點含 `'OVER_ALLOCATION'` / `'procurement.create'` ⇒ 當場語法錯,
+#     而 C7 沒引號所以「看起來成功」⇒ **一半假通過、一半真失敗**,最毒的組合)。
+# ⚠️ `:'var'` 代換**只在 `-f` 生效、`-c` 不生效**
+#    (memory `reference_measure-tool-dialect-and-silence-traps`)⇒ 必須寫檔再 `-f`。
+cat > "$WORK/mutate.sql" <<'MUTSQL'
+-- 🔴 值必須在【dollar-quote 之外】交給 SQL:psql 的 :'var' 代換
+--    ①只在 -f 生效(-c 不生效)②**不會進入 $$ … $$ 內部**。
+--    首版把 :'sig' 寫在 DO $m$ 裡面 ⇒ 三發全部「syntax error at or near :」= 突變一發都沒套上,
+--    而外層若只看「有沒有紅」會把它讀成「守門很強」。⇒ 用 set_config 送進去、用 current_setting 取。
+SELECT set_config('mut.sig',  :'sig',  false);
+SELECT set_config('mut.from', :'from', false);
+SELECT set_config('mut.to',   :'to',   false);
+DO $m$
+DECLARE v text; n integer; v_from text; v_to text;
+BEGIN
+  v_from := pg_catalog.current_setting('mut.from');
+  v_to   := pg_catalog.current_setting('mut.to');
+  SELECT pg_get_functiondef(pg_catalog.current_setting('mut.sig')::regprocedure) INTO v;
+  -- 🔴 恰 1 次,不是「存在就好」(code-reviewer nit 3)。命中 2 次 ⇒ replace 一次改兩處
+  --    ⇒ 突變體不是我以為的那個,而後面的紅會被當成「守門有效」的證據。
+  -- 🔴 用【長度差】數不用 regexp_matches:錨點含 ( ) . 等字元,當 regex 會被誤解析(錯得靜默)。
+  n := (pg_catalog.length(v) - pg_catalog.length(pg_catalog.replace(v, v_from, '')))
+       / pg_catalog.length(v_from);
+  IF n <> 1 THEN
+    RAISE EXCEPTION '突變錨點命中 % 次(須恰 1)—— 突變沒套上或套到多處,下面的綠沒有意義', n;
+  END IF;
+  EXECUTE pg_catalog.replace(v, v_from, v_to);
+END
+$m$;
+MUTSQL
+
 mutate() { # $1=signature $2=from $3=to
   local out rc
-  out="$(psql "$URL" -tAX -v ON_ERROR_STOP=1 -c "
-    DO \$m\$
-    DECLARE v text;
-    BEGIN
-      SELECT pg_get_functiondef('$1'::regprocedure) INTO v;
-      IF strpos(v, '$2') = 0 THEN
-        RAISE EXCEPTION '突變錨點找不到 [$2] —— 突變【沒有套上】,下面的綠沒有意義';
-      END IF;
-      v := replace(v, '$2', '$3');
-      EXECUTE v;
-    END \$m\$;" 2>&1)"
+  out="$(psql "$URL" -tAX -v ON_ERROR_STOP=1 \
+          -v sig="$1" -v from="$2" -v to="$3" -f "$WORK/mutate.sql" 2>&1)"
   rc=$?
   # 🔴 **看 psql 的 exit code,不是只 grep 'ERROR'**(codex R2 must-fix,對):
   #    連線失敗之類的訊息不含 'ERROR' 字樣 ⇒ 舊寫法會落到 return 0
@@ -265,9 +301,13 @@ RCP_SIG='public.admin_record_item_receipt(uuid,integer,integer,timestamptz,text,
 echo "══ 1. 基準線(突變前必須全綠,否則突變的紅沒有判別力)═══════"
 run_cells
 BASE_PASS=$PASS; BASE_FAIL=$FAIL
-echo "   基準線:綠 $BASE_PASS / 紅 $BASE_FAIL"
+echo "   基準線:綠 $BASE_PASS / 紅 $BASE_FAIL / 實跑格數 $CELL_COUNT(宣告 $EXPECTED_CELLS)"
 if [ "$BASE_FAIL" -ne 0 ]; then
   echo "🔴 基準線就有紅格 ⇒ 停。突變測試在這個狀態下讀不出東西。"; exit 1
+fi
+# 🔴 格數守門:少一格 = 有人刪了整格,而**刪格是不會有任何紅的**(其他格照樣綠)。
+if [ "$CELL_COUNT" -ne "$EXPECTED_CELLS" ]; then
+  echo "🔴 實跑格數 $CELL_COUNT ≠ 宣告 $EXPECTED_CELLS ⇒ 有格被刪或新增而沒更新 EXPECTED_CELLS。停。"; exit 1
 fi
 
 mkdir -p "$WORK/snap"
@@ -290,7 +330,11 @@ trap 'echo ""; echo "⚠️ 中斷 —— 正在把兩支函式還原回快照";
 echo ""
 echo "══ 2. MUT-A5a:拿掉 A5a 的 voided 分流 ═════════════════════"
 echo "   期望翻紅 = C1 / C2(對已作廢列會回 UPDATED、而且會改到那筆作廢列)"
-if mutate "$A5A_SIG" 'AND voided_at IS NULL' 'AND true'; then
+# 🔴 錨點必須**唯一**:`AND voided_at IS NULL` 在 functiondef 出現 **2 次** ——
+#    一次是程式,一次是我自己寫的 MF-1 更正註解裡**引用**了它。
+#    nit 3 那道「恰 1 次」守門第一次跑就攔到這件事(否則 replace 會把註解也改掉)。
+#    ⇒ 改用帶前一行的多行錨,那組合只出現在程式裡。
+if mutate "$A5A_SIG" "$(printf '       AND supplier_id   = p_supplier_id\n       AND voided_at IS NULL')" "$(printf '       AND supplier_id   = p_supplier_id\n       AND true')"; then
   run_cells
   echo "   突變後:綠 $PASS / 紅 $FAIL"
   if [ "$FAIL" -eq 0 ]; then
@@ -318,6 +362,37 @@ if mutate "$RCP_SIG" 'IF v_proc.voided_at IS NOT NULL THEN' 'IF false THEN'; the
   fi
 fi
 restore_fn "$WORK/snap/rcp.sql"
+
+echo ""
+echo "══ 3b. 定向突變:每發只准紅【一格】═══════════════════════"
+# 🔴 `code-reviewer` 2026-08-14 指出:C7/C8/C9 的判別力目前是**論證**不是**量到** ——
+#    MUT-A5a 一次紅五格,證不了「C7 有它自己的判別力」(可能只是被 C1/C2 蘊含)。
+#    ⇒ 每格配一發**只打它那道守門**的突變,期望**恰好只有它紅**。
+targeted() { # $1=格名 $2=簽章 $3=from $4=to
+  local name="$1" sig="$2"
+  if ! mutate "$sig" "$3" "$4"; then echo "   🔴 $name 定向突變沒套上"; return; fi
+  run_cells > /dev/null 2>&1
+  local reds; reds="$(echo "$RED_CELLS" | xargs)"
+  if [ "$reds" = "$name" ]; then
+    echo "   ✅ $name:恰好只有它翻紅"
+  else
+    echo "   🔴 $name:期望只紅 [$name],實紅 [$reds] ⇒ 判別力不獨立(或該格恆綠)"
+    MUT_BAD=$((MUT_BAD+1))
+  fi
+  restore_fn "$WORK/snap/a5a.sql"
+}
+targeted "C7" "$A5A_SIG" \
+  'IF (NOT v_exists) OR (p_allocated_quantity > v_before.allocated_quantity) THEN' \
+  'IF false THEN'
+# 🔴 C8 的錨點要用【多行版】:`RETURN 'OVER_ALLOCATION';` 在 A5a 出現 **2 次**
+#    (UPDATE 路徑與 INSERT 路徑各一)⇒ 單行錨會一次改掉兩處。
+#    這是 nit 3 那道「恰 1 次」守門當場擋下來的 —— 它不是裝飾,第一次跑就攔到了。
+targeted "C8" "$A5A_SIG" \
+  "$(printf "RETURN 'OVER_ALLOCATION';\n      WHEN unique_violation THEN")" \
+  "$(printf "RETURN 'INVALID_INPUT';\n      WHEN unique_violation THEN")"
+targeted "C9" "$A5A_SIG" \
+  "CASE WHEN v_result = 'CREATED' THEN 'procurement.create' ELSE 'procurement.update' END" \
+  "'procurement.update'"
 
 echo ""
 echo "══ 4. 還原確認(必須回到基準線,否則前面的紅是我自己弄壞的)═"

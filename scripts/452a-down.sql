@@ -1,78 +1,28 @@
 -- ============================================================
--- #452 片 2a-2「甲」:兩個相鄰 writer 的 voided 分流
---   (A5a admin_upsert_item_procurement / admin_record_item_receipt)
+-- #452 片 2a-2「甲」· 回退腳本(forward-only 之下的手動 down)
 -- ============================================================
--- 上游 plan = docs/specs/2026-08-14-452-2a2-procurement-void-rpc-plan.md(C 案瘦身版 v3)
--- 前一片 = 2a-1 schema `20260813120000`(已 apply 正式庫;台帳 supabase/APPLIED.tsv:187)
+-- 標的 = supabase/migrations/20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql
+-- 用法 = psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/452a-down.sql
 --
--- 🔴 **這支必須排在「乙」(void RPC)之【前】apply,順序承重、不是偏好。**
---   理由(plan §3.3 R1 MF-8):`supabase db push` 一次送多支,但**每支各自 commit**。
---   若 void RPC 先 commit、本支後 commit,中間就是「已經有 voided 列、而相鄰 writer 不認得」的
---   **真實存在的洞**(不是理論窗口)。
---   反過來安全的原因:在還沒有任何 voided 列之前,本支的兩個分流是**惰性的、零行為改變**
---   (2a-1 收工驗收 6e 觀察到全表 voided_at 皆為 NULL)⇒ 先上零風險。
---   ⇒ 「乙」那支的前置閘會偵測本支的字面,偵測不到就 RAISE 拒 apply。**那道閘是順序被遵守的唯一證明。**
+-- 🔴 **本片沒有可單獨回退的路,是 `code-reviewer` 2026-08-14 nit 5 抓到的**:
+--    `scripts/452-down.sql`(2a-1 的)對這兩支 writer **零命中** ⇒ 甲片一旦 apply 就退不掉。
+--    ⇒ 本檔補上。**回退腳本未就緒前,甲片不得排 apply**(主視窗 2026-08-14 釘死)。
 --
--- 🔴 **應用層要比本支更早上線**(plan §3.1;這【不】違反 memory
---   `feedback_app-layer-must-not-ship-before-migration-apply`,請逐字讀完再改):
---   那條 memory 講的是「app 呼叫一個還不存在的東西」(08-07 A9h 正式站壞約 8 小時)。三種形狀要分開:
---     ① 後上的那半還不存在、先上的那半會**呼叫**它            → 先上的壞(= A9h)
---     ② 先上的那半**改變了**後上那半正在讀的形狀              → 後上的壞
---     ③ 先上的那半只是「**多接受一種輸入**」,而此刻沒有人會產生那種輸入 → 零風險(= 本例)
---   ⇒ 判準不是「哪一層」,是「**誰依賴誰還不存在的東西**」。
---   本例 app 只是放寬它接受的碼集,在 RPC 還不會吐 `PROCUREMENT_VOIDED` 之前**完全惰性**;
---   反過來(migration 先上)⇒ RPC 開始吐新碼、app 不認得
---   ⇒ 走 receipt-repository.ts 的「回傳非預期碼」⇒ **員工看到「系統狀態異常」**。
+-- ── 這支做什麼 ──────────────────────────────────────────
+--   把兩支相鄰 writer 還原成 2a-2 甲【之前】的定義(逐字,由程式從正式庫抽出後凍結在本檔)。
+--   ⚠️ 它**不動** `voided_at` / `void_reason` 兩欄與業務鍵索引 —— 那是 2a-1 的東西,
+--      要退那些請走 `scripts/452-down.sql`,且**必須在本檔之後**(逆序)。
 --
--- ── 本支改什麼(兩處,各一行實質變更)────────────────────
---   1. A5a 的存在性查詢加 `AND voided_at IS NULL`
---      ⇒ 已作廢列**視同不存在**、走新建路徑(Sean 2026-08-14 Q-S1=A 逐字:
---        「當成全新的一筆收下來,舊的作廢紀錄留著查帳」)。
---      ⇒ 撞鍵靠 partial unique index(`WHERE voided_at IS NULL`,20260813120000:377-381)。
---      🔴 **回傳碼零變動**:走新建 = `CREATED`,**已在既有 17 碼窮盡集裡**
---        (apps/admin/src/lib/orders/procurement-repository.ts:17)⇒ A5a 側應用層零改動。
---   2. `admin_record_item_receipt` 加「已作廢不得登錄到貨」,新碼 `PROCUREMENT_VOIDED`。
---      🔴 位置排在**冪等快篩之後**(該函式 :118-126 自己立的規則逐字:
---        「凡是讀『會在兩次呼叫之間改變的狀態』的守門,都必須排在冪等判斷之後」)。
---      🔴 **不得依賴 C5(oiqs_instock_le_ordered)兜底** —— C5 比的是品項層聚合,
---        兄弟採購列撐著 ordered 時**不會發作** ⇒ 那筆到貨靜默掛在已作廢的採購上。
---        **會撞的至少會停下來,不會撞的是靜默的壞資料。**
---
--- ── 🔴 為什麼函式體是「程式抽取 + 程式改寫」而不是手抄 ──────
---   兩支函式體合計約 680 行。手抄無法用肉眼驗 byte-equal,而抄錯一個字元就是靜默的行為改變。
---   做法:`pg_get_functiondef` 抽現行定義 → 腳本做外科替換(錨點**必須恰命中 1 次**否則中止)
---         → `diff` 證明只動了預期那幾行 → 貼進本檔。
---   ⇒ 本檔的函式體與 apply 前的正式庫定義,除了下列**四處**之外逐字相同:
---       ① A5a 存在性查詢 +`AND voided_at IS NULL`(含說明註解)
---       ② receipt 步 6b 的作廢分流(含說明註解)
---       ③ A5a `unique_violation` 分支的**註解**:原句「本表無 DELETE writer ⇒ 不會再空手」
---          在邏輯刪除之後是假的,已改寫成真話(**只動註解,邏輯未變**)
---       ④ A5a 防衛枝的 **RAISE 訊息**:拿掉「請重新送出」(與 UI 的「不要重複按送出」矛盾)
---          + 補「為什麼不給可重試碼」的註解(Q-D5=A)
---   ⚠️ **原句寫「除了上面標註的【兩處】之外逐字相同」—— 那是假的**(codex R2 nit,對):
---      ③④ 是我折 R1 時改的,改完沒回來更新這一句。**「宣稱大於事實」在同一份檔裡第二次。**
---
--- ── 誠實邊界 ────────────────────────────────────────────
---   · 本檔的前置閘 P3 釘 `md5(pg_get_functiondef(...))` 指紋。
---     ⚠️ `pg_get_functiondef` 的輸出格式**理論上**可能隨 PG 版本異 ⇒ 指紋可能非真漂移而紅
---     (plan §7 G5;本機只有 PG 17.10 一個版本,構造不出第二個版本的輸出)。
---     紅了先比對 `pg_get_functiondef` 全文再判,不要直接改指紋。
---   · 🔴🔴 **本檔【有】「零筆被作廢」前置閘 = P5(見下方 P5 段),而且它是刻意的。**
---     **撞到 P5 的 RAISE ⇒ 停下回報 Sean。不要刪它、不要繞過它。**
---
---     ⚠️ **本行原本寫的是相反的話**(「本檔不設那道閘 … 設了只會在最需要修的時候擋住修」),
---        而下方 P5 又真的設了 ⇒ **同一份檔自相矛盾,且方向會害值班的人主動刪掉一道真的閘**
---        (`code-reviewer` 2026-08-14 M1,對;可達性 = 讀檔即達)。**已改到同向。**
---     🔴 兩者的差別是**方向,不是嚴重度**:
---       - 「設閘會擋住修」那句對的是 **down(回退)** —— 2a-2 的回退零資料損失,
---         在那裡設「零 voided 列」閘 = 出事時關不掉功能(plan §4.2 的 fail-DANGEROUS 段,**仍然成立**)。
---       - 本檔是 **forward(前推)**,P5 擋的是**另一件事**:R3 抓到的「編輯表單用作廢資料
---         覆寫生效列」那條路徑,其**不可達性的唯一支柱**就是「正式庫零 voided 列」。
---     ⇒ **前推設、回退不設。** 這不是不一致,是兩個方向的代價相反。
---   · CREATE OR REPLACE **保留既有 ACL**(不同於 DROP+CREATE)⇒ **本檔(前推)**不重發 GRANT,改成**斷言**。
---     🔴 **但回退不適用**:A5a 的前身是 `CREATE FUNCTION`(`20260806200000:79`)、不是 `OR REPLACE`
---        ⇒ **回退是 DROP+CREATE ⇒ ACL 不會保留** ⇒ 回退腳本**必須一併帶 GRANT**
---        (`code-reviewer` 2026-08-14 nit 5 抓到的非顯然點)。見 `scripts/452a-down.sql`。
+-- ── 🔴 ACL:reviewer 提出「回退會掉 ACL」,我實測後採【不同做法】,理由寫在這 ──
+--   reviewer 的依據 = A5a 的前身是 `CREATE FUNCTION`(`20260806200000:79`)不是 `OR REPLACE`
+--   ⇒ 推論「回退是 DROP+CREATE ⇒ ACL 不保留 ⇒ 必須一併 GRANT」。
+--   **那個推論對「換簽章」的情形成立**(20260806200000 確實先 DROP 再 CREATE,因為它加了第 12 個參數)。
+--   **但本檔的回退【不換簽章】** ⇒ 可以用 `CREATE OR REPLACE` ⇒ **不需要 DROP、ACL 原封保留**。
+--   🔴 我沒有拿這個推論當結論 —— 本檔**下方有 ACL 後置斷言**,退完當場驗:
+--      owner 以外只准 service_role 的不可轉授 EXECUTE,且恰 1 項。
+--      **若哪天有人把本檔改成 DROP+CREATE,那道斷言會當場紅**,而不是靜默掉權限。
+--   ⚠️ 也就是說:reviewer 指出的風險是真的,我用**斷言**接它、不是用**多發一次 GRANT** 接它
+--      —— 因為多發 GRANT 會讓「ACL 掉了」這件事**永遠不會被發現**。
 -- ============================================================
 
 BEGIN;
@@ -80,91 +30,42 @@ BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 
--- ── 前置閘(任一不符 ⇒ 整支回滾)────────────────────────
+-- ── 前置閘 ──────────────────────────────────────────────
 DO $gate$
-DECLARE
-  v_cnt integer;
-  v_def text;
+DECLARE v_cnt integer; v_src text;
 BEGIN
-  -- P1. 2a-1 已 apply:兩個作廢欄在
+  -- D1. 甲片確實在(不在 ⇒ 沒 apply 過或已退過 ⇒ 不要重跑)
   SELECT count(*) INTO v_cnt
-    FROM pg_catalog.pg_attribute
-   WHERE attrelid = 'public.order_item_procurement'::regclass
-     AND attname IN ('voided_at', 'void_reason')
-     AND NOT attisdropped;
-  IF v_cnt <> 2 THEN
-    RAISE EXCEPTION '452-2a2甲 前置閘 P1:order_item_procurement 應有 voided_at + void_reason 兩欄(實 % 欄)⇒ 2a-1 未 apply 或已回退;拒繼續', v_cnt;
+    FROM pg_catalog.pg_proc
+   WHERE oid = 'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)'::regprocedure
+     AND pg_catalog.strpos(
+           pg_catalog.regexp_replace(
+             pg_catalog.regexp_replace(prosrc, '/\*.*?\*/', '', 'gs'),
+             '--[^' || chr(10) || ']*', '', 'g'),
+           'AND voided_at IS NULL') > 0;
+  IF v_cnt <> 1 THEN
+    RAISE EXCEPTION '452a-down D1:A5a 沒有 voided 分流 ⇒ 甲片沒 apply 過或已退過;拒繼續(不要重跑)';
   END IF;
 
-  -- P2. 業務鍵已是 **partial** unique index(2a-1 換的形狀)
-  --     🔴 這道閘同時是 A5a 新述詞的正當性:沒有 partial 述詞,作廢列與新列就不能同鍵共存,
-  --        「視同不存在、走新建」會當場撞 23505。
-  SELECT pg_catalog.pg_get_indexdef(i.indexrelid) INTO v_def
-    FROM pg_catalog.pg_index i
-    JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
-   WHERE i.indrelid = 'public.order_item_procurement'::regclass
-     AND c.relname  = 'order_item_procurement_business_key'
-     AND i.indisunique;
-  -- 🔴 **逐字全等比對,不是子字串**(codex 2026-08-14 對抗審查 must-fix,對):
-  --    只查子字串的話,`WHERE (voided_at IS NULL AND false)` 這種**恆假**述詞也會通過
-  --    ⇒ 該索引等於不存在 ⇒ 同鍵可以有多筆 active 列 ⇒ A5a 的 `FOR UPDATE` 會隨機鎖到其中一筆、
-  --      而 `SELECT * INTO` 只吃第一列 ⇒ 靜默改錯列。**這道閘是新述詞正當性的唯一來源,必須從嚴。**
-  IF v_def IS DISTINCT FROM
-     'CREATE UNIQUE INDEX order_item_procurement_business_key ON public.order_item_procurement USING btree (order_item_id, supplier_id) WHERE (voided_at IS NULL)' THEN
-    RAISE EXCEPTION '452-2a2甲 前置閘 P2:業務鍵索引定義與預期不【逐字】相符,實 [%];拒繼續',
-      coalesce(v_def, '<不存在>');
-  END IF;
-
-  -- P3. 兩支相鄰 writer 的指紋 = apply 前的預期版本(有人在中間改過 ⇒ 停)
-  IF md5(pg_catalog.pg_get_functiondef(
-        'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)'::regprocedure))
-     <> 'a857c2816ec94c9786d2389814e8328c' THEN
-    RAISE EXCEPTION '452-2a2甲 前置閘 P3a:A5a 現行定義指紋與預期不符(有人在 2a-1 之後改過它)⇒ 先比對 pg_get_functiondef 全文再判,不要直接改指紋;拒繼續';
-  END IF;
-  IF md5(pg_catalog.pg_get_functiondef(
-        'public.admin_record_item_receipt(uuid,integer,integer,timestamptz,text,text,text)'::regprocedure))
-     <> '0505808ae60571ef8cd238283f32b210' THEN
-    RAISE EXCEPTION '452-2a2甲 前置閘 P3b:admin_record_item_receipt 現行定義指紋與預期不符 ⇒ 同上;拒繼續';
-  END IF;
-
-  -- P4. void RPC **尚未**存在(本支必須先上;乙那支的前置閘會反過來偵測本支)
+  -- D2. 🔴 乙(void RPC)【不得】還在 —— 它會引用本片的分流語意
   SELECT count(*) INTO v_cnt
-    FROM pg_catalog.pg_proc p
-    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'admin_void_item_procurement';
   IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 前置閘 P4:偵測到 admin_void_item_procurement 已存在(% 支)⇒ 乙先於甲上線 = 順序被違反,中間有「已有 voided 列而相鄰 writer 不認得」的洞;拒繼續', v_cnt;
+    RAISE EXCEPTION '452a-down D2:偵測到 admin_void_item_procurement 仍存在(% 支)⇒ 必須先逆序退掉乙,否則退掉甲會留下「會產生 voided 列、但相鄰 writer 不認得」的洞;拒繼續', v_cnt;
   END IF;
 
-  -- P5. 🔴🔴 **正式庫必須零 voided 列** —— 這道閘不是形式,它是一條【資料損壞路徑不可達】的唯一支柱。
-  --
-  --   路徑(R3 換模型換角度抓到,2026-08-14;主視窗已開檔複核兩處):
-  --     Q-S1=A 允許同鍵兩列(一作廢一生效)
-  --     × `SupabaseOrderAdapter.ts` 的 ADMIN_ORDER_DETAIL_SELECT **沒有投影 voided_at、無 filter 無 order**
-  --     × `procurement-view.ts` 的 hydrateFormValues = `find(p => p.supplierId === …)` **取第一筆**
-  --     ⇒ 員工開該供應商的採購編輯表單,可能 hydrate 出**作廢那列**的舊值,按儲存後
-  --        A5a(本片改的)會跳過作廢列、命中**生效列** ⇒ **把舊資料寫進新列**。
-  --        零錯誤、零固定碼、稽核看起來正常 = **靜默資料損壞**。
-  --
-  --   🔴 本片之所以**仍可安全上線**,唯一理由是「正式庫零 voided 列 ⇒ find() 只可能命中一列」。
-  --      而那句話**今天成立不代表 apply 當天成立**(人工 SQL 改過資料就有;
-  --      memory `project_0812-sean-order-ui-workflow-and-undo-needs` 逐字:採購撤銷現行唯一救濟 = 手動 SQL)。
-  --   ⇒ 這道閘把「不可達」從**假設**變成 **apply 當天的觀察**。
-  --   ⚠️ **查到非 0 ⇒ 停下回報 Sean,不得自行判斷「應該沒關係」** —— 非 0 代表上面那條路徑此刻已可達。
-  --   ⚠️ 這道閘只在**前推**方向設;down 腳本**不設**(2a-2 的回退零資料損失,
-  --      在那裡設同一道閘 = 出事時關不掉功能,見 plan §4.2 的 fail-DANGEROUS 段)。
-  SELECT count(*) INTO v_cnt FROM public.order_item_procurement WHERE voided_at IS NOT NULL;
-  IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 前置閘 P5:本表已有 % 筆 voided 列。本片的安全性依賴「零 voided 列」(否則採購編輯表單會用作廢資料覆寫生效資料,見上方註解)⇒ 停下回報 Sean,不要自行放行;拒繼續', v_cnt;
-  END IF;
-
-  RAISE NOTICE '452-2a2甲 前置閘 P1-P5 全過(P5:正式庫零 voided 列,= 編輯表單覆寫路徑不可達的觀察)。';
+  -- D3. 🔴 **不設「零筆被作廢」閘** —— 與前推的 P5 方向相反,這是刻意的。
+  --     本檔零資料損失;在這裡設那道閘 = 已經有作廢列之後就再也退不掉甲片,
+  --     而那正是最需要退的時刻(plan §4.2 的 fail-DANGEROUS 段)。
+  --     ⚠️ 但要知道:**退掉甲片之後,若庫裡已有 voided 列,相鄰 writer 就不再認得它們**
+  --     ⇒ 退完請立刻確認 voided 列數;非 0 就是人工處置的範圍,回報 Sean。
+  RAISE NOTICE '452a-down 前置閘 D1-D2 通過(D3 刻意不設,理由見註解)。';
 END
 $gate$;
 
--- ── 1. A5a:存在性查詢加 voided 分流 ──────────────────────
--- 🔴 以下函式體 = apply 前正式庫定義的逐字複製,唯一變更 = 標了 `#452 片 2a-2` 的那段註解
---    與 `AND voided_at IS NULL` 一行。抽取與改寫皆由程式完成(見檔頭)。
+-- ── 還原兩支 writer 成 2a-2 甲【之前】的定義(逐字凍結)──────
+-- 🔴 用 CREATE OR REPLACE、**不 DROP**:簽章未變 ⇒ ACL 原封保留(下方有斷言驗它)。
 CREATE OR REPLACE FUNCTION public.admin_upsert_item_procurement(p_order_item_id uuid, p_supplier_id uuid, p_allocated_quantity integer, p_reply_status text, p_contact_channel text, p_submitted_at timestamp with time zone, p_supplier_order_no text, p_exception_reason text, p_expected_arrival_date date, p_actor text, p_request_id text, p_preserve_optional_fields boolean DEFAULT false)
  RETURNS text
  LANGUAGE plpgsql
@@ -387,23 +288,10 @@ BEGIN
 
   -- 步 11. upsert 本體。兩圈:第二圈只在「兄弟交易剛併發首建」時才會走到。
   FOR v_try IN 1..2 LOOP
-    -- 🔴 #452 片 2a-2(Sean 2026-08-14 Q-S1=A:「當成全新的一筆收下來,舊的作廢紀錄留著查帳」):
-    --    **已作廢的列視同不存在** ⇒ 走新建路徑,不去 UPDATE 一筆已作廢的採購。
-    --    不加這個述詞的話:員工對已作廢的供應商重下單 ⇒ 走 UPDATE 路徑改掉那筆【仍是作廢狀態】的列
-    --    ⇒ A2b1 因調降/持平早退不守、A4a 的 ordered 軸又已把作廢列扣掉
-    --    ⇒ **他以為下了單,訂購數卻一動不動 ⇒ 會一直重下**(2a-1 已觀察,scripts/452-verify.sh B5 格)。
-    -- 🔴 撞鍵靠 `order_item_procurement_business_key` 的 **partial** unique index
-    --    (`WHERE voided_at IS NULL`,20260813120000:377-381)⇒ 作廢列與新列可以同鍵共存。
-    -- 🔴 **這裡刻意【不】取 advisory lock。** 2a-2 曾設計 C1 advisory 來擋 `unvoid × A5a` 的死結,
-    --    但 Sean 2026-08-14 拍 Q-452-換路=C(只做作廢、不做取消作廢)⇒ 那條死結的一條邊不存在。
-    --    已實測:docs/probes/452-2a2-void-lockprobe.sh 跑四次結果相同(最後一次為現行版本)——
-    --    發⓪ 正向對照(unvoid 形狀)40P01=1、發④/發⑤(void × A5a 兩個方向)皆 40P01=0,
-    --    且④⑤各有 1 個 session 實卡在 wait_event_type='Lock'(證明真的併發過、不是假綠)。
     SELECT * INTO v_before
       FROM public.order_item_procurement
      WHERE order_item_id = p_order_item_id
        AND supplier_id   = p_supplier_id
-       AND voided_at IS NULL
      FOR UPDATE;
     v_exists := FOUND;
 
@@ -519,19 +407,7 @@ BEGIN
         RETURN 'OVER_ALLOCATION';
       WHEN unique_violation THEN
         -- 兄弟交易併發首建:23505 只會在對方 COMMIT 之後才拋 ⇒ 第二圈的列鎖查詢
-        -- 通常看得到那筆已提交的列,走 11a/11b。
-        -- 🔴🔴 **#452 片 2a-2 更正:原句「本表無 DELETE writer ⇒ 不會再空手」現在是【假的】。**
-        --    (codex 2026-08-14 對抗審查 must-fix,對。)
-        --    2a-1 之後 `voided_at` 是一種**邏輯刪除**:列還在,但它離開了 partial unique index
-        --    的可見集合 ⇒ 第二圈那條帶 `AND voided_at IS NULL` 的查詢**可以**空手。
-        --    可達的交錯(需三個並行動作,罕見但真實):
-        --      ①本交易 INSERT 撞 23505(同鍵已有 active 列 R)
-        --      ②R 被作廢並提交 ⇒ 第二圈查不到 R
-        --      ③另一支 A5a 搶先為同鍵建了新的 active 列並提交
-        --      ⇒ 第二圈 INSERT 再撞 23505 ⇒ v_retry := true ⇒ 兩圈用盡 ⇒ 落到下方防衛枝 RAISE。
-        --    **為什麼接受、不擴迴圈**:失敗方向是 **fail-closed**(RAISE ⇒ 整筆 rollback,
-        --    零錯誤寫入、零資料損失);擴成 N 圈只是把窗口變窄、消滅不了它,
-        --    還要重新論證「N 圈夠不夠」。⇒ 維持兩圈,但把真話寫在這裡。
+        -- 必定看得到那筆已提交的列,走 11a/11b;本表無 DELETE writer ⇒ 不會再空手。
         GET STACKED DIAGNOSTICS v_con = CONSTRAINT_NAME;
         IF v_con IS DISTINCT FROM 'order_item_procurement_business_key' THEN
           RAISE;
@@ -548,20 +424,9 @@ BEGIN
   END LOOP;
 
   IF v_result IS NULL THEN
-    -- 防衛枝:兩圈都沒收斂。
-    -- 🔴 **#452 片 2a-2 更正:不再宣稱「理論不可達」** —— 邏輯刪除(voided_at)讓它變成
-    --    可達但罕見的三方交錯(見上方 unique_violation 分支的逐條交錯)。fail-closed。
-    -- 🔴 **訊息刻意【不】寫「請重新送出」**(Q-D5=A,2026-08-14 主視窗裁;codex R2 抓到的矛盾):
-    --    本枝走 `P0001` ⇒ 應用層 `procurement-repository.ts` 把它歸類成 **caller bug**,
-    --    UI 對員工說的是「不要重複按送出」。DB 訊息若寫「請重新送出」⇒ **兩句當場打架**,
-    --    而員工只會看到 UI 那句。⇒ 訊息只陳述事實,不給與 UI 衝突的指示。
-    -- 🔴 **為什麼不給一個可重試的新固定碼**(下一個人看到 P0001 會以為是漏掉,所以寫在這裡):
-    --    ①它要再動一次**已凍結的窮盡碼集**(`procurement-repository.ts` 17 碼 + 編譯期守門)
-    --    ②開一個新碼只為服務一個**三方競態**,成本與風險大於收益
-    --    ③失敗方向是 fail-closed(整筆 rollback、零寫入)⇒ 員工重按一次就會過。
-    --    ⇒ 若日後這條在正式站真的出現得夠頻繁,再開碼;屆時 backlog 從本註解起。
-    RAISE EXCEPTION 'A5a 防衛枝:upsert 兩圈未收斂(品項 % / 供應商 %)。'
-                    '罕見三方交錯:撞鍵→該列被作廢→他人搶先新建。本次未寫入任何東西。',
+    -- 防衛枝:兩圈都沒收斂 = 上面的推理被推翻(例如有人加了 DELETE writer)。
+    -- 不列守門計數、無負測、無突變格(A2b1 §3.6 / A4a 同紀律)。
+    RAISE EXCEPTION 'A5a 防衛枝:upsert 兩圈未收斂(品項 % / 供應商 %;理論不可達)',
       p_order_item_id, p_supplier_id;
   END IF;
 
@@ -603,8 +468,6 @@ $function$
 
 ;
 
--- ── 2. admin_record_item_receipt:已作廢不得登錄到貨(新碼 PROCUREMENT_VOIDED)──
--- 🔴 同上:逐字複製 + 程式外科替換,唯一變更 = 步 6b 那一段。
 CREATE OR REPLACE FUNCTION public.admin_record_item_receipt(p_procurement_id uuid, p_quantity integer, p_surplus_quantity integer, p_received_at timestamp with time zone, p_note text, p_actor text, p_request_id text)
  RETURNS text
  LANGUAGE plpgsql
@@ -762,20 +625,6 @@ BEGIN
     RAISE EXCEPTION '這個提交編號先前已經用過,但內容不一樣。請重新整理頁面再送一次。';
   END IF;
 
-  -- 步 6b. 🔴 #452 片 2a-2:**已作廢的採購不得登錄到貨**。
-  --   🔴 位置承重 —— 必須排在步 6 冪等快篩【之後】,理由就是上面那條規則逐字:
-  --      「凡是讀『會在兩次呼叫之間改變的狀態』的守門,都必須排在冪等判斷之後」。
-  --      `voided_at` 正是那種狀態 ⇒ 排前面的話,「登錄成功 → 採購被作廢 → 合法重放」
-  --      會回 PROCUREMENT_VOIDED 而不是 DUPLICATE_REQUEST(= 冪等被狀態轉換擊破)。
-  --   🔴 **必須是直接斷言,不得依賴 C5 兜底**:C5(oiqs_instock_le_ordered)比的是【品項層聚合】,
-  --      若同品項還有兄弟採購列撐著 ordered,對已作廢列收貨【不會】撞 C5
-  --      ⇒ 那筆到貨就靜默掛在一筆已作廢的採購上,沒有任何人擋。
-  --      **會撞的至少會停下來,不會撞的是靜默的壞資料** ⇒ 這裡不靠 CHECK 偶然接住。
-  --   🔴 讀的是步 5 鎖下的 v_proc(不是重查)⇒ 無 TOCTOU。
-  IF v_proc.voided_at IS NOT NULL THEN
-    RETURN 'PROCUREMENT_VOIDED';
-  END IF;
-
   -- 步 7. 超收前置拒絕(plan §3.1-5)—— 現在排在冪等之後
   -- ⚠️ 本步在 proc 列鎖之內 ⇒ 併發登錄會序列化,第二者讀得到第一者提交後的 received(READ COMMITTED)。
   -- 🔴 **不靠 A2 的 `received_range` CHECK 兜底**:那條吐 raw 23514、員工看不懂
@@ -901,287 +750,73 @@ $function$
 
 ;
 
--- ── 3. COMMENT 更新(追加式,冪等)──────────────────────
--- 🔴 用 DO + format 追加而不是重打整段:兩支的 COMMENT 各有 20+ 行,手抄一次就是一次漂移機會。
---    追加前先查子字串 ⇒ 重跑不會疊兩次。
-DO $cmt$
-DECLARE
-  v_a5a_sig  constant text := 'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)';
-  v_rcp_sig  constant text := 'public.admin_record_item_receipt(uuid,integer,integer,timestamptz,text,text,text)';
-  v_old text;
-  v_add text;
-BEGIN
-  -- A5a
-  v_add := ' 🔴 #452 片 2a-2(Sean 2026-08-14 Q-S1=A):存在性查詢帶 `AND voided_at IS NULL`'
-        || ' ⇒ **已作廢的列視同不存在、走新建路徑**,舊作廢紀錄留著查帳;'
-        || '同一家供應商因此可能看到兩列(一列已作廢、一列生效中),撞鍵靠業務鍵的 partial unique index'
-        || '(WHERE voided_at IS NULL)。回傳碼**零新增**(走新建 = CREATED,已在既有 17 碼集內)。'
-        || ' 🔴 本 RPC 刻意不取 advisory lock:C 案(只做作廢、不做取消作廢)下 void × A5a 已實測不死結'
-        || '(docs/probes/452-2a2-void-lockprobe.sh,正向對照 40P01=1 / 本案兩向皆 0)。';
-  SELECT pg_catalog.obj_description(v_a5a_sig::regprocedure, 'pg_proc') INTO v_old;
-  IF v_old IS NULL THEN
-    RAISE EXCEPTION '452-2a2甲:A5a 竟無 COMMENT ⇒ 上游狀態與預期不符;拒繼續';
-  END IF;
-  IF pg_catalog.strpos(v_old, '#452 片 2a-2') = 0 THEN
-    EXECUTE pg_catalog.format('COMMENT ON FUNCTION %s IS %L', v_a5a_sig, v_old || v_add);
-  END IF;
-
-  -- receipt
-  v_add := ' 🔴 #452 片 2a-2:新增固定碼 **PROCUREMENT_VOIDED** —— 已作廢的採購不得登錄到貨。'
-        || '該守門排在**冪等快篩之後**(voided_at 是「會在兩次呼叫之間改變的狀態」;'
-        || '排前面會讓「登錄成功 → 採購被作廢 → 合法重放」回錯碼而不是 DUPLICATE_REQUEST)。'
-        || '🔴 它是**直接斷言**,不靠 C5(oiqs_instock_le_ordered)兜底 —— C5 比品項層聚合,'
-        || '兄弟採購列撐著 ordered 時不會發作,那筆到貨會靜默掛在已作廢的採購上。'
-        || '撤到貨的出口 = admin_delete_item_receipt(uuid,text,text);'
-        || '⚠️ 撤完之後那批貨在系統裡沒有去處 = 已立案的 #462,本片不做。';
-  SELECT pg_catalog.obj_description(v_rcp_sig::regprocedure, 'pg_proc') INTO v_old;
-  IF v_old IS NULL THEN
-    RAISE EXCEPTION '452-2a2甲:admin_record_item_receipt 竟無 COMMENT;拒繼續';
-  END IF;
-  IF pg_catalog.strpos(v_old, 'PROCUREMENT_VOIDED') = 0 THEN
-    EXECUTE pg_catalog.format('COMMENT ON FUNCTION %s IS %L', v_rcp_sig, v_old || v_add);
-  END IF;
-END
-$cmt$;
-
--- ── 4. 檔內 fail-closed 驗收 ─────────────────────────────
+-- ── 後置斷言(任一不符 ⇒ 整支回滾)──────────────────────
 DO $verify$
 DECLARE
-  v_a5a_oid  constant regprocedure := 'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)'::regprocedure;
-  v_rcp_oid  constant regprocedure := 'public.admin_record_item_receipt(uuid,integer,integer,timestamptz,text,text,text)'::regprocedure;
-  v_src   text;
-  v_cnt   integer;
-  v_i     integer;
-  v_j     integer;
-  v_cfg   text[];
+  v_a5a constant regprocedure := 'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)'::regprocedure;
+  v_rcp constant regprocedure := 'public.admin_record_item_receipt(uuid,integer,integer,timestamptz,text,text,text)'::regprocedure;
+  v_src text; v_cnt integer; v_oid regprocedure;
 BEGIN
-  -- ══════════════════════════════════════════════════════════════
-  -- 🔴🔴 本段一律對「**剝掉 `--` 註解的 prosrc**」比對,不對 pg_get_functiondef 比。
-  --
-  --   為什麼(這是本檔踩過的坑,codex 2026-08-14 對抗審查 must-fix 兩條):
-  --   ① `pg_get_functiondef` / `prosrc` **都含註解** ⇒ `strpos` 分不出程式與註解。
-  --      本檔首版三個靶全中招:`voided_at is null` / `advisory` / `procurement_voided`
-  --      各自被自己的說明註解灌水,一個誤紅、兩個會誤綠。
-  --   ② 更毒的是**註解掉真述詞**這一招:把 `AND voided_at IS NULL` 前面加 `--`,
-  --      字面還在 ⇒ 只看字面的靶**照樣全綠**,而守門實際上已經沒了。
-  --      ⇒ 剝註解之後那一行連同字面一起消失 ⇒ 計數掉到 0 ⇒ **紅**。這才是有鑑別力的量法。
-  --
-  --   🔴 這個剝法**不是我發明的,repo 早就有**(`20260810233000:528-537` 逐字,含同一個踩坑紀錄)。
-  --      我第一版沒去找既有樣板、自己重造了一個較弱的版本 —— 記在這裡。
-  --   ⚠️ 誠實邊界(沿用原檔):剝法用 `--` 到行尾,**字串字面裡的 `--` 也會被剝掉**。
-  --      對「找錨點」可接受(錨點都不含 `--`),但不可拿它當通用 SQL parser。
-  --   ⚠️ 誠實邊界二:字面比對**不是控制流分析** —— 等價重構會合法誤紅。
-  --      行為證據在 `scripts/452b-verify.sh`,不在這裡。這裡只是 tripwire。
-  -- ══════════════════════════════════════════════════════════════
-
-  -- ══ A5a ══
-  -- 🔴 **兩段剝**:先剝 `/* … */` 區塊註解,再剝 `--` 行註解。
-  --    只剝 `--` 的版本可以被 `/* AND voided_at IS NULL */` 直接騙過(codex R2 must-fix,對)。
-  --    ⚠️ 這個兩段式**不是我發明的**,`scripts/452-verify.sh` 的 S7/S7b 格早就這樣寫。
-  --      我第一次只抄了一半、被 R1 抓;修的時候又只抄了一半、被 R2 抓。**同一個錯連犯兩輪。**
+  -- 1. 甲片的兩處分流都不見了(剝註解後比,理由同 migration)
   SELECT pg_catalog.regexp_replace(
            pg_catalog.regexp_replace(prosrc, '/\*.*?\*/', '', 'gs'),
            '--[^' || chr(10) || ']*', '', 'g') INTO v_src
-    FROM pg_catalog.pg_proc WHERE oid =v_a5a_oid;
-
-  -- (A1) 本片新增的 voided 分流:恰一次
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'AND voided_at IS NULL', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A1:A5a 的 `AND voided_at IS NULL` 應恰 1 次(剝註解後實 % 次)—— 0 = 守門被拿掉或被註解掉;>1 = 別處也加了分流,語意要人看;拒繼續', v_cnt;
+    FROM pg_catalog.pg_proc WHERE oid = v_a5a;
+  IF pg_catalog.strpos(v_src, 'AND voided_at IS NULL') <> 0 THEN
+    RAISE EXCEPTION '452a-down 後置 1:A5a 的 voided 分流還在 ⇒ 還原沒生效;拒繼續';
   END IF;
-  -- (A1b) 而且它必須在**採購列那條 FOR UPDATE 查詢之內**(不是隨便某處)
-  IF v_src !~ 'FROM public\.order_item_procurement[^;]*AND voided_at IS NULL[^;]*FOR UPDATE' THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A1b:voided 述詞必須落在採購列 FOR UPDATE 那條查詢【之內】;拒繼續';
-  END IF;
-
-  -- (A2-A5) 🔴 以下全部是 `20260806200000:721-808` 的原有結構錨。
-  --   CREATE OR REPLACE 會換掉整個函式體 ⇒ **不搬過來,2a-1 之前建立的保證就隨這次改寫靜默消失**
-  --   (codex must-fix:「任一處抄壞,現有 DO block 仍可全綠」)。
-  IF pg_catalog.strpos(v_src, 'FOR NO KEY UPDATE') <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A2:A5a 不得顯式取 order_items 的 NKU 鎖(取鎖序反轉);拒繼續';
-  END IF;
-  IF pg_catalog.strpos(v_src, 'order_item_quantity_summary') <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A3:A5a 竟引用摘要表(職責重複);拒繼續';
-  END IF;
-  IF pg_catalog.strpos(v_src, 'pcm_a4a_recompute') <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A4:A5a 竟直呼 A4a 重算 helper;拒繼續';
-  END IF;
-  IF v_src ~* '(^|[^_[:alnum:]])execute[[:space:]]' THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A5:A5a 出現動態 SQL(EXECUTE),字面錨全部失效;拒繼續';
-  END IF;
-  IF pg_catalog.strpos(v_src, 'pg_advisory') <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A5b:A5a 竟取 advisory lock —— C 案下 void × A5a 已實測不死結,無法證明的防護不該留;拒繼續';
-  END IF;
-
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'FOR UPDATE', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A6:A5a 的 FOR UPDATE 應恰 1 次(採購列鎖),實 % 次;拒繼續', v_cnt;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'FOR SHARE', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A7:A5a 的 FOR SHARE 應恰 1 次(供應商閘單一落點;多處 = 有一處會被寫成普通 SELECT 而 TOCTOU),實 % 次;拒繼續', v_cnt;
-  END IF;
-  -- 🔴 **`FROM public.suppliers s` 必須恰一次**(逐字搬回 `20260806200000:753/786-789`;
-  --    codex R2 must-fix:我上一版只證「有一處帶 FOR SHARE」⇒ **多一個普通 SELECT 照樣全綠**,
-  --    而供應商閘的整個安全性建立在「單一落點」上 —— 多出來的那一處就是 TOCTOU 的入口)。
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'FROM public\.suppliers s', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A8:`FROM public.suppliers s` 應恰 1 次(供應商閘單一落點;多一處會被寫成普通 SELECT 而 TOCTOU),實 % 次;拒繼續', v_cnt;
-  END IF;
-  IF NOT (v_src ~ 'FROM public\.suppliers s[^;]*FOR SHARE') THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A8b:兩把鎖必須各自綁對表(suppliers 那次查詢必須是 FOR SHARE);對調會讓無環論證失效;拒繼續';
-  END IF;
-
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'first_ordered_at', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A9:first_ordered_at 應恰 1 次(僅新建欄清單;出現在 SET 清單 = 首寫語意被破壞),實 % 次;拒繼續', v_cnt;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'received_quantity', 'g');
-  SELECT count(*) INTO v_i   FROM pg_catalog.regexp_matches(v_src, 'v_before\.received_quantity', 'g');
-  IF v_i < 1 OR v_cnt <> v_i THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A10:received_quantity 出現 % 次、其中讀取形式 % 次(應相等且 >=1:本 RPC 只准讀不准寫該欄,A4a P4A01);拒繼續', v_cnt, v_i;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'SET CONSTRAINTS', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A11:A5a 的 SET CONSTRAINTS 應恰 1 次(入口拉回 immediate),實 % 次;拒繼續', v_cnt;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'INSERT INTO public\.order_item_procurement', 'g');
-  SELECT count(*) INTO v_i   FROM pg_catalog.regexp_matches(v_src, 'UPDATE public\.order_item_procurement', 'g');
-  IF v_cnt <> 1 OR v_i <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A12:採購表 INSERT/UPDATE 各應恰 1 次,實 %/% 次;拒繼續', v_cnt, v_i;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'INSERT INTO public\.admin_audit_log', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A13:稽核 INSERT 應恰 1 次(每次寫入恰一筆稽核),實 % 次;拒繼續', v_cnt;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'clock_timestamp\(\)', 'g');
-  IF v_cnt < 3 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A14:clock_timestamp() 應 >=3 次(未來判定 + 兩條寫入路徑戳記),實 % 次;拒繼續', v_cnt;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'now\(\)', 'g');
-  IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A15:函式體不得使用交易起始時間函式(戳記與未來判定一律 clock_timestamp),實 % 次;拒繼續', v_cnt;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'v_con IS DISTINCT FROM', 'g');
-  IF v_cnt < 2 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A16:兩處 catch 的 constraint 比對必須用 v_con IS DISTINCT FROM(`<>` 在 NULL 時靜默吞錯誤),實 % 次;拒繼續', v_cnt;
-  END IF;
-  -- A9h-M 的三條保留語意錨(preserve 模式;抄壞會讓批次靜默清掉現值 —— 那正是該片要修的病)
-  IF pg_catalog.strpos(v_src, 'p_preserve_optional_fields AND v_exists') = 0
-     OR pg_catalog.strpos(v_src, 'v_eff_submitted_at') = 0
-     OR pg_catalog.strpos(v_src, 'p_preserve_optional_fields AND v_channel IS NULL') = 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 A17:A9h-M 的 preserve 三錨(分流 / effective 單一來源 / 保留模式管道必填)缺一;抄壞會讓批次靜默清掉現值;拒繼續';
-  END IF;
-
-  -- ══ receipt ══
-  -- 🔴 **兩段剝**:先剝 `/* … */` 區塊註解,再剝 `--` 行註解。
-  --    只剝 `--` 的版本可以被 `/* AND voided_at IS NULL */` 直接騙過(codex R2 must-fix,對)。
-  --    ⚠️ 這個兩段式**不是我發明的**,`scripts/452-verify.sh` 的 S7/S7b 格早就這樣寫。
-  --      我第一次只抄了一半、被 R1 抓;修的時候又只抄了一半、被 R2 抓。**同一個錯連犯兩輪。**
   SELECT pg_catalog.regexp_replace(
            pg_catalog.regexp_replace(prosrc, '/\*.*?\*/', '', 'gs'),
            '--[^' || chr(10) || ']*', '', 'g') INTO v_src
-    FROM pg_catalog.pg_proc WHERE oid =v_rcp_oid;
-
-  -- (R1) 本片新增的作廢分流:恰一次,且讀的是鎖下的 v_proc(重查 = TOCTOU)
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'RETURN ''PROCUREMENT_VOIDED''', 'g');
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 R1:receipt 的 RETURN ''PROCUREMENT_VOIDED'' 應恰 1 次(剝註解後實 % 次);拒繼續', v_cnt;
-  END IF;
-  IF pg_catalog.strpos(v_src, 'v_proc.voided_at IS NOT NULL') = 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 R2:作廢分流必須讀步 5 鎖下的 v_proc.voided_at(重查會產生 TOCTOU);拒繼續';
+    FROM pg_catalog.pg_proc WHERE oid = v_rcp;
+  IF pg_catalog.strpos(v_src, 'PROCUREMENT_VOIDED') <> 0 THEN
+    RAISE EXCEPTION '452a-down 後置 2:receipt 的作廢分流還在 ⇒ 還原沒生效;拒繼續';
   END IF;
 
-  -- (R3) 🔴 位置斷言:作廢分流必須排在冪等快篩【之後】。
-  --   把它搬到冪等之前的實作,行為測試(B-idem / MUT-IDEM)照樣全綠 ⇒ 只有位置斷言抓得到。
-  v_i := pg_catalog.strpos(v_src, 'FROM public.order_item_receipt_requests l');
-  v_j := pg_catalog.strpos(v_src, 'v_proc.voided_at IS NOT NULL');
-  IF v_i = 0 OR v_j = 0 OR v_i >= v_j THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 R3:作廢分流必須排在冪等快篩之後(冪等表 % / 作廢守門 %);排前面會讓「登錄成功 → 採購被作廢 → 合法重放」回錯碼而不是 DUPLICATE_REQUEST;拒繼續', v_i, v_j;
-  END IF;
-
-  -- (R4-R7) 🔴 `20260810233000:540-575` 的原有錨,逐條搬過來(理由同 A2-A5)
-  v_i := pg_catalog.strpos(v_src, 'FROM public.order_item_procurement');
-  v_j := pg_catalog.strpos(v_src, 'FROM public.order_items WHERE id = v_item FOR NO KEY UPDATE');
-  IF v_i = 0 OR v_j = 0 OR v_i >= v_j THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 R4:record 的取鎖序必須是 procurement → order_items(i=% j=%);拒繼續', v_i, v_j;
-  END IF;
-  IF pg_catalog.strpos(v_src, 'SET CONSTRAINTS') <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 R5:record 不該有 SET CONSTRAINTS(它的守門讀 procurement 列、那一跳 NOT DEFERRABLE);拒繼續';
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.regexp_matches(v_src, 'IS NOT DISTINCT FROM', 'g');
-  IF v_cnt <> 12 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 R6:record 的冪等比對應恰 12 次 IS NOT DISTINCT FROM(= 6 個不可變 payload 欄 × 2 處:步 6 快篩 + 步 8 撞鍵處理;兩處必須逐字相同,數字不符 = 只改了一處 = 比對面分岔),實 % 次;拒繼續', v_cnt;
-  END IF;
-  SELECT count(*) INTO v_cnt FROM pg_catalog.pg_constraint
-   WHERE conrelid = 'public.order_item_receipt_requests'::regclass AND contype = 'f';
-  IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 R7:冪等帳長出了 % 條外鍵 —— #352 plan §4 的鎖序論證要重跑;拒繼續', v_cnt;
-  END IF;
-
-  -- ══ 兩支的函式屬性(prosrc 看不到,必須查 pg_proc)══
-  FOR v_i IN
-    SELECT 1 FROM pg_catalog.pg_proc
-     WHERE oid IN (v_a5a_oid, v_rcp_oid) AND NOT prosecdef
-  LOOP
-    RAISE EXCEPTION '452-2a2甲 驗收 SEC1:兩支必須維持 SECURITY DEFINER;拒繼續';
-  END LOOP;
-  FOR v_cfg IN SELECT proconfig FROM pg_catalog.pg_proc WHERE oid IN (v_a5a_oid, v_rcp_oid)
-  LOOP
-    IF v_cfg IS NULL OR NOT ('search_path=public, pg_temp' = ANY(v_cfg)) THEN
-      RAISE EXCEPTION '452-2a2甲 驗收 SEC2:兩支的 proconfig 必須含 search_path=public, pg_temp(實 %);SECDEF 少了它就是可劫持;拒繼續',
-        coalesce(v_cfg::text, '<null>');
+  -- 2. 🔴 ACL 斷言 —— reviewer nit 5 指出的風險用這道接,不是用「多發一次 GRANT」接。
+  --    多發 GRANT 會讓「ACL 掉了」永遠不被發現;斷言會讓它當場紅。
+  FOR v_cnt IN SELECT unnest(ARRAY[0, 1]) LOOP
+    v_oid := CASE v_cnt WHEN 0 THEN v_a5a ELSE v_rcp END;
+    SELECT count(*) INTO v_cnt
+      FROM pg_catalog.pg_proc p, LATERAL pg_catalog.aclexplode(p.proacl) a
+     WHERE p.oid = v_oid AND a.grantee <> p.proowner
+       AND NOT (a.grantee = 'service_role'::regrole::oid
+                AND a.privilege_type = 'EXECUTE' AND a.is_grantable = false);
+    IF v_cnt <> 0 THEN
+      RAISE EXCEPTION '452a-down 後置 ACL1:% 的 ACL 有 % 項是「owner 以外、非 service_role 不可轉授 EXECUTE」;拒繼續', v_oid, v_cnt;
+    END IF;
+    SELECT count(*) INTO v_cnt
+      FROM pg_catalog.pg_proc p, LATERAL pg_catalog.aclexplode(p.proacl) a
+     WHERE p.oid = v_oid AND a.grantee = 'service_role'::regrole::oid
+       AND a.privilege_type = 'EXECUTE' AND a.is_grantable = false;
+    IF v_cnt <> 1 THEN
+      RAISE EXCEPTION '452a-down 後置 ACL2:% 掉了 service_role 的不可轉授 EXECUTE(實 % 項)—— 若你剛把本檔改成 DROP+CREATE,這就是原因;拒繼續', v_oid, v_cnt;
     END IF;
   END LOOP;
-  -- A5a 的 preserve 參數預設值不得被改掉(改成 true 會讓既有單列表單呼叫靜默變成保留模式)
-  IF pg_catalog.pg_get_function_arguments(v_a5a_oid) NOT LIKE '%p_preserve_optional_fields boolean DEFAULT false%' THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 SEC3:A5a 的 p_preserve_optional_fields 預設值必須維持 false;拒繼續';
-  END IF;
 
-  -- ══ ACL 未被 CREATE OR REPLACE 影響 ══
-  -- 🔴 **逐字搬回 `20260810233000:503-523` 的精確錨,不是 `has_function_privilege` 的弱版**
-  --    (codex R2 must-fix,對)。弱版的兩個洞:
-  --      ①`has_function_privilege('public', …)` 只答「有沒有」,答不出「**還有誰**」
-  --        ⇒ 多一個 grantee(例如某個新 role)照樣全綠。
-  --      ②它**看不到 `WITH GRANT OPTION`** ⇒ `service_role` 被改成可轉授也全綠,
-  --        而那等於 service_role 可以再把 SECDEF 函式發給別人。原檔 `:502` 逐字記著這個教訓。
-  --    ⇒ 改成走 `aclexplode` 做**窮舉**:owner 以外**只准**有 service_role 的**不可轉授** EXECUTE。
-  FOR v_i IN SELECT unnest(ARRAY[0, 1]) LOOP
-    DECLARE v_oid regprocedure := CASE v_i WHEN 0 THEN v_a5a_oid ELSE v_rcp_oid END;
-    BEGIN
-      SELECT count(*) INTO v_cnt
-        FROM pg_catalog.pg_proc p, LATERAL pg_catalog.aclexplode(p.proacl) a
-       WHERE p.oid = v_oid
-         AND a.grantee <> p.proowner
-         AND NOT (a.grantee = 'service_role'::regrole::oid
-                  AND a.privilege_type = 'EXECUTE'
-                  AND a.is_grantable = false);
-      IF v_cnt <> 0 THEN
-        RAISE EXCEPTION '452-2a2甲 驗收 ACL1:% 的 ACL 有 % 項是「owner 以外、且非 service_role 的不可轉授 EXECUTE」(多餘 grantee 或 WITH GRANT OPTION);拒繼續', v_oid, v_cnt;
-      END IF;
-      SELECT count(*) INTO v_cnt
-        FROM pg_catalog.pg_proc p, LATERAL pg_catalog.aclexplode(p.proacl) a
-       WHERE p.oid = v_oid
-         AND a.grantee = 'service_role'::regrole::oid
-         AND a.privilege_type = 'EXECUTE' AND a.is_grantable = false;
-      IF v_cnt <> 1 THEN
-        RAISE EXCEPTION '452-2a2甲 驗收 ACL2:% 缺 service_role 的【不可轉授】EXECUTE(實 % 項);拒繼續', v_oid, v_cnt;
-      END IF;
-    END;
-  END LOOP;
-
-  -- ══ 兩支仍各自恰一個多載(避免 PostgREST 具名呼叫歧義)══
-  SELECT count(*) INTO v_cnt
-    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public'
-     AND p.proname IN ('admin_upsert_item_procurement', 'admin_record_item_receipt');
+  -- 3. 屬性未被還原動作弄壞
+  SELECT count(*) INTO v_cnt FROM pg_catalog.pg_proc
+   WHERE oid IN (v_a5a, v_rcp) AND prosecdef
+     AND 'search_path=public, pg_temp' = ANY(proconfig);
   IF v_cnt <> 2 THEN
-    RAISE EXCEPTION '452-2a2甲 驗收 OVL:兩支各應恰 1 個多載(實計 %);拒繼續', v_cnt;
+    RAISE EXCEPTION '452a-down 後置 3:兩支的 SECDEF / search_path 不完整(實 %);拒繼續', v_cnt;
   END IF;
 
-  RAISE NOTICE '452-2a2甲 驗收全過:A5a 二十條 + receipt 七條(含位置斷言)+ 屬性三條 + ACL 兩條 + 多載一條,全部對【剝註解後的 prosrc】比對。';
-  RAISE NOTICE '452-2a2甲 ⚠️ 字面錨只是 tripwire,不是控制流分析 —— 行為證據在 scripts/452b-verify.sh。';
+  -- 4. 🔴 退完的現況觀察(不擋,但要印出來讓值班的人看到)
+  SELECT count(*) INTO v_cnt FROM public.order_item_procurement WHERE voided_at IS NOT NULL;
+  IF v_cnt <> 0 THEN
+    RAISE WARNING '452a-down ⚠️ 庫裡有 % 筆已作廢的採購,而相鄰 writer 現在【不再認得它們】⇒ 人工處置範圍,請回報 Sean(不要自行清資料)', v_cnt;
+  END IF;
+
+  RAISE NOTICE '452a-down 後置斷言全過(分流已移除 / ACL 原封 / SECDEF+search_path 完整;voided 列數 = %)。', v_cnt;
 END
 $verify$;
 
 COMMIT;
+
+-- ============================================================
+-- 🔴 forward-only 紀律:回退不會拿掉 supabase_migrations.schema_migrations 那一列
+--    ⇒ 回退當天必須在 supabase/APPLIED.tsv 與當日 handoff 寫明「已回退」
+--    (沿用 docs/runbooks/2026-08-13-452-procurement-void-rollback.md:119-123)。
+-- 🔴 逆序:本檔(甲)必須在 scripts/452-down.sql(2a-1)【之前】跑。
+-- ============================================================
