@@ -60,8 +60,15 @@
 |---|---|---|---|---|
 | **C1** | 姓名/電話/生日 | 7 = `package.json` + `profile-form.ts`(新) + `profile-actions.ts`(新) + `profile-edit-form.tsx`(新) + `customer-detail.tsx` + `profile-form.test.ts`(新) + `customer-detail` smoke test | 標準片 | **鐵則 8 命中** |
 | **C2** | Email | 未估(要先開 migration + Auth Admin API) | **高風險片** | **鐵則 8 + 12②auth + 12③schema/GRANT** |
-| **C3** | 地址 CRUD | 6 = `address-form.ts` + `address-actions.ts` + `address-edit-form.tsx`(皆新) + `customer-detail-sections.tsx` + `customer-detail.tsx` + `address-form.test.ts`(新) | 標準片 | **鐵則 8 命中** |
-| **C4** | 愛車 CRUD | 6(同 C3 形狀) | 標準片 | **鐵則 8 命中** |
+| **C3a** | 地址 新增+編輯 | 暫估 7-8(見前置調查 §7) | 標準片 | **鐵則 8 命中** |
+| **C3b** | 地址 刪除+設預設 | 上列 + **1 支新 migration** | **高風險片** | **鐵則 8 + 12③**(Q-C-3=B) |
+| **C4a** | 愛車 新增+編輯 | 暫估 7-8(同 C3 形狀) | 標準片 | **鐵則 8 命中** |
+| **C4b** | 愛車 刪除+設主要 | 上列 + **1 支新 migration** | **高風險片** | **鐵則 8 + 12③**(Q-C-3=B) |
+
+🔴 **Q-C-3 = B(Sean 2026-08-14)的三個下游後果**:①C3b/C4b 各要一支 SECURITY DEFINER RPC + migration
+②**片型升級,不得降級**、對抗審查不降級 ③**多兩個 Sean 手動 apply 停點**,且**應用層不得先於 migration apply 上線**。
+**migration 版本號跟主視窗要,不自己編**(全域唯一資源)。
+✅ **C1 不受影響**(無一對多、無 unset/set 兩步)⇒ **仍是這條線第一個能動手的片,順序不變**。
 
 **驗收條件(每條 yes/no)**
 1. 整頁版可改姓名/電話/生日並存檔成功,重整後值還在。

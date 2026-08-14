@@ -55,23 +55,33 @@ admin 已經為這件事拍過板:`procurement-action-state.ts:16-17` 逐字「*
 UI 要求:欄位標必填 + 一行說明「**沒有 Email 的地址,客人結帳會被擋**」。
 ⚠️ 但 `CustomerAddress.email` 型別是 `string | null`(`domain/identity/address.ts:44`),且該欄註解 `:39-42` 逐字承認**目前沒有任何程式分支真的區分 null 與 ''**。⇒ 後台列表要顯示「這筆缺 Email」的話,判準只能是 `!address.email`(兩者都算缺),**不能宣稱分得出「從未填過」**。
 
-## 6. 要送出的兩題(§3① 是 Sean 的、表單形狀我自己決)
+## 6. ✅ Q-C-3 已拍板 = **B**(Sean 2026-08-14,逐字「Q-C-3:B」)
 
-**Q-C-3(產品/資料題,給 Sean)**:後台改地址的「設預設 / 刪除」要不要保證原子性?
-- **A(推薦)= 先照現況 best-effort,把風險寫成已知債**。理由:訂單量每月 100-300 筆,員工與客人**同時**改同一筆地址的窗口極窄;走 RPC 單交易要新 migration = 鐵則 12③、又多一個停點。**擋:不擋 C3 開工。**
-- B = 改走 SECURITY DEFINER RPC 單交易。**擋:C3 要等 migration + apply,整片往後推。**
-⚠️ 我**沒有實測過**這個競態、也沒量過機率,A 的理由是推論不是量測 —— 這句話要一起帶給 Sean。
+**後台改地址/愛車的「設預設 / 刪除」要走單交易、保證原子性,不接受 best-effort 兩步。**
+(主視窗補正的範圍句 Sean 已收到 ⇒ **本拍板同時管地址與愛車**。)
+
+**推翻了我與主視窗共同推薦的 A。** 記錄過程,不抹平:
+> 我提 A 時附了一句誠實話,原文是「A 的理由是推論不是量測」。
+> Sean 選 B 之後,那句話的意義變了 —— 它不再是「為 A 辯護」,而是:
+> **「當初判這個競態窄的依據沒有被量測過,而拍板往安全側走。」**
+> 這兩件事不一樣,結論變了不代表過程要被改寫成好看的樣子。
 
 **表單形狀**不另問:§4 有 Sean 2026-08-02 的既有拍板可沿用,照做。
 
 ## 7. C3 檔案清單(暫估,待 plan 批准後定稿)
 
 `address-form.ts`(新,解析 + `ADDRESS_SINGLE_FIELDS`)· `address-actions.ts`(新,三個 action + state 型別)· `address-action-state.ts`(新,client 可 import、零 server import —— 照 `procurement-action-state.ts:3-4` 那條硬規則)· `address-edit-form.tsx`(新,client)· `customer-detail-sections.tsx`(接 `readOnly` + 掛表單)· `customer-detail.tsx`(傳 `readOnly`)· `apps/admin/package.json`(`@pcm/schemas` 若 C1 已加則免)· `address-form.test.ts`(新)= **7-8 檔**。
-⇒ **鐵則 8 命中**;不碰 packages/ui、不碰錢/schema ⇒ **標準片**。體積已超過 45 分鐘 ⇒ **建議拆兩片**:C3a 新增+編輯 / C3b 刪除+設預設。
+🔴 **Q-C-3=B 之後,上面這張清單少了一支 migration**:「設預設 / 刪除」要走 **SECURITY DEFINER RPC 單交易**
+⇒ 多一支 `supabase/migrations/<版本號>` (**版本號跟主視窗要,不自己編** —— 全域唯一資源)。
+
+⇒ **片型改判**:原本標「標準片」,**Q-C-3=B 之後 C3b 命中鐵則 12③(schema / migration)⇒ 高風險片,對抗審查不降級、不得降級**。
+⇒ **多一個 Sean 手動 apply 的停點**,且**應用層不得先於 migration apply 上線**(跨 apply 停點紀律)。
+⇒ 拆片方式不變但性質變了:**C3a(新增+編輯)= 標準片、不需 RPC、可先動**;**C3b(刪除+設預設)= 高風險片、卡 migration + apply**。
+(**C1 不受影響** —— 它沒有一對多、沒有 unset/set 兩步 ⇒ 仍是這條線第一個能動手的片,順序不變。)
 
 ## 8. 誠實缺口
 
 - 全部來自讀 repo,**零執行**:沒跑測試、沒開瀏覽器、**沒對正式庫查過任何一筆地址資料**。
-- §3① 的競態**沒有實測構造過**,「風險窄」是推論。
+- §3① 的競態**沒有實測構造過**,當初判「風險窄」是推論、不是量測。**Sean 已拍 B 往安全側走**(§6),這條缺口因此不再影響決策,但保留記錄。
 - **沒讀** `InlineAddressForm.tsx`(337 行)⇒ 我對「發票三 tab 的實際互動」只有 schema 層的理解,UI 細節可能有我沒看到的坑。C3 開工前要補讀。
 - §7 檔數標「暫估」不是「數過」—— 因為新檔的切法還沒定(`address-action-state.ts` 要不要獨立成檔取決於表單是不是 client component,而那取決於 §4 照做與否)。
