@@ -1,10 +1,11 @@
 # #27 稽核 UI — 施工 plan(C 窗 2026-08-14 夜;**2026-08-15 Sean 拍 `Q-D1 = A` + `Q-D1b = A` 後更新**)
 
-> 🔴🔴 **本檔狀態(2026-08-15):D0 尚未通過對抗審查、尚未 commit、尚未 apply。**
-> **本 plan 的施工前提未成立** —— 它記錄的是**分析與盤點**,**不是可開工的核可依據**。
-> D0 過審後本行要更新;**看到這行還在,就代表還不能照它動手。**
-> (為什麼收進 git 而不是凍在 worktree:凍著只是讓人**看不到**,加這行是讓人**看到正確的狀態**;
->  而本檔的價值 —— 5 支 stale 註解、11 支盤點、理由推導 —— **不依賴 D0 的 SQL 長什麼樣**。)
+> 🏁 **本檔狀態(2026-08-15 更新):D0 已完成並 commit `feaa91c3`,但 `apply` 尚未發生。**
+> **D0 走過**:codex R1 FAIL5 / codex R2 FAIL3+1(含 PG17 `pg_maintain` 權限洞)/ Fable R3 換模型 FAIL1+2+2
+> (must-fix 不在 SQL 裡、在驗證鏈)/ 自審 ×2 / **非作者窗 E 實跑 `scripts/27-d0-verify.sh` 四次,第四次零 finding**。
+> 🔴 **D1 仍不可上線** —— `20260815020000` **未 apply,而 apply 只有 Sean 能做**。
+>    D1 的 code 寫得完、三綠會過(型別早就有),**但跑起來會 42501**,那正是驗收 8 要接的。
+> ⚠️ **上一版這行寫「D0 尚未通過對抗審查、尚未 commit」** —— 那是 commit 前的狀態,**已過期,就地更正**。
 >
 > §1-A 現況 ❌「有寫入介面、連讀取 API 都沒有」。**複驗成立,而且比條目寫的更硬:不是沒人寫讀取 code,是 DB 端連 SELECT 權限都沒給。**
 > 本檔零 code、不碰正式庫。
@@ -351,3 +352,73 @@ literal-sweep 'REQUIRED-2'  ⇒ 命中 5 支:上面 4 支 + types.ts:36
   全在 `apps/admin/package.json` 現有 13 個 dep 裡。(C1 那次動 lock 是因為**新加** `@pcm/schemas`。)
 - **已 apply 的 migration(`20260712210000:19/88/112`、`20260802150000:62`)與 docs 的過期字面不動** ——
   forward-only、**不得編輯已 apply 的 migration**;D0 檔頭已寫明它取代的是哪一半意圖,那就是正確處置。
+
+## 8. 🏗 D1 施工 plan(2026-08-15;D0 已 commit `feaa91c3`、**未 apply**)
+
+### 8-1 逐檔實查(**開工前重數一次,不抄舊清單**)
+
+數法:`for f in <11 支>; do test -f "$f" && echo 存在 $(wc -l < $f) || echo 新建; done`,
+再 `awk '{print $NF}' | sort -u | wc -l` **按檔去重** ⇒ **11**。
+
+| # | 檔 | 現況 | 要做什麼 |
+|---|---|---|---|
+| 1 | `lib/audit/repository.ts` | 存在 **33** 行 | 加**讀取埠**(現只有 `record()` 寫入埠)+ 改 §8-2 的字面 |
+| 2 | `lib/audit/supabase-repository.ts` | 存在 **28** 行 | 加讀取實作 + 改 §8-2 |
+| 3 | `lib/audit/types.ts` | 存在 **47** 行 | 只改 §8-2 的字面(型別不動) |
+| 4 | `lib/audit/repository.test.ts` | 存在 **94** 行 | 改 §8-2 的字面 + 補讀取路徑的測試 |
+| 5 | `lib/audit/audit-list-view.ts` | **新建** | 代碼→中文字典、`target` 切連結、時間走 `formatOrderDateTime` |
+| 6 | `lib/audit/audit-list-view.test.ts` | **新建** | 單測(含驗收 2 的輸出格式逐字斷言) |
+| 7 | `lib/orders/order-repository.ts` | 存在 **52** 行 | 加讀取 getter + 改 §8-2 |
+| 8 | `app/settings/audit/page.tsx` | **新建** | 頁面(`app/settings/` 現只有 `staff` / `suppliers`) |
+| 9 | `components/audit/audit-table.tsx` | **新建** | 表格 + **展開檢視**(驗收 9/10) |
+| 10 | `components/layout/app-sidebar.tsx` | 存在 **100** 行 | `NAV_ITEMS` 加一列 |
+| 11 | `components/layout/app-sidebar.test.ts` | 存在 **192** 行 | `:87` 是 `toEqual` 全清單斷言,**加 nav 必定弄紅它** |
+
+⚠️ **第 11 支目前仍是「推的」不是「量的」**(讀 `:87` 字面、沒實跑)。
+**實作第一動 = 加那一列然後跑一次,把推變成量。不要帶著推論進 commit。**
+
+### 8-2 🔴 D0 造成的 stale 字面:**5 支檔,而且每支不只一行**
+
+**先寫下這個概念有幾種寫法,再掃**(不是邊掃邊想)——四種:
+`無 SELECT` / `REQUIRED-2` / `return=minimal` / `禁鏈`。
+
+```
+bash scripts/literal-sweep.sh '無 SELECT'      ⇒ repository.test.ts:92 / repository.ts:13
+                                                 supabase-repository.ts:14 / order-repository.ts:35
+bash scripts/literal-sweep.sh 'REQUIRED-2'     ⇒ 上列 + supabase-repository.ts:10 / types.ts:36
+bash scripts/literal-sweep.sh 'return=minimal' ⇒ 上列 + repository.test.ts:59 / repository.ts:14
+bash scripts/literal-sweep.sh '禁鏈'           ⇒ repository.ts:15 / supabase-repository.ts:10
+                                                 / order-repository.ts:35
+⇒ 去重後載體 = 5 支
+```
+🔴 **只掃一個字面會漏**:`types.ts:36` 只有 `REQUIRED-2` 抓得到、`repository.test.ts:59` 只有 `return=minimal` 抓得到。
+🔴 **而且每支檔內不只一行**(`repository.ts` 有 `:13`/`:14`/`:15` 三行)——
+**「找到那支檔」不等於「找到那支檔裡所有要改的行」。**
+
+**改法(主視窗 2026-08-15 裁定)**:**規定留、理由換掉。**
+- ❌ **不採用**「不回讀 = append-only 的手癖防線」—— **站不住**:append-only 是「不能改、不能刪」,**讀不在裡面**。
+- ✅ **採用**「**這個 GRANT 有到期日**」:規定留著 ⇒ SELECT 只有一個消費者(檢視頁),要收回關掉一頁就好;
+  規定拿掉 ⇒ 19 支 RPC + app 層都可能開始回讀,要收回等於全面回歸。
+  > **開一道有到期日的權限時,要讓依賴它的東西數得出來。**
+- 🔴 **絕不可以只把「無 SELECT」四個字刪掉** —— 那會留下一條**沒有理由的禁令**,下一個人會順手拿掉它。
+  每一處都要**換成上面那個理由**並**指向 §0 的到期日前提**。
+
+**收尾驗收**:四個字面各跑一次 `literal-sweep`,**每個都要能指出「剩下的命中都是刻意保留的更正引文」**,
+並附**正向對照**(同 pattern 在別處仍有命中 ⇒ pattern 有效)。
+
+### 8-3 開工順序(每片 15-45 分)
+
+| 片 | 做什麼 | 卡什麼 |
+|---|---|---|
+| **D1a** | 讀取埠 + adapter + getter(#1/#2/#7)+ 同批改 §8-2 那 5 支的字面 | 無 —— **可立刻開工** |
+| **D1b** | `audit-list-view.ts` + 單測(#5/#6) | D1a |
+| **D1c** | 頁面 + 表格 + **展開檢視**(#8/#9)+ sidebar 與它的測試(#10/#11) | D1b |
+| **D1d** | 肉眼驗 + 空狀態/錯誤態文案 | D1c + **apply(Sean)** |
+
+🔴 **D1a-c 都寫得完、三綠都會過**(型別檔早就有 `admin_audit_log` 的 `Row`),
+**但在 apply 之前跑起來會 42501** ⇒ **驗收 8(誠實錯誤態、不顯示空清單假象)是這片的承重驗收,不是附加項。**
+
+### 8-4 這片**不做**什麼
+- ❌ 不 join `orders` 顯示單號(v1 只給「查看訂單」連結;要單號等 Sean 看過畫面再說)。
+- ❌ 不碰登入稽核(`lib/sso/security-log.ts` 自陳非正式接線,Sean Q2=A 已延後)。
+- ❌ **不寫 `#505` 的 backlog 條目** —— 主視窗裁定收割時併入,**不要順手補上,那是刻意排程**。
