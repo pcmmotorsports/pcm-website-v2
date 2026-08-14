@@ -16,6 +16,7 @@ import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
 import { OrderDensityToggle } from '../../components/orders/order-density-toggle';
+import { OrderFilterChips } from '../../components/orders/order-filter-chips';
 import {
   ShippingSelectionProvider,
   ShippingSelectionBar,
@@ -160,7 +161,15 @@ export default async function OrdersPage({
   return (
     <div className='space-y-4'>
       <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-semibold'>訂單</h1>
+        {/* 🔴 `#484` 片 B-1:chip 排與標題**同一列** —— **位置**照 OD 的 `.bar`
+            (`overview-desktop.html:609-614`:`<h2>訂單</h2>` 之後緊接四顆 `.fchip`)。
+            ⚠️ **只有位置照搬,不是逐字**(R1 nit 7):我方沒搬 `.bar` 本身
+            (OD `:91` 34px 高的 bar、`:92` h2 13px),用的是既有的 `h1 text-2xl` + flex。
+            本片只有兩顆(`待處理` = `#485` 等定義、`退貨中` = `#500` 要新資料)。 */}
+        <div className='flex items-center gap-3'>
+          <h1 className='text-2xl font-semibold'>訂單</h1>
+          <OrderFilterChips filter={filter} display={display} />
+        </div>
         <div className='flex items-center gap-4'>
           {/* L3 片4:密度切換。🔴 `page` 帶**當下這一頁**、不是固定 1 ——
               切密度不是換篩選條件,不該把人踢回第一頁(對照上面搜尋框那條刻意給 1 的理由)。 */}

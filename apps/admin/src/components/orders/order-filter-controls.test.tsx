@@ -21,13 +21,20 @@ const DATE_OPTIONS = [
 const PROPS = {
   datePresetOptions: DATE_OPTIONS,
   paymentOptions: [{ value: 'paid', label: '已付款' }],
-  goodsAxisOptions: [{ value: 'shipped', label: '已出貨' }],
+  // 🔴 **四值都列**(不是只列一個):`<select>` 對「不在 options 裡的 value」會退回第一格,
+  //    ⇒ 只列一個值時,「多值誤顯示第一個值」那個突變會**被 React 掩蓋成綠的**(實測過)。
+  goodsAxisOptions: [
+    { value: 'none', label: '未訂貨' },
+    { value: 'ordered', label: '已向廠商訂貨' },
+    { value: 'instock', label: '已到貨' },
+    { value: 'shipped', label: '已出貨' },
+  ],
   sourceOptions: [
     { value: 'web', label: '網站' },
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { pay: '', goods: '', src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
+  initial: { pay: '', goods: [], src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
 beforeEach(() => replace.mockClear());
@@ -280,5 +287,33 @@ describe('#347-3c-2 日期下拉(選中的選項 == 生效的區間)', () => {
       <OrderFilterControls {...PROPS} datePresetOptions={[]} />,
     );
     expect(container.querySelector('#order-date-preset')).toBeNull();
+  });
+});
+
+// 🔴 `#484` 片 B-1 引入的第一個**多值** producer(chip「未到貨」= none + ordered)。
+//    R1 must-fix 2:上一版把它折成單一 string ⇒ 員工改任何其他篩選,兩個值**一起消失**,
+//    列表從「未到貨 + 已付款」變成「全部 + 已付款」,而 chip 的反白還亮著、且不會自癒。
+describe('#484 B-1 — 多值貨品軸不得被其他篩選洗掉', () => {
+  const multi = {
+    ...PROPS.initial,
+    goods: ['none', 'ordered'] as readonly string[],
+  };
+
+  it('🔴 改別的軸時,goods_axis 兩個值都要跟著送出去', () => {
+    const { getByLabelText } = render(<OrderFilterControls {...PROPS} initial={multi} />);
+    // 動一個**別的**軸(付款狀態)—— 這正是上一版把貨品軸丟掉的那個動作。
+    fireEvent.change(getByLabelText('付款狀態'), { target: { value: 'paid' } });
+    const href = String(replace.mock.calls.at(-1)?.[0] ?? '');
+    const params = new URLSearchParams(href.split('?')[1]);
+    expect(params.getAll('goods_axis'), '貨品軸的兩個值沒有一起帶出去 = 篩選被靜默清掉').toEqual([
+      'none',
+      'ordered',
+    ]);
+    expect(params.get('payment_status')).toBe('paid');
+  });
+
+  it('多值時下拉顯示「全部」那一格(畫不出兩個值,選中態由 chip 負責)', () => {
+    const { getByLabelText } = render(<OrderFilterControls {...PROPS} initial={multi} />);
+    expect((getByLabelText('出貨狀態') as HTMLSelectElement).value).toBe('');
   });
 });
