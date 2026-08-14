@@ -1,7 +1,30 @@
-# #27 稽核 UI — 施工 plan(C 窗 2026-08-14 夜;**待 Sean 批**)
+# #27 稽核 UI — 施工 plan(C 窗 2026-08-14 夜;**2026-08-15 Sean 拍板 `Q-D1 = A` 後更新**)
 
 > §1-A 現況 ❌「有寫入介面、連讀取 API 都沒有」。**複驗成立,而且比條目寫的更硬:不是沒人寫讀取 code,是 DB 端連 SELECT 權限都沒給。**
 > 本檔零 code、不碰正式庫。
+
+## 0. 🏁 拍板與狀態(2026-08-15)
+
+**Sean 拍板 `Q-D1 = A`(逐字「a」,經主視窗轉達)⇒ 這片要做,開 `GRANT SELECT`。**
+
+⚠️ **本檔原本就把權限這件事判對了,沒有「不需要 migration」那種字面要修。**
+主視窗的指示假設本檔寫過那句;**實查沒有**(數法:`grep -nE 'migration|GRANT|鐵則 12|鐵則 8|授權|輕量片|標準片|高風險'` 逐行看過,
+**§4 標題**、**§4 末的「雙中標」句**、**§5 表格 D0 那列**三處從第一版起就寫 **鐵則 12②③ 雙中標 / 高風險片 / 要 Sean 批**)。
+**這裡明講,免得下一個人以為修過。**
+
+**真正過期的只有時間字面**:§4 標題與 §4 末句原本寫「今晚不動」/「今晚一行都不動」—— 那是**還沒拍板時**寫的。
+拍板後 D0 **可以寫**(寫檔 ≠ apply,見下)。已在該兩處就地改掉。
+⚠️ **這裡刻意用章節名而不用行號**:本次插入 §0 讓全檔行號位移,寫死行號當場就會過期
+(這正是我自己在 `#1` plan `§9-7` 抓到的同一種病)。
+
+🔴 **apply 是 Sean 的獨立停點,拍板沒有涵蓋它。**
+Sean 批的是「做這件事」;`~/pcm-mailbox/C-HANDOFF.md` 的授權邊界逐字:「**任何 apply 正式庫**」始終要 Sean 本人。
+⇒ **我寫 migration 檔、commit、不執行、不 push。** apply 由 Sean 自己跑,那是第二個獨立停點。
+
+🔴 **一顆我不當它已解決的疑慮**:`:54` 那條——開 SELECT 之後,這張表的安全就從
+「**無人能 SELECT**」變成「**靠 admin 登入閘**」,而 `#26` 說登入身分**目前仍是自選**。
+**我不知道 Sean 拍板時有沒有被告知這件事**(轉達的字面只有「a」)。
+⇒ **不當它被涵蓋**,列進 §6 給主視窗決定要不要回頭跟 Sean 確認一句。
 
 ## 1. `admin_audit_log` 欄位與寫入點(逐項從 migration 讀;建表檔數法 `grep -rln "CREATE TABLE public.admin_audit_log" supabase/migrations/` = 1 檔)
 
@@ -35,7 +58,7 @@
 ⚠️ 代價:員工看不到單號(`display_id`),只看得到「查看訂單」四個字。要顯示單號才需要 join `orders` —— **v1 建議不做**,等 Sean 看過畫面說不夠再加。
 🔴 **`before`/`after` 預設不展開**:建表 `:26-28` 逐字寫明這兩欄「**可合法含經銷價 / 成本 / PII**」。v1 只在點開單列時才顯示,且**成本欄不進列表**。
 
-## 4. 🔴 權限:這是本片真正的門檻(鐵則 12②,今晚不動)
+## 4. 🔴 權限:這是本片真正的門檻(鐵則 12②;**2026-08-15 已拍板要做,見 §0**)
 
 **現在沒有任何角色讀得到這張表。** `20260712210000:85` 先 `REVOKE ALL ... FROM PUBLIC, anon, authenticated, service_role`,`:89` 只補回 `GRANT INSERT TO service_role`。`:88` 逐字:「**不給 SELECT(最小權限;稽核 viewer slice 才顯式 GRANT SELECT TO service_role)**」—— **這片就是那個 viewer slice,建表當天就預告了。**
 `:113-117` 還有 fail-closed 斷言:service_role 有 SELECT 就 `RAISE EXCEPTION`;`:127-133` 另斷言 service_role 的 grant 列數**恰為 1**。
@@ -50,7 +73,9 @@
 > **D0 四條斷言**:①`service_role` 終態恰 `INSERT`+`SELECT`、其餘 5 權限零 ②`anon`/`authenticated` 7 權限仍全零
 > ③**誤殺正控:`INSERT` 仍在**(19 支 writer 的命脈,誤殺=後台所有寫入連帶死)④欄級 ACL 零殘留。
 > ⚠️ 誠實界:**forward-only 我沒實測**,依據是 migration 檔字面 + 「不得編輯已 apply migration」既有紀律。詳見 `2026-08-14-27-d1-prep-notes.md` §1。
-⇒ **鐵則 12②(權限/GRANT)+ ③(schema)雙中標 ⇒ 獨立成片 D0、要 Sean 批、要 apply,今晚一行都不動。**
+⇒ **鐵則 12②(權限/GRANT)+ ③(schema)雙中標 ⇒ 獨立成片 D0。**
+**2026-08-15 更新**:Sean 已批(`Q-D1 = A`)⇒ D0 **可以寫**;
+🔴 但 **apply 仍是 Sean 本人的獨立停點**(§0),寫檔 ≠ 上庫。
 ⚠️ 順帶一提:migration `:27` 說「安全來自**無人能 SELECT**」。開了 SELECT 之後那句話就不再成立,威脅模型變成「靠 admin 登入閘」—— 而 `#26` 說登入身分**目前仍是自選**(`session/actor.ts:6-7` 自陳非授權邊界)。**這是要送給 Sean 的那顆決策,不是我能拍的。**
 
 ## 5. 片型 · 鐵則 · 驗收 · 誠實缺口
@@ -75,3 +100,66 @@
 - ❌ **19 個 action 代碼是「今天數到的」不是「全部」**:型別層是 `string`(`types.ts:8`)、不列舉;而且我只掃了 `supabase/migrations/` 與 `apps/admin/src`,**沒掃報價單專案**(`source_app` CHECK 允許 `'quote'`,`20260712210000:58`)⇒ 正式庫裡可能已有本 repo 掃不到的代碼。字典必須 fallback 顯示原代碼(已寫成驗收 5)。
 - ❌ 沒量過筆數:不知道正式庫現在有幾列 ⇒ **分頁要不要做、N 該設多少,我沒有數字支撐**,v1 先寫死取最近 100 筆並在片尾標為待調。
 - ⚠️ 未擴張:`lib/sso/security-log.ts:3` 自陳「**這不是 admin_audit_log 正式接線**」、登入稽核走 stdout 且已被 Sean Q2=A 延後(S3b)⇒ **登入事件不在本頁**,本 plan 不動它。
+
+## 6. 🔴🔴 D0 的承重約束:這張表的 append-only **是 ACL 撐的,沒有 trigger 兜底**
+
+主視窗 2026-08-15 指出的約束,**我自己複跑過才寫進來**(不轉抄):
+
+**事實 A — 這張表零 trigger(repo 字面)**
+```
+grep -rniE 'CREATE (OR REPLACE )?TRIGGER[^;]*' supabase/migrations/*.sql | grep -i audit_log   ⇒ 零命中
+正向對照:同 pattern 不加 audit_log 過濾                                                        ⇒ 65 命中
+```
+⇒ pattern 有效,**零是真的零**。與 `20260812150000:489` COMMENT 逐字對上:
+「該表現行 trigger 數=0、append-only **只靠 GRANT**」。
+⚠️ **誠實界:這是 repo 字面,不是正式庫事實。** 我沒查過正式庫有沒有人手動加過 trigger。
+
+**事實 B — `:132` 那顆「恰 1 筆」斷言不會回頭炸(我自己掃的)**
+```
+grep -rn "role_table_grants" supabase/migrations/*.sql | grep -i audit
+```
+⇒ 對 `admin_audit_log` 的筆數斷言**只存在於 `20260712210000` 自己**(`:128-134`),forward-only、已跑過。
+唯一另一處 `20260717020000:445` 是 **`email_outbox`** 的、期望 **3 筆**、且訊息裡逐字寫「偏離 audit_log 的 1 筆 = CAS 認領所需」
+⇒ **不同表,不受影響。** 順帶:那正是「期望值不是 1 也可以,但要在訊息裡說明為什麼」的**現成先例**。
+
+**事實 C — 另外兩處引用是正向檢查,開 SELECT 不會讓它們變 false**
+`20260803160000:630` / `20260806200000:681`,形狀都是 `IF NOT has_table_privilege(v_owner, …, 'INSERT')`
+⇒ 檢查的是「**至少有 INSERT**」,多一個 SELECT 不影響。
+
+### ⇒ D0 必須遵守的三條(寫進 migration,不是寫在信裡)
+
+1. **只開 `SELECT`,一個字都不多。**
+   不得順手開 `UPDATE` / `DELETE` / `TRUNCATE` / `REFERENCES` / `TRIGGER`。
+   🔴 理由不是潔癖:**這張表的「不能改、不能刪」沒有第二道防線** ⇒ ACL 在這裡是**承重牆**,不是配置。
+
+2. **自帶 fail-closed 斷言,終態恰 `{INSERT, SELECT}` 兩筆、不多不少。**
+   形狀抄 `20260712210000:93-134`(那是原作者自己釘 ACL 的手法),四條:
+   - ①`service_role` **有** `INSERT`(誤殺正控 —— 19 支 writer 的命脈,誤殺=後台所有寫入連帶死)
+   - ②`service_role` **有** `SELECT`(本片的目的)
+   - ③`service_role` 其餘 **5** 權限(`UPDATE`/`DELETE`/`TRUNCATE`/`REFERENCES`/`TRIGGER`)**全零**
+   - ④`role_table_grants` 對 `service_role` **恰 2 筆**,`anon`/`authenticated`/`PUBLIC` **仍零**
+   🔴 **訊息裡要寫明「為什麼是 2」** —— 抄 `20260717020000:445` 的寫法(它把偏離的理由寫進 RAISE 訊息裡)。
+   否則下一個人看到 2 只會知道「期望是 2」,不知道**哪兩個、為什麼**。
+
+3. **plan 與 migration 檔頭都要明寫這句事實,而且字面要準**:
+   > `admin_audit_log` 的 append-only **由 GRANT 撐,表上零 trigger**;本片**只加 SELECT、不改變這件事**。
+   🔴 **不得寫成「append-only 有保障」** —— 它有的是**一道 GRANT**,不是一道 trigger。
+   ⚠️ 這不是措辭潔癖:寫成「有保障」會讓下一個人以為改 ACL 是安全的(反正還有 trigger 兜著),而**沒有**。
+
+### 🔴 一顆我不當它已解決的疑慮(要主視窗決定)
+
+`:54` 那條:開 SELECT 之後,這張表的安全從「**無人能 SELECT**」變成「**靠 admin 登入閘**」,
+而 `#26` 說登入身分**目前仍是自選**(`session/actor.ts:6-7` 自陳非授權邊界)。
+**我不知道 Sean 拍板 `Q-D1 = A` 時有沒有被告知這個威脅模型的轉移**(轉達到我這裡的字面只有「a」)。
+
+⇒ **我不當它被涵蓋。** 兩條路,主視窗選:
+- **甲**:回頭跟 Sean 確認一句「你知道開了之後,誰能看稽核紀錄是靠登入閘擋的,而登入身分現在是自選嗎」。
+- **乙**:當作已涵蓋照做,但把這句話**逐字寫進 migration 檔頭**當紀錄。
+**我的推薦:甲** —— 這張表裡有 `before`/`after`,建表 `:26-28` 逐字說它們「**可合法含經銷價 / 成本 / PII**」。
+
+### D0 的誠實缺口(補在原 §5 之上)
+
+- ❌ **`has_table_privilege('service_role','public.admin_audit_log','SELECT')` 我沒實查正式庫** ——
+  原 plan 已寫「D0 開工前必須實查」,**這條到現在仍未做,而且我做不到**(不碰正式庫)。
+  ⇒ **這是 apply 前 Sean 或主視窗要跑的一道,不是我能勾掉的。**
+- ❌ **零 trigger 是 repo 字面,不是正式庫事實**(事實 A 的誠實界)。
