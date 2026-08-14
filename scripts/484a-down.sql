@@ -2,7 +2,11 @@
 -- 片 A #484a · 回退腳本(forward-only 之下的手動 down)
 -- ============================================================
 -- 標的 = supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql
--- 用法 = psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/484a-down.sql
+-- 🔴 用法(最省事的那條先講)= **整檔複製,貼進 Supabase Dashboard → SQL Editor,按 Run。**
+--    本檔**沒有用到任何 psql 變數**(`:'var'` 形式 0 命中),且整檔包在單一 `BEGIN; … COMMIT;` 裡
+--    ⇒ **不需要 psql、不需要連線字串,而且中途出錯會整個回滾。**
+-- (次要)若真要用 psql:`psql "<連線字串>" -v ON_ERROR_STOP=1 -f scripts/484a-down.sql`
+--    ⚠️ **不要照抄 `$DATABASE_URL`** —— 實查 `.env.local`:**`DATABASE_URL` 0 命中**,照抄連不上。
 --
 -- 🔴 **順序要看「A2 部署了沒」,分兩種情況 —— 這是 codex 關卡2 R2 抓到的,原版寫錯了**:
 --    原版無條件寫「先 revert app」,但 **A1 階段根本沒有任何 app code 依賴這支 view**

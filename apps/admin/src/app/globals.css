@@ -288,6 +288,14 @@
   padding-left: 0.5rem;
 }
 
+/* 🔴 **「勾選欄 15/18 被截」是我(E 窗)自己的量具誤報,2026-08-14 已用三個獨立 oracle 推翻。**
+   我先前用 `td.scrollWidth > td.clientWidth` 判斷截斷 —— **那對文字成立,對「控件」不成立**:
+     · `scrollWidth` 從 **content box**(28 − 8 − 8 = **12px**)起算 ⇒ 16px 的勾選框相對它必然溢出,回 43;
+     · 但 `overflow: hidden` 裁的是 **padding box(28px)**。
+     · 實測:padding box 左右緣 `25 / 53`,勾選框左右緣 `33 / 49` ⇒ **完整落在裁切邊界內。**
+     · `elementFromPoint` 對勾選框**中心點 + 四個角** ⇒ **五個點全部命中它自己 = 真的點得到。**
+   ⇒ **這一欄沒有問題,不要為它加寬**(而 `Q-E2`=A 之後加寬只能從品名扣、品名只剩約 1 個中文字)。
+   ⚠️ 通則見 `docs/patterns/guard-and-instrument-traps.md`:**問「看不看得到 / 點不點得到」只有命中測試算數。** */
 .orders-grid .col-pick {
   width: 28px;
 }

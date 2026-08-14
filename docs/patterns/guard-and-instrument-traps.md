@@ -287,3 +287,33 @@ git 的任何工具都掃不到它**,而它會在資料庫/信箱裡活好幾年
 
 ⇒ 掃法:`git grep -n "<舊字面>"`,**在宣告清單之後才跑**(先列載體、再 grep,不要用 grep 的結果當清單 ——
 grep 只找得到你想得到的那個字面,找不到「同一件事的另一種寫法」)。
+
+---
+
+## 問「看不看得到 / 點不點得到」,**只有命中測試算數**
+
+`getBoundingClientRect()` / `scrollWidth` / `clientWidth` 這類**回傳矩形或尺寸**的 API,
+對下面三件事是**結構性盲的** —— 不是精度問題,是它們根本不表達這些概念:
+
+| 看不到 | 例子 |
+|---|---|
+| `overflow` 裁切 | 祖先 `overflow:hidden` 把彈出選單切掉,rect 照樣回完整尺寸 |
+| `z-index` / 覆蓋層遮擋 | 別的元素蓋在上面,rect 不會變 |
+| `pointer-events` | 元素在畫面上、但點不到 |
+
+⇒ **唯一的量具是 `document.elementFromPoint(x, y)`** —— 問「這個座標上,瀏覽器會把事件送給誰」。
+**判準:回傳的是不是那個元素自己(或它的子孫)。** 中心點之外,**四個角也要測**(裁切通常從一側開始)。
+
+### 實錘一:rect 說「沒被夾」,命中測試說「三顆全點不到」(2026-08-14 `#486`)
+零 JS `<details>` 選單放進訂單表。我先用 rect 算「可見高度 94 = 需要高度 94」⇒ 結論**沒被夾**。
+換 `elementFromPoint` 之後:**三顆選項全部命中「下面幾列的 stretched link」** ⇒ 一顆都點不到。
+**答案整個反過來。** 沒換觀察點的話,交出去的會是一個「三綠全過、hit test 有做、但點不動」的選單。
+
+### 實錘二:`scrollWidth` 對**控件**會誤報截斷(同日 `col-pick`)
+我報過「勾選欄 15/18 被截」(依據 `td.scrollWidth(43) > clientWidth(28)`)。**那是誤報:**
+- `scrollWidth` 從 **content box** 起算(28 − 8 − 8 = **12px**)⇒ 16px 的控件相對它必然溢出;
+- 但 `overflow:hidden` 裁的是 **padding box(28px)**;
+- 實測 padding box `25/53` vs 勾選框 `33/49` ⇒ **完整在內**;`elementFromPoint` 中心 + 四角 **五點全中**。
+
+⇒ **`scrollWidth > clientWidth` 只是「文字會不會出現 ellipsis」的 oracle,不是「使用者看不看得到」的 oracle。**
+對**控件**(input / button / svg)一律改用命中測試 + 比對**真正的裁切邊(padding box)**。
