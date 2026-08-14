@@ -3,6 +3,10 @@
 //    「把 local 當 UTC 解析」的突變在 UTC 下兩邊同錯相消、恆真;釘 Asia/Taipei 才量得到。
 process.env.TZ = 'Asia/Taipei';
 
+// 🔴 `#476` 片2 的**突變表在 `apps/admin/src/lib/orders/procurement-view.test.ts` 檔頂**(單一份、不複製)
+//    —— 本檔的 4 格(鈕文字 × 2、保秒 × 1、停用×新建 × 2 中的那些)由表上的 ③④⑤ 三發覆蓋。
+//    ⚠️ 表頭那句是重點:**一發只該紅一格**;`④` 那發在補「保秒」那格之前是**綠的**=我種過的恆綠格。
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';

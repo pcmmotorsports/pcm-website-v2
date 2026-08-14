@@ -23,11 +23,11 @@ import {
   type ProcurementFormValues,
 } from '../../lib/orders/procurement-action-state';
 import { PROCUREMENT_REPLY_STATUSES } from '../../lib/orders/procurement-form';
+import { composeSubmittedAt } from '../../lib/orders/procurement-submitted-at';
 import {
   REPLY_STATUS_LABEL,
   findActiveProcurement,
   hydrateFormValues,
-  toTaipeiInputValue,
   type ProcurementSupplierChoice,
 } from '../../lib/orders/procurement-view';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
@@ -65,14 +65,6 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 //    仍可能被別人改掉),誠實邊界寫在 handoff。
 
 const RADIO_ROW = 'flex flex-wrap gap-x-4 gap-y-1';
-
-/** 取台北牆上時間的「秒」兩位(保秒用;台灣固定 UTC+8,無日光節約)。 */
-function secondsOf(iso: string | null): string {
-  if (iso === null) return '00';
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return '00';
-  return new Date(ms + 8 * 60 * 60_000).toISOString().slice(17, 19);
-}
 
 export function ItemProcurementForm({
   orderId,
@@ -126,17 +118,9 @@ export function ItemProcurementForm({
         formData.delete(PROC_SUBMITTED_AT_FIELD);
         return upsertItemProcurementAction(prev, formData);
       }
-      const local = localRead.value;
-      const originalLocal =
-        originalSubmittedAt === null ? '' : toTaipeiInputValue(originalSubmittedAt);
-      formData.set(
-        PROC_SUBMITTED_AT_FIELD,
-        local !== '' && originalLocal === local
-          ? toTaipeiInputValue(originalSubmittedAt).length === 16
-            ? `${originalLocal}:${secondsOf(originalSubmittedAt)}`
-            : local
-          : local,
-      );
+      // 保秒的計算搬到 `lib/orders/procurement-submitted-at.ts`(`#476` 拆檔片):
+      // 它是全檔唯一與 React 無關的計算,而且原本埋在這裡**測不到**。三個分支的理由見該檔。
+      formData.set(PROC_SUBMITTED_AT_FIELD, composeSubmittedAt(localRead.value, originalSubmittedAt));
       return upsertItemProcurementAction(prev, formData);
     },
     { status: 'idle' },
