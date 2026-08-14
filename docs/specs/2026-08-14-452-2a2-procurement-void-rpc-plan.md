@@ -785,7 +785,7 @@ R3 已點名這支 harness 會老化(`/Users/sean_1/pcm-mailbox/附件-D-2a1-R3�
 | 🔴 `apps/admin/src/lib/orders/receipt-action-state.ts:58-77` / `:91` | `ReceiptFailureCode` +1、`FAILURE_MESSAGES` +1(**漏寫會 typecheck 紅**)|
 | `apps/admin/src/lib/orders/procurement-repository.ts:16-36` | **零改動** —— Q-S1=A 回 `CREATED`,**已在 17 碼窮盡集裡**(`:17`;R3 當場 grep 更正,我原寫 `:18`)|
 | 🔴 `supabase/migrations/20260806200000:715-718` 的 A5a 錨 | 已因 2a-1 換索引而失效,本片要跟著改(§3.2)|
-| `docs/phase-1-backlog.md:12211` = **`#476`** | 13 支讀者面不認得「已作廢」,已立案、本片不做 |
+| `docs/phase-1-backlog.md` 的 **`#476`** | ~~13 支~~ **14 個面 / 8 支要動的檔**不認得「已作廢」,已立案、本片不做(數字 2026-08-14 V 窗逐一開檔更正;舊數法認表名、漏掉引用 domain 型別 `AdminOrderItemProcurement` 的消費端,且含 `.test.ts`) |
 | 母 plan §0-C 的 **12 個讀者面** | 🔴 **v2 更正:「本片不碰應用層」已經是假的** —— §3.1 要動 2 個檔 3 行(碼集放寬)。精確版 = **本片只碰「碼集」那一面,不碰任何顯示面** ⇒ ~~**13 支讀者面**(實查數,非母 plan 的 12)~~ 🔴 **2026-08-14 V 窗再查更正 = 14 個面 / 8 支要動的檔**(舊數法 `grep -rln "order_item_procurement\|voided_at" apps packages` 認的是**表名**,漏掉引用 domain 型別 `AdminOrderItemProcurement` 的消費端 —— 漏的正好是表單新建/編輯判定、供應商下拉、採購表格本體;且舊數含 `.test.ts`)全部留給後續片,已立案 **`#476`**。⚠️ 這代表 **2a-2 apply 之後、`#476` 之前,後台畫面不會顯示「這筆撤了」**,而訂購數已把它扣掉 ⇒ **畫面列 3 件、總數說 0 件** |
 | `docs/phase-1-backlog.md` | Q-P1 = A 已裁:`#452` 歸採購作廢並補條目、守門保鮮期改領 `#471`(§8.1) |
 
@@ -904,7 +904,7 @@ COMMIT 那一瞬」;而採購作廢線從 migration 檔名到 runbook 到開工�
 
 ## §9 我對本片的反對意見(不藏)
 
-1. **本片 apply 之後、應用層片之前,後台畫面完全看不出「這筆撤了」** —— 母 plan §0-C 的 12 個讀者一個都沒改。
+1. **本片 apply 之後、應用層片之前,後台畫面完全看不出「這筆撤了」** —— 母 plan §0-C 的 ~~12 個讀者~~ **14 個面**(2026-08-14 V 窗更正,見 `#476`)一個都沒改。
    員工會在列表上看到一筆「還在」的採購,而它其實已作廢。⇒ **這段期間不該讓員工用作廢功能**;
    要嘛應用層片緊接著做,要嘛 2a-2 apply 但功能不對外開。**這是要 Sean 知道的,不是技術細節。**
 2. **`HAS_RECEIPTS_UNDO_FIRST` 指向的那條路現在不好走** —— `#450` 逐字說到貨「事後」撤銷只撤得掉剛剛那筆。
