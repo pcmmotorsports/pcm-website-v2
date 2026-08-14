@@ -254,26 +254,34 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     const { container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={withVoided()} suppliers={[]} suppliersFailed={false} />,
     );
-    const rows = container.querySelectorAll('tbody tr');
-    expect(rows.length).toBe(2);
+    // 🔴 **按語意選列,不按位置索引**(片4 在作廢列下面插了一列「作廢原因」⇒ `rows[1]`
+    //    不再是生效列)。位置索引在「同一區塊日後多一列」時會靜默指到別人身上。
+    const dataRows = [...container.querySelectorAll('tbody tr')].filter(
+      (r) => r.querySelectorAll('td').length > 1, // 原因列是單一 colSpan 格
+    );
+    expect(dataRows.length).toBe(2);
+    const voidedRow = dataRows[0]!;
+    const activeRow = dataRows[1]!;
     // 🔴 逐列比對,不是「整張表含有『已作廢』」—— 後者無法分辨標到哪一列
-    expect(rows[0]!.textContent).toContain('(已作廢)');
-    expect(rows[0]!.querySelector('.line-through')).not.toBeNull();
-    expect(rows[1]!.textContent).not.toContain('(已作廢)');
-    expect(rows[1]!.querySelector('.line-through')).toBeNull();
+    expect(voidedRow.textContent).toContain('(已作廢)');
+    expect(voidedRow.querySelector('.line-through')).not.toBeNull();
+    expect(activeRow.textContent).not.toContain('(已作廢)');
+    expect(activeRow.querySelector('.line-through')).toBeNull();
     // 🔴 整列淡化也要驗(codex nit:拿掉 `opacity-60` 原本 0 紅)——
     //    刪除線只在供應商那一格,整列淡化才是「一眼掃過去看得出哪幾列不算數」的那個訊號。
-    expect(rows[0]!.className).toContain('opacity-60');
-    expect(rows[1]!.className).not.toContain('opacity-60');
+    expect(voidedRow.className).toContain('opacity-60');
+    expect(activeRow.className).not.toContain('opacity-60');
   });
 
   it('🔴 作廢列不給「登錄到貨」;同一張表的生效列照給(正負成對,免得整欄消失也綠)', () => {
     const { container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={withVoided()} suppliers={[]} suppliersFailed={false} />,
     );
-    const rows = container.querySelectorAll('tbody tr');
-    expect(rows[0]!.textContent).not.toContain('登錄到貨');
-    expect(rows[1]!.textContent).toContain('登錄到貨');
+    const dataRows = [...container.querySelectorAll('tbody tr')].filter(
+      (r) => r.querySelectorAll('td').length > 1,
+    );
+    expect(dataRows[0]!.textContent).not.toContain('登錄到貨');
+    expect(dataRows[1]!.textContent).toContain('登錄到貨');
   });
 
   // 🔴 codex 關卡2:全部 fixture 只有 `null` / `string` ⇒ `!= null` 與 `!== null` 兩種寫法在
@@ -298,6 +306,120 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     expect(row.textContent).not.toContain('(已作廢)');
     expect(row.querySelector('.line-through')).toBeNull();
     expect(row.textContent).toContain('登錄到貨'); // 到貨入口不得被誤收
+  });
+
+  // 🔴🔴 `#476` 片4:**作廢原因**。片3 只說了「它撤了」,而條目的病灶逐字是
+  //    「兩個數字互相矛盾而**沒有任何一行字解釋**」⇒ 不說為什麼就只解了一半。
+  it('作廢列下面帶出「作廢原因:…」', () => {
+    const d = detail();
+    const withReason = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={withReason} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(container.querySelector('tbody')!.textContent).toContain('作廢原因:供應商回報缺料、改下另一家');
+  });
+
+  // 🔴🔴 **這格是 code-reviewer 用實跑突變逼出來的**:把 `reason={p.voidReason}` 換成
+  //    `reason={item.procurements[0]!.voidReason}`(全部用第一筆的原因)⇒ **28 格全綠**。
+  //    病因:所有 fixture 都只有「一筆作廢」⇒ 「配給誰」這件事零覆蓋。
+  //    🔴 而「拿相鄰的那筆當成要的那筆」**正是 `#476` 這條 backlog 本身的病**。
+  it('🔴 兩筆作廢、原因各異 ⇒ 各自貼在自己那列後面(不是全部用第一筆的)', () => {
+    const d = detail();
+    const two = {
+      ...d,
+      items: [
+        {
+          ...d.items[0]!,
+          procurements: [
+            proc({ ...VOIDED, id: 'p-v1', supplierLabel: '甲供應商', voidReason: '甲的原因' }),
+            proc({ ...VOIDED, id: 'p-v2', supplierLabel: '乙供應商', voidReason: '乙的原因' }),
+          ],
+        },
+      ],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={two} suppliers={[]} suppliersFailed={false} />,
+    );
+    const rows = [...container.querySelectorAll('tbody tr')];
+    // 順序 = 資料列、原因列、資料列、原因列
+    expect(rows.length).toBe(4);
+    expect(rows[0]!.textContent).toContain('甲供應商');
+    expect(rows[1]!.textContent).toContain('甲的原因');
+    expect(rows[2]!.textContent).toContain('乙供應商');
+    expect(rows[3]!.textContent).toContain('乙的原因');
+    // 反向:乙的原因不得出現在甲那一列後面
+    expect(rows[1]!.textContent).not.toContain('乙的原因');
+  });
+
+  it('原因列跨滿整張表(colSpan 等於表頭欄數,否則欄位會靜默錯位)', () => {
+    const d = detail();
+    const one = { ...d, items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED })] }] } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={one} suppliers={[]} suppliersFailed={false} />,
+    );
+    const headCount = container.querySelectorAll('thead th').length;
+    const reasonCell = container.querySelectorAll('tbody tr')[1]!.querySelector('td')!;
+    // 🔴 不寫死 9:表頭加欄時這格要跟著紅,寫死的話它會變成第二個真相源
+    expect(Number(reasonCell.getAttribute('colspan'))).toBe(headCount);
+    // 原因列也要跟著淡化(片3 為資料列補過同一課,新列漏補 = codex nit)
+    expect(container.querySelectorAll('tbody tr')[1]!.className).toContain('opacity-60');
+  });
+
+  it('剛好在門檻上的原因**不**收合(邊界 <= 那一側)', () => {
+    const d = detail();
+    const exact = '缺'.repeat(60); // 恰 60 字 = 門檻值本身
+    const atLimit = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED, voidReason: exact })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={atLimit} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(container.querySelector('details')).toBeNull();
+    expect(container.querySelector('tbody')!.textContent).toContain(exact);
+  });
+
+  it('🔴 生效列**不得**冒出作廢原因那一列(否則整張表多出一堆空列)', () => {
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(container.querySelector('tbody')!.textContent).not.toContain('作廢原因');
+    // 生效列只該有一個 <tr>
+    expect(container.querySelectorAll('tbody tr').length).toBe(1);
+  });
+
+  it('🔴 原因為 null(投影沒帶回來)⇒ 誠實說缺,不留白', () => {
+    const d = detail();
+    // DB 的配對 CHECK 讓「已作廢必有原因」⇒ 這裡的 null 只可能是投影沒帶回來
+    const noReason = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED, voidReason: null })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={noReason} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(container.querySelector('tbody')!.textContent).toContain('作廢原因:(沒有帶回來)');
+  });
+
+  it('🔴 過長的原因收進可展開的區塊,而且**完整內容仍在 DOM 裡**(不是切掉尾巴)', () => {
+    const long = '缺料'.repeat(60); // 120 字,遠超過內嵌門檻
+    const d = detail();
+    const longReason = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED, voidReason: long })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={longReason} suppliers={[]} suppliersFailed={false} />,
+    );
+    const details = container.querySelector('details');
+    expect(details).not.toBeNull();
+    expect(details!.querySelector('summary')!.textContent).toContain('點開看完整');
+    // 🔴 這一條是重點:展開後看得到**全文**。只驗 summary 的話,
+    //    「切掉尾巴 + 假裝有 details」照樣綠 —— 那正是主視窗要求「不要只 ellipsis」的原因。
+    expect(details!.textContent).toContain(long);
   });
 
   it('作廢與停用可以同時成立 ⇒ 兩個標記都要在,且**作廢排在前面**(順序是刻意的)', () => {

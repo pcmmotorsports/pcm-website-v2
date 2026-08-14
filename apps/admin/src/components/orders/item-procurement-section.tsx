@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import {
@@ -72,6 +73,41 @@ function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
   );
 }
 
+/** 一列大約放得下的原因長度;超過就收進 `<details>`(數字是估的,見 `VoidReasonCell`)。 */
+const VOID_REASON_INLINE_MAX = 60;
+
+/**
+ * 作廢原因那一格(`#476` 片4)。
+ *
+ * 三件事,每件都有理由:
+ * ① **`null` 誠實顯示缺、不留白** —— DB 的配對 CHECK 讓「已作廢」必有原因
+ *   (`20260813120000_m4b_e10_452_procurement_void_schema.sql:347-350`)⇒ 這裡拿到 `null`
+ *   代表**投影沒帶回來**,不是「當初沒填」。留白會讓員工以為是後者。
+ * ② **長原因要能收起來,但收起來之後要能展開** —— 它是自由文字、長度無上限
+ *   (`void_reason text`,同檔 `:343`),一列塞進來會把整張表擠爛;
+ *   而只切掉尾巴(`…`)等於把員工需要的那半藏起來還告訴他沒有更多。
+ *   ⇒ 用原生 `<details>`:預設收合、點一下展開,**零 JS、零依賴**。
+ * ③ **門檻取 60 字** —— 一列大約放得下的長度。⚠️ 這個數字是**估的、沒有量過**:
+ *   沒有真瀏覽器可以量(本 repo 跑不起 admin ⇒ 缺口記在 `~/pcm-mailbox/V-007-CHECKLIST.md`,
+ *   **那是信箱不是 repo,git 裡 grep 不到**),等有人肉眼看過再調。
+ */
+function VoidReasonCell({ reason }: { reason: string | null }) {
+  if (reason === null) {
+    return <>作廢原因:(沒有帶回來)</>;
+  }
+  if (reason.length <= VOID_REASON_INLINE_MAX) {
+    return <>作廢原因:{reason}</>;
+  }
+  return (
+    <details>
+      <summary className='cursor-pointer'>
+        作廢原因:{reason.slice(0, VOID_REASON_INLINE_MAX)}…(點開看完整)
+      </summary>
+      <span className='mt-1 block break-words whitespace-pre-wrap'>{reason}</span>
+    </details>
+  );
+}
+
 function ProcurementRows({
   item,
   orderId,
@@ -119,7 +155,10 @@ function ProcurementRows({
             //    同一列會在表格上寫「已作廢」、在表單裡卻被當生效 hydrate 出來。
             const voided = p.voidedAt != null;
             return (
-            <tr key={p.id} className={voided ? 'border-t opacity-60' : 'border-t'}>
+            // 🔴 `key` 必須掛在 Fragment 上(一列採購現在可能渲染兩個 `<tr>`)⇒ 用具名 Fragment,
+            //    `<>` 短語法吃不了 key。
+            <Fragment key={p.id}>
+            <tr className={voided ? 'border-t opacity-60' : 'border-t'}>
               <td className={TD}>
                 {/* 🔴 label 為 null = 內嵌沒回來(A9a-2),不是「這家沒有名字」⇒ 誠實顯示缺 */}
                 <span className={voided ? 'line-through' : undefined}>
@@ -169,6 +208,19 @@ function ProcurementRows({
                 )}
               </td>
             </tr>
+            {/* 🔴 `#476` 片4:作廢**原因**。片3 只說了「它撤了」,而 `#476` 的病灶逐字是
+                「兩個數字互相矛盾而**沒有任何一行字解釋**」⇒ 不說為什麼就只解了一半。
+                形狀抄 shipments 樣板(`shipment-section.tsx` 逐字「作廢原因:…」)。
+                ⚠️ 用**跨欄的第二列**而不是加第十欄:原因是自由文字、長度不可控,
+                塞進一欄會把整張表擠爛,而它只在少數列出現。 */}
+            {voided && (
+              <tr className='border-t-0 opacity-60'>
+                <td className={`${TD} text-muted-foreground text-xs`} colSpan={9}>
+                  <VoidReasonCell reason={p.voidReason} />
+                </td>
+              </tr>
+            )}
+            </Fragment>
             );
           })}
         </tbody>

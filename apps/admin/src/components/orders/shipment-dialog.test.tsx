@@ -534,11 +534,18 @@ describe('ShipmentDialog — #352-b-2 入口 2「貨到了」', () => {
     expect(alert.textContent).toContain('先不要出');
   });
 
-  it('真的沒有採購列 → 指去採購區塊補來源(與抓失敗分開的文案)', async () => {
+  // 🔴 `#476` 片4 改過本格的期望字面,**是刻意的、不是遷就紅燈**:
+  //    片4 讓「貨到了」選單排除作廢的採購 ⇒ 走到這個空狀態的可能是
+  //    ①真的沒下過單 ②下過但**全部被作廢**。原字面「還沒有任何採購紀錄」對 ② 是謊話,
+  //    而那張會說明「哪一筆撤了」的採購表**不在這個畫面上**(本面板掛在出貨對話框)。
+  //    ⇒ 文案改成不宣稱原因;兩種情況員工的下一步本來就相同(去採購區塊登記來源)。
+  it('選單空 → 指去採購區塊補來源,而且**不宣稱原因**(可能沒下單、也可能全作廢)', async () => {
     fetchItemProcurementChoices.mockResolvedValue([]);
     const { getByText, findByText } = open([NOT_ARRIVED]);
     fireEvent.click(getByText('貨到了'));
-    expect(await findByText(/還沒有任何採購紀錄/)).toBeTruthy();
+    expect(await findByText(/沒有可以登錄到貨的採購/)).toBeTruthy();
+    // 🔴 反向釘死:不得再說「還沒有任何採購紀錄」——那句對「全作廢」是假的
+    expect(await findByText(/可能還沒下單,或原本那筆已經作廢/)).toBeTruthy();
   });
 
   // 🔴🔴 驗收 23a:登錄成功後**不重整**就要就地更新 ⇒ 這格釘住彈窗真的去重取了。

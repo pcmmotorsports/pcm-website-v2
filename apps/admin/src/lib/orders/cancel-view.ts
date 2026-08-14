@@ -444,6 +444,33 @@ function toItemView(
   //    ⇒ 保留的理由只有「入口是結構型別、擋不住手寫物件」,而兩種缺值處置相同 —— 純防禦。
   //    ⚠️ 方向不變:兩種缺值都走「上限算不出來 ⇒ 不給勾」的 fail-closed 那一支。
   if (summary == null) {
+    // 🔴🔴 **`#476` 片4 查過:這裡的 `procurements.length` 【刻意不改成「只算生效列」】。**
+    //
+    // `#476` 的片界清單原本把本處列為片4 要改的一面(理由:作廢列會讓 `length !== 0`
+    // ⇒ 推導不出來 ⇒ 擋掉合法取消)。**實查之後判定不改,理由是改了會【放寬】一道 fail-closed 守門。**
+    //
+    // ⚠️ ~~我第一版寫的理由是「進到本分支時 `procurements` 恆為空陣列,所以改了是等價突變」~~
+    //   **那個論證是假的,已撤**(關卡 code-reviewer R1 must-fix):它證的是「DB 沒有摘要列」,
+    //   而**本分支判的是投影值** —— `mappers/order.ts` 的 `mapQuantitySummary` 有**四條**回 `null` 的路,
+    //   只有一條是「DB 沒那列」;另外兩條(C7 `instock+cancelled>quantity`、C9 `shipped>instock`
+    //   不變式被違反 ⇒ fail-closed 壓成 `null`)**每一條都蘊含採購列存在**。
+    //   🔴 本檔上方已經自己寫過這件事(「把 C7 不變式被違反的摘要列也壓成 `null`」)—— 我沒讀到就下了論證。
+    //
+    // ✅ **真正的理由(可構造的反例)**:一個品項的採購**全部作廢**、而那些作廢列上**掛著到貨**。
+    //   · A4a 的 `instock` 軸**沒有**排除作廢列 —— 實查 `20260813120000_m4b_e10_452_procurement_void_schema.sql:495`
+    //     只在 `ordered` 軸加了 `AND p.voided_at IS NULL`,行內註解逐字「**本片唯一改動**」;
+    //     `:497-500` 的 receipts JOIN 沒有任何 voided 述詞。
+    //   ⇒ 這種列的 `instock > 0`。若本處改成「只算生效列」,`zeroInferable` 會變真,
+    //     於是下面推出 `instockQuantity: 0` 與 `maxCancellable: quantity` —— **兩個都是謊話**,
+    //     而它們是**取消上限**,直接關係到能取消幾件。
+    //
+    // 🔴 ⚠️ **順帶更正一句別處的字面**:同檔 `:355` 的 COLUMN COMMENT 逐字寫
+    //   「A2b1 跨列總量守門與 **A4a 三軸重算都**只 SUM `voided_at IS NULL` 的列」——
+    //   **對 `instock` 軸為假**(見上)。那句與它自己下面「本片唯一改動」的行內註解互相矛盾。
+    //   本片不改別人的 migration,已列進 `V-008-STOP` 交主視窗。
+    //
+    // 🔧 **失效條件**:若日後 A4a 的 `instock` 軸也排除作廢列,上面的反例消失,
+    //   那時本處要重新評估(可能就該改成只算生效列了)。
     const zeroInferable =
       item.procurements.length === 0 &&
       !item.procurementTruncated &&
