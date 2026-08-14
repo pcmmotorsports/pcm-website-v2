@@ -65,6 +65,22 @@ const PRODUCT = {
   sound_clips: [{ title: 'Idle', url: 's1.mp3' }, { title: 123, url: 's2.mp3' }],
 };
 
+/**
+ * 🔴 **按欄位取值,不要對整頁 textContent 做子字串比對**(R3 Q1「生成器 A」)。
+ *
+ * 病根逐字:**斷言宇宙(整頁)恆大於意圖宇宙(單一 dd 格)⇒ 碰撞必然重演。**
+ * 同形狀今晚出現**三次**:R1 MF2 的 `toContain('2')`(頁面日期 `2026-…` 自帶 2)、
+ * R2 N-c、R3 F1 的 `toContain('有')`(「**有**的供應商」「沒**有**鎖住」「**有**庫存」都無條件渲染)。
+ * ⇒ 這支 helper 讓「代表圖那一格的值」變成可獨立斷言的東西,碰撞面從整頁縮成一格。
+ */
+function fieldValue(container: HTMLElement, label: string): string | null {
+  const dt = Array.from(container.querySelectorAll('dt')).find(
+    (node) => node.textContent === label,
+  );
+  const dd = dt?.nextElementSibling;
+  return dd instanceof HTMLElement ? dd.textContent : null;
+}
+
 async function renderPage(id = ID) {
   const { default: Page } = await import('./page');
   return render(await Page({ params: Promise.resolve({ id }) }));
@@ -75,21 +91,31 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     mocks.get.mockResolvedValue(PRODUCT);
     mocks.taxonomy.mockResolvedValue({ brandName: 'CNC RACING', categoryName: '外觀部品' });
     const { container } = await renderPage();
-    const text = container.textContent ?? '';
-    for (const expected of [
-      '碳纖維前土除',
-      '亮面 3K',
-      'RPM-001',
-      'rpm',
-      'carbon-front-fender',
-      '上架中',
-      '有庫存',
-      'NT$ 4,800',
-      'CNC RACING',
-      '外觀部品',
-    ]) {
-      expect({ [expected]: text.includes(expected) }).toEqual({ [expected]: true });
+
+    // 🔴 **R3 Q1 生成器 A 的系統性修法**:欄位值一律**按欄位斷言**,不對整頁做子字串比對。
+    //    舊寫法 `text.includes('rpm')` 的斷言宇宙是整頁 ⇒ 供應商欄被刪掉、而頁面別處剛好
+    //    出現 `rpm`(例如網址代稱 `carbon-front-fender` 換成含 rpm 的字串)也照樣綠。
+    const FIELDS: ReadonlyArray<readonly [string, string]> = [
+      ['料號', 'RPM-001'],
+      ['供應商', 'rpm'],
+      ['網址代稱', 'carbon-front-fender'],
+      ['上架狀態', '上架中'],
+      ['庫存狀態', '有庫存'],
+      ['售價', 'NT$ 4,800'],
+      ['品牌', 'CNC RACING'],
+      ['分類', '外觀部品'],
+    ];
+    for (const [label, value] of FIELDS) {
+      expect({ [label]: fieldValue(container, label) }).toEqual({ [label]: value });
     }
+    // 🔴 **R4 M2:上一版寫「字串夠長、碰撞面可忽略」—— 那句被我自己的 fixture 推翻。**
+    //    `PRODUCT.description` 逐字是「碳纖維前土除,亮面 3K 編織。」⇒ **同時含 title 與 subtitle**
+    //    ⇒ E 實測把 `title` 改成 `'ZZZ_MUTANT'`,這格**仍然 PASS**(而且它附了負向對照證明
+    //    h1 真的印了突變值 —— 不是渲染沒發生)。**「碰撞面可忽略」是我沒量就寫的。**
+    //    ⇒ 改成指名節點取值,標題/副標各自有自己的觀察點。
+    expect(container.querySelector('h1')?.textContent).toBe('碳纖維前土除');
+    const subtitle = container.querySelector('h1')?.nextElementSibling;
+    expect(subtitle?.textContent).toBe('亮面 3K');
   });
 
   it('🔴 MF2:時間欄要釘台北曆面 —— 這格不存在時 MF1(差 8 小時)全綠溜過去', async () => {
@@ -101,10 +127,10 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     // `created_at = 2026-08-01T02:00:00Z` ⇒ 台北是 **08-01 10:00**;UTC 印出來會是 02:00。
     // 🔴 兩條缺一不可:只斷言「有 10:00」而不斷言「沒有 02:00」,
     //    在某些格式下仍可能兩個都印(例如同時印了 UTC 與本地)。
-    expect(text).toContain('2026-08-01 10:00');
+    expect(fieldValue(container, '建立時間')).toBe('2026-08-01 10:00');
+    expect(fieldValue(container, '最後更新')).toBe('2026-08-10 10:00');
+    // 🔴 UTC 印出來會是 02:00 —— 這條**維持整頁**否定:要擋的是「02:00 出現在畫面任何地方」。
     expect(text).not.toContain('2026-08-01 02:00');
-    // `updated_at = 2026-08-10T02:00:00Z` ⇒ 台北 08-10 10:00。
-    expect(text).toContain('2026-08-10 10:00');
 
     // 格式字面也釘住(`YYYY-MM-DD HH:mm`):改回 `toLocaleString('zh-TW')` 會印成
     // `2026/8/1 上午10:00:00`。⚠️ **這兩條只擋格式,不擋時區** —— 見下一格。
@@ -130,10 +156,9 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
       // 又是一個「偵測器根本沒吐東西」的假綠。
       expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('UTC');
       const { container } = await renderPage();
-      const text = container.textContent ?? '';
       // 🔴 這一條是「`formatOrderDateTime` 裡那兩行 `timeZone` 消失就會紅」的唯一憑據。
-      expect(text).toContain('2026-08-01 10:00');
-      expect(text).not.toContain('2026-08-01 02:00');
+      expect(fieldValue(container, '建立時間')).toBe('2026-08-01 10:00');
+      expect(container.textContent ?? '').not.toContain('2026-08-01 02:00');
     } finally {
       vi.unstubAllEnvs();
     }
@@ -189,9 +214,9 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     const { container } = await renderPage();
     const text = container.textContent ?? '';
     expect(text).toContain('品牌與分類載入失敗');
-    // 這才是「單區塊容錯」的意思:料號還在。
-    expect(text).toContain('RPM-001');
-    expect(text).toContain('NT$ 4,800');
+    // 這才是「單區塊容錯」的意思:料號還在 —— 按欄位斷言,不靠整頁碰運氣。
+    expect(fieldValue(container, '料號')).toBe('RPM-001');
+    expect(fieldValue(container, '售價')).toBe('NT$ 4,800');
     spy.mockRestore();
   });
 
@@ -257,20 +282,23 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     // 手冊只剩一份、且帶大小。
     expect(text).toContain('安裝說明書');
     expect(text).toContain('320 KB');
-    expect(text).toContain('1 份');
+    expect(fieldValue(container, '安裝手冊')).toBe('1 份');
     // 🔴 MF1:不再有「N 張」。同步管線 `rpm-transform.ts:347` 寫的永遠是 `[repImage]`
     //    ⇒ 張數對每件商品恆等於 1、資訊量為零,而且沒圖時塞 placeholder 也算 1 張。
     //    ⚠️ 不能斷言「整頁沒有『張』字」—— 說明文案本身就有「只有一張代表圖」。
     //    要釘的是**計數形式消失了**,不是那個字消失了。
+    // 🔴 「代表圖」那格的**值**已由下面 `fieldValue` 正向釘住;這兩條字面否定改為
+    //    **整頁**確認「張數這種說法沒有出現在任何地方」—— 意圖宇宙本來就是整頁,不是欄位。
     expect(text).not.toContain('3 張');
     expect(text).not.toContain('1 張');
-    // 🔴 R2 N-b:上面兩條是**字面否定**,單位改字就靜默失效 ⇒ 判別力要靠值面正向斷言。
-    //    (我自標「這是恆綠」——reviewer 實測後判**只有一半恆綠**:空狀態那格仍會紅。
-    //     悲觀的自標比樂觀好,但**準確更好**:下次要分開講「哪一格恆綠、哪一格不是」。)
-    expect(text).toContain('代表圖');
-    expect(text).toContain('有');
+    // 🔴 **R3 F1:上一版我在這裡寫 `toContain('有')` —— 那是 no-op。**
+    //    「有的供應商」「沒有『鎖住不給改』」「有庫存」都無條件渲染 ⇒ **沒有任何可達狀態讓它紅**,
+    //    把 `representativeImage` 突變成恆「沒有(顯示預設圖)」照樣全綠。
+    //    🔴 而 N-b 這條 finding 的本體**就是**「補值面正向斷言」—— 我宣稱折了,折出來是 no-op。
+    //    ⇒ 改成**按欄位取值**:這格只看「代表圖」那一格的 dd,不看整頁。
+    expect(fieldValue(container, '代表圖')).toBe('有');
     expect(text).toContain('完整圖庫在「變體」那一層');
-    expect(text).toContain('2 段');
+    expect(fieldValue(container, '聲浪音檔')).toBe('2 段');
     // 🔴 N6:髒 title(數字 123)不得外洩;它應被收斂成 null 並顯示 `(無標題)`。
     expect(text).not.toContain('123');
     expect(text).toContain('(無標題)');
@@ -315,14 +343,26 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     for (const must of ['不能在後台改', '多數商品每天會被覆蓋一次', '都依供應商而定', '沒有「鎖住不給改」的機制']) {
       expect({ [must]: text.includes(must) }).toEqual({ [must]: true });
     }
-    // 🔴 無圖時代表圖欄要說「沒有」,不得因為 placeholder 而說「有」。
-    expect(text).toContain('沒有(顯示預設圖)');
+    // 🔴 無圖時代表圖欄要說「沒有」,不得因為 placeholder 而說「有」——同樣按欄位取值。
+    expect(fieldValue(container, '代表圖')).toBe('沒有(顯示預設圖)');
   });
 
   it('沒值的欄位顯「—」,不留空白格', async () => {
+    // 🔴 **R4 M3:上一版 `expect(text).toContain('—')` 是恆綠格,而且這個 `it` 只有那一條斷言
+    //    ⇒ 整格零判別力。** 病根不是 scope,是**警語本身無條件渲染 `——`**
+    //    (`product-detail.tsx` 的「有的供應商是一次性匯入」那段有破折號)
+    //    ⇒ E 實測把同一條斷言塞進「驗收 1」(全欄位皆有值、**零 fallback**)⇒ **照樣 PASS**。
+    //    改成:**指名那些真的沒值的欄位**,逐欄斷言它們顯示 `—`,並附反面對照。
     mocks.get.mockResolvedValue({ ...PRODUCT, subtitle: null, price_general: null });
     mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
     const { container } = await renderPage();
-    expect(container.textContent ?? '').toContain('—');
+
+    for (const label of ['售價', '品牌', '分類']) {
+      expect({ [label]: fieldValue(container, label) }).toEqual({ [label]: '—' });
+    }
+    // 🔴 反面對照:有值的欄位**不得**顯示 `—`,否則「全部欄位都印 —」的壞實作也會通過。
+    expect(fieldValue(container, '料號')).toBe('RPM-001');
+    // 副標為 null ⇒ 整個節點不渲染(不是印 `—`)—— 那是刻意的:h1 底下多一個空殼會像壞掉。
+    expect(container.querySelector('h1')?.nextElementSibling?.tagName).not.toBe('P');
   });
 });

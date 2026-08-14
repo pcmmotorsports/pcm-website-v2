@@ -82,8 +82,18 @@ export interface ProductMedia {
    * 代表圖(`images[0]`);無圖或只有 placeholder → `null`(R1 MF1)。
    *
    * 🔴 **這裡刻意不再暴露整個 `images` 陣列**(R2 N-d):MF1 之後畫面只用得到代表圖,
-   * `images` 已**零 production 消費者**(數法:`grep -rn "\.images" apps/admin/src | grep -v '\.test\.'`
-   * ⇒ 零命中)⇒ 留著它等於**三格測試守著沒人用的欄 = 假的覆蓋率**。
+   * `images` 已**零 production 消費者** ⇒ 留著它等於**三格測試守著沒人用的欄 = 假的覆蓋率**。
+   *
+   * 🔴 **數法更正(R3 F5)**:我第一版記的數法是
+   * `grep -rn "\.images" apps/admin/src | grep -v '.test.'` **並寫「⇒ 零命中」** ——
+   * **那條實跑不是 0**(本檔自己的 `row.images` 就命中)。
+   * ⚠️ **連「3」也已經不可重跑**(R4 n2):我寫下 3 之後,**本輪自己新加的註解行又自我命中**
+   *   ⇒ 現在重跑是 **4**。**一個會隨自己註解變動的數字,不該被寫成證據** ——
+   *   同「落筆當下重量」那條:**引用時只認當下重跑的值**。
+   * 結論(外部零消費者)為真,但**記錄的量法重跑不出記錄的結果** = 又一個「宣稱的作用域 ≠ 量過的作用域」。
+   * 可重跑的數法(排除本檔這個生產者):
+   * `grep -rn "\.images" apps/admin/src --include='*.ts' --include='*.tsx' \
+   *    | grep -v '.test.' | grep -v 'lib/products/product-media.ts'`  ⇒ **實跑 0**
    * 需要完整圖庫時它在變體層(`product_variants.images`),不是這裡。
    */
   readonly representativeImage: string | null;
@@ -166,6 +176,30 @@ function toFitmentCount(raw: unknown): number {
  * ⇒ **「圖片 N 張」對每一件同步商品恆等於 1**(資訊量為零),
  *   而且**一張圖都沒有的商品也會顯示「1 張」** —— 員工問「這件有沒有圖」,畫面給相反答案。
  * ⇒ 本片改成回報「**有沒有真正的代表圖**」,並在畫面寫明完整圖庫在變體層。
+ */
+/**
+ * 🔴 **這是 `scripts/rpm-transform.ts:36` 那個字面的第二份**(R3 F4)。
+ * transform 改了路徑而這裡沒跟 ⇒ `isPlaceholderImage` **靜默失效**、無圖商品又顯示「有」
+ * = MF1 修掉的那個謊**回歸**,而且不會有任何東西叫。
+ * ⚠️ **檔頭自己在講「不抄會漂的字面」,這裡卻抄了一個** —— 不能 import(`scripts/` 沒打包給 app)
+ * ⇒ 退而求其次:**`sync-facts.test.ts` 裡標題含 `F4:placeholder 字面兩份必須一致` 的那一格**
+ *   讀 `rpm-transform.ts` 比對這兩份字面,漂開就紅。**機制在測試端,不是靠這段註解。**
+ *   定位法(不釘行號,行號會漂):
+ *   `grep -n "F4:placeholder" apps/admin/src/lib/products/sync-facts.test.ts`
+ *
+ * 🔴 **上一版這裡指的是 `product-media.test.ts` —— 那支檔不存在**(R4 M1;`ls` ENOENT)。
+ *   失敗情境比表面嚴重:下一個人照它開檔、找不到 ⇒ 判定「機制不存在」⇒ **把 F4 的字面刪掉**,
+ *   而**這句註解正是「機制在測試端」的唯一憑據**。刪了就真的沒人守了。
+ *   ⇒ 病根同「折 finding 時新寫的理由自己沒驗」——**我寫下那個檔名時,它還沒被我建出來**
+ *   (我最後把守門寫進了 `sync-facts.test.ts`,註解沒跟著改)。
+ *
+ * 🔴 **而我修 M1 時,把「不存在的檔名」換成了「假行號」**(R5 MF-1):寫成 `:109-120`,實際是 `:118-129`。
+ *   ⚠️ **當時我真的量過,`sed -n '109p;120p'` 也真的印出那個 `it`** —— 但**接著我自己折 n3(+4)、
+ *   n4(+5)把它往下推了 9 行,而我沒有重量**。⇒ 那句「落筆當下已核過」在寫下的瞬間為真、
+ *   在我按下一個編輯之後為假,**而它讀起來永遠像真的**。同「`wc -l` 104 vs 108」那個形狀。
+ * 🔴 **真正的修法不是重量一次,是不要釘行號** —— 我在 backlog `#504` 裡給別人的建議逐字是
+ *   「**釘錨點不釘行號 —— 歷史檔的行號本來就會漂**」,**然後在自己的檔案裡釘了行號**。
+ *   ⇒ 上面改成用 `it` 標題當錨,並附定位命令。
  */
 const PLACEHOLDER_IMAGE = '/placeholder-product.png';
 

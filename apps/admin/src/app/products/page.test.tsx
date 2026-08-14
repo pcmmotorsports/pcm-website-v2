@@ -32,6 +32,29 @@ async function renderPage(search: Record<string, string> = {}) {
   return render(await ProductsPage({ searchParams: Promise.resolve(search) }));
 }
 
+/**
+ * 🔴 **按表格儲存格取值,不對整頁 textContent 做子字串比對**(R4 n6 + 第二把尺)。
+ *
+ * 病根與詳情頁那批同形狀,但**這支檔上一輪只改了註解、11 條斷言零改動** ——
+ * 因為我當時的理由是「它是 table 不是 dl,沒有 dt/dd 可 scope」。**那句也不成立**:
+ * `components/orders/orders-table.test.tsx:219` 早就有 `querySelectorAll('thead th')` 的既有寫法。
+ *
+ * 🔴 **第二把尺(「這格什麼狀態會紅?」)在這支檔抓到一個真的恆綠格**:
+ * `expect(text).toContain('已下架')` —— 而 `app/products/page.tsx:63` 的靜態說明逐字寫著
+ * 「這裡列出所有商品,**含已下架的**」⇒ **那句無條件渲染**。
+ * **實測**:把 `products-table.tsx` 的狀態欄改成恆回 `'上架中'`(= 下架品被標成上架,
+ * 這是這一頁存在的理由整個失效)⇒ **整支測試 10/10 全綠**。
+ */
+function cellTexts(container: HTMLElement, headerLabel: string): string[] {
+  const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+  const idx = headers.indexOf(headerLabel);
+  // 前提斷言:欄位真的存在。找不到會回 -1 ⇒ 下面每列都取到 undefined、比對恆假 ⇒ 反而看不出病因。
+  expect({ [`表頭有「${headerLabel}」`]: idx >= 0 }).toEqual({ [`表頭有「${headerLabel}」`]: true });
+  return [...container.querySelectorAll('tbody tr')].map(
+    (tr) => tr.querySelectorAll('td')[idx]?.textContent ?? '',
+  );
+}
+
 describe('/products 列表(#20 片1a)', () => {
   it('🔴 驗收 1:列出商品,含已下架的那批(後台存在的理由之一)', async () => {
     mocks.list.mockResolvedValue({
@@ -39,16 +62,15 @@ describe('/products 列表(#20 片1a)', () => {
       total: 2,
     });
     const { container } = await renderPage();
-    const text = container.textContent ?? '';
-    expect(text).toContain('碳纖維前土除');
-    expect(text).toContain('停產排氣管');
-    // 兩種狀態都要看得出來 —— 只顯示其中一種等於員工分不出哪些能上架回來。
-    expect(text).toContain('上架中');
-    expect(text).toContain('已下架');
-    // 🔴 驗收 1 的字面是四欄(名稱/料號/售價/狀態)—— 第一版只驗了兩欄(code-reviewer MF4)
-    //    ⇒ `priceCell` 壞掉(格式、NT$ 前綴、toLocaleString)整組照樣綠。
-    expect(text).toContain('RPM-001');
-    expect(text).toContain('NT$ 4,800');
+
+    // 🔴 四欄逐欄按儲存格斷言(驗收 1 的字面是四欄:名稱/料號/售價/狀態)。
+    expect(cellTexts(container, '商品名稱')).toEqual(['碳纖維前土除', '停產排氣管']);
+    expect(cellTexts(container, '料號')).toEqual(['RPM-001', 'RPM-001']);
+    expect(cellTexts(container, '售價')).toEqual(['NT$ 4,800', 'NT$ 4,800']);
+    // 🔴 **兩種狀態都要看得出來** —— 只顯示其中一種等於員工分不出哪些能上架回來。
+    //    這條**必須按欄位比對**:整頁 `toContain('已下架')` 會被 `page.tsx:63` 的靜態說明
+    //    「含已下架的」滿足 ⇒ 狀態欄整個壞掉也不會紅(實測過,見 `cellTexts` 上方註解)。
+    expect(cellTexts(container, '狀態')).toEqual(['上架中', '已下架']);
   });
 
   it('🔴 驗收 2:讀取失敗 → 仍渲染錯誤態、不把 DB error 印到畫面', async () => {
@@ -91,9 +113,12 @@ describe('/products 列表(#20 片1a)', () => {
   });
 
   // ── 片1a nit N5(片1b-1 **只折了一半**):超界頁碼的行為原本零覆蓋 ──
-  // 🔴 N5 原文是「超界頁碼回空陣列、**超大頁碼 → 400**」。下面兩格整支 mock 掉 repository
-  //    ⇒ **只驗到頁碼算術那一半**;「PostgREST 對爛 range 回 400」那一半**仍然零覆蓋**
-  //    (要驗它得打真的 DB,本片沒有正式庫連線)。plan §5 的 ✅ 已同步改成「折一半」。
+  // 🔴 N5 原文是「超界頁碼回空陣列、超大頁碼 → **400**」。下面兩格整支 mock 掉 repository
+  //    ⇒ **只驗到頁碼算術那一半**;PostgREST 端的行為**仍然零覆蓋**(要驗它得打真的 DB)。
+  //    🔴 **「400」那個數字已從敘述裡拿掉**(R3 判「未能裁定」、主視窗裁「沒人找得到來源的
+  //    數字不准留在檔案裡」):它來自片1a 的 nit 原文,**我從頭到尾沒查過出處**;全樹唯一相關
+  //    記載 `SupabaseOrderAdapter.ts:239` 講的是**投影不支援子查詢**回 400,**不是 `.range()` 超界**。
+  //    ⇒ 正確表述:**PostgREST 對超界 `.range()` 的實際行為,本片未驗、且無 repo 內來源。**
   it('N5:超界頁碼(只有 3 筆卻要第 99 頁)→ 空狀態,不炸也不 404', async () => {
     mocks.list.mockResolvedValue({ items: [], total: 3 });
     const { container } = await renderPage({ page: '99' });

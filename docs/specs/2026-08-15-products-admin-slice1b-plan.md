@@ -166,7 +166,7 @@
 | **N2** | `supplier_slug` 列禁字的理由不成立 | ✅ **本片修**:公開 view 本來就投射它、唯一鍵是 `(supplier_slug, external_id)`(`20260602192455:53`)⇒ **料號本身不是全域唯一**,詳情頁不顯示供應商員工會分不清同料號的兩筆。**從禁字清單移除、改成必顯欄位**;`price_store`/`price_by_tier`/`cost` 三個維持禁。 |
 | **N3** | `lib/test-support/strip-comments.ts` 已存在 | ✅ **本片改用共用版**。共用版嚴格較強:剝區塊註解(片1a 版不剝 ⇒ **把違規那行用 `/* */` 包起來就能繞過守門**)、且用 `(?<!:)` 避免吃掉 `https://`(`strip-comments.ts:13`)。**這是修一個真漏洞,不是整理。** |
 | **N4** | `buildListHref` 可取代手寫 `buildHref` | ⏸ **本片不動**:既有的是 `buildCustomerListHref` / `buildOrderListHref` **各自的**,沒有通用版;詳情頁沒有篩選要組。**硬抽通用版屬於範圍擴張。** |
-| **N5** | 超界頁碼回空陣列、超大頁碼 → 400,兩者無測試 | ⚠️ **只折了一半**(R1 N-c):補了頁碼**算術**兩格,但整支 mock 掉 repository ⇒「PostgREST 對爛 range 回 **400**」那半**仍零覆蓋**(要打真 DB)。原本這格打 ✅ 是宣稱超過事實。 |
+| **N5** | 超界頁碼回空陣列、超大頁碼 →(原文寫「400」,🔴 **來源查無**,見下)| ⚠️ **只折了一半**(R1 N-c):補了頁碼**算術**兩格,但整支 mock 掉 repository ⇒「PostgREST 對爛 range 回 **400**」那半**仍零覆蓋**(要打真 DB)。原本這格打 ✅ 是宣稱超過事實。<br>🔴 **「400」這個數字我把它拿掉了**(R3 判「未能裁定」、主視窗裁「沒人找得到來源的數字不准留在檔案裡」):它來自片1a 的 nit 原文,**我從頭到尾沒查過出處**。實查全樹唯一相關記載是 `SupabaseOrderAdapter.ts:239`「PostgREST 投影不支援子查詢,實測回 400 `PGRST100`」——**那是另一種情境(投影),不是 `.range()` 超界**。⇒ 正確表述:**PostgREST 對超界 `.range()` 的實際行為,本片未驗、也沒有 repo 內來源**。 |
 | **N6** | storefront 有 5 處直讀 base `products` | ⏸ **不動,只記錄**:與本片零重疊(本片只新增 admin 檔)。**「5 處」是片1a 當時數的,引用前重數。** |
 
 ### 🔴 N1 更正(我第一版寫錯了,而且錯的方向是「把代價講大」)
@@ -234,8 +234,13 @@
 
   🔴 **兩件與原 plan 字面不同的,寫出來不默默改:**
   1. **R4「先撈一筆真實列印形狀再寫渲染」那一步做不到**(本機無正式庫連線)。
-     **我沒有用猜的替代它** —— 改去讀契約:`mappers/product.ts:56-68` 逐字把這些欄標成
-     `unknown[] | null`,理由是「**jsonb 來源 shape 不保證**」。
+     **我沒有用猜的替代它** —— 改去讀契約:`mappers/product.ts` 把 **jsonb 那三欄**
+     (`:57` highlights / `:59` manuals / `:68` sound_clips)標成 `unknown[] | null`,
+     理由是「**jsonb 來源 shape 不保證**」。
+     🔴 **同段的 `:55 description` 與 `:60 video_url` 是 `string | null`,不是陣列**(R3 F2)。
+     ⚠️ 這句 R1 N4 已經折過一次,但**只折了 `product-media.ts` 那個載體,這份 plan 沒掃到**
+     ⇒ 失敗情境:有人照 plan 把 `video_url` 當陣列寫 guard。
+     **這是「同一宣稱寫進多載體、只折被指名那份」的實例(R3 Q1 生成器 B)。**
      ⇒ **撈一筆本來也證明不了通則**(一筆乾淨 ≠ 全部乾淨);正解是照同一套 runtime guard 收斂,
      而不是先看形狀再假設形狀。`lib/products/product-media.ts` 的 guard 鏡像該檔 `:234-263`,
      **但有兩處刻意不同**(R1 MF6):`images` 比 mapper 嚴(mapper `:265` 零 guard 直透);
