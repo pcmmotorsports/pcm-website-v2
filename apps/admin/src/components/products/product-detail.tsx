@@ -11,7 +11,7 @@ import {
 // 🔴 **本檔不得直接讀 `row.price_general` / `row.delisted_at`** —— 一律經 `resolvePrice` /
 //    `resolveListingState`(片1a plan §3 的設計約束,由來源掃描測試釘住、不是靠這段註解)。
 //
-// 🔴 **1b-2 加入內容/賣點/適用車型/圖片影音四個區塊。** jsonb 元素形狀**不保證**
+// 🔴 **1b-2 加入內容與賣點 / 適用車型 / 圖片與影音**三個** `<section>`。** jsonb 元素形狀**不保證**
 //    ⇒ 一律先過 `toProductMedia()` 的 runtime guard,渲染層不碰原始 jsonb
 //    (理由與依據逐條在 `lib/products/product-media.ts` 檔頭)。
 //    ⚠️ 上一版這裡寫著「本片刻意不顯示…那七欄是片1b-2」—— **那句已經過期**,1b-2 就是這次。
@@ -165,11 +165,23 @@ export function ProductDetail({
         {/* 🔴🔴 驗收 6:圖片同步警語。這句從 plan 寫下到現在一直不存在,本片補上。
             依據 = 承重前提 3:圖片今天**只有防洗網、沒有旗標鎖** ⇒ 供應商換圖會直接蓋掉,
             而「來源那天沒給值」才擋得住。不能讓員工以為後台看到的圖是最終定案。 */}
+        {/* 🔴 R2 MF-a:**不准寫全稱句**。上一版寫「圖片**每天**都會被蓋」——
+            對 `extreme`(712 件)是假的:它**不排每日同步**
+            (`.github/workflows/rpm-sync.yml:72` matrix 逐字「extreme 刻意不列」、
+            `scripts/supplier-config.ts:275` 同字面)。
+            🔴 而我上一輪折 MF5 時**只折了「手冊/影片/聲浪」半邊,同一句話的「圖片」半邊
+            沿用並「強化」成全稱句** = 折 finding 只處理被指名那一處。
+            ⇒ 這版**不再用一個新的全稱句去修一個舊的全稱句**:講清楚「依供應商而定」,
+            並指向可以查證的地方,而不是在 admin 裡再抄一份會漂的供應商清單。 */}
         <p className='border-muted-foreground/30 bg-muted/40 mb-3 rounded border p-3 text-sm'>
-          <strong>這裡的東西不能在後台改</strong>,而且圖片每天都會被供應商的資料蓋過去 ——
-          就算之後開放編輯,改了明天也會被蓋回去。目前沒有「鎖住不給改」的機制。
+          <strong>這一頁的東西不能在後台改</strong> —— 它由供應商同步管線維護。
           <br />
-          手冊、影片、聲浪<strong>要看供應商</strong>:多數供應商會覆蓋,少數是凍結不動的。
+          <strong>多數商品每天會被覆蓋一次</strong>;但<strong>是否每天同步、哪些欄位會被覆蓋,
+          都依供應商而定</strong>(有的供應商是一次性匯入、不排每日;有的供應商的說明與手冊是凍結不動的)。
+          要確認這一件,看上面的供應商代號。
+          <br />
+          圖片這一項<strong>沒有「鎖住不給改」的機制</strong> ——
+          只有「來源那天沒給值就不覆蓋」那一層,擋不住供應商換圖。
         </p>
 
         <dl className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
@@ -183,8 +195,12 @@ export function ProductDetail({
           <Field label='聲浪音檔' value={countLabel(media.soundClips.length, '段')} />
           <Field label='安裝影片' value={media.videoUrl === null ? null : '有'} />
         </dl>
+        {/* 🔴 R2 N-a:上一版這句恆顯示,無圖時與正上方「代表圖:沒有」自相矛盾。 */}
         <p className='text-muted-foreground mt-2 text-sm'>
-          這裡只有一張代表圖。商品的完整圖庫在「變體」那一層,後台還沒做。
+          {media.representativeImage === null
+            ? '這件商品沒有代表圖,前台會顯示預設圖。'
+            : '這裡只有一張代表圖。'}
+          商品的完整圖庫在「變體」那一層,後台還沒做。
         </p>
 
         {media.manuals.length > 0 && (

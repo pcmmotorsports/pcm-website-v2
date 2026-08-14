@@ -61,7 +61,6 @@ describe('toProductMedia(#20 片1b-2)', () => {
       description: null,
       highlights: [],
       fitmentCount: 0,
-      images: [],
       representativeImage: null,
       videoUrl: null,
       manuals: [],
@@ -79,22 +78,26 @@ describe('toProductMedia(#20 片1b-2)', () => {
         fitments: dirty as unknown[],
       });
       // 🔴 N5:標題說「一律收斂成空陣列」,就要**每個陣列欄都斷言**,不能只斷言兩個。
+      //    (R2 N-d 之後 `images` 不再是公開欄 ⇒ 它的收斂由 `representativeImage` 代表。)
       expect({
         [String(dirty)]:
-          media.highlights.length +
-          media.images.length +
-          media.manuals.length +
-          media.soundClips.length,
+          media.highlights.length + media.manuals.length + media.soundClips.length,
       }).toEqual({ [String(dirty)]: 0 });
       expect(media.fitmentCount).toBe(0);
       expect(media.representativeImage).toBeNull();
     }
   });
 
-  it('🔴 highlights / images 濾掉非字串元素,保留字串', () => {
-    const media = toProductMedia({ highlights: ['好', 1, null, '棒'], images: ['a.jpg', {}, 'b.jpg'] });
+  it('🔴 highlights 濾掉非字串元素,保留字串', () => {
+    const media = toProductMedia({ highlights: ['好', 1, null, '棒'] });
     expect(media.highlights).toEqual(['好', '棒']);
-    expect(media.images).toEqual(['a.jpg', 'b.jpg']);
+  });
+
+  it('🔴 images 的非字串元素不得成為代表圖(收斂仍在,只是不再暴露整個陣列)', () => {
+    // R2 N-d:`images` 已無 production 消費者 ⇒ 不再是公開欄;但收斂本身仍要有格在守,
+    // 否則哪天 `toStringList` 被拿掉,`representativeImage` 會拿到一個物件。
+    expect(toProductMedia({ images: [{}, 'a.jpg'] }).representativeImage).toBe('a.jpg');
+    expect(toProductMedia({ images: [42] }).representativeImage).toBeNull();
   });
 
   it('🔴 manuals:缺 label 或 url 的項整項丟掉;sizeKB 有才帶', () => {
@@ -145,9 +148,11 @@ describe('toProductMedia(#20 片1b-2)', () => {
         'not-an-object',
       ],
     });
+    // 🔴 R2 N-c:上一版在 `.toBe(2)` 之後又寫 `.not.toBe(5)` = **恆真、零判別力**。
+    //    有判別力的寫法是直接把「沒消毒會得到的數字」算出來比:原始 5 筆 → 消毒後 2 筆。
+    const RAW_LENGTH = 5;
     expect(media.fitmentCount).toBe(2);
-    // 🔴 反面對照:沒消毒的話會是 5 —— 這格證明消毒真的有跑,不是湊巧。
-    expect(media.fitmentCount).not.toBe(5);
+    expect(media.fitmentCount).toBeLessThan(RAW_LENGTH);
   });
 
   it('🔴 MF1:placeholder 代表圖視同沒有圖(同步管線沒圖時會塞它)', () => {
@@ -176,7 +181,7 @@ describe('toProductMedia(#20 片1b-2)', () => {
     expect(media.description).toBe('碳纖維');
     expect(media.highlights).toHaveLength(1);
     expect(media.fitmentCount).toBe(2);
-    expect(media.images).toHaveLength(1);
+    expect(media.representativeImage).toBe('a.jpg');
     expect(media.manuals).toHaveLength(1);
     expect(media.soundClips).toHaveLength(1);
   });

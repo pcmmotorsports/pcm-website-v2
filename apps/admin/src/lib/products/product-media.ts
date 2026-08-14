@@ -1,18 +1,47 @@
 import type { ProductManual, ProductSoundClip } from '@pcm/domain';
 
-// M-4b #20 片1b-2:詳情頁「內容與媒體」四個區塊的 wire → 顯示形狀收斂。
+// M-4b #20 片1b-2:詳情頁「內容與媒體」**三個區塊**的 wire → 顯示形狀收斂
+// (R1 N1:原本寫「四個區塊」,實際 `<section>` 只有三個)。
 // plan = docs/specs/2026-08-15-products-admin-slice1b-plan.md(§4 R4)。
 //
 // 🔴 **R4 的答案不是「撈一筆看形狀」,是「這個 repo 的立場就是不保證形狀」。**
 //    plan §4-R4 原本寫「落地第一動 = 先撈一筆真實列印出形狀,再寫渲染」。**那一步我做不到**
-//    (本機無正式庫連線),但我沒有因此用猜的 —— 我去讀了**寫入端與既有讀取端的契約**:
+//    (本機無正式庫連線),但我沒有因此用猜的 —— 我讀了讀取端契約:
 //    `packages/adapters/src/supabase/mappers/product.ts` 把 **jsonb 那幾欄**(`:57` highlights /
 //    `:59` manuals / `:68` sound_clips)標成 `unknown[] | null`,理由寫著
 //    「**jsonb 來源 shape 不保證(元素可能缺 label/url)**→ mapper runtime guard 收斂」。
 //    ⚠️ **同段的 `description`(`:55`)與 `video_url`(`:60`)不是 `unknown[]`、是 `string | null`**
 //    —— 我第一版寫成「`:56-68` 全標 `unknown[] | null`」,那句把範圍講大了(R1 N4)。
 //    ⇒ **撈一筆也證明不了通則**(一筆乾淨不代表全部乾淨);正確做法是**照同一套 guard 收斂**。
-//    ⇒ 本檔的 guard 逐條鏡像 `mappers/product.ts:234-263`,不自創寬鬆版。
+//
+// 🔴 **本檔的 guard 鏡像 `mappers/product.ts:234-263`,但有兩處刻意不同 —— 寫出來不含糊**(R1 MF6):
+//    ① **`images` 比 mapper 嚴**:mapper 對 images 是 `:265` **零 guard 直透**、不在 234-263 內;
+//       本檔套了 `toStringList`。方向安全(髒值不上畫面),但**後台數字可能與前台不一致**。
+//    ② `fitments` 鏡像的是**前台** `apps/storefront/src/lib/products.ts:127-130` 的雙空 drop,
+//       不是 mapper(mapper 對 fitments 也是直透)。
+//    ⚠️ **這段是 R2 N-e 才補進來的**:我在折 MF6 時「改了」這句話,但那次 str-replace
+//       **靜默沒套用**(我對著 ` * ` 開頭比對,而這裡是 `//` 開頭),而我在 commit body 宣告 MF6 已折。
+//       ⇒ **改完沒回頭讀檔 = 宣稱與事實脫鉤**;下次折字面類 finding,收尾一定 grep 舊字面確認它真的不在了。
+//
+// 🔴🔴 **「我讀了契約」這句話,我講大了兩次**(R1 病根 + R2 復發):
+//    · 第一次:資料有**兩端**(誰寫進去、誰讀出來),我只讀了讀取端 `mappers/` 就寫「讀了契約」。
+//    · 第二次(**在折第一次的同一輪內**):我去讀了寫入端 `scripts/supplier-config.ts` 的旗標,
+//      **但沒讀「哪幾家真的每天跑」**(那在 `.github/workflows/rpm-sync.yml:72` 的 matrix)、
+//      **也沒讀「哪一筆根本不是供應商」**(同檔 `:311-316` 的 `__gated_canary__`,而且標著 🔴)。
+//
+// 🔴 **正確的分母(R2 MF-b;我上一輪報的數字分母是錯的)**:
+//    · `supplier-config.ts` 共 **16 個條目**,但其中 `__gated_canary__` 逐字標著
+//      「**永久 guard 測試靶(非真供應商)**…永不開寫、不入 rpm-sync.yml matrix」(`:311-316`)
+//      ⇒ **真供應商 15 家**。
+//    · 再扣掉 `extreme`(`rpm-sync.yml:72` 逐字「**extreme 刻意不列**…不接每日排程」、
+//      `supplier-config.ts:275` 同字面、712 列)⇒ **每日同步 14 家**。
+//    · 在那 14 家裡:`syncDescription:false` 與 `syncInstallResources:false` **都只有 `rpm` 一家**。
+//    ⇒ 我上一輪寫「install true=13/false=3、desc true=14/false=2」是**16 條目的原始計數**,
+//      把測試靶當成一家供應商。**UI 文案的「多數/少數」結論不受影響,但字面錯。**
+//    數法:`grep -n "supplier:" .github/workflows/rpm-sync.yml` 取 matrix,
+//         再逐條目比對 `scripts/supplier-config.ts` 的 `syncXxx` 旗標。
+//    ⇒ **通則升級:「讀寫入端」不是讀一支檔,是讀那條路徑上的每一段。**
+//      **設定檔說「這家可以同步」,排程說「這家有沒有被排」—— 我讀了前者、拿它推後者。**
 //
 // 🔴 **型別直接用 `@pcm/domain` 的 `ProductManual` / `ProductSoundClip`,不在 admin 另抄一份**
 //    ——「手抄第四份會漂的字面」那條(片1a nit N-d)。admin 匯入 `@pcm/domain` 有先例
@@ -49,8 +78,14 @@ export interface ProductMedia {
   readonly highlights: readonly string[];
   /** 🔴 **消毒後**的 direct 條目數(鏡像前台雙空 drop)——不是 `fitments.length`。 */
   readonly fitmentCount: number;
-  readonly images: readonly string[];
-  /** 代表圖(`images[0]`);無圖或只有 placeholder → `null`(R1 MF1)。 */
+  /**
+   * 代表圖(`images[0]`);無圖或只有 placeholder → `null`(R1 MF1)。
+   *
+   * 🔴 **這裡刻意不再暴露整個 `images` 陣列**(R2 N-d):MF1 之後畫面只用得到代表圖,
+   * `images` 已**零 production 消費者**(數法:`grep -rn "\.images" apps/admin/src | grep -v '\.test\.'`
+   * ⇒ 零命中)⇒ 留著它等於**三格測試守著沒人用的欄 = 假的覆蓋率**。
+   * 需要完整圖庫時它在變體層(`product_variants.images`),不是這裡。
+   */
   readonly representativeImage: string | null;
   readonly videoUrl: string | null;
   readonly manuals: readonly ProductManual[];
@@ -144,7 +179,6 @@ export function toProductMedia(row: ProductMediaRow): ProductMedia {
     description: row.description ?? null,
     highlights: toStringList(row.highlights),
     fitmentCount: toFitmentCount(row.fitments),
-    images: images,
     // 🔴 placeholder 視同「沒有圖」—— 它是同步管線的 fallback,不是商品真的有圖。
     representativeImage:
       images[0] !== undefined && !isPlaceholderImage(images[0]) ? images[0] : null,

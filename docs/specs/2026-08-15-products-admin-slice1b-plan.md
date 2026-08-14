@@ -237,7 +237,9 @@
      **我沒有用猜的替代它** —— 改去讀契約:`mappers/product.ts:56-68` 逐字把這些欄標成
      `unknown[] | null`,理由是「**jsonb 來源 shape 不保證**」。
      ⇒ **撈一筆本來也證明不了通則**(一筆乾淨 ≠ 全部乾淨);正解是照同一套 runtime guard 收斂,
-     而不是先看形狀再假設形狀。`lib/products/product-media.ts` 的 guard 逐條鏡像該檔 `:234-263`。
+     而不是先看形狀再假設形狀。`lib/products/product-media.ts` 的 guard 鏡像該檔 `:234-263`,
+     **但有兩處刻意不同**(R1 MF6):`images` 比 mapper 嚴(mapper `:265` 零 guard 直透);
+     `fitments` 鏡像的是**前台** `storefront/src/lib/products.ts:127-130`,不是 mapper。
      ⚠️ **但 R4 本身仍未驗** —— 我驗的是「契約長怎樣」,不是「今天資料長怎樣」。
   2. **適用車型只顯示 direct 筆數,不顯示清單**(刻意縮範圍)。`products.fitments` 只是 direct 那一半,
      繼承件在 `product_fitments_effective`(`SupabaseProductAdapter.ts:327-328`)

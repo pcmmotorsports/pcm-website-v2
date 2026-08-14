@@ -56,6 +56,9 @@ const PRODUCT = {
     { motoBrand: 'BMW', modelCode: 'S1000RR' },
     { motoBrand: null, modelCode: null },
   ],
+  // 🔴 R2 N-f:**這個形狀寫入端造不出來**(`rpm-transform.ts:347` 恆 `[repImage]` 單元素)。
+  //    **刻意保留不真實**:多元素才讓「畫面上不得出現張數」那兩條否定斷言有東西可否定;
+  //    真實單元素的話,`not.toContain('3 張')` 會變成無事可做的空斷言。
   images: ['a.jpg', 'b.jpg', 'c.jpg'],
   video_url: 'https://example.com/install.mp4',
   manuals: [{ label: '安裝說明書', url: 'm.pdf', sizeKB: 320 }, { label: '缺網址' }],
@@ -214,23 +217,32 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     //    「沒有鎖住不給改的機制」——**最承重的那半句**——零斷言,而交件信說「測試釘死該字串」)。
     for (const must of [
       '不能在後台改',
-      '每天都會被供應商的資料蓋過去',
+      // 🔴 R2 MF-a:必須是「多數」不是「每天都會」——`extreme` 不排每日同步
+      //    (`rpm-sync.yml:72` matrix 逐字「extreme 刻意不列」)。
+      '多數商品每天會被覆蓋一次',
+      '都依供應商而定',
       '沒有「鎖住不給改」的機制',
-      // 🔴 MF5:手冊/影片/聲浪**不是**一律被覆蓋(`supplier-config.ts` 逐家 flag,
-      //    rpm 等家 `syncInstallResources: false` = 凍結)⇒ 畫面必須寫「要看供應商」。
-      '要看供應商',
     ]) {
       expect({ [must]: text.includes(must) }).toEqual({ [must]: true });
     }
     // 🔴 反向:不得把「沒有鎖」講成「有鎖」—— 那會讓員工以為改了就守得住。
     //    R1 N7:上一版只擋兩個字面,近義改寫照樣全綠 ⇒ 這裡列近義詞,
     //    但**真正的判別力在上面那組正向斷言**,反向只是補漏。
-    for (const forbidden of ['已鎖定', '已鎖住', '不會被覆蓋', '不會被蓋掉', '可以編輯']) {
+    // 🔴 R2 MF-a 的反向:**不得再出現全稱句**。
+    for (const forbidden of [
+      '每天都會被供應商的資料蓋過去',
+      '所有商品每天',
+      '已鎖定',
+      '已鎖住',
+      '不會被覆蓋',
+      '不會被蓋掉',
+      '可以編輯',
+    ]) {
       expect({ [forbidden]: text.includes(forbidden) }).toEqual({ [forbidden]: false });
     }
   });
 
-  it('🔴 片1b-2:四個區塊都渲染,而且髒值不會漏到畫面上', async () => {
+  it('🔴 片1b-2:三個區塊都渲染,而且髒值不會漏到畫面上', async () => {
     mocks.get.mockResolvedValue(PRODUCT);
     mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
     const { container } = await renderPage();
@@ -252,7 +264,11 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     //    要釘的是**計數形式消失了**,不是那個字消失了。
     expect(text).not.toContain('3 張');
     expect(text).not.toContain('1 張');
+    // 🔴 R2 N-b:上面兩條是**字面否定**,單位改字就靜默失效 ⇒ 判別力要靠值面正向斷言。
+    //    (我自標「這是恆綠」——reviewer 實測後判**只有一半恆綠**:空狀態那格仍會紅。
+    //     悲觀的自標比樂觀好,但**準確更好**:下次要分開講「哪一格恆綠、哪一格不是」。)
     expect(text).toContain('代表圖');
+    expect(text).toContain('有');
     expect(text).toContain('完整圖庫在「變體」那一層');
     expect(text).toContain('2 段');
     // 🔴 N6:髒 title(數字 123)不得外洩;它應被收斂成 null 並顯示 `(無標題)`。
@@ -269,7 +285,10 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     //    `2026-08-01 10:00` 本身就含 `2`,把 fitmentCount 改成恆 0 這格照樣過。
     //    改釘完整片語,而且數字是**消毒後**的:三筆進去、一筆雙空被 drop ⇒ 2。
     expect(text).toContain('2 條適用車型設定');
-    expect(text).not.toContain('3 條適用車型設定');
+    // 🔴 R2 N-c:上一版寫 `not.toContain('3 條…')`,在上一行已通過的前提下**恆真、零判別力**。
+    //    改成斷言「未消毒的原始筆數(3)不會出現在任何形式的句子裡」——
+    //    這條在「消毒被拿掉」時才會紅,而那正是要擋的事。
+    expect(text).not.toMatch(/3\s*條/);
     // 🔴 這句是「不對員工說謊」的機制面:`products.fitments` 只有 direct 那一半,
     //    而且我沒消毒的話數字會比前台**多**(前台雙空 drop)。
     expect(text).toContain('不含');
@@ -293,7 +312,7 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     const text = container.textContent ?? '';
     expect(text).toContain('沒有商品說明');
     // 🔴 空的時候警語仍要在 —— 「沒有圖片」不代表「同步不會蓋」。三段都要在。
-    for (const must of ['不能在後台改', '每天都會被供應商的資料蓋過去', '沒有「鎖住不給改」的機制']) {
+    for (const must of ['不能在後台改', '多數商品每天會被覆蓋一次', '都依供應商而定', '沒有「鎖住不給改」的機制']) {
       expect({ [must]: text.includes(must) }).toEqual({ [must]: true });
     }
     // 🔴 無圖時代表圖欄要說「沒有」,不得因為 placeholder 而說「有」。
