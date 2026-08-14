@@ -119,6 +119,9 @@ importers:
       '@pcm/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pcm/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
       '@tabler/icons-react':
         specifier: ^3.40.0
         version: 3.44.0(react@19.2.6)
