@@ -27,6 +27,8 @@ const NAV_ITEMS: readonly NavItem[] = [
   // 呈 active(prefix 語意既有行為)—— 同屬訂單域,雙亮可接受、不為此改 active 邏輯。
   { key: 'refund-exceptions', label: '退款異常', icon: Icons.warning, href: '/orders/refund-exceptions' },
   { key: 'customers', label: '客戶', icon: Icons.user, href: '/customers' },
+  // M-4b #20 片1a:商品列表(唯讀)。href 有值 = 頁面已接上(照本檔檔頭慣例)。
+  { key: 'products', label: '商品', icon: Icons.product, href: '/products' },
   { key: 'staff', label: '員工管理', icon: Icons.teams, href: '/settings/staff' },
   { key: 'suppliers', label: '供應商', icon: Icons.post, href: '/settings/suppliers' },
   // M-4b E10 A9w2:唯一去處 `/settings/order-statuses`(九碼狀態詞彙 CRUD)已隨九碼退場下架。
