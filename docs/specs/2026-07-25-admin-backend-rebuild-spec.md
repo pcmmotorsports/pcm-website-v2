@@ -112,7 +112,7 @@ E0 搜尋 / E1 客戶累計消費 / E2 內容發布合約 / E3 圖片上傳 / E4
 | 26 | 員工帳號與權限 | 名單與 `is_manager` 分級有 CRUD,**但「操作者是誰」仍是自選** | `session/actor.ts:6-7` 自陳非授權邊界;`staff` 表無密碼欄 |
 
 ### ❌ 做不到(18)
-`4` 批次標商品進度(plan 卡關卡1、零行 code)/ `10` 列印出貨單揀貨單(整個能力不存在)/
+`4` 批次標商品進度(🔴 **2026-08-14 夜 A 窗更正**:原字面「plan 卡關卡1、零行 code」**兩個半句都已過期** —— A9h-M 已 apply(`APPLIED.tsv:130`)、A9h-1 已完工(`procurement-result.ts`,61 行);真正缺的是 **A9h-2 coordinator + A12a 選取 UI**,詳 `docs/specs/2026-08-14-e10-4-batch-procurement-status-correction.md`。**狀態仍是 ❌**,因為畫面上沒有批次入口)/ `10` 列印出貨單揀貨單(整個能力不存在)/
 `11` 出貨 Email 通知(outbox 在 storefront cron,**出貨時零 writer**)/ `12` 手動建單 /
 `13` 改訂單內容 / `16` 今日對帳(首頁仍是骨架 `app/page.tsx:5-21`)/ `18` 退貨收回 /
 `20` 新增編輯商品(**`apps/admin` 底下 products route 零命中**)/ `21` 上傳商品圖片(**`supabase.storage` 全 repo 零命中 = 連底層都沒接**)/
