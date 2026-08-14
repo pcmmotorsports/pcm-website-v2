@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
 import {
   ORDER_STATUS_LABEL,
+  ORDER_STATUS_REFUNDED_LABEL,
   orderGoodsAxis,
   orderPayAxis,
   orderStatusView,
@@ -155,13 +156,49 @@ describe('L1 — 收款軸(含照 OD 字面實作的已知落差)', () => {
     expect(orderPayAxis(order({ lines: [AT_STAGE.none], paymentStatus: status }))).toBe(axis);
   });
 
-  it('🔴 誠實邊界釘死:`refunded` 落在 **unpaid** 軸並吃到紅框 —— 這是已知落差,不是 bug', () => {
-    // 🔴 主視窗要求「測試裡有一格專門釘它落在哪一軸」——**註解會被讀漏,測試不會**。
-    //    紅框的語意是「去催客人付錢」,對一張已退款的單是噪音。要改得先推翻「照 OD 字面」那條裁決。
+  // 🔴🔴 **`#494`:本格原本釘的是相反的行為,那條裁定已被知情推翻 —— 這不是遷就紅燈。**
+  //    - 2026-08-13 主視窗裁「照 OD 字面做」⇒ 原斷言 `orderStatusView(refunded).label === '未收未定'`
+  //      + 吃紅框(`shadow-[`);當時就寫明「紅框的語意是去催客人付錢,對已退款的單是噪音」。
+  //    - 2026-08-14 **Sean 拍 `Q-494-1`=A 確認推翻**(他肉眼撞到:點「未收未定」的單要取消,
+  //      被擋且訊息說它「已付款」)⇒ 新規則:已退款單獨成一態,不進 2×4 矩陣。
+  //    保留一格釘新行為的理由與原本一模一樣:**註解會被讀漏,測試不會。**
+  it('🔴 `#494` 推翻後:`refunded` 由 `orderStatusView` 走**矩陣外**的「已退款」,不再是「未收未定」', () => {
     const refunded = order({ lines: [AT_STAGE.none], paymentStatus: 'refunded' });
-    expect(orderPayAxis(refunded)).toBe('unpaid');
-    expect(orderStatusView(refunded).label).toBe('未收未定');
-    expect(orderStatusView(refunded).capsuleClass).toContain('shadow-[');
+    const view = orderStatusView(refunded);
+    expect(view.label).toBe(ORDER_STATUS_REFUNDED_LABEL);
+    expect(view.payAxis).toBeNull(); // 矩陣外 ⇒ 兩軸都不適用
+    expect(view.goodsAxis).toBeNull();
+    expect(view.cancelled).toBe(false); // 退款不是取消:別把兩件事壓成同一個布林
+    // 🔴 反向釘死:舊字面與「去催款」的紅框都不得再出現在這條路上
+    expect(view.label).not.toBe('未收未定');
+    expect(view.capsuleClass).not.toContain('shadow-[');
+  });
+
+  // 🔴 本格與上一格**不重複**:上一格量的是 `orderStatusView`(使用者真的看到的那顆膠囊),
+  //    這一格量的是 `orderPayAxis` 這支函式本身**刻意沒改** —— 它在 `refunded` 上仍回 `unpaid`,
+  //    而那個回傳值**不是這張單的狀態**(`refunded` 從 `orderStatusView` 就早退了、走不到它)。
+  //    寫下來是為了下一個人單獨呼叫它時不會以為那是真相。
+  it('`orderPayAxis` 本身未改:單獨呼叫仍把 `refunded` 判成 `unpaid`(它不是狀態的單一來源)', () => {
+    expect(orderPayAxis(order({ lines: [AT_STAGE.none], paymentStatus: 'refunded' }))).toBe('unpaid');
+  });
+
+  // 🔴 驗收 6:`partiallyRefunded` **不**走矩陣外那條 —— 它還有錢沒結、還有事要做。
+  //    ⚠️ 正式庫零筆,本格是**規格斷言**、不是實例驗證(誠實缺口)。
+  it('🔴 `partiallyRefunded` 維持在矩陣內的未收側(與 `refunded` 不是同一件事)', () => {
+    const view = orderStatusView(order({ lines: [AT_STAGE.none], paymentStatus: 'partiallyRefunded' }));
+    expect(view.label).toBe('未收未定');
+    expect(view.payAxis).toBe('unpaid');
+    expect(view.label).not.toBe(ORDER_STATUS_REFUNDED_LABEL);
+  });
+
+  // 🔴 本格釘的是**現況、不是拍板**(codex 關卡2 F1):取消的早退分支在 `#494` 之前就存在,
+  //    本片只在它後面插一條 ⇒ 這個交集的顯示結果沒被本片改動。要不要改成合併字面是待決項。
+  it('既取消又退款 ⇒ 顯示「已取消」,不是「已退款」(沿用既有順序,本片未改)', () => {
+    const view = orderStatusView(
+      order({ lines: [AT_STAGE.none], paymentStatus: 'refunded', cancelledAt: '2026-08-14T00:00:00+00:00' }),
+    );
+    expect(view.cancelled).toBe(true);
+    expect(view.label).not.toBe(ORDER_STATUS_REFUNDED_LABEL);
   });
 });
 

@@ -223,13 +223,22 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     expect(view.blockReasons).toEqual(['already_cancelled']);
   });
 
-  it('付款狀態非 unpaid —— PaymentStatus 五個值裡的其他四個全擋', () => {
+  it('付款狀態非 unpaid —— PaymentStatus 五個值裡的其他四個全擋,而且**各掛各的碼**', () => {
     // 🔴 關卡2 codex:原本只測 paid / partiallyPaid ⇒ 把實作改成「只擋這兩值」的突變可全綠,
     //    而 refunded / partiallyRefunded 會錯成可取消。值域出處 `types.ts:40-45`。
-    for (const status of ['paid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const) {
-      expect(buildOrderCancelView(order({ paymentStatus: status })).blockReasons).toEqual([
-        'payment_not_unpaid',
-      ]);
+    // 🔴🔴 `#494`(Sean 2026-08-14 拍板 B):**擋不擋沒變,掛哪一碼變了。**
+    //    這張表逐態寫死期望碼 ⇒ 誰把四態折回共用一碼,四格裡至少三格紅。
+    //    ~~原本四態同期望 `payment_not_unpaid`~~ 是「三病共用一碼」的形狀
+    //    (同族於 `ledger_unhealthy` 被 R1 F5 抓過的那次),而它讓 Sean 對著一張已退款的單
+    //    讀到「已付款…請走人工退款流程」。
+    const CASES = [
+      ['paid', 'payment_not_unpaid'],
+      ['partiallyPaid', 'payment_partially_paid'],
+      ['refunded', 'payment_refunded'],
+      ['partiallyRefunded', 'payment_partially_refunded'],
+    ] as const;
+    for (const [status, code] of CASES) {
+      expect(buildOrderCancelView(order({ paymentStatus: status })).blockReasons).toEqual([code]);
     }
     expect(buildOrderCancelView(order({ paymentStatus: 'unpaid' })).blockReasons).toEqual([]);
   });
@@ -251,10 +260,16 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     ).toEqual(['charge_attempt_blocked']);
 
     // 🔴 值域掃全:比照上一格的紀律,不只測 paid ——「只抑制 paid」的突變要紅。
-    for (const status of ['paid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const) {
+    // 🔴 `#494`:期望碼改成**逐態各自的碼**(抑制的範圍一個字都沒變,變的是被留下那一碼的名字)。
+    for (const [status, code] of [
+      ['paid', 'payment_not_unpaid'],
+      ['partiallyPaid', 'payment_partially_paid'],
+      ['refunded', 'payment_refunded'],
+      ['partiallyRefunded', 'payment_partially_refunded'],
+    ] as const) {
       const view = buildOrderCancelView(order({ paymentStatus: status, chargeAttemptGate: 'blocked' }));
       // 突變:拿掉 `&& paymentStatus === 'unpaid'` ⇒ 這行紅(陣列會多一碼「還在進行中」)。
-      expect(view.blockReasons).toEqual(['payment_not_unpaid']);
+      expect(view.blockReasons).toEqual([code]);
       // 🔴 抑制的是碼、不是實質:單子照樣擋得住。
       //    這行釘住的是「兩條互補、恆有一條在擋」——若有人把 `payment_not_unpaid` 那行拿掉,
       //    被抑制的這張單就會變成可送出,而只看上一行斷言是看不出來的。
