@@ -12643,3 +12643,17 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   (走 Management API、不讀 `.env.local`)+ `scripts/regen-types-merge.py` + 二十六處校正的機械比對。
 - **相關:** `#476`(片 1 種下這筆債)/ `#484a`(它的 apply 會觸發那次 gen types)
 - **發現於:** 2026-08-14 · V 窗做 `#476` 片 1 時被 typecheck 擋下(`Type '"void_reason"' is not assignable`)· 號由主視窗指派
+
+### #490. 🛠 「先列載體再掃」做成機制 —— `scripts/literal-sweep.sh`
+
+- **狀態:** ✅ 已做(2026-08-14 R 窗;號由主視窗指派)
+- **🔴 為什麼是機制而不是規則:** 「改了 A、讓 B 的文案變成謊話」這個病,規則寫過、教訓記過(memory `feedback_claimed-sync-but-only-patched-touched-lines`),2026-08-14 一天內仍復發 **3 次**。第三次最能說明問題:**我明明列了五類載體(元件/文案常數/測試/backlog/plan),執行時只掃了兩類**(code 掃了、docs 沒掃)⇒ 漏掉的那一處是 code-reviewer 抓的,不是我掃到的。⇒ `~/.claude/rules/00-work-rules.md` §4 機制優先律:**規則寫了會再犯,機制不會**;而「寫成規則」這條路已經走到底了。
+- **核心設計(只有一件事重要):** **七類載體全部印出來,即使 0 命中,而且印出「這一類掃了幾個檔」。** ——「**這一類我掃了、沒有**」與「**這一類我忘了掃**」長得必須不一樣。那個差別就是上面那次漏掃的全部病因。
+- **用法(一個參數,可寫進收工檢查表):** `bash scripts/literal-sweep.sh '<舊字面>'`;要正規式加 `--regex`。實測 2074 個文字檔約 1.2 秒。
+- **七類:** ①`supabase/migrations/**`(含 `COMMENT ON`)②`scripts/*-down.sql` ③`docs/runbooks/**` ④`docs/specs/**` ⑤`**/*.test.*`+`docs/probes/**` ⑥`docs/phase-1-backlog.md`+`STATUS.md`+`docs/handoff/**` ⑦其餘一切(**沒有任何檔會被靜默丟掉**)。
+- **🔴 驗收 = 真的負向對照,不是自我實現:** 拿**我今天實際漏掉的那一處**當測資 —— `git show 208102b0:docs/phase-1-backlog.md` 實查 `:12232` 確有「會從異常清單消失」(`208102b0` = 我做那次漏掃時的 HEAD),而本工具對該字面在 **⑥ 待辦與現況** 印出命中。⇒ **當時跑這支就會抓到。**
+- **工具自己的負測(6 發,每發跑完 `shasum` 核對還原):** ①把 `docs/runbooks` 判準改成不存在的路徑 ⇒ 印出 `🔴🔴 這幾類一個檔都沒掃到`(盲區自我守門會紅,不是恆綠)②全大寫 ASCII 字面照樣命中 camelCase 原始碼 ③全形/半形括號等價(`NFKC` 直接驗:`normalize('（x）') == normalize('(x)')` 為 `True`)④純字串模式下 `.` 不當萬用字元(0 命中)⑤`--regex` 模式同一條 pattern 得 7 命中 ⑥壞旗標與空參數各 `exit=2`。
+- **⚠️ 已印在輸出裡的限度(不要只當它掃過了):** 只掃**檔案裡的字面** ⇒ 組出來的字串、i18n key、DB 資料列、已 apply 但檔案已改的 migration 一律掃不到;跳過建置產物目錄;**它告訴你哪裡還有這個字面,不告訴你那句話現在是真是假** —— 那要人開檔判斷。
+- **實作註記:** 比對本體走 `python3` 不走 `grep` —— 本機 `grep` 實為 **ugrep 7.5.0**(`grep --version` 自證),而本 repo 已記過多次 BSD/GNU/ugrep 方言互咬(memory `reference_measure-tool-dialect-and-silence-traps`)。跳過的 284 個檔**逐副檔名印出來**(全是 `.jpg`/`.png`/`.webp`/`.mp4`)——只印數字的話,「跳過的全是圖片」與「跳過了一份壞掉編碼的 `.md`」長得一樣。
+- **⏳ 待 Sean 點頭的一行(本窗不自行改 `CLAUDE.md` 本體):** 建議把「**改了任何對外字面或守門述詞 → 拿舊字面跑 `literal-sweep`,逐類看完再 commit**」加進快速自檢清單的「slice 結束前」。路由表那一行也建議由主視窗統一寫。
+- **分流標籤:** `P2`
