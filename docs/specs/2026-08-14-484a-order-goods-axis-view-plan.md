@@ -31,15 +31,30 @@
 (`order_items(... product_variants(products(brands(name))) ...)`、`customers(name)`)。
 **把 `.from('orders')` 換成 `.from(view)` 之後,PostgREST 還認不認得這些 embed,我沒有驗過。**
 
-- **驗法**:在 **Supabase branch**(不是正式庫)apply view，用同一份 select 打一次,比對回傳形狀與筆數。
-- **沒過的話**:view 這條形狀就不成立(或要退化成「view 只用來取 id、再 `.in('id',…)` 打 `orders`」= 多一次往返)。
-  ⇒ **停下回報,不要自己改成第二形狀。**
+🏁 **已執行,但換了量法(主視窗 2026-08-14 核可)**:原訂「開 Supabase branch」**要花錢** ⇒ 那是 Sean 的板,不是我按的。
+改成**在正式站用既有 view 做唯讀探測**,把「view 上能不能 embed」這個**機制問題**單獨拆出來答:
+
+| 探測 | 結果 |
+|---|---|
+| `products_public`(view)→ `product_variants`(**base table、一對多**,= 我要的那一跳) | **200**,回真陣列 |
+| view → 父表 / view → view | **200** |
+| **負向對照**:view → 不存在的關聯 | **400 `PGRST200`**「Could not find a relationship」 |
+
+⇒ 失敗會是**大聲的 400**,不是靜默降級 ⇒ 那幾發 200 有判別力。
+過了第一跳之後,`order_items → product_variants → products → brands` 全是**表對表**,今天就在跑。
+
+🔴 **殘餘缺口(這證的是機制、不是這支 view)**:因此 §5 第 1 條移到 **apply 之後**由 runbook 收
+(`docs/runbooks/484a-view-apply-smoke.md` 檢查 1)。**失敗就照 §6 順序回退,不改第二形狀。**
+🔴 **這個殘餘風險由 view 的寫法控制** ⇒ 契約(`o.*` 原樣、不 `GROUP BY`、不 join、純量子查詢)
+已釘進 migration `§2` 與 `COMMENT ON VIEW`。
+⚠️ **驗到哪,與 migration 用同一句話**(codex R2 抓到兩處字面打架、已統一):
+**只在另一支 view 驗到機制與一個負向案例;三條契約本身與這一支 view 都尚未逐條實測**,apply 後以完整投影確認。
 
 ## 4. 動哪些檔
 
 | 檔 | 改什麼 |
 |---|---|
-| `supabase/migrations/<ts>_m4b_e10_484a_order_goods_axis_view.sql` | **新增** `admin_order_list_v` = `orders` 全欄 + `goods_axis text`(`none/ordered/instock/shipped`,算法**逐字對齊** `order-status-axes.ts:126-133` 的判序:`shipped ⊆ instock ⊆ ordered`,**先問最遠的**)。`security_invoker = true`(admin 走 service_role,無繞過 RLS 的需求 ⇒ 不用 definer)。`GRANT SELECT` **只給 `service_role`**,🔴 **不給 `anon` / `authenticated`**(這支帶訂單全欄與客戶關聯)。附 `COMMENT` 寫明理由。 |
+| `supabase/migrations/<ts>_m4b_e10_484a_order_goods_axis_view.sql` | **新增** `admin_order_list_v` = `orders` 全欄 + `goods_axis text`(`none/ordered/instock/shipped`,算法**逐字對齊** `order-status-axes.ts` 的 `orderGoodsAxis()`(`:133-140`) 的判序:`shipped ⊆ instock ⊆ ordered`,**先問最遠的**)。`security_invoker = true`(admin 走 service_role,無繞過 RLS 的需求 ⇒ 不用 definer)。`GRANT SELECT` **只給 `service_role`**,🔴 **不給 `anon` / `authenticated`**(這支帶訂單全欄與客戶關聯)。附 `COMMENT` 寫明理由。 |
 | 同上 `-down` | `DROP VIEW` 回退腳本(照 `scripts/452a-down.sql` 的既有形狀) |
 | `packages/domain/src/order/types.ts` | `AdminOrderFilter` 加 `goodsAxes?: readonly OrderGoodsAxis[]`(多值,與既有 `orderSources` 同形) |
 | `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` | `.from('orders')` → view;新增 `.in('goods_axis', …)`;🔴 **`fulfillment_status` 那條 `.eq` 改接 `goods_axis`**(= `#488` 的修法) |
@@ -63,7 +78,8 @@
 ## 6. Rollback
 
 **兩段、可分別執行**:①app 層 revert 單一 commit ②`DROP VIEW`。
-🔴 **順序有硬性要求**:先 revert app、後 DROP view。反過來會讓線上 app 指向不存在的關聯
+🔴 **順序分兩種情況,以 `scripts/484a-down.sql` 檔頭為準**:A1 當下無消費端 ⇒ 直接 DROP;
+**A2 部署之後**才是先 revert app、後 DROP —— 反過來會讓線上 app 指向不存在的關聯
 (同族=`feedback_app-layer-must-not-ship-before-migration-apply`,今天 handoff §7 也記著同一條)。
 ⇒ **apply 停點由 Sean 按**,片 B 不得在片 A apply 之前上線。
 
@@ -72,8 +88,28 @@
 片 A = **95 分**(步驟 0 驗證 15 / migration 35 / adapter+domain 25 / 測試 20)。片 B = **45 分**。
 ⚠️ 不含 plan 批准等待、codex 對抗審查與折 findings 的時間。**這是看 diff 面積估的,沒拆到步驟級。**
 
+## 7b. 🏁 片界改成 A1 / A2(主視窗 2026-08-14 裁「乙」)
+
+`.from(view)` 要 typecheck ⇒ `database.types.ts` 要有這支 view ⇒ 但那支檔是 `supabase gen types` 產的
+⇒ **view 要先在 DB 裡**。而 apply 是 Sean 的停點 ⇒ **雞生蛋**。
+
+⇒ **A1 = migration + down + runbook + `OrderGoodsAxis` 純型別** → 【Sean apply + 跑 runbook + `gen types`】
+→ **A2 = adapter 換源 + admin + 測試** → 片 B = chip UI。
+🔴 **apply 次數沒有變多**(甲乙都是一次),只是**挪到前面**;而 A1 apply 當下**沒有任何 app code 依賴那支 view**
+⇒ 純加法、零行為改變、`DROP VIEW` 即回退 = 最安全的 apply 形狀。
+
+⚠️ **`AdminOrderFilter.goodsAxes` 不在 A1**:加上去會讓 `buildOrderListHref` 的
+`Record<keyof AdminOrderFilter, HrefEntry>` 窮舉守門變紅(**實測 TS2741**)。
+**那道守門是刻意的** —— 它逼「新增一條篩選軸就必須同時處理 URL」。A1 不繞過它,留給 A2 一起做。
+
+## 7c. 🔴 證據強度(不要只讀「13/13 全對」)
+
+正式站 13 筆的同源比對雖然全對,**其中 12 筆是 `none`** ⇒ **這組資料對 `none` 有判別力,對其餘三值幾乎沒有。**
+其餘三值 + 零品項單的證據來源是**拋棄式庫上的 T3/T4**(`docs/probes/484a-view-probe.sh`),不是那一組。
+T4 突變(判序倒置)實測:`instock` / `shipped` 兩格紅,**`ordered` 那格抓不到**(它本來就該是 `ordered`)。
+
 ## 8. 我沒查的
-- **步驟 0 的答案**(view 上的 embed)—— 本 plan 最大的未知,已擺在第一步。
+- **這支 view 自己的 embed** —— 機制已證(§3),**但這一支沒證**,只有 apply 之後問得到。仍是本 plan 最大的未知。
 - **view 的查詢成本**:今天 13 張單、規劃量每月 100-300 ⇒ 我判斷不需要索引或物化。**這是推的,沒 EXPLAIN。**
 - **`orders.fulfillment_status` 本身要不要一起修/退場**:本片只是**不再靠它篩**。
   它仍被 `20260714120000_m4a_order_workflow_status.sql:142-148` 的推導式吃著 ⇒ **那條路徑我沒查**,留在 `#488`。

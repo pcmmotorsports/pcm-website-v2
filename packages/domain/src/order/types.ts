@@ -208,6 +208,37 @@ export type OrderSource = 'web' | 'manual_phone' | 'manual_line' | 'manual_other
 export type PaymentChannel = 'tappay' | 'bank_transfer' | 'cash' | 'none';
 
 /**
+ * 訂單層**貨品軸**四值(`#484a`)。
+ *
+ * 🔴 **這不是 `FulfillmentStatus`,兩者長得像但不是同一件事**:
+ *    · `FulfillmentStatus` = `orders.fulfillment_status` 欄位(`inStock` 是**大寫 S**)。
+ *      **`#488`:該欄 2026-08-14 正式站實查 13/13 全是 `notOrdered`、從沒被推進過。**
+ *    · `OrderGoodsAxis` = **由品項數量彙總算出來**的軸(`instock` 全小寫)= 列表狀態膠囊顯示的那一份;
+ *      `#484a` 起也是 DB 篩選用的那一份(view `admin_order_list_v.goods_axis`)。
+ * ⚠️ **字面不同是刻意的**(`inStock` vs `instock`):兩個型別若字面相同,誤用時 tsc 不會叫。
+ *    **不要為了「整齊」統一它們。**
+ * 🔴 **這裡是「型別」的唯一權威**(不是「所有字面」的):`apps/admin/src/lib/orders/order-status-axes.ts` 已改成
+ *    `export type { OrderGoodsAxis }` 真的 re-export(`#484a` 前它自己宣告了第二份)。
+ * ⚠️ **還有三份手寫字面沒被綁住**(code-reviewer 實查):`orders-table.test.tsx:510/553/609`
+ *    各自硬寫了四值 ⇒ 改本檔的常數**不會讓它們紅**。要收要等 A2 一起改。
+ * ⚠️ **SQL 那一份也綁不住** —— migration `admin_order_list_v` 的 CASE 是另一份字面,
+ *    TS 型別管不到它。**綁它的守門要等 A2**(拿 view 的實際輸出對這四值)。
+ *    在那之前**不要宣稱「三處同源」**,只能說 TS 兩處同源。
+ * ⚠️ **片 A1 當下這個型別還沒有消費端** —— 它先落地是為了讓 migration 的 `goods_axis` 四值
+ *    在 TS 這一側有一個唯一權威。接上篩選軸(`AdminOrderFilter.goodsAxes`)是**片 A2**,
+ *    那一片才會同時改 `buildOrderListHref` 的窮舉守門(A1 加欄位會讓它紅 —— 實測 TS2741,
+ *    那道守門是刻意的,不要為了讓型別早點落地去繞過它)。
+ */
+/** 窮舉用(白名單守門 / `Record` 完整性)。順序 = 流程順序,**不是**判序。 */
+export const ORDER_GOODS_AXIS_VALUES = ['none', 'ordered', 'instock', 'shipped'] as const;
+
+/**
+ * 🔴 **由上面那個常數推導,不另寫一份 union**(codex 關卡2 R2:union 與常數是兩份獨立字面、
+ *    改一份不會讓另一份紅)。現在改常數,型別跟著動。
+ */
+export type OrderGoodsAxis = (typeof ORDER_GOODS_AXIS_VALUES)[number];
+
+/**
  * AdminOrderFilter: 後台訂單列表雙軸 + 次要篩選(value-object;全欄可選、缺 = 不限)。
  *
  * 主雙軸 = `paymentStatus` × `fulfillmentStatus`(營運最常查「已付未出」);

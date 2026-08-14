@@ -1,4 +1,4 @@
-import type { AdminOrderSummary } from '@pcm/domain';
+import type { AdminOrderSummary, OrderGoodsAxis } from '@pcm/domain';
 import { STATUS_CAPSULE } from './order-list-view';
 
 // M-4b OD 訂單列表改版 **L1**(2026-08-13):狀態八值 = 收款軸 × 貨品軸。
@@ -21,8 +21,15 @@ import { STATUS_CAPSULE } from './order-list-view';
 /** 收款軸。🔴 **不得寫死成兩值** —— Sean Q22=A:貨到付款(`cod`)是預留的第三值。 */
 export type OrderPayAxis = 'unpaid' | 'paid';
 
-/** 貨品軸四階段(未定 → 已定 → 在庫 → 出貨)。 */
-export type OrderGoodsAxis = 'none' | 'ordered' | 'instock' | 'shipped';
+/**
+ * 貨品軸四階段(未定 → 已定 → 在庫 → 出貨)。
+ *
+ * 🔴 **`#484a` 起本檔不再自己宣告這個型別,改從 `@pcm/domain` re-export。**
+ *    理由:同一組四值現在有**兩個消費者**(本檔的膠囊、migration 的 `admin_order_list_v.goods_axis`),
+ *    兩份字面必漂。原本 domain 那邊寫著「唯一權威在這裡、admin 從本檔 re-export」——
+ *    **在這一行改掉之前,那句話是假的**(codex 關卡2 抓到;兩份當時只是碰巧相同、沒有任何守門綁著)。
+ */
+export type { OrderGoodsAxis };
 
 /**
  * 八值字面。**逐字取自 Sean 的試算表原詞**(需求檔 §0-H 的 2×4 表),不是我編的中文。

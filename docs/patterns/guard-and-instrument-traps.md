@@ -123,3 +123,46 @@
 | 「這會導致 X」 | 先證 **X 那個場景走得到** —— 查 `docs/reference/order-state-gates.md`(⑥ 配套)|
 
 — 2026-08-14 · R 窗立(當天實例來自 R 與 D 兩線;D 的兩例標明未親驗)
+
+---
+
+## 平台級陷阱:Supabase 新建 view/table **一出生就被授權給 `anon` / `authenticated`**
+
+**`REVOKE ALL … FROM PUBLIC` 收不掉它。** 那是給**具名角色**的授權,不是 `PUBLIC`。
+
+實查(2026-08-14,`#484a`):
+```sql
+select defaclrole::regrole, defaclnamespace::regnamespace, defaclobjtype, defaclacl from pg_default_acl;
+-- postgres / public / r / postgres=arwdDxtm/postgres,anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres,…
+```
+`typ=r` 同時涵蓋**表與 view** ⇒ **任何在 `public` 新建的 view,預設 anon 與 authenticated 都讀得到。**
+佐證:`has_table_privilege('anon','public.products_public','SELECT')` = `true`(那支是刻意公開的)。
+
+**做法**:
+```sql
+REVOKE ALL ON public.<view> FROM PUBLIC;
+REVOKE ALL ON public.<view> FROM anon, authenticated;   -- ← 少這行就是全開
+GRANT SELECT ON public.<view> TO service_role;
+```
+🔴 **驗的時候不要只問你想得到的那幾個角色** —— 問完整 ACL,否則「migration 收哪幾個」與
+「檢查問哪幾個」會共用同一個假設,第四個角色漏收時**兩邊互相驗不出來**:
+```sql
+select relacl from pg_class where relname = '<view>';   -- 只准出現 postgres 與 service_role
+```
+⚠️ `security_invoker = true` 是**第二道**(底表 RLS 以呼叫者身分套),不能拿它當第一道。
+
+**發現於**:`#484a` codex 關卡2 R1 must-fix 1 —— 它只是說「`FROM PUBLIC` 可能不夠」,
+**是回去查 `pg_default_acl` 才知道它在這個專案是真的成立。** 別人給的理由要自己驗一次再採信。
+
+---
+
+## 收到「你的守門不夠嚴」這種 finding 時,**先構造一發它現在漏得掉的**
+
+**不要直接加斷言。** 直接加會補出一個「看起來更嚴、實際仍漏」的守門,而且你會以為修好了。
+
+實錘(2026-08-14 `#484a` 探針):codex 說「腳本不是 fail-closed」。我加了 `fail()` 累計與幾條 `|| fail`,
+**然後自己跑負測 —— 餵一個沒有 `CREATE VIEW` 的檔,它還是 `EXIT=0`**
+(`awk` 抽出空檔 → `psql -f` 空檔回 0 → 沒有任何一條 `fail` 被觸發)。
+再補「抽出區段非空」「建完 view 必須存在」兩條,才變成 正向 `EXIT=0` / 負向 `EXIT=1` 且列出 3 條具名失敗。
+
+**順序**:①構造一發現在漏得掉的 ②加斷言 ③**重跑那一發,確認它現在紅** ④正向也要再跑一次(別把好的弄紅)。
