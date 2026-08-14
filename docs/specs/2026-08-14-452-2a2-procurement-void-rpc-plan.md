@@ -145,9 +145,18 @@ C5 比的是**品項層聚合**,不是這一列。若同品項還有**兄弟採�
 
 > 🏁 **整節作廢(C 案)。以下全文保留當歷程,不執行。**
 > **這一節是本次瘦身最大的一塊,而它的死法有下游後果 —— 讀了再走:**
-> `U6` 消失 ⇒ **void 全程不取 `order_items` 鎖**(依據 = §2.4 C 案版步表 V1-V8 逐列,無一步鎖 parent;
-> 且 A2b1 早退在③鎖 parent 之前 = §2.1 逐字「③④⑤一行都沒跑」;**已實測**見 V0 那列的探針三發)
-> ⇒ §2.4「C1 advisory lock」那條死結的**一條邊不存在**
+> `U6` 消失 ⇒ **void 不【顯式、提前】取 `order_items` 鎖** ⇒ §2.4「C1 advisory lock」那條死結的**一條邊不存在**
+>
+> 🔴🔴 **更正(2026-08-14,codex 對抗審查抓到)**:本行原本寫「void **全程不取** `order_items` 鎖」——**那是假的**。
+> `pcm_a4a_recompute_order_item_summary(uuid)` 函式體內有 `FROM public.order_items oi … FOR NO KEY UPDATE`
+> (實查該函式定義第 17-19 行)⇒ **void 的 UPDATE 觸發 A4a 重算,A4a 會替它取 parent NKU。**
+> ⇒ 結論(不死結)沒變、而且是**量到的**;但**理由**我寫錯了。正確的機制:
+> - **量到的**:探針發④⑤ 兩個方向跑四次,`40P01` 皆 0;被擋那方等的是 `transactionid ShareLock`(採購列的列鎖)。
+> - **推的**(機制解釋,未直接觀察):死結環需要「**持 parent ∧ 等索引項**」同時成立。
+>   unvoid 是**先**顯式取 parent(U6)、**再**讓 UPDATE 去插索引項 ⇒ 兩者同時成立。
+>   void 相反:①A4a 是在列 UPDATE **之後**才取 parent ②`voided_at` 由 NULL 變非 NULL
+>   ⇒ 新列版**不再滿足** partial index 的 `WHERE voided_at IS NULL` ⇒ **void 根本不插索引項、無從等它**。
+> ⚠️ 這是 memory `feedback_new-rationale-written-while-folding-a-finding-is-unverified` 的實例。
 > ⇒ **C1 才跟著死**。⚠️ **順序是 `U6` 死 → `C1` 死,不是各自死。**
 > 日後若補回 unvoid,**這兩件事必須一起回來**,只補 `U6` 不補 `C1` = 直接復現 `40P01`。
 > 隨本節一起消失:`UNVOID_EXCEEDS_ORDERABLE` 碼、§2.5 第二個人話出口、`Q-S2` 整題、
@@ -178,7 +187,8 @@ A 家 3 件作廢 → B 家補 3 件(合法,A2b1 放行,2a-1 **已觀察** = `sc
 
 | 步 | 守門 | 失敗出口 | 依據 |
 |---|---|---|---|
-| ~~**V0**~~ | ~~**C1 advisory:`pg_advisory_xact_lock(...)`,必須是第一把鎖**~~ | — | 🏁 **C 案刪除,且已【實測】不需要。** C1 為 `unvoid × A5a` 的死結而設;C 案下 unvoid 不存在,而 **void 全程不取 `order_items` 鎖**(§2.3 已死)⇒ 環的一條邊不存在。<br>🔴 **這不是推的** —— 探針 `docs/probes/452-2a2-void-lockprobe.sh`(2026-08-14 跑兩次,結果相同):**發⓪ 正向對照(unvoid 形狀)`40P01=1`**、**發④(void 先持列鎖)`40P01=0`**、**發⑤(A5a 先持列鎖+parent)`40P01=0`**,且④⑤ 各有 **1 個 session 實際卡在 `wait_event_type='Lock'`** ⇒ 不是「沒併發」的假綠。⇒ 假設 `A7` 已從推論變成觀察 |
+| ~~**V0**~~ | ~~**C1 advisory:`pg_advisory_xact_lock(...)`,必須是第一把鎖**~~ | — | 🏁 **C 案刪除,且已【實測】不需要。** C1 為 `unvoid × A5a` 的死結而設;C 案下 unvoid 不存在,而 **void 不【顯式、提前】取 `order_items` 鎖**(§2.3 已死)⇒ 環的一條邊不存在。
+🔴 **不是「不取」** —— A4a 的重算 helper 在列 UPDATE **之後**仍會取 parent NKU(見 §2.3 更正段)。<br>🔴 **這不是推的** —— 探針 `docs/probes/452-2a2-void-lockprobe.sh`(2026-08-14 跑兩次,結果相同):**發⓪ 正向對照(unvoid 形狀)`40P01=1`**、**發④(void 先持列鎖)`40P01=0`**、**發⑤(A5a 先持列鎖+parent)`40P01=0`**,且④⑤ 各有 **1 個 session 實際卡在 `wait_event_type='Lock'`** ⇒ 不是「沒併發」的假綠。⇒ 假設 `A7` 已從推論變成觀察 |
 | V1 | 隔離閘:非 read committed 拒收 | RAISE `P2B02` | `20260811010000:69-73` 樣板 |
 | V2 | `p_actor` / `p_request_id` 形狀 | **RAISE 不給固定碼**(caller bug) | `20260811010000:86-103` |
 | V3 | `p_void_reason` 空白 | RETURN `REASON_REQUIRED` | 配對 CHECK 的訊息層,`20260807200000:96-99` 樣板 |
@@ -678,7 +688,7 @@ v1 寫「照錯的順序退 ⇒ 期望炸在 `column p.voided_at does not exist`
 - B-void:void 之後 `ordered_quantity` 掉、`instock` 不變、額度真的放出來(對照 2a-1 B3/B4 的做法)。
 - ~~B-unvoid:合法 unvoid 之後 `ordered_quantity` 加回來。~~ 🏁 **C 案刪。**
 - 🔴 **B-VOID-ADV-FREE(C 案新增,已跑完)**:證明拿掉 C1 之後 `void × A5a` 兩個方向都不死結。
-  **證據 = `docs/probes/452-2a2-void-lockprobe.sh`,2026-08-14 跑兩次結果相同:**
+  **證據 = `docs/probes/452-2a2-void-lockprobe.sh`,2026-08-14 跑【四】次結果相同(最後一次為現行版本):**
   發⓪ 正向對照(unvoid 形狀)`40P01=1` / 發④(void 先持列鎖)`40P01=0` / 發⑤(A5a 先持列鎖+parent)`40P01=0`,
   且 ④⑤ 各觀察到 **1 個 session 卡在 `wait_event_type='Lock'`**。
   🔴 **這一格的兩個觀察缺一不可**:沒有 ⓪ 就分不出「沒死結」與「harness 壞了」;

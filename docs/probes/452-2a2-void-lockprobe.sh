@@ -30,8 +30,26 @@
 # ── 前提(不寫清楚這些數字會被過度引用)────────────────────
 #   · 拋棄式 PostgreSQL 17.10(本機 Homebrew),跑完即拆。
 #   · 🔴 void RPC **還不存在**(那正是 2a-2 要寫的)⇒ 本探針**模擬**它的鎖形狀,
-#     用 plan §2.4 C 案版步表:鎖採購列 NKU → (**無 order_items 鎖**) → UPDATE。
+#     用 plan §2.4 C 案版步表:鎖採購列 NKU → (**不顯式鎖 order_items**) → UPDATE。
 #     ⇒ 它證的是【鎖與索引的交互】,不是「那支 RPC 的行為」。引用時不得混用。
+#
+#   🔴🔴 **更正(2026-08-14,codex 對抗審查抓到,我原本寫錯)**:
+#     舊字面寫「void **全程不取** order_items 鎖」—— **那是假的**。
+#     `pcm_a4a_recompute_order_item_summary(uuid)` 的函式體內有
+#     `FROM public.order_items oi … FOR NO KEY UPDATE`(實查該函式定義第 17-19 行)
+#     ⇒ void 的 UPDATE 觸發 A4a 重算,**A4a 會替它取 parent NKU**。
+#     ⇒ 正確的說法是「void **不顯式、不提前**取 parent 鎖」,不是「不取」。
+#
+#     **那為什麼還是不死結?**(以下區分「量到的」與「推的」)
+#       · 量到的:發④⑤ 兩個方向、跑四次(最後一次為現行版本),40P01 皆 0;被擋的那一方等的是
+#         `transactionid ShareLock`(= 採購列的列鎖),不是 parent 鎖。
+#       · 推的(機制解釋,未直接觀察):死結環需要「持 parent ∧ 等索引項」。
+#         unvoid 是**先**顯式取 parent(U6)、**再**讓 UPDATE 去插索引項 ⇒ 兩者同時成立。
+#         void 相反:①它不提前取 parent(A4a 是在列 UPDATE **之後**才取)
+#         ②voided_at 由 NULL 變非 NULL ⇒ 新列版**不再滿足** partial index 的
+#         `WHERE voided_at IS NULL` ⇒ **void 根本不插索引項、也就無從等它**。
+#     ⚠️ 這是「折 finding 時順手寫的新理由」的實例 —— 結論(不死結)是量到的,
+#        但我當時給的**理由**沒驗過就寫下去了。留著這段是為了不要再犯。
 #   · 🔴 不用 heredoc 餵 psql(codex #14:連線到 EOF 就結束、交易回滾 ⇒ 沒測到 blocking)
 #     ⇒ 用 FIFO 保持連線常開,由本腳本控制交錯時序。
 #   · 「兩個 session 真的交錯了」的觀察點 = 第三條連線讀 `pg_stat_activity`,不是靠 sleep 猜。
@@ -126,6 +144,24 @@ witness() {
   echo "  ── 交錯證據($1)──"
   q "SELECT application_name||' | state='||state||' | wait='||coalesce(wait_event_type,'-')||'/'||coalesce(wait_event,'-')||' | '||left(regexp_replace(query,'\s+',' ','g'),52)
        FROM pg_stat_activity WHERE application_name IN ('probeA','probeB') ORDER BY application_name" | sed 's/^/     /'
+  # 🔴 鎖【身份】—— 只數「有沒有人卡住」證明不了卡在什麼上面(codex 2026-08-14 nit,對)。
+  # 🔴🔴 **第二次更正**(codex R2):列一堆 granted 的 relation lock **不是**「正在等的鎖身份」。
+  #    row-lock 等待在 `pg_locks` 的長相是 `locktype='transactionid'` + `relation IS NULL`
+  #    ⇒ 光看那一列**看不出等的是哪張表的哪一列**。
+  #    真正說得出身份的是這兩樣,所以改成印它們:
+  #      ① `pg_blocking_pids()` —— **誰在擋誰**(把等待者接到持有者)
+  #      ② 等待者同時持有的 `tuple` 鎖 —— 那一列的 `relation` 就是**它正在排隊要的那張表**
+  #         (PG 取 row lock 前會先在該 tuple 上排隊)
+  q "SELECT '等待者 '||w.application_name
+            ||' 卡在 '||wl.locktype||'/'||wl.mode
+            ||' | 排隊中的目標表='||coalesce((SELECT c2.relname FROM pg_locks tl JOIN pg_class c2 ON c2.oid=tl.relation
+                                              WHERE tl.pid=w.pid AND tl.locktype='tuple' LIMIT 1),'(無 tuple 鎖)')
+            ||' | 被誰擋='||coalesce((SELECT string_agg(b.application_name,',')
+                                      FROM unnest(pg_blocking_pids(w.pid)) bp
+                                      JOIN pg_stat_activity b ON b.pid=bp),'(無)')
+       FROM pg_stat_activity w
+       JOIN pg_locks wl ON wl.pid=w.pid AND NOT wl.granted
+      WHERE w.application_name IN ('probeA','probeB')" | sed 's/^/     🔒 /'
 }
 blocked_count() {  # 有幾個 probe session 正卡在 Lock 上
   q "SELECT count(*) FROM pg_stat_activity
@@ -226,9 +262,15 @@ echo "  發④(期望 0,阻擋數 >=1)= $D4 / 阻擋 $W4"
 echo "  發⑤(期望 0,阻擋數 >=1)= $D5 / 阻擋 $W5"
 if [ "$D0" -ge 1 ] && [ "$D4" -eq 0 ] && [ "$D5" -eq 0 ] && [ "${W4:-0}" -ge 1 ] && [ "${W5:-0}" -ge 1 ]; then
   echo "  ✅ 假設 A7 成立(已成為觀察):harness 抓得到死結(⓪紅),而 void × A5a 兩個方向都不死結、且兩發都真的併發過。"
+  PROBE_RC=0
 else
   echo "  🔴 判讀失敗 —— 逐項對照上面三行,不要只看有沒有 ERROR。"
   echo "     ⓪=0 ⇒ harness 壞了或 fixture 沒建對,發④⑤ 的綠【無效】。"
   echo "     阻擋數=0 ⇒ 沒有真的併發,那個 0 是恆綠格。"
+  PROBE_RC=1
 fi
 echo "  輸出留在 $P/(0a 0b 4a 4b 5a 5b .out)"
+# 🔴 **exit code 必須反映判讀結果**(codex R2 must-fix,對):
+#    舊版判讀失敗只印訊息就結束 ⇒ `$?` = 0 ⇒ 任何自動化(夜跑 / CI / 收割腳本)
+#    會把「探針證明失敗」讀成「探針通過」。**印給人看 ≠ 回給機器看。**
+exit "${PROBE_RC:-1}"

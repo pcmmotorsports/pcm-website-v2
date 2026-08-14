@@ -66,6 +66,9 @@ export type ReceiptFailureCode =
   | 'RECEIVED_AT_IN_FUTURE'
   // ── 呼叫端 bug 型(RPC 回傳碼;表單流程下不該出現)
   | 'PROCUREMENT_NOT_FOUND'
+  // ── 狀態型(#452 片 2a-2):**不是** bug、也不是可改輸入 —— 同事(或自己稍早)把這筆採購作廢了。
+  //    表單開著的時候被別人作廢是**正常會發生的事** ⇒ 文案要給出路,不能寫成「系統異常」。
+  | 'PROCUREMENT_VOIDED'
   // ── 冪等重放但**產物已被刪**:不是錯誤,但**絕不可**顯示成綠色的成功
   | 'DUPLICATE_DELETED'
   | 'DUPLICATE_UNKNOWN'
@@ -108,6 +111,14 @@ const FAILURE_MESSAGES: Record<ReceiptFailureCode, string> = {
   RECEIVED_AT_IN_FUTURE: '到貨時間不能填未來的時間。',
   PROCUREMENT_NOT_FOUND:
     '找不到這筆採購(可能剛被移除),到貨沒有寫入。請重新整理這張單再看一次。',
+  // 🔴 文案要件(memory `project_admin-ux-operation-intuitiveness`:不用人教能做對):
+  //    ①講清楚發生什麼(被作廢了,不是壞掉)②講清楚沒寫入 ③給下一步。
+  //    🔴 **不承諾「去把作廢取消掉」** —— Sean 2026-08-14 拍 Q-452-換路=C,
+  //       系統裡**沒有**取消作廢的功能。指向一個不存在的按鈕就是說謊。
+  PROCUREMENT_VOIDED:
+    '這筆採購已經作廢了,到貨沒有寫入。' +
+    '請重新整理這張單,看看同一家供應商是不是另有一筆生效中的採購 —— 有的話請登錄到那一筆;' +
+    '沒有的話,請先重新對這家供應商下一筆採購,再登錄到貨。',
   DUPLICATE_DELETED:
     '這筆到貨先前已經登錄過,而且後來被刪除了 —— 這次沒有重新建立。' +
     '如果這批貨確實該記進來,請重新整理頁面,用新的一次登錄。',

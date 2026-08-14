@@ -16,13 +16,24 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 //    不得靜默當成功 —— 「到貨沒記進去」長得跟成功一樣是本片最貴的失敗形狀
 //    (instock 不動 ⇒ 出貨彈窗照樣說「未到貨」,而員工以為已經登錄了)。
 
-/** `admin_record_item_receipt` 的固定碼(逐字取自 `20260811010000` 的 `RETURN '…'`,共 10 個)。 */
+/**
+ * `admin_record_item_receipt` 的固定碼(逐字取自 `20260811010000` 的 `RETURN '…'`,
+ * 加 `20260814100000`(#452 片 2a-2 甲)新增的 `PROCUREMENT_VOIDED`,共 11 個)。
+ *
+ * 🔴 **這一行必須比 migration `20260814100000` 更早上線**(plan §3.1)。
+ *    這不違反 memory `feedback_app-layer-must-not-ship-before-migration-apply` ——
+ *    那條講的是「app 呼叫一個還不存在的東西」(08-07 A9h)。本例是反過來:
+ *    app 只是「多接受一種輸入」,而在 RPC 還不會吐那個碼之前**完全惰性**。
+ *    先上 migration 才危險:RPC 開始吐新碼、這裡不認得 ⇒ 走下方「回傳非預期碼」
+ *    ⇒ **員工看到「系統狀態異常」**,而真相是「這筆採購已作廢」。
+ */
 export const RECEIPT_RECORD_RESULT_CODES = [
   'RECORDED',
   'DUPLICATE_REQUEST',
   'EXCEEDS_ROOM_AFTER_CANCELLATION',
   'QUANTITY_EXCEEDS_ALLOCATED',
   'PROCUREMENT_NOT_FOUND',
+  'PROCUREMENT_VOIDED',
   'INVALID_QUANTITY',
   'NOTE_TOO_LONG',
   'RECEIVED_AT_REQUIRED',
@@ -99,7 +110,7 @@ export interface RecordItemReceiptArgs {
 }
 
 /**
- * 記一筆到貨。回 10 碼之一;RAISE → `ReceiptCallerBugError`。
+ * 記一筆到貨。回 11 碼之一(#452 片 2a-2 加了 `PROCUREMENT_VOIDED`);RAISE → `ReceiptCallerBugError`。
  *
  * 🔴 逐欄具名送、不 spread(TS 多餘屬性檢查只作用在物件字面上)。
  */
