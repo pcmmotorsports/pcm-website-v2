@@ -12509,3 +12509,24 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** 未估 —— 要先有退貨流程的 PRD/片界,不是一片的量體。
 - **發現於:** 2026-08-14 · E 窗 · OD 殼盤點 §1-2;號由主視窗指派。
 - **相關:** `#484`(同一排 chip)
+
+### #488. 🔍 `orders.fulfillment_status` 13/13 實測為 `notOrdered`,而列表膠囊算得出 `ordered`
+
+- **狀態:** 待查(**是死欄位還是某條路徑漏寫,留給查的人判 —— 本條只登記量到的事實**)。
+- **事實(2026-08-14 正式站唯讀查證,13 張單全掃):** `orders.fulfillment_status` **13/13 都是 `notOrdered`**;用列表狀態膠囊那份算法(`order_item_quantity_summary` 彙總,`order-status-axes.ts:126-133`)算,**`PCM-2026-0104` 是 `ordered`** ⇒ **1/13 兩邊不一致,且欄位那一側從沒被推進過。**
+- **數法(可整段重跑):**
+  ```sql
+  select o.fulfillment_status::text,
+   case when bool_and(coalesce(s.shipped_quantity,0)>=oi.quantity) then 'shipped'
+        when bool_and(coalesce(s.instock_quantity,0)>=oi.quantity) then 'instock'
+        when bool_and(coalesce(s.ordered_quantity,0)>=oi.quantity) then 'ordered'
+        else 'none' end as ui_axis, o.display_id
+  from orders o join order_items oi on oi.order_id=o.id
+  left join order_item_quantity_summary s on s.order_item_id=oi.id
+  group by o.id, o.fulfillment_status, o.display_id;
+  ```
+- **🔴 為什麼這條要查而不是無害:** 這個欄位**現在就有消費端** —— 訂單列表的「出貨狀態」`<select>` 篩選走的正是它(`SupabaseOrderAdapter.ts:582` `.eq('fulfillment_status', …)`)⇒ **員工用那個下拉篩「已到貨」,今天必定回零筆**,而畫面上明明有膠囊寫著別的。它不是沉睡欄位,是**一個正在誤導人的篩選軸**。
+- **不修會痛在:** ①員工篩不到東西會判「系統壞了」或改用眼睛掃 ②`20260714120000_m4a_order_workflow_status.sql:142-148` 的 `workflow_status` 推導式**吃這個欄位**,它若不準,那一整組推導值跟著不準。
+- **估時:** 未估 —— 要先判「該由誰寫」(哪支 RPC 應該推進它),那是查的工不是修的工。
+- **發現於:** 2026-08-14 · E 窗 · `#484` 技術前置調查;號由主視窗指派。
+- **相關:** `#484`(因為這條而不能接 A 資料源)
