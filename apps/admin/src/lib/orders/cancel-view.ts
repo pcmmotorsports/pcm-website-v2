@@ -36,6 +36,7 @@ import type {
   AdminOrderCancellation,
   AdminOrderDetail,
   AdminOrderDetailItem,
+  PaymentStatus,
 } from '@pcm/domain';
 
 /**
@@ -71,8 +72,31 @@ export type OrderCancelBlockReason =
    * 一律 fail-closed(母 plan row 65 `:412`:「取消需退款,退款線第 3 批開通」)。
    * ⇒ A13a 照本碼寫文案時,要寫成**「這期還不行、第 3 批開通」**,不是「不能取消」——
    * 否則員工會以為那是永久規則,與 Sean 的拍板衝突。
+   *
+   * 🔴🔴 **`#494` 起本碼只給 `paid` 用**(Sean 2026-08-14 拍板 B)。碼名是歷史的、現在比實際寬,
+   *    **刻意不改名**:改名要動 RPC 對照、測試與 A13a 文案表,而本片的病是**文案說謊**、不是命名。
+   *    其餘三態各有自己的碼(見下面三條)—— 它們的下一步互不相同,共用一句話就是
+   *    `ledger_unhealthy` 三病共用一碼被 R1 F5 抓過的那個形狀。
    */
   | 'payment_not_unpaid'
+  /**
+   * `payment_status = 'refunded'`(`#494`)。**這張單的錢已經退回去了。**
+   * 🔴 起因是 Sean 肉眼撞到:列表寫「未收未定」、點取消被擋、訊息卻說它「已付款」且叫他
+   *    「走人工退款流程」—— **那張單已經退過款了**,三句話對同一張單互相矛盾。
+   *    ⇒ 本碼的文案**不得說「已付款」、也不得叫人去退款**。
+   */
+  | 'payment_refunded'
+  /**
+   * `payment_status = 'partiallyRefunded'`(`#494`)。**退了一部分,還有錢在單子上。**
+   * 與 `payment_refunded` 的下一步不同:那個是結案、這個還要有人去把尾數處理完。
+   * ⚠️ **正式庫零筆** ⇒ 本碼的行為只讀 code 推得,沒有實例驗過(誠實缺口)。
+   */
+  | 'payment_partially_refunded'
+  /**
+   * `payment_status = 'partiallyPaid'`(`#494`)。**只收到一部分款。**
+   * ⚠️ **正式庫零筆** ⇒ 同上,只讀 code 推得。
+   */
+  | 'payment_partially_paid'
   /**
    * 明確觀察到非 `failed` 的扣款嘗試(RPC 步7 第二半,`:361-364`)。
    * 🔴 **本碼只在 `paymentStatus === 'unpaid'` 時出現**(#387,理由與失效條件見
@@ -121,6 +145,24 @@ export type OrderCancelBlockReason =
   | 'cancellations_unreadable'
   /** 每個品項的尚可取消量都是 0 ⇒ 整單模式與部分模式都送不出去 */
   | 'nothing_cancellable';
+
+/**
+ * 非 `unpaid` 的四態 → 各自的拒因碼(`#494`;Sean 2026-08-14 拍板 B)。
+ *
+ * 🔴 **`Exclude<PaymentStatus, 'unpaid'>` 是這裡真正的守門**:`PaymentStatus` 日後加值時
+ *    本表少一鍵 ⇒ `tsc` 直接紅,不會靜默沿用某一句別人的文案。
+ * ⚠️ **但型別只逼你「補上那一鍵」,不逼你「給它一個新碼」**(codex 關卡2 F5):把新值指到
+ *    既有的 `payment_not_unpaid` 照樣編得過,而 `cancel-view.test.ts` 的 `CASES` 是手寫的、
+ *    不會自動納入新值。⇒ 加值的人請一併看那張表,型別擋得住漏寫、擋不住偷懶。
+ * ⚠️ 只有 `paid` 這一態在正式庫有實例;另外三態**零筆**(`refunded` 有實例但
+ *    「主視窗提供、V 窗未複驗」)⇒ 分流本身由測試釘,不宣稱實地驗過。
+ */
+const PAYMENT_BLOCK_REASON: Record<Exclude<PaymentStatus, 'unpaid'>, OrderCancelBlockReason> = {
+  paid: 'payment_not_unpaid',
+  partiallyPaid: 'payment_partially_paid',
+  refunded: 'payment_refunded',
+  partiallyRefunded: 'payment_partially_refunded',
+};
 
 /** 判定所需的最小訂單形狀。用 `Pick` 綁住真型別 ⇒ 上游欄位改名會在型別層轉紅,不是靜默失效。 */
 export type CancelViewOrder = Pick<
@@ -540,7 +582,11 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   // 步7:允許集合 = unpaid 且 attempts 全終態 failed(或零筆)。
   // 🔴 `'blocked'` 與 `'unknown'` 分開兩碼:員工要看到的話不同(「有在途扣款」vs「讀取不完整,請重新整理」),
   //    這正是 `chargeAttemptGate` 收成三態的理由(`types.ts:831-836`)——合成一碼就把它退回兩 boolean 的洞。
-  if (order.paymentStatus !== 'unpaid') reasons.push('payment_not_unpaid');
+  // 🔴 `#494`:擋不擋**沒有變**(仍是「非 unpaid 就擋」),變的是**掛哪一碼** ——
+  //    四種非 unpaid 的下一步互不相同,共用一句「已付款…請走人工退款流程」對已退款的單是謊話。
+  // 🔴 用 `Record` 而不是 `if/else` 串:**新增 `PaymentStatus` 值時 `tsc` 會紅**
+  //    (`Exclude<…,'unpaid'>` 少一鍵不是合法的 Record),而 if 串會靜默走 fallback。
+  if (order.paymentStatus !== 'unpaid') reasons.push(PAYMENT_BLOCK_REASON[order.paymentStatus]);
   // 🔴 **已付款的單不報這條**(#387;Sean 2026-08-11 實測撞到)。
   //    `mapChargeAttemptGate` 用否定式 `!== CHARGE_ATTEMPT_TERMINAL_FAILED` 判定
   //    (`packages/adapters/src/supabase/mappers/order.ts:619` 與 `:622`)
