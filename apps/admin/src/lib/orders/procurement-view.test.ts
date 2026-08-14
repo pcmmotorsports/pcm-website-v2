@@ -16,6 +16,7 @@ vi.mock('../supplier-repository', () => ({ listSupplierRows: vi.fn() }));
 
 import { buildSupplierChoices } from './procurement-suppliers';
 import {
+  findActiveProcurement,
   hydrateFormValues,
   toTaipeiInputValue,
   toTaipeiIso,
@@ -150,6 +151,67 @@ describe('hydrateFormValues — 全量 payload 的承重', () => {
     expect(values.exceptionReason).toBe('');
     expect(values.expectedArrivalDate).toBe('');
     expect(values.submittedAtLocal).toBe('');
+  });
+});
+
+// 🔴🔴 `#476` 片2:本條目的病灶本體。
+//
+// **構造必須與正式庫走得到的形狀一致**,否則是在測一個不會發生的災難:
+// · 同一個 `(order_item_id, supplier_id)` 之所以能有兩列,是因為 `#452` 起 business key 是
+//   **partial unique**(`WHERE voided_at IS NULL`,`20260813120000:379-381`)+ Sean `Q-S1=A`
+//   允許對同一家重下單 ⇒ 這個構造**走得到**。
+// · 作廢列**排在前面**也不是我擺的:mapper 依 `createdAt` ASC 排序
+//   (`packages/adapters/src/supabase/mappers/created-at-order.ts`),而作廢不動 `created_at`
+//   ⇒ 舊的作廢列必然排在後建的生效列之前。**舊 `find()` 取第一筆 = 必中作廢列。**
+describe('🔴 #476 片2:同供應商「一作廢一生效」時必須挑生效那列', () => {
+  const VOIDED = proc({
+    supplierId: 'sup-a',
+    allocatedQuantity: 99, // 舊值:一眼可辨,若被 hydrate 出來會很明顯
+    supplierOrderNo: 'SO-舊-已作廢',
+    createdAt: '2026-08-01T00:00:00+00:00',
+    voidedAt: '2026-08-10T00:00:00+00:00',
+    voidReason: '供應商回報缺料、改下另一家',
+  });
+  const ACTIVE = proc({
+    supplierId: 'sup-a',
+    allocatedQuantity: 2,
+    supplierOrderNo: 'SO-新-生效中',
+    createdAt: '2026-08-12T00:00:00+00:00',
+  });
+  // 順序刻意照 mapper 的 createdAt ASC:作廢列在前 ⇒ 舊 `find()` 會取到它
+  const ROWS = [VOIDED, ACTIVE];
+
+  it('findActiveProcurement 取生效列,不是陣列第一筆', () => {
+    expect(findActiveProcurement(ROWS, 'sup-a')?.supplierOrderNo).toBe('SO-新-生效中');
+  });
+
+  it('🔴 hydrateFormValues 不得填入作廢列的舊值(= 靜默資料損壞的那一步)', () => {
+    const values = hydrateFormValues(ROWS, 'sup-a');
+    expect(values.allocatedQuantity).toBe('2');
+    expect(values.supplierOrderNo).toBe('SO-新-生效中');
+    // 反向釘死:舊值的任何一個字面都不得出現在表單值裡
+    expect(Object.values(values)).not.toContain('99');
+    expect(Object.values(values)).not.toContain('SO-舊-已作廢');
+  });
+
+  // ⚠️ 名稱只講**本檔證得到**的事:helper 回 undefined + hydrate 全空。
+  //    「所以會走新建」是下游行為,證它的在 `item-procurement-form.test.tsx`
+  //    (鈕文字 = 新增採購)—— 本格不宣稱那件事(兩關審查同時抓到名稱大於斷言)。
+  it('這家只剩作廢列 ⇒ findActiveProcurement 回 undefined、hydrate 全空', () => {
+    expect(findActiveProcurement([VOIDED], 'sup-a')).toBeUndefined();
+    expect(hydrateFormValues([VOIDED], 'sup-a')).toEqual({
+      ...EMPTY_PROCUREMENT_VALUES,
+      supplierId: 'sup-a',
+    });
+  });
+
+  it('沒有作廢列時行為與片2 之前完全相同(不是把所有人都當新建)', () => {
+    expect(findActiveProcurement([ACTIVE], 'sup-a')?.supplierOrderNo).toBe('SO-新-生效中');
+    expect(hydrateFormValues([ACTIVE], 'sup-a').allocatedQuantity).toBe('2');
+  });
+
+  it('別家供應商的生效列不得被誤取(supplierId 那半仍要成立)', () => {
+    expect(findActiveProcurement([VOIDED, proc({ supplierId: 'sup-b' })], 'sup-a')).toBeUndefined();
   });
 });
 

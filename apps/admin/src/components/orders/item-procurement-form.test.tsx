@@ -195,6 +195,143 @@ describe('ItemProcurementForm — 選供應商即 hydrate(全量 payload 的承�
   });
 });
 
+// 🔴🔴 `#476` 片2 的**畫面層**負測 —— 純函式那半在 `lib/orders/procurement-view.test.ts`。
+//    分開寫的理由:那邊證「挑對列」,這邊證「挑對列**真的走到畫面與送出的 payload**」。
+//    只有純函式測的話,有人把元件改回 `procurements.find(...)` 仍然全綠。
+describe('🔴 #476 片2:同供應商「一作廢一生效」時,表單不得用作廢列的舊值', () => {
+  // 構造照正式庫走得到的形狀:partial unique(`20260813120000:379-381`)+ Q-S1=A 允許重下單
+  // ⇒ 同鍵兩列;mapper 依 createdAt ASC 排 ⇒ 作廢列(較舊)必然排在前面。
+  const VOIDED = proc({
+    id: 'p-void',
+    supplierId: SUP_A,
+    allocatedQuantity: 99,
+    supplierOrderNo: 'SO-舊-已作廢',
+    createdAt: '2026-08-01T00:00:00+00:00',
+    voidedAt: '2026-08-10T00:00:00+00:00',
+    voidReason: '供應商回報缺料、改下另一家',
+  });
+  const ACTIVE = proc({
+    id: 'p-active',
+    supplierId: SUP_A,
+    allocatedQuantity: 2,
+    supplierOrderNo: 'SO-新-生效中',
+    createdAt: '2026-08-12T00:00:00+00:00',
+  });
+
+  it('選到該供應商 → 畫面填的是生效列的值,不是作廢列的', () => {
+    const { container } = setup({ procurements: [VOIDED, ACTIVE] });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    expect(container.querySelector<HTMLInputElement>('input[name="allocated_quantity"]')!.value).toBe('2');
+    expect(container.querySelector<HTMLInputElement>('input[name="supplier_order_no"]')!.value).toBe(
+      'SO-新-生效中',
+    );
+  });
+
+  it('🔴 真的送出去的那份 FormData 帶的也是生效列的值(不只是畫面對)', async () => {
+    const { container } = setup({ procurements: [VOIDED, ACTIVE] });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form')!);
+    });
+    const form = actionMock.mock.calls[0]![1];
+    // 🔴 **逐欄比對、不是抽兩欄**(codex 關卡2 finding 6:只斷言兩欄的話,
+    //    其他欄仍混入作廢列也會綠)。A5a 是全量 payload ⇒ 任何一欄混錯都是靜默寫壞。
+    expect({
+      allocated_quantity: form.get('allocated_quantity'),
+      reply_status: form.get('reply_status'),
+      contact_channel: form.get('contact_channel'),
+      supplier_order_no: form.get('supplier_order_no'),
+      exception_reason: form.get('exception_reason'),
+      expected_arrival_date: form.get('expected_arrival_date'),
+    }).toEqual({
+      allocated_quantity: '2',
+      reply_status: ACTIVE.replyStatus,
+      contact_channel: ACTIVE.contactChannel,
+      supplier_order_no: 'SO-新-生效中',
+      exception_reason: ACTIVE.exceptionReason,
+      expected_arrival_date: ACTIVE.expectedArrivalDate,
+    });
+  });
+
+  // 🔴 codex 關卡2 finding 9:片2 讓「停用供應商 × 走新建」多一條入口 ⇒ 一次修整條。
+  it('停用供應商 + 只剩作廢列 ⇒ 送出鈕停用(不給按了才被拒),文案講下一步', () => {
+    const { container } = setup({
+      procurements: [proc({ id: 'p-void', supplierId: SUP_B, voidedAt: '2026-08-10T00:00:00+00:00', voidReason: '缺料' })],
+    });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_B }, // SUP_B 在 CHOICES 裡 inactive: true
+    });
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+    expect(container.textContent).toContain('請先重新啟用它');
+  });
+
+  it('停用供應商但**有**生效列 ⇒ 鈕仍可按(更新紀錄欄本來就允許,不得誤擋)', () => {
+    const { container } = setup({ procurements: [proc({ supplierId: SUP_B })] });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_B },
+    });
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+  });
+
+  it('這家只剩作廢列 ⇒ 鈕是「新增採購」而不是「更新這筆採購」(Q-S1=A 允許重下單)', () => {
+    const { container } = setup({ procurements: [VOIDED] });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    expect(container.querySelector('button[type="submit"]')!.textContent).toContain('新增採購');
+  });
+
+  it('有生效列時仍然是「更新這筆採購」(片2 沒有把所有人都變成新建)', () => {
+    const { container } = setup({ procurements: [VOIDED, ACTIVE] });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    expect(container.querySelector('button[type="submit"]')!.textContent).toContain('更新這筆採購');
+  });
+
+  // 🔴🔴 **這一格是我自己的定向突變逼出來的**:P2-M3(只把 `originalSubmittedAt` 那一處退回
+  //    `procurements.find(...)`)跑完**全綠** ⇒ 那個呼叫點原本是**恆綠格**,上面四格一個都證不到它。
+  //    (坑集 ③「一發突變同時紅多格 ⇒ 後面那幾格沒有被證到」的正面應用:逐呼叫點各突變一次。)
+  //
+  //    **為什麼它會壞、而且是靜默的**:`originalSubmittedAt` 的用途是**保秒** ——
+  //    `<input type="datetime-local">` 只到分鐘,送出時若可見值與 `originalSubmittedAt` 同一分鐘,
+  //    就把原始的秒補回去。取到**作廢列**的話,那一列的分鐘與生效列不同 ⇒ 比對不上 ⇒ 秒補不回去
+  //    ⇒ **生效列的 `submitted_at` 被靜默截成 :00**。員工沒改那一欄,值卻變了。
+  it('🔴 保秒取的是生效列:作廢列的 submitted_at 不得讓生效列的秒被吃掉', async () => {
+    const activeWithSeconds = proc({
+      id: 'p-active',
+      supplierId: SUP_A,
+      createdAt: '2026-08-12T00:00:00+00:00',
+      submittedAt: '2026-08-12T02:00:37.000Z', // 台北 10:00:37
+    });
+    const voidedOtherMinute = proc({
+      id: 'p-void',
+      supplierId: SUP_A,
+      createdAt: '2026-08-01T00:00:00+00:00',
+      submittedAt: '2026-08-01T03:15:00.000Z', // 台北 11:15 —— **刻意不同分鐘**
+      voidedAt: '2026-08-10T00:00:00+00:00',
+      voidReason: '供應商回報缺料、改下另一家',
+    });
+    const { container } = setup({ procurements: [voidedOtherMinute, activeWithSeconds] });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_A },
+    });
+    // 只改別的欄位,完全不碰送出時間
+    fireEvent.change(container.querySelector('textarea[name="exception_reason"]')!, {
+      target: { value: '改了別的欄位' },
+    });
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form')!);
+    });
+    // 秒要保住 ⇒ `:37`。取到作廢列的話這裡會是 `2026-08-12T10:00`(秒被吃掉)。
+    expect(actionMock.mock.calls[0]![1].get(PROC_SUBMITTED_AT_FIELD)).toBe('2026-08-12T10:00:37');
+  });
+});
+
 describe('ItemProcurementForm — 停用供應商', () => {
   it('停用的仍在選單、標記「已停用」', () => {
     const { container } = setup();
@@ -202,12 +339,29 @@ describe('ItemProcurementForm — 停用供應商', () => {
     expect(options).toContain('Webike JP(已停用)');
   });
 
-  it('選到停用的 → 顯示「可以更新紀錄欄、不能新建或調高數量」的提示', () => {
+  // 🔴 **本格的期望被 `#476` 片2 改過,是刻意的,不是遷就紅燈。**
+  //    原本:選到停用供應商 → 一律顯示「可以更新紀錄欄,但不能新建採購」。
+  //    問題:這個 setup 的 `procurements` 只有 SUP_A 的列 ⇒ 選 SUP_B 時**根本沒有東西可以更新**,
+  //    那句話對員工說了一個他做不到的選項,而旁邊還擺著一顆按下去必被 A5a 拒絕的「新增採購」。
+  //    ⇒ 片2 把「停用 × 走新建」這個組合改成**擋在按下之前 + 文案講下一步**(見元件 `blockedInactiveNew`)。
+  //    「有生效列時仍可更新紀錄欄」那半沒變,由下面那格與 `#476` 片2 那組守著。
+  it('選到停用的、且沒有可更新的生效列 → 講清楚只能新建而新建被擋,並給下一步', () => {
     const { container, getByText } = setup();
     fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
       target: { value: SUP_B },
     });
-    expect(getByText(/不能新建採購/)).toBeTruthy();
+    expect(getByText(/停用的供應商不能新建/)).toBeTruthy();
+    expect(getByText(/請先重新啟用它/)).toBeTruthy();
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+
+  it('選到停用的、但**有**生效列 → 仍是舊那句(可更新紀錄欄),鈕可按', () => {
+    const { container, getByText } = setup({ procurements: [proc({ supplierId: SUP_B })] });
+    fireEvent.change(container.querySelector('select[name="supplier_id"]')!, {
+      target: { value: SUP_B },
+    });
+    expect(getByText(/可以更新紀錄欄/)).toBeTruthy();
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
   });
 });
 
