@@ -64,7 +64,17 @@
 - 🔴 **apply 順序**:migration 未 apply 前**應用層不得上線**(memory `feedback_app-layer-must-not-ship-before-migration-apply`,08-07 正式站壞 8 小時)。`473b-2` / `473c` 都在 apply 之後。
 - ⚠️ **`#445b` 的硬前置在 apply 之後才解除**,不是 commit 之後。plan v8 `§5-445b-8` 逐字「`#473` 沒有出口之前不得 apply 445b」。
 
-## §7 要 Sean 拍的兩題
+## §7 🏁 兩題已拍(2026-08-14 Sean,**都照 R 窗推薦**)
+
+| 題 | 拍板 | Sean 知情下接受的代價 |
+|---|---|---|
+| `Q-473-1` | **A = 最新一筆說了算**(可更正的更正) | 沒有「最終版」概念,要看歷史才知道經過 |
+| `Q-473-2` | **A = 新開一張小表** | rollback = `DROP TABLE`;不動 `order_refunds` 這張 live 金流表 |
+
+⇒ **`473b-1` 的 plan 已另檔寫成**:`docs/specs/2026-08-14-473b-1-correction-table-plan.md`(**等 Sean 批,未實作**)。
+⚠️ 下面的原始題文保留當時字面,**不要拿它當現行狀態** —— 現行狀態是上表。
+
+### §7-舊 當時給 Sean 的題文(存證,勿引用為現況)
 
 ```
 Q-473-1:更正之後,「有效判定」怎麼認?

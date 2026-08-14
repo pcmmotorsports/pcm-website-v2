@@ -25,6 +25,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { calculateShippingFee, FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from './shipping';
 import { toMoneyAmount } from '../shared/types';
+// 🔴 `scanSql` 2026-08-14(`#473b-1`)搬到 `./sql-scan` 共用 —— 第二個 migration 文字守門
+//    (`refund-remaining-single-source.test.ts`)要用同一支,複製一份就會各自漂。
+//    **搬家時邏輯一個字沒改**,本檔的行為與斷言完全不變。
+import { scanSql } from './sql-scan';
 
 // packages/domain/src/order/ → repo root 上 4 層 → supabase/migrations
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../supabase/migrations');
@@ -32,78 +36,6 @@ const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../.
 const SHIPPING_CASE = /v_subtotal\s*>=\s*(\d+)\s*THEN\s*0\s*ELSE\s*(\d+)\s*END/;
 // 🔴 anchor:必須是「定義」create_order 的檔(排除只 DROP/GRANT/COMMENT 提到函式名的 migration)
 const CREATE_ORDER_DEF = /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.create_order\s*\(/i;
-
-/**
- * 引號感知的單次掃描:剝註解、並分離「字串/dollar-quote 內容」與「真正的 DDL 文字」。
- *
- * 🔴 為何不能用「一律 regex 剝掉 dash-dash 到行尾」(codex 關卡2 R2 抓出):單引號字串**裡面**的 `--`
- *   是資料、不是註解;粗暴 replace 會把該行後面的**真 DDL 吃掉** → anchor 回退舊 migration = 假綠。
- * 🔴 dollar-quote tag 允許數字(`$fn$` / `$func1$`);舊版 regex `[A-Za-z_]*` 讀不到 `$func1$`。
- *
- * 回傳三種視角:
- *   · `code`          = 剝掉註解、**保留**字串與 dollar-quote 內容(create_order 的運費 CASE 就在 `$$…$$` 裡)
- *   · `codeNoLiterals`= 再把字串與 dollar-quote 整塊清空(判斷「真的寫在 DDL 上」用)
- *   · `literals`      = 每一段字串/dollar-quote 內容(逐段判斷動態 DDL 用)
- * ⚠️ dollar-quote 內容視為「程式碼」(PL/pgSQL 本體)→ 遞迴剝它裡面的 `--` 註解。
- */
-function scanSql(sql: string): { code: string; codeNoLiterals: string; literals: string[] } {
-  let code = '';
-  let codeNoLiterals = '';
-  const literals: string[] = [];
-  let i = 0;
-  while (i < sql.length) {
-    const two = sql.slice(i, i + 2);
-    if (two === '--') {
-      while (i < sql.length && sql[i] !== '\n') i++;
-      continue;
-    }
-    if (two === '/*') {
-      i += 2;
-      let depth = 1; // PG 的 block comment 可嵌套
-      while (i < sql.length && depth > 0) {
-        if (sql.slice(i, i + 2) === '/*') { depth++; i += 2; continue; }
-        if (sql.slice(i, i + 2) === '*/') { depth--; i += 2; continue; }
-        i++;
-      }
-      continue;
-    }
-    if (sql[i] === "'") {
-      let j = i + 1;
-      while (j < sql.length) {
-        if (sql[j] === "'") {
-          if (sql[j + 1] === "'") { j += 2; continue; } // '' = 轉義的單引號
-          j++;
-          break;
-        }
-        j++;
-      }
-      const lit = sql.slice(i, j);
-      literals.push(lit);
-      code += lit; // 保留(字串內的 dash-dash 不得被當註解)
-      codeNoLiterals += ' ';
-      i = j;
-      continue;
-    }
-    const dq = /^\$([A-Za-z_][A-Za-z0-9_]*|)\$/.exec(sql.slice(i));
-    if (dq) {
-      const tag = dq[0];
-      const end = sql.indexOf(tag, i + tag.length);
-      const inner = sql.slice(i + tag.length, end === -1 ? sql.length : end);
-      const innerCode = scanSql(inner).code; // 內容當程式碼:遞迴剝其註解
-      // 🔴 推「已剝註解」的版本(Fable nit):否則 DO block 內一行提到 ALTER…SET DEFAULT 的
-      //   **註解**就會讓下游的動態 DDL 偵測假陽性轉紅。
-      literals.push(innerCode);
-      code += innerCode;
-      codeNoLiterals += ' ';
-      i = end === -1 ? sql.length : end + tag.length;
-      continue;
-    }
-    code += sql[i];
-    codeNoLiterals += sql[i];
-    i++;
-  }
-  return { code, codeNoLiterals, literals };
-}
 
 /** 最新一支**定義** create_order 的 migration 檔名(= 當前生效定義);查無回 null。 */
 function latestCreateOrderFile(): string | null {

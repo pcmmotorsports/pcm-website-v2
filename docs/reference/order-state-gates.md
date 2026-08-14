@@ -3,8 +3,6 @@
 > 產生指令:`bash scripts/state-gates.sh`。**改了 migration 就重跑**,不要手工維護。
 > 用途 = 回答「**這條路走得到嗎**」。寫 finding、寫 plan、判 BLOCKER 之前先查這張表。
 >
-> ⚠️ **2026-08-14:本表尚未被實際使用驗證。** 兩次派 code-reviewer 都提供了 `scripts/state-gates.sh`,兩次的工具回報欄都沒有列到它 ⇒ **「它有用」目前是設計意圖,不是觀察。** 用過的人請回報有沒有幫上忙;在那之前不要引用本表當作「已被驗證的工具」。
->
 > 🔴 **強度 = 「經由 RPC」,不是「絕對」。** service_role 可以直接 UPDATE 繞過下面所有閘
 > (`supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql:230` 逐字寫著這件事)。
 > 🔴 **閘是字面比對抽出來的,不是 SQL 語意分析** ⇒ 可能漏掉「用變數繞一手」寫的閘。
@@ -22,13 +20,13 @@
 | `admin_create_shipment` | **3** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:96<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:599<br>20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83 | `20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83` |
 | `admin_initiate_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:423<br>20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480 | `20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480` |
 | `admin_mark_shipment_shipped` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:140<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:659<br>20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:110<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177` |
-| `admin_record_item_receipt` | **2** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:53<br>20260811010000_m4b_e10_352c_item_level_room_guard.sql:23 | `20260811010000_m4b_e10_352c_item_level_room_guard.sql:23` |
+| `admin_record_item_receipt` | **3** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:53<br>20260811010000_m4b_e10_352c_item_level_room_guard.sql:23<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608` |
 | `admin_record_manual_payment` | **2** | 20260810200000_m4b_e10_op5_record_manual_payment.sql:106<br>20260812150000_m4b_e10_423_payment_audit.sql:74 | `20260812150000_m4b_e10_423_payment_audit.sql:74` |
 | `admin_reverse_manual_payment` | **2** | 20260810210000_m4b_e10_opa12_reverse_manual_payment.sql:80<br>20260812150000_m4b_e10_423_payment_audit.sql:344 | `20260812150000_m4b_e10_423_payment_audit.sql:344` |
 | `admin_search_orders` | **2** | 20260809180000_m4b_347_1_admin_search_orders.sql:158<br>20260810120000_m4b_347_3a_admin_search_orders_date_range.sql:65 | `20260810120000_m4b_347_3a_admin_search_orders_date_range.sql:65` |
 | `admin_unvoid_shipment` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:182<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:715<br>20260807210000_m4b_e10_b2_w3c2_unvoid_shipment.sql:75<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:413 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:413` |
 | `admin_update_order_workflow` | **2** | 20260714130000_m4a_admin_update_order_workflow_rpc.sql:59<br>20260716130000_m4a_admin_update_order_item_workflow_rpc.sql:217 | `20260716130000_m4a_admin_update_order_item_workflow_rpc.sql:217` |
-| `admin_upsert_item_procurement` | **2** | 20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql:107<br>20260806200000_m4b_e10_a9h_m_a5a_preserve_optional_fields.sql:79 | `20260806200000_m4b_e10_a9h_m_a5a_preserve_optional_fields.sql:79` |
+| `admin_upsert_item_procurement` | **3** | 20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql:107<br>20260806200000_m4b_e10_a9h_m_a5a_preserve_optional_fields.sql:79<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:168 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:168` |
 | `admin_void_shipment` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:161<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:687<br>20260807200000_m4b_e10_b2_w3c1_void_shipment.sql:62<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:308 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:308` |
 | `begin_charge_attempt` | **5** | 20260612150000_m3_s2d_charge_attempts.sql:168<br>20260613130000_m3_3ds_0b_cart_session_dedup.sql:350<br>20260613140000_m3_3ds_0c_bank_txn_pending_invoices.sql:73<br>20260804120000_m4b_e10_a8c1_begin_cancel_guard.sql:71<br>20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql:63 | `20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql:63` |
 | `claim_order_poll_settle` | **2** | 20260621120000_m3_3ds_s2b_poll_settle_throttle.sql:53<br>20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql:61 | `20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql:61` |
@@ -52,7 +50,7 @@
 | `pcm_b2_shipping_idem_freeze_identity` | **2** | 20260807140000_m4b_e10_b2_w0b_shipping_idempotency.sql:153<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:463 | `20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:463` |
 | `pcm_b2_shipping_idem_require_complete` | **2** | 20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:531<br>20260809200000_m4b_e10_b2_w2_stub_verifies_artifact.sql:51 | `20260809200000_m4b_e10_b2_w2_stub_verifies_artifact.sql:51` |
 | `pcm_order_refund_status_transition` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:287<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201 | `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:201` |
-| `pcm_order_refundable_remaining` | **2** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:450<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394 | `20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394` |
+| `pcm_order_refundable_remaining` | **3** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:450<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394<br>20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403 | `20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:418 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:418` |
 | `search_catalog_by_vehicle` | **4** | 20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266 | `20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266` |
 | `sql` | **2** | 20260712183000_products_catalog_page_public.sql:37<br>20260712183000_products_catalog_page_public.sql:111 | `20260712183000_products_catalog_page_public.sql:111` |
