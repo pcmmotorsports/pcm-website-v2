@@ -136,3 +136,27 @@ context 快滿=先寫 checkpoint 信再停,不硬做「可能驗不完」的東�
 11. 本機測試資料庫(pg cluster)每窗**專屬 PORT + 專屬 workdir**;腳本預設 port 兩窗同跑時,後到者 provision 失敗但 psql **靜默連到別窗的庫**(查詢有正常回值=最毒的症狀)。機制修法=harness 起庫前探測 port 被占硬停、起庫後驗 `current_setting('data_directory')` 等於本次 workdir 才採信。
 12. **fork 風暴**(08-09 五窗實錘,最終全機當機):多 session 齊跑 vitest/turbopack 會打滿 per-user 程序上限,症狀=所有窗 `echo` 都 exit 1 零輸出、Monitor 全死、Python 吐 `Errno 35`,連 sandbox 內外都一樣。處置:①症狀=系統層,**不是程式紅、不當 finding 修**;②各窗停止重試(重試也燒 fork)、掛長輪詢等主視窗令;③主視窗協調**全套測試錯開跑**、查孤兒 node(turbopack crash 會留);④預防=多窗夜跑時 vitest 全套與 build 向主視窗排隊錯開;**dev server 在多窗期間一律 `next dev --webpack`**(turbopack 的 next-swc 有 fork 競態崩潰 bug,08-09 四份 .ips 同指紋、兩次全機當機;單窗日常照用 turbopack 沒問題,Sean 拍板保持預設;治本=追 Next 上游修復)。
 ```
+
+## §F backlog 發號:「主樹最大 + 1」會撞號(2026-08-14 實錘)
+
+**病**:主視窗查**主樹當下最大號 + 1** 就發下去 ⇒ **已配出、但還在別窗 branch 沒 merge 的號看不到**
+⇒ **兩窗各自都以為自己拿到唯一的號**,而**發現時機是收割**(最貴的時候)。
+**實例**:2026-08-14 至少兩次;`#489` 撞上(V 窗已寫入 / E 窗拿去佔位)——
+🔴 **接住它的是「E 主動請主視窗確認」,不是機制。**
+
+**正確數法(主樹 + 所有 worktree 的工作區檔 + 所有本機 branch;E 窗 2026-08-14 實跑,0.7 秒、回 `491`)**:
+```bash
+{ for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
+    cat "$w/docs/phase-1-backlog.md" 2>/dev/null; done
+  git for-each-ref --format='%(refname)' refs/heads | while read r; do
+    git show "$r:docs/phase-1-backlog.md" 2>/dev/null; done
+} | grep -oE '^### #[0-9]+' | grep -oE '[0-9]+' | sort -n | tail -1
+```
+🔴 **`cat` 工作區檔那一段不能省** —— 它才抓得到「已經寫進檔案、但還沒 commit」的號。
+🔴 **禁 `sort -t'#' -k2 -n`**(BSD sort 對它的行為不同,已列進量具方言坑集)。
+
+**窗這一側的規矩**:**號一律跟主視窗要**;真要先佔位,**必須標明「佔位、請主視窗確認」**,不得當成已配發。
+
+**限度(要寫明,不要當成全掃)**:
+- 上面第二段掃**本機 branch**,所以關掉的窗留下的 branch 也涵蓋(本機實查:**33 branch / 7 worktree**,差 26 條全靠它)。
+- **掃不到**:只存在於 remote、本機沒有對應 branch 的號;以及**還沒寫進檔案、只存在於某封信裡**的號。
