@@ -317,6 +317,18 @@
   width: 56px;
 }
 
+/* 🔴 **「車種 2 列被截」是真的 —— 2026-08-14 用正確的量法複驗過,不是 `col-pick` 那種誤報。**
+   量法(對**文字**要問「讀不讀得完」,不是「點不點得到」):
+     · `Range.selectNodeContents(文字節點).getBoundingClientRect().width` = **文字自己有多寬**
+     · 跟 **content box**(180 − 8 − 8 = 164)比 ⇒ 放不下就會出 ellipsis
+     · 實測:`2020 Kawasaki Z400` = 128 ✅;**`2012 Ducati Hypermotard 1100 Evo` = 213 ❌**(需欄寬 229)
+     · 兩個 oracle 一致:文字寬法 **2/11**、`scrollWidth` 法也 **2/11**
+       ⇒ **`scrollWidth` 對「文字」是有效 oracle**(對**控件**才會誤報,見上面 `col-pick` 那段)。
+   ⚠️ **`elementFromPoint` 在這裡是錯的量具**:整列被單號的 stretched link 蓋住 ⇒ 每一格都回 false,
+      它回答的是「這個座標點得到誰」,不是「這段文字讀不讀得完」。**量具要配問題,不是配習慣。**
+   🔴 **沒有修,因為它需要真的加寬,而 `Q-E2`=A 之後欄寬零和**:
+      補滿要 +49(180→229)⇒ 品名 154→105 ⇒ **現有 10 個品名有 4 個會開始被截**(實測)。
+      中間值買不到東西:203 仍放不下那個 Ducati。**⇒ 這是 Sean 的取捨題,已排進他的隊列。** */
 .orders-grid .col-vehicle {
   width: 180px;
 }
