@@ -219,16 +219,20 @@ function OrderGroup({
                 >
                   {order.displayId}
                 </Link>
-                {cancelled && (
-                  <span className='bg-destructive/10 text-destructive ml-2 inline-flex rounded-full px-2 py-0.5 text-xs'>
-                    已取消
-                  </span>
-                )}
+                {/* 🏁 **L3 片6(2026-08-14):「已取消」小膠囊在此下架**(Sean 拍 `Q-E1` = A)。
+                    🔴 **理由是重複、不是不重要**:L3 片1 的狀態八值欄**已經**把已取消畫成一顆膠囊
+                    (`order-status-axes.ts` 的早退分支 + `CANCELLED_TONE` 虛線框)⇒ 同一張單原本講兩次。
+                    🔴 **觸發它下架的是量測、不是潔癖**:這一格多一顆膠囊 ⇒ 已取消的**舊格式**單號
+                    實測需要 **190px**,而欄寬只有 132(片5 的值)⇒ 那筆單的單號**被截**。
+                    兩條出路是「加寬 58px(再從只剩 1 個字餘裕的品名扣)」或「拿掉重複的那顆」,Sean 選後者。
+                    ⚠️ **手機卡片模式沒有損失**:狀態格帶 `data-l='狀態'`,不在 `@container` 收起的那組欄裡
+                    ⇒ 已取消在窄畫面照樣看得到,只是換一個位置。
+                    ⚠️ **`cancelled` 變數不要跟著刪** —— 下面操作欄還用它決定顯示「—」。 */}
                 {/* 🏁 **L3 片1:A11a-2 / A11b 的付款軸小字膠囊已於此下架**(Sean 拍 Q2=A:狀態欄獨扛)。
                     收款軸沒有消失,它變成狀態八值的**前半**(`orderPayAxis`);
                     「未收」的訊號改由狀態膠囊上那圈紅框帶(`order-status-axes.ts` 的 `PAY_MARK`)。
                     🔴 **這是刻意的資訊減量,不是漏掉**:原本一張單同時有「付款膠囊 + 訂貨膠囊 + 已取消 badge」
-                    三個訊號,Sean 要的是**一欄看完**。 */}
+                    三個訊號,Sean 要的是**一欄看完**;片6 把最後那顆也收掉了。 */}
               </td>
             ) : (
               <td className={`${TD} ${CELL.oid}`} />

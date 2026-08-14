@@ -484,7 +484,9 @@ describe('L3 片1 — 付款膠囊已下架(取代 V8)', () => {
       expect(idCell.textContent).toContain('PCM-0001');
       // 🔴 掃的是**整張表**、不是只掃單號格:膠囊被搬到別格也算沒下架。
       expect(container.textContent).not.toContain(PAYMENT_STATUS_LABEL[status]);
-      // 單號格內剩下的 `<span>` 只可能是「已取消」badge,本 fixture 沒取消 ⇒ 應為 0。
+      // 🏁 **片6 起單號格內不再有任何 `<span>`**(「已取消」膠囊也下架了、`Q-E1` = A)
+      //    ⇒ 這條從「本 fixture 沒取消所以是 0」變成「任何單都該是 0」,判別力**變強不是變弱**:
+      //    誰把任何一顆膠囊搬回單號格,這裡就紅。
       expect(idCell.querySelectorAll('span').length).toBe(0);
       unmount();
     }
@@ -955,6 +957,27 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       }
     });
 
+    // 🏁 **L3 片6:狀態膠囊的紅框被 `overflow: hidden` 切掉**(Sean 2026-08-14 回報「狀態圖標卡到」)。
+    //
+    // 🔴 **這一格守的是「那一行還在」,不是「膠囊沒被切」** —— 誠實邊界,不要讀成別的:
+    //    postcss 看不到 `box-shadow` 往外溢出幾 px。真正證明它好了的是瀏覽器實測
+    //    (三檔各 15 顆膠囊、逐顆量**膠囊元素本身**、`clipped 0/15`、最小餘裕 4.1px > 紅框 3px;
+    //     數字在 `~/pcm-mailbox/E-504-STOP.md`)。
+    // 🔴 **那為什麼還要這一格**:症狀是「未收款膠囊的紅框上緣少 2px」——
+    //    肉眼幾乎看不出來、截圖也看不出來 ⇒ 誰把這一行刪了或改回 `top`,**不會有任何人發現**。
+    //    這一格讓「刪掉它」變成紅的。
+    // ⚠️ `insideCard` 必須是 **false**:置中是**桌機**的修法;卡片模式那段自己把列高改成 `auto`,
+    //    寫進 media 內等於桌機吃不到 = 修了跟沒修一樣,而三綠照樣全綠。
+    it('🔴 片6 — 狀態格 `vertical-align: middle` 還在,且**不在**卡片化 media 內', () => {
+      const last = lastDecl('.orders-grid td.col-status', 'vertical-align');
+      expect(
+        last,
+        '狀態格沒有 vertical-align ⇒ 回到元件的 `align-top`,未收款膠囊的 3px 紅框會被 overflow:hidden 切掉',
+      ).not.toBeNull();
+      expect(last!.value, '值不是 middle ⇒ 膠囊不再置中,上緣餘裕回到 0.5~1px < 紅框的 3px').toBe('middle');
+      expect(last!.insideCard, '寫進卡片化 media 內 ⇒ 桌機吃不到,而桌機才是出問題的那一邊').toBe(false);
+    });
+
     it('🔴🔴 整卡可點的定位脈絡:兩條成對,且 `tr` 的 position **只准存在於 media 內**', () => {
       // M4 那個真功能損失的唯一守門(桌機看不到、截圖也看不到)。
       const tbody = lastDecl('.orders-grid tbody.orders-group', 'position');
@@ -1245,12 +1268,25 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(text).not.toContain('NT$ 8,000');
   });
 
-  // 🔴 正負成對 —— 只有 `not.toContain` 那半邊的話,把 badge 整段刪掉照樣綠(恆真)。
-  it('已取消單:單號格帶「已取消」標記', () => {
+  // 🏁 **L3 片6:單號格的「已取消」膠囊下架**(Sean 拍 `Q-E1` = A;理由=與狀態欄重複,而它讓
+  //    已取消的舊格式單號被截 —— 實測需 190px、欄寬 132)。
+  // 🔴 **這一格不是把舊斷言刪掉,是把方向轉過來並補上「訊息去哪了」** ——
+  //    只寫「單號格沒有已取消」的話,**整顆功能被刪光也會綠**(恆真)。
+  //    所以三條一起:①單號格沒有 ②狀態格有 ③**整列恰出現一次**(擋「兩邊都畫」與「兩邊都沒畫」)。
+  it('🔴 已取消單:「已取消」只出現在狀態格、單號格不再重複一次', () => {
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
     );
-    expect(container.querySelector('td.col-oid')!.textContent).toContain('已取消');
+    expect(
+      container.querySelector('td.col-oid')!.textContent,
+      '單號格又出現「已取消」⇒ 重複訊號回來了,已取消的舊格式單號會再度被截',
+    ).not.toContain('已取消');
+    expect(
+      container.querySelector('td.col-status')!.textContent,
+      '狀態格沒有「已取消」⇒ 這張單在列表上完全看不出被取消了(片6 拿掉單號那顆的前提就是這裡有)',
+    ).toContain('已取消');
+    // 恰一次:`toContain` 兩條加起來仍容得下「兩格都有」,這條才擋得住。
+    expect(container.textContent!.split('已取消').length - 1, '「已取消」在整列出現的次數').toBe(1);
   });
 
   it('未取消單:**不得**出現「已取消」(上一格的負向對照)', () => {
