@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { isUuid } from '../../../lib/orders/note-action-state';
 import { ProductDetail } from '../../../components/products/product-detail';
 import {
   getProductForAdmin,
@@ -12,8 +13,12 @@ import {
 // 相對 import(非 `@/`)理由見 app/products/page.tsx:1-3。
 export const dynamic = 'force-dynamic';
 
-/** UUID 形狀守門。字面沿用 lib/customers/customer-detail-view.ts:8 —— 兩處要一致才不會一邊嚴一邊鬆。 */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// 🔴 **UUID 守門直接 import 既有的 `isUuid`,不再手抄第四份字面**(code-reviewer R1 N-d)。
+//    第一版自己寫了一條 `UUID_RE` + 註解「兩處要一致才不會一邊嚴一邊鬆」——
+//    **註解不是機制**,沒有任何東西會在兩份漂開時叫。
+//    而 `note-action-state.ts:62-64` 的 docstring 逐字記著同一個教訓:
+//    「關卡2 抓到我在 `note-form.ts` 另養了一份字面相同的,那是純粹的漂移面」。
+//    該檔零 `server-only`、零 `@/`、零 IO(檔頭 `:3-4` 逐字保證)⇒ 這裡 import 是安全的。
 
 export default async function ProductDetailPage({
   params,
@@ -23,7 +28,7 @@ export default async function ProductDetailPage({
   const { id } = await params;
 
   // 🔴 形狀不對 → 直接 404,**不打 DB**(路由參數不透傳進查詢;鏡像 app/customers/[id]/page.tsx:22-25)。
-  if (!UUID_RE.test(id)) {
+  if (!isUuid(id)) {
     notFound();
   }
 

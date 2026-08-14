@@ -90,7 +90,10 @@ describe('/products 列表(#20 片1a)', () => {
     expect(container.textContent ?? '').toContain('目前沒有商品');
   });
 
-  // ── 片1a nit N5(片1b-1 折):超界頁碼的行為原本零覆蓋 ──
+  // ── 片1a nit N5(片1b-1 **只折了一半**):超界頁碼的行為原本零覆蓋 ──
+  // 🔴 N5 原文是「超界頁碼回空陣列、**超大頁碼 → 400**」。下面兩格整支 mock 掉 repository
+  //    ⇒ **只驗到頁碼算術那一半**;「PostgREST 對爛 range 回 400」那一半**仍然零覆蓋**
+  //    (要驗它得打真的 DB,本片沒有正式庫連線)。plan §5 的 ✅ 已同步改成「折一半」。
   it('N5:超界頁碼(只有 3 筆卻要第 99 頁)→ 空狀態,不炸也不 404', async () => {
     mocks.list.mockResolvedValue({ items: [], total: 3 });
     const { container } = await renderPage({ page: '99' });
@@ -99,12 +102,25 @@ describe('/products 列表(#20 片1a)', () => {
     expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE);
   });
 
-  it('N5:超大頁碼算出的 offset 仍是安全整數(不溢位、不變 NaN)', async () => {
+  // 🔴 測試名逐字寫出**這一個輸入**,不寫「超大頁碼都安全」(code-reviewer R1 N-b)。
+  //    `parsePage` 沒有上界 ⇒ `?page=99999999999999999` 算出的 offset **不是** safe integer。
+  //    我沒有加上界,因為那條路徑的實際後果只是走到錯誤態(PostgREST 收到爛 range 回錯)
+  //    ⇒ 已經有 loadFailed 那格在守。**但測試名不准講成全稱句** —— 那才是這條 nit 的重點。
+  it('N5:?page=999999999 算出的 offset 是安全整數(此輸入;不是所有超大輸入)', async () => {
     mocks.list.mockResolvedValue({ items: [], total: 0 });
     await renderPage({ page: '999999999' });
     const offset = mocks.list.mock.calls[0]?.[1];
     expect(Number.isSafeInteger(offset)).toBe(true);
     expect(offset).toBe(999999998 * PRODUCTS_PAGE_SIZE);
+  });
+
+  it('N-b 反面對照:更大的輸入會算出不安全整數 —— 上界確實不存在,不是我沒測到', async () => {
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
+    await renderPage({ page: '99999999999999999' });
+    const offset = mocks.list.mock.calls[0]?.[1];
+    // 🔴 這格**故意斷言「不安全」** —— 把已知缺口釘成事實,而不是留一句樂觀的測試名。
+    //    哪天有人加了上界,這格會紅,那時再把它改掉(紅了才會有人想起這件事)。
+    expect(Number.isSafeInteger(offset)).toBe(false);
   });
 
   it('🔴 列表每一列的名稱是連到詳情頁的連結(片1b-1)', async () => {

@@ -73,6 +73,28 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     }
   });
 
+  it('🔴 MF2:時間欄要釘台北曆面 —— 這格不存在時 MF1(差 8 小時)全綠溜過去', async () => {
+    mocks.get.mockResolvedValue(PRODUCT);
+    mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: null });
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+
+    // `created_at = 2026-08-01T02:00:00Z` ⇒ 台北是 **08-01 10:00**;UTC 印出來會是 02:00。
+    // 🔴 兩條缺一不可:只斷言「有 10:00」而不斷言「沒有 02:00」,
+    //    在某些格式下仍可能兩個都印(例如同時印了 UTC 與本地)。
+    expect(text).toContain('2026-08-01 10:00');
+    expect(text).not.toContain('2026-08-01 02:00');
+    // `updated_at = 2026-08-10T02:00:00Z` ⇒ 台北 08-10 10:00。
+    expect(text).toContain('2026-08-10 10:00');
+
+    // 🔴 這格的判別力靠「測試程序自己不在台北時區也會紅」——
+    //    本機 TZ=Asia/Taipei 時,沒釘時區的實作也會湊巧給對答案。
+    //    所以額外釘死格式字面(`YYYY-MM-DD HH:mm`):改回 `toLocaleString('zh-TW')`
+    //    會印成 `2026/8/1 上午10:00:00`,上面三條會全紅。
+    expect(text).not.toContain('上午');
+    expect(text).not.toContain('2026/8/1');
+  });
+
   it('🔴 驗收 2:已下架的商品進得去,而且狀態顯示「已下架」(不是 404)', async () => {
     mocks.get.mockResolvedValue({ ...PRODUCT, delisted_at: '2026-08-01T00:00:00Z' });
     mocks.taxonomy.mockResolvedValue({ brandName: 'X', categoryName: 'Y' });

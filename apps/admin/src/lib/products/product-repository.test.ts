@@ -39,6 +39,24 @@ const CONSUMER_ROOTS = [
   path.join(REPO_ROOT, 'apps/admin/src/components/products'),
 ];
 
+/**
+ * 🔴 **讀取層也要遞迴掃,不能只掃 `REPO_FILE` 一支**(code-reviewer R1 MF3)。
+ *
+ * 這是 MF5 那個病的**第三個作用域**,三次的位置各不相同,列出來免得下次又只修被指名那處:
+ *   · 片1a MF5 —— 消費面的**掃描範圍**(硬寫兩個檔名 → 遞迴)
+ *   · 片1b-1 主視窗 MUST-FIX —— 消費面的**掃描字集**(只有設計約束 → 補經銷價)
+ *   · 本條 R1 MF3 —— **讀取層的掃描範圍**(只掃 `REPO_FILE` 一支)
+ * 具體缺口:片1b-2 只要新增第二支 `lib/products/*.ts`(例如媒體 repository)去撈
+ * `price_store` 或 `metadata`,**兩道守門都零命中、沒有一格會紅。**
+ *
+ * ⚠️ **這道只掃 `LEAK_TOKENS + REPO_ONLY_TOKENS`,不掃 `DESIGN_TOKENS`** ——
+ *    讀取層本來就該出現 `price_general` / `delisted_at`(那是它的職責),掃了會恆紅。
+ *
+ * ⚠️ **已知上限**:這三個根之外的新目錄(例如有人開 `components/product-media/`)仍不在掃描內。
+ *    沒有機制保證「未來所有商品相關目錄都被涵蓋」——**這句是限制不是保證**,寫出來不假裝已解決。
+ */
+const REPO_ROOTS = [path.join(REPO_ROOT, 'apps/admin/src/lib/products')];
+
 function sourceFiles(root: string): string[] {
   return readdirSync(root, { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile() && /\.tsx?$/.test(e.name) && !e.name.includes('.test.'))
@@ -106,6 +124,29 @@ describe('#20 片1a — 讀取層守門', () => {
     }
   });
 
+  it('🔴 驗收 4b(R1 MF3):`lib/products` 整個目錄樹都不得出現經銷價 / metadata', () => {
+    const files = REPO_ROOTS.flatMap(sourceFiles);
+    // 🔴 前提斷言逐根一次:掃描根一漂就 0 個檔 ⇒ 下面整個迴圈恆綠。
+    for (const root of REPO_ROOTS) {
+      const rel = path.relative(REPO_ROOT, root);
+      expect({ [rel]: sourceFiles(root).length >= 1 }).toEqual({ [rel]: true });
+    }
+
+    for (const file of files) {
+      const rel = path.relative(REPO_ROOT, file);
+      const src = readFileSync(file, 'utf8');
+      expect({ [rel]: src.length > 200 }).toEqual({ [rel]: true });
+
+      const code = stripComments(src);
+      // 🔴 **不掃 DESIGN_TOKENS** —— 讀取層本來就該有 `price_general`/`delisted_at`,掃了恆紅。
+      for (const raw of [...LEAK_TOKENS, ...REPO_ONLY_TOKENS]) {
+        expect({ [`${rel}:${raw}`]: code.includes(raw) }).toEqual({
+          [`${rel}:${raw}`]: false,
+        });
+      }
+    }
+  });
+
   it('🔴 驗收 5:頁面與表格零次直讀 price_general / delisted_at(B 案只改兩處的機制擔保)', () => {
     const files = CONSUMER_ROOTS.flatMap(sourceFiles);
     // 🔴 前提斷言:掃描根一漂就會掃到 0 個檔 ⇒ 下面的迴圈恆綠。逐根各斷言一次。
@@ -130,6 +171,17 @@ describe('#20 片1a — 讀取層守門', () => {
           [`${rel}:${raw}`]: false,
         });
       }
+
+      // 🔴 **消費面不得自己開 service client 直接查 DB**(code-reviewer R1 N-a)。
+      //    補的是 `metadata` 偏離留下的殘缺口:我的論證靠「`metadata` 進不了 row 型別 ⇒ TS2339」,
+      //    但那只擋得住「透過 repository 拿資料」。消費面若自己
+      //    `createSupabaseServiceClient().from('products').select('metadata')`
+      //    ⇒ **完全不經 row 型別、TS2339 那層失效**,而遞迴掃的字集又刻意不含 `metadata`。
+      //    釘這個字面比釘裸 token `metadata` 更準且**零誤報**(Next 的 `export const metadata` 不受影響),
+      //    順帶把「消費面只能經 repository 取數」這條分層約束也變成機制。
+      expect({ [`${rel}:createSupabaseServiceClient`]: code.includes('createSupabaseServiceClient') }).toEqual({
+        [`${rel}:createSupabaseServiceClient`]: false,
+      });
     }
 
     // 🔴 **反面對照只釘在表格上,而且要說清楚為什麼不釘頁面。**
@@ -164,6 +216,17 @@ describe('#20 片1a — 讀取層守門', () => {
     expect(stripComments("const u = 'https://x/price_store';")).toContain('price_store');
     // 🔴 反面:真程式碼不得被剝掉,否則上面兩格會變成「什麼都掃不到」的假綠。
     expect(stripComments('const c = row.price_general;')).toContain('price_general');
+
+    // 🔴 **共用版的兩個已知上限,釘成事實而不是寫成註解**(code-reviewer R1 N-g)。
+    //    兩者都是「剝過頭 ⇒ 該掃到的字消失 ⇒ 假綠」,不是漏剝。**不改實作**
+    //    (共用版對片1a 版仍是嚴格變強),但要有人記得它們存在 —— 哪天真被踩到,
+    //    這兩格會逼下一個人來讀這段,而不是讓他重新發現一次。
+    //    ① protocol-relative URL(`//cdn/...`)被當行註解,整行後半消失:
+    expect(stripComments("const u = '//cdn/x/price_store';")).not.toContain('price_store');
+    //    ② 字串裡有 `/*`、後面某處又有 `*/` ⇒ 中間的真程式碼被整段吃掉:
+    expect(stripComments("const a = '/*'; const b = row.price_store; const c = '*/';")).not.toContain(
+      'price_store',
+    );
   });
 });
 

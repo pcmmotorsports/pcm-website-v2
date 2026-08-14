@@ -24,8 +24,10 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 **`metadata` 進禁字、`supplier_slug` 出禁字**(片1a nit N2 + 片1b plan §1.2):
 //    · `supplier_slug`:唯一鍵是複合的 `(supplier_slug, external_id)`(`20260602192455:53`)
 //      ⇒ **料號不是全域唯一**,詳情頁不顯示供應商,員工分不出同料號的兩筆。它本來就投射在公開 view
-//      的末欄(`20260602135934:100` 那支 `products_public`)⇒ 不是敏感欄。
-//    · `metadata`:`20260602135934:84-90` 先洗掉 4 個敏感 key 再加 CHECK,但**那條 CHECK 只擋那 4 個具名 key**
+//      的末欄(`20260602135934:116`;view 本體從 `:100` 起)⇒ 不是敏感欄。
+//    · `metadata`:`20260602135934:80-82` 先洗掉 4 個敏感 key、`:88-90` 再加 CHECK,
+//      但**那條 CHECK 只擋那 4 個具名 key**(`:84-86` 是 product_variants 的、不是 products 的 ——
+//      第一版寫成 `:84-90` 一整段,橫跨了兩張表,R1 N-f 指出)
 //      ⇒「整包印出來安不安全」等同於「它現在還裝著什麼」——**沒有人盤過** ⇒ 盤完之前不撈、不印。
 //
 // 🔴 **品牌/分類用「另外兩支查詢」而不是 PostgREST 內嵌關聯**:內嵌關聯的實際回傳形狀我沒有正式庫可實跑
@@ -163,6 +165,11 @@ export interface ProductTaxonomyNames {
 /**
  * 品牌名 / 分類名。**兩支獨立查詢,不用 PostgREST 內嵌關聯**(理由見檔頭:內嵌的回傳形狀沒實跑驗過)。
  * 查無回 `null`(顯示層自己決定顯示什麼);讀取失敗照樣 throw,由呼叫端當成「這一區塊壞了」處理。
+ *
+ * ⚠️ **「單區塊容錯」的粒度是整個分類區塊,區塊內是全有全無**(code-reviewer R1 N-h):
+ * brands 成功、categories 失敗時,**拿得到的品牌名也一起丟掉**、整塊顯示載入失敗。
+ * 這是刻意的簡化(兩個名字一起顯示才有意義,只顯示一半更容易被誤讀成「這件沒分類」),
+ * 但**它是簡化不是完備** —— 寫出來,免得下一個人以為已經逐欄容錯了。
  */
 export async function getProductTaxonomyNames(
   brandId: string,

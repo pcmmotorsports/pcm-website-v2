@@ -1,3 +1,4 @@
+import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import {
   resolveListingState,
   resolvePrice,
@@ -20,10 +21,24 @@ function availabilityLabel(raw: string): string {
   return raw;
 }
 
-/** 時間顯示:固定 `zh-TW`,不吃執行環境 locale(不同環境給不同字串會讓肉眼驗收失去意義)。 */
+/**
+ * 時間顯示。🔴 **改用既有的 `formatOrderDateTime`**(code-reviewer R1 MF1)。
+ *
+ * ⚠️ **第一版是錯的,而且錯在只有正式站看得到的方向**:`toLocaleString('zh-TW')`
+ * **只釘 locale、沒釘 `timeZone`** ⇒ Vercel 的 Node `TZ=UTC`,`created_at='…T02:00:00Z'`
+ * 在正式站會印成 **08-01 02:00**(台北是 10:00)⇒ **員工看到的每個時間都差 8 小時**。
+ * 本機 `TZ=Asia/Taipei` ⇒ 三綠與測試**全綠、完全看不到**。
+ * 原本的 docstring 寫「不吃執行環境 locale」讀起來像時間顯示已經處理完 ——
+ * **它只答了 locale 那一半**,時區那一半沒答(字面 vs 事實)。
+ *
+ * 為什麼不自己寫一支釘 `Asia/Taipei`:house 已有三處先例
+ * (`lib/customers/customer-list-view.ts:60`、`lib/orders/order-detail-view.ts:39,41`、
+ * `lib/orders/payment-list-view.ts:93`)⇒ 自己寫是**第四份會漂的字面**(同 N-d 的病)。
+ * `formatOrderDateTime` 名字帶 order,但本體零訂單語意、零 `server-only`、零 `@/`
+ * ⇒ 直接重用;**改名/搬家不是這片的事**,不順手擴張範圍。
+ */
 function formatTime(raw: string): string {
-  const at = new Date(raw);
-  return Number.isNaN(at.getTime()) ? raw : at.toLocaleString('zh-TW');
+  return Number.isNaN(Date.parse(raw)) ? raw : formatOrderDateTime(raw);
 }
 
 function Field({ label, value }: { label: string; value: string | null }) {
