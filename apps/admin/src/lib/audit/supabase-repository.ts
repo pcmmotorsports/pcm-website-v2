@@ -7,13 +7,15 @@ import type { AuditContext, AuditEntry } from './types';
  * 走注入的窄 AuditLogInserter → 不直接綁 @supabase/supabase-js。真 client 由資料存取 slice
  * 以 `@pcm/adapters/server` createSupabaseServiceClient() 適配後注入,例:
  *   const inserter: AuditLogInserter = {
- *     insert: (row) => client.from('admin_audit_log').insert(row),  // 🔴 禁鏈 .select()(REQUIRED-2)
+ *     insert: (row) => client.from('admin_audit_log').insert(row),  // 🔴 禁鏈 .select()(理由見下)
  *   };
  *   new SupabaseAuditLogRepository(inserter);
  *
- * 🔴 REQUIRED-2(Fable verdict Q1②):service_role 無 SELECT → INSERT 必須 return=minimal
- *    (不鏈 .select()、不回讀 id / created_at),否則 RETURNING 需 SELECT → 42501。
- *    本類只依賴 { error } 形狀 → 天然符合;整合測試(接真表)= pending 至 admin_audit_log db push。
+ * 🔴 REQUIRED-2:INSERT 必須 return=minimal(不鏈 .select()、不回讀 id / created_at)。
+ *    本類只依賴 { error } 形狀 → 天然符合。
+ * 🔴 **理由在 D0(`20260815020000`)之後換了、規定沒變** —— 逐字見 `lib/audit/repository.ts`
+ *    的 REQUIRED-2 段(**這個 GRANT 有到期日 ⇒ 要讓依賴它的東西數得出來**)。
+ *    ⚠️ 原字面寫「service_role 無 SELECT」—— **apply 之後那句是假的**(它會有 SELECT)。
  */
 export class SupabaseAuditLogRepository implements AuditLogRepository {
   constructor(private readonly inserter: AuditLogInserter) {}

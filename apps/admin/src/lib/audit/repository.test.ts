@@ -56,6 +56,8 @@ describe('InMemoryAuditLogRepository', () => {
 });
 
 describe('SupabaseAuditLogRepository', () => {
+  // 🔴 `return=minimal` 的**理由**在 D0(`20260815020000`)之後換了(GRANT 有到期日),**規定沒變** ——
+  //    逐字見 `repository.ts` 的 REQUIRED-2 段。這格釘的是規定,不是那個舊理由。
   it('should insert the mapped row via the injected inserter (return=minimal, no .select())', async () => {
     const calls: unknown[] = [];
     const inserter: AuditLogInserter = {
@@ -89,6 +91,8 @@ describe('SupabaseAuditLogRepository', () => {
   //    ⚠️ **兩個擋路理由裡的第一個已為假**(2026-08-11 晚重 gen):`admin_audit_log`
   //    現在就在 `database.types.ts` 裡 ⇒ 表活在正式庫、不是「尚未 db push」。
   //    剩下的擋路理由只有:admin 尚未接 @pcm/adapters/server 依賴。
-  //    client 注入後解除,驗:真 INSERT 落地、service_role 無 SELECT 下 return=minimal 不炸 42501。
+  //    client 注入後解除,驗:真 INSERT 落地、return=minimal 不炸 42501。
+  //    ⚠️ **原字面寫「service_role 無 SELECT 下」—— D0(`20260815020000`)apply 後那句就是假的**
+  //       (它會有 SELECT)。規定仍留著,理由見 `repository.ts` 的 REQUIRED-2 段。
   it.todo('integration: 真 Supabase service client 寫入 admin_audit_log(pending:admin 未接 adapters/server)');
 });

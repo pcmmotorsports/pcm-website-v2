@@ -34,6 +34,8 @@ export interface AuditContext {
  * admin_audit_log INSERT 列。
  * 🔴 不含 id / created_at —— 交 DB default(gen_random_uuid / now());
  *    server 不回填時間(防竄改),且對齊 REQUIRED-2 return=minimal(不回讀 id)。
+ * 🔴 `return=minimal` 這條規定在 D0(`20260815020000`)之後**理由換了、規定沒變** ——
+ *    逐字見 `lib/audit/repository.ts` 的 REQUIRED-2 段。
  */
 export interface AdminAuditLogInsert {
   readonly actor: string;

@@ -32,8 +32,11 @@ export function getAdminOrderRepository(): SupabaseOrderAdapter {
 /**
  * 稽核 log repo(M-4a M0-S2 → D-3b 首個真呼叫端;admin 寫入動作寫 admin_audit_log)。
  *
- * 🔴 REQUIRED-2:service_role 對 admin_audit_log 無 SELECT → insert **禁鏈 `.select()`**(return=minimal、
- *   不回讀 id/created_at,否則 RETURNING 需 SELECT → 42501)。本 inserter 只取 { error } 形狀、天然符合。
+ * 🔴 REQUIRED-2:insert **禁鏈 `.select()`**(return=minimal、不回讀 id/created_at)。
+ *   本 inserter 只取 { error } 形狀、天然符合。
+ *  🔴 **理由在 D0(`20260815020000`)之後換了、規定沒變** —— 逐字見 `lib/audit/repository.ts`
+ *      的 REQUIRED-2 段(**這個 GRANT 有到期日 ⇒ 要讓依賴它的東西數得出來**)。
+ *      ⚠️ 原字面寫「service_role 無 SELECT」—— **apply 之後那句是假的**(它會有 SELECT)。
  * 🔴 server-only:createSupabaseServiceClient 亦 server-only,client component import 即編譯期報錯。
  */
 export function getAdminAuditLogRepository(): SupabaseAuditLogRepository {
