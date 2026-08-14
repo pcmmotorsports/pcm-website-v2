@@ -12,8 +12,17 @@ process.env.TZ = 'America/New_York';
 // ║ 跑法(兩支測試檔一起):
 // ║   npx vitest run apps/admin/src/lib/orders/procurement-view.test.ts \
 // ║                  apps/admin/src/components/orders/item-procurement-form.test.tsx
-// ║ ⚠️ 量具自陷:上面兩條路徑若用 shell 變數帶進去,vitest 可能回 `No test files found` 而
-// ║   `grep -c "×"` = **0** —— 那是**量具壞了、不是零紅**。跑完先確認有 `Tests N failed` 那行。
+// ║
+// ║ 🔴🔴 **每一發的第一步是驗量具,不是讀結果**(2026-08-14 同一天兩個窗踩同一個坑):
+// ║   ① 先確認這一發**真的跑了 64 格**(= 兩支測試檔的基準格數;加格時同步更新這個數)
+// ║   ② 格數 = 0 或 ≠ 64 ⇒ **這一發作廢重跑,不准把它的紅/綠寫進表**
+// ║   ③ 確認①之後,才去讀「紅了幾格」
+// ║   ⇒ **「跑了幾格」是量具的自檢,「紅了幾格」才是結果。先驗前者,後者才有意義。**
+// ║   實例(兩種相反的誤讀,同一個量具):
+// ║     · V 窗:兩條路徑用 shell 變數帶進 vitest ⇒ `No test files found`,`grep -c "×"` = 0
+// ║       ⇒ 差點把「量具壞了」讀成「零紅 = 沒守門」
+// ║     · R 窗:同款情形 vitest 回 `exit=1` ⇒ 差點把它讀成「突變被殺掉 = 守門有效」
+// ║   🔴 **共同病根不是誤讀方向,是兩個人都直接讀結果欄、沒先問「這一發跑起來了嗎」。**
 // ║
 // ║ 突變點(檔 · 字面錨)                                          實測紅格(2026-08-14)
 // ║ ① procurement-view.ts · 拿掉 ` && p.voidedAt == null`          **9**(退回片2 之前的行為)
