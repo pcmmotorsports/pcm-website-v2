@@ -28,6 +28,17 @@ export const PROFILE_PHONE_FIELD = 'phone';
 export const PROFILE_BIRTHDAY_FIELD = 'birthday';
 export const PROFILE_RETURN_TO_FIELD = 'return_to';
 
+/**
+ * 🔴 **`customer_id` 走 hidden 表單欄,不是從 URL 取 —— 而且「越權負測」是刻意不做的。**
+ *
+ * 形狀與 `tier-edit-form.tsx:31` / `wallet-adjust-form` 同構(hidden 欄 + `return_to`)。
+ * ⚠️ **為什麼沒有「A 客的 id 換成 B 客 → 必須被拒」那格**:admin 注 service_role = BYPASSRLS,
+ *    RLS 那層在這條路徑不存在;但**員工本來就能編輯任何客人** ⇒ 換一個 `customer_id`
+ *    **不是提權,是「打錯客人」**。那條負測擋不住任何攻擊者、也擋不住手滑,**零判別力**。
+ * ⇒ 真正有判別力的是**形狀層**:UUID 白名單(下面那條)+ `anyMalformed` 擋門(見檔頭),
+ *    兩者都有負測釘死(`profile-form.test.ts` 的拒收矩陣與 #365 那一族)。
+ * 🔴 這段理由寫在這裡而不是只留在 commit body —— **commit body 不會被下一個人讀到**。
+ */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
