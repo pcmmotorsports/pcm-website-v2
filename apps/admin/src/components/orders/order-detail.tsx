@@ -314,6 +314,27 @@ export function OrderDetail({
             已取消
           </span>
         )}
+        {/* #10 片1:揀貨單入口。**開新分頁**(`target='_blank'`)—— 員工按了列印之後要回到這張單
+            繼續做事,把工作面換掉再叫他按上一頁是多一步。
+            🔴 `rel='noopener'`:`target='_blank'` 預設會把 `window.opener` 交給新分頁。
+               這裡兩邊同源、風險低,但這是**寫一次就不用再想**的東西。
+            🔴 **已取消就不給入口**(R1 must-fix 3)。第一版我無條件渲染,而 `:312` 的「已取消」
+               badge 明明就守著同一顆 `cancelled` —— 同一列裡一個守、一個不守。
+            ⚠️ **但這裡只是 UX,不是守門**:網址可以被貼、被書籤、或分頁開著時訂單才被取消,
+               那些路徑全部繞過這顆鈕。真正的守門在 `components/print/picking-doc.tsx`
+               (已取消 ⇒ 不印品項表)。**兩層都要,少了下面那層這顆鈕等於零。**
+            📍 位置在 `ml-auto` 的日期**之前**(nit-12):放後面會被推到整列最尾端、
+               與 `:300` 的客人入口分兩側,員工要找兩個地方。 */}
+        {!cancelled && (
+          <Link
+            href={`/print/orders/${detail.id}/picking`}
+            target='_blank'
+            rel='noopener'
+            className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-sm'
+          >
+            列印揀貨單
+          </Link>
+        )}
         <span className='text-muted-foreground ml-auto text-sm'>
           下單 {formatOrderDateTime(detail.createdAt)}
         </span>
