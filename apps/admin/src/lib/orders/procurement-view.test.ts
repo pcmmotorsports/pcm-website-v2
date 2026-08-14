@@ -5,6 +5,32 @@
 //    那片要證「不能把 local 當 UTC」,本片要證「不能用裝置時區」,所以要釘非台北。
 process.env.TZ = 'America/New_York';
 
+// ╔═ `#476` 片2 突變表(2026-08-14 實測;下一個人五分鐘手動重跑得完)══════════════════════
+// ║ 🔴 **一發突變只該紅一格。紅超過一格 ⇒ 後面那幾格是「未知」不是「通過」**(坑集 ③)。
+// ║   下表每一發都單獨跑,**不要合併**。跑法 = 照「突變點」改一行 → 跑該檔 → 對「預期紅」→ 改回。
+// ║
+// ║ 跑法(兩支測試檔一起):
+// ║   npx vitest run apps/admin/src/lib/orders/procurement-view.test.ts \
+// ║                  apps/admin/src/components/orders/item-procurement-form.test.tsx
+// ║ ⚠️ 量具自陷:上面兩條路徑若用 shell 變數帶進去,vitest 可能回 `No test files found` 而
+// ║   `grep -c "×"` = **0** —— 那是**量具壞了、不是零紅**。跑完先確認有 `Tests N failed` 那行。
+// ║
+// ║ 突變點(檔 · 字面錨)                                          實測紅格(2026-08-14)
+// ║ ① procurement-view.ts · 拿掉 ` && p.voidedAt == null`          **9**(退回片2 之前的行為)
+// ║ ② procurement-view.ts · `== null` → `=== undefined`            **20**(證 fail-open 方向會炸更大)
+// ║ ③ item-procurement-form.tsx · `const editing = findActive…`    **2**(鈕文字 + 停用×新建)
+// ║   → 退回 `procurements.some((p) => p.supplierId === …)`
+// ║ ④ item-procurement-form.tsx · `setOriginalSubmittedAt(findActive…` **1**(「保秒取的是生效列」)
+// ║   → 退回 `procurements.find((p) => p.supplierId === nextId)`   🔴 補那格**之前**這發是綠的=恆綠格
+// ║ ⑤ item-procurement-form.tsx · `disabled={isPending || blockedInactiveNew}` **2**
+// ║   → 退回 `disabled={isPending}`
+// ║ 🔴 ①②③⑤ 都紅超過一格 ⇒ 依坑集 ③,**它們只證到第一格**;真正逐格證到的是
+// ║   ③(拆出 ⑤ 之後剩鈕文字那格)與 ④。要加新格時請把突變再拆細。
+// ║
+// ║ ⚠️ **不列在表上的一發**:`useState<string | null>(null)` 那個初值改回查詢 = **等價突變**
+// ║   (該處恆為 null,理由見元件註解)⇒ **必綠、零資訊**,不要拿它的綠當任何證據。
+// ╚═════════════════════════════════════════════════════════════════════════════════
+
 import { describe, it, expect, vi } from 'vitest';
 import type { AdminOrderItemProcurement, AdminOrderItemQuantitySummary } from '@pcm/domain';
 
