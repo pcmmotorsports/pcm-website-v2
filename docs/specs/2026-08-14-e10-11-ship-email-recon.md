@@ -56,8 +56,15 @@
    🔴🔴 **但「天然鍵」只在「一箱 = 一張訂單」時成立 —— 見下方 §3-A,那是本片最大的擋點。**
 2. **觸發點** —— 同 plan `:259` 逐字「E4 開工前**必須先重定觸發點**,不能照本段字面 grep(會 0 命中)」
    (舊觸發點 `updateOrderItemWorkflowAction` 已被 A9w4a 具名刪除)。**現在的答案就是 `admin_mark_shipment_shipped`。**
-3. **語意已拍板(一半)**:同 plan `:68` 逐字「**★S2 = B:每出一批寄一封**(接受多封)」⇒ 分批出貨會寄多封。
-   ⚠️ 但那題拍的是「**一單分多批**」,**沒有拍「一箱含多單」** —— 見 §3-A。
+3. **語意已拍板**:同 plan `:68` 逐字「**★S2 = B:每出一批寄一封**(接受多封)」⇒ 分批出貨會寄多封。
+   🔴 **本項第一版寫「沒有拍過『一箱含多單』」—— 那句話是錯的,而且它被我送出去、主視窗還照著更正了 Sean。**
+   實查(B 窗 NEW-3,我開檔逐字驗):`~/pcm-mailbox/B-05-Q.md:46` 的原題逐字就是
+   「**Q1:一個包裹可以裝幾張訂單?**」,而 **選項 C 逐字「現在先不做併箱 —— 一個包裹只綁一張訂單」**
+   當時**白紙黑字列在桌上**(含代價「以後要改成併箱時是『改表結構』不是『加功能』」);
+   `~/pcm-mailbox/B-10-A.md:7` 逐字 **「Q1=B:併箱只認『同一位客人』…🔴 知情推翻 07-26 Q16=A」**。
+   ⇒ **Sean 是在「可以選不做」被明列的情況下選了做。併箱是拍過的板,不是沒人想過的事。**
+   ⚠️ **但 §3-A 那題仍然成立** —— 拍板拍的是「**箱子可以裝幾張單**」,**沒有拍「客人該收到幾封信」**。
+   我錯的是**理由**(說它沒被拍過),不是那題本身。
 
 ## §3-A 🔴🔴 一箱含多張訂單 = 兩張表的鍵直接打架(B 窗 MF1,我開檔複驗成立)
 
@@ -80,8 +87,14 @@
 >
 > | 選項 | 內容 | 代價 / 擋不擋後續 |
 > |---|---|---|
-> | **A 一箱一封** | 信裡列出這箱涵蓋的所有訂單編號 | `dedup_key` = 箱號可用;但 `email_outbox.order_id` NOT NULL **仍要選一張當代表**(或改 schema)⇒ **可能要 migration** |
+>| **A1 一箱一封,挑一張當代表** | 信裡列出這箱涵蓋的所有訂單編號;`order_id` 存其中一張 | 🟢 **零 migration**。代價:`email_outbox` 上那筆信只掛在一張訂單底下,**另一張訂單查不到自己的出貨信** |
+> | **A2 一箱一封,語意乾淨** | 同上,但 `email_outbox.order_id` 改成可為 NULL / 或另建關聯表 | **要 migration + Sean apply 停點**;換來「這封信涵蓋哪幾張單」查得出來 |
 > | **B 一單一封** | 同一箱寄兩封,各講各的訂單 | `dedup_key` **必須含 order_id**(例:`箱號:訂單id`)⇒ 零 migration;但客人同時收到兩封講同一個包裹的信 |
+>
+>
+> 🔴 **A 案第一版我寫成「可能要 migration」= 代價寫重了**(B 窗 NEW-2)。
+> 挑一張當代表**本來就滿足 `order_id` NOT NULL、零 migration** ⇒ 我把一個便宜選項講貴,
+> **等於變相少給 Sean 一個選項**。已拆成 A1/A2 兩段。
 >
 > **我不推薦** —— 這是「客人體驗」與「帳要怎麼對」的取捨,是 Sean 的題。
 > ⚠️ 兩案都不影響前面的結論(觸發點、鏈的其餘六環),只影響 `dedup_key` 與要不要 migration。
@@ -107,10 +120,20 @@
 🔴 **真正的跨 app 問題是一顆常數**:`SupabaseEmailOutboxAdapter` 的假信箱 gate **不複製字面、由 composition 注入**
 (`:37` 逐字),而那顆常數住在 **`apps/storefront/src/lib/auth/line.ts:38`**(`'line.pcmmotorsports.local'`),
 且 `apps/storefront/src/lib/email/composition.ts:13` 逐字寫著「**packages 不可反向 import app**」。
-⇒ admin 要 wiring 就得拿到它,而它**已經被抄過一次**(`apps/storefront/src/lib/auth/field-validation.ts:57`,
-該行上方 `:56` 逐字掛著「⚠️ **必與 lib/auth/line.ts 的 `LINE_SYNTHETIC_EMAIL_DOMAIN` 同步**」)。
-⇒ **`#11` 若照抄就是第三份**,而這正是這個 repo 記過學費的「同一條規則放兩個地方」形狀。
-**這是一個具體的、要在 plan 裡解掉的問題(把常數提到 `packages/`),不是一個要 Sean 選的岔路。**
+⇒ admin 要 wiring 就得拿到它,而那個字面**現在已經有三份**(B 窗 MF3;我重數複驗,非測試檔):
+
+| # | 位置 | 有沒有同步警語 |
+|---|---|---|
+| 1 | `apps/storefront/src/lib/auth/line.ts:38`(唯一 `export`) | — 權威來源 |
+| 2 | `apps/storefront/src/lib/auth/field-validation.ts:57` | 有(`:56` 逐字「必與 `lib/auth/line.ts` 的 `LINE_SYNTHETIC_EMAIL_DOMAIN` 同步」) |
+| 3 | 🔴 **`packages/schemas/src/notification-email.ts:5`** | **沒有** |
+
+⇒ **`#11` 若照抄就是第四份,不是第三份。**
+🔴 **而且我原本的補法「把常數提到 `packages/`」讀起來像還沒開始做 —— 實際上早就提了(第 3 份就在 `packages/schemas`),
+只是「提成複製」而不是「收斂成共用」。** ⇒ 正解是**把那三份收斂到一個 export、其餘引用它**,
+不是再搬一次。
+⚠️ **這條我第一版寫成「第三份」= 低報**,而低報的方向讓工作看起來比實際小 ——
+與我自己在 `#13` n1 講過的病同型(**數法比數字更需要正確**),換一個面又犯一次。
 
 ## §5 鐵則 12 命中(先講明)
 
@@ -119,10 +142,14 @@
 | ⑤ 對外不可回收 | 🔴 **是** | 寄信給客人 |
 | ②權限 | **是** | admin 要拿 `service_role` 寫 `email_outbox`(該表含 `recipient_email` = PII,`composition.ts:9` 逐字「anon/authenticated 零權限」) |
 | ③DB | **看 Q-11-1 怎麼拍**:B 案(一單一封)⇒ 零 migration;A 案(一箱一封)可能要動 `email_outbox.order_id` 的 NOT NULL ⇒ **有 migration** | `20260717020000:300`/`:377`;`:654` |
-| ⑥共用元件 | 🔴 **是** | §4:必改 `packages/ports` 的 `EnqueueEmailInput` 型別 + `packages/adapters` 的 enqueue 與 assembly ⇒ **跨 app 共用面的行為改動**,不是純樣式 |
+| ⑥共用元件 | ❌ **不命中(第二版更正)** | `CLAUDE.md:41` 逐字只涵蓋「**共用元件 `packages/ui` 行為改動**」;`#11` 動的是 `packages/ports` + `packages/adapters`,**不在 ⑥ 的字面內**。我上一版把它讀成「⑥ 涵蓋整個 `packages/`」= 引錯編號(B 窗 NEW-1)|
 | ①錢 / ④平台設定 | 否 | 不碰 |
 
-⇒ **命中 ⑤②⑥(③看拍板)⇒ codex 關卡2 不降級。**⚠️ 我上一版漏了 ⑥、且把 ② 綁在一個假岔路上。 另外 M-4a plan `:377` 已把文案定為 **L2 + Sean 過目**
+⇒ **命中 ⑤②(③看拍板)⇒ codex 關卡2 不降級。**
+⚠️ **結論不變、依據換過**:關卡2 不降級由 **⑤ 對外寄信**與 **② 權限**各自獨立成立,
+**不需要靠 ⑥** —— 我上一版拿 ⑥ 來墊,那是引錯編號。
+🔴 但「必改 `packages/ports` + `packages/adapters` 三支」這個**事實不變**(§4),
+它只是不屬於鐵則 12⑥ 那一格,**不代表它不重要**:那是跨 app 共用面的行為改動,plan 要正面處理。 另外 M-4a plan `:377` 已把文案定為 **L2 + Sean 過目**
 ⇒ **出貨信文案寄出前要給 Sean 看**,這是既有拍板、不是新增要求。
 
 ## §6 誠實缺口
