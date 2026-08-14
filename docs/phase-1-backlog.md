@@ -12874,3 +12874,41 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   但**可達性成立** —— `admin_finalize_order_refund` 的 `failed` 分支是真實可走的路,不是恆假)。
 - **依賴:** 無前置。但**排在 `473b-1` apply 之後**比較省事(那時「更正後的數」才有地方拿)。
 - **發現於:** 2026-08-14 傍晚 · R 窗反向盤點 · 主視窗開 migration 與 storefront 兩檔複驗並更正一處字面 · 號由 `scripts/next-backlog-number.sh` 取得
+
+### #498. 🧱 兩支 RPC 對「作廢」完全看不見 —— 正確性靠乙片的 V7 守門承重
+
+- **狀態:** ⏳ 待執行(**不是現行 bug** —— 現況走得到的路徑上不會發生;它是**潛伏依賴**,見下)
+- **分流:** `P2`
+- **優先級:** 🟠 中(不修不會壞,但**放寬 V7 的人不會知道自己在拆什麼**)
+- **🔴 起因:** V 窗做乙片 plan 附錄 A(DB 端反向盤點)時發現;主視窗開檔複驗過,不是轉抄。
+- **兩支盲的 RPC(逐條實查)**
+  | RPC | 定義所在 | `grep -c voided` |
+  |---|---|---|
+  | `admin_cancel_order` | `supabase/migrations/20260805100000_m4b_e10_a8a2_partial_cancel.sql` | **0** |
+  | `admin_delete_item_receipt` | `supabase/migrations/20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql` | **0** |
+  (量法 = `for f in $(grep -rln "FUNCTION public.admin_delete_item_receipt" supabase/migrations/); do grep -c voided $f; done`)
+  ⚠️ 已 apply 的甲片 `20260814100000` 檔名雖是 `adjacent_writers_voided_split`,
+  但它 `CREATE OR REPLACE` 的是 `admin_upsert_item_procurement`(`:168`)與 `admin_record_item_receipt`(`:608`)兩支,
+  **`admin_delete_item_receipt` 只在 `:812`/`:935` 的註解裡被提到、本體未被改** —— 檔名容易讓人以為它涵蓋了。
+- **🔴 為什麼現在沒事(缺口是潛伏的,不是不存在)**
+  `admin_cancel_order` 算可取消量用的是 **receipts 的 `sum(r.quantity)`**、不是 `allocated_quantity`
+  (`20260805100000:379-382` 逐字,JOIN `order_item_procurement_receipts`)
+  ⇒ **一筆作廢採購只要沒有到貨紀錄,那個 JOIN 就貢獻 0 ⇒ 行為零差異。**
+  而「**作廢的採購不會有到貨**」正是乙片 **V7 守門**(`HAS_RECEIPTS_UNDO_FIRST`)在保證的事。
+  ⇒ **V7 不只是 UX 前置,它是 `admin_cancel_order` 正確性的承重點。**
+- **放寬 V7 或繞過 RPC 直接 UPDATE 標作廢會怎樣(逐字取自 V 窗,已複驗因果)**
+  掛在已作廢採購上的到貨會被算進已收量 ⇒ **可取消量被低估** ⇒
+  **員工取消不了本來可以取消的量,而畫面不會說為什麼。**
+- **要做什麼(擇一,開工前先定):** ①兩支 RPC 各自加 `voided_at IS NULL` 述詞(治本,但動已上線的取消線 = 鐵則 12①)
+  ②維持現狀 + 在兩支 RPC 檔頭寫下「本函式的正確性依賴 V7」的反向指標(便宜,但仍靠人讀)
+  ③等第 3 批退貨/撤到貨線一起處理。
+- **不修未來會痛在哪:** 這條依賴目前**只寫在乙片 V7 的註解裡**,而會踩到它的人是**去改那兩支 RPC 的人** ——
+  他們不會經過 V7 的註解。⇒ 依賴寫在被依賴方看不到的地方 = 遲早被拆掉而沒人知道。
+- **⚠️ 沒量的:** 缺口的可達性**只論證到「經由 RPC 不可達」** —— `service_role` 直接 UPDATE 不在此範圍
+  (同 `docs/reference/order-state-gates.md` 的強度自陳)。正式庫目前**零筆已作廢採購**
+  (量法 `select count(*) from public.order_item_procurement where voided_at is not null`,乙片尚未上線)
+  ⇒ 場景至今**未發生過**,本條是機制推論、不是事故。
+- **相鄰但刻意不做的一條:** `admin_search_orders:370` 的模糊搜尋**含作廢列** —— **這是刻意的**
+  (`Q-S1`=A 逐字「舊的作廢紀錄留著查帳」)。**日後想「修」它的人先回來讀這行。**
+- **依賴:** 乙片(`admin_void_item_procurement`)上線後這條才真的有意義 —— 在那之前沒有任何作廢列存在。
+- **發現於:** 2026-08-14 傍晚 · V 窗乙片 plan 附錄 A · 主視窗開兩支 migration 複驗 `grep -c voided` 皆 0 並更正「甲片檔名涵蓋範圍」一處誤解 · 號由 `scripts/next-backlog-number.sh` 取得
