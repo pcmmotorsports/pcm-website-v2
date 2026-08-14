@@ -84,7 +84,16 @@ async function loadExceptionRow(refundId: string, logError: LogError): Promise<L
     return { ok: false, code: error instanceof RecoveryReadIntegrityError ? 'bug' : 'error' };
   }
   if (!row) return { ok: false, code: 'not_found' };
-  if (row.status !== 'processing') return { ok: false, code: 'already_finalized' };
+  if (row.status !== 'processing') {
+    // 🔴 #473(關卡2 codex MF1):這條早退原本**不 revalidate** ⇒ 異常清單只載 `processing`
+    //    (`refund-read.ts:126` `.eq('status','processing')`),員工按下去之後畫面仍停在舊的那一列。
+    //    我第一版把文案寫成「看清單上的最新狀態即可」—— **那句和舊文案一樣是白做工**,
+    //    因為畫面根本不會變。⇒ **根因修法 = 讓畫面自己更新**,而不是寫一句話解釋畫面是舊的。
+    //    (成功路徑本來就這樣做;這裡只是把它補齊。)
+    revalidatePath(EXCEPTIONS_PATH);
+    revalidatePath(`/orders/${row.orderId}`);
+    return { ok: false, code: 'already_finalized' };
+  }
 
   // 異常入口鏡像(檔頭;證據列不等 30 分=fable N4)。
   if (row.providerEvidence === null) {
