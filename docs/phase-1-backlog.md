@@ -12488,3 +12488,68 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - ⚠️ **限度**:跑的是當時**還活著**的拋棄式庫(PORT `54461` / `/tmp/452-lockprobe`)。**這不證明它在一台乾淨機器上跑得起來** —— 建庫那段(`PORT=54461 bash scripts/452-verify.sh provision /tmp/452-lockprobe`)本次**沒有重跑**。
 - **分流標籤:** `P3`
 
+
+### #484. 🧱 訂單列表工具列 chip 排的殼 + 「全部」「未到貨」兩顆
+
+- **狀態:** 待開工(**E 線下一片**;plan 見 `docs/specs/2026-08-14-484-orders-toolbar-chips-plan.md`)
+- **起因:** Sean 2026-08-14 對照 OD 指出四項殼差異之一。OD 真權威 `overview-desktop.html:610-614`(`.bar` + 4 顆 `.fchip`)/ CSS `:91-99`;我們現在**沒有 chip 排**,篩選只有 `<select>` 下拉(`order-filter-controls.tsx:186-204`)。
+- **範圍:** 只做「全部」與「未到貨」——「待處理」歸 `#485`(定義未拍)、「退貨中」歸 `#487`(資料面不存在)。
+- **🔴 不是純樣式:** 「未到貨」= `FULFILLMENT_STATUS_LABEL`(`order-list-view.ts:160-165`)前兩值(`notOrdered` + `ordered`)的**聯集**,而現行 `fulfillment_status` param 是**單值** ⇒ 要動白名單解析。
+- **已知坑(OD 自己記的):** `overview-desktop.html:479-480` —— 加了退貨中 chip 後,面板開著(658)時工具列被壓到換行、高度 41px 撐破 34px 的列。
+- **不修會痛在:** 篩「還沒到貨的單」現在要開下拉選兩次(而且選不出聯集)⇒ 員工每天最常做的分堆動作沒有一鍵入口。
+- **估時:** 40 分(看 diff 面積估的,**沒拆到步驟級**)。命中鐵則 8(4 檔)⇒ 先提 plan 等批。
+- **發現於:** 2026-08-14 · E 窗 · OD 殼盤點(`docs/specs/2026-08-14-od-page-shell-scope.md` §1-2);號由主視窗指派。
+- **相關:** `#485` `#486` `#487`(同一批殼)
+
+### #485. 🧭 訂單列表「待處理」chip
+
+- **狀態:** **卡在決策**,不是卡在工。
+- **起因:** OD `overview-desktop.html:612` 只給了一顆 `<button class="fchip">待處理</button>` —— **沒有 data-\*、沒有說明、沒有定義它篩什麼**。
+- **🔴 擋住的是定義不是實作:** 現有白名單(`order-list-view.ts:41-44`)是 `payment_status` / `fulfillment_status` / `order_source` / `payment_channel`,「待處理」對不到其中任何單一值。**要 Sean 說它是什麼**(候選:未收款?未訂貨?兩者聯集?)。
+- **不修會痛在:** 不修沒有痛 —— 這顆的價值完全取決於定義。**定義不清就做出來,會做出一顆按了不知道篩掉什麼的按鈕。**
+- **估時:** 定義拍板後 20 分(輕量片,`#484` 的殼做完就是加一顆)。
+- **依賴:** `#484`(殼)+ Sean 的定義。
+- **發現於:** 2026-08-14 · E 窗 · OD 殼盤點 §1-2;號由主視窗指派。
+
+### #486. 🧱 訂單列表操作欄改「⋯」選單
+
+- **狀態:** 待開工,**但有一個 4px 的前置拍板**(見下)。
+- **起因:** Sean 2026-08-14 點名的四項之一。OD:列表列 `overview-desktop.html:985`(`<button class="kb">⋯</button>`、CSS `:214-216`)、選單本體 `:1052`(`<details class="km"><summary class="k">⋯</summary>`、CSS `:401`)。意圖見說明稿 `orders-list-directions.html:243` 逐字:「未來的退款／沖銷／重寄通知**全部進同一顆選單,不必再加欄**」。
+- **我們現況:** `orders-table.tsx:375-398` 渲染**兩顆**「取消」`<Link>`(桌機/手機由 CSS 分流),已取消顯示「—」。
+- **🔴 原本登記的「要多 4px、得 Sean 再拍一次」已作廢(2026-08-14 同日實測推翻,是我引錯表):** `:1047` 在**客戶卡/供應商那塊**(`.k-cell`),不是訂單列表列。**訂單列表列在 OD 自己就是 `:124` `.k-ops{width:34px}` + `:127` 內距 2px,與我們一模一樣。** 實測:OD `.kb`(26×26、`:214-216` 逐字)放進我們 34px 的格子 ⇒ **0/15 被截**、整表不溢位;改 38px 反而讓總寬 1412→1416 **造出橫向捲軸**。⇒ **本片不需要動欄寬、沒有前置拍板。**
+- **不修會痛在:** 每加一個訂單層操作(退款/沖銷/重寄通知)就要再加一欄,而欄寬已經沒有空間 ⇒ **不改成選單,下一個功能就沒有地方放。**
+- **估時:** 45 分(標準片;`orders-table.tsx` + `globals.css` + 測試 = 3 檔,**剛好在鐵則 8 的線上**,體積超過就拆)。
+- **依賴:** 無前置拍板;**排在 `#484` `#485` 之後**(它與欄寬片同檔,`#484` 不同檔)。
+- **發現於:** 2026-08-14 · E 窗 · OD 殼盤點 §1-4 與 §3;號由主視窗指派。
+
+### #487. 🧭 「退貨中」chip 的資料面前置 —— 退貨流程未實作
+
+- **狀態:** **不排片**(登記缺口,不是待辦工)。
+- **起因:** OD 工具列有一顆 `退貨中 <b>0</b>`(`overview-desktop.html:614`、`.fchip-ret` CSS `:477`)。**我們沒有「退貨」這個狀態** —— `cancel-review-section.tsx:101` 逐字「已到貨的部分要**走退貨流程**」、`:155` 註明「那是**第 3 批**」。
+- **🔴 所以這顆 chip 不是前端工:** 沒有可篩的狀態、也沒有可數的數字。硬做只能得到一顆**永遠顯示 0** 的按鈕 —— 那比沒有更糟,員工會以為「真的沒有退貨中的單」。
+- **⚠️ 一條 OD 內部矛盾(引用前先看):** 說明稿 `index.html:162` 說退貨中的單在列表上有「整組**琥珀色左邊條**」—— 在會被執行的 `overview-desktop.html` 裡**不存在**:`grep -c 'border-left'` = **2**(`:87` 面板分隔線、`:488` 「尚未實作」標籤塊),`data-ret`/`tr.ret`/`.ret-row` **0 命中**。已記進 `design-brief` §0-D。
+- **不修會痛在:** 退貨是真實業務(已到貨的部分不能走取消)。現在員工唯一的指引是取消頁上的一句文字,**列表上完全看不出哪些單卡在退貨**。
+- **估時:** 未估 —— 要先有退貨流程的 PRD/片界,不是一片的量體。
+- **發現於:** 2026-08-14 · E 窗 · OD 殼盤點 §1-2;號由主視窗指派。
+- **相關:** `#484`(同一排 chip)
+
+### #488. 🔍 `orders.fulfillment_status` 13/13 實測為 `notOrdered`,而列表膠囊算得出 `ordered`
+
+- **狀態:** 待查(**是死欄位還是某條路徑漏寫,留給查的人判 —— 本條只登記量到的事實**)。
+- **事實(2026-08-14 正式站唯讀查證,13 張單全掃):** `orders.fulfillment_status` **13/13 都是 `notOrdered`**;用列表狀態膠囊那份算法(`order_item_quantity_summary` 彙總,`order-status-axes.ts:126-133`)算,**`PCM-2026-0104` 是 `ordered`** ⇒ **1/13 兩邊不一致,且欄位那一側從沒被推進過。**
+- **數法(可整段重跑):**
+  ```sql
+  select o.fulfillment_status::text,
+   case when bool_and(coalesce(s.shipped_quantity,0)>=oi.quantity) then 'shipped'
+        when bool_and(coalesce(s.instock_quantity,0)>=oi.quantity) then 'instock'
+        when bool_and(coalesce(s.ordered_quantity,0)>=oi.quantity) then 'ordered'
+        else 'none' end as ui_axis, o.display_id
+  from orders o join order_items oi on oi.order_id=o.id
+  left join order_item_quantity_summary s on s.order_item_id=oi.id
+  group by o.id, o.fulfillment_status, o.display_id;
+  ```
+- **🔴 為什麼這條要查而不是無害:** 這個欄位**現在就有消費端** —— 訂單列表的「出貨狀態」`<select>` 篩選走的正是它(`SupabaseOrderAdapter.ts:582` `.eq('fulfillment_status', …)`)⇒ **員工用那個下拉篩「已到貨」,今天必定回零筆**,而畫面上明明有膠囊寫著別的。它不是沉睡欄位,是**一個正在誤導人的篩選軸**。
+- **不修會痛在:** ①員工篩不到東西會判「系統壞了」或改用眼睛掃 ②`20260714120000_m4a_order_workflow_status.sql:142-148` 的 `workflow_status` 推導式**吃這個欄位**,它若不準,那一整組推導值跟著不準。
+- **估時:** 未估 —— 要先判「該由誰寫」(哪支 RPC 應該推進它),那是查的工不是修的工。
+- **發現於:** 2026-08-14 · E 窗 · `#484` 技術前置調查;號由主視窗指派。
+- **相關:** `#484`(因為這條而不能接 A 資料源)
