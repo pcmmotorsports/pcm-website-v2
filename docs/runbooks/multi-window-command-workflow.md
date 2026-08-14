@@ -144,7 +144,15 @@ context 快滿=先寫 checkpoint 信再停,不硬做「可能驗不完」的東�
 **實例**:2026-08-14 至少兩次;`#489` 撞上(V 窗已寫入 / E 窗拿去佔位)——
 🔴 **接住它的是「E 主動請主視窗確認」,不是機制。**
 
-**正確數法(主樹 + 所有 worktree 的工作區檔 + 所有本機 branch;E 窗 2026-08-14 實跑,0.7 秒、回 `491`)**:
+🏁 **已機制化 ⇒ 直接跑 `bash scripts/next-backlog-number.sh`(無參數)。**
+它印**三層各自的最大值**(不一致 = 有號還沒回到主樹)+ 下一個可用號 + 掃描限度。
+🔴 **為什麼要有這支、而不是照抄下面那行**:主視窗自述「**我就是會寫出較窄版本的那個人 ——
+不是忘了跑,是當場想了一個較窄的查法然後跑了它**」⇒ **文件擋不住「現想一個」,一支有名字的腳本擋得住。**
+🔴 **負測(端到端,拿病發當下的狀態當測資)**:
+`NEXT_BACKLOG_REFS='b185e3e0^ d6a18e38' NEXT_BACKLOG_SKIP_LIVE=1 bash scripts/next-backlog-number.sh`
+⇒ 回 **`#490`**;而當天的窄查法(只看自己 branch 的父 commit)回 **488 ⇒ 發 `#489` ⇒ 正是撞掉的那個號。**
+
+**底層數法(腳本內就是這一行;要手算或移植到別的專案時抄它)**:
 ```bash
 { for w in $(git worktree list --porcelain | awk '/^worktree /{print $2}'); do
     cat "$w/docs/phase-1-backlog.md" 2>/dev/null; done
