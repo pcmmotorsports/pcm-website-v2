@@ -43,12 +43,18 @@ type FilterState = {
   /** '' = 全部 */
   pay: string;
   /**
-   * 貨品軸(`#484a` A2;'' = 全部)。**原本叫 `ful`、篩的是 `fulfillment_status`。**
+   * 貨品軸(`#484a` A2;空陣列 = 全部)。**原本叫 `ful`、篩的是 `fulfillment_status`。**
    *
-   * 🔴 這裡是 `string` 而不是陣列:下拉是**單選**,型別上的陣列(`AdminOrderFilter.goodsAxes`)
-   *    要到片 B 的 chip UI 才會有第二個值。`href()` 送出去時包成單元素陣列。
+   * 🔴🔴 **片 B-1 起改成陣列,而那是修一個我自己引入的 fail-open**(R1 must-fix 2):
+   *    B-1 的 chip「未到貨」= `['none','ordered']` **兩個值**,而這裡原本是單一 `string`
+   *    ⇒ 多值進來被折成 `''`,員工只要動任何其他篩選,`href()` 就把**兩個值一起送丟**
+   *    ⇒ 列表從「未到貨 + 已付款」變成「**全部** + 已付款」,而 chip 的反白還亮著。
+   *    🔴 這正是本檔檔頭記過三次的那條病,而 **B-1 是第一個多值 producer** ⇒ 第四次由它引入。
+   *    ⚠️ 而且它**不會自癒**:`prop-sync` 的拒收邏輯(下方 `lastPushedKey` 那段)會擋掉 server 的回音。
+   * ⇒ 形狀比照同檔既有的多值軸(`src` / `ch`),不為本片發明第三種。
+   *    下拉仍是單選:**恰 1 值時顯示那個值,0 或 ≥2 值時顯示「全部」**(見 `order-filter-bar.tsx` 的取捨註解)。
    */
-  goods: string;
+  goods: readonly string[];
   src: readonly string[];
   ch: readonly string[];
   /**
@@ -81,7 +87,9 @@ function href(state: FilterState): string {
     '/orders',
     [
       [PAYMENT_STATUS_PARAM, state.pay || undefined],
-      [GOODS_AXIS_PARAM, state.goods || undefined],
+      // 🔴 陣列直接送(`buildListHref` 對陣列會逐值展開成同名多鍵)——
+      //    **不要在這裡折成單值**,那就是 R1 must-fix 2 的病。
+      [GOODS_AXIS_PARAM, state.goods],
       [ORDER_SOURCE_PARAM, state.src],
       [PAYMENT_CHANNEL_PARAM, state.ch],
       [SHOW_UNPAID_CARD_PARAM, state.showUnpaidCard || undefined],
@@ -197,9 +205,13 @@ export function OrderFilterControls({
       />
       <AutoApplySelect
         label='出貨狀態'
-        value={state.goods}
+        /* 🔴 恰 1 值才顯示那個值;0 或 ≥2 值一律落到「全部」那格。
+           ≥2 只可能來自 chip 或手改網址,而下拉**畫不出「兩個值」** ——
+           讓它顯示第一個值會變成「畫面說一件事、系統做另一件事」(R1 must-fix 3)。 */
+        value={state.goods.length === 1 ? (state.goods[0] ?? '') : ''}
         options={goodsAxisOptions}
-        onChange={(v) => apply({ ...state, goods: v })}
+        /* 選了具體值 ⇒ 換成單元素陣列;選「全部」⇒ 空陣列(= 不篩)。 */
+        onChange={(v) => apply({ ...state, goods: v === '' ? [] : [v] })}
       />
       <MultiCheckFilter
         label='來源'

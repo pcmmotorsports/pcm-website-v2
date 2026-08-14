@@ -384,6 +384,43 @@
   width: 56px;
 }
 
+/* ═══ `#484` 片 B-1:工具列快速篩選 chip ═══════════════════════════════════════
+   **逐字搬 OD `overview-desktop.html:97-98`(常態)與 `:99`(選中)。**
+   🔴 `:97-98` 那條規則**跨兩行、共 8 個宣告** —— 只讀 `:97` 會抄成 5 個,而且看起來完全正常
+      (同 `.kb` 那個坑,同一份 OD 裡第二次)。8 個逐項:border / background / border-radius /
+      padding / font-size / cursor / font-family / color。
+   🔴 **我方搬 6 個**:`cursor:pointer` 不搬(我們是 `<a>`,游標本來就是 pointer)、
+      `font-family:inherit` 不搬(OD 是 `<button>` 才需要;`<a>` 本來就繼承)——
+      **與 `.kb` 那組同一條理由,不是各自決定的。**
+   🔴 **選中態綁 `aria-current` 不是 OD 的 `aria-pressed`**:後者的 "Used in roles" 只有 `button`
+      (MDN 2026-08-14 親讀)⇒ 掛在連結上是無效 ARIA。**只換綁的屬性,不換設計。**
+      登記在 design-brief「OD 內部矛盾」表第 6 列。
+   ⚠️ 值的對應**不是逐字相同,是 token 映射**(R1 nit 6 更正我上一版的「一個字都沒改」):
+      `var(--fg)` → `var(--foreground)`、`var(--mutedfg)` → `var(--muted-foreground)`、
+      `#fff` → `var(--primary-foreground)`(理由見下)。**數值型的三個**(`999px` / `3px 11px` /
+      `12px` / `600`)才是逐字相同。
+   ⚠️ **OD 的 `.fchip` 還吃 `:482` 的 `flex-shrink:0` 與 `white-space:nowrap`,我方沒搬**
+      —— 兩顆 chip 在 420px 目測不換行(真瀏覽器看過),但**四顆之後會回來咬**(B-1 plan §5 列過)。 */
+.fchip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  padding: 3px 11px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.fchip[aria-current='true'] {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  /* 🔴 **不是 OD 的 `#fff`**(R1 must-fix 1):`--foreground` 在 dark 模式是白的(`:48`),
+     配死白的字 = **白底白字、標籤整個看不見**;而 header 有一鍵切 dark ⇒ 場景真的走得到。
+     `--primary-foreground` 在 light 恰為 `oklch(1 0 0)` = `#fff`(**light 下與 OD 逐字等值**)、
+     在 dark 自動翻黑。⇒ 這是 token 映射,不是設計改動。 */
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
 /* 🔴 內距要用對等特異性覆蓋(OD `:114-116` 逐字記過同一個坑):`.orders-grid td` 是 (0,1,1)、
    `.col-ops` 只有 (0,1,0) ⇒ 只寫 `.col-ops{padding-left:2px}` 不會生效,34px 的欄會被內距吃光。 */
 .orders-grid .col-ops {

@@ -43,10 +43,17 @@ export function OrderFilterBar({
         channelOptions={PAYMENT_CHANNEL_OPTIONS}
         initial={{
           pay: filter.paymentStatus ?? '',
-          // `#484a` A2:單選下拉 ⇒ 只取第一個值(型別是陣列、片 B 的 chip UI 才會有第二個)。
-          //    🔴 用 `?? ''` 而不是 `?.[0] ?? ''` 之外再判空陣列 —— 空陣列的 `[0]` 就是 undefined,
-          //    兩者都折成 '' = 全部,與其他軸的既有處置一致。
-          goods: filter.goodsAxes?.[0] ?? '',
+          // 🔴 **片 B-1 起原樣傳陣列進 client state**(R1 must-fix 2:上一版在這裡折成單值,
+          //    而那會讓 chip 的兩個值在員工動任何其他篩選時**一起被送丟** ——
+          //    列表從「未到貨 + 已付款」變成「全部 + 已付款」,而 chip 的反白還亮著)。
+          //    折平的動作移到**下拉自己的 `value`**(恰 1 值才顯示),那裡折不會丟資料。
+          // ⚠️ **誠實的代價**(R1 must-fix 3 更正我上一版的說法):≥2 值時下拉顯示的那一格
+          //    寫著「**全部**」(`auto-apply-select.tsx` 的第一個 option),而列表**其實有在篩**
+          //    ⇒ 它不是中性空白,是一句**不準確的字**。之所以仍選它:
+          //    ①下拉畫不出「兩個值」②選中態由旁邊的 chip 反白負責、員工看得到
+          //    ③片 B 之後這一軸的主控制項就是 chip,下拉會退成單值捷徑。
+          //    ⇒ 這是**已知且刻意**的取捨,不是沒想到;要根治得等下拉改成多勾選(與 chip 同型)。
+          goods: filter.goodsAxes ?? [],
           src: filter.orderSources ?? [],
           ch: filter.paymentChannels ?? [],
           // L6:server 端解析出來的開關要餵回勾選框,否則重新整理後「勾沒了、列表卻是全顯示」。
