@@ -51,6 +51,16 @@
 單筆走 RPC `update_translation_product`(檔頭逐字「products 寫入與 stale queue 結案**同 transaction**」);
 群組走 `apply_translation_group`(只補 NULL)。`manually_corrected` 則由 `/audit` accept 設。
 
+> 🔴 **2026-08-14 訂正(C 窗 M3,我逐支重跑確認):兩套鎖不是同級機制,本節原本把它們平行呈現是錯的。**
+> 逐支跑 `git grep -ln "manually_corrected" origin/main -- 'app/api/**/route.ts'` ⇒ 5 支
+> (`admin/fitment-year` / `audit/accept` / `audit/reject` / `dictionary/update` / `export`),
+> **5 支的 `requireAdmin|requireFull2FA` 命中數皆為 0**(我另數:真的寫該欄的是 3 支 ——
+> `audit/accept`×3、`audit/reject`×1、`export`×1);對照 `translations/update` ⇒ **命中 2**。
+> ⇒ **`manually_corrected`(fitment 鎖)只靠 middleware session = 密碼登入;
+> `translation_locked`(翻譯鎖)才在 2FA 牆後。** 這是「鎖到底有多牢」的答案,而我原本沒講出來。
+> ⚠️ **作用域**:只證明「寫鎖路徑」這一族。C 窗自陳 37 支只開了 6 支 ⇒ **不是 37 支全貌,不要放大成「其餘沒保護」**
+> (`middleware.ts:29-44` 白名單只有三前綴 + `/`,`/api/audit/*` 不在其中 ⇒ 仍有 session 擋)。
+
 **誰讀** — `fetchers/base.py`:
 `fetch_protected_skus()`(`:1359`)撈該供應商 `manually_corrected=true` 的 sku 集合;
 `fetch_translation_locked_skus()`(`:1386`)撈 `translation_locked=true` 的。
