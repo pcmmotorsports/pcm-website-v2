@@ -75,6 +75,11 @@ export type RefundFailureCode =
   // ── RPC initiate 業務態
   | 'ledger_full'
   | 'in_flight'
+  // ── #445 超退閘(RPC 步 6b)。🔴 **三碼不可合併**:被擋的原因不同,員工的下一步也不同
+  //    (改金額 / 去處理另一筆 / 停手找人)——合成一句話就是 §0-E 第 2 條說的「擋得莫名其妙」。
+  | 'exceeds_remaining'
+  | 'exceeds_in_flight'
+  | 'exceeds_unknown'
   // ── refund() 三態/錯誤分派(§3 表)
   | 'deferred'
   | 'rejected'
@@ -122,6 +127,22 @@ const FAILURE_MESSAGES: Record<RefundFailureCode, string> = {
   ledger_full: '這張訂單的退款帳本已滿(已標記全額退款),退款沒有發起。',
   in_flight:
     '這張訂單已有一筆退款正在處理中,這次沒有重複發起。請稍後重新整理查看結果;若超過 30 分鐘未完成,會出現在異常清單。',
+  // 🔴 措辭鐵律(`refund-ledger-view.ts:4-8`):三句都**不得**出現「還能退」「剩餘可退」——
+  //    值班照著錯的名字按下去 = 同一筆錢退兩次。oracle = `refund-wiring.test.tsx:341`。
+  // ⚠️ 三句**這一片先不報數字**,但理由不是「不能報」——`Q-445-R4-1` 已拍 **A**(2026-08-14):
+  //    守門式要**扣掉已取消金額**(部分取消不下修 `orders.total`;`admin_cancel_order` 只寫
+  //    cancelled_at/cancelled_reason/updated_at,`20260805100000:462-467`)⇒ A 案落地後那個數字
+  //    才等於「該退的錢」。數字進訊息 + 可點錨點 = **445a-2**,排在 445b 的新式子之後。
+  //    🔴 在 445b 落地前就把數字寫進這三句 = 講一個比實際可退額高的數,正是措辭鐵律要防的事。
+  exceeds_remaining:
+    '退款金額超過這張單目前可受理的上限,退款沒有發起、錢沒有動。請降低金額後重新發起。',
+  exceeds_in_flight:
+    '這張單有另一筆退款佔著額度(處理中,或已失敗但需人工判定),所以這次被擋下、錢沒有動。請先到下方「退款紀錄」把那一筆處理掉,再回來發起。',
+  // 🔴 關卡2 nit:這裡**不准用 Markdown 粗體** —— `refund-section.tsx` 是
+  //    `<p role='alert'>{state.message}</p>` 純文字輸出,沒有任何 renderer
+  //    ⇒ 寫 `**不是**` 員工會看到字面上的星號。動錢路徑的訊息不留這種雜訊。
+  exceeds_unknown:
+    '算不出這張單目前的退款額度,退款沒有發起、錢沒有動。這不是金額問題,請勿重試,並通知系統維護。',
   deferred:
     'TapPay 尚未請款,這筆退款現在還不能做(這次的請求已作廢、錢沒有動)。請款完成後,請重新發起一次。',
   rejected:

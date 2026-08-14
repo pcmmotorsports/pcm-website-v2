@@ -28,6 +28,7 @@ import {
   generateRefundRequestToken,
   refundFailure,
   type RefundActionState,
+  type RefundFailureCode,
   type RefundFormInput,
 } from './refund-action-state';
 import {
@@ -37,7 +38,19 @@ import {
   initiateOrderRefund,
   type FinalizeOrderRefundArgs,
   type FinalizeOrderRefundOutcome,
+  type RefundBlockedBy,
 } from './refund-repository';
+
+/**
+ * #445 步 6b:`blocked_by` → 員工看到的文案碼(§4-4 三分)。
+ * 🔴 寫成 `Record<RefundBlockedBy, …>` 而不是 switch:RPC 日後新增第 4 個 blocked_by 值時
+ *    **這裡編譯期就紅**,不會靜默落進「打太多」那句話 —— 那會把員工導向相反的動作。
+ */
+const EXCEEDS_FAILURE_CODE: Record<RefundBlockedBy, RefundFailureCode> = {
+  amount: 'exceeds_remaining',
+  in_flight: 'exceeds_in_flight',
+  unknown: 'exceeds_unknown',
+};
 
 // refund-actions.ts — M-3 A7c RW2c:退款 server action(高風險片、鐵則 12 ①②)。
 //
@@ -299,6 +312,27 @@ export async function initiateRefundAction(
         return refundFailure('no_card_transaction', input, parsed.requestToken);
       case 'REFUND_NOTHING_LEFT':
         return refundFailure('nothing_left', input, parsed.requestToken);
+      // #445 步 6b 超退閘。判別依據是 RPC 吐的 `blocked_by`,不是 app 端猜的 ——
+      // 「打太多」「有東西卡住」「算不出來」三者的處置完全不同(§0-E 第 2 條)。
+      case 'REFUND_EXCEEDS_REMAINING':
+        return refundFailure(
+          EXCEEDS_FAILURE_CODE[initiated.blockedBy],
+          input,
+          parsed.requestToken,
+        );
+      // 🔴 窮盡守(本片新增):原本這個 switch **沒有 default**。
+      //    ⚠️ 它擋的**不是** RPC 在 runtime 吐出未知碼 —— 那個更早就被
+      //    `refund-repository.ts` 的碼表白名單 throw 掉了(`:270`),到不了這裡;
+      //    也不是「靜默當成功」—— `:461-463` 的 `if (!succeeded)` 早就 fail-closed 給 bug 文案。
+      //    **它擋的是開發者**:日後把新碼加進碼表**與** outcome union 卻漏接 case 時,
+      //    原本要等 runtime 落到那句籠統的 bug 文案才看得出來;改成 never ⇒ **typecheck 就紅**。
+      //    (第一版註解把前兩件事講成「沒有任何東西會紅」,是假的;code-reviewer 抓到並實測。)
+      default: {
+        const unhandled: never = initiated;
+        throw new RefundCallerBugError(
+          `initiate 回傳未分派的碼:${JSON.stringify(unhandled).slice(0, 200)}`,
+        );
+      }
     }
   } else {
     // ⑧ 打 TapPay。payload 由 kind 分流(discriminated union;full 不帶 amount 欄=型別層保證)。

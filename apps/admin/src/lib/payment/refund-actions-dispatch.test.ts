@@ -372,3 +372,58 @@ describe('initiate 業務碼 → state(refund() 全零呼叫)', () => {
     });
   }
 });
+
+describe('#445 步 6b 超退閘 → state(blocked_by 三分;445b 才會吐這個碼)', () => {
+  // 🔴 三個 blocked_by 值必須映到**三個不同**的 state code —— 它們的處置完全不同
+  //    (改金額 / 去處理另一筆 / 停手找人)。壓成同一句話 = §0-E 第 2 條說的「擋得莫名其妙」。
+  const cases: Array<[string, string]> = [
+    ['amount', 'exceeds_remaining'],
+    ['in_flight', 'exceeds_in_flight'],
+    ['unknown', 'exceeds_unknown'],
+  ];
+  for (const [blockedBy, stateCode] of cases) {
+    it(`blocked_by=${blockedBy} → ${stateCode}`, async () => {
+      mocks.initiateOrderRefund.mockResolvedValue({
+        result: 'REFUND_EXCEEDS_REMAINING',
+        // 🔴 fixture 要與 repository 的交叉驗一致(`unknown` ⇔ `remaining === null`)——
+        //    造一個 repository 根本不會放行的組合,等於在測一個到不了的狀態。
+        remaining: blockedBy === 'unknown' ? null : 300,
+        blockedBy,
+      });
+      const state = await initiateRefundAction(IDLE, refundForm());
+      expect(state).toMatchObject({ status: 'failed', code: stateCode, requestToken: TOKEN });
+      expect(mocks.refund).not.toHaveBeenCalled();
+      expect(mocks.redirect).not.toHaveBeenCalled();
+    });
+  }
+
+  // 🔴 關卡2 nit3:第一版只斷言 `new Set(messages).size === 3` —— **那是恆綠的**:
+  //    把 amount 與 in_flight 的操作指示對調、或三句全改成錯的「錢已動」,size 仍是 3。
+  //    ⇒ 改成釘每一句**該叫員工做的那個動作**,那才是 §0-E 第 2 條要的判別力。
+  const ACTION_ANCHOR: Record<string, string> = {
+    exceeds_remaining: '降低金額',
+    exceeds_in_flight: '退款紀錄',
+    exceeds_unknown: '通知系統維護',
+  };
+  it('🔴 三句各自帶對「下一步該做什麼」(對調兩句就會紅)', async () => {
+    for (const [blockedBy, stateCode] of cases) {
+      mocks.initiateOrderRefund.mockResolvedValue({
+        result: 'REFUND_EXCEEDS_REMAINING',
+        remaining: blockedBy === 'unknown' ? null : 300,
+        blockedBy,
+      });
+      const state = (await initiateRefundAction(IDLE, refundForm())) as { message: string };
+      expect(state.message).toContain(ACTION_ANCHOR[stateCode]);
+      // 三句都必須說明錢沒有動 —— 動錢路徑的人因防線(檔頭鐵律)
+      expect(state.message).toContain('錢沒有動');
+      // 措辭鐵律:禁語一個都不准出現(與來源無關)
+      expect(state.message).not.toMatch(/還能退|剩餘可退/);
+      // 🔴 純文字輸出,不得混 Markdown(關卡2 nit:員工會看到字面星號)
+      expect(state.message).not.toContain('**');
+    }
+  });
+
+  // 🔴 token 專格已刪(關卡2 nit2):上面三個映射格的 `toMatchObject` 已經含
+  //    `requestToken: TOKEN`,單獨再寫一格**被嚴格蘊含、零額外訊號** —— 正是本輪
+  //    在別人 plan 裡抓了 8 個的那種恆綠格,不能自己再種一個。
+});
