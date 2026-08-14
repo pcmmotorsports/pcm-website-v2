@@ -322,8 +322,46 @@ function describeType(v: unknown): string {
  * `AdminOrderSummary` 早有同款先例(`mappers/order.ts:239`)。不動 schema / RLS / RPC。
  * 主視窗 2026-08-13 裁准動下方 byte-equal 守門,並要求本片 commit 前跑 codex 對抗審查。
  */
+/**
+ * 🔴 **`#476` 片 1(2026-08-14)在採購內嵌加 `voided_at, void_reason`** —— 應用層一直不認得
+ * 「已作廢」,而 DB 從 `#452` 片 2a-1 起就只把 `voided_at IS NULL` 的列算進額度
+ * (`20260813120000_m4b_e10_452_procurement_void_schema.sql:352-355` COMMENT 逐字)
+ * ⇒ 畫面列得出 3 件、`ordered_quantity` 卻說 0 件。
+ *
+ * 🔴 **本片只把兩欄帶回來,不改任何「判斷邏輯」** —— 沒有任何 `find` / `some` / `length`
+ * 因為本片而改變結果(分流在片 2/3/4)。
+ * ⚠️ ~~原字面「不改任何**行為**」~~ **過強、已改**(codex 關卡2 must-fix):**payload 那一面不是零**,
+ * 見下方「admin 端有一面不是零」。
+ *
+ * 🔴 **這裡加 filter 是錯的做法,刻意不做**:`WHERE voided_at IS NULL` 一行就能讓下游**絕大多數**
+ * 讀者面自動正確(逐面清單見 backlog `#476`;🔴 **本處刻意不寫面數** —— 那個數字已被更正過一次,
+ * 抄一份進 code 註解 = 製造第二個會各自漂移的真相),
+ * 但員工按下「作廢」之後畫面上會什麼都不留 —— 他無法確認那個動作成功了,
+ * 而**動作後沒有回饋**正是讓人重複操作的形狀(Sean 常設準則「操作直覺化」;
+ * 樣板 `apps/admin/src/lib/shipping/order-shipments.ts:11` 逐字「否則畫面上會變成貨憑空消失」)。
+ * ⇒ 帶回來 + 顯示端標示,**與 shipments 線同形**。主視窗 2026-08-14 裁 B。
+ *
+ * 🔴 **兩欄成對取**:DB `order_item_procurement_void_pair` 強制同進同出(同檔 `:347-350`),
+ * 只取 `voided_at` 會讓顯示端標得出「已作廢」卻說不出原因,而理由 + 稽核是**唯一**事後追溯手段
+ * (同檔 `:356`)。
+ * 🔴 **紅線不變**:兩欄都是營運內部欄(誰為什麼撤掉一張採購單),與本投影既有的採購紅線同級
+ * ⇒ **絕不可**被搬進 storefront 的任何投影。
+ * (實查 2026-08-14:本常數的**唯一**消費端是下方 `findAdminOrderDetail`;storefront 對
+ *  `IOrderRepository` 呼叫的是 `listSummariesByCustomer` / `findTotal` / `placeOrder` 三支,
+ *  都不走本常數。⚠️ 這句只說「今天沒有」、不是機制保證。)
+ * ⚠️ **兩道 leak-guard 加起來仍不是密封的**(codex 關卡2 must-fix,收窄我原本寫的「擋住它的是
+ *  leak-guard 測試」):①本檔測試那道只反射**同 module 內名稱含 `SELECT` 的字串匯出**,對別檔的
+ *  inline `.select()`、不叫 `*SELECT*` 的常數、query builder 動態拼接全盲;
+ *  ②`scripts/storefront-projection-leak-guard.test.ts` 掃 storefront **原始碼全文**(本片同步在它的
+ *  欄名層加了四個字面),但它自陳的盲區是**掃描根之外**(`packages/`)。
+ *  ⇒ 剩下的可構造路徑:`packages/` 裡的 inline select、view 改名欄、admin API 把整包 domain model
+ *  轉送出去。**這些今天沒有守門,誠實記在這裡,不宣稱涵蓋。**)
+ * 🔴 **admin 端有一面不是零**:`item-procurement-form.tsx` 是 `'use client'` 且吃 `procurements`
+ * ⇒ 兩欄(含 `voidReason` 這段營運內部文字)自此進入 admin 的 RSC client payload。
+ * admin 是員工專用 app、**不構成對外洩漏**,但「本片不改任何行為」在這一面**不是零**,記在這裡。
+ */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。

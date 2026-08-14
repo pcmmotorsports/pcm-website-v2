@@ -687,6 +687,12 @@ const DETAIL_ROW = {
           first_ordered_at: '2026-04-16T02:00:00+00:00',
           status_changed_at: '2026-04-16T03:00:00+00:00',
           created_at: '2026-04-16T02:00:00+00:00',
+          // 🔴 #476 片1:本列刻意設成**已作廢** —— 端對端證明 adapter 不會把作廢列濾掉。
+          //    ⚠️ 這格原本對兩欄**恆綠**:wire fixture 缺鍵 ⇒ mapper 吐 `undefined`,
+          //    而 Vitest `toEqual` 視 undefined 值等同缺鍵 ⇒ 期望不寫也照過。
+          //    (關卡 code-reviewer R1 nit5;形狀 = memory `feedback_claimed-sync-but-only-patched-touched-lines`)
+          voided_at: '2026-08-14T03:00:00+00:00',
+          void_reason: '供應商回報缺料、改下另一家',
           suppliers: { label: 'Webike JP', is_active: false }, // 停用:既有列照常顯示(S1b :183)
         },
         {
@@ -703,6 +709,8 @@ const DETAIL_ROW = {
           first_ordered_at: '2026-04-15T02:00:00+00:00',
           status_changed_at: null,
           created_at: '2026-04-15T02:00:00+00:00',
+          voided_at: null, // #476 片1:本列生效中(與上面那列成對:一作廢一生效)
+          void_reason: null,
           suppliers: [{ label: 'RPM Carbon', is_active: true }], // 陣列形(embed 推斷不穩)也要吃得下
         },
       ],
@@ -803,9 +811,9 @@ function assertNoCustomerIdLeak(select: string): void {
 }
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄))', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -848,7 +856,29 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       'ORDER_LIST_SELECT',
     ]);
     for (const [name, value] of otherSelects) {
-      for (const token of ['order_item_procurement', 'supplier', 'exception_reason']) {
+      // 🔴 #476 片1 加 `void_reason` **與** `voided_at` 兩個欄名 token。
+      //    ⚠️ **第一版只加了 `void_reason`,把 `voided_at` 寫成「刻意不收」**(理由:通用時間欄名、
+      //    日後對客的出貨/預約帶「已取消時間」會誤紅)—— 那個理由**站不住,已撤**:
+      //    本檔下方三軸那條(**認字面不認行號**:`擋不住日後有人開一個 view 再投影同名欄`,
+      //    2026-08-14 當下在 `:897`)逐字寫著「禁掉表名只擋得住『內嵌那張表』」。
+      //    同一個論證在那裡被判**不足**,我卻在這裡拿它當**充分** ⇒ 可構造的洞:
+      //    對客投影日後從 view 帶 `voided_at`(字面不含 `order_item_procurement`)⇒ 本迴圈全綠。
+      //    (關卡 code-reviewer R1 must-fix4)
+      //    🔴 誤紅的代價是「有人來看一眼」,漏洩的代價是客人看得到採購節奏 —— 兩者不對稱,收。
+      //
+      // ⚠️ **本迴圈蓋不到哪裡(codex 關卡2 must-fix,誠實記,不宣稱涵蓋)**:它只反射**本 module 內、
+      //    名稱含 `SELECT` 的字串匯出**。別的檔案的 inline `.select()`、不叫 `*SELECT*` 的常數、
+      //    以及 query builder 動態拼出來的投影,**它一概看不見**。
+      //    那一面由 `scripts/storefront-projection-leak-guard.test.ts` 掃 storefront 原始碼全文接手
+      //    (本片同步在該檔的欄名層加了 voided_at/voidedAt/void_reason/voidReason 四個字面),
+      //    而該檔自陳的盲區是**掃描根之外**(`packages/`)⇒ **兩道加起來仍有缺口,不是密封的。**
+      for (const token of [
+        'order_item_procurement',
+        'supplier',
+        'exception_reason',
+        'voided_at',
+        'void_reason',
+      ]) {
         expect(`${name}:${value}`).not.toContain(token);
       }
     }
@@ -1274,6 +1304,8 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
               firstOrderedAt: '2026-04-15T02:00:00+00:00',
               statusChangedAt: null,
               createdAt: '2026-04-15T02:00:00+00:00',
+              voidedAt: null, // #476 片1:生效中
+              voidReason: null,
             },
             {
               id: 'p-2',
@@ -1291,6 +1323,10 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
               firstOrderedAt: '2026-04-16T02:00:00+00:00',
               statusChangedAt: '2026-04-16T03:00:00+00:00',
               createdAt: '2026-04-16T02:00:00+00:00',
+              // 🔴 #476 片1:已作廢的列**仍在清單裡**(adapter 端對端不濾)。
+              //    這兩鍵就是把上面那個恆綠格關掉的東西。
+              voidedAt: '2026-08-14T03:00:00+00:00',
+              voidReason: '供應商回報缺料、改下另一家',
             },
           ],
           procurementTruncated: false,

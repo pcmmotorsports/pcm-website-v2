@@ -37,6 +37,9 @@ function proc(over: Partial<AdminOrderItemProcurement> = {}): AdminOrderItemProc
     firstOrderedAt: null,
     statusChangedAt: null,
     createdAt: '2026-08-04T02:00:00+00:00',
+    // #476 片1:預設 = **生效中**。片3 會用 `proc({ voidedAt: … })` 構造作廢列來測顯示標示。
+    voidedAt: null,
+    voidReason: null,
     ...over,
   };
 }

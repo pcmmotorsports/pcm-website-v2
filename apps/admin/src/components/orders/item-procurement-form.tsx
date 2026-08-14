@@ -25,6 +25,7 @@ import {
 import { PROCUREMENT_REPLY_STATUSES } from '../../lib/orders/procurement-form';
 import {
   REPLY_STATUS_LABEL,
+  findActiveProcurement,
   hydrateFormValues,
   toTaipeiInputValue,
   type ProcurementSupplierChoice,
@@ -158,9 +159,14 @@ export function ItemProcurementForm({
   /** bfcache 還原後、新 props 到達前:表單鎖住(關卡2 codex R2 MF1) */
   const [refreshing, setRefreshing] = useState(false);
   /** hydrate 當下那一列的原始 `submitted_at`(保秒用;見上面的 action wrapper) */
-  const [originalSubmittedAt, setOriginalSubmittedAt] = useState<string | null>(
-    procurements.find((p) => p.supplierId === (carried?.supplierId ?? ''))?.submittedAt ?? null,
-  );
+  // 🔴 **本初值在現行路徑上恆為 `null` ⇒ 不做查詢**(`#476` 片2 清掉的既有死碼)。
+  //    論證是**靜態的、不是突變測出來的**:`useState` 初值只在首次掛載求值(檔頭那條),
+  //    而首次掛載時本檔 `useActionState` 必然是初值 `{ status: 'idle' }` ⇒ `carried === null`
+  //    ⇒ 原句查 `supplierId === ''`,而 `supplier_id` 是 NOT NULL FK ⇒ 結果恆為 `null`。
+  //    ⚠️ **範圍限定**:只對**現行的 inline action wrapper** 成立。改成把 server action 直接交給
+  //      `useActionState` 的人要回來看這裡 —— 那時 hydration 可還原非 idle state,秒數就會掉。
+  //    (原本我拿「突變全綠」當證據 = 等價突變、零資訊,已撤;詳 commit body 與 `V-003-STOP`。)
+  const [originalSubmittedAt, setOriginalSubmittedAt] = useState<string | null>(null);
   const router = useRouter();
 
   // 掛載後才允許送出(見檔頭 Critical)。
@@ -216,15 +222,30 @@ export function ItemProcurementForm({
     setSelectedSupplier(nextId);
     // 切換目標 = 換一筆紀錄 ⇒ 整份重填(含清掉上一筆的值)。
     setValues(hydrateFormValues(procurements, nextId));
-    setOriginalSubmittedAt(procurements.find((p) => p.supplierId === nextId)?.submittedAt ?? null);
+    setOriginalSubmittedAt(findActiveProcurement(procurements, nextId)?.submittedAt ?? null); // #476 片2
   }
 
   function setField(field: keyof ProcurementFormValues, value: string) {
     setValues((prev) => ({ ...prev, [field]: value }));
   }
 
-  const editing = procurements.some((p) => p.supplierId === selectedSupplier);
+  // 🔴 #476 片2:「編輯 vs 新建」只看**生效中**那一列。
+  //    這家只剩作廢列時 ⇒ `undefined` ⇒ `editing=false` ⇒ 走**新建**,而那正是對的:
+  //    Sean `Q-S1=A` 允許對同一家重下單,partial unique(`WHERE voided_at IS NULL`)讓它不會撞鍵。
+  //    ~~原本 `some((p) => p.supplierId === selectedSupplier)`~~ 會把「只剩作廢列」誤判成「編輯」,
+  //    然後拿作廢列的舊值當基準送出去。
+  const editing = findActiveProcurement(procurements, selectedSupplier) !== undefined;
+
+  /**
+   * 送出去**保證被 A5a 拒絕**的組合:停用的供應商 × 走新建(A5a 只擋新建與調升 allocated、
+   * 不擋更新紀錄欄 —— `20260803160000:326`)⇒ **擋在按下之前**,不是讓員工按了才收
+   * `SUPPLIER_INACTIVE`(Sean 常設準則「操作直覺化」);文案同時講下一步。
+   * ⚠️ **既有缺陷、不是片2 造成的**(片2 之前「停用 × 這家從沒採購過」就已一邊寫「不能新建」
+   * 一邊給一顆按得下去的鈕);片2 讓它多一條入口(只剩作廢列時 `editing` 翻 false)
+   * ⇒ 一次修整條,不只修我加寬的那半。(codex 關卡2 finding 9)
+   */
   const chosen = supplierChoices.find((c) => c.id === selectedSupplier);
+  const blockedInactiveNew = chosen?.inactive === true && !editing;
 
   return (
     <form action={formAction} className='mt-3 border-t pt-3'>
@@ -357,14 +378,17 @@ export function ItemProcurementForm({
       <div className='mt-3 flex items-center justify-end gap-2'>
         {chosen?.inactive && (
           <span className='mr-auto text-xs text-amber-700'>
-            這家供應商已停用:可以更新紀錄欄,但不能新建採購、也不能調高訂購數量。
+            {blockedInactiveNew
+              ? '這家供應商已停用,而且這個品項目前沒有生效中的採購 ⇒ 只能新建,而停用的供應商不能新建。要對這家下單請先重新啟用它。'
+              : '這家供應商已停用:可以更新紀錄欄,但不能新建採購、也不能調高訂購數量。'}
           </span>
         )}
         {!truncated &&
           (hydrated && !refreshing ? (
             <button
               type='submit'
-              disabled={isPending}
+              // 🔴 `blockedInactiveNew`:送出必被 A5a 回 SUPPLIER_INACTIVE ⇒ 擋在按下之前(見上方 docstring)
+              disabled={isPending || blockedInactiveNew}
               className='bg-primary text-primary-foreground h-9 rounded-md px-4 text-sm font-medium disabled:opacity-50'
             >
               {isPending ? '儲存中…' : editing ? '更新這筆採購' : '新增採購'}

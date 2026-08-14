@@ -19,9 +19,35 @@
 - `apps/admin/src/lib/payment/refund-repository.ts:233` 註解逐字記著:我一度加了一道 `if (!(key in row)) throw`,**實測紅不起來**(缺欄 = `undefined`,下面的型別檢查本來就會拋)⇒ 判定 no-op、**已刪**。
 - `docs/specs/2026-08-13-445-overrefund-guard-plan.md:879`:驗收格 11 被判恆綠 —— `guard IS NULL` 在 RPC 路徑上不可達,而 plan 原本稱它是「本輪最重的負測」。**R3 的頭號 finding 配了一格無法擊發的負測。**
 
-**常見形狀**:被更嚴格的守門**嚴格蘊含** / 斷言的是 fixture 自己設的值 / 條件不可達 / 措辭 oracle 是**檔案粒度**白名單而不是字串粒度。
+**常見形狀**:被更嚴格的守門**嚴格蘊含** / 斷言的是 fixture 自己設的值 / 條件不可達 / 措辭 oracle 是**檔案粒度**白名單而不是字串粒度 / **`toEqual` 的期望與 fixture 同時缺同一個鍵**(見 ①-a)。
 
 **開工前那一條動作**:寫完守門,**當場把它弄壞一次**,看該紅的格有沒有紅。沒紅就別說「已驗證」。
+🔴 **補一句(2026-08-14 V 窗實錘)**:「弄壞一次」只證明**被你弄壞的那一點**。
+弄壞的位置若全落在**自己剛改過的行**,證到的覆蓋面等於零 —— 要挑**自己沒碰過**的同族位置也弄壞一次。
+
+### ①-a `toEqual` + fixture 缺鍵 = 對那個鍵恆綠(2026-08-14 V 窗 `#476` 片1)
+
+**本 repo 實測(不是引述 Vitest 文件)**:`toEqual` 比對時,「值為 `undefined` 的鍵」與「鍵不存在」**在本次量到的這一格上行為相同**。
+數法(可重跑,`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts` 的 `DETAIL_ROW` × `findAdminOrderDetail` 那格):
+```
+# 把 DETAIL_ROW 裡的 voided_at 那一行刪掉,然後
+npx vitest run packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts
+```
+**補期望鍵之前 = 綠(87 passed);補之後 = `1 failed | 86 passed`。同一發突變、兩種結果。**
+⚠️ **未確認**:這是對 Vitest 全版本/全比對器成立,還是只對本格這種形狀成立 —— **我只量了這一格**。
+⇒ 端對端測試的 **wire fixture 少一個欄** ⇒ mapper 吐 `undefined` ⇒ **期望物件不寫那個鍵也照過**。
+那格的檔內自陳可能還逐字寫著「精確比對…若被接回投影,本條會立刻紅」——**它對別的鍵是真的,對這個鍵是假的**。
+
+- 實例:`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts` 的 `DETAIL_ROW` × `findAdminOrderDetail` 那格。
+  作者為 `#476` 片1 加 `voided_at` / `void_reason` 時補了**三支** admin fixture 與 mapper fixture,
+  **唯獨漏了 adapter 端的 wire fixture** ⇒ 該格對這兩欄恆綠。作者自跑的三發突變**全綠通過**
+  (因為只突變了自己改過的地方),是 fresh-context reviewer 找出來的。
+- 🔴 **與 `feedback_claimed-sync-but-only-patched-touched-lines` 同病**:「補了我摸到的那幾支」。
+  差別在**這裡不會有任何一格轉紅來提醒你**。
+
+**動作(兩條,都機械)**
+1. 加欄之後 `grep -rn "<新欄名>" --include='*.test.*'`,**數出來的支數要等於**「構造該型別的 fixture」清單長度。
+2. 對每一支 fixture **拿掉新欄各跑一次**;沒紅的那支就是恆綠格。`toEqual` 那格要**單獨**試,別與別的突變合併跑。
 
 ---
 
@@ -35,6 +61,32 @@
 改構造成「碼表**與** outcome union 都加、只漏 switch case」才紅在 `refund-actions.ts:331`。
 
 **開工前那一條動作**:突變後跑 `... > /tmp/mut.txt` 然後 **`grep -n "×\|error TS" /tmp/mut.txt`**,確認紅的位置就是你要證的那一處。
+
+### ②-a 🔴 **測試名稱本身也是「字面 vs 事實」**(2026-08-14 V 窗 `#476` 片1)
+
+測試名稱會被貼進報告、commit body 與交接信,**而綠燈完全不取決於它** —— 紅不紅只看斷言。
+⇒ 名稱寫錯不會有任何東西叫,它是測試裡最容易長出假話的一行。
+(**這句是推論,不是數出來的**:我沒有去數「有多少測試名稱是錯的」;證據是下面兩個當天實例,
+各附**檔名 + 字面錨**(🔴 **刻意不附行號** —— 這兩個實例的行號在同一個施工 session 內被作者自己的
+後續編輯推漂過三次;認字面才重得出來)。要自己數的話:
+`grep -rn "it(\`" --include='*.test.ts' <目錄>` 然後逐條讀名稱對斷言。)
+
+**實例(兩種形狀,同一天各一次)**
+1. **參數化迴圈的名稱模板套錯清單**:`scripts/storefront-projection-leak-guard.test.ts` 的
+   `for (const column of CANCELLATION_INTERNAL_COLUMNS)` 把名稱寫死成「(取消歷程的內部冪等欄)」。
+   我把採購作廢的 `voided_at` / `void_reason` 塞進那份清單 ⇒ 測試名變成
+   **「`voided_at`(取消歷程的內部冪等欄)」—— 既不是取消歷程、也不是冪等欄,而它是綠的。**
+   修法 = 另立 `PROCUREMENT_VOID_COLUMNS` 與自己的迴圈,**不是**把兩種概念塞進同一個模板。
+2. **名稱的涵蓋宣稱大於斷言**:byte-equal 那條原本叫「應用層認得『已作廢』」,
+   但該片**只證了投影帶得到欄**,下游 `find`/`some` 全部仍未分流 ⇒ 名稱把「帶得到」講成「認得」。
+   (codex 關卡2 nit)
+
+**判準(拿去問自己,兩條)**
+- **「這個名字說的事,這格的斷言真的證了嗎?」** —— 名稱的動詞比斷言強一級就是假話(帶得到 ≠ 認得 ≠ 會擋)。
+- **參數化迴圈**:名稱模板裡的那句形容詞,對清單裡**每一個**元素都成立嗎?清單一長就要重新問一次。
+
+**開工前那一條動作**:加完/改完測試跑一次 **`--reporter=verbose`**,**用眼睛讀那幾行印出來的名字**。
+綠燈不會告訴你名字錯了 —— 上面實例 1 就是這樣被抓到的,而它已經通過了兩輪審查。
 
 ---
 

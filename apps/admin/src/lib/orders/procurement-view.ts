@@ -73,6 +73,68 @@ export function toTaipeiInputValue(iso: string | null): string {
 }
 
 /**
+ * 這個品項在這家供應商底下、**還生效中**的那一列;沒有 → `undefined`。
+ *
+ * 🔴🔴 **`#476` 片2:本函式是「表單挑列」這條線唯一的入口,三個呼叫點全部走它**
+ * (`hydrateFormValues` / 表單的 `editing` / 表單的 `originalSubmittedAt`;
+ *  數法:`grep -rn "findActiveProcurement" apps --include='*.ts*' | grep -v '\.test\.'`)。
+ * 不是在三處各補一個 `&& p.voidedAt == null` —— 那樣下一個新增的呼叫點又會漏掉,
+ * 而漏掉的症狀是**靜默資料損壞**(見下),不是報錯。
+ * ⚠️ ~~原字面「四個呼叫點」~~ **是錯的**(兩關審查同時抓到):第四處是同一片刪掉的死碼,
+ * 刪了行卻沒改數字。
+ *
+ * ⚠️ **本函式只解「挑列」這一面,`#476` 沒有因此結案**:顯示面(作廢列長得跟生效列一樣)在片3、
+ * 到貨選單與取消上限推導在片4。**不要因為這支存在就以為作廢已經到處都認得。**
+ *
+ * 🔴 **呼叫端契約:`procurements` 必須是【同一個品項】的採購列**(現行呼叫端都是
+ * `item.procurements`,天然成立)。混入不同品項的列時,partial unique 管不到跨品項
+ * ⇒ 同供應商可以有多筆合法生效列 ⇒ 本函式會**靜默取第一筆**。(codex 關卡2 finding 1)
+ *
+ * **為什麼非挑不可**(`#476` 的病灶,三個各自無害的成因湊出來的):
+ * ① `#452` 起 business key 是 **partial unique**(`WHERE voided_at IS NULL`,
+ *    `20260813120000_m4b_e10_452_procurement_void_schema.sql:379-381`)
+ * ② Sean `Q-S1=A` 允許對同一家供應商重下單
+ * ⇒ **同一個 `(order_item_id, supplier_id)` 可以同時存在「一列作廢 + 一列生效」**
+ * ③ 舊的 `find((p) => p.supplierId === supplierId)` 取的是**陣列第一筆**,而 mapper 依
+ *    `createdAt` ASC 排序(`mappers/created-at-order.ts`)⇒ **第一筆正是那筆舊的作廢列**。
+ * ⇒ 表單 hydrate 出作廢列的舊值 → 員工按儲存 → **舊資料落到生效列上。
+ * 零錯誤、零固定碼、稽核看起來完全正常。**
+ *
+ * 🔴 **「A5a 會跳過作廢列」是【尚未 apply】的字面,不是現況**(關卡 code-reviewer R1 must-fix3):
+ * 帶 `AND voided_at IS NULL` 的那版 A5a 在 `20260814100000`(甲片),而
+ * `supabase/APPLIED.tsv` 最後一筆是 `20260813120000` ⇒ **甲片不在台帳裡**
+ * (數法:`grep -c 20260814100000 supabase/APPLIED.tsv` = 0)。
+ * 正式庫此刻跑的仍是 `20260806200000` 那版,存在性查詢**不濾作廢列**
+ * (數法:`grep -c "voided_at" supabase/migrations/20260806200000*.sql` = 0)。
+ * ⇒ **順序契約**:作廢 RPC(乙)上線前,必須先 apply 甲片 **與** 本片。
+ * 今天之所以無害,唯一理由是**正式庫零 voided 列**(甲片 apply preflight P5 釘住的那件事)
+ * —— 那是安全網、不是設計。命中 memory `feedback_app-layer-must-not-ship-before-migration-apply`。
+ *
+ * 🔴 **回傳最多一列是 DB 保證的**,不是本函式的假設:partial unique index 讓
+ * 「同一 `(item, supplier)` 的生效列」至多一筆(同上 `:379-381`)。
+ * ⇒ 這裡用 `find` 而非 `filter` 是**有依據的**,不是圖方便。
+ *
+ * ⚠️ **只有作廢列的情況回 `undefined` 是對的**:那代表「這家的採購已經撤了」,
+ * 下一步就該是**新建**(`Q-S1=A` 允許),而 partial unique 讓那筆新建不會撞鍵。
+ */
+export function findActiveProcurement(
+  procurements: readonly AdminOrderItemProcurement[],
+  supplierId: string,
+): AdminOrderItemProcurement | undefined {
+  // 🔴🔴 **`== null` 而不是 `=== null`,這一個字元決定壞掉時往哪邊倒**(關卡 code-reviewer R1 must-fix2)。
+  //    `voidedAt` 變成 `undefined` 是可能的(投影退版 ⇒ mapper 搬出 `undefined`;或手寫 fixture
+  //    繞過型別 —— 本檔 `unsourcedQuantity` 的註解就記著同款實錘)。兩種寫法的後果**不對稱**:
+  //    · `=== null`:`undefined !== null` ⇒ **每一列都被判成非生效** ⇒ 全部 `editing=false` + 空白 hydrate
+  //      ⇒ 員工填完送出、A5a 命中真正的生效列走 UPDATE ⇒ **全量 payload 把既有採購事實靜默清空**。
+  //      = **片2 引入的、比 `#476` 原病更嚴重的新損壞**。
+  //    · `== null`:缺欄時每一列都當生效 ⇒ 退化成**片2 之前的行為**(可能挑到作廢列 = 原本的 `#476`)。
+  //      不會更糟,而擋住缺欄的是 `SupabaseOrderAdapter.test.ts` 的投影 byte-equal。
+  //    ⇒ 選那個「壞掉時只退回原狀、不會新增破壞」的方向。慣例來源 = 本檔 `unsourcedQuantity`
+  //      逐字「型別擋不住的東西,執行期要自己站得住」。
+  return procurements.find((p) => p.supplierId === supplierId && p.voidedAt == null);
+}
+
+/**
  * 由「選中的供應商」hydrate 出整份表單值。
  *
  * 🔴 **這是 A5a 全量 payload 契約的承重**(`20260803160000:19-24`:表單必全欄 hydrate 自最新列、
@@ -88,7 +150,9 @@ export function hydrateFormValues(
 ): ProcurementFormValues {
   // 回新物件而非共用常數的同一個參考(關卡2 nit:免掉未來整類就地改寫 bug)
   if (supplierId === '') return { ...EMPTY_PROCUREMENT_VALUES };
-  const row = procurements.find((p) => p.supplierId === supplierId);
+  // 🔴 #476 片2:只認**生效中**那一列。~~原本 `find((p) => p.supplierId === supplierId)`~~
+  //    會取到同供應商的作廢列(它排在前面)⇒ 舊值覆寫生效列。理由詳 `findActiveProcurement`。
+  const row = findActiveProcurement(procurements, supplierId);
   if (!row) return { ...EMPTY_PROCUREMENT_VALUES, supplierId };
   return {
     supplierId,

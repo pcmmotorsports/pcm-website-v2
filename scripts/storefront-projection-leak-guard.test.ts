@@ -102,6 +102,29 @@ const CANCELLATION_INTERNAL_COLUMNS = [
   'payload_hash',
 ] as const;
 
+/**
+ * 🔴 **採購作廢的內部欄(`#476` 片1,2026-08-14)** —— snake + camel 各兩顆。
+ *
+ * **為什麼另立一份而不塞進上面那份**:上面那份叫 `CANCELLATION_INTERNAL_COLUMNS`,它的 `it()` 名稱
+ * 與失敗訊息都逐字寫「取消歷程的內部冪等欄」。把採購作廢欄塞進去,測試會對後人說**假話**
+ * ——「`voided_at`(取消歷程的內部冪等欄)」既不是取消歷程、也不是冪等欄。
+ * (我第一版真的塞進去了,跑 `--reporter=verbose` 看到那四行名稱才發現。**測試名稱也是字面 vs 事實。**)
+ *
+ * **守門理由(與上面那份同構,不同的是洩漏內容)**:表名層(`order_item_procurement`)擋得住
+ * 直接查那張表,但**擋不住有人開一個 view 再投影同名欄** —— 那條字面裡沒有表名。
+ * 洩漏內容 = 「哪一張採購單被撤掉、為什麼」⇒ 客人看得到我方與上游的往來。
+ *
+ * ⚠️ **誤報天花板**:四個字面在 storefront 今天都是 **0 命中**(2026-08-14 實查,可重跑:
+ * `for t in voided_at voidedAt void_reason voidReason; do grep -rl "$t" apps/storefront/src | wc -l; done`
+ * ⇒ 四個都印 0)⇒ 不製造噪音。
+ * 🔴 日後 storefront 真要對客顯示「這批貨取消了」而撞名時,**正解是改名或把本層收窄到採購的形狀,
+ * 不是刪掉這四行** —— 刪掉等於把 view 那條路重新打開。
+ *
+ * (本層由 **codex 關卡2** 抓到:我原本只加了 `SupabaseOrderAdapter.test.ts` 那層的 token,
+ *  **不知道有這支獨立的 storefront 掃描守門** ⇒ 又一次「只補了我摸到的那一支」。)
+ */
+const PROCUREMENT_VOID_COLUMNS = ['voided_at', 'voidedAt', 'void_reason', 'voidReason'] as const;
+
 const STOREFRONT_SRC = fileURLToPath(new URL('../apps/storefront/src/', import.meta.url));
 
 function walk(dir: string): string[] {
@@ -148,6 +171,16 @@ describe('storefront 投影洩漏守門(service-role-only 表)', () => {
       expect(
         offenders,
         `${column} 出現在 storefront ⇒ 內部冪等機制走上了對客的路`,
+      ).toEqual([]);
+    });
+  }
+
+  for (const column of PROCUREMENT_VOID_COLUMNS) {
+    it(`🔴 storefront 原始碼不得出現 ${column}(採購作廢的內部欄,#476 片1)`, () => {
+      const offenders = files.filter((f) => f.source.includes(column)).map((f) => f.path);
+      expect(
+        offenders,
+        `${column} 出現在 storefront ⇒ 客人看得到哪張採購單被撤掉、為什麼`,
       ).toEqual([]);
     });
   }

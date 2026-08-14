@@ -12291,7 +12291,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-08-14 · R 窗審 E 窗 L3 片1(`~/pcm-mailbox/附件-R-E408-review.md` F4)。號碼由主視窗指派(`E-414`)。
 - **相關:** `#470`(突變靶全在被守的 code 上、零個在守門本身)、`#474`(測試檔零 lint 訊號)—— **三條同族:守門沒有人守**。
 
-### #476. 🔴 採購作廢上線後,**編輯表單會用已作廢的舊資料覆寫生效中的採購**(靜默資料損壞);兼 13 支讀者面不認得「已作廢」
+### #476. 🔴 採購作廢上線後,**編輯表單會用已作廢的舊資料覆寫生效中的採購**(靜默資料損壞);兼 14 個讀者面不認得「已作廢」
 
 > 🔴🔴 **2026-08-14 嚴重度上修 —— 原標題只寫「員工看到一筆還在的採購」= 低估。**
 > R3 換模型換角度(`gpt-5.6-terra`)抓到,D 窗與主視窗**各自開檔複核過**這兩處:
@@ -12312,15 +12312,50 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 > ⚠️ **三個成因各自無害**(允許同鍵兩列 / 投影少一欄 / `find` 取第一筆)—— 它是被**湊**出來的,
 >   **不是任何一輪 line-level review 抓得到的**。修的時候三個面都要看,只補投影不夠。
 
-**(原標題保留)👁️ 採購作廢上線後,後台 13 支讀者面一個都不認得「已作廢」—— 員工看到的是一筆還在的採購**
-- **來源:** `#452` 片 2a-2 對抗審查(R2 opus 2026-08-14)點名「12 個讀者面只證了 3 支」;D 窗實查後為 **13 支**。號由主視窗指派。
-- **數法(2026-08-14 實跑,可重數):** `grep -rln "order_item_procurement\|voided_at" apps packages` = **13 支**
-  (`apps/admin/src/lib/orders/` 四支:`cancel-view.ts` / `procurement-form.ts` / `procurement-repository.ts` / `procurement-view.ts`;
-   `packages/adapters/src/supabase/` 六支含 `SupabaseOrderAdapter.ts` 與 `mappers/order-procurement.ts` / `mappers/order.ts`;
-   `packages/domain/src/order/types.ts`;其餘為 `.test.ts`)。
-  ⚠️ 上列是**檔案**不是**顯示點**;一支檔可能有多個顯示點 ⇒ **真實顯示點只會比 13 多**,未逐一開檔數。
-- **現況:** 2a-2 只做 DB 層(void / unvoid 兩支 RPC + 兩個相鄰 writer 的 voided 分流 + receipt 一個新碼)。
-  **`voided_at` 沒有進任何投影、沒有任何列表或詳情會標示它。**
+**(原標題保留;🔴 「13 支」已由下方 V 窗重數更正為 14 個面/8 支檔)👁️ 採購作廢上線後,後台讀者面一個都不認得「已作廢」—— 員工看到的是一筆還在的採購**
+- **來源:** `#452` 片 2a-2 對抗審查(R2 opus 2026-08-14)點名「12 個讀者面只證了 3 支」;D 窗實查後為 **13 支**(🔴 該數字 2026-08-14 由 V 窗重數更正,見下)。號由主視窗指派。
+- ~~**數法(2026-08-14 實跑,可重數):** `grep -rln "order_item_procurement\|voided_at" apps packages` = **13 支**~~
+  **🔴 2026-08-14 V 窗開工前重數 —— 這條數法有三個錯,方向都是「低估」。原句加刪除線保留備查。**
+- **🔴 更正後的數法(V 窗 2026-08-14 實跑):**
+  `grep -rln --exclude-dir=.next "order_item_procurement\|voided_at\|AdminOrderItemProcurement" apps packages` = **16**
+  - **錯 1 · 原命令現在重跑吐 28、不是 13** —— 它會撈進 `.next/` 建置產物(15 個 `.js` / `.js.map`)。
+    加 `--exclude-dir=.next` 後 = 13 ⇒ **原數字是真的,但那條命令已經重數不出來**。
+  - **錯 2 · 🔴 13 支名單漏了三支非 test 原始碼,漏的正好是最會出事的三支:**
+    `apps/admin/src/components/orders/item-procurement-form.tsx`(表單「新建 vs 編輯」判定)/
+    `apps/admin/src/lib/orders/procurement-suppliers.ts`(供應商下拉合併)/
+    `apps/admin/src/components/orders/item-procurement-section.tsx`(採購表格本體)。
+    **病因**:原 grep 認的是**資料表名**,而下游消費端引用的是 domain 型別 `AdminOrderItemProcurement`
+    或只用 `item.procurements` —— **兩者都不出現表名** ⇒ 撈不到。
+    🔴 **通則**:「grep 不到」只證明「這個名字不存在」,**不證明「這件事沒被做過」**。
+  - **錯 3(次要)**:原句「`apps/admin/src/lib/orders/` 四支」實為**六支**(漏 `receipt-repository.ts` + `.test.ts`)。
+- **✅ 真實讀者面 = 14 個面 / 8 支要動的檔**(V 窗 2026-08-14 **逐一開檔**數,每條附行號;
+  原句「真實顯示點只會比 13 多、未逐一開檔數」由本節取代):
+
+  | 群 | 面 | 位置 |
+  |---|---|---|
+  | 投影/型別/mapper | R1-R4 | `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` 的 `ADMIN_ORDER_DETAIL_SELECT`(🔴 **認字面不認行號** —— 片1 加的註解讓它從 `:326` 漂到 `:363`)/ `mappers/order-procurement.ts` / `packages/domain/src/order/types.ts` |
+  | 顯示 | D1 空狀態 · D2 表格 · D3 到貨鈕 | `apps/admin/src/components/orders/item-procurement-section.tsx:94` · `:114-133` · `:134` |
+  | 顯示 | D4 供應商下拉 | `apps/admin/src/lib/orders/procurement-suppliers.ts:36-45`(**原名單漏列**) |
+  | 顯示 | D5「貨到了」採購選單 | `apps/admin/src/lib/orders/receipt-repository.ts:374-393`(**原條目未點到**;`.eq('order_item_id')` 無 voided filter) |
+  | 寫入前置 | W1 hydrate · W2 新建/編輯判定 · W3 原送出時間 | `apps/admin/src/lib/orders/procurement-view.ts:91` · `components/orders/item-procurement-form.tsx:226` · 同檔 `:162`/`:219`(**W2/W3 原名單漏列**) |
+  | 判定 | J1 取消上限推導 | `apps/admin/src/lib/orders/cancel-view.ts:448` |
+  | 判定 | J2 receipt 歸屬 | `apps/admin/src/lib/orders/receipt-repository.ts:305-312` —— **判斷不用改**(歸屬與作廢無關);列出是為了證明沒漏 |
+
+- **✅ 片界(主視窗 2026-08-14 核可;方向 = B「帶回來 + 標示 + 分流」,抄 shipments 樣板):**
+  **片1** R1-R4 帶欄(30-40 分)→ **片2** W1-W3 挑列分流(**本條目「靜默資料損壞」的真正修復**,30-45 分)
+  → **片3** D1-D4 顯示標示(30-45 分)→ **片4** D5+J1(20-30 分)。四片零同檔重疊;**片1 為硬前置**。
+  🔴 **不選 A(投影直接加 filter)的理由**:一行就能讓下游絕大多數面自動正確,但員工按下「作廢」後
+  畫面上什麼都不留 —— **動作後沒有回饋**是最容易讓人重複操作的形狀(Sean 常設準則「操作直覺化」);
+  樣板 `apps/admin/src/lib/shipping/order-shipments.ts:11` 逐字「否則畫面上會變成貨憑空消失」。
+- **進度:** **片1 已完工**(投影+型別+mapper 帶兩欄;三綠 exit 0、六發定向突變全紅、`code-reviewer` R1
+  FAIL 4 must-fix 已全折、codex 關卡2 已跑)。**片2-4 未開工。**
+  ⚠️ 片1 種下一筆**已標記**的還債:生成型別落後兩支 migration ⇒ 見 `#489`。
+- ~~**現況:** 2a-2 只做 DB 層…**`voided_at` 沒有進任何投影、沒有任何列表或詳情會標示它。**~~
+  **🔴 2026-08-14 片1 之後這句過期(codex 關卡2 must-fix:與上面「片1 已完工」自相矛盾)。現況改寫:**
+  - **`voided_at` / `void_reason` 已進明細投影與 domain 讀模型**(片1)⇒ 兩欄拿得到了。
+  - **但沒有任何一個顯示面或挑列邏輯在用它** —— `find` / `some` / `length` 全部原封未動
+    ⇒ 🔴 **「編輯表單用作廢資料覆寫生效採購」這個靜默資料損壞,片1 之後【仍然存在】。修它的是片2。**
+  - ⇒ **本條目【未結案】。** 片1 只是把分流所需的資料備齊。
 - **🔴 不修的話員工看到什麼(具體,不是抽象):**
   一筆已經作廢的採購,在採購區塊裡**長得跟生效中的一模一樣** —— 有供應商、有數量、有回覆狀態。
   而「訂購數」(`ordered_quantity`)**已經把它扣掉了** ⇒ 畫面上**列出 3 件、總數說 0 件**,兩個數字互相矛盾而沒有任何一行字解釋。
@@ -12565,3 +12600,33 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** 未估 —— 要先判「該由誰寫」(哪支 RPC 應該推進它),那是查的工不是修的工。
 - **發現於:** 2026-08-14 · E 窗 · `#484` 技術前置調查;號由主視窗指派。
 - **相關:** `#484`(因為這條而不能接 A 資料源)
+### #489. 🧬 生成型別 `database.types.ts` 落後兩支 migration —— 採購作廢兩欄不在裡面(**結案動作不是自己做**)
+
+- **狀態:** ⏳ 待執行(**被動等待型**,見「結案動作」)
+- **分流:** `P2`
+- **優先級:** 🟡 低(不會壞、不擋任何片;它是一筆**已標記的還債**,不是缺口)
+- **問題(實查 2026-08-14):**
+  - `packages/adapters/src/supabase/database.types.ts` 的 `order_item_procurement.Row` = **15 欄**,
+    `voided_at` / `void_reason` **兩欄都不在**
+    (數法可重跑:`awk '/^      order_item_procurement: \{/{f=1} f&&/^        Row: \{/{r=1;next} r&&/^        \}/{exit} r' packages/adapters/src/supabase/database.types.ts | wc -l`)
+  - 建那兩欄的 `supabase/migrations/20260813120000_m4b_e10_452_procurement_void_schema.sql:342-343`
+    是 **2026-08-13 才 apply**;該生成檔檔頭 `:42` 逐字記著最後一次重 gen = **2026-08-11 晚** ⇒ 生成器沒跑過。
+- **現況(`#476` 片 1 的處置,是還債標記不是解法):**
+  `packages/adapters/src/supabase/mappers/order-procurement.ts` 把兩欄手寫在
+  `Pick<Database[...]['Row'], …> & { … }` 的**交集側**、附還債註解。
+  🔴 **刻意不手改生成檔** —— 該檔 `:1` 逐字「勿手改」,且已累積十個函式二十六處手動校正(`:2`),
+  主視窗 2026-08-14 明令不准加第十一筆。
+- **🔴 結案動作(本條的重點,不要自己動手):**
+  **等 E 窗 `#484a` 片 A1 apply 之後 Sean 跑的那次 `supabase gen types`** —— 那一次會**順便**把這兩欄生出來。
+  屆時要做兩件:①確認兩欄真的進來了 ②把 `order-procurement.ts` 的兩欄從交集側**搬回 `Pick<>` 清單**、刪還債註解。
+  ⇒ **不要為本條單獨跑一次重 gen** —— 那會拉進 2026-08-11 之後**所有表**的漂移,是獨立範圍。
+- **不修未來會痛在哪:**
+  - **可維護性(主因):** 這兩欄的型別現在**不由生成器背書** —— DB 改掉它們的可空性,**不會有任何一格轉紅**。
+    型別會對呼叫端說謊,而說謊的方向是「以為它可空/不可空」這種最難在 code review 看出來的。
+  - **擴充性:** 片 2/3/4 都要讀這兩欄;交集側手寫每多一個消費端,搬回去的成本就多一分。
+  - **bug 可追蹤性:** 下一個人看到 `Pick<>` 與交集側**兩種寫法並存**,若沒讀註解會以為那是刻意的設計慣例,
+    然後照抄 —— 一筆還債就會變成一種風格。
+- **重 gen 的既有流程(給結案的人,不是要你現在跑):** 生成檔檔頭 `:37-38` 的 `--project-id` 指令
+  (走 Management API、不讀 `.env.local`)+ `scripts/regen-types-merge.py` + 二十六處校正的機械比對。
+- **相關:** `#476`(片 1 種下這筆債)/ `#484a`(它的 apply 會觸發那次 gen types)
+- **發現於:** 2026-08-14 · V 窗做 `#476` 片 1 時被 typecheck 擋下(`Type '"void_reason"' is not assignable`)· 號由主視窗指派
