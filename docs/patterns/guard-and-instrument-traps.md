@@ -166,3 +166,44 @@ select relacl from pg_class where relname = '<view>';   -- 只准出現 postgres
 再補「抽出區段非空」「建完 view 必須存在」兩條,才變成 正向 `EXIT=0` / 負向 `EXIT=1` 且列出 3 條具名失敗。
 
 **順序**:①構造一發現在漏得掉的 ②加斷言 ③**重跑那一發,確認它現在紅** ④正向也要再跑一次(別把好的弄紅)。
+
+---
+
+## 會**離開 repo** 的字面,一律不准寫行號
+
+`COMMENT ON TABLE/VIEW/COLUMN`、DB 內的文案、寄出去的信、對外訊息 —— 這些字面**離開 repo 之後,
+git 的任何工具都掃不到它**,而它會在資料庫/信箱裡活好幾年。
+
+**實錘(2026-08-14 `#484a`)**:我在 migration 裡引了 `order-status-axes.ts:126-133`,
+而**同一顆 commit** 因為改了那支檔、把函式往下推了 7 行 ⇒ 四處引用全錯,
+**其中一處寫在 `COMMENT ON VIEW` 裡** ⇒ apply 之後那個錯行號就進了正式庫。
+🔴 **是 code-reviewer 抓到的,不是我複掃抓到的** —— 因為「本 commit 自己推移了自己引用的行號」
+這件事,寫的時候完全沒有感覺。
+
+**通則**:
+- 會離開 repo 的字面 ⇒ **只准寫函式名 / 常數名 / 可 grep 的字面錨**,不准寫行號。
+- 留在 repo 內的註解可以寫行號,但**改了被引用的那支檔就要回頭掃一次**(見下一節)。
+
+---
+
+## 折完 finding 的收尾動作:**先宣告載體清單,再逐類掃**
+
+**不是「更小心」,是一條固定動作。** 病名:改任何一處字面之後只改被點名的那一處
+(`feedback_claimed-sync-but-only-patched-touched-lines`,本 repo 復發 9+ 次)。
+
+**實錘(2026-08-14 `#484a`)**:審查說「回退順序寫錯」,我改了 `scripts/484a-down.sql`——
+**而 migration、runbook、plan 三處仍是舊字面**,下一輪審查才抓到。**我當天稍早才引用過這條教訓。**
+
+**收尾動作(六類載體,逐類掃過才算折完)**:
+
+| 類 | 典型檔 |
+|---|---|
+| migration / SQL | `supabase/migrations/*.sql`、`COMMENT ON …`(🔴 見上一節) |
+| 回退腳本 | `scripts/*-down.sql` |
+| runbook | `docs/runbooks/*.md` |
+| plan / spec | `docs/specs/*.md` |
+| 測試 | 同層 `*.test.ts(x)`、探針 `docs/probes/*.sh` |
+| backlog / STATUS | `docs/phase-1-backlog.md`、`STATUS.md` |
+
+⇒ 掃法:`git grep -n "<舊字面>"`,**在宣告清單之後才跑**(先列載體、再 grep,不要用 grep 的結果當清單 ——
+grep 只找得到你想得到的那個字面,找不到「同一件事的另一種寫法」)。
