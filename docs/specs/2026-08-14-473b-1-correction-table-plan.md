@@ -70,7 +70,7 @@
 | **R5** | `refund-ledger-section.tsx:94` | 畫面上的「帳本未登記額」 | ✅ 零改動 |
 | **R6** | `refund-exception-resolve.tsx:114,117` 「發起前/現在累計已退」 | **TapPay Record 反查**(`refund-actions.ts:221` `checkRecordBaseline`) | ✅ **刻意不動** —— 那是外部權威,比我們的帳本更接近真相 |
 | **R7** | `refund-section.tsx:110-111,203` 「TapPay 剩餘可退額」 | TapPay 端的數,非本帳本 | ✅ 刻意不動,同 R6 |
-| **R8** | `order-display.ts:42,48`(**storefront,客人看得到**) | 「已退款」/「已退部分」,來源 = `orders.payment_status` | ⚠️ 吃 R2 ⇒ **繼承 R2 的缺口**(§6-3) |
+| **R8** | `order-display.ts:40-50`(**storefront,客人看得到**) | 把 `orders.payment_status` 五值翻成中文:`refunded`→「已退款」`:42` / `partiallyRefunded`→「已退部分」`:48` / **`paid`→「處理中」`:50`** | ⚠️ 吃 R2 ⇒ **繼承 R2 的缺口**(§6-3) |
 | **R9** | `refund-entry-gate.ts` / `order-detail-route.tsx:175` / `order-detail.tsx:262` | 不回答金額,只 fail-closed 依賴 R1 **可用性** | ✅ 零改動 |
 | **R10** | `scripts/a7c-rw1b-verify.sh:344` 斷言 `= 57` | 驗證腳本 | ⚠️ 若該筆訂單將來有更正,期望值要重算;**apply 當天回跑一次** |
 | **R11** | `database.types.ts:3280` | 產生的型別(簽章不變 ⇒ 不需重產) | ✅ 零改動 |
@@ -163,7 +163,8 @@ R1 內部改成:再扣掉「有更正說錢動過」的 `failed` 列(join `order
 
 3. 🔴🔴 **`R2`(`20260803150000:776-779`)本片不修 —— 這是明知而不做,不是沒看到。**
    它自己 SUM `status='confirmed'` 決定 `orders.payment_status`。一筆「錢其實有動」的更正**不會**讓該列變 `confirmed` ⇒ R2 算不到它 ⇒ **`payment_status` 可能停在 `paid`,而實際上錢已全退**。
-   **這條會漏到客人眼前**:`order-display.ts:42,48`(storefront)吃的就是 `payment_status`,客人看到的是「已付款」而不是「已退款」。
+   **這條會漏到客人眼前**:`order-display.ts`(storefront)吃的就是 `payment_status` ⇒ 客人看到的是 `:49-50` 的 **「處理中」**,而不是 `:42` 的「已退款」。
+   ⚠️ **本行原本寫「已付款」= 假字面**(主視窗先發現、我開檔複驗確認:`order-display.ts:49-50` 逐字 `case 'paid': return '處理中';`,該檔 `:20-22` 註解說明 `paid` 自 A9f 起固定此字串、不再細分出貨軸)。**機制不受影響**(客人看到的仍是付款軸的字、不是退款軸的字),但字面必須對 —— Sean 能核的就是字面。
    不在本片修的理由:改 R2 = 改 `payment_status` 的翻轉語意 = **另一個方向題**(要不要讓人工更正去翻訂單狀態),不是 `473b-1` 的範圍。
    ⇒ **要開 backlog 條目,並在送 Sean 批本 plan 時一起講。** 不寫成「未來優化」,寫成「已知會對客人顯示錯」。
 
