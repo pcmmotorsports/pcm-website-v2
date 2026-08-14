@@ -23,6 +23,7 @@ vi.mock('@pcm/adapters/server', () => ({
 import {
   FINALIZE_RESULT_CODES,
   INITIATE_RESULT_CODES,
+  REFUND_BLOCKED_BY_VALUES,
   RefundCallerBugError,
   RefundFinalizeParseError,
   finalizeOrderRefund,
@@ -70,7 +71,7 @@ afterEach(() => {
 });
 
 describe('碼全集常數(與 migration COMMENT 對齊;RW1a `20260803150000:414-416` / `:607`)', () => {
-  it('initiate 8 碼、finalize 3 碼', () => {
+  it('initiate 9 碼(第 9 碼 = #445 步 6b,445b 才會吐)、finalize 3 碼', () => {
     expect(INITIATE_RESULT_CODES).toEqual([
       'INITIATED',
       'DUPLICATE_REQUEST',
@@ -80,8 +81,88 @@ describe('碼全集常數(與 migration COMMENT 對齊;RW1a `20260803150000:414-
       'REFUND_LEDGER_FULL',
       'REFUND_IN_FLIGHT',
       'REFUND_NOTHING_LEFT',
+      'REFUND_EXCEEDS_REMAINING',
     ]);
     expect(FINALIZE_RESULT_CODES).toEqual(['FINALIZED', 'HELD_AMOUNT_MISMATCH', 'REFUND_NOT_FOUND']);
+  });
+
+  it('blocked_by 三值(#445 §4-4;新增第 4 值時本格與 EXCEEDS_FAILURE_CODE 一起紅)', () => {
+    expect(REFUND_BLOCKED_BY_VALUES).toEqual(['amount', 'in_flight', 'unknown']);
+  });
+});
+
+describe('initiate — REFUND_EXCEEDS_REMAINING 的形狀驗(#445 步 6b;445b 才會吐)', () => {
+  const exceeds = (extra: Record<string, unknown>) =>
+    mocks.rpc.mockResolvedValue({
+      data: { result: 'REFUND_EXCEEDS_REMAINING', ...extra },
+      error: null,
+    });
+
+  it('remaining 正整數 + blocked_by=amount ⇒ 收斂成 union', async () => {
+    exceeds({ remaining: 300, blocked_by: 'amount' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).resolves.toEqual({
+      result: 'REFUND_EXCEEDS_REMAINING',
+      remaining: 300,
+      blockedBy: 'amount',
+    });
+  });
+
+  // 🔴 這格擋的是「用 falsy 判斷有沒有拿到數字」——0 是合法上限(已無可退),不是「沒拿到」。
+  it('🔴 remaining = 0 是合法值,不得被當成缺值', async () => {
+    exceeds({ remaining: 0, blocked_by: 'amount' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).resolves.toEqual({
+      result: 'REFUND_EXCEEDS_REMAINING',
+      remaining: 0,
+      blockedBy: 'amount',
+    });
+  });
+
+  it('remaining = null(RPC 的 guard 算不出來)⇒ null + blocked_by=unknown', async () => {
+    exceeds({ remaining: null, blocked_by: 'unknown' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).resolves.toEqual({
+      result: 'REFUND_EXCEEDS_REMAINING',
+      remaining: null,
+      blockedBy: 'unknown',
+    });
+  });
+
+  it('🔴 remaining 負值 = 合約漂移 ⇒ 拋,不讓它流進 UI 變成被照著操作的數字', async () => {
+    exceeds({ remaining: -1, blocked_by: 'amount' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+  });
+
+  it('🔴 remaining 非整數 ⇒ 拋', async () => {
+    exceeds({ remaining: 12.5, blocked_by: 'amount' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+  });
+
+  // 🔴 分不出三種情況 = §0-E 第 2 條的「擋得莫名其妙」⇒ 寧可拋,不猜、不降級成「打太多」。
+  it('🔴 blocked_by 不認得 ⇒ 拋', async () => {
+    exceeds({ remaining: 300, blocked_by: 'because_i_said_so' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+  });
+
+  it('🔴 blocked_by 缺欄 ⇒ 拋', async () => {
+    exceeds({ remaining: 300 });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+  });
+
+  // 🔴 關卡2 MF1:缺欄 ≠ null。第一版把兩者收斂成同一個 null ⇒ 一次協定漂移
+  //    會偽裝成一次「算不出來」,而後者是我們會照著顯示給員工的合法狀態。
+  it('🔴 remaining **缺欄**(不是 null)⇒ 拋,不得靜默當成 null', async () => {
+    exceeds({ blocked_by: 'unknown' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+  });
+
+  // 🔴 關卡2 MF2:兩欄各自合法 ≠ 組合合法。
+  it('🔴 blocked_by=unknown 卻帶得出數字 ⇒ 拋(矛盾組合)', async () => {
+    exceeds({ remaining: 300, blocked_by: 'unknown' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+  });
+
+  it('🔴 blocked_by=amount 卻沒有數字 ⇒ 拋(矛盾組合)', async () => {
+    exceeds({ remaining: null, blocked_by: 'amount' });
+    await expect(initiateOrderRefund(INITIATE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
   });
 });
 

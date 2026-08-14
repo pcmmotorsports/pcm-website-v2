@@ -13,7 +13,15 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 admin 訂單顯示層投影**刻意零 tappay_rec_trade_id**(`SupabaseOrderAdapter.ts:90`)⇒
 //    退款要的 {display_id, payment_status, tappay_rec_trade_id} 走本檔的窄讀,不擴顯示層投影。
 
-/** initiate 的 8 個固定回傳碼(migration `20260803150000:414-416` 逐字)。 */
+/**
+ * initiate 的 9 個固定回傳碼。前 8 碼 = migration `20260803150000:414-416` 逐字。
+ *
+ * 🔴 第 9 碼 `REFUND_EXCEEDS_REMAINING` = **#445 步 6b 超退閘**,由 **445b** 建立 ——
+ *    **今天庫裡那支 RPC 還不會吐它**,本片刻意先接。理由是反向窗口:
+ *    445b 一 apply 而本片還沒 deploy,下面的窮盡收斂會判未知碼丟 `RefundCallerBugError`
+ *    ⇒ 每一筆被擋下的超退在員工眼裡變成「系統呼叫異常」。
+ *    ⇒ **445a 必須先 deploy,才准 apply 445b**(順序要寫進 445b migration 檔頭)。
+ */
 export const INITIATE_RESULT_CODES = [
   'INITIATED',
   'DUPLICATE_REQUEST',
@@ -23,8 +31,20 @@ export const INITIATE_RESULT_CODES = [
   'REFUND_LEDGER_FULL',
   'REFUND_IN_FLIGHT',
   'REFUND_NOTHING_LEFT',
+  'REFUND_EXCEEDS_REMAINING',
 ] as const;
 export type InitiateResultCode = (typeof INITIATE_RESULT_CODES)[number];
+
+/**
+ * 超退閘擋下來的三種原因(#445 §4-4)。三者員工的下一步動作完全不同,
+ * 而「有沒有列佔著額度」只有 RPC 知道 ⇒ 判別值必須由 RPC 吐,app 端從
+ * 「一個碼 + 一個數字」推不出來。
+ * · `amount`    = 純粹打太多       ⇒ 改金額重打
+ * · `in_flight` = 有列佔著額度      ⇒ 先去處理那一筆(含 processing 與待人工判定的列)
+ * · `unknown`   = RPC 算不出額度    ⇒ 不是金額問題,勿重試、找人
+ */
+export const REFUND_BLOCKED_BY_VALUES = ['amount', 'in_flight', 'unknown'] as const;
+export type RefundBlockedBy = (typeof REFUND_BLOCKED_BY_VALUES)[number];
 
 /** finalize 的 3 個固定回傳碼(`20260803150000:607`)。 */
 export const FINALIZE_RESULT_CODES = [
@@ -149,6 +169,16 @@ export type InitiateOrderRefundOutcome =
       rowStatus: 'processing' | 'confirmed';
     }
   | {
+      result: 'REFUND_EXCEEDS_REMAINING';
+      /**
+       * 本單目前可受理的退款上限(元,整數)。
+       * 🔴 **`0` 是合法值**(已無可退),不是「沒拿到」—— 呼叫端不得用 falsy 判斷;
+       *    `null` = RPC 算不出來(guard IS NULL),由 `blockedBy === 'unknown'` 承接。
+       */
+      remaining: number | null;
+      blockedBy: RefundBlockedBy;
+    }
+  | {
       result:
         | 'ORDER_NOT_FOUND'
         | 'ORDER_NOT_REFUNDABLE'
@@ -179,6 +209,34 @@ function requirePositiveInt(fn: string, row: Record<string, unknown>, key: strin
   if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
     throw new RefundCallerBugError(
       `${fn} 回傳缺 ${key} 或非正整數:${JSON.stringify(row).slice(0, 200)}`,
+    );
+  }
+  return value;
+}
+
+/**
+ * 超退閘的可退上限。與 `requirePositiveInt` **刻意不同**:
+ * · `0` 合法(這張單已無可退額度)⇒ 不能沿用「非正即拋」;
+ * · `null` 合法(RPC 的 guard 算不出來)⇒ 由 `blocked_by='unknown'` 承接;
+ * · 負值 / 非整數 / 非數字 = 合約漂移 ⇒ fail-loud,不讓它流進 UI 變成一個會被照著操作的數字。
+ */
+function requireNonNegativeIntOrNull(
+  fn: string,
+  row: Record<string, unknown>,
+  key: string,
+): number | null {
+  // 🔴 關卡2 MF1:**缺欄與明寫 null 是兩件事,不得收斂成同一個值。**
+  //    `null` = RPC 說「我算不出來」(合法,由 blocked_by='unknown' 承接);
+  //    **缺欄** = 合約漂移 ⇒ 落到下面的型別檢查、fail-loud。
+  //    第一版寫 `value === null || value === undefined` ⇒ 把協定漂移偽裝成一次
+  //    「算不出來」,而後者是我們會照著顯示給員工的合法狀態。**只認 null。**
+  //    ⚠️ 我一度另加一道 `if (!(key in row)) throw` —— **實測那道紅不起來**
+  //    (缺欄 = undefined,型別檢查本來就會拋)⇒ 它是 no-op,已刪。
+  const value = row[key];
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw new RefundCallerBugError(
+      `${fn} 回傳 ${key} 非「非負整數或 null」:${JSON.stringify(row).slice(0, 200)}`,
     );
   }
   return value;
@@ -233,7 +291,40 @@ export async function initiateOrderRefund(
       rowStatus,
     };
   }
-  return { result: result as Exclude<InitiateResultCode, 'INITIATED' | 'DUPLICATE_REQUEST'> };
+  if (result === 'REFUND_EXCEEDS_REMAINING') {
+    const blockedBy = row.blocked_by;
+    if (
+      typeof blockedBy !== 'string' ||
+      !(REFUND_BLOCKED_BY_VALUES as readonly string[]).includes(blockedBy)
+    ) {
+      // 判別值缺或不認得 ⇒ 三種文案分不出來(§0-E 第 2 條)。不猜、不降級成「打太多」。
+      throw new RefundCallerBugError(
+        `${fn} REFUND_EXCEEDS_REMAINING 帶非預期 blocked_by:${JSON.stringify(row).slice(0, 200)}`,
+      );
+    }
+    const remaining = requireNonNegativeIntOrNull(fn, row, 'remaining');
+    // 🔴 關卡2 MF2:兩欄要**交叉驗**,各自合法不代表組合合法。
+    //    `unknown` 的定義就是「guard 算不出來」⇒ 必然沒有數字;反過來,
+    //    有數字卻說 unknown、或說 amount 卻沒數字,都是協定漂移。
+    //    放行矛盾組合的後果:員工看到「不是金額問題、勿重試」卻同時拿到一個上限,
+    //    或看到「請降低金額」卻沒有可對照的數字 —— 兩種都會讓他做錯下一步。
+    if ((blockedBy === 'unknown') !== (remaining === null)) {
+      throw new RefundCallerBugError(
+        `${fn} REFUND_EXCEEDS_REMAINING 的 remaining 與 blocked_by 矛盾:${JSON.stringify(row).slice(0, 200)}`,
+      );
+    }
+    return {
+      result,
+      remaining,
+      blockedBy: blockedBy as RefundBlockedBy,
+    };
+  }
+  return {
+    result: result as Exclude<
+      InitiateResultCode,
+      'INITIATED' | 'DUPLICATE_REQUEST' | 'REFUND_EXCEEDS_REMAINING'
+    >,
+  };
 }
 
 // ── RPC 2:finalize ─────────────────────────────────────────────────────────
