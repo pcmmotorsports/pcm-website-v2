@@ -65,6 +65,35 @@ import { orderStatusView } from '../../lib/orders/order-status-axes';
 // V-3b:「年份廠牌車種」= order_items.vehicle_snapshot 逐品項直出、formatOrderItemVehicle 顯示
 //    (dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
 
+/**
+ * `#486` 乙案(2026-08-14 Sean 拍板):操作欄從「取消」兩個字改成 OD 的 **⋯**。
+ *
+ * 🔴 **只換外觀與入口語意,不換目的地** —— 仍然是 `#cancel`(`order-cancel-block.tsx:73` 的錨點)。
+ *    理由:今天訂單層**只有取消一個動作**,那個區塊就是「操作區」本身。
+ *    ⚠️ **退款 / 沖銷 / 重寄通知進來的那一天,錨點要改成那個區塊的通用 id、不是繼續指 `#cancel`**
+ *    —— 否則員工按 ⋯ 會被丟到「取消訂單」的表單前面,那是全部動作裡最危險的一個。
+ *
+ * 🔴 **為什麼不是彈出選單**(OD `:1052` 的 `<details class="km">`):2026-08-14 動手前 hit test
+ *    證偽了「零 JS `<details>` 彈出選單」—— 現況 3/3 點不到,最後一列還會被 `.orders-grid`
+ *    自己的 overflow 夾掉(`#486` 條目有量測表)。甲案要破零 JS、丙案遠超估時
+ *    ⇒ Sean 在知道「OD 的意圖不會兌現」之後選乙。**不要在後續片裡「順手」往甲/丙靠攏。**
+ *
+ * ⚠️ **`⋯` 是 U+22EF(MIDLINE HORIZONTAL ELLIPSIS),逐字取自 OD `:985`**,不是三個句點、
+ *    也不是 `…`(U+2026 水平省略號,那顆的基線在下面、在方框裡看起來是沉的)。
+ *    ⚠️ **本檔刻意不寫方鈕的尺寸** —— 尺寸只准住 `globals.css`。
+ *    🔴 **但不要以為有守門在擋**(R1 F7 更正我原本的說法):密度值單一來源那道守門
+ *    只從 CSS 抽 `--od-row-h` 的三個值再反掃本檔 ⇒ 把 `36px`/`15px` 寫進來**完全不會紅**,
+ *    只有**桌機那個尺寸**會、而且是**巧合**(它剛好也是 tight 檔的列高)。**這條靠紀律,不靠機制。**
+ *    ⚠️ 連這句話裡都不能寫出那個數字 —— 守門是純字串掃描,寫在註解裡照樣紅(我剛剛就撞了一次)。
+ */
+const OPS_LINK_GLYPH = '⋯';
+/**
+ * 🔴 **無障礙必要,不是可選** —— `⋯` 對螢幕閱讀器是「midline horizontal ellipsis」這種念不出意思的字。
+ *    `title` 同時給滑鼠使用者一個 tooltip:員工第一次看到這一格時,**不用人教也要知道它是什麼**
+ *    (Sean 2026-08-11 定調的「操作直覺化」常設準則)。
+ */
+const OPS_LINK_LABEL = '訂單操作';
+
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
 
@@ -380,16 +409,20 @@ function OrderGroup({
                     <Link
                       href={`${buildPanelHref(order.id)}#cancel`}
                       data-nav='panel'
-                      className='hover:underline'
+                      aria-label={OPS_LINK_LABEL}
+                      title={OPS_LINK_LABEL}
                     >
-                      取消
+                      {OPS_LINK_GLYPH}
                     </Link>
+                    {/* 🔴 **手機槽刻意不給 `title`**(R1 F12):觸控裝置沒有 hover ⇒ tooltip 永遠不顯示,
+                        而 `aria-label` + `title` 同值會讓部分螢幕閱讀器**把「訂單操作」念兩次**
+                        (name 取 aria-label、description 取 title)。桌機那槽留著,因為滑鼠 hover 真的看得到。 */}
                     <Link
                       href={`/orders/${order.id}#cancel`}
                       data-nav='page'
-                      className='hover:underline'
+                      aria-label={OPS_LINK_LABEL}
                     >
-                      取消
+                      {OPS_LINK_GLYPH}
                     </Link>
                   </>
                 )}

@@ -396,6 +396,38 @@
   padding-left: 0.125rem;
 }
 
+/* `#486` 乙案(2026-08-14 Sean 拍板):操作欄的「取消」改成 OD 的 ⋯ 方鈕。
+   🔴 **搬 OD `.kb`(`overview-desktop.html:214-215`)** —— 那條規則**跨兩行**,共 **10 個宣告**;
+      只讀 `:214` 會抄到 6 個,而且看起來完全正常(同 `.fchip` 那個坑)。
+   🔴 **逐項對帳(R1 F5:原本寫「照搬 9 個」與事實不符)**:
+      **搬 8 個**(border / background / border-radius / width / height / font-size / color / padding,值逐字相同,
+      token 名映射 `--mutedfg` → `--muted-foreground`);
+      **不搬 2 個**:`cursor:pointer`(我們是 `<a>`,游標本來就是 pointer)、
+      `font-family:inherit`(OD 的 `.kb` 是 `<button>`,按鈕預設不繼承字體;`<a>` 本來就繼承);
+      **另外新增 3 個 OD 沒有的**:`display:inline-flex` + `align-items` + `justify-content`
+      —— OD 的 `<button>` 天生置中文字,`<a>` 不會。**這三個是換 tag 的補償,不是設計改動。**
+   ⚠️ 桌機 26×26 放進 34px 的欄:34 − 2×2px 內距 = 30 ⇒ 裝得下(真瀏覽器實測 26.0×26.0)。
+      🔴 **這句只對桌機成立** —— 卡片模式那顆是 36,見下方卡片區塊(R1 F6:原句讀起來像通則)。 */
+.orders-grid .col-ops a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.orders-grid .col-ops a:hover {
+  border-color: var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+}
+
 /* 🔴 **窄版收哪些欄是 Sean 逐字定的**,OD `overview-desktop.html:129-131` 註解原文:
    「料號不再被收起來(Sean:我反而要看料號,中文可以被截斷)。窄版收的是
      日期/車種/廠牌/單價/客戶/發票;客戶收掉的理由=面板開著時右邊就有客戶。」
@@ -678,11 +710,54 @@
     position: relative;
   }
 
+  /* 🔴 `#486` 乙案:卡片模式的 ⋯ 是 **36×36**(逐字照 OD `overview-desktop.html:166`,
+     它就在窄版那個區塊裡覆寫 `.kb`)—— 桌機 26、卡片 36,是 OD 自己的兩檔。
+
+     🔴🔴 **這兩條是配套,少一條 36 就不會生效**(R1 F1,真瀏覽器實測 30.00×36.00):
+     ①`.orders-grid .col-ops{width:34px}`(`:388`)特異性 (0,2,0),**壓過**卡片區塊裡
+       `.orders-grid td{width:auto}` 的 (0,1,1) ⇒ 那一格在手機**仍然是 34px**,
+       內容盒 30px,36px 的連結被壓成 30px 寬。**CSS 字面寫 36、用值是 30。**
+     ②`.orders-grid a[data-nav='page']{display:inline}`(下方)**壓過** `display:inline-flex`
+       (同特異性、source order 較後)⇒ flex 容器被 blockify,`justify-content/align-items`
+       **全部失效**,⋯ 貼在左上角(實測字形位置 left+1.0 top+2.0)。
+     ⇒ 下面兩條各解一個。**它們看起來像多餘的覆寫,其實是承重的。** */
+  .orders-grid .col-ops {
+    width: auto;
+  }
+
+  /* 尺寸給兩槽都套(哪一槽顯示由下面那條決定)。**這裡刻意不寫 `display`** ——
+     `.orders-grid .col-ops a` 與 `.orders-grid a[data-nav='panel']{display:none}` **特異性相同**
+     (各 2 類 + 1 元素),寫在這裡只因為 source order 較後就會**把桌機那槽的 `display:none` 蓋掉**
+     ⇒ 手機會同時看到兩顆 ⋯。**真瀏覽器實測抓到過**(改之前 desk 那槽在卡片模式量到 `flex` 而不是 `none`)。 */
+  .orders-grid .col-ops a {
+    width: 36px;
+    height: 36px;
+    font-size: 15px;
+  }
+
+  /* 只把**要顯示的那一槽**變回 flex 容器:`(0,3,1)` 勝過 `a[data-nav='page']{display:inline}` 的 `(0,2,1)`
+     ⇒ 置中回來,而桌機那槽的 `display:none` 一個字都沒被動到。 */
+  .orders-grid .col-ops a[data-nav='page'] {
+    display: inline-flex;
+  }
+
   .orders-grid .col-ops a::after {
     content: '';
     position: absolute;
-    /* 24×16 + 左右各 12 + 上下各 14 = **48×44** ⇒ 過 44×44 */
-    inset: -14px -12px;
+    /* 🔴 **這個數字隨 `#486` 重算過兩次**,第一次算錯,錯法值得留著:
+       ①舊值 `-14px -12px` 是為**「取消」兩個字**(視覺 26×20)算的,直接沿用會過大。
+       ②我第一次改成 `-4px`,理由寫「36+4×2=44」——**兩個前提都是錯的**(R1 用真瀏覽器抓到):
+          · 視覺尺寸當時是 30×36 不是 36×36(見上面那條 width:auto 的理由);
+          · `inset` 錨在**padding box**,而 `border-box` + 1px 邊框 ⇒ 還要再扣 2。
+          實測結果:宣稱 44×44、**實際 36×42**,而且**比改版前的 50×48 更小** ——
+          「我把手機觸控目標改小了」而畫面上完全看不出來。
+       ③現在:視覺 36×36(上面兩條修好之後)⇒ padding box = 34×34(扣兩側各 1px 邊框)
+          ⇒ 要 44 需要四邊各 **5**:34 + 5×2 = **44×44**。
+       ⚠️ **44×44 是 WCAG 2.2 SC 2.5.5 的 AAA**,不是 AA;AA 是 SC 2.5.8 的 24×24
+          (本檔 `:697` 那段自己寫對了,是我這裡引錯)。桌機 26×26 已過 AA,故桌機不加熱區。
+       🔴 **這一版的 44×44 是真瀏覽器量的**(容器 400px、`elementFromPoint` 四向探邊),
+          不是算出來的 —— 前一版就是「算對了但用值不同」而綠著。 */
+    inset: -5px;
   }
 
   /* 品名 = 品項段的主標,兼作「訂單層欄到此結束」的分隔線 */
