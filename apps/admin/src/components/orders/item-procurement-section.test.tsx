@@ -223,6 +223,169 @@ describe('ItemProcurementSection — 供應商清單', () => {
   });
 });
 
+// 🔴🔴 `#476` 片3:作廢列的顯示面。
+//
+// **這一組的存在理由**:片1 把 `voidedAt` 帶進讀模型、片2 讓表單只挑生效列,但**畫面上
+// 作廢列與生效列長得一模一樣**,而「訂購數」已經把它扣掉了 ⇒ 員工看到「表格列了 3 件、
+// 系統說還有 3 件沒登記來源」這種互相矛盾而沒有一行字解釋的畫面(`#476` 條目逐字)。
+//
+// ⚠️ **構造照正式庫走得到的形狀**:partial unique(`20260813120000` 步3)+ `Q-S1=A` 允許重下單
+//    ⇒ 同鍵可有「一作廢 + 一生效」兩列;mapper 依 `createdAt` ASC 排 ⇒ 作廢的(較舊)排前面。
+describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入口', () => {
+  const VOIDED = proc({
+    id: 'p-void',
+    supplierId: SUP_B,
+    supplierLabel: 'Webike JP',
+    supplierOrderNo: 'SO-舊-已作廢',
+    createdAt: '2026-08-01T00:00:00+00:00',
+    voidedAt: '2026-08-10T00:00:00+00:00',
+    voidReason: '供應商回報缺料、改下另一家',
+  });
+
+  function withVoided(over: Parameters<typeof proc>[0] = {}) {
+    const d = detail();
+    return {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [VOIDED, proc(over)] }],
+    } as typeof d;
+  }
+
+  it('作廢列標「(已作廢)」+ 刪除線;生效列兩者都不得有', () => {
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={withVoided()} suppliers={[]} suppliersFailed={false} />,
+    );
+    const rows = container.querySelectorAll('tbody tr');
+    expect(rows.length).toBe(2);
+    // 🔴 逐列比對,不是「整張表含有『已作廢』」—— 後者無法分辨標到哪一列
+    expect(rows[0]!.textContent).toContain('(已作廢)');
+    expect(rows[0]!.querySelector('.line-through')).not.toBeNull();
+    expect(rows[1]!.textContent).not.toContain('(已作廢)');
+    expect(rows[1]!.querySelector('.line-through')).toBeNull();
+    // 🔴 整列淡化也要驗(codex nit:拿掉 `opacity-60` 原本 0 紅)——
+    //    刪除線只在供應商那一格,整列淡化才是「一眼掃過去看得出哪幾列不算數」的那個訊號。
+    expect(rows[0]!.className).toContain('opacity-60');
+    expect(rows[1]!.className).not.toContain('opacity-60');
+  });
+
+  it('🔴 作廢列不給「登錄到貨」;同一張表的生效列照給(正負成對,免得整欄消失也綠)', () => {
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={withVoided()} suppliers={[]} suppliersFailed={false} />,
+    );
+    const rows = container.querySelectorAll('tbody tr');
+    expect(rows[0]!.textContent).not.toContain('登錄到貨');
+    expect(rows[1]!.textContent).toContain('登錄到貨');
+  });
+
+  // 🔴 codex 關卡2:全部 fixture 只有 `null` / `string` ⇒ `!= null` 與 `!== null` 兩種寫法在
+  //    現有格上**完全等價**、五發突變都分不出來。這格專證方向:`undefined` 必須倒向「當生效」。
+  //    (方向的理由與 `procurement-view.ts:findActiveProcurement` 同源:`=== null` 會讓
+  //     缺欄時每一列都被判作廢 ⇒ 全表劃線 + 到貨入口全消失,而資料其實好好的。)
+  it('🔴 voidedAt 為 undefined(投影退版)⇒ 當【生效】處理,不得全表判成作廢', () => {
+    const d = detail();
+    const missingCol = {
+      ...d,
+      items: [
+        {
+          ...d.items[0]!,
+          procurements: [{ ...proc(), voidedAt: undefined, voidReason: undefined }],
+        },
+      ],
+    } as unknown as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={missingCol} suppliers={[]} suppliersFailed={false} />,
+    );
+    const row = container.querySelector('tbody tr')!;
+    expect(row.textContent).not.toContain('(已作廢)');
+    expect(row.querySelector('.line-through')).toBeNull();
+    expect(row.textContent).toContain('登錄到貨'); // 到貨入口不得被誤收
+  });
+
+  it('作廢與停用可以同時成立 ⇒ 兩個標記都要在,且**作廢排在前面**(順序是刻意的)', () => {
+    const d = detail();
+    const both = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED, supplierIsActive: false })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={both} suppliers={[]} suppliersFailed={false} />,
+    );
+    const cell = container.querySelector('tbody tr td')!.textContent ?? '';
+    expect(cell).toContain('(已作廢)');
+    expect(cell).toContain('(已停用)');
+    // 🔴 順序也要驗:元件註解明寫「作廢標示排在停用標示之前」是刻意的
+    //    (「這筆撤了」比「這家停用了」更決定員工的下一步)。只驗兩者皆在的話,
+    //    把兩塊 JSX 交換 0 紅 —— 那正是我自己寫進 §②-a 的「名稱/註解大於斷言」。
+    expect(cell.indexOf('(已作廢)')).toBeLessThan(cell.indexOf('(已停用)'));
+  });
+
+  // 🔴🔴 **兩關審查各自獨立抓到的同一條**:第一版條件只寫 `if (p.voidedAt != null) continue;`,
+  //    在 `suppliersFailed` 路徑上會關掉 `Q-S1=A` 的合法路 —— 那時 `suppliers=[]`,
+  //    第二個迴圈是選單的**唯一**來源,一家**仍啟用**但只剩作廢列的供應商會整個消失。
+  //    ⇒ 條件補上 `&& p.supplierIsActive === false`,並用下面這格釘住。
+  it('🔴 供應商清單載入失敗 + 仍啟用 + 只剩作廢列 ⇒ 那家【必須】還在選單(Q-S1=A 要對它重下單)', () => {
+    const d = detail();
+    const onlyVoidedButActive = {
+      ...d,
+      items: [
+        {
+          ...d.items[0]!,
+          procurements: [proc({ ...VOIDED, supplierIsActive: true })], // 仍啟用,只是這筆撤了
+        },
+      ],
+    } as typeof d;
+    const { container } = render(
+      // 🔴 `suppliers=[]` + `suppliersFailed` = 真實的失敗路徑(`order-detail-route.tsx` 就這樣傳)
+      <ItemProcurementSection returnTo={RETURN_TO} detail={onlyVoidedButActive} suppliers={[]} suppliersFailed />,
+    );
+    const options = [...container.querySelectorAll('option')].map((o) => o.textContent ?? '');
+    expect(options.some((t) => t.includes('Webike JP'))).toBe(true);
+  });
+
+  it('🔴 supplierIsActive 為 null(內嵌沒回來 = 不知道)⇒ 保留,不因為作廢就移除', () => {
+    const d = detail();
+    const unknown = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED, supplierIsActive: null })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={unknown} suppliers={[]} suppliersFailed />,
+    );
+    const options = [...container.querySelectorAll('option')].map((o) => o.textContent ?? '');
+    expect(options.some((t) => t.includes('Webike JP'))).toBe(true);
+  });
+
+  it('🔴 只剩作廢列的**已停用**供應商不進選單(選了也只有空表單 + 被片2 擋)', () => {
+    const d = detail();
+    const onlyVoided = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED, supplierIsActive: false })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={onlyVoided} suppliers={[]} suppliersFailed={false} />,
+    );
+    const options = [...container.querySelectorAll('option')].map((o) => o.textContent ?? '');
+    expect(options.some((t) => t.includes('Webike JP'))).toBe(false);
+  });
+
+  it('同一家**有生效列**時仍留在選單(上一格不得把合法的那條路一起關掉)', () => {
+    const d = detail();
+    const stillActive = {
+      ...d,
+      items: [
+        {
+          ...d.items[0]!,
+          procurements: [VOIDED, proc({ supplierId: SUP_B, supplierLabel: 'Webike JP', supplierIsActive: false })],
+        },
+      ],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={stillActive} suppliers={[]} suppliersFailed={false} />,
+    );
+    const options = [...container.querySelectorAll('option')].map((o) => o.textContent ?? '');
+    expect(options.some((t) => t.includes('Webike JP'))).toBe(true);
+  });
+});
+
 describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有登記來源」', () => {
   /** 覆寫第一個品項的摘要(fixture 走 as-cast,型別擋不住,故逐欄給滿)。 */
   function withSummary(summary: unknown) {
