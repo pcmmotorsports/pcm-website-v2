@@ -47,3 +47,25 @@ export interface AdminAuditLogInsert {
   readonly request_id: string;
   readonly source_app: AuditSourceApp;
 }
+
+/**
+ * admin_audit_log **讀取**列(`#27` D1a-2)。
+ * 🔴 與 `AdminAuditLogInsert` **刻意不共用**:寫入端不帶 `id` / `created_at`(交 DB default、防竄改),
+ *    讀取端**一定有**它們 —— 兩者共用一個型別會讓「寫入時可以帶 id」在型別層變成合法。
+ * 🔴 欄位取自 `packages/adapters/src/supabase/database.types.ts` 的 `admin_audit_log.Row`,
+ *    **不是我自己列的**;可空性也照那份(`before`/`after`/`reason`/`target` 可 null)。
+ * ⚠️ `before`/`after` 建表 `20260712210000:26-28` 逐字「**可合法含經銷價 / 成本 / PII**」
+ *    ⇒ **列表層不得顯示**(驗收 6),展開層才顯示且要有明確使用者動作(驗收 9)。
+ */
+export interface AdminAuditLogRow {
+  readonly id: string;
+  readonly actor: string;
+  readonly action: string;
+  readonly target: string | null;
+  readonly before: unknown;
+  readonly after: unknown;
+  readonly reason: string | null;
+  readonly request_id: string;
+  readonly source_app: string;
+  readonly created_at: string;
+}

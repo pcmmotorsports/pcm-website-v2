@@ -1,4 +1,4 @@
-import type { AdminAuditLogInsert, AuditContext, AuditEntry } from './types';
+import type { AdminAuditLogInsert, AdminAuditLogRow, AuditContext, AuditEntry } from './types';
 
 /** 稽核 log 寫入埠(append-only;呼叫端只 record、不讀不改)。 */
 export interface AuditLogRepository {
@@ -38,4 +38,31 @@ export function toInsertRow(entry: AuditEntry, context: AuditContext): AdminAudi
     request_id: context.requestId,
     source_app: context.sourceApp,
   };
+}
+
+/**
+ * 稽核 log **讀取**埠(`#27` D1a-2)。
+ *
+ * 🔴 **為什麼另開一個埠、不加在 `AuditLogRepository` 上**:
+ *   寫入端的消費者有 18 支 RPC 的 app 層對應 + `staff-actions.ts`,它們**只該 record、不該讀**
+ *   (`AuditLogRepository` 的檔頭逐字:「呼叫端只 record、不讀不改」)。
+ *   把 `list` 併進去等於讓每個寫入端在型別上都拿到讀取能力 —— 而**這個 SELECT 權限有到期日**
+ *   (`20260815020000` 檔頭「外部前提 1」),**消費者要數得出來**。
+ *
+ * ⚠️ **考慮過但沒採用的更簡形狀**:`lib/staff-repository.ts` 直接 `import 'server-only'` + 服務端 client、
+ *   不走埠。那支能那樣做是因為它**沒有**「同一個模組裡寫入端要保持不綁 supabase-js」的限制;
+ *   本模組有(`supabase-repository.ts` 檔頭寫明注入理由)⇒ **同模組內兩套形狀比多一個介面更貴。**
+ */
+export interface AuditLogReader {
+  /** 最近 N 筆,`created_at` DESC。上限由呼叫端給,adapter 不自訂預設。 */
+  listRecent(limit: number): Promise<AdminAuditLogRow[]>;
+}
+
+/**
+ * 窄結構埠:只描述「從 admin_audit_log 讀最近 N 筆」所需的能力(對稱 `AuditLogInserter`)。
+ * 🔴 **`limit` 沒有預設值是刻意的** —— 預設值會讓「這頁一次抓幾筆」這個決定藏在最底層,
+ *   而那是頁面層的決定(plan 驗收 1 的 N)。
+ */
+export interface AuditLogSelector {
+  select(limit: number): Promise<{ data: AdminAuditLogRow[] | null; error: { message: string } | null }>;
 }
