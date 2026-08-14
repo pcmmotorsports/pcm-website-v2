@@ -13021,3 +13021,43 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   `#495`(已結案收進隱藏 —— 母體會互相影響)/ `#497`(判錯的退款走不到 `refunded` —— **同一個資料源**,
   那條若成立,「退貨中」的判定也會跟著錯)
 - **發現於:** 2026-08-14 · E 窗 · `#484` 片 B 讀 OD 真權威時
+
+### #502. 🔴 `admin_today_payment_total` 的錢口徑 —— **DB 端行為零可執行驗證(apply 後必做)**
+
+- **狀態:** 🔴 **apply 後必做,不是「有空再說」**。前置 = Sean apply `20260815010000`。
+  號由主視窗發(2026-08-15;跑了兩道:`scripts/next-backlog-number.sh` + 掃信箱佔位宣告,
+  A 窗自行複驗 `docs/phase-1-backlog.md` 與 `~/pcm-mailbox/*.md` 皆零命中,正向對照 `#49x` 命中 22 檔)。
+- **分流:** `P1`(它守的是「今天收了多少錢」這個數字本身)
+- **起因:** `#16` MF-A 把「已收 = SUM(amount)」的加總從 TS 搬進 SQL(新 RPC
+  `public.admin_today_payment_total`,migration `20260815010000`)。
+  搬完之後 `apps/admin/src/lib/dashboard/today-view.ts` 的 `sumReceived` 成為死碼被刪,
+  **連同它的 6 格測試**:鏈式沖銷(`+500/-500/+500 ⇒ 500`)/ 濾負列會變 1000 的負向對照 /
+  改用筆數會變 3 的負向對照 / 全額沖銷回 0 / 零筆回 0 / **MF5 跨日沖銷的可執行版本**。
+- **現存守門只有源碼契約測試**(`today-read.test.ts` 末段):`readFileSync` 讀 migration 檔,
+  斷言 SQL **含** `COALESCE(SUM(p.amount), 0)`、**不含** `ABS(`、不含 `amount > 0`、
+  不含 `reverses_payment_id IS NULL`、半開區間不得用 `<=`,外加授權四件套與一格正向對照。
+  🔴 **它只證那句 SQL 還在檔裡,不證 DB 真的那樣算。** 兩者不等價,不得互相充當。
+- **apply 之後必跑的四條(對正式庫實跑,不是讀檔):**
+  1. `select has_table_privilege('service_role','public.order_payments','SELECT');` ⇒ 應為 **false**。
+     🔴 這條最重要 —— **MF-A 那個結論至今唯一沒被實跑證明過的一環**(現有依據是五份 migration
+     字面互相支持 + apply-time 閘,不是「DB 這樣答」)。跑掉它,那個誠實缺口就真的補起來了。
+  2. 以 `+500 / -500 / +500` 同日測資呼叫 RPC ⇒ 應得 **500**(證沖銷照加、沒被濾掉)。
+  3. 零筆區間呼叫 ⇒ 應得 **0 不是 NULL**(證 `COALESCE` 真的生效;零筆是每天早上的常態)。
+  4. 查 `pg_proc` 核 `prosecdef` / `proconfig` / `provolatile` 三欄
+     (證 SECDEF / `search_path=""` / `STABLE` 三件事在 DB 上為真,不只在檔裡)。
+- **不修未來會痛在哪:**
+  - **bug 可追蹤性:** 這格壞掉的形狀是**安靜的** —— SECDEF fail-open 會讓查詢回空,
+    而 `COALESCE` 把它變成 `0` ⇒ 畫面顯示「今日實收 NT$ 0」,**看起來就是一個還沒收到錢的早上**,
+    零錯誤、零紅。沒有 DB 端驗證就沒有任何東西會告訴你它壞了。
+  - **可維護性:** 日後有人改那支 RPC(加篩選、改成 `ABS`、改用 `count`),
+    源碼契約測試只擋得住**字面**;真正的行為回歸沒有人守。
+- **⚠️ 沒查的:** 本條全程零正式庫查詢(施工端無 DB 連線);RPC 從未被實際呼叫過一次;
+  `42501` 沒有實際看過。
+- **✅ 已有可執行版本:** `docs/runbooks/2026-08-15-16-payment-total-apply-checks.md`
+  —— 上面那四條(加另外四道)已寫成**可直接貼進 SQL Editor 的唯讀查詢**,每條附「預期值」與
+  「不是預期值代表什麼」,並分成 **apply 前 3 道 / apply 後 5 道**。
+  🔴 第 1 道(`has_table_privilege` 應為 `false`)排在 **apply 前** —— 它驗的是「這片存在的理由還成立」,
+  **那道不過就不該 apply**。
+  ⚠️ 該 runbook **全部未在正式庫執行過**,它是清單不是紀錄;**跑完才算本條目關閉**。
+- **相關:** `#16`(母片)/ plan `docs/specs/2026-08-15-e10-16-payment-total-rpc-plan.md` §7 誠實缺口
+- **發現於:** 2026-08-15 · A 窗 · `#16` MF-A 實作時自陳(不是別人指出的)
