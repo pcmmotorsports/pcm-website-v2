@@ -132,4 +132,15 @@ describe('ComingSoon · 字面與連結', () => {
     const { container } = render(<ComingSoon {...SITEWIDE} hasNav={false} />);
     expect(container.textContent).toContain('統一編號 90003020');
   });
+
+  // 🔴 D-040(2026-08-15):與 `HomeFooter.test.tsx` 那格成對。
+  //    這支的門市地址跟頁尾一樣是硬寫的(不吃 `STORE_ADDRESS`)⇒ 兩個載體會各自漂,
+  //    只守一邊等於沒守。兩格都在,才擋得住「改了一處就交件」。
+  it('🔴 門市地址是「1樓」不是「一樓」(此格釘的是【本公司】門市地址,不是客人的收件地址)', () => {
+    const { container } = render(<ComingSoon {...SITEWIDE} hasNav={false} />);
+    const text = container.textContent ?? '';
+    expect(text, '門市地址的「1樓」不見了').toContain('736 巷 18 號1樓');
+    expect(text, '出現「一樓」⇒ 有人照過期的舊字面改回去了').not.toContain('一樓');
+    // ⚠️ 同 HomeFooter 那格:空格與 <br/> 是排版、不列入比對,正典值本身沒有空格。
+  });
 });

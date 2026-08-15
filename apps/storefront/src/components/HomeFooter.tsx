@@ -105,7 +105,11 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
           </div>
           <div>
             <div className="ed-mono ed-footer-h">門市</div>
-            <p>新北市新莊區化成路<br/>736 巷 18 號一樓</p>
+            {/* 地址硬寫、不吃 `lib/site-config.ts` 的 `STORE_ADDRESS`(既有技術債,見 ComingSoon.tsx 同段註解)。
+                「1樓」是 Sean 2026-08-15 逐字拍板的正典值,**不得被改回「一樓」**;
+                空格與 `<br/>` 是本頁尾的排版、不是地址的一部分,正典值本身沒有空格。
+                守門在 `HomeFooter.test.tsx`。 */}
+            <p>新北市新莊區化成路<br/>736 巷 18 號1樓</p>
             <p>週一-週六 10:00-19:00</p>
             <p>{CONTACT_PHONE_DISPLAY}</p>
           </div>

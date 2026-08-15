@@ -189,7 +189,7 @@ export function ComingSoon(props: ComingSoonProps) {
               <p>
                 新北市新莊區化成路
                 <br />
-                736 巷 18 號一樓
+                736 巷 18 號1樓
               </p>
             </div>
             <div className="cs-foot-col">
@@ -209,10 +209,18 @@ export function ComingSoon(props: ComingSoonProps) {
           <div className="cs-base">
             {/* 版權年份動態現算 —— 0b 的 D7 已把頁尾改成這個做法,這裡跟同一條規則。 */}
             <span className="cs-mono">© {new Date().getFullYear()} PCM MOTOR PARTS LTD. 版權所有</span>
-            {/* 統編走 `lib/site-config.ts` 的 SSoT,不寫死 —— 與 `HomeFooter.tsx:97` 同一條規則。
-                ⚠️ 上面的門市地址與營業時間**是寫死的**:那是照 `HomeFooter.tsx:89-90` 的現況對齊
-                (那兩行在真站本來就寫死、沒吃 `STORE_ADDRESS` / `OPENING_HOURS`)。
-                這是既有技術債,不在本批範圍內修 —— 修它要動殼元件,已列進 STOP。 */}
+            {/* 統編走 `lib/site-config.ts` 的 SSoT,不寫死 —— 與 `HomeFooter.tsx` 的
+                `統一編號 {TAX_ID}` 那行同一條規則。
+                ⚠️ 上面的門市地址與營業時間**仍然是寫死的**:照 `HomeFooter.tsx` 的
+                `新北市新莊區化成路` / `週一-週六` 兩行對齊(那兩行在真站本來就寫死、
+                沒吃 `STORE_ADDRESS` / `OPENING_HOURS`)。
+                🔴 D-040(2026-08-15)更新這段:**「不吃 SSoT」這個債還在,但它的症狀已經變了。**
+                  · 地址**字面**已對齊 Sean 拍板的正典值(`一樓` → `1樓`),兩個載體同一顆 commit 一起改。
+                  · 本檔與 `HomeFooter.test.tsx` **各補了一格守門**釘渲染輸出 ⇒ 再漂掉會有東西紅。
+                  · 剩下的債 = 這兩處仍不 import `STORE_ADDRESS`,所以**改常數不會傳到這裡**。
+                    要修得動殼元件(`OPENING_HOURS` 目前也還沒有 SSoT 常數),不在本片範圍。
+                ⚠️ 原註解寫的 `HomeFooter.tsx:89-90` / `:97` 是**過期行號**,已換成 grep 錨點 ——
+                  行號會漂,錨點不會。 */}
             <span className="cs-mono">統一編號 {TAX_ID}</span>
           </div>
         </>
