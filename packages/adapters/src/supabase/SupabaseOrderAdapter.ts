@@ -652,6 +652,35 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       //    (列表本來就要顯示已取消單,把它全域藏掉是另一件事、而且沒有人拍板過)。
       query = query.is('cancelled_at', null);
     }
+    // ── `#1` 片1:待處理 =「還沒收錢 **或** 還沒訂貨」──────────────────────────
+    //   🔴 **這是本查詢裡唯一一個 OR 語意的篩選**;其餘每一軸疊上去都是 AND。
+    //   拍板值域(出處 commit `4ffda20b` / `a01457be`,兩顆都在 `origin/dev` 上、可達):
+    //     還沒收錢 = `unpaid` ∪ `partiallyPaid`(**不含 `refunded` / `partiallyRefunded`**
+    //     —— 那會讓已退款單跑進待處理,正是 `#494` 剛修掉的病)
+    //     還沒訂貨 = `goods_axis = 'none'`
+    //
+    //   🔴 **寫成三個 `eq` 而不是 `payment_status.in.(…)`,是刻意的**:
+    //     片0(`docs/specs/2026-08-15-1-p0-postgrest-or-semantics.md`,commit `b4865c29`)
+    //     實測過的是「**兩個 `.or()` 疊起來 = AND、各自括號保住**」與「`.or()` 疊 `.in('id',…)` = AND」,
+    //     **沒有測過 `in.(…)` 寫在 `or=(…)` 的括號【裡面】。**
+    //     ⚠️ **這裡的理由是【成本】不是【能力】,措辭要準**(E 窗 R1 指出、我更正):
+    //     「片0 沒測過那個語法」是事實;「**所以不能用**」不成立 ——
+    //     **片0 就是我自己起一座丟棄式 PostgREST 量出來的,要再量一次隨時做得到、分母不是 0。**
+    //     ⇒ 正確的說法是:**不值得為這一行再起一次那座環境**,不是「測不到」。
+    //     ⚠️ 代價:多一個 term、URL 長一點。換到的是這一行的語意直接落在片0 已量過的形狀上。
+    //     🔴 **若哪天真的需要 `in.(…)` 進 `or=()`(例如值變多)—— 那就再起一次環境量,不要憑推論改。**
+    //
+    //   🔴🔴 **`cancelled_at` 守門必須自己帶** —— 片0 §0 第 3 題實測:`.or()` **不會**自帶它,
+    //     不加就會撈回已取消的單(那一列真的跑出來過)。理由同下面 `goodsAxes` 那段:
+    //     view 的 `goods_axis` 對已取消單照樣算得出值,而畫面對已取消單早退寫「已取消」
+    //     ⇒ 員工按「待處理」會看到一批膠囊寫著「已取消」的單。
+    //   ⚠️ **綁在這個 `if` 裡、不是全域**(同 `goodsAxes` 的既有理由:沒篩時已取消單照舊要看得到)。
+    if (filter.pendingOnly) {
+      query = query.or(
+        'payment_status.eq.unpaid,payment_status.eq.partiallyPaid,goods_axis.eq.none',
+      );
+      query = query.is('cancelled_at', null);
+    }
     if (filter.orderSources?.length) {
       query = query.in('order_source', [...filter.orderSources]);
     }

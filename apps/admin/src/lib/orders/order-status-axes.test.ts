@@ -3,12 +3,14 @@ import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm
 import {
   ORDER_STATUS_LABEL,
   ORDER_STATUS_REFUNDED_LABEL,
+  orderDetailGoodsAxis,
   orderGoodsAxis,
   orderPayAxis,
   orderStatusView,
   type OrderGoodsAxis,
   type OrderPayAxis,
 } from './order-status-axes';
+import { FULFILLMENT_STATUS_LABEL, GOODS_AXIS_LABEL } from './order-list-view';
 
 // L1 驗收:狀態八值 = 收款軸 × 貨品軸(需求檔 §0-H;Sean 拍 Q22=A/Q23=A/Q24=A/Q27=B/Q28=A)。
 //
@@ -292,5 +294,70 @@ describe('L1 — 收款軸第三值的擴充性(Q22=A:預留、這輪不畫)', (
     }
     // ⚠️ `shipped` 不在上面的迴圈裡 —— 它有 Q28=A 的實心例外,**本來就該不同**。
     //    把它放進去會讓這格必紅,而那是規格不是 bug(邊界寫出來,不要讓下一個人以為是漏測)。
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `#514` — 明細頁的「出貨狀態」改讀真相(原本讀 `orders.fulfillment_status`)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('`#514` 明細頁貨品軸', () => {
+  /** 明細側品項:`quantitySummary` 是 `| null`(A4a trigger 惰性建列),與列表側刻意不同型。 */
+  const item = (
+    quantity: number,
+    axes: { ordered?: number; instock?: number; shipped?: number } | null,
+  ) => ({
+    quantity,
+    quantitySummary:
+      axes === null
+        ? null
+        : {
+            orderedQuantity: axes.ordered ?? 0,
+            instockQuantity: axes.instock ?? 0,
+            shippedQuantity: axes.shipped ?? 0,
+            cancelledQuantity: 0,
+            cancellableQuantity: 0,
+          },
+  });
+
+  /**
+   * 🔴🔴 **這一格是 `#514` 的核心證據,而它存在的理由是「修對了會看起來像沒改」。**
+   *
+   * 正式庫多數單還沒採購 ⇒ 改讀真相之後**畫面上多數單仍顯示「未訂貨」**
+   * ⇒ **Sean 打開來看到一樣的字,會以為沒生效。**
+   * ⇒ 所以要一張**有採購紀錄**的單:stale 欄位說 `notOrdered`(那是它唯一會說的話),
+   *   而真相是 `ordered`。**兩者不同,才證明它真的換了資料來源**,
+   *   而不是「換了個地方讀到同一個假值」。
+   */
+  it('🔴 有採購紀錄的單:stale 欄位說「未訂貨」,而真相是「已向廠商訂貨」', () => {
+    const detail = {
+      // 那一欄在正式庫 13/13 全是這個值(DEFAULT,零 writer)—— 這裡逐字重現它。
+      fulfillmentStatus: 'notOrdered' as const,
+      items: [item(2, { ordered: 2 }), item(1, { ordered: 1 })],
+    };
+    expect(orderDetailGoodsAxis(detail)).toBe('ordered');
+    // 🔴 對照組:舊來源不論真相是什麼都只會回這個值 ⇒ 兩者不同 = 換來源生效了。
+    expect(FULFILLMENT_STATUS_LABEL[detail.fulfillmentStatus]).toBe('未訂貨');
+    expect(GOODS_AXIS_LABEL[orderDetailGoodsAxis(detail)]).toBe('已向廠商訂貨');
+  });
+
+  // 🔴 null 是**語意正確**不是 fallback:摘要列由 trigger 惰性建立,沒被採購過就沒有那一列。
+  it('🔴 `quantitySummary` 全 null ⇒ 未訂貨(那是它的正確語意,不是找不到)', () => {
+    expect(orderDetailGoodsAxis({ items: [item(1, null), item(3, null)] })).toBe('none');
+  });
+
+  // ⚠️ 差一件就退回前一階段(訂單層定義 = 該單所有品項都到齊)。
+  it('混合:一件有摘要一件 null ⇒ 退回未訂貨', () => {
+    expect(orderDetailGoodsAxis({ items: [item(1, { ordered: 1 }), item(1, null)] })).toBe('none');
+  });
+
+  it('判序不可倒:全出貨的單回 shipped(三個條件同時成立時先問最遠的)', () => {
+    expect(
+      orderDetailGoodsAxis({ items: [item(2, { ordered: 2, instock: 2, shipped: 2 })] }),
+    ).toBe('shipped');
+  });
+
+  // ⚠️ 空 `items` 回 none 不是 shipped(`[].every()` 恆真)。
+  it('空品項 ⇒ 未訂貨(不是出貨完成)', () => {
+    expect(orderDetailGoodsAxis({ items: [] })).toBe('none');
   });
 });

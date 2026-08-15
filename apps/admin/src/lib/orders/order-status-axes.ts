@@ -1,4 +1,8 @@
-import type { AdminOrderSummary, OrderGoodsAxis } from '@pcm/domain';
+import type {
+  AdminOrderItemQuantitySummary,
+  AdminOrderSummary,
+  OrderGoodsAxis,
+} from '@pcm/domain';
 import { STATUS_CAPSULE } from './order-list-view';
 
 // M-4b OD 訂單列表改版 **L1**(2026-08-13):狀態八值 = 收款軸 × 貨品軸。
@@ -159,12 +163,63 @@ export function orderPayAxis(order: AdminOrderSummary): OrderPayAxis {
  * 會被判成「出貨完成」。`create_order` 保證 ≥1 品項,但這裡不靠那個保證。
  */
 export function orderGoodsAxis(order: AdminOrderSummary): OrderGoodsAxis {
-  const lines = order.lines;
+  return goodsAxisOfLines(order.lines);
+}
+
+/** `goodsAxisOfLines` 吃的最小形狀 —— 列表側(非 nullable)與明細側(`| null`)都套得進來。 */
+type GoodsAxisLine = {
+  quantity: number;
+  quantitySummary: Pick<
+    AdminOrderItemQuantitySummary,
+    'orderedQuantity' | 'instockQuantity' | 'shippedQuantity'
+  > | null;
+};
+
+/**
+ * 判序本體。**兩個呼叫端共用同一份**(`orderGoodsAxis` 走列表、`orderDetailGoodsAxis` 走明細)——
+ * 🔴 抽出來不是為了整潔,是因為 `#514` 要在明細頁也顯示這一軸,
+ *    而**判序寫兩份的下場已經記過一次**:上面那條「判序不可倒」的病(`未收出貨` 顯示成 `未收現貨`)。
+ *
+ * 🔴🔴 **`quantitySummary === null` 的政策 = 語意正確,不是 fallback。**
+ *    `order_item_quantity_summary` 由 A4a trigger **惰性建列**:一個品項從沒被採購、也沒被取消時,
+ *    那一列**根本不存在** ⇒ 對貨品軸而言,「沒有那一列」**就是**「這個品項還沒訂貨」。
+ *    ⇒ 所以下面把 null 當三個 0 **不是「找不到就當未訂購」**,是「它本來就是未訂購」。
+ * ⚠️ **代價照實寫**(與 `AdminOrderLine.quantitySummary` docstring 記的是同一條):
+ *    **「摘要列真的不存在」與「投影壞掉讀不到」在畫面上長得一樣。**
+ *    本函式**只供顯示**;house 的分用途裁定是「純顯示補 0 可接受、
+ *    **守門/上限/可否取消的判斷絕不可補 0、必須 fail-closed**」——
+ *    🔴 **本函式的回傳值不得餵給任何取消/上限判斷**,那類要走明細側的 `| null` 原型。
+ */
+export function goodsAxisOfLines(lines: readonly GoodsAxisLine[]): OrderGoodsAxis {
   if (lines.length === 0) return 'none';
-  if (lines.every((l) => l.quantitySummary.shippedQuantity >= l.quantity)) return 'shipped';
-  if (lines.every((l) => l.quantitySummary.instockQuantity >= l.quantity)) return 'instock';
-  if (lines.every((l) => l.quantitySummary.orderedQuantity >= l.quantity)) return 'ordered';
+  const at = (l: GoodsAxisLine, k: keyof NonNullable<GoodsAxisLine['quantitySummary']>) =>
+    l.quantitySummary?.[k] ?? 0;
+  if (lines.every((l) => at(l, 'shippedQuantity') >= l.quantity)) return 'shipped';
+  if (lines.every((l) => at(l, 'instockQuantity') >= l.quantity)) return 'instock';
+  if (lines.every((l) => at(l, 'orderedQuantity') >= l.quantity)) return 'ordered';
   return 'none';
+}
+
+/**
+ * `#514`:**明細頁**的貨品軸。
+ *
+ * 🔴 **這一格取代了 `orders.fulfillment_status`,而那不是重構、是修一個正在騙人的顯示**:
+ *    那一欄的 COLUMN COMMENT 自己寫著「E10 起停止維護、值為 legacy stale、不得當現況真相」
+ *    (`supabase/migrations/20260729010000_m4b_e10_d0_display_id_expand.sql:88` 逐字),
+ *    而**全 migrations 零 writer** ⇒ 正式庫 13/13 全是 DEFAULT `notOrdered`
+ *    ⇒ 明細頁那一格**從來沒有正確過一次**。
+ * ⚠️ **那條 COMMENT 防的是「有人拿它做判斷」,沒防「有人把它畫出來」——`render` 不是判斷。**
+ *
+ * ⚠️ **修完之後多數單仍顯示「未訂購」,而那是對的**:正式庫多數單還沒採購。
+ *    ⇒ **要證明它真的改讀了,得看一張【有採購紀錄】的單**(那格測試釘的就是這件事)。
+ *
+ * 🔴 **參數型別刻意收窄成「有 `items`、每件帶 `quantity` 與 `quantitySummary`」,不是 `AdminOrderDetail`**:
+ *    本函式只讀那兩個欄,要求整個型別會讓每一格測試都得補齊 8 個不相干的欄
+ *    (`id`/`variantSku`/`title`/`spec`/…)—— **那些噪音會讓下一個人以為它們也參與判斷**。
+ *    `AdminOrderDetail` 結構上自然滿足這個形狀,呼叫端一個字都不用改。
+ */
+export function orderDetailGoodsAxis(detail: { items: readonly GoodsAxisLine[] }): OrderGoodsAxis {
+  return goodsAxisOfLines(detail.items);
 }
 
 /**

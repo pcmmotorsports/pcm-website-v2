@@ -2,12 +2,13 @@ import Link from 'next/link';
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
 import {
   PAYMENT_STATUS_LABEL,
-  FULFILLMENT_STATUS_LABEL,
+  GOODS_AXIS_LABEL,
   ORDER_SOURCE_LABEL,
   PAYMENT_CHANNEL_LABEL,
   formatOrderAmount,
   INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
 } from '../../lib/orders/order-list-view';
+import { orderDetailGoodsAxis } from '../../lib/orders/order-status-axes';
 import {
   invoiceTypeLabel,
   shippingMethodLabel,
@@ -365,7 +366,16 @@ export function OrderDetail({
         <section className={CARD}>
           <h2 className={CARD_TITLE}>付款</h2>
           <Field label='付款狀態' value={PAYMENT_STATUS_LABEL[detail.paymentStatus]} />
-          <Field label='出貨狀態' value={FULFILLMENT_STATUS_LABEL[detail.fulfillmentStatus]} />
+          {/* 🔴🔴 `#514`:這一格**改讀貨品軸的真相**,不再讀 `orders.fulfillment_status`。
+              那一欄的 COLUMN COMMENT 自己寫著「E10 起停止維護、值為 legacy stale、不得當現況真相」
+              (`20260729010000_m4b_e10_d0_display_id_expand.sql:88` 逐字),而**全 migrations 零 writer**
+              ⇒ 正式庫 13/13 全是 DEFAULT `notOrdered` ⇒ **這一格從來沒有正確過一次**。
+              ⚠️ 那條 COMMENT 防的是「有人拿它做判斷」,**沒防「有人把它畫出來」——`render` 不是判斷**。
+              🔴 **文案一個字都沒變**:`GOODS_AXIS_LABEL` 與 `FULFILLMENT_STATUS_LABEL` 字面逐字相同
+                 (`order-list-view.ts` 兩張表的 docstring 互相記著這件事)⇒ **變的只有資料從哪來**。
+              ⚠️ **修完之後多數單仍顯示「未訂貨」,而那是對的** —— 正式庫多數單還沒採購;
+                 要證明它真的改讀了,看**有採購紀錄的那張單**(`order-status-axes.test.ts` 釘了那一格)。 */}
+          <Field label='出貨狀態' value={GOODS_AXIS_LABEL[orderDetailGoodsAxis(detail)]} />
           <Field
             label='來源 · 管道'
             value={`${ORDER_SOURCE_LABEL[detail.orderSource]} · ${PAYMENT_CHANNEL_LABEL[detail.paymentChannel]}`}
