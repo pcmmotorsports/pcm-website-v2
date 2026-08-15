@@ -287,7 +287,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
   //
   // ⚠️ 那支 probe **不在 CI 跑**(需要 `postgrest` binary + 套 178 支 migration,分鐘級)
   //    ⇒ 它的觸發是「有人記得」。**動這個常數的人請自己跑一次。**
-  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
+  it('🔴 鐵則 12 + #533:ADMIN_ORDER_LIST_SELECT byte-equal 白名單【這是唯一擋「漏欄」的守門,不得弱化成 toContain】(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
       'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))',
     );
