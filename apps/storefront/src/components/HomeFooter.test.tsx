@@ -32,9 +32,9 @@ describe('HomeFooter', () => {
   //    「年份寫死回 2026」「羅馬數字復活」「logo 指到 on-light 版(深底配深字=看不見)」
   //    全部不會有任何測試轉紅。
   describe('D7 版權列與頁尾 logo', () => {
-    it('🔴 版權列 = 「© {當年} PCM MOTOR PARTS LTD. 版權所有」', () => {
+    it('🔴 版權列 = 「© {當年} PCM MOTOR PARTS LTD 版權所有」', () => {
       render(<HomeFooter />);
-      expect(screen.getByText(`© ${new Date().getFullYear()} PCM MOTOR PARTS LTD. 版權所有`)).toBeDefined();
+      expect(screen.getByText(`© ${new Date().getFullYear()} PCM MOTOR PARTS LTD 版權所有`)).toBeDefined();
       // 反面:羅馬數字寫法 R2-3 明文作廢。
       expect(screen.queryByText(/MMXXVI/), '羅馬數字版權列復活了').toBeNull();
     });
@@ -50,7 +50,7 @@ describe('HomeFooter', () => {
       try {
         vi.setSystemTime(new Date('2031-06-15T00:00:00Z'));
         render(<HomeFooter />);
-        expect(screen.getByText('© 2031 PCM MOTOR PARTS LTD. 版權所有'), '年份被寫死了').toBeDefined();
+        expect(screen.getByText('© 2031 PCM MOTOR PARTS LTD 版權所有'), '年份被寫死了').toBeDefined();
         expect(screen.queryByText(/© 2026/), '撥到 2031 卻還印 2026 ⇒ 年份是寫死的').toBeNull();
       } finally {
         vi.useRealTimers();

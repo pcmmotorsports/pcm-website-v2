@@ -37,11 +37,11 @@ async function html(available: ReadonlySet<string>) {
 describe('/brands · metadata', () => {
   it('🔴 標題與描述 = 設計稿 `brand-directory.html:6-7` 逐字(含全形直豎線)', async () => {
     const meta = await generateMetadata();
-    expect(meta.title).toBe('PCM MOTOR PARTS LTD.｜品牌總覽');
+    expect(meta.title).toBe('PCM MOTOR PARTS LTD｜品牌總覽');
     // 半形 | 會讓這條紅 —— 那正是「看起來一樣、其實不是設計稿字面」的形狀。
     expect(String(meta.title)).toContain('｜');
     expect(String(meta.title)).not.toContain('|');
-    expect(meta.description).toBe('依品牌找部品，直接查看 PCM MOTOR PARTS LTD. 各品牌商品。');
+    expect(meta.description).toBe('依品牌找部品，直接查看 PCM MOTOR PARTS LTD 各品牌商品。');
   });
 
   it('🔴 OG 與 canonical 用同一組字面(不是各寫一份)', async () => {

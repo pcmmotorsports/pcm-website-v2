@@ -208,7 +208,7 @@ export function ComingSoon(props: ComingSoonProps) {
 
           <div className="cs-base">
             {/* 版權年份動態現算 —— 0b 的 D7 已把頁尾改成這個做法,這裡跟同一條規則。 */}
-            <span className="cs-mono">© {new Date().getFullYear()} PCM MOTOR PARTS LTD. 版權所有</span>
+            <span className="cs-mono">© {new Date().getFullYear()} PCM MOTOR PARTS LTD 版權所有</span>
             {/* 統編走 `lib/site-config.ts` 的 SSoT,不寫死 —— 與 `HomeFooter.tsx` 的
                 `統一編號 {TAX_ID}` 那行同一條規則。
                 ⚠️ 上面的門市地址與營業時間**仍然是寫死的**:照 `HomeFooter.tsx` 的
