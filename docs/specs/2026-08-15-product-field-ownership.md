@@ -111,6 +111,57 @@
 
 ---
 
+## §1b 🔴 `highlights` 的資料一路從哪來 —— 追到「不再是我們的 code 在算」那一層
+
+**為什麼查這個**:Sean 2026-08-15 對 `Q-賣點` 沒選甲乙,丟了第三個方向,逐字:
+> **「賣點?這個如果員工有改,就應該覆蓋回去報價單那邊吧?」「這個牽扯到資料來源校正問題。」**
+
+**他的直覺是**:員工改了而來源沒改 ⇒ 來源每天蓋回去 ⇒ **修正永遠不會落地。**
+⇒ **那不是「要不要保護那一欄」,是「修正該往哪裡去」。** 而回答它需要知道來源到底是誰。
+
+**我查了哪幾種載體**(先列載體再報結論,照 `lessons §12-42`):
+`rpm-transform.ts` / `rpm-fetch.ts` / `rpm-import.ts` / `supplier-config.ts` / `.github/workflows/rpm-sync.yml` —— **五種**。
+
+### 資料流(逐段附座標)
+```
+products.highlights                      ← 我們的 DB
+  ← rpm-transform.ts:303   normalizeHighlights(v.highlights_zh)   ← 我們的 code 在算（正規化）
+  ← rpm-fetch.ts:43 / :94  來源欄 highlights_zh（jsonb 字串陣列）
+  ← rpm-fetch.ts:112       .from('storefront_catalog_v')
+  ← rpm-fetch.ts:4         🔴 報價單 B庫 dllwkkfanaebrsuyuedy 的公開 view
+```
+⇒ **「不再是我們的 code 在算」那一層 = 報價單的 `storefront_catalog_v`。**
+🔴 **來源就是報價單系統,不是供應商原始檔** ⇒ **Sean 的方向在資料流上成立。**
+
+### 13 家是 **1 種來源 × 13 個 scope**,不是 13 種來源
+`rpm-fetch.ts:5` 逐字:「**WHERE `supplier_slug`=<呼叫端指定>(P0-A-2 起參數化、多供應商共用)**」。
+**同一個 view、同一支 fetch、同一支 transform。** ⇒ **要回寫的話只要對一個地方。**
+
+### 🔴 但我們這側是「結構性唯讀」,不只是「剛好沒寫過」
+`rpm-fetch.ts:4` 檔頭**逐字**:「**來源(唯讀、絕不寫)**」——
+⚠️ **那三個字是有人刻意寫下的紅線,不是預設值。**
+
+**結構性證據**(量法即命令):
+| 查什麼 | 結果 | 座標 |
+|---|---|---|
+| source client 拿什麼金鑰 | `QUOTE_SUPABASE_PUBLISHABLE_KEY`(**publishable,不是 secret**) | `rpm-import.ts:151` |
+| `source` 變數的呼叫點 | **只有一處**,傳進 `fetchAllSupplierProducts` | `rpm-import.ts:162` |
+| fetch 內對 source 的動作 | **只有 `.select(VIEW_COLS)`** | `rpm-fetch.ts:113` |
+| `insert`/`update`/`upsert`/`delete`/`rpc` | **0 命中**(分母 = `scripts/*.ts` 共 51 支) | — |
+
+### ⇒ 要走 Sean 那個方向,代價是三件
+1. **跨 repo**:報價單那側要開一個接受寫入的入口
+2. **跨機器**:報價單真身在 mac mini(memory `reference_quote-repo-truth-moved-to-mac-mini`)
+3. 🔴 **我們這側要從 publishable 換成有寫權的金鑰** ⇒ **同步腳本從「絕對唯讀」變成「可寫來源」**
+   ⚠️ **方向是「我們的 bug 會污染上游」** —— 現在反過來:上游錯了不會被我們弄糟。
+
+### 查不到的那半(明說,不猜)
+🔴 **報價單那側 `highlights_zh` 到底怎麼產**(供應商檔?人工?翻譯?)—— **查不到**。
+**理由**:報價單真身在 mac mini,本機 clone 是舊的。**本檔只查得到「我們這邊怎麼取」,查不到「那邊怎麼產」。**
+⚠️ **而那一半會決定 Sean 的方向到底救不救得了**:若報價單自己也是從供應商檔重算,**回寫報價單一樣會被它的上游蓋掉。**
+
+---
+
 ## §2 `product_variants` 逐欄
 
 **🔴 變體側「零條件式」—— 每一欄都是無條件覆寫。**
