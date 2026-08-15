@@ -78,15 +78,51 @@ order_items(id, quantity, …)
 | `cancelled > 0`(已取消部分) | ✅ 無 DB 阻擋 | 🔴 **F2 + F3 擋** | ✅ | ⚠️ 見 §3-2 |
 | `shipped > 0`(已出貨) | ✅ 無 DB 阻擋 | 🔴 **F3 擋**(經 `shipped <= instock` ⇒ `instock > 0`) | ✅ | ⚠️ 見 §3-2 |
 
-### 3-1 🔴🔴 這張表最重要的一格:**「改金額」整欄沒有任何 DB 阻擋**
+### 3-1 🔴🔴 **本節於 2026-08-15 16:5x 更正 —— 原文是錯的,而且錯在我宣稱掃過的範圍**
 
-**四個 `oiqs_*` 地板全部只管「數量」。** 對 `order_items.unit_price` / `line_total` / `orders.total`
-**沒有任何一條 CHECK、沒有任何 FK。**
+⚠️ ~~**「改金額」整欄沒有任何 DB 阻擋。四個 `oiqs_*` 地板全部只管「數量」。對 `order_items.unit_price` /
+`line_total` / `orders.total` **沒有任何一條 CHECK、沒有任何 FK**。⇒ 改金額目前是全裸的。**~~
+**← 作廢。觸發 = 寫片 1 plan 時去查金額欄結構,當場撞到兩條我漏掉的 CHECK。**
 
-⇒ **一張已出貨、已收款的單,改單價在資料庫層是完全允許的。**
-⚠️ **這正好對上 0a §3 的結論**(訂單層零系統保證)⇒ **兩層加起來:改金額目前是全裸的。**
-🔴 **而 `#13` 的第一片就是改金額**(舊 plan §3 片 1)。
-⇒ **片 1 不是「接一個輸入框」,是「這個數字第一次有人能改,而目前沒有任何東西守著它」。**
+🔴 **錯在哪(不是「沒查」,是「宣稱查了但沒查到」)**:
+本檔 §6-1 逐字寫著「**我掃的是 `oiqs_*` 與 `order_items` 的 CHECK/FK**」——
+**而 `order_items` 上就有一條金額 CHECK,我沒掃到。**
+⇒ **這是「宣稱的作用域 > 實際查過的範圍」,發生在我自己那份已 commit 的盤點檔裡。**
+
+### 3-1a ✅ 更正後的事實:**有兩條「列內平衡」CHECK,但跨列那條不存在**
+
+```
+20260604120000:149  CONSTRAINT order_items_line_balances
+                      CHECK (line_total = unit_price * quantity)
+20260604120000:112  CONSTRAINT orders_total_balances
+                      CHECK (total = subtotal + shipping_fee - discount_total)
+```
+⇒ **改單價不能只改單價** —— `line_total` 必須同交易跟著改,否則 CHECK 直接擋。
+⇒ **改 `subtotal` 不能只改 subtotal** —— `total` 必須同時滿足那條等式。
+
+### 3-1b 🔴🔴 **而真正的洞在跨列,那條 migration 自己寫得很清楚**
+
+`20260604120000:172-174` 逐字:
+> **「codex k2 WARN-3:跨表不變式 `orders.subtotal = Σ(order_items.line_total)` 為 DB CHECK 無法表達(跨 row);
+> 由 `create_order` RPC **單一寫入者**保證(RPC 自算 subtotal、authenticated 無直接 INSERT)
+> + S2-b 交易測試覆蓋 subtotal/items 不一致情境。**不加 deferrable trigger**(RPC 權威已足、避免複雜度)。」**
+
+🔴🔴 **這句話是片 1 的核心風險,而且是寫在 DDL 裡的原文,不是我的推論**:
+**「`orders.subtotal` 等於各列 `line_total` 的總和」這件事,DB 擋不住,靠的是「只有一個寫入者」。**
+⇒ **片 1 要做的事,定義上就是加入第二個寫入者。**
+⇒ **那個保證在片 1 落地的那一刻消失,而 DB 不會有任何反應** ——
+   兩條列內 CHECK 照樣過(它們只看同一列),而 `subtotal` 與各列的和可以差任意金額。
+
+**⇒ 片 1 的第一驗收條件不是「改得動」,是「改完之後那條跨列不變式仍然成立,而且有東西會在它不成立時紅」。**
+⚠️ 原 migration 明寫「**不加 deferrable trigger**(RPC 權威已足)」——
+**那個「已足」的前提正是單一寫入者。前提在片 1 消失,所以那個決定要重新評估,不能照抄。**
+
+### 3-1c 更正後,0a 那句還成不成立?
+
+**0a §3 的結論(訂單層兩層都沒擋)不受影響** —— 那講的是「這張單能不能進編輯」,與金額 CHECK 無關。
+🔴 **但我在 `A-055` 對你講的「兩層加起來 ⇒ 改金額目前是全裸的」要收回**:
+**列內有守、跨列沒守。「全裸」是錯的措辭,而「有守」也是錯的措辭。**
+**準確講法**:**擋得住「一列自己算錯」,擋不住「各列加起來與訂單總額對不上」。**
 
 ### 3-2 「刪整列品項」我答不出來 —— **而答不出來本身是結論**
 
@@ -134,9 +170,25 @@ S2b 已上線 → 20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 
 ## §6 誠實缺口
 
-1. 🔴 **「改金額零阻擋」我是用「找不到約束」推的,不是用「試著改一次被允許」證的。**
-   我掃的是 `oiqs_*` 與 `order_items` 的 CHECK/FK;**沒查 trigger、沒查 RLS、沒查 `orders.total` 有沒有重算 trigger。**
-   ⇒ **正確措辭:「我查過的那幾層沒有阻擋」,不是「沒有任何阻擋」。**
+1. 🔴🔴 ~~「改金額零阻擋」…我掃的是 `oiqs_*` 與 `order_items` 的 CHECK/FK~~
+   **← 這條本身就是實例:我寫「掃了 `order_items` 的 CHECK」,而 `order_items_line_balances` 就在那裡,我沒掃到。**
+   **⇒ 一條誠實缺口寫得再誠實,也擋不住它宣稱的範圍大於實際做過的事。** 更正見 §3-1。
+   **仍然成立的部分**:**沒查 trigger、沒查 RLS、沒查 `orders.total` 有沒有重算 trigger** ——
+   ⇒ 措辭仍是「**我查過的那幾層**」,而現在那個「幾層」比我原本寫的還小。
+
+   🔴 **修法(機械,不是「更小心」)**:**寫「我掃的是 X」時,把跑過的那條命令原樣貼上,不要貼範圍的描述** ——
+   **描述可以跟命令不一致,而沒有人看得出來。** 照辦,本檔這一輪實際跑的是:
+   ```bash
+   # 金額欄的具名 CHECK（這條就是上面漏掉那兩條的來源）
+   grep -rhoE 'CONSTRAINT [a-z_]+ CHECK' supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql | sort -u
+   #   → order_items_line_balances / order_items_snapshot_whitelist / orders_display_id_format
+   #     orders_invoice_whitelist / orders_ship_addr_whitelist / orders_total_balances   （6 條）
+
+   # 摘要表的地板（§2 那張表的來源）
+   grep -rhoE 'oiqs_[a-z_]+' supabase/migrations/*.sql | sort -u | wc -l      # → 10
+   ```
+   ⚠️ **仍未跑的、因此仍未知**:`pg_trigger` / RLS policy / 對正式庫的 `pg_constraint` 核對。
+   **這三項沒有對應命令貼在這裡,所以它們就是沒查。**
 2. **§3-2「刪整列」我沒查 FK 的 `ON DELETE` 子句** ⇒ 那一欄整欄是空的,**而空白不是通過**。
 3. **四條地板的述詞來自 migration 檔字面,不是對 `pg_constraint` 查的**(承 0a、承舊 plan,三份都掛同一條)。
    🔴 **主視窗有正式庫唯讀授權** ⇒ §7 附了要它跑的 SQL。
