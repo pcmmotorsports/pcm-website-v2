@@ -19,17 +19,53 @@ bash mutation-harness.sh 2>&1 | head -2
 
 ---
 
-## 2. 🔴 只掛 `EXIT` 是不夠的(第一版修法就是這樣壞的)
+## 2. 🔴 修法在 **trap body**,不在訊號清單(本節 2026-08-16 全部重寫)
+
+> ⚠️ **本節初版是錯的。** 它寫「SIGPIPE 不觸發 EXIT trap ⇒ 要加 `PIPE`」——
+> **兩句都不成立**,而且加 `PIPE` 那條**修不好任何東西**。
+> 下面是我用最小可控樣本量出來的(macOS bash 3.2,五組)。
+
+| 情境 | 檔案結果 |
+|---|---|
+| A. `trap … EXIT`,body **`cp` 先** | ✅ 還原 |
+| B. `trap … EXIT`,body **`echo` 先** | 🔴 **沒還原** |
+| C. `trap … EXIT`,body **`echo >&2` 先** | ✅ 還原 |
+| D. `trap … EXIT INT TERM HUP PIPE`,body `echo` 先 | 🔴 **還是沒還原** |
+| E. `trap … EXIT` + `set -o pipefail`,`cp` 先 | ✅ 還原 |
+
+🔴 **機制**:**EXIT trap 有跑**。壞的是 trap 的**第一行 `echo` 往一個已經沒人讀的 pipe 寫** ——
+那一寫就死,**還沒走到 `cp`**。
+⇒ **A/C 會過不是因為訊號,是因為 `cp` 排在那個會死的 `echo` 前面。**
+⇒ **D 證明加 `PIPE` 沒用**:訊號被接管之後 `echo` 改成回非零,而 `set -e` 讓 trap 函式**當場中止**
+   —— 一樣走不到 `cp`。
 
 ```bash
-trap restore EXIT          # ❌ SIGPIPE 的預設動作是終止行程，EXIT trap 不會跑
+trap restore EXIT          # ✅ 訊號清單這樣就好（要保險可加 INT TERM HUP）
+restore () {
+  cp "$B" "$T"             # 🔴 會改檔案的動作【排最前面】
+  echo "..." >&2           # 🔴 要印字就印到 stderr（stderr 沒有被接進那個 pipe）
+}
 ```
+🔴 **絕對不要把 `PIPE` 加進清單** —— 它修不好上面任何一格,而**接管 SIGPIPE 會讓「寫入失敗」
+從「終止行程」變成「回非零繼續跑」**,在會重複寫 stdout 的迴圈裡有打轉的風險。
 
-**實測**:掛 `EXIT` 之後再跑一次 `| head -2`,檔案**照樣是髒的**(量到的數字是 2,應為 3)。
+### ⚠️ 我沒有重現到的兩件(不要當成已知)
 
-```bash
-trap restore EXIT INT TERM HUP PIPE    # ✅ 訊號要逐個掛
-```
+| 別人講的 | 我量的結果 |
+|---|---|
+| 加 `PIPE` 會**無限迴圈 / 掛到 job timeout** | **沒重現** —— D 那組 1 秒內就結束(`set -e` 讓 trap 直接中止) |
+| `set -o pipefail` 讓 exit 從 **0** 變 **141** | **沒重現** —— 兩者都是 0 |
+
+🔴 **而第二條我知道我的實驗為什麼量不到**:主體只寫 500 行短字串(約 4.5KB),
+**塞得進 64KB 的 pipe buffer** ⇒ **主體根本沒有被 SIGPIPE 打到**,真正致命的那一寫是 trap 裡的 `echo`。
+⇒ **要量 `pipefail` 的效果,主體的輸出必須大到會塞住。我沒有量。**
+⚠️ **`pipefail` 仍然建議加**(它讓 pipeline 的失敗不會被右端的 `head` 蓋掉),
+   但**「它會讓你看到 141」這句在我這裡是未確認的**。
+
+### ⚠️ 平台邊界
+
+上面五組**只在 macOS bash 3.2 量過**。**Linux + bash 5 未驗** —— 而 **CI 跑的是 Linux**。
+⇒ CI 上的行為**標為未確認**,不要引用本節當 CI 的依據。
 
 ---
 
@@ -37,7 +73,8 @@ trap restore EXIT INT TERM HUP PIPE    # ✅ 訊號要逐個掛
 
 ```bash
 #!/usr/bin/env bash
-set -euo pipefail
+set -euo pipefail   # 🔴 `pipefail` 讓 pipeline 的失敗不會被右端的 `head` 蓋掉
+                    #    ⚠️ 但「它會讓你看到 exit 141」這句我沒量到，見 §2。
 
 TARGET=path/to/file-under-mutation
 BASE=/tmp/$(basename "$TARGET").base
@@ -50,16 +87,20 @@ cp "$TARGET" "$BASE"
 shasum -a 256 "$TARGET" | cut -c1-16 > "$SHA"
 
 restore_and_verify () {
+  # 🔴 **改檔案的動作排最前面** —— 它前面放任何一個往 stdout 寫的東西，
+  #    在「輸出被 `| head` 截斷」的情況下 trap 會死在那一行、走不到這裡（§2 實測 B）。
   cp "$BASE" "$TARGET"
   local now; now=$(shasum -a 256 "$TARGET" | cut -c1-16)
   # 🔴 驗【結果】不是驗「cp 跑了」—— cp 的 exit 0 不等於內容回來了。
   if [ "$now" != "$(cat "$SHA")" ]; then
     echo "❌❌ 還原失敗：現在 $now，基準 $(cat "$SHA") —— 檔案是髒的，不要 commit"
   else
-    echo "✅ 還原已驗（shasum $now）"
+    echo "✅ 還原已驗（shasum $now）" >&2   # 🔴 印到 stderr，不要用被截斷的 stdout
   fi
 }
-trap restore_and_verify EXIT INT TERM HUP PIPE
+# 🔴 訊號清單只要 EXIT（加 INT TERM HUP 是保險）。**不要加 PIPE** —— 見 §2 實測。
+#    真正決定成敗的是上面那個 body：`cp` 排在會死的 `echo` 前面。
+trap restore_and_verify EXIT INT TERM HUP
 
 # ── 每一輪：M0 基準必跑 ──────────────────────────────────────────────
 # 🔴 先跑一發【沒有突變】的，確認它是綠的。
@@ -104,27 +145,51 @@ grep -rnE "(bash|sh|\./)[^|]*\.(sh)[^|]*\|[[:space:]]*(head|grep -q|tail|sed -n 
 我那次就是臨時打的,repo 裡從來沒有那一行。
 ⇒ **所以本檔的讀者是【要跑腳本的那個人】,不是【要改 repo 的那個人】。**
 
-### 題2:有 `trap` 但沒掛 `PIPE` 的腳本
+### 題2:repo 裡有沒有腳本會踩到這個坑?
 
+> 🔴 **本小節 2026-08-16 重掃過,而結論翻了。**
+> 初版按「trap 有沒有掛 `PIPE`」分類 —— 而 §2 的實測證明**那不是判準**。
+> 用錯判準得到的那條 finding(「`e13-slice1a-verify.sh` 與我踩的完全同型」)**是錯的**,已作廢。
+
+**正確判準**:trap body 裡,**還原檔案的動作前面有沒有往 stdout 寫的東西**。
+
+```bash
+# 對每一支有 trap 的腳本，抽出 trap 函式主體，看第一個動作是什麼
+for F in scripts/*.sh docs/probes/*.sh; do … done
 ```
-腳本總數 100 ／ 有 trap 的 60 ／ trap 含 PIPE 的 20
+
+| 母數 | 數字 |
+|---|---|
+| 腳本總數 | 100 |
+| 有 `trap` 的 | 60 |
+| trap body **會還原檔案**的 | **1**(`scripts/e13-slice1a-verify.sh`) |
+| 其中 **`cp` 前面有 stdout 寫入**(= 真的會壞) | **0** |
+
+```bash
+cleanup() {
+  cp "$BASE" "$MIG"; rm -f "$BASE"      # ← cp 是第一個動作 ⇒ 安全
+  [ "$KEEP" = "1" ] || "$PGBIN/pg_ctl" … stop … >/dev/null 2>&1
+}
 ```
-其中 **trap 做的是「還原檔案」**(= 會被 commit 進去的那種)只有 **1 支**:
 
-| 檔案 | trap | 做什麼 | 風險 |
-|---|---|---|---|
-| `scripts/e13-slice1a-verify.sh` | `cleanup` (EXIT 系,無 PIPE) | `cp "$BASE" "$MIG"` | 🔴 **與我踩的完全同型** |
+⇒ 🔴 **repo 裡零命中。** 其餘 59 支的 trap 做的是**拆叢集 / 還原 DB 狀態**
+(`pg_ctl stop`、`psql -f base-def.txt`),被殺掉留下的是**髒的拋棄式叢集**、不是**髒檔案**。
+⚠️ **那仍然是風險**(下一輪跑在污染環境上、而每一發都看起來正常),只是**不會被 commit**。
 
-其餘 39 支的 trap 做的是**拆叢集 / 還原 DB 狀態**(`pg_ctl stop`、`psql -f base-def.txt`),
-被殺掉的後果是**留下一個髒的拋棄式叢集**,不是**留下一個髒的檔案**。
-⚠️ **那仍然是風險**(下一輪跑在污染環境上、每一發都看起來正常),只是**不會被 commit**。
+🔴 **兩題都零命中,而它們一起說的是同一件事**:
+**這個坑不住在 repo 裡,住在【我們臨時打的那一行指令】裡。**
+⇒ **沒有任何 repo 內的守門擋得到它。本檔是唯一的防線,而防線的形式是「有人讀過」。**
 
 ### ⚠️ 這份掃描守不住什麼
 
 1. **只掃 `scripts/` 與 `docs/probes/`**,別的目錄沒掃。
+0. 🔴 **初版用錯判準(按有沒有掛 `PIPE` 分)得出一條錯的 finding,已在上面作廢。**
+   留著那段紀錄是刻意的 —— **刪掉它,「這裡曾經被判錯過」就消失了。**
 2. **靠 `trap` 這個字面** —— 用別種方式做清理的(例如把還原寫在最後一行)一律看不到,
    **而那種其實更脆弱**(任何提早退出都會跳過它)。
-3. **只看第一個 `trap`**:一支腳本掛多個 trap 時,後面那些沒被分類。
+3. **只看第一個 `trap`**,而且**只認 `trap 函式名 訊號` 這種形狀** ——
+   把整段 body 內嵌在 `trap '…' EXIT` 引號裡的(兩支 probe 就是這樣寫的)**這個掃描看不到**。
+   ⚠️ 我逐支開檔看過那兩支:它們的 trap 做的是拆叢集,不還原檔案。
 4. **分類「還原檔案 vs 拆叢集」是靠函式主體裡有沒有 `cp`/`mv`/`git checkout`** ——
    換個寫法就漏掉。**我用逐支開檔複核過那幾支名字像還原的**(`restore_base` 四支實際是 psql 還原 DB,
    不是檔案),但**沒有逐支開完 60 支**。
@@ -134,7 +199,8 @@ grep -rnE "(bash|sh|\./)[^|]*\.(sh)[^|]*\|[[:space:]]*(head|grep -q|tail|sed -n 
 ## 5. 判別句
 
 > **我現在要跑的這支腳本,如果在中間被殺掉,會留下什麼?**
-> 留下**檔案** ⇒ 它會被 commit ⇒ `trap … EXIT INT TERM HUP PIPE` + shasum 驗還原。
+> 留下**檔案** ⇒ 它會被 commit ⇒ `trap … EXIT` + **`cp` 排在 trap body 第一行** + shasum 驗還原。
+> (🔴 **不是**加 `PIPE` —— 那條修不好任何一格,見 §2 的五組實測。)
 > 留下**叢集/DB 狀態** ⇒ 下一輪會跑在污染環境上 ⇒ 一樣要 trap,但症狀不同(每一發都看起來正常)。
 
 > **而「我有還原機制」不等於「還原會跑到」** —— 這兩件事今晚各壞過一次。
