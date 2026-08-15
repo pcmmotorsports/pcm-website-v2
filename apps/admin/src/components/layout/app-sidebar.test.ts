@@ -56,10 +56,20 @@ const RAW_SOURCE = readFileSync(
 
 const SOURCE = stripComments(RAW_SOURCE);
 
+// 🔴 `#27` D1c-1:導覽清單本體搬到 `nav-items.ts`(理由見該檔檔頭:旗標的「有沒有被濾掉」
+//    在 `app-sidebar.tsx` 這側測不到)。
+//    ⚠️ **只換讀取來源,斷言一個字都沒放寬**(主視窗 2026-08-15 裁定的硬條件 1)。
+//    🔴 **`SOURCE` 仍指 `app-sidebar.tsx`,不准一起改** —— 下面 `#380` 那兩格量的是
+//    **側欄元件本身**(收合模式、`SidebarTrigger` 的位置),把 `SOURCE` 一起指過去會讓那兩格
+//    改成掃一支根本沒有那些字面的檔 ⇒ **靜默恆紅或恆綠,兩種都不是守門。**
+const NAV_SOURCE = stripComments(
+  readFileSync(fileURLToPath(new URL('./nav-items.ts', import.meta.url)), 'utf8'),
+);
+
 /** 從 NAV_ITEMS 字面抽出 (label, href) 對;解析不到會得到空陣列 ⇒ 下面的斷言直接紅。 */
 function navEntries(): Array<[string, string]> {
   return [
-    ...SOURCE.matchAll(
+    ...NAV_SOURCE.matchAll(
       /\{\s*key:\s*'[^']+',\s*label:\s*'([^']+)',\s*icon:\s*[^,]+,\s*href:\s*'([^']+)'\s*\}/g,
     ),
   ].map((match) => [match[1] ?? '', match[2] ?? '']);
@@ -94,14 +104,21 @@ describe('AppSidebar 導覽項', () => {
       // A9w2:「設定」原指 `/settings/order-statuses`(九碼狀態詞彙 CRUD),該頁隨九碼退場已刪
       // ⇒ 改為無 href 的不可點格;`navEntries()` 的 regex 要求 `href:` 才匹配得到,
       // 所以它從本清單消失是**預期**的。本檔看守的正是「哪幾項是可點的」。
+      // 🔴 `#27` D1c-1:稽核入口。**它在字面上永遠都在**(本檔量的是字面)——
+      //    「旗標關的時候畫面上有沒有它」是 `nav-items.test.ts` 的行為層守門,不是本檔的職能。
+      //    ⚠️ **「操作紀錄」是 Sean 2026-08-15 拍板的字**(`Q-選單名 = 乙`);**內部一律 audit,
+      //    只有畫面上這幾個字不是,那是刻意的** —— 不要「順手統一」改回「稽核紀錄」。
+      ['操作紀錄', '/settings/audit'],
     ]);
   });
 
   it('🔴 A9w2:設定那一格仍在、但不得有 href(頁面已下架,留著 href = 送員工去 404)', () => {
     // 與上一條互補而非蘊含:上面看守「可點清單」,這條看守「那一格沒被順手刪掉、
     // 也沒有人把死路徑接回來」—— 只刪頁不改 nav、或只改 nav 不刪頁,各紅一條。
-    expect(SOURCE).toContain("{ key: 'settings', label: '設定', icon: Icons.settings }");
-    expect(SOURCE).not.toContain('/settings/order-statuses');
+    // 🔴 D1c-1:`icon` 由 `Icons.settings`(元件)改存字串鍵 `'settings'` —— **不是放寬斷言**,
+    //    是 `nav-items.ts` 為了維持「runtime 依賴為零」必須存字串(理由見該檔檔頭)。
+    expect(NAV_SOURCE).toContain("{ key: 'settings', label: '設定', icon: 'settings' }");
+    expect(NAV_SOURCE).not.toContain('/settings/order-statuses');
   });
 
   // 🔴 **刪掉了第二條**(R1 nit):它原本斷言「供應商那項有 href、不是 disabled button」,

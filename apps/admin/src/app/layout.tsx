@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { WorkspaceShell } from '@/components/layout/workspace-shell';
 import { WORKSPACE_PANEL_COOKIE, parsePanelWidthCookie } from '@/lib/layout/workspace-panel';
+import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -50,7 +51,11 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <SidebarProvider>
-            <AppSidebar />
+            {/* 🔴 `#27` D1c-1:旗標**在這裡(server)算**,不在側欄裡算。
+                側欄是 `'use client'`,而 `AUDIT_UI_ENABLED` 不是 `NEXT_PUBLIC_*`
+                ⇒ 在那邊呼叫會靜默拿到 `undefined`(理由與實測見 `app-sidebar.tsx` 檔頭)。
+                形狀照抄 `components/orders/order-detail-route.tsx:250` 的既有前例。 */}
+            <AppSidebar auditEnabled={isAuditUiEnabled()} />
             <SidebarInset>
               <Header />
               <WorkspaceShell panel={panel} initialPanelWidth={initialPanelWidth}>
