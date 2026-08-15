@@ -104,8 +104,11 @@
 紙張        A4
 色彩        🔴 必須在【黑白雷射】上完整可讀 —— 倉庫印表機不保證彩色
             ⇒ 不得用「只靠顏色區分」的資訊（狀態、警示、分區）
-LOGO        /Users/sean_1/Desktop/派達資料/LOGO/png-hires/logo-p2-bicolor.png
-            實測 1323×720、66,739 bytes（同目錄另有 5 個變體，指名這個）
+LOGO        <OD 資產副本>/logo-p2-bicolor.png
+            實測 1323×720、66,739 bytes、sha256 0eb4b772b526b5fc…（與來源逐字相同）
+            🔴 來源目錄另有 5 個變體，已確認指名此檔（sha256 驗過）；
+               **來源路徑不入 repo，見交接** —— 那個目錄裝著證件與客戶合約，
+               Sean 的規矩逐字是「交檔案，不交目錄」。
 QR          M_gainfriends_2dbarcodes_BW.png  實測 360×360、23,953 bytes
             已解出 → https://lin.ee/egsf1Jy（Sean 確認是公司 LINE@ 官方帳號）
             🔴 不得自己產生 QR —— 那等於選第三種 payload

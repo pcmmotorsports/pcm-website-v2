@@ -131,7 +131,7 @@ env 值改了 repo 一個字都不會動 ⇒ 沒有 diff、沒有 review ⇒ 等
 **9. 公司 LOGO** — 🔴 **本合約只標「這裡要放 LOGO」,尺寸/位置/單雙色一律留給 OD。**
 Sean 2026-08-15 指定的檔(實查存在,66,739 bytes):
 ```
-/Users/sean_1/Desktop/派達資料/LOGO/png-hires/logo-p2-bicolor.png
+<OD 資產副本>/logo-p2-bicolor.png   （sha256 0eb4b772b526b5fc…；來源路徑不入 repo，見交接）
 ```
 ⚠️ 同目錄另有五個變體(`logo-p1-bicolor` / `p1-italian` / `p1-master` / `p2-italian` / `p2-master`)
 ⇒ **Sean 指名的是 `p2-bicolor` 這一個**,不要因為「看起來比較好」換成別的;
