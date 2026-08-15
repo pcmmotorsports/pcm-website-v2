@@ -102,7 +102,8 @@ SELECT
       ) THEN 'instock'
       WHEN (
         SELECT bool_and(
-          COALESCE(s.ordered_quantity, 0) >= oi.quantity)
+          COALESCE(s.ordered_quantity, 0)
+            >= GREATEST(oi.quantity - COALESCE(s.cancelled_quantity, 0), 0))
         FROM public.order_items oi
         LEFT JOIN public.order_item_quantity_summary s ON s.order_item_id = oi.id
         WHERE oi.order_id = o.id
