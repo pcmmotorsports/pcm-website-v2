@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Icons, type Icon } from '@/components/icons';
+import { Icons } from '@/components/icons';
 import {
   Sidebar,
   SidebarContent,
@@ -14,28 +14,36 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar';
+import { buildNavItems } from './nav-items';
 
 // 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md):砍 Clerk / nav-config 動態導覽 / user dropdown。
-// M-4a:總覽 → / ;訂單 → /orders(訂單線第一片)、客戶 → /customers(客戶管理第一片)皆已接真頁面 <Link>
-// (usePathname 判 active)。href 缺 = 尚未接頁面、渲染不可點 button 避免 404。
-type NavItem = { key: string; label: string; icon: Icon; href?: string };
-
-const NAV_ITEMS: readonly NavItem[] = [
-  { key: 'overview', label: '總覽', icon: Icons.dashboard, href: '/' },
-  { key: 'orders', label: '訂單', icon: Icons.billing, href: '/orders' },
-  // M-3 RW3:退款異常清單(RW4 值班入口)。href 在 /orders 底下 ⇒ 進本頁時「訂單」同時
-  // 呈 active(prefix 語意既有行為)—— 同屬訂單域,雙亮可接受、不為此改 active 邏輯。
-  { key: 'refund-exceptions', label: '退款異常', icon: Icons.warning, href: '/orders/refund-exceptions' },
-  { key: 'customers', label: '客戶', icon: Icons.user, href: '/customers' },
-  // M-4b #20 片1a:商品列表(唯讀)。href 有值 = 頁面已接上(照本檔檔頭慣例)。
-  { key: 'products', label: '商品', icon: Icons.product, href: '/products' },
-  { key: 'staff', label: '員工管理', icon: Icons.teams, href: '/settings/staff' },
-  { key: 'suppliers', label: '供應商', icon: Icons.post, href: '/settings/suppliers' },
-  // M-4b E10 A9w2:唯一去處 `/settings/order-statuses`(九碼狀態詞彙 CRUD)已隨九碼退場下架。
-  // 照本檔既有慣例(檔頭:href 缺 = 尚未接頁面、渲染不可點 button 避免 404)拿掉 href,
-  // 保留這一格等日後真的有「設定」頁再接;整項刪掉是另一個決定,不在退場片的範圍。
-  { key: 'settings', label: '設定', icon: Icons.settings },
-];
+//
+// 🔴 `#27` D1c-1:導覽清單本體已搬到 `nav-items.ts`(**零 runtime 依賴**),理由與代價寫在該檔檔頭
+//    —— 一句話:旗標控制的「有沒有被濾掉」在本檔測不到(`@/` alias 進不了 jsdom),搬出去才測得到。
+//
+// ── 🔴🔴 旗標為什麼由 `app/layout.tsx` 算好傳進來,而不是本檔自己呼叫 `isAuditUiEnabled()` ──────
+//   **本檔是 `'use client'`,而 `AUDIT_UI_ENABLED` 不是 `NEXT_PUBLIC_*`。**
+//   ⇒ 在這裡呼叫旗標函式會拿到 `undefined`,**不會報錯、不會紅,只會靜默把入口關掉** ——
+//     症狀是「功能做完了但員工看不到」,而三綠全綠。
+//   📎 **實測(2026-08-15,本片實作第一步;丟棄式探針,已還原、shasum 對回 baseline)**
+//     量法:在本檔(client component)暫時放一行 `process.env.AUDIT_UI_ENABLED`,跑 `next build`,
+//     然後比對 client 與 server 兩邊產物裡**同一行**被編成什麼:
+//       · client(`.next/static/chunks/…`):`…,d=t.default.env.AUDIT_UI_ENABLED;…`
+//       · server(`.next/server/…`)      :`…,k=process.env.AUDIT_UI_ENABLED;…`
+//     ⇒ **client 那側沒有被換成值,而是改讀一個被 bundler 換掉的 `process` 模組**
+//       (`t.default`,不是 Node 的 `process`)⇒ **瀏覽器端拿不到這個變數。**
+//     🔴 **誠實邊界**:我量的是**編出來的 code**,不是**瀏覽器裡跑出來的值** ——
+//       我沒有在真瀏覽器觀察到 `undefined`。已證的是「**bundler 沒有把值內聯進去**」,
+//       那已足以否決「在這裡直接呼叫旗標函式」的寫法,但別把它引用成「已驗證恆為 undefined」。
+//     ⚠️ **測得到的那一半有守門,測不到的那一半才靠這段註解**(E 窗 R1 must-fix 更正我的原句):
+//       · **測不到**:「bundler 把 env 編成什麼」——vitest 跑在 Node、`process.env` 是通的,
+//         要複現得真跑 `next build` ⇒ **這半只有上面那段實測紀錄,別刪。**
+//       · **✅ 測得到,而且已經守了**:「**有沒有人在 client component 寫下那條 import**」——
+//         那是**倉庫裡的一行字**,不是瀏覽器行為 ⇒ 守門在 `lib/audit/audit-ui-flag.test.ts` 檔尾。
+//       🔴 **我原本把這兩件併成一件,然後宣稱「寫不成測試」** —— 錯的那半讓一道 10 行的守門
+//         差點沒被寫出來(該檔已有 **21 支**測試用同一種手法)。**別再用「難測」把可測的那半一起放掉。**
+//   ✅ 形狀**照抄** repo 既有前例:`components/orders/order-detail-route.tsx:250`
+//     逐字 `refundEnabled={isRefundUiEnabled()}`(server 元件算完、當 prop 交給 client 元件)。
 
 /** 目前路徑是否命中此 nav('/' 精確;其餘含子路徑)。 */
 function isNavActive(pathname: string, href: string): boolean {
@@ -43,8 +51,9 @@ function isNavActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function AppSidebar() {
+export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
   const pathname = usePathname();
+  const navItems = buildNavItems(auditEnabled);
 
   return (
     // 🔴 #380(Sean 2026-08-10 深夜正式站肉眼驗):收合模式 `icon` → `offcanvas`。
@@ -74,25 +83,30 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>管理</SidebarGroupLabel>
           <SidebarMenu>
-            {NAV_ITEMS.map((item) => (
-              <SidebarMenuItem key={item.key}>
-                {item.href ? (
-                  <SidebarMenuButton
-                    isActive={isNavActive(pathname, item.href)}
-                    tooltip={item.label}
-                    render={<Link href={item.href} />}
-                  >
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </SidebarMenuButton>
-                ) : (
-                  <SidebarMenuButton isActive={false} tooltip={item.label} aria-disabled>
-                    <item.icon />
-                    <span>{item.label}</span>
-                  </SidebarMenuButton>
-                )}
-              </SidebarMenuItem>
-            ))}
+            {navItems.map((item) => {
+              // `nav-items.ts` 存的是**字串鍵**不是元件(該檔檔頭:存元件就得 runtime import
+              // `../icons`,那支會把整條 `@tabler/icons-react` 依賴帶進測試 ⇒ resolve 不到)。
+              const ItemIcon = Icons[item.icon];
+              return (
+                <SidebarMenuItem key={item.key}>
+                  {item.href ? (
+                    <SidebarMenuButton
+                      isActive={isNavActive(pathname, item.href)}
+                      tooltip={item.label}
+                      render={<Link href={item.href} />}
+                    >
+                      <ItemIcon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  ) : (
+                    <SidebarMenuButton isActive={false} tooltip={item.label} aria-disabled>
+                      <ItemIcon />
+                      <span>{item.label}</span>
+                    </SidebarMenuButton>
+                  )}
+                </SidebarMenuItem>
+              );
+            })}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
