@@ -231,7 +231,17 @@ BEGIN
      AND p.prosecdef
      -- 🔴 **實跑才發現的**:PG 實際存的是 `search_path=""`(帶跳脫的空字串),不是 `search_path=`。
      --    R1/R2 兩輪審查都沒抓到這條 —— **它不是推理錯,是【儲存格式】這種只有跑過才知道的事實。**
-     --    ⇒ 兩種編碼都接受(不同 PG 版本可能不同),用陣列重疊而不是完全相等。
+     --
+     --    🔴🔴 **證據強度逐字寫清楚(E 窗 2026-08-16 獨立實測後改寫)**:
+     --    **PG 17.10 實存 `search_path=""`,本斷言接受它(該分支已實測為 true);
+     --      第二個分支 `search_path=` 未被觸發,其存在理由(其他 PG 版本)【未經驗證】。**
+     --    E 窗在 17.10 上試了三種寫法:`SET search_path = ''` / `SET search_path TO ''`
+     --    **兩種都產生 `search_path=""`**;正向對照 `SET search_path = pg_catalog`
+     --    ⇒ `{search_path=pg_catalog}`(證明它改得動這個欄位、不是量具壞掉)。
+     --    ⇒ **在 17.10 上第二分支是死碼。**
+     --    ⚠️ **不得寫成「兩種編碼都驗過了」** —— 只驗過一種,另一種是**防禦性**的。
+     --    ⚠️ **也不得因此把第二分支刪掉** —— **防禦性的東西本來就該恆綠**;
+     --       要改的是【描述】,不是【程式碼】。
      AND p.proconfig::text[] && ARRAY['search_path=""', 'search_path=']
      AND p.provolatile = 's';
   IF v_cnt <> 1 THEN

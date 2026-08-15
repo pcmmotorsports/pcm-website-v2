@@ -126,9 +126,20 @@ run)
   APPLY=$("${PSQL[@]}" -v ON_ERROR_STOP=1 -f "$MIG" 2>&1)
   APPLY_RC=$?
   if [ $APPLY_RC -ne 0 ]; then
-    echo "🔴 migration apply 失敗(rc=$APPLY_RC):"; echo "$APPLY" | tail -20; exit 1
+    # 🔴 **印明確的失敗標記,不要只靠「沒有輸出」**(E 窗自曝:它第一輪只 grep
+    #    `PASS=/FAIL=/❌`,而 apply 失敗時三者都不出現 ⇒ **畫面全空 = 看起來像沒事**)。
+    #    ⇒ 「沒有輸出」被讀成「沒有問題」是這類 harness 的通病;這行讓失敗一定有字面。
+    echo "❌ VERIFY-ABORT:migration apply 失敗(rc=$APPLY_RC)—— 下面所有行為格【一格都沒跑】"
+    echo "$APPLY" | tail -20
+    echo "══ 結果:PASS=0  FAIL=1(apply 失敗,行為格未執行)══"
+    exit 1
   fi
-  echo "  ✅ apply 成功(含 migration 內四條結構守門)"
+  # 🔴 **這一行刻意【不】用 ✅**(E 窗獨立複驗抓到):
+  #    它是**敘述句**,背後沒有任何「期望 vs 實得」的比較,而 `✅` 是 `chk()` 專用的符號。
+  #    E 窗數畫面上的 ✅ 得到 31、腳本印 PASS=30 —— **差的就是這一行**。
+  #    ⚠️ 這是「宣稱強度 > 實際驗證強度」的**第四種載體:符號**
+  #       (前三種是註解、錯誤訊息、格名)。**敘述句與斷言不共用符號。**
+  echo "  ·· apply 成功(含 migration 內四條結構守門;此行為敘述,非斷言)"
 
   echo "── A 組:輸入形狀(migration 只驗了空字串這一格)───────────────"
   chk "空字串 ⇒ ids 空"        "[]"    "$(val "select (public.admin_search_customers('',100)->'ids')::text")"
@@ -188,6 +199,20 @@ run)
   chk "SECURITY DEFINER"  "t" "$(val "select prosecdef from pg_proc where oid='public.admin_search_customers(text,integer)'::regprocedure")"
   chk "STABLE"            "s" "$(val "select provolatile from pg_proc where oid='public.admin_search_customers(text,integer)'::regprocedure")"
   chk "search_path 釘死"  "t" "$(val "select proconfig::text[] && array['search_path=\"\"','search_path=']::text[] from pg_proc where oid='public.admin_search_customers(text,integer)'::regprocedure")"
+  # 🔴🔴 **正向對照(E 窗抓到的缺口)**:上面那格只證「錯的值會被擋」,
+  #    **沒有人證「對的那兩種編碼【都】會被放行」** ——
+  #    不補這發的話,可能寫了一個「兩種都擋」的守門而看不出來,因為現實只會出現其中一種。
+  #    ⇒ 直接對兩種字面各跑一次判定式本體。
+  for enc in 'search_path=""' 'search_path='; do
+    # ⚠️ **這格驗的是【判定式接受哪些字面】,不是【PG 會產生哪些字面】** ——
+    #    後者 E 窗在 17.10 上實測只產生 `search_path=""`(三種語法皆同),
+    #    `search_path=` 那個分支在此版本是**死碼、防禦性的**。格名照這個界線寫。
+    chk "判定式接受編碼 [$enc](非「PG 會產生它」)" "t" \
+      "$(val "select array['$enc']::text[] && array['search_path=\"\"','search_path=']::text[]")"
+  done
+  chk "🔴 負向對照:錯的編碼必須被擋" "f" \
+    "$(val "select array['search_path=public']::text[] && array['search_path=\"\"','search_path=']::text[]")"
+
   chk "🔴 函式體零 RAISE(PII 不落 log)" "0" \
     "$(val "select count(*) from pg_proc where oid='public.admin_search_customers(text,integer)'::regprocedure and prosrc ~* '\mRAISE\M'")"
 
