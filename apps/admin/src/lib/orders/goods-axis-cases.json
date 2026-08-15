@@ -15,6 +15,9 @@
     "  TS 側每次 vitest 都跑;SQL 側只有人想到時才跑 ——",
     "  .husky/pre-commit / .github/ / package.json 對 docs/probes 零命中(2026-08-16 實查)。",
     "  ⇒ 有人改了那支 view 而沒跑 probe,不會有任何東西紅。",
+    "  🔴 更精確:CI【是存在的】(.github/workflows/ 有 ci.yml / e2e-prod.yml / rpm-sync.yml),",
+    "     但 ci.yml 沒有 postgres service(grep -c postgres ⇒ 0)、也沒有人叫 probe。",
+    "     ⇒ 缺口不是「沒有 CI」,是「CI 跑不動需要資料庫的東西」。",
     "",
     "⚠️ 加新案例時兩邊都會自動吃到,不用改兩份清單 —— 那正是本檔存在的理由。"
   ],

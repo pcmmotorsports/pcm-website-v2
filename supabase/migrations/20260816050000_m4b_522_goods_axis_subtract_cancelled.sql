@@ -60,6 +60,12 @@
 --    TS 側每次 `vitest` 都跑;**SQL 側只有人想到時才跑** ——
 --    `.husky/pre-commit` / `.github/` / `package.json` 對 `docs/probes` **零命中**。
 --    ⇒ **有人改了這支 view 而沒跑 probe,不會有任何東西紅。**
+--
+--    🔴 **更精確的版本(主視窗 2026-08-16 查環境、我自己複核過)**:
+--       **CI 是存在的** —— `.github/workflows/` 有 `ci.yml` / `e2e-prod.yml` / `rpm-sync.yml`,
+--       `ci.yml` 跑 typecheck / lint / test。**但它沒有 postgres service**
+--       (`grep -c postgres .github/workflows/ci.yml` ⇒ **0**),也沒有人叫 probe。
+--       ⇒ 缺口不是「沒有 CI」,是「**CI 跑不動需要資料庫的東西**」。
 --    動這支 view 的人要自己跑:`bash docs/probes/order-goods-axis-parity-probe.sh`
 
 CREATE OR REPLACE VIEW public.admin_order_list_v

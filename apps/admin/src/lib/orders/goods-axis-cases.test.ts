@@ -15,6 +15,12 @@
 //    `.husky/pre-commit` / `.github/` / `package.json` 對 `docs/probes` **零命中**。
 //    ⇒ **有人改了 `admin_order_list_v` 而沒跑 probe,不會有任何東西紅。**
 //
+//    🔴 **更精確的版本(主視窗 2026-08-16 查環境、我自己複核過)**:
+//       **CI 是存在的** —— `.github/workflows/` 有 `ci.yml` / `e2e-prod.yml` / `rpm-sync.yml`,
+//       `ci.yml` 跑 typecheck / lint / test。**但它沒有 postgres service**
+//       (`grep -c postgres .github/workflows/ci.yml` ⇒ **0**),也沒有人叫 probe。
+//       ⇒ 缺口不是「沒有 CI」,是「**CI 跑不動需要資料庫的東西**」。
+//
 // ⚠️ **它守不住什麼**:期望值是人寫的 ⇒ **人寫錯了兩邊會一起錯**。
 //    防線是每一條 case 的 `label` 都寫了「為什麼是這個值」,讓下一個人審得動。
 
