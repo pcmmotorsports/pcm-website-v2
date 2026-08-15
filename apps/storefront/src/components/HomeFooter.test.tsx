@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { HomeFooter } from './HomeFooter';
-import { STORE_ADDRESS } from '@/lib/site-config';
+import { OPENING_HOURS, STORE_ADDRESS } from '@/lib/site-config';
 
 afterEach(cleanup);
 
@@ -198,6 +198,37 @@ describe('HomeFooter', () => {
     //    比了會變成一條恆假的斷言。
     expect(text.replace(/\s/g, ''), '頁尾地址與 site-config 的 STORE_ADDRESS 漂開了').toBe(
       STORE_ADDRESS.region + STORE_ADDRESS.locality + STORE_ADDRESS.street,
+    );
+  });
+
+  // 🔴🔴 E-63x R3(2026-08-15):R3 查的是「過寬」(地址斷言會不會誤紅),
+  //    結論是**不會**;但同一批突變挖出**另一個欄位的同款病 —— 營業時間**。
+  //    `lib/site-config.ts:38` 有 `OPENING_HOURS`,而且**已有三個消費端**:
+  //      `MobileMenu.tsx:73` / `data/legal-content.ts:67`(法律頁)/ `lib/org-jsonld.ts:55-57`(搜尋引擎)
+  //    本檔與 `ComingSoon.tsx` 卻**硬寫**「週一-週六 10:00-19:00」。
+  //    ⇒ 改 SSoT ⇒ 那三處變、這兩處不變 ⇒ **同一個事實站上兩種說法**。
+  //    E 實測:突變 `OPENING_HOURS.opens`/`.closes` ⇒ 這兩支測試檔 **19 passed、零訊號**。
+  //    🔴 比地址那次嚴重一級:地址是「靜默不同步」,營業時間是**同一頁面群裡兩處講不同的話**
+  //      (其中一處是**法律頁**)。
+  //
+  // 🔴🔴 **本格守的【不是】「SSoT 漂移」—— 那個已經被構造消滅了。**
+  //    渲染點改吃 `OPENING_HOURS` 之後,突變 SSoT 會讓兩邊一起變 ⇒ **本格對那發恆綠**
+  //    (實測:改 `closes` ⇒ 21 passed,不紅)。**寫在這裡是因為恆綠格比沒有更糟,
+  //    而讀的人有權知道它到底守得住什麼。**
+  //    ⇒ **它守的是「有人把它硬寫回去」** —— 那是漂移唯一能復活的路(重構、照 OD 抄、複製貼上)。
+  //    實測負向對照:把渲染改回硬寫且值與 SSoT 不同(`09:00-18:00`)
+  //    ⇒ **兩支都紅**(`Test Files 2 failed`),訊息即下面那句。
+  //    ⚠️ 若哪天有人「簡化」成直接比字面常數,本格就會退化成恆綠 —— 期望值必須來自 SSoT。
+  it('🔴 頁尾營業時間與 site-config 的 OPENING_HOURS 一致(本檔硬寫、三個消費端吃 SSoT)', () => {
+    const { container } = render(<HomeFooter />);
+    const col = Array.from(container.querySelectorAll('.ed-footer-cols > div')).find(
+      (d) => d.querySelector('.ed-footer-h')?.textContent === '門市',
+    );
+    if (!col) throw new Error('找不到「門市」那一欄 —— 頁尾 markup 變了');
+    // 門市欄第 2 段是營業時間(第 1 段地址、第 3 段電話);段數守門在 `storeAddressNode`。
+    const hours = col.querySelectorAll('p')[1]?.textContent ?? '';
+    expect(hours.replace(/\s/g, ''), '頁尾營業時間與 OPENING_HOURS 漂開了').toBe(
+      `週一-週六${OPENING_HOURS.opens}-${OPENING_HOURS.closes}`,
     );
   });
 });

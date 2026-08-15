@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { ComingSoon } from './ComingSoon';
-import { STORE_ADDRESS } from '@/lib/site-config';
+import { OPENING_HOURS, STORE_ADDRESS } from '@/lib/site-config';
 
 afterEach(cleanup);
 
@@ -181,6 +181,24 @@ describe('ComingSoon · 字面與連結', () => {
     //    **是突變測試抓到的,不是複讀抓到的** ——「兩支要一起改」就寫在上面那行,而我照樣漏了。
     expect(text.replace(/\s/g, ''), '門市地址與 site-config 的 STORE_ADDRESS 漂開了').toBe(
       STORE_ADDRESS.region + STORE_ADDRESS.locality + STORE_ADDRESS.street,
+    );
+  });
+
+  // 🔴🔴 E-63x R3(2026-08-15):與 `HomeFooter.test.tsx` 那條成對,理由見該檔。
+  //    營業時間在本檔是**硬寫**的,而 `lib/site-config.ts:38` 的 `OPENING_HOURS`
+  //    已有三個消費端(`MobileMenu.tsx:73` / `data/legal-content.ts:67` / `lib/org-jsonld.ts:55-57`)
+  //    ⇒ 改 SSoT 會讓站上出現兩種說法,而其中一處是**法律頁**。
+  //    🔴 兩支一起補 —— 本輪 R2 我就是只改一支、被突變抓到,不再犯第二次。
+  //    🔴🔴 **本格守的不是「SSoT 漂移」**(渲染改吃 SSoT 後那個已被構造消滅、本格對它恆綠),
+  //    **而是「有人把它硬寫回去」** —— 完整說明與實測負向對照見 `HomeFooter.test.tsx` 同名那格。
+  it('🔴 營業時間與 site-config 的 OPENING_HOURS 一致(本檔硬寫、三個消費端吃 SSoT)', () => {
+    const { container } = render(<ComingSoon {...SITEWIDE} hasNav={false} />);
+    const col = Array.from(container.querySelectorAll('.cs-foot-col')).find(
+      (d) => d.querySelector('h2')?.textContent === '營業時間',
+    );
+    if (!col) throw new Error('找不到「營業時間」那一欄 —— ComingSoon 頁尾 markup 變了');
+    expect((col.querySelector('p')?.textContent ?? '').replace(/\s/g, ''), '營業時間與 OPENING_HOURS 漂開了').toBe(
+      `週一-週六${OPENING_HOURS.opens}-${OPENING_HOURS.closes}`,
     );
   });
 });

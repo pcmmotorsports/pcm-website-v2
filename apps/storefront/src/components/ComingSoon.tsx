@@ -25,7 +25,7 @@
 //    的門市 / 營業時間 / 社群 / 版權 / 統編**各出現兩次**(R1 抓到、真瀏覽器 count 實測 = 2)。
 //    現在的規則很單純:**有天地 = 頁尾整個不渲染**(見下面 `!hasNav` 那段)。
 
-import { TAX_ID } from '@/lib/site-config';
+import { OPENING_HOURS, TAX_ID } from '@/lib/site-config';
 
 /** 20 家代理品牌的深色版 logo(`public/brands-dark/`,sha256 逐位元組核過源檔)。
  *  🔴 **寫死陣列、不用 glob 或 JS 產生**:設計端 §四 逐字「整站版是零 JS 頁,牆不該因為
@@ -194,7 +194,9 @@ export function ComingSoon(props: ComingSoonProps) {
             </div>
             <div className="cs-foot-col">
               <h2>營業時間</h2>
-              <p>週一-週六 10:00-19:00</p>
+              {/* 🔴 E R3(2026-08-15):與 `HomeFooter.tsx` 同時改吃 `OPENING_HOURS` SSoT。
+                  「週一-週六」仍硬寫(理由見該檔;`days` 的中文推導只在 `legal-content.ts:40-66`)。 */}
+              <p>週一-週六 {OPENING_HOURS.opens}-{OPENING_HOURS.closes}</p>
             </div>
             <div className="cs-foot-col">
               <h2>社群</h2>
@@ -217,8 +219,18 @@ export function ComingSoon(props: ComingSoonProps) {
                 🔴 D-040(2026-08-15)更新這段:**「不吃 SSoT」這個債還在,但它的症狀已經變了。**
                   · 地址**字面**已對齊 Sean 拍板的正典值(`一樓` → `1樓`),兩個載體同一顆 commit 一起改。
                   · 本檔與 `HomeFooter.test.tsx` **各補了一格守門**釘渲染輸出 ⇒ 再漂掉會有東西紅。
-                  · 剩下的債 = 這兩處仍不 import `STORE_ADDRESS`,所以**改常數不會傳到這裡**。
-                    要修得動殼元件(`OPENING_HOURS` 目前也還沒有 SSoT 常數),不在本片範圍。
+                  · 剩下的債 = 這兩處仍不 import `STORE_ADDRESS` / `OPENING_HOURS`,
+                    所以**改常數不會傳到這裡**;守門補在測試側(斷言渲染輸出 == SSoT)。
+                🔴🔴 **上一行原本寫「`OPENING_HOURS` 目前也還沒有 SSoT 常數」—— 那句是【假的】。**
+                  實查 `lib/site-config.ts:38` 就有 `OPENING_HOURS`,而且**已經有三個消費端**:
+                  `components/MobileMenu.tsx:73` / `data/legal-content.ts:67`(法律頁)/
+                  `lib/org-jsonld.ts:55-57`(餵搜尋引擎)。
+                  ⇒ **同一個事實站上有兩種來源:三處吃 SSoT、本檔與 `HomeFooter.tsx` 兩處硬寫。**
+                  改 SSoT ⇒ 手機選單 / JSON-LD / 法律頁跟著變,這兩處不變 ⇒ **站內自相矛盾**。
+                  (E 窗 R3 突變 `OPENING_HOURS` 實測:那兩支測試檔 19 passed **全綠、零訊號**;
+                   本片已補守門,見兩支 `*.test.tsx` 的營業時間那條。)
+                  ⚠️ **那句假字面是本窗自己寫的** —— 寫的當下沒開 `site-config.ts` 查,
+                  而它會讓下一個人以為「沒有常數可吃」而不去接。**留痕不刪。**
                 ⚠️ 原註解寫的 `HomeFooter.tsx:89-90` / `:97` 是**過期行號**,已換成 grep 錨點 ——
                   行號會漂,錨點不會。 */}
             <span className="cs-mono">統一編號 {TAX_ID}</span>
