@@ -10,6 +10,8 @@ import {
   CUSTOMERS_PAGE_SIZE,
   TIER_LABEL,
   TIER_VALUES,
+  customerEmailDisplay,
+  LINE_NO_EMAIL_LABEL,
 } from './customer-list-view';
 
 describe('parseCustomerListSearchParams — tier 白名單守門', () => {
@@ -70,4 +72,42 @@ describe('格式化', () => {
   it('CUSTOMERS_PAGE_SIZE = 20', () => {
     expect(CUSTOMERS_PAGE_SIZE).toBe(20);
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `customerEmailDisplay` — LINE 合成位址不顯示原字串(Sean 2026-08-16 拍板乙)
+// ─────────────────────────────────────────────────────────────────────────────
+describe('customerEmailDisplay', () => {
+  it('🔴 LINE 合成位址 → 替代字面,且原字串一個字都不留', () => {
+    const raw = 'line_u5877604cab5e67badac879d777bf702e@line.pcmmotorsports.local';
+    const out = customerEmailDisplay(raw);
+    expect(out).toBe(LINE_NO_EMAIL_LABEL);
+    // 🔴 光斷言「等於替代字面」還不夠:要釘住**原字串沒有被夾帶出去**
+    //    (例如未來有人改成 `${LABEL}(${raw})` 之類的「貼心」寫法)。
+    expect(out).not.toContain('line_u');
+    expect(out).not.toContain('pcmmotorsports.local');
+  });
+
+  it('真 Email 原樣通過(正向對照:證明本函式不是恆回替代字面)', () => {
+    expect(customerEmailDisplay('sean@example.com')).toBe('sean@example.com');
+  });
+
+  /**
+   * 🔴 替代字面必須與 storefront 那句**逐字相同** —— 兩邊講的是同一件事。
+   * 這一格釘的是「不要各寫各的」,不是文案本身好不好。
+   * 出處:`apps/storefront/src/components/account/tabs/ProfileTab.tsx:137` 的 placeholder。
+   */
+  it('替代字面與 storefront 逐字相同', () => {
+    expect(LINE_NO_EMAIL_LABEL).toBe('LINE 帳號登入,無 Email');
+  });
+
+  it('子網域也算合成位址(判斷式來自 @pcm/schemas,本格釘的是我們有接到它)', () => {
+    expect(customerEmailDisplay('a@sub.line.pcmmotorsports.local')).toBe(LINE_NO_EMAIL_LABEL);
+  });
+});
+
+// 🔴 `null` 是「這單沒有客人 email」,不是「LINE 用戶」—— 兩者必須分得開。
+//    這一格是第一版寫死 `string` 時炸掉 21 格頁級測試的那個洞。
+it('null 原樣回傳,不轉成替代字面', () => {
+  expect(customerEmailDisplay(null)).toBeNull();
 });

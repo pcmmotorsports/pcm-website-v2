@@ -559,3 +559,31 @@ describe('出貨狀態的解釋小字', () => {
     expect(text).toContain('（本單 10 件中已訂 3 件）');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 訂單明細的 Email 欄:LINE 合成位址不外顯(Sean 2026-08-16 拍板乙)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴 **這一處是盤點時多找到的第三個顯示點** —— 交辦只提客戶頁的列表與明細。
+//    客服處理訂單時看到的就是那串內部識別碼 ⇒ 只修客戶頁 = 修一半。
+describe('訂單明細 Email 欄:LINE 合成位址不外顯', () => {
+  const withEmail = (email: string) =>
+    detail({ customer: { name: '測試客戶', phone: null, email } } as unknown as Partial<AdminOrderDetail>);
+
+  it('🔴 合成位址 → 顯示替代字面,原字串不出現', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      withEmail('line_u5877604cab5e67badac879d777bf702e@line.pcmmotorsports.local'),
+    );
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('LINE 帳號登入,無 Email');
+    expect(container.textContent).not.toContain('line_u');
+    expect(container.textContent).not.toContain('pcmmotorsports.local');
+  });
+
+  // 正向對照:真 Email 照樣顯示 ⇒ 上一格不是因為「這頁不顯示 Email」而過。
+  it('真 Email 仍原樣顯示(正向對照)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(withEmail('sean@example.com'));
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('sean@example.com');
+  });
+});

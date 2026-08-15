@@ -9,6 +9,7 @@ import {
   INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
 } from '../../lib/orders/order-list-view';
 import { orderDetailGoodsAxis, goodsAxisProgressNote } from '../../lib/orders/order-status-axes';
+import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import {
   invoiceTypeLabel,
   shippingMethodLabel,
@@ -382,7 +383,11 @@ export function OrderDetail({
           <h2 className={CARD_TITLE}>客戶資訊</h2>
           <Field label='姓名' value={detail.customer.name} />
           <Field label='電話' value={detail.customer.phone} />
-          <Field label='Email' value={detail.customer.email} />
+          {/* 🔴 LINE 合成位址不顯示原字串(Sean 2026-08-16 拍板乙)——
+              **這一處是盤點時多找到的第三個顯示點**(交辦只提客戶頁的列表與明細)。
+              客服處理訂單時看到的就是那串內部識別碼 ⇒ 只修客戶頁 = 修一半。
+              判斷與文案的理由全文在 `customerEmailDisplay` 的 docstring,此處不重複一份。 */}
+          <Field label='Email' value={customerEmailDisplay(detail.customer.email)} />
         </section>
 
         <section className={CARD}>

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { AdminCustomerSummary } from '@pcm/domain';
-import { TIER_LABEL, formatCustomerDate } from '../../lib/customers/customer-list-view';
+import { TIER_LABEL, formatCustomerDate, customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
 
 // M-4a 客戶管理第一片:輕量客戶列表 table(server-render);明細-a 起姓名連 /customers/[id]。
@@ -25,7 +25,7 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminCustomerSummary>> = [
     header: 'Email',
     className: 'text-muted-foreground',
     mobile: 'sub',
-    cell: (c) => c.email,
+    cell: (c) => customerEmailDisplay(c.email),
   },
   {
     key: 'phone',
