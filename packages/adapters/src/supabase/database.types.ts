@@ -195,6 +195,21 @@
 //    兩份 docs、一支 migration 等散文提及)。0 的是**程式碼消費端**,不是字串出現次數;
 //    寫成前者會讓下一個人以為 grep 是空的,而他一跑就看到 6 筆、然後不知道該信哪一句。
 //    若日後要用 pg_graphql,重 gen 也不會把它帶回來 —— 那時要先查 CLI 的 `--schema` 旗標,別手貼。
+// ④ 🔴🔴 **2026-08-15 `#20` 片2c:另有【第二類】手改,不屬於上面那 26 處,不要把它併進那個數字。**
+//    **內容**:`products` 的 `Row` / `Insert` / `Update` 三處各加 `listing_set_by` 與
+//    `source_missing_at` 兩欄 —— `:2528-2529`(Row)、`:2555-2556`(Insert)、`:2582-2583`(Update),
+//    **共 6 行、3 段**。
+//    **為什麼不併進 26**:那 26 處全部是「函式 `Args` 的 `| null` 校正」——**同一類、同一種修法**;
+//    這 6 行是**「欄位在正式庫還不存在,但 repo 先寫上去」**,性質完全不同,
+//    併進去會讓「26」這個唯一權威同時代表兩件事,而下一個人只會照 `| null` 的做法去補。
+//    🔴🔴 **這 6 行是「repo 的型別」與「正式庫的真相」脫鉤的狀態,而 typecheck 會全綠。**
+//    ⇒ **`20260815030000` apply 之後,重 gen 會自然帶回這兩欄 ⇒ 屆時本段整段刪除,不需要貼回。**
+//    ⚠️ **對上面 ③ 那道機械驗證的影響**:在 apply 之前重 gen,去註解 diff 會得到
+//    **26 處 `| null` + 這 6 行**,**不再「恰好 26」** ⇒ 腳本會中止。**那是對的**(它正在告訴你
+//    「repo 宣稱的欄位正式庫沒有」),**不要為了讓它過而把這 6 行刪掉再貼回去**。
+//    **驗這段還成不成立的量法**:`grep -c 20260815030000 supabase/APPLIED.tsv`
+//    —— 得 `0` = 尚未 apply、本段有效;得 `1` = 已 apply、**請重 gen 並刪除本段**。
+//
 // ③ **上面 26 處校正這次是用腳本貼回、且有機械驗證**,不是逐處手貼:
 //    把「貼回後的檔」與「原始生成檔」**各自去掉註解行再 diff**,結果**必須恰好是那 26 處 `| null`、
 //    不能多也不能少**(2026-08-14 實跑:恰 26,與上方「唯一權威」計數逐字對上)。
@@ -2525,6 +2540,8 @@ export type Database = {
           category_id: string
           created_at: string
           delisted_at: string | null
+          listing_set_by: string
+          source_missing_at: string | null
           description: string | null
           external_id: string
           fitments: Json
@@ -2550,6 +2567,8 @@ export type Database = {
           category_id: string
           created_at?: string
           delisted_at?: string | null
+          listing_set_by?: string
+          source_missing_at?: string | null
           description?: string | null
           external_id: string
           fitments?: Json
@@ -2575,6 +2594,8 @@ export type Database = {
           category_id?: string
           created_at?: string
           delisted_at?: string | null
+          listing_set_by?: string
+          source_missing_at?: string | null
           description?: string | null
           external_id?: string
           fitments?: Json

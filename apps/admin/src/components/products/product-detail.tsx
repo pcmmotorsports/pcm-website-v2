@@ -1,6 +1,8 @@
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { toProductMedia } from '../../lib/products/product-media';
 import {
+  isSourceMissing,
+  resolveListingSetBy,
   resolveListingState,
   resolvePrice,
   type AdminProductDetailRow,
@@ -25,6 +27,9 @@ import {
  * 因為 CHECK 是**今天**的約束,而 `availability` 將來要加第三個值(預購/停產)是很可能的事,
  * 屆時這個分支就是真的活路徑。
  */
+/** 與 `products-table.tsx` 同一組字面(Sean 2026-08-15 拍板);兩處都由測試釘住。 */
+const SET_BY_LABEL = { staff: '手動', sync: '自動', unknown: '⚠ 資料異常' } as const;
+
 export function availabilityLabel(raw: string): string {
   if (raw === 'in-stock') return '有庫存';
   if (raw === 'out-of-stock') return '無庫存';
@@ -106,6 +111,15 @@ export function ProductDetail({
           <Field label='供應商' value={product.supplier_slug} />
           <Field label='網址代稱' value={product.handle} />
           <Field label='上架狀態' value={listed ? '上架中' : '已下架'} />
+          {/* 🔴 每一筆都要看得出「誰決定的」;值認不得時顯示異常,不得靜靜落回「自動」。
+              文案「手動 / 自動」是 Sean 2026-08-15 拍板字面,不得自行改寫。 */}
+          <Field label='誰設定的' value={SET_BY_LABEL[resolveListingSetBy(product)]} />
+          {/* 「原廠已無此品」只陳述來源端事實,不暗示能不能賣 ——
+              Sean 的規則是原廠停產但有現貨仍要繼續賣。 */}
+          <Field
+            label='原廠供貨'
+            value={isSourceMissing(product) ? '原廠已無此品' : '原廠仍有'}
+          />
           <Field label='庫存狀態' value={availabilityLabel(product.availability)} />
           <Field
             label='售價'

@@ -1,13 +1,34 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stripComments } from '../test-support/strip-comments';
 
 // 受測檔頂層 `import 'server-only'`(它是 server-only 模組,這是對的)⇒ 測試裡要 stub 掉,
 // 否則整支載入即炸(同 `app/customers/page.test.tsx:10` 紀律)。
 vi.mock('server-only', () => ({}));
 
+/**
+ * 🔴 記錄實際送出的 PostgREST 條件。**加這支的理由是突變測試打臉**:
+ * 我原本只在 `page.test.tsx` 驗「頁面把 setBy 傳給 repository」——
+ * **把 repository 裡的 `.eq('listing_set_by', …)` 整行刪掉,那些測試全部照樣綠。**
+ * ⇒ 「有沒有把參數傳下去」與「參數有沒有變成查詢條件」是兩件事,只驗前者等於沒驗。
+ */
+const q = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock('@pcm/adapters/server', () => {
+  const builder: Record<string, unknown> = {};
+  for (const m of ['select', 'eq', 'order', 'range', 'is', 'not', 'in', 'maybeSingle']) {
+    builder[m] = (...args: unknown[]) => {
+      q.calls.push([m, ...args]);
+      return builder;
+    };
+  }
+  (builder as { then: unknown }).then = (f: (v: unknown) => unknown) =>
+    Promise.resolve({ data: [], error: null, count: 0 }).then(f);
+  return { createSupabaseServiceClient: () => ({ from: () => builder }) };
+});
+
 import {
+  listProductsForAdmin,
   resolveListingState,
   resolvePrice,
   type AdminProductRow,
@@ -162,7 +183,11 @@ describe('#20 片1a — 讀取層守門', () => {
     // 🔴 **釘的是傳進 select() 的「值」,不是 `.select('*')` 這個呼叫字面**(code-reviewer MF2)。
     //    第一版只禁呼叫字面 ⇒ 把 PRODUCT_LIST_COLUMNS 改成 `'*'` 照樣全綠 = 恆綠格。
     //    實測:reviewer 把該常數改成 `'*' as const` 後,舊版五條斷言全過。
-    expect(code).toContain("'id, title, external_id, price_general, delisted_at'");
+    // 🔴 片2c 加兩欄。**逐字釘住整串**(不是只檢查「有沒有 price_store」)——
+    //    釘整串的價值是:任何人加欄都會撞紅,被迫回來想一次「這欄該不該給後台看」。
+    expect(code).toContain(
+      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at'",
+    );
     // 片1b-1 新增的詳情欄位清單,同樣釘值不釘呼叫字面。
     expect(code).toContain('supplier_slug, handle, brand_id, category_id');
     expect(code.includes(".select('*')")).toBe(false);
@@ -338,6 +363,8 @@ describe('#20 片1a — 取值落點的行為', () => {
     external_id: 'RPM-001',
     price_general: 1200,
     delisted_at: null,
+    listing_set_by: 'sync',
+    source_missing_at: null,
   };
 
   it('resolvePrice 回售價;無價回 null(不編一個假的 0)', () => {
@@ -352,5 +379,21 @@ describe('#20 片1a — 取值落點的行為', () => {
     expect(resolveListingState({ ...base, delisted_at: '2026-08-01T00:00:00Z' })).toBe(
       'delisted',
     );
+  });
+});
+
+describe('🔴 #20 片2c:chip 篩選必須變成 DB 查詢條件', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+  });
+
+  it('setBy=staff → 送出 .eq("listing_set_by", "staff")', async () => {
+    await listProductsForAdmin(20, 0, 'staff');
+    expect(q.calls).toContainEqual(['eq', 'listing_set_by', 'staff']);
+  });
+
+  it('🔴 負向對照:不帶 setBy → **不得**出現該條件(否則等於永遠只看得到一種)', async () => {
+    await listProductsForAdmin(20, 0);
+    expect(q.calls.map((c) => c[1])).not.toContain('listing_set_by');
   });
 });
