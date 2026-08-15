@@ -41,10 +41,22 @@ function redirectWith(returnTo: string, code: ResultCode): never {
  * RPC 有 16 種 `RAISE`,其中 `pcm_e13_no_edit_after_payment`(這張單已收過款)與
  * `pcm_e13_discount_not_supported`(這張單有折扣)是**正當的業務拒絕**,
  * RPC 刻意寫了給員工看的中文(含「需要調整請走退款流程」)。
- * 而這六碼**沒有「業務拒絕」這一類** ⇒ 它們一律變成 `error`,那兩句中文到不了畫面。
- * 🔴 要分辨它們,前提是「`USING ERRCODE` / CONSTRAINT 名會不會出現在 supabase-js 的 `error.code`」——
- * **那件事還沒有人實測過**(Sean 2026-08-15 已批准做一次驗證,尚未執行;repo 內零前例可抄)。
- * ⇒ **在測出來之前不寫任何 mapping** —— 猜一個 code 去分流,錯了會把「已收款不能改」講成別的意思。
+ * 而這六碼**沒有「業務拒絕」這一類** ⇒ 它們一律變成 `error`。
+ *
+ * 🔴🔴 **成因是「到了被丟掉」,不是「傳不到」**(2026-08-15 主視窗對正式庫實測,一次呼叫):
+ * 用不存在的 order_id 打 PostgREST ⇒ `HTTP 400`,body 逐字
+ * `{"code":"P0001","details":null,"hint":null,"message":"admin_update_order_item_amount: 訂單不存在"}`
+ * ⇒ **`code` 會到客戶端,而且 RPC 的完整中文訊息也會到。**
+ * ⇒ 那兩句業務拒絕的中文**不是到不了,是到了之後被這一層丟掉**。
+ * **這個差別決定解法**:前者要改 RPC 或傳輸層,後者**只要這一層別丟就好**。
+ * ⚠️ 但**不得直接把 `message` 顯示給員工** —— 它帶函式名前綴,而且 `:372` 那條會把
+ * **收到的原因字串內插進去**(就是本檔 catch 不記 `message` 的原因)。**「可用但要處理」,不是「可以直接顯示」。**
+ *
+ * ⚠️ **仍未實測的那一半**:上面那一發回的是 `P0001`(plpgsql 預設 sqlstate),
+ * 因為訂單查無那條**沒有** `USING ERRCODE`。
+ * **「`USING ERRCODE = 'P2C13'` 會不會逐字出現在 `code`」到現在還是沒人測過** ——
+ * 要觸發那 7 條之一得用**一張真訂單**,風險等級不同。
+ * ⇒ **在那一半測出來之前不寫任何以 `P2C13` 為條件的 mapping。**
  */
 export async function updateOrderItemAmountAction(formData: FormData): Promise<void> {
   // ①②③ 授權閘(session / Origin / actor;共用 helper,與其他 order action 同一支)。
