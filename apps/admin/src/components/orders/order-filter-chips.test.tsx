@@ -23,9 +23,10 @@ const renderChips = (filter: AdminOrderFilter) =>
   render(<OrderFilterChips filter={filter} display={DEN} />);
 
 describe('#484 B-1 — 快速篩選 chip', () => {
-  it('本片恰兩顆:全部 / 未到貨(另外兩顆各有去處,不是漏做)', () => {
+  it('恰三顆,且**順序照 OD**:全部 / 待處理 / 未到貨(退貨中另有去處 `#500`,不是漏做)', () => {
+    // 🔴 `#485` 片2:「待處理」**插回 OD 原位**,不是接在後面 —— 順序是 OD 字面的一部分。
     const { container } = renderChips({});
-    expect(chips(container).map((a) => a.textContent)).toEqual(['全部', '未到貨']);
+    expect(chips(container).map((a) => a.textContent)).toEqual(['全部', '待處理', '未到貨']);
   });
 
   it('🔴 「未到貨」= none + ordered(Sean 拍甲案),兩個值都要進 URL', () => {
@@ -175,5 +176,78 @@ describe('#484 B-1 — filter → 篩選列的映射不得折平(原始碼掃描
   it('🔴 不得對 goodsAxes 取單值或切片', () => {
     expect(SRC).not.toMatch(/goodsAxes\?*\.\[0\]/);
     expect(SRC).not.toMatch(/goodsAxes\?*\.slice\(/);
+  });
+});
+
+// ── `#485` 片2:待處理 chip + 「兩份清單合成一份」────────────────────────────
+//
+// 🔴 **本族守的是片1 交出來的那顆定時彈,而它的病根不是「忘了清」**:
+//   【高亮的判準】與【實際生效的篩選集合】從一開始就不是同一個東西。
+//   ⇒ 所以下面**不只**測「按全部會清掉待處理」(那只證明現在這一格對),
+//   還有一格直接釘住「**chip 設的欄 ⊆ isActive 比對的欄**」——
+//   **下一顆 chip 加進來時,漏登記會在那一格紅,不是等人按出來。**
+describe('#485 片2 — 待處理 chip', () => {
+  it('🔴 待處理 chip 的 href 帶 pending=1', () => {
+    const { container } = renderChips({});
+    expect(byLabel(container, '待處理')?.getAttribute('href')).toContain('pending=1');
+  });
+
+  it('🔴🔴 按「全部」會清掉待處理(片1 交出來的定時彈,本片的 must)', () => {
+    // 少了 `...CLEARED_CHIP_FILTER`,`pendingOnly` 會被 `...filter` 原封帶過去
+    // ⇒ 高亮跳回全部、清單還是待處理那批,而且**沒有錯誤、沒有空白**。
+    const { container } = renderChips({ pendingOnly: true });
+    expect(byLabel(container, '全部')?.getAttribute('href')).not.toContain('pending');
+  });
+
+  it('🔴 按「未到貨」也會清掉待處理(不是只有「全部」那顆要清)', () => {
+    const { container } = renderChips({ pendingOnly: true });
+    const href = byLabel(container, '未到貨')?.getAttribute('href') ?? '';
+    expect(href).toContain('goods_axis=');
+    expect(href).not.toContain('pending');
+  });
+
+  it('🔴 按「待處理」會清掉貨品軸(反方向,證明清除不是只做單邊)', () => {
+    const { container } = renderChips({ goodsAxes: ['none', 'ordered'] });
+    expect(byLabel(container, '待處理')?.getAttribute('href')).not.toContain('goods_axis');
+  });
+
+  it('選中態:pendingOnly ⇒ 只有「待處理」亮(兩個方向都驗)', () => {
+    const { container } = renderChips({ pendingOnly: true });
+    expect(byLabel(container, '待處理')?.getAttribute('aria-current')).toBe('true');
+    expect(byLabel(container, '全部')?.getAttribute('aria-current')).toBeNull();
+    expect(byLabel(container, '未到貨')?.getAttribute('aria-current')).toBeNull();
+  });
+
+  it('🔴 pendingOnly: false 與 undefined 等價 ⇒「全部」要亮', () => {
+    // parse 端一律回布林 ⇒ 沒有這條正規化,「全部」在真實流量下**永遠不亮**。
+    const { container } = renderChips({ pendingOnly: false });
+    expect(byLabel(container, '全部')?.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('🔴 其他篩選軸(來源)不得被 chip 洗掉 —— chip 只管自己那幾欄', () => {
+    const { container } = renderChips({ orderSources: ['web'] });
+    expect(byLabel(container, '待處理')?.getAttribute('href')).toContain('order_source=web');
+  });
+});
+
+describe('#485 片2 — 單一來源(這格擋的是下一顆 chip)', () => {
+  it('🔴🔴 每顆 chip 設的欄都在 isActive 的比對範圍裡', () => {
+    // 🔴 **這格不是測現在這三顆,是測「加第四顆時會不會靜默失效」。**
+    //   做法:對每顆 chip,先渲染成它自己的狀態,再確認它真的亮 ——
+    //   若某顆設了一個 `isActive` 沒比對的欄,它會**永遠不亮**(或永遠亮),這格就紅。
+    //   ⚠️ 型別層擋的是另一半(chip 設了沒登記的欄 ⇒ tsc 紅);兩半合起來才是完整的。
+    const cases: Array<[string, AdminOrderFilter]> = [
+      ['全部', {}],
+      ['待處理', { pendingOnly: true }],
+      ['未到貨', { goodsAxes: ['none', 'ordered'] }],
+    ];
+    for (const [label, filter] of cases) {
+      const { container } = renderChips(filter);
+      expect(byLabel(container, label)?.getAttribute('aria-current'), `「${label}」該亮`).toBe('true');
+      // 同時確認**只有它亮** —— 少了這半,一個「全部都亮」的退化也會通過。
+      const lit = chips(container).filter((a) => a.getAttribute('aria-current') === 'true');
+      expect(lit.map((a) => a.textContent), `只有「${label}」該亮`).toEqual([label]);
+      cleanup();
+    }
   });
 });

@@ -46,12 +46,41 @@ import { buildOrderListHref, type OrderListDisplayState } from '../../lib/orders
  */
 const NOT_ARRIVED_AXES: readonly OrderGoodsAxis[] = ['none', 'ordered'];
 
+/**
+ * 🔴🔴 **chip 會設定的欄 —— 這份清單是【單一來源】。**
+ *
+ * `#1` 片2 之前,「chip 設什麼」與「`isActive` 比什麼」是**兩份分開維護的清單**,
+ * 而那正是片1 交出來的那顆定時彈的病根(不是「忘了清」):
+ *   按「待處理」→ 再按「全部」⇒ 高亮跳回全部,**清單還是待處理那批** ——
+ *   因為「全部」只把 `goodsAxes` 設成 `undefined`,而 `pendingOnly` 被 `...filter` 原封帶過去;
+ *   而 `isActive` 當時只比 `goodsAxes`,**`pendingOnly` 根本不在它的比對範圍裡**。
+ * ⇒ **修法不是在 `isActive` 補一個 `pendingOnly` 比對** —— 那只會讓現在這一格對,
+ *   下一顆 chip 加進來時同一個病再犯。**要的是兩邊由同一個來源產生。**
+ *
+ * 🔴 **型別層就擋得住**:`ChipFilter` 是 `Partial<Pick<AdminOrderFilter, ChipOwnedKey>>`
+ *   ⇒ 某顆 chip 想設一個沒登記在本清單裡的欄,**`tsc` 直接紅**,不是等人發現。
+ *   ⚠️ 但型別擋不住「**登記了卻沒被 `isActive` 比對**」—— 那道由下面 `isActive()` 走同一份清單保證,
+ *   而**這件事本身有一格測試釘著**(`order-filter-chips.test.tsx` 的「單一來源」那族)。
+ */
+const CHIP_OWNED_KEYS = ['goodsAxes', 'pendingOnly'] as const;
+type ChipOwnedKey = (typeof CHIP_OWNED_KEYS)[number];
+/** 一顆 chip 對篩選條件做的事:只准動 `CHIP_OWNED_KEYS` 裡的欄。 */
+export type ChipFilter = Partial<Pick<AdminOrderFilter, ChipOwnedKey>>;
+
 type ChipSpec = {
   key: string;
   label: string;
-  /** 這顆 chip 對應的貨品軸值;`undefined` = 不篩(「全部」)。 */
-  axes: readonly OrderGoodsAxis[] | undefined;
+  /** 這顆 chip 生效時的篩選條件;`{}` = 不篩(「全部」)。 */
+  filter: ChipFilter;
 };
+
+/**
+ * 把所有 chip 管的欄清成「不篩」。**從 `CHIP_OWNED_KEYS` 產生,不是手抄第二份。**
+ * 🔴 手抄第二份正是這片在修的那個病 —— 兩份清單分開維護,漏一個就是靜默失效。
+ */
+const CLEARED_CHIP_FILTER: ChipFilter = Object.fromEntries(
+  CHIP_OWNED_KEYS.map((key) => [key, undefined]),
+) as ChipFilter;
 
 /**
  * 字面逐字取自 OD `:611-613`(`全部` / `未到貨`)。
@@ -59,8 +88,12 @@ type ChipSpec = {
  *    不是接在後面(順序也是 OD 字面的一部分)。
  */
 const CHIPS: readonly ChipSpec[] = [
-  { key: 'all', label: '全部', axes: undefined },
-  { key: 'not-arrived', label: '未到貨', axes: NOT_ARRIVED_AXES },
+  { key: 'all', label: '全部', filter: {} },
+  // `#485` 片2:插回 OD 原位(`全部 / 待處理 / 未到貨`),**不是接在後面** —— 順序是 OD 字面的一部分。
+  // 定義由片1 落在 `AdminOrderFilter.pendingOnly` 的 docstring(還沒收錢 ∪ 還沒訂貨);
+  // 出處 commit `4ffda20b` / `a01457be`。**本檔不重述定義,免得兩處字面各自漂移。**
+  { key: 'pending', label: '待處理', filter: { pendingOnly: true } },
+  { key: 'not-arrived', label: '未到貨', filter: { goodsAxes: NOT_ARRIVED_AXES } },
 ];
 
 /**
@@ -75,13 +108,19 @@ const CHIPS: readonly ChipSpec[] = [
  *    🔴 **重複值與未知值到不了這裡**(R1 nit 9 更正我上一版講得太寬的理由):
  *    parse 端 `list-params.ts` 的 `pickEnumMulti` 已經逐值白名單 + 去重 + 空折 `undefined`。
  */
+function normalizeChipValue(value: ChipFilter[ChipOwnedKey]): string {
+  // `undefined` / `false` / 空陣列都是「這一軸沒在篩」—— 三者要正規化成同一個字面,
+  // 否則 `pendingOnly: false`(parse 端一律回布林)會與 `undefined` 比不相等,「全部」永遠不亮。
+  if (value === undefined || value === false) return '';
+  if (Array.isArray(value)) return value.length === 0 ? '' : [...value].sort().join(',');
+  return String(value);
+}
+
 function isActive(chip: ChipSpec, filter: AdminOrderFilter): boolean {
-  const current = filter.goodsAxes;
-  if (chip.axes === undefined) return current === undefined || current.length === 0;
-  if (current === undefined) return false;
-  const a = [...chip.axes].sort().join(',');
-  const b = [...current].sort().join(',');
-  return a === b;
+  // 🔴 **走 `CHIP_OWNED_KEYS`,不是逐欄手寫** —— 這一行就是「兩份清單合成一份」的實作。
+  return CHIP_OWNED_KEYS.every(
+    (key) => normalizeChipValue(filter[key]) === normalizeChipValue(chip.filter[key]),
+  );
 }
 
 export function OrderFilterChips({
@@ -102,7 +141,14 @@ export function OrderFilterChips({
             className='fchip'
             /* 🔴 `page` 固定 **1**:換了篩選條件還停在第 3 頁,常常直接看到空白頁
                (同 `order-keyword-search` 那條 `listHref` 的理由)。 */
-            href={buildOrderListHref({ ...filter, goodsAxes: chip.axes }, display, 1)}
+            /* 🔴 **先清掉所有 chip 管的欄,再套這顆的** —— 少了 `...CLEARED_CHIP_FILTER`,
+               按「全部」時 `pendingOnly` 會被 `...filter` 原封帶過去
+               ⇒ 高亮跳回全部、清單還是待處理那批(片1 交出來的那顆定時彈)。 */
+            href={buildOrderListHref(
+              { ...filter, ...CLEARED_CHIP_FILTER, ...chip.filter },
+              display,
+              1,
+            )}
             /* 🔴 **`aria-current` 不是 OD 的 `aria-pressed`**:`aria-pressed` 的 "Used in roles"
                只有 `button` 一項(MDN 2026-08-14 親讀)⇒ 掛在 `<a>` 上是無效 ARIA,
                螢幕閱讀器不會念出選中態。**只換綁的屬性,不換設計**(值的對應是 token 映射,
