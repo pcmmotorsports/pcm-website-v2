@@ -13061,3 +13061,48 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   ⚠️ 該 runbook **全部未在正式庫執行過**,它是清單不是紀錄;**跑完才算本條目關閉**。
 - **相關:** `#16`(母片)/ plan `docs/specs/2026-08-15-e10-16-payment-total-rpc-plan.md` §7 誠實缺口
 - **發現於:** 2026-08-15 · A 窗 · `#16` MF-A 實作時自陳(不是別人指出的)
+
+### #509. 🔴 `admin_today_payment_total` 的守門釘的是**函式的形狀**,不是**函式做的事**
+
+- **來源:** 2026-08-15 codex 關卡2(`#16` migration,判定 `PASS` 零 must-fix)的兩個 nit。
+  🔴 **兩個都刻意不折進 `20260815010000`**,理由不是規矩:**那支已經 apply 了,而閘只在
+  `db push` 那一刻跑一次** ⇒ 現在往檔裡加第六道閘,**它永遠不會再跑** = 恆綠格,
+  **比不加更糟,因為它產生「已修復」的外觀**(同族 memory `feedback_absence-read-as-verified`)。
+  ⇒ 主視窗裁「開號另排」,本條目即該號。
+
+- **A · `prosrc` 沒有任何守門(codex nit 2,兩個 nit 裡較重的一個)**
+  檔尾五道閘驗的是 `prosecdef` / `proconfig` / `provolatile` / `lanname` / owner 與 FORCE RLS,
+  **全部是函式的「屬性」**。⇒ **有人把 body 改成 `SELECT 0,0`,五道閘全部照過。**
+  而那個壞法的症狀是**安靜的**:畫面顯示「今日實收 NT$ 0」= 一個看起來完全正常的、
+  還沒收到錢的早上。零錯誤、零紅。
+  - **兩個面要分開做,不要以為做了一個就好:**
+    1. **repo 字面面(便宜、每次 `vitest` 都跑)**:`today-read.test.ts` 已有一格
+       `readFileSync` 源碼契約測試釘 `COALESCE`(plan §6 第 10 條)⇒ **同手法擴充**,
+       釘 `SUM(p.amount)` / `received_at >= p_from` / `received_at < p_to` 三個關鍵字面。
+    2. **DB 實體面(要新 migration)**:對 `pg_proc.prosrc` 做 apply-time 斷言。
+       🔴 **這一面才守得住「DB 上那支被人改了」** —— 第 1 面只證 repo 裡的檔沒被改。
+  - ⚠️ **只做第 1 面就宣稱守住了,正是 memory `feedback_guards-pin-repo-text-not-real-world-fact`
+    那條**:守門釘的是 repo 的**字面**,不是真實世界的**事實**。
+
+- **B · 有效權限閘只列三個角色(codex nit 1)**
+  閘 ③b 逐字枚舉 `anon` / `authenticated` / `authenticator`。
+  ⇒ 未來若新增一個能 `SET ROLE` 到 `service_role`、或達得到 owner 的 login role,**這道閘攔不到**。
+  - **修法** = 改成**閉世界枚舉**:掃 `pg_roles` 裡所有 `rolcanlogin` 的角色,而不是寫死三個。
+  - ⚠️ **嚴重度我判得比字面低,理由寫出來讓人可以反駁**:那三個是 Supabase 平台的**固定內建角色**,
+    而「新增一個能 `SET ROLE` 到 `service_role` 的 login role」**本身就命中鐵則 12②**、會走自己的審查。
+    🔴 **但這是「另一道流程會擋」的論證,不是「這道閘沒漏」** —— 兩者不等價,別合併成一句。
+
+- **不修未來會痛在哪:**
+  - **bug 可追蹤性:** A 的壞法**沒有任何訊號** —— 金額安靜地變成 0 或變小,
+    而每一道現有守門都是綠的。**發現它的方式只剩「員工覺得數字怪怪的」。**
+  - **可維護性:** 現在「這支函式該算什麼」的唯一權威是 migration 檔頭的散文 + COMMENT;
+    **沒有任何可執行的東西**在講它。下一個改它的人不會知道自己踩到什麼。
+  - **擴充性:** 退款那格重做時(Sean 2026-08-15 拍板走「正確版」)會長出**第二支同構的 RPC**
+    ⇒ **A 的修法要能同時套用兩支**,不要寫成只釘 `admin_today_payment_total` 的一次性斷言。
+
+- **⚠️ 沒查的:** 本條全程零正式庫查詢。**「有人改 body 五道閘照過」是我讀閘的定義推的,
+  沒有實際構造一次去看**(要構造就得再 apply 一次)。方向有把握,**但它是推的。**
+- **相關:** `#16`(母片)/ `#502`(同一支 RPC 的 DB 端行為驗證清單,兩條互補不重疊)/
+  plan `docs/specs/2026-08-15-e10-16-payment-total-rpc-plan.md` §0 /
+  codex 關卡2 判定 `PASS`、兩 nit 原文轉錄在 `~/pcm-mailbox/A-048-STOP.md`
+- **發現於:** 2026-08-15 · codex 關卡2 · 由 A 窗評估後判「不折進已 apply 的檔」、主視窗裁「另排號」
