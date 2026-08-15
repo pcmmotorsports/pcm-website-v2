@@ -13643,3 +13643,58 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   ③ 我們有沒有任何「會寄給客人」的訂單訊息路徑(M-4a Email 線的關係未查)
 - **相關**:`#27`(操作紀錄頁)/ `#13`(改單;改單歷程要落在哪一種 log 是同一題)/ `#514`(同樣是「畫面上的東西不等於事實」族)
 - **發現於**:2026-08-15 · 電商後台調研 · A 窗與 B 窗獨立各自指到
+
+### #517. 🔢 改金額 RPC 沒有驗「整數」——TS 的 `number` 不保證整數,而 DB 參數是 `integer`
+
+- **狀態:** ⏳ 待執行(`#13` 片1b 開工當下發現、**刻意不在 1b 修**)
+- **分流:** P2
+- **優先級:** 🟡 中(不會靜默算錯錢,但**失敗訊息會是技術碼**,員工看不懂)
+- **起因:** `#13` 片1b codex 關卡2 R2 角度①(2026-08-15)。
+  `admin_update_order_item_amount` 的 `p_unit_price` 在 DB 是 `integer`,
+  RPC 只驗 **`IS NULL OR < 0`**(migration `20260815040000:361`)—— **沒有驗整數**。
+  而應用層型別是 TypeScript 的 `number`,**它不保證整數**
+  (`packages/domain/src/order/types.ts` 的 `AdminOrderItemAmountPatch.unitPrice`)。
+- 🔴 **本片沒有實測、不宣稱**:非整數值(例 `10.5`)經 PostgREST 送進 `integer` 參數會被
+  拒絕、四捨五入、還是截斷,**我沒測過**。⇒ 這是**誠實缺口**,不是「應該沒事」。
+- **量法(可重現,落地時先跑這條再決定修法):**
+  ```
+  grep -n "p_unit_price IS NULL OR p_unit_price < 0" \
+    supabase/migrations/20260815040000_m4b_e10_13_slice1_admin_update_order_item_amount.sql
+  ⇒ :361（只有這一道;整支檔 grep -c "p_unit_price" 可看全部引用點）
+  ```
+- **不修未來會痛在哪:** 表單層若讓非整數進來,**最好的情況是拿到 PostgREST 的技術錯誤碼**
+  (員工看到亂碼、不知道要改什麼);最壞的情況是被靜默轉換成另一個金額而**沒有任何一道閘會紅**
+  —— 而這支 RPC 改的就是訂單金額。
+- **歸屬:** `#13` **片1c 的輸入層責任**(表單解析 + server action)。
+  🔴 片1b 只在 adapter docstring 寫了這個缺口 ⇒ 依 `feedback_writing-down-a-gap-is-not-closing-it`,
+  **寫下來不算處置**,所以另立本條釘住。
+
+### #518. 🧱 RPC 呼叫契約直接吃「生成型別」,而生成型別每次重 gen 都會變形
+
+- **狀態:** ⏳ 待執行(**設計題,不是 bug**;`#13` 片1b 沿用現行做法、未擴大範圍)
+- **分流:** P2
+- **優先級:** 🟡 中(現況會擋,但**擋的理由建立在一個每次 apply 都被重寫的檔上**)
+- **起因:** `#13` 片1b codex 關卡2 **R3 換角度審查**(2026-08-15)。
+  片1b 為了讓「呼叫端漏帶鍵」變編譯錯誤,寫了
+  `const args: Required<Database['public']['Functions'][…]['Args']> = {…}`
+  (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`)。
+  R3 逐字總評:**「應該換;`Required<>` 適合當局部防呆,不適合承擔需要反覆人工校正生成檔的長期 RPC 契約。」**
+- **R3 指出的三種失效路徑(逐條,原文轉述):**
+  1. `Required<>` **只約束建立當下**:`const rest = {...args}` 去掉某鍵、或 `delete` 之後再傳原物件,
+     因為原始生成型別把該鍵列為 optional ⇒ **照樣編譯**。
+  2. **重 gen 之後意義會變**:既有參數若由 required 改成 optional,`Required<>` 會把它**拉回必填**
+     ⇒ **不會紅**,只是靜默遮住「DB 已允許省略」這件事。
+     (反向是好的:RPC 新增一個 DEFAULT 參數 ⇒ `Required<>` 讓它變必填 ⇒ 現有物件 **TS2741 會紅**。)
+  3. `any` / `as` / 關掉 `strictNullChecks` 一律穿透。
+- ✅ **有一件本片實測、對現況有利,記下來免得被誤讀成全面失效:**
+  模擬「重 gen 把第 ⑪ 處手動校正 `| null` 沖掉」⇒ `tsc` **真的紅**
+  (`TS2322: Type 'string | null' is not assignable to type 'string'`)。
+  🔴 原因是**呼叫端傳的是 `string | null`** ⇒ **這個呼叫點本身就是校正 ⑪ 的守門**。
+  ⚠️ 這只對「呼叫端會傳 null」的校正成立,**其餘 26 處沒有這層保護**。
+- **R3 建議的方向(未採用,留給本條):** adapter 自有的穩定 `CallArgs` 型別(明列所有必帶鍵與 `| null`)
+  + 「`CallArgs` 與生成型別鍵集合完全相同」的**編譯期 drift assertion**;
+  更強的版本再加 runtime `Object.hasOwn()` 檢查。
+- **不修未來會痛在哪:** 每次 apply 後重 gen,**27 處手動校正靠人重貼**;
+  漏貼的那一處**不一定會有東西紅**(只有「呼叫端傳 null」那種才紅)。
+  這條沒做之前,「重貼對了沒」的唯一防線是人 + 一支非 repo 內的檢查腳本。
+- **範圍警告:** 這條會影響**所有** `.rpc()` 呼叫點,不是只有訂單線 ⇒ **中鐵則 8**,要先提 plan。

@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十個函式、共二十六處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十一個函式、共二十七處**手動校正
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
@@ -24,7 +24,18 @@
 //      與 ⑨ 同形狀「可省略且可為 null」;呼叫端刻意一律帶兩個鍵、沒有值送顯式 null
 //      〔#347-3b:不用 spread,才能讓「忘了帶」變編譯錯誤、也才掃得到參數名〕。
 //      p_limit **不補**:呼叫端一律帶值,沒有送 null 的路徑)
-//   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」(⑨⑩ 是「可省略且可為 null」),一律型別化為非 null。
+//   ⑪ `admin_update_order_item_amount.Args` **一處**(p_zero_price_reason 的 `| null`;2026-08-15 #13 片1b 起 ——
+//      與 ⑨⑩ 同形狀「可省略且可為 null」(`text DEFAULT NULL`,migration `20260815040000:332`);
+//      呼叫端 `SupabaseOrderAdapter.updateAdminOrderItemAmount` 一律帶鍵、非 0 元送顯式 null。
+//      ✅ 實測承重:未補之前 `npx tsc -p packages/adapters` 逐字 TS2322
+//      `Type 'string | null' is not assignable to type 'string | undefined'`。
+//      其餘六個**不補**:RPC `:350`-`:362` 皆 fail-closed 拒 NULL。
+//      ✅🔴 **這一處漏貼會自己紅** —— 已實測(2026-08-15,突變複本):拿掉本處的 `| null` ⇒
+//      `tsc` 逐字 `TS2322: Type 'string | null' is not assignable to type 'string'`,
+//      因為呼叫端傳的就是 `string | null`。
+//      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
+//      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
+//   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」(⑨⑩⑪ 是「可省略且可為 null」),一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
 //   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
 //   漏貼 ④⑤ = 退款線 RW2c repository 型別紅(kind/outcome 互斥矩陣的「必須傳 NULL」全紅);
@@ -3352,6 +3363,32 @@ export type Database = {
         Args: { p_idempotency_key: string; p_shipment_id: string }
         Returns: Json
       }
+      admin_update_order_item_amount: {
+        Args: {
+          p_actor: string
+          p_expected_version: number
+          p_order_id: string
+          p_order_item_id: string
+          p_request_id: string
+          p_unit_price: number
+          // 🔴 手動校正(見檔頭計數;2026-08-15 #13 片1b 開工補上 —— 呼叫端到此才存在)。
+          //   `p_zero_price_reason text DEFAULT NULL`(migration 20260815040000:332)⇒ 生成器只寫得出
+          //   「可省略」(`?:`),寫不出「可為 null」。形狀同 ⑨⑩「可省略且可為 null」,
+          //   不是前八支的「必填但可為 null」。
+          //   🔴 呼叫端(`SupabaseOrderAdapter.updateAdminOrderItemAmount`)**一律帶這個鍵**、
+          //   非 0 元時送**顯式 null**(不用 spread、讓「忘了帶」變編譯錯誤)⇒ 不補 `| null`
+          //   就只能改送 undefined,那是改 payload 不是整理型別。
+          //   ⚠️ 型別層只負責「讓明確送 null 寫得出來」;真正的兩道閘在 RPC 端且 fail-closed
+          //   (`:366` 0 元必填原因、`:371` 非 0 元不得帶原因)—— 應用層不重複實作。
+          //   ✅ 這一處是**實測承重、不是推測**:未補之前 `npx tsc -p packages/adapters` 逐字
+          //   `TS2322: Type 'string | null' is not assignable to type 'string | undefined'`。
+          //   其餘六個**不補** —— p_actor / p_request_id / p_order_id / p_order_item_id /
+          //   p_expected_version / p_unit_price 在 RPC 內皆 fail-closed 拒 NULL(`:350`-`:362`),
+          //   送 NULL 不是合法用法、型別非 null 是對的。
+          p_zero_price_reason?: string | null
+        }
+        Returns: string
+      }
       admin_update_order_item_workflow: {
         Args: {
           p_actor: string
@@ -3620,6 +3657,10 @@ export type Database = {
       pcm_b2_shipping_idem_response: {
         Args: { p_replay: boolean; p_shipment_id: string; p_snapshot: Json }
         Returns: Json
+      }
+      pcm_e13_assert_order_subtotal_matches: {
+        Args: { p_order_id: string }
+        Returns: undefined
       }
       pcm_generate_display_id: { Args: never; Returns: string }
       pcm_order_refundable_remaining: {
