@@ -50,11 +50,13 @@ describe('🔴 #20 片2c:SELECT 的欄位不得早於 migration apply 而上線'
     expect(applied).toContain('20260815020000');
   });
 
-  it.fails(
-    '🔴 apply 之後這格會開始紅 —— 那是提醒:回來重 gen database.types.ts、刪掉它檔頭第 ④ 段、並把本格改成普通斷言',
-    () => {
-      const applied = read('supabase/APPLIED.tsv');
-      expect(applied).toContain(MIGRATION_VERSION);
-    },
-  );
+  // 🏁 2026-08-15 13:3x:Sean 已 apply,本格已依設計「開始紅」並被處理 ——
+  //    主視窗重 gen database.types.ts、把它檔頭第 ④ 段標成作廢留痕(未刪,它記錄了一個真實發生過的狀態),
+  //    並把本格從 `it.fails` 改成普通斷言。上面那段「為什麼寫成 it.fails」保留當紀錄:
+  //    🔴 它是本 repo 第一次把「紅」刻意排到【有人能處理的那一刻】，而不是刻意讓它現在就紅或永遠不紅。
+  //    ⇒ 從現在起本格的意義變成「這片的 SELECT 與那支 migration 必須成對存在」的常設守門。
+  it('SELECT 用到的兩欄，其 migration 必須已登記在 APPLIED.tsv（成對存在）', () => {
+    const applied = read('supabase/APPLIED.tsv');
+    expect(applied).toContain(MIGRATION_VERSION);
+  });
 });
