@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { AuditListRow } from '../../lib/audit/audit-list-view';
+import type { AuditFieldChange } from '../../lib/audit/audit-diff';
 import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
+import { AuditDetail } from './audit-detail';
 
 // audit-log-table.tsx — `#27` D1c-2a:操作紀錄四欄表格。
 //
@@ -23,7 +25,7 @@ import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
  *    渲染一個空 href 的連結,員工點下去會停在原地或跳到根路徑,
  *    **看起來像「這頁壞了」而不是「這筆沒有可去的地方」。**
  */
-function AuditTargetCell({ row }: { row: AuditListRow }) {
+function AuditTargetCell({ row }: { row: AuditTableRow }) {
   const { label, href } = row.target;
   if (!href) return <span>{label}</span>;
   return (
@@ -33,7 +35,7 @@ function AuditTargetCell({ row }: { row: AuditListRow }) {
   );
 }
 
-const COLUMNS: ReadonlyArray<AdminColumn<AuditListRow>> = [
+const COLUMNS: ReadonlyArray<AdminColumn<AuditTableRow>> = [
   // 🔴 欄序 = 員工問問題的順序(plan §3):**什麼時候 → 誰 → 做了什麼 → 對哪張單**。
   //    不是資料表的欄序。
   { key: 'at', header: '時間', cell: (row) => row.at, mobile: 'meta' },
@@ -45,9 +47,26 @@ const COLUMNS: ReadonlyArray<AdminColumn<AuditListRow>> = [
     cell: (row) => <AuditTargetCell row={row} />,
     mobile: 'sub',
   },
+  // 🔴 D1c-2b:展開檢視。**收合時只出現「N 個欄位有變動」,不含任何值**(`audit-detail.tsx` 的 must)。
+  //    `mobile: 'meta'` ⇒ 手機卡片第三行;不放 `title`/`trailing`,免得摘要行搶掉主標的位置。
+  {
+    key: 'changes',
+    header: '改了什麼',
+    cell: (row) => <AuditDetail changes={row.changes} />,
+    mobile: 'meta',
+  },
 ];
 
-export function AuditLogTable({ rows }: { rows: readonly AuditListRow[] }) {
+/**
+ * 表格吃的列 = D1b 的四欄 **加上**「這次改了哪幾欄」。
+ *
+ * 🔴 **`changes` 刻意不塞進 `AuditListRow`** —— 那支是 D1b 的顯示層,檔頭逐字寫著
+ *    `before`/`after` **不在它的輸出裡**(plan 驗收 6)。把差異算進去等於偷偷改掉那個合約。
+ *    ⇒ 差異在**頁面層**算好(`page.tsx` 呼叫 `diffAuditPayload`),表格只負責畫。
+ */
+export type AuditTableRow = AuditListRow & { readonly changes: readonly AuditFieldChange[] };
+
+export function AuditLogTable({ rows }: { rows: readonly AuditTableRow[] }) {
   return (
     <AdminDataTable
       rows={rows}

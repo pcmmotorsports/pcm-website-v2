@@ -4,10 +4,11 @@ import { notFound } from 'next/navigation';
 //    而那道「直接打網址會不會被擋」的負測就**跑不起來**(症狀是整族解析失敗,不是紅一格)。
 //    形狀照抄同層既有前例 `app/settings/suppliers/page.tsx:2-9`(該頁檔頭寫了同一個理由)。
 import { isAuditUiEnabled } from '../../../lib/audit/audit-ui-flag';
-import { toAuditListRow, type AuditListRow } from '../../../lib/audit/audit-list-view';
+import { toAuditListRow } from '../../../lib/audit/audit-list-view';
+import { diffAuditPayload } from '../../../lib/audit/audit-diff';
 import { getAdminAuditLogReader } from '../../../lib/orders/order-repository';
 import { listActiveStaff } from '../../../lib/staff';
-import { AuditLogTable } from '../../../components/audit/audit-log-table';
+import { AuditLogTable, type AuditTableRow } from '../../../components/audit/audit-log-table';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,14 +60,19 @@ export default async function AuditLogPage() {
   //     **那就是「壞掉但看起來完全正常」**,而且是**親手把 D1a-2 的設計意圖丟掉**。
   //   🔴 同形狀已在同一天的訂單線獨立踩過一次(「拿不到值 ≠ 0」,換一個資料型別)
   //     ⇒ 主視窗裁定:守門那格 **must,不准降級**。負測在 `page.test.tsx`。
-  let rows: AuditListRow[] = [];
+  let rows: AuditTableRow[] = [];
   let loadFailed = false;
   try {
     const [logs, staff] = await Promise.all([
       getAdminAuditLogReader().listRecent(LIMIT),
       listActiveStaff(),
     ]);
-    rows = logs.map((log) => toAuditListRow(log, staff));
+    // 🔴 差異在**頁面層**算,不塞進 `toAuditListRow` —— 那支是 D1b 的顯示層,
+    //    檔頭逐字寫著 `before`/`after` 不在它的輸出裡(plan 驗收 6)。
+    rows = logs.map((log) => ({
+      ...toAuditListRow(log, staff),
+      changes: diffAuditPayload(log.before, log.after),
+    }));
   } catch (error) {
     console.error('[admin/settings/audit] 操作紀錄載入失敗', error);
     loadFailed = true;

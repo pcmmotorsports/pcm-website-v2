@@ -10,8 +10,7 @@ vi.mock('next/link', () => ({
   ),
 }));
 
-import { AuditLogTable } from './audit-log-table';
-import type { AuditListRow } from '../../lib/audit/audit-list-view';
+import { AuditLogTable, type AuditTableRow } from './audit-log-table';
 
 // audit-log-table.test.tsx — `#27` D1c-2a。
 //
@@ -22,12 +21,15 @@ import type { AuditListRow } from '../../lib/audit/audit-list-view';
 //    渲染一個空 href 的 `<a>`,員工點下去停在原地 ⇒ **看起來像這頁壞了**,
 //    而不是「這筆沒有可去的地方」。
 
-const row = (over: Partial<AuditListRow>): AuditListRow => ({
+const row = (over: Partial<AuditTableRow>): AuditTableRow => ({
   id: 'r1',
   at: '2026-08-15 09:23',
   actor: '阿祥',
   action: '取消訂單',
   target: { label: '—', href: null },
+  // 🔴 D1c-2b:預設**零變動** —— 展開檢視的行為在 `audit-detail.test.tsx` 有自己的一族,
+  //    本檔只確認「那一欄有被接上」,不重複驗它的內容(一件事一個守門)。
+  changes: [],
   ...over,
 });
 
@@ -79,5 +81,25 @@ describe('AuditLogTable — 四欄與空狀態', () => {
     const text = container.textContent ?? '';
     expect(text).toContain('目前沒有操作紀錄');
     expect(text).toContain('這裡就會出現紀錄');
+  });
+});
+
+describe('AuditLogTable — 展開檢視那一欄有被接上(D1c-2b)', () => {
+  it('🔴 有變動 ⇒ 出現摘要行「N 個欄位有變動」,而收合時不含值', () => {
+    // 這一格擋的是「元件寫好了但沒接進表格」—— 那種漏接在 audit-detail.test.tsx 全綠時完全看不到。
+    const { container } = render(
+      <AuditLogTable
+        rows={[row({ changes: [{ key: 'phone', from: '0912-345-678', to: '0987-654-321' }] })]}
+      />,
+    );
+    const summary = container.querySelector('summary');
+    expect(summary?.textContent).toBe('1 個欄位有變動');
+    expect(container.querySelector('details')?.hasAttribute('open')).toBe(false);
+  });
+
+  it('零變動 ⇒ 顯示說明文字,不畫 details', () => {
+    const { container } = render(<AuditLogTable rows={[row({})]} />);
+    expect(container.textContent).toContain('沒有記錄欄位變動');
+    expect(container.querySelector('details')).toBeNull();
   });
 });
