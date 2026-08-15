@@ -51,9 +51,16 @@ import { CONTACT_PHONE_DISPLAY, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
 //   Sean 當日三次答覆(有句點 → 重申有句點 → **最終:沒句點,「好啦～沒句點,抱歉」**),
 //   最終值 = `PCM MOTOR PARTS LTD`(**無句點**),與 `docs/phase-1-backlog.md:6360`
 //   記的 2026-06-22 確認一致,也與 SSoT `lib/site-config.ts:16` `LEGAL_NAME_EN` 一致。
-//   ⚠️ 上面那行**引用 OD 的句子照原樣保留**(OD 真的寫有句點:
-//   `grep -rc 'PCM MOTOR PARTS LTD\.' <OD 目錄>` ⇒ 288 處「版權所有」樣本)——
-//   **改掉它等於偽造 OD 的內容**。
+//   ⚠️ 上面那行**引用 OD 的句子照原樣保留** —— **改掉它等於偽造 OD 的內容**。
+//   OD 真的寫有句點,量法(`-rc` 打在目錄上是逐檔輸出,要自己加總):
+//     OD=<Open Design 的 pcm-home-redesign 目錄>
+//     grep -rc 'PCM MOTOR PARTS LTD\.' "$OD" | awk -F: '{s+=$NF} END{print s}'   ⇒ 511(次)
+//     grep -rl 'PCM MOTOR PARTS LTD\.' "$OD" | wc -l                            ⇒ 322(檔)
+//     正向對照 printf 'PCM MOTOR PARTS LTD. 版權所有' | grep -c 'PCM MOTOR PARTS LTD\.' ⇒ 1
+//   ⚠️ 本行原寫「288 處」= **另一條命令的輸出**(`grep -rhoE 'PCM MOTOR PARTS LTD.{0,6}'`
+//   排序計數後,片語「PCM MOTOR PARTS LTD. 版權所有」的次數)。數字是真的,
+//   但它掛在**產不出它的命令**上 ⇒ 複驗的人會拿到 511/322/759 三個都不是 288 的數。
+//   (E 窗 `E-627-TO-D` MF1 抓;本窗獨立重跑同值後改。)
 //   🔴 ⇒ **這是鐵則 1「design 直接搬」的一個具名例外,不是漏改。**
 //   下一個人若「照 OD 對齊」把句點加回來,就是把 Sean 的拍板改掉。要改請先問他。
 // 🔴 年份用 server 端 `new Date().getFullYear()`(不是 client script):本元件是 server component,

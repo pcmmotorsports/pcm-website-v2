@@ -209,9 +209,20 @@ env 值改了 repo 一個字都不會動 ⇒ 沒有 diff、沒有 review ⇒ 等
    -- apps packages` 由 13 → 2)。剩下 2 處**刻意保留**,都在
    `apps/storefront/src/components/HomeFooter.tsx`:
    - `:3` 記錄 2026-08-05 之前的**歷史字面** ⇒ 改它=偽造當時的字面
-   - `:48` 引用 **OD 設計稿逐字**,而 OD 真的寫有句點
-     (`grep -rc 'PCM MOTOR PARTS LTD\.' '<OD>/pcm-home-redesign/'` ⇒ 288 處「版權所有」樣本)
-     ⇒ 改它=偽造 OD 的內容。**兩處都已就地加註說明。**
+   - `:48` 引用 **OD 設計稿逐字**,而 OD 真的寫有句點 ⇒ 改它=偽造 OD 的內容。
+     量法(`-rc` 打在目錄上是**逐檔輸出**、不是總數,要自己加總):
+     ```bash
+     OD=<Open Design 的 pcm-home-redesign 目錄>
+     grep -rc 'PCM MOTOR PARTS LTD\.' "$OD" | awk -F: '{s+=$NF} END{print s}'   # ⇒ 511 次
+     grep -rl 'PCM MOTOR PARTS LTD\.' "$OD" | wc -l                            # ⇒ 322 檔
+     printf 'PCM MOTOR PARTS LTD. 版權所有' | grep -c 'PCM MOTOR PARTS LTD\.'   # 正向對照 ⇒ 1
+     ```
+     ⚠️ **本行原寫「288 處」,那是另一條命令的輸出**
+     (`grep -rhoE 'PCM MOTOR PARTS LTD.{0,6}' | sort | uniq -c` 之後,
+     片語「PCM MOTOR PARTS LTD. 版權所有」的次數;它同時也等於全 OD「版權所有」的總數)。
+     **數字是真的,但它掛在產不出它的命令上** ⇒ 複驗者會拿到 511 / 322 / 759,沒有一個是 288。
+     (E 窗 `E-627-TO-D` MF1 抓;本窗獨立重跑同值後改。)
+     **兩處都已就地加註說明。**
 
    🔴🔴 **這是鐵則 1「design 直接搬、不翻譯」的一個具名例外** ——
    OD 寫有句點、我方刻意無句點(Sean 拍板 > design)。

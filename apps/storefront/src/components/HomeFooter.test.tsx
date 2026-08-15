@@ -7,8 +7,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { HomeFooter } from './HomeFooter';
+import { STORE_ADDRESS } from '@/lib/site-config';
 
 afterEach(cleanup);
+
+/**
+ * 門市地址那個 `<p>`(`HomeFooter.tsx` 的「門市」欄第一段)。
+ *
+ * 🔴 **從欄名走過去、不用行號也不加 test-only 屬性**:那顆 `<p>` 沒有自己的 class,
+ * 而在 `container` 上比對會把整個頁尾都算進來(E-627 nit3)。
+ * 找不到就 throw ⇒ **markup 變了要紅**,不要靜默退回整個元件(那會讓這格恢復成寬鬆版)。
+ */
+function storeAddressNode(container: HTMLElement): HTMLElement {
+  const col = Array.from(container.querySelectorAll('.ed-footer-cols > div')).find(
+    (d) => d.querySelector('.ed-footer-h')?.textContent === '門市',
+  );
+  if (!col) throw new Error('找不到「門市」那一欄 —— 頁尾 markup 變了,這格的選法要跟著更新');
+  // 🔴 E-630 nit1:本 helper 取的是**第一個** `<p>`,那是位置相依的。
+  //    有人在地址上面插一段(公休公告之類)⇒ 會靜默取到營業時間那段,
+  //    測試照樣紅、但訊息會是「地址的『1樓』不見了」⇒ **紅在錯的成因上**,
+  //    看到的人會去找地址被誰改掉,而地址根本沒動。
+  //    ⇒ 把「地址是第一段」這個結構假設變成**會自己叫的東西**,不要讓它靜默成立。
+  const ps = col.querySelectorAll('p');
+  if (ps.length !== 3) {
+    throw new Error(
+      `「門市」欄的 <p> 由 3 段變成 ${ps.length} 段 —— 本 helper 取第一段當地址。` +
+        '請先確認地址還是第一段(是的話把這個數字改成新的;不是的話改選法),再看其他紅。',
+    );
+  }
+  return ps[0] as HTMLElement;
+}
 
 describe('HomeFooter', () => {
   it('should render the footer without crashing', () => {
@@ -136,15 +164,40 @@ describe('HomeFooter', () => {
   //    它硬寫在 `HomeFooter.tsx`、不吃 `lib/site-config.ts` 的 `STORE_ADDRESS`,
   //    所以改常數不會動到它、改它也不會有任何一格轉紅。這格補的就是那個零訊號。
   //    斷言打在**渲染出來的文字**上,不是打在常數上 —— 釘常數擋不住顯示層再正規化一次。
-  it('🔴 門市地址是「1樓」不是「一樓」(此格釘的是【本公司】門市地址,不是客人的收件地址)', () => {
+  // 🔴 E-627 MF2(2026-08-15):上面那段的第一版**只釘字面複本** ——
+  //    渲染點硬寫、斷言也硬寫同一個字面 ⇒ **改 `site-config.ts` 的 SSoT,這格不會紅。**
+  //    **實跑驗過**(不是推的):把 `STORE_ADDRESS.street` 改成 `化成路999巷99號9樓`、
+  //    渲染點一個字不動 ⇒ 這兩支測試檔 **19 passed、零紅**。
+  //    ⇒ 下面第二條斷言接 SSoT 本體,才追得到漂移。
+  //    (`HomeFooter.tsx:41` 早就 import 過 site-config,不是零到一。)
+  // 🔴 E-627 nit3:反面斷言收窄到門市地址那個節點,不打在 `container` 上 ——
+  //    打在整個元件上的話,將來任何**合法**的「一樓」(展示間一樓、分店、活動文案)
+  //    都會讓它紅,而看到紅的人第一反應會是「地址被改回去了」= 紅在對的方向、錯的位置。
+  it('🔴 門市地址是「1樓」不是「一樓」,且與 SSoT 一致(釘的是【本公司】地址,不是客人收件地址)', () => {
     const { container } = render(<HomeFooter />);
-    const text = container.textContent ?? '';
-    // Sean 2026-08-15 逐字拍板阿拉伯數字「1樓」(選的是 site-config.ts 現有那一版)。
+    const addr = storeAddressNode(container);
+    const text = addr.textContent ?? '';
+
+    // ① Sean 2026-08-15 逐字拍板阿拉伯數字「1樓」;反面 = 舊字面復活。
+    //    曾有文件寫反方向(「一樓才對」)⇒ 那個方向已作廢,別照舊文件改回去。
     expect(text, '頁尾門市地址的「1樓」不見了').toContain('736 巷 18 號1樓');
-    // 反面:舊字面復活。曾有文件寫反方向(「一樓才對」)⇒ 那個方向已作廢,別照舊文件改回去。
-    expect(text, '頁尾出現「一樓」⇒ 有人照過期的舊字面改回去了').not.toContain('一樓');
-    // ⚠️ 本格**不比對空格與換行**:站上是 `新北市新莊區化成路<br/>736 巷 18 號1樓`,
-    //    正典值是 `新北市新莊區化成路736巷18號1樓`(無空格)。空格與 <br/> 是這支頁尾的排版,
-    //    與「電話本地格式 vs 國際格式」同一類的刻意不同 ⇒ 不是不一致,不要「順手統一」。
+    expect(text, '門市地址出現「一樓」⇒ 有人照過期的舊字面改回去了').not.toContain('一樓');
+
+    // ② 🔴 追 SSoT 漂移:比對前把空白抹掉,**正規化放在斷言側、不動排版**。
+    //    站上是 `新北市新莊區化成路<br/>736 巷 18 號1樓`(有空格有換行),
+    //    SSoT 分三欄存 ⇒「逐字等於」不成立,但「不能跟 SSoT 比對」是假的做不到。
+    //
+    // 🔴 E-630 MF:第一版只比 `street` **一個欄位** —— 而這個 `<p>` 印的是
+    //    `region + locality + street` 三個。改 SSoT 的 `region` ⇒ 前台照印「新北市」、三條全綠。
+    //    **同一個病換一個欄位。**(E 自己認了它的處方作用域本身就窄;而我照收沒問
+    //    「它涵蓋幾個欄位」—— 那一步是我的。兩筆分開記,不相消。)
+    // 🔴 用 `toBe` 不用 `toContain`,順帶關掉方向性缺口:
+    //    **`toContain` 只證「渲染沒少掉 SSoT 有的」,不證「渲染沒多出 SSoT 沒有的」** ——
+    //    SSoT 若拿掉樓層,渲染字串仍然包含它 ⇒ 全綠,而紙上多印一個 SSoT 已經不認的樓層。
+    // ⚠️ `postalCode` / `country` **刻意不納入比對**:頁尾根本沒渲染它們,
+    //    比了會變成一條恆假的斷言。
+    expect(text.replace(/\s/g, ''), '頁尾地址與 site-config 的 STORE_ADDRESS 漂開了').toBe(
+      STORE_ADDRESS.region + STORE_ADDRESS.locality + STORE_ADDRESS.street,
+    );
   });
 });
