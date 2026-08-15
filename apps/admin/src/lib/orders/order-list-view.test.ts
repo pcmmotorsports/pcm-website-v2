@@ -26,6 +26,7 @@ import {
   ORDER_SOURCE_VALUES,
   PAYMENT_CHANNEL_VALUES,
   SHOW_UNPAID_CARD_PARAM,
+  PENDING_ONLY_PARAM,
 } from './order-list-view';
 
 /**
@@ -52,6 +53,9 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       // L6:filter 是整包比對 ⇒ 新增鍵一定要在這裡出現(這正是它的價值:
       // 有人新增 filter 欄卻忘了想「預設值該是什麼」時,這三條會紅)。
       includeUnpaidCardOrders: false,
+      // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
+      // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
+      pendingOnly: false,
     });
     expect(page).toBe(3);
   });
@@ -97,6 +101,9 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       orderSources: undefined,
       paymentChannels: undefined,
       includeUnpaidCardOrders: false,
+      // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
+      // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
+      pendingOnly: false,
     });
   });
 
@@ -119,6 +126,9 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       orderSources: undefined,
       paymentChannels: undefined,
       includeUnpaidCardOrders: false,
+      // `#1` 片1:新增鍵。這三處是【整包比對】,新增 filter 欄一定要在這裡現身 ——
+      // 那正是它的價值:逼人想一次「預設值該是什麼」(這裡是 false = 不篩)。
+      pendingOnly: false,
     });
     expect(page).toBe(1);
   });
@@ -509,5 +519,49 @@ describe('#347-3c-2 預設近半年 + 選中的選項', () => {
     const qs = new URLSearchParams(buildOrderListHref(r.filter, DEN, 1).split('?')[1] ?? '');
     expect(qs.get('date_from')).toBe('2026-02-10');
     expect(qs.get('date_to')).toBe('2026-08-10');
+  });
+});
+
+// ── `#1` 片1:「待收款/待訂貨」chip 的 URL 往返 ────────────────────────────────────────
+//
+// 🔴 **這一族守的是「按了『待收款/待訂貨』、翻頁之後它還在」。**
+//   本檔已為別的軸記過**兩次**同一個坑:漏帶參數的症狀是
+//   **那一軸靜默消失、而畫面上的選擇還亮著** —— 沒有錯誤、沒有空白。
+//   ⚠️ `buildOrderListHref` 的編譯期窮舉守門只保證「這一軸被做過決定」,
+//   **保證不了那個決定是對的**(param 名打錯、或該帶卻寫 undefined,型別一樣過)⇒ 那半靠本族。
+describe('#1 片1 「待收款/待訂貨」chip 的 URL 往返', () => {
+  it('沒帶參數 ⇒ false(預設不篩)', () => {
+    expect(parseOrderListSearchParams({}).filter.pendingOnly).toBe(false);
+  });
+
+  it('pending=1 ⇒ true(唯一的開法)', () => {
+    expect(parseOrderListSearchParams({ [PENDING_ONLY_PARAM]: '1' }).filter.pendingOnly).toBe(true);
+  });
+
+  it.each(['true', 'TRUE', 'yes', '0', '', 'on', '01', ' 1'])(
+    '🔴 pending=%p(非字面 1)⇒ false,fail-safe 倒向不篩',
+    (v) => {
+      expect(parseOrderListSearchParams({ [PENDING_ONLY_PARAM]: v }).filter.pendingOnly).toBe(false);
+    },
+  );
+
+  it('🔴 開著 ⇒ href 帶 pending=1(漏帶的症狀:一翻頁就被打回全部,而 chip 還亮著)', () => {
+    const href = buildOrderListHref({ pendingOnly: true }, DEN, 2);
+    expect(href).toContain(`${PENDING_ONLY_PARAM}=1`);
+  });
+
+  it('🔴 關著 ⇒ href **不留空參數**(正向對照:證明上一格不是「永遠都帶」)', () => {
+    // 少了這格,把 href 那行寫成無條件帶參數也會全綠,而網址會多一顆永遠都在的 pending=。
+    const href = buildOrderListHref({ pendingOnly: false }, DEN, 2);
+    expect(href).not.toContain(PENDING_ONLY_PARAM);
+  });
+
+  it('🔴 往返:href → parse 回來仍是 true(兩端用同一個 param 名)', () => {
+    // 這格擋的是「寫入用 pending、讀取用 pending_only」這種兩端不一致 ——
+    // 上面四格各自都會綠,而實際行為是「按了就掉」。
+    const href = buildOrderListHref({ pendingOnly: true }, DEN, 1);
+    const qs = href.slice(href.indexOf('?') + 1);
+    const raw = Object.fromEntries(new URLSearchParams(qs).entries());
+    expect(parseOrderListSearchParams(raw).filter.pendingOnly).toBe(true);
   });
 });

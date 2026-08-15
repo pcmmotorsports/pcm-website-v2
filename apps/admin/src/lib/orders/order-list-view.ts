@@ -71,6 +71,20 @@ export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
  *    直接拿陣列比字串會恆 false,那會讓「勾打開後一翻頁就失效」(測試 L6-4 釘住)。
  */
 export const SHOW_UNPAID_CARD_PARAM = 'show_unpaid_card';
+/**
+ * `#1` 片1:「待收款/待訂貨」chip 的 URL 參數(唯一開啟值 `'1'`,形狀照抄上面那顆 L6 布林開關)。
+ * 🔴 **參數名固定是 `pending`,不隨顯示字面走** —— 片6 改了 chip 名字而這裡一個字沒動,
+ *    那是刻意的:改文案不該讓使用者存起來的網址失效。
+ *
+ * 🔴 **片1 就把它接進 URL,不留到片2** —— 不是範圍擴張,是 `buildOrderListHref` 的**編譯期窮舉守門**
+ *    (本檔 `byFilterKey`)在我加了 `AdminOrderFilter.pendingOnly` 的當下就紅了,逼我現在做決定。
+ *    ⚠️ 另一個選法是「登記但不進 URL」,而那會埋下本檔已經記過**兩次**的同一個坑:
+ *    **翻頁時那一軸靜默消失、而畫面上的選擇還在。** 片2 接上 chip 之後才會有人踩到,
+ *    到時**沒有任何東西會叫**。⇒ 現在接,零 producer、零可見變化。
+ */
+export const PENDING_ONLY_PARAM = 'pending';
+/** 唯一開啟值;其餘一律關(fail-safe 倒向不篩)。 */
+export const PENDING_ONLY_ON = '1';
 export const SHOW_UNPAID_CARD_ON = '1';
 
 // ── L3 片4:列表**顯示設定**(密度)。與上面那些**篩選**軸分開放,理由見 `OrderListDisplayState` ──
@@ -370,6 +384,8 @@ export function parseOrderListSearchParams(
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
     // L6:唯一開關值 '1';其餘一律 false(fail-safe 倒向預設隱藏)。
     includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON,
+    // `#1` 片1:唯一開關值 '1';其餘一律 false(fail-safe 倒向不篩,同 L6 那顆的既有理由)。
+    pendingOnly: firstValue(raw[PENDING_ONLY_PARAM]) === PENDING_ONLY_ON,
     // #347-3c-1:曆面日 → 絕對時刻。形狀不合 ⇒ `undefined`(該側不限)、不是回零筆
     //    —— 日期打錯字只是「這一軸不篩」,其他軸照舊生效,不會造出假的查無
     //    (與已退場的兩個專用單號欄相反 —— 它們是打錯字就回零筆的 fail-closed;
@@ -653,6 +669,9 @@ export function buildOrderListHref(
       SHOW_UNPAID_CARD_PARAM,
       filter.includeUnpaidCardOrders ? SHOW_UNPAID_CARD_ON : undefined,
     ],
+    // 🔴 同上:關著時**不留空參數**(網址乾淨),開著才帶 —— 漏列的症狀是
+    //    「按了『待收款/待訂貨』、一翻頁就被打回全部,而 chip 還亮著」。
+    pendingOnly: [PENDING_ONLY_PARAM, filter.pendingOnly ? PENDING_ONLY_ON : undefined],
     // 🔴🔴 **`keyword` 刻意不進 URL**(#347-2b;Sean Q-a=B 紅線):搜尋詞是 PII
     //    (客人姓名 / 電話 / 地址),它住在 httpOnly cookie 裡。寫在這裡是為了讓
     //    「這一軸被做過決定」留下字面,而不是看起來像漏掉。

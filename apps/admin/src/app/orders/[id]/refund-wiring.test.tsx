@@ -404,3 +404,65 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     expect(actions.includes('isRefundUiEnabled')).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `#514` — 明細頁「出貨狀態」那一格改讀貨品軸真相(**頁級**證據)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴 **為什麼掛在這個檔而不是自己開一個**:整頁渲染要 10 個帶理由的 mock(本檔上方 ~50 行,
+//    每一條都寫著「不 mock 會怎樣」)。**複製一份必漂**,而漂掉的那份會靜默量到別的東西。
+//    ⇒ 沿用同一組 harness,用獨立 `describe` 隔開職責。
+//
+// 🔴🔴 **函式級測試補不到這一格**:`order-status-axes.test.ts` 證明 `orderDetailGoodsAxis()` 算得對,
+//    但**不證明畫面真的改讀了它** —— 有人把 `order-detail.tsx` 那行改回
+//    `FULFILLMENT_STATUS_LABEL[detail.fulfillmentStatus]`,函式那族**一格都不會紅**。
+//    這一格釘的就是「頁面用的是哪一個來源」。
+describe('`#514` 出貨狀態改讀貨品軸(頁級)', () => {
+  /** 明細側品項:`quantitySummary` 是 `| null`(A4a trigger 惰性建列)。 */
+  const item = (quantity: number, ordered: number) => ({
+    id: `it-${quantity}-${ordered}`,
+    title: '測試品項',
+    spec: null,
+    variantSku: 'SKU-514',
+    procurements: [],
+    quantity,
+    unitPrice: { amount: 100, currency: 'TWD' },
+    lineTotal: { amount: 100 * quantity, currency: 'TWD' },
+    quantitySummary: {
+      orderedQuantity: ordered,
+      instockQuantity: 0,
+      shippedQuantity: 0,
+      cancelledQuantity: 0,
+      cancellableQuantity: 0,
+    },
+  });
+
+  /**
+   * 🔴 **核心證據**:stale 欄位說「未訂貨」(它在正式庫 13/13 唯一會說的話),
+   * 而該單**確實已向廠商訂貨** ⇒ 畫面必須顯示「已向廠商訂貨」。
+   * ⚠️ **若畫面顯示「未訂貨」,代表那一格還在讀 `fulfillment_status`** —— 這一格就是為此存在。
+   */
+  it('🔴 有採購紀錄的單:畫面顯示「已向廠商訂貨」,不是 stale 欄位的「未訂貨」', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({
+        fulfillmentStatus: 'notOrdered',
+        items: [item(2, 2), item(1, 1)],
+      } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('已向廠商訂貨');
+    expect(container.textContent).not.toContain('未訂貨');
+  });
+
+  /**
+   * ⚠️ **多數單修完仍顯示「未訂貨」,而那是對的** —— 正式庫多數單還沒採購。
+   * 這一格把「對的未訂貨」釘下來,免得有人看到它就以為改動被回退了。
+   */
+  it('沒有採購紀錄的單:仍顯示「未訂貨」——那是正確的,不是沒生效', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: [item(1, 0)] } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('未訂貨');
+  });
+});
