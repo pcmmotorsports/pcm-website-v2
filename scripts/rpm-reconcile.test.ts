@@ -111,9 +111,10 @@ describe('🔴 #20 片2b:markSourceMissing / clearSourceMissing 動的是哪一�
     const r = makeUpdateRecorder();
     await markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z');
     expect(r.updates).toHaveLength(1);
-    expect(r.updates[0]).toEqual({ source_missing_at: '2026-08-15T00:00:00Z' });
+    const payload = r.updates[0] ?? {};
+    expect(payload).toEqual({ source_missing_at: '2026-08-15T00:00:00Z' });
     // 🔴 這一條才是本片的重點:payload 裡出現 delisted_at = 商品被靜默下架。
-    expect(Object.keys(r.updates[0])).not.toContain('delisted_at');
+    expect(Object.keys(payload)).not.toContain('delisted_at');
   });
 
   it('驗收 3 正向對照:冪等過濾條件是 source_missing_at(只標記尚未標記的、保留「第一次消失」語意)', async () => {
@@ -132,7 +133,7 @@ describe('🔴 #20 片2b:markSourceMissing / clearSourceMissing 動的是哪一�
     const r = makeUpdateRecorder();
     await clearSourceMissing(r.client, 'rpm', ['EXT-1']);
     expect(r.updates).toEqual([{ source_missing_at: null }]);
-    expect(Object.keys(r.updates[0])).not.toContain('delisted_at');
+    expect(Object.keys(r.updates[0] ?? {})).not.toContain('delisted_at');
     // 🔴 完整條件(nit4):方向必須是「只清目前有標記的」,而且限定本供應商與本批 external_id。
     //    方向寫反(改成 .is(...,null))會把「還沒標記的」拿去清 —— 結果看起來一樣是 0 筆,但語意相反。
     expect(r.calls).toContainEqual(['not', 'source_missing_at', 'is', null]);

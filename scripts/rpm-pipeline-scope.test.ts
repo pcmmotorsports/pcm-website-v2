@@ -84,7 +84,8 @@ describe('pipeline supplier scope isolation (P0-A-2)', () => {
     supplier_slug: 'x', external_id: 'EXT-1', handle: 'x-ext-1', title: 't', subtitle: 's',
     price_general: 100, price_store: null, price_by_tier: {}, fitments: [], images: [],
     availability: 'in-stock', brand_id: 'b', category_id: 'c', metadata: {},
-    delisted_at: null, updated_at: '2026-07-03T00:00:00Z',
+    // 🔴 `#20` 片2b 起 `ProductRow` 沒有 `delisted_at`(同步不再寫下架)。
+    updated_at: '2026-07-03T00:00:00Z',
   };
 
   it('computeDelta scopes the existing-price read by the given supplierSlug', async () => {
