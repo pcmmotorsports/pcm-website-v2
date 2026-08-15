@@ -51,11 +51,20 @@ describe('BMW M token:邊框與動效', () => {
   it('🔴🔴 動效 token 住 `:root`,不在 `@theme inline` —— 後者編出來是【零位元組】', () => {
     // R1 審查 MF3:用本 repo 的 tailwind 實編後查證,放 `@theme inline` 的自訂變數不會被輸出。
     // ⚠️ **而它靜默失效**:三綠全綠、測試全過、沒有任何東西會紅。這一格就是那個「會紅的東西」。
-    // ⚠️ **邊界要用 `@theme inline {`(帶大括號)** —— 只用 `@theme inline` 會命中
-    //    `globals.css` 註解裡**提到**這四個字的地方,而那句話出現在 token 之前
-    //    ⇒ 切片會把整段 token 切掉、這一格紅得莫名其妙。**第一版就是這樣紅的。**
-    //    🔴 **偵測器打到自己的輸入,今晚已經是第 N 次。**
-    const rootBlock = CSS.slice(CSS.indexOf(':root {'), CSS.indexOf('@theme inline {'));
+    // ⚠️ **邊界不能只用 `@theme inline`** —— 那會命中 `globals.css` 註解裡**提到**這四個字的地方,
+    //    而那句話出現在 token 之前 ⇒ 切片把整段 token 切掉、這一格紅得莫名其妙(第一版就是這樣紅的)。
+    //
+    // 🔴🔴 **而「加大括號」這個修法【不夠】—— D 窗用突變證實**:
+    //    `@theme inline{`(少一個空格,合法 CSS)⇒ `indexOf` 回 **-1**,
+    //    **而 `slice(a, -1)` 不會炸,它切到倒數第二個字元 ⇒ rootBlock 從 5,812 變 36,068(幾乎整個檔)**
+    //    ⇒ **token 就算真的被搬進 `@theme inline`,`includes()` 照樣 true ⇒ 這一格【綠】。**
+    //    **它要擋的那件事真的發生時,只要順手改了一個空格,它就放行。**
+    // ⇒ **修法:先斷言邊界存在,`-1` 硬失敗,不拿去 slice。** 並用正規式吃掉空白差異。
+    const rootStart = CSS.indexOf(':root {');
+    const themeMatch = /@theme\s+inline\s*\{/.exec(CSS);
+    expect(rootStart, ':root { 區塊必須存在').toBeGreaterThanOrEqual(0);
+    expect(themeMatch, '@theme inline 區塊必須存在 —— 找不到就不能切片,不能靜默放行').not.toBeNull();
+    const rootBlock = CSS.slice(rootStart, themeMatch!.index);
     expect(rootBlock).toContain('--motion-fast: 130ms;');
     expect(rootBlock).toContain('--motion-base: 220ms;');
     expect(rootBlock).toContain('--ease-standard: cubic-bezier(0.16, 1, 0.3, 1);');
@@ -70,14 +79,20 @@ describe('BMW M token:邊框與動效', () => {
 });
 
 describe('Tailwind v4 的裸 `rounded` 陷阱', () => {
-  it('🔴 admin 全樹不得再出現裸 `rounded` —— 它是靜態 0.25rem,`--radius` 蓋不掉', () => {
+  it('🔴 admin 全樹不得再出現裸 `rounded` 或 `rounded-[Npx]` —— 兩者都是 `--radius` 蓋不掉的靜態值', () => {
     // R2 審查 F5:編譯產物 `.rounded{border-radius:0.25rem}` vs `.rounded-md{border-radius:0}`。
     // 本片把 29 處(12 檔,集中在出貨流)改成 `rounded-md`;沒有這一格的話,
     // **下一個人再寫一個裸 `rounded` 就會在一片直角裡留 4px,而三綠全綠。**
     const { globSync } = require('node:fs') as typeof import('node:fs');
     const files = globSync(join(__dirname, '..', '**', '*.tsx'));
+    // 🔴 **分母斷言(D 窗 nit2)**:`globSync` 回 `[]` ⇒ `offenders` 也 `[]` ⇒ **這一格恆綠**。
+    //    現在掃到 150+ 支,但沒有任何東西保證它不會變 0(改目錄結構、換 glob 實作都會)。
+    expect(files.length, 'glob 掃到 0 個檔 = 這一格失去判別力,不是通過').toBeGreaterThan(100);
+    // ⚠️ **`rounded-full` 刻意【不在】這格**:它編出 `calc(infinity * 1px)`、`--radius` 同樣蓋不掉,
+    //    而 src 內 16 處在用 —— **但那是狀態膠囊,而「要不要跟 OD 一起變方角」是【待 Sean 裁】的題**
+    //    (見設計參照 §6.5.4)。**他裁完之後,這一格要把 `rounded-full` 一起納進來或明文豁免。**
     const offenders = files.filter((f: string) =>
-      /(?<![-\w])rounded(?![-\w])/.test(readFileSync(f, 'utf8')),
+      /(?<![-\w])rounded(?![-\w])|rounded-\[[0-9]/.test(readFileSync(f, 'utf8')),
     );
     expect(offenders).toEqual([]);
   });
