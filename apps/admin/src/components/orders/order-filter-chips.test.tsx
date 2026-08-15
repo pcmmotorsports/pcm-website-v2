@@ -2,10 +2,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postcss from 'postcss';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AdminOrderFilter } from '@pcm/domain';
 import { OrderFilterChips } from './order-filter-chips';
+import { OrderToolbar } from './order-toolbar';
 import { ORDER_DENSITY_DEFAULT } from '../../lib/orders/order-list-view';
 
 // order-filter-chips.test.tsx — `#484` 片 B-1。
@@ -315,19 +317,35 @@ describe('#485 片2 — 單一來源(這格擋的是下一顆 chip)', () => {
 describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)', () => {
   const ADMIN_SRC = join(__dirname, '../..');
   const CSS = readFileSync(join(ADMIN_SRC, 'app/globals.css'), 'utf8');
-  const PAGE = readFileSync(join(ADMIN_SRC, 'app/orders/page.tsx'), 'utf8');
   const SHELL = readFileSync(join(ADMIN_SRC, 'components/layout/workspace-shell.tsx'), 'utf8');
 
   /**
    * 🔴🔴 **這一族成立的前提 = 「chip 組獨佔一整行」。**
    *
-   * 前提由 `page.tsx` 的 `basis-full` 提供。**把前提綁在一個會被改到的字面上,不是綁在時間點上**
-   * —— 下一個人拿掉 `basis-full` 時,`grep basis-full` 會撞到這裡,而不是等他自己想起來。
    * ⚠️ **前提沒了,本族要重寫**(不是調閾值):chip 組不再獨佔一行 ⇒ 它會先被右邊那組壓縮,
    *    容量預算不再是「整個內容寬」,失敗形狀也會變回「掉行」。
+   *
+   * 🔴 **本格改過一次,改法值得留(`#485` 片5a)**:
+   *   原版讀 `page.tsx` 的**檔案文字**斷言含 `order-last basis-full …`。
+   *   片5a 把工具列抽成 `order-toolbar.tsx` ⇒ **那個字面搬走了,本格紅**。
+   *   ✅ **它紅得完全正確** —— 前提的載體變了,而守門本來就該在這時候叫。
+   *   ⚠️ **而修法不是把路徑改指到新檔**(那只是把同一個脆弱性搬家),
+   *      是改成**斷言 render 出來的結果** ⇒ **再搬幾次家都不會假紅,而且**
+   *      **寫在註解裡的同一串字也騙不過它**(讀檔版會被註解餵飽)。
+   *   🔴 **判別:這格紅的時候,是因為「事實變了」還是「有人搬動了我釘的那份字」?**
+   *      改成釘 render 之後,只剩前者。
    */
-  it('🔴 前提:`page.tsx` 仍讓 chip 組獨佔一行(`basis-full`);沒了就要重寫本族', () => {
-    expect(PAGE).toContain('order-last basis-full md:order-none md:basis-auto');
+  it('🔴 前提:chip 組仍獨佔一整行(`basis-full`,釘 render 不釘檔案文字);沒了就要重寫本族', () => {
+    const html = renderToStaticMarkup(
+      <OrderToolbar
+        filter={{}}
+        display={DEN}
+        page={1}
+        total={13}
+        loadFailed={false}
+      />,
+    );
+    expect(html).toContain('class="order-last basis-full md:order-none md:basis-auto"');
   });
 
   /**
