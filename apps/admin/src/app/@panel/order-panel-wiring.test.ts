@@ -464,7 +464,11 @@ describe('#350c 守門 6:明細的兩個外框都是 @container', () => {
   });
 
   it('明細的欄數用容器斷點、不用 viewport 斷點', () => {
-    const detail = read('components/orders/order-detail.tsx');
+    // 🔴 **2026-08-16 改指向新檔**:那四張摘要卡(含這個 grid)從 `order-detail.tsx`
+    //    抽到 `order-detail-summary-cards.tsx`(鐵則 6,純結構搬家、零行為改變)。
+    //    ⚠️ **本格是被那次抽取【紅出來】的** —— 它盡了它的職責:字面搬家了它就說。
+    //    ⇒ 這裡改的是**看哪一支檔**,不是放寬條件;三條斷言一個字沒動。
+    const detail = read('components/orders/order-detail-summary-cards.tsx');
     expect(detail).toContain('@md:grid-cols-2');
     expect(detail).toContain('@4xl:grid-cols-4');
     // 突變:改回 md:/xl: ⇒ 紅。(1920 螢幕上的 576px 面板會硬排四欄。)
