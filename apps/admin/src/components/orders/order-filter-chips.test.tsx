@@ -289,3 +289,122 @@ describe('#485 片2 — 單一來源(這格擋的是下一顆 chip)', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `#485` 片4 — **chip 排放不放得下**(窄版容量守門)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴🔴 **為什麼要有這一族:片3 之前用的那支偵測器,在片3 之後對這件事零判別力。**
+//
+// ```
+// 片3 前：chip 擠不下 ⇒ 三顆掉到不同的 top          ← 「換行偵測」抓得到
+// 片3 後：chip 組獨佔一行（page.tsx 的 basis-full）
+//         ⇒ 再長也不會掉行，改成【字在 chip 裡折】
+//         ⇒ 同一支換行偵測全程回「同一行」，一次都不會紅
+// ```
+// **真瀏覽器實測(390、真版面幾何):把中間那顆加長到 17 字 ⇒**
+//   `三顆同一行 = true`(**沒紅**)/ `單顆高 26→44`(紅)/ `餘裕 −10`(紅)
+// ⇒ **失敗形狀換了,而偵測器是對著舊形狀寫的。**
+// 🔴 **而它從來沒有「變壞」的那一刻 —— 是我們自己的修復讓它失去判別力,**
+//    **且失去判別力不會讓任何東西紅。**(這比「恆真守門」難抓:恆真守門第一天就沒用。)
+//
+// ⚠️ **repo 先前對 chip 版面是零覆蓋** —— 上面說的那支偵測器只活在拋棄式探針裡,
+//    不在本 repo。**所以這一族不是「換掉舊的」,是第一支。**
+//
+// 🔴 **本族守的是「算得出來的容量」,不是瀏覽器的用值。** 誠實邊界寫在 `MODEL` 那段。
+describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)', () => {
+  const ADMIN_SRC = join(__dirname, '../..');
+  const CSS = readFileSync(join(ADMIN_SRC, 'app/globals.css'), 'utf8');
+  const PAGE = readFileSync(join(ADMIN_SRC, 'app/orders/page.tsx'), 'utf8');
+  const SHELL = readFileSync(join(ADMIN_SRC, 'components/layout/workspace-shell.tsx'), 'utf8');
+
+  /**
+   * 🔴🔴 **這一族成立的前提 = 「chip 組獨佔一整行」。**
+   *
+   * 前提由 `page.tsx` 的 `basis-full` 提供。**把前提綁在一個會被改到的字面上,不是綁在時間點上**
+   * —— 下一個人拿掉 `basis-full` 時,`grep basis-full` 會撞到這裡,而不是等他自己想起來。
+   * ⚠️ **前提沒了,本族要重寫**(不是調閾值):chip 組不再獨佔一行 ⇒ 它會先被右邊那組壓縮,
+   *    容量預算不再是「整個內容寬」,失敗形狀也會變回「掉行」。
+   */
+  it('🔴 前提:`page.tsx` 仍讓 chip 組獨佔一行(`basis-full`);沒了就要重寫本族', () => {
+    expect(PAGE).toContain('order-last basis-full md:order-none md:basis-auto');
+  });
+
+  /**
+   * 版面預算與 chip 幾何 —— **每個常數都有出處,沒有一個是挑的**。
+   *
+   * · 內容容器內距 `p-6` ⇒ 左右各 24 ⇒ 扣 48(`workspace-shell.tsx` 的 `workspace-content`)
+   * · 側欄在窄版**不佔寬**:`components/ui/sidebar.tsx` 那顆是 `hidden md:block`(<768 變覆蓋式抽屜)
+   * · 390 = 現行最窄的實機寬(iPhone 12/13/14 直式)
+   * · chip 外框 24 = `padding: 3px 11px` 的左右 11×2 + `border: 1px` 的 1×2(`border-box`)
+   * · 每個全形字 12px = `font-size: 12px`(CJK 的字身寬 = 字級)
+   * · chip 間距 8 = 元件根節點的 `gap-2`(下面有一格釘著)
+   *
+   * 🔴🔴 **誠實邊界 —— 這是【算式】,不是瀏覽器的用值:**
+   *   ① **只對全形字準確**。半形(英數、`/`)實測窄得多(`/` ≈ 4px)⇒ 模型會**高估**寬度
+   *      ⇒ **偏保守、會早一步紅**,不會漏報。
+   *   ② 字體真的換掉、或 `.fchip` 的 padding/font-size 被改 ⇒ 模型會失準;
+   *      **但後者有上面「常態 6 個宣告」那格擋著**(本檔直接從 CSS 讀,不抄第二份)。
+   *   ③ **它證明不了瀏覽器算出來的用值** —— 那要真瀏覽器
+   *      (同 `#486` 記過的坑:CSS 字面 36、用值 30)。
+   * ✅ **校準來源(2026-08-15 真瀏覽器,幾何照真版面)**:模型算 184 / 340 / 352,
+   *    瀏覽器量 184 / 340 / 352 —— **三點全中**,且模型預測的破點(17 字)與實測破點一致。
+   */
+  const num = (prop: string, re: RegExp) => {
+    const decls = new Map<string, string>();
+    postcss.parse(CSS).walkRules((rule) => {
+      if (rule.selector.replace(/\s+/g, ' ').trim() !== '.fchip') return;
+      if (rule.parent?.type !== 'root') return;
+      // 🔴 用區塊而非簡寫:`walkDecls` 的 callback 型別是 `void | false`,
+      //    `(d) => decls.set(...)` 會把 `Map` 當回傳值 ⇒ `TS2322`(vitest 不跑型別檢查、全綠也擋不住)。
+      rule.walkDecls((d) => {
+        decls.set(d.prop, d.value);
+      });
+    });
+    const m = re.exec(decls.get(prop) ?? '');
+    if (!m) throw new Error(`.fchip 的 ${prop} 讀不到,模型不能用推的 —— 實際值:${decls.get(prop)}`);
+    return Number(m[1]);
+  };
+  const CHIP_PAD_X = num('padding', /^\d+px\s+(\d+)px$/); // 11
+  const CHIP_BORDER = num('border', /^(\d+)px\s/); //          1
+  const CHIP_FONT = num('font-size', /^(\d+)px$/); //          12
+  const CHIP_GAP = 8; // Tailwind `gap-2` = 0.5rem;下一格釘住元件真的在用它
+  const CONTENT_PADDING = 48; // `p-6` 左右各 24
+  const NARROWEST = 390;
+  const BUDGET = NARROWEST - CONTENT_PADDING; // 342
+
+  const chipWidth = (label: string) => CHIP_PAD_X * 2 + CHIP_BORDER * 2 + label.length * CHIP_FONT;
+  const groupWidth = (labels: readonly string[]) =>
+    labels.reduce((sum, l) => sum + chipWidth(l), 0) + CHIP_GAP * (labels.length - 1);
+
+  it('前提:間距常數 8 對應元件真的用的 `gap-2`,與內容容器真的是 `p-6`', () => {
+    const { container } = renderChips({});
+    expect(container.querySelector('div')?.className).toContain('gap-2');
+    expect(SHELL).toContain('workspace-content min-w-0 flex-1 p-6');
+    expect(CHIP_GAP).toBe(8);
+    expect(CONTENT_PADDING).toBe(48);
+  });
+
+  it('🔴 模型校準:三個真瀏覽器量過的點必須算得出同一個數(算錯就整族失效)', () => {
+    expect(groupWidth(['全部', '待處理', '未到貨'])).toBe(184);
+    expect(groupWidth(['全部', '待'.repeat(16), '未到貨'])).toBe(340);
+    expect(groupWidth(['全部', '待'.repeat(17), '未到貨'])).toBe(352);
+  });
+
+  it('🔴 天花板:16 個字放得下、17 個字放不下(校準自實測破點,不是挑的閾值)', () => {
+    expect(groupWidth(['全部', '待'.repeat(16), '未到貨'])).toBeLessThanOrEqual(BUDGET);
+    expect(groupWidth(['全部', '待'.repeat(17), '未到貨'])).toBeGreaterThan(BUDGET);
+  });
+
+  /**
+   * 🔴 **這一格才是這一族存在的理由**:`#485` 已拍板「chip 要改名」(名字未定),
+   * 而 Sean 舉的候選之一是 `待收款/待訂貨` —— **改名是最可能撞破容量的那個動作**。
+   * ⚠️ 而它**同時**是最不會被察覺的:改名的人在桌機上看不出任何問題。
+   */
+  it('🔴 現行三顆 chip 的標籤放得下 390 窄版(改名/加第四顆時這格會先紅)', () => {
+    const { container } = renderChips({});
+    const labels = chips(container).map((a) => a.textContent ?? '');
+    const w = groupWidth(labels);
+    expect(w, `三顆總寬 ${w} 超過 390 窄版預算 ${BUDGET}(標籤:${labels.join('/')})`).toBeLessThanOrEqual(BUDGET);
+  });
+});
