@@ -55,6 +55,35 @@ export function orderPayAxis(order: AdminOrderSummary): OrderPayAxis {
 
 ### 1-2 貨品軸(4 階段,由**品項層彙總**到訂單層)
 
+#### 🔴 先講一件會被名字騙的事:**這條軸叫「狀態」,但它讀的不是任何狀態欄**
+
+**事實(真相式,`20260806180000:17` 逐字)**:
+```
+shipped_quantity = shipment_items JOIN shipments，過濾 deleted_at IS NULL AND shipped_at IS NOT NULL
+```
+⇒ **貨品軸彙總的是「有沒有真的產生過一個已寄出的包裹」,不是任何人打的狀態字串。**
+
+🔴 **警語(這段存在的理由)**:**看到名字不要推論實作。**
+**本檔作者 2026-08-15 就是這樣錯過一次** —— 從「它叫**狀態**軸」推論「它讀的是**狀態欄**」,
+於是誤判「我們的鎖點跟著文字走、和業界做法分岔」,**並把那個錯誤結論轉給了指揮者**。
+**去讀真相式才發現相反:它一直都跟著動作走。**
+⚠️ **只寫結論(「貨品軸=動作軸」)攔不住下一個人** —— 他會想「喔那應該是從 status 欄推出來的」。
+**所以事實與警語要並列,缺一個都不夠。**
+
+#### ✅ 而「有沒有一個可以手動標記的出貨狀態」——**沒有,兩條都查過**
+
+電商調研(`~/pcm-mailbox/主-ALL-006` 概念 6)指出:三家平台的鎖點都在**不可逆的外部動作**那一刻,
+並警告「**若後台把『標記狀態』與『真的呼叫出貨』拆成兩個操作,鎖點應跟外部動作走**」。
+**我們沒有那個拆法**,兩個候選都是死的:
+
+| 候選「標記」欄 | 現況 | 證據 |
+|---|---|---|
+| `orders.fulfillment_status` | 🔴 **停止維護、無 writer** | `20260729010000:87` COLUMN COMMENT 逐字「E10 起停止維護、值為 legacy stale、**任何新程式不得讀取本欄做判斷**」;兩支寫入 RPC 明文排除(`20260714130000:18` / `20260611120000:16`) |
+| `order_items.workflow_status` | 🔴 **凍結**:RPC 撤權 + 零呼叫端 | `20260807120000_m4b_e10_a9v_nine_code_writer_revoke.sql:16-17` 逐字「app 層…命中**全部是註解**,零實際呼叫」;另有守門 `nine-code-rpc-retired.test.ts` 釘住 |
+
+⇒ **鎖點綁貨品軸就是綁動作。概念 6 對本檔不構成改動。**
+⚠️ **但 `fulfillment_status` 另有一個更嚴重的問題**(它還在畫面上顯示)—— **不在本檔範圍,見 §3-5。**
+
 `order-status-axes.ts:161-168`:**該單所有品項都到齊才進下一階**(`every`),判序 `shipped ⊆ instock ⊆ ordered`
 (`:151` 逐字「Sean 2026-08-05 拍板『出貨必先到貨、無直送』…**先問最遠的那個**才會答對」)。
 ⚠️ `:158` 空 `lines` 回 `none` 不是 `shipped`(`[].every()` 恆真)。
@@ -206,6 +235,27 @@ select payment_status, count(*) from public.orders group by 1;
 2. **RPC 那一側** ⇒ ⚠️ **`20260714130000` 已 apply(`APPLIED.tsv` 有列)、連註解都不能動**
    ⇒ **改寫在呼叫端**:`apps/admin/src/lib/orders/order-actions.ts`(server action,**下一個人要加閘會加在那裡**)
 **⇒ 不是寫在本檔就算完成** —— 本檔沒有人會在動手前翻。**寫在他手指所在的位置才算。**
+
+### 3-5 🔴🔴 順帶查到、**不屬本檔但比本檔早會咬人**:畫面上那格「出貨狀態」恆假
+
+`order-detail.tsx:368` 逐字 `<Field label='出貨狀態' value={FULFILLMENT_STATUS_LABEL[detail.fulfillmentStatus]} />`,
+而 `detail.fulfillmentStatus` 是 `mappers/order.ts:180`(另 `:360` / `:706`)**直送 `row.fulfillment_status`** ——
+**也就是 §1-2 那個「停止維護、無 writer」的欄位。**
+
+**正式庫實測(2026-08-15 · 主視窗跑 · 唯讀)**:
+```
+select fulfillment_status, count(*) from public.orders group by 1;
+⇒ notOrdered  13   （只有這一列）
+```
+🔴 **13 筆訂單、13 筆 `notOrdered`、零其他值 ⇒ 不是「新單才有問題」,是那格從來沒有正確過一次。**
+⇒ **後台明細頁的「出貨狀態」永遠顯示「未訂購」,而庫裡有已出貨的單。**
+
+⚠️ **這條的形狀**:那條 COMMENT 逐字擔心的是「**沒有 writer 在維護的欄位叫衍生顯示,會讓後人以為它跟得上真相**」
+—— **寫的人擔心措辭被誤解,實際發生的是有人把它 render 出來。**
+🔴 **「不得讀取本欄做判斷」這句話對「把它畫到畫面上」零約束力,因為 render 不是判斷。**
+
+**處置分兩件(主視窗裁定,刻意不混)**:短期把那格拿掉或改讀真相式(**排在片 1 之後,不插隊**);
+長期欄位本體怎麼處置(**碰 schema ⇒ 要 Sean**)。**本檔只記錄,不處置。**
 
 ---
 
