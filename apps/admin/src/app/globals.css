@@ -43,6 +43,17 @@
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
 }
 
+/* 🔴🔴 **深色入口已於 2026-08-16 依 Sean 拍板移除;本段暫留、無消費端。**
+   逐字:「不要深色模式」+「拿掉那顆按鈕」。**這 27 個 token 不是死碼,是刻意暫留** ——
+   移除的是**入口**(`header.tsx` 那顆鈕 + `layout.tsx` 的 `forcedTheme='light'`),不是這套值。
+   ⚠️ **要清掉整段是另一個決定,需要 Sean 再拍一次** ——
+   看到「沒人用的 token」順手刪,會讓日後想恢復深色的成本從「拿掉一個 prop」變成「重配 27 個值」。
+   📎 **同批一起暫留的還有**:`icons.tsx` 的 `sun`/`moon`(現零消費端)、
+      各元件的 `dark:` utilities(因 `:9` `@custom-variant dark` 走 class 策略、而 `.dark` 永不掛上
+      ⇒ **它們是 inert,不是仍生效**)。**要清就一起清,不要各刪一半。**
+   🔴 **一個已知的行為殘留**:`useTheme().resolvedTheme` 對存過深色的人**仍會回 `'dark'`**
+      (它讀的是儲存值、不吃 `forcedTheme`)⇒ **與畫面不一致**。
+      現在零消費端所以無害;**未來若有人拿它做判斷會踩到,不要用它判斷目前是不是深色。** */
 .dark {
   --background: oklch(0 0 0);
   --foreground: oklch(1 0 0);
@@ -414,7 +425,11 @@
   border-color: var(--foreground);
   background: var(--foreground);
   /* 🔴 **不是 OD 的 `#fff`**(R1 must-fix 1):`--foreground` 在 dark 模式是白的(`:48`),
-     配死白的字 = **白底白字、標籤整個看不見**;而 header 有一鍵切 dark ⇒ 場景真的走得到。
+     配死白的字 = **白底白字、標籤整個看不見**。
+     ⚠️ **原理由逐字「而 header 有一鍵切 dark ⇒ 場景真的走得到」已於 2026-08-16 作廢**
+     (深色入口移除、`forcedTheme='light'`)⇒ **今天走不到那個場景。**
+     🔴 **但這個決定維持不變**:用 token 映射而不是寫死 `#fff`,在深色若被恢復時仍然正確,
+     **且它本來就是比較好的寫法** —— 作廢的是「為什麼緊急」,不是「為什麼對」。
      `--primary-foreground` 在 light 恰為 `oklch(1 0 0)` = `#fff`(**light 下與 OD 逐字等值**)、
      在 dark 自動翻黑。⇒ 這是 token 映射,不是設計改動。 */
   color: var(--primary-foreground);
