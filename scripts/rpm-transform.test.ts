@@ -6,6 +6,7 @@
 // 次要 = 去碳新行為:per-group 副標=分類名(無碳纖維)、handle 前綴、description 條件寫、nullable 分類、spec 三形狀 sort fallback。
 
 import { describe, it, expect } from 'vitest';
+import { groupByKeySignature } from './rpm-load';
 import type { SourceProductRow } from './rpm-fetch';
 import {
   transformGroup,
@@ -24,7 +25,9 @@ const NOW = '2026-07-03T00:00:00.000Z';
 const RPM_PRODUCT_KEYS = [
   'supplier_slug', 'external_id', 'handle', 'title', 'subtitle',
   'price_general', 'price_store', 'price_by_tier', 'fitments', 'images',
-  'availability', 'brand_id', 'category_id', 'metadata', 'delisted_at', 'updated_at',
+  // 🔴 #20 片2b:`delisted_at` 已從 payload 移除(同步不再寫下架)。
+  //    這個常數同時當「key allowlist」用 —— 新格斷言 payload 欄位集 == 本清單。
+  'availability', 'brand_id', 'category_id', 'metadata', 'updated_at',
 ];
 const VARIANT_KEYS = [
   'supplier_slug', 'sku', 'spec', 'price_general', 'price_store',
@@ -130,7 +133,6 @@ const GOLDEN_APRILIA_PRODUCT = {
   brand_id: 'brand-rpm',
   category_id: 'cat-carbon',
   metadata: { name_en: 'Front Fender' },
-  delisted_at: null,
   updated_at: NOW,
 };
 const GOLDEN_APRILIA_VARIANTS = [
@@ -153,7 +155,6 @@ const GOLDEN_UNIV_PRODUCT = {
   brand_id: 'brand-rpm',
   category_id: 'cat-carbon',
   metadata: { name_en: 'Bolt Kit' },
-  delisted_at: null,
   updated_at: NOW,
 };
 
@@ -650,7 +651,7 @@ describe('#270 安裝資源 manuals/video_url', () => {
   });
 });
 
-describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
+describe('🔴 #20 片2b:同步不再輸出 delisted_at(推翻合約 §10)', () => {
   const dBase: SourceProductRow = {
     supplier_slug: 'bonamici', main_sku: 'BON-D', sku: 'BON-D-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Rearset', product_name_zh: '腳踏後移',
@@ -664,70 +665,71 @@ describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
     subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false, appendManualFilename: false,
   };
 
-  it('來源未投影此欄(舊 view / 舊 fixture)→ null,行為與改前一致', () => {
-    const { product } = runGroup('BON-D', [dBase], null, D_CTX);
-    expect(product.delisted_at).toBeNull();
-  });
+  // 🔴 本 describe 取代舊的「下架權威鏡射」五格。舊格斷言的是「來源說下架 → 我方跟著下架」,
+  //    而 Sean 2026-08-15 `Q-B-2=甲` / `Q-關哪一條=乙` 把那個行為整個拿掉了。
+  //    ⇒ 舊格不是「壞掉」,是**它們釘的規格已經被推翻** —— 照新規格重寫,不是刪掉了事。
 
-  it('全部變體皆已下架 → 鏡射為整群下架(取最新時戳)', () => {
+  it('🔴 驗收 1(負測):來源明說已下架 → payload 仍不含 delisted_at,我方 DB 現值不被覆寫', () => {
     const variants = [
       { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
       { ...dBase, sku: 'BON-D-B', delisted_at: '2026-07-11T00:00:00.000Z' },
     ];
     const { product } = runGroup('BON-D', variants, null, D_CTX);
-    expect(product.delisted_at).toBe('2026-07-11T00:00:00.000Z');
+    // 🔴 key 不存在 ≠ 值為 null。ON CONFLICT 只覆寫 payload 帶到的 key ⇒ 必須驗「沒有這個 key」。
+    expect(Object.prototype.hasOwnProperty.call(product, 'delisted_at')).toBe(false);
   });
 
-  it('🔴 只有部分變體下架 → 整群維持上架(比照 availability 的 bool_or,不可誤殺還在賣的變體)', () => {
-    const variants = [
-      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
-      { ...dBase, sku: 'BON-D-B', delisted_at: null },
-    ];
-    const { product } = runGroup('BON-D', variants, null, D_CTX);
-    expect(product.delisted_at).toBeNull();
+  it('🔴 驗收 1 的另一半:只省 delisted_at 一個 key,其餘欄位照常同步(不是整列跳過)', () => {
+    // 失敗形狀:誤寫成「整列跳過 upsert」⇒ 員工設過的商品，價格/圖片/標題永遠不再同步，
+    // 而畫面看起來一切正常。這一格就是為了讓那個實作紅。
+    const delisted = { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z', price_retail: '12345', product_name_zh: '新名字' };
+    const { product } = runGroup('BON-D', [delisted], null, D_CTX);
+    // 🔴 逐欄新舊值必須不同(R2 F3):用 9000/腳踏後移 當「舊值」,12345/新名字 當「新值」。
+    //    若兩者相同，即使整列跳過也會綠 ⇒ 那格就是恆綠格。
+    expect(product.price_general).toBe(12345);
+    expect(product.title).toBe('新名字');
+    // key allowlist:這一格只驗「沒有多出這個 key」。
+    // 🔴 完整的欄位集合 allowlist 由上方「RPM byte 回歸鎖」那兩格 `toEqual(GOLDEN_*)` 承擔 ——
+    //    那是逐欄比對,新增/刪除任何欄都會紅,比在這裡再列一次耐用(列舉會過期)。
+    expect(Object.keys(product)).not.toContain('delisted_at');
   });
 
-  // 🔴 對抗審查 F1:上一條只鎖「群層」答案,若不同時斷言「那顆停產變體去哪了」= 假綠。
-  //    停產變體必須被當成缺席(不進 sourceVariantSkus)→ 判孤兒 → 硬刪,否則會永遠掛在
-  //    選項裡可下單:create_order 的下架擋阻只看產品層 delisted_at,部分停產群的產品層是 null。
-  //    ⚠️ 直接 import 正式的 liveVariantsOf(不在測試裡複製一份邏輯,否則正式碼改壞測試仍綠)。
-
-  it('🔴 F1 部分下架:停產變體必須被剔除(視同缺席→孤兒→硬刪),在售變體保留', () => {
-    const variants = [
-      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
-      { ...dBase, sku: 'BON-D-B', delisted_at: null },
-    ];
-    const live = liveVariantsOf(variants);
-    expect(live.map((v) => v.sku)).toEqual(['BON-D-B']);
+  it('🔴 nit3 補洞:接到載入層,證明「省 key」真的走到「不覆寫該欄」那條路', () => {
+    // 關卡2 nit3:上面幾格只驗 transform 的 payload,**沒有接到 upsert** ——
+    // 若載入層把整列 skip,那些格仍會綠。這一格把兩層接起來。
+    // 語意權威在 `rpm-load.test.ts` 的 `#260 groupByKeySignature`(省 key 列不被混批寫 NULL → 保留現值);
+    // 這裡只證**我們的列真的落進「該批 columns 不含 delisted_at」的那一組**。
+    const delisted = { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' };
+    const live = { ...dBase, main_sku: 'BON-E', sku: 'BON-E-A', delisted_at: null };
+    const a = runGroup('BON-D', [delisted], null, D_CTX).product;
+    const b = runGroup('BON-E', [live], null, D_CTX).product;
+    // 🔴 兩列(來源說下架的 / 來源說在架上的)必須落在**同一組** ——
+    //    若哪天有人讓其中一條路徑「條件式」帶回 delisted_at,兩列 key 集合就會不同 ⇒ 分成兩組 ⇒ 這格紅。
+    const groups = groupByKeySignature([a, b]);
+    expect(groups).toHaveLength(1);
+    for (const g of groups) {
+      for (const row of g) expect(Object.keys(row)).not.toContain('delisted_at');
+    }
   });
 
-  it('🔴 F1 整群下架:變體【全部保留】(產品層已擋單;全刪會撞變體刪除 10% 閘)', () => {
-    const variants = [
-      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
-      { ...dBase, sku: 'BON-D-B', delisted_at: '2026-07-10T00:00:00.000Z' },
-    ];
-    const live = liveVariantsOf(variants);
-    expect(live.map((v) => v.sku)).toEqual(['BON-D-A', 'BON-D-B']);
-  });
-
-  it('F1 無任何停產:變體原封不動(零行為改變)', () => {
-    const variants = [
-      { ...dBase, sku: 'BON-D-A', delisted_at: null },
-      { ...dBase, sku: 'BON-D-B' },
-    ];
-    expect(liveVariantsOf(variants).map((v) => v.sku)).toEqual(['BON-D-A', 'BON-D-B']);
-  });
-
-  it('商品復架(來源清空 delisted_at)→ 鏡射回 null,不需人工介入', () => {
+  it('🔴 驗收 2:來源清空墓碑也不會自動復架 —— payload 一樣不含這個 key', () => {
+    // 舊版靠鏡射達成自動復架(來源清空 → 投影 null → 復上架)。
+    // 拿掉鏡射就一併拿掉自動復架 —— 這是本片的**連帶效果**,釘住它,不要哪天被當成 bug 修回去。
     const variants = [{ ...dBase, sku: 'BON-D-A', delisted_at: null }];
     const { product } = runGroup('BON-D', variants, null, D_CTX);
-    expect(product.delisted_at).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(product, 'delisted_at')).toBe(false);
   });
 
-  it('🔴 RPM byte 錨不破:rpm fixture 無此欄 → 仍為 null(key 位置與型別不變)', () => {
-    const { product } = runGroup('APRILIA-01', APRILIA, 'Aprilia RS660', RPM_CTX);
-    expect(product.delisted_at).toBeNull();
-    expect(Object.keys(product)).toEqual(RPM_PRODUCT_KEYS);
+  it('部分變體停產:群層仍不帶 delisted_at,且 liveVariantsOf 的剔除行為本片刻意未改', () => {
+    // `Q-部分停產=甲`(要保留)已由 Sean 拍板,但**另開一片做**(plan §7-5)⇒ 這裡釘現況,不是釘理想。
+    const variants = [
+      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
+      { ...dBase, sku: 'BON-D-B', delisted_at: null },
+    ];
+    // 🔴 剔除發生在 `liveVariantsOf`,不在 `transformGroup` ⇒ 要先跑它才量得到現況(plan §2b)。
+    const { product, variantRows } = runGroup('BON-D', liveVariantsOf(variants), null, D_CTX);
+    expect(Object.keys(product)).not.toContain('delisted_at');
+    expect(variantRows.map((v) => v.sku)).toEqual(['BON-D-B']); // 停產那顆仍被剔除(本片刻意未改)
   });
 });
 
@@ -754,7 +756,7 @@ describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商
     const { product } = runGroup('PR320', live, null, P_CTX);
     expect(live.map((v) => v.sku)).toEqual(['PR320-LIVE']);
     expect(Number(product.price_general)).toBe(2000); // 不可是 1000(那顆變體已被剔除、站上不存在)
-    expect(product.delisted_at).toBeNull(); // 部分停產 → 整群維持上架
+    expect(Object.keys(product)).not.toContain('delisted_at'); // #20 片2b:群層不再帶此欄
   });
 
   it('整群停產:變體全保留、群價照舊算、群層帶最新下架時戳', () => {
@@ -765,6 +767,8 @@ describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商
     const live = liveVariantsOf(variants);
     const { product, variantRows } = runGroup('PR320', live, null, P_CTX);
     expect(variantRows).toHaveLength(2);
-    expect(product.delisted_at).toBe('2026-07-10T00:00:00.000Z');
+    // 🔴 #20 片2b:群層不再帶 delisted_at(舊格斷言「取最新時戳」,那個行為已被 Sean 拍板拿掉)。
+    //    整群停產仍保留全部變體 ⇒ **商品會維持上架且顧客買得到**,這正是本片最大的行為改變。
+    expect(Object.keys(product)).not.toContain('delisted_at');
   });
 });

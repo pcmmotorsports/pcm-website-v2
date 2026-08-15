@@ -197,9 +197,13 @@ export interface ProductRow {
   brand_id: string;
   category_id: string | null; // fixed=整批固定 id(rpm 恆真實);per-group=逐群 major_category_zh 解析、seed 前對不上→null(dry-run 報告顯示、無 live 風險)
   metadata: Record<string, unknown>;
-  // 🔴 S4 復架方向:presence in source = active;upsert 帶 null 自動還原(商品回到 view → 復上架)。
-  //    下架方向(source 消失 → 設 now)由 rpm-reconcile 處理、不在 transform。
-  delisted_at: string | null;
+  // 🔴 2026-08-15 `#20` 片2b:**`delisted_at` 已從本型別移除,同步管線不再輸出這個 key。**
+  //    Sean 拍板 `Q-關哪一條=乙`(鏡射與對賬兩條都關);規格 = plan v5 §2 / §3 片2b。
+  //    ⇒ upsert payload 不含此欄 ⇒ ON CONFLICT 不覆寫 ⇒ **保留 DB 現值**
+  //      (沿用既有「來源沒說話 → 省 key → 保留現值」機制,同 `:313` 那段)。
+  //    ⚠️ **連帶效果(刻意,不是漏掉)**:舊版靠鏡射達成的**自動復架一併沒了** ——
+  //      來源把墓碑清掉時,我方不會自動把商品改回上架;要復架只能靠後續片的員工入口。
+  //    🔴 **不要把這一欄加回來** —— 加回來等於把下架權威還給來源,直接推翻本片與 Sean 的拍板。
   updated_at: string;
 }
 export interface VariantRow {
@@ -249,7 +253,13 @@ function normalizeHighlights(raw: unknown): string[] {
  *  故部分停產群把停產變體剔除 => 進不了 sourceVariantSkus => 判孤兒 => 硬刪。
  *
  *  🔴 整群停產者【保留全部變體】:
- *    - 產品層 delisted_at 已設 => 網站 RLS 隱藏 + create_order 擋單,保護已足夠;
+ *    - 🔴🔴 **2026-08-15 `#20` 片2b:下面這條理由已經不成立,留著是為了講清楚它為什麼不成立。**
+ *      原文是「產品層 delisted_at 已設 => 網站 RLS 隱藏 + create_order 擋單,**保護已足夠**」。
+ *      **本片起同步不再寫產品層 `delisted_at`** ⇒ **那層保護不會再自動出現** ⇒
+ *      **整群停產的商品會保持上架、變體齊全、顧客照樣買得到。**
+ *      這是 Sean 2026-08-15 明示要的結果(「原廠停產但我有現貨庫存,我需要維持上架」),
+ *      **不是 bug**;但**不要再拿「反正 RLS 會擋」當任何判斷的前提** —— 它不會了。
+ *      (舊理由:產品層 delisted_at 已設 => RLS 隱藏 + create_order 擋單。)
  *    - 若連整群停產也剔除,會一次產生大量孤兒:實測 bonamici 148/1006 = 14.7%,
  *      超過 VARIANT_DELETE_RATIO_ABORT 10%(rpm-reconcile.ts)=> 整批同步 abort。
  *  實測目前部分停產僅 cncracing 2 群 3 個變體 = 3/4379 = 0.07%,遠低於閘門。
@@ -353,24 +363,15 @@ export function transformGroup(
     metadata: {
       name_en: basis.product_name, // 英文全名留參考(非敏感、S1 CHECK 不擋)
     }, // 🔴 停寫 shopee/cost/source_*(S1 CHECK 硬擋)+ source_corrected_count(view 無 manually_corrected)
-    // 下架權威 = 來源側單一裁判(合約 §10;view v3 起投影 delisted_at)。
-    // 🔴 鏡射、不重判:改前是無條件 null(出現在 source 即視為上架),等於要求 S4 從
-    //    「view 缺席」自行推下架 —— 正是合約要消滅的雙重去抖,且會讓大批停產撞上
-    //    W1 5% / S4 10% 兩道防誤殺閘(bonamici 22.9% 曾使該供應商同步整個凍結)。
-    // 群層語意比照上方 availability 的 bool_or:**全部變體都已下架才算整群下架**,
-    //    只要有任一變體仍在售就維持上架(取最新時戳當群下架時間)。
-    // 來源未投影此欄(舊 view / 舊 fixture)→ undefined → 視同未下架、行為與改前一致。
-    // 取 max 僅為記錄語意:下游全部只做 IS NULL 判斷(rpm-reconcile.ts:49,110、
-    // 網站 RLS 20260602135934:64、create_order:171),不依賴精確時戳。
-    // 先 filter 出非空值再取 max(不用 reduce 種子 '' 與 ! 斷言):若日後有人把 every 放寬成 some,
-    // 這裡不會啞掉漏出空字串,而是自然取到實際最新值。
-    delisted_at: isFullyDelisted(variants)
-      ? variants
-          .map((v) => v.delisted_at)
-          .filter((d): d is string => Boolean(d))
-          .sort()
-          .at(-1) ?? null
-      : null,
+    // 🔴🔴 2026-08-15 `#20` 片2b:**這裡刻意不再輸出 `delisted_at`。**
+    //   舊行為是「鏡射來源值」(合約 §10「下架權威 = 來源側單一裁判」),已由 Sean 2026-08-15
+    //   `Q-B-2=甲` / `Q-關哪一條=乙` **明示推翻**;合約原文 `docs/phase-1-backlog.md:5562` 已標推翻。
+    //   業務理由逐字:「如果原廠停產,但是我有現貨庫存,那我需要維持上架狀態」。
+    //   ⇒ **只省這一個 key,其餘欄位照常同步**(價格/圖片/標題都還在上面)。
+    //     🔴 **絕對不要改成「整列跳過 upsert」** —— 那會讓商品的價格/圖片/標題永遠停在某一天,
+    //        而且**沒有任何守門會紅**、畫面看起來一切正常。負測釘在 rpm-transform.test.ts。
+    //   ⚠️ 舊註解說的「W1 5% / S4 10% 兩道防誤殺閘」仍在,但它們現在守的是**標記**不是下架
+    //      (見 rpm-reconcile.ts 檔頭)。
     updated_at: now, // 顯式帶(無 trigger)
   };
 }

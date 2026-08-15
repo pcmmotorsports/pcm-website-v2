@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchAllSupplierProducts } from './rpm-fetch';
-import { computeDelist, applyDelist } from './rpm-reconcile';
+import { computeSourceMissing, markSourceMissing, clearSourceMissing } from './rpm-reconcile';
 import { computeDelta, preflightSpecUnique } from './rpm-delta';
 import type { ProductRow } from './rpm-transform';
 
@@ -46,24 +46,36 @@ describe('pipeline supplier scope isolation (P0-A-2)', () => {
     expect(rpm.supplierScopes).toEqual(['rpm']);
   });
 
-  it('computeDelist scopes the active-read by the given supplierSlug (不越界對賬)', async () => {
+  it('computeSourceMissing scopes the active-read by the given supplierSlug (不越界對賬)', async () => {
     const gb = makeRecordingClient();
-    await computeDelist(gb.client, 'gbracing', new Set(['SEED']));
+    await computeSourceMissing(gb.client, 'gbracing', new Set(['SEED']));
     expect(gb.supplierScopes).toContain('gbracing');
     expect(gb.supplierScopes).not.toContain('rpm'); // 絕不摻入別家 scope
 
     const rpm = makeRecordingClient();
-    await computeDelist(rpm.client, 'rpm', new Set(['SEED']));
+    await computeSourceMissing(rpm.client, 'rpm', new Set(['SEED']));
     expect(rpm.supplierScopes).toEqual(['rpm']);
   });
 
-  it('🔴 applyDelist scopes the soft-delete UPDATE by the given supplierSlug (不變式 1 護欄)', async () => {
+  // 🔴 #20 片2b:原本兩格叫 applyDelist(寫 delisted_at)。行為已改成標記 source_missing_at、
+  //    並新增反向的 clearSourceMissing ⇒ **兩支都要有 scope 護欄**,不是只搬名字。
+  it('🔴 markSourceMissing scopes the UPDATE by the given supplierSlug (不變式 1 護欄)', async () => {
     const gb = makeRecordingClient();
-    await applyDelist(gb.client, 'gbracing', ['EXT-1'], '2026-07-03T00:00:00Z');
-    expect(gb.supplierScopes).toEqual(['gbracing']); // 下架只能動自己那家
+    await markSourceMissing(gb.client, 'gbracing', ['EXT-1'], '2026-07-03T00:00:00Z');
+    expect(gb.supplierScopes).toEqual(['gbracing']); // 標記只能動自己那家
 
     const rpm = makeRecordingClient();
-    await applyDelist(rpm.client, 'rpm', ['EXT-1'], '2026-07-03T00:00:00Z');
+    await markSourceMissing(rpm.client, 'rpm', ['EXT-1'], '2026-07-03T00:00:00Z');
+    expect(rpm.supplierScopes).toEqual(['rpm']);
+  });
+
+  it('🔴 clearSourceMissing 也受同一條 scope 護欄(反向清除同樣會跨家污染)', async () => {
+    const gb = makeRecordingClient();
+    await clearSourceMissing(gb.client, 'gbracing', ['EXT-1']);
+    expect(gb.supplierScopes).toEqual(['gbracing']);
+
+    const rpm = makeRecordingClient();
+    await clearSourceMissing(rpm.client, 'rpm', ['EXT-1']);
     expect(rpm.supplierScopes).toEqual(['rpm']);
   });
 
