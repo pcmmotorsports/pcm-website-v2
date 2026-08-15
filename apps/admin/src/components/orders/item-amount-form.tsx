@@ -37,7 +37,7 @@ export type ItemAmountFormProps = {
   /**
    * 🔴 **不為 null ⇒ 不給編輯,並就地把這句話顯示出來**(R3/fable F2)。
    *
-   * 判斷在 `order-detail.tsx` 的 `resolveAmountEditBlock`(server 端,拿得到收款與折扣)。
+   * 判斷在 `order-detail-items-table.tsx` 的 `resolveAmountEditBlock`(server 端,拿得到收款與折扣)。
    * ⚠️ **advisory 不是保證** —— 權威是 RPC 在交易內重查;這裡擋的是「**最常見的那條必敗路徑**」,
    * 不是安全邊界。
    */

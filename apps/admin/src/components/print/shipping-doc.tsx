@@ -27,7 +27,7 @@ import { PrintButton } from './print-button';
 //       都要在註解裡寫明「用哪些權威欄、做了什麼運算」。**排下一片單獨做,不夾帶。**
 //    ⇒ **這片在金額落地之前不算做完**,不要當成可以交給 Sean 驗收的成品。
 //
-// 🔴 版面依據:**既有知識 + 本 repo 既有慣例**(片1 的表格形、`orders/order-detail.tsx` 的 `ItemsTable`)。
+// 🔴 版面依據:**既有知識 + 本 repo 既有慣例**(片1 的表格形、`orders/order-detail-items-table.tsx` 的 `ItemsTable`)。
 //    Sean 說「可以參考網路上通用的出貨單格式」,**但這台沒有網路** ⇒ 我沒有查,也不宣稱查過。
 //    美觀交 OD(他逐字「美觀部分到時候再請 OD 優化」)⇒ 本檔只做結構與正確性。
 
