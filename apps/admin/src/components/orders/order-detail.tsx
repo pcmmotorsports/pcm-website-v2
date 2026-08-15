@@ -75,6 +75,10 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
  *
  * 規則與它依賴的三條 DB CHECK 寫在 `goodsAxisProgressNote` 的 docstring,**不在這裡重複一份**
  * (兩份會漂;那條規則的正當性屬於算它的地方)。
+ *
+ * 🔴 **守門在 `app/orders/[id]/refund-wiring.test.tsx` 的 `describe('出貨狀態的解釋小字')`(六格)。**
+ *    **檔名對不上是刻意的**,「為什麼不改名」寫在 `goodsAxisProgressNote` 的 docstring
+ *    (E 窗 2026-08-15 `E-629` nit1)。⇒ **動這一格的渲染 = 必跑那六格。**
  */
 function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
   const note = goodsAxisProgressNote(detail.items);
