@@ -142,11 +142,24 @@ npx turbo run typecheck --dry=json --filter=@pcm/admin
 ### 6-3 🔴 這對修法方向的影響:**收窄了選項,而不是推翻建議**
 
 - **`globalCacheInputs.files` 是空的** ⇒ **那個空集合就是要填的東西** ⇒ **甲(`globalDependencies`)直接對著病根。**
-- **乙(各 task 加 `inputs`)** —— turbo 的 `inputs` 是**相對於該 package 目錄**的 glob,
-  而 `tsconfig.base.json` / `eslint.config.js` **在 package 目錄外**。
-  ⚠️ **能不能用 `../../` 逃出去,我沒查、沒測** ⇒ 列進 §10「我沒驗的」。
-  **但即使能,也是繞路** —— 每個 package 各寫一份**指向同一批根層檔**的相對路徑,
-  漏一個的症狀就是同一個無聲假綠。
+- **乙(各 task 加 `inputs`)** —— 🔴 **2026-08-16 實測:技術上【做得到】。原本標「未確認」的那半已答。**
+  turbo **2.9.7**(`npx turbo --version`;`package.json` devDep 寫 `^2.3.0` ⇒ **文件要對 2.9.7 讀,不是對 2.3**)。
+  在 `@pcm/schemas#typecheck` 加 `inputs: ["$TURBO_DEFAULT$", "../../tsconfig.base.json"]`:
+
+  | 量測 | hash | inputs 數 |
+  |---|---|---|
+  | baseline(無 override) | `cd23416c2038ca43` | 10 |
+  | 加 override(檔沒改) | `8f4755ad61ea418a` | **11**,含鍵 `../../tsconfig.base.json` |
+  | **再改 `tsconfig.base.json`** | **`2179f98350fe2af4`** | 11 |
+  | 🔬 **對照組 `@pcm/ports`(無 override)** | `d8e6697484db3eb9` **前後不變** | — |
+
+  ⇒ **不只「列得進去」,是【真的影響 hash】**;而對照組證明那個變化**來自 override,不是全域**。
+  ✅ 還原後 schemas 回到 `cd23416c2038ca43`、inputs 回 10;`turbo.json` 與 `tsconfig.base.json` **shasum 逐字相同**、工作樹零留痕。
+
+  ⚠️ **但「做得到」不等於「該用」** —— 乙仍是繞路:
+  每個 package 各寫一份**指向同一批根層檔**的相對路徑,**漏一個的症狀就是同一個無聲假綠**,
+  而且新增 package 時**沒有任何東西會提醒你要寫**。
+  🔴 **甲把「記得寫」變成「寫一次」;乙把它變成「每次都要記得」** —— 而本病的病根正是「沒人會發現忘了」。
 ⇒ **§4 的建議(甲)不變,而現在它有結構性理由,不只是我的直覺。**
 
 ### 6-4 ⚠️ `vitest.config.ts` 也在已證盲那五個裡,但**它的意義不同**
@@ -199,8 +212,11 @@ npx turbo run typecheck --dry=json --filter=@pcm/admin
    只知道它是官方提供的機制。**落地前要查版本 + 讀該版文件。**
 4. **`sync-engine` / `api` 這些包我沒個別測** —— 三發都打在 `apps/admin`。
    ⚠️ 形狀上它們同病(同一份 `turbo.json`),**但沒有人構造過。**
-5. 🔴 **turbo 的 `inputs` 能不能用 `../../` 指到 package 目錄外** —— **我沒查、沒測。**
-   §6-3 判「乙是繞路」的前半(能不能做到)因此**未確認**;後半(即使能也會漏)不受影響。
+5. ~~🔴 **turbo 的 `inputs` 能不能用 `../../` 指到 package 目錄外** —— 我沒查、沒測~~
+   **← 2026-08-16 已實測,答案是【可以】,見 §6-3。**
+   ⚠️ **限度**:只測了 **turbo 2.9.7**、只測 **`typecheck`** task、只測 **`@pcm/schemas`** 一個 package、
+   只測 **`tsconfig.base.json`** 一個檔。**`lint` / `build` 與其他 package 沒測。**
+   ⚠️ 也**沒測** `inputs` 是否能指到**更上層或 workspace 外**的路徑。
 6. **`pnpm-lock.yaml` 與 `turbo.json` 兩格未確認**(§6-2)—— **甲案的清單要不要收它們,取決於那兩格。**
 
 — END —
