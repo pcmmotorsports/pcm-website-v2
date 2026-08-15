@@ -83,6 +83,34 @@
 | `source_missing_at` | ✅ **同步(rpm-reconcile,非 upsert)** | `rpm-reconcile.ts` 的 `markSourceMissing` / `clearSourceMissing`,2 處實際寫入 |
 | `id` / `created_at` | DB 預設 | `gen_random_uuid()` / `now()` |
 
+## §1a ✅ `highlights` 到底有沒有被保護 —— 查掉了
+
+**量法(可重跑,兩份檔交叉)**:
+```
+供應商開關  grep -n "supplierSlug: '\|syncDescription:" scripts/supplier-config.ts
+每日排程    sed -n '/matrix:/,/steps:/p' .github/workflows/rpm-sync.yml   （supplier: [...] 那行）
+交集        兩份逐家比對（不是用眼睛掃，用腳本算，見下方數字）
+```
+
+| 分群 | 家數 | 名單 |
+|---|---|---|
+| 🔴 **每日排程 × `syncDescription:true`** ⇒ **`highlights` 每天被無條件覆寫** | **13** | gbracing / bonamici / cncracing / evotech / eazigrip / samco / motogadget / front3d / materya / ebc / akrapovic / lightech / kspeed |
+| 每日排程 × `false` ⇒ 不覆寫 | 1 | `rpm` |
+| `true` 但**不在**每日排程(靜態 fixture,不會每天被蓋) | 1 | `extreme` |
+| 非排程測試靶 | 1 | `__gated_canary__`(`false`) |
+| **`supplier-config.ts` 總家數 / 每日排程家數** | **16 / 14** | 對照:daily 名單無任何一家缺 config |
+
+### 🔴 結論(兩種可能的結果我都先寫了,實際落在第二種)
+**不是「設定剛好都關著」,而是「14 家每日排程裡有 13 家開著」** ——
+⇒ **那 13 家的 `highlights`(賣點條列)每天被來源覆寫一次,而且沒有任何逐列保護。**
+
+⚠️ **但時態要講準,不要說成現在進行式的資料損失**:
+**現在後台沒有任何編輯入口**(`Q3=乙`,員工寫入那片還沒做)⇒ **今天沒有人能改 highlights ⇒ 今天沒有東西正在被蓋掉。**
+🔴 **風險在「編輯後台上線的那一天」成立** —— **那天起,員工改的賣點條列會在隔天凌晨消失,而畫面不會有任何異常。**
+⇒ **這正是 `Q-P-4`(新欄位一出生就要決定歸誰)必須在編輯後台之前答的具體理由之一。**
+
+---
+
 ## §2 `product_variants` 逐欄
 
 **🔴 變體側「零條件式」—— 每一欄都是無條件覆寫。**
@@ -130,8 +158,7 @@
 1. **本表只涵蓋 repo 內的寫入路徑** —— 量法見 §0,範圍 = `.ts` + `.sql`,排除測試與 generated types。
    **正式庫裡不在 repo 的 trigger / RPC / 手動 SQL 未掃**(同 `#20` 片2 plan §2 的同一條限度)。
 2. **`spec` 頂層鍵列舉不出來**(§2)—— 不是我沒查,是它按設計就不固定。
-3. **沒有查「同步實際跑起來時,條件式那五欄各家是開還是關」** —— 只證了機制存在。
-   要那個數字得逐家讀 `supplier-config.ts`,本片未做。
-   🔴 **對 `highlights` 這條特別要緊**(§1):它**只有供應商級一層**,
-   ⇒ **「某家的 `syncDescription` 是不是開著」直接決定該家 highlights 有沒有保護,而那個數字本片沒查。**
+3. ✅ **`syncDescription` 各家開關已查掉**(2026-08-15,原本掛成誠實缺口;**十分鐘可查的東西不該送到 Sean 桌上當未知**)。
+   **結果見 §1a。** ⚠️ **仍未查的是 `syncInstallResources` 各家開關**(影響 `manuals`/`video_url`/`sound_clips`)——
+   **但那三欄有 per-row 第二層,所以開關值不像 `highlights` 那樣單獨決定有沒有保護。**
 4. **本表沒有建議任何欄位該歸誰** —— 那是 `Q-P-4`,Sean 的生意判斷。
