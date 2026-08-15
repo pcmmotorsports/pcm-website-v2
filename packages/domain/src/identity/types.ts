@@ -38,9 +38,39 @@ export type Customer = {
  * AdminCustomerFilter: 後台客戶列表篩選(value-object;全欄可選、缺 = 不限)。
  *
  * v1 只 `tier` 軸(依會員等級找經銷 / 一般客);free-text 姓名 / email 搜尋留 follow-up。
+ *
+ * 🔴 **2026-08-16 更新那個 follow-up 的狀態(它已經不是「有空再說」了)**:
+ *    那個缺口已排成 **`#525`**(`docs/phase-1-backlog.md`)、plan 在
+ *    `docs/specs/2026-08-16-525-customer-search-plan.md`。
+ *    **實測後果**:正式庫 11 位客戶中 **7 位零訂單**,而**零訂單的客人在訂單搜尋的
+ *    `orders JOIN customers` 上完全撈不到** ⇒ 現況只能用眼睛翻列表(一頁 20 筆、註冊日期新到舊)。
+ * ⚠️ **本行上面那句「留 follow-up」保留不刪** —— 它記錄的是「當初知情」這個事實,
+ *    刪掉會讓後人以為這是漏做。**要改的是它的狀態,不是它的存在。**
+ * 🔴 **`keyword` 已加進型別,但【後端尚未實作】** —— 見該欄位自己的 docstring。
  */
 export type AdminCustomerFilter = {
   tier?: MemberTier;
+  /**
+   * 🔴🔴 **搜尋詞 —— 型別上存在,但目前【沒有任何實作會回應它】。**
+   *
+   * **設成 non-`undefined` 會讓 `SupabaseCustomerAdapter.listCustomerSummariesForAdmin` 明確擲錯**,
+   * **不會靜默忽略**。⚠️ 那個選擇是刻意的:靜默忽略 = 員工搜「王小明」、畫面說「目前搜尋:王小明」、
+   * **而列表是全部客戶** —— 那正是 `apps/admin/src/lib/orders/order-list-view.ts` 逐字警告的
+   * **fail-open**(「搜尋詞被靜默丟掉、列表 fail-open 變回全部」)。
+   *
+   * **為什麼先加型別卻不接後端**(`#525`,plan `docs/specs/2026-08-16-525-customer-search-plan.md`):
+   * 主視窗 `Q-525-1` 裁定走 **RPC(POST + JSON body)**,因為
+   * **`.or()` 是把值內插進 PostgREST 的 GET query string** ⇒ 值裡的字元會改變 filter 結構;
+   * 訂單側之所以不需要字元集守門,**正是因為它走 `.rpc()` 而不是 `.or()`**
+   * (理由全文 `packages/domain/src/order/keyword-search.ts:20-28`,那兩支有守門的維度
+   * **連同威脅面一起被刪除** ⇒ 用 `.or()` = 把威脅面裝回來而守門不在)。
+   * 🔴 **RPC 要 migration ⇒ 中鐵則 12③ ⇒ 等 Sean 批。**
+   *
+   * ⚠️ **在 RPC 落地之前,不得把 UI 搜尋框接上去** —— 沒有入口就沒有 fail-open。
+   * `customer-filter-bar` 有一格守門釘住「客戶篩選列沒有搜尋輸入框」,**那是刻意的絆線**:
+   * 接 UI 的那一片必須**自覺地**移除它,而不是順手把搜尋框加上去。
+   */
+  keyword?: string;
 };
 
 /**

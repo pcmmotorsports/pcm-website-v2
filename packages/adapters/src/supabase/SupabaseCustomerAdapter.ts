@@ -122,6 +122,19 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
     filter: AdminCustomerFilter,
     pagination: PaginationParams,
   ): Promise<Paginated<AdminCustomerSummary>> {
+    // 🔴🔴 **`keyword` 尚未實作 ⇒ 明確擲錯,絕不靜默忽略**(`#525`)。
+    //    靜默忽略的症狀:員工搜「王小明」、UI 說「目前搜尋:王小明」、**而列表是全部客戶**
+    //    —— 那正是 `apps/admin/src/lib/orders/order-list-view.ts` 逐字警告的 **fail-open**。
+    //    ⚠️ **擲錯比回錯的東西好**:錯誤會被看見,fail-open 不會。
+    //    走 RPC 而不是 `.or()` 的理由(威脅面)寫在 `AdminCustomerFilter.keyword` 的 docstring;
+    //    RPC 要 migration ⇒ 中鐵則 12③ ⇒ 等 Sean 批。
+    if (filter.keyword !== undefined) {
+      throw new Error(
+        '客戶搜尋尚未實作:`admin_search_customers` RPC 還沒建立(#525,等 migration 批准)。' +
+          '在那之前不得設定 AdminCustomerFilter.keyword —— 靜默忽略會讓列表 fail-open 變回全部客戶。',
+      );
+    }
+
     const offset = pagination.offset ?? 0;
 
     let query = this.supabase
