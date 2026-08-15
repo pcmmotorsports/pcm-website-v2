@@ -70,6 +70,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
 | 夜跑多窗指揮(哨兵/派工/批次收割/佇列預派/斷線復原) | `docs/runbooks/night-run-command-playbook.md`(2026-08-06 Sean 拍板常設) |
 | 開新施工窗/新 session 主視窗建置/工作流移植他專案 | `docs/runbooks/multi-window-command-workflow.md`(2026-08-09 Sean 拍板常設;§B 主視窗/§C 施工窗啟動提示詞) |
+| 要驗一支 migration 而手上沒有 DB access(施工窗常態)/ 要在本機起拋棄式 Postgres 或 PostgREST | `docs/runbooks/throwaway-postgres-for-migration-verification.md`(PCM 專屬 bootstrap 清單、`apply 成功 ≠ 斷言通過`、本機效度限制) |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
 
@@ -92,6 +93,9 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ## 終端機 / Bash 紀律(Sean zsh 環境)
 
 - **zsh 禁忌**:命令內**禁 `#` 註解**(報 command not found)、**禁全形標點「」():;**(報 unknown file attribute);註解寫 prose、不寫進命令。
+- 🔴 **雙引號內禁反引號**(2026-08-16 A 窗實錘):`git commit -m "…\`foo\`…"` 的反引號被 zsh 當**命令替換**吃掉 ⇒ **那段字從 commit body 消失**,而**句子還讀得通、只是掉了主詞** ⇒ 比「掉了字」難發現。**commit body / 多行訊息一律用檔案餵**(`git commit -F <檔>`)或單引號。
+- 🔴 **pipeline 後面的 `$?` 是【右端】那個指令的,不是你關心的那支腳本的**(2026-08-16 一夜三次、三個不同的窗):`bash x.sh | head` 之後 `echo $?` 拿到的是 `head` 的 0。⇒ **要腳本自己的 exit code:別接管線,或 `set -o pipefail` 寫在【跑 pipeline 的那個 shell】**(寫在腳本裡管不到包住它的那一個)。
+- 🔴 **輸出的標籤要由【結果】決定,不能無條件印**(2026-08-16 主視窗自己踩):`cmd; echo "(空 = 零命中)"` —— 那行 `echo` 在**有命中時照樣印**,而它就印在命中的正下方。⇒ **要嘛用 `|| echo`,要嘛把判定寫進條件式。**
 - **多步驟用 `&&` 串接**(任一步失敗自動停)、**禁裸換行 batch 多命令**。
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。

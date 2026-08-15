@@ -13600,7 +13600,35 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **相關:** `#519`(同一張表)
 - **發現於:** 2026-08-15 夜 · B 窗自核 OD 商品畫面時,以 chrome-devtools 真瀏覽器量出
 
-### #521. 訂單列表的真瀏覽器守門「換一台機器就跑不起來」,而失敗的樣子長得像 skip
+### #521. ⚠️ **2026-08-16 收窄(A 窗實查)** · 真瀏覽器守門的觸發面 —— **零觸發的只有 2 支,不是「playwright 測試不會被跑到」**
+
+> 🔴 **原標題與內文把兩個家族當成同一件,而它們命運完全不同**(A 窗附分母):
+> ```
+> .spec.ts 共 3 支（storefront e2e ×2、e2e-prod ×1）
+> 另有 3 支【不是 .spec 但用 playwright 函式庫】的 admin 測試 → 走 vitest ⇒ 🔴 有在跑
+>          實跑：3 passed / 23 tests ⇒ CI 裝 chromium 不是浪費，就是給它們用的
+> pnpm test = vitest run，而 vitest.config.ts:45,51 【刻意排除】 **/e2e/** 與 **/e2e-prod/**
+>          註解清楚（含 #288-a：**/e2e/** 不匹配 e2e-prod 這個 segment）⇒ 不是漏掉，是設計
+> 觸發面掃 .github/.husky/package.json：'test:e2e' ⇒ 1 命中（e2e-prod.yml:77）
+>          'playwright test' ⇒ 0 ／ 'e2e/' ⇒ 0
+> ```
+> ⇒ **6 支相關檔案裡,零觸發的只有 2 支**:`e2e/account-guard` 與 `e2e/home`。
+>
+> 🔴🔴 **而收窄之後後果反而更清楚**:
+> **`account-guard.spec.ts` 是 storefront 【唯一】自動驗證「未登入不能進 `/account`」的東西,而沒有人跑它**
+> ⇒ **那道守門壞了,不會有任何東西紅。**
+>
+> **⚠️ 不能直接掛 CI(A 窗判,理由成立)**:它要 `next dev`(`playwright.config.ts:27-29` 的 webServer)
+> **且要 Supabase 憑證才不會在 server 就炸** ⇒ **CI 要拿到 storefront 的 env = secret 面 = Sean 的停點。**
+> **且掛上去前要先在有 env 的地方確認那 2 支現在是綠的** —— 否則第一天就紅,**而那會變成「大家學會忽略的紅」。**
+> ⇒ **兩步**:①先在有 env 的環境跑一次確認綠 ②綠了再談掛 CI(要 Sean 拍 env)。
+>
+> ⚠️ **A 窗另外自標一句,照留不放大**:它把孤兒測試跑起來時 `account-guard` 紅了,
+> **查證是它的 worktree 沒有 `.env.local`(只驗存在、沒看內容)⇒ 那頁在 server 就炸、沒走到 redirect。**
+> 🔴 **它明說:「我證的是【我的紅是環境造成的】,我【沒有】證【正式站那道守門是好的】。」**
+> **不要把這條讀成 storefront 權限沒問題。**
+
+**(以下為原始條目,保留不改)**
 
 - **狀態:** ⏳ 待執行(不是決策題)
 - **分流:** P2
@@ -13619,7 +13647,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **不修未來會痛在哪:** 下一個改訂單列表版面的人,會相信一格從來沒跑過的守門。
 - **發現於:** 2026-08-15 夜 · C 窗量 iPhone 390/393 時撞到
 
-### #522. 貨品軸與它的解釋小字**都不扣已取消數量** —— 全取消的單會顯示「未訂貨」
+### #522. ✅ **已修(2026-08-16,A 窗 `02dd510e`)** · 貨品軸與它的解釋小字**都不扣已取消數量**
+
+> ✅ **關閉紀錄**:A 窗實跑證成立,**而比本條原文嚴重一級** ——
+> 不是「數字少扣」,是**判定用錯分母**:分母用 `quantity`,而 `ordered_quantity` 有守門
+> `SUM(allocated) ≤ quantity − SUM(cancelled)`(`20260803130000:164`)⇒ **只要有取消,數學上到不了**
+> ⇒ **任何部分取消的單,貨品軸恆為「未訂購」** ⇒ 員工會去重新採購一批已經出貨的東西(實體動作)。
+> **SQL(`20260814140000_…484a_view.sql:118/124/130`)與 TS(`order-status-axes.ts` `goodsAxisOfLines()`)兩邊同款錯。**
+> **修法**:兩邊同片改 + **共用真值表 + 人寫期望值當第三方**(14 案 / 7 案含取消),突變各紅 5 案。
+> 🔴 **原條目由主視窗從【畫面】猜的,不是從 code 量的** —— 症狀方向對、嚴重度低估一級。
+> ⚠️ **`#499` 不因此關閉**:只綁上 2↔3(判定結果)。
+> 🔴 **而「仍是人工比對」這個講法太輕(E 窗 2026-08-16 更正)** —— **正確講法是【零守門】**:
+> `SupabaseOrderAdapter.test.ts:272-273` 是 `expect(ADMIN_ORDER_LIST_SELECT).toBe(<測試裡手寫字面>)`,
+> **釘得很死、期望值也是人寫的,但它綁的是 TS ↔ TS —— 而真值在【資料庫】,資料庫沒有出現在那一格裡。**
+> ⇒ **select 寫了資料庫沒有的欄(或漏一欄)⇒ 測試裡的手寫字面照抄同一個錯 ⇒ byte-equal 照樣通過。**
+> 🔴 **那正是 08-07 那次正式站 8 小時事故的形狀**(無條件 SELECT 未 apply 的欄 ⇒ `42703`,而三綠全綠)。
+> ⚠️ **「人工比對」讀起來像「有做,只是手動」;實際是沒有人在做,而那一格看起來很硬(byte-equal)。**
+> 📎 衍生:`#532`(probe 沒有觸發器)、`#533`(互比只證一致不證對)。
+
+**(以下為原始條目,保留不改)**
 
 - **狀態:** ⏳ 待執行(不是決策題,但修法中鐵則 8)
 - **分流:** P2
@@ -13756,3 +13802,254 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   ③ 我們有沒有任何「會寄給客人」的訂單訊息路徑(M-4a Email 線的關係未查)
 - **相關**:`#27`(操作紀錄頁)/ `#13`(改單;改單歷程要落在哪一種 log 是同一題)/ `#514`(同樣是「畫面上的東西不等於事實」族)
 - **發現於**:2026-08-15 · 電商後台調研 · A 窗與 B 窗獨立各自指到
+
+---
+
+## #529 · `docs/runbooks/` 絕大多數沒有進入點、零 index ⇒ 孤兒檔(數字用量法,不寫死)
+
+> 🔴 **標題刻意不放數字(E 窗 MF2)**:初版標題寫「18 支僅 **3** 支」,
+> **而同一批改動裡主視窗自己加了第 4 支路由 ⇒ 那個 3 生下來就過期。**
+> **那條 backlog 自己就是它在講的那個病**(數字沒有量法、過期而沒有東西會紅)。
+> **落筆當下重跑這兩條,不要引用下面的歷史數字**:
+> ```
+> ls docs/runbooks/*.md | wc -l
+> grep -o "runbooks/[a-z0-9-]*\.md" CLAUDE.md | sort -u | wc -l
+> ```
+
+- **實測(2026-08-16 E 窗;⚠️ 這是【當時】的值,不是現況)**:
+  ```
+  ls docs/runbooks/*.md | wc -l                          ⇒ 18
+  grep -o "runbooks/[a-z0-9-]*\.md" CLAUDE.md | sort -u   ⇒ 3
+  docs/runbooks/ 有沒有 index/README                       ⇒ 0
+  AGENTS.md 提到 runbooks/                                ⇒ 0
+  ```
+- **不修未來會痛在哪**:🔴 **知識寫了但沒有觸發載體 ⇒ 同一個坑會被寫第三次、第四次。**
+  **實錘(2026-08-16)**:macOS 起拋棄式 PG 的三個坑早在 `docs/handoff/2026-07-30-*:69-72` 與
+  memory 裡寫過,**E 窗今晚仍從頭踩了其中兩個** —— 因為「我現在要起一個拋棄式 PG」那一刻**沒有任何東西會叫**。
+- **解法先例**:`docs/patterns/` 11 支 → 9 支直接路由 + `docs/patterns/index.md` 當總入口(`CLAUDE.md:68`)。
+  ⇒ 補 `docs/runbooks/index.md` + 路由表一行。
+- **⚠️ 這是實工不是一行**:18 支各要寫「什麼時候該讀它」。
+- **發現於**:2026-08-16 · E 窗實測 · 主視窗裁「開號、不現在做」
+
+---
+
+## #530 · 🔴 `supabase db push` 到底包不包交易 —— **86 支 migration 的「失敗即整片回滾」全部靠這個前提,而沒有人驗過**
+
+- **現況**:repo 有**三處宣稱**、**零處量測**:
+  - `20260811040000_…_catalog_new_arrivals.sql:160` 逐字「本 repo 的 migration 以交易執行」(出處標的是 codex R2 MF-6 = **審查意見**)
+  - `20260811110000_…_result_confirmed_event.sql:210`「非 CONCURRENTLY ⇒ 與本片其餘 DDL 同一交易,失敗即整片回滾」
+  - `20260812130000_…_fuzzy_admin_search_orders.sql:81`「11 支 GIN 都在單一交易內建」
+- **規模**:`supabase/migrations/*.sql` **175 支**,其中自己寫 `BEGIN`/`COMMIT` 的 **86 支**。
+- 🔴 **E 窗(2026-08-16)用 `psql -1` 當模型證了兩種情境,第三種證不到**:
+  ```
+  有包 + 無內層 COMMIT ⇒ 整片回滾           ✅ 實測（負向對照 zz_c/zz_d ⇒ 0/0）
+  有包 + 有內層 COMMIT ⇒ 全部落地           ✅ 實測（zz_a/zz_b ⇒ 1/1）
+  沒包                 ⇒ 不在範圍           ❌ 未證
+  ```
+  **`supabase db push` 是不是 `psql -1` 這個形狀,沒有人查過。**
+- **不修未來會痛在哪**:**擴充性**=之後每一支 migration 都會繼續把「原子性」當成免費的前提來設計;
+  **bug 可追蹤性**=🔴 **若前提不成立,失敗的 apply 會留下半套 schema,而畫面回報的是「失敗」** ⇒
+  **人以為整片沒生效,實際上半支已經落地**,而下一次 apply 會撞到「物件已存在」這種看似無關的錯。
+- **怎麼查**:①`supabase db push --debug` 看它下的實際 SQL ②Supabase CLI 原始碼 ③對拋棄式庫實跑一支故意失敗的 migration。
+
+### ✅ 2026-08-16 已查 —— **前提成立,但有一組例外。🔴 結論由【兩個不同來源】各撐一半,不要混引**
+
+> 🔴 **修正紀錄(E 窗 MF1)**:本節原本標「主視窗實讀 Supabase CLI 原始碼」**一個來源**,
+> 而結論的後半(pipeline = 隱式交易)**讀不出於那份 Go 原始碼** —— 它在 PG 協定層。
+> **不是沒查,是【標的證據來源】與【結論】對不上** ⇒ 下一個人去讀那份原始碼讀不到那句,會以為是編的。
+> **同族**:D 窗 `288` 那件(數字對,而它掛在產不出它的來源上)。**已拆成 ① ② 兩段。**
+
+**① `ExecBatch` 把 statement 與 `schema_migrations` 收進同一個 batch —— 來源:Supabase CLI 原始碼**
+**取得方式(可重跑)**:`gh api repos/supabase/cli/contents/apps/cli-go/pkg/migration/file.go --jq .content | base64 -d`
+
+```
+:119  func (m *MigrationFile) ExecBatch(...)   → batch := &pgconn.Batch{}
+:171  batch.ExecParams(line, ...)              → 每個 statement 進【同一個 batch】
+:176-182  insertVersionSQL(conn, batch)        → 🔴 schema_migrations 登記【附在同一個 batch】
+:184  return flushBatch()                      → 一次送出
+```
+⚠️ **這份原始碼只證到「它們進同一個 batch」。「batch = 一個交易」不在這份檔裡。**
+
+**② pipeline = 隱式交易 —— 來源:E 窗 2026-08-16 實測(`E-643`),不是原始碼**
+```
+環境 PG 17.10 server + psql 18.4 client（🔴 psql 17 不支援 \startpipeline，先用 17 那發已作廢重跑）
+\startpipeline / CREATE TABLE zz_pipe_a / SELECT 1/0 / \endpipeline
+⇒ 新連線查 zz_pipe_a ⇒ 0        🔴 CREATE 被回滾 = pipeline 確實是一個隱式交易
+負向對照 同 pipeline 但無錯誤 ⇒ zz_pipe_ok ⇒ 1      （量具分得開）
+正向對照 pipeline 模式確實啟動（SELECT 1 有回值）
+```
+⇒ 🔴 **① + ② 合起來,那 11 支「刻意無顯式 `BEGIN`/`COMMIT`」的檔頭宣稱【成立】,含「schema 落地與 history 登記在同一交易」那半。**
+
+**🔴 而有一組例外,是四處宣稱都沒提的**:
+```
+:80-87  isPipelineIncompatible(sql) → 命中就先 flushBatch() 再單獨 conn.PgConn().Exec()
+:32  ^CREATE\s+(UNIQUE\s+)?INDEX\s+CONCURRENTLY(\s|\z)
+:33  ^REINDEX(\s|\().*\sCONCURRENTLY(\s|\z)
+:34  ^VACUUM(\s|\(|\z)      :35  ^ALTER\s+SYSTEM(\s|\z)      :36  ^CLUSTER(\s|\z)
+```
+⇒ **這五類會【沖掉批次】** ⇒ **它之前的 statement 提前提交** ⇒ **原子性在那一刀斷掉。**
+⚠️ **注意 `:32` 只匹配 `CONCURRENTLY`** —— 一般 `CREATE INDEX` **不受影響**(本 repo 31 支檔有 `CREATE INDEX`,全部安全)。
+✅ **本 repo `CONCURRENTLY` 目前零命中** ⇒ **現在沒踩到,而【這條規則從來沒有人寫下來】。**
+
+### ✅ 2026-08-16 補證(D 窗讀 pgx 原始碼)—— **地基從「類比」換成「原始碼」,而且多量到一條範圍**
+
+**版本鏈先釘**(版本對不上的原始碼不算數):本機跑 `db push` 的是 supabase CLI **`2.98.1`**,
+其 `go.mod:35` = `github.com/jackc/pgconn` **v1.14.3**(🔴 **獨立 v1,不是 `pgx/v5/pgconn`;查 v5 會查到不同的東西**)。
+
+**`Sync` 是整批最後一次,不是每句一次**(`jackc/pgconn` v1.14.3 `pgconn.go`):
+```
+:1730 起 Batch.ExecParams 只 append 四種訊息：Parse / Bind / Describe / Execute —— 一個 Sync 都沒有
+:1799    (&pgproto3.Sync{}).Encode(batch.buf)   ← 唯一一處，【不在任何迴圈裡】
+:1814    pgConn.conn.Write(batch.buf)           ← 整個 buffer 一次寫出
+分母：全檔 1,901 行，pgproto3.Sync{} 只出現三次（:852 Prepare / :1219 非 batch 路徑 / :1799 ExecBatch）
+```
+⇒ 🔴 **E 窗擔心的「每句一個 `Sync` ⇒ 每句各自一個隱式交易」【不成立】。**
+⚠️ `pkg/migration/file.go:87` 的註解「ExecBatch is implicitly transactional」**是 CLI 自己的宣稱,不是證據** —— 上面那幾行才是。
+⚠️ **仍未重驗的那半**:**「一個 `Sync` = 一個隱式交易」** 仍靠 PG 協定 + D 窗先前那發 psql 實測。
+**本輪只證了【CLI 送幾個 Sync】,沒有重證【PG 怎麼解讀它】。**
+
+### 🔴🔴 而交易邊界是【每一支檔】,不是【整次 apply】
+```
+apply.go:62   for _, path := range pending {        ← 每一支 pending migration 一圈
+apply.go:67       conn.Exec(ctx, "RESET ALL")        ← 🔴 在 batch 之【外】
+apply.go:72       migration.ExecBatch(ctx, conn)     ← 這一支自己一個隱式交易
+apply.go:75   }
+```
+⇒ **`db push` 推 5 支、第 3 支炸掉 ⇒ 第 1、2 支【已經提交了】,不會回滾。**
+✅ **本條與 `#531` 既有文字裡的「整片」一律指【一支 migration 檔】,不是整次 push —— 核過,沒有寫錯。**
+🔴 **但「整片」這個詞有歧義,引用時請寫成「整支檔」。**
+
+### ⚠️ D 窗明說沒做到的(照留)
+- **讀原始碼,沒有抓封包** ⇒ 證的是「這份原始碼會送幾個 `Sync`」,**不是「線上那條連線實際送了幾個」**。
+- 🔴 **沒有排除 middleware**:走 Supavisor / pgbouncer 時,**pooler 會不會改寫或切分 pipeline,沒查** ——
+  **這條對正式站是實際存在的路徑,值得單獨開一問。**
+- pgx v4 → pgconn v1 的型別對應是從 `go.mod` 直接釘的,**沒另外驗 pgx v4.18.3 內部有沒有第二條 batch 路徑。**
+
+**⇒ 本條剩下的工作**:①把這組例外寫進 migration 撰寫規範 ②`#531` 的守門一併涵蓋這五類
+
+### ✅ 2026-08-16 pooler 那條已答(D 窗讀 CLI 原始碼 + 親讀官方文件)—— **`#530`/`#531` 結論【不用改】**
+
+🔴 **關鍵不是「有沒有走 pooler」,是 CLI 【強制把它降成 session mode】**:
+```
+supabase/cli v2.98.1  internal/link/link.go:227-228
+  PoolMode 無條件設成 session；若 API 回報的不是 session ⇒ 把 port 從 :6543 改成 :5432
+官方文件（親讀 https://supabase.com/docs/guides/database/connecting-to-postgres）：
+  Shared pooler (Supavisor) - session mode      → …:5432
+  Shared pooler (Supavisor) - transaction mode  → …:6543
+```
+🔴 **而官方同一頁對那個痛點寫著**:**"Transaction mode does not support prepared statements."**
+⇒ `ExecBatch` 的 `Parse`/`Bind` **正是 prepared-statement 那條路** ⇒
+**若真走 transaction mode,它會【直接壞掉報錯】,不是「靜默切分交易」** ⇒ **最壞情境(靜默失效)在這裡不成立。**
+
+**走不走 pooler 是【執行時】決定的**(`internal/utils/flags/db_url.go:132-154`):
+每次 `db push` 先對直連 host 撥 5 秒 TCP,**通 ⇒ 直連;不通 ⇒ 退到 pooler**。
+官方同頁:**"Direct connections are on IPv6, or on IPv4 if the project has the IPv4 add-on."**
+⇒ **一般 IPv4-only 網路撥不通 ⇒ 實務上很可能一直在走 pooler。🔴 但因為上面那條,不改變結論。**
+
+### 🔴 而這條是唯一能讓結論翻掉的路:**快取檔可能是舊版 CLI 寫的**
+```
+GetPoolerConfig 讀的是【快取】不是每次重問 API：
+  internal/utils/connect.go:67   Config.Db.Pooler.ConnectionString 為空才回 nil
+  internal/utils/misc.go:76,79   supabase/.temp/pooler-url
+🔴 link.go:228 的改寫【只在 supabase link 那一刻發生】，不會在每次 db push 重跑
+⇒ 若那個檔是【舊版 CLI】寫的，裡面可能仍是 :6543
+```
+**🔧 一秒檢查(只看 port,不印內容;該檔已被 `link.go:225` 剝掉密碼,但仍不要整份貼)**:
+```bash
+grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
+```
+**預期 `:5432/`。若是 `:6543/` ⇒ 快取過期,跑一次 `supabase link --project-ref <ref>` 重寫,本條即關。**
+
+### ⚠️ D 窗明說不在它結論裡的三件(判別器=讀原始碼+讀文件)
+1. 🔴 **Supavisor 在 session mode 下的【位元組層】行為沒查** —— 證的是「CLI 連到 session mode 那個 port」,
+   **不是「Supavisor session mode 保證不動 pipeline」**;**官方文件對 pipeline / extended protocol 一個字都沒提。**
+2. **沒抓封包、沒對正式庫做任何事。**
+3. **Sean 的網路實際撥不撥得通直連,沒問也沒測**(不影響答案,但仍是未知)。
+**要從「很可能」變「量過」**:`supabase db push --debug` 看它印 `Resolved DNS:` 還是走 pooler 分支
+(`db_url.go:139` 那行 debug log 就是為此存在)⚠️ **它會真的推 migration,要挑沒有 pending 的時候。**
+
+**⚠️ 兩條未確認,按「離地基遠近」排**:
+1. 🔴🔴 **最靠近地基(E 窗 2026-08-16 指出,而主視窗原本沒標)**:
+   **CLI 用的是 pgx 的 `pgconn.Batch`,而 ② 那發實測用的是 psql 的 pipeline。**
+   **`Batch` 會不會在 statement 之間送 `Sync`?會的話每一句就是各自的隱式交易,整條結論不成立。**
+   **主視窗沒驗、E 窗也沒驗** —— 要讀 pgx 原始碼或抓封包。
+2. `db push` 走的是不是這條 Go 路徑(`file.go` 檔頭註解提到部分路徑已改 TypeScript native port)。
+- **發現於**:2026-08-16 · E 窗 `E-639` 自標缺口 · 主視窗查證「宣稱四處、量測零處」→ 同日實讀原始碼補上證據
+
+---
+
+## #531 · 🔴 migration 的 `COMMIT;` 之後不得再有 DDL —— 現在無人踩到,而**踩到不會有任何東西叫**
+
+- **失效形狀(E 窗 2026-08-16 實測,`E-640`)**:
+  ```
+  zz_inner.sql:1  WARNING: there is already a transaction in progress   ← 內層 BEGIN 是 no-op
+  zz_inner.sql:5  ERROR:   zz:模擬斷言失敗
+                  WARNING: there is no transaction in progress          ← 🔴 收尾時已無交易
+  ```
+  內層 `COMMIT` **結束了外層交易** ⇒ **之後每一句都在 autocommit 下各自提交** ⇒ 斷言失敗時**沒有交易可回滾**。
+  🔴 **失效形狀不是「少一層保護」,是「`COMMIT` 之後每一句各自提交」** ——
+  **而 migration 仍會回報失敗 ⇒ 人以為整片沒生效,實際上半支已經落地。**
+- **本 repo 現況(主視窗 2026-08-16 逐支查完,不是抽樣)**:
+  ```
+  自己寫 BEGIN/COMMIT 的                        86 支（分母 175）
+  「最後一個 COMMIT 之後仍有 DDL/DML」的          🟢 0 支
+  正向對照：拿 staff_table.sql 的 BEGIN 行(:9)當假的 COMMIT 位置 ⇒ 其後 DDL 行數 = 13
+            （⇒ 那個 0 是真的零，不是 pattern 沒對上）
+  ```
+- **不修未來會痛在哪**:🔴 **下一個人在 `COMMIT;` 後面加一行 `COMMENT ON …` 就踩進去,而沒有任何東西會叫。**
+  三綠看不到、審查未必看得到(它長得完全正常)、**只有 apply 失敗的那一天才會現形,而那天在正式庫。**
+- **機制修法(優先於寫規則)**:pre-commit 或語法守門加一條 ——
+  **對每支 migration 取最後一個 `^\s*COMMIT\s*;` 的行號,其後不得有 `CREATE|ALTER|DROP|GRANT|REVOKE|COMMENT|INSERT|UPDATE|DELETE` 開頭的行。**
+  ⚠️ **裝守門時必附負向對照**(把行號換成 `BEGIN` 那行 ⇒ 必須紅),否則它會是恆綠格。
+- **依賴**:🔴 **本條的前提是 `#530`** —— 若 `supabase db push` 根本不包交易,本條的危害分析要重寫(會更糟,不是更好)。
+- **發現於**:2026-08-16 · E 窗實測失效形狀 · 主視窗逐支盤點現況
+
+---
+
+## #532 · 🔴 `docs/probes/*.sh` 沒有任何東西會叫它跑 —— 改了 view 不跑 probe 不會紅
+
+- **實查(2026-08-16;A 窗查、主視窗補查環境)**:
+  ```
+  docs/probes/*.sh                                  4 支
+  .husky/ .github/ package.json 提到 docs/probes     ⇒ 三個各 0（A 窗查，主視窗複核）
+  .github/workflows/                                 ci.yml / e2e-prod.yml / rpm-sync.yml
+  ci.yml 跑                                          pnpm typecheck / lint / test + playwright install chromium
+  ci.yml 有沒有 postgres service                      ⇒ 【沒有】
+  ```
+  ⇒ **CI 在、但沒有 DB、也沒有人叫 probe。**
+  > 🔴 **更正紀錄**:本條初版寫「而『CI 不存在』不成立」,**把一句 A 窗從來沒說過的話算在它頭上** ——
+  > 它寫的是「三個載體零命中」,那句逐字成立。**是主視窗把它讀成「沒有 CI」再去反駁那個讀法。**
+  > ⚠️ **而 A 窗自己判「你的更正仍然更有用」**:原句**讀起來像**「沒有 CI」,
+  > **而差別會改變下一個人的動作** —— 讀成「沒有 CI」會去建一條(重工),讀成「CI 沒有資料庫」才會去加 DB。
+  > ⇒ **原句與精確版兩句都留,不改寫。**
+- **不修未來會痛在哪**:🔴 **兩側觸發不對稱** —— TS 側每次 `vitest` 都跑,**SQL 側只有人想到時才跑。**
+  ⇒ **改了 view 而沒跑 probe,不會有任何東西紅。** 而 `#522` 正是「SQL 與 TS 兩邊同款錯」——
+  **兩邊同款錯能存活,靠的就是沒有東西在比對它們。**
+- **裁決(主視窗 2026-08-16)**:**掛 CI,不掛 pre-commit。**
+  🔴 **pre-commit 要起一個 postgres ⇒ 每次 commit 幾十秒到分鐘級 ⇒ 會逼所有人用 `--no-verify`。**
+  **一個會被繞過的守門比沒有守門更糟(它給人已守護的錯覺)。**
+- **做法:🔴 開工第一動是【量四支各自需要什麼】,不是直接加 `services: postgres`。**
+  > **A 窗更正主視窗**:`order-goods-axis-parity-probe.sh` 與 `admin-customer-list-view-probe.sh`
+  > **根本不吃外部 postgres —— 它們自己 `initdb` 起拋棄式叢集。**
+  > **它們要的不是 service,是【runner image 上有 `initdb` / `pg_ctl` 這兩個執行檔】。那是另一件事。**
+  > **另外兩支(`452-2a2-*`)當時沒讀,不知道要什麼。**
+  ⇒ **先量「四支各自的需求 × runner image 內建了什麼」,量完才寫 plan。**
+  ⚠️ **動 CI ⇒ 鐵則 12④(平台設定)⇒ 對抗審查必跑。**
+- **現況的替代**:A 窗已把這條寫進三處檔頭 —— ⚠️ **那是註解不是機制,在 CI 落地前是唯一的東西。**
+- **發現於**:2026-08-16 · A 窗修 `#522` 時自標「這是裁量不是遺漏」· 主視窗查環境後裁 CI
+
+---
+
+## #533 · 🔴 兩個實作互比,只能證明它們【一致】,不能證明它們【對】
+
+- **由來**:主視窗給 `#522` 的守門規格寫「兩邊各跑一次,**比結果**」——**A 窗當場更正,而它對。**
+  > **`#522` 正是兩邊【一起】用錯分母,同一組輸入會給出【同一個錯答案】,互比一致通過。**
+  > **互比只能抓「抄漏」,抓不到「一起錯」。**
+- 🔴 **而主視窗在【同一封信】裡寫過「不要只釘兩邊字面相同,字面相同擋不住兩邊一起用錯分母」**
+  ⇒ **看穿了字面層的那一版,沒看穿它在行為層的變體。**
+- **正解(A 窗實作)**:**共用真值表 + 【人寫的期望值】當第三方**,兩邊各自對它比(14 案 / 7 案含取消);
+  突變兩邊各改回舊分母 ⇒ **各紅 5 案**(證明有判別力)。
+- **本條要做什麼**:**盤點 repo 裡所有「兩個實作互比」型的守門**,逐條問
+  **「這一格能不能同時放行兩個都錯的實作?」** 能 ⇒ 補一個獨立的期望值來源。
+  📎 已知同型候選:`#499`(`ADMIN_ORDER_LIST_SELECT` 四值字面與 view 的對應仍是人工比對)。
+- **發現於**:2026-08-16 · A 窗更正主視窗的守門規格
