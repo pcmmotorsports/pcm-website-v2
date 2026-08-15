@@ -269,6 +269,24 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 const L6_HIDE_OR = 'payment_channel.neq.tappay,payment_status.neq.unpaid';
 
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
+  // ══ 🔴 `#533`:下面這一格是 **TS↔TS** 的 —— 真值在資料庫,而資料庫沒有出現在這一格裡 ══
+  //
+  // 那是 08-07 正式站 8 小時事故的形狀(應用層先於 DB 上線,而守門看不到)。
+  // ⇒ **第三方在 `docs/probes/order-list-select-probe.sh`**:它把**這個常數的字面**
+  //   (從原始碼抽,不手抄)送給**真 PostgREST**、對**用 repo 全部 migration 套出來的 schema** 查。
+  //
+  // 🔴🔴 **而那支只擋一邊,這件事必須寫在這裡**(E 窗 2026-08-16 實測、A 窗 08-16 獨立重現):
+  //   多寫一欄        ⇒ 400 `42703`     ✅ 擋得到
+  //   embed 表名錯    ⇒ 400 `PGRST200`  ✅ 擋得到
+  //   巢狀深處欄名錯  ⇒ 400 `42703`     ✅ 擋得到
+  //   🔴 **漏一欄**   ⇒ **200**          🔴 **抓不到,而且【結構上】就抓不到**
+  //      (PostgREST 的 select 是「我要哪些欄」—— 少要一欄是完全合法的請求。)
+  //   ⇒ **漏欄目前【沒有人在守】。** 下面這格的 byte-equal 是唯一擋漏欄的東西,
+  //     所以**它不能被弱化成 `toContain`**。
+  //   📌 真正的漏欄守門要比對「select 的欄集合 vs mapper/型別真的讀到的欄」,那是另一片。
+  //
+  // ⚠️ 那支 probe **不在 CI 跑**(需要 `postgrest` binary + 套 178 支 migration,分鐘級)
+  //    ⇒ 它的觸發是「有人記得」。**動這個常數的人請自己跑一次。**
   it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
       'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))',
