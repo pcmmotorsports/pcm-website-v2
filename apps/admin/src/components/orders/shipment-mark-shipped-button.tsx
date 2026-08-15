@@ -86,13 +86,13 @@ export function ShipmentMarkShippedButton({
         onChange={(e) => setTracking(e.target.value)}
         placeholder={carrierIsOther ? '單號(自取/自送可留空)' : '貨運單號'}
         aria-label={`包裹 ${shipmentReference} 的貨運單號`}
-        className='border-input bg-background h-7 w-40 rounded border px-2 text-xs'
+        className='border-input bg-background h-7 w-40 rounded-md border px-2 text-xs'
       />
       <button
         type='button'
         disabled={busy || blocker !== null}
         onClick={() => void run()}
-        className='bg-foreground text-background rounded px-2.5 py-1 text-xs font-semibold disabled:opacity-50'
+        className='bg-foreground text-background rounded-md px-2.5 py-1 text-xs font-semibold disabled:opacity-50'
       >
         {busy ? '送出中…' : '標記出貨'}
       </button>
@@ -103,7 +103,7 @@ export function ShipmentMarkShippedButton({
           setOpen(false);
           setError(null);
         }}
-        className='rounded border px-2.5 py-1 text-xs'
+        className='rounded-md border px-2.5 py-1 text-xs'
       >
         取消
       </button>
