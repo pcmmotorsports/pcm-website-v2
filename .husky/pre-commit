@@ -3,4 +3,9 @@ if [ -f .husky/reviewer-gate.sh ]; then
 else
   echo '⚠ .husky/reviewer-gate.sh 不見了、reviewer gate 未執行(照樣放行、留此痕跡)' >&2
 fi
+if [ -f .husky/status-owner-gate.sh ]; then
+  sh .husky/status-owner-gate.sh || exit 1
+else
+  echo '⚠ .husky/status-owner-gate.sh 不見了、STATUS 收帳權守門未執行(照樣放行、留此痕跡)' >&2
+fi
 pnpm exec lint-staged
