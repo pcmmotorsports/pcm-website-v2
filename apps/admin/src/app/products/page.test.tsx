@@ -26,6 +26,8 @@ const ROW = {
   external_id: 'RPM-001',
   price_general: 4800,
   delisted_at: null,
+  listing_set_by: 'sync',
+  source_missing_at: null,
 };
 
 async function renderPage(search: Record<string, string> = {}) {
@@ -70,7 +72,12 @@ describe('/products 列表(#20 片1a)', () => {
     // 🔴 **兩種狀態都要看得出來** —— 只顯示其中一種等於員工分不出哪些能上架回來。
     //    這條**必須按欄位比對**:整頁 `toContain('已下架')` 會被 `page.tsx:63` 的靜態說明
     //    「含已下架的」滿足 ⇒ 狀態欄整個壞掉也不會紅(實測過,見 `cellTexts` 上方註解)。
-    expect(cellTexts(container, '狀態')).toEqual(['上架中', '已下架']);
+    // 🔴 片2c 起狀態欄同時帶「誰設定的」標記 ⇒ 改逐格 toContain,
+    //    但**仍逐列指名**(不是整頁 textContent),否則就退回片1a 那個恆綠格。
+    const statuses = cellTexts(container, '狀態');
+    expect(statuses[0]).toContain('上架中');
+    expect(statuses[1]).toContain('已下架');
+    expect(statuses[0]).not.toContain('已下架');
   });
 
   it('🔴 驗收 2:讀取失敗 → 仍渲染錯誤態、不把 DB error 印到畫面', async () => {
@@ -89,12 +96,12 @@ describe('/products 列表(#20 片1a)', () => {
   it('🔴 驗收 3:分頁走 server 端 —— ?page=2 送出的 offset 不是第 1 頁的', async () => {
     mocks.list.mockResolvedValue({ items: [], total: 100 });
     await renderPage({ page: '2' });
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, PRODUCTS_PAGE_SIZE);
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, PRODUCTS_PAGE_SIZE, undefined);
 
     // 負向對照:沒有這格,上面那條對「offset 恆為 20」也會綠。
     mocks.list.mockClear();
     await renderPage();
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0);
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, undefined);
   });
 
   it('壞的 ?page= 退回第 1 頁,不炸也不送負 offset', async () => {
@@ -124,7 +131,7 @@ describe('/products 列表(#20 片1a)', () => {
     const { container } = await renderPage({ page: '99' });
     expect(container.textContent ?? '').toContain('目前沒有商品');
     // 🔴 offset 照算送出去、**不夾回 0** —— 夾回去等於偷偷把使用者要的那一頁換掉。
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE);
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE, undefined);
   });
 
   // 🔴 測試名逐字寫出**這一個輸入**,不寫「超大頁碼都安全」(code-reviewer R1 N-b)。
@@ -168,5 +175,68 @@ describe('/products 列表(#20 片1a)', () => {
       expect({ [promise]: text.includes(promise) }).toEqual({ [promise]: false });
     }
     expect(text).toContain('只能查看');
+  });
+
+  // ── #20 片2c:手動/自動標記 + 篩選 chip ──
+
+  it('🔴 片2c:每一列都顯示「手動」或「自動」其一', async () => {
+    mocks.list.mockResolvedValue({
+      items: [ROW, { ...ROW, id: 'p2', title: '手動品', listing_set_by: 'staff' }],
+      total: 2,
+    });
+    const { container } = await renderPage();
+    const cells = cellTexts(container, '狀態');
+    expect(cells[0]).toContain('自動');
+    expect(cells[1]).toContain('手動');
+  });
+
+  it('🔴🔴 片2c 負測:`listing_set_by` 是 NULL / 認不得的值 → 畫面要看得出異常,不得靜靜顯示成「自動」', async () => {
+    // 這一格是 Sean 把文案從「員工設定」改成「手動 / 自動」的**理由本身**:
+    // 兩種狀態都要有名字 ⇒ 缺值不能長得跟「自動」一樣,否則「資料壞了」會被讀成「沒人設過」。
+    mocks.list.mockResolvedValue({
+      items: [
+        { ...ROW, id: 'n1', listing_set_by: null },
+        { ...ROW, id: 'n2', listing_set_by: 'import' }, // 未來新增來源、白名單外
+      ],
+      total: 2,
+    });
+    const { container } = await renderPage();
+    for (const text of cellTexts(container, '狀態')) {
+      expect({ 顯示異常: text.includes('資料異常'), 誤顯示為自動: text.includes('自動') }).toEqual({
+        顯示異常: true,
+        誤顯示為自動: false,
+      });
+    }
+  });
+
+  it('片2c:來源已消失的列標「原廠已無此品」,且不寫成「已停產」(Sean 的規則相反)', async () => {
+    mocks.list.mockResolvedValue({
+      items: [{ ...ROW, source_missing_at: '2026-08-15T00:00:00Z' }],
+      total: 1,
+    });
+    const { container } = await renderPage();
+    const cell = cellTexts(container, '狀態')[0];
+    expect(cell).toContain('原廠已無此品');
+    // 🔴 停產但有現貨仍要能賣 ⇒ 這四個字會讓員工以為不能賣,不准出現。
+    expect(container.textContent ?? '').not.toContain('已停產');
+  });
+
+  it('🔴 片2c:chip 篩選走 DB,不是把整頁陣列過濾掉', async () => {
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
+    await renderPage({ set_by: 'staff' });
+    // 沒有這格,實作可以在頁面上 `items.filter(...)` ⇒ 分頁 count 仍是全表數、翻頁翻不完。
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, 'staff');
+
+    // 負向對照:認不得的值不得被送進查詢(它會直接進 .eq 條件)。
+    mocks.list.mockClear();
+    await renderPage({ set_by: 'DROP' });
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, undefined);
+  });
+
+  it('片2c:「手動」篩出 0 筆時,空狀態要講清楚是「還沒有人設過」不是壞掉', async () => {
+    mocks.list.mockResolvedValue({ items: [], total: 0 });
+    const { container } = await renderPage({ set_by: 'staff' });
+    const text = container.textContent ?? '';
+    expect(text).toContain('設定上下架的功能還沒做好');
   });
 });

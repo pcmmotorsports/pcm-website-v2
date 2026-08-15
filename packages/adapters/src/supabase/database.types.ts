@@ -195,6 +195,14 @@
 //    兩份 docs、一支 migration 等散文提及)。0 的是**程式碼消費端**,不是字串出現次數;
 //    寫成前者會讓下一個人以為 grep 是空的,而他一跑就看到 6 筆、然後不知道該信哪一句。
 //    若日後要用 pg_graphql,重 gen 也不會把它帶回來 —— 那時要先查 CLI 的 `--schema` 旗標,別手貼。
+// ④ ~~2026-08-15 `#20` 片2c:products 三處各手加 listing_set_by / source_missing_at 共 6 行~~
+//    🏁 **已作廢 2026-08-15 13:3x** —— `20260815030000` 已 apply(`grep -c … APPLIED.tsv` ⇒ 1),
+//    主視窗重 gen + `scripts/regen-types-merge.py` 合併,那兩欄現在是**正式庫真的有**、生成器帶回來的。
+//    驗法:`diff` 舊檔 vs 合併檔 ⇒ 6 刪 6 增,而**兩組去空白排序後完全相同 ⇒ 純位置移動、零語意刪除**
+//    (手加時插在自訂位置,生成器放在字母序位置)。
+//    🔴 **留著這段是因為它記錄了一個真實發生過的狀態**:repo 型別宣稱的欄位正式庫還沒有,而 typecheck 全綠。
+//    那段期間唯一擋得住的是 `applied-migration-pairing.test.ts`(apply 後才紅),不是三綠。
+//
 // ③ **上面 26 處校正這次是用腳本貼回、且有機械驗證**,不是逐處手貼:
 //    把「貼回後的檔」與「原始生成檔」**各自去掉註解行再 diff**,結果**必須恰好是那 26 處 `| null`、
 //    不能多也不能少**(2026-08-14 實跑:恰 26,與上方「唯一權威」計數逐字對上)。
@@ -2532,12 +2540,14 @@ export type Database = {
           highlights: Json
           id: string
           images: Json
+          listing_set_by: string
           manuals: Json
           metadata: Json
           price_by_tier: Json
           price_general: number | null
           price_store: number | null
           sound_clips: Json
+          source_missing_at: string | null
           subtitle: string | null
           supplier_slug: string
           title: string
@@ -2557,12 +2567,14 @@ export type Database = {
           highlights?: Json
           id?: string
           images?: Json
+          listing_set_by?: string
           manuals?: Json
           metadata?: Json
           price_by_tier: Json
           price_general?: number | null
           price_store?: number | null
           sound_clips?: Json
+          source_missing_at?: string | null
           subtitle?: string | null
           supplier_slug?: string
           title: string
@@ -2582,12 +2594,14 @@ export type Database = {
           highlights?: Json
           id?: string
           images?: Json
+          listing_set_by?: string
           manuals?: Json
           metadata?: Json
           price_by_tier?: Json
           price_general?: number | null
           price_store?: number | null
           sound_clips?: Json
+          source_missing_at?: string | null
           subtitle?: string | null
           supplier_slug?: string
           title?: string
