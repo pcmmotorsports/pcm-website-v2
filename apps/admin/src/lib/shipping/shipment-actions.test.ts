@@ -185,6 +185,33 @@ describe('🔴 半成品 — 失敗時要把已建出的箱號帶回去', () => 
     expect(r.ok === false && r.shipmentReference).toBeNull();
   });
 
+  // 🔴 2026-08-16:成功時要回 `shipmentId`(uuid)。**唯一理由是列印網址吃 uuid**
+  //    (`/print/orders/{訂單id}/shipping/{箱id}`,見 `components/orders/shipment-section.tsx`)——
+  //    在此之前只回箱號 ⇒ 建完箱**無法直接跳列印**,員工得回訂單頁再點一次。
+  // ⚠️ **落地當下它還沒有 production 消費端** —— 消費端是「建立並列印」,排在合併片(`D-044`)。
+  //    本格就是它的覆蓋:house 禁的是「零消費端**且**零覆蓋」的死碼
+  //    (`lib/orders/order-list-view.ts:191` 逐字)⇒ 有這格,它不是死碼,是有名字的前置。
+  //    🔴 若合併片最後沒做,**這個欄位要跟著撤**,不要留成永遠沒人用的回傳面。
+  it('🔴 成功時回 `shipmentId`(uuid)—— 列印網址吃的是它,不是箱號', async () => {
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok).toBe(true);
+    expect(r.ok === true && r.shipmentId, '成功卻沒回 uuid ⇒ 呼叫端組不出列印網址').toBe('sh-1');
+    // 反面:別把箱號當 uuid 用。兩者不同值,而且只有 uuid 進得了列印路由。
+    expect(r.ok === true && r.shipmentReference).toBe('K7X2MP');
+  });
+
+  // 🔴 失敗分支**刻意不帶** `shipmentId`:那條的 `shipmentReference` 是給員工看的
+  //    「半成品箱號」(去作廢或重試用),不是拿來組網址的 —— 失敗時本來就不該跳列印。
+  //    這格擋的是「順手也加上去」。
+  it('🔴 失敗時**不**回 `shipmentId`(失敗不該跳列印)', async () => {
+    addShipmentItems.mockRejectedValue(new Error('掛品項失敗'));
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok).toBe(false);
+    expect(Object.hasOwn(r, 'shipmentId'), '失敗分支多了 shipmentId ⇒ 有人順手加了').toBe(false);
+  });
+
   it('🔴 錯誤訊息原樣帶出、不改寫(DB 的 RAISE 寫的就是給員工看的中文)', async () => {
     const msg = '出貨:包裹 K7X2MP 已經寄出了(可能是別人剛按過)。不需要再出一次。';
     markShipmentShipped.mockRejectedValue(new Error(msg));

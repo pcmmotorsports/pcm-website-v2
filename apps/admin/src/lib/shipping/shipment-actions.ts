@@ -49,7 +49,20 @@ export type SubmitShipmentInput = {
 };
 
 export type SubmitShipmentResult =
-  | { ok: true; shipmentReference: string; shipped: boolean }
+  /**
+   * 🔴 `shipmentId` 是 2026-08-16 加的,**只為了一件事:讓呼叫端組得出列印網址**。
+   * 列印路由吃的是 uuid(`/print/orders/{訂單id}/shipping/{箱id}`,
+   * 見 `components/orders/shipment-section.tsx` 那條 `Link`),而在此之前本型別
+   * **只回箱號** ⇒ 建完箱**無法直接跳列印**,員工得回訂單頁再點一次。
+   *
+   * ⚠️ **刻意只加這一個欄位。** 回傳型別是 server↔client 邊界,每多一欄就多一份
+   * 「可能被帶進瀏覽器」的東西;而**箱 uuid 本身不是機密**(它已經出現在列印網址上)。
+   * ⇒ 想順手把 `carrierCode` / 收件人之類一起帶回來的人:**不要**,那會擴張審查面。
+   *
+   * ⚠️ **失敗分支刻意不加** —— 那條的 `shipmentReference` 是給員工看的「半成品箱號」
+   * (讓他去作廢或重試),**不是拿來組網址的**;失敗時本來就不該跳列印。
+   */
+  | { ok: true; shipmentReference: string; shipmentId: string; shipped: boolean }
   /**
    * `shipmentReference` 有值 = 箱子已經建出來了(半成品),員工要嘛重試要嘛作廢。
    *
@@ -119,7 +132,13 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
 
     // 出貨會觸發摘要重算 ⇒ 列表的「還能出多少」要跟著變。
     revalidatePath('/orders');
-    return { ok: true, shipmentReference: created.shipmentReference, shipped: input.markShipped };
+    return {
+      ok: true,
+      shipmentReference: created.shipmentReference,
+      // 🔴 給呼叫端組列印網址用(理由見 `SubmitShipmentResult` 的 docstring)。
+      shipmentId: created.shipmentId,
+      shipped: input.markShipped,
+    };
   } catch (e) {
     // 🔴 不吞錯、不改寫成自己的措辭 —— 見上方註解。
     const message = toMessage(e);
