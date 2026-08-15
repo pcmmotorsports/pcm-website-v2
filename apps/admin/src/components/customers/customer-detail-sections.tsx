@@ -2,7 +2,6 @@ import Link from 'next/link';
 import type { CustomerAddress, CustomerVehicle, OrderListItem } from '@pcm/domain';
 import {
   PAYMENT_STATUS_LABEL,
-  FULFILLMENT_STATUS_LABEL,
   formatOrderAmount,
 } from '../../lib/orders/order-list-view';
 import { formatCustomerDate } from '../../lib/customers/customer-list-view';
@@ -61,7 +60,17 @@ export function CustomerOrdersSection({
                 <th className={`${TH} text-right`}>件數</th>
                 <th className={`${TH} text-right`}>金額</th>
                 <th className={TH}>付款</th>
-                <th className={TH}>出貨</th>
+                {/* 🔴🔴 `#514`:「出貨」那一欄 2026-08-15 **拿掉**,不是忘了畫。
+                    它讀的是 `orders.fulfillment_status` —— 那一欄 COLUMN COMMENT 自己寫著
+                    「E10 起停止維護、值為 legacy stale、不得當現況真相」
+                    (`20260729010000_m4b_e10_d0_display_id_expand.sql:88` 逐字),**全 migrations 零 writer**
+                    ⇒ 正式庫 13/13 全是 DEFAULT ⇒ **這一欄從來沒有正確過一次**。
+                    ⚠️ **為什麼這裡是「拿掉」而訂單明細頁是「改讀真相」——不是不一致,是【手上有沒有真相】**:
+                    明細頁的 `AdminOrderDetail.items[]` 帶著三軸數量摘要、**零新查詢**就算得出來;
+                    而本表吃的 `OrderListItem` 只有 7 欄、**零數量資料**,要補真相得改 `OrderListItem` 本身,
+                    而它橫跨 **12 個非測試檔**(storefront 會員頁 4 + admin 3 + `packages/ports` 共用契約)
+                    ⇒ 中鐵則 8+12、不成比例。**在沒有真相的地方硬留一格,只能留一個永遠錯的值。**
+                    🔴 要補回來請走 `#514` 的長期那半(欄位本體處置,碰 schema、要 Sean)。 */}
               </tr>
             </thead>
             <tbody>
@@ -78,9 +87,7 @@ export function CustomerOrdersSection({
                     NT$ {formatOrderAmount(order.total.amount)}
                   </td>
                   <td className={`${TD} whitespace-nowrap`}>{PAYMENT_STATUS_LABEL[order.paymentStatus]}</td>
-                  <td className={`${TD} whitespace-nowrap`}>
-                    {FULFILLMENT_STATUS_LABEL[order.fulfillmentStatus]}
-                  </td>
+                  {/* `#514`:出貨欄已移除,理由見表頭註解。 */}
                 </tr>
               ))}
             </tbody>
