@@ -13757,7 +13757,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 - **狀態:** ⏳ 待執行(**只立案,不在本條修** —— 修法動 `turbo.json` = **鐵則 12④ 平台設定** ⇒ 要 plan + Sean 批)
 - **分流:** P1
-- **優先級:** 🔴 高(**它讓「三綠」在某些情況下不成立,而那是每個窗每天在跑的東西**)
+- **優先級:** 🔴🔴 高(2026-08-16 升級:**三個 task 全中** —— 不是「typecheck 可能騙人」,是**整組三綠都可能騙人**)
 - **起因:** 2026-08-16 A 窗追 `typecheck 3 vs 2` 時構造出來的(見 `~/pcm-mailbox/A-47-STOP.md` / `A-48-STOP.md`)。
 
 #### 成因(座標,可重跑)
@@ -13792,6 +13792,8 @@ grep -n "globalDependencies\|inputs" turbo.json        # ⇒ 零命中
 
 #### 三條判準(現在就可以用,不必等本條修好)
 
+⚠️ **這三條對 `typecheck` / `lint` / `build` 一體適用**(2026-08-16 三個都構造過)。
+
 1. `Cached: N/M` **總結行零判別力** —— 它在「真跑」與「replay」下完全相同。
 2. **`Tasks: N successful` 也可能整排是 replay。**
 3. 🔴🔴 **逐包行說 `cache hit` 也可能是對的 —— 分辨不了的是「該不該 hit」。**
@@ -13801,11 +13803,35 @@ grep -n "globalDependencies\|inputs" turbo.json        # ⇒ 零命中
 
 1. **跨 worktree replay 只有 log 字面、沒做實驗**:log 印 `Remote caching disabled, using shared worktree cache`,
    且 `ls -d node_modules/.cache/turbo` 在該 worktree 內查無 ⇒ 快取不在那棵樹裡。**但沒有跨樹構造。**
-2. 🔴 **`lint` / `build` 沒測** —— 它們的 task 定義**同樣沒有 `inputs`**(同一條 grep 零命中)
-   ⇒ **形狀同病,但沒有人構造過。不要讀成「只有 typecheck 有事」,也不要讀成「lint/build 已證」。**
+2. ~~🔴 **`lint` / `build` 沒測**~~ **← 2026-08-16 已構造,見下方「三個 task 全中」。原判「未驗」作廢。**
 3. **還有哪些根層檔屬於這一類**(eslint 設定 / `vitest.config.ts` / `package.json` overrides…)
    —— **只證了 `tsconfig.base.json` 一個。**
 4. **修法沒設計** —— 見下。
+
+#### 🔴🔴 2026-08-16 續章:**三個 task 全中,而 lint / build 比 typecheck 更嚴重**
+
+`turbo.json` 的三個 task **都沒有 `inputs`**(量法同上,`grep -n "globalDependencies\|inputs" turbo.json` ⇒ 零命中):
+`"lint": { "dependsOn": ["^build"] }` / `"build": { "dependsOn": ["^build"], "outputs": […], "env": […] }`。
+
+**各構造一發,同一刻、同一棵樹、`cp` 備份 + 還原後 shasum 逐字相同:**
+
+| task | 改的根層檔 | 直跑 | turbo 路徑 | 逐包那行 |
+|---|---|---|---|---|
+| typecheck | `tsconfig.base.json` | `npx tsc -p apps/admin` **exit 2 / 13 error** | `turbo run typecheck` **0 error** | `cache hit, replaying logs 53dad03f…` |
+| **lint** | `eslint.config.js`(**根層唯一一份**) | `npx eslint .` in `apps/admin` **exit 1 / 71 error** | 🔴 **`pnpm lint` exit 0、完全綠** | `cache hit, replaying logs 808f63d3…` |
+| **build** | `tsconfig.base.json` | `npx next build` in `apps/admin` **exit 1 / 13 error** | 🔴 **`pnpm build` exit 0、完全綠** | `cache hit, replaying logs 3bd53db8…` |
+
+🔴 **三個 hash 都與各自「乾淨綠樹」那次完全相同** ⇒ **replay 了綠,而當下真的紅。**
+🔴🔴 **lint 與 build 比 typecheck 更嚴重**:typecheck 那次 `pnpm typecheck` 整體還是 exit 2
+(靠**非 turbo** 的 `tsc -p tsconfig.scripts.json` 撿到 4 條);
+而 **lint 與 build 沒有那個補償段** ⇒ **`pnpm lint` / `pnpm build` 報【全綠】,而錯是真的。**
+
+📌 lint 的分母:`find . -maxdepth 3 -name "eslint.config.*" -not -path "*/node_modules/*"` ⇒ **只有 `./eslint.config.js` 一份**,
+而 `apps/admin/package.json` 的 lint script 逐字 `eslint . --max-warnings 0 --no-error-on-unmatched-pattern`
+⇒ **它往上找到根層那份** ⇒ 根層設定決定 admin 紅不紅,而它不在 admin 的 input 集合裡。
+
+⇒ **本條的嚴重度隨之升級:不是「typecheck 可能騙人」,是【整組三綠都可能騙人】。**
+⚠️ 適用條件仍是「**改過根層設定之後**」;沒動根層設定時,三綠照常成立。
 
 #### 修法方向(**不在本條做**)
 
