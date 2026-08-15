@@ -52,6 +52,8 @@ const NOT_ARRIVED_AXES: readonly OrderGoodsAxis[] = ['none', 'ordered'];
  * `#1` 片2 之前,「chip 設什麼」與「`isActive` 比什麼」是**兩份分開維護的清單**,
  * 而那正是片1 交出來的那顆定時彈的病根(不是「忘了清」):
  *   按「待處理」→ 再按「全部」⇒ 高亮跳回全部,**清單還是待處理那批** ——
+ *   (⚠️ **本段的「待處理」是片1/片2 當時的顯示字面**,片6 已改名「待收款/待訂貨」;
+ *    這裡保留舊字面是因為**它在敘述一件當時發生過的事**,不是在描述現在的 UI)
  *   因為「全部」只把 `goodsAxes` 設成 `undefined`,而 `pendingOnly` 被 `...filter` 原封帶過去;
  *   而 `isActive` 當時只比 `goodsAxes`,**`pendingOnly` 根本不在它的比對範圍裡**。
  * ⇒ **修法不是在 `isActive` 補一個 `pendingOnly` 比對** —— 那只會讓現在這一格對,
@@ -86,13 +88,25 @@ const CLEARED_CHIP_FILTER: ChipFilter = Object.fromEntries(
  * 字面逐字取自 OD `:611-613`(`全部` / `未到貨`)。
  * ⚠️ OD 的順序是 `全部 / 待處理 / 未到貨 / 退貨中` —— 本片缺的兩顆進來時要**插回原位**,
  *    不是接在後面(順序也是 OD 字面的一部分)。
+ *
+ * 🔴🔴 **第二顆的字面 2026-08-15 起【刻意偏離 OD】**(`#485` 片6,**Sean 親自拍板乙案**,
+ *    逐字「**待收款/待訂貨**」)。OD 那顆叫 `待處理`。
+ *    **偏離的理由不是美感,是撞名**:採購鏈(AutoDS)已經有一個語意不同的「待處理」,
+ *    而員工會在同一天內看到兩個 —— 新名字直接寫出它包含什麼(還沒收錢 ∪ 還沒訂貨),
+ *    不需要有人在旁邊解釋。
+ *    ⚠️ **這是「Sean 拍板 > OD」,不是「我判斷 OD 錯了」** —— 鐵則 1 的例外只有他能開。
+ *    🔴 `key` 仍是 `'pending'`、URL 參數仍是 `pending=1` ⇒ **改的只有給人看的那一層**。
+ *    (片6 開工第一動實掃過:`label` 在本檔只被 render 用一次、
+ *     全 repo 零 `label→key` 反查、零 `aria-label`/`title`/`data-*` 取用
+ *     ⇒ **斜線進不了任何識別路徑,包含網址**。)
  */
 const CHIPS: readonly ChipSpec[] = [
   { key: 'all', label: '全部', filter: {} },
   // `#485` 片2:插回 OD 原位(`全部 / 待處理 / 未到貨`),**不是接在後面** —— 順序是 OD 字面的一部分。
   // 定義由片1 落在 `AdminOrderFilter.pendingOnly` 的 docstring(還沒收錢 ∪ 還沒訂貨);
   // 出處 commit `4ffda20b` / `a01457be`。**本檔不重述定義,免得兩處字面各自漂移。**
-  { key: 'pending', label: '待處理', filter: { pendingOnly: true } },
+  // 🔴 片6 只換這一顆的顯示字面,`key`/`filter` 一個字都沒動(見上方 docstring)。
+  { key: 'pending', label: '待收款/待訂貨', filter: { pendingOnly: true } },
   { key: 'not-arrived', label: '未到貨', filter: { goodsAxes: NOT_ARRIVED_AXES } },
 ];
 
