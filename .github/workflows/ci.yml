@@ -49,3 +49,72 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # ══ `#532`:讓 `docs/probes/` 底下的 SQL 探針有東西會叫它跑 ══════════════
+      #
+      # 🔴 **為什麼需要**:`#522` 修的是 SQL view 與 TS 判定式的**同一個缺陷**。
+      #    TS 那半每次 `pnpm test` 都會跑,**SQL 那半在此之前沒有任何東西會叫**
+      #    ⇒ 有人改了 `admin_order_list_v` 而沒手動跑 probe,不會有東西紅。
+      #
+      # 🔴 **為什麼掛 CI 而不是 pre-commit**(主視窗 2026-08-16 裁):
+      #    pre-commit 起一個 postgres 是幾十秒到分鐘級 ⇒ **會逼所有人用 `--no-verify`**,
+      #    而**一個會被繞過的守門比沒有守門更糟** —— 它給人已守護的錯覺。
+      #
+      # ⚠️ **`initdb` / `pg_ctl` 不在 runner 的 PATH 上**(這是 Debian/PGDG 的打包佈局,
+      #    binaries 在 `/usr/lib/postgresql/<ver>/bin/`;runner image 用
+      #    `apt-get install postgresql-<ver>` 裝,見 actions/runner-images 的
+      #    `install-postgresql.sh`)。`psql` 有 wrapper 在 PATH 上,`initdb` 沒有。
+      # 🔴 **這一步【不吞掉找不到】** —— 佈局變了就紅,而且訊息要講得出下一步。
+      #    靜默跳過的話,下面那步會用一個不存在的 `initdb` 失敗在莫名其妙的地方。
+      - name: Add PostgreSQL server binaries to PATH
+        run: |
+          set -euo pipefail
+          BIN="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$BIN" ] || [ ! -x "$BIN/initdb" ]; then
+            echo "::error::找不到 initdb。runner image 的 PostgreSQL 佈局變了?"
+            echo "預期 /usr/lib/postgresql/<ver>/bin/initdb;實際 /usr/lib/postgresql 底下:"
+            ls -la /usr/lib/postgresql 2>&1 || echo "(該目錄不存在)"
+            exit 1
+          fi
+          echo "使用 $BIN"
+          "$BIN/initdb" --version
+          echo "$BIN" >> "$GITHUB_PATH"
+
+      # 🔴 **不跑 `docs/probes/*.sh` 全部** —— 那個目錄底下**不是同一種東西**:
+      #    · 帶 `# ci-self-contained: yes` 的**自給自足**(自己 `initdb` 起拋棄式叢集、
+      #      跑完自己拆)⇒ CI 跑得動。目前兩支。
+      #    · `452-2a2-lockprobe.sh` / `452-2a2-u7-candidates.sh` / `452-2a2-void-lockprobe.sh`
+      #      要**先跑 `scripts/452-verify.sh provision`** 起一個庫並用 `PORT=` 指過去
+      #      ⇒ 沒有那一步它們連不上,**沒有標記、不跑**。
+      #    · `484a-view-probe.sh` 要外部給連線字串,**而且它內嵌的 CASE 是 `#522` 之前的舊分母**
+      #      (該檔檔頭 2026-08-16 已標)⇒ **沒有標記,跑了也只證一個已被廢掉的版本**。
+      #
+      # 🔴 **選誰跑的權威在【probe 自己的檔頭】,不在這裡**(codex 關卡2 nit)——
+      #    手寫清單的失敗面是「新增 probe 的人忘記登錄 ⇒ 靜默漏跑」,
+      #    而**靜默漏跑看起來跟跑過了一模一樣**。
+      #    ⚠️ 這一版仍然**把沒被跑的印出來**:排除要是看得見的,不是萬用字元悄悄漏掉的。
+      - name: Run self-contained SQL probes
+        run: |
+          set -euo pipefail
+          # 🔴 清單由 probe **自己的檔頭認領標記**推導,不在這裡手寫
+          #    (codex 關卡2 nit:手寫清單 ⇒ 新增 probe 的人忘記登錄就【靜默漏跑】,
+          #     而靜默漏跑看起來跟「跑過了」一模一樣)。
+          #    ⇒ 新增自給自足的 probe 只要在檔頭加 `# ci-self-contained: yes`,CI 自動吃到。
+          # ⚠️ **刻意不用 `mapfile`** —— 它要 bash 4+,而我的開發機是 bash 3.2
+          #    ⇒ **那一行我在本機驗不到**。改成可攜寫法(我本機真的跑過這一段)。
+          RUN=$(grep -l '^# ci-self-contained: yes' docs/probes/*.sh | sort)
+          N=$(printf '%s\n' "$RUN" | grep -c . || true)
+          # 正向對照:分母為 0 或 1 就是「掃錯地方 / 標記被改掉」,不是「沒有 probe 要跑」
+          if [ "$N" -lt 2 ]; then
+            echo "::error::只找到 $N 支帶認領標記的 probe(預期至少 2)。掃錯地方或標記被改掉了?"
+            ls -la docs/probes/ || true
+            exit 1
+          fi
+          # 🔴 **把沒被跑的也印出來** —— 「哪些沒跑」不該是沒有人知道的事
+          echo "會跑的($N 支):"; printf '%s\n' "$RUN" | sed 's/^/  /'
+          echo "不跑的(需要外部 provision / 內容已過期,見各檔檔頭):"
+          comm -23 <(ls docs/probes/*.sh | sort) <(printf '%s\n' "$RUN") | sed 's/^/  /'
+          printf '%s\n' "$RUN" | while IFS= read -r P; do
+            echo "── $P ──"
+            bash "$P"
+          done

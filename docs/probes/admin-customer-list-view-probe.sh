@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ci-self-contained: yes   ← 🔴 這一行是 CI 的【認領標記】,見 .github/workflows/ci.yml
 # admin-customer-list-view-probe.sh — `admin_customer_list_v` 的【值】正確性驗證(可重跑、零花費)
 #
 # 為什麼在這裡而不在 migration 裡:值斷言要造 fixture,而 migration **正式 apply 時也會跑**
@@ -21,9 +22,20 @@ trap 'pg_ctl -D "$D/data" stop -m fast >/dev/null 2>&1 || true; rm -rf "$D"' EXI
 rm -rf "$D" && mkdir -p "$D"
 initdb -U postgres -A trust "$D/data" > "$D/initdb.log" 2>&1
 pg_ctl -D "$D/data" -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" -l "$D/pg.log" start >/dev/null
-sleep 3
+# 🔴 **不用固定 `sleep`** —— runner 負載高時三秒不夠,那會變成**假紅**,
+#    而假紅比沒有守門更糟:它會訓練大家忽略這個紅。改成有上限的輪詢。
+wait_pg () {
+  local i
+  for i in $(seq 1 30); do
+    psql -h 127.0.0.1 -p "$PORT" -U postgres -tAc "select 1" >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  echo "❌ Postgres 30 秒內沒起來。pg.log 最後 10 行:"
+  tail -10 "$D/pg.log" 2>&1 || true
+  return 1
+}
+wait_pg
 pq () { psql -h 127.0.0.1 -p "$PORT" -U postgres -v ON_ERROR_STOP=1 "$@"; }
-pq -tAc "select 1" >/dev/null || { tail -6 "$D/pg.log"; exit 1; }
 
 # ── bootstrap(Supabase 平台給的東西,本機沒有)──────────────────────────────
 pq -q <<'SQL'
