@@ -174,6 +174,23 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
   it('nothing_cancellable 要留出路,不能把成因講死(R1 F4:有已知假陽性路徑)', () => {
     expect(BLOCK_REASON_TEXT.nothing_cancellable.hint).toContain('重新整理');
   });
+
+  // 🔴 `#18` 止血格(2026-08-14):退貨線在本 repo **零落點**(查證報告 §1,附正向對照)
+  //    ⇒ **任何** hint 都不得把退貨講成現行可走的流程。原字面「已到貨的部分要走退貨流程」
+  //    會讓員工去找一個不存在的功能,而畫面沒告訴他那是因為還沒做。
+  //    ⚠️ 這一格釘的是**方向**(不得指路),不是釘死某一句措辭 —— 文案是 Sean 的地盤;
+  //    他換句話只要不重新宣稱退貨可走,這格照樣綠。
+  //    負向對照:把 hint 改回「已到貨的部分要走退貨流程」⇒ 第一條斷言必紅。
+  it('#18:所有 hint 都不得指向「退貨流程」這個不存在的東西', () => {
+    for (const [code, text] of Object.entries(BLOCK_REASON_TEXT)) {
+      expect(text.hint, `${code} 的 hint 把退貨講成現行流程`).not.toMatch(
+        /(要走|請走|去走).{0,4}退貨/,
+      );
+    }
+    // 🔴 正向對照:證明掃描字集裡真的看得到「退貨」兩個字 ——
+    //    否則上面那條 not.toMatch 對「完全沒提退貨」的字串恆真 = 恆綠格。
+    expect(BLOCK_REASON_TEXT.nothing_cancellable.hint).toContain('退貨');
+  });
 });
 
 describe('CancelReviewSection — 不可取消時逐條文案', () => {

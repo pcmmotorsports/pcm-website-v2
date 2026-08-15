@@ -13208,3 +13208,88 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** 未估 —— 要先有一座接 `20260815020000` schema 的整合測試環境。
 - **相關:** `#27`(母題)/ `#505`(同片的另一個已知缺口:角色繼承只被看過一次)
 - **發現於:** 2026-08-15 · E 窗 D1a-2 R1 審查 F3 · 主視窗裁「登記為已知缺口,不要當成已守」
+
+### #502. 🔴 `admin_today_payment_total` 的錢口徑 —— **DB 端行為零可執行驗證(apply 後必做)**
+
+- **狀態:** 🔴 **apply 後必做,不是「有空再說」**。前置 = Sean apply `20260815010000`。
+  號由主視窗發(2026-08-15;跑了兩道:`scripts/next-backlog-number.sh` + 掃信箱佔位宣告,
+  A 窗自行複驗 `docs/phase-1-backlog.md` 與 `~/pcm-mailbox/*.md` 皆零命中,正向對照 `#49x` 命中 22 檔)。
+- **分流:** `P1`(它守的是「今天收了多少錢」這個數字本身)
+- **起因:** `#16` MF-A 把「已收 = SUM(amount)」的加總從 TS 搬進 SQL(新 RPC
+  `public.admin_today_payment_total`,migration `20260815010000`)。
+  搬完之後 `apps/admin/src/lib/dashboard/today-view.ts` 的 `sumReceived` 成為死碼被刪,
+  **連同它的 6 格測試**:鏈式沖銷(`+500/-500/+500 ⇒ 500`)/ 濾負列會變 1000 的負向對照 /
+  改用筆數會變 3 的負向對照 / 全額沖銷回 0 / 零筆回 0 / **MF5 跨日沖銷的可執行版本**。
+- **現存守門只有源碼契約測試**(`today-read.test.ts` 末段):`readFileSync` 讀 migration 檔,
+  斷言 SQL **含** `COALESCE(SUM(p.amount), 0)`、**不含** `ABS(`、不含 `amount > 0`、
+  不含 `reverses_payment_id IS NULL`、半開區間不得用 `<=`,外加授權四件套與一格正向對照。
+  🔴 **它只證那句 SQL 還在檔裡,不證 DB 真的那樣算。** 兩者不等價,不得互相充當。
+- **apply 之後必跑的四條(對正式庫實跑,不是讀檔):**
+  1. `select has_table_privilege('service_role','public.order_payments','SELECT');` ⇒ 應為 **false**。
+     🔴 這條最重要 —— **MF-A 那個結論至今唯一沒被實跑證明過的一環**(現有依據是五份 migration
+     字面互相支持 + apply-time 閘,不是「DB 這樣答」)。跑掉它,那個誠實缺口就真的補起來了。
+  2. 以 `+500 / -500 / +500` 同日測資呼叫 RPC ⇒ 應得 **500**(證沖銷照加、沒被濾掉)。
+  3. 零筆區間呼叫 ⇒ 應得 **0 不是 NULL**(證 `COALESCE` 真的生效;零筆是每天早上的常態)。
+  4. 查 `pg_proc` 核 `prosecdef` / `proconfig` / `provolatile` 三欄
+     (證 SECDEF / `search_path=""` / `STABLE` 三件事在 DB 上為真,不只在檔裡)。
+- **不修未來會痛在哪:**
+  - **bug 可追蹤性:** 這格壞掉的形狀是**安靜的** —— SECDEF fail-open 會讓查詢回空,
+    而 `COALESCE` 把它變成 `0` ⇒ 畫面顯示「今日實收 NT$ 0」,**看起來就是一個還沒收到錢的早上**,
+    零錯誤、零紅。沒有 DB 端驗證就沒有任何東西會告訴你它壞了。
+  - **可維護性:** 日後有人改那支 RPC(加篩選、改成 `ABS`、改用 `count`),
+    源碼契約測試只擋得住**字面**;真正的行為回歸沒有人守。
+- **⚠️ 沒查的:** 本條全程零正式庫查詢(施工端無 DB 連線);RPC 從未被實際呼叫過一次;
+  `42501` 沒有實際看過。
+- **✅ 已有可執行版本:** `docs/runbooks/2026-08-15-16-payment-total-apply-checks.md`
+  —— 上面那四條(加另外四道)已寫成**可直接貼進 SQL Editor 的唯讀查詢**,每條附「預期值」與
+  「不是預期值代表什麼」,並分成 **apply 前 4 道 / apply 後 5 道**(共 9 道)。
+  🔴 第 1 道(`has_table_privilege` 應為 `false`)排在 **apply 前** —— 它驗的是「這片存在的理由還成立」,
+  **那道不過就不該 apply**。
+  ⚠️ 該 runbook **全部未在正式庫執行過**,它是清單不是紀錄;**跑完才算本條目關閉**。
+- **相關:** `#16`(母片)/ plan `docs/specs/2026-08-15-e10-16-payment-total-rpc-plan.md` §7 誠實缺口
+- **發現於:** 2026-08-15 · A 窗 · `#16` MF-A 實作時自陳(不是別人指出的)
+
+### #509. 🔴 `admin_today_payment_total` 的守門釘的是**函式的形狀**,不是**函式做的事**
+
+- **來源:** 2026-08-15 codex 關卡2(`#16` migration,判定 `PASS` 零 must-fix)的兩個 nit。
+  🔴 **兩個都刻意不折進 `20260815010000`**,理由不是規矩:**那支已經 apply 了,而閘只在
+  `db push` 那一刻跑一次** ⇒ 現在往檔裡加第六道閘,**它永遠不會再跑** = 恆綠格,
+  **比不加更糟,因為它產生「已修復」的外觀**(同族 memory `feedback_absence-read-as-verified`)。
+  ⇒ 主視窗裁「開號另排」,本條目即該號。
+
+- **A · `prosrc` 沒有任何守門(codex nit 2,兩個 nit 裡較重的一個)**
+  檔尾五道閘驗的是 `prosecdef` / `proconfig` / `provolatile` / `lanname` / owner 與 FORCE RLS,
+  **全部是函式的「屬性」**。⇒ **有人把 body 改成 `SELECT 0,0`,五道閘全部照過。**
+  而那個壞法的症狀是**安靜的**:畫面顯示「今日實收 NT$ 0」= 一個看起來完全正常的、
+  還沒收到錢的早上。零錯誤、零紅。
+  - **兩個面要分開做,不要以為做了一個就好:**
+    1. **repo 字面面(便宜、每次 `vitest` 都跑)**:`today-read.test.ts` 已有一格
+       `readFileSync` 源碼契約測試釘 `COALESCE`(plan §6 第 10 條)⇒ **同手法擴充**,
+       釘 `SUM(p.amount)` / `received_at >= p_from` / `received_at < p_to` 三個關鍵字面。
+    2. **DB 實體面(要新 migration)**:對 `pg_proc.prosrc` 做 apply-time 斷言。
+       🔴 **這一面才守得住「DB 上那支被人改了」** —— 第 1 面只證 repo 裡的檔沒被改。
+  - ⚠️ **只做第 1 面就宣稱守住了,正是 memory `feedback_guards-pin-repo-text-not-real-world-fact`
+    那條**:守門釘的是 repo 的**字面**,不是真實世界的**事實**。
+
+- **B · 有效權限閘只列三個角色(codex nit 1)**
+  閘 ③b 逐字枚舉 `anon` / `authenticated` / `authenticator`。
+  ⇒ 未來若新增一個能 `SET ROLE` 到 `service_role`、或達得到 owner 的 login role,**這道閘攔不到**。
+  - **修法** = 改成**閉世界枚舉**:掃 `pg_roles` 裡所有 `rolcanlogin` 的角色,而不是寫死三個。
+  - ⚠️ **嚴重度我判得比字面低,理由寫出來讓人可以反駁**:那三個是 Supabase 平台的**固定內建角色**,
+    而「新增一個能 `SET ROLE` 到 `service_role` 的 login role」**本身就命中鐵則 12②**、會走自己的審查。
+    🔴 **但這是「另一道流程會擋」的論證,不是「這道閘沒漏」** —— 兩者不等價,別合併成一句。
+
+- **不修未來會痛在哪:**
+  - **bug 可追蹤性:** A 的壞法**沒有任何訊號** —— 金額安靜地變成 0 或變小,
+    而每一道現有守門都是綠的。**發現它的方式只剩「員工覺得數字怪怪的」。**
+  - **可維護性:** 現在「這支函式該算什麼」的唯一權威是 migration 檔頭的散文 + COMMENT;
+    **沒有任何可執行的東西**在講它。下一個改它的人不會知道自己踩到什麼。
+  - **擴充性:** 退款那格重做時(Sean 2026-08-15 拍板走「正確版」)會長出**第二支同構的 RPC**
+    ⇒ **A 的修法要能同時套用兩支**,不要寫成只釘 `admin_today_payment_total` 的一次性斷言。
+
+- **⚠️ 沒查的:** 本條全程零正式庫查詢。**「有人改 body 五道閘照過」是我讀閘的定義推的,
+  沒有實際構造一次去看**(要構造就得再 apply 一次)。方向有把握,**但它是推的。**
+- **相關:** `#16`(母片)/ `#502`(同一支 RPC 的 DB 端行為驗證清單,兩條互補不重疊)/
+  plan `docs/specs/2026-08-15-e10-16-payment-total-rpc-plan.md` §0 /
+  codex 關卡2 判定 `PASS`、兩 nit 原文轉錄在 `~/pcm-mailbox/A-048-STOP.md`
+- **發現於:** 2026-08-15 · codex 關卡2 · 由 A 窗評估後判「不折進已 apply 的檔」、主視窗裁「另排號」
