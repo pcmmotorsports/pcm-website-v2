@@ -455,6 +455,19 @@ export function OrderDetail({
       {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
       <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
 
+      {/* 🔴🔴 **這裡沒有條件包裹,是 Sean 2026-08-15 拍板的結果,不是漏做。**
+          (`Q-13-2 = 丙`、`Q-13-3 = 乙`;完整矩陣見
+           `docs/specs/2026-08-15-e10-13-order-edit-matrix-order-level.md` §3-4。)
+
+          **已取消 / 已退款 / 已出貨的單,這張表單一律照常出現、四欄一律可改。理由**:
+          · **已取消 / 已退款** → 那張單**可能正需要作廢發票**。開票狀態、發票號碼、發票金額
+            都是「單沒了之後還要處理的事」⇒ **鎖掉會讓員工無路可走。**
+          · **已出貨** → 實際走的物流可能與當初填的不同(換快遞、改自取)
+            ⇒ **要能補登真實情況**;鎖掉等於強迫紀錄與事實不符。
+
+          ⚠️ **在加任何 `detail.cancelledAt === null && …` 之前,先去讀上面那份矩陣。**
+          🔴 **這段註解存在的理由**:拍板之前,這裡的「沒有守門」與「決定要開放」
+             **在畫面上、在程式碼裡都長得一模一樣** —— 而現在它是後者。 */}
       <OrderEditForm detail={detail} returnTo={returnTo} />
 
       <ItemsTable detail={detail} />
