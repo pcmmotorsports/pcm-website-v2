@@ -42,13 +42,18 @@ export interface AdminProductRow {
   readonly external_id: string;
   readonly price_general: number | null;
   readonly delisted_at: string | null;
+  /** `#20` 片2c:誰決定了目前的上下架狀態(`sync`=每日同步 / `staff`=員工手動)。 */
+  readonly listing_set_by: string | null;
+  /** `#20` 片2c:來源端第一次不再吐這筆的時間;`null` = 來源仍有這筆。 */
+  readonly source_missing_at: string | null;
 }
 
 /**
  * 🔴 逐欄指名。**不得改成 `*`**,也不得加入 `price_store` / `price_by_tier` / `cost` 任一欄。
  * 這串字面被 product-repository.test.ts 釘住。
  */
-const PRODUCT_LIST_COLUMNS = 'id, title, external_id, price_general, delisted_at' as const;
+const PRODUCT_LIST_COLUMNS =
+  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at' as const;
 
 /** 上下架狀態的 domain 形狀(頁面與表格只認這個,不認 DB 欄)。 */
 export type ProductListingState = 'listed' | 'delisted';
@@ -75,6 +80,32 @@ export function resolvePrice(row: AdminProductRow): number | null {
 export function resolveListingState(row: AdminProductRow): ProductListingState {
   return row.delisted_at === null ? 'listed' : 'delisted';
 }
+
+/**
+ * 「這一列的上下架狀態是誰決定的」的 domain 形狀。
+ *
+ * 🔴 **三態,不是兩態。** `unknown` 存在的理由不是防禦性程式設計,是**畫面要看得出資料有問題**:
+ * Sean 把文案從「員工設定」改成「手動 / 自動」,理由正是**兩種狀態都要有名字** ——
+ * 只有一種有標記時,「沒標記」會同時代表「自動」與「資料壞了」,而那兩件事的處置完全不同。
+ * ⇒ 值不在白名單(NULL、空字串、未來新增的來源如 `import`)一律落 `unknown`,
+ *   由畫面顯示成看得出異常的樣子,**不得靜靜顯示成「自動」**。
+ * 這條配了負測(`products-table.test.tsx`),不是靠這段註解自律。
+ */
+export type ProductListingSetBy = 'sync' | 'staff' | 'unknown';
+
+export function resolveListingSetBy(row: AdminProductRow): ProductListingSetBy {
+  if (row.listing_set_by === 'staff') return 'staff';
+  if (row.listing_set_by === 'sync') return 'sync';
+  return 'unknown';
+}
+
+/** 來源端已經沒有這筆了嗎(≠ 不能賣 —— 員工可能有現貨仍在賣,見 migration 20260815030000 的欄位註解)。 */
+export function isSourceMissing(row: AdminProductRow): boolean {
+  return row.source_missing_at !== null && row.source_missing_at !== undefined;
+}
+
+/** 工具列 chip 的篩選值。`undefined` = 不篩(「全部」)。 */
+export type ProductSetByFilter = 'sync' | 'staff';
 
 export interface AdminProductPage {
   readonly items: readonly AdminProductRow[];
@@ -103,10 +134,18 @@ export interface AdminProductPage {
 export async function listProductsForAdmin(
   limit: number,
   offset: number,
+  setBy?: ProductSetByFilter,
 ): Promise<AdminProductPage> {
-  const { data, error, count } = await createSupabaseServiceClient()
+  let q = createSupabaseServiceClient()
     .from('products')
-    .select(PRODUCT_LIST_COLUMNS, { count: 'exact' })
+    .select(PRODUCT_LIST_COLUMNS, { count: 'exact' });
+
+  // 🔴 **篩選一定要走 DB,不能在頁面上過濾陣列。**
+  //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
+  //    而分頁列顯示的 `count` 仍是全表數 ⇒ 「共 20,334 件」配上一頁 3 筆,且翻頁翻不完。
+  if (setBy) q = q.eq('listing_set_by', setBy);
+
+  const { data, error, count } = await q
     .order('created_at', { ascending: false })
     .order('id', { ascending: true })
     .range(offset, offset + limit - 1);
@@ -137,7 +176,7 @@ export interface AdminProductDetailRow extends AdminProductRow, ProductMediaRow 
  * ⇒ wire 型別寬鬆、由 `toProductMedia()` 的 runtime guard 收斂,**不在這裡假設形狀**。
  */
 const PRODUCT_DETAIL_COLUMNS =
-  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, created_at, updated_at, description, highlights, fitments, images, video_url, manuals, sound_clips' as const;
+  'id, title, subtitle, external_id, supplier_slug, handle, brand_id, category_id, price_general, availability, delisted_at, listing_set_by, source_missing_at, created_at, updated_at, description, highlights, fitments, images, video_url, manuals, sound_clips' as const;
 
 /**
  * 讀單筆商品(**含已下架** —— 後台要能把它撈回來)。查無回 `null`,不 throw。

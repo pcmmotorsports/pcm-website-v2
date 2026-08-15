@@ -67,8 +67,9 @@ import {
   independentGroupPrice,
 } from './rpm-delta';
 import {
-  computeDelist,
-  applyDelist,
+  computeSourceMissing,
+  markSourceMissing,
+  clearSourceMissing,
   printReconcileReport,
   computeVariantOrphans,
   applyVariantDelete,
@@ -301,23 +302,20 @@ async function main(): Promise<void> {
     );
   }
   const variantRows = [...variantsByExternalId.values()].flat();
-  const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
+  const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 來源消失對賬:本次 source 出現的主碼集合
   const sourceVariantSkus = new Set(variantRows.map((v) => v.sku)); // V1 變體級對賬:本次 source 變體碼集合
 
-  // ── 鏡射下架的能見度(對抗審查 F2)──
-  //   view v3「投影不過濾」後,商品可經【鏡射】變成對顧客隱藏,這條路徑不經 W1(5%)/S4(10%)
+  // ── 🔴 2026-08-15 `#20` 片2b:鏡射路徑已整個拿掉,本段可觀測量隨之消失 ──
+  //   舊版在這裡印「鏡射下架 N/M 群帶 delisted_at」,用途是讓無人值守的 cron 也能發現
+  //   「來源側一次誤標讓整家供應商在顧客站靜默蒸發」。**那條路徑本片已不存在**
+  //   (rpm-transform 不再輸出 delisted_at)⇒ 這個計數恆為 0、留著只會誤導。
+  //   ⚠️ **它防的風險也一併消失**:來源誤標不再能讓商品從顧客站消失 —— 這正是本片的目的。
+  //   取而代之的可觀測量 = 下方「來源消失對賬」印出的標記數(那個不會讓商品消失,只是標記)。
   //   —— 那兩道閘量的是「缺席」,鏡射路徑零缺席、兩閘皆不觸發。無人值守 cron 若不 log,
   //   來源側一次誤標可讓整家供應商在顧客站靜默蒸發而無人察覺。故此處【永遠】印出數量與比例。
   //   (刻意只 log 不 abort:來源側已有 fetcher MIN_SAFE_FETCH 安全閘 + view 的 7 天去抖兩層防護,
   //    且套用 v3 當次本就會一次鏡射大量既有停產品 —— 加 abort 會讓首次同步必掛。
   //    是否要再加一道量閘 = 待 Sean 拍板的 backlog,不在本 slice 自行決定。)
-  const mirroredDelistedCount = productRows.filter((p) => p.delisted_at).length;
-  const scopeNote = FULL_MODE ? '' : '(篩選後、非全量比例)'; // R2-N1:--group/--limit 下分母非全量,免誤判事故
-  console.log(
-    `[rpm-import] 鏡射下架:${mirroredDelistedCount}/${productRows.length} 群帶 delisted_at` +
-      `(${productRows.length ? ((mirroredDelistedCount / productRows.length) * 100).toFixed(1) : '0.0'}%${scopeNote}` +
-      `;來源側權威、本站不重判;比例異常高請查報價單庫 storefront_catalog_v)`,
-  );
   // R2-SF2:部分停產剔除是【唯一】會產生變體孤兒的路徑;孤兒 >10% 會撞 VARIANT_DELETE_RATIO_ABORT
   // 而 F3 又禁兩旗標並用 => 先讓它在撞閘【之前】就可見(「目前只佔 0.07%」是快照、不是不變式)。
   console.log(
@@ -472,13 +470,13 @@ async function main(): Promise<void> {
       console.log('\n-- 抽樣群(transform 驗) --');
       console.log(JSON.stringify({ product: sample, variant_count: vrs.length, sample_variants: vrs.slice(0, 3) }, null, 2));
     }
-    // S4 下架對賬(只全量;篩選下 source 不完整、跳過避免誤判)。
+    // S4 來源消失對賬(只全量;篩選下 source 不完整、跳過避免誤判)。
     // dry-run 即使 gate 觸發也只印報告不 throw(故意:Sean 要看完整報告、不靠 dry-run exit code 當預檢;真跑才 exit 1)。
     if (FULL_MODE) {
-      const recon = await computeDelist(target, config.supplierSlug, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+      const recon = await computeSourceMissing(target, config.supplierSlug, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
       printReconcileReport(recon, { full: DELTA_FULL });
     } else {
-      console.log('[rpm-import] 下架對賬跳過(--group/--limit 篩選、source 不完整、全量才對賬)');
+      console.log('[rpm-import] 來源消失對賬跳過(--group/--limit 篩選、source 不完整、全量才對賬)');
     }
     console.log(`\n[rpm-import] DRY-RUN:${productRows.length} 群 / ${variantRows.length} 變體(未寫入)`);
     console.log('→ 看完 delta/離群/下架對賬、Sean 點頭後、跑正式並帶 --confirm-write');
@@ -556,21 +554,29 @@ async function main(): Promise<void> {
       `(一般 ${regularVariantRowsWithProduct.length} / atomic ${variantWork.atomicGroups.length} 群)`,
   );
 
-  // ── S4 下架對賬(源頭消失 → 軟下架;upsert 後跑、只全量、篩選模式跳過避免誤殺)──
+  // ── S4 來源消失對賬(源頭消失 → **標記** source_missing_at,不下架;upsert 後跑、只全量)──
+  // 🔴 2026-08-15 `#20` 片2b:本段**不再下架任何商品**(Sean `Q-B-2=甲` / `Q-關哪一條=乙`)。
+  //    篩選模式(--group/--limit)整段跳過:那時 source 集合不完整 ⇒ 標記會誤標、清除會誤清。
   if (FULL_MODE) {
-    const recon = await computeDelist(target, config.supplierSlug, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+    const recon = await computeSourceMissing(target, config.supplierSlug, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
     printReconcileReport(recon, { full: DELTA_FULL });
     if (recon.aborted) {
-      throw new Error(`下架對賬安全 gate 觸發、不下架:${recon.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
+      throw new Error(`來源消失對賬安全 gate 觸發、不標記:${recon.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
     }
-    if (recon.toDelist.length) {
-      const n = await applyDelist(target, config.supplierSlug, recon.toDelist, now);
-      console.log(`[rpm-import] 下架對賬完成:軟下架 ${n} 商品(delisted_at=now、scope ${config.supplierSlug}、變體靠 RLS 連動隱藏)`);
+    if (recon.toMark.length) {
+      const n = await markSourceMissing(target, config.supplierSlug, recon.toMark, now);
+      console.log(
+        `[rpm-import] 來源消失對賬完成:標記 ${n} 商品(source_missing_at=now、scope ${config.supplierSlug})` +
+          ' — 🔴 這些商品仍然維持上架、仍可購買,只是後台會顯示「原廠已無此品」',
+      );
     } else {
-      console.log('[rpm-import] 下架對賬:無待下架、零孤兒');
+      console.log('[rpm-import] 來源消失對賬:無待標記');
     }
+    // 反向:來源重新出現 → 清回 NULL。沒有這一步,標記會永遠黏著(商品早回來了、畫面還說沒有)。
+    const cleared = await clearSourceMissing(target, config.supplierSlug, [...sourceExternalIds]);
+    if (cleared) console.log(`[rpm-import] 來源重新出現:清除 ${cleared} 筆「原廠已無此品」標記`);
   } else {
-    console.log('[rpm-import] 下架對賬跳過(--group/--limit 篩選、非全量、避免誤殺全站)');
+    console.log('[rpm-import] 來源消失對賬跳過(--group/--limit 篩選、非全量、避免誤標與誤清)');
   }
 }
 

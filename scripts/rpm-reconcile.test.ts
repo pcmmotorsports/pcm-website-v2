@@ -4,8 +4,9 @@
 //   變體殘留 DB + 前台選項可見 + create_order 可下單凍結舊價(客人買到停產色)。
 //   classifyVariantOrphans = 差集決策核心;安全 gate 對齊商品級 delist(源空硬 abort / >10% abort)。
 
-import { describe, it, expect } from 'vitest';
-import { classifyVariantOrphans, type VariantOrphan } from './rpm-reconcile';
+import { describe, it, expect, vi } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { classifyVariantOrphans, markSourceMissing, clearSourceMissing, type VariantOrphan } from './rpm-reconcile';
 
 const tv = (sku: string, externalId: string): VariantOrphan => ({ sku, externalId });
 
@@ -69,5 +70,112 @@ describe('V1 classifyVariantOrphans(孤兒變體差集 + 安全 gate)', () => {
     expect(r.aborted).toBe(false);
     expect(r.largeDeleteBypassed).toBe(false);
     expect(r.orphans).toEqual([tv('B-19', 'B')]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔴 #20 片2b:同步不再下架,只標記 `source_missing_at`
+// 規格 = docs/specs/2026-08-15-products-manual-listing-override-plan.md v5 §4 驗收 3/4。
+// 這幾格釘的是「**動了哪一欄**」與「**沒動哪一欄**」—— 後者才是本片的重點:
+// 漏改任一處,商品會被靜默下架,而畫面看起來一切正常、沒有任何守門會紅。
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 記錄 **每一個 builder 呼叫的方法名與完整參數** 的 mock;await 回 {data:[],error}。
+ *
+ * 🔴 關卡2 nit4/nit5:初版只記 `args[0]` ⇒ **過濾條件寫反也測得過**
+ *   (`.is('source_missing_at', null)` 與 `.not('source_missing_at','is',null)` 在只看第一個參數時長得一樣)。
+ *   ⇒ 改記完整 `[method, ...args]`,讓「方向」與「值」都進得了斷言。
+ */
+function makeUpdateRecorder(error: { code?: string; message?: string } | null = null) {
+  const updates: Record<string, unknown>[] = [];
+  const calls: unknown[][] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builder: any = new Proxy(function () {}, {
+    get(_t, prop) {
+      if (prop === 'then') {
+        return (f: (v: unknown) => unknown) => Promise.resolve({ data: [], error }).then(f);
+      }
+      return (...args: unknown[]) => {
+        if (prop === 'update') updates.push(args[0] as Record<string, unknown>);
+        calls.push([String(prop), ...args]);
+        return builder;
+      };
+    },
+  });
+  return { client: { from: () => builder } as unknown as SupabaseClient, updates, calls };
+}
+
+describe('🔴 #20 片2b:markSourceMissing / clearSourceMissing 動的是哪一欄', () => {
+  it('🔴 驗收 3(負測):來源消失 → 寫 source_missing_at,**完全不碰 delisted_at**', async () => {
+    const r = makeUpdateRecorder();
+    await markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z');
+    expect(r.updates).toHaveLength(1);
+    expect(r.updates[0]).toEqual({ source_missing_at: '2026-08-15T00:00:00Z' });
+    // 🔴 這一條才是本片的重點:payload 裡出現 delisted_at = 商品被靜默下架。
+    expect(Object.keys(r.updates[0])).not.toContain('delisted_at');
+  });
+
+  it('驗收 3 正向對照:冪等過濾條件是 source_missing_at(只標記尚未標記的、保留「第一次消失」語意)', async () => {
+    const r = makeUpdateRecorder();
+    await markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z');
+    // 沒有這格,把 .is('source_missing_at', null) 誤刪也不會紅 —— 時戳會被每天覆寫成今天,
+    // 「原廠什麼時候不見的」就永遠是「今天」。
+    // 🔴 逐字比對**完整參數**(nit5):只看欄名的話,把方向寫反(改成 .not(...)) 一樣會過。
+    expect(r.calls).toContainEqual(['is', 'source_missing_at', null]);
+    expect(r.calls).toContainEqual(['eq', 'supplier_slug', 'rpm']);
+    expect(r.calls).toContainEqual(['in', 'external_id', ['EXT-1']]);
+    expect(r.calls.flat()).not.toContain('delisted_at');
+  });
+
+  it('🔴 驗收 4:來源重新出現 → source_missing_at 清回 null,一樣不碰 delisted_at', async () => {
+    const r = makeUpdateRecorder();
+    await clearSourceMissing(r.client, 'rpm', ['EXT-1']);
+    expect(r.updates).toEqual([{ source_missing_at: null }]);
+    expect(Object.keys(r.updates[0])).not.toContain('delisted_at');
+    // 🔴 完整條件(nit4):方向必須是「只清目前有標記的」,而且限定本供應商與本批 external_id。
+    //    方向寫反(改成 .is(...,null))會把「還沒標記的」拿去清 —— 結果看起來一樣是 0 筆,但語意相反。
+    expect(r.calls).toContainEqual(['not', 'source_missing_at', 'is', null]);
+    expect(r.calls).toContainEqual(['eq', 'supplier_slug', 'rpm']);
+    expect(r.calls).toContainEqual(['in', 'external_id', ['EXT-1']]);
+  });
+
+  it('🔴 跨 apply 停點閘:欄位還沒 apply(42703)→ 跳過並警告,不炸整批同步', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = makeUpdateRecorder({ code: '42703', message: 'column "source_missing_at" does not exist' });
+    // Sean `Q-同步失敗策略=甲`:跳過那一步、大聲記錄,其餘照跑 ⇒ 這裡必須 resolve 0、不得 throw。
+    await expect(markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z')).resolves.toBe(0);
+    await expect(clearSourceMissing(r.client, 'rpm', ['EXT-1'])).resolves.toBe(0);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('正向對照:其他 DB 錯誤仍然 throw(閘只吞「欄位不存在」,不是吞掉所有錯)', async () => {
+    // 🔴 沒有這格,把 isMissingColumn 寫成恆真也會綠 —— 那會讓真正的寫入失敗被靜默吞掉。
+    const r = makeUpdateRecorder({ code: '23505', message: 'duplicate key value' });
+    await expect(markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z')).rejects.toThrow('markSourceMissing');
+  });
+
+  it('🔴 關卡2 must-fix 回歸:錯誤訊息「碰巧提到欄名」但不是欄位不存在 → 仍須 throw', async () => {
+    // 初版判別寫成「訊息含 source_missing_at 就算欄未建」⇒ 這種錯誤會被靜默吞掉、cron 不報錯。
+    // 真實形狀:權限錯誤 / 唯一鍵衝突 / 逾時訊息裡都可能出現欄名。
+    for (const err of [
+      { code: '42501', message: 'permission denied for column source_missing_at' },
+      { code: '23505', message: 'duplicate key value violates unique constraint on source_missing_at idx' },
+      { code: '57014', message: 'canceling statement due to statement timeout while updating source_missing_at' },
+    ]) {
+      const r = makeUpdateRecorder(err);
+      await expect(markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z')).rejects.toThrow('markSourceMissing');
+      const c = makeUpdateRecorder(err);
+      await expect(clearSourceMissing(c.client, 'rpm', ['EXT-1'])).rejects.toThrow('clearSourceMissing');
+    }
+  });
+
+  it('正向對照:PGRST204(schema cache 沒這欄)也算「欄未建」,一樣 fail-soft', async () => {
+    // 沒有這格,把判別窄成「只認 42703」會漏掉 PostgREST 那條路 —— apply 前的 cron 仍會整批紅。
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const r = makeUpdateRecorder({ code: 'PGRST204', message: "Could not find the 'source_missing_at' column" });
+    await expect(markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z')).resolves.toBe(0);
+    warn.mockRestore();
   });
 });

@@ -4,6 +4,8 @@ import {
   type AdminColumn,
 } from '../shared/admin-data-table';
 import {
+  isSourceMissing,
+  resolveListingSetBy,
   resolveListingState,
   resolvePrice,
   type AdminProductRow,
@@ -12,9 +14,22 @@ import {
 // M-4b #20 片1a:商品列表表格。相對 import(非 `@/`)—— 根 vitest.config 的 `@` alias 指向 storefront,
 // admin 檔案用 `@/` 在測試裡 resolve 不到(先例逐字見 app/settings/suppliers/page.tsx:14-19)。
 //
-// 🔴 **本檔不得直接讀 `row.price_general` / `row.delisted_at`** —— 一律經 `resolvePrice` /
-//    `resolveListingState`(plan §3 設計約束;Q-B1 拍 B 案時那兩支是唯一要改的落點)。
+// 🔴 **本檔不得直接讀 `row.price_general` / `row.delisted_at` / `row.listing_set_by` /
+//    `row.source_missing_at`** —— 一律經 `resolvePrice` / `resolveListingState` /
+//    `resolveListingSetBy` / `isSourceMissing`(plan §3 設計約束)。
 //    這條由 products-table 的來源掃描測試釘住,不是靠這段註解。
+
+/**
+ * 「誰決定的」標記(`#20` 片2c;文案為 Sean 2026-08-15 拍板字面,**不得自行改寫**)。
+ *
+ * 🔴 **每一列都必須顯示其一。** 這不是排版偏好 —— Sean 把文案從「員工設定」改成「手動/自動」,
+ *    理由就是**兩種狀態都要有名字**:只有一種有標記時,「空白」會同時代表「自動」與「資料壞了」。
+ * ⇒ 值不在白名單時顯示「⚠ 資料異常」,**不得靜靜落回「自動」**(負測釘住)。
+ *
+ * ⚠️ **上線初期會全部是「自動」、「手動」chip 篩出 0 筆** —— 因為寫入 `staff` 的員工入口
+ *    在後續片才做(plan §5 `Q3=乙`)。**那不是壞掉**,空狀態文案要講清楚。
+ */
+const SET_BY_LABEL = { staff: '手動', sync: '自動', unknown: '⚠ 資料異常' } as const;
 
 /** 售價顯示:`null` 回 null ⇒ AdminDataTable 自己渲染「—」,不在這裡編一個假的 0。 */
 function priceCell(row: AdminProductRow) {
@@ -47,8 +62,20 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductRow>> = [
     key: 'listing',
     header: '狀態',
     // 🔴 「已下架」要看得出來 —— 後台存在的理由之一就是把下架的那批找回來上架。
-    cell: (row) =>
-      resolveListingState(row) === 'listed' ? '上架中' : '已下架',
+    cell: (row) => (
+      <span className='flex flex-wrap items-center gap-1.5'>
+        <span>{resolveListingState(row) === 'listed' ? '上架中' : '已下架'}</span>
+        <span className='text-muted-foreground text-xs'>
+          {SET_BY_LABEL[resolveListingSetBy(row)]}
+        </span>
+        {/* 🔴 「原廠已無此品」≠「已停產、不能賣」——
+            Sean 的規則正好相反:原廠停產但他有現貨時,商品要繼續賣。
+            文案只陳述來源端的事實,不暗示能不能賣(migration 20260815030000 欄位註解同字面)。 */}
+        {isSourceMissing(row) && (
+          <span className='text-muted-foreground text-xs'>原廠已無此品</span>
+        )}
+      </span>
+    ),
     mobile: 'meta',
   },
 ];
