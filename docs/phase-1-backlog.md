@@ -13630,3 +13630,45 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
   (盤點全文 `~/pcm-mailbox/C-SWEEP-cookie-lifecycle-2026-08-16.md`)
   —— 🔴 **它不是我要找的那個病**(那個是「刪的時候參數不對」),
   **本條是「根本沒有刪」** ⇒ **同一族、不同病。**
+
+### #537. 🔴 client 產物裡到底有沒有 `priceByTier` —— **這題只在【產物】上成立,repo 內怎麼掃都不算**
+
+- **狀態:** 🔴 未處理 —— **只開號,現在不做。** 要先想清楚觀察點放哪(見下)。
+- **鐵則:** `CLAUDE.md` Server 端鐵則逐字 —— **「經銷價絕不傳到一般會員瀏覽器」**。
+- **🔴 為什麼 repo 內的守門與 grep【全部答不了它】:**
+  它們證的是「**我們的原始碼有沒有寫出洩漏**」,而鐵則問的是
+  「**送到客人瀏覽器的那包東西裡有沒有那個值**」。
+  中間隔著:build、tree-shaking、RSC payload 序列化、CDN 快取、以及**部署本身**。
+  📎 **memory 有一條直接同構的實錘**(`feedback_vercel-build-cache-served-stale-css`):
+  > **Vercel 建置快取送舊 CSS ⇒ 同一顆 commit,線上與本機產物【不同】,而 repo 內守門全看不到。**
+  ⇒ **同一個道理:這題的觀察點必須在【產物那一端】。**
+- **現況(C 窗 2026-08-16 查,附分母):**
+  ```
+  ⚠️ 假分母：git grep -iE "dealerPrice|dealer_price|經銷價"  ⇒ 70 檔
+             （大半誤中：「經銷【商】」tier 標籤 + 大量註解）⇒ 這個 pattern 不能用
+  ✅ 真識別字：priceByTier（domain 層對 dealerPrice / dealer_price 零命中）
+     storefront 全樹（排測試）：20 行【註解】（都在說「已 strip、不帶」）
+                                🔴 1 行【真的使用】：apps/storefront/src/lib/products.ts:212
+                                   price: v.priceByTier.general.amount
+                                   ← 而那一處正是 server-side strip 的出口（逐欄白名單，只留 general）
+  ```
+  ⇒ **設計上是對的。**
+  🔴🔴 **但「設計上對」與「產物裡真的沒有」是兩件事,而後者【沒有人量過】。**
+- **⚠️ 未查(照實留,不淡化):**
+  12 支測試命中 `priceByTier`(cart / CartView / CheckoutStep2 / CheckoutView / product-jsonld /
+  products / rule-based-engine / 三支 adapter / pricing)——
+  🔴 **我沒有逐支開檔確認它們各自在驗什麼。12 支命中【不等於】12 道守門。**
+- **可能的觀察點(未拍板,列給下一個人挑):**
+  - 甲:build 後掃 `.next` 產物(client chunks + RSC payload)有沒有 `priceByTier` / `price_store`
+    ⚠️ **本機 build 的產物 ≠ 線上產物**(上面那條 memory 就是這件事)⇒ 只能當第一道
+  - 乙:對**線上**真 API / 頁面回應抓一次,看 payload
+    🔴 **這才是鐵則真正要的觀察點**,但要有人在瀏覽器那端做
+  - 丙:CI 加一格「產物字串掃描」⇒ 動 CI ⇒ **鐵則 12④**
+- **🔴 不修未來會痛在哪:** **外洩對象是【一般客人】,而且不可回收** ——
+  價格結構一旦進了誰的瀏覽器,就沒有辦法收回來,也沒有辦法知道有多少人拿到過。
+  ⚠️ **而這條與內部的 `#534` / `#536` 不同級**:那兩條最壞是內部困擾,**這條是對外的。**
+- **相關:** 由 `#535` 盤點延伸的工具設計討論撈出來 ——
+  🔴 **本條之所以獨立成一件,是因為 `scripts/display-site-guard-audit.sh` 【答不了它】**:
+  那支工具問「N 個顯示點各自有沒有被釘」,**而本題的正確答案是【零個顯示點】**
+  ⇒ 形狀不同,硬跑只會產出**有數字而沒有意義**的報告。
+- **發現於:** 2026-08-16 · C 窗 · 主視窗指派用新工具驗經銷價時,判定工具不適用而延伸出來
