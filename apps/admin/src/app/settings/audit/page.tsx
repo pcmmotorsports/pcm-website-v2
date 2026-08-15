@@ -4,6 +4,11 @@ import { notFound } from 'next/navigation';
 //    而那道「直接打網址會不會被擋」的負測就**跑不起來**(症狀是整族解析失敗,不是紅一格)。
 //    形狀照抄同層既有前例 `app/settings/suppliers/page.tsx:2-9`(該頁檔頭寫了同一個理由)。
 import { isAuditUiEnabled } from '../../../lib/audit/audit-ui-flag';
+import { toAuditListRow } from '../../../lib/audit/audit-list-view';
+import { diffAuditPayload } from '../../../lib/audit/audit-diff';
+import { getAdminAuditLogReader } from '../../../lib/orders/order-repository';
+import { listActiveStaff } from '../../../lib/staff';
+import { AuditLogTable, type AuditTableRow } from '../../../components/audit/audit-log-table';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,11 +30,53 @@ export const dynamic = 'force-dynamic';
 // 🔴 **路徑 `/settings/audit` = 主視窗 2026-08-15 裁定,不是 Sean 拍板**
 //   (後台內部路由、不對外、不影響 SEO)。**改起來成本低,別當釘死的。**
 //
-// ⚠️ **D1c-1 只做到頁殼**:表格與展開檢視是 D1c-2。
-//   顯示層(`lib/audit/audit-list-view.ts`)與讀取埠(`AuditLogReader`)D1b/D1a-2 已備好,
-//   本片**刻意不接** —— 先把「進不進得去」閉環,再談好不好看。
-export default function AuditLogPage() {
+// ── 🔴🔴 2026-08-15:`20260815020000` 檔頭的正當性,前半段已被 Sean 推翻 ────────────
+//   **被推翻的原句**(逐字,留痕不刪):
+//     > 本片開放 SELECT 的正當性建立在「後台目前只有 Sean 一人測試、員工未上工」。
+//     > **員工真正上工之前,`#26` 真認證必須先落地** —— 否則自選身分的人讀得到經銷價 / 成本 / PII。
+//   **Sean 2026-08-15 原話**(經主視窗轉達):
+//     > **「是可以甲, 但是成本、客戶客人資料 **員工是可以看的**」**
+//   ⇒ **前半段(員工未上工所以還安全)是錯的前提** —— **不是因為員工還沒上工才安全,
+//     是因為員工本來就該看得到這些。** 內容本身不是風險。
+//   ✅ **後半段仍然成立,而且現在是唯一的理由**:
+//     🔴 **`#26` 真認證要的不是「擋員工」,是「確認進來的人真的是員工」。**
+//     Sean 說的是**員工**可以看,**不是任何登入的人**都可以看。
+//   ⇒ **風險的形狀變了:不是「內容太敏感」,是「身分沒驗過」。兩者要防的東西不同。**
+//   ⚠️ **那支 migration 已 apply、不得回頭改** ⇒ 更正只能寫在這裡。引用該檔頭前先讀本段。
+//
+// ⚠️ **D1c-2a = 表格 + 三狀態**;展開檢視(顯示 `before`/`after`)是 **D1c-2b**,已批准、尚未做。
+export default async function AuditLogPage() {
   if (!isAuditUiEnabled()) notFound();
+
+  // 🔴 **`50` 寫在這裡是刻意的**:`AuditLogReader.listRecent(limit)` **沒有預設值**
+  //    (`lib/audit/repository.ts:73-75` 逐字:預設值會讓「這頁一次抓幾筆」藏在最底層,
+  //     而那是頁面層的決定)。⇒ 這個數字要看得見。
+  //    ⚠️ **50 是我(C 窗)定的,不是拍板** —— 一頁看得完、又不會讓人覺得「只有幾筆」。改起來一行。
+  const LIMIT = 50;
+
+  // ── 🔴🔴 「讀取失敗」與「沒有資料」必須走兩條路,而這是機制不是文案 ────────────
+  //   `SupabaseAuditLogReader.listRecent()` 出錯時**是 throw、不是回 `[]`**(D1a-2 刻意如此)。
+  //   ⇒ 若這裡寫成 `catch { rows = [] }`,畫面會顯示「目前沒有操作紀錄」——
+  //     **那就是「壞掉但看起來完全正常」**,而且是**親手把 D1a-2 的設計意圖丟掉**。
+  //   🔴 同形狀已在同一天的訂單線獨立踩過一次(「拿不到值 ≠ 0」,換一個資料型別)
+  //     ⇒ 主視窗裁定:守門那格 **must,不准降級**。負測在 `page.test.tsx`。
+  let rows: AuditTableRow[] = [];
+  let loadFailed = false;
+  try {
+    const [logs, staff] = await Promise.all([
+      getAdminAuditLogReader().listRecent(LIMIT),
+      listActiveStaff(),
+    ]);
+    // 🔴 差異在**頁面層**算,不塞進 `toAuditListRow` —— 那支是 D1b 的顯示層,
+    //    檔頭逐字寫著 `before`/`after` 不在它的輸出裡(plan 驗收 6)。
+    rows = logs.map((log) => ({
+      ...toAuditListRow(log, staff),
+      changes: diffAuditPayload(log.before, log.after),
+    }));
+  } catch (error) {
+    console.error('[admin/settings/audit] 操作紀錄載入失敗', error);
+    loadFailed = true;
+  }
 
   return (
     <div className='mx-auto max-w-6xl space-y-4'>
@@ -40,9 +87,15 @@ export default function AuditLogPage() {
         </p>
       </div>
 
-      <div className='text-muted-foreground rounded-lg border p-6 text-sm'>
-        紀錄表格尚未接上(D1c-2)。
-      </div>
+      {loadFailed ? (
+        // 🔴 **文案與空狀態必須讀起來完全不同** —— 這一塊的存在意義就是讓員工分得出
+        //    「沒人動過東西」和「這頁讀不到資料」。長得像的話,這道分流等於沒做。
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          操作紀錄載入失敗,請稍後再試或聯絡系統維護。
+        </div>
+      ) : (
+        <AuditLogTable rows={rows} />
+      )}
     </div>
   );
 }
