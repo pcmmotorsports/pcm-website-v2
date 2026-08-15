@@ -79,7 +79,12 @@ describe('BMW M token:邊框與動效', () => {
 });
 
 describe('Tailwind v4 的裸 `rounded` 陷阱', () => {
-  it('🔴 admin 全樹不得再出現裸 `rounded` 或 `rounded-[Npx]` —— 兩者都是 `--radius` 蓋不掉的靜態值', () => {
+  // 🔴🔴 **標題與註解裡不要寫出 `rounded-` 加方括號的完整字面** ——
+  //    Tailwind v4 掃【原始碼字串】找 class,它不管那是不是註解:
+  //    第一版標題寫了那個字面 ⇒ 編譯產物真的多出 `.rounded-\[Npx\]{border-radius:Npx}`
+  //    —— **一條無效 CSS 進了 bundle,而三綠全綠、測試全過。**
+  //    ⇒ **這是「偵測器打到自己的輸入」的反向版:我的【說明文字】變成了它的【輸入】。**
+  it('🔴 admin 全樹不得再出現裸 `rounded`,或用方括號寫死的任意圓角 —— 兩者都是 `--radius` 蓋不掉的靜態值', () => {
     // R2 審查 F5:編譯產物 `.rounded{border-radius:0.25rem}` vs `.rounded-md{border-radius:0}`。
     // 本片把 29 處(12 檔,集中在出貨流)改成 `rounded-md`;沒有這一格的話,
     // **下一個人再寫一個裸 `rounded` 就會在一片直角裡留 4px,而三綠全綠。**
