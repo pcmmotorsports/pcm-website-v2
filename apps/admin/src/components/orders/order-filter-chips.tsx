@@ -10,8 +10,11 @@ import { buildOrderListHref, type OrderListDisplayState } from '../../lib/orders
 // 🔴 **OD 畫四顆,本片只做兩顆**,另外兩顆各有去處、不是漏做:
 //    · `待處理` → `#485`(**Sean 拍板:還沒收錢 = `unpaid` ∪ `partiallyPaid`**
 //      —— 出處 commit `4ffda20b` / `a01457be`(兩顆都在 `origin/dev` 上、可達);
-//      **實作前要先查 PostgREST 的 OR 語意**,現行各軸是 `.eq`/`.in` = AND,
-//      而 `.or()` 已被 L6 隱藏規則用掉一次 —— 那條沒人查過)
+//      ~~**實作前要先查 PostgREST 的 OR 語意**…那條沒人查過~~
+//      🏁 **2026-08-15 已查完,原句留痕在上、作廢**:出處 `docs/specs/2026-08-15-1-p0-postgrest-or-semantics.md`
+//      (commit `b4865c29`)—— **跑起一座丟棄式 PostgREST 實測,不是讀文件推的**。
+//      結論:**兩個 `.or()` 疊起來 = AND 且各自括號保住** `(A OR B) AND (C OR D)`;
+//      `.or()` 疊 `.in('id',…)` 也是 AND;🔴 **`.or()` 不會自帶 `cancelled_at` 守門,不加就會撈回已取消的單。**)
 //      ⚠️ **本行原寫「拍 C = 兩者聯集」,而同一拍板在 commit 記錄裡是 `Q-待處理=B`。**
 //      兩份選項清單編號不同、行為描述一致 ⇒ **本檔改引行為與出處,不引字母。**
 //      🔴 **通則**:**決策代號(甲/乙/A/B/C)是那一次對話的座標,不是永久識別碼** ——
