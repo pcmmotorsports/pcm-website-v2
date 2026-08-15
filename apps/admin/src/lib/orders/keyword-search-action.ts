@@ -8,6 +8,7 @@ import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
 import {
   ORDER_KEYWORD_COOKIE,
+  ORDER_KEYWORD_COOKIE_PATH,
   ORDER_KEYWORD_FIELD,
   ORDER_KEYWORD_RETURN_TO_FIELD,
   encodeOrderKeywordCookie,
@@ -81,7 +82,7 @@ export async function applyOrderKeywordSearchAction(formData: FormData): Promise
       // 🔴 `/orders` 而不是 `/`(code-reviewer 2026-08-10 nit-8):`/` 會讓這個帶 PII 的 cookie
       //    跟著**每一個** admin 請求送出(含 `/_next/*` 靜態資源)。目前唯一的讀取端就是訂單列表,
       //    收窄曝光面、行為零損失。⚠️ 日後有別的路由要讀它,記得同步放寬這裡。
-      path: '/orders',
+      path: ORDER_KEYWORD_COOKIE_PATH,
       // 🔴 **刻意不給 max-age = session cookie**(主視窗 2026-08-10 核准):
       //    搜尋詞可能含客人姓名,關掉瀏覽器就該消失,不在硬碟上長留。
     });
@@ -106,7 +107,7 @@ export async function applyOrderKeywordSearchAction(formData: FormData): Promise
     //       那正是本檔下方註解逐字說「更糟」的那個形狀。
     // ⚠️ 本條由 codex 對抗審查 2026-08-16 指出於**客戶側**;**訂單側是同一個病、而且已經上線**
     //    ——finding 給的是症狀位置,不是病的邊界(house 教訓)。
-    store.delete({ name: ORDER_KEYWORD_COOKIE, path: '/orders' });
+    store.delete({ name: ORDER_KEYWORD_COOKIE, path: ORDER_KEYWORD_COOKIE_PATH });
   }
 
   // 🔴 `redirect()` 一定要在所有 try 之外(本檔沒有 try,但下一個人加的時候要記得):

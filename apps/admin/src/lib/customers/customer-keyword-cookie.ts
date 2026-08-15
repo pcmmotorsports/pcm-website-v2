@@ -36,6 +36,28 @@ import { MAX_ORDER_KEYWORD_LENGTH, normalizeOrderKeywordSearch } from '@pcm/doma
 export const CUSTOMER_KEYWORD_COOKIE = 'admin_customer_keyword';
 
 /**
+ * 這顆 cookie 的 `Path` 屬性 —— **`set` 與 `delete` 兩端【都】從這裡取值。**
+ *
+ * 🔴🔴 **為什麼是常數,而不是兩邊各自寫 `'/customers'`**(`#535` / `#536` 立的 repo 標準):
+ * `cookies().delete(name)` 在 Next 展開成 `set({ name, value: '', expires: new Date(0) })`
+ * (`@edge-runtime/cookies/index.js:302-305`)⇒ **完全不帶 `Path`**
+ * ⇒ 瀏覽器算 default-path 得 `/`,與 `Path=/customers` 不匹配 ⇒ **原 cookie 活著、清不掉。**
+ * 那個缺陷**已上線過**,而且症狀是**「清除【看起來成功了】」**(chip 消失、列表回到全部),
+ * 唯一異常訊號是搜尋框裡還留著舊詞 —— **假裝成功比沒反應難察覺得多。**
+ *
+ * 🔴 **兩邊各自寫死同一個字面時,改一邊忘另一邊【不會有任何東西紅】。**
+ * **引用同一顆常數,那個錯誤在 code 層就構造不出來** ——
+ * **比任何守門都強,因為它不是「會抓到」,是「寫不出來」。**
+ * (正面先例:`storefront/src/lib/auth/line.ts:32` 的 `LINE_OAUTH_COOKIE_PATH`。)
+ *
+ * ⚠️⚠️ **不要拿它去換 `keyword-search-action.ts` 裡 `safeListReturnTo` 的 `'/customers'`** ——
+ * 那個是**redirect 目的地的 URL 前綴白名單**,這個是**cookie 的 `Path` 屬性**:
+ * **字面相同、語意不同的兩件事。** 綁在一起之後,哪天 cookie 要收窄路徑,
+ * 就會**順手把 redirect 白名單一起改掉**,而那條白名單是 `#525` 對抗審查加的 PII 防線。
+ */
+export const CUSTOMER_KEYWORD_COOKIE_PATH = '/customers';
+
+/**
  * 搜尋表單的兩個欄位名。
  *
  * 🔴 **為什麼住在這裡而不是 action 檔**:`'use server'` 模組**只能 export async function** ——

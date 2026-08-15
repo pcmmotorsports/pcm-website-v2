@@ -8,6 +8,7 @@ import { TIER_PARAM } from './customer-list-view';
 import { authorizeAdminMutation } from '../session/authorize';
 import {
   CUSTOMER_KEYWORD_COOKIE,
+  CUSTOMER_KEYWORD_COOKIE_PATH,
   CUSTOMER_KEYWORD_FIELD,
   CUSTOMER_KEYWORD_RETURN_TO_FIELD,
   encodeCustomerKeywordCookie,
@@ -92,7 +93,7 @@ export async function applyCustomerKeywordSearchAction(formData: FormData): Prom
       // 🔴 `/customers` 而不是 `/`:`/` 會讓這個帶 PII 的 cookie 跟著**每一個** admin 請求送出
       //    (含 `/_next/*` 靜態資源)。目前唯一的讀取端就是客戶列表 ⇒ 收窄曝光面、行為零損失。
       //    ⚠️ 日後有別的路由要讀它,記得同步放寬這裡。
-      path: '/customers',
+      path: CUSTOMER_KEYWORD_COOKIE_PATH,
       // 🔴 **刻意不給 max-age = session cookie**:搜尋詞可能含客人姓名/電話,
       //    關掉瀏覽器就該消失,不在硬碟上長留。
     });
@@ -114,7 +115,7 @@ export async function applyCustomerKeywordSearchAction(formData: FormData): Prom
     //       那正是本檔下方註解逐字說「更糟」的那個形狀。
     // ⚠️ 本條由 codex 對抗審查 2026-08-16 指出於**客戶側**;**訂單側是同一個病、而且已經上線**
     //    ——finding 給的是症狀位置,不是病的邊界(house 教訓)。
-    store.delete({ name: CUSTOMER_KEYWORD_COOKIE, path: '/customers' });
+    store.delete({ name: CUSTOMER_KEYWORD_COOKIE, path: CUSTOMER_KEYWORD_COOKIE_PATH });
   }
 
   redirect(returnTo);
