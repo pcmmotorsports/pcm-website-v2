@@ -18,7 +18,12 @@ export const viewport: Viewport = {
 };
 
 // M0-S1 骨架:單一殼 layout(sidebar + header + content),light 預設、dark 可切。
-// 尚未接資料、無登入(SSO 收端等提案批准後於後續 slice 加 middleware)。
+// 🔴 **登入閘早就上線了,別照舊字面判斷**(#10 片1 順帶修;原字面逐字「尚未接資料、**無登入**
+// (SSO 收端等提案批准後於後續 slice 加 middleware)」)。現況:`apps/admin/src/proxy.ts:39-50`
+// 是 fail-closed 全站閘(無 session → 303 導 `/api/sso/start`),matcher `proxy.ts:64` 逐字
+// `'/((?!_next/static|_next/image|favicon.ico).*)'` ⇒ 除靜態資源外**每一條路由都在閘後**。
+// 改這行的理由不是順手整理:照舊字面做判斷的人會以為 admin 是裸的,那是**安全誤判**。
+// (Next 16 把 `middleware.ts` 改名 `proxy.ts` ⇒ 找不到 middleware 檔不代表沒有閘。)
 //
 // #350b:content 之外多一個 `@panel` **平行路由槽**(共用右側面板系統,wave-plan `:23`)。
 // 🔴 `panel` 這個 prop 名 = 資料夾名 `app/@panel`,**改一個就要同時改另一個**,

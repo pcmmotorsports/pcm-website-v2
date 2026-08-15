@@ -234,8 +234,19 @@ function Sidebar({
   }
 
   return (
+    // 🔴 `print:hidden` 在**這個 root**、不是在下面的 `sidebar-container`(#10 片1,Q-D-2=乙)。
+    //    為什麼:`Sidebar` 的 `className` prop 被合進 **`sidebar-container`**(本檔下方那個
+    //    `fixed` 的 div),而佔位寬度是它旁邊的 **`sidebar-gap`** 撐出來的。
+    //    ⇒ 只藏 container 的話,紙上會留下**一整條空白欄**而畫面上完全看不出來 ——
+    //      那正是「`print:hidden` 最常見的殘留」。放在 root 才把 gap 一起帶走。
+    //    ⚠️ 同一列還有 `md:block`,兩者都是 media query ⇒ **誰贏由產物的先後順序決定,不是由這行字面**。
+    //      這件事只有真瀏覽器量得到(memory `feedback_css-guards-pin-the-literal-not-the-computed-value`)。
+    //    ⚠️ 本檔是 shadcn primitive,但全 repo `<Sidebar` 只有一處使用者
+    //      (`layout/app-sidebar.tsx:60`;數法 `grep -rn "<Sidebar\b" apps/admin/src --include='*.tsx' | grep -v '\.test\.'` ⇒ 1 行)
+    //      ⇒ 影響面就是後台那一條側欄。上面兩個 return(`collapsible='none'` 與手機 Sheet)**刻意不改**:
+    //      前者全 repo 無人使用、後者只在手機開啟時掛載,兩者我都測不到,不加沒測過的字面。
     <div
-      className='group peer text-sidebar-foreground hidden md:block'
+      className='group peer text-sidebar-foreground hidden md:block print:hidden'
       data-state={state}
       data-collapsible={state === 'collapsed' ? collapsible : ''}
       data-variant={variant}
