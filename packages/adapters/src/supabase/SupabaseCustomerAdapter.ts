@@ -15,6 +15,78 @@ import {
   mapSupabaseAdminCustomerRowToSummary,
 } from './mappers/customer';
 
+/**
+ * `admin_search_customers` 的函式名 —— **逐字對 migration 簽章**。
+ *
+ * 🔴 GRANT 綁的是精確簽章,漂一個字 = 執行期 404/42501。
+ * ⚠️ 函式名與參數名這一層由生成型別(`database.types.ts`)接手,**前提是這裡不做窄介面 cast**。
+ */
+const ADMIN_SEARCH_CUSTOMERS_FN = 'admin_search_customers' as const;
+
+/**
+ * 候選集上限 —— **與 migration 的硬夾值同值**(`p_limit` 硬夾 100)。
+ * 🔴 兩邊不同步的症狀:RPC 回超過這裡的量 ⇒ 下面的形狀驗證會擲錯(**吵,不靜默截斷**)。
+ */
+const ADMIN_CUSTOMER_ID_IN_CAP = 100;
+
+const CUSTOMER_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** RPC 回傳形狀與程式假設不符時擲出(`#525`)。 */
+export class CustomerKeywordSearchShapeError extends Error {
+  constructor(detail: string) {
+    super(`admin_search_customers 回傳形狀不符:${detail}`);
+    this.name = 'CustomerKeywordSearchShapeError';
+  }
+}
+
+/** 只回型別名稱,**不回值** —— 值是搜尋結果、不該進 log。 */
+function describeCustomerSearchType(v: unknown): string {
+  if (v === null) return 'null';
+  return Array.isArray(v) ? 'array' : typeof v;
+}
+
+/**
+ * 把 RPC 的 `jsonb` 回傳**當外部輸入驗**(`#525`;形狀逐字對齊訂單側的同款函式)。
+ *
+ * 🔴 **為什麼是擲、不是把壞掉的部分濾掉**:濾掉 = 悄悄回零筆 = 員工看到「查無此人」,
+ * 而**測試會全綠**(mock 餵的一定是符合假設的形狀)。
+ * RPC 回的是 `jsonb`,PostgREST 原封轉成 JSON ⇒ **型別系統一個字都保證不了**。
+ * ⇒ 唯一的防線就是執行期把它當外部輸入驗。**fail-closed 且吵。**
+ */
+function parseAdminSearchCustomersResult(data: unknown): { ids: string[]; truncated: boolean } {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    throw new CustomerKeywordSearchShapeError(
+      `回傳不是物件(拿到 ${describeCustomerSearchType(data)})`,
+    );
+  }
+  const { ids, truncated } = data as { ids?: unknown; truncated?: unknown };
+  if (typeof truncated !== 'boolean') {
+    throw new CustomerKeywordSearchShapeError(
+      `truncated 不是 boolean(拿到 ${describeCustomerSearchType(truncated)})`,
+    );
+  }
+  if (!Array.isArray(ids)) {
+    throw new CustomerKeywordSearchShapeError(
+      `ids 不是陣列(拿到 ${describeCustomerSearchType(ids)})`,
+    );
+  }
+  if (ids.length > ADMIN_CUSTOMER_ID_IN_CAP) {
+    throw new CustomerKeywordSearchShapeError(
+      `ids 有 ${ids.length} 筆、超過上限 ${ADMIN_CUSTOMER_ID_IN_CAP}(RPC 的硬夾值與呼叫端不同步?)`,
+    );
+  }
+  if (!ids.every((id): id is string => typeof id === 'string' && CUSTOMER_UUID_RE.test(id))) {
+    throw new CustomerKeywordSearchShapeError('ids 含非 UUID 形狀的元素');
+  }
+  // 🔴 唯一性:RPC 端用 `UNION`(非 `UNION ALL`)正是為了不吐重複 ⇒ **重複 = 那個保證破了**。
+  //    不擋的話「找到 N 筆」的 N 會比真實客戶數大。**fail-closed 且吵,不靜默去重。**
+  if (new Set(ids).size !== ids.length) {
+    throw new CustomerKeywordSearchShapeError('ids 有重複(RPC 的 UNION 語意保證不該發生)');
+  }
+  return { ids, truncated };
+}
+
 /** PostgREST not-found error code(`.single()` 找不到 row)。 */
 const PGRST_NOT_FOUND = 'PGRST116';
 
@@ -122,17 +194,43 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
     filter: AdminCustomerFilter,
     pagination: PaginationParams,
   ): Promise<Paginated<AdminCustomerSummary>> {
-    // 🔴🔴 **`keyword` 尚未實作 ⇒ 明確擲錯,絕不靜默忽略**(`#525`)。
-    //    靜默忽略的症狀:員工搜「王小明」、UI 說「目前搜尋:王小明」、**而列表是全部客戶**
-    //    —— 那正是 `apps/admin/src/lib/orders/order-list-view.ts` 逐字警告的 **fail-open**。
-    //    ⚠️ **擲錯比回錯的東西好**:錯誤會被看見,fail-open 不會。
-    //    走 RPC 而不是 `.or()` 的理由(威脅面)寫在 `AdminCustomerFilter.keyword` 的 docstring;
-    //    RPC 要 migration ⇒ 中鐵則 12③ ⇒ 等 Sean 批。
+    // 🔴🔴 **搜尋詞走 RPC(POST + JSON body),絕不走 `.or()`**(`#525`)。
+    //    `.or()` 是**把值內插進 GET query string** ⇒ 值裡的字元會**改變 filter 的結構**;
+    //    訂單側之所以不需要字元集守門,正是因為它走 `.rpc()`
+    //    (理由全文 `packages/domain/src/order/keyword-search.ts:20-28` ——
+    //     那兩支有守門的維度**連同威脅面一起被刪除**,改用 `.or()` 等於把威脅面裝回來而守門不在)。
+    //    ⚠️ **不得**為了快取或好 debug 傳 `{ get: true }` / `{ head: true }` ——
+    //       那兩個走 postgrest-js 的**同一個分支**,都會把 `p_query` 塞進網址,
+    //       而網址會落進 access log / CDN log / 瀏覽器歷史 / Referer。**搜尋詞是 PII。**
+    //    🔴 參數名逐字對 migration 簽章;**不做窄介面 cast、不用 spread** ——
+    //       那一層由生成型別接手,spread 會讓型別檢查與參數名守門同時失效。
+    // 🔴 **`truncated` 目前【刻意不往上帶】** —— `Paginated<T>` 沒有那個欄位,
+    //    而訂單側是用專屬的 `AdminOrderListResult` 承載它。
+    //    ⚠️ 加一個**零消費端**的回傳欄位是投機:UI 還沒做,型別要長什麼樣由那一片決定。
+    //    ✅ **但它【有】被驗**:`parseAdminSearchCustomersResult` 斷言它是 boolean
+    //       ⇒ RPC 若不回或回錯型別,這裡就炸,不會靜默。
+    //    🔴 **UI 片必須把它接起來** —— migration 的 `COMMENT` 逐字要求
+    //       「命中超過上限時 UI 必須顯示『結果太多請更精確』」,**靜默截斷會讓員工以為就這幾筆**。
+    //       那一片要新增客戶側的結果型別(同 `AdminOrderListResult` 的形狀)。
+    let keywordIds: string[] | null = null;
     if (filter.keyword !== undefined) {
-      throw new Error(
-        '客戶搜尋尚未實作:`admin_search_customers` RPC 還沒建立(#525,等 migration 批准)。' +
-          '在那之前不得設定 AdminCustomerFilter.keyword —— 靜默忽略會讓列表 fail-open 變回全部客戶。',
-      );
+      const { data, error } = await this.supabase.rpc(ADMIN_SEARCH_CUSTOMERS_FN, {
+        p_query: filter.keyword,
+        p_limit: ADMIN_CUSTOMER_ID_IN_CAP,
+      });
+      // 🔴 error 先處理、再碰 data —— 先讀 data 會讓「錯誤」變成「形狀錯誤」,指錯方向。
+      if (error) {
+        throw error;
+      }
+      const parsed = parseAdminSearchCustomersResult(data);
+      keywordIds = parsed.ids;
+      // 🔴 **零命中 ⇒ 直接回零筆,不打第二段查詢**:
+      //    `.in('user_id', [])` 的行為不押(postgrest 對空陣列的語意不是我們的合約)。
+      //    ⚠️ `truncated` **照實帶出去、不寫死 false** —— 「零命中且 truncated」在 RPC 合約下
+      //       構造不出來,但**不靠「不可能」寫死值**:靠不可能寫死的東西,哪天可能了就是靜默降級。
+      if (keywordIds.length === 0) {
+        return { items: [], total: 0 };
+      }
     }
 
     const offset = pagination.offset ?? 0;
@@ -141,6 +239,8 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
       .from('customers')
       .select(ADMIN_CUSTOMER_LIST_SELECT, { count: 'exact' });
     if (filter.tier) query = query.eq('tier', filter.tier);
+    // 🔴 搜尋與 tier 是 **AND**:員工先選「經銷商」再搜名字,不該把 tier 洗掉。
+    if (keywordIds !== null) query = query.in('user_id', keywordIds);
 
     const { data, error, count } = await query
       .order('created_at', { ascending: false })

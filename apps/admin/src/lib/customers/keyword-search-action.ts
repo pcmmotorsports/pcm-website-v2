@@ -1,0 +1,93 @@
+'use server';
+
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { normalizeOrderKeywordSearch } from '@pcm/domain';
+import { readSingleString } from '../forms/single-value';
+import { authorizeAdminMutation } from '../session/authorize';
+import {
+  CUSTOMER_KEYWORD_COOKIE,
+  CUSTOMER_KEYWORD_FIELD,
+  CUSTOMER_KEYWORD_RETURN_TO_FIELD,
+  encodeCustomerKeywordCookie,
+} from './customer-keyword-cookie';
+
+// keyword-search-action.ts — `#525`:客戶搜尋 / 清除搜尋的**唯一入口**(POST + PRG)。
+//
+// 🔴 **PRG 是紅線不是風格**(`Q-a=B`):搜尋詞不進 URL ⇒ 表單必須 POST;
+//    POST 之後必須 redirect,否則員工按 F5 會重送整個 POST。
+//
+// 🔴 **清除搜尋走同一支**:送空字串 ⇒ 刪 cookie ⇒ 同樣 redirect。
+//    **不得**在前端做成 `router.replace` 之類的捷徑 —— 那會生出第二條語意不同、而且沒有人守的路徑。
+//
+// 🔴 **搜尋詞絕不落 log**:本檔連 `console.error` 都沒有 —— **不是忘了寫,是刻意的**
+//    (migration 檔頭同一條:搜尋詞是 PII、不得落 server log)。
+//
+// ⚠️ **本檔只能 export async function**(`'use server'` 模組的硬規定)——
+//    兩個表單欄位名常數因此住在 `customer-keyword-cookie.ts`。
+//    訂單側 2026-08-10 實測踩過:多一個非函式 export,`next build` 直接紅
+//    「The module has no exports at all」,而 **typecheck / lint / 全套測試都抓不到**。
+
+/**
+ * PRG 的目的地:表單帶回來的**當下列表 URL**(已由呼叫端把 `page` 歸 1)。
+ *
+ * 🔴 為什麼要帶、而不是一律 `redirect('/customers')`:
+ * 會員等級篩選是 **URL 狀態**;固定導回 `/customers` = **搜尋一次就把篩選洗掉**。
+ *
+ * 🔴 驗證 fail-closed 且**退回安全值**(照訂單側與 `wallet-actions.ts` 的既有 returnTo 範式):
+ * 不是站內 `/customers` 開頭、或含 `//` `://` 控制字元 ⇒ 一律當作 `/customers`。
+ * **不擲錯**的理由:此時 cookie 已經寫好了,擲錯只會讓員工看到錯誤頁**而不知道搜尋到底生效沒有**。
+ */
+function safeListReturnTo(raw: string | null): string {
+  if (raw === null) return '/customers';
+  // 🔴 控制字元與非 latin-1 一起擋:它們不是 open-redirect(那條被下面的前綴白名單擋死了),
+  //    而是**會讓 `redirect()` 自己爆掉** —— Node 對 header 值裡的這些字元擲 `ERR_INVALID_CHAR`,
+  //    結果正是上面說要避免的「cookie 寫好了、員工卻看到錯誤頁」。
+  if (raw.startsWith('//') || raw.includes('://')) return '/customers';
+  if (/[\u0000-\u001f\u007f]/.test(raw) || /[^\u0000-\u00ff]/.test(raw)) return '/customers';
+  if (raw !== '/customers' && !raw.startsWith('/customers?')) return '/customers';
+  return raw;
+}
+
+export async function applyCustomerKeywordSearchAction(formData: FormData): Promise<void> {
+  // 🔴 縱深防禦:本 action 只寫呼叫者自己的 cookie,實害有限 ——
+  //    但 `lib/session/authorize.ts` 明文「安全縱深不只靠 proxy 登入閘」,
+  //    **例外會變成慣例,慣例會被下一支真的碰資料的 action 抄走。**
+  //    未授權 ⇒ 什麼都不做、直接導回列表(不擲錯:proxy 那層本來就會把未登入的人導去 SSO)。
+  if ((await authorizeAdminMutation()) === null) redirect('/customers');
+
+  // 🔴 兩欄都走「`getAll()` 恰一筆」讀法:
+  //    · 搜尋詞送兩份 ⇒ 讀成 null ⇒ 正規化回 `empty` ⇒ **刪 cookie**。
+  //      這與「員工清空搜尋框」同一個出口,是刻意的 fail-closed:
+  //      **讀不出一個明確的搜尋詞時,寧可讓 chip 消失、列表回全部,也不要拿其中一份去查。**
+  //    · `return_to` 讀成 null ⇒ `safeListReturnTo` 退回 `/customers`。
+  const parsed = normalizeOrderKeywordSearch(readSingleString(formData, CUSTOMER_KEYWORD_FIELD));
+  const returnTo = safeListReturnTo(
+    readSingleString(formData, CUSTOMER_KEYWORD_RETURN_TO_FIELD),
+  );
+  const store = await cookies();
+
+  if (parsed.kind === 'ok') {
+    store.set(CUSTOMER_KEYWORD_COOKIE, encodeCustomerKeywordCookie(parsed.value), {
+      httpOnly: true,
+      sameSite: 'lax',
+      // 本機 http 開發要讀得到;正式站一律只走 https。
+      secure: process.env.NODE_ENV === 'production',
+      // 🔴 `/customers` 而不是 `/`:`/` 會讓這個帶 PII 的 cookie 跟著**每一個** admin 請求送出
+      //    (含 `/_next/*` 靜態資源)。目前唯一的讀取端就是客戶列表 ⇒ 收窄曝光面、行為零損失。
+      //    ⚠️ 日後有別的路由要讀它,記得同步放寬這裡。
+      path: '/customers',
+      // 🔴 **刻意不給 max-age = session cookie**:搜尋詞可能含客人姓名/電話,
+      //    關掉瀏覽器就該消失,不在硬碟上長留。
+    });
+  } else {
+    // `empty`   = 使用者清空了搜尋框(或按 ✕)
+    // `invalid` = 太長 / 含 NUL 之類 PG 與 JSON 收不下的字元
+    // 🔴 **兩者同一個出口 = 刪 cookie**,而**不是**保留舊搜尋詞:
+    //    保留的話,員工按了 ✕ 卻發現清單沒變,會以為系統壞了;
+    //    而 `invalid` 保留舊值更糟 —— **畫面顯示的搜尋詞與實際查詢的不是同一個。**
+    store.delete(CUSTOMER_KEYWORD_COOKIE);
+  }
+
+  redirect(returnTo);
+}

@@ -1,5 +1,7 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十個函式、共二十六處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十一個函式、共二十七處**手動校正
+//   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
+//    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
@@ -24,6 +26,11 @@
 //      與 ⑨ 同形狀「可省略且可為 null」;呼叫端刻意一律帶兩個鍵、沒有值送顯式 null
 //      〔#347-3b:不用 spread,才能讓「忘了帶」變編譯錯誤、也才掃得到參數名〕。
 //      p_limit **不補**:呼叫端一律帶值,沒有送 null 的路徑)
+//   ⑪ `admin_search_customers` **整段**(`#525`,2026-08-16)—— 與 ①–⑩ **形狀不同**:
+//      前十個是「既有函式的參數補 `| null`」,**這一個是整支函式在正式庫還不存在**
+//      (migration `20260816010000_*` 未 apply)⇒ **現在重 gen 不會產生它,而不是產生錯的它。**
+//      🔴 apply 之後重 gen:**先比對生成內容與本段是否一致,再刪本段** ——
+//         不要因為「反正會生成」就先拿掉,那會讓中間任何一次 gen 失敗變成靜默的型別漏洞。
 //   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」(⑨⑩ 是「可省略且可為 null」),一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
 //   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
@@ -3328,6 +3335,20 @@ export type Database = {
           p_limit?: number
           p_query: string
           p_to?: string | null
+        }
+        Returns: Json
+      }
+      admin_search_customers: {
+        // 🔴 **手動校正(見檔頭計數)** —— `#525` 新建的 RPC,而本檔是**從正式庫 gen 的**
+        // ⇒ 在 Sean apply 那支 migration 之前,重 gen 不會產生這一段。
+        // 簽章逐字對 `supabase/migrations/20260816010000_m4b_525_admin_search_customers.sql`:
+        //   `admin_search_customers(p_query text, p_limit integer DEFAULT 100) RETURNS jsonb`
+        // ⚠️ `p_limit` 不補 `| null`:呼叫端一律帶值(`ADMIN_CUSTOMER_ID_IN_CAP`),沒有送 null 的路徑。
+        // 🔴 **apply 之後重 gen 時,這一段應該會被自動產生** —— 屆時**先比對再刪本段**,
+        //    不要因為「反正會生成」就先拿掉(那會讓中間任何一次 gen 失敗變成靜默的型別漏洞)。
+        Args: {
+          p_limit?: number
+          p_query: string
         }
         Returns: Json
       }
