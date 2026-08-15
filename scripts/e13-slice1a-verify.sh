@@ -2,7 +2,7 @@
 #
 # `#13` 片1a 驗證 harness — 丟棄式 PostgreSQL 叢集上的行為證據。
 #
-#   bash scripts/e13-slice1a-verify.sh            # 全跑(provision → 步驟0 → 28 格 → 8 發突變 → 回退)
+#   bash scripts/e13-slice1a-verify.sh            # 全跑(provision → 步驟0 → 31 格 → 8 發突變 → 回退)
 #   PORT=54372 bash scripts/e13-slice1a-verify.sh # 換 port(多視窗同時跑時)
 #   KEEP=1 bash scripts/e13-slice1a-verify.sh     # 跑完不拆叢集(要進去手動查時用)
 #   WIDE=1 bash scripts/e13-slice1a-verify.sh     # 🔴 送審必用:訊息逐字不截斷(預設會 cut -c1-130)
@@ -143,6 +143,30 @@ VALUES
 INSERT INTO public.order_payments (order_id, rail, amount, received_at, actor, request_id)
 VALUES ('00000000-0000-0000-0000-000000000003','cash',800, now(), 'e13staff',
         '00000000-0000-0000-0000-0000000000f1');
+
+-- 🔴🔴 以下是給【真的 create_order】用的目錄資料(關卡2 之後補;E 挖到的零覆蓋):
+--    我的 items trigger 是 `AFTER INSERT OR DELETE OR UPDATE OF …`,
+--    **INSERT 沒有欄位清單 ⇒ create_order 每建一張新單都會觸發它**
+--    ⇒ **全站流量最大的那條路(客人結帳)穿過這道新守門,而上面 28 格【全是手寫 INSERT】、
+--      從來沒跑過 create_order** ⇒ 行為覆蓋與突變覆蓋都是 0。
+--    ⚠️ 後果等級差很多:新功能被擋可以等(沒人在用);**結帳被擋 = 客人下不了單。**
+INSERT INTO public.brands (id, name, slug)
+  VALUES ('00000000-0000-0000-0000-0000000000b1','E13 Brand','e13-brand');
+INSERT INTO public.categories (id, name, raw_path, segments)
+  VALUES ('00000000-0000-0000-0000-0000000000e1','E13 Cat','e13','["e13"]'::jsonb);
+-- price_by_tier 的 CHECK 逐字要求同時有 general 與 store 兩個 key
+INSERT INTO public.products (id, external_id, title, handle, price_by_tier, brand_id, category_id, availability)
+  VALUES ('00000000-0000-0000-0000-0000000000d1','E13-EXT-1','E13 商品','e13-product',
+          '{"general":500,"store":450}','00000000-0000-0000-0000-0000000000b1',
+          '00000000-0000-0000-0000-0000000000e1','in-stock');
+INSERT INTO public.product_variants (id, product_id, sku, spec, price_general, availability, supplier_slug)
+  VALUES ('00000000-0000-0000-0000-0000000000fa','00000000-0000-0000-0000-0000000000d1',
+          'E13-SKU-1','{}',500,'in-stock','e13sup');
+INSERT INTO public.customer_addresses (id, customer_user_id, name, line, phone)
+  VALUES ('00000000-0000-0000-0000-0000000000aa','00000000-0000-0000-0000-0000000000c1',
+          '甲','台北市','0900000000');
+INSERT INTO public.legal_terms_versions (version, content_hash, effective_at)
+  VALUES ('v1','deadbeef', now());
 COMMIT;
 EOF
   [ $? -eq 0 ] || die "seed 失敗"
@@ -186,7 +210,7 @@ chk() { # chk <名稱> <期望> <實得>
   else printf '  ❌ %-40s 期望[%s] 實得[%s]\n' "$1" "$2" "$3"; TOTAL_FAIL=$((TOTAL_FAIL+1)); fi
 }
 
-# ───────────────────────────────────────────────────────── 28 格
+# ───────────────────────────────────────────────────────── 31 格
 cells() { # cells <dbname>
   local DB="$1"
   local U=""   # 🔴 由 grp() 指向當前那一組的專屬 database
@@ -194,6 +218,9 @@ cells() { # cells <dbname>
   local O3=00000000-0000-0000-0000-000000000003 O4=00000000-0000-0000-0000-000000000004
   local A1=00000000-0000-0000-0000-0000000000a1 A2=00000000-0000-0000-0000-0000000000a2
   local A3=00000000-0000-0000-0000-0000000000a3 A4=00000000-0000-0000-0000-0000000000a4
+  local CUST=00000000-0000-0000-0000-0000000000c1 VAR=00000000-0000-0000-0000-0000000000fa
+  local ADDR=00000000-0000-0000-0000-0000000000aa
+  local CART1=00000000-0000-0000-0000-0000000000c8 CART2=00000000-0000-0000-0000-0000000000c9
   local RPC="SELECT public.admin_update_order_item_amount"
   local PASS=0 FAIL=0
   FAILED_CELLS=""   # 🔴 全域(不加 local)—— 突變判定要在父 shell 讀得到它
@@ -323,6 +350,49 @@ cells() { # cells <dbname>
   grp n8
   cell "N8 整單刪除(CASCADE)不算違規" "t" \
     "BEGIN; DELETE FROM order_items WHERE order_id='$O2'; DELETE FROM orders WHERE id='$O2'; COMMIT; SELECT true"
+
+  # ══ 🔴🔴 既有生產路徑:真的 create_order(關卡2 之後補;E 挖到的零覆蓋)═════════════
+  # 為什麼非有不可:我的 items trigger `AFTER INSERT` **沒有欄位清單**
+  # ⇒ **create_order 每建一張新單都會觸發它** ⇒ 客人結帳那條路穿過這道新守門,
+  #   而上面 28 格全是手寫 INSERT、**一次都沒跑過 create_order**。
+  # 🔴 **限度(這句要跟格子一起讀,不要讀成「連權限也驗了」)**:
+  #    harness 是 `superuser=postgres`,而正式站走 `SECURITY DEFINER` + grants;
+  #    這裡還**覆寫了 `auth.uid()`** 讓它回 seed 那位客人。
+  #    ⇒ **這兩格證的是【邏輯】—— 不是權限、不是 RLS、不是真實 auth 流程。**
+  echo "── 既有生產路徑(真的 create_order;證邏輯不證權限)──"
+  grp co
+  cell "CO1 真 create_order 建單成功" "true" \
+    "CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS \$\$SELECT '$CUST'::uuid\$\$;
+     SELECT (public.create_order('[{\"variant_id\":\"$VAR\",\"qty\":2}]'::jsonb,'$ADDR'::uuid,'home',
+       '{\"type\":\"donate\",\"donateCode\":\"001\"}'::jsonb,'$CART1'::uuid,'v1','127.0.0.1','e13-harness') ? 'order_id')::text"
+  # 🔴 這格順便釘住主視窗那個講反的方向:守門釘的是【小計】不是【總額】。
+  #    有運費的單 total 本來就比 subtotal 多 100 —— 那不是壞掉。
+  cell "CO1b 建單後:小計=Σ品項,而總額另含運費" "1000|1000|1100|100" \
+    "SELECT o.subtotal||'|'||(SELECT SUM(i.line_total) FROM order_items i WHERE i.order_id=o.id)
+            ||'|'||o.total||'|'||o.shipping_fee FROM orders o WHERE o.cart_session_id='$CART1'"
+
+  # 🔴🔴 突變:證明 CO1 紅得起來(E 的第三個條件;少了它 CO1 就是恆綠格)
+  #    「跑了 create_order 而且過了」與「跑了一個不可能失敗的東西」在輸出上長得一模一樣。
+  # ⚠️ 手法:**不改檔案** —— 用 pg_get_functiondef 把 DB 裡那支函式的定義撈出來、
+  #    改掉小計累加那一行、再 EXECUTE 回去。理由:改檔要重建整個 base(慢十倍),
+  #    而這樣改只影響這一組自己的庫。
+  # 🔴 anchor 命中次數當場斷言 —— **命中 0 次代表突變沒套用,而那會讓這格假綠**
+  #    (今天 D 窗實例:正典從「一樓」改「1樓」⇒ 突變的 replace 變 no-op ⇒ 兩格都綠)。
+  grp co2
+  cell "CO2 突變 create_order 小計 +1 ⇒ 建單被我的守門擋下" "ERR:pcm_e13_subtotal_matches_lines" \
+    "CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS \$\$SELECT '$CUST'::uuid\$\$;
+     DO \$mut\$
+     DECLARE d text; n integer;
+     BEGIN
+       SELECT pg_catalog.pg_get_functiondef(oid) INTO d FROM pg_catalog.pg_proc
+        WHERE oid='public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)'::regprocedure;
+       n := (length(d) - length(replace(d,'v_subtotal := v_subtotal + v_line_total;','')))
+            / length('v_subtotal := v_subtotal + v_line_total;');
+       IF n <> 1 THEN RAISE EXCEPTION 'CO2 突變 anchor 命中 % 次,期望 1 ⇒ 沒套用就跑等於假綠', n; END IF;
+       EXECUTE replace(d,'v_subtotal := v_subtotal + v_line_total;','v_subtotal := v_subtotal + v_line_total + 1;');
+     END \$mut\$;
+     SELECT public.create_order('[{\"variant_id\":\"$VAR\",\"qty\":2}]'::jsonb,'$ADDR'::uuid,'home',
+       '{\"type\":\"donate\",\"donateCode\":\"001\"}'::jsonb,'$CART2'::uuid,'v1','127.0.0.1','e13-harness')"
 
   echo "── 結構(唯讀,共用一個乾淨庫)──"
   grp s
@@ -489,7 +559,7 @@ trap cleanup EXIT
 provision
 step0
 
-hdr "步驟 1-3:apply 本片 → 28 格"
+hdr "步驟 1-3:apply 本片 → 31 格"
 prepare_run t_base || die "apply 失敗(見上)—— 不跑 cells"
 echo "  apply exit=0"
 # 🔴 apply 成功時的 NOTICE 必須真的印出來 —— **按按鈕的人看不懂 SQL,那三行是他唯一的回饋**。
@@ -646,8 +716,14 @@ mut "  IF v_new IS NOT NULL AND v_new IS DISTINCT FROM v_old THEN
 if prepare_run t_m8; then
   cells t_m8 > "$WORK/cells-t_m8.log"; mut_cells_out t_m8
   # 去重之後,一般 UPDATE 走的是 OLD 那側 ⇒ 只有 INSERT(v_old 為 NULL)會失去保護
-  # 乾淨隔離實測:去重之後只有 INSERT(v_old 為 NULL)靠 NEW 那側 ⇒ 只有 N5 flip
-  assert_mut "M8" "$C_N5" ""
+  # 乾淨隔離實測:去重之後只有 INSERT(v_old 為 NULL)靠 NEW 那側
+  # 🔴 **CO2 也 flip,而那是窮舉 hold 當場抓出來的、不是我事先想到的**:
+  #    `create_order` 建單走的就是 INSERT ⇒ 它同樣只靠 NEW 那側
+  #    ⇒ 拿掉 NEW,連「客人結帳時小計算錯」都不會被擋。
+  #    ✅ 這條反過來證明 CO1/CO2 那組**真的接在同一道守門上**,不是掛在旁邊的裝飾。
+  C_CO2="CO2 突變 create_order 小計 +1 ⇒ 建單被我的守門擋下"
+  assert_mut "M8" "$C_N5
+$C_CO2" ""
 else
   TOTAL_FAIL=$((TOTAL_FAIL+1)); echo "     🔴 M8:apply 失敗 ⇒ 這發沒測到任何東西"
 fi
