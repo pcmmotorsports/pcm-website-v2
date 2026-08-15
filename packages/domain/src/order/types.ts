@@ -796,6 +796,16 @@ export type AdminOrderItemQuantitySummary = {
    * (`shipped ⊆ instock`,再減一次 = 重複扣、把可取消量算小)。
    * ⚠️ 本欄存在之後,「看到 shipped 就順手減一下」變成一個**看起來很合理的**改壞方式 —— 別做。
    * 出處與拍板:本檔 `cancellableQuantity` 的 docstring、`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10。
+   *
+   * 🔴 **上面那條禁令的邊界(2026-08-15 `#10` 片1 補;R2 nit-7)**:它管的是
+   * **「可取消 / 上限 / 權限」那一類判斷**,**不是**禁止任何地方出現 `instock − shipped`。
+   * 合法用途至少兩處,兩處問的都是「倉庫裡現在還剩幾件」而不是「還能取消幾件」:
+   *   · `apps/admin/src/components/print/picking-doc.tsx` 的 `pickableQuantity()`(揀貨單應揀量)
+   *   · `apps/admin/src/lib/orders/order-status-axes.ts` 用 `shippedQuantity >= quantity` 判「已出貨」軸
+   * ⇒ **判準一句話:算「還能不能取消」就不准減 shipped;算「倉庫還剩什麼」就必須減。**
+   * (完整推導在 `picking-doc.tsx` 的 `pickableQuantity` docstring。DB 側硬約束
+   *  C7 `instock + cancelled <= quantity`、C9 `shipped <= instock` 保證這個差恆非負 ——
+   *  這兩條是 R2 reviewer 查出來的,不是我推的。)
    */
   shippedQuantity: number;
   /**

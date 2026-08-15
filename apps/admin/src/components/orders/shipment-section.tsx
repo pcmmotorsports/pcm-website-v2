@@ -10,6 +10,7 @@
 // 🔴 **作廢的箱照樣列出來**:作廢 = 那些品項回到可出貨池,不是消失。
 //    過濾掉的話,員工會以為貨憑空不見了。
 
+import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
@@ -68,11 +69,29 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                       {voided ? '已作廢' : shipped ? '已出貨' : '未出貨'}
                     </span>
                   </span>
-                  <ShipmentVoidButton
-                    shipmentId={shipment.id}
-                    shipmentReference={shipment.shipmentReference}
-                    voided={voided}
-                  />
+                  <span className='flex items-center gap-2'>
+                    {/* #10 片2b:這一箱的出貨單入口。**開新分頁** —— 員工印完要回到這張單繼續做事。
+                        🔴 **作廢的箱不給入口**(同片1 已取消訂單那條):本卡**刻意**仍列出作廢箱
+                           (檔頭 `:10-11`:讓員工看得到貨回到可出貨池)⇒ 入口要自己擋。
+                        ⚠️ **但這只是 UX,不是守門** —— 網址可貼、可書籤、分頁開著時箱才被作廢,
+                           那些路徑全繞過這顆鈕。真守門在 `components/print/shipping-doc.tsx`
+                           的 `shippingDocBlocker()`(擋六種狀態)。**兩層都要,少了下面那層這顆鈕等於零。** */}
+                    {!voided && (
+                      <Link
+                        href={`/print/orders/${detail.id}/shipping/${shipment.id}`}
+                        target='_blank'
+                        rel='noopener'
+                        className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-xs'
+                      >
+                        列印出貨單
+                      </Link>
+                    )}
+                    <ShipmentVoidButton
+                      shipmentId={shipment.id}
+                      shipmentReference={shipment.shipmentReference}
+                      voided={voided}
+                    />
+                  </span>
                 </div>
 
                 <div className='px-3 py-2 text-sm'>

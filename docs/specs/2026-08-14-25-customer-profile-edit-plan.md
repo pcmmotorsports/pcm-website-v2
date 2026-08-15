@@ -1,0 +1,94 @@
+# #25 改客人資料 — 施工 plan(C 窗 2026-08-14 夜;**待 Sean 批**)
+
+> 目標 = Sean 2026-07-25 逐字「可以所有會員資料」。現況 🟡 只能改 tier + 儲值金。
+> **本檔零 code。四片全部 ≥3 檔 ⇒ 全部命中鐵則 8,一片都不准先動。**
+> 條目引用複驗:`customer-detail.tsx:161-166` ✅ 逐字符合;`customer-detail-sections.tsx:94-138` ✅ 但**那是地址**,愛車在 `:140-185`(條目行號少寫一段,本檔更正)。
+
+## 0. Sean 已拍板(2026-08-14)
+
+- **Q-C-1 = A**:Email 欄**維持唯讀**,欄位旁加一行說明「**Email 是登入帳號,要另開片**」。⇒ C2 不排進本批。
+- **Q-C-2 = A**:員工編輯存量沒有 Email 的舊地址時,**逼他當場補**,沿用同一支 `AddressInput`、**不為後台開特例**。
+
+> 🔴 **Q-C-1 拍板當下的成本估計偏高,而那個估計是我給的。**
+> 我在 Q 信裡把 C2 描述成「要新開 migration + **接** Supabase Auth Admin API + 處理半套失敗」,語氣像是連管道都要從零建。
+> 事後實查:同一支 Admin API **已經在用**(`apps/storefront/src/lib/auth/line-admin.ts:38` `generateLink` / `:65` `createUser`),
+> client 來自 `createSupabaseServiceClient()`(`:21`)= **admin 端 `customer-repository.ts:24` 用的同一支 factory** ⇒ **管道現成,缺的只是沒人呼叫 `updateUserById`**。
+> **真正的擋點只剩兩條**(仍然成立、仍然要 migration + Sean 批):①DB 欄級 GRANT 不含 email(`20260717010000:174-175`,`:193-198` 斷言釘死)②`customers.email` 與 `auth.users.email` 無 UPDATE 方向同步 trigger。
+> ⇒ **Q-C-1 = A 依然是一個合理的選擇**(兩條擋點沒消失),但**它是在一個被誇大的成本前提下拍的**。
+> **依據寫在這裡供 Sean 隨時重估;我不替他改答案,本 plan 一律照 A 執行。**
+
+## 1. 逐欄盤點(每格都開過檔)
+
+| 欄 | 存哪 | 可不可寫 | 現成的路 |
+|---|---|---|---|
+| 姓名/電話/生日 | `customers.name/phone/birthday` | ✅ service_role 有欄級 GRANT(`20260717010000:175`) | `ICustomerRepository.update`(`ICustomerRepository.ts:26-29`)→ `SupabaseCustomerAdapter.ts:95-109`;schema `ProfileInput`(`packages/schemas/src/index.ts:166-183`);~~use-case `update-profile.ts:16-22`~~(**M4 裁定不走它**);admin repo getter 已在 `customer-repository.ts:23-25` |
+| **Email** | `customers.email` + **`auth.users.email`(登入帳號真身)** | ❌ **兩邊都沒有路** | 見 §2 |
+| 會員等級 | `customers.tier` | ✅ 已可改 | `admin_set_customer_tier` RPC |
+| 地址(0..n) | `customer_addresses` | ✅ 表級 GRANT 全開(`20260523034911:236`) | adapter CRUD 齊(`SupabaseAddressAdapter.ts:42/55/70/84`);use-case `add/update/delete-address.ts` + `set-default-address.ts`;schema `AddressInput`(`index.ts:116-127`);admin getter `customer-repository.ts:151-153` |
+| 愛車(0..n) | `customer_vehicles` | ✅ 表級 GRANT 全開(`:240`) | adapter CRUD 齊(`SupabaseVehicleAdapter.ts:36/49/64/78`);use-case `add/update/delete-vehicle.ts` + `set-primary-vehicle.ts`;schema `VehicleInput`(`index.ts:135-160`);admin getter `:155-157` |
+
+**結論:除了 Email,零新 DB 面、零新 adapter、零新 schema。缺的只有 admin 端的「表單 + server action」兩層。**
+(數法 = 上表每一格的 `檔案:行號` 逐格開檔確認;「零新 adapter」的反面數法 = `grep -n "async create\|async update\|async delete" packages/adapters/src/supabase/SupabaseAddressAdapter.ts packages/adapters/src/supabase/SupabaseVehicleAdapter.ts` 回 6 行,即兩支 CRUD 都齊。)
+⚠️ 但 `apps/admin/package.json` 的 deps 只有 `@pcm/adapters` / `@pcm/domain`(數法 = `grep -A12 '"dependencies"' apps/admin/package.json`,`@pcm` 開頭只兩行)⇒ C1 需要 `ProfileInput` ⇒ **加 `@pcm/schemas` 一個 workspace dep**(片 C1 一次加完)。
+> ✅ **M4 已裁定(2026-08-14,C 窗自裁、主視窗准):C1 走 adapter、不走 use-case** —— `updateProfile` 整支只是一行轉呼、簽章與 `SupabaseCustomerAdapter.update` 同一組 ⇒ 那層零貢獻。
+> ⚠️ **本句第一版寫「三個 dep」是錯的**(把 `@pcm/ports`/`@pcm/use-cases` 也算進去),已更正;詳見 `2026-08-14-25-c1-prep-notes.md` §3。
+
+## 2. 🔴 Email = 獨立一片、鐵則 12②+③ 雙中標、**不排進本批**
+
+實查三件事,三件都擋:
+1. **DB 端根本沒開**:`20260717010000:174-175` 把 service_role 的表級 UPDATE 撤掉、只回 `(name, phone, birthday, updated_at)`;`:193-198` 還有 fail-closed 斷言釘死。`authenticated` 同樣不含 email(`20260523034911:227,231`)。⇒ **service key 直接 update email 會被 DB 擋**,不是「沒人寫」而是「寫了會炸」。
+2. **登入帳號在 Supabase Auth**:`customers.email` 只在 `handle_new_auth_user`(`20260523034911:281-284`)建列時抄一次,**全 repo 沒有 UPDATE 方向的同步 trigger**(grep `auth.users` 全 migrations 只命中 INSERT trigger)。
+3. **Auth 端沒有這支方法,但管道是通的(2026-08-14 夜自我更正)**:`SupabaseAuthAdapter.ts` 只有 signUp(:41)/signIn(:63)/`sendPasswordResetEmail`(:88-90)/`updateUser({password})`(:99)。改**別人**的 email 要走 Admin API `auth.admin.updateUserById` —— 該字面在 1083 個 `.ts`/`.tsx` 檔中零命中(數法 `grep -rn "updateUserById" --include='*.ts' --include='*.tsx' apps packages scripts`,分母 `grep -rl "" --include='*.ts' --include='*.tsx' apps packages scripts | wc -l` = 1083)。
+   ⚠️ **但「零命中」不等於「做不到」**:同一個 Admin API 在 `apps/storefront/src/lib/auth/line-admin.ts:38`(`generateLink`)與 `:65`(`createUser`)**已經在用**,client 由 `createSupabaseServiceClient()` 建(`:21`)—— 那正是 admin 端 `customer-repository.ts:24` 用的同一支 factory。⇒ **管道現成,缺的只是沒人呼叫 `updateUserById`**,C2 的成本比本檔第一版寫的低。真正的擋點是上面第 1、2 條(DB 欄級 GRANT + 無同步 trigger),不是第 3 條。
+
+⇒ 要做就得同時開:新 migration(欄級 GRANT 或 SECURITY DEFINER RPC)+ **呼叫**既有的 Auth Admin API(管道已在、見上)+ 處理「auth 改了 / customers 沒改」的半套失敗(客人用新信箱登入但後台顯示舊的,或客人直接登不進去)。
+**✅ Sean 2026-08-14 拍板 Q-C-1 = A:本批不做,`customers.email` 維持唯讀並加一行說明「Email 是登入帳號,要另開片」。**(拍板前提的更正見 §0,不影響本片執行。)
+
+## 3. 地址 / 愛車 一對多的三種操作形狀
+
+| 操作 | 走哪 | 形狀 |
+|---|---|---|
+| 新增 | `addAddress` / `addVehicle` | 清單尾端一顆「新增」鈕 → 展開 inline 表單 → submit → PRG `?r=saved`(鏡像 `tier-actions.ts:26-29,74-77`) |
+| 編輯 | `updateAddress` / `updateVehicle` | 每一列一顆「編輯」鈕 → 同一支表單帶 defaultValue |
+| 刪除 | `deleteAddress` / `deleteVehicle` | 每列一顆「刪除」,**要二次確認**(不可逆) |
+| 設預設/主要 | `setDefaultAddress` / `setPrimaryVehicle` | 每列一顆 radio;DB partial unique index 守「至多一筆」(`20260523034911:64` 地址 / `:88` 愛車) |
+
+🔴 **承重點**:use-case 的 ownership 靠 `verifyAddressOwned`(`update-address.ts:38-43`)這層 app 檢查;admin 走 service_role = **RLS 被 bypass、app 層是唯一那道門**。⇒ 驗收必含「拿 A 客的 addressId 送到 B 客的頁面會被擋」這格負測。
+🔴 **`readOnly` 必須接**:`customer-detail.tsx` 同一支被整頁版(`app/customers/[id]/page.tsx:54`)與訂單面板唯讀版(`customer-panel.tsx:73`)共用,新表單一律包在 `!readOnly` 裡(鏡像 `:166`、`:173`);兩個 section 目前沒收 `readOnly` prop,要補傳。
+
+## 4. 片型 / 鐵則 / 驗收
+
+| 片 | 內容 | 檔數 | 片型 | 鐵則 |
+|---|---|---|---|---|
+| **C1** | 姓名/電話/生日 | **8**(逐檔清單見 c1-prep-notes §3;含 `package.json` **與 `pnpm-lock.yaml`**) | 標準片 | **鐵則 8 命中** |
+| **C2** | Email | 未估(要先開 migration + Auth Admin API) | **高風險片** | **鐵則 8 + 12②auth + 12③schema/GRANT** |
+| **C3a** | 地址 新增+編輯 | 暫估 7-8(見前置調查 §7) | 標準片 | **鐵則 8 命中** |
+| **C3b** | 地址 刪除+設預設 | 上列 + **1 支新 migration** | **高風險片** | **鐵則 8 + 12③**(Q-C-3=B) |
+| **C4a** | 愛車 新增+編輯 | 暫估 7-8(同 C3 形狀) | 標準片 | **鐵則 8 命中** |
+| **C4b** | 愛車 刪除+設主要 | 上列 + **1 支新 migration** | **高風險片** | **鐵則 8 + 12③**(Q-C-3=B) |
+
+🔴 **Q-C-3 = B(Sean 2026-08-14)的三個下游後果**:①C3b/C4b 各要一支 SECURITY DEFINER RPC + migration
+②**片型升級,不得降級**、對抗審查不降級 ③**多兩個 Sean 手動 apply 停點**,且**應用層不得先於 migration apply 上線**。
+**migration 版本號跟主視窗要,不自己編**(全域唯一資源)。
+✅ **C1 不受影響**(無一對多、無 unset/set 兩步)⇒ **仍是這條線第一個能動手的片,順序不變**。
+
+**驗收條件(每條 yes/no)**
+1. 整頁版可改姓名/電話/生日並存檔成功,重整後值還在。
+2. 訂單面板(`readOnly`)**看不到任何新表單**(截圖或 DOM 斷言)。
+3. 地址/愛車:新增 → 編輯 → 設預設 → 刪除四動作各跑一次都成功。
+4. 負測:A 客的 addressId 送 B 客的 action → 被拒、DB 零變更。
+5. 負測:表單送 `tier` / `wallet_balance` / `email` 欄 → 被 strip、DB 對應欄零變更。
+6. 🔴 **C1 生日留空存檔 → DB `birthday IS NULL` 且不報錯**(A 窗 N1:第一版只把 `'' → null` 寫進誠實缺口、**沒有任何一條驗收擋它** —— **知道 ≠ 有東西擋**;storefront 那行是 `parsed.data.birthday || null`,`actions.ts:68`,理由是 Postgres date 欄吃不下 `''`)。
+7. 🔴 **C4a 白名單要綁「兩個方向」**(A 窗確認輪 F1:只綁一邊等於只擋一半):
+   ①patch 的 key 集合 `⊆` 表單欄位常數,且**斷言吃的是生產路徑吐出的 patch、不是測試自己組的**(F2:自己組 = 恆綠格);
+   ②**表單欄位常數 = 表單元件實際渲染的欄位**(來源取自另一側或手寫陣列,**不得只走訪常數自己** = 循環論證);
+   ③負測至少涵蓋 `dictBrandName`(`.default(null)`)與 `isPrimary`(`.default(false)`)兩種成因。詳 c4-prep-notes §4(五格)。
+8. 三綠(typecheck+lint+build)+ `vitest` 全綠,新增測試至少涵蓋 4、5、6、7。
+9. `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1-A `#25` 那列由 🟡 改標,且**明寫 Email 仍不可改**。
+
+**誠實缺口(我沒驗的)**
+- ❌ **沒對正式庫跑過任何查詢** —— §1/§2 的 GRANT 結論全部來自 migration 檔字面。migration 有 fail-closed 斷言(`20260717010000:193-198`)所以可信度高,但**「repo 裡的註解不是正式庫事實」這條教訓照樣適用**;C2 開工前要對正式庫實查 `has_column_privilege`。
+- ❌ 沒量過改完之後的視覺(表單塞進兩張卡會不會擠爆);C1 交件時要附真瀏覽器截圖。
+- ⚠️ `AddressInput.email` 是**必填**(`index.ts:125`,TapPay ≤40 字限制)⇒ 員工編輯一筆**存量沒有 Email 的舊地址**時會被逼著填。**✅ Sean 2026-08-14 拍板 Q-C-2 = A:就是要逼他補,沿用同一支 schema、不為後台開特例。** ⇒ C3 的 UI 要把這件事講清楚(欄位標必填 + 一行說明「沒有 Email 的地址結帳會被擋」),不能讓員工以為是系統壞了。
+- ⚠️ **本 plan 已被 A 窗 fresh-context 複驗過一輪**(4 must-fix / 2 nit,全折;M1 `isPrimary`、M2 黑名單→白名單、M3 檔數、M4 dep 岔路)。**它只保證「它抓到的都修了」,不保證沒有第七條。**
+- ⚠️ 未擴張:`#28` 會員密碼重設(機制在 `SupabaseAuthAdapter.ts:87-90`、admin 端零觸發入口)與 `#26` 員工帳號,**兩項都不在本 plan 內**。

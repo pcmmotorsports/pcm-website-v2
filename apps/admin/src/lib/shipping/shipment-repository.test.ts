@@ -522,3 +522,103 @@ describe('🔴🔴 品項 → 客人反查 · 全程 fail-closed', () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// `#10` 片2a(2026-08-15):`recipientSnapshot` 進讀取面。
+//
+// 🔴 **這欄在片2a 之前 TS 側從沒被讀過**(數法:`grep -rn "recipientSnapshot\|recipient_snapshot"
+//    apps packages --include='*.ts' --include='*.tsx' | grep -v node_modules` 在片2a 之前只命中
+//    **寫入端**與生成型別,零讀取端)⇒ 這兩支 select 是它唯一的出口,漏一個字紙上就沒有收件人,
+//    而畫面上完全正常(詳情卡本來就不顯示它)。
+//
+// 🔴🔴 **本區最重要的一格是「空字串原樣保留」。** 寫入鏈四層沒有一層擋空:
+//    `shipment-launcher.tsx:135` → `shipment-dialog.tsx:186` 的 `?? ''` → `shipment-actions.ts`
+//    零驗證 → DB CHECK 只要求「值是 string」(`20260805170000:120-125`)。
+//    ⇒ `{name:'',phone:'',line:''}` 是**合法資料**。讀取層若把它折成 `null`,
+//      上層就分不出「建箱時沒填」與「我們讀壞了」——兩者都不可印,但文案該不同。
+// ─────────────────────────────────────────────────────────────
+describe('🔴 #10 片2a — recipientSnapshot 讀取面', () => {
+  /** `.select().in().order()` / `.select().eq().order()` 兩條鏈都在 `.order()` 結束。 */
+  function chain(rows: unknown[]) {
+    const calls: Record<string, unknown[]> = {};
+    const api: Record<string, unknown> = {
+      select: (...a: unknown[]) => ((calls.select = a), api),
+      in: (...a: unknown[]) => ((calls.in = a), api),
+      eq: (...a: unknown[]) => ((calls.eq = a), api),
+      order: (...a: unknown[]) => ((calls.order = a), Promise.resolve({ data: rows, error: null })),
+    };
+    return { api, calls };
+  }
+  const row = (recipient_snapshot: unknown) => ({
+    id: 'sh-1',
+    shipment_reference: 'K7X2MP',
+    customer_user_id: 'cu-1',
+    carrier_code: 'hct',
+    carrier_note: null,
+    tracking_number: null,
+    shipped_at: null,
+    deleted_at: null,
+    void_reason: null,
+    recipient_snapshot,
+  });
+
+  /**
+   * 🔴 **兩支讀取面都要跑一遍,不能只打 `listShipmentsByIds`**(R1 must-fix 4)。
+   * 第一版三格只打第一支 ⇒ reviewer 把**第二支**的映射硬寫成 `null`,**39 格全綠**:
+   * 那三格對第二支**零判別力**,而第二支正是建箱動線在用的那支。
+   * ⇒ 值路徑的每一格都從這個表跑,新增讀取面時把它加進來就自動有覆蓋。
+   */
+  const READERS = [
+    ['listShipmentsByIds', (m: typeof import('./shipment-repository')) => m.listShipmentsByIds(['sh-1'])],
+    ['listShipmentsByCustomer', (m: typeof import('./shipment-repository')) => m.listShipmentsByCustomer('cu-1')],
+  ] as const;
+
+  /** 對兩支讀取面各跑一次,回傳各自的第一列。 */
+  async function readBoth(recipient_snapshot: unknown) {
+    const mod = await import('./shipment-repository');
+    const out: Record<string, Awaited<ReturnType<typeof mod.listShipmentsByIds>>[number] | undefined> = {};
+    for (const [name, run] of READERS) {
+      const { api } = chain([row(recipient_snapshot)]);
+      from.mockReturnValue(api);
+      out[name] = (await run(mod))[0];
+    }
+    return out;
+  }
+
+  it('正常值原樣回傳(不 trim、不改寫)—— 兩支都驗', async () => {
+    const want = { name: ' 王小明 ', phone: '0912345678', line: '台北市信義區松高路 1 號' };
+    for (const [name, r] of Object.entries(await readBoth(want))) {
+      // 🔴 前後空白**保留**:在讀取層 trim 會讓「只打了幾個空白」與「真的填了」在上層分不出來。
+      expect(r?.recipientSnapshot, name).toEqual(want);
+    }
+  });
+
+  it('🔴🔴 三個空字串是**合法資料**,必須原樣保留、不得折成 null —— 兩支都驗', async () => {
+    // 分不出「沒填」與「讀壞了」的話,出貨單只能印同一句話,而那兩件事的處置不同。
+    for (const [name, r] of Object.entries(await readBoth({ name: '', phone: '', line: '' }))) {
+      expect(r?.recipientSnapshot, name).toEqual({ name: '', phone: '', line: '' });
+      expect(r?.recipientSnapshot, name).not.toBeNull();
+    }
+  });
+
+  it('形狀不符一律回 null(缺鍵 / 值非字串 / null / 非物件)—— 不 throw、也不補空物件,兩支都驗', async () => {
+    const bad: readonly unknown[] = [
+      { name: 'a', phone: 'b' }, // 缺 line
+      { name: 'a', phone: 'b', line: 123 }, // 值非字串
+      { name: 'a', phone: 'b', line: null },
+      null,
+      // ⚠️ 陣列**不是**獨立分支(R1 nit-1):`typeof [] === 'object'` 會過第一道,
+      //    但 `[].name` 是 `undefined` ⇒ 被下一行的 typeof 檢查擋掉。留著當回歸樣本,
+      //    **不宣稱它測到了一條專屬分支**(原本那顆 `Array.isArray` guard 已因此刪掉)。
+      ['a', 'b', 'c'],
+      'not-an-object',
+    ];
+    for (const v of bad) {
+      for (const [name, r] of Object.entries(await readBoth(v))) {
+        expect(r?.recipientSnapshot, `${name} / ${JSON.stringify(v)}`).toBeNull();
+        // ⚠️ 整列仍要回得來 —— 為了一箱的收件快照形狀怪就讓整張詳情頁掛掉,代價太大。
+        expect(r?.id, name).toBe('sh-1');
+      }
+    }
+  });
+});

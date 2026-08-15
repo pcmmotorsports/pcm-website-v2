@@ -14,7 +14,12 @@ export function Header() {
   const isDark = resolvedTheme === 'dark';
 
   return (
-    <header className='flex h-14 shrink-0 items-center gap-2 border-b px-4'>
+    // 🔴 `print:hidden`(#10 片1,Q-D-2=乙):列印時整條 header 不上紙。
+    //    宣告放在**元素本身**,不放在列印頁裡去記住這支檔的 DOM 長什麼樣 ——
+    //    後者是耦合,而且是改壞了不會有人發現的那種。
+    //    ⚠️ 這行是**字面**,真正決定紙上有沒有它的是瀏覽器算出的**用值**;三綠與單測都看不到它壞掉
+    //    (memory `feedback_css-guards-pin-the-literal-not-the-computed-value`)⇒ 交件附真瀏覽器實測。
+    <header className='flex h-14 shrink-0 items-center gap-2 border-b px-4 print:hidden'>
       <SidebarTrigger className='-ml-1' />
       <Separator orientation='vertical' className='mr-1 h-4' />
       <span className='text-sm font-medium'>總覽</span>

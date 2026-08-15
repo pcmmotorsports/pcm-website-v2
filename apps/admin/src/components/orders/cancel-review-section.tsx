@@ -115,7 +115,16 @@ export const BLOCK_REASON_TEXT: Record<
     // 🔴 本碼有已知的假陽性路徑(`cancel-view.ts` 的 `INSTOCK_PROXY` ②:快取到貨非 0 / 真相 0
     //    ⇒ 整張單錯報,而 RPC 其實會放行)⇒ 不可把成因講死、也不可零出路(R1 F4)。
     title: '這張單看起來沒有可以取消的數量',
-    hint: '下表每個品項的「還能取消」都是 0。已到貨的部分要走退貨流程;若你確定還有沒到貨的數量,請重新整理,仍相同就通知系統維護。',
+    // 🔴 **2026-08-14 止血(`#18` 查證報告 §1 與 §4-R5)**:原字面「已到貨的部分**要走退貨流程**」
+    //    **指向一條不存在的流程** —— 退貨線在本 repo 零落點(pattern `order_returns` /
+    //    `order_return_items` / `returned_quantity` / `return_requested_quantity` /
+    //    `return_received_quantity` 於 `supabase/migrations`+`packages`+`apps` 命中 **0**;
+    //    正向對照:同範圍換 `order_item_quantity_summary` = 191 行,見報告 §1)。
+    //    ⇒ 這是全檔**唯一**一句把不存在的東西講成現行流程的 hint,員工照著找會找不到、
+    //      而畫面沒告訴他那是因為還沒做。
+    //    改法對齊**本檔既有慣例**:`:65`/`:74`/`:82` 都是「講明這條線還沒開通」而不是指路。
+    //    ⚠️ **這是止血、不是文案定案** —— 措辭是 Sean 的地盤,他要換隨時換。
+    hint: '下表每個品項的「還能取消」都是 0。已到貨的部分不能在這裡取消,而退貨功能目前還沒有;若你確定還有沒到貨的數量,請重新整理,仍相同就通知系統維護。',
   },
 };
 
@@ -169,7 +178,9 @@ function BlockReasons({ reasons }: { reasons: readonly OrderCancelBlockReason[] 
  *
  * 🔴 **已到貨量與尚可取消量分開顯示**(plan §1.2 的 K1-7 更正逐字):
  * 買 5、到貨 2、已取消 0 時**剩下 3 仍可取消** —— 不可把整個品項標成「不可取消」。
- * 已到貨的那部分要指路退貨(第 3 批),那是**部分**不可取消,不是整項。
+ * 已到貨的那部分是**部分**不可取消,不是整項。
+ * ⚠️ **2026-08-14 更正**:原字面「要指路**退貨**(第 3 批)」—— 那條線目前**零落點**
+ * (`#18` 查證報告 §1),UI 不得指向它;`BLOCK_REASON_TEXT.nothing_cancellable` 已同批止血。
  */
 function ItemRows({
   detail,

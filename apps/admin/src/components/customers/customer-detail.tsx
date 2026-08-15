@@ -19,6 +19,7 @@ import {
 } from './customer-detail-sections';
 import { WalletAdjustForm } from './wallet-adjust-form';
 import { TierEditForm } from './tier-edit-form';
+import { ProfileEditForm } from './profile-edit-form';
 
 // M-4a 客戶明細-a+b+儲值金編輯+tier 編輯:基本資料(含等級變更表單)+ 儲值金(餘額 + 流水 + 調整表單)
 // + 訂單歷史 + 地址 + 車庫。
@@ -163,6 +164,17 @@ export function CustomerDetail({
           <Field label='生日' value={customer.birthday} />
           <Field label='會員等級' value={TIER_LABEL[customer.tier]} />
           <Field label='註冊日期' value={formatCustomerDate(customer.createdAt)} />
+          {/* `#25` 片 C1:姓名/電話/生日可編。🔴 與 TierEditForm 一樣包在 `!readOnly` 裡 ——
+              面板版是「看」的地方(見上方 readOnly 的 docstring),兩支表單的 returnTo 都寫死
+              站內 /customers,從訂單面板送出會把員工的面板弄不見。 */}
+          {!readOnly && (
+            <ProfileEditForm
+              customerId={customer.id}
+              name={customer.name}
+              phone={customer.phone}
+              birthday={customer.birthday}
+            />
+          )}
           {!readOnly && <TierEditForm customerId={customer.id} currentTier={customer.tier} />}
         </section>
 

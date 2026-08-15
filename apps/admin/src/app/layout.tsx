@@ -6,6 +6,7 @@ import { Header } from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { WorkspaceShell } from '@/components/layout/workspace-shell';
 import { WORKSPACE_PANEL_COOKIE, parsePanelWidthCookie } from '@/lib/layout/workspace-panel';
+import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -18,7 +19,12 @@ export const viewport: Viewport = {
 };
 
 // M0-S1 骨架:單一殼 layout(sidebar + header + content),light 預設、dark 可切。
-// 尚未接資料、無登入(SSO 收端等提案批准後於後續 slice 加 middleware)。
+// 🔴 **登入閘早就上線了,別照舊字面判斷**(#10 片1 順帶修;原字面逐字「尚未接資料、**無登入**
+// (SSO 收端等提案批准後於後續 slice 加 middleware)」)。現況:`apps/admin/src/proxy.ts:39-50`
+// 是 fail-closed 全站閘(無 session → 303 導 `/api/sso/start`),matcher `proxy.ts:64` 逐字
+// `'/((?!_next/static|_next/image|favicon.ico).*)'` ⇒ 除靜態資源外**每一條路由都在閘後**。
+// 改這行的理由不是順手整理:照舊字面做判斷的人會以為 admin 是裸的,那是**安全誤判**。
+// (Next 16 把 `middleware.ts` 改名 `proxy.ts` ⇒ 找不到 middleware 檔不代表沒有閘。)
 //
 // #350b:content 之外多一個 `@panel` **平行路由槽**(共用右側面板系統,wave-plan `:23`)。
 // 🔴 `panel` 這個 prop 名 = 資料夾名 `app/@panel`,**改一個就要同時改另一個**,
@@ -50,7 +56,11 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <SidebarProvider>
-            <AppSidebar />
+            {/* 🔴 `#27` D1c-1:旗標**在這裡(server)算**,不在側欄裡算。
+                側欄是 `'use client'`,而 `AUDIT_UI_ENABLED` 不是 `NEXT_PUBLIC_*`
+                ⇒ 在那邊呼叫會靜默拿到 `undefined`(理由與實測見 `app-sidebar.tsx` 檔頭)。
+                形狀照抄 `components/orders/order-detail-route.tsx:250` 的既有前例。 */}
+            <AppSidebar auditEnabled={isAuditUiEnabled()} />
             <SidebarInset>
               <Header />
               <WorkspaceShell panel={panel} initialPanelWidth={initialPanelWidth}>
