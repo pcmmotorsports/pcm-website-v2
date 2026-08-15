@@ -466,3 +466,96 @@ describe('`#514` 出貨狀態改讀貨品軸(頁級)', () => {
     expect(container.textContent).toContain('未訂貨');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 出貨狀態的**解釋小字**(Sean 2026-08-15 拍板乙;需求檔 `2026-08-12-admin-order-ui-design-brief.md:114`)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴 **為什麼是頁級不是函式級**:`goodsAxisProgressNote()` 算得對,**不代表那格畫面有印出來**。
+//    有人把 `<GoodsAxisValue>` 換回純標籤,函式那族一格都不會紅 —— 同 `#514` 本身的教訓。
+//    ⇒ 這一族全部斷言在 `container.textContent`(渲染輸出),**不讀常數、不讀檔案文字**。
+describe('出貨狀態的解釋小字', () => {
+  /** 四個量都給得出來的品項(上面那支 `item` 把 instock/shipped 釘死成 0,不夠用)。 */
+  const line = (quantity: number, ordered: number, instock = 0, shipped = 0) => ({
+    id: `ln-${quantity}-${ordered}-${instock}-${shipped}`,
+    title: '測試品項',
+    spec: null,
+    variantSku: 'SKU-NOTE',
+    procurements: [],
+    quantity,
+    unitPrice: { amount: 100, currency: 'TWD' },
+    lineTotal: { amount: 100 * quantity, currency: 'TWD' },
+    quantitySummary: {
+      orderedQuantity: ordered,
+      instockQuantity: instock,
+      shippedQuantity: shipped,
+      cancelledQuantity: 0,
+      cancellableQuantity: 0,
+    },
+  });
+
+  const render = async (items: unknown[]) => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items } as unknown as Partial<AdminOrderDetail>),
+    );
+    return (await renderPage()).container.textContent ?? '';
+  };
+
+  /**
+   * 🔴 **這一格是整片的理由**,而且用的是 Sean 拍板時給的那組數字(6 件訂 3 件)。
+   * 「未訂貨」與「已訂 3 件」**必須同時出現** —— 那正是他要的「讓人看得懂」:
+   * 不是把「未訂貨」改掉,是把它為什麼是「未訂貨」講出來。
+   */
+  it('🔴 未訂貨 + 部分已訂:兩句同時出現(Sean 拍板的 6 件訂 3 件)', async () => {
+    const text = await render([line(6, 3)]);
+    expect(text).toContain('未訂貨');
+    expect(text).toContain('（本單 6 件中已訂 3 件）');
+  });
+
+  it('已向廠商訂貨:小字改講【到貨】進度,不重複講已訂', async () => {
+    const text = await render([line(4, 4, 1)]);
+    expect(text).toContain('已向廠商訂貨');
+    expect(text).toContain('（本單 4 件中已到貨 1 件）');
+    // 軸=已訂滿 ⇒「已訂 4 件」恆等於分母、是廢話,不該印。
+    expect(text).not.toContain('已訂 4 件');
+  });
+
+  it('已到貨:小字改講【出貨】進度', async () => {
+    const text = await render([line(4, 4, 4, 2)]);
+    expect(text).toContain('已到貨');
+    expect(text).toContain('（本單 4 件中已出貨 2 件）');
+  });
+
+  /**
+   * 🔴🔴 **本族唯一「斷言某個東西不存在」的格,也是最容易寫成恆綠的那格。**
+   * 已出貨沒有下一階 ⇒ 沒有人會問「為什麼是已出貨」⇒ 整行不該出現。
+   * ⚠️ 斷言用 `本單`(小字的共同前綴)而不是某一句完整文案:
+   *    釘完整文案的話,改文案就會讓這格**靜默失去判別力**(它只是不再命中而已)。
+   */
+  it('🔴 已出貨:一行小字都不該出現', async () => {
+    const text = await render([line(2, 2, 2, 2)]);
+    expect(text).toContain('已出貨');
+    expect(text).not.toContain('本單');
+  });
+
+  /**
+   * 🔴🔴 **`quantitySummary === null` ⇒ 一個數字都不准印。**
+   * 軸把 null 當 0 是它判階段用的裁定;**那個 `?? 0` 不能搬到「印件數給人看」這個用途**。
+   * 印「已訂 0 件」會把「摘要列不存在」與「真的一件都沒訂」講成同一句話。
+   */
+  it('🔴 摘要列不存在:印「尚未就緒」,絕不印「已訂 0 件」', async () => {
+    const text = await render([{ ...line(3, 0), quantitySummary: null }]);
+    expect(text).toContain('部分品項數量資料尚未就緒');
+    expect(text).not.toContain('已訂 0 件');
+    expect(text).not.toContain('本單 3 件');
+  });
+
+  /**
+   * 分母是**該單所有品項加總**,不是逐品項列。
+   * ⚠️ 這一格順便釘住「單品項單看不出來」的那個歧義 —— Sean 給的例子剛好是單品項。
+   */
+  it('多品項:分母 = 全單件數加總(6+4=10)', async () => {
+    const text = await render([line(6, 3), line(4, 0)]);
+    expect(text).toContain('（本單 10 件中已訂 3 件）');
+  });
+});
