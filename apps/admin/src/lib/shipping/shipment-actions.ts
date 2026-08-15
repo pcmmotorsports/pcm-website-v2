@@ -183,3 +183,44 @@ export async function unvoidShipmentAction(args: {
     return { ok: false, message: toMessage(e) };
   }
 }
+
+/**
+ * 已建箱、還沒出貨的那些箱:**填單號並標記出貨**。
+ *
+ * 🔴🔴 **這支不是「補單號」,是「標記出貨」。** 底下的 RPC
+ * (`supabase/migrations/20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:181` 逐字
+ * `SET shipped_at = now(), tracking_number = p_tracking_number`)
+ * **一定會同時把 `shipped_at` 寫下去** —— 按下去等於宣告「貨已經交給貨運了」。
+ * ⇒ **呼叫端的文案不得寫成「補單號」/「編輯」**,那會讓員工以為只是改一個欄位。
+ *
+ * 🔴 **能力不是本片新加的** —— RPC 與 repository 層早就有
+ * (`shipment-repository.ts` 的 `markShipmentShipped()`),**缺的只有 action 層與 UI 入口**。
+ * 本片是把既有能力接上來:**零 migration、零 GRANT、零新 RPC**。
+ * ⚠️ 在此之前唯一的呼叫端是 `submitShipment()`(建箱時一併標出貨)⇒ 員工按了
+ * 「只建箱、先不出貨」之後就沒有出口,只能作廢重開新箱(**而那會換箱號,已印的紙就白印了**)。
+ *
+ * 🔴 **只送單號,不送 `carrier_code`。** 凍結守門 X8
+ * (`20260805170100_m4b_e10_b2_s1a2_shipments_guards.sql:94-96` 逐字)凍結集**恰 3 欄**:
+ * `recipient_snapshot` / `carrier_code` / `carrier_note`;**只有 `tracking_number` 不凍結**
+ * (同段註解「Q2=A 單號可改」)⇒ 想順手讓員工改貨運商的人:**改不了,而且那是刻意的。**
+ *
+ * ⚠️ **已出貨的箱【改】單號這支做不到**:RPC `:184` `AND shipped_at IS NULL` 是 write-once,
+ * `:153` 會直接 RAISE「已經寄出了」。
+ * 🔴 而 X8 明文不凍結 `tracking_number`、註解寫「單號可改」——
+ * **DB 層允許改、RPC 層不給改,兩層意圖不一致。** 那個落差本片不修(要新 RPC ⇒ migration),
+ * 已回報主視窗立 backlog。**不要以為這裡漏做。**
+ */
+export async function markShipmentShippedAction(args: {
+  idempotencyKey: string;
+  shipmentId: string;
+  /** 貨運商是 `other`(自取/自送)時可省;其餘 DB CHECK 就會擋(見 `shipments_shipped_needs_tracking`)。 */
+  trackingNumber?: string;
+}): Promise<VoidResult> {
+  try {
+    await markShipmentShipped(args);
+    revalidatePath('/orders');
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: toMessage(e) };
+  }
+}
