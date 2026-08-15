@@ -175,12 +175,14 @@ export default async function OrdersPage({
               讓它「不該變」時回報沒變、移除後回報有變 ⇒ 分得出「真沒變」與「我量不到」)。
               **而手機正是最需要它的地方。**
             · 甲案代價 ≈ 0:整列**現在就已經是兩層**,而三顆 chip 單獨一列只要 **184px**,
-              窄版可用 358px ⇒ 一倍餘裕。
+              窄版可用 **342px**(⚠️ 原寫 358 —— 探針用 `p-4` 且沒扣側欄,真幾何見 `#485` 片4)⇒ 近一倍餘裕。
 
           🔴 **做法是「讓 chip 那組換到自己一行」,不是給 chip 加 `white-space: nowrap`。**
              `nowrap` 已實測過:它只把擠壓**轉嫁**給右邊那組,總寬需求一點沒少。
           🔴 **也不是加 `padding` 撐觸控區** —— `#466` 的設計是 `::after` 熱區
-             (`globals.css:731` / `:735-739`),加 padding 正是那條裁定禁止的做法。
+             (`globals.css` 的 `.orders-grid .col-ops a::after`;**grep 選擇器、不記行號** ——
+             行號會被任何一次上游插入靜默推移,`#485` 片5 前實際發生過),
+             加 padding 正是那條裁定禁止的做法。
 
           版面:`flex-wrap` + 右組 `ml-auto`(桌機等同原本的 `justify-between`);
           窄版 chip 組 `order-last basis-full` ⇒ 它自己佔滿一行、被推到第二行。
