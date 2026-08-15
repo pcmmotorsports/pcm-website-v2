@@ -1,24 +1,63 @@
-import { selectActorAction } from '@/lib/session/actor-actions';
-import { ACTOR_ID_FIELD, getSessionActor } from '@/lib/session/actor';
-import { listActiveStaff } from '@/lib/staff';
+// 🔴 **相對路徑、不用 `@/`**:根 `vitest.config.ts:27-29` 的 `@` alias 指向 **storefront** 的 src,
+//    admin 檔案用 `@/` 在 vitest 裡 resolve 不到 ⇒ 本頁就永遠測不到。
+//    姊妹頁 `app/orders/page.tsx` 為了同一個理由做過同一件事(`orders/page.test.tsx:15-17` 有記)。
+import { selectActorAction } from '../lib/session/actor-actions';
+import { ACTOR_ID_FIELD, getSessionActor } from '../lib/session/actor';
+import { listActiveStaff } from '../lib/staff';
+import { loadTodaySummary, type TodaySummary } from '../lib/dashboard/today-read';
+import { TodaySummaryCards } from '../components/dashboard/today-summary';
 
-// M0-S1 骨架占位頁 + M0-S2 具名身分選人。骨架驗收 = pnpm dev 跑得起來、殼可見可用;
-// 訂單/客戶線於後續 slice 才裝真頁面。
+// ~~M0-S1 骨架占位頁~~ + M0-S2 具名身分選人。
+// 🔴 **`#16` 今日對帳(2026-08-14,Sean 拍「批」)**:骨架說明卡下架,換成對帳數字。
+//    🪦 **原為四格;「今日退款」於 2026-08-15 拆掉 ⇒ 現為三格**(理由見 `lib/dashboard/today-view.ts` 墓碑段)。
+//    判定與加總全在 `lib/dashboard/today-read.ts`,本頁只負責取資料 + 擺位置。
+//    ⚠️ 具名身分那一區(M0-S2)**一字未動** —— 它是這頁原本唯一在用的功能。
+//
+// 🔴 **顯式 `force-dynamic`**:對帳數字**不得被快取**。本頁目前是動態渲染只因為 layout 讀了
+//    `cookies()`(`app/layout.tsx:27-30`)—— 那是「現況剛好如此」,不是保證。
+//    不顯式宣告,哪天 layout 改了就會有人看到昨天的數字、還以為是今天的。
+//
+// 🔴 **對帳讀取失敗只倒那一區、不倒整頁**(reviewer MF6):`today-read.ts` 那句「寧可炸也不要
+//    顯示少算的數字」只證成**那幾格**該炸,**不證成把 `selectActorAction` 一起帶走** ——
+//    具名身分是這頁原本唯一在用的功能,對帳掛掉不該讓員工連身分都切不了。
+//    做法逐字抄同 repo 既有形狀:`app/settings/staff/page.tsx:24-31,47-53`(try/catch +
+//    `console.error` + 失敗卡),不自創第二種寫法。
+export const dynamic = 'force-dynamic';
+
 export default async function AdminHomePage() {
-  const actor = await getSessionActor();
-  const staff = await listActiveStaff();
+  // 🔴 三支**併發**、不串行(R2 nit4):彼此無依賴,串著跑等於白等兩個 round-trip,
+  //    而這是每次進站都跑的首頁。
+  // 🔴 用 `allSettled` 不用 `all`:`all` 會讓對帳的失敗直接吃掉另外兩支的結果 —— 那正是 MF6 要擋的事。
+  //    身分與員工名單失敗**仍照舊往上拋**(它們掛了這頁本來就沒東西可看,不該假裝正常)。
+  const [actorSettled, staffSettled, todaySettled] = await Promise.allSettled([
+    getSessionActor(),
+    listActiveStaff(),
+    loadTodaySummary(),
+  ]);
+  if (actorSettled.status === 'rejected') throw actorSettled.reason;
+  if (staffSettled.status === 'rejected') throw staffSettled.reason;
+  const actor = actorSettled.value;
+  const staff = staffSettled.value;
+
+  let today: TodaySummary | null = null;
+  if (todaySettled.status === 'fulfilled') {
+    today = todaySettled.value;
+  } else {
+    console.error('[admin/home] 今日對帳載入失敗', todaySettled.reason);
+  }
 
   return (
-    <div className='mx-auto max-w-2xl space-y-4 py-10'>
+    <div className='mx-auto max-w-4xl space-y-4 py-10'>
       <h1 className='text-2xl font-semibold'>PCM 後台</h1>
 
-      <div className='rounded-lg border bg-card p-6 text-card-foreground'>
-        <p className='text-sm font-medium'>骨架建置完成(M-4a M0-S1)</p>
-        <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
-          這是後台的殼:左側導覽、上方標題列、右上淺色／深色切換皆可操作。
-          訂單管理、客戶管理與登入(SSO)會在後續 slice 依 PRD 逐步接上,目前尚未接資料。
-        </p>
-      </div>
+      {today === null ? (
+        <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
+          今日對帳載入失敗,這一區的數字暫時看不到。請稍後重新整理,或聯絡系統維護。
+          <span className='block'>這頁其他功能不受影響。</span>
+        </div>
+      ) : (
+        <TodaySummaryCards summary={today} />
+      )}
 
       <div className='rounded-lg border bg-card p-6 text-card-foreground'>
         <p className='text-sm font-medium'>具名身分(M-4a M0-S2)</p>

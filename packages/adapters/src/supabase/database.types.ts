@@ -832,6 +832,30 @@ export type Database = {
           },
         ]
       }
+      order_item_procurement_void_requests: {
+        Row: {
+          actor: string
+          created_at: string
+          procurement_id: string
+          request_id: string
+          void_reason: string
+        }
+        Insert: {
+          actor: string
+          created_at?: string
+          procurement_id: string
+          request_id: string
+          void_reason: string
+        }
+        Update: {
+          actor?: string
+          created_at?: string
+          procurement_id?: string
+          request_id?: string
+          void_reason?: string
+        }
+        Relationships: []
+      }
       order_item_quantity_summary: {
         Row: {
           cancelled_quantity: number
@@ -1437,6 +1461,47 @@ export type Database = {
             columns: ["reviewed_by"]
             isOneToOne: false
             referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_refund_manual_corrections: {
+        Row: {
+          actor: string
+          corrected_to: string
+          created_at: string
+          id: string
+          reason: string
+          refund_id: string
+          request_id: string
+          seq: number
+        }
+        Insert: {
+          actor: string
+          corrected_to: string
+          created_at?: string
+          id?: string
+          reason: string
+          refund_id: string
+          request_id: string
+          seq: number
+        }
+        Update: {
+          actor?: string
+          corrected_to?: string
+          created_at?: string
+          id?: string
+          reason?: string
+          refund_id?: string
+          request_id?: string
+          seq?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_refund_manual_corrections_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds"
             referencedColumns: ["id"]
           },
         ]
@@ -2855,6 +2920,26 @@ export type Database = {
           },
         ]
       }
+      order_refund_effective_verdict: {
+        Row: {
+          actor: string | null
+          corrected_to: string | null
+          correction_id: string | null
+          created_at: string | null
+          reason: string | null
+          refund_id: string | null
+          seq: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_refund_manual_corrections_refund_id_fkey"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_refund_effective_terminal: {
         Row: {
           created_at: string | null
@@ -3104,6 +3189,17 @@ export type Database = {
         Args: { p_order_id: string }
         Returns: Json
       }
+      admin_correct_order_refund_verdict: {
+        Args: {
+          p_actor: string
+          p_corrected_to: string
+          p_expected_correction_id: string
+          p_reason: string
+          p_refund_id: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       admin_correct_refund_manual_verdict: {
         Args: {
           p_actor: string
@@ -3231,6 +3327,13 @@ export type Database = {
         }
         Returns: string
       }
+      admin_today_payment_total: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          row_count: number
+          total: number
+        }[]
+      }
       admin_unvoid_shipment: {
         Args: { p_idempotency_key: string; p_shipment_id: string }
         Returns: Json
@@ -3300,6 +3403,15 @@ export type Database = {
           p_note: string | null
           p_request_id: string
           p_supplier_id: string | null
+        }
+        Returns: string
+      }
+      admin_void_item_procurement: {
+        Args: {
+          p_actor: string
+          p_procurement_id: string
+          p_request_id: string
+          p_void_reason: string
         }
         Returns: string
       }

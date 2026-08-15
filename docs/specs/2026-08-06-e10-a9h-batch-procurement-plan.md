@@ -1,6 +1,11 @@
 # A9h 批次訂貨 coordinator — plan v3(片界已升格:含 migration)
 
-> **狀態:關卡1 R1 NO-GO 的 11 條已全數折入,等 R2。零行 code。**
+> ~~**狀態:關卡1 R1 NO-GO 的 11 條已全數折入,等 R2。零行 code。**~~
+> 🔴 **2026-08-14 夜 A 窗更正(此檔頭已過期)**:§5 三片中 **A9h-M ✅ 已 apply**(`supabase/APPLIED.tsv:130`)、
+> **A9h-1 ✅ 已完工**(`apps/admin/src/lib/orders/procurement-result.ts`,61 行)、**A9h-2 ❌ 未做**。
+> ⇒ 現行狀態不是「等 R2、零行 code」,是「差 A9h-2 + 差 A12a 入口」。
+> 現況更正、還缺什麼、與 08-06→08-14 的三處漂移:`docs/specs/2026-08-14-e10-4-batch-procurement-status-correction.md`。
+> **本檔 §1-§11 的設計內容未動一字**,仍是 A9h-2 的權威規格。
 > 🏁 **Sean 2026-08-06 拍板 A**(`E-124-A`):A5a 加 preserve 模式 ⇒ **A9h 升格為含 migration 的片**
 > ⇒ 鐵則 12③ **codex 關卡2 不降級** + **apply = Sean 手動停點**。
 > 選型(preserve 模式 vs 窄版 patch RPC)由本檔 **§3 提案並附理由**。

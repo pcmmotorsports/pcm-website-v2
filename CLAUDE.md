@@ -123,7 +123,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ## 快速自檢清單(鐵則與 SOP 的濃縮對照,內容以上文為準)
 
 **slice 開工前**:☐ 起手檢查綠 ☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD)☐ 標片型 ☐ 判鐵則 8(是則先提 plan 等批)☐ 涉錢/權限/schema・migration/平台設定/對外發送/共用元件行為 → 逐字過鐵則 12 六類清單(硬清單、不憑自評)☐ 偵察 pass(標準片以上)☐ **報片數/片界前先開母 plan §5.0 DAG 看上游;報 schema 行為前先開建表 migration 讀註解(契約債與交辦寫在那裡,查 `information_schema` 看不到);兩者在報告裡都要附 `檔案:行號`,附不出來=沒查**(詳 memory `feedback_assert-scope-only-after-reading-source-file`)☐ 估時 15-45 分鐘(超出拆)。
-**slice 結束前**:☐ 肉眼驗(「肉眼驗✅」是 Sean 專屬用詞、Claude 只能寫程式驗)☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip)☐ 命中鐵則 12 → codex 對抗審查已跑、未 push ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`)☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add、格式對 ☐ STATUS 7 欄更新(同 commit)☐ 收尾對帳(Sean 拍板逐條 vs 已落檔,漏的補寫 memory `project_*.md`)☐ busboy-end ☐ 不 push。(`/pcm-roadmap` 與 `/graphify --update` 不隨每 slice:milestone 收尾或每日收工跑一次即可。)
+**slice 結束前**:☐ 肉眼驗(「肉眼驗✅」是 Sean 專屬用詞、Claude 只能寫程式驗)☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip)☐ **改過任何對外字面(註解/文案/plan/commit body/handoff)→ 拿舊字面跑 `bash scripts/literal-sweep.sh '<舊字面>'` 再 commit**(Sean 2026-08-15 拍板;那支工具四個施工窗都有卻零人使用,同夜「宣稱改好其實沒改」發生 5 次,通報後三個窗在自稱掃乾淨處又撈到東西)☐ 命中鐵則 12 → codex 對抗審查已跑、未 push ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`)☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add、格式對 ☐ STATUS 7 欄更新(同 commit)☐ 收尾對帳(Sean 拍板逐條 vs 已落檔,漏的補寫 memory `project_*.md`)☐ busboy-end ☐ 不 push。(`/pcm-roadmap` 與 `/graphify --update` 不隨每 slice:milestone 收尾或每日收工跑一次即可。)
 
 ## 突發狀況
 
