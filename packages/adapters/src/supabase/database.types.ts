@@ -45,11 +45,41 @@
 //   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處(**當時**);
 //   2026-08-04 RW2c(④⑤)+ A10b(⑥)同夜各補五處、合流後共二十處(**當時**的數字,主視窗併回時對帳;
 //   現行計數一律以檔頭 :2 為準)。
+// 🔴🔴 **下面那行 project ref 有【位置】約束:在它以上加文字會撞紅一道守門。詳見本段下方。**
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
+// 🔴🔴 **上面那行 project ref 的位置約束(2026-08-15 實測撞過一次)**:
+//   `apps/admin/src/lib/payment/composition.test.ts` 讀本檔的**前 4000 個字元**,斷言裡面含 project ref
+//   —— 它守的是「`PROD_SUPABASE_HOST` 與型別檔來自同一個專案」。
+//   ⇒ **在 gen 指令那行【以上】加文字會把它推出 4000 之外,那一格就紅**,
+//   而紅的訊息看起來像 host 常數壞了、不像有人加了註解 ⇒ 下一個人會去查錯的地方。
+//   ⚠️ 量法(落筆前自己跑,別抄下面這個數字 —— 它每加一行就過期):
+//     node -e "const s=require('fs').readFileSync('packages/adapters/src/supabase/database.types.ts','utf8');console.log(s.indexOf('bmpnplmnldofgaohnaok'))"
+//   🔴 注意單位:那道守門用的是 **JS 字元數**,`head -c` 數的是 **byte** —— 中文一個字 3 bytes,兩者差很多。
+//   ⇒ **要加長文,一律加在本段以下。**
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
+//
+// 🔴🔴 **而「唯一權威」的另一面:這個數字【沒有第二個來源】,任何驗它的腳本都與它同源。**
+//   (2026-08-15 E 窗審 `433bcf26` 判 must-fix;A 窗實測後確認成立。)
+//   ⚠️ **失敗形狀**:第 28 處校正若從來沒被寫進本行 ⇒ 本行不知道、驗證腳本也不會去找它
+//   ⇒ **兩邊一起說 OK、四綠全綠**;症狀要等「呼叫端真的送 null」那天才出現。
+//   ⇒ 拿掉一處會被抓到(**偵測力**有),但「該被校正的恰好是這幾處」(**分母**)沒有東西在守。
+//
+//   **能不能改成從 migration 推出分母?A 窗 2026-08-15 實測:不能。** 逐條量過:
+//     · `DEFAULT NULL` 掃描能對上的被校正參數名 = **6 / 26**(26 = 27 處去重後的參數名,p_note 橫跨兩支函式)
+//     · **掃不到 20 個** —— 因為 ①-⑧ 那族是「**必填但可為 null**」(簽章**沒有** DEFAULT),
+//       要不要補取決於**函式體是不是 fail-closed 拒 NULL** ⇒ **那不是簽章的性質,掃不出來**
+//     · 反向多出 **13 個**「有 DEFAULT NULL 但不該補」的誤報候選(補了會讓非法呼叫變合法)
+//     · 🔴 而且掃出來的是**裸參數名**,校正的單位是 **(函式, 參數)** ⇒ **鍵就不對**
+//       (`p_from`/`p_to` 的命中其實來自 `admin_today_payment_total`,不是被校正的 `admin_search_orders`)
+//     · 🔴 字集也比宣稱窄:`int` vs `integer`、`timestamptz` 各漏一批(`p_year` 寫的是 `int DEFAULT NULL`)
+//     · 🔴 更根本:⑨⑩ 的 DEFAULT 是**正式站實查**寫下的,**repo migrations 不是那個世界的權威**
+//   ⇒ **結論:這個分母目前只能靠人維護,而上面那幾條是「為什麼」,不是藉口。**
+//   ⇒ 做得到的那半已立 backlog `#523`:**不是算出正確處數,是「有新候選出現時讓某格紅」**
+//     (對 (函式,參數) 鍵、只涵蓋 DEFAULT NULL 那一族 ⇒ **涵蓋不到 ①-⑧,那個限度要寫在守門旁邊**)。
+//   ⚠️ **不要為了收掉這條而把本行講得更權威** —— 它已經是權威了,缺的是**第二個來源**。
 // 反映 LIVE prod schema(🔴 **2026-08-11 晚重 gen(當日第二次,D 窗六代)** ——
 //   E10 #15-B1(`20260811090000` 收款列表唯讀 RPC)apply 之後;
 //   目的 = **拆掉 B2-a 的型別縫**(`apps/admin/src/lib/orders/payment-repository.ts`
