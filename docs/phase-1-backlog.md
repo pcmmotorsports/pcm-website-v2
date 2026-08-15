@@ -13417,3 +13417,37 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   欄位級證據 `docs/specs/2026-08-15-product-field-ownership.md` §1/§4
 - **發現於:** 2026-08-15 · B 窗 · `#20` 片2 plan v3 撰寫時(codex 關卡1 R1 折 finding 過程中具體化);
   **2026-08-15 同日以欄位歸屬盤點補上證據並更正方向與緩解句**
+
+### #540 · 動效 token 有宣告、零消費端 —— 「BMW M 動效規範」目前是一段文字
+
+> ⚠️ **號碼佔位,待主視窗確認**(`scripts/next-backlog-number.sh` 給的是**下限**;
+> 已另跑第二道 `grep -rn 佔位 ~/pcm-mailbox/*.md` ⇒ 命中號全部 < #540)。
+
+- **狀態:** 未開工
+- **現況(2026-08-16 全後台合規盤點實測,B 窗)**:
+  - 宣告端 ✅ `apps/admin/src/app/globals.css:80-82` 三顆,**且編譯產物裡查得到**
+    `--motion-fast:.13s` / `--motion-base:.22s` / `--ease-standard:cubic-bezier(.16,1,.3,1)`
+  - 消費端 ❌ **0**
+    數法(可重跑):`grep -rn 'var(--motion\|var(--ease-standard' apps/admin/src | wc -l` → 0;
+    `C=$(find apps/admin/.next/static/chunks -name '*.css'|head -1); grep -c 'var(--motion' "$C"` → 0
+    🔴 **第二條數的是【編譯產物】** —— 原始碼零命中可能是寫法問題,產物零命中才是「沒有規則吃它」
+  - 現有動效 14 處 `transition`,**全部是 shadcn 預設**(`duration-200 ease-linear` 或不指定),
+    其中 11 處在 `components/ui/`(沒被碰過的原件)
+- 🔴 **為什麼守門沒叫:** `apps/admin/src/app/design-tokens.test.ts:51-71` 那一格是綠的,
+  而**它釘的是「token 住在 `:root` 而不是 `@theme inline`」,不是「token 被用」**。
+  ⇒ **守門在,而它守的不是這件事。** 補這條時要**同時**加一格斷言消費端 > 0,否則下次照樣綠。
+- **不修會痛在:**
+  - **擴充性:** 下一片寫動效時沒有現成消費端可抄,會各自寫 `duration-*`,
+    ⇒ 三顆 token 永遠停在「宣告了但沒人用」,而每多一片就多一組不一致的時間值
+  - **可維護性:** 設計參照 §5 若不標現況,讀的人會以為「動效規範已套用」——
+    **2026-08-16 修訂前那一節的「陰影」列真的寫著現況「無」,而實測有 12 處** ⇒ 已是實錘,不是假設
+  - **bug 可追蹤性:** 「減少動態」那段(`globals.css` 的 `prefers-reduced-motion`)已落地且有守門,
+    但它管的是**關掉**動效;**開啟**那半沒有任何觀測點 ⇒ 壞了不會有人發現
+- **落點:** 併進「按鈕與輸入框」那一片(§6.5.6 同時要補 `active:` 與 `input` 的 `hover:`)——
+  那一片本來就要改 `components/ui/button.tsx` 與 `input.tsx`,是唯一自然的消費端。
+- **關閉條件:** 編譯產物裡 `var(--motion` 命中 > 0 **且** 有一格測試斷言它 > 0。
+  🔴 **只改 code 不加那格 = 這條不得標為已解決**(理由見上一段)。
+- **估時:** 20-30 min(併片時的增量)
+- **相關:** `docs/design/admin-design-system.md` §5 與檔頭「落地狀態」表;
+  完整量法與逐頁盤點 `~/pcm-mailbox/B-後台BMW-M合規盤點-20260816.md`
+- **發現於:** 2026-08-16 · B 窗 · 全後台 BMW M 合規盤點
