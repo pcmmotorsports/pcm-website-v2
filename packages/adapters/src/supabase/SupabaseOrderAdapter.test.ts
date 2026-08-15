@@ -2123,3 +2123,60 @@ describe('SupabaseOrderAdapter — #347-3b 建立日期範圍', () => {
     expect(h.lt).toHaveBeenCalledWith('created_at', TO);
   });
 });
+
+// ── `#1` 片1:待處理(還沒收錢 **或** 還沒訂貨)────────────────────────────────
+//
+// 🔴 **本組守的是「這個 OR 沒有被偷偷做成別的東西」。**
+//   拍板值域(出處 commit `4ffda20b` / `a01457be`):
+//   還沒收錢 = `unpaid` ∪ `partiallyPaid`(**不含 refunded / partiallyRefunded**)、還沒訂貨 = `goods_axis = 'none'`。
+//   ⚠️ 實作時最容易發生的錯是**順手抄 `orderPayAxis()`** —— 那支把 `refunded` 也判成 `unpaid`
+//   ⇒ 已退款單會跑進「待處理」,而那正是 `#494` 剛修掉的病。**下面第二格專門釘這個。**
+const PENDING_OR = 'payment_status.eq.unpaid,payment_status.eq.partiallyPaid,goods_axis.eq.none';
+
+describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — 待處理(#1 片1)', () => {
+  it('🔴 pendingOnly ⇒ 下推一道 OR + 自帶 cancelled_at 守門', async () => {
+    const { client, or, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({ pendingOnly: true }, { limit: 20, offset: 0 });
+
+    expect(or).toHaveBeenCalledWith(PENDING_OR);
+    // 🔴🔴 片0 實測:`.or()` **不會**自帶 cancelled_at,不加就撈回已取消的單(那一列真的跑出來過)。
+    //    報告 `docs/specs/2026-08-15-1-p0-postgrest-or-semantics.md`(commit `b4865c29`)§0 第 3 題。
+    expect(is).toHaveBeenCalledWith('cancelled_at', null);
+  });
+
+  it('🔴🔴 已退款兩態**不得**出現在條件裡(照抄 orderPayAxis 就會紅)', async () => {
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({ pendingOnly: true }, { limit: 20, offset: 0 });
+
+    const pendingCall = or.mock.calls.find(([arg]) => String(arg).includes('goods_axis.eq.none'));
+    expect(pendingCall, '找不到待處理那道 or ⇒ 下面的斷言會恆真').toBeDefined();
+    // 負向逐項列:任何一個跑進來都代表拍板被做成被否決的那個選項。
+    for (const leak of ['refunded', 'partiallyRefunded']) {
+      expect(String(pendingCall?.[0]), `待處理條件不得含「${leak}」`).not.toContain(leak);
+    }
+  });
+
+  it('🔴 沒按待處理 ⇒ 不下推那道 OR、也不下推 cancelled_at 守門(正向對照)', async () => {
+    // 少了這格,把 `if (filter.pendingOnly)` 拿掉、變成無條件下推也會讓上面兩格全綠 ——
+    // 而那會讓**每一次列表查詢**都藏掉已取消的單,那是沒有人拍板過的行為。
+    const { client, or, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20, offset: 0 });
+
+    expect(or.mock.calls.some(([arg]) => String(arg).includes('goods_axis.eq.none'))).toBe(false);
+    expect(is).not.toHaveBeenCalledWith('cancelled_at', null);
+  });
+
+  it('🔴 與 L6 隱藏規則併存 ⇒ 兩道 .or() 各自獨立下推(片0 實測 = AND、括號各自保住)', async () => {
+    // 🔴 **這格紅掉 = PostgREST 換版改了語意 ⇒ 停下來重新設計,不是把測試改綠。**
+    //    片0 量到的是「兩個 `or=` 疊起來 = `(A OR B) AND (C OR D)`」,而**官方文件對
+    //    「同一個 `or=` 鍵重複出現」沒有明文** ⇒ 判定為**穩定行為、非契約**。
+    //    做錯的症狀是 **L6 隱藏規則失效**(Sean 逐字要求藏起來的刷卡未付款單冒出來),
+    //    而且**只在按下「待處理」時才發生** ⇒ 不會有人在別的畫面發現。
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({ pendingOnly: true }, { limit: 20, offset: 0 });
+
+    expect(or).toHaveBeenCalledWith(PENDING_OR);
+    expect(or).toHaveBeenCalledWith(L6_HIDE_OR);
+    expect(or).toHaveBeenCalledTimes(2);
+  });
+});

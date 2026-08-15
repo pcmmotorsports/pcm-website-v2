@@ -266,6 +266,26 @@ export type AdminOrderFilter = {
    *    的檔案表逐字「多值,與既有 `orderSources` 同形」;§7b 只說它**不在 A1**、沒說形狀),不是預留抽象。
    */
   goodsAxes?: readonly OrderGoodsAxis[];
+  /**
+   * `#1` 片1:**待處理** ——「還沒收錢 **或** 還沒跟供應商訂貨,只要有一件事沒做完就算」。
+   *
+   * 🔴 **為什麼是一個獨立的布林,而不是「同時給 `paymentStatus` 和 `goodsAxes`」**:
+   *    本值物件其餘每一欄疊上去都是 **AND**(adapter 逐條 `if` 疊 `.eq`/`.in`)
+   *    ⇒ 同時給兩軸做出來的是**交集**,而**交集的畫面看起來完全正常,只是筆數少很多**。
+   *    ⇒ 這是本值物件裡**第一個 OR 語意的欄**,故意跟其他軸長得不一樣。
+   *
+   * 🔴 **值域是拍板的,不是我挑的**(出處 commit `4ffda20b` / `a01457be`,兩顆都在 `origin/dev` 上、可達):
+   *    **還沒收錢 = `unpaid` ∪ `partiallyPaid`**;**還沒訂貨 = `goods_axis = 'none'`**。
+   *    **不含 `refunded` / `partiallyRefunded`** —— 那會讓已退款單跑進待處理,
+   *    正是 `#494` 剛修掉的病。
+   *    ⚠️ **實作時最容易發生的錯是「順手抄 `orderPayAxis()` 的收斂規則」** ——
+   *    那支把 `refunded` 也判成 `unpaid`(`order-status-axes.ts:140-142` 自陳)
+   *    ⇒ **那等於偷偷把拍板做成被否決的那個選項。**
+   *    守門:`SupabaseOrderAdapter.test.ts` 有一格**負向**釘死已退款單不得被撈進來。
+   *
+   * `undefined` / `false` = 不限。
+   */
+  pendingOnly?: boolean;
   /** 來源多勾選(D-1b;undefined/空陣列=不限、多值=OR〔IN〕)。 */
   orderSources?: readonly OrderSource[];
   /** 管道多勾選(D-1b;同上)。 */
