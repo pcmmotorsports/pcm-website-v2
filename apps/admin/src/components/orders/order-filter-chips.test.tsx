@@ -101,10 +101,27 @@ describe('#484 B-1 — `.fchip` 樣式逐字對 OD', () => {
   const CSS = readFileSync(join(__dirname, '../../app/globals.css'), 'utf8');
   const ROOT = postcss.parse(CSS);
   const norm = (v: string) => v.replace(/\s+/g, ' ').trim();
-  const declsOf = (selector: string) => {
+  /**
+   * 🔴 **`atRule` 參數是 `#485` 片3 加的,而它動到了守門本身 —— 理由要留著。**
+   *
+   * 原版寫 `ROOT.walkRules(...)` 掃**全檔**同名選擇器。那在當時是對的(`.fchip` 只有一條),
+   * 但它把「**常態**」這件事寄託在「全檔只有一條」這個**沒寫下來的前提**上。
+   * 片3 在 `@media (max-width: 767px)` 裡給 `.fchip` 補了 `position: relative`(觸控熱區的載體)
+   * ⇒ 原版守門讀到 **7** 個宣告而紅,**而它紅的不是「有人亂動 OD 字面」,是它自己的前提過期了**。
+   *
+   * ⚠️ **兩條我刻意沒選的路,寫在這裡免得以後有人以為沒想過**:
+   *   ①把 `position` 加進下面那份清單 ⇒ 把「熱區機制」混進「OD 逐字」,**守門的語意會糊掉**
+   *   ②把 CSS 選擇器改成 `a.fchip` 讓它掃不到 ⇒ **那是繞過守門**,不是修
+   * ⇒ 選的是「收窄成它名字本來就說的那個範圍(**常態=頂層**)」+ **下面補一格釘 media 那條**,
+   *   **覆蓋只增不減**。
+   */
+  const declsOf = (selector: string, atRule: string | null = null) => {
     const out = new Map<string, string>();
     ROOT.walkRules((rule) => {
       if (norm(rule.selector) !== selector) return;
+      const parent = rule.parent;
+      const inAtRule = parent?.type === 'atrule' ? norm((parent as postcss.AtRule).params) : null;
+      if (inAtRule !== atRule) return;
       rule.walkDecls((d) => {
         out.set(d.prop, norm(d.value));
       });
@@ -124,6 +141,27 @@ describe('#484 B-1 — `.fchip` 樣式逐字對 OD', () => {
     expect(d.get('padding')).toBe('3px 11px');
     expect(d.get('font-size')).toBe('12px');
     expect(d.get('border')).toBe('1px solid var(--border)');
+  });
+
+  // 🔴🔴 **`#485` 片3 補的一格 —— 上面那格收窄之後,這格接住被讓出去的範圍。**
+  //
+  // 釘的是**窄版觸控熱區**。⚠️ **這格的判別力有明確上限,不要讀成「熱區有 44×44」**:
+  //   它證明的是「**這幾行字還在 CSS 檔裡**」,而**不是**瀏覽器算出來的命中區真的是 44×44
+  //   —— 跨選擇器特異性、`box-sizing`、邊框佔幾 px,postcss 一個都看不到
+  //   (同一個坑 `#486` 記過:CSS 字面寫 36、用值是 30)。
+  // ⇒ **真正的證據是真瀏覽器量測**:片3 在 390/393/430 三個寬度用 `elementFromPoint` 四向探邊,
+  //   量到命中區 48×44 / 60×44 / 60×44,且三發突變各自只翻對應那格(拿掉熱區→回 26;
+  //   熱區往上開太大→密度鈕被搶走那格翻紅)。**這格只是防止有人把那幾行整段刪掉。**
+  it('🔴 窄版熱區:`position: relative` 與 `::after` 在同一個 media query 裡(少一半就不生效)', () => {
+    const MEDIA = '(max-width: 767px)';
+    expect([...declsOf('.fchip', MEDIA).entries()]).toEqual([['position', 'relative']]);
+
+    const after = declsOf('.fchip::after', MEDIA);
+    expect(after.get('position')).toBe('absolute');
+    expect(after.get('content')).toBe("''");
+    // 🔴 上下不對稱(6/14)是量出來的,不是手滑:往上只讓 6px,免得吃掉正上方 4px 處的密度鈕。
+    expect([after.get('top'), after.get('bottom')]).toEqual(['-6px', '-14px']);
+    expect([after.get('left'), after.get('right')]).toEqual(['0', '0']);
   });
 
   it('選中 4 個宣告;值是 token 映射、不是逐字相同', () => {
