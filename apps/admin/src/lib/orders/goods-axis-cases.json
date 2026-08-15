@@ -1,0 +1,102 @@
+{
+  "_readme": [
+    "🔴 貨品軸的【共用真值表】—— SQL 與 TS 兩邊都拿它當 oracle(#522)。",
+    "",
+    "為什麼是「真值表」而不是「兩邊互比」:",
+    "  主視窗原本的規格是『餵同一組輸入,兩邊各跑一次,比結果』。",
+    "  🔴 但那擋不住 #522 —— #522 正是【兩邊一起用錯分母】,互比會一致通過。",
+    "  ⇒ 必須有一組【人寫的期望值】當第三方,兩邊各自對它比。",
+    "",
+    "誰在用:",
+    "  TS  → goods-axis-cases.test.ts(每次 vitest 都跑)",
+    "  SQL → docs/probes/order-goods-axis-parity-probe.sh(拋棄式 PG,可重跑)",
+    "",
+    "🔴 兩側的【觸發】不對稱,這是已知缺口不是疏漏:",
+    "  TS 側每次 vitest 都跑;SQL 側只有人想到時才跑 ——",
+    "  .husky/pre-commit / .github/ / package.json 對 docs/probes 零命中(2026-08-16 實查)。",
+    "  ⇒ 有人改了那支 view 而沒跑 probe,不會有任何東西紅。",
+    "",
+    "⚠️ 加新案例時兩邊都會自動吃到,不用改兩份清單 —— 那正是本檔存在的理由。"
+  ],
+  "cases": [
+    {
+      "label": "零品項單 ⇒ none(bool_and 對空集合回 true,不擋會判成出貨完成)",
+      "lines": [],
+      "expected": "none"
+    },
+    {
+      "label": "無取消:全出貨 ⇒ shipped",
+      "lines": [{ "quantity": 3, "ordered": 3, "instock": 3, "shipped": 3, "cancelled": 0 }],
+      "expected": "shipped"
+    },
+    {
+      "label": "無取消:到貨未出 ⇒ instock",
+      "lines": [{ "quantity": 3, "ordered": 3, "instock": 3, "shipped": 0, "cancelled": 0 }],
+      "expected": "instock"
+    },
+    {
+      "label": "無取消:已訂未到 ⇒ ordered",
+      "lines": [{ "quantity": 3, "ordered": 3, "instock": 0, "shipped": 0, "cancelled": 0 }],
+      "expected": "ordered"
+    },
+    {
+      "label": "無取消:什麼都沒做 ⇒ none",
+      "lines": [{ "quantity": 3, "ordered": 0, "instock": 0, "shipped": 0, "cancelled": 0 }],
+      "expected": "none"
+    },
+    {
+      "label": "🔴 #522 本體:訂 5 取消 2,剩 3 全出貨完畢 ⇒ shipped(修前為 none)",
+      "lines": [{ "quantity": 5, "ordered": 3, "instock": 3, "shipped": 3, "cancelled": 2 }],
+      "expected": "shipped"
+    },
+    {
+      "label": "🔴 #522:訂 5 取消 2,剩 3 到貨未出 ⇒ instock(修前為 none)",
+      "lines": [{ "quantity": 5, "ordered": 3, "instock": 3, "shipped": 0, "cancelled": 2 }],
+      "expected": "instock"
+    },
+    {
+      "label": "🔴 #522:訂 5 取消 2,已向供應商訂 3 ⇒ ordered(修前為 none)",
+      "lines": [{ "quantity": 5, "ordered": 3, "instock": 0, "shipped": 0, "cancelled": 2 }],
+      "expected": "ordered"
+    },
+    {
+      "label": "部分取消但剩下的還沒訂 ⇒ none(取消不會讓它變成已完成)",
+      "lines": [{ "quantity": 5, "ordered": 0, "instock": 0, "shipped": 0, "cancelled": 2 }],
+      "expected": "none"
+    },
+    {
+      "label": "🔴 主視窗要我驗的邊界:單一品項【整筆取消】⇒ 分母 0 ⇒ shipped(裁定 A)。實務上這種單 orders.cancelled_at 已被 A8a2 關單寫入(:463-467)、畫面由訂單層「已取消」蓋過去,本值到不了使用者",
+      "lines": [{ "quantity": 4, "ordered": 0, "instock": 0, "shipped": 0, "cancelled": 4 }],
+      "expected": "shipped"
+    },
+    {
+      "label": "🔴 多品項:一項整筆取消(不參與)、另一項全出貨 ⇒ shipped",
+      "lines": [
+        { "quantity": 4, "ordered": 0, "instock": 0, "shipped": 0, "cancelled": 4 },
+        { "quantity": 2, "ordered": 2, "instock": 2, "shipped": 2, "cancelled": 0 }
+      ],
+      "expected": "shipped"
+    },
+    {
+      "label": "🔴 多品項:一項整筆取消、另一項還沒訂 ⇒ none(不得被那項取消拉成 shipped)",
+      "lines": [
+        { "quantity": 4, "ordered": 0, "instock": 0, "shipped": 0, "cancelled": 4 },
+        { "quantity": 2, "ordered": 0, "instock": 0, "shipped": 0, "cancelled": 0 }
+      ],
+      "expected": "none"
+    },
+    {
+      "label": "判序不可倒:已出貨但 ordered 沒補齊(舊資料)⇒ 仍是 shipped,不是 ordered",
+      "lines": [{ "quantity": 2, "ordered": 0, "instock": 2, "shipped": 2, "cancelled": 0 }],
+      "expected": "shipped"
+    },
+    {
+      "label": "多品項:一項出完、一項只到貨 ⇒ instock(取最不完整的那一項)",
+      "lines": [
+        { "quantity": 2, "ordered": 2, "instock": 2, "shipped": 2, "cancelled": 0 },
+        { "quantity": 2, "ordered": 2, "instock": 2, "shipped": 0, "cancelled": 0 }
+      ],
+      "expected": "instock"
+    }
+  ]
+}

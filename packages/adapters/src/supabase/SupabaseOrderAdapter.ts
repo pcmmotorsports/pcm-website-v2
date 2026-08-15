@@ -632,9 +632,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    四層 embed 全回得來(這是 plan §8 列的「本片最大未知」,現已關掉)。
     // ⚠️ `goods_axis` **沒有加進投影** —— 列表顯示用的貨品軸由 `orderGoodsAxis()` 從品項數量算
     //    (狀態膠囊那條路),撈回來就是第二份真相。本片只拿它**下推篩選**。
-    //    ⚠️ 因此「SQL 的判序」與「JS 的判序」目前**沒有任何守門綁著**,兩邊都是照
-    //    「shipped ⊆ instock ⊆ ordered」手寫的 —— 缺口記在 **`#499`**(不是 `#488`;
-    //    `#488` 問的是「誰該寫 `fulfillment_status` 那個欄」,是另一題)。不要當作已對齊。
+    //    ⚠️ 「SQL 的判序」與「JS 的判序」**原本沒有任何守門綁著** —— 缺口記在 **`#499`**
+    //    (不是 `#488`;`#488` 問的是「誰該寫 `fulfillment_status` 那個欄」,是另一題)。
+    //    ✅ **`#522`(2026-08-16)已綁上一半**:兩邊各自對**共用真值表**
+    //    `apps/admin/src/lib/orders/goods-axis-cases.json` 比對
+    //    (TS 側 `goods-axis-cases.test.ts`、SQL 側 `docs/probes/order-goods-axis-parity-probe.sh`)。
+    //    🔴 **另一半仍是缺口**:那份真值表守的是【判定結果】,
+    //    `ADMIN_ORDER_LIST_SELECT` 的四值字面與 view 的對應仍是人工比對。`#499` 不得標為已解。
     let query = this.supabase
       .from('admin_order_list_v')
       .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });

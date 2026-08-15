@@ -862,7 +862,10 @@ export type AdminOrderItemQuantitySummary = {
    * **「可取消 / 上限 / 權限」那一類判斷**,**不是**禁止任何地方出現 `instock − shipped`。
    * 合法用途至少兩處,兩處問的都是「倉庫裡現在還剩幾件」而不是「還能取消幾件」:
    *   · `apps/admin/src/components/print/picking-doc.tsx` 的 `pickableQuantity()`(揀貨單應揀量)
-   *   · `apps/admin/src/lib/orders/order-status-axes.ts` 用 `shippedQuantity >= quantity` 判「已出貨」軸
+   *   · `apps/admin/src/lib/orders/order-status-axes.ts` 用
+   *     `shippedQuantity >= quantity − cancelledQuantity` 判「已出貨」軸
+   *     (🔴 `#522` 2026-08-16 改的:原本分母是 `quantity`,而那讓**任何部分取消的單
+   *      貨品軸永遠停在「未訂購」** —— 那正是本段這條判準句在講的事,只是當時沒照做。)
    * ⇒ **判準一句話:算「還能不能取消」就不准減 shipped;算「倉庫還剩什麼」就必須減。**
    * (完整推導在 `picking-doc.tsx` 的 `pickableQuantity` docstring。DB 側硬約束
    *  C7 `instock + cancelled <= quantity`、C9 `shipped <= instock` 保證這個差恆非負 ——

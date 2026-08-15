@@ -1,4 +1,10 @@
 #!/bin/bash
+# 🔴🔴 **2026-08-16 起本檔的 T3/T4 內嵌 CASE 是【過期版本】** —— `#522` 已把貨品軸的分母
+#    從 `oi.quantity` 改成 `oi.quantity − cancelled_quantity`
+#    (`supabase/migrations/20260816050000_m4b_522_goods_axis_subtract_cancelled.sql`)。
+#    本檔造的 `order_item_quantity_summary` 連 `cancelled_quantity` 欄都沒有
+#    ⇒ **它自我一致、照樣全綠,而它證的是一個已經被廢掉的版本。**
+#    ⇒ 要驗現行貨品軸請跑 `docs/probes/order-goods-axis-parity-probe.sh`(對共用真值表比)。
 # 484a 探針:在**拋棄式庫**上做三件事 —— 解析真 SQL / 真跑 DROP / 四值 oracle(含負向對照)
 # 用法: bash docs/probes/484a-view-probe.sh <PGURL> <migration路徑>
 set -uo pipefail
