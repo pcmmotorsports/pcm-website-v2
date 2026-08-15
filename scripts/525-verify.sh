@@ -54,6 +54,24 @@ val() { "${PSQL[@]}" -tAq -c "$1" 2>/dev/null | tr -d '[:space:]'; }
 
 case "$MODE" in
 provision)
+  # 🔴 **先停掉舊叢集再砍目錄** —— 直接 `rm -rf` 會讓還在跑的 postmaster
+  #    失去自己的資料檔而**繼續佔著 port**,下一次連線得到
+  #    `FATAL: could not open file "global/pg_filenode.map"`(2026-08-16 實際踩到)。
+  #    ⚠️ 症狀會被誤讀成「migration 壞了」——**它其實是 harness 自己的清理順序錯**。
+  pg stop -m immediate >/dev/null 2>&1 || true
+  # 🔴 **等 port 真的放開再繼續** —— `pg stop` 回來不代表 socket 已釋放,
+  #    而舊 postmaster 在死亡過程中仍佔著 port ⇒ 新叢集 `could not create any TCP/IP sockets`,
+  #    **而錯誤訊息長得像「資料檔壞了」**(`could not open file "global/pg_filenode.map"`)。
+  #    ⚠️ 2026-08-16 實際踩到:`lsof` 在一分鐘後查是空的,**因為那時它已經死了**
+  #       —— **「我查的時候沒有」不等於「那一刻沒有」。**
+  for _ in $(seq 1 20); do
+    lsof -ti tcp:"$PORT" >/dev/null 2>&1 || break
+    sleep 1
+  done
+  if lsof -ti tcp:"$PORT" >/dev/null 2>&1; then
+    echo "❌ VERIFY-ABORT:port $PORT 20 秒後仍被佔用,拒絕 provision(避免產生一個看起來像資料損毀的錯誤)"
+    exit 1
+  fi
   rm -rf "$WORK"; mkdir -p "$WORK"
   initdb -D "$WORK/pgdata" -U pgtest --auth=trust -E UTF8 >"$WORK/initdb.log" 2>&1 \
     || { echo "initdb 失敗,見 $WORK/initdb.log"; exit 1; }
@@ -118,7 +136,23 @@ insert into public.customers (user_id, email, name, phone, created_at) values
  ('11111111-1111-4111-8111-000000000006','zzz@example.com',        '無關的人',    '0999888777',   now() - interval '1 day')
 on conflict do nothing;
 SQL
-  echo "provision 完成:PG 在 127.0.0.1:$PORT,fixture 6 筆"
+  # 🔴 **加到 106 筆(6 具名 + 100 批量)—— D 窗突變輪 D04 的修法。**
+  #    病因:fixture 只有 6 筆 ⇒ 「p_limit 硬夾 100」那格**分不出來**
+  #    (突變成夾 999,`p_limit=200` 時 baseline 與 mutated 都是 `truncated=false`)。
+  #    ⚠️ 這 100 筆的 email 一律含 `bulk`,**與上面六筆的探針字元(- % _ 反斜線)零重疊**
+  #       ⇒ 不會污染 B 組那幾格的期望集(那組用 strpos 獨立算,加了資料也會自動跟著對,
+  #         但**刻意讓它們不重疊**,免得下一個人以為那幾格的數字是巧合)。
+  "${PSQL[@]}" -v ON_ERROR_STOP=1 -q <<'SQL' || { echo "塞批量 fixture 失敗"; exit 1; }
+insert into auth.users (id)
+select ('22222222-2222-4222-8222-' || lpad(g::text, 12, '0'))::uuid from generate_series(1,100) g
+on conflict do nothing;
+insert into public.customers (user_id, email, name, phone, created_at)
+select ('22222222-2222-4222-8222-' || lpad(g::text, 12, '0'))::uuid,
+       'bulk' || g || '@example.com', 'Bulk' || g, null, now() - (g || ' minute')::interval
+from generate_series(1,100) g
+on conflict do nothing;
+SQL
+  echo "provision 完成:PG 在 127.0.0.1:$PORT,fixture $("${PSQL[@]}" -tAq -c 'select count(*) from public.customers' | tr -d '[:space:]') 筆"
   ;;
 
 run)
@@ -145,12 +179,25 @@ run)
   chk "空字串 ⇒ ids 空"        "[]"    "$(val "select (public.admin_search_customers('',100)->'ids')::text")"
   chk "全空白 ⇒ ids 空"        "[]"    "$(val "select (public.admin_search_customers('   ',100)->'ids')::text")"
   chk "NULL ⇒ ids 空"          "[]"    "$(val "select (public.admin_search_customers(null,100)->'ids')::text")"
-  chk "超長(121) ⇒ ids 空"     "[]"    "$(val "select (public.admin_search_customers(repeat('a',121),100)->'ids')::text")"
+  # 🔴🔴 **這格的名字曾經比它證的東西大**(D 窗 A03):把長度門檻 120 改成 99999,**輸出逐字相同**
+  #    ⇒ 它證的是「121 個 a 查不到東西」(**本來就查不到**),**不是「超長被擋下」**。
+  #    ⚠️ **這比恆綠格更毒**:恆綠格沒有判別力;**這種格有判別力,只是守的不是它宣稱的那件事**
+  #       ⇒ **數覆蓋率時它會被算成「這個面有守」。**
+  #    ⚠️ 真正要驗的是「**沒有掃全表**」,那需要 `EXPLAIN` 類斷言,而 runbook §5 明載本機無判別力。
+  #    ⇒ **改名,並把界線寫進格名本身。**
+  chk "超長輸入輸出為空(不證守門生效;守門要 EXPLAIN,本機驗不到)" "[]" \
+    "$(val "select (public.admin_search_customers(repeat('a',121),100)->'ids')::text")"
   chk "truncated 是 boolean"   "boolean" "$(val "select jsonb_typeof(public.admin_search_customers('',100)->'truncated')")"
 
   echo "── B 組:🔴 逃逸與 fail-open(這組是本片最重要的)──────────────"
   # 正向對照先跑:證明量具是活的(不然下面每個 0 都無法與「函式恆回空」區分)
-  chk "正向對照:搜 example ⇒ 5 筆"  "5" "$(val "select jsonb_array_length(public.admin_search_customers('example',100)->'ids')")"
+  # 🔴 **期望值不寫死**(今晚第二次踩同一條:fixture 從 6 筆加到 106 筆,寫死的 5 當場變假)。
+  #    上限也要一起夾,否則 >100 命中時本格自己會假紅。
+  chk "正向對照:搜 example = strpos 獨立算出的筆數(夾 100)" "t" \
+    "$(val "select jsonb_array_length(public.admin_search_customers('example',100)->'ids')
+              = least((select count(*) from public.customers c
+                        where strpos(lower(btrim(coalesce(c.email,''))),'example') > 0
+                           or strpos(lower(btrim(coalesce(c.name,''))),'example') > 0), 100)")"
   # 🔴🔴 **期望值不寫死,與 `strpos` 獨立算出的答案比對**(codex R2 的教法)。
   #    · `strpos` 是**字面**比對,不經 LIKE、不需逃逸 ⇒ **與被測那條路零共用行**
   #    · 寫死數字會踩「用眼睛數 fixture」那個病 —— **我第一版就踩了**:
@@ -176,16 +223,59 @@ run)
   echo "── C 組:三軸各自命中 ─────────────────────────────────────────"
   chk "姓名軸(中文)⇒ 王小明"        "1" "$(val "select jsonb_array_length(public.admin_search_customers('王小',100)->'ids')")"
   chk "電話軸:0912345678 命中帶連字號那筆" "1" "$(val "select jsonb_array_length(public.admin_search_customers('0912345678',100)->'ids')")"
+  # 🔴 **D 窗突變輪 B03 的修法**:上一格**只餵純數字** ⇒ 該輸入下 `v_num == v_txt` **恆等**,
+  #    把正規化拿掉(`v_num_like := v_txt`)**一格都不會紅**。
+  #    ⇒ 本格餵**帶連字號**的輸入 —— 那是唯一能分出「有沒有做數字正規化」的形狀。
+  #    決定性輸入實測(D 窗):基準 `ids=1` / 突變版 `ids=0`。
+  chk "🔴 電話軸【正規化】:0912-345 命中(拿掉正規化這格才會紅)" "1" \
+    "$(val "select jsonb_array_length(public.admin_search_customers('0912-345',100)->'ids')")"
   chk "🔴 LINE 合成位址【刻意搜得到】" "1" "$(val "select jsonb_array_length(public.admin_search_customers('pcmmotorsports.local',100)->'ids')")"
   chk "查無 ⇒ 空(負向對照)"        "0" "$(val "select jsonb_array_length(public.admin_search_customers('絕不存在zzzqqq',100)->'ids')")"
 
   echo "── D 組:排序與截斷 ───────────────────────────────────────────"
   chk "p_limit=2 ⇒ 恰 2 筆"      "2"     "$(val "select jsonb_array_length(public.admin_search_customers('example',2)->'ids')")"
   chk "p_limit=2 ⇒ truncated"    "true"  "$(val "select (public.admin_search_customers('example',2)->>'truncated')")"
-  chk "未截斷時 truncated=false" "false" "$(val "select (public.admin_search_customers('example',100)->>'truncated')")"
-  # 排序穩定:同一查詢跑兩次必須逐字相同(array_agg 沒有 ORDER BY 時這格會飄)
-  chk "排序穩定(兩次相同)" "t" \
-    "$(val "select (public.admin_search_customers('example',3)->'ids') = (public.admin_search_customers('example',3)->'ids')")"
+  # 🔴 用**只命中少數**的詞驗「沒截斷」——`example` 現在有 106 筆,拿它驗 false 是錯的靶。
+  chk "未截斷時 truncated=false(用只命中 1 筆的詞)" "false" \
+    "$(val "select (public.admin_search_customers('sean@',100)->>'truncated')")"
+  # 🔴🔴 **D 窗突變輪 D04 的收穫 —— 這格在 6 筆 fixture 下【構造不出來】。**
+  #    「p_limit 硬夾 100」是 migration 明文行為;突變成夾 999 時,6 筆 fixture 下
+  #    `p_limit=200` 兩版都回 `truncated=false` ⇒ **分不出來**。
+  #    ⇒ fixture 加到 106 筆之後,這兩格才真的在驗那個硬夾。
+  chk "🔴 硬夾 100:命中 106 筆時只回 100" "100" \
+    "$(val "select jsonb_array_length(public.admin_search_customers('example',200)->'ids')")"
+  chk "🔴 硬夾 100:超過上限時 truncated=true" "true" \
+    "$(val "select (public.admin_search_customers('example',200)->>'truncated')")"
+  # 🔴🔴 **D 窗突變輪 D03 的修法 —— 原版是 `f(x) = f(x)` 同句自比,必然相同。**
+  #    原版註解宣稱它會抓到「`array_agg` 少 `ORDER BY`」,而 D 窗**用突變證偽了**:
+  #    拿掉那個 `ORDER BY`,原版那格**照樣綠**。
+  #    **病根(D 窗逐字)**:**驗的是【穩定性】不是【正確性】—— 順序錯了,兩次也會一樣錯。**
+  #    ⇒ 改成比**實際序列**對上**獨立算出的期望序列**(`strpos` 算集合、
+  #      排序與上限逐字照函式的契約 `created_at DESC, user_id`)。
+  #
+  #    🔴🔴 **而改完之後,它【仍然】抓不到「拿掉 `array_agg` 的 ORDER BY」**(2026-08-16 實測):
+  #    ```
+  #    突變 array_agg(user_id ORDER BY …) → array_agg(user_id)   ⇒ PASS=36 FAIL=0  🔴 沒紅
+  #    突變 CTE 的 ORDER BY … DESC → ASC                          ⇒ 本格精準紅      ✅ 有判別力
+  #    ```
+  #    ⇒ **本格【有】判別力(第二發證明),但那一發突變在本環境【不可觀測】** ——
+  #      PG 對聚合輸入順序的規定是「**未指定**」,而它在這個計畫下**剛好保留了**子查詢的順序。
+  #    ⚠️ **所以那一發是「無意義突變」,不是「通過」** ——
+  #      **「我打不中它」與「它沒有問題」是兩件事,而報告上長得一樣。**
+  #    🔴 `array_agg` 的 `ORDER BY` **仍然要留著**:它守的是「PG 哪天不再剛好保留」,
+  #      而**那一天不會有任何東西通知我們**。**防禦性的東西本來就該恆綠。**
+  chk "🔴 排序【正確性】:實際序列 = 獨立算出的期望序列" "t" \
+    "$(val "with actual as (
+              select array_agg(x::uuid order by ord) a
+                from jsonb_array_elements_text(
+                       public.admin_search_customers('example',3)->'ids') with ordinality t(x,ord)),
+            expect as (
+              select array_agg(user_id order by created_at desc, user_id) e from (
+                select c.user_id, c.created_at from public.customers c
+                 where strpos(lower(btrim(coalesce(c.email,''))),'example') > 0
+                    or strpos(lower(btrim(coalesce(c.name,''))),'example') > 0
+                 order by c.created_at desc, c.user_id limit 3) s)
+            select coalesce((select a from actual),'{}') = coalesce((select e from expect),'{}')")"
 
   echo "── E 組:權限(含角色繼承 —— proacl 字面看不到這件事)────────────"
   chk "service_role 有 EXECUTE"  "t" "$(val "select has_function_privilege('service_role','public.admin_search_customers(text,integer)','EXECUTE')")"
