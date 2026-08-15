@@ -13672,3 +13672,79 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
   那支工具問「N 個顯示點各自有沒有被釘」,**而本題的正確答案是【零個顯示點】**
   ⇒ 形狀不同,硬跑只會產出**有數字而沒有意義**的報告。
 - **發現於:** 2026-08-16 · C 窗 · 主視窗指派用新工具驗經銷價時,判定工具不適用而延伸出來
+
+### #538. 🔴 兩張 tier 標籤表**值逐字相同、各自獨立定義**,而**沒有東西守它們一致**
+
+- **狀態:** 🔴 未處理 —— **跨 `apps/admin` 與 `apps/storefront` 兩包 ⇒ 至少中鐵則 8,要 plan 等 Sean 批**
+- **座標:**
+  ```
+  apps/admin/src/lib/customers/customer-list-view.ts:68   TIER_LABEL         一般會員 / 店家會員 / PREMIUM STORE
+  apps/storefront/src/components/TierBadge.tsx:27         TIER_LABEL（區域）  一般會員 / 店家會員 / PREMIUM STORE
+  ⇒ 值【逐字相同】，而兩張表【毫無關聯】
+  ```
+- **各自都有守門,而🔴 沒有任何東西在守「這兩張要一致」:**
+  `customer-list-view.test.ts`(5 處命中)/ `TierBadge.test.tsx`(6 處命中)
+  ⇒ **每一張都在守自己那一份的值對不對,沒有人在守它們相不相同。**
+- **失敗情境(2026-08-16 突變實測,不是推的):**
+  ```
+  突變：把 admin 的 store 值改成 '車行會員'
+  ⇒ admin      customer-list-view.test.ts  精準紅 1 格   ✅
+  ⇒ storefront TierBadge.test.tsx          🔴 照樣綠
+  ```
+- **🔴🔴 而真正的後果比「沒有守門」糟,糟在一個很特別的地方:**
+  **兩張表各自釘死自己的字面** ⇒ 有人改 admin 的值,**admin 那格會紅**
+  ⇒ 他看到紅,**順手把測試也改成新值** ⇒ **兩邊都綠,而值已經分岔了。**
+  ⚠️ **守門不但沒擋住分岔,還【提示了改法】** —— 它給了那個人**一條回到綠色的最短路徑**,
+  **而那條路徑正好繞過真正的問題。**
+  > 🔴 **判別句:這格紅的時候,它給的【最短修復路徑】,會不會剛好【繞過它想擋的東西】?**
+  📎 **與 house 那條「mock 掉信任邊界 ⇒ 測試在替 bug 站崗」是近親但不同**:
+  那條是**測試把 bug 寫成規格**(被動);**本條是測試【引導人去製造 bug】**(主動)。
+  ⚠️ **沒有守門反而不會這樣** —— 那個人不知道有另一張表,他會改一邊然後走開;
+  **有這個守門,他是【被打斷的】,而打斷他的東西給了他錯的出口。**
+- **📎 這正是 `#536` 剛立的標準要禁的形狀:兩邊各自寫死同一個字面。**
+  ⚠️ **但難度不同**:`#536` 是**同一個 app 內**(抽一顆常數即可);
+  **本條是跨兩包** ⇒ 要共用就得放進 `packages/`(domain 或 ui)⇒ **動兩包 + 動共用位置 ⇒ 鐵則 8。**
+- **⚠️ 不是 `order-list-view.ts:244` 那張(`MEMBER_TIER_LABEL` = 一般/車行/車行):**
+  🔴 **那張的「不一致」是刻意的,契約就寫在 `:239-241`** ——
+  > 「Sean 需求二分:一般 / 車行 —— store 與 premiumStore 皆歸『車行』(進階經銷仍是車行客)。」
+  **兩個等級壓成同一個字看起來就是缺陷,而沒開檔就會報一個假 finding。**
+- **🔴 而本條是用 `scripts/display-site-guard-audit.sh` 跑出來的,順帶暴露了那支工具的一條限度:**
+  `--id 'TIER_LABEL'` **抓到第三張是運氣** —— 它叫 `MEMBER_TIER_LABEL`,**只是剛好含子字串**。
+  **換個名字(例 `TierText`)整張漏掉,而報告上看不出少了東西。**
+  ⇒ **那個「N 個顯示點」是【pattern 的產物】,不是【事實】** —— 已補進工具的每次輸出。
+- **不修未來會痛在哪:** 文案不一致的損害不是「看起來不專業」,是**員工與客人對不上話** ——
+  客服說「你是店家會員」,客人在自己頁面看到別的字,**雙方都會以為對方在講另一件事**。
+- **發現於:** 2026-08-16 · C 窗 · 用 `display-site-guard-audit.sh` 跑 `TIER_LABEL` 時撈到
+
+### #539. 🔴 tier 標籤的**四個顯示點,零守門** —— 而我第一次分類時把它們判成「大多是假警報」
+
+- **狀態:** 🔴 未處理(補守門是輕量片,但**先確認 `#538` 要不要一起做** —— 抽共用常數會改動同一批檔)
+- **四個顯示點,各自零守門(逐一開檔數過,附命中數):**
+  ```
+  components/customers/customer-detail.tsx:155,165   TIER_LABEL[customer.tier]
+      候選測試 customer-detail-email.test.tsx / customer-detail-view.test.ts / load-customer-detail.test.ts
+      ⇒ 三支對「一般會員|店家會員|PREMIUM STORE」的命中數：0 / 0 / 0
+  components/customers/customers-table.tsx:44        TIER_LABEL[c.tier]
+      候選 app/customers/page.test.tsx ⇒ 命中數 0
+  components/customers/tier-edit-form.tsx:41         TIER_LABEL[tier]
+      候選 components/shared/admin-form-consumers.test.tsx ⇒ 命中數 0
+  lib/orders/order-list-view.ts:244                  MEMBER_TIER_LABEL
+      order-list-view.test.ts 存在，但對 tier 標籤命中數 0
+  ```
+  ⚠️ **有守門的是另外六支**(orders-table / customer-list-view / TierBadge / CheckoutView /
+  AccountView / OverviewTab)—— **它們守的是【別的顯示點】或【常數本身】,不是上面這四個。**
+
+- **🔴🔴 而本條的價值有一半在【我怎麼判錯的】,那要留著:**
+  工具標了 4 個 ❓,我回報「**1 個真缺口、3 個假警報**」。**實際是 4 個全真、零假警報。**
+  **病因:我問的是「哪些測試【提到這個檔】」,不是「哪些測試【在驗 tier 文案】」。**
+  > 🔴 **判別句:我數的是「這個檔有沒有被人提起」,還是「這件事有沒有被人驗」?**
+  ⇒ 前者恆大於後者,而**它會把「有人碰過」讀成「有人守著」** ——
+  **那正是這支工具存在的理由,而我在解讀它的輸出時犯了同一個錯。**
+  ⚠️ **後果具體**:主視窗依我的錯誤分類下令「修工具的 basename bug」,
+  **而那個 bug 不存在** —— `order-list-view.test.ts` 只是根本沒進候選名單。
+  🔴 **工具沒有錯,錯的是我讀它的方式。**
+
+- **不修未來會痛在哪:** tier 文案改動時,**畫面上四個地方會靜默不同步**,
+  而 `#538` 講的「兩張表不一致」是**更上游**的同一件事 ⇒ 兩條合起來看才是完整的圖。
+- **發現於:** 2026-08-16 · C 窗 · 跑 `display-site-guard-audit.sh` 之後**重新逐一開檔**才發現
+- **相關:** `#538`(兩張表各自定義)、`scripts/display-site-guard-audit.sh`
