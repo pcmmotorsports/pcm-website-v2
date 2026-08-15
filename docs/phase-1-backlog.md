@@ -13898,3 +13898,80 @@ npx turbo run typecheck --dry=json --filter=@pcm/admin
   下一個人不會懷疑它,因為**綠就是他要的答案**。
 - 🔴 **bug 可追蹤性:** 假綠**零訊號** —— 沒有紅、沒有 warning、`Tasks: N successful` 讀起來完全正常。
   唯一會發現的時機是**別人在另一個情境下真跑了一次 tsc**,而那可能是好幾天以後。
+
+### #526. 🔴 apps 拿 **Node 25** 的型別在 typecheck,而 runtime 是 **Node 22.22.3**
+
+- **狀態:** ⏳ 待執行(2026-08-16 A 窗版本漂移盤點時撈到;**形狀存在,未構造反例**)
+- **分流:** P2
+- **優先級:** 🟠 中(**typecheck 過而真實環境會壞** —— 但今天沒有已知的實際事故)
+- **起因:** 主視窗派工「盤點宣告版本 vs 實際版本」,清單裡沒有這一項,**是量的過程中撈到的**。
+
+#### 實查(可重跑)
+
+```bash
+ls -d node_modules/.pnpm/@types+node@* | sed 's|.*@types+node@||' | sort -u   # ⇒ 3 個版本
+python3 -c "import json;print(json.load(open('node_modules/@types/node/package.json'))['version'])"
+for p in apps/admin apps/storefront packages/adapters; do
+  python3 -c "import json;print('$p',json.load(open('$p/node_modules/@types/node/package.json'))['version'])"
+done
+node --version
+python3 -c "import json;print(json.load(open('package.json'))['engines'])"
+```
+| 位置 | 宣告 | 實際 |
+|---|---|---|
+| root | `^22` | **22.19.19** |
+| `apps/admin` | `^25.6.2` | **25.6.2** |
+| `apps/storefront` | `^25.6.2` | **25.6.2** |
+| `packages/adapters` | `^25.6.0` | **25.6.0** |
+| `engines.node` | `>=22.0.0` | runtime **v22.22.3** |
+
+🔴 **不是「解析錯」** —— 各自都宣告了、pnpm 給對了。**問題是這個組合本身。**
+
+#### 病
+
+**apps 是拿 Node 25 的型別定義在 typecheck 的,而跑的是 22.22.3。**
+⇒ **一支 Node 25 才有的 API:typecheck 會過,執行時會炸。**
+
+📌 **另一半**:`scripts/*.ts` 走 root 的 `^22`
+⇒ **同一個 repo 裡,`scripts/` 對著 Node 22 的型別、`apps/` 對著 Node 25 的型別。**
+
+#### ⚠️ 強度:**形狀存在,不是事故**
+
+🔴 **沒有構造反例** —— 我**沒有證明**現在真的有人用到 Node 25 才有的 API。
+**⇒ 不得讀成「已發生」,也不得因為「還沒出事」就降級成不用管。**
+(要收它的人:構造方式 = 找一支 25 有而 22 沒有的 API,寫進 `apps/` 看 typecheck 過不過、再實跑。)
+
+#### 與 `#524` 的關係:**同族,成因不同**
+
+| | `#524` | 本條 |
+|---|---|---|
+| 共同點 | **typecheck 過,而真實環境會壞** | 同左 |
+| 成因 | turbo 快取對根層設定**盲** ⇒ replay 出舊的綠 | **型別定義的版本與 runtime 對不上** |
+| 症狀時機 | 改過根層設定之後 | 用到跨版本 API 時 |
+
+⇒ **不要把它折進 `#524`** —— 修好其中一個,另一個原封不動。
+
+#### 🔴 兩個查法上的坑(順手記著,它們會再咬人)
+
+1. **`catalog:` 讓版本在 `package.json` 裡看不見**:`typescript` / `eslint` / `vitest` 三支的
+   `package.json` 欄位值逐字就是 `catalog:`,**真身在 `pnpm-workspace.yaml` 的 `catalog:` 區塊**。
+   ⚠️ **第一次查差點漏掉** —— 只看 `package.json` 會得到「沒宣告版本」的錯誤印象。
+2. 🔴 **單棵 worktree 的 backlog `grep` 看不到全貌**:五棵樹的最大號各不相同
+   (2026-08-16 主視窗實查:`void-readers` 524 / `products` 512 / `customers` 525 / `print` 516 / `dev` 522)
+   ⇒ **在某一棵樹 `grep '#525'` 回 0,不代表沒人佔** —— 那個號可能寫在別棵樹上。
+   **`scripts/next-backlog-number.sh` 掃分支,所以它是對的;單樹 grep 才是錯的那個。**
+
+#### ⏳ 待查(本條開立時明列,不要讀成已排除)
+
+- **TypeScript 5.7 → 5.9.3 的行為差異**:catalog 宣告 `^5.7.0`、實際 5.9.3。
+  🔴 **刻意不去讀 release note 補** —— 那是個沒有邊界的任務。**標未驗,等有具體症狀再查。**
+- **那 6 個「照文件做」的候選檔沒逐檔開**(`docs/` 632 檔中,提到官方文件的 55 檔 ∩ 提到工具名的)。
+  ⚠️ 其中至少 2 檔在 `docs/archive/` 下 ⇒ **本來就不該當現行依據。**
+- **`packages/` 底下其他包沒逐一量** —— 只量了 `adapters`。
+
+#### 🔴🔴 最重要的一條待查:**我們今晚所有版本量測都是【本機】的**
+
+`node --version`、`node_modules/**` 讀到的、`pnpm --version` —— **全部是這台 Mac 上的值**。
+**而真正決定線上行為的是 CI / Vercel 建置環境的版本。**
+⇒ **本條(以及 `#524` 的所有量測)在 CI 上成不成立,沒有人查過。**
+**這一條不修完,上面所有結論的作用域都只到「本機」為止。**
