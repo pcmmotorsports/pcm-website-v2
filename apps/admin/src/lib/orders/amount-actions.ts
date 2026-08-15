@@ -12,6 +12,7 @@ import {
   ORDER_AMOUNT_ERROR_RESULT_CODE,
   ORDER_AMOUNT_REJECTED_RESULT_CODE,
 } from './amount-action-state';
+import { orderAmountRejectCodeForLog } from './amount-reject-set';
 
 // amount-actions.ts — 後台「改品項金額」server action(M-4b E10 #13 片1c-1)。
 //
@@ -129,20 +130,37 @@ export async function updateOrderItemAmountAction(formData: FormData): Promise<v
     //    RPC `:372` 逐字把**收到的原因字串內插進訊息**(`'…不得帶「零元原因」(收到:%)'`),
     //    而那個字串是員工打的字、可能含客人資訊。
     //    ⚠️ **截短不是脫敏** —— 前 200 字正好是訊息開頭,想藏的東西就在那裡。
-    //    ⇒ 只留 `code` + `request_id`:出事要查細節,走 `admin_audit_log`(RPC 同交易寫,有 request_id 可對)。
+    //    ⇒ 只留 `code` + `request_id` + **`reject`**(`#518` 加的第三顆,值來自白名單、不是原始
+    //       `details`):出事要查細節,走 `admin_audit_log`(RPC 同交易寫,有 request_id 可對)。
+    //    ⚠️ 本行原本寫「只留 code + request_id」—— `#518` 之後那句就過期了,一併改掉。
     const e = err as { code?: unknown };
+    // 🔴 **只呼叫一次**,分派與 log 用同一個值(code-reviewer R1 nit 3):
+    //    兩支各呼叫一次 ⇒ `err.details` 實際被讀兩次,而本檔的前提是「不信任這個物件」。
+    //    安全上原本就沒洞(兩次都經同一次讀的白名單驗證),但**敘述與呼叫端要一致**。
+    const reject = orderAmountRejectCodeForLog(err);
     console.error('[admin/orders] 改品項金額失敗', {
       request_id: requestId,
       code: typeof e.code === 'string' ? e.code : undefined,
+      // 🔴 `#518`:多記一顆**拒絕代號**。它是 RPC 送的 `DETAIL`,而 `DETAIL` 只放常數
+      //    ⇒ 與 `message` 不同,它不會夾帶員工打的字。
+      //    ⚠️ 走 `orderAmountRejectCodeForLog` 而不是直接記 `e.details`:
+      //       那支只回**白名單內**的值,認不出來就 `undefined`(見該檔的理由)。
+      reject,
     });
     // 🔴 **業務拒絕 vs 系統故障要分開**(codex 關卡2 R1 must-fix):
     //    第一版把兩者塞同一顆碼,而那句文案說「請確認是否已收款或已有折扣」
     //    ⇒ **DB 斷線 / timeout 也會顯示那句,員工往錯方向查。**
     //    ✅ 分得開靠的是量測:E 窗實測 `P2C13` **逐字出現在 `error.code`**(`#518` Q1)。
-    //    ⚠️ 它只分得出「業務拒絕」與「其他」——**分不出七條裡的哪一條**(那要 `DETAIL`,另一片)。
+    //
+    // 🔴 **`#518` 改掉的就是下面這一行的條件**:原本是 `e.code === 'P2C13'`,
+    //    而 `P2C13` **不等於**業務拒絕 —— 同一個碼底下有兩條是**資料損壞 / 設定錯誤**
+    //    (`pcm_e13_subtotal_matches_lines` / `pcm_e13_guard_unknown_table`,住在別的函式)。
+    //    ⇒ 只看 `code` 會把**資料損壞講成「請確認你的輸入」**。
+    //    改成看白名單(見 `amount-reject-set.ts`,含 PostgREST 實測與 apply 順序的說明)。
+    //    ⚠️ **fail-closed**:認不出來一律走通用錯誤 + 「找系統維護」。
     redirectWith(
       parsed.returnTo,
-      e.code === 'P2C13' ? ORDER_AMOUNT_REJECTED_RESULT_CODE : ORDER_AMOUNT_ERROR_RESULT_CODE,
+      reject === undefined ? ORDER_AMOUNT_ERROR_RESULT_CODE : ORDER_AMOUNT_REJECTED_RESULT_CODE,
     );
   }
 

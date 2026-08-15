@@ -59,10 +59,15 @@ export const ORDER_AMOUNT_ERROR_RESULT_CODE = 'order_amount_error';
  *
  * ✅ **而現在分得開了,靠的是量測不是猜**:E 窗 2026-08-16 實測
  * **`P2C13` 逐字出現在 `error.code`**(`#518` Q1)。
- * ⇒ `code === 'P2C13'` ⇒ 這一顆;其餘一律走 {@link ORDER_AMOUNT_ERROR_RESULT_CODE}。
+ * 🔴 **`#518`(2026-08-16)之後條件變了**:不再是 `code === 'P2C13'`,
+ * 而是 **`code === 'P2C13'` 且 `details` 落在白名單七條之內**
+ * (`amount-reject-set.ts` 的 {@link isOrderAmountBusinessRejection});其餘一律走
+ * {@link ORDER_AMOUNT_ERROR_RESULT_CODE}。
+ * **理由**:同一個 `P2C13` 底下有兩條**不是**業務拒絕(資料損壞 / 設定錯誤,住在別的函式)——
+ * 只看 `code` 會把資料損壞講成「請確認你的輸入」。
  *
- * ⚠️ **它只分得出「業務拒絕」與「其他」,分不出是七條裡的哪一條** ——
- * 那要靠 `DETAIL`,而那要動 migration ⇒ 另一片(見 {@link ORDER_AMOUNT_REJECTED_MESSAGE})。
+ * ⚠️ **它仍然只分得出「業務拒絕」與「其他」,畫面上不分是七條裡的哪一條** ——
+ * 那七條現在**技術上**分得出來了(`details` 有值),但文案要不要細分是另一個決定,本片沒做。
  */
 export const ORDER_AMOUNT_REJECTED_RESULT_CODE = 'order_amount_rejected';
 
@@ -103,11 +108,16 @@ export const ORDER_AMOUNT_ERROR_MESSAGE_GENERIC =
  * **那句是給那兩條的出口**,不是客套話。
  * 🔴 **判別句**:這句話要能讓「**做什麼都不會成功**」的員工**停下來找人**,而不是一直重試。
  *
- * 🔴🔴 **而升級的路是有的,只是不在本片**:E 窗實測 **`DETAIL` / `HINT` 逐字到得了客戶端**
+ * ✅ **`#518` 已於 2026-08-16 做掉了**(下面這段留著是因為它記錄了當初的判斷依據)。
+ * 🔴🔴 **升級的路**:E 窗實測 **`DETAIL` / `HINT` 逐字到得了客戶端**
  * (`RAISE … USING ERRCODE='P2C13', DETAIL='pcm_e13_no_edit_after_payment'`
  *  ⇒ body 的 `details` 就是那個字串)。
  * ⇒ **解鎖形狀 = 七條 `RAISE` 各加一行 `DETAIL='<同名字串>'`,應用層以 `error.details` 分派。**
- * ⚠️ **那要動 migration ⇒ 鐵則 12③ ⇒ 是另一片,不在這裡順手做。**
+ * ✅ **已實作**:migration `20260816040000_m4b_e10_13_518_p2c13_detail.sql` + `amount-reject-set.ts`。
+ *    A 窗 2026-08-16 另用真 PostgREST 補測到一件 E 窗沒講的:
+ *    **`constraint` 欄根本不在 JSON 裡**(只有 code/details/hint/message)——
+ *    所以「拿到 `constraint` 欄」那條路是走不通的,只有 `DETAIL` 走得通。
+ * ⚠️ **本段原本寫「那要動 migration ⇒ 是另一片,不在這裡順手做」—— 那一片就是 `#518`,已完成。**
  * ⚠️ E 窗自己標的兩條誠實邊界一併帶著:
  *   ①**正式站 Supabase 的 PostgREST 版本沒查**,四鍵 schema 是它的印象、不是量到的 ⇒ 上線前對正式站打一次同款 probe;
  *   ②**`DETAIL` 過長 / 換行 / 非 ASCII 會不會被截斷或轉義沒測** —— 只證了純 ASCII 短字串。

@@ -156,9 +156,11 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    namespace 了卻沒登錄反而讓員工什麼都看不到)。**理由全文在 `amount-action-state.ts` 檔頭。**
   //    🔴 文案逐字沿用該檔的 `ORDER_AMOUNT_ERROR_MESSAGE`,**不在這裡另寫一份**(同取消線的做法)。
   //    🔴🔴 而那句話**刻意不說是哪一條**:七條業務拒絕共用同一個 `P2C13`,
-  //    要分得開得拿到 `constraint` 欄,而那件事**沒有人測過**(backlog `#518`)。
+  //    要分得開得拿到拒絕的名字。🔴 **`#518`(2026-08-16)之後拿得到了**(RPC 送 `DETAIL`),
+  //    但**文案仍然刻意不說是哪一條** —— 那是另一個決定,本片沒做。
   //    ⇒ 它涵蓋七條全部,因為它不宣稱是哪一條。**不得改成含具體判定的版本。**
-  //    🔴 **兩顆,不是一顆**(codex R1 must-fix):`_rejected` = 業務拒絕(`code === 'P2C13'`)、
+  //    🔴 **兩顆,不是一顆**(codex R1 must-fix):`_rejected` = 業務拒絕
+  //    (`#518` 之後 = `code === 'P2C13'` **且** `details` 在白名單七條內)、
   //    `_error` = 其餘一切(含 DB 斷線 / timeout)。把兩者塞同一顆會**把系統故障說成訂單狀態問題**。
   [ORDER_AMOUNT_REJECTED_RESULT_CODE]: { text: ORDER_AMOUNT_REJECTED_MESSAGE, tone: 'error' },
   [ORDER_AMOUNT_ERROR_RESULT_CODE]: { text: ORDER_AMOUNT_ERROR_MESSAGE_GENERIC, tone: 'error' },

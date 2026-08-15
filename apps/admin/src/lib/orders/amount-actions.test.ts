@@ -148,11 +148,41 @@ describe('授權與形狀閘', () => {
     spy.mockRestore();
   });
 
-  it('🔴 業務拒絕(code=P2C13)⇒ rejected 碼,不是泛用 error', async () => {
-    // codex R1 must-fix:第一版兩者同一顆 ⇒ DB 斷線也會顯示「請確認是否已收款或已有折扣」。
-    // 分得開靠的是量測:E 窗實測 P2C13 逐字出現在 error.code(#518 Q1)。
+  it('🔴🔴 `details` 就算被下毒也進不了 log(白名單過濾,不是直接記 e.details)', async () => {
+    const secret = '客人電話0912345678';
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     mocks.updateAdminOrderItemAmount.mockRejectedValue(
-      Object.assign(new Error('這張單已經有收款紀錄(2 筆)'), { code: 'P2C13' }),
+      Object.assign(new Error('技術訊息'), { code: 'P2C13', details: secret }),
+    );
+    // 🔴🔴 **這一行是本片【唯一的行為改動】的守門**(code-reviewer R1 must-fix 2):
+    //    「P2C13 但 details 不在白名單」⇒ 必須落到**通用錯誤**,不是業務拒絕。
+    //    ⚠️ 初版這一格只斷言 log、把導頁碼丟掉 ⇒ **把分派改回 `e.code === 'P2C13'`,
+    //       整支測試檔照樣全綠** —— 那等於這片沒有任何東西守著。
+    expect(await runAndCatchRedirect(amountForm())).toBe(
+      `${DETAIL}?r=${ORDER_AMOUNT_ERROR_RESULT_CODE}`,
+    );
+    const logged = JSON.stringify(spy.mock.calls);
+    // 🔴 這一格守的是「log 的內容由【我這邊的白名單】決定,不是由 DB 送來的字串決定」。
+    //    現在 DETAIL 確實只放常數,而那個保證住在 migration 裡、不住在 TS ——
+    //    這一格是那個保證失效時唯一還站著的東西。
+    expect(logged).not.toContain(secret);
+    expect(logged).toContain('P2C13'); // 正向對照:確實有記到東西,不是整包沒 log
+    spy.mockRestore();
+  });
+
+  it('🔴 業務拒絕(P2C13 + details 在白名單內)⇒ rejected 碼,不是泛用 error', async () => {
+    // codex R1 must-fix:第一版兩者同一顆 ⇒ DB 斷線也會顯示「請確認是否已收款或已有折扣」。
+    // 分得開靠的是量測:E 窗實測 P2C13 逐字出現在 error.code(#518 Q1);
+    // 而「哪一條」靠 details —— A 窗 2026-08-16 用真 PostgREST 實測 DETAIL 會到、CONSTRAINT 不會到。
+    mocks.updateAdminOrderItemAmount.mockRejectedValue(
+      Object.assign(new Error('這張單已經有收款紀錄(2 筆)'), {
+        code: 'P2C13',
+        // 🔴 `#518` 改了這條契約:**光有 `code === 'P2C13'` 不再算業務拒絕**。
+        //    同一個碼底下有兩條是資料損壞 / 設定錯誤(住在別的函式),
+        //    只看 code 會把資料損壞講成「請確認你的輸入」。
+        //    ⇒ 現在要 `details` 落在白名單裡才算(`amount-reject-set.ts`)。
+        details: 'pcm_e13_no_edit_after_payment',
+      }),
     );
     expect(await runAndCatchRedirect(amountForm())).toBe(
       `${DETAIL}?r=${ORDER_AMOUNT_REJECTED_RESULT_CODE}`,

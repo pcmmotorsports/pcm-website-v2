@@ -58,6 +58,11 @@ const ALLOWLIST = [
   '20260725120000_rf2a0_orders_freeze_shipping_rule.sql',
   '20260730120100_m4b_e10_n3b_create_order_new_display_id.sql',
   '20260815040000_m4b_e10_13_slice1_admin_update_order_item_amount.sql',
+  // 🔴 `#518`(2026-08-16 登錄):它是**同一支函式的 CREATE OR REPLACE**,函式本體逐行照抄
+  //    前一支的 325-484、只在七處 RAISE 加 `DETAIL`。⇒ 寫那三欄的**路徑沒有變多**,
+  //    只是同一條路徑在 repo 裡多了一份新版本的字面。
+  //    ⚠️ 本格是「有沒有新寫入者出現而沒人登記」的提醒,不是自動放行 —— 我開檔看過才登。
+  '20260816040000_m4b_e10_13_518_p2c13_detail.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {
