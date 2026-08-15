@@ -19,6 +19,14 @@
               🔴 然後【逐筆開檔判讀寫】—— 命中數不等於寫入數
 ```
 
+**🔴 「無條件」那 15 欄是怎麼判的(寫清楚,免得下一個人得回頭問)**:
+**不是**「找不到條件式的 pattern」(那是零命中推論),**是**兩步觀測:
+1. **型別層**:介面欄位**沒有 `?`** ⇒ TypeScript 強制 `transformGroup` 每次都得給值 ⇒ **必進 payload**。
+   (這是編譯期保證,不是我掃出來的統計。)
+2. **載入層**:transform 之後還有沒有人把 key 拿掉?**實查 `stripColumnIfMissing` 的呼叫點只有一處**
+   —— `rpm-import.ts:515`,**且只剝 `sound_clips`**(而它本來就在條件式那組)。
+   ⇒ **15 個無條件欄在載入層沒有任何一個會被剝掉。**
+
 🔴 **第三條是重點**:`delisted_at` 那個 pattern 命中 2 筆,**逐筆開檔後兩筆都是「宣告型別」與「註解」,零筆是寫入**。
 **只看數字會得到相反結論。**
 
@@ -36,6 +44,21 @@
 
 **同步「無條件寫」= 每天每一列都覆寫,員工改了明天就沒了。**
 
+### 🔴 「條件式」不是一格,裡面有三種強度(關卡 must-fix,2026-08-15)
+
+**v1 我把五個條件式欄寫成「同上機制」** —— **那是錯的,它們是三種不同的機制**:
+
+| 保護強度 | 欄位 | 機制 | 員工改了會不會被蓋 |
+|---|---|---|---|
+| **強(兩層)** | `manuals` / `video_url` / `sound_clips` | 供應商級 `syncInstallResources` **+** per-row 來源 null 防清空 | 兩層任一擋住就不會 |
+| **強(兩層)** | `description` | 供應商級 `syncDescription` **+** per-row 來源空白省 key | 同上 |
+| 🔴 **弱(只有一層)** | **`highlights`** | **只有供應商級 `syncDescription`,all-or-nothing** | 🔴 **該供應商開著 ⇒ 每天照蓋,沒有逐列保護** |
+
+🔴 **`highlights` 看起來被保護,實際上只看一個供應商級開關。**
+⚠️ **Sean 決定「新欄位歸誰」時,若照 v1 那張表會以為這三欄一樣安全。**
+⚠️ **而 `rpm-transform.ts:184-185` 逐字寫著「原註『供應商級 all-or-nothing、天然 uniform』**已作廢**」——
+**我 v1 抄到的正是被作廢那半的形狀。**(引用一個檔時,要看它有沒有自己標過「舊說法作廢」。)
+
 | 欄位 | 現在誰在寫 | 證據 |
 |---|---|---|
 | `title` | 🔴 **同步(無條件)** | `rpm-transform.ts` `ProductRow.title`(無 `?`) |
@@ -52,9 +75,9 @@
 | `brand_id` / `category_id` | 🔴 **同步(無條件)** | 同上 |
 | `metadata` | 🔴 **同步(無條件)** | 同上(現行只寫 `name_en`) |
 | `updated_at` | 🔴 **同步(無條件)** | 同上(顯式帶、無 trigger) |
-| `description` | 🟡 **同步(條件式)** | `ProductRow.description?` —— 依 `supplier-config.syncDescription`;rpm=false ⇒ **全批省 key ⇒ 不覆寫** |
-| `highlights` | 🟡 **同步(條件式)** | 同上機制 |
-| `manuals` / `video_url` / `sound_clips` | 🟡 **同步(條件式)** | 同上機制 |
+| `description` | 🟡 **同步(條件式 · 兩層)** | **①供應商級** `syncDescription` **②per-row** 來源 null/空白 → 省 key(`rpm-transform.ts:168-177`) |
+| **`highlights`** | 🔴🟡 **同步(條件式 · 只有一層)** | **只有供應商級** `syncDescription`,**all-or-nothing、無 per-row 保護**(`:178-183`) |
+| `manuals` / `video_url` / `sound_clips` | 🟡 **同步(條件式 · 兩層)** | **①供應商級** `syncInstallResources` **②per-row** 來源 null 防清空(`:184-191`) |
 | **`delisted_at`** | ✅🔴 **沒有人在寫** | 片2b 後同步不再輸出該 key;全樹 pattern 命中 2 筆,**逐筆開檔皆為型別宣告/註解,零寫入** |
 | **`listing_set_by`** | ✅🔴 **沒有人在寫** | 命中 1 筆 = `product-repository.ts:46` **型別宣告**;寫 `'staff'` 的入口未做 ⇒ 全表恆為 DB DEFAULT `'sync'` |
 | `source_missing_at` | ✅ **同步(rpm-reconcile,非 upsert)** | `rpm-reconcile.ts` 的 `markSourceMissing` / `clearSourceMissing`,2 處實際寫入 |
@@ -109,4 +132,6 @@
 2. **`spec` 頂層鍵列舉不出來**(§2)—— 不是我沒查,是它按設計就不固定。
 3. **沒有查「同步實際跑起來時,條件式那五欄各家是開還是關」** —— 只證了機制存在。
    要那個數字得逐家讀 `supplier-config.ts`,本片未做。
+   🔴 **對 `highlights` 這條特別要緊**(§1):它**只有供應商級一層**,
+   ⇒ **「某家的 `syncDescription` 是不是開著」直接決定該家 highlights 有沒有保護,而那個數字本片沒查。**
 4. **本表沒有建議任何欄位該歸誰** —— 那是 `Q-P-4`,Sean 的生意判斷。
