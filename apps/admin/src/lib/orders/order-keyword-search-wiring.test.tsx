@@ -132,7 +132,16 @@ describe('#347-2b 守門 2:action 寫 cookie、PRG,且**搜尋詞絕不進 URL**
     const fd = new FormData();
     fd.set(ORDER_KEYWORD_FIELD, '');
     await expect(applyOrderKeywordSearchAction(fd)).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.cookieDelete).toHaveBeenCalledWith(ORDER_KEYWORD_COOKIE);
+    // 🔴🔴 **2026-08-16 訂正:上一版這裡逐字斷言 `toHaveBeenCalledWith(ORDER_KEYWORD_COOKIE)`**
+    //    ——也就是「`delete(name)`,不帶 path」。**那正是 bug 本身,而這格把它釘成了規格。**
+    //    cookie 是用 `path: '/orders'` 設的,`delete(name)` 送出的 Set-Cookie **沒有 Path**
+    //    ⇒ 瀏覽器算 default-path 得 `/` ⇒ 不匹配 ⇒ **原 cookie 活著、清不掉**。
+    // 🔴 **這格一直是綠的,而且綠得理直氣壯** —— 它守的是「有呼叫 delete」,
+    //    不是「delete 會生效」。**守門存在 ≠ 守門守對東西。**
+    expect(mocks.cookieDelete).toHaveBeenCalledWith({
+      name: ORDER_KEYWORD_COOKIE,
+      path: '/orders',
+    });
     expect(mocks.cookieSet).not.toHaveBeenCalled();
   });
 
@@ -141,7 +150,16 @@ describe('#347-2b 守門 2:action 寫 cookie、PRG,且**搜尋詞絕不進 URL**
     const fd = new FormData();
     fd.set(ORDER_KEYWORD_FIELD, 'a'.repeat(MAX_ORDER_KEYWORD_LENGTH + 1));
     await expect(applyOrderKeywordSearchAction(fd)).rejects.toThrow('NEXT_REDIRECT');
-    expect(mocks.cookieDelete).toHaveBeenCalledWith(ORDER_KEYWORD_COOKIE);
+    // 🔴🔴 **2026-08-16 訂正:上一版這裡逐字斷言 `toHaveBeenCalledWith(ORDER_KEYWORD_COOKIE)`**
+    //    ——也就是「`delete(name)`,不帶 path」。**那正是 bug 本身,而這格把它釘成了規格。**
+    //    cookie 是用 `path: '/orders'` 設的,`delete(name)` 送出的 Set-Cookie **沒有 Path**
+    //    ⇒ 瀏覽器算 default-path 得 `/` ⇒ 不匹配 ⇒ **原 cookie 活著、清不掉**。
+    // 🔴 **這格一直是綠的,而且綠得理直氣壯** —— 它守的是「有呼叫 delete」,
+    //    不是「delete 會生效」。**守門存在 ≠ 守門守對東西。**
+    expect(mocks.cookieDelete).toHaveBeenCalledWith({
+      name: ORDER_KEYWORD_COOKIE,
+      path: '/orders',
+    });
   });
 
   it('🔴 未授權 → 一個字都不寫、直接導回列表(縱深防禦,不只靠 proxy 登入閘)', async () => {
@@ -177,7 +195,16 @@ describe('#347-2b 守門 2:action 寫 cookie、PRG,且**搜尋詞絕不進 URL**
     // 讀不出一個明確的搜尋詞 ⇒ 走與「員工清空搜尋框」同一個出口:chip 消失、列表回全部。
     // 突變:改回 `formData.get()` ⇒ 這格紅(會拿 '王小明' 去寫 cookie)。
     expect(mocks.cookieSet).not.toHaveBeenCalled();
-    expect(mocks.cookieDelete).toHaveBeenCalledWith(ORDER_KEYWORD_COOKIE);
+    // 🔴🔴 **2026-08-16 訂正:上一版這裡逐字斷言 `toHaveBeenCalledWith(ORDER_KEYWORD_COOKIE)`**
+    //    ——也就是「`delete(name)`,不帶 path」。**那正是 bug 本身,而這格把它釘成了規格。**
+    //    cookie 是用 `path: '/orders'` 設的,`delete(name)` 送出的 Set-Cookie **沒有 Path**
+    //    ⇒ 瀏覽器算 default-path 得 `/` ⇒ 不匹配 ⇒ **原 cookie 活著、清不掉**。
+    // 🔴 **這格一直是綠的,而且綠得理直氣壯** —— 它守的是「有呼叫 delete」,
+    //    不是「delete 會生效」。**守門存在 ≠ 守門守對東西。**
+    expect(mocks.cookieDelete).toHaveBeenCalledWith({
+      name: ORDER_KEYWORD_COOKIE,
+      path: '/orders',
+    });
   });
 
   it('🔴 return_to 送兩份 → 退回 /orders(不採第一筆)', async () => {

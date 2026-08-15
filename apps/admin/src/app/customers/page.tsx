@@ -1,4 +1,4 @@
-import type { AdminCustomerSummary, Paginated } from '@pcm/domain';
+import type { AdminCustomerListResult } from '@pcm/domain';
 // 🔴 import 走**相對路徑**、不用 `@/`:根 `vitest.config.ts` 的 `@` alias 指向 **storefront** 的 src
 //    ⇒ admin 檔案用 `@/` 在測試裡 resolve 不到、這頁就測不起來(先例逐字見
 //    `app/orders/page.test.tsx` 檔頭;姊妹頁 `orders/refund-exceptions/page.tsx` 本來就是相對路徑)。
@@ -9,9 +9,15 @@ import {
   CUSTOMERS_PAGE_SIZE,
 } from '../../lib/customers/customer-list-view';
 import { CustomerFilterBar } from '../../components/customers/customer-filter-bar';
+import { CustomerKeywordSearch } from '../../components/customers/customer-keyword-search';
+import {
+  readCustomerKeywordCookie,
+  CUSTOMER_KEYWORD_COOKIE,
+} from '../../lib/customers/customer-keyword-cookie';
 import { CustomersTable } from '../../components/customers/customers-table';
 import { ListPagination } from '../../components/shared/list-pagination';
 import { ResultBanner } from '../../components/orders/result-banner';
+import { cookies } from 'next/headers';
 
 // M-4a 客戶管理第一片:後台客戶列表(server component、tier 篩選、server 端分頁)。
 // force-dynamic:讀 searchParams + DB 查、不靜態預渲染。
@@ -34,14 +40,25 @@ export default async function CustomersPage({
   const resultCode = typeof rawSearch.r === 'string' ? rawSearch.r : undefined;
   const offset = (page - 1) * CUSTOMERS_PAGE_SIZE;
 
+  // 🔴 `#525` 搜尋詞來自 **httpOnly cookie**、不是 URL —— 搜尋詞是客人姓名/Email/電話(PII),
+  //    進 URL 就會落進 access log / CDN log / 瀏覽器歷史 / Referer。
+  //    ⚠️ 代價寫在明處:**cookie 是跨分頁共用的**(同一瀏覽器所有分頁看到同一個搜尋)。
+  //    緩解不是把它變成 URL,是**畫面上一定看得到 chip + ✕**(`CustomerKeywordSearch` 檔頭)。
+  //    讀不出來一律 `null`(fail-closed:寧可不搜,不要拿半個值去查)。
+  const keyword = readCustomerKeywordCookie(
+    (await cookies()).get(CUSTOMER_KEYWORD_COOKIE)?.value,
+  );
+
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯)→ 顯錯誤態、頁面仍 200(不 500);server log 留鑑識、DB error 不外洩。
-  let result: Paginated<AdminCustomerSummary> | null = null;
+  let result: AdminCustomerListResult | null = null;
   let loadFailed = false;
   try {
-    result = await getAdminCustomerRepository().listCustomerSummariesForAdmin(filter, {
-      limit: CUSTOMERS_PAGE_SIZE,
-      offset,
-    });
+    result = await getAdminCustomerRepository().listCustomerSummariesForAdmin(
+      // 🔴 `keyword` 只在**有值時**才放進 filter —— `undefined` 與 `''` 在 adapter 是兩條路
+      //    (`undefined` = 不打 RPC;`''` 會打一次必然全空的 RPC)。
+      keyword === null ? filter : { ...filter, keyword },
+      { limit: CUSTOMERS_PAGE_SIZE, offset },
+    );
   } catch (error) {
     console.error('[admin/customers] 客戶列表載入失敗', error);
     loadFailed = true;
@@ -58,6 +75,15 @@ export default async function CustomersPage({
       </div>
 
       <ResultBanner code={resultCode} />
+
+      <CustomerKeywordSearch
+        keyword={keyword}
+        listHref={buildCustomerListHref(filter, 1)}
+        matchCount={result?.keywordMatchCount ?? null}
+        // 🔴 載入失敗時 `result` 是 null ⇒ `false`。**這是對的**:
+        //    查都沒查成功,不該對員工說「結果太多」(那會讓他以為搜尋有效、只是太寬)。
+        truncated={result?.keywordTruncated ?? false}
+      />
 
       <CustomerFilterBar filter={filter} />
 

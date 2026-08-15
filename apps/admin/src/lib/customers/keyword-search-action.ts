@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { normalizeOrderKeywordSearch } from '@pcm/domain';
 import { readSingleString } from '../forms/single-value';
+import { TIER_PARAM } from './customer-list-view';
 import { authorizeAdminMutation } from '../session/authorize';
 import {
   CUSTOMER_KEYWORD_COOKIE,
@@ -46,6 +47,21 @@ function safeListReturnTo(raw: string | null): string {
   if (raw.startsWith('//') || raw.includes('://')) return '/customers';
   if (/[\u0000-\u001f\u007f]/.test(raw) || /[^\u0000-\u00ff]/.test(raw)) return '/customers';
   if (raw !== '/customers' && !raw.startsWith('/customers?')) return '/customers';
+
+  // 🔴🔴 **query 收窄成【鍵名白名單】,不是只驗前綴**(codex 對抗審查 2026-08-16,must-fix)。
+  //    上一版只驗「以 `/customers` 開頭」⇒ `return_to=/customers?q=王小明` **原樣通過**,
+  //    而它會被 `redirect()` 寫進 `Location` ⇒ **PII 進 URL / 瀏覽歷史 / access log / Referer**
+  //    —— 那正是整個 cookie+PRG 設計唯一要防的那件事。
+  // ⚠️ **我方 UI 送不出這種值**(`buildCustomerListHref` 只產 `tier` / `page`)——
+  //    但那是「目前沒人這樣呼叫」,不是「呼叫了會被擋」。**紅線的守門不能建立在呼叫端的自律上。**
+  // 🔴 白名單而非黑名單:黑名單要窮舉「什麼是 PII」,而白名單只要窮舉**我們自己會產生什麼**。
+  const ALLOWED = new Set([TIER_PARAM, 'page', 'r']);
+  const qs = raw.indexOf('?');
+  if (qs !== -1) {
+    for (const key of new URLSearchParams(raw.slice(qs + 1)).keys()) {
+      if (!ALLOWED.has(key)) return '/customers';
+    }
+  }
   return raw;
 }
 
@@ -86,7 +102,19 @@ export async function applyCustomerKeywordSearchAction(formData: FormData): Prom
     // 🔴 **兩者同一個出口 = 刪 cookie**,而**不是**保留舊搜尋詞:
     //    保留的話,員工按了 ✕ 卻發現清單沒變,會以為系統壞了;
     //    而 `invalid` 保留舊值更糟 —— **畫面顯示的搜尋詞與實際查詢的不是同一個。**
-    store.delete(CUSTOMER_KEYWORD_COOKIE);
+    // 🔴🔴 **必須帶 `path`,而且要與上面 `set` 的那個【逐字相同】** ——
+    //    `delete(name)` 在 Next 展開成 `set({ name, value: '', expires: new Date(0) })`
+    //    (`next/dist/compiled/@edge-runtime/cookies/index.js:302-305`,**開檔讀過**)
+    //    ⇒ **完全不帶 `Path` 屬性**。瀏覽器依 RFC 6265 用 request-uri 算 default-path
+    //    ⇒ 得到 `/`,而原 cookie 是 `Path=/customers` ⇒ **兩者不同 ⇒ 原 cookie 活著。**
+    // 🔴 後果有兩層,第二層更毒:
+    //    ① 員工按「清除搜尋」**沒有反應**(清單不變);
+    //    ② `invalid`(太長 / 含 NUL)也走這個出口 ⇒ **fail-closed 其實沒有 closed** ——
+    //       舊搜尋詞繼續生效,而**畫面顯示的搜尋詞與實際查詢的不是同一個**,
+    //       那正是本檔下方註解逐字說「更糟」的那個形狀。
+    // ⚠️ 本條由 codex 對抗審查 2026-08-16 指出於**客戶側**;**訂單側是同一個病、而且已經上線**
+    //    ——finding 給的是症狀位置,不是病的邊界(house 教訓)。
+    store.delete({ name: CUSTOMER_KEYWORD_COOKIE, path: '/customers' });
   }
 
   redirect(returnTo);

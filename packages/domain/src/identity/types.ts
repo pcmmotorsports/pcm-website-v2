@@ -1,4 +1,4 @@
-import type { MemberTier } from '../shared/types';
+import type { MemberTier, Paginated } from '../shared/types';
 
 export type CustomerId = string; // = auth.users.id uuid(M-1-14 customers PK)
 
@@ -51,24 +51,24 @@ export type Customer = {
 export type AdminCustomerFilter = {
   tier?: MemberTier;
   /**
-   * 🔴🔴 **搜尋詞 —— 型別上存在,但目前【沒有任何實作會回應它】。**
+   * 搜尋詞(姓名 / Email / 電話的子字串)。`undefined` = 不搜尋。
    *
-   * **設成 non-`undefined` 會讓 `SupabaseCustomerAdapter.listCustomerSummariesForAdmin` 明確擲錯**,
-   * **不會靜默忽略**。⚠️ 那個選擇是刻意的:靜默忽略 = 員工搜「王小明」、畫面說「目前搜尋:王小明」、
-   * **而列表是全部客戶** —— 那正是 `apps/admin/src/lib/orders/order-list-view.ts` 逐字警告的
-   * **fail-open**(「搜尋詞被靜默丟掉、列表 fail-open 變回全部」)。
+   * 🔴 **`undefined` 與 `''` 是兩條路,不可互換**:前者不打 RPC,後者會打一次必然全空的 RPC。
    *
-   * **為什麼先加型別卻不接後端**(`#525`,plan `docs/specs/2026-08-16-525-customer-search-plan.md`):
-   * 主視窗 `Q-525-1` 裁定走 **RPC(POST + JSON body)**,因為
+   * **走 RPC(POST + JSON body)而不是 `.or()`**(`Q-525-1`):
    * **`.or()` 是把值內插進 PostgREST 的 GET query string** ⇒ 值裡的字元會改變 filter 結構;
-   * 訂單側之所以不需要字元集守門,**正是因為它走 `.rpc()` 而不是 `.or()`**
-   * (理由全文 `packages/domain/src/order/keyword-search.ts:20-28`,那兩支有守門的維度
-   * **連同威脅面一起被刪除** ⇒ 用 `.or()` = 把威脅面裝回來而守門不在)。
-   * 🔴 **RPC 要 migration ⇒ 中鐵則 12③ ⇒ 等 Sean 批。**
+   * 訂單側之所以不需要字元集守門,**正是因為它走 `.rpc()`**
+   * (理由全文 `packages/domain/src/order/keyword-search.ts:20-28`)。
+   * ⚠️ 連帶:**搜尋詞是 PII,不進 URL、不進 log** —— UI 端走 httpOnly cookie + PRG。
    *
-   * ⚠️ **在 RPC 落地之前,不得把 UI 搜尋框接上去** —— 沒有入口就沒有 fail-open。
-   * `customer-filter-bar` 有一格守門釘住「客戶篩選列沒有搜尋輸入框」,**那是刻意的絆線**:
-   * 接 UI 的那一片必須**自覺地**移除它,而不是順手把搜尋框加上去。
+   * ⚠️ **2026-08-16 訂正一條假宣稱(不刪除,留著當紀錄)**:
+   * 上一版這裡逐字寫「`customer-filter-bar` 有一格守門釘住『客戶篩選列沒有搜尋輸入框』,
+   * **那是刻意的絆線**:接 UI 的那一片必須自覺地移除它」。
+   * 🔴 **那格守門【從來不存在】** —— `apps/admin/src/components/customers/` 底下
+   * **一個測試檔都沒有**,全樹搜「搜尋」在該目錄零命中。
+   * ⇒ 它宣稱要攔的那件事(有人順手把搜尋框加上去而沒想過 fail-open)**一次都不會響**。
+   * 🔴 **教訓**:**寫下一條絆線的【描述】,與【裝上】那條絆線,是兩件事** ——
+   * 而讀的人(包括三小時後的我)會把描述讀成「有人守著了」。
    */
   keyword?: string;
 };
@@ -88,4 +88,33 @@ export type AdminCustomerSummary = {
   tier: MemberTier;
   /** 註冊時間 ISO(customers.created_at 原樣) */
   createdAt: string;
+};
+
+/**
+ * 後台客戶列表的回傳(`#525`)—— `Paginated` + **關鍵字搜尋的兩個訊號**。
+ *
+ * 🔴 **為什麼不直接加寬 `Paginated<T>`**:那會為了一個分支去加寬**所有**消費端都看得到的共用型別。
+ * 這裡加寬的是**這一支方法的回傳**,其他人的 `Paginated` 一個字不動。
+ * (形狀逐字對齊訂單側的 `AdminOrderListResult`,兩條線的搜尋讀法因此可以共用心智模型。)
+ */
+export type AdminCustomerListResult = Paginated<AdminCustomerSummary> & {
+  /**
+   * 🔴 **精確語意:「關鍵字【自己】命中的客戶超過上限,RPC 只回了最新的 100 筆」**
+   * —— **不是**「畫面上這個結果集被截斷」。
+   * RPC 先取全域前 100,才在第二段與 tier 篩選取交集 ⇒
+   * `true` 時**第 101 筆之後的命中看不到**,而畫面可能顯示 0 筆
+   * (真正符合的人**整批落在那 100 筆之外**)。
+   *
+   * 🔴 **所以 UI 必須在 `true` 時【一律】顯示「結果太多,請輸入更精確的關鍵字」,包含 0 筆的情況**
+   * —— **0 筆 + 沒有提示 = 員工得到「查無此人」的錯誤結論**,而那正是 migration `COMMENT`
+   * 逐字要禁的形狀(「靜默截斷會讓員工以為就這幾筆」)。
+   * ⚠️ 型別上的必填只約束**產出者**;真正防靜默截斷的守門是畫面測試。
+   */
+  keywordTruncated: boolean;
+  /**
+   * 關鍵字**自己**命中的筆數(非 PII)。`null` = **根本沒查**(沒帶 keyword)。
+   * 🔴 `0` 與 `null` **不可互換**:前者是「查過了、DB 說沒有」,後者是「沒查」——
+   * 混掉的話畫面會對「沒搜尋」的狀態說「命中 0 筆」。
+   */
+  keywordMatchCount: number | null;
 };

@@ -178,6 +178,21 @@ C04 拿掉數字軸的 WHERE v_num <> '' ⇒ 9 格紅，含兩格【專守 fail-
 
 ## 10. 🔴 UI 片**必須**做的事(不是建議,是被別處的合約要求的)
 
+> ### ✅ **2026-08-16 已完成 —— 但【完成】的證據在下面,不在這一行**
+> **改的檔**:`app/customers/page.tsx`(讀 cookie、餵兩個訊號)/
+> 新 `components/customers/customer-keyword-search.tsx` /
+> `packages/domain/src/identity/types.ts`(新 `AdminCustomerListResult`)/
+> `packages/ports` + `SupabaseCustomerAdapter`(回傳型別加寬)。
+> **①②③ 各有畫面層守門格,且【逐格突變證明會紅】**(四發、事前指名、每發精準紅 1 格):
+> `truncated` 寫死 false ⇒ 紅 / `keyword` 不入 filter ⇒ 紅 / 拿掉警語 ⇒ 紅 / 拿掉 ✕ ⇒ 紅。
+> 🔴 **守門刻意住在 `page.test.tsx` 而不是元件單測** ——
+> 元件單測只證「餵它 `truncated=true` 它會畫」,而真正會壞的是 **page 沒把它餵下去**。
+> **「共用元件測過了」不等於「這一頁測過了」,中間那一跳沒有人守。**
+>
+> ⚠️ **仍未做**:真人操作驗收(Sean 肉眼)、以及**正式庫 apply**
+> —— **RPC 還沒 apply ⇒ 這條線在正式站按下「搜尋」會 `PGRST202`。**
+> 🔴 **不是「快好了」,是【還不能用】** —— apply 是 Sean 的獨立停點。
+
 > **這一節存在的理由**:下面每一條目前**只活在 migration 的 `COMMENT` 或 adapter 的註解裡**,
 > 而**做 UI 那片的人不會去讀 migration 的 `COMMENT`**。
 > 🔴 house 教訓:**寫下來 ≠ 處理掉,而載體要被【那個動作】觸發** ——
@@ -189,10 +204,17 @@ C04 拿掉數字軸的 WHERE v_num <> '' ⇒ 9 格紅，含兩格【專守 fail-
 > (**UI 必須顯示「結果太多請更精確」——靜默截斷會讓員工以為就這幾筆**;
 > **不得改用 `ids.length >= 上限` 的啟發式**)。」
 
-**現況**:`SupabaseCustomerAdapter` **刻意不往上帶** ——
-`Paginated<T>` 沒那個欄位,而**加一個零消費端的回傳欄位是投機**(型別長什麼樣由 UI 片決定)。
-✅ **但它有被驗**:`parseAdminSearchCustomersResult` 斷言它是 boolean ⇒ RPC 不回或回錯型別**就炸,不會靜默**。
-⇒ **UI 片要新增客戶側的結果型別**(同 `AdminOrderListResult` 的形狀)並把它接到畫面。
+**現況(2026-08-16 已完成;上一版寫的「刻意不往上帶」【已過期】)**:
+`SupabaseCustomerAdapter` 回傳型別已改成 `AdminCustomerListResult`
+(= `Paginated` + `keywordTruncated` + `keywordMatchCount`,形狀對齊 `AdminOrderListResult`),
+`page.tsx` 餵給 `CustomerKeywordSearch`,`truncated=true` 時**一律**顯示
+「結果太多,請輸入更精確的關鍵字」。
+✅ 型別仍有被驗:`parseAdminSearchCustomersResult` 斷言 `truncated` 是 boolean ⇒ RPC 回錯型別**就炸**。
+🔴 **守門刻意住 `page.test.tsx` 不住元件單測**:元件單測只證「餵它 true 它會畫」,
+而真正會壞的是 **page 沒把它餵下去**;突變「`truncated={false}` 寫死」⇒ 精準紅 1 格。
+⚠️ **測的是【可達】的那個形狀**:RPC 命中 100(截斷)→ 會員等級篩選砍到畫面 0 筆。
+**不是** `matchCount=0 且 truncated=true` —— 那個狀態在 RPC 合約下構造不出來,
+測它會綠,但綠的是一個不會發生的世界(codex 對抗審查訂正)。
 
 ### ② 🔴 `目前搜尋: XXX ✕` 常駐顯示 —— **機制的一部分,不是美化**
 **搜尋詞住在 cookie 而不是 URL**(PII 紅線)⇒ **它是一個看不見的狀態**。

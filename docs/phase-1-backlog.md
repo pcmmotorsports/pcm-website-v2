@@ -13401,10 +13401,19 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #525. 🧭 後台客戶頁沒有搜尋 —— 零訂單的客人只能用眼睛翻
 
-- **狀態:** 🔴 未處理 —— **現況今天可用(11 位客戶 = 1 頁),缺陷隨規模與時間惡化**
+- **狀態:** 🟡 **程式已完成、【等 apply】**(2026-08-16)——
+  RPC migration `20260816010000_m4b_525_admin_search_customers.sql` **尚未 apply 正式庫**
+  ⇒ **正式站按下搜尋會 `PGRST202`(找不到函式)**。
+  🔴 **「已完成」指的是 repo,不是線上** —— apply 是 Sean 的獨立停點,不是收尾步驟。
+  已驗:本機拋棄式 PG 叢集 36/36、全套 8159 測試綠、typecheck/lint/build 20/20 全跑。
 - **一句話:** 後台客戶頁沒有任何搜尋(唯一篩選是會員等級)。有訂單的客人可從訂單搜尋繞道找到並點進客戶頁;
   **零訂單的客人只能用眼睛翻列表**,一頁 20 筆、依註冊日期新到舊排。
-- **現況(座標皆開檔驗過):**
+- ⚠️ **下面「現況」整段描述的是【2026-08-16 開工前】,不是今天** ——
+  保留不刪(它記錄的是當初為什麼要做),但**不得當成現在的事實**:
+  搜尋元件已存在(`components/customers/customer-keyword-search.tsx`)、
+  `AdminCustomerFilter` 已有 `keyword` 欄、RPC migration 已寫好但**未 apply**。
+  🔴 **要改的是它的狀態,不是它的存在。**
+- **現況(座標皆開檔驗過;⚠️ 時間點 = 開工前):**
   - 篩選只有一個:`AdminCustomerFilter`(`packages/domain/src/identity/types.ts:42-44`)= `{ tier? }`;
     UI 唯一控件 = 會員等級下拉(`apps/admin/src/components/customers/customer-filter-bar.tsx:16-17`)
   - **零搜尋元件**:`ls apps/admin/src/components/customers/ | grep -i search` ⇒ 空

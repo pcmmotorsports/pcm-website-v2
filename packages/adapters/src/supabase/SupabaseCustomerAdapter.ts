@@ -5,6 +5,7 @@ import type {
   CustomerId,
   AdminCustomerFilter,
   AdminCustomerSummary,
+  AdminCustomerListResult,
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
@@ -193,7 +194,7 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
   async listCustomerSummariesForAdmin(
     filter: AdminCustomerFilter,
     pagination: PaginationParams,
-  ): Promise<Paginated<AdminCustomerSummary>> {
+  ): Promise<AdminCustomerListResult> {
     // 🔴🔴 **搜尋詞走 RPC(POST + JSON body),絕不走 `.or()`**(`#525`)。
     //    `.or()` 是**把值內插進 GET query string** ⇒ 值裡的字元會**改變 filter 的結構**;
     //    訂單側之所以不需要字元集守門,正是因為它走 `.rpc()`
@@ -204,15 +205,15 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
     //       而網址會落進 access log / CDN log / 瀏覽器歷史 / Referer。**搜尋詞是 PII。**
     //    🔴 參數名逐字對 migration 簽章;**不做窄介面 cast、不用 spread** ——
     //       那一層由生成型別接手,spread 會讓型別檢查與參數名守門同時失效。
-    // 🔴 **`truncated` 目前【刻意不往上帶】** —— `Paginated<T>` 沒有那個欄位,
-    //    而訂單側是用專屬的 `AdminOrderListResult` 承載它。
-    //    ⚠️ 加一個**零消費端**的回傳欄位是投機:UI 還沒做,型別要長什麼樣由那一片決定。
-    //    ✅ **但它【有】被驗**:`parseAdminSearchCustomersResult` 斷言它是 boolean
-    //       ⇒ RPC 若不回或回錯型別,這裡就炸,不會靜默。
-    //    🔴 **UI 片必須把它接起來** —— migration 的 `COMMENT` 逐字要求
-    //       「命中超過上限時 UI 必須顯示『結果太多請更精確』」,**靜默截斷會讓員工以為就這幾筆**。
-    //       那一片要新增客戶側的結果型別(同 `AdminOrderListResult` 的形狀)。
+    // 🔴 **`truncated` / `keywordMatchCount` 已接上(2026-08-16 UI 片)** ——
+    //    上一版這裡寫的是「刻意不往上帶,等 UI 片決定型別」,那句**已經過期、不是保留原樣**:
+    //    回傳型別已改成 `AdminCustomerListResult`(= `Paginated` + 兩個訊號,形狀對齊 `AdminOrderListResult`)。
+    //    ⚠️ **本層只負責【帶出去】,不負責【顯示】** —— migration 的 `COMMENT` 要求的是
+    //       「命中超過上限時 **UI 必須顯示**『結果太多請更精確』」。
+    //    🔴 **那句合約在這裡【驗不到】**:本層就算把 `true` 老實傳上去,畫面不畫它一樣是靜默截斷。
+    //       ⇒ 真正的守門在 `customers/page.tsx` 的畫面測試,不在這裡。**本註解不得被讀成「合約已滿足」。**
     let keywordIds: string[] | null = null;
+    let keywordTruncated = false;
     if (filter.keyword !== undefined) {
       const { data, error } = await this.supabase.rpc(ADMIN_SEARCH_CUSTOMERS_FN, {
         p_query: filter.keyword,
@@ -224,12 +225,18 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
       }
       const parsed = parseAdminSearchCustomersResult(data);
       keywordIds = parsed.ids;
+      keywordTruncated = parsed.truncated;
       // 🔴 **零命中 ⇒ 直接回零筆,不打第二段查詢**:
       //    `.in('user_id', [])` 的行為不押(postgrest 對空陣列的語意不是我們的合約)。
       //    ⚠️ `truncated` **照實帶出去、不寫死 false** —— 「零命中且 truncated」在 RPC 合約下
       //       構造不出來,但**不靠「不可能」寫死值**:靠不可能寫死的東西,哪天可能了就是靜默降級。
       if (keywordIds.length === 0) {
-        return { items: [], total: 0 };
+        return {
+          items: [],
+          total: 0,
+          keywordTruncated: parsed.truncated,
+          keywordMatchCount: 0,
+        };
       }
     }
 
@@ -251,6 +258,11 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
     return {
       items: data.map(mapSupabaseAdminCustomerRowToSummary),
       total: count ?? 0,
+      keywordTruncated,
+      // 🔴 `null` = **根本沒查**(沒帶 keyword),與「查了、命中 0」不可互換。
+      //    ⚠️ 這裡是**關鍵字自己命中幾人**(= RPC 回的 id 數),
+      //    **不是** `total` —— `total` 已再被 tier 篩選砍過一輪,兩者在套了 tier 時必定不同。
+      keywordMatchCount: keywordIds === null ? null : keywordIds.length,
     };
   }
 }

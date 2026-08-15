@@ -94,7 +94,19 @@ export async function applyOrderKeywordSearchAction(formData: FormData): Promise
     //    這條 URL 通道 —— 那是 A13b 的命名空間,本片不擴)。實務上打得出 120 字以上或 NUL 的
     //    只有貼上一整段文字,而那時列表回全部訂單 + chip 消失,行為是「搜尋沒有生效」而不是騙人。
     //    要做明示訊息 = 另一片(需要先定 `?r=` 的碼)。
-    store.delete(ORDER_KEYWORD_COOKIE);
+    // 🔴🔴 **必須帶 `path`,而且要與上面 `set` 的那個【逐字相同】** ——
+    //    `delete(name)` 在 Next 展開成 `set({ name, value: '', expires: new Date(0) })`
+    //    (`next/dist/compiled/@edge-runtime/cookies/index.js:302-305`,**開檔讀過**)
+    //    ⇒ **完全不帶 `Path` 屬性**。瀏覽器依 RFC 6265 用 request-uri 算 default-path
+    //    ⇒ 得到 `/`,而原 cookie 是 `Path=/orders` ⇒ **兩者不同 ⇒ 原 cookie 活著。**
+    // 🔴 後果有兩層,第二層更毒:
+    //    ① 員工按「清除搜尋」**沒有反應**(清單不變);
+    //    ② `invalid`(太長 / 含 NUL)也走這個出口 ⇒ **fail-closed 其實沒有 closed** ——
+    //       舊搜尋詞繼續生效,而**畫面顯示的搜尋詞與實際查詢的不是同一個**,
+    //       那正是本檔下方註解逐字說「更糟」的那個形狀。
+    // ⚠️ 本條由 codex 對抗審查 2026-08-16 指出於**客戶側**;**訂單側是同一個病、而且已經上線**
+    //    ——finding 給的是症狀位置,不是病的邊界(house 教訓)。
+    store.delete({ name: ORDER_KEYWORD_COOKIE, path: '/orders' });
   }
 
   // 🔴 `redirect()` 一定要在所有 try 之外(本檔沒有 try,但下一個人加的時候要記得):

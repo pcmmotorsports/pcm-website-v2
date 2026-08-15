@@ -78,6 +78,10 @@ describe('SupabaseCustomerAdapter.listCustomerSummariesForAdmin + ADMIN_CUSTOMER
         },
       ],
       total: 88,
+      // 🔴 `#525`:沒帶 keyword ⇒ `null`(= **根本沒查**),**不是 `0`**。
+      //    `toEqual` 是全等比對 ⇒ 這兩欄漏掉或值錯都會紅,不會靜默通過。
+      keywordTruncated: false,
+      keywordMatchCount: null,
     });
   });
 
