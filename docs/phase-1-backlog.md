@@ -13760,15 +13760,54 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **優先級:** 🔴🔴 高(2026-08-16 升級:**三個 task 全中** —— 不是「typecheck 可能騙人」,是**整組三綠都可能騙人**)
 - **起因:** 2026-08-16 A 窗追 `typecheck 3 vs 2` 時構造出來的(見 `~/pcm-mailbox/A-47-STOP.md` / `A-48-STOP.md`)。
 
-#### 成因(座標,可重跑)
+#### 成因 —— 🔴 **分兩句寫:機制句 + 清單句。不要寫成「所有根層檔都盲」**
 
+**機制句(E 窗 2026-08-16 用 `--dry=json` 直接印出來的結構性證據)**:
 ```bash
-grep -n "globalDependencies\|inputs" turbo.json        # ⇒ 零命中
+npx turbo run typecheck --dry=json --filter=@pcm/admin
+#   globalCacheInputs.files ⇒ {}（長度 0）
+#   其餘鍵 ⇒ rootKey / hashOfExternalDependencies / hashOfInternalDependencies
+#            / environmentVariables / engines
 ```
-`turbo.json` 的 typecheck task **逐字只有兩個鍵**:`{ "dependsOn": ["^typecheck"], "outputs": [] }`
-⇒ 走 turbo 預設 input 集合 = **該 package 目錄內的檔**。**根層的檔不在裡面。**
-而 `apps/admin/tsconfig.json:2` 逐字 `"extends": "../../tsconfig.base.json"`
-⇒ **`tsconfig.base.json` 決定整包紅不紅(`strict` / `noUncheckedIndexedAccess` 都在裡面),卻不在集合裡。**
+> **turbo 的全域雜湊【不吃檔案,吃它自己解析出來的四個欄位】** ——
+> `engines` / 外部依賴圖 / 內部依賴圖 / 環境變數。
+> ⇒ **一個根層檔會不會被偵測到,不取決於它是不是根層檔,取決於它的內容有沒有落進那四個欄位。**
+
+而各 task 的 input 集合 = **該 package 目錄內的檔**
+(`grep -n "globalDependencies\|inputs" turbo.json` ⇒ **零命中**,三個 task 都沒設)。
+⇒ **兩邊都沒接到根層設定檔。**
+
+**清單句(逐檔實測,baseline `@pcm/admin#typecheck` hash `4392b41c0b782586`)**:
+
+| 根層檔 | 進 hash? | 證據 |
+|---|---|---|
+| `tsconfig.base.json` | ❌ **已證盲** | typecheck / lint / build 三個 hash 全不變 |
+| `tsconfig.scripts.json` | ❌ **已證盲** | hash 不變 |
+| `eslint.config.js` | ❌ **已證盲** | hash 不變 |
+| `vitest.config.ts` | ❌ **已證盲** | hash 不變 |
+| `pnpm-workspace.yaml` | ❌ **已證盲** | hash 不變 |
+| **`package.json` 的 `engines.node`** | ✅ **已證非盲** | `>=22.0.0`→`>=22.1.0` ⇒ hash 變 `0b14c202b0b30eb2` 🔴 **反例** |
+| `pnpm-lock.yaml` | ⚠️ **未確認** | E 加的是 YAML 註解,而該欄位從**解析後的依賴圖**算 ⇒ **那一發本來就不可能讓它變**。🔴 **這是「沒量到」,不是「它是盲的」** |
+| `turbo.json` | ⚠️ **未測** | 主視窗禁令,沒人量過。🔴 **不要把「未測」讀成「盲」** |
+
+🔴🔴 **為什麼要拆成機制句 + 清單句(E 窗的判準,原封收)**:
+> **一個【有反例的全稱句】比一個範圍小但準確的句子傷害大得多** ——
+> 下一個人會拿它去推論別的根層檔,而那個推論會錯。
+
+📌 **E 自曝**:它帶著「所有根層檔都盲」的預期去量,**量到第六發才被 `engines` 打臉;前五發全部符合預期。**
+⚠️ **沒去量的話,那句全稱會以「E 窗獨立複驗過」的外觀進本條目。**
+
+#### 這一片為什麼是 typecheck / lint / build 一起中
+
+`apps/admin/tsconfig.json:2` 逐字 `"extends": "../../tsconfig.base.json"`;
+`apps/admin/package.json` 的 lint script 逐字 `eslint . --max-warnings 0 --no-error-on-unmatched-pattern`
+⇒ 往上找到根層唯一那份 `eslint.config.js`
+(分母 `find . -maxdepth 3 -name "eslint.config.*" -not -path "*/node_modules/*"` ⇒ **1 份**)。
+⇒ **它們決定那三個 task 判什麼,而它們都在已證盲的清單裡。**
+
+🔴 **`vitest.config.ts` 也在已證盲那五個裡** —— 但 **`pnpm vitest run` 不走 turbo**
+⇒ **它「盲」的意義與前三個不同**(沒有 replay 機制在騙人,只是那份設定不影響 turbo 的 hash)。
+**本條目不把它算進「三綠假綠」那一族**,列在這裡是因為下一個人會問。
 
 #### 實錘(2026-08-16,`cp` 備份 + 還原後 shasum 逐字相同 `a9936413…`)
 
@@ -13782,13 +13821,25 @@ grep -n "globalDependencies\|inputs" turbo.json        # ⇒ 零命中
 🔴 **那個 hash 與「乾淨綠樹」那次完全相同** ⇒ **replay 了綠,而此刻真的紅 13 條。**
 🔴 **八個包全部 cache hit**,turbo 印 `Tasks: 8 successful, 8 total` / `Cached: 8 cached, 8 total`。
 
-#### 🔴 第二層:`pnpm typecheck` 的後半也抓不到
+#### 🔴 第二層:`pnpm typecheck` 的後半 —— **結構性 vs 運氣**
 
 `package.json` 逐字:`"typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit"`
-而 `tsconfig.scripts.json` 的 `include` 逐字 **`["scripts/*.ts"]`**。
-⇒ **由設定本身可證(非推論)**:`apps/admin` 不在那個 include 裡
-⇒ **若改動只在 `apps/admin` 產生錯,`pnpm typecheck` 兩段都抓不到 ⇒ 全綠,而錯是真的。**
-⚠️ 那次實測 `pnpm typecheck` 確實回 exit 2、印 4 條 —— **但那 4 條全在 `scripts/` 與它 import 到的 `packages/ports`,一條都不是 turbo 抓的。**
+
+⚠️ **本條目第一版把這裡的理由寫錯了(2026-08-16 E 窗更正)**:
+原文寫「`include` 逐字 `["scripts/*.ts"]` ⇒ **由設定本身可證** `apps/admin` 抓不到」。
+🔴 **實際覆蓋 = `include` 的檔 ＋ 它們 import 到的傳遞閉包** ——
+實錘:那次突變下第二段的 3 個錯,**有 2 個在 `packages/ports/src/IOrderRepository.ts`,不在 `scripts/` 底下**。
+
+**正確的說法(兩層要分開講)**:
+- 🔴 **第一層(turbo)失效是【結構性】的** —— 根層設定檔不在 hash 裡(見上方清單),**必定 replay**。
+- ⚠️ **第二層會不會救你是【看運氣】的** —— 取決於那個根層改動有沒有**剛好**弄紅
+  「`scripts/` 的 import 傳遞閉包」。
+  **2026-08-16 那次救到我們的是巧合**(`noUnusedLocals` 剛好也打到 ports);
+  換一個**只影響 JSX / React 的根層改動**(`scripts/` 是 node、無 JSX)⇒ **整條全綠。**
+
+🔴 **⇒ 「看運氣的第二層」不得當防線寫進任何驗收條件。**
+⚠️ 而 `lint` / `build` 的第二段更弱:`pnpm lint` 的後半只掃 `scripts/*.ts`、`pnpm build` **沒有後半**
+⇒ 2026-08-16 那兩發**實測就是 exit 0 全綠**。
 
 #### 三條判準(現在就可以用,不必等本條修好)
 
