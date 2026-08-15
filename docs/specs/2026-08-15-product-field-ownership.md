@@ -23,9 +23,25 @@
 **不是**「找不到條件式的 pattern」(那是零命中推論),**是**兩步觀測:
 1. **型別層**:介面欄位**沒有 `?`** ⇒ TypeScript 強制 `transformGroup` 每次都得給值 ⇒ **必進 payload**。
    (這是編譯期保證,不是我掃出來的統計。)
-2. **載入層**:transform 之後還有沒有人把 key 拿掉?**實查 `stripColumnIfMissing` 的呼叫點只有一處**
-   —— `rpm-import.ts:515`,**且只剝 `sound_clips`**(而它本來就在條件式那組)。
+2. 🔴 **值層(E 窗 F3 補上的中間層,2026-08-15)——「key 在 payload」不等於「key 活著送到 DB」**:
+   `rpm-load.ts:48-52` 自己的註解寫著:`.upsert(陣列)` 的 `?columns` 取**全批 key 聯集** + `defaultToNull=true`
+   ⇒ **同批混「有此 key」與「省此 key」兩種列時,省 key 的列會被寫 NULL。**
+   ⇒ **這正是 `groupByKeySignature`(#260)分組的理由** —— 分組之後每批 key 集合一致,聯集才不會坑到人。
+   ⚠️ **⇒ 型別必填是真保證,但它只管到 payload 那一層**,再往下有兩個東西會改變結果:**分組**與**剝 key**(見第 3 條)。
+3. **載入層**:transform 之後還有沒有人把 key 拿掉?
+   ⚠️ **作用域要寫成「任何會使欄位不進 payload 的機制」,不是「`stripColumnIfMissing` 這個函式名」** ——
+   **用函式名 grep 會漏掉同概念的第二個手寫實作。** 目前兩個載體:
+
+   | 載體 | 座標 | 對這 15 欄適不適用 |
+   |---|---|---|
+   | `stripColumnIfMissing` | 定義 `rpm-load.ts:95`;**生產呼叫點唯一** `rpm-import.ts:515` | **不適用** —— 只剝 `sound_clips`(它本來就在條件式那組) |
+   | `isMissingColumn` | `rpm-reconcile.ts:137` | **不適用** —— 跳過的是**整句單欄 UPDATE**,且硬綁常數 `SOURCE_MISSING_COLUMN`(`:116`) |
+
    ⇒ **15 個無條件欄在載入層沒有任何一個會被剝掉。**
+   🔴 **而這個結論成立,靠的是 E 窗開了 `rpm-reconcile.ts`,不是我那條 grep** ——
+   我原本的理由是「`stripColumnIfMissing` 呼叫點只有一處」,**那條 grep 永遠找不到第二個實作**
+   (它的註解 `:123` 逐字寫著「**不能直接用 `rpm-load.stripColumnIfMissing`**」⇒ 它是刻意另寫的)。
+   **⇒ 結論沒變,改的是支撐它的理由** —— 而下一個人是照理由決定要不要重看的。
 
 🔴 **第三條是重點**:`delisted_at` 那個 pattern 命中 2 筆,**逐筆開檔後兩筆都是「宣告型別」與「註解」,零筆是寫入**。
 **只看數字會得到相反結論。**
@@ -141,13 +157,49 @@ products.highlights                      ← 我們的 DB
 `rpm-fetch.ts:4` 檔頭**逐字**:「**來源(唯讀、絕不寫)**」——
 ⚠️ **那三個字是有人刻意寫下的紅線,不是預設值。**
 
-**結構性證據**(量法即命令):
-| 查什麼 | 結果 | 座標 |
+**結構性證據**(量法即命令)
+
+> ### 🔴 本表 2026-08-15 修正過(E 窗獨立驗證 F1 must-fix;**修正前那句已經被引用出去過**)
+> **原第 4 列逐字**:~~`insert`/`update`/`upsert`/`delete`/`rpc` | **0 命中**(分母 = `scripts/*.ts` 共 51 支) | —~~
+> 🔴 **照字面是假的。** 真值:**同一條 pattern 在 `scripts/*.ts` 全域有 10 命中**
+> (`rpm-load:141,176` / `rpm-reconcile:167,195,309` / `image-trim-scan:208,216`,另 3 筆為註解與測試)。
+> **零只在「限定 source client」時成立 ⇒ 我把作用域漏掉了,只寫分母。**
+> ⚠️ **而那是全表唯一沒有座標的一列,也正是撐著「不會污染上游」那句保證的那一列。**
+> **⇒ 通則:寫「零命中」要把【作用域】跟【分母】一起寫,只寫分母會讓零看起來管得比實際寬。**
+
+**🔴 主證據(結構層 —— 憑證從來沒送到那些地方)**:
+
+| 查什麼 | 結果 | 量法 / 座標 |
 |---|---|---|
-| source client 拿什麼金鑰 | `QUOTE_SUPABASE_PUBLISHABLE_KEY`(**publishable,不是 secret**) | `rpm-import.ts:151` |
-| `source` 變數的呼叫點 | **只有一處**,傳進 `fetchAllSupplierProducts` | `rpm-import.ts:162` |
-| fetch 內對 source 的動作 | **只有 `.select(VIEW_COLS)`** | `rpm-fetch.ts:113` |
-| `insert`/`update`/`upsert`/`delete`/`rpc` | **0 命中**(分母 = `scripts/*.ts` 共 51 支) | — |
+| `QUOTE_SUPABASE` 全樹命中 | **15**(其中 **code 只有 7**:`rpm-import.ts` 3 + `rpm-import-cli.test.ts` 2 + `rpm-sync.yml` 2;其餘 8 筆在 `docs/`) | `grep -rn 'QUOTE_SUPABASE' .`(排 `node_modules`/`.git`) |
+| **`apps/` + `packages/` 內的 `QUOTE_SUPABASE`** | 🔴 **0** | `grep -rn 'QUOTE_SUPABASE' apps packages \| wc -l` |
+| 哪個 workflow 注入它 | **3 支只有 `rpm-sync.yml`** | `grep -ln 'QUOTE_SUPABASE' .github/workflows/*` |
+| **對照組(證明風險面存在)** | `apps`+`packages` 有 **8 個檔**在建 Supabase client | `grep -rlE 'createClient\|createServerClient\|createBrowserClient' apps packages --include='*.ts*' \| wc -l` |
+
+> ✅ **這條比「沒有人寫」強**(E 窗的話,我照收):
+> **「沒有人寫」是行為,「連不上」是結構** —— 檔頭寫的「結構性唯讀」,**靠的是這一條**。
+> 🔴 **⇒ 那 8 個會建 client 的檔,拿不到來源憑證** —— 不是它們自律,是憑證沒送到那裡。
+> ⚠️ **殘餘風險**:未來有人在 `apps/` 加一行注入,**沒有守門會紅**。
+
+**佐證(行為層 —— 原本被我當主證據的三項)**:
+
+| 查什麼 | 結果 | 座標 / 強度 |
+|---|---|---|
+| source client 拿什麼金鑰 | `QUOTE_SUPABASE_PUBLISHABLE_KEY`(**publishable,不是 secret**) | `rpm-import.ts:151` ⚠️ **只驗到變數名** |
+| ⚠️ **那把金鑰在 B 庫的實際 grant** | 🔴 **未驗** —— 權限在報價單那側,**本 repo 查不到** | **強度低於本表其餘各列,不要混著讀** |
+| `source` 變數的呼叫點 | **只有一處**,傳進 `fetchAllSupplierProducts` | `rpm-import.ts:149`(建立)→ `:162`(唯一去處) |
+| **作用域內的完整動作清單** | `.from` / `.select` / `.eq` / `.order` / `.range` —— **無任何寫入方法** | `rpm-fetch.ts:112-116`,**逐行列舉整個檔、不是正規式**(source client 只去這一支) |
+
+🔴 **最後一列改用「列舉」不用「零命中」的理由**:E 窗自陳它兩次量到的零都是假的
+(**正規式跨不了行** / **參數進 `rpm-fetch` 後改名叫 `src`**)—— **兩次都是正向對照抓到的。**
+⇒ **一個會漏的量法量出來的零,證不了不存在。列舉整個作用域可以。**
+✅ **正向對照(我自己重跑,不抄 E 的數字)**:同一條寫入 pattern 打在 `tgt` / `db` 上**有命中**
+(`rpm-load.ts:141,176`、`image-trim-scan.ts:208`)⇒ **pattern 抓得到寫入,零不是因為工具壞掉。**
+
+⚠️ **複驗差異也記下來**(兩個獨立錯值會互相背書,所以差多少本身就是資訊):
+**E 的對照組數字是 72,我量到 8。** 我的 pattern 寫在上表;**我試過三種量法都重現不出 72**
+(`createClient` 系列 = 8 / `import @supabase` = 27 / 提到 supabase 的檔 = 260)。
+**⇒ 表內採我自己量得到、量法可重跑的那個。E 的 72 未被我重現,不當事實引用。**
 
 ### ⇒ 要走 Sean 那個方向,代價是三件 ⚠️ **(2026-08-15 已作廢 —— 見本節下方「Sean 補上答案」第 3 點:這三條都不必付)**
 1. **跨 repo**:報價單那側要開一個接受寫入的入口
@@ -169,6 +221,11 @@ products.highlights                      ← 我們的 DB
 「用 Claude 爬原廠資料、自己辨識」= **Sean 手動跑的一次性動作**,產物存在報價單裡。
 ⇒ **上面那條擔憂(「回寫也會被它的上游蓋掉」)不成立** —— 報價單那側沒有一個會定期覆寫 `highlights_zh` 的自動流程。
 ⚠️ **本結論的來源 = Sean 口述,不是我實查報價單 repo**(真身仍在 mac mini)。要拿它當設計依據的那一片,自己再確認一次。
+
+> 🔴 **而「再確認一次」不是再問他一次**(主視窗 2026-08-15 補):
+> **他講的是「我當初怎麼做的」= 記憶,不是查證** —— 有可能跑過兩次、有可能某些品牌走別的方式、有可能之後他自己會再跑。
+> **⇒ 確認方式 = 去看報價單那側 `highlights_zh` 有沒有更新時間戳、有沒有批次寫入的痕跡。**
+> **問人得到的還是口述;看資料得到的是證據。**
 
 #### 2. ⇒ 正確做法不是回寫,是「同步跳過」
 因為來源值本來就不會自己變:
