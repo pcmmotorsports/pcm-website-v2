@@ -1,4 +1,5 @@
 #!/bin/bash
+# ci-self-contained: no — 需外部連線字串,且內嵌 CASE 是 #522 之前的舊分母(見檔頭)
 # 🔴🔴 **2026-08-16 起本檔的 T3/T4 內嵌 CASE 是【過期版本】** —— `#522` 已把貨品軸的分母
 #    從 `oi.quantity` 改成 `oi.quantity − cancelled_quantity`
 #    (`supabase/migrations/20260816050000_m4b_522_goods_axis_subtract_cancelled.sql`)。
