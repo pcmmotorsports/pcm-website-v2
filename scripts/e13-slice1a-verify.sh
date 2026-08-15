@@ -492,6 +492,15 @@ step0
 hdr "步驟 1-3:apply 本片 → 28 格"
 prepare_run t_base || die "apply 失敗(見上)—— 不跑 cells"
 echo "  apply exit=0"
+# 🔴 apply 成功時的 NOTICE 必須真的印出來 —— **按按鈕的人看不懂 SQL,那三行是他唯一的回饋**。
+#    ⚠️ 這格的存在理由:我 2026-08-15 加了那三行 NOTICE,而 harness 的 apply_to 只 grep ERROR
+#       ⇒ **跑完全綠,但我手上沒有任何「它會印」的證據**。加了不等於印得出來。
+# ⚠️ pattern 只釘「#13 片1a」,**不要把 `NOTICE:` 一起釘進去** ——
+#    `VERBOSITY=verbose` 會在中間插進 SQLSTATE(`NOTICE:  00000: #13 …`)
+#    ⇒ 釘 `NOTICE:  #13` 會 0 命中而實作是好的 = **假紅**(2026-08-15 我第一版就是這樣寫的)。
+chk "🔴 apply 成功 NOTICE 三行都印出來" "3" \
+  "$(grep -c '#13 片1a' "$WORK/apply-t_base_seed.log")"
+grep '#13 片1a' "$WORK/apply-t_base_seed.log" | sed 's/^/     |/'
 cells t_base
 [ "$LAST_FAIL" = 0 ] || { TOTAL_FAIL=$((TOTAL_FAIL+LAST_FAIL)); echo "  🔴 baseline 不綠 ⇒ 突變結果無意義,停"; teardown; exit 1; }
 BASELINE_PASS=$LAST_PASS

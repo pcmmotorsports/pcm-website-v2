@@ -540,5 +540,14 @@ BEGIN
     RAISE EXCEPTION '#13:期望兩支 DEFERRABLE INITIALLY DEFERRED 的 constraint trigger,實得 %', v_n
       USING ERRCODE = 'P2C13', CONSTRAINT = 'pcm_e13_triggers_deferred';
   END IF;
+
+  -- 🔴 **成功時要出聲**(2026-08-15 主視窗問「他按下去會看到什麼」才發現的缺口):
+  --    上面六道閘**只在失敗時 RAISE**,成功時**一個字都不印**
+  --    ⇒ apply 成功與「根本沒跑到這一段」在畫面上**長得一模一樣**,而按按鈕的人看不懂 SQL。
+  -- ⚠️ 這是本檔自己犯的「什麼都沒有被讀成檢查過了」—— 而 house 前例都會印
+  --    (`20260813120000` 5 條 / `20260815020000` 2 條 RAISE NOTICE)。
+  RAISE NOTICE '#13 片1a 後置斷言六道全過:proacl 非 NULL / EXECUTE 閉世界 / service_role 可 EXECUTE / 屬性=true-plpgsql-v / search_path="" / 兩支 constraint trigger 皆 DEFERRABLE INITIALLY DEFERRED';
+  RAISE NOTICE '#13 片1a 已就緒:admin_update_order_item_amount + pcm_e13_items_subtotal_guard + pcm_e13_orders_subtotal_guard';
+  RAISE NOTICE '#13 片1a ⚠️ 看到上面兩行 = apply 成功。沒看到 = 有問題,不要當成功。';
 END;
 $gate$;
