@@ -64,6 +64,19 @@ export function shippingDocBlocker(args: {
   if (lines.length === 0) {
     return '這個包裹裡沒有這張訂單的品項。請從訂單頁的出貨卡點進來,不要自己拼網址。';
   }
+  // 🔴 面8(#10 合併片,2026-08-16 補):**這張【訂單】讀不到任何品項。**
+  //    ⚠️ 與面5 是**兩件事**,不要合併:
+  //      面5 = 這【箱】裡沒有本單的東西(箱與單湊錯)
+  //      面8 = 這【單】本身一個品項都沒有(投影出問題)
+  //    ⇒ 面5 過得了不代表面8 過得了 —— `lines` 非空而 `detail.items` 空時,
+  //      下面那個 `known` 集合會是空的、每一條 line 都變成孤兒,員工看到的是「對不上」
+  //      (面7 的話),而真正的病是**整張單讀不到東西**。訊息指錯方向,他會去找箱子的問題。
+  //    🔴 **本條是從揀貨單搬過來的** —— `components/print/picking-doc.tsx:114-115` 早就有,
+  //      而出貨單一直沒有(`grep -c 'items.length === 0' shipping-doc.tsx` 落地前 ⇒ 0)。
+  //      合併時「以出貨單為本體」聽起來像保留出貨單的東西,**這道會靜默消失**,所以先補上。
+  if (detail.items.length === 0) {
+    return '這張訂單讀不到任何品項,出貨單不能印。請重新整理;仍然一樣請回報。';
+  }
   // 面7:箱裡的品項在訂單明細查不到 ⇒ 兩邊對不上,不用 `?? '—'` 蒙混過去。
   const known = new Set(detail.items.map((it) => it.id));
   const orphan = lines.find((l) => !known.has(l.orderItemId));
