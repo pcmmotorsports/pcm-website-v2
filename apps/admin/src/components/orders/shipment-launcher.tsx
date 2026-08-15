@@ -184,7 +184,7 @@ export function OrderShipButton({ orderId }: { orderId: string }) {
         type='button'
         disabled={loading}
         onClick={() => void openDialog()}
-        className='rounded border px-2 py-1 text-xs disabled:opacity-50'
+        className='rounded-md border px-2 py-1 text-xs disabled:opacity-50'
       >
         {loading ? '載入中…' : '建立包裹'}
       </button>

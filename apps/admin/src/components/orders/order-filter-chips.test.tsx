@@ -119,7 +119,13 @@ describe('#484 B-1 — `.fchip` 樣式逐字對 OD', () => {
     expect([...d.keys()].sort()).toEqual(
       ['background', 'border', 'border-radius', 'color', 'font-size', 'padding'].sort(),
     );
-    expect(d.get('border-radius')).toBe('999px');
+    // 🔴 **2026-08-16:從 `999px` 改成 `var(--radius)`,而這一格是【紅了才被改】的** —— 那是它該做的事。
+    //    依據:設計參照 §6.5.4 裁決「**形狀傳達的是【可不可以互動】,不是【重不重要】**」
+    //    ⇒ chip 渲染成 `<Link>`(可以點)= 控制項 ⇒ 跟所有控制項一起直角化;
+    //      **只能看的狀態膠囊維持 pill**(那些用 `rounded-full`,不吃 `--radius`)。
+    //    ⚠️ **這一格改成釘「它必須跟著 `--radius` 走」,不釘具體值** ——
+    //      釘死 `0` 會讓日後恢復圓角時這格紅得莫名其妙,而那時它本來就該跟著變。
+    expect(d.get('border-radius')).toBe('var(--radius)');
     expect(d.get('padding')).toBe('3px 11px');
     expect(d.get('font-size')).toBe('12px');
     expect(d.get('border')).toBe('1px solid var(--border)');

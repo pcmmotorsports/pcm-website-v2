@@ -57,7 +57,7 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
              要強調用 `<strong>`;`today-summary.test.tsx` 的 `not.toContain('**')` 那格**留著**。 */}
       {/* 🔴 R2 nit7:講得出**是哪幾格**沒讀到 —— 只說「對帳壞了」等於要員工自己猜哪個數字能信。 */}
       {summary.failedSections.length > 0 && (
-        <p className='border-destructive/30 bg-destructive/5 text-destructive mb-3 rounded border p-3 text-xs'>
+        <p className='border-destructive/30 bg-destructive/5 text-destructive mb-3 rounded-md border p-3 text-xs'>
           這幾格沒讀到:<strong>{summary.failedSections.join('、')}</strong>
           。其餘數字仍可使用。請稍後重新整理,若持續發生請通知系統維護。
         </p>

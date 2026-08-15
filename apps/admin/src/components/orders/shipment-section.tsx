@@ -53,7 +53,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
             return (
-              <li key={shipment.id} className='rounded border'>
+              <li key={shipment.id} className='rounded-md border'>
                 <div className='flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2'>
                   <span className='flex items-center gap-2 text-sm'>
                     <b className='font-mono'>{shipment.shipmentReference}</b>
@@ -162,7 +162,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
             {empties.map((s) => (
               <li
                 key={s.id}
-                className='flex flex-wrap items-center justify-between gap-2 rounded border px-3 py-2'
+                className='flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2'
               >
                 <span className='flex items-center gap-2 text-sm'>
                   <b className='font-mono'>{s.shipmentReference}</b>

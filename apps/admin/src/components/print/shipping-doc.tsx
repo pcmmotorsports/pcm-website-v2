@@ -247,7 +247,7 @@ export function ShippingDoc({
       ) : (
         <>
           {/* 收件人。`blocked === null` 已保證 `recipientSnapshot` 非 null 且三欄都有內容。 */}
-          <div className='rounded border p-3 text-sm'>
+          <div className='rounded-md border p-3 text-sm'>
             <div className='text-muted-foreground mb-1 text-xs'>收件人</div>
             <div className='font-medium'>{shipment.recipientSnapshot?.name}</div>
             <div>{shipment.recipientSnapshot?.phone}</div>

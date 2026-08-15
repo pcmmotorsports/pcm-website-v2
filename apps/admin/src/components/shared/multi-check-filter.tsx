@@ -53,7 +53,7 @@ export function MultiCheckFilter({
             {options.map((o) => (
               <label
                 key={o.value}
-                className='hover:bg-muted flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm'
+                className='hover:bg-muted flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm'
               >
                 <input
                   type='checkbox'
