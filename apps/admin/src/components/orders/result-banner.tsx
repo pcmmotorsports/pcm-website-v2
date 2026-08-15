@@ -23,6 +23,12 @@ import {
   FAILURE_MESSAGES as CANCEL_FAILURE_MESSAGES,
   toOrderCancelResultCode,
 } from '../../lib/orders/cancel-action-state';
+import {
+  ORDER_AMOUNT_ERROR_MESSAGE_GENERIC,
+  ORDER_AMOUNT_ERROR_RESULT_CODE,
+  ORDER_AMOUNT_REJECTED_MESSAGE,
+  ORDER_AMOUNT_REJECTED_RESULT_CODE,
+} from '../../lib/orders/amount-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -144,6 +150,18 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 🔴 文案逐字沿用 `cancel-action-state.ts` 的 `FAILURE_MESSAGES`,不在這裡另寫一份。
   [toOrderCancelResultCode('denied')]: { text: CANCEL_FAILURE_MESSAGES.denied, tone: 'error' },
   [toOrderCancelResultCode('invalid')]: { text: CANCEL_FAILURE_MESSAGES.invalid, tone: 'warn' },
+  // 🔴 M-4b E10 **#13 片1c-2**:改金額線**只登錄這一顆失敗碼**。
+  //    ⚠️ 它的成功/無變更/衝突走**裸碼**(`saved`/`noop`/`conflict`)—— 那三則文案對改金額剛好也對,
+  //    為整齊多造三顆是純成本;`invalid`/`denied` 同理(而且它們導去 `/orders`,
+  //    namespace 了卻沒登錄反而讓員工什麼都看不到)。**理由全文在 `amount-action-state.ts` 檔頭。**
+  //    🔴 文案逐字沿用該檔的 `ORDER_AMOUNT_ERROR_MESSAGE`,**不在這裡另寫一份**(同取消線的做法)。
+  //    🔴🔴 而那句話**刻意不說是哪一條**:七條業務拒絕共用同一個 `P2C13`,
+  //    要分得開得拿到 `constraint` 欄,而那件事**沒有人測過**(backlog `#518`)。
+  //    ⇒ 它涵蓋七條全部,因為它不宣稱是哪一條。**不得改成含具體判定的版本。**
+  //    🔴 **兩顆,不是一顆**(codex R1 must-fix):`_rejected` = 業務拒絕(`code === 'P2C13'`)、
+  //    `_error` = 其餘一切(含 DB 斷線 / timeout)。把兩者塞同一顆會**把系統故障說成訂單狀態問題**。
+  [ORDER_AMOUNT_REJECTED_RESULT_CODE]: { text: ORDER_AMOUNT_REJECTED_MESSAGE, tone: 'error' },
+  [ORDER_AMOUNT_ERROR_RESULT_CODE]: { text: ORDER_AMOUNT_ERROR_MESSAGE_GENERIC, tone: 'error' },
   // 🔴 `Object.freeze`(關卡2 R2):本表 D1 起被匯出給測試讀鍵集合,凍住才擋得掉
   //    「某個正式模組 import 後偷加一顆碼」——那條路測試抓不到(測試不會載入那個模組)。
   //    ⚠️ **誠實界線:這是淺 freeze** —— 擋得住「加/刪一顆碼」,擋**不住** `MESSAGES.saved.text = '…'`

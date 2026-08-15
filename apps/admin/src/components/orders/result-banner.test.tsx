@@ -28,6 +28,12 @@ import {
   ORDER_CANCELLED_RESULT_CODE,
   toOrderCancelResultCode,
 } from '../../lib/orders/cancel-action-state';
+import {
+  ORDER_AMOUNT_ERROR_MESSAGE_GENERIC,
+  ORDER_AMOUNT_ERROR_RESULT_CODE,
+  ORDER_AMOUNT_REJECTED_MESSAGE,
+  ORDER_AMOUNT_REJECTED_RESULT_CODE,
+} from '../../lib/orders/amount-action-state';
 
 // M-4b E10 A9d2-1:本片只加一個成功碼 ⇒ 本檔只測那一格 + 既有行為不被打壞。
 //
@@ -240,6 +246,48 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
   //      而 `error`(B 類、不在表裡)則是被第二個斷言的**集合交集**抓到 —— 兩條互補;
   //    ②有人把裸 `retry` 加進 `MESSAGES` → 出現沒被歸類的鍵 → 紅;
   //    ③有人把 B 類碼或成功碼加進 `MESSAGES` → 取消線註冊集合對不上 → 紅。
+  // 🔴🔴 #13 片1c-2 加的一格:**既有那 18 個消費端「零行為改變」不准用推的。**
+  //
+  //    上面那格守的是**鍵集合**(加/刪一顆會紅),而它**擋不住「手滑改到隔壁行的文案」** ——
+  //    改 `MESSAGES.error.text` 鍵集合一個字都不會變。
+  //    ⇒ 本格逐字釘住**既有鍵的文案與 tone**。
+  //
+  //    ⚠️ **判別力(2026-08-16 實跑)**:把 `error` 的文案改一個字 ⇒ **只有本格紅**、
+  //    上面那格照樣綠 —— 兩格互補不是主次。
+  //    ⚠️ **誠實界線**:本格釘的是**既有**那幾顆;新增一顆碼要自己來這裡登記,
+  //    而「忘了登記」由上面那格的鍵集合比對抓。**兩格都要在。**
+  it('既有結果碼的文案與 tone 逐字未變(改金額線只加鍵、不改別人的話)', () => {
+    const FROZEN: Readonly<Record<string, { text: string; tone: string }>> = {
+      saved: { text: '已儲存變更。', tone: 'ok' },
+      noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
+      conflict: {
+        text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。',
+        tone: 'warn',
+      },
+      invalid: { text: '表單內容不正確,未儲存。', tone: 'warn' },
+      denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
+      not_found: { text: '找不到對象資料(可能已被移除),未儲存。', tone: 'warn' },
+      error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
+    };
+    for (const [code, expected] of Object.entries(FROZEN)) {
+      expect({ code, ...MESSAGES[code] }).toEqual({ code, ...expected });
+    }
+    // 🔴 正向對照:本片新加的**兩顆**確實在表裡,否則上面那個迴圈在表被清空時也會綠。
+    expect(MESSAGES[ORDER_AMOUNT_REJECTED_RESULT_CODE]?.text).toBe(ORDER_AMOUNT_REJECTED_MESSAGE);
+    expect(MESSAGES[ORDER_AMOUNT_ERROR_RESULT_CODE]?.text).toBe(ORDER_AMOUNT_ERROR_MESSAGE_GENERIC);
+    // 🔴 而兩句**必須不同** —— 它們分開的全部理由就是「別把系統故障說成訂單狀態問題」。
+    expect(ORDER_AMOUNT_REJECTED_MESSAGE).not.toBe(ORDER_AMOUNT_ERROR_MESSAGE_GENERIC);
+    // 🔴🔴 codex R2:業務拒絕那句**不得只提訂單狀態** —— `P2C13` 底下有三條是**金額本身**
+    //    (溢位 / 改後為負)。只提狀態會把員工導去查收款與折扣。
+    //    ⇒ 這一格釘住「兩邊都提到」,而不是釘死整句話(整句留給文案定稿)。
+    expect(ORDER_AMOUNT_REJECTED_MESSAGE).toContain('訂單狀態');
+    expect(ORDER_AMOUNT_REJECTED_MESSAGE).toContain('金額');
+    // 反向:不得出現任何具體判定
+    for (const forbidden of ['已收款', '有折扣', '因為']) {
+      expect(ORDER_AMOUNT_REJECTED_MESSAGE).not.toContain(forbidden);
+    }
+  });
+
   it('MESSAGES 的每一顆鍵都歸得了線,且取消線的碼與其他線零碰撞', () => {
     // 取消線**應該**註冊在 banner 的碼 = 只有 A 類兩碼。
     // 🔴 成功碼與 B 類四碼都**不在**表裡:前者要等 D5 的帳本核對(不能由 URL 說了算)、
@@ -265,6 +313,11 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       RECEIPT_DUPLICATE_RESULT_CODE,
       PAYMENT_RECORDED_RESULT_CODE,
       PAYMENT_DUPLICATE_RESULT_CODE,
+      // 🔴 #13 片1c-2:改金額線只登錄這一顆失敗碼(成功/noop/conflict 走裸碼)。
+      //    ⚠️ 本格在那顆被加進 MESSAGES 的當下**真的紅過**(2026-08-16 實跑,1 failed / 29 passed)
+      //    —— 那就是它有判別力的證據,不是推的。
+      ORDER_AMOUNT_ERROR_RESULT_CODE,
+      ORDER_AMOUNT_REJECTED_RESULT_CODE,
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

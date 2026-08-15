@@ -20,6 +20,7 @@ import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { ItemProcurementSection } from './item-procurement-section';
+import { ItemAmountForm } from './item-amount-form';
 import { OrderCancelBlock } from './order-cancel-block';
 import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
@@ -107,7 +108,51 @@ function ItemAxisCell({ summary }: { summary: AdminOrderItemQuantitySummary | nu
   );
 }
 
-function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
+/**
+ * 🔴 **改金額能不能開放,在這裡先判一次**(R3/fable F2)。
+ *
+ * **為什麼要在 UI 判**:house 工作流**收款排第一**(Sean 2026-08-12 拍板)
+ * ⇒ 員工手上的單**多半已收款** ⇒ 若每張單每個品項都給一個可以按的框,
+ * **這個表單最常見的使用結果就是「被拒絕 + 一句模糊文案」**。
+ * ⇒ 違反 Sean 2026-08-11 常設驗收「**不用人教能做對**」。
+ *
+ * 🔴 **disabled + 就地寫明原因,不是隱藏** —— 隱藏會讓員工找不到而懷疑自己。
+ *
+ * ⚠️ **這是 advisory,不是保證**(同 `cancellationPaymentTrace` 那段的處置):
+ * 讀到這個判斷與員工按下去之間,隨時可能多一筆收款。
+ * **權威永遠是 RPC 在交易內的重查**(`20260815040000:388`)⇒ **RPC 回拒是正常路徑**,
+ * 由 banner 兜底,不是「不該發生」的例外。
+ */
+function resolveAmountEditBlock(
+  detail: AdminOrderDetail,
+  payments: PaymentListData,
+): string | null {
+  // 🔴 讀不到收款時 **fail-closed**:`'unreadable'` 的語意是「**不知道有沒有**」,不是「沒有」。
+  if (payments.status === 'unreadable') {
+    return '付款紀錄讀取不完整,暫時不開放改金額。請重新整理;若持續如此請找系統維護。';
+  }
+  if (payments.status === 'order_not_found') {
+    return '讀不到這張訂單的收款紀錄,暫時不開放改金額。';
+  }
+  if (payments.rows.length > 0) {
+    // RPC `:388` 逐字:有**任何一列**收款就拒(不使用任何金額口徑)。
+    return '這張單已經有收款紀錄,不開放改金額。需要調整請走退款流程,或告知系統維護。';
+  }
+  if (detail.discountTotal.amount !== 0) {
+    // RPC `:398`:本功能尚未處理折扣單的改價(母 plan 已知限制 L2)。
+    return '這張單有折扣,目前還不支援改金額。請告知系統維護。';
+  }
+  return null;
+}
+
+function ItemsTable({
+  detail,
+  payments,
+}: {
+  detail: AdminOrderDetail;
+  payments: PaymentListData;
+}) {
+  const amountEditBlock = resolveAmountEditBlock(detail, payments);
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
   const TD = 'px-3 py-2 text-sm align-top';
   return (
@@ -142,7 +187,17 @@ function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
               </td>
               <td className={`${TD} text-right tabular-nums`}>{item.quantity}</td>
               <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
-                NT$ {formatOrderAmount(item.unitPrice.amount)}
+                <div>NT$ {formatOrderAmount(item.unitPrice.amount)}</div>
+                {/* 🔴 #13 片1c-2:改單價。**版本用訂單層的 `detail.version`,不是品項的** ——
+                    RPC 的樂觀鎖比的是 `v_ord.version`,而 `AdminOrderDetailItem` 自 A9w3 起就沒有 version 欄。 */}
+                <ItemAmountForm
+                  orderId={detail.id}
+                  expectedVersion={detail.version}
+                  orderItemId={item.id}
+                  currentUnitPrice={item.unitPrice.amount}
+                  returnTo={`/orders/${detail.id}`}
+                  blockedReason={amountEditBlock}
+                />
               </td>
               <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
                 NT$ {formatOrderAmount(item.lineTotal.amount)}
@@ -470,7 +525,7 @@ export function OrderDetail({
              **在畫面上、在程式碼裡都長得一模一樣** —— 而現在它是後者。 */}
       <OrderEditForm detail={detail} returnTo={returnTo} />
 
-      <ItemsTable detail={detail} />
+      <ItemsTable detail={detail} payments={payments} />
 
       {/* A10b:採購區塊(逐品項清單 + upsert 表單)。🔴 內部資料、admin-only。 */}
       <ItemProcurementSection

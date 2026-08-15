@@ -37,6 +37,10 @@ vi.mock('./order-repository', () => ({
 // 🔴 解析器**刻意不 mock** —— 餵真 FormData 走真解析器,否則「爛表單擋得住」是恆真斷言。
 import { updateOrderItemAmountAction } from './amount-actions';
 import {
+  ORDER_AMOUNT_ERROR_RESULT_CODE,
+  ORDER_AMOUNT_REJECTED_RESULT_CODE,
+} from './amount-action-state';
+import {
   AMOUNT_ORDER_ID_FIELD,
   AMOUNT_ORDER_ITEM_ID_FIELD,
   AMOUNT_VERSION_FIELD,
@@ -96,7 +100,11 @@ describe('🔴🔴 驗收條款:RPC 的三個回傳碼各自對到哪一個結�
     // 型別上到不了這裡(adapter 已收斂一次),所以只能繞過型別餵 —— 這一格守的是
     // 「第二層兜底真的存在」,而它的代價是:猜錯方向會讓報告說謊。
     mocks.updateAdminOrderItemAmount.mockResolvedValue('UPDATED' as unknown as 'OK');
-    expect(await runAndCatchRedirect(amountForm())).toBe(`${DETAIL}?r=error`);
+    // 🔴 片1c-2 起改成 namespaced;而「回了預期外的碼」是**我們自己 throw 的 Error**、無 `code`
+    //    ⇒ 走泛用那顆,不是業務拒絕那顆。
+    expect(await runAndCatchRedirect(amountForm())).toBe(
+      `${DETAIL}?r=${ORDER_AMOUNT_ERROR_RESULT_CODE}`,
+    );
   });
 });
 
@@ -107,8 +115,17 @@ describe('授權與形狀閘', () => {
     expect(mocks.updateAdminOrderItemAmount).not.toHaveBeenCalled();
   });
 
-  it('表單形狀錯(單價非整數)⇒ invalid,且**不呼叫 RPC**', async () => {
+  it('🔴 表單形狀錯 ⇒ invalid,且導回【明細頁】不是列表(R3 F3)', async () => {
+    // 1c-1 導 `/orders` 當時合理(那片沒有畫面);1c-2 讓 invalid 變成「打字就到得了」
+    // ⇒ 把正在看單的人丟回列表 = 他得自己找回來。
     expect(await runAndCatchRedirect(amountForm({ [AMOUNT_UNIT_PRICE_FIELD]: '12.5' }))).toBe(
+      `${DETAIL}?r=invalid`,
+    );
+    expect(mocks.updateAdminOrderItemAmount).not.toHaveBeenCalled();
+  });
+
+  it('🔴 連 order_id 都不是 UUID ⇒ 退回列表(best-effort 拿不到就不硬拼網址)', async () => {
+    expect(await runAndCatchRedirect(amountForm({ [AMOUNT_ORDER_ID_FIELD]: 'not-a-uuid' }))).toBe(
       '/orders?r=invalid',
     );
     expect(mocks.updateAdminOrderItemAmount).not.toHaveBeenCalled();
@@ -131,11 +148,38 @@ describe('授權與形狀閘', () => {
     spy.mockRestore();
   });
 
-  it('RPC throw(16 種 RAISE 全走這條)⇒ error,且導回 return_to 不是列表', async () => {
+  it('🔴 業務拒絕(code=P2C13)⇒ rejected 碼,不是泛用 error', async () => {
+    // codex R1 must-fix:第一版兩者同一顆 ⇒ DB 斷線也會顯示「請確認是否已收款或已有折扣」。
+    // 分得開靠的是量測:E 窗實測 P2C13 逐字出現在 error.code(#518 Q1)。
     mocks.updateAdminOrderItemAmount.mockRejectedValue(
       Object.assign(new Error('這張單已經有收款紀錄(2 筆)'), { code: 'P2C13' }),
     );
-    expect(await runAndCatchRedirect(amountForm())).toBe(`${DETAIL}?r=error`);
+    expect(await runAndCatchRedirect(amountForm())).toBe(
+      `${DETAIL}?r=${ORDER_AMOUNT_REJECTED_RESULT_CODE}`,
+    );
+  });
+
+  it('🔴 系統故障(無 code / 非 P2C13)⇒ 泛用 error 碼', async () => {
+    mocks.updateAdminOrderItemAmount.mockRejectedValue(new Error('connection terminated'));
+    expect(await runAndCatchRedirect(amountForm())).toBe(
+      `${DETAIL}?r=${ORDER_AMOUNT_ERROR_RESULT_CODE}`,
+    );
+  });
+
+  it('RPC throw 一律導回 return_to 不是列表(兩種碼都是)', async () => {
+    // 🔴 這一格守的是**導頁目的地**,不是哪一顆碼 —— 所以兩種都要走一遍。
+    for (const err of [
+      Object.assign(new Error('這張單已經有收款紀錄(2 筆)'), { code: 'P2C13' }),
+      new Error('connection terminated'),
+    ]) {
+      vi.clearAllMocks();
+      mocks.authorizeAdminMutation.mockResolvedValue({ sid: 'sid-1', actorId: 'actor-1' });
+      mocks.getRequestId.mockResolvedValue('req-1');
+      mocks.updateAdminOrderItemAmount.mockRejectedValue(err);
+      const url = await runAndCatchRedirect(amountForm());
+      expect(url.startsWith(`${DETAIL}?r=`)).toBe(true);
+      expect(url.startsWith('/orders?')).toBe(false);
+    }
   });
 });
 

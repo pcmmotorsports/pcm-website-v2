@@ -8,6 +8,10 @@ import { getRequestId } from '../audit/context';
 import { getAdminOrderRepository } from './order-repository';
 import { parseAmountForm } from './amount-form';
 import { appendResultQuery } from './order-return-to';
+import {
+  ORDER_AMOUNT_ERROR_RESULT_CODE,
+  ORDER_AMOUNT_REJECTED_RESULT_CODE,
+} from './amount-action-state';
 
 // amount-actions.ts — 後台「改品項金額」server action(M-4b E10 #13 片1c-1)。
 //
@@ -20,7 +24,15 @@ import { appendResultQuery } from './order-return-to';
 // ⚠️ **本片(1c-1)不含畫面** —— 表單元件與掛載點在 1c-2(後台介面正由 OD 改版,先做不會白做的那半)。
 //    ⇒ 本檔目前**零 consumer**,那是預期狀態、不是漏接。
 
-type ResultCode = 'saved' | 'conflict' | 'noop' | 'invalid' | 'denied' | 'error';
+/** 導頁結果碼。🔴 **為什麼只有失敗那顆 namespace,理由全文在 `amount-action-state.ts` 檔頭。** */
+type ResultCode =
+  | 'saved'
+  | 'conflict'
+  | 'noop'
+  | 'invalid'
+  | 'denied'
+  | typeof ORDER_AMOUNT_ERROR_RESULT_CODE
+  | typeof ORDER_AMOUNT_REJECTED_RESULT_CODE;
 
 function redirectWith(returnTo: string, code: ResultCode): never {
   redirect(appendResultQuery(returnTo, `r=${code}`));
@@ -68,7 +80,11 @@ export async function updateOrderItemAmountAction(formData: FormData): Promise<v
   // 表單 → patch(形狀層 + 員工手滑層;語意權威在 RPC)。
   const parsed = parseAmountForm(formData);
   if (!parsed.ok) {
-    redirectWith('/orders', 'invalid');
+    // 🔴 **導回明細頁,不是列表**(R3/fable F3)。
+    //    1c-1 導 `/orders` 當時合理(那片沒有畫面,`invalid` 幾乎只可能是 hidden 欄被竄改);
+    //    **1c-2 讓 `invalid` 變成「員工打字就到得了」** ⇒ 把正在看單的人丟回列表 = 他得自己找回來。
+    //    ⚠️ `orderId` 是 best-effort(只在字面是 UUID 時才有值),拿不到才退回列表。
+    redirectWith(parsed.orderId ? `/orders/${parsed.orderId}` : '/orders', 'invalid');
   }
 
   const requestId = await getRequestId();
@@ -119,7 +135,15 @@ export async function updateOrderItemAmountAction(formData: FormData): Promise<v
       request_id: requestId,
       code: typeof e.code === 'string' ? e.code : undefined,
     });
-    redirectWith(parsed.returnTo, 'error');
+    // 🔴 **業務拒絕 vs 系統故障要分開**(codex 關卡2 R1 must-fix):
+    //    第一版把兩者塞同一顆碼,而那句文案說「請確認是否已收款或已有折扣」
+    //    ⇒ **DB 斷線 / timeout 也會顯示那句,員工往錯方向查。**
+    //    ✅ 分得開靠的是量測:E 窗實測 `P2C13` **逐字出現在 `error.code`**(`#518` Q1)。
+    //    ⚠️ 它只分得出「業務拒絕」與「其他」——**分不出七條裡的哪一條**(那要 `DETAIL`,另一片)。
+    redirectWith(
+      parsed.returnTo,
+      e.code === 'P2C13' ? ORDER_AMOUNT_REJECTED_RESULT_CODE : ORDER_AMOUNT_ERROR_RESULT_CODE,
+    );
   }
 
   // 成功路徑 revalidate;🔴 redirect 在 catch **外**(它是用 throw 實作的,包進 try 會被自己的 catch 吞掉

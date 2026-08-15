@@ -45,15 +45,21 @@ export type AmountParseResult =
       patch: AdminOrderItemAmountPatch;
       returnTo: string;
     }
-  | { ok: false };
+  | {
+      ok: false;
+      /**
+       * 🔴 **best-effort 的訂單 id,只為了「被擋下來時導回哪一頁」**(R3/fable F3)。
+       *
+       * 1c-1 讓 `invalid` 導去 `/orders`(列表),當時**合理** ——
+       * 那一片沒有畫面,`invalid` 幾乎只可能是「hidden 欄被竄改」。
+       * 🔴 **而 1c-2 讓 `invalid` 變成「員工打字就到得了」** —— 零元忘填原因、打 `1,200`、全形數字…
+       * ⇒ **繼承那個決定而沒有重審它,就是「前提已消失的繼承」。**
+       *
+       * ⚠️ **只在字面是 UUID 時才給值**(否則 `null`)—— 它會被拼進網址,不得原樣信任。
+       */
+      orderId: string | null;
+    };
 
-/**
- * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
- * ⚠️ 漏列一欄 = 那一欄退回「三態各自處理」,仍 fail-closed 但變成靜默不送、員工看不到 `invalid`
- *    ⇒ 測試拿手寫清單比對這顆常數當完整性守門(同 `WORKFLOW_SINGLE_FIELDS` 先例)。
- * ⚠️ `return_to` **刻意不在清單內**:它決定不了寫什麼、只決定寫完停在哪一頁,
- *    非法值有自己的 fail-closed(`parseOrderReturnTo` 退回本單明細頁)。
- */
 /**
  * 十進位非負整數字串 ⇒ number;不是的話回 `null`。
  *
@@ -73,6 +79,13 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return Number.isSafeInteger(n) && n >= 0 ? n : null;
 }
 
+/**
+ * 🔴 本解析器讀的**全部**單值欄位 —— 入口擋門(`anyMalformed`)吃這份清單。
+ * ⚠️ 漏列一欄 = 那一欄退回「三態各自處理」,仍 fail-closed 但變成靜默不送、員工看不到 `invalid`
+ *    ⇒ 測試拿手寫清單比對這顆常數當完整性守門(同 `WORKFLOW_SINGLE_FIELDS` 先例)。
+ * ⚠️ `return_to` **刻意不在清單內**:它決定不了寫什麼、只決定寫完停在哪一頁,
+ *    非法值有自己的 fail-closed(`parseOrderReturnTo` 退回本單明細頁)。
+ */
 export const AMOUNT_SINGLE_FIELDS = [
   AMOUNT_ORDER_ID_FIELD,
   AMOUNT_ORDER_ITEM_ID_FIELD,
@@ -80,6 +93,12 @@ export const AMOUNT_SINGLE_FIELDS = [
   AMOUNT_UNIT_PRICE_FIELD,
   AMOUNT_ZERO_PRICE_REASON_FIELD,
 ] as const;
+
+/** 只認「恰一筆、且字面是 UUID」的 `order_id`;其餘一律 `null`。 */
+function bestEffortOrderId(form: AmountFormLike): string | null {
+  const raw = readSingleString(form, AMOUNT_ORDER_ID_FIELD);
+  return raw && UUID_RE.test(raw) ? raw : null;
+}
 
 /**
  * 表單 → `{ orderId, expectedVersion, patch }`(形狀層 + 員工手滑層)。
@@ -100,31 +119,33 @@ export const AMOUNT_SINGLE_FIELDS = [
  * - `return_to`:只接受站內 `/orders...`,否則退回本單明細頁。
  */
 export function parseAmountForm(form: AmountFormLike): AmountParseResult {
+  const fallbackOrderId = bestEffortOrderId(form);
+  const fail = (): AmountParseResult => ({ ok: false, orderId: fallbackOrderId });
   // 🔴 重複 / 非字串欄位在語意層之前擋掉:`zero_price_reason` 是「空 = 沒有原因」的語意,
   //    不先擋就會把形狀錯誤讀成「員工沒填原因」。
-  if (anyMalformed(form, AMOUNT_SINGLE_FIELDS)) return { ok: false };
+  if (anyMalformed(form, AMOUNT_SINGLE_FIELDS)) return fail();
 
   const orderId = readSingleString(form, AMOUNT_ORDER_ID_FIELD);
-  if (!orderId || !UUID_RE.test(orderId)) return { ok: false };
+  if (!orderId || !UUID_RE.test(orderId)) return fail();
 
   const orderItemId = readSingleString(form, AMOUNT_ORDER_ITEM_ID_FIELD);
-  if (!orderItemId || !UUID_RE.test(orderItemId)) return { ok: false };
+  if (!orderItemId || !UUID_RE.test(orderItemId)) return fail();
 
   const versionRaw = readSingleString(form, AMOUNT_VERSION_FIELD);
   const expectedVersion = parseNonNegativeInt(versionRaw);
   if (expectedVersion === null || expectedVersion < 1 || expectedVersion > INT4_MAX - 1) {
-    return { ok: false };
+    return fail();
   }
 
   // 🔴 #517:整數閘(RPC 只驗 `IS NULL OR < 0`、沒有驗整數)。
   const unitPrice = parseNonNegativeInt(readSingleString(form, AMOUNT_UNIT_PRICE_FIELD));
-  if (unitPrice === null || unitPrice > INT4_MAX) return { ok: false };
+  if (unitPrice === null || unitPrice > INT4_MAX) return fail();
 
   // 🔴 零元原因:兩道互斥。未提供該欄 = 沒有原因(與提供空字串同義)。
   const reasonRead = readSingle(form, AMOUNT_ZERO_PRICE_REASON_FIELD);
   const reasonRaw = reasonRead.kind === 'value' ? reasonRead.value.trim() : '';
-  if (unitPrice === 0 && reasonRaw === '') return { ok: false };
-  if (unitPrice > 0 && reasonRaw !== '') return { ok: false };
+  if (unitPrice === 0 && reasonRaw === '') return fail();
+  if (unitPrice > 0 && reasonRaw !== '') return fail();
 
   const patch: AdminOrderItemAmountPatch = {
     orderItemId,
