@@ -398,6 +398,37 @@ select（單選）        付款狀態 6 值 ／ 出貨狀態 4 值 ／ 建立�
 
 ---
 
+## 6.6 用了哪些 skill / 哪些判定不合用(Sean 逐字「用 skill or OD 去協助,不要傻傻的自己拼」)
+
+| skill | 判定 | 理由 |
+|---|---|---|
+| `accessibility-review` | ✅ **採用,有產出** | 抓到 focus 環那條(我原本標【抄】)。**價值兌現在「我沒想到要算的那一格」。** |
+| `design-taste-frontend` | 🟡 **baseline 拒絕,規則部分採用** | 見下 |
+| `extract-design-system` | ❌ 不合用 | 它要**公開網址** + `npx playwright install chromium`(那個瀏覽器有 Sean 的 2FA 登入態);**更根本:抽取工具是為「讀不到原始碼」而生,我們讀得到、還能給行號 —— 而行號是本檔第三欄的硬要求。** |
+| `theme-factory` | ❌ 不合用 | 它是**簡報/artifact 的 10 個預設主題包**(Ocean Depths / Sunset Boulevard…),不產 app 的 CSS token。 |
+
+### 🔴 `design-taste-frontend`:**baseline 必須拒絕,否則會覆蓋 Sean 已批的方向**
+它的預設值與 BMW M **正面衝突**,照做等於把已拍板的東西改掉:
+```
+它說 rounded-[2.5rem] 給所有主要容器     ↔ BMW M：圓角 → 0
+它說 diffusion shadow 製造層次           ↔ BMW M：--elev-flat: none（無陰影、靠 hairline）
+它說 禁用系統字體，要 Geist/Satoshi      ↔ 我們：維持系統堆疊（字體那條已有結論）
+它說 每張卡都要有無限循環的微動畫         ↔ 資料密集後台：那是效能與注意力災難
+```
+⚠️ **它的 baseline 是行銷/SaaS landing 的美學** ⇒ **不是我們的場景。**
+
+### ✅ 但它有四條**適用而且我們現在沒做到**,已收
+| 規則 | 為什麼適用 | 現況 |
+|---|---|---|
+| 🔴 **數字一律用等寬字**(它的 Cockpit Mode 規則) | **表格裡的金額/數量欄要能上下對齊比較** —— 比例字體會讓位數錯開 | 🔴 **訂單表只有【料號】用 `font-mono`**(`orders-table.tsx:309`),**金額/單價/數量都沒有** |
+| **`:active` 給觸覺回饋**(`-translate-y-[1px]` 或 `scale-[0.98]`) | **正好補我們「九支原件只有 sidebar 有 `active:`」那個缺口**,而且是具體做法不是原則 | 缺 |
+| **只動 `transform` / `opacity`,不動 `top/left/width/height`** | 我們正要導入 `130ms/220ms` 動效 token,**這條決定它會不會卡** | 尚未導入 |
+| **loading 用骨架而非轉圈**、**空狀態要指出怎麼填資料** | 與契約九態的 `loading`/`empty` 對上,**而且比契約更具體** | 缺(見 §6.5.5) |
+
+**來源標記**:以上四條為 **【長】** —— **BMW M 沒有涵蓋它們**,依據是「資料密集後台」這個場景本身 + 契約的 `requiredStates`。
+
+---
+
 ## 7. 列印(A4、黑白可讀)—— 🔴 **這一節是【驗收條款】,不是提醒**
 
 ⚠️ **修訂前這裡是一段警語,而警語不會擋住任何人** ——
