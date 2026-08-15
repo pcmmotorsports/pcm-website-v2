@@ -13752,3 +13752,72 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   通常是另一條線的人在改別的東西時撞到。
 - **與 `#518` 的分界(別折在一起):** `#518` = 呼叫端契約吃生成型別;
   本條 = **生成型別自己的校正清單沒有外部分母**。E 逐字提醒「折進 #518 就算處理掉 = 本檔母題的又一例」。
+
+### #524. 🔴🔴 turbo 的 `typecheck` 沒有 `inputs` ⇒ 改根層設定會 replay 出假綠,而「三綠」抓不到
+
+- **狀態:** ⏳ 待執行(**只立案,不在本條修** —— 修法動 `turbo.json` = **鐵則 12④ 平台設定** ⇒ 要 plan + Sean 批)
+- **分流:** P1
+- **優先級:** 🔴 高(**它讓「三綠」在某些情況下不成立,而那是每個窗每天在跑的東西**)
+- **起因:** 2026-08-16 A 窗追 `typecheck 3 vs 2` 時構造出來的(見 `~/pcm-mailbox/A-47-STOP.md` / `A-48-STOP.md`)。
+
+#### 成因(座標,可重跑)
+
+```bash
+grep -n "globalDependencies\|inputs" turbo.json        # ⇒ 零命中
+```
+`turbo.json` 的 typecheck task **逐字只有兩個鍵**:`{ "dependsOn": ["^typecheck"], "outputs": [] }`
+⇒ 走 turbo 預設 input 集合 = **該 package 目錄內的檔**。**根層的檔不在裡面。**
+而 `apps/admin/tsconfig.json:2` 逐字 `"extends": "../../tsconfig.base.json"`
+⇒ **`tsconfig.base.json` 決定整包紅不紅(`strict` / `noUncheckedIndexedAccess` 都在裡面),卻不在集合裡。**
+
+#### 實錘(2026-08-16,`cp` 備份 + 還原後 shasum 逐字相同 `a9936413…`)
+
+在 `tsconfig.base.json` 加 `noUnusedLocals` / `noUnusedParameters`,**同一刻、同一棵樹**:
+
+| 路徑 | exit | `error TS` 行數 | 逐包那行 |
+|---|---|---|---|
+| `npx tsc --noEmit -p apps/admin/tsconfig.json` | **2** | **13** | (無 turbo) |
+| `turbo run typecheck` | — | **0** | 🔴 `@pcm/admin:typecheck: cache hit, replaying logs 53dad03f9cff3b70` |
+
+🔴 **那個 hash 與「乾淨綠樹」那次完全相同** ⇒ **replay 了綠,而此刻真的紅 13 條。**
+🔴 **八個包全部 cache hit**,turbo 印 `Tasks: 8 successful, 8 total` / `Cached: 8 cached, 8 total`。
+
+#### 🔴 第二層:`pnpm typecheck` 的後半也抓不到
+
+`package.json` 逐字:`"typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit"`
+而 `tsconfig.scripts.json` 的 `include` 逐字 **`["scripts/*.ts"]`**。
+⇒ **由設定本身可證(非推論)**:`apps/admin` 不在那個 include 裡
+⇒ **若改動只在 `apps/admin` 產生錯,`pnpm typecheck` 兩段都抓不到 ⇒ 全綠,而錯是真的。**
+⚠️ 那次實測 `pnpm typecheck` 確實回 exit 2、印 4 條 —— **但那 4 條全在 `scripts/` 與它 import 到的 `packages/ports`,一條都不是 turbo 抓的。**
+
+#### 三條判準(現在就可以用,不必等本條修好)
+
+1. `Cached: N/M` **總結行零判別力** —— 它在「真跑」與「replay」下完全相同。
+2. **`Tasks: N successful` 也可能整排是 replay。**
+3. 🔴🔴 **逐包行說 `cache hit` 也可能是對的 —— 分辨不了的是「該不該 hit」。**
+   ⇒ **改過根層設定之後,turbo 的綠一律不算數,要 `npx tsc --noEmit -p <該包 tsconfig>` 直跑一次。**
+
+#### ⚠️ 四條未驗(不要讀成已排除)
+
+1. **跨 worktree replay 只有 log 字面、沒做實驗**:log 印 `Remote caching disabled, using shared worktree cache`,
+   且 `ls -d node_modules/.cache/turbo` 在該 worktree 內查無 ⇒ 快取不在那棵樹裡。**但沒有跨樹構造。**
+2. 🔴 **`lint` / `build` 沒測** —— 它們的 task 定義**同樣沒有 `inputs`**(同一條 grep 零命中)
+   ⇒ **形狀同病,但沒有人構造過。不要讀成「只有 typecheck 有事」,也不要讀成「lint/build 已證」。**
+3. **還有哪些根層檔屬於這一類**(eslint 設定 / `vitest.config.ts` / `package.json` overrides…)
+   —— **只證了 `tsconfig.base.json` 一個。**
+4. **修法沒設計** —— 見下。
+
+#### 修法方向(**不在本條做**)
+
+加 `inputs` 或 `globalDependencies` 到 `turbo.json`。
+🔴 **那是動平台設定 = 鐵則 12④ ⇒ 要 plan + Sean 批 + 對抗審查。**
+⚠️ 而且**改壞的代價是反向的**:設太寬 ⇒ 每次都 cache miss、CI 變慢;設太窄 ⇒ 假綠照舊。
+⇒ **本條只立案 + 留判準,不順手改。**
+
+#### 不修未來會痛在哪
+
+- **擴充性:** 之後每加一個 package,同一個洞自動複製一份。
+- **可維護性:** 「三綠」是本 repo 的收工條件,而它在這個情境下**會給出綠**;
+  下一個人不會懷疑它,因為**綠就是他要的答案**。
+- 🔴 **bug 可追蹤性:** 假綠**零訊號** —— 沒有紅、沒有 warning、`Tasks: N successful` 讀起來完全正常。
+  唯一會發現的時機是**別人在另一個情境下真跑了一次 tsc**,而那可能是好幾天以後。
