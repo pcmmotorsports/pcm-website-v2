@@ -318,6 +318,10 @@ async function main(): Promise<void> {
   //    是否要再加一道量閘 = 待 Sean 拍板的 backlog,不在本 slice 自行決定。)
   // R2-SF2:部分停產剔除是【唯一】會產生變體孤兒的路徑;孤兒 >10% 會撞 VARIANT_DELETE_RATIO_ABORT
   // 而 F3 又禁兩旗標並用 => 先讓它在撞閘【之前】就可見(「目前只佔 0.07%」是快照、不是不變式)。
+  // 🔴 `scopeNote` 原本定義在上面「鏡射下架」那段,而片2b 把整段刪掉了 ——
+  //    刪的時候沒發現這裡還在用它 ⇒ 之前是 `ReferenceError`(不是型別問題,是真的會炸)。
+  //    在這裡就地定義,別再依賴別段的區域變數。
+  const scopeNote = FULL_MODE ? '' : '(篩選後、非全量比例)'; // --group/--limit 下分母非全量,免誤判事故
   console.log(
     `[rpm-import] 部分停產剔除變體:${partialDelistDropped} 顆 / ${partialDelistGroups} 群${scopeNote}` +
       `(將走孤兒硬刪;整群停產者保留全變體、不計入)`,
