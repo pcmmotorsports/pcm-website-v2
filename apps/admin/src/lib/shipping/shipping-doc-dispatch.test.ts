@@ -35,7 +35,7 @@ describe('追蹤碼:三種 null 在紙上不可以長成同一個樣子(plan §3
 
   it('🔴 情形③ 已出貨 + 非 other + 沒追蹤碼 ⇒ fail-loud,不留白(plan §6 ④)', () => {
     const r = trackingDisplay({ ...base, carrierCode: 'sf', shippedAt: '2026-08-16T02:00:00Z' });
-    expect(r).toEqual({ kind: 'missing', text: '追蹤碼缺漏,請回報' });
+    expect(r).toEqual({ kind: 'missing', text: '追蹤碼缺漏 —— 系統已記為已出貨,請立即回報' });
     // 負向(plan §6 ④):實作改成回 `{ kind: 'selfService', text: '' }` 或留白 ⇒ 本格紅。
     expect(r.kind).not.toBe('selfService');
     // 🔴 `kind` 與**印出去的字**要分開釘:只釘 kind 的話,實作把 text 改成 `''`

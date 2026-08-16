@@ -84,9 +84,18 @@ CONSTRAINT shipments_carrier_domain
 ❌ 不做：讓標籤表變成代碼的權威 —— 它是【投影】，DB 才是真相
 ```
 
-🔴🔴 **而守門有個【天生做不到】的地方,要先講清楚,免得它看起來比實際強**:
-> **DB 加了第四個代碼時,這格【不會紅】。**
-> 它只看得到 TS 這一側;真相在 migration 裡,而 TS 讀不到 migration。
+~~🔴🔴 **而守門有個【天生做不到】的地方**~~:
+> ~~**DB 加了第四個代碼時,這格【不會紅】。**~~
+> ~~它只看得到 TS 這一側;真相在 migration 裡,而 TS 讀不到 migration。~~
+>
+> 🔴🔴 **更正(C-212 實作時證偽;R2 抓到這句【漏補更正框】—— 同一顆 commit 給四處都補了,獨漏它)**:
+> 「**TS 讀不到 migration**」**是錯的**。
+> **數法**:`grep -rln 'readFileSync' apps/admin/src | head` ⇒ 本 repo 早有測試直接讀 migration 檔
+> (`lib/products/product-repository.test.ts` 第一行就是 `import { readdirSync, readFileSync }`)。
+> ⇒ `carrier-label.test.ts` 因此**真的去讀 CHECK 述詞**,DB 那側加第四碼時**這格會紅**。
+> ⚠️ **洞是【縮小】不是消失**:它看得到的是 **repo 裡的 migration 檔**,
+> 有人繞過 migration 直接改線上 CHECK ⇒ 照樣看不到 ⇒ 下面那條「回退必須安全」仍然承重。
+> 🔴 **下一個讀 plan 的人不要照原句去砍守門** —— 那正是 R2 抓它的理由。
 > ⇒ **回退行為必須是安全的**:未知代碼 **印出代碼本身**
 > (落地前 `shipment-section.tsx` 的 `CARRIER_LABEL[code] ?? code` 就是這樣;落地後改走
 >  `carrier-label.ts` 的 `carrierLabelOf`,行為逐字相同。**行號已漂,用錨點文字找**),
@@ -114,7 +123,11 @@ CONSTRAINT shipments_carrier_domain
 情形①  箱還沒標出貨          ⇒ 追蹤碼還沒有（正常）  → 印「尚未出貨，出貨後補」
 情形②  已出貨 + other（自取）⇒ 本來就沒有（正常）   → 見下方【更正】
 情形③  已出貨 + 非 other 但沒有 ⇒ 🔴 DB 說這不可能發生
-                                → 印「追蹤碼缺漏，請回報」，不要靜靜留白
+                                → 印「追蹤碼缺漏 —— 系統已記為已出貨，請立即回報」，不要靜靜留白
+                                🔴 字面 C-212 更正過一次（R2 F4）：原寫「追蹤碼缺漏，請回報」，
+                                   而畫面端會在它前面加「追蹤碼:」⇒ 四個字重複；
+                                   且本情形只在 shippedAt !== null 成立 ⇒ 訊息要講明「已記為已出貨」，
+                                   否則員工讀不出這是【資料有洞】而不是【還沒出貨】
 ```
 ⚠️ **③ 是 fail-loud**:那代表寫入鏈有洞,而**紙已經要寄出去了** ——
 **留白的話員工不會發現,客人拿到一張查不到貨的紙。**

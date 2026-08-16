@@ -520,17 +520,20 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
     ]);
     const t = (await renderPage()).container.textContent ?? '';
     // 🔴 留白的話員工不會發現,而客人拿到一張查不到貨的紙。
-    expect(t).toContain('追蹤碼缺漏,請回報');
-    // 🔴 **原本這裡寫 `not.toMatch(/追蹤碼:\s*$/m)`,而它【恆真】**(R1 nit 8):
-    //    `textContent` 沒有換行,而那一列後面永遠還有「下單 / 本次出貨 / 表格 / 出貨人」
-    //    ⇒ `$` 碰不到,零判別力。改成直接量那一列**印出來的字有多長**。
-    const line = must(
-      [...(await renderPage()).container.querySelectorAll('span')].find((el) =>
-        el.textContent?.startsWith('追蹤碼:'),
-      ),
-      '追蹤碼那一列',
-    );
-    expect((line.textContent ?? '').replace('追蹤碼:', '').trim().length).toBeGreaterThan(4);
+    expect(t).toContain('追蹤碼缺漏');
+    expect(t).toContain('系統已記為已出貨');
+    // 🔴🔴 **這一格被改過兩次,兩次都是因為【恆真】,記著兩次的形狀**:
+    //    R1 原式 `not.toMatch(/追蹤碼:\s*$/m)` —— `textContent` 沒有換行、那列後面永遠還有東西
+    //      ⇒ `$` 碰不到。
+    //    R2 第二版「量這一列有幾個字 > 4」—— 當時那列尾巴接著一句 **12 個字的常數**
+    //      ⇒ `t.text` 改成 `''` 時仍得 12 > 4,**照樣綠**。
+    //    R2 折完後我又量了第三次,結果是:**那條長度斷言【從來不會自己紅】** ——
+    //      突變 `t.text = ''`      ⇒ 死在上面的 toContain
+    //      突變 JSX 改成不渲染 t.text ⇒ 也死在上面的 toContain
+    //    ⇒ 它不是恆真,但**沒有任何獨立判別力**,而三行斷言看起來比兩行更周全。
+    //    🔴 **所以刪掉它,不留假覆蓋** —— 這一格的判別力全部由上面兩條 toContain 承擔,
+    //       而它們釘的是**紙上真的印出來的那句話**,那才是這格要守的東西。
+    // ⚠️ 這一列會不會被印成**看不見的樣式**(顏色/字級),單測量不到 —— 紙沒印出來看過。
   });
 
   it('未出貨且沒追蹤碼 ⇒ 說「尚未出貨,出貨後補」,不說「缺漏」(兩者意思完全不同)', async () => {

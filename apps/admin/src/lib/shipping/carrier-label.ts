@@ -6,17 +6,23 @@
 //    本檔是那個集合的**投影**(補上 DB 裡不存在的中文標籤),不是它的真相源。
 //    ⇒ 想新增一家貨運商:**先改 migration,再改這裡**。反過來做的話 DB 會擋掉寫入。
 //
-// 🔴🔴 **抽之前這個值域在 TS 側有【四份】手抄,而它們用三種不同的形狀寫**
-//    (數法:`git grep -nE "'hct'|新竹物流" HEAD -- apps packages`,落筆當下):
+// 🔴🔴 **抽之前這個值域在 TS 側有【五份】手抄,而它們用四種不同的形狀寫。**
+//    數法(可重跑):`git grep -nE "'hct'|新竹物流" 82ee3102^ -- apps packages` ⇒ **15 行**,
+//    ⚠️ **那 15 行要先分類再報數** —— 大部分是測試 fixture 裡的單一個值 `'hct'`,
+//    **不是「這個值域有哪些成員」的宣告**。逐行分類後,宣告型的有 5 份:
 //    ```
-//    lib/shipping/shipment-repository.ts:39   type CarrierCode = 'hct' | 'sf' | 'other'   ← 寫入路徑
-//    components/orders/shipment-section.tsx   Record<string,string>                        （顯示）
-//    components/orders/shipment-dialog.tsx    [{code,label}]                               （下拉）
-//    components/orders/shipment-dialog.tsx    useState<'hct'|'sf'|'other'>                 （state）
+//    lib/shipping/shipment-repository.ts:39   type CarrierCode = 'hct'|'sf'|'other'  ← 🔴 寫入路徑
+//    components/orders/shipment-section.tsx:21  Record<string,string>                （顯示）
+//    components/orders/shipment-dialog.tsx:43   [{code,label}]                       （下拉）
+//    components/orders/shipment-dialog.tsx:85   useState<'hct'|'sf'|'other'>         （state）
+//    components/orders/shipment-dialog.tsx:353  as 'hct'|'sf'|'other'                （cast）
 //    ```
+//    🔴 **我自己也報錯過兩次**:先報 1 份(照 plan)、再報 2 份、commit body 寫 4 份,
+//    **正確是 5** —— 第 5 份那個 `as` cast 是 R2 抓的。⇒ 這條的教訓不是「plan 沒數」,
+//    是**每一次重數都又漏一種形狀**,而每次都覺得這次總該數完了。
 //    ⚠️ **plan §2.1 逐字寫「目前【唯一】一份」—— 那句是錯的,而且它的數法也不夠寬**:
 //       用 `CARRIER_LABEL` 這個識別字 grep 只撈得到一份;用中文標籤 grep 撈得到兩份;
-//       **`CarrierCode` 那份用兩種數法都撈不到**(它一個中文字都沒有)。R1 code-reviewer 抓的。
+//       **`CarrierCode` 與兩處 union 字面用那兩種數法都撈不到**(它們一個中文字都沒有)。
 //    ⇒ **本檔把「標籤」統一,並用 `Record<CarrierCode, …>` 把它綁回【寫入路徑那份型別】** ——
 //       之後 DB 加第四碼時,改 `CarrierCode` 會讓本檔 **typecheck 直接紅**,不必等測試。
 

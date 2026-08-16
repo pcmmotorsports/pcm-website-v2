@@ -74,10 +74,16 @@ describe('CARRIER_LABEL 對 DB 的代碼集合是完備的', () => {
     const blind = readdirSync(MIGRATIONS)
       .filter((f) => f.endsWith('.sql'))
       .filter((f) => {
-        const sql = readFileSync(path.join(MIGRATIONS, f), 'utf8');
+        // 🔴 **這裡也要剝註解**(R2 F5):上面那格剝了、這格不剝 ⇒ 任何 migration 只要在
+        //    【註解裡提到】`DROP CONSTRAINT shipments_carrier_domain` 就會假紅。
+        //    方向雖然是 loud(不會放行壞東西),但假紅會訓練人忽略這一格。
+        const sql = readFileSync(path.join(MIGRATIONS, f), 'utf8')
+          .replace(/--[^\n]*/g, '')
+          .replace(/\/\*[\s\S]*?\*\//g, '');
         return (
           /DROP\s+CONSTRAINT\s+(IF\s+EXISTS\s+)?shipments_carrier_domain/i.test(sql) ||
-          /carrier_code\s*=\s*ANY/i.test(sql)
+          // `::text` cast 是 pg dump 的正規化寫法,不含它會漏掉(R2 F5)。
+          /carrier_code(::\w+)?\s*=\s*ANY/i.test(sql)
         );
       });
     expect(blind).toEqual([]);

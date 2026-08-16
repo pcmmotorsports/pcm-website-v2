@@ -66,7 +66,13 @@ export function trackingDisplay(args: {
     return { kind: 'selfService', text: '無追蹤碼(自取 / 自送)' };
   }
   // 情形③
-  return { kind: 'missing', text: '追蹤碼缺漏,請回報' };
+  // 🔴 **文案兩度更正,兩次都是 R2 抓的,記著原因**:
+  //    ① 原本渲染成「追蹤碼:追蹤碼缺漏,請回報」——「追蹤碼」四個字重複。
+  //    ② 曾在畫面端接一句「(【請勿出貨前先確認】)」,**兩個病**:
+  //       中文最自然的斷句是「請勿(出貨前先確認)」= 叫人**不要**確認;
+  //       而且 `missing` 只在 `shippedAt !== null` 才成立 ⇒ 系統已記成出貨了,講「出貨前」是錯的狀態。
+  //    ⇒ 現在這句**自帶主詞、自帶狀態、不靠畫面端補字**(畫面端也不再加前綴)。
+  return { kind: 'missing', text: '追蹤碼缺漏 —— 系統已記為已出貨,請立即回報' };
 }
 
 const TAIPEI_YMD_OPTIONS: Intl.DateTimeFormatOptions = { timeZone: 'Asia/Taipei' };

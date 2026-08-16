@@ -307,13 +307,13 @@ export function ShippingDoc({
               if (t.kind === 'missing') {
                 // ⚠️ **不放 emoji**(R1 nit 15):這條路徑那張紙**是會跟著貨出門的**,
                 //    而 `Alert` 那條路徑整張紙不出門 ⇒ 兩者不能照抄。
-                //    單色雷射印表機上 emoji 會糊成一坨黑,而它要傳達的是「這裡有問題」。
-                //    ⇒ 用**粗體 + 方框字**,印得出來也看得見。
-                return (
-                  <span className='font-semibold text-amber-800'>
-                    追蹤碼:{t.text}(【請勿出貨前先確認】)
-                  </span>
-                );
+                //    單色雷射印表機上 emoji 會糊成一坨黑。⇒ 用粗體 + 暖色,印得出來也看得見。
+                // 🔴 **這一支【不加「追蹤碼:」前綴、也不接任何常數字尾**(R2 F2 + F4):
+                //    ① 加前綴 ⇒ 「追蹤碼:追蹤碼缺漏…」四個字重複。
+                //    🔴🔴 ② 接常數字尾會讓頁測那格**恆真** —— 它量的是這一列有幾個字,
+                //       而常數字尾自己就 12 個字 ⇒ `t.text` 被改成空字串時**照樣過**。
+                //       ⇒ 這一列印出來的字**全部來自 `t.text`**,量它才量得到東西。
+                return <span className='font-semibold text-amber-800'>{t.text}</span>;
               }
               return <span className='text-muted-foreground'>追蹤碼:{t.text}</span>;
             })()}</div>
