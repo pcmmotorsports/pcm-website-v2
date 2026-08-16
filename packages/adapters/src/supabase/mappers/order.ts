@@ -6,6 +6,7 @@ import type {
   OrderInvoice,
   AdminOrderDetail,
   AdminOrderDetailItem,
+  AdminOrderPrintItem,
   AdminOrderItemQuantitySummary,
   AdminOrderLine,
   AdminOrderSummary,
@@ -703,6 +704,48 @@ function pickString(obj: unknown, key: string): string | null {
   if (obj === null || typeof obj !== 'object') return null;
   const value = (obj as Record<string, unknown>)[key];
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * **列印用**品項投影的 wire 形狀(`Q-C18` 甲,2026-08-17)。
+ *
+ * 🔴 與 `SupabaseAdminOrderDetailRow['order_items'][number]` 是**同一張表的兩個投影,刻意不同**:
+ * 明細那份是**內嵌**撈的(筆數被 `ORDER_ITEMS_EMBED_LIMIT` 夾住);這份是**頂層分頁**撈的,
+ * 用途是讓「這張單有哪些品項」不再被上限截斷。
+ * ⚠️ **刻意沒有 `order_item_procurement`** —— 它自己就是另一道內嵌上限
+ * (`ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`),取了等於把同一個病帶進新的查詢。
+ * **看到這裡覺得「漏了採購」而順手補上去的人,請先讀 `AdminOrderPrintItem` 的 docstring。**
+ * ⚠️ **`unit_price` / `line_total` 是【另一個理由】,不要跟上面那條混**:它們是同列 scalar、
+ * **取了不產生任何截斷面**,現在沒取純粹因為紙上零金額 ⇒ **金額片可以直接加,不受上面那條約束。**
+ */
+export type SupabaseOrderItemPrintRow = {
+  id: string;
+  variant_sku: string;
+  quantity: number;
+  product_snapshot: unknown;
+  /** 形狀(陣列 or 單物件 or 缺鍵)與明細那份逐字相同 —— 理由見 `mapQuantitySummary` docstring。 */
+  order_item_quantity_summary?:
+    | SupabaseOrderItemQuantitySummaryRow[]
+    | SupabaseOrderItemQuantitySummaryRow
+    | null;
+};
+
+/**
+ * `SupabaseOrderItemPrintRow` → `AdminOrderPrintItem`。
+ *
+ * 🔴 **重用 `pickString` / `pickSpec` / `mapQuantitySummary` 三支私有函式,而那正是本函式住在這裡
+ * 而不是住在 `apps/admin` 的理由** —— 那三支沒有 `export`,放 admin 就得抄一份,
+ * 而「同一份資料兩份實作」正是 backlog `#602` 登記的病。
+ */
+export function mapSupabaseOrderItemPrintRow(row: SupabaseOrderItemPrintRow): AdminOrderPrintItem {
+  return {
+    id: row.id,
+    variantSku: row.variant_sku,
+    title: pickString(row.product_snapshot, 'title'),
+    spec: pickSpec(row.product_snapshot),
+    quantity: row.quantity,
+    quantitySummary: mapQuantitySummary(row.order_item_quantity_summary),
+  };
 }
 
 /** product_snapshot.spec 防禦解析:物件且值全轉字串;缺/非物件 → null。 */
