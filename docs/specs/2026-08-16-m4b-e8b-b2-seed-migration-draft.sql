@@ -15,9 +15,21 @@
 --     日後加人 = 再一支這種 migration + 一支 ALTER 改 CHECK 白名單,
 --     **同一支檔、同一次 review** —— 那就是白名單方案的代價與價值。
 --  🔴 Sean 2026-08-16 拍板:代號永不重用。新人拿新代號(staff_3…),不撿空出來的。
+--
+--  ── 🔴🔴 出事怎麼退 —— **這支的退場被【B1-b 自己建的保護】擋著** ──────────
+--     `DELETE` 會被 `admin_user_staff_map_no_delete_trg` 擋下,而 service_role 也沒有 DELETE 權。
+--     要退 seed,照這個順序(每一步都要有人看著):
+--       1. ALTER TABLE public.admin_user_staff_map DISABLE TRIGGER admin_user_staff_map_no_delete_trg;
+--       2. DELETE FROM public.admin_user_staff_map WHERE staff_id IN ('sean','staff_1','staff_2');
+--       3. ALTER TABLE public.admin_user_staff_map ENABLE  TRIGGER admin_user_staff_map_no_delete_trg;
+--     🔴 **第 3 步不可省** —— 忘了它,那張表從此沒有保護,而【沒有任何東西會提醒你】。
+--     ⚠️ 這個退場成本是作者刻意造的(禁 DELETE 是為了擋重綁),**不是意外**。
 -- ═══════════════════════════════════════════════════════════════════════════
 
 BEGIN;
+
+-- 🔴 固定 search_path(同 B1-b)
+SET LOCAL search_path = pg_catalog, public, auth;
 
 -- ───────────────────────────────────────────────────────────────────────────
 --  0. 前提斷言
@@ -31,10 +43,26 @@ DECLARE
   v_missing text;
   v_existing bigint;
 BEGIN
-  -- 0.1 B1-b 必須已經跑過
+  -- 0.1 B1-b 必須已經跑過,**而且那張表還是 B1-b 建出來的那個版本**
+  --     🔴 關卡2 [中] finding:只驗「同名 relation 存在」不夠 ——
+  --        兩支之間若有人改了 CHECK / trigger / RLS,B2 仍會成功寫入,而 S1-S4 看不到那個漂移。
   IF to_regclass('public.admin_user_staff_map') IS NULL THEN
     RAISE EXCEPTION E'B2-seed 前提斷言:找不到 public.admin_user_staff_map。\n'
       '   ⇒ B1-b 那支還沒 apply,或你連到了錯的資料庫。';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = to_regclass('public.admin_user_staff_map')
+                    AND conname  = 'admin_user_staff_map_staff_whitelist') THEN
+    RAISE EXCEPTION 'B2-seed 前提斷言:CHECK 白名單約束不見了。表被改過,拒繼續。';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                  WHERE tgrelid = to_regclass('public.admin_user_staff_map')
+                    AND tgname  = 'admin_user_staff_map_no_delete_trg'
+                    AND NOT tgisinternal) THEN
+    RAISE EXCEPTION 'B2-seed 前提斷言:禁 DELETE 的 trigger 不見了。表被改過,拒繼續。';
+  END IF;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.admin_user_staff_map')) THEN
+    RAISE EXCEPTION 'B2-seed 前提斷言:RLS 沒開。表被改過,拒繼續。';
   END IF;
 
   -- 0.2 🔴 佔位符沒換就停 —— 這一道的存在就是為了擋「照抄草稿直接跑」
@@ -94,10 +122,17 @@ BEGIN
     RAISE EXCEPTION 'B2-seed 落地斷言:預期 3 列,實際 % 列。', v_n;
   END IF;
 
-  SELECT string_agg(staff_id, ',' ORDER BY staff_id) INTO v_ids
+  -- 🔴🔴 關卡2 [高] finding:只驗 staff_id 的【集合】不夠 ——
+  --    三個 uuid 對調之後,集合一樣是 sean,staff_1,staff_2,**13 格驗收全綠**,
+  --    而每個人拿到的是【別人的身分】。⇒ 必須驗【精確配對】。
+  SELECT string_agg(auth_user_id::text || '=' || staff_id, ',' ORDER BY staff_id) INTO v_ids
     FROM public.admin_user_staff_map;
-  IF v_ids <> 'sean,staff_1,staff_2' THEN
-    RAISE EXCEPTION 'B2-seed 落地斷言:staff_id 集合是 %,預期 sean,staff_1,staff_2。', v_ids;
+  IF v_ids <> ('00000000-0000-0000-0000-000000000001=sean,'
+             ||'00000000-0000-0000-0000-000000000002=staff_1,'
+             ||'00000000-0000-0000-0000-000000000003=staff_2') THEN
+    RAISE EXCEPTION E'B2-seed 落地斷言:配對不符。\n   實際:%\n'
+      '   ⇒ 最可能的原因是三個 uuid 貼的順序跟人對不起來(對調)。\n'
+      '   🔴 這一條驗的是【誰對到誰】,不是【有哪三個人】—— 後者對調之後仍然會過。', v_ids;
   END IF;
 
   -- 🔴 系統帳號與 test_01 不該在裡面 —— CHECK 白名單擋得住,而這一道是【明說我檢查過】

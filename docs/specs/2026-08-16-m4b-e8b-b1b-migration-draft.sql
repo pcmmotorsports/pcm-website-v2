@@ -17,9 +17,25 @@
 --     3. 開頭帶前提斷言、尾端帶收權斷言,兩邊都 fail-closed
 --
 --  ⚠️ 前提:所有語句在同一個 session。statement-mode pooler 下 BEGIN 無效且零警告。
+--
+--  ── 🔴 出事怎麼退(寫在檔頭,不是只寫在操作文件裡)──────────────────────
+--  本支全退(照順序,反向):
+--      DROP TRIGGER  admin_user_staff_map_no_delete_trg ON public.admin_user_staff_map;
+--      DROP TABLE    public.admin_user_staff_map;
+--      DROP FUNCTION public.admin_user_staff_map_no_delete();
+--  🔴🔴 **B2(seeding)已經跑過的話,要退【必須先 DROP TRIGGER】** ——
+--     否則 `DELETE` 會被【本檔自己建的那道保護】擋住。
+--     **那是作者刻意造出來的退場成本,不是意外。** 半年後要退的人會先撞到它。
+--  ⚠️ 本支與 B2 **不是同一個交易**:B1-b 成功、B2 失敗 ⇒ 正式庫留下
+--     空表 + 函式 + trigger + RLS + grants,而 Auth 三個帳號可能已經開好卻沒有映射。
+--     **那個中間態是安全的**(表空著沒有人綁得上,登入切換尚未開啟),**但要認得出來**。
 -- ═══════════════════════════════════════════════════════════════════════════
 
 BEGIN;
+
+-- 🔴 固定 search_path(關卡2 [中] finding):正式連線若把可寫 schema 排在 pg_catalog 前,
+--    未限定的 has_*/format 等名稱可能解析到同名物件。拋棄式空庫的 search_path 正常,測不到這個。
+SET LOCAL search_path = pg_catalog, public, auth;
 
 -- ───────────────────────────────────────────────────────────────────────────
 --  0. 前提斷言 —— 世界跟規格假設的不一樣就停,不要繼續建東西
@@ -30,6 +46,7 @@ DECLARE
   v_totp          bigint;
   v_recovery      bigint;
   v_auth_users_id text;
+  v_state_rows    bigint;
 BEGIN
   -- 0.1 2FA 必須是休眠狀態 —— 這是整條線「7 片、不碰 TOTP」那個拆法的前提。
   --     🔴 2026-08-16 Sean 實查為 false/0/0，而【查到的事實會過期，斷言不會】。
@@ -38,6 +55,14 @@ BEGIN
     RAISE EXCEPTION E'B1-b 前提斷言:找不到 public.auth_state。\n'
       '   ⇒ 你可能連到了錯的資料庫(本檔屬【報價單庫】,不是 A 庫)。';
   END IF;
+  -- 🔴 先斷言它恰好一列(關卡2 [中] finding):
+  --    多列時 `SELECT … INTO` 任取一列,**可能剛好取到 false 而掩蓋另一列的 true**。
+  --    這個表在 repo 裡是 CHECK(id) 鎖死的單列表,但那是 repo 說的,不是正式庫說的。
+  SELECT count(*) INTO v_state_rows FROM public.auth_state;
+  IF v_state_rows <> 1 THEN
+    RAISE EXCEPTION 'B1-b 前提斷言:auth_state 有 % 列,預期恰好 1。多列時取值不可信。拒繼續。', v_state_rows;
+  END IF;
+
   SELECT require_2fa INTO v_require_2fa FROM public.auth_state;
   SELECT count(*) INTO v_totp     FROM public.totp_devices;
   SELECT count(*) INTO v_recovery FROM public.recovery_codes;
@@ -131,10 +156,39 @@ REVOKE ALL ON TABLE    public.admin_user_staff_map FROM anon, authenticated;
 REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete() FROM anon, authenticated;
 
-GRANT SELECT, INSERT, UPDATE ON TABLE public.admin_user_staff_map TO service_role;
+-- 🔴🔴 **不給 UPDATE**(關卡2 [高] finding,2026-08-16)。
+--    原版給了 `UPDATE`,而 `UPDATE` 可以直接把 auth_user_id 或 staff_id 換掉
+--    ⇒ **與 DELETE+INSERT 完全相同的重綁效果**,歷史稽核的解讀一樣會翻轉。
+--    禁了 DELETE 卻留 UPDATE = 鎖了前門開了後門。
+--    ⚠️ 而作者自己的 A9 驗收格【把 UPDATE 驗成綠色】—— 那一格在驗證這個漏洞是好的。
+--    ⇒ 本表的兩個識別欄是 append-only:要換人綁定,走 Auth 側 disable + 新增一列新代號。
+GRANT SELECT, INSERT ON TABLE public.admin_user_staff_map TO service_role;
 
 ALTER TABLE public.admin_user_staff_map ENABLE ROW LEVEL SECURITY;
--- 零 policy = default deny。service_role 走 BYPASSRLS,不需要 policy。
+-- 零 policy = default deny。
+-- 🔴🔴 **原註解寫「service_role 走 BYPASSRLS,不需要 policy」—— 那是我沒驗過的假設。**
+--    2026-08-16 拋棄式實測:一個沒有 BYPASSRLS 的 service_role,
+--    `INSERT` 會被擋(`new row violates row-level security policy`)。
+--    ⇒ **這張表會建得起來、而且完全沒有人寫得進去,直到有人真的去寫才發現。**
+--    ⇒ 下面那道斷言把這個假設變成【apply 當下就會紅】的東西。
+
+DO $rls_premise$
+DECLARE v_bypass boolean;
+BEGIN
+  SELECT rolbypassrls INTO v_bypass FROM pg_roles WHERE rolname = 'service_role';
+  IF v_bypass IS NULL THEN
+    RAISE EXCEPTION 'B1-b:找不到角色 service_role。拒繼續。';
+  END IF;
+  IF NOT v_bypass THEN
+    RAISE EXCEPTION E'B1-b:service_role 沒有 BYPASSRLS,而本表是「RLS 開 + 零 policy」。\n'
+      '   ⇒ 這張表會建起來但【沒有人寫得進去】,而且要到有人真的寫才會發現。\n'
+      '   ⇒ 兩條路擇一,不要硬跑:\n'
+      '      (a) 確認正式庫的 service_role 確實有 BYPASSRLS(Supabase 預設有,但【要看過才算】)\n'
+      '      (b) 改成明文開一條給 service_role 的 policy,不依賴 BYPASSRLS';
+  END IF;
+  RAISE NOTICE 'B1-b:service_role 具 BYPASSRLS,RLS 零 policy 的前提成立。';
+END
+$rls_premise$;
 
 -- ───────────────────────────────────────────────────────────────────────────
 --  4. 收權 fail-closed 斷言(樣板出自 ~/pcm-mailbox/E-684-新物件收權斷言樣板.md)
@@ -190,6 +244,31 @@ BEGIN
       IF v_first IS NULL THEN v_first := format('%s 上仍有 EXECUTE', r); END IF;
     END IF;
   END LOOP;
+
+  -- 🔴🔴 白名單斷言(關卡2 [高] finding):只檢查 anon/authenticated **不夠**。
+  --    正式庫有其他角色,而 ALTER DEFAULT PRIVILEGES 可能對自訂角色也給了 GRANT。
+  --    ⇒ 改成 allow-list:除了 owner 與 service_role,**任何角色**對本表有權限都要紅。
+  --    ⚠️ 拋棄式空庫只有我建的三個角色 ⇒ 這一條在樁上幾乎恆綠,它是為【正式庫】寫的。
+  DECLARE v_extra text;
+  BEGIN
+    SELECT string_agg(DISTINCT a.grantee::regrole::text, ', ')
+      INTO v_extra
+      FROM pg_class c
+           CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = to_regclass('public.admin_user_staff_map')
+       AND a.grantee <> 0                                   -- 0 = PUBLIC,下面單獨判
+       AND a.grantee::regrole::text NOT IN ('service_role', current_user)
+       AND a.grantee <> c.relowner;
+    IF v_extra IS NOT NULL THEN
+      RAISE EXCEPTION E'新物件收權斷言:除了 owner 與 service_role,還有這些角色持有權限:%\n'
+        '   ⇒ 逐一確認它們該不該有。要放行請在本檔明列理由,不要擴大 allow-list 了事。', v_extra;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_class c
+                    CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+                   WHERE c.oid = to_regclass('public.admin_user_staff_map') AND a.grantee = 0) THEN
+      RAISE EXCEPTION '新物件收權斷言:PUBLIC 仍持有本表權限。';
+    END IF;
+  END;
 
   IF v_checked = 0 THEN
     RAISE EXCEPTION '新物件收權斷言:檢查數為 0 —— 這個斷言沒有分母,不算通過。';
