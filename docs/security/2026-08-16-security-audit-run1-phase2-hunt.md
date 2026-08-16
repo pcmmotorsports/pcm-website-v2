@@ -41,7 +41,7 @@
 |---|---|---|---|
 | **P2-1** | `xlsx@0.18.5` 在 `package.json`，**零程式碼引用**，帶 **2 個 HIGH 且官方無修補版** | **中（前瞻性）** | ❌ 今天不可 —— **沒有任何程式碼載入它** |
 | **P2-2** | `sharp@0.34.5` libvips 4 個 CVE | 低 | ❌ **web runtime 完全碰不到**（見下） |
-| P2-3 | `shipment-actions.ts` 4 支 action 無授權閘 | 低（稽核歸屬，非存取控制） | ❌ 已由 Phase 1 界定 |
+| P2-3 | `shipment-actions.ts` **5 支** action 無授權閘（原寫 4 支，F6 更正） | 低（稽核歸屬，非存取控制） | ❌ 已由 Phase 1 界定 |
 | **P2-4** | 🔴 **出貨線五支 RPC 零 `admin_audit_log` 留痕**，而呼叫它們的正是 P2-3 那個無閘的檔 ⇒ **兩層都沒有留痕**（隔壁七條業務線都有） | **中（可觀測性，非存取控制）** | ❌ 外部呼不到（`admin_*` 28 支對 anon／authenticated 皆 0） —— **但「帳號被盜／誤操作」查不出是誰** |
 
 **其餘 dev 工具鏈的 11 個 high／moderate（`vite`／`esbuild`／`turbo`／`@babel/core`／`brace-expansion`／`ws`）
@@ -90,8 +90,16 @@ pattern（不分大小寫、不限 import 寫法，連字串提及都算）：
 **程式碼載入：0。**
 
 ⇒ **今天不可利用：1659 個原始碼檔裡沒有任何一個提到它。**
-⚠️ **這個數字能撐住的只有「今天不可利用」** —— 它**不**說明「移除之後不會壞」，
-但 `0/1659` 加上兩個正向對照，已足以支撐「移除的風險是零」這個決定。
+⚠️ **這個數字能撐住的只有「今天不可利用」** —— 它**不**說明「移除之後不會壞」。
+
+> 🔴 **F10 更正（措辭自相矛盾）**：原文下一句寫「已足以支撐**移除的風險是零**」，
+> 與前一句「**不**說明移除之後不會壞」**互斥**。**「零」是過強的字。**
+>
+> **正確措辭：`0/1659` 支撐的是「未見任何原始碼使用、移除風險【低】」，不是「零」。**
+>
+> ⚠️ 而且**分母本身有邊界**：只涵蓋 `.ts/.tsx/.js/.mjs/.cjs`，
+> **沒有涵蓋** shell 腳本、Python、`.json` 設定、或 **repo 外的消費者**。
+> ⇒ 要說「零風險」，得先把那幾類也掃過。**本輪沒掃。**
 
 **為什麼還是要報**：`docs/specs/2026-08-14-supplier-excel-import-recon.md` 顯示
 **「供應商 Excel 匯入」是規劃中的功能**。那條路一旦開通，就是
@@ -116,7 +124,30 @@ HIGH  sharp inherited libvips CVE-2026-33327 / 33328 / 35590 / 35591   patched: 
    ⇒ 連本地圖片都沒有走優化器
 ```
 
-⇒ **`sharp` 在 web 請求路徑上根本不會被載入。**
+> # 🔴🔴 F4 更正（V 窗指出，我重量後確認）：**「web runtime 碰不到」是錯的**
+>
+> **`next/image` 的 import 數【不是】image optimizer 的可達性控制。**
+> Next server **本身就掛著 `/_next/image` 端點**，與有沒有人寫 `<Image>` 無關。
+>
+> 而 `next.config.ts` 是**全空的 `{}`**（無 `images` 設定，實測 `grep -c images` = **0**）
+> ⇒ **本地路徑預設全部允許**；`apps/storefront/public/` 有 **269 個圖檔**（實測）
+> ⇒ 外部只要打 `GET /_next/image?url=/<某圖>&w=..&q=..`，
+> **web runtime 就會 `require('sharp')` 並把 bytes 餵進去。**
+>
+> ⇒ **我用「`<Image>` 引用數 = 0」推「sharp 不會被載入」是錯的推論** ——
+> **我量的是【誰在用它】，而要問的是【誰打得到它】。**
+>
+> ## ✅ 但可利用性**沒有**改變，仍然低
+>
+> libvips 那幾個 CVE 要**惡意 bytes**。而：
+> - 本地圖來自 `public/`（**team 自己 commit 的**，可信）
+> - `remotePatterns` 為空 ⇒ **外部無法餵任意遠端 bytes 給 sharp**
+>
+> ⇒ **可達性 claim 錯（本段已改），嚴重度維持【低】，`>=0.35.0` 的升級建議不變。**
+
+~~⇒ `sharp` 在 web 請求路徑上根本不會被載入。~~
+**⇒ 更正後：`sharp` 【會】在 web 請求路徑上被載入（`/_next/image`），
+但外部餵不進惡意 bytes（本地圖可信 + 無遠端來源）。**
 唯一真的餵 bytes 給它的是 `scripts/image-trim-scan.ts`
 （**抓供應商 CDN 的圖 → `sharp` 量測**）＋ 一支測試。
 
@@ -154,29 +185,42 @@ HIGH  sharp inherited libvips CVE-2026-33327 / 33328 / 35590 / 35591   patched: 
 
 **未涵蓋**：`markdown`／`marked`／`remark`／`rehype`／`showdown` **零依賴**（Phase 1 量過）⇒ 無 markdown 渲染路徑。
 
-### 3.2 Server Action 授權 —— **28 個檔逐檔建矩陣**
+### 3.2 Server Action 授權 —— **19 個指令檔 / 30 支 action 逐一建矩陣**
 
-跑法：對每個含 `'use server'` 的 `apps/admin/src/lib/**` 檔，數 `authorizeAdminMutation` 出現次數
-與 `export async function` 數，逐檔比對。
-
-**結果：23 個檔全部有閘。兩個沒有：**
-
-> 🔴 **2026-08-16 覆核（V 窗指出數字對不上，查證後：兩個數字都對，差在【樹的狀態】）**
-> 我量的是 `apps/admin/src/lib/**/*.ts`。**同一把尺**在不同 commit 上：
-> `d246f525` = **28**、`99b73f45` = **28**、**併入 dev 之後 `a64e4d25` = 31**。
-> ⇒ **`28` 在我量的當下正確，`31` 在現在的樹上正確。** 不是尺短，是**我讀到的東西帶有時間維度**（📎 traps §⑮）。
+> # 🔴🔴 F6 更正：本節原本的數字**互相對不上**，已全部重量
 >
-> **多出來的三個檔我補查了**：`orders/amount-actions.ts`（1 支 action、**有閘** ✅）、
-> `orders/amount-action-state.ts` 與 `orders/amount-form.ts`（**0 支 export action**，同 `*-form` / `*-cookie` 那類輔助檔）。
-> ⇒ **結論不變：`shipment-actions.ts` 仍是唯一無閘的業務檔。**
+> 原文寫「**28 個檔**」「23 個檔有閘、2 個沒有」—— **`23 + 2 = 25 ≠ 28`，三個數不自洽。**
+> 成因（我自己的診斷）：**那幾個數不是同一次、同一把尺量出來的**，
+> 而每一個單看都像真的 ⇒ **合起來才露餡。**
+> **而原文沒有寫下「量在哪個 commit、用什麼 pattern」⇒ 下一個人重建不出來。** 這次補上。
 >
-> ⚠️ 另注意：若把範圍放大到 `apps/admin/src/**` 的 `.tsx`，會多命中
-> `components/**/​*-keyword-search.tsx` 兩檔 —— **那是【註解裡】提到 `'use server'`，不是 server action 檔**
-> （兩檔第 2 行都是 `// 🔴 …「'use server'」檔只能 export async function`）⇒ **放大範圍要先排除註解命中。**
+> ```
+> commit  : 37b9b896
+> 範圍    : apps/admin/src/lib/**/*.ts
+> 判定    : 檔案【第一個非空行】是 'use server' 指令（排除「註解裡提到」的假命中）
+> action  : grep -c '^export async function'
+> 閘      : grep -c 'authorizeAdminMutation('
+> ```
+>
+> **重量結果（自洽）：**
+>
+> ```
+> 指令檔           = 19
+> exported action  = 30
+>   有閘檔內       = 24
+>   無閘檔內       =  6      ← 24 + 6 = 30 ✅
+> 無閘檔           =  2      actor-actions.ts(1 支，設計如此)
+>                            shipment-actions.ts(🔴 5 支，不是我原本寫的 4 支)
+> ```
+>
+> ✅ **V 窗獨立列舉也得到 19 個指令檔、shipment 5 支 ⇒ 兩顆腦收斂。**
+> ✅ **存取控制結論不變**：無閘的就是那 2 個檔，**沒有漏掉任何一道閘**。**錯的只有數字。**
+
+**結果：17 個檔（24 支 action）全部有閘。兩個檔沒有：**
 
 | 檔 | action 數 | 判讀 |
 |---|---|---|
-| `shipping/shipment-actions.ts` | 4 | **P2-3，Phase 1 已界定**（`E690-1`，殘留是稽核歸屬非存取控制） |
+| `shipping/shipment-actions.ts` | **5** | **P2-3，Phase 1 已界定**（`E690-1`，殘留是稽核歸屬非存取控制） |
 | `session/actor-actions.ts` | 1 | ✅ **設計如此**：只寫 actor cookie，而 `session/actor.ts:6-7` 明寫 actor **不是**授權邊界；非名單 id fail-closed（`:25` 直接 return） |
 
 ### 3.3 🔴 我提出的一條攻擊鏈 —— **被實測推翻**
@@ -256,10 +300,52 @@ public schema 55 個關聯 ×  SELECT / INSERT / UPDATE / DELETE / TRUNCATE
   ⇒ 五項全部 granted = 0 / 55
 ```
 
-⇒ 🔴 **它一張表都讀不到。** 它只能 `EXECUTE` 那 24 支金流 SECDEF 函式。
+⇒ 🔴 **它一張表都讀不到。** 它只能 `EXECUTE` 那 **23** 支金流 SECDEF 函式。
 
-**對威脅模型的意義**：**那把憑證外流，拿到的人一列客戶資料都讀不到。**
-損害面是「可以亂動付款狀態」（詐欺），**不是「可以把客戶資料撈走」**（Sean 唯一擔心的那件）。
+> # 🔴🔴 F2 更正（V 窗 codex 複驗指出；我獨立覆核後**確認它是對的**）
+>
+> **下面那句「拿到的人一列客戶資料都讀不到」是【錯的】，已劃掉。**
+>
+> **`0/55` 只量了【表】這一個面。而 `SECURITY DEFINER` 的存在意義就是【繞過表層權限】** ——
+> 我量了表層權限，卻拿它下了關於「這個角色能拿到什麼」的全稱結論，
+> **跳過了那些 RPC【回傳什麼】。**
+>
+> **我自己重量的結果**（production，`pg_get_function_result`）：
+>
+> ```
+> payment_confirmer 可 EXECUTE 的 SECDEF 函式 = 23 支   ← 我原本寫「24 支」，那也是錯的
+>   回 void（不吐資料）  =  3 支
+>   會回傳資料           = 20 支
+> ```
+>
+> **可構造的鏈**（V 窗提出，我開 migration 覆核過）：
+> `claim_due_webhook_events()` → `TABLE(rec_trade_id, order_number, attempt_count)`
+> → 拿 `order_number` 餵 `get_active_charge_attempt(orderId)`
+> → `rec_trade_id / bank_transaction_id / order_total / order_payment_status / order_display_id`
+> （`20260624120007_…` 的 `jsonb_build_object` 逐欄讀過）。
+>
+> ## ✅ 限定要照帶 —— 不要把這條抬高成 PII 外洩
+>
+> | | |
+> |---|---|
+> | **前提** | 必須先有 `payment_confirmer` **憑證外流**（它是 `rolcanlogin = t` 的登入角色） |
+> | **拿得到** | 訂單**交易 metadata**：金額、付款狀態、訂單顯示編號、交易碼 |
+> | **拿不到** | **姓名／電話／地址／卡號／經銷價** —— 同檔作者逐字：「**只回非 PII 對帳欄（零 token／卡資料／經銷價／customer PII）**」 |
+>
+> **⇒ 正確口徑（請照這句引用）：**
+> > **「撈不到客戶 PII」成立；「一列資料都讀不到」不成立 —— 交易 metadata 經 SECDEF RPC 可達。**
+>
+> 🔴 **這正是我今晚一整夜在抓的形狀，而我在自己講得最漂亮的那一條上犯了**：
+> **量了一個面，下了一個關於全部的結論。**
+> **我自己的判別句原封適用：這個結論，如果那個東西根本不從【表】走呢？**
+>
+> ⚠️ **未做**：那 20 支會回傳資料的 RPC，**我只逐欄讀了 2 支**（V 窗指名的那兩支）
+> ⇒ **其餘 18 支的回傳面沒有逐支審**，標**未確認**、已列缺口。
+
+~~**對威脅模型的意義**：那把憑證外流，拿到的人一列客戶資料都讀不到。~~
+**對威脅模型的意義（更正後）**：那把憑證外流，**拿不到客戶 PII，但拿得到訂單交易 metadata**。
+損害面是「可以亂動付款狀態」（詐欺）**加上「可以讀到訂單金額／狀態／交易碼」**，
+**仍然不是「可以把客戶身分資料撈走」**（Sean 唯一擔心的那件）。
 
 **這個好狀態是【被守住的】還是【碰巧的】？—— 兩者都有，分開講：**
 - **被守住的**：`20260811060000_…:363-374` 連**誰可以成為 `payment_confirmer` 的成員**都斷言了
@@ -431,6 +517,22 @@ public 裡 admin_* 開頭的函式：28 支
 ```
 
 ⇒ **取消過的件不可能到過貨 ⇒ 不可能進到「可出量」⇒ 不可能被出貨。不變量成立。**
+
+> 🔴🔴 **F5 更正（V 窗指出，我開檔確認）：承重的是【第三道】，我只列了兩道。**
+>
+> 上面那兩道只證了**一個方向**：「**已到貨的不能再取消**」。
+> **它們沒有證反方向**：「**先取消了，之後不能再到貨**」。
+>
+> **真正擋反方向的是到貨 writer 那支**：
+> `supabase/migrations/20260811010000_m4b_e10_352c_item_level_room_guard.sql`
+> —— 它用 `v_room = quantity − cancelled − received` 限制登錄量，
+> **且與取消走同一筆 `order_items` 的列鎖 ⇒ 併發登錄會序列化**（我開檔讀過 `v_room` / `v_cancelled` 宣告）。
+>
+> ⇒ **結論（不變量成立）仍然對，但我列的證據撐不起它，而且漏掉了真正承重的那一道。**
+> 🔴 **具體風險**：**有人可能以為第三道是冗餘的而把它移除** ——
+> 而移除之後，上面那兩道**照樣成立**，**壞掉的是我沒寫出來的那個方向。**
+>
+> 🔴 **形狀與 F3 相同**：我找到了兩道真的守門，然後寫成「就這兩道相乘」。**全稱句。**
 
 🔴 **留給下一個人的比結論值錢**：
 **我又一次重新推導出一個「原始碼已經明文警告過」的假設** —— 與本輪 C 案同一形狀
@@ -763,9 +865,30 @@ END $$;
 | `checkout/reconcile-actions.ts:92` | ✅ |
 | `api/orders/[orderId]/payment-status/route.ts:141` | ✅ |
 | 🔴 **`api/checkout/tappay-notify/[secret]/route.ts:191`（webhook 的 `after()`）** | ❌ **沒有** |
+| 🔴 **`checkout/callback/page.tsx`（3DS callback）** | ❌ **沒有** ← **F3 補上，原表漏了這條** |
 
 **加上 sweeper 走 `claim_stuck_unsettled_attempts` 的列級 claim。**
-⇒ **webhook 快路徑是唯一一個沒有互斥、可與 sweeper 同時對同一張單跑 `settleCharge` 的入口。**
+> 🔴🔴 **F3 更正（V 窗指出，我重量後確認）**：原文寫「**唯一**一個沒有互斥的入口」，**錯**。
+> **我重量了全部呼叫點**（`grep -rl 'settleCharge(getSettleChargeDeps'`，排除測試）：
+>
+> ```
+> tappay-notify/[secret]/route.ts   claimPollSettle = 0   ← 沒節流
+> checkout/callback/page.tsx        claimPollSettle = 0   ← 沒節流（原表【漏了這條】）
+> payment-status/route.ts           claimPollSettle = 1
+> checkout/charge-actions.ts        claimPollSettle = 1
+> checkout/reconcile-actions.ts     claimPollSettle = 1
+> lib/payment/composition.ts        claimPollSettle = 0   ← 工廠不是入口，不計
+> ```
+>
+> ⇒ **沒節流的是【兩個】：webhook 與 3DS callback。**
+> **安全性結論不變**（§6.10-c 的終點冪等同時覆蓋這兩條），
+> **但依賴那棵冪等樹的路徑比我寫的多一條** ——
+> 🔴 **有人日後以為「只有 webhook 會 race」而在 callback 那條省掉冪等，就會引 bug。**
+>
+> 🔴 **形狀：我找到了一條真的沒節流的路，然後把它寫成「唯一」。全稱句今晚第四次。**
+> 📎 traps §⑯ 那條原封適用：**這句話的範圍，比我實際看過的範圍大嗎？**
+
+⇒ **`settleCharge` 有【兩個】入口沒有互斥（webhook 與 3DS callback），可與 sweeper 同時對同一張單跑。**
 
 #### 6.10-c 兩個失敗方向**都判**（不是只找「同時拿到」）
 

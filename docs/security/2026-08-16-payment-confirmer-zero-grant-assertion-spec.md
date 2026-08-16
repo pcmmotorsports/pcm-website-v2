@@ -126,12 +126,53 @@ END $$;
 
 同一支 migration 裡要再斷一句「**它該有的東西還在**」：
 
+> # 🔴 F8 更正：原版只驗**一支**，其餘收光了照樣綠
+>
+> 原版只檢查 `confirm_order_payment` 一支。
+> ⇒ **保留這支、同時撤掉 `claim_due_webhook_events` / `claim_stuck_unsettled_attempts` /
+> `get_active_charge_attempt`，這個對照【仍然綠】，而 sweeper 已經整條死了。**
+> ⇒ 它只證「這個角色還有**某一項**能力」，**不證「金流 cron 還活著」**。已改成逐支涵蓋。
+
 ```sql
--- payment_confirmer 必須仍呼得到金流 RPC，否則 sweeper / cron 會整條啞掉而斷言還是綠的
-IF NOT has_function_privilege('payment_confirmer', 'public.confirm_order_payment'::regproc, 'EXECUTE') THEN
-  RAISE EXCEPTION '正向對照：payment_confirmer 對 confirm_order_payment 沒有 EXECUTE ⇒ 收權收過頭了';
-END IF;
+-- payment_confirmer 必須仍呼得到【sweeper／cron 真正依賴的每一支】，
+-- 否則收權收過頭 ⇒ 金流排程整條啞掉，而「零表授權」那半照樣綠。
+DECLARE
+  c_required constant text[] := ARRAY[
+    'confirm_order_payment',            -- 入帳終點
+    'get_active_charge_attempt',        -- settleCharge 反查
+    'claim_due_webhook_events',         -- webhook sweeper
+    'claim_stuck_unsettled_attempts',   -- attempt sweeper
+    'claim_expired_pending_attempts',   -- 12h 孤兒回收
+    'mark_webhook_processed',
+    'mark_attempt_settle_retry',
+    'claim_order_poll_settle'           -- 輪詢節流
+  ];
+  v_missing text[] := ARRAY[]::text[];
+  fn text;
+BEGIN
+  FOREACH fn IN ARRAY c_required LOOP
+    -- 用 to_regprocedure 而非 ::regproc：同名多載時 ::regproc 會擲錯
+    IF to_regprocedure('public.'||fn||'(...)') IS NULL
+       OR NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname='public' AND p.proname=fn
+            AND has_function_privilege('payment_confirmer', p.oid, 'EXECUTE'))
+    THEN
+      v_missing := v_missing || fn;
+    END IF;
+  END LOOP;
+
+  IF array_length(v_missing,1) IS NOT NULL THEN
+    RAISE EXCEPTION '正向對照：payment_confirmer 對這 % 支沒有 EXECUTE ⇒ 收權收過頭，'
+      '金流 sweeper／cron 會整條啞掉（而零表授權那半仍會綠）：%',
+      array_length(v_missing,1), array_to_string(v_missing, ', ');
+  END IF;
+END;
 ```
+
+⚠️ **`c_required` 這份清單我沒有逐支追它的呼叫端**（是從 `PgWebhookInboxAdapter` /
+`PgChargeAttemptAdapter` / `PgPollSettleThrottleAdapter` 讀出來的）
+⇒ **實作者要自己再對一次**，少列一支就退回 F8 那個病。
 
 **理由**：一條「什麼都不該有」的斷言，在**角色被整個刪掉**或**權限被收過頭**時**也會綠**。
 前置閘擋掉「角色不存在」，這一句擋掉「角色還在但已經廢了」。
@@ -177,23 +218,76 @@ ROLLBACK;
 
 ---
 
-## 6. 放哪、什麼時候跑
+## 6. 放哪、什麼時候跑 —— 🔴 **本節 2026-08-16 整段重寫（F1）**
 
-| | 建議 | 理由 |
+> # 🔴🔴 F1：本節原版**防不住這份規格自己定義的威脅**
+>
+> 原版寫「放進新一支 migration 的**尾段斷言區**」+「隨 `db push` **每次 apply 都跑**」。
+> **那兩句自相矛盾，而我沒看出來：**
+>
+> **migration 只在【首次 apply】執行一次**（ledger 記已套用、之後不重跑）。
+> ⇒ 之後有人在 Dashboard SQL editor 或**更晚的一支 migration** 裡下 `GRANT … TO payment_confirmer`，
+> **這條斷言永遠不會響。**
+>
+> **而「之後有人寫的那句 GRANT」正是 §1 寫的那個威脅本身。**
+> ⇒ **這不是瑕疵，是規格沒有解決它自己提出的問題。** 所以整段重寫，不打補丁。
+>
+> 📎 形狀＝**守門不守它宣稱要守的東西**（我今晚在別處抓過同一形狀，這次是在自己的規格裡）。
+
+### 6.1 正解：**常駐**機制，二選一
+
+| 方案 | 怎麼運作 | 取捨 |
 |---|---|---|
-| **放哪** | 新一支 `supabase/migrations/` 的**尾段斷言區**，與既有金流片同款（例：`20260811060000_…:306-374` 已有 ACL／成員資格斷言，形狀可直接對齊） | 與現行慣例一致，不另造機制 |
-| **何時跑** | 隨 `db push` 每次 apply 都跑（**不要**做成一次性腳本） | 一次性腳本擋不住「**之後**有人寫的那句 GRANT」，而那正是威脅 |
-| **不放哪** | ❌ 不要只放進 CI 的 lint／grep | **那句 `GRANT` 可以不經過 repo**（Dashboard SQL editor 直接下），grep 掃不到 |
+| **A. Event trigger**（**推薦**） | 掛 `ddl_command_end`，**任何 `GRANT`／`REVOKE` 一下去就當場檢查** | ✅ **即時**、與威脅同一層；⚠️ 需確認 `GRANT` 會觸發（`ddl_command_end` 涵蓋 `GRANT`，**實作前要實測確認**） |
+| **B. `pg_cron` 排程**（每日／每小時重跑 §4 那個 `DO` 區塊） | 週期性重掃，違反就告警 | ✅ 簡單、必定涵蓋所有變更途徑；⚠️ **有時間窗**（最長一個週期內是盲的） |
 
-🔴 **最後一列是這份規格的核心**：
-**這個威脅的載體不是 repo，是資料庫本身** ⇒ **守衛必須也長在資料庫裡。**
+🔴 **A 與 B 不互斥，建議都做**：A 給即時、B 給兜底（A 若因某種 DDL 形式沒觸發，B 仍會抓到）。
+📎 本 repo **已有 event trigger 的可用範本**：外部曝險稽核檔 §7c-2 的 A2（`autorevoke_new_objects`），
+形狀可直接對齊。
+
+### 6.2 仍然成立的兩句（原版對的部分，保留）
+
+| | |
+|---|---|
+| **不放哪** | ❌ **不要只放進 CI 的 lint／grep** —— **那句 `GRANT` 可以不經過 repo**（Dashboard SQL editor 直接下） |
+| **為什麼** | 🔴 **這個威脅的載體不是 repo，是資料庫本身** ⇒ **守衛必須也長在資料庫裡。** |
+
+⚠️ **migration 尾段斷言仍有一個用途**：**驗證「安裝當下」的狀態是乾淨的**。
+⇒ **可以留**，但**它是安裝驗收，不是常駐守衛** —— 兩者不要混為一談（原版就是混了）。
 
 ---
 
 ## 7. 誠實邊界
 
 - 本規格**只涵蓋 `public` schema**。`payment_confirmer` 對其他 schema 的授權**沒有量過**（未確認）。
-- 只涵蓋**表與欄**。**函式 EXECUTE 的白名單**已由既有斷言守著
-  （`20260811060000_…:517` 斷言非 owner grantee 恰為 `[payment_confirmer:EXECUTE]`），本規格不重複。
-- **角色成員資格**（誰可以繼承 `payment_confirmer`）**已有斷言**（同檔 `:363-374`），本規格不重複。
+- 只涵蓋**表與欄**。**函式 EXECUTE 面見下面那個更正框 —— 原本那句是錯的。**
+
+> # 🔴🔴 F7 更正：這裡原本寫錯了兩件事
+>
+> 原文：「**函式 EXECUTE 的白名單已由既有斷言守著**（`20260811060000_…:517` 斷言非 owner grantee
+> 恰為 `[payment_confirmer:EXECUTE]`）」
+>
+> **(a) `:517` 不存在。** 那支檔**只有 408 行**（`wc -l` 實測）。正確位置約在 **`:290-306`**。
+> **(b) 更重要：那道斷言只涵蓋【一支】函式**，不是「23 支金流函式的白名單」——
+> 它斷的是**該 migration 自己定義的那一支**（`claim_stuck_unsettled_attempts`）的 grantee 集合。
+>
+> **而那支檔【自己】就寫了射程限制**（`:207` 逐字）：
+> > 「**射程之外**：owner 持有的其他 SECDEF 函式若把本支包起來、或動態 SQL 轉呼，
+> > 前台角色仍可**間接**觸發它 …… **本片不宣稱擋得住間接可達**。」
+>
+> ⇒ **正確口徑：函式 EXECUTE 面【沒有】一道涵蓋全部的白名單斷言。**
+> 存在的是**逐片、逐支**的局部斷言。**本規格不重複它們，但也不能宣稱它們已經守住整個面。**
+>
+> 🔴 **這條的諷刺我要自己說**：我在外部曝險稽核檔 §2.6 逐字寫過
+> 「**錯的 `檔案:行號` 比沒有出處更糟**」「**`檔案:行號` 一律逐條開檔驗**」
+> —— **而 `:517` 正是我警告的那種錯，出現在我自己寫的規格裡。**
+>
+> 📌 **我後來對全部四份檔做了機械複驗**（`檔名:行號` 逐條比對實際行數）：
+> **43 條在範圍內、0 條超出**。
+> 🔴 **而 `:517` 沒有被那次複驗抓到** —— 因為我寫的是縮寫 `20260811060000_…:517`，
+> **沒有副檔名，正規表示式根本沒匹配到它。**
+> ⇒ **量具自己有盲點，而它回報「0 條超出」，讀起來像乾淨。**
+> ⇒ **這是「引用要寫完整檔名、不寫縮寫」的第二個理由**：縮寫**逃得過機械複驗**。
+
+- **角色成員資格**（誰可以繼承 `payment_confirmer`）**已有斷言**（同檔約 `:363-374`，**在 408 行範圍內、已覆核**），本規格不重複。
 - 本規格**沒有實作、沒有跑過**。§5 的四格負向對照**是要求，不是已完成的紀錄**。

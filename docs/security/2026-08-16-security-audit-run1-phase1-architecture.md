@@ -1,6 +1,11 @@
 > **這是 `security-audit` skill 的 Phase 1(偵察)產物,不是結論檔。**
 > 結論看 `docs/security/2026-08-16-external-exposure-audit.md`。
-> 🔴 **Phase 2–6 從未執行** —— 保留本檔的唯一理由是:重跑 Phase 1 很貴,而 Phase 2 需要它當輸入。
+> 🔴 **口徑更正（F9，2026-08-16）**：原寫「Phase 2–6 從未執行」，**已過期**。
+> **Phase 2 已以【單線】編制跑完**（`docs/security/2026-08-16-security-audit-run1-phase2-hunt.md`，
+> 平行度未達 skill 規定）；**Phase 3 已由 V 窗以 codex `gpt-5.6-sol` 跑完**（`~/pcm-mailbox/V-017-STOP.md`）；
+> **Phase 4/5/6 未跑。**
+>
+> ~~Phase 2–6 從未執行~~ —— 保留本檔的唯一理由是:重跑 Phase 1 很貴,而 Phase 2 需要它當輸入。
 > 原位置 `scratchpad/audit-out/run-1/architecture.md`(session 結束即消失),2026-08-16 搬進 repo。
 > ⚠️ **本檔原名 `2026-08-17-...`,2026-08-16 由 I 窗更正為 `2026-08-16-...`。**
 > 那個 `08-17` 不是筆誤,是 E 窗當時的時鐘偏了約 8 小時(`E-691-STOP` 自述 `timestamp: 2026-08-17T03:50+08:00`),
