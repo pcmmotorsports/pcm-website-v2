@@ -285,6 +285,38 @@ select has_column_privilege('anon','public.t_col','secret','SELECT');   -- => fa
 而**少報比多報危險:多報會有人來查,少報聽起來像已經收斂了。**
 ⇒ **稽核表的可讀性時,`has_table_privilege` 要配 `has_column_privilege` 一起問**,不能只問表級。
 
+#### 🔴🔴 這個洞會直接穿透用它寫的**守門**,而守門會印綠色的通過訊息
+
+2026-08-16 實測(拿一支 house 的「新物件收權 fail-closed 斷言」原文跑,只換掉它的物件清單):
+
+```sql
+-- ⚠️ 節錄-含刻意錯誤:最後一行【故意】要報 permission denied,
+--    所以本段【不能】接在前面幾段後面用 ON_ERROR_STOP=1 一起跑。要跑請單獨跑。
+create table public.t_shape (id int, secret text, name text);
+revoke all on table public.t_shape from public, anon, authenticated;  -- 兩道都下了
+grant select (id, name) on table public.t_shape to anon;              -- 但有欄級授權
+insert into public.t_shape values (1, '機密', '公開名');              -- 放一列才看得出讀到什麼
+
+-- 那支斷言(內部用 has_table_privilege 掃 7 種權限)輸出:
+--   ✅ 新物件收權斷言通過:檢查 2 個物件，anon/authenticated 權限 0 項。
+-- 而事實:
+set role anon; select id, name from public.t_shape;   -- => 1|公開名   ← 讀到了
+set role anon; select secret   from public.t_shape;   -- => permission denied
+```
+
+🔴 **斷言印「權限 0 項」的同一秒,`anon` 讀得出資料。**
+⇒ **可複用的判別句:我的守門問的那一題,和我想擋的那件事,是同一題嗎?**
+本例:守門問「**整張表**給出去了嗎」,想擋的是「**任何資料**被讀走」—— **不是同一題。**
+
+⚠️ **而本 repo 已經有欄級授權的表**(`products` / `product_variants`),
+⇒ **這不是構造出來的邊角,是既有做法會踩到的形狀。**
+
+📎 更值得記的是它怎麼被發現的:**那支斷言的作者在同一天稍早、另一封信裡
+【自己寫下過】「`has_table_privilege` 對只有欄級授權回 false」** ——
+**不是不知道,是那個知識沒有在寫斷言的那一刻被叫出來。**
+⇒ **這種漏比「不知道」難防**,而擋得住它的不是「要記得」,是一個動作:
+**規則/守門寫完的當下,立刻拿一個【它宣稱涵蓋但形狀不同】的對象打一發。**
+
 ### 🔴🔴 這一類錯誤**只有【對照】看得見** —— 單邊再仔細也查不出來
 
 同一天,兩個窗**獨立**撞到同一件事的兩面:
