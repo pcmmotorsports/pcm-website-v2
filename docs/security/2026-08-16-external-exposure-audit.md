@@ -33,7 +33,7 @@
 
 **⇒ 一句話：截至 2026-08-16，沒有找到外部可讀取客戶資料的路徑。**
 
-> 🔴 **第 7 條 2026-08-17 由 production 覆核（原為 repo 側推論）**：
+> 🔴 **第 7 條 2026-08-16 由 production 覆核（原為 repo 側推論）**：
 > 六張表共 **16 條 policy** 逐條讀出，面向客人的**全部**是 `authenticated` + `auth.uid()` 綁本人；
 > 唯二 `USING (true)` 的是 `customers_delete_service_role` 與 `wallet_insert_service_role`
 > —— **`service_role` 專用（伺服器端），不是對外**。**六張表零 `anon` policy。**
@@ -57,8 +57,12 @@ set_by = supabase_admin 一筆 + postgres 一筆                  ← 🔴 收�
 
 **那個授權沒有 `GRANT` 語句** ⇒ code review 看不到、repo grep 找不到。
 
-**實測落差**：11 個 `anon` 可讀物件中，**4 個（36%）在 repo 裡沒有任何 `GRANT` 語句**
+**實測落差**（**2026-08-16 當時**）：11 個 `anon` 可讀物件中，**4 個（36%）在 repo 裡沒有任何 `GRANT` 語句**
 （`brands`、`categories`、`customer_wallet_balance_check`、`product_fitments_effective`）。
+
+> 📌 **2026-08-16 更新**：`customer_wallet_balance_check` 的授權已由 Sean 親自 REVOKE（見 §7c-1），
+> **`anon` 可讀物件 11 → 10**。上面那個 36% 是**當天的量測**，保留原值不改寫 ——
+> 改寫會讓「當初就錯」與「當初對、現在過期」變得分不出來。
 
 ⇒ **引用「anon 只碰得到 N 個物件」時，N 是 repo 側就必定偏低。**
 
@@ -83,12 +87,17 @@ set_by = supabase_admin 一筆 + postgres 一筆                  ← 🔴 收�
 ⚠️ 而 house **刻意**對型錄表下欄級授權（`products` / `product_variants`）
 ⇒ 盤點時**不能把欄級授權一律當成問題**，要分「刻意的」與「殘留的」。
 
+> ✅ **2026-08-16：這一圈已經問過了，見 §7c-3。** 全 `public` 逐欄量到 **66 筆**欄級授權，
+> 全部落在 `products` / `product_variants` / `customers` 三張，**且經銷價欄（`price_by_tier`）
+> 對 `anon` 與 `authenticated` 都是 `f`** ⇒ 那份白名單是刻意的，也是對的。
+> **本節仍然成立**（方法上的盲點沒消失），但**這個 repo 在這一層的實際狀態已經量過了。**
+
 ### 2.4 🔴 `has_table_privilege` 也不管 schema USAGE —— 而這個方向是【多報】
 
 要真的讀得到一張表，**表授權與 schema `USAGE` 兩層都要有**。
 `has_table_privilege` 只回答第一層 ⇒ **它會把「有表授權但進不去 schema」算成可讀。**
 
-**實測（2026-08-17，`E-687`）**：
+**實測（2026-08-16，`E-687`）**：
 - `anon` **有** USAGE：`public` / `storage` / `net` / `extensions` / `realtime`
 - `anon` **沒有** USAGE：🟢 `cron`、🟢 `vault`（**secrets 存這裡**）、`pcm_cron`、`supabase_migrations`
 - `auth`：有 USAGE 但**零表授權** ⇒ 讀不到任何列
@@ -198,11 +207,11 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 
 | ID | 嚴重度 | 內容 | 卡在誰 |
 |---|---|---|---|
-| ~~`net` 曝露~~ **已關閉** | ~~未知~~ **非活洞** | ✅ **2026-08-17 實測關閉**：以公開 publishable key 打正式站 `/rest/v1/`，`http_request_queue` 回 **404**（打不到）。🔴 判別力有證明：`customers` 回 **401**（在曝露的 `public` 內、僅無權限），`products_public` 回 **200**（19,777 列，控制組）⇒ **404 不是鈍訊號**。`realtime.subscription`／`cron.job`／`storage.buckets`／`extensions.pg_stat_statements` 同為 404。Data API 曝露清單經 Sean 展開確認：**只有 `public` + `graphql_public`**。詳 `E-689` | — |
+| ~~`net` 曝露~~ **已關閉** | ~~未知~~ **非活洞** | ✅ **2026-08-16 實測關閉**：以公開 publishable key 打正式站 `/rest/v1/`，`http_request_queue` 回 **404**（打不到）。🔴 判別力有證明：`customers` 回 **401**（在曝露的 `public` 內、僅無權限），`products_public` 回 **200**（19,777 列，控制組）⇒ **404 不是鈍訊號**。`realtime.subscription`／`cron.job`／`storage.buckets`／`extensions.pg_stat_statements` 同為 404。Data API 曝露清單經 Sean 展開確認：**只有 `public` + `graphql_public`**。詳 `E-689` | — |
 | `E683-1` | 常設風險 | 新物件出生自帶 `anon` 權限（表含 RLS 管不到的 `TRUNCATE`；函式含 `EXECUTE`）。**現況 46 張全乾淨，但靠的是每個人都記得。** | 部分已解：`E-684` 斷言樣板已交 B 窗，**新 migration 起用** |
-| `E682-1` | 低（只靠一個屬性） | `customer_wallet_balance_check`（客戶儲值金餘額 view）授了 `anon` SELECT。**今天不外洩**（`security_invoker=true` + 底表無 anon 授權 + RLS + 零 anon policy 四層），**但那個授權沒有任何用途**。拿掉 `security_invoker` 即成真洞。**建議 REVOKE。** | **Sean（鐵則 12 ②）** |
+| ~~`E682-1`~~ **已修** | ~~低~~ **已關閉** | ✅ **2026-08-16 Sean 親自在正式庫貼了 REVOKE 並回貼驗收輸出**（`anon_still = false` / `auth_still = false`）。`customer_wallet_balance_check` 對 `anon` 與 `authenticated` 的 SELECT **兩格都關上了**。⇒ `packages/adapters/src/supabase/SupabaseWalletAdapter.ts:87` 註解裡寫的那道「不對 authenticated GRANT」的控制，**現在真的存在**（先前是程式碼相信一道不存在的控制）。⚠️ **限定**：那兩格 false 來自 `has_table_privilege`，證的是**表級**收乾淨；`has_*_privilege` 對**欄級授權會少報**（§2.3）⇒ 不等於欄級零殘留。**2026-08-16 已補查欄級**：見 §7c-3。 | — |
 | `E680-1` | 低（未守路徑） | `settle-sweep` route 用 blind spread `...result` 回應，而回應會落進 PUBLIC 可讀、保留 6h 的 `net._http_response`。**今天不洩**（`SweepSettlementsResult` 全是計數），但**姊妹片 email-sweep 用顯式 allowlist 且寫明理由**。 | 待派 |
-| **`E685-1`** | **低（但這是全樹唯一一個真的 RLS 繞過）** | `vehicle_taxonomy_public` 是 **`security_invoker=false`**（其餘 8 支 view 都是 `true`），view owner = `postgres`，而 `product_fitments` / `product_fitments_effective` 的 `relforcerowsecurity = false` ⇒ **owner 繞過 RLS** ⇒ 這支 view **看得到已下架商品的車型資料**，而 `anon` 讀得到它。<br>**曝露內容只有 `moto_brand / model_code / year_start / year_end`（零 PII、零價格）**，故嚴重度低。<br>🔴 **但它是唯一一支「底表 RLS 對它無效」的 view** ⇒ 日後 `product_fitments*` 若加上任何敏感欄或更嚴的 policy，**這支會直接漏過去，而且不會有任何東西紅。** | 待派 |
+| **`E685-1`** 🔴 **裁定：不修，見 §7c-6** | **低（但這是全樹唯一一個真的 RLS 繞過）** | `vehicle_taxonomy_public` 是 **`security_invoker=false`**（其餘 8 支 view 都是 `true`），view owner = `postgres`，而 `product_fitments` / `product_fitments_effective` 的 `relforcerowsecurity = false` ⇒ **owner 繞過 RLS** ⇒ 這支 view **看得到已下架商品的車型資料**，而 `anon` 讀得到它。<br>**曝露內容只有 `moto_brand / model_code / year_start / year_end`（零 PII、零價格）**，故嚴重度低。<br>🔴 **但它是唯一一支「底表 RLS 對它無效」的 view** ⇒ 日後 `product_fitments*` 若加上任何敏感欄或更嚴的 policy，**這支會直接漏過去，而且不會有任何東西紅。** | 待派 |
 | `rls_auto_enable` fail-open | 低-中 | `20260531142534_govern_rls_auto_enable.sql:59-63` 用 `EXCEPTION WHEN OTHERS THEN RAISE LOG` **吞掉自己的失敗** ⇒ 開 RLS 失敗時無聲。 | 待派 |
 | `E679-1` | 設計債 | 建立唯讀帳號連線字串的那段指令，**整條唯讀鏈可以被一個沒對上的 `sed` 靜默繞過**（身分沒被換掉 ⇒ 用超級使用者連線）。**所有守門守的是「帳號建得對不對」，沒有一個守「最後用哪個身分連」。** 唯一會叫的是那行只印身分的自檢，**而使用者可以不看它**。<br>🔴 **收斂：一道防線如果使用者可以略過它，它就不算防線。** 正解＝身分不對就**不寫檔**。 | 待派 |
 | 稽核帳號體檢缺口 | 流程 | `E-675` 體檢驗 `rolcanlogin` 但**不驗密碼存在** ⇒ 「體檢通過」不蘊含「連得上」。**當天真的發生了。** | 待補 |
@@ -237,14 +246,19 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 
 ## 7. 下一步（未做，非承諾）
 
-1. **`net` / `cron` / `extensions` 是否列入 Data API 曝露 schema** ← 決定上表第一列的嚴重度，**最優先**
-2. `E682-1` 的 `REVOKE` 提案（要 Sean 批）
-3. 報價單庫（`pcm-quote-v2`）整個沒查 —— 唯讀帳號尚未建立（`E-674b`）
-4. §2.3 那些沒查的維度
+1. ~~**`net` / `cron` / `extensions` 是否列入 Data API 曝露 schema**~~ → ✅ **已關閉**，見 §4 第一列與 §7b-(a)
+2. ~~`E682-1` 的 `REVOKE` 提案（要 Sean 批）~~ → ✅ **已修**，Sean 2026-08-16 親貼，見 §7c-1
+3. 報價單庫（`pcm-quote-v2`）整個沒查 —— 唯讀帳號尚未建立（`E-674b`）　**← 仍全開**
+4. ~~§2.3 那些沒查的維度~~ → ✅ **欄級已量**，見 §7c-3
+5. **A2 event trigger 尚未上正式庫** —— §7c-2 已證明 Dashboard 開關**取代不了它**；
+   要上就是鐵則 12 ③④，**要 Sean 批**（我沒有動、也沒有代他點 Dashboard）
+6. `pcm_cron` schema：出現在可選曝露清單卻沒勾，**是什麼、誰能勾，未查**
+7. `security-audit` skill 的 **Phase 2–6 從未跑過**（Phase 1 產物在
+   `docs/security/2026-08-16-security-audit-run1-phase1-architecture.md`）
 
 ---
 
-## 7b. ✅ 2026-08-17 補：外部 API 實測 + RPC 面 + 應用層
+## 7b. ✅ 2026-08-16 補：外部 API 實測 + RPC 面 + 應用層
 
 ### (a) 外部 REST 可達性（實測，非讀設定頁）
 
@@ -285,6 +299,305 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 - 🔴 **真正的殘留 = 稽核歸屬**：這 5 支不綁具名 actor，**出貨/作廢出貨不會留下「誰做的」**。
 - **嚴重度**：低（對外零影響；影響的是事後追查）。
 - 📌 **歸屬：B 窗（真登入線 `B5`/`B6` 正在處理 actor）** —— 不是稽核窗自己收尾的事。
+
+---
+
+## 7c. ✅ 2026-08-16 續：B 案落地、Dashboard 開關的答案、欄級補查
+
+### 7c-1 `E682-1`（B 案）已修 —— **Sean 親自貼，回貼驗收輸出**
+
+- **誰**：Sean 本人　**何時**：2026-08-16　**在哪**：正式庫（`pcm-website-v2`）
+- **貼的東西**：`REVOKE ALL ON public.customer_wallet_balance_check FROM PUBLIC, anon, authenticated;`
+- **他回貼的驗收輸出（逐字）**：
+
+```
+| anon_still | auth_still |
+| ---------- | ---------- |
+| false      | false      |
+```
+
+⇒ §4 的 `E682-1` 已改標「已修」。**上游 spec 的字面反而變成正確的了** ——
+`docs/specs/m-1-14-customer-schema.md:401-402` 一直寫著「不開 anon / authenticated」，
+**那是原始意圖；先前是 production 違反了它，現在 production 回到它。**
+🔴 **所以那幾份 spec / handoff 不需要改**，它們不是過期字面，是**被追上的意圖**。
+
+### 7c-2 🔴 ①號題答案：**Dashboard 那個開關【不能】取代 A2 event trigger**
+
+> 交辦問的兩題，分開答。
+
+**(a) 開關關掉之後，新建的表 / view / 函式還會不會自帶 `anon` 權限？**
+**表和 view：不會。函式：會，而且會兩次。**
+
+Supabase 官方載明，勾掉「Automatically expose new tables」時它跑的**就只有這兩句**：
+
+```sql
+alter default privileges for role postgres in schema public
+  revoke select, insert, update, delete on tables from anon, authenticated, service_role;
+alter default privileges for role postgres in schema public
+  revoke usage, select on sequences from anon, authenticated, service_role;
+```
+
+**production 的 `pg_default_acl` 現況**（唯讀查 catalog）：`public` schema 有**兩個授權者**各三筆 —
+
+```
+public | r | postgres        | anon=arwdDxtm, authenticated=arwdDxtm, service_role=arwdDxtm
+public | S | postgres        | anon=rwU,      authenticated=rwU,      service_role=rwU
+public | f | postgres        | anon=X,        authenticated=X,        service_role=X   ← 開關碰不到
+public | r | supabase_admin  | 同上                                                    ← 開關碰不到
+public | S | supabase_admin  | 同上                                                    ← 開關碰不到
+public | f | supabase_admin  | 同上                                                    ← 開關碰不到
+```
+
+**⇒ 開關只處理 6 筆裡的 2 筆。**
+
+**實測**（拋棄式 PG 17.10，把上面那兩句原樣跑一次；A 段為正向對照）：
+
+| 階段 | 新表 `anon` SELECT | 新 view `anon` SELECT | 新函式 `anon` EXECUTE |
+|---|---|---|---|
+| **A** 開關開著（正向對照） | `t` | `t` | `t` |
+| **B** 開關關掉（官方原句） | `f` | `f` | **`t`** ← 洞還在 |
+| **C** 連函式 ADP 也一起收 | — | — | **`t`** ← **還是在** |
+| **D** 裝上 A2 event trigger | — | — | `f` ✅ |
+
+🔴 **C 階段是關鍵**：即使開關「有」處理函式（它沒有），洞**仍然關不上** ——
+因為 Postgres **內建**就把新函式的 `EXECUTE` 授給 `PUBLIC`，那不是 ADP、`ALTER DEFAULT PRIVILEGES` 收不到它，
+而 `anon` 是 `PUBLIC` 的一員。**這正是當初 `#525` 那個洞的成因，也是整輪普查的起點。**
+
+**(b) 是不是完整取代？→ 不是。四個差距：**
+
+| # | 差距 | 誰補得上 |
+|---|---|---|
+| 1 | **函式完全沒被涵蓋**（ADP 的 `f` 那筆開關碰不到） | 只有 A2 |
+| 2 | **`PUBLIC` 的內建 `EXECUTE`**（連 ADP 都收不到） | 只有 A2 |
+| 3 | **`supabase_admin` 授權者那三筆**開關碰不到 | 只有 A2 |
+| 4 | 官方原句只 revoke `select, insert, update, delete` ⇒ **`TRUNCATE` / `REFERENCES` / `TRIGGER` 留著** | 只有 A2 的 `REVOKE ALL` |
+
+**差距 4 是實測出來的，不是讀出來的**（同一台拋棄式 PG，開關關掉後建新表逐權限量）：
+
+```
+sel=f  ins=f  upd=f  del=f   trunc=t  refs=t  trig=t
+```
+
+📌 **這一輪也記下一個量法坑**：C 階段顯示「`PUBLIC` 授權筆數 = 0」而 `anon` **仍可執行**，
+D 階段顯示「`PUBLIC` 授權筆數 = 0」而 `anon` **不可執行**。
+**同一個 `0`，兩個相反的意思** —— 前者是「ACL 欄是 `NULL`、套用內建預設」，後者是「明文收乾淨」。
+🔴 **`has_*_privilege` 分得出來，數 ACL 筆數分不出來。**
+
+**⇒ 結論：A2 該做，而且它不是「開關的替代品」，是「開關補不到的那半」。**
+**建議兩個都做**（開關關掉擋表、A2 擋函式與殘留權限）。
+⚠️ **我沒有動 Dashboard，也沒有建議 Sean 現在去點** —— 那是鐵則 12 ④，要另外提。
+
+### 7c-3 欄級補查（把 §2.3 那個盲點從「已知會少報」變成「量過了」）
+
+`has_table_privilege` 看不到欄級授權，§2.3 標了方向是**少報**。**這次真的去數了：**
+
+**production `public` 全部欄位，逐欄 `has_column_privilege` 且表級為 false 的 = 66 筆，集中在 5 組：**
+
+| 角色 | 關聯 | 權限 | 欄數 |
+|---|---|---|---|
+| `anon` | `products` | SELECT | 20 |
+| `anon` | `product_variants` | SELECT | 11 |
+| `authenticated` | `products` | SELECT | 20 |
+| `authenticated` | `product_variants` | SELECT | 11 |
+| `authenticated` | `customers` | **UPDATE** | 4 |
+
+🔴 **對著威脅模型第二優先（經銷價絕不進一般會員瀏覽器）逐欄量的結果：**
+
+```
+products.price_general          anon=t  authenticated=t     ← 公開零售價，應該開
+products.price_by_tier          anon=f  authenticated=f     ← 經銷 / 分級價，沒開 ✅
+products.price_store            anon=f  authenticated=f     ← 沒開 ✅
+product_variants.price_general  anon=t  authenticated=t     ← 應該開
+product_variants.price_store    anon=f  authenticated=f     ← 沒開 ✅
+```
+
+⇒ **那 66 筆欄級授權是一份【刻意的白名單】，而且它正確地把經銷價排除在外。**
+**這是第一次有人在欄這一層對著這條威脅模型量過** —— 先前每一輪都只量到表級為止。
+（`authenticated` 對 `customers` 的那 4 欄 UPDATE = 先前已驗過、擋住會員自升經銷等級的那道。）
+
+**`E682-1` 的欄級收尾**：`customer_wallet_balance_check` 四個欄逐欄查，
+`anon` 與 `authenticated` **全部 `f`** ⇒ **不只表級，欄級也零殘留。**
+
+### 7c-4 新記一筆殘留（**不是漏洞，是硬化項**，不要抬高它）
+
+`public` 裡**只有兩個關聯**還帶著 ADP 那份完整的 `ALL`：
+
+| 關聯 | 種類 | `anon` 拿到 | 可寫嗎 |
+|---|---|---|---|
+| `products_list_public` | view | SELECT/INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER | **不能** |
+| `vehicle_taxonomy_public` | view | 同上 | **不能** |
+
+**為什麼不算漏洞（量過的，不是推的）**：兩支都是 `pg_relation_is_updatable = 0`（**不可自動更新**）
+⇒ 那些寫入權限**無處可用**。控制組成立：真表 `brands` / `categories` 回 **28**，
+而**唯一一支可自動更新的 view `product_variants_public`（28）上，`anon` 只有 SELECT、沒有任何寫權限**。
+
+⇒ **`public` 全樹 `anon` 的寫入權限，最後全部落在不可更新的 view 上 = 全部是空包彈。**
+**建議**（低優先、隨手）：對這兩支補 `REVOKE`，理由不是「今天危險」，是
+**它們是 ADP footgun 唯一還看得見的指紋，留著會讓下一個人以為那是刻意授的。**
+⚠️ `vehicle_taxonomy_public` 另有 `E685-1`（`security_invoker=false`）**尚未處理**，兩件事不同、不要合併。
+
+### 7c-5 `pcm_cron` schema —— 查完了，**兩層都是關的**
+
+> 它出現在 Data API 的**可選**曝露清單裡卻沒被勾，先前每一輪都標「未查」。
+
+**裡面有什麼**（唯讀查 catalog）：
+
+```
+關聯（表 / view / 物化 view / 外部表）： 0 筆
+函式：2 筆
+  pcm_cron.expire_unpaid_orders   SECURITY DEFINER  proacl = {postgres=X/postgres}
+  pcm_cron.invoke_cron_route      SECURITY DEFINER  proacl = {postgres=X/postgres}
+```
+
+**勾下去會曝露什麼**：
+
+| 層 | 狀態 | 意思 |
+|---|---|---|
+| schema USAGE | `nspacl = {postgres=UC/postgres}` | **`anon` / `authenticated` 完全沒有 USAGE** |
+| 函式 ACL | `{postgres=X/postgres}`（**非 `NULL`**） | `PUBLIC` 已被明文收掉 ⇒ `has_function_privilege('anon', …) = f` |
+| 資料 | **零關聯** | 就算兩層都開，**也沒有表可以讀** |
+
+⇒ **即使有人把 `pcm_cron` 勾進曝露清單，`anon` 仍然打不到裡面任何東西**（會拿到 401，不是 200）。
+**這是全樹少見的「兩層獨立防護都在」的物件** —— 對照組就在隔壁：
+
+🔴 **`net` schema 相反**：`nspacl` 是 `{…,=U/supabase_admin, anon=U/supabase_admin,…}`
+⇒ **`anon` 對 `net` 有 schema USAGE，而且 `PUBLIC` 也有。**
+**它今天打不到，靠的【只有】PostgREST 的曝露清單那一層**（§7b-(a) 實測 404）。
+⇒ **`E-689` 說的「有人日後把 `net` 勾進去，這個結論當場失效」現在有了機制上的解釋：
+`net` 是【一個勾就穿】，`pcm_cron` 是【勾了也穿不了】。兩者不可類比。**
+
+**誰能勾**：Dashboard 專案設定層的控制（等同改 `pgrst.db_schemas`），需要專案擁有者 / `postgres` 級權限。
+⚠️ **精確的授權邊界我沒有實測**（稽核帳號無權改設定，而我不會去改）⇒ **這半標「未確認」。**
+
+### 7c-6 🔴🔴 C 案（`E685-1`）**不要貼** —— 它的前提被那支 migration 自己的守門推翻
+
+> **這一節是本輪最重要的一條。** 產品決策那一關已經解開了，
+> **而擋住它的從來不是那一關。**
+
+**2026-08-16 Sean 親自在正式庫跑了比對 SQL，回貼逐字：**
+
+```
+| 現在幾筆 | 改完剩幾筆 |
+|  8396   |   8173    |
+```
+
+⇒ 差 223 筆 = 2.66%。照原先定下的判準（差很少 ⇒ 純安全修補）⇒ 產品決策關解除。
+
+> 🔴🔴 **然後我回頭核那句 SQL，發現【它量的不是它宣稱的東西】—— 而那句 SQL 是我自己寫的。**
+>
+> view 的定義是一個 **`UNION ALL`**（該檔 `:120-131`）：
+> 上半取 `product_fitments`（帶年份），**下半取 `product_fitments_effective`**（年份補 `NULL`、
+> 且 `NOT EXISTS` 排掉上半已有的車型）。
+>
+> **而我那句「改完剩幾筆」只查了上半，整個下半的分支沒有出現在查詢裡。**
+>
+> | 數字 | 它真正量的東西 |
+> |---|---|
+> | `8396` | ✅ `count(*) FROM vehicle_taxonomy_public` —— **正確**，就是這支 view 現在的列數 |
+> | `8173` | ❌ **只有上半分支 + 下架過濾**。**不是「改完剩幾筆」** |
+>
+> ⇒ **`223` / `2.66%` 不是 C 案改動的影響量，是一個形狀不同的東西的差值。**
+> **⇒ 引用時只能引 `8396`。`8173` 與 `2.66%` 作廢，不要拿去當任何基準。**
+>
+> 📎 這與 §7c-6 主結論**互相獨立**：主結論（不修）是**逾時**決定的，不靠這兩個數字。
+> **但「不影響結論」不等於「可以留著」** —— 它已經被寫成「別人重算的基準」，
+> 而下一個人不會知道它量錯了分支。
+> 📎 形狀同 `feedback_assertion-measures-the-wrong-thing`：**斷言量錯東西**。
+> 🔴 這次特別的地方：**我是這句 SQL 的作者**，而它連續通過了我自己、同儕窗、和 Sean 三手。
+> **三個人都在核「數字對不對」，沒有人核「這句查的是不是那支 view」。**
+
+#### 🔴 然後我去開了那支 migration，發現 `security_invoker = false` 是【刻意的】
+
+`supabase/migrations/20260811100000_m4b_storefront_277c_vehicle_taxonomy_direct_years.sql`
+的 ⑥a 守門，**它的註解逐字寫著**（`grep -n 'security_invoker 必須是 false' <該檔>`）：
+
+> `-- ⑥a 🔴 security_invoker 必須是 false —— 沒這條的話,改成 true 仍然全綠(關卡2 抓到),`
+> `--     而後果是 anon 開始套底表 RLS 的下架 join ⇒ 實測 3,047ms ⇒ 撞 3s 逾時。`
+> `--     這是本 view 唯一一個「改一個字就爆、但所有資料面斷言都看不出來」的地方。`
+
+**而且它不只是註解，它是一條會 `RAISE EXCEPTION` 的斷言**（同檔，`reloptions @> ARRAY['security_invoker=false']`）。
+
+**我獨立覆核了那個 3 秒天花板**（唯讀查 `pg_db_role_setting`）：
+
+```
+anon           statement_timeout = 3s      ← 就是這個
+authenticated  statement_timeout = 8s
+service_role   statement_timeout = 300s
+```
+
+⇒ **實測 3,047ms vs 3,000ms 天花板 = 超過 47ms。**
+**⇒ 把 `security_invoker` 改成 `true`，首頁的車輛下拉會對【所有未登入訪客】逾時。**
+（而且那是 2026-08-11 量的，資料只會更多。）
+
+#### ⇒ 裁定
+
+| | |
+|---|---|
+| **要拿掉的曝露** | 已下架商品的車型名稱與年份（`moto_brand / model_code / year_start / year_end`）**零 PII、零價格**，我自己標的嚴重度是**低** |
+| **要付的代價** | 首頁車輛下拉對**所有匿名訪客**逾時 |
+| **裁定** | 🔴 **不換。** 不拿一個會動的首頁去換一條零 PII 的低嚴重度曝露 |
+
+🔴 **這條的教訓比這條本身值錢**：C 案卡了兩天，卡點被記成「等一個我量不到的數字」。
+**數字到手了，而它從頭到尾都不是真正的擋路者。**
+真正的擋路者寫在**那支 migration 的註解裡**，任何人只要開檔就會看到 ——
+**而連續數輪（含我自己）都在引用這支 view 的屬性，沒有一次開過建它的那支檔。**
+📎 對應 memory：`feedback_assert-scope-only-after-reading-source-file`
+（「報 schema 行為前先開建表 migration 讀註解 —— 契約債與交辦寫在那裡，查 `information_schema` 看不到」）。
+**那條教訓寫的就是這個形狀，而我這次也是先寫了半份可貼 SQL 才去開檔。**
+
+#### 重新定範圍的提案（**未經對抗審查，不要貼**）
+
+**目標不變**（不讓 `anon` 看到已下架商品的車型），**手段換掉**：
+**把下架過濾寫進 view 定義本體，`security_invoker` 維持 `false`。**
+這樣拿掉曝露**而不啟用 RLS 那條 join**。
+
+🔴 **但它需要一個我量不到的數**：改寫後的 view 對 `anon` 要跑多久（**必須 < 3s**）。
+**稽核帳號故意無資料讀取權 ⇒ 我量不到，不猜。** 要有讀取權的人在**離峰**跑一次 `EXPLAIN ANALYZE`。
+⚠️ **顯式 `EXISTS` join 不必然比 RLS 版快** —— 那是**要量的假設，不是可以寫進提案的前提**。
+
+#### 另一件（回答「要不要走 migration」）：**要，而且手貼會被無聲蓋掉**
+
+**拋棄式 PG 17.10 實測：**
+
+```
+ALTER VIEW v SET (security_invoker = true)   → reloptions = {security_invoker=true}
+CREATE OR REPLACE VIEW v AS …（無 WITH 子句） → reloptions = 【空】     ← 被清掉
+DROP VIEW + CREATE VIEW                       → reloptions = NULL
+```
+
+⇒ **`CREATE OR REPLACE VIEW` 沒帶 `WITH` 子句就會清掉 `security_invoker`。**
+而這支 view **正是**用 `CREATE OR REPLACE VIEW` 維護的（該檔 `:120`，且帶著 `WITH (security_invoker = false)`）。
+**⇒ 任何手貼的 `ALTER VIEW` 會被下一支動到這支 view 的 migration 靜默還原，而且不會有東西紅。**
+**⇒ 這件必須走 `supabase/migrations/`，同時更新 ⑥a 那條守門**（否則 repo 的斷言與 production 相反）。
+**我唯讀 ⇒ 只交規格，不寫 migration。**
+
+---
+
+## 7d. 🟢 經銷價防護鏈 —— **第一次在【欄】那一層量過**
+
+> 威脅模型第二優先（`CLAUDE.md` Server 端鐵則）：**經銷價絕不傳到一般會員瀏覽器。**
+> 先前每一輪都只量到**表**這一層就停了；**表級量法對欄級授權會少報**（§2.3）
+> ⇒ **「表級沒開」不蘊含「那個欄沒開」。這一輪把它補上了。**
+
+**方法**：production 唯讀，`public` 全部關聯逐欄跑 `has_column_privilege`（不是 `has_table_privilege`）。
+
+| 欄 | `anon` | `authenticated` | 判讀 |
+|---|---|---|---|
+| `products.price_general` | `t` | `t` | ✅ 公開零售價，**本來就該開** |
+| `product_variants.price_general` | `t` | `t` | ✅ 同上 |
+| **`products.price_by_tier`** | **`f`** | **`f`** | 🟢 **分級／經銷價，沒開** |
+| `products.price_store` | `f` | `f` | 🟢 沒開 |
+| `product_variants.price_store` | `f` | `f` | 🟢 沒開 |
+
+⇒ **DB 這一層，經銷價對「未登入訪客」與「任何已登入會員」都是關的。**
+⇒ 加上先前已驗的兩道（`customers` 只授 4 欄 UPDATE ⇒ **會員改不了自己的 `tier`**；
+`eslint.config.js` 擋 storefront import `service_role` 工廠），**這條鏈三層都量過了。**
+
+⚠️ **這句話的邊界**（不要擴張引用）：
+- 證的是**資料庫授權**。**不證**應用層某支查詢有沒有把經銷價 `select` 出來再送進頁面。
+- `service_role` 當然讀得到 —— 它是後台用的，**不在這條威脅模型裡**。
+- 量的是**現在**。新增價格欄若不明文 `REVOKE`，ADP 會讓它出生就帶授權（§2.1）
+  ⇒ **這正是 A2 要擋的東西**（§7c-2）。
 
 ---
 
