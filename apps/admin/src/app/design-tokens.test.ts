@@ -618,6 +618,51 @@ describe('BMW M:--border-soft 三階邊框(片3)', () => {
   });
 });
 
+describe('BMW M:表格內文色 --fg-2(片5)', () => {
+  const CSS_CODE2 = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('🔴 `.orders-grid` 容器帶 `color: var(--fg-2)`(OD :167/:171)', () => {
+    const rule = /\.orders-grid\s*\{[^}]*\}/s.exec(CSS_CODE2)?.[0];
+    expect(rule, '找不到 .orders-grid 容器規則').toBeDefined();
+    expect(String(rule)).toContain('color: var(--fg-2)');
+  });
+
+  it('🔴🔴 顏色【不得】下放到 `.orders-grid td` —— 那會靜默殺掉表格內 4 處刻意的次要色', () => {
+    // 🔴 **這一格擋的是一個【看起來更直接、更像照 OD】的改法。**
+    //    OD 寫的是 `table.g td{color:var(--fg-2)}`,所以「照搬」的直覺就是往 td 上放。
+    //    但我方的 td 上有 6 個 utility `text-muted-foreground`,而
+    //    `.orders-grid td` 是 (0,2,0)、utility 是 (0,1,0) ⇒ **類別選擇器贏,那 6 個全失效**,
+    //    **而畫面只會「看起來顏色一致」,沒有任何東西會紅。**
+    // ⚠️ 所以本片用【容器繼承】:繼承只提供初始值,格子上的顏色一定贏。
+    const tdColorRules = [...CSS_CODE2.matchAll(/\.orders-grid\s+td\s*\{[^}]*\}/gs)]
+      .map((m) => m[0])
+      .filter((r) => /(^|[^-])color\s*:/.test(r.replace(/[a-z-]*color\s*:/g, (s) => s)));
+    const offenders = tdColorRules.filter((r) => /[^-]color\s*:\s*var\(--fg-2\)/.test(r));
+    expect(offenders, '有人把 --fg-2 下放到 .orders-grid td ⇒ 6 個次要色格會靜默失效').toEqual([]);
+  });
+
+  it('🔴 單號格保留主文字色(OD :181)—— 它是整列的主識別', () => {
+    expect(CSS_CODE2).toMatch(/\.orders-grid\s+td\.col-oid\s*\{[^}]*color:\s*var\(--foreground\)/s);
+  });
+
+  it('🔴 那些刻意的次要色還在 —— 少了它們,上面兩格就失去對象', () => {
+    // 分母斷言:數字掉了代表有人把次要欄的顏色拿掉,而那時「繼承 vs td」的整套理由都要重看。
+    //
+    // 🔴🔴 **這個數字我報錯過一次,而錯法值得留著**:第一版寫「6」,來源是 `grep -c`。
+    //    那個 6 裡面有 **1 個是我自己的註解**(它逐字提到 `text-muted-foreground`),
+    //    而且**還有 1 個是 `TH` 自己**(本片正是把它拿掉的那個)⇒ 落筆當下真值早就不是 6。
+    //    **逐行分類後**(剝註解):**5 處** = 表格內 4(日期格 / 車種格 / 格內小字 / 破折號)
+    //    + 空狀態區塊 1(**那一塊根本不在表格裡**,不受容器繼承影響)。
+    //    ⇒ **`grep -c` 數的是【行】而且含註解,不是【真的用到幾次】。先分類再報數。**
+    const table = readFileSync(
+      join(__dirname, '..', 'components', 'orders', 'orders-table.tsx'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    const n = (table.match(/text-muted-foreground/g) ?? []).length;
+    expect(n, `刻意的次要色從 5 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(5);
+  });
+});
+
 describe('BMW M:摘要卡髮絲線格(片4a)', () => {
   const cards = () =>
     readFileSync(

@@ -107,8 +107,11 @@ const OPS_LINK_LABEL = '訂單操作';
       但它是**看得出來的改動** ⇒ 已列進「要請 Sean 肉眼看」的項目。
    ⚠️ 顏色**沒動**:OD 用 `var(--fg-2)`(#334155),我方沒有這顆 token;
       補它會連帶改到 `td` 內文色(OD `:171` 也吃它)= 整張表的文字色 ⇒ **超出本片,沒做。** */
-const TH =
-  'px-3 py-2 text-left text-xs font-bold tracking-[1.5px] text-muted-foreground whitespace-nowrap';
+/* 🔴 **片5:`text-muted-foreground` 拿掉,改吃容器繼承的 `--fg-2`**(OD `:167` 的 `th` 就是它)。
+   舊值 `--muted-foreground`(#606e85)比 OD 淡;`--fg-2`(#334155)對卡片 10.35、對 hover 底 9.28。
+   ⚠️ **是「拿掉」不是「換成 `text-fg-2`」** —— 理由寫在 `globals.css` 的 `.orders-grid` 那段:
+      同特異性的 utility 對撞由編譯順序決定,而繼承沒有這個問題。 */
+const TH = 'px-3 py-2 text-left text-xs font-bold tracking-[1.5px] whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
 
 /**
