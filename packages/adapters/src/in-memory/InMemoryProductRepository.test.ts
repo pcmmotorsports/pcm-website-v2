@@ -1,3 +1,4 @@
+const TEST_POOL_LIMIT = 100;
 import { describe, it, expect } from 'vitest';
 import type { Product } from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
@@ -104,7 +105,7 @@ describe('InMemoryProductRepository', () => {
     const brake = createFakeProduct({ id: 'p-2', category: { raw: '制動 · 卡鉗', segments: ['制動', '卡鉗'] } });
     const repo = new InMemoryProductRepository([exhaust, brake]);
 
-    const result = await repo.listByCategory({ raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] });
+    const result = await repo.listByCategory({ raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] }, TEST_POOL_LIMIT);
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('p-1');
   });
@@ -179,7 +180,7 @@ describe('InMemoryProductRepository', () => {
     const brembo = createFakeProduct({ id: 'p-2', brand: { id: 'b-brembo', name: 'Brembo', slug: 'brembo', premium_extra_pct: 0 } });
     const repo = new InMemoryProductRepository([akra, brembo]);
 
-    const result = await repo.listByBrand('b-akrapovic');
+    const result = await repo.listByBrand('b-akrapovic', TEST_POOL_LIMIT);
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('p-1');
   });
@@ -192,7 +193,7 @@ describe('InMemoryProductRepository', () => {
     });
     const repo = new InMemoryProductRepository([universal, specific]);
 
-    const result = await repo.listGeneral();
+    const result = await repo.listGeneral(TEST_POOL_LIMIT);
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('p-uni');
   });
@@ -208,7 +209,7 @@ describe('InMemoryProductRepository', () => {
     });
     const repo = new InMemoryProductRepository([ducati, yamaha]);
 
-    const result = await repo.listByFitment({ motoBrand: 'Ducati', modelCode: 'Panigale V4' });
+    const result = await repo.listByFitment({ motoBrand: 'Ducati', modelCode: 'Panigale V4' }, TEST_POOL_LIMIT);
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe('p-1');
   });
@@ -288,7 +289,7 @@ describe('InMemoryProductRepository', () => {
         modelCode: 'CBR600RR',
         yearStart: 2020,
         yearEnd: 2022,
-      });
+      }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
       expect(result[0]?.id).toBe('p-cbr-2018-2024');
     });
@@ -305,7 +306,7 @@ describe('InMemoryProductRepository', () => {
         modelCode: 'MT-09',
         yearStart: 2026,
         yearEnd: 2026,
-      });
+      }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
       expect(result[0]?.id).toBe('p-mt09-open');
     });
@@ -320,7 +321,7 @@ describe('InMemoryProductRepository', () => {
       const result = await repo.listByFitment({
         motoBrand: 'Honda',
         modelCode: 'CBR600RR',
-      });
+      }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
       expect(result[0]?.id).toBe('p-honda-cbr');
     });
@@ -337,7 +338,7 @@ describe('InMemoryProductRepository', () => {
         modelCode: 'Panigale V4',
         yearStart: 2025,
         yearEnd: 2025,
-      });
+      }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(0);
     });
 
@@ -348,7 +349,7 @@ describe('InMemoryProductRepository', () => {
         fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020 }],
       });
       const repo = new InMemoryProductRepository([single]);
-      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2020 });
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2020 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
     });
 
@@ -358,7 +359,7 @@ describe('InMemoryProductRepository', () => {
         fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020 }],
       });
       const repo = new InMemoryProductRepository([single]);
-      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2021, yearEnd: 2021 });
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2021, yearEnd: 2021 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(0);
     });
 
@@ -368,7 +369,7 @@ describe('InMemoryProductRepository', () => {
         fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2018, yearEnd: 2020 }],
       });
       const repo = new InMemoryProductRepository([lower]);
-      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2025 });
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2025 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
     });
 
@@ -378,14 +379,14 @@ describe('InMemoryProductRepository', () => {
         fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2024 }],
       });
       const repo = new InMemoryProductRepository([upper]);
-      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2015, yearEnd: 2020 });
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2015, yearEnd: 2020 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
     });
 
     it('空 fitments[] → 任何 spec 都不 match(some 對空陣列為 false)', async () => {
       const empty = createFakeProduct({ id: 'p-no-fitment', fitments: [] });
       const repo = new InMemoryProductRepository([empty]);
-      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2020 });
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2020 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(0);
     });
 
@@ -398,7 +399,7 @@ describe('InMemoryProductRepository', () => {
         ],
       });
       const repo = new InMemoryProductRepository([multi]);
-      const result = await repo.listByFitment({ motoBrand: 'Honda', modelCode: 'CBR600RR', yearStart: 2011, yearEnd: 2011 });
+      const result = await repo.listByFitment({ motoBrand: 'Honda', modelCode: 'CBR600RR', yearStart: 2011, yearEnd: 2011 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
       expect(result[0]?.id).toBe('p-multi-or');
     });
@@ -409,7 +410,7 @@ describe('InMemoryProductRepository', () => {
         fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2020, yearEnd: null }],
       });
       const repo = new InMemoryProductRepository([open]);
-      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2015, yearEnd: 2015 });
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2015, yearEnd: 2015 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(0);
     });
 
@@ -419,7 +420,7 @@ describe('InMemoryProductRepository', () => {
         fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1' }],
       });
       const repo = new InMemoryProductRepository([noYear]);
-      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2099, yearEnd: 2099 });
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2099, yearEnd: 2099 }, TEST_POOL_LIMIT);
       expect(result).toHaveLength(1);
     });
   });
@@ -445,7 +446,7 @@ describe('InMemoryProductRepository', () => {
       modelCode: 'CBR600RR',
       yearStart: 2020,
       yearEnd: 2020,
-    });
+    }, TEST_POOL_LIMIT);
     expect(result).toHaveLength(0);
 
     // 對照組:spec=(Yamaha, R1, 2020) → 應 match(該條 fitment 三條全符)
@@ -454,7 +455,7 @@ describe('InMemoryProductRepository', () => {
       modelCode: 'R1',
       yearStart: 2020,
       yearEnd: 2020,
-    });
+    }, TEST_POOL_LIMIT);
     expect(positive).toHaveLength(1);
     expect(positive[0]?.id).toBe('p-multi-fitment');
   });

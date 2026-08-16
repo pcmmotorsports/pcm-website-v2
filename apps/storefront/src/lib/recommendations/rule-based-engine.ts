@@ -35,9 +35,38 @@ import type {
  * 🔴 **經銷價安全**:引擎回 product → 一律 `toUIProduct(p,'general')` strip(public view 物理
  *   排除 price_store、傳 general 免 NT$0 錯價);與 fetchRelatedProducts 同守則。
  *
- * 🔴 stopgap(#51):各 repository 方法現回全量陣列(引擎收集階段 slice 到 limit+1),
- *   目錄長大後(#212 多品牌 >4 萬)須改 server-side 分頁/上界查詢。
+ * 🔴 ~~stopgap(#51):各 repository 方法現回全量陣列(引擎收集階段 slice 到 limit+1),
+ *   目錄長大後(#212 多品牌 >4 萬)須改 server-side 分頁/上界查詢。~~
+ *   **2026-08-17 已做**:四支查詢改為 server-side 上界查詢(見 `RECOMMENDATION_POOL_SIZE`)。
+ *   ⚠️ **原句的「現回全量陣列」在寫下的當天就已經不是真的** —— PostgREST 對沒指定筆數的查詢
+ *   靜默停在 1,000 ⇒ 它回的是「全量」還是「前 1,000 筆」,**呼叫端分辨不出來**,
+ *   而「目錄長大後」這個觸發條件也早就到了(實測 19,777 商品 / 單品牌 4,566)。
  */
+/**
+ * 每個 tier 向 repository 要幾筆候選。
+ *
+ * 🔴 **這個數字取代的是一個【看不見的】上限**:四支查詢原本都沒有指定筆數,
+ * 而 PostgREST 對「沒指定」的回答是**靜默停在 1,000 筆**(HTTP 仍 200、header 不反映)
+ * ⇒ 推薦池被砍掉而沒有任何人會知道。實測與雙向對照見
+ * `docs/specs/2026-08-17-embed-truncation-slice-plan.md`。
+ *
+ * **為什麼是 800**(四個不等式,每一個都有量到的母體撐著;2026-08-17 anon 側 production):
+ * ```
+ * 800 > 724    單一車型最大（BMW S 1000 RR）⇒ 車型那面【完整涵蓋，不是取樣】
+ * 800 > 357    (品牌×分類) 的 95 百分位（226 組）⇒ 主池絕大多數完整
+ * 800 < 1000   低於 max-rows 硬牆 ⇒ 單次查詢即可，不需要分頁迴圈
+ * 800 >> 490   舊寫法在該車型上實得的候選數 ⇒ 【比修之前多 310 個】
+ * ```
+ * 傳輸量實測反而**少 17%**(1,344,526 vs 舊寫法 1,618,810 bytes;同一個 4,566 筆品牌、完整投影)。
+ *
+ * ⚠️ **800 涵蓋不到的三處,寫出來不藏**:單一分類最大 1,642 / 通用款 3,995 / 單一品牌 4,566。
+ * 這三支在本引擎裡都是 **fallback**(湊不滿才補位),而 fallback 走 `seededOrder` 打亂
+ * ⇒ 順序與池的順序無關;**主池**(車型、多數品牌×分類組合)才要求完整,而 800 涵蓋了。
+ * 🔴 **這是取捨不是漏掉** —— 要讓 fallback 也完整得跑分頁迴圈,那會引入另一族坑
+ * (頁大小 vs max-rows、`range` 邊界、中途失敗的出口、全序排序鍵)。
+ */
+const RECOMMENDATION_POOL_SIZE = 800;
+
 export class RuleBasedRecommendationEngine implements IRecommendationEngine {
   constructor(private readonly repo: IProductRepository) {}
 
@@ -89,39 +118,43 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
     //   CTA 點進去只有 ≤limit 相容品=誤導。故 hasMore = 主池(CTA 目標集合)去重排自身後 > limit。
     //   items 仍由全候選流(含 fallback)填到 limit(carousel 儘量填滿),兩者分離。
     let primaryPoolCount = 0;
+    // 主池有沒有被 `RECOMMENDATION_POOL_SIZE` 填滿(= 母體可能比池更大)。
+    let primaryPoolSaturated = false;
 
     // 🔴 repo 查詢 throw(DB 斷線/RLS 錯)→ 降級回空、不讓推薦區 crash 整頁(對齊 sibling
     //   fetchRelatedProducts「adapter throw → console.error + []」慣例;推薦區非關鍵、可降級)。
     try {
       if (context.vehicle) {
         // ── Case A:反查「選定車輛」的相容池 ─────────────────────────────
-        const vehiclePool = await this.repo.listByFitment(vehicleToSpec(context.vehicle));
+        const vehiclePool = await this.repo.listByFitment(vehicleToSpec(context.vehicle), RECOMMENDATION_POOL_SIZE);
         primaryPoolCount = countDistinctEligible(vehiclePool, excludes); // CTA=/products?vehicle=
+        primaryPoolSaturated = vehiclePool.length >= RECOMMENDATION_POOL_SIZE;
         const sameCat = vehiclePool.filter((p) => p.category.raw === sameCategoryRaw);
         const otherCat = vehiclePool.filter((p) => p.category.raw !== sameCategoryRaw);
         addTier(sameCat, 100, 'same-vehicle-same-category', false); // 同車×同分類:最相關、決定性排序
         addTier(otherCat, 70, 'same-vehicle-other-brand', true); // 同車×其他:亂數
         if (!enough()) {
-          const catPool = await this.repo.listByCategory(product.category);
+          const catPool = await this.repo.listByCategory(product.category, RECOMMENDATION_POOL_SIZE);
           addTier(catPool, 40, 'fallback-category', true); // 不足 → 同分類(不限車)
         }
       } else {
         // ── Case B:同品牌池(用 domain product.brand.id uuid) ──────────
-        const brandPool = await this.repo.listByBrand(product.brand.id);
+        const brandPool = await this.repo.listByBrand(product.brand.id, RECOMMENDATION_POOL_SIZE);
         primaryPoolCount = countDistinctEligible(brandPool, excludes); // CTA=/products?brand=
+        primaryPoolSaturated = brandPool.length >= RECOMMENDATION_POOL_SIZE;
         const sameCat = brandPool.filter((p) => p.category.raw === sameCategoryRaw);
         const otherCat = brandPool.filter((p) => p.category.raw !== sameCategoryRaw);
         addTier(sameCat, 100, 'same-brand', false); // 同品牌×同分類:決定性排序
         addTier(otherCat, 80, 'same-brand', true); // 同品牌其他:亂數
         if (!enough()) {
-          const catPool = await this.repo.listByCategory(product.category);
+          const catPool = await this.repo.listByCategory(product.category, RECOMMENDATION_POOL_SIZE);
           addTier(catPool, 50, 'fallback-category', true); // 不足 → 同分類(不限品牌)
         }
       }
 
       // 兩 case 共用最後補位:通用款(fitments 空、設計上不綁車型)。
       if (!enough()) {
-        const generalPool = await this.repo.listGeneral();
+        const generalPool = await this.repo.listGeneral(RECOMMENDATION_POOL_SIZE);
         addTier(generalPool, 10, 'general', true);
       }
     } catch (err) {
@@ -129,7 +162,14 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
       return { items: [], hasMore: false };
     }
 
-    const hasMore = primaryPoolCount > limit;
+    // 🔴 `|| primaryPoolSaturated` 是 2026-08-17 codex 對抗審查抓到的洞:
+    //    `primaryPoolCount` 最多只會是 `RECOMMENDATION_POOL_SIZE`(800),
+    //    ⇒ 呼叫端若傳 `limit = 900`,而該品牌實有 4,566 件,`800 > 900` 為 false
+    //    ⇒ **錯回 `hasMore = false`**,而「查看全部」CTA 點進去其實有 4,566 件。
+    //    池被填滿 = 母體至少有 800 件 = CTA 那頁一定還有更多 ⇒ 直接判 true。
+    //    ⚠️ 這一條**保守方向正確**:池未滿時 `primaryPoolCount` 就是真實母體、判斷精準;
+    //    池滿時寧可說「還有更多」(CTA 確實有東西),不會出現「說沒有而其實有」。
+    const hasMore = primaryPoolCount > limit || primaryPoolSaturated;
     const items = collected.slice(0, limit).map((c) => ({
       product: toUIProduct(c.product, 'general'), // 🔴 經銷價 strip、client 安全
       score: c.score,

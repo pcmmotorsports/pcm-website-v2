@@ -37,6 +37,14 @@ import { SupabaseProductAdapter } from '../../packages/adapters/src/supabase/Sup
 import { matchFitmentYear } from '../../packages/adapters/src/supabase/helpers/fitment';
 import type { CategoryPath, FitmentSpec, MemberTier, Money } from '@pcm/domain';
 
+
+/**
+ * spike 腳本的池上限。🔴 這支【不在 root typecheck 範圍】(`scripts/spikes/`)
+ * ⇒ 2026-08-17 四支查詢改必填 `poolLimit` 時,三綠沒有抓到它,是 codex 對抗審查找出來的。
+ * 📎 教訓比修法值錢:**守門看不到的地方,改介面時要自己去找。**
+ */
+const SPIKE_POOL_LIMIT = 1000;
+
 const PREFIX = 'spike-fixture-';
 const BRAND_NAME = `${PREFIX}brand`;
 const BRAND_SLUG = `${PREFIX}brand`;
@@ -286,7 +294,7 @@ async function main(): Promise<void> {
       );
     }
 
-    const byBrand = await adapter.listByBrand(brandId);
+    const byBrand = await adapter.listByBrand(brandId, SPIKE_POOL_LIMIT);
     const byBrandIds = new Set(byBrand.map((p) => p.id));
     const allFixtureIds = [pids.f1, pids.f2_noYear, pids.f2_range, pids.f2_open, pids.f2_single, pids.f4, pids.f5, pids.f6, pids.f7];
     const expectAll9 = allFixtureIds.every((id) => byBrandIds.has(id!));
@@ -298,7 +306,7 @@ async function main(): Promise<void> {
 
     // ============ C2 category JOIN ============
     const catA: CategoryPath = { raw: CAT_A_RAW, segments: [`${PREFIX}cat`, 'a'] };
-    const byCat = await adapter.listByCategory(catA);
+    const byCat = await adapter.listByCategory(catA, SPIKE_POOL_LIMIT);
     const byCatIds = new Set(byCat.map((p) => p.id));
     const okCatShape = byCat.length > 0 && byCat.every((p) =>
       typeof p.category.raw === 'string' &&
@@ -328,37 +336,37 @@ async function main(): Promise<void> {
     // 注:matchFitmentYear 真實簽名 (actual, spec) 雙 FitmentSpec、spec.yearStart 設值驗
 
     // C3a 無年份(actual.yearStart=undefined)→ matchFitmentYear 第一行 return true、無論 spec.yearStart 為何
-    const c3a = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'noYear', yearStart: 2050 });
+    const c3a = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'noYear', yearStart: 2050 }, SPIKE_POOL_LIMIT);
     const c3aPass = c3a.some((p) => p.id === pids.f2_noYear);
     record('C3a 無年份 + spec yearStart=2050', c3aPass, c3aPass ? 'F2_noYear in result(actual.yearStart undef → match all)' : `F2_noYear not in (${c3a.length} rows)`);
 
     // C3b 範圍 in-range(2018-2024 + spec.yearStart=2020)→ match
-    const c3b = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'range', yearStart: 2020 });
+    const c3b = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'range', yearStart: 2020 }, SPIKE_POOL_LIMIT);
     const c3bPass = c3b.some((p) => p.id === pids.f2_range);
     record('C3b 範圍 spec yearStart=2020', c3bPass, c3bPass ? 'F2_range in result(2020 ∈ [2018,2024])' : `F2_range not in (${c3b.length} rows)`);
 
     // C3c 範圍 out-of-range(2018-2024 + spec.yearStart=2017)→ no match
-    const c3c = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'range', yearStart: 2017 });
+    const c3c = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'range', yearStart: 2017 }, SPIKE_POOL_LIMIT);
     const c3cPass = !c3c.some((p) => p.id === pids.f2_range);
     record('C3c 範圍 spec yearStart=2017', c3cPass, c3cPass ? 'F2_range correctly excluded(2017 < 2018)' : `F2_range wrongly in result`);
 
     // C3d 開放式 below(2025+ + spec.yearStart=2024)→ no match
-    const c3d = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'open', yearStart: 2024 });
+    const c3d = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'open', yearStart: 2024 }, SPIKE_POOL_LIMIT);
     const c3dPass = !c3d.some((p) => p.id === pids.f2_open);
     record('C3d 開放式 spec yearStart=2024', c3dPass, c3dPass ? 'F2_open correctly excluded(2024 < 2025)' : `F2_open wrongly in result`);
 
     // C3e 開放式 above(2025+ + spec.yearStart=2030)→ match
-    const c3e = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'open', yearStart: 2030 });
+    const c3e = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'open', yearStart: 2030 }, SPIKE_POOL_LIMIT);
     const c3ePass = c3e.some((p) => p.id === pids.f2_open);
     record('C3e 開放式 spec yearStart=2030', c3ePass, c3ePass ? 'F2_open in result(2030 ∈ [2025,Infinity])' : `F2_open not in (${c3e.length} rows)`);
 
     // C3f 單年 match(2024 + spec.yearStart=2024)→ match
-    const c3f = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'single', yearStart: 2024 });
+    const c3f = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'single', yearStart: 2024 }, SPIKE_POOL_LIMIT);
     const c3fPass = c3f.some((p) => p.id === pids.f2_single);
     record('C3f 單年 spec yearStart=2024', c3fPass, c3fPass ? 'F2_single in result(2024 = 2024)' : `F2_single not in (${c3f.length} rows)`);
 
     // C3g 單年 mismatch(2024 + spec.yearStart=2025)→ no match
-    const c3g = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'single', yearStart: 2025 });
+    const c3g = await adapter.listByFitment({ motoBrand: 'Honda', modelCode: 'single', yearStart: 2025 }, SPIKE_POOL_LIMIT);
     const c3gPass = !c3g.some((p) => p.id === pids.f2_single);
     record('C3g 單年 spec yearStart=2025', c3gPass, c3gPass ? 'F2_single correctly excluded(2025 ≠ 2024)' : `F2_single wrongly in result`);
 
@@ -392,7 +400,7 @@ async function main(): Promise<void> {
       modelCode: 'CBR600RR',
       yearStart: 2020,
       yearEnd: 2020,
-    });
+    }, SPIKE_POOL_LIMIT);
     const c3iCrossPass = !c3iCross.some((p) => p.id === pids.f7);
     record('C3i 跨車型 false positive 防護:spec=(Honda,CBR600RR,2020) F7 should excluded', c3iCrossPass,
       c3iCrossPass
@@ -405,7 +413,7 @@ async function main(): Promise<void> {
       modelCode: 'R1',
       yearStart: 2020,
       yearEnd: 2020,
-    });
+    }, SPIKE_POOL_LIMIT);
     const c3iPositivePass = c3iPositive.some((p) => p.id === pids.f7);
     record('C3i 對照組:spec=(Yamaha,R1,2020) F7 should match', c3iPositivePass,
       c3iPositivePass
@@ -450,7 +458,7 @@ async function main(): Promise<void> {
 
     // ============ C6 empty fitments=[] ============
     // (a) listByFitment(任意非空 spec)→ F4 不在 result(.contains 對 empty array @> false)
-    const c6aList = await adapter.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1' });
+    const c6aList = await adapter.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1' }, SPIKE_POOL_LIMIT);
     const c6aPass = !c6aList.some((p) => p.id === pids.f4);
     record('C6a empty fitments not in listByFitment', c6aPass,
       c6aPass ? `F4 correctly excluded(empty array [] @> [{...}] = false)` : `F4 wrongly in result`);

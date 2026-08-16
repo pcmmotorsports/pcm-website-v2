@@ -31,6 +31,31 @@ export class InMemoryProductRepository implements IProductRepository {
     }
   }
 
+  /**
+   * 取池:**與真 adapter 同樣的可觀測行為**(`.order('handle').limit(poolLimit)`)。
+   *
+   * 🔴 2026-08-17 codex 對抗審查抓到:本檔原本是「插入序 `.slice()`、不驗 poolLimit」,
+   * 而真 adapter 是「DB 端 handle 升冪 + limit」⇒ 餵 `[handle=z, handle=a]` 且 poolLimit=1 時
+   * **替身回 z、真 DB 回 a** ⇒ 以替身寫的測試會**假綠**。
+   * 📎 而我在 `listByBrand` 上方寫的正是「兩個實作對同一 contract 要有同樣的可觀測行為」——
+   * **寫了那句話的人自己沒照做**,靠第三方擊破才發現。
+   *
+   * ⚠️ 排序用 `localeCompare('en')`,而真 adapter 用 **DB collation**;
+   * handle 若出現非 ASCII 或大小寫混用,兩者**可能**不同序(codex nit)。
+   * 目前 handle 皆為小寫 ASCII slug ⇒ 兩者等價;**這是一個有條件的等價,不是恆等**。
+   */
+  private takePool(items: Product[], poolLimit: number): Product[] {
+    if (!Number.isInteger(poolLimit) || poolLimit <= 0) {
+      throw new Error(
+        `InMemoryProductRepository: poolLimit 須為正整數、收到 ${poolLimit}`
+      );
+    }
+    return items
+      .slice()
+      .sort((a, b) => a.handle.localeCompare(b.handle, 'en'))
+      .slice(0, poolLimit);
+  }
+
   async findById(id: ProductId): Promise<Product | null> {
     return this.products.get(id) ?? null;
   }
@@ -57,9 +82,15 @@ export class InMemoryProductRepository implements IProductRepository {
     return cloned;
   }
 
-  async listByCategory(category: CategoryPath): Promise<Product[]> {
-    return Array.from(this.products.values()).filter(
-      (p) => p.category.raw === category.raw
+  async listByCategory(
+    category: CategoryPath,
+    poolLimit: number
+  ): Promise<Product[]> {
+    return this.takePool(
+      Array.from(this.products.values()).filter(
+        (p) => p.category.raw === category.raw
+      ),
+      poolLimit
     );
   }
 
@@ -70,7 +101,12 @@ export class InMemoryProductRepository implements IProductRepository {
    * 真 adapter(SupabaseProductAdapter)才需 .range 分頁迴圈繞過上限。
    */
   async listAllByCategory(category: CategoryPath): Promise<Product[]> {
-    return this.listByCategory(category);
+    // 🔴 **不轉呼叫 `listByCategory`** —— 它自 2026-08-17 起是**取樣版**(必填 `poolLimit`),
+    //    而本方法是**全量版**。轉呼叫就得傳一個假的「很大的數」,那等於把
+    //    「全量」重新定義成「一個我猜夠大的值」—— 正是這一整片在拆掉的那種東西。
+    return Array.from(this.products.values()).filter(
+      (p) => p.category.raw === category.raw
+    );
   }
 
   /**
@@ -143,9 +179,15 @@ export class InMemoryProductRepository implements IProductRepository {
     return Array.from(byRaw.values());
   }
 
-  async listByBrand(brandId: string): Promise<Product[]> {
-    return Array.from(this.products.values()).filter(
-      (p) => p.brand.id === brandId
+  /**
+   * 🔴 `poolLimit` 的 `slice` 在 in-memory 這一側**看起來多餘,而它正是替身要做的事**:
+   * 兩個實作對同一個 contract 要有同樣的**可觀測行為**。少了它,以 in-memory 寫的測試會看到
+   * 「全部」,真 adapter 卻只回 `poolLimit` 筆 ⇒ 那個差異只會在正式站上出現。
+   */
+  async listByBrand(brandId: string, poolLimit: number): Promise<Product[]> {
+    return this.takePool(
+      Array.from(this.products.values()).filter((p) => p.brand.id === brandId),
+      poolLimit
     );
   }
 
@@ -155,17 +197,27 @@ export class InMemoryProductRepository implements IProductRepository {
    * in-memory 直接篩 `p.fitments.length === 0`;真 adapter(SupabaseProductAdapter)走
    * products_public `fitments = '[]'` + RLS 濾下架。排自身/上限由推薦引擎處理、非此層。
    */
-  async listGeneral(): Promise<Product[]> {
-    return Array.from(this.products.values()).filter(
-      (p) => p.fitments.length === 0
+  async listGeneral(poolLimit: number): Promise<Product[]> {
+    return this.takePool(
+      Array.from(this.products.values()).filter(
+        (p) => p.fitments.length === 0
+      ),
+      poolLimit
     );
   }
 
-  async listByFitment(spec: FitmentSpec): Promise<Product[]> {
+  async listByFitment(
+    spec: FitmentSpec,
+    poolLimit: number
+  ): Promise<Product[]> {
     // 字面對齊:單 spec 配對任一 product.fitments[i]
     // 多選 OR(specs[])M-1-03 / M-1-12 補(對齊 backlog #38)
-    return Array.from(this.products.values()).filter((p) =>
-      p.fitments.some((f) => this.matchFitment(f, spec))
+    // `poolLimit` 的 slice 理由同 listByBrand。
+    return this.takePool(
+      Array.from(this.products.values()).filter((p) =>
+        p.fitments.some((f) => this.matchFitment(f, spec))
+      ),
+      poolLimit
     );
   }
 

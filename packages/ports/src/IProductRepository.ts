@@ -30,11 +30,14 @@ export interface IProductRepository {
    */
   findByHandle(handle: string): Promise<Product | null>;
   /**
-   * 依 category 列出 product。
+   * 依 category 列出 product,**最多 `poolLimit` 筆**(必填理由同 `listByBrand`)。
    *
-   * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)
+   * 原 `@TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams`(backlog #20 + #51)—— 觸發條件已到。
+   *
+   * 實測 79 個分類中 **3 個破千**(最大 1,642;2026-08-17 anon 側 production)
+   * ⇒ 舊簽名在那三個分類上靜默停在 1,000。
    */
-  listByCategory(category: CategoryPath): Promise<Product[]>;
+  listByCategory(category: CategoryPath, poolLimit: number): Promise<Product[]>;
   /**
    * 依 category 列出 product —— 全量版(#220、/products 列表頁)。
    *
@@ -97,17 +100,30 @@ export interface IProductRepository {
    */
   listCategories(): Promise<CategorySummary[]>;
   /**
-   * 依 brand 列出 product。
+   * 依 brand 列出 product,**最多 `poolLimit` 筆**。
    *
-   * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)
+   * 🔴 **`poolLimit` 必填,不是「可選的最佳化」** —— 那正是這個簽名要解的問題:
+   * 舊簽名的語意是「給我全部」,而 PostgREST 對「全部」的回答是**靜默停在 1,000 筆**
+   * (HTTP 仍 200、`content-range` 不反映、無 `Preference-Applied` ⇒ 呼叫端偵測不到)。
+   * 實測:某品牌 4,566 筆 ⇒ 實得 1,000。雙向對照見
+   * `docs/specs/2026-08-17-embed-truncation-slice-plan.md` §6。
+   * ⇒ **必填讓「要幾筆」變成呼叫端的一個決定,而不是伺服器替我們做的一個沉默截斷。**
+   *
+   * 原 `@TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams`(backlog #20 + #51)——
+   * ⚠️ **那個觸發條件已經發生了**(19,777 商品 / 單品牌 4,566),本簽名是它的第一步。
    */
-  listByBrand(brandId: string): Promise<Product[]>;
+  listByBrand(brandId: string, poolLimit: number): Promise<Product[]>;
   /**
-   * 依 fitment spec 列出 product(motoBrand + modelCode 配對)。
+   * 依 fitment spec 列出 product(motoBrand + modelCode 配對),**最多 `poolLimit` 筆**。
    *
-   * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)
+   * `poolLimit` 必填的理由同 `listByBrand`。
+   * **舊實作**是兩步查詢(先撈 `product_fitments` 列、再 `.in('id', …)` 取商品),
+   * 而**兩步是串聯截斷**:步①被夾過的 id 餵給步②,步②查得到它拿到的每一個 id
+   * ⇒ 看起來完全正常。實測 `BMW / S 1000 RR` = 1,423 列 fitment(= 724 個 distinct 商品)
+   * ⇒ 步①實得 1,000 列 ⇒ 只剩 **490** 個商品。
+   * **2026-08-17 改為一步 `!inner` join**(頂層是商品 ⇒ 天生 distinct、無 `.in()` URL 限制)。
    */
-  listByFitment(spec: FitmentSpec): Promise<Product[]>;
+  listByFitment(spec: FitmentSpec, poolLimit: number): Promise<Product[]>;
   /**
    * 列出「通用款」product —— fitments 為空(設計上不綁任何車型、適用任何車)。
    *
@@ -117,12 +133,14 @@ export interface IProductRepository {
    * Contract:
    * - 回 `fitments` 為空陣列(`[]`)的 product(真「通用」= 設計上不綁車型);
    *   fitments 非空但元素全髒(無法正規化)者**不算**通用(其意圖為特定車、僅資料髒)。
-   * - 排自身 / 上限由呼叫端(推薦引擎)處理、非本方法;真 adapter 走 products_public
-   *   + RLS(只回上架、經銷價物理排除)。
+   * - 排自身由呼叫端(推薦引擎)處理;真 adapter 走 products_public + RLS(只回上架、經銷價物理排除)。
+   * - **筆數上限改由 `poolLimit` 必填指定**(2026-08-17)。⚠️ 原句「上限由呼叫端處理」
+   *   在 PostgREST 下**從來沒有真的成立過** —— 呼叫端拿到的本來就已經是被伺服器
+   *   靜默夾成 1,000 筆的結果。🔴 這是這一族裡母體最大的一支:實測 **3,995** 筆 ⇒ 少 2,995。
    *
    * @see docs/specs/2026-07-08-recommendation-engine-related-products-plan.md §4
    */
-  listGeneral(): Promise<Product[]>;
+  listGeneral(poolLimit: number): Promise<Product[]>;
   /**
    * 依關鍵字模糊搜尋 product entity、回分頁包。
    *

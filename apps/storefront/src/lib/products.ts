@@ -804,8 +804,11 @@ export const fetchProductByHandle = cache(
  * 撈「相同分類」相關商品(C5/#258:商品詳情頁相關商品真資料化、拆舊 MOCK_PRODUCTS 假圖+死連結)。
  *
  * 行為:
- *   - listByCategory({raw: categoryRaw})(同一分類單次查、≤1000 取前 N 足夠、不需全量分頁)→
+ *   - listByCategory({raw: categoryRaw}, limit + 1)(同一分類單次查、明示上界)→
  *     排除當前商品(excludeHandle)→ 取前 limit(預設 4)→ toUIProduct(p,'general')
+ *   ⚠️ **原句「≤1000 取前 N 足夠」在同一個檔裡就被 `:816` 的「單一分類 ~1117」推翻過** ——
+ *   兩句共存,而讀到前一句的人不會往下讀到後一句。實測 79 個分類中 **3 個破千**
+ *   (最大 1,642;2026-08-17 anon 側 production)⇒ 那個「≤1000」是錯的前提,只是這支剛好只取 4 筆。
  *   - 找不到分類 / 撈空 → []、adapter throw → console.error + [](相關商品區條件隱藏、不 crash)
  *
  * 🔴 現況全站單一分類「碳纖維部品」→ 相關商品 = 其他碳纖維商品;多品牌上架後 = 真同分類商品。
@@ -813,8 +816,13 @@ export const fetchProductByHandle = cache(
  * 🔴 **釘 general**(同 fetchProductByHandle 理由):public view 排除 price_store、經銷價零外洩。
  * 🔴 **決定性**:listByCategory 未定序 → 以 handle 升冪排序後取前 N,同一商品跨請求 related 穩定不跳
  *   (對齊 fetchFeaturedProducts .order('id') 決定性精神;舊 MOCK_PRODUCTS 版靜態陣列本即決定性、不回歸)。
- * 🔴 **stopgap(#51)**:listByCategory 單次查回 ≤1000 筆 detail 全欄、僅取 4 = 浪費(單一分類 ~1117 更明顯);
- *   詳情頁無 revalidate 快取、爬蟲會放大。治本 = 加 .limit / 專用輕量投影 / cache,併 server-side 分頁 #51。
+ * 🔴 ~~**stopgap(#51)**:listByCategory 單次查回 ≤1000 筆 detail 全欄、僅取 4 = 浪費(單一分類 ~1117 更明顯);
+ *   詳情頁無 revalidate 快取、爬蟲會放大。治本 = 加 .limit / 專用輕量投影 / cache~~
+ *   **2026-08-17 已做第一項(加 `.limit`)**:改傳 `limit + 1`(多的那筆給 `excludeHandle` 用)。
+ *   🔴 **無損的理由要寫出來**:本函式取前 N 的排序鍵是 **handle 升冪**(見下一條),
+ *   而 adapter 的池也是 `.order('handle')` ⇒ **池的排序鍵與消費端一致 ⇒ 取前 N 與拉全表再取前 N 等價**。
+ *   (排序鍵不一致時就不成立 —— 那正是「前 N 個 id ≠ handle 最小的 N 個」。)
+ *   仍未做:專用輕量投影 / cache。
  * 註:CategoryPath.segments 不影響查詢(SupabaseProductAdapter.listByCategory 只用 `.raw` resolve),
  *   此處以 raw 當單元素、免解析分隔符。
  */
@@ -827,10 +835,14 @@ export async function fetchRelatedProducts(
   const adapter = new SupabaseProductAdapter(client);
 
   try {
-    const products = await adapter.listByCategory({
-      raw: categoryRaw,
-      segments: [categoryRaw],
-    });
+    const products = await adapter.listByCategory(
+      {
+        raw: categoryRaw,
+        segments: [categoryRaw],
+      },
+      // +1:池裡可能含當前商品本身(下面用 excludeHandle 濾掉)⇒ 多要一筆才保證濾完仍有 limit 筆。
+      limit + 1,
+    );
     return products
       .filter((p) => p.handle !== excludeHandle)
       .sort((a, b) => a.handle.localeCompare(b.handle, 'en')) // 決定性:同 4 件、跨請求不跳(見檔頭 🔴)
