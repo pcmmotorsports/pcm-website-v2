@@ -219,11 +219,79 @@ select r.rolname,
 
 ---
 
+## 3.6 🔴🔴 驗的時候最容易踩的那一腳:**ACL 欄是 `NULL` 時,PUBLIC 那份看不見**
+
+前面講的是**怎麼關**。這一節是**怎麼確認它關上了** —— 而這裡有一個
+**會回「零命中」、而零命中正好是你希望看到的結果**的陷阱。
+
+**全新建的函式,`pg_proc.proacl` 是 `NULL`。** `NULL` 不代表「沒有人有權限」,
+它代表**「沿用預設」,而預設裡就有 PUBLIC 的 `EXECUTE`。**
+⇒ 直接 `aclexplode(proacl)` 去找 PUBLIC ⇒ **回零列,而 `anon` 其實執行得到。**
+
+2026-08-16 拋棄式 PG 17.10 實測(同一支全新函式,三種問法):
+
+```sql
+-- 接 §2 的 setup
+create function public.f_null(a text) returns int language sql security definer as $$ select 1 $$;
+
+-- A：proacl 是不是 NULL
+select (proacl is null) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+ where n.nspname='public' and p.proname='f_null';                                   -- => true
+
+-- B：天真查法 —— 直接展開 proacl 找 PUBLIC
+select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace,
+       lateral aclexplode(p.proacl) a
+ where n.nspname='public' and p.proname='f_null'
+   and a.grantee=0 and a.privilege_type='EXECUTE';                                  -- => 0   ← 看起來乾淨
+
+-- C：正確查法 —— NULL 時要展開 acldefault
+select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace,
+       lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+ where n.nspname='public' and p.proname='f_null'
+   and a.grantee=0 and a.privilege_type='EXECUTE';                                  -- => 1   ← PUBLIC 有 EXECUTE
+
+-- D：事實 —— anon 到底執行得到嗎
+select has_function_privilege('anon','public.f_null(text)','EXECUTE');              -- => true
+```
+
+🔴 **B 回 `0` 而 D 回 `true`。** 那個 `0` 不是「沒有 PUBLIC 授權」,是「我沒問對地方」——
+**而它長得跟「乾淨」一模一樣。**
+
+⇒ **兩條硬規則:**
+1. **判準用 `has_function_privilege`(有效權限),不要用 ACL 欄的字面。** ACL 只有在你
+   已經知道自己在看什麼的時候才有用。(這條 §2 講過,這裡是它的實測反例。)
+2. **非要讀 ACL 欄不可 ⇒ 一律 `coalesce(<acl 欄>, acldefault(<類型碼>, <owner>))`。**
+   類型碼:函式 `'f'`、表/view `'r'`。
+
+### 同一腳在**表**上也踩得到(2026-08-16 E 窗實例)
+
+本檔講函式,而**完全相同的機制在表上成立**:
+`REVOKE ... FROM <某角色>` **收不掉授權給 `PUBLIC` 的那份**,
+而查的時候 `relacl` 一樣可能是 `NULL`、一樣要 `coalesce(c.relacl, acldefault('r', c.relowner))`。
+
+E 窗建唯讀稽核帳號時就中了:體檢報「這帳號讀得到 6 張表 ⇒ 不安全」,
+**而那 6 張是平台授權給 `PUBLIC` 的,重建帳號一百次也一樣。**
+🔴 **它的判準錯在方向**:「讀得到任何一張 = 不安全」把
+**「這個角色被授權了」**與**「所有人都被授權了」**混成一件事。
+⇒ 正確判準是「讀得到**不是**對 PUBLIC 開放的東西 = 不安全」。
+⚠️ **而豁免 PUBLIC 那份 ≠ 它無害** —— 「PUBLIC 讀得到什麼」是**另一個獨立問題**
+(`PUBLIC` 包含 `anon`),要另案查,不能用「反正是平台裝的」帶過。
+
+📎 收斂句:**懂得怎麼關,不代表懂得怎麼確認它關上了。**
+
+---
+
 ## 4. 現況不是洞(不要拿這份檔去修不存在的問題)
 
 2026-08-16 E 窗全樹稽核:存活 SECDEF 函式 **80** 支,`anon` 執行得到的 **0** 支。
 **正向對照**=同一支分析器跑修好前的 `d54ce716` 回 `1` 命中(`#525` 那支)
 ⇒ 那個 0 是量得出來的,不是量具壞掉。
+
+🔴 **範圍限定(2026-08-16 E-677/E-678 之後補上,原句讀起來比實際寬)**:
+那 `80 / 0` 的**分母是 `supabase/migrations`,也就是【我們自己寫的東西】**。
+**平台自己裝的擴充給了誰什麼權限,從來沒查過** —— E 窗已實測平台另有物件授權給 `PUBLIC`
+(而 `PUBLIC` 包含 `anon`)。⇒ **「anon 執行得到 0 支」要讀成
+「在我們自己建的物件範圍內,0 支」,不是「整個資料庫 0 支」。**
 
 🔴 **這兩個數字【不可重跑】** ——分析器 `audit2.py` 在 E 窗的 scratchpad、**不在本 repo**
 (`find . -name 'audit2*'` 零命中,分母=整棵樹)。
