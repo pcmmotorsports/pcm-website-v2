@@ -87,7 +87,9 @@ mk_stub_adp() {
 #    而症狀看起來像「migration 壞了」,真因是【上一格沒清乾淨】。
 drop_objs() { run_sql "drop table if exists public.admin_user_staff_map cascade;
                        drop function if exists public.admin_user_staff_map_no_delete();
-                       drop function if exists public.admin_user_staff_map_no_truncate();"; }
+                       drop function if exists public.admin_user_staff_map_no_truncate();
+                       drop function if exists public.admin_user_staff_map_no_rebind();
+                       drop role if exists inherited_writer;"; }
 
 mk_stub_base
 
@@ -136,6 +138,60 @@ cell "A9b select(對照:表沒鎖死)" green run_sql "select 1 from public.admin
 #    兩層防護:主防線是 REVOKE、第二層是 BEFORE TRUNCATE trigger。這一格兩層一起驗。
 cell "A10 truncate as service_role(要紅)" red run_sql \
   "set role service_role; truncate public.admin_user_staff_map;"
+# 🔴🔴 A11(關卡2 R3 F-R3-1):UPDATE 的【持久】防線。
+#    A9 證的是「service_role 現在沒有 UPDATE 權限」;A11 證的是
+#    「**就算日後有人把 UPDATE 授回去,識別欄仍然改不動**」——
+#    那正是我 justify no_truncate 時用的威脅模型(權限會被改回來),而我原本沒套到 UPDATE。
+#    ⇒ 這一格【先把權限授回去】,再看 trigger 擋不擋得住。
+# 🔴 GRANT 必須【單獨一次呼叫】,不能和會失敗的 UPDATE 放在同一個 run_sql ——
+#    `psql -c` 的多語句是**單一隱式交易**(我 2026-08-16 六臂實測過的那條),
+#    UPDATE 失敗會把前面的 GRANT 一起回滾 ⇒ 下一格 A11b 就沒有 UPDATE 權限、
+#    紅在「permission denied」而不是紅在它要驗的東西。**那是假紅。**
+run_sql "grant update on public.admin_user_staff_map to service_role;"
+cell "A11 授回 UPDATE 後仍改不動識別欄" red run_sql \
+  "set role service_role; update public.admin_user_staff_map set staff_id='staff_1';"
+# 🔴 對照組:同一個世界(UPDATE 已授回)下,改【非識別欄】要成功 ——
+#    沒有這一格,A11 的紅可能只是「trigger 把整張表鎖死」。
+cell "A11b 同世界改非識別欄(對照)" green run_sql \
+  "set role service_role; update public.admin_user_staff_map set created_at = created_at;"
+run_sql "revoke update on public.admin_user_staff_map from service_role;"
+
+# 🔴🔴 A12(關卡2 R3 F-R3-2):**角色繼承**的負向對照。
+#    原斷言用 aclexplode(relacl) ⇒ 只看直接 ACL ⇒ 繼承來的權限它看不見。
+#    這一格構造一個「service_role 繼承一個持有 UPDATE 的角色」的世界,
+#    **新斷言(has_table_privilege / has_column_privilege)必須抓到。**
+#    ⚠️ 沒有這一格,我只是把一個證不了的東西換成另一個。
+drop_objs
+run_sql "create role inherited_writer;"
+run_sql_file "$B1B" > /dev/null 2>&1
+run_sql "grant update on public.admin_user_staff_map to inherited_writer;
+         grant inherited_writer to service_role;"
+cell "A12 繼承來的 UPDATE 要被斷言抓到" red run_sql_file "$B1B"
+echo "     ↑ 這一格重跑整支:前提斷言先撞名紅之前,收權斷言不會跑到"
+echo "       ⇒ 若它紅在撞名而不是紅在收權,這格【沒有判別力】,見下方單獨的斷言重跑"
+# 🔴 上一格會先撞名 ⇒ 判別力不足。單獨把【收權斷言那一段】抽出來重跑才算數。
+cell "A12b 單獨重跑收權斷言(繼承世界)" red run_sql \
+  "DO \$t\$ DECLARE v_reach text; BEGIN
+     SELECT string_agg(r.rolname, ', ') INTO v_reach FROM pg_roles r
+      WHERE pg_has_role('service_role', r.oid, 'SET') AND r.rolname <> 'service_role'
+        AND has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'UPDATE');
+     IF v_reach IS NOT NULL THEN RAISE EXCEPTION 'A12b: 可 SET ROLE 到的角色持有 UPDATE: %', v_reach; END IF; END \$t\$;"
+# 🔴🔴 A12b2:證明【R3 建議的那個修法單獨用還不夠】——
+#    has_table_privilege 對 NOINHERIT 成員身分是【看不到】的(2026-08-16 實測:
+#    set role 過去真的 UPDATE 1,而 has_table_privilege 回 f)。
+cell "A12b2 只用 has_table_privilege(應綠=看不到)" green run_sql \
+  "DO \$t\$ BEGIN
+     IF has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), 'UPDATE')
+       THEN RAISE EXCEPTION 'A12b2: has_table_privilege 看到了'; END IF; END \$t\$;"
+cell "A12c 同段對【舊查法】(relacl)—— 應該綠(證明舊查法看不到)" green run_sql \
+  "DO \$t\$ DECLARE v_sr text; BEGIN
+     SELECT string_agg(DISTINCT a.privilege_type, ',' ORDER BY a.privilege_type) INTO v_sr
+       FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+      WHERE c.oid = to_regclass('public.admin_user_staff_map')
+        AND a.grantee::regrole::text = 'service_role';
+     IF coalesce(v_sr,'') <> 'INSERT,SELECT' THEN RAISE EXCEPTION 'A12c: %', v_sr; END IF; END \$t\$;"
+echo "     ↑ 🔴 A12b 紅 + A12c 綠 = **同一個世界,新查法看得到、舊查法看不到**"
+echo "       這一對才是 F-R3-2 的證據;只有 A12b 的話證不了「換了才抓得到」"
 
 drop_objs
 # 🔴 突變要錨在【現在真的存在】的那一行。2026-08-16 移除 UPDATE 授權之後,

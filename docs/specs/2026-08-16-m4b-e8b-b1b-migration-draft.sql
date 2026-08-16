@@ -163,6 +163,38 @@ CREATE TRIGGER admin_user_staff_map_no_truncate_trg
   BEFORE TRUNCATE ON public.admin_user_staff_map
   FOR EACH STATEMENT EXECUTE FUNCTION public.admin_user_staff_map_no_truncate();
 
+-- 🔴🔴 **兩個識別欄不可改**(關卡2 R3 `F-R3-1`,兩顆腦獨立命中)
+--
+--    我給 DELETE 與 TRUNCATE 各加了一道 trigger,理由逐字是
+--    「**權限可能被別人改回來,而那時不會有任何東西提醒你**」。
+--    ⇒ **那個理由【同樣適用 UPDATE】,而我沒有套。**
+--    日後若有人誤授 `UPDATE` 給 service_role(或任何角色),就能把
+--    `auth_user_id` / `staff_id` 換掉 = **與 DELETE+INSERT 完全相同的重綁效果**,
+--    而 no_delete / no_truncate **都不會觸發**、apply 當下那一次性的收權斷言**也不會重跑**。
+--
+--    📎 這是我自己邏輯的不一致,不是新知識 —— **同一個理由,我只套了兩個動詞。**
+--
+--    ⚠️ 只擋【識別欄】不擋整個 UPDATE:日後若要加 `revoked_at` 之類的欄位還改得動。
+--       **擋的是「這一列指向誰」,不是「這一列的任何欄位」。**
+CREATE FUNCTION public.admin_user_staff_map_no_rebind()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $norebind$
+BEGIN
+  IF NEW.auth_user_id IS DISTINCT FROM OLD.auth_user_id
+     OR NEW.staff_id  IS DISTINCT FROM OLD.staff_id THEN
+    RAISE EXCEPTION E'admin_user_staff_map 的 auth_user_id / staff_id 不可修改。\n'
+      '   改它 = 把歷史稽核紀錄重新指向另一個人,而【零訊號】。\n'
+      '   ⇒ 要換綁定:走 Auth 側停用舊帳號 + 新增一列新代號(代號永不重用,Sean 2026-08-16 拍板)。';
+  END IF;
+  RETURN NEW;
+END
+$norebind$;
+
+CREATE TRIGGER admin_user_staff_map_no_rebind_trg
+  BEFORE UPDATE ON public.admin_user_staff_map
+  FOR EACH ROW EXECUTE FUNCTION public.admin_user_staff_map_no_rebind();
+
 -- ───────────────────────────────────────────────────────────────────────────
 --  3. 收權
 --     🔴 兩道都要下(規格 §2 / docs/patterns/revoking-function-execute-in-supabase.md):
@@ -186,6 +218,8 @@ REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete()   FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete()   FROM anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_truncate() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_truncate() FROM anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_rebind()   FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_rebind()   FROM anon, authenticated, service_role;
 
 -- 🔴🔴 **不給 UPDATE**(關卡2 [高] finding,2026-08-16)。
 --    原版給了 `UPDATE`,而 `UPDATE` 可以直接把 auth_user_id 或 staff_id 換掉
@@ -231,7 +265,8 @@ DO $newobj_guard$
 DECLARE
   v_relations text[] := ARRAY['public.admin_user_staff_map']::text[];
   v_functions text[] := ARRAY['public.admin_user_staff_map_no_delete()',
-                              'public.admin_user_staff_map_no_truncate()']::text[];
+                              'public.admin_user_staff_map_no_truncate()',
+                              'public.admin_user_staff_map_no_rebind()']::text[];
   r         text;
   v_oid     oid;
   v_bad     int := 0;
@@ -287,20 +322,78 @@ BEGIN
     --    原版寫 `NOT IN ('service_role', current_user)` ⇒ **即使它握有 UPDATE/DELETE/TRUNCATE 也恆綠**
     --    ⇒ 這個守門在設計上看不到上面那個洞。**豁免誰,就對誰盲。**
     --    改成:service_role 的權限必須【恰好】是 SELECT+INSERT,多一項就紅。
-    DECLARE v_sr text;
+    -- 🔴🔴 **改用【有效權限】,不用 ACL 字面**(關卡2 R3 `F-R3-2`)
+    --
+    --    原版用 `aclexplode(relacl)` ⇒ **只看直接的 table ACL**,對兩件事盲:
+    --      ① **角色繼承** —— service_role 若繼承了某個持有 UPDATE 的角色,relacl 上看不到
+    --      ② **欄級授權** —— `GRANT UPDATE(auth_user_id)` 住在 `pg_attribute.attacl`,不在 relacl
+    --    ⇒ **斷言綠,而有效權限含 UPDATE。**
+    --
+    --    📎 這條打的是【我用來證明安全的那道斷言本身】,不是被它保護的東西。
+    --    🔴 而欄級那一半我今天才寫進 `docs/patterns/…` ——
+    --       我在那裡記下「`has_table_privilege` 看不到欄級授權」,
+    --       **然後在這裡用了有【鏡像問題】的 `relacl`。知道一條規則不等於用得上它。**
+    DECLARE
+      v_bad   text;
+      v_priv  text;
+      v_col   text;
+      v_reach text;
     BEGIN
-      SELECT string_agg(DISTINCT a.privilege_type, ',' ORDER BY a.privilege_type)
-        INTO v_sr
-        FROM pg_class c
-             CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
-       WHERE c.oid = to_regclass('public.admin_user_staff_map')
-         AND a.grantee::regrole::text = 'service_role';
-      IF coalesce(v_sr, '') <> 'INSERT,SELECT' THEN
-        RAISE EXCEPTION E'新物件收權斷言:service_role 的權限是 [%],預期恰好 [INSERT,SELECT]。\n'
-          '   🔴 多出來的那些多半來自 Supabase 的 ALTER DEFAULT PRIVILEGES(它也授權給 service_role)。\n'
-          '   ⇒ 補 `REVOKE ALL ON TABLE … FROM service_role;` 放在 GRANT 之前。\n'
-          '   ⚠️ UPDATE 能重綁身分、TRUNCATE 能清空整表且不受 RLS 也不觸發 DELETE trigger。',
-          coalesce(v_sr, '(無)');
+      -- 表級:七種權限逐一問【有效權限】。預期只有 SELECT 與 INSERT 為真。
+      FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+        IF has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_priv)
+           <> (v_priv IN ('SELECT','INSERT')) THEN
+          v_bad := coalesce(v_bad || ', ', '') || format('表級 %s', v_priv);
+        END IF;
+      END LOOP;
+
+      -- 欄級:逐欄問可欄級授權的四種。任何一欄多出 UPDATE / REFERENCES 都要紅。
+      -- 🔴 SELECT / INSERT 在表級已為真 ⇒ 欄級必然為真,不重複判;這裡只抓【多出來的】。
+      FOR v_col IN
+        SELECT attname FROM pg_attribute
+         WHERE attrelid = to_regclass('public.admin_user_staff_map') AND attnum > 0 AND NOT attisdropped
+      LOOP
+        FOREACH v_priv IN ARRAY ARRAY['UPDATE','REFERENCES'] LOOP
+          IF has_column_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_col, v_priv) THEN
+            v_bad := coalesce(v_bad || ', ', '') || format('欄級 %s.%s', v_col, v_priv);
+          END IF;
+        END LOOP;
+      END LOOP;
+
+      -- 🔴🔴🔴 第三道:**`SET ROLE` 可達的權限**(2026-08-16 實測,關卡2 R3 的修法【還不夠】)
+      --
+      --    R3 建議用 `has_table_privilege` 取代 `relacl`。**那只關掉欄級與【已繼承】那半。**
+      --    實測(拋棄式 PG 17.10):
+      --      service_role 是 NOINHERIT、且是某個持有 UPDATE 的角色的成員時 ——
+      --        has_table_privilege('service_role', …, 'UPDATE')  ⇒ **f**
+      --        set role service_role; set role <那個角色>; UPDATE ⇒ **UPDATE 1(真的改得動)**
+      --    ⇒ **那個權限【是可達的】,而 has_table_privilege 說它不存在。**
+      --
+      --    📎 這與本 repo `docs/patterns/revoking-function-execute-in-supabase.md` §3.5
+      --       記的是同一件事(函式版):`has_function_privilege` 回 f 而 `pg_has_role(…,'SET')` 回 t。
+      --       🔴 **我在那份檔裡寫過這條,然後在這裡漏用了它。**
+      --
+      --    ⚠️ 另一個實測到的坑:`GRANT <role> TO <role>` 的繼承旗標是【授與當下】決定的
+      --       ⇒ 事後 `ALTER ROLE … INHERIT` **不會**讓既有 membership 變成繼承。
+      SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO v_reach
+        FROM pg_roles r
+       WHERE pg_has_role('service_role', r.oid, 'SET')
+         AND r.rolname <> 'service_role'
+         AND (has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'UPDATE')
+           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'DELETE')
+           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'TRUNCATE'));
+      IF v_reach IS NOT NULL THEN
+        v_bad := coalesce(v_bad || ', ', '') || format('可 SET ROLE 到的角色持有寫權:%s', v_reach);
+      END IF;
+
+      IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION E'新物件收權斷言:service_role 的【有效 + 可達權限】不符,預期恰好 {SELECT, INSERT}。\n'
+          '   不符處:%\n'
+          '   🔴 來源有三種,修法不同:\n'
+          '      ① 直接授權(含 ADP)⇒ `REVOKE ALL ON TABLE … FROM service_role;` 放在 GRANT 之前\n'
+          '      ② 欄級授權        ⇒ `REVOKE … (欄名) ON TABLE … FROM service_role;`\n'
+          '      ③ **可 SET ROLE 過去的角色持有** ⇒ **REVOKE 收不掉** —— 要拆 role membership\n'
+          '   ⚠️ UPDATE 能重綁身分、TRUNCATE 能清空整表且不受 RLS 也不觸發 DELETE trigger。', v_bad;
       END IF;
     END;
 
