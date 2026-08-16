@@ -19,9 +19,20 @@
 //
 // ⚠️ **這不是「寫個註解提醒自己」** —— 註解不會在時機到的時候叫。
 //    本格把「記得接上去」變成「時機一到就有東西紅」。
-// ⚠️ **它守不住什麼**:①只掃 `apps/admin/src` 的 `.tsx`
-//    ②靠 `customerEmailDisplay` 這個名字 —— C 窗若改名,本格會安靜地繼續綠。
-//    ③它不驗 helper 的行為對不對,只驗「有沒有被用」。
+// ⚠️ **我【驗過】的是什麼(2026-08-16,五態)**:
+//   ① helper 未進 ⇒ 綠  ② helper 在而顯示點檔不存在 ⇒ 紅  ③ 兩處都呼叫 ⇒ 綠
+//   ④ **呼叫拿掉、import 留著 ⇒ 紅**(修正前這態會綠)  ⑤ 兩處都只剩 import ⇒ 紅
+//
+// ⚠️ **我【沒驗過】的(不是「我以為它擋不住」,是我真的沒打)**:
+//   · 只掃 `apps/admin/src` —— 別的目錄沒打過。
+//   · 靠 `customerEmailDisplay` 這個識別字;**改名之後我沒打過**(名字無關那半由
+//     `A-75` 的「Email 不得原樣直傳」那條負責,它已六態驗過)。
+//   · 完全不驗 helper 的**行為**對不對,只驗「有沒有被呼叫」。
+//
+// 🔴 **本段 2026-08-16 改寫過一次**:原本寫「它守不住什麼」,而那是**推測的邊界** ——
+//    我只寫了「改名會漏」,漏掉**現實得多**的那個(重構時改掉呼叫、忘了刪 import)。
+//    ⇒ **太窄的限度比沒有限度更危險:它讓讀的人以為邊界已經被畫完了。**
+//    ⇒ 改成寫【我驗過什麼】,沒驗的部分讀者自己看得出來還在外面。
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -73,7 +84,10 @@ describe('🔴 Sean 08-16 拍板乙:LINE 合成信箱不得顯示原字串', () 
       expect(
         readFileSync(p, 'utf8'),
         `${p} 顯示客戶 email 卻沒用 customerEmailDisplay ⇒ Sean 08-16 拍板乙在這一頁失效`,
-      ).toContain('customerEmailDisplay');
+        // 🔴 **數【呼叫】不數【提及】** —— `toContain('customerEmailDisplay')` 會命中
+        //    `import { …, customerEmailDisplay } from …` 那一行 ⇒ **呼叫拿掉、import 留著,
+        //    這一格照樣綠**(C 窗 2026-08-16 彩排構造出來、A 窗複現)。加左括號才是「真的呼叫了」。
+      ).toContain('customerEmailDisplay(');
     }
   });
 });
