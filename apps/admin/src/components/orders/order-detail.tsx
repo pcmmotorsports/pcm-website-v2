@@ -207,7 +207,10 @@ export function OrderDetail({
         </span>
       </div>
 
-      <OrderSummaryCards detail={detail} />
+      {/* 🔴 片4b:`payments` 是頭條「已收」的來源 —— 傳的是**原始 `PaymentListData`**,
+          不是算好的金額。理由:元件內部要吃 `toPaymentSummary()`(與付款卡同一支函式),
+          `unknown` 那態才畫得出「未知」而不是一個假的 0。 */}
+      <OrderSummaryCards detail={detail} payments={payments} />
 
       {/* A10a-2/-3:備註時間軸 + 表單。
           🔴 位置 = **發票卡下方**(OD 第十二輪定案 `overview-desktop.html:1171-1173` 逐字

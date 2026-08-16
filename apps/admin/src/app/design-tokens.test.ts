@@ -25,6 +25,42 @@ import { describe, expect, it } from 'vitest';
 //       **那條 `0.25rem` 本片已經讓它消失了**(它的唯一來源就是本檔的註解與標題)。
 //       落筆當下實測(`grep -oE 'border-radius:[^;}]*' <產物> | sort | uniq -c`):
 //       **6×`0`、3×`var(--radius)`、1×`calc(infinity*1px)`(狀態膠囊待 Sean 裁);無後綴那條 = 0。**
+//    🔴🔴 **2026-08-16 片4b 再更正:上一行括號裡那句「狀態膠囊待 Sean 裁」【兩半都已經是假的】。**
+//       ① Sean 當天就裁了「狀態膠囊 —— 方角」,而且已落地(`order-list-view.ts` 搜 `STATUS_CAPSULE`
+//          ⇒ `'inline-flex px-2 py-0.5 text-xs font-medium'`,`rounded-full` 已不在裡面)。
+//       ② 那顆「無限圓角」**仍然在產物裡,但它不再是狀態膠囊的**。
+//       🔴🔴 **而且【產物裡它不叫 `calc(infinity*1px)`】** —— 上一行那個字面是**原始碼側**的寫法。
+//          落筆當下實測(`grep -rho 'border-radius:[^;}]*' apps/admin/.next/static | sort | uniq -c`):
+//            `6 border-radius:0` / `3 border-radius:var(--radius)` / **`1 border-radius:3.40282e38px`**
+//          ⇒ 產物裡是 **`3.40282e38px`**(lightningcss 已把 `calc()` 求值成 Float32 上限)。
+//          ⚠️ **同一件事在三層各有一個不同的字面,而三個都對**:
+//            原始碼 `rounded-full` → 產物 `3.40282e38px` → **瀏覽器 computed `1.67772e+07px`**
+//            (Chrome 再夾一次到 2^24)。
+//          🔴 **⇒ 拿 `calc(infinity*1px)` 去 grep 產物會得到 0 命中,而那個 0 是【量錯層】不是【不存在】。**
+//             本檔上面早就寫過「引用前先講清楚在數哪一個」—— 這是同一條規則在**同一個值**上第二次踩到。
+//          現在那顆的來源是
+//          客戶/收款/備註那族 `rounded-full` 徽章。**先分類再報數**(不分類的話下一個人會拿總數
+//          當成「還有這麼多顆要直角化」的清單):
+//          數法 `grep -rn 'rounded-full' apps/admin/src --include='*.tsx' --include='*.ts' | grep -v '\.test\.' | wc -l`
+//          ⇒ **15 = 14 處會渲染的 code + 1 處註解**。
+//            · 14 處 code:客戶族 4(`customers/` 三支 + `customer-detail-sections` 的 `BADGE` 常數)/
+//              收款族 4(`payment-list.tsx`)/ 備註族 3(`notes-timeline.tsx`)/ 訂單明細 1 /
+//              關鍵字搜尋 chip 1(`order-keyword-search.tsx`;客戶那支已計入客戶族)/ 篩選計數 1
+//              (`multi-check-filter.tsx`)。
+//            · **第 15 處是【註解】**:`order-list-view.ts` 搜 `拿掉` ⇒ 那行正是**記錄
+//              「狀態膠囊拿掉 `rounded-full`」這件事**的 docstring。
+//          🔴 **⇒ 零處【真的會渲染】屬於狀態膠囊;唯一提到膠囊的那一處是它自己的訃聞。**
+//          📎 **我上一版把這裡寫成 14,是【目視數 grep 輸出】少算了最後一行** ——
+//             而本檔上面對 `shadow-` 就做了「預期 3 實得 4、+1 是註解」的同款留痕,我對這條沒做。
+//             code-reviewer 重跑同一條 grep 當場抓到。
+//             ⇒ **報 grep 數字讓 `wc -l` 數,不要用眼睛數輸出。**
+//       🔴 **這正是「改了前件、後件沒跟著翻」**:膠囊改方角是機械的、這句括號不會跟著紅,
+//          而它留下來的效果是**把一個仍然存在的數字掛在一個已經無關的原因上**
+//          ⇒ 下一個人會以為「那顆 infinity 還在等 Sean」,於是不去查它真正是誰的。
+//       📎 **量法(真瀏覽器 computed value,2026-08-16 片4b 實跑)**:本機 `ADMIN_DEV_BYPASS=1`
+//          後台注入 `STATUS_CAPSULE + cap-n` ⇒ `borderRadius: "0px"`;
+//          正向對照注入 `payment-list.tsx` 那顆真 `rounded-full` 徽章 ⇒ `"1.67772e+07px"`
+//          ⇒ **量具看得見圓角,所以膠囊那個 0px 是真的量到、不是量不到。**
 //       ⚠️ **`6` 與舊句的 `9` 不是漂移,是量法不同**(數宣告 vs 數選擇器;minifier 會併選擇器)——
 //          **⇒ 引用前先講清楚在數哪一個,而且不要用「類別前綴加大括號」那種式子數(併選擇器就漏看)。**
 const CSS = readFileSync(join(__dirname, 'globals.css'), 'utf8');
