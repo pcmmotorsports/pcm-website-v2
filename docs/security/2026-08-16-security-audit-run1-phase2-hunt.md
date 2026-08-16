@@ -480,10 +480,46 @@ PERFORM 1 FROM public.order_items oi
    因為 **FK 是語句末檢查，單一 statement 內多列互指插得進去**。
    ⇒ **加了 `BEFORE INSERT` 守門之後，DAG 才真的成立。**
 
+#### (c2) 退款金額不變量（`累計退款 ≤ 已收款`）—— **靠 RPC，不靠 schema**
+
+**schema 層【沒有】天花板。** `payment_refunds` 的 CHECK 只有：
+`amount > 0`、`currency = 'TWD'`、`lease_token >= 0`、`supersedes_refund_id <> id`、
+`idempotency_key` 形狀、`strong_key` 非空。**沒有任何一條把退款總額綁到已收款。**
+
+**天花板在 `initiate` 那支 RPC 裡**：真實退款路徑拿到的是 RPC 回的
+`blocked_by ∈ {amount, in_flight, unknown}`（`refund-actions.ts:49-53`），
+`amount` 那一格就是「退太多」。
+⚠️ **我沒有讀那支 RPC 的累加算術** ⇒ **「第 N 次部分退款仍成立」我沒有驗過，標未確認。**
+
+🔴 **順帶查到一件（不是漏洞，是維護風險）**：
+`packages/domain/src/order/refund.ts:193` 的 `computeRefundQuote`
+（品項級的退款額度計算，含 `quantity_exceeds_remaining` 守門、有自己的測試、
+且從 `packages/domain/src/index.ts:95` 對外導出）——
+**全 repo 零呼叫點**（控制組：同檔的 `refundItems` 命中 10 個檔 ⇒ 量法是活的）。
+
+⇒ **同一個「不能退超過」的規則有兩套實作：RPC 那套是活的，domain 這套沒有人用。**
+**不是安全洞**（活路徑有守門），但**兩套會各自演化**，
+而 domain 那套有測試、看起來很正式 ⇒ **下一個人很可能以為它是權威。**
+
+#### (c3) 那幾道守門有沒有對誰豁免？—— **沒有，而且作者自己把天花板寫出來了**
+
+問題來自「**豁免誰，就對誰盲**」。逐條看：
+
+- 五個 trigger **都沒有 `WHEN` 子句**，沒有任何角色豁免。
+- 🔴 而且作者**明文寫出了為什麼用 trigger 而不是 ACL**（`:162` COMMENT 逐字）：
+  > 「**ACL 只擋非 owner，唯一寫入者是 SECDEF RPC（owner）；trigger 對 owner 照樣觸發。**」
+  ⇒ **這正是「豁免誰就對誰盲」的正解**：ACL 會豁免 owner，而 owner 恰恰是唯一會寫的人。
+- 🔴 **天花板也寫出來了**（`:35-36`、`:162`、`:177` 三處逐字）：
+  > 「owner/superuser 可 `DISABLE TRIGGER`、`session_replication_role='replica'`、或 DROP 掉本守門
+  > —— **不宣稱防得住它們**。」
+
+⇒ **這是我今天讀到最誠實的一段守門說明**：它同時寫了「防得住什麼」與「防不住什麼」，
+而不是只寫前者讓讀者自己以為是全稱。
+
 #### (d) 這三條**仍然沒有**涵蓋的
 
-- **退款的金額不變量**（累計退款 ≤ 已收款）**沒讀**。本節只驗了「不能重複／不能改／不能成環」，
-  **沒有驗「不能退超過」**。
+- **退款金額不變量**：✅ 已查（見 (c2)）—— **天花板在 RPC 不在 schema**。
+  ⚠️ **但那支 RPC 的累加算術我沒讀** ⇒ **「第 N 次部分退款仍成立」仍未驗**。
 - **`sweeper` 與 `webhook` 相撞**沒撞過（`claim_*` 系列有 lease，但**我沒讀它的租約邏輯**）。
 - 併發只驗了**掛品項**這一條路；**出貨、作廢、取消**三條的併發**沒看**。
 
