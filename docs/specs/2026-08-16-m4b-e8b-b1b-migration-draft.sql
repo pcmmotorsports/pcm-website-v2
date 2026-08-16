@@ -381,7 +381,17 @@ BEGIN
          AND r.rolname <> 'service_role'
          AND (has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'UPDATE')
            OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'DELETE')
-           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'TRUNCATE'));
+           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'TRUNCATE')
+           -- 🔴🔴 **欄級也要查,而且原因是我第二次犯同一個錯**(V 窗 2026-08-16 完整性註記)。
+           --    本輪 F-R3-2 折的就是「表級查法對欄級盲」,而我補的這第三道**又只寫了表級**
+           --    ⇒ 某個可 SET ROLE 過去的角色只被授欄級 UPDATE(auth_user_id)時,第三道看不到它。
+           --    ⚠️ 那正是最要命的一欄 —— 改它就等於**把某人的登入帳號重綁到別人的員工身分上**。
+           --    可達性低不是省略的理由:低可達性 × 高後果 = 正好是沒人會去看的那一格。
+           OR EXISTS (
+                SELECT 1 FROM unnest(ARRAY['auth_user_id','staff_id']::text[]) AS c(col)
+                 WHERE has_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'), c.col, 'UPDATE')
+                    OR has_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'), c.col, 'REFERENCES')
+              ));
       IF v_reach IS NOT NULL THEN
         v_bad := coalesce(v_bad || ', ', '') || format('可 SET ROLE 到的角色持有寫權:%s', v_reach);
       END IF;

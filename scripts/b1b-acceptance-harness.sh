@@ -89,7 +89,8 @@ drop_objs() { run_sql "drop table if exists public.admin_user_staff_map cascade;
                        drop function if exists public.admin_user_staff_map_no_delete();
                        drop function if exists public.admin_user_staff_map_no_truncate();
                        drop function if exists public.admin_user_staff_map_no_rebind();
-                       drop role if exists inherited_writer;"; }
+                       drop role if exists inherited_writer;
+                       drop role if exists col_only_writer;"; }
 
 mk_stub_base
 
@@ -190,6 +191,32 @@ cell "A12c 同段對【舊查法】(relacl)—— 應該綠(證明舊查法看�
       WHERE c.oid = to_regclass('public.admin_user_staff_map')
         AND a.grantee::regrole::text = 'service_role';
      IF coalesce(v_sr,'') <> 'INSERT,SELECT' THEN RAISE EXCEPTION 'A12c: %', v_sr; END IF; END \$t\$;"
+# 🔴🔴 A13:第三道的【欄級那一半】—— V 窗 2026-08-16 完整性註記,而我原本要當 nil 收掉。
+#    構造:某個可 SET ROLE 過去的角色【只有】欄級 UPDATE(auth_user_id),沒有表級。
+#    ⚠️ 這一格的存在理由不是可達性高(它很低),是**改那一欄 = 把某人的登入重綁到別人的員工身分**。
+#       低可達性 × 高後果 = 正好是沒人會去看的那一格。
+drop_objs
+run_sql "create role col_only_writer;"
+run_sql_file "$B1B" > /dev/null 2>&1
+run_sql "grant update (auth_user_id) on public.admin_user_staff_map to col_only_writer;
+         grant col_only_writer to service_role;"
+cell "A13 第三道(含欄級)要抓到【只有欄級】的可達角色" red run_sql \
+  "DO \$t\$ DECLARE v_reach text; BEGIN
+     SELECT string_agg(r.rolname, ', ') INTO v_reach FROM pg_roles r
+      WHERE pg_has_role('service_role', r.oid, 'SET') AND r.rolname <> 'service_role'
+        AND (has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'UPDATE')
+          OR EXISTS (SELECT 1 FROM unnest(ARRAY['auth_user_id','staff_id']::text[]) AS c(col)
+                      WHERE has_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'), c.col, 'UPDATE')));
+     IF v_reach IS NOT NULL THEN RAISE EXCEPTION 'A13: 可達角色持有欄級 UPDATE: %', v_reach; END IF; END \$t\$;"
+# 🔴 對照組:同一個世界,把欄級那一半拿掉 ⇒ **必須綠**,否則 A13 的紅不是欄級抓到的。
+cell "A13b 同世界只留表級(應綠=表級看不到欄級)" green run_sql \
+  "DO \$t\$ DECLARE v_reach text; BEGIN
+     SELECT string_agg(r.rolname, ', ') INTO v_reach FROM pg_roles r
+      WHERE pg_has_role('service_role', r.oid, 'SET') AND r.rolname <> 'service_role'
+        AND has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'UPDATE');
+     IF v_reach IS NOT NULL THEN RAISE EXCEPTION 'A13b: %', v_reach; END IF; END \$t\$;"
+echo "     ↑ 🔴 A13 紅 + A13b 綠 = 欄級那一半【真的在做事】,不是抄來的裝飾"
+
 echo "     ↑ 🔴 A12b 紅 + A12c 綠 = **同一個世界,新查法看得到、舊查法看不到**"
 echo "       這一對才是 F-R3-2 的證據;只有 A12b 的話證不了「換了才抓得到」"
 
