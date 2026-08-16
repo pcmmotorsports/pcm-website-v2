@@ -396,6 +396,38 @@ BEGIN
         v_bad := coalesce(v_bad || ', ', '') || format('可 SET ROLE 到的角色持有寫權:%s', v_reach);
       END IF;
 
+      -- ═══════════════════════════════════════════════════════════════════
+      -- 🔴 本斷言的【已知殘留】—— 寫在這裡,因為讀這支 SQL 的人才是會被它影響的人
+      -- ═══════════════════════════════════════════════════════════════════
+      -- 上面三道只在【apply 的這一刻】成立。日後有人下
+      --     GRANT <某個持有本表寫權的角色> TO service_role;
+      -- 這支 migration **不會重跑** ⇒ 權限被重新打開,而沒有任何東西會叫。
+      --
+      -- 🔴🔴 **這道殘留不能用 event trigger 關。** 不是「效果差一點」,是**根本不觸發**:
+      --    PostgreSQL 17 官方文件 Event Trigger Definition 逐字
+      --    (2026-08-16 由 V 窗查證、本窗當場再讀一次原文確認;正式庫 17.6 / 拋棄式 17.10 同 major):
+      --      "As an exception, however, this event does not occur for DDL commands
+      --       targeting shared objects — databases, roles, and tablespaces —
+      --       or for commands targeting event triggers themselves."
+      --      https://www.postgresql.org/docs/17/event-trigger-definition.html
+      --      https://www.postgresql.org/docs/17/event-trigger-matrix.html
+      --        (Firing Matrix:GRANT / REVOKE 的 ddl_command_end 欄是 X,註「Only for local objects」)
+      --    ⇒ `GRANT <role> TO <role>` targets **roles = shared object** ⇒ **不觸發**。
+      --    ⚠️ **而它會失敗得非常安靜**:event trigger 建得起來、掃描掃得到它、測試也綠,
+      --       **它只是永遠不會被呼叫。機制存在本身會讓下一個人停止追問。**
+      --       ⇒ **不要伸手拿 event trigger 來關這道。**
+      --
+      -- 唯一能關的做法 = `pg_cron` 週期重跑本段斷言。
+      -- 🔴 **而本窗 2026-08-16 判「不現在建」**,理由寫在這裡好被反駁:
+      --    ① 能下那個 GRANT 的人本來就有 DB 管理權 ⇒ 他也刪得掉 cron job
+      --       ⇒ 它防的是**意外**不是攻擊,而防意外的價值取決於「有沒有人看得到警報」。
+      --    ② `pg_cron` 失敗只寫進 `cron.job_run_details` —— **那張表沒有人在讀**
+      --       ⇒ 建了它就是又一個「裝上去、看得到、沒人會發現它在叫」的機制,
+      --         和上面那個被標為無效解的 event trigger **是同一族**,只是失敗得大聲一點點。
+      --    ⇒ **處置:改 backlog,前置條件 = 先有一個【人會真的讀到】的警報去處。**
+      --       那一格填得出來就建;填不出來之前建它,是拿機制的份量換一個心安。
+      --    ⚠️ 這是判斷、可被推翻。要現在建的話請直接指定警報去哪裡。
+
       IF v_bad IS NOT NULL THEN
         RAISE EXCEPTION E'新物件收權斷言:service_role 的【有效 + 可達權限】不符,預期恰好 {SELECT, INSERT}。\n'
           '   不符處:%\n'
