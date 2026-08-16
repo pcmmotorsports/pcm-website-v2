@@ -7,9 +7,9 @@ import type { AdminOrderDetail } from '@pcm/domain';
 
 // #10 片2b:出貨單列印頁的守門。
 //
-// 🔴 **這張紙有六種「印出來會害人做錯事」的狀態**,而它們的共同症狀是**沒有症狀** ——
+// 🔴 **這張紙有【八種】「印出來會害人做錯事」的狀態**(原寫六種,2026-08-16 重數更正),而它們的共同症狀是**沒有症狀** ——
 //    紙照印、看起來很正常,錯的是紙上的內容或那張紙根本不該存在。
-//    ⇒ 六種各一格,外加一格正向(否則「一律不印」也會全綠)。
+//    ⇒ 每種各一格,外加一格正向(否則「一律不印」也會全綠)。
 // 🔴 另外兩格量的是**路由層**:網址帶兩個 id 而**沒有任何東西保證它們有關係**
 //    (`(箱, 訂單)` 這種複合單位天生的破口)。
 
@@ -113,7 +113,7 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
-describe('🔴 #10 片2b — 六種「不該印」的狀態', () => {
+describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
   it('正向:一切正常時可以印(否則下面六格全部恆綠)', () => {
     expect(block({})).toBeNull();
   });
@@ -574,5 +574,20 @@ describe('🔴 Q-C7 = 丙:頁尾【不得】有手寫日期格(Sean 2026-08-16 �
     // ⚠️ Q-C6 之後表頭那格也叫「日期」⇒ 這裡只能釘【手寫底線】那個形狀,不能只釘「日期」兩個字。
     // 正向對照:表頭那個【印死的】出貨日還在(拿掉的是手寫那格,不是整個日期概念)。
     expect(t).toMatch(/日期:\d{4}-\d{2}-\d{2}/);
+  });
+});
+
+describe('🔴 箱品項清單算不出來(loadOrderShipments 回 null)⇒ 不印那張紙', () => {
+  // 🔴🔴 **2026-08-16 補;在它之前那一行守門【零測試】** —— code-reviewer R1 MF4 逐字:
+  //    「出貨單那張紙是本片的存在理由,而守它的那一行是唯一沒有格子的一行。」
+  //    把 `if (groups === null) notFound();` 刪掉,七處既有 mock 全是陣列 ⇒ 照樣全綠。
+  it('回 null ⇒ notFound(),不進版面', async () => {
+    mocks.loadOrderShipments.mockResolvedValue(null);
+    await expect(renderPage()).rejects.toThrow('notFound');
+  });
+
+  it('🔴 正向對照:回陣列時照常印 —— 證明上一格紅的是 null 不是「這支 mock 壞了」', async () => {
+    mocks.loadOrderShipments.mockResolvedValue([{ shipment: shipment(), lines }]);
+    expect((await renderPage()).container.textContent).toContain('出貨單');
   });
 });
