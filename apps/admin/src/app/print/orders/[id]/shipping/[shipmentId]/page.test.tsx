@@ -457,3 +457,105 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     expect(t).toContain('這張訂單裡已經取消的品項,不會出貨');
   });
 });
+
+describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', () => {
+  // 🔴 **這一族釘的是「有印出來嗎」,不是「算對了嗎」** —— 後者在
+  //    `lib/shipping/shipping-doc-dispatch.test.ts` 與 `carrier-label.test.ts`(不需渲染就跑得動)。
+  //    ⚠️ 兩件都要測,但**不該是同一格**:同一格的話「算式錯」與「忘了 render」會紅在同一個地方。
+
+  it('貨運商 / 出貨日 / 追蹤碼三個都印出來,而且各自帶標籤', async () => {
+    const t = (await renderPage()).container.textContent ?? '';
+    expect(t).toContain('貨運商:新竹物流');
+    expect(t).toContain('新竹物流追蹤碼:');
+    expect(t).toContain('6412345678');
+    expect(t).toMatch(/出貨日:\d{4}-\d{2}-\d{2}/);
+  });
+
+  it('🔴 三個號碼並排 ⇒ 每一個都要有標籤(plan §4:客人不知道該拿哪個去查)', async () => {
+    const t = (await renderPage()).container.textContent ?? '';
+    // 🔴 `displayId` 在片3 之前是**裸印**的(紙上只有 `PCM-2026-0042` 沒有「訂單編號」四個字)。
+    expect(t).toContain('訂單編號 PCM-2026-0042');
+    expect(t).toContain('箱號 K7X2MP');
+    // 🔴 追蹤碼的標籤必須帶貨運商名 —— 只有它是拿去**別人家網站**查的。
+    expect(t).not.toMatch(/(?<!新竹物流)追蹤碼:6412345678/);
+  });
+
+  it('已出貨 ⇒ 出貨日印的是 shippedAt 那天,不是列印當天', async () => {
+    // ⚠️ **本格【量不到時區】**(R1 nit 9):頁測跑在 `vitest.config.ts` 釘死的 `TZ=Asia/Taipei` 下
+    //    ⇒ 拿掉實作的 `{ timeZone }` 這格照樣綠。時區那一半在
+    //    `lib/shipping/shipping-doc-dispatch.test.ts`(它在執行期切 `TZ=UTC`)。
+    //    本格量得到的只有「有沒有接上 shippedAt、而不是 now」。
+    // 台北 2026-08-17 01:00 = UTC 2026-08-16 17:00。
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment({ shippedAt: '2026-08-16T17:00:00Z' }), lines },
+    ]);
+    expect((await renderPage()).container.textContent).toContain('出貨日:2026-08-17');
+  });
+
+  it('🔴 other + carrierNote ⇒ 說明只印【一次】(在貨運商那格),追蹤碼那列不重印', async () => {
+    // R1 must-fix 4:同一句話在同一張紙出現兩次,讀的人會以為是兩件事。
+    mocks.loadOrderShipments.mockResolvedValue([
+      {
+        shipment: shipment({
+          carrierCode: 'other',
+          carrierNote: '客人自取',
+          trackingNumber: null,
+          shippedAt: '2026-08-16T02:00:00Z',
+        }),
+        lines,
+      },
+    ]);
+    const t = (await renderPage()).container.textContent ?? '';
+    expect(t).toContain('貨運商:其他(客人自取)');
+    expect(t.split('客人自取').length - 1).toBe(1);
+    expect(t).toContain('無追蹤碼(自取 / 自送)');
+  });
+
+  it('🔴 已出貨 + 非 other + 沒追蹤碼 ⇒ 紙上印「請回報」,不留白(plan §3.1 情形③)', async () => {
+    mocks.loadOrderShipments.mockResolvedValue([
+      {
+        shipment: shipment({ carrierCode: 'sf', trackingNumber: null, shippedAt: '2026-08-16T02:00:00Z' }),
+        lines,
+      },
+    ]);
+    const t = (await renderPage()).container.textContent ?? '';
+    // 🔴 留白的話員工不會發現,而客人拿到一張查不到貨的紙。
+    expect(t).toContain('追蹤碼缺漏');
+    expect(t).toContain('系統已記為已出貨');
+    // 🔴🔴 **這一格被改過兩次,兩次都是因為【恆真】,記著兩次的形狀**:
+    //    R1 原式 `not.toMatch(/追蹤碼:\s*$/m)` —— `textContent` 沒有換行、那列後面永遠還有東西
+    //      ⇒ `$` 碰不到。
+    //    R2 第二版「量這一列有幾個字 > 4」—— 當時那列尾巴接著一句 **12 個字的常數**
+    //      ⇒ `t.text` 改成 `''` 時仍得 12 > 4,**照樣綠**。
+    //    R2 折完後我又量了第三次,結果是:**那條長度斷言【從來不會自己紅】** ——
+    //      突變 `t.text = ''`      ⇒ 死在上面的 toContain
+    //      突變 JSX 改成不渲染 t.text ⇒ 也死在上面的 toContain
+    //    ⇒ 它不是恆真,但**沒有任何獨立判別力**,而三行斷言看起來比兩行更周全。
+    //    🔴 **所以刪掉它,不留假覆蓋** —— 這一格的判別力全部由上面兩條 toContain 承擔,
+    //       而它們釘的是**紙上真的印出來的那句話**,那才是這格要守的東西。
+    // ⚠️ 這一列會不會被印成**看不見的樣式**(顏色/字級),單測量不到 —— 紙沒印出來看過。
+  });
+
+  it('未出貨且沒追蹤碼 ⇒ 說「尚未出貨,出貨後補」,不說「缺漏」(兩者意思完全不同)', async () => {
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment({ trackingNumber: null, shippedAt: null }), lines },
+    ]);
+    const t = (await renderPage()).container.textContent ?? '';
+    expect(t).toContain('尚未出貨,出貨後補');
+    expect(t).not.toContain('請回報');
+  });
+
+  it('🔴 未知貨運商代碼 ⇒ 印代碼本身,不留白(守門看不到 DB,回退方向必須安全)', async () => {
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment({ carrierCode: 'zzz' }), lines },
+    ]);
+    expect((await renderPage()).container.textContent).toContain('貨運商:zzz');
+  });
+
+  it('被擋時貨運資訊也不印 —— 那張紙整張不該存在', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ itemsTruncated: true }));
+    const t = (await renderPage()).container.textContent ?? '';
+    expect(t).not.toContain('貨運商');
+    expect(t).not.toContain('6412345678');
+  });
+});
