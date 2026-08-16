@@ -13468,6 +13468,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     —— 例:`lib/orders/keyword-search-action.ts:62`、`lib/customers/keyword-search-action.ts:57`
   - 🔴 **那個 `redirect` 不帶任何訊息碼** ⇒ `ResultBanner` 也不會亮
     (對照:同頁的 `denied` / `invalid` 出口**有**帶 `?r=…`,所以員工看得到橫幅)
+- **⚠️ 2026-08-16 補一個限定:並非全站一致 —— 至少有一處已明確處理 `null`。**
+  `apps/admin/src/components/orders/order-detail-route.tsx:126-129` 逐字:
+  > 「取消面板要拿它比對『這筆是不是你送的』。**不是授權邊界** ——
+  > 只做顯示層比對;`null`(尚未選人)時 D3 會 **fail-closed** 走 `match_other_actor`。」
+  🔴 **不寫這條的話,下一個人會以為【所有】`null` actor 路徑都靜默,然後照那個前提去設計修法。**
+  ✅ **而它對修法有實質影響:甲/乙/丙之外多了一個【既有先例可以抄】** ——
+  那條路徑證明「`null` 時明確走一個看得見的分支」在本 repo 是做得出來的。
+  ⚠️ **本條【不推翻】上面的缺陷** —— 搜尋、儲值金、會員等級那些路徑仍然是靜默的。
 - **🔴 正式站實證(2026-08-16,真瀏覽器,主視窗量測):**
   ```
   搜尋前  URL /orders?date_from=2026-02-16&date_to=2026-08-16
@@ -13671,6 +13679,41 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
   🔴 **本條之所以獨立成一件,是因為 `scripts/display-site-guard-audit.sh` 【答不了它】**:
   那支工具問「N 個顯示點各自有沒有被釘」,**而本題的正確答案是【零個顯示點】**
   ⇒ 形狀不同,硬跑只會產出**有數字而沒有意義**的報告。
+
+- **🔴 2026-08-16 D 窗實測補充(最小重現,假資料,探針已刪;主視窗複核。以下整段照貼、口徑未改):**
+  ```
+  【一】RSC payload 會夾帶【沒被渲染】的 props 欄位 —— 實測，不是推論
+    server component 把整顆 product 傳給 client component、而它只渲染 price ⇒
+    flight data 逐字：{"product":{"price":1000,"priceByTier":{...,"store":{"amount":7717717},
+                      "premiumStore":{"amount":8828828}}}}
+    ⇒ lib/products.ts:212 那道 server-side strip 是【承重】的，不是縱深防禦 ——
+      它是 DB 列與瀏覽器之間唯一的東西。任何 client component 拿到整顆 product，三層價全部上船，
+      而畫面上看不出來。
+
+  【二】而 strip 這個機制本身【有效】（附正向對照）
+    只傳純量 ⇒ payload 只有 {"price":1000}，旁邊那顆完整物件沒有跟著。
+    正向對照：把 canary 5555555 當 price 傳進同一條路 ⇒ 抓得到 ⇒「乾淨」不是量具壞掉。
+    ⚠️ 這證的是【機制有效】，不是【真實商品頁只傳純量】。後者仍未量（需 env + 兩個身分）。
+
+  【三】順手撞到：「這個路由回 404」≠「這個 render 的資料沒出去」
+    探針頁回 HTTP 404（dev-preview/layout.tsx 刻意擋 production build，那道守門本身是好的），
+    而 404 的 body 裡就帶著整串 payload。
+    ⚠️ 只觀察到這一種 404（layout 層 / production build / 本機）。【不是通則，別的擋法沒驗。】
+
+  【四】型別層調研（D 窗唯讀，2026-08-16）
+    apps/storefront/src/data/mock-products.ts:41 UIVariant / :119-138 UIProduct
+      兩者【都沒有 priceByTier 欄】；索引簽章 / [key:string] / Record<string,unknown> 共 0 處
+    ⇒ 型別層【已經】不帶經銷欄，且沒有寬鬆欄位可夾帶。
+    🔴 所以「釘型別」的價值不是新增約束，是把【現在成立的事實】變成【會紅的東西】——
+      現在沒有任何東西擋住有人日後往 UIProduct 加一個 priceByTier?。
+    ⚠️ 而真正的洞不在型別，在【傳什麼進去】：型別封閉擋不住
+      「有人新寫一個 client component 收 domain 的原始物件」。那才是本輪實測到的形狀。
+  ```
+  ⚠️ **【二】的口徑刻意分成兩半,不得合寫** —— 「機制有效」與「真實商品頁只傳純量」是兩件事,
+  **後者仍未量**,合起來寫會變成一句**沒人量過的安全宣稱**。
+  📎 **本段由 D 窗實測、主視窗複核,C 窗照貼未改寫。**
+  🔴 **D 窗刻意不自己寫進 backlog**,理由:「我在自己樹裡寫一個 `### #537`,
+  就是親手製造我上一份收割報告抓到的那個【同號不同內容】衝突。」
 - **發現於:** 2026-08-16 · C 窗 · 主視窗指派用新工具驗經銷價時,判定工具不適用而延伸出來
 
 ### #538. 🔴 兩張 tier 標籤表**值逐字相同、各自獨立定義**,而**沒有東西守它們一致**
