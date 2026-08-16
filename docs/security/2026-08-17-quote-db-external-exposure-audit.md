@@ -34,6 +34,113 @@ A 庫那輪「經銷價零外洩」是**三層各自獨立**擋住的（DB 欄�
 
 ---
 
-## 1. 結果
+## 1. 結果（第一輪，**全部是 `pg_catalog` metadata，零業務資料列**）
 
-（跑完後補在此節之下。**本節此刻為空是刻意的** —— §0 必須先於結果落檔。）
+### 1.0 量具自檢（**沒過的話下面每個 0 都不算數**）
+
+```
+角色存在        anon / authenticated / service_role / postgres / pcm_audit_ro  ⇒ 五個都在
+pg_catalog 可讀  pg_attribute 欄位總數 = 4938（非 0）
+分母            關聯 354 個 / 非系統 schema 14 個 / 函式 570 支
+真登入          current_user = session_user = pcm_audit_ro
+庫別            to_regclass('public.customers') ⇒ 無、('public.orders') ⇒ 無 ⇒ 不是網站庫
+```
+
+### 1.1 五條預測的驗收 —— **四中一「中但理由不同」**
+
+| # | 預測 | 實得 | 判 |
+|---|---|---|---|
+| **P1** | anon 可 SELECT 關聯 5–30 | **15**（分母 143） | ✅ |
+| **P2** | anon 可執行的 SECDEF = 0 | **0**（SECDEF 60 支 / 函式分母 570） | ✅ |
+| **P3** | `pg_default_acl` 有數筆、grantee 含 anon/authenticated | **27 筆**，`public`／`graphql`／`graphql_public`／`storage` 四個 schema 的預設授權**確實含 `anon`** | ✅ |
+| **P4** | 沒有客戶 PII 表對 anon 開著 | **沒有** | ✅ |
+| 🔴 **P5** | 成本／毛利欄 anon **讀不到** | **讀不到，0 個** | ✅ **但理由與我想的不同，見 1.2** |
+
+### 1.2 🔴 P5：**經銷價／成本在報價單庫對 `anon` 是關著的 —— 這是量到的，不是推的**
+
+```
+全庫欄名像成本/經銷/毛利的        16 個欄位、涉及 7 個關聯
+  pattern: cost|dealer|margin|profit|wholesale|purchase_price|supplier_price
+正向對照（證明 pattern 活著）      同一支換成 'price' ⇒ 51 個欄位
+🔴 anon 讀得到的（schema USAGE + 欄級 SELECT 並查）  ⇒ 0 個
+🔴 對照（同一個欄級判定式對 postgres）              ⇒ 16 個  ← 判定式是活的
+```
+
+⇒ **那個 0 兩邊都有對照撐著**：pattern 活的（51）、判定式活的（16）。
+
+**擋法查明了，而它與 A 庫【不是同一套】**（所以不能互相引用）：
+
+| 物件 | anon | authenticated | service_role | postgres |
+|---|---|---|---|---|
+| `public.dealer_price_v` | **f** | **f** | t | t |
+
+⇒ **經銷價住在一支獨立的 view 裡，而那支 view 根本沒有發給 `anon`／`authenticated`。**
+（A 庫是靠 `price_by_tier` **欄級** `f` 擋的 —— **同樣的結果，不同的機制**。）
+
+**而 anon 唯一讀得到的業務物件 `public.storefront_catalog_v` 逐欄看過（30 欄）**：
+價格欄**只有 `price_retail`**（零售價，本來就要對外）。**無 cost／dealer／margin／supplier price 任何一欄。**
+
+### 1.3 anon 讀得到的 15 個物件 —— **業務面只有 2 個**
+
+```
+public.storefront_catalog_v   ← 型錄 view,storefront 就是靠它,security_invoker=true
+public.term_synonyms          ← 同義詞表,RLS 開著
+其餘 13 個全是平台物件:storage.* ×7、realtime.* ×2、net.* ×2、extensions.pg_stat_statements* ×2
+```
+
+📌 **順帶量到「只查表級會多報」的幅度**：只看表級 ⇒ **17**，兩層並查 ⇒ **15** ⇒ **多報 2 個**。
+（那 2 個有表授權但進不去 schema。**這就是為什麼斷言要兩層並查。**）
+
+---
+
+## 2. 🔴 兩條要繼續追的（**都不是已證實的洞，是未閉合的鏈**）
+
+### 2.1 `net.*` 兩張表對 `anon` 開著，而**那條鏈是活的不是理論的**
+
+```
+net.http_request_queue   anon 可讀   目前 0 列
+net._http_response       anon 可讀   目前 6 列   ← 🔴 有東西 ⇒ pg_net 正在被使用
+```
+
+**為什麼這條要緊**：`cron.job` 有 **2 支排程**的定義命中 `bearer|secret|token|key|password`
+（`fuse-recompute-prices`／`line-followup-hourly`，2026-08-16 Sean 實跑）。
+**若它們透過 `pg_net` 送出請求，`Authorization` 標頭會經過 `http_request_queue`，回應留在 `_http_response` 約 6 小時。**
+
+⚠️ **鏈上有一環我【沒有】驗，明說**：**我沒有讀那兩張表的內容，也不打算讀。**
+（為了論證危險而寫下的證據，本身就複製了那個危險。）
+
+🔴 **而有一件事讓嚴重度大幅下降，也是量到的**：
+
+```
+anon 的 rolcanlogin = f   ← anon【不能直接登入資料庫】
+```
+
+⇒ 外部要用 `anon` 身分讀那兩張表，**只能透過 PostgREST**，而 PostgREST 只暴露被設定的 schema。
+⚠️ **那份設定我從 DB 查不到**（`pg_db_role_setting` 裡沒有 `pgrst.db_schemas`，實查 8 筆設定無此項）
+⇒ 🔴 **「外部打不打得到 `net` schema」= 未確認。缺的檢查是：對該專案的 REST 端點打一發 `/rest/v1/` 探測，並附一個已知 200 與一個已知 404 的對照。**
+**我沒有那個專案的 anon key ⇒ 這一步我現在做不到。**
+
+### 2.2 `extensions.pg_stat_statements` 對 anon 開著，且 `security_invoker` **未設（＝false）**
+
+`pg_stat_statements` 存的是**查詢文字**。`security_invoker` 未設的 view 以 owner 權限解析底層物件。
+
+⚠️ **我沒有驗 anon 實際看得到什麼** —— 該擴充套件本身會依呼叫者身分把別人的查詢文字換成
+`<insufficient privilege>`，**但那是我讀規格推的，不是我量的**，而且我**無法用 `SET ROLE` 代替**
+（`pcm_audit_ro` 不是 `anon` 的成員；且 `SET ROLE` 本來就量不出目標角色的真實權限）。
+⇒ **標未確認。** 缺的檢查同 2.1：一個真正以 `anon` 身分發出的請求。
+
+---
+
+## 3. 本輪**沒有**做的
+
+| 沒做 | 出口 |
+|---|---|
+| **讀任何一列業務資料** | 刻意。碰之前要先報備 |
+| **讀 `cron.job` 的 `command`** | 🔴 **做不到也不用做**：`has_schema_privilege('pcm_audit_ro','cron','USAGE')` ⇒ **f**。順帶量到 **`anon` 對 `cron` 也是 `f`** ⇒ **排程裡那兩個疑似祕密，`anon` 從資料庫這一側碰不到** |
+| PostgREST 實際暴露哪些 schema | 需要該專案的 REST 端點與 anon key |
+| RLS policy 逐條讀（16 條那種） | 下一輪 |
+| `storefront_catalog_v` 的**底表**是誰、RLS 怎麼設 | 下一輪 |
+| B 窗要的 `#4`（production schema vs repo 一致性） | 下一輪，**這條做完直接給 B 窗** |
+
+📌 **順帶實測（本庫值，不是搬 A 庫的）**：`statement_timeout` ⇒ `anon=3s`／`authenticated=8s`／`authenticator=8s`。
+**與 A 庫的更正後數值相同 —— 但這是各自量的，不是引用。**
