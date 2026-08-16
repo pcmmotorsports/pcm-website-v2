@@ -418,6 +418,47 @@ export function goodsAxisProgressNote(lines: readonly GoodsAxisLine[]): string |
   return `（本單 ${total} 件中${verb} ${done} 件）`;
 }
 
+/** 明細頁頭條「品項數」那格的兩個數字(BMW M 片4b)。 */
+export type GoodsQuantityHeadline = { readonly ordered: number; readonly instock: number };
+
+/**
+ * 頭條「已訂數 / 到貨數」—— **與 `goodsAxisProgressNote` 共用 `lineNeed` 與同一個夾法**。
+ *
+ * 🔴 **為什麼不在元件裡自己 `reduce` 一次**:分母(`lineNeed` = `quantity − cancelled`)與
+ *    分子逐列 `Math.min` 夾住,兩者都是 `#522` 續章折出來的**結構前提**,不是防禦性寫法。
+ *    在元件裡重寫一份 ⇒ 哪天 `lineNeed` 再改,頭條會**靜靜地**與軸/小字對不起來,
+ *    而**沒有任何東西會紅** —— 那正是 `692849c8` 修掉的那個 bug 的形狀(同一支檔兩個分母,
+ *    兩邊各自看都對、合起來互相矛盾)。⇒ 本函式住在**算軸的那支檔**,改算式的人一定會經過它。
+ *
+ * 🔴 **回 `null` = 「不知道」,不是「是 0」**,兩個觸發條件:
+ *    ① 任一 line 的 `quantitySummary === null`。原文逐字(那段警告**就是寫給本片的**,
+ *       故在此複述而不是給一個會漂的行號):
+ *       「`goodsAxisOfLines` 把 null 當 0 是**它自己判階段用的**語意裁定;
+ *        **那個 `?? 0` 不能跟著搬到【印件數給人看】這個用途上** ——
+ *        印『已訂 0 件』會把『摘要列不存在』與『真的一件都沒訂』講成同一句話。
+ *        **同一個值,兩種用途,只有一種合法。**」
+ *    ② `lines.length === 0`。與 `goodsAxisProgressNote` 同一個判斷:一張沒有品項的單印「0 / 0」
+ *       讀起來像「都還沒訂」,而它其實是「這張單沒有東西可訂」。
+ *
+ * ⚠️ **本函式【讀不到】`itemsTruncated`** —— 它在 `AdminOrderDetail` 上,不在 `GoodsAxisLine` 上,
+ *    而參數型別收窄的理由寫在 `orderDetailGoodsAxis` 的 docstring(**不為了一個旗標把它放寬**)。
+ *    ⇒ **截斷閘由呼叫端把關**,見 `order-detail-summary-cards.tsx` 搜 `itemsTruncated`。
+ *    🔴 呼叫端漏掉那道 = 印出一個少算的數而**零訊號**,所以那邊也有一格守門釘住它。
+ *
+ * 📎 `AdminOrderCancellation.itemsTruncated`(取消列那一處)**不影響本函式** ——
+ *    已取消量取自每個 line 自己的 `quantitySummary.cancelledQuantity`,不是從取消列加總來的
+ *    (實查:`lineNeed` 只讀 `l.quantitySummary?.cancelledQuantity`)。
+ */
+export function goodsQuantityHeadline(
+  lines: readonly GoodsAxisLine[],
+): GoodsQuantityHeadline | null {
+  if (lines.length === 0) return null;
+  if (lines.some((l) => l.quantitySummary === null)) return null;
+  const sumClamped = (key: keyof NonNullable<GoodsAxisLine['quantitySummary']>) =>
+    lines.reduce((sum, l) => sum + Math.min(l.quantitySummary?.[key] ?? 0, lineNeed(l)), 0);
+  return { ordered: sumClamped('orderedQuantity'), instock: sumClamped('instockQuantity') };
+}
+
 /**
  * 訂單的狀態八值 + 膠囊 class。
  *
