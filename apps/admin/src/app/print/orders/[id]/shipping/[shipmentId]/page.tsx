@@ -26,10 +26,14 @@ export async function generateMetadata({
 }: {
   params: Promise<{ id: string; shipmentId: string }>;
 }) {
+  // 🔴 **2026-08-17:標題跟著紙上那個一起改成「出貨明細單」**(code-reviewer R1 MF2)。
+  //    紙上寫「出貨明細單」而分頁名寫「出貨單」⇒ 兩個名字,而**瀏覽器列印時分頁名會印在頁首**
+  //    ⇒ 同一張紙上出現兩種單據名稱。這正是「只改被指名那一處」的形狀:
+  //    我改了 `ShippingDoc` 的 `<h1>`,而**這一支從頭到尾沒被指名過**。
   const { id } = await params;
-  if (!isOrderId(id)) return { title: '出貨單' };
+  if (!isOrderId(id)) return { title: '出貨明細單' };
   const detail = await getAdminOrderRepository().findAdminOrderDetail(id);
-  return { title: detail === null ? '出貨單' : `出貨單 ${detail.displayId}` };
+  return { title: detail === null ? '出貨明細單' : `出貨明細單 ${detail.displayId}` };
 }
 
 export default async function OrderShippingPrintPage({
