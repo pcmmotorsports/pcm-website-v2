@@ -50,9 +50,18 @@ class FakeProductRepository implements IProductRepository {
       poolLimit,
     );
   }
-  async listByBrand(brandId: string, poolLimit: number): Promise<Product[]> {
+  async listByBrand(
+    brandId: string,
+    poolLimit: number,
+    categoryRaw?: string,
+  ): Promise<Product[]> {
+    // 🔴 替身也要吃 `categoryRaw`：不吃的話「分類 filter 有沒有真的下推」在測試裡零判別力。
     return this.takePool(
-      this.seed.filter((p) => p.brand.id === brandId),
+      this.seed.filter(
+        (p) =>
+          p.brand.id === brandId &&
+          (categoryRaw === undefined || p.category.raw === categoryRaw),
+      ),
       poolLimit,
     );
   }
@@ -481,5 +490,85 @@ describe('hasMore 與池上限的互動(2026-08-17 codex 對抗審查抓到的�
 
     // 🔴 這一格是上一格的判別力來源:若把修法寫成「無條件 true」,這格會紅。
     expect(res.hasMore).toBe(false);
+  });
+});
+
+describe('同分類那一層改成【下推查詢】(2026-08-17 codex 對抗審查)', () => {
+  // 🔴 病的形狀:品牌池取前 N 筆，若那 N 筆剛好都是【別的分類】，
+  //    `score 100`（同品牌×同分類）整層會消失，推薦掉到 `score 80`，而畫面看不出異常。
+  //    修法是把分類 filter 下推到查詢 ⇒ 那一層不再受「池裡剛好有沒有」影響。
+  const BRAND = { id: 'brand-x', name: 'X', slug: 'x', premium_extra_pct: 0 };
+  const TARGET_CAT = '碳纖維部品';
+  const OTHER_CAT = '排氣系統';
+
+  /** 造一個「同分類商品全部排在 handle 序很後面」的池 —— 正是那個構造。 */
+  function seedWithSameCatAtTail(poolSize: number) {
+    const others = Array.from({ length: poolSize }, (_, i) =>
+      makeProduct({
+        id: `o-${String(i).padStart(4, '0')}`,
+        handle: `a-${String(i).padStart(4, '0')}`, // handle 排前面
+        brand: BRAND,
+        category: { raw: OTHER_CAT, segments: [OTHER_CAT] },
+      }),
+    );
+    const sameCat = makeProduct({
+      id: 'same-1',
+      handle: 'z-9999', // handle 排最後 ⇒ 一定被池的前 N 筆擠掉
+      brand: BRAND,
+      category: { raw: TARGET_CAT, segments: [TARGET_CAT] },
+    });
+    return { seed: [...others, sameCat], sameCat };
+  }
+
+  it('🔴 同分類商品在 handle 序尾端時，仍然進得了推薦(下推查詢，不受池的前 N 筆影響)', async () => {
+    // 池上限 800 ⇒ 造 800 筆別的分類把池塞滿
+    const { seed, sameCat } = seedWithSameCatAtTail(800);
+    const current = makeProduct({
+      id: 'cur',
+      handle: 'cur',
+      brand: BRAND,
+      category: { raw: TARGET_CAT, segments: [TARGET_CAT] },
+    });
+    const engine = new RuleBasedRecommendationEngine(
+      new FakeProductRepository([...seed, current]),
+    );
+
+    const res = await engine.recommend({
+      placement: 'pdp-related',
+      context: { product: current },
+      limit: 4,
+    });
+
+    // 舊寫法:sameCat 從「handle 前 800 筆」篩 ⇒ 那 800 筆全是 OTHER_CAT ⇒ 同分類層為空
+    const handles = res.items.map((i) => i.product.slug);
+    expect(handles, '同分類商品被池的前 N 筆擠掉了 ⇒ score 100 那層消失').toContain(
+      sameCat.handle,
+    );
+  });
+
+  it('負向對照:同分類商品在 handle 序前端時也在(證明上一格不是恆真)', async () => {
+    const sameCatFirst = makeProduct({
+      id: 'same-2',
+      handle: 'a-0000',
+      brand: BRAND,
+      category: { raw: TARGET_CAT, segments: [TARGET_CAT] },
+    });
+    const current = makeProduct({
+      id: 'cur2',
+      handle: 'cur2',
+      brand: BRAND,
+      category: { raw: TARGET_CAT, segments: [TARGET_CAT] },
+    });
+    const engine = new RuleBasedRecommendationEngine(
+      new FakeProductRepository([sameCatFirst, current]),
+    );
+
+    const res = await engine.recommend({
+      placement: 'pdp-related',
+      context: { product: current },
+      limit: 4,
+    });
+
+    expect(res.items.map((i) => i.product.slug)).toContain(sameCatFirst.handle);
   });
 });

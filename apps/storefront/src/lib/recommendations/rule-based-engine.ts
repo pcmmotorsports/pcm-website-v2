@@ -139,10 +139,30 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
         }
       } else {
         // ── Case B:同品牌池(用 domain product.brand.id uuid) ──────────
-        const brandPool = await this.repo.listByBrand(product.brand.id, RECOMMENDATION_POOL_SIZE);
+        // 🔴 `sameCat` 【另外查一次、把分類 filter 下推 DB】(2026-08-17 codex 對抗審查):
+        //    原本是「拿品牌池的前 N 筆，再在記憶體裡 filter 出同分類」——
+        //    若那 N 筆剛好都是別的分類（大品牌很容易：單一品牌最大 4,566 筆而池是 800），
+        //    **`score 100` 這一層會整個消失**，推薦掉到 `score 80`，而畫面上看不出任何異常。
+        //    ⇒ 代價是**多兩次 DB request**(分類 `resolveCategoryId` + 商品查詢),
+        //      換「最相關的那一層不受池裡剛好有沒有影響」。
+        //    📎 codex 指出更省的做法(未做,留給日後):把 category 也走 inner join 可省掉 resolve 那次。
+        // ⚠️ `otherCat` 仍是從品牌池篩的 —— 這是**刻意的取捨**，而理由要講精準:
+        //    🔴 **不是「`seededOrder` 是亂數所以無偏」** —— codex 2026-08-17 更正我這句:
+        //    `seededOrder` 只洗牌【handle 前 800 筆】，**它不是對全品牌隨機取樣**。
+        //    正確的說法是:**低分層(`score 80`)允許一個有偏的候選池**。
+        //    高分層(`score 100`，同分類)不允許 ⇒ 所以只有它下推查詢。
+        //    📎 我原本的措辭讓一個【有偏】的取樣聽起來像【無偏】——
+        //       與同日記進 traps 的「用詞的方向不會自己報錯」是同一族。
+        const [brandPool, sameCat] = await Promise.all([
+          this.repo.listByBrand(product.brand.id, RECOMMENDATION_POOL_SIZE),
+          this.repo.listByBrand(
+            product.brand.id,
+            RECOMMENDATION_POOL_SIZE,
+            sameCategoryRaw,
+          ),
+        ]);
         primaryPoolCount = countDistinctEligible(brandPool, excludes); // CTA=/products?brand=
         primaryPoolSaturated = brandPool.length >= RECOMMENDATION_POOL_SIZE;
-        const sameCat = brandPool.filter((p) => p.category.raw === sameCategoryRaw);
         const otherCat = brandPool.filter((p) => p.category.raw !== sameCategoryRaw);
         addTier(sameCat, 100, 'same-brand', false); // 同品牌×同分類:決定性排序
         addTier(otherCat, 80, 'same-brand', true); // 同品牌其他:亂數

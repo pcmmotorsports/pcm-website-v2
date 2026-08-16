@@ -310,13 +310,30 @@ export class SupabaseProductAdapter implements IProductRepository {
    * ⇒ 撈 4,566 筆完整列(帶 `images`/`description` jsonb)只為了挑 8 筆是淨浪費。
    * ⇒ 這裡要的是**明示的取樣**,不是撈完。**明示取樣與靜默截斷的差別是:前者寫在這一行、看得到。**
    */
-  async listByBrand(brandId: string, poolLimit: number): Promise<Product[]> {
+  async listByBrand(
+    brandId: string,
+    poolLimit: number,
+    categoryRaw?: string,
+  ): Promise<Product[]> {
     assertPositiveIntegerPoolLimit('listByBrand', poolLimit);
 
-    const { data, error } = await this.supabase
+    // 🔴 分類 filter【下推 DB】而不是拉回來再篩(2026-08-17 codex):
+    //    找不到該分類 ⇒ 回 [](與 `listByCategory` 同慣例,不 throw)。
+    let categoryId: string | null = null;
+    if (categoryRaw !== undefined) {
+      categoryId = await resolveCategoryId(this.supabase, categoryRaw);
+      if (categoryId === null) {
+        return [];
+      }
+    }
+
+    const base = this.supabase
       .from('products_public')
       .select(PRODUCT_SELECT_DETAIL_VIEW)
-      .eq('brand_id', brandId)
+      .eq('brand_id', brandId);
+    const { data, error } = await (categoryId === null
+      ? base
+      : base.eq('category_id', categoryId))
       .order('handle', { ascending: true })
       .limit(poolLimit);
 

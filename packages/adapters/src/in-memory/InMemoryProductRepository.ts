@@ -184,9 +184,17 @@ export class InMemoryProductRepository implements IProductRepository {
    * 兩個實作對同一個 contract 要有同樣的**可觀測行為**。少了它,以 in-memory 寫的測試會看到
    * 「全部」,真 adapter 卻只回 `poolLimit` 筆 ⇒ 那個差異只會在正式站上出現。
    */
-  async listByBrand(brandId: string, poolLimit: number): Promise<Product[]> {
+  async listByBrand(
+    brandId: string,
+    poolLimit: number,
+    categoryRaw?: string
+  ): Promise<Product[]> {
     return this.takePool(
-      Array.from(this.products.values()).filter((p) => p.brand.id === brandId),
+      Array.from(this.products.values()).filter(
+        (p) =>
+          p.brand.id === brandId &&
+          (categoryRaw === undefined || p.category.raw === categoryRaw)
+      ),
       poolLimit
     );
   }

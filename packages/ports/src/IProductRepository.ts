@@ -112,7 +112,21 @@ export interface IProductRepository {
    * 原 `@TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams`(backlog #20 + #51)——
    * ⚠️ **那個觸發條件已經發生了**(19,777 商品 / 單品牌 4,566),本簽名是它的第一步。
    */
-  listByBrand(brandId: string, poolLimit: number): Promise<Product[]>;
+  listByBrand(
+    brandId: string,
+    poolLimit: number,
+    /**
+     * 只回**這個分類**的商品(`CategoryPath.raw`);省略 = 不限分類。
+     *
+     * 🔴 **為什麼要有這個參數**(2026-08-17 codex 對抗審查):
+     * 推薦引擎最重要的那一層是「同品牌 × **同分類**」(`score 100`),
+     * 而它原本的做法是「先拿品牌池的前 N 筆、**再在記憶體裡 filter 出同分類**」
+     * ⇒ 若那 N 筆**剛好都是別的分類**(大品牌很容易),**`score 100` 整層會消失**,
+     *   推薦掉到 `score 80`,而畫面上看不出任何異常。
+     * ⇒ **把 filter 下推到查詢**,那一層就不再受「池裡剛好有沒有」影響。
+     */
+    categoryRaw?: string,
+  ): Promise<Product[]>;
   /**
    * 依 fitment spec 列出 product(motoBrand + modelCode 配對),**最多 `poolLimit` 筆**。
    *
