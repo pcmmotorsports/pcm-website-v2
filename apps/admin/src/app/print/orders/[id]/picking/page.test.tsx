@@ -267,6 +267,150 @@ describe('#10 片1 🔴 揀貨單必須反映貨的真實狀態', () => {
 //    紙上卻多一整條 144px 空白欄(`SIDEBAR_WIDTH='9rem'`)。
 //    ⚠️ 這是**字面**守門:它擋不住「用值被別的規則蓋掉」(那只有真瀏覽器量得到,`D-004` §3 量過一次),
 //       但它擋得住**刪除**,而刪除是這三處唯一沒人守的一條路。**量過 ≠ 有守門。**
+// ── 本次應揀合計(Sean 2026-08-16 答「幾項」)────────────────────────────────
+//
+// 🔴 **它守的是「漏揀一整列」,而那件事在這張紙上原本【零症狀】** ——
+//    揀貨的人一列一列往下勾,勾完最後一列就走;**沒有任何東西告訴他應該勾滿幾個**。
+//    ⇒ 這一族釘的不是「有沒有印出一個數字」,是**那個數字與紙上的框對不對得起來**。
+describe('#10 片1 本次應揀合計', () => {
+  /** 一列。`instock`/`shipped` 直接給,`summary: null` 用 `unknown: true`。 */
+  const row = (sku: string, instock: number, shipped: number, unknown = false) => ({
+    id: `id-${sku}`,
+    variantSku: sku,
+    title: '測試品項',
+    spec: null,
+    quantity: 9,
+    unitPrice: { amount: 100, currency: 'TWD' },
+    lineTotal: { amount: 900, currency: 'TWD' },
+    procurements: [],
+    procurementTruncated: false,
+    quantitySummary: unknown
+      ? null
+      : {
+          quantity: 9,
+          orderedQuantity: 9,
+          instockQuantity: instock,
+          cancelledQuantity: 0,
+          shippedQuantity: shipped,
+          cancellableQuantity: 0,
+        },
+  });
+
+  // 3 列要揀 / 1 列這次不用揀(到貨=已出貨)/ 1 列不知道
+  const MIXED = [
+    row('AAA', 5, 0),
+    row('BBB', 3, 1),
+    row('CCC', 2, 0),
+    row('DDD', 7, 7),
+    row('EEE', 0, 0, true),
+  ];
+
+  it('🔴 合計 = 真的要動手的列數,**不是表格列數**', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    // 🔴 **讀【那一顆節點】,不掃整份文字**(codex R1):
+    //    解釋小字「勾選欄共 3 項」裡也有「3 項」⇒ 掃全文的話,主數字被刪掉或改錯照樣綠。
+    const total = container.querySelector('[data-slot="picking-total"]');
+    expect(total?.textContent?.trim()).toBe('3 項');
+    expect(textOf(container)).toContain('本次應揀合計');
+    // 🔴 表頭那行「品項:5 項」是**表格列數**,兩個數字必須不同 ——
+    //    寫成同一個數就是叫人去勾一個他勾不滿的數。
+    expect(textOf(container)).toContain('品項:5 項');
+  });
+
+  it('🔴🔴 合計必須等於紙上勾選框的實際數量(這一格才是真的守門)', async () => {
+    // ⚠️ 前面那格只證「印出 3」;它證不了「紙上剛好有 3 個框」。
+    //    框與合計是**兩個消費端**,而本片把它們接到同一支 `needsPicking` ——
+    //    這一格是那個決定的負向面:任一邊漂走,兩個數就對不起來。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    // 🔴 **指名勾選框本身,不是「第一格裡的任何 span」**(codex R1):
+    //    第一格將來多一個提示 span、或框被改成隱藏,原本那個選擇器都照樣數得到。
+    const boxes = container.querySelectorAll('[data-slot="picking-checkbox"]');
+    const total = container.querySelector('[data-slot="picking-total"]');
+    expect(boxes.length).toBe(3);
+    // 🔴 兩邊都指名節點 ⇒ 任一邊漂走這格就紅。掃全文會被解釋小字接住。
+    expect(total?.textContent?.trim()).toBe(`${boxes.length} 項`);
+  });
+
+  it('🔴 「數量資料尚未就緒」的列不算進合計,但**必須被單獨講出來**', async () => {
+    // 契約同 `pickableQuantity`:`null` 是「不知道」不是「0」。
+    // 🔴 不算進應揀數是對的(不知道就別叫人去揀);**但只算不說就變成「把不知道印成沒有」**——
+    //    揀貨的人勾滿 3 項會認為這張單處理完了,而那一列可能還欠貨。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    const t = textOf(container);
+    expect(t).toContain('有 1 項的數量資料尚未就緒');
+    expect(t).toContain('不算處理完');
+    // 🔴 **位置本身是驗收條件的一部分,不只是文字在不在**:
+    //    這句話在【頁首 Alert 區】,不在合計旁邊 —— 因為合計那塊不在 <table> 裡,
+    //    跨頁時它可能留在頁尾而警告掉到下一頁 ⇒ 當頁把「不知道」讀成「沒有」。
+    //    ⚠️ 搬回合計旁邊這格不會紅(文字還在)⇒ 所以這裡直接釘它在 role=alert 裡面。
+    const alerts = [...container.querySelectorAll('[role="alert"]')].map((a) => a.textContent ?? '');
+    expect(alerts.some((a) => a.includes('數量資料尚未就緒'))).toBe(true);
+  });
+
+  it('沒有「不知道」的列時,不印那句話(否則它變成永遠都在的雜訊)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: [row('AAA', 5, 0)] } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    expect(container.querySelector('[data-slot="picking-total"]')?.textContent?.trim()).toBe('1 項');
+    // 🔴 三個特徵一起排除(codex R1:只排「另有」的話,那句話改寫成不含「另有」就靜默永久顯示)
+    const t = textOf(container);
+    expect(t).not.toContain('尚未就緒');
+    expect(t).not.toContain('不算處理完');
+    // 🔴 連那顆 Alert 都不該存在(只驗文字的話,空殼 Alert 會留下來當雜訊)
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  // 🔴🔴 **這一格是機制,不是規則** —— 我在同一片裡把 markdown 粗體寫進 JSX 文字**兩次**,
+  //    兩次都是自己回頭看才發現的。星號會【照字面印在給倉庫的紙上】,而 typecheck/lint 都不會叫。
+  //    ⇒ 與其寫一條「記得不要在 JSX 裡寫 **」的規則,不如讓它紅。
+  //    ⚠️ 掃的是**渲染輸出**不是原始碼 ⇒ 註解裡的 `**` 不會誤傷(那正是本檔最多的東西)。
+  it('🔴 紙上不得出現 markdown 星號(JSX 文字裡寫 ** 會照字面印出來)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED, itemsTruncated: true } as unknown as Partial<AdminOrderDetail>),
+    );
+    expect(textOf((await renderPage()).container)).not.toContain('**');
+  });
+
+  it('🔴🔴 清單沒載完 ⇒ 合計旁邊不得說「全部勾完才算揀完」(那句話會說謊)', async () => {
+    // 🔴 codex 對抗審查 2026-08-16 抓的,而**我第一版真的印了它**。
+    //    itemsTruncated = 有幾列根本沒被載進來 ⇒ 它們不在合計裡
+    //    ⇒「全部勾完才算揀完」等於給了他一個**假的完成條件**。
+    //    ⚠️ 這比沒有合計更糟:沒有合計他至少不會覺得自己完成了。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED, itemsTruncated: true } as unknown as Partial<AdminOrderDetail>),
+    );
+    const t = textOf((await renderPage()).container);
+    expect(t).not.toContain('全部勾完才算揀完');
+    expect(t).toContain('清單沒載完');
+    expect(t).toContain('不要拿它當揀完的依據');
+    // 🔴 codex R2:只驗那一句的話,紙上**其他**看起來精確的數字照樣把人騙回去。
+    //    「品項:N 項」與「另有 N 項」在截斷時都只是【已載入子集】⇒ 兩處都要自己講清楚。
+    expect(t).toContain('未載完,不是總數');
+    expect(t).toContain('未載入的列裡可能還有');
+  });
+
+  it('🔴 整單已取消 ⇒ 連合計都不印(合計本身也是「可以照著做事」的資訊)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ cancelledAt: '2026-08-05T02:00:00+00:00' }),
+    );
+    const { container } = await renderPage();
+    // 🔴 整塊都不該在,不是只有標籤消失(codex R1):數字節點與解釋小字都要一起不見。
+    expect(textOf(container)).not.toContain('本次應揀合計');
+    expect(textOf(container)).not.toContain('勾選欄共');
+    expect(container.querySelector('[data-slot="picking-total"]')).toBeNull();
+  });
+});
+
 describe('#10 片1 列印時必須藏起來的三顆', () => {
   const cases: readonly (readonly [string, string])[] = [
     ['components/ui/sidebar.tsx', "'group peer text-sidebar-foreground hidden md:block print:hidden'"],
