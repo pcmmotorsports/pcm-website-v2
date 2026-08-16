@@ -111,3 +111,49 @@
 - **併發本身我沒有實測**（§6.10 是讀 code；實測過的併發只有 §6.5(b) 的掛品項）。
   ⇒ 本規格守的是**「那棵樹還在、且順序沒被對調」**，**不是**「併發下一定正確」。
   **後者要另外做，而前者是它的前置。**
+
+---
+
+## 6. 附帶一件（**同族、同一支 fallback 的另一道護欄**）
+
+### 6.1 背景
+
+`begin_charge_attempt` 的回傳 jsonb **含 `fallback_token`**
+（2026-08-16 逐支審回傳面時發現，見 phase2 §5.1-b）。
+
+那**不是 PII，是一把能力憑證** —— 它正是 `mark_charge_attempt_charged_fallback` 三道護欄之一。
+
+**今天不構成升級**，理由是**另一道護欄**：那支 fallback **同時要求 `auth.uid() = customer_user_id`**，
+而 `payment_confirmer` 是 **DB 登入角色、沒有 JWT 身分** ⇒ 拿到 token 也用不了。
+
+### 6.2 🔴 問題不在今天，在「另一道護欄被別人以別的理由改掉」的那一天
+
+**「今天用不了」這個結論，整個掛在 `auth.uid()` 那道上。**
+而**改那道的人，不會知道它同時在守「`fallback_token` 外流」這件事** ——
+他打開的是 `mark_charge_attempt_charged_fallback`，**不是** `begin_charge_attempt`。
+
+> 📎 判別句：**會來改這件事的人，他會打開哪一個檔？**
+> ⇒ **警告要放在【他會打開的那一個】，不是放在【發現問題的那一個】。**
+
+### 6.3 建議：兩邊都留一句（**我唯讀，只交文字**）
+
+**(a) 放在 `begin_charge_attempt` 的 `COMMENT ON FUNCTION`：**
+
+> 🔴 本函式回傳 `fallback_token`（能力憑證，非 PII）。
+> 它之所以外流也不構成升級，**依賴的是 `mark_charge_attempt_charged_fallback`
+> 那道 `auth.uid() = customer_user_id` 的歸屬閘** ——
+> **動那道之前先回來看這裡。**
+
+**(b) 🔴 更重要的一句，放在 `mark_charge_attempt_charged_fallback` 的 `COMMENT ON FUNCTION`：**
+
+> 🔴 本函式的 `auth.uid() = customer_user_id` 那道**不只擋「別人的單」**，
+> 它同時是「**`begin_charge_attempt` 回傳的 `fallback_token` 外流之後仍然用不了**」的唯一理由。
+> **放寬或移除它之前，先確認 `fallback_token` 的散布面。**
+
+⚠️ **(b) 比 (a) 重要**：(a) 是給「讀 `begin_charge_attempt` 的人」，
+而**風險是「改 `mark_..._fallback` 的人」造成的** —— **只寫 (a) 等於警告寫在沒有人會打開的地方**
+（本 repo 今晚已經有一個同形狀的實例：`pcm_order_refundable_remaining` 的 allowlist 警告寫在
+它自己的 `COMMENT` 裡，而新增 status 的人不會去讀那支函式）。
+
+⚠️ **我沒有實作這兩句**（唯讀）。**也沒有實測 `fallback_token` 目前散布到哪些地方**
+（誰拿得到、有沒有進 log／回應）⇒ **(b) 裡「先確認散布面」那句是要求，不是我已經查過的結論。**
