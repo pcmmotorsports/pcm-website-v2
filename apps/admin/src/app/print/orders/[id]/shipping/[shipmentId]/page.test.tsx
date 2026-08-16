@@ -463,12 +463,12 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
   //    `lib/shipping/shipping-doc-dispatch.test.ts` 與 `carrier-label.test.ts`(不需渲染就跑得動)。
   //    ⚠️ 兩件都要測,但**不該是同一格**:同一格的話「算式錯」與「忘了 render」會紅在同一個地方。
 
-  it('貨運商 / 出貨日 / 追蹤碼三個都印出來,而且各自帶標籤', async () => {
+  it('貨運商 / 日期 / 追蹤碼三個都印出來,而且各自帶標籤', async () => {
     const t = (await renderPage()).container.textContent ?? '';
     expect(t).toContain('貨運商:新竹物流');
     expect(t).toContain('新竹物流追蹤碼:');
     expect(t).toContain('6412345678');
-    expect(t).toMatch(/出貨日:\d{4}-\d{2}-\d{2}/);
+    expect(t).toMatch(/日期:\d{4}-\d{2}-\d{2}/);
   });
 
   it('🔴 三個號碼並排 ⇒ 每一個都要有標籤(plan §4:客人不知道該拿哪個去查)', async () => {
@@ -480,7 +480,7 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
     expect(t).not.toMatch(/(?<!新竹物流)追蹤碼:6412345678/);
   });
 
-  it('已出貨 ⇒ 出貨日印的是 shippedAt 那天,不是列印當天', async () => {
+  it('已出貨 ⇒ 日期那格印的是 shippedAt 那天,不是列印當天', async () => {
     // ⚠️ **本格【量不到時區】**(R1 nit 9):頁測跑在 `vitest.config.ts` 釘死的 `TZ=Asia/Taipei` 下
     //    ⇒ 拿掉實作的 `{ timeZone }` 這格照樣綠。時區那一半在
     //    `lib/shipping/shipping-doc-dispatch.test.ts`(它在執行期切 `TZ=UTC`)。
@@ -489,7 +489,7 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
     mocks.loadOrderShipments.mockResolvedValue([
       { shipment: shipment({ shippedAt: '2026-08-16T17:00:00Z' }), lines },
     ]);
-    expect((await renderPage()).container.textContent).toContain('出貨日:2026-08-17');
+    expect((await renderPage()).container.textContent).toContain('日期:2026-08-17');
   });
 
   it('🔴 other + carrierNote ⇒ 說明只印【一次】(在貨運商那格),追蹤碼那列不重印', async () => {
@@ -536,13 +536,18 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
     // ⚠️ 這一列會不會被印成**看不見的樣式**(顏色/字級),單測量不到 —— 紙沒印出來看過。
   });
 
-  it('未出貨且沒追蹤碼 ⇒ 說「尚未出貨,出貨後補」,不說「缺漏」(兩者意思完全不同)', async () => {
+  it('🔴🔴 未出貨且沒追蹤碼 ⇒ 紙上【整列不印】(Q-C9b=乙「什麼都不寫,空格」)', async () => {
     mocks.loadOrderShipments.mockResolvedValue([
       { shipment: shipment({ trackingNumber: null, shippedAt: null }), lines },
     ]);
     const t = (await renderPage()).container.textContent ?? '';
-    expect(t).toContain('尚未出貨,出貨後補');
+    // 🔴 連「追蹤碼:」四個字都不印 —— 只把值換成空字串的話,紙上會留下一個看起來壞掉的欄位。
+    expect(t).not.toContain('追蹤碼');
+    expect(t).not.toContain('出貨後補');
     expect(t).not.toContain('請回報');
+    // 🔴 **正向對照**:同一張紙的其他貨運資訊照印 ⇒ 上面那三個「沒有」不是整區沒渲染。
+    expect(t).toContain('貨運商:新竹物流');
+    expect(t).toMatch(/日期:\d{4}-\d{2}-\d{2}/);
   });
 
   it('🔴 未知貨運商代碼 ⇒ 印代碼本身,不留白(守門看不到 DB,回退方向必須安全)', async () => {
@@ -566,7 +571,8 @@ describe('🔴 Q-C7 = 丙:頁尾【不得】有手寫日期格(Sean 2026-08-16 �
     expect(t).toContain('出貨人:');
     // 🔴 沒有這一格的話,把那行加回來【零症狀】—— 它看起來像單據的標準欄位。
     expect(t).not.toContain('日期:____');
+    // ⚠️ Q-C6 之後表頭那格也叫「日期」⇒ 這裡只能釘【手寫底線】那個形狀,不能只釘「日期」兩個字。
     // 正向對照:表頭那個【印死的】出貨日還在(拿掉的是手寫那格,不是整個日期概念)。
-    expect(t).toMatch(/出貨日:\d{4}-\d{2}-\d{2}/);
+    expect(t).toMatch(/日期:\d{4}-\d{2}-\d{2}/);
   });
 });

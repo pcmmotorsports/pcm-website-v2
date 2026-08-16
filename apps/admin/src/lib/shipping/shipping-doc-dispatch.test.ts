@@ -13,11 +13,26 @@ describe('追蹤碼:三種 null 在紙上不可以長成同一個樣子(plan §3
     expect(r.kind === 'number' && r.label).toContain('新竹物流');
   });
 
-  it('情形① 箱還沒標出貨 ⇒ 尚未出貨,出貨後補', () => {
-    expect(trackingDisplay({ ...base, shippedAt: null })).toEqual({
-      kind: 'pending',
-      text: '尚未出貨,出貨後補',
-    });
+  it('🔴 情形① 箱還沒標出貨 ⇒ 【空白】(Q-C9b=乙,Sean 逐字「什麼都不寫 ,空格」)', () => {
+    expect(trackingDisplay({ ...base, shippedAt: null })).toEqual({ kind: 'pending', text: '' });
+    // 🔴 負向:填回「尚未出貨,出貨後補」之類的字 ⇒ 本格紅。
+    //    那句話承諾的「補」目前【沒有管道】(通知信暫緩、沒有會員訂單頁)= 對客假承諾。
+  });
+
+  it('🔴🔴 情形①(空白)與情形③(fail-loud)【必須是兩條分支】—— 差別只在 shippedAt', () => {
+    // ⚠️ 兩者在資料上都是「沒有追蹤碼」,長得一模一樣。
+    //    合併成「都留空」會把一個資料鏈的洞變成看不見的 —— 那正是情形③ 存在的理由。
+    const noTracking = { carrierCode: 'sf', trackingNumber: null };
+    const pending = trackingDisplay({ ...noTracking, shippedAt: null });
+    const missing = trackingDisplay({ ...noTracking, shippedAt: '2026-08-16T02:00:00Z' });
+    expect(pending.kind).toBe('pending');
+    expect(missing.kind).toBe('missing');
+    // 🔴 釘「不同」這個性質,不只釘各自的值 —— 有人把它們合併時這一行會紅。
+    expect(pending.kind).not.toBe(missing.kind);
+    // 🔴 `text` 不在 `number` 那一支上 ⇒ 用 kind 收窄再讀,不要 cast 繞過型別。
+    //    (型別在這裡是幫手不是障礙:它逼我證明「我拿到的真的是這兩支」。)
+    expect(pending.kind === 'pending' && pending.text).toBe('');
+    expect(missing.kind === 'missing' && missing.text.trim()).not.toBe('');
   });
 
   it('🔴 情形① 對 other 也成立 —— 還沒出貨的自取箱不該講「自取自送」', () => {
