@@ -183,6 +183,16 @@ Sean 拍 `Q-SEARCH-0` = **乙**:維持「M-4b 之後再開搜尋線」,**但先�
 
 ⚠️ **這一條也只是降低阻力,不是消滅過期** —— 沒有人讀的時候它照樣不會動。
 **它買到的是:讀的人可以【一眼看出哪些格沒人查過】**,而那是原本看不出來的。
+
+### 📎 這條規矩的另一端:`docs/reference/environment-values-and-what-stands-on-them.md`
+
+**本節說**:每一句描述現況的話,旁邊附一條可重跑的量法。
+**那份檔說**:把**被很多句話共用的那幾個值**集中起來 ——
+否則同一個值(`db-max-rows`、`statement_timeout`…)會在十個地方各附一次量法,**而它們會各自過期**。
+
+🔴 **那份檔裡最重要的一列不是一個值**:`db-max-rows` **是一個 dashboard 上點一下就能改的專案設定**,
+**目前零監控** ⇒ 被調低時所有 `>= LIMIT` 的截斷旗標**恆 false、零機械訊號**。
+**今晚幾乎每一條與截斷有關的結論都站在它上面。**
 範例(本檔 `Q-C551` 那段就是這樣寫的):
 `git show origin/dev:apps/admin/src/lib/shipping/tracking-number.ts | grep -c "return { level: 'block'"` ⇒ 0,
 並附正向對照 `grep -c "level: 'warn'"` ⇒ 2。
