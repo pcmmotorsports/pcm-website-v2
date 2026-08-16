@@ -6,6 +6,21 @@
 
 ---
 
+## §0 ⛔ 開工前兩句(**走錯的人都是還沒讀到這裡就動手了**)
+
+```
+1. 🔴 先確認你手上有沒有 apps/admin/src/lib/shipping/shipment-repository.ts
+      沒有 ⇒ 不要開工。理由見 §5：migration 與應用層【不能有先後】，
+      而這條線在等的是【那個檔案的歸屬】，不是某個窗。
+
+2. 🔴 五支的 body 是【機器抽的，不要手抄】
+      bash scripts/a2-extract-rpc-bodies.sh <輸出目錄>
+      理由：手抄的錯落在 plpgsql 某一行 ⇒ typecheck 不紅、靜態檢查不紅、
+      測試也不紅，【沒有任何守門看得到】⇒ 唯一的防線是不要用手。
+```
+
+---
+
 ## §1 為什麼不能照 plan §5 做(一句)
 
 plan §5 寫「參數型別不變 ⇒ ACL 保留」。**實查五支簽章,全部沒有 `p_actor` / `p_request_id`**,
