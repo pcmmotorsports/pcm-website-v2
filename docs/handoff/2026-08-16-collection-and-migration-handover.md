@@ -1,4 +1,4 @@
-# 2026-08-16 交接 · 收割完成 + migration 三成一敗 + 真登入線開線
+# 2026-08-16 交接 · 收割完成並已推 + migration 四支全套 + 真登入線開線
 
 > **寫於 13:26。所有數字都是【當下量的】,不是記憶。**
 > **下一個主視窗:先跑本檔 §1 的三行,對不上就以你量到的為準、回報差異,不要照抄本檔。**
@@ -11,7 +11,10 @@
 ```bash
 cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git rev-parse --short HEAD && git rev-list --count origin/dev..dev && git status --porcelain
 ```
-**13:26 的預期值**:`dev` / `f90670b3` / `92` / 工作樹空。
+**13:4x 的值(已推)**:`dev` / `7c10f1a8` / **`0`** / 工作樹空。
+🔴 **Sean 2026-08-16 明確指示推,已推** —— 93 顆全進 `origin/dev`,四條線 `git merge-base --is-ancestor <branch> origin/dev` 皆過。
+⚠️ **push 輸出帶一句 `Bypassed rule violations: Required status check "check" is expected`**
+   ⇒ GitHub 分支保護的 status check **被繞過**了。原因未查,**下一個窗要確認 CI 有沒有真的跑。**
 
 ```bash
 for d in ~/pcm-void-readers ~/pcm-products ~/pcm-print ~/pcm-customers; do printf "%-22s %s %s %s\n" "$(basename $d)" "$(git -C $d rev-parse --short HEAD)" "$(git -C $d rev-list --count origin/dev..HEAD)" "$(git -C $d status --porcelain | grep -c '')"; done
@@ -51,22 +54,30 @@ npx turbo run lint --force && npx eslint 'scripts/*.ts' --max-warnings 0
 npx vitest run
 ```
 
-### ✅ migration:四支中三支已進正式庫
+### ✅ migration:四支**全部**已進正式庫
 ```
+20260816010000 #525 客戶搜尋  ✅ 已套（--include-all，過程見 §3/§4）
 20260816030000 客戶頁三欄     ✅ 已套
 20260816040000 #518 錯誤訊息  ✅ 已套
 20260816050000 #522 貨品軸    ✅ 已套
-20260816010000 #525 客戶搜尋  🔴 未套 —— 見 §3
 ```
+🔴 **apply 完的下一個動作是追加 `supabase/APPLIED.tsv`**(版本號/sha256/日期/誰)——
+**pre-push 閘看的是那份台帳,不是資料庫。**詳見 §10。
 **跑法(不碰 `.env*`)**:複製 `supabase/` 到 scratch、`supabase db push --workdir <scratch>`。
 **一支一支套**=把其他 pending 檔從 scratch 移走,`--dry-run` 確認清單只有那一支。
 🔴 **exit code 不要接管線**(`bash x.sh | head` 之後的 `$?` 是 `head` 的)。
 
 ---
 
-## 3. 🔴 卡住的那一件 —— 需要 Sean 拍板
+## 3. ✅ 已解 —— `#525` 四支全數 apply(原本卡住那件)
 
-`20260816010000`(`#525` 客戶搜尋)**修好了、commit 了(`f90670b3`)、但套不進去。**
+✅ **`20260816010000` 已用 `--include-all` 套進去(Sean 2026-08-16 拍板甲),四支遠端欄皆有值。**
+🔴 **而它 apply 通過的四項檢查裡有一項是本次新加的**
+(`has_function_privilege('anon'|'authenticated', ...)`)⇒ **正式庫自己回答了:那兩個角色沒有可繼承的 EXECUTE。**
+⚠️ 仍未關:`NOINHERIT` 的角色 `SET ROLE service_role` 這條路徑守門看不到;`anon.rolinherit` 實際值未確認。
+
+### 當時卡住的原因(留著,因為下次還會遇到)
+`010000` 版本號**低於**已套的三支 ⇒ 逆序,`supabase db push` 預設拒絕。
 
 **dry-run 逐字**:
 ```
@@ -78,11 +89,11 @@ supabase/migrations/20260816010000_m4b_525_admin_search_customers.sql
 **原因**:它的版本號 `010000` **低於**已套的 `030000/040000/050000` ⇒ 逆序,
 `supabase` 預設拒絕。官方解法是 `--include-all`。
 
-🔴 **前一個主視窗沒有自己按那個 flag**,理由:
+當時沒有自己按那個 flag,理由(**下次遇到可以直接照這個判**):
 ① 那是**動正式庫**,而 CLI 自己特地擋了一道 = 它認為這需要人確認
 ② Sean 授權套 migration 時逐字說「**有一支不對就停下不往下**」,dry-run 就是不對
 
-**⇒ 決策題(給 Sean)**:
+**Sean 2026-08-16 拍板【甲】。當時的選項留檔:**
 ```
 Q: #525 那支 migration 版本號比已套的低，supabase 擋住了。怎麼辦？
 
@@ -114,7 +125,12 @@ apply 當場被它**自己的守門**擋下,逐字:
 📎 **正好命中 Sean 08-16 早上主動重申的威脅模型**:
 > 「所有員工都可以看到客戶資料**沒有分權限**,我唯一擔心就是**資料被駭客攻擊**而已。」
 
-### ⚠️ 沒有證實的那一半(不得被引用成「已確認回滾」)
+### ✅ 後來關掉了 —— 而關掉它的是**正式庫自己**
+第二次 apply 通過了本次新加的 `has_function_privilege('anon'|'authenticated', ...)` 檢查
+⇒ **那兩個角色現在對這支函式沒有可繼承的 EXECUTE,這是 production 回答的、不是推論的。**
+⚠️ **仍未關**:`NOINHERIT` 的角色 `SET ROLE service_role` 那條路徑守門看不到;`anon.rolinherit` 未確認。
+
+### ⚠️ 第一次失敗當下【沒有】證實的那一半(留檔,因為當時的推理過程值得看)
 ```
 沒有親眼看到正式庫裡現在沒有那支函式
   db dump 要 Docker（沒開）／ psql 要連線字串（在 .env*，禁碰）
@@ -123,7 +139,7 @@ apply 當場被它**自己的守門**擋下,逐字:
   ② 把它從本地清單移走後，它在遠端那欄完全不出現
   ③ db push 一檔一交易 ⇒ 該檔整支回滾
 ```
-**⇒ 下一個窗若有 production 唯讀通道,第一件事就是關掉這個缺口。**
+**⇒ 當時的結論是「不得引用成已確認回滾」。後來由第二次 apply 的守門正面回答了。**
 
 ### 🔴 這條要推廣:**其他 SECURITY DEFINER 函式有沒有同樣問題?**
 `supabase/migrations` 全樹 `SECURITY DEFINER` 出現 **388 次**
@@ -210,16 +226,18 @@ memory project_m4b-real-auth-line-decisions  ← 完整拍板史 + 拆片 + code
 ## 7. 五個施工窗的狀態(全部停著等派工)
 
 ```
-A 窗 pcm-void-readers  32 顆  訂單線 / 客戶頁三欄
+🔴 **四條線的內容【已全部進 origin/dev】** —— 下面的顆數是「分支 tip 相對 origin/dev 的距離」,
+   收割後那個數字沒有意義,**不要拿它判斷有沒有待推**。判斷法:`git rev-list --count origin/dev..dev` = 0。
+A 窗 pcm-void-readers  訂單線 / 客戶頁三欄
   卡:#521 storefront env ／ order-status-axes.ts 兩份分母收斂（歸收割者=主視窗，還沒做）
-B 窗 pcm-products      17 顆  BMW M / 圓角定位器
+B 窗 pcm-products      BMW M / 圓角定位器
   卡:Q5 對齊那一步（見 §5②）
   🔴 它自己回報:Q5=方之後，它那道圓角定位器【刻意放行 rounded-full】的理由消失了
      而守門仍是綠的 ⇒ 建議 Q5 落地與拿掉放行【綁同一片】，不留「綠著的違規」窗口
      products 樹實測:改法涉及 2 個共用常數 + 12 處寫死 inline + 1 真斷言 + 2 註解（共 17）
      ⚠️ 而 print-docs 樹只要改 1 處 ⇒ 不要把 D 窗的成本估搬到 B 窗
-C 窗 pcm-customers     17 顆  客人線 / 訂單列表 UI
-D 窗 pcm-print         18 顆  列印線 / 對外單據
+C 窗 pcm-customers     客人線 / 訂單列表 UI
+D 窗 pcm-print         列印線 / 對外單據
   卡:D-074 出貨單 plan 等鐵則 8 批准（要先吸收 §5① 那條再送）
 E 窗 唯讀審查，無工作樹（讀主樹）
   🔴 偵測器看不到它（沒有 commit、沒有分支 tip 會動）⇒ 判死活只能看 ~/pcm-mailbox/E-*.md 的 mtime
@@ -233,7 +251,7 @@ E 窗 唯讀審查，無工作樹（讀主樹）
 ## 8. 待辦(依優先序)
 
 ```
-1 🔴 §3 那題等 Sean 拍（#525 套不進去）
+1 ✅ §3 已解（Sean 拍甲、已套、已推）—— 待辦從第 2 條開始
 2 🔴 §4 的推廣:其他 SECURITY DEFINER 函式有沒有同一個洞（388 次出現，只查了 1 支）
 3 🔴 真登入線的 plan（§6）—— 鐵則 8，寫完等 Sean 批
 4 §5 的三條新需求
@@ -257,4 +275,12 @@ E 窗 唯讀審查，無工作樹（讀主樹）
   同理:檔案內部不要寫「見本檔 :NNN」，寫一段 grep 得到的字。
 ```
 
-**未 push 92 顆。全程沒推。**
+✅ **已推。`origin/dev` = `7c10f1a8`,未推 0 顆,工作樹乾淨。**
+
+## 10. 🔴 推完之後才發現的一件事(下一個窗要知道)
+`pre-push` 閘擋了第一次推,理由是「應用層用到還沒 apply 的 migration」——
+**而那時四支【已經 apply 完了】。**
+🔴 **因為那道閘看的是 `supabase/APPLIED.tsv` 這份台帳,不是資料庫。**
+我 apply 完只更新了 `STATUS.md` 與交接檔,**沒有更新台帳** ⇒ `7c10f1a8` 補登。
+> **「套了」與「登錄了」是兩件事,而閘只認後者。**
+**⇒ 以後 apply 完的下一個動作就是追加 `APPLIED.tsv`(版本號 / sha256 / 日期 / 誰),不要等閘來提醒。**
