@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import type { AdminOrderDetail } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderPrintItem } from '@pcm/domain';
 
 // #10 片2b:出貨單列印頁的守門。
 //
@@ -20,9 +20,18 @@ vi.mock('next/navigation', () => ({
   },
 }));
 
-const mocks = vi.hoisted(() => ({ findAdminOrderDetail: vi.fn(), loadOrderShipments: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  findAdminOrderDetail: vi.fn(),
+  listOrderItemsForPrint: vi.fn(),
+  loadOrderShipments: vi.fn(),
+}));
 vi.mock('../../../../../../lib/orders/order-repository', () => ({
-  getAdminOrderRepository: () => ({ findAdminOrderDetail: mocks.findAdminOrderDetail }),
+  getAdminOrderRepository: () => ({
+    findAdminOrderDetail: mocks.findAdminOrderDetail,
+    // 🔴 `Q-C18` 甲:品項改走頂層分頁查詢 —— **這一支才是紙上品項的來源**,
+    //    `findAdminOrderDetail` 的 `items` 已經不是(它被內嵌上限 200 夾住)。
+    listOrderItemsForPrint: mocks.listOrderItemsForPrint,
+  }),
 }));
 vi.mock('../../../../../../lib/shipping/order-shipments', () => ({
   loadOrderShipments: mocks.loadOrderShipments,
@@ -80,16 +89,42 @@ const shipment = (over: Record<string, unknown> = {}) =>
     ...over,
   }) as never;
 const lines = [{ orderItemId: ITEM, title: '前叉防甩頭', quantity: 2 }];
+// 🔴 **`items` 預設取自 `detail().items`,而那是【測試的方便】不是【正式站的來源】**
+//    (`Q-C18` 甲之後正式站的來源是頂層分頁查詢 `listOrderItemsForPrint`)。
+//    ⇒ 想測「品項清單與 detail 不一致」的格,自己傳 `items`。
 const block = (over: {
   detail?: Partial<AdminOrderDetail>;
+  items?: readonly AdminOrderPrintItem[];
+  reportedTotal?: number | null;
   shipment?: Record<string, unknown>;
   lines?: typeof lines;
-}) =>
-  shippingDocBlocker({
-    detail: detail(over.detail ?? {}),
+}) => {
+  const d = detail(over.detail ?? {});
+  const items = over.items ?? d.items;
+  return shippingDocBlocker({
+    detail: d,
+    items,
+    reportedTotal: over.reportedTotal === undefined ? items.length : over.reportedTotal,
     shipment: shipment(over.shipment ?? {}),
     lines: over.lines ?? lines,
   });
+};
+
+/**
+ * 設定「這張單長什麼樣」—— 🔴 **兩支 mock 必須一起設。**
+ *
+ * `Q-C18` 甲之後,紙上的品項來自 `listOrderItemsForPrint`,而**別的欄位**(收件、取消、單號)
+ * 仍來自 `findAdminOrderDetail` ⇒ **只設一支的話,兩邊會描述兩張不同的單,而畫面看起來很正常。**
+ * ⚠️ 這正是「mock 跨信任邊界 ⇒ 兩端各綠、中間無人守」的形狀,所以收成一支 helper,
+ * 讓「忘了設另一支」在結構上比較難發生。
+ */
+function setDetail(d: AdminOrderDetail) {
+  mocks.findAdminOrderDetail.mockResolvedValue(d);
+  mocks.listOrderItemsForPrint.mockResolvedValue({
+    items: d.items,
+    reportedTotal: d.items.length,
+  });
+}
 
 async function renderPage(id = ORDER, shipmentId = SHIPMENT) {
   return render(await OrderShippingPrintPage({ params: Promise.resolve({ id, shipmentId }) }));
@@ -108,7 +143,7 @@ function must<T>(v: T | undefined, what: string): T {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.findAdminOrderDetail.mockResolvedValue(detail());
+  setDetail(detail());
   mocks.loadOrderShipments.mockResolvedValue([{ shipment: shipment(), lines }]);
 });
 afterEach(() => cleanup());
@@ -129,10 +164,28 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     expect(msg).toContain('貼錯單');
   });
 
-  it('面6 品項清單截斷 ⇒ 可能少列品項', () => {
-    // ⚠️ 釘「達到 200 筆上限」而不是「超過」:判定是 `>=`(`mappers/order.ts:830`)
-    //    ⇒ **剛好 200 項就會走到這裡**,寫「超過」會讓讀的人以為 200 是安全的。
-    expect(block({ detail: { itemsTruncated: true } })).toContain('達到 200 筆上限');
+  // 🔴🔴 **2026-08-17 `Q-C18` 甲:面6 換了判準本身,不只換文案。**
+  //    舊判準 `detail.itemsTruncated` = 「內嵌撈到的筆數觸及我們自己設的上限 200」,
+  //    而品項改走頂層分頁撈到盡之後**那個旗標對這張紙已經沒有意義**
+  //    ——它仍然會在 200 品項的單上為 true,而我們手上的清單是完整的。
+  //    ⇒ 新判準 = **拿到幾列 vs 資料庫說有幾列**。
+  it('面6 讀到的筆數與資料庫說的對不上 ⇒ 擋', () => {
+    const msg = block({ reportedTotal: 5 }); // fixture 只有 1 項
+    expect(msg).toContain('對不上');
+    expect(msg).toContain('讀到 1 項');
+    expect(msg).toContain('資料庫說有 5 項');
+  });
+
+  it('🔴 面6 反向:`itemsTruncated` 為 true 但清單對得上 ⇒ **不擋**(那正是本片要解的)', () => {
+    // 這一格是 `Q-C18` 甲的**存在理由**:一張 200 品項的真實訂單會讓 `detail.itemsTruncated`
+    // 為 true,而我們拿到的品項清單是完整的 ⇒ **紙照印**。
+    // 沒有這一格的話,把判準改回 `detail.itemsTruncated` 不會有任何東西紅。
+    expect(block({ detail: { itemsTruncated: true } })).toBeNull();
+  });
+
+  it('🔴 面6 `reportedTotal` 為 null(沒拿到 count)⇒ 不擋,但也不假裝有對過帳', () => {
+    // count 拿不到時**不能**把它當成 0 或當成「對上了」—— 前者會誤擋,後者是假的保證。
+    expect(block({ reportedTotal: null })).toBeNull();
   });
 
   // 🔴 **2026-08-17 補**:舊文案逐字「請重新整理後再列印」,而觸發它的是**固定上限**
@@ -142,7 +195,7 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
   //    ⚠️ 這一格釘的是**不准出現的字**,不是「有沒有講清楚」—— 後者測不出來,前者可以。
   //    🔴 為什麼上一格不夠:上一格只釘正面字面,**把「請重新整理」加回去它照樣全綠**。
   it('🔴 面6 文案不得叫他做會失敗的動作(重整/重試/稍後再試)', () => {
-    const msg = block({ detail: { itemsTruncated: true } });
+    const msg = block({ reportedTotal: 5 });
     // 🔴🔴 **禁【詞根】,不列祈使形白名單**(R2 N2 推翻我上一版)。
     //    白名單版被兩次穿透:①只禁「重新整理後」⇒「請重新整理再列印一次」全綠(R1 MF5)
     //    ②補上祈使形之後 ⇒「麻煩您重新整理一下再列印看看」**還是全綠**(R2 實測)。
@@ -275,7 +328,7 @@ describe('#10 片2b — 版面', () => {
     mocks.findAdminOrderDetail.mockResolvedValue(null);
     expect(await generateMetadata({ params: p(ORDER) })).toEqual({ title: '出貨明細單' });
 
-    mocks.findAdminOrderDetail.mockResolvedValue(detail());
+    setDetail(detail());
     const meta = await generateMetadata({ params: p(ORDER) });
     // 🔴 只留這一條 —— 它已經完全釘死。R2 N3:再加一條 `not.toContain('出貨單 ')`
     //    **永遠不會自己紅**(被上面這條嚴格蘊含),而三行看起來比兩行周全。
@@ -294,7 +347,9 @@ describe('#10 片2b — 版面', () => {
   });
 
   it('被擋時:出警告**而且不印品項表**(印出來就會有人照著出貨)', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(detail({ itemsTruncated: true }));
+    // 🔴 `Q-C18` 甲之後,擋這張紙的不再是 `detail.itemsTruncated`(它已與紙無關),
+    //    而是「讀到的筆數 vs 資料庫說的筆數」對不上。
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: detail().items, reportedTotal: 5 });
     const { container } = await renderPage();
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
     expect(container.querySelector('table')).toBeNull();
@@ -407,7 +462,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
   it('🔴 三個區名逐字照抄 Sean 的原話,不得正規化', async () => {
     // 他給的是「本次出貨 / 尚未出貨 / 訂單取消」。改成「已取消品項」之類 = 這格紅。
     // ⚠️ 測資要讓三區【同時存在】:買 9 / 取消 1 / 先前寄 0,這一箱 2 ⇒ 尚未 9−1−0−2 = 6 > 0
-    mocks.findAdminOrderDetail.mockResolvedValue(
+    setDetail(
       withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
     );
     expect(titles((await renderPage()).container)).toEqual(['本次出貨', '尚未出貨', '訂單取消']);
@@ -416,7 +471,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
   it('🔴🔴 「尚未出貨」的數字是【扣掉這一箱之後】的 —— 少扣就會多印一件給客人看', async () => {
     // 買 9 / 取消 1 / 先前寄 0 / 這一箱 2 ⇒ 9−1−0−2 = 6
     // 🔴 少扣「這一箱」的舊行為會印 8。兩個數不同 ⇒ 這格分得出來。
-    mocks.findAdminOrderDetail.mockResolvedValue(
+    setDetail(
       withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
     );
     const { container } = await renderPage();
@@ -428,14 +483,14 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
 
   it('🔴 全部處理完 ⇒ 「尚未出貨」整區不出現(不留一張空表)', async () => {
     // 買 5 / 取消 1 / 先前寄 2 / 這一箱 2 ⇒ 5−1−2−2 = 0
-    mocks.findAdminOrderDetail.mockResolvedValue(withSummary(summary()));
+    setDetail(withSummary(summary()));
     expect(titles((await renderPage()).container)).not.toContain('尚未出貨');
   });
 
   it('🔴🔴 本檔【不得】印一條跨區的對帳等式(它少了「先前已出貨」那一項,第二箱就對不起來)', async () => {
     // Sean `Q-C4` 拍「會算錯就不印」⇒ 紙面三格、算式四項。
     // 印「訂購 = 本次 + 尚未 + 已取消」的話:訂購 5、先前 2、這箱 1 ⇒ 5 ≠ 1+2+0。
-    mocks.findAdminOrderDetail.mockResolvedValue(withSummary(summary()));
+    setDetail(withSummary(summary()));
     const t = (await renderPage()).container.textContent ?? '';
     // 🔴 釘的是**跨區加總這件事**,不是幾個詞。
     //    codex R2 擊穿過一次:`5 件＝1 件＋4 件` —— 數字與運算符之間夾一個「件」,
@@ -461,7 +516,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     mocks.loadOrderShipments.mockResolvedValue([
       { shipment: shipment({ shippedAt: '2026-08-16T02:00:00+00:00' }), lines },
     ]);
-    mocks.findAdminOrderDetail.mockResolvedValue(
+    setDetail(
       withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 2 })),
     );
     const { container } = await renderPage();
@@ -470,7 +525,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
   });
 
   it('🔴 「訂單取消」區只收取消 > 0 的列;沒有取消時整區不出現', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(
+    setDetail(
       withSummary(summary({ cancelledQuantity: 0, shippedQuantity: 0 })),
     );
     expect(titles((await renderPage()).container)).not.toContain('訂單取消');
@@ -479,7 +534,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
   it('🔴 摘要 null 的品項**必須留在紙上**、印「不知道」,不得被濾掉', async () => {
     // ⚠️ 這格是本組最重要的一格:濾掉 null 的話紙上會變成「都寄完了」,
     //    員工就會把剩下的貨放回架上。**空白比錯誤更難發現。**
-    mocks.findAdminOrderDetail.mockResolvedValue(withSummary(null));
+    setDetail(withSummary(null));
     const t = (await renderPage()).container.querySelectorAll('table')[1]?.textContent ?? '';
     expect(t).toContain('LTC-BK-XL');
     expect(t).toContain('數量資料尚未就緒');
@@ -487,7 +542,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
   });
 
   it('🔴 真的都寄完了 ⇒ 說「無」,不留一張空表', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(
+    setDetail(
       withSummary(summary({ cancelledQuantity: 0, shippedQuantity: 5 })),
     );
     const { container } = await renderPage();
@@ -514,7 +569,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     //    **但守門不該假設它們永遠共用** —— 哪天有人把其中一張拆出去,這格要能單獨紅。
     // 🔴 測資要讓**三區同時存在**,否則這格只釘得到其中兩張
     //    (原本寫死 `tables.length === 2` 是兩區時代的字面 ⇒ 三區之後它會在錯的地方紅)。
-    mocks.findAdminOrderDetail.mockResolvedValue(
+    setDetail(
       withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
     );
     const { container } = await renderPage();
@@ -535,7 +590,7 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
   it('🔴 三區的母體各不相同,紙上要各自講出來(不然會被讀成同一個東西)', async () => {
     // 區一 = 這一箱 / 區二 = 整張訂單還欠的 / 區三 = 整張訂單已取消的。
     // 🔴 三個母體不同,而三張表長得一模一樣 ⇒ 不寫清楚就會被加總、被比較。
-    mocks.findAdminOrderDetail.mockResolvedValue(
+    setDetail(
       withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
     );
     const t = (await renderPage()).container.textContent ?? '';
@@ -645,7 +700,9 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
   });
 
   it('被擋時貨運資訊也不印 —— 那張紙整張不該存在', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(detail({ itemsTruncated: true }));
+    // 🔴 `Q-C18` 甲之後,擋這張紙的不再是 `detail.itemsTruncated`(它已與紙無關),
+    //    而是「讀到的筆數 vs 資料庫說的筆數」對不上。
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: detail().items, reportedTotal: 5 });
     const t = (await renderPage()).container.textContent ?? '';
     expect(t).not.toContain('貨運商');
     expect(t).not.toContain('6412345678');
@@ -684,6 +741,59 @@ describe('🔴 箱品項清單算不出來(loadOrderShipments 回 null)⇒ 不�
 //    而印出來的紙上只有那一行紅字 —— **一張沒有用的紙照樣被印出來、照樣可能被放進箱子。**
 //    ⇒ 守門擋住了內容,**卻沒有擋住那個人真正按得到的那條路**。
 // ⚠️ 這兩格必須成對:只有反面那格的話,把整顆鈕刪掉也會綠(而那不是我們要的)。
+// ── `Q-C18` 甲(2/2)接線 ──
+//
+// 🔴🔴 **這一組是本片【唯一】有判別力的守門,而我第一輪漏了它。**
+//    第一輪的突變結果:把品項來源改回 `detail.items` ⇒ **50 格全綠**、
+//    把「A 餵壞 B」的 id 集合改回 `detail.items` ⇒ **50 格全綠**。
+//    病根:所有 fixture 裡 `detail.items` 與分頁查詢回的東西**逐字相同**
+//    ⇒ 換哪一個當來源都印出同一張紙。**每一格都有判別力,而它們對【我宣稱的那件事】零判別力。**
+// ⇒ 下面兩格刻意讓**兩個來源不一樣**:`detail`(內嵌、被 200 夾住)只看得到 1 項,
+//    而分頁查詢撈到 3 項 —— 這正是一張 200+ 品項的真實訂單的形狀。
+describe('🔴 Q-C18 甲:紙上的品項來自分頁查詢,不是被夾過的 detail.items', () => {
+  const paged = [0, 1, 2].map((i) => ({
+    id: `${ITEM.slice(0, -1)}${i}`,
+    variantSku: `PAGED-SKU-${i}`,
+    title: `分頁品名 ${i}`,
+    spec: null,
+    quantity: 1,
+    quantitySummary: null,
+  }));
+
+  beforeEach(() => {
+    // detail 只看得到第 0 項(模擬內嵌被上限夾住);分頁查詢看得到三項。
+    setDetail(detail({ items: [detail().items[0]] as never, itemsTruncated: true }));
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: paged, reportedTotal: 3 });
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment(), lines: [{ orderItemId: paged[0]!.id, title: 'x', quantity: 1 }] },
+    ]);
+  });
+
+  it('🔴 被 detail 夾掉的那兩項【也要出現在紙上】', async () => {
+    const t = (await renderPage()).container.textContent ?? '';
+    // 把「尚未出貨」那半的來源改回 `detail.items` ⇒ 這兩個字面消失 ⇒ 這一格紅。
+    expect(t).toContain('PAGED-SKU-1');
+    expect(t).toContain('PAGED-SKU-2');
+  });
+
+  it('🔴 【本次出貨】那張表的料號也要從分頁清單對回去(itemById 的來源)', async () => {
+    // ⚠️ 這一格是補的:上一格只涵蓋「尚未出貨」那半 ——
+    //    突變「`itemById` 改回 `detail.items`」在只有上一格時**不會紅**
+    //    (本次出貨那格會變成空白,而上一格根本沒看那張表)。
+    //    📎 又一次「每一格都有判別力,而它們對【我宣稱的那件事】零判別力」。
+    const table = must((await renderPage()).container.querySelectorAll('table')[0], '本次出貨表');
+    expect(table.textContent).toContain('PAGED-SKU-0');
+  });
+
+  it('🔴🔴 「A 餵壞 B」:餵給箱查詢的 id 集合必須是【完整那份】', async () => {
+    await renderPage();
+    // `loadOrderShipments(titleByItemId)` —— 以前這個 Map 來自被 200 夾過的 `detail.items`
+    // ⇒ 訂單 300 項時,後 100 項所在的箱**根本不會被查到,而那不算截斷、零訊號**。
+    const arg = mocks.loadOrderShipments.mock.calls[0]?.[0] as Map<string, unknown>;
+    expect([...arg.keys()].sort()).toEqual(paged.map((p) => p.id).sort());
+  });
+});
+
 describe('🔴 被擋時不得留下一顆按得下去的列印鈕', () => {
   // 🔴 **釘 `<button>` 元素,不釘「列印」兩個字** —— 第一版釘字面,而**擋下來的那句文案裡
   //    就有「再列印」三個字**(舊文案逐字「請重新整理後再列印」)⇒ 那一格會因為**文案**變動而紅,
@@ -695,7 +805,9 @@ describe('🔴 被擋時不得留下一顆按得下去的列印鈕', () => {
     [...c.querySelectorAll('button')].filter((b) => b.textContent === '列印');
 
   it('被擋 ⇒ 沒有列印鈕', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(detail({ itemsTruncated: true }));
+    // 🔴 `Q-C18` 甲之後,擋這張紙的不再是 `detail.itemsTruncated`(它已與紙無關),
+    //    而是「讀到的筆數 vs 資料庫說的筆數」對不上。
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: detail().items, reportedTotal: 5 });
     expect(printButtons((await renderPage()).container)).toHaveLength(0);
   });
 

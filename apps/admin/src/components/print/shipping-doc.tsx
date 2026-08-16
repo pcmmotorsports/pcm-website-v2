@@ -1,4 +1,4 @@
-import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderDetailItem, AdminOrderPrintItem } from '@pcm/domain';
 import type { ShipmentRow } from '../../lib/shipping/shipment-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
@@ -45,10 +45,22 @@ import { PrintButton } from './print-button';
  */
 export function shippingDocBlocker(args: {
   detail: AdminOrderDetail;
+  /**
+   * 🔴 **這張單的品項【完整清單】,來自頂層分頁查詢**(`Q-C18` 甲,2026-08-17)——
+   * **不是 `detail.items`**。後者是內嵌撈的、被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住,
+   * 而 Sean 逐字說一張單「可能到 200 個品項」⇒ 那是正常業務的上緣,不是極端值。
+   */
+  items: readonly AdminOrderPrintItem[];
+  /**
+   * `count: 'exact'` 在**第一頁**量到的總筆數;`null` = 沒拿到。
+   * ⚠️ **它不是「撈完了」的證明**(量在一個瞬間,而迴圈跨多次查詢)——
+   * 它是「**有沒有對不上**」的訊號,見面6。
+   */
+  reportedTotal: number | null;
   shipment: ShipmentRow;
   lines: OrderShipmentGroup['lines'];
 }): string | null {
-  const { detail, shipment, lines } = args;
+  const { detail, items, reportedTotal, shipment, lines } = args;
 
   // 面4:整張訂單已取消。
   if (detail.cancelledAt !== null) {
@@ -59,21 +71,25 @@ export function shippingDocBlocker(args: {
   if (shipment.voidedAt !== null) {
     return `這個包裹已作廢${shipment.voidReason === null ? '' : `(原因:${shipment.voidReason})`},不要出貨。`;
   }
-  // 面6:品項清單沒載完 ⇒ 這箱裡屬於本單的品項可能少列,而少的那件不會有任何症狀。
+  // 面6:品項清單**與資料庫說的總筆數對不上** ⇒ 這張紙可能少列品項,而少的那件不會有任何症狀。
   //
-  // 🔴 **文案 2026-08-17 重寫,舊字面是一句假話**:原本逐字「請重新整理後再列印」,
-  //    而觸發它的是**固定上限**(`ORDER_ITEMS_EMBED_LIMIT = 200`,
-  //    `packages/adapters/src/supabase/mappers/order.ts:406`)—— 不是逾時、不是網路
-  //    ⇒ **重新整理一百次拿回來的是同一個數字**,那句話叫他去做一件永遠不會成功的事。
-  // 🔴 **立場(Sean 2026-08-17 逐字收窄方向之後)**:這道守門降級成**最後一道保險**,
-  //    **它響了一次 = 我們的分頁壞了,不是使用者做錯事** ⇒ 文案不准叫他重試、
-  //    不准寫得像他自己有辦法解決。治本方案在
-  //    `docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md`(等 Sean 批,鐵則 8)。
-  if (detail.itemsTruncated) {
+  // 🔴🔴 **2026-08-17 換了判準本身,不只是換文案**(`Q-C18` 甲,Sean 已批):
+  //    舊判準是 `detail.itemsTruncated` = 「**內嵌撈到的筆數觸及我們自己設的上限 200**」,
+  //    而品項現在改走**頂層分頁查詢撈到盡** ⇒ **那個旗標對這張紙已經沒有意義**
+  //    (它仍然會在 200 品項的單上為 true,而我們手上的清單是完整的)。
+  //    ⇒ 新判準 = **拿到幾列 vs 資料庫說有幾列**。
+  // 🔴 **這道守門的定位也降級了**:它現在是**最後一道保險**,不是產品行為。
+  //    判別句:**它在正式站上響了一次 = 我們的分頁壞了,不是使用者做錯事。**
+  //    ⇒ 文案不准叫他重試、不准寫得像他自己有辦法解決。
+  // ⚠️ **`reportedTotal` 量在第一頁那個瞬間,而迴圈跨多次查詢** ⇒ 中途有寫入時它會對不上,
+  //    **那在別的路徑上是正常的**;而本路徑實查 `order_items` 建單後不再增刪
+  //    (數法寫在 `SupabaseOrderAdapter.listOrderItemsForPrint` 的 docstring)
+  //    ⇒ **在這裡對不上就是真的有問題**,fail-closed。
+  if (reportedTotal !== null && items.length !== reportedTotal) {
     // ⚠️ 逐字寫「達到 200 筆」不是「超過 200 筆」:判定是 `>=`
     //    (`packages/adapters/src/supabase/mappers/order.ts:830`)⇒ **剛好 200 項就會走到這裡**。
     //    🔴 而 Sean 2026-08-17 逐字說一張單「可能到 200 個品項」⇒ **正常業務的上緣就是這個值**。
-    return '這張訂單的品項達到 200 筆上限,系統一次列不完,出貨明細單會少印品項。這是系統的固定限制,不是暫時的狀況。請聯絡負責人處理,不要拿這張紙出貨。';
+    return `這張訂單的品項清單讀出來對不上(讀到 ${items.length} 項,資料庫說有 ${reportedTotal} 項),出貨明細單可能少印品項。這是系統的問題,不是你操作錯。請聯絡負責人處理,不要拿這張紙出貨。`;
   }
   // 面5:這箱裡沒有任何屬於這張訂單的品項 ⇒ 網址把不相干的箱與單湊在一起。
   if (lines.length === 0) {
@@ -89,11 +105,11 @@ export function shippingDocBlocker(args: {
   //    🔴 **本條是從揀貨單搬過來的** —— `components/print/picking-doc.tsx:114-115` 早就有,
   //      而出貨單一直沒有(`grep -c 'items.length === 0' shipping-doc.tsx` 落地前 ⇒ 0)。
   //      合併時「以出貨單為本體」聽起來像保留出貨單的東西,**這道會靜默消失**,所以先補上。
-  if (detail.items.length === 0) {
+  if (items.length === 0) {
     return '這張訂單讀不到任何品項,出貨明細單不能印。請重新整理;仍然一樣請回報。';
   }
   // 面7:箱裡的品項在訂單明細查不到 ⇒ 兩邊對不上,不用 `?? '—'` 蒙混過去。
-  const known = new Set(detail.items.map((it) => it.id));
+  const known = new Set(items.map((it) => it.id));
   const orphan = lines.find((l) => !known.has(l.orderItemId));
   if (orphan !== undefined) {
     return '包裹內容與訂單明細對不上(有品項在訂單裡找不到)。請重新整理;仍然不對請回報。';
@@ -202,10 +218,15 @@ function Alert({ children }: { children: React.ReactNode }) {
 
 export function ShippingDoc({
   detail,
+  items,
+  reportedTotal,
   shipment,
   lines,
 }: {
   detail: AdminOrderDetail;
+  /** 🔴 完整品項清單(頂層分頁撈到盡)—— **不要改回 `detail.items`**,理由見 `shippingDocBlocker`。 */
+  items: readonly AdminOrderPrintItem[];
+  reportedTotal: number | null;
   shipment: ShipmentRow;
   lines: OrderShipmentGroup['lines'];
 }) {
@@ -219,15 +240,15 @@ export function ShippingDoc({
   // 這一箱裡每一列的量(「尚未出貨」算式的第四項)。
   const boxQtyByItemId = new Map(lines.map((l) => [l.orderItemId, l.quantity]));
 
-  const blocked = shippingDocBlocker({ detail, shipment, lines });
-  const itemById = new Map(detail.items.map((it) => [it.id, it]));
+  const blocked = shippingDocBlocker({ detail, items, reportedTotal, shipment, lines });
+  const itemById = new Map(items.map((it) => [it.id, it]));
 
 
   // 🔴 **哪些品項要列進「尚未出貨」**:還欠客人的(>0),以及**算不出來的(`null`)**。
   //    ⚠️ `null` 一定要留下來 —— 把「不知道」濾掉,紙上就會變成「沒有」,
   //       而那正是 `outstandingQuantity` docstring 講的、這張紙最貴的一種錯。
   //    整數 0 才是真的可以不印:那代表這一項確實已經全部處理完了。
-  const outstandingRows = detail.items
+  const outstandingRows = items
     .map((item) => ({
       item,
       qty: outstandingQuantity({
@@ -243,7 +264,7 @@ export function ShippingDoc({
   // 🔴 **第三區「訂單取消」**(Sean 2026-08-16 逐字給的區名)。
   //    ⚠️ `null`(不知道)**不進這一區** —— 不知道有沒有取消,不能說它被取消了。
   //       它會出現在「尚未出貨」區並標「數量資料尚未就緒」,那裡才是誠實的位置。
-  const cancelledRows = detail.items
+  const cancelledRows = items
     .map((item) => ({ item, qty: cancelledQuantityOf(item) }))
     .filter((r): r is { item: (typeof r)['item']; qty: number } => r.qty !== null && r.qty > 0);
 
