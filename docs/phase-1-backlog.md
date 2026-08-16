@@ -15676,3 +15676,32 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
   ⇒ **掛在「報價單 repo 怎麼取得」那個 Sean 題底下,當它的第二個理由**
   (第一個是 B 窗的 `#4` production/repo 一致性)。
 - **發現於**:2026-08-17 · E 窗報價單庫稽核第一輪 · 主視窗裁定立案(屬流程/守門,不上呈 Sean)
+
+### #604 · 會員地址/車輛寫入走 check-then-act,而本 repo 的 RLS 已知缺一條政策
+
+- **🔴 這兩句要放在同一段讀,分開看兩個都是低嚴重度:**
+  ① `account/address`、`account/vehicle` 的第二軸是 **check-then-act** ——
+     先 `verifyAddressOwned(repo, user.id, addressId)` 讀一次驗歸屬,
+     **再 `addressRepo.update(addressId, patch)`,而那句寫入【不帶 userId】**
+     (`packages/use-cases/src/update-address.ts:38-43`)
+     ⇒ **RLS 失效時,擋越權的只剩前面那一次讀。**
+  ② 而**這個 repo 的 RLS 已經知道缺一條政策** —— STATUS「Blocker」欄逐字:
+     六張客戶表的 `FOR SELECT TO service_role` 那條**不存在**,Sean 已拍 `Q15`=甲要補、**尚未開工**。
+  ⇒ 🔴 **所以這不是「假設 RLS 失效」,是「我們已經知道 RLS 有一個洞,只是還沒補到那裡」。**
+- **與既有做法不一致(這是要修的第二個理由):**
+  `/api/orders/[orderId]/payment-status` 用的是 **scoped read** ——
+  歸屬條件 `.eq('customer_user_id', userId)` **就寫在同一句查詢裡**,不是先讀後寫。
+  ⇒ **同一個 repo 兩種形狀,而不一致會讓下一個人以為某一種就夠。**
+- **現況量法(可重跑):**
+  ```
+  grep -n "verifyAddressOwned\|repo.update\|addressRepo.update" packages/use-cases/src/update-address.ts
+    ⇒ :41 verifyAddressOwned(...)  /  :43 addressRepo.update(addressId, patch)   ← 寫入不帶 userId
+  grep -n "customer_user_id" apps/storefront/src/app/api/orders/\[orderId\]/payment-status/route.ts
+    ⇒ 命中(scoped read)  ← 正向對照:同一支 grep 在對照檔抓得到
+  ```
+- **不修未來會痛在哪:** 這一類洞的症狀是**沒有症狀** —— 越權寫入成功時,
+  受害者看到的是「我的地址被改了」而**不是任何錯誤**,而系統沒有任何東西會紅。
+  **貨會寄到別的地方,而那是不可回收的。**
+- **⚠️ 我沒有構造出攻擊,也沒有宣稱有:** 目前仍是兩軸(verify + RLS),
+  本條要的是**把第二軸改成 scoped write**(與 `payment-status` 一致),**不是宣告現在正在外洩**。
+- **發現於**:2026-08-17 · E 窗軸二第一批(帳號被盜視角)· 主視窗裁定立案並上調嚴重度
