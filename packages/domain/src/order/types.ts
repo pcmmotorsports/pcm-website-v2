@@ -858,6 +858,39 @@ export type AdminOrderDetailItem = {
 };
 
 /**
+ * **列印用**的品項投影(`Q-C18` 甲,2026-08-17)。
+ *
+ * 🔴 **為什麼要一個比 `AdminOrderDetailItem` 窄的型別 —— 這不是風格選擇。**
+ * 明細那份是**內嵌**在訂單查詢裡撈的,而內嵌撈得到幾列由請求端上限
+ * (`ORDER_ITEMS_EMBED_LIMIT = 200`)決定 ⇒ 一張 200 品項的單就會被截,而**紙看起來完全正常**。
+ * 治本是改走**頂層分頁查詢**(`SupabaseOrderAdapter.listOrderItemsForPrint`)。
+ *
+ * 而頂層那支刻意不取四個欄,而**它們被排除的理由是兩種,不要合在一起讀**
+ * (V 窗 2026-08-17 打回我第一版:合在一起會讓下一個人拿結構性理由拒絕一個 YAGNI 的東西):
+ *
+ * - **排除 `procurements` / `procurementTruncated` —— 結構性理由,永久成立**:
+ *   它是**內嵌陣列**,受 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 管
+ *   ⇒ 取它進來**等於把我們正在拆的那道牆換個位置裝回來**。
+ * - **排除 `unitPrice` / `lineTotal` —— 只是 YAGNI,會過期**:現行紙上零金額,現在不需要。
+ *   🔴 **金額片要加這兩個欄時【不受上面那條約束】** —— 它們是**同列 scalar**,
+ *   **取它們不產生任何截斷面**。看到上面那條就以為金額欄也不能加的人,請讀完這一段。
+ *
+ * ⇒ 型別對不上有兩種解法,而其中一種(把 `procurements` 一起取)會把病帶進來;選窄的這條。
+ *
+ * **這 6 欄是量出來的,不是列的**:對 `apps/admin/src/components/print/shipping-doc.tsx`
+ * 與 `apps/admin/src/lib/shipping/shipping-doc-quantities.ts` 掃品項欄位用法後逐處分類
+ * (量法與分類表寫在 `docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md` §2)。
+ * ⚠️ **金額片落地時會需要 `unitPrice` / `lineTotal`** —— 那時再加,**不要順手先加**。
+ *
+ * 用 `Pick` 而不是重打一遍:欄位語意(尤其 `quantitySummary` 的 `null` = 「不知道」不是 0)
+ * 只有一份權威,**兩份會漂**(同 backlog `#602` 的病)。
+ */
+export type AdminOrderPrintItem = Pick<
+  AdminOrderDetailItem,
+  'id' | 'variantSku' | 'title' | 'spec' | 'quantity' | 'quantitySummary'
+>;
+
+/**
  * 品項三軸數量摘要(M-4b E10 A9g-1)——**衍生快取** `order_item_quantity_summary`
  * (建表 `supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql:79`;
  * `order_item_id` 為 PRIMARY KEY、值由 A4a trigger 重算並由 CHECK 釘死)。
