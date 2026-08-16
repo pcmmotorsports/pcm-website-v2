@@ -236,14 +236,57 @@ ROLLBACK;
 
 ### 6.1 正解：**常駐**機制，二選一
 
+> 📌 **平台版本（本規格的核心機制是版本相關的，所以指名）**：**PostgreSQL 17**。
+> 正式庫 **17.6**、拋棄式驗證環境 17.10 —— **同 major，行為一致**。
+> 🔴 **本規格先前【沒有指名任何 PG 版本】，那本身是缺陷**（V 窗 `grep` 零命中指出）：
+> **一份規格站在一個未指名的平台版本上，而它的核心機制隨版本而異。**
+
 | 方案 | 怎麼運作 | 取捨 |
 |---|---|---|
-| **A. Event trigger**（**推薦**） | 掛 `ddl_command_end`，**任何 `GRANT`／`REVOKE` 一下去就當場檢查** | ✅ **即時**、與威脅同一層；⚠️ 需確認 `GRANT` 會觸發（`ddl_command_end` 涵蓋 `GRANT`，**實作前要實測確認**） |
-| **B. `pg_cron` 排程**（每日／每小時重跑 §4 那個 `DO` 區塊） | 週期性重掃，違反就告警 | ✅ 簡單、必定涵蓋所有變更途徑；⚠️ **有時間窗**（最長一個週期內是盲的） |
+| **A. Event trigger**（**推薦**） | 掛 `ddl_command_end`，**任何 `GRANT`／`REVOKE` 一下去就當場檢查** | ✅ **即時**、與威脅同一層。**`GRANT` 會觸發 —— 已由官方文件確認，不再是未確認項**（見下） |
+| **B. `pg_cron` 排程**（週期重跑 §4 那個 `DO` 區塊） | 週期性重掃，違反就告警 | ✅ **補 A 的已知盲區**（見下）；⚠️ 有時間窗 |
 
-🔴 **A 與 B 不互斥，建議都做**：A 給即時、B 給兜底（A 若因某種 DDL 形式沒觸發，B 仍會抓到）。
-📎 本 repo **已有 event trigger 的可用範本**：外部曝險稽核檔 §7c-2 的 A2（`autorevoke_new_objects`），
-形狀可直接對齊。
+### 6.1-a `ddl_command_end` 對 `GRANT` 會不會觸發 —— **已結案（官方文件）**
+
+PG17 **Event Trigger Firing Matrix**：`GRANT` / `REVOKE` 的 `ddl_command_end` 欄是 **X（支援）**，
+註記逐字 **`Only for local objects`**；`ALTER DEFAULT PRIVILEGES` 的 `ddl_command_end` 也是 **X**（無註記）。
+
+⇒ **本規格的主威脅（`GRANT SELECT ON <表> TO payment_confirmer`）＝ local object ⇒ 抓得到。**
+
+### 6.1-b 🔴 但 `Only for local objects` 是一道**真實邊界**，不是小字
+
+PG17 Event Trigger 定義逐字：
+
+> `this event does not occur for DDL commands targeting shared objects
+> — databases, roles, and tablespaces —`
+
+```
+GRANT SELECT ON <table> TO payment_confirmer    local            ⇒ 觸發 ✅
+GRANT <某個有權限的角色> TO payment_confirmer    roles = shared   ⇒ 【不觸發】🔴
+```
+
+⇒ **event trigger 抓不到「把一個有權限的角色【授予】它」這條路。**
+
+✅ **而那條路【已經有守】**：§7 提到的**角色成員資格斷言**
+（`20260811060000_…` 約 `:363-374`，408 行內、已覆核）正是守它的。
+⇒ **洞不存在 —— 但讀者不會自己把這兩件事接起來，所以寫在這裡。**
+
+### 6.1-c ⇒ 所以 A 與 B **不是「保險起見都做」，是互補**
+
+🔴 **這個區別決定那個機制活不活得下來：**
+
+```
+❌ 「保險起見」的機制   ⇒ 下一個做效能整理的人會拿掉它
+✅ 「補某某盲區」的機制 ⇒ 不會，因為理由寫在它旁邊
+```
+
+**⇒ `pg_cron` 的存在理由是：它涵蓋 event trigger 的【已知盲區】**
+（shared object 的授權、角色成員繼承）**，不是備援。**
+**理由本身就是那個機制的存活條件。**
+
+📎 本 repo **已有 event trigger 的可用範本**：外部曝險稽核檔 §7c-2 的 A2（`autorevoke_new_objects`）。
+📌 官方文件已足以結案，但**實作時建議在 17.10 補跑一次真實測當 belt-and-suspenders**
+（**不是 blocker**）。
 
 ### 6.2 仍然成立的兩句（原版對的部分，保留）
 
