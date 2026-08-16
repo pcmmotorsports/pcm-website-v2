@@ -15647,3 +15647,32 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
 - **⚠️ 這條只驗得了 hct**:`sf` 的貨號規則我方**未查證**、`other` 本來就沒有貨號
   ⇒ 落地時要先答「非 hct 的代碼怎麼辦」,否則守門會對 sf 誤報。
 - **發現於**:2026-08-16 · C 窗 #10 片3(貨運商/追蹤碼/出貨日)· 由 C 窗立案
+
+### #600 · 報價單庫 products 對 anon 開 31/57 欄,缺一道釘住哪些欄的斷言
+
+- **🔴 這【不是】漏洞,先講清楚:** `public.products` 對 `anon` 開放是**刻意設計** ——
+  表級 `relacl` 沒有 `anon`,而 RLS 有一條 `storefront_public_read FOR SELECT TO anon`,
+  由 `storefront_catalog_v`(`security_invoker=true`)以呼叫者權限讀出去。**storefront 就是靠它。**
+- **缺的是什麼:** **沒有任何東西在守「哪 31 欄」。**
+- **現況量法(可重跑,對報價單庫 production,唯讀帳號):**
+  ```
+  products 總欄數 57 | anon 欄級可讀 31 | authenticated 2 | 對照 postgres 57
+  成本類欄位(cost|dealer|margin|profit|wholesale|purchase|supplier_price)= 1
+    ⇒ anon 讀得到 0(對照 postgres 1 ⇒ 判定式是活的)
+  🔴 量法必須用 has_column_privilege,不能用 has_table_privilege
+     (後者看不到欄級授權 ⇒ 少報;我 2026-08-17 就是這樣把 16 個關聯少報成 15)
+  ```
+- **不修未來會痛在哪:** 日後任何人 `GRANT SELECT (新欄) TO anon`,
+  **三綠不紅、`grep` 數不變、沒有任何東西會提醒他** ——
+  而那個新欄很可能就是下一個成本/毛利欄。**經銷價外洩是 Sean 明列的第二優先。**
+- **要做什麼:** 一道**釘住清單**的斷言(形狀同 `docs/security/2026-08-16-quote-db-audit-account-decision.md` §3
+  的 `c_accepted`):**現行 31 欄明文列出,多一個就紅**。
+- **🔴 現在做不了,而障礙是【缺一個東西】不是【缺工:**
+  那道斷言要住在**報價單 repo**,而**那個 repo 不在這台機器上** ——
+  量法 `find /Users/sean_1 -maxdepth 3 -type d -name migrations -path '*supabase*'`
+  ⇒ 10 個命中**全部**是 `pcm-website-v2` 的工作樹,零個是報價單 repo
+  (正向對照:`test -d /Users/sean_1/pcm-website-v2/supabase/migrations` ⇒ 有 ⇒ find 是活的)。
+  📎 與 memory `reference_quote-repo-truth-moved-to-mac-mini` 一致(真身在 mac mini)。
+  ⇒ **掛在「報價單 repo 怎麼取得」那個 Sean 題底下,當它的第二個理由**
+  (第一個是 B 窗的 `#4` production/repo 一致性)。
+- **發現於**:2026-08-17 · E 窗報價單庫稽核第一輪 · 主視窗裁定立案(屬流程/守門,不上呈 Sean)
