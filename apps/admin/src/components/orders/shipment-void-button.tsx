@@ -60,7 +60,7 @@ export function ShipmentVoidButton({
           type='button'
           disabled={busy}
           onClick={() => void run('unvoid')}
-          className='rounded border px-2 py-1 text-xs disabled:opacity-50'
+          className='rounded-md border-input border px-2 py-1 text-xs disabled:opacity-50'
         >
           復原作廢
         </button>
@@ -74,7 +74,7 @@ export function ShipmentVoidButton({
       <button
         type='button'
         onClick={() => setOpen(true)}
-        className='text-destructive border-destructive/40 rounded border px-2 py-1 text-xs'
+        className='text-destructive border-destructive/40 rounded-md border-input border px-2 py-1 text-xs'
       >
         作廢這箱
       </button>
@@ -88,13 +88,13 @@ export function ShipmentVoidButton({
         onChange={(e) => setReason(e.target.value)}
         placeholder={`作廢 ${shipmentReference} 的原因(必填)`}
         aria-label={`作廢 ${shipmentReference} 的原因`}
-        className='w-56 rounded border px-2 py-1 text-xs'
+        className='w-56 rounded-md border-input border px-2 py-1 text-xs'
       />
       <button
         type='button'
         disabled={busy || reason.trim() === ''}
         onClick={() => void run('void')}
-        className='bg-destructive rounded px-2 py-1 text-xs text-white disabled:opacity-50'
+        className='bg-destructive rounded-md px-2 py-1 text-xs text-white disabled:opacity-50'
       >
         確認作廢
       </button>
@@ -104,7 +104,7 @@ export function ShipmentVoidButton({
           setOpen(false);
           setError(null);
         }}
-        className='rounded border px-2 py-1 text-xs'
+        className='rounded-md border-input border px-2 py-1 text-xs'
       >
         取消
       </button>

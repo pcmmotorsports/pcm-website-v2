@@ -163,7 +163,7 @@ function BlockReasons({ reasons }: { reasons: readonly OrderCancelBlockReason[] 
       {reasons.map((reason) => {
         const text = BLOCK_REASON_TEXT[reason];
         return (
-          <li key={reason} className='border-destructive/30 bg-destructive/5 rounded border p-3'>
+          <li key={reason} className='border-destructive/30 bg-destructive/5 rounded-md border p-3'>
             <p className='text-destructive text-sm font-medium'>{text.title}</p>
             <p className='text-muted-foreground mt-1 text-xs'>{text.hint}</p>
           </li>
@@ -259,7 +259,7 @@ function CancellationHistory({ detail }: { detail: AdminOrderDetail }) {
       ) : null}
       <ul className='space-y-2'>
         {detail.cancellations.map((entry) => (
-          <li key={entry.id} className='rounded border p-3 text-sm'>
+          <li key={entry.id} className='rounded-md border p-3 text-sm'>
             <div className='flex justify-between gap-4'>
               <span>{REASON_CODE_LABEL[entry.reasonCode] ?? entry.reasonCode}</span>
               {/* 🔴 用同頁姊妹區塊那支(R1 F8):①同一張訂單頁不出現兩種日期格式

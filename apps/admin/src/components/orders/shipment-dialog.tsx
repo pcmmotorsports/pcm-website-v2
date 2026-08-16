@@ -278,7 +278,7 @@ export function ShipmentDialog({
             收件:{recipient.name ?? '—'} · {recipient.phone ?? '—'} · {recipient.line ?? '—'}
           </p>
 
-          <ul className='divide-y rounded border'>
+          <ul className='divide-y rounded-md border'>
             {candidates.map((c) => (
               <li key={c.orderItemId} className='flex items-center gap-3 px-3 py-2'>
                 <span className='text-muted-foreground w-24 shrink-0 font-mono text-xs'>{c.orderDisplayId}</span>
@@ -318,7 +318,7 @@ export function ShipmentDialog({
                       [c.orderItemId]: Math.max(0, Math.min(c.remaining, Number(e.target.value) || 0)),
                     }));
                   }}
-                  className='w-16 shrink-0 rounded border px-2 py-1 text-sm disabled:opacity-50'
+                  className='w-16 shrink-0 rounded-md border-input border px-2 py-1 text-sm disabled:opacity-50'
                 />
                 {/* 🔴 入口 2 只給 `not_arrived`(plan §5.2):四個原因各代表完全不同的下一步,
                     給 `all_boxed` 或 `cancelled` 一顆「貨到了」是**假話**,還會把員工指去
@@ -327,7 +327,7 @@ export function ShipmentDialog({
                   <button
                     type='button'
                     onClick={() => void openReceipt(c)}
-                    className='shrink-0 rounded border px-2 py-1 text-xs'
+                    className='shrink-0 rounded-md border-input border px-2 py-1 text-xs'
                   >
                     貨到了
                   </button>
@@ -351,7 +351,7 @@ export function ShipmentDialog({
               <select
                 value={carrier}
                 onChange={(e) => setCarrier(e.target.value as 'hct' | 'sf' | 'other')}
-                className='mt-1 block w-full rounded border px-2 py-1.5 text-sm font-normal'
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               >
                 {CARRIERS.map((c) => (
                   <option key={c.code} value={c.code}>
@@ -366,7 +366,7 @@ export function ShipmentDialog({
                 value={tracking}
                 onChange={(e) => setTracking(e.target.value)}
                 placeholder={carrier === 'other' ? '可留空' : '標出貨前必填'}
-                className='mt-1 block w-full rounded border px-2 py-1.5 text-sm font-normal'
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               />
             </label>
           </div>
@@ -379,7 +379,7 @@ export function ShipmentDialog({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder='例:客人自取 / 站到站'
-                className='mt-1 block w-full rounded border px-2 py-1.5 text-sm font-normal'
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               />
             </label>
           )}
@@ -440,7 +440,7 @@ export function ShipmentDialog({
             type='button'
             disabled={busy || blocker !== null || shipBlocker !== null}
             onClick={() => void run(true)}
-            className='bg-foreground text-background rounded px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
+            className='bg-foreground text-background rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
           >
             建箱並標出貨
           </button>
@@ -448,7 +448,7 @@ export function ShipmentDialog({
             type='button'
             disabled={busy || blocker !== null}
             onClick={() => void run(false)}
-            className='rounded border px-3 py-1.5 text-sm disabled:opacity-50'
+            className='rounded-md border-input border px-3 py-1.5 text-sm disabled:opacity-50'
           >
             只建箱、先不出貨
           </button>

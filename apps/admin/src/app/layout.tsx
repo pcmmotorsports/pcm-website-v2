@@ -18,7 +18,9 @@ export const viewport: Viewport = {
   themeColor: '#ffffff',
 };
 
-// M0-S1 骨架:單一殼 layout(sidebar + header + content),light 預設、dark 可切。
+// M0-S1 骨架:單一殼 layout(sidebar + header + content)。
+// 🔴 **原字面逐字「light 預設、dark 可切」已於 2026-08-16 作廢**(Sean 拍板「不要深色模式」)——
+//    現況:**恆亮色**,由下方 `forcedTheme='light'` 強制,切換入口已從 `header.tsx` 移除。
 // 🔴 **登入閘早就上線了,別照舊字面判斷**(#10 片1 順帶修;原字面逐字「尚未接資料、**無登入**
 // (SSO 收端等提案批准後於後續 slice 加 middleware)」)。現況:`apps/admin/src/proxy.ts:39-50`
 // 是 fail-closed 全站閘(無 session → 303 導 `/api/sso/start`),matcher `proxy.ts:64` 逐字
@@ -49,9 +51,16 @@ export default async function RootLayout({
   return (
     <html lang='zh-Hant' suppressHydrationWarning>
       <body className='bg-background text-foreground font-sans antialiased'>
+        {/* 🔴🔴 `forcedTheme='light'` = **深色模式關閉的真正機制**(2026-08-16 Sean 拍板「不要深色模式」)。
+            ⚠️ **`defaultTheme` 擋不住** —— `next-themes` 的 `setTheme` **無條件**把選擇寫進 localStorage
+            (**與 `attribute` 無關**,換 attribute 一樣會存),而 `defaultTheme` **只在沒存過時生效**
+            ⇒ 在這個 prop 之前曾經切過深色的人
+            **會鎖死在深色、而且畫面上已經沒有切回去的按鈕**(那顆鈕同片自 `header.tsx` 移除)。
+            ⇒ **要復原深色:先拿掉這個 prop,再把按鈕加回去。只做後者不會有任何效果。** */}
         <ThemeProvider
           attribute='class'
           defaultTheme='light'
+          forcedTheme='light'
           enableSystem={false}
           disableTransitionOnChange
         >

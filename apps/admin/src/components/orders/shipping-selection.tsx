@@ -161,14 +161,14 @@ export function ShippingSelectionBar() {
           type='button'
           disabled={loading || s.customerUserId === null}
           onClick={() => void openDialog()}
-          className='bg-background text-foreground rounded px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
+          className='bg-background text-foreground rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
         >
           {loading ? '載入中…' : `出貨(${s.orderIds.length} 單)`}
         </button>
         <button
           type='button'
           onClick={s.clear}
-          className='border-background/40 rounded border px-3 py-1.5 text-sm'
+          className='border-background/40 rounded-md border px-3 py-1.5 text-sm'
         >
           取消勾選
         </button>

@@ -9,7 +9,26 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.5rem;
+  /* 🔴 **BMW M 語言:圓角 → 直角**(`docs/design/admin-design-system.md` §2)。
+     ⚠️🔴 **改這一個數【不會】讓整站圓角一起變 —— 這一版本來這樣寫,被審查抓到是假的。**
+        本片把 `@theme inline` 裡的 `--radius-xs/sm/md/lg/xl` **各自寫死成 0**(見那一段的理由)
+        ⇒ **它們不再由這個根值推導。**
+        **改完之後 `--radius` 的唯一消費端是本檔 `.fchip` 與手機訂單卡外框那兩處。**
+     🔴 **⇒ 想恢復圓角的人:改這裡【不夠】,要連同下面那五行一起改回 `calc()`。**
+     ⚠️ **只能看的狀態膠囊不吃這個值**(它們用 `rounded-full`)——
+        設計參照 §6.5.4 裁決:**形狀傳達的是「可不可以互動」** ⇒ 可以點的直角、只能看的 pill。
+        **而篩選 chip 是可以點的**(渲染成 `<Link>`)⇒ 本片把它從寫死的 `999px` 改成吃這個值。
+     ⚠️ **真權威是 OD `overview-desktop-bmw-m.html` 的【實際用值】** —— 全檔 `border-radius` **共 7 處**:
+        **6 處是 0**,第 7 處 `:316` 的 `.legacy` 是 `9999px`。
+        🔴 **而 `.legacy` 就是 OD 用來對照的「被換掉的那一版」** ——
+        OD `:205` 逐字寫著「**狀態膠囊:方角(BMW M 的工業直角)**」、`:206` `.cap{border-radius:0}`。
+        ⚠️ **⇒ OD 的立場是【全部方角,連狀態膠囊也是】。**
+        **我們現在保留狀態膠囊的 pill,是【刻意與 OD 不同】,不是照抄** ——
+        **那條已標【待 Sean 裁】**(設計參照 §6.5.4)。**本片不動它們**(它們用 `rounded-full`)。
+        📎 **這條是 code-reviewer 找到 OD 檔之後推翻的**:我原本寫「6 處全 0」——
+        **漏數的第 7 處正是唯一的反例**,而我拿一個 `use=0` 的宣告(`--radius-pill`)當 pill 規則的靠山,
+        **與我自己在同一段寫的「看實際用值不看宣告」直接矛盾。** */
+  --radius: 0;
   --background: oklch(0.99 0 0);
   --foreground: oklch(0 0 0);
   --card: oklch(1 0 0);
@@ -27,7 +46,41 @@
   --destructive: oklch(0.63 0.19 23.03);
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.92 0 0);
-  --input: oklch(0.94 0 0);
+  /* 🔴🔴 **這是設計參照 §1「三階邊框」裡 `--border-interactive` 那一階的落地。**
+     **舊值 `oklch(0.94 0 0)` = `#ebebeb` ⇒ 對頁面底 1.16 / 對卡片 1.19,而 WCAG 1.4.11 要 3.0。**
+     **後果不是抽象的**:實測搜尋框與搜尋鈕的邊框顏色完全相同、對白底約 1.17
+     ⇒ 兩個控制項現在是靠「圓角 + 8px 縫」被讀成兩個東西,**而本片把圓角拿掉了**。
+     ⚠️ **`--radius: 0` 沒有製造這個問題,它拆掉了遮住這個問題的東西** —— 但對員工來說壞掉就是壞掉,
+        所以兩件必須同片。
+     **選值(可重跑)**:目標 = 對 `--background` 與 `--card` **兩個底色都 ≥3.0,取較差的當門檻**。
+       oklch(0.662) → 對底 2.99  🔴 **不用** —— 第一次算 3.00、重算 2.99,**會因捨入而變動的數字就是落在邊界上**
+       oklch(0.650) → 對底 3.15 / 對卡片 3.23  ✅ **採用,留餘裕**
+     🔴 **動 `--background` 或 `--card` 之前必須重算這個值。**
+     ⚠️ **吃它的不只輸入框,共【五處】非輸入框**(第一版寫四處,漏了最後一個):
+        `list-pagination`(上下頁鈕)、`order-keyword-search:68`(搜尋鈕)、兩個 filter-bar、
+        `multi-check-filter:32`(下拉觸發器 `<button>`)—— **那是刻意的,它們都是控制項。**
+     🔴 **已知未修的不一致**:另有一批表單欄位吃的是 `--border`(0.92)不是 `--input`
+        (`shipment-dialog:321,354,369,382`、`shipment-void-button:91`、`payment-reverse-button:111`)
+        ⇒ **出貨對話框裡的輸入框會比篩選列的明顯淡,而且仍是 1.16 對比、本片沒修到。**
+        **那是下一片的範圍,不要以為這片把輸入框都修好了。** */
+  --input: oklch(0.65 0 0);
+  /* ═══ BMW M 動效 token(`docs/design/admin-design-system.md` §5)═══════════════
+     🔴🔴 **住在 `:root` 而不是 `@theme inline`,這是被審查糾正過的** ——
+     code-reviewer 用本 repo 的 `tailwindcss@4.3.2` 實際編譯後查證:
+     **放在 `@theme inline` 裡的自訂變數 Tailwind 不會輸出 ⇒ 編出來是【零位元組】**
+     ⚠️ **正向對照要用【真的會被輸出】的東西**:`.rounded-md{border-radius:0}` 與 `:root` 的 `--radius: 0`
+        在編譯產物裡 ⇒ 證明不是編譯沒跑。
+        🔴 **我第一版拿 `--radius-xs` 當對照,那是【假的】** —— 它住 `@theme inline`,本來就不會被輸出,
+        **拿一個同樣不會出現的東西當對照,等於沒有對照。**
+     ⚠️ **而它靜默失效** —— 三綠全綠、沒有任何東西會紅,`style={{ transitionDuration: 'var(--motion-fast)' }}`
+        會拿到 undefined 然後什麼也不做。
+     值取自 OD `overview-desktop-bmw-m.html:61-63`。
+     ⚠️ **用它們時只准動 `transform` / `opacity`** —— 動 `top/left/width/height` 會逐幀觸發版面重算,
+        在 1,000 列的訂單表上是可見的卡頓。 */
+  --motion-fast: 130ms;
+  --motion-base: 220ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+
   --ring: oklch(0 0 0);
   --sidebar: oklch(0.99 0 0);
   --sidebar-foreground: oklch(0 0 0);
@@ -43,6 +96,17 @@
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
 }
 
+/* 🔴🔴 **深色入口已於 2026-08-16 依 Sean 拍板移除;本段暫留、無消費端。**
+   逐字:「不要深色模式」+「拿掉那顆按鈕」。**這 27 個 token 不是死碼,是刻意暫留** ——
+   移除的是**入口**(`header.tsx` 那顆鈕 + `layout.tsx` 的 `forcedTheme='light'`),不是這套值。
+   ⚠️ **要清掉整段是另一個決定,需要 Sean 再拍一次** ——
+   看到「沒人用的 token」順手刪,會讓日後想恢復深色的成本從「拿掉一個 prop」變成「重配 27 個值」。
+   📎 **同批一起暫留的還有**:`icons.tsx` 的 `sun`/`moon`(現零消費端)、
+      各元件的 `dark:` utilities(因 `:9` `@custom-variant dark` 走 class 策略、而 `.dark` 永不掛上
+      ⇒ **它們是 inert,不是仍生效**)。**要清就一起清,不要各刪一半。**
+   🔴 **一個已知的行為殘留**:`useTheme().resolvedTheme` 對存過深色的人**仍會回 `'dark'`**
+      (它讀的是儲存值、不吃 `forcedTheme`)⇒ **與畫面不一致**。
+      現在零消費端所以無害;**未來若有人拿它做判斷會踩到,不要用它判斷目前是不是深色。** */
 .dark {
   --background: oklch(0 0 0);
   --foreground: oklch(1 0 0);
@@ -103,10 +167,55 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* 🔴🔴 **四階改成【各自寫死 0】,不再由 `--radius` 推導** —— 這是刻意的,不是重複。
+     **原本**:sm = `calc(--radius - 4px)` / md = `-2px` / xl = `+4px`。
+     ⚠️ **`--radius` 一旦設 0,那組推導就壞了**:sm 得 **−4px**、md 得 **−2px**(負圓角,
+        瀏覽器會夾成 0 但那是靠夾的)、而 **xl 得 4px ⇒ 根本不是直角**。
+     🔴 **「改一個根值,四階一起變」在 8px 時成立,在 0 時不成立** ——
+        因為那組推導假設了根值夠大,能吃掉 ±4px 的偏移。**邊界值把公式的前提打掉了。**
+     ⇒ 直角期間四階全部釘 0;**日後若要恢復圓角,把這四行改回 `calc()` 並確認根值 ≥ 4px。**
+     ⚠️ **膠囊不走這裡**(用 `rounded-full`)—— 見設計參照 §6.5.4:可以點的直角、只能看的 pill。 */
+  /* 🔴 `--radius-xs` 一併釘 0(N3):不釘的話 Tailwind 預設 `0.125rem` 活下來,
+     而 `ui/sheet.tsx:66` 的 ✕ 會在一片直角裡留 2px 圓角。 */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+}
+
+/* 🔴 **尊重系統的「減少動態」設定**(WCAG 2.3.3 / 前庭失調與偏頭痛使用者)。
+   落地前實查:全 `apps/admin/src` **零命中** `reduced-motion`(正向對照 `radius` 命中 11)
+   ⇒ **這是純新增,不是修補。**
+   ⚠️ **現在就做的理由**:動效 token 剛進來、消費端還是 0 ——
+   **等到有二十處 transition 之後再回來補,那時要逐處確認,而現在只要一條規則。** */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 🔴 **例外:載入指示器必須繼續轉**(審查 N1)。
+     上面那條 `animation-iteration-count: 1` 會讓 `.animate-spin`(`spin 1s linear infinite`)
+     跑完一次就停在 `rotate(0)` ⇒ **一個靜止的轉圈圖示 = 看起來像當掉**,
+     而使用者無從分辨「還在載入」與「壞了」。
+     ⚠️ **今天打不到人**(唯一 `animate-spin` 在 `ui/spinner.tsx:10`,只被 `ui/button.tsx:81` 用,
+        而 `isLoading` 的 7 個命中全在 `button.tsx` 自己、零外部消費端)
+     🔴 **但這是陷阱不是活 bug —— 差別在於「誰先用到它」,而現在補只要一條規則。**
+     放慢而不是全速:減少動態的訴求仍被尊重,而「還在動」這個訊息保留。
+     錨點用 `[role='status']`(`spinner.tsx` 已帶),**不是** class —— class 會被改名,語意角色不會。 */
+  /* ⚠️ **選擇器刻意收窄到 `.animate-spin`**(審查 F3):全 repo 有 8 個 `role='status'`,
+     其中 **7 個是文字橫幅**(result-banner / cancel-result-panel / receipt-undo-bar…)。
+     不收窄的話,那 7 個底下未來任何動畫都會靜默繞過「減少動態」—— **而使用者不會知道。** */
+  [role='status'].animate-spin,
+  [role='status'] .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 @layer base {
@@ -403,7 +512,12 @@
       —— 兩顆 chip 在 420px 目測不換行(真瀏覽器看過),但**四顆之後會回來咬**(B-1 plan §5 列過)。 */
 .fchip {
   border: 1px solid var(--border);
-  border-radius: 999px;
+  /* 🔴 **從寫死的 `999px` 改成吃 `--radius`**(設計參照 §6.5.4 的裁決)。
+     **裁決逐字**:「**形狀傳達的是【可不可以互動】,不是【重不重要】**」
+     ⇒ **可以點的 → 直角**(跟所有控制項一致);**只能看的 → pill**(狀態膠囊,那些用 `rounded-full`,不吃這裡)。
+     ⚠️ **原本寫死 999px ⇒ `--radius: 0` 對它【不生效】** —— 那會讓文件說直角、畫面是圓角。
+     🔴 **選中/未選不靠形狀分**(實測:選中=純黑底白字、未選=白底灰字)⇒ 直角化不會讓它變得認不出來。 */
+  border-radius: var(--radius);
   background: var(--card);
   padding: 3px 11px;
   font-size: 12px;
@@ -455,7 +569,11 @@
   border-color: var(--foreground);
   background: var(--foreground);
   /* 🔴 **不是 OD 的 `#fff`**(R1 must-fix 1):`--foreground` 在 dark 模式是白的(`:48`),
-     配死白的字 = **白底白字、標籤整個看不見**;而 header 有一鍵切 dark ⇒ 場景真的走得到。
+     配死白的字 = **白底白字、標籤整個看不見**。
+     ⚠️ **原理由逐字「而 header 有一鍵切 dark ⇒ 場景真的走得到」已於 2026-08-16 作廢**
+     (深色入口移除、`forcedTheme='light'`)⇒ **今天走不到那個場景。**
+     🔴 **但這個決定維持不變**:用 token 映射而不是寫死 `#fff`,在深色若被恢復時仍然正確,
+     **且它本來就是比較好的寫法** —— 作廢的是「為什麼緊急」,不是「為什麼對」。
      `--primary-foreground` 在 light 恰為 `oklch(1 0 0)` = `#fff`(**light 下與 OD 逐字等值**)、
      在 dark 自動翻黑。⇒ 這是 token 映射,不是設計改動。 */
   color: var(--primary-foreground);
@@ -494,7 +612,10 @@
   height: 26px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  /* 🔴 **R3 抓到:這裡原本寫死 `6px`** —— 它不經 `--radius`,而「禁裸 `rounded`」那道守門
+     也抓不到它(那是 raw CSS 不是 Tailwind class)⇒ **「一片直角」在它身上不成立。**
+     ⚠️ **這就是為什麼守門釘 class 名不夠** —— 寫死在 CSS 裡的值沒有 class 可以釘。 */
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted-foreground);
   font-size: 13px;

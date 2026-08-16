@@ -51,6 +51,17 @@ describe('#350b 平行路由槽的接線', () => {
     expect(LAYOUT).toContain('parsePanelWidthCookie');
     expect(LAYOUT).toContain('initialPanelWidth={initialPanelWidth}');
   });
+
+  // 🔴🔴 **`forcedTheme='light'` 是「關閉深色」的唯一機制**(2026-08-16 Sean 拍板)。
+  //    ⚠️ **`defaultTheme='light'` 擋不住** —— `next-themes` 的 `setTheme` 無條件寫 localStorage,
+  //    而 `defaultTheme` 只在**沒存過**時生效 ⇒ 拿掉這個 prop,**曾經切過深色的人會留在深色**,
+  //    而切換入口已經移除 ⇒ **沒有出口**。
+  //    🔴 **這條沒有守門的話,刪掉它三綠全綠、CI 全綠、沒存過的人全部看不到** ——
+  //    症狀只在「存過 dark 的那一台機器」上出現。同 `print:hidden` 那三顆的論證:
+  //    **擋得住刪除,而刪除是唯一沒人守的一條路。**
+  it("🔴 layout 掛 `forcedTheme='light'`(拿掉 = 存過深色的人鎖死在深色且無出口)", () => {
+    expect(LAYOUT).toContain("forcedTheme='light'");
+  });
 });
 
 describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 唯一的接點', () => {
