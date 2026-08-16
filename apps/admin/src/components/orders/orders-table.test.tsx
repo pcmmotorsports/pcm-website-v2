@@ -596,9 +596,11 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     const riskCls = cls(risk);
     const safeCls = cls(safe);
 
+    // 🔴 2026-08-16 Sean 拍板配色換 BMW ⇒ 期望值由 Tailwind 調色盤改成 `.cap-*`。
+    //    真正在守「顏色看不看得清楚」的是 `app/design-tokens.test.ts` 的實算對比;這裡守的是掛對 class。
     expect(riskCls).toContain('text-white');
-    expect(riskCls).not.toContain('bg-emerald-100');
-    expect(safeCls).toContain('bg-emerald-100');
+    expect(riskCls).not.toContain('cap-g');
+    expect(safeCls).toContain('cap-g');
     expect(safeCls).not.toContain('text-white');
   });
 
@@ -618,8 +620,8 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     expect(cls('unpaid')).toContain('shadow-[');
     expect(cls('paid')).not.toContain('shadow-[');
     // 兩者的底色相同 ⇒ 證明差別真的只在紅框那一項,不是整個換了配色。
-    expect(cls('unpaid')).toContain('bg-sky-100');
-    expect(cls('paid')).toContain('bg-sky-100');
+    expect(cls('unpaid')).toContain('cap-bl');
+    expect(cls('paid')).toContain('cap-bl');
   });
 
   it('已取消單:狀態格顯示「已取消」、不落進 2×4 矩陣的任何一格', () => {

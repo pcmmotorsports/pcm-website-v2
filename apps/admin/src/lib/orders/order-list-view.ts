@@ -181,8 +181,16 @@ export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
 // 少一個 `font-medium`、不是同款。Record 驅動配色的先例 =
 // `notes-timeline.tsx:15-19`,語彙 = 綠完成 / 琥珀進行中或要注意 / 灰中性或未開始 / 紅要處理。
 
-/** 共用膠囊形狀。桌機與卡片兩份 markup 都套同一顆 class 常數,不各自組一份字串。 */
-export const STATUS_CAPSULE = 'inline-flex rounded-full px-2 py-0.5 text-xs font-medium';
+/** 共用膠囊形狀。桌機與卡片兩份 markup 都套同一顆 class 常數,不各自組一份字串。
+ *
+ * 🔴🔴 **2026-08-16 Sean 拍板「狀態膠囊 —— 方角」⇒ 拿掉 `rounded-full`。**
+ *    在此之前我方**刻意與 OD 不同**(pill),依據是「形狀傳達可不可以互動」——
+ *    **那條依據已被他本人推翻**,現在與 OD `:206` 的 `.cap{border-radius:0}` 一致。
+ *    📎 OD 全稿唯一圓角的 class 叫 `.legacy`(`:316`),那正是它用來對照的「被換掉的那一版」。
+ * ⚠️ **沒有改成 `rounded-none`,而是整個拿掉** —— Tailwind preflight 不設 `border-radius`,
+ *    無類別即 0;寫 `rounded-none` 只是多一個等值字面。(片1 也已把 `--radius` 與五階釘死 0。)
+ */
+export const STATUS_CAPSULE = 'inline-flex px-2 py-0.5 text-xs font-medium';
 
 /* 🏁 **L3 片1(2026-08-14)刪除兩個 export:`PAYMENT_STATUS_CAPSULE` 與 `orderedCapsuleClass`。**
    Sean 拍 Q2=A:訂單列表的付款膠囊與訂貨欄兩個都下架、狀態欄獨扛
