@@ -1,5 +1,12 @@
 # `V-020` 折後版 · 兩份獨立審查 findings + 一次我自己的假紅自證
 
+> 🔴🔴 **引用前必讀:三方看過的是【論證】,不是【數字】。**
+> 本檔出現的 `32 格`、`30/1`、`31/1` 等突變數字,**目前是 B 窗單方面的量測** ——
+> codex R1/R2 自標「唯讀環境建不了叢集,未重新採信」;V 窗 R3 明說「不進 B 的樹撞叢集」。
+> ⇒ **報告若寫成「經 codex 兩輪 + V 窗 R3」,讀的人會以為數字也被驗過了。沒有。**
+> 📎 這是今晚母題的近親:**「什麼都沒有」被讀成「檢查過了」/「很多人看過」被讀成「都驗過了」。**
+> **要用那些數字請自己重跑**:`sh scripts/run-rc.sh 25 -- bash scripts/b1b-acceptance-harness.sh`
+
 - **日期**:2026-08-17 02:xx(`date` 實跑,交叉源見下)
 - **靶**:`pcm-products` 分支 `products` 的**未 commit** diff
   (`docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql` + `scripts/b1b-acceptance-harness.sh`)
