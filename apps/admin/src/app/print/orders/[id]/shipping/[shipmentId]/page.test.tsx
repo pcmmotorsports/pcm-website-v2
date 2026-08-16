@@ -559,3 +559,14 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
     expect(t).not.toContain('6412345678');
   });
 });
+
+describe('🔴 Q-C7 = 丙:頁尾【不得】有手寫日期格(Sean 2026-08-16 逐字)', () => {
+  it('簽名區只剩「出貨人」,沒有第二個日期', async () => {
+    const t = (await renderPage()).container.textContent ?? '';
+    expect(t).toContain('出貨人:');
+    // 🔴 沒有這一格的話,把那行加回來【零症狀】—— 它看起來像單據的標準欄位。
+    expect(t).not.toContain('日期:____');
+    // 正向對照:表頭那個【印死的】出貨日還在(拿掉的是手寫那格,不是整個日期概念)。
+    expect(t).toMatch(/出貨日:\d{4}-\d{2}-\d{2}/);
+  });
+});

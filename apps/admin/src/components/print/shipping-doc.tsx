@@ -412,8 +412,11 @@ export function ShippingDoc({
               **禁止**浮點,且格式化一律走既有 `formatOrderAmount`(`order-list-view.ts:746`)。 */}
 
           <div className='text-muted-foreground flex gap-8 pt-6 text-sm'>
+            {/* 🔴 **`Q-C7` = 丙(Sean 2026-08-16 逐字「丙,拿掉頁尾手寫日期」)**:
+                原本這裡還有一格手寫「日期:________」,而表頭已經印了一個「出貨日」。
+                兩個日期在員工實際交寄跨日時會不一致,**而客人不知道該信哪一個**。
+                ⚠️ **不要「順手」把它加回來** —— 它看起來像單據的標準欄位,而它是被拍板拿掉的。 */}
             <span>出貨人:________________</span>
-            <span>日期:________________</span>
           </div>
         </>
       )}
