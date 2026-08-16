@@ -723,6 +723,63 @@ END $$;
 ⚠️ `c_known` 的實際值域**我沒有逐字核對**（我讀到的是約束名 `order_refunds_status_check` 存在，
 以及程式碼用到的四個值）⇒ **實作者要先 `pg_get_constraintdef` 讀出真值再填，不要照抄我的陣列。**
 
+### 6.10 `sweeper` × `webhook` 租約 —— **先數 writer，再判**
+
+#### 6.10-a 誰在呼叫那套租約（**四支全部是活的**）
+
+| 租約 RPC | 呼叫端 |
+|---|---|
+| `claim_due_webhook_events` | `PgWebhookInboxAdapter.ts:85` |
+| `claim_expired_pending_attempts` | `PgChargeAttemptAdapter.ts:224` |
+| `claim_stuck_unsettled_attempts` | `PgChargeAttemptAdapter.ts:173` |
+| `claim_order_poll_settle`（節流） | `PgPollSettleThrottleAdapter.ts:45` |
+
+（**控制組**：純讀函式 `pcm_order_refundable_remaining` 對同一組 pattern 命中 **0** ⇒ pattern 有鑑別力。）
+
+#### 6.10-b 🔴 `settleCharge` 有**四個**入口，其中**三個節流、一個不節流**
+
+`settleCharge` **自己沒有任何 claim／lease** —— 節流是**呼叫端**加的。逐一數：
+
+| 入口 | 有沒有先 `claimPollSettle` |
+|---|---|
+| `checkout/charge-actions.ts:382` | ✅ |
+| `checkout/reconcile-actions.ts:92` | ✅ |
+| `api/orders/[orderId]/payment-status/route.ts:141` | ✅ |
+| 🔴 **`api/checkout/tappay-notify/[secret]/route.ts:191`（webhook 的 `after()`）** | ❌ **沒有** |
+
+**加上 sweeper 走 `claim_stuck_unsettled_attempts` 的列級 claim。**
+⇒ **webhook 快路徑是唯一一個沒有互斥、可與 sweeper 同時對同一張單跑 `settleCharge` 的入口。**
+
+#### 6.10-c 兩個失敗方向**都判**（不是只找「同時拿到」）
+
+**方向①：租約太短／兩邊同時拿到** ⇒ webhook 與 sweeper 併發結算同一單。
+**安全性不靠互斥，靠終點寫入是冪等的 —— 我去讀了那支：**
+`confirm_order_payment`（`20260810170000` 版）有
+①隔離層級閘（非 READ COMMITTED 直接 `RAISE`）②`FOR UPDATE` 鎖臨界區
+③取消守門**排在冪等樹之前**（註解逐字：「冪等樹的提前 `RETURN` 也是『成功』，讓它先跑等於沒擋」）
+④`paid` 且 `rec_trade_id` + `amount` 雙等 ⇒ **no-op 冪等成功（真 `RETURN`、不 `UPDATE`、不刷時間戳）**。
+⇒ 🟢 **併發結算會收斂，不會重複入帳。**
+⚠️ **殘餘（非正確性）**：同一單可能對 TapPay Record API **多打一次**。
+
+**方向②：租約沒還／卡住不重試** ⇒ 這個方向**有專門的天花板函式**：
+`expire_stuck_attempts_at_ceiling`、`expire_webhook_events_at_ceiling`
+（外加 `claim_*` 回傳的 `attempt_count` 供上限判斷）。
+⇒ 🟢 **「拿了不還」這個方向被想過了**，不是只做了 claim 就收工。
+
+#### 6.10-d 結論與**我沒驗的那半**
+
+🟢 **沒有找到正確性缺陷。** webhook 不節流是**刻意的**（該檔 `:14` 逐字：
+「best-effort 快路徑 … 最終保證交 3DS-4 sweeper」）。
+
+🔴 **但要寫清楚這條的實際形狀**：
+> **那條路的安全，不是由它自己保證的，是由 `confirm_order_payment` 的冪等性保證的。**
+> **⇒ 這是一條跨檔依賴，而【沒有任何測試在斷言它】。**
+> 哪天有人「優化」掉那棵冪等樹（它看起來只是提早 return），**webhook 這條路會第一個壞，
+> 而壞的樣子是重複入帳。**
+
+⚠️ **我沒做的**：沒有真的併發跑 webhook × sweeper（要搭真 schema + TapPay stub，成本遠高於今天的收益）
+⇒ **上面是「讀 code + 讀那支 RPC 的冪等樹」，不是實測。**（對照 §6.5(b) 那條我是**實測**過的。）
+
 ### 6.4 建議（**我唯讀，只提**）
 
 1. **給那五支出貨 RPC 補同交易 `admin_audit_log`** —— 與隔壁七支同形狀，不必發明新機制
