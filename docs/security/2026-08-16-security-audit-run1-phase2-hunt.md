@@ -63,16 +63,34 @@ pnpm audit:
 
 🔴 **`patched` 欄是空的 —— 這兩條在 npm 上沒有可升級的修補版本。**
 
-**可達性（量過的，附分母與 pattern）**：
+**可達性 —— 🔴 這個 `0` 是要拿來做決定的，所以附完整分母與對照：**
 
 ```
-pattern: grep -rni 'xlsx' .   (排除 node_modules 與 pnpm-lock.yaml)
-命中 87 處 → 全數為 package.json 宣告(1) + docs/specs 文字討論(86)
-【程式碼 import 命中：0】
-正向對照：同一 pattern 對 'sharp' 命中 package.json + scripts/image-trim-scan.ts + 測試 ⇒ pattern 是活的
+分母（掃了幾個檔）：
+  find apps packages scripts -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' \
+       -o -name '*.mjs' -o -name '*.cjs' \) | grep -v node_modules | wc -l
+  ⇒ 1659 個原始碼檔
+
+pattern（不分大小寫、不限 import 寫法，連字串提及都算）：
+  … | xargs grep -lni 'xlsx' | wc -l
+  ⇒ 【0】個檔
 ```
 
-⇒ **今天不可利用：沒有任何 `.ts`／`.tsx`／`.js` 載入它。**
+**🔴 正向對照（同一條命令、同一組檔案，換成確實有被 import 的套件）**：
+
+| 套件 | 命中檔數 | 說明 |
+|---|---|---|
+| `zod` | **35** | ✅ pattern 是活的 |
+| `sharp` | **8** | ✅ pattern 是活的 |
+| **`xlsx`** | **0** | ← 本條 |
+| `papaparse` | 0 | 同型：也宣告了但零引用（**無 advisory**，只是死依賴、不是 finding） |
+
+**全 repo（含 `docs/`）不分大小寫掃 `xlsx` 命中 87 處**：`package.json` 宣告 1 處 + `docs/specs` 文字討論 86 處。
+**程式碼載入：0。**
+
+⇒ **今天不可利用：1659 個原始碼檔裡沒有任何一個提到它。**
+⚠️ **這個數字能撐住的只有「今天不可利用」** —— 它**不**說明「移除之後不會壞」，
+但 `0/1659` 加上兩個正向對照，已足以支撐「移除的風險是零」這個決定。
 
 **為什麼還是要報**：`docs/specs/2026-08-14-supplier-excel-import-recon.md` 顯示
 **「供應商 Excel 匯入」是規劃中的功能**。那條路一旦開通，就是
@@ -207,7 +225,98 @@ admin 的 `redirect(returnTo…)` 共 5 處，`returnTo` 全部先過
 
 ---
 
-## 5. 建議的下一步（依價值排序，非承諾）
+## 5. 續輪：業務邏輯／狀態機（order／payment／refund／shipment）
+
+> §4 把這塊列為「完全沒碰、缺口最大」。**這一節把它補上了**，同樣**單線編制**。
+> 範圍：**外部打得到的路徑**。內部員工不分權是刻意的（威脅模型），不報。
+
+### 5.1 🟢 最強的一條：`payment_confirmer` 這個角色**讀不到任何一列客戶資料**
+
+金流狀態機不是跑在 `service_role` 上，而是跑在一個**專用的窄權登入角色** `payment_confirmer`
+（`packages/adapters/src/payment/PgPollSettleThrottleAdapter.ts:8`）。**我去量了它到底能做什麼：**
+
+```
+rolcanlogin=t  rolsuper=f  rolbypassrls=f  rolcreaterole=f
+
+public schema 55 個關聯 ×  SELECT / INSERT / UPDATE / DELETE / TRUNCATE
+  ⇒ 五項全部 granted = 0 / 55
+```
+
+⇒ 🔴 **它一張表都讀不到。** 它只能 `EXECUTE` 那 24 支金流 SECDEF 函式。
+
+**對威脅模型的意義**：**那把憑證外流，拿到的人一列客戶資料都讀不到。**
+損害面是「可以亂動付款狀態」（詐欺），**不是「可以把客戶資料撈走」**（Sean 唯一擔心的那件）。
+
+**這個好狀態是【被守住的】還是【碰巧的】？—— 兩者都有，分開講：**
+- **被守住的**：`20260811060000_…:363-374` 連**誰可以成為 `payment_confirmer` 的成員**都斷言了
+  （防「某角色繼承它 ⇒ 間接呼得到那些 RPC」）；`20260624120003_…:129-144` 對異常表明文
+  `REVOKE ALL FROM PUBLIC, anon, authenticated, service_role, payment_confirmer` 並斷言 4 角色 7 權限全 false。
+- **碰巧的那半（誠實講）**：**沒有任何一條斷言寫著「`payment_confirmer` 對整個 `public` 必須零表授權」。**
+  `0/55` 成立是因為 **ADP 那份預設授權的名單裡沒有它**（只有 `anon`／`authenticated`／`service_role`，§7c-2 量過）。
+  ⇒ **哪天有人手寫一句 `GRANT SELECT … TO payment_confirmer`，不會有任何東西紅。**
+  📎 這正是 A2 那類機制的價值：**現在乾淨靠的是每個人都記得。**
+
+### 5.2 🟢 無簽章的 TapPay webhook —— **補償設計是真的成立的**
+
+`apps/storefront/src/app/api/checkout/tappay-notify/[secret]/route.ts` 沒有簽章驗證
+（TapPay 官方不提供），只有**祕密路徑段 + `timingSafeEqual` + 不符回 404 不揭存在**。
+
+**真正扛住它的不是那個祕密，是「notify 說什麼一律不採信」。我去驗這句是不是真的：**
+
+```
+pattern: grep -rn 'reportedStatus|reported_status' packages/use-cases/src packages/adapters/src
+命中：packages/adapters/src/payment/PgWebhookInboxAdapter.ts:58   ← 只有【寫進 inbox】這一處
+      + database.types.ts 的型別宣告
+packages/use-cases 內讀取 reportedStatus 的地方：【0】
+```
+
+⇒ **webhook 自稱的 `status` / `amount` 只被存檔，從來沒有被任何判斷讀過。**
+`settleCharge` 只收 `{ orderId }`（`route.ts:191`），成交權威 100% 是回打 TapPay Record API
+（`packages/use-cases/src/settle-charge.ts:255` 起：`record_status ∈ {0 AUTH, 1 OK}` + 識別 + 金額 + 幣別）。
+
+⇒ **就算祕密路徑外流，偽造的 notify 也只能【觸發一次對 TapPay 的重新查證】，無法讓任何訂單變成已付款。**
+
+### 5.3 🔴 第一次列出「任何已登入客人」打得到的 RPC 面
+
+先前每一輪都只量 `anon`。**登入後的面沒有人列過。** 這次列了：**`authenticated` 可 EXECUTE 的 15 支**。
+
+| 類別 | 支數 | 可否被 PostgREST 當 RPC 呼叫 |
+|---|---|---|
+| 回傳 `trigger` | **8** | ❌ PostgREST 不發布 trigger 函式 |
+| `STABLE`／`IMMUTABLE`（型錄查詢） | **4** | ✅ 但**寫不了東西** |
+| **`VOLATILE` + `SECURITY DEFINER`（會寫）** | **3** | ✅ ← **真正的攻擊面就這三支** |
+
+**那三支逐支開檔讀守門**：
+
+| 函式 | 歸屬綁定 | 判讀 |
+|---|---|---|
+| `create_order(…)` | 身分／算價全部 server 權威，**client 永不送價**（`charge-actions.ts:245,272`：金額 = server read-back `orders.total` 單一來源） | ✅ |
+| `find_active_sibling_own(p_cart_session_id uuid)` | `WHERE o.customer_user_id = v_uid`，`v_uid := auth.uid()`；`auth.uid()` 為 NULL → 一律回 `none`；回傳**不含** rec／bank（資料最小化） | ✅ **不是 IDOR** |
+| `mark_charge_attempt_charged_fallback(attempt, order, rec, token)` | **三道**：① `fallback_token` hash 比對（server 發、明文只在記憶體）② `auth.uid() <> customer_user_id` → 拒 ③ 僅 `pending→charged`、`superseded` 一律拒 | ✅ |
+
+🔴 **第三支是我這輪最想打穿的一支**（名字直譯是「把這筆刷卡標成已收款」，而且**任何登入客人都呼得到**）。
+**打不穿**：光有 `attempt_id` 與 `order_id` 沒用，還要**同時**握有 server 發的 token **並且本人就是單主**。
+而且它只改 `payment_charge_attempts`，**沒有碰 `orders.payment_status`** ——
+真正入帳仍要走 `settleCharge` 的 Record API 查證（§5.2）。
+📌 它的錯誤訊息**全部是同一句通用字串**（原始碼標為 `PF-E`）⇒ **「token 錯」與「不是你的單」對外不可區分**，
+無法拿它當帳號／訂單存在性的 oracle。
+
+### 5.4 本節**沒有**涵蓋的（缺口誠實列出）
+
+| 沒查 | 為什麼 |
+|---|---|
+| **退款狀態機**（`refund-actions` / `refund-recovery-actions` / `refund_ledger`） | 只確認過它們**有**授權閘（§3.2 矩陣），**沒有讀狀態轉換邏輯** |
+| **出貨／到貨狀態機**（`shipment` / `receipt` / `procurement`） | 同上。且 `shipment-actions.ts` 正是唯一無閘那支（P2-3） |
+| **取消／部分取消**（`a8c1` / `a8c2` / `admin_cancel_order` / 部分取消） | 完全沒讀 |
+| 「第二條路走到同一個狀態」的系統性盤點 | **只在本節三支上問過這個問題，沒有對全狀態機做過** |
+| 併發／race（同一單兩個 attempt、雙擊、sweeper 與 webhook 撞） | 沒設計任何測試去撞它 |
+
+⚠️ **上面四條全部是【管理端】路徑** —— 依威脅模型優先度較低（外部打不到），
+**但「外部打不到」這句本身，我這輪只對 §5.3 那三支真的驗過。**
+
+---
+
+## 7. 建議的下一步（依價值排序，非承諾）
 
 1. **移除 `xlsx`**（零使用、消掉兩個無修補版 HIGH）—— 最便宜的一件
 2. **升 `sharp` 到 `>=0.35.0`**
