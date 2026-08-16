@@ -15,8 +15,33 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { ComingSoon } from './ComingSoon';
+import { OPENING_HOURS, STORE_ADDRESS } from '@/lib/site-config';
 
 afterEach(cleanup);
+
+/**
+ * 門市地址那個 `<p>`(整站版頁尾「門市」欄第一段;`ComingSoon.tsx` 的 `.cs-foot-col`)。
+ *
+ * 🔴 同 `HomeFooter.test.tsx` 那支的理由(E-627 nit3):在 `container` 上比對會把
+ * 整頁文字都算進來,將來任何**合法**的「一樓」都會讓它紅在錯的位置。
+ * 找不到就 throw ⇒ markup 變了要紅,不靜默退回寬鬆版。
+ */
+function storeAddressNode(container: HTMLElement): HTMLElement {
+  const col = Array.from(container.querySelectorAll('.cs-foot-col')).find(
+    (d) => d.querySelector('h2')?.textContent === '門市',
+  );
+  if (!col) throw new Error('找不到「門市」那一欄 —— ComingSoon 頁尾 markup 變了,選法要跟著更新');
+  // 🔴 E-630 nit1(與 `HomeFooter.test.tsx` 同款):取第一個 `<p>` 是位置相依的。
+  //    本欄現在只有地址一段;插了第二段就可能靜默取錯 ⇒ 把結構假設變成會叫的東西。
+  const ps = col.querySelectorAll('p');
+  if (ps.length !== 1) {
+    throw new Error(
+      `「門市」欄的 <p> 由 1 段變成 ${ps.length} 段 —— 本 helper 取第一段當地址。` +
+        '請先確認地址還是第一段,再看其他紅。',
+    );
+  }
+  return ps[0] as HTMLElement;
+}
 
 const BASE = {
   eyebrow: 'N°06 · PARTNER STORES',
@@ -131,5 +156,49 @@ describe('ComingSoon · 字面與連結', () => {
   it('🔴 統編走 site-config 的 SSoT、不是硬寫的字面(只有整站版自帶版權列)', () => {
     const { container } = render(<ComingSoon {...SITEWIDE} hasNav={false} />);
     expect(container.textContent).toContain('統一編號 90003020');
+  });
+
+  // 🔴 D-040(2026-08-15):與 `HomeFooter.test.tsx` 那格成對。
+  //    這支的門市地址跟頁尾一樣是硬寫的(不吃 `STORE_ADDRESS`)⇒ 兩個載體會各自漂,
+  //    只守一邊等於沒守。兩格都在,才擋得住「改了一處就交件」。
+  // 🔴 E-627 MF2 + nit3(2026-08-15):與 `HomeFooter.test.tsx` 那格逐條同步 ——
+  //    ① 加一條接 SSoT 的斷言(原本只釘字面複本 ⇒ 改 `site-config.ts` 這格不會紅,**實跑驗過**)
+  //    ② 反面斷言收窄到門市地址那個節點,不打在整個元件上
+  //    🔴 兩支要一起改:只改一支的話,另一支會用寬鬆版活下來,而下一個人會照它抄。
+  it('🔴 門市地址是「1樓」不是「一樓」,且與 SSoT 一致(釘的是【本公司】地址,不是客人收件地址)', () => {
+    const { container } = render(<ComingSoon {...SITEWIDE} hasNav={false} />);
+    const text = storeAddressNode(container).textContent ?? '';
+    expect(text, '門市地址的「1樓」不見了').toContain('736 巷 18 號1樓');
+    expect(text, '門市地址出現「一樓」⇒ 有人照過期的舊字面改回去了').not.toContain('一樓');
+    // 🔴 追 SSoT 漂移:正規化放斷言側,不動排版(站上有空格與 <br/>,SSoT 沒有)。
+    // 🔴🔴 E-630 MF:比 **三個欄位**(`region`+`locality`+`street`),不是只比 `street` ——
+    //    這個 `<p>` 印的就是三個連起來,只比 street 的話改 `region` 這格不會紅。
+    //    用 `toBe` 不用 `toContain`:後者只證「渲染沒少掉 SSoT 有的」,
+    //    不證「渲染沒多出 SSoT 沒有的」(SSoT 變短 ⇒ 仍是子字串 ⇒ 全綠)。
+    //    ⚠️ `postalCode` / `country` 沒被渲染 ⇒ 刻意不納入,納入會是恆假斷言。
+    // 🔴 這一條**第一版漏改了** —— HomeFooter 那支改成 `toBe` 三欄、本支只改了 helper
+    //    卻留著舊的 `toContain(street)`;E 指定的 `region` 突變只紅一格、本格靜默綠。
+    //    **是突變測試抓到的,不是複讀抓到的** ——「兩支要一起改」就寫在上面那行,而我照樣漏了。
+    expect(text.replace(/\s/g, ''), '門市地址與 site-config 的 STORE_ADDRESS 漂開了').toBe(
+      STORE_ADDRESS.region + STORE_ADDRESS.locality + STORE_ADDRESS.street,
+    );
+  });
+
+  // 🔴🔴 E-63x R3(2026-08-15):與 `HomeFooter.test.tsx` 那條成對,理由見該檔。
+  //    營業時間在本檔是**硬寫**的,而 `lib/site-config.ts:38` 的 `OPENING_HOURS`
+  //    已有三個消費端(`MobileMenu.tsx:73` / `data/legal-content.ts:67` / `lib/org-jsonld.ts:55-57`)
+  //    ⇒ 改 SSoT 會讓站上出現兩種說法,而其中一處是**法律頁**。
+  //    🔴 兩支一起補 —— 本輪 R2 我就是只改一支、被突變抓到,不再犯第二次。
+  //    🔴🔴 **本格守的不是「SSoT 漂移」**(渲染改吃 SSoT 後那個已被構造消滅、本格對它恆綠),
+  //    **而是「有人把它硬寫回去」** —— 完整說明與實測負向對照見 `HomeFooter.test.tsx` 同名那格。
+  it('🔴 營業時間與 site-config 的 OPENING_HOURS 一致(本檔硬寫、三個消費端吃 SSoT)', () => {
+    const { container } = render(<ComingSoon {...SITEWIDE} hasNav={false} />);
+    const col = Array.from(container.querySelectorAll('.cs-foot-col')).find(
+      (d) => d.querySelector('h2')?.textContent === '營業時間',
+    );
+    if (!col) throw new Error('找不到「營業時間」那一欄 —— ComingSoon 頁尾 markup 變了');
+    expect((col.querySelector('p')?.textContent ?? '').replace(/\s/g, ''), '營業時間與 OPENING_HOURS 漂開了').toBe(
+      `週一-週六${OPENING_HOURS.opens}-${OPENING_HOURS.closes}`,
+    );
   });
 });

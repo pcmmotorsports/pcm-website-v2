@@ -36,15 +36,23 @@ import { parseShipmentError } from '../../lib/shipping/shipment-error-view';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 import { blockedText, emptySelectionMessage, staleDeploymentMessage } from './shipment-dialog-copy';
 import { submitShipment, type SubmitShipmentResult } from '../../lib/shipping/shipment-actions';
+import { CARRIER_LABEL, CARRIER_OPTIONS } from '../../lib/shipping/carrier-label';
+import { trackingNumberIssue } from '../../lib/shipping/tracking-number';
+import type { CarrierCode } from '../../lib/shipping/shipment-repository';
+
+// 🔴 驗證文案裡的貨運商名也讀同一份表(R1 nit 10):原本硬寫「新竹或順豐」,
+//    標籤改字時它不跟、而且沒有任何守門會紅 —— 那正是本片要消滅的症狀。
+const NON_OTHER_NAMES = CARRIER_OPTIONS.filter((c) => c.code !== 'other')
+  .map((c) => c.label)
+  .join('或');
 
 type Recipient = { name: string | null; phone: string | null; line: string | null };
 
-const CARRIERS = [
-  { code: 'hct', label: '新竹物流' },
-  { code: 'sf', label: '順豐' },
-  { code: 'other', label: '其他' },
-] as const;
-
+// 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3)。
+//    **本檔抽走的是【兩份】:`CARRIERS` 下拉表 + `useState` 那個 union**
+//    (數法與完整的四份清單寫在 `carrier-label.ts` 檔頭)。
+//    症狀是「下拉選單寫一個、訂單卡片寫另一個」,而**沒有任何守門會紅**。
+//    ⚠️ 下拉選單的**順序**沿用抽出前的 `hct / sf / other`,釘在 `carrier-label.test.ts`。
 
 export function ShipmentDialog({
   candidates,
@@ -82,9 +90,11 @@ export function ShipmentDialog({
   const [qty, setQty] = useState<Record<string, number>>(() =>
     Object.fromEntries(candidates.map((c) => [c.orderItemId, c.remaining])),
   );
-  const [carrier, setCarrier] = useState<'hct' | 'sf' | 'other'>('hct');
+  const [carrier, setCarrier] = useState<CarrierCode>('hct');
   const [note, setNote] = useState('');
   const [tracking, setTracking] = useState('');
+  /** 🔴 R2 F-A:離開欄位之前不評價格式(否則正確輸入也會逐鍵跳九次擋)。 */
+  const [trackingSettled, setTrackingSettled] = useState(false);
   /** 🔴 員工**親手動過**的品項(R2 N2)。用 ref:它不影響渲染,只用來決定「這格能不能自動補」。 */
   const touchedRef = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -165,16 +175,34 @@ export function ShipmentDialog({
     if (chosen.length === 0) {
       return emptySelectionMessage(candidates);
     }
-    if (carrier === 'other' && note.trim() === '') return '快遞商選「其他」時必須填寫送法說明。';
-    if (carrier !== 'other' && note.trim() !== '') return '說明欄只給「其他」用,選新竹或順豐時請清空。';
+    if (carrier === 'other' && note.trim() === '')
+      return `快遞商選「${CARRIER_LABEL.other}」時必須填寫送法說明。`;
+    if (carrier !== 'other' && note.trim() !== '')
+      return `說明欄只給「${CARRIER_LABEL.other}」用,選${NON_OTHER_NAMES}時請清空。`;
     return null;
   }, [chosen.length, carrier, note, candidates]);
 
-  /** 標出貨還多一道:非「其他」必須有單號。只建箱不受這條限制。 */
-  const shipBlocker = useMemo<string | null>(
-    () => (carrier !== 'other' && tracking.trim() === '' ? '快遞商是新竹或順豐時,標出貨前必須填貨運單號。' : null),
-    [carrier, tracking],
+  /**
+   * 貨號格式(`#551`)。**擋與警告分開兩顆,不合併成一句話。**
+   *
+   * 🔴 分級依據 = **證據強度**(長度四處跨兩章節 ⇒ 擋;字元集與檢查碼各自單一來源 ⇒ 只警告)。
+   *    **完整推導與【我兩次數錯證據】的過程都在 `lib/shipping/tracking-number.ts` 檔頭** ——
+   *    不在這裡重寫一份,兩份會各自過期(這一句原本就寫著已被推翻的「三處交叉印證」,
+   *    是 R2 F-H 用 `scripts/literal-sweep.sh '三處交叉印證'` 掃出來的)。
+   */
+  const trackingIssue = useMemo(
+    () => trackingNumberIssue(carrier, tracking, trackingSettled),
+    [carrier, tracking, trackingSettled],
   );
+
+  /** 標出貨還多一道:非「其他」必須有單號。只建箱不受這條限制。 */
+  const shipBlocker = useMemo<string | null>(() => {
+    if (carrier !== 'other' && tracking.trim() === '') {
+      return `快遞商是${NON_OTHER_NAMES}時,標出貨前必須填貨運單號。`;
+    }
+    // ⚠️ 只有 `block` 進這裡;`warn` 走下面那顆,**不擋送出**。
+    return trackingIssue?.level === 'block' ? trackingIssue.message : null;
+  }, [carrier, tracking, trackingIssue]);
 
   const run = useCallback(
     async (markShipped: boolean) => {
@@ -254,7 +282,7 @@ export function ShipmentDialog({
           沒設的(標題 / 品名 / label / placeholder / 次要鈕)全部隱形 —— 症狀與 Sean 的截圖逐項吻合。
           ⇒ 兩道一起做:①面板**顯式**設字色(不論掛在哪都不再繼承)②把彈窗搬出動作列(見 shipping-selection.tsx)。 */}
       <div
-        className='bg-card text-foreground mt-8 w-full max-w-2xl rounded-lg border shadow-xl'
+        className='bg-card text-foreground mt-8 w-full max-w-2xl rounded-lg border'
         role='dialog'
         aria-label='建立包裹'
       >
@@ -278,7 +306,7 @@ export function ShipmentDialog({
             收件:{recipient.name ?? '—'} · {recipient.phone ?? '—'} · {recipient.line ?? '—'}
           </p>
 
-          <ul className='divide-y rounded border'>
+          <ul className='divide-y rounded-md border'>
             {candidates.map((c) => (
               <li key={c.orderItemId} className='flex items-center gap-3 px-3 py-2'>
                 <span className='text-muted-foreground w-24 shrink-0 font-mono text-xs'>{c.orderDisplayId}</span>
@@ -318,7 +346,7 @@ export function ShipmentDialog({
                       [c.orderItemId]: Math.max(0, Math.min(c.remaining, Number(e.target.value) || 0)),
                     }));
                   }}
-                  className='w-16 shrink-0 rounded border px-2 py-1 text-sm disabled:opacity-50'
+                  className='w-16 shrink-0 rounded-md border-input border px-2 py-1 text-sm disabled:opacity-50'
                 />
                 {/* 🔴 入口 2 只給 `not_arrived`(plan §5.2):四個原因各代表完全不同的下一步,
                     給 `all_boxed` 或 `cancelled` 一顆「貨到了」是**假話**,還會把員工指去
@@ -327,7 +355,7 @@ export function ShipmentDialog({
                   <button
                     type='button'
                     onClick={() => void openReceipt(c)}
-                    className='shrink-0 rounded border px-2 py-1 text-xs'
+                    className='shrink-0 rounded-md border-input border px-2 py-1 text-xs'
                   >
                     貨到了
                   </button>
@@ -350,10 +378,16 @@ export function ShipmentDialog({
               快遞商
               <select
                 value={carrier}
-                onChange={(e) => setCarrier(e.target.value as 'hct' | 'sf' | 'other')}
-                className='mt-1 block w-full rounded border px-2 py-1.5 text-sm font-normal'
+                onChange={(e) => {
+                  setCarrier(e.target.value as CarrierCode);
+                  // 🔴 R1 N5:切了貨運商之後,框裡還留著上一家的貨號會【原封送出】。
+                  //    清掉比留著安全 —— 留著只會讓人以為那是這一家的單號。
+                  setTracking('');
+                  setTrackingSettled(false);
+                }}
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               >
-                {CARRIERS.map((c) => (
+                {CARRIER_OPTIONS.map((c) => (
                   <option key={c.code} value={c.code}>
                     {c.label}
                   </option>
@@ -364,9 +398,13 @@ export function ShipmentDialog({
               貨運單號
               <input
                 value={tracking}
-                onChange={(e) => setTracking(e.target.value)}
+                onChange={(e) => {
+                  setTracking(e.target.value);
+                  setTrackingSettled(false);
+                }}
+                onBlur={() => setTrackingSettled(true)}
                 placeholder={carrier === 'other' ? '可留空' : '標出貨前必填'}
-                className='mt-1 block w-full rounded border px-2 py-1.5 text-sm font-normal'
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               />
             </label>
           </div>
@@ -379,7 +417,7 @@ export function ShipmentDialog({
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder='例:客人自取 / 站到站'
-                className='mt-1 block w-full rounded border px-2 py-1.5 text-sm font-normal'
+                className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               />
             </label>
           )}
@@ -440,7 +478,7 @@ export function ShipmentDialog({
             type='button'
             disabled={busy || blocker !== null || shipBlocker !== null}
             onClick={() => void run(true)}
-            className='bg-foreground text-background rounded px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
+            className='bg-foreground text-background rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50'
           >
             建箱並標出貨
           </button>
@@ -448,12 +486,21 @@ export function ShipmentDialog({
             type='button'
             disabled={busy || blocker !== null}
             onClick={() => void run(false)}
-            className='rounded border px-3 py-1.5 text-sm disabled:opacity-50'
+            className='rounded-md border-input border px-3 py-1.5 text-sm disabled:opacity-50'
           >
             只建箱、先不出貨
           </button>
+          {/* 🔴 R2 F-E2:**擋**原本走 `text-muted-foreground`(全站最不顯眼、還與「送出中…」同色),
+              而**警告**走琥珀 ⇒ **顯著度是反的**。擋 = 你現在過不去,要最顯眼。 */}
           {shipBlocker !== null && blocker === null && (
-            <span className='text-muted-foreground text-xs'>{shipBlocker}</span>
+            <span className='text-xs font-semibold text-red-700'>{shipBlocker}</span>
+          )}
+          {/* 🔴 警告**不擋送出**,所以它要跟 `shipBlocker` 分開顯示、而且顏色不同 ——
+              長得一樣的話員工會以為自己被擋住了,然後去改一個其實正確的貨號。 */}
+          {/* 🔴 `blocker === null` 護欄與上面那顆一致(R1 N6):沒選任何品項時
+              畫面同時出現「沒選品項」與「檢查碼對不上」,而後者此刻無關。 */}
+          {trackingIssue?.level === 'warn' && blocker === null && (
+            <span className='text-xs font-medium text-amber-700'>{trackingIssue.message}</span>
           )}
           {busy && <span className='text-muted-foreground text-xs'>送出中…</span>}
         </div>

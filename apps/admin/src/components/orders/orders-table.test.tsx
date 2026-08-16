@@ -596,9 +596,11 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     const riskCls = cls(risk);
     const safeCls = cls(safe);
 
+    // 🔴 2026-08-16 Sean 拍板配色換 BMW ⇒ 期望值由 Tailwind 調色盤改成 `.cap-*`。
+    //    真正在守「顏色看不看得清楚」的是 `app/design-tokens.test.ts` 的實算對比;這裡守的是掛對 class。
     expect(riskCls).toContain('text-white');
-    expect(riskCls).not.toContain('bg-emerald-100');
-    expect(safeCls).toContain('bg-emerald-100');
+    expect(riskCls).not.toContain('cap-g');
+    expect(safeCls).toContain('cap-g');
     expect(safeCls).not.toContain('text-white');
   });
 
@@ -618,8 +620,8 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
     expect(cls('unpaid')).toContain('shadow-[');
     expect(cls('paid')).not.toContain('shadow-[');
     // 兩者的底色相同 ⇒ 證明差別真的只在紅框那一項,不是整個換了配色。
-    expect(cls('unpaid')).toContain('bg-sky-100');
-    expect(cls('paid')).toContain('bg-sky-100');
+    expect(cls('unpaid')).toContain('cap-bl');
+    expect(cls('paid')).toContain('cap-bl');
   });
 
   it('已取消單:狀態格顯示「已取消」、不落進 2×4 矩陣的任何一格', () => {
@@ -1541,6 +1543,22 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
     //    `classList.contains` 而非子字串比對:`z-100`/`md:z-10` 之類會被子字串放過。
     expect(cell.classList.contains('relative'), '取消格少了 relative ⇒ z-10 沒有定位脈絡、等於沒設').toBe(true);
     expect(cell.classList.contains('z-10'), '取消連結被整列 stretched link 蓋住 ⇒ 點下去進面板而不是取消').toBe(true);
+
+    // 🔴🔴 **這一格【順帶】擋住了第二件事,而在 2026-08-16 之前沒有人知道**(`#520`):
+    //
+    //    `multi-check-filter.tsx:51` 的篩選下拉在開啟時會鋪一層
+    //    `<div className='fixed inset-0 z-10'>` 全螢幕點擊攔截層(它的用途是「點外面關閉」)。
+    //    **那層與這裡的 `z-10` 剛好同值** ⇒ 同一個 stacking context 下比 DOM 順序,
+    //    而篩選列在表格【之前】⇒ **這格贏,攔截層打不到它。**
+    //
+    //    📏 **主視窗 2026-08-16 用 `elementFromPoint` 逐格量的**(下拉開著、第一列 14 格):
+    //      被攔截層接走 **10 格**(下單日/料號/數量/單價/金額/客戶/狀態/發票…)
+    //      免疫 **2 格** —— 就是勾選格與本格,**兩格都靠這個 `z-10`**
+    //      另 2 格打到下拉面板自己(那是面板,不是攔截層)
+    //
+    // ⚠️ **所以「為了 stretched link 的理由」改動這個 `z-10`,會【靜默】讓篩選攔截層開始吃掉
+    //    這顆連結的點擊** —— 而那條路徑本格【不涵蓋】(本格只驗 class,不驗與攔截層的相對關係)。
+    // 🔴 動它之前先讀 `#520`。**兩個理由都要重新成立,不是只確認第一個。**
   });
 
   it('🔴🔴 手機那個連結也在同一個 `relative z-10` 格內(整列都是 stretched link)', () => {

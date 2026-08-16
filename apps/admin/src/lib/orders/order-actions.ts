@@ -29,6 +29,21 @@ import { appendResultQuery } from './order-return-to';
 //      RPC 內樂觀鎖 + 同交易寫 admin_audit_log(稽核在 RPC、action 不另接;actor 傳入)。
 //   ⑤ PRG:結果碼 → revalidate + redirect 帶固定 query(?r=saved/conflict/noop/invalid/denied/error);
 //      DB error 不外洩瀏覽器、server log 留 request_id;redirect 不包在吞它的 catch。
+//
+// 🔴🔴 **本 action 刻意不檢查「這張單還活著嗎」—— Sean 2026-08-15 拍板,不是漏做。**
+//    (`Q-13-2 = 丙`、`Q-13-3 = 乙`;完整矩陣與理由見
+//     `docs/specs/2026-08-15-e10-13-order-edit-matrix-order-level.md` §3-4。)
+//    **已取消 / 已退款 / 已出貨的單,四欄一律可改**:取消的單**可能正需要作廢發票**;
+//    已出貨的單**可能要補登真實走的物流**。⇒ **鎖掉會讓員工無路可走、或被迫留假紀錄。**
+//
+// ⚠️ **要加閘的人會加在這裡,所以這段寫在這裡** —— 而**不是**寫在 RPC 那一側:
+//    `20260714130000_m4a_admin_update_order_workflow_rpc.sql` **已 apply**
+//    (`supabase/APPLIED.tsv` 有列、釘 sha256)⇒ **連註解都不能動**
+//    (規則出處 `docs/runbooks/night-run-command-playbook.md:85`)。
+//    🔴 **更正要寫進下一個人會讀的載體,而那個載體不一定是原檔。**
+//
+// 🔴 **這段註解存在的理由**:拍板之前,「沒有人決定過要不要擋」與「決定了不擋」
+//    **在程式碼裡長得一模一樣**(兩者都是「這裡沒有那個 if」)—— 而現在它是後者。
 
 type ResultCode = 'saved' | 'conflict' | 'noop' | 'invalid' | 'denied' | 'error';
 

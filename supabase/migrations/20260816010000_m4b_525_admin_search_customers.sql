@@ -32,8 +32,11 @@
 -- **本函式從 `customers` 出發,零訂單的客人一定在候選集裡。**
 --
 -- ⚠️ **apply 是 Sean 的獨立停點。寫檔 ≠ 上庫。**
--- ⚠️ **本檔的 SQL 未經執行** —— 本窗無 DB access(不碰 `.env`)⇒ 語法與行為由 apply 時的
---    DO 區塊自我斷言把關;**在 apply 成功之前,不得宣稱本片「已驗證」。**
+-- ⚠️ ~~**本檔的 SQL 未經執行** —— 本窗無 DB access(不碰 `.env`)⇒ 語法與行為由 apply 時的
+--    DO 區塊自我斷言把關;**在 apply 成功之前,不得宣稱本片「已驗證」。**~~
+-- 🔴 **2026-08-16 起這句是假的。校正見本檔搜尋錨點 `現在成立的界線` 那一段(同一句話本檔有【兩份】,**
+--    **而 code-reviewer 只標到下面那一份 —— 這一份是主視窗自己掃到的)。**
+--    **一句話寫兩遍,改一處就會留下一處還在說反話。**
 -- ════════════════════════════════════════════════════════════════════════════
 
 CREATE OR REPLACE FUNCTION public.admin_search_customers(
@@ -160,7 +163,53 @@ CREATE INDEX IF NOT EXISTS idx_customers_email_trgm
   ((pg_catalog.lower(pg_catalog.btrim(COALESCE(email, '')))) extensions.gin_trgm_ops);
 
 -- ── 權限:只有 service_role(後台走 service_role;anon / authenticated 一律不得執行)──
+--
+-- 🔴🔴 **2026-08-16 正式庫 apply 當場被本檔自己的 `DO $mig$` ② 擋下,逐字**:
+--    `#525:acl 形狀是 [anon:EXECUTE,authenticated:EXECUTE,service_role:EXECUTE],期望 service_role:EXECUTE`
+--
+--    **原因**:Supabase 平台在 `public` schema 上掛了 `ALTER DEFAULT PRIVILEGES`,
+--    新建函式會**直接授權給 `anon` / `authenticated` 兩個具名角色** ——
+--    那是**具名授權,不是 PUBLIC 授權** ⇒ 🔴 **`REVOKE ... FROM PUBLIC` 收不到它。**
+--
+--    ⚠️ **上面那行註解(「anon / authenticated 一律不得執行」)從第一版就寫對了。**
+--    **錯的是它下面那一行 SQL 做不到它。**
+--    ⇒ 這正是 house 那條:**註解說的是「想守什麼」,語句說的是「真表達得出什麼」。**
+--
+--    🔴 **後果具體**:`anon` = storefront 前台那把**印在每個訪客瀏覽器裡**的公開金鑰角色。
+--    ⚠️ **措辭校正(2026-08-16 codex 關卡2 nit)**:`SECURITY DEFINER` 的定義是
+--    **「改用 owner 的權限執行」**,**不必然等於「繞過 RLS」** —— 會不會繞過,
+--    取決於 owner 是不是底表 owner、有沒有 `BYPASSRLS`。
+--    **原句把「條件式的結果」寫成了「必然的事實」。**
+--    ⇒ 正確說法:**這支以 owner 身分跑**。
+--    ⚠️ **來源校正(code-reviewer nit)**:「**本庫的 owner 對 `customers` 讀得到全部**」是一句
+--       **對正式庫下的斷言,而我沒有任何引用撐它** —— 手上那組 `E-662` 實測是在**拋棄式 PG** 量的。
+--       ⇒ 標**未確認**。方向是安全的(高估危險 ⇒ 不會讓人放鬆),但**不得被引用成已查證**。
+--       ⇒ 任何拿得到公開金鑰的人都能搜全公司客戶。
+--    🔴 **兩種寫法的實際危害一樣,而錯的那版會讓下一個人把 `SECURITY DEFINER` 本身
+--       當成「一定會繞過 RLS」的標記,去別的地方做錯的推論。**
+--
+--    ✅ **本檔的 apply 守門有判別力,而那是實測出來的**:它不是恆綠格,它真的紅過一次。
 REVOKE ALL ON FUNCTION public.admin_search_customers(text, integer) FROM PUBLIC;
+-- 🔴 **這一行是修法本體** —— `anon` / `authenticated` 是 Supabase 平台建的具名角色
+--    (它們是 Supabase 平台建的。⚠️ **證據校正 2026-08-16 code-reviewer must-fix**:
+--     我原本引 `scripts/525-verify.sh:31-32` 的「repo **全樹**零 `CREATE ROLE`」——**那句是假的全稱句**。
+--     量法 `grep -rln 'CREATE ROLE anon\|CREATE ROLE authenticated\|CREATE ROLE service_role' --include='*.sh' --include='*.sql' --include='*.md'`
+--     ⇒ **命中 9 個檔**(`docs/probes/` 四支、`scripts/452b-harness.sh`、`scripts/w0b-verify.sh`、
+--     `scripts/d1-supabase-shim.sql`、`docs/runbooks/throwaway-postgres-*.md`、`STATUS.md`)——它們是**拋棄式測試環境自己造角色**。
+--     ✅ **真值是**:`supabase/migrations/` 底下零(`grep -rn 'CREATE ROLE' supabase/migrations/` 只有 `payment_confirmer`)。
+--     🔴 **結論(正式庫恆存在)沒變,錯的是拿來撐它的那句** —— 而上游 `scripts/525-verify.sh` 也帶同一句假話 —— **已在同一顆 commit 改掉**,
+--     連同 `docs/runbooks/throwaway-postgres-for-migration-verification.md` 與 `STATUS.md` 的同款載體。
+--     🔴 該 runbook 最毒:宣稱下面兩行自己就 `CREATE ROLE service_role NOLOGIN;`,而它掛在 `CLAUDE.md` 路由表上。),
+--    在正式庫恆存在。
+--    ⚠️ **措辭校正(2026-08-16 codex 關卡2 nit)**:我原本寫「**兩行不可合併成一行**」——
+--    **那是假的**。SQL 允許 `REVOKE ... FROM PUBLIC, anon, authenticated`,
+--    **`PUBLIC` 與具名角色可以列在同一個 grantee 清單裡。**
+--    ⇒ 分成兩行是**可讀性選擇**,不是能力限制。
+--    🔴 **保留分兩行的真正理由(降級成一句意見,不再冒充事實)**:
+--       `FROM PUBLIC` 與 `FROM anon, authenticated` 收的是**兩種不同的授權**,
+--       擠在同一行會讓下一個人以為前者本來就涵蓋後者 —— **而那正是本次的病因。**
+--    ⇒ 這是**寫給人看的**理由,任何人想合併都可以合併,不會壞。
+REVOKE ALL ON FUNCTION public.admin_search_customers(text, integer) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_search_customers(text, integer) TO service_role;
 
 COMMENT ON FUNCTION public.admin_search_customers(text, integer) IS
@@ -195,7 +244,15 @@ COMMENT ON FUNCTION public.admin_search_customers(text, integer) IS
 --    🔴 **搬過去的不是「同一段程式碼換個地方」** —— migration 版只跑一次、
 --       script 版每次都能跑,兩者的設計前提不同(R3 明文警告不要原封搬)。
 --
--- ⚠️ **本檔的 SQL 仍未經執行**(本窗無 DB access)⇒ apply 成功之前不得宣稱「已驗證」。
+-- ⚠️ ~~**本檔的 SQL 仍未經執行**(本窗無 DB access)⇒ apply 成功之前不得宣稱「已驗證」。~~
+-- 🔴 **上面那句 2026-08-16 起是假的,而它與本檔搜尋錨點 `它真的紅過一次` 那一句正面打架。**
+--    **實況**:本檔 2026-08-16 上午在 **Supabase production 上真的跑過** ——
+--    跑到 `DO $mig$` 的 ② 就被自己擋下、整支回滾(該次 apply 的逐字錯誤見 `:167`)。
+--    ⇒ **「未經執行」與「apply 過但被擋下」是兩件完全不同的事**,而前者會讓下一個讀的人
+--       結論「這檔沒碰過 DB」—— **那正是本次 commit 存在的理由。**
+--    ✅ **現在成立的界線**:結構(函式建得起來、ACL 收得掉、smoke call 回得了)
+--       **已在 production 與拋棄式 PG 17.10 兩處實跑**;
+--       **行為正確性(逃逸、排序、truncated 語意)仍只在 `scripts/525-verify.sh`,未在 production 跑過。**
 -- ════════════════════════════════════════════════════════════════════════════
 DO $mig$
 DECLARE
@@ -221,6 +278,35 @@ BEGIN
      AND a.grantee <> p.proowner;
   IF COALESCE(v_acl, '') <> 'service_role:EXECUTE' THEN
     RAISE EXCEPTION '#525:acl 形狀是 [%],期望 service_role:EXECUTE;拒繼續', COALESCE(v_acl, '(空)');
+  END IF;
+
+  -- ②' 🔴🔴 **有效權限**(2026-08-16 codex 關卡2 must-fix;上面 ② 擋不住這一條)
+  --     **codex 逐字**:「若 `anon`／`authenticated` **繼承** `service_role`,
+  --     直接 ACL 仍會恰好等於 `service_role:EXECUTE`,migration 卻綠燈,
+  --     而公開角色**仍然可以執行**。」
+  --
+  --     ⚠️ ② 上面那條註解自己就寫著「角色繼承造成的有效權限看不到 ⇒ 那一條在 verify script」——
+  --     🔴 **而那正是問題**:把它推給 script 等於「這道 apply 守門【不】保證公開角色進不來」,
+  --        **而這支函式的存在理由就是不讓公開角色進來。**
+  --     ⇒ **誠實缺口只收「構造不出來」的;這一條是兩行 `has_function_privilege` 就測得出來的。**
+  --
+  --     🔴 `has_function_privilege(<role>, ...)` 算的是**有效權限** —— 與 ② 的 `proacl` 字面是
+  --        **兩個不同的面**,兩條都要。
+  --     ⚠️ **涵蓋範圍校正(code-reviewer nit,實測)**:它只涵蓋 **`INHERIT`** 的角色。
+  --        拋棄式 PG 17.10 實測:`ALTER ROLE anon NOINHERIT; GRANT service_role TO anon`
+  --        ⇒ **本守門回 `f`(綠),而 `anon` 仍可 `SET ROLE service_role` 後執行。**
+  --     🔴 **⇒ 這道守門關的是「繼承來的有效權限」,不是「公開角色絕對進不來」。**
+  --        **Supabase 的 `anon.rolinherit` 實際值【未確認】**(需正式庫唯讀查詢,本次沒有通道)。
+  --        repo 已有同族現成量法:`scripts/l5a1-verify.sh:289-343`。**這是已知缺口,不是已關的門。**
+  --     ⚠️ 這兩個角色在正式庫恆存在(Supabase 平台建的;證據與**全稱句校正**見本檔搜尋錨點 `全樹**零 `CREATE ROLE`` 那一段)。
+  --     🔴 **主詞校正(code-reviewer nit)**:我原本寫「角色不存在時**本段**會直接錯」——**主詞錯了**。
+  --        **在一個沒有 `anon` 的庫上,本斷言沒有判別力,不該靜默通過。**
+  IF pg_catalog.has_function_privilege(
+       'anon', 'public.admin_search_customers(text, integer)', 'EXECUTE')
+     OR pg_catalog.has_function_privilege(
+       'authenticated', 'public.admin_search_customers(text, integer)', 'EXECUTE') THEN
+    RAISE EXCEPTION
+      '#525:anon 或 authenticated 對本函式有【有效】EXECUTE(可能來自角色繼承,proacl 字面看不到);拒繼續';
   END IF;
 
   -- ③ 安全屬性沒漂:SECURITY DEFINER + 釘死的 search_path + STABLE。

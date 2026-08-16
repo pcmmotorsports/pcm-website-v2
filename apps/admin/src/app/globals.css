@@ -9,40 +9,214 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.5rem;
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0 0 0);
-  --popover: oklch(0.99 0 0);
-  --popover-foreground: oklch(0 0 0);
-  --primary: oklch(0 0 0);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.94 0 0);
-  --secondary-foreground: oklch(0 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.44 0 0);
-  --accent: oklch(0.94 0 0);
-  --accent-foreground: oklch(0 0 0);
-  --destructive: oklch(0.63 0.19 23.03);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.92 0 0);
-  --input: oklch(0.94 0 0);
-  --ring: oklch(0 0 0);
-  --sidebar: oklch(0.99 0 0);
-  --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0 0 0);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.94 0 0);
-  --sidebar-accent-foreground: oklch(0 0 0);
-  --sidebar-border: oklch(0.94 0 0);
-  --sidebar-ring: oklch(0 0 0);
+  /* 🔴 **BMW M 語言:圓角 → 直角**(`docs/design/admin-design-system.md` §2)。
+     ⚠️🔴 **改這一個數【不會】讓整站圓角一起變 —— 這一版本來這樣寫,被審查抓到是假的。**
+        本片把 `@theme inline` 裡的 `--radius-xs/sm/md/lg/xl` **各自寫死成 0**(見那一段的理由)
+        ⇒ **它們不再由這個根值推導。**
+        **改完之後 `--radius` 的唯一消費端是本檔 `.fchip` 與手機訂單卡外框那兩處。**
+     🔴 **⇒ 想恢復圓角的人:改這裡【不夠】,要連同下面那五行一起改回 `calc()`。**
+     ⚠️ **只能看的狀態膠囊不吃這個值**(它們用 `rounded-full`)——
+        設計參照 §6.5.4 裁決:**形狀傳達的是「可不可以互動」** ⇒ 可以點的直角、只能看的 pill。
+        **而篩選 chip 是可以點的**(渲染成 `<Link>`)⇒ 本片把它從寫死的 `999px` 改成吃這個值。
+     ⚠️ **真權威是 OD `overview-desktop-bmw-m.html` 的【實際用值】** —— 全檔 `border-radius` **共 7 處**:
+        **6 處是 0**,第 7 處 `:316` 的 `.legacy` 是 `9999px`。
+        🔴 **而 `.legacy` 就是 OD 用來對照的「被換掉的那一版」** ——
+        OD `:205` 逐字寫著「**狀態膠囊:方角(BMW M 的工業直角)**」、`:206` `.cap{border-radius:0}`。
+        ⚠️ **⇒ OD 的立場是【全部方角,連狀態膠囊也是】。**
+        **我們現在保留狀態膠囊的 pill,是【刻意與 OD 不同】,不是照抄** ——
+        **那條已標【待 Sean 裁】**(設計參照 §6.5.4)。**本片不動它們**(它們用 `rounded-full`)。
+        📎 **這條是 code-reviewer 找到 OD 檔之後推翻的**:我原本寫「6 處全 0」——
+        **漏數的第 7 處正是唯一的反例**,而我拿一個 `use=0` 的宣告(`--radius-pill`)當 pill 規則的靠山,
+        **與我自己在同一段寫的「看實際用值不看宣告」直接矛盾。** */
+  --radius: 0;
+
+  /* ═══ BMW M 色票對映(片1;`docs/design/admin-design-system.md` §1)═══════════════
+     真權威 = OD `overview-desktop-bmw-m.html`,**sha256 `e3609fc4…` / 40,610 bytes 落筆當下實測對得上**
+     (設計參照檔頭釘了這個 hash:對不上 = 那份被重產過 ⇒ 下面每一個行號全部作廢、要重對一次)。
+
+     🔴🔴 **這是【對映】不是【改值】,而兩套 token 的【切分方式】不同 —— 那才是真正的工作。**
+     OD 用「表面 / 文字 / 強調」三族(`--bg` `--surface` `--surface-warm` / `--fg` `--fg-2` `--muted`);
+     repo 是 shadcn 的「角色配對」(每個角色都有 `-foreground` 搭檔)。**兩邊不是一對一。**
+
+     | OD                      | 值        | → repo token                                                        |
+     |-------------------------|-----------|---------------------------------------------------------------------|
+     | `--bg`            `:12` | `#f7f8fa` | `--background`                                                       |
+     | `--surface`       `:13` | `#ffffff` | `--card` / `--popover` / `--sidebar`                                 |
+     | `--surface-warm`  `:14` | `#eef3f8` | `--secondary` / `--muted` / `--accent` / `--sidebar-accent`  ← 見下① |
+     | `--fg`            `:15` | `#111827` | 上列每一顆的 `-foreground`                                            |
+     | `--muted`         `:17` | 【改】     | `--muted-foreground`                                      ← 見下②    |
+     | `--accent`        `:21` | `#0066b1` | `--primary` / `--sidebar-primary` / `--ring` / `--sidebar-ring`      |
+     | `--accent-on`     `:22` | `#ffffff` | `--primary-foreground` / `--sidebar-primary-foreground`              |
+     | `--danger`        `:27` | `#e4002b` | `--destructive`                                                      |
+     | `--border`        `:19` | `#d7dee8` | `--border` / `--sidebar-border`                                      |
+
+     ① **OD 只有【一階】淺填色,而 repo 有【三顆】token 在做同一件事** ⇒ 三顆全指向它。
+        ⚠️ **這不是我把三個不同的東西壓成一個** —— 改之前 `--secondary` 與 `--accent`
+        **本來就是同一個值** `oklch(0.94 0 0)`,`--muted` 只差 0.03。**這條分界線 repo 從來沒真的用過。**
+        📎 OD 的 `--surface-warm` 用值 = 列 hover `:176`、導軌 hover/選中 `:137-138`、`.kb:hover :189`、
+           `.btn:hover :293`、`.notice :302` —— **全部是「淺色填一塊」,與這三顆 token 的職責相同。**
+
+     ② **`--muted-foreground` 是唯一的【改】,而它改的是【設計參照自己的值】,不是 OD 的。**
+        設計參照 §1 已把它從 OD 的 `#64748b` 改成 **`#64738a`**,理由是對頁底要 4.5 —— 實測 **4.53**。
+        🔴 **而 4.53 是「剛好過標、零餘裕」,且那是對【頁底】算的;repo 有 5 處把它放在【暖填底】上**
+           (`payment-list:69` / `item-procurement-form:395` / `notes-timeline:21,40` / `order-status-axes:74`)
+           ⇒ 暖填底上實測 **4.31,不過**。
+        ⚠️ **這不是設計參照算錯** —— 它算的是它列出的那兩個底色。**是「同一顆值在我們這裡要多扛一個底」,
+           而那個底是【本片自己造出來的】**(改之前那三顆是灰的)⇒ **本片造的,本片修。**
+        **改法照設計參照自己的紀律「保色相、只調明度到剛好過標」,並且這次留餘裕**:
+          `#64738a` → **`#606e85`**,色相 216° 不變,明度 0.4667 → 0.4482
+          對頁底 4.53→**4.86** / 對卡片 4.82→**5.16** / 對暖填 4.31→**4.63**   三個底全部有餘裕
+        🔴 **為什麼要留餘裕**:同一支檔的 `--input` 註解已經寫過這個教訓 ——
+           **「會因捨入而變動的數字就是落在邊界上」**。**4.53 正是那種數字,而它已經咬過我們一次。**
+
+     **算法與可重跑性**:WCAG 1.4.3 / 1.4.11 相對亮度公式;半透明一律**先疊回底色再算**
+     (設計參照 §5 的 focus 環就是漏了這一步才誤判成合格)。
+     🔴 **量具要有正向對照**:`#cccccc on #ffffff` 要低於 4.5(**不是** OK)、`#ffffff on #ffffff` 回 1.00
+        —— **一個永遠回 OK 的對比函式,與一個真的全過的色票,長得一模一樣。**
+     ⚠️ **`design-tokens.test.ts` 重算並斷言的是【門檻】,不是本段這些【數值】。**
+        🔴 **上一版這裡寫「本段每一個數字都由測試重算並斷言」—— 那是假的,R1 審查抓到。**
+        差別很實際:測試問的是「≥4.5 嗎」,**不是「是不是 4.86」** ⇒ **本段的 4.86 / 5.16 / 4.63
+        這些數字如果我抄錯,沒有任何一格會紅**(只要真值仍 ≥ 門檻)。
+        **⇒ 要核這些數字,只能自己再算一次;把它們當「已被守門釘住」是錯的。**
+        📎 這正是本檔一直在講的那件事的又一個實例:**「有守門」與「守的是這件事」是兩回事。** */
+  --background: #f7f8fa;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --primary: #0066b1;
+  --primary-foreground: #ffffff;
+  --secondary: #eef3f8;
+  --secondary-foreground: #111827;
+  --muted: #eef3f8;
+  --muted-foreground: #606e85;
+  --accent: #eef3f8;
+  --accent-foreground: #111827;
+  --destructive: #e4002b;
+  --destructive-foreground: #ffffff;
+  /* ═══ 片3b 新增三顆(Sean 2026-08-16 拍「狀態膠囊配色換成 BMW 那套」)══════════════
+     🔴 **三顆都與消費端同片進**(狀態膠囊)—— 這是本線第三次拒絕「宣告在、消費端 0」。
+
+     **`--fg-2`【抄】OD `:16`** —— 它是被一個實算逼出來的,不是為了補齊 OD 而補:
+       OD 的灰膠囊 `.cap.n` 文字用 `var(--fg-2)`,我方沒有這顆 ⇒ 我先代入較淺的
+       `--muted-foreground`,算出來 **4.14 不過**;**代入 OD 原值 `#334155` 是 8.29。**
+       ⇒ **病因是我方少一顆 token,不是 OD 配錯色** —— 歸因方向決定做法
+         (回報設計端 vs 補我方 token,是兩條完全不同的路)。
+       ⚠️ **消費端目前只有膠囊那一處。** OD 另外把它用在 `table.g th`/`td`(`:167`/`:171`),
+          那會改到整張表的內文色 ⇒ **不在本片,別順手套。**
+
+     **`--success` / `--warning`【改】** —— 值取自設計參照 §1 的三處【改】
+       (OD 原值 `#16a34a` / `#f59e0b` 對白底只有 3.30 / 2.15,不到 4.5;
+        保色相、只調明度到過標 ⇒ `#12883e`(4.55)/ `#a56a07`(4.50))。
+       ⚠️ **這兩顆本身的 4.55 / 4.50 沒有套本檔後來新增的「+0.08 餘裕」紀律** ——
+          今天無害,**因為它們的消費端不是「直接當文字色」,而是被 `color-mix` 兌淡當底**
+          (實算後膠囊對比 8.96 / 6.30,餘裕很大)。
+          🔴 **⇒ 誰要把它們直接拿來當文字色,必須先重算。** */
+  --fg-2: #334155;
+  --success: #12883e;
+  --warning: #a56a07;
+  --border: #d7dee8;
+  /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
+     **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
+     檔頭那張表的 `--motion-*` 那一列逐字寫著「值存在但沒有任何元件吃它;寫『已套用』是假的」。
+     ⇒ **本片讓它與它的第一個消費端(訂單表的列分隔線)同片進。**
+     值 **【抄】** OD `overview-desktop-bmw-m.html:20`。
+     ⚠️ **它是「裝飾性分隔」,不受 WCAG 1.4.11 的 3.0 管**(對卡片 1.13)——
+        **那是刻意的**:BMW M 是 hairline 語言,拉到 3.0 會變成畫面中間一條中灰藍實線。
+        ⇒ 它與 `--border` 一樣**不進對比配對表**(見 `design-tokens.test.ts` 的 `ALLOWED_UNCOVERED`)。
+     🔴 **兩級的差別是承重的,不是好看**:OD `:310-312` 用 `th` 深(`--border`)、
+        `td` 淺(`--border-soft`)做出「表頭線 vs 列線」兩級。**只有一級時表頭會混進資料列裡。** */
+  --border-soft: #edf1f6;
+  /* 🔴🔴 **這是設計參照 §1「三階邊框」裡 `--border-interactive` 那一階的落地。**
+     **舊值 `oklch(0.94 0 0)` = `#ebebeb` ⇒ 對頁面底 1.16 / 對卡片 1.19,而 WCAG 1.4.11 要 3.0。**
+     **後果不是抽象的**:實測搜尋框與搜尋鈕的邊框顏色完全相同、對白底約 1.17
+     ⇒ 兩個控制項現在是靠「圓角 + 8px 縫」被讀成兩個東西,**而本片把圓角拿掉了**。
+     ⚠️ **`--radius: 0` 沒有製造這個問題,它拆掉了遮住這個問題的東西** —— 但對員工來說壞掉就是壞掉,
+        所以兩件必須同片。
+     **選值(可重跑)**:目標 = **每一個它會出現在其上的底色都 ≥3.0,取最差的當門檻**。
+       oklch(0.662) → 對底 2.99  🔴 **不用** —— 第一次算 3.00、重算 2.99,**會因捨入而變動的數字就是落在邊界上**
+       ~~oklch(0.650) → 對底 3.15 / 對卡片 3.23~~ **已於片1 作廢,見下**
+       oklch(0.631) → 對頁底 **3.29** / 對卡片 **3.50** / 對暖填 **3.13**  ✅ **採用,三個底都有餘裕**
+
+     🔴🔴 **上一版那行「動 `--background` 或 `--card` 之前必須重算這個值」—— 片1 就是那一刻,而它比預期多一件事。**
+     ①**重算既有的兩個底**:`--background` 由 `oklch(0.99 0 0)`(`#fcfcfc`)換成 `#f7f8fa`
+       ⇒ 舊值 `oklch(0.65)` 對它從 3.15 掉到 **3.04**。**還過,但餘裕幾乎沒了。**
+     ②🔴 **而真正咬人的是第三個底,那條舊註解沒有預見它**:片1 把 `--accent` 對映成暖填 `#eef3f8`,
+       **而 `border-input hover:bg-accent` 是 repo 現成的寫法**(`order-keyword-search:68`、
+       `customer-keyword-search:73`、`list-pagination:8` 三處)⇒ **滑鼠移上去的那一瞬間,
+       這條邊框的底色變成 `#eef3f8`,舊值在它上面只有 2.90 —— 不過。**
+       ⚠️ **hover 態一樣受 WCAG 1.4.11 管**(它管的是「識別 UI 元件【與狀態】所需」)。
+     ⇒ **降到 `oklch(0.631 0 0)`,把三個底一起蓋住。**
+     🔴 **⇒ 下次動的規則要改寫成:動 `--background` / `--card` /【任何會成為它底色的填色 token】之前必須重算。**
+        **舊句只列了兩個底,而本片是靠【逐處列出 `border-input` 的鄰居】才發現第三個 —— 不是靠讀那句話。**
+     ⚠️ **吃它的不只輸入框,共【五處】非輸入框**(第一版寫四處,漏了最後一個):
+        `list-pagination`(上下頁鈕)、`order-keyword-search:68`(搜尋鈕)、兩個 filter-bar、
+        `multi-check-filter:32`(下拉觸發器 `<button>`)—— **那是刻意的,它們都是控制項。**
+     🔴 **已知未修的不一致**:另有一批表單欄位吃的是 `--border` 不是 `--input`
+        (`shipment-dialog:321,354,369,382`、`shipment-void-button:91`、`payment-reverse-button:111`)
+        ⇒ **出貨對話框裡的輸入框會比篩選列的明顯淡,而且達不到 1.4.11 的 3.0、本片沒修到。**
+        **那是下一片的範圍,不要以為這片把輸入框都修好了。**
+        🔴🔴 **上一版這裡寫「(0.92)」與「仍是 1.16 對比」,兩個都被 R1 審查抓到是錯的**:
+           · `1.16` 從來不是 `--border` 的數字,**那是 `--input` 舊值 `oklch(0.94)` 的**(誤植);
+           · `--border` 現值 `#d7dee8` 實測對卡片 **1.36** / 對頁底 **1.27**(舊 `oklch(0.92)` = 1.27 / 1.19)。
+           ⚠️ **而它躲過了 `literal-sweep`** —— 因為我把它寫成 `(0.92)` 而不是 `oklch(0.92 0 0)`,
+              **掃舊字面時那個括號寫法不在任何一條 pattern 上。**
+           **⇒ 註解裡引用 token 值要寫完整字面**(`oklch(0.92 0 0)` / `#d7dee8`),
+              **簡寫成 `(0.92)` 等於把自己排除在掃描之外,而掃描報 0 命中時看起來像沒事。** */
+  --input: oklch(0.631 0 0);
+  /* ═══ BMW M 動效 token(`docs/design/admin-design-system.md` §5)═══════════════
+     🔴🔴 **住在 `:root` 而不是 `@theme inline`,這是被審查糾正過的** ——
+     code-reviewer 用本 repo 的 `tailwindcss@4.3.2` 實際編譯後查證:
+     **放在 `@theme inline` 裡的自訂變數 Tailwind 不會輸出 ⇒ 編出來是【零位元組】**
+     ⚠️ **正向對照要用【真的會被輸出】的東西**:`.rounded-md{border-radius:0}` 與 `:root` 的 `--radius: 0`
+        在編譯產物裡 ⇒ 證明不是編譯沒跑。
+        🔴 **我第一版拿 `--radius-xs` 當對照,那是【假的】** —— 它住 `@theme inline`,本來就不會被輸出,
+        **拿一個同樣不會出現的東西當對照,等於沒有對照。**
+     ⚠️ **而它靜默失效** —— 三綠全綠、沒有任何東西會紅,`style={{ transitionDuration: 'var(--motion-fast)' }}`
+        會拿到 undefined 然後什麼也不做。
+     值取自 OD `overview-desktop-bmw-m.html:61-63`。
+     ⚠️ **用它們時只准動 `transform` / `opacity`** —— 動 `top/left/width/height` 會逐幀觸發版面重算,
+        在 1,000 列的訂單表上是可見的卡頓。 */
+  --motion-fast: 130ms;
+  --motion-base: 220ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* 🔴🔴 **焦點環改吃強調色,而 OD 那個值【刻意沒有照抄】**(設計參照 §5「focus 環:OD 那個值不合格」)。
+     OD `:60` 是 `--focus-ring: 0 0 0 4px rgba(0, 102, 177, 0.24)` —— **24% 的藍疊回淺底之後**
+     實際顏色 `#bcd5e8`、對比 **1.43**,而 WCAG 2.4.7 + 1.4.11 要 3.0。**照抄會做出一個看不見的焦點環。**
+     ⚠️ **半透明色的對比不能看它宣告的顏色,要看它疊在底上的【實際顏色】** —— 設計參照就是漏了這一步。
+     **⇒ 我方的落地形狀 = 不透明描邊承重,半透明光暈只做裝飾。** repo 現成寫法本來就是這兩件:
+       `focus-visible:border-ring`  → 不透明 `#0066b1`,對頁底 **5.59** / 卡片 **5.94** / 暖填 **5.32** ✅ **這個承重**
+       `focus-visible:ring-ring/50` → 50% 疊回底色約 2.2,**這是光暈、不是那道要達標的線**
+     🔴 **不要因為「光暈只有 2.2」就去加深它** —— 達標的責任在描邊那條;
+        兩條都加深會做出一個又粗又髒的環,而那正是 BMW M 想避開的。 */
+  --ring: #0066b1;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #111827;
+  --sidebar-primary: #0066b1;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef3f8;
+  --sidebar-accent-foreground: #111827;
+  --sidebar-border: #d7dee8;
+  --sidebar-ring: #0066b1;
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans TC',
     'PingFang TC', 'Microsoft JhengHei', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, monospace;
 }
 
+/* 🔴🔴 **深色入口已於 2026-08-16 依 Sean 拍板移除;本段暫留、無消費端。**
+   逐字:「不要深色模式」+「拿掉那顆按鈕」。**這 27 個 token 不是死碼,是刻意暫留** ——
+   移除的是**入口**(`header.tsx` 那顆鈕 + `layout.tsx` 的 `forcedTheme='light'`),不是這套值。
+   ⚠️ **要清掉整段是另一個決定,需要 Sean 再拍一次** ——
+   看到「沒人用的 token」順手刪,會讓日後想恢復深色的成本從「拿掉一個 prop」變成「重配 27 個值」。
+   📎 **同批一起暫留的還有**:`icons.tsx` 的 `sun`/`moon`(現零消費端)、
+      各元件的 `dark:` utilities(因 `:9` `@custom-variant dark` 走 class 策略、而 `.dark` 永不掛上
+      ⇒ **它們是 inert,不是仍生效**)。**要清就一起清,不要各刪一半。**
+   🔴 **一個已知的行為殘留**:`useTheme().resolvedTheme` 對存過深色的人**仍會回 `'dark'`**
+      (它讀的是儲存值、不吃 `forcedTheme`)⇒ **與畫面不一致**。
+      現在零消費端所以無害;**未來若有人拿它做判斷會踩到,不要用它判斷目前是不是深色。** */
 .dark {
   --background: oklch(0 0 0);
   --foreground: oklch(1 0 0);
@@ -91,6 +265,10 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  /* 🔴 少了這一行,`border-border-soft` 這個 class **不會存在**,而 JSX 上寫了它
+     **不會報錯、不會紅、只會沒有邊框** —— 與 `--motion-*` 住錯區塊那個坑同一個形狀。
+     守門:`design-tokens.test.ts` 有一格釘住「宣告 + 映射 + 消費端」三者同時在。 */
+  --color-border-soft: var(--border-soft);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
@@ -103,10 +281,55 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* 🔴🔴 **四階改成【各自寫死 0】,不再由 `--radius` 推導** —— 這是刻意的,不是重複。
+     **原本**:sm = `calc(--radius - 4px)` / md = `-2px` / xl = `+4px`。
+     ⚠️ **`--radius` 一旦設 0,那組推導就壞了**:sm 得 **−4px**、md 得 **−2px**(負圓角,
+        瀏覽器會夾成 0 但那是靠夾的)、而 **xl 得 4px ⇒ 根本不是直角**。
+     🔴 **「改一個根值,四階一起變」在 8px 時成立,在 0 時不成立** ——
+        因為那組推導假設了根值夠大,能吃掉 ±4px 的偏移。**邊界值把公式的前提打掉了。**
+     ⇒ 直角期間四階全部釘 0;**日後若要恢復圓角,把這四行改回 `calc()` 並確認根值 ≥ 4px。**
+     ⚠️ **膠囊不走這裡**(用 `rounded-full`)—— 見設計參照 §6.5.4:可以點的直角、只能看的 pill。 */
+  /* 🔴 `--radius-xs` 一併釘 0(N3):不釘的話 Tailwind 預設 `0.125rem` 活下來,
+     而 `ui/sheet.tsx:66` 的 ✕ 會在一片直角裡留 2px 圓角。 */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+}
+
+/* 🔴 **尊重系統的「減少動態」設定**(WCAG 2.3.3 / 前庭失調與偏頭痛使用者)。
+   落地前實查:全 `apps/admin/src` **零命中** `reduced-motion`(正向對照 `radius` 命中 11)
+   ⇒ **這是純新增,不是修補。**
+   ⚠️ **現在就做的理由**:動效 token 剛進來、消費端還是 0 ——
+   **等到有二十處 transition 之後再回來補,那時要逐處確認,而現在只要一條規則。** */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 🔴 **例外:載入指示器必須繼續轉**(審查 N1)。
+     上面那條 `animation-iteration-count: 1` 會讓 `.animate-spin`(`spin 1s linear infinite`)
+     跑完一次就停在 `rotate(0)` ⇒ **一個靜止的轉圈圖示 = 看起來像當掉**,
+     而使用者無從分辨「還在載入」與「壞了」。
+     ⚠️ **今天打不到人**(唯一 `animate-spin` 在 `ui/spinner.tsx:10`,只被 `ui/button.tsx:81` 用,
+        而 `isLoading` 的 7 個命中全在 `button.tsx` 自己、零外部消費端)
+     🔴 **但這是陷阱不是活 bug —— 差別在於「誰先用到它」,而現在補只要一條規則。**
+     放慢而不是全速:減少動態的訴求仍被尊重,而「還在動」這個訊息保留。
+     錨點用 `[role='status']`(`spinner.tsx` 已帶),**不是** class —— class 會被改名,語意角色不會。 */
+  /* ⚠️ **選擇器刻意收窄到 `.animate-spin`**(審查 F3):全 repo 有 8 個 `role='status'`,
+     其中 **7 個是文字橫幅**(result-banner / cancel-result-panel / receipt-undo-bar…)。
+     不收窄的話,那 7 個底下未來任何動畫都會靜默繞過「減少動態」—— **而使用者不會知道。** */
+  [role='status'].animate-spin,
+  [role='status'] .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 @layer base {
@@ -116,6 +339,93 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ═══ 狀態膠囊配色(片3b;OD `overview-desktop-bmw-m.html:206-213` 逐字)═══════════
+   Sean 2026-08-16 拍板逐字:「狀態膠囊配色 —— 對,換成新的配色方式(BMW)」。
+
+   🔴🔴 **保留成【運算式】,不要求值成靜態色** —— 設計參照 §5 明文:
+      求值之後,**未來改主色時這些膠囊不會跟著動,而沒有任何守門會紅。**
+      ⇒ 下面每一條都是 `color-mix(...)`,**不准有人「順手算成 hex 比較快」**。
+
+   ⚠️ **`color-mix` 在我方這條鏈的證據分兩半,別把它講成一件事**:
+      ①**Tailwind 產得出**(現有產物已有 66 個,是 `/透明度` 修飾詞編的)—— 已證;
+      ②**我方【手寫】的會不會原樣通過** —— **本片是第一次手寫,已驗編譯產物**
+        (`grep 'color-mix' <產物>` 要看到下面這幾條)。**兩半都要,只有①不夠。**
+
+   🔴 **現況那四顆膠囊【全部達標】(4.51~5.17)** ⇒ **換配色的理由是【語言一致】,
+      不是【現在不合規】。** 沒有這句,下一個人會以為我們在修違規,而那會改變他對優先序的判斷。
+
+   **實算(oklab 混色,正向對照 = mix 100% 精確回原色)**:
+     `.cap-n`  底 `#e4e6eb` / 字 `#334155`  → **8.29**
+     `.cap-y`  底 `#efe4d6` / 字 `#543402`  → **8.96**
+     `.cap-bl` 底 `#e1ebf6` / 字 `#0066b1`  → **4.93**
+     `.cap-g`  底 `#ddecdf` / 字 `#09602a`  → **6.30**
+   **這四個數字由 `design-tokens.test.ts` 重算並斷言,不是抄在註解裡就算數。**
+   ⚠️ 底色一律混向 `--card`(OD 的 `var(--surface)`)—— **不是混向 `--background`**;
+      膠囊坐在卡片/表格裡,不是坐在頁底上。 */
+/* 🔴🔴 **底色的混色【參數順序是承重的】,不是風格 —— 而這在原始碼上完全看不出來。**
+   查編譯產物才發現:lightningcss 會**自動**為 `color-mix` 產生老瀏覽器降級版,形狀是
+     `.cap-y{background:<降級>}` + `@supports(...){.cap-y{background:color-mix(...)}}`
+   **而它挑的降級值 = 混色的【第一個參數】。**
+   ⇒ 照 OD 的原順序寫 `color-mix(in oklab, var(--warning) 18%, var(--card))`,
+     降級值就是 `var(--warning)`,而字色的降級值**也是** `var(--warning)`
+     ⇒ **同色字疊在同色底上 = 那顆膠囊整個看不見。四顆裡有三顆會這樣**(y / g / bl 底與字同源)。
+
+   🔴 **我第一次的修法失敗了,而且失敗得很安靜**:我在前面加一行 `background: var(--card)`,
+      結果 lightningcss **把它自己的降級值接在我後面** ——
+      產物是 `background:var(--card);background:var(--warning)` ⇒ **後者贏,等於沒修。**
+      **是驗編譯產物才看到的;只看原始碼會以為修好了。**
+
+   ✅ **真正有效的修法 = 把 `--card` 換到第一個參數。** 兩者**數學上完全等值**
+      (`A 18%, B` ≡ `B 82%, A`),但降級值變成 `var(--card)` = 白底,
+      配上字色的降級值(該色本身)⇒ 實算 `--warning` 4.50 / `--success` 4.55 / `--primary` 5.94,**全部可讀**。
+   ⚠️ **這是【刻意偏離 OD 的字面順序】,而不是偏離它的值** —— 值一模一樣,理由寫在這裡。
+   ⚠️ **支援度我沒量**:`color-mix` 要 Chrome 111 / Safari 16.2 / Firefox 113 以上,
+      **我沒量過員工實際用什麼瀏覽器** ⇒ 標【未量】。但修法成本是換個參數順序,**不值得為它賭。**
+   📎 守門在 `design-tokens.test.ts`:第一個參數不是 `var(--card)` 就紅。 */
+.cap-n {
+  background: color-mix(in oklab, var(--card) 84%, var(--muted-foreground));
+  color: var(--fg-2);
+}
+
+.cap-y {
+  background: color-mix(in oklab, var(--card) 82%, var(--warning));
+  color: color-mix(in oklab, var(--warning), black 38%);
+}
+
+.cap-bl {
+  background: color-mix(in oklab, var(--card) 87%, var(--primary));
+  color: var(--primary);
+}
+
+.cap-g {
+  background: color-mix(in oklab, var(--card) 84%, var(--success));
+  color: color-mix(in oklab, var(--success), black 22%);
+}
+
+/* ═══ M 三色條(片2;OD `overview-desktop-bmw-m.html:87-88` 逐字)═══════════════
+   OD 對它的定位逐字寫在 `:83-86`:
+     「**全系統唯一的裝飾元素,只當分隔與品牌標記,絕不當按鈕底色**」
+   🔴 **這三個色停【不是】token,而那是 OD 自己標註的、不是我偷懶** —— `:84-86` 原文:
+      「這三個色停 tokens.css 沒有(它只給 `--accent` `#0066b1`),取自 DESIGN.md 明文記載的
+        M tricolor 三停,是本檔唯一在 `:root` 之外的色碼,而且只出現在這一條規則裡」
+      ⇒ **我方照抄這個做法**:硬寫三停、只寫在這一條規則裡,其他地方一律 `var()`。
+      ⚠️ **不要把它們「收進 token」** —— 它們不是語意色(沒有「主色/次色」那種角色),
+         是一個**品牌圖案**。收進 `:root` 會讓下一個人以為可以拿 `--m-blue` 去當按鈕底色,
+         而 OD 那句「絕不當按鈕底色」正是在防這件事。
+   ⚠️ **第一停 `#0066b1` 與 `--primary` 同值,但它在這裡的身分是【圖案的一段】,不是強調色**
+      ⇒ 仍然硬寫、不寫 `var(--primary)`。寫成 var 的話,日後有人調強調色
+      會把**品牌條**一起調成別的顏色,而且畫面上看起來只是「顏色變了」、沒有人會發現那是品牌錯誤。
+   ⚠️ 本規則**只給背景**,尺寸由使用端決定(OD 自己也是:`:89` 的 `hr.m-stripe` 給 4px 高、
+      `:133` 的 `.rail .mstripe` 給 32×4)—— 尺寸屬版面,不屬這個圖案。 */
+.m-stripe {
+  background: linear-gradient(
+    90deg,
+    #0066b1 0 33.33%,
+    #1c69d4 33.33% 66.66%,
+    #e22718 66.66% 100%
+  );
 }
 
 /* ── #350b 工作區殼 ─────────────────────────────────────────────────────────
@@ -211,6 +521,27 @@
          本框本來就是 `overflow-x-auto` 的固定寬容器,故今天無差別;但誰把 `overflow` 拿掉時要一起想。 */
 .orders-grid {
   container-type: inline-size;
+  /* 🔴🔴 **BMW M 片5:表格內文改吃 `--fg-2`**(OD `:167` 的 `th` 與 `:171` 的 `td` 都是它)。
+     ⚠️⚠️ **掛在【容器】上靠繼承,【不】掛在 `td` 上 —— 這個選擇是承重的**:
+        元件端有 **4 處在表格內**刻意帶 `text-muted-foreground`(日期格 / 車種格 / 格內小字 / 破折號)。
+        · 寫成 `.orders-grid td{color:…}` ⇒ 那是 (0,2,0) 的類別選擇器,**會壓過 utility 的 (0,1,0)**
+          ⇒ **那 6 個刻意的次要色全部失效**,而畫面只會「看起來顏色一致」、沒有人會發現。
+        · 在 `TD` 常數裡加 `text-fg-2` ⇒ 兩者**同特異性**,誰贏由**編譯產物的先後順序**決定、
+          **不是 className 的書寫順序** ⇒ Tailwind 的典型對撞,會隨版本漂移。
+        ✅ **繼承沒有這個問題**:容器上的宣告只提供初始值,**任何直接寫在格子上的顏色都贏。**
+     📎 **數法(先分類再報數)**:`grep -n 'text-muted-foreground' components/orders/orders-table.tsx`
+        → 6 行命中,分類後 = **表格內 4** + **空狀態區塊 1**(那一塊不在表格裡)+ **本註解 1**。
+        🔴 **不要用 `grep -c`** —— 它數的是【行】而且**含註解**;我第一版就是這樣寫成「6 個 td」,
+           而那 6 裡面有一個是這段註解自己、還有一個是被本片拿掉的 `TH`。 */
+  color: var(--fg-2);
+}
+
+/* 🔴 **單號格回到主文字色 —— OD `:181` 逐字 `table.g td.oid{color:var(--fg)}`。**
+   它是整列的主識別(也是那條 stretched link 的錨)⇒ **不該跟其他欄一起被壓淡。**
+   ⚠️ 這裡**刻意**用 `td.col-oid` (0,2,0):它要壓過上面那條**繼承**,
+      而繼承本身不是宣告、壓不到任何直接寫在格子上的顏色 —— 兩件事不衝突。 */
+.orders-grid td.col-oid {
+  color: var(--foreground);
 }
 
 /* ═══ L3 片4:密度三檔 ═══════════════════════════════════════════════════════
@@ -425,7 +756,12 @@
       —— 兩顆 chip 在 420px 目測不換行(真瀏覽器看過),但**四顆之後會回來咬**(B-1 plan §5 列過)。 */
 .fchip {
   border: 1px solid var(--border);
-  border-radius: 999px;
+  /* 🔴 **從寫死的 `999px` 改成吃 `--radius`**(設計參照 §6.5.4 的裁決)。
+     **裁決逐字**:「**形狀傳達的是【可不可以互動】,不是【重不重要】**」
+     ⇒ **可以點的 → 直角**(跟所有控制項一致);**只能看的 → pill**(狀態膠囊,那些用 `rounded-full`,不吃這裡)。
+     ⚠️ **原本寫死 999px ⇒ `--radius: 0` 對它【不生效】** —— 那會讓文件說直角、畫面是圓角。
+     🔴 **選中/未選不靠形狀分**(實測:選中=純黑底白字、未選=白底灰字)⇒ 直角化不會讓它變得認不出來。 */
+  border-radius: var(--radius);
   background: var(--card);
   padding: 3px 11px;
   font-size: 12px;
@@ -477,7 +813,11 @@
   border-color: var(--foreground);
   background: var(--foreground);
   /* 🔴 **不是 OD 的 `#fff`**(R1 must-fix 1):`--foreground` 在 dark 模式是白的(`:48`),
-     配死白的字 = **白底白字、標籤整個看不見**;而 header 有一鍵切 dark ⇒ 場景真的走得到。
+     配死白的字 = **白底白字、標籤整個看不見**。
+     ⚠️ **原理由逐字「而 header 有一鍵切 dark ⇒ 場景真的走得到」已於 2026-08-16 作廢**
+     (深色入口移除、`forcedTheme='light'`)⇒ **今天走不到那個場景。**
+     🔴 **但這個決定維持不變**:用 token 映射而不是寫死 `#fff`,在深色若被恢復時仍然正確,
+     **且它本來就是比較好的寫法** —— 作廢的是「為什麼緊急」,不是「為什麼對」。
      `--primary-foreground` 在 light 恰為 `oklch(1 0 0)` = `#fff`(**light 下與 OD 逐字等值**)、
      在 dark 自動翻黑。⇒ 這是 token 映射,不是設計改動。 */
   color: var(--primary-foreground);
@@ -516,7 +856,10 @@
   height: 26px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 6px;
+  /* 🔴 **R3 抓到:這裡原本寫死 `6px`** —— 它不經 `--radius`,而「禁裸 `rounded`」那道守門
+     也抓不到它(那是 raw CSS 不是 Tailwind class)⇒ **「一片直角」在它身上不成立。**
+     ⚠️ **這就是為什麼守門釘 class 名不夠** —— 寫死在 CSS 裡的值沒有 class 可以釘。 */
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted-foreground);
   font-size: 13px;

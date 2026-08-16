@@ -55,7 +55,25 @@ export function mapSupabaseCustomerToDomain(row: SupabaseCustomerRow): Customer 
 export type SupabaseAdminCustomerRow = Pick<
   SupabaseCustomerRow,
   'user_id' | 'name' | 'email' | 'phone' | 'tier' | 'created_at'
->;
+> & {
+  // ── 客戶頁三欄:來自 `admin_customer_list_v`,**不是 `customers` 表** ──────────
+  //
+  // 🔴 **這三欄是手寫的,不是從 `database.types.ts` derive 來的** ——
+  //    那支 view 的 migration(`20260816030000`)**還沒 apply 到正式庫**,
+  //    而 `supabase gen types` 是對著正式庫跑的 ⇒ 生成檔裡查無此 view
+  //    (`grep -c admin_customer_list_v database.types.ts` ⇒ **0**,2026-08-16 實查)。
+  //
+  // ⚠️ **這是一段【有期限的】手寫**:apply 之後要重生型別、把這三行換成 derive,
+  //    否則「型別說有」與「DB 真的有」之間就永遠只靠這段註解連著。
+  //    🔴 而在那之前,唯一驗這三個欄名真的存在的東西是
+  //    `docs/probes/customer-list-select-probe.sh`(對真 view 打一次)。
+  //
+  // 型別依據:view 定義 `20260816030000_…:71-113`。`count`/`sum` 是 bigint,
+  // PostgREST 送 JSON number;`max(created_at)` 是 timestamptz,零訂單時為 null。
+  active_order_count: number;
+  active_spend_total: number;
+  last_active_ordered_at: string | null;
+};
 
 /** wire customers 摘要 row → domain AdminCustomerSummary(user_id → id;其餘直送)。 */
 export function mapSupabaseAdminCustomerRowToSummary(
@@ -68,6 +86,15 @@ export function mapSupabaseAdminCustomerRowToSummary(
     phone: row.phone,
     tier: row.tier,
     createdAt: row.created_at,
+    // 🔴 三欄來自 `admin_customer_list_v`(不是 `customers` 表)。
+    //    `count`/`sum` 在 PG 回 bigint ⇒ PostgREST 送 JSON number ⇒ 這裡是 number。
+    //    ⚠️ `Number()` 只是**顯式標明這裡期待數字**,**它擋不了什麼**(code-reviewer 2026-08-16):
+    //    `Number(null)` / `Number('')` 都**靜默回 0**,只有非數字字串才 NaN。
+    //    真正保證非 null 的是 view 那邊的 `count(*)` 與 `coalesce(sum(...), 0)`,不是這一行。
+    activeOrderCount: Number(row.active_order_count),
+    activeSpendTotal: Number(row.active_spend_total),
+    // 🔴 **不要 `?? 0`** —— 零訂單的語意是「從來沒有」,不是「時間是 0」。
+    lastActiveOrderedAt: row.last_active_ordered_at,
   };
 }
 

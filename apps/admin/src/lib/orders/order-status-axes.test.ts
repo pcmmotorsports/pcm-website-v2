@@ -3,6 +3,8 @@ import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm
 import {
   ORDER_STATUS_LABEL,
   ORDER_STATUS_REFUNDED_LABEL,
+  goodsAxisOfLines,
+  goodsAxisProgressNote,
   orderDetailGoodsAxis,
   orderGoodsAxis,
   orderPayAxis,
@@ -210,11 +212,18 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
       order({ lines: [AT_STAGE[goods]], paymentStatus: pay === 'paid' ? 'paid' : 'unpaid' }),
     ).capsuleClass;
 
+  /* 🔴🔴 **期望值於 2026-08-16 由 Tailwind 調色盤改成 BMW M 的 `.cap-*`。**
+     Sean 當日逐字:「狀態膠囊配色 —— 對,換成新的配色方式(BMW)」。
+     ⚠️ **這是【這一次】的授權,不是通則** —— 常載守則 §R4「想動驗證本身 = 立即停止訊號」仍然有效。
+        本片是**先停下請示、拿到拍板才改**的(`~/pcm-mailbox/A-214-STOP.md`),**下次遇到一樣要停。**
+     🔴 **這裡釘的只是「掛對 class」;真正在守「顏色有沒有壞掉」的是**
+        `app/design-tokens.test.ts` 那組**實算對比**的格(四顆膠囊兌淡後的底與字逐一算,不達標就紅)。
+     📎 換配色的理由是**語言一致**,不是現在不合規 —— 舊那四顆實算 4.63 / 4.51 / 5.17 / 4.84,**全達標**。 */
   it.each([
-    ['none', 'bg-muted'],
-    ['ordered', 'bg-amber-100'],
-    ['instock', 'bg-sky-100'],
-    ['shipped', 'bg-emerald-100'],
+    ['none', 'cap-n'],
+    ['ordered', 'cap-y'],
+    ['instock', 'cap-bl'],
+    ['shipped', 'cap-g'],
   ] as const)('已收 × %s → 底色 %s(四階段四個色相)', (goods, tone) => {
     expect(toneOf('paid', goods)).toContain(tone);
   });
@@ -233,8 +242,11 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
       order({ lines: [AT_STAGE.shipped], paymentStatus: 'unpaid' }),
     );
     expect(risk.label).toBe('未收出貨');
-    expect(risk.capsuleClass, '例外格被「修正」成綠色了').not.toContain('bg-emerald-100');
-    expect(risk.capsuleClass, '實心深紅底不見了').toContain('bg-[oklch(0.52_0.20_25)]');
+    expect(risk.capsuleClass, '例外格被「修正」成綠色了').not.toContain('cap-g');
+    // 🔴 2026-08-16:底色由硬寫的 `bg-[oklch(0.52_0.20_25)]` 改吃 `--destructive`(OD :27 的 M 紅)。
+    //    舊值是**不吃任何 token 的字面** ⇒ 改主色時它不會跟著動。白字對 #e4002b 實算 4.85 ✅
+    //    (那個數字由 `design-tokens.test.ts` 的「實心紅那顆的白字達標」那格重算)。
+    expect(risk.capsuleClass, '實心紅底不見了').toContain('bg-destructive');
     // 🔴 冗餘訊號:白字 + 粗體是**獨立於色相**的兩個訊號(色盲 / 黑白列印仍跳得出來)
     expect(risk.capsuleClass).toContain('text-white');
     expect(risk.capsuleClass).toContain('font-bold');
@@ -245,7 +257,7 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
   it('🔴 正向對照:`出貨完成`(已收)走一般綠,不吃例外那套', () => {
     const done = orderStatusView(order({ lines: [AT_STAGE.shipped], paymentStatus: 'paid' }));
     expect(done.label).toBe('出貨完成');
-    expect(done.capsuleClass).toContain('bg-emerald-100');
+    expect(done.capsuleClass).toContain('cap-g');
     expect(done.capsuleClass).not.toContain('font-bold');
   });
 });
@@ -359,5 +371,59 @@ describe('`#514` 明細頁貨品軸', () => {
   // ⚠️ 空 `items` 回 none 不是 shipped(`[].every()` 恆真)。
   it('空品項 ⇒ 未訂貨(不是出貨完成)', () => {
     expect(orderDetailGoodsAxis({ items: [] })).toBe('none');
+  });
+});
+
+// ── `#522` 續章:軸與小字**共用同一個分母** ────────────────────────────────
+//
+// 🔴 **本族存在的理由 = 【小字】那半在它之前零守門**(軸那半不是,見下面的更正)。
+//
+// ⚠️⚠️ **本段第一版寫「repo 零守門」—— 那是錯的,而錯法本身值得留著**:
+//    我撤銷 `#522` 之後**只跑了本檔**、拿到「42 格零紅」,就把它寫成了「repo 零守門」。
+//    codex 對抗審查第二輪指出本檔之外還有一支真值表;我重跑**整個測試套件**確認它是對的:
+//      撤銷 `#522`(分母改回 `l.quantity`)⇒ 全套 500 檔 **9 紅 / 3 檔**
+//        `goods-axis-cases.test.ts`   5 紅  ← 🔴 A 窗 `02dd510e` 當時就加了,**軸一直有守門**
+//        `order-status-axes.test.ts`  3 紅  ← 本片新增
+//        `refund-wiring.test.tsx`     1 紅  ← 本片新增(頁級)
+//    ⇒ **正確講法:【軸】有 5 格守門;【小字】零守門,而本片補的是小字那半。**
+//    🔴 **記法:我量的範圍比我宣稱的範圍窄,而兩者的輸出長得一模一樣(都只是一個數字)。**
+//       「本檔 42 格零紅」是真的;「repo 零守門」是把它外推出去的,**而我沒有跑過那個範圍**。
+//
+// 📎 下面【軸】那一格與真值表重疊(codex 同輪也指出了)—— **留著不是為了新增判別力**,
+//    是為了讓「軸與小字共用同一個分母」在同一個 `describe` 裡讀得到:
+//    軸那格哪天單獨紅了,看的人立刻知道要連小字一起看。
+//
+// ⚠️ **只用一列,不要加第二列同形狀的** —— `line()` 的 `id` 由
+//    `quantity-ordered-instock-shipped` 組成、**不含 cancelled** ⇒ 多列同形狀會撞 id。
+describe('#522 取消數量:軸與小字共用同一個分母', () => {
+  // 6 件、3 件已取消、3 件已訂、到貨 0、出貨 0。
+  // 📎 這正是 `order-status-axes.ts` 那段 docstring 自己舉的例子,測資刻意用同一組數字。
+  const L = [line(6, { ordered: 3, cancelled: 3 })];
+
+  it('🔴 軸:6 件中 3 件已取消、3 件已訂 ⇒ 分母是 3 不是 6 ⇒ 軸為 ordered', () => {
+    // need = max(0, 6 − 3) = 3
+    // shipped 0 >= 3 ✗ ／ instock 0 >= 3 ✗ ／ ordered 3 >= 3 ✓  ⇒ 'ordered'
+    expect(goodsAxisOfLines(L)).toBe('ordered');
+  });
+
+  // 🔴🔴 **codex 對抗審查 2026-08-16 舉的反例 —— 本片第一版【真的會印出分子大於分母】。**
+  //    病根:分母換成「還要處理的量」之後,**整筆取消的列從分母消失,而它的歷史階段量還留在分子裡**。
+  //    ⇒ 修法是把分子逐列夾在該列的 lineNeed 之內;這一格就是那個 min 的負向對照。
+  //    ⚠️ 兩列刻意用**不同的 quantity**(6 / 4)⇒ 不會撞 `line()` 的 id。
+  it('🔴 整筆取消的列混在未訂的列裡 ⇒ 分子不得大於分母(拿掉 Math.min 這格必紅)', () => {
+    const mixed = [
+      line(6, { ordered: 6, cancelled: 6 }), // lineNeed 0,而 orderedQuantity 仍是歷史值 6
+      line(4), // lineNeed 4、一件都沒訂 ⇒ 軸 = none ⇒ stage = 已訂
+    ];
+    expect(goodsAxisOfLines(mixed)).toBe('none');
+    // 沒有夾的話會印「（本單 4 件中已訂 6 件）」—— 4 件的單裡訂了 6 件,員工看不懂。
+    expect(goodsAxisProgressNote(mixed)).toBe('（本單 4 件中已訂 0 件）');
+  });
+
+  it('🔴 小字:分母同樣扣掉已取消 ⇒「本單 3 件」不是「本單 6 件」', () => {
+    // 軸 'ordered' ⇒ stage = { key: 'instockQuantity', verb: '已到貨' }
+    // total = max(0, 6 − 3) = 3、done = instockQuantity = 0
+    // ⚠️ 全形括號是原始碼裡的字面,不要改成半形。
+    expect(goodsAxisProgressNote(L)).toBe('（本單 3 件中已到貨 0 件）');
   });
 });

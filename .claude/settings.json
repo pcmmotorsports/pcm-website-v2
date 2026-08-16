@@ -15,12 +15,27 @@
       "Bash(codex apply *)",
       "Bash(codex apply)",
       "Bash(codex a *)",
-      "Bash(codex a)"
+      "Bash(codex a)",
+      "Bash(sed -i *)",
+      "Bash(sed -i*)",
+      "Bash(* | sed -i *)",
+      "Bash(perl -i *)",
+      "Bash(perl -pi *)",
+      "Bash(perl -i.* *)"
     ],
     "ask": [
       "mcp__claude_ai_Supabase__apply_migration"
     ]
   },
+  "_inplace_edit_deny_note": [
+    "🧪 2026-08-16 Sean 拍板【甲】新增,試行期 1-2 天。不順手就拿掉,不要當永久規則硬撐。",
+    "擋的是:sed -i / perl -i 這一族【就地改檔】命令。",
+    "為什麼:2026-08-16 主視窗用行號定位去改 scripts/525-verify.sh,而同檔前一處編輯已讓行號位移一行 ⇒ 當場覆蓋掉一行真的程式碼(PSQL heredoc)。git checkout 還原、bash -n 驗語法才發現。同一個坑當天發生三次。",
+    "🔴 病根不是不小心,是【工具選擇】:行號定位【錯了也會成功】,而 Edit 工具是字串錨定 —— 錨不上就大聲失敗。要的是會叫的那一種。",
+    "⚠️ 誠實邊界一(範圍):本規則【擋不到】用 python/node 開檔按行索引寫回的做法,那正是 08-16 實際的兇器之一。deny 無法區分那與合法的 python 用途。⇒ 這道防線只覆蓋 sed/perl 這一半。",
+    "🔴 誠實邊界二(對象):Sean 原本要的是【擋住主視窗編輯檔案】,而那做不到 —— settings 是【每個目錄】生效不是【每個 session】,而 I 窗與主視窗共用同一棵主樹、I 窗需要改 STATUS.md。⇒ 「主視窗不編輯檔案」目前只有提示詞文字約束,沒有機制。這一條未解,不要讀成已解。",
+    "解除方式:把上面 6 條 Bash(sed -i…)/Bash(perl…) 從 deny 拿掉即可,無其他連動。"
+  ],
   "_migration_drift_note": [
     "Sean 2026-07-25 拍板 B(選項 A=deny 全鎖 / B=ask 每次問 / C=不做):MCP apply_migration 改為 ask、不 deny。",
     "為何要管:正式 schema 有兩條寫入路徑且『編號規則不同』—— supabase db push 用檔名時間戳(20260724140000), MCP apply_migration 用套用當下的時鐘自動重編(20260724085956)。內容相同但紀錄對不上, 導致 supabase/migrations/ 這份藍圖不再等於正式 DB 的實況。",

@@ -49,3 +49,121 @@ jobs:
 
       - name: Test
         run: pnpm test
+
+      # ══ `#532`:讓 `docs/probes/` 底下的 SQL 探針有東西會叫它跑 ══════════════
+      #
+      # 🔴 **為什麼需要**:`#522` 修的是 SQL view 與 TS 判定式的**同一個缺陷**。
+      #    TS 那半每次 `pnpm test` 都會跑,**SQL 那半在此之前沒有任何東西會叫**
+      #    ⇒ 有人改了 `admin_order_list_v` 而沒手動跑 probe,不會有東西紅。
+      #
+      # 🔴 **為什麼掛 CI 而不是 pre-commit**(主視窗 2026-08-16 裁):
+      #    pre-commit 起一個 postgres 是幾十秒到分鐘級 ⇒ **會逼所有人用 `--no-verify`**,
+      #    而**一個會被繞過的守門比沒有守門更糟** —— 它給人已守護的錯覺。
+      #
+      # ⚠️ **`initdb` / `pg_ctl` 不在 runner 的 PATH 上**(這是 Debian/PGDG 的打包佈局,
+      #    binaries 在 `/usr/lib/postgresql/<ver>/bin/`;runner image 用
+      #    `apt-get install postgresql-<ver>` 裝,見 actions/runner-images 的
+      #    `install-postgresql.sh`)。`psql` 有 wrapper 在 PATH 上,`initdb` 沒有。
+      # 🔴 **這一步【不吞掉找不到】** —— 佈局變了就紅,而且訊息要講得出下一步。
+      #    靜默跳過的話,下面那步會用一個不存在的 `initdb` 失敗在莫名其妙的地方。
+      - name: Add PostgreSQL server binaries to PATH
+        run: |
+          set -euo pipefail
+          BIN="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$BIN" ] || [ ! -x "$BIN/initdb" ]; then
+            echo "::error::找不到 initdb。runner image 的 PostgreSQL 佈局變了?"
+            echo "預期 /usr/lib/postgresql/<ver>/bin/initdb;實際 /usr/lib/postgresql 底下:"
+            ls -la /usr/lib/postgresql 2>&1 || echo "(該目錄不存在)"
+            exit 1
+          fi
+          echo "使用 $BIN"
+          "$BIN/initdb" --version
+          echo "$BIN" >> "$GITHUB_PATH"
+
+      # 🔴 **不跑 `docs/probes/*.sh` 全部** —— 那個目錄底下**不是同一種東西**:
+      #    · 帶 `# ci-self-contained: yes` 的**自給自足**(自己 `initdb` 起拋棄式叢集、
+      #      跑完自己拆)⇒ CI 跑得動。目前兩支。
+      #    · `452-2a2-lockprobe.sh` / `452-2a2-u7-candidates.sh` / `452-2a2-void-lockprobe.sh`
+      #      要**先跑 `scripts/452-verify.sh provision`** 起一個庫並用 `PORT=` 指過去
+      #      ⇒ 沒有那一步它們連不上,**沒有標記、不跑**。
+      #    · `484a-view-probe.sh` 要外部給連線字串,**而且它內嵌的 CASE 是 `#522` 之前的舊分母**
+      #      (該檔檔頭 2026-08-16 已標)⇒ **沒有標記,跑了也只證一個已被廢掉的版本**。
+      #
+      # 🔴 **選誰跑的權威在【probe 自己的檔頭】,不在這裡**(codex 關卡2 nit)——
+      #    手寫清單的失敗面是「新增 probe 的人忘記登錄 ⇒ 靜默漏跑」,
+      #    而**靜默漏跑看起來跟跑過了一模一樣**。
+      #    ⚠️ 這一版仍然**把沒被跑的印出來**:排除要是看得見的,不是萬用字元悄悄漏掉的。
+      - name: Run self-contained SQL probes
+        run: |
+          set -euo pipefail
+          # 🔴 **掃全 repo,不是只掃 `docs/probes/`**(D 窗 2026-08-16 must-fix)。
+          #    初版只掃 `docs/probes/`,而**全 repo 自己 `initdb` 的 38 支裡有 36 支住在
+          #    `scripts/`**(我複核過)⇒ 有人在那裡加了正確標記會**靜默漏跑**。
+          #    ⚠️ **那比沒有標記更糟**:沒標記的人知道自己沒掛上去,加了標記的人**以為掛上去了**。
+          #
+          # 🔴 **標記只認【前 5 行】**(codex 關卡2 R2 must-fix):`grep -rl` 會吃到檔案任何位置的
+          #    那一行 —— 腳本中段的說明、甚至範例字串都會被當成「這是要跑的 probe」。
+          #    註解寫「檔頭」而 code 認全檔 = 字面 vs 事實。
+          CANARY='docs/probes/order-goods-axis-parity-probe.sh'
+          RUN=''; STRAY=''; SKIP=''; BOTH=''
+          while IFS= read -r F; do
+            HDR="$(head -5 "$F" || true)"
+            case "$HDR" in *'# ci-self-contained: yes'*) Y=1;; *) Y=0;; esac
+            case "$HDR" in *'# ci-self-contained: no'*)  N=1;; *) N=0;; esac
+            # 🔴 同一支同時標 yes 與 no ⇒ 它會同時出現在兩張清單,而那兩張清單是給人讀的
+            if [ "$Y" = 1 ] && [ "$N" = 1 ]; then BOTH="$BOTH$F"$'\n'; continue; fi
+            if [ "$Y" = 1 ]; then
+              case "$F" in docs/probes/*) RUN="$RUN$F"$'\n';; *) STRAY="$STRAY$F"$'\n';; esac
+            elif [ "$N" = 1 ]; then
+              SKIP="$SKIP$F"$'\n'
+            fi
+          done <<EOF
+          $(find . -name '*.sh' -not -path './node_modules/*' -not -path './.git/*' | sed 's|^\./||' | sort)
+          EOF
+
+          if [ -n "$BOTH" ]; then
+            echo "::error::有腳本同時標了 ci-self-contained 的 yes 與 no："
+            printf '  %s\n' "$BOTH"
+            exit 1
+          fi
+
+          # 🔴 有標記卻不住在 `docs/probes/` ⇒ **大聲停**,不靜默跑也不靜默跳。
+          #    跑它:CI 時間不可控(那 36 支很多要位置參數、有的跑很久)。跳它:就是那個破口。
+          #    ⇒ 讓**人**決定:搬進 `docs/probes/`,或改這一步明白地納入它。
+          if [ -n "$STRAY" ]; then
+            echo "::error::有腳本標了 ci-self-contained: yes 但不在 docs/probes/ 底下："
+            printf '  %s\n' "$STRAY"
+            echo "  ⇒ 這個標記【不會】讓它被跑到。請搬進 docs/probes/，或改這一步明白地納入它。"
+            exit 1
+          fi
+
+          # 🔴 正向對照:**整行精確比對**,不是子字串(codex must-fix:
+          #    `old-order-goods-axis-parity-probe.sh` 可以冒充)。
+          #    ⚠️ 它只證「掃描活著 + 這一支還在」,**不保護其他 probe** ——
+          #       別支被刪或被改標記,這一格照樣綠。那是已知限度,不是疏漏。
+          if ! printf '%s' "$RUN" | grep -qx "$CANARY"; then
+            echo "::error::掃不到 $CANARY —— 掃描壞了、檔案被改名、或標記被改掉了"
+            grep -rn '^# ci-self-contained:' --include='*.sh' . | grep -v '/node_modules/' || true
+            exit 1
+          fi
+
+          echo "會跑的:";   printf '%s' "$RUN"  | sed 's/^/  /'
+          # 🔴 **不跑的要印出【為什麼】,不是只印檔名** —— 只印檔名是「半沉默」。
+          #    理由的權威在各檔自己那一行,這裡把它整行撈出來。
+          echo "不跑的(理由取自各檔自己的標記行):"
+          printf '%s' "$SKIP" | while IFS= read -r F; do
+            [ -n "$F" ] || continue
+            echo "  $F"
+            head -5 "$F" | grep '^# ci-self-contained: no' | sed 's/^/      /'
+          done
+          # ⚠️ 兩張清單都沒有的 = 前 5 行沒有任何標記,它們從來沒被納入過
+          echo "docs/probes/ 底下【前 5 行沒有標記】的:"
+          for F in docs/probes/*.sh; do
+            head -5 "$F" | grep -q '^# ci-self-contained:' || echo "  $F"
+          done
+
+          printf '%s' "$RUN" | while IFS= read -r P; do
+            [ -n "$P" ] || continue
+            echo "── $P ──"
+            bash "$P"
+          done

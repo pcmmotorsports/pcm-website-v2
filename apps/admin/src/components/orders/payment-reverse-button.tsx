@@ -89,7 +89,7 @@ export function PaymentReverseButton({
             setNotice(null);
             setOpen(true);
           }}
-          className='text-destructive border-destructive/40 rounded border px-2 py-1 text-xs'
+          className='text-destructive border-destructive/40 rounded-md border-input border px-2 py-1 text-xs'
         >
           沖銷這一筆
         </button>
@@ -108,7 +108,7 @@ export function PaymentReverseButton({
         onChange={(e) => setReason(e.target.value)}
         placeholder='沖銷原因(必填)'
         aria-label='沖銷原因'
-        className='w-full rounded border px-2 py-1 text-xs'
+        className='w-full rounded-md border-input border px-2 py-1 text-xs'
       />
       <div className='flex flex-wrap items-center gap-2'>
         <button
@@ -117,7 +117,7 @@ export function PaymentReverseButton({
           //    只擋空字串的話,全是空白的原因會送到 DB 才被拒,員工拿到的是一句通用訊息。
           disabled={busy || reason.trim() === ''}
           onClick={() => void run()}
-          className='bg-destructive rounded px-2 py-1 text-xs text-white disabled:opacity-50'
+          className='bg-destructive rounded-md px-2 py-1 text-xs text-white disabled:opacity-50'
         >
           確認沖銷
         </button>
@@ -127,7 +127,7 @@ export function PaymentReverseButton({
             setOpen(false);
             setError(null);
           }}
-          className='rounded border px-2 py-1 text-xs'
+          className='rounded-md border-input border px-2 py-1 text-xs'
         >
           取消
         </button>

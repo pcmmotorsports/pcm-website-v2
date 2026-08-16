@@ -82,10 +82,19 @@ describe('PROD_SUPABASE_HOST — 常數本身', () => {
     // 🔴 關卡2 codex C4:下面整張配對矩陣的 fixture 都由 PROD_SUPABASE_HOST 生成 ⇒ 把它改成
     //    任意第三個值,矩陣照樣全綠(它比的是「和自己一致」)。故此格獨立釘字面 + 對第二來源。
     expect(PROD_SUPABASE_HOST).toBe('bmpnplmnldofgaohnaok.supabase.co');
-    const typesHeader = readFileSync(
+    // 🔴 **讀「開頭那一整段註解」,不寫死位元組數**(2026-08-16 收割時改)——
+    //    原本是 `.slice(0, 4000)`,而那個 ref 當時落在第 4031 個字元:
+    //    合併把檔頭多推了兩行,這一格就紅了,**而它紅的原因與 PROD_SUPABASE_HOST 對不對無關**。
+    //    ⚠️ **斷言一個字沒動**(仍要求那串 ref 逐字出現);改的只有「讀到哪裡為止」,
+    //    而新的界線是**檔案自己的結構**(開頭連續的 `//` 行)⇒ 檔頭再長也不會再假紅。
+    //    🔴 而它仍然**沒有放寬到全檔** —— 那個 ref 若只出現在檔案中段的生成型別裡,這格照樣紅。
+    const lines = readFileSync(
       path.join(__dirname, '..', '..', '..', '..', '..', 'packages/adapters/src/supabase/database.types.ts'),
       'utf8',
-    ).slice(0, 4000);
+    ).split('\n');
+    const headerEnd = lines.findIndex((l) => !l.startsWith('//'));
+    expect(headerEnd, '開頭註解區找不到結尾 ⇒ 檔頭結構變了,這一格要重寫').toBeGreaterThan(0);
+    const typesHeader = lines.slice(0, headerEnd).join('\n');
     expect(typesHeader).toContain('bmpnplmnldofgaohnaok');
   });
 });

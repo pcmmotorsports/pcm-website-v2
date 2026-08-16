@@ -87,6 +87,12 @@ describe('/customers 列表:LINE 合成位址不外顯', () => {
     phone: null,
     tier: 'general' as const,
     createdAt: '2026-08-01T00:00:00Z',
+    // 🔴 這三欄是 void-readers 那條線加的(`AdminCustomerListRow` 必填),
+    //    而本 fixture 寫於它們存在之前 ⇒ 2026-08-16 收割時 `formatOrderAmount(undefined)` 當場炸。
+    //    ⚠️ 補的是 fixture 的完整性,**兩格的斷言一個字沒動**(合成位址不外顯 / 真 Email 正向對照)。
+    activeOrderCount: 0,
+    activeSpendTotal: 0,
+    lastActiveOrderedAt: null,
   });
 
   it('🔴 合成位址 → 畫面顯示替代字面,原字串不出現', async () => {

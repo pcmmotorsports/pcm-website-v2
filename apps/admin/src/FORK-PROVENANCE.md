@@ -39,5 +39,6 @@ oxlint+oxfmt。**與 PCM monorepo 目標棧幾乎一致**(Next 16.2.6 / React 19
 
 ## 目前狀態
 
-純殼:sidebar(靜態占位導覽 總覽/訂單/客戶,尚未導頁)+ header(標題 + light/dark 切換)+
+純殼:sidebar(靜態占位導覽 總覽/訂單/客戶,尚未導頁)+ header(標題;
+**原有的 light/dark 切換已於 2026-08-16 依 Sean 拍板移除**)+
 單一占位頁。不接資料、不做登入。驗收 = `pnpm --filter @pcm/admin dev` 可跑、殼可見可操作。

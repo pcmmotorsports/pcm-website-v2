@@ -39,6 +39,10 @@ const mocks = vi.hoisted(() => ({
   listSuppliers: vi.fn(),
   listOrderRefunds: vi.fn(),
   getLedgerUnregisteredAmount: vi.fn(),
+  // 🔴 BMW M 片4b:從 inline `vi.fn(async () => [])` **提升到 hoisted**,因為頭條「已收」那族
+  //    要構造出 `unreadable` 那一態(讓它 reject)。⚠️ **預設值在 `beforeEach` 維持回 `[]`**
+  //    ⇒ 本檔其他每一格的行為一個字都沒變(提升本身零行為改變)。
+  listOrderPayments: vi.fn(),
 }));
 // M-3 RW3:page 直接 import refund-read(→ server-only)⇒ 必 mock;
 // 本檔另有帳本顯示鏈的接線格,mock 給 hoisted 的可控版本。
@@ -60,7 +64,7 @@ vi.mock('../../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }
 //    而本檔要驗的東西照樣全綠 ⇒ 那塊紅框會被下一個人當成既有雜訊。回空陣列 = 「這單沒收過款」,
 //    與本檔要驗的東西無關,也不會多畫任何東西。
 vi.mock('../../../lib/orders/payment-repository', () => ({
-  listOrderPayments: vi.fn(async () => []),
+  listOrderPayments: mocks.listOrderPayments,
 }));
 
 import OrderDetailPage from './page';
@@ -119,6 +123,8 @@ beforeEach(() => {
   mocks.listSuppliers.mockResolvedValue([]);
   mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
   mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
+  // 提升前的 inline 預設,逐字保留:`[]` = 「這單沒收過款」,不是「讀不到」。
+  mocks.listOrderPayments.mockResolvedValue([]);
   vi.spyOn(console, 'error').mockImplementation(() => {});
   savedFlag = process.env.REFUND_UI_ENABLED;
 });
@@ -476,8 +482,8 @@ describe('`#514` 出貨狀態改讀貨品軸(頁級)', () => {
 //    ⇒ 這一族全部斷言在 `container.textContent`(渲染輸出),**不讀常數、不讀檔案文字**。
 describe('出貨狀態的解釋小字', () => {
   /** 四個量都給得出來的品項(上面那支 `item` 把 instock/shipped 釘死成 0,不夠用)。 */
-  const line = (quantity: number, ordered: number, instock = 0, shipped = 0) => ({
-    id: `ln-${quantity}-${ordered}-${instock}-${shipped}`,
+  const line = (quantity: number, ordered: number, instock = 0, shipped = 0, cancelled = 0) => ({
+    id: `ln-${quantity}-${ordered}-${instock}-${shipped}-${cancelled}`,
     title: '測試品項',
     spec: null,
     variantSku: 'SKU-NOTE',
@@ -489,7 +495,7 @@ describe('出貨狀態的解釋小字', () => {
       orderedQuantity: ordered,
       instockQuantity: instock,
       shippedQuantity: shipped,
-      cancelledQuantity: 0,
+      cancelledQuantity: cancelled,
       cancellableQuantity: 0,
     },
   });
@@ -510,6 +516,23 @@ describe('出貨狀態的解釋小字', () => {
     const text = await render([line(6, 3)]);
     expect(text).toContain('未訂貨');
     expect(text).toContain('（本單 6 件中已訂 3 件）');
+  });
+
+  /**
+   * 🔴🔴 **`#522` 續章:分母扣掉已取消,而在本片之前【這一族沒有任何一格碰得到那條路】** ——
+   * 上面那個 `line()` helper 原本把 `cancelledQuantity` 寫死成 0(codex 對抗審查 2026-08-16 抓的)。
+   * ⇒ 六格全綠,而它們**結構上構造不出**有取消的單 ⇒ 對取消零判別力。
+   *
+   * 🔴 **為什麼頁級要再做一次**(函式級已經有兩格):`#514` 自己的教訓 ——
+   *    **算得對不代表那格畫面有印出來**。這一格斷言的是員工眼睛真的會看到的字。
+   */
+  it('🔴 6 件取消 3 件:畫面上的分母是 3 不是 6(軸與小字用同一個分母)', async () => {
+    const text = await render([line(6, 3, 0, 0, 3)]);
+    // need = 6−3 = 3、ordered 3 >= 3 ⇒ 軸升到「已向廠商訂貨」,小字改講到貨進度。
+    expect(text).toContain('已向廠商訂貨');
+    expect(text).toContain('（本單 3 件中已到貨 0 件）');
+    // 🔴 反向釘死:舊分母那句話一個字都不准出現在畫面上。
+    expect(text).not.toContain('本單 6 件');
   });
 
   it('已向廠商訂貨:小字改講【到貨】進度,不重複講已訂', async () => {
@@ -557,6 +580,233 @@ describe('出貨狀態的解釋小字', () => {
   it('多品項:分母 = 全單件數加總(6+4=10)', async () => {
     const text = await render([line(6, 3), line(4, 0)]);
     expect(text).toContain('（本單 10 件中已訂 3 件）');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 頭條數字(BMW M 片4b;規格 `docs/specs/2026-08-16-bmw-m-headline-numbers-spec.md`)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴 **全部斷言在 `container.textContent`(整頁渲染輸出),不斷言函式回傳值。**
+//    理由逐字取自 `order-status-axes.ts`(搜 `算得對不等於`):「**算得對不等於那個畫面有印出來**」。
+//    ⚠️ **頭條更該如此**:它是員工一眼就看的那個,量回傳值等於沒量。
+//
+// 🔴🔴 **本族守的那句話**:「不知道」與「是 0」不是同一件事,
+//    而【頭條數字】是最不能把這兩者講成同一句的位置 ——
+//    後端把「不知道」當 0,下游還有機會發現;**畫在畫面上,那就是最終答案。**
+describe('訂單明細頭條數字', () => {
+  /** 與上面那族同型的 line helper(四個量都給得出來)。 */
+  const line = (quantity: number, ordered: number, instock = 0, shipped = 0, cancelled = 0) => ({
+    id: `hl-${quantity}-${ordered}-${instock}-${shipped}-${cancelled}`,
+    title: '測試品項',
+    spec: null,
+    variantSku: 'SKU-HL',
+    procurements: [],
+    quantity,
+    unitPrice: { amount: 100, currency: 'TWD' },
+    lineTotal: { amount: 100 * quantity, currency: 'TWD' },
+    quantitySummary: {
+      // 🔴 **`quantity` 也在 summary 裡**(`AdminOrderItemQuantitySummary` 搜 `quantity: number;`)——
+      //    上面那個 `line()` 家族原本沒給它。發現方式:寫「災難當天」那格時把整頁 textContent
+      //    印出來看,撞到 `還有 NaN 件沒有登記來源` 與取消表的 `NaN`。
+      //    病根:`unsourcedQuantity` 算 `summary.quantity - cancelled - ordered`
+      //    ⇒ `undefined - 0 - 4 = NaN`。**是 fixture 缺欄位,不是產品缺陷**
+      //    (真型別保證這個欄位在;`procurement-view.ts` 搜 `型別擋不住的東西` 那段記著同款事故)。
+      //    ⚠️ **但它值得留一句**:少一個欄位不會紅、不會噴錯,**只會在畫面上長出一個 `NaN`** ——
+      //    而本檔的斷言全在 `container.textContent` 裡撈子字串,**撈不到的地方就看不到它**。
+      quantity,
+      orderedQuantity: ordered,
+      instockQuantity: instock,
+      shippedQuantity: shipped,
+      cancelledQuantity: cancelled,
+      cancellableQuantity: 0,
+    },
+  });
+
+  const render = async (over: Partial<AdminOrderDetail>) => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail(over as Partial<AdminOrderDetail>));
+    return (await renderPage()).container.textContent ?? '';
+  };
+
+  it('🔴 正常單:四個數字都印得出來,兩個小標都在', async () => {
+    // total = 1200 元;收款兩筆共 500。品項:6 件訂 4 件、到貨 2 件。
+    // 🔴 **欄位照 `OrderPaymentRow` 的真形狀給全,不給簡化版**(code-reviewer 2026-08-16 nit):
+    //    第一版只給 `{id, method, amount, receivedAt, note}` —— 那不是這個型別的欄位名,
+    //    靠 `labelOrRaw` 的 `Object.hasOwn` 吃掉 undefined 才沒炸 ⇒ **真契約改欄位時這族不會紅。**
+    const row = (id: string, amount: number, receivedAt: string) => ({
+      id, rail: 'atm', amount, receivedAt, createdAt: receivedAt, actor: 'tester',
+      bankReference: null, recTradeId: null, payerNote: null,
+      reversesPaymentId: null, reversalReason: null, isReversal: false,
+    });
+    mocks.listOrderPayments.mockResolvedValue([
+      row('p1', 300, '2026-08-10T02:00:00+00:00'),
+      row('p2', 200, '2026-08-11T02:00:00+00:00'),
+    ]);
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+
+    expect(text).toContain('NT$ 1,200 / NT$ 500');
+    expect(text).toContain('4 / 2');
+    // 🔴 **小標存廢是 Sean 逐字更正過的那一件**(「寫數字就好」講的是數值呈現、不是拿掉標籤)
+    //    ⇒ 這兩條不是裝飾,是把那次更正釘成機械載體。
+    expect(text).toContain('總額 / 已收');
+    expect(text).toContain('品項數 已訂 / 到貨');
+  });
+
+  /**
+   * 🔴🔴 **`Q-A7`:頭條扣已取消件數 —— 判準是「與軸一致」,而軸自 `#522` 續章起就扣了。**
+   * 6 件取消 3 件、已訂 4 件:`lineNeed` = 3 ⇒ 分子夾在 3 之內 ⇒ **印 3 不是 4**。
+   * ⚠️ 沒有那個 `Math.min`,這裡會印出「3 件裡訂了 4 件」——**分子大於分母**。
+   */
+  it('🔴 有取消件數:已訂數夾在 lineNeed 之內(6 件取消 3 件、已訂 4 ⇒ 印 3)', async () => {
+    const text = await render({ items: [line(6, 4, 0, 0, 3)] } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('3 / 0');
+    expect(text).not.toContain('4 / 0');
+  });
+
+  /**
+   * 🔴 **正向對照** —— 沒有這一格,上面那格的「3」可能只是碰巧。
+   * 同一組數字**把取消拿掉**,頭條就該印回 4:證明變的是取消、不是別的東西。
+   */
+  /**
+   * 🔴🔴 **多品項 —— 而這一格存在的理由是:在它之前【七格 fixture 全是單一 line】。**
+   *
+   * R3 對抗審查(2026-08-16,換角度)抓到:單 line 之下,兩個實作級突變**七格全綠** ——
+   * 因為 `Math.min` 夾在**逐列**還是夾在**加總之後**,單 line 時輸出完全相同。
+   * ⇒ **「共用 `lineNeed`」這個機制的判別力,在此之前沒有任何一格量過。**
+   *
+   * 反例逐字取自 `goodsAxisOfLines` 的 docstring(搜 `列A`),那是 `#522` 續章折出來的:
+   * ```
+   * 列A quantity 6 / ordered 6 / cancelled 6  ⇒ lineNeed 0，而 orderedQuantity 仍是歷史值 6
+   * 列B quantity 4 / ordered 0 / cancelled 0  ⇒ lineNeed 4
+   * ```
+   * 逐列夾:min(6,0) + min(0,4) = **0**;先加總再夾:min(6+0, 0+4) = **4**。
+   * ⇒ **這一格是那兩種寫法唯一分得開的地方。**
+   */
+  it('🔴 多品項:整筆取消的列不把歷史量帶進分子(逐列夾,不是加總後才夾)', async () => {
+    const text = await render({
+      items: [line(6, 6, 0, 0, 6), line(4, 0)],
+    } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('0 / 0品項數 已訂 / 到貨');
+    // 🔴 `4 / 0` = 「先加總再夾」會印出來的值 —— 它讀起來完全合理,這正是它危險的地方。
+    expect(text).not.toContain('4 / 0');
+  });
+
+  /**
+   * 🔴🔴 **部分 null —— ①閘的真正形狀是「任一列不知道就整格不知道」,不是「全部都不知道才」。**
+   *
+   * R3 抓到:`goodsQuantityHeadline` 的 `lines.some((l) => l.quantitySummary === null)`
+   * 改成 `every`,**七格全綠** —— 因為沒有一格餵得出「一列有、一列沒有」。
+   * 而 `every` 之下混合單會走進 `?? 0`,**印出一個少算的數而零訊號**,
+   * 那正是本片引述那段警告(「同一個值,兩種用途,只有一種合法」)要擋的病。
+   */
+  it('🔴 多品項:只要一列的摘要不存在,整格就是未知(不是把那列當 0 加進去)', async () => {
+    const text = await render({
+      items: [line(2, 1), { ...line(3, 2), quantitySummary: null }],
+    } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('未知品項數 已訂 / 到貨');
+    // 🔴 `1 / 0` = 把那列當 0 加進去會印出來的值。
+    expect(text).not.toContain('1 / 0');
+  });
+
+  it('正向對照:同一組數字沒有取消時,已訂數印回 4', async () => {
+    const text = await render({ items: [line(6, 4, 0, 0, 0)] } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('4 / 0');
+  });
+
+  it('🔴 摘要列不存在:品項數那格印「未知」,一個數字都不印', async () => {
+    const text = await render({
+      items: [{ ...line(3, 2, 1), quantitySummary: null }],
+    } as unknown as Partial<AdminOrderDetail>);
+    // 🔴 錨含「未知」二字(R2 抓到):只釘小標的話,格名宣稱「印未知」而沒有任何一格斷言得到它。
+    expect(text).toContain('未知品項數 已訂 / 到貨');
+    // 🔴 反向釘死:那格若退回 `?? 0`,畫面會出現 `0 / 0`;若沒接上 null 閘,會出現 `2 / 1`。
+    expect(text).not.toContain('2 / 1');
+    expect(text).not.toContain('0 / 0');
+  });
+
+  /**
+   * 🔴🔴 **`itemsTruncated` ⇒ 加總會少算 ⇒ 不印。**
+   * ⚠️ 這一格是**唯一**擋得到截斷的地方:`goodsQuantityHeadline` 的參數型別看不到這個旗標。
+   * 風險已量(`ORDER_ITEMS_EMBED_LIMIT = 200`,機車零件單到不了),**但代價不對稱** ——
+   * 讀它 = 截斷時改印「未知」;不讀它 = 印出一個少算的數而**零訊號**。
+   */
+  it('🔴 itemsTruncated:品項數那格印「未知」,不印一個少算的數', async () => {
+    const text = await render({
+      items: [line(6, 4, 2)],
+      itemsTruncated: true,
+    } as unknown as Partial<AdminOrderDetail>);
+    // 🔴 **正向錨必須在反向斷言【之前】** —— 只有 `not.toContain` 的話,
+    //    `HeadlineNumbers` 整個不渲染(prop 沒傳 / 格子被刪 / 元件早退)這一格照樣綠。
+    //    code-reviewer 2026-08-16 抓到:**這格原本測不出「那格還在」,只測得出「那個數不在」。**
+    //    ⚠️ 錨選小標而不是「未知」二字:本 fixture 的 `payments.status === 'ok'`
+    //    ⇒ 付款卡印「0 筆」不印「筆數未知」,但「未知」在別族文案裡出現過 ⇒ 拿它當錨會撞。
+    //    📎 **這個修法本身量過**:讓 `HeadlineNumbers` 整塊不渲染 ——
+    //       有正向錨 ⇒ 六格全紅;拿掉正向錨 ⇒ **只紅五格,這一格綠著**。
+    // 🔴🔴 **錨要含「未知」二字**(R2 抓到,第二層):只釘小標的話,這格名字宣稱「印未知」
+    //    而**全檔沒有一格斷言得到它** —— 把 `'未知'` 改成 `''` 兩格都還是綠。
+    //    ⚠️ 上面那句「拿『未知』當錨會撞」對**裸兩字**成立,對**接合字串**不成立:
+    //    `.v` 與 `.l` 兩個 `<p>` 相鄰 ⇒ `textContent` 直接相連成「未知品項數 已訂 / 到貨」,
+    //    而那串全樹唯一。**⇒ 錨要選得夠窄,不是選得夠短。**
+    expect(text).toContain('未知品項數 已訂 / 到貨');
+    expect(text).not.toContain('4 / 2');
+  });
+
+  /**
+   * 🔴 **`PaymentSummary.kind === 'unknown'` ⇒ 已收那半不畫任何金額。**
+   * 出處錨點:`payment-list.tsx` 搜 `不畫任何金額` —— 讀不到明細時算出來的「已收」必然是假的,
+   * 而它會被畫成一句員工無法分辨真假的催款訊息。
+   * ⚠️ **總額仍然要印** —— 它來自 `detail.total`,不走收款那條路,沒有不知道的問題。
+   */
+
+  /**
+   * 🔴🔴 **災難當天:兩格【同時】命中閘。** 前五格各驗一條閘,**沒有一格驗它們一起發生。**
+   *
+   * 這一格問的不是「算得對不對」,是**員工在資料半殘的那一天看到什麼**:
+   * 畫面會不會看起來像**壞掉**(而不是像「我們知道我們不知道」)、會不會誘導他做錯的操作。
+   *
+   * 落筆當下的實際輸出(**先用拋棄式探針把字印出來看,再寫成斷言 —— 不是先猜期望值**):
+   *   `NT$ 1,200 / 未知` + `總額 / 已收` + `未知` + `品項數 已訂 / 到貨`
+   * ⇒ **總額仍是一個真數字**(它不走收款那條路)⇒ 畫面不是一片「未知」、不像故障。
+   * ⇒ 兩個小標都還在 ⇒ 員工知道**這裡本來該有什麼**,只是現在讀不到。
+   *
+   * 🔴 **最重要的是最後兩條反向斷言**:半殘狀態下**一個誤導性的數字都不准漏出來**。
+   *    `4 / 2`(截斷前的少算值)或 `NT$ 0`(把讀不到當成沒收到錢)任何一個跑出來,
+   *    員工都可能據以**重複下單**或**重複催款**。
+   */
+  it('🔴 災難當天:收款讀不到 + 品項截斷同時發生,兩格各自誠實、不漏出任何假數字', async () => {
+    mocks.listOrderPayments.mockRejectedValue(new Error('讀不到'));
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+      itemsTruncated: true,
+    } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('NT$ 1,200 / 未知總額 / 已收');
+    expect(text).toContain('未知品項數 已訂 / 到貨');
+    expect(text).not.toContain('4 / 2');
+    // 🔴 **「已收那半永遠不是一個金額」要釘得【夠窄】** ——
+    //    我第一版寫 `not.toContain('NT$ 0')`,結果**假紅**:那串命中的是頁面別處的「運費 NT$ 0」。
+    //    ⇒ 反向斷言選太寬會撞到無關內容,而**它的症狀是紅、看起來像抓到 bug**(同 §⑧ 那個病)。
+    //    正解:釘「總額後面接的是不是另一個金額」這個**結構**,不是釘一個到處都有的字串。
+    expect(text).not.toMatch(/NT\$ 1,200 \/ NT\$/);
+    // 🔴🔴 **半殘那一天,整頁不准出現 `NaN`。** 這一條不是本片的職責範圍,而是
+    //    **只有這一格會在「資料不完整」的狀態下把整頁渲染出來** ⇒ 它是唯一站得到這個位置的格。
+    //    實錘:寫這一格時就撞到兩個 `NaN`(採購區與取消表),病根是本檔 fixture 少給
+    //    `quantitySummary.quantity`。**少一個欄位不會紅、不會噴錯,只會長出一個 `NaN`。**
+    expect(text).not.toContain('NaN');
+  });
+
+  it('🔴 收款讀不到:總額照印,已收不畫金額', async () => {
+    mocks.listOrderPayments.mockRejectedValue(new Error('讀不到'));
+    const text = await render({
+      total: { amount: 1200, currency: 'TWD' },
+      items: [line(1, 0)],
+    } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('NT$ 1,200 / 未知');
+    // 🔴 反向釘死:退回「算不出來就當 0」的話,這裡會出現一個假的已收金額。
+    expect(text).not.toContain('NT$ 1,200 / NT$ 0');
   });
 });
 

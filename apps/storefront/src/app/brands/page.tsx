@@ -27,8 +27,8 @@ import { fetchBrandsWithProducts } from '@/lib/brand-products';
 import { resolveSiteUrl } from '@/lib/site-url';
 
 // 標題與描述 = 設計稿 `brand-directory.html:6-7` 逐字(全形直豎線、非半形 |;同 `[slug]` 那支)。
-const TITLE = 'PCM MOTOR PARTS LTD.｜品牌總覽';
-const DESCRIPTION = '依品牌找部品，直接查看 PCM MOTOR PARTS LTD. 各品牌商品。';
+const TITLE = 'PCM MOTOR PARTS LTD｜品牌總覽';
+const DESCRIPTION = '依品牌找部品，直接查看 PCM MOTOR PARTS LTD 各品牌商品。';
 
 export async function generateMetadata(): Promise<Metadata> {
   const base = resolveSiteUrl();

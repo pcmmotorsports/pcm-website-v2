@@ -21,6 +21,8 @@ import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { ItemProcurementSection } from './item-procurement-section';
+import { ItemsTable } from './order-detail-items-table';
+import { OrderSummaryCards } from './order-detail-summary-cards';
 import { OrderCancelBlock } from './order-cancel-block';
 import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
@@ -47,49 +49,6 @@ import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 // 🔴 判斷本體與 `REFUND_ENTRY_STATUSES` 已於 **#445a-3** 搬到 `refund-entry-gate.ts`,
 //    理由:445a-3 讓「未登記額讀取失敗」變成每張單都可達的狀態,那個閘需要 oracle,
 //    而純判斷不該為了被測而在測試裡 mock `server-only`。**邏輯未變,只是換了位置。**
-const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
-const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-medium';
-const ROW = 'flex justify-between gap-4 py-1 text-sm';
-const ROW_LABEL = 'text-muted-foreground shrink-0';
-
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className={ROW}>
-      <span className={ROW_LABEL}>{label}</span>
-      <span className='text-right break-all'>{value ?? '—'}</span>
-    </div>
-  );
-}
-
-/**
- * 「出貨狀態」那格的值 = 軸的中文 + **一行解釋為什麼是這個字的小字**。
- *
- * 🔴 **為什麼要有這行小字**(Sean 2026-08-15 拍板乙):改讀真相之後,`RCPVVJ` 那張單
- *    上方摘要寫「未訂貨」、品項列寫「訂貨 3/6」—— **兩個都對,而放在一起讓人看不懂**
- *    (軸的定義是「該單所有品項都訂滿才算已訂」,3<6 ⇒ 退回前一階)。
- *    ⚠️ 後果不是美觀問題:**員工可能讀成「還沒下單」而重複下單、同一批貨訂兩次。**
- *    需求檔 `docs/specs/2026-08-12-admin-order-ui-design-brief.md:114` 早就要求
- *    「這個定義要在畫面上讓人看得懂」—— `#514` 只做了改讀真相那半,這片補另一半。
- *
- * 🔴 **軸值本身一個字都不動**(`GOODS_AXIS_LABEL` / `ORDER_GOODS_AXIS_VALUES` / 篩選 chip / adapter
- *    全部沒碰)⇒ 這片不中鐵則 8。小字是**加上去的解釋**,不是新的狀態。
- *
- * 規則與它依賴的三條 DB CHECK 寫在 `goodsAxisProgressNote` 的 docstring,**不在這裡重複一份**
- * (兩份會漂;那條規則的正當性屬於算它的地方)。
- *
- * 🔴 **守門在 `app/orders/[id]/refund-wiring.test.tsx` 的 `describe('出貨狀態的解釋小字')`(六格)。**
- *    **檔名對不上是刻意的**,「為什麼不改名」寫在 `goodsAxisProgressNote` 的 docstring
- *    (E 窗 2026-08-15 `E-629` nit1)。⇒ **動這一格的渲染 = 必跑那六格。**
- */
-function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
-  const note = goodsAxisProgressNote(detail.items);
-  return (
-    <>
-      {GOODS_AXIS_LABEL[orderDetailGoodsAxis(detail)]}
-      {note !== null && <span className='text-muted-foreground block text-xs'>{note}</span>}
-    </>
-  );
-}
 
 /**
  * A9w1:品項列的三軸顯示(取代九碼 `ItemWorkflowStatusCell`)。
@@ -106,130 +65,6 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
  *    「欄還沒有、要先做前置」的**反向結論**,而欄已經在手上。
  *    ⇒ 現在的正確理由是:**本片(明細頁)沒有要畫它**,不是拿不到它。
  */
-function ItemAxisCell({ summary }: { summary: AdminOrderItemQuantitySummary | null }) {
-  // 型別是 `| null`,但這裡刻意用 falsy 判斷。
-  // ⚠️ **2026-08-10 更正**(A13b D6-a R2 codex):原本寫「投影退版時這一欄會是 `undefined`」——
-  //    **那句沒有依據**,`mappers/order.ts:542-544` 的 `mapQuantitySummary` 回 `| null`、
-  //    產不出 `undefined`。falsy 判斷保留的理由只有「防手寫物件」與「兩種缺值處置相同」,
-  //    不是在接住一個已知的產線值。(`cancel-view.ts` 同族註解已同步收窄。)
-  if (!summary) {
-    return <span className='text-muted-foreground text-xs'>數量資料尚未就緒</span>;
-  }
-  return (
-    <div className='text-xs leading-5'>
-      <div>
-        訂貨{' '}
-        <span className='tabular-nums'>
-          {summary.orderedQuantity}/{summary.quantity}
-        </span>
-      </div>
-      <div>
-        到貨{' '}
-        <span className='tabular-nums'>
-          {summary.instockQuantity}/{summary.quantity}
-        </span>
-      </div>
-      {summary.cancelledQuantity > 0 && (
-        <div className='text-destructive'>
-          已取消 <span className='tabular-nums'>{summary.cancelledQuantity}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
-  const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
-  const TD = 'px-3 py-2 text-sm align-top';
-  return (
-    <div className='overflow-x-auto rounded-lg border bg-card'>
-      <table className='w-full border-collapse'>
-        <thead>
-          <tr>
-            <th className={TH}>品項</th>
-            <th className={TH}>SKU</th>
-            <th className={`${TH} text-right`}>數量</th>
-            <th className={`${TH} text-right`}>單價</th>
-            <th className={`${TH} text-right`}>小計</th>
-            {/* 取消那一列只在 >0 時出現(0 件取消是常態、每列印一個 0 是噪音),欄名仍列出來 */}
-            <th className={TH}>訂貨 · 到貨 · 取消</th>
-          </tr>
-        </thead>
-        <tbody>
-          {detail.items.map((item) => (
-            <tr key={item.id} className='border-t'>
-              <td className={TD}>
-                <div>{item.title ?? '—'}</div>
-                {item.spec && (
-                  <div className='text-muted-foreground mt-0.5 text-xs'>
-                    {Object.entries(item.spec)
-                      .map(([k, v]) => `${k}: ${v}`)
-                      .join(' · ')}
-                  </div>
-                )}
-              </td>
-              <td className={`${TD} text-muted-foreground whitespace-nowrap text-xs`}>
-                {item.variantSku}
-              </td>
-              <td className={`${TD} text-right tabular-nums`}>{item.quantity}</td>
-              <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
-                NT$ {formatOrderAmount(item.unitPrice.amount)}
-              </td>
-              <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
-                NT$ {formatOrderAmount(item.lineTotal.amount)}
-              </td>
-              {/* A9w1:九碼下拉退場 → 三軸數量(唯讀;訂貨的「改」在下方採購區塊 A10b) */}
-              <td className={`${TD} whitespace-nowrap`}>
-                <ItemAxisCell summary={item.quantitySummary} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot className='border-t text-sm'>
-          <tr>
-            <td colSpan={4} className='text-muted-foreground px-3 py-1.5 pt-3 text-right'>
-              小計
-            </td>
-            <td className='px-3 py-1.5 pt-3 text-right tabular-nums whitespace-nowrap'>
-              NT$ {formatOrderAmount(detail.subtotal.amount)}
-            </td>
-            <td />
-          </tr>
-          <tr>
-            <td colSpan={4} className='text-muted-foreground px-3 py-1.5 text-right'>
-              運費
-            </td>
-            <td className='px-3 py-1.5 text-right tabular-nums whitespace-nowrap'>
-              NT$ {formatOrderAmount(detail.shippingFee.amount)}
-            </td>
-            <td />
-          </tr>
-          {detail.discountTotal.amount > 0 && (
-            <tr>
-              <td colSpan={4} className='text-muted-foreground px-3 py-1.5 text-right'>
-                折扣
-              </td>
-              <td className='px-3 py-1.5 text-right tabular-nums whitespace-nowrap'>
-                −NT$ {formatOrderAmount(detail.discountTotal.amount)}
-              </td>
-              <td />
-            </tr>
-          )}
-          <tr className='border-t font-medium'>
-            <td colSpan={4} className='px-3 py-2 text-right'>
-              總計
-            </td>
-            <td className='px-3 py-2 text-right tabular-nums whitespace-nowrap'>
-              NT$ {formatOrderAmount(detail.total.amount)}
-            </td>
-            <td />
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  );
-}
-
 /**
  * A10a-3:`?correct=<id>` → 表單更正模式的目標(含原型別 = MF1 radio 初值;節錄 40 字供辨認)。
  * 解析不到(不在已載入集合 —— 截斷後的書籤/返回、或已被更正 —— 並行 session 先更正了)
@@ -372,74 +207,10 @@ export function OrderDetail({
         </span>
       </div>
 
-      {/* #350c:欄數改看**容器寬度**而不是視窗寬度(主視窗 2026-08-10 裁④)。
-          🔴 為什麼非改不可:同一份明細現在有兩個容器 —— 整頁版(~72rem)與右側面板(~36rem)。
-          用 `md:`/`xl:` 這種 viewport 斷點的話,1920 螢幕上的 576px 面板會**硬排四欄**、每欄擠到不能看。
-          容器斷點 `@md`(28rem)/ `@4xl`(56rem)⇒ 面板 2 欄、整頁 4 欄。
-          ⚠️ **兩個消費者的外框都必須帶 `@container`**,否則容器斷點沒有參照對象、一律退回 1 欄
-          (`order-panel-wiring.test.ts` 有一格把兩邊的 `@container` 釘住)。 */}
-      <div className='grid gap-4 @md:grid-cols-2 @4xl:grid-cols-4'>
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>客戶資訊</h2>
-          <Field label='姓名' value={detail.customer.name} />
-          <Field label='電話' value={detail.customer.phone} />
-          {/* 🔴 LINE 合成位址不顯示原字串(Sean 2026-08-16 拍板乙)——
-              **這一處是盤點時多找到的第三個顯示點**(交辦只提客戶頁的列表與明細)。
-              客服處理訂單時看到的就是那串內部識別碼 ⇒ 只修客戶頁 = 修一半。
-              判斷與文案的理由全文在 `customerEmailDisplay` 的 docstring,此處不重複一份。 */}
-          <Field label='Email' value={customerEmailDisplay(detail.customer.email)} />
-        </section>
-
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>收件與出貨</h2>
-          <Field label='收件人' value={detail.shippingAddress.name} />
-          <Field label='電話' value={detail.shippingAddress.phone} />
-          <Field label='地址' value={detail.shippingAddress.line} />
-          <Field label='出貨方式' value={shippingMethodLabel(detail.shippingMethod)} />
-        </section>
-
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>付款</h2>
-          <Field label='付款狀態' value={PAYMENT_STATUS_LABEL[detail.paymentStatus]} />
-          {/* 🔴🔴 `#514`:這一格**改讀貨品軸的真相**,不再讀 `orders.fulfillment_status`。
-              那一欄的 COLUMN COMMENT 自己寫著「E10 起停止維護、值為 legacy stale、不得當現況真相」
-              (`20260729010000_m4b_e10_d0_display_id_expand.sql:88` 逐字),而**全 migrations 零 writer**
-              ⇒ 正式庫 13/13 全是 DEFAULT `notOrdered` ⇒ **這一格從來沒有正確過一次**。
-              ⚠️ 那條 COMMENT 防的是「有人拿它做判斷」,**沒防「有人把它畫出來」——`render` 不是判斷**。
-              🔴 **文案一個字都沒變**:`GOODS_AXIS_LABEL` 與 `FULFILLMENT_STATUS_LABEL` 字面逐字相同
-                 (`order-list-view.ts` 兩張表的 docstring 互相記著這件事)⇒ **變的只有資料從哪來**。
-              ⚠️ **修完之後多數單仍顯示「未訂貨」,而那是對的** —— 正式庫多數單還沒採購;
-                 要證明它真的改讀了,看**有採購紀錄的那張單**(`order-status-axes.test.ts` 釘了那一格)。 */}
-          <Field label='出貨狀態' value={<GoodsAxisValue detail={detail} />} />
-          <Field
-            label='來源 · 管道'
-            value={`${ORDER_SOURCE_LABEL[detail.orderSource]} · ${PAYMENT_CHANNEL_LABEL[detail.paymentChannel]}`}
-          />
-          <Field
-            label='付款時間'
-            value={detail.paidAt ? formatOrderDateTime(detail.paidAt) : null}
-          />
-        </section>
-
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>發票</h2>
-          <Field label='需求型式' value={invoiceTypeLabel(detail.invoiceRequest.type)} />
-          {detail.invoiceRequest.taxId && (
-            <Field label='統編 / 抬頭' value={`${detail.invoiceRequest.taxId} ${detail.invoiceRequest.title ?? ''}`} />
-          )}
-          {detail.invoiceRequest.carrier && (
-            <Field label='載具' value={detail.invoiceRequest.carrier} />
-          )}
-          <Field label='開立狀態' value={INVOICE_STATUS_LABEL[detail.invoiceStatus]} />
-          <Field label='發票號碼' value={detail.invoiceNumber} />
-          <Field
-            label='發票金額'
-            value={
-              detail.invoiceAmount ? `NT$ ${formatOrderAmount(detail.invoiceAmount.amount)}` : null
-            }
-          />
-        </section>
-      </div>
+      {/* 🔴 片4b:`payments` 是頭條「已收」的來源 —— 傳的是**原始 `PaymentListData`**,
+          不是算好的金額。理由:元件內部要吃 `toPaymentSummary()`(與付款卡同一支函式),
+          `unknown` 那態才畫得出「未知」而不是一個假的 0。 */}
+      <OrderSummaryCards detail={detail} payments={payments} />
 
       {/* A10a-2/-3:備註時間軸 + 表單。
           🔴 位置 = **發票卡下方**(OD 第十二輪定案 `overview-desktop.html:1171-1173` 逐字
@@ -490,9 +261,22 @@ export function OrderDetail({
       {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
       <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
 
+      {/* 🔴🔴 **這裡沒有條件包裹,是 Sean 2026-08-15 拍板的結果,不是漏做。**
+          (`Q-13-2 = 丙`、`Q-13-3 = 乙`;完整矩陣見
+           `docs/specs/2026-08-15-e10-13-order-edit-matrix-order-level.md` §3-4。)
+
+          **已取消 / 已退款 / 已出貨的單,這張表單一律照常出現、四欄一律可改。理由**:
+          · **已取消 / 已退款** → 那張單**可能正需要作廢發票**。開票狀態、發票號碼、發票金額
+            都是「單沒了之後還要處理的事」⇒ **鎖掉會讓員工無路可走。**
+          · **已出貨** → 實際走的物流可能與當初填的不同(換快遞、改自取)
+            ⇒ **要能補登真實情況**;鎖掉等於強迫紀錄與事實不符。
+
+          ⚠️ **在加任何 `detail.cancelledAt === null && …` 之前,先去讀上面那份矩陣。**
+          🔴 **這段註解存在的理由**:拍板之前,這裡的「沒有守門」與「決定要開放」
+             **在畫面上、在程式碼裡都長得一模一樣** —— 而現在它是後者。 */}
       <OrderEditForm detail={detail} returnTo={returnTo} />
 
-      <ItemsTable detail={detail} />
+      <ItemsTable detail={detail} payments={payments} />
 
       {/* A10b:採購區塊(逐品項清單 + upsert 表單)。🔴 內部資料、admin-only。 */}
       <ItemProcurementSection

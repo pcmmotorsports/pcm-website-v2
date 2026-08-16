@@ -187,7 +187,7 @@ export function ProductDetail({
             沿用並「強化」成全稱句** = 折 finding 只處理被指名那一處。
             ⇒ 這版**不再用一個新的全稱句去修一個舊的全稱句**:講清楚「依供應商而定」,
             並指向可以查證的地方,而不是在 admin 裡再抄一份會漂的供應商清單。 */}
-        <p className='border-muted-foreground/30 bg-muted/40 mb-3 rounded border p-3 text-sm'>
+        <p className='border-muted-foreground/30 bg-muted/40 mb-3 rounded-md border p-3 text-sm'>
           <strong>這一頁的東西不能在後台改</strong> —— 它由供應商同步管線維護。
           <br />
           <strong>多數商品每天會被覆蓋一次</strong>;但<strong>是否每天同步、哪些欄位會被覆蓋,

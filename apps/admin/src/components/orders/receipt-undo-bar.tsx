@@ -67,7 +67,7 @@ export function ReceiptUndoBar({
           <button
             type='submit'
             disabled={pending}
-            className='rounded border px-2 py-1 disabled:opacity-50'
+            className='rounded-md border px-2 py-1 disabled:opacity-50'
           >
             {pending ? '撤銷中…' : '撤銷剛剛那筆'}
           </button>

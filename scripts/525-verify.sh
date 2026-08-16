@@ -28,7 +28,8 @@
 #   ./scripts/525-verify.sh stop        # 收掉
 #
 # ⚠️ **基線是照 repo 的 migration 重建的,不是正式庫實況** —— 全檔結論以此為界。
-# 🔴 **`service_role` / `anon` / `authenticated` 三個角色 repo 全樹零 CREATE ROLE**
+# 🔴 **`service_role` / `anon` / `authenticated` 三個角色 `supabase/migrations/` 全樹零 CREATE ROLE**
+# (⚠️ 2026-08-16 校正:原寫「repo 全樹零」是假的全稱句 —— 量法 `git grep -nE '全樹.{0,8}CREATE ROLE'` 曾回 5 命中,反例包含【拋棄式測試環境自己造角色】。真值=`supabase/migrations/` 底下零,那目錄只有 `payment_confirmer`。)
 #    (它們是 Supabase 平台給的)⇒ 本檔自己造。**那不是 migration 有問題。**
 # ============================================================
 set -uo pipefail
@@ -78,7 +79,8 @@ provision)
   pg -o "-p $PORT -c unix_socket_directories=" -l "$WORK/pg.log" start >/dev/null 2>&1
   sleep 2
   "${PSQL[@]}" -v ON_ERROR_STOP=1 -q <<'SQL' || { echo "建基線失敗"; exit 1; }
--- 平台角色(repo 全樹沒有 CREATE ROLE,它們由 Supabase 提供)
+-- 平台角色(`supabase/migrations/` 底下沒有 CREATE ROLE,它們由 Supabase 提供)
+-- (⚠️ 2026-08-16 校正:原寫「repo 全樹零」是假的全稱句 —— 量法 `git grep -nE '全樹.{0,8}CREATE ROLE'` 曾回 5 命中,反例包含【拋棄式測試環境自己造角色】。真值=`supabase/migrations/` 底下零,那目錄只有 `payment_confirmer`。)
 do $$ begin
   if not exists (select 1 from pg_roles where rolname='service_role')  then create role service_role  nologin; end if;
   if not exists (select 1 from pg_roles where rolname='anon')          then create role anon          nologin; end if;

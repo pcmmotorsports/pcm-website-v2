@@ -2,6 +2,9 @@ import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
 import type { ShipmentRow } from '../../lib/shipping/shipment-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+import { cancelledQuantityOf, outstandingQuantity } from '../../lib/shipping/shipping-doc-quantities';
+import { carrierLabelOf } from '../../lib/shipping/carrier-label';
+import { shippedDateText, trackingDisplay } from '../../lib/shipping/shipping-doc-dispatch';
 import { PrintButton } from './print-button';
 
 // #10 片2b:出貨單(一個箱 × 一張訂單)。
@@ -27,7 +30,7 @@ import { PrintButton } from './print-button';
 //       都要在註解裡寫明「用哪些權威欄、做了什麼運算」。**排下一片單獨做,不夾帶。**
 //    ⇒ **這片在金額落地之前不算做完**,不要當成可以交給 Sean 驗收的成品。
 //
-// 🔴 版面依據:**既有知識 + 本 repo 既有慣例**(片1 的表格形、`orders/order-detail.tsx` 的 `ItemsTable`)。
+// 🔴 版面依據:**既有知識 + 本 repo 既有慣例**(片1 的表格形、`orders/order-detail-items-table.tsx` 的 `ItemsTable`)。
 //    Sean 說「可以參考網路上通用的出貨單格式」,**但這台沒有網路** ⇒ 我沒有查,也不宣稱查過。
 //    美觀交 OD(他逐字「美觀部分到時候再請 OD 優化」)⇒ 本檔只做結構與正確性。
 
@@ -64,6 +67,19 @@ export function shippingDocBlocker(args: {
   if (lines.length === 0) {
     return '這個包裹裡沒有這張訂單的品項。請從訂單頁的出貨卡點進來,不要自己拼網址。';
   }
+  // 🔴 面8(#10 合併片,2026-08-16 補):**這張【訂單】讀不到任何品項。**
+  //    ⚠️ 與面5 是**兩件事**,不要合併:
+  //      面5 = 這【箱】裡沒有本單的東西(箱與單湊錯)
+  //      面8 = 這【單】本身一個品項都沒有(投影出問題)
+  //    ⇒ 面5 過得了不代表面8 過得了 —— `lines` 非空而 `detail.items` 空時,
+  //      下面那個 `known` 集合會是空的、每一條 line 都變成孤兒,員工看到的是「對不上」
+  //      (面7 的話),而真正的病是**整張單讀不到東西**。訊息指錯方向,他會去找箱子的問題。
+  //    🔴 **本條是從揀貨單搬過來的** —— `components/print/picking-doc.tsx:114-115` 早就有,
+  //      而出貨單一直沒有(`grep -c 'items.length === 0' shipping-doc.tsx` 落地前 ⇒ 0)。
+  //      合併時「以出貨單為本體」聽起來像保留出貨單的東西,**這道會靜默消失**,所以先補上。
+  if (detail.items.length === 0) {
+    return '這張訂單讀不到任何品項,出貨單不能印。請重新整理;仍然一樣請回報。';
+  }
   // 面7:箱裡的品項在訂單明細查不到 ⇒ 兩邊對不上,不用 `?? '—'` 蒙混過去。
   const known = new Set(detail.items.map((it) => it.id));
   const orphan = lines.find((l) => !known.has(l.orderItemId));
@@ -83,47 +99,6 @@ export function shippingDocBlocker(args: {
     return '這個包裹沒有完整的收件資料(收件人 / 電話 / 地址有缺),不能出貨。請先補齊收件資料。';
   }
   return null;
-}
-
-/**
- * 這一列**還有幾件沒寄走**。`null` = 不知道(不是 0)。
- *
- * 🔴 **「還沒寄走」的定義是 Sean 2026-08-15 拍的,原話是**:
- *    「**貨運收走了才算『已經出貨』**」
- *    ⇒ **裝進箱子不算**;箱子還躺在店裡沒交給貨運,裡面的東西照樣列在這一區。
- *    ⚠️ 這裡寫的是那句話本身,不是「B 案」——「B 案」是當天決策單上的編號,
- *       半年後沒有人記得 B 是哪一個,但「貨運收走了才算」永遠讀得懂。
- *
- * 🔴🔴 **這個定義不是本片新發明的,DB 早就這樣算了 —— 我是去對上它,不是自己實作一套。**
- *    `supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql:228` 逐字:
- *      `AND s.shipped_at IS NOT NULL;     -- 未寄出的草稿箱不算`
- *    同檔 `:17` 稱它為「真相式」並要求**五處字面必須一致**。
- *    ⇒ `quantitySummary.shippedQuantity` 這個欄的語意**本來就是**「貨運收走的量」。
- *    ⚠️ 反過來說:若 Sean 那天選的是另一案(裝箱就算出貨),**這一片就不能用這個欄** ——
- *       得自己走 shipments 重算,而那會多出一個與 DB 打架的第二真相源。
- *       **他選的那一案剛好沒有這個代價;這是運氣,不是我設計的。**
- *
- * **算式 = 買的 − 取消的 − 寄走的。**
- * 三個數都取自**同一列**摘要(`order_item_quantity_summary`),不跨列湊 ——
- * 因為非負性是靠那一列上的 CHECK 保證的,不是我推的:
- *   `oiqs_cancelled_shipped_le_quantity` = `CHECK (cancelled_quantity + shipped_quantity <= quantity)`
- *   (同一支 migration `:89` 逐字)⇒ 這個差**恆 ≥ 0**。
- *
- * 🔴 **`null` 一律回 `null`、絕不補 0**:契約 `packages/domain/src/order/types.ts:739-762`
- *    逐字「`null` 的意思是「不知道」,不是「都是 0」」。
- *    ⚠️ 這張紙屬於**不可補 0** 的那一類:員工看到「尚未出貨:0 項」會認定這張單出完了、
- *       把剩下的貨放回架上。**把「不知道」印成「沒有」,是這張紙最貴的一種錯。**
- *
- * ⚠️ **與 `picking-doc.tsx` 的 `pickableQuantity()` 是不同的問題,不要合併**:
- *    那個問「**倉庫現在有幾件可以揀**」= `instock − shipped`(沒到貨的揀不了);
- *    這個問「**還欠客人幾件**」= `quantity − cancelled − shipped`(沒到貨的照樣欠)。
- *    ⇒ PCM 是代購、貨常常還沒到 ⇒ 兩者經常不相等,而**客人在意的是後者**。
- */
-export function unshippedQuantity(item: AdminOrderDetailItem): number | null {
-  const s = item.quantitySummary;
-  if (s === null) return null;
-  // 夾 0 的理由同 `pickableQuantity`:CHECK 已保證非負,但我不想在紙上印出負數。
-  return Math.max(0, s.quantity - s.cancelledQuantity - s.shippedQuantity);
 }
 
 /**
@@ -222,22 +197,56 @@ export function ShippingDoc({
   shipment: ShipmentRow;
   lines: OrderShipmentGroup['lines'];
 }) {
+  // ⚠️ **已登記、本片不修的一條(codex 對抗審查 2026-08-16 指出)**:
+  //    頁層分兩次查 —— 先 `findAdminOrderDetail`(拿 `shippedQuantity`)、再 `loadOrderShipments`
+  //    (拿 `shippedAt`)。兩次之間若有人按下「標記出貨」,會拿到**舊的 shippedQuantity**
+  //    配**新的 shippedAt** ⇒ 這一箱兩項都沒算到 ⇒ 尚未出貨**多印**幾件。
+  //    🔴 **方向是「多報欠客人」不是「少報」** —— 前者讓客人打電話來問,後者讓他以為收齊了。
+  //       兩害相權,而**我沒有量過它的實際發生率**(需要兩個並發操作者)。
+  //    ⇒ 修法要在頁層一次讀齊(或加版本比對),那是另一片;**登記不等於處置完畢。**
+  // 這一箱裡每一列的量(「尚未出貨」算式的第四項)。
+  const boxQtyByItemId = new Map(lines.map((l) => [l.orderItemId, l.quantity]));
+
   const blocked = shippingDocBlocker({ detail, shipment, lines });
   const itemById = new Map(detail.items.map((it) => [it.id, it]));
 
+
   // 🔴 **哪些品項要列進「尚未出貨」**:還欠客人的(>0),以及**算不出來的(`null`)**。
   //    ⚠️ `null` 一定要留下來 —— 把「不知道」濾掉,紙上就會變成「沒有」,
-  //       而那正是 `unshippedQuantity` docstring 講的、這張紙最貴的一種錯。
-  //    整數 0 才是真的可以不印:那代表這一項確實已經全部寄走了。
-  const unshippedRows = detail.items
-    .map((item) => ({ item, qty: unshippedQuantity(item) }))
+  //       而那正是 `outstandingQuantity` docstring 講的、這張紙最貴的一種錯。
+  //    整數 0 才是真的可以不印:那代表這一項確實已經全部處理完了。
+  const outstandingRows = detail.items
+    .map((item) => ({
+      item,
+      qty: outstandingQuantity({
+        item,
+        thisShipmentQuantity: boxQtyByItemId.get(item.id) ?? 0,
+        // 🔴 **只扣這一箱,不扣其他還沒出貨的箱** —— 那是刻意的,方向是「多報」不是「少報」。
+        //    理由與反例在 `outstandingQuantity` docstring(我一度改成扣全部,那是過度修正)。
+        thisShipmentShipped: shipment.shippedAt !== null,
+      }),
+    }))
     .filter(({ qty }) => qty === null || qty > 0);
+
+  // 🔴 **第三區「訂單取消」**(Sean 2026-08-16 逐字給的區名)。
+  //    ⚠️ `null`(不知道)**不進這一區** —— 不知道有沒有取消,不能說它被取消了。
+  //       它會出現在「尚未出貨」區並標「數量資料尚未就緒」,那裡才是誠實的位置。
+  const cancelledRows = detail.items
+    .map((item) => ({ item, qty: cancelledQuantityOf(item) }))
+    .filter((r): r is { item: (typeof r)['item']; qty: number } => r.qty !== null && r.qty > 0);
 
   return (
     <div className='mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
+      {/* 🔴 **三個號碼各自帶標籤**(plan §4)。設計需求書早就標了這個風險(當時只有兩個碼):
+          「**兩個碼並排裸印,客人不知道該拿哪個去查**」。現在紙上有三個
+          —— 訂單編號 / 箱號 / 追蹤碼 —— 而**只有追蹤碼是拿去別人家網站查的**。
+          ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。 */}
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>出貨單</h1>
-        <span className='text-xl font-semibold tabular-nums'>{detail.displayId}</span>
+        <span className='text-xl font-semibold tabular-nums'>
+          <span className='text-muted-foreground text-sm font-normal'>訂單編號 </span>
+          {detail.displayId}
+        </span>
         <span className='font-mono text-sm'>箱號 {shipment.shipmentReference}</span>
         <PrintButton label='列印' />
       </div>
@@ -247,11 +256,67 @@ export function ShippingDoc({
       ) : (
         <>
           {/* 收件人。`blocked === null` 已保證 `recipientSnapshot` 非 null 且三欄都有內容。 */}
-          <div className='rounded border p-3 text-sm'>
+          <div className='rounded-md border p-3 text-sm'>
             <div className='text-muted-foreground mb-1 text-xs'>收件人</div>
             <div className='font-medium'>{shipment.recipientSnapshot?.name}</div>
             <div>{shipment.recipientSnapshot?.phone}</div>
             <div>{shipment.recipientSnapshot?.line}</div>
+          </div>
+
+          {/* ── 貨運資訊(#10 片3)──
+              🔴 **這一區在落地之前,紙上關於「誰送的、去哪查」一個字都沒有。**
+                 設計需求書把追蹤碼列為「必須(缺)」,理由逐字:**「客人查貨的唯一依據」**。
+              🔴 資料全在 `ShipmentRow` 裡 ⇒ 零 migration、零新查詢。純粹是「有資料沒印出來」。
+              ⚠️ 三個欄位各自的判斷都在 `lib/shipping/shipping-doc-dispatch.ts` 與
+                 `carrier-label.ts`,**不在這裡** —— 它們要有不需渲染就跑得動的測試。 */}
+          <div className='rounded-md border p-3 text-sm'>
+            <div className='text-muted-foreground mb-1 text-xs'>貨運資訊</div>
+            <div className='flex flex-wrap gap-x-6 gap-y-1'>
+              <span>
+                貨運商:{carrierLabelOf(shipment.carrierCode)}
+                {shipment.carrierNote !== null && shipment.carrierNote.trim() !== '' &&
+                  `(${shipment.carrierNote})`}
+              </span>
+              {/* 🔴 出貨日:未出貨時印**列印當天**(Sean 拍甲,**明知偶爾會與系統差一天**)
+                  ⇒ 設計需求書逐字要求**不要**加「以系統為準」之類的但書。照做,不加。
+
+                  ⚠️⚠️ **已登記的 Sean 決策題(R1 must-fix 3,本片【刻意不自己改】)**:
+                  箱還沒標出貨時,同一張紙上會並排出現
+                    「出貨日:2026-08-16」 與 「追蹤碼:尚未出貨,出貨後補」
+                  ⇒ 客人讀起來是**自相矛盾**的(已經有出貨日了,怎麼又說尚未出貨)。
+                  🔴 **兩條各自都是 Sean 拍的**:出貨日=列印當天(拍甲)、標籤兩條路共用「出貨日」。
+                     沒有人檢查過它們**會相鄰**。
+                  ⇒ 修法(未出貨時把標籤改成「列印日」)**會推翻他拍的「標籤共用」那一條**
+                     ⇒ 不屬於我可以拍的板,寫進 C-212-STOP 等他回來。
+                  📎 在他答之前,現況照他拍的字面走 —— 這是**已知代價**,不是漏做。 */}
+              <span>出貨日:{shippedDateText(shipment.shippedAt)}</span>
+            </div>
+            {/* 追蹤碼自成一列:它是**最長、也最會被抄下來**的那個號碼。 */}
+            <div className='mt-1'>{(() => {
+              const t = trackingDisplay(shipment);
+              if (t.kind === 'number') {
+                return (
+                  <span>
+                    {t.label}:
+                    <span className='font-mono text-base font-semibold'>{t.value}</span>
+                  </span>
+                );
+              }
+              // 🔴🔴 **`missing` 一定要看得出來** —— 那代表寫入鏈有洞,而這張紙正要跟著貨出門。
+              //    留白的話員工不會發現,客人拿到一張查不到貨的紙。(plan §3.1 情形③)
+              if (t.kind === 'missing') {
+                // ⚠️ **不放 emoji**(R1 nit 15):這條路徑那張紙**是會跟著貨出門的**,
+                //    而 `Alert` 那條路徑整張紙不出門 ⇒ 兩者不能照抄。
+                //    單色雷射印表機上 emoji 會糊成一坨黑。⇒ 用粗體 + 暖色,印得出來也看得見。
+                // 🔴 **這一支【不加「追蹤碼:」前綴、也不接任何常數字尾**(R2 F2 + F4):
+                //    ① 加前綴 ⇒ 「追蹤碼:追蹤碼缺漏…」四個字重複。
+                //    🔴🔴 ② 接常數字尾會讓頁測那格**恆真** —— 它量的是這一列有幾個字,
+                //       而常數字尾自己就 12 個字 ⇒ `t.text` 被改成空字串時**照樣過**。
+                //       ⇒ 這一列印出來的字**全部來自 `t.text`**,量它才量得到東西。
+                return <span className='font-semibold text-amber-800'>{t.text}</span>;
+              }
+              return <span className='text-muted-foreground'>追蹤碼:{t.text}</span>;
+            })()}</div>
           </div>
 
           <div className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-1 text-sm'>
@@ -275,25 +340,36 @@ export function ShippingDoc({
             })}
           </Section>
 
-          {/* ── 區塊二:這張單還欠客人什麼(Q-D-6,見 `unshippedQuantity` docstring)──
-              🔴 **這一區的母體是整張訂單,不是這一箱。** 它回答的是「這張單還沒完」,
-                 而不是「這箱還剩什麼」—— 後者永遠是空的(箱裡的東西就在上面那一區)。 */}
-          {unshippedRows.length === 0 ? (
+          {/* ── 區塊二:這張單還欠客人什麼 ──
+              🔴 **這一區的母體是整張訂單,不是這一箱。** 它回答的是「這張單還沒完」。
+              🔴 **算式四項、紙面三格**(Sean `Q-C4`,見 `outstandingQuantity` docstring):
+                 「先前已寄走的」**有算進去、但不印出來** ——
+                 他要的現象是「最後一批出完之後這一區就空了」,而那只有扣掉先前才會發生。
+              ⚠️ **所以本檔【刻意沒有】印一條「訂購 = 本次 + 尚未 + 已取消」的對帳等式** ——
+                 那條等式少了「先前已出貨」那一項,**在第二箱就會對不起來**
+                 (訂購 5、先前 2、這箱 1 ⇒ 5 ≠ 1 + 2 + 0)。
+                 **印一條加不起來的等式,比不印更糟** —— 它會讓客人以為我們算錯了帳。
+                 ⇒ 每一區各自報自己的小計,**不跨區宣稱等式**。 */}
+          {outstandingRows.length === 0 ? (
             <div className='text-muted-foreground border-t pt-3 text-sm'>
-              尚未出貨項目:無。這張訂單的東西都已經寄出去了。
+              {/* 🔴 **不可以說「都寄出去了」** —— 這一區空掉有兩個成因:真的都出了,
+                  **或者剩下的全被取消了**(codex 抓的,我第一版真的印了那句話)。
+                  對客人講「都寄出去了」而其實有幾件是被取消的,那是**紙上直接說謊**。
+                  ⇒ 只陳述這一區的事實,成因交給旁邊的「訂單取消」區自己講。 */}
+              尚未出貨:無 —— 這張訂單沒有還欠客人的品項。
             </div>
           ) : (
             <Section
-              title='尚未出貨項目'
-              note='這張訂單還沒交給貨運的東西(裝了箱但還沒寄的也算)'
-              qtyHeader='還沒寄出'
+              title='尚未出貨'
+              note='這張訂單還欠客人的東西(不含這一箱要寄的)'
+              qtyHeader='還欠幾件'
             >
-              {unshippedRows.map(({ item, qty }) => (
+              {outstandingRows.map(({ item, qty }) => (
                 <tr key={item.id} className='border-b'>
                   <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />
                   <td className='px-2 py-3 text-right align-top'>
                     {qty === null ? (
-                      // 🔴 不知道就明說,**不印下單量、不補 0**(契約見 `unshippedQuantity` docstring)。
+                      // 🔴 不知道就明說,**不印下單量、不補 0**(契約見 `outstandingQuantity` docstring)。
                       <span className='text-sm font-medium text-amber-800'>
                         數量資料尚未就緒
                         <br />
@@ -302,6 +378,25 @@ export function ShippingDoc({
                     ) : (
                       <span className='text-xl font-semibold tabular-nums'>{qty}</span>
                     )}
+                  </td>
+                </tr>
+              ))}
+            </Section>
+          )}
+
+          {/* ── 區塊三:訂單取消(Sean 2026-08-16 逐字給的區名,不要正規化)──
+              🔴 **為什麼要獨立一區,而不是把這些列從紙上拿掉**:
+                 拿掉的話,客人看到「訂購 5」卻只數得到 3 件,而紙上沒有任何解釋。
+              🔴 **也不是掛在區塊一當一列「不出貨」** —— Sean 2026-08-16 逐字
+                 「**不揀貨就不需要寫在上方**…不用把不揀貨還要寫在上面**造成誤會**」。
+                 ⇒ 「造成誤會」把它定性成**正確性**問題:員工要一眼看出哪些要出、哪些不出。 */}
+          {cancelledRows.length > 0 && (
+            <Section title='訂單取消' note='這張訂單裡已經取消的品項,不會出貨' qtyHeader='已取消'>
+              {cancelledRows.map(({ item, qty }) => (
+                <tr key={item.id} className='border-b'>
+                  <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />
+                  <td className='px-2 py-3 text-right align-top text-xl font-semibold tabular-nums'>
+                    {qty}
                   </td>
                 </tr>
               ))}
