@@ -14054,7 +14054,7 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 - 🔴 **動 migration ⇒ 鐵則 12 ③,要 Sean 批 + 對抗審查。現在只記,不做。**
 - **相關:** `docs/patterns/revoking-function-execute-in-supabase.md`;`#525`;`#546`
 
-### #546 · **沒有人讀過正式庫真正的 ACL** —— 所有權限結論目前只證到「repo 文字」
+### #546 · 正式庫 ACL 對帳 —— **A 庫已做(2026-08-16),報價單庫仍完全沒查**
 
 > ⚠️ **號碼佔位,待主視窗確認**(同 `#545` 兩道,`#546` 為連號)。
 
