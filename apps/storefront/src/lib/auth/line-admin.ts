@@ -3,9 +3,13 @@
 // ⚠️⚠️ service_role 受控例外(Sean 2026-05-25 Q1=A 拍板 + ADR-0005 §8 記錄):
 //   ADR-0005 §6/§7 與 eslint.config.js 規定 storefront 不得 import @pcm/adapters/server(service_role)。
 //   LINE 自寫 OAuth 的 Admin API(createUser / generateLink)**無 anon 替代**、且 callback 須同源才寫得到 session
-//   cookie(搬 apps/api 跨源不可行、見決策1 選項 B)。故本檔為 storefront 首個 service_role 受控小門:
+//   cookie(搬 apps/api 跨源不可行、見決策1 選項 B)。故本檔為 storefront 的 service_role 受控小門之一:
 //   - `import 'server-only'` 編譯期擋 client 引入;僅 /api/auth/line/callback route(server-only、runtime='nodejs')引用。
-//   - service_role 鎖死本檔、不外擴;build 後 grep client chunk 應 0 命中 SUPABASE_SERVICE_ROLE_KEY(關卡2 驗)。
+//   - service_role 只在本檔這道門之內使用;build 後 grep client chunk 應 0 命中 SUPABASE_SERVICE_ROLE_KEY(關卡2 驗)。
+//   🔴 **本檔【不】宣稱 storefront 共有幾道這種門 —— 真相在 `eslint.config.js:138-149`**
+//      (對 `apps/storefront/**` 禁 import `@pcm/adapters/server`)⇒ **開新門會 lint 紅。**
+//      把數字寫進註解 = 製造下一個過期字面:2026-08-16 E 窗實查,原文「首個」「鎖死本檔、不外擴」
+//      已與現況不符,而讀到它的人沒有任何理由去複查。**要數量,去問那份設定,不要問這段註解。**
 //   - 既有 composition.ts 例外註解「永不 import createSupabaseServiceClient」僅約束該檔(anon adapter 注入),
 //     不涵蓋本檔;本檔是經 Sean 拍板 + ADR 記錄的新例外、範圍極窄(只 LINE OAuth)。
 //

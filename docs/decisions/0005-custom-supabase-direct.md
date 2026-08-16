@@ -262,6 +262,10 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 **通則仍成立:** storefront(`apps/storefront/**`)公開讀走 RLS anon、**不持 service_role**(eslint.config.js `no-restricted-imports` 擋 `@pcm/adapters/server`、對齊 service_role key 紀律)。本例外**只開一個極窄小門、不鬆動通則**。
 
 **例外:** LINE 自寫 OAuth(Q4=Y)的 callback 需 Supabase Admin API(`createUser` / `generateLink`)建立 / 登入 LINE 用戶 + 發 session。Admin API **無 anon 替代**,且 callback 須與 storefront **同源**才寫得到 session cookie(搬 `apps/api/` 跨源不可行)。故 `apps/storefront/src/lib/auth/line-admin.ts` 成為 storefront 首個、也是目前唯一的 service_role 引用點。
+> 🔴 **2026-08-16 修訂:上一句的「目前唯一」是【2026-05-25 當下】的事實,現在已不成立**(E 窗 `E-671` 實查)。
+> **不要拿它當現況引用。** 要知道 storefront 現在有幾個引用點,**去問 `eslint.config.js:138-149` 那道禁令**
+> (對 `apps/storefront/**` 禁 import `@pcm/adapters/server`)—— **開新門會 lint 紅,那份設定才是真相。**
+> 本段保留原文不改寫,因為它記的是**當時的決定**;新增的門是否各自合法,是各自的 ADR / 拍板該回答的事。
 
 **護欄(缺一不可):**
 - `import 'server-only'`:編譯期擋 client component 引入(transitive)。
@@ -279,5 +283,6 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 |---|---|---|
 | 2026-05-04 | 初版落地、Sean 拍板 Q1=A1 廢 ADR-0002 §1.2 Pivot 2「Medusa-as-API」、改 Custom + Supabase 直寫(9 contexts 統一架構)、5 候選方案 + 三視角 + Rollback 訊號 + 影響清單 + 後續 milestone 字面變更 | Sean 拍板 / Claude Code(M-1-03-pre0b)落地 |
 | 2026-05-25 | §8.4 新增:storefront service_role 受控小門例外(M-1-14e-f2 LINE OAuth、Sean Q1=A);通則「storefront 不持 service_role」不變、僅 line-admin.ts 經護欄極窄例外 | Sean 拍板 / Claude Code(M-1-14e-f2-a2)落地 |
+| 2026-08-16 | §8.4 加修訂註:「首個、也是目前唯一的 service_role 引用點」已過期(E 窗 `E-671` 實查),原文保留、加指標到 `eslint.config.js:138-149`。**通則與例外本身未變,只修「數量宣稱」這種會過期的字面。** 同批修 `line-admin.ts` 檔頭同款字面;判別句與四臂 REVOKE 實測落 `docs/patterns/revoking-function-execute-in-supabase.md` | B 窗 / Claude Code(M-4b)落地 |
 
 — END —
