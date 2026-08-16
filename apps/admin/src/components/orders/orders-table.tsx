@@ -94,7 +94,21 @@ const OPS_LINK_GLYPH = '⋯';
  */
 const OPS_LINK_LABEL = '訂單操作';
 
-const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
+/* 🔴 **表頭字體(片3)—— 搬 OD `overview-desktop-bmw-m.html:167`,但【三件只搬得動兩件】。**
+   OD 原規則 = `font-size:var(--text-xs); font-weight:700; letter-spacing:1.5px; text-transform:uppercase`。
+     ✅ **搬了**:`font-weight:700`(`font-medium` → `font-bold`)、`letter-spacing:1.5px`(`tracking-[1.5px]`)。
+     🔴 **沒搬 `uppercase`,而且【不能】把它寫上去充數** —— 13 個表頭**全是中文**
+        (單號/日期/車種/廠牌/料號/物品名稱/數量/單價/金額/客戶/狀態/發票/操作),
+        **`uppercase` 對 CJK 是 no-op**:寫上去畫面一個像素都不會變,
+        但檔案裡會留下一行「已照 OD 做大寫」的字面,而下一個人會相信它。
+        ⇒ **「宣稱 ≠ 能力」的又一個形狀,只是這次代價是零視覺、純誤導。**
+   ⚠️ **`letter-spacing` 在 CJK 上的意思與拉丁不同**(拉丁=字母間距、CJK=字距):
+      1.5px 在 12px 中文上會把字明顯拉開。**值是照抄 OD 的,不是我挑的**,
+      但它是**看得出來的改動** ⇒ 已列進「要請 Sean 肉眼看」的項目。
+   ⚠️ 顏色**沒動**:OD 用 `var(--fg-2)`(#334155),我方沒有這顆 token;
+      補它會連帶改到 `td` 內文色(OD `:171` 也吃它)= 整張表的文字色 ⇒ **超出本片,沒做。** */
+const TH =
+  'px-3 py-2 text-left text-xs font-bold tracking-[1.5px] text-muted-foreground whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
 
 /**
@@ -203,7 +217,20 @@ function OrderGroup({
             //    ⇒ 多品項單第 2、3 個品項在手機上點下去**沒有反應**。
             //    ⇒ 修法在 `globals.css`:卡片模式把定位脈絡抬到 `tbody.orders-group`、`tr` 改 `static`。
             //    ⚠️ 這個病**桌機看不到、截圖也看不到**(截圖不會告訴你哪裡可點)。
-            className={`hover:bg-muted/40 relative ${first ? 'border-t' : 'border-t border-dashed'}`}
+            /* 🔴 **片3:兩級分隔線 + 全強度 hover(逐字搬 OD `:167-176`)。**
+               ① **列 hover 由 `bg-muted/40` 改成 `bg-muted`(全強度)** ——
+                  OD `:176` 是 `background:var(--surface-warm)`,**沒有透明度**。
+                  `/40` 疊回白底是 `#f8fafc`、對卡片對比 **1.02** ⇒ **滑過去幾乎看不出來**,
+                  而這張表的整列可點,hover 是「我現在會點到哪一列」的唯一訊號。
+               ② **同一張單的品項列:`border-dashed` 改成 `border-border-soft`(淺實線)** ——
+                  這是 `--border-soft` 的**第一個消費端**,兩級的來源是 OD `:310-312`
+                  (`th` 深 `--border` / `td` 淺 `--border-soft`)。
+                  🔴 **群組首列仍是 `border-t`(深、實線),沒有動** ⇒ 「換一張單」與「同一張單的下一個品項」
+                     的區分**還在**,只是從「實線 vs 虛線」變成「深線 vs 淺線」。
+                  ⚠️ **BMW M 全稿沒有任何虛線分隔**(唯一的虛線是 `:220` `.cap.is-dead` 的已取消膠囊外框,
+                     那顆**照抄、沒動**)⇒ 拿掉這裡的虛線是往 OD 靠,不是我改設計。
+               ⚠️ **這兩項都是看得出來的視覺改動**,已列進「要請 Sean 肉眼看」的項目。 */
+            className={`hover:bg-muted relative ${first ? 'border-t' : 'border-t border-border-soft'}`}
           >
             {/* 2b-1:訂單層勾選。**一訂單一個框**(放品項列的話,一張三品項的訂單會冒出三個框)。
                 🔴 `relative z-10` 是承重的:整列被 stretched link 的覆蓋層蓋住,

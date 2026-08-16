@@ -307,7 +307,11 @@ describe('BMW M token:對比實算', () => {
     //    而本檔上方 `--input` 那段自己就列了 6 處**表單欄位**吃它(對卡片 1.36 < 3.0)。
     //    ⇒ **這不是「不受 1.4.11 管」,是「本片沒有修它,而它確實有一批控制項在用」。**
     //    那 6 處要換吃 `--input` 還是把 `--border` 分階,是下一片的事;**在這裡先誠實標成缺口。**
-    const ALLOWED_UNCOVERED = ['border', 'sidebar-border'];
+    // 🔴 `border-soft`(片3 新增)一併列入:它是**裝飾性分隔**(表格列 hairline),
+    //    對卡片 1.13 是**刻意**的 —— BMW M 是 hairline 語言,拉到 3.0 會變成一條中灰藍實線。
+    //    📎 **這一格在片3 當場就紅了一次**,紅在「你加了一顆 token 但沒配對」——
+    //       那正是它被寫出來要做的事,所以這裡是**明知地把它加進豁免**,不是繞過守門。
+    const ALLOWED_UNCOVERED = ['border', 'border-soft', 'sidebar-border'];
     expect(uncovered, '這些 token 沒有任何一組配對在量 ⇒ 改它們不會有東西紅').toEqual(
       ALLOWED_UNCOVERED,
     );
@@ -379,6 +383,63 @@ const OFFEND = new RegExp(`(?<![-\\w])${BARE}(?![-\\w])|${BARE}-(?:[a-z]+-)*\\[`
 //      乙 註解或字串裡改寫成中文描述(本檔全段就是這樣寫的)
 //      丙 真的需要固定圓角 ⇒ **那是設計決策要拍板,不是在這裡加豁免**
 const hasOffendingRadius = (source: string): boolean => OFFEND.test(source);
+
+describe('BMW M:--border-soft 三階邊框(片3)', () => {
+  // 🔴🔴 **這一組守的是「假落地」本身,不是某個值。**
+  //    片1 刻意沒補這顆 token,理由是「宣告在、消費端 0」= 一個綠著的空殼
+  //    (檔頭 `--motion-*` 那一列就是活教材)。⇒ **那條理由必須有機械載體,否則下次照樣發生。**
+  //    這三格分別釘住鏈條的三個環:**宣告 → Tailwind 映射 → 真的有人用**。
+  //    少任何一環,`border-border-soft` 都會變成「寫了但沒有邊框」,而且**不報錯、不會紅**。
+  it('🔴 ① 宣告在 `:root`', () => {
+    expect(ROOT).toMatch(/^\s*--border-soft:\s*#edf1f6;/m);
+  });
+
+  it('🔴 ② `@theme inline` 有映射 —— 少了它 class 根本不存在', () => {
+    // Tailwind v4 只為 `@theme` 裡的 `--color-*` 產生 class。
+    // ⚠️ 邊界要硬失敗,不能找不到就靜默切片(與動效 token 那格同一條教訓)。
+    const themeMatch = /@theme\s+inline\s*\{/.exec(CSS);
+    expect(themeMatch, '@theme inline 區塊必須存在').not.toBeNull();
+    expect(CSS.slice(themeMatch!.index)).toContain('--color-border-soft: var(--border-soft);');
+  });
+
+  it('🔴🔴 ③ 真的有消費端 —— 這一格就是片1 當初不補它的那個理由', () => {
+    const table = readFileSync(
+      join(__dirname, '..', 'components', 'orders', 'orders-table.tsx'),
+      'utf8',
+    );
+    // 🔴 要判的是【做了】不是【提起】——上面那段註解裡就提到 `border-soft` 好幾次。
+    //    (本 session 已經踩過一次:`grep -c 'm-stripe'` 預期 1、實得 3,另外 2 個在註解裡。)
+    //
+    // 🔴🔴 **第一版我用 `className=` 正規式抓,而它【漏掉樣板字串的插值】** ——
+    //    這一行的真實形狀是
+    //      className={`hover:bg-muted relative ${'${'}first ? 'border-t' : 'border-t border-border-soft'}`}
+    //    ⇒ 類別住在 `${'${…}'}` **裡面**的單引號字串,`className=` 那條抓不到它。
+    //    **它紅了才發現,而紅的原因看起來像「消費端不存在」—— 與真的沒做長得一模一樣。**
+    //    ⇒ 改用**剝註解**:本格問的是「這是不是真程式碼」,剝註解正是對的方向。
+    //    ⚠️ **注意與同檔『裸圓角』那格方向相反,那不是矛盾**:
+    //       那格問「Tailwind 會不會產出這條規則」(它連註解都掃)⇒ **不能**剝註解;
+    //       本格問「有沒有人真的用了它」⇒ **必須**剝註解。**問題不同,量法就不同。**
+    const stripped = table.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(stripped.length, '剝完註解幾乎沒東西了 = 剝過頭,這格會恆綠').toBeGreaterThan(2000);
+    expect(
+      stripped.includes('border-border-soft'),
+      'orders-table 的程式碼(非註解)沒有用到 border-border-soft ⇒ token 又變成空殼',
+    ).toBe(true);
+  });
+
+  it('🔴 列 hover 是全強度,不是被透明度稀釋掉的', () => {
+    // OD `:176` 是 `background:var(--surface-warm)`,沒有透明度。
+    // `/40` 疊回白底對比只有 1.02 ⇒ 滑過去看不出來,而整列可點時 hover 是唯一的落點訊號。
+    const table = readFileSync(
+      join(__dirname, '..', 'components', 'orders', 'orders-table.tsx'),
+      'utf8',
+    );
+    expect(
+      /hover:bg-muted(?![\w/-])/.test(table),
+      '列 hover 必須是全強度 bg-muted(不得再被 /40 之類稀釋)',
+    ).toBe(true);
+  });
+});
 
 describe('BMW M:三色條(片2)', () => {
   it('🔴 三個色停是【硬寫的 hex】,不得被「收進 token」', () => {

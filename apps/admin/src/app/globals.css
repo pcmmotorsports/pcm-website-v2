@@ -96,6 +96,17 @@
   --destructive: #e4002b;
   --destructive-foreground: #ffffff;
   --border: #d7dee8;
+  /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
+     **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
+     檔頭那張表的 `--motion-*` 那一列逐字寫著「值存在但沒有任何元件吃它;寫『已套用』是假的」。
+     ⇒ **本片讓它與它的第一個消費端(訂單表的列分隔線)同片進。**
+     值 **【抄】** OD `overview-desktop-bmw-m.html:20`。
+     ⚠️ **它是「裝飾性分隔」,不受 WCAG 1.4.11 的 3.0 管**(對卡片 1.13)——
+        **那是刻意的**:BMW M 是 hairline 語言,拉到 3.0 會變成畫面中間一條中灰藍實線。
+        ⇒ 它與 `--border` 一樣**不進對比配對表**(見 `design-tokens.test.ts` 的 `ALLOWED_UNCOVERED`)。
+     🔴 **兩級的差別是承重的,不是好看**:OD `:310-312` 用 `th` 深(`--border`)、
+        `td` 淺(`--border-soft`)做出「表頭線 vs 列線」兩級。**只有一級時表頭會混進資料列裡。** */
+  --border-soft: #edf1f6;
   /* 🔴🔴 **這是設計參照 §1「三階邊框」裡 `--border-interactive` 那一階的落地。**
      **舊值 `oklch(0.94 0 0)` = `#ebebeb` ⇒ 對頁面底 1.16 / 對卡片 1.19,而 WCAG 1.4.11 要 3.0。**
      **後果不是抽象的**:實測搜尋框與搜尋鈕的邊框顏色完全相同、對白底約 1.17
@@ -233,6 +244,10 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
+  /* 🔴 少了這一行,`border-border-soft` 這個 class **不會存在**,而 JSX 上寫了它
+     **不會報錯、不會紅、只會沒有邊框** —— 與 `--motion-*` 住錯區塊那個坑同一個形狀。
+     守門:`design-tokens.test.ts` 有一格釘住「宣告 + 映射 + 消費端」三者同時在。 */
+  --color-border-soft: var(--border-soft);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-sidebar: var(--sidebar);
