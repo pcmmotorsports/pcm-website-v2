@@ -14127,12 +14127,14 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
   > 日後若有第二個 storefront service_role 需求、須重新評估是否該抽 `apps/api/`(決策1 選項 B)、**不可逕援本例外擴張**。
 - **問題:** 第二、三、四道門**已經存在**,而那次「重新評估」**沒有發生過**。
   ```
-  量法:git grep -n "eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'
-  2026-08-16 實跑 = 4 處
-    apps/storefront/src/lib/auth/composition.ts:21
-    apps/storefront/src/lib/auth/line-admin.ts:24      ← §8.4 拍板的那一道
-    apps/storefront/src/lib/email/composition.ts:18
-    apps/storefront/src/lib/payment/composition.ts:32
+  量法:git grep -nE "^// eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'
+  2026-08-16 實跑 = 4 處,分佈在
+    apps/storefront/src/lib/auth/composition.ts
+    apps/storefront/src/lib/auth/line-admin.ts        ← §8.4 拍板的那一道
+    apps/storefront/src/lib/email/composition.ts
+    apps/storefront/src/lib/payment/composition.ts
+  🔴 行號故意不列(會漂);^ 錨定不可省 —— 不錨定的話,提到這個 pattern 的【文件本身】
+     會自己命中,實跑變 5 不是 4,而且每多一份文件提到它就再 +1。
   ```
 - 🔴 **不是說那三道門違規** —— 它們各自可能都有拍板、都合法。
   **壞的是:ADR 寫了一句「再有下一個就要回來重評」,然後有了三個,而那句話沒有任何機制會叫。**
@@ -14140,9 +14142,10 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 - **要做的:**
   - (a) 逐道門查它的拍板來源(有沒有 ADR / Sean 拍板 / 只是當時順手開的),補齊或補立 ADR 條目
   - (b) 執行那次被欠的重評:**現在四道門了,還要不要抽 `apps/api/`**(決策1 選項 B)
-  - (c) 🔴 **把「幾道門」這件事做成會紅的東西** —— 例如一格測試釘住
-    `eslint-disable-next-line no-restricted-imports` 在 `apps/storefront/src/**` 的**出現次數**,
-    新增一道就紅、逼人回來看 ADR。**沒有 (c),(a)(b) 做完還會再過期一次。**
+  - (c) 🔴 **把「幾道門」這件事做成會紅的東西** —— 一格測試釘住上面那條**行首錨定**命令的
+    **出現次數**,新增一道就紅、逼人回來看 ADR。**沒有 (c),(a)(b) 做完還會再過期一次。**
+    ⚠️ **寫那格時務必用錨定版** —— 不錨定的話,**那格測試自己的原始碼會被自己數進去**,
+    寫完當下就是錯的基準(本條立案當天實錘:不錨定 5、錨定 4)。
 - **三視角:**
   - **擴充性:** 真登入線與後續會員相關片都可能想再開一道,現在沒有任何東西會攔下來問「你評估過了嗎」
   - **可維護性:** ADR 是最權威的載體,而它現在有一句**已被違反卻仍讀起來有效**的條款

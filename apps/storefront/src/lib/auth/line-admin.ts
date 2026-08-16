@@ -7,11 +7,14 @@
 //   - `import 'server-only'` 編譯期擋 client 引入;僅 /api/auth/line/callback route(server-only、runtime='nodejs')引用。
 //   - service_role 只在本檔這道門之內使用;build 後 grep client chunk 應 0 命中 SUPABASE_SERVICE_ROLE_KEY(關卡2 驗)。
 //   🔴 **本檔【不】宣稱 storefront 共有幾道這種門。要數量,跑這一行**(不要問任何一段註解):
-//        git grep -n "eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'
-//      2026-08-16 實跑回 **4** 處:`auth/composition.ts:21` / 本檔 `:24` /
-//      `email/composition.ts:18` / `payment/composition.ts:32`。
+//        git grep -nE "^// eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'
+//      2026-08-16 實跑回 **4** 處,分佈在 `lib/auth/composition.ts` / 本檔 /
+//      `lib/email/composition.ts` / `lib/payment/composition.ts`。**行號故意不寫在這裡**——
+//      行號會漂(這段註解自己就把本檔那道往下推過一次),讓命令去給行號才不會過期。
+//      🔴 **`^` 錨定不可省**:不錨定的話,**這段註解裡引用 pattern 的那一行會自己命中**,
+//      實跑變 5 行而不是 4;而且每多一份文件提到它,分子就再 +1(偵測字串自命中)。
 //      ⚠️ **不要改去問 `eslint.config.js:138-149`** —— 那是對 `apps/storefront/**` 的**整片禁令**,
-//      它擋得住新門(開新門會 lint 紅)、但它**列不出也推不出現在有幾道**。門的登記處是上面那些 disable 行。
+//      它擋得住新門(開新門會 lint 紅)、但它**列不出也推不出現在有幾道**。門的登記處是那些 disable 行。
 //      📎 為什麼寫這段:原文「首個」「鎖死本檔、不外擴」是 2026-05-25 的事實,到 2026-08-16 已不成立
 //      (實物:`email/composition.ts:22,48` 也呼叫 `createSupabaseServiceClient()`),
 //      **而讀到它的人沒有任何理由去複查。把數字寫進註解 = 製造下一個過期字面。**
