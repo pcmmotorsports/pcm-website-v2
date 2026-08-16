@@ -36,8 +36,43 @@ COMMON_DIR=$(git rev-parse --path-format=absolute --git-common-dir)
   exit 0
 }
 
-HITS=$(git diff --cached --name-only | grep -c '^STATUS\.md$' || true)
-[ "$HITS" = "0" ] && exit 0
+# 偵測這次 commit 有沒有動到 STATUS.md
+# 🔴 `--no-renames` 不可拿掉(2026-08-16 codex 抓到、I 窗實測確認):
+#    預設會把 rename 併成一筆、**只列 post-image** ⇒ `git mv STATUS.md X.md` 之後
+#    `git diff --cached --name-only` 只出 `X.md`、舊寫法的 grep 回 0 ⇒ **整道守門被繞過**,
+#    而且之後它永遠只找一個已不存在的檔 ⇒ **零症狀**。
+#    加 `--no-renames` 會把 rename 拆成 delete + add,STATUS.md 那半就看得見(實測 rc=1)。
+git diff --cached --quiet --no-renames -- STATUS.md && exit 0
+
+# ── merge 繼承放行(2026-08-16 立;兩個窗各撞一次都自己繞過)──────────────
+#
+# 病症:子窗 `git merge dev` 會把 STATUS.md 帶進 index ⇒ 本守門觸發。
+#      而【原本的錯誤訊息建議 `git restore --staged STATUS.md`】——
+#      在 merge 中途那麼做會退回舊版 ⇒ **用一顆 merge 把主視窗的收帳行洗掉**。
+#      A 窗逐字:「那比觸發 hook 嚴重得多。」
+#      ⇒ 守門要擋的是【作者寫了內容】,而它擋到的是【merge 繼承】,兩者在 index 上長得一樣。
+#
+# 判別(兩條【同時】成立才放行,刻意保守):
+#   ① index 裡那顆 STATUS blob == 來源方(MERGE_HEAD)那顆   ⇒ 我採用的是對方的版本
+#   ② 我這側自分岔點以來【沒有動過】STATUS                  ⇒ 我沒有作者任何內容
+#   只有 ① 會漏掉「作者改成跟對方一樣」;只有 ② 會漏掉「merge 中途又手改」。
+#
+# 🔴 用 `git diff` 比,不用 blob OID 比(2026-08-16 codex F2):
+#    blob 只帶內容、**不帶 file mode** ⇒ merge 後 `chmod +x STATUS.md && git add` 兩顆 OID 仍相等 ⇒ 誤放行。
+#    `git diff` 看得到 mode。順帶也修好「STATUS.md 在某一側不存在」那格(兩側都沒有 ⇒ 無 diff ⇒ 正確放行)。
+if [ -f "$GIT_DIR/MERGE_HEAD" ]; then
+  BASE=$(git merge-base HEAD MERGE_HEAD 2>/dev/null || true)
+  # `[ -n "$BASE" ]` 不可拿掉:BASE 為空時 "$BASE:STATUS.md" 會被解成 ":STATUS.md"(= index 那顆)⇒ 恆等 ⇒ 誤放行。
+  if [ -n "$BASE" ] \
+     && git diff --cached --quiet --no-renames MERGE_HEAD -- STATUS.md \
+     && git diff --quiet --no-renames "$BASE" HEAD -- STATUS.md; then
+    echo "✓ STATUS.md 是 merge 繼承(index 與 MERGE_HEAD 相同、且本分支自分岔未動過)⇒ 放行" >&2
+    exit 0
+  fi
+fi
+# ⚠️ 已知未處理(codex F4,判 nit):octopus merge 的第二個以後的 head、
+#    以及 dev 被 rebase/reset 過的情況,會走到【擋下】那條(false-block,不是 false-allow)。
+#    ⇒ 誤擋的代價是「窗被卡住並看到訊息」,可用逃生門通過;方向是安全的那一邊,刻意不加碼複雜度。
 
 cat >&2 <<'MSG'
 
@@ -49,9 +84,20 @@ cat >&2 <<'MSG'
 
   ⚠️ 就算是主視窗叫你寫的也一樣 —— 2026-08-15 主視窗真的發過那封錯誤指令。
 
-  怎麼辦:
-    git restore --staged STATUS.md
-    然後把 7 欄素材寫進你的 STOP 信
+  🔴🔴 你正在 merge 中途嗎?**那就不要 unstage。**
+     本守門已經會自動放行「純 merge 繼承」(index 與 MERGE_HEAD 同一顆 blob、
+     且你這側自分岔以來沒動過 STATUS)。**你現在被擋,代表那兩條至少有一條不成立**
+     —— 也就是說 index 裡的 STATUS **不是**單純從 dev 繼承來的。
+     ⇒ 先查清楚是誰改的,**不要 `git restore --staged`**:
+        在 merge 中途 unstage 會把 STATUS 退回舊版,
+        **等於用你這顆 merge 把主視窗的收帳行洗掉**(那比被 hook 擋嚴重得多)。
+     自查兩行:
+        git rev-parse :STATUS.md MERGE_HEAD:STATUS.md      # 不同 ⇒ 內容不是對方那版
+        git diff $(git merge-base HEAD MERGE_HEAD) HEAD -- STATUS.md | wc -l   # 非 0 ⇒ 你這側動過
+
+  不在 merge 中途(就是你自己改了 STATUS):
+    把那些改動移出這次 commit(例如 git restore --staged STATUS.md),
+    然後把 7 欄素材寫進你的 STOP 信,由主視窗收帳。
 
   真的必要(你就是主視窗、只是人在別的樹上):
     PCM_ALLOW_STATUS_IN_WORKTREE=1 git commit ...
