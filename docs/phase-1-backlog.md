@@ -15843,3 +15843,30 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   ⇒ 這兩條都是「把一個會成長的東西，綁在一個不會成長的數字上」：
   `#603` 綁的是伺服器的 `max-rows`、`#605` 綁的是「`created_at` 夠不夠分辨」。
   📎 抄先例的數字前先問:**原本那個母體的上界是什麼？我這個有嗎？**
+
+### #606 · vitest 的 `@` alias 只指 storefront ⇒ admin 任何用 `@/` 的頁面都寫不出頁面層測試
+
+- **位置：** `vitest.config.ts`（搜 `resolve:`，落筆當下 `:26-30`）
+  ```
+  resolve: { alias: { '@': fileURLToPath(new URL('./apps/storefront/src', …)) } }
+  ```
+- **現況：** `@` **只指向 `apps/storefront/src`**。而 `apps/admin` 的 `tsconfig` 也定義了 `@/*`
+  ⇒ **admin 的檔在 `next build` 下解析得到、在 `vitest` 下解析不到。**
+- **症狀長什麼樣：** 想替一支 admin 頁面寫測試時，vitest 報
+  `Failed to resolve import "@/lib/..." from "apps/admin/src/app/..."`
+  ⇒ 🔴 **而那個訊息看起來像「我 import 寫錯了」，不像「工具設定漏了一半」** ——
+  於是最省事的反應是「那就不要測這一支」，**而沒有人會記錄這個決定**。
+- **不修未來會痛在哪：** 這不是「少一個方便」，是**一整類檔案沒有守門而且沒人知道**。
+  📎 實例（2026-08-17）：客人卡頁面的 `?wpage → parsePage → 取數` 接線，
+  codex 指出「刪掉那行接線，測試仍全綠」⇒ 要補測試時才撞到本缺口，
+  當下的權宜是**把那一頁的 5 個 `@/` import 改成相對路徑**（見該檔檔頭註解）。
+- 🔴 **這是「守門邊界 vs 程式邊界不一樣」的第三個實例**（前兩個：`scripts/spikes/` 不在 typecheck、
+  `npx turbo typecheck` 少跑 root 的第二段）。⇒ 併看 `scripts/guard-coverage-map.py`。
+  ⚠️ **而這一個比前兩個隱蔽**：前兩個是「有檔案沒被檢查」，這一個是
+  **「有檔案沒辦法被寫測試」** —— 涵蓋圖掃不到它，因為那些檔在 `vitest` 的 include 裡，
+  只是**任何人真的去寫的時候會撞牆然後放棄**。
+- **修法（未定，兩個方向）：**
+  - 甲：alias 改成依 workspace 分別解析（admin → `apps/admin/src`、storefront → `apps/storefront/src`）
+  - 乙：admin 側統一改用相對路徑（與 `app/@panel/*`、`app/customers/page.tsx` 既有做法一致）
+  ⚠️ 甲要確認 vitest 能不能對同一個 `@` 依檔案位置分歧解析；**我沒有查證，標未確認。**
+- **由來：** 2026-08-17 A 窗補客人卡分頁接線測試時撞到；codex R2 的 finding ⑤ 是觸發點。
