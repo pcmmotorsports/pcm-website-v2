@@ -211,7 +211,7 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 | `E683-1` | 常設風險 | 新物件出生自帶 `anon` 權限（表含 RLS 管不到的 `TRUNCATE`；函式含 `EXECUTE`）。**現況 46 張全乾淨，但靠的是每個人都記得。** | 部分已解：`E-684` 斷言樣板已交 B 窗，**新 migration 起用** |
 | ~~`E682-1`~~ **已修** | ~~低~~ **已關閉** | ✅ **2026-08-17 Sean 親自在正式庫貼了 REVOKE 並回貼驗收輸出**（`anon_still = false` / `auth_still = false`）。`customer_wallet_balance_check` 對 `anon` 與 `authenticated` 的 SELECT **兩格都關上了**。⇒ `packages/adapters/src/supabase/SupabaseWalletAdapter.ts:87` 註解裡寫的那道「不對 authenticated GRANT」的控制，**現在真的存在**（先前是程式碼相信一道不存在的控制）。⚠️ **限定**：那兩格 false 來自 `has_table_privilege`，證的是**表級**收乾淨；`has_*_privilege` 對**欄級授權會少報**（§2.3）⇒ 不等於欄級零殘留。**2026-08-17 已補查欄級**：見 §7c-3。 | — |
 | `E680-1` | 低（未守路徑） | `settle-sweep` route 用 blind spread `...result` 回應，而回應會落進 PUBLIC 可讀、保留 6h 的 `net._http_response`。**今天不洩**（`SweepSettlementsResult` 全是計數），但**姊妹片 email-sweep 用顯式 allowlist 且寫明理由**。 | 待派 |
-| **`E685-1`** | **低（但這是全樹唯一一個真的 RLS 繞過）** | `vehicle_taxonomy_public` 是 **`security_invoker=false`**（其餘 8 支 view 都是 `true`），view owner = `postgres`，而 `product_fitments` / `product_fitments_effective` 的 `relforcerowsecurity = false` ⇒ **owner 繞過 RLS** ⇒ 這支 view **看得到已下架商品的車型資料**，而 `anon` 讀得到它。<br>**曝露內容只有 `moto_brand / model_code / year_start / year_end`（零 PII、零價格）**，故嚴重度低。<br>🔴 **但它是唯一一支「底表 RLS 對它無效」的 view** ⇒ 日後 `product_fitments*` 若加上任何敏感欄或更嚴的 policy，**這支會直接漏過去，而且不會有任何東西紅。** | 待派 |
+| **`E685-1`** 🔴 **裁定：不修，見 §7c-6** | **低（但這是全樹唯一一個真的 RLS 繞過）** | `vehicle_taxonomy_public` 是 **`security_invoker=false`**（其餘 8 支 view 都是 `true`），view owner = `postgres`，而 `product_fitments` / `product_fitments_effective` 的 `relforcerowsecurity = false` ⇒ **owner 繞過 RLS** ⇒ 這支 view **看得到已下架商品的車型資料**，而 `anon` 讀得到它。<br>**曝露內容只有 `moto_brand / model_code / year_start / year_end`（零 PII、零價格）**，故嚴重度低。<br>🔴 **但它是唯一一支「底表 RLS 對它無效」的 view** ⇒ 日後 `product_fitments*` 若加上任何敏感欄或更嚴的 policy，**這支會直接漏過去，而且不會有任何東西紅。** | 待派 |
 | `rls_auto_enable` fail-open | 低-中 | `20260531142534_govern_rls_auto_enable.sql:59-63` 用 `EXCEPTION WHEN OTHERS THEN RAISE LOG` **吞掉自己的失敗** ⇒ 開 RLS 失敗時無聲。 | 待派 |
 | `E679-1` | 設計債 | 建立唯讀帳號連線字串的那段指令，**整條唯讀鏈可以被一個沒對上的 `sed` 靜默繞過**（身分沒被換掉 ⇒ 用超級使用者連線）。**所有守門守的是「帳號建得對不對」，沒有一個守「最後用哪個身分連」。** 唯一會叫的是那行只印身分的自檢，**而使用者可以不看它**。<br>🔴 **收斂：一道防線如果使用者可以略過它，它就不算防線。** 正解＝身分不對就**不寫檔**。 | 待派 |
 | 稽核帳號體檢缺口 | 流程 | `E-675` 體檢驗 `rolcanlogin` 但**不驗密碼存在** ⇒ 「體檢通過」不蘊含「連得上」。**當天真的發生了。** | 待補 |
@@ -468,6 +468,86 @@ product_variants.price_store    anon=f  authenticated=f     ← 沒開 ✅
 
 **誰能勾**：Dashboard 專案設定層的控制（等同改 `pgrst.db_schemas`），需要專案擁有者 / `postgres` 級權限。
 ⚠️ **精確的授權邊界我沒有實測**（稽核帳號無權改設定，而我不會去改）⇒ **這半標「未確認」。**
+
+### 7c-6 🔴🔴 C 案（`E685-1`）**不要貼** —— 它的前提被那支 migration 自己的守門推翻
+
+> **這一節是本輪最重要的一條。** 產品決策那一關已經解開了，
+> **而擋住它的從來不是那一關。**
+
+**2026-08-17 Sean 親自在正式庫跑了比對 SQL，回貼逐字：**
+
+```
+| 現在幾筆 | 改完剩幾筆 |
+|  8396   |   8173    |
+```
+
+⇒ **差 223 筆 = 2.66%**。照原先定下的判準（差很少 ⇒ 純安全修補）⇒ 產品決策關**解除**。
+**這兩個數字是別人重算的基準，落檔於此，不要只留在信裡。**
+
+#### 🔴 然後我去開了那支 migration，發現 `security_invoker = false` 是【刻意的】
+
+`supabase/migrations/20260811100000_m4b_storefront_277c_vehicle_taxonomy_direct_years.sql`
+的 ⑥a 守門，**它的註解逐字寫著**（`grep -n 'security_invoker 必須是 false' <該檔>`）：
+
+> `-- ⑥a 🔴 security_invoker 必須是 false —— 沒這條的話,改成 true 仍然全綠(關卡2 抓到),`
+> `--     而後果是 anon 開始套底表 RLS 的下架 join ⇒ 實測 3,047ms ⇒ 撞 3s 逾時。`
+> `--     這是本 view 唯一一個「改一個字就爆、但所有資料面斷言都看不出來」的地方。`
+
+**而且它不只是註解，它是一條會 `RAISE EXCEPTION` 的斷言**（同檔，`reloptions @> ARRAY['security_invoker=false']`）。
+
+**我獨立覆核了那個 3 秒天花板**（唯讀查 `pg_db_role_setting`）：
+
+```
+anon           statement_timeout = 3s      ← 就是這個
+authenticated  statement_timeout = 8s
+service_role   statement_timeout = 300s
+```
+
+⇒ **實測 3,047ms vs 3,000ms 天花板 = 超過 47ms。**
+**⇒ 把 `security_invoker` 改成 `true`，首頁的車輛下拉會對【所有未登入訪客】逾時。**
+（而且那是 2026-08-11 量的，資料只會更多。）
+
+#### ⇒ 裁定
+
+| | |
+|---|---|
+| **要拿掉的曝露** | 已下架商品的車型名稱與年份（`moto_brand / model_code / year_start / year_end`）**零 PII、零價格**，我自己標的嚴重度是**低** |
+| **要付的代價** | 首頁車輛下拉對**所有匿名訪客**逾時 |
+| **裁定** | 🔴 **不換。** 不拿一個會動的首頁去換一條零 PII 的低嚴重度曝露 |
+
+🔴 **這條的教訓比這條本身值錢**：C 案卡了兩天，卡點被記成「等一個我量不到的數字」。
+**數字到手了，而它從頭到尾都不是真正的擋路者。**
+真正的擋路者寫在**那支 migration 的註解裡**，任何人只要開檔就會看到 ——
+**而連續數輪（含我自己）都在引用這支 view 的屬性，沒有一次開過建它的那支檔。**
+📎 對應 memory：`feedback_assert-scope-only-after-reading-source-file`
+（「報 schema 行為前先開建表 migration 讀註解 —— 契約債與交辦寫在那裡，查 `information_schema` 看不到」）。
+**那條教訓寫的就是這個形狀，而我這次也是先寫了半份可貼 SQL 才去開檔。**
+
+#### 重新定範圍的提案（**未經對抗審查，不要貼**）
+
+**目標不變**（不讓 `anon` 看到已下架商品的車型），**手段換掉**：
+**把下架過濾寫進 view 定義本體，`security_invoker` 維持 `false`。**
+這樣拿掉曝露**而不啟用 RLS 那條 join**。
+
+🔴 **但它需要一個我量不到的數**：改寫後的 view 對 `anon` 要跑多久（**必須 < 3s**）。
+**稽核帳號故意無資料讀取權 ⇒ 我量不到，不猜。** 要有讀取權的人在**離峰**跑一次 `EXPLAIN ANALYZE`。
+⚠️ **顯式 `EXISTS` join 不必然比 RLS 版快** —— 那是**要量的假設，不是可以寫進提案的前提**。
+
+#### 另一件（回答「要不要走 migration」）：**要，而且手貼會被無聲蓋掉**
+
+**拋棄式 PG 17.10 實測：**
+
+```
+ALTER VIEW v SET (security_invoker = true)   → reloptions = {security_invoker=true}
+CREATE OR REPLACE VIEW v AS …（無 WITH 子句） → reloptions = 【空】     ← 被清掉
+DROP VIEW + CREATE VIEW                       → reloptions = NULL
+```
+
+⇒ **`CREATE OR REPLACE VIEW` 沒帶 `WITH` 子句就會清掉 `security_invoker`。**
+而這支 view **正是**用 `CREATE OR REPLACE VIEW` 維護的（該檔 `:120`，且帶著 `WITH (security_invoker = false)`）。
+**⇒ 任何手貼的 `ALTER VIEW` 會被下一支動到這支 view 的 migration 靜默還原，而且不會有東西紅。**
+**⇒ 這件必須走 `supabase/migrations/`，同時更新 ⑥a 那條守門**（否則 repo 的斷言與 production 相反）。
+**我唯讀 ⇒ 只交規格，不寫 migration。**
 
 ---
 
