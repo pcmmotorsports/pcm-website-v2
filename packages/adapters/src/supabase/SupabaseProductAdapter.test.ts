@@ -809,3 +809,70 @@ describe('SupabaseProductAdapter.listGeneral — R2a 通用款(fitments 空陣�
     expect(result[0]?.handle).toBe('gen-1');
   });
 });
+
+describe('SupabaseProductAdapter.searchByKeyword — 分頁穩定序(2026-08-17 V 窗掃出)', () => {
+  // 🔴 本 describe 是新增的:`searchByKeyword` 在本檔原本**零測試**
+  //    （數法:改動前 `grep -n 'searchByKeyword' 本檔` ⇒ 零命中）。
+  function makeSearchMock() {
+    const captured: {
+      orders: [string, boolean][];
+      range?: [number, number];
+      countOption?: string;
+    } = { orders: [] };
+    const builder = {
+      select(_cols: string, options?: { count?: string }) {
+        captured.countOption = options?.count;
+        return builder;
+      },
+      or() {
+        return builder;
+      },
+      order(col: string, o?: { ascending?: boolean }) {
+        captured.orders.push([col, o?.ascending !== false]);
+        return builder;
+      },
+      range(from: number, to: number) {
+        captured.range = [from, to];
+        return Promise.resolve({ data: [], error: null, count: 0 });
+      },
+    };
+    const client = {
+      from() {
+        return builder;
+      },
+    };
+    return { client: client as unknown as SupabaseClient, captured };
+  }
+
+  it('分頁查詢必須帶穩定序 —— 沒有 ORDER BY 時 SQL 不保證列順序，兩頁是兩次獨立查詢', async () => {
+    const { client, captured } = makeSearchMock();
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.searchByKeyword('avon', { limit: 20, offset: 40 });
+
+    // 🔴 這一格擋的是「有人日後把 .order 拿掉當作簡化」
+    expect(captured.orders).toEqual([['id', true]]);
+  });
+
+  it('.range 兩端皆含 —— offset 40 + limit 20 ⇒ [40, 59] 而不是 [40, 60]', async () => {
+    const { client, captured } = makeSearchMock();
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.searchByKeyword('avon', { limit: 20, offset: 40 });
+
+    // 寫成 offset+limit 會每頁多撈一筆、跨頁重複（V 窗整理的分頁族第 2 條）
+    expect(captured.range).toEqual([40, 59]);
+  });
+
+  it('空字串查詢短路 —— 不打 DB', async () => {
+    const { client, captured } = makeSearchMock();
+    const adapter = new SupabaseProductAdapter(client);
+
+    const res = await adapter.searchByKeyword('   ', { limit: 20, offset: 0 });
+
+    expect(res).toEqual({ items: [], total: 0 });
+    // 負向對照:上面兩格的 captured 會被填，這格不該被填 ⇒ 證明 mock 真的在記錄
+    expect(captured.range).toBeUndefined();
+    expect(captured.orders).toEqual([]);
+  });
+});

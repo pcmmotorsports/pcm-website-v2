@@ -430,10 +430,26 @@ export class SupabaseProductAdapter implements IProductRepository {
     const offset = params.offset ?? 0;
     const filter = buildIlikeOrFilter(SEARCHABLE_COLUMNS, q);
 
+    // 🔴 `.order('id')` 不是排版,是**分頁正確性的前提**(2026-08-17 V 窗掃出、A 窗修)。
+    //    SQL **沒有 ORDER BY 就不保證列的順序** —— 而本方法是分頁(`.range(offset, …)`),
+    //    兩頁是**兩次獨立查詢**:planner 只要在兩次之間換了計畫(資料量變化、統計更新、
+    //    parallel scan 與否),同一列就可能出現在兩頁、或一頁都沒出現。
+    //    ⇒ 客人翻到第 2 頁看到第 1 頁看過的商品,或某個商品**任何一頁都翻不到**,
+    //      而 `count` 照樣回報正確總數 ⇒ **畫面上完全正常**。
+    //
+    //    ⚠️ **我試過構造這個漂移,構造不出來**:對 production 用本方法的 filter
+    //    (`title/subtitle/description` ILIKE)命中 13,945 筆、每頁 1,000 逐頁翻完 14 頁
+    //    ⇒ **重複 0 筆、漏 0 筆**;同一頁連跑 4 次指紋相同。
+    //    ⇒ **所以這一條是【結構性的】不是【觀察到的】** —— 今天的資料量與計畫下它剛好穩定,
+    //      而「穩定」不是「保證」。**修它是預防,不是止血。**
+    //
+    //    選 `id`(PK uuid)而不是 `handle`:現況無排序 ⇒ 客人看到的順序本來就無語意,
+    //    用 `id` 是**行為改變最小**的穩定序;改用 `handle` 會讓搜尋結果變成字母序 = 行為改變。
     const { data, error, count } = await this.supabase
       .from('products_public')
       .select(PRODUCT_SELECT_DETAIL_VIEW, { count: 'exact' })
       .or(filter)
+      .order('id', { ascending: true })
       .range(offset, offset + params.limit - 1);
 
     if (error) {
