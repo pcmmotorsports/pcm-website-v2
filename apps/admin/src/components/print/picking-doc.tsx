@@ -109,7 +109,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
             而改之前這顆鈕在警告**上面**、不受影響 ⇒ 員工按得下去,印出一張紙照樣進倉庫。
             🔴 **這不是守門,只是不再遞刀** —— `print-button.tsx:5-7` 自己就寫著
                「為什麼要有這顆鈕、而不是叫員工按 Ctrl+P」⇒ ⌘P 那條路還在,
-               真正的解法是整幅阻印版面(樣張 B),已登記、不在本片。 */}
+               真正的解法是整幅阻印版面(樣張 B),**已立案 `#601`**、不在本片。 */}
         {cancelledAt === null && !detail.itemsTruncated && <PrintButton label='列印' />}
       </div>
 
