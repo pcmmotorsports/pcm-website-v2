@@ -95,6 +95,28 @@ select distinct privilege_type from aclexplode(acldefault('r','postgres'::regrol
 📎 實測 F4:`has_table_privilege('pg_maintain','t','MAINTAIN')` = **t** ⇒ R2 `#4` 的路徑被接住。
 📌 同款技巧 `acldefault('f',…)` 可推導**函式**權限集 ⇒ nit `#9`(函式迴圈)也用得上。
 
+#### ✅ B 窗獨立複驗(2026-08-17,**沒有採信 V 窗的 E6,自己起叢集自己量**)
+
+拋棄式 PG **17.10**(Homebrew),腳本 `scratchpad/verify-ma1.sh`,叢集零殘留:
+```
+推導集 ⇒ DELETE INSERT MAINTAIN REFERENCES SELECT TRIGGER TRUNCATE UPDATE   共 8 項
+雙向對照(這才是重點,不是那個 8):
+  MAINTAIN 在裡面?      t      ← 該有的有
+  SELECT   在裡面?      t      ← 正向對照
+  'NOTAPRIV' 在裡面?    f      ← 🔴 反向對照:量具分得出「有」與「沒有」
+MA-3:新表 relacl = NULL,而 coalesce 展開後 owner 的 DELETE/TRUNCATE ⇒ t
+```
+
+🔴 **複驗多抓到一個 V 窗沒提、而落地會踩的細節**:
+```
+acldefault('f', …) ⇒ 印出「EXECUTE EXECUTE」——【兩筆】
+   (owner 一筆 + PUBLIC 一筆,各自帶 EXECUTE)
+```
+⇒ **推導集一定要 `select distinct privilege_type`**,否則**函式那邊會拿到重複項**。
+📎 表的那邊剛好看不出來(owner 拿滿 8 項、PUBLIC 拿 0 項 ⇒ 不重複)
+⇒ **這正是「在一個例子上成立就以為通則成立」** —— 換個物件型別就現形。
+⚠️ 我自己的腳本裡也有一個 `order by 2` 的語法錯(已知,不影響上面那些值,它們各自獨立跑)。
+
 🔴 **這條的份量,精確版(V 窗窄確認打回我的原句,我接受)**:
 > **少了 MA-1,「不用維護清單」只對【第 1 層】成立 —— 而 R2 `#4` 住的正是第 2 層。**
 
