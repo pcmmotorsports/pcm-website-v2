@@ -785,12 +785,108 @@ describe('🔴 Q-C18 甲:紙上的品項來自分頁查詢,不是被夾過的 de
     expect(table.textContent).toContain('PAGED-SKU-0');
   });
 
+  // 🔴🔴 **這一格是【逐對盤點】盤出來的,不是我想到的。**
+  //    主視窗 2026-08-17 的可操作版:**改資料來源的片,先列出【所有被換掉的那對】,
+  //    逐對問「fixture 裡它們長得一樣嗎」** —— 一樣就先把它們弄不一樣,再寫斷言。
+  //    我照著把 6 對逐一突變,`cancelledRows` 那一對**仍然全綠** ——
+  //    **補了三格之後,第四個病還在。** 這正是「補格」本身回答不了的那個問題。
+  it('🔴 【訂單取消】那一區的母體也要是分頁清單(逐對盤點補的第 4 對)', async () => {
+    const cancelled = {
+      ...paged[1]!,
+      variantSku: 'PAGED-CANCELLED',
+      // 🔴 **全數取消**(quantity 3 / cancelled 3 / shipped 0)⇒ 尚未出貨算出來是 0
+      //    ⇒ 它**只會**出現在「訂單取消」那一區。
+      //    ⚠️ 我第一版給 quantity 9 / cancelled 3 ⇒ 它**同時出現在「尚未出貨」區**
+      //    ⇒ 突變把取消區的來源改回 `detail.items` 時,那個字面**仍然在紙上** ⇒ 這一格全綠。
+      //    📎 **斷言釘的是「這個字面在紙上」,而它在別的區也印得出來** —— 又一次量錯東西。
+      quantitySummary: {
+        quantity: 3,
+        orderedQuantity: 0,
+        instockQuantity: 0,
+        cancelledQuantity: 3,
+        shippedQuantity: 0,
+      },
+    };
+    mocks.listOrderItemsForPrint.mockResolvedValue({
+      items: [paged[0]!, cancelled],
+      reportedTotal: 2,
+    });
+    // 這一項**不在** `detail.items` 裡 ⇒ 來源改回 `detail.items` 就找不到它 ⇒ 取消區空掉。
+    const t = (await renderPage()).container.textContent ?? '';
+    expect(t).toContain('PAGED-CANCELLED');
+  });
+
   it('🔴🔴 「A 餵壞 B」:餵給箱查詢的 id 集合必須是【完整那份】', async () => {
     await renderPage();
     // `loadOrderShipments(titleByItemId)` —— 以前這個 Map 來自被 200 夾過的 `detail.items`
     // ⇒ 訂單 300 項時,後 100 項所在的箱**根本不會被查到,而那不算截斷、零訊號**。
     const arg = mocks.loadOrderShipments.mock.calls[0]?.[0] as Map<string, unknown>;
     expect([...arg.keys()].sort()).toEqual(paged.map((p) => p.id).sort());
+  });
+});
+
+// ── 🔴 負向對照:一張【真的超過門檻】的單 ──
+//
+// ⚠️⚠️ **這是【接縫層】的負向對照,不是端到端的。** 它證明的是:
+//   「當 adapter 回一張 250 項的單時,舊來源印 200 項、新來源印 250 項」。
+//   它**不證明**「正式站上一張 250 項的真訂單印得出來」—— 那要真 DB,而本窗沒有
+//   (`.env.local` 不在施工窗)⇒ **端到端那一格【未做】,不要把這格讀成它。**
+// 📌 而門檻本身(`row.order_items.length >= ORDER_ITEMS_EMBED_LIMIT`)由 adapter 自己的
+//   測試守著(`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts` 的
+//   「品項數觸及 ORDER_ITEMS_EMBED_LIMIT ⇒ itemsTruncated = true」那格),本檔不重複。
+describe('🔴 負向對照:250 項的單 —— 改之前會少 50 項,改之後印得完', () => {
+  const LIMIT = 200; // `packages/adapters/src/supabase/mappers/order.ts` 的 ORDER_ITEMS_EMBED_LIMIT
+  const TOTAL = 250;
+  const all = Array.from({ length: TOTAL }, (_, i) => ({
+    id: `bulk-${String(i).padStart(4, '0')}`,
+    variantSku: `BULK-${String(i).padStart(4, '0')}`,
+    title: `團購品 ${i}`,
+    spec: null,
+    quantity: 1,
+    quantitySummary: null,
+  }));
+
+  beforeEach(() => {
+    // `detail` = adapter 內嵌撈回來的樣子:**只有前 200 項,且 itemsTruncated = true**。
+    setDetail(detail({ items: all.slice(0, LIMIT) as never, itemsTruncated: true }));
+    // 分頁查詢 = 撈到盡:250 項。
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: all, reportedTotal: TOTAL });
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment(), lines: [{ orderItemId: all[0]!.id, title: 'x', quantity: 1 }] },
+    ]);
+  });
+
+  it('🔴 第 201 到第 250 項【出現在紙上】—— 改之前它們整批不見,而紙看起來完全正常', async () => {
+    const t = (await renderPage()).container.textContent ?? '';
+    // 邊界兩側各釘一個:第 200 項(舊路徑最後一個看得到的)與第 201 項(舊路徑第一個掉的)。
+    expect(t, '第 200 項').toContain('BULK-0199');
+    expect(t, '🔴 第 201 項 —— 舊路徑從這裡開始整批消失').toContain('BULK-0200');
+    expect(t, '🔴 最後一項').toContain('BULK-0249');
+  });
+
+  it('🔴 紙上出現的品項【互不重複】且共 250 個 —— 釘數量不只釘存在', async () => {
+    // 🔴 只釘字面的話,「印了 250 項但其中 50 項重複」也會過。
+    // ⚠️ **刻意不用 `tables[1]`(表格索引)定位** —— 我第一版那樣寫,而它量到的是別張表
+    //    (紙上有幾張表隨資料形狀變)⇒ **量錯東西,而它會回一個看起來像數量的數。**
+    const text = (await renderPage()).container.textContent ?? '';
+    const found = new Set(text.match(/BULK-\d{4}/g) ?? []);
+    expect(found.size).toBe(TOTAL);
+  });
+
+  it('🔴🔴 餵給箱查詢的 id 集合是 250 個,不是 200 —— 「A 餵壞 B」的負向對照', async () => {
+    await renderPage();
+    const arg = mocks.loadOrderShipments.mock.calls[0]?.[0] as Map<string, unknown>;
+    // 改之前:後 50 項所在的箱**根本不會被查到,而那不算截斷、零訊號**。
+    expect(arg.size).toBe(TOTAL);
+    expect(arg.has('bulk-0249')).toBe(true);
+  });
+
+  it('🔴 正向對照:`itemsTruncated` 仍為 true 而紙【照印】—— 這正是本片的存在理由', async () => {
+    // 沒有這一格的話,把面6 判準改回 `detail.itemsTruncated` 會讓上面三格全部變成
+    // 「被擋住所以沒有那些字面」⇒ 紅得對而理由完全錯。
+    const { container } = await renderPage();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelectorAll('table').length).toBeGreaterThan(0);
   });
 });
 
