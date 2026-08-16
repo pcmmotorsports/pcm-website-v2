@@ -81,23 +81,60 @@ describe('Header', () => {
   //    logo 換成同一張圖之後兩條的斷言在兩個分支都成立 ⇒ `isMobile` 三元寫反、
   //    或手機誤渲染桌機那棵樹,全檔仍會全綠。這條把兩棵樹的差別本身釘住。
   describe('兩個 DOM 分支不得長成同一棵', () => {
-    it('桌機有導覽列與搜尋框、沒有手機專屬結構', () => {
+    /* 🔴🔴 **2026-08-16:`.pcm-search` 從這兩格的判別錨【退場】**(Sean 拍 `Q-SEARCH-0`=乙,
+       搜尋入口暫時隱藏 ⇒ 桌機也不再有它 ⇒ 拿它當「桌機專屬」的錨會**恆真地失敗**)。
+       ⚠️ **這不是「把期望值改成現況」** —— 那條紀律仍然成立。
+          改的理由是**前提被拍板換掉了**:這兩格守的是「兩棵樹不得長成同一棵」,
+          而 `.pcm-search` 只是當時**剛好只有桌機有**的那個東西,不是它守的東西本身。
+       🔴 **換錨要換成【仍然只有桌機有】的**:`.pcm-nav`(導覽列)本來就在這兩格裡、方向相反,
+          它一個人就足以區分兩棵樹 ⇒ 判別力沒有下降。
+          📎 驗法:把 `isMobile` 三元寫反,這兩格仍會一紅一綠(下方 `搜尋入口` 那族另有守門)。 */
+    it('桌機有導覽列、沒有手機專屬結構', () => {
       const { container } = renderWithCart(<Header isMobile={false} />);
       expect(container.querySelector('.pcm-nav'), '桌機少了導覽列').not.toBeNull();
-      expect(container.querySelector('.pcm-search'), '桌機少了搜尋框').not.toBeNull();
       expect(screen.queryByLabelText('會員'), '桌機少了會員鈕').not.toBeNull();
     });
 
-    it('手機沒有導覽列與搜尋框(有的話=誤渲染桌機那棵樹)', () => {
+    it('手機沒有導覽列(有的話=誤渲染桌機那棵樹)', () => {
       const { container } = renderWithCart(<Header isMobile />);
       expect(container.querySelector('.pcm-nav'), '手機出現桌機導覽列 ⇒ isMobile 分支寫反了').toBeNull();
-      expect(container.querySelector('.pcm-search'), '手機出現桌機搜尋框').toBeNull();
       expect(screen.queryByLabelText('會員'), '手機不該有會員鈕(手機走 TabBar)').toBeNull();
-      expect(screen.getByLabelText('搜尋商品'), '手機少了搜尋鈕').toBeDefined();
     });
   });
 
-  it('🔴 R2-3:桌機搜尋框有 aria-label「搜尋」(這欄沒有 <label>,少了它報讀器念不到)', () => {
+  /* ═══ 搜尋入口暫時隱藏(2026-08-16,Sean 拍 `Q-SEARCH-0` = 乙)═══════════════════
+     🔴 **入口在、監聽器不在** ⇒ 點下去什麼都不會發生。主視窗裁「藏起來」而不是「導向 `/products`」
+        (導向 = 使用者期待搜尋卻拿到沒篩選的列表 = 一個更具體的謊)。
+     ⚠️ **原本那兩格可及性斷言(桌機 `aria-label="搜尋"` + 手機搜尋鈕)【沒有刪掉,只是改成前提句】**
+        —— 入口回來時要連同那兩條一起復原。**它們是 R2-3 的驗收條款,不是順手加的。** */
+  describe('搜尋入口暫時隱藏', () => {
+    /**
+     * 🔴 **反向斷言要配正向對照,否則選擇器打錯也會綠。**
+     * 這裡的對照 = **另一個確定存在的 header 元素**:
+     *   桌機 → 會員鈕(`aria-label="會員"`)   手機 → 購物車(`aria-label="購物車"`)
+     * ⇒ 「找不到搜尋」與「什麼都找不到」分得開。
+     */
+    it('🔴 桌機:搜尋框不在 DOM(而其他 header 元素仍在)', () => {
+      const { container } = renderWithCart(<Header isMobile={false} />);
+      expect(container.querySelector('.pcm-search'), '搜尋框應已隱藏').toBeNull();
+      expect(screen.queryByLabelText('搜尋'), '搜尋輸入框應已隱藏').toBeNull();
+      // 正向對照:同一棵樹裡確定存在的東西
+      expect(screen.queryByLabelText('會員'), '對照組不見了 ⇒ 是整棵樹沒渲染,不是搜尋被藏').not.toBeNull();
+    });
+
+    it('🔴 手機:搜尋鈕不在 DOM(而其他 header 元素仍在)', () => {
+      renderWithCart(<Header isMobile />);
+      expect(screen.queryByLabelText('搜尋商品'), '手機搜尋鈕應已隱藏').toBeNull();
+      // 正向對照
+      expect(screen.queryByLabelText('購物車'), '對照組不見了 ⇒ 是整棵樹沒渲染').not.toBeNull();
+    });
+  });
+
+  /* 🔴 **R2-3 那條可及性驗收【沒有作廢,只是暫時不適用】**(入口隱藏中)。
+     **入口回來時把 `.skip` 拿掉就是原本那格** —— 不要重寫、不要當成過期斷言刪掉。
+     📎 用 `.skip` 而不是註解掉整段:`.skip` 在測試輸出裡**看得見**(算進 skipped 數),
+        註解掉的東西**在報表上完全不存在** ⇒ 沒有人會想起要把它復原。 */
+  it.skip('🔴 R2-3:桌機搜尋框有 aria-label「搜尋」(入口隱藏中,復原時一併打開)', () => {
     renderWithCart(<Header isMobile={false} />);
     const input = screen.getByLabelText('搜尋');
     expect(input.getAttribute('placeholder')).toBe('搜尋商品 / 車款 / 品牌...');

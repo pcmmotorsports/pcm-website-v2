@@ -396,9 +396,28 @@ function OrderGroup({
                 ⚠️ **訂貨的資訊沒有消失、只是離開列表**:品項層的 `n/m` 仍在明細頁
                    (`ItemAxisCell`),而狀態欄的貨品軸是**整單彙總**(所有品項都到齊才進下一階段,
                    `orderGoodsAxis` docstring 逐字)⇒ 兩者不是同一個數字,**不要拿列表這格去對明細那格**。 */}
+            {/* 🔴🔴 **`itemsTruncated` ⇒ 不印狀態,改印「未知」**(2026-08-16,`Q-EMBED-2` Sean 拍**甲**)。
+                **這不是保守,是那個值真的算錯了**:`goodsAxisOfLines` 三條判定都是 `.every(...)`,
+                而 `.every()` 對子集**單調** ⇒ **子集算出來的階段恆 ≥ 真實階段**
+                ⇒ 看得見的全出貨了就答「出貨完成」,而沒載進來的可能一件都沒出。
+                ⇒ **員工看到「出貨完成」就不再動作** —— 他做對了,但結果是錯的。
+                🔴 **不得印 0、不得留空** —— 兩者都會被讀成「就是沒有」,而語意是「我們不知道」。
+                ⚠️ **閘裝在顯示端、不裝進 `orderStatusView`**:那支的參數是 `AdminOrderSummary`,
+                   理論上讀得到旗標,但它同時服務**明細側**(`order-status-axes.ts` 搜 `orderDetailGoodsAxis`
+                   那組刻意收窄的型別)⇒ 在算式裡混進「資料完不完整」會讓那支函式同時回答兩個問題。
+                   **與頭條數字、出貨狀態那兩格是同一個結構決定。** */}
             {first ? (
               <td className={`${TD} ${CELL.status}`} data-l='狀態'>
-                <span className={status.capsuleClass}>{status.label}</span>
+                {order.itemsTruncated ? (
+                  <span
+                    className={status.capsuleClass}
+                    title='這張單的品項清單這次沒有完整載入,算不出狀態。請重新整理。'
+                  >
+                    未知
+                  </span>
+                ) : (
+                  <span className={status.capsuleClass}>{status.label}</span>
+                )}
               </td>
             ) : (
               <td className={`${TD} ${CELL.status}`} />

@@ -27,7 +27,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 鐵則 1-12(每個 slice 必遵守;編號固定、外部大量按編號引用、**絕不重新編號**)
 
-1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。**例外**:首頁改版+選車統一線的真權威 = Open Design `pcm-home-redesign` 目錄(位置見 `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md` 檔頭);submodule `components/HomePage.jsx` 為過期假稿、不得引用。
+1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。**真權威解析**:design 真權威不只 design-reference——任何會被人看到的產出物(前台頁面/後台 UI/列印單據/信件模板)動工前,先解析真權威:OD `list_projects` 當場列全部設計專案 + grep design-reference;各面對應與拍板紀錄見 `docs/PHASE-1-NORTHSTAR.md` §2(清單不寫進本檔:清單會過期,查法不會)。查無 ⇒「查無」寫進 plan 並附掃過的分母;拿不準哪個是權威 ⇒ 問 Sean。
 2. **後台對應 design** — Medusa schema 對應 design 已定義的資料結構;design `data/products.js` mock 是合約、後台實作合約。
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
@@ -75,6 +75,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 🔴 **要用瀏覽器打開後台看畫面**(本機;**不需要任何 `.env` 檔**) | `docs/design/admin-design-system.md` **檔頭第一段** —— 一行 `cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001`。**這條路一直都在**(`proxy.ts:16` 註解寫著用途),而 2026-08-16 全窗花了兩輪才找到 —— **寫對地方 ≠ 會被讀到** |
 | 後台 UI 片的視覺真權威 / BMW M 設計語言 / 某條做了沒 | `docs/design/admin-design-system.md`(**檔頭「落地狀態」表決定你能不能直接照抄下面的東西**) |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
+| 接手/重啟/被交辦一條「看起來停住、沒結論」的線 —— 在你說「那要開線」之前 | `docs/patterns/stalled-line-triage.md`(甲沒有落點/乙結論住錯地方/丙照拍板在等;丙型誤判=推翻當事人自己的拍板) |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
 
 ---

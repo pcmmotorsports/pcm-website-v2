@@ -36,7 +36,18 @@ export function OrdersTab({ orders }: OrdersTabProps) {
               <div className="acc-order-l">
                 <div className="ap-mono acc-order-id">{o.displayId}</div>
                 <div className="acc-order-meta">
-                  {formatOrderDate(o.createdAt)} · {o.itemCount} 件商品
+                  {/* 🔴 **`itemCountTruncated` ⇒ 件數不可信,改印「?」**(2026-08-16,`Q-EMBED-1`)。
+                    ⚠️ **這裡【不能】照後台那條印「未知」蓋掉整格** —— 那一格印的是**一個算出來的狀態**,
+                       蓋掉它員工還看得到別的欄;而**這裡蓋掉的是客人辨識自己訂單的資訊**。
+                       ⇒ 只把**那個不可信的數字**換掉,單號與日期照常。
+                    🔴 **不印 0、不留空** —— 兩者都會被讀成「這單沒東西」。
+                       印 `?` 是「我們也不確定」,而它旁邊的 title 給得出下一步。 */}
+                  {formatOrderDate(o.createdAt)} ·{' '}
+                  {o.itemCountTruncated ? (
+                    <span title="這張訂單的品項太多,件數這次沒有完整載入。請重新整理,或聯絡我們。">? 件商品</span>
+                  ) : (
+                    <>{o.itemCount} 件商品</>
+                  )}
                 </div>
               </div>
               <div className="acc-order-r">
