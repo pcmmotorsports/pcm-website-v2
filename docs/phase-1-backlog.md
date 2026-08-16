@@ -15667,6 +15667,39 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
 - 🔴 **修法不要用 `max-rows - 1`：** 那把我們的正確性綁在一個**官方文件沒說清楚、而且是伺服器端可調**
   的值上。方向應該是「頁大小由我方明確定義且**嚴格小於**任何可能的伺服器上限」，
   或改用 **keyset 分頁**（游標綁資料、不綁位置 ⇒ 連並發寫入的頁界漂移一起解掉）。
+- 🔴 **範圍不只 helper：同一個病有【第二份獨立實作】**（V 窗 2026-08-17 掃出的 F-S3）
+  `apps/storefront/src/lib/products.ts` 的 `fetchVehicleTaxonomy`（搜函式名，落筆當下 `:700`）
+  是**手刻的分頁迴圈、沒有走共用 helper**，而它自己也是 `PAGE_SIZE == max-rows`。
+  ⇒ 🔴 **修共用 helper 的時候，這一支不會跟著好。**
+  ⚠️ **所以這條 backlog 不能只寫「修 helper」** —— 否則批准的人會以為兩處都修好了。
+  📎 與「同一份邏輯兩份實作、各自漂」是同一形狀。
+  ✅ 而這支自己記了一件對的事：它撞 `MAX_PAGES` 時**會 `console.warn`**
+  （逐字「MAX_PAGES 撞頂是**靜默截斷**(下拉少一截、沒人會叫)⇒ 至少留 log」）
+  ⇒ **寫的人知道這個病**；缺的是「知道」沒有變成「會紅的東西」。
 - **由來：** 2026-08-17 A 窗做儲值金分頁時撞到；V 窗整理的「分頁族五條陷阱」第 1 條，
   而**實例就在我們自己的共用 helper 裡**。相關 plan：
   `docs/specs/2026-08-17-wallet-ledger-pagination-plan.md` §6。
+
+### #605 · 客戶列表分頁排序缺唯一鍵次序：同秒建立的客戶會跨頁重複或漏
+
+- **位置：** `packages/adapters/src/supabase/SupabaseCustomerAdapter.ts`
+  （搜 `.order('created_at'`，落筆當下 `:294-295`）
+- **現況：** `.order('created_at', { ascending: false }).range(offset, offset + limit - 1)`
+  —— 排序鍵**只有 `created_at`，沒有唯一鍵收尾**。
+- **不修未來會痛在哪：** `created_at` 撞值時（**批次匯入會整批同秒**）那幾筆的相對順序**未定義**
+  ⇒ 第 1 頁與第 2 頁是兩次獨立查詢 ⇒ 同一位客戶可能**兩頁都出現**、或**哪一頁都翻不到**，
+  而總數照樣正確 ⇒ **畫面上完全正常**。
+- 🔴 **這條真正的價值不是缺陷本身，是它揭露的第三種形狀：**
+  同型位置 `packages/adapters/src/supabase/SupabaseOrderAdapter.ts`（搜 `.order('created_at'`，
+  落筆當下 `:761-762`）**有次鍵，而且註解言明「防同秒單跨頁重複/漏單」**
+  ⇒ **有人想過這件事、寫下來了、而沒有套到全部。**
+  ⇒ 它既不是「有人決定不看」（那會有出處），也不是「沒人想到」（那不會有註解）——
+  **是「想過了、解過了、而沒有掃一遍同型位置」。**
+  📎 三種形狀在任何清單上都長成「未處理」，而**修法完全不同**：
+  第一種要重新決策、第二種要有人先看見、**第三種只要拿既有解去掃一遍**（最便宜、最容易被漏掉）。
+- **修法：** 加 `.order('id', { ascending: false })` 當 tiebreaker（照 `SupabaseOrderAdapter` 既有形狀）。
+  ⚠️ **不要只修這一支** —— 這條的重點是**掃一遍所有 `.order(...).range(...)` 組合**，
+  數法 `grep -rn "\.range(" packages/adapters/src apps/admin/src apps/storefront/src --include='*.ts' | grep -v '\.test\.'`，
+  逐處看排序鍵是不是全序。
+- **觸發面：** admin 客戶列表（客戶匯入批次同秒多筆）。**今天未觀察到實例，未量。**
+- **由來：** V 窗 2026-08-17 拿「分頁族五條陷阱」掃既有 code（F-S2）；主視窗裁「立案，不現在做」。
