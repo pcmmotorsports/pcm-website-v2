@@ -15647,3 +15647,26 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
 - **⚠️ 這條只驗得了 hct**:`sf` 的貨號規則我方**未查證**、`other` 本來就沒有貨號
   ⇒ 落地時要先答「非 hct 的代碼怎麼辦」,否則守門會對 sf 誤報。
 - **發現於**:2026-08-16 · C 窗 #10 片3(貨運商/追蹤碼/出貨日)· 由 C 窗立案
+
+### #603 · fetchAllPaginated 的 PAGE_SIZE 等於而非小於 max-rows：max-rows 一旦調低就會把「被砍過的一頁」誤判成末頁
+
+- **位置：** `packages/adapters/src/supabase/helpers/product-query-support.ts`（搜 `const PAGE_SIZE`）
+- **現況：** `PAGE_SIZE = 1000`，而 PostgREST 的 `db-max-rows` 實測也是 **1000**。
+  迴圈的終止判準是「本頁筆數 < PAGE_SIZE ⇒ 末頁」。
+- **今天為什麼沒事：** 請求正好要 1000 筆、伺服器上限也正好 1000 ⇒ 沒被砍 ⇒ 判準成立。
+  🔴 **它安全的理由是兩個數字剛好相等，不是因為有人設計成這樣。**
+- **不修未來會痛在哪：** `max-rows` 一旦被調低（例如 500），每一頁都會被伺服器砍成 500
+  ⇒ `500 < 1000` ⇒ **第一頁就被判成末頁** ⇒ 撈到一半停下、而呼叫端拿到的東西
+  **看起來就是一份完整的清單**。
+  ⚠️ **兩個世界印同一個東西**：「伺服器砍過的一頁」與「真正的末頁」回傳的筆數形狀完全一樣
+  ⇒ 這個迴圈**沒有任何辦法分辨它們**。
+- **影響面：** 🔴 **所有呼叫端，不只某一支** —— 數法
+  `grep -rn 'fetchAllPaginated' packages/ apps/ --include='*.ts' | grep -v '\.test\.'`
+  （落筆當下：`SupabaseProductAdapter` 的 `listAllByCategory` / `listAllProducts`、
+  `helpers/fitment-queries.ts` 的 `queryProductsByVehicle`）。
+- 🔴 **修法不要用 `max-rows - 1`：** 那把我們的正確性綁在一個**官方文件沒說清楚、而且是伺服器端可調**
+  的值上。方向應該是「頁大小由我方明確定義且**嚴格小於**任何可能的伺服器上限」，
+  或改用 **keyset 分頁**（游標綁資料、不綁位置 ⇒ 連並發寫入的頁界漂移一起解掉）。
+- **由來：** 2026-08-17 A 窗做儲值金分頁時撞到；V 窗整理的「分頁族五條陷阱」第 1 條，
+  而**實例就在我們自己的共用 helper 裡**。相關 plan：
+  `docs/specs/2026-08-17-wallet-ledger-pagination-plan.md` §6。

@@ -71,6 +71,23 @@ customer_wallet_ledger 全表   3 列
 
 ## 4. 正確方向(等批)
 
+### 4-0 🔴 下一版設計的**前提**(不是上一版的 finding)
+
+```
+ledger 【不是】絕對 append-only。
+```
+「無 UPDATE/DELETE policy」只約束**一般角色**;`ON DELETE CASCADE`
+(`supabase/migrations/20260523034911_init_customers_and_subtables.sql`)在刪 customer 時會連帶刪 ledger,
+而 **service_role / owner 不受 policy 限制**。
+
+⇒ **任何「筆數只會增加」的推論都不成立**,包括:
+- ❌「`實得 < count` 只可能是漏了」(上一版的防線 3 建立在這句上 ⇒ 它從前提就錯)
+- ❌「兩次查詢之間總數不會變小」
+- ❌ 任何拿「前後兩個數字比大小」當完整性證明的做法
+
+📎 **這條要寫在設計的最前面,不是寫在 findings 裡** —— 它決定了「完整性可以怎麼證」這個問題的答案空間,
+而不只是推翻某一個實作。**下一版若又想用某種計數對帳,先回來讀這一段。**
+
 ### 4-a keyset 分頁取代 OFFSET
 
 OFFSET 分頁的頁界會被期間的寫入推動 ⇒ 重複與漏。**keyset**(`WHERE id < :lastId ORDER BY id DESC LIMIT n`)
