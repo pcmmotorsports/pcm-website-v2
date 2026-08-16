@@ -262,10 +262,26 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 **通則仍成立:** storefront(`apps/storefront/**`)公開讀走 RLS anon、**不持 service_role**(eslint.config.js `no-restricted-imports` 擋 `@pcm/adapters/server`、對齊 service_role key 紀律)。本例外**只開一個極窄小門、不鬆動通則**。
 
 **例外:** LINE 自寫 OAuth(Q4=Y)的 callback 需 Supabase Admin API(`createUser` / `generateLink`)建立 / 登入 LINE 用戶 + 發 session。Admin API **無 anon 替代**,且 callback 須與 storefront **同源**才寫得到 session cookie(搬 `apps/api/` 跨源不可行)。故 `apps/storefront/src/lib/auth/line-admin.ts` 成為 storefront 首個、也是目前唯一的 service_role 引用點。
+> 🔴 **2026-08-16 修訂(範圍:本 §8.4 全段,不只上一句)。**
+> **①「首個、也是目前唯一的 service_role 引用點」是【2026-05-25 當下】的事實,現在已不成立。**
+> 實物證據:`apps/storefront/src/lib/email/composition.ts:22,48` 也呼叫 `createSupabaseServiceClient()`。
+> **② 下面「護欄」第二點的「service_role 鎖死本檔、不外擴」同樣已過期**,語氣是承諾而事實不是,一併作廢。
+> **③ 要知道現在有幾道門,跑這一行**(不要問任何一段散文,也**不要**去問 `eslint.config.js:138-149` ——
+> 那是整片禁令,擋得住新門但**列不出也推不出**現有幾道):
+> `git grep -nE "^// eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'`
+> 2026-08-16 實跑回 **4** 處,分佈在 `lib/auth/composition.ts` / `lib/auth/line-admin.ts` /
+> `lib/email/composition.ts` / `lib/payment/composition.ts`。**行號故意不寫在這裡**(會漂,讓命令給)。
+> 🔴 **`^` 錨定不可省**:不錨定的話,**文件裡引用這個 pattern 的行會自己命中**,實跑變 5 而不是 4;
+> 每多一份文件提到它,分子就再 +1。這是偵測字串自命中,而它讀起來完全正常。
+> 🔴 **④ 本 §8.4 對自己下的義務已被觸發而【無人接】**:下面「與既有例外的區別」段末逐字寫
+> 「日後若有第二個 storefront service_role 需求、須重新評估是否該抽 `apps/api/`、不可逕援本例外擴張」。
+> **第二、三、四道門已經存在,那次重新評估沒有發生過。**
+> ⇒ 立案 `#549`(本次同批開號),**本修訂註不替那些門背書、也不宣告它們合法**,只記錄義務未履行。
+> 原文全部保留不改寫,因為它記的是**當時的決定**。
 
 **護欄(缺一不可):**
 - `import 'server-only'`:編譯期擋 client component 引入(transitive)。
-- 僅 `/api/auth/line/callback` route handler(server-only、`runtime='nodejs'`)引用 line-admin.ts;service_role 鎖死本檔、不外擴。
+- 僅 `/api/auth/line/callback` route handler(server-only、`runtime='nodejs'`)引用 line-admin.ts;~~service_role 鎖死本檔、不外擴~~ ← **⚠️ 2026-08-16 作廢**(見上方修訂註②:那是承諾語氣,而 storefront 現有 4 道門)。**本護欄現在只保證「本檔的 service_role 不外流到 client bundle」,不保證「全 storefront 只有這一處」。**
 - `eslint-disable-next-line no-restricted-imports` + 具名理由註解(指向本 §8.4)。
 - commit 前 grep build 後 client chunk、確認 0 命中 `SUPABASE_SERVICE_ROLE_KEY`(codex 關卡2 驗)。
 
@@ -279,5 +295,6 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 |---|---|---|
 | 2026-05-04 | 初版落地、Sean 拍板 Q1=A1 廢 ADR-0002 §1.2 Pivot 2「Medusa-as-API」、改 Custom + Supabase 直寫(9 contexts 統一架構)、5 候選方案 + 三視角 + Rollback 訊號 + 影響清單 + 後續 milestone 字面變更 | Sean 拍板 / Claude Code(M-1-03-pre0b)落地 |
 | 2026-05-25 | §8.4 新增:storefront service_role 受控小門例外(M-1-14e-f2 LINE OAuth、Sean Q1=A);通則「storefront 不持 service_role」不變、僅 line-admin.ts 經護欄極窄例外 | Sean 拍板 / Claude Code(M-1-14e-f2-a2)落地 |
+| 2026-08-16 | §8.4 加修訂註(範圍=全 §8.4):①「首個、也是目前唯一的 service_role 引用點」已過期(實物 `lib/email/composition.ts:22,48`)②護欄第二點「service_role 鎖死本檔、不外擴」一併作廢 ③要數量改跑 `git grep -nE "^// eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'`(**行首錨定不可省**,不錨定會被文件自身命中;**不要**去問 `eslint.config.js` 那道整片禁令,它答不出「有幾道」)④本 §8.4 自己的「須重新評估」義務已觸發而無人接 ⇒ 立 `#549`。**通則與例外本身未變,只作廢「數量宣稱」這種會過期的字面。** 同批修 `line-admin.ts` 檔頭與其 eslint-disable 註解;兩道 REVOKE 判別句與四臂實測落 `docs/patterns/revoking-function-execute-in-supabase.md` | B 窗 / Claude Code(M-4b)落地 |
 
 — END —

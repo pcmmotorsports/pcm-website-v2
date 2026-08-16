@@ -31,7 +31,6 @@ vi.mock('../../../../../../lib/shipping/order-shipments', () => ({
 import OrderShippingPrintPage from './page';
 import {
   shippingDocBlocker,
-  unshippedQuantity,
 } from '../../../../../../components/print/shipping-doc';
 
 const ORDER = '11111111-1111-4111-8111-111111111111';
@@ -294,43 +293,100 @@ const withSummary = (s: ReturnType<typeof summary> | null) =>
     items: [{ ...detail().items[0], quantitySummary: s }],
   } as unknown as Partial<AdminOrderDetail>);
 
-describe('#10 片2b — unshippedQuantity(還欠客人幾件)', () => {
-  const call = (s: ReturnType<typeof summary> | null) =>
-    unshippedQuantity(must(withSummary(s).items[0], '第一個品項'));
+// 🔴 **純算式的格子搬到 `lib/shipping/shipping-doc-quantities.test.ts`** ——
+//    那些問題(四項算式、補印不重複扣、分三批出完歸零)**不需要渲染就答得出來**,
+//    留在這裡的話每一格都要先 render 一次頁面,而那會讓「算式對不對」與
+//    「畫面有沒有印出來」在同一格裡紅。**兩件都要測,但不該是同一格。**
+//    ⇒ 本檔從這裡開始只問**紙面**。
 
-  it('🔴 摘要 null ⇒ 回 null(「不知道」不是「都是 0」)', () => {
-    expect(call(null)).toBeNull();
+describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出貨 / 訂單取消)', () => {
+  const titles = (c: HTMLElement) => [...c.querySelectorAll('h2')].map((h) => h.textContent ?? '');
+  /**
+   * 🔴 **依【區名】取那一區的表,不依索引** —— 三個區是**條件出現**的
+   * (沒有取消就沒有第三區、都出完就沒有第二區)⇒ `tables[1]` 指到哪一區會隨資料變。
+   * 用索引寫的話,測試會在「某一區消失」時**默默去驗另一區**而不是紅。
+   */
+  const sectionTable = (c: HTMLElement, title: string) => {
+    // 🔴 **從 table 反查它的區名**,不是從 h2 往下鑽(codex consider):
+    //    往下鑽綁死了「h2 → 最近 div → parent → 第一張 table」這條路徑,
+    //    多包一層 div 就會靜默取到別區;反查只依賴「每張表上面有一個 h2」這一個假設。
+    return (
+      [...c.querySelectorAll('table')].find(
+        (t) => t.parentElement?.querySelector('h2')?.textContent === title,
+      ) ?? null
+    );
+  };
+
+  it('🔴 三個區名逐字照抄 Sean 的原話,不得正規化', async () => {
+    // 他給的是「本次出貨 / 尚未出貨 / 訂單取消」。改成「已取消品項」之類 = 這格紅。
+    // ⚠️ 測資要讓三區【同時存在】:買 9 / 取消 1 / 先前寄 0,這一箱 2 ⇒ 尚未 9−1−0−2 = 6 > 0
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
+    );
+    expect(titles((await renderPage()).container)).toEqual(['本次出貨', '尚未出貨', '訂單取消']);
   });
 
-  it('🔴 算式 = 買的 − 取消的 − 寄走的', () => {
-    // 五個欄位的值**刻意兩兩不同**,任何一個欄位取錯都會得到不同的數:
-    //   quantity 5 / ordered 5 / instock 4 / cancelled 1 / shipped 2
-    //   正解 5−1−2 = 2;若誤用 instock 當被減數 ⇒ 4−1−2 = 1;若漏減 cancelled ⇒ 3;若漏減 shipped ⇒ 4。
-    expect(call(summary())).toBe(2);
-    expect(call(summary({ instockQuantity: 0 }))).toBe(2); // instock 不參與本式
+  it('🔴🔴 「尚未出貨」的數字是【扣掉這一箱之後】的 —— 少扣就會多印一件給客人看', async () => {
+    // 買 9 / 取消 1 / 先前寄 0 / 這一箱 2 ⇒ 9−1−0−2 = 6
+    // 🔴 少扣「這一箱」的舊行為會印 8。兩個數不同 ⇒ 這格分得出來。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
+    );
+    const { container } = await renderPage();
+    const table = sectionTable(container, '尚未出貨');
+    expect(table?.textContent ?? '').toContain('LTC-BK-XL');
+    // 🔴 **鎖在數量儲存格**,不是整張表找字元「6」(codex:料號/規格裡出現 6 也會讓它綠)。
+    expect(table?.querySelector('tbody td:last-child')?.textContent?.trim()).toBe('6');
   });
 
-  it('🔴 全部寄完或取消完 ⇒ 0,而且不會變成負數', () => {
-    expect(call(summary({ cancelledQuantity: 0, shippedQuantity: 5 }))).toBe(0);
-    expect(call(summary({ cancelledQuantity: 3, shippedQuantity: 2 }))).toBe(0);
-    // CHECK 保證進不來,但真進來了也不准在紙上印負數。
-    expect(call(summary({ cancelledQuantity: 9, shippedQuantity: 9 }))).toBe(0);
-  });
-
-  it('🔴 不是 pickableQuantity —— 沒到貨的照樣欠客人', () => {
-    // instock 0(貨還沒從供應商到)⇒ 揀貨單「應揀 0」,但客人還是欠 5 件。
-    expect(call(summary({ instockQuantity: 0, cancelledQuantity: 0, shippedQuantity: 0 }))).toBe(5);
-  });
-});
-
-describe('#10 片2b — 尚未出貨區塊(紙面)', () => {
-  it('還欠客人的品項會出現在第二張表', async () => {
+  it('🔴 全部處理完 ⇒ 「尚未出貨」整區不出現(不留一張空表)', async () => {
+    // 買 5 / 取消 1 / 先前寄 2 / 這一箱 2 ⇒ 5−1−2−2 = 0
     mocks.findAdminOrderDetail.mockResolvedValue(withSummary(summary()));
-    const tables = (await renderPage()).container.querySelectorAll('table');
-    expect(tables.length).toBe(2);
-    const unshipped = must(tables[1], '尚未出貨表');
-    expect(unshipped.textContent).toContain('LTC-BK-XL');
-    expect(unshipped.querySelector('tbody td:last-child')?.textContent?.trim()).toBe('2');
+    expect(titles((await renderPage()).container)).not.toContain('尚未出貨');
+  });
+
+  it('🔴🔴 本檔【不得】印一條跨區的對帳等式(它少了「先前已出貨」那一項,第二箱就對不起來)', async () => {
+    // Sean `Q-C4` 拍「會算錯就不印」⇒ 紙面三格、算式四項。
+    // 印「訂購 = 本次 + 尚未 + 已取消」的話:訂購 5、先前 2、這箱 1 ⇒ 5 ≠ 1+2+0。
+    mocks.findAdminOrderDetail.mockResolvedValue(withSummary(summary()));
+    const t = (await renderPage()).container.textContent ?? '';
+    // 🔴 釘的是**跨區加總這件事**,不是幾個詞。
+    //    codex R2 擊穿過一次:`5 件＝1 件＋4 件` —— 數字與運算符之間夾一個「件」,
+    //    上一版那兩條 regex 都避開了。⇒ 允許中間有中文量詞。
+    for (const word of ['訂購', '對帳', '合計', '總計']) expect(t).not.toContain(word);
+    // 🔴 前後都要允許空白 —— 第一版只寫了尾巴的 `\s*`,於是 `5 = 1 + 4`(運算符後有空格)
+    //    整條放行。**我是自己跑一遍探針才發現的,不是讀出來的。**
+    // ⚠️ **這條 regex 擋得住什麼、擋不住什麼(不要讓它看起來比實際強)**:
+    //    擋得住 = 數字直接相等/相加(`5 = 1 + 4`、`5 件＝1 件＋4 件`)。
+    //    🔴 擋不住 = 運算符與數字之間夾了詞的寫法(`訂購 5 件 = 本次 1 件 + 尚未 4 件`)——
+    //       那一種靠上面的禁詞清單接住,**兩道各補對方的洞,而兩道都不完整。**
+    //    ⇒ 真正的防線是 `shipping-doc.tsx` 那段「為什麼不印對帳等式」的理由,這裡只是複發偵測。
+    const NUM = String.raw`\s*\d+\s*[件個]?\s*`;
+    expect(t).not.toMatch(new RegExp(`${NUM}[=＝]${NUM}`));
+    expect(t).not.toMatch(new RegExp(`${NUM}[+＋]${NUM}`));
+  });
+
+  it('🔴🔴 這一箱【已標記出貨】⇒ 它的量不再從「尚未出貨」扣第二次', async () => {
+    // 🔴 本檔在此之前**沒有任何一格**渲染過 `shippedAt !== null` 的箱(codex 抓的)
+    //    ⇒ 「已出貨的箱不進 pending」這條接線在頁層零覆蓋。
+    // 買 9 / 取消 1 / 已出貨 2(含這一箱的 2)⇒ 這一箱不在 pending ⇒ 9−1−2−0 = 6
+    // 🔴 若誤把已出貨的箱也算進 pending ⇒ 9−1−2−2 = 4,兩個數不同 ⇒ 這格分得出來。
+    mocks.loadOrderShipments.mockResolvedValue([
+      { shipment: shipment({ shippedAt: '2026-08-16T02:00:00+00:00' }), lines },
+    ]);
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 2 })),
+    );
+    const { container } = await renderPage();
+    const table = sectionTable(container, '尚未出貨');
+    expect(table?.querySelector('tbody td:last-child')?.textContent?.trim()).toBe('6');
+  });
+
+  it('🔴 「訂單取消」區只收取消 > 0 的列;沒有取消時整區不出現', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      withSummary(summary({ cancelledQuantity: 0, shippedQuantity: 0 })),
+    );
+    expect(titles((await renderPage()).container)).not.toContain('訂單取消');
   });
 
   it('🔴 摘要 null 的品項**必須留在紙上**、印「不知道」,不得被濾掉', async () => {
@@ -340,7 +396,7 @@ describe('#10 片2b — 尚未出貨區塊(紙面)', () => {
     const t = (await renderPage()).container.querySelectorAll('table')[1]?.textContent ?? '';
     expect(t).toContain('LTC-BK-XL');
     expect(t).toContain('數量資料尚未就緒');
-    expect(t).not.toContain('尚未出貨項目:無');
+    expect(t).not.toContain('尚未出貨:無');
   });
 
   it('🔴 真的都寄完了 ⇒ 說「無」,不留一張空表', async () => {
@@ -349,7 +405,7 @@ describe('#10 片2b — 尚未出貨區塊(紙面)', () => {
     );
     const { container } = await renderPage();
     expect(container.querySelectorAll('table').length).toBe(1); // 只剩「本次出貨」
-    expect(container.textContent).toContain('尚未出貨項目:無');
+    expect(container.textContent).toContain('尚未出貨:無');
   });
 
   it('🔴🔴 兩張表都必須是真的 `<table>` + 真的 `<thead>`(跨頁表頭靠它)', async () => {
@@ -369,10 +425,14 @@ describe('#10 片2b — 尚未出貨區塊(紙面)', () => {
     //
     // 🔴 兩張表**各釘一次**。現在它們是同一份 `Section` JSX ⇒ 一發突變會同時打到兩張;
     //    **但守門不該假設它們永遠共用** —— 哪天有人把其中一張拆出去,這格要能單獨紅。
-    mocks.findAdminOrderDetail.mockResolvedValue(withSummary(summary()));
+    // 🔴 測資要讓**三區同時存在**,否則這格只釘得到其中兩張
+    //    (原本寫死 `tables.length === 2` 是兩區時代的字面 ⇒ 三區之後它會在錯的地方紅)。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
+    );
     const { container } = await renderPage();
     const tables = container.querySelectorAll('table');
-    expect(tables.length).toBe(2);
+    expect(tables.length).toBe(3);
 
     const headerTexts = (t: Element) => {
       const thead = t.querySelector(':scope > thead');
@@ -380,13 +440,20 @@ describe('#10 片2b — 尚未出貨區塊(紙面)', () => {
       return [...(thead?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim());
     };
     expect(headerTexts(must(tables[0], '本次出貨表'))).toEqual(['料號', '品名 / 規格', '本次出貨']);
-    expect(headerTexts(must(tables[1], '尚未出貨表'))).toEqual(['料號', '品名 / 規格', '還沒寄出']);
+    expect(headerTexts(must(tables[1], '尚未出貨表'))).toEqual(['料號', '品名 / 規格', '還欠幾件']);
+    // 🔴 第三區也要各釘一次,理由同上:不該假設三張表永遠共用同一份 JSX。
+    expect(headerTexts(must(tables[2], '訂單取消表'))).toEqual(['料號', '品名 / 規格', '已取消']);
   });
 
-  it('🔴 兩區的母體不同,紙上要講出來(不然會被讀成同一個東西)', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(withSummary(summary()));
+  it('🔴 三區的母體各不相同,紙上要各自講出來(不然會被讀成同一個東西)', async () => {
+    // 區一 = 這一箱 / 區二 = 整張訂單還欠的 / 區三 = 整張訂單已取消的。
+    // 🔴 三個母體不同,而三張表長得一模一樣 ⇒ 不寫清楚就會被加總、被比較。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })),
+    );
     const t = (await renderPage()).container.textContent ?? '';
     expect(t).toContain('這個箱子裡屬於這張訂單的品項');
-    expect(t).toContain('這張訂單還沒交給貨運的東西');
+    expect(t).toContain('這張訂單還欠客人的東西(不含這一箱要寄的)');
+    expect(t).toContain('這張訂單裡已經取消的品項,不會出貨');
   });
 });

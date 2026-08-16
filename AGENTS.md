@@ -7,7 +7,7 @@
 **按需路由(2026-07-03 與 CLAUDE.md 同步瘦身:移除 @import 常載、原版備份 `docs/archive/2026-07-03-AGENTS-md-pre-slim.md`;命中情境才讀,不通讀)**:
 - Phase 1 範圍爭議 → `docs/PHASE-1-NORTHSTAR.md` §1;design 真權威與矛盾仲裁 → 同檔 §2;上線判斷 → 同檔 §5
 - 事故式教訓 37 條(rsync/env·secret/跨 repo/立法格式等) → `docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條);偵察方法論(凡結論將寫「X 未實作/未覆蓋/查無」)→ 同檔 §13;寫 slice 指令前自檢 → `docs/working-style.md` §6.3;Sean 報告/決策格式 → 同檔 §1/§2;Sean 環境與 dashboard → 同檔 §4
-- 三綠與字面vs事實背景 → `docs/patterns/slice-checkpoint.md`;Packet 格式 → `docs/patterns/codex-review-packet.md`;審查鏈全貌 → `docs/patterns/cowork-review-chain.md`;React/hooks 規則 → `docs/patterns/react-nextjs-rules.md`;鐵則詳解與程式碼範例(規則字面以本檔為準)→ `docs/patterns/general.md` + `docs/patterns/pcm-specific.md`
+- 三綠與字面vs事實背景 → `docs/patterns/slice-checkpoint.md`;Packet 格式 → `docs/patterns/codex-review-packet.md`;審查鏈全貌 → `docs/patterns/cowork-review-chain.md`;React/hooks 規則 → `docs/patterns/react-nextjs-rules.md`;鐵則詳解與程式碼範例(規則字面以本檔為準)→ `docs/patterns/general.md` + `docs/patterns/pcm-specific.md`;🔴 **新建任何 DB 物件(表 / view / 函式)或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` → `docs/patterns/revoking-function-execute-in-supabase.md`(檔名比範圍窄、表也在裡面;新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅)**
 
 ---
 

@@ -221,7 +221,12 @@ commit 後、若本 slice 動到程式碼,順手跑 `/graphify --update` 增量�
 |---|---|---|---|---|
 | L1 | 規則層 | 本檔 + CLAUDE.md 鐵則 11 + 自檢清單 | Code session 自律遵守 | 🟢 已落地(2026-05-01 / M-0-07) |
 | L2 | 工具層 | pcm-tools/scripts/busboy-end.js pre-flight | busboy-end 強制跑、若紅不允許 amend STATUS | 🟡 規劃中(M-0-09) |
-| L3 | 設施層 | .github/workflows/ci.yml | GitHub push 自動跑、PR / merge 必綠 | ⏳ 未來(backlog #7) |
+| L3 | 設施層 | .github/workflows/ci.yml | GitHub push 自動跑、PR / merge 必綠 | 🟢 **已落地**(2026-08-16 I 窗實查;詳 §6.5) |
+
+> 🔴 **上表 L3 那格原寫「⏳ 未來(backlog #7)」,2026-08-16 實查為過期** —— `ci.yml` 存在(`169` 行)、
+> `dev` 分支保護真的在要求它(`gh api repos/pcmmotorsports/pcm-website-v2/rules/branches/dev`
+> ⇒ `required_status_checks [{"context":"check","integration_id":15368}]`)。
+> **⇒ 下面 §6.4「L3 預定行為」整段是【當初的規劃】,不是現況;現況以 §6.5 為準。**
 
 ### 6.2 為何三層
 
@@ -244,6 +249,67 @@ busboy-end.js pre-flight 三綠檢查:
 - PR 必須全綠才允許 merge 進 main
 - Vercel preview URL deploy 起得來為終驗
 - main branch protection rule 要求所有 status check 通過
+
+### 6.5 🔴 L3 現況(2026-08-16 I 窗實查)—— **CI 涵蓋了本機三綠【看不到】的東西**
+
+> **為什麼這節必須存在**:在此之前本檔只講「三綠」,讀起來像「本機綠了就驗過了」。
+> **而 CI 的 `check` job 是本機三綠的【真超集】** —— 有一整層只有它在守。
+
+#### 6.5.1 CI `check` ⊋ 本機三綠(逐項,附 `ci.yml` 行號)
+
+| 步驟 | `ci.yml` | 本機三綠有嗎 |
+|---|---|---|
+| `pnpm typecheck` | `:35-36` | ✅ 有 |
+| `pnpm lint` | `:38-39` | ✅ 有 |
+| `playwright install --with-deps chromium` | `:47-48` | 🔴 **沒有** —— 本機早就裝過,所以看不出差別 |
+| `pnpm test` | `:50-51` | ⚠️ 看你有沒有自己跑 `npx vitest run`,**不在鐵則 11 的三綠定義裡** |
+| **起一顆真 postgres 跑 `docs/probes/` 的 SQL 探針** | `:69` / `:96` | 🔴🔴 **完全沒有** |
+
+#### 6.5.2 🔴 判別句(這節的重點,只有一句)
+
+> **這片動到 `.sql` / `supabase/migrations/` / `docs/probes/` 嗎?**
+> **動了 ⇒ 本機三綠【綠了不代表驗過】——那一層只有 CI 有 ⇒ 要等 CI 綠,不能只看本機。**
+
+理由與 §2.2a 同源:`.sql` 對 typecheck/lint **恆綠、零判別力**
+(`scripts/check-syntax-nonts.ts` 檔頭已自陳)。`#532` 把 SQL 探針掛上 CI 就是為了補這一格
+—— 但**補在 CI,不在本機** ⇒ 本機看不到它紅。
+
+**「只有 CI 有」的數法(可重跑)** —— 本機側掃不到起 postgres 的動作:
+```bash
+grep -rn 'initdb\|pg_ctl' .husky/ package.json turbo.json 2>/dev/null | wc -l   # 預期 0
+grep -cn 'initdb' .github/workflows/ci.yml                                       # 預期 >0
+```
+⚠️ **這條數的是「哪一側寫了起 postgres 的指令」,不是「哪一側真的驗到 SQL」** ——
+掃描範圍對不對只有你自己回去對著實物數才擋得住。
+
+⚠️ **不要把它搬去 pre-commit**:起一顆 postgres 是幾十秒到分鐘級 ⇒ 會逼所有人用 `--no-verify`,
+而**一個會被繞過的守門比沒有守門更糟**(`ci.yml:83-85` 逐字寫著這個裁決)。
+
+#### 6.5.3 ⚠️ 看到 `cancelled` 不要當故障,也不要當通過
+
+`ci.yml:8-10` 設了 `concurrency` + `cancel-in-progress: true`
+⇒ **同一分支的下一個 push 會把前一個還在跑的 run 直接砍掉。**
+
+**實例(2026-08-16)**:`7c10f1a8` 的 CI run 是 `cancelled`,
+因為 `055137f9` 在 **1 分 56 秒**後推上來(`05:33:02` → `05:34:58`)。
+**那不是紅,也不是綠 —— 那顆 commit 就是【沒有被驗過】。**
+
+#### 6.5.4 ⚠️ CI 只跑「每次 push 的 tip」,不逐顆跑(`backlog #548`)
+
+**量法(可重跑)**:
+```bash
+R=pcmmotorsports/pcm-website-v2
+for s in $(git log --format=%H origin/dev -12); do
+  gh api repos/$R/commits/$s/check-runs --jq '[.check_runs[]|select(.name=="check")]|length'
+done
+```
+2026-08-16 實跑:最近 12 顆只有 **3 顆**有 `check` run;沒有 run 的 9 顆
+**逐顆驗過【從未當過任何一次 push 的 tip】**(對 `gh run list --branch dev` 的 `headSha` 集合比對)。
+
+✅ **內容仍被涵蓋** —— 後續 green run 跑的樹已含那些 commit ⇒ **不是沒驗,是沒逐顆驗。**
+⚠️ **實質後果只有一個而它是真的**:哪一顆引入問題、被後一顆蓋掉,**CI 不留痕跡 ⇒ 出事 bisect 不到。**
+
+🔴 **⇒ 「每併一支就跑一次完整驗證」那條收割紀律【沒有被 CI 取代】,仍然要跑。**
 
 ---
 

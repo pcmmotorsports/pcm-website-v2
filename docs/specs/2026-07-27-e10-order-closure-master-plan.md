@@ -33,6 +33,16 @@ Sean 指出那是**改裝品牌**(Akrapovic / Lightech / EBC…),**不是實際�
 - Q5=A 之後預估 11 片 → **約 8 片**,且 34 條中約 11 條(全部由 2FA per-user 化衍生)隨之消失
 - 🔴 **重寫前必補的硬前置**(plan v3 完全沒提到):報價單 **不能跑 `supabase db push`**,
   本地 146 個 migration 檔與 production ledger 160 筆**版本號零重疊**(見 memory `reference_quote-repo-migration-ledger-desync`)
+> 🔴 **`146` / `160` 這兩個數字 2026-08-16(I 窗)實查已過期 —— 但【過期的是理由,不是結論】。**
+> **`supabase db push` 的禁令仍然成立、不得因為本註解而放行。**
+> 真因未變:MCP `apply_migration` **自動生成時間戳**,與手工命名檔**仍會再分歧**
+> (鐵則出處 memory `reference_quote-repo-migration-ledger-desync`)。
+> ⚠️ **本註解【不填新數字】** —— 正確的雲端筆數要 DB access(即未解的 `§5③`),硬填會把一個過期數字換成一個沒來源的數字。
+> **現況以報價單 repo `docs/ops/DB_BASELINE.md` 為準**(該檔記載 2026-07-30 已重建帳本、雲端 ledger 重置為單筆 baseline)。
+> **可重跑量法**:`git -C /Users/sean_1/API大量上架/PCM報價單-V2 ls-tree --name-only origin/main supabase/migrations/ | wc -l`(2026-08-16 實得 `16`)。
+> ⚠️ **另注**:`DB_BASELINE.md` 自己記的重建前狀態是 **`158` 檔 / `176` 筆**,**與本處的 `146`/`160` 對不上**
+>   ⇒ **本處這組數字在重建之前可能就已經是舊的**。兩組都不要引用,一律回去看來源檔。
+
 
 ---
 

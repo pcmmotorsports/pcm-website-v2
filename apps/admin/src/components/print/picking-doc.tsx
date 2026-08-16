@@ -67,6 +67,19 @@ function Alert({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * 這一列**這次要不要動手揀**。
+ *
+ * 🔴 收成一支的理由:它有**兩個**消費端 —— 那一列的勾選框、與底下的「本次應揀合計」。
+ *    各寫一份的話會出現「紙上有 9 個框、合計說 8 項」,而**那張紙印得出來、沒有任何東西會紅**。
+ *    (同一個病 2026-08-16 在 `order-status-axes.ts` 真的發生過:軸與小字兩個分母各自漂走。)
+ * ⚠️ `null`(不知道)算 **false** —— 不知道就不要叫人去揀。
+ *    但**它不可以就這樣消失**:合計旁邊要把「不知道」那幾項單獨講出來,見 `PickingDoc` 底下那段。
+ */
+function needsPicking(pickable: number | null): boolean {
+  return pickable !== null && pickable > 0;
+}
+
 export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
   // 🔴 面1:整單已取消 ⇒ **不印品項表**。
   //    理由不是版面,是「已取消訂單的揀貨單沒有任何正當用途」——
@@ -74,6 +87,16 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
   //    ⚠️ 這裡是**真正的守門**;`order-detail.tsx` 那顆鈕改成已取消時不渲染只是 UX ——
   //    網址可以被貼、被書籤、或在分頁開著的時候訂單才被取消,那些路徑都繞過鈕。
   const cancelledAt = detail.cancelledAt;
+
+  // 🔴 **合計走與那一列【同一支函式】,不另外數一次。**
+  //    這正是今天 `#522` 那個病的形狀:同一個概念在兩個地方各算一次,然後其中一邊被改掉。
+  //    ⇒ 「這一列有沒有勾選框」與「合計要不要算它」必須是**同一個判斷**,
+  //      否則會出現「有 9 個框、合計說 8 項」這種紙,而它印得出來、沒有任何東西會紅。
+  //    ⚠️ 所以判斷收成 `needsPicking` 一支、算一次存成 `pickables` 一份,
+  //      勾選框與合計【都讀它】—— 不是「兩邊寫得一樣」,是**兩邊沒有各自的版本可以漂走**。
+  const pickables = detail.items.map((item) => pickableQuantity(item));
+  const pickableCount = pickables.filter(needsPicking).length;
+  const unknownCount = pickables.filter((q) => q === null).length;
 
   return (
     <div className='mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
@@ -103,10 +126,27 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
             </Alert>
           )}
 
+          {/* 🔴 有「數量資料尚未就緒」的列 ⇒ 揀完該揀的**也不算處理完這張單**。
+              放在頁首而不是合計旁邊的理由見下面合計那段(跨頁會把它切掉)。 */}
+          {unknownCount > 0 && (
+            <Alert>
+              有 {unknownCount} 項的數量資料尚未就緒(下面標「這一項不要揀」的那幾列)
+              {/* 🔴 截斷時這個數也只是【已載入子集】裡的數量(codex R2)——
+                  與「品項:N 項」同一個病,不能只修被指名的那一處。 */}
+              {detail.itemsTruncated && '(而且清單沒載完,未載入的列裡可能還有)'}。
+              <br />
+              那幾項沒有算進「本次應揀合計」⇒ 勾完合計那個數字,這張單仍然不算處理完,請回報。
+            </Alert>
+          )}
+
           <div className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-1 text-sm'>
             <span>客人:{detail.customer.name ?? '—'}</span>
             <span>下單:{formatOrderDateTime(detail.createdAt)}</span>
-            <span>品項:{detail.items.length} 項</span>
+            {/* 🔴 截斷時這個數字**只是已載入的子集**,而它讀起來像總數(codex R2)——
+                與合計那句話同一個病,不能只修被指名的那一處。 */}
+            <span>
+              品項:{detail.items.length} 項{detail.itemsTruncated && '(未載完,不是總數)'}
+            </span>
           </div>
 
           {/* 🔴 面7:空清單。印一張只有表頭的空表格 = 看起來像「這張單沒東西要揀」,
@@ -142,8 +182,9 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                 </tr>
               </thead>
               <tbody>
-                {detail.items.map((item) => {
-                  const pickable = pickableQuantity(item);
+                {detail.items.map((item, i) => {
+                  // 🔴 讀上面算好的那一份,不重算 —— 合計與這一列必須是同一個數。
+                  const pickable = pickables[i] ?? null;
                   return (
                     <tr key={item.id} className='border-b'>
                       {/* 真的要用筆勾的框。`print-color-adjust` 不碰 —— 空心框在單色印表機上照樣看得見。
@@ -151,8 +192,11 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                              給了框就是在問「要不要打勾」,而那正是這格的歧義來源;
                              沒有框 = 這一列不需要你做任何動作,一眼就看得出來。 */}
                       <td className='px-2 py-3 align-top'>
-                        {pickable !== null && pickable > 0 && (
-                          <span className='border-foreground block size-5 rounded-sm border-2' />
+                        {needsPicking(pickable) && (
+                          <span
+                            data-slot='picking-checkbox'
+                            className='border-foreground block size-5 rounded-sm border-2'
+                          />
                         )}
                       </td>
                       <td className='px-2 py-3 align-top font-mono text-sm whitespace-nowrap'>
@@ -206,6 +250,56 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                 })}
               </tbody>
             </table>
+          )}
+
+          {/* ── 本次應揀合計(Sean 2026-08-16 答「幾項」)──
+              🔴 **它守的是「漏揀一整列」,而那件事在這張紙上【原本零症狀】** ——
+                 揀貨的人一列一列往下勾,勾到最後沒有任何東西告訴他「你應該勾滿幾個」。
+                 少勾一整列 ⇒ 紙看起來就是勾完了。合計是這張紙唯一的自我對帳手段。
+              ⚠️ **上面表頭那行「品項:N 項」不能拿來當這個數** —— 它是**表格列數**,
+                 而這裡要的是**要動手的列數**。兩者會不會差、差多少,**我沒有量過**
+                 (本檔上面那句「`pickable === 0` 是最常見的狀態」也是**沒有分母的頻率宣稱**,
+                  是先前的窗寫的,我一併標記而不是照抄背書)。
+                 ⚠️ **而這一片不依賴那個頻率** —— 只要**有可能**不同,寫成同一個數就是錯的。
+                 **把它們寫成同一個數,就是叫人去勾一個他勾不滿的數。** */}
+          {detail.items.length > 0 && (
+            <div className='border-t pt-3'>
+              <div className='flex flex-wrap items-baseline gap-x-3'>
+                <span className='text-sm font-semibold'>本次應揀合計</span>
+                <span data-slot='picking-total' className='text-xl font-semibold tabular-nums'>
+                  {pickableCount} 項
+                </span>
+                {/* 🔴🔴 **清單沒載完的時候,這句話會【說謊】,而它說的正是本片要防的那件事。**
+                    (codex 對抗審查 2026-08-16 抓的,我第一版真的印了它。)
+                    `itemsTruncated` 代表**有幾列根本沒被載進來** ⇒ 它們不在 `pickableCount` 裡
+                    ⇒ 「全部勾完才算揀完」變成「勾完這 3 項就結束了」,而缺的那幾列沒有人知道。
+                    ⚠️ **這比沒有合計更糟** —— 沒有合計時他至少不會覺得自己完成了;
+                    有一個【看起來精確的數字】反而給了他一個假的完成條件。 */}
+                {detail.itemsTruncated ? (
+                  <span className='text-sm font-medium text-amber-800'>
+                    🔴 清單沒載完 —— 這個數字不是全部,不要拿它當揀完的依據。
+                  </span>
+                ) : (
+                  <span className='text-muted-foreground text-xs'>
+                    勾選欄共 {pickableCount} 項,全部勾完才算揀完。
+                  </span>
+                )}
+              </div>
+              {/* 🔴 **「不知道」的列不能靜靜地從合計裡消失。**
+                  它們沒有勾選框(上面那段)⇒ 不算進應揀項數是對的;
+                  **但只算不說,揀貨的人勾滿 N 項就會認為這張單處理完了**,
+                  而那幾列其實可能還欠貨。⇒ 算式外的那幾項要當場講出來。
+                  ⚠️ 這是 `pickableQuantity` docstring 那條「`null` 是不知道、不是 0」的**同一條規則
+                     在合計這一層的延伸** —— 補 0 與「從分母裡拿掉且不說」是同一個錯的兩種形狀。 */}
+              {/* 🔴🔴 **「不知道」的警告【不在這裡】,它在頁首的 Alert 區 —— 那是刻意的。**
+                  第一版我放在這裡,codex 第二輪指出:這一塊**不在 `<table>` 裡**、跨頁時
+                  「合計」可能留在頁尾而警告掉到下一頁 ⇒ **當頁讀起來就是「沒有不知道的」**
+                  —— 而那正是本檔說最貴的那種錯(把「不知道」印成「沒有」)。
+                  🔴 **我沒有量過分頁行為,而本檔的立場是「不加沒量過的 CSS 字面」**
+                  (上面拒絕 `print:table-header-group` 用的是同一把尺)
+                  ⇒ **所以不是加 `break-inside` 賭它,是把那句話搬到【結構上不會被切掉】的地方。**
+                  ⚠️ 頁首 Alert 在第 1 頁、而且是揀貨的人動手前會先看到的位置 —— 兩個理由都成立。 */}
+            </div>
           )}
 
           <div className='text-muted-foreground flex gap-8 pt-6 text-sm'>
