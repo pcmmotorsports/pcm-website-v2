@@ -36,15 +36,22 @@ import { parseShipmentError } from '../../lib/shipping/shipment-error-view';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 import { blockedText, emptySelectionMessage, staleDeploymentMessage } from './shipment-dialog-copy';
 import { submitShipment, type SubmitShipmentResult } from '../../lib/shipping/shipment-actions';
+import { CARRIER_LABEL, CARRIER_OPTIONS } from '../../lib/shipping/carrier-label';
+import type { CarrierCode } from '../../lib/shipping/shipment-repository';
+
+// 🔴 驗證文案裡的貨運商名也讀同一份表(R1 nit 10):原本硬寫「新竹或順豐」,
+//    標籤改字時它不跟、而且沒有任何守門會紅 —— 那正是本片要消滅的症狀。
+const NON_OTHER_NAMES = CARRIER_OPTIONS.filter((c) => c.code !== 'other')
+  .map((c) => c.label)
+  .join('或');
 
 type Recipient = { name: string | null; phone: string | null; line: string | null };
 
-const CARRIERS = [
-  { code: 'hct', label: '新竹物流' },
-  { code: 'sf', label: '順豐' },
-  { code: 'other', label: '其他' },
-] as const;
-
+// 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3)。
+//    **本檔抽走的是【兩份】:`CARRIERS` 下拉表 + `useState` 那個 union**
+//    (數法與完整的四份清單寫在 `carrier-label.ts` 檔頭)。
+//    症狀是「下拉選單寫一個、訂單卡片寫另一個」,而**沒有任何守門會紅**。
+//    ⚠️ 下拉選單的**順序**沿用抽出前的 `hct / sf / other`,釘在 `carrier-label.test.ts`。
 
 export function ShipmentDialog({
   candidates,
@@ -82,7 +89,7 @@ export function ShipmentDialog({
   const [qty, setQty] = useState<Record<string, number>>(() =>
     Object.fromEntries(candidates.map((c) => [c.orderItemId, c.remaining])),
   );
-  const [carrier, setCarrier] = useState<'hct' | 'sf' | 'other'>('hct');
+  const [carrier, setCarrier] = useState<CarrierCode>('hct');
   const [note, setNote] = useState('');
   const [tracking, setTracking] = useState('');
   /** 🔴 員工**親手動過**的品項(R2 N2)。用 ref:它不影響渲染,只用來決定「這格能不能自動補」。 */
@@ -165,14 +172,19 @@ export function ShipmentDialog({
     if (chosen.length === 0) {
       return emptySelectionMessage(candidates);
     }
-    if (carrier === 'other' && note.trim() === '') return '快遞商選「其他」時必須填寫送法說明。';
-    if (carrier !== 'other' && note.trim() !== '') return '說明欄只給「其他」用,選新竹或順豐時請清空。';
+    if (carrier === 'other' && note.trim() === '')
+      return `快遞商選「${CARRIER_LABEL.other}」時必須填寫送法說明。`;
+    if (carrier !== 'other' && note.trim() !== '')
+      return `說明欄只給「${CARRIER_LABEL.other}」用,選${NON_OTHER_NAMES}時請清空。`;
     return null;
   }, [chosen.length, carrier, note, candidates]);
 
   /** 標出貨還多一道:非「其他」必須有單號。只建箱不受這條限制。 */
   const shipBlocker = useMemo<string | null>(
-    () => (carrier !== 'other' && tracking.trim() === '' ? '快遞商是新竹或順豐時,標出貨前必須填貨運單號。' : null),
+    () =>
+      carrier !== 'other' && tracking.trim() === ''
+        ? `快遞商是${NON_OTHER_NAMES}時,標出貨前必須填貨運單號。`
+        : null,
     [carrier, tracking],
   );
 
@@ -350,10 +362,10 @@ export function ShipmentDialog({
               快遞商
               <select
                 value={carrier}
-                onChange={(e) => setCarrier(e.target.value as 'hct' | 'sf' | 'other')}
+                onChange={(e) => setCarrier(e.target.value as CarrierCode)}
                 className='mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal'
               >
-                {CARRIERS.map((c) => (
+                {CARRIER_OPTIONS.map((c) => (
                   <option key={c.code} value={c.code}>
                     {c.label}
                   </option>
