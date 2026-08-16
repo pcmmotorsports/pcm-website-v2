@@ -35,7 +35,14 @@ import { carrierLabelOf } from './carrier-label';
 export type TrackingDisplay =
   /** 有追蹤碼。`label` 一定帶貨運商名 —— 見 plan §4:紙上三個號碼並排,客人不知道拿哪個去查。 */
   | { kind: 'number'; label: string; value: string }
-  | { kind: 'pending'; text: string }
+  /**
+   * 🔴 **刻意【沒有】`text`**(R2 F5):`Q-C9b`=乙 之後這一支就是「整列不印」,
+   *    給它一個永遠是空字串的 `text` = 一個讀不到的死欄位,而**它會誘導畫面端寫 fallback** ——
+   *    真有人拿掉 `shipping-doc.tsx` 那行 `if (kind === 'pending') return null`,
+   *    fallback 就會印出「追蹤碼:」加空白,**正好是註解說「看起來壞掉的欄位」那個東西**。
+   *    ⇒ 讓型別自己擋住:沒有 `text` 可讀,fallback 寫不出來。
+   */
+  | { kind: 'pending' }
   | { kind: 'selfService'; text: string }
   | { kind: 'missing'; text: string };
 
@@ -54,7 +61,7 @@ export function trackingDisplay(args: {
   }
   // 情形①:順序在 other 之前 —— 還沒出貨的 `other` 箱走這一支,不是「自取自送」那一支。
   //
-  // 🔴🔴 **`Q-C9b` = 乙(Sean 2026-08-16 逐字「什麼都不寫 ,空格」)⇒ `text` 是空字串。**
+  // 🔴🔴 **`Q-C9b` = 乙(Sean 2026-08-16 逐字「什麼都不寫 ,空格」)⇒ 這一支【整列不印】。**
   //    原本印「尚未出貨,出貨後補」,而 `Q-C5`=乙 之後**那個「補」的管道不存在**
   //    (通知信暫緩、沒有會員訂單頁、storefront 零 `trackingNumber`)⇒ 那句話是對客的假承諾。
   //    ⚠️ **空格就是空格** —— 不要填一個「看起來比較完整」的字。
@@ -68,7 +75,7 @@ export function trackingDisplay(args: {
   //    **合併成「都留空」會把一個資料鏈的洞變成看不見的** —— 那正是情形③ 存在的理由。
   //    ⇒ 兩條各有一格守門(`shipping-doc-dispatch.test.ts` 與紙面的 `page.test.tsx`)。
   if (shippedAt === null) {
-    return { kind: 'pending', text: '' };
+    return { kind: 'pending' };
   }
   // 情形②
   // 🔴 **`carrierNote` 刻意【不】在這裡重印一次**(R1 must-fix 4):它已經印在「貨運商」那格

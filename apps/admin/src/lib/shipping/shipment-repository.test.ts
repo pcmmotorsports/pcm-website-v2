@@ -372,6 +372,42 @@ describe('🔴 #351④ listShipmentItemsByShipmentIds — 方向與過濾欄', (
     ).toEqual([SHIPMENT_ITEM_ROWS_LIMIT + 1]);
   });
 
+  it('🔴🔴 `byOrderItemIds` 也要送 `.limit(N+1)` —— 出貨單那張紙走的是【這一支】', async () => {
+    // 🔴 **這一格 2026-08-16 才補,而在它之前兩支查詢的防護是【不對稱】的**:
+    //    `byShipmentIds`(空箱區)有 limit、`byOrderItemIds`(出貨卡 + 出貨單)沒有。
+    //    兩支查同一張表、並排在同一支檔裡,而只有一支被守著 —— codex 金額片關卡1 抓的。
+    // ⚠️ **上層 `order-shipments.test.ts` 對這個錯全盲**:它把本檔整個 mock 掉
+    //    ⇒ 把 `.limit()` 整行刪掉,那邊照樣全綠。**這就是這一格非在這裡不可的理由。**
+    const calls: Record<string, unknown[]> = {};
+    const api: Record<string, unknown> = {
+      select: (...a: unknown[]) => {
+        calls.select = a;
+        return api;
+      },
+      in: (...a: unknown[]) => {
+        calls.in = a;
+        return api;
+      },
+      limit: (...a: unknown[]) => {
+        calls.limit = a;
+        return Promise.resolve({ data: [], error: null });
+      },
+    };
+    from.mockReturnValue(api);
+    const { listShipmentItemsByOrderItemIds, SHIPMENT_ITEM_ROWS_LIMIT } = await import(
+      './shipment-repository'
+    );
+    await listShipmentItemsByOrderItemIds(['oi-1']);
+    expect(
+      calls.limit,
+      '這支沒送 `.limit(N+1)` ⇒ 截斷時回【非空但不完整】的一包,而上層無從得知 ⇒ ' +
+        '出貨單少列品項、金額片接上去之後本次小計偏低,**而紙看起來完全正常**。' +
+        '🔴 少報比多報壞:多報客人會打電話來問,少報沒有人會發現。',
+    ).toEqual([SHIPMENT_ITEM_ROWS_LIMIT + 1]);
+    // 🔴 順帶釘住「兩支共用同一個常數」—— 分成兩個數字只會讓人以為它們有差別。
+    expect(calls.in).toEqual(['order_item_id', ['oi-1']]);
+  });
+
   it('回傳逐列映射成 domain 形狀(欄名對照錯掉的話上層算不出集合差)', async () => {
     const { api } = chainOn([
       { id: 'si-1', shipment_id: 'sh-1', order_item_id: 'oi-1', shipped_quantity: 2 },

@@ -133,6 +133,19 @@ describe('NoteComposeForm — A10a-3', () => {
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(1));
     // 非更正模式:不問 confirm
     rerender(<NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />);
+    // 🔴🔴 **這一行是【等狀態真的翻過去】,不是放寬期望值** —— 拿掉它本格就是那個
+    //    「全測偶爾紅一格、單跑永遠綠」的來源(2026-08-16 由 R2 對抗審查定位)。
+    //    **病根**:`rerender` 之後 React 19 的 `useActionState` transition 還在飛
+    //    (`note-compose-form.tsx` 錨點 `useActionState`),而上一行的 `waitFor` 只等到
+    //    「action 被呼叫」⇒ 掛在 DOM 上的 `onSubmit` closure 裡的 `correctTarget`
+    //    **可能還是舊的 TARGET** ⇒ 這一送出會多問一次 confirm ⇒ 下面那條得到 3 不是 2。
+    //    ⚠️ 它要**多 worker 競爭**才輸得掉這個 race ⇒ 正好是「全測會紅、單跑不會」,
+    //       而那個形狀會讓人以為是「環境問題」而不是測試裡的真 race。
+    //    ⇒ 等的東西挑 `corrects_note_id`:那顆 hidden 只在 `correctTarget` 非 null 時渲染
+    //      (元件錨點 `NOTE_CORRECTS_FIELD`)⇒ 它消失 = 新的 props 真的 commit 進去了。
+    await waitFor(() =>
+      expect(container.querySelector('input[name="corrects_note_id"]')).toBeNull(),
+    );
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(2));
     expect(confirmSpy.mock.calls.length).toBe(2);
