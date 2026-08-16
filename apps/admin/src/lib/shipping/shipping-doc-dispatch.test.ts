@@ -14,7 +14,9 @@ describe('追蹤碼:三種 null 在紙上不可以長成同一個樣子(plan §3
   });
 
   it('🔴 情形① 箱還沒標出貨 ⇒ 【空白】(Q-C9b=乙,Sean 逐字「什麼都不寫 ,空格」)', () => {
-    expect(trackingDisplay({ ...base, shippedAt: null })).toEqual({ kind: 'pending', text: '' });
+    expect(trackingDisplay({ ...base, shippedAt: null })).toEqual({ kind: 'pending' });
+    // 🔴 R2 F5:`pending` 那一支【刻意沒有 `text`】—— 給它一個永遠空的欄位會誘導畫面端寫 fallback,
+    //    而那個 fallback 會印出「追蹤碼:」加空白 = 一個看起來壞掉的欄位。型別自己擋住比註解可靠。
     // 🔴 負向:填回「尚未出貨,出貨後補」之類的字 ⇒ 本格紅。
     //    那句話承諾的「補」目前【沒有管道】(通知信暫緩、沒有會員訂單頁)= 對客假承諾。
   });
@@ -31,7 +33,8 @@ describe('追蹤碼:三種 null 在紙上不可以長成同一個樣子(plan §3
     expect(pending.kind).not.toBe(missing.kind);
     // 🔴 `text` 不在 `number` 那一支上 ⇒ 用 kind 收窄再讀,不要 cast 繞過型別。
     //    (型別在這裡是幫手不是障礙:它逼我證明「我拿到的真的是這兩支」。)
-    expect(pending.kind === 'pending' && pending.text).toBe('');
+    // 🔴 `pending` 沒有 `text` 可讀(F5)⇒ 這裡改釘「它就是那一支」,而下面釘 missing 有內容。
+    expect(pending).toEqual({ kind: 'pending' });
     expect(missing.kind === 'missing' && missing.text.trim()).not.toBe('');
   });
 
