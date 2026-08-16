@@ -60,6 +60,23 @@ M-0(規劃層 9/9)收尾完成、進 M-1(實作層、catalog spike + 種子)前�
 ⇒ **ADR 是別人會來查的載體,memory 不是。** 更正沒回到被引用的那份檔,等於沒更正。
 📎 同族 memory `feedback_downgrade-a-source-inside-the-file-people-cite`。
 
+📐 **本更正段涵蓋到哪(2026-08-16 重掃,附分母)**:同檔 `grep -c 'pg_jieba'` ⇒ **6**,逐處分類
+⚠️ **那個 6 裡有 1 個是【這句話自己】**(它引用了那個字面才數得到)—— 真正指向該路線的是 **5**;
+**寫下分母的那一刻,分母就被自己改變了**,所以下表逐處列,不要只看數字:
+(🔴 **用錨點文字不用行號** —— 我第一版寫了行號,而**加完這段之後它們當場就漂了**):
+
+| 錨點 | 是什麼 | 狀態 |
+|---|---|---|
+| `\| Q3 \| Search engine \|` | §2.1 決議列 | ✅ 已就地標更正 |
+| `不在 Supabase 的可用擴充清單裡` / `的中文分詞那半` | **本更正段自己** | — |
+| `Q1 / Q2 / Q3 同生態` | §3.1 擴充性敘述 | ✅ 已標 |
+| `M-6 上線前 checklist(M-6-08)` | §4 trigger 銜接表 | ✅ 已標 |
+
+🔴 **後兩處是第一版更正時【漏掉的】** —— 我只折了 finding 點名的那一列(§2.1 決議列)。
+   而 **「M-6 上線前 checklist」那一列 = 會被拿去執行的東西**,不是敘述;
+   **上線前 checklist 正是最不會被人質疑的那種清單** —— 讀的人會照著做,不會回頭問「這條還成立嗎」。
+   📎 `feedback_folding-a-finding-defaults-to-the-named-spot-only`:**finding 給的是症狀的位置,不是病的邊界。**
+
 **⇒ 待辦(未做)**:`Q3` 的分詞路線**需要 Sean 重新拍**(PGroonga / PGroonga+pg_trgm 混合 / 其他)。
 ⚠️ **兩階段那半仍然有效**(dev 期 ILIKE、上線後切)—— **被推翻的只有「切過去之後用什麼分詞」。**
 ⚠️ 上面那條 memory **只證「可用性」,未證效能 / 中文斷詞品質 / 索引體積** —— 那些要真資料實測。
@@ -83,7 +100,7 @@ M-0(規劃層 9/9)收尾完成、進 M-1(實作層、catalog spike + 種子)前�
 
 ### 3.1 擴充性
 
-- **Q1 / Q2 / Q3 同生態:** Supabase Pro 一次升、解決 DB / Storage / pg_jieba 三件、Phase 2 加 Vehicle / Booking / Wallet 表也走同 plan、不需多 vendor
+- **Q1 / Q2 / Q3 同生態:** Supabase Pro 一次升、解決 DB / Storage / ~~pg_jieba~~(⚠️ 分詞那件**不可行**,見 §2.1-a)三件、Phase 2 加 Vehicle / Booking / Wallet 表也走同 plan、不需多 vendor
 - **Q3 兩階段 search:** dev 期 ILIKE 跑 200 SKU 規模可用(p99 1-3s)、不阻 M-1-03 進度;M-6 切 tsvector 對 5w SKU(p99 < 100ms)、上線後 Phase 2 5w-10w SKU 撐得住
 - **Q4 brand type:** Phase 2 加幣別(USD / EUR)時、MoneyAmount + Currency 兩維度擴張、不動既有 use-case;helper 集中守門、新進 dev 不需學浮點 guard
 - **wrs Q1 yearStart/yearEnd:** 對應 Sean 真實業務(報價單寫 "2018-2024" / "2025+")、Phase 2 加 vendor crawler 抓年份範圍直接 mapping、不需事後遷移
@@ -113,7 +130,7 @@ M-0(規劃層 9/9)收尾完成、進 M-1(實作層、catalog spike + 種子)前�
 | 本 ADR 落地(M-0-10) | testing-strategy.md / bounded-contexts.md / money-handling.md / Money brand type / FitmentSpec yearStart-yearEnd | Q4 / Q5 / Q6 / wrs Q1 |
 | M-1-03 啟動 | search 用 PG ILIKE 暫代、JSDoc 註明 M-6 切 tsvector | Q3 |
 | M-1-02 起 image 上傳 | 走 Supabase Storage free tier | Q2 |
-| **M-6 上線前 checklist(M-6-08)** | Sean 刷卡升 Supabase Pro $25/月、search 切 tsvector + pg_jieba | Q1 + Q2 + Q3 |
+| **M-6 上線前 checklist(M-6-08)** | Sean 刷卡升 Supabase Pro $25/月、search 切 tsvector + ~~pg_jieba~~ ⚠️🔴 **這一列的技術路線已於 §2.1-a 標記為【不可行】(Supabase 裝不了 `pg_jieba`)——執行前先看那一節,不要照這行做。** | Q1 + Q2 + Q3 |
 | M-5-03(sync-product-candidates) | 寫商品名硬規範 + concat helper | wrs Q4(backlog #78) |
 | Phase 1 完成後 | Sean 評估 4 軸 selector / 雙 breadcrumb 是否需要、若是跟 Claude Design 對話 | wrs Q3 / wrs Q6(backlog #79) |
 

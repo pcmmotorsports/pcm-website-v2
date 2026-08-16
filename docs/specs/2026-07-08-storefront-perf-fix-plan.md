@@ -1,6 +1,24 @@
 # Storefront 效能修復 Plan(shop.pcmmotorsports.com 首載/目錄慢)
 
-> 2026-07-08。狀態:K1 round1 FAIL(6 must-fix + 2 nit)逐條修入;round2 核對 round1 修正全過、另抓 2 條新 must-fix(P2 測試防線)亦已修入。按複審硬上限 2 輪紀律不跑 round3,round2 狀態如實列入 Sean 批准資訊。待 Sean 批准。
+> 2026-07-08。狀態:K1 round1 FAIL(6 must-fix + 2 nit)逐條修入;round2 核對 round1 修正全過、另抓 2 條新 must-fix(P2 測試防線)亦已修入。按複審硬上限 2 輪紀律不跑 round3,round2 狀態如實列入 Sean 批准資訊。~~待 Sean 批准。~~
+>
+> ## 🔴 檔頭狀態更正(2026-08-16;原字面「待 Sean 批准」已過期 39 天)
+>
+> **`P1`–`P3` 三件【都已經上線】。** R 窗查到、I 窗獨立複驗(三條各自可重跑):
+>
+> | 片 | 現況 | 量法(我自己跑過的) |
+> |---|---|---|
+> | **P1** 部署區域 | ✅ 已上線 | `grep -n 'regions' vercel.json` ⇒ `:5 "regions": ["sin1"]` |
+> | **P2** 查詢下推 DB | ✅ 已上線 | `grep -c '免撈全表\|下推 DB' apps/storefront/src/lib/products.ts` ⇒ **2** |
+> | **P3** 快取 | ✅ 已上線 | `grep -rln 'unstable_cache' apps/storefront/src \| wc -l` ⇒ **12** 支 |
+>
+> **⇒ 仍在等的只有 `P4`,而它已經等了 39 天(2026-07-08 → 08-16)。**
+>
+> 🔴 **為什麼這個檔頭要改**:「待 Sean 批准」是**描述世界狀態的句子** ——
+> 它寫下的當下是真的,而 `P1`-`P3` 上線之後它就假了,**且零機械訊號**(檔沒改、測試沒紅)。
+> 讀到它的人會以為**整個 plan 都還沒動**,而其中四分之三已經在正式站上跑了 39 天。
+> 📎 同夜第四個同款過期檔頭(兩份出貨單 plan、本檔、`admin-backend-rebuild-spec`)——
+> **「待批准」是最容易過期而最沒人回頭改的一種檔頭字面。**
 > 依據:同日五路診斷工作流 + 五路偵察工作流(全 findings 經 fresh opus 驗證者確認)。
 > 鐵則 8 適用:動 vercel.json(P1)+ 跨 3+ 檔(P2/P3)。
 
