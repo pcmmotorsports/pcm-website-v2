@@ -436,6 +436,39 @@ product_variants.price_store    anon=f  authenticated=f     ← 沒開 ✅
 **它們是 ADP footgun 唯一還看得見的指紋，留著會讓下一個人以為那是刻意授的。**
 ⚠️ `vehicle_taxonomy_public` 另有 `E685-1`（`security_invoker=false`）**尚未處理**，兩件事不同、不要合併。
 
+### 7c-5 `pcm_cron` schema —— 查完了，**兩層都是關的**
+
+> 它出現在 Data API 的**可選**曝露清單裡卻沒被勾，先前每一輪都標「未查」。
+
+**裡面有什麼**（唯讀查 catalog）：
+
+```
+關聯（表 / view / 物化 view / 外部表）： 0 筆
+函式：2 筆
+  pcm_cron.expire_unpaid_orders   SECURITY DEFINER  proacl = {postgres=X/postgres}
+  pcm_cron.invoke_cron_route      SECURITY DEFINER  proacl = {postgres=X/postgres}
+```
+
+**勾下去會曝露什麼**：
+
+| 層 | 狀態 | 意思 |
+|---|---|---|
+| schema USAGE | `nspacl = {postgres=UC/postgres}` | **`anon` / `authenticated` 完全沒有 USAGE** |
+| 函式 ACL | `{postgres=X/postgres}`（**非 `NULL`**） | `PUBLIC` 已被明文收掉 ⇒ `has_function_privilege('anon', …) = f` |
+| 資料 | **零關聯** | 就算兩層都開，**也沒有表可以讀** |
+
+⇒ **即使有人把 `pcm_cron` 勾進曝露清單，`anon` 仍然打不到裡面任何東西**（會拿到 401，不是 200）。
+**這是全樹少見的「兩層獨立防護都在」的物件** —— 對照組就在隔壁：
+
+🔴 **`net` schema 相反**：`nspacl` 是 `{…,=U/supabase_admin, anon=U/supabase_admin,…}`
+⇒ **`anon` 對 `net` 有 schema USAGE，而且 `PUBLIC` 也有。**
+**它今天打不到，靠的【只有】PostgREST 的曝露清單那一層**（§7b-(a) 實測 404）。
+⇒ **`E-689` 說的「有人日後把 `net` 勾進去，這個結論當場失效」現在有了機制上的解釋：
+`net` 是【一個勾就穿】，`pcm_cron` 是【勾了也穿不了】。兩者不可類比。**
+
+**誰能勾**：Dashboard 專案設定層的控制（等同改 `pgrst.db_schemas`），需要專案擁有者 / `postgres` 級權限。
+⚠️ **精確的授權邊界我沒有實測**（稽核帳號無權改設定，而我不會去改）⇒ **這半標「未確認」。**
+
 ---
 
 ## 8. 🔴 本檔【不】包含什麼（涵蓋範圍，不是完備感）
