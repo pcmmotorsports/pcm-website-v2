@@ -62,6 +62,9 @@ function order(over: {
 }): AdminOrderSummary {
   return {
     id: 'ord-1',
+    // 🔴 恆 false:本檔測的是【算式】,而 `itemsTruncated` 是【資料完不完整】——
+    //    兩件事刻意不在同一支函式裡混(閘裝在顯示端 `orders-table.tsx`,守門也在那邊)。
+    itemsTruncated: false,
     displayId: 'PCM-0001',
     createdAt: '2026-08-13T02:00:00.000Z',
     paymentStatus: over.paymentStatus ?? 'paid',

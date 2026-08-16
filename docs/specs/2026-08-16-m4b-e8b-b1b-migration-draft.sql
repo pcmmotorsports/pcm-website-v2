@@ -17,9 +17,25 @@
 --     3. 開頭帶前提斷言、尾端帶收權斷言,兩邊都 fail-closed
 --
 --  ⚠️ 前提:所有語句在同一個 session。statement-mode pooler 下 BEGIN 無效且零警告。
+--
+--  ── 🔴 出事怎麼退(寫在檔頭,不是只寫在操作文件裡)──────────────────────
+--  本支全退(照順序,反向):
+--      DROP TRIGGER  admin_user_staff_map_no_delete_trg ON public.admin_user_staff_map;
+--      DROP TABLE    public.admin_user_staff_map;
+--      DROP FUNCTION public.admin_user_staff_map_no_delete();
+--  🔴🔴 **B2(seeding)已經跑過的話,要退【必須先 DROP TRIGGER】** ——
+--     否則 `DELETE` 會被【本檔自己建的那道保護】擋住。
+--     **那是作者刻意造出來的退場成本,不是意外。** 半年後要退的人會先撞到它。
+--  ⚠️ 本支與 B2 **不是同一個交易**:B1-b 成功、B2 失敗 ⇒ 正式庫留下
+--     空表 + 函式 + trigger + RLS + grants,而 Auth 三個帳號可能已經開好卻沒有映射。
+--     **那個中間態是安全的**(表空著沒有人綁得上,登入切換尚未開啟),**但要認得出來**。
 -- ═══════════════════════════════════════════════════════════════════════════
 
 BEGIN;
+
+-- 🔴 固定 search_path(關卡2 [中] finding):正式連線若把可寫 schema 排在 pg_catalog 前,
+--    未限定的 has_*/format 等名稱可能解析到同名物件。拋棄式空庫的 search_path 正常,測不到這個。
+SET LOCAL search_path = pg_catalog, public, auth;
 
 -- ───────────────────────────────────────────────────────────────────────────
 --  0. 前提斷言 —— 世界跟規格假設的不一樣就停,不要繼續建東西
@@ -30,6 +46,7 @@ DECLARE
   v_totp          bigint;
   v_recovery      bigint;
   v_auth_users_id text;
+  v_state_rows    bigint;
 BEGIN
   -- 0.1 2FA 必須是休眠狀態 —— 這是整條線「7 片、不碰 TOTP」那個拆法的前提。
   --     🔴 2026-08-16 Sean 實查為 false/0/0，而【查到的事實會過期，斷言不會】。
@@ -38,6 +55,14 @@ BEGIN
     RAISE EXCEPTION E'B1-b 前提斷言:找不到 public.auth_state。\n'
       '   ⇒ 你可能連到了錯的資料庫(本檔屬【報價單庫】,不是 A 庫)。';
   END IF;
+  -- 🔴 先斷言它恰好一列(關卡2 [中] finding):
+  --    多列時 `SELECT … INTO` 任取一列,**可能剛好取到 false 而掩蓋另一列的 true**。
+  --    這個表在 repo 裡是 CHECK(id) 鎖死的單列表,但那是 repo 說的,不是正式庫說的。
+  SELECT count(*) INTO v_state_rows FROM public.auth_state;
+  IF v_state_rows <> 1 THEN
+    RAISE EXCEPTION 'B1-b 前提斷言:auth_state 有 % 列,預期恰好 1。多列時取值不可信。拒繼續。', v_state_rows;
+  END IF;
+
   SELECT require_2fa INTO v_require_2fa FROM public.auth_state;
   SELECT count(*) INTO v_totp     FROM public.totp_devices;
   SELECT count(*) INTO v_recovery FROM public.recovery_codes;
@@ -119,6 +144,57 @@ CREATE TRIGGER admin_user_staff_map_no_delete_trg
   BEFORE DELETE ON public.admin_user_staff_map
   FOR EACH ROW EXECUTE FUNCTION public.admin_user_staff_map_no_delete();
 
+-- 🔴🔴 `TRUNCATE` **不會觸發 BEFORE DELETE trigger**,而且 **不受 RLS 管**
+--    ⇒ 上面那道保護對 `TRUNCATE` 完全無效(關卡2 R2 實跑:整表被清空、trigger 沒響)。
+--    主防線是「REVOKE 掉 TRUNCATE 權限」,而**這一道是第二層** ——
+--    因為權限可能被別人改回來,而那時不會有任何東西提醒你。
+CREATE FUNCTION public.admin_user_staff_map_no_truncate()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $notruncate$
+BEGIN
+  RAISE EXCEPTION E'admin_user_staff_map 不得 TRUNCATE。\n'
+    '   TRUNCATE 會清掉全部映射 ⇒ 稽核軌從此對不到人,而且它不受 RLS 也不觸發 DELETE trigger。\n'
+    '   ⇒ 要清空請說明理由並走人工程序,不要用 TRUNCATE。';
+END
+$notruncate$;
+
+CREATE TRIGGER admin_user_staff_map_no_truncate_trg
+  BEFORE TRUNCATE ON public.admin_user_staff_map
+  FOR EACH STATEMENT EXECUTE FUNCTION public.admin_user_staff_map_no_truncate();
+
+-- 🔴🔴 **兩個識別欄不可改**(關卡2 R3 `F-R3-1`,兩顆腦獨立命中)
+--
+--    我給 DELETE 與 TRUNCATE 各加了一道 trigger,理由逐字是
+--    「**權限可能被別人改回來,而那時不會有任何東西提醒你**」。
+--    ⇒ **那個理由【同樣適用 UPDATE】,而我沒有套。**
+--    日後若有人誤授 `UPDATE` 給 service_role(或任何角色),就能把
+--    `auth_user_id` / `staff_id` 換掉 = **與 DELETE+INSERT 完全相同的重綁效果**,
+--    而 no_delete / no_truncate **都不會觸發**、apply 當下那一次性的收權斷言**也不會重跑**。
+--
+--    📎 這是我自己邏輯的不一致,不是新知識 —— **同一個理由,我只套了兩個動詞。**
+--
+--    ⚠️ 只擋【識別欄】不擋整個 UPDATE:日後若要加 `revoked_at` 之類的欄位還改得動。
+--       **擋的是「這一列指向誰」,不是「這一列的任何欄位」。**
+CREATE FUNCTION public.admin_user_staff_map_no_rebind()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $norebind$
+BEGIN
+  IF NEW.auth_user_id IS DISTINCT FROM OLD.auth_user_id
+     OR NEW.staff_id  IS DISTINCT FROM OLD.staff_id THEN
+    RAISE EXCEPTION E'admin_user_staff_map 的 auth_user_id / staff_id 不可修改。\n'
+      '   改它 = 把歷史稽核紀錄重新指向另一個人,而【零訊號】。\n'
+      '   ⇒ 要換綁定:走 Auth 側停用舊帳號 + 新增一列新代號(代號永不重用,Sean 2026-08-16 拍板)。';
+  END IF;
+  RETURN NEW;
+END
+$norebind$;
+
+CREATE TRIGGER admin_user_staff_map_no_rebind_trg
+  BEFORE UPDATE ON public.admin_user_staff_map
+  FOR EACH ROW EXECUTE FUNCTION public.admin_user_staff_map_no_rebind();
+
 -- ───────────────────────────────────────────────────────────────────────────
 --  3. 收權
 --     🔴 兩道都要下(規格 §2 / docs/patterns/revoking-function-execute-in-supabase.md):
@@ -126,15 +202,58 @@ CREATE TRIGGER admin_user_staff_map_no_delete_trg
 --     🔴 新物件【出生那一刻】就自帶 anon/authenticated 權限(Supabase 的 ALTER DEFAULT PRIVILEGES),
 --        而那個授權在 repo 裡沒有 GRANT 語句可以被掃到 ⇒ grep 型守門看不到、三綠不紅。
 -- ───────────────────────────────────────────────────────────────────────────
+-- 🔴🔴🔴 **第三個 grantee:`service_role`**(關卡2 R2 [must-fix],2026-08-16 實跑重現)
+--    Supabase 的 ADP 是 `GRANT ALL … TO anon, authenticated, **service_role**`。
+--    我上面 :150-152 記下了前兩個,**漏掉同機制的第三個** ——
+--    而我對 service_role **只有 GRANT(加法)、從來沒有 REVOKE**
+--    ⇒ 這張表【出生就帶】 UPDATE / DELETE / TRUNCATE 給 service_role
+--    ⇒ **R1 高1「不給 UPDATE」那個修法被原封打開,append-only 的宣稱在正式庫是假的。**
+--    實跑重現:`set role service_role; UPDATE … set auth_user_id=…` 成功重綁;
+--             `set role service_role; TRUNCATE` 成功清空,而 no_delete trigger **不觸發**。
+--    📎 **這是同一個形狀第三次:鎖了前門開了後門,而我每次都以為關完了。**
+--       前兩次是 DELETE→UPDATE、UPDATE→ADP。**先 REVOKE ALL 再 GRANT 需要的,才是正確順序。**
 REVOKE ALL ON TABLE    public.admin_user_staff_map FROM PUBLIC;
-REVOKE ALL ON TABLE    public.admin_user_staff_map FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete() FROM anon, authenticated;
+REVOKE ALL ON TABLE    public.admin_user_staff_map FROM anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete()   FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete()   FROM anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_truncate() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_truncate() FROM anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_rebind()   FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_rebind()   FROM anon, authenticated, service_role;
 
-GRANT SELECT, INSERT, UPDATE ON TABLE public.admin_user_staff_map TO service_role;
+-- 🔴🔴 **不給 UPDATE**(關卡2 [高] finding,2026-08-16)。
+--    原版給了 `UPDATE`,而 `UPDATE` 可以直接把 auth_user_id 或 staff_id 換掉
+--    ⇒ **與 DELETE+INSERT 完全相同的重綁效果**,歷史稽核的解讀一樣會翻轉。
+--    禁了 DELETE 卻留 UPDATE = 鎖了前門開了後門。
+--    ⚠️ 而作者自己的 A9 驗收格【把 UPDATE 驗成綠色】—— 那一格在驗證這個漏洞是好的。
+--    ⇒ 本表的兩個識別欄是 append-only:要換人綁定,走 Auth 側 disable + 新增一列新代號。
+GRANT SELECT, INSERT ON TABLE public.admin_user_staff_map TO service_role;
 
 ALTER TABLE public.admin_user_staff_map ENABLE ROW LEVEL SECURITY;
--- 零 policy = default deny。service_role 走 BYPASSRLS,不需要 policy。
+-- 零 policy = default deny。
+-- 🔴🔴 **原註解寫「service_role 走 BYPASSRLS,不需要 policy」—— 那是我沒驗過的假設。**
+--    2026-08-16 拋棄式實測:一個沒有 BYPASSRLS 的 service_role,
+--    `INSERT` 會被擋(`new row violates row-level security policy`)。
+--    ⇒ **這張表會建得起來、而且完全沒有人寫得進去,直到有人真的去寫才發現。**
+--    ⇒ 下面那道斷言把這個假設變成【apply 當下就會紅】的東西。
+
+DO $rls_premise$
+DECLARE v_bypass boolean;
+BEGIN
+  SELECT rolbypassrls INTO v_bypass FROM pg_roles WHERE rolname = 'service_role';
+  IF v_bypass IS NULL THEN
+    RAISE EXCEPTION 'B1-b:找不到角色 service_role。拒繼續。';
+  END IF;
+  IF NOT v_bypass THEN
+    RAISE EXCEPTION E'B1-b:service_role 沒有 BYPASSRLS,而本表是「RLS 開 + 零 policy」。\n'
+      '   ⇒ 這張表會建起來但【沒有人寫得進去】,而且要到有人真的寫才會發現。\n'
+      '   ⇒ 兩條路擇一,不要硬跑:\n'
+      '      (a) 確認正式庫的 service_role 確實有 BYPASSRLS(Supabase 預設有,但【要看過才算】)\n'
+      '      (b) 改成明文開一條給 service_role 的 policy,不依賴 BYPASSRLS';
+  END IF;
+  RAISE NOTICE 'B1-b:service_role 具 BYPASSRLS,RLS 零 policy 的前提成立。';
+END
+$rls_premise$;
 
 -- ───────────────────────────────────────────────────────────────────────────
 --  4. 收權 fail-closed 斷言(樣板出自 ~/pcm-mailbox/E-684-新物件收權斷言樣板.md)
@@ -145,7 +264,9 @@ ALTER TABLE public.admin_user_staff_map ENABLE ROW LEVEL SECURITY;
 DO $newobj_guard$
 DECLARE
   v_relations text[] := ARRAY['public.admin_user_staff_map']::text[];
-  v_functions text[] := ARRAY['public.admin_user_staff_map_no_delete()']::text[];
+  v_functions text[] := ARRAY['public.admin_user_staff_map_no_delete()',
+                              'public.admin_user_staff_map_no_truncate()',
+                              'public.admin_user_staff_map_no_rebind()']::text[];
   r         text;
   v_oid     oid;
   v_bad     int := 0;
@@ -190,6 +311,152 @@ BEGIN
       IF v_first IS NULL THEN v_first := format('%s 上仍有 EXECUTE', r); END IF;
     END IF;
   END LOOP;
+
+  -- 🔴🔴 白名單斷言(關卡2 [高] finding):只檢查 anon/authenticated **不夠**。
+  --    正式庫有其他角色,而 ALTER DEFAULT PRIVILEGES 可能對自訂角色也給了 GRANT。
+  --    ⇒ 改成 allow-list:除了 owner 與 service_role,**任何角色**對本表有權限都要紅。
+  --    ⚠️ 拋棄式空庫只有我建的三個角色 ⇒ 這一條在樁上幾乎恆綠,它是為【正式庫】寫的。
+  DECLARE v_extra text;
+  BEGIN
+    -- 🔴🔴 **service_role 不再被豁免**(關卡2 R2 [must-fix])。
+    --    原版寫 `NOT IN ('service_role', current_user)` ⇒ **即使它握有 UPDATE/DELETE/TRUNCATE 也恆綠**
+    --    ⇒ 這個守門在設計上看不到上面那個洞。**豁免誰,就對誰盲。**
+    --    改成:service_role 的權限必須【恰好】是 SELECT+INSERT,多一項就紅。
+    -- 🔴🔴 **改用【有效權限】,不用 ACL 字面**(關卡2 R3 `F-R3-2`)
+    --
+    --    原版用 `aclexplode(relacl)` ⇒ **只看直接的 table ACL**,對兩件事盲:
+    --      ① **角色繼承** —— service_role 若繼承了某個持有 UPDATE 的角色,relacl 上看不到
+    --      ② **欄級授權** —— `GRANT UPDATE(auth_user_id)` 住在 `pg_attribute.attacl`,不在 relacl
+    --    ⇒ **斷言綠,而有效權限含 UPDATE。**
+    --
+    --    📎 這條打的是【我用來證明安全的那道斷言本身】,不是被它保護的東西。
+    --    🔴 而欄級那一半我今天才寫進 `docs/patterns/…` ——
+    --       我在那裡記下「`has_table_privilege` 看不到欄級授權」,
+    --       **然後在這裡用了有【鏡像問題】的 `relacl`。知道一條規則不等於用得上它。**
+    DECLARE
+      v_bad   text;
+      v_priv  text;
+      v_col   text;
+      v_reach text;
+    BEGIN
+      -- 表級:七種權限逐一問【有效權限】。預期只有 SELECT 與 INSERT 為真。
+      FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+        IF has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_priv)
+           <> (v_priv IN ('SELECT','INSERT')) THEN
+          v_bad := coalesce(v_bad || ', ', '') || format('表級 %s', v_priv);
+        END IF;
+      END LOOP;
+
+      -- 欄級:逐欄問可欄級授權的四種。任何一欄多出 UPDATE / REFERENCES 都要紅。
+      -- 🔴 SELECT / INSERT 在表級已為真 ⇒ 欄級必然為真,不重複判;這裡只抓【多出來的】。
+      FOR v_col IN
+        SELECT attname FROM pg_attribute
+         WHERE attrelid = to_regclass('public.admin_user_staff_map') AND attnum > 0 AND NOT attisdropped
+      LOOP
+        FOREACH v_priv IN ARRAY ARRAY['UPDATE','REFERENCES'] LOOP
+          IF has_column_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_col, v_priv) THEN
+            v_bad := coalesce(v_bad || ', ', '') || format('欄級 %s.%s', v_col, v_priv);
+          END IF;
+        END LOOP;
+      END LOOP;
+
+      -- 🔴🔴🔴 第三道:**`SET ROLE` 可達的權限**(2026-08-16 實測,關卡2 R3 的修法【還不夠】)
+      --
+      --    R3 建議用 `has_table_privilege` 取代 `relacl`。**那只關掉欄級與【已繼承】那半。**
+      --    實測(拋棄式 PG 17.10):
+      --      service_role 是 NOINHERIT、且是某個持有 UPDATE 的角色的成員時 ——
+      --        has_table_privilege('service_role', …, 'UPDATE')  ⇒ **f**
+      --        set role service_role; set role <那個角色>; UPDATE ⇒ **UPDATE 1(真的改得動)**
+      --    ⇒ **那個權限【是可達的】,而 has_table_privilege 說它不存在。**
+      --
+      --    📎 這與本 repo `docs/patterns/revoking-function-execute-in-supabase.md` §3.5
+      --       記的是同一件事(函式版):`has_function_privilege` 回 f 而 `pg_has_role(…,'SET')` 回 t。
+      --       🔴 **我在那份檔裡寫過這條,然後在這裡漏用了它。**
+      --
+      --    ⚠️ 另一個實測到的坑:`GRANT <role> TO <role>` 的繼承旗標是【授與當下】決定的
+      --       ⇒ 事後 `ALTER ROLE … INHERIT` **不會**讓既有 membership 變成繼承。
+      SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO v_reach
+        FROM pg_roles r
+       WHERE pg_has_role('service_role', r.oid, 'SET')
+         AND r.rolname <> 'service_role'
+         AND (has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'UPDATE')
+           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'DELETE')
+           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'TRUNCATE')
+           -- 🔴🔴 **欄級也要查,而且原因是我第二次犯同一個錯**(V 窗 2026-08-16 完整性註記)。
+           --    本輪 F-R3-2 折的就是「表級查法對欄級盲」,而我補的這第三道**又只寫了表級**
+           --    ⇒ 某個可 SET ROLE 過去的角色只被授欄級 UPDATE(auth_user_id)時,第三道看不到它。
+           --    ⚠️ 那正是最要命的一欄 —— 改它就等於**把某人的登入帳號重綁到別人的員工身分上**。
+           --    可達性低不是省略的理由:低可達性 × 高後果 = 正好是沒人會去看的那一格。
+           OR EXISTS (
+                SELECT 1 FROM unnest(ARRAY['auth_user_id','staff_id']::text[]) AS c(col)
+                 WHERE has_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'), c.col, 'UPDATE')
+                    OR has_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'), c.col, 'REFERENCES')
+              ));
+      IF v_reach IS NOT NULL THEN
+        v_bad := coalesce(v_bad || ', ', '') || format('可 SET ROLE 到的角色持有寫權:%s', v_reach);
+      END IF;
+
+      -- ═══════════════════════════════════════════════════════════════════
+      -- 🔴 本斷言的【已知殘留】—— 寫在這裡,因為讀這支 SQL 的人才是會被它影響的人
+      -- ═══════════════════════════════════════════════════════════════════
+      -- 上面三道只在【apply 的這一刻】成立。日後有人下
+      --     GRANT <某個持有本表寫權的角色> TO service_role;
+      -- 這支 migration **不會重跑** ⇒ 權限被重新打開,而沒有任何東西會叫。
+      --
+      -- 🔴🔴 **這道殘留不能用 event trigger 關。** 不是「效果差一點」,是**根本不觸發**:
+      --    PostgreSQL 17 官方文件 Event Trigger Definition 逐字
+      --    (2026-08-16 由 V 窗查證、本窗當場再讀一次原文確認;正式庫 17.6 / 拋棄式 17.10 同 major):
+      --      "As an exception, however, this event does not occur for DDL commands
+      --       targeting shared objects — databases, roles, and tablespaces —
+      --       or for commands targeting event triggers themselves."
+      --      https://www.postgresql.org/docs/17/event-trigger-definition.html
+      --      https://www.postgresql.org/docs/17/event-trigger-matrix.html
+      --        (Firing Matrix:GRANT / REVOKE 的 ddl_command_end 欄是 X,註「Only for local objects」)
+      --    ⇒ `GRANT <role> TO <role>` targets **roles = shared object** ⇒ **不觸發**。
+      --    ⚠️ **而它會失敗得非常安靜**:event trigger 建得起來、掃描掃得到它、測試也綠,
+      --       **它只是永遠不會被呼叫。機制存在本身會讓下一個人停止追問。**
+      --       ⇒ **不要伸手拿 event trigger 來關這道。**
+      --
+      -- 唯一能關的做法 = `pg_cron` 週期重跑本段斷言。
+      -- 🔴 **而本窗 2026-08-16 判「不現在建」**,理由寫在這裡好被反駁:
+      --    ① 能下那個 GRANT 的人本來就有 DB 管理權 ⇒ 他也刪得掉 cron job
+      --       ⇒ 它防的是**意外**不是攻擊,而防意外的價值取決於「有沒有人看得到警報」。
+      --    ② `pg_cron` 失敗只寫進 `cron.job_run_details` —— **那張表沒有人在讀**
+      --       ⇒ 建了它就是又一個「裝上去、看得到、沒人會發現它在叫」的機制,
+      --         和上面那個被標為無效解的 event trigger **是同一族**,只是失敗得大聲一點點。
+      --    ⇒ **處置:改 backlog,前置條件 = 先有一個【人會真的讀到】的警報去處。**
+      --       那一格填得出來就建;填不出來之前建它,是拿機制的份量換一個心安。
+      --    ⚠️ 這是判斷、可被推翻。要現在建的話請直接指定警報去哪裡。
+
+      IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION E'新物件收權斷言:service_role 的【有效 + 可達權限】不符,預期恰好 {SELECT, INSERT}。\n'
+          '   不符處:%\n'
+          '   🔴 來源有三種,修法不同:\n'
+          '      ① 直接授權(含 ADP)⇒ `REVOKE ALL ON TABLE … FROM service_role;` 放在 GRANT 之前\n'
+          '      ② 欄級授權        ⇒ `REVOKE … (欄名) ON TABLE … FROM service_role;`\n'
+          '      ③ **可 SET ROLE 過去的角色持有** ⇒ **REVOKE 收不掉** —— 要拆 role membership\n'
+          '   ⚠️ UPDATE 能重綁身分、TRUNCATE 能清空整表且不受 RLS 也不觸發 DELETE trigger。', v_bad;
+      END IF;
+    END;
+
+    SELECT string_agg(DISTINCT a.grantee::regrole::text, ', ')
+      INTO v_extra
+      FROM pg_class c
+           CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+     WHERE c.oid = to_regclass('public.admin_user_staff_map')
+       AND a.grantee <> 0                                   -- 0 = PUBLIC,下面單獨判
+       AND a.grantee::regrole::text NOT IN ('service_role', current_user)
+       AND a.grantee <> c.relowner;
+    IF v_extra IS NOT NULL THEN
+      RAISE EXCEPTION E'新物件收權斷言:除了 owner 與 service_role,還有這些角色持有權限:%\n'
+        '   ⇒ 逐一確認它們該不該有。要放行請在本檔明列理由,不要擴大 allow-list 了事。', v_extra;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_class c
+                    CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+                   WHERE c.oid = to_regclass('public.admin_user_staff_map') AND a.grantee = 0) THEN
+      RAISE EXCEPTION '新物件收權斷言:PUBLIC 仍持有本表權限。';
+    END IF;
+  END;
 
   IF v_checked = 0 THEN
     RAISE EXCEPTION '新物件收權斷言:檢查數為 0 —— 這個斷言沒有分母,不算通過。';

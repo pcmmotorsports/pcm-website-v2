@@ -180,6 +180,11 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
     fulfillmentStatus: row.fulfillment_status,
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     itemCount: row.order_items.reduce((sum, item) => sum + item.quantity, 0),
+    // 🔴 **客人端的截斷旗標**(2026-08-16,`Q-EMBED-1` Sean 批)。
+    //    這一面的後果與後台不同:後台是**算錯一個狀態**,這裡是**印一個少算的件數**。
+    //    ⇒ 客人看到「3 件」而實際訂了 600 件 —— **他不會知道,也不會回報**(他沒有第二個來源可以對)。
+    //    判法逐字沿用另外兩處:**要 N 筆、拿回剛好 N 筆就當作可能被切了**。
+    itemCountTruncated: row.order_items.length >= ORDER_LIST_ITEMS_EMBED_LIMIT,
   };
 }
 
@@ -370,6 +375,17 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     // ⇒ CHECK 日後放寬或出現第四值時,裸 `as` 會把界外字串當成 enum 傳給 A11a-5 的查表(取到 undefined)。
     invoiceStatus: narrowInvoiceStatus(row.invoice_status),
     lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
+    // 🔴 **列表側的截斷旗標(2026-08-16,`Q-EMBED-1` Sean 批)。**
+    //    判法與明細那條逐字相同:**要 N 筆、拿回剛好 N 筆就當作可能被切了**
+    //    (不是 N+1 —— 沿用 `itemsTruncated: row.order_items.length >= ORDER_ITEMS_EMBED_LIMIT` 的既有形狀,
+    //     不在同一個 repo 裡放兩種判法)。
+    // 🔴🔴 **為什麼列表需要它**:`orderStatusView` → `orderGoodsAxis` → `goodsAxisOfLines(lines)`
+    //    三條判定都是 `.every(...)` ⇒ **子集全出貨就答「出貨完成」**,而沒載進來的可能一件都沒出。
+    //    ⇒ 員工看到「出貨完成」就不再動作 —— **他做對了,但結果是錯的。**
+    // ⚠️ `?? []` 那半:缺鍵(投影退版)⇒ 空陣列 ⇒ 長度 0 ⇒ 旗標 false。
+    //    **那是對的** —— 缺鍵不是「被截斷」,它是另一件事(顯示端兜「—」)。
+    //    兩者混成同一個旗標會讓「投影壞了」被讀成「品項太多」。
+    itemsTruncated: (row.order_items ?? []).length >= ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
   };
 }
 
@@ -388,6 +404,37 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
  * 數字上而本判定看不見(同 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 的殘餘風險,治本要 `count: 'exact'`)。
  */
 export const ORDER_ITEMS_EMBED_LIMIT = 200;
+
+/**
+ * **列表**側內嵌 `order_items` 的請求上限(2026-08-16,`Q-EMBED-1` Sean 批)。
+ *
+ * 🔴 **為什麼與明細那個分開一個常數,而不是共用 200**:兩者的用途不同 ——
+ *    明細要**逐列顯示**品項(200 是「畫得出來的量」);
+ *    列表只拿它**算彙總**(件數、貨品軸),不逐列畫 ⇒ 上限可以更高、代價只是傳輸量。
+ *    **共用一個常數會讓「調整其中一邊」變成「同時調整另一邊」,而那兩件事沒有理由綁在一起。**
+ *
+ * 🔴🔴 **這個上限存在的理由【不是】「避免傳太多」,是【把邊界從伺服器手上拿回來】。**
+ *    `db-max-rows` **會**套用到內嵌陣列,而**內嵌被截斷時 PostgREST 不給任何訊號**
+ *    (仍回 HTTP 200、`Content-Range` 不反映)⇒ **不設上限 = 一個偵測不到的懸崖。**
+ *    證據與層級寫在 `docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md`
+ *    (⚠️ 該檔明載:出處是官方 repo issue 作者的敘述、**不是 maintainer 聲明**,當高可信不當定案)。
+ *
+ * 值 = 500:**嚴格低於**實測的伺服器上限(1000),又遠高於明細的 200
+ * ⇒ 一張單的品項數在 200~500 之間時,**明細會說「未知」而列表仍算得出正確的軸** —— 那是刻意的。
+ * ⚠️ 與明細那條共用同一個殘餘風險:若專案 `max-rows` 日後被設到低於本值,
+ *    截斷會發生在那個更低的數字上而本判定看不見(治本要 `count: 'exact'`)。
+ */
+export const ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
+
+/**
+ * **前台(客人)訂單列表**內嵌 `order_items` 的請求上限(2026-08-16,`Q-EMBED-1` Sean 批)。
+ *
+ * 🔴 **與後台那個分開一個常數,理由同前**:這一面只拿它 `reduce` 出 `itemCount`,
+ *    連品項欄位都只投影 `quantity`(`ORDER_LIST_SELECT` 逐字)⇒ 傳輸成本最低、上限可以最寬。
+ * 值 = 500:與後台列表同值,**而那是巧合不是耦合** —— 兩者各自可調,改一個不必動另一個。
+ * ⚠️ 同一組殘餘風險:若專案 `max-rows` 被設到低於本值,截斷發生在更低的數字上而本判定看不見。
+ */
+export const ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
 
 /**
  * 內嵌 `payment_charge_attempts` 的請求上限(M-4b E10 A9g-2)。

@@ -27,6 +27,7 @@ const ORDERS: OrderListItem[] = [
     fulfillmentStatus: 'shipped',
     total: { amount: toMoneyAmount(12345), currency: 'TWD' },
     itemCount: 3,
+    itemCountTruncated: false,
   },
   {
     id: 'ord-2',
@@ -36,6 +37,7 @@ const ORDERS: OrderListItem[] = [
     fulfillmentStatus: 'notOrdered',
     total: { amount: toMoneyAmount(980), currency: 'TWD' },
     itemCount: 1,
+    itemCountTruncated: false,
   },
 ];
 
@@ -91,5 +93,37 @@ describe('OrdersTab(M-3 真訂單清單)', () => {
     const { container } = render(<OrdersTab orders={[]} />);
     expect(container.textContent).not.toContain('PCM-2026-0042');
     expect(container.textContent).not.toContain('18,600');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Q-EMBED-1:件數可能少算時,不印那個數字(2026-08-16,Sean 批)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴🔴 **這一面的後果與後台那條【不同】,不要當成同一件事**:
+//    後台 `itemsTruncated` ⇒ 整單**狀態**被算錯(`.every()` 對子集單調)
+//    這裡 `itemCountTruncated` ⇒ 印一個**少算的件數**
+//    ⇒ **客人看到「3 件」而實際訂了 600 件,他不會知道、也不會回報**(沒有第二個來源可以對)。
+//
+// ⚠️ **顯示法也不同**:後台那格印「未知」蓋掉整格;這裡**只換掉那個不可信的數字**,
+//    單號與日期照常 —— 蓋掉整格等於拿走客人辨識自己訂單的資訊。
+describe('itemCountTruncated ⇒ 件數印「?」', () => {
+  it('🔴 旗標為真 ⇒ 印「? 件商品」,不印那個少算的數', () => {
+    // 🔴 **fixture 從檔內既有的 `ORDERS[0]` 衍生,不自己造一個** ——
+    //    我第一版憑印象寫了不存在的 `baseOrder` ⇒ `ReferenceError`(本輪第五次同一個病)。
+    //    `ORDERS[0].itemCount` 本來就是 3,反向斷言那個 `3 件商品` 因此是真的會出現的字面。
+    render(<OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: true }]} />);
+    expect(screen.getByText(/\? 件商品/), '應改印問號').toBeDefined();
+    // 🔴 反向:那個不可信的數字一個字都不准出現。
+    expect(screen.queryByText(/3 件商品/), '少算的數字不得出現').toBeNull();
+  });
+
+  /**
+   * 🔴 **正向對照** —— 同一筆、只把旗標關掉,「3 件商品」就該回來。
+   * 沒有這一格,上面那條 `queryByText(/3 件商品/)` 為 null 可能只是因為選擇器打錯。
+   */
+  it('正向對照:旗標為假 ⇒ 「3 件商品」照常印出來', () => {
+    render(<OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: false }]} />);
+    expect(screen.getByText(/3 件商品/), '正常情況要印真實件數').toBeDefined();
   });
 });
