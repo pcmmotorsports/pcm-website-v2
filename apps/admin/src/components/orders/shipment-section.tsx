@@ -90,7 +90,12 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                         rel='noopener'
                         className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-xs'
                       >
-                        列印出貨單
+                        {/* 🔴 名稱跟著那張紙一起改(2026-08-17):紙上與分頁名都已是
+                            「出貨明細單」(`components/print/shipping-doc.tsx` 的 `<h1>` 與
+                            `app/print/orders/[id]/shipping/[shipmentId]/page.tsx` 的
+                            `generateMetadata`)⇒ 入口鈕留著舊名,員工會以為是兩種不同的單。
+                            數法 `git grep -n '列印出貨單' -- apps/admin/src` ⇒ 落地前 1 處,就是這裡。 */}
+                        列印出貨明細單
                       </Link>
                     )}
                     {/* 🔴 「填單號並標記出貨」—— **只在「未作廢且未出貨」時出現**。

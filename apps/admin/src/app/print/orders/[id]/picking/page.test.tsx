@@ -170,6 +170,47 @@ describe('#10 片1 揀貨單列印頁', () => {
     expect(textOf(container)).toContain('不要拿這張去揀貨');
   });
 
+  // 🔴 **2026-08-17:舊文案逐字「請重新整理後再列印」是一句假話** —— 觸發它的是固定上限
+  //    (`ORDER_ITEMS_EMBED_LIMIT = 200`,`packages/adapters/src/supabase/mappers/order.ts:406`)
+  //    ⇒ 重整一百次拿回同一個數字。**這張紙比出貨明細單更該修:倉庫真正拿在手上的是它。**
+  //    ⚠️ **禁的是【詞根】不是祈使形白名單** —— 白名單版在 `shipping-doc` 那片被穿透兩次
+  //    (「請重新整理再列印一次」/「麻煩您重新整理一下再列印看看」都全綠)⇒ 中文祈使形舉不完。
+  it('🔴 ③a 截斷文案不得叫他做會失敗的動作(禁詞根)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ itemsTruncated: true }));
+    const t = textOf((await renderPage()).container);
+    for (const bad of ['重新整理', '重試', '再試一次', '稍後']) {
+      expect(t, `文案叫員工做一件永遠不會成功的事:${bad}`).not.toContain(bad);
+    }
+    // 正向對照:仍要給一條真的做得到的下一步,否則這格會退化成「把話刪掉就過」。
+    expect(t).toContain('聯絡負責人');
+  });
+
+  // 🔴 **改之前這顆鈕在警告【上面】、不受影響** ⇒ 兩種「不該拿去揀貨」的狀態下
+  //    員工都按得下去,印出一張紙照樣進倉庫。
+  //    ⚠️ 三格成對:兩個反面 + 一個正面。少了正面那格,把整顆鈕刪掉也會綠。
+  //    ⚠️ 釘「文字剛好是【列印】的 button」而不是 `querySelector('button')` ——
+  //       後者會因為這頁日後加任何一顆鈕而誤紅(`shipping-doc` 那片 R1 nit8 的原話)。
+  describe('🔴 不該揀的紙上不得留下一顆按得下去的列印鈕', () => {
+    const printButtons = (c: HTMLElement) =>
+      [...c.querySelectorAll('button')].filter((b) => b.textContent === '列印');
+
+    it('訂單已取消 ⇒ 沒有列印鈕', async () => {
+      mocks.findAdminOrderDetail.mockResolvedValue(
+        detail({ cancelledAt: '2026-08-05T02:00:00+00:00' }),
+      );
+      expect(printButtons((await renderPage()).container)).toHaveLength(0);
+    });
+
+    it('品項沒載完 ⇒ 沒有列印鈕', async () => {
+      mocks.findAdminOrderDetail.mockResolvedValue(detail({ itemsTruncated: true }));
+      expect(printButtons((await renderPage()).container)).toHaveLength(0);
+    });
+
+    it('🔴 正向對照:一切正常 ⇒ 列印鈕還在(證明上兩格不是「這顆鈕根本不存在」)', async () => {
+      expect(printButtons((await renderPage()).container)).toHaveLength(1);
+    });
+  });
+
   it('③b 一切正常時不得出現任何警告(否則上面幾格恆綠)', async () => {
     const { container } = await renderPage();
     expect(container.querySelector('[role="alert"]')).toBeNull();
