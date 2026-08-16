@@ -253,7 +253,11 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 5. **A2 event trigger 尚未上正式庫** —— §7c-2 已證明 Dashboard 開關**取代不了它**；
    要上就是鐵則 12 ③④，**要 Sean 批**（我沒有動、也沒有代他點 Dashboard）
 6. `pcm_cron` schema：出現在可選曝露清單卻沒勾，**是什麼、誰能勾，未查**
-7. `security-audit` skill 的 **Phase 2–6 從未跑過**（Phase 1 產物在
+7. 🔴 **口徑更正（F9，2026-08-16）**：本條原寫「Phase 2–6 **從未跑過**」，**已過期**。
+   正確＝**Phase 2 有【單線】版本（`…-phase2-hunt.md`），平行度未達 skill 的多代理規格；
+   Phase 3 已由 V 窗以 codex 跑完（`V-017`）；Phase 4/5/6 未跑。**
+   ⚠️ 這是**反向軟化** —— 寫「從未跑」會讓讀者**低估**已有的涵蓋範圍，
+   與 phase2 §0 要求「不要軟化」是同一條紀律的兩個方向。（Phase 1 產物在
    `docs/security/2026-08-16-security-audit-run1-phase1-architecture.md`）
 
 ---
