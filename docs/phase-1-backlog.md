@@ -14225,6 +14225,25 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 > 🔴 **它明說:「我證的是【我的紅是環境造成的】,我【沒有】證【正式站那道守門是好的】。」**
 > **不要把這條讀成 storefront 權限沒問題。**
 
+> ✅ **2026-08-16 I 窗:第①步【已完成】—— 在有 env 的主樹跑起來了,而且是綠的,而且紅得起來。**
+> ```
+> 正向  pnpm --filter @pcm/storefront exec playwright test e2e/account-guard.spec.ts
+>       => EXIT=0 / 1 passed (4.9s)
+> 負向  把 account/page.tsx:54 的 redirect 註解掉(cp 備份、非 git checkout)
+>       => EXIT=1,且紅在【對的那一格】:
+>          toHaveURL failed — unexpected value "http://localhost:3100/account"
+>       (不是意外崩掉的紅 —— 它斷言的就是「沒有導向」這件事)
+> 還原  cp 回存 + shasum -a 256 -c 逐字 OK + git status 空 + 突變字串 0 命中
+> ```
+> 🔴 **A 窗那次紅【確認是環境造成的】,不是防護破了** —— 差別就是 `.env.local`:
+> 主樹有(`test -e` 過、`2803` bytes,未讀內容),A 窗的 worktree 沒有。**它的自我判斷是對的。**
+>
+> ⚠️ **三條誠實邊界(不要放大這個綠)**:
+> ① 這證的是**本機對真 Supabase** 的行為,**不證正式站**(env 與部署都不同)。
+> ② 突變只做了**一種**:整條 redirect 拿掉。**沒測**「`getUser()` 被換成可偽造的 `getSession()`」
+>    —— 而那正是 `page.tsx:10-11` 註解點名的風險。**未登入時兩者都回 null ⇒ 這格很可能分不出來(未測,推論)。**
+> ③ 它仍然**零觸發** —— 跑起來是因為**我手動跑**,不是因為有東西會叫它。**第②步(掛 CI)未做。**
+
 **(以下為原始條目,保留不改)**
 
 - **狀態:** ⏳ 待執行(不是決策題)
