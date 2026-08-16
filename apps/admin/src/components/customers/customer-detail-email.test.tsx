@@ -56,6 +56,8 @@ function renderDetail(email: string) {
       customer={customer(email)}
       walletEntries={[]}
       walletLoadFailed={false}
+      walletTotal={0}
+      walletPage={1}
       orders={[]}
       ordersLoadFailed={false}
       addresses={[]}

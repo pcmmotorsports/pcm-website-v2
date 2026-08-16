@@ -7,6 +7,10 @@ import { CustomerDetail } from './customer-detail';
 // 🔴 **它不是另一張卡,是同一個 `<CustomerDetail>`**:J-4 逐字「刻意不複製一份 markup 過來,
 //    不然兩邊遲早會長不一樣」。OD 在靜態 HTML 環境用 iframe 達成那件事;真站用
 //    「同一個元件 + 同一份取數(`loadCustomerDetail`)」達成 —— 比 iframe 更硬
+// 🔴 2026-08-17:儲值金流水改分頁顯示之後,本面板**刻意不傳 `walletPageHref`** ——
+//    抽屜沒有自己的 URL,翻頁會把整個面板的網址改掉(員工手上的列表會跟著跳)。
+//    ⇒ 面板只給第 1 頁;要看全部走既有的「開整頁 ↗」。
+//    (`walletPageHref` 是 optional,不傳 = 不顯示翻頁列,見 `customer-detail.tsx` 的型別註解。)
 //    (iframe 是兩份 DOM 樹,這裡是同一個元件)。
 //
 // 🔴 **唯讀**(主視窗 2026-08-13 裁 A):`readOnly` 讓等級變更與儲值金調整兩支表單不出現。
@@ -73,6 +77,8 @@ export function CustomerPanel({
         <CustomerDetail
           customer={data.customer}
           walletEntries={data.walletEntries}
+          walletTotal={data.walletTotal}
+          walletPage={data.walletPage}
           walletLoadFailed={data.walletLoadFailed}
           orders={data.orders}
           ordersLoadFailed={data.ordersLoadFailed}

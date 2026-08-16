@@ -1,6 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IWalletRepository } from '@pcm/ports';
-import type { CustomerId, WalletBalance, WalletLedgerEntry } from '@pcm/domain';
+import type {
+  CustomerId,
+  Paginated,
+  PaginationParams,
+  WalletBalance,
+  WalletLedgerEntry,
+} from '@pcm/domain';
 import type { Database } from './database.types';
 import { mapSupabaseWalletEntryToDomain, mapWalletEntryToInsertRow } from './mappers/wallet';
 
@@ -46,17 +52,47 @@ export class SupabaseWalletAdapter implements IWalletRepository {
    * 列出某會員儲值金交易紀錄(穩定排序:entry_date desc, created_at desc)。
    * readClient(authenticated、RLS own)。error → throw。
    */
-  async listEntries(customerId: CustomerId): Promise<WalletLedgerEntry[]> {
-    const { data, error } = await this.readClient
+  async listEntries(
+    customerId: CustomerId,
+    params: PaginationParams,
+  ): Promise<Paginated<WalletLedgerEntry>> {
+    const offset = params.offset ?? 0;
+
+    const { data, error, count } = await this.readClient
       .from('customer_wallet_ledger')
-      .select(LEDGER_SELECT)
+      // 🔴 `count: 'exact'` 是這一版的關鍵：它由伺服器對【整個篩選集】算，
+      //    **不受 `db-max-rows` 限制**（實測 2026-08-17：19,777 / 50,925 / 87,619 三張大表皆回真值，
+      //    而小表 `categories` 回 107 ⇒ 它不是「總是回一個大數」）。
+      //    ⇒ 畫面可以印「共 N 筆（第 X／Y 頁）」⇒ **「靜默少列」這個狀態不再存在**，
+      //      不需要任何截斷偵測 —— 前三個版本都在做那件事，而這一版讓它沒有必要。
+      .select(LEDGER_SELECT, { count: 'exact' })
       .eq('customer_user_id', customerId)
       .order('entry_date', { ascending: false })
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      // 🔴 `id` 是**唯一鍵 tiebreaker**：`entry_date`（日期）與 `created_at` 都可能撞值
+      //    （同一天多筆、同一秒多筆）⇒ 只靠它們排序時，同分那幾筆的順序**未定義**
+      //    ⇒ 分頁頁界會漂 ⇒ **同一筆可能兩頁都出現、或哪一頁都翻不到**，而畫面看不出來。
+      //    形狀【抄】自 `SupabaseOrderAdapter` 訂單列表（搜 `防同秒單`），那裡的註解寫著同一個理由。
+      .order('id', { ascending: false })
+      .range(offset, offset + params.limit - 1);
     if (error) {
       throw error;
     }
-    return data.map(mapSupabaseWalletEntryToDomain);
+
+    // 🔴 `count === null` 不靜默轉 0(codex 2026-08-17):
+    //    若 count 沒回而 items 有資料,轉 0 會讓畫面出現「顯示 20 筆 / 共 0 筆」的假帳。
+    //    count 是本版的地基(「共 N 筆」就是它)⇒ 它沒回來就是讀取失敗,不是「總數 0」。
+    if (count === null) {
+      throw new Error(
+        'SupabaseWalletAdapter.listEntries: 伺服器沒有回傳總筆數(count) —— ' +
+          '本方法以「共 N 筆」為前提，沒有 N 就不回傳一份看起來完整的一頁。',
+      );
+    }
+
+    return {
+      items: data.map(mapSupabaseWalletEntryToDomain),
+      total: count,
+    };
   }
 
   /**

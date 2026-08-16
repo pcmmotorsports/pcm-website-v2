@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
+import { WALLET_LEDGER_PAGE_SIZE } from '../../lib/customers/load-customer-detail';
 import type { AdminOrderDetail, AdminOrderFilter } from '@pcm/domain';
 import {
   buildOrderListHref,
@@ -803,16 +804,22 @@ describe('OD 片 3b 守門:`?customer=` 分支', () => {
     //    第一版把這兩個都設成 `[]` ⇒ 儲值金流水表與訂單歷史表**整段 markup 根本不渲染**
     //    ⇒ 「客人卡裡的訂單連結有沒有換成面板 href」這條路徑**零覆蓋**,
     //    而我漏接的正是流水表那一顆。空陣列不是「中性的預設值」,它是**把路徑關掉**。
-    mocks.listWalletEntries.mockResolvedValue([
-      {
-        id: 'w1',
-        entryDate: '2026-08-01',
-        entryType: 'deposit',
-        amount: 1000,
-        note: null,
-        relatedOrderId: RELATED_ORDER_ID,
-      },
-    ]);
+    // 🔴 2026-08-17:`listEntries` 由「回傳全部(陣列)」改為「回傳一頁(Paginated)」
+    //    ⇒ 這裡的 mock 形狀跟著改。**這不是為了讓紅變綠而放寬期望值** ——
+    //    被測的介面刻意變了,替身沒跟上就是替身錯。
+    mocks.listWalletEntries.mockResolvedValue({
+      items: [
+        {
+          id: 'w1',
+          entryDate: '2026-08-01',
+          entryType: 'deposit',
+          amount: 1000,
+          note: null,
+          relatedOrderId: RELATED_ORDER_ID,
+        },
+      ],
+      total: 1,
+    });
     mocks.listSummariesByCustomer.mockResolvedValue([
       {
         id: HISTORY_ORDER_ID,
@@ -885,7 +892,18 @@ describe('OD 片 3b 守門:`?customer=` 分支', () => {
       }),
     });
     expect(ui).not.toBeNull();
+    // 🔴 2026-08-17 codex 打回我的第一次修法:我當時寫「只驗第一個參數 = 收窄」,
+    //    **而它其實是放寬** —— 那樣五支 spy 全都變成「允許任意多餘參數」。
+    //    正確做法是**逐支維持精確**,只有真的改了簽名的那一支寫出它的新參數。
     for (const [label, spy] of CUSTOMER_SPIES) {
+      if (label === '儲值金流水') {
+        // 這一支 2026-08-17 改成分頁讀取 ⇒ 精確斷言它的分頁參數(不是放行任意值)
+        expect(spy(), `${label} 沒被查 ⇒ 客人卡拿不到那一區塊`).toHaveBeenCalledWith(
+          CUSTOMER_ID,
+          { limit: WALLET_LEDGER_PAGE_SIZE, offset: 0 },
+        );
+        continue;
+      }
       expect(spy(), `${label} 沒被查 ⇒ 客人卡拿不到那一區塊`).toHaveBeenCalledWith(CUSTOMER_ID);
     }
     // 蓋掉:訂單那邊一次都不查(否則就是兩張卡都在抓資料)
