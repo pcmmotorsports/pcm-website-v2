@@ -33,7 +33,7 @@
 
 **⇒ 一句話：截至 2026-08-16，沒有找到外部可讀取客戶資料的路徑。**
 
-> 🔴 **第 7 條 2026-08-17 由 production 覆核（原為 repo 側推論）**：
+> 🔴 **第 7 條 2026-08-16 由 production 覆核（原為 repo 側推論）**：
 > 六張表共 **16 條 policy** 逐條讀出，面向客人的**全部**是 `authenticated` + `auth.uid()` 綁本人；
 > 唯二 `USING (true)` 的是 `customers_delete_service_role` 與 `wallet_insert_service_role`
 > —— **`service_role` 專用（伺服器端），不是對外**。**六張表零 `anon` policy。**
@@ -60,7 +60,7 @@ set_by = supabase_admin 一筆 + postgres 一筆                  ← 🔴 收�
 **實測落差**（**2026-08-16 當時**）：11 個 `anon` 可讀物件中，**4 個（36%）在 repo 裡沒有任何 `GRANT` 語句**
 （`brands`、`categories`、`customer_wallet_balance_check`、`product_fitments_effective`）。
 
-> 📌 **2026-08-17 更新**：`customer_wallet_balance_check` 的授權已由 Sean 親自 REVOKE（見 §7c-1），
+> 📌 **2026-08-16 更新**：`customer_wallet_balance_check` 的授權已由 Sean 親自 REVOKE（見 §7c-1），
 > **`anon` 可讀物件 11 → 10**。上面那個 36% 是**當天的量測**，保留原值不改寫 ——
 > 改寫會讓「當初就錯」與「當初對、現在過期」變得分不出來。
 
@@ -87,7 +87,7 @@ set_by = supabase_admin 一筆 + postgres 一筆                  ← 🔴 收�
 ⚠️ 而 house **刻意**對型錄表下欄級授權（`products` / `product_variants`）
 ⇒ 盤點時**不能把欄級授權一律當成問題**，要分「刻意的」與「殘留的」。
 
-> ✅ **2026-08-17：這一圈已經問過了，見 §7c-3。** 全 `public` 逐欄量到 **66 筆**欄級授權，
+> ✅ **2026-08-16：這一圈已經問過了，見 §7c-3。** 全 `public` 逐欄量到 **66 筆**欄級授權，
 > 全部落在 `products` / `product_variants` / `customers` 三張，**且經銷價欄（`price_by_tier`）
 > 對 `anon` 與 `authenticated` 都是 `f`** ⇒ 那份白名單是刻意的，也是對的。
 > **本節仍然成立**（方法上的盲點沒消失），但**這個 repo 在這一層的實際狀態已經量過了。**
@@ -97,7 +97,7 @@ set_by = supabase_admin 一筆 + postgres 一筆                  ← 🔴 收�
 要真的讀得到一張表，**表授權與 schema `USAGE` 兩層都要有**。
 `has_table_privilege` 只回答第一層 ⇒ **它會把「有表授權但進不去 schema」算成可讀。**
 
-**實測（2026-08-17，`E-687`）**：
+**實測（2026-08-16，`E-687`）**：
 - `anon` **有** USAGE：`public` / `storage` / `net` / `extensions` / `realtime`
 - `anon` **沒有** USAGE：🟢 `cron`、🟢 `vault`（**secrets 存這裡**）、`pcm_cron`、`supabase_migrations`
 - `auth`：有 USAGE 但**零表授權** ⇒ 讀不到任何列
@@ -207,9 +207,9 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 
 | ID | 嚴重度 | 內容 | 卡在誰 |
 |---|---|---|---|
-| ~~`net` 曝露~~ **已關閉** | ~~未知~~ **非活洞** | ✅ **2026-08-17 實測關閉**：以公開 publishable key 打正式站 `/rest/v1/`，`http_request_queue` 回 **404**（打不到）。🔴 判別力有證明：`customers` 回 **401**（在曝露的 `public` 內、僅無權限），`products_public` 回 **200**（19,777 列，控制組）⇒ **404 不是鈍訊號**。`realtime.subscription`／`cron.job`／`storage.buckets`／`extensions.pg_stat_statements` 同為 404。Data API 曝露清單經 Sean 展開確認：**只有 `public` + `graphql_public`**。詳 `E-689` | — |
+| ~~`net` 曝露~~ **已關閉** | ~~未知~~ **非活洞** | ✅ **2026-08-16 實測關閉**：以公開 publishable key 打正式站 `/rest/v1/`，`http_request_queue` 回 **404**（打不到）。🔴 判別力有證明：`customers` 回 **401**（在曝露的 `public` 內、僅無權限），`products_public` 回 **200**（19,777 列，控制組）⇒ **404 不是鈍訊號**。`realtime.subscription`／`cron.job`／`storage.buckets`／`extensions.pg_stat_statements` 同為 404。Data API 曝露清單經 Sean 展開確認：**只有 `public` + `graphql_public`**。詳 `E-689` | — |
 | `E683-1` | 常設風險 | 新物件出生自帶 `anon` 權限（表含 RLS 管不到的 `TRUNCATE`；函式含 `EXECUTE`）。**現況 46 張全乾淨，但靠的是每個人都記得。** | 部分已解：`E-684` 斷言樣板已交 B 窗，**新 migration 起用** |
-| ~~`E682-1`~~ **已修** | ~~低~~ **已關閉** | ✅ **2026-08-17 Sean 親自在正式庫貼了 REVOKE 並回貼驗收輸出**（`anon_still = false` / `auth_still = false`）。`customer_wallet_balance_check` 對 `anon` 與 `authenticated` 的 SELECT **兩格都關上了**。⇒ `packages/adapters/src/supabase/SupabaseWalletAdapter.ts:87` 註解裡寫的那道「不對 authenticated GRANT」的控制，**現在真的存在**（先前是程式碼相信一道不存在的控制）。⚠️ **限定**：那兩格 false 來自 `has_table_privilege`，證的是**表級**收乾淨；`has_*_privilege` 對**欄級授權會少報**（§2.3）⇒ 不等於欄級零殘留。**2026-08-17 已補查欄級**：見 §7c-3。 | — |
+| ~~`E682-1`~~ **已修** | ~~低~~ **已關閉** | ✅ **2026-08-16 Sean 親自在正式庫貼了 REVOKE 並回貼驗收輸出**（`anon_still = false` / `auth_still = false`）。`customer_wallet_balance_check` 對 `anon` 與 `authenticated` 的 SELECT **兩格都關上了**。⇒ `packages/adapters/src/supabase/SupabaseWalletAdapter.ts:87` 註解裡寫的那道「不對 authenticated GRANT」的控制，**現在真的存在**（先前是程式碼相信一道不存在的控制）。⚠️ **限定**：那兩格 false 來自 `has_table_privilege`，證的是**表級**收乾淨；`has_*_privilege` 對**欄級授權會少報**（§2.3）⇒ 不等於欄級零殘留。**2026-08-16 已補查欄級**：見 §7c-3。 | — |
 | `E680-1` | 低（未守路徑） | `settle-sweep` route 用 blind spread `...result` 回應，而回應會落進 PUBLIC 可讀、保留 6h 的 `net._http_response`。**今天不洩**（`SweepSettlementsResult` 全是計數），但**姊妹片 email-sweep 用顯式 allowlist 且寫明理由**。 | 待派 |
 | **`E685-1`** 🔴 **裁定：不修，見 §7c-6** | **低（但這是全樹唯一一個真的 RLS 繞過）** | `vehicle_taxonomy_public` 是 **`security_invoker=false`**（其餘 8 支 view 都是 `true`），view owner = `postgres`，而 `product_fitments` / `product_fitments_effective` 的 `relforcerowsecurity = false` ⇒ **owner 繞過 RLS** ⇒ 這支 view **看得到已下架商品的車型資料**，而 `anon` 讀得到它。<br>**曝露內容只有 `moto_brand / model_code / year_start / year_end`（零 PII、零價格）**，故嚴重度低。<br>🔴 **但它是唯一一支「底表 RLS 對它無效」的 view** ⇒ 日後 `product_fitments*` 若加上任何敏感欄或更嚴的 policy，**這支會直接漏過去，而且不會有任何東西紅。** | 待派 |
 | `rls_auto_enable` fail-open | 低-中 | `20260531142534_govern_rls_auto_enable.sql:59-63` 用 `EXCEPTION WHEN OTHERS THEN RAISE LOG` **吞掉自己的失敗** ⇒ 開 RLS 失敗時無聲。 | 待派 |
@@ -247,18 +247,18 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 ## 7. 下一步（未做，非承諾）
 
 1. ~~**`net` / `cron` / `extensions` 是否列入 Data API 曝露 schema**~~ → ✅ **已關閉**，見 §4 第一列與 §7b-(a)
-2. ~~`E682-1` 的 `REVOKE` 提案（要 Sean 批）~~ → ✅ **已修**，Sean 2026-08-17 親貼，見 §7c-1
+2. ~~`E682-1` 的 `REVOKE` 提案（要 Sean 批）~~ → ✅ **已修**，Sean 2026-08-16 親貼，見 §7c-1
 3. 報價單庫（`pcm-quote-v2`）整個沒查 —— 唯讀帳號尚未建立（`E-674b`）　**← 仍全開**
 4. ~~§2.3 那些沒查的維度~~ → ✅ **欄級已量**，見 §7c-3
 5. **A2 event trigger 尚未上正式庫** —— §7c-2 已證明 Dashboard 開關**取代不了它**；
    要上就是鐵則 12 ③④，**要 Sean 批**（我沒有動、也沒有代他點 Dashboard）
 6. `pcm_cron` schema：出現在可選曝露清單卻沒勾，**是什麼、誰能勾，未查**
 7. `security-audit` skill 的 **Phase 2–6 從未跑過**（Phase 1 產物在
-   `docs/security/2026-08-17-security-audit-run1-phase1-architecture.md`）
+   `docs/security/2026-08-16-security-audit-run1-phase1-architecture.md`）
 
 ---
 
-## 7b. ✅ 2026-08-17 補：外部 API 實測 + RPC 面 + 應用層
+## 7b. ✅ 2026-08-16 補：外部 API 實測 + RPC 面 + 應用層
 
 ### (a) 外部 REST 可達性（實測，非讀設定頁）
 
@@ -302,11 +302,11 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 
 ---
 
-## 7c. ✅ 2026-08-17 續：B 案落地、Dashboard 開關的答案、欄級補查
+## 7c. ✅ 2026-08-16 續：B 案落地、Dashboard 開關的答案、欄級補查
 
 ### 7c-1 `E682-1`（B 案）已修 —— **Sean 親自貼，回貼驗收輸出**
 
-- **誰**：Sean 本人　**何時**：2026-08-17　**在哪**：正式庫（`pcm-website-v2`）
+- **誰**：Sean 本人　**何時**：2026-08-16　**在哪**：正式庫（`pcm-website-v2`）
 - **貼的東西**：`REVOKE ALL ON public.customer_wallet_balance_check FROM PUBLIC, anon, authenticated;`
 - **他回貼的驗收輸出（逐字）**：
 
@@ -474,7 +474,7 @@ product_variants.price_store    anon=f  authenticated=f     ← 沒開 ✅
 > **這一節是本輪最重要的一條。** 產品決策那一關已經解開了，
 > **而擋住它的從來不是那一關。**
 
-**2026-08-17 Sean 親自在正式庫跑了比對 SQL，回貼逐字：**
+**2026-08-16 Sean 親自在正式庫跑了比對 SQL，回貼逐字：**
 
 ```
 | 現在幾筆 | 改完剩幾筆 |

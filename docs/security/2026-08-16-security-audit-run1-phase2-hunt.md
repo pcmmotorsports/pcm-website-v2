@@ -1,8 +1,16 @@
 # security-audit run-1 · Phase 2（獵洞）—— **單線編制**
 
-- **窗**：E（安全稽核）　**日期**：2026-08-17　**目標**：`pcm-website-v2`（分支 `dev` 的工作樹）
-- **上游**：Phase 1 產物 `docs/security/2026-08-17-security-audit-run1-phase1-architecture.md`
+- **窗**：E（安全稽核）　**日期**：2026-08-16　**目標**：`pcm-website-v2`（分支 `dev` 的工作樹）
+- **上游**：Phase 1 產物 `docs/security/2026-08-16-security-audit-run1-phase1-architecture.md`
 - **DB 層**：**不重做**。已於 `docs/security/2026-08-16-external-exposure-audit.md` 對正式庫實測過。
+
+> 🔴 **日期更正（留痕，不消滅）**：本檔與稽核總結檔今天一度全部寫成 `2026-08-17`。
+> **那不是筆誤，是 E 窗這個 session 的時鐘快了約 8 小時**（`E-691-STOP` 自述 `03:50`，
+> 真值是 `2026-08-16 19:32 CST`）。三源一致：`date`、`git log --date` 的 commit 時間、session 環境宣告。
+> **兩檔共 15 處已改正**；本檔原名 `2026-08-17-…-phase2-hunt.md`，同時更名。
+> ⚠️ `~/pcm-mailbox/` 的信**不回改**（已投遞）⇒ 循信中日期找 repo 檔案時要自行 −1 天。
+> 📎 這是 I 窗更正 Phase 1 檔名時發現的；**我自己的每一封信都帶著那個偏移，而我一次都沒察覺** ——
+> **時間戳是最不會被複核的字面，因為它每次看起來都「合理」。**
 
 ---
 
