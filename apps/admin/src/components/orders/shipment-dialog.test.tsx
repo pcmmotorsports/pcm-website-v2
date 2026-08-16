@@ -647,3 +647,111 @@ describe('ShipmentDialog — 手動填 0 不被自動補回(N2)', () => {
     expect(box().value).toBe('2');
   });
 });
+
+describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不可以長得一樣', () => {
+  // 合法貨號(算出來的:`python3 -c "print(123456789 % 7)"` ⇒ 1)。
+  const VALID = '1234567891';
+  const shipBtn = () => screen.getByRole('button', { name: '建箱並標出貨' });
+  const trackingInput = () => screen.getByPlaceholderText(/標出貨前必填|可留空/);
+  /** 🔴 打完要 `blur` —— R2 F-A 之後,離開欄位之前不評價格式(見 `trackingNumberIssue` 的 `settled`)。 */
+  const typeTracking = (v: string) => {
+    const input = trackingInput();
+    fireEvent.change(input, { target: { value: v } });
+    fireEvent.blur(input);
+  };
+
+  it('🔴🔴 R2 F-A:【還在打字時】不評價格式 —— 否則正確輸入也會逐鍵跳九次「擋」', () => {
+    open();
+    // 只 change 不 blur = 模擬打到一半。
+    fireEvent.change(trackingInput(), { target: { value: '12345' } });
+    expect(screen.queryByText(/貨號是 10 碼/), '打字中就開罵 ⇒ 那行字會變成背景雜訊').toBeNull();
+    expect(shipBtn().hasAttribute('disabled')).toBe(false);
+    // 離開欄位之後才評價。
+    fireEvent.blur(trackingInput());
+    expect(screen.queryByText(/貨號是 10 碼/)).not.toBeNull();
+    expect(shipBtn().hasAttribute('disabled')).toBe(true);
+  });
+
+  it('合法貨號 ⇒ 按鈕可用、畫面上沒有警告', () => {
+    open();
+    typeTracking(VALID);
+    expect(shipBtn().hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText(/檢查碼對不上/)).toBeNull();
+  });
+
+
+  it('🔴 R2 F-I:切換貨運商會清空框 —— 上一家的單號不可以原封送出', () => {
+    open();
+    typeTracking('1234567891');
+    expect((trackingInput() as HTMLInputElement).value).toBe('1234567891');
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });
+    // 沒有這一格的話,把 `setTracking('')` 拿掉不會有任何東西紅(既有那格切完本來就重打一次)。
+    expect((trackingInput() as HTMLInputElement).value).toBe('');
+  });
+
+  it('🔴 R1 N7:「只建箱、先不出貨」【不受】貨號守門限制 —— 那顆根本不送單號', () => {
+    open();
+    typeTracking('ABC123'); // 會擋住「建箱並標出貨」
+    expect(shipBtn().hasAttribute('disabled')).toBe(true);
+    // 沒有這一格的話,日後有人把 shipBlocker 加進這顆的 disabled 不會紅,
+    // 而那會讓「先建箱」這條路被一個【與它無關】的檢查擋住。
+    expect(
+      screen.getByRole('button', { name: '只建箱、先不出貨' }).hasAttribute('disabled'),
+    ).toBe(false);
+  });
+
+  it('🔴🔴 檢查碼不對 ⇒ 警告但【不擋】—— 規則可能已改版,擋住會讓員工出不了貨', () => {
+    open();
+    typeTracking('1234567890'); // 只有最後一碼與 VALID 不同
+    // 🔴 這一格釘的是一個【刻意的弱】:按鈕**必須還是可以按**。
+    expect(shipBtn().hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText(/檢查碼對不上/)).not.toBeNull();
+  });
+
+  it('🔴 警告與擋的文字【不是同一個顏色】—— 長一樣的話員工會以為自己被擋住了', () => {
+    open();
+    typeTracking('1234567890');
+    const warn = screen.getByText(/檢查碼對不上/);
+    // 🔴 **R1 MF5:原本只量 warn 這一邊 ⇒ 把【擋】那顆也改成 amber,這格照樣綠。**
+    //    要證「不是同一個顏色」就得兩邊都取,做真的比對。
+    typeTracking('123'); // 長度不對 ⇒ 走 block 那顆
+    const block = screen.getByText(/貨號是 10 碼/);
+    expect(warn.className).toContain('text-amber');
+    expect(block.className).not.toContain('text-amber');
+    expect(warn.className).not.toBe(block.className);
+  });
+
+  it('🔴 順豐不驗 —— 而且要證明「沒被誤報」不是因為測資剛好合法', () => {
+    open();
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });
+    typeTracking('ABC123'); // ⚠️ 切 carrier 會清空框(N5)⇒ 一定要在切完【之後】才打
+    // sf:同一個值不擋、不警告
+    expect(shipBtn().hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText(/貨號是 10 碼/)).toBeNull();
+    // 🔴 **正向對照**:切回 hct,同一個值立刻被擋 ⇒ 上面那三個「沒有」是【沒驗】不是【驗過沒事】。
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'hct' } });
+    typeTracking('ABC123');
+    expect(shipBtn().hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByText(/貨號是 10 碼/)).not.toBeNull();
+  });
+
+  it('🔴 R2 F-I:切換貨運商會清空框 —— 上一家的單號不可以原封送出', () => {
+    open();
+    typeTracking('1234567891');
+    expect((trackingInput() as HTMLInputElement).value).toBe('1234567891');
+    fireEvent.change(screen.getByLabelText(/快遞商/), { target: { value: 'sf' } });
+    // 沒有這一格的話,把 `setTracking('')` 拿掉不會有任何東西紅(既有那格切完本來就重打一次)。
+    expect((trackingInput() as HTMLInputElement).value).toBe('');
+  });
+
+  it('🔴 R1 N7:「只建箱、先不出貨」【不受】貨號守門限制 —— 那顆根本不送單號', () => {
+    open();
+    typeTracking('ABC123'); // 會擋住「建箱並標出貨」
+    expect(shipBtn().hasAttribute('disabled')).toBe(true);
+    // 沒有這一格的話,日後有人把 shipBlocker 加進這顆的 disabled 不會紅,
+    // 而那會讓「先建箱」這條路被一個【與它無關】的檢查擋住。
+    expect(
+      screen.getByRole('button', { name: '只建箱、先不出貨' }).hasAttribute('disabled'),
+    ).toBe(false);
+  });
+});
