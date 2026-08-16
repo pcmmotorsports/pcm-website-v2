@@ -19,6 +19,15 @@ const addShipmentItems = vi.fn();
 const markShipmentShipped = vi.fn();
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('./shipment-candidates', () => ({ loadShipmentCandidates: vi.fn() }));
+// 🔴 授權閘要 mock —— 它會碰 next/headers 的 cookies()/headers(),在單測環境會炸。
+//    實測(2026-08-16,加閘當下):不 mock 時 **18/24 格紅**,而且紅在
+//    `server-only` 的 import 錯誤、**不是紅在斷言** ⇒ 那種紅完全沒有判別力。
+//    ⚠️ **而 mock 它就等於「這些格子預設活在【有身分】的世界」** ——
+//       所以本檔另有一組把它設成 `null` 的負測(見「授權閘」那個 describe),
+//       否則「加了閘」這件事在測試層是**零覆蓋**的。
+const authorizeAdminMutation = vi.fn();
+vi.mock('../session/authorize', () => ({ authorizeAdminMutation }));
+
 const voidShipment = vi.fn();
 const unvoidShipment = vi.fn();
 const listOwners = vi.fn();
@@ -56,6 +65,8 @@ const base = {
 };
 
 beforeEach(() => {
+  // 預設:有身分。負測那組會各自覆寫成 null。
+  authorizeAdminMutation.mockReset().mockResolvedValue({ sid: 'sid-1', actorId: 'sean' });
   createShipment.mockReset().mockResolvedValue({
     shipmentId: 'sh-1',
     shipmentReference: 'K7X2MP',
@@ -125,6 +136,34 @@ describe('🔴🔴 箱子掛誰 — 由 server 從品項反查,client 送不進�
       inputBlock,
       'SubmitShipmentInput 又長回 customerUserId ⇒ client 可以送客人 id,反查那道就被繞過了。',
     ).not.toMatch(/customerUserId/);
+  });
+});
+
+describe('🔴🔴 跨檔依賴 — 本檔的擋法建立在別人維護的性質上', () => {
+  // 這一格不驗本檔,驗的是**本檔依賴的那個前提還在不在**。
+  // 沒有它的話:有人把 repository 改成 fail-open,本檔測試全綠、線上開始替錯的人建箱。
+  // 🔴 **判別力自證**:那支檔案的擁有者是 C 窗,我不能為了驗紅去改它的工作樹。
+  //    改成不碰檔案也證得了 —— 直接餵一段 fail-open 的假 body 給同一條 pattern,
+  //    它必須**不**命中。不做這一步的話,下面那格可能是一條永遠命中的鬆 pattern。
+  const FAIL_CLOSED = /rows\.length !== wanted\.size\)\s*return new Set\(\)/;
+  it('前提 — 這條 pattern 對 fail-open 的寫法必須【不】命中', () => {
+    expect(FAIL_CLOSED.test('if (rows.length !== wanted.size) return new Set();'), '對真的 fail-closed 不命中 ⇒ pattern 寫壞').toBe(true);
+    expect(FAIL_CLOSED.test('if (rows.length === 0) return new Set();'), '換成別的條件也命中 ⇒ pattern 太鬆').toBe(false);
+    expect(FAIL_CLOSED.test('return new Set(byOrder.values());'), '只要有 new Set 就命中 ⇒ pattern 太鬆').toBe(false);
+  });
+
+  it('shipment-repository 查不到品項時必須回空集合(fail-closed)', () => {
+    const REPO = strip(readFileSync(resolve(HERE, './shipment-repository.ts'), 'utf8'));
+    const at = REPO.indexOf('export async function listCustomerUserIdsByOrderItemIds');
+    expect(at, 'listCustomerUserIdsByOrderItemIds 不見了(改名或刪除)⇒ 本格失去判別力,不是通過').toBeGreaterThan(-1);
+    const nx = REPO.indexOf('export async function', at + 1);
+    const body = nx === -1 ? REPO.slice(at) : REPO.slice(at, nx);
+    expect(
+      body,
+      '🔴 那支不再有「數量對不上就回空集合」的 fail-closed ⇒ ' +
+        '本檔「恰好一位客人才建箱」的擋法會**靜默退化成放行**(本檔 code 不用改、其他格全綠)。' +
+        '要放寬那裡的話,本檔的擋法必須同時重新設計。',
+    ).toMatch(FAIL_CLOSED);
   });
 });
 
@@ -353,5 +392,201 @@ describe('🔴 Bug 1 — 彈窗不得靠繼承拿字色', () => {
       '<ShipmentDialog> 又被放回 `bg-foreground text-background` 容器裡 ⇒ 整個彈窗會繼承白字、' +
         '在白底面板上全部隱形(Sean 2026-08-09 正式站實測的症狀)。它是 fixed 覆蓋層,不該是某列的子節點。',
     ).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  🔴 授權閘(Q-AUDIT-1 A1) —— 沒有具名 actor 就不得動任何東西
+//
+//  Sean 2026-08-16 批 `Q-AUDIT-1a`=甲「可以，被擋是對的」⇒ **不留 bypass**。
+//
+//  🔴 每一格都驗【兩件事】,少驗第二件這組就沒有意義:
+//    ① action 回 `ok:false`
+//    ② **底下那支 repository 函式【一次都沒有被呼叫】**
+//  只驗 ① 的話,一個「先做事、事後才回 false」的實作也會過 ——
+//  而那正是這道閘要防的東西(它要擋的是「動作發生了」,不是「訊息長怎樣」)。
+// ═══════════════════════════════════════════════════════════════════════════
+describe('🔴 授權閘 — 沒有具名 actor 時四支寫入 action 都要擋下', () => {
+  const denied = () => authorizeAdminMutation.mockResolvedValue(null);
+
+  it('submitShipment:回 ok:false 且三支 RPC 一次都沒被呼叫', async () => {
+    denied();
+    const { submitShipment } = await import('./shipment-actions');
+    // 用檔內既有的 `base` fixture —— 它本來就型別正確,而且與其他格用同一份輸入
+    // ⇒ 「這格失敗是因為閘」而不是「因為我另外編了一組輸入」。
+    const r = await submitShipment(base);
+    expect(r.ok).toBe(false);
+    expect(createShipment).not.toHaveBeenCalled();
+    expect(addShipmentItems).not.toHaveBeenCalled();
+    expect(markShipmentShipped).not.toHaveBeenCalled();
+    // 🔴 連「查這批品項屬於誰」都不該做 —— 閘在最前面,不是夾在中間
+    expect(listOwners).not.toHaveBeenCalled();
+  });
+
+  it('voidShipmentAction:回 ok:false 且 voidShipment 沒被呼叫', async () => {
+    denied();
+    const { voidShipmentAction } = await import('./shipment-actions');
+    const r = await voidShipmentAction({ idempotencyKey: 'k-2', shipmentId: 'sh-1', voidReason: '打錯' });
+    expect(r.ok).toBe(false);
+    expect(voidShipment).not.toHaveBeenCalled();
+  });
+
+  it('unvoidShipmentAction:回 ok:false 且 unvoidShipment 沒被呼叫', async () => {
+    denied();
+    const { unvoidShipmentAction } = await import('./shipment-actions');
+    const r = await unvoidShipmentAction({ idempotencyKey: 'k-3', shipmentId: 'sh-1' });
+    expect(r.ok).toBe(false);
+    expect(unvoidShipment).not.toHaveBeenCalled();
+  });
+
+  it('markShipmentShippedAction:回 ok:false 且 markShipmentShipped 沒被呼叫', async () => {
+    denied();
+    const { markShipmentShippedAction } = await import('./shipment-actions');
+    const r = await markShipmentShippedAction({ idempotencyKey: 'k-4', shipmentId: 'sh-1', trackingNumber: '123' });
+    expect(r.ok).toBe(false);
+    expect(markShipmentShipped).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 對照組 —— 沒有這一格,上面四格可能只是「這四支永遠回 false」
+  it('對照組:有身分時 voidShipmentAction 會真的呼叫下去', async () => {
+    const { voidShipmentAction } = await import('./shipment-actions');
+    const r = await voidShipmentAction({ idempotencyKey: 'k-5', shipmentId: 'sh-1', voidReason: '打錯' });
+    expect(r.ok).toBe(true);
+    expect(voidShipment).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴🔴 補齊對照組(code-reviewer must-fix 3):`unvoid` 與 `markShipped` 在【全 repo】
+  //    原本零正向測試 ⇒ 把它們寫成**無條件** `return {ok:false}`,那四格負測照樣全綠。
+  //    ⇒ 每一支寫入 action 都要有「有身分時真的呼叫下去」的那一格。
+  it('對照組:有身分時 unvoidShipmentAction 會真的呼叫下去', async () => {
+    const { unvoidShipmentAction } = await import('./shipment-actions');
+    const r = await unvoidShipmentAction({ idempotencyKey: 'k-6', shipmentId: 'sh-1' });
+    expect(r.ok).toBe(true);
+    expect(unvoidShipment).toHaveBeenCalledTimes(1);
+  });
+
+  it('對照組:有身分時 markShipmentShippedAction 會真的呼叫下去', async () => {
+    const { markShipmentShippedAction } = await import('./shipment-actions');
+    const r = await markShipmentShippedAction({ idempotencyKey: 'k-7', shipmentId: 'sh-1', trackingNumber: 'T-9' });
+    expect(r.ok).toBe(true);
+    expect(markShipmentShipped).toHaveBeenCalledTimes(1);
+  });
+
+  it('對照組:有身分時 submitShipment 會真的呼叫下去', async () => {
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment(base);
+    expect(r.ok).toBe(true);
+    expect(createShipment).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 訊息內容也要斷言 —— 只驗 `ok:false` 的話,回任意失敗物件都會過
+  it('被擋時的訊息要給【兩條出路】,而且不得承諾稽核紀錄', async () => {
+    denied();
+    const { voidShipmentAction } = await import('./shipment-actions');
+    const r = await voidShipmentAction({ idempotencyKey: 'k-8', shipmentId: 'sh-1', voidReason: 'x' });
+    expect(r.ok).toBe(false);
+    const msg = r.ok === false ? r.message : '';
+    expect(msg, '沒告訴員工要去選操作人員').toMatch(/選擇操作人員/);
+    expect(msg, '沒給第二條出路 —— Origin 被拒時選了也沒用,員工會鬼打牆').toMatch(/重新整理|重新登入/);
+    expect(
+      msg,
+      '🔴 訊息承諾「會記在稽核紀錄上」,而 A1 一列 admin_audit_log 都沒寫(那是 A2 的事)' +
+        ' ⇒ 給使用者看的假字面,而員工沒有任何辦法發現它不存在。',
+    ).not.toMatch(/稽核紀錄/);
+  });
+
+  // 🔴 唯讀那支【不該】加閘 —— 加了會讓「開啟彈窗」也需要先選身分,而它不寫任何東西
+  it('fetchShipmentCandidates 是唯讀,不受這道閘影響', async () => {
+    const idx = ACTIONS.indexOf('export async function fetchShipmentCandidates');
+    // 🔴 恆綠防護(code-reviewer must-fix 4):找不到時 indexOf 回 -1 ⇒ slice(-1) ⇒ body 幾乎是空的
+    //    ⇒ includes 回 false ⇒ **函式被改名或刪掉,這格照樣綠**。先釘住它真的在。
+    expect(idx, 'fetchShipmentCandidates 不見了(改名或刪除)⇒ 本格失去判別力,不是通過').toBeGreaterThan(-1);
+    // 同上:切到下一個 export,不用 `\n}`(簽章的 `}): Promise` 會讓它提早收邊)
+    const nextIdx = ACTIONS.indexOf('export async function', idx + 1);
+    const body = nextIdx === -1 ? ACTIONS.slice(idx) : ACTIONS.slice(idx, nextIdx);
+    expect(
+      body.includes('authorizeAdminMutation'),
+      'fetchShipmentCandidates 是唯讀查詢,不該被加上寫入閘 —— ' +
+        '加了之後員工連「打開彈窗看有哪些品項」都要先選身分,而那一步不寫任何東西。',
+    ).toBe(false);
+  });
+
+  // 🔴🔴 log 欄位白名單(codex must-fix):沒有這格的話,未來有人把整包 input 丟進 log,
+  //    收件人姓名/電話/地址/追蹤碼**外洩而 37 格全綠**。log 是一份不受 service_role 邊界保護的副本。
+  it('稽核 log 只能出現白名單欄位,PII 一個都不准進去', async () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const { submitShipment } = await import('./shipment-actions');
+      await submitShipment(base);
+      expect(spy.mock.calls.length, '一行 log 都沒有 ⇒ 本格沒有分母').toBeGreaterThan(0);
+      const ALLOWED = new Set([
+        'sid', 'actor', 'shipment_id', 'item_count', 'carrier_code', 'mark_shipped', 'has_tracking_number',
+      ]);
+      for (const [, payload] of spy.mock.calls) {
+        for (const k of Object.keys((payload ?? {}) as object)) {
+          expect(ALLOWED.has(k), `log 出現白名單外的欄位 \`${k}\` —— 先問「這一欄外洩了會怎樣」`).toBe(true);
+        }
+        const flat = JSON.stringify(payload);
+        // fixture 的收件人是 n/p/l、追蹤碼 T-1 ⇒ 直接找值,不是找 key(換 key 名一樣要抓到)
+        expect(flat, '收件人資料進了 log').not.toMatch(/"(n|p|l)"/);
+        expect(flat, '追蹤碼進了 log —— 記「有沒有填」就夠了').not.toMatch(/T-1/);
+      }
+      // outcome 那一半也要在(codex must-fix:只記 attempt 分不出「做成了」與「試了沒成」)
+      const events = spy.mock.calls.map((c) => String(c[0]));
+      expect(events.some((e) => e.endsWith('.attempt')), '沒有 attempt').toBe(true);
+      expect(events.some((e) => e.endsWith('.ok')), '🔴 只記 attempt ⇒ 稽核答不出「誰真的做成了」').toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('失敗時要記 fail,不能只留一行 attempt 讓人以為成功了', async () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      createShipment.mockRejectedValue(new Error('建立包裹:找不到這位客人'));
+      const { submitShipment } = await import('./shipment-actions');
+      await submitShipment(base);
+      expect(
+        spy.mock.calls.map((c) => String(c[0])).some((e) => e.endsWith('.fail')),
+        'RPC 失敗卻只留 attempt ⇒ 讀 log 的人分不出這筆到底有沒有發生',
+      ).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // 🔴 未來新增的寫入 action 也要有閘 —— 很便宜,而且它擋的是「下一個人忘記」
+  it('本檔每一支寫入 action 都要有閘(未來新增的也算)', () => {
+    // 🔴 pattern 要同時吃 `export async function f` 與 `export const f = async …`
+    //    (codex must-fix:原版只認前者 ⇒ 用後者寫的新 action 不會被列進分母,**靜默漏掉**)。
+    const writes = [...ACTIONS.matchAll(/export (?:async function|const) (\w+)/g)]
+      .map((m) => m[1]!)
+      .filter((n) => n !== 'fetchShipmentCandidates');
+    expect(writes.length, '一支寫入 action 都找不到 ⇒ 本格沒有分母').toBeGreaterThan(0);
+    // 🔴 切函式體要切到【下一個 export】,不能用 `indexOf('\n}')` ——
+    //    簽章本身就有 `}): Promise<…>` 那個換行加大括號,會讓函式體【提早收邊】,
+    //    切出來的片段連閘那一行都不含 ⇒ 這一格會在閘明明存在時報紅。**假紅,實際踩過。**
+    for (const name of writes) {
+      const at = ACTIONS.indexOf(`export async function ${name}`);
+      const nextAt = ACTIONS.indexOf('export async function', at + 1);
+      const body = nextAt === -1 ? ACTIONS.slice(at) : ACTIONS.slice(at, nextAt);
+      const gateAt = body.indexOf('authorizeAdminMutation');
+      expect(
+        gateAt,
+        `${name} 沒有授權閘 —— 出貨線的每一支寫入都要能答「是誰做的」。` +
+          '新增 action 時請一併加,或把它移出本檔並說明為什麼不需要。',
+      ).toBeGreaterThan(-1);
+      // 🔴 閘在寫入【之前】才算數(codex must-fix):放在 RPC 後面的話字串照樣命中,
+      //    而那時箱子已經建出來了 —— 擋不擋得住取決於位置,不是取決於它有沒有出現。
+      const writeAt = Math.min(
+        ...['createShipment(', 'addShipmentItems(', 'markShipmentShipped(', 'voidShipment(', 'unvoidShipment(']
+          .map((fn) => body.indexOf(fn))
+          .filter((i) => i > -1),
+        Number.MAX_SAFE_INTEGER,
+      );
+      if (writeAt !== Number.MAX_SAFE_INTEGER) {
+        expect(gateAt, `${name} 的閘在寫入之後 ⇒ 擋下來的時候東西已經寫進去了`).toBeLessThan(writeAt);
+      }
+    }
   });
 });

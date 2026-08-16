@@ -33,6 +33,10 @@
 
 ## 衝突仲裁
 
+- **`stalled-line-triage.md`** —— 一條線停住了,先分型再動手。
+  **觸發時機不是情境是【時刻】:在你說「那要開線」之前。**
+  三型:甲沒有落點 / 乙結論住錯地方 / 丙照拍板在等;**丙型誤判 = 推翻當事人自己的拍板**。
+
 `STATUS.md` > `docs/PHASE-1-NORTHSTAR.md` > `CLAUDE.md` > `docs/decisions/` > `patterns/` > 其他 md > 對話歷史。
 
 — END —

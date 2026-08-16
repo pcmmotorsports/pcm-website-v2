@@ -25,7 +25,6 @@
     "@pcm/domain": "workspace:^",
     "@supabase/supabase-js": "^2.105.3",
     "@types/node": "^22",
-    "@types/papaparse": "^5.5.2",
     "@types/pg": "^8.20.0",
     "@typescript-eslint/parser": "catalog:",
     "@vitejs/plugin-react": "^5.0.0",
@@ -36,14 +35,12 @@
     "husky": "^9.1.7",
     "jsdom": "^26.0.0",
     "lint-staged": "^17.0.4",
-    "papaparse": "^5.5.3",
     "pg": "^8.21.0",
     "sharp": "0.34.5",
     "tsx": "^4.22.4",
     "turbo": "^2.3.0",
     "typescript": "catalog:",
     "vitest": "catalog:",
-    "xlsx": "^0.18.5",
     "yaml": "^2.6.0",
     "zod": "catalog:"
   }

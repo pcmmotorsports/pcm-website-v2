@@ -66,9 +66,40 @@
 
 ## 2. 視覺與設計真權威
 
+### 2.1-a 🔴 真權威**不只** `design-reference` —— 先解析,再動工(2026-08-16 新增)
+
+> **這一段的存在理由**:本節是 `CLAUDE.md` 路由表欽定的「找 design 真權威」那份檔,
+> 而它**全檔對 Open Design 的提及 = 0**(正向對照 `grep -c 'design-reference'` ⇒ **14**)
+> ⇒ **被路由指過去的那份檔,自己漂了。**
+
+**任何會被人看到的產出物**(前台頁面 / 後台 UI / 列印單據 / 信件模板)**動工前先解析真權威**:
+
+```
+OD list_projects   ← 當場列出全部設計專案（不要照抄任何清單）
+grep design-reference
+```
+
+🔴 **查法取代清單** —— **清單會過期,查法不會。**
+📎 實錘:主視窗原本要把 OD 專案清單直接寫進 `CLAUDE.md` 鐵則 1,
+而 F 窗**當場跑了一次 `list_projects` ⇒ 現場 9 個,主視窗列的 4 個在提出當下就已經過期。**
+
+**查無** ⇒「查無」寫進 plan **並附掃過的分母**;**拿不準哪個是權威** ⇒ 問 Sean。
+
+#### 2026-08-16 當下的快照(⚠️ **引用前重跑 `list_projects`,本表只是那一刻的樣子**)
+
+| 面 | 設計真權威 | 備註 |
+|---|---|---|
+| 前台首頁改版 + 選車統一線 | OD `pcm-home-redesign` | ~~原寫在 `CLAUDE.md` 鐵則 1 的例外,2026-08-16 搬來此處~~ |
+| 後台 UI | OD `pcm-admin-order-ui` 等;BMW M 設計語言見 `docs/design/admin-design-system.md` | 該檔**檔頭「落地狀態」表**決定能不能直接照抄 |
+| **列印單據** | OD `pcm-print-docs` | ⚠️ **Sean 2026-08-16 出示樣張;正式拍板未確認,缺的檢查 = Sean 一句話**(F 窗標的誠實缺口,**不要抹掉**) |
+| 其餘 | `design-reference/` submodule(見 §2.1) | |
+
+⚠️ **`components/HomePage.jsx`(submodule 內)為過期假稿、不得引用。**
+
 ### 2.1 真權威字面位置
 
-**唯一基準:** `design-reference/` submodule(來自 `pcmmotorsports/pcm-website-design` repo)
+**唯一基準:** ~~`design-reference/` submodule~~ **見 §2.1-a —— 它不是唯一基準,是其中一個**
+`design-reference/` submodule(來自 `pcmmotorsports/pcm-website-design` repo)
 
 ```
 pcm-website-v2/
