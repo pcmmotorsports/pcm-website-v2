@@ -70,11 +70,20 @@ export const ORDER_STATUS_REFUNDED_LABEL = '已退款';
  * ⇒ 掃過去分不出「已收未定」(要去跟供應商下單)與「未收未定」(要去催客人付錢)。
  * 現在的理由是 Sean 的工作流主線是**貨走到哪**,錢收了沒是附加資訊、不該搶走主色。
  */
+/* 🔴🔴 **2026-08-16 Sean 拍板「狀態膠囊配色 —— 換成新的配色方式(BMW)」。**
+   四顆改吃 `globals.css` 的 `.cap-*`,那裡是 OD `:206-213` 的 `color-mix` 運算式逐字搬。
+   🔴 **換的理由是【語言一致】,不是【現在不合規】** —— 改版前那四顆**全部達標**
+      (灰 4.63 / 黃 4.51 / 藍 5.17 / 綠 4.84,實算)。**這句不能省**:少了它,
+      下一個人會以為我們在修違規,而那會改變他對優先序與風險的判斷。
+   ⚠️ **改用 CSS class 而不是 Tailwind 調色盤 utility,是因為值必須留成【運算式】** ——
+      `color-mix(...)` 一旦求值成靜態 hex,未來改主色時膠囊不會跟著動,而**沒有守門會紅**
+      (設計參照 §5 明文)。`bg-amber-100` 那種調色盤 utility 同樣做不到跟著主色走。
+   📎 順帶讓這四顆脫離設計參照標記的「70 處直接寫 Tailwind 調色盤色」那個缺口。 */
 const GOODS_TONE: Record<OrderGoodsAxis, string> = {
-  none: 'bg-muted text-muted-foreground', // 灰:還沒訂
-  ordered: 'bg-amber-100 text-amber-700', // 黃:訂了沒到
-  instock: 'bg-sky-100 text-sky-700', // 藍:到了沒出
-  shipped: 'bg-emerald-100 text-emerald-700', // 綠:出去了
+  none: 'cap-n', // 灰:還沒訂
+  ordered: 'cap-y', // 黃:訂了沒到
+  instock: 'cap-bl', // 藍:到了沒出
+  shipped: 'cap-g', // 綠:出去了
 };
 
 /**
@@ -100,8 +109,16 @@ const PAY_MARK: Record<OrderPayAxis, string | null> = {
  * 不是只靠色相 ⇒ 色盲或黑白列印時仍然跳得出來。
  * 🔴 **請不要把它「修正」成綠色。**
  */
-const RISK_TONE =
-  'bg-[oklch(0.52_0.20_25)] font-bold text-white ring-1 ring-[oklch(0.42_0.18_25)] ring-inset';
+/* 🔴 **片3b 一併換掉硬寫的 oklch**(同一次拍板:配色換 BMW)。
+   舊值 `bg-[oklch(0.52_0.20_25)]` + `ring-[oklch(0.42_0.18_25)]` 是**兩個不吃任何 token 的字面**
+   ⇒ 改主色時它們不會跟著動。現在吃 `--destructive`(= OD `:27` 的 M 紅 `#e4002b`),
+   與 OD `:214` `.cap.risk{background:var(--danger);color:var(--accent-on)}` 同構。
+   **白字對 `#e4002b` 實算 4.85 ✅。**
+   ⚠️ **`ring` 拿掉了** —— OD 的 `.cap.risk` 沒有外環;冗餘訊號仍有三個
+      (實心底 + 白字 + `font-bold`),那三個是本檔原本就寫下的理由,一個都沒少。
+   ⚠️ **OD `:215` 的 `::before{content:"▲"}` 沒有搬** —— 那會多一個字元寬,
+      而狀態欄寬是凍結值(L3 的 13 欄寬)⇒ **刻意不搬,不是漏看。** */
+const RISK_TONE = 'bg-destructive font-bold text-white';
 
 /** 已取消:與「未定」同樣是灰,靠**虛線外框 + 透明底**分開 —— 灰不能同時代表兩件事。 */
 const CANCELLED_TONE = 'border border-dashed border-muted-foreground/50 text-muted-foreground';

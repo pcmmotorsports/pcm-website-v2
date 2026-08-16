@@ -211,6 +211,7 @@ describe('BMW M token:對比實算', () => {
     ['destructive', 'card', 4.5, '卡片內的危險文字'],
     ['destructive', 'background', 4.5, '頁面上的危險文字'],
     ['card-foreground', 'card', 4.5, '卡片自己的文字色(bg-card 39 處)'],
+    ['fg-2', 'card', 4.5, '灰膠囊文字(片3b;它坐在卡片色兌出來的底上)'],
     ['popover-foreground', 'popover', 4.5, '防呆(今日零命中):浮層文字'],
     // 🔴🔴 **側欄那 9 顆是 R1 審查 MF3 補的 —— 漏它們的方式值得記。**
     //    我補配對表時是**照著我改過的那幾行 token 想**,而不是**照著 `:root` 有哪些 token 數**
@@ -311,12 +312,30 @@ describe('BMW M token:對比實算', () => {
     //    對卡片 1.13 是**刻意**的 —— BMW M 是 hairline 語言,拉到 3.0 會變成一條中灰藍實線。
     //    📎 **這一格在片3 當場就紅了一次**,紅在「你加了一顆 token 但沒配對」——
     //       那正是它被寫出來要做的事,所以這裡是**明知地把它加進豁免**,不是繞過守門。
-    const ALLOWED_UNCOVERED = ['border', 'border-soft', 'sidebar-border'];
+    //
+    // 🔴🔴 `success` / `warning`(片3b 新增)**不是豁免,是「量在別的地方」**:
+    //    它們從來不直接當顏色用,只當 `color-mix` 的輸入 ⇒ 拿 `--success on --card` 去斷言,
+    //    量的是一個**畫面上不存在的組合**。它們真正的配對(兌淡之後的膠囊底與字)
+    //    由上方「四顆膠囊的【算出來的】底與字都達標」那格實算。
+    //    ⚠️ **下面那格會驗那個 describe 真的還在** —— 否則這裡就變成真的豁免了。
+    const ALLOWED_UNCOVERED = ['border', 'border-soft', 'sidebar-border', 'success', 'warning'];
     expect(uncovered, '這些 token 沒有任何一組配對在量 ⇒ 改它們不會有東西紅').toEqual(
       ALLOWED_UNCOVERED,
     );
     // 分母斷言:切片壞掉 ⇒ `declared` 變空 ⇒ 上面那格會拿 [] 去比而「看起來也對」。
     expect(declared.length, ':root 一顆 token 都沒數到 = 切片或正規式壞了').toBeGreaterThan(20);
+  });
+
+  it('🔴🔴 「量在別的地方」必須真的還在別的地方 —— 否則它就是純豁免', () => {
+    // 🔴 `success` / `warning` 不進配對表的理由是「膠囊那格在實算它們」。
+    //    **那句話一旦不成立,這兩顆就變成沒有任何東西在量。**
+    //    ⇒ 這一格把那句話釘住:膠囊實算那個 describe 與那一格的標題必須還在本檔。
+    //    ⚠️ 這是**本檔在檢查自己**,所以讀的是自己的原始碼、不是別人的。
+    const self = readFileSync(__filename, 'utf8');
+    expect(self, '膠囊配色 describe 不見了 ⇒ success/warning 變成無人看管').toContain(
+      "describe('BMW M:狀態膠囊配色(片3b)'",
+    );
+    expect(self, '膠囊實算那一格不見了 ⇒ 同上').toContain('四顆膠囊的【算出來的】底與字都達標');
   });
 
   it('🔴 具名豁免不得變成空殼 —— 豁免的對象必須真的還在配對表裡', () => {
@@ -383,6 +402,164 @@ const OFFEND = new RegExp(`(?<![-\\w])${BARE}(?![-\\w])|${BARE}-(?:[a-z]+-)*\\[`
 //      乙 註解或字串裡改寫成中文描述(本檔全段就是這樣寫的)
 //      丙 真的需要固定圓角 ⇒ **那是設計決策要拍板,不是在這裡加豁免**
 const hasOffendingRadius = (source: string): boolean => OFFEND.test(source);
+
+// ── oklab 混色(片3b):狀態膠囊的底與字都是 `color-mix(in oklab, …)` 運算式 ──────────
+//    🔴 **不能用 token 對 token 去量它們** —— `--success` / `--warning` 從來不直接當顏色用,
+//       它們是**混色的輸入**。拿 `--success on --card` 去斷言,量的是一個畫面上不存在的組合
+//       (本 repo 已有一整條教訓叫「量錯東西」)。⇒ 這裡把 CSS 真正會算出來的值算出來。
+const M1 = [
+  [0.4122214708, 0.5363325363, 0.0514459929],
+  [0.2119034982, 0.680699545, 0.1073969566],
+  [0.0883024619, 0.2817188376, 0.6299787005],
+];
+const M2 = [
+  [0.2104542553, 0.793617785, -0.0040720468],
+  [1.9779984951, -2.428592205, 0.4505937099],
+  [0.0259040371, 0.7827717662, -0.808675766],
+];
+// 🔴 這兩個反矩陣**必須自己宣告** —— `oklchToRgb` 上面那支是把同樣的常數**寫在算式裡**,
+//    沒有留下可重用的名字。我第一版直接寫 `M2inv` ⇒ `ReferenceError`,
+//    **而它是被上面那格正向對照抓到的,不是被型別檢查抓到的**(vitest 不跑 tsc)。
+//    📎 這正是「正向對照」存在的理由:少了它,`fromOklab` 壞掉時
+//       下面那格會拿一堆爛數字去比對比,而**爛數字也可能剛好過 4.5**。
+const M2inv = [
+  [1.0, 0.3963377774, 0.2158037573],
+  [1.0, -0.1055613458, -0.0638541728],
+  [1.0, -0.0894841775, -1.291485548],
+];
+const M1inv = [
+  [4.0767416621, -3.3077115913, 0.2309699292],
+  [-1.2684380046, 2.6097574011, -0.3413193965],
+  [-0.0041960863, -0.7034186147, 1.707614701],
+];
+const toOklab = (rgb: RGB): [number, number, number] => {
+  const lin = rgb.map((c) => {
+    const x = c / 255;
+    return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  const lms = M1.map((r) => Math.cbrt(r[0]! * lin[0]! + r[1]! * lin[1]! + r[2]! * lin[2]!));
+  return M2.map((r) => r[0]! * lms[0]! + r[1]! * lms[1]! + r[2]! * lms[2]!) as [
+    number,
+    number,
+    number,
+  ];
+};
+const fromOklab = (lab: [number, number, number]): RGB => {
+  const lms = M2inv.map((r) => (r[0]! * lab[0]! + r[1]! * lab[1]! + r[2]! * lab[2]!) ** 3);
+  const enc = (c: number) => {
+    const v = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+    return Math.max(0, Math.min(255, Math.round(v * 255)));
+  };
+  return M1inv.map((r) => enc(r[0]! * lms[0]! + r[1]! * lms[1]! + r[2]! * lms[2]!)) as RGB;
+};
+/** `color-mix(in oklab, a pctA%, b)` —— CSS 規範:未標百分比者取剩餘量。 */
+const mixOklab = (a: RGB, pctA: number, b: RGB): RGB => {
+  const [la, lb] = [toOklab(a), toOklab(b)];
+  const t = pctA / 100;
+  return fromOklab([0, 1, 2].map((i) => la[i]! * t + lb[i]! * (1 - t)) as [number, number, number]);
+};
+
+describe('BMW M:狀態膠囊配色(片3b)', () => {
+  const BLACK: RGB = [0, 0, 0];
+  // 🔴🔴 **剝掉 CSS 註解再找規則 —— 我第一版沒剝,而正規式命中了【我自己註解裡的例子】。**
+  //    那段註解為了解釋降級值,逐字寫了 `.cap-y{background:<降級>}` ——
+  //    `\.cap-y\s*\{[^}]*\}` 先命中它,於是守門拿註解去當規則檢查 ⇒ **在正確的原始碼上就紅了。**
+  //    ⚠️ 這是本 session 第三次踩「【提起】與【做了】字面相同」:
+  //       前兩次是 `grep -c 'm-stripe'`(得 3)與 `grep -c "label:"`(得 11)。
+  //       **修法一樣:用位置或結構判,不用出現判。**
+  const CSS_CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+  const ruleOf = (cls: string) =>
+    new RegExp(`\\.${cls}\\s*\\{[^}]*\\}`, 's').exec(CSS_CODE)?.[0];
+
+  it('🔴 混色實作要有正向對照 —— 100% 回原色、0% 回底色', () => {
+    // 沒有這一格,下面那格算錯了也會是綠的(混色壞掉通常不會壞成「明顯錯的顏色」)。
+    const a = hexToRgb('#0066b1');
+    const b = hexToRgb('#ffffff');
+    expect(mixOklab(a, 100, b)).toEqual(a);
+    expect(mixOklab(a, 0, b)).toEqual(b);
+  });
+
+  it('🔴🔴 四顆膠囊的【算出來的】底與字都達標 —— 這是換配色的驗收條件', () => {
+    const card = parseColor(tokenOf('card'));
+    const cases: Array<[string, RGB, RGB, string]> = [
+      // ⚠️ 百分比寫成 `--card` 那一側(84/82/87/84),**與 `globals.css` 的參數順序一致** ——
+      //    `A 16%, B` ≡ `B 84%, A`,值相同;順序之所以重要見下一格(降級值)。
+      [
+        'cap-n 灰 還沒訂',
+        mixOklab(card, 84, parseColor(tokenOf('muted-foreground'))),
+        parseColor(tokenOf('fg-2')),
+        'OD :207',
+      ],
+      [
+        'cap-y 黃 訂了沒到',
+        mixOklab(card, 82, parseColor(tokenOf('warning'))),
+        mixOklab(BLACK, 38, parseColor(tokenOf('warning'))),
+        'OD :208-209',
+      ],
+      [
+        'cap-bl 藍 到了沒出',
+        mixOklab(card, 87, parseColor(tokenOf('primary'))),
+        parseColor(tokenOf('primary')),
+        'OD :210',
+      ],
+      [
+        'cap-g 綠 出去了',
+        mixOklab(card, 84, parseColor(tokenOf('success'))),
+        mixOklab(BLACK, 22, parseColor(tokenOf('success'))),
+        'OD :211-212',
+      ],
+    ];
+    const fails = cases.flatMap(([name, bg, fg, src]) => {
+      const got = contrast(fg, bg);
+      return got >= 4.5 ? [] : [`${name}(${src})= ${got.toFixed(2)},需 4.5`];
+    });
+    expect(fails, '膠囊配色有不達標的').toEqual([]);
+  });
+
+  it('🔴 實心紅那顆(未收出貨)的白字達標', () => {
+    // OD :214 `.cap.risk{background:var(--danger);color:var(--accent-on)}`
+    expect(
+      contrast(hexToRgb('#ffffff'), parseColor(tokenOf('destructive'))),
+    ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('🔴🔴 底色混色的【第一個參數必須是 `var(--card)`】—— 這是老瀏覽器降級值的來源', () => {
+    // 🔴 **這一格守的是一個【原始碼上看不出來】的行為。**
+    //    lightningcss 會自動為 `color-mix` 產生降級版,**降級值 = 混色的第一個參數**。
+    //    照 OD 的原順序寫(`var(--warning) 18%, var(--card)`),降級值就是 `var(--warning)`,
+    //    而字色的降級值**也是** `var(--warning)` ⇒ **同色字疊同色底 = 膠囊整個看不見**
+    //    (四顆裡有三顆會這樣)。把 `--card` 換到第一個參數即可 —— 值等價、降級值變白底。
+    // ⚠️ **不要「照 OD 的順序改回去」** —— 那不是還原設計,那是把三顆膠囊在舊瀏覽器上關掉。
+    // 📎 這個坑是**驗編譯產物**才看到的;而我第一次的修法(在前面多寫一行降級值)
+    //    被 lightningcss 把它自己的降級值接在後面蓋掉 ⇒ **看原始碼會以為修好了。**
+    for (const cls of ['cap-n', 'cap-y', 'cap-bl', 'cap-g']) {
+      const rule = ruleOf(cls);
+      expect(rule, `globals.css 找不到 .${cls}`).toBeDefined();
+      expect(
+        String(rule).replace(/\s+/g, ' '),
+        `.${cls} 的底色混色第一個參數不是 var(--card) ⇒ 舊瀏覽器降級值會變成同色字疊同色底`,
+      ).toContain('background: color-mix(in oklab, var(--card)');
+    }
+  });
+
+  it('🔴🔴 值必須留成【運算式】—— 有人把 color-mix 求值成 hex 就紅', () => {
+    // 設計參照 §5:求值之後,未來改主色時膠囊不會跟著動,而**沒有任何守門會紅**。
+    // ⇒ 這一格就是那個會紅的東西。
+    for (const cls of ['cap-n', 'cap-y', 'cap-bl', 'cap-g']) {
+      const rule = ruleOf(cls);
+      expect(rule, `globals.css 找不到 .${cls}`).toBeDefined();
+      expect(String(rule), `.${cls} 的值被求成靜態色了`).toContain('color-mix(in oklab');
+    }
+  });
+
+  it('🔴 膠囊是方角(Sean 2026-08-16 拍板),共用形狀常數不得再帶 pill', () => {
+    const view = readFileSync(join(__dirname, '..', 'lib', 'orders', 'order-list-view.ts'), 'utf8');
+    const decl = /export const STATUS_CAPSULE = '([^']*)'/.exec(view)?.[1];
+    expect(decl, '找不到 STATUS_CAPSULE 宣告').toBeDefined();
+    // 🔴 只看【宣告出來的那一串】,不看整支檔 —— 檔裡的註解正在解釋 pill 為什麼被拿掉。
+    expect(String(decl), 'STATUS_CAPSULE 又帶回圓角了').not.toMatch(/round/);
+  });
+});
 
 describe('BMW M:--border-soft 三階邊框(片3)', () => {
   // 🔴🔴 **這一組守的是「假落地」本身,不是某個值。**

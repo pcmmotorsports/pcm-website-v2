@@ -210,11 +210,18 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
       order({ lines: [AT_STAGE[goods]], paymentStatus: pay === 'paid' ? 'paid' : 'unpaid' }),
     ).capsuleClass;
 
+  /* 🔴🔴 **期望值於 2026-08-16 由 Tailwind 調色盤改成 BMW M 的 `.cap-*`。**
+     Sean 當日逐字:「狀態膠囊配色 —— 對,換成新的配色方式(BMW)」。
+     ⚠️ **這是【這一次】的授權,不是通則** —— 常載守則 §R4「想動驗證本身 = 立即停止訊號」仍然有效。
+        本片是**先停下請示、拿到拍板才改**的(`~/pcm-mailbox/A-214-STOP.md`),**下次遇到一樣要停。**
+     🔴 **這裡釘的只是「掛對 class」;真正在守「顏色有沒有壞掉」的是**
+        `app/design-tokens.test.ts` 那組**實算對比**的格(四顆膠囊兌淡後的底與字逐一算,不達標就紅)。
+     📎 換配色的理由是**語言一致**,不是現在不合規 —— 舊那四顆實算 4.63 / 4.51 / 5.17 / 4.84,**全達標**。 */
   it.each([
-    ['none', 'bg-muted'],
-    ['ordered', 'bg-amber-100'],
-    ['instock', 'bg-sky-100'],
-    ['shipped', 'bg-emerald-100'],
+    ['none', 'cap-n'],
+    ['ordered', 'cap-y'],
+    ['instock', 'cap-bl'],
+    ['shipped', 'cap-g'],
   ] as const)('已收 × %s → 底色 %s(四階段四個色相)', (goods, tone) => {
     expect(toneOf('paid', goods)).toContain(tone);
   });
@@ -233,8 +240,11 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
       order({ lines: [AT_STAGE.shipped], paymentStatus: 'unpaid' }),
     );
     expect(risk.label).toBe('未收出貨');
-    expect(risk.capsuleClass, '例外格被「修正」成綠色了').not.toContain('bg-emerald-100');
-    expect(risk.capsuleClass, '實心深紅底不見了').toContain('bg-[oklch(0.52_0.20_25)]');
+    expect(risk.capsuleClass, '例外格被「修正」成綠色了').not.toContain('cap-g');
+    // 🔴 2026-08-16:底色由硬寫的 `bg-[oklch(0.52_0.20_25)]` 改吃 `--destructive`(OD :27 的 M 紅)。
+    //    舊值是**不吃任何 token 的字面** ⇒ 改主色時它不會跟著動。白字對 #e4002b 實算 4.85 ✅
+    //    (那個數字由 `design-tokens.test.ts` 的「實心紅那顆的白字達標」那格重算)。
+    expect(risk.capsuleClass, '實心紅底不見了').toContain('bg-destructive');
     // 🔴 冗餘訊號:白字 + 粗體是**獨立於色相**的兩個訊號(色盲 / 黑白列印仍跳得出來)
     expect(risk.capsuleClass).toContain('text-white');
     expect(risk.capsuleClass).toContain('font-bold');
@@ -245,7 +255,7 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
   it('🔴 正向對照:`出貨完成`(已收)走一般綠,不吃例外那套', () => {
     const done = orderStatusView(order({ lines: [AT_STAGE.shipped], paymentStatus: 'paid' }));
     expect(done.label).toBe('出貨完成');
-    expect(done.capsuleClass).toContain('bg-emerald-100');
+    expect(done.capsuleClass).toContain('cap-g');
     expect(done.capsuleClass).not.toContain('font-bold');
   });
 });
