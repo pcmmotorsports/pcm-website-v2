@@ -123,7 +123,7 @@ describe('/brands/[slug] · metadata', () => {
   it('🔴 title 字面 = 設計稿 `brand-page.html:1615` 的 document.title(全形直豎線)', async () => {
     for (const brand of BRAND_CONTENT) {
       const meta = await generateMetadata({ params: params(brand.slug) });
-      expect(meta.title, brand.slug).toBe(`${brand.name} 品牌介紹｜PCM MOTOR PARTS LTD.`);
+      expect(meta.title, brand.slug).toBe(`${brand.name} 品牌介紹｜PCM MOTOR PARTS LTD`);
       // 半形 | 是最容易手滑寫成的版本,釘住它
       expect(String(meta.title), brand.slug).not.toContain('|');
     }

@@ -119,6 +119,12 @@ const REGISTERED: Record<string, number> = {
   'apps/admin/src/components/orders/note-compose-form.tsx': 3,
   'apps/admin/src/components/orders/shipment-launcher.tsx': 1,
   'apps/admin/src/components/orders/shipment-void-button.tsx': 1,
+  // 🔴 「填單號並標記出貨」的冪等鍵(2026-08-16 新增)。**與作廢鈕同一條紀律**:
+  //    一次操作一把鍵、按下去時生成、失敗重試沿用同一把 —— 每次送出各生一把,
+  //    連按兩次就是兩個不同的操作,而底下 RPC 的冪等保護會被我們自己弄丟。
+  //    ⚠️ 這一顆是**被本守門抓出來才登記的**(寫元件時照抄作廢鈕的模式,沒想到要來登記)
+  //    ⇒ 守門有效,留痕不刪。
+  'apps/admin/src/components/orders/shipment-mark-shipped-button.tsx': 1,
   'apps/admin/src/components/orders/receipt-record-form.tsx': 3,
   'apps/admin/src/components/ui/sidebar.tsx': 1,
 };

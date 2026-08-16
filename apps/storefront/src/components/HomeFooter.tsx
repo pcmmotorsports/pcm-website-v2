@@ -3,6 +3,8 @@
 // ⚠️ 版權列原字面 `© MMXXVI · PCM MOTOR PARTS LTD.` 已於 2026-08-05 D7 作廢(見下方 D7 段);
 //    本檔真權威也已改成 Open Design `pcm-home-redesign`(CLAUDE.md 鐵則 1 明文例外),
 //    submodule 那份是過期假稿、不得回頭引用。
+//    🔴 上面那個帶句點的字面**是 2026-08-05 之前的歷史實錄,刻意不更新** ——
+//    改它等於偽造當時的字面。英文公司名現行值見下方 D7 段的 2026-08-15 更新。
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
 // onNav target 對映(本檔 **6 條**;2026-08-11 #269-a 移除「特價專區」後由 7 條變 6 條):
@@ -36,7 +38,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { CONTACT_PHONE_DISPLAY, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
+import { CONTACT_PHONE_DISPLAY, OPENING_HOURS, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
 
 // 🔶 D7「頁尾回深 + 版權年份動態」(2026-08-05,由第0批 0b 執行;主視窗 `D-107-A` 裁 A 案)。
 // 真權威 = 母計畫 `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:114` 逐字:
@@ -45,6 +47,22 @@ import { CONTACT_PHONE_DISPLAY, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
 // 版權列字面 = OD 全站頁尾逐字(`products-list-page.html:599-600`、`brand-directory.html:166-167`
 //   等 10 支稿一致):「© {年份} PCM MOTOR PARTS LTD. 版權所有」+「統一編號 90003020」。
 //   R2-3 表列明訂「MMXXVI 羅馬數字寫法作廢」、年份程式產生。
+// 🔴🔴 2026-08-15:**我方已刻意偏離上面那句的句點**,而 OD 稿本身沒有改。
+//   Sean 當日三次答覆(有句點 → 重申有句點 → **最終:沒句點,「好啦～沒句點,抱歉」**),
+//   最終值 = `PCM MOTOR PARTS LTD`(**無句點**),與 `docs/phase-1-backlog.md:6360`
+//   記的 2026-06-22 確認一致,也與 SSoT `lib/site-config.ts:16` `LEGAL_NAME_EN` 一致。
+//   ⚠️ 上面那行**引用 OD 的句子照原樣保留** —— **改掉它等於偽造 OD 的內容**。
+//   OD 真的寫有句點,量法(`-rc` 打在目錄上是逐檔輸出,要自己加總):
+//     OD=<Open Design 的 pcm-home-redesign 目錄>
+//     grep -rc 'PCM MOTOR PARTS LTD\.' "$OD" | awk -F: '{s+=$NF} END{print s}'   ⇒ 511(次)
+//     grep -rl 'PCM MOTOR PARTS LTD\.' "$OD" | wc -l                            ⇒ 322(檔)
+//     正向對照 printf 'PCM MOTOR PARTS LTD. 版權所有' | grep -c 'PCM MOTOR PARTS LTD\.' ⇒ 1
+//   ⚠️ 本行原寫「288 處」= **另一條命令的輸出**(`grep -rhoE 'PCM MOTOR PARTS LTD.{0,6}'`
+//   排序計數後,片語「PCM MOTOR PARTS LTD. 版權所有」的次數)。數字是真的,
+//   但它掛在**產不出它的命令**上 ⇒ 複驗的人會拿到 511/322/759 三個都不是 288 的數。
+//   (E 窗 `E-627-TO-D` MF1 抓;本窗獨立重跑同值後改。)
+//   🔴 ⇒ **這是鐵則 1「design 直接搬」的一個具名例外,不是漏改。**
+//   下一個人若「照 OD 對齊」把句點加回來,就是把 Sean 的拍板改掉。要改請先問他。
 // 🔴 年份用 server 端 `new Date().getFullYear()`(不是 client script):本元件是 server component,
 //    OD 稿用 `<script>` 只是靜態 HTML 沒有別的辦法。副作用=靜態預渲染的頁面年份釘在 build 當下,
 //    跨年要重新部署才會更新 —— 這是可接受的(全站每年都會部署),換 client 反而多一顆 hydration 風險。
@@ -105,14 +123,25 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
           </div>
           <div>
             <div className="ed-mono ed-footer-h">門市</div>
-            <p>新北市新莊區化成路<br/>736 巷 18 號一樓</p>
-            <p>週一-週六 10:00-19:00</p>
+            {/* 地址硬寫、不吃 `lib/site-config.ts` 的 `STORE_ADDRESS`(既有技術債,見 ComingSoon.tsx 同段註解)。
+                「1樓」是 Sean 2026-08-15 逐字拍板的正典值,**不得被改回「一樓」**;
+                空格與 `<br/>` 是本頁尾的排版、不是地址的一部分,正典值本身沒有空格。
+                守門在 `HomeFooter.test.tsx`。 */}
+            <p>新北市新莊區化成路<br/>736 巷 18 號1樓</p>
+            {/* 🔴 E R3(2026-08-15):營業時間改吃 `OPENING_HOURS` SSoT。
+                在此之前這行硬寫,而 `MobileMenu.tsx:73` / `data/legal-content.ts:67`(**法律頁**)
+                / `lib/org-jsonld.ts:55-57`(**搜尋引擎**)三處吃 SSoT
+                ⇒ 改常數會讓站上出現兩種營業時間,其中一份在法律頁。
+                ⚠️ **「週一-週六」這段仍硬寫**(與 `MobileMenu.tsx:73` 同款):
+                `OPENING_HOURS.days` 的中文推導只存在 `legal-content.ts:40-66`,
+                要共用得把那段抽出來 ⇒ **不在本片,已回報**。 */}
+            <p>週一-週六 {OPENING_HOURS.opens}-{OPENING_HOURS.closes}</p>
             <p>{CONTACT_PHONE_DISPLAY}</p>
           </div>
         </div>
       </div>
       <div className="ed-footer-base">
-        <span className="ed-mono">© {new Date().getFullYear()} PCM MOTOR PARTS LTD. 版權所有</span>
+        <span className="ed-mono">© {new Date().getFullYear()} PCM MOTOR PARTS LTD 版權所有</span>
         <span className="ed-mono">統一編號 {TAX_ID}</span>
       </div>
     </footer>

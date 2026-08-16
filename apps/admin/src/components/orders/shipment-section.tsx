@@ -14,6 +14,7 @@ import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order-shipments';
 import { OrderShipButton } from './shipment-launcher';
+import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
 
 const CARRIER_LABEL: Record<string, string> = {
@@ -85,6 +86,21 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                       >
                         列印出貨單
                       </Link>
+                    )}
+                    {/* 🔴 「填單號並標記出貨」—— **只在「未作廢且未出貨」時出現**。
+                        它不是「補單號」:底下 RPC 一定同時寫 `shipped_at`
+                        (`20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:181`)⇒ 按下去是狀態轉換。
+                        🔴 在此之前,員工按了建箱彈窗的「只建箱、先不出貨」就**沒有出口** ——
+                           只能作廢重開新箱,而那會換箱號、已印的紙就白印了。
+                           (能力本來就在 RPC 與 repository 層,缺的只有 action 與這顆入口。)
+                        ⚠️ 已出貨的箱**改**單號這支做不到(RPC `:184` `AND shipped_at IS NULL` 是
+                           write-once)—— **不是這裡漏給入口**,詳見 `shipment-actions.ts` 那支的 docstring。 */}
+                    {!voided && !shipped && (
+                      <ShipmentMarkShippedButton
+                        shipmentId={shipment.id}
+                        shipmentReference={shipment.shipmentReference}
+                        carrierIsOther={shipment.carrierCode === 'other'}
+                      />
                     )}
                     <ShipmentVoidButton
                       shipmentId={shipment.id}
