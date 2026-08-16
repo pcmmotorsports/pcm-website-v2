@@ -1,5 +1,31 @@
 # PCM 後台設計參照(BMW M 語言)
 
+> ## 👁 **要用瀏覽器看後台畫面?一行就夠,不需要任何 `.env` 檔**
+>
+> ```
+> cd /Users/sean_1/pcm-website-v2/apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001
+> ```
+> 然後開 `http://localhost:3001/orders`。
+>
+> **為什麼寫在這裡**:這份檔是**每一片後台 UI 都會引用**的檔,而「我想看看畫面長怎樣」
+> **正好發生在讀它的那一刻**。
+> 🔴 **這條路一直都在** —— `apps/admin/src/proxy.ts:16` 的註解逐字寫著它的用途。
+> **而我們花了兩輪來回才找到,因為【沒有人會在需要它的那一刻去讀 `proxy.ts`】。**
+> ⇒ **寫對地方、寫清楚了,不等於它會被讀到。**
+>
+> | 想看什麼 | 需要什麼 |
+> |---|---|
+> | 版面 / 顏色 / 側欄 / 篩選列 | **什麼都不用**(2026-08-16 實跑:`/`、`/orders`、`/customers` 全 200) |
+> | **有資料的畫面**(例如點進一張訂單) | 要建 `apps/admin/.env.local` 並填 **3 顆真值**:`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`(名稱來源 `packages/adapters/src/supabase/client.ts:46,47,62`)|
+>
+> ⚠️ **SSO 那三顆完全不需要**(`PCM_QUOTE_SSO_BASE` / `PCM_SSO_EXCHANGE_SECRET` / `ADMIN_SESSION_SECRET`)
+> —— bypass 直接跳過登入閘,那條路不會被走到。
+> 🔴 **`ADMIN_DEV_BYPASS` 在 prod 無效**(`proxy.ts:17-18` 同時要求 `NODE_ENV !== 'production'`)
+> ⇒ **開它不會弱化正式站。**
+> 🔴 **`apps/admin/` 底下沒有 `.env.local`,而 Next 只載入【該 app 自己目錄】的那一份** ——
+> 根目錄與 `apps/storefront/` 各有一份,**admin 從來沒有被建過**。這就是為什麼 dev server 的
+> `- Environments: .env.local` 那行**只有 storefront 有、admin 沒有**。
+
 > # 🔴🔴 落地狀態 —— **先讀這一段,它決定你能不能直接照抄下面的東西**
 >
 > **本檔描述的是【我們決定要的】。而其中有幾條【現在還不是】。**
