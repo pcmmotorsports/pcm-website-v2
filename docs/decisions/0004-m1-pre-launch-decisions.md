@@ -32,10 +32,55 @@ M-0(規劃層 9/9)收尾完成、進 M-1(實作層、catalog spike + 種子)前�
 |---|---|---|---|
 | Q1 | Supabase 升 Pro 時機 | A2 上架完畢 / 上線前升($25/月) | M-6 上線前 checklist |
 | Q2 | Image storage | A2 Supabase Storage(跟 Q1 同生態、上線時同步升 Pro) | M-1-02 起 |
-| Q3 | Search engine | A1 PG tsvector + pg_jieba(實作分兩階段:dev 期 ILIKE / 上線後切) | M-1-03 起 dev 期 / M-6 切 |
+| Q3 | Search engine | A1 PG tsvector + pg_jieba(實作分兩階段:dev 期 ILIKE / 上線後切)　🔴 **分詞那半已被平台事實推翻,見 §2.1-a** | M-1-03 起 dev 期 / M-6 切 |
 | Q4 | Money 守門 | A3 brand type MoneyAmount + helper toMoneyAmount(n) | 本 ADR 落地(M-0-10b) |
 | Q5 | testing-strategy.md | A3 minimum 版 | 本 ADR 落地(M-0-10a) |
 | Q6 | bounded-contexts.md | A3 minimum 版 | 本 ADR 落地(M-0-10a) |
+
+### 2.1-a 🔴 更正段 · `Q3` 的分詞路線已被平台事實推翻(2026-08-16 補;**原決議不刪不改**)
+
+> **只加更正,不動上面那一列的原文。** 原決議在 2026-05-03 當時是對的 —— **變的是平台事實,不是判斷。**
+> 刪掉它會讓「為什麼曾經選這條路」消失,而下一個人只會看到結論、看不到那次判斷哪裡失效。
+
+**事實**:`pg_jieba` **不在 Supabase 的可用擴充清單裡** ⇒ `CREATE EXTENSION pg_jieba` 不可能成功
+⇒ **「tsvector + pg_jieba」的中文分詞那半在 Supabase 上蓋不起來。**
+
+**兩個來源(不是推論)**:
+
+1. **實測**(2026-07-25,本專案 `bmpnplmnldofgaohnaok`):MCP `list_extensions` 回 **80 個擴充,逐一比對無 jieba**。
+2. **官方文件親讀**:Supabase docs `guides/database/extensions/pgroonga` 逐字
+   「native Postgres 全文索引 **limited to alphabet and digit based languages**」⇒ CJK 要改用 **PGroonga**。
+
+**該專案清單裡實際可用**(皆 `installed_version: null` = 可裝未裝):
+`pgroonga` 3.2.5 + `pgroonga_database`(CJK 主力,`USING pgroonga(col)` + `&@~`)、
+`pg_trgm` 1.6(補錯字/近似/子字串,料號年份這類短字串尤其有用)、`rum` 1.3、`fuzzystrmatch`、`unaccent`。
+
+🔴 **這一段為什麼現在才補**:更正**只活在 memory** `reference_supabase-no-pg-jieba-use-pgroonga`,
+而那條逐字寫著「**請 Sean 重新拍 ADR-0004 的分詞路線**」—— **那次重拍從來沒有發生過。**
+⇒ **ADR 是別人會來查的載體,memory 不是。** 更正沒回到被引用的那份檔,等於沒更正。
+📎 同族 memory `feedback_downgrade-a-source-inside-the-file-people-cite`。
+
+📐 **本更正段涵蓋到哪(2026-08-16 重掃,附分母)**:同檔 `grep -c 'pg_jieba'` ⇒ **6**,逐處分類
+⚠️ **那個 6 裡有 1 個是【這句話自己】**(它引用了那個字面才數得到)—— 真正指向該路線的是 **5**;
+**寫下分母的那一刻,分母就被自己改變了**,所以下表逐處列,不要只看數字:
+(🔴 **用錨點文字不用行號** —— 我第一版寫了行號,而**加完這段之後它們當場就漂了**):
+
+| 錨點 | 是什麼 | 狀態 |
+|---|---|---|
+| `\| Q3 \| Search engine \|` | §2.1 決議列 | ✅ 已就地標更正 |
+| `不在 Supabase 的可用擴充清單裡` / `的中文分詞那半` | **本更正段自己** | — |
+| `Q1 / Q2 / Q3 同生態` | §3.1 擴充性敘述 | ✅ 已標 |
+| `M-6 上線前 checklist(M-6-08)` | §4 trigger 銜接表 | ✅ 已標 |
+
+🔴 **後兩處是第一版更正時【漏掉的】** —— 我只折了 finding 點名的那一列(§2.1 決議列)。
+   而 **「M-6 上線前 checklist」那一列 = 會被拿去執行的東西**,不是敘述;
+   **上線前 checklist 正是最不會被人質疑的那種清單** —— 讀的人會照著做,不會回頭問「這條還成立嗎」。
+   📎 `feedback_folding-a-finding-defaults-to-the-named-spot-only`:**finding 給的是症狀的位置,不是病的邊界。**
+
+**⇒ 待辦(未做)**:`Q3` 的分詞路線**需要 Sean 重新拍**(PGroonga / PGroonga+pg_trgm 混合 / 其他)。
+⚠️ **兩階段那半仍然有效**(dev 期 ILIKE、上線後切)—— **被推翻的只有「切過去之後用什麼分詞」。**
+⚠️ 上面那條 memory **只證「可用性」,未證效能 / 中文斷詞品質 / 索引體積** —— 那些要真資料實測。
+📎 啟用擴充 = migration = **Sean 手動 `db push`**,Claude 不自行 apply。
 
 ### 2.2 wrs.it IA 報告 4 題處置
 
@@ -55,7 +100,7 @@ M-0(規劃層 9/9)收尾完成、進 M-1(實作層、catalog spike + 種子)前�
 
 ### 3.1 擴充性
 
-- **Q1 / Q2 / Q3 同生態:** Supabase Pro 一次升、解決 DB / Storage / pg_jieba 三件、Phase 2 加 Vehicle / Booking / Wallet 表也走同 plan、不需多 vendor
+- **Q1 / Q2 / Q3 同生態:** Supabase Pro 一次升、解決 DB / Storage / ~~pg_jieba~~(⚠️ 分詞那件**不可行**,見 §2.1-a)三件、Phase 2 加 Vehicle / Booking / Wallet 表也走同 plan、不需多 vendor
 - **Q3 兩階段 search:** dev 期 ILIKE 跑 200 SKU 規模可用(p99 1-3s)、不阻 M-1-03 進度;M-6 切 tsvector 對 5w SKU(p99 < 100ms)、上線後 Phase 2 5w-10w SKU 撐得住
 - **Q4 brand type:** Phase 2 加幣別(USD / EUR)時、MoneyAmount + Currency 兩維度擴張、不動既有 use-case;helper 集中守門、新進 dev 不需學浮點 guard
 - **wrs Q1 yearStart/yearEnd:** 對應 Sean 真實業務(報價單寫 "2018-2024" / "2025+")、Phase 2 加 vendor crawler 抓年份範圍直接 mapping、不需事後遷移
@@ -85,7 +130,7 @@ M-0(規劃層 9/9)收尾完成、進 M-1(實作層、catalog spike + 種子)前�
 | 本 ADR 落地(M-0-10) | testing-strategy.md / bounded-contexts.md / money-handling.md / Money brand type / FitmentSpec yearStart-yearEnd | Q4 / Q5 / Q6 / wrs Q1 |
 | M-1-03 啟動 | search 用 PG ILIKE 暫代、JSDoc 註明 M-6 切 tsvector | Q3 |
 | M-1-02 起 image 上傳 | 走 Supabase Storage free tier | Q2 |
-| **M-6 上線前 checklist(M-6-08)** | Sean 刷卡升 Supabase Pro $25/月、search 切 tsvector + pg_jieba | Q1 + Q2 + Q3 |
+| **M-6 上線前 checklist(M-6-08)** | Sean 刷卡升 Supabase Pro $25/月、search 切 tsvector + ~~pg_jieba~~ ⚠️🔴 **這一列的技術路線已於 §2.1-a 標記為【不可行】(Supabase 裝不了 `pg_jieba`)——執行前先看那一節,不要照這行做。** | Q1 + Q2 + Q3 |
 | M-5-03(sync-product-candidates) | 寫商品名硬規範 + concat helper | wrs Q4(backlog #78) |
 | Phase 1 完成後 | Sean 評估 4 軸 selector / 雙 breadcrumb 是否需要、若是跟 Claude Design 對話 | wrs Q3 / wrs Q6(backlog #79) |
 
