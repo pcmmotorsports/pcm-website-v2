@@ -15355,3 +15355,36 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
 - 📎 **現行緩解**:收割紀律「每併一支就跑一次完整驗證,不是全部併完才跑」
   ——**那條沒有被 CI 取代,是它現在唯一的替代品。**
 - **發現於**:2026-08-16 · I 窗 · 主視窗開工令任務 1
+
+### #550 · `vehicle_taxonomy_public` 是全樹唯一一支「底表 RLS 對它無效」的 view
+
+> ⚠️ **號碼佔位,待主視窗確認**(2026-08-16 I 窗;**兩道閘都跑,且第二道不接 `head`**):
+> `bash scripts/next-backlog-number.sh` ⇒ **#550**(腳本自印這是**下限不是保留鎖**);
+> `grep -rn 佔位 ~/pcm-mailbox/*.md` ⇒ **總命中 80**,其中帶號的為 `#545`/`#546`/`#547`/`#549` ⇒ **`#550` 無人佔用**。
+> 📎 **這次照協定標佔位** —— 2026-08-16 我曾因**沒標佔位**而在 `#547` 撞號,
+> 主視窗裁定判準是「**誰照協定走**」不是「先到先得」,我改號讓給 B 窗。
+
+- **狀態:** 未開工。**來源=E 窗稽核 `E685-1`,該檔標「待派」** ⇒ 本條把它從一格表格變成有編號、可被派的東西。
+- **出處**:`docs/security/2026-08-16-external-exposure-audit.md`(結論表第 10 條 + `E685-1` 明細)
+- **事實(production 側全查,非抽驗)**:
+  ```
+  public 的 9 支 view：8 支 security_invoker=true、1 支 false
+  那一支 = vehicle_taxonomy_public，view owner = postgres
+  而 product_fitments / product_fitments_effective 的 relforcerowsecurity = false
+  ⇒ owner 繞過 RLS ⇒ 這支 view 看得到【已下架商品】的車型資料，而 anon 讀得到它
+  ```
+- **目前嚴重度:低** —— 曝露欄位只有 `moto_brand` / `model_code` / `year_start` / `year_end`,
+  **零 PII、零價格**。⇒ **現在不是 Blocker,不要當成正在外洩。**
+- 🔴 **不修未來會痛在哪**(鐵則 10,而這條的痛點在【時間】不在【現在】):
+  **它是全樹唯一一支底表 RLS 對它無效的 view。**
+  `product_fitments*` 日後只要**加上任何敏感欄、或收緊任何 policy**,
+  **這支會直接漏過去,而且不會有任何東西紅** —— 沒有測試、沒有守門、沒有 migration 斷言在看它。
+  ⇒ **它是一顆延遲觸發的地雷:今天無害,而【引爆它的那次改動看起來會完全無關】**
+  (改的人在動 `product_fitments`,不會想到有一支 view 繞過了他剛加的 policy)。
+- **可能修法(未評估)**:①把該 view 改成 `security_invoker=true`(要先確認前台車型選單不會因此變空)
+  ②對 `product_fitments*` 開 `FORCE ROW LEVEL SECURITY` ③兩者都不做,改為**加一道目錄層守門**
+  釘住「9 支 view 全部 `security_invoker=true`」,讓下一個人加敏感欄時會紅。
+  🔴 **③ 單獨做不夠**(它只讓問題【被看見】,不讓問題消失),但**③ 最便宜且零行為風險** ⇒ 可先做。
+- ⚠️ **驗這條要 production 側**:`repo 側必然偏低`(授權可以不經過任何 `GRANT` 語句,見該稽核檔 §2.1)
+  ⇒ **不要用 grep migrations 來判斷它修好了沒。**
+- **發現於**:2026-08-16 · E 窗外部曝險稽核 · 由 I 窗立案
