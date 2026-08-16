@@ -159,3 +159,79 @@ import @pcm/adapters/server 的檔       = 4   ← 本輪的 4（受控 composit
 5. 共用 `@pcm/*` 的雙邊語意假設
 
 📎 方法沿用今晚驗證過的四條：**先數入口 → 型別／結構分流 → 控制組必紅 → 「誰在用它 ≠ 誰打得到它」**。
+
+---
+
+# 第二輪：page 層（`searchParams` / `params`）+ `/dev-preview/*`
+
+- **日期**：2026-08-16　**commit**：見本輪 commit　**仍然只盤點，不獵洞**
+
+## 6. page 總覽
+
+```
+storefront page.tsx 總數        = 28
+吃 searchParams 的               =  6   （/、/products、/products/[slug]、/login、/register、/checkout/callback）
+動態路由 [param] 的              =  4   （/brands/[slug]、/products/[slug]、+ 兩個 /dev-preview/*）
+```
+
+⚠️ **本輪只列「吃什麼」，沒有逐一驗它們怎麼驗證那些值** —— 那是獵洞階段。
+
+## 7. 🔴 `/dev-preview/*` —— 21 個檔的預覽區。**有閘，而且是 fail-closed 的**
+
+**這是本輪最值得看的一塊**：一個 21 個檔、8 個預覽頁的區域，**在正式站是 404**。
+
+**閘在 `dev-preview/layout.tsx`**（不是 middleware）：
+
+```ts
+export function isDevPreviewReachable(env) {
+  if (env.VERCEL_ENV !== undefined) return new Set(['preview','development']).has(env.VERCEL_ENV);
+  return env.NODE_ENV !== 'production';        // 🔴 讀不到 VERCEL_ENV ⇒ 退回 NODE_ENV ⇒ production 一律關
+}
+```
+
+**三件做得好的，值得當範例：**
+
+| | |
+|---|---|
+| **選 layout 不選 middleware** | 巢狀 layout 天然包住**整個 segment 底下每一頁**，**以後新增的自動繼承** ⇒ 一處守門、零遺漏；且不動 `next.config`（那會把純前台守門升成鐵則 12④ 高風險片） |
+| **fail-closed 的支點** | **讀不到 `VERCEL_ENV` 不是放行，是退回看 `NODE_ENV`**。檔內逐字：「拿掉它，任何讀不到系統變數的正式部署都會變成全開」 |
+| 🔴 **作者自己寫了「本閘擋不住什麼」** | 在命名這道控制之前先列出它的射程外 —— 引的是 `feedback_control-named-beyond-its-actual-power` |
+
+### 7.1 作者列的射程外，我去驗了最實質的那條
+
+> 「擋不住『有人把不該公開的東西寫進 `dev-preview/*/fixtures.ts`』——
+> **那些字面仍在 git 與 JS bundle 裡**；本閘只讓**正式站的網址**進不去，**不等於內容沒外流**。」
+
+🔴 **這句是對的，而且它指向一個 404 完全管不到的面。所以我去看了那個檔。**
+
+`dev-preview/brands/fixtures.ts`（192 行）**內容 = 報價單 view 的真實商品快照**：
+料號、中文品名、分類、圖片 URL、適用車款、**價格**。
+
+**掃描結果（附控制組）：**
+
+```
+priceByTier|price_store|dealer|cost   ⇒ 0
+09xxxxxxxx（手機）                    ⇒ 0
+email                                 ⇒ 0
+sk_ / pk_ / eyJ / PRIVATE KEY         ⇒ 0
+CONTROL: 'price'                      ⇒ 60   ← pattern 是活的
+```
+
+**型別層也排除了**：`FixtureProduct` 只有 `price: number | null` **單一價格欄，沒有任何 tier 結構**。
+而該檔**檔頭自己就宣告了**：逐字「**欄位皆公開安全（view 無經銷價）**」。
+
+⇒ ✅ **不是 finding**：那是**已經公開在商品頁上的型錄資料**，零 PII、零經銷價、零憑證。
+⇒ 📌 但**作者的警告仍然成立**：**這個檔的內容視同公開**（backlog `#385` C 案已立案要在檔頭寫明）。
+**本輪的貢獻是把「視同公開」從假設變成量過的事實。**
+
+## 8. 第二輪的誠實邊界
+
+| 沒做 | 說明 |
+|---|---|
+| 6 個吃 `searchParams` 的 page **怎麼驗證那些值** | 只列了「吃」，**沒驗** |
+| `/brands/[slug]`、`/products/[slug]` 的 **slug 驗證** | 沒驗（`dev-preview/brand-page/[slug]` 有 `Object.hasOwn` 白名單，**正式那兩支我沒看**） |
+| 其餘 20 個 dev-preview 檔的內容 | **只掃了 `fixtures.ts` 一個檔** —— 它是唯一叫 fixture 的，**但「其他 20 個檔裡沒有硬寫資料」我沒驗** |
+| JS bundle 實際內容 | **沒有 build 過、沒有翻 bundle** ⇒ 「fixtures 會進 bundle」是**讀作者的話**，不是我量的 |
+
+🔴 **最後一列要特別留著**：我驗的是**檔案內容**，不是**bundle 內容**。
+**兩者今天大概率一致，但那是推論。**
