@@ -3,6 +3,7 @@ import type {
   CustomerId,
   AdminCustomerFilter,
   AdminCustomerSummary,
+  AdminCustomerListResult,
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
@@ -31,7 +32,7 @@ export interface ICustomerRepository {
   /**
    * admin 客戶列表「摘要」(M-4a 客戶管理第一片;後台營運找客 / 看等級)。
    *
-   * 回 `Paginated<AdminCustomerSummary>`(摘要投影):**新增** admin 專用摘要方法、不動既有
+   * 回 `AdminCustomerListResult`(= `Paginated<AdminCustomerSummary>` + `#525` 的兩個關鍵字訊號):**新增** admin 專用摘要方法、不動既有
    * findById / findByEmail / update(會員側零影響);service_role 全表(非 RLS own-only);
    * tier 篩選走 DB where 下推 + server 端分頁(`.range`)+ 排序 created_at DESC(新到舊)+ 總筆數 count。
    *
@@ -40,5 +41,5 @@ export interface ICustomerRepository {
   listCustomerSummariesForAdmin(
     filter: AdminCustomerFilter,
     pagination: PaginationParams,
-  ): Promise<Paginated<AdminCustomerSummary>>;
+  ): Promise<AdminCustomerListResult>;
 }

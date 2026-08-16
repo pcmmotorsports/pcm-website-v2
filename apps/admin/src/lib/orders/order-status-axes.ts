@@ -251,6 +251,75 @@ export function orderDetailGoodsAxis(detail: { items: readonly GoodsAxisLine[] }
 }
 
 /**
+ * 貨品軸旁邊那行小字 —— **回答「為什麼是這個字」,不是重述那個字**。
+ *
+ * 🔴 **需求出處**(這半句一直沒做,`#514` 只做了前半):
+ *    `docs/specs/2026-08-12-admin-order-ui-design-brief.md:114` 逐字 ——
+ *    「訂單層的『已定』要定義成『該單所有品項都訂滿』,**這個定義要在畫面上讓人看得懂**」。
+ *    症狀:同一畫面上方寫「未訂貨」、品項列寫「訂貨 3/6」⇒ 員工以為還沒下單,可能重複下單。
+ *    **Sean 2026-08-15 拍板乙:四個軸值一個都不動,旁邊加一行小字。**
+ *
+ * **規則 = 印出「第一個還沒完成的那一階」的分數**(分母 = 該單所有品項 `quantity` 加總):
+ *    `none` → 已訂 / `ordered` → 已到貨 / `instock` → 已出貨 / `shipped` → **不印**。
+ *    已完成的那幾階印出來恆等於分母(例:軸=`ordered` 時「已訂」必然 = N)⇒ 是廢話,不印。
+ *    `shipped` 沒有下一階 ⇒ 沒有人會問「為什麼是已出貨」⇒ 整行不出現。
+ *
+ * 🔴🔴 **加總法的正當性依賴三條 DB CHECK,不是我假設的 —— 它們被放寬的話本函式要重算**:
+ *    · `oiqs_ordered_le_quantity`  `CHECK (ordered_quantity <= quantity)`
+ *      —— `supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql:108`
+ *    · `oiqs_instock_le_ordered`   `CHECK (instock_quantity <= ordered_quantity)` —— 同檔 `:113`
+ *    · `oiqs_shipped_le_instock`   `CHECK (shipped_quantity <= instock_quantity)`
+ *      —— `supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql:88`
+ *    ⇒ 每項皆 `已完成量 ≤ quantity`,而**一項嚴格小於就會讓總和嚴格小於**
+ *    ⇒ **加總相等 ⟺ 逐項相等** ⇒ 分數走到 `N/N` 與軸值升級**同時發生**。
+ *    ⚠️ **沒有這條約束,加總法就是錯的**:超訂(`ordered > quantity`)會讓總和先到 N
+ *    而某一項仍未訂滿 ⇒ 畫面變成「6 件中已訂 6 件」配「未訂貨」—— **正是本片要修的那個矛盾。**
+ *
+ * 🔴 **`quantitySummary === null` ⇒ 一個數字都不印。**
+ *    `goodsAxisOfLines` 把 null 當 0 是**它自己判階段用的**語意裁定(A4a 惰性建列,見上面 docstring);
+ *    **那個 `?? 0` 不能跟著搬到「印件數給人看」這個用途上** —— 印「已訂 0 件」會把
+ *    「摘要列不存在」與「真的一件都沒訂」講成同一句話。**同一個值,兩種用途,只有一種合法。**
+ *
+ * 🔴 **本函式的守門住在 `app/orders/[id]/refund-wiring.test.tsx`**,`describe('出貨狀態的解釋小字')`
+ *    底下**六格,全部斷言在整頁渲染輸出(`container.textContent`),不是斷言本函式的回傳值**
+ *    —— 因為「算得對」不等於「那個畫面有印出來」(`#514` 自己的教訓)。
+ *    ⚠️ **檔名對不上是刻意的、不是漏改**(E 窗 2026-08-15 `E-629` nit1):那支檔的實際職責是
+ *    **「頁層接線」**(檔頭自述,`procurement-wiring.test.tsx` 同型),檔名綁在首次用途 `refund` 上。
+ *    **不改名的理由**:改名要連同型的 `procurement-wiring.test.tsx` 一起改(只改一支會讓兩支
+ *    同型檔的命名規則不一致、比現在更難找),而那支是別條線的檔。
+ *    ⇒ 改採**指標**:**會來改這行小字的人一定先打開本檔**,寫在這裡比寫在檔名早一步被看到。
+ *    🔴 **改本函式的行為 = 必跑那六格。**
+ *
+ * ⚠️ **已知限制(登記,不在本片修)**:本函式與 `goodsAxisOfLines` **都不扣已取消數量**。
+ *    6 件裡 3 件取消 + 3 件已訂 ⇒ 軸仍 `none`、小字「6 件中已訂 3 件」。
+ *    **小字忠實反映軸,但兩者一起偏。** 讓小字自己扣掉取消會造出新矛盾(小字 3/3 配軸「未訂貨」)
+ *    = 修一個矛盾造兩個 ⇒ 要修得連軸一起改,那中鐵則 8。
+ *    正式庫 2026-08-15 實測 `cancelled_quantity > 0` 為 **0 筆**(主視窗查),故現況構造不出來。
+ */
+export function goodsAxisProgressNote(lines: readonly GoodsAxisLine[]): string | null {
+  if (lines.length === 0) return null;
+  // 🔴 null 檢查必須在最前面:它是「不知道」,不能被下面任何 `?? 0` 吃掉。
+  if (lines.some((l) => l.quantitySummary === null)) return '部分品項數量資料尚未就緒';
+
+  const axis = goodsAxisOfLines(lines);
+  if (axis === 'shipped') return null;
+
+  const stage = {
+    none: { key: 'orderedQuantity', verb: '已訂' },
+    ordered: { key: 'instockQuantity', verb: '已到貨' },
+    instock: { key: 'shippedQuantity', verb: '已出貨' },
+  } as const satisfies Record<
+    Exclude<OrderGoodsAxis, 'shipped'>,
+    { key: keyof NonNullable<GoodsAxisLine['quantitySummary']>; verb: string }
+  >;
+
+  const { key, verb } = stage[axis];
+  const total = lines.reduce((sum, l) => sum + l.quantity, 0);
+  const done = lines.reduce((sum, l) => sum + (l.quantitySummary?.[key] ?? 0), 0);
+  return `（本單 ${total} 件中${verb} ${done} 件）`;
+}
+
+/**
  * 訂單的狀態八值 + 膠囊 class。
  *
  * 🔴 已取消**先判**:它不在 2×4 矩陣裡(不是一個階段,是整張單沒了)。

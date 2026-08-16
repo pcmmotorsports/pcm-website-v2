@@ -29,7 +29,8 @@ import {
   formatOrderAmount,
   INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
 } from '../../lib/orders/order-list-view';
-import { orderDetailGoodsAxis } from '../../lib/orders/order-status-axes';
+import { orderDetailGoodsAxis, goodsAxisProgressNote } from '../../lib/orders/order-status-axes';
+import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import {
   invoiceTypeLabel,
   shippingMethodLabel,
@@ -56,6 +57,41 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 // 容器斷點 `@md`(28rem)/ `@4xl`(56rem)⇒ 面板 2 欄、整頁 4 欄。
 // ⚠️ **兩個消費者的外框都必須帶 `@container`**,否則容器斷點沒有參照對象、一律退回 1 欄
 // (`order-panel-wiring.test.ts` 有一格把兩邊的 `@container` 釘住)。
+/**
+ * 🔴 **`GoodsAxisValue` 不是這一片新寫的輔助函式** —— 它是從 `order-detail.tsx` **原封搬過來的**
+ *    (2026-08-16 收割 `customers` 分支時,void-readers 把明細抽成本元件 ⇒ 它必須跟著搬)。
+ *    **不要因為「這裡只有一個地方用到」就把它就地展開或刪掉** —— 它的守門與 docstring 都認這個名字。
+ */
+/**
+ * 「出貨狀態」那格的值 = 軸的中文 + **一行解釋為什麼是這個字的小字**。
+ *
+ * 🔴 **為什麼要有這行小字**(Sean 2026-08-15 拍板乙):改讀真相之後,`RCPVVJ` 那張單
+ *    上方摘要寫「未訂貨」、品項列寫「訂貨 3/6」—— **兩個都對,而放在一起讓人看不懂**
+ *    (軸的定義是「該單所有品項都訂滿才算已訂」,3<6 ⇒ 退回前一階)。
+ *    ⚠️ 後果不是美觀問題:**員工可能讀成「還沒下單」而重複下單、同一批貨訂兩次。**
+ *    需求檔 `docs/specs/2026-08-12-admin-order-ui-design-brief.md:114` 早就要求
+ *    「這個定義要在畫面上讓人看得懂」—— `#514` 只做了改讀真相那半,這片補另一半。
+ *
+ * 🔴 **軸值本身一個字都不動**(`GOODS_AXIS_LABEL` / `ORDER_GOODS_AXIS_VALUES` / 篩選 chip / adapter
+ *    全部沒碰)⇒ 這片不中鐵則 8。小字是**加上去的解釋**,不是新的狀態。
+ *
+ * 規則與它依賴的三條 DB CHECK 寫在 `goodsAxisProgressNote` 的 docstring,**不在這裡重複一份**
+ * (兩份會漂;那條規則的正當性屬於算它的地方)。
+ *
+ * 🔴 **守門在 `app/orders/[id]/refund-wiring.test.tsx` 的 `describe('出貨狀態的解釋小字')`(六格)。**
+ *    **檔名對不上是刻意的**,「為什麼不改名」寫在 `goodsAxisProgressNote` 的 docstring
+ *    (E 窗 2026-08-15 `E-629` nit1)。⇒ **動這一格的渲染 = 必跑那六格。**
+ */
+function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
+  const note = goodsAxisProgressNote(detail.items);
+  return (
+    <>
+      {GOODS_AXIS_LABEL[orderDetailGoodsAxis(detail)]}
+      {note !== null && <span className='text-muted-foreground block text-xs'>{note}</span>}
+    </>
+  );
+}
+
 export function OrderSummaryCards({ detail }: { detail: AdminOrderDetail }) {
   return (
     <div className='grid gap-4 @md:grid-cols-2 @4xl:grid-cols-4'>
@@ -63,7 +99,7 @@ export function OrderSummaryCards({ detail }: { detail: AdminOrderDetail }) {
         <h2 className={CARD_TITLE}>客戶資訊</h2>
         <Field label='姓名' value={detail.customer.name} />
         <Field label='電話' value={detail.customer.phone} />
-        <Field label='Email' value={detail.customer.email} />
+        <Field label='Email' value={customerEmailDisplay(detail.customer.email)} />
       </section>
 
       <section className={CARD}>
@@ -86,7 +122,7 @@ export function OrderSummaryCards({ detail }: { detail: AdminOrderDetail }) {
                (`order-list-view.ts` 兩張表的 docstring 互相記著這件事)⇒ **變的只有資料從哪來**。
             ⚠️ **修完之後多數單仍顯示「未訂貨」,而那是對的** —— 正式庫多數單還沒採購;
                要證明它真的改讀了,看**有採購紀錄的那張單**(`order-status-axes.test.ts` 釘了那一格)。 */}
-        <Field label='出貨狀態' value={GOODS_AXIS_LABEL[orderDetailGoodsAxis(detail)]} />
+        <Field label='出貨狀態' value={<GoodsAxisValue detail={detail} />} />
         <Field
           label='來源 · 管道'
           value={`${ORDER_SOURCE_LABEL[detail.orderSource]} · ${PAYMENT_CHANNEL_LABEL[detail.paymentChannel]}`}

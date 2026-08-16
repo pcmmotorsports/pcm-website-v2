@@ -8,7 +8,8 @@ import {
   formatOrderAmount,
   INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
 } from '../../lib/orders/order-list-view';
-import { orderDetailGoodsAxis } from '../../lib/orders/order-status-axes';
+import { orderDetailGoodsAxis, goodsAxisProgressNote } from '../../lib/orders/order-status-axes';
+import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import {
   invoiceTypeLabel,
   shippingMethodLabel,

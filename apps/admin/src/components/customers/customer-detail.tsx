@@ -6,7 +6,7 @@ import type {
   WalletLedgerEntry,
 } from '@pcm/domain';
 import Link from 'next/link';
-import { TIER_LABEL, formatCustomerDate } from '../../lib/customers/customer-list-view';
+import { TIER_LABEL, formatCustomerDate, customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import {
   WALLET_ENTRY_LABEL,
   formatWalletEntryAmount,
@@ -159,7 +159,7 @@ export function CustomerDetail({
       <div className='grid gap-4 md:grid-cols-2'>
         <section className={CARD}>
           <h2 className={CARD_TITLE}>基本資料</h2>
-          <Field label='Email' value={customer.email} />
+          <Field label='Email' value={customerEmailDisplay(customer.email)} />
           <Field label='電話' value={customer.phone || null} />
           <Field label='生日' value={customer.birthday} />
           <Field label='會員等級' value={TIER_LABEL[customer.tier]} />

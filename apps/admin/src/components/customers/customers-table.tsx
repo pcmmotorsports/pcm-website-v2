@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import type { AdminCustomerSummary } from '@pcm/domain';
-import { TIER_LABEL, formatCustomerDate } from '../../lib/customers/customer-list-view';
+import { TIER_LABEL, formatCustomerDate, customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
 
@@ -26,7 +26,7 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminCustomerSummary>> = [
     header: 'Email',
     className: 'text-muted-foreground',
     mobile: 'sub',
-    cell: (c) => c.email,
+    cell: (c) => customerEmailDisplay(c.email),
   },
   {
     key: 'phone',
