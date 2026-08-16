@@ -37,6 +37,7 @@ import {
   type SupabaseAdminOrderDetailRow,
   ORDER_ITEMS_EMBED_LIMIT,
   ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
+  ORDER_LIST_ITEMS_EMBED_LIMIT,
   PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
@@ -496,6 +497,14 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     const { data, error } = await this.supabase
       .from('orders')
       .select(ORDER_LIST_SELECT)
+      // 🔴 內嵌上限:把邊界從伺服器的 `db-max-rows` 手上拿回來(2026-08-16,`Q-EMBED-1` Sean 批)。
+      //    不設的話 `order_items` 會在伺服器上限處被切,而**PostgREST 對內嵌截斷不給任何訊號**
+      //    ⇒ `itemCount` 會印一個少算的數,而客人**沒有第二個來源可以對**。
+      //    設了之後 `mapOrderListItem` 才算得出 `itemCountTruncated`(該處有完整理由)。
+      // ⚠️ `.order()` 與 `.limit()` 成對:未排序的截斷會讓兩次查詢拿到不同子集
+      //    ⇒ 同一張單的件數可能在兩次重新整理之間跳動。
+      .order('id', { referencedTable: 'order_items', ascending: true })
+      .limit(ORDER_LIST_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
       .eq('customer_user_id', customerId)
       .neq('payment_status', 'unpaid') // #249 治標:藏放棄付款的 unpaid 孤兒單(前提=無線下待付款單)
       .order('created_at', { ascending: false });

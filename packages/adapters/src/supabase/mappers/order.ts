@@ -180,6 +180,11 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
     fulfillmentStatus: row.fulfillment_status,
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     itemCount: row.order_items.reduce((sum, item) => sum + item.quantity, 0),
+    // 🔴 **客人端的截斷旗標**(2026-08-16,`Q-EMBED-1` Sean 批)。
+    //    這一面的後果與後台不同:後台是**算錯一個狀態**,這裡是**印一個少算的件數**。
+    //    ⇒ 客人看到「3 件」而實際訂了 600 件 —— **他不會知道,也不會回報**(他沒有第二個來源可以對)。
+    //    判法逐字沿用另外兩處:**要 N 筆、拿回剛好 N 筆就當作可能被切了**。
+    itemCountTruncated: row.order_items.length >= ORDER_LIST_ITEMS_EMBED_LIMIT,
   };
 }
 
@@ -420,6 +425,16 @@ export const ORDER_ITEMS_EMBED_LIMIT = 200;
  *    截斷會發生在那個更低的數字上而本判定看不見(治本要 `count: 'exact'`)。
  */
 export const ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
+
+/**
+ * **前台(客人)訂單列表**內嵌 `order_items` 的請求上限(2026-08-16,`Q-EMBED-1` Sean 批)。
+ *
+ * 🔴 **與後台那個分開一個常數,理由同前**:這一面只拿它 `reduce` 出 `itemCount`,
+ *    連品項欄位都只投影 `quantity`(`ORDER_LIST_SELECT` 逐字)⇒ 傳輸成本最低、上限可以最寬。
+ * 值 = 500:與後台列表同值,**而那是巧合不是耦合** —— 兩者各自可調,改一個不必動另一個。
+ * ⚠️ 同一組殘餘風險:若專案 `max-rows` 被設到低於本值,截斷發生在更低的數字上而本判定看不見。
+ */
+export const ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
 
 /**
  * 內嵌 `payment_charge_attempts` 的請求上限(M-4b E10 A9g-2)。

@@ -26,6 +26,7 @@ import { ORDER_ITEM_PROCUREMENT_EMBED_LIMIT } from './mappers/order-procurement'
 import {
   ORDER_ITEMS_EMBED_LIMIT,
   ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
+  ORDER_LIST_ITEMS_EMBED_LIMIT,
   PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
 import {
@@ -164,12 +165,29 @@ describe('SupabaseOrderAdapter.findTotal', () => {
 // mock from('orders').select(ORDER_LIST_SELECT).eq('customer_user_id', id).neq('payment_status','unpaid').order('created_at', desc) 鏈;
 // .order() 為終端、await 回 {data, error}。
 function makeListClient(result: { data: unknown; error: unknown }) {
+  // 🔴 2026-08-16 `Q-EMBED-1`:查詢鏈變成
+  //    `.select().order(內嵌).limit(內嵌).eq().neq().order(外層)` ⇒ 前段要接得住。
+  //    ⚠️ **這是本檔第三個要改的 client factory**(另兩個是 `makeAdminListClient` 與
+  //       keyword search 那個)—— 同一個修法在本檔抄三份。**那是既有結構的代價,本片不重構它**,
+  //       但**三份都要改**:漏一份的症狀是 `TypeError: ….limit is not a function`。
   const order = vi.fn().mockResolvedValue(result);
   const neq = vi.fn().mockReturnValue({ order });
   const eq = vi.fn().mockReturnValue({ neq });
-  const select = vi.fn().mockReturnValue({ eq });
+  // 內嵌 order → 內嵌 limit → 才輪到 eq(篩選還沒下推)
+  const limit = vi.fn().mockReturnValue({ eq });
+  const embedOrder = vi.fn().mockReturnValue({ limit });
+  const select = vi.fn().mockReturnValue({ order: embedOrder });
   const from = vi.fn().mockReturnValue({ select });
-  return { client: { from } as unknown as SupabaseClient, from, select, eq, neq, order };
+  return {
+    client: { from } as unknown as SupabaseClient,
+    from,
+    select,
+    eq,
+    neq,
+    order,
+    limit,
+    embedOrder,
+  };
 }
 
 describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守門', () => {
@@ -209,7 +227,9 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
         paymentStatus: 'paid',
         fulfillmentStatus: 'shipped',
         total: { amount: 12345, currency: 'TWD' },
-        itemCount: 3, // Σquantity 2+1
+        itemCount: 3,
+        // 🔴 2026-08-16 `Q-EMBED-1`:2 筆 << 上限 500 ⇒ false。
+        itemCountTruncated: false, // Σquantity 2+1
       },
     ]);
   });
@@ -2249,6 +2269,31 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — 待處理(#1 片1)
 //    (仍回 HTTP 200、`Content-Range` 不反映)⇒ 不自己設上限、不自己算旗標,就沒有人知道。
 //    ⚠️ 證據層級見 `docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md`
 //       —— 出處是官方 repo issue **作者的敘述**、非 maintainer 聲明。**當高可信,不當定案。**
+describe('Q-EMBED-1 前台列表內嵌上限與 itemCountTruncated', () => {
+  it('🔴 內嵌上限有下推到【前台】查詢(後台那條下推了不代表這條也下推)', async () => {
+    const { client, limit, embedOrder } = makeListClient({ data: [], error: null });
+    await new SupabaseOrderAdapter(client).listSummariesByCustomer(
+      'cu-1' as unknown as Parameters<SupabaseOrderAdapter['listSummariesByCustomer']>[0],
+    );
+    expect(embedOrder).toHaveBeenCalledWith('id', {
+      referencedTable: 'order_items',
+      ascending: true,
+    });
+    expect(limit).toHaveBeenCalledWith(ORDER_LIST_ITEMS_EMBED_LIMIT, {
+      referencedTable: 'order_items',
+    });
+  });
+
+  /**
+   * 🔴 **上限值釘範圍**:嚴格低於伺服器 `max-rows`(repo 記載 production 實測 1000)。
+   * ⚠️ 它與後台那個**目前同值,而那是巧合不是耦合** —— 兩者各自可調。
+   *    這一格**不斷言兩者相等**,斷言相等會把「巧合」變成「契約」。
+   */
+  it('🔴 前台上限嚴格低於伺服器 max-rows(1000)', () => {
+    expect(ORDER_LIST_ITEMS_EMBED_LIMIT).toBeLessThan(1000);
+  });
+});
+
 describe('Q-EMBED-1 列表內嵌上限與 itemsTruncated', () => {
   /**
    * 🔴 **上限值本身要有一格釘住,而且要釘【範圍】不只釘值。**

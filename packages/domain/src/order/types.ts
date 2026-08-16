@@ -182,6 +182,18 @@ export type OrderListItem = {
   total: Money;
   /** 商品總數量 Σquantity(Q4=B、非 distinct 品項列數) */
   itemCount: number;
+  /**
+   * `itemCount` 可能**少算**(2026-08-16,`Q-EMBED-1` Sean 批)。
+   *
+   * 🔴 **與後台那個旗標的後果不同,不要當成同一件事**:
+   *   後台 `AdminOrderSummary.itemsTruncated` ⇒ **整單狀態被算錯**(`.every()` 對子集單調)
+   *   這裡                                    ⇒ **印一個少算的件數**
+   * ⇒ **客人看到「3 件」而實際訂了 600 件,他不會知道、也不會回報**(沒有第二個來源可以對)。
+   *
+   * ⚠️ **`true` = 「不知道完不完整」,不是「一定被截了」** —— 剛好 N 個品項的單也會命中。
+   * 🔴 顯示端**不得印 0、不得留空**;`itemCount` 那個數字本身**在旗標為真時不可信**。
+   */
+  itemCountTruncated: boolean;
 };
 
 // ── M-4a 訂單線:後台管理讀模型(order_source / payment_channel / admin 篩選 + 摘要)──
