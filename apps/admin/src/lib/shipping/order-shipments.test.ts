@@ -15,16 +15,19 @@ const listItemsByShipment = vi.fn();
 const listByCustomer = vi.fn();
 const listOrderCustomers = vi.fn();
 vi.mock('server-only', () => ({}));
-vi.mock('./shipment-repository', () => ({
+vi.mock('./shipment-repository', async () => ({
   listShipmentItemsByOrderItemIds: listItems,
   listShipmentsByIds: listShipments,
   listShipmentItemsByShipmentIds: listItemsByShipment,
   listShipmentsByCustomer: listByCustomer,
   listOrderCustomerUserIds: listOrderCustomers,
-  // 🔴 `vi.mock` 換掉整個模組 ⇒ 常數也要在這裡給,否則受測碼拿到 `undefined`。
-  //    這是複本,**真值與查詢實際送出的 `.limit(N+1)` 由 `shipment-repository.test.ts` 釘住**;
-  //    真值改了而這裡沒改,下面那兩格會紅(不是靜默通過)。
-  SHIPMENT_ITEM_ROWS_LIMIT: 500,
+  // 🔴🔴 **常數從【真模組】拿,不抄字面**(2026-08-16 code-reviewer R1 MF6 更正)。
+  //    ⚠️ **原本這裡寫死 `500`,而註解宣稱「真值改了這裡沒改,下面那兩格會紅」——【那句是假的】**:
+  //       受測碼與測試**讀的是同一個假值** ⇒ 真值改成 800 時兩邊都拿 500 ⇒ **靜默通過**。
+  //    ⇒ 用 `importActual` 讓它成為真值的**投影**而不是複本 —— 抄不動,就漂不掉。
+  SHIPMENT_ITEM_ROWS_LIMIT: (await vi.importActual<typeof import('./shipment-repository')>(
+    './shipment-repository',
+  )).SHIPMENT_ITEM_ROWS_LIMIT,
 }));
 
 const box = (over: Record<string, unknown> = {}) => ({
@@ -58,12 +61,70 @@ const titles = new Map([
   ['oi-2', 'Bonamici 腳踏後移'],
 ]);
 
+/**
+ * 🔴 `loadOrderShipments` 2026-08-16 起回 `OrderShipmentGroup[] | null`,
+ *    `null` = 箱品項清單**可能不完整**(截斷)⇒ fail-closed。
+ *    這支 helper 把「這一格的前提是【載得完整】」變成一條**會紅的斷言**,
+ *    而不是散在每一格的 `!` —— 用 `!` 的話,哪天某格真的開始回 null,
+ *    紅的會是一句看不懂的 `Cannot read properties of null`。
+ */
+const loadOk = async (t: ReadonlyMap<string, string | null>) => {
+  const { loadOrderShipments } = await import('./order-shipments');
+  const g = await loadOrderShipments(t);
+  expect(g, '本格前提是「載得完整」,而它回了 null(= 被判成截斷)').not.toBeNull();
+  return g!;
+};
+
+describe('🔴 出貨卡資料源:箱品項清單被截斷 ⇒ fail-closed 回 `null`(2026-08-16 codex 關卡1 ⑧)', () => {
+  // 🔴🔴 **這一族守的是「少報」,而少報【沒有人會發現】。**
+  //    截斷時 PostgREST 回的是**非空但不完整**的一包 ⇒ 若照常往下走:
+  //      出貨卡少列幾箱 ⇒ 員工以為貨不見了
+  //      出貨單那張紙少列幾件 ⇒ **客人少收到東西,而紙上看起來完全正常**
+  //      金額片接上去之後 ⇒ 本次小計偏低 = 對客可見的金額錯誤
+  //    ⇒ 與同檔 `loadEmptyShipments` 那族**同一個約定、同一個常數**,不自創第二套。
+
+  it('🔴 超過自夾上限 → 回 `null`,不是回一份少了東西的清單', async () => {
+    const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repository');
+    // 🔴 數量從 repository 的常數推,**不抄字面** —— 抄字面的話常數改了這格不會紅。
+    listItems.mockResolvedValue(
+      Array.from({ length: SHIPMENT_ITEM_ROWS_LIMIT + 1 }, (_, n) => ({
+        id: `si-${n}`,
+        shipmentId: 'sh-1',
+        orderItemId: `oi-${n}`,
+        shippedQuantity: 1,
+      })),
+    );
+    listShipments.mockResolvedValue([box({})]);
+    const { loadOrderShipments } = await import('./order-shipments');
+    expect(
+      await loadOrderShipments(titles),
+      '截斷時照常往下走 ⇒ 紙上少列品項而看起來完全正常。' +
+        '⚠️ 回 `[]` 也不行:那會被畫成「這張訂單還沒有任何包裹」⇒ 員工去建第二個箱。',
+    ).toBeNull();
+  });
+
+  it('🔴 正向對照:剛好等於上限(沒有第 N+1 筆)⇒ 正常回,不誤擋', async () => {
+    // 沒有這一格的話,把判定寫成 `>=` 會讓上一格照樣綠,而合法操作被誤擋。
+    const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repository');
+    listItems.mockResolvedValue(
+      Array.from({ length: SHIPMENT_ITEM_ROWS_LIMIT }, (_, n) => ({
+        id: `si-${n}`,
+        shipmentId: 'sh-1',
+        orderItemId: `oi-${n}`,
+        shippedQuantity: 1,
+      })),
+    );
+    listShipments.mockResolvedValue([box({})]);
+    const g = await loadOk(titles);
+    expect(g.length).toBe(1);
+  });
+});
+
 describe('出貨卡資料源', () => {
   it('🔴 作廢的箱**仍然列出來**(作廢=貨回到可出貨池,不是消失)', async () => {
     listItems.mockResolvedValue([{ id: 'si-1', shipmentId: 'sh-1', orderItemId: 'oi-1', shippedQuantity: 1 }]);
     listShipments.mockResolvedValue([box({ voidedAt: '2026-08-09T01:00:00Z', voidReason: '客人改地址' })]);
-    const { loadOrderShipments } = await import('./order-shipments');
-    const g = await loadOrderShipments(titles);
+    const g = await loadOk(titles);
     expect(g.length, '作廢的箱被過濾掉了 ⇒ 員工會以為那些貨憑空消失').toBe(1);
     expect(g[0]!.shipment.voidReason).toBe('客人改地址');
   });
@@ -75,8 +136,7 @@ describe('出貨卡資料源', () => {
       { id: 'si-3', shipmentId: 'sh-2', orderItemId: 'oi-2', shippedQuantity: 1 },
     ]);
     listShipments.mockResolvedValue([box(), box({ id: 'sh-2', shipmentReference: 'B9Q4RT' })]);
-    const { loadOrderShipments } = await import('./order-shipments');
-    const g = await loadOrderShipments(titles);
+    const g = await loadOk(titles);
     expect(g.length).toBe(2);
     expect(g.find((x) => x.shipment.id === 'sh-1')!.lines.length).toBe(2);
   });
@@ -87,16 +147,14 @@ describe('出貨卡資料源', () => {
       { id: 'si-9', shipmentId: 'sh-missing', orderItemId: 'oi-2', shippedQuantity: 1 },
     ]);
     listShipments.mockResolvedValue([box()]);
-    const { loadOrderShipments } = await import('./order-shipments');
-    const g = await loadOrderShipments(titles);
+    const g = await loadOk(titles);
     expect(g.length, '查不到的箱被吐成一組 ⇒ 畫面會出現沒有箱號的列').toBe(1);
   });
 
   it('品名由呼叫端的對照表帶入(資料層不碰 detail、更不碰金額)', async () => {
     listItems.mockResolvedValue([{ id: 'si-1', shipmentId: 'sh-1', orderItemId: 'oi-1', shippedQuantity: 1 }]);
     listShipments.mockResolvedValue([box()]);
-    const { loadOrderShipments } = await import('./order-shipments');
-    const g = await loadOrderShipments(titles);
+    const g = await loadOk(titles);
     expect(g[0]!.lines[0]!.title).toBe('Akrapovic 鈦合金頭段');
   });
 
