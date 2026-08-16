@@ -26,10 +26,14 @@ export async function generateMetadata({
 }: {
   params: Promise<{ id: string; shipmentId: string }>;
 }) {
+  // 🔴 **2026-08-17:標題跟著紙上那個一起改成「出貨明細單」**(code-reviewer R1 MF2)。
+  //    紙上寫「出貨明細單」而分頁名寫「出貨單」⇒ 兩個名字,而**瀏覽器列印時分頁名會印在頁首**
+  //    ⇒ 同一張紙上出現兩種單據名稱。這正是「只改被指名那一處」的形狀:
+  //    我改了 `ShippingDoc` 的 `<h1>`,而**這一支從頭到尾沒被指名過**。
   const { id } = await params;
-  if (!isOrderId(id)) return { title: '出貨單' };
+  if (!isOrderId(id)) return { title: '出貨明細單' };
   const detail = await getAdminOrderRepository().findAdminOrderDetail(id);
-  return { title: detail === null ? '出貨單' : `出貨單 ${detail.displayId}` };
+  return { title: detail === null ? '出貨明細單' : `出貨明細單 ${detail.displayId}` };
 }
 
 export default async function OrderShippingPrintPage({
@@ -50,6 +54,16 @@ export default async function OrderShippingPrintPage({
   //    慣例與 `components/orders/shipment-section.tsx:26` 逐字相同。
   const titleByItemId = new Map(detail.items.map((it) => [it.id, it.title]));
   const groups = await loadOrderShipments(titleByItemId);
+  // 🔴🔴 `null` = 箱品項清單**可能不完整**(截斷),不是「沒有箱」(2026-08-16 codex 關卡1 ⑧)。
+  //    ⇒ **這裡的正確行為與檔頭那句一致:讀不到時不要印出一張紙。**
+  //    若照常往下走,`group.lines` 會少幾列 ⇒ 紙上**少列品項**,而**紙看起來完全正常**。
+  //    ⚠️ 用 `notFound()` 而不是往下傳一個旗標:這條路徑上員工要的不是「印一張有警告的紙」,
+  //       是**不要印**。(⚠️ **與 `shippingDocBlocker` 那八面【不完全不同】** —— 其中**面6 就是「品項清單沒載完」**,
+  //       同一類,而它的處置是印一張只有 `<Alert>` 的紙。
+  //       ⇒ 這裡選 `notFound()` 的真理由不是「類別不同」,是**拿不到 `group` 就組不出 `ShippingDoc`**
+  //         —— 沒有 `shipment` 可傳,連那張 Alert 紙都畫不出來。(code-reviewer R1 MF5 更正)
+  //       而這一種是**我們連內容有沒有齊都不知道**。)
+  if (groups === null) notFound();
   const group = groups.find((g) => g.shipment.id === shipmentId);
   // 網址把不相干的箱與單湊在一起 ⇒ 這裡就結束,不進版面。
   if (group === undefined) notFound();

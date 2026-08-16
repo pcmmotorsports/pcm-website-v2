@@ -37,7 +37,7 @@ import { PrintButton } from './print-button';
 /**
  * 這張紙**不可以印**的原因;`null` = 可以印。
  *
- * 🔴 **為什麼收成一個函式而不是散在 JSX 裡**:這張紙有六種「印出來會害人做錯事」的狀態,
+ * 🔴 **為什麼收成一個函式而不是散在 JSX 裡**:這張紙有**八種**「印出來會害人做錯事」的狀態(原寫「六種」,2026-08-16 重數更正 —— 面8 與面2 是後補的,而那句話沒跟),
  * 散著寫的話少一種不會有任何症狀 —— 紙照印、看起來還很正常。收成一處才數得出來、才測得完。
  *
  * 🔴 **順序有意義**:先擋「這張紙根本不該存在」(取消/作廢),再擋「內容不可信」(截斷/對不上),
@@ -60,8 +60,20 @@ export function shippingDocBlocker(args: {
     return `這個包裹已作廢${shipment.voidReason === null ? '' : `(原因:${shipment.voidReason})`},不要出貨。`;
   }
   // 面6:品項清單沒載完 ⇒ 這箱裡屬於本單的品項可能少列,而少的那件不會有任何症狀。
+  //
+  // 🔴 **文案 2026-08-17 重寫,舊字面是一句假話**:原本逐字「請重新整理後再列印」,
+  //    而觸發它的是**固定上限**(`ORDER_ITEMS_EMBED_LIMIT = 200`,
+  //    `packages/adapters/src/supabase/mappers/order.ts:406`)—— 不是逾時、不是網路
+  //    ⇒ **重新整理一百次拿回來的是同一個數字**,那句話叫他去做一件永遠不會成功的事。
+  // 🔴 **立場(Sean 2026-08-17 逐字收窄方向之後)**:這道守門降級成**最後一道保險**,
+  //    **它響了一次 = 我們的分頁壞了,不是使用者做錯事** ⇒ 文案不准叫他重試、
+  //    不准寫得像他自己有辦法解決。治本方案在
+  //    `docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md`(等 Sean 批,鐵則 8)。
   if (detail.itemsTruncated) {
-    return '這張單的品項清單這次沒有完整載入,出貨單可能少列品項。請重新整理後再列印。';
+    // ⚠️ 逐字寫「達到 200 筆」不是「超過 200 筆」:判定是 `>=`
+    //    (`packages/adapters/src/supabase/mappers/order.ts:830`)⇒ **剛好 200 項就會走到這裡**。
+    //    🔴 而 Sean 2026-08-17 逐字說一張單「可能到 200 個品項」⇒ **正常業務的上緣就是這個值**。
+    return '這張訂單的品項達到 200 筆上限,系統一次列不完,出貨明細單會少印品項。這是系統的固定限制,不是暫時的狀況。請聯絡負責人處理,不要拿這張紙出貨。';
   }
   // 面5:這箱裡沒有任何屬於這張訂單的品項 ⇒ 網址把不相干的箱與單湊在一起。
   if (lines.length === 0) {
@@ -78,7 +90,7 @@ export function shippingDocBlocker(args: {
   //      而出貨單一直沒有(`grep -c 'items.length === 0' shipping-doc.tsx` 落地前 ⇒ 0)。
   //      合併時「以出貨單為本體」聽起來像保留出貨單的東西,**這道會靜默消失**,所以先補上。
   if (detail.items.length === 0) {
-    return '這張訂單讀不到任何品項,出貨單不能印。請重新整理;仍然一樣請回報。';
+    return '這張訂單讀不到任何品項,出貨明細單不能印。請重新整理;仍然一樣請回報。';
   }
   // 面7:箱裡的品項在訂單明細查不到 ⇒ 兩邊對不上,不用 `?? '—'` 蒙混過去。
   const known = new Set(detail.items.map((it) => it.id));
@@ -88,7 +100,7 @@ export function shippingDocBlocker(args: {
   }
   // 面3:收件快照讀不出來(jsonb 形狀不符)。
   if (shipment.recipientSnapshot === null) {
-    return '這個包裹的收件資料讀不出來(格式不符),不能印出貨單。請回報。';
+    return '這個包裹的收件資料讀不出來(格式不符),不能印出貨明細單。請回報。';
   }
   // 🔴 面2(`#503`):三個鍵可以全是空字串,而且那是**合法寫入**——
   //    寫入鏈四層沒有一層擋空(詳 `shipment-repository.ts` 的 `recipientSnapshot` docstring)。
@@ -241,14 +253,86 @@ export function ShippingDoc({
           「**兩個碼並排裸印,客人不知道該拿哪個去查**」。現在紙上有三個
           —— 訂單編號 / 箱號 / 追蹤碼 —— 而**只有追蹤碼是拿去別人家網站查的**。
           ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。 */}
+      {/* ── 抬頭七值(#10,2026-08-17 落地)──
+          🔴 **真權威是 OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html:228-241`**
+             (我當場開過,不是轉述;`list_projects` 當場列出該專案)。
+             repo 側 `docs/specs/2026-08-15-shipping-doc-content-contract.md:95-101` 七值逐字相同
+             ⇒ 兩個獨立來源吻合。
+          🔴 **一個字都不准正規化** —— 樣張 `:231-232` 自己的註解逐字:
+             「全形半形不動、+886 不改 0、LTD 後面沒有句點」。
+             ⚠️ `PCM MOTOR PARTS LTD` **沒有句點**是 Sean 親自推翻自己前一句的結果
+             (合約檔 `:315` 逐字「好啦～沒句點,抱歉」)⇒ 看到有句點的版本是過期來源。
+          🔴 **分級 = L2,不是 L1**(code-reviewer R1 MF6 更正我第一版):同一組公司登記資料
+             在 `apps/storefront/src/lib/site-config.ts:3` 已經標成 **L2(hardcode + TODO +
+             backlog `#248`)**,逐字還寫著「**此處為唯一真相,勿在各元件重複硬寫**」。
+             **兩個分級不能同時對** ⇒ 以既有那份為準。
+          ⚠️ **而這裡仍然重複寫了一份,那是刻意的**:`site-config.ts` 在 **storefront** 這個 app,
+             admin 不 import 它(跨 app 依賴 = 另一件事)。⇒ **代價是它們會各自漂**,
+             所以兩邊互指:那支檔的電話是 `+886-930-531-867`(連字號),
+             **紙上這份是空格版**,因為樣張要求逐字不正規化 —— **不是打錯,是兩個不同的用途**。
+             🔴 **而「兩邊互指」目前是【單向】的**(code-reviewer R2 F5 抓到我把它寫成互指):
+             **只有這裡指過去,`site-config.ts` 一個字沒動** —— 它 `:4` 仍逐字寫著
+             「此處為唯一真相,勿在各元件重複硬寫」,而這裡正是一份重複。
+             ⇒ **那一邊要補的那一行歸 storefront**(跨 app、另一片),**本片刻意不動**。
+             📌 真正的收斂點是 `#248`(登記資料進後台),不是在這裡再造一個常數。
+          ⚠️ 左側欄名(公司名稱/電話/…)是設計端自訂、非拍板值;右側八個字串才是。 */}
+      <header className='rounded-md border p-3 text-sm'>
+        <div className='text-muted-foreground mb-1 text-xs'>開立單位</div>
+        <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5'>
+          <dt className='text-muted-foreground'>公司名稱</dt>
+          <dd className='font-medium'>派達有限公司</dd>
+          <dt className='text-muted-foreground'>電話</dt>
+          <dd>+886 930-531-867</dd>
+          <dt className='text-muted-foreground'>電子郵件</dt>
+          <dd>sean@pcmmotorsports.com</dd>
+          <dt className='text-muted-foreground'>統一編號</dt>
+          <dd className='tabular-nums'>90003020</dd>
+          <dt className='text-muted-foreground'>地址</dt>
+          <dd>新北市新莊區化成路736巷18號1樓</dd>
+          <dt className='text-muted-foreground'>LINE</dt>
+          <dd>@pcmmoto</dd>
+          <dt className='text-muted-foreground'>英文名稱</dt>
+          <dd>PCM MOTOR PARTS LTD</dd>
+        </dl>
+      </header>
+
       <div className='flex flex-wrap items-center gap-3'>
-        <h1 className='text-2xl font-semibold'>出貨單</h1>
+        {/* 🔴 標題改「出貨明細單」+ 英文 + 用途說明,依樣張 `:244-250` 逐字。
+            ⚠️ 舊字面是「出貨單」,`page.test.tsx` 兩處 `toContain('出貨單')` 同批更新
+               —— `出貨明細單` **不包含** `出貨單` 這個子字串(明細二字插在中間),
+               不改那兩格會紅,而它們紅得對。 */}
+        <div>
+          <h1 className='text-2xl font-semibold'>出貨明細單</h1>
+          <div className='text-muted-foreground text-xs'>Shipping / Picking Document</div>
+          {/* 🔴🔴 **樣張的用途說明兩行【刻意還不印】**(code-reviewer R2 F4 抓到,我原本照抄了)。
+              樣張逐字是「倉庫揀貨核對 · 隨貨交付客戶」+「同一張紙兩用:先在倉庫對箱勾選,
+              再隨商品出貨」—— **而這張紙上沒有勾選欄**(本檔 `Section` 的 `<th>` 只有
+              料號 / 品名規格 / 數量;勾選欄在 `components/print/picking-doc.tsx` 那張紙上)。
+              ⇒ **印出來就是一條員工做不到的指示**,與本片剛清掉的那句假話同一個病。
+              🔴 **「逐字照樣張」擋不住這一條** —— 樣張的前提(揀貨單與出貨單已合併成一張)
+                 **還沒成立**;字面沒抄錯,是**它描述的那個世界還不存在**。
+              ⇒ 合併片落地時把這兩行一起補上,那時它才是真的(登記在
+                 `docs/specs/2026-08-16-shipping-doc-sample-vs-impl.md` §4)。 */}
+        </div>
         <span className='text-xl font-semibold tabular-nums'>
           <span className='text-muted-foreground text-sm font-normal'>訂單編號 </span>
           {detail.displayId}
         </span>
         <span className='font-mono text-sm'>箱號 {shipment.shipmentReference}</span>
-        <PrintButton label='列印' />
+        {/* 🔴 **擋住內容卻沒擋住列印鈕 = 守門裝在沒有事的那條路上**(2026-08-17 修)。
+            改之前這顆鈕在紅字**上面**、不受 `blocked` 影響 ⇒ 員工按得下去,
+            **而印出來的紙上只有那一行紅字** —— 一張沒有用的紙照樣被印出來、照樣可能被放進箱子。
+            🔴🔴 **而這【不是】一道守門,只是不再主動遞刀**(code-reviewer R1 MF4):
+               `print-button.tsx:5-7` 自己就寫著「為什麼要有這顆鈕、而不是叫員工按 Ctrl+P」
+               ⇒ **作者早就知道 ⌘P 那條路存在,拿掉鈕擋不住它。**
+            🔴 **真正的解法在樣張,而它還沒做**:樣張 `shipping-picking-doc-a4.html` 的
+               **樣張 B(`:459-553`)** 是一整幅「本單不得出貨」的阻印版面(28pt 大字 + 訂單號 +
+               原因 + 四條「請照這樣做」+ 逐字「本頁不含品項明細。這不是資料漏印,是刻意不印。」),
+               設計端對同一件事的答案逐字是 `:551`「**印出來看起來正常的紙,員工就會照做,
+               所以警告必須佔滿這個位置**」—— 而現行只有一行 `<Alert>`(下方 `blocked` 分支)。
+            ⇒ **已登記、本片刻意不做**(它是樣張 §4 清單第 7 項、獨立一片)。
+               **登記不等於處置完畢**;在它落地之前,⌘P 印出來的紙仍然只有一行紅字。 */}
+        {blocked === null && <PrintButton label='列印' />}
       </div>
 
       {blocked !== null ? (
@@ -277,10 +361,10 @@ export function ShippingDoc({
                 {shipment.carrierNote !== null && shipment.carrierNote.trim() !== '' &&
                   `(${shipment.carrierNote})`}
               </span>
-              {/* 🔴 出貨日:未出貨時印**列印當天**(Sean 拍甲,**明知偶爾會與系統差一天**)
+              {/* 🔴 這一格(`Q-C6` 之後叫「日期」):未出貨時印**列印當天**(Sean 拍甲,**明知偶爾會與系統差一天**)
                   ⇒ 設計需求書逐字要求**不要**加「以系統為準」之類的但書。照做,不加。
 
-✅ **`Q-C6` 已答,而他給的是第三個答案**:Sean 2026-08-16 逐字
+                  ✅ **`Q-C6` 已答,而他給的是第三個答案**:Sean 2026-08-16 逐字
                   「**改成: 日期 這兩個字就好**」⇒ 見下方那一行。 */}
               {/* 🔴 **`Q-C6`:Sean 2026-08-16 逐字「改成: 日期 這兩個字就好」** ——
                   他沒有從我給的兩個選項挑,自己給了第三個。**不要自作聰明加字**

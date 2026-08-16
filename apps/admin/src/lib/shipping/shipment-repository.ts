@@ -324,6 +324,14 @@ export async function listShipmentsByCustomer(customerUserId: string): Promise<S
  *
  * ⚠️ 本函式**沒有實跑驗證**(本 worktree 無 DB)。`!inner` + 巢狀 `.is()` 的過濾語意
  * 是照 PostgREST 文件寫的,真行為要收割端的 smoke 驗。
+ *
+ * 🔴🔴 **已知未守:本支【沒有 `limit` 也沒有截斷訊號】**(2026-08-16 code-reviewer R1 MF1 指出,
+ *    本片**刻意不修**,理由見下)。
+ *    **它的輸入基數比同檔另外兩支【都大】** —— 是「N 張訂單的全部品項」(`shipment-candidates.ts`)。
+ *    ⚠️ **截斷的後果比出貨單那支嚴重**:`already` 少算 ⇒ **已裝箱的品項顯示成還可以出**
+ *    ⇒ **同一件被裝進第二個箱** —— 正是本函式上方那段拚命要擋的那件事。
+ *    ⇒ **不在本片修的理由**:修它要連呼叫端(建箱彈窗候選流程)一起 fail-closed,
+ *      那是另一條動線、另一片。**登記不等於處置完畢** —— 已寫進 STOP 信要求開 backlog。
  */
 export async function listAssignedQuantitiesByOrderItemIds(
   orderItemIds: readonly string[],
@@ -466,10 +474,27 @@ export async function listShipmentItemsByShipmentIds(
 }
 
 /**
- * 給一組訂單品項 id,查出它們分別裝在哪些箱(訂單詳情頁的出貨卡用)。
+ * 給一組訂單品項 id,查出它們分別裝在哪些箱(訂單詳情頁的出貨卡 + **出貨單那張紙**用)。
  *
  * ⚠️ 回傳的箱子**可能還裝著別單的品項** —— 箱子掛客人不掛訂單。
  * 呼叫端要自己決定只列本單的品項(C-3 線框上那句話講的就是這件事)。
+ *
+ * 🔴🔴 **截斷訊號(2026-08-16 補;codex 金額片關卡1 抓的)**:
+ *    這支原本**沒有 `limit`、沒有截斷訊號、呼叫端也沒檢查**,而**上面那支
+ *    `listShipmentItemsByShipmentIds` 早就有**(同一支檔、同一個形狀)⇒ 兩支並排看差別一眼。
+ *    ⚠️ **後果不對稱**:PostgREST 截斷時回的是**非空但不完整**的一包
+ *    ⇒ 出貨單上**少列品項**、而金額片接上去之後**本次小計也會偏低**,
+ *    **而且紙看起來完全正常。**
+ *    🔴 **少報比多報壞**:多報客人會打電話來問,**少報沒有人會發現。**
+ *    ⇒ 沿用本檔既有的 N+1 形狀與同一個常數,**不自創第二套**。
+ *
+ * 🔴🔴 **而本檔查 `shipment_items` 的是【三支】,不是兩支**(code-reviewer R1 MF2 更正 —— 我原本寫兩支):
+ *    數法:`grep -c "\.from('shipment_items')" 本檔` ⇒ **3**(前面那個 `.` 少不得 —— 不加會撈到這行註解自己)。
+ *    ```
+ *    listShipmentItemsByShipmentIds    ✅ 早就有 limit
+ *    listShipmentItemsByOrderItemIds   ✅ 本次補上（就是這一支）
+ *    listAssignedQuantitiesByOrderItemIds  ❌ 【仍然沒有】—— 見它自己的 docstring
+ *    ```
  */
 export async function listShipmentItemsByOrderItemIds(
   orderItemIds: readonly string[],
@@ -480,7 +505,10 @@ export async function listShipmentItemsByOrderItemIds(
   const { data, error } = await createSupabaseServiceClient()
     .from('shipment_items')
     .select('id, shipment_id, order_item_id, shipped_quantity')
-    .in('order_item_id', [...orderItemIds]);
+    .in('order_item_id', [...orderItemIds])
+    // 🔴 N+1:回傳剛好 N 是「正好這麼多」,回傳 N+1 才代表**可能還有更多**。
+    //    常數與上面那支共用 —— 兩支查的是同一張表,分開兩個數字只會讓人以為它們有差別。
+    .limit(SHIPMENT_ITEM_ROWS_LIMIT + 1);
   if (error) throw error;
   return (data ?? []).map((r) => ({
     id: r.id,

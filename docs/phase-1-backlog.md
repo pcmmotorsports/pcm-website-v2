@@ -14236,6 +14236,54 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 - **關閉條件:** (a)(b) 有書面結論寫回 ADR-0005 §8.4,且 (c) 那格**用突變驗過會紅**(新增第五道 disable ⇒ 必須失敗)。
 - **相關:** `docs/decisions/0005-custom-supabase-direct.md` §8.4;`docs/patterns/revoking-function-execute-in-supabase.md`;`#545`;`#546`;`#547`
 
+### #555 · `listAssignedQuantitiesByOrderItemIds` 無截斷訊號 —— 截斷會讓**同一件被裝進第二個箱**
+
+> ✅ **號碼已跑兩道閘**(2026-08-17 I 窗):
+> ① `sh scripts/next-backlog-number.sh` ⇒ 三層(主樹 `553` / 12 worktree `554` / 37 ref `553`)
+> 取最大 `554` ⇒ 下一個可用 `#555`(**`#554` 是 B 窗 `00:2x` 剛立的,主視窗當場告知**);
+> ② `grep -rn '#55[5-9]' ~/pcm-mailbox/*.md` ⇒ **零命中**。
+> 🔴 **那個零附正向對照與分母**:同一支 grep 換 `#55[0-4]` ⇒ **2 個檔命中**、
+> 分母 `ls ~/pcm-mailbox/*.md | wc -l` ⇒ **2957 檔** ⇒ 那個 0 是量出來的,不是 pattern 沒對上。
+
+- **狀態:** 未開工。**來源 = C 窗**(出貨單線),它在 `C-214-STOP.md` §4① 指名要開而**它沒有號可用**
+  ⇒ **I 窗搬運立案**。📎 **搬運者不是判斷者** —— 下面的事實與判斷都是 C 窗的。
+- **分流:** `P1` · **優先級:** 🟠 中高(**會產生錯的出貨,而畫面完全正常**)
+
+#### 事實(I 窗開原始檔核過,不是採信轉述)
+
+```
+apps/admin/src/lib/shipping/shipment-repository.ts:336   該函式本體：無 limit、無截斷訊號
+同檔 :511                                                 另一支 listShipmentItemsByOrderItemIds
+                                                          有 .limit(SHIPMENT_ITEM_ROWS_LIMIT + 1)
+同檔 :329-334                                             C 窗已把這件寫進該函式自己的 docstring
+```
+⇒ **同一支檔裡,兩支查同一張表的函式,一支有守一支沒有。**
+
+#### 為什麼這支比另一支嚴重(C 窗的判斷,原樣帶)
+
+- **它的輸入基數比同檔另外兩支【都大】** —— 是「N 張訂單的品項集合」,出處 `shipment-candidates.ts:68`。
+  ⚠️ **「比另外兩支都大」是 C 窗的判斷,I 窗未自己量**(要量的話:三支的呼叫端各自餵進去的 id 數,
+  數法 `grep -rn 'listAssignedQuantitiesByOrderItemIds\|listShipmentItemsByOrderItemIds' apps/admin/src --include='*.ts' | grep -v test`)
+  ⇒ **引用時要帶這個限定。**
+- 截斷 ⇒ `already`(已配箱數)**少算** ⇒ **已裝箱的品項顯示成還可以出** ⇒ **同一件被裝進第二個箱**。
+- 🔴 **那正是這支函式上方那段 docstring 拚命要擋的那件事** —— 守門與它要守的東西寫在同一段,而它沒有守。
+
+#### 為什麼 C 窗沒有在那一片修(它自己寫的理由)
+
+修它**要連呼叫端(建箱彈窗候選流程)一起 fail-closed**,那是另一條動線、另一片。
+🔴 **「登記」不等於「處置完畢」** —— 這條就是那個登記。
+
+#### 不修未來會痛在哪(鐵則 10,不寫「待 Sean 決定」空泛句)
+
+**它安靜。** 截斷發生時**沒有任何東西會紅** —— 沒有錯誤、沒有警告,
+畫面上就是「這個品項還可以出貨」,而它其實已經在另一個箱子裡。
+⇒ 發現的時機是**客人收到兩箱一樣的東西**、或倉庫發現貨對不上,
+**而那時候沒有人會想到是一支查詢回傳被截斷了。**
+
+- **關閉條件:** (a) 該函式有 `limit` + 截斷訊號 (b) 呼叫端收到截斷訊號時 **fail-closed**(不給建箱,不是顯示半個答案)(c) 有一格負測:**餵超過上限的品項數 ⇒ 必須擋、且該格用突變驗過會紅**。
+- **相關:** `C-214-STOP.md` §4①;`apps/admin/src/lib/shipping/shipment-repository.ts:329`;`#551`
+- **發現於**:2026-08-16 · C 窗 code-reviewer R1 MF1 · **I 窗 2026-08-17 搬運立案**
+
 ### #553 · 報價單庫 `cron.job` 的**排程定義裡疑似寫著祕密**
 
 > ✅ **號碼已確認**(2026-08-17 I 窗,兩道閘都跑、第二道不接 `head`):

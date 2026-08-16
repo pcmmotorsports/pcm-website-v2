@@ -40,7 +40,16 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
         <OrderShipButton orderId={detail.id} />
       </div>
 
-      {groups.length === 0 ? (
+      {/* 🔴🔴 `null` = 本單的箱品項清單**可能不完整**(截斷),不是「沒有箱」
+          (2026-08-16 codex 關卡1 ⑧;約定與下方空箱區的 `empties === null` 逐字相同)。
+          ⇒ **fail-closed:寧可不列,也不要列一份少了幾箱/幾件的清單** ——
+             員工看到少一箱會以為貨不見了、看到少一件會以為已經出完。 */}
+      {groups === null ? (
+        <p className='text-muted-foreground text-sm'>
+          這一單的包裹清單這次<b>沒能完整載入</b>,先不列(寧可不列,也不要列一份少了東西的清單)。
+          請重新整理這一頁再看一次;還是一樣請找工程師,<b>不要憑印象出貨或作廢</b>。
+        </p>
+      ) : groups.length === 0 ? (
         <p className='text-muted-foreground text-sm'>
           這張訂單還沒有任何包裹。按右上角<b>建立包裹</b>直接出這一單;要和這位客人的其他訂單裝同一箱,
           請到<b>訂單列表</b>勾選那幾張單、按「出貨」。
@@ -73,7 +82,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                            (檔頭 `:10-11`:讓員工看得到貨回到可出貨池)⇒ 入口要自己擋。
                         ⚠️ **但這只是 UX,不是守門** —— 網址可貼、可書籤、分頁開著時箱才被作廢,
                            那些路徑全繞過這顆鈕。真守門在 `components/print/shipping-doc.tsx`
-                           的 `shippingDocBlocker()`(擋六種狀態)。**兩層都要,少了下面那層這顆鈕等於零。** */}
+                           的 `shippingDocBlocker()`(擋**八種**狀態;原寫六種,2026-08-16 重數更正)。**兩層都要,少了下面那層這顆鈕等於零。** */}
                     {!voided && (
                       <Link
                         href={`/print/orders/${detail.id}/shipping/${shipment.id}`}
@@ -81,7 +90,12 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                         rel='noopener'
                         className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-xs'
                       >
-                        列印出貨單
+                        {/* 🔴 名稱跟著那張紙一起改(2026-08-17):紙上與分頁名都已是
+                            「出貨明細單」(`components/print/shipping-doc.tsx` 的 `<h1>` 與
+                            `app/print/orders/[id]/shipping/[shipmentId]/page.tsx` 的
+                            `generateMetadata`)⇒ 入口鈕留著舊名,員工會以為是兩種不同的單。
+                            數法 `git grep -n '列印出貨單' -- apps/admin/src` ⇒ 落地前 1 處,就是這裡。 */}
+                        列印出貨明細單
                       </Link>
                     )}
                     {/* 🔴 「填單號並標記出貨」—— **只在「未作廢且未出貨」時出現**。
@@ -133,7 +147,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
       )}
 
       {/* 🔴 這句話是必要的,不是贅字:同一箱可能還裝著別單的東西,而本卡只列本單的。 */}
-      {groups.length > 0 && (
+      {groups !== null && groups.length > 0 && (
         <p className='text-muted-foreground mt-3 text-xs'>
           這裡只列<b>這張訂單</b>在各箱裡的品項。同一箱可能還裝著這位客人其他訂單的東西。
         </p>

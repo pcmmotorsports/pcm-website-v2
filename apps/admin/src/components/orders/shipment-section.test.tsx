@@ -103,6 +103,30 @@ describe('#351④ 空箱區', () => {
   //
   // 🔴 `null` = 算不出來(查不到客人 / 品項列被截斷),`[]` = 真的沒有空箱。
   //    這兩者原本畫出來**一模一樣**(整區不出現)⇒ 員工照彈窗文案來這裡,看到一張空白頁。
+  describe('🔴 本單包裹清單算不出來時(loadOrderShipments 回 null)', () => {
+    // 🔴🔴 **這一族 2026-08-16 才補,而在它之前那個 null 分支【零測試】** ——
+    //    code-reviewer R1 MF3 抓的:把整段 null 分支刪掉退回 `groups.length === 0`,
+    //    105 格照樣全綠。**我加的守門自己沒有守門。**
+    //    ⚠️ 形狀就在同一支檔的下面(`empties === null` 那族),而我沒抄。
+    it('🔴 要講出來,不是畫成「還沒有任何包裹」', async () => {
+      loadOrderShipments.mockResolvedValue(null);
+      render(await ShipmentSection({ detail }));
+      expect(
+        screen.queryByText(/沒能完整載入/),
+        '截斷靜默 ⇒ 與「這張訂單還沒有任何包裹」畫面相同 ⇒ 員工會去建第二個箱。',
+      ).not.toBeNull();
+      // 🔴 正向對照:那句「還沒有任何包裹」**不可以同時出現** —— 兩句意思相反。
+      expect(screen.queryByText(/還沒有任何包裹/)).toBeNull();
+    });
+
+    it('🔴 不列任何箱 —— 寧可不列,也不要列一份少了東西的清單', async () => {
+      loadOrderShipments.mockResolvedValue(null);
+      render(await ShipmentSection({ detail }));
+      // 底下那句「這裡只列這張訂單…」是清單存在時才該出現的
+      expect(screen.queryByText(/這裡只列/)).toBeNull();
+    });
+  });
+
   describe('算不出來時(null)', () => {
     it('🔴 要講出來,不是靜默消失', async () => {
       loadEmptyShipments.mockResolvedValue(null);
