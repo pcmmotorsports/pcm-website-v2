@@ -144,6 +144,25 @@ CREATE TRIGGER admin_user_staff_map_no_delete_trg
   BEFORE DELETE ON public.admin_user_staff_map
   FOR EACH ROW EXECUTE FUNCTION public.admin_user_staff_map_no_delete();
 
+-- 🔴🔴 `TRUNCATE` **不會觸發 BEFORE DELETE trigger**,而且 **不受 RLS 管**
+--    ⇒ 上面那道保護對 `TRUNCATE` 完全無效(關卡2 R2 實跑:整表被清空、trigger 沒響)。
+--    主防線是「REVOKE 掉 TRUNCATE 權限」,而**這一道是第二層** ——
+--    因為權限可能被別人改回來,而那時不會有任何東西提醒你。
+CREATE FUNCTION public.admin_user_staff_map_no_truncate()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $notruncate$
+BEGIN
+  RAISE EXCEPTION E'admin_user_staff_map 不得 TRUNCATE。\n'
+    '   TRUNCATE 會清掉全部映射 ⇒ 稽核軌從此對不到人,而且它不受 RLS 也不觸發 DELETE trigger。\n'
+    '   ⇒ 要清空請說明理由並走人工程序,不要用 TRUNCATE。';
+END
+$notruncate$;
+
+CREATE TRIGGER admin_user_staff_map_no_truncate_trg
+  BEFORE TRUNCATE ON public.admin_user_staff_map
+  FOR EACH STATEMENT EXECUTE FUNCTION public.admin_user_staff_map_no_truncate();
+
 -- ───────────────────────────────────────────────────────────────────────────
 --  3. 收權
 --     🔴 兩道都要下(規格 §2 / docs/patterns/revoking-function-execute-in-supabase.md):
@@ -151,10 +170,22 @@ CREATE TRIGGER admin_user_staff_map_no_delete_trg
 --     🔴 新物件【出生那一刻】就自帶 anon/authenticated 權限(Supabase 的 ALTER DEFAULT PRIVILEGES),
 --        而那個授權在 repo 裡沒有 GRANT 語句可以被掃到 ⇒ grep 型守門看不到、三綠不紅。
 -- ───────────────────────────────────────────────────────────────────────────
+-- 🔴🔴🔴 **第三個 grantee:`service_role`**(關卡2 R2 [must-fix],2026-08-16 實跑重現)
+--    Supabase 的 ADP 是 `GRANT ALL … TO anon, authenticated, **service_role**`。
+--    我上面 :150-152 記下了前兩個,**漏掉同機制的第三個** ——
+--    而我對 service_role **只有 GRANT(加法)、從來沒有 REVOKE**
+--    ⇒ 這張表【出生就帶】 UPDATE / DELETE / TRUNCATE 給 service_role
+--    ⇒ **R1 高1「不給 UPDATE」那個修法被原封打開,append-only 的宣稱在正式庫是假的。**
+--    實跑重現:`set role service_role; UPDATE … set auth_user_id=…` 成功重綁;
+--             `set role service_role; TRUNCATE` 成功清空,而 no_delete trigger **不觸發**。
+--    📎 **這是同一個形狀第三次:鎖了前門開了後門,而我每次都以為關完了。**
+--       前兩次是 DELETE→UPDATE、UPDATE→ADP。**先 REVOKE ALL 再 GRANT 需要的,才是正確順序。**
 REVOKE ALL ON TABLE    public.admin_user_staff_map FROM PUBLIC;
-REVOKE ALL ON TABLE    public.admin_user_staff_map FROM anon, authenticated;
-REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete() FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete() FROM anon, authenticated;
+REVOKE ALL ON TABLE    public.admin_user_staff_map FROM anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete()   FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_delete()   FROM anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_truncate() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_truncate() FROM anon, authenticated, service_role;
 
 -- 🔴🔴 **不給 UPDATE**(關卡2 [高] finding,2026-08-16)。
 --    原版給了 `UPDATE`,而 `UPDATE` 可以直接把 auth_user_id 或 staff_id 換掉
@@ -199,7 +230,8 @@ $rls_premise$;
 DO $newobj_guard$
 DECLARE
   v_relations text[] := ARRAY['public.admin_user_staff_map']::text[];
-  v_functions text[] := ARRAY['public.admin_user_staff_map_no_delete()']::text[];
+  v_functions text[] := ARRAY['public.admin_user_staff_map_no_delete()',
+                              'public.admin_user_staff_map_no_truncate()']::text[];
   r         text;
   v_oid     oid;
   v_bad     int := 0;
@@ -251,6 +283,27 @@ BEGIN
   --    ⚠️ 拋棄式空庫只有我建的三個角色 ⇒ 這一條在樁上幾乎恆綠,它是為【正式庫】寫的。
   DECLARE v_extra text;
   BEGIN
+    -- 🔴🔴 **service_role 不再被豁免**(關卡2 R2 [must-fix])。
+    --    原版寫 `NOT IN ('service_role', current_user)` ⇒ **即使它握有 UPDATE/DELETE/TRUNCATE 也恆綠**
+    --    ⇒ 這個守門在設計上看不到上面那個洞。**豁免誰,就對誰盲。**
+    --    改成:service_role 的權限必須【恰好】是 SELECT+INSERT,多一項就紅。
+    DECLARE v_sr text;
+    BEGIN
+      SELECT string_agg(DISTINCT a.privilege_type, ',' ORDER BY a.privilege_type)
+        INTO v_sr
+        FROM pg_class c
+             CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+       WHERE c.oid = to_regclass('public.admin_user_staff_map')
+         AND a.grantee::regrole::text = 'service_role';
+      IF coalesce(v_sr, '') <> 'INSERT,SELECT' THEN
+        RAISE EXCEPTION E'新物件收權斷言:service_role 的權限是 [%],預期恰好 [INSERT,SELECT]。\n'
+          '   🔴 多出來的那些多半來自 Supabase 的 ALTER DEFAULT PRIVILEGES(它也授權給 service_role)。\n'
+          '   ⇒ 補 `REVOKE ALL ON TABLE … FROM service_role;` 放在 GRANT 之前。\n'
+          '   ⚠️ UPDATE 能重綁身分、TRUNCATE 能清空整表且不受 RLS 也不觸發 DELETE trigger。',
+          coalesce(v_sr, '(無)');
+      END IF;
+    END;
+
     SELECT string_agg(DISTINCT a.grantee::regrole::text, ', ')
       INTO v_extra
       FROM pg_class c

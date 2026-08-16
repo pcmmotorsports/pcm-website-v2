@@ -92,7 +92,15 @@ echo "── ③ 可授權物件數 vs 收權斷言清單長度 ─────�
 # 🔴 原版把 CREATE TRIGGER 也數進去 ⇒ 在合格檔上 3 vs 2 誤報漏列。
 #    trigger 沒有 ACL,列進斷言清單反而會 to_regclass 找不到而紅。
 OBJ=$(sed 's/--.*$//' "$F" | grep -cE '^CREATE (TABLE|VIEW|MATERIALIZED VIEW|FUNCTION)' || true)
-LST=$(grep -E "^ *v_(relations|functions) text\[\] :=" "$F" | grep -oE "'[^']+'" | wc -l | tr -d ' ')
+# 🔴 必須支援【跨行的 ARRAY[...]】。原版只抓 `v_xxx text[] :=` 那一行,
+#    而清單一旦換行(元素多了自然會換行),後面幾行就數不到
+#    ⇒ 在一個【清單其實是對的】檔上誤報「有漏列」。2026-08-16 實際發生過。
+#    ⇒ 從 `v_relations|v_functions` 那一行起,一路吃到 `]::text[]` 為止。
+LST=$(awk '
+  /^[[:space:]]*v_(relations|functions)[[:space:]]+text\[\][[:space:]]*:=/ { inlist=1 }
+  inlist { print }
+  inlist && /\]::text\[\]/ { inlist=0 }
+' "$F" | grep -oE "'[^']+'" | wc -l | tr -d ' ')
 if [ "$OBJ" != "$LST" ]; then
   echo "🔴 可授權物件 $OBJ 個,斷言清單列了 $LST 個 ⇒ 有漏列"
   echo "   ⇒ 收權斷言【只檢查你列出來的物件】:它防「忘記收權」,不防「忘記列」。"

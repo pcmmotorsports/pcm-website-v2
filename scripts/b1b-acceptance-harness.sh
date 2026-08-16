@@ -74,17 +74,26 @@ mk_stub_base() {
 mk_stub_adp() {
   # 🔴 模擬 Supabase 對 public schema 掛的 ALTER DEFAULT PRIVILEGES。
   #    少了這一行,A2 那格是恆綠的(見檔頭)。
-  run_sql "alter default privileges in schema public grant all on tables to anon, authenticated;
-           alter default privileges in schema public grant execute on functions to anon;"
+  # 🔴🔴 **必須含 service_role**(關卡2 R2 實錘):真 Supabase 的 ADP 是
+  #    `GRANT ALL … TO anon, authenticated, service_role` 三個。
+  #    原版只給前兩個 ⇒ **A9 那格量的是一個 service_role 只有明文 GRANT 的世界**,
+  #    而正式庫上 service_role 由 ADP 拿到 ALL ⇒ A9 在正式庫會是 green(UPDATE 成功)。
+  #    **樁少了一個 grantee,對應的那一格就量錯世界。**
+  run_sql "alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+           alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;"
 }
-drop_objs() { run_sql "drop table if exists public.admin_user_staff_map cascade; drop function if exists public.admin_user_staff_map_no_delete();"; }
+# 🔴 每加一個新物件,這裡要跟著加。2026-08-16 就是漏了 no_truncate ⇒ A0 之後全部連鎖紅,
+#    而症狀看起來像「migration 壞了」,真因是【上一格沒清乾淨】。
+drop_objs() { run_sql "drop table if exists public.admin_user_staff_map cascade;
+                       drop function if exists public.admin_user_staff_map_no_delete();
+                       drop function if exists public.admin_user_staff_map_no_truncate();"; }
 
 mk_stub_base
 
 echo ""
 echo "══ 第一段:【假綠實例】A2 在沒有 ADP 的樁上不會紅 ══"
 drop_objs
-sed '/REVOKE ALL ON TABLE    public.admin_user_staff_map FROM anon, authenticated;/d' "$B1B" > "$D/a2.sql"
+sed '/^REVOKE ALL ON TABLE    public.admin_user_staff_map FROM anon, authenticated, service_role;$/d' "$B1B" > "$D/a2.sql"
 if [ "$(diff <(wc -l < "$B1B") <(wc -l < "$D/a2.sql") > /dev/null; echo $?)" = "0" ]; then
   echo "  🔴 突變沒生效(行數沒變)—— 這一格失去判別力"; FAIL=$((FAIL+1))
 else
@@ -121,6 +130,11 @@ cell "A9c insert as service_role(對照)" green run_sql \
   "set role service_role; insert into public.admin_user_staff_map(auth_user_id,staff_id) values ('aaaaaaaa-0000-0000-0000-000000000002','staff_1');"
 # A8 真正的對照組是「表沒被鎖死」⇒ 用 SELECT,不用 UPDATE
 cell "A9b select(對照:表沒鎖死)" green run_sql "select 1 from public.admin_user_staff_map limit 1;"
+# 🔴🔴 A10:TRUNCATE —— 關卡2 R2 實跑證明它【不受 RLS 管、也不觸發 BEFORE DELETE trigger】
+#    ⇒ 在 REVOKE 掉 TRUNCATE 之前,service_role 可以整表清空而零攔截。
+#    兩層防護:主防線是 REVOKE、第二層是 BEFORE TRUNCATE trigger。這一格兩層一起驗。
+cell "A10 truncate as service_role(要紅)" red run_sql \
+  "set role service_role; truncate public.admin_user_staff_map;"
 
 drop_objs
 # 🔴 突變要錨在【現在真的存在】的那一行。2026-08-16 移除 UPDATE 授權之後,
