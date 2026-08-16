@@ -15,43 +15,65 @@ const VALID = '1234567891';
 const BAD_CHECK = '1234567890';
 
 describe('只驗 hct —— 而且要證明「沒被誤報」不是因為測資剛好合法', () => {
-  it('🔴 sf 不驗(規則未查證,不是豁免)', () => {
+  it('🔴 sf 不驗檢查碼(規則未查證,不是豁免)', () => {
     expect(trackingNumberIssue('sf', BAD_CHECK)).toBeNull();
-    expect(trackingNumberIssue('sf', 'ABC')).toBeNull();
-    // 🔴 **正向對照**:同樣這兩個值餵給 hct 都會有問題 ⇒ 上面兩個 `null` 是「沒驗」不是「驗過沒事」。
+    // 🔴 **正向對照**:同一個值餵給 hct 會有意見 ⇒ 上面那個 `null` 是「沒驗」不是「驗過沒事」。
     expect(trackingNumberIssue('hct', BAD_CHECK)).not.toBeNull();
-    expect(trackingNumberIssue('hct', 'ABC')).not.toBeNull();
   });
 
-  it('other 不驗(自取/自送本來就沒有貨號)', () => {
-    expect(trackingNumberIssue('other', 'ABC')).toBeNull();
-    expect(trackingNumberIssue('hct', 'ABC')).not.toBeNull(); // 正向對照,同上
-  });
-
-  it('未知代碼也不驗 —— 我們對它一無所知,不能假裝驗過', () => {
-    expect(trackingNumberIssue('zzz', 'ABC')).toBeNull();
-    expect(trackingNumberIssue('hct', 'ABC')).not.toBeNull();
+  it('other / 未知代碼也不驗檢查碼', () => {
+    expect(trackingNumberIssue('other', BAD_CHECK)).toBeNull();
+    expect(trackingNumberIssue('zzz', BAD_CHECK)).toBeNull();
+    expect(trackingNumberIssue('hct', BAD_CHECK)).not.toBeNull(); // 正向對照
   });
 });
 
-describe('hct:只有【長度】擋,字元集與檢查碼都只警告(R1 MF2 重新對齊證據強度)', () => {
+describe('hct:🔴 三條【全部只警告】—— 本 lib 不擋任何東西(Q-C551=乙)', () => {
   it('合法貨號 ⇒ 沒問題', () => {
     expect(trackingNumberIssue('hct', VALID)).toBeNull();
     expect(trackingNumberIssue('hct', ` ${VALID} `)).toBeNull(); // 前後空白不算錯
   });
 
-  it('🔴 長度不是 10 ⇒ block(四處、跨兩章節印證,本檔證據最硬的一條)', () => {
-    for (const bad of ['123456789', '12345678912', 'ABC']) {
-      expect(trackingNumberIssue('hct', bad)?.level, `${bad} 長度不對，應該被擋`).toBe('block');
+  it('🔴🔴 「長度必須是 10」那條【已經拿掉】,不是降級 —— Sean 說每家貨運不一樣', () => {
+    // Sean 2026-08-16 逐字「我們每一家貨運都不一樣,不限制多少數字或者號碼,最長 39位數」。
+    // ⇒ 9 碼、11 碼、非數字…**通通不出意見**。留著那條會對 sf 噪音誤報,
+    //   而噪音警告的下場是被無視 —— 那會連帶讓【真正的】警告失效。
+    for (const ok of ['123456789', '12345678912', 'ABC', 'ABCDEFGHIJ', '12345 6789', 'SF-2026-0042']) {
+      expect(trackingNumberIssue('hct', ok), `${ok} 不該有任何意見`).toBeNull();
     }
   });
 
-  it('🔴🔴 長度對但不是純數字 ⇒ 只 warn,【不】block(R1 MF2:它與檢查碼同源同級)', () => {
-    // 「純數字」只在參考檔出現一次，而且就在「檢查碼」的【相鄰上一行】、同一份 PDF。
-    // ⇒ 我第一版把它擋、把檢查碼放行，兩者證據一樣弱而分成兩級 = 分級理由與結果對不上。
-    for (const bad of ['ABCDEFGHIJ', '12345 6789', '１２３４５６７８９０']) {
-      const r = trackingNumberIssue('hct', bad);
-      expect(r?.level, `${bad} 長度是 10，只該警告`).toBe('warn');
+  it('🔴🔴 上限 39 的正負對照 —— 沒有這格,「不限位數」會被讀成「完全不檢查」', () => {
+    // 39 這個數字的出處:**Sean 口述,未見書面來源**(不是查證結果)。
+    const n = (len: number) => '1'.repeat(len);
+    expect(trackingNumberIssue('hct', n(39)), '39 位是上限本身，要過').toBeNull();
+    expect(trackingNumberIssue('hct', n(40))?.level, '40 位要警告').toBe('warn');
+    // 🔴 上限是【全部貨運商】共用的,不是 hct 專屬 ⇒ sf / other / 未知碼都要接住。
+    for (const c of ['sf', 'other', 'zzz']) {
+      expect(trackingNumberIssue(c, n(39)), `${c} 39 位要過`).toBeNull();
+      expect(trackingNumberIssue(c, n(40))?.level, `${c} 40 位要警告`).toBe('warn');
+    }
+  });
+
+  it('🔴🔴 全域斷言:【沒有任何輸入】會回 block —— 這是本片最重要的一格', () => {
+    // ⚠️ **這格【抓不到什麼】要先講**:實作若整支恆回 null，它照樣綠 ⇒ **不能當覆蓋率證據**。
+    //    它是**單向**的:只證「沒有 block」，不證「該警告的有警告」（那是上面那幾格的事）。
+    // 🔴 為什麼還要它:上面那幾格是逐條釘，而這一格釘的是**性質**——
+    //    下一個人只要在任何一條分支寫回 'block'，這格就紅，不必等他改到被釘住的那幾條。
+    //    ⚠️ 「擋住員工」的真實後果不是他停下來回報，是他把貨運商改成「其他」硬送
+    //       ⇒ 資料被寫壞而且事後看不出來。那比擋住他嚴重一級。
+    const inputs = ['', '   ', 'ABC', '123456789', '12345678912', 'ABCDEFGHIJ', '１２３４５６７８９０',
+      '12345 6789', '1234567890', VALID, '0000000000', '1'.repeat(40), '1'.repeat(39)];
+    for (const carrier of ['hct', 'sf', 'other', 'zzz']) {
+      for (const v of inputs) {
+        expect(trackingNumberIssue(carrier, v)?.level, `${carrier} / "${v}" 回了 block`).not.toBe('block');
+      }
+    }
+  });
+
+  it('🔴 「必須純數字」那條也拿掉了 —— Sean 逐字「不限制多少數字或者【號碼】」', () => {
+    for (const ok of ['ABCDEFGHIJ', '12345 6789', '１２３４５６７８９０']) {
+      expect(trackingNumberIssue('hct', ok), `${ok} 不該有任何意見`).toBeNull();
     }
   });
 

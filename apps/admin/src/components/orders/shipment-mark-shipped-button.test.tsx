@@ -42,11 +42,11 @@ function open(carrierCode = 'hct') {
 const VALID = '1234567891'; // 123456789 % 7 = 1
 
 describe('🔴 #551 MF1:這條路也要有貨號守門(它是「先建箱、後出貨」的唯一入口)', () => {
-  it('長度不對 ⇒ 擋住,而且講得出哪裡不對', () => {
+  it('🔴🔴 超過上限 39 位 ⇒ 只警告,**按鈕仍然可以按**(本片不擋任何東西)', () => {
     const { type: t, submit } = open();
-    t('ABC123');
-    expect(submit().hasAttribute('disabled')).toBe(true);
-    expect(screen.queryByText(/貨號是 10 碼/)).not.toBeNull();
+    t('1'.repeat(40));
+    expect(screen.queryByText(/最長 39 位/)).not.toBeNull();
+    expect(submit().hasAttribute('disabled')).toBe(false);
   });
 
   it('🔴🔴 檢查碼不對 ⇒ 警告但【不擋】(與建箱彈窗同一支 lib、同一個分級)', () => {
@@ -65,13 +65,13 @@ describe('🔴 #551 MF1:這條路也要有貨號守門(它是「先建箱、後�
 
   it('🔴 順豐不驗 —— 配同值餵 hct 的正向對照,證明不是測資剛好合法', () => {
     const sf = open('sf');
-    sf.type('ABC123');
-    expect(sf.submit().hasAttribute('disabled')).toBe(false);
+    sf.type('1234567890');
+    expect(screen.queryByText(/檢查碼對不上/)).toBeNull();
     cleanup();
     // 正向對照:同一個值在 hct 下立刻被擋。
     const hct = open('hct');
-    hct.type('ABC123');
-    expect(hct.submit().hasAttribute('disabled')).toBe(true);
+    hct.type('1234567890');
+    expect(screen.queryByText(/檢查碼對不上/)).not.toBeNull();
   });
 
   it('既有那道「非 other 必須有單號」沒有被我改壞', () => {

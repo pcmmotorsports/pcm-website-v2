@@ -52,9 +52,23 @@ export function trackingDisplay(args: {
   if (tracking !== '') {
     return { kind: 'number', label: `${carrierLabelOf(carrierCode)}追蹤碼`, value: tracking };
   }
-  // 情形①:順序在 other 之前 —— 還沒出貨的 `other` 箱要講「尚未出貨」,不是「自取自送」。
+  // 情形①:順序在 other 之前 —— 還沒出貨的 `other` 箱走這一支,不是「自取自送」那一支。
+  //
+  // 🔴🔴 **`Q-C9b` = 乙(Sean 2026-08-16 逐字「什麼都不寫 ,空格」)⇒ `text` 是空字串。**
+  //    原本印「尚未出貨,出貨後補」,而 `Q-C5`=乙 之後**那個「補」的管道不存在**
+  //    (通知信暫緩、沒有會員訂單頁、storefront 零 `trackingNumber`)⇒ 那句話是對客的假承諾。
+  //    ⚠️ **空格就是空格** —— 不要填一個「看起來比較完整」的字。
+  //
+  // 🔴🔴 **與情形③(`missing`)長得一模一樣,而它們【必須】是兩條分支:**
+  //    ```
+  //    情形①  還沒出貨、沒有追蹤碼  ⇒ 正常   ⇒ 紙上【空白】
+  //    情形③  已出貨、非 other、沒有 ⇒ DB 說不可能 ⇒ 紙上【fail-loud 印請回報】
+  //    ```
+  //    ⚠️ 兩者在資料上都是「沒有追蹤碼」,**差別只在 `shippedAt`**。
+  //    **合併成「都留空」會把一個資料鏈的洞變成看不見的** —— 那正是情形③ 存在的理由。
+  //    ⇒ 兩條各有一格守門(`shipping-doc-dispatch.test.ts` 與紙面的 `page.test.tsx`)。
   if (shippedAt === null) {
-    return { kind: 'pending', text: '尚未出貨,出貨後補' };
+    return { kind: 'pending', text: '' };
   }
   // 情形②
   // 🔴 **`carrierNote` 刻意【不】在這裡重印一次**(R1 must-fix 4):它已經印在「貨運商」那格

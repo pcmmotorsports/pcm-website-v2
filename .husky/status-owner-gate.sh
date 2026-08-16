@@ -60,6 +60,12 @@ git diff --cached --quiet --no-renames -- STATUS.md && exit 0
 # 🔴 用 `git diff` 比,不用 blob OID 比(2026-08-16 codex F2):
 #    blob 只帶內容、**不帶 file mode** ⇒ merge 後 `chmod +x STATUS.md && git add` 兩顆 OID 仍相等 ⇒ 誤放行。
 #    `git diff` 看得到 mode。順帶也修好「STATUS.md 在某一側不存在」那格(兩側都沒有 ⇒ 無 diff ⇒ 正確放行)。
+#    ⚠️ **這一半是【條件性】的:mode 偵測依賴 `core.fileMode=true`**(V 窗 R2 期間抓到、I 窗獨立實測確認)。
+#       乾淨 repo 實測:`core.fileMode=true` ⇒ chmod 後 `git diff --cached --quiet` rc=1(抓到);
+#                       `core.fileMode=false` ⇒ rc=0(**靜默失效**)。
+#       本 repo 當下 `git config core.fileMode` ⇒ `true`,所以現在是有效的。
+#       ⇒ **不是 regression**(舊的 blob-OID 比法【永遠】看不到 mode,新法嚴格 ≥ 舊法),
+#         但**引用「F2 已修」時要帶這個限定**,並記得它是**環境設定**、換一台機器可能就不成立。
 if [ -f "$GIT_DIR/MERGE_HEAD" ]; then
   BASE=$(git merge-base HEAD MERGE_HEAD 2>/dev/null || true)
   # `[ -n "$BASE" ]` 不可拿掉:BASE 為空時 "$BASE:STATUS.md" 會被解成 ":STATUS.md"(= index 那顆)⇒ 恆等 ⇒ 誤放行。
