@@ -14116,6 +14116,40 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
   (把 `matcher` 改窄一條 / 拿掉某頁的自驗 ⇒ 必須有東西失敗)。
 - **相關:** `apps/admin/src/proxy.ts`;`apps/admin/src/lib/session/authorize.ts`;`#546`;E8-B 真登入線
 
+### #549 · ADR-0005 §8.4 對自己下的「重新評估」義務**已被觸發而無人接**
+
+> ⚠️ **號碼佔位,待主視窗確認**(`bash scripts/next-backlog-number.sh` → 下一個可用 `#549`;
+> `git show dev:docs/phase-1-backlog.md | grep -cE '^### #549 '` → `0`)。
+
+- **狀態:** 未開工(**制度債,不是活洞**)
+- **由來(2026-08-16,code-reviewer 審 `6a25da43` 的 must-fix 5,B 窗立案)**
+- **原文(`docs/decisions/0005-custom-supabase-direct.md`「與既有例外的區別」段末)逐字:**
+  > 日後若有第二個 storefront service_role 需求、須重新評估是否該抽 `apps/api/`(決策1 選項 B)、**不可逕援本例外擴張**。
+- **問題:** 第二、三、四道門**已經存在**,而那次「重新評估」**沒有發生過**。
+  ```
+  量法:git grep -n "eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'
+  2026-08-16 實跑 = 4 處
+    apps/storefront/src/lib/auth/composition.ts:21
+    apps/storefront/src/lib/auth/line-admin.ts:24      ← §8.4 拍板的那一道
+    apps/storefront/src/lib/email/composition.ts:18
+    apps/storefront/src/lib/payment/composition.ts:32
+  ```
+- 🔴 **不是說那三道門違規** —— 它們各自可能都有拍板、都合法。
+  **壞的是:ADR 寫了一句「再有下一個就要回來重評」,然後有了三個,而那句話沒有任何機制會叫。**
+  ⇒ 這正是**「寫下來就當成處置完畢」**那個形狀:條款存在、零訊號、100% 不會被執行。
+- **要做的:**
+  - (a) 逐道門查它的拍板來源(有沒有 ADR / Sean 拍板 / 只是當時順手開的),補齊或補立 ADR 條目
+  - (b) 執行那次被欠的重評:**現在四道門了,還要不要抽 `apps/api/`**(決策1 選項 B)
+  - (c) 🔴 **把「幾道門」這件事做成會紅的東西** —— 例如一格測試釘住
+    `eslint-disable-next-line no-restricted-imports` 在 `apps/storefront/src/**` 的**出現次數**,
+    新增一道就紅、逼人回來看 ADR。**沒有 (c),(a)(b) 做完還會再過期一次。**
+- **三視角:**
+  - **擴充性:** 真登入線與後續會員相關片都可能想再開一道,現在沒有任何東西會攔下來問「你評估過了嗎」
+  - **可維護性:** ADR 是最權威的載體,而它現在有一句**已被違反卻仍讀起來有效**的條款
+  - **bug 可追蹤性:** service_role 多一個持有點就多一條可能外洩到 client bundle 的路徑,而**目前每道門各自只有 `import 'server-only'` 這一道自保**
+- **關閉條件:** (a)(b) 有書面結論寫回 ADR-0005 §8.4,且 (c) 那格**用突變驗過會紅**(新增第五道 disable ⇒ 必須失敗)。
+- **相關:** `docs/decisions/0005-custom-supabase-direct.md` §8.4;`docs/patterns/revoking-function-execute-in-supabase.md`;`#545`;`#546`;`#547`
+
 ### #513. 🏷️ 「經銷價與商品特價都走 `discount_total`」—— 這個設計決定目前唯一的載體是一句對話
 
 - **狀態:** ⏳ 待執行(**不是缺陷,是缺載體**)
