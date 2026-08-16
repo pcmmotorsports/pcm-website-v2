@@ -114,8 +114,50 @@
   消費端數法 `git grep -c ADMIN_ORDER_DETAIL_SELECT -- packages apps | grep -v test`,
   byte-equal 守門在 `SupabaseOrderAdapter.test.ts`)⇒ **不觸發鐵則 12⑥**,風險留在新的這一邊。
   這正是 `page.tsx:67-69` 已經寫下的既有立場(逐字「讓新來的自己多做一點」)。
-- **新查詢的投影比明細窄**:只需要 `id / title / sku / spec / quantity / quantitySummary`
-  ⇒ **零 PII、零價格**,白名單比現行那份**更安全**,不是更寬。
+- **新查詢的投影比明細窄** ⇒ **零 PII、零價格**,白名單比現行那份**更安全**,不是更寬。
+
+#### 🔴 那「6 個欄」已從【我列的需求】升級成【量出來的】(2026-08-17,主視窗要求)
+
+**量法(可重跑)**:對 `apps/admin/src/components/print/shipping-doc.tsx` 掃品項欄位的用法
+`git grep -nE '\bitem\.|\bit\.' -- apps/admin/src/components/print/shipping-doc.tsx`,
+再加上兩支數量算式 `git grep -n 'item\.' -- apps/admin/src/lib/shipping/shipping-doc-quantities.ts`。
+**逐處分類的結果**:
+
+| 欄 | 誰在用 |
+|---|---|
+| `id` | `known` 集合(面7 孤兒判定)、`itemById`、`<tr key>` |
+| `variantSku` / `title` / `spec` | `<ItemCells>` 三處 |
+| `quantity` | 只在 `lines`(箱那半)用到,**品項本身的 `quantity` 目前沒有被印**;仍取,因為它是「訂購數」的權威來源、金額片會用 |
+| `quantitySummary` | `outstandingQuantity`(`shipping-doc-quantities.ts:73`)與 `cancelledQuantityOf`(`:89`) |
+
+⇒ **6 個,與我原本列的一致 —— 而現在它是量出來的。**
+⚠️ **未取而金額片會需要的**:`unitPrice` / `lineTotal`(現行紙上零金額,見本檔 §3)。
+⚠️ **刻意不取**:`procurements` / `procurementTruncated` —— **它們自己是另一個內嵌上限**
+(`ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`),取了等於把同一個病帶進新的查詢。
+
+#### 🔴 這支 reader 必須住在 `packages/adapters`,不能住在 `apps/admin`
+
+**原本我打算放 `apps/admin/src/lib/shipping/`(與 `shipment-repository.ts` 同層)。實查之後改了。**
+`product_snapshot` → `title` / `spec` 的防禦解析與 `quantitySummary` 的映射,
+在 `packages/adapters/src/supabase/mappers/order.ts` 是**私有函式**
+(數法 `git grep -n 'function pickString\|function pickSpec\|function mapQuantitySummary' -- packages`
+⇒ 三支皆無 `export`)⇒ **放 admin 就得抄一份。**
+📎 **而我今晚剛立案的 `#602` 講的正是這個病**:同一份資料兩份實作、互指單向、日後各自漂。
+⇒ **reader 放在 mapper 旁邊,重用那三支私有函式。**
+
+#### ⚠️ 一個型別上的岔路,我選了窄的那條
+
+`ShippingDoc` 現在收 `detail: AdminOrderDetail` 並讀 `detail.items`(型別 `AdminOrderDetailItem[]`,
+**含 `unitPrice` / `lineTotal` / `procurements` / `procurementTruncated`**)。
+新 reader 只取 6 欄 ⇒ **型別對不上**。兩條路:
+
+| | 做法 | 代價 |
+|---|---|---|
+| **窄型別**(選這條) | 新增 `AdminOrderPrintItem` = 那 6 欄;`ShippingDoc` 改收 `items` 這個獨立 prop | 動 `packages/domain` 型別 + 元件簽章 + 其測試 |
+| 補齊型別 | 新 reader 連 `unitPrice`/`lineTotal`/`procurements` 一起取 | **把 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 這個內嵌上限帶進新查詢** ⇒ 同一個病換個位置 |
+
+⇒ **選窄型別。** 理由不是「比較乾淨」,是**補齊型別那條會把我們正在拿掉的那道牆重新裝回去**。
+⚠️ `ShippingDoc` 的消費端數法 `git grep -n 'ShippingDoc' -- apps/admin/src | grep -v test` ⇒ **改簽章前當場重數**。
 
 **成本(往返次數是算的,延遲是未量)**
 - 一張 **500 品項**的單,頁大小 1000 ⇒ **1 次**;頁大小 200 ⇒ **3 次**(`ceil(500/200)`)。
