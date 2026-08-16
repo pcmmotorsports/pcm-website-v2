@@ -618,6 +618,29 @@ describe('BMW M:--border-soft 三階邊框(片3)', () => {
   });
 });
 
+describe('BMW M:摘要卡髮絲線格(片4a)', () => {
+  const cards = () =>
+    readFileSync(
+      join(__dirname, '..', 'components', 'orders', 'order-detail-summary-cards.tsx'),
+      'utf8',
+    ).replace(/\/\*[\s\S]*?\*\//g, ''); // 剝註解:上面那段註解逐字寫了這些 class 名
+
+  it('🔴🔴 `gap-px` 與 `bg-border` 是一組 —— 少一個,分隔線就不存在', () => {
+    // OD `:251-253` 的髮絲線是「格線縫隙透出容器底色」:
+    //   只有 gap-px ⇒ 四格緊貼、完全沒有線;只有 bg-border 而 gap=0 ⇒ 底色被格子蓋住、看不到。
+    // 🔴 兩者拆開來看都像「無害的樣式類別」,所以要把它們釘在同一格,理由才跟著走。
+    const src = cards();
+    const grid = /className='grid[^']*'/.exec(src)?.[0];
+    expect(grid, '找不到摘要卡的 grid 容器').toBeDefined();
+    expect(String(grid), '髮絲線格少了 gap-px').toContain('gap-px');
+    expect(String(grid), '髮絲線格少了 bg-border(縫隙沒有底色可透)').toContain('bg-border');
+  });
+
+  it('🔴 每一格要有自己的底色 —— 否則整塊都是 border 色', () => {
+    expect(cards(), '卡片格少了 bg-card').toMatch(/const CARD = '[^']*bg-card/);
+  });
+});
+
 describe('BMW M:三色條(片2)', () => {
   it('🔴 三個色停是【硬寫的 hex】,不得被「收進 token」', () => {
     // OD `:83-86` 明文:這三停不在 tokens.css、是品牌圖案、**絕不當按鈕底色**。

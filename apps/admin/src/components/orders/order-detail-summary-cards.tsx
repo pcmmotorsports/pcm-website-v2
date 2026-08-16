@@ -37,8 +37,29 @@ import {
   formatOrderDateTime,
 } from '../../lib/orders/order-detail-view';
 
-const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
-const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-medium';
+/* ═══ BMW M 片4a:摘要卡改成 OD 的「髮絲線格」+ 小標字體 ═══════════════════════════
+   **逐字搬 OD `overview-desktop-bmw-m.html:251-257` 的 `.specs` / `.spec` / `.spec .l`。**
+
+   🔴 **分隔線是【格線縫隙透出底色】,不是每張卡自己畫框**:
+      OD `:251-252` = `gap:1px; background:var(--border); border:1px solid var(--border)`
+      + `:253` `.spec{background:var(--surface)}` ⇒ **1px 的縫讓容器底色透出來當線。**
+      我方對應 = 容器 `gap-px bg-border border`、每格 `bg-card`(見下方 grid)。
+      ⚠️ **這不是「把 gap-4 改小」** —— 舊版是四張**浮著的卡**(各自有框、中間 16px 空隙),
+         新版是**一塊被切成四格的面板**。**視覺分組的語意變了**,而那正是 BMW M 的樣子。
+   ⚠️ **`rounded-lg` 一併拿掉**:片1 已把 `--radius-lg` 釘成 0 ⇒ **它今天就已經是方角、拿掉零視覺差**;
+      留著只會讓下一個人以為這裡還有圓角。**這是清掉一個誤導字面,不是改外觀。**
+
+   🔴 **小標字體 = OD `.spec .l`(`:256-257`),而三件裡一樣只搬得動兩件**:
+      OD = `font-size:var(--text-xs); font-weight:700; letter-spacing:1.5px; text-transform:uppercase`。
+        ✅ 搬 `font-weight:700`(`font-medium` → `font-bold`)與 `letter-spacing:1.5px`。
+        🔴 **不搬 `uppercase`** —— 四個標題全是中文(客戶資訊 / 收件與出貨 / 付款 / 發票),
+           **對 CJK 是 no-op**:寫上去畫面一個像素都不會變,卻會留下一行「已照 OD 做大寫」的假字面。
+           **與訂單表表頭同一個判斷,不是各自決定的。**
+   ⬜ **OD `.spec .v` 那個「大數字」沒有做** —— 它需要先決定「一張訂單的頭條數字是哪三個」,
+      **而這個面板現在沒有任何頭條數字**(全是 label-value 欄位)⇒ **那是內容決策,不是樣式**,
+      已排給 Sean。**不要看到 `.spec` 就順手把 `.v` 也補上去。** */
+const CARD = 'bg-card p-4 text-card-foreground';
+const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-bold tracking-[1.5px]';
 const ROW = 'flex justify-between gap-4 py-1 text-sm';
 const ROW_LABEL = 'text-muted-foreground shrink-0';
 
@@ -94,7 +115,12 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
 
 export function OrderSummaryCards({ detail }: { detail: AdminOrderDetail }) {
   return (
-    <div className='grid gap-4 @md:grid-cols-2 @4xl:grid-cols-4'>
+    /* 🔴 `gap-px bg-border border` = OD `.specs` 的髮絲線格(見 `CARD` 上方那段的完整理由)。
+       ⚠️ **`gap-px` 與 `bg-border` 是一組,少一個就不成立**:只有 `gap-px` 會變成四格緊貼、
+          完全沒有分隔線;只有 `bg-border` 而 gap 是 0 則底色永遠被格子蓋住、看不到。
+       ⚠️ **容器斷點(`@md` / `@4xl`)一個字沒動** —— 那條的理由(同一份明細有整頁與面板兩個容器)
+          與本片無關,不要順手一起改。 */
+    <div className='grid gap-px border bg-border @md:grid-cols-2 @4xl:grid-cols-4'>
       <section className={CARD}>
         <h2 className={CARD_TITLE}>客戶資訊</h2>
         <Field label='姓名' value={detail.customer.name} />
