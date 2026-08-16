@@ -134,7 +134,53 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
  *    **檔名對不上是刻意的**,「為什麼不改名」寫在 `goodsAxisProgressNote` 的 docstring
  *    (E 窗 2026-08-15 `E-629` nit1)。⇒ **動這一格的渲染 = 必跑那六格。**
  */
+/* ═══ `itemsTruncated` 閘(2026-08-16 片4c)══════════════════════════════════════════
+   🔴🔴 **這一片的範圍比它被登記的樣子大,而那個差別是我實查出來的、不是規格寫的。**
+
+   backlog 登記的是「**那行小字**沒有截斷閘」。實查之後,**軸的標籤本身也沒有** ——
+   而**標籤那半嚴重得多**:
+     · 小字錯 = 印出一個**少算的分數**(「本單 N 件中已訂 M 件」,N/M 只加總前 200 列)
+     · 標籤錯 = 印出一個**錯的狀態**。`goodsAxisOfLines` 三條判定都是 `.every(...)`
+       ⇒ **看得見的 200 件全出貨了就答「已出貨」,而沒載進來的那 50 件可能一件都沒出。**
+   ⇒ **員工看到「已出貨」會停止動作。** 少算一個數字他還會去查;講錯狀態他不會。
+   ⚠️ **字面是「已出貨」不是「出貨完成」**(code-reviewer 2026-08-16 抓到我引錯):
+      `出貨完成` 是**列表**八值 `ORDER_STATUS_LABEL.paid.shipped`,**這一格印的是**
+      `GOODS_AXIS_LABEL.shipped` = `已出貨`(`order-list-view.ts` 搜 `shipped: '已出貨'`)。
+      🔴 我原本那句戲劇性描述,描述的其實是**列表那條軸** —— 而列表那條有它自己的問題(見下)。
+
+   🔴 **截斷是【單向樂觀】—— 不會往保守的方向錯,所以只能 fail-closed。**
+      `.every()` 對子集**單調**:全集為真 ⇒ 子集必為真;反之不然。
+      ⇒ **子集算出來的階段恆 ≥ 真實階段**,不存在「因為截斷而停在較低階」那個方向。
+      ⚠️ **我第一版寫「兩個方向都會錯…軸會停在較低階(保守、無害)」,那句是錯的**
+      (code-reviewer 2026-08-16 抓到):我舉的例(沒載進來的已出貨、看得見的沒出)
+      **全集算出來也是同一個低階 ⇒ 那根本不是錯誤,是正確答案。**
+      🔴 把一個「非錯誤」寫成「錯誤的另一個方向」,會讓下一個人以為這裡有雙向風險要權衡,
+         而**真相是單向的、沒有權衡空間**。同檔 `order-status-axes.ts` 搜 `剛好給對答案`
+         記過同型教訓:「用錯的分母剛好給對答案,不是它對」。
+
+   ⚠️ **閘只能裝在這裡,不能裝進 `goodsAxisOfLines`** —— 它的參數型別刻意收窄成
+      「有 `items`、每件帶 `quantity` 與 `quantitySummary`」,看不到 `itemsTruncated`
+      (理由寫在 `orderDetailGoodsAxis` 的 docstring)。這與頭條那格是**同一個結構決定**。
+
+   📎 **文案對齊既有兄弟**:`shipping-doc.tsx` 搜 `品項清單這次沒有完整載入` 與
+      `item-procurement-section.tsx` 的 `TruncationWarning` 都是同一句起手。
+      **這裡不用 banner** —— 它住在一個 label-value 的窄格裡,banner 會把整張卡撐開。
+
+   ⚠️ **風險已量、代價不對稱(與頭條那格同一組理由)**:
+      `ORDER_ITEMS_EMBED_LIMIT = 200`(`packages/adapters/src/supabase/mappers/order.ts`
+      搜 `ORDER_ITEMS_EMBED_LIMIT`)⇒ 機車零件單實務上到不了。
+      **但讀它的代價只是「截斷時改印未知」,不讀它的代價是【講錯狀態而零訊號】。** */
 function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
+  if (detail.itemsTruncated) {
+    return (
+      <>
+        未知
+        <span className='text-muted-foreground block text-xs'>
+          這張單的品項清單這次沒有完整載入,算不出出貨狀態。請重新整理。
+        </span>
+      </>
+    );
+  }
   const note = goodsAxisProgressNote(detail.items);
   return (
     <>
@@ -167,9 +213,8 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
  *          ⇒ 正確講法:**同一支算式 + 同一個來源欄位,而「兩邊傳同一個引數」靠呼叫端自律、不是型別。**
  *    ③ `detail.itemsTruncated` ⇒ 品項數那格一個數字都不印。
  *       🔴 **這道只有這裡擋得到**:`goodsQuantityHeadline` 的參數型別看不到這個旗標(刻意的)。
- *       風險已量:`ORDER_ITEMS_EMBED_LIMIT = 200`(`packages/adapters/src/supabase/mappers/order.ts`
- *       搜 `ORDER_ITEMS_EMBED_LIMIT`)⇒ 一張單超過 200 個品項才會被截,機車零件單實務上到不了。
- *       **但代價不對稱**:讀它 = 截斷時改印「未知」;不讀它 = 印出一個少算的數而**零訊號**。
+ *       📎 **風險量測與「代價不對稱」的完整論證只寫一處** —— 見本檔上方 `GoodsAxisValue`
+ *       前面那段(搜 `ORDER_ITEMS_EMBED_LIMIT`)。**兩處全文會漂**,這裡只留指標。
  *    ④ **扣已取消件數** —— 見下方那段。
  *
  * 🔴 **④ 的註解釘在【一致性】,不釘在某個數字上**:

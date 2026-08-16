@@ -1,20 +1,21 @@
 import Link from 'next/link';
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
-import {
-  PAYMENT_STATUS_LABEL,
-  GOODS_AXIS_LABEL,
-  ORDER_SOURCE_LABEL,
-  PAYMENT_CHANNEL_LABEL,
-  formatOrderAmount,
-  INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
-} from '../../lib/orders/order-list-view';
-import { orderDetailGoodsAxis, goodsAxisProgressNote } from '../../lib/orders/order-status-axes';
-import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
-import {
-  invoiceTypeLabel,
-  shippingMethodLabel,
-  formatOrderDateTime,
-} from '../../lib/orders/order-detail-view';
+/* 🔴🔴 **片4a 搬家留下的 11 個死 import 已一次清完**(2026-08-16 片4c)。
+   `GoodsAxisValue` 與四張摘要卡在片4a 搬進 `order-detail-summary-cards.tsx`,
+   **而它們用的 import 全部留在這裡沒跟著走。** 清掉的 11 個:
+     `PAYMENT_STATUS_LABEL` `GOODS_AXIS_LABEL` `ORDER_SOURCE_LABEL` `PAYMENT_CHANNEL_LABEL`
+     `formatOrderAmount` `INVOICE_STATUS_LABEL` `customerEmailDisplay`
+     `invoiceTypeLabel` `shippingMethodLabel` `orderDetailGoodsAxis` `goodsAxisProgressNote`
+   **數法**:`for s in <每個符號>; do grep -c "$s" <本檔>; done` ⇒ 全部 **1**(只命中 import 行本身)。
+   留下的只有 `formatOrderDateTime`(實得 3)。
+
+   ⚠️ **`lint --force` 18/18 全綠抓不到它們** —— `eslint.config.js` 全檔 `grep -n unused` 零命中,
+      沒有 `no-unused-vars` / `unused-imports` 規則 ⇒ **結構上抓不到,不是這次剛好沒抓到。**
+   🔴 **真實傷害不是體積**:code-reviewer 找「軸的消費者」時命中這裡,據以判斷本檔是第二個消費者
+      —— **一個不存在的消費者比沒有消費者更花時間。**
+   🔴🔴 **而我第一版【只清了被指名的那 2 個】** —— 同一批、同一次搬家、同一種傷害的另外 9 個
+      原封不動,是下一輪 code-reviewer 抓的。**finding 是症狀的位置,不是病的邊界。** */
+import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { OrderEditForm } from './order-edit-form';

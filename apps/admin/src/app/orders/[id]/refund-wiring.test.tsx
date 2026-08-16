@@ -581,6 +581,73 @@ describe('出貨狀態的解釋小字', () => {
     const text = await render([line(6, 3), line(4, 0)]);
     expect(text).toContain('（本單 10 件中已訂 3 件）');
   });
+
+  /**
+   * 🔴🔴 **`itemsTruncated` ⇒ 連【軸的標籤】都不印,不只小字。**
+   *
+   * backlog 登記的是「小字沒有截斷閘」,而實查之後**標籤那半也沒有,且嚴重得多**:
+   * `goodsAxisOfLines` 三條判定都是 `.every(...)`
+   * ⇒ **看得見的 200 件全出貨就答「已出貨」,而沒載進來的那些可能一件都沒出。**
+   * ⚠️ 字面是 `已出貨`(`GOODS_AXIS_LABEL.shipped`);`出貨完成` 是**列表**八值、不是這一格。
+   * ⇒ 少算一個數字員工還會去查;**講錯狀態他會停止動作。**
+   *
+   * 🔴🔴 **fixture 必須用 `line(4, 4, 1)`(軸 = 已向廠商訂貨),不能用 `line(2,2,2,2)`。**
+   *    我第一版用了後者,而**它分不開兩種實作** —— `2,2,2,2` 的軸是 `shipped`,
+   *    而 `goodsAxisProgressNote` 對 `shipped` **本來就回 `null`**
+   *    ⇒ `not.toContain('本單')` 在那個 fixture 上**恆真**
+   *    ⇒ 「只擋標籤、小字照印」那發突變**照樣全綠 37/37**。
+   *    📎 **這與 R3 一小時前抓到我的那條是同一個病**(fixture 的形狀讓兩種寫法收斂到同一輸出),
+   *       而我在讀完那條之後**立刻又犯了一次** ⇒ 判別句要在**選 fixture 的那一刻**問,
+   *       不是在寫完斷言之後問:**我這組 fixture,分得開我宣稱的那兩件事嗎?**
+   *
+   * 🔴 **兩條反向斷言各擋一半**,兩發突變分別證過(見下方那格的 `已出貨`):
+   *   `not('已向廠商訂貨')` 擋「標籤照印」/ `not('本單')` 擋「小字照印」
+   */
+  it('🔴 itemsTruncated:軸的標籤與小字【都】不印,改印未知', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({
+        // 軸 = 已向廠商訂貨(4 件訂滿、到貨 1)⇒ **標籤與小字【兩者都會出現】**,兩半才都測得到。
+        items: [line(4, 4, 1)],
+        itemsTruncated: true,
+      } as unknown as Partial<AdminOrderDetail>),
+    );
+    const text = (await renderPage()).container.textContent ?? '';
+    // 🔴🔴 **錨要含「出貨狀態未知」這個【相鄰串】,不能只釘說明句**(code-reviewer 抓到,第三發突變):
+    //    第三種錯誤實作 = **閘只回說明 span、不印「未知」** ⇒ 那一列變成沒有值、只剩一行灰字,
+    //    而上面三條斷言【全過】。
+    //    ⚠️ 而直覺的補法 `toContain('未知')` **恆真** —— 同一頁的 `HeadlineNumbers` 在
+    //    `itemsTruncated` 時也印「未知」(同檔搜 `qty === null ? '未知'`)⇒ 那個字全頁不只一處。
+    //    ⇒ 釘 label + 值 + 說明的**相鄰串**:`textContent` 會把它們接起來,而那串全樹唯一。
+    expect(text).toContain('出貨狀態未知這張單的品項清單這次沒有完整載入');
+    expect(text).not.toContain('已向廠商訂貨');
+    expect(text).not.toContain('本單');
+  });
+
+  /**
+   * 🔴 **最危險的那個答案單獨釘一格**:`.every()` 在被截斷的子集上會答「已出貨」——
+   * 看得見的 2 件全出貨了,而沒載進來的那些可能一件都沒出。
+   * **員工看到「已出貨」會停止動作**,這是本閘存在的真正理由。
+   */
+  it('🔴 itemsTruncated + 看得見的全出貨:不得答「已出貨」', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({
+        items: [line(2, 2, 2, 2)],
+        itemsTruncated: true,
+      } as unknown as Partial<AdminOrderDetail>),
+    );
+    const text = (await renderPage()).container.textContent ?? '';
+    expect(text).not.toContain('已出貨');
+  });
+
+  /**
+   * 🔴 **正向對照** —— 同一組品項、只把 `itemsTruncated` 關掉,標籤與小字都該回來。
+   * 沒有這一格,上面兩格的反向斷言可能只是因為那些字本來就不會出現。
+   */
+  it('正向對照:同一組品項沒有截斷時,標籤與小字照常印出來', async () => {
+    const text = await render([line(4, 4, 1)]);
+    expect(text).toContain('已向廠商訂貨');
+    expect(text).toContain('（本單 4 件中已到貨 1 件）');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
