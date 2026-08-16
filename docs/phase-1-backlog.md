@@ -15648,6 +15648,134 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
   ⇒ 落地時要先答「非 hct 的代碼怎麼辦」,否則守門會對 sf 誤報。
 - **發現於**:2026-08-16 · C 窗 #10 片3(貨運商/追蹤碼/出貨日)· 由 C 窗立案
 
+---
+
+### #601 · 阻印狀態只有一行 Alert,而樣張要求整幅版面 —— 且 ⌘P 繞得過去
+
+> ✅ **號碼由 `sh scripts/reserve-backlog.sh` 配出**(git ref CAS,**兩窗同時配不會撞**),
+> 落筆當下 `sh scripts/reserve-backlog.sh --show` ⇒ 目前 `602` ⇒ 本條是 `#601`。
+> ⚠️ **舊的兩道閘這次【刻意沒跑】** —— 主視窗 2026-08-17 明示:兩套並行期間,
+> CAS 配號到「號碼落進檔案」之間有一個時間窗,**在那個窗裡舊閘一定少報**
+> (`#600` 已被 E 窗配走而檔案裡還沒有 ⇒ 舊閘那時會回報「`#600` 可用」)。
+> ⇒ **以 `--show` 為準,不以舊閘為準。** 本檔內對照 `grep -cE '^### #601 ' docs/phase-1-backlog.md`
+> ⇒ 落筆前 **0**。
+
+- **狀態:** 未開工。**來源 = C 窗**,由 `8f41e80e` / `492205ed` 兩片的 code-reviewer R1 MF3/MF4 抓出。
+- **分流:** `P1` · **優先級:** 🟠 中高(**紙印得出來、看起來正常,而它不該存在**)
+
+#### 事實(開原始檔核過)
+
+真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html` 的**樣張 B**,
+要求 28pt「本單不得出貨」+ 訂單號 + 原因 + 四條「請照這樣做」+ 逐字
+「**本頁不含品項明細。這不是資料漏印,是刻意不印。**」佔滿整幅。
+現行實作**只有一行 `<Alert>`**,怎麼找到它:`git grep -n 'Alert>🔴 {blocked}' -- apps/admin/src`。
+
+#### 🔴 為什麼「拿掉列印鈕」不等於修好
+
+`8f41e80e` / `492205ed` 把兩張紙的列印鈕都改成有條件渲染(怎麼找到它:
+`git grep -n 'PrintButton label' -- apps/admin/src/components/print` ⇒ 2 行、兩行都在條件式裡)。
+**而那不是一道守門,只是不再遞刀** —— `apps/admin/src/components/print/print-button.tsx` 自己的
+docstring 就寫著「為什麼要有這顆鈕、而不是叫員工按 Ctrl+P」⇒ **⌘P 那條路還在**。
+設計端對同一件事的答案逐字是「**印出來看起來正常的紙,員工就會照做,所以警告必須佔滿這個位置**」。
+
+- **不修未來會痛在哪:** ⌘P 印出來的紙上只有一行紅字,**而紙進了箱子就收不回來**;
+  員工也可能把那張紙當成「系統壞了」而自己手寫一張。**真正的擋法是讓那張紙自己說清楚**,不是藏按鈕。
+- **發現於**:2026-08-17 · C 窗 · code-reviewer R1 MF3/MF4
+
+---
+
+### #602 · 公司登記資料有兩份,而互指只有單向 ⇒ 兩邊會各自漂
+
+> ✅ **號碼由 `sh scripts/reserve-backlog.sh` 配出**,落筆當下 `--show` ⇒ `602`。
+> 本檔內對照 `grep -cE '^### #602 ' docs/phase-1-backlog.md` ⇒ 落筆前 **0**。
+
+- **狀態:** 未開工。**來源 = C 窗**,由 `8f41e80e` 的 code-reviewer R1 MF6 / nit7 抓出。
+- **分流:** `P2` · **優先級:** 🟡 中(**錯的公司登記資料會印在交給客人的紙上**)
+
+#### 事實
+
+`apps/storefront/src/lib/site-config.ts` 檔頭逐字標「內容分級 **L2**(hardcode + TODO +
+backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `8f41e80e` 在
+`apps/admin/src/components/print/shipping-doc.tsx` **又抄了一份七值**。
+怎麼找到它:`git grep -n '派達有限公司' -- apps`。
+
+**重複是刻意的**:`site-config.ts` 在 storefront 這個 app,admin 不 import 它。
+🔴 **數法要挑對** —— 我第一版寫「`git grep -rn site-config -- apps/admin/src | wc -l` ⇒ **0**」,
+**實跑是 `3`**,而那 3 行**全是我自己剛寫的註解在指它**(= 它自己的訃聞的反面:指標本身被當成用法)。
+**正確的數法** `git grep -n "from '.*site-config" -- apps/admin/src | wc -l` ⇒ **0**
+(正向對照:同一支 grep 換成 `from '@pcm/domain` 在同一批檔 ⇒ 有命中)
+⇒ **零 import 是量出來的,而「零提及」是假的。**
+📎 **判別法**:命中後開檔讀那一段 —— **「提到它」與「用到它」在 `wc -l` 上長得一模一樣。**
+**而代價是它們會各自漂** —— 電話已經分家:storefront 那份是 `+886-930-531-867`(連字號)、
+紙上那份是 `+886 930-531-867`(空格,樣張要求逐字不正規化)。**兩個都對,只是用途不同。**
+
+#### 🔴 目前的互指是【單向】
+
+只有 admin 那邊指過去,`site-config.ts` 一個字沒動 ⇒ **它仍然宣稱自己是唯一真相**,
+而下一個人照它做就會漏掉紙上那份。
+
+- **不修未來會痛在哪:** 登記資料變更(改地址 / 換電話)時,**跑 `literal-sweep.sh` 從任一邊
+  都掃不到另一邊** ⇒ 改了一半,而**改了一半跟改完長得一模一樣**。
+- **真正的收斂點是 `#248`**(登記資料進後台),不是在兩邊各造一個常數。
+- **發現於**:2026-08-17 · C 窗 · code-reviewer R1 MF6 / nit7
+
+### #600 · 報價單庫 products 對 anon 開 31/57 欄,缺一道釘住哪些欄的斷言
+
+- **🔴 這【不是】漏洞,先講清楚:** `public.products` 對 `anon` 開放是**刻意設計** ——
+  表級 `relacl` 沒有 `anon`,而 RLS 有一條 `storefront_public_read FOR SELECT TO anon`,
+  由 `storefront_catalog_v`(`security_invoker=true`)以呼叫者權限讀出去。**storefront 就是靠它。**
+- **缺的是什麼:** **沒有任何東西在守「哪 31 欄」。**
+- **現況量法(可重跑,對報價單庫 production,唯讀帳號):**
+  ```
+  products 總欄數 57 | anon 欄級可讀 31 | authenticated 2 | 對照 postgres 57
+  成本類欄位(cost|dealer|margin|profit|wholesale|purchase|supplier_price)= 1
+    ⇒ anon 讀得到 0(對照 postgres 1 ⇒ 判定式是活的)
+  🔴 量法必須用 has_column_privilege,不能用 has_table_privilege
+     (後者看不到欄級授權 ⇒ 少報;我 2026-08-17 就是這樣把 16 個關聯少報成 15)
+  ```
+- **不修未來會痛在哪:** 日後任何人 `GRANT SELECT (新欄) TO anon`,
+  **三綠不紅、`grep` 數不變、沒有任何東西會提醒他** ——
+  而那個新欄很可能就是下一個成本/毛利欄。**經銷價外洩是 Sean 明列的第二優先。**
+- **要做什麼:** 一道**釘住清單**的斷言(形狀同 `docs/security/2026-08-16-quote-db-audit-account-decision.md` §3
+  的 `c_accepted`):**現行 31 欄明文列出,多一個就紅**。
+- **🔴 現在做不了,而障礙是【缺一個東西】不是【缺工:**
+  那道斷言要住在**報價單 repo**,而**那個 repo 不在這台機器上** ——
+  量法 `find /Users/sean_1 -maxdepth 3 -type d -name migrations -path '*supabase*'`
+  ⇒ 10 個命中**全部**是 `pcm-website-v2` 的工作樹,零個是報價單 repo
+  (正向對照:`test -d /Users/sean_1/pcm-website-v2/supabase/migrations` ⇒ 有 ⇒ find 是活的)。
+  📎 與 memory `reference_quote-repo-truth-moved-to-mac-mini` 一致(真身在 mac mini)。
+  ⇒ **掛在「報價單 repo 怎麼取得」那個 Sean 題底下,當它的第二個理由**
+  (第一個是 B 窗的 `#4` production/repo 一致性)。
+- **發現於**:2026-08-17 · E 窗報價單庫稽核第一輪 · 主視窗裁定立案(屬流程/守門,不上呈 Sean)
+
+### #604 · 會員地址/車輛寫入走 check-then-act,而本 repo 的 RLS 已知缺一條政策
+
+- **🔴 這兩句要放在同一段讀,分開看兩個都是低嚴重度:**
+  ① `account/address`、`account/vehicle` 的第二軸是 **check-then-act** ——
+     先 `verifyAddressOwned(repo, user.id, addressId)` 讀一次驗歸屬,
+     **再 `addressRepo.update(addressId, patch)`,而那句寫入【不帶 userId】**
+     (`packages/use-cases/src/update-address.ts:38-43`)
+     ⇒ **RLS 失效時,擋越權的只剩前面那一次讀。**
+  ② 而**這個 repo 的 RLS 已經知道缺一條政策** —— STATUS「Blocker」欄逐字:
+     六張客戶表的 `FOR SELECT TO service_role` 那條**不存在**,Sean 已拍 `Q15`=甲要補、**尚未開工**。
+  ⇒ 🔴 **所以這不是「假設 RLS 失效」,是「我們已經知道 RLS 有一個洞,只是還沒補到那裡」。**
+- **與既有做法不一致(這是要修的第二個理由):**
+  `/api/orders/[orderId]/payment-status` 用的是 **scoped read** ——
+  歸屬條件 `.eq('customer_user_id', userId)` **就寫在同一句查詢裡**,不是先讀後寫。
+  ⇒ **同一個 repo 兩種形狀,而不一致會讓下一個人以為某一種就夠。**
+- **現況量法(可重跑):**
+  ```
+  grep -n "verifyAddressOwned\|repo.update\|addressRepo.update" packages/use-cases/src/update-address.ts
+    ⇒ :41 verifyAddressOwned(...)  /  :43 addressRepo.update(addressId, patch)   ← 寫入不帶 userId
+  grep -n "customer_user_id" apps/storefront/src/app/api/orders/\[orderId\]/payment-status/route.ts
+    ⇒ 命中(scoped read)  ← 正向對照:同一支 grep 在對照檔抓得到
+  ```
+- **不修未來會痛在哪:** 這一類洞的症狀是**沒有症狀** —— 越權寫入成功時,
+  受害者看到的是「我的地址被改了」而**不是任何錯誤**,而系統沒有任何東西會紅。
+  **貨會寄到別的地方,而那是不可回收的。**
+- **⚠️ 我沒有構造出攻擊,也沒有宣稱有:** 目前仍是兩軸(verify + RLS),
+  本條要的是**把第二軸改成 scoped write**(與 `payment-status` 一致),**不是宣告現在正在外洩**。
+- **發現於**:2026-08-17 · E 窗軸二第一批(帳號被盜視角)· 主視窗裁定立案並上調嚴重度
 ### #603 · fetchAllPaginated 的 PAGE_SIZE 等於而非小於 max-rows：max-rows 一旦調低就會把「被砍過的一頁」誤判成末頁
 
 - **位置：** `packages/adapters/src/supabase/helpers/product-query-support.ts`（搜 `const PAGE_SIZE`）
@@ -15679,6 +15807,12 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
 - **由來：** 2026-08-17 A 窗做儲值金分頁時撞到；V 窗整理的「分頁族五條陷阱」第 1 條，
   而**實例就在我們自己的共用 helper 裡**。相關 plan：
   `docs/specs/2026-08-17-wallet-ledger-pagination-plan.md` §6。
+- 🔗 **與 `#605` 同底層**（2026-08-17 A 窗 × 主視窗抽出）：
+  **先例的數字是綁在它的母體上的，而母體不會跟著被抄過來。**
+  **一個沒有上界的母體，任何固定數字都是暫時的。**
+  ⇒ 這兩條都是「把一個會成長的東西，綁在一個不會成長的數字上」：
+  `#603` 綁的是伺服器的 `max-rows`、`#605` 綁的是「`created_at` 夠不夠分辨」。
+  📎 抄先例的數字前先問:**原本那個母體的上界是什麼？我這個有嗎？**
 
 ### #605 · 客戶列表分頁排序缺唯一鍵次序：同秒建立的客戶會跨頁重複或漏
 
@@ -15703,3 +15837,9 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
   逐處看排序鍵是不是全序。
 - **觸發面：** admin 客戶列表（客戶匯入批次同秒多筆）。**今天未觀察到實例，未量。**
 - **由來：** V 窗 2026-08-17 拿「分頁族五條陷阱」掃既有 code（F-S2）；主視窗裁「立案，不現在做」。
+- 🔗 **與 `#603` 同底層**（2026-08-17 A 窗 × 主視窗抽出）：
+  **先例的數字是綁在它的母體上的，而母體不會跟著被抄過來。**
+  **一個沒有上界的母體，任何固定數字都是暫時的。**
+  ⇒ 這兩條都是「把一個會成長的東西，綁在一個不會成長的數字上」：
+  `#603` 綁的是伺服器的 `max-rows`、`#605` 綁的是「`created_at` 夠不夠分辨」。
+  📎 抄先例的數字前先問:**原本那個母體的上界是什麼？我這個有嗎？**

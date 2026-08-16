@@ -50,9 +50,18 @@ export default async function OrderShippingPrintPage({
   const detail = await getAdminOrderRepository().findAdminOrderDetail(id);
   if (detail === null) notFound();
 
+  // 🔴🔴 **品項改走頂層分頁查詢撈到盡**(`Q-C18` 甲,Sean 2026-08-17 批)。
+  //    `detail.items` 是**內嵌**撈的、被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住,
+  //    而 Sean 逐字說一張單「可能到 200 個品項」⇒ **那是正常業務的上緣,不是極端值**。
+  // 🔴 **而這一行同時解掉「A 餵壞 B」那條連鎖** —— 下面 `loadOrderShipments` 吃的 id 集合
+  //    以前來自 `detail.items`(**已被 200 夾過**)⇒ 訂單 300 項時,後 100 項所在的箱
+  //    **根本不會被查到,而那不算截斷、不會有任何訊號**。現在餵的是完整那份。
+  //    ⇒ **只修品項那半等於沒修**,兩半必須同一顆改(plan §1「A 會餵壞 B」)。
+  const { items, reportedTotal } = await getAdminOrderRepository().listOrderItemsForPrint(id);
+
   // 🔴 只餵 id 與 title 兩欄下去 —— 不把整包 detail(帶成交價)交給資料層。
   //    慣例與 `components/orders/shipment-section.tsx:26` 逐字相同。
-  const titleByItemId = new Map(detail.items.map((it) => [it.id, it.title]));
+  const titleByItemId = new Map(items.map((it) => [it.id, it.title]));
   const groups = await loadOrderShipments(titleByItemId);
   // 🔴🔴 `null` = 箱品項清單**可能不完整**(截斷),不是「沒有箱」(2026-08-16 codex 關卡1 ⑧)。
   //    ⇒ **這裡的正確行為與檔頭那句一致:讀不到時不要印出一張紙。**
@@ -71,5 +80,13 @@ export default async function OrderShippingPrintPage({
   // 料號 / 規格由**本頁**自己從 `detail.items` 對回去(`lines` 只帶 `orderItemId`)。
   // 🔴 刻意不去加寬 `loadOrderShipments` 的簽章:那支是訂單詳情頁出貨卡的既有消費端,
   //    改共用簽章會把風險推到既有畫面上;讓新來的自己多做一點,風險留在新的這一邊。
-  return <ShippingDoc detail={detail} shipment={group.shipment} lines={group.lines} />;
+  return (
+    <ShippingDoc
+      detail={detail}
+      items={items}
+      reportedTotal={reportedTotal}
+      shipment={group.shipment}
+      lines={group.lines}
+    />
+  );
 }
