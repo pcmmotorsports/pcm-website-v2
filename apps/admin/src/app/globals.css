@@ -29,41 +29,110 @@
         **漏數的第 7 處正是唯一的反例**,而我拿一個 `use=0` 的宣告(`--radius-pill`)當 pill 規則的靠山,
         **與我自己在同一段寫的「看實際用值不看宣告」直接矛盾。** */
   --radius: 0;
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0 0 0);
-  --popover: oklch(0.99 0 0);
-  --popover-foreground: oklch(0 0 0);
-  --primary: oklch(0 0 0);
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.94 0 0);
-  --secondary-foreground: oklch(0 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.44 0 0);
-  --accent: oklch(0.94 0 0);
-  --accent-foreground: oklch(0 0 0);
-  --destructive: oklch(0.63 0.19 23.03);
-  --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.92 0 0);
+
+  /* ═══ BMW M 色票對映(片1;`docs/design/admin-design-system.md` §1)═══════════════
+     真權威 = OD `overview-desktop-bmw-m.html`,**sha256 `e3609fc4…` / 40,610 bytes 落筆當下實測對得上**
+     (設計參照檔頭釘了這個 hash:對不上 = 那份被重產過 ⇒ 下面每一個行號全部作廢、要重對一次)。
+
+     🔴🔴 **這是【對映】不是【改值】,而兩套 token 的【切分方式】不同 —— 那才是真正的工作。**
+     OD 用「表面 / 文字 / 強調」三族(`--bg` `--surface` `--surface-warm` / `--fg` `--fg-2` `--muted`);
+     repo 是 shadcn 的「角色配對」(每個角色都有 `-foreground` 搭檔)。**兩邊不是一對一。**
+
+     | OD                      | 值        | → repo token                                                        |
+     |-------------------------|-----------|---------------------------------------------------------------------|
+     | `--bg`            `:12` | `#f7f8fa` | `--background`                                                       |
+     | `--surface`       `:13` | `#ffffff` | `--card` / `--popover` / `--sidebar`                                 |
+     | `--surface-warm`  `:14` | `#eef3f8` | `--secondary` / `--muted` / `--accent` / `--sidebar-accent`  ← 見下① |
+     | `--fg`            `:15` | `#111827` | 上列每一顆的 `-foreground`                                            |
+     | `--muted`         `:17` | 【改】     | `--muted-foreground`                                      ← 見下②    |
+     | `--accent`        `:21` | `#0066b1` | `--primary` / `--sidebar-primary` / `--ring` / `--sidebar-ring`      |
+     | `--accent-on`     `:22` | `#ffffff` | `--primary-foreground` / `--sidebar-primary-foreground`              |
+     | `--danger`        `:27` | `#e4002b` | `--destructive`                                                      |
+     | `--border`        `:19` | `#d7dee8` | `--border` / `--sidebar-border`                                      |
+
+     ① **OD 只有【一階】淺填色,而 repo 有【三顆】token 在做同一件事** ⇒ 三顆全指向它。
+        ⚠️ **這不是我把三個不同的東西壓成一個** —— 改之前 `--secondary` 與 `--accent`
+        **本來就是同一個值** `oklch(0.94 0 0)`,`--muted` 只差 0.03。**這條分界線 repo 從來沒真的用過。**
+        📎 OD 的 `--surface-warm` 用值 = 列 hover `:176`、導軌 hover/選中 `:137-138`、`.kb:hover :189`、
+           `.btn:hover :293`、`.notice :302` —— **全部是「淺色填一塊」,與這三顆 token 的職責相同。**
+
+     ② **`--muted-foreground` 是唯一的【改】,而它改的是【設計參照自己的值】,不是 OD 的。**
+        設計參照 §1 已把它從 OD 的 `#64748b` 改成 **`#64738a`**,理由是對頁底要 4.5 —— 實測 **4.53**。
+        🔴 **而 4.53 是「剛好過標、零餘裕」,且那是對【頁底】算的;repo 有 5 處把它放在【暖填底】上**
+           (`payment-list:69` / `item-procurement-form:395` / `notes-timeline:21,40` / `order-status-axes:74`)
+           ⇒ 暖填底上實測 **4.31,不過**。
+        ⚠️ **這不是設計參照算錯** —— 它算的是它列出的那兩個底色。**是「同一顆值在我們這裡要多扛一個底」,
+           而那個底是【本片自己造出來的】**(改之前那三顆是灰的)⇒ **本片造的,本片修。**
+        **改法照設計參照自己的紀律「保色相、只調明度到剛好過標」,並且這次留餘裕**:
+          `#64738a` → **`#606e85`**,色相 216° 不變,明度 0.4667 → 0.4482
+          對頁底 4.53→**4.86** / 對卡片 4.82→**5.16** / 對暖填 4.31→**4.63**   三個底全部有餘裕
+        🔴 **為什麼要留餘裕**:同一支檔的 `--input` 註解已經寫過這個教訓 ——
+           **「會因捨入而變動的數字就是落在邊界上」**。**4.53 正是那種數字,而它已經咬過我們一次。**
+
+     **算法與可重跑性**:WCAG 1.4.3 / 1.4.11 相對亮度公式;半透明一律**先疊回底色再算**
+     (設計參照 §5 的 focus 環就是漏了這一步才誤判成合格)。
+     🔴 **量具要有正向對照**:`#cccccc on #ffffff` 要低於 4.5(**不是** OK)、`#ffffff on #ffffff` 回 1.00
+        —— **一個永遠回 OK 的對比函式,與一個真的全過的色票,長得一模一樣。**
+     ⚠️ **`design-tokens.test.ts` 重算並斷言的是【門檻】,不是本段這些【數值】。**
+        🔴 **上一版這裡寫「本段每一個數字都由測試重算並斷言」—— 那是假的,R1 審查抓到。**
+        差別很實際:測試問的是「≥4.5 嗎」,**不是「是不是 4.86」** ⇒ **本段的 4.86 / 5.16 / 4.63
+        這些數字如果我抄錯,沒有任何一格會紅**(只要真值仍 ≥ 門檻)。
+        **⇒ 要核這些數字,只能自己再算一次;把它們當「已被守門釘住」是錯的。**
+        📎 這正是本檔一直在講的那件事的又一個實例:**「有守門」與「守的是這件事」是兩回事。** */
+  --background: #f7f8fa;
+  --foreground: #111827;
+  --card: #ffffff;
+  --card-foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --primary: #0066b1;
+  --primary-foreground: #ffffff;
+  --secondary: #eef3f8;
+  --secondary-foreground: #111827;
+  --muted: #eef3f8;
+  --muted-foreground: #606e85;
+  --accent: #eef3f8;
+  --accent-foreground: #111827;
+  --destructive: #e4002b;
+  --destructive-foreground: #ffffff;
+  --border: #d7dee8;
   /* 🔴🔴 **這是設計參照 §1「三階邊框」裡 `--border-interactive` 那一階的落地。**
      **舊值 `oklch(0.94 0 0)` = `#ebebeb` ⇒ 對頁面底 1.16 / 對卡片 1.19,而 WCAG 1.4.11 要 3.0。**
      **後果不是抽象的**:實測搜尋框與搜尋鈕的邊框顏色完全相同、對白底約 1.17
      ⇒ 兩個控制項現在是靠「圓角 + 8px 縫」被讀成兩個東西,**而本片把圓角拿掉了**。
      ⚠️ **`--radius: 0` 沒有製造這個問題,它拆掉了遮住這個問題的東西** —— 但對員工來說壞掉就是壞掉,
         所以兩件必須同片。
-     **選值(可重跑)**:目標 = 對 `--background` 與 `--card` **兩個底色都 ≥3.0,取較差的當門檻**。
+     **選值(可重跑)**:目標 = **每一個它會出現在其上的底色都 ≥3.0,取最差的當門檻**。
        oklch(0.662) → 對底 2.99  🔴 **不用** —— 第一次算 3.00、重算 2.99,**會因捨入而變動的數字就是落在邊界上**
-       oklch(0.650) → 對底 3.15 / 對卡片 3.23  ✅ **採用,留餘裕**
-     🔴 **動 `--background` 或 `--card` 之前必須重算這個值。**
+       ~~oklch(0.650) → 對底 3.15 / 對卡片 3.23~~ **已於片1 作廢,見下**
+       oklch(0.631) → 對頁底 **3.29** / 對卡片 **3.50** / 對暖填 **3.13**  ✅ **採用,三個底都有餘裕**
+
+     🔴🔴 **上一版那行「動 `--background` 或 `--card` 之前必須重算這個值」—— 片1 就是那一刻,而它比預期多一件事。**
+     ①**重算既有的兩個底**:`--background` 由 `oklch(0.99 0 0)`(`#fcfcfc`)換成 `#f7f8fa`
+       ⇒ 舊值 `oklch(0.65)` 對它從 3.15 掉到 **3.04**。**還過,但餘裕幾乎沒了。**
+     ②🔴 **而真正咬人的是第三個底,那條舊註解沒有預見它**:片1 把 `--accent` 對映成暖填 `#eef3f8`,
+       **而 `border-input hover:bg-accent` 是 repo 現成的寫法**(`order-keyword-search:68`、
+       `customer-keyword-search:73`、`list-pagination:8` 三處)⇒ **滑鼠移上去的那一瞬間,
+       這條邊框的底色變成 `#eef3f8`,舊值在它上面只有 2.90 —— 不過。**
+       ⚠️ **hover 態一樣受 WCAG 1.4.11 管**(它管的是「識別 UI 元件【與狀態】所需」)。
+     ⇒ **降到 `oklch(0.631 0 0)`,把三個底一起蓋住。**
+     🔴 **⇒ 下次動的規則要改寫成:動 `--background` / `--card` /【任何會成為它底色的填色 token】之前必須重算。**
+        **舊句只列了兩個底,而本片是靠【逐處列出 `border-input` 的鄰居】才發現第三個 —— 不是靠讀那句話。**
      ⚠️ **吃它的不只輸入框,共【五處】非輸入框**(第一版寫四處,漏了最後一個):
         `list-pagination`(上下頁鈕)、`order-keyword-search:68`(搜尋鈕)、兩個 filter-bar、
         `multi-check-filter:32`(下拉觸發器 `<button>`)—— **那是刻意的,它們都是控制項。**
-     🔴 **已知未修的不一致**:另有一批表單欄位吃的是 `--border`(0.92)不是 `--input`
+     🔴 **已知未修的不一致**:另有一批表單欄位吃的是 `--border` 不是 `--input`
         (`shipment-dialog:321,354,369,382`、`shipment-void-button:91`、`payment-reverse-button:111`)
-        ⇒ **出貨對話框裡的輸入框會比篩選列的明顯淡,而且仍是 1.16 對比、本片沒修到。**
-        **那是下一片的範圍,不要以為這片把輸入框都修好了。** */
-  --input: oklch(0.65 0 0);
+        ⇒ **出貨對話框裡的輸入框會比篩選列的明顯淡,而且達不到 1.4.11 的 3.0、本片沒修到。**
+        **那是下一片的範圍,不要以為這片把輸入框都修好了。**
+        🔴🔴 **上一版這裡寫「(0.92)」與「仍是 1.16 對比」,兩個都被 R1 審查抓到是錯的**:
+           · `1.16` 從來不是 `--border` 的數字,**那是 `--input` 舊值 `oklch(0.94)` 的**(誤植);
+           · `--border` 現值 `#d7dee8` 實測對卡片 **1.36** / 對頁底 **1.27**(舊 `oklch(0.92)` = 1.27 / 1.19)。
+           ⚠️ **而它躲過了 `literal-sweep`** —— 因為我把它寫成 `(0.92)` 而不是 `oklch(0.92 0 0)`,
+              **掃舊字面時那個括號寫法不在任何一條 pattern 上。**
+           **⇒ 註解裡引用 token 值要寫完整字面**(`oklch(0.92 0 0)` / `#d7dee8`),
+              **簡寫成 `(0.92)` 等於把自己排除在掃描之外,而掃描報 0 命中時看起來像沒事。** */
+  --input: oklch(0.631 0 0);
   /* ═══ BMW M 動效 token(`docs/design/admin-design-system.md` §5)═══════════════
      🔴🔴 **住在 `:root` 而不是 `@theme inline`,這是被審查糾正過的** ——
      code-reviewer 用本 repo 的 `tailwindcss@4.3.2` 實際編譯後查證:
@@ -81,15 +150,24 @@
   --motion-base: 220ms;
   --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
 
-  --ring: oklch(0 0 0);
-  --sidebar: oklch(0.99 0 0);
-  --sidebar-foreground: oklch(0 0 0);
-  --sidebar-primary: oklch(0 0 0);
-  --sidebar-primary-foreground: oklch(1 0 0);
-  --sidebar-accent: oklch(0.94 0 0);
-  --sidebar-accent-foreground: oklch(0 0 0);
-  --sidebar-border: oklch(0.94 0 0);
-  --sidebar-ring: oklch(0 0 0);
+  /* 🔴🔴 **焦點環改吃強調色,而 OD 那個值【刻意沒有照抄】**(設計參照 §5「focus 環:OD 那個值不合格」)。
+     OD `:60` 是 `--focus-ring: 0 0 0 4px rgba(0, 102, 177, 0.24)` —— **24% 的藍疊回淺底之後**
+     實際顏色 `#bcd5e8`、對比 **1.43**,而 WCAG 2.4.7 + 1.4.11 要 3.0。**照抄會做出一個看不見的焦點環。**
+     ⚠️ **半透明色的對比不能看它宣告的顏色,要看它疊在底上的【實際顏色】** —— 設計參照就是漏了這一步。
+     **⇒ 我方的落地形狀 = 不透明描邊承重,半透明光暈只做裝飾。** repo 現成寫法本來就是這兩件:
+       `focus-visible:border-ring`  → 不透明 `#0066b1`,對頁底 **5.59** / 卡片 **5.94** / 暖填 **5.32** ✅ **這個承重**
+       `focus-visible:ring-ring/50` → 50% 疊回底色約 2.2,**這是光暈、不是那道要達標的線**
+     🔴 **不要因為「光暈只有 2.2」就去加深它** —— 達標的責任在描邊那條;
+        兩條都加深會做出一個又粗又髒的環,而那正是 BMW M 想避開的。 */
+  --ring: #0066b1;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #111827;
+  --sidebar-primary: #0066b1;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef3f8;
+  --sidebar-accent-foreground: #111827;
+  --sidebar-border: #d7dee8;
+  --sidebar-ring: #0066b1;
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans TC',
     'PingFang TC', 'Microsoft JhengHei', sans-serif;

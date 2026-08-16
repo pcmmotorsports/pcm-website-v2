@@ -122,8 +122,22 @@ export function WorkspaceShell({
       <div className='workspace-content min-w-0 flex-1 p-6'>{children}</div>
       {/* 🔴 把手與面板欄在**沒有面板內容時整組隱藏** —— 規則在 `globals.css`(`:has()`,零 JS)。
           class 名是 TSX 與那條 CSS 之間**唯一的接點** ⇒ 測試把三個 class 在兩邊對照釘死。 */}
+      {/* 🔴🔴 **`/40` `/60` 兩個透明度是【片1 換色時被迫重算的】,不是順手美化。**
+          舊值是**黑色**疊出來的:hover 2.82、**focus 5.65(達標)**。
+          片1 把 `--primary` 從純黑換成 BMW 藍 `#0066b1` ⇒ **同樣的透明度、亮很多的底色**
+          ⇒ hover 掉到 1.85、**focus 掉到 2.65 —— 從達標變不達標**。
+          ⚠️ **這是 WCAG 2.4.7(可見焦點)+ 1.4.11 的 3.0**,而這顆是**可聚焦的 window splitter**
+             (下面 `role='separator'` + `tabIndex` + 方向鍵調寬)⇒ **鍵盤使用者唯一的位置訊號就是它。**
+          🔴 **重點不是「我把顏色改醜了」,是【透明度是相對值、換底色就換了意思】** ——
+             `/60` 這個字面**一個字都沒動,而它代表的顏色變了**,且三綠、突變、CSS 守門**全部不會紅**。
+          **選值(可重跑,取頁底 `#f7f8fa` 與卡片 `#ffffff` 較差者)**:
+            `/60` → 2.65 ✗   `/65` → 2.90 ✗(**邊界值,不用**)   `/70` → **3.17** ✓   不透明 → **5.59** ✓
+          ⇒ **focus 用不透明**(把餘裕留滿,焦點環不該省)、**hover 用 `/70`**(仍比 focus 淡、層級還在)。
+          ⚠️ 靜止態 `bg-border` 對頁底 1.27,**本來就低於 3.0 且本片沒動它的角色** ——
+             它是兩塊面板之間的**分隔線**不是控制項的邊界,照設計參照 §1 的判別句歸「裝飾性」那一階。
+             **不要順手把它也拉到 3.0**,那會在畫面中間畫一條中灰藍實線。 */}
       <div
-        className='workspace-handle bg-border hover:bg-primary/40 focus-visible:bg-primary/60 w-1 shrink-0 cursor-col-resize outline-hidden'
+        className='workspace-handle bg-border hover:bg-primary/70 focus-visible:bg-primary w-1 shrink-0 cursor-col-resize outline-hidden'
         role='separator'
         aria-orientation='vertical'
         aria-label='調整面板寬度'
