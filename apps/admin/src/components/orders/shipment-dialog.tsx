@@ -185,10 +185,10 @@ export function ShipmentDialog({
   /**
    * 貨號格式(`#551`)。**擋與警告分開兩顆,不合併成一句話。**
    *
-   * 🔴 分級依據 = **證據強度**(長度四處跨兩章節 ⇒ 擋;字元集與檢查碼各自單一來源 ⇒ 只警告)。
-   *    **完整推導與【我兩次數錯證據】的過程都在 `lib/shipping/tracking-number.ts` 檔頭** ——
-   *    不在這裡重寫一份,兩份會各自過期(這一句原本就寫著已被推翻的「三處交叉印證」,
-   *    是 R2 F-H 用 `scripts/literal-sweep.sh '三處交叉印證'` 掃出來的)。
+   * 🔴 **本片【不擋任何東西】**(Sean `Q-C551`=乙:每家貨運不一樣、不限位數、上限 39)。
+   *    **完整推導都在 `lib/shipping/tracking-number.ts` 檔頭,不在這裡重寫一份** ——
+   *    ⚠️ 這一句已經因為「兩份各自過期」被更正**兩次**(先是「三處交叉印證」、
+   *    再是「長度四處 ⇒ 擋」)。⇒ **這裡只留指標,任何實質敘述都寫在那支 lib。**
    */
   const trackingIssue = useMemo(
     () => trackingNumberIssue(carrier, tracking, trackingSettled),
