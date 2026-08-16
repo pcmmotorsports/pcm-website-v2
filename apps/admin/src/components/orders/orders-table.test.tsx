@@ -130,11 +130,14 @@ type OrderOverrides = {
    * 「不含已取消」那條斷言就**恆真**(把 badge 整段刪掉照樣綠)。階段 C code-reviewer 抓到。
    */
   cancelledAt?: AdminOrderSummary['cancelledAt'];
+  /** 2026-08-16 `Q-EMBED-1`:品項清單可能不完整 ⇒ 狀態欄改印「未知」。預設 false。 */
+  itemsTruncated?: AdminOrderSummary['itemsTruncated'];
 };
 
 function order(overrides: OrderOverrides): AdminOrderSummary {
   return {
     id: 'ord-1',
+    itemsTruncated: false,
     displayId: 'PCM-0001',
     createdAt: '2026-08-06T02:00:00.000Z',
     paymentStatus: 'paid',
@@ -1679,5 +1682,48 @@ describe('A13 — 操作欄(`#486` 乙案起是 ⋯ 訂單操作入口,不再是
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     expect(deskOps(container)!.getAttribute('href')).toBe('/orders?panel=ord-1#cancel');
     expect(cardOps(container)!.getAttribute('href')).toBe('/orders/ord-1#cancel');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 品項清單不完整 ⇒ 狀態欄改印「未知」(2026-08-16,Q-EMBED-2 Sean 拍甲)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴🔴 **為什麼是「未知」而不是「照算」**:`goodsAxisOfLines` 三條判定都是 `.every(...)`,
+//    而 `.every()` 對子集**單調**(全集為真 ⇒ 子集必真,反之不然)
+//    ⇒ **子集算出來的階段恆 ≥ 真實階段** ⇒ 看得見的全出貨了就答「出貨完成」。
+//    ⇒ **員工看到「出貨完成」就不再動作** —— 他做對了,但結果是錯的。
+describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
+  /**
+   * 🔴 **fixture 要選【沒有截斷時會算出一個明確狀態】的那組** ——
+   *    否則「不印那個狀態」這件事測不出來(那個狀態本來就不會出現)。
+   *    這裡用兩件全出貨 ⇒ 沒截斷時軸 = shipped、已付款 ⇒ 標籤是「出貨完成」,
+   *    **正是最危險的那個答案**。
+   */
+  // 🔴 **helper 用檔內既有的 `lineAt(id, quantity, stage)`,不自己拼一個** ——
+  //    我第一版憑印象寫了一個不存在的 `line({quantity, ordered, instock, shipped})` 形狀,
+  //    當場炸在 `MoneyAmount must be integer, got NaN`。
+  //    ⇒ **要餵進量具的東西一律從檔裡讀出來**(本輪第三次同一個教訓)。
+  const shippedLines = [lineAt('l1', 2, 'shipped')];
+
+  it('🔴 itemsTruncated=true ⇒ 印「未知」,不印算出來的狀態', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).toContain('未知');
+    // 🔴 反向:那個「算得出來但可能是錯的」狀態一個字都不准出現。
+    expect(text).not.toContain('出貨完成');
+  });
+
+  /**
+   * 🔴 **正向對照** —— 同一組 lines、只把旗標關掉,「出貨完成」就該回來。
+   * 沒有這一格,上面那條 `not.toContain('出貨完成')` 可能只是因為那個字本來就不會出現。
+   */
+  it('正向對照:itemsTruncated=false ⇒ 「出貨完成」照常印出來', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
+    );
+    expect(container.textContent ?? '').toContain('出貨完成');
   });
 });

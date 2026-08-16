@@ -581,6 +581,27 @@ export type AdminOrderSummary = {
   invoiceStatus: InvoiceStatus;
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
+  /**
+   * `lines` 觸及內嵌上限 ⇒ **可能不完整**(2026-08-16,`Q-EMBED-1` Sean 批)。
+   *
+   * 🔴🔴 **它守的不是「少幾列」,是【整單狀態被算錯】。**
+   * `orderStatusView` → `orderGoodsAxis` → `goodsAxisOfLines(lines)` 三條判定都是 `.every(...)`,
+   * 而 `.every()` 對子集**單調**(全集為真 ⇒ 子集必真,反之不然)
+   * ⇒ **子集算出來的階段恆 ≥ 真實階段** ⇒ **看得見的全出貨了就答「出貨完成」。**
+   * ⇒ 員工看到「出貨完成」**就不會再動作**,而那張單其實還有貨沒出。
+   *
+   * 🔴 **為什麼需要一個【我方自己算】的旗標,而不是讀伺服器的訊號**:
+   * PostgREST 的 `db-max-rows` **會**套用到內嵌陣列,而**內嵌被截斷時它不給任何訊號**
+   * —— 仍回 HTTP 200、`Content-Range` 不反映(`docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md`;
+   * ⚠️ 該檔明載出處是官方 repo issue **作者的敘述**、非 maintainer 聲明 ⇒ 當高可信不當定案)。
+   * ⇒ **不自己算的話,這件事偵測不到。**
+   *
+   * ⚠️ **`true` 的意思是「不知道完不完整」,不是「一定被截了」** —— 判法是
+   * 「要 N 筆、拿回剛好 N 筆」,而一張**剛好 N 個品項**的單也會命中。
+   * **顯示端一律照「不知道」處理**(`Q-EMBED-2` = 甲:整格印「未知」+ 一行說明)。
+   * 🔴 **不得顯示成 0、不得留空** —— 那兩者都會被讀成「就是沒有」,而這裡的語意是「我們不知道」。
+   */
+  itemsTruncated: boolean;
 };
 
 /** 開票紀錄狀態(orders.invoice_status;DB CHECK 三值,v1 簡單欄位、不串電子發票 API)。 */

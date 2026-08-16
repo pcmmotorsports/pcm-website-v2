@@ -36,6 +36,7 @@ import {
   type SupabaseAdminOrderRow,
   type SupabaseAdminOrderDetailRow,
   ORDER_ITEMS_EMBED_LIMIT,
+  ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
   PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
@@ -641,7 +642,16 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    `ADMIN_ORDER_LIST_SELECT` 的四值字面與 view 的對應仍是人工比對。`#499` 不得標為已解。
     let query = this.supabase
       .from('admin_order_list_v')
-      .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+      .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' })
+      // 🔴 **內嵌上限:把邊界從伺服器的 `db-max-rows` 手上拿回來**(2026-08-16,`Q-EMBED-1` Sean 批)。
+      //    不設的話,`order_items` 會在伺服器的上限處被切,而**PostgREST 對內嵌截斷不給任何訊號**
+      //    (仍回 200、`Content-Range` 不反映)⇒ 偵測不到。
+      //    設了之後,`mapAdminOrderSummary` 才算得出 `itemsTruncated`(該處有完整理由)。
+      // ⚠️ **`.order()` 與 `.limit()` 要成對** —— 沒有明確排序時「前 N 筆」是哪 N 筆未定義,
+      //    而截斷判定只看「筆數是不是剛好 N」、不看是哪幾筆,但**未排序的截斷會讓兩次查詢拿到不同子集**
+      //    ⇒ 同一張單的軸可能在兩次重新整理之間跳動。明細那支(`findAdminOrderDetail`)同樣成對。
+      .order('id', { referencedTable: 'order_items', ascending: true })
+      .limit(ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' });
     if (orderIdFilter) query = query.in('id', orderIdFilter);
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     // 🔴 `.in()` 不是 `.eq()`:現行 producer(單選下拉)只給 0 或 1 個值,但型別是陣列(片 B 的 chip UI)。
