@@ -14034,8 +14034,9 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 
 ### #545 · 建表時自動開 RLS 的 event trigger **吞掉自己的失敗** —— 守門是 fail-open
 
-> ⚠️ **號碼佔位,待主視窗確認**(`bash scripts/next-backlog-number.sh` → 下一個可用 `#545`,
-> 腳本自印這是**下限**;第二道 `grep -rn 佔位 ~/pcm-mailbox/*.md` 取出的號最大 `#508` ⇒ 無撞號)。
+> ✅ **號碼已確認**(主視窗 2026-08-16;確認前複跑撞號檢查:`grep -rn '#54[5-9]' ~/pcm-mailbox/*.md` 零命中、
+> `git show dev:docs/phase-1-backlog.md | grep -nE '^### #54[5-9] '` 顯示 dev 上 `#545`/`#546`/`#547`/`#549` 皆為本窗條目、
+> `#548` 為 I 窗條目 ⇒ **零撞號**)。
 
 - **狀態:** 未開工
 - **由來(2026-08-16,E 窗 SECDEF 全樹稽核順手撿到,B 窗立案)**
@@ -14066,7 +14067,7 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 
 ### #546 · 正式庫 ACL 對帳 —— **A 庫已做(2026-08-16),報價單庫仍完全沒查**
 
-> ⚠️ **號碼佔位,待主視窗確認**(同 `#545` 兩道,`#546` 為連號)。
+> ✅ **號碼已確認**(主視窗 2026-08-16,撞號檢查見 `#545`)。
 
 - **狀態:** 🟡 **部分完成(2026-08-16 當日縮小範圍,未關閉)**
   > **✅ 已關的那一半 —— A 庫**(`pcm-website-v2`):E 窗以唯讀帳號 `pcm_audit_ro` 實查 production
@@ -14104,7 +14105,7 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 
 ### #547 · 後台**讀**路徑只有一層授權,**寫**路徑有三層 —— 不對稱本身是風險
 
-> ⚠️ **號碼佔位,待主視窗確認**(同 `#545`/`#546` 連號,兩道掃描見 `#545`)。
+> ✅ **號碼已確認**(主視窗 2026-08-16,撞號檢查見 `#545`)。
 
 - **狀態:** 未開工(**觀察,不是活洞**)
 - **由來(2026-08-16,E 窗 `FINDING E671-2`,B 窗複驗後立案)**
@@ -14139,8 +14140,7 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 
 ### #549 · ADR-0005 §8.4 對自己下的「重新評估」義務**已被觸發而無人接**
 
-> ⚠️ **號碼佔位,待主視窗確認**(`bash scripts/next-backlog-number.sh` → 下一個可用 `#549`;
-> `git show dev:docs/phase-1-backlog.md | grep -cE '^### #549 '` → `0`)。
+> ✅ **號碼已確認**(主視窗 2026-08-16,撞號檢查見 `#545`)。
 
 - **狀態:** 未開工(**制度債,不是活洞**)
 - **由來(2026-08-16,code-reviewer 審 `6a25da43` 的 must-fix 5,B 窗立案)**
