@@ -65,7 +65,8 @@ mk_stub_base() {
   #    2026-08-16 就是這樣抓到「service_role 走 BYPASSRLS」是一個沒驗過的假設。
   run_sql "create role anon nologin noinherit; create role authenticated nologin noinherit; create role service_role nologin noinherit bypassrls;
            create schema auth; create table auth.users (id uuid primary key);
-           insert into auth.users values ('aaaaaaaa-0000-0000-0000-000000000001'),('aaaaaaaa-0000-0000-0000-000000000002'),('aaaaaaaa-0000-0000-0000-000000000003');
+           insert into auth.users values ('aaaaaaaa-0000-0000-0000-000000000001'),('aaaaaaaa-0000-0000-0000-000000000002'),('aaaaaaaa-0000-0000-0000-000000000003'),
+             ('f5fb22ee-29f8-4af9-83b8-7fc9121eb533'), ('63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f');
            create table public.auth_state (id boolean primary key default true, require_2fa boolean not null default false);
            insert into public.auth_state (id, require_2fa) values (true,false);
            create table public.totp_devices (id uuid primary key default gen_random_uuid());
@@ -163,29 +164,43 @@ echo ""
 echo "══ 第三段:B2 seeding ══"
 drop_objs
 run_sql_file "$B1B"
-cell "S1 佔位符沒換就跑" red run_sql_file "$B2"
-sed 's/00000000-0000-0000-0000-00000000000/aaaaaaaa-0000-0000-0000-00000000000/g' "$B2" > "$D/seed.sql"
-cell "S2 換成真 uuid" green run_sql_file "$D/seed.sql"
-cell "S3 重跑(表已非空)" red run_sql_file "$D/seed.sql"
-IDS=$(psqlq -c "select string_agg(staff_id,',' order by staff_id) from public.admin_user_staff_map;")
-if [ "$IDS" = "sean,staff_1,staff_2" ]; then
-  PASS=$((PASS+1)); printf "  ✅ %-34s %s\n" "S4 三列落地" "$IDS"
+# 🔴 2026-08-16 B2 已填入真 uuid ⇒ 這幾格全部改寫。
+#    原版是照【佔位符】寫的:把 00000000-… 換成樁裡的 aaaaaaaa-…。
+#    檔案填了真值之後,那個替換【一個字都沒換到】⇒ S2/S4/S5 全部失去判別力,
+#    而 S5 甚至直接報「突變沒生效」。**harness 自己叫了,不是事後才發現。**
+#    ⇒ 現在改成:樁直接 seed 那兩個【真 uuid】,B2 原檔照跑。
+S1_FILE="$D/seed_placeholder.sql"
+sed -e "s/'f5fb22ee-29f8-4af9-83b8-7fc9121eb533'/'00000000-0000-0000-0000-000000000001'/g" \
+    -e "s/'63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f'/'00000000-0000-0000-0000-000000000002'/g" \
+    "$B2" > "$S1_FILE"
+if [ "$(grep -c '00000000-0000-0000-0000-00000000000' "$S1_FILE")" -lt 4 ]; then
+  echo "  🔴 S1 突變沒生效(找不到真 uuid 可換)—— 這一格失去判別力"; FAIL=$((FAIL+1))
 else
-  FAIL=$((FAIL+1)); printf "  🔴 %-34s 實際 '%s'\n" "S4 三列落地" "$IDS"
+  cell "S1 還原成佔位符後跑" red run_sql_file "$S1_FILE"
+fi
+cell "S2 B2 原檔(真 uuid)" green run_sql_file "$B2"
+cell "S3 重跑(表已非空)" red run_sql_file "$B2"
+IDS=$(psqlq -c "select string_agg(auth_user_id::text||'='||staff_id,',' order by staff_id) from public.admin_user_staff_map;")
+EXPECT='63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f=sean,f5fb22ee-29f8-4af9-83b8-7fc9121eb533=staff_2'
+EXPECT_OK='f5fb22ee-29f8-4af9-83b8-7fc9121eb533=sean,63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f=staff_2'
+# 🔴 驗【精確配對】不是驗集合 —— 兩個 uuid 對調之後集合一樣,而每個人拿到別人的身分。
+if [ "$IDS" = "$EXPECT_OK" ]; then
+  PASS=$((PASS+1)); printf "  ✅ %-34s %s\n" "S4 兩列精確配對" "sean/staff_2 各就各位"
+else
+  FAIL=$((FAIL+1)); printf "  🔴 %-34s 實際 '%s'\n" "S4 兩列精確配對" "$IDS"
 fi
 
-# 🔴🔴 S5:關卡2 [高] finding —— 三個 uuid 對調之後,S4 那格【仍然全綠】,
-#    因為它驗的是 staff_id 的集合,不是【誰對到誰】。這一格證明落地斷言抓得到對調。
+# 🔴🔴 S5:關卡2 [高] finding —— 兩個 uuid 對調之後,若只驗集合就【仍然全綠】。
+#    這一格證明落地斷言抓得到對調。
 drop_objs
 run_sql_file "$B1B"
-sed -e 's/00000000-0000-0000-0000-00000000000/aaaaaaaa-0000-0000-0000-00000000000/g' \
-    -e "s/('aaaaaaaa-0000-0000-0000-000000000001', 'sean')/('aaaaaaaa-0000-0000-0000-000000000002', 'sean')/" \
-    -e "s/('aaaaaaaa-0000-0000-0000-000000000002', 'staff_1')/('aaaaaaaa-0000-0000-0000-000000000001', 'staff_1')/" \
+sed -e "s/('f5fb22ee-29f8-4af9-83b8-7fc9121eb533', 'sean')/('63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f', 'sean')/" \
+    -e "s/('63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f', 'staff_2')/('f5fb22ee-29f8-4af9-83b8-7fc9121eb533', 'staff_2')/" \
     "$B2" > "$D/seed_swapped.sql"
-if diff -q "$D/seed.sql" "$D/seed_swapped.sql" > /dev/null; then
+if diff -q "$B2" "$D/seed_swapped.sql" > /dev/null; then
   echo "  🔴 S5 突變沒生效(兩份檔一樣)—— 這一格失去判別力"; FAIL=$((FAIL+1))
 else
-  cell "S5 前兩個 uuid 對調" red run_sql_file "$D/seed_swapped.sql"
+  cell "S5 兩個 uuid 對調" red run_sql_file "$D/seed_swapped.sql"
 fi
 
 echo ""
