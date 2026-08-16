@@ -242,6 +242,45 @@ for t in zzp07 zzp09 zzp10 zzp13 zzp15 zzp18 zzp20 zzp23 ; do echo "$t => $(grep
 
 ---
 
+## 6-d. 軸二第一批（**帳號被盜視角**）：`account/*` 與 `payment-status` —— **沒有 finding，而這句話要附證據**
+
+**新軸的定義**：不是「員工／會員彼此看得到什麼」（`E-695` §2 明列**刻意不報**），
+而是**「一個被盜的帳號能做到什麼」**。
+
+### 6-d.1 `/api/orders/[orderId]/payment-status` —— 守得比多數端點嚴
+
+**雙軸 own-only**，兩軸都在檔內看得到本體（不是只有註解）：
+① RLS `orders_select_own` ② 應用層 `.eq('customer_user_id', userId)`（`route.ts` 的 `readOwnPaymentStatus`）。
+`getUser()` 向 auth server 驗 JWT；偽造他人 `orderId` ⇒ **404 且不呼 throttle／settle**；
+錯誤一律 **null body + `no-store`**；回應**只有 `{status}`**、零金額零 PII。
+
+**被盜帳號能做的**：查自己訂單的成立與否、對**自己**的未付款單觸發 `settleCharge`，
+**而那有 per-order 10 秒 throttle**（`claim_order_poll_settle`）。⇒ **與正常使用者本來就能做的事相同。**
+
+### 6-d.2 `account/{address,vehicle,profile}` 七支 action —— **ownership 在，但在下一層**
+
+🔴 **我一開始判錯，記下來**：我 grep action 檔找 `.eq('customer_user_id'`，**零命中** ⇒ 我推測「只有 RLS 一軸」。
+**錯了。** 應用層那一軸在 **use-case 層**：`updateAddress(repo, user.id, addressId, patch)`，
+而 `packages/use-cases/src/update-address.ts:38-43` 本體逐字先跑
+`verifyAddressOwned(addressRepo, currentUserId, addressId)` 才 `addressRepo.update(...)`。
+📎 **這是「識別字 grep 會方向性漏掉」的又一次** —— 架構把那一軸放在別層，而我的 pattern 只掃了一層。
+
+### 6-d.3 ⚠️ 一個**形狀**上的不一致（低嚴重度，**我沒有構造出攻擊**）
+
+```
+payment-status   scoped read ：.eq('id',…).eq('customer_user_id',…)   ← 歸屬條件【在同一句查詢裡】
+account/address  check-then-act：先 verifyAddressOwned(讀) → 再 repo.update(addressId, patch)（不帶 userId）
+```
+
+**後者的寫入語句本身不帶歸屬條件** ⇒ **若 RLS 失效，擋住越權的就只剩前面那一次 verify 讀。**
+⚠️ **仍然是兩軸（verify + RLS），我沒有找到可利用的路徑，也沒有構造出來** ——
+**寫下來的理由是它與 `payment-status` 的做法不一致，而不一致本身會讓下一個人以為某一種就夠。**
+
+📎 **為什麼這條值得留**：STATUS 現有一條活的 Blocker —— **客戶表的 RLS 面已知有一條缺的政策**
+（Sean 已拍 `Q15`=甲要補）。⇒ **「RLS 一定在」這個前提，在這個 repo 裡不是免費的。**
+
+---
+
 ## 6-c. 🔴 回頭套 `㊼` 到**我自己這一輪的準則** —— 我也讓三類東西的分數變成 0
 
 **不只修 facet-counts 那一項。** 我這一輪的準則實際上是：
