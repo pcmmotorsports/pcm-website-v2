@@ -1,9 +1,13 @@
 > **這是 `security-audit` skill 的 Phase 1(偵察)產物,不是結論檔。**
 > 結論看 `docs/security/2026-08-16-external-exposure-audit.md`。
 > 🔴 **Phase 2–6 從未執行** —— 保留本檔的唯一理由是:重跑 Phase 1 很貴,而 Phase 2 需要它當輸入。
-> 原位置 `scratchpad/audit-out/run-1/architecture.md`(session 結束即消失),2026-08-17 搬進 repo。
+> 原位置 `scratchpad/audit-out/run-1/architecture.md`(session 結束即消失),2026-08-16 搬進 repo。
+> ⚠️ **本檔原名 `2026-08-17-...`,2026-08-16 由 I 窗更正為 `2026-08-16-...`。**
+> 那個 `08-17` 不是筆誤,是 E 窗當時的時鐘偏了約 8 小時(`E-691-STOP` 自述 `timestamp: 2026-08-17T03:50+08:00`),
+> 真值三源一致:`date` ⇒ `2026-08-16 19:22 CST`、`git show --format=%ad 4871f25a`、session 環境宣告 `currentDate`。
+> 🔴 **`~/pcm-mailbox/E-691-STOP.md:134` 與 `:177` 仍指向舊檔名 —— 已投遞的信不回改,循那兩行找不到本檔,請用新檔名。**
 
-# architecture.md — pcm-website-v2 (audit run-1, 2026-08-17)
+# architecture.md — pcm-website-v2 (audit run-1, 2026-08-16)
 
 ## Application
 
