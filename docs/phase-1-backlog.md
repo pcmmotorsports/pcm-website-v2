@@ -15091,3 +15091,38 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
   **「這一格能不能同時放行兩個都錯的實作?」** 能 ⇒ 補一個獨立的期望值來源。
   📎 已知同型候選:`#499`(`ADMIN_ORDER_LIST_SELECT` 四值字面與 view 的對應仍是人工比對)。
 - **發現於**:2026-08-16 · A 窗更正主視窗的守門規格
+
+### #547 · CI 只跑「每次 push 的 tip」,不逐顆跑 ⇒ 出事 bisect 不到
+
+> ⚠️ **號碼發放兩道都跑過**(2026-08-16 I 窗):
+> `bash scripts/next-backlog-number.sh` → **#547**(腳本自印這是**下限不是保留鎖**);
+> 第二道 `grep -rn 佔位 ~/pcm-mailbox/*.md` → 10 命中**逐行分類後皆為【講發號紀律的散文】,零個真佔位宣告**。
+
+- **狀態:** 未開工。**現在不修**(主視窗 2026-08-16 裁:修法=每顆都跑,成本要先算給 Sean 看)。
+- **由來(2026-08-16,I 窗查「push 繞過分支保護」時挖到的副產品)**:
+  原題是「早上那次 push 帶了 `Bypassed rule violations` ⇒ CI 到底有沒有跑」。
+  答案是**跑了而且綠**,但量的過程露出這個:
+  ```
+  量法(可重跑):
+    R=pcmmotorsports/pcm-website-v2
+    for s in $(git log --format=%H origin/dev -12); do
+      gh api repos/$R/commits/$s/check-runs --jq '[.check_runs[]|select(.name=="check")]|length'
+    done
+  2026-08-16 實跑:最近 12 顆,有 check run 的 = 3 顆
+  沒有 run 的 9 顆:對 `gh run list --branch dev` 的 headSha 集合逐顆比對
+                   ⇒ 9 顆【全部從未當過任何一次 push 的 tip】(已驗,非推論)
+  ```
+  沒被逐顆跑到的包含:**四支收割 merge**(`4accacef`/`578a616f`/`15a65864`/`a35900f3`)
+  與 **`f90670b3`(`#525` REVOKE 權限修)**。
+- ✅ **不是沒驗,是沒逐顆驗**:後續 `055137f9` 與 `d35f7602` 兩次 green run 跑的樹已含那五顆。
+- 🔴 **不修未來會痛在哪**(鐵則 10):
+  **哪一顆 merge 引入問題、又被後一顆蓋掉,CI 不會留下任何痕跡。**
+  出事時要回答「是哪一次收割弄壞的」,`git bisect` 拿不到 CI 訊號,只能重跑每一顆
+  —— 而重跑要的環境(真 postgres + playwright chromium)**本機三綠沒有**(見
+  `docs/patterns/slice-checkpoint.md` §6.5)⇒ **代價從「查 log」升級成「重建 CI 環境」**。
+  ⚠️ 這一段是**推論**,未實際 bisect 驗證過。
+- **可能修法(未評估成本)**:①收割 merge 改走 PR(PR 事件會逐顆觸發)②push 後對每顆
+  `gh workflow run` 補跑 ③接受現況、只要求收割者本機逐支驗(= 現行紀律)。
+- 📎 **現行緩解**:收割紀律「每併一支就跑一次完整驗證,不是全部併完才跑」
+  ——**那條沒有被 CI 取代,是它現在唯一的替代品。**
+- **發現於**:2026-08-16 · I 窗 · 主視窗開工令任務 1
