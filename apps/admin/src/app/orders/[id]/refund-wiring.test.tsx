@@ -476,8 +476,8 @@ describe('`#514` 出貨狀態改讀貨品軸(頁級)', () => {
 //    ⇒ 這一族全部斷言在 `container.textContent`(渲染輸出),**不讀常數、不讀檔案文字**。
 describe('出貨狀態的解釋小字', () => {
   /** 四個量都給得出來的品項(上面那支 `item` 把 instock/shipped 釘死成 0,不夠用)。 */
-  const line = (quantity: number, ordered: number, instock = 0, shipped = 0) => ({
-    id: `ln-${quantity}-${ordered}-${instock}-${shipped}`,
+  const line = (quantity: number, ordered: number, instock = 0, shipped = 0, cancelled = 0) => ({
+    id: `ln-${quantity}-${ordered}-${instock}-${shipped}-${cancelled}`,
     title: '測試品項',
     spec: null,
     variantSku: 'SKU-NOTE',
@@ -489,7 +489,7 @@ describe('出貨狀態的解釋小字', () => {
       orderedQuantity: ordered,
       instockQuantity: instock,
       shippedQuantity: shipped,
-      cancelledQuantity: 0,
+      cancelledQuantity: cancelled,
       cancellableQuantity: 0,
     },
   });
@@ -510,6 +510,23 @@ describe('出貨狀態的解釋小字', () => {
     const text = await render([line(6, 3)]);
     expect(text).toContain('未訂貨');
     expect(text).toContain('（本單 6 件中已訂 3 件）');
+  });
+
+  /**
+   * 🔴🔴 **`#522` 續章:分母扣掉已取消,而在本片之前【這一族沒有任何一格碰得到那條路】** ——
+   * 上面那個 `line()` helper 原本把 `cancelledQuantity` 寫死成 0(codex 對抗審查 2026-08-16 抓的)。
+   * ⇒ 六格全綠,而它們**結構上構造不出**有取消的單 ⇒ 對取消零判別力。
+   *
+   * 🔴 **為什麼頁級要再做一次**(函式級已經有兩格):`#514` 自己的教訓 ——
+   *    **算得對不代表那格畫面有印出來**。這一格斷言的是員工眼睛真的會看到的字。
+   */
+  it('🔴 6 件取消 3 件:畫面上的分母是 3 不是 6(軸與小字用同一個分母)', async () => {
+    const text = await render([line(6, 3, 0, 0, 3)]);
+    // need = 6−3 = 3、ordered 3 >= 3 ⇒ 軸升到「已向廠商訂貨」,小字改講到貨進度。
+    expect(text).toContain('已向廠商訂貨');
+    expect(text).toContain('（本單 3 件中已到貨 0 件）');
+    // 🔴 反向釘死:舊分母那句話一個字都不准出現在畫面上。
+    expect(text).not.toContain('本單 6 件');
   });
 
   it('已向廠商訂貨:小字改講【到貨】進度,不重複講已訂', async () => {
