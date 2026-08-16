@@ -73,6 +73,9 @@ run() {
   else
     FAIL=$((FAIL+1)); [ -n "$QUIET" ] || printf 'FAIL  %-32s rc=%s(want %s) branch=%s(want %s)\n' \
       "$name" "$rc" "$want_rc" "$br" "$want_br"
+    # 🔴 記下【哪一格】紅了(2026-08-17 折 V-022 `F-V22-1`)——
+    #    突變層要比對的不只是「紅幾格」,還有「紅的是不是預期那一格」。
+    KILLED_NAMES="$KILLED_NAMES${KILLED_NAMES:+,}$(printf '%s' "$name" | awk '{print $1}')"
   fi
 }
 
@@ -145,7 +148,7 @@ BASE_FAIL=$FAIL
 echo ""
 echo "── 突變層:每條關鍵行拿掉,至少要有一格紅 ───"
 mutate() {
-  label=$1; sedexpr=$2; want_killed=$3
+  label=$1; sedexpr=$2; want_killed=$3; want_cell=$4
   M="$TMP/mut.sh"; sed "$sedexpr" "$BASELINE" > "$M"
   if cmp -s "$M" "$BASELINE"; then
     FAIL=$((FAIL+1)); printf 'FAIL  %-40s 突變沒打上去(sed 沒改到任何東西)\n' "$label"; return
@@ -157,19 +160,28 @@ mutate() {
   if ! sh -n "$M" 2>/dev/null; then
     FAIL=$((FAIL+1)); printf 'FAIL  %-40s 🔴 突變體語法就壞了 ⇒ 它殺掉的是腳本不是守門\n' "$label"; return
   fi
-  HOOK="$M"; before=$FAIL; QUIET=1; suite; QUIET=; HOOK="$BASELINE"
+  HOOK="$M"; before=$FAIL; KILLED_NAMES=; QUIET=1; suite; QUIET=; HOOK="$BASELINE"
   killed=$((FAIL-before)); FAIL=$before      # 突變造成的紅不算最終失敗,它是預期的
   # 🔴 斷言【殺掉幾格】,不只斷言「有沒有殺到」(V-021 `F-V21-1`):
   #    語法殺的症狀就是「殺太多格」(M4 舊版殺 7 格,含與 A2 完全無關的 cell1/cellA/cell3),
   #    而舊寫法 `killed -gt 0` 對 1 格與 7 格**回同一個答案** ⇒ 零判別力。
   #    ⚠️ 這個數字是**實跑量出來的**,不是設計值 —— 改了 hook 或加了格就要重量、不要照抄。
-  if [ "$killed" = "$want_killed" ]; then
-    PASS=$((PASS+1)); printf 'PASS  %-40s 被殺掉(%s 格轉紅,與預期相符)\n' "$label" "$killed"
+  if [ "$killed" = "$want_killed" ] && [ "$KILLED_NAMES" = "$want_cell" ]; then
+    PASS=$((PASS+1)); printf 'PASS  %-40s 被殺掉(%s 格轉紅 = %s,數量與身分皆相符)\n' "$label" "$killed" "$KILLED_NAMES"
+  elif [ "$killed" = "$want_killed" ]; then
+    # 🔴 V-022 `F-V22-1` 的殘留形狀:數字對而【殺錯格】——
+    #    PoC 實錘:敵意 M4(語法合法、把 A2 整條拿掉)殺的是 `cell2` 而 `cellS` 綠著,
+    #    舊版照印「與預期相符」40/0 ⇒ **替一個沒被測到的守門背了書。**
+    FAIL=$((FAIL+1))
+    printf 'FAIL  %-40s 🔴 殺 %s 格【數量對】但紅的是 %s,預期 %s —— 殺錯格\n' \
+      "$label" "$killed" "${KILLED_NAMES:-<無>}" "$want_cell"
+    printf '      %-40s   ⇒ 這道突變【沒有】打到它宣稱在測的那道守門,別讓它替那道守門背書\n' ""
   elif [ "$killed" = "0" ]; then
     FAIL=$((FAIL+1)); printf 'FAIL  %-40s 🔴 存活 —— 這行【零負測】,註解說它重要而沒人守\n' "$label"
   else
     FAIL=$((FAIL+1))
-    printf 'FAIL  %-40s 🔴 殺掉 %s 格但預期 %s —— 數字不符\n' "$label" "$killed" "$want_killed"
+    printf 'FAIL  %-40s 🔴 殺掉 %s 格(%s)但預期 %s(%s) —— 數字不符\n' \
+      "$label" "$killed" "${KILLED_NAMES:-<無>}" "$want_killed" "$want_cell"
     printf '      %-40s   常見成因:突變體語法壞掉 ⇒ 殺的是腳本不是守門;或這道守門的射程變了\n' ""
   fi
 }
@@ -179,9 +191,9 @@ mutate() {
 #    ⇒ 拿掉它不會有格轉紅,那不是「零負測」,是**它本來就不負載**。
 #    留著它當防禦深度,但**不假裝有斷言在守它**。
 mutate "M1 改回舊的 --name-only|grep 寫法（真正的 F1）" \
-  's|^git diff --cached --quiet --no-ext-diff --no-textconv --no-renames -- STATUS.md \&\& exit 0|[ "$(git diff --cached --name-only \| grep -c "^STATUS\\.md$" \|\| true)" = "0" ] \&\& exit 0|' 1
+  's|^git diff --cached --quiet --no-ext-diff --no-textconv --no-renames -- STATUS.md \&\& exit 0|[ "$(git diff --cached --name-only \| grep -c "^STATUS\\.md$" \|\| true)" = "0" ] \&\& exit 0|' 1 cellA
 mutate "M2 拿掉條件②（自分岔未動過）" \
-  's|^     && git diff --quiet --no-ext-diff --no-textconv --no-renames "\$BASE" HEAD -- STATUS.md; then|     ; then|' 1
+  's|^     && git diff --quiet --no-ext-diff --no-textconv --no-renames "\$BASE" HEAD -- STATUS.md; then|     ; then|' 1 cellC
 # 🔴 M3 已【移出突變集,並明寫理由】:`[ -n "$BASE" ]` 只在【不相關歷史】時才為空
 #    (需 --allow-unrelated-histories),本工作流構造不出來
 #    ⇒ 這是**無法在本環境構造負測的防禦性檢查**,不是「有 harness 守著」。
@@ -193,9 +205,9 @@ mutate "M2 拿掉條件②（自分岔未動過）" \
 #    ⇒ 判別句(house `feedback_false-red-mutation-restored-the-implementation`):
 #      **紅的時候要問「紅在哪一格、訊息是不是我預期那條」,不是看到紅就收。**
 mutate "M4 拿掉 MERGE_HEAD 來源約束（A2）" \
-  's|^     && git merge-base --is-ancestor MERGE_HEAD dev 2>/dev/null \\|     \&\& true \\|' 1
+  's|^     && git merge-base --is-ancestor MERGE_HEAD dev 2>/dev/null \\|     \&\& true \\|' 1 cellS
 mutate "M5 拿掉逃生門整段" \
-  's|^\[ "\${PCM_ALLOW_STATUS_IN_WORKTREE:-}" = "1" \] && {|[ "no" = "yes" ] \&\& {|' 1
+  's|^\[ "\${PCM_ALLOW_STATUS_IN_WORKTREE:-}" = "1" \] && {|[ "no" = "yes" ] \&\& {|' 1 cell4
 
 printf '\n合計  PASS=%s  FAIL=%s\n' "$PASS" "$FAIL"
 [ "$FAIL" = "0" ]
