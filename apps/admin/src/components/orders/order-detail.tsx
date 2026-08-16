@@ -259,9 +259,6 @@ export function OrderDetail({
         </div>
       )}
 
-      {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
-      <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
-
       {/* 🔴🔴 **這裡沒有條件包裹,是 Sean 2026-08-15 拍板的結果,不是漏做。**
           (`Q-13-2 = 丙`、`Q-13-3 = 乙`;完整矩陣見
            `docs/specs/2026-08-15-e10-13-order-edit-matrix-order-level.md` §3-4。)
@@ -294,6 +291,22 @@ export function OrderDetail({
       {/* 🔴 備註時間軸 + 表單原本在這裡(頁尾、退款帳本之前),2026-08-13 OD 片 1 已搬到發票卡下方。
           搬走的是**同兩個元件**、不是複製一份 —— 這裡不得再渲染第二份(重複的 NoteComposeForm
           會產第二顆 token、兩張表單同時存在)。 */}
+
+      {/* ═══ 危險操作沉底:取消 / 退貨 / 退款 ═══════════════════════════════════════
+          🔴 **取消從第 ④ 位(夾在收款與品項中間)移到這裡**(2026-08-16)。
+          **兩個獨立來源都說墊底,而現況兩邊都不符** ⇒ 這是**缺陷不是選項**,不需要拍板:
+            · Sean 逐字(`docs/specs/2026-08-12-admin-order-ui-design-brief.md` 搜
+              `回去採購等於說跟國外下單`,同段末):「最難的大概就是取消,**所以放最下面沒問題**」
+            · OD 定案主稿 `overview-desktop.html` 搜 `危險操作沉底` —— 同一句話的設計版
+          ⚠️ **只動渲染順序,零行為改動**:`OrderCancelBlock` 的 props、
+             `cancelFormsAllowed` 的算法、它自己的判斷全部一個字沒動。
+          📎 **與 OD 的最後一塊對齊**:OD `more` 區塊 = 取消 → 退貨/退款面板(同一塊、取消在前)
+             ⇒ 我方擺成 取消 → 退款帳本 → 退款入口,是同一個順序。
+          🔴 **這片可能會被之後的版面重排吸收掉**(`~/pcm-mailbox/A-218-demo-brief.md`
+             那一輪若改掉整個面板編排)—— **那不是白做**:它**現在**就是缺陷,
+             而 demo 那一輪還要好幾天。 */}
+      {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
+      <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
 
       {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
           nowMs 在 server render 期取 —— 列級「滯留逾閾」判定的現在時刻。 */}

@@ -257,9 +257,12 @@ function HeadlineNumbers({
             ⇒ **27**,其中 1 行是**定義本身**(`order-list-view.ts` 搜 `export function formatOrderAmount`)、
             1 行是**註解**(`customers/customer-detail-view.ts` 搜 `千分位對齊`)⇒ **真消費端 25**。
             (我第一版寫「27 個消費端」—— 那是把定義與註解也算進去,code-reviewer 抓到。**先分類再報數。**)
-            📎 **同一個總額在這一頁還印第二次、而那一處仍帶 `NT$`**:
-            `order-detail-items-table.tsx` 搜 `總計`。Sean 逐字只指頭條那排 ⇒ **本片不動它**,
-            但**同頁同一個數字現在有兩種格式** ⇒ 已列進交件的「請他再看一眼」清單。 */}
+            🔴🔴 **同一頁上面沒幣別、下面有,是【他知情的選擇】,不是漏改**
+            (`Q-A216-F4` Sean 2026-08-16 拍**乙**,逐字「乙 留著」):
+              **頭條是速覽 → 不帶幣別;明細表底部的「總計」是正式金額 → 帶 `NT$`。**
+            (那一處在 `order-detail-items-table.tsx` 搜 `總計`。)
+            ⚠️ **不要當成不一致去「修好」它** —— 我在他拍板前就是把它列成「請他再看一眼」的疑點,
+            而他看了、選了留著。**把兩處統一才是違反拍板。** */}
         <p className={SPEC_V}>
           {formatOrderAmount(detail.total.amount)} /{' '}
           {payment.kind === 'unknown' ? '未知' : formatOrderAmount(payment.received)}

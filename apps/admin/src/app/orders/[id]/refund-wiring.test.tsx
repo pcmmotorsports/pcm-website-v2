@@ -723,6 +723,34 @@ describe('訂單明細頭條數字', () => {
   });
 
   /**
+   * 🔴 **大金額:千分位要在,而且兩格並排時仍撈得到**(Sean 的真實單據級距)。
+   *
+   * 他 2026-08-16 給的三張截圖金額是 **6 / 1,180 / 48,600** —— 三個級距。
+   * 而本檔原本的測資是 `100` 與 `1,200` ⇒ **五位數那一段從來沒被餵過**。
+   *
+   * ⚠️ **這一格【不能】驗折行** —— jsdom 沒有排版引擎,`textContent` 拿不到換行資訊。
+   *    它驗的只有「格式化正確 + 錨仍撈得到」。**折不折行只有真瀏覽器 + 真寬度才驗得了**,
+   *    那件已交給 Sean 肉眼(而主視窗從他那張 `1,180` 的圖判「還有很多空間」⇒ 風險低)。
+   *    🔴 **寫出來是因為**:一格叫「大金額」的測試很容易被下一個人當成「版面已驗」。**它不是。**
+   */
+  it('大金額:千分位正確,兩格並排時錨仍撈得到(48,600 / 20,000)', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      {
+        id: 'p9', rail: 'atm', amount: 20000, receivedAt: '2026-08-10T02:00:00+00:00',
+        createdAt: '2026-08-10T02:00:00+00:00', actor: 'tester', bankReference: null,
+        recTradeId: null, payerNote: null, reversesPaymentId: null, reversalReason: null,
+        isReversal: false,
+      },
+    ]);
+    const text = await render({
+      total: { amount: 48600, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('48,600 / 20,000總額 / 已收');
+    expect(text).toContain('4 / 2件數 已訂 / 到貨');
+  });
+
+  /**
    * 🔴🔴 **`Q-A7`:頭條扣已取消件數 —— 判準是「與軸一致」,而軸自 `#522` 續章起就扣了。**
    * 6 件取消 3 件、已訂 4 件:`lineNeed` = 3 ⇒ 分子夾在 3 之內 ⇒ **印 3 不是 4**。
    * ⚠️ 沒有那個 `Math.min`,這裡會印出「3 件裡訂了 4 件」——**分子大於分母**。
@@ -921,5 +949,56 @@ describe('訂單明細 Email 欄:LINE 合成位址不外顯', () => {
     mocks.findAdminOrderDetail.mockResolvedValue(withEmail('sean@example.com'));
     const { container } = await renderPage();
     expect(container.textContent).toContain('sean@example.com');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 危險操作沉底:取消 / 退貨 / 退款(2026-08-16)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴🔴 **為什麼需要這一格**:在它之前,全 repo **零個順序守門**
+//    (數法 `grep -rn 'DOM 順序\|indexOf' apps/admin/src --include='*.test.tsx'`
+//     ⇒ 命中的都是表格欄序或候選排序,沒有一個釘區塊順序)。
+//    ⇒ **把取消搬回中間、或下一次重排時順手挪動它,不會有任何東西紅。**
+//
+// 🔴 **釘的是【語意順序】不是行號**:取消**必須排在出貨之後**。
+//    兩個獨立來源都這樣說,而在本片之前現況兩邊都不符:
+//      · Sean 逐字(design-brief 搜 `回去採購等於說跟國外下單` 同段):
+//        「最難的大概就是取消,**所以放最下面沒問題**」
+//      · OD 定案主稿 `overview-desktop.html` 搜 `危險操作沉底`
+describe('危險操作沉底:取消排在出貨之後', () => {
+  /**
+   * 🔴 **用 `textContent.indexOf` 比位置,不用行號、不用 DOM 樹結構。**
+   *    行號會漂;DOM 結構改成別的包法(例如加一層 wrapper)不該讓這格紅 ——
+   *    **我要釘的是「員工由上往下讀的時候,先看到出貨還是先看到取消」。**
+   * ⚠️ **錨要選【一定會渲染】的字**:
+   *    · 出貨側用出貨卡的標題(該卡在本檔被 mock 成 `() => null` ⇒ **不能用它**)
+   *      ⇒ 改用**採購區**當上游錨:採購在出貨之前,而取消若排在採購之後就必然在出貨之後。
+   *    · 取消側用取消區塊的標題文字。
+   *    🔴 這個替代**弱一點**,而我明寫出來:它證的是「取消在採購之後」,
+   *       **由「採購 → 出貨 → 取消」這個既定順序推出「取消在出貨之後」**。
+   *       出貨卡本身在本檔測不到(async server component 的工具限制,見檔頭 mock 的理由)。
+   */
+  it('🔴 取消區塊排在採購之後(⇒ 由既定順序推得在出貨之後)', async () => {
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    const procurement = text.indexOf('採購(向供應商訂貨)');
+    const cancel = text.indexOf('取消訂單');
+    expect(procurement, '採購區塊沒渲染 ⇒ 這格的上游錨不見了,不是順序對了').toBeGreaterThan(-1);
+    expect(cancel, '取消區塊沒渲染 ⇒ 錨不見了').toBeGreaterThan(-1);
+    expect(cancel).toBeGreaterThan(procurement);
+  });
+
+  /**
+   * 🔴 **正向對照:取消也必須排在【收款】之後** —— 它原本就夾在收款與品項之間,
+   * 只釘「在採購之後」擋不住「搬回收款正下方」以外的所有位置,但**擋得住原本那個位置**。
+   */
+  it('取消區塊排在收款之後(擋住搬回原位)', async () => {
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    const payment = text.indexOf('尚未登錄任何收款');
+    const cancel = text.indexOf('取消訂單');
+    expect(payment, '收款區塊沒渲染 ⇒ 錨不見了').toBeGreaterThan(-1);
+    expect(cancel).toBeGreaterThan(payment);
   });
 });
