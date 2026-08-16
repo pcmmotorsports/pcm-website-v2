@@ -98,10 +98,35 @@ UPDATE public.staff
        updated_at = now()
  WHERE id = 'test_01';
 
+-- ───────────────────────────────────────────────────────────────────────────
+--  1b. 把 staff_2 指派給 Sean 的一般員工權限測試帳號
+--
+--  🔴 **這是「指派一個從未被使用的佔位代號」,不是「重用」** ——
+--     `staff_2` 在 admin_audit_log 裡【零筆紀錄】(2026-08-16 Sean 實查:只有 sean 48 筆、staff_1 17 筆)
+--     ⇒ 沒有任何歷史紀錄的解讀會因為改它的 label 而改變。
+--     Sean 拍的「永不重用」講的是**不要重新指派真人用過的代號**;佔位代號存在的目的就是被指派。
+--
+--  ⚠️ 為什麼不用 staff_1(它有 17 筆):那 17 筆據 Sean 說是他自己測試時挑的,
+--     **但那是口頭回答,而 label 是永久且靜默的** —— 錯了不會有任何東西紅。
+--     ⇒ 選一個【不需要那個回答就成立】的代號。
+--
+--  📌 之後真的有第二個員工進來時,他拿【新代號 staff_3】。
+-- ───────────────────────────────────────────────────────────────────────────
+UPDATE public.staff
+   SET label      = 'Sean 測試帳號(一般員工權限,非真員工)',
+       updated_at = now()
+ WHERE id = 'staff_2';
+
 COMMENT ON TABLE public.staff IS
   '後台操作者名冊。🔴 id 為永久識別碼、永不重用(Sean 2026-08-16 拍板):'
   '離職 = is_active=false,不是 DELETE;新人拿新代號,不撿空出來的。'
-  '原因:admin_audit_log.actor 是 text 欄不是 FK,重用代號會讓歷史稽核紀錄改變解讀。';
+  '原因:admin_audit_log.actor 是 text 欄不是 FK,重用代號會讓歷史稽核紀錄改變解讀。'
+  ' '
+  '🔴 給要查舊稽核紀錄的人(2026-08-16 補):真登入線上線【之前】的 actor 值,'
+  '是使用者自己從下拉選單挑的、系統不驗證(apps/admin/src/lib/session/actor.ts 自陳非授權邊界)'
+  '⇒ 那些紀錄【不識別任何人】。不要拿它們當「某個人做過什麼」的證據。'
+  '具體:staff_1 的 17 筆與 sean 的 48 筆皆屬此列(2026-08-16 實查)。'
+  '真正能對應到人的紀錄,從真登入線上線那一刻才開始。';
 
 -- ───────────────────────────────────────────────────────────────────────────
 --  2. 落地斷言 —— 驗【結果】不是驗「UPDATE 執行了」
@@ -136,7 +161,22 @@ BEGIN
       '   ⇒ 兩種都要停下來看,不要當成通過。', v_others;
   END IF;
 
-  RAISE NOTICE '✅ B1-a 落地斷言通過:test_01 已停用、該列仍在、啟用中的 staff 共 3 列。';
+  -- 🔴 staff_2 的 label 必須真的改到,而且不得再含「員工 2」那種會被誤讀成真員工的字
+  DECLARE v_label text; v_s1 text;
+  BEGIN
+    SELECT label INTO v_label FROM public.staff WHERE id = 'staff_2';
+    IF v_label <> 'Sean 測試帳號(一般員工權限,非真員工)' THEN
+      RAISE EXCEPTION 'B1-a 落地斷言:staff_2 的 label 是「%」,指派沒有生效。', v_label;
+    END IF;
+    -- 對照組:staff_1 的 label【不得】被動到(本支刻意不碰它)
+    SELECT label INTO v_s1 FROM public.staff WHERE id = 'staff_1';
+    IF v_s1 <> '員工 1(占位)' THEN
+      RAISE EXCEPTION E'B1-a 落地斷言:staff_1 的 label 變成「%」——本支不該碰它。\n'
+        '   ⇒ 要嘛我動錯列,要嘛它已經被別人改過。兩種都停下來看。', v_s1;
+    END IF;
+  END;
+
+  RAISE NOTICE '✅ B1-a 落地斷言通過:test_01 已停用且該列仍在、staff_2 已指派、staff_1 未被動到、啟用中的 staff 共 3 列。';
 END
 $verify$;
 
