@@ -620,6 +620,109 @@ SUM(r.refund_amount) FROM order_refunds r
 ⇒ **正確說法：退款這條線上【兩套帳本都】防了 `TRUNCATE`。**
 📎 成因同前：我在**只看過一張表**的情況下下了一個**全 repo 的全稱句**。
 
+### 6.8 `#497` 兩套 SUM 的一致性 —— **它們算的不是同一件事，而且都對**
+
+#### 6.8-a 先數，再判（**幾套？**）
+
+```
+pattern: grep -rniE 'SUM\([^)]*refund' supabase/migrations/*.sql
+命中 5 處 / 3 個檔
+```
+
+**但 migration 會互相取代，檔數 ≠ 活的套數。** 逐處歸屬到函式後：
+
+| 處 | 所屬函式 | 活的嗎 |
+|---|---|---|
+| `20260801120000:458` | `pcm_order_refundable_remaining` | ❌ 被後面取代 |
+| `20260803150000:402` | `pcm_order_refundable_remaining` | ❌ 被後面取代 |
+| **`20260814190000:412,417`** | **`pcm_order_refundable_remaining`** | ✅ **活的（最後一版）** |
+| **`20260803150000:776`** | **`admin_finalize_order_refund` 步 7** | ✅ **活的** |
+
+**app 層另有一處**：`apps/admin/src/lib/payment/refund-recovery-read.ts:119` 的
+`ledgerConfirmedSum`（`reduce`）—— **第三處**，但它是**對帳／回復畫面的讀取**，不參與判定。
+
+⇒ **參與判定的活實作 = 2 套**（`#497` 說的那兩套），**沒有第三套在判定路徑上**。
+
+#### 6.8-b 它們算的集合 —— **不一樣，而這是【對的】**
+
+```sql
+-- 額度（pcm_order_refundable_remaining）
+WHERE status IN ('processing','confirmed')      -- 在途的【也】佔額度
+
+-- payment_status（admin_finalize_order_refund 步 7）
+WHERE order_id = v_order_id AND status = 'confirmed'   -- 只認【已確認】
+v_target := CASE WHEN v_sum >= v_total THEN 'refunded' ELSE 'partiallyRefunded' END;
+```
+
+**兩個方向逐一判（不是只找「有沒有差」）：**
+
+| | 它回答的問題 | 集合 | 差異的方向 |
+|---|---|---|---|
+| 額度 | 「**我還能再退多少？**」 | 含 `processing` | **保守** —— 在途的先佔住，**防的是「同一筆錢被退兩次」** |
+| `payment_status` | 「**這張單真的退掉了嗎？**」 | 只含 `confirmed` | **保守** —— **不會因為一筆還沒確認的退款就把單標成已退清** |
+
+⇒ 🟢 **不是不一致，是兩個不同的問題各自用了正確的集合。**
+**若把它們「統一」，兩邊都會壞**：
+額度只算 `confirmed` ⇒ **在途期間可以重複退**；`payment_status` 算進 `processing` ⇒ **退款失敗後單子錯標已退清**。
+
+> 🔴 **給修 `#497` 的人**：這張單**不是「有 bug 要統一」**。
+> **統一它們才會製造 bug。** 要做的是**寫下為什麼不同**，不是消除不同。
+
+#### 6.8-c 🔴 但**同一個 fail-open 風險出現在【兩處】，而只有一處有警告**
+
+`pcm_order_refundable_remaining` 的 COMMENT 逐字警告：
+> 「**未來新增任何 status 值預設不佔額度 —— 新增狀態時必須回訪本函式。**」
+
+**而步 7 那句 `status = 'confirmed'` 是【裸的字面】，沒有任何註解。**
+
+⇒ **加一個新的退款狀態（例如 `confirmed_manual`）：**
+- 額度那套：不佔額度 ⇒ **可以多退** ⇒ 有警告，但警告在函式 COMMENT 裡
+- 步 7 那套：不算進 `v_sum` ⇒ **單子永遠標不到 `refunded`** ⇒ **零警告**
+
+**⇒ 兩處都會靜默出錯，而其中一處連提醒都沒有。**
+
+### 6.9 規格：把「記得回訪」換成「會紅」（**我唯讀，只交規格**）
+
+> 主視窗的判準：**「記得」不是修法。** 而這條的形狀特別毒 ——
+> 📎 前面三次是「**答案寫在註解裡而我沒讀**」；
+> **這次是「警告寫在註解裡，而未來要改它的人根本不會打開那支函式**」。
+
+**建議做成一道斷言（隨每次 `db push` 跑）**：釘住 `order_refunds.status` 的**值域集合**，
+新增任何值 ⇒ **當場紅**，訊息直接指名這兩處要回訪。
+
+```sql
+DO $$
+DECLARE
+  c_known constant text[] := ARRAY['processing','confirmed','failed','deferred'];  -- ← 依實際值域填
+  v_now   text[];
+BEGIN
+  -- 從 CHECK 約束取出目前允許的值域（不是從資料取 —— 資料為空時會恆綠）
+  SELECT array_agg(x ORDER BY x) INTO v_now
+    FROM (SELECT unnest(...) AS x FROM pg_catalog.pg_constraint
+           WHERE conrelid='public.order_refunds'::regclass
+             AND conname='order_refunds_status_check') s;
+
+  IF v_now IS DISTINCT FROM (SELECT array_agg(x ORDER BY x) FROM unnest(c_known) x) THEN
+    RAISE EXCEPTION
+      'order_refunds.status 值域變了（現=[%]，本斷言已知=[%]）。'
+      '🔴 新增狀態必須【同時】回訪這兩處，否則會靜默出錯：'
+      '① pcm_order_refundable_remaining —— 新值預設【不佔額度】⇒ 可以多退；'
+      '② admin_finalize_order_refund 步 7 的 `status = ''confirmed''` —— '
+      '新值不算進 v_sum ⇒ 單子永遠標不到 refunded。',
+      array_to_string(v_now,','), array_to_string(c_known,',');
+  END IF;
+END $$;
+```
+
+🔴 **兩個設計要點**：
+1. **值域取自 `CHECK` 約束，不是取自資料** —— 取資料的話，**表是空的就恆綠**
+   （本 repo 今天已經在別處踩過「掃到 0 個物件也會過關」）。
+2. **錯誤訊息本身就是那份回訪清單** —— 讓觸發的人**不需要去讀任何 COMMENT**。
+   **這正是這條的病根：警告放在沒有人會打開的地方。**
+
+⚠️ `c_known` 的實際值域**我沒有逐字核對**（我讀到的是約束名 `order_refunds_status_check` 存在，
+以及程式碼用到的四個值）⇒ **實作者要先 `pg_get_constraintdef` 讀出真值再填，不要照抄我的陣列。**
+
 ### 6.4 建議（**我唯讀，只提**）
 
 1. **給那五支出貨 RPC 補同交易 `admin_audit_log`** —— 與隔壁七支同形狀，不必發明新機制
