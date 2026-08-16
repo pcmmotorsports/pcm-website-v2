@@ -380,6 +380,34 @@ const OFFEND = new RegExp(`(?<![-\\w])${BARE}(?![-\\w])|${BARE}-(?:[a-z]+-)*\\[`
 //      丙 真的需要固定圓角 ⇒ **那是設計決策要拍板,不是在這裡加豁免**
 const hasOffendingRadius = (source: string): boolean => OFFEND.test(source);
 
+describe('BMW M:三色條(片2)', () => {
+  it('🔴 三個色停是【硬寫的 hex】,不得被「收進 token」', () => {
+    // OD `:83-86` 明文:這三停不在 tokens.css、是品牌圖案、**絕不當按鈕底色**。
+    // 🔴 這一格擋的是一個**看起來像在做好事**的改動:有人覺得「硬寫 hex 很髒」而改成
+    //    `var(--primary)` 之類 ⇒ 日後調強調色會**把品牌條一起調掉**,
+    //    而畫面上只會看起來「顏色變了」,沒有人會發現那是品牌錯誤。
+    const rule = /\.m-stripe\s*\{[^}]*\}/s.exec(CSS)?.[0];
+    expect(rule, 'globals.css 找不到 .m-stripe 規則').toBeDefined();
+    for (const stop of ['#0066b1', '#1c69d4', '#e22718']) {
+      expect(rule, `三色條少了色停 ${stop}`).toContain(stop);
+    }
+    // 順序也要對:藍 → 深藍 → 紅。反了就不是 M 的條紋了,而三個色都還在、上面那圈會全過。
+    const order = ['#0066b1', '#1c69d4', '#e22718'].map((s) => String(rule).indexOf(s));
+    expect(order, '三停順序錯了(應為 藍 → 深藍 → 紅)').toEqual([...order].sort((a, b) => a - b));
+    // 🔴 分母:規則裡不得出現 `var(` —— 那代表有人把色停換成 token 了。
+    expect(String(rule).includes('var('), '三色條的色停被換成 var() 了').toBe(false);
+  });
+
+  it('🔴 側欄真的有掛上三色條 —— CSS 在而沒人用,等於沒做', () => {
+    // 同「宣告在、消費端 0」那條教訓:規則存在不代表畫面上看得到。
+    const sidebar = readFileSync(
+      join(__dirname, '..', 'components', 'layout', 'app-sidebar.tsx'),
+      'utf8',
+    );
+    expect(sidebar, 'app-sidebar 沒有使用 m-stripe').toContain('m-stripe');
+  });
+});
+
 describe('Tailwind v4 的裸圓角類別陷阱', () => {
   // 🔴 **本段刻意不寫出那個英文字的裸形,也不寫方括號圓角的完整字面。**
   //    這支檔踩過三次「偵測器打到自己的輸入」:①正規式字面 ②註解字面 ③🔴**掃描範圍**
