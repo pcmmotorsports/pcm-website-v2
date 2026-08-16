@@ -67,6 +67,34 @@
 
 押住等 STOP → **R1 FAIL 必有確認輪**(紀錄面=主視窗以 SHA 窄確認;行為面=fresh reviewer;第 3 輪起換模型換角度;codex FAIL 的裁決型 finding 可由既有拍板/裁定處置,寫進 commit body)→ `merge --no-ff` → `turbo typecheck lint build --force`(0 cached)+全套 `pnpm test` **精確調和**(「預期 Δ vs 實際 Δ」逐片對帳,完整輸出留檔 scratchpad)→ 錢面加拋棄庫重跑 → **nit 順手清**(reviewer gate 標記引審查紀錄)→ STATUS 七欄收帳+欠的落檔(母 plan 註記/立案)同批 docs commit → push(夜跑持續授權;`dev`=pcm-admin production,收割即上線要心裡有數)。
 
+### 5.1 🔴 併之前就看得到結果:`merge-tree --write-tree` + `ls-tree`(2026-08-16 夜 I 窗立)
+
+**收割窗最貴的錯誤是「併進去才發現」。** 而 merge 的結果**不必先落到工作樹才看得到** ——
+`git merge-tree --write-tree` 會實際做一次三方合併並**寫出一棵真的 tree**,回傳它的 oid,
+**完全不碰工作樹、不動 HEAD、不需要 stash**。拿到那個 oid 就能直接翻:
+
+```bash
+git merge-tree --write-tree HEAD <branch> >/dev/null 2>&1; echo "有無衝突 rc=$?"   # 0=clean
+T=$(git merge-tree --write-tree HEAD <branch>)      # 拿 tree oid
+git ls-tree -r --name-only "$T" -- <路徑>            # 併完那棵樹【實際】長什麼樣
+git ls-tree -r --name-only "$T" -- <路徑> | grep <你怕出現的字面>
+```
+
+**實例(本條的來源)**:dev 這側把一支檔 `git mv` 改了名,而 E 窗分支上**刻意留著舊名那份**
+(它若 delete 會變成 rename/delete 衝突)。它自陳「`merge-tree` 驗過 clean」。
+I 窗**沒有採信自陳**,拿它產出的樹直接 `ls-tree … | grep phase1-architecture`
+⇒ **只回一行新名檔** ⇒ 確認不會兩個檔並存;併後再實查一次,舊名檔不存在。
+
+🔴 **界線 —— 不寫的話下一個人會拿它當總驗收**:
+
+- 它驗的是**檔案層面會不會撞、併完的檔案樹長什麼樣**。
+- 它**不驗內容對不對**(兩邊各自合法而語意打架的字面,它一律 clean)。
+- 它**不驗測試會不會綠、不驗 typecheck** —— 那仍然是併完之後跑四綠的事。
+- `rc=0` 只代表**沒有衝突標記**,不代表**這次合併是你要的那個結果**。
+
+📎 同族用法:併前用 `git diff --stat <base>...<branch>`(**三點**)看「真正會併進來的東西」;
+**兩點 `..` 會把「dev 比它新」誤顯示成大量刪除** —— 那個坑 2026-08-16 一天內對同一個人犯了兩次。
+
 ## 6. 裁決分層(主視窗)
 
 - **可自裁**:施工序/流程/方法論題(判準=不改產品可見行為、不動資料、可逆),**裁定前必親驗施工窗引用的事實**(`檔案:行號` 逐條),裁定信寫依據、落檔責任歸自己。
