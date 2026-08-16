@@ -339,13 +339,69 @@ public schema 55 個關聯 ×  SELECT / INSERT / UPDATE / DELETE / TRUNCATE
 > **量了一個面，下了一個關於全部的結論。**
 > **我自己的判別句原封適用：這個結論，如果那個東西根本不從【表】走呢？**
 >
-> ⚠️ **未做**：那 20 支會回傳資料的 RPC，**我只逐欄讀了 2 支**（V 窗指名的那兩支）
-> ⇒ **其餘 18 支的回傳面沒有逐支審**，標**未確認**、已列缺口。
+> ✅ **2026-08-16 補完：20 支【全部】逐支審過**（原本只讀了 2 支）—— 見下方 §5.1-b。
 
 ~~**對威脅模型的意義**：那把憑證外流，拿到的人一列客戶資料都讀不到。~~
 **對威脅模型的意義（更正後）**：那把憑證外流，**拿不到客戶 PII，但拿得到訂單交易 metadata**。
 損害面是「可以亂動付款狀態」（詐欺）**加上「可以讀到訂單金額／狀態／交易碼」**，
 **仍然不是「可以把客戶身分資料撈走」**（Sean 唯一擔心的那件）。
+
+#### 5.1-b F2 完整版：那 20 支會回傳資料的 RPC，**逐支列出回傳欄位**
+
+> **F2 只證明了「有東西會回傳」。而「回傳的是什麼」才決定那把憑證外流的真實損害面** ——
+> 那正是威脅模型唯一在意的那件事。所以補完，不留在「未確認」。
+
+**先把可以用型別排除的分掉**（scalar 載不了 PII）：
+
+| 回傳型別 | 支數 | 內容 | PII |
+|---|---|---|---|
+| `integer` | 6 | 受影響列數／回收筆數 | ❌ 不可能 |
+| `boolean` | 5 | 成功與否 | ❌ 不可能 |
+| `TABLE(...)` | 3 | 簽章即可見：`attempt_id`／`order_id`／`order_number`／`rec_trade_id`／`attempt_count`／`superseded_at` | ❌ 無 |
+| **`jsonb`** | **6** | **要開檔逐支讀 ↓** | — |
+
+**六支 `jsonb` 的回傳鍵（逐支開檔讀 `jsonb_build_object`）：**
+
+| 函式 | 回傳鍵 | 作者自述 |
+|---|---|---|
+| `confirm_order_payment` | `confirmed` / `idempotent`（**兩個 boolean，就這樣**） | 有 |
+| `get_active_charge_attempt` | `attempt_id` `status` `rec_trade_id` `bank_transaction_id` `attempt_created_at` `order_total` `order_payment_status` `order_display_id` | 有（「只回非 PII 對帳欄」） |
+| `get_payment_anomaly_alert_summary` | 全部是 `*_count` / `oldest_open_age_seconds`（**純聚合**） | 有 |
+| `mark_charge_attempt_released_for_user` | `released` | 無 |
+| `supersede_charge_attempt_for_user` | `superseded` / `reason` / `record_not_found` | 無 |
+| 🔴 `begin_charge_attempt` | `acquired` `reason` `attempt_id` **`fallback_token`** `existing_order_id` `existing_display_id` `existing_rec_trade_id` `existing_bank_transaction_id` `existing_paid` `in_flight_order_id` | 無 |
+
+### ⇒ 結論：**20 支全部零 PII**
+
+**沒有任何一支回傳姓名／電話／地址／卡號／經銷價。**
+⇒ **F2 的限定（「撈不到客戶 PII」）在【逐支審完之後】仍然成立** —— 現在它是普查，不是抽樣。
+
+### 🔴 但補一件 F2 沒問到的：`begin_charge_attempt` 會回 `fallback_token`
+
+那不是 PII，**是一把能力憑證** —— 它正是 `mark_charge_attempt_charged_fallback` 的三道護欄之一。
+
+**為什麼仍然不構成升級**（我開檔確認過）：那支 fallback **另外要求 `auth.uid() = customer_user_id`**
+⇒ **光有 `payment_confirmer` 憑證（那是 DB 登入角色、沒有 JWT 身分）拿到 token 也用不了。**
+⇒ **兩道護欄不是同一把鑰匙**，這是設計對的地方。
+⚠️ **但這是「兩道之一外洩」** ⇒ 記入縱深防禦帳，**不要因為今天用不了就當它不存在**。
+
+### 🔴 誰還能呼叫這 20 支？—— **沒有別人**
+
+```
+20 支的 proacl 全部是 {postgres=X/postgres, payment_confirmer=X/postgres}
+anon / authenticated / service_role  ⇒  20 支全部 false
+```
+⇒ **這張風險圖只掛在那一把憑證上**，沒有第二個角色分支。**20 支 ACL 一致、零例外。**
+
+### 關於「作者自述」這一欄（為什麼要列）
+
+6 支裡 **3 支有**意圖自述、**3 支沒有**。
+🔴 **重點不是「沒自述就有問題」** —— 而是：**「非 PII」是一個判斷，
+別人要能複驗那個判斷，就必須看到欄位名。** 所以上表列的是**欄位**，不是我的結論。
+✅ **本輪三支「無自述」的實測結果都沒有超出** ⇒ **沒有出現「宣稱與事實不符」的情況**
+（那才是比「沒寫」嚴重的那一種）。
+
+---
 
 **這個好狀態是【被守住的】還是【碰巧的】？—— 兩者都有，分開講：**
 - **被守住的**：`20260811060000_…:363-374` 連**誰可以成為 `payment_confirmer` 的成員**都斷言了
