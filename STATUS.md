@@ -42,7 +42,19 @@
 
 🔴🔴 **正式站兩個【現在就有】的缺陷(2026-08-16 主視窗真瀏覽器實證,非推論)**:①**沒選具名身分 ⇒ 後台所有寫入動作靜默失效**(無訊息、畫面完全正常),而「尚未選擇」**是每個人的預設狀態** ⇒ 新員工第一天就撞上,**擋在北極星上**;`backlog #534`,**碰 auth=鐵則 12②,列了甲乙丙未選,等 Sean**。②**「清除搜尋」假裝成功** —— chip 消失、列表回全部,而 cookie 因 `delete` 未帶 `Path` 沒被刪(**實測 `admin_order_keyword path=/orders`**)⇒ 下次進來又被篩著;`#535` **已修、只差 push**。
 
-✅🔴 **migration 四支(不是三支)—— 2026-08-16 11:3x 主視窗實套,三成一敗**(量法 `supabase migration list --workdir <scratch>`,正式庫實查):
+✅✅ **migration 四支全部已進正式庫(2026-08-16 13:3x 主視窗實套;`supabase migration list` 四支遠端欄皆有值)**
+🔴🔴 **而 `20260816010000`(`#525`)的過程是今天最重要的事**:第一次 apply 被**它自己的守門**擋下,逐字
+`#525:acl 形狀是 [anon:EXECUTE,authenticated:EXECUTE,service_role:EXECUTE],期望 service_role:EXECUTE`。
+**真因**:Supabase 平台對 `public` 掛 `ALTER DEFAULT PRIVILEGES`,新函式**直接授權給 `anon`/`authenticated` 具名角色**
+⇒ **`REVOKE ... FROM PUBLIC` 收不到具名授權**。這支是 `SECURITY DEFINER`、`anon` 是 storefront 印在訪客瀏覽器裡的公開金鑰角色。
+✅ **修法 `f90670b3` 已 apply 通過,而通過的四項裡有一項是新加的「有效權限」檢查**
+(`has_function_privilege('anon'|'authenticated', ...)`)⇒ 🔴 **這是【正式庫自己回答的】:那兩個角色現在沒有可繼承的 EXECUTE。**
+⚠️ **仍未關的**:`NOINHERIT` 的角色 `SET ROLE service_role` 這條路徑守門看不到(拋棄式 PG 17.10 實測),
+**Supabase 的 `anon.rolinherit` 實際值未確認**。
+🔴🔴 **未做的推廣**:`supabase/migrations` 全樹 `SECURITY DEFINER` 出現 **388 次**
+(量法 `grep -ci 'SECURITY DEFINER' supabase/migrations/*.sql | awk -F: '{s+=$2} END{print s}'`)—— **本次只查了 `#525` 一支。**
+⚠️ 逆序:`010000` 版本號低於已套的三支,`supabase db push` 預設拒絕,Sean 2026-08-16 拍板用 `--include-all`。
+~~✅🔴 **migration 四支(不是三支)—— 2026-08-16 11:3x 主視窗實套,三成一敗**~~(量法 `supabase migration list --workdir <scratch>`,正式庫實查):
 **✅ `20260816030000` 客戶頁三欄 / ✅ `20260816040000` `#518` 錯誤訊息 / ✅ `20260816050000` `#522` 貨品軸分母** —— 三支各自的 `DO $verify$` 驗收 NOTICE 都印出通過。
 🔴🔴 **`20260816010000`(`#525` 客戶搜尋)被【它自己的 apply 守門】擋下、未套。逐字**:
 `#525:acl 形狀是 [anon:EXECUTE,authenticated:EXECUTE,service_role:EXECUTE],期望 service_role:EXECUTE`
