@@ -15556,3 +15556,49 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
 - **⚠️ 這條只驗得了 hct**:`sf` 的貨號規則我方**未查證**、`other` 本來就沒有貨號
   ⇒ 落地時要先答「非 hct 的代碼怎麼辦」,否則守門會對 sf 誤報。
 - **發現於**:2026-08-16 · C 窗 #10 片3(貨運商/追蹤碼/出貨日)· 由 C 窗立案
+
+### #554 · 🔴 「新物件收權斷言」只在 apply 那一刻成立 —— 日後權限被重新打開,**不會有任何東西叫**
+
+- **是什麼:** `b1b` migration 第三道斷言(service_role 的有效+可達權限恰好 `{SELECT, INSERT}`)
+  **只在 apply 的那一刻執行一次**。日後任何人下
+  `GRANT <某個持有本表寫權的角色> TO service_role;` ⇒ 權限重新打開,**斷言不會重跑**。
+- **🔴 不能用 event trigger 關(這條是本項的核心,不要再走一次這條死路):**
+  ```
+  PG 17 官方 Event Trigger Definition 逐字:
+    "this event does not occur for DDL commands targeting shared objects
+     — databases, roles, and tablespaces —"
+    https://www.postgresql.org/docs/17/event-trigger-definition.html
+    https://www.postgresql.org/docs/17/event-trigger-matrix.html
+      (Firing Matrix:GRANT/REVOKE 的 ddl_command_end 欄是 X,註「Only for local objects」)
+  ⇒ `GRANT <role> TO <role>` targets roles = shared object ⇒ **不觸發**
+  ```
+  ⚠️ **而它會失敗得非常安靜**:event trigger 建得起來、掃描掃得到它、測試也綠,
+  **它只是永遠不會被呼叫** ⇒ **機制存在本身會讓下一個人停止追問**。
+  (查證:2026-08-16 V 窗查官方文件、B 窗當場再讀原文確認;正式庫 17.6 / 拋棄式 17.10 同 major。)
+- **唯一能關的做法:** `pg_cron` 週期重跑該段斷言。
+- **🔴 而 2026-08-16 判「不現在建」,理由寫在這裡好被反駁:**
+  ```
+  ① 能下那個 GRANT 的人本來就有 DB 管理權 ⇒ 他也刪得掉 cron job
+     ⇒ 它防的是【意外】不是【攻擊】,而防意外的價值取決於「有沒有人看得到警報」。
+  ② pg_cron 失敗只寫進 cron.job_run_details —— **那張表沒有人在讀**
+     ⇒ 建了它就是又一個「裝上去、看得到、沒人會發現它在叫」的機制,
+       和上面那個被標為無效解的 event trigger **是同一族**,只是失敗得大聲一點點。
+  ```
+- **🔴 前置條件(這條就是驗收條件,填得出來就建):**
+  **先有一個【人會真的讀到】的警報去處**(例如既有的營運通知管道)。
+  **那一格填不出來之前建它,是拿機制的份量換一個心安。**
+  ⚠️ **這是判斷、可被推翻** —— 要現在建的話,直接指定警報去哪裡即可。
+- **不修未來會痛在哪:** 權限被重新打開的那一刻**看起來完全正常** ——
+  沒有測試會紅、沒有掃描會命中、`grep` 數不變。而**引爆它的那次改動看起來會完全無關**
+  (下 GRANT 的人在處理別的事,不會想到有一支 migration 的斷言因此失效)。
+- **現況量法(可重跑):**
+  ```
+  grep -n 'pg_cron' docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql   ⇒ 命中殘留段(:420 起)
+  正向對照:同檔 grep -c 'event trigger' ⇒ 非 0(證明那個命中是量出來的)
+  ```
+- **由來:** `docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql` 殘留段(全文在 SQL 檔內,
+  **刻意寫在 SQL 裡而不是只寫在信裡** —— 讀那支 SQL 的人才是會被它影響的人)。
+- **⚠️ 號碼是【佔位】**:`scripts/next-backlog-number.sh` 三層最大 = 553(它自印給的是**下限不是保留鎖**);
+  第二道閘 `grep -rn '#55[0-9]' ~/pcm-mailbox/*.md` ⇒ 命中 2 檔皆為 `#551`(C 窗)、**`#554` 零命中**,
+  而該零命中附正向對照(`#54[0-9]` ⇒ 7 檔命中)與分母(信箱 2957 檔)⇒ **那個 0 是量出來的**。
+- **發現於**:2026-08-16 · B 窗 真登入線 E8-B `b1-b` 關卡2 R2 折後 · 由 B 窗立案
