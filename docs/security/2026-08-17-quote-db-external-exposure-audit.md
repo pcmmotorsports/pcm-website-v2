@@ -80,7 +80,51 @@ pg_catalog 可讀  pg_attribute 欄位總數 = 4938（非 0）
 **而 anon 唯一讀得到的業務物件 `public.storefront_catalog_v` 逐欄看過（30 欄）**：
 價格欄**只有 `price_retail`**（零售價，本來就要對外）。**無 cost／dealer／margin／supplier price 任何一欄。**
 
-### 1.3 anon 讀得到的 15 個物件 —— **業務面只有 2 個**
+### 🔴 1.3 **更正（2026-08-17 第二輪自查）：下面那個 `15` 是錯的，正確是 `16`**
+
+**我用 `has_table_privilege` 算 §1.3，而它看不到【欄級】授權 ⇒ 少報。**
+
+```
+表級版  anon 可讀關聯 = 15
+欄級版  anon 可讀關聯 = 16          ← 正確
+差集    public.products（RLS=true） ← 只差這一個，而它是本庫最核心的表
+```
+
+**`public.products` 的實況（欄級量的）**：
+
+```
+總欄數 57  |  anon 欄級可讀 31  |  authenticated 欄級可讀 2  |  對照 postgres 57
+relacl 原文：postgres / service_role / pcm_reparse_owner —— 【表級】確實沒有 anon
+RLS policy：storefront_public_read  FOR SELECT  TO anon     ← 而 RLS 這一層是給 anon 的
+```
+
+⇒ **設計是一致的、不是漏洞**：`anon` 拿到的是 **57 欄裡的 31 欄**＋一條**限定它的 RLS policy**，
+再由 `storefront_catalog_v`（`security_invoker=true`）以**呼叫者權限**讀出去。
+
+🔴 **而我原本預測這裡會有矛盾** —— 我以為 `security_invoker=true` 的 view + 「anon 對底表無權」
+會讓 storefront 根本讀不到。**那個預測錯了，錯的原因是我的量法太粗。**
+
+### 🔴 1.3-a 這次踩到的是**我自己在同一份流程裡寫過的那條**
+
+開跑清單 §3-3 逐字：**「`has_table_privilege` 看不到欄級授權（少報）」**。
+**我讀過它、抄進了 §1.2 的 P5 檢查（那裡我用的是 `has_column_privilege`，所以 P5 的結論不受影響），
+然後在 §1.3 用了表級。**
+
+⇒ 📎 traps `㊺`：**正在書寫某條規則的當下，是它最容易被違反的時刻。**
+⇒ 📎 而它同時是 `㊹` 的「站錯位置」：**量具的解析度比被量的東西粗一級。**
+
+### ✅ 這次更正**不改變**的結論（逐條講清楚，免得被讀成全盤翻案）
+
+| 結論 | 受影響嗎 |
+|---|---|
+| **P5 成本／毛利欄 anon 讀不到** | ❌ **不受影響** —— P5 從一開始就用**欄級**判定。**且本輪在 `products` 上再獨立驗一次**：該表成本類欄位 **1 個**、**anon 讀得到 0**、對照 `postgres` **1** |
+| `dealer_price_v` 對 anon/authenticated 皆 `f` | ❌ 不受影響（那是表級沒發、欄級也沒發） |
+| 疑似含祕密欄位 anon 可讀 = 0 | ❌ 不受影響 —— 那條也是用**欄級**算的 |
+| **§1.3 的「15」與「業務面只有 2 個」** | 🔴 **受影響，已更正為 16 / 業務面 3 個**（多 `public.products`） |
+
+---
+
+### 1.3-b anon 讀得到的物件（**原表級版，數字已由上方更正**）
 
 ```
 public.storefront_catalog_v   ← 型錄 view,storefront 就是靠它,security_invoker=true
