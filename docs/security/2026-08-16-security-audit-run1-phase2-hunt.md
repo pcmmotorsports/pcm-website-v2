@@ -550,6 +550,76 @@ PERFORM 1 FROM public.order_items oi
 - **`sweeper` 與 `webhook` 相撞**沒撞過（`claim_*` 系列有 lease，但**我沒讀它的租約邏輯**）。
 - 併發只驗了**掛品項**這一條路；**出貨、作廢、取消**三條的併發**沒看**。
 
+### 6.6 🔴 退款：**三套帳本**，先分清哪一套是活的
+
+> **這一節存在的理由**：我在 §6.5(c) 驗錯了表。**分不清三套，就會像我一樣驗到一套沒人用的。**
+
+| # | 帳本 | 狀態 | 誰在寫 |
+|---|---|---|---|
+| **1** | **`order_refunds` + `order_refund_items`** | 🟢 **活的** | `admin_initiate_order_refund` → `admin_finalize_order_refund`（+ `admin_correct_refund_manual_verdict`） |
+| 2 | `payment_refunds` + `payment_refund_events` | ⏸ **還沒出生** | **零 writer**（`…initiate_advisory.sql:39` 逐字：「2g 未建」） |
+| 3 | `computeRefundQuote`（`packages/domain/src/order/refund.ts:193`） | 💀 **死的** | **零呼叫點** |
+
+**判別句給下一個人：**
+> **你要改退款額度上限？先確認你改的那一套【有沒有人在呼叫】。**
+
+#### 6.6-a 第 3 套（死 code）的量法與分母
+
+```
+pattern  : grep -rn 'computeRefundQuote'  （排除 node_modules 與 *.test.ts）
+命中     : 只有它自己的定義檔 + packages/domain/src/index.ts:95 的【導出】
+呼叫點   : 【0】
+
+控制組（同一支檔的另一個符號，同樣的 pattern 形狀）:
+  refundItems → 命中 10 個檔  ⇒ pattern 是活的
+```
+
+**它有 `quantity_exceeds_remaining` 守門、有自己的測試（`refund.test.ts:205`）、從 domain barrel 導出。**
+⇒ **它不會壞，它會誤導** —— **而且它的測試會綠，所以任何機械檢查都不會叫。**
+⚠️ **不要自己刪**（動 domain 導出是行為改動）。選項留給 Sean：刪 / 加註解標明非權威 / 改成真的用它。
+
+### 6.7 🟢 `order_refunds`（**活的那張**）的不變量 —— 查了，**擋得住，包含跨次**
+
+**先問「誰在寫」再問「守不守得住」**（這是上一節換來的教訓）：
+表 ACL `REVOKE ALL … FROM PUBLIC, anon, authenticated, service_role, payment_confirmer`
+⇒ **只有 owner 寫得進** ⇒ 唯一入口是那三支 SECDEF RPC。**外部零路徑**（`admin_*` 對 anon／authenticated 皆 0/28）。
+
+**單次超量**：`order_refunds_ledger_consistency` **CONSTRAINT TRIGGER（DEFERRED 到 COMMIT）**
+驗三件：①至少一列明細 ②header `items_amount = Σ line_amount` ③每列不超原始數量且單價相符。
+🔴 **而且它【父子表都掛】**，作者註解逐字：「**只掛子表則「零明細 header」永不觸發**」
+—— **這正是「守門掛錯物件」那一類，他們想到了。**
+
+**跨次累積超退（第 N 次部分退款）** ⇒ 🟢 **有擋，在 `pcm_order_refundable_remaining(p_order_id)`**：
+
+```sql
+SUM(r.refund_amount) FROM order_refunds r
+ WHERE r.order_id = o.id AND r.status IN ('processing','confirmed')   -- 佔額度
+-- 另一段 SUM 處理 failed（已更正者），兩段值域互斥 ⇒ 不重複扣
+```
+
+⇒ 回答「**累加的是哪一個集合**」：**`processing` + `confirmed` 佔額度；
+`deferred` 與「未被更正的 `failed`」不佔。**
+
+🔴 **兩條殘餘風險，都是作者自己寫出來的（不是我發現的）：**
+
+1. **allowlist 是 fail-open 方向**（該函式 COMMENT 逐字）：
+   > 「**未來新增任何 status 值預設不佔額度 —— 新增狀態時必須回訪本函式。**」
+   ⇒ **加一個新的退款狀態，額度會憑空變多，而不會有東西紅。**
+2. **同一個累加有第二套實作**：`admin_finalize_order_refund` 步 7 **自己 SUM** 決定 `payment_status`
+   —— **已立案 `#497`**（同檔 COMMENT 記著）。⇒ 兩套 SUM 各自演化的風險已被知道。
+
+📌 **`20260725130100:33-39` 有一段標題叫「本檔不做、留給後續片的防線（誠實揭示，不得宣稱帳本已完備）」**，
+逐條列出跨次累積超退與運費綁定兩個缺口並指名歸屬。
+**那一段寫於 2026-07-25，而缺口①後來真的被補上了**（`pcm_order_refundable_remaining`）。
+⇒ **這是「誠實揭示缺口」真的走完一輪的實例**，不是掛在那裡的免責聲明。
+
+#### 6.7-a 🔴 更正我 §6.5(c) 的另一句
+
+我當時寫「`payment_refunds` 的 `BEFORE TRUNCATE` 是**全 repo 唯一**一處專門防 `TRUNCATE` 的地方」。
+**錯。** 活的那張也有：**`pcm_refund_ledger_block_truncate`**（production 實查函式清單命中）。
+⇒ **正確說法：退款這條線上【兩套帳本都】防了 `TRUNCATE`。**
+📎 成因同前：我在**只看過一張表**的情況下下了一個**全 repo 的全稱句**。
+
 ### 6.4 建議（**我唯讀，只提**）
 
 1. **給那五支出貨 RPC 補同交易 `admin_audit_log`** —— 與隔壁七支同形狀，不必發明新機制
