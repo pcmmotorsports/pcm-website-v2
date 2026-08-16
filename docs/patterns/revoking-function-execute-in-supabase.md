@@ -48,9 +48,19 @@ GRANT EXECUTE ON FUNCTION public.<fn>(<argtypes>) TO service_role;
 **那句話是錯的,而且錯的方向很危險** —— 它會讓人以為「我們的 `anon` 如果是 `NOINHERIT`,
 那 `FROM PUBLIC` 那道就可以省」。**不可以。**
 
+🔴 **下面三節的 SQL 都是【節錄】,不是整段貼上去就會動。** 要重跑請先跑這個 setup
+(拋棄式叢集照 `docs/runbooks/throwaway-postgres-for-migration-verification.md`;
+macOS 上 `pg_ctl start` 前要 `LC_ALL=C`,否則報 `postmaster became multithreaded`):
+
+```sql
+-- setup:三個角色一次建好,後面各節都靠它
+create role anon          nologin noinherit;
+create role authenticated nologin noinherit;
+create role service_role  nologin noinherit;
+```
+
 ```sql
 -- 拋棄式 PG 17.10 實跑(B 窗 2026-08-16),anon 刻意建成 NOINHERIT:
-create role anon nologin noinherit;
 create function public.f_arm(a text) returns int language sql security definer as $$ select 1 $$;
 revoke all on function public.f_arm(text) from anon, authenticated;   -- 只下具名那道
 select has_function_privilege('anon','public.f_arm(text)','EXECUTE'); -- => t  ← 洞還在
@@ -110,10 +120,11 @@ scratchpad、隨 session 消失 ⇒ **本表要重跑必須先重寫探針**,不
 2026-08-16 拋棄式 PG 17.10 實跑:
 
 ```sql
-create function public.f_ovl(a text) ... security definer ...;
+-- 接 §2 的 setup(三個角色已建)
+create function public.f_ovl(a text) returns int language sql security definer as $$ select 1 $$;
 revoke all on function public.f_ovl(text) from public;
 revoke all on function public.f_ovl(text) from anon, authenticated;  -- 舊簽名鎖好
-create or replace function public.f_ovl(a int) ... security definer ...;  -- 只改了參數型別
+create or replace function public.f_ovl(a int) returns int language sql security definer as $$ select 2 $$;  -- 只改了參數型別
 
 select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
  where n.nspname='public' and p.proname='f_ovl';          -- => 2   ← 兩支都在
@@ -122,9 +133,17 @@ select has_function_privilege('anon','public.f_ovl(text)','EXECUTE');  -- => f  
 ```
 
 ⇒ **改參數型別之後你有【兩支】SECDEF 函式,而你的 migration 只寫了其中一支的 REVOKE。**
-⇒ **正確做法**:改型別 = 一次處理兩件事 ——
-① 對**新簽名**下兩道 REVOKE;② 決定舊簽名要不要 `DROP FUNCTION`(要就明確 drop、處理相依),
-不 drop 就**明確寫下為什麼留著**。**兩支都要有斷言,不能只斷言你剛寫的那一支。**
+
+**正確做法(四件,缺一都會留東西):**
+1. 對**新簽名**下兩道 REVOKE。
+2. 決定舊簽名去留。要刪 ⇒ **用精確簽名** `DROP FUNCTION public.f(text) RESTRICT;`
+   🔴 **`RESTRICT` 會因 view / trigger / 其他函式的相依而失敗 —— 那是它的用途,不是障礙。**
+   **不要為了讓它過去就改 `CASCADE`**(會連相依物件一起刪)。先把相依遷走,再刪。
+3. 不刪 ⇒ **在 migration 裡明寫為什麼留著**,並對**兩支**都下斷言。
+4. 🔴 **兩支並存時另有一個坑:呼叫解析**。
+   若新舊簽名有**預設參數**或**可隱式轉型**的型別(`text`/`varchar`、`int`/`bigint`…),
+   同一句呼叫可能**選到你以為已經淘汰的那一支**。⇒ 並存前先確認呼叫端解析到哪一支,
+   `\df public.f` 逐支看簽名與預設值。**「舊的沒人叫」是需要證明的,不是預設。**
 
 ---
 
@@ -132,13 +151,19 @@ select has_function_privilege('anon','public.f_ovl(text)','EXECUTE');  -- => f  
 
 兩道 REVOKE 只移除 **PUBLIC / `anon` / `authenticated` 的直接路徑**。以下路徑它管不到:
 
-- `anon` 是該函式的 **owner**（owner 永遠有權)
+- `anon` 是該函式的 **owner**。⚠️ 精確說法:**owner 撤得掉自己當下的 `EXECUTE`**,
+  但**撤不掉「可以隨時再 `GRANT` 回來 / `ALTER` 這支函式」的控制權** ⇒ owner 這條路
+  **不是靠 REVOKE 能關的**,要靠「這支函式不歸那個角色」。
 - `anon` 是某個仍持 EXECUTE 的角色的成員,**且能 `SET ROLE` 過去**
 - 其他角色被授了 EXECUTE 而 `anon` 繞得到
 
 2026-08-16 拋棄式 PG 17.10 實跑,**兩道 REVOKE 都下了、`anon` 還是 `NOINHERIT`**:
 
 ```sql
+-- 接 §2 的 setup(三個角色已建)
+create function public.f_sr(a text) returns int language sql security definer as $$ select 1 $$;
+revoke all on function public.f_sr(text) from public;
+revoke all on function public.f_sr(text) from anon, authenticated;   -- 兩道都下了
 grant execute on function public.f_sr(text) to service_role;
 grant service_role to anon;
 select has_function_privilege('anon','public.f_sr(text)','EXECUTE');  -- => f  ← 看起來安全
@@ -146,8 +171,25 @@ select pg_has_role('anon','service_role','SET');                      -- => t  �
 ```
 
 🔴 **`has_function_privilege` 回 `f` 的同時,那條路仍然開著。**
-⇒ **最終 fail-closed 判準**:對**具名 `regprocedure`** 問 `has_function_privilege` 為 false,
-**外加**查 owner 與 `pg_has_role(<角色>, <持有者>, 'SET')`。
+
+⇒ **驗收判準(涵蓋【直接呼叫 + 角色切換】兩條,不是「一定執行不到」的證明):**
+
+```sql
+-- 對具名 regprocedure 問, 且【枚舉所有角色】——只查 service_role 一個不夠
+select r.rolname,
+       pg_has_role('anon', r.oid, 'SET') as anon切得過去,
+       has_function_privilege(r.oid, 'public.f(text)'::regprocedure, 'EXECUTE') as 該角色可執行
+  from pg_roles r
+ where pg_has_role('anon', r.oid, 'SET')
+   and has_function_privilege(r.oid, 'public.f(text)'::regprocedure, 'EXECUTE');
+-- 要求:回【零列】。任一列 = anon 有一條 SET ROLE 繞路。
+```
+
+🔴🔴 **這個判準只涵蓋「anon 自己去呼叫」與「anon 切角色去呼叫」。它【不】證明那支函式不可觸發。**
+仍然開著的間接入口(本檔**未逐一驗證**,列出來免得被讀成已涵蓋):
+**另一支 anon 叫得到的 SECDEF wrapper 在裡面呼叫它** / **trigger** / **view 的相依呼叫鏈**。
+⇒ 要宣稱「完全不可觸發」,得另外把**間接入口與相依呼叫鏈**查一遍 —— **本檔沒做這件事。**
+
 ⇒ **不要把「我下了兩道 REVOKE」當成驗收通過。那是動作,不是結果。**
 
 ---
