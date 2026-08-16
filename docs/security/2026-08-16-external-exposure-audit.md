@@ -75,12 +75,38 @@ set_by = supabase_admin 一筆 + postgres 一筆                  ← 🔴 收�
 ⚠️ 而 house **刻意**對型錄表下欄級授權（`products` / `product_variants`）
 ⇒ 盤點時**不能把欄級授權一律當成問題**，要分「刻意的」與「殘留的」。
 
-### 2.4 只查了被問到的維度
+### 2.4 🔴 `has_table_privilege` 也不管 schema USAGE —— 而這個方向是【多報】
+
+要真的讀得到一張表，**表授權與 schema `USAGE` 兩層都要有**。
+`has_table_privilege` 只回答第一層 ⇒ **它會把「有表授權但進不去 schema」算成可讀。**
+
+**實測（2026-08-17，`E-687`）**：
+- `anon` **有** USAGE：`public` / `storage` / `net` / `extensions` / `realtime`
+- `anon` **沒有** USAGE：🟢 `cron`、🟢 `vault`（**secrets 存這裡**）、`pcm_cron`、`supabase_migrations`
+- `auth`：有 USAGE 但**零表授權** ⇒ 讀不到任何列
+
+⇒ **`cron.job` 那條擔心可以劃掉**（anon 進不去 `cron`）。
+⇒ 「anon 跨 schema 可讀 26 個」修正為 **24 個兩層都通**，其中 `storage` 那 7 張被 RLS deny-all。
+
+🔴 **三個盲點方向不同，不要當成「都偏保守」：**
+
+| 盲點 | 方向 |
+|---|---|
+| ADP 不經 `GRANT` 授權（§2.1） | **少報** |
+| `has_table_privilege` 看不到欄級授權（§2.3） | **少報** |
+| `has_table_privilege` 不管 schema USAGE（本節） | **多報** |
+
+### 2.5 只查了被問到的維度
 
 本次查的是：DB 授權 / RLS / SECDEF 函式 / view / storefront 與 admin 的 `service_role` 與路由。
-**沒查**：Storage buckets、Edge Functions、Realtime、第三方整合、前端 XSS/CSRF、依賴鏈漏洞。
+**已補查（`E-687`）**：Storage —— anon 有授權的 7 張**全部 RLS on + 0 policy = deny-all** ✅；
+Realtime —— `realtime.messages` deny-all ✅，**但 `realtime.subscription` 的 RLS 是【關的】**
+且 anon 有 USAGE + SELECT ⇒ **唯一一張兩層都通又沒 RLS 的表**；
+⚠️ **它的內容與列數我沒量到**（稽核帳號無 `realtime` USAGE，那是設計）⇒ **標未確認，不要引用通則描述當本庫事實**。
 
-### 2.4 🔴 引用鏈放大效應（當天真的發生了）
+**仍沒查**：Edge Functions、第三方整合、前端 XSS/CSRF、依賴鏈漏洞。
+
+### 2.6 🔴 引用鏈放大效應（當天真的發生了）
 
 `E-683` 一個**錯的行號** → 主視窗照抄轉述兩次 → 兩個窗都拿到同一個錯座標。
 **是 B 窗去開原始檔才擋住。**
@@ -146,7 +172,17 @@ SELECT n.nspname, d.defaclrole::regrole, a.grantee::regrole, a.privilege_type
        LATERAL aclexplode(d.defaclacl) a WHERE d.defaclobjtype='r';
 ```
 
-**`anon` 可讀 26 個的分佈**：`public` 11、`storage` 7、`cron` 2、`extensions` 2、`net` 2、`realtime` 2。
+**`anon` 有表授權的 26 個分佈**：`public` 11、`storage` 7、`cron` 2、`extensions` 2、`net` 2、`realtime` 2。
+⚠️ **但要加 schema USAGE 那一層才是「真的讀得到」**（§2.4）：
+`cron` 那 2 個 **anon 無 USAGE ⇒ 不可達** ⇒ **兩層都通的是 24 個**，
+其中 `storage` 7 張 RLS on + 0 policy ⇒ **實際讀得到列的更少**。
+
+```sql
+-- schema USAGE 那一層（缺了它，上面的數字會多報）
+SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
+  FROM pg_namespace n
+ WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' ORDER BY 1;
+```
 
 ---
 
