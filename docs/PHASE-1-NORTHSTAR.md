@@ -261,6 +261,41 @@ Phase 1 結束 = 對外開放公測、員工切換到新版 admin 工作。
 - 前台 SEO + structured data 各頁完整
 - 至少一週連續 build / lint / typecheck 三綠
 
+### 🔴 上線當天必做:repo 轉 private **＋同時**設定 Actions spending limit(2026-08-16 Sean 裁【丙】)
+
+```
+☐ 把 pcmmotorsports/pcm-website-v2 從 public 改成 private
+☐ 【同一時間】把 GitHub Actions 的 spending limit 從預設 $0 調高
+   —— 這兩件是【一件事】，分開做會出事，原因見下
+```
+
+🔴 **現在是 public,那是【刻意的、有關閉時點】,不是疏忽 —— 不要自己去改。**
+Sean 2026-08-16 逐字:「**等到網站上線後再改,畢竟為了安全著想。**」
+
+**為什麼當時不改(這段是決定的理由,不是背景)**:
+- public repo 的 Actions **免費**;private 之後**開始吃 2,000 分/月的免費額度**。
+- 🔴 **而 GitHub 預設 spending limit 是 `$0` ⇒ 額度用完不是多收錢,是【workflow 直接不執行】。**
+- 🔴🔴 **CI 是唯一在守 SQL / `docs/probes/` 那一層的東西**(本機三綠對 `.sql` 恆綠、零判別力;
+  見 `docs/patterns/slice-checkpoint.md` §6.5)⇒ **CI 停跑 = 那層防護無聲消失,而三綠照樣全綠。**
+- ⇒ **為了把 repo 藏起來而讓驗證鏈斷掉,淨安全性是負的。**
+
+**⚠️ 當時的數字(`2026-08-16` 量的,上線時很可能已經不同 —— 請重跑,不要引用這個數)**:
+```
+本期 8/1–8/16（半個月）約 2,548 分  vs  private 免費額度 2,000 分/月
+⇒ 當時若改 private，約每月中額度就會用完
+```
+**重跑量法**(校準過:每 run 恰 1 job、job/wall = 0.97 ⇒ wall-clock 可用;計費每 job 進位到整分):
+```bash
+for w in ci.yml e2e-prod.yml rpm-sync.yml; do
+  gh run list --workflow $w --limit 1000 --json createdAt,updatedAt \
+    --jq '[.[]|select(.createdAt>="<本期起始日>")|(updatedAt−createdAt 秒)]
+          |map(select(.>0 and .<7200))|map(((.*0.97)/60)|ceil)|add'
+done
+```
+🔴 **`--limit` 要夠大**:結果若**等於**你給的上限,那是上限不是真值(本檔量測時 `300` 就中過這個坑)。
+📎 相關 backlog:`#548`(CI 只跑 push tip,不逐顆跑)—— 其成本結論中的「金錢 `$0`」**前提正是 repo 為 public**,
+改 private 當天那條結論同時失效,要一併重算。
+
 ---
 
 ## 6. 新 Claude Code 第一天的工作
