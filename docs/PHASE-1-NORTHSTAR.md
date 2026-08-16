@@ -267,7 +267,39 @@ Phase 1 結束 = 對外開放公測、員工切換到新版 admin 工作。
 ☐ 把 pcmmotorsports/pcm-website-v2 從 public 改成 private
 ☐ 【同一時間】把 GitHub Actions 的 spending limit 從預設 $0 調高
    —— 這兩件是【一件事】，分開做會出事，原因見下
+☐ 把 main 納入分支保護（見下方「🔴 陷阱」，不要只看設定頁上的 ruleset 名字）
 ```
+
+#### 🔴 陷阱:設定頁上那個叫 `main` 的 ruleset **不保護 `main`**
+
+**2026-08-16 實查(I 窗),請上線那天自己重跑一次確認沒變:**
+```bash
+gh api /repos/pcmmotorsports/pcm-website-v2/rules/branches/main --jq 'length'  # 當時 0
+gh api /repos/pcmmotorsports/pcm-website-v2/rules/branches/dev  --jq 'length'  # 當時 5 ← 正向對照
+gh api /repos/pcmmotorsports/pcm-website-v2/rulesets --jq '.[]|"\(.name) \(.id)"'
+gh api /repos/pcmmotorsports/pcm-website-v2/rulesets/<id> --jq '.conditions.ref_name'
+gh api /repos/pcmmotorsports/pcm-website-v2 --jq '.default_branch'              # 當時 dev
+```
+**當時的結果**:
+```
+ruleset「dev」  target = refs/heads/dev     規則 deletion / non_fast_forward
+ruleset「main」 target = ~DEFAULT_BRANCH    規則 deletion / non_fast_forward / required_status_checks
+而 default_branch = dev
+⇒ 🔴 那個【名字叫 main】的 ruleset，~DEFAULT_BRANCH 解析出來是 dev
+⇒ 兩個 ruleset 保護的都是 dev；main 實得 0 條
+（驗證：dev 那 5 條 = 兩個 ruleset 的聯集，按 ruleset_id 逐條對過）
+```
+🔴🔴 **誤導方向是「讓人以為安全」** —— 打開設定頁看到「main」是 `active`,
+**會直接打勾過關**。**⇒ 判準不是「有沒有一個叫 main 的 ruleset」,是「`rules/branches/main` 回幾條」。**
+📎 而 `main` 是 storefront 正式站(memory `project_deploy-topology-main-stale-dev-live`)
+⇒ **當時它可以被直接推、強推、刪除,且無任何 status check 要求。**
+
+⚠️ **為什麼 2026-08-16 當天【不】立刻補**(Sean 未拍,I 窗判並記錄理由):
+`main` 上那次 CI **不是重複** —— 7/1 起實測 **7 顆 commit 只在 `main` 跑過、從未經過 `dev`**
+(量法:`gh run list --workflow ci.yml --limit 1000 --json headSha,headBranch` 按 sha 分組看分支集合)
+⇒ **對那 7 顆而言,`main` 那次是唯一一次檢查。**
+⇒ **現在鎖緊會改變 Sean 推正式站的操作,而上線前他還在頻繁直推。**
+**⇒ 這是「上線後才鎖」的一半,與 private 那條同一個理由。**
 
 🔴 **現在是 public,那是【刻意的、有關閉時點】,不是疏忽 —— 不要自己去改。**
 Sean 2026-08-16 逐字:「**等到網站上線後再改,畢竟為了安全著想。**」
