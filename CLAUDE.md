@@ -71,6 +71,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 夜跑多窗指揮(哨兵/派工/批次收割/佇列預派/斷線復原) | `docs/runbooks/night-run-command-playbook.md`(2026-08-06 Sean 拍板常設) |
 | 開新施工窗/新 session 主視窗建置/工作流移植他專案 | `docs/runbooks/multi-window-command-workflow.md`(2026-08-09 Sean 拍板常設;§B 主視窗/§C 施工窗啟動提示詞) |
 | 要驗一支 migration 而手上沒有 DB access(施工窗常態)/ 要在本機起拋棄式 Postgres 或 PostgREST | `docs/runbooks/throwaway-postgres-for-migration-verification.md`(PCM 專屬 bootstrap 清單、`apply 成功 ≠ 斷言通過`、本機效度限制) |
+| **新增或修改任何 DB 函式**(`CREATE FUNCTION` / `CREATE OR REPLACE FUNCTION` / `SECURITY DEFINER` / `GRANT` / `REVOKE` / 改既有函式的參數型別) | `docs/patterns/revoking-function-execute-in-supabase.md`(**兩道 REVOKE 少一道都是開的**、四臂實測與兩個方向的證據強度分級、`has_function_privilege` vs `proacl`、改參數型別會讓舊 REVOKE 全部失效) |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
 

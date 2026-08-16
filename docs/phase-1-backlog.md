@@ -14022,6 +14022,137 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 - **相關:** `apps/admin/src/app/design-tokens.test.ts`(定位器本體與四輪軌跡);`#540`(動效 token 同族:有宣告零消費)
 - **發現於:** 2026-08-16 · B 窗 · R3 對抗審查 MF5(換 agent 換角度才問出來的層級題)
 
+### #545 · 建表時自動開 RLS 的 event trigger **吞掉自己的失敗** —— 守門是 fail-open
+
+> ⚠️ **號碼佔位,待主視窗確認**(`bash scripts/next-backlog-number.sh` → 下一個可用 `#545`,
+> 腳本自印這是**下限**;第二道 `grep -rn 佔位 ~/pcm-mailbox/*.md` 取出的號最大 `#508` ⇒ 無撞號)。
+
+- **狀態:** 未開工
+- **由來(2026-08-16,E 窗 SECDEF 全樹稽核順手撿到,B 窗立案)**
+- **在哪:** `supabase/migrations/20260531142534_govern_rls_auto_enable.sql:59-63`
+  ```sql
+  EXCEPTION
+    WHEN OTHERS THEN
+      RAISE LOG 'rls_auto_enable: failed to enable RLS on %', cmd.object_identity;
+  ```
+- **問題:** 這支 event trigger 在建表時自動開 RLS。**開失敗時它只寫 server log,然後繼續。**
+  ⇒ 表建出來了、migration `exit 0`、**沒有任何東西紅**,而那張表沒有 RLS。
+- 🔴 **這正是「壞掉而看起來成功了」那個形狀** —— 而它守的是**建新表**,
+  失敗當下不會有人知道,要到有人從外面讀到那張表才會發現。
+- **⚠️ 不是活洞:** 真實表 43 支**全部**在樹裡有明文 `ENABLE ROW LEVEL SECURITY`
+  (量法見 `~/pcm-mailbox/E-670-SECDEF全樹稽核.md` §3)⇒ 現況安全。
+  **壞的是守門本身,不是資料。**
+- **要做的:** 改 `RAISE EXCEPTION`(fail-loud),或在 migration 尾巴加一條
+  「本檔新建的表 RLS 全開」的斷言。**兩案擇一要先判**:fail-loud 會讓既有的
+  「建表順序踩到 schema 權限」那類情境當場炸,**改之前要先量會不會誤傷**。
+- **三視角:**
+  - **擴充性:** 真登入線(E8-B)大概率建新表,而它正好走這條路徑
+  - **可維護性:** 現在無法用「migration 綠了」推論「RLS 開了」,兩件事被解耦而沒人知道
+  - **bug 可追蹤性:** 失敗只在 server log,**repo 內零訊號**
+- **關閉條件:** 有一格**紅得起來**的負測(故意讓 enable 失敗 ⇒ migration 必須失敗),
+  不是「改成 RAISE EXCEPTION 就算做完」。
+- 🔴 **動 migration ⇒ 鐵則 12 ③,要 Sean 批 + 對抗審查。現在只記,不做。**
+- **相關:** `docs/patterns/revoking-function-execute-in-supabase.md`;`#525`;`#546`
+
+### #546 · **沒有人讀過正式庫真正的 ACL** —— 所有權限結論目前只證到「repo 文字」
+
+> ⚠️ **號碼佔位,待主視窗確認**(同 `#545` 兩道,`#546` 為連號)。
+
+- **狀態:** 未開工(**卡 Sean:需要連線字串**)
+- **由來(2026-08-16,E 窗稽核 §6 第 1 條誠實缺口,B 窗立案讓它有編號)**
+- **問題:** 2026-08-16 的 SECDEF 全樹稽核結論(80 支存活、`anon` 執行得到 0 支)
+  讀的是 `supabase/migrations` 的**文字**,不是正式庫的**現況**。
+  🔴 **守門釘的是 repo 裡的字面,不是真實世界的事實。**
+- **為什麼這不是杞人憂天:** `#525` 本身就是實錘 —— 那次 apply 被守門擋下時,
+  正式庫的 ACL 形狀是 repo 讀不出來的(`[anon:EXECUTE,authenticated:EXECUTE,service_role:EXECUTE]`)。
+- **要做的:** 對正式庫跑一次 catalog 查詢,逐支 SECDEF 函式問
+  `has_function_privilege('anon'|'authenticated', …, 'EXECUTE')`,與 repo 文字結論對帳。
+  🔴 **判準用 `has_function_privilege` 不用 `proacl` 字面**(前者算有效權限、含繼承)。
+- **同批可一起關掉的三條未驗**(都在同一次連線裡問得完):
+  - 正式庫 `anon.rolinherit` 的真值
+  - Supabase 真實的 `ALTER DEFAULT PRIVILEGES` 設定(目前是**模擬**的)
+  - `NOINHERIT` 角色 `SET ROLE service_role` 那條路徑
+- **⚠️ 這條不擋任何人**(所以沒放進 Sean 2026-08-16 的待辦清單),
+  **但它必須有編號,不能只活在一封信裡。**
+- **三視角:**
+  - **擴充性:** 真登入線會大量新增 `anon`/`authenticated` 判斷,那時這個缺口的代價變高
+  - **可維護性:** 現在每一份權限報告都要附「只證到 repo 文字」這個限定,而那句話會被磨掉
+  - **bug 可追蹤性:** repo 與正式庫分歧時,**零訊號**
+- **關閉條件:** 有一份對帳輸出(正式庫實查 vs repo 文字),差異逐條有歸屬。
+- **相關:** `docs/patterns/revoking-function-execute-in-supabase.md` §6;`#525`;`#545`
+
+### #547 · 後台**讀**路徑只有一層授權,**寫**路徑有三層 —— 不對稱本身是風險
+
+> ⚠️ **號碼佔位,待主視窗確認**(同 `#545`/`#546` 連號,兩道掃描見 `#545`)。
+
+- **狀態:** 未開工(**觀察,不是活洞**)
+- **由來(2026-08-16,E 窗 `FINDING E671-2`,B 窗複驗後立案)**
+- **現況(B 窗實查):**
+  ```
+  寫路徑  三層  apps/admin/src/lib/session/authorize.ts:24-34
+                ①verifySession 自驗 ②isAllowedOrigin fail-closed ③getSessionActor 具名 actor
+                任一失敗 → null,caller redirect denied、不以未知身分寫稽核
+  讀路徑  一層  只有 apps/admin/src/proxy.ts
+                量法:grep -nE 'authorize|getSession|verifySession' apps/admin/src/app/customers/page.tsx → 零命中
+                      (該頁自己不做授權檢查,完全依賴 proxy)
+  ```
+- **⚠️ `proxy.ts` 本身寫得好**,所以現在不是洞:預設擋(`:38` 未登入導 `/start`)、
+  dev bypass 要顯式、SSO 入口是精確白名單、`matcher`(`:64`)涵蓋全部非靜態路徑。
+- 🔴 **不修未來會痛在哪(鐵則 10):**
+  **`matcher` 哪天被改窄 —— 為了讓某個新頁面繞過登入閘、或為了修一個 redirect 迴圈 ——
+  讀路徑沒有第二道會攔下來,而寫路徑有。**
+  ⇒ 那次改動的 diff 會長得像一行路由設定,**而它實際上是把客戶資料變成公開頁**。
+  ⇒ 而且**不會有任何東西紅**:頁面照常渲染、測試照常綠、稽核軌不會記下「這次是誰看的」。
+- **要做的(兩案,未選):**
+  - (a) 讀路徑補第二道:敏感頁(customers / orders 明細)在 server component 內自驗 session
+  - (b) 不補第二道,改成**釘住 `matcher`**:一格會紅的守門,`matcher` 被改窄就失敗
+  🔴 **(b) 便宜很多而且擋的正是那個情境;(a) 涵蓋面廣但要逐頁加、且容易漏新頁。**
+  **選 (b) 的話要先答:守門怎麼知道「哪些路徑必須被涵蓋」——那份清單本身會不會過期。**
+- **三視角:**
+  - **擴充性:** 真登入線(E8-B)會讓「讀到的人是誰」第一次變成真證據,那時這個不對稱的代價變高
+  - **可維護性:** 現在「這頁受不受保護」的答案不在頁面裡,要跨檔去讀 proxy 的 matcher 正規式
+  - **bug 可追蹤性:** 保護失效時零訊號(頁面正常渲染),**屬於「壞掉而看起來成功了」那一族**
+- **關閉條件:** 選定 (a) 或 (b) 並實作,且**用突變驗過它紅得起來**
+  (把 `matcher` 改窄一條 / 拿掉某頁的自驗 ⇒ 必須有東西失敗)。
+- **相關:** `apps/admin/src/proxy.ts`;`apps/admin/src/lib/session/authorize.ts`;`#546`;E8-B 真登入線
+
+### #549 · ADR-0005 §8.4 對自己下的「重新評估」義務**已被觸發而無人接**
+
+> ⚠️ **號碼佔位,待主視窗確認**(`bash scripts/next-backlog-number.sh` → 下一個可用 `#549`;
+> `git show dev:docs/phase-1-backlog.md | grep -cE '^### #549 '` → `0`)。
+
+- **狀態:** 未開工(**制度債,不是活洞**)
+- **由來(2026-08-16,code-reviewer 審 `6a25da43` 的 must-fix 5,B 窗立案)**
+- **原文(`docs/decisions/0005-custom-supabase-direct.md`「與既有例外的區別」段末)逐字:**
+  > 日後若有第二個 storefront service_role 需求、須重新評估是否該抽 `apps/api/`(決策1 選項 B)、**不可逕援本例外擴張**。
+- **問題:** 第二、三、四道門**已經存在**,而那次「重新評估」**沒有發生過**。
+  ```
+  量法:git grep -nE "^// eslint-disable-next-line no-restricted-imports" -- 'apps/storefront/src/**'
+  2026-08-16 實跑 = 4 處,分佈在
+    apps/storefront/src/lib/auth/composition.ts
+    apps/storefront/src/lib/auth/line-admin.ts        ← §8.4 拍板的那一道
+    apps/storefront/src/lib/email/composition.ts
+    apps/storefront/src/lib/payment/composition.ts
+  🔴 行號故意不列(會漂);^ 錨定不可省 —— 不錨定的話,提到這個 pattern 的【文件本身】
+     會自己命中,實跑變 5 不是 4,而且每多一份文件提到它就再 +1。
+  ```
+- 🔴 **不是說那三道門違規** —— 它們各自可能都有拍板、都合法。
+  **壞的是:ADR 寫了一句「再有下一個就要回來重評」,然後有了三個,而那句話沒有任何機制會叫。**
+  ⇒ 這正是**「寫下來就當成處置完畢」**那個形狀:條款存在、零訊號、100% 不會被執行。
+- **要做的:**
+  - (a) 逐道門查它的拍板來源(有沒有 ADR / Sean 拍板 / 只是當時順手開的),補齊或補立 ADR 條目
+  - (b) 執行那次被欠的重評:**現在四道門了,還要不要抽 `apps/api/`**(決策1 選項 B)
+  - (c) 🔴 **把「幾道門」這件事做成會紅的東西** —— 一格測試釘住上面那條**行首錨定**命令的
+    **出現次數**,新增一道就紅、逼人回來看 ADR。**沒有 (c),(a)(b) 做完還會再過期一次。**
+    ⚠️ **寫那格時務必用錨定版** —— 不錨定的話,**那格測試自己的原始碼會被自己數進去**,
+    寫完當下就是錯的基準(本條立案當天實錘:不錨定 5、錨定 4)。
+- **三視角:**
+  - **擴充性:** 真登入線與後續會員相關片都可能想再開一道,現在沒有任何東西會攔下來問「你評估過了嗎」
+  - **可維護性:** ADR 是最權威的載體,而它現在有一句**已被違反卻仍讀起來有效**的條款
+  - **bug 可追蹤性:** service_role 多一個持有點就多一條可能外洩到 client bundle 的路徑,而**目前每道門各自只有 `import 'server-only'` 這一道自保**
+- **關閉條件:** (a)(b) 有書面結論寫回 ADR-0005 §8.4,且 (c) 那格**用突變驗過會紅**(新增第五道 disable ⇒ 必須失敗)。
+- **相關:** `docs/decisions/0005-custom-supabase-direct.md` §8.4;`docs/patterns/revoking-function-execute-in-supabase.md`;`#545`;`#546`;`#547`
+
 ### #513. 🏷️ 「經銷價與商品特價都走 `discount_total`」—— 這個設計決定目前唯一的載體是一句對話
 
 - **狀態:** ⏳ 待執行(**不是缺陷,是缺載體**)
