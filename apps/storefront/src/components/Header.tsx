@@ -58,6 +58,26 @@ export function Header({
   const { totalQty } = useCart();
   const [searchQuery] = useState('');
 
+  /* ═══ 搜尋入口暫時隱藏(2026-08-16,Sean 拍 `Q-SEARCH-0` = 乙)═══════════════════
+     🔴🔴 **入口在、監聽器不在** —— `openSearch()` 發出 `pcm-open-search` 事件,
+        而**全 storefront 零監聽者**(數法 `grep -rn 'pcm-open-search' apps/storefront/src`
+        ⇒ 1 命中,就是下面發送那一行本身)⇒ **點下去什麼都不會發生:不報錯、不跳頁、不開面板。**
+
+     **Sean 逐字**:「要建立好這個搜尋功能,之前有討論過,但是一直沒進行。」
+     ⇒ **他要的是【做出來】,不是拿掉。** 搜尋線本身排在 M-4b 之後。
+     ⇒ 主視窗裁「**藏起來**」而不是「導向 `/products`」,理由逐字:
+        **導到 `/products` = 使用者【期待搜尋】而拿到一個沒篩選的列表 ⇒ 那是一個【更具體的謊】,
+        比沒有入口更容易讓人以為壞了。**
+
+     🔴 **做搜尋線時把這個常數改成 `true` 就好,不要重寫。**
+        `openSearch()`、事件名、`searchQuery` state **全部原樣留著** —— 那是之後要接的東西。
+     ⚠️ **兩個入口都吃這個旗標**(手機圖示鈕 + 桌機搜尋框)——
+        **只藏一個的話,另一個仍然是死的**,而「藏了」這件事會讓人以為都處理完了。
+     📎 搜尋線遲遲沒動的**真正原因**不是忘了:`ADR-0004` 定的技術路線(pg_jieba)在 Supabase
+        裝不起來(2026-07-25 實測推翻),而**那個更正只寫進 memory、沒有回到那份決策檔**
+        ⇒ 現在讀那份 ADR 的人會拿到一條蓋不起來的路線。(R 窗 2026-08-16 挖出,另有窗在補那份 ADR。) */
+  const SEARCH_ENTRY_ENABLED = false;
+
   const openSearch = (q: string = '') => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('pcm-open-search', { detail: { query: q } }));
@@ -171,11 +191,13 @@ export function Header({
                   安裝預約/合作店家五條只剩頁尾能到。連結來源=同一份 navItems(下方定義),
                   不另寫第二份清單。TabBar 五格維持不動,選單是補充不是取代。 */}
               <MobileMenu navItems={navItems} />
-              <button className="pcm-icon-btn" aria-label="搜尋商品" data-tip="搜尋" onClick={() => openSearch()}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
-                </svg>
-              </button>
+              {SEARCH_ENTRY_ENABLED && (
+                <button className="pcm-icon-btn" aria-label="搜尋商品" data-tip="搜尋" onClick={() => openSearch()}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
+                  </svg>
+                </button>
+              )}
             </div>
             <Link href="/" className="pcm-logo" aria-label="PCM MOTOR PARTS 首頁">
               <img src={HEADER_LOGO.src} width={HEADER_LOGO.w} height={HEADER_LOGO.h} alt="PCM MOTOR PARTS" />
@@ -207,23 +229,25 @@ export function Header({
               </nav>
             </div>
             <div className="pcm-header-right">
-              <div className={`pcm-search ${searchQuery ? 'is-focus' : ''}`}
-                   onClick={() => openSearch(searchQuery)}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
-                </svg>
-                <input
-                  /* R2-3 表列「搜尋框 = placeholder『搜尋商品 / 車款 / 品牌...』+ aria-label『搜尋』」。
-                     placeholder 本來就對,少的是 aria-label —— 這欄沒有 <label>,報讀器原本只念得到
-                     placeholder(且部分瀏覽器在有值時不念)⇒ 補上不是樣式偏好,是可及性。 */
-                  aria-label="搜尋"
-                  placeholder="搜尋商品 / 車款 / 品牌..."
-                  value={searchQuery}
-                  readOnly
-                  onFocus={(e) => { e.target.blur(); openSearch(searchQuery); }}
-                  onClick={(e) => { e.stopPropagation(); openSearch(searchQuery); }}
-                />
-              </div>
+              {SEARCH_ENTRY_ENABLED && (
+                <div className={`pcm-search ${searchQuery ? 'is-focus' : ''}`}
+                     onClick={() => openSearch(searchQuery)}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
+                  </svg>
+                  <input
+                    /* R2-3 表列「搜尋框 = placeholder『搜尋商品 / 車款 / 品牌...』+ aria-label『搜尋』」。
+                       placeholder 本來就對,少的是 aria-label —— 這欄沒有 <label>,報讀器原本只念得到
+                       placeholder(且部分瀏覽器在有值時不念)⇒ 補上不是樣式偏好,是可及性。 */
+                    aria-label="搜尋"
+                    placeholder="搜尋商品 / 車款 / 品牌..."
+                    value={searchQuery}
+                    readOnly
+                    onFocus={(e) => { e.target.blur(); openSearch(searchQuery); }}
+                    onClick={(e) => { e.stopPropagation(); openSearch(searchQuery); }}
+                  />
+                </div>
+              )}
               <button className="pcm-icon-btn" aria-label="會員" data-tip="會員" onClick={(e) => handleNav(e, 'account')}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>

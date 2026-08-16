@@ -25,6 +25,8 @@ import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
 import { ORDER_ITEM_PROCUREMENT_EMBED_LIMIT } from './mappers/order-procurement';
 import {
   ORDER_ITEMS_EMBED_LIMIT,
+  ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
+  ORDER_LIST_ITEMS_EMBED_LIMIT,
   PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
 import {
@@ -163,12 +165,29 @@ describe('SupabaseOrderAdapter.findTotal', () => {
 // mock from('orders').select(ORDER_LIST_SELECT).eq('customer_user_id', id).neq('payment_status','unpaid').order('created_at', desc) 鏈;
 // .order() 為終端、await 回 {data, error}。
 function makeListClient(result: { data: unknown; error: unknown }) {
+  // 🔴 2026-08-16 `Q-EMBED-1`:查詢鏈變成
+  //    `.select().order(內嵌).limit(內嵌).eq().neq().order(外層)` ⇒ 前段要接得住。
+  //    ⚠️ **這是本檔第三個要改的 client factory**(另兩個是 `makeAdminListClient` 與
+  //       keyword search 那個)—— 同一個修法在本檔抄三份。**那是既有結構的代價,本片不重構它**,
+  //       但**三份都要改**:漏一份的症狀是 `TypeError: ….limit is not a function`。
   const order = vi.fn().mockResolvedValue(result);
   const neq = vi.fn().mockReturnValue({ order });
   const eq = vi.fn().mockReturnValue({ neq });
-  const select = vi.fn().mockReturnValue({ eq });
+  // 內嵌 order → 內嵌 limit → 才輪到 eq(篩選還沒下推)
+  const limit = vi.fn().mockReturnValue({ eq });
+  const embedOrder = vi.fn().mockReturnValue({ limit });
+  const select = vi.fn().mockReturnValue({ order: embedOrder });
   const from = vi.fn().mockReturnValue({ select });
-  return { client: { from } as unknown as SupabaseClient, from, select, eq, neq, order };
+  return {
+    client: { from } as unknown as SupabaseClient,
+    from,
+    select,
+    eq,
+    neq,
+    order,
+    limit,
+    embedOrder,
+  };
 }
 
 describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守門', () => {
@@ -208,7 +227,9 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
         paymentStatus: 'paid',
         fulfillmentStatus: 'shipped',
         total: { amount: 12345, currency: 'TWD' },
-        itemCount: 3, // Σquantity 2+1
+        itemCount: 3,
+        // 🔴 2026-08-16 `Q-EMBED-1`:2 筆 << 上限 500 ⇒ false。
+        itemCountTruncated: false, // Σquantity 2+1
       },
     ]);
   });
@@ -234,14 +255,29 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
 function makeAdminListClient(result: { data: unknown; error: unknown; count: number | null }) {
   const range = vi.fn().mockResolvedValue(result);
   const order = vi.fn();
-  order.mockReturnValue({ order, range }); // order 可鏈兩次(created_at 主鍵+id 次鍵)再 range
+  // 🔴 2026-08-16 `Q-EMBED-1`:`order` 的回傳物件**也要帶 `limit`** ——
+  //    查詢鏈現在是 `.select().order(內嵌).limit(內嵌)` 之後才接外層 `.order().range()`,
+  //    而 `order` 是獨立 mock、不吃下面那個 `builder` ⇒ 只補 builder 不夠。
+  //    ⚠️ 症狀逐字:`TypeError: …select(...).order(...).limit is not a function`
+  //       —— **它紅得很清楚,而那正是我想要的**:harness 沒跟上實作時應該炸,
+  //       不是靜靜讓 `.limit()` 變 undefined 再往下走。
+  const limit = vi.fn();
+  order.mockReturnValue({ order, range, limit }); // order 可鏈兩次(created_at 主鍵+id 次鍵)再 range
   const eq = vi.fn();
   const is = vi.fn();
   const inFn = vi.fn(); // D-1b 多勾選 .in(('in' 是保留字、local 取名 inFn)
   const or = vi.fn(); // D-1b code 混勾「未設定」→ 內嵌資源 .or
   const gte = vi.fn(); // #347-3b 建立日期下界
   const lt = vi.fn(); //  #347-3b 建立日期上界(半開區間 ⇒ lt 不是 lte)
-  const builder = { eq, is, in: inFn, or, gte, lt, order };
+  // 🔴 2026-08-16 `Q-EMBED-1`:查詢鏈尾端新增了內嵌 `.order(...,{referencedTable})` 與
+  //    `.limit(...,{referencedTable})` ⇒ **builder 要能接得住,否則整族 TypeError**。
+  //    ⚠️ 我第一版沒補,15 格當場全紅 —— **那是好事**:harness 沒跟上實作時應該紅,
+  //       而不是靜靜地讓 `.limit()` 變成 undefined 再往下走。
+  const builder = { eq, is, in: inFn, or, gte, lt, order, limit };
+  // 🔴 內嵌 `.limit()` 之後**篩選還沒下推** ⇒ 它必須回到帶 eq/in/or/… 的那個 builder,
+  //    不是回到只有 order/range 的那個。第一版我讓它回 `{order,range,limit}`
+  //    ⇒ 下一行 `query.eq(...)` 當場 `TypeError: query.eq is not a function`。
+  limit.mockReturnValue(builder);
   gte.mockReturnValue(builder);
   lt.mockReturnValue(builder);
   eq.mockReturnValue(builder); // query = query.eq(...) 保持可鏈
@@ -260,6 +296,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
     or,
     gte,
     lt,
+    limit,
     order,
     range,
   };
@@ -439,8 +476,19 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     //    把 `.in('goods_axis')` 寫成 `.eq` 會讓兩行同時紅(實測見本片 commit body 的突變表)。
     expect(eq).toHaveBeenCalledTimes(1);
     expect(inFn).toHaveBeenCalledTimes(3);
-    expect(order).toHaveBeenNthCalledWith(1, 'created_at', { ascending: false });
-    expect(order).toHaveBeenNthCalledWith(2, 'id', { ascending: false }); // n1 次鍵:同秒單分頁穩定
+    // 🔴 2026-08-16 `Q-EMBED-1`:**第 1 次 `order` 現在是【內嵌】那個**(order_items 的 id),
+    //    外層的 created_at 變成第 2 次。這一格改成逐項釘,**而不是把 Nth 全部往後推一格** ——
+    //    後者讀起來像「順序無所謂」,而順序正是這一格在守的東西。
+    expect(order).toHaveBeenNthCalledWith(1, 'id', {
+      referencedTable: 'order_items',
+      ascending: true,
+    });
+    expect(order).toHaveBeenNthCalledWith(2, 'created_at', { ascending: false });
+    expect(order).toHaveBeenNthCalledWith(3, 'id', { ascending: false }); // n1 次鍵:同秒單分頁穩定
+    // 🔴 **三次的順序整組釘住**:內嵌(1)→ 外層主鍵(2)→ 外層次鍵(3)。
+    //    ⚠️ 我第一版只改了 created_at 那行、**漏掉緊接著的次鍵那行** ——
+    //       症狀是「兩行都宣告自己是第 2 次」而只有一個能成立。**改 Nth 斷言要整組一起看。**
+    expect(order).toHaveBeenCalledTimes(3);
     expect(range).toHaveBeenCalledWith(40, 59); // offset 40、limit 20 → [40, 59] 含端
     expect(res).toEqual({
       items: [
@@ -456,6 +504,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           paymentChannel: 'tappay',
           total: { amount: 10200, currency: 'TWD' },
           displayPosition: null,
+          // 🔴 2026-08-16 `Q-EMBED-1`:本 fixture 1 筆品項 << 上限 500 ⇒ false。
+          itemsTruncated: false,
           cancelledAt: null,
           tierAtCheckout: 'store',
           invoiceStatus: 'issued', // A9c:三態直送(非 DB 預設值 ⇒ 真的讀到了)
@@ -598,6 +648,10 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       cancelledAt: '2099-05-02T00:00:00Z',
       tierAtCheckout: 'general',
       lines: [],
+      // 🔴 2026-08-16 `Q-EMBED-1`:0 筆 < 上限 ⇒ false。
+      //    ⚠️ 這一格順便釘住「空陣列不等於被截斷」——
+      //    `?? []` 的缺鍵路徑也走到這裡,而缺鍵是【另一件事】(投影退版),不是品項太多。
+      itemsTruncated: false,
     });
   });
 
@@ -1746,13 +1800,20 @@ function makeKeywordSearchClient(opts: {
   const listResult = opts.list ?? { data: [], error: null, count: 0 };
   const range = vi.fn().mockResolvedValue(listResult);
   const order = vi.fn();
-  order.mockReturnValue({ order, range });
+  // 🔴 2026-08-16 `Q-EMBED-1`:與 `makeAdminListClient` 同一個修法 ——
+  //    查詢鏈尾端多了內嵌 `.order(…,{referencedTable}).limit(…,{referencedTable})`。
+  //    ⚠️ **同一個修法在本檔要抄兩份**(兩個 client factory 各一)——
+  //       那是既有結構的代價,本片不順手重構它(範圍會失控);
+  //       但**兩份都要改**,只改一份的症狀是 `TypeError: ….limit is not a function` × 10 格。
+  const limit = vi.fn();
+  order.mockReturnValue({ order, range, limit });
   const eq = vi.fn();
   const inFn = vi.fn();
   const or = vi.fn();
   const gte = vi.fn(); // #347-3b 建立日期下界
   const lt = vi.fn(); //  #347-3b 建立日期上界(半開區間 ⇒ lt 不是 lte)
-  const builder = { eq, is: vi.fn(), in: inFn, or, gte, lt, order };
+  const builder = { eq, is: vi.fn(), in: inFn, or, gte, lt, order, limit };
+  limit.mockReturnValue(builder); // 內嵌 limit 之後篩選還沒下推 ⇒ 要回帶 eq/in/or 的 builder
   or.mockReturnValue(builder);
   eq.mockReturnValue(builder);
   inFn.mockReturnValue(builder);
@@ -2196,5 +2257,142 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — 待處理(#1 片1)
     expect(or).toHaveBeenCalledWith(PENDING_OR);
     expect(or).toHaveBeenCalledWith(L6_HIDE_OR);
     expect(or).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Q-EMBED-1:列表側內嵌上限 + itemsTruncated(2026-08-16,Sean 批)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴🔴 **這一族守的是一個【偵測不到】的東西。**
+//    PostgREST 的 `db-max-rows` 會套用到內嵌陣列,而**內嵌被截斷時它不給任何訊號**
+//    (仍回 HTTP 200、`Content-Range` 不反映)⇒ 不自己設上限、不自己算旗標,就沒有人知道。
+//    ⚠️ 證據層級見 `docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md`
+//       —— 出處是官方 repo issue **作者的敘述**、非 maintainer 聲明。**當高可信,不當定案。**
+describe('Q-EMBED-1 前台列表內嵌上限與 itemCountTruncated', () => {
+  it('🔴 內嵌上限有下推到【前台】查詢(後台那條下推了不代表這條也下推)', async () => {
+    const { client, limit, embedOrder } = makeListClient({ data: [], error: null });
+    await new SupabaseOrderAdapter(client).listSummariesByCustomer(
+      'cu-1' as unknown as Parameters<SupabaseOrderAdapter['listSummariesByCustomer']>[0],
+    );
+    expect(embedOrder).toHaveBeenCalledWith('id', {
+      referencedTable: 'order_items',
+      ascending: true,
+    });
+    expect(limit).toHaveBeenCalledWith(ORDER_LIST_ITEMS_EMBED_LIMIT, {
+      referencedTable: 'order_items',
+    });
+  });
+
+  /**
+   * 🔴 **上限值釘範圍**:嚴格低於伺服器 `max-rows`(repo 記載 production 實測 1000)。
+   * ⚠️ 它與後台那個**目前同值,而那是巧合不是耦合** —— 兩者各自可調。
+   *    這一格**不斷言兩者相等**,斷言相等會把「巧合」變成「契約」。
+   */
+  it('🔴 前台上限嚴格低於伺服器 max-rows(1000)', () => {
+    expect(ORDER_LIST_ITEMS_EMBED_LIMIT).toBeLessThan(1000);
+  });
+});
+
+describe('Q-EMBED-1 列表內嵌上限與 itemsTruncated', () => {
+  /**
+   * 🔴 **上限值本身要有一格釘住,而且要釘【範圍】不只釘值。**
+   * 它必須嚴格低於伺服器的 `max-rows`(repo 記載 production 實測 1000),
+   * 否則截斷會發生在那個更低的數字上而本判定看不見 —— 那是這整族的殘餘風險。
+   */
+  it('🔴 上限嚴格低於伺服器 max-rows(1000),且高於明細那條(200)', () => {
+    expect(ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT).toBeLessThan(1000);
+    expect(ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT).toBeGreaterThan(ORDER_ITEMS_EMBED_LIMIT);
+  });
+
+  it('🔴 內嵌上限有下推到查詢(不是只有常數存在)', async () => {
+    const { client, limit } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(limit).toHaveBeenCalledWith(ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT, {
+      referencedTable: 'order_items',
+    });
+  });
+
+  /**
+   * 🔴 **旗標的判法:要 N 筆、拿回剛好 N 筆就當作可能被切了。**
+   * 逐字沿用明細那條的既有形狀(`itemsTruncated: row.order_items.length >= ORDER_ITEMS_EMBED_LIMIT`)
+   * —— **不在同一個 repo 裡放兩種判法。**
+   *
+   * ⚠️ **`true` 的意思是「不知道完不完整」,不是「一定被截了」** ——
+   *    一張**剛好 N 個品項**的單也會命中。顯示端一律照「不知道」處理(`Q-EMBED-2` = 甲)。
+   */
+  /**
+   * 🔴 **最小 row 就地建構,不引一個不存在的常數。**
+   * 我第一版寫了 `ADMIN_LIST_ROW_BASE` —— **那個東西不存在,是我編的**,
+   * 症狀 `ReferenceError: ADMIN_LIST_ROW_BASE is not defined`(本輪第四次「餵進量具的東西憑印象打」)。
+   * ⚠️ 欄位取自本檔既有 admin list fixture 的**必要子集**(mapper 會讀的那些);
+   *    非必要欄不補 —— 補了會讓下一個人以為它們也參與判斷。
+   */
+  const listRow = (itemCount: number) => ({
+    id: 'o-trunc',
+    display_id: 'PCM-9999-0001',
+    created_at: '2099-01-01T00:00:00Z',
+    payment_status: 'paid',
+    fulfillment_status: 'notOrdered',
+    total: 1000,
+    order_source: 'web',
+    payment_channel: 'tappay',
+    display_position: null,
+    cancelled_at: null,
+    tier_at_checkout: 'general',
+    invoice_status: 'not_issued',
+    customer_user_id: 'cu-trunc',
+    customers: { name: '測試' },
+    order_items: Array.from({ length: itemCount }, (_unused, i) => ({
+      id: `oi-${i}`,
+      variant_sku: `SKU-${i}`,
+      quantity: 1,
+      unit_price: 100,
+      line_total: 100,
+      product_snapshot: null,
+      workflow_status: 'received_confirmed',
+      version: 1,
+      vehicle_snapshot: null,
+      product_variants: null,
+    })),
+  });
+
+  it('🔴 拿回剛好上限筆數 ⇒ itemsTruncated 為 true', async () => {
+    const { client } = makeAdminListClient({
+      data: [listRow(ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT)],
+      error: null,
+      count: 1,
+    });
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(res.items[0]?.itemsTruncated).toBe(true);
+  });
+
+  /**
+   * 🔴 **正向對照** —— 少一筆就該是 false。
+   * 沒有這一格,上面那格可能只是因為旗標被寫死成 true。
+   */
+  it('正向對照:少一筆(上限 − 1)⇒ itemsTruncated 為 false', async () => {
+    const { client } = makeAdminListClient({
+      data: [listRow(ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT - 1)],
+      error: null,
+      count: 1,
+    });
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(res.items[0]?.itemsTruncated).toBe(false);
+  });
+
+  /**
+   * 🔴 **缺鍵 ≠ 被截斷**(`?? []` 那條路)。
+   * 投影退版時 `order_items` 鍵不見 ⇒ 空陣列 ⇒ 長度 0 ⇒ 旗標 false。
+   * **那是對的** —— 兩者混成同一個旗標會讓「投影壞了」被讀成「品項太多」。
+   */
+  it('缺鍵(投影退版)⇒ itemsTruncated 為 false,不與截斷混為一談', async () => {
+    const { client } = makeAdminListClient({
+      data: [{ ...listRow(0), order_items: null }],
+      error: null,
+      count: 1,
+    });
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(res.items[0]?.itemsTruncated).toBe(false);
   });
 });

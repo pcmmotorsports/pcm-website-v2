@@ -418,7 +418,12 @@ export function goodsAxisProgressNote(lines: readonly GoodsAxisLine[]): string |
   return `（本單 ${total} 件中${verb} ${done} 件）`;
 }
 
-/** 明細頁頭條「品項數」那格的兩個數字(BMW M 片4b)。 */
+/**
+ * 明細頁頭條「**件數**」那格的兩個數字(BMW M 片4b)。
+ * 🔴 **是「件數」不是「品項數」**(`Q-A216-F2b` Sean 2026-08-16 拍甲):本函式加總的是
+ *    每個 line 的 `quantity` 面,而品項數是 `lines.length` —— **兩個不同的數**
+ *    (OD 稿自己寫成「3 項 · 4 件」)。舊 docstring 寫「品項數」是**指錯對象**,已更正。
+ */
 export type GoodsQuantityHeadline = { readonly ordered: number; readonly instock: number };
 
 /**

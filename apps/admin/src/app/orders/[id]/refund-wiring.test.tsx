@@ -581,6 +581,73 @@ describe('出貨狀態的解釋小字', () => {
     const text = await render([line(6, 3), line(4, 0)]);
     expect(text).toContain('（本單 10 件中已訂 3 件）');
   });
+
+  /**
+   * 🔴🔴 **`itemsTruncated` ⇒ 連【軸的標籤】都不印,不只小字。**
+   *
+   * backlog 登記的是「小字沒有截斷閘」,而實查之後**標籤那半也沒有,且嚴重得多**:
+   * `goodsAxisOfLines` 三條判定都是 `.every(...)`
+   * ⇒ **看得見的 200 件全出貨就答「已出貨」,而沒載進來的那些可能一件都沒出。**
+   * ⚠️ 字面是 `已出貨`(`GOODS_AXIS_LABEL.shipped`);`出貨完成` 是**列表**八值、不是這一格。
+   * ⇒ 少算一個數字員工還會去查;**講錯狀態他會停止動作。**
+   *
+   * 🔴🔴 **fixture 必須用 `line(4, 4, 1)`(軸 = 已向廠商訂貨),不能用 `line(2,2,2,2)`。**
+   *    我第一版用了後者,而**它分不開兩種實作** —— `2,2,2,2` 的軸是 `shipped`,
+   *    而 `goodsAxisProgressNote` 對 `shipped` **本來就回 `null`**
+   *    ⇒ `not.toContain('本單')` 在那個 fixture 上**恆真**
+   *    ⇒ 「只擋標籤、小字照印」那發突變**照樣全綠 37/37**。
+   *    📎 **這與 R3 一小時前抓到我的那條是同一個病**(fixture 的形狀讓兩種寫法收斂到同一輸出),
+   *       而我在讀完那條之後**立刻又犯了一次** ⇒ 判別句要在**選 fixture 的那一刻**問,
+   *       不是在寫完斷言之後問:**我這組 fixture,分得開我宣稱的那兩件事嗎?**
+   *
+   * 🔴 **兩條反向斷言各擋一半**,兩發突變分別證過(見下方那格的 `已出貨`):
+   *   `not('已向廠商訂貨')` 擋「標籤照印」/ `not('本單')` 擋「小字照印」
+   */
+  it('🔴 itemsTruncated:軸的標籤與小字【都】不印,改印未知', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({
+        // 軸 = 已向廠商訂貨(4 件訂滿、到貨 1)⇒ **標籤與小字【兩者都會出現】**,兩半才都測得到。
+        items: [line(4, 4, 1)],
+        itemsTruncated: true,
+      } as unknown as Partial<AdminOrderDetail>),
+    );
+    const text = (await renderPage()).container.textContent ?? '';
+    // 🔴🔴 **錨要含「出貨狀態未知」這個【相鄰串】,不能只釘說明句**(code-reviewer 抓到,第三發突變):
+    //    第三種錯誤實作 = **閘只回說明 span、不印「未知」** ⇒ 那一列變成沒有值、只剩一行灰字,
+    //    而上面三條斷言【全過】。
+    //    ⚠️ 而直覺的補法 `toContain('未知')` **恆真** —— 同一頁的 `HeadlineNumbers` 在
+    //    `itemsTruncated` 時也印「未知」(同檔搜 `qty === null ? '未知'`)⇒ 那個字全頁不只一處。
+    //    ⇒ 釘 label + 值 + 說明的**相鄰串**:`textContent` 會把它們接起來,而那串全樹唯一。
+    expect(text).toContain('出貨狀態未知這張單的品項清單這次沒有完整載入');
+    expect(text).not.toContain('已向廠商訂貨');
+    expect(text).not.toContain('本單');
+  });
+
+  /**
+   * 🔴 **最危險的那個答案單獨釘一格**:`.every()` 在被截斷的子集上會答「已出貨」——
+   * 看得見的 2 件全出貨了,而沒載進來的那些可能一件都沒出。
+   * **員工看到「已出貨」會停止動作**,這是本閘存在的真正理由。
+   */
+  it('🔴 itemsTruncated + 看得見的全出貨:不得答「已出貨」', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({
+        items: [line(2, 2, 2, 2)],
+        itemsTruncated: true,
+      } as unknown as Partial<AdminOrderDetail>),
+    );
+    const text = (await renderPage()).container.textContent ?? '';
+    expect(text).not.toContain('已出貨');
+  });
+
+  /**
+   * 🔴 **正向對照** —— 同一組品項、只把 `itemsTruncated` 關掉,標籤與小字都該回來。
+   * 沒有這一格,上面兩格的反向斷言可能只是因為那些字本來就不會出現。
+   */
+  it('正向對照:同一組品項沒有截斷時,標籤與小字照常印出來', async () => {
+    const text = await render([line(4, 4, 1)]);
+    expect(text).toContain('已向廠商訂貨');
+    expect(text).toContain('（本單 4 件中已到貨 1 件）');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -647,12 +714,40 @@ describe('訂單明細頭條數字', () => {
       items: [line(6, 4, 2)],
     } as unknown as Partial<AdminOrderDetail>);
 
-    expect(text).toContain('NT$ 1,200 / NT$ 500');
-    expect(text).toContain('4 / 2');
+    expect(text).toContain('1,200 / 500總額 / 已收');
+    expect(text).toContain('4 / 2件數 已訂 / 到貨');
     // 🔴 **小標存廢是 Sean 逐字更正過的那一件**(「寫數字就好」講的是數值呈現、不是拿掉標籤)
     //    ⇒ 這兩條不是裝飾,是把那次更正釘成機械載體。
-    expect(text).toContain('總額 / 已收');
-    expect(text).toContain('品項數 已訂 / 到貨');
+    expect(text).toContain('1,200 / 500總額 / 已收');
+    expect(text).toContain('件數 已訂 / 到貨');
+  });
+
+  /**
+   * 🔴 **大金額:千分位要在,而且兩格並排時仍撈得到**(Sean 的真實單據級距)。
+   *
+   * 他 2026-08-16 給的三張截圖金額是 **6 / 1,180 / 48,600** —— 三個級距。
+   * 而本檔原本的測資是 `100` 與 `1,200` ⇒ **五位數那一段從來沒被餵過**。
+   *
+   * ⚠️ **這一格【不能】驗折行** —— jsdom 沒有排版引擎,`textContent` 拿不到換行資訊。
+   *    它驗的只有「格式化正確 + 錨仍撈得到」。**折不折行只有真瀏覽器 + 真寬度才驗得了**,
+   *    那件已交給 Sean 肉眼(而主視窗從他那張 `1,180` 的圖判「還有很多空間」⇒ 風險低)。
+   *    🔴 **寫出來是因為**:一格叫「大金額」的測試很容易被下一個人當成「版面已驗」。**它不是。**
+   */
+  it('大金額:千分位正確,兩格並排時錨仍撈得到(48,600 / 20,000)', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      {
+        id: 'p9', rail: 'atm', amount: 20000, receivedAt: '2026-08-10T02:00:00+00:00',
+        createdAt: '2026-08-10T02:00:00+00:00', actor: 'tester', bankReference: null,
+        recTradeId: null, payerNote: null, reversesPaymentId: null, reversalReason: null,
+        isReversal: false,
+      },
+    ]);
+    const text = await render({
+      total: { amount: 48600, currency: 'TWD' },
+      items: [line(6, 4, 2)],
+    } as unknown as Partial<AdminOrderDetail>);
+    expect(text).toContain('48,600 / 20,000總額 / 已收');
+    expect(text).toContain('4 / 2件數 已訂 / 到貨');
   });
 
   /**
@@ -662,8 +757,8 @@ describe('訂單明細頭條數字', () => {
    */
   it('🔴 有取消件數:已訂數夾在 lineNeed 之內(6 件取消 3 件、已訂 4 ⇒ 印 3)', async () => {
     const text = await render({ items: [line(6, 4, 0, 0, 3)] } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('3 / 0');
-    expect(text).not.toContain('4 / 0');
+    expect(text).toContain('3 / 0件數');
+    expect(text).not.toContain('4 / 0件數');
   });
 
   /**
@@ -689,9 +784,13 @@ describe('訂單明細頭條數字', () => {
     const text = await render({
       items: [line(6, 6, 0, 0, 6), line(4, 0)],
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('0 / 0品項數 已訂 / 到貨');
+    expect(text).toContain('0 / 0件數 已訂 / 到貨');
     // 🔴 `4 / 0` = 「先加總再夾」會印出來的值 —— 它讀起來完全合理,這正是它危險的地方。
-    expect(text).not.toContain('4 / 0');
+    // ⚠️ **必須帶 `件數` 錨**:拿掉 `NT$` 之後金額也是裸數字對,
+    //    總額末位是 4 的單(如 `104`)會印 `104 / 0` ⇒ 裸寫 `not.toContain('4 / 0')` 被金額撞紅。
+    //    🔴 **這一處是我用「成對取代」漏掉的**:同一句話在檔裡有兩處,我只改了相鄰那一組。
+    //       突變 M(把預設總額 100 改成 104)當場把它照出來。**改字面要先建完整清單,不要就地成對取代。**
+    expect(text).not.toContain('4 / 0件數');
   });
 
   /**
@@ -706,25 +805,31 @@ describe('訂單明細頭條數字', () => {
     const text = await render({
       items: [line(2, 1), { ...line(3, 2), quantitySummary: null }],
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('未知品項數 已訂 / 到貨');
+    expect(text).toContain('未知件數 已訂 / 到貨');
     // 🔴 `1 / 0` = 把那列當 0 加進去會印出來的值。
-    expect(text).not.toContain('1 / 0');
+    expect(text).not.toContain('1 / 0件數');
   });
 
   it('正向對照:同一組數字沒有取消時,已訂數印回 4', async () => {
     const text = await render({ items: [line(6, 4, 0, 0, 0)] } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('4 / 0');
+    expect(text).toContain('4 / 0件數');
   });
 
-  it('🔴 摘要列不存在:品項數那格印「未知」,一個數字都不印', async () => {
+  it('🔴 摘要列不存在:件數那格印「未知」,一個數字都不印', async () => {
     const text = await render({
       items: [{ ...line(3, 2, 1), quantitySummary: null }],
     } as unknown as Partial<AdminOrderDetail>);
     // 🔴 錨含「未知」二字(R2 抓到):只釘小標的話,格名宣稱「印未知」而沒有任何一格斷言得到它。
-    expect(text).toContain('未知品項數 已訂 / 到貨');
+    expect(text).toContain('未知件數 已訂 / 到貨');
     // 🔴 反向釘死:那格若退回 `?? 0`,畫面會出現 `0 / 0`;若沒接上 null 閘,會出現 `2 / 1`。
-    expect(text).not.toContain('2 / 1');
-    expect(text).not.toContain('0 / 0');
+    // 🔴🔴 **反向錨必須帶小標** —— 拿掉 `NT$` 之後(Sean 2026-08-16「不用NT」),
+    //    金額那格印的是 `100 / 0`,而 **`'100 / 0'` 字面上包含 `'0 / 0'`**
+    //    ⇒ 裸寫 `not.toContain('0 / 0')` 會被【金額】撞紅,而它要驗的是【件數】。
+    //    📎 這是「拿掉貨幣符號 ⇒ 兩格都變成裸數字對」的第一個實證後果:
+    //       `2,480 / 0`(金額)與 `4 / 2`(件數)**在字串層再也分不開**,
+    //       所有跨這兩格的斷言都必須帶小標當定位。**員工的眼睛也一樣。**
+    expect(text).not.toContain('2 / 1件數');
+    expect(text).not.toContain('0 / 0件數');
   });
 
   /**
@@ -733,7 +838,7 @@ describe('訂單明細頭條數字', () => {
    * 風險已量(`ORDER_ITEMS_EMBED_LIMIT = 200`,機車零件單到不了),**但代價不對稱** ——
    * 讀它 = 截斷時改印「未知」;不讀它 = 印出一個少算的數而**零訊號**。
    */
-  it('🔴 itemsTruncated:品項數那格印「未知」,不印一個少算的數', async () => {
+  it('🔴 itemsTruncated:件數那格印「未知」,不印一個少算的數', async () => {
     const text = await render({
       items: [line(6, 4, 2)],
       itemsTruncated: true,
@@ -748,10 +853,10 @@ describe('訂單明細頭條數字', () => {
     // 🔴🔴 **錨要含「未知」二字**(R2 抓到,第二層):只釘小標的話,這格名字宣稱「印未知」
     //    而**全檔沒有一格斷言得到它** —— 把 `'未知'` 改成 `''` 兩格都還是綠。
     //    ⚠️ 上面那句「拿『未知』當錨會撞」對**裸兩字**成立,對**接合字串**不成立:
-    //    `.v` 與 `.l` 兩個 `<p>` 相鄰 ⇒ `textContent` 直接相連成「未知品項數 已訂 / 到貨」,
+    //    `.v` 與 `.l` 兩個 `<p>` 相鄰 ⇒ `textContent` 直接相連成「未知件數 已訂 / 到貨」,
     //    而那串全樹唯一。**⇒ 錨要選得夠窄,不是選得夠短。**
-    expect(text).toContain('未知品項數 已訂 / 到貨');
-    expect(text).not.toContain('4 / 2');
+    expect(text).toContain('未知件數 已訂 / 到貨');
+    expect(text).not.toContain('4 / 2件數');
   });
 
   /**
@@ -768,7 +873,8 @@ describe('訂單明細頭條數字', () => {
    * 畫面會不會看起來像**壞掉**(而不是像「我們知道我們不知道」)、會不會誘導他做錯的操作。
    *
    * 落筆當下的實際輸出(**先用拋棄式探針把字印出來看,再寫成斷言 —— 不是先猜期望值**):
-   *   `NT$ 1,200 / 未知` + `總額 / 已收` + `未知` + `品項數 已訂 / 到貨`
+   *   `1,200 / 未知` + `總額 / 已收` + `未知` + `件數 已訂 / 到貨`
+   *   (2026-08-16 更新:Sean 拍「不用NT」+ `Q-A216-F2b` 小標改「件數」⇒ 舊字面已作廢)
    * ⇒ **總額仍是一個真數字**(它不走收款那條路)⇒ 畫面不是一片「未知」、不像故障。
    * ⇒ 兩個小標都還在 ⇒ 員工知道**這裡本來該有什麼**,只是現在讀不到。
    *
@@ -783,14 +889,18 @@ describe('訂單明細頭條數字', () => {
       items: [line(6, 4, 2)],
       itemsTruncated: true,
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('NT$ 1,200 / 未知總額 / 已收');
-    expect(text).toContain('未知品項數 已訂 / 到貨');
-    expect(text).not.toContain('4 / 2');
+    expect(text).toContain('1,200 / 未知總額 / 已收');
+    expect(text).toContain('未知件數 已訂 / 到貨');
+    expect(text).not.toContain('4 / 2件數');
     // 🔴 **「已收那半永遠不是一個金額」要釘得【夠窄】** ——
     //    我第一版寫 `not.toContain('NT$ 0')`,結果**假紅**:那串命中的是頁面別處的「運費 NT$ 0」。
     //    ⇒ 反向斷言選太寬會撞到無關內容,而**它的症狀是紅、看起來像抓到 bug**(同 §⑧ 那個病)。
     //    正解:釘「總額後面接的是不是另一個金額」這個**結構**,不是釘一個到處都有的字串。
-    expect(text).not.toMatch(/NT\$ 1,200 \/ NT\$/);
+    // 🔴 **釘的是【結構】不是一個字面值**(code-reviewer 2026-08-16 抓到我把守門改窄了):
+    //    上一版 `not.toContain('1,200 / 0總額')` **只在已收恰為 `0` 時紅**;
+    //    閘壞成 `settled / received=1200` 會印 `1,200 / 1,200總額`,那條斷言**綠**。
+    //    ⇒ regex 釘「總額前面接的是不是【任何】數字」,對任何金額都紅。
+    expect(text).not.toMatch(/1,200 \/ [\d,]+總額/);
     // 🔴🔴 **半殘那一天,整頁不准出現 `NaN`。** 這一條不是本片的職責範圍,而是
     //    **只有這一格會在「資料不完整」的狀態下把整頁渲染出來** ⇒ 它是唯一站得到這個位置的格。
     //    實錘:寫這一格時就撞到兩個 `NaN`(採購區與取消表),病根是本檔 fixture 少給
@@ -804,9 +914,13 @@ describe('訂單明細頭條數字', () => {
       total: { amount: 1200, currency: 'TWD' },
       items: [line(1, 0)],
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('NT$ 1,200 / 未知');
+    expect(text).toContain('1,200 / 未知總額 / 已收');
     // 🔴 反向釘死:退回「算不出來就當 0」的話,這裡會出現一個假的已收金額。
-    expect(text).not.toContain('NT$ 1,200 / NT$ 0');
+    // 🔴 **釘的是【結構】不是一個字面值**(code-reviewer 2026-08-16 抓到我把守門改窄了):
+    //    上一版 `not.toContain('1,200 / 0總額')` **只在已收恰為 `0` 時紅**;
+    //    閘壞成 `settled / received=1200` 會印 `1,200 / 1,200總額`,那條斷言**綠**。
+    //    ⇒ regex 釘「總額前面接的是不是【任何】數字」,對任何金額都紅。
+    expect(text).not.toMatch(/1,200 \/ [\d,]+總額/);
   });
 });
 
@@ -835,5 +949,56 @@ describe('訂單明細 Email 欄:LINE 合成位址不外顯', () => {
     mocks.findAdminOrderDetail.mockResolvedValue(withEmail('sean@example.com'));
     const { container } = await renderPage();
     expect(container.textContent).toContain('sean@example.com');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 危險操作沉底:取消 / 退貨 / 退款(2026-08-16)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 🔴🔴 **為什麼需要這一格**:在它之前,全 repo **零個順序守門**
+//    (數法 `grep -rn 'DOM 順序\|indexOf' apps/admin/src --include='*.test.tsx'`
+//     ⇒ 命中的都是表格欄序或候選排序,沒有一個釘區塊順序)。
+//    ⇒ **把取消搬回中間、或下一次重排時順手挪動它,不會有任何東西紅。**
+//
+// 🔴 **釘的是【語意順序】不是行號**:取消**必須排在出貨之後**。
+//    兩個獨立來源都這樣說,而在本片之前現況兩邊都不符:
+//      · Sean 逐字(design-brief 搜 `回去採購等於說跟國外下單` 同段):
+//        「最難的大概就是取消,**所以放最下面沒問題**」
+//      · OD 定案主稿 `overview-desktop.html` 搜 `危險操作沉底`
+describe('危險操作沉底:取消排在出貨之後', () => {
+  /**
+   * 🔴 **用 `textContent.indexOf` 比位置,不用行號、不用 DOM 樹結構。**
+   *    行號會漂;DOM 結構改成別的包法(例如加一層 wrapper)不該讓這格紅 ——
+   *    **我要釘的是「員工由上往下讀的時候,先看到出貨還是先看到取消」。**
+   * ⚠️ **錨要選【一定會渲染】的字**:
+   *    · 出貨側用出貨卡的標題(該卡在本檔被 mock 成 `() => null` ⇒ **不能用它**)
+   *      ⇒ 改用**採購區**當上游錨:採購在出貨之前,而取消若排在採購之後就必然在出貨之後。
+   *    · 取消側用取消區塊的標題文字。
+   *    🔴 這個替代**弱一點**,而我明寫出來:它證的是「取消在採購之後」,
+   *       **由「採購 → 出貨 → 取消」這個既定順序推出「取消在出貨之後」**。
+   *       出貨卡本身在本檔測不到(async server component 的工具限制,見檔頭 mock 的理由)。
+   */
+  it('🔴 取消區塊排在採購之後(⇒ 由既定順序推得在出貨之後)', async () => {
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    const procurement = text.indexOf('採購(向供應商訂貨)');
+    const cancel = text.indexOf('取消訂單');
+    expect(procurement, '採購區塊沒渲染 ⇒ 這格的上游錨不見了,不是順序對了').toBeGreaterThan(-1);
+    expect(cancel, '取消區塊沒渲染 ⇒ 錨不見了').toBeGreaterThan(-1);
+    expect(cancel).toBeGreaterThan(procurement);
+  });
+
+  /**
+   * 🔴 **正向對照:取消也必須排在【收款】之後** —— 它原本就夾在收款與品項之間,
+   * 只釘「在採購之後」擋不住「搬回收款正下方」以外的所有位置,但**擋得住原本那個位置**。
+   */
+  it('取消區塊排在收款之後(擋住搬回原位)', async () => {
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    const payment = text.indexOf('尚未登錄任何收款');
+    const cancel = text.indexOf('取消訂單');
+    expect(payment, '收款區塊沒渲染 ⇒ 錨不見了').toBeGreaterThan(-1);
+    expect(cancel).toBeGreaterThan(payment);
   });
 });
