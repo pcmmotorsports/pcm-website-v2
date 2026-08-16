@@ -41,6 +41,35 @@ describe('authorizeAdminMutation — 三層閘任一失敗都必須 fail-closed'
     await expect(authorizeAdminMutation()).resolves.toEqual({ sid: 'sid-1', actorId: 'sean' });
   });
 
+  // 🔴🔴 codex 2026-08-16 must-fix:上面那格只驗「回了 sid/actorId」,
+  //    **不驗閘去讀的是哪一顆 cookie、哪一個 header**。
+  //    ⇒ 有人把 `cookies().get('sess')` 改成讀別的名字、或把 Origin 檢查餵成 Referer,
+  //      這裡與 action 那邊會**各自全綠,而中間那段契約沒有人在守**。
+  it('🔴 要讀的是 admin session cookie,而且把它的值交給 verifySession', async () => {
+    await authorizeAdminMutation();
+    expect(cookieGet, '沒去讀 cookie').toHaveBeenCalledWith('sess');
+    expect(verifySession, '讀到的 cookie 值沒交給 verifySession ⇒ 中間掉了一段').toHaveBeenCalledWith('token');
+  });
+
+  it('🔴 Origin 檢查吃的是 origin header,而且真的把它交給 isAllowedOrigin', async () => {
+    await authorizeAdminMutation();
+    expect(headerGet, '沒去讀 origin(改讀 referer 的話 CSRF 那道就形同虛設)').toHaveBeenCalledWith('origin');
+    // 第二個參數是 devBypass 旗標(`authorize.ts:31`)⇒ 用 objectContaining 不寫死它的值,
+    // 但**第一個參數必須是讀到的那個 origin**,那才是本格要守的東西。
+    expect(isAllowedOrigin, '讀到的 origin 沒交給檢查 ⇒ 檢查在看別的東西').toHaveBeenCalledWith(
+      'https://admin.example',
+      expect.objectContaining({ devBypass: expect.any(Boolean) }),
+    );
+  });
+
+  it('🔴 cookie 完全不存在時,交給 verifySession 的是 undefined(不是空字串或別的東西)', async () => {
+    // ⚠️ 這格**不能**斷言「回 null」—— `verifySession` 在本檔是 mock,它無條件回成功,
+    //    所以那樣寫等於在測 mock。本格守的是**契約**:沒有 cookie 時傳下去的值長什麼樣。
+    cookieGet.mockReturnValue(undefined);
+    await authorizeAdminMutation();
+    expect(verifySession, '沒 cookie 時傳了別的東西下去 ⇒ 真的 verifySession 可能誤判成有票').toHaveBeenCalledWith(undefined);
+  });
+
   it('should return null when the admin session cookie fails verification', async () => {
     verifySession.mockResolvedValue(null);
     await expect(authorizeAdminMutation()).resolves.toBeNull();
