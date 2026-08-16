@@ -32,10 +32,38 @@ M-0(規劃層 9/9)收尾完成、進 M-1(實作層、catalog spike + 種子)前�
 |---|---|---|---|
 | Q1 | Supabase 升 Pro 時機 | A2 上架完畢 / 上線前升($25/月) | M-6 上線前 checklist |
 | Q2 | Image storage | A2 Supabase Storage(跟 Q1 同生態、上線時同步升 Pro) | M-1-02 起 |
-| Q3 | Search engine | A1 PG tsvector + pg_jieba(實作分兩階段:dev 期 ILIKE / 上線後切) | M-1-03 起 dev 期 / M-6 切 |
+| Q3 | Search engine | A1 PG tsvector + pg_jieba(實作分兩階段:dev 期 ILIKE / 上線後切)　🔴 **分詞那半已被平台事實推翻,見 §2.1-a** | M-1-03 起 dev 期 / M-6 切 |
 | Q4 | Money 守門 | A3 brand type MoneyAmount + helper toMoneyAmount(n) | 本 ADR 落地(M-0-10b) |
 | Q5 | testing-strategy.md | A3 minimum 版 | 本 ADR 落地(M-0-10a) |
 | Q6 | bounded-contexts.md | A3 minimum 版 | 本 ADR 落地(M-0-10a) |
+
+### 2.1-a 🔴 更正段 · `Q3` 的分詞路線已被平台事實推翻(2026-08-16 補;**原決議不刪不改**)
+
+> **只加更正,不動上面那一列的原文。** 原決議在 2026-05-03 當時是對的 —— **變的是平台事實,不是判斷。**
+> 刪掉它會讓「為什麼曾經選這條路」消失,而下一個人只會看到結論、看不到那次判斷哪裡失效。
+
+**事實**:`pg_jieba` **不在 Supabase 的可用擴充清單裡** ⇒ `CREATE EXTENSION pg_jieba` 不可能成功
+⇒ **「tsvector + pg_jieba」的中文分詞那半在 Supabase 上蓋不起來。**
+
+**兩個來源(不是推論)**:
+
+1. **實測**(2026-07-25,本專案 `bmpnplmnldofgaohnaok`):MCP `list_extensions` 回 **80 個擴充,逐一比對無 jieba**。
+2. **官方文件親讀**:Supabase docs `guides/database/extensions/pgroonga` 逐字
+   「native Postgres 全文索引 **limited to alphabet and digit based languages**」⇒ CJK 要改用 **PGroonga**。
+
+**該專案清單裡實際可用**(皆 `installed_version: null` = 可裝未裝):
+`pgroonga` 3.2.5 + `pgroonga_database`(CJK 主力,`USING pgroonga(col)` + `&@~`)、
+`pg_trgm` 1.6(補錯字/近似/子字串,料號年份這類短字串尤其有用)、`rum` 1.3、`fuzzystrmatch`、`unaccent`。
+
+🔴 **這一段為什麼現在才補**:更正**只活在 memory** `reference_supabase-no-pg-jieba-use-pgroonga`,
+而那條逐字寫著「**請 Sean 重新拍 ADR-0004 的分詞路線**」—— **那次重拍從來沒有發生過。**
+⇒ **ADR 是別人會來查的載體,memory 不是。** 更正沒回到被引用的那份檔,等於沒更正。
+📎 同族 memory `feedback_downgrade-a-source-inside-the-file-people-cite`。
+
+**⇒ 待辦(未做)**:`Q3` 的分詞路線**需要 Sean 重新拍**(PGroonga / PGroonga+pg_trgm 混合 / 其他)。
+⚠️ **兩階段那半仍然有效**(dev 期 ILIKE、上線後切)—— **被推翻的只有「切過去之後用什麼分詞」。**
+⚠️ 上面那條 memory **只證「可用性」,未證效能 / 中文斷詞品質 / 索引體積** —— 那些要真資料實測。
+📎 啟用擴充 = migration = **Sean 手動 `db push`**,Claude 不自行 apply。
 
 ### 2.2 wrs.it IA 報告 4 題處置
 
