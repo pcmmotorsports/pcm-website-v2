@@ -191,7 +191,7 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
 }
 
 /**
- * 頭條兩格:「總額 / 已收」與「品項數 已訂 / 到貨」(BMW M 片4b,Sean 2026-08-16 拍板)。
+ * 頭條兩格:「總額 / 已收」與「件數 已訂 / 到貨」(BMW M 片4b,Sean 2026-08-16 拍板)。
  *
  * 🔴🔴 **四條閘全部是【既有規則】,不是本片新立的** —— 收斂成同一句:
  *    **「不知道」與「是 0」不是同一件事,而【頭條數字】是最不能把這兩者講成同一句的位置。**
@@ -200,7 +200,7 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
  *    畫在畫面 / 印在紙上   ⇒ 那就是最終答案,看的人沒有第二個來源可以對
  *    ```
  *
- *    ① `quantitySummary === null` ⇒ 品項數那格一個數字都不印。
+ *    ① `quantitySummary === null` ⇒ 件數那格一個數字都不印。
  *       實作在 `goodsQuantityHeadline`(`order-status-axes.ts`),原文警告在它的 docstring 裡複述。
  *    ② `PaymentSummary.kind === 'unknown'` ⇒ **已收那半不畫任何金額**(總額仍印,它不來自那條路)。
  *       出處錨點:`payment-list.tsx` 搜 `不畫任何金額` —— 逐字「讀不到明細時算出來的『已收』必然是假的,
@@ -211,7 +211,7 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
  *          **分兩個 call site** 傳給付款卡與本元件。誰把其中一邊改成別的口徑,另一邊不會跟,
  *          而**沒有任何一格斷言把兩個「已收」綁在一起**。
  *          ⇒ 正確講法:**同一支算式 + 同一個來源欄位,而「兩邊傳同一個引數」靠呼叫端自律、不是型別。**
- *    ③ `detail.itemsTruncated` ⇒ 品項數那格一個數字都不印。
+ *    ③ `detail.itemsTruncated` ⇒ 件數那格一個數字都不印。
  *       🔴 **這道只有這裡擋得到**:`goodsQuantityHeadline` 的參數型別看不到這個旗標(刻意的)。
  *       📎 **風險量測與「代價不對稱」的完整論證只寫一處** —— 見本檔上方 `GoodsAxisValue`
  *       前面那段(搜 `ORDER_ITEMS_EMBED_LIMIT`)。**兩處全文會漂**,這裡只留指標。
@@ -249,19 +249,35 @@ function HeadlineNumbers({
   return (
     <div className='grid gap-px border bg-border @md:grid-cols-2'>
       <section className={SPEC}>
+        {/* 🔴 **金額不帶 `NT$`**(Sean 2026-08-16 於真路由肉眼驗後逐字:「不用NT」)。
+            ⚠️ **這是【呼叫端字面】不是格式化函式** —— `formatOrderAmount` 本身只回數字
+            (`order-list-view.ts` 搜 `toLocaleString`),`NT$` 一直是各處自己前綴的。
+            ⇒ 本片**沒有動共用函式**,只動這兩行 ⇒ **不中鐵則 12⑥**。
+            **數法**:`grep -rn 'formatOrderAmount(' apps/admin/src --include='*.tsx' --include='*.ts' | grep -v '.test.' | wc -l`
+            ⇒ **27**,其中 1 行是**定義本身**(`order-list-view.ts` 搜 `export function formatOrderAmount`)、
+            1 行是**註解**(`customers/customer-detail-view.ts` 搜 `千分位對齊`)⇒ **真消費端 25**。
+            (我第一版寫「27 個消費端」—— 那是把定義與註解也算進去,code-reviewer 抓到。**先分類再報數。**)
+            📎 **同一個總額在這一頁還印第二次、而那一處仍帶 `NT$`**:
+            `order-detail-items-table.tsx` 搜 `總計`。Sean 逐字只指頭條那排 ⇒ **本片不動它**,
+            但**同頁同一個數字現在有兩種格式** ⇒ 已列進交件的「請他再看一眼」清單。 */}
         <p className={SPEC_V}>
-          NT$ {formatOrderAmount(detail.total.amount)} /{' '}
-          {payment.kind === 'unknown' ? '未知' : `NT$ ${formatOrderAmount(payment.received)}`}
+          {formatOrderAmount(detail.total.amount)} /{' '}
+          {payment.kind === 'unknown' ? '未知' : formatOrderAmount(payment.received)}
         </p>
         <p className={SPEC_L}>總額 / 已收</p>
       </section>
       <section className={SPEC}>
         <p className={SPEC_V}>{qty === null ? '未知' : `${qty.ordered} / ${qty.instock}`}</p>
-        {/* 🔴 小標帶「已訂 / 到貨」是**標籤的職責**,不是「在數字旁加解釋文字」 ——
-            Sean 逐字就是三個詞「品項數 已定數 到貨數」(「已定」是他的錯字,當場問過、答「正確」= 已訂數)。
-            兩個裸數字掛在「品項數」底下分不出誰是誰,而**後台 UI 的常設驗收條款是
-            「不用人教能做對嗎」**(2026-08-11 Sean 拍板)⇒ 判別資訊放小標,數字保持乾淨。 */}
-        <p className={SPEC_L}>品項數 已訂 / 到貨</p>
+        {/* 🔴🔴 **小標是「件數」不是「品項數」——【這是正確性修正,不是文案調整】。**
+            (`Q-A216-F2b` Sean 2026-08-16 拍甲)
+            `goodsQuantityHeadline` 加總的是**件數**(每個 line 的 `quantity` 面),
+            而「品項數」是**另一個數**:OD 稿自己就把兩者分開寫成「**3 項 · 4 件**」
+            (`overview-desktop-bmw-m.html` 搜 `項 ·`)⇒ 一張 3 個品項、共 4 件的單,
+            兩個詞的值不同。**用「品項數」會讓員工照字面去對帳,然後對不上。**
+            🔴 **不要改回去** —— 這不是「哪個詞好聽」,是那個詞指錯了對象。
+            ⚠️ 而「已訂 / 到貨」放小標的理由不變:兩個裸數字掛在一個詞底下分不出誰是誰,
+            而後台 UI 常設驗收條款是「不用人教能做對嗎」(2026-08-11 Sean 拍板)。 */}
+        <p className={SPEC_L}>件數 已訂 / 到貨</p>
       </section>
     </div>
   );

@@ -714,12 +714,12 @@ describe('訂單明細頭條數字', () => {
       items: [line(6, 4, 2)],
     } as unknown as Partial<AdminOrderDetail>);
 
-    expect(text).toContain('NT$ 1,200 / NT$ 500');
-    expect(text).toContain('4 / 2');
+    expect(text).toContain('1,200 / 500總額 / 已收');
+    expect(text).toContain('4 / 2件數 已訂 / 到貨');
     // 🔴 **小標存廢是 Sean 逐字更正過的那一件**(「寫數字就好」講的是數值呈現、不是拿掉標籤)
     //    ⇒ 這兩條不是裝飾,是把那次更正釘成機械載體。
-    expect(text).toContain('總額 / 已收');
-    expect(text).toContain('品項數 已訂 / 到貨');
+    expect(text).toContain('1,200 / 500總額 / 已收');
+    expect(text).toContain('件數 已訂 / 到貨');
   });
 
   /**
@@ -729,8 +729,8 @@ describe('訂單明細頭條數字', () => {
    */
   it('🔴 有取消件數:已訂數夾在 lineNeed 之內(6 件取消 3 件、已訂 4 ⇒ 印 3)', async () => {
     const text = await render({ items: [line(6, 4, 0, 0, 3)] } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('3 / 0');
-    expect(text).not.toContain('4 / 0');
+    expect(text).toContain('3 / 0件數');
+    expect(text).not.toContain('4 / 0件數');
   });
 
   /**
@@ -756,9 +756,13 @@ describe('訂單明細頭條數字', () => {
     const text = await render({
       items: [line(6, 6, 0, 0, 6), line(4, 0)],
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('0 / 0品項數 已訂 / 到貨');
+    expect(text).toContain('0 / 0件數 已訂 / 到貨');
     // 🔴 `4 / 0` = 「先加總再夾」會印出來的值 —— 它讀起來完全合理,這正是它危險的地方。
-    expect(text).not.toContain('4 / 0');
+    // ⚠️ **必須帶 `件數` 錨**:拿掉 `NT$` 之後金額也是裸數字對,
+    //    總額末位是 4 的單(如 `104`)會印 `104 / 0` ⇒ 裸寫 `not.toContain('4 / 0')` 被金額撞紅。
+    //    🔴 **這一處是我用「成對取代」漏掉的**:同一句話在檔裡有兩處,我只改了相鄰那一組。
+    //       突變 M(把預設總額 100 改成 104)當場把它照出來。**改字面要先建完整清單,不要就地成對取代。**
+    expect(text).not.toContain('4 / 0件數');
   });
 
   /**
@@ -773,25 +777,31 @@ describe('訂單明細頭條數字', () => {
     const text = await render({
       items: [line(2, 1), { ...line(3, 2), quantitySummary: null }],
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('未知品項數 已訂 / 到貨');
+    expect(text).toContain('未知件數 已訂 / 到貨');
     // 🔴 `1 / 0` = 把那列當 0 加進去會印出來的值。
-    expect(text).not.toContain('1 / 0');
+    expect(text).not.toContain('1 / 0件數');
   });
 
   it('正向對照:同一組數字沒有取消時,已訂數印回 4', async () => {
     const text = await render({ items: [line(6, 4, 0, 0, 0)] } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('4 / 0');
+    expect(text).toContain('4 / 0件數');
   });
 
-  it('🔴 摘要列不存在:品項數那格印「未知」,一個數字都不印', async () => {
+  it('🔴 摘要列不存在:件數那格印「未知」,一個數字都不印', async () => {
     const text = await render({
       items: [{ ...line(3, 2, 1), quantitySummary: null }],
     } as unknown as Partial<AdminOrderDetail>);
     // 🔴 錨含「未知」二字(R2 抓到):只釘小標的話,格名宣稱「印未知」而沒有任何一格斷言得到它。
-    expect(text).toContain('未知品項數 已訂 / 到貨');
+    expect(text).toContain('未知件數 已訂 / 到貨');
     // 🔴 反向釘死:那格若退回 `?? 0`,畫面會出現 `0 / 0`;若沒接上 null 閘,會出現 `2 / 1`。
-    expect(text).not.toContain('2 / 1');
-    expect(text).not.toContain('0 / 0');
+    // 🔴🔴 **反向錨必須帶小標** —— 拿掉 `NT$` 之後(Sean 2026-08-16「不用NT」),
+    //    金額那格印的是 `100 / 0`,而 **`'100 / 0'` 字面上包含 `'0 / 0'`**
+    //    ⇒ 裸寫 `not.toContain('0 / 0')` 會被【金額】撞紅,而它要驗的是【件數】。
+    //    📎 這是「拿掉貨幣符號 ⇒ 兩格都變成裸數字對」的第一個實證後果:
+    //       `2,480 / 0`(金額)與 `4 / 2`(件數)**在字串層再也分不開**,
+    //       所有跨這兩格的斷言都必須帶小標當定位。**員工的眼睛也一樣。**
+    expect(text).not.toContain('2 / 1件數');
+    expect(text).not.toContain('0 / 0件數');
   });
 
   /**
@@ -800,7 +810,7 @@ describe('訂單明細頭條數字', () => {
    * 風險已量(`ORDER_ITEMS_EMBED_LIMIT = 200`,機車零件單到不了),**但代價不對稱** ——
    * 讀它 = 截斷時改印「未知」;不讀它 = 印出一個少算的數而**零訊號**。
    */
-  it('🔴 itemsTruncated:品項數那格印「未知」,不印一個少算的數', async () => {
+  it('🔴 itemsTruncated:件數那格印「未知」,不印一個少算的數', async () => {
     const text = await render({
       items: [line(6, 4, 2)],
       itemsTruncated: true,
@@ -815,10 +825,10 @@ describe('訂單明細頭條數字', () => {
     // 🔴🔴 **錨要含「未知」二字**(R2 抓到,第二層):只釘小標的話,這格名字宣稱「印未知」
     //    而**全檔沒有一格斷言得到它** —— 把 `'未知'` 改成 `''` 兩格都還是綠。
     //    ⚠️ 上面那句「拿『未知』當錨會撞」對**裸兩字**成立,對**接合字串**不成立:
-    //    `.v` 與 `.l` 兩個 `<p>` 相鄰 ⇒ `textContent` 直接相連成「未知品項數 已訂 / 到貨」,
+    //    `.v` 與 `.l` 兩個 `<p>` 相鄰 ⇒ `textContent` 直接相連成「未知件數 已訂 / 到貨」,
     //    而那串全樹唯一。**⇒ 錨要選得夠窄,不是選得夠短。**
-    expect(text).toContain('未知品項數 已訂 / 到貨');
-    expect(text).not.toContain('4 / 2');
+    expect(text).toContain('未知件數 已訂 / 到貨');
+    expect(text).not.toContain('4 / 2件數');
   });
 
   /**
@@ -835,7 +845,8 @@ describe('訂單明細頭條數字', () => {
    * 畫面會不會看起來像**壞掉**(而不是像「我們知道我們不知道」)、會不會誘導他做錯的操作。
    *
    * 落筆當下的實際輸出(**先用拋棄式探針把字印出來看,再寫成斷言 —— 不是先猜期望值**):
-   *   `NT$ 1,200 / 未知` + `總額 / 已收` + `未知` + `品項數 已訂 / 到貨`
+   *   `1,200 / 未知` + `總額 / 已收` + `未知` + `件數 已訂 / 到貨`
+   *   (2026-08-16 更新:Sean 拍「不用NT」+ `Q-A216-F2b` 小標改「件數」⇒ 舊字面已作廢)
    * ⇒ **總額仍是一個真數字**(它不走收款那條路)⇒ 畫面不是一片「未知」、不像故障。
    * ⇒ 兩個小標都還在 ⇒ 員工知道**這裡本來該有什麼**,只是現在讀不到。
    *
@@ -850,14 +861,18 @@ describe('訂單明細頭條數字', () => {
       items: [line(6, 4, 2)],
       itemsTruncated: true,
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('NT$ 1,200 / 未知總額 / 已收');
-    expect(text).toContain('未知品項數 已訂 / 到貨');
-    expect(text).not.toContain('4 / 2');
+    expect(text).toContain('1,200 / 未知總額 / 已收');
+    expect(text).toContain('未知件數 已訂 / 到貨');
+    expect(text).not.toContain('4 / 2件數');
     // 🔴 **「已收那半永遠不是一個金額」要釘得【夠窄】** ——
     //    我第一版寫 `not.toContain('NT$ 0')`,結果**假紅**:那串命中的是頁面別處的「運費 NT$ 0」。
     //    ⇒ 反向斷言選太寬會撞到無關內容,而**它的症狀是紅、看起來像抓到 bug**(同 §⑧ 那個病)。
     //    正解:釘「總額後面接的是不是另一個金額」這個**結構**,不是釘一個到處都有的字串。
-    expect(text).not.toMatch(/NT\$ 1,200 \/ NT\$/);
+    // 🔴 **釘的是【結構】不是一個字面值**(code-reviewer 2026-08-16 抓到我把守門改窄了):
+    //    上一版 `not.toContain('1,200 / 0總額')` **只在已收恰為 `0` 時紅**;
+    //    閘壞成 `settled / received=1200` 會印 `1,200 / 1,200總額`,那條斷言**綠**。
+    //    ⇒ regex 釘「總額前面接的是不是【任何】數字」,對任何金額都紅。
+    expect(text).not.toMatch(/1,200 \/ [\d,]+總額/);
     // 🔴🔴 **半殘那一天,整頁不准出現 `NaN`。** 這一條不是本片的職責範圍,而是
     //    **只有這一格會在「資料不完整」的狀態下把整頁渲染出來** ⇒ 它是唯一站得到這個位置的格。
     //    實錘:寫這一格時就撞到兩個 `NaN`(採購區與取消表),病根是本檔 fixture 少給
@@ -871,9 +886,13 @@ describe('訂單明細頭條數字', () => {
       total: { amount: 1200, currency: 'TWD' },
       items: [line(1, 0)],
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('NT$ 1,200 / 未知');
+    expect(text).toContain('1,200 / 未知總額 / 已收');
     // 🔴 反向釘死:退回「算不出來就當 0」的話,這裡會出現一個假的已收金額。
-    expect(text).not.toContain('NT$ 1,200 / NT$ 0');
+    // 🔴 **釘的是【結構】不是一個字面值**(code-reviewer 2026-08-16 抓到我把守門改窄了):
+    //    上一版 `not.toContain('1,200 / 0總額')` **只在已收恰為 `0` 時紅**;
+    //    閘壞成 `settled / received=1200` 會印 `1,200 / 1,200總額`,那條斷言**綠**。
+    //    ⇒ regex 釘「總額前面接的是不是【任何】數字」,對任何金額都紅。
+    expect(text).not.toMatch(/1,200 \/ [\d,]+總額/);
   });
 });
 
