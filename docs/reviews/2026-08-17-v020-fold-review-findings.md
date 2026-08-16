@@ -83,5 +83,72 @@
 - **13 條 findings 一條都還沒折。** 本檔只是把它們從一次性 CLI 輸出與信件落進 repo。
 - codex 自標未確認:**唯讀環境不能建拋棄式叢集 ⇒ 第三發突變沒有實跑**(`bash -n` 與 `git diff --check` 已過)。
 - 本輪所有綠都是**拋棄式 PG 樁**,不是 Supabase;`has_any_column_privilege` 在 Supabase 端**未實跑=未確認**。
-- 現況 `bash scripts/b1b-acceptance-harness.sh` ⇒ **通過 30 格 / 失敗 0 / rc=0**(A14 三格拆除後)。
-  ⚠️ **這個 30 格全綠【不代表這批可以 commit】** —— 上面 13 條就是它看不到的東西。
+- ~~現況 30 格~~ **已過期,見下方 R2 段的現況(32 格)。**
+
+---
+
+# 🔴 R2(2026-08-17 04:xx,codex `gpt-5.6-sol` xhigh `-s read-only`)—— **仍 FAIL**
+
+**8 must-fix + 4 nit。** 我折了 9 條之後跑的第二輪,而**它打掉我兩個主張**。
+
+## 逐條核對(codex 自己給的,比 findings 更值錢)
+
+```
+1＝部分折錯   2＝窄義成立   3＝有自己的世界但前提不足   4＝【不成立】
+5＝成立       6＝三格確已拆,但「構造不出」【不成立】   7／8／9＝成立
+```
+
+### 🔴 被推翻的主張一:「A13b 守得住欄級前提被表級冒充」⇒ **不成立**(第 4 項)
+> 只讓 A13c 或 A13d 漂成表級授權時,欄級前提仍為真、本體由 `v_extra` 紅、獨立 A13b 照綠,**整支仍全綠**。
+
+📎 **形狀:我用「既有格守得住」取代了「新增一格」,而那個既有格的射程比我以為的窄。**
+⇒ 待補:A13c / A13d **各自**需要「這個世界真的是欄級」的守門,不能共用 A13b。
+
+### 🔴 被推翻的主張二:「DELETE/TRUNCATE 構造不出來」⇒ **構造得出來**(第 6 項)
+> 讓一個 **SET-only 可達的普通角色成為表 owner**,撤掉一般權限後只授其中一項;
+> `v_extra` **排除 owner** ⇒ **只有指定臂會紅**。(官方:owner 可撤自己的普通權限)
+
+📎 **這是本 repo `feedback_unconstructible-negative-test-means-noop-guard` 的反向坑**:
+**宣告「構造不出」之前要窮舉維度** —— 我只想到「授權給誰」,**沒想到「誰是 owner」**。
+A14 之所以假紅,正是因為我把角色留在 `v_extra` 的射程內,而 **owner 恰好在射程外**。
+
+## R2 findings(未折,逐條)
+
+| # | 位置 | 一句 | 級 |
+|---|---|---|---|
+| 1 | `harness:~300` | A13c/A13d 的世界漂成表級 ⇒ 欄級前提仍真、A13b 照綠、整支全綠 | must-fix |
+| 2 | `harness:314` | A13b 缺 `pg_has_role(...,'SET')=t` 前提;移除 membership 後表級查法因不可達而照綠 | must-fix |
+| 3 | `harness:326` | A15 只守 **service_role 那一份**清單;anon/authenticated 那份漏 `MAINTAIN` 它不會發現 | must-fix |
+| 4 | `b1b:394` | `pg_maintain` 以 **SET-only** 授給 service_role ⇒ 無 `relacl`、有效權限為假,而可達角色段**漏查 MAINTAIN/TRIGGER** | must-fix |
+| 5 | `harness:242` | DELETE/TRUNCATE **可各自構造**(owner 法,見上)⇒「構造不出」不成立 | must-fix |
+| 6 | `b1b:309` | `authenticated` 只有欄級 INSERT/UPDATE/REFERENCES 時,表級迴圈為假、欄級迴圈只查 SELECT ⇒ 放行(**R1 就有,仍未折**) | must-fix |
+| 7 | `b1b:476` | 不可切換的 outsider 只有**欄級**權限時 ACL 在 `attacl`,A16 的**表級**世界抓不到(**R1 就有**) | must-fix |
+| 8 | `b1b:360` | service_role 的 SELECT/INSERT 若帶 **`WITH GRANT OPTION`**,八項有效權限仍完全符合且 `v_extra` 排除它,**而它已能轉授** | must-fix |
+| 9 | `b1b:318` | 漏掉任一函式對 service_role 的 REVOKE,函式迴圈只查 anon/authenticated ⇒ 仍綠 | nit |
+| 10 | `b1b:63` | 版本斷言的錯誤訊息說 PG16「少查且沒人發現」不準:`MAINTAIN` 查詢**會直接報不支援** ⇒ 新斷言改善的是**錯誤位置與說明** | nit |
+| 11 | `b1b:358` | 清單已是八項,**註解仍寫「七種權限」** | nit |
+| 12 | `harness:56` | harness 未自行先擋 PG16 ⇒ 預期紅的格可能因**版本錯誤**而假裝命中,直到綠格才失敗;應 fail-fast | nit |
+
+## ✅ R2 標為打不破的(5 項)
+
+- `b1b:60` 版本斷言門檻正確,會**先於** `MAINTAIN` 查詢觸發(核對 PG16/PG17 官方權限表)
+- `harness:214` 錨點唯一性:插入第二組同名錨點會在 `awk` **之前**中止
+- `harness:334` A15 的 service_role MAINTAIN 世界**不會被 `v_extra` 代打**(但只守第二份清單)
+- `harness:345` A16 的窄義紅**確實只能來自 `v_extra`**
+- `b1b:410` / `harness:259` `created_at` 情境與 A13e 能力界限**均已如實更正**
+
+## R2 自標未確認
+
+> `30/1`、`31/1` 的實跑數字**未重新採信**;唯讀限制下未建立暫存 PG 叢集,
+> 缺 fresh PG17 的逐突變執行與錯誤來源核對。已驗 `bash -n`、`git diff --check`、錨點 1／1。
+
+⇒ **我的突變數字它沒有復現過** —— 引用時要知道那幾個 `30/1`、`31/1` 是**我單方面的量測**。
+
+## 現況
+
+```
+sh /Users/sean_1/pcm-website-v2/scripts/run-rc.sh 20 -- bash scripts/b1b-acceptance-harness.sh
+  ⇒ 通過 32 格 / 失敗 0 格 / rc=0
+```
+⚠️ **32 格全綠【不代表可以 commit】** —— 上表 12 條正是它看不到的東西。
+🔴 **下一輪是 R3 ⇒ 依輪次紀律必須換角度、換模型**(同模型只會在同一個框架內找更細的問題)。
