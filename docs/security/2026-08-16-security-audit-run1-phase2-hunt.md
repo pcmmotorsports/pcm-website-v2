@@ -548,7 +548,8 @@ PERFORM 1 FROM public.order_items oi
   🔴 而且累加**要問「累加的是哪一個集合」**：失敗的／in-flight 的／已 void 的算不算？
   `blocked_by` 有一個 `unknown` 值 ⇒ **不確定的那些算不算進累計，決定它是保守還是漏。**
 - **`sweeper` 與 `webhook` 相撞**沒撞過（`claim_*` 系列有 lease，但**我沒讀它的租約邏輯**）。
-- 併發只驗了**掛品項**這一條路；**出貨、作廢、取消**三條的併發**沒看**。
+- ✅ **出貨／作廢／取消的併發已補**，見 §6.11（CAS + ROW_COUNT，兩方向同時來會序列化）。
+  ⚠️ 該節是**讀 code** 不是實測；併發**實測**過的只有掛品項那條（§6.5(b)）。
 
 ### 6.6 🔴 退款：**三套帳本**，先分清哪一套是活的
 
@@ -782,6 +783,70 @@ END $$;
 
 ⚠️ **我沒做的**：沒有真的併發跑 webhook × sweeper（要搭真 schema + TapPay stub，成本遠高於今天的收益）
 ⇒ **上面是「讀 code + 讀那支 RPC 的冪等樹」，不是實測。**（對照 §6.5(b) 那條我是**實測**過的。）
+
+### 6.11 出貨／作廢／取消的併發 —— **CAS，不是鎖；沒有天花板是【因為沒有租約】**
+
+#### 6.11-a 先數入口（第一動）
+
+五支 RPC **全部有活的呼叫端**：`create` 6 / `add_items` 5 / `mark_shipped` 3 / `void` 4 / `unvoid` 3。
+（控制組：一個不存在的名字回 **0** ⇒ 計數有鑑別力。）
+
+#### 6.11-b 正反成對操作：`void` × `unvoid` **同時來**會怎樣
+
+**兩支都不是「先查再改」，是把狀態述詞寫進 `UPDATE` 的 `WHERE`（CAS）：**
+
+```sql
+-- void                                    -- unvoid
+UPDATE shipments SET deleted_at = now()    UPDATE shipments SET deleted_at = NULL
+ WHERE id = ? AND deleted_at IS NULL;       WHERE id = ? AND deleted_at IS NOT NULL;
+GET DIAGNOSTICS v_n = ROW_COUNT;           GET DIAGNOSTICS v_n = ROW_COUNT;
+IF v_n <> 1 THEN RAISE …                   IF v_n <> 1 THEN RAISE …
+```
+
+⇒ **兩個方向同時來**：兩者在同一列上序列化，**先到的改成 1 列、後到的 `WHERE` 不再成立 ⇒ 0 列 ⇒ `RAISE`**。
+**不會兩邊都成功，也不會靜默覆蓋。** 錯誤訊息逐字是「**這個包裹的狀態剛剛被別人改過…請重新整理畫面確認**」。
+
+🔴 **而作者把這條的來歷寫在旁邊**：
+> `-- 🔴 WHERE 帶上 deleted_at IS NULL（W3-3 的 F6 教訓：只有 id= 會有 TOCTOU）`
+> `-- 🔴 …（W3-3 F6 的 TOCTOU 教訓，本線第三次用）`
+
+**「本線第三次用」** ⇒ 這不是零星補的，是**這條線上固定的做法**。
+`mark_shipped` 同款（且註解點明「0 列的成因有二：①真的沒這箱 ②**併發**把它作廢或出貨了」）。
+
+#### 6.11-c 「拿了不還」那個方向 —— **它在這條線上不存在**
+
+退款／金流線有專門的天花板函式（`expire_stuck_attempts_at_ceiling` 等）。
+**出貨線 `grep 'ceiling'` ⇒ 0。** 上一輪我把這標成「缺口」的候選，**這輪去量了，結論相反：**
+
+```
+shipments / shipment_items      欄名含 lease|claim|lock|attempt|expire|token|until  ⇒ 【0】
+payment_charge_attempts /
+payment_webhook_events           同一 pattern                                        ⇒ 【9】
+  （attempt_count、released_at、last_expired_settle_at、settle_attempt_count …）
+```
+
+⇒ **兩條線用的是【不同的併發策略】：**
+
+| | 策略 | 需要天花板嗎 |
+|---|---|---|
+| 金流／退款線 | **claim／lease（有狀態，東西被「持有」）** | ✅ 需要 —— 持有者掛了就要有人回收 |
+| **出貨線** | **CAS（無狀態，沒有東西被持有）** | ❌ **不需要 —— 沒有東西可以卡住** |
+
+🔴 **⇒ 「出貨線零天花板函式」不是缺口，是 CAS 策略的必然結果。**
+**我上一輪的猜測（「沒有的話那是缺口」）被這個量測推翻了。**
+📌 **留檔理由**：下一個人看到「一條線有天花板、另一條沒有」很自然會當成不一致 ——
+**判別式是「這條線上有沒有東西被【持有】」，不是「有沒有天花板函式」。**
+
+#### 6.11-d 但這條線**確實**有一個缺口 —— 只是不在併發上
+
+🔴 **併發是好的，而這五支動作【零 `admin_audit_log` 留痕】（§6.2 / P2-4）。**
+⇒ **兩件是同一條線的兩半**：
+**併發控制擋住了「兩個人同時改壞」，但如果哪天真的出錯（或有人蓄意），事後沒有任何地方查得到是誰。**
+
+#### 6.11-e 誠實邊界
+
+⚠️ **本節是讀 code，不是實測**（對照 §6.5(b) 的掛品項 race 我**是**實測過的）。
+CAS 的正確性是 Postgres 的語意保證，**但「每一條路徑都真的走了 CAS」是我讀出來的，不是跑出來的。**
 
 ### 6.4 建議（**我唯讀，只提**）
 
