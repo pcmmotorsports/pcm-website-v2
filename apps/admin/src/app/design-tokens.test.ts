@@ -618,6 +618,51 @@ describe('BMW M:--border-soft 三階邊框(片3)', () => {
   });
 });
 
+describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
+  // 依據 = OD 原稿立場,不是品味:`grep -c 'var(--elev-raised)'` → 0(唯一的投影式陰影宣告在、用值 0);
+  // `grep -c 'box-shadow'` → 10,全是 1px 描邊 / focus 環 / inset 色條 / none。
+  const adminSources = (): Array<[string, string]> => {
+    const { globSync } = require('node:fs') as typeof import('node:fs');
+    const files = globSync(join(__dirname, '..', '**', '*.{ts,tsx}')) as string[];
+    expect(files.length, 'glob 掃到太少檔 = 這一格失去判別力').toBeGreaterThan(300);
+    return files
+      .filter((f) => !/\.test\.tsx?$/.test(f))
+      .map((f) => [f, readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')]);
+  };
+
+  it('🔴 投影式陰影(`shadow-xs/sm/md/lg/xl`)全站零殘留', () => {
+    // 🔴 剝註解:本片在 `button.tsx` 寫的理由段就逐字提到 `shadow-xs`。
+    //    **要判的是【還有沒有人在用】,不是【有沒有人提到】。**
+    const offenders = adminSources()
+      .filter(([, src]) => /\bshadow-(xs|sm|md|lg|xl)\b/.test(src))
+      .map(([f]) => f.replace(/.*\/src\//, 'src/'));
+    expect(offenders, '投影式陰影復發 —— BMW M 用 1px 描邊分層,不用投影').toEqual([]);
+  });
+
+  it('🔴🔴 兩處 `ring` 是承重的,不得被當成陰影一起掃掉', () => {
+    // 🔴 這一格與上一格**方向相反**:上面禁止,這裡**要求存在**。
+    //    合報「13 處 shadow」會讓下一個人一次 sed 掃掉,而這兩處掃掉會拿走真訊號:
+    //      · `order-status-axes.ts` 的未收款紅框 = 「這張單還沒收到錢」的唯一視覺載體
+    //      · `ui/sidebar.tsx` 的 1px 描邊 = OD `--elev-ring` 的形狀本身
+    const src = (p: string[]) => readFileSync(join(__dirname, '..', ...p), 'utf8');
+    expect(src(['lib', 'orders', 'order-status-axes.ts']), '未收款紅框不見了').toMatch(
+      /shadow-\[0_0_0_1\.5px_var\(--destructive\)/,
+    );
+    expect(src(['components', 'ui', 'sidebar.tsx']), '側欄 1px 描邊不見了').toMatch(
+      /shadow-\[0_0_0_1px_var\(--sidebar-border\)\]/,
+    );
+  });
+
+  it('🔴🔴 那條描邊不得用 `hsl()` 包 —— 包了整條 box-shadow 會被丟棄', () => {
+    // 🔴 **它從 fork 進來就是壞的,不是本線弄壞的**:`--sidebar-border` 舊值是 `oklch(...)`,
+    //    包成 `hsl(oklch(...))` 一樣不是合法顏色;片1 換成 hex 之後變 `hsl(#d7dee8)`,同樣無效。
+    //    ⚠️ **機制是 computed-value time 失效,不是 parse 報錯**(自訂屬性不驗證內容)
+    //    ⇒ **不會有任何 build 警告**,而畫面上就是「那條線一直都不存在」。
+    const src = readFileSync(join(__dirname, '..', 'components', 'ui', 'sidebar.tsx'), 'utf8');
+    expect(/shadow-\[[^\]]*hsl\(/.test(src), 'ring 又被 hsl() 包起來了 ⇒ 那條線會消失').toBe(false);
+  });
+});
+
 describe('BMW M:表格內文色 --fg-2(片5)', () => {
   const CSS_CODE2 = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 
