@@ -198,7 +198,7 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 
 | ID | 嚴重度 | 內容 | 卡在誰 |
 |---|---|---|---|
-| **`net` 曝露** | **未知（可能最高）** | `net.http_request_queue` 會裝 `Authorization: Bearer <CRON_SECRET>`，且對 PUBLIC 可讀。**若 `net` 有列入 Data API 曝露 schema ⇒ 任何訪客拿得到那把 token。** DB 裡查不到該設定（`pg_db_role_setting` 有 `authenticator` 列但無 `pgrst.db_schemas`）⇒ **要看 Dashboard。**<br>🔴 **「查不到」不得讀成「未曝露」。** | **Sean（Dashboard）** |
+| ~~`net` 曝露~~ **已關閉** | ~~未知~~ **非活洞** | ✅ **2026-08-17 實測關閉**：以公開 publishable key 打正式站 `/rest/v1/`，`http_request_queue` 回 **404**（打不到）。🔴 判別力有證明：`customers` 回 **401**（在曝露的 `public` 內、僅無權限），`products_public` 回 **200**（19,777 列，控制組）⇒ **404 不是鈍訊號**。`realtime.subscription`／`cron.job`／`storage.buckets`／`extensions.pg_stat_statements` 同為 404。Data API 曝露清單經 Sean 展開確認：**只有 `public` + `graphql_public`**。詳 `E-689` | — |
 | `E683-1` | 常設風險 | 新物件出生自帶 `anon` 權限（表含 RLS 管不到的 `TRUNCATE`；函式含 `EXECUTE`）。**現況 46 張全乾淨，但靠的是每個人都記得。** | 部分已解：`E-684` 斷言樣板已交 B 窗，**新 migration 起用** |
 | `E682-1` | 低（只靠一個屬性） | `customer_wallet_balance_check`（客戶儲值金餘額 view）授了 `anon` SELECT。**今天不外洩**（`security_invoker=true` + 底表無 anon 授權 + RLS + 零 anon policy 四層），**但那個授權沒有任何用途**。拿掉 `security_invoker` 即成真洞。**建議 REVOKE。** | **Sean（鐵則 12 ②）** |
 | `E680-1` | 低（未守路徑） | `settle-sweep` route 用 blind spread `...result` 回應，而回應會落進 PUBLIC 可讀、保留 6h 的 `net._http_response`。**今天不洩**（`SweepSettlementsResult` 全是計數），但**姊妹片 email-sweep 用顯式 allowlist 且寫明理由**。 | 待派 |
@@ -241,6 +241,50 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 2. `E682-1` 的 `REVOKE` 提案（要 Sean 批）
 3. 報價單庫（`pcm-quote-v2`）整個沒查 —— 唯讀帳號尚未建立（`E-674b`）
 4. §2.3 那些沒查的維度
+
+---
+
+## 7b. ✅ 2026-08-17 補：外部 API 實測 + RPC 面 + 應用層
+
+### (a) 外部 REST 可達性（實測，非讀設定頁）
+
+| 目標 | HTTP | 解讀 |
+|---|---|---|
+| `products_public` | **200**（19,777 列） | 控制組：量具活著 |
+| `customers` / `customer_addresses` / `customer_vehicles` / `customer_wallet_ledger` / `orders` / `order_items` / `order_payments` / `admin_customer_list_v` | **401** | 在曝露的 `public` 內、**anon 無權限** |
+| `http_request_queue`（`net`）· `subscription`（`realtime`）· `job`（`cron`）· `buckets`（`storage`）· `pg_stat_statements`（`extensions`） | **404** | **外部打不到** |
+
+🔴 **`search path` ≠ 曝露**：`EXTENSIONS` 在 Extra search path 裡，`pg_stat_statements` 仍 404。
+
+⚠️ **方法上的兩個坑（都真的發生了，見 `E-689`）**：
+① `Accept-Profile` 對**任何**值都回 401（含確定曝露的 `public`）⇒ **零判別力**，第一輪整個作廢；
+② 連續快打會被**節流**，一批全回 401 含控制組 ⇒ **每發間隔 3 秒，並把控制組放【最後一發】**
+（證明的是「量具到最後還活著」，而不是「一開始活著」）。
+
+### (b) 對外可呼叫的函式面（只讀 catalog，**一次都沒呼叫**）
+
+`public` 裡 `anon` 可 EXECUTE 的 **12** 支：
+- **8 支 `returns trigger`** ⇒ PostgREST **不能**發佈成 RPC ⇒ 外部叫不到（含 `sync_product_fitments`）
+- **4 支真的可呼叫**：`catalog_brand_counts`／`search_catalog_by_vehicle`／`search_products_by_vehicle`（皆 `STABLE`）、
+  `m3_jsonb_values_all_string`（`IMMUTABLE`）⇒ **依型別定義不能寫**
+- 另 3 支 SECDEF（`create_order`／`find_active_sibling_own`／`mark_charge_attempt_charged_fallback`）
+  為 **`authenticated` 專屬，`anon` 全 false**
+
+**經銷價**：那 3 支型錄函式的原始碼**零命中** `price_by_tier|cost|dealer|price_store`
+（**控制組**：`public` 裡確有 2 支函式命中該正規式 ⇒ 樣式是活的）。
+
+### (c) 應用層（`security-audit` skill Phase 1）
+
+**`FINDING E690-1`**：`apps/admin/src/lib/shipping/shipment-actions.ts:83,161,178,193,232`
+（`submitShipment`／`fetchShipmentCandidates`／`voidShipmentAction`／`unvoidShipmentAction`／`markShipmentShippedAction`）
+**未呼叫 `authorizeAdminMutation`**，而約 20 支姊妹 action 都有（控制：`orders/order-actions.ts:6` 有 import）。
+
+- **不是 CSRF 破口**：Next `16.3.0` `dist/server/app-render/action-handler.js:446-462`
+  在 `origin` 與 host 不符時**中止** Server Action（E80）⇒ 框架已涵蓋那道 Origin 檢查。
+- **session 仍有 `proxy.ts` 擋**（matcher 涵蓋 Server Action POST）。
+- 🔴 **真正的殘留 = 稽核歸屬**：這 5 支不綁具名 actor，**出貨/作廢出貨不會留下「誰做的」**。
+- **嚴重度**：低（對外零影響；影響的是事後追查）。
+- 📌 **歸屬：B 窗（真登入線 `B5`/`B6` 正在處理 actor）** —— 不是稽核窗自己收尾的事。
 
 ---
 
