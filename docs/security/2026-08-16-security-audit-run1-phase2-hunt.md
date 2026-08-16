@@ -161,6 +161,19 @@ HIGH  sharp inherited libvips CVE-2026-33327 / 33328 / 35590 / 35591   patched: 
 
 **結果：23 個檔全部有閘。兩個沒有：**
 
+> 🔴 **2026-08-16 覆核（V 窗指出數字對不上，查證後：兩個數字都對，差在【樹的狀態】）**
+> 我量的是 `apps/admin/src/lib/**/*.ts`。**同一把尺**在不同 commit 上：
+> `d246f525` = **28**、`99b73f45` = **28**、**併入 dev 之後 `a64e4d25` = 31**。
+> ⇒ **`28` 在我量的當下正確，`31` 在現在的樹上正確。** 不是尺短，是**我讀到的東西帶有時間維度**（📎 traps §⑮）。
+>
+> **多出來的三個檔我補查了**：`orders/amount-actions.ts`（1 支 action、**有閘** ✅）、
+> `orders/amount-action-state.ts` 與 `orders/amount-form.ts`（**0 支 export action**，同 `*-form` / `*-cookie` 那類輔助檔）。
+> ⇒ **結論不變：`shipment-actions.ts` 仍是唯一無閘的業務檔。**
+>
+> ⚠️ 另注意：若把範圍放大到 `apps/admin/src/**` 的 `.tsx`，會多命中
+> `components/**/​*-keyword-search.tsx` 兩檔 —— **那是【註解裡】提到 `'use server'`，不是 server action 檔**
+> （兩檔第 2 行都是 `// 🔴 …「'use server'」檔只能 export async function`）⇒ **放大範圍要先排除註解命中。**
+
 | 檔 | action 數 | 判讀 |
 |---|---|---|
 | `shipping/shipment-actions.ts` | 4 | **P2-3，Phase 1 已界定**（`E690-1`，殘留是稽核歸屬非存取控制） |
