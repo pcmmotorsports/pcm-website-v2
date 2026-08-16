@@ -23,21 +23,26 @@
 
 import { useCallback, useState } from 'react';
 import { markShipmentShippedAction } from '../../lib/shipping/shipment-actions';
+import { trackingNumberIssue } from '../../lib/shipping/tracking-number';
 
 export function ShipmentMarkShippedButton({
   shipmentId,
   shipmentReference,
   /** `other`(自取/自送)時單號可省 —— DB CHECK `shipments_shipped_needs_tracking` 是這樣寫的。 */
-  carrierIsOther,
+  carrierCode,
 }: {
   shipmentId: string;
   shipmentReference: string;
-  carrierIsOther: boolean;
+  /** 🔴 收代碼不收 `carrierIsOther` 布林(R1 MF1):貨號格式檢查要知道【是哪一家】,
+   *  不只是「是不是 other」。呼叫端本來就有這個欄位(它就是拿它算出那顆布林的)。 */
+  carrierCode: string;
 }) {
   const [open, setOpen] = useState(false);
   const [tracking, setTracking] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 🔴 R2 F-A:離開欄位之前不評價格式(同建箱彈窗)。 */
+  const [settled, setSettled] = useState(false);
   const [key, setKey] = useState<string | null>(null);
 
   // 🔴 前置擋門與 DB CHECK 對齊、不自己發明:
@@ -45,7 +50,17 @@ export function ShipmentMarkShippedButton({
   //    `shipped_at IS NULL OR carrier_code='other' OR NOT is_blank(tracking_number)`
   //    ⇒ 非 other 而單號空白,在資料層就不合法。這裡先擋是為了把「難懂的 DB 錯誤」
   //    換成「看得懂的前置提示」,**不是**多加一條 DB 沒有的規則。
-  const blocker = !carrierIsOther && tracking.trim() === '' ? '請先填貨運單號。' : null;
+  const carrierIsOther = carrierCode === 'other';
+  // 🔴 **#551 R1 MF1**:貨號格式檢查原本只裝在建箱彈窗,而「先建箱不出貨 → 之後填單號
+  //    並標記出貨」是**常走的另一半路徑** ⇒ 從這裡進來的貨號打錯一碼照樣過。
+  //    ⇒ 兩個入口共用 `lib/shipping/tracking-number.ts` 同一支,不各寫一份。
+  const issue = trackingNumberIssue(carrierCode, tracking, settled);
+  const blocker =
+    !carrierIsOther && tracking.trim() === ''
+      ? '請先填貨運單號。'
+      : issue?.level === 'block'
+        ? issue.message
+        : null;
 
   const run = useCallback(async () => {
     const k = key ?? crypto.randomUUID();
@@ -83,7 +98,11 @@ export function ShipmentMarkShippedButton({
     <span className='flex flex-wrap items-center gap-2'>
       <input
         value={tracking}
-        onChange={(e) => setTracking(e.target.value)}
+        onChange={(e) => {
+          setTracking(e.target.value);
+          setSettled(false);
+        }}
+        onBlur={() => setSettled(true)}
         placeholder={carrierIsOther ? '單號(自取/自送可留空)' : '貨運單號'}
         aria-label={`包裹 ${shipmentReference} 的貨運單號`}
         className='border-input bg-background h-7 w-40 rounded-md border px-2 text-xs'
@@ -108,7 +127,12 @@ export function ShipmentMarkShippedButton({
         取消
       </button>
       {/* 🔴 主詞是箱號:同一箱會出現在多張訂單頁上,寫「這張訂單」在別張上是假的。 */}
-      {blocker !== null && <span className='text-muted-foreground text-xs'>{blocker}</span>}
+      {/* 🔴 R2 F-E2:擋比警告顯眼,不要反過來。 */}
+      {blocker !== null && <span className='text-xs font-semibold text-red-700'>{blocker}</span>}
+      {/* 🔴 警告【不擋】⇒ 顏色與擋的那顆不同,否則員工會以為自己被擋住了。 */}
+      {blocker === null && issue?.level === 'warn' && (
+        <span className='text-xs font-medium text-amber-700'>{issue.message}</span>
+      )}
       {error !== null && <span className='text-destructive text-xs'>{error}</span>}
     </span>
   );

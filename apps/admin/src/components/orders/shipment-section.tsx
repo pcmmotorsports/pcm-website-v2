@@ -96,7 +96,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                       <ShipmentMarkShippedButton
                         shipmentId={shipment.id}
                         shipmentReference={shipment.shipmentReference}
-                        carrierIsOther={shipment.carrierCode === 'other'}
+                        carrierCode={shipment.carrierCode}
                       />
                     )}
                     <ShipmentVoidButton
