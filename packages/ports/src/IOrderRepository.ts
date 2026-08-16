@@ -10,6 +10,8 @@ import type {
   AdminOrderSummary,
   AdminOrderWorkflowPatch,
   AdminOrderWorkflowResult,
+  AdminOrderItemAmountPatch,
+  AdminOrderItemAmountResult,
   Paginated,
   PaginationParams,
   CustomerId,
@@ -133,6 +135,50 @@ export interface IOrderRepository {
     actor: string,
     requestId: string,
   ): Promise<AdminOrderWorkflowResult>;
+
+  /**
+   * 後台改品項金額(M-4b E10 `#13` 片1b;`/orders/[id]` 明細頁「改金額」)。
+   *
+   * 🔴 走 owner SECURITY DEFINER RPC `admin_update_order_item_amount`
+   * (`supabase/migrations/20260815040000_m4b_e10_13_slice1_admin_update_order_item_amount.sql`,
+   * 2026-08-15 已 apply 正式庫):RPC 內鎖列 + 樂觀鎖 `version = expectedVersion` →
+   * 改 `order_items.unit_price` / `line_total` → 重算 `orders.subtotal` / `total` →
+   * 同交易寫 admin_audit_log。
+   *
+   * 🔴🔴 **跨表金額不變式由兩支 `DEFERRABLE INITIALLY DEFERRED` constraint trigger 在 COMMIT 時守**
+   * (同片 migration):`orders.subtotal` 必須等於該單 `order_items.line_total` 的總和。
+   * ⇒ 本方法**不是唯一寫入者**這件事已被 DB 端接手,應用層不得自己另算一份金額補寫。
+   *
+   * - `patch` 三欄全必填,語意見 {@link AdminOrderItemAmountPatch}
+   *   (🔴 `zeroPriceReason` 必須明確表態:0 元必填原因、非 0 元必須送 null);
+   * - `actor` / `requestId` 由 server session / correlation 提供(client 不可信、RPC 端亦驗非空);
+   * - 回傳碼**恰三個**,逐字對 RPC 的三條 `RETURN`(不是從語意推的):
+   *   `'OK'` 寫入成功(`:482`)/ `'CONFLICT'` **只有** `version <> expectedVersion` 這一種(`:382-383`)
+   *   / `'NOOP'` 新單價與現值相同(`:414-416`,不 bump version、不寫稽核)。
+   *   🔴 成功碼是 `'OK'` 不是 `'UPDATED'`,與 {@link updateAdminOrderWorkflow} 刻意不同字面。
+   * - 🔴 **其餘每一種失敗都是 `RAISE EXCEPTION` ⇒ adapter `throw`,不是回傳碼。**
+   *   逐條(RPC 行號):缺 actor / requestId / orderId / orderItemId / expectedVersion(`:349-357`)、
+   *   expectedVersion 越界(`:358`)、unitPrice 為 NULL 或負(`:361`)、
+   *   0 元未附原因(`:366`)、非 0 元卻帶原因(`:371`)、
+   *   **訂單查無(`:379`)**、已有任何一列收款(`:388`)、該單有折扣(`:398`)、
+   *   **品項查無(`:407`)**、**品項不屬於這張訂單(`:410`)**、
+   *   line_total 溢位(`:422`)、改後 total 為負(`:436`)、subtotal/total 溢位(`:440`)、
+   *   更新列數異常(`:452`)。
+   *   (caller server action 收斂成固定錯誤碼、不外洩 DB error 到瀏覽器。)
+   * 🔴 **2026-08-15 codex 關卡2 R1 must-fix 的修法**:原本這裡寫「`CONFLICT`(版本不符**或訂單查無**)」
+   *   而查無實際上是 throw ⇒ **docstring 說的事情 code 不做**。同族已一併掃過:
+   *   上面那條 throw 清單原本只寫「輸入非法 / 已收過款 / 溢位 / 改後總額為負」四類,
+   *   **漏了折扣閘、品項查無、品項不屬於本單、訂單查無** ⇒ 已改成逐條列舉 + 行號。
+   *
+   * ⚠️ **本片(1b)只鋪管線** —— server action 與 UI 在 1c/1d,尚無 consumer。
+   */
+  updateAdminOrderItemAmount(
+    id: OrderId,
+    expectedVersion: number,
+    patch: AdminOrderItemAmountPatch,
+    actor: string,
+    requestId: string,
+  ): Promise<AdminOrderItemAmountResult>;
 
   // 🔴 **`updateAdminOrderItemWorkflow` 已於 A9w4c 後半(2026-08-06)具名移除** ——
   //    九碼 writer 鏈退場的最後一段應用層契約。前置:A9w4a 拆了 server action、A11a 列表重建完成

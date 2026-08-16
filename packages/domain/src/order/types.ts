@@ -611,6 +611,45 @@ export type AdminOrderWorkflowPatch = {
 export type AdminOrderWorkflowResult = 'UPDATED' | 'CONFLICT' | 'NOOP';
 
 /**
+ * AdminOrderItemAmountPatch: 後台改品項金額 patch(M-4b E10 #13 片1b;
+ * `admin_update_order_item_amount` RPC 入參)。
+ *
+ * 🔴 與 {@link AdminOrderWorkflowPatch} 的語意**不同**:那支是「未提供 ≠ 清空」的多欄 patch,
+ * 本型別**三個欄全部必填**——它描述的是一次「把某一品項的單價改成 X」的完整意圖,
+ * 沒有「這欄不動」這種狀態。省略任何一欄都不是合法的改價。
+ *
+ * - `unitPrice`:**整數元位、非負**。不做任何浮點運算(RPC 端 `:362` 再驗一次非負整數,
+ *   `:423` 驗 line_total 不溢位 integer)。
+ * - 🔴 `zeroPriceReason` 是**必填鍵、型別 `string | null`,不是 optional**:
+ *   RPC 兩道互斥閘 —— `:366` 單價 = 0 而原因為 NULL/空白 ⇒ RAISE;
+ *   `:371` 單價 > 0 而原因非 NULL ⇒ RAISE。
+ *   ⇒ 兩種情形都必須**明確表態**,「忘了帶」必須是編譯錯誤而不是靜默送 undefined。
+ *   (同 `admin_search_orders` 的 p_from/p_to 先例:一律帶鍵、沒有值就送顯式 null、不用 spread。)
+ */
+export type AdminOrderItemAmountPatch = {
+  orderItemId: string;
+  unitPrice: number;
+  zeroPriceReason: string | null;
+};
+
+/**
+ * 後台改品項金額結果碼(RPC 回傳)。
+ *
+ * 🔴 **是 `'OK'` 不是 `'UPDATED'`** —— 與 {@link AdminOrderWorkflowResult} 刻意不同字面,
+ * 照 RPC 本體 `20260815040000_…:482` / `:383` / `:416` 逐字。抄錯字面會讓成功被判成非預期碼。
+ * UI 分流(逐字對 RPC 的三條 `RETURN`,不是從語意推的):
+ * - `OK` = 寫入成功(`:482`)
+ * - `CONFLICT` = **只有一種情形:`v_ord.version <> p_expected_version`**(`:382-383`)⇒ UI 重載
+ * - `NOOP` = 新單價與現值相同(`:414-416`);不 bump version、不寫稽核
+ *
+ * 🔴 **`CONFLICT` 不包含「訂單查無」** —— 查無走 `:379-381` `RAISE EXCEPTION`,
+ * 到 adapter 是 `throw`、不是回傳碼。(2026-08-15 codex 關卡2 R1 must-fix:
+ * 原本這裡寫「版本不符**或訂單查無**」,而那是我從語意推的、不是從 RPC 讀的。
+ * consumer 若照那句把查無當成可重載的版本衝突,錯誤分流會與實際行為不一致。)
+ */
+export type AdminOrderItemAmountResult = 'OK' | 'CONFLICT' | 'NOOP';
+
+/**
  * 供應商回覆狀態(M-4b E10 A9a-2;`order_item_procurement_reply_status_check`
  * `supabase/migrations/20260729020000_m4b_e10_a2_order_item_procurement.sql:86-87` 五值)。
  * no_reply 未回 / confirmed 已確認 / price_changed 改價 / out_of_stock 缺貨 / partial 部分出貨。
@@ -823,7 +862,10 @@ export type AdminOrderItemQuantitySummary = {
    * **「可取消 / 上限 / 權限」那一類判斷**,**不是**禁止任何地方出現 `instock − shipped`。
    * 合法用途至少兩處,兩處問的都是「倉庫裡現在還剩幾件」而不是「還能取消幾件」:
    *   · `apps/admin/src/components/print/picking-doc.tsx` 的 `pickableQuantity()`(揀貨單應揀量)
-   *   · `apps/admin/src/lib/orders/order-status-axes.ts` 用 `shippedQuantity >= quantity` 判「已出貨」軸
+   *   · `apps/admin/src/lib/orders/order-status-axes.ts` 用
+   *     `shippedQuantity >= quantity − cancelledQuantity` 判「已出貨」軸
+   *     (🔴 `#522` 2026-08-16 改的:原本分母是 `quantity`,而那讓**任何部分取消的單
+   *      貨品軸永遠停在「未訂購」** —— 那正是本段這條判準句在講的事,只是當時沒照做。)
    * ⇒ **判準一句話:算「還能不能取消」就不准減 shipped;算「倉庫還剩什麼」就必須減。**
    * (完整推導在 `picking-doc.tsx` 的 `pickableQuantity` docstring。DB 側硬約束
    *  C7 `instock + cancelled <= quantity`、C9 `shipped <= instock` 保證這個差恆非負 ——

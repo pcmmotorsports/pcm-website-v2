@@ -9,6 +9,7 @@ import type {
   PaginationParams,
 } from '@pcm/domain';
 import type { Database } from './database.types';
+import type { SupabaseAdminCustomerRow } from './mappers/customer';
 import {
   mapCustomerPatchToRow,
   mapSupabaseCustomerToDomain,
@@ -29,7 +30,43 @@ const CUSTOMER_SELECT =
  * customers 表本身無成本 / 經銷價欄(天生守);**禁** `select('*')`。tier=會員等級標籤(admin 需知經銷身分、非價格)。
  * module-level `export const` → SupabaseCustomerAdapter.test.ts byte-equal + 無 wallet/成本欄名 + 無 `*` 守門。
  */
-export const ADMIN_CUSTOMER_LIST_SELECT = 'user_id, name, email, phone, tier, created_at';
+// 🔴 **必須是【單行字面】,不能用 `'…' + '…'` 拆行**(code-reviewer 2026-08-16 實測)。
+//    `+` 會把常數從**字面型別**拓寬成 `string` ⇒ postgrest-js 的「select 字串 → row 型別」推導
+//    整條斷掉,`data` 被推成 `never[]` ⇒ **下面那個手寫 row 型別沒有任何東西在檢查它**。
+//    ⚠️ 我原本的註解寫「apply 之後重生型別、換成 derive 就好」——**那是錯的**:
+//       `+` 不拆的話,apply 完 derive 也接不回來。
+//    (repo 沒有 max-len 規則 —— 我原本加的那行 eslint-disable 是多餘的,lint 當場報 unused)
+export const ADMIN_CUSTOMER_LIST_SELECT = 'user_id, name, email, phone, tier, created_at, active_order_count, active_spend_total, last_active_ordered_at';
+
+/**
+ * 🔴 讀的是 **view** 不是 `customers` 表(客戶頁三欄)。
+ *
+ * `admin_customer_list_v`(`supabase/migrations/20260816030000_…`)= `customers` 的六顆白名單欄
+ * + 三顆聚合欄。**view 只 GRANT 給 `service_role`**,而 admin 全部走 service_role。
+ *
+ * ⚠️ **白名單的理由沒有變**:view 也是**逐顆列出**那六欄、刻意不用 `c.*`,
+ *    所以 `wallet_balance` / `total_deposit` **連 view 裡都沒有**(不是「有但我們不選」)。
+ */
+export const ADMIN_CUSTOMER_LIST_VIEW = 'admin_customer_list_v';
+
+/**
+ * 🔴 **本地補上 view 的型別,取代 `as never`**(code-reviewer 2026-08-16 must-fix)。
+ *
+ * `database.types.ts` 是對**正式庫**生成的,而 `20260816030000` 還沒 apply ⇒ 生成檔裡查無此 view。
+ * 初版用 `from(… as never)` 過關,而那個 cast **不只關掉 `from` 的檢查** ——
+ * 實測:改動前 `.eq('totally_bogus_column', …)` 報 `TS2345`,改成 `as never` 之後**零錯誤**
+ * ⇒ 連 `.eq()` / `.order()` 的欄名檢查一起關掉了,而 probe 只送 `select=`、蓋不到那兩個。
+ *
+ * ⚠️ **這段是【有期限的】**:apply 之後重生 `database.types.ts`,那支 view 會自己出現,
+ *    這個 augment 就該刪掉。留著不刪的話,它會變成「型別說有、DB 說了算」的第二份真相。
+ */
+type DatabaseWithCustomerListView = Database & {
+  public: Database['public'] & {
+    Views: Database['public']['Views'] & {
+      admin_customer_list_v: { Row: SupabaseAdminCustomerRow; Relationships: [] };
+    };
+  };
+};
 
 /**
  * SupabaseCustomerAdapter:Supabase 真實 ICustomerRepository 實作(M-1-14d)。
@@ -124,8 +161,12 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
   ): Promise<Paginated<AdminCustomerSummary>> {
     const offset = pagination.offset ?? 0;
 
-    let query = this.supabase
-      .from('customers')
+    // 🔴 `from` 換成 view —— 三欄的值只有那裡算得出來。
+    //    型別走上面的 `DatabaseWithCustomerListView`(**不是 `as never`**):
+    //    cast 只發生在 client 這一層一次,`.from` / `.eq` / `.order` 的欄名檢查全部保留。
+    const db = this.supabase as unknown as SupabaseClient<DatabaseWithCustomerListView>;
+    let query = db
+      .from(ADMIN_CUSTOMER_LIST_VIEW)
       .select(ADMIN_CUSTOMER_LIST_SELECT, { count: 'exact' });
     if (filter.tier) query = query.eq('tier', filter.tier);
 

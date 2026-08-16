@@ -13803,6 +13803,372 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **相關**:`#27`(操作紀錄頁)/ `#13`(改單;改單歷程要落在哪一種 log 是同一題)/ `#514`(同樣是「畫面上的東西不等於事實」族)
 - **發現於**:2026-08-15 · 電商後台調研 · A 窗與 B 窗獨立各自指到
 
+### #517. 🔢 改金額 RPC 沒有驗「整數」——TS 的 `number` 不保證整數,而 DB 參數是 `integer`
+
+- **狀態:** ⏳ 待執行(`#13` 片1b 開工當下發現、**刻意不在 1b 修**)
+- **分流:** P2
+- **優先級:** 🟡 中(不會靜默算錯錢,但**失敗訊息會是技術碼**,員工看不懂)
+- **起因:** `#13` 片1b codex 關卡2 R2 角度①(2026-08-15)。
+  `admin_update_order_item_amount` 的 `p_unit_price` 在 DB 是 `integer`,
+  RPC 只驗 **`IS NULL OR < 0`**(migration `20260815040000:361`)—— **沒有驗整數**。
+  而應用層型別是 TypeScript 的 `number`,**它不保證整數**
+  (`packages/domain/src/order/types.ts` 的 `AdminOrderItemAmountPatch.unitPrice`)。
+- 🔴 **本片沒有實測、不宣稱**:非整數值(例 `10.5`)經 PostgREST 送進 `integer` 參數會被
+  拒絕、四捨五入、還是截斷,**我沒測過**。⇒ 這是**誠實缺口**,不是「應該沒事」。
+- **量法(可重現,落地時先跑這條再決定修法):**
+  ```
+  grep -n "p_unit_price IS NULL OR p_unit_price < 0" \
+    supabase/migrations/20260815040000_m4b_e10_13_slice1_admin_update_order_item_amount.sql
+  ⇒ :361（只有這一道;整支檔 grep -c "p_unit_price" 可看全部引用點）
+  ```
+- **不修未來會痛在哪:** 表單層若讓非整數進來,**最好的情況是拿到 PostgREST 的技術錯誤碼**
+  (員工看到亂碼、不知道要改什麼);最壞的情況是被靜默轉換成另一個金額而**沒有任何一道閘會紅**
+  —— 而這支 RPC 改的就是訂單金額。
+- **歸屬:** `#13` **片1c 的輸入層責任**(表單解析 + server action)。
+  🔴 片1b 只在 adapter docstring 寫了這個缺口 ⇒ 依 `feedback_writing-down-a-gap-is-not-closing-it`,
+  **寫下來不算處置**,所以另立本條釘住。
+- 🔴🔴 **2026-08-15 片1c-1 進度:入口已擋,而本條【仍未解】。**
+  `apps/admin/src/lib/orders/amount-form.ts` 的 `parseNonNegativeInt` 擋掉非整數
+  (`/^\d+$/` + `Number.isSafeInteger` + int4 上限;測試 `amount-form.test.ts` 有 13 格,
+  含小數 / 負號 / 千分位 / 指數 / Unicode 數字 / 前後空白 / 30 位失精度)。
+  ⇒ **那是「關掉那條路」,不是「答出 RPC 端會怎樣」。**
+  本條問的是:**非整數真的送進 PostgREST 的 `integer` 參數會被拒絕、四捨五入還是截斷?**
+  —— 換一個呼叫端(或以後有人繞過這支解析器)就會走到那條沒人量過的路。
+  ⚠️ **不得因為表單層擋住了就標為已解。**
+
+### #518. 🧱 RPC 呼叫契約直接吃「生成型別」,而生成型別每次重 gen 都會變形
+
+> 🔴 **本條內含【兩個主題】,標題只講了第一個** ——
+> ① **標題那件**:`.rpc()` 契約吃生成型別、`Required<>` 的三條失效路徑(全條目主軸);
+> ② **RPC 錯誤在客戶端分不分得開**(下方「實測補充」那幾段)。
+> ⚠️ **有人只憑編號來找,會找到第一個而以為那就是全部** ——
+> 2026-08-15/16 整晚互相引「`#518` 逐字」時,講的其實是②。**引用時請指明是哪一個。**
+> 📌 暫不切成兩條:②的結論會直接改變①要不要做、怎麼做(見②的 `DETAIL` 那段)。
+
+- **狀態:** ⏳ 待執行(**設計題,不是 bug**;`#13` 片1b 沿用現行做法、未擴大範圍)
+- **分流:** P2
+- **優先級:** 🟡 中(現況會擋,但**擋的理由建立在一個每次 apply 都被重寫的檔上**)
+- **起因:** `#13` 片1b codex 關卡2 **R3 換角度審查**(2026-08-15)。
+  片1b 為了讓「呼叫端漏帶鍵」變編譯錯誤,寫了
+  `const args: Required<Database['public']['Functions'][…]['Args']> = {…}`
+  (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`)。
+  R3 逐字總評:**「應該換;`Required<>` 適合當局部防呆,不適合承擔需要反覆人工校正生成檔的長期 RPC 契約。」**
+- **R3 指出的三種失效路徑(逐條,原文轉述):**
+  1. `Required<>` **只約束建立當下**:`const rest = {...args}` 去掉某鍵、或 `delete` 之後再傳原物件,
+     因為原始生成型別把該鍵列為 optional ⇒ **照樣編譯**。
+  2. **重 gen 之後意義會變**:既有參數若由 required 改成 optional,`Required<>` 會把它**拉回必填**
+     ⇒ **不會紅**,只是靜默遮住「DB 已允許省略」這件事。
+     (反向是好的:RPC 新增一個 DEFAULT 參數 ⇒ `Required<>` 讓它變必填 ⇒ 現有物件 **TS2741 會紅**。)
+  3. `any` / `as` / 關掉 `strictNullChecks` 一律穿透。
+- ✅ **有一件本片實測、對現況有利,記下來免得被誤讀成全面失效:**
+  模擬「重 gen 把第 ⑪ 處手動校正 `| null` 沖掉」⇒ `tsc` **真的紅**
+  (`TS2322: Type 'string | null' is not assignable to type 'string'`)。
+  🔴 原因是**呼叫端傳的是 `string | null`** ⇒ **這個呼叫點本身就是校正 ⑪ 的守門**。
+  ⚠️ 這只對「呼叫端會傳 null」的校正成立,**其餘 26 處沒有這層保護**。
+- **R3 建議的方向(未採用,留給本條):** adapter 自有的穩定 `CallArgs` 型別(明列所有必帶鍵與 `| null`)
+  + 「`CallArgs` 與生成型別鍵集合完全相同」的**編譯期 drift assertion**;
+  更強的版本再加 runtime `Object.hasOwn()` 檢查。
+- **不修未來會痛在哪:** 每次 apply 後重 gen,**27 處手動校正靠人重貼**;
+  漏貼的那一處**不一定會有東西紅**(只有「呼叫端傳 null」那種才紅)。
+  這條沒做之前,「重貼對了沒」的唯一防線是人 + 一支非 repo 內的檢查腳本。
+- **範圍警告:** 這條會影響**所有** `.rpc()` 呼叫點,不是只有訂單線 ⇒ **中鐵則 8**,要先提 plan。
+- 🔴🔴 **2026-08-15 實測補充(主視窗對正式庫一次呼叫,走 PostgREST 不是 psql)**:
+  「能不能在客戶端分辨 RPC 的錯誤」**現在有答案了 —— 可以。**
+  回傳逐字:`HTTP 400` +
+  `{"code":"P0001","details":null,"hint":null,"message":"admin_update_order_item_amount: 訂單不存在"}`
+  ⇒ **`code` 與完整的中文 `message` 都會抵達客戶端。**
+  ⚠️ ~~**但只證了一半**:…**「`USING ERRCODE='P2C13'` 會不會逐字出現在 `code`」仍未實測** ——
+  要觸發帶 ERRCODE 的那 7 條得用**一張真訂單**,風險等級不同。~~
+  🔴🔴 **← 2026-08-16 兩句都作廢,見下方「已實測」。**
+  ⚠️ **第二句尤其要記著怎麼錯的**:它寫「**得用一張真訂單**」而 E 窗**用拋棄式 PG 就測完了**
+  ⇒ **那是「構造不出來」的又一例** —— 我把「要那個環境的**狀態**」與「只要那個引擎的**行為**」搞混了。
+  (house 判別刀:問「要**狀態**還是要**行為**?」後者幾乎都測得出。)
+
+- ✅ **2026-08-16 E 窗實測(拋棄式 PG + PostgREST,零真訂單、零寫入)——上面那兩句的答案**:
+  - **`P2C13` 逐字出現在 `code`。**
+  - 🔴 **`constraint` 欄【永遠不會】出現** —— 兩層獨立確認,**不是「這次剛好沒出現」**:
+    ① PostgREST 的 error body 只有 `code` / `details` / `hint` / `message` **四鍵**,
+       而**有宣告 `CONSTRAINT` 與沒宣告的兩發,鍵集完全相同**;
+    ② `postgrest-js` 的型別只宣告三鍵,而它是 `JSON.parse(body)` **原樣搬、零轉換**。
+    ⇒ **「拿 `constraint` 分派」這條路是死的,不要再去試。**
+  - ✅ **`DETAIL` / `HINT` 逐字到得了客戶端** ⇒ **解鎖形狀 = 七條 `RAISE` 各加一行
+    `DETAIL='<同名字串>'`,應用層以 `error.details` 分派。**
+    ⚠️ **那要動 migration ⇒ 鐵則 12③ ⇒ 另一片。**
+  - ⚠️ **E 窗自標兩條誠實邊界(不得省略)**:
+    ①**正式站 Supabase 的 PostgREST 版本沒查** ⇒ 上線前對正式站打一次同款 probe;
+    ②**`DETAIL` 過長 / 換行 / 非 ASCII 會不會被截斷或轉義沒測** —— 只證了純 ASCII 短字串。
+
+- 🔴🔴 **而分不分得開之外,還有一件更難的:【事後也沒有人查得出是哪一條】**(R3/fable F4)
+  - `amount-actions.ts` 的 catch **只記 `{ code, request_id }`**;
+  - `constraint` 過不了 PostgREST(見上);
+  - `message` **刻意不記**(它會內插員工打的原因字串 —— 那個決定是對的,不要為了診斷把它加回去);
+  - 🔴 **`admin_audit_log` 隨交易回滾** ⇒ 失敗的那一次**在稽核表裡不存在**。
+  ⇒ **主管接到員工求助時,server log 上只有一個 `P2C13`。**
+  唯一出路是去翻 Supabase 的 Postgres log 靠時間戳對 —— **保留期短,而且沒有人把它寫進任何 runbook。**
+  - **不修未來會痛在哪**:員工說「改不了」,而**沒有人查得出為什麼** ⇒ 只能靠猜或請他重現一次。
+  - ⚠️ **`DETAIL` 那條解鎖形狀順便解掉這一件**(`details` 會進 error 物件 ⇒ 可以記進 log)
+    ⇒ **兩件事同一個修法,不要各做各的。**
+  ✅ 連帶量到:那條路**零寫入**(呼叫前後 `orders` / `order_items` / `admin_audit_log`
+  三張表的 `count` 與 `max` 逐字相同)—— 從「讀 code 推的」變成「量到的」。
+  ⚠️ 本條的三條 `Required<>` 失效路徑**不受影響**,那是另一件事。
+
+### #523. 🧮 `database.types.ts` 手動校正處數**沒有第二個來源** —— 驗它的腳本與它同源
+
+- **狀態:** ⏳ 待執行(2026-08-15 E 窗審 `433bcf26` 判 must-fix;A 窗實測後**確認成立**)
+- **分流:** P2
+- **優先級:** 🟡 中(不會立刻壞,但**壞的時候四綠全綠**)
+- **起因:** 檔頭 `:2` 自稱「計數的唯一權威」,而**驗證用的期望值也是讀那一行** ⇒ 兩個載體不會互相反駁。
+  - 第 28 處校正若從來沒被寫進檔頭 ⇒ 檔頭不知道、腳本也不會去找它 ⇒ **一起說 OK**。
+  - 有人拿掉一處**並且**把檔頭改小 ⇒ 照樣全綠。
+  - 🔴 E 的判別句逐字:**「負向對照證的是【偵測力】,不是【分母正確】。」**
+- **E 提的方向(從 migration 推分母)⇒ A 窗實測【不可行】,逐條量過(可重跑):**
+  ```
+  cd supabase/migrations
+  grep -rhoE "p_[a-z_]+ +[a-z ]*(text|integer|uuid|jsonb|boolean|numeric)[a-z\[\] ]* +DEFAULT NULL" *.sql \
+    | awk '{print $1}' | sort -u        ⇒ 15 個名（E 原式）
+  加上 timestamptz/int/date/bigint… 再掃 ⇒ 19 個名（字集一放寬就多 4 個：p_from p_to p_new_since p_transaction_time_millis）
+  與「被校正的 26 個去重參數名」取交集 ⇒ 6；只在校正側 ⇒ 20；只在掃描側 ⇒ 13
+  ```
+  - **掃不到那 20 個**:①-⑧ 是「**必填但可為 null**」—— 簽章**沒有** DEFAULT,
+    補不補取決於**函式體是不是 fail-closed 拒 NULL**。**那不是簽章的性質。**
+  - **多出的 13 個是誤報候選**:有 `DEFAULT NULL` 但**不該補**(補了會讓非法呼叫變合法;
+    檔頭 ⑩ 逐字「p_limit 不補:呼叫端一律帶值,沒有送 null 的路徑」)。
+  - 🔴 **鍵就不對**:掃出來是**裸參數名**,而校正的單位是 **(函式, 參數)**。
+    實例:`p_from`/`p_to` 的命中來自 `admin_today_payment_total`,**不是**被校正的 `admin_search_orders`。
+  - 🔴 **repo 不是那個世界的權威**:⑨⑩ 的 DEFAULT 值檔頭逐字寫「**正式站實查**」
+    ⇒ 拿 migrations 當分母是**量錯世界**。
+- **做得到的那半(本條真正要做的):** **不是算出正確處數,是「有新候選出現時讓某格紅」** ——
+  對 **(函式, 參數)** 鍵、只涵蓋 `DEFAULT NULL` 那一族,新出現而不在檔頭清單裡 ⇒ **紅,要人去判**。
+  🔴 **它涵蓋不到 ①-⑧,而那個限度必須寫在守門旁邊** —— 否則下一個人會以為「有守門 ⇒ 都被涵蓋了」。
+- **不修未來會痛在哪:** 每次 apply 後重 gen,漏貼一處**不一定有東西紅**
+  (只有「呼叫端會傳 null」那種才紅,見 `#518`);而漏的那一處會在**呼叫端第一次送 null** 時才爆,
+  通常是另一條線的人在改別的東西時撞到。
+- **與 `#518` 的分界(別折在一起):** `#518` = 呼叫端契約吃生成型別;
+  本條 = **生成型別自己的校正清單沒有外部分母**。E 逐字提醒「折進 #518 就算處理掉 = 本檔母題的又一例」。
+
+### #524. 🔴🔴 turbo 的 `typecheck` 沒有 `inputs` ⇒ 改根層設定會 replay 出假綠,而「三綠」抓不到
+
+- **狀態:** ⏳ 待執行(**只立案,不在本條修** —— 修法動 `turbo.json` = **鐵則 12④ 平台設定** ⇒ 要 plan + Sean 批)
+- **分流:** P1
+- **優先級:** 🔴🔴 高(2026-08-16 升級:**三個 task 全中** —— 不是「typecheck 可能騙人」,是**整組三綠都可能騙人**)
+- **起因:** 2026-08-16 A 窗追 `typecheck 3 vs 2` 時構造出來的(見 `~/pcm-mailbox/A-47-STOP.md` / `A-48-STOP.md`)。
+
+#### 成因 —— 🔴 **分兩句寫:機制句 + 清單句。不要寫成「所有根層檔都盲」**
+
+**機制句(E 窗 2026-08-16 用 `--dry=json` 直接印出來的結構性證據)**:
+```bash
+npx turbo run typecheck --dry=json --filter=@pcm/admin
+#   globalCacheInputs.files ⇒ {}（長度 0）
+#   其餘鍵 ⇒ rootKey / hashOfExternalDependencies / hashOfInternalDependencies
+#            / environmentVariables / engines
+```
+> **turbo 的全域雜湊【不吃檔案,吃它自己解析出來的四個欄位】** ——
+> `engines` / 外部依賴圖 / 內部依賴圖 / 環境變數。
+> ⇒ **一個根層檔會不會被偵測到,不取決於它是不是根層檔,取決於它的內容有沒有落進那四個欄位。**
+
+而各 task 的 input 集合 = **該 package 目錄內的檔**
+(`grep -n "globalDependencies\|inputs" turbo.json` ⇒ **零命中**,三個 task 都沒設)。
+⇒ **兩邊都沒接到根層設定檔。**
+
+**清單句(逐檔實測,baseline `@pcm/admin#typecheck` hash `4392b41c0b782586`)**:
+
+| 根層檔 | 進 hash? | 證據 |
+|---|---|---|
+| `tsconfig.base.json` | ❌ **已證盲** | typecheck / lint / build 三個 hash 全不變 |
+| `tsconfig.scripts.json` | ❌ **已證盲** | hash 不變 |
+| `eslint.config.js` | ❌ **已證盲** | hash 不變 |
+| `vitest.config.ts` | ❌ **已證盲** | hash 不變 |
+| `pnpm-workspace.yaml` | ❌ **已證盲** | hash 不變 |
+| **`package.json` 的 `engines.node`** | ✅ **已證非盲** | `>=22.0.0`→`>=22.1.0` ⇒ hash 變 `0b14c202b0b30eb2` 🔴 **反例** |
+| `pnpm-lock.yaml` | ⚠️ **未確認** | E 加的是 YAML 註解,而該欄位從**解析後的依賴圖**算 ⇒ **那一發本來就不可能讓它變**。🔴 **這是「沒量到」,不是「它是盲的」** |
+| `turbo.json` | ⚠️ **未測** | 主視窗禁令,沒人量過。🔴 **不要把「未測」讀成「盲」** |
+
+🔴🔴 **為什麼要拆成機制句 + 清單句(E 窗的判準,原封收)**:
+> **一個【有反例的全稱句】比一個範圍小但準確的句子傷害大得多** ——
+> 下一個人會拿它去推論別的根層檔,而那個推論會錯。
+
+📌 **E 自曝**:它帶著「所有根層檔都盲」的預期去量,**量到第六發才被 `engines` 打臉;前五發全部符合預期。**
+⚠️ **沒去量的話,那句全稱會以「E 窗獨立複驗過」的外觀進本條目。**
+
+#### 這一片為什麼是 typecheck / lint / build 一起中
+
+`apps/admin/tsconfig.json:2` 逐字 `"extends": "../../tsconfig.base.json"`;
+`apps/admin/package.json` 的 lint script 逐字 `eslint . --max-warnings 0 --no-error-on-unmatched-pattern`
+⇒ 往上找到根層唯一那份 `eslint.config.js`
+(分母 `find . -maxdepth 3 -name "eslint.config.*" -not -path "*/node_modules/*"` ⇒ **1 份**)。
+⇒ **它們決定那三個 task 判什麼,而它們都在已證盲的清單裡。**
+
+🔴 **`vitest.config.ts` 也在已證盲那五個裡** —— 但 **`pnpm vitest run` 不走 turbo**
+⇒ **它「盲」的意義與前三個不同**(沒有 replay 機制在騙人,只是那份設定不影響 turbo 的 hash)。
+**本條目不把它算進「三綠假綠」那一族**,列在這裡是因為下一個人會問。
+
+#### 實錘(2026-08-16,`cp` 備份 + 還原後 shasum 逐字相同 `a9936413…`)
+
+在 `tsconfig.base.json` 加 `noUnusedLocals` / `noUnusedParameters`,**同一刻、同一棵樹**:
+
+| 路徑 | exit | `error TS` 行數 | 逐包那行 |
+|---|---|---|---|
+| `npx tsc --noEmit -p apps/admin/tsconfig.json` | **2** | **13** | (無 turbo) |
+| `turbo run typecheck` | — | **0** | 🔴 `@pcm/admin:typecheck: cache hit, replaying logs 53dad03f9cff3b70` |
+
+🔴 **那個 hash 與「乾淨綠樹」那次完全相同** ⇒ **replay 了綠,而此刻真的紅 13 條。**
+🔴 **八個包全部 cache hit**,turbo 印 `Tasks: 8 successful, 8 total` / `Cached: 8 cached, 8 total`。
+
+#### 🔴 第二層:`pnpm typecheck` 的後半 —— **結構性 vs 運氣**
+
+`package.json` 逐字:`"typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit"`
+
+⚠️ **本條目第一版把這裡的理由寫錯了(2026-08-16 E 窗更正)**:
+原文寫「`include` 逐字 `["scripts/*.ts"]` ⇒ **由設定本身可證** `apps/admin` 抓不到」。
+🔴 **實際覆蓋 = `include` 的檔 ＋ 它們 import 到的傳遞閉包** ——
+實錘:那次突變下第二段的 3 個錯,**有 2 個在 `packages/ports/src/IOrderRepository.ts`,不在 `scripts/` 底下**。
+
+**正確的說法(兩層要分開講)**:
+- 🔴 **第一層(turbo)失效是【結構性】的** —— 根層設定檔不在 hash 裡(見上方清單),**必定 replay**。
+- ⚠️ **第二層會不會救你是【看運氣】的** —— 取決於那個根層改動有沒有**剛好**弄紅
+  「`scripts/` 的 import 傳遞閉包」。
+  **2026-08-16 那次救到我們的是巧合**(`noUnusedLocals` 剛好也打到 ports);
+  換一個**只影響 JSX / React 的根層改動**(`scripts/` 是 node、無 JSX)⇒ **整條全綠。**
+
+🔴 **⇒ 「看運氣的第二層」不得當防線寫進任何驗收條件。**
+⚠️ 而 `lint` / `build` 的第二段更弱:`pnpm lint` 的後半只掃 `scripts/*.ts`、`pnpm build` **沒有後半**
+⇒ 2026-08-16 那兩發**實測就是 exit 0 全綠**。
+
+#### 三條判準(現在就可以用,不必等本條修好)
+
+⚠️ **這三條對 `typecheck` / `lint` / `build` 一體適用**(2026-08-16 三個都構造過)。
+
+1. `Cached: N/M` **總結行零判別力** —— 它在「真跑」與「replay」下完全相同。
+2. **`Tasks: N successful` 也可能整排是 replay。**
+3. 🔴🔴 **逐包行說 `cache hit` 也可能是對的 —— 分辨不了的是「該不該 hit」。**
+   ⇒ **改過根層設定之後,turbo 的綠一律不算數,要 `npx tsc --noEmit -p <該包 tsconfig>` 直跑一次。**
+
+#### ⚠️ 四條未驗(不要讀成已排除)
+
+1. **跨 worktree replay 只有 log 字面、沒做實驗**:log 印 `Remote caching disabled, using shared worktree cache`,
+   且 `ls -d node_modules/.cache/turbo` 在該 worktree 內查無 ⇒ 快取不在那棵樹裡。**但沒有跨樹構造。**
+2. ~~🔴 **`lint` / `build` 沒測**~~ **← 2026-08-16 已構造,見下方「三個 task 全中」。原判「未驗」作廢。**
+3. **還有哪些根層檔屬於這一類**(eslint 設定 / `vitest.config.ts` / `package.json` overrides…)
+   —— **只證了 `tsconfig.base.json` 一個。**
+4. **修法沒設計** —— 見下。
+
+#### 🔴🔴 2026-08-16 續章:**三個 task 全中,而 lint / build 比 typecheck 更嚴重**
+
+`turbo.json` 的三個 task **都沒有 `inputs`**(量法同上,`grep -n "globalDependencies\|inputs" turbo.json` ⇒ 零命中):
+`"lint": { "dependsOn": ["^build"] }` / `"build": { "dependsOn": ["^build"], "outputs": […], "env": […] }`。
+
+**各構造一發,同一刻、同一棵樹、`cp` 備份 + 還原後 shasum 逐字相同:**
+
+| task | 改的根層檔 | 直跑 | turbo 路徑 | 逐包那行 |
+|---|---|---|---|---|
+| typecheck | `tsconfig.base.json` | `npx tsc -p apps/admin` **exit 2 / 13 error** | `turbo run typecheck` **0 error** | `cache hit, replaying logs 53dad03f…` |
+| **lint** | `eslint.config.js`(**根層唯一一份**) | `npx eslint .` in `apps/admin` **exit 1 / 71 error** | 🔴 **`pnpm lint` exit 0、完全綠** | `cache hit, replaying logs 808f63d3…` |
+| **build** | `tsconfig.base.json` | `npx next build` in `apps/admin` **exit 1 / 13 error** | 🔴 **`pnpm build` exit 0、完全綠** | `cache hit, replaying logs 3bd53db8…` |
+
+🔴 **三個 hash 都與各自「乾淨綠樹」那次完全相同** ⇒ **replay 了綠,而當下真的紅。**
+🔴🔴 **lint 與 build 比 typecheck 更嚴重**:typecheck 那次 `pnpm typecheck` 整體還是 exit 2
+(靠**非 turbo** 的 `tsc -p tsconfig.scripts.json` 撿到 4 條);
+而 **lint 與 build 沒有那個補償段** ⇒ **`pnpm lint` / `pnpm build` 報【全綠】,而錯是真的。**
+
+📌 lint 的分母:`find . -maxdepth 3 -name "eslint.config.*" -not -path "*/node_modules/*"` ⇒ **只有 `./eslint.config.js` 一份**,
+而 `apps/admin/package.json` 的 lint script 逐字 `eslint . --max-warnings 0 --no-error-on-unmatched-pattern`
+⇒ **它往上找到根層那份** ⇒ 根層設定決定 admin 紅不紅,而它不在 admin 的 input 集合裡。
+
+⇒ **本條的嚴重度隨之升級:不是「typecheck 可能騙人」,是【整組三綠都可能騙人】。**
+⚠️ 適用條件仍是「**改過根層設定之後**」;沒動根層設定時,三綠照常成立。
+
+#### 修法方向(**不在本條做**)
+
+加 `inputs` 或 `globalDependencies` 到 `turbo.json`。
+🔴 **那是動平台設定 = 鐵則 12④ ⇒ 要 plan + Sean 批 + 對抗審查。**
+⚠️ 而且**改壞的代價是反向的**:設太寬 ⇒ 每次都 cache miss、CI 變慢;設太窄 ⇒ 假綠照舊。
+⇒ **本條只立案 + 留判準,不順手改。**
+
+#### 不修未來會痛在哪
+
+- **擴充性:** 之後每加一個 package,同一個洞自動複製一份。
+- **可維護性:** 「三綠」是本 repo 的收工條件,而它在這個情境下**會給出綠**;
+  下一個人不會懷疑它,因為**綠就是他要的答案**。
+- 🔴 **bug 可追蹤性:** 假綠**零訊號** —— 沒有紅、沒有 warning、`Tasks: N successful` 讀起來完全正常。
+  唯一會發現的時機是**別人在另一個情境下真跑了一次 tsc**,而那可能是好幾天以後。
+
+### #526. 🔴 apps 拿 **Node 25** 的型別在 typecheck,而 runtime 是 **Node 22.22.3**
+
+- **狀態:** ⏳ 待執行(2026-08-16 A 窗版本漂移盤點時撈到;**形狀存在,未構造反例**)
+- **分流:** P2
+- **優先級:** 🟠 中(**typecheck 過而真實環境會壞** —— 但今天沒有已知的實際事故)
+- **起因:** 主視窗派工「盤點宣告版本 vs 實際版本」,清單裡沒有這一項,**是量的過程中撈到的**。
+
+#### 實查(可重跑)
+
+```bash
+ls -d node_modules/.pnpm/@types+node@* | sed 's|.*@types+node@||' | sort -u   # ⇒ 3 個版本
+python3 -c "import json;print(json.load(open('node_modules/@types/node/package.json'))['version'])"
+for p in apps/admin apps/storefront packages/adapters; do
+  python3 -c "import json;print('$p',json.load(open('$p/node_modules/@types/node/package.json'))['version'])"
+done
+node --version
+python3 -c "import json;print(json.load(open('package.json'))['engines'])"
+```
+| 位置 | 宣告 | 實際 |
+|---|---|---|
+| root | `^22` | **22.19.19** |
+| `apps/admin` | `^25.6.2` | **25.6.2** |
+| `apps/storefront` | `^25.6.2` | **25.6.2** |
+| `packages/adapters` | `^25.6.0` | **25.6.0** |
+| `engines.node` | `>=22.0.0` | runtime **v22.22.3** |
+
+🔴 **不是「解析錯」** —— 各自都宣告了、pnpm 給對了。**問題是這個組合本身。**
+
+#### 病
+
+**apps 是拿 Node 25 的型別定義在 typecheck 的,而跑的是 22.22.3。**
+⇒ **一支 Node 25 才有的 API:typecheck 會過,執行時會炸。**
+
+📌 **另一半**:`scripts/*.ts` 走 root 的 `^22`
+⇒ **同一個 repo 裡,`scripts/` 對著 Node 22 的型別、`apps/` 對著 Node 25 的型別。**
+
+#### ⚠️ 強度:**形狀存在,不是事故**
+
+🔴 **沒有構造反例** —— 我**沒有證明**現在真的有人用到 Node 25 才有的 API。
+**⇒ 不得讀成「已發生」,也不得因為「還沒出事」就降級成不用管。**
+(要收它的人:構造方式 = 找一支 25 有而 22 沒有的 API,寫進 `apps/` 看 typecheck 過不過、再實跑。)
+
+#### 與 `#524` 的關係:**同族,成因不同**
+
+| | `#524` | 本條 |
+|---|---|---|
+| 共同點 | **typecheck 過,而真實環境會壞** | 同左 |
+| 成因 | turbo 快取對根層設定**盲** ⇒ replay 出舊的綠 | **型別定義的版本與 runtime 對不上** |
+| 症狀時機 | 改過根層設定之後 | 用到跨版本 API 時 |
+
+⇒ **不要把它折進 `#524`** —— 修好其中一個,另一個原封不動。
+
+#### 🔴 兩個查法上的坑(順手記著,它們會再咬人)
+
+1. **`catalog:` 讓版本在 `package.json` 裡看不見**:`typescript` / `eslint` / `vitest` 三支的
+   `package.json` 欄位值逐字就是 `catalog:`,**真身在 `pnpm-workspace.yaml` 的 `catalog:` 區塊**。
+   ⚠️ **第一次查差點漏掉** —— 只看 `package.json` 會得到「沒宣告版本」的錯誤印象。
+2. 🔴 **單棵 worktree 的 backlog `grep` 看不到全貌**:五棵樹的最大號各不相同
+   (2026-08-16 主視窗實查:`void-readers` 524 / `products` 512 / `customers` 525 / `print` 516 / `dev` 522)
+   ⇒ **在某一棵樹 `grep '#525'` 回 0,不代表沒人佔** —— 那個號可能寫在別棵樹上。
+   **`scripts/next-backlog-number.sh` 掃分支,所以它是對的;單樹 grep 才是錯的那個。**
+
+#### ⏳ 待查(本條開立時明列,不要讀成已排除)
+
+- **TypeScript 5.7 → 5.9.3 的行為差異**:catalog 宣告 `^5.7.0`、實際 5.9.3。
+  🔴 **刻意不去讀 release note 補** —— 那是個沒有邊界的任務。**標未驗,等有具體症狀再查。**
+- **那 6 個「照文件做」的候選檔沒逐檔開**(`docs/` 632 檔中,提到官方文件的 55 檔 ∩ 提到工具名的)。
+  ⚠️ 其中至少 2 檔在 `docs/archive/` 下 ⇒ **本來就不該當現行依據。**
+- **`packages/` 底下其他包沒逐一量** —— 只量了 `adapters`。
+
+#### 🔴🔴 最重要的一條待查:**我們今晚所有版本量測都是【本機】的**
+
+`node --version`、`node_modules/**` 讀到的、`pnpm --version` —— **全部是這台 Mac 上的值**。
+**而真正決定線上行為的是 CI / Vercel 建置環境的版本。**
+⇒ **本條(以及 `#524` 的所有量測)在 CI 上成不成立,沒有人查過。**
+**這一條不修完,上面所有結論的作用域都只到「本機」為止。**
+
 ---
 
 ## #529 · `docs/runbooks/` 絕大多數沒有進入點、零 index ⇒ 孤兒檔(數字用量法,不寫死)

@@ -13,6 +13,8 @@ import type {
   AdminOrderSummary,
   AdminOrderWorkflowPatch,
   AdminOrderWorkflowResult,
+  AdminOrderItemAmountPatch,
+  AdminOrderItemAmountResult,
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
@@ -630,9 +632,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    四層 embed 全回得來(這是 plan §8 列的「本片最大未知」,現已關掉)。
     // ⚠️ `goods_axis` **沒有加進投影** —— 列表顯示用的貨品軸由 `orderGoodsAxis()` 從品項數量算
     //    (狀態膠囊那條路),撈回來就是第二份真相。本片只拿它**下推篩選**。
-    //    ⚠️ 因此「SQL 的判序」與「JS 的判序」目前**沒有任何守門綁著**,兩邊都是照
-    //    「shipped ⊆ instock ⊆ ordered」手寫的 —— 缺口記在 **`#499`**(不是 `#488`;
-    //    `#488` 問的是「誰該寫 `fulfillment_status` 那個欄」,是另一題)。不要當作已對齊。
+    //    ⚠️ 「SQL 的判序」與「JS 的判序」**原本沒有任何守門綁著** —— 缺口記在 **`#499`**
+    //    (不是 `#488`;`#488` 問的是「誰該寫 `fulfillment_status` 那個欄」,是另一題)。
+    //    ✅ **`#522`(2026-08-16)已綁上一半**:兩邊各自對**共用真值表**
+    //    `apps/admin/src/lib/orders/goods-axis-cases.json` 比對
+    //    (TS 側 `goods-axis-cases.test.ts`、SQL 側 `docs/probes/order-goods-axis-parity-probe.sh`)。
+    //    🔴 **另一半仍是缺口**:那份真值表守的是【判定結果】,
+    //    `ADMIN_ORDER_LIST_SELECT` 的四值字面與 view 的對應仍是人工比對。`#499` 不得標為已解。
     let query = this.supabase
       .from('admin_order_list_v')
       .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
@@ -858,6 +864,62 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       return data;
     }
     throw new Error('admin_update_order_workflow RPC 回傳非預期碼');
+  }
+
+  /**
+   * 後台改品項金額(M-4b E10 `#13` 片1b)。契約與語意全文見 port docstring。
+   *
+   * 🔴 **具名參數、逐鍵顯式建構,不用 spread**:七個鍵一律帶齊,
+   * 沒有值的那個(`p_zero_price_reason`)送**顯式 null**、不送 undefined。
+   *
+   * 🔴🔴 **而「忘了帶會變編譯錯誤」這句,靠的是下面那個 `Required<…Args>` 標註,不是靠自律。**
+   * 生成型別把 `p_zero_price_reason` 寫成 `?:`(它在 DB 是 `DEFAULT NULL`)⇒
+   * **直接傳物件給 `.rpc()` 時漏掉它,TypeScript 會過**,而 RPC 端會拿到預設 NULL、
+   * 在 `unitPrice > 0` 時連反向閘都通過 ⇒ **靜默回 `'OK'`**。
+   * (2026-08-15 codex 關卡2 **R2 must-fix**:原本這裡只寫「不用 spread ⇒ 忘了帶會編譯錯誤」,
+   *  那是**宣稱一道不存在的防線** —— 同一種病的第二次:docstring 說的事情 code 不做。)
+   * ⇒ 修法 = 先建一個 `Required<Args>` 的區域常數再傳進去,**少一鍵就編譯不過**。
+   * ✅ 實測承知:拿掉 `p_zero_price_reason` 那一行 ⇒ `tsc` 逐字
+   * `TS2741: Property 'p_zero_price_reason' is missing in type … but required in type 'Required<…>'`。
+   *
+   * ⚠️ 已知缺口(本片不修,留給 1c 的表單層):TS 的 `number` **不保證整數**。
+   * RPC 只驗 `IS NULL OR < 0`(`:361`),沒有驗整數;非整數值經 PostgREST 送進 `integer` 參數
+   * 會被怎麼處理,**本片沒有實測、不宣稱**。⇒ 整數驗證屬 1c 的輸入層責任。
+   *
+   * 🔴 `zeroPriceReason` 不在本層做任何判斷 —— 0 元必填 / 非 0 元必須為 null 這兩道
+   * 是 RPC 的 API 契約閘(`:366` / `:371`),**在 DB 端 fail-closed**。
+   * 這一層若自己先擋一次,等於把契約複製成兩份、而只有一份會被測到。
+   */
+  async updateAdminOrderItemAmount(
+    id: string,
+    expectedVersion: number,
+    patch: AdminOrderItemAmountPatch,
+    actor: string,
+    requestId: string,
+  ): Promise<AdminOrderItemAmountResult> {
+    // 🔴 `Required<…Args>`:把生成型別裡那個 `?:` 關掉 ⇒ 七鍵少一個就編譯不過。
+    //    這是上面那句「忘了帶會變編譯錯誤」的**載體**;拿掉這個標註,那句話就變成空話。
+    const args: Required<
+      Database['public']['Functions']['admin_update_order_item_amount']['Args']
+    > = {
+      p_order_id: id,
+      p_order_item_id: patch.orderItemId,
+      p_unit_price: patch.unitPrice,
+      p_expected_version: expectedVersion,
+      p_actor: actor,
+      p_request_id: requestId,
+      p_zero_price_reason: patch.zeroPriceReason,
+    };
+    const { data, error } = await this.supabase.rpc('admin_update_order_item_amount', args);
+    if (error) {
+      throw error;
+    }
+    // RPC RETURNS text scalar → data 即 'OK'/'CONFLICT'/'NOOP';防腐壞收斂。
+    // 🔴 成功碼是 'OK'(migration :482),不是 workflow 那支的 'UPDATED'。
+    if (data === 'OK' || data === 'CONFLICT' || data === 'NOOP') {
+      return data;
+    }
+    throw new Error('admin_update_order_item_amount RPC 回傳非預期碼');
   }
 
   // 🔴 **`updateAdminOrderItemWorkflow` 實作已於 A9w4c 後半(2026-08-06)具名移除**(port 簽章同批拆)。

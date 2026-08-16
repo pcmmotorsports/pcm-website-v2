@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十個函式、共二十六處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十一個函式、共二十七處**手動校正
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
@@ -24,7 +24,18 @@
 //      與 ⑨ 同形狀「可省略且可為 null」;呼叫端刻意一律帶兩個鍵、沒有值送顯式 null
 //      〔#347-3b:不用 spread,才能讓「忘了帶」變編譯錯誤、也才掃得到參數名〕。
 //      p_limit **不補**:呼叫端一律帶值,沒有送 null 的路徑)
-//   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」(⑨⑩ 是「可省略且可為 null」),一律型別化為非 null。
+//   ⑪ `admin_update_order_item_amount.Args` **一處**(p_zero_price_reason 的 `| null`;2026-08-15 #13 片1b 起 ——
+//      與 ⑨⑩ 同形狀「可省略且可為 null」(`text DEFAULT NULL`,migration `20260815040000:332`);
+//      呼叫端 `SupabaseOrderAdapter.updateAdminOrderItemAmount` 一律帶鍵、非 0 元送顯式 null。
+//      ✅ 實測承重:未補之前 `npx tsc -p packages/adapters` 逐字 TS2322
+//      `Type 'string | null' is not assignable to type 'string | undefined'`。
+//      其餘六個**不補**:RPC `:350`-`:362` 皆 fail-closed 拒 NULL。
+//      ✅🔴 **這一處漏貼會自己紅** —— 已實測(2026-08-15,突變複本):拿掉本處的 `| null` ⇒
+//      `tsc` 逐字 `TS2322: Type 'string | null' is not assignable to type 'string'`,
+//      因為呼叫端傳的就是 `string | null`。
+//      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
+//      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
+//   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」(⑨⑩⑪ 是「可省略且可為 null」),一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
 //   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
 //   漏貼 ④⑤ = 退款線 RW2c repository 型別紅(kind/outcome 互斥矩陣的「必須傳 NULL」全紅);
@@ -34,11 +45,41 @@
 //   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處(**當時**);
 //   2026-08-04 RW2c(④⑤)+ A10b(⑥)同夜各補五處、合流後共二十處(**當時**的數字,主視窗併回時對帳;
 //   現行計數一律以檔頭 :2 為準)。
+// 🔴🔴 **下面那行 project ref 有【位置】約束:在它以上加文字會撞紅一道守門。詳見本段下方。**
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
+// 🔴🔴 **上面那行 project ref 的位置約束(2026-08-15 實測撞過一次)**:
+//   `apps/admin/src/lib/payment/composition.test.ts` 讀本檔的**前 4000 個字元**,斷言裡面含 project ref
+//   —— 它守的是「`PROD_SUPABASE_HOST` 與型別檔來自同一個專案」。
+//   ⇒ **在 gen 指令那行【以上】加文字會把它推出 4000 之外,那一格就紅**,
+//   而紅的訊息看起來像 host 常數壞了、不像有人加了註解 ⇒ 下一個人會去查錯的地方。
+//   ⚠️ 量法(落筆前自己跑,別抄下面這個數字 —— 它每加一行就過期):
+//     node -e "const s=require('fs').readFileSync('packages/adapters/src/supabase/database.types.ts','utf8');console.log(s.indexOf('bmpnplmnldofgaohnaok'))"
+//   🔴 注意單位:那道守門用的是 **JS 字元數**,`head -c` 數的是 **byte** —— 中文一個字 3 bytes,兩者差很多。
+//   ⇒ **要加長文,一律加在本段以下。**
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
+//
+// 🔴🔴 **而「唯一權威」的另一面:這個數字【沒有第二個來源】,任何驗它的腳本都與它同源。**
+//   (2026-08-15 E 窗審 `433bcf26` 判 must-fix;A 窗實測後確認成立。)
+//   ⚠️ **失敗形狀**:第 28 處校正若從來沒被寫進本行 ⇒ 本行不知道、驗證腳本也不會去找它
+//   ⇒ **兩邊一起說 OK、四綠全綠**;症狀要等「呼叫端真的送 null」那天才出現。
+//   ⇒ 拿掉一處會被抓到(**偵測力**有),但「該被校正的恰好是這幾處」(**分母**)沒有東西在守。
+//
+//   **能不能改成從 migration 推出分母?A 窗 2026-08-15 實測:不能。** 逐條量過:
+//     · `DEFAULT NULL` 掃描能對上的被校正參數名 = **6 / 26**(26 = 27 處去重後的參數名,p_note 橫跨兩支函式)
+//     · **掃不到 20 個** —— 因為 ①-⑧ 那族是「**必填但可為 null**」(簽章**沒有** DEFAULT),
+//       要不要補取決於**函式體是不是 fail-closed 拒 NULL** ⇒ **那不是簽章的性質,掃不出來**
+//     · 反向多出 **13 個**「有 DEFAULT NULL 但不該補」的誤報候選(補了會讓非法呼叫變合法)
+//     · 🔴 而且掃出來的是**裸參數名**,校正的單位是 **(函式, 參數)** ⇒ **鍵就不對**
+//       (`p_from`/`p_to` 的命中其實來自 `admin_today_payment_total`,不是被校正的 `admin_search_orders`)
+//     · 🔴 字集也比宣稱窄:`int` vs `integer`、`timestamptz` 各漏一批(`p_year` 寫的是 `int DEFAULT NULL`)
+//     · 🔴 更根本:⑨⑩ 的 DEFAULT 是**正式站實查**寫下的,**repo migrations 不是那個世界的權威**
+//   ⇒ **結論:這個分母目前只能靠人維護,而上面那幾條是「為什麼」,不是藉口。**
+//   ⇒ 做得到的那半已立 backlog `#523`:**不是算出正確處數,是「有新候選出現時讓某格紅」**
+//     (對 (函式,參數) 鍵、只涵蓋 DEFAULT NULL 那一族 ⇒ **涵蓋不到 ①-⑧,那個限度要寫在守門旁邊**)。
+//   ⚠️ **不要為了收掉這條而把本行講得更權威** —— 它已經是權威了,缺的是**第二個來源**。
 // 反映 LIVE prod schema(🔴 **2026-08-11 晚重 gen(當日第二次,D 窗六代)** ——
 //   E10 #15-B1(`20260811090000` 收款列表唯讀 RPC)apply 之後;
 //   目的 = **拆掉 B2-a 的型別縫**(`apps/admin/src/lib/orders/payment-repository.ts`
@@ -3352,6 +3393,32 @@ export type Database = {
         Args: { p_idempotency_key: string; p_shipment_id: string }
         Returns: Json
       }
+      admin_update_order_item_amount: {
+        Args: {
+          p_actor: string
+          p_expected_version: number
+          p_order_id: string
+          p_order_item_id: string
+          p_request_id: string
+          p_unit_price: number
+          // 🔴 手動校正(見檔頭計數;2026-08-15 #13 片1b 開工補上 —— 呼叫端到此才存在)。
+          //   `p_zero_price_reason text DEFAULT NULL`(migration 20260815040000:332)⇒ 生成器只寫得出
+          //   「可省略」(`?:`),寫不出「可為 null」。形狀同 ⑨⑩「可省略且可為 null」,
+          //   不是前八支的「必填但可為 null」。
+          //   🔴 呼叫端(`SupabaseOrderAdapter.updateAdminOrderItemAmount`)**一律帶這個鍵**、
+          //   非 0 元時送**顯式 null**(不用 spread、讓「忘了帶」變編譯錯誤)⇒ 不補 `| null`
+          //   就只能改送 undefined,那是改 payload 不是整理型別。
+          //   ⚠️ 型別層只負責「讓明確送 null 寫得出來」;真正的兩道閘在 RPC 端且 fail-closed
+          //   (`:366` 0 元必填原因、`:371` 非 0 元不得帶原因)—— 應用層不重複實作。
+          //   ✅ 這一處是**實測承重、不是推測**:未補之前 `npx tsc -p packages/adapters` 逐字
+          //   `TS2322: Type 'string | null' is not assignable to type 'string | undefined'`。
+          //   其餘六個**不補** —— p_actor / p_request_id / p_order_id / p_order_item_id /
+          //   p_expected_version / p_unit_price 在 RPC 內皆 fail-closed 拒 NULL(`:350`-`:362`),
+          //   送 NULL 不是合法用法、型別非 null 是對的。
+          p_zero_price_reason?: string | null
+        }
+        Returns: string
+      }
       admin_update_order_item_workflow: {
         Args: {
           p_actor: string
@@ -3620,6 +3687,10 @@ export type Database = {
       pcm_b2_shipping_idem_response: {
         Args: { p_replay: boolean; p_shipment_id: string; p_snapshot: Json }
         Returns: Json
+      }
+      pcm_e13_assert_order_subtotal_matches: {
+        Args: { p_order_id: string }
+        Returns: undefined
       }
       pcm_generate_display_id: { Args: never; Returns: string }
       pcm_order_refundable_remaining: {

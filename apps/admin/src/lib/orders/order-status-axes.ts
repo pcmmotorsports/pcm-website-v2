@@ -171,7 +171,9 @@ type GoodsAxisLine = {
   quantity: number;
   quantitySummary: Pick<
     AdminOrderItemQuantitySummary,
-    'orderedQuantity' | 'instockQuantity' | 'shippedQuantity'
+    // 🔴 `#522`:`cancelledQuantity` 是本片加的。**它在型別裡缺席就是那個 bug 的形狀** ——
+    //    分母拿不到取消量,判定就只能用原始訂購量。
+    'orderedQuantity' | 'instockQuantity' | 'shippedQuantity' | 'cancelledQuantity'
   > | null;
 };
 
@@ -194,9 +196,35 @@ export function goodsAxisOfLines(lines: readonly GoodsAxisLine[]): OrderGoodsAxi
   if (lines.length === 0) return 'none';
   const at = (l: GoodsAxisLine, k: keyof NonNullable<GoodsAxisLine['quantitySummary']>) =>
     l.quantitySummary?.[k] ?? 0;
-  if (lines.every((l) => at(l, 'shippedQuantity') >= l.quantity)) return 'shipped';
-  if (lines.every((l) => at(l, 'instockQuantity') >= l.quantity)) return 'instock';
-  if (lines.every((l) => at(l, 'orderedQuantity') >= l.quantity)) return 'ordered';
+
+  /**
+   * 🔴 **`#522`:分母是【還需要處理的量】,不是原始訂購量。**
+   *
+   * 修之前三條判定都拿 `l.quantity` 當分母,而 `ordered_quantity` 有守門
+   * `SUM(allocated) ≤ quantity − SUM(cancelled)`(`20260803130000:164`)
+   * ⇒ **只要有任何取消,三個分母在數學上就到不了** ⇒ 三個 `if` 全 false ⇒ 恆為 `none`。
+   * **那不是「通常不會到」,是 100% 復現**:任何部分取消的單,貨品軸永遠顯示「未訂購」。
+   * ⇒ 員工看到「還沒訂貨」,會去**重新採購一批已經出貨的東西**(實體動作,不是顯示瑕疵)。
+   *
+   * 🔴 **整筆取消(`need === 0`)⇒ 該列恆真、不擋整張單**(主視窗 2026-08-16 裁 `Q-522-分母`=A)。
+   *    · 與 `shipment-candidates.ts:170` 現行同立場(整筆取消 ⇒ `blockedReason='cancelled'`,
+   *      不留在待辦裡),**不多出第二套語意**。
+   *    · ⚠️ **A 的失效面已量掉**:「整張單只有一個品項而它整筆取消」會讓本函式回 `shipped`,
+   *      但那種單 **`orders.cancelled_at` 已被 A8a2 關單寫入**
+   *      (`20260805100000:456` 算 `v_closed`、`:463-467` 真的 `UPDATE orders SET cancelled_at`)
+   *      ⇒ `orderStatusView` 早退成「已取消」,**本函式的回傳值到不了使用者**。
+   *      🔴 **這條前提若被改掉(有人讓全取消不再關單),`shipped` 就會浮上檯面,而它比原本的
+   *      `none` 更毒** —— 前者讓員工多做一次,後者讓員工不做該做的事。
+   *
+   * ⚠️ **`Math.max(0, …)` 對回傳值其實沒有作用**(code-reviewer 2026-08-16 抓的,他是對的):
+   *    三條判定都是「非負值 `>=` need」,把 need 從負夾成 0 不改變任何一次比較的真假
+   *    ⇒ **它什麼都沒防**。留著是為了讓意圖看得出來,**不要以為那裡有一道線**。
+   */
+  const need = (l: GoodsAxisLine) => Math.max(0, l.quantity - at(l, 'cancelledQuantity'));
+
+  if (lines.every((l) => at(l, 'shippedQuantity') >= need(l))) return 'shipped';
+  if (lines.every((l) => at(l, 'instockQuantity') >= need(l))) return 'instock';
+  if (lines.every((l) => at(l, 'orderedQuantity') >= need(l))) return 'ordered';
   return 'none';
 }
 

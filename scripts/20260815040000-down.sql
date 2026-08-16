@@ -66,7 +66,16 @@ DROP FUNCTION IF EXISTS public.pcm_e13_assert_order_subtotal_matches(uuid);
 DROP FUNCTION IF EXISTS public.admin_update_order_item_amount(
   uuid, uuid, integer, integer, text, text, text);
 
--- ④ 🔴 零留痕自驗:退完之後這四個物件都不該在
+-- ④ 🔴 零留痕自驗:退完之後下面這五個物件都不該在(列名字,不寫數字 —— 數字驗不起來)
+--    1. public.pcm_e13_assert_order_subtotal_matches(uuid)   FUNCTION
+--    2. public.pcm_e13_subtotal_guard()                      FUNCTION
+--    3. pcm_e13_items_subtotal_guard   ON public.order_items  CONSTRAINT TRIGGER
+--    4. pcm_e13_orders_subtotal_guard  ON public.orders       CONSTRAINT TRIGGER
+--    5. public.admin_update_order_item_amount(uuid, uuid, integer, integer, text, text, text)  FUNCTION
+--    來源 = migration 本體,可重跑核對(🔴 少了 -i 會命中 0 行,檔裡全是大寫):
+--      grep -niE '^[[:space:]]*create (or replace )?(function|trigger|constraint trigger)' \
+--        supabase/migrations/20260815040000_m4b_e10_13_slice1_admin_update_order_item_amount.sql
+--      命中 :192 / :233 / :314 / :319 / :325
 -- ⚠️ **必須限定 schema 與表**(codex 關卡2 must-fix):原版只按全域 `proname` / `tgname` 計數
 --    ⇒ **別的 schema 有同名函式、或別的表有同名 trigger,就會誤判成「回退不完整」而整個交易回滾**
 --    —— 而那個回滾會讓「down 跑不起來」看起來像「down 有問題」,實際上是計數器抓錯對象。
