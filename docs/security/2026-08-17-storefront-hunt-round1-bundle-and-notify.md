@@ -163,6 +163,38 @@ for t in zzp07 zzp09 zzp10 zzp13 zzp15 zzp18 zzp20 zzp23 ; do echo "$t => $(grep
 
 ---
 
+## 9. finding：`resolveCartLines` —— **無認證、無節流，一個請求可觸發 400 次 DB 往返**
+
+**嚴重度：中（可用性／成本，非資料外洩）。歸屬：storefront 施工線。我唯讀，只出 finding。**
+
+### 9.1 事實（**每一個數字都標它是怎麼來的**）
+
+| 值 | 出處 | 🔴 這是量到的還是讀出來的 |
+|---|---|---|
+| 上限 200 行 | `apps/storefront/src/app/cart/actions.ts:74` `const MAX_LINES = 200` | **讀出來的常數上界**，我沒實打 |
+| 每行 **2 次** Supabase 往返 | `apps/storefront/src/lib/products.ts:760` `adapter.findByHandle` + `:773` `adapter.listInheritedFitments` | **讀出來的**，我沒量實際往返數 |
+| ⇒ 單一請求最多 **400 次**往返 | 200 × 2 | 🔴 **推出來的上界，不是實測值。下游拿去估成本時要帶著這個限定。** |
+| 無認證 | `cart/actions.ts` 全檔 `getUser()` 命中 0（盤點檔 §1.2 已記，本輪重讀確認） | 讀出來的，**且作者刻意如此並寫了理由** |
+| **無節流** | `grep -rlEi 'rate.?limit|throttle|ratelimit' apps/storefront/src/app/cart/` ⇒ **0 檔**；storefront `middleware.ts` ⇒ `find … -name 'middleware.ts' \| wc -l` = **0** | 量到的 |
+
+🔴 **那個 0 附了分母與正向對照**：同一支 grep 對 `apps/storefront/src` 全樹 ⇒ **20 個檔命中**
+（`lib/cron/rate-limit.ts`、`checkout/charge-actions.ts` 的 `IN_FLIGHT_SETTLE_THROTTLE_SECONDS` 等）
+⇒ **這個專案是有節流機制的，只是沒有套到這支上** —— 不是「全站都沒有」。
+
+### 9.2 為什麼值得修（不是理論的）
+
+- `cache()` 只在**同一請求內對同一個 handle** 去重（`products.ts:752-755` 檔內逐字）⇒ **200 個【相異】handle 不會被去重。**
+- 迴圈是 `for … await`（`cart/actions.ts:101-205`）⇒ **序列執行** ⇒ 一個小小的 POST 會**佔住一個 function 實例跑完 400 次序列往返**。
+- **攻擊成本不對稱**：攻擊者送一個幾 KB 的請求，我們付一個長命 function + 400 次 DB 查詢。
+- ⚠️ **這條與 `/api/checkout/tappay-notify` 那條同族**（§4.1）：**節流被整個委派給 repo 外的 Vercel WAF，而 repo 裡沒有任何東西驗得到它設好了沒。**
+
+### 9.3 我**沒有**做的
+
+**沒有實際打過一發 200 行的請求。** 上面 400 是**上界推算**。
+要變成實測值，缺的檢查是：起一個帶真 env 的 storefront + 可觀測的 DB，送一發 200 相異 handle，數實際往返。
+
+---
+
 ## 8. 附帶產出：`E-674d` —— 併 `E-674b` + `E-674c` + 定案檔 §3 時**撞到兩處文件互相矛盾**
 
 主視窗要一份「單一整段、貼上就跑」的建帳號腳本（原本要 Sean 自己做兩次剪貼手術）。
