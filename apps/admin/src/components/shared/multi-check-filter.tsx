@@ -49,7 +49,7 @@ export function MultiCheckFilter({
         <>
           {/* 透明遮罩:點面板外=關(無全域 listener、無 effect) */}
           <div className='fixed inset-0 z-10' onClick={() => setOpen(false)} />
-          <div className='bg-background absolute top-full z-20 mt-1 max-h-64 w-56 overflow-auto rounded-md border p-1 shadow-md'>
+          <div className='bg-background absolute top-full z-20 mt-1 max-h-64 w-56 overflow-auto rounded-md border p-1'>
             {options.map((o) => (
               <label
                 key={o.value}

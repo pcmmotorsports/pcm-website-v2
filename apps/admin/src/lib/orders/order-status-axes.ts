@@ -70,11 +70,20 @@ export const ORDER_STATUS_REFUNDED_LABEL = '已退款';
  * ⇒ 掃過去分不出「已收未定」(要去跟供應商下單)與「未收未定」(要去催客人付錢)。
  * 現在的理由是 Sean 的工作流主線是**貨走到哪**,錢收了沒是附加資訊、不該搶走主色。
  */
+/* 🔴🔴 **2026-08-16 Sean 拍板「狀態膠囊配色 —— 換成新的配色方式(BMW)」。**
+   四顆改吃 `globals.css` 的 `.cap-*`,那裡是 OD `:206-213` 的 `color-mix` 運算式逐字搬。
+   🔴 **換的理由是【語言一致】,不是【現在不合規】** —— 改版前那四顆**全部達標**
+      (灰 4.63 / 黃 4.51 / 藍 5.17 / 綠 4.84,實算)。**這句不能省**:少了它,
+      下一個人會以為我們在修違規,而那會改變他對優先序與風險的判斷。
+   ⚠️ **改用 CSS class 而不是 Tailwind 調色盤 utility,是因為值必須留成【運算式】** ——
+      `color-mix(...)` 一旦求值成靜態 hex,未來改主色時膠囊不會跟著動,而**沒有守門會紅**
+      (設計參照 §5 明文)。`bg-amber-100` 那種調色盤 utility 同樣做不到跟著主色走。
+   📎 順帶讓這四顆脫離設計參照標記的「70 處直接寫 Tailwind 調色盤色」那個缺口。 */
 const GOODS_TONE: Record<OrderGoodsAxis, string> = {
-  none: 'bg-muted text-muted-foreground', // 灰:還沒訂
-  ordered: 'bg-amber-100 text-amber-700', // 黃:訂了沒到
-  instock: 'bg-sky-100 text-sky-700', // 藍:到了沒出
-  shipped: 'bg-emerald-100 text-emerald-700', // 綠:出去了
+  none: 'cap-n', // 灰:還沒訂
+  ordered: 'cap-y', // 黃:訂了沒到
+  instock: 'cap-bl', // 藍:到了沒出
+  shipped: 'cap-g', // 綠:出去了
 };
 
 /**
@@ -100,8 +109,16 @@ const PAY_MARK: Record<OrderPayAxis, string | null> = {
  * 不是只靠色相 ⇒ 色盲或黑白列印時仍然跳得出來。
  * 🔴 **請不要把它「修正」成綠色。**
  */
-const RISK_TONE =
-  'bg-[oklch(0.52_0.20_25)] font-bold text-white ring-1 ring-[oklch(0.42_0.18_25)] ring-inset';
+/* 🔴 **片3b 一併換掉硬寫的 oklch**(同一次拍板:配色換 BMW)。
+   舊值 `bg-[oklch(0.52_0.20_25)]` + `ring-[oklch(0.42_0.18_25)]` 是**兩個不吃任何 token 的字面**
+   ⇒ 改主色時它們不會跟著動。現在吃 `--destructive`(= OD `:27` 的 M 紅 `#e4002b`),
+   與 OD `:214` `.cap.risk{background:var(--danger);color:var(--accent-on)}` 同構。
+   **白字對 `#e4002b` 實算 4.85 ✅。**
+   ⚠️ **`ring` 拿掉了** —— OD 的 `.cap.risk` 沒有外環;冗餘訊號仍有三個
+      (實心底 + 白字 + `font-bold`),那三個是本檔原本就寫下的理由,一個都沒少。
+   ⚠️ **OD `:215` 的 `::before{content:"▲"}` 沒有搬** —— 那會多一個字元寬,
+      而狀態欄寬是凍結值(L3 的 13 欄寬)⇒ **刻意不搬,不是漏看。** */
+const RISK_TONE = 'bg-destructive font-bold text-white';
 
 /** 已取消:與「未定」同樣是灰,靠**虛線外框 + 透明底**分開 —— 灰不能同時代表兩件事。 */
 const CANCELLED_TONE = 'border border-dashed border-muted-foreground/50 text-muted-foreground';
@@ -192,6 +209,37 @@ type GoodsAxisLine = {
  *    **守門/上限/可否取消的判斷絕不可補 0、必須 fail-closed**」——
  *    🔴 **本函式的回傳值不得餵給任何取消/上限判斷**,那類要走明細側的 `| null` 原型。
  */
+/**
+ * **這一列還需要處理多少件** = 訂購量 − 已取消量。
+ *
+ * 🔴 **這是【貨品軸】與【它的解釋小字】共用的唯一分母,`#522` 續章把它從區域 const 提到模組層。**
+ *    提之前:軸這半扣了取消(`#522` 修的),小字那半自己 `reduce` 加 `l.quantity`、沒扣
+ *    ⇒ **同一張畫面上,軸說「已訂貨」而小字說「本單 6 件中已訂 3 件」,兩個分母不是同一個。**
+ *    ⇒ 讓兩個消費端吃同一支函式,是為了讓**漂走需要有人刻意繞過它**,而不是改一行就發生。
+ *    ⚠️ **它不是保證**(codex 第二輪指出,說得對):任何消費端仍可以改回自行計算,
+ *    而共用這件事**本身沒有守門**(釘字面的守門只會在有人改我的字時紅,不在事實變化時紅)。
+ *    🔴 **真正的防線是行為測試** —— 見 `order-status-axes.test.ts` 的 `#522` 續章那一族。
+ *
+ * ⚠️ **不要把它當成通用的數量工具** —— 它的語意窄到只有一句:「**這一列還欠多少**」。
+ *    它**不回答**「還能取消多少」(`cancellableQuantity`,扣的是到貨不是取消);
+ *    也**不回答**「倉庫現在揀得到幾件」(`pickableQuantity`,= instock − shipped)。
+ *    **接第三個消費端之前,先確認它問的是同一個問題。**
+ *
+ * 🔴 **`quantitySummary === null` ⇒ 已取消當 0**,理由與 `goodsAxisOfLines` 的 `at()` 同一條:
+ *    摘要列由 A4a trigger 惰性建立,「**沒有那一列**」就是「**還沒被採購、也沒被取消**」
+ *    ⇒ **這是語意正確,不是找不到就補 0 的 fallback。**
+ *
+ * ⚠️ **`Math.max(0, …)` 在這裡是有作用的,別當裝飾刪掉**:軸那三條判定夾不夾都不改變真假,
+ *    **但小字是把每一列相加** —— 一個負數會真的把總件數拉低,而紙面上看不出來。
+ *    (`cancelled ≤ quantity` 由 `oiqs_cancelled_le_quantity`(C6)保證
+ *     —— `supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql:116`
+ *     ⇒ 正常路徑上恆 ≥ 0。⚠️ 本行第一版引錯成 `oiqs_cancelled_shipped_le_quantity`,
+ *     那條是 `cancelled + shipped ≤ quantity`、管的是另一件事;codex 對抗審查抓到,已查證更正。)
+ */
+function lineNeed(l: GoodsAxisLine): number {
+  return Math.max(0, l.quantity - (l.quantitySummary?.cancelledQuantity ?? 0));
+}
+
 export function goodsAxisOfLines(lines: readonly GoodsAxisLine[]): OrderGoodsAxis {
   if (lines.length === 0) return 'none';
   const at = (l: GoodsAxisLine, k: keyof NonNullable<GoodsAxisLine['quantitySummary']>) =>
@@ -200,11 +248,24 @@ export function goodsAxisOfLines(lines: readonly GoodsAxisLine[]): OrderGoodsAxi
   /**
    * 🔴 **`#522`:分母是【還需要處理的量】,不是原始訂購量。**
    *
-   * 修之前三條判定都拿 `l.quantity` 當分母,而 `ordered_quantity` 有守門
+   * 修之前三條判定都拿 `l.quantity` 當分母,而採購側有守門
    * `SUM(allocated) ≤ quantity − SUM(cancelled)`(`20260803130000:164`)
-   * ⇒ **只要有任何取消,三個分母在數學上就到不了** ⇒ 三個 `if` 全 false ⇒ 恆為 `none`。
-   * **那不是「通常不會到」,是 100% 復現**:任何部分取消的單,貨品軸永遠顯示「未訂購」。
+   * ⇒ **先取消、再採購**的單,`ordered` 在數學上到不了 `quantity` ⇒ 三個 `if` 全 false ⇒ `none`。
    * ⇒ 員工看到「還沒訂貨」,會去**重新採購一批已經出貨的東西**(實體動作,不是顯示瑕疵)。
+   *
+   * ⚠️ **本段原文寫「只要有任何取消就到不了、100% 復現」—— 那是全稱句而它不成立**
+   *    (codex 對抗審查 2026-08-16 舉反例,我查該守門的 COMMENT 逐字確認):
+   *    A2b1 那條守門**只守採購側的 INSERT / 調升 / 換 parent**(`20260803130000:164` 該函式 COMMENT),
+   *    **它不守取消** ⇒ **先訂滿 6、再取消 3**,會留下 `ordered 6 > quantity − cancelled = 3`,
+   *    舊分母 `quantity = 6` 之下 `6 >= 6` 成立 ⇒ 舊 code 在那條路上會答 `ordered`,**不是 `none`**。
+   *    🔴 **修正後的講法**:病灶是**分母用錯**(用訂購量而不是還需要處理的量),
+   *    **而症狀取決於「先取消還是先採購」**:
+   *      · **先取消、再採購** ⇒ 採購側守門把 `ordered` 壓在 `quantity − cancelled` 以下
+   *        ⇒ 舊分母到不了 ⇒ **錯成 `none`**(就是 `#522` 那個「部分取消顯示未訂貨」)
+   *      · **先採購、再取消** ⇒ `ordered` 留在歷史高點 ⇒ 舊分母**照樣命中** ⇒ 新舊同答 `ordered`
+   *        ⇒ 🔴 **那個時點舊 code 的輸出並沒有錯**(codex 第二輪指出,我複驗成立)
+   *    ⚠️ **所以「兩條路都錯」也是錯的** —— 本段第一版這樣寫,我把「分母用錯」直接等同於
+   *    「輸出一定錯」。**用錯的分母在某些狀態下剛好給出對的答案,那不是它對,是還沒踩到。**
    *
    * 🔴 **整筆取消(`need === 0`)⇒ 該列恆真、不擋整張單**(主視窗 2026-08-16 裁 `Q-522-分母`=A)。
    *    · 與 `shipment-candidates.ts:170` 現行同立場(整筆取消 ⇒ `blockedReason='cancelled'`,
@@ -216,15 +277,17 @@ export function goodsAxisOfLines(lines: readonly GoodsAxisLine[]): OrderGoodsAxi
    *      🔴 **這條前提若被改掉(有人讓全取消不再關單),`shipped` 就會浮上檯面,而它比原本的
    *      `none` 更毒** —— 前者讓員工多做一次,後者讓員工不做該做的事。
    *
-   * ⚠️ **`Math.max(0, …)` 對回傳值其實沒有作用**(code-reviewer 2026-08-16 抓的,他是對的):
-   *    三條判定都是「非負值 `>=` need」,把 need 從負夾成 0 不改變任何一次比較的真假
-   *    ⇒ **它什麼都沒防**。留著是為了讓意圖看得出來,**不要以為那裡有一道線**。
+   * ⚠️ **`Math.max(0, …)` 對【本函式】的回傳值沒有作用**(code-reviewer 2026-08-16 抓的,他是對的):
+   *    三條判定都是「非負值 `>=` need」,把 need 從負夾成 0 不改變任何一次比較的真假。
+   *    ⚠️ **但這句只對【軸】成立** —— 分母提到模組層之後,`goodsAxisProgressNote` 拿它做加總,
+   *    那裡一個負數會真的把總數拉低 ⇒ **那個夾在小字那側是有作用的**,見 `lineNeed` docstring。
+   *
+   * 🔴 **分母的本體已移到模組層的 `lineNeed`** —— 因為**小字那半也要吃同一個分母**。
+   *    留在這裡的只有「為什麼分母是這個」的理由;要改算式請改 `lineNeed`,**改一處兩邊一起動**。
    */
-  const need = (l: GoodsAxisLine) => Math.max(0, l.quantity - at(l, 'cancelledQuantity'));
-
-  if (lines.every((l) => at(l, 'shippedQuantity') >= need(l))) return 'shipped';
-  if (lines.every((l) => at(l, 'instockQuantity') >= need(l))) return 'instock';
-  if (lines.every((l) => at(l, 'orderedQuantity') >= need(l))) return 'ordered';
+  if (lines.every((l) => at(l, 'shippedQuantity') >= lineNeed(l))) return 'shipped';
+  if (lines.every((l) => at(l, 'instockQuantity') >= lineNeed(l))) return 'instock';
+  if (lines.every((l) => at(l, 'orderedQuantity') >= lineNeed(l))) return 'ordered';
   return 'none';
 }
 
@@ -259,21 +322,43 @@ export function orderDetailGoodsAxis(detail: { items: readonly GoodsAxisLine[] }
  *    症狀:同一畫面上方寫「未訂貨」、品項列寫「訂貨 3/6」⇒ 員工以為還沒下單,可能重複下單。
  *    **Sean 2026-08-15 拍板乙:四個軸值一個都不動,旁邊加一行小字。**
  *
- * **規則 = 印出「第一個還沒完成的那一階」的分數**(分母 = 該單所有品項 `quantity` 加總):
+ * **規則 = 印出「第一個還沒完成的那一階」的分數**
+ *    (分母 = 各品項 `lineNeed` 加總 = **訂購 − 已取消**;🔴 **不是 `quantity` 加總**,見 `#522` 續章):
  *    `none` → 已訂 / `ordered` → 已到貨 / `instock` → 已出貨 / `shipped` → **不印**。
  *    已完成的那幾階印出來恆等於分母(例:軸=`ordered` 時「已訂」必然 = N)⇒ 是廢話,不印。
  *    `shipped` 沒有下一階 ⇒ 沒有人會問「為什麼是已出貨」⇒ 整行不出現。
  *
- * 🔴🔴 **加總法的正當性依賴三條 DB CHECK,不是我假設的 —— 它們被放寬的話本函式要重算**:
- *    · `oiqs_ordered_le_quantity`  `CHECK (ordered_quantity <= quantity)`
- *      —— `supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql:108`
- *    · `oiqs_instock_le_ordered`   `CHECK (instock_quantity <= ordered_quantity)` —— 同檔 `:113`
- *    · `oiqs_shipped_le_instock`   `CHECK (shipped_quantity <= instock_quantity)`
- *      —— `supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql:88`
- *    ⇒ 每項皆 `已完成量 ≤ quantity`,而**一項嚴格小於就會讓總和嚴格小於**
- *    ⇒ **加總相等 ⟺ 逐項相等** ⇒ 分數走到 `N/N` 與軸值升級**同時發生**。
- *    ⚠️ **沒有這條約束,加總法就是錯的**:超訂(`ordered > quantity`)會讓總和先到 N
- *    而某一項仍未訂滿 ⇒ 畫面變成「6 件中已訂 6 件」配「未訂貨」—— **正是本片要修的那個矛盾。**
+ * 🔴🔴 **分子逐列夾在該列的 `lineNeed` 之內(`Math.min`),而那不是防禦性寫法,是本式成立的前提。**
+ *    **`#522` 續章第一版沒有夾,codex 對抗審查當場舉出反例(2026-08-16),我複驗成立**:
+ *    ```
+ *    列A quantity 6 / ordered 6 / cancelled 6   ⇒ lineNeed 0，而 orderedQuantity 仍是歷史值 6
+ *    列B quantity 4 / ordered 0 / cancelled 0   ⇒ lineNeed 4
+ *    軸 = none（列B 一件都沒訂）⇒ stage = 已訂
+ *    分母 0+4 = 4  ／  分子 6+0 = 6   ⇒ 🔴「（本單 4 件中已訂 6 件）」= 分子大於分母
+ *    ```
+ *    ⚠️ **這是「換了分母沒換分子」造出來的** —— 分母改成「還要處理的量」之後,
+ *    **整筆取消的列會從分母消失,而它的歷史階段量還留在分子裡。**
+ *    ⇒ 夾了之後 `min(6, 0) = 0`,那一列在分子分母同時歸零,**不再參與這個分數**。
+ *
+ * 🔴 **夾住之後,「分數走到 N/N」與「軸值升級」的等價是【結構上】成立的,不再靠 DB CHECK**:
+ *    `Σ min(stageᵢ, needᵢ) = Σ needᵢ` ⟺ 每一列 `min(stageᵢ, needᵢ) = needᵢ` ⟺ 每一列 `stageᵢ ≥ needᵢ`
+ *    ⟺ `goodsAxisOfLines` 的那一條 `every()` 成立。**同一個條件,兩邊讀的是同一件事。**
+ *    ⚠️ **舊版註解宣稱它依賴三條 CHECK,而那個論證本身有一個洞**(codex 同輪抓的,我查證後成立):
+ *    它需要「每一階 ≤ 分母」,而分母換成 `quantity − cancelled` 之後,
+ *    · `instock` ≤ 分母 ✅ 有 `oiqs_instock_cancelled_le_quantity`(`…a1_order_item_summary_columns.sql:124`)
+ *    · `shipped` ≤ 分母 ✅ 有 `oiqs_cancelled_shipped_le_quantity`(`…s2b_shipped_recompute_wire.sql:89`)
+ *    · 🔴 `ordered` ≤ 分母 **沒有任何 CHECK 保證** —— A2b1 那條 `SUM(allocated) ≤ quantity − SUM(cancelled)`
+ *      **只守採購側的 INSERT/調升**(該函式 COMMENT 逐字「只守 INSERT/調升/換 parent」),
+ *      **先訂滿再取消**就繞過它了 ⇒ 上面那個反例正是這條路產生的。
+ *    ⇒ **所以夾是必要的,不是保險。** 拿掉 `Math.min` 就會回到分子大於分母。
+ *
+ * ⚠️ **夾的代價,照實寫(codex 第二輪提的,我接受但不改)**:
+ *    「取消之後採購仍留在高點」(上面那個 `ordered 6 / cancelled 6`)被夾成 `已訂 0`
+ *    ⇒ **這行小字不會再透露「我們對一個已全取消的品項訂了 6 件」。**
+ *    🔴 **我仍然選擇夾**,理由是這一行的職責只有一個:**解釋軸為什麼停在這一階**。
+ *    「訂多了」是**採購對帳**的問題,不該靠一行進度小字被發現 —— 而 `4 件中已訂 6 件`
+ *    這種印法既不能解釋軸、也不能拿來對帳,**它只是讓員工兩件事都看不懂**。
+ *    ⇒ **登記為缺口,不是登記為已解決**:「取消後採購過量」目前沒有任何地方會叫。
  *
  * 🔴 **`quantitySummary === null` ⇒ 一個數字都不印。**
  *    `goodsAxisOfLines` 把 null 當 0 是**它自己判階段用的**語意裁定(A4a 惰性建列,見上面 docstring);
@@ -290,11 +375,20 @@ export function orderDetailGoodsAxis(detail: { items: readonly GoodsAxisLine[] }
  *    ⇒ 改採**指標**:**會來改這行小字的人一定先打開本檔**,寫在這裡比寫在檔名早一步被看到。
  *    🔴 **改本函式的行為 = 必跑那六格。**
  *
- * ⚠️ **已知限制(登記,不在本片修)**:本函式與 `goodsAxisOfLines` **都不扣已取消數量**。
- *    6 件裡 3 件取消 + 3 件已訂 ⇒ 軸仍 `none`、小字「6 件中已訂 3 件」。
- *    **小字忠實反映軸,但兩者一起偏。** 讓小字自己扣掉取消會造出新矛盾(小字 3/3 配軸「未訂貨」)
- *    = 修一個矛盾造兩個 ⇒ 要修得連軸一起改,那中鐵則 8。
- *    正式庫 2026-08-15 實測 `cancelled_quantity > 0` 為 **0 筆**(主視窗查),故現況構造不出來。
+ * ✅ **上面那條「已知限制」已於 2026-08-16 結清 —— 本函式與 `goodsAxisOfLines` 都扣已取消數量了。**
+ *    原文逐字是「**本函式與 `goodsAxisOfLines` 都不扣已取消數量**」,而它**在收割的那一刻就過期了一半**:
+ *    `#522` 先在另一條線上把軸改成扣取消,兩條線併起來之後,那句話的後半變成假的,
+ *    **而沒有任何東西會紅** —— 讀到它的人會以為兩邊都還沒修。
+ *    🔴 **記法**:那不是「有人忘了改註解」,是**改了前件、後件沒跟著翻**。
+ *       原文自己寫著「要修得連軸一起改」,**而軸已經先被改掉了** ⇒ 那句話當場變成放行令。
+ *
+ *    **現況**:兩者共用 `lineNeed`(= quantity − cancelled)。
+ *    6 件裡 3 件取消 + 3 件已訂 ⇒ 軸 `ordered`、小字「本單 3 件中已到貨 0 件」,**兩者一致**。
+ *    原文擔心的「小字 3/3 配軸未訂貨」那個新矛盾**前提已消失**(軸不再是 `none`)。
+ *    🔴 **改本函式的分母 = 必須連 `goodsAxisOfLines` 一起看** —— 它們現在是同一支函式。
+ *
+ * ⚠️ **正式庫 2026-08-15 實測 `cancelled_quantity > 0` 為 0 筆(主視窗查)** ⇒ 這個修**現在還沒有真實資料會踩到**。
+ *    **那降低急迫性,不降低正確性** —— 而它也表示:**第一次踩到會發生在上線之後。**
  */
 export function goodsAxisProgressNote(lines: readonly GoodsAxisLine[]): string | null {
   if (lines.length === 0) return null;
@@ -314,8 +408,13 @@ export function goodsAxisProgressNote(lines: readonly GoodsAxisLine[]): string |
   >;
 
   const { key, verb } = stage[axis];
-  const total = lines.reduce((sum, l) => sum + l.quantity, 0);
-  const done = lines.reduce((sum, l) => sum + (l.quantitySummary?.[key] ?? 0), 0);
+  // 🔴 分母走 `lineNeed`(= quantity − cancelled),**與貨品軸同一支函式**。
+  //    用 `l.quantity` 的話,6 件裡取消 3 件的單會印「本單 6 件中已到貨 0 件」,
+  //    而同一張畫面上的軸已經扣掉取消 ⇒ 兩個數字互相矛盾,而**兩邊各自看都對**。
+  const total = lines.reduce((sum, l) => sum + lineNeed(l), 0);
+  // 🔴 分子逐列夾在該列的 lineNeed 之內 —— **不夾的話分子會大於分母**(反例在上面 docstring,
+  //    整筆取消的列從分母消失、歷史階段量卻還留在分子裡)。這個 min 不是保險,是本式成立的前提。
+  const done = lines.reduce((sum, l) => sum + Math.min(l.quantitySummary?.[key] ?? 0, lineNeed(l)), 0);
   return `（本單 ${total} 件中${verb} ${done} 件）`;
 }
 

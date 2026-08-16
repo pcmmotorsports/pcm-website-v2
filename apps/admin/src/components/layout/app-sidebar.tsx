@@ -78,6 +78,17 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
             PCM 後台
           </span>
         </div>
+        {/* 🔴 **M 三色條**(片2)—— OD `overview-desktop-bmw-m.html:83-88` 把它定為
+            「全系統唯一的裝飾元素,只當分隔與品牌標記」。漸層本體在 `globals.css` 的 `.m-stripe`,
+            那裡寫了為什麼三個色停是硬寫的 hex 而不是 token。
+            ⚠️ **【改】:寬度不照 OD 的 32px。** OD 的 `.rail .mstripe` 是 32 寬,因為它對齊的是
+               一個 32×32 的**純圖示 mark**;我方的品牌列是「圖示 + PCM 後台」一整行
+               ⇒ 條跟著那一行走(`mx-2`),否則會變成一截對不到任何東西的短線。
+               **這是尺寸隨版面走,不是改設計** —— OD 自己也給了兩種尺寸(`:89` 的 4px 高
+               通欄 `hr` 與 `:133` 的 32×4),形狀是同一個。
+            ⚠️ 高度 4px 照抄(`:89` `hr.m-stripe{height:4px}`)。
+            📎 `aria-hidden`:它是裝飾,不該被螢幕閱讀器唸成一個東西。 */}
+        <div aria-hidden className='m-stripe mx-2 h-1' />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -93,6 +104,17 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
                     <SidebarMenuButton
                       isActive={isNavActive(pathname, item.href)}
                       tooltip={item.label}
+                      /* 🔴 **選中態改吃 M 藍 + 左側 2px 藍邊**(片2)——
+                         逐字搬 OD `overview-desktop-bmw-m.html:138`
+                         `.rail a[aria-current]{color:var(--accent);border-left-color:var(--accent);
+                          background:var(--surface-warm)}`,以及 `:136` 的
+                         `border-left:2px solid transparent`(未選中時佔位,選中才上色)。
+                         ⚠️ **`border-l-2 border-transparent` 那半是承重的**:少了它,選中時才長出
+                            2px 邊框 ⇒ **整行文字會往右跳 2px**,而那只有在點的當下看得到。
+                         ⚠️ 底色不另外寫 —— shadcn 的 `data-[active=true]:bg-sidebar-accent` 已經是
+                            暖填 `#eef3f8`(片1 對映),與 OD 的 `var(--surface-warm)` 同值。
+                            **重複寫一次不會更對,只會多一個日後會對不上的地方。** */
+                      className='border-l-2 border-transparent data-[active=true]:border-l-primary data-[active=true]:text-primary'
                       render={<Link href={item.href} />}
                     >
                       <ItemIcon />

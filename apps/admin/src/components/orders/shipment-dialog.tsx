@@ -254,7 +254,7 @@ export function ShipmentDialog({
           沒設的(標題 / 品名 / label / placeholder / 次要鈕)全部隱形 —— 症狀與 Sean 的截圖逐項吻合。
           ⇒ 兩道一起做:①面板**顯式**設字色(不論掛在哪都不再繼承)②把彈窗搬出動作列(見 shipping-selection.tsx)。 */}
       <div
-        className='bg-card text-foreground mt-8 w-full max-w-2xl rounded-lg border shadow-xl'
+        className='bg-card text-foreground mt-8 w-full max-w-2xl rounded-lg border'
         role='dialog'
         aria-label='建立包裹'
       >
