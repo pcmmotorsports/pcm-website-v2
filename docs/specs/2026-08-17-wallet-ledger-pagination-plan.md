@@ -103,7 +103,57 @@ customer_wallet_ledger 全表   3 列
 
 ---
 
-## 4. 正確方向(等批)
+## 3-c 🔴🔴 換角度審設計(2026-08-17,`adversarial-reviewer`/opus)—— **三版共用一個錯的目標**
+
+前兩輪 codex 審的是 **code**;這一輪換模型、換角度審 **設計**,問法是
+**「一個會員十年後打開這一頁,他該看到什麼?」**(從**使用者的時間軸**問,不從**查詢的正確性**問)。
+
+> **結論:三版共用同一個沒被質疑的前提 —— `listEntries` 必須回傳全部**
+> (`packages/ports/src/IWalletRepository.ts:17`)。**三條路都在解「怎麼可靠地拿到全部」,而那個目標本身錯了。**
+
+| # | 擊破的 | 我沒查的證據 |
+|---|---|---|
+| **F4** | **兩個使用者裡有一個根本不存在** | `apps/storefront/…/WalletTab.tsx` **全文十行**、回「儲值金服務尚未開放」,檔頭 `HOLD=台灣儲值法規、#202` ⇒ **今天唯一真實呼叫端是後台員工一人** |
+| **F1** | **我把瀏覽問題升格成金錢正確性問題** | 餘額**不從這張表算**(`customers` 欄位 + AFTER INSERT trigger);對帳工具是 `customer_wallet_balance_check` view —— **SQL `SUM` 在伺服器算,`db-max-rows` 對它無效** |
+| **F2** | 「對帳的人會照著算」的對象**是一張沒人拿來算的表** | repo 已有**兩處 Sean 批准的「乙」形狀**(`orders/page.tsx` 截斷 banner、`itemCountTruncated` 印「?」= `Q-EMBED-1`,**2026-08-16 剛批**) |
+| **F3** | 「Sean 已拍板甲」**本檔查無來源** | 本檔 §4-c 寫「(要 Sean 拍)」、§7 列在「我需要的批准」 ⇒ **與派工說明字面相反,動工前必須對齊** |
+| **F5** | **片界是照 adapter 檔切的,不是照員工看到的那一頁切的** | `SupabaseOrderAdapter.ts:496` 同病,而它渲染在**同一張客人卡的正下方** ⇒ 只修錢包區 = 員工看到錢包失敗、訂單繼續無聲少列 |
+
+📎 **F4 最刺的地方**:codex 上一輪**已經抓到**「客人端根本不呼叫 adapter」,而我把那條收進 §2 之後
+**沒有回頭改設計目標** ⇒ **我收了證據,沒收它的含意。**
+
+### 🔴 第四條路:**分頁「顯示」,不是分頁「撈取」**
+
+改 port 簽章、**不再回傳全部**。**現成零件 repo 裡全都有**:
+```
+查詢  .range(offset, offset+limit-1) + count:'exact' + .order(...).order('id', desc) 次鍵
+      ⇒ 與訂單列表 SupabaseOrderAdapter.ts:762-763【逐字同形】
+UI    apps/admin/src/components/shared/list-pagination.tsx（已印「第 X–Y 筆 / 共 N 筆」）
+參數  apps/admin/src/lib/shared/list-params.ts（parsePage / computePagination / buildHref）
+頁面  app/customers/[id]/page.tsx 已是 server component 且已收 searchParams
+```
+**為什麼比前三條好**:
+1. `count:'exact'` **不受 `db-max-rows` 限制** ⇒ 畫面印「共 3000 筆(第 1／60 頁)」⇒ **§1 那個「靜默」當場消失,而且不需要 N+1 偵測那一層**
+2. **不需要 keyset**:OFFSET 漂移對「翻頁的人」是每個 admin 列表**今天已接受**的性質;
+   第一版之所以致命,只因它要把多頁**拼成一個宣稱完整的陣列** —— **不拼就沒有這個病**
+3. 🔴 **keyset 游標與 `ListPagination` 不相容**(不能跳頁、不能顯示「第 X／Y 頁」)⇒ 等於**為錢包區另造一套翻頁心智模型**
+4. **甲/乙 之爭消失** —— 沒有「撈不完」這個狀態,只有「這是第 1 頁」
+
+### ✅ 它標「未實測」的那一條,我跑掉了
+
+它誠實標:「`count:'exact'` 在總數 > 1000 時仍回真值」**未實跑**。
+**我實測了**(anon 側 / production / 2026-08-17):
+```
+products_public          count=19,777   ← rows 只回 1 筆（Range: 0-0）
+product_variants_public  count=50,925
+product_fitments         count=87,619
+正向對照 categories      count=107      ← 小表也對 ⇒ 這把尺不是只會印大數
+```
+⇒ **`count` 不受 `db-max-rows` 限制,第四條路的關鍵前提成立。**
+
+---
+
+## 4. 正確方向(**§3-c 之後已不是本節,保留供對照**)
 
 ### 4-0 🔴 下一版設計的**前提**(不是上一版的 finding)
 
