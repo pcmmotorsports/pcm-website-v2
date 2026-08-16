@@ -3,6 +3,8 @@ import type { ShipmentRow } from '../../lib/shipping/shipment-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { cancelledQuantityOf, outstandingQuantity } from '../../lib/shipping/shipping-doc-quantities';
+import { carrierLabelOf } from '../../lib/shipping/carrier-label';
+import { shippedDateText, trackingDisplay } from '../../lib/shipping/shipping-doc-dispatch';
 import { PrintButton } from './print-button';
 
 // #10 片2b:出貨單(一個箱 × 一張訂單)。
@@ -235,9 +237,16 @@ export function ShippingDoc({
 
   return (
     <div className='mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
+      {/* 🔴 **三個號碼各自帶標籤**(plan §4)。設計需求書早就標了這個風險(當時只有兩個碼):
+          「**兩個碼並排裸印,客人不知道該拿哪個去查**」。現在紙上有三個
+          —— 訂單編號 / 箱號 / 追蹤碼 —— 而**只有追蹤碼是拿去別人家網站查的**。
+          ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。 */}
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>出貨單</h1>
-        <span className='text-xl font-semibold tabular-nums'>{detail.displayId}</span>
+        <span className='text-xl font-semibold tabular-nums'>
+          <span className='text-muted-foreground text-sm font-normal'>訂單編號 </span>
+          {detail.displayId}
+        </span>
         <span className='font-mono text-sm'>箱號 {shipment.shipmentReference}</span>
         <PrintButton label='列印' />
       </div>
@@ -252,6 +261,65 @@ export function ShippingDoc({
             <div className='font-medium'>{shipment.recipientSnapshot?.name}</div>
             <div>{shipment.recipientSnapshot?.phone}</div>
             <div>{shipment.recipientSnapshot?.line}</div>
+          </div>
+
+          {/* ── 貨運資訊(#10 片3)──
+              🔴 **這一區在落地之前,紙上關於「誰送的、去哪查」一個字都沒有。**
+                 設計需求書把追蹤碼列為「必須(缺)」,理由逐字:**「客人查貨的唯一依據」**。
+              🔴 資料全在 `ShipmentRow` 裡 ⇒ 零 migration、零新查詢。純粹是「有資料沒印出來」。
+              ⚠️ 三個欄位各自的判斷都在 `lib/shipping/shipping-doc-dispatch.ts` 與
+                 `carrier-label.ts`,**不在這裡** —— 它們要有不需渲染就跑得動的測試。 */}
+          <div className='rounded-md border p-3 text-sm'>
+            <div className='text-muted-foreground mb-1 text-xs'>貨運資訊</div>
+            <div className='flex flex-wrap gap-x-6 gap-y-1'>
+              <span>
+                貨運商:{carrierLabelOf(shipment.carrierCode)}
+                {shipment.carrierNote !== null && shipment.carrierNote.trim() !== '' &&
+                  `(${shipment.carrierNote})`}
+              </span>
+              {/* 🔴 出貨日:未出貨時印**列印當天**(Sean 拍甲,**明知偶爾會與系統差一天**)
+                  ⇒ 設計需求書逐字要求**不要**加「以系統為準」之類的但書。照做,不加。
+
+✅ **`Q-C6` 已答,而他給的是第三個答案**:Sean 2026-08-16 逐字
+                  「**改成: 日期 這兩個字就好**」⇒ 見下方那一行。 */}
+              {/* 🔴 **`Q-C6`:Sean 2026-08-16 逐字「改成: 日期 這兩個字就好」** ——
+                  他沒有從我給的兩個選項挑,自己給了第三個。**不要自作聰明加字**
+                  (不是「出貨日」也不是「列印日」,就是「日期」)。
+                  📎 而它正好解掉原本那個矛盾:「日期」**不宣稱任何事**,所以與同一區的
+                     任何狀態都不打架。⚠️ 原本這裡寫「與『尚未出貨,出貨後補』不打架」,
+                     而**那句話在同一批被 `Q-C9b` 刪掉了** —— 改前件沒翻後件,已更正。 */}
+              <span>日期:{shippedDateText(shipment.shippedAt)}</span>
+            </div>
+            {/* 追蹤碼自成一列:它是**最長、也最會被抄下來**的那個號碼。 */}
+            <div className='mt-1'>{(() => {
+              const t = trackingDisplay(shipment);
+              if (t.kind === 'number') {
+                return (
+                  <span>
+                    {t.label}:
+                    <span className='font-mono text-base font-semibold'>{t.value}</span>
+                  </span>
+                );
+              }
+              // 🔴🔴 **`missing` 一定要看得出來** —— 那代表寫入鏈有洞,而這張紙正要跟著貨出門。
+              //    留白的話員工不會發現,客人拿到一張查不到貨的紙。(plan §3.1 情形③)
+              if (t.kind === 'missing') {
+                // ⚠️ **不放 emoji**(R1 nit 15):這條路徑那張紙**是會跟著貨出門的**,
+                //    而 `Alert` 那條路徑整張紙不出門 ⇒ 兩者不能照抄。
+                //    單色雷射印表機上 emoji 會糊成一坨黑。⇒ 用粗體 + 暖色,印得出來也看得見。
+                // 🔴 **這一支【不加「追蹤碼:」前綴、也不接任何常數字尾**(R2 F2 + F4):
+                //    ① 加前綴 ⇒ 「追蹤碼:追蹤碼缺漏…」四個字重複。
+                //    🔴🔴 ② 接常數字尾會讓頁測那格**恆真** —— 它量的是這一列有幾個字,
+                //       而常數字尾自己就 12 個字 ⇒ `t.text` 被改成空字串時**照樣過**。
+                //       ⇒ 這一列印出來的字**全部來自 `t.text`**,量它才量得到東西。
+                return <span className='font-semibold text-amber-800'>{t.text}</span>;
+              }
+              // 🔴 `Q-C9b`=乙:`pending`(還沒出貨)⇒ **整列不印,連「追蹤碼:」四個字都不印**。
+              //    只把 text 換成空字串的話,紙上會留下一個「追蹤碼:」加空白 ——
+              //    那不是「空格」,那是一個看起來壞掉的欄位。
+              if (t.kind === 'pending') return null;
+              return <span className='text-muted-foreground'>追蹤碼:{t.text}</span>;
+            })()}</div>
           </div>
 
           <div className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-1 text-sm'>
@@ -347,8 +415,11 @@ export function ShippingDoc({
               **禁止**浮點,且格式化一律走既有 `formatOrderAmount`(`order-list-view.ts:746`)。 */}
 
           <div className='text-muted-foreground flex gap-8 pt-6 text-sm'>
+            {/* 🔴 **`Q-C7` = 丙(Sean 2026-08-16 逐字「丙,拿掉頁尾手寫日期」)**:
+                原本這裡還有一格手寫「日期:________」,而表頭已經印了一個「出貨日」。
+                兩個日期在員工實際交寄跨日時會不一致,**而客人不知道該信哪一個**。
+                ⚠️ **不要「順手」把它加回來** —— 它看起來像單據的標準欄位,而它是被拍板拿掉的。 */}
             <span>出貨人:________________</span>
-            <span>日期:________________</span>
           </div>
         </>
       )}

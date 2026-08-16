@@ -16,12 +16,9 @@ import { loadEmptyShipments, loadOrderShipments } from '../../lib/shipping/order
 import { OrderShipButton } from './shipment-launcher';
 import { ShipmentMarkShippedButton } from './shipment-mark-shipped-button';
 import { ShipmentVoidButton } from './shipment-void-button';
-
-const CARRIER_LABEL: Record<string, string> = {
-  hct: '新竹物流',
-  sf: '順豐',
-  other: '其他',
-};
+// 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3),與出貨單那張紙、建箱彈窗共用同一份。
+//    **行為零變更**:`carrierLabelOf` 的回退與抽出前的 `CARRIER_LABEL[code] ?? code` 逐字相同。
+import { carrierLabelOf } from '../../lib/shipping/carrier-label';
 
 export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) {
   // 🔴 只取 id 與 title 兩欄餵下去 —— 不把整包 detail(帶成交價)交給資料層或 client。
@@ -99,7 +96,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                       <ShipmentMarkShippedButton
                         shipmentId={shipment.id}
                         shipmentReference={shipment.shipmentReference}
-                        carrierIsOther={shipment.carrierCode === 'other'}
+                        carrierCode={shipment.carrierCode}
                       />
                     )}
                     <ShipmentVoidButton
@@ -120,7 +117,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                     ))}
                   </ul>
                   <p className='text-muted-foreground text-xs'>
-                    {CARRIER_LABEL[shipment.carrierCode] ?? shipment.carrierCode}
+                    {carrierLabelOf(shipment.carrierCode)}
                     {shipment.carrierNote !== null && `(${shipment.carrierNote})`}
                     {' · '}
                     單號 {shipment.trackingNumber ?? '—'}

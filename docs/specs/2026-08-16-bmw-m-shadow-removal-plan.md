@@ -1,6 +1,32 @@
-# BMW M 清陰影片 — plan(鐵則 8,等 Sean 批才動手)
+# BMW M 清陰影片 — plan(✅ 已批、已完成 `a7f9b104`,2026-08-16)
 
-> **狀態**:未動手。本檔是 plan,不是紀錄。
+> ## ✅ **已完成並已進 `dev`(commit `a7f9b104`)—— 2026-08-16 A 窗實查補記**
+>
+> **檔頭原本寫「未動手」,而它在 `a7f9b104` 落地的那一刻就過期了、零機械訊號。**
+> 下一個接佇列的人(包括主視窗從 memory 抄清單時)會照字面把它當**待辦**再做一次 ——
+> **本段就是為了擋住那一次重工。**
+>
+> **驗法(可重跑,用本檔 §5 驗收條件① 自己的命令)**:
+> ```
+> grep -rn 'shadow-' apps/admin/src --include='*.tsx' --include='*.ts' | grep -v '\.test\.' | wc -l
+> ```
+> **預期 3、實得 4。⚠️ 這個 +1 不是回退** —— 多出來的那一行是
+> `components/ui/button.tsx` 裡**描述本次移除的註解**(逐字「四個 variant 的 `shadow-xs` 全拿掉」),
+> **不是 code**。真 code 命中恰為 3,與 §2 的分類完全對上:
+> 乙類 2 處(`order-status-axes.ts` 未收款紅框 / `ui/sidebar.tsx` 的 1px 描邊)+ 丙類 1 處(`shadow-none`)。
+> ⚠️ **那條描邊不要叫它 `--elev-ring`** —— 那是 **OD 的 token 名**,admin code 內零命中
+> (`grep -rn 'elev-ring' apps/admin/src` 只命中 `design-tokens.test.ts` 的一行註解)。
+> 我方的實際字面是 `shadow-[0_0_0_1px_var(--sidebar-border)]`。**用 OD 的名字指我方的東西,
+> 下一個人會去 grep 一個不存在的 token。**(R2 審查抓到)
+> 🔴 **這種「數字對不上但不是壞事」不寫下來,下一個人一定會再驚嚇一次** —— 而他的第一反應會是
+> 「有人把陰影加回去了」,然後花一輪去查。
+>
+> **§3 那顆壞掉的描邊也已修好**:`ui/sidebar.tsx` 搜 `sidebar-border` ⇒ 現況
+> `shadow-[0_0_0_1px_var(--sidebar-border)]`(`hsl()` 包裝已拿掉)⇒ 它現在**真的會渲染**。
+>
+> ---
+>
+> **狀態**:~~未動手~~ **已完成(見上方)**。本檔是 plan,不是紀錄。
 > **提出**:A 窗(BMW M 外觀線),2026-08-16。工作樹 `/Users/sean_1/pcm-void-readers`,分支 `void-readers`。
 > **為什麼要 plan**:跨 6 支檔 ⇒ 命中**鐵則 8「跨 3+ 檔」**。
 > **為什麼【不】是決策題**:BMW M 對陰影的立場在原稿裡是明確的(見 §1)⇒ 鐵則 1 照搬,不開選項。
