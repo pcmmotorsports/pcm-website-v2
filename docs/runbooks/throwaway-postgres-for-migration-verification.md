@@ -66,7 +66,9 @@ pq () { psql -h 127.0.0.1 -p 55501 -U postgres -v ON_ERROR_STOP=1 "$@"; }
 **Supabase 平台幫你準備好、而本機沒有的東西**,一個都不能少:
 
 ```sql
--- 角色:🔴 repo 全樹零 `CREATE ROLE service_role` —— 它是平台給的,不是誰漏跑
+-- 角色:🔴 `supabase/migrations/` 全樹零 `CREATE ROLE service_role` —— 它是 Supabase 平台給的,
+-- 🔴🔴 **而【本檔下面兩行】自己就 `CREATE ROLE service_role`** —— 反例與宣稱只隔一行。
+--    (⚠️ 2026-08-16 校正:原寫「repo 全樹零」是假的全稱句 —— 量法 `git grep -nE '全樹.{0,8}CREATE ROLE'` 曾回 5 命中,且本說法的反例包含【拋棄式測試環境自己造角色】。真值=`supabase/migrations/` 底下零,那目錄只有 `payment_confirmer`。)
 CREATE ROLE service_role NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE anon NOLOGIN;
