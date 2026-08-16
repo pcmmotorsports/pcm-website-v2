@@ -261,6 +261,30 @@ select has_function_privilege('anon','public.f_null(text)','EXECUTE');          
 1. **判準用 `has_function_privilege`(有效權限),不要用 ACL 欄的字面。** ACL 只有在你
    已經知道自己在看什麼的時候才有用。(這條 §2 講過,這裡是它的實測反例。)
 2. **非要讀 ACL 欄不可 ⇒ 一律 `coalesce(<acl 欄>, acldefault(<類型碼>, <owner>))`。**
+
+### ⚠️ 但規則 1 在**表**上有一個洞:`has_table_privilege` **看不到欄級授權**
+
+規則 1 對**函式**成立(`EXECUTE` 沒有欄級這回事)。**對表不成立** ——
+2026-08-16 拋棄式 PG 17.10 實測(只給兩欄的 `SELECT`):
+
+```sql
+-- 接 §2 的 setup
+create table public.t_col (id int, secret text, name text);
+revoke all on table public.t_col from public;
+grant select (id, name) on table public.t_col to anon;   -- 只給兩欄
+
+select has_table_privilege ('anon','public.t_col','SELECT');            -- => false  ← 表級說沒有
+select has_column_privilege('anon','public.t_col','id','SELECT');       -- => true   ← 欄級說有
+select has_column_privilege('anon','public.t_col','secret','SELECT');   -- => false
+```
+**而事實是 `anon` 讀得到**:`set role anon; select id, name from public.t_col;` 成功;
+`select secret` 才被擋(`permission denied for table t_col`)。
+
+🔴 **表級判準回 `false`,而那個角色實際讀得到資料。** 方向是**少報**,
+而**少報比多報危險:多報會有人來查,少報聽起來像已經收斂了。**
+⇒ **稽核表的可讀性時,`has_table_privilege` 要配 `has_column_privilege` 一起問**,
+不能只問表級。(2026-08-16 E 窗正式庫實測撞到同一件事:它的 repo 側把欄級授權算成「有授權」、
+production 的表級檢查說沒有 —— **兩邊都對,數的是不同東西**,而差異只有在對照時才看得見。)
    類型碼:函式 `'f'`、表/view `'r'`。
 
 ### 同一腳在**表**上也踩得到(2026-08-16 E 窗實例)
@@ -287,11 +311,26 @@ E 窗建唯讀稽核帳號時就中了:體檢報「這帳號讀得到 6 張表 �
 **正向對照**=同一支分析器跑修好前的 `d54ce716` 回 `1` 命中(`#525` 那支)
 ⇒ 那個 0 是量得出來的,不是量具壞掉。
 
-🔴 **範圍限定(2026-08-16 E-677/E-678 之後補上,原句讀起來比實際寬)**:
+🔴 **範圍限定(原句讀起來比實際寬)**:
 那 `80 / 0` 的**分母是 `supabase/migrations`,也就是【我們自己寫的東西】**。
-**平台自己裝的擴充給了誰什麼權限,從來沒查過** —— E 窗已實測平台另有物件授權給 `PUBLIC`
-(而 `PUBLIC` 包含 `anon`)。⇒ **「anon 執行得到 0 支」要讀成
-「在我們自己建的物件範圍內,0 支」,不是「整個資料庫 0 支」。**
+⇒ **「anon 執行得到 0 支」要讀成「在我們自己建的物件範圍內,0 支」,不是「整個資料庫 0 支」。**
+
+**這不是理論上的謹慎,是已經被 production 打過臉的**(E 窗 `E-682`,2026-08-16 正式庫唯讀實測):
+
+| | repo 側分析說 | 正式庫說 |
+|---|---|---|
+| `public` schema 裡 `anon` 可 SELECT 的關聯 | **9** | **11** |
+| 跨所有 schema | (沒數過) | **26**(public 11 / storage 7 / cron 2 / extensions 2 / net 2 / realtime 2) |
+
+**正式庫多出來、而 repo 掃描沒列出的四個**:
+`brands` / `categories`(repo 側判定「policy 在但無授權 ⇒ 不可達」)、
+`product_fitments_effective`、`customer_wallet_balance_check`(**repo 清單裡完全沒有這兩個名字**)。
+
+🔴 **方向是【少報】** —— 而少報比多報危險:**多報會有人來查,少報聽起來像已經收斂了。**
+📎 那個儲值金 view 後續查過**沒有外洩**(`security_invoker=true`、`anon` 對底表無 SELECT、底表 RLS 開、零 anon policy,
+且有控制組證明探針不是恆假)—— **但那是「查完才知道」,不是「掃描時就知道」。**
+
+⇒ **本檔任何「全樹 / 全部 / 零」的數字,分母都是 `supabase/migrations`。要真相去問正式庫。**
 
 🔴 **這兩個數字【不可重跑】** ——分析器 `audit2.py` 在 E 窗的 scratchpad、**不在本 repo**
 (`find . -name 'audit2*'` 零命中,分母=整棵樹)。
@@ -340,7 +379,14 @@ handoff 全檔 `REVOKE` 只出現 **1 次**（量法 `grep -c -i REVOKE <該檔>
    **✅ 2026-08-16 已測,而且它是通的**:`has_function_privilege` 回 `f` 的同時
    `pg_has_role(...,'SET')` 回 `t`(見 §3.5 實測)。⇒ **這不是缺口,是已證實的繞路路徑**,
    已寫進 §3.5 當驗收條款。**正式庫上 `anon` 到底是不是 `service_role` 的成員,仍未查** ⇒ 併入 `#546`。
-4. **沒有人讀過正式庫真正的 ACL** —— 全樹稽核讀的是 migration **文字**。
-   `#525` 正好證明正式庫可能有 repo 預測不到的狀態。要關需要連線字串。
-   ⇒ backlog **`#546`**（`docs/phase-1-backlog.md`）。
+4. ~~沒有人讀過正式庫真正的 ACL~~ **⇒ 2026-08-16 起【只關掉 A 庫那一半】,不要整條關掉。**
+   E 窗以唯讀帳號 `pcm_audit_ro` 實查 **A 庫**(`pcm-website-v2`)production(`E-682`):
+   - ✅ `#525` 那個洞**在正式庫確認是關的** —— `admin_search_customers` 存在、`anon` EXECUTE **0**。
+     **這是 production 回答的,不是 repo 推的。**
+   - ✅ 六張客戶資料表對 `anon` 零外露(逐項 + 控制組,控制組會回 true ⇒ 探針不是恆假)。
+   - 🔴 **而同一次實測打了 repo 側分析的臉**(見 §4 那張表):repo 說 9、正式庫說 11,方向是**少報**。
+   🔴 **仍然開著的兩半,不要用上面那半去蓋掉:**
+   - **報價單庫**完全沒查(唯讀帳號還沒建)⇒ 該庫的所有權限結論**仍只證到 repo 文字**。
+   - A 庫也只查了**被問到的那些維度**;沒問到的(例如平台擴充的完整 ACL)仍未知。
+   ⇒ backlog **`#546`** 相應縮小範圍、**不關閉**（`docs/phase-1-backlog.md`）。
 5. **§4 的「80 支 / 0 支」不可重跑**(分析器不在 repo,見 §4 該段)。
