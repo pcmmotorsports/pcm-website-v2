@@ -106,7 +106,7 @@ Realtime —— `realtime.messages` deny-all ✅，**但 `realtime.subscription`
 
 **仍沒查**：Edge Functions、第三方整合、前端 XSS/CSRF、依賴鏈漏洞。
 
-### 2.4 🔴 引用鏈放大效應（當天真的發生了）
+### 2.6 🔴 引用鏈放大效應（當天真的發生了）
 
 `E-683` 一個**錯的行號** → 主視窗照抄轉述兩次 → 兩個窗都拿到同一個錯座標。
 **是 B 窗去開原始檔才擋住。**
@@ -172,7 +172,17 @@ SELECT n.nspname, d.defaclrole::regrole, a.grantee::regrole, a.privilege_type
        LATERAL aclexplode(d.defaclacl) a WHERE d.defaclobjtype='r';
 ```
 
-**`anon` 可讀 26 個的分佈**：`public` 11、`storage` 7、`cron` 2、`extensions` 2、`net` 2、`realtime` 2。
+**`anon` 有表授權的 26 個分佈**：`public` 11、`storage` 7、`cron` 2、`extensions` 2、`net` 2、`realtime` 2。
+⚠️ **但要加 schema USAGE 那一層才是「真的讀得到」**（§2.4）：
+`cron` 那 2 個 **anon 無 USAGE ⇒ 不可達** ⇒ **兩層都通的是 24 個**，
+其中 `storage` 7 張 RLS on + 0 policy ⇒ **實際讀得到列的更少**。
+
+```sql
+-- schema USAGE 那一層（缺了它，上面的數字會多報）
+SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
+  FROM pg_namespace n
+ WHERE n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema' ORDER BY 1;
+```
 
 ---
 
