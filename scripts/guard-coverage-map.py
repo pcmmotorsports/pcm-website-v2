@@ -97,7 +97,49 @@ def report(title: str, items: list) -> None:
             print(f'      …(其餘 {len(by_dir[d]) - 4} 支)')
     print()
 
-report('🔴 A. 沒有任何守門涵蓋', naked)
+# 🔴 已登記的處置。分兩類,而**分類本身是產出的一部分**:
+#    「有人決定不看」= 已知債，有出處可查 ／ 「沒人想到」= 真缺口，要有人判。
+#    📎 兩者在任何清單上都長成「未涵蓋」，混在一起會讓真缺口被稀釋掉
+#       （同 R 窗那條:「照拍板在排隊」與「沒人在做」外觀一樣）。
+KNOWN = {
+    'scripts/spikes/M-1-03-main-c-roundtrip.ts': (
+        '已知債（有人決定不看）',
+        'tsconfig.scripts.json 註解逐字「只 include scripts/ root 層'
+        '（不遞迴 scripts/spikes/、避免既有 spike 型別問題）」'
+        ' ⇒ 這是一個【決定】，不是遺漏。'
+        '⚠️ 代價已兌現:2026-08-17 改介面時它沒被抓到，是 codex 找出來的。',
+    ),
+    'vitest.config.ts': (
+        '已知債（工具設定檔）',
+        'vitest 自己的設定檔:它若壞掉，下一次跑測試會直接失敗 ⇒ '
+        '「沒有守門」與「立刻會知道」在這一支上重疊。**判為不需要另外的守門。**',
+    ),
+}
+
+
+def report_naked(items: list) -> None:
+    print(f'🔴 A. 沒有任何守門涵蓋 = {len(items)}')
+    print('   ⚠️ 這是一份【要人去看】的清單，不是判決 —— 見檔頭三條界線。')
+    unjudged = []
+    for f in sorted(items):
+        key = str(f)
+        if key in KNOWN:
+            kind, why = KNOWN[key]
+            print(f'   · {key}')
+            print(f'       [{kind}] {why}')
+        else:
+            unjudged.append(key)
+            print(f'   · {key}')
+            print('       [🔴 未判] 沒有人登記過處置 ⇒ 這一支才是真缺口候選。')
+    print()
+    if unjudged:
+        print(f'🔴 其中【沒有人判過】= {len(unjudged)} 支 ⇒ 這個數字才是要處理的東西。')
+    else:
+        print('✅ 每一支都有登記處置（不代表處置是對的，只代表有人看過並寫下理由）。')
+    print()
+
+
+report_naked(naked)
 
 # 🔴 B 比 A 更值得看:eslint 涵蓋很廣（它幾乎不會讓一個檔「完全沒人管」），
 #    但 eslint【不做型別檢查】⇒ 「有 lint 沒有 tsc」= 型別錯誤不會被任何守門攔下。
