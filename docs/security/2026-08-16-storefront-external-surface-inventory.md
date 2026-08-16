@@ -235,3 +235,77 @@ CONTROL: 'price'                      ⇒ 60   ← pattern 是活的
 
 🔴 **最後一列要特別留著**：我驗的是**檔案內容**，不是**bundle 內容**。
 **兩者今天大概率一致，但那是推論。**
+
+---
+
+# 第三輪：**補掉我自己標的誠實缺口** —— 持 DB 憑證的模組會不會進瀏覽器
+
+- **日期**：2026-08-16
+- **為什麼提前做**：第一輪我把它列進「獵洞階段第一個要打的」，並標「**我沒有驗**」。
+  🔴 **主視窗指出它不是誠實缺口，是【`Server 端鐵則` 的驗證缺口】** ——
+  鐵則逐字：**「Client component 不得 import 任何洩漏經銷價的模組」**，
+  而 `lib/payment/composition.ts` **持 `PAYMENT_CONFIRMER_DB_URL`（raw DB 憑證）**。
+  ⇒ **成本低、價值可能很高 ⇒ 提前。**
+
+## 9. 結論：**進不去，而且有三層各自獨立的理由**
+
+### 9.1 第一層：`import 'server-only'`（**build 期強制，不是慣例**）
+
+```
+apps/storefront/src/lib/payment/composition.ts:15   import 'server-only';
+apps/storefront/package.json:27                     "server-only": "^0.0.1"   ← 真的裝了
+```
+
+`server-only` 的機制是：**一旦這個模組落進 client 的模組圖，build 直接失敗。**
+⇒ **它不是註解、不是約定，是編譯期的錯誤。**
+
+🔴 **而「build 會過」這件事本身就是證據** —— 鐵則 11 的三綠對動 `.ts`/`.tsx` 的片**要求跑 build**
+⇒ **若有人把它 import 進 client component，那一片在 commit 前就會紅。**
+
+### 9.2 第二層：**它的消費端沒有一個是 client component**（實測）
+
+```
+消費 lib/payment/composition 的檔（排除測試與它自己）：6 個
+其中含 'use client' 的：0
+CONTROL：同一個判定對 contexts/CartContext.tsx → 命中 ✓（判定是活的）
+分母：storefront 全部 'use client' 檔 = 103
+```
+
+**六個消費端全部是**：`'use server'` action ×2、route handler ×3、**server component page** ×1
+（`checkout/callback/page.tsx` —— 第一行是註解，**不是** `'use client'`）。
+
+### 9.3 🔴 第三層：**憑證的【值】也到不了** —— 這一層才是 `server-only` 管不到的
+
+**`server-only` 擋的是【模組】。它擋不住「有人把值當 prop 傳給 client component」。**
+⇒ **所以要另外查【值】的流向。**
+
+```
+PAYMENT_CONFIRMER_DB_URL 全 repo 命中（排除 node_modules / 測試）：
+  turbo.json:26                             ← build env 白名單
+  packages/adapters/src/payment/*.ts ×7     ← 全部檔頭標 server-only
+  apps/storefront/src/**                    ← 【0 命中】
+```
+
+⇒ **那個變數名在整個 storefront 原始碼裡一次都沒出現。**
+它是在 `@pcm/adapters/server` 底下被讀的，**而那個 subpath 本身被 eslint 全面禁止**（§3.1）。
+
+**順帶把 `NEXT_PUBLIC_*` 也數了**（那是「刻意送進瀏覽器」的那一組）：
+
+| 變數 | 該不該公開 |
+|---|---|
+| `NEXT_PUBLIC_SITE_URL` | ✅ |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ 設計上就印在每個訪客瀏覽器裡 |
+| `NEXT_PUBLIC_TAPPAY_APP_ID` / `APP_KEY` / `ENV` | ✅ TapPay 的**前端**元件憑證（Partner Key 才是祕密，**不在這裡**） |
+
+⇒ **6 個，零敏感。** 與 Phase 1 的結論一致，**這次是各自數的**。
+
+## 10. ⚠️ 這一輪**沒有**做的
+
+| | |
+|---|---|
+| **沒有真的 build 完翻 bundle** | 我用的是**三層靜態證據 + 「build 會過」這個既有事實**。
+🔴 **兩者的差別要講清楚**：`server-only` 保證「模組不在 client 圖裡」，**它不保證「沒有任何祕密以別的形式被序列化進 RSC payload」**。§9.3 是我對後者的**間接**檢查（變數名零命中），**不是翻 bundle 的直接證據。** |
+| **`fixtures.ts` 會進 bundle** 那句 | 仍然是**讀作者的話**，我沒翻過 bundle 證實。⚠️ **但它的內容我掃過（零 PII／零經銷價／零憑證）** ⇒ **就算進了 bundle 也不構成曝露** ⇒ 這個缺口的**重要性降低**，但**沒有消失** |
+
+🔴 **⇒ 兩個缺口裡，重的那個（DB 憑證）已收；輕的那個（fixtures）仍開著，但已證明它的內容無害。**
