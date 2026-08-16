@@ -27,6 +27,7 @@ import {
   PAYMENT_CHANNEL_VALUES,
   SHOW_UNPAID_CARD_PARAM,
   PENDING_ONLY_PARAM,
+  GOODS_AXIS_LABEL,
 } from './order-list-view';
 
 /**
@@ -563,5 +564,40 @@ describe('#1 片1 「待收款/待訂貨」chip 的 URL 往返', () => {
     const qs = href.slice(href.indexOf('?') + 1);
     const raw = Object.fromEntries(new URLSearchParams(qs).entries());
     expect(parseOrderListSearchParams(raw).filter.pendingOnly).toBe(true);
+  });
+});
+
+
+// ── 🔴 兩張標籤表的「刻意保持字面相同」契約(V 窗 2026-08-17 掃複本族撈到)──
+//
+// `FULFILLMENT_STATUS_LABEL` 與 `GOODS_AXIS_LABEL` 的 docstring 逐字寫著
+// 「**兩張表刻意保持字面相同,因為它們對員工是同一件事**」「**任何文案調整都要另外走 Sean**」
+// —— 而在這一格之前,**兩張表之間零斷言** ⇒ **漂了不會有任何東西紅。**
+//
+// 🔴 **house 定位:註解 = 想守什麼,斷言 = 真表達得出什麼。** 這是那條的乾淨實例。
+//
+// ⚠️ **不要把兩張表合併成一張**(V 窗第一眼判「複本要收斂」,分類後自己翻案):
+//    它們是 **deliberate pair** —— 服務不同角色(一張讀 `orders.fulfillment_status`、
+//    一張是篩選下拉的貨品軸),**只是文案必須一致**。
+//    **病不在有兩份,在契約沒有牙齒。** 合併會把它變壞。
+describe('🔴 FULFILLMENT_STATUS_LABEL 與 GOODS_AXIS_LABEL 的文案必須逐字相同', () => {
+  // 兩張表的鍵不同名(`notOrdered`/`inStock` vs `none`/`instock`),所以對的是**值的集合**。
+  const pairs: Array<[keyof typeof FULFILLMENT_STATUS_LABEL, keyof typeof GOODS_AXIS_LABEL]> = [
+    ['notOrdered', 'none'],
+    ['ordered', 'ordered'],
+    ['inStock', 'instock'],
+    ['shipped', 'shipped'],
+  ];
+
+  it('逐對相等', () => {
+    for (const [f, g] of pairs) {
+      expect(GOODS_AXIS_LABEL[g], `${f} ↔ ${g} 文案漂了`).toBe(FULFILLMENT_STATUS_LABEL[f]);
+    }
+  });
+
+  it('🔴 兩張表的鍵數也要一樣多 —— 否則一邊多一個狀態,上一格【逐對】看不到', () => {
+    // 上一格只走 `pairs` 那四對:任一張表多出第五個鍵,它一個字都不會說。
+    expect(Object.keys(GOODS_AXIS_LABEL)).toHaveLength(Object.keys(FULFILLMENT_STATUS_LABEL).length);
+    expect(pairs).toHaveLength(Object.keys(FULFILLMENT_STATUS_LABEL).length);
   });
 });
