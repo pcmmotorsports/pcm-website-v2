@@ -185,3 +185,25 @@ describe('#351④ 空箱區', () => {
     expect(loadEmptyShipments).toHaveBeenCalledWith('o1');
   });
 });
+
+
+// ── 🔴 入口鈕的名字(2026-08-17)──
+//
+// 🔴 **這一格是【突變打偏】撿到的**:I 窗驗上一批時把「列印鈕改回無條件」誤打成
+//    「入口鈕改回舊名」(`列印出貨明細單` -> `列印出貨單`)⇒ **rc=0、零格轉紅**
+//    ⇒ **入口鈕改名這件事零測試覆蓋。**
+// 📎 **突變打偏通常被當雜訊丟掉,而它其實是一次免費的覆蓋率量測。**
+//
+// ⚠️ 為什麼這個字面值得一格:紙上的 `<h1>` 與瀏覽器分頁名都已是「出貨明細單」
+//    ⇒ **入口鈕留著舊名,員工會以為那是兩種不同的單**,而畫面上不會有任何異常。
+//    (影響低是對的 —— 但「所以不必補」不成立:它是 Sean 肉眼會看到的面,而肉眼驗不是每次都做。)
+describe('🔴 出貨卡的列印入口鈕名稱', () => {
+  it('鈕上寫「列印出貨明細單」,不是舊名「列印出貨單」', async () => {
+    loadOrderShipments.mockResolvedValue([
+      { shipment: emptyBox('K7X2MP'), lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }] },
+    ]);
+    const { container } = render(await ShipmentSection({ detail }));
+    const link = container.querySelector('a[href*="/shipping/"]');
+    expect(link?.textContent?.trim()).toBe('列印出貨明細單');
+  });
+});
