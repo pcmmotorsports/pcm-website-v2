@@ -15718,3 +15718,61 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   都掃不到另一邊** ⇒ 改了一半,而**改了一半跟改完長得一模一樣**。
 - **真正的收斂點是 `#248`**(登記資料進後台),不是在兩邊各造一個常數。
 - **發現於**:2026-08-17 · C 窗 · code-reviewer R1 MF6 / nit7
+
+### #600 · 報價單庫 products 對 anon 開 31/57 欄,缺一道釘住哪些欄的斷言
+
+- **🔴 這【不是】漏洞,先講清楚:** `public.products` 對 `anon` 開放是**刻意設計** ——
+  表級 `relacl` 沒有 `anon`,而 RLS 有一條 `storefront_public_read FOR SELECT TO anon`,
+  由 `storefront_catalog_v`(`security_invoker=true`)以呼叫者權限讀出去。**storefront 就是靠它。**
+- **缺的是什麼:** **沒有任何東西在守「哪 31 欄」。**
+- **現況量法(可重跑,對報價單庫 production,唯讀帳號):**
+  ```
+  products 總欄數 57 | anon 欄級可讀 31 | authenticated 2 | 對照 postgres 57
+  成本類欄位(cost|dealer|margin|profit|wholesale|purchase|supplier_price)= 1
+    ⇒ anon 讀得到 0(對照 postgres 1 ⇒ 判定式是活的)
+  🔴 量法必須用 has_column_privilege,不能用 has_table_privilege
+     (後者看不到欄級授權 ⇒ 少報;我 2026-08-17 就是這樣把 16 個關聯少報成 15)
+  ```
+- **不修未來會痛在哪:** 日後任何人 `GRANT SELECT (新欄) TO anon`,
+  **三綠不紅、`grep` 數不變、沒有任何東西會提醒他** ——
+  而那個新欄很可能就是下一個成本/毛利欄。**經銷價外洩是 Sean 明列的第二優先。**
+- **要做什麼:** 一道**釘住清單**的斷言(形狀同 `docs/security/2026-08-16-quote-db-audit-account-decision.md` §3
+  的 `c_accepted`):**現行 31 欄明文列出,多一個就紅**。
+- **🔴 現在做不了,而障礙是【缺一個東西】不是【缺工:**
+  那道斷言要住在**報價單 repo**,而**那個 repo 不在這台機器上** ——
+  量法 `find /Users/sean_1 -maxdepth 3 -type d -name migrations -path '*supabase*'`
+  ⇒ 10 個命中**全部**是 `pcm-website-v2` 的工作樹,零個是報價單 repo
+  (正向對照:`test -d /Users/sean_1/pcm-website-v2/supabase/migrations` ⇒ 有 ⇒ find 是活的)。
+  📎 與 memory `reference_quote-repo-truth-moved-to-mac-mini` 一致(真身在 mac mini)。
+  ⇒ **掛在「報價單 repo 怎麼取得」那個 Sean 題底下,當它的第二個理由**
+  (第一個是 B 窗的 `#4` production/repo 一致性)。
+- **發現於**:2026-08-17 · E 窗報價單庫稽核第一輪 · 主視窗裁定立案(屬流程/守門,不上呈 Sean)
+
+### #604 · 會員地址/車輛寫入走 check-then-act,而本 repo 的 RLS 已知缺一條政策
+
+- **🔴 這兩句要放在同一段讀,分開看兩個都是低嚴重度:**
+  ① `account/address`、`account/vehicle` 的第二軸是 **check-then-act** ——
+     先 `verifyAddressOwned(repo, user.id, addressId)` 讀一次驗歸屬,
+     **再 `addressRepo.update(addressId, patch)`,而那句寫入【不帶 userId】**
+     (`packages/use-cases/src/update-address.ts:38-43`)
+     ⇒ **RLS 失效時,擋越權的只剩前面那一次讀。**
+  ② 而**這個 repo 的 RLS 已經知道缺一條政策** —— STATUS「Blocker」欄逐字:
+     六張客戶表的 `FOR SELECT TO service_role` 那條**不存在**,Sean 已拍 `Q15`=甲要補、**尚未開工**。
+  ⇒ 🔴 **所以這不是「假設 RLS 失效」,是「我們已經知道 RLS 有一個洞,只是還沒補到那裡」。**
+- **與既有做法不一致(這是要修的第二個理由):**
+  `/api/orders/[orderId]/payment-status` 用的是 **scoped read** ——
+  歸屬條件 `.eq('customer_user_id', userId)` **就寫在同一句查詢裡**,不是先讀後寫。
+  ⇒ **同一個 repo 兩種形狀,而不一致會讓下一個人以為某一種就夠。**
+- **現況量法(可重跑):**
+  ```
+  grep -n "verifyAddressOwned\|repo.update\|addressRepo.update" packages/use-cases/src/update-address.ts
+    ⇒ :41 verifyAddressOwned(...)  /  :43 addressRepo.update(addressId, patch)   ← 寫入不帶 userId
+  grep -n "customer_user_id" apps/storefront/src/app/api/orders/\[orderId\]/payment-status/route.ts
+    ⇒ 命中(scoped read)  ← 正向對照:同一支 grep 在對照檔抓得到
+  ```
+- **不修未來會痛在哪:** 這一類洞的症狀是**沒有症狀** —— 越權寫入成功時,
+  受害者看到的是「我的地址被改了」而**不是任何錯誤**,而系統沒有任何東西會紅。
+  **貨會寄到別的地方,而那是不可回收的。**
+- **⚠️ 我沒有構造出攻擊,也沒有宣稱有:** 目前仍是兩軸(verify + RLS),
+  本條要的是**把第二軸改成 scoped write**(與 `payment-status` 一致),**不是宣告現在正在外洩**。
+- **發現於**:2026-08-17 · E 窗軸二第一批(帳號被盜視角)· 主視窗裁定立案並上調嚴重度
