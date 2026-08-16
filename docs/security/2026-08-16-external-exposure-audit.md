@@ -26,12 +26,20 @@
 | 4 | `public` 真實表 46 張，**`anon` 的 INSERT/UPDATE/DELETE/TRUNCATE 全為 0** | **production** | 4 項皆 0 |
 | 5 | `anon` 可 SELECT 的關聯：`public` **11 個**、跨所有 schema **26 個** | **production** | 見 §3 分佈 |
 | 6 | RLS policy：`public` **36 條**，其中指名 `anon` 的 **1 條**（`legal_terms_versions`，公開條款） | **production** | 1 |
-| 7 | 六張客戶表的 policy **全部用 `auth.uid()` 綁本人**（非 `USING (true)`） | repo 側 + **拋棄式 PG 實跑攻擊驗證** | 0 例外 |
+| 7 | 六張客戶表的 policy **全部用 `auth.uid()` 綁本人**（非 `USING (true)`），且**無任何 `anon` policy** | **production**（16 條逐條讀）+ 拋棄式 PG 實跑攻擊驗證 | 0 例外 |
 | 8 | storefront 只有 **3 處** `service_role` 受控小門，皆 `server-only` + eslint 擋 | repo 側 | 3 |
 | 9 | **沒有** service/secret key 掛在 `NEXT_PUBLIC_*` 前綴下 | repo 側 | 6 個 `NEXT_PUBLIC_*`，0 個敏感 |
 | 10 | `public` 的 9 支 view，**8 支** `security_invoker=true`、**1 支 `false`** | **production**（全查，非抽驗） | **8/9** ⚠️ 見 `E685-1` |
 
 **⇒ 一句話：截至 2026-08-16，沒有找到外部可讀取客戶資料的路徑。**
+
+> 🔴 **第 7 條 2026-08-17 由 production 覆核（原為 repo 側推論）**：
+> 六張表共 **16 條 policy** 逐條讀出，面向客人的**全部**是 `authenticated` + `auth.uid()` 綁本人；
+> 唯二 `USING (true)` 的是 `customers_delete_service_role` 與 `wallet_insert_service_role`
+> —— **`service_role` 專用（伺服器端），不是對外**。**六張表零 `anon` policy。**
+> `UPDATE` 類三條**都同時有 `USING` 與 `WITH CHECK`**（少了後者可把自己的列改成別人的）。
+> ⇒ **與 repo 側結論完全吻合** —— 這是 `E-683` 證明「repo ≠ production」之後，
+> **特地回頭覆核的最重要那一條**。
 
 ---
 
