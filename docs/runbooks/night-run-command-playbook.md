@@ -95,6 +95,41 @@ I 窗**沒有採信自陳**,拿它產出的樹直接 `ls-tree … | grep phase1-
 📎 同族用法:併前用 `git diff --stat <base>...<branch>`(**三點**)看「真正會併進來的東西」;
 **兩點 `..` 會把「dev 比它新」誤顯示成大量刪除** —— 那個坑 2026-08-16 一天內對同一個人犯了兩次。
 
+### 5.0a 🔴 **append 前先 `git merge dev`** —— 把「衝突要不要退回」換成「一開始就不會撞」(2026-08-17 E 窗首創)
+
+往共用檔(`guard-and-instrument-traps.md` 這類)append **之前**先同步:
+
+```bash
+git merge dev --no-edit
+git diff --name-only --diff-filter=U        # 空 = 零衝突，才 append
+```
+
+**為什麼比前面所有做法便宜**:2026-08-16~17 那個檔尾撞了**五次**,
+每次的處理都是「退回原作者 → 它解 → 收割窗複驗 → 期間不得再併同一支檔」= **一整輪**。
+⇒ **先同步再 append,那個判斷根本不需要發生。**
+
+⚠️ **它不保證零衝突**(兩窗在同一個時間窗內各自 merge 完再 append 照樣撞)——
+它**縮小時間窗,不消滅競爭**。撞了仍走「衝突不自解、退回原作者」。
+
+### 5.0b 兩支共用小工具(2026-08-17 立;**都不是守門,不掛 hook**)
+
+```bash
+sh scripts/reserve-backlog.sh '<標題>'          # 配 backlog 號（git ref CAS，兩窗同時配不會撞）
+sh scripts/run-rc.sh <尾幾行> -- <命令...>       # 只看尾 N 行，而 rc 是【那個命令自己的】
+```
+
+- **`reserve-backlog.sh`**:`git update-ref <ref> <new> <expected-old>` = compare-and-swap;
+  所有 worktree 共用同一個 git common dir ⇒ 本機 ref 就是現成的跨窗原子計數器(**洞見來自 codex**)。
+  ⚠️ **舊的兩道閘繼續跑** —— 新機制**看不到信裡手寫的佔位號**。
+  ⚠️ ref **只在本機、不進 git** ⇒ 換一台機器要重新 `--init`。
+- **`run-rc.sh`**:`bash x.sh | grep …; echo rc=$?` 拿到的是 **`grep` 的 rc**,
+  這兩天**四個不同的窗**踩過(規則寫得明明白白)。
+  🔴 **病根是需求沒有出口**:大家接管線是因為輸出太長,而「想少看一點」在此之前只有管線這一條路。
+  ⇒ **鋪第二條路,不寫第五條規則。**
+  📎 立完當晚**作者自己又踩了第五次**,是用這支工具抓回來的。
+
+兩支都有 `--selftest`(各 6 格 + 突變證過會紅)。**採不採用靠好用,不靠強制。**
+
 ### 5.1a 🔴 收割窗的職責之一:**替共用教訓檔補編號**(2026-08-16 主視窗裁定【乙】)
 
 **約定**:各窗往 `docs/patterns/guard-and-instrument-traps.md` 這類**共用 append 檔**加條目時,
