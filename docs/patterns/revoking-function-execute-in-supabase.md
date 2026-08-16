@@ -137,8 +137,23 @@ select has_function_privilege('anon','public.f_ovl(text)','EXECUTE');  -- => f  
 **正確做法(四件,缺一都會留東西):**
 1. 對**新簽名**下兩道 REVOKE。
 2. 決定舊簽名去留。要刪 ⇒ **用精確簽名** `DROP FUNCTION public.f(text) RESTRICT;`
-   🔴 **`RESTRICT` 會因 view / trigger / 其他函式的相依而失敗 —— 那是它的用途,不是障礙。**
-   **不要為了讓它過去就改 `CASCADE`**(會連相依物件一起刪)。先把相依遷走,再刪。
+   **`RESTRICT` 因相依而失敗是它的用途,不是障礙。不要為了讓它過去就改 `CASCADE`**
+   (會連相依物件一起刪)。先把相依遷走,再刪。
+
+   🔴🔴 **但 `RESTRICT` 看得到的相依【比你以為的少】** —— 2026-08-16 拋棄式 PG 17.10 實測:
+
+   | 呼叫端形式 | `DROP … RESTRICT` 會被擋嗎 |
+   |---|---|
+   | `view` 用到它 | ✅ 擋住(`cannot drop … view v_x depends on function`) |
+   | 另一支函式,本體寫成 **`BEGIN ATOMIC`** | ✅ 擋住(`function caller depends on function`) |
+   | 另一支函式,本體寫成 **`$$ … $$` 字串** | ❌ **不擋,DROP 直接成功** |
+
+   **`$$` 字串本體不進 `pg_depend`** —— Postgres 沒有解析字串裡在叫誰。
+   ⇒ 🔴 **`RESTRICT` 過了【不等於】沒有呼叫端。** 你會在 prod 執行期才炸。
+   ⇒ **刪之前另外 grep 一次函式名**(`git grep -n '<函式名>' -- supabase/ apps/`),
+   **不要拿 `RESTRICT` 成功當「查過了」。**
+   📎 這條與 §3.5 相扣:§3.5 列的「另一支 SECDEF wrapper 在裡面呼叫它」
+   **恰好就是 `RESTRICT` 看不到的那一種**(house 的 SECDEF 函式幾乎都是 `$$` 本體)。
 3. 不刪 ⇒ **在 migration 裡明寫為什麼留著**,並對**兩支**都下斷言。
 4. 🔴 **兩支並存時另有一個坑:呼叫解析**。
    若新舊簽名有**預設參數**或**可隱式轉型**的型別(`text`/`varchar`、`int`/`bigint`…),
@@ -175,19 +190,29 @@ select pg_has_role('anon','service_role','SET');                      -- => t  �
 ⇒ **驗收判準(涵蓋【直接呼叫 + 角色切換】兩條,不是「一定執行不到」的證明):**
 
 ```sql
+-- 🔴 這是【範本】。把 f_arm(text) 換成你自己的函式,兩處都要換。
+-- 直接照貼可跑:接 §2 的 setup + §2 那段(它建了 f_arm)。
 -- 對具名 regprocedure 問, 且【枚舉所有角色】——只查 service_role 一個不夠
 select r.rolname,
        pg_has_role('anon', r.oid, 'SET') as anon切得過去,
-       has_function_privilege(r.oid, 'public.f(text)'::regprocedure, 'EXECUTE') as 該角色可執行
+       has_function_privilege(r.oid, 'public.f_arm(text)'::regprocedure, 'EXECUTE') as 該角色可執行
   from pg_roles r
  where pg_has_role('anon', r.oid, 'SET')
-   and has_function_privilege(r.oid, 'public.f(text)'::regprocedure, 'EXECUTE');
+   and has_function_privilege(r.oid, 'public.f_arm(text)'::regprocedure, 'EXECUTE');
 -- 要求:回【零列】。任一列 = anon 有一條 SET ROLE 繞路。
+-- 📎 anon 自己也是 pg_roles 的一列,且 pg_has_role('anon','anon','SET') => t
+--    ⇒ 直接授權給 anon 的情況這條查詢也抓得到,不用另外寫一條。
 ```
+
+🔴 **零列 ≠ owner 那條路已排除。** 若 `anon` 切得到**函式 owner**、而 owner 已自撤 `EXECUTE`,
+這條查詢**回零列** —— 但 owner **可以隨時自我 re-GRANT**(見上方 owner 那條,已實測重現)。
+⇒ **owner 是誰要另外看,不在這條查詢的涵蓋範圍內。**
 
 🔴🔴 **這個判準只涵蓋「anon 自己去呼叫」與「anon 切角色去呼叫」。它【不】證明那支函式不可觸發。**
 仍然開著的間接入口(本檔**未逐一驗證**,列出來免得被讀成已涵蓋):
 **另一支 anon 叫得到的 SECDEF wrapper 在裡面呼叫它** / **trigger** / **view 的相依呼叫鏈**。
+⚠️ **而 §3 已實測:`$$` 本體的那種 wrapper,連 `DROP … RESTRICT` 都看不到它** ——
+所以這條缺口比它看起來更難用機械方法關掉。
 ⇒ 要宣稱「完全不可觸發」,得另外把**間接入口與相依呼叫鏈**查一遍 —— **本檔沒做這件事。**
 
 ⇒ **不要把「我下了兩道 REVOKE」當成驗收通過。那是動作,不是結果。**
