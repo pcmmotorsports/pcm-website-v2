@@ -14236,6 +14236,49 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 - **關閉條件:** (a)(b) 有書面結論寫回 ADR-0005 §8.4,且 (c) 那格**用突變驗過會紅**(新增第五道 disable ⇒ 必須失敗)。
 - **相關:** `docs/decisions/0005-custom-supabase-direct.md` §8.4;`docs/patterns/revoking-function-execute-in-supabase.md`;`#545`;`#546`;`#547`
 
+### #553 · 報價單庫 `cron.job` 的**排程定義裡疑似寫著祕密**
+
+> ✅ **號碼已確認**(2026-08-17 I 窗,兩道閘都跑、第二道不接 `head`):
+> ① `sh scripts/next-backlog-number.sh` ⇒ 三層(主樹 / 12 worktree / 37 ref)最大號皆 **552**、下一個可用 `#553`
+> (腳本自印它給的是**下限不是保留鎖**,所以第二道非跑不可);
+> ② `grep -rn '#55[3-9]' ~/pcm-mailbox/*.md` ⇒ **零命中**。
+> 🔴 **那個零命中附正向對照與分母**:同一支 grep 換成 `#55[12]` ⇒ **2 個檔命中**、
+> 分母 `ls ~/pcm-mailbox/*.md | wc -l` ⇒ **2955 檔** ⇒ 那個 0 是量出來的。
+
+- **狀態:** 未開工。**來源 = E 窗(唯讀稽核窗)實查**,它自己落檔、由 I 窗**搬運立案**。
+  📎 **搬運者不是判斷者** —— 下面的事實與判斷都是 E 窗的,I 窗只發號 + 掛進 backlog。
+- **正本(完整內容與可貼 SQL 在這裡,不在本條)**:
+  `docs/security/2026-08-16-secrets-in-cron-job-definitions.md`
+- **分流:** `P1` · **優先級:** 🟡 中(**不是外部可達,是【信任面】問題**)
+
+#### 事實(E 窗實查)
+
+```
+pcm-quote-v2 的 cron.job 有 9 個排程，其中 2 個【疑似把祕密寫在排程定義裡】
+anon 進不去 ⇒ 外部安全
+但 postgres / supabase_admin 讀得到 —— 而那正是【Dashboard 的身分】
+```
+🔴 **⇒「排程定義裡的祕密」與「誰能開 Dashboard」是同一個信任面。**
+
+#### 🔴 那兩個排程的名字:**待補**
+
+⚠️ **刻意標「待補」而不是留空** —— **空著會被讀成「零」。**
+E 窗到落檔當下**仍然沒有拿到那兩個 `jobname`**(Sean 只回了計數)。
+
+🔴 **本條【只寫排程名】不寫 `command` 內容** —— **把祕密寫進 backlog 等於再洩一次。**
+📎 同族 memory `feedback_the-warning-can-reproduce-the-hazard`:
+**為了論證某個東西危險而寫下的證據,本身就複製了那個危險。**
+⇒ 要看內容請開正本檔的可貼 SQL,它**只回 `jobname` / `schedule`,不回 `command`**;
+而正本檔自己還帶一句限定:**「若某筆的 `jobname` 是 NULL 或無意義,也不要改抓 `command`。」**
+
+#### 不修未來會痛在哪(鐵則 10)
+
+Dashboard 的存取權目前**沒有被當成祕密的保護邊界在管** ——
+任何一次「多給一個人 Dashboard 權限」都會**同時**給出那些排程定義裡的東西,
+**而做那個決定的人不會知道**(他以為自己只是給了一個看儀表板的權限)。
+
+- **發現於**:2026-08-16 · E 窗安全稽核 run-1 Phase 2 · **I 窗 2026-08-17 搬運立案**
+
 ### #552 · Excel 匯入開工時**不要直接把 `xlsx` 裝回來** —— 它是被刻意移除的
 
 > ✅ **號碼已跑兩道閘**(`bash scripts/next-backlog-number.sh` → 下一個可用 `#552`;
