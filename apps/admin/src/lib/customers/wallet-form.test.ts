@@ -206,4 +206,12 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 WALLET_SINGLE_FIELDS �
     f.append(WALLET_AMOUNT_FIELD, new File(['100'], 'a.txt'));
     expect(parseWalletAdjustForm(f).ok).toBe(false);
   });
+  // 🔴 X1(const-echo 掃描 A 類):WALLET_NOTE_MAX 必須是字面 200 —— 第二來源在 DB。
+  //    supabase/migrations/20260716210000_m4a_admin_adjust_wallet_rpc.sql:108
+  //    (char_length(v_note) > 200 ⇒ 拒)。app 這顆單獨改掉 ⇒ 相對式測試全綠、
+  //    201 字備註到 DB 才被拒(已實測:200→500 突變當時全綠)。
+  //    改這顆 ⇒ 先改上面那支 migration 的字面,兩邊同 commit。
+  it('🔴 WALLET_NOTE_MAX 必須是字面 200(DB RPC 獨立寫死同值)', () => {
+    expect(WALLET_NOTE_MAX).toBe(200);
+  });
 });
