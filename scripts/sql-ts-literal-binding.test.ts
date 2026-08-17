@@ -72,9 +72,11 @@ describe('P1 貨品軸判序:SQL admin_order_list_v ↔ TS goodsAxisOfLines', ()
   function p1SqlPairs(): Array<[string, string]> {
     // 量欄位錨在 bool_and 的第一個 COALESCE(不能寬鬆抓「THEN 前最近的 s.*_quantity」——
     // 那會抓到分母裡的 cancelled_quantity,首跑實紅過);懶惰間隔止於該塊自己的 THEN。
+    // String() 而非 non-null 斷言:group 理論上必存在,但若 regex 被改到 group 消失,
+    // 'undefined' 字串會讓 toEqual 大聲紅、而不是型別層被 ! 靜默蓋掉。
     return [
       ...p1ViewDef().matchAll(/bool_and\(\s*COALESCE\(s\.(\w+)_quantity[\s\S]*?THEN '(\w+)'/g),
-    ].map((m) => [m[1], m[2]]);
+    ].map((m): [string, string] => [String(m[1]), String(m[2])]);
   }
 
   it('§0 live 定位:候選清單=已知兩支、live=20260816050000(新 migration 重定義本 view 時本格要紅=綁定要跟上)', () => {
