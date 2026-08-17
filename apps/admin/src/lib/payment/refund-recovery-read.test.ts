@@ -180,6 +180,19 @@ describe('findRefundForRecovery — 讀數計算', () => {
     expect([...TERMINAL_REFUND_STATUSES]).toEqual(['confirmed', 'failed', 'deferred']);
   });
 
+  // 🔴 族普查 R3 命中:本檔所有斷言都跟著 RECOVERY_SIBLINGS_LIMIT 走(toEqual([LIMIT+1])、
+  //    造 LIMIT+1 列)⇒ 常數改了測試全跟著綠。而它有一道外部牆:.limit(LIMIT+1) 若
+  //    ≥ PostgREST db-max-rows,伺服器先夾 ⇒ refund-recovery-read.ts:100 的溢位偵測永假、
+  //    對帳讀數靜默截斷。⚠️ max-rows=1000 來源=memory(2026-08-17 訂單上限拍板「真牆」句),
+  //    repo 內無宣告、dashboard 值未確認 —— 缺的檢查=Supabase dashboard API settings 的 max rows。
+  //    🔴 即使 1000 是錯的,本格仍有價值:它擋的是「有人把常數調高」這個動作本身——
+  //    常數在 500 安全,而安全的原因不在 code 裡,在一個 repo 外的設定值;守門與牆之間
+  //    那段沒人守的區間,只有本格在看。模式=SupabaseOrderAdapter.test.ts「必須是字面 100」
+  //    的上界版。改這顆常數 ≥999 ⇒ 本格紅,先去確認 max-rows 再動。
+  it('🔴 LIMIT+1 必須嚴格小於 1000(db-max-rows 未確認值)—— 否則溢位偵測靜默死亡', () => {
+    expect(RECOVERY_SIBLINGS_LIMIT + 1).toBeLessThan(1000);
+  });
+
   it('🔴 兄弟列超上限 → RecoveryReadIntegrityError(重試不會好;呼叫端映停手不映重試)', async () => {
     const over = Array.from({ length: RECOVERY_SIBLINGS_LIMIT + 1 }, (_, i) => ({
       id: `s${i}`,
