@@ -22,6 +22,8 @@
 
 ## §5:tappay-notify「還沒真上線」—— 不只是註解,是 code 強制的 gate(嚴重度**維持折扣**)
 
+> 🟢 **08-17 傍晚重驗(E 第三輪):下方「兜底沒在跑 = HIGH-結構」已解除,證據見本節末〈§5-b 重驗〉。** 中間的原始論證保留當歷史,引用請以 §5-b 為準。
+
 **量到的(讀 code)**:
 - `TAPPAY_3DS_ENABLED` 是 **env var**:`three-ds-flag.ts:19` = `process.env.TAPPAY_3DS_ENABLED === 'true'`(非 `'true'` 一律 off、**預設 off**)。
 - `backend_notify_url` **只在 flag on 時**於 runtime 組(`three-ds-urls.ts`:charge-actions flag on 才組),**不是常駐設定**。
@@ -42,6 +44,68 @@
 🔴 **仍未量(一條不拿掉)**:①best-effort 快路徑實際多常失敗(決定缺口多常咬人)②4a migration 有沒有進 prod ③**prod 是否真在收 3DS 單**(不變量說「不開放 prod 結帳」,單可能還沒進來)④pg_cron job 活不活(`pcm_audit_ro` 無 cron schema USAGE、查不到;不影響結論、影響修法)。
 
 🔴 **等級 = HIGH-結構**:結構缺口=量到的、金流(鐵則 12①)、active(flag=true)⇒ HIGH-結構;**頻率未量 ⇒ 不拉滿**。修法=拍板題(設 `CRON_SWEEPER_ENABLED='true'`〔+ pg_cron 未活則 apply `20260723120000`〕,或把 `TAPPAY_3DS_ENABLED` 關回 false)——E 只出事實,拍板歸 Sean。
+
+### §5-b 重驗(2026-08-17 傍晚,E 第三輪)—— sweeper 已真掃,HIGH-結構 解除
+
+**背景**:Sean 08-17 下午設 `CRON_SWEEPER_ENABLED=true` 並重部署 ⇒ 上方②③④(env 不存在 ⇒ 200 no-op)過期。
+
+**量具(兩世界會印不同值,非 200)**:`net._http_response.content`(pg_cron→pg_net 打 route 的**回應 body**)。
+route 兩世界字面不同:disabled ⇒ `{"enabled":false,"skipped":"sweeper_disabled"}`(`route.ts:106`);enabled ⇒ `{"enabled":true,…counts}`(`route.ts:134`)。
+
+**量具身分(附分母與 pattern)**:
+- **disabled 態分得開**:`grep -rn "sweeper_disabled" --include="*.ts" --include="*.tsx" . | grep -v node_modules` ⇒ **2 命中**皆 settle-sweep(`route.ts:106` 本體 + `route.test.ts:130`);anomaly 印的是 `anomaly_alert_disabled`(同法 2 命中,`anomaly-alert/route.ts:106`)。
+- 🔴 **enabled 態【分不開】,`"enabled":true` 不是 sweeper 專屬**:`anomaly-alert/route.ts:126` 與 `:130` 兩處也印 `enabled: true`(200 與 503 皆含)。⇒ **world_b 必須改用 sweeper 專屬欄位** `inboxClaimed`(`grep -rn "inboxClaimed" --include="*.ts" . | grep -v node_modules | grep -v test` ⇒ **3 命中全在** `packages/use-cases/src/sweep-settlements.ts:56,120,165`);anomaly 專屬欄取 `notifiersTotal`(`check-anomaly-alerts.ts:55`)。
+- 🔴🔴 **重跑時段警告**:`pcm-anomaly-alert` 排程 `0 1 * * *`(`supabase/migrations/20260723120000…:131`)⇒ **在 01:00–07:00 UTC 之間重跑本查詢,anomaly 的列會進入 6h 窗**。用舊的 `"enabled":true` pattern 會把它算成 sweeper。下方查詢已改成**逐 job 歸戶 + 殘差桶**,任何時段重跑都算得清。
+
+**量到的(`pcm_audit_ro` 唯讀 SELECT;單一快照 `snapshot_utc = 2026-08-17 07:27:43 UTC`)**:
+
+```sql
+-- 可重跑(任何時段皆可;殘差桶 unattributed 必須為 0,否則有第三支 job 混進來)
+WITH w AS (SELECT * FROM net._http_response WHERE created > now() - interval '6 hours')
+SELECT count(*) AS total,
+  count(*) FILTER (WHERE content LIKE '%sweeper_disabled%')       AS sweep_off,
+  count(*) FILTER (WHERE content LIKE '%inboxClaimed%')           AS sweep_on,
+  count(*) FILTER (WHERE content LIKE '%anomaly_alert_disabled%') AS anom_off,
+  count(*) FILTER (WHERE content LIKE '%notifiersTotal%')         AS anom_on,
+  count(*) FILTER (WHERE content NOT LIKE '%sweeper_disabled%'
+                     AND content NOT LIKE '%inboxClaimed%'
+                     AND content NOT LIKE '%anomaly_alert_disabled%'
+                     AND content NOT LIKE '%notifiersTotal%')     AS unattributed,
+  count(*) FILTER (WHERE status_code<>200) AS non_200,
+  count(*) FILTER (WHERE timed_out)        AS timedout,
+  min(created) FILTER (WHERE content LIKE '%inboxClaimed%')       AS first_sweep_on,
+  max(created) FILTER (WHERE content LIKE '%sweeper_disabled%')   AS last_sweep_off
+FROM w;
+```
+
+| total | sweep_off | sweep_on | anom_off | anom_on | **unattributed** | non_200 | timedout |
+|---|---|---|---|---|---|---|---|
+| 180 | 159 | 21 | 0 | 0 | **0** | 0 | 0 |
+
+- **兩個世界同一窗都在** ⇒ 內建負向對照,不必自餵:`sweep_off` 159 列止於 `06:44:00 UTC`,`sweep_on` 21 列起於 `06:46:00 UTC`。
+- **分母閉合是【歸戶閉合】不是算術巧合**:`159+21+0+0 = 180 = total` 且 **`unattributed = 0`** ⇒ 窗內每一列都被歸到具名 job;`anom_off/anom_on = 0` 是**量到的**(本窗不含 anomaly 的 01:00 那列),不是假設。
+- **`total=180` 佐證排程節奏**:`*/2` 於 6h = 30/h × 6 = **180**,實測正好 180 ⇒ 該窗**零漏跑**。
+- 首發真掃(`06:46:00`):`inboxClaimed:40, inboxProcessed:37, inboxRetried:3, flaggedNonUnpaid:3, stuckClaimed:1, stuckRetried:1, errors:0`。
+- 🔴 **「DB 狀態真的變了」有【活對照組】,不是推論**:同一窗內那 **3 筆 `inboxRetried`** 在 `06:48/06:52/06:58/07:08` **反覆重現**(非 terminal 項每輪被重新認領)⇒ 證明「**未真正處理掉的東西會一直冒出來**」。而首發那 **37 筆 `inboxProcessed` 在其後 28 分鐘內零重現** ⇒ **排除了「只是被 lease 暫時藏住」那個世界**。retried 是這個量測自帶的正向對照。
+- `non_200=0`、`timedout=0`(同一快照 FILTER 計數,非目視)。
+
+⚠️ **這份紀錄的效度與保存期(三條)**:
+1. **列數會漂**:`sweep_off/sweep_on` 隨滾動窗變 ⇒ **引用要連 `snapshot_utc` 一起帶走**。歷程:07:10 ⇒ 167/13、07:14 ⇒ 165/15、07:27 ⇒ 159/21。
+   ⚠️ **前兩組是用【被污染的】舊 pattern(`"enabled":true`)量的**;它們之所以仍與逐 job 歸戶的數字相等,**只因本窗 `anom_on = 0`**(anomaly 的 01:00 那列在窗外)。**換一個時段就不成立** ⇒ 要複驗請一律用上方那支帶殘差桶的查詢,不要沿用這三組歷史數字的量法。
+2. 🔴 **翻轉點【不是不漂,是會整段消失】**:`net._http_response` TTL 6h ⇒ `last_sweep_off = 06:44 UTC` 那列約於 **12:44 UTC 後被清掉,之後永不可復量**。⇒ **窗內不漂;離窗後不可復量,本檔即為該翻轉點的唯一記錄。**
+3. **與部署時刻的因果:吻合但未證實**。翻轉點 06:44→06:46 UTC(台北 14:44→14:46)與 Sean「下午重部署」時序相符,但**我沒有部署時刻的取證**(在 Vercel Dashboard,不在我可讀範圍)⇒ 照 §6-b 標「**吻合但未證實**」。**本節結論不依賴這條因果** —— 就算重部署另有時間,兩個世界的翻轉本身仍是量到的。
+
+**連帶收口(原「仍未量」四條中的兩條半)**:
+- ④ pg_cron 活不活 ⇒ **活**(每 2 分真發請求,量到)。
+- ② 4a migration 進 prod 沒 ⇒ **走過的路徑上是**(claim/flagNonUnpaidActive/markRetry/markProcessed 各 RPC 實際執行且 `errors:0`;**settled 寫入路徑未走過**,見誠實邊界)。
+- ③ prod 有沒有單 ⇒ inbox 有 **40 筆 webhook 列**(存在=量到;**性質未知**,業務表對 `pcm_audit_ro` 鎖定、開不了列)。
+
+**誠實邊界(三條)**:
+1. `stuckSettled:0` 全程 ⇒ 「真的把一筆從未結算改成已結算」這條路徑**本窗未被行使**,閉環證的是掃描→認領→處理→退避全鏈,不含 settled 寫入那一步。
+2. 殘餘 **3 筆 inbox + 1 筆 stuck 在退避循環**(06:48/06:52/06:58/07:08 間隔遞增),`settleCharge` 回 pending → markRetry,設計內行為非 error;`flaggedNonUnpaid:3` 已按 code 落 durable `needs_manual_review`(`sweep-settlements.ts:148,231`)。**這 4 筆是什麼,要有業務表權限的窗開列**——E 鎖定開不了。
+3. 觀測窗 = `net._http_response` 6h TTL,更早歷史不可考。
+
+**判定**:原 HIGH-結構(3DS 收單而無最終結算保證)**解除**——兜底已真跑、真消化積壓、零錯。殘餘追蹤項:上述 4 筆滯留 + `stuckSettled` 路徑未行使 + tappay-notify 設計不變量「不開放 prod 結帳」與 flag=true 的矛盾是否已由 Sean 知情接受(拍板歸 Sean)。
 
 ---
 
