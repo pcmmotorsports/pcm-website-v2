@@ -4,6 +4,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 import { getAdminOrderRepository } from '../../lib/orders/order-repository';
 import { isOrderId } from '../../lib/orders/order-detail-view';
+import { mergeDetailItems } from '../../lib/orders/merge-detail-items';
 import { isRefundUiEnabled } from '../../lib/payment/refund-ui-flag';
 import { isUuid } from '../../lib/orders/note-action-state';
 import {
@@ -147,6 +148,32 @@ export async function OrderDetailRoute({
     console.error('[admin/order-detail] 訂單明細載入失敗', detailSettled.reason);
     loadFailed = true;
   }
+
+  // 🔴🔴 **品項清單改走頂層分頁撈到盡**(`D2` C 條,Sean 2026-08-18 批)。
+  //    `detail.items` 是**內嵌**撈的、被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住,而 Sean 逐字說
+  //    一張單「可能到 200 個品項」⇒ **正常業務的上緣就是斷點,不是未來風險**。
+  //    2026-08-18 真資料實測(201 品項的真單、真瀏覽器):**這一頁只顯示 200 項,而缺的是
+  //    【中間隨機那一項】** —— 內嵌按 `id` 排序而 `order_items.id` 是隨機 uuid ⇒ **掉的不是尾巴**。
+  //
+  // 🔴 **為什麼不併進上面那個 `Promise.allSettled`** ——
+  //    它要**用 `detail` 存在當前提**:`detail === null`(整張單讀不到)時多打這一趟毫無意義,
+  //    而且會在一條已經失敗的路徑上多一個失敗點。
+  //    ⚠️ **代價寫出來:它是串行的第二趟**(多一次往返)。明細頁是高頻互動頁 ⇒
+  //    🔴 **本片未量**改前改後的回應時間,那條風險是**定性的、不是定量的**。
+  //
+  // 🔴 **讀失敗 ⇒ 整頁 fail-closed,不吞** —— 吞掉會讓畫面**退回內嵌那份**
+  //    (少一項、而畫面完全正常),那正是本片在修的病。⇒ 走與明細同一條 `loadFailed`。
+  if (detail !== null) {
+    try {
+      const full = await getAdminOrderRepository().listOrderItemsForDetail(id);
+      detail = mergeDetailItems(detail, full.items);
+    } catch (e) {
+      console.error('[admin/order-detail] 品項清單撈到盡失敗(整頁 fail-closed,不退回內嵌那份)', e);
+      detail = null;
+      loadFailed = true;
+    }
+  }
+
   if (suppliersSettled.status === 'fulfilled') {
     suppliers = suppliersSettled.value;
   } else {
