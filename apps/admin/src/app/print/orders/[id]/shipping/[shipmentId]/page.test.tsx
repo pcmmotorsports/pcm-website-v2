@@ -605,21 +605,22 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
   //    `lib/shipping/shipping-doc-dispatch.test.ts` 與 `carrier-label.test.ts`(不需渲染就跑得動)。
   //    ⚠️ 兩件都要測,但**不該是同一格**:同一格的話「算式錯」與「忘了 render」會紅在同一個地方。
 
-  it('貨運商 / 日期 / 追蹤碼三個都印出來,而且各自帶標籤', async () => {
+  // ⚠️ **本 describe 原本有第三個欄位(追蹤碼)** —— `Q-C5`=丙(Sean 2026-08-17)之後
+  //    那一列不印了,相關的「印出來了嗎」格全部作廢,**改成下方的反向守門**。
+  //    ⚠️ 作廢的只有「紙上有沒有印」那一類;`trackingDisplay` 的判斷本身仍有測試
+  //    (`lib/shipping/shipping-doc-dispatch.test.ts`,一格未刪),寫入守門在 `shipment-actions.test.ts`。
+
+  it('貨運商 / 日期 都印出來,而且各自帶標籤', async () => {
     const t = (await renderPage()).container.textContent ?? '';
     expect(t).toContain('貨運商:新竹物流');
-    expect(t).toContain('新竹物流追蹤碼:');
-    expect(t).toContain('6412345678');
     expect(t).toMatch(/日期:\d{4}-\d{2}-\d{2}/);
   });
 
-  it('🔴 三個號碼並排 ⇒ 每一個都要有標籤(plan §4:客人不知道該拿哪個去查)', async () => {
+  it('🔴 號碼並排 ⇒ 每一個都要有標籤(plan §4:客人不知道該拿哪個去查)', async () => {
     const t = (await renderPage()).container.textContent ?? '';
     // 🔴 `displayId` 在片3 之前是**裸印**的(紙上只有 `PCM-2026-0042` 沒有「訂單編號」四個字)。
     expect(t).toContain('訂單編號 PCM-2026-0042');
     expect(t).toContain('箱號 K7X2MP');
-    // 🔴 追蹤碼的標籤必須帶貨運商名 —— 只有它是拿去**別人家網站**查的。
-    expect(t).not.toMatch(/(?<!新竹物流)追蹤碼:6412345678/);
   });
 
   it('已出貨 ⇒ 日期那格印的是 shippedAt 那天,不是列印當天', async () => {
@@ -650,45 +651,44 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
     const t = (await renderPage()).container.textContent ?? '';
     expect(t).toContain('貨運商:其他(客人自取)');
     expect(t.split('客人自取').length - 1).toBe(1);
-    expect(t).toContain('無追蹤碼(自取 / 自送)');
+    // ⚠️ 原本這裡還有一條 `toContain('無追蹤碼(自取 / 自送)')` ⇒ **`Q-C5`=丙 之後那句不印了**,
+    //    它的反面(不准印)已由下方 `Q-C5=丙` 那一族守著,不在這裡重複。
   });
 
-  it('🔴 已出貨 + 非 other + 沒追蹤碼 ⇒ 紙上印「請回報」,不留白(plan §3.1 情形③)', async () => {
-    mocks.loadOrderShipments.mockResolvedValue([
-      {
-        shipment: shipment({ carrierCode: 'sf', trackingNumber: null, shippedAt: '2026-08-16T02:00:00Z' }),
-        lines,
-      },
-    ]);
+  // ── 🔴 `Q-C5`=丙 的反向守門(2026-08-17)──
+  //    Sean 逐字 `q3: 丙` ⇒ **出貨明細單不印追蹤碼,追蹤碼只走簡訊／Email**。
+  //    🔴 **這一族取代的是四格「印出來了嗎」**,而它們原本各自釘一種 `null` 語意
+  //       (有碼 / `missing` / `selfService` / `pending`)⇒ **這裡逐一狀態都要餵一次**,
+  //       否則只有「本來就不印」的那一種被守到,而那一種在丙之前就不印了 = 零判別力。
+  //    ⚠️ 每一格都帶**正向對照**(貨運商 + 日期照印),不然「整區沒渲染」會被讀成通過。
+  //
+  //    🔴🔴 **突變實測(2026-08-17,`cp` 備份、非 `git checkout`)**:把那一列**忠實還原**
+  //    (import 回 `trackingDisplay` + 四支分支照原樣渲染)⇒ `3 failed | 57 passed`。
+  //    **紅的是前三列;第 4 列(未出貨)【綠】,而那是預期的** ——
+  //    `pending` 在丙之前本來就 `return null` ⇒ **這一列對「忠實還原」零判別力**。
+  //    ⇒ 寫下來是因為「四列全部紅」才是我原本以為會看到的,而事實不是。
+  //
+  //    🔴 **這一族量得到什麼、量不到什麼(codex R1 逼出來的,我原本寫過頭了)**:
+  //    它只認**「追蹤碼」這三個字 + 各狀態原本那句話的字面**。
+  //    ⇒ **量不到**:有人加一列印**空值 / 破折號**的追蹤碼欄、或把欄名改叫「**貨運單號**」
+  //      ⇒ 紙上真的多了一列,而這四格**照樣全綠**。
+  //      (我原本寫「它守的是有人加一列無條件印的追蹤碼」—— **那句話太滿**,只在那一列
+  //       仍叫「追蹤碼」且印得出值時才成立。)
+  //    ⚠️ 另外 `not.toContain('請回報')` 在第 1、3 列是**恆真**的(那兩種狀態本來就不會有那句話),
+  //      它只在第 2 列有判別力。留著是因為四列共用一組斷言比四份各寫一份好維護,**但別把它讀成四道**。
+  it.each([
+    ['已出貨 + 有碼(丙之前會印出號碼)', { shippedAt: '2026-08-16T02:00:00Z' }, '6412345678'],
+    ['已出貨 + 非 other + 無碼(丙之前印「追蹤碼缺漏」)', { carrierCode: 'sf', trackingNumber: null, shippedAt: '2026-08-16T02:00:00Z' }, '缺漏'],
+    ['已出貨 + other + 無碼(丙之前印「無追蹤碼(自取 / 自送)」)', { carrierCode: 'other', carrierNote: '客人自取', trackingNumber: null, shippedAt: '2026-08-16T02:00:00Z' }, '自送'],
+    ['未出貨(丙之前就整列不印)', { trackingNumber: null, shippedAt: null }, '出貨後補'],
+  ])('🔴🔴 Q-C5=丙:%s ⇒ 紙上一個追蹤碼字樣都沒有', async (_name, over, alsoAbsent) => {
+    mocks.loadOrderShipments.mockResolvedValue([{ shipment: shipment(over), lines }]);
     const t = (await renderPage()).container.textContent ?? '';
-    // 🔴 留白的話員工不會發現,而客人拿到一張查不到貨的紙。
-    expect(t).toContain('追蹤碼缺漏');
-    expect(t).toContain('系統已記為已出貨');
-    // 🔴🔴 **這一格被改過兩次,兩次都是因為【恆真】,記著兩次的形狀**:
-    //    R1 原式 `not.toMatch(/追蹤碼:\s*$/m)` —— `textContent` 沒有換行、那列後面永遠還有東西
-    //      ⇒ `$` 碰不到。
-    //    R2 第二版「量這一列有幾個字 > 4」—— 當時那列尾巴接著一句 **12 個字的常數**
-    //      ⇒ `t.text` 改成 `''` 時仍得 12 > 4,**照樣綠**。
-    //    R2 折完後我又量了第三次,結果是:**那條長度斷言【從來不會自己紅】** ——
-    //      突變 `t.text = ''`      ⇒ 死在上面的 toContain
-    //      突變 JSX 改成不渲染 t.text ⇒ 也死在上面的 toContain
-    //    ⇒ 它不是恆真,但**沒有任何獨立判別力**,而三行斷言看起來比兩行更周全。
-    //    🔴 **所以刪掉它,不留假覆蓋** —— 這一格的判別力全部由上面兩條 toContain 承擔,
-    //       而它們釘的是**紙上真的印出來的那句話**,那才是這格要守的東西。
-    // ⚠️ 這一列會不會被印成**看不見的樣式**(顏色/字級),單測量不到 —— 紙沒印出來看過。
-  });
-
-  it('🔴🔴 未出貨且沒追蹤碼 ⇒ 紙上【整列不印】(Q-C9b=乙「什麼都不寫,空格」)', async () => {
-    mocks.loadOrderShipments.mockResolvedValue([
-      { shipment: shipment({ trackingNumber: null, shippedAt: null }), lines },
-    ]);
-    const t = (await renderPage()).container.textContent ?? '';
-    // 🔴 連「追蹤碼:」四個字都不印 —— 只把值換成空字串的話,紙上會留下一個看起來壞掉的欄位。
     expect(t).not.toContain('追蹤碼');
-    expect(t).not.toContain('出貨後補');
+    expect(t).not.toContain(alsoAbsent);
     expect(t).not.toContain('請回報');
-    // 🔴 **正向對照**:同一張紙的其他貨運資訊照印 ⇒ 上面那三個「沒有」不是整區沒渲染。
-    expect(t).toContain('貨運商:新竹物流');
+    // 正向對照:貨運資訊那一區本身還在。
+    expect(t).toContain('貨運商:');
     expect(t).toMatch(/日期:\d{4}-\d{2}-\d{2}/);
   });
 
