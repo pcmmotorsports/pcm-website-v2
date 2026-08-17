@@ -82,4 +82,13 @@ describe('logSsoLogin', () => {
       ['evt', 'outcome', 'reason', 'request_id', 'source_app'],
     );
   });
+
+  it('🔴 一筆事件=一行:輸出不含換行(security-log.ts:29 加 indent ⇒ 本格紅,而其餘格全綠)', () => {
+    // 既有格的取值路徑(JSON.parse 與對原字串 toContain)對縮排全免疫 ⇒ 有人把 record
+    // 排版成多行時它們不會紅,而值班逐行撈 log 已靜默壞掉。單行性只有本格在守。
+    logSsoLogin('fail', { requestId: 'req-6', reason: 'exchange-failed' });
+    const line = String(warn.mock.calls[0]?.[0]);
+    expect(line).toContain('req-6'); // 正向對照:這把尺真的量到了那一行
+    expect(line).not.toContain('\n');
+  });
 });
