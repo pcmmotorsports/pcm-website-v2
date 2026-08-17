@@ -135,8 +135,7 @@ warn 的條件   page === MAX_PAGES - 1        ← 第 49 頁才判
   效能、design-reference 一致性(鐵則 1) 一律【沒有掃】。
 2 .length 那 8 處是【字面 grep】⇒ 組出來的字串、i18n key、
   用變數接過一手再印的（const n = xs.length 之後印 {n}）⇒ 掃不到。
-3 「前台透過 adapter 查」那一大半【沒有逐支盤】—— 本檔只從【顯示端回推】。
-  ⇒ adapter 裡還有多少無上界查詢,本檔答不出來。
+3 ~~「前台透過 adapter 查」那一大半【沒有逐支盤】~~ 🏁 **已補,見 §8**(2026-08-18)。
 4 第 3 節那五條是【對著 code 讀出來的】，不是實跑。
   🔴 尤其 ① 那條的「壞世界」我【沒有真的把 max-rows 調低去看它漏】——
      那需要一個可拋棄的 Postgres，本班沒做。⇒ 它是推的，不是量的。
@@ -208,3 +207,67 @@ docs/phase-1-backlog.md:15801                          「db-max-rows 實測也�
 **逐處改字面是收割窗/主視窗的層級,不是我一個施工窗該自己橫掃的。** 已回報。
 ⇒ **而真正的修法不是把 18 處的 `1000` 改成 `2000`** —— 那只是把保存期限往後推一次。
 **要改的是「數字旁邊沒有時點與探法」這件事本身。** 這條已進 `#629`。
+
+
+---
+
+## 8. `packages/adapters` 逐支盤(補 §5 限度 3;2026-08-18)
+
+### 分母(先寫死,再開始掃 —— 不邊掃邊定義範圍)
+
+```
+adapters 全部 .from(   grep -rn "\.from\('" packages/adapters/src --include='*.ts' | grep -v '\.test\.' | wc -l
+                       ⇒ 46
+```
+
+### 判法(每處三類)
+
+```
+① 有 .limit(              ⇒ 有界
+② 有 .range( 分頁迴圈      ⇒ 有界（fetchAllPaginated 共用）
+③ 🔴 什麼都沒有           ⇒ 吃 db-max-rows
+（.single / .maybeSingle / head:true / count: 也算有界 —— 它們不回列陣列）
+```
+
+### 🔴 我第一版篩法【有假陽性】,而它差點讓我報 16 處
+
+```
+第一版  正規式從 .from(' 往後切【600 字元】找 limit/range   ⇒ 報 16 處
+第二版  每處往後看【20 行】                                  ⇒ 剩 2 處
+```
+**差在哪(逐處開檔看到的)**:
+```
+SupabaseProductAdapter.ts:273  .limit(limit) 在【15 行外】(中間隔著 orderDesc 三元式)
+SupabaseProductAdapter.ts:286  走 fetchAllPaginated + .range(from, to)，是【外層函式】給的界
+SupabaseProductAdapter.ts:331  .limit(poolLimit) 在 .order 之後
+email_outbox 5 處              全是 insert / update ⇒ 本來就不需要【讀取】上界
+VehicleAdapter:79 / AddressAdapter:85  是 delete
+```
+🔴 **教訓**:「無上界查詢」這個判定,**量具的窗開多寬會直接改變答案** ——
+600 字元與 20 行的差別,是「16 處要修」與「2 處要看」的差別。
+⇒ **報這種數字之前先問:我的量具會不會把【有界但寫得遠】誤判成無界?**
+⚠️ **而第二版也不保證對** —— 20 行窗一樣有上限,只是比 600 字元寬。**這是縮小誤差,不是消除。**
+
+### 結果:③ 類 = **2 處**
+
+| 位置 | 表 | 有沒有濾條件 | 判定 |
+|---|---|---|---|
+| `helpers/category-queries.ts:67` | `categories` | 🔴 **沒有**(撈全站分類) | **真候選** —— 已於本班補註解,併 `#629` |
+| `helpers/fitment-queries.ts:164` | `product_fitments_effective` | ✅ `.eq('product_id', …)` + `.eq('match_source','inherited')` | **低風險,但有一句未量** |
+
+**`fitment-queries.ts:164` 的判定(寫清楚,不含糊)**
+```
+✅ 它的註解【已經寫了理由】(:154-155 逐字):
+   「單商品 inherited 列個位數~數十(Y016=6),單次查詢即可、不分頁」
+   ⇒ 這比大多數地方好 —— 它有理由，而且有一個實測樣本。
+⚠️ 而「不會超過 db-max-rows」這句仍是【推的】:
+   Y016=6 是【一個商品】的實測，不是全稱。
+   一個通用件理論上可以適配到很多車款。
+   缺的檢查 = 對正式庫問一次「單一 product_id 的 inherited 列數最大值」。
+⇒ 照 §2③ 的規矩標【未量】，不寫成「不可能」。
+```
+
+### 一句話結論
+
+**`packages/adapters` 46 處查詢裡,真正「什麼界都沒有的 select」只有 2 處,而其中 1 處有濾條件。**
+⇒ **這一半的狀態比我掃之前預期的好。** 唯一的真候選(`categories`)已經進 `#629`。
