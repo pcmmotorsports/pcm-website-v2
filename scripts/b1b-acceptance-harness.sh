@@ -53,6 +53,40 @@ cell() { # cell <名稱> <預期 red|green> <命令...>
   fi
 }
 
+# cell_red_msg <名稱> <訊息片段> <sql 檔>  —— 「紅」而且「紅對地方」
+# 🔴 2026-08-17 B 窗審 B2 加:原本 S1/S3/S5 三格用 `cell … red`,那只驗【有沒有紅】。
+#    具體會壞的例子(已量,不是假想):S1 把 uuid 換成 `00000000-…-0001/0002`,
+#    而那兩個 uuid **不在樁的 auth.users 裡** ⇒ 0.3(uuid 不存在)也會紅。
+#    今天紅在 0.2 純粹因為 0.2 排在 0.3 前面 —— **任何人重排 DO 區塊內的順序,
+#    S1 就悄悄改成在測 0.3,而它照樣印 ✅**。這一格從此測錯東西,零訊號。
+# 🔴 兩道錨都要:`ERROR:`(不帶 `^`,psql 的錯誤行前面有 `psql:<檔>:<行>: ` 前綴)+ 訊息片段。
+cell_red_msg() {
+  local name="$1" needle="$2" f="$3" out rc
+  out="$(psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$f" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then
+    FAIL=$((FAIL+1)); printf "  🔴 %-34s 沒紅(預期 red)\n" "$name"
+  elif printf '%s' "$out" | grep -q 'ERROR:' && printf '%s' "$out" | grep -qF "$needle"; then
+    PASS=$((PASS+1)); printf "  ✅ %-34s 紅,且訊息含「%s」\n" "$name" "$needle"
+  else
+    FAIL=$((FAIL+1)); printf "  🔴 %-34s 紅了但訊息沒有「%s」⇒ 紅錯地方\n" "$name" "$needle"
+    printf '%s\n' "$out" | tail -2 | sed 's/^/       /'
+  fi
+}
+
+# assert_anchor <期望命中數> <pattern> <檔>  —— 突變前先證錨點唯一
+# 🔴 B-580 §3-2:本線兩次被它擋下(`^UPDATE public.staff$` 命中 2 次、`IS DISTINCT FROM` 命中 4 次)。
+#    沒有這道,產出的是「紅得理直氣壯但測錯東西」的格。
+assert_anchor() {
+  local want="$1" pat="$2" f="$3" got
+  # ⚠️ code-reviewer 2026-08-17 [nit]:`grep -c` 數的是【行數】不是【出現次數】——
+  #    同一行出現兩次會回報 1。另外這裡用 `-F`(固定字串)而下游 sed 吃 BRE,
+  #    錨點若帶 regex 元字元,兩者的判斷會不一致。目前 S11/S12 的錨點無元字元 ⇒ 今天不發作。
+  got=$(grep -cF "$pat" "$f")
+  [ "$got" = "$want" ] && return 0
+  FAIL=$((FAIL+1)); printf "  🔴 %-34s 錨點命中 %s 次(預期 %s):%s\n" "錨點唯一性" "$got" "$want" "$pat"
+  return 1
+}
+
 run_sql_file() { psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$1" > /dev/null 2>&1; }
 run_sql()      { psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -c "$1" > /dev/null 2>&1; }
 
@@ -898,10 +932,10 @@ sed -e "s/'f5fb22ee-29f8-4af9-83b8-7fc9121eb533'/'00000000-0000-0000-0000-000000
 if [ "$(grep -c '00000000-0000-0000-0000-00000000000' "$S1_FILE")" -lt 4 ]; then
   echo "  🔴 S1 突變沒生效(找不到真 uuid 可換)—— 這一格失去判別力"; FAIL=$((FAIL+1))
 else
-  cell "S1 還原成佔位符後跑" red run_sql_file "$S1_FILE"
+  cell_red_msg "S1 還原成佔位符後跑" "還是草稿裡的佔位符" "$S1_FILE"
 fi
 cell "S2 B2 原檔(真 uuid)" green run_sql_file "$B2"
-cell "S3 重跑(表已非空)" red run_sql_file "$B2"
+cell_red_msg "S3 重跑(表已非空)" "不是空的" "$B2"
 IDS=$(psqlq -c "select string_agg(auth_user_id::text||'='||staff_id,',' order by staff_id) from public.admin_user_staff_map;")
 EXPECT='63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f=sean,f5fb22ee-29f8-4af9-83b8-7fc9121eb533=staff_2'
 EXPECT_OK='f5fb22ee-29f8-4af9-83b8-7fc9121eb533=sean,63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f=staff_2'
@@ -922,8 +956,227 @@ sed -e "s/('f5fb22ee-29f8-4af9-83b8-7fc9121eb533', 'sean')/('63f0e9c6-d8c1-4f0d-
 if diff -q "$B2" "$D/seed_swapped.sql" > /dev/null; then
   echo "  🔴 S5 突變沒生效(兩份檔一樣)—— 這一格失去判別力"; FAIL=$((FAIL+1))
 else
-  cell "S5 兩個 uuid 對調" red run_sql_file "$D/seed_swapped.sql"
+  cell_red_msg "S5 兩個 uuid 對調" "配對不符" "$D/seed_swapped.sql"
 fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  第四段:B2 前提斷言的行為負測(2026-08-17 B 窗審 B2 新增)
+#
+#  🔴 為什麼要有這一段:B2 是三支裡【唯一沒被單獨審過】的,只在上面當下游跑過。
+#     盤點它自己的 9 道斷言,原本只有 4 道有格:
+#       0.1d RLS 沒開(A20)/ 0.2 佔位符(S1)/ 0.5 表非空(S3)/ §2 精確配對(S5)
+#     以下這一段補的是剩下那些。**方向是「拆掉那道斷言守的東西 ⇒ 必須紅、而且紅對地方」。**
+#     🔴 本段新增 **22** 格(全支 43 → 65;兩個數字都是腳本最後一行印的,重跑即得)。
+#        ⛔ 這行原本寫「以下 6 格」—— code-reviewer 2026-08-17 抓,那是本段最早的版本沒跟著改。
+#           **這行是下一個人判斷「這段補了多少」的唯一依據**,寫錯等於給他一個假的分母。
+#
+#  ⛔ 這裡原有一段寫「§2 那句『表裡出現不該登入的帳號』刻意不補」——
+#     **已於 2026-08-17 同一筆 commit 作廢**(code-reviewer 抓):
+#     那道斷言本身已經在 B2 裡被【刪掉】了(它永遠走不到:精確配對已把表釘死成恰好那兩列)。
+#     原句讀起來像「它還在,只是沒格」⇒ 下一個人會去 B2 找一道不存在的斷言。
+#     ⇒ 現在守「系統帳號 / test_01 綁不了」的是 **0.6 的白名單行為探針**,負測 = S15 / S18 / S21 / S24。
+# ═══════════════════════════════════════════════════════════════════════════
+echo ""
+echo "══ 第四段:B2 前提斷言的行為負測 ══"
+
+# S6 · 0.1a 表根本不存在(B1-b 沒 apply,或連錯庫)
+drop_objs
+cell_red_msg "S6 B1-b 沒跑過就 seed" "找不到 public.admin_user_staff_map" "$B2"
+
+# S7 · 0.1b CHECK 白名單被拆掉
+drop_objs; run_sql_file "$B1B"
+run_sql "ALTER TABLE public.admin_user_staff_map DROP CONSTRAINT admin_user_staff_map_staff_whitelist;"
+if [ "$(psqlq -c "select count(*) from pg_constraint where conrelid='public.admin_user_staff_map'::regclass and conname='admin_user_staff_map_staff_whitelist';")" != "0" ]; then
+  echo "  🔴 S7 突變沒生效(CHECK 還在)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S7 CHECK 白名單被拆掉" "CHECK 白名單約束不見了" "$B2"
+fi
+
+# S8 · 0.1c 禁重綁的 trigger 被拆掉
+#    🔴 這一格是【新覆蓋】:原版斷言只驗 no_delete 一道 ⇒ 拆 no_rebind 在改動前是【綠的】。
+drop_objs; run_sql_file "$B1B"
+run_sql "DROP TRIGGER admin_user_staff_map_no_rebind_trg ON public.admin_user_staff_map;"
+cell_red_msg "S8 no_rebind trigger 被拆" "admin_user_staff_map_no_rebind_trg" "$B2"
+
+# S9 · 0.1c 禁刪的 trigger 被拆掉 —— 防回歸:那道檢查改寫成列名版之後,原本就守得住的要繼續守得住
+drop_objs; run_sql_file "$B1B"
+run_sql "DROP TRIGGER admin_user_staff_map_no_delete_trg ON public.admin_user_staff_map;"
+cell_red_msg "S9 no_delete trigger 被拆" "admin_user_staff_map_no_delete_trg" "$B2"
+
+# S10 · 0.3 uuid 不在 auth.users(帳號還沒開,或 uuid 貼錯)
+#    🔴 這一格【改到樁本身】⇒ 收尾必須還原並【當場驗還原成功】。
+#       B-580 §3-5:改動會讓別的格的構造失效,而症狀出現在下游、帳算在別人頭上。
+drop_objs; run_sql_file "$B1B"
+run_sql "DELETE FROM auth.users WHERE id = '63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f';"
+cell_red_msg "S10 uuid 不在 auth.users" "在 auth.users 裡找不到" "$B2"
+run_sql "INSERT INTO auth.users VALUES ('63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f') ON CONFLICT DO NOTHING;"
+if [ "$(psqlq -c "select count(*) from auth.users where id='63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f';")" = "1" ]; then
+  PASS=$((PASS+1)); printf "  ✅ %-34s 樁已還原(S10 沒有把下游弄壞)\n" "S10b 還原驗證"
+else
+  FAIL=$((FAIL+1)); printf "  🔴 %-34s 樁沒還原 ⇒ 後面每一格都會紅在錯的地方\n" "S10b 還原驗證"
+fi
+
+# S11 · 0.4 兩個 uuid 貼成同一個(複製貼上最容易犯的錯)
+#    只改 §0 DECLARE 那一處,不動 INSERT ⇒ 紅在 0.4 而不是紅在 PK 衝突。
+drop_objs; run_sql_file "$B1B"
+S11_ANCHOR="v_staff_2 uuid := '63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f'"
+if assert_anchor 1 "$S11_ANCHOR" "$B2"; then
+  sed "s/${S11_ANCHOR}/v_staff_2 uuid := 'f5fb22ee-29f8-4af9-83b8-7fc9121eb533'/" "$B2" > "$D/seed_same_uuid.sql"
+  cell_red_msg "S11 兩個 uuid 貼成同一個" "兩個 uuid 相同" "$D/seed_same_uuid.sql"
+fi
+
+# S12 · §2 落地列數 —— 少插一列時 v_n<>2 必須叫
+drop_objs; run_sql_file "$B1B"
+# 🔴 錨點踩過一次(2026-08-17,當場被 assert_anchor 擋下):`'staff_2');` 命中【2】次 ——
+#    第二處是檔頭 :24 的退場說明 `DELETE … WHERE staff_id IN ('sean','staff_2');`。
+#    用它當 sed 錨點 ⇒ 會把那行【註解】一起刪掉,而突變檔照樣紅在 v_n<>2 ⇒ 格子是綠的、測的東西是錯的。
+#    ⇒ 錨點帶上 uuid 才唯一(已量:兩個都是 1)。
+S12_DEL="'63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f', 'staff_2');"
+S12_SUB="'f5fb22ee-29f8-4af9-83b8-7fc9121eb533', 'sean'),"
+if assert_anchor 1 "$S12_DEL" "$B2" && assert_anchor 1 "$S12_SUB" "$B2"; then
+  sed -e "/${S12_DEL}/d" -e "s/${S12_SUB}/'f5fb22ee-29f8-4af9-83b8-7fc9121eb533', 'sean');/" "$B2" > "$D/seed_one_row.sql"
+  cell_red_msg "S12 只插一列時列數斷言要叫" "預期 2 列,實際" "$D/seed_one_row.sql"
+fi
+
+# ── 以下三格來自 codex 對抗審查 2026-08-17 的三條 must-fix ──────────────────
+# S14 · no_truncate 也要有自己的負測
+#    🔴 我原本判「與 S8/S9 同一條 code path ⇒ 一個證據複印三份」而跳過它。
+#       codex 指出那個判斷答錯了題:它守的不是「斷言會不會叫」,是**清單本身的回歸** ——
+#       日後有人從 VALUES 清單裡拿掉 no_truncate,S8/S9 照樣綠,而保護少了一道、零訊號。
+drop_objs; run_sql_file "$B1B"
+run_sql "DROP TRIGGER admin_user_staff_map_no_truncate_trg ON public.admin_user_staff_map;"
+cell_red_msg "S14 no_truncate trigger 被拆" "admin_user_staff_map_no_truncate_trg" "$B2"
+
+# S15 · CHECK 白名單被【改成恆真】而名字沒變 —— 0.1 只比對 conname,看不見
+drop_objs; run_sql_file "$B1B"
+# 🔴 2026-08-17 這格的構造被【第四輪加的那道 pg_get_constraintdef 名字檢查】弄失效過一次:
+#    原本用 `CHECK (true)`,而它定義裡沒有那三個名字 ⇒ 紅在「名單被縮掉了」而不是紅在探針。
+#    **是 cell_red_msg 的訊息錨當場叫出來的**(只驗「有沒有紅」的話,這一格會靜靜地改測別的東西)。
+#    ⇒ 誘餌改成【名字都在、但恆真】,才走得到探針那一段。
+run_sql "ALTER TABLE public.admin_user_staff_map DROP CONSTRAINT admin_user_staff_map_staff_whitelist;
+         ALTER TABLE public.admin_user_staff_map ADD CONSTRAINT admin_user_staff_map_staff_whitelist CHECK (staff_id IN ('sean','staff_1','staff_2') OR true);"
+if [ "$(psqlq -c "select count(*) from pg_constraint where conrelid='public.admin_user_staff_map'::regclass and conname='admin_user_staff_map_staff_whitelist';")" != "1" ]; then
+  echo "  🔴 S15 突變沒生效(同名約束沒加回來)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S15 白名單被換成恆真(同名)" "白名單擋不住 test_01" "$B2"
+fi
+
+# S16 · trigger 被【停用】而不是被刪 —— pg_trigger 那一列還在,而 trigger 不會跑
+#    🔴 這條路是 B2 檔頭 :23-26 的退場程序自己造出來的(第 1 步 DISABLE、第 3 步忘了 ENABLE)。
+drop_objs; run_sql_file "$B1B"
+run_sql "ALTER TABLE public.admin_user_staff_map DISABLE TRIGGER admin_user_staff_map_no_delete_trg;"
+if [ "$(psqlq -c "select tgenabled from pg_trigger where tgrelid='public.admin_user_staff_map'::regclass and tgname='admin_user_staff_map_no_delete_trg';")" != "D" ]; then
+  echo "  🔴 S16 突變沒生效(tgenabled 不是 D)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S16 trigger 被停用而非刪除" "admin_user_staff_map_no_delete_trg" "$B2"
+fi
+
+# ── 以下兩格來自 codex 對抗審查【第二輪】2026-08-17 的兩條 must-fix ──────────
+# S17 · trigger 設成 ENABLE REPLICA(tgenabled='R')—— 正常操作下等同停用
+#    🔴 第一輪的修法寫 `tgenabled <> 'D'`,這一格證明那是半套的:`R` 會過。
+drop_objs; run_sql_file "$B1B"
+run_sql "ALTER TABLE public.admin_user_staff_map ENABLE REPLICA TRIGGER admin_user_staff_map_no_rebind_trg;"
+if [ "$(psqlq -c "select tgenabled from pg_trigger where tgrelid='public.admin_user_staff_map'::regclass and tgname='admin_user_staff_map_no_rebind_trg';")" != "R" ]; then
+  echo "  🔴 S17 突變沒生效(tgenabled 不是 R)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S17 trigger 設成 REPLICA-only" "admin_user_staff_map_no_rebind_trg" "$B2"
+fi
+
+# S18 · 白名單被掏空,而【另一道 CHECK】剛好也擋下探針 —— 探針被遮蔽
+#    🔴 沒有 GET STACKED DIAGNOSTICS 那一段,這一格是【綠的】,而白名單已形同虛設。
+drop_objs; run_sql_file "$B1B"
+run_sql "ALTER TABLE public.admin_user_staff_map DROP CONSTRAINT admin_user_staff_map_staff_whitelist;
+         ALTER TABLE public.admin_user_staff_map ADD CONSTRAINT admin_user_staff_map_staff_whitelist CHECK (staff_id IN ('sean','staff_1','staff_2') OR true);
+         ALTER TABLE public.admin_user_staff_map ADD CONSTRAINT zz_decoy_blocks_test01 CHECK (staff_id <> 'test_01');"
+if [ "$(psqlq -c "select count(*) from pg_constraint where conrelid='public.admin_user_staff_map'::regclass and conname='zz_decoy_blocks_test01';")" != "1" ]; then
+  echo "  🔴 S18 突變沒生效(誘餌約束沒加上)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S18 探針被別的 CHECK 遮蔽" "zz_decoy_blocks_test01" "$B2"
+fi
+
+# ── 以下三格來自 codex 對抗審查【第三輪 · 換模型 gpt-5.6-sol · 換角度】的 must-fix ──
+#    🔴 病:`CREATE OR REPLACE FUNCTION` **不換 OID** ⇒ 函式本體被掏空,而 tgfoid 一個位元都沒變。
+#       ⇒ S8/S9/S14/S16/S17 那五格【全部看不見這個世界】(它們動的是 trigger,不是函式本體)。
+#    ⚠️ 三格都必須先證「突變真的把本體換掉了」—— 不然它們是恆綠的。
+GUT="RETURNS trigger LANGUAGE plpgsql AS \$g\$ BEGIN RETURN NEW; END \$g\$;"
+for T in no_truncate no_delete no_rebind; do
+  drop_objs; run_sql_file "$B1B"
+  run_sql "CREATE OR REPLACE FUNCTION public.admin_user_staff_map_${T}() $GUT"
+  if [ "$(psqlq -c "select position('RETURN NEW' in prosrc) > 0 from pg_proc where proname='admin_user_staff_map_${T}';")" != "t" ]; then
+    echo "  🔴 S19-$T 突變沒生效(函式本體沒被換掉)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+  else
+    case "$T" in
+      no_truncate) NEEDLE="TRUNCATE 沒有被擋下" ;;
+      no_delete)   NEEDLE="DELETE 沒有被擋下" ;;
+      no_rebind)   NEEDLE="UPDATE 沒有被擋下" ;;
+    esac
+    cell_red_msg "S19-$T 函式本體被掏空(OID 不變)" "$NEEDLE" "$B2"
+  fi
+done
+
+# ── 以下兩格來自 codex 對抗審查【第四輪 · 質疑框架本身】的 must-fix ──────────
+# S20 · 🔴🔴 **誤紅守門(唯一一格「預期 green」的負向情境)**
+#    第二輪為了關「遮蔽」而用錯誤訊息的字認人 ⇒ 第四輪指出那讓【只改文案】變成 apply 失敗。
+#    ⇒ 這一格構造「保護完全正常、只有措辭不同」的世界,B2 **必須照樣綠**。
+#    ⚠️ 這格不是可有可無的對照:它守的是【Sean 在 apply 當天裝不裝得上去】。
+drop_objs; run_sql_file "$B1B"
+run_sql "CREATE OR REPLACE FUNCTION public.admin_user_staff_map_no_delete() RETURNS trigger LANGUAGE plpgsql AS \$w\$ BEGIN RAISE EXCEPTION '措辭換過了,但照樣不給刪'; END \$w\$;"
+if [ "$(psqlq -c "select position('措辭換過了' in prosrc) > 0 from pg_proc where proname='admin_user_staff_map_no_delete';")" != "t" ]; then
+  echo "  🔴 S20 突變沒生效(文案沒換掉)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell "S20 只改文案·保護正常 ⇒ 不可誤紅" green run_sql_file "$B2"
+fi
+
+# S21 · 白名單被換成「只擋 test_01」的同名約束 —— 單一探針測不出來
+#    🔴 沒有第二個探針代號,這一格是【綠的】,而 x9 之類的代號綁得了帳號。
+drop_objs; run_sql_file "$B1B"
+run_sql "ALTER TABLE public.admin_user_staff_map DROP CONSTRAINT admin_user_staff_map_staff_whitelist;
+         ALTER TABLE public.admin_user_staff_map ADD CONSTRAINT admin_user_staff_map_staff_whitelist CHECK (staff_id IN ('sean','staff_1','staff_2') OR staff_id <> 'test_01');"
+# 🔴 這個誘餌【刻意】做成能通過前兩道:定義裡三個名字都在(過得了 pg_get_constraintdef 那道)、
+#    test_01 也照樣擋(過得了第一個探針)⇒ 只有第二個探針代號抓得到它。
+cell_red_msg "S21 白名單只擋 test_01(同名)" "擋不住 b2_probe_not_whitelisted" "$B2"
+
+# ── 以下三格來自 code-reviewer 2026-08-17 的三條 Critical ────────────────────
+#    🔴 它對 B2 下了突變證明:把 `tgtype` 那行刪掉 + `tgfoid` 換成 `AND true` ⇒ **62 格全綠**。
+#       ⇒ 那兩道斷言是我自己加的,而我**一格負測都沒配**,還在 commit body 裡把它們寫成「已修」。
+#       📎 形狀 = 「看到 → 寫下來 → 處理掉」停在第二步(memory feedback_seen-written-handled-are-three-steps)。
+
+# S22 · tgtype:同名同函式的 trigger 被重建成 BEFORE INSERT ⇒ 禁刪根本沒在守
+drop_objs; run_sql_file "$B1B"
+run_sql "DROP TRIGGER admin_user_staff_map_no_delete_trg ON public.admin_user_staff_map;
+         CREATE TRIGGER admin_user_staff_map_no_delete_trg BEFORE INSERT ON public.admin_user_staff_map
+           FOR EACH ROW EXECUTE FUNCTION public.admin_user_staff_map_no_delete();"
+if [ "$(psqlq -c "select tgtype from pg_trigger where tgrelid='public.admin_user_staff_map'::regclass and tgname='admin_user_staff_map_no_delete_trg';")" = "11" ]; then
+  echo "  🔴 S22 突變沒生效(tgtype 還是 11)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S22 trigger 改掛 BEFORE INSERT" "admin_user_staff_map_no_delete_trg" "$B2"
+fi
+
+# S23 · tgfoid:同名同事件的 trigger 被重綁到【另一個函式】
+drop_objs; run_sql_file "$B1B"
+run_sql "DROP TRIGGER admin_user_staff_map_no_delete_trg ON public.admin_user_staff_map;
+         CREATE TRIGGER admin_user_staff_map_no_delete_trg BEFORE DELETE ON public.admin_user_staff_map
+           FOR EACH ROW EXECUTE FUNCTION public.admin_user_staff_map_no_rebind();"
+if [ "$(psqlq -c "select p.proname from pg_trigger g join pg_proc p on p.oid=g.tgfoid where g.tgrelid='public.admin_user_staff_map'::regclass and g.tgname='admin_user_staff_map_no_delete_trg';")" != "admin_user_staff_map_no_rebind" ]; then
+  echo "  🔴 S23 突變沒生效(還綁在原函式)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S23 trigger 被重綁到別的函式" "admin_user_staff_map_no_delete_trg" "$B2"
+fi
+
+# S24 · 白名單被【縮短】成兩個代號(同名)—— 兩個探針代號照樣被擋,只有名字檢查抓得到
+drop_objs; run_sql_file "$B1B"
+run_sql "ALTER TABLE public.admin_user_staff_map DROP CONSTRAINT admin_user_staff_map_staff_whitelist;
+         ALTER TABLE public.admin_user_staff_map ADD CONSTRAINT admin_user_staff_map_staff_whitelist CHECK (staff_id IN ('sean','staff_2'));"
+if [ "$(psqlq -c "select position('staff_1' in pg_get_constraintdef(oid)) from pg_constraint where conrelid='public.admin_user_staff_map'::regclass and conname='admin_user_staff_map_staff_whitelist';")" != "0" ]; then
+  echo "  🔴 S24 突變沒生效(staff_1 還在定義裡)—— 這一格失去判別力"; FAIL=$((FAIL+1))
+else
+  cell_red_msg "S24 白名單被縮短(同名)" "名單被縮掉了" "$B2"
+fi
+
+# 🔴 收尾:把樁與物件回到「B1-b 剛跑完 + B2 跑完」的正常狀態,並驗它真的正常
+#    (不是潔癖:上面 S6-S12 每一格都刻意弄壞了某個東西。)
+drop_objs; run_sql_file "$B1B"
+cell "S13 全部負測跑完後 B2 仍能正常 seed" green run_sql_file "$B2"
 
 echo ""
 echo "══════════════════════════════════════════════════════════"
