@@ -178,11 +178,12 @@ git log origin/dev..dev --since="2026-08-17 00:00" --pretty=%H --name-only \
 ## 既存債(這輪審出、非本批引入)
 
 - 🟡 **面8 訊息口徑不一致**:`apps/admin/src/components/print/shipping-doc.tsx:145` 面8「讀不到任何品項」仍寫「請重新整理」,而面6/面6-b 已立「系統問題不叫使用者重試」的口徑。C 窗這三片(fa958b0c/8e576886/91df7f90)【沒動它】⇒ 屬既存債,列供日後統一,不算本輪 FAIL。
+  - 🔴 **統一口徑時要逐面判,不是一律禁詞根(C 窗補)**:面8 是【投影出問題】,重整【真的可能好】;而面6-b 是【固定上限】,重整一百次同一個數字。⇒ 判準=「這一面重整有沒有用」,不是機械地禁掉「請重新整理」。
 
 ## C 窗三片審查(fresh code-reviewer opus,2026-08-18)
 
 - **實質三角度 PASS**:① 91df7f90 動守門【順序】無對稱誤攔(窮舉 lines{空/非空}×items{空/非空}×reportedTotal{null/對上/對不上},面8 只在真空單 reportedTotal===0 才發,shipping-doc.tsx:135-146)② 三片無矛盾,且 8e576886【不在】shipping 守門鏈(它動 picking-doc + page-measure.test.tsx)⇒ 三片不是同一條鏈 ③「9 格未修」清單措辭誠實。
-- 🔴 **FAIL 單一 must-fix(字面 vs 事實,已直達 C 窗 5195)**:`page-measure.test.tsx` 檔頭(~:38-40)給下一個人的可重跑 grep 宣稱「9 行」,實跑 15 —— 多的 6 行是檔頭自己的字面清單被自己 pattern 掃到(留痕掃到自己的訃聞)。實體斷言數 9 是對的,錯的是那條檢查。修法:grep 加 `expect(` 錨(=9)或改註。C 窗改完 spawn fresh 再驗。
+- 🔴 **must-fix(字面 vs 事實)→ ✅ 已解 R2 PASS**:`page-measure.test.tsx` 檔頭給下一個人的可重跑 grep 宣稱「9 行」,實跑 15 —— 多的 6 行是檔頭自己的字面清單被自己 pattern 掃到(留痕掃到自己的訃聞)。實體斷言數 9 是對的,錯的是那條檢查。C 窗 `0bf90df3` 挑修法①(加 `expect(` 錨)。**T① 直接複驗(字面帳=確定性計數,非判斷,依 §1 不為幾個 tool call 的機械檢查另派 subagent)**:新命令 = 9 ✓、且【結構免疫】——限定在註解行時匹配 0(註解無 `expect(`)⇒ 檔案再長也不會回膨脹;檔頭並保留舊 bug(15、6 自match)當雙向對照。三綠過、該檔 6 passed(C 窗量)。R1 FAIL→修→R2 PASS,本片審查關閉。
 
 ## 小結(推前)
 
