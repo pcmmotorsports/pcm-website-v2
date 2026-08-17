@@ -22,7 +22,7 @@ import type { cookies } from 'next/headers';
  * 解析訪客當前 MemberTier(server-side)、供金額相關頁面顯示 tier-dependent price。
  *
  * priority:
- *   1. ?tier= override(僅當 env flag `PCM_DEV_TIER_OVERRIDE=1` 時生效、production 預設關)
+ *   1. ?tier= override(僅 dev:`NODE_ENV≠production` 且 env flag `PCM_DEV_TIER_OVERRIDE=1` 時生效;production 硬擋、與 flag 無關)
  *   2. cookie `pcm-tier`
  *   3. 預設 'general'
  *
@@ -44,8 +44,15 @@ export async function resolveTierFromRequest(
   searchParams: Record<string, string | string[] | undefined>,
   cookieStore: Awaited<ReturnType<typeof cookies>>,
 ): Promise<MemberTier> {
+  // 🔴 prod 硬閘(權限鐵則 12②;形狀抄 admin proxy.ts:18 / authorize.ts:18 的 ADMIN_DEV_BYPASS):
+  //   `NODE_ENV=production` 時 override 恆失效,與 `PCM_DEV_TIER_OVERRIDE` 是否設【無關】——
+  //   否則該 env 一旦在正式站被設成 '1',任何人加 `?tier=store` 即可覆蓋會員等級。
+  //   ⚠️ 這與下面 #215 的 cookie 釘樁是**兩件事**:硬閘擋的是 `?tier=` override 這條 dev 捷徑;
+  //      cookie 的認證化(H-1/#215)仍【未做】、仍等 M-2-08。別把本行讀成 #215 被提前做了。
   const tierOverride =
-    process.env.PCM_DEV_TIER_OVERRIDE === '1' && typeof searchParams.tier === 'string'
+    process.env.NODE_ENV !== 'production' &&
+    process.env.PCM_DEV_TIER_OVERRIDE === '1' &&
+    typeof searchParams.tier === 'string'
       ? searchParams.tier
       : undefined;
   // 🔴 H-1(#215):cookie pcm-tier 為 client 可偽造、非身分權威。M-2-08 接真經銷價前須改為
