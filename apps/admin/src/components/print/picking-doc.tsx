@@ -201,7 +201,9 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     🔴 **這張紙沒有箱號** —— 揀貨單的單位是「一張訂單」,箱是出貨明細單那邊的事
                        (`shipments` 表刻意沒有 `order_id`;本元件的 props 裡也沒有 shipment)。
                        ⇒ 這一列**只帶訂單編號**。**不要為了跟另一張紙長得一樣而去湊一個箱號。**
-                    ⚠️ 樣張右側那個 `<i>續頁欄名重複</i>` 本片同樣沒印(問題已送 Sean、未答)。 */}
+                    🔴 樣張右側那個 `<i>續頁欄名重複</i>` 本片同樣**刻意不印**(2026-08-17 裁定)
+                       —— **不是漏做**;完整依據(樣張自己的 `.caption` 在列印時 `display:none`、
+                       而那六個字沒被藏)寫在 `shipping-doc.tsx` 的同一段註解裡,不重複貼。 */}
                 <tr className='contbar'>
                   <th
                     colSpan={4}
