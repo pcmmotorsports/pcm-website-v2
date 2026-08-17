@@ -161,6 +161,92 @@ Q3 「這家不給碼」（自取／自送）的那封信要怎麼寫？
 
 ---
 
+## §5-DONE ✅ **2026-08-17 晚 · 第 1、2、4 條偵察完成(下面 §5 原文保留,不要當成還沒做)**
+
+> 三條都是**開檔讀出來的**,附 `檔案:行號`,不是回憶。**第 3、5 條仍未做。**
+
+### ✅ 第 1 條:「一批」= **恰好一個 `shipment`,而且是【機制強制】的**
+
+```
+① RPC 只吃一個：
+   admin_mark_shipment_shipped(p_idempotency_key text, p_shipment_id uuid, p_tracking_number text)
+   live 定義 = supabase/migrations/20260808100000_..._w7d1_ship_deadlock_retry.sql:177
+   🔴 不是 20260807190000 那支 —— 那是舊的一層。
+      照 memory feedback_migration-file-is-a-layer-not-the-live-object 取【定義出現次序的最後一個】。
+
+② DB 層【禁止一句改多列】：
+   20260807230000_..._no_batch.sql:319  CREATE FUNCTION pcm_b2_shipments_no_batch_update()
+                                  :333  IF v_n > 1 THEN RAISE ... ERRCODE 'P2B30'
+                              :361-364  CREATE TRIGGER shipments_no_batch_update_as AFTER UPDATE
+                                        REFERENCING NEW TABLE AS changed FOR EACH STATEMENT
+                                  :367  ALTER TABLE shipments ENABLE ALWAYS TRIGGER
+   break-glass = txn-local GUC pcm_b2.batch_shipments='1'（:329）
+```
+⇒ **一次標記出貨 = 一個 `shipment`,DB 保證,不是慣例。** `dedup_key` 因此掛在 **shipment 層**。
+
+### 🔴 第 4 條:偵察順手答了一半,而**剩下那一半是真的岔路,要 Sean 拍**
+
+```
+shipments【沒有 order_id】——箱掛的是【客人】不是訂單
+  （Sean 08-05 Q1=B 併箱同客人；明寫在畫面上 shipment-section.tsx:6 與 :158）
+⇒ 一箱可以裝同一位客人的【兩張訂單】。
+```
+而**紙**的單位是 `(箱, 訂單)` 一對一張(Sean 08-15 逐字「兩張出貨單,一個訂單一張」)。
+⇒ **信要跟紙一樣,還是跟箱一樣?**
+
+| | 做法 | `dedup_key` | 客人收到 |
+|---|---|---|---|
+| 甲 | 一箱一封(照 `S2=B`「每出一批寄一封」的**字面**) | `shipment_id` | 1 封,信裡講兩張訂單的品項 |
+| 乙 | 一箱兩單就兩封(跟紙一致) | `shipment_id` + `order_id` | 2 封,各講一張單 |
+
+🔴 **這題不由本窗判**:`S2=B` 那句「一批」他講的時候,**很可能還沒有「一箱可含兩張單」這個前提**
+—— 與 `Q-E` 那次同型。⇒ **要連前例一起端給他問**([[feedback_ask-sean-with-the-precedent-attached]])。
+
+### ✅ 第 2 條:fail-closed **擋在哪一層** —— 前一任自標的未確認已關掉
+
+**前一任誠實邊界原文**:「我沒有讀 `sweep-email-outbox.ts` 全文,只讀了 `git grep 'order_shipped'` 的 5 行命中」。
+**已讀全文(240 行)。結果**:
+
+```
+擋的位置 = buildEmailText() 的 switch，packages/use-cases/src/sweep-email-outbox.ts:108-117
+  case 'order_shipped':
+    throw new Error('sweepEmailOutbox:order_shipped 模板未定義(E4 未落地)、fail-closed 不寄');
+  default:
+    return job.eventType satisfies never;
+```
+⇒ **擋在「寄送前組內文」那一步**,不是 claim、不是 sender、不是 DB。
+⇒ **開的方法** = 把那個 `case` 換成真的模板函式。`satisfies never` 窮舉 ⇒ union 加成員時 **typecheck 必紅**。
+
+🔴 **「開錯層會把別的保護一起開掉」—— 實查:不會。** 這一層只判「這個 `eventType` 有沒有模板」;
+上游 claim / lease 與下游 per-job catch 各自獨立。**那個擔心可以撤掉。**
+
+### 🔴🔴 但實查換到一個**別的**坑,而它與「開哪一層」無關
+
+`sweep-email-outbox.ts:231-235` 的 per-job catch 對 throw 的處置逐字是
+「**不補標不重試:列留 sending、lease 到期由下輪 ① 回收**」。
+而既有 `buildOrderCreatedText` 的約定**相反**(`:120-124` 逐字):
+> 「payload 形狀異常 → 退回不含編號的通用文案,**不因文案缺欄位就不寄**(付款成功通知的存在比編號重要)」
+
+⇒ **E4 的出貨模板要照【同一個約定】寫:缺欄退回通用文案,不 throw。**
+**照 fail-closed 的直覺把它寫成 throw,出貨信會卡在 `sending` 直到 attempts 耗盡,而客人什麼都沒收到。**
+📌 這條要寫進 C9-b 的驗收條件。
+
+### ✅ 一個原本要提的風險,**實查之後撤掉**
+
+我本來要提「`Q-D`=乙 要連品項一起寫 ⇒ payload allowlist 只有三欄,要擴,而那是 PII 邊界」。
+**不必。** `packages/adapters/src/email/order-email-assembly.ts:12` 逐字:
+> 「品項/金額/地址等渲染資料**寄信時即時查主表**(E2a/E3),**不進 payload**(可後台改的欄存了會過期)」
+
+⇒ 品項、追蹤碼(`shipments` 欄)都走**寄信時查**,不進 payload。
+payload 只需要帶得到 **shipment 身分**(id,不是 PII)。**PII 那道防線不必動。**
+
+⚠️ **仍然要動 `SupabaseEmailOutboxAdapter`**:`:195` 逐字「`dedup_key` = orderId…**呼叫端無寫入口**」,
+`:227-245` 的 23505 處理也寫死 `.eq('dedup_key', input.orderId)`。
+**那是刻意鎖死的安全設計(呼叫端不能偷渡字串)** ⇒ 支援 `order_shipped` **一定要動那支**,
+不是「多傳一個參數」。而那支 = 信件管線 = **鐵則 12⑤ 對外不可回收 ⇒ codex 不降級。**
+
+---
+
 ## §5 動工前要先偵察的(**這些沒答之前我不會寫 code**)
 
 1. 🔴 **S2=B 的「一批」在 code 裡是誰?** 一個 `shipment` 還是一次標記動作?
