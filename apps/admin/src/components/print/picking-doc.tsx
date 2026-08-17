@@ -1,5 +1,6 @@
 import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
 
 // #10 片1:揀貨單(給倉庫的人拿在手上、對著箱子勾的那張紙)。
@@ -113,16 +114,29 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
             而改之前這顆鈕在警告**上面**、不受影響 ⇒ 員工按得下去,印出一張紙照樣進倉庫。
             🔴 **這不是守門,只是不再遞刀** —— `print-button.tsx:5-7` 自己就寫著
                「為什麼要有這顆鈕、而不是叫員工按 Ctrl+P」⇒ ⌘P 那條路還在,
-               真正的解法是整幅阻印版面(樣張 B),**已立案 `#601`**、不在本片。 */}
-        {cancelledAt === null && !detail.itemsTruncated && <PrintButton label='列印' />}
+               真正的解法是整幅阻印版面(樣張 B)—— **`#601` 的 A / C 兩種已落地,見下方**。
+            🔴 **`items.length === 0` 補進條件裡了**(2026-08-17,`#601` 同批):
+               在那之前**這顆鈕在那一種狀態下還在**,而紙上是一行「讀不到任何品項」
+               ⇒ **鈕的條件與紙的條件不一致 = 守門裝在一半的路上**。
+               數法:`grep -n 'items.length === 0' <本檔>` 落地前 1 處(只在 JSX 裡),現在 2 處。 */}
+        {cancelledAt === null && !detail.itemsTruncated && detail.items.length > 0 && (
+          <PrintButton label='列印' />
+        )}
       </div>
 
+      {/* 🔴 `#601` A 種:整張訂單已取消 ⇒ **整幅阻印版面**,不是一行警告。
+          為什麼換掉那一行 `<Alert>`:設計端逐字(樣張 `:551`)「印出來看起來正常的紙,
+          員工就會照做,所以警告必須佔滿這個位置」——而 ⌘P 擋不住(見上方那段)。
+          ⚠️ **原本那句「品項清單已隱藏,避免有人照著這張紙出貨」沒有消失,是被【換成更好的】**:
+             `BlockedSheet` 固定印「本頁不含品項明細。這不是資料漏印,是刻意不印。」(樣張 `:509` 逐字)
+             ⇒ 同一個意思、而且是設計端的字面。**不要為了「保留原文案」把兩句都印。**
+          ⚠️ `reason` 只放**原因**,不放「不要揀貨」—— 那句在 `BlockedSheet` 的四條動作裡
+             (「不要依本單揀貨、裝箱或出貨。」)。兩處都寫 = 紙上同一件事說兩次。 */}
       {cancelledAt !== null && (
-        <Alert>
-          🔴 這張訂單已取消({formatOrderDateTime(cancelledAt)})。不要揀貨。
-          <br />
-          品項清單已隱藏,避免有人照著這張紙出貨。
-        </Alert>
+        <BlockedSheet
+          reason={`這張訂單已於 ${formatOrderDateTime(cancelledAt)} 取消。`}
+          orderDisplayId={detail.displayId}
+        />
       )}
 
       {cancelledAt === null && (
@@ -171,7 +185,17 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
           {/* 🔴 面7:空清單。印一張只有表頭的空表格 = 看起來像「這張單沒東西要揀」,
               而它其實可能是投影出問題。與 `itemsTruncated` 同一條 fail-closed 立場。 */}
           {detail.items.length === 0 ? (
-            <Alert>這張單讀不到任何品項。請重新整理;不要拿這張去揀貨。</Alert>
+            /* 🔴 `#601` C 種:這張單讀不到任何品項 ⇒ **整幅阻印版面**,不是一行警告。
+                與 A 種同一個理由(⌘P 擋不住、一行紅字的紙看起來正常),而**這一種原本更糟**:
+                改之前**列印鈕在這一種狀態下還在**(鈕條件只看 `cancelledAt` 與 `itemsTruncated`)
+                ⇒ 我們自己遞了刀。鈕的條件已同批補上 `items.length > 0`。
+                ⚠️ **原文案「請重新整理」保留在 `reason` 裡是刻意的** —— 這一種與 `itemsTruncated`
+                   不同:那一種是**固定上限**(重整一百次拿回同一個數字,`:143` 那段講過),
+                   而這一種是**投影出問題**,重整**真的可能好**。⇒ 這句話在這裡不是假話。 */
+            <BlockedSheet
+              reason='這張單讀不到任何品項(可能是資料讀取出問題)。請重新整理;仍然一樣請回報。'
+              orderDisplayId={detail.displayId}
+            />
           ) : (
             /* 🔴🔴 **跨頁表頭:已實測會自動重複,所以這裡沒有任何 `print:` class —— 那是刻意的。**
                 揀貨單的正常情境就是品項多 ⇒ 幾乎一定跨頁;第 2 頁沒有欄名 = 一堆數字不知道哪欄是哪欄 = 揀錯貨。
