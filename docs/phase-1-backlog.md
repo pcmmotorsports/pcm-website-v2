@@ -16274,6 +16274,38 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   fields,沒有東西會紅=洩密走這條路不會被測試擋。
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #613`(CAS);信箱 `grep -rn '#613' ~/pcm-mailbox/*.md` ⇒ 保留前零命中。
 
+### #615 · settle-sweep 五處裸 catch 無步驟碼:503 之後查不出是哪一步壞的
+
+- **狀態:** ⏳ 待執行(E 窗 2026-08-17 §5-d 量測時撞到;**非急件**,見下方觸發條件)
+- **病:** `packages/use-cases/src/sweep-settlements.ts` 的四個前置守衛(`:137-151`,`expireEventsAtCeiling` / `expireStuckAtCeiling` / `flagNonUnpaidActive`)與 claim(`:160-164`,`claimDueEvents`)**共五處**皆為**裸 `catch {}` 只做 `result.errors++`** —— **不帶步驟識別、不帶 reason code**。
+  ⇒ 五種 throw 產生的 counts **完全一樣**(其餘計數全 `0` + `errors:1`),route 據此回 `503`(`apps/storefront/src/app/api/cron/settle-sweep/route.ts:128-131`),而 `console.error` 印的就是那組 counts。
+  **實例(量到的)**:`2026-08-17 08:04:00 UTC` 該輪 `status 503 / errors 1`、其餘全 `0`;**無法判定是五處中的哪一處**。
+- **🔴 連帶危害(比「查不到成因」更要緊):** 那五處之一是 `expireEventsAtCeiling`,而它的回傳 `expiredInboxAtCeiling` **正是判斷「ceiling 有沒有把逾限筆數轉人工」的判別器**。
+  ⇒ 該輪 throw 時 `expiredInboxAtCeiling` 停在 `0` —— 與「掃過了、沒有」**印出同一個值** ⇒ **不知情的人會拿一個沒跑成的檢查當證據**。本次是靠**同輪的 `status` / `errors`** 才排除掉;**若健康訊號沒有跟讀數放在同一筆輸出裡,就分不開**。
+- **不修未來會痛在哪:** ①金流兜底 sweeper 若哪天**持續** 503,現有 telemetry **不足以定位是哪一步壞的**,只能逐一試 —— 而那是「錢沒被最終結算」的路徑,**停機成本最高的時候線索最少**;②任何引用 `expired*AtCeiling` / `flaggedNonUnpaid` 的稽核結論,**在沒有同輪健康訊號的前提下都不可靠**,而現況**不會有任何東西紅**。
+- **修法(有現成形狀,照抄即可):** 五處 `catch` 各帶一個**固定步驟碼**進結構化 log(如 `expire_inbox` / `expire_stuck` / `flag_non_unpaid` / `claim_inbox` / `claim_stuck`)。
+  🔴 姊妹片 `email-sweep` 已有**固定碼集 + 顯式 allowlist** 的同源紀律(`apps/storefront/src/app/api/cron/email-sweep/route.ts:86-88`)⇒ **零 PII、零設計成本**。
+- **觸發條件 / 嚴重度:** **本次為單發**(`08:06`、`08:08` 兩輪即回 `200` / `errors 0`,自行恢復)⇒ **不是正在燒、不擴大解讀為故障**。**升級條件 = 出現連續 ≥2 輪 503**。
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #615`(CAS);信箱 `grep -rn '#615' ~/pcm-mailbox/*.md` ⇒ **0 命中**;`grep -c '#615' docs/phase-1-backlog.md` ⇒ 保留前 **0**。
+  ⚠️ **順帶留痕(下一個配號的人請讀這行)**:`scripts/next-backlog-number.sh` 當下報「下一個可用號 = **#614**」,而 CAS 計數器 `--show` 報「目前 614 ⇒ 下一個是 **#615**」 ⇒ **#614 已被保留但尚未寫進本檔** ⇒ **只信前者就會撞號**。**配號一律以 `reserve-backlog.sh`(CAS)為準。**
+
+### #616 · codex 掛死守門會擋住「描述它自己」的 commit —— 守門擋住了它想被記錄的地方
+
+- **狀態:** ⏳ 待執行(E 窗 2026-08-17 親身撞到;**改既有 hook = 制度層**,本條**只出規格不實作**)
+- **症狀(量到的):** 我要 commit 一份**描述**該掛死坑的文件,commit body 裡出現了 `codex` 與 `exec` 相鄰的字面 ⇒ **pre-commit hook 把它判成「正在呼叫 codex 而沒導掉 stdin」並擋下**。我當下**沒有呼叫任何東西**。
+- **🔴 鍵在守門看的是什麼(已用兩個世界分辨,非推測):**
+  - **Bash 指令字串**含該字面 ⇒ **擋**(實測:`git commit -F - <<EOF … EOF` 被擋)。
+  - **檔案內容**含該字面 ⇒ **不擋**(實測:同一字面經 Edit 工具寫進 `docs/security/2026-08-17-full-site-pentest-plan.md:114`,**順利寫入且該檔已 commit**)。
+  - ⇒ 守門的判別對象是**命令字串**,不是檔案內容。
+  - ⚠️ **未實測**:`grep '<該字面>'` 這類**搜尋**用法是否同樣被擋。依同一機制**推測會**,但我沒跑(跑了就會被擋)⇒ **標未確認**。
+- **🔴 不修未來會痛在哪:** 這族坑的**母檔是 `docs/patterns/guard-and-instrument-traps.md`** ⇒ **想把這條坑寫進母檔的人,會在 commit 那一步撞到同一面牆** ⇒ **守門擋住的正是它自己想被記錄下來的地方**。而該坑「前一任連撞七輪」的成因就是**沒被讀到**;現在連「寫下來」都多一道摩擦,等於**讓成因更難被消除**。
+- **✅ 現況不算嚴重的理由:** **hook 誤報時自己給了出口**(訊息末段寫明「若只是要 grep/顯示該字樣而非真的呼叫,改寫讓該字串不出現在命令位置即可」)⇒ 我照做即通過。**設計不錯,不是壞掉。**
+  ⚠️ 但**下一個人不一定會讀完那段長訊息**——那正是本族的母題。
+- **修法(規格,不實作):** hook 加**白名單**,對下列位置的字面**不判**:
+  ① `commit-msg` / commit body;② `docs/**` 路徑下的檔案內容;③ 明確的搜尋動詞(`grep` / `rg` / `git log --grep`)後方的字串。
+  保守作法:**只加 ①**(最小改動、最大收益),②③ 視誤報再放寬。
+- **🔴 判別句(這條的普適形狀,值得帶走):** **這個守門,會不會擋住【描述它自己要防的那件事】?**
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #616`(CAS);信箱 `grep -rl '#616' ~/pcm-mailbox/*.md` ⇒ **0**;`grep -c '#616' docs/phase-1-backlog.md` ⇒ 保留前 **0**。
 ### #617 · commit-msg hook 要求 merge body 帶四綠 log 目錄名 —— 已評估判定淨值為負
 
 - **狀態:** ❌ **已評估、判定淨值為負,不做**(2026-08-17 I 窗提、主視窗裁)。
