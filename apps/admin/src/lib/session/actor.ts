@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
-// 相對 import(非 @/):root vitest.config 的 @ alias 指向 storefront,lib 內部用相對路徑才能被 admin 單測解析。
+// 相對 import 是歷史遺留(#606 前 root vitest alias 只指 storefront);#606 起 admin project
+// 有自己的 @ alias,新 code 可直接用 @/。既有相對路徑與各檔指到本行的指標註解,整批清理=#612。
 import { resolveStaff, type StaffActor } from '../staff';
 
 // M-4a M0-S2 session 具名身分讀取層。

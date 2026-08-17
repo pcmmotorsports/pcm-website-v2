@@ -78,6 +78,10 @@ describe('ReceiptRecordForm — 到貨時間預設值', () => {
   // 🔴 前置錨點:本 describe 的判別力建立在「測試跑在台北時區」之上。
   //    沒有這格的話,誰把 vitest.config 那行拿掉,下面那格會**靜默**退化成恆真。
   it('🔴 前置:測試時區釘在 Asia/Taipei(拿掉 config 那行這格會紅)', () => {
+    // 🔴 #606 R2 補:系統時區=台北的機器會遮住「config 那行失效/本 project 繼承壞掉」,
+    //    Intl/offset 斷言在那種機器上恆綠 ⇒ 加斷 process.env.TZ(只會由 config 注入)。
+    //    三個 project 各一支同款錨點:storefront/node 在 tz-config-inheritance.test.ts。
+    expect(process.env.TZ).toBe('Asia/Taipei');
     expect(Intl.DateTimeFormat().resolvedOptions().timeZone).toBe('Asia/Taipei');
     expect(new Date('2026-08-11T02:22:00.000Z').getTimezoneOffset()).toBe(-480);
   });
