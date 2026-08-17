@@ -46,19 +46,142 @@ L1 規則層(本檔)+ L2 工具層(busboy-end pre-flight)+ L3 設施層(GitHub A
 
 | 項目 | 命令 | 通過條件 |
 |---|---|---|
-| typecheck | `pnpm typecheck` | no error / no warning(turbo 跑全 workspace) |
-| lint | `pnpm lint` | no error / no warning |
-| build | `pnpm build` | 所有動到 .ts / .tsx 的 package / app 跑通 |
+| typecheck | `TURBO_FORCE=1 pnpm typecheck` | no error / no warning(turbo 跑全 workspace) |
+| lint | `TURBO_FORCE=1 pnpm lint` | no error / no warning |
+| build | `TURBO_FORCE=1 pnpm build` | 動到 `.ts` / `.tsx` / **`.css`** / **設定檔**就要跑;所有相關 package / app 跑通 |
 
-🔴 **三項全部只讀 `.ts` / `.tsx`。** 動到 `.sh` / `.yaml` / `.yml` / `.sql` 的 slice,
-三綠對那些檔的判別力是**零** —— 見 §2.2a。
+### 🔴🔴 2.1a 為什麼要加 `TURBO_FORCE=1` —— 少了它,三綠可能 replay 舊的綠
+
+**2026-08-17 主視窗實測(主樹、三項各兩發,可重跑)**:
+
+| 項目 | 裸跑 | 加 `TURBO_FORCE=1` |
+|---|---|---|
+| typecheck | `Tasks: 8 successful, 8 total` ／ `Cached: 8 cached, 8 total` ／ 52ms ／ `>>> FULL TURBO` | 同 Tasks ／ `Cached: 0 cached, 8 total` ／ 6.14s |
+| lint | `Cached: 10 cached, 10 total` | `Cached: 0 cached, 10 total` |
+| build | `Tasks: 2 successful, 2 total` ／ `Cached: 2 cached, 2 total` | 同 Tasks ／ `Cached: 0 cached, 2 total` |
+
+🔴 **`Tasks: N successful` 與 rc 在每一組的兩次完全相同** —— **光看那兩樣分不出來**,
+而裸跑那次 turbo 的部分**一個字都沒有真的重跑**。
+
+📌 **上表右欄的 `N total`(8 / 10 / 2)是【2026-08-17 主樹】的歷史觀測,是參考值不是 gate** —— 見下方「怎麼讀輸出」③。
+
+🔴 **完整的病理、三條判準、四條未驗,全部在 `docs/phase-1-backlog.md` 的 `#524`** ——
+**那份是正本,本節只是把「所以指令要怎麼下」寫在你會執行的地方。兩者衝突以 `#524` 為準。**
+
+#### 這個前綴做得到什麼、做不到什麼(**不要放大**)
+
+| | |
+|---|---|
+| ✅ 做得到 | **本次不從 turbo 的 task cache replay** —— 三個 task 都適用 |
+| ❌ 做不到 | 修正 `turbo.json` 缺 `inputs` 這個**結構問題**(那是 `#524`,動平台設定 = 鐵則 12④,**要 Sean 批,仍未做**) |
+| ❌ 做不到 | 停用**底層工具自己的增量快取**(Next.js `.next/cache`、`tsc` incremental 等) |
+| ❌ 做不到 | 保證**涵蓋範圍完整** —— `0 cached` 只說「沒有用到 turbo 快取」,不說「該查的都查了」 |
+
+⇒ **本節是【暫時繞過 turbo replay】,不是修好了。** 裸跑 `pnpm typecheck|lint|build` **仍然不安全**。
+
+#### 三個入口各自的「第二段」不一樣 —— 不要一概而論
+
+`package.json` 逐字(`:13-15`):
+
+| 入口 | 完整內容 | 非 turbo 的第二段 |
+|---|---|---|
+| `typecheck` | `turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit` | ✅ 有 `tsc` |
+| `lint` | `turbo run lint && eslint 'scripts/*.ts' --max-warnings 0` | ⚠️ **有,但只掃 `scripts/*.ts`** |
+| `build` | `turbo run build` | ❌ **完全沒有** |
+
+🔴 **那些第二段【不得當防線】** —— `#524` 逐字:**它會不會救你是看運氣的**
+(2026-08-16 那次救到的是巧合;換一個只影響 JSX 的根層改動 ⇒ 整條全綠)。
+📌 `typecheck` 第二段的實際覆蓋 = `include` 的檔 **＋ 它們 import 到的傳遞閉包**
+(實測 `npx tsc -p tsconfig.scripts.json --listFilesOnly | grep -vc node_modules` ⇒ **104**;
+⚠️ **`#524` 明文更正過:不要說「由設定本身可證它只掃 `scripts/`」** —— 那次的錯有 2 個在 `packages/ports/` 底下)。
+🔴 **所以只跑 `npx turbo typecheck` 也不完整**;要走 `pnpm` 這個入口才有第二段。
+
+#### 為什麼不能用 `pnpm typecheck -- --force`
+
+`--` 之後的參數**不會給 turbo**,它會落到後半的 `tsc` 上 ⇒ **不但沒有強制 turbo,還可能讓整條命令直接失敗。**
+✅ `TURBO_FORCE=1` 是**環境變數**,turbo 讀得到、後半的 `tsc` / `eslint` 不受影響。
+
+#### 怎麼讀輸出 —— 🔴 **三樣一起看,少任何一樣都有一條假綠路**
+
+```text
+① Tasks: N successful, N total     零判別力（真跑與 replay 相同）；
+                                   但 N total 不能是 0 —— 見 ③
+② Cached: X cached, N total
+     裸跑時                        零判別力（#524 原話講的是這個情況）
+     加了 TURBO_FORCE=1 之後        ✅ 0 cached 才是證據，而它只證
+                                   「本次沒用到 turbo 快取」——不證「涵蓋完整」
+③ 🔴 N total 不能是 0，且【逐包那幾行】要涵蓋你動過的 package
+     🔴 Cached: 0 cached, 0 total 是【恆真】的 —— 什麼都沒跑也印 0 cached
+     ⚠️ 只比總數不夠：少一個舊 task、多一個新 task，總數相同照樣通過 ⇒ 看【名單】不是看數
+     📌 上表的 8／10／2 是 2026-08-17 主樹的【歷史觀測】，是參考值不是 gate（加 package 就會變）
+     ⚠️ 也不要拿「你自己第一次量到的」當基線 —— 第一次就漏 task 的話，那個錯會自我認證成綠
+④ 逐包 cache hit, replaying logs …   不是 0 cached 時，用它定位是哪幾個 task replay 了
+```
+
+🔴 **回報必須同時附 ①②,而且 `0 cached` 與「逐包名單涵蓋你動過的 package」兩個條件都要成立。**
+⚠️ **`0 cached` 不是 0 的時候不要直接「重來」** —— 先確認**前綴是不是真的落在同一條命令上**
+(`TURBO_FORCE=1 pnpm …` 要在同一行;寫成兩行、或被 `&&` 斷開就沒生效),否則會無限重跑同一個結果。
+
+#### 🔴🔴 跑在哪一棵樹上 —— **本專案多窗並行,這是最可達的一條假綠路**
+
+**在【你要驗的那棵樹】的根目錄跑,不要照抄任何一條寫死路徑的命令。**
+施工窗多半在 worktree(`/Users/sean_1/pcm-*`),而照抄 `cd /Users/sean_1/pcm-website-v2` 會:
+**真跑、真 `0 cached`、而驗的是主樹不是你自己那棵** ⇒ **一個全真的綠,替錯的樹背書。**
+
+⇒ **回報時一併附這兩行,它們證明你驗的是哪一棵**:
+```bash
+git rev-parse --show-toplevel
+git rev-parse --short HEAD
+```
+
+#### 🔴 收齊「本 slice 動過的檔」—— 三個來源缺一不可
+
+```bash
+git diff --name-only HEAD
+git diff --name-only --staged
+git ls-files --others --exclude-standard    # 🔴 未追蹤的新檔——前兩條【都不會】列它
+```
+🔴 **少了第三條,一個新加的 `.tsx` / `.css` / `.sql` 可以完全避開 build 與語法守門,而三綠照樣全綠。**
+📌 **這一段刻意寫在正本裡** —— `/slice-checkpoint` skill 不在 git 內,**換機器只有本檔活得下來**。
+
+#### ⚠️ 本次修改的射程 —— 哪些載體【沒有】跟著改,以及它們各自的實際風險
+
+| 載體 | 現況 | 🔴 它有沒有 replay 的病 |
+|---|---|---|
+| `package.json:13-15` | scripts 本體仍是裸的 `turbo run` | **有** —— 改它 = 動平台設定(鐵則 12④),未做 |
+| `~/.claude/skills/slice-checkpoint/SKILL.md` | 已改 | ⚠️ **不在 git 內** ⇒ 不隨 repo 同步、**換機器就沒有** |
+| `.github/workflows/ci.yml:35-39` | 裸跑 `pnpm typecheck` / `pnpm lint` | 📊 **量到的**:全檔**零** turbo 快取持久化(`actions/cache`、`TURBO_TOKEN`、`TURBO_TEAM` 三字面零命中;唯一 `cache: pnpm`(`:30`)是 pnpm store)。**推論的**:因此 replay 在 CI 上不容易發生 —— **未做受控驗證**。🔴 **但 CI 不能取代本機三綠:它只跑 typecheck 與 lint,完全沒有跑 build**(`grep -c 'pnpm build' ci.yml` ⇒ **0**,正向對照 `pnpm typecheck` ⇒ 1) |
+| `pcm-tools/scripts/busboy-end.js:24` | 印 `pnpm -r typecheck` | ⚠️ **走的不是 turbo**(`pnpm -r` 是 pnpm 遞迴)⇒ **推測**沒有這個病;它與三綠定義不同步,**是另一件事,本次未評估** |
+
+🔴 **上表要讀成兩件事,不要合成一句**:
+1. **replay 這個病主要在【本機手動跑三綠】的時候** —— 本次修改保護的正是那裡。
+2. 🔴 **而 CI 不能拿來替代三綠** —— 它沒有跑 build。**「CI 綠」與「三綠過」不是同一件事。**
+
+**⇒ 一句話:`TURBO_FORCE=1 pnpm <項目>`。少了前綴【可能】replay(命中既有快取時),少了 `pnpm` 會漏掉後半。**
+⚠️ **是不是 replay 要看那次的 `Cached` 輸出,不要用推的。**
+📌 **這是【使用層】的權宜,不是修法。** `#524` 的結構解(`turbo.json` 加 `inputs`/`globalDependencies`)
+= **動平台設定 = 鐵則 12④,要 plan + Sean 批 + 對抗審查**,**仍然待做**。
+
+🔴 **精確講**:`typecheck` / `lint` 只讀 `.ts` / `.tsx`(typecheck 另會讀**被 import 的** `.json`);
+**`.css` 只有 `build` 讀**;而 `.sh` / `.yaml` / `.yml` / `.sql` **三項皆不讀,判別力為零** —— 見 §2.2a。
 
 ### 2.2 三項缺一不可
 
 - 三項全綠才允許 commit、不允許「typecheck 過、lint 紅、之後修」一類延期
 - build 在**純文件 slice**可省、但 typecheck + lint 仍跑(確認 monorepo 設定未被前一輪副作用波及)。
-  🔴 **「純文件」= 只動 `.md` / `.json schema`;`.sh` / `.yaml` / `.sql` 不算純文件**,
-  它們有自己的守門(§2.2a),不得以「純文件片」為由跳過
+  🔴 **「純文件」= 只動 `.md`。就這一種**(2026-08-17 收斂)。
+  ⚠️ **`.json` 一律不算** —— 三綠**不會 parse** 任意 JSON ⇒ **格式壞掉照樣全綠**;
+  而「這份 JSON 是不是設定用途」要靠人腦判、會判錯。**副檔名 `.json` ⇒ 一律不標純文件。**
+  以下一律**不算**:
+  - `.css` —— 會進 Next build pipeline,語法錯**只有 build 會紅** ⇒ **css-only 片仍要跑 build**
+  - 🔴 `package.json` / `turbo.json` / `tsconfig*.json` / `eslint.config.*` / `vitest.config.*`
+    —— 它們是**設定檔**,而且正是「改了會 replay 假綠」那一類
+    🔴 **`vitest.config.*` / `playwright.config.*` 另有例外**:`pnpm build` **不會執行任何測試**
+    ⇒ 動它們要另外**實跑一次相關測試**,**光靠三綠守不到**(壞掉的測試設定可以三綠全綠)
+  - `.sh` / `.yaml` / `.yml` / `.sql` —— 有自己的守門(§2.2a),**不得以「純文件片」為由跳過**
+  - 🔴 **不在以上任一類的**(`.mjs` / `.prisma` / `vercel.json` / `next.config.*` / 無副檔名的腳本…)
+    ⇒ **不得標純文件、build 照跑**,並在回報寫明「**三綠對這個檔的判別力是多少**」。
+    ⚠️ 上面那份清單是**窮舉不完的** —— **列得越像完整,越容易讓沒命中的那一類靜默通過。**
 - 三項任一紅 → 修紅再 commit、不繞道、不 disable / skip / ignore
 
 ### 2.2a 非 TS 檔的語法守門(2026-08-07 Sean 拍 A 補洞)
@@ -147,7 +270,7 @@ L1 規則層(本檔)+ L2 工具層(busboy-end pre-flight)+ L3 設施層(GitHub A
    ├── 全綠 → 下一步
    └── 任一紅 → 停下修紅 → 重跑 → 再判斷
 
-3. build 跑(若 slice 動 .ts / .tsx)
+3. build 跑(若 slice 動 .ts / .tsx / .css / 設定檔 —— 條件與指令見 §2.1／§2.1a)
    ├── 全綠 → 下一步
    └── 任一紅 → 停下修紅 → 重跑 → 再判斷
 
@@ -178,7 +301,7 @@ L1 規則層(本檔)+ L2 工具層(busboy-end pre-flight)+ L3 設施層(GitHub A
 commit 後、若本 slice 動到程式碼,順手跑 `/graphify --update` 增量重建 `graphify-out/` 知識地圖(只重算改動檔、便宜)。目的:讓「結構地圖」隨專案保持新鮮——**舊圖比沒圖危險**(會給過期連結誤導後續 session)。
 
 - 自律執行(非 hook;對齊 settings.json `_deferred_hooks_note`)。
-- 純文件 slice(只動 .md / .json)可跳(graphify code 走 AST、文件改動才需語意重抽,視情況)。
+- 純文件 slice(**只動 .md**;定義見 §2.2)可跳(graphify code 走 AST、文件改動才需語意重抽,視情況)。
 - 安全屏障由 repo 根 `.graphifyignore` 把關(track 在 git;擋 `.env*` / `.claude/` / `supabase/.temp/` / 憑證)。產物 `graphify-out/` 本機重建、不入 git。
 - **設計截圖目前不收**(`.graphifyignore` 排除圖檔;第一次建圖 Sean 拍板省 vision 成本)。要加回:刪 `.graphifyignore` 圖檔段 + 重建。
 
@@ -276,9 +399,16 @@ busboy-end.js pre-flight 三綠檢查:
 ### 6.5 🔴 L3 現況(2026-08-16 I 窗實查)—— **CI 涵蓋了本機三綠【看不到】的東西**
 
 > **為什麼這節必須存在**:在此之前本檔只講「三綠」,讀起來像「本機綠了就驗過了」。
-> **而 CI 的 `check` job 是本機三綠的【真超集】** —— 有一整層只有它在守。
+> **而 CI 守著一整層只有它在守的東西。**
 
-#### 6.5.1 CI `check` ⊋ 本機三綠(逐項,附 `ci.yml` 行號)
+🔴🔴 **2026-08-17 更正:CI【不是】本機三綠的真超集,兩者互不包含。**
+- **CI 多的**:playwright、`pnpm test`、真 postgres 跑 `docs/probes/` 的 SQL 探針。
+- 🔴 **CI 少的**:**它沒有跑三綠定義的 `build` 入口**(`ci.yml` 無 `pnpm build` 字面)
+  ⚠️ 而那條字面量的是「有沒有寫那條指令」不是「有沒有 build 跑」——
+  `turbo.json` 的 `lint` 帶 `dependsOn: ["^build"]` ⇒ **可能帶跑依賴套件的 build,但 app 的 build 幾乎確定沒跑**。
+⇒ **「CI 綠」與「三綠過」是兩件事,任一都不能替代另一個。**
+
+#### 6.5.1 CI `check` 與本機三綠的差集(逐項,附 `ci.yml` 行號)
 
 | 步驟 | `ci.yml` | 本機三綠有嗎 |
 |---|---|---|

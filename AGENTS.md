@@ -46,7 +46,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 每份指令外包 markdown code block、含六件套:① 任務目標(1-2 句)② 前置檢查(`git branch/status/log` 全綠才繼續)③ 執行模式+Subagent 模式 ④ Manifest Impact+Review 觸發 ⑤ 執行步驟 ⑥ 驗收條件(明確 yes/no)+ 禁止清單。
 
 ```
-③ 執行模式: mode A|B(預設 B)/ conductor: main session / subagent_chain: code-reviewer(commit 前必跑)/ fix_attempt_max: 2 / /slice-checkpoint: 跑(純 docs 跳)/ /codex-review: 觸發|不觸發(理由)
+③ 執行模式: mode A|B(預設 B)/ conductor: main session / subagent_chain: code-reviewer(commit 前必跑)/ fix_attempt_max: 2 / /slice-checkpoint: 跑(**只動 .md 才跳**;`.json`/`.css`/`.sh`/`.yaml`/`.yml`/`.sql` 不算純文件 —— 2026-08-17 Sean 拍板,詳 CLAUDE.md 鐵則 11)/ /codex-review: 觸發|不觸發(理由)
 ④ Manifest Impact: 動到的 storefront 元件[design-mirror.mjs --target 抽] / 對應 design 源 / 業務 override / 未解決偏離 / 最近設計同步;review_triggers: prd_review / slice_review / code_review / security_review_required / codex_review_required
 禁止清單(基線): 不改 scope 外檔 / 不變 env·deployment / 不改 schema·infra(除非明確要求)/ 不用 git add .·-A(精準 add)/ 不自動 push / 不動 .env*(settings.json deny 硬攔)/ 不繞 design-mirror.mjs
 — 禁止清單結束 —
