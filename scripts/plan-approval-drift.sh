@@ -81,6 +81,10 @@ report() {
   echo "🔴 A 檔頭說等批,而載體裡有【批准字面】⇒ $_mismatch 份(要人看)"
   [ -n "$_mismatch_list" ] && printf '%s' "$_mismatch_list" | sed 's/^/     /'
   echo "   ⚠️ 這一堆是【疑似矛盾】不是判決 —— 那個批准字面可能講的是別件事,自己開檔核對。"
+  echo "   🔴 而【命中句常常只有一半過期】,不要整段劃掉:"
+  echo "      實例(2026-08-18 B 窗實作時撞到):「等 Sean 批。批准後第一個動作是 B0,不是寫 code。」"
+  echo "      前半=狀態(已過期);後半=【批准下來才生效】的做法約束 ⇒ 現在正是它該生效的時候。"
+  echo "      ⇒ 逐句判,不要整段標紅或整段刪。本尺指出的是【位置】,不是【處置方式】。"
   echo
   echo "B 檔頭說等批,載體有提到但【無批准字面】⇒ $_mentioned 份"
   [ -n "$_mentioned_list" ] && printf '%s' "$_mentioned_list" | sed 's/^/     /'
