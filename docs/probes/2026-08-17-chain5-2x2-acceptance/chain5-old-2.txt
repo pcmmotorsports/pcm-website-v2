@@ -1,0 +1,35 @@
+
+ RUN  v4.1.5 /Users/sean_1/pcm-sso-seclog
+
+ ❯ |node| scripts/chain5-old.test.ts (1 test | 1 failed) 44ms
+     × 50 發 race 首解析 42ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| scripts/chain5-old.test.ts > chain5-old > 50 發 race 首解析
+AssertionError: expected [ Array(1) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "r1:THREW Error: requireEnv('CHAIN5_FAKE_ENV') not set",
++ ]
+
+ ❯ scripts/chain5-old.test.ts:17:17
+     15|       if (dep.DEP_LIMIT !== 500) bad.push(`r${r}:LIMIT=${dep.DEP_LIMIT…
+     16|     }
+     17|     expect(bad).toEqual([]);
+       |                 ^
+     18|   });
+     19| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  23:02:02
+   Duration  739ms (transform 74ms, setup 0ms, import 174ms, tests 44ms, environment 0ms)
+
