@@ -155,13 +155,37 @@ describe('#10 片1 揀貨單列印頁', () => {
     const { container } = await renderPage();
     const thead = container.querySelector('table > thead');
     expect(thead).not.toBeNull();
-    expect([...(thead?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim())).toEqual([
-      '✓',
-      '料號',
-      '品名 / 規格',
-      '應揀數量',
-    ]);
+    // 🔴 **2026-08-17 `Q-C20` 之後 `thead` 是兩列**:第 1 列續頁抬頭、第 2 列才是欄名。
+    //    ⚠️ 本格原本把 `thead` 底下**所有** `th` 攤平比對成四個字串,
+    //       而那寫法把「欄名有哪幾個」與「thead 裡有沒有別的列」**綁成同一個斷言** ——
+    //       加抬頭那一列時它會紅,而**紅的理由讀起來像「欄名壞了」**。⇒ 改成逐列各自斷言。
+    const headRows = [...(thead?.querySelectorAll(':scope > tr') ?? [])];
+    expect(headRows.length).toBe(2);
+    expect(
+      [...(headRows[1]?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim()),
+    ).toEqual(['✓', '料號', '品名 / 規格', '應揀數量']);
     expect(container.querySelectorAll('table > tbody > tr').length).toBe(1);
+  });
+
+  it('②c🔴 `Q-C20` 續頁抬頭:訂單編號必須在 `<thead>` 【裡面】,不是在頁面上任何地方', async () => {
+    // 🔴 **這一格守的是「第 2 頁認得出是哪一張單」**,而它的關鍵不是「頁面上有沒有訂單編號」——
+    //    頁首本來就印著一個(`picking-doc.tsx` 的 `<h1>` 旁邊)。
+    //    **只有在 `<thead>` 裡的那一份會被瀏覽器逐頁重複。**
+    //    ⇒ 所以本格斷言的是**位置**不是**存在**:把這一列搬出 `thead`(例如挪去 `<caption>`
+    //      或表格上方的 div),畫面上看起來幾乎一樣、`textContent` 也照樣含訂單編號,
+    //      而**第 2 頁會變回沒有單號** —— 那條路只有這個位置斷言擋得住。
+    // ⚠️ 誠實:本格**證不了**第 2 頁真的印出來了(單測沒有分頁概念),
+    //    它證的是那個原生保證的**前提還在**。真的印出來看過的紀錄在
+    //    `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b-4。
+    const { container } = await renderPage();
+    const contbar = container.querySelector('table > thead > tr.contbar > th');
+    expect(contbar).not.toBeNull();
+    expect(contbar?.textContent).toContain('品項明細');
+    expect(contbar?.textContent).toContain('PCM-2026-0042');
+    // 🔴 揀貨單的單位是「一張訂單」⇒ 這一列**不帶箱號**(出貨明細單那張才有)。
+    expect(contbar?.textContent).not.toContain('箱號');
+    // 跨欄要蓋滿,少一欄的話那一列只會撐在左邊、右邊被欄名擠上來。
+    expect(contbar?.getAttribute('colspan')).toBe('4');
   });
 
   it('③品項沒載完 ⇒ fail-closed 明說「不要拿這張去揀貨」', async () => {
@@ -206,8 +230,20 @@ describe('#10 片1 揀貨單列印頁', () => {
       expect(printButtons((await renderPage()).container)).toHaveLength(0);
     });
 
-    it('🔴 正向對照:一切正常 ⇒ 列印鈕還在(證明上兩格不是「這顆鈕根本不存在」)', async () => {
-      expect(printButtons((await renderPage()).container)).toHaveLength(1);
+    it('🔴 `#601` 讀不到任何品項 ⇒ 沒有列印鈕(落地前這一種【還有】鈕)', async () => {
+      // 鈕條件原本只看 `cancelledAt` 與 `itemsTruncated`,`items.length === 0` 不在裡面
+      // ⇒ 紙上寫「讀不到任何品項」而我們自己遞了刀。**鈕與紙的條件不一致 = 守門裝在一半的路上。**
+      mocks.findAdminOrderDetail.mockResolvedValue(detail({ items: [] }));
+      expect(printButtons((await renderPage()).container)).toHaveLength(0);
+    });
+
+    it('🔴 正向對照:一切正常 ⇒ 列印鈕還在(證明上三格不是「這顆鈕根本不存在」)', async () => {
+      const { container } = await renderPage();
+      expect(printButtons(container)).toHaveLength(1);
+      // 🔴 **`data-slot` 那個選取器的正向對照** —— 別處那幾格用它斷言「鈕不在」,
+      //    而**選不到的選取器會讓那些斷言恆真**。這一行證明它真的選得到。
+      //    (我第一版寫那些斷言時 `print-button.tsx` 上還沒有這個 attribute ⇒ 恆真,當場發現。)
+      expect(container.querySelector('[data-slot="print-button"]')).not.toBeNull();
     });
   });
 
@@ -236,11 +272,40 @@ describe('#10 片1 🔴 揀貨單必須反映貨的真實狀態', () => {
       detail({ cancelledAt: '2026-08-05T02:00:00+00:00' }),
     );
     const { container } = await renderPage();
-    expect(textOf(container)).toContain('已取消');
-    expect(textOf(container)).toContain('不要揀貨');
+    // 🔴 **2026-08-17 `#601` A 種落地之後,這一格的字面換過** ——
+    //    原本斷言 `toContain('已取消')` 與 `toContain('不要揀貨')`,而那兩個字面來自
+    //    舊的一行 `<Alert>`。現在是整幅 `BlockedSheet`:原因寫「已於 … 取消」、
+    //    「不要揀貨」那句在四條動作裡是「不要依本單揀貨、裝箱或出貨。」
+    //    ⚠️ **兩個【意思】都還在,是【字面】變了** ⇒ 本格改成斷言意思落在哪一塊裡,
+    //       而不是斷言那兩串字。**這不是放寬:下面多了位置與條目數兩條。**
+    const panel = container.querySelector('[data-slot="print-blocked"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent).toContain('取消');
+    expect(panel?.textContent).toContain('不要依本單揀貨、裝箱或出貨。');
+    expect(panel?.textContent).toContain('本頁不含品項明細');
+    // 四條動作的條目數也釘住(少一條 = 少一個動作,而少掉的那條可能正是最貴的情境)。
+    expect(panel?.querySelectorAll('li').length).toBe(4);
     // 🔴 這一條才是真的守門:表格不存在 ⇒ 沒有東西可以照著揀。
     expect(container.querySelector('table')).toBeNull();
     expect(textOf(container)).not.toContain('LTC-BK-XL');
+    // 🔴 而且**不再遞刀**:這一種狀態下列印鈕不該在(⌘P 擋不住,但我們不主動給)。
+    expect(container.querySelector('[data-slot="print-button"]')).toBeNull();
+  });
+
+  it('🔴 `#601` C 種:讀不到任何品項 ⇒ 整幅阻印版面,而且**列印鈕不再照給**', async () => {
+    // 🔴 **落地前這一種的鈕【還在】** —— 鈕條件只看 `cancelledAt` 與 `itemsTruncated`,
+    //    `items.length === 0` 不在裡面 ⇒ 紙上寫「讀不到任何品項」,而我們自己遞了刀。
+    //    ⇒ **鈕的條件與紙的條件不一致 = 守門裝在一半的路上。**
+    // ⚠️ 這一種的文案保留「請重新整理」是刻意的:它與 `itemsTruncated` 不同 ——
+    //    那一種是固定上限(重整一百次拿回同一個數字),這一種是投影出問題、重整真的可能好。
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ items: [] }));
+    const { container } = await renderPage();
+    const panel = container.querySelector('[data-slot="print-blocked"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.textContent).toContain('讀不到任何品項');
+    expect(panel?.querySelectorAll('li').length).toBe(4);
+    expect(container.querySelector('table')).toBeNull();
+    expect(container.querySelector('[data-slot="print-button"]')).toBeNull();
   });
 
   it('⑤面2/3/4 放大的數字是「已到貨 − 已出貨」,**不是下單量**', async () => {

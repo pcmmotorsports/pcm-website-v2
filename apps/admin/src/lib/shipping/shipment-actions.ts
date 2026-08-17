@@ -141,7 +141,8 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
     //      擁有者**,建箱與掛品項對得起來,構造不出跨客人的箱。
     // 🔴🔴 **跨檔依賴,寫下來是唯一讓下一個人知道的方法**(2026-08-16 與 C 窗對過檔名時查出來的)。
   //    下面「恰好一位客人才建箱」的擋法,正確性**依賴 `shipment-repository` 的 fail-closed**:
-  //    `listCustomerUserIdsByOrderItemIds` 在有任何品項查不到(含 PostgREST 1000 列靜默截斷)時
+  //    `listCustomerUserIdsByOrderItemIds` 在有任何品項查不到(含 PostgREST `db-max-rows` 靜默截斷;
+  //    該上限 2026-08-18 起實測 **2000**、~~原寫 1000~~,V 窗量、本檔改動者未自驗)時
   //    **回空 Set**,於是走到「查無擁有者 → 拒絕」那條。
   //    ⚠️ 那裡若哪天改成 fail-open(拿查得到的那幾筆「湊」一位客人),
   //       **本處會靜默退化成放行** —— 而這裡的 code 一個字都不用改、測試也不會紅。
@@ -227,10 +228,25 @@ export type VoidResult = { ok: true } | { ok: false; message: string };
 // ═══════════════════════════════════════════════════════════════════════════
 //  🔴 授權閘(Q-AUDIT-1 A1,Sean 2026-08-16 批 `Q-AUDIT-1a`=甲「被擋是對的」)
 //
-//  為什麼本檔需要:本檔是 §3.2 矩陣裡**唯一**沒有 `authorizeAdminMutation` 的業務檔,
+//  為什麼本檔需要 —— 🔴 **時態:這一段描述的是【加閘之前】的世界,不是現況**(2026-08-17 標明):
+//  加閘前,本檔是 §3.2 矩陣裡**唯一**沒有 `authorizeAdminMutation` 的業務檔,
 //  而它呼叫的五支 RPC 也是**唯一**零 `admin_audit_log` 的一組
 //  ⇒ 出貨線是全站**唯一兩層都沒有留痕**的路徑
 //  (`docs/security/2026-08-16-security-audit-run1-phase2-hunt.md` §6.2)。
+//
+//  ⚠️ **現況已非如此**:本檔 `:23` 已 import、`:113` 已呼叫該閘。
+//     2026-08-17 當場重量(數法跟著數字走):
+//       git grep -lE "^[[:space:]]*['\"]use server['\"]" apps/admin | grep -v '\.test\.' | wc -l   => 19
+//       其中含 authorizeAdminMutation                                                              => 18
+//     未走閘的只剩 `lib/session/actor-actions.ts`(選身分本人;母 plan
+//     `docs/specs/2026-08-16-m4b-e8b-real-auth-line-plan-v4.md:53` 逐字「本線上線後整支下架」)。
+//     🔴 **射程限定(codex 2026-08-17 must-fix)**:上面兩個數字的分母是
+//        **`'use server'` 模組**,而且是**檔級**篩子 —— 它證明「模組含有那個字面」,
+//        **不證明每一支 exported action 都先走閘**,也**不涵蓋 route handler 與
+//        server component 直接寫入**那兩個面。
+//        ⇒ **不得把「只剩 actor-actions.ts」讀成「admin 所有寫入路徑都已涵蓋」。**
+//  🔴 **保留原句是為了留住「加閘的理由」** —— 但不標時態的話,
+//     它會被讀成「本檔現在還沒有閘」,而那正好是它自己已經解決掉的問題。
 //
 //  🔴 **這不是權限修補** —— 存取控制沒有失守(`proxy.ts` 仍擋未登入、外部呼不到)。
 //     它補的是**事後查得出來**:「誰把那筆出貨作廢的」現在才有地方答。

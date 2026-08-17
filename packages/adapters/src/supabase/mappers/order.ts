@@ -441,7 +441,10 @@ export const ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
  * 內嵌 `payment_charge_attempts` 的請求上限(M-4b E10 A9g-2)。
  *
  * 🔴 50 的理由:單張訂單的扣款嘗試實務上是個位數(一次結帳一筆、失敗重試再一筆);
- * 50 遠高於任何合理值,又低於伺服器 `max-rows`(production 實測 1000)——
+ * 50 遠高於任何合理值,又低於伺服器 `max-rows`
+ * (~~production 實測 1000~~ ⇒ **2026-08-18 實測 2000**,V 窗量:`products?select=id&limit=5000`
+ *  ⇒ HTTP 206、`content-range 0-1999/19777`;**本檔改動者未自驗**。
+ *  **兩個值之下 50 都嚴格更小 ⇒ 下面那個「與專案設定脫鉤」的條件更寬鬆,不是更緊**)——
  * 讓截斷邊界由我們的常數擁有(理由同 `ORDER_NOTES_EMBED_LIMIT`)。
  * 🔴 **「與專案設定脫鉤」只在 `max-rows > 50` 時成立**(關卡2 codex MF3 更正原本說太滿的字面):
  * 若日後把 `max-rows` 調到 50 以下,伺服器會先截斷、回傳筆數永遠 < 50 ⇒ 本檔判不出截斷、

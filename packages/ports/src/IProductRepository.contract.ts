@@ -67,7 +67,7 @@ export function runProductRepositoryContract(
       // 接線 plan C4:回全目錄非下架 product(不綁分類)。真斷言在各 impl 自備 fixture
       // (SupabaseProductAdapter.test.ts 分頁迴圈 mock / InMemoryProductRepository.test.ts 全庫存回傳),
       // 此 framework 維持 it.todo。
-      it.todo('SupabaseProductAdapter 接 contract 時實作:.range 分頁迴圈撈全目錄、不綁 category_id、繞 1000-row 上限');
+      it.todo('SupabaseProductAdapter 接 contract 時實作:.range 分頁迴圈撈全目錄、不綁 category_id、繞 db-max-rows 上限(2026-08-18 實測 2000,~~原寫 1000~~)');
     });
 
     describe('listCategories', () => {

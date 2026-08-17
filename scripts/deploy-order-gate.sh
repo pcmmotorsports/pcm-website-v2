@@ -39,13 +39,32 @@
 set -uo pipefail
 export LC_ALL=C
 
+# ── 摘要行(2026-08-18;V 窗提、主視窗立案)───────────────────────────────
+# 🔴 為什麼要有:本閘通過時原本是**完全靜默**的 ⇒ 在 Sean 的螢幕上,
+#    「跑了而沒東西該擋」與「根本沒跑」長得一模一樣,而他是唯一會看到那個畫面的人。
+# 🔴 那一行的內容由【結果】決定,不是無條件印同一句 —— 常載規矩:
+#    `cmd; echo "(空 = 零命中)"` 在有命中時照樣印,而它就印在命中的正下方。
+# 🔴 「0 blocked / 0 pending」與「一個 ref 都沒檢查」是**兩件事**,所以 REF_N 要單獨報:
+#    推 feature branch / 推 tag 時本閘刻意不看(只看 dev 與 main),
+#    此時若印「0 blocked」會被讀成「檢查過、乾淨」——那正是本閘要避免的那種沉默。
+REF_N=0; PENDING_N=0
+summary() {  # $1 = 結論標籤
+  if [ "$1" = "skipped" ]; then
+    echo "gate: 跳過($2)—— 本閘沒有判準,不是「檢查過而乾淨」" >&2
+  elif [ "$REF_N" = "0" ]; then
+    echo "gate: 未檢查任何 ref(這次推的不是 refs/heads/dev 或 refs/heads/main)" >&2
+  else
+    echo "gate: $1 blocked / $PENDING_N pending(檢查了 $REF_N 個 ref)" >&2
+  fi
+}
+
 REPO="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
-cd "$REPO" || exit 0
+cd "$REPO" || { summary skipped "進不去 repo 根"; exit 0; }
 LEDGER="supabase/APPLIED.tsv"
 ZERO="0000000000000000000000000000000000000000"
 
 # 沒有 migrations 目錄的 repo 狀態(例如淺 clone)⇒ 這道閘沒有判準,放行而不是假裝有守
-[ -d supabase/migrations ] || exit 0
+[ -d supabase/migrations ] || { summary skipped "無 supabase/migrations"; exit 0; }
 
 # ── 0. ledger 自身合法性(關卡2 must-fix #10):重複版本號會讓「取第一列」靜默取錯,
 #      欄數壞掉會讓 sha 欄變空 ⇒ 兩種都是**靜默算錯**,而不是報錯。fail-closed。
@@ -119,10 +138,11 @@ BLOCKED=""
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "${local_sha:-}" ] || continue
   [ "$local_sha" = "$ZERO" ] && continue                       # 刪除 ref
-  case "${remote_ref:-}" in refs/heads/dev|refs/heads/main) : ;; *) continue ;; esac
+  case "${remote_ref:-}" in refs/heads/dev|refs/heads/main) REF_N=$((REF_N + 1)) ;; *) continue ;; esac
   ledger_sanity "$local_sha" || exit 1
 
   if ! PENDING="$(pending_versions "$local_sha")"; then exit 1; fi
+  PENDING_N=$((PENDING_N + $(printf '%s' "$PENDING" | grep -c . || true)))
   [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: PENDING = $(printf '%s' "$PENDING" | cut -f1 | tr '\n' ' ')" >&2
   [ -n "$PENDING" ] || continue
 
@@ -169,7 +189,7 @@ $(git show "$local_sha:$af" 2>/dev/null || true)"      # rename 進來的檔:整
   done <<< "$APP_FILES"
 done
 
-[ -z "$BLOCKED" ] && exit 0
+[ -z "$BLOCKED" ] && { summary 0; exit 0; }
 
 {
   echo ""
@@ -184,4 +204,6 @@ done
   echo "   本閘刻意不提供「打一行宣告就過」的欄位(那種例外兩次被對抗審查證明是儀式,見 plan §3)。"
   echo ""
 } >&2
+# 🔴 摘要行放在【擋下訊息之後】—— 它是最後一行,而 Sean 的終端機是往下捲的。
+summary "$(printf '%b' "$BLOCKED" | grep -c '· 函式' || true)"
 exit 1

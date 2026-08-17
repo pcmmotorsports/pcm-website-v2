@@ -408,7 +408,12 @@ const ORDER_ITEMS_PRINT_SELECT =
  * 🔴 **為什麼是 200 而不是 1000**(A 窗 2026-08-17 在共用 helper 裡實測到這個坑):
  * 頁大小**等於** `db-max-rows` 時,「伺服器砍過的一頁」與「真正的末頁」**回傳同樣的筆數**
  * ⇒ 兩個世界印同一個東西 ⇒ 用「本頁不滿即停」的迴圈會靜默提早收工。
- * 既有共用 helper `fetchAllPaginated` 的 `PAGE_SIZE` 正是 `1000` = **零餘裕**。
+ * 既有共用 helper `fetchAllPaginated` 的 `PAGE_SIZE` 是 `1000`;
+ * ~~= **零餘裕**~~ ⇒ **2026-08-18 起不再是**:`db-max-rows` 實測 **2000**,`1000 < 2000` 有餘裕。
+ * (V 窗 2026-08-18 對正式站實測:`products?select=id&limit=5000` ⇒ HTTP 206、
+ *  `content-range 0-1999/19777`;**本檔改動者未自驗,轉錄 V 窗量測**。)
+ * 🔴 **而餘裕是【設定給的】、不是程式保證的** —— 那個值在 Dashboard 上被改回去,
+ * 這裡就再次歸零,而**不會有任何東西紅**。⇒ 下面那句「刻意不寫成 `max-rows - 1`」的理由**因此更強,不是更弱**。
  * ⚠️ **而這裡刻意不寫成 `max-rows - 1`** —— 那會把正確性綁在一個**未確認**的值上
  * (repo 側 docstring 說 1000、A 窗頂層實測 1000,而官方文件**沒有說它對內嵌資源怎麼算**)。
  * ⇒ 挑一個**明顯更小的固定值**。
@@ -885,8 +890,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    *
    * ## 🔴 迴圈的終止條件是「空頁」,不是「本頁不滿」——這是刻意的
    * 既有的共用 helper `helpers/product-query-support.ts` 的 `fetchAllPaginated` 用
-   * 「`batch.length < PAGE_SIZE` 即停」,而它的 `PAGE_SIZE = 1000` **等於**傳聞中的伺服器
-   * `db-max-rows`(1000,引自 `mappers/order.ts` docstring 的 production 實測紀錄、**我未自己量**)。
+   * 「`batch.length < PAGE_SIZE` 即停」,而它的 `PAGE_SIZE = 1000`
+   * ~~**等於**傳聞中的伺服器 `db-max-rows`(1000)~~ ⇒ **2026-08-18 起是 `1000 < 2000`**
+   * (`db-max-rows` = **2000**;V 窗 2026-08-18 對正式站實測 `products?select=id&limit=5000`
+   *  ⇒ HTTP 206、`content-range 0-1999/19777`。**我未自己量,轉錄 V 窗**)。
+   * 🔴 **而這一段的論證與那個數字是多少【無關】** —— 它講的是
+   * 「**只要**伺服器上限低於頁大小,每一頁都會不滿」,那個「只要」在 2000 之下同樣成立,
+   * 只是今天沒有觸發。**餘裕是設定給的、不是程式保證的**,改回去就再次歸零而不會有東西紅。
    * ⇒ **只要伺服器上限低於頁大小,每一頁都會「不滿」⇒ 第一頁就停,而且是靜默的**
    *   —— 那正是本函式要消滅的那個病,換個位置而已。
    * ⇒ 本迴圈:**拿到 0 列才停**,而且 `from` **前進實得筆數**(不是前進頁大小)

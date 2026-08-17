@@ -64,8 +64,11 @@ function toRow(raw: RawRow): OrderRefundRow {
 }
 
 /**
- * 🔴 顯式上限+truncated 旗標(codex R1 MF1):Supabase 的 PostgREST 有 `max-rows=1000`,
- * 不帶 .limit **不是**「無截斷」而是「1000 筆處被平台靜默截斷」—— 顯式上限讓截斷可見
+ * 🔴 顯式上限+truncated 旗標(codex R1 MF1):Supabase 的 PostgREST 有 `db-max-rows`,
+ * 不帶 .limit **不是**「無截斷」而是「在那個上限處被平台靜默截斷」—— 顯式上限讓截斷可見
+ * 🔴 上限值 = **2000**(~~原寫 1000~~;V 窗 2026-08-18 對正式站實測 `products?select=id&limit=5000`
+ * ⇒ HTTP 206、`content-range 0-1999/19777`。**本檔改動者未自驗,轉錄 V 窗**)。
+ * ⚠️ **本段結論與那個數字是多少無關** —— 它講的是「不帶 .limit 會被靜默截斷」。
  * (house 慣例=AdminOrderDetail.notesTruncated)。取 N+1 判斷、回 N。
  */
 export const ORDER_REFUNDS_LIMIT = 100;

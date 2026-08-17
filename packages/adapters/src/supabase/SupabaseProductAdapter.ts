@@ -188,7 +188,9 @@ export class SupabaseProductAdapter implements IProductRepository {
     }
 
     // 🔴 下一個方法(`listAllByCategory`)的註解**早就診斷完這個病**:逐字「listByCategory 走單次
-    //    `.select()`、會撞 PostgREST/Supabase 『Max rows = 1000』硬上限(品類 >1000 件時靜默截斷)」。
+    //    `.select()`、會撞 PostgREST/Supabase 的 `db-max-rows` 硬上限(品類超過該上限時靜默截斷)」。
+    //    🔴 該上限 ~~原寫 1000~~ ⇒ **2026-08-18 實測 2000**(V 窗量、本檔改動者未自驗);
+    //    **而這段論證與那個數字是多少無關** —— 它講的是「單次 select 會被伺服器靜默夾短」。
     //    ⇒ 兩個方法的**分工是對的**(取樣版 vs 全量版),缺的只是取樣版**沒有把上限講出來** ——
     //    於是它看起來像「全部」。實測 3 個分類破千(1,642 / 1,627 / 1,295,2026-08-17 anon 側 production)。
     const { data, error } = await this.supabase
@@ -210,7 +212,7 @@ export class SupabaseProductAdapter implements IProductRepository {
   /**
    * 依 category 列出 product —— 全量分頁版(#220、/products 列表頁用)。
    *
-   * listByCategory 走單次 `.select()`、會撞 PostgREST/Supabase「Max rows = 1000」硬上限
+   * listByCategory 走單次 `.select()`、會撞 PostgREST/Supabase `db-max-rows` 硬上限(~~原寫「Max rows = 1000」~~ ⇒ **2026-08-18 實測 2000**,V 窗量、本檔改動者未自驗)
    * (品類 >1000 件時靜默截斷、列表頁漏商品);本方法以 `.order('id')` + `.range()` 分頁迴圈
    * 撈到底,確保 /products 顯示完整公開目錄(RLS 已濾下架、回非下架商品全量)。
    *
@@ -244,7 +246,7 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 列出**全目錄**非下架 product —— 全量、跨分類(接線 plan C4、#205)。對齊
    * IProductRepository.listAllProducts contract。
    *
-   * 同 listAllByCategory 的分頁迴圈(繞 PostgREST 1000-row 上限、`fetchAllPaginated` 共用),
+   * 同 listAllByCategory 的分頁迴圈(繞 PostgREST `db-max-rows` 上限;~~原寫「1000-row」~~ ⇒ 2026-08-18 實測 **2000**、`fetchAllPaginated` 共用),
    * 但**不疊 category_id 過濾** → 撈整個公開目錄(RLS 已濾下架、回非下架商品全量)。
    * 解除 lib/products 舊「寫死單一分類『碳纖維部品』」;RPM 零回歸見 port contract。
    *

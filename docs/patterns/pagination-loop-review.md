@@ -20,8 +20,21 @@
 **零餘裕(`PAGE_SIZE == max-rows`)= 現在能動、伺服器一調就死。**
 
     實例  packages/adapters/src/supabase/helpers/product-query-support.ts:56
-          const PAGE_SIZE = 1000;   ← 對上 db-max-rows 1000 ⇒ 零餘裕（自知，註解有記）
+          const PAGE_SIZE = 1000;
+          ~~← 對上 db-max-rows 1000 ⇒ 零餘裕~~   2026-08-18 起【不再是零餘裕】
+          ← 對上 db-max-rows 2000 ⇒ 1000 < 2000，目前有餘裕
     ✅ 2026-08-17 I 窗搬檔時重核：行號與字面皆命中
+    🔴 2026-08-18 更新:`db-max-rows` = **2000**
+       量的人 = V 窗,2026-08-18;探法 = storefront anon key 打【正式站】REST
+       `products?select=id&limit=5000` ⇒ HTTP 206、`content-range: 0-1999/19777`、實回 2000 列
+       (分母 19,777 > 2000 ⇒ 量到的是**天花板本人**,不是資料只有這麼多)
+       第二來源 = Sean 本人口頭「max rows 已經調整到2000」「已經safe」
+       ⚠️ **主視窗與 I 窗均未自驗** —— 這句弱,而它就是弱,寫出來才誠實,
+          且它是下一個人知道「要去補量」的唯一線索。
+    🔴 **而餘裕是【設定給的】,不是程式保證的** ——
+       這個值在 Supabase Dashboard 上被改回去,這裡就**再次歸零**,
+       而**不會有任何東西紅**:檔沒改、測試沒紅、`grep` 數不變。
+       ⇒ **本節的準則(頁大小嚴格小於 `max-rows`)沒有因此變寬鬆,它一個字都沒變。**
 
 📎 `db-max-rows` 本身是**一個 dashboard 上點一下就能改的專案設定**,
 而且**這個 repo 裡有兩顆、分屬兩個 Supabase 專案** ⇒ 見 `docs/reference/environment-values-and-what-stands-on-them.md`。

@@ -40,7 +40,15 @@ run_and_report() {
   shift
   [ $# -gt 0 ] || usage
 
-  log=$(mktemp)
+  # 🔴 `RUNRC_FULL_LOG` 讓呼叫端指定完整輸出落在哪;不設 ⇒ 照舊 `mktemp`(行為不變)。
+  #    存在的理由(2026-08-17 實錘):`mktemp` 落在 /var/folders,**macOS 會把它清掉** ——
+  #    而那份是「三週後查因果」的人唯一能開的東西。尾 N 行只服務「當下看紅在哪」的人。
+  if [ -n "${RUNRC_FULL_LOG:-}" ]; then
+    mkdir -p "$(dirname "$RUNRC_FULL_LOG")"
+    log="$RUNRC_FULL_LOG"
+  else
+    log=$(mktemp)
+  fi
   # 🔴 命令跑在【沒有管線】的位置 ⇒ $? 就是它自己的。
   #    輸出整份落檔,尾巴事後才裁 —— 裁切發生在 rc 收完【之後】。
   set +e
@@ -99,6 +107,19 @@ selftest() {
   # 格4:本工具自己的 rc 要等於被跑命令的 rc(否則呼叫端 && 串接會壞)
   sh "$0" 1 -- sh -c 'exit 9' >/dev/null 2>&1 && r=0 || r=$?
   ck "格4 工具自己的 rc 透傳" "$r" "9"
+
+  # 格5 系列 [兩個世界]:RUNRC_FULL_LOG 有沒有真的被用。
+  #   🔴 只驗「檔生出來了」不夠 —— 要驗**完整的**內容在裡面(這支的賣點就是尾 N 行以外那些)。
+  full="$(mktemp -d)/deep/full.log"
+  RUNRC_FULL_LOG="$full" sh "$0" 2 -- sh -c 'for i in 1 2 3 4 5 6 7 8; do echo line$i; done' \
+    >/dev/null 2>&1 || true
+  [ -f "$full" ] && r="$(wc -l < "$full" | tr -d ' ')" || r=nofile
+  ck "格5 RUNRC_FULL_LOG 指定的檔要收【全部】8 行(不是尾 2 行)" "$r" "8"
+  # 格5b [負向對照]:不設那個變數 ⇒ 不得在同一個位置生檔(證格5 不是恆真)。
+  rm -f "$full"
+  sh "$0" 2 -- sh -c 'echo x' >/dev/null 2>&1 || true
+  [ -f "$full" ] && r=yes || r=no
+  ck "格5b [負向對照] 不設 RUNRC_FULL_LOG ⇒ 那個位置不得有檔" "$r" "no"
 
   printf '\n合計  PASS=%s  FAIL=%s\n' "$pass" "$fail"
   [ "$fail" = "0" ]

@@ -130,9 +130,30 @@ const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
  *
  * 🏁 **Sean 2026-08-06 拍 B:維持現狀、兩種語意並存=知情接受**(E-115-A)。
  * ⇒ **這不是 bug,勿順手「統一」** —— 要統一得先重拍(改哪一邊、含不含運費/折扣都會動到肉眼驗基準)。
+ *
+ * 🔴🔴 **`itemsTruncated` 為什麼是第一個判準**(2026-08-18 A 窗,收 codex must-fix `§7:268`)
+ *
+ * **這個函式是「由半份資料決定要印哪一種語意」的分支** —— 而它讀的 `order.lines`
+ * 在 `itemsTruncated` 時**本身就是半份的**(`ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT = 500`,
+ * `mappers/order.ts:428`)。壞世界:截斷後只剩 1 列且該列 `quantity === 1`
+ * ⇒ 舊式翻 `false` ⇒ **同一張單,資料載全與沒載全,那一欄印的是兩個【不同語意】的數字**
+ * (整單的錢 vs 品項的錢)。而 Sean 已知情接受兩種語意並存 ⇒ **畫面上沒有任何差別可看。**
+ *
+ * 🔴 **這是套用既有拍板 `Q-EMBED-2`(2026-08-16 Sean 拍甲:資料不完整就不要印算出來的值),
+ *    不是新規格** —— 與狀態欄印「未知」、與「共 N 筆」那條同一條線。**不需要新拍板。**
+ *
+ * ⚠️ **今天的實際影響面 = 零,而這【不是】不做它的理由**:
+ *    今天截斷恆發生在 500 ⇒ `lines.length > 1` 恆真 ⇒ 舊式今天到不了危險的那一半。
+ *    (實測佐證:加上這一行之後,本檔既有 86 格**一格都沒紅**。)
+ *    🔴 **但那個安全條件是「截斷上限 > 1」,而它從來沒有被寫下來過。**
+ *    同一支 mapper 的註解自己留了口子(`order.ts:425-426` 逐字):
+ *    「若專案 `max-rows` 日後被設到低於本值,截斷會發生在那個更低的數字上而**本判定看不見**」
+ *    ⇒ **現在這一行讓那個依賴消失,而不是讓它繼續隱形。**
+ *    ⚠️ 原 plan `§7` 以「今天構造不出來」豁免這條;codex 判 must-fix:**fixture 明明構造得出來**。
+ *    守門在 `orders-table.test.tsx`(那組雙向格)。
  */
 function shouldMergeAmount(order: AdminOrderSummary): boolean {
-  return order.lines.length > 1 || order.lines.some((l) => l.quantity > 1);
+  return order.itemsTruncated || order.lines.length > 1 || order.lines.some((l) => l.quantity > 1);
 }
 
 /**
