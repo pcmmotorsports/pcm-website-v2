@@ -110,6 +110,15 @@ describe('listOrderRefunds', () => {
     expect(calls.limit![0]).toEqual([ORDER_REFUNDS_LIMIT + 1]);
   });
 
+  // 🔴 族普查 R3 命中(同 refund-recovery-read 那格,詳細註解在那邊):上一格的期望值
+  //    跟著常數走 ⇒ 常數漂移測試照綠,而 .limit(LIMIT+1) ≥ db-max-rows 時伺服器先夾
+  //    ⇒ refund-read.ts:93 的 truncated 旗標永假、「有退款沒有列出來」那行警示不再出現。
+  //    max-rows=1000 未確認(memory 源),改常數 ≥999 前先確認。即使 1000 是錯的,
+  //    本格仍擋「把常數調高」這個動作本身(理由全文在 recovery-read 那格)。
+  it('🔴 LIMIT+1 必須嚴格小於 1000(db-max-rows 未確認值)—— 否則截斷偵測靜默死亡', () => {
+    expect(ORDER_REFUNDS_LIMIT + 1).toBeLessThan(1000);
+  });
+
   it('🔴 投影欄位正向釘死(codex MF4)+ 禁入欄負向(RW2b 投影紀律)', async () => {
     const { builder, calls } = chain({ data: [], error: null });
     mocks.from.mockReturnValue(builder);

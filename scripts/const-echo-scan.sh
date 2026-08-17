@@ -13,6 +13,11 @@
 #   4. objectContaining / 模板字串內插
 #   5. 期望在左邊的寫法(expect(CONST).toBe(actual))
 #   6. 單字母常數(如 X)—— 常數判定 regex 要求 ≥2 字元
+#   7. 複合字面包住常數(toEqual([CONST + 1]) / toEqual({ n: CONST }))—— regex 要求
+#      匹配子後緊跟常數名,( 後面是 [ 或 { 就對不上。🔴 具名實錘(族普查唯二真命中,
+#      全是這形狀、本掃描器零報,人工讀出):refund-recovery-read.test.ts 的
+#      toEqual([RECOVERY_SIBLINGS_LIMIT + 1]) 與 refund-read.test.ts 的
+#      toEqual([ORDER_REFUNDS_LIMIT + 1])。
 #
 # rc 三檔(分不開就沒有判別力):
 #   0 = 掃了、零命中     1 = 有命中     2 = 工具自壞(root 不存在 / 分母為 0 / 對照失敗 / python 掛)
