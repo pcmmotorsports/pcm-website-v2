@@ -333,7 +333,7 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     const truncated = await emitPicking(12, 'picking-truncated', { itemsTruncated: true }, true);
 
     // ── B 態的三個字面(頁首 Alert / 表頭那句 / 合計旁那句)──
-    expect(truncated).toContain('達到 200 筆上限');
+    expect(truncated).toContain('達到 200 項上限');
     expect(truncated).toContain('未載完,不是總數');
     expect(truncated).toContain('清單沒載完');
     // 🔴 **這一份與 A / C 的差別就是這兩格**:表在、而且真的有框可以勾。
@@ -346,7 +346,7 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    而勾選框必須【還在】—— 兩個方向都要動,才證得了「那三句是旗標帶出來的」
     //    而不是「這個版面本來就長那樣」。
     const normal = await emitPicking(12, 'picking-12item', {}, true);
-    expect(normal).not.toContain('達到 200 筆上限');
+    expect(normal).not.toContain('達到 200 項上限');
     expect(normal).not.toContain('未載完,不是總數');
     expect(normal).not.toContain('清單沒載完');
     expect(normal).toContain('picking-checkbox');
@@ -365,7 +365,7 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     const real = await emitPicking(200, 'picking-truncated-200', { itemsTruncated: true }, true);
     expect(real).toContain('SKU-0199-LONG');
     expect(real).not.toContain('SKU-0200-LONG');
-    expect(real).toContain('達到 200 筆上限');
+    expect(real).toContain('達到 200 項上限');
   });
 
   it('🔴 `#601` 阻印狀態 ⇒ 產出 shipping-blocked.html(那一幅要真的印出來看)', async () => {
