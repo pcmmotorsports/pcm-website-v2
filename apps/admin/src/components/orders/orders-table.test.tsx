@@ -1817,6 +1817,66 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
    * 🔴 **負向對照** —— 沒有這一格,12a 可以靠「每顆膠囊都掛同一句 title」通過,
    * 那時它量到的不是「截斷態有解釋」,而是「這個元件到處都有 title」。
    */
+  /**
+   * 🔴🔴 **codex must-fix `§7:268`(2026-08-18 A 窗收)——「第二個算答案的地方」**
+   *
+   * 原 plan `§7` 掃出 `shouldMergeAmount` 是截斷態下**第二個由半份資料決定語意**的分支,
+   * 卻以「**今天構造不出來**」豁免。**codex 判 must-fix:fixture 明明構造得出來。**
+   * 而它說得對 —— **下面這兩格就是那個 fixture,寫出來只花了幾行。**
+   *
+   * 🔴 **這一組守的不是「今天會壞」,是「那個安全條件從來沒被寫下來」**:
+   * 舊式 `lines.length > 1 || some(q>1)` 今天安全,**純粹因為截斷恆發生在 500**
+   * ⇒ 截斷時 `lines.length` 恆為 500 ⇒ 恆真。`mappers/order.ts:425-426` 的註解自己留了口子:
+   * 「若專案 `max-rows` 日後被設到低於本值…**本判定看不見**」。
+   *
+   * ⚠️ **不要把這組讀成「修了一個 bug」** —— 今天的實際影響面是零。
+   *    它讓一條隱形的依賴變成一格會叫的守門。**性質 = 套用既有拍板 `Q-EMBED-2`,不是新規格。**
+   */
+  describe('🔴 截斷 + 只剩一列 quantity=1 ⇒ 金額欄仍走【訂單層】語意', () => {
+    /**
+     * 🔴🔴 **`5,000` 這個值是承重的,不要改成 12,000**(2026-08-18 codex 對抗審查 #3 抓到)。
+     *
+     * 我第一版用 `lineAt('l1', 1, 'shipped')` ⇒ 它的 `lineTotal` 是 **12,000**,
+     * 而 fixture 的 `order.total` **也是 12,000** ⇒ **「印的是 order.total」那條斷言零判別力**:
+     * 把截斷分支改成仍印 `lineTotal`,那格**照樣全綠**。
+     * 🔴 **最刺的是**:我自己在別處的註解寫過「兩值都是 12,000 ⇒ 零判別力」這個坑,
+     *    然後在同一支檔裡**又踩了一次**。⇒ 知道規則不等於執行規則。
+     */
+    const singleUnitLine = [line('l1', 1, 5000)];
+
+    it('截斷時:印 order.total(訂單的錢),data-l 是「金額」', () => {
+      const { container } = render(
+        <OrdersTable
+          buildPanelHref={panelHref}
+          orders={[order({ lines: singleUnitLine, itemsTruncated: true })]}
+        />,
+      );
+      const cell = container.querySelector('td.col-amount')!;
+      // 🔴 兩條缺一不可,而且**兩條守的是不同的東西**:
+      //    `data-l` 守語意標籤(手機卡片上沒有表頭,它是唯一的差別)
+      //    金額數字守**印的是哪一個值** —— 12,000 = order.total、5,000 = 這一列的 lineTotal
+      expect(cell.getAttribute('data-l')).toBe('金額');
+      expect(cell.textContent).toContain('NT$ 12,000');
+      // 🔴 反向:那個「由半份資料算出來的」品項小計一個字都不准出現。
+      //    沒有這條,把分支改成印 lineTotal 而標籤照舊,上面兩條仍全綠(codex #3 原話)。
+      expect(cell.textContent).not.toContain('NT$ 5,000');
+    });
+
+    /**
+     * 🔴 **負向對照** —— 同一組 lines、只把旗標關掉,就該回到品項層語意。
+     * 沒有這格,上面那條可能只是因為「這個 fixture 本來就走合併態」而通過。
+     */
+    it('負向對照:非截斷時同一組 lines ⇒ 回到品項層,data-l 是「小計」', () => {
+      const { container } = render(
+        <OrdersTable
+          buildPanelHref={panelHref}
+          orders={[order({ lines: singleUnitLine, itemsTruncated: false })]}
+        />,
+      );
+      expect(container.querySelector('td.col-amount')!.getAttribute('data-l')).toBe('小計');
+    });
+  });
+
   it('🔴 驗收12b:非截斷時那顆狀態膠囊【不帶】那句 title', () => {
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
