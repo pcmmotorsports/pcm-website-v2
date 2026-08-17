@@ -8,9 +8,9 @@
 | # | 庫/面 | finding | 嚴重度 | 狀態 | 檔 |
 |---|---|---|---|---|---|
 | 1 | 網站庫 storefront | `pcm-tier` cookie client 可偽造、不查 DB;**今天靠三道間接擋**(讀價釘 general / view 排除 price_store / mapper dummy 0)—— M-2-08 接真經銷價時任一道放寬即 **CRITICAL** | 🔴 **潛在 CRITICAL(追蹤)** | 自標 `#215`/H-1;a4 已升成向 Sean 講的一件 | `axis2-authz-boundary-audit` §4-① |
-| 2 | 報價單庫 | `storefront_public_read` policy 的 USING ≠ view 的 WHERE(**少 `is_listed`**)⇒ anon 繞過 view 直查 `products` 可枚舉「未上架但有價有分類未隱藏」品項 | 🟠 MEDIUM(**無經銷價/PII**;結構已證) | 洞存在=證出來的;今天幾筆命中=量不到(帳號鎖住) | `quote-db-round2-storefront-catalog-rls` |
+| 2 | 報價單庫 | `storefront_public_read` policy 的 USING ≠ view 的 WHERE(**少 `is_listed`**)⇒ anon 繞過 view 直查 `products` 可枚舉「未上架但有價有分類未隱藏」品項 | 🟠 結構 MEDIUM / **當前曝險 0 筆** | 外部可達=✅實打 206;gap 今天=**0 筆(實打 `*/0`)**;結構仍在(觸發條件已明寫)⇒ 未降級 | `quote-db-round2-storefront-catalog-rls` |
 | 3 | 網站庫 admin | `fetchShipmentCandidates` orderIds **零長度上限** ⇒ 被盜 admin session 一次撈全部訂單成交價+PII + 無界並行 fan-out | 🟡 LOW–MEDIUM(不跨邊界、仍要 admin session) | 修法規格已交 a4 → C 窗 | `axis2` §4-③ |
-| 4 | 網站庫 storefront | login/forgot 重設信節流=**全域 2/小時**(內建 provider)⇒ 自我 DoS + 防列舉隱藏寄信失敗 | 🟡 視 provider(**證據偏自建 SMTP ⇒ 偏輕**) | 卡 Dashboard 看 SMTP provider | `supabase-recovery-throttle-granularity` |
+| 4 | 網站庫 storefront | login/forgot 重設信節流粒度=全域(僅內建 provider);PCM=自建 Resend SMTP ⇒ 全域 DoS 不成立,殘留只剩 §10 防列舉隱藏寄信失敗 | 🟢 LOW(已定案) | ✅ Sean Dashboard 截圖=自建 SMTP + `Minimum interval per user 60s`;不上調 | `supabase-recovery-throttle-granularity` |
 | 5 | 網站庫 storefront | tappay-notify「未上線」折扣 —— 是 **code 強制 gate**(flag 預設 off + 3DS-4 未實作 + 端點對不上就 drop),折扣站得住 | ℹ️ INFO(折扣有效) | 卡 Vercel env 看 `TAPPAY_3DS_ENABLED` 現值 | `section1-unverified-items-round2` §5 |
 | 6 | 網站庫 storefront | resolveCartLines 最壞 400 循序往返/請求 —— **有上限(200)+ 循序**,匿名可達但每請求有界 | ℹ️ LOW(200 截斷已緩解) | 結構已定;實測只確認計數(需 anon key) | `section1` §7 |
 
@@ -28,25 +28,31 @@
 
 | 缺 | 解開什麼 |
 |---|---|
+**✅ 今天(2026-08-17 下午)解掉的:**
+| 原 blocker | 結果 |
+|---|---|
+| ~~報價單庫 anon key~~ | Sean 交付(`sb_publishable_` len46)⇒ 實打完成:finding#2 外部可達=是、gap 今天=**0 筆**、經銷價外部 401、§1#9 net/extensions 406 不可達 |
+| ~~gap count 需 service_role~~ | 改由 anon key REST 取得(count-only)=0 筆 ⇒ 不需 service_role |
+| ~~Dashboard SMTP provider~~ | Sean 截圖=自建 Resend SMTP ⇒ finding#4=分支乙(輕);另量到 `Minimum interval per user=60s` |
+| ~~報價單 repo(mac mini)~~ | **量錯更正:repo 在本機 `~/API大量上架/PCM報價單-V2`**(`-maxdepth 3` 掃不到深度 4、正向對照剛好在深度 3 內沒測到深度維)⇒ 讀 `origin/main`(不 db push) |
+
+**⏳ 仍 pending(還在 Sean 手上):**
+| blocker | 解開什麼 |
+|---|---|
 | **網站庫 anon key** | §1 #1(facet-counts 放大實打)/#3/#7(cart 往返實打) |
-| **報價單庫 anon key** | §1#9(anon 經 PostgREST 實際看到哪些 schema)、finding#2 的 RLS gap 外部可達性、net/cron 祕密鏈外部可達性 |
-| **能 SELECT `products` 的角色(service_role)** | finding#2 的 gap 現有幾筆命中 count(稽核帳號被正確鎖住 ⇒ 量不到) |
-| **Dashboard → Auth → SMTP provider** | finding#4 嚴重度定案(內建=DoS/自建=輕) |
-| **Dashboard → Vercel WAF 規則** | §1#4 tappay-notify/facet-counts 限流是否真存在 |
-| **Vercel prod env `TAPPAY_3DS_ENABLED`** | finding#5 折扣是否被翻掉 |
-| **報價單 repo(mac mini)** | production schema vs repo 一致性、finding#2 修法落點 |
+| **Dashboard → Vercel WAF 規則** | §1#4 tappay-notify/facet-counts 限流是否真存在(全域節流已立 backlog `#607`) |
+| **Vercel prod env `TAPPAY_3DS_ENABLED`**(a4 併問中) | finding#5 折扣是否被翻掉 |
 
 ## D. on hold（非 blocked，是時機未到）
 
 - `E-698` §5 item 4 三條 traps：**等 `customers`+`products` 收割完再一次做**(traps 圈號退場兌現,`project_0817-traps-numbering-retired`)。
 
-## E. 下一個 E 窗接手順序（anon key 到齊後）
+## E. 下一個 E 窗接手順序（剩下的）
 
-1. 報價單 anon key → PostgREST 探測(`/rest/v1/products?is_listed=eq.false` + 200/404 對照)確認 finding#2 外部可達 + §1#9。
-2. 網站庫 anon key → §1 #1/#3/#7 實打(誘餌 build harness 已就緒,`storefront-hunt-round1` §6)。
-3. Dashboard 三答回來 → 定案 finding#4/#5 嚴重度。
-4. 報價單 repo 到 → production vs repo 一致性(B 窗 apply 前置同缺口)。
+1. **網站庫 anon key 到 → §1 #1/#3/#7 實打**(誘餌 build harness 已就緒,`storefront-hunt-round1` §6)。
+2. production vs repo 一致性:讀報價單 repo `origin/main`(本機,已解鎖)比對 production schema(B 窗 apply 前置同缺口)。
+3. `TAPPAY_3DS_ENABLED` prod 值回來 → 定案 finding#5。
 
 ## 口徑
 
-本檔是索引,結論以各分檔為準。所有「未確認」都附了缺哪一道檢查。正式庫全程唯讀,零寫入/DDL/業務資料列內容(聚合 count 亦因帳號鎖住未取得)。
+本檔是索引,結論以各分檔為準。所有「未確認」都附了缺哪一道檢查。正式庫全程唯讀,零寫入/DDL/業務資料列內容;報價單 gap count 經 anon key PostgREST **count-only**(`Range:0-0`+`Prefer:count=exact`,只取 Content-Range 總數、不落 row)取得=0 筆。

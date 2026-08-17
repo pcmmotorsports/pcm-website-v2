@@ -4,20 +4,27 @@
 - **憑證**:`pcm_audit_ro`,真登入(`current_user`=`session_user`)
 - **來源**:`pg_catalog`,**不是** `information_schema`(後者對零權限稽核帳號會系統性回 0)
 
-## 🔴 這份只有【一半】,而缺的是哪一半要講清楚
+## 🔴🔴 更正(2026-08-17 下午):下面那句「repo 不在這台機器上」是【量錯】,repo 一直都在本機
 
-B 窗要的 `#4` 是「production schema **與 repo** 一致性」。**repo 那一半不在這台機器上。**
+**正確事實**:報價單 repo 在本機 `~/API大量上架/PCM報價單-V2`(`origin/main`=`482bec5`、`supabase/migrations` 16 檔、與 mac mini 同版;a4 實查可重跑)。
 
-量法(附正向對照):
+**🔴 為什麼會量錯(寫明成因,不只寫「其實有」)**:下面那條 `find` 用 `-maxdepth 3`,而真實路徑 `~/API大量上架/PCM報價單-V2/supabase/migrations` 是**從 `~` 算起第 4 層** ⇒ `-maxdepth 3` **掃不到它**。⚠️ **而當時配的正向對照(`pcm-website-v2/supabase/migrations`)剛好在深度 3 之內、所以「find 是活的」過了,結論卻仍錯** —— **對照組要選在【被懷疑的那一維(深度)】上有差異的東西,而它沒測到深度。**
+
+**⇒ production-vs-repo 一致性現在可做**:用前必 `git fetch`、**只讀 `origin/main`**(工作樹落後 16 顆)、**絕不 `db push`**(memory `reference_quote-repo-migration-ledger-desync`)。
+
+---
+
+<details><summary>▼ 原文(保留為錯誤紀錄,結論已由上方更正)</summary>
+
+B 窗要的 `#4` 是「production schema **與 repo** 一致性」。~~repo 那一半不在這台機器上。~~
+
+原量法:
 ```
 find /Users/sean_1 -maxdepth 3 -type d -name migrations -path "*supabase*"
-  ⇒ 10 個命中,【全部】都是 pcm-website-v2 的工作樹,零個是報價單 repo
-正向對照:test -d /Users/sean_1/pcm-website-v2/supabase/migrations ⇒ 有 ⇒ find 是活的
+  ⇒ 10 個命中,全部是 pcm-website-v2 工作樹,零個是報價單 repo(← 因 -maxdepth 3 掃不到深度 4)
+正向對照:test -d /Users/sean_1/pcm-website-v2/supabase/migrations ⇒ 有(← 但它在深度 3 內,沒測到深度維)
 ```
-📎 與 memory `reference_quote-repo-truth-moved-to-mac-mini` 一致:報價單 repo 真身在 mac mini。
-
-⇒ **我能給的是 production 這一側的事實。比對要有 repo 那半的人來做。**
-⚠️ **不要拿本機任何東西當 repo 半** —— 那份 clone 不存在;若日後找到一份,**先 `git fetch` 對 `origin/main` 驗新舊再比**,否則會比出一堆假差異。
+</details>
 
 ## public schema 關聯清單
 

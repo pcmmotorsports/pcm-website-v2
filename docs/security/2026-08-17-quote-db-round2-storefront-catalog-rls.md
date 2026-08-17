@@ -77,14 +77,35 @@ anon 欄級可 SELECT 的欄位          31 / 57
 
 ---
 
-## 2. 推出來的 / 未確認(附缺哪一道檢查)
+## 2. ✅ 已用 anon key 實打量到(2026-08-17,取代原「推 / 量不到」)
 
-| # | 命題 | 強度 | 缺哪一道 |
-|---|---|---|---|
-| A | **外部 anon 真的打得到 `/rest/v1/products`** | 🔴 **推**:標準 Supabase 行為是「public schema 一旦對外開,該 schema 內 anon 有權的表都成為端點」。而型錄 view 既然對外供得動,public schema 就是開的 ⇒ `products` 幾乎必然也是端點。**但我沒實打一發** | 用該專案 anon key 對 `/rest/v1/products?select=sku,is_listed&is_listed=eq.false&limit=1` 打一發,附一個已知 200 與一個已知 404 對照。**同 §2.1/2.2 的 blocker,缺 anon key** |
-| B | **現在真的有 row 命中集合差** | 🔴 **量不到(而這是帳號被正確鎖住的證據,不是故障)**:主視窗已批 count,實跑 ⇒ `ERROR: permission denied for table products`。metadata 證因:`has_table_privilege('pcm_audit_ro','public.products','SELECT')` = **f**(對照 `postgres` = t、同把憑證讀 `pg_class` 仍回 1101 rows ⇒ 憑證活著、只是被鎖出業務表) | 有 `products` 表 SELECT 的角色才跑得動 count:`service_role`(我沒有),或走 anon key 的 PostgREST 路徑(同 A 的 blocker)。**同 §1#2 的鎖法** —— 稽核帳號讀不到業務列 |
+Sean 交付報價單專案 anon key(`sb_publishable_…`,len 46,新格式 Publishable key);REST base = `https://dllwkkfanaebrsuyuedy.supabase.co/rest/v1`(projectref 由 pooler username 推導、不印密碼)。全程 **GET-only、count-only(`Range: 0-0` + `Prefer: count=exact`,只取 Content-Range 的總數、不落任何 row)、雙向表演**。
 
-🔴 **A、B 都不成立也不會讓 §1.4 的結構結論消失** —— 結構不對稱是 metadata 證的,A/B 只決定「今天有沒有被踩到」與「外部到不到」。這與 `over_limit=0` 同型:結構是病,計數是「今天」。
+| # | 命題 | 量到的結果 |
+|---|---|---|
+| A | **外部 anon 真打得到 `/rest/v1/products`** | ✅ **是**:`GET /rest/v1/products?select=sku` ⇒ **http 206、Content-Range `0-0/51811`**。正向對照 `storefront_catalog_v` 同樣 206/51811(key 有效、送法正確)⇒ anon 確實可繞 view 直查 products 端點 |
+| B | **現在真有 row 命中集合差**(is_listed=false 且 RLS 放行) | ✅ **今天 = 0 筆**:`GET /rest/v1/products?select=sku&is_listed=eq.false` ⇒ **http 200、Content-Range `*/0`**。算術對得上:products 全體 51811 = `is_listed=true` 51811 + `is_listed=false` 0 ⇒ **目前每一筆 anon 可見品項都是 is_listed=true** |
+
+🔴 **結構 gap 仍在、只是今天零命中**(同 `over_limit=0`):policy 仍少 `is_listed` 一維(§1.4 metadata 證),**只要業務把一筆「有分類、price_store>0、未隱藏」的品項設成 is_listed=false,它當下就會變成 anon 直查可枚舉**,而那次改動看起來與資安無關。⇒ **finding 維持,嚴重度=結構性 MEDIUM、當前曝險 0 筆。**
+
+### 🔴 附帶(雙向表演)—— 經銷價外部零漏,量到的(Sean 第二優先,最強形式)
+```
+GET /rest/v1/products?select=sku          ⇒ 206（anon 授權欄,對照組亮）
+GET /rest/v1/products?select=price_store  ⇒ 401（經銷價欄,anon 未授權 ⇒ 外部讀不到）
+GET /rest/v1/dealer_price_v               ⇒ 401  body {"code":"42501","message":"permission denied for view dealer_price_v"}
+```
+⇒ **經銷價在報價單庫【外部 REST 層】確認擋死**(不只 DB metadata):授權欄 200 / 經銷欄 401,兩個世界印不同的東西。
+
+### 🔴 §1#9 / §2.1 / §2.2 一起收口 —— net / pg_stat_statements 外部不可達(量到的)
+前一任標「未確認」的兩條(`net.*` 存 cron 祕密的 Authorization 標頭、`extensions.pg_stat_statements` 存查詢文字):anon **有 DB grant**,但**外部要碰得靠 PostgREST 暴露那個 schema**。實打:
+```
+Accept-Profile: public      storefront_catalog_v  ⇒ 200（POS 對照,profile 機制活）
+Accept-Profile: net         _http_response        ⇒ 406  PGRST106
+Accept-Profile: extensions  pg_stat_statements    ⇒ 406  PGRST106
+   兩者 body 逐字:{"message":"Invalid schema: net/extensions",
+                    "hint":"Only the following schemas are exposed: public, graphql_public"}
+```
+⇒ **PostgREST db-schemas 白名單 = `public, graphql_public` 兩個而已**(這正是前一任「`pg_db_role_setting` 裡查不到 `pgrst.db_schemas`」缺的那個事實,由錯誤訊息自曝)。**`net` / `extensions` 不在名單 ⇒ 外部匿名經 REST 打不到那些表**,不論 DB grant 如何。§2.1/2.2 的外部曝險 = **關閉(外部不可達)**;DB 內部的 grant 縱深仍建議收(RLS/REVOKE),但不是對外洞。
 
 ---
 
@@ -106,15 +127,31 @@ anon 欄級可 SELECT 的欄位          31 / 57
 
 ---
 
-## 5. 建議修法(唯讀窗只出規格,不改;引先例不只引拍板)
+## 5. 修法規格(唯讀窗只出規格,不改 code、不動報價單 repo)
 
-**先例(比拍板更難推翻,因為已經在跑)**:同庫 `dealer_price_read` policy 的 USING 就是 `is_listed` —— **這個 repo 自己已經有「用 policy 擋未上架」的寫法**,只是沒套在 anon 這條上。
+> 修改落點在**報價單 repo**(`~/API大量上架/PCM報價單-V2/supabase/migrations`,另一個專案)。🔴 **E 只出規格;動它要另外談。** 施工用該 repo 的 migration 機制,**絕不 `db push`**(ledger desync,memory `reference_quote-repo-migration-ledger-desync`);改前 `git fetch`、對 `origin/main`(`482bec5`)。
 
-**方向(擇一,由施工窗判)**:
-1. 讓 `storefront_public_read` 的 USING **補上 `AND is_listed`**,與 view 的 WHERE 對齊(最小改、跟既有 `dealer_price_read` 同形)。
-2. 若刻意要讓 anon 直查 products,則 view 的 `is_listed` 過濾應改由 policy 統一負責,避免兩把尺分岔。
+**先例(比拍板更難推翻,因為已經在跑)**:
+- 同庫 `products.dealer_price_read` policy 的 USING 就是 `is_listed` —— **這個 repo 自己已有「用 policy 擋未上架」的寫法**,只是沒套在 anon 這條上。
+- **網站庫**的 anon 型錄 view(products_public 等)**根本不自帶 WHERE、過濾全在 RLS policy** ⇒ 走 view 與直查表看到同一組 row(`website-db-view-policy-symmetry-check`)。**網站庫已經是報價單庫該改成的樣子** —— 修法有 repo 內先例,不用設計。
 
-🔴 **兩個方向的共通前提**:view 的 WHERE 與底表 anon policy 的 USING 應該是**同一組條件**,否則「從 view 讀」和「直查表」看到的世界不一樣,而外部只會挑好打的那條路。
+**最小安全修法**:`storefront_public_read` 的 USING **補一維 `AND is_listed`**:
+```sql
+-- 現況 USING:major_category IS NOT NULL AND price_store IS NOT NULL AND price_store > 0 AND NOT hidden_from_store
+-- 改為:    ... AND NOT hidden_from_store AND is_listed
+ALTER POLICY storefront_public_read ON public.products
+  USING (major_category IS NOT NULL AND price_store IS NOT NULL AND price_store > 0
+         AND NOT hidden_from_store AND is_listed);
+```
+這讓 policy **變嚴**、與 view 的 `is_listed` 對齊 ⇒ 關掉「直查繞過」那條路。
+
+**🔴 兩個世界的驗收(缺任一則修法可能把整條路關掉而沒人發現)**:
+1. **is_listed=false 那一筆修完必須讀不到**:施工窗以 anon key 打
+   `GET /rest/v1/products?select=sku&is_listed=eq.false` ⇒ **count 必須 = 0**(且刻意造一筆 is_listed=false + major_category + price_store>0 + not hidden 的測試列,修前讀得到、修後讀不到 = 負向對照,證明測試是活的)。
+2. **is_listed=true 那些必須照樣讀得到**:`storefront_catalog_v` 的 count **不得下降**(修前基準=51811);`products?is_listed=eq.true` count 不變 ⇒ 沒把型錄一起關掉。
+3. 收尾雙向:授權欄仍 206、經銷欄仍 401(修 RLS 不該動到欄級授權)。
+
+**⚠️ 另一個方向(非安全、屬設計)**:policy 與 view 目前在 `major_category`/`price_store>0` 這兩維也不同(view 不看、policy 看)⇒ 有「listed 但無分類/無店價」的品項會被 security_invoker view 的 anon RLS 擋掉(**under-exposure,安全上無害**)。要不要讓 policy USING **完全等於** view WHERE(`is_listed AND NOT hidden`),是 Sean/施工窗的設計取捨,不是這條安全 finding 要求的。
 
 ---
 

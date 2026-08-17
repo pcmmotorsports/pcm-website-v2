@@ -24,18 +24,31 @@
 - 若接自建 SMTP,「2 封/小時」不適用,上限改由 SMTP 設定決定(通常高很多)⇒ **後果一(全域 DoS)基本消失**,只剩 §10 原本那條「防列舉隱藏寄信失敗」(仍在,但不是全域 DoS)。
 - 🔴 **證據偏向乙**:`storefront-hunt-round1` §10.4 記 memory「2026-08-08 曾設定 Gmail Workspace SMTP」(§10 作者標**未查證現況**)。**若那個自建 SMTP 仍在,PCM 就不是內建 provider ⇒ 走分支乙。**
 
-⇒ **誠實口徑:我把粒度查明了(全域、非 per-email),但這【不足以】把嚴重度定成高** —— 它還卡在「內建還是自建 SMTP」這個 Dashboard 事實,而現有(未查證的)記憶指向自建。**不要拿「全域 2/小時 DoS」當已成立的 finding 遞出去。**
+⇒ **誠實口徑(落筆當時):我把粒度查明了(全域、非 per-email),但這【不足以】把嚴重度定成高** —— 它還卡在「內建還是自建 SMTP」這個 Dashboard 事實。
+   ✅ **2026-08-17 該 Dashboard 事實已由 Sean 讀出=自建 SMTP(見下方「已確認」段)⇒ 走分支乙、不上調。上面分支甲僅存為推理紀錄。**
 
 📎 這仍是「三段相乘、沒有人寫在一起」的形狀,只是第三段(provider)是**未確認且偏向讓前兩段失效**的:①全域 2/小時(官方文件,確定)②防列舉=回應一律相同(§10,確定)③內建 provider 才受此限(**未確認,證據偏自建**)。
 
-## 未確認(缺哪一道檢查)
+## ✅ 已確認(2026-08-17 Sean 讀 Dashboard 截圖,主視窗轉述)—— 缺的那道檢查補上了,判定=分支乙
 
-🔴 **上面「2 封/小時」只在【內建 email provider】成立。** PCM 若已接自建 SMTP,則上限改由 SMTP 設定決定(通常高很多),後果一大幅減弱。
+> a4 照「人也是量具」的規矩要 Sean 回**兩個世界會不同的值**(那一頁上的字),不是「有沒有設好」。回傳的字:
 
-- **缺的檢查**:PCM 這個專案用的是內建 provider 還是自建 SMTP。
-- **在哪查**:Supabase Dashboard → Authentication → Emails / SMTP Settings(**Dashboard 動作,唯讀窗 + DB 端都看不到;pcm_audit_ro 讀不到 auth schema config**)。
-- ⇒ 這條的最終嚴重度**卡在一個 Dashboard 事實**:內建 ⇒ 真 DoS + 隱形失敗;自建 SMTP ⇒ 降為「防列舉隱藏寄信失敗」單獨那一條(仍在,但不是全域 DoS)。
+```
+Enable custom SMTP            = 開(綠色)
+Host / Port                   = smtp.resend.com / 465
+Sender                        = no-reply@pcmmotorsports.com(顯示名「PCM 重機零件販售」)
+🔴 Minimum interval per user  = 60 秒
+```
+
+⇒ **PCM 走【自建 SMTP(Resend)】= 分支乙**。**「全域 2 封/小時」不適用**(那個數只在內建 provider 成立)⇒ **後果一(全域 DoS)不成立、嚴重度不上調**。殘留只剩 §10 原本那條「防列舉隱藏寄信失敗」(LOW,已在 `storefront-hunt-round1` §10)。
+⇒ 這也把 §10.4 第二格(「哪個 SMTP」)與第三格(粒度)一起收口了。
+
+### 🔴 而截圖多量到一個之前沒人量過的東西:`Minimum interval per user = 60 秒`
+
+- 這是一道 **per-user 節流**(同一使用者兩次重設請求至少隔 60 秒),**存在於 Dashboard、repo 內查不到**。
+- 它讓「對單一 email 快速灌信」也被擋(強化分支乙的輕判)。
+- 🔴 **它屬於「環境值依賴」那一族(同 `db-max-rows`:後台點一下就能改、零監控、repo 看不到)** ⇒ 應進 `docs/reference/environment-values-and-what-stands-on-them.md` 依賴表(該表歸 I 窗落,E 出文字)。
 
 ## 口徑
 
-本檔數字量自 **Supabase 官方文件**,非正式站探測;PCM 專案的 provider 設定**未確認**,已標明缺的那道檢查。
+粒度量自 **Supabase 官方文件**;provider 與 60 秒 per-user 間隔量自 **Sean 2026-08-17 Dashboard 截圖**(主視窗轉述,非我親見畫面,但那是「兩個世界會不同的值」)。最終判定=**分支乙(自建 SMTP)、嚴重度不上調**,殘留為 §10 的防列舉隱藏寄信失敗(LOW)。
