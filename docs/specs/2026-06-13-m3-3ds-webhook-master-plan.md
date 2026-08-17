@@ -16,19 +16,55 @@
 >   🔴 **而 `settled` 寫入路徑未被行使、未確認** —— 那是這條鏈上還沒走到的一步。
 >   ⇒ **不得**把它讀成「3DS 結算兜底已驗證」或「已驗證 sweeper 正常」,兩句都超出量到的範圍。
 >
+> ## ✅ ~~未解決的矛盾:`STATUS.md` 與本段對「flag 現在是什麼」給相反的答案~~ **已解決(2026-08-17 夜)**
+> (原節由 code-reviewer R2 2026-08-17 提出;**原文不刪,見下方「原節逐字」**。)
+>
+> · **答案**:本段主張成立。Sean 2026-08-17 夜給出三個字面值(**原字轉載**):
+>   `TAPPAY_3DS_ENABLED:true` / `CRON_SWEEPER_ENABLED:true` / `ANOMALY_ALERT_ENABLED:true`
+>   —— 三個都是**小寫 `true`**,命中 `apps/storefront/src/lib/payment/three-ds-flag.ts:30`
+>   的 `process.env.TAPPAY_3DS_ENABLED === 'true'`(**只認小寫字面**;I 窗當場開檔讀的)
+>   ⇒ **三個 flag 都是開的**。
+> · 🔴 **來源屬性,不得美化**:**Sean 本人回報 → 主視窗轉述 → I 窗落檔**。
+>   **沒有任何人親眼看過 Vercel Production env 面板。**
+>   ⇒ 這是「**他說的**」不是「**量到的**」。升級成量到的只差一道:讀一次面板,
+>   而 `true` / `True` / 空白 / **沒有這個 key** 四者要分開報。
+> · `STATUS.md` 那半**已於 2026-08-17 夜改掉**(commit `6074a448`),
+>   並在該欄記明「原欄寫『3DS flag 全 false』**是反的**,不只是未取證」。
+>
+> ### 🔴 原節那條量法**已失效,不要照跑**
+>
+> ~~量法:`grep -n '3DS flag 全 false' STATUS.md`~~
+> **現在跑它會【命中】** —— 而命中的是 `STATUS.md` 裡我寫的**刪除線更正**
+> (`~~本欄原寫「3DS flag 全 false」~~`),**不是還活著的主張**。
+> ⇒ 🔴 **這比回 0 更糟**:回 0 至少看得出「這句話不在了」;**命中會讓人以為 STATUS 還這樣寫。**
+> ⇒ **要查現況請改用**:
+> ```
+> grep -n 'M-3 prod checkout 的【待取證】已關' STATUS.md      ⇒ 命中 = 已關
+> grep -c 'TAPPAY_3DS_ENABLED:true' STATUS.md                ⇒ 1     = 字面值已落檔
+> ```
+> 📎 **這一則本身是個教訓,已收進 `docs/patterns/traps-inbox/`**:
+> **一條指向別的檔的量法,會在那個檔被更正的時候【安靜地變成反向指標】** ——
+> 而留痕(刪除線)正是讓它反向的原因。`docs/patterns/guard-and-instrument-traps.md`
+> 已有近親:「更正本身會過期」。
+>
+> ### 原節逐字(零刪除,供考古;**上面的答案取代它,不要照這裡的量法跑**)
+>
+> ```
 > ## 🔴🔴🔴 未解決的矛盾:`STATUS.md` 與本段對「flag 現在是什麼」給相反的答案
 > (code-reviewer R2 2026-08-17 抓,本段成立與否**取決於這題**,所以放在最前面。)
->
+> 
 > · **本段主張**:`TAPPAY_3DS_ENABLED=true`、`CRON_SWEEPER_ENABLED=true`(2026-08-17 已開)。
->   來源=主視窗轉述 Sean。🔴 **我沒有第一手證據**(不碰 Vercel dashboard、不碰 `.env`)。
+> 來源=主視窗轉述 Sean。🔴 **我沒有第一手證據**(不碰 Vercel dashboard、不碰 `.env`)。
 > · **`STATUS.md`**(專案 SSoT)逐字:「🟡 M-3 prod checkout 仍不可開(**3DS flag 全 false**、獨立線、非本線)」。
->   量法:`grep -n '3DS flag 全 false' STATUS.md`。
+> 量法:`grep -n '3DS flag 全 false' STATUS.md`。
 > · `apps/storefront/src/lib/payment/three-ds-flag.ts:11-13` 亦逐字:「**prod checkout 仍一律不可開**」。
->
+> 
 > 🔴 **我不挑一個消滅** —— 兩邊我都沒親自量,分歧本身就是證據(memory `feedback_downgrade-a-source-inside-the-file-people-cite`)。
 > ⇒ **在這題答完之前,本段整段的效力是「條件式」的**:若 flag 其實仍為 false,則「已解除」四個字不成立,
->   而下面那節硬前置的急迫性也跟著改變。**已上呈主視窗**(B 窗不動 `STATUS.md`,收帳權不在子窗)。
+> 而下面那節硬前置的急迫性也跟著改變。**已上呈主視窗**(B 窗不動 `STATUS.md`,收帳權不在子窗)。
 > ⇒ 需要的那一道檢查很小:**當場讀一次 Vercel Production env 的兩個變數**。誰讀誰就把這節關掉。
+> 
+> ```
 >
 > ## 🔴🔴 而「解除」不等於「前置都做完了」—— 兩條硬前置目前仍是【待執行】
 > (code-reviewer 2026-08-17 抓;我原本只寫「現在靠什麼守」,讀起來像安全網已完整。)
