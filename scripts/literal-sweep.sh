@@ -19,6 +19,113 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# ══════════════════════════════════════════════════════════════════════════
+# 🔴 --selftest:這支【全陣天天在用的尺】自己的守門者(2026-08-18 補)。
+#   為什麼要有:它此前 selftest=0 —— 行為只被【手驗】過,而手驗隨 session 消失;
+#   且它剛被改過(限度那段),而改過的東西最容易被當成「已經沒問題」。
+#   兩個世界(缺一則一支恆抓/恆漏的尺也會全綠):
+#     ① 該命中的必須落在【它自己那一類】(七類各一個合成標記檔,驗路由不串類)
+#     ② 不該命中的必須讓七類【全部印出 0 命中】(raison d'être:掃了沒有 ≠ 忘了掃)
+#     ③ 限度那幾行【必須全印】——刪掉一條就紅(射程被靜默刪掉唯一擋得住的方式)
+#   🔴 零判定改動:本區只【呼叫】主流程 "$0" <needle> 抓 stdout 斷言,不碰 categorizer。
+# ══════════════════════════════════════════════════════════════════════════
+if [ "${1:-}" = "--selftest" ]; then
+  # 🔴 標記字串【組出來、不寫成連續字面】—— 因為本工具會掃自己這支檔(⑦類),
+  #    寫成連續字面的話,它會在自己的原始碼裡找到自己的標記 ⇒ 「絕對缺席」那格假失敗。
+  #    (2026-08-18 第一版就這樣栽了:ABSENT 是連續字面 ⇒ 世界②ㆍ得 6/7 而非 7/7。)
+  MK="LITSWEEP_SELFTEST_""MARKER_""ZQX9animal"
+  ABSENT="LITSWEEP_ABSENT_""NEVER_""ZZQQ77never"
+  # 七類各一個合成檔(路徑決定歸類;內容含標記)。名字帶 _litsweep_selftest 好認、好清。
+  declare -a ST_FILES=(
+    "supabase/migrations/_litsweep_selftest_ZQX9.sql"    # ①
+    "scripts/_litsweep_selftest_ZQX9-down.sql"           # ②
+    "docs/runbooks/_litsweep_selftest_ZQX9.md"           # ③
+    "docs/specs/_litsweep_selftest_ZQX9.md"              # ④
+    "apps/_litsweep_selftest_ZQX9.test.ts"               # ⑤
+    "docs/handoff/_litsweep_selftest_ZQX9.md"            # ⑥
+    "scripts/_litsweep_selftest_ZQX9.txt"                # ⑦
+  )
+  declare -a ST_CAT=("①" "②" "③" "④" "⑤" "⑥" "⑦")
+  st_cleanup() {
+    for f in "${ST_FILES[@]}"; do rm -f "$f"; done
+    local leftover; leftover=$(git status --porcelain 2>/dev/null | grep -F "_litsweep_selftest_ZQX9" || true)
+    if [ -n "$leftover" ]; then
+      echo "🔴🔴 selftest 清理失敗,這些合成檔還在(不要 commit):" >&2
+      echo "$leftover" >&2
+    fi
+  }
+  trap st_cleanup EXIT INT TERM HUP
+  # 🔴 開跑先清【上一次被 SIGKILL 殺掉沒清乾淨】的合成檔(trap 對 kill -9 無效,reviewer 抓)——
+  #    否則一支 _litsweep_selftest_*.sql 會留在 supabase/migrations,被 glob *.sql 的 migration 工具撿走。
+  stale=$(find supabase/migrations scripts docs apps -name '_litsweep_selftest_ZQX9*' 2>/dev/null || true)
+  if [ -n "$stale" ]; then
+    echo "⚠ 清掉上一次被殺掉沒清乾淨的合成檔:" >&2; echo "$stale" >&2
+    echo "$stale" | while IFS= read -r sf; do [ -n "$sf" ] && rm -f "$sf"; done
+  fi
+  for f in "${ST_FILES[@]}"; do
+    mkdir -p "$(dirname "$f")"
+    # 🔴 內容用註解形(-- / //)⇒ 就算 SIGKILL 窗內被 migration 工具撿走也是【惰性】、不會執行出東西。
+    case "$f" in
+      *.sql) printf -- '-- %s\n' "$MK" > "$f" ;;
+      *.ts)  printf -- '// %s\n' "$MK" > "$f" ;;
+      *)     printf '%s\n' "$MK" > "$f" ;;
+    esac
+  done
+
+  FAIL=0
+  pass() { echo "PASS  $1"; }
+  fail() { echo "FAIL  $1"; FAIL=1; }
+
+  # ── 世界①:命中該落在自己那一類。抓每一類 header 之後、下一個 header 之前的區塊,
+  #    驗那一類的合成檔【在】、且不在別類(路由不串)。
+  OUT_HIT="$("$0" "$MK")"
+  i=0
+  for f in "${ST_FILES[@]}"; do
+    cat="${ST_CAT[$i]}"
+    # 該檔應出現在輸出裡(某一行含它的路徑)
+    if printf '%s' "$OUT_HIT" | grep -qF "$f"; then
+      # 且它出現的那一段的類別標題應是自己的 cat:抓「$f」那行往上最近的「── 類別」行
+      seg_cat="$(printf '%s' "$OUT_HIT" | awk -v needle="$f" '
+        /^── / { curcat=$0 }
+        index($0, needle) { print curcat; exit }')"
+      if printf '%s' "$seg_cat" | grep -qF "$cat"; then
+        pass "世界①-$cat 合成檔落在自己那一類($f)"
+      else
+        fail "世界①-$cat 合成檔跑到別類了(期望 $cat,實得段落標題:$seg_cat)"
+      fi
+    else
+      fail "世界①-$cat 合成檔根本沒被命中($f)—— 該類路由或 walk 壞了"
+    fi
+    i=$((i + 1))
+  done
+
+  # ── 世界②:不該命中的 → 七類【全部】印 0 命中(raison d'être)。
+  OUT_MISS="$("$0" "$ABSENT")"
+  zero_lines=$(printf '%s' "$OUT_MISS" | grep -cE "0 命中\(這一類掃了 [0-9]+ 個檔\)" || true)
+  if [ "$zero_lines" -eq 7 ]; then
+    pass "世界②ㆍ0 命中時七類全印(raison d'être;實得 $zero_lines/7)"
+  else
+    fail "世界②ㆍ0 命中時【沒有】七類全印(實得 $zero_lines/7)—— 這正是本工具要防的病"
+  fi
+
+  # ── 限度那幾行必須全印(刪一條就紅)。
+  for probe in \
+    "1. 只掃**檔案裡的字面**" \
+    "2. 跳過的目錄" \
+    "3. 一個檔只歸一類" \
+    "4. 它告訴你"; do
+    if printf '%s' "$OUT_MISS" | grep -qF "$probe"; then
+      pass "限度行仍在:$probe"
+    else
+      fail "🔴 限度行被靜默刪掉了:$probe"
+    fi
+  done
+
+  st_cleanup
+  trap - EXIT INT TERM HUP
+  if [ "$FAIL" -eq 0 ]; then echo "selftest: 全過"; exit 0; else echo "selftest: 有 FAIL"; exit 1; fi
+fi
+
 NEEDLE="${1-}"
 MODE="${2-}"
 if [ -z "$NEEDLE" ]; then
