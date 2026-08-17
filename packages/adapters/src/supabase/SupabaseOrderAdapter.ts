@@ -8,6 +8,7 @@ import type {
   PlaceOrderInput,
   PlaceOrderResult,
   AdminOrderDetail,
+  AdminOrderDetailFullItem,
   AdminOrderPrintItem,
   AdminOrderFilter,
   AdminOrderListResult,
@@ -33,6 +34,7 @@ import {
   mapSupabaseOrderRowToListItem,
   mapSupabaseAdminOrderRowToSummary,
   mapSupabaseAdminOrderDetailRowToDetail,
+  mapSupabaseOrderItemDetailRow,
   mapSupabaseOrderItemPrintRow,
   type CreateOrderRpcResult,
   type SupabaseAdminOrderRow,
@@ -401,6 +403,24 @@ export const ADMIN_ORDER_DETAIL_SELECT =
  */
 const ORDER_ITEMS_PRINT_SELECT =
   'id, variant_sku, quantity, product_snapshot, order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)';
+
+/**
+ * **明細頁**的品項投影(`D2` C 條,2026-08-18)= 上面那份 **+ `unit_price` / `line_total`**。
+ *
+ * 🔴 **為什麼不直接擴充 `ORDER_ITEMS_PRINT_SELECT`**:那一份的合約是**紙上零金額**
+ * (它的 docstring 逐字「零 PII、零價格 —— 白名單比明細那份更安全,不是更寬」)。
+ * 擴充它 = 讓**不需要金額的列印路徑**開始帶著成交價跑。
+ *
+ * 🔴 **而它【刻意仍然沒有】`order_item_procurement`** —— 那是內嵌陣列、
+ * 受 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT = 50` 管(`mappers/order-procurement.ts:44`)
+ * ⇒ 取進來等於把我們正在拆的那道牆換個位置裝回去,而**新位置更早撞**(50 vs 200)。
+ * 詳見 `AdminOrderDetailFullItem` 的 docstring。
+ *
+ * ⚠️ 兩份**刻意用字串各寫一次而不是拼接** —— 拼接會讓「改一份、另一份跟著變」
+ * 變成一個沒人預期的連動,而這兩份的**收放理由完全不同**(一份要更窄、一份要多兩欄)。
+ */
+const ORDER_ITEMS_DETAIL_SELECT =
+  'id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)';
 
 /**
  * 列印用分頁的頁大小。
@@ -950,16 +970,61 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   async listOrderItemsForPrint(
     orderId: string,
   ): Promise<{ items: AdminOrderPrintItem[]; reportedTotal: number | null }> {
+    return await this.#pageOrderItems(
+      orderId,
+      ORDER_ITEMS_PRINT_SELECT,
+      mapSupabaseOrderItemPrintRow,
+      'listOrderItemsForPrint',
+    );
+  }
+
+  /**
+   * **明細頁**的品項:同一支迴圈,**投影多兩個同列 scalar**(`unit_price` / `line_total`)。
+   *
+   * 🔴 **為什麼不直接用 `listOrderItemsForPrint`** —— 不是懶得共用,是**列印那條的合約是「紙上零金額」**
+   * (`ORDER_ITEMS_PRINT_SELECT` 的 docstring 逐字「零 PII、零價格 —— 白名單比明細那份更安全」)。
+   * 把金額塞進它,等於讓**不需要金額的路徑**開始帶著成交價跑(鐵則 12 面)。
+   * 🔴 **而也不是複製一支迴圈** —— 迴圈本體抽成 `#pageOrderItems`,兩支共用。
+   *    複製的話,`from += batch.length` 那種東西會在其中一份被改壞而另一份還對,
+   *    **而兩份都綠**。
+   *
+   * ⚠️ **刻意【沒有】採購那兩欄** —— 理由見 `AdminOrderDetailFullItem` 的 docstring
+   *    (它是內嵌陣列、有自己的上限 50,取進來等於把牆換個位置裝回來)。
+   */
+  async listOrderItemsForDetail(
+    orderId: string,
+  ): Promise<{ items: AdminOrderDetailFullItem[]; reportedTotal: number | null }> {
+    return await this.#pageOrderItems(
+      orderId,
+      ORDER_ITEMS_DETAIL_SELECT,
+      mapSupabaseOrderItemDetailRow,
+      'listOrderItemsForDetail',
+    );
+  }
+
+  /**
+   * 上面兩支共用的翻頁迴圈。**行為與原本 `listOrderItemsForPrint` 逐字相同**,
+   * 只是把「投影字串」與「列 → domain 的 mapper」變成參數。
+   *
+   * 🔴 **抽出來的理由不是少打字,是讓「兩份迴圈各自漂」這個失敗模式不存在** ——
+   * 那種漂移的症狀是**其中一支靜默少撈**,而**兩支的測試都綠**。
+   */
+  async #pageOrderItems<TRow extends { id: string }, TOut>(
+    orderId: string,
+    select: string,
+    mapRow: (row: TRow) => TOut,
+    fnName: string,
+  ): Promise<{ items: TOut[]; reportedTotal: number | null }> {
     // 🔴 用 Map 按 `id` 去重(理由見 docstring「OFFSET 漂移」那段):
     //    重複列會讓紙上同一個品項印兩次,而且會把 `reportedTotal` 對帳補平成「剛好」。
-    const byId = new Map<string, SupabaseOrderItemPrintRow>();
+    const byId = new Map<string, TRow>();
     let reportedTotal: number | null = null;
     let from = 0;
 
     for (let page = 0; page < PRINT_ORDER_ITEMS_MAX_PAGES; page += 1) {
       const { data, error, count } = await this.supabase
         .from('order_items')
-        .select(ORDER_ITEMS_PRINT_SELECT, page === 0 ? { count: 'exact' } : undefined)
+        .select(select, page === 0 ? { count: 'exact' } : undefined)
         .eq('order_id', orderId)
         .order('id', { ascending: true })
         .range(from, from + PRINT_ORDER_ITEMS_PAGE_SIZE - 1);
@@ -969,9 +1034,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       if (page === 0 && typeof count === 'number') {
         reportedTotal = count;
       }
-      const batch = (data ?? []) as unknown as SupabaseOrderItemPrintRow[];
+      const batch = (data ?? []) as unknown as TRow[];
       if (batch.length === 0) {
-        return { items: [...byId.values()].map(mapSupabaseOrderItemPrintRow), reportedTotal };
+        return { items: [...byId.values()].map(mapRow), reportedTotal };
       }
       for (const r of batch) byId.set(r.id, r);
       // 🔴 `from` 前進**這一頁實得的筆數**(不是去重後的筆數,也不是頁大小)——
@@ -982,7 +1047,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     // 🔴 撞到防呆上限 ⇒ **throw,不回部分、不 console.warn**。
     //    `console.warn` 在 server component 裡沒有人會看到 —— 那等於靜默截斷。
     throw new Error(
-      `listOrderItemsForPrint(${orderId}) 達 MAX_PAGES=${PRINT_ORDER_ITEMS_MAX_PAGES}` +
+      `${fnName}(${orderId}) 達 MAX_PAGES=${PRINT_ORDER_ITEMS_MAX_PAGES}` +
         `(${PRINT_ORDER_ITEMS_MAX_PAGES * PRINT_ORDER_ITEMS_PAGE_SIZE} 列)仍未撈完;` +
         `不回傳部分結果 —— 部分結果會讓紙上少列品項而紙看起來完全正常。`,
     );
