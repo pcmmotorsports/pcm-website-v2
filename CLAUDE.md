@@ -37,7 +37,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema・API・共用元件 / 動 next.config・vercel.json・Medusa config・Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
-11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx 加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(`/slice-checkpoint` skill、詳 `docs/patterns/slice-checkpoint.md`)。動 .sh / .yaml / .sql 另有語法守門(隨 pre-commit 自動跑,詳 slice-checkpoint.md §2.2a);**「純文件片」僅指只動 .md / .json schema,.sh / .yaml / .sql 不算**(對它們三綠恆綠零判別力)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**。
+11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx/.css/設定檔加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(`/slice-checkpoint` skill、詳 `docs/patterns/slice-checkpoint.md`)。🔴 **三綠指令一律加前綴 `TURBO_FORCE=1 pnpm <項目>`** —— 少了它 turbo **命中既有快取時**會 replay 舊的綠(2026-08-17 實測:`pnpm typecheck` ⇒ `8 cached / FULL TURBO`,加前綴 ⇒ `0 cached`;正本 `docs/phase-1-backlog.md` `#524`)。動 .sh / .yaml / .sql 另有語法守門(隨 pre-commit 自動跑,詳 slice-checkpoint.md §2.2a);🔴 **「純文件片」僅指只動 .md**(2026-08-17 Sean 拍板收斂;~~原「.md / .json schema」~~ 作廢 —— **三綠不會 parse 任意 JSON、格式壞掉照樣全綠**,而 `package.json`/`turbo.json`/`tsconfig*.json` 副檔名都是 `.json`),`.json` / `.css` / `.sh` / `.yaml` / `.yml` / `.sql` **一律不算**(`.css` **要跑 build 才有判別力**;`.json` / `.sh` / `.yaml` / `.yml` / `.sql` 對三綠恆綠或零判別力、另有守門)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**。
 12. **高風險改動 commit 前必過 Codex 對抗審查** — 高風險=動到任一:**①錢**(order・payment・refund・pricing・經銷價・會員 tier・儲值金)**②權限**(auth・RLS・GRANT・service_role・server/client 邊界)**③DB 結構與大量/不可逆寫入**(schema・migration・批次匯入)**④平台設定**(next.config・vercel.json・Prisma・CI・env)**⑤對外不可回收**(寄信・對外發布・法律頁)**⑥共用元件 packages/ui 行為改動**(props 介面/邏輯/資料流;純樣式=標準片)。跨 3 檔/一般 API/進度單元收尾**不自動觸發**;自評有風險只能加審不能免審;Sean 說「Ready for review」必審;milestone 收尾仍跑一次總審。動作:停下、跑完三綠、**commit 前**直呼 codex CLI 唯讀對抗審查(`codex-adversary` 關卡2、`-s read-only`、不產書面 Packet)、findings 修完才 commit、**不 push**。審查唯讀紀律見 `docs/ops/AI_CONTRACT.md` §2。
 
 ---
@@ -67,6 +67,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 鐵則字面的詳解與程式碼範例(規則以本檔為準) | `docs/patterns/general.md` + `docs/patterns/pcm-specific.md` |
 | 想知道 `docs/patterns/` 有哪些細節檔 / 從零接手本 repo 找入口 | `docs/patterns/index.md`(全目錄索引與各檔定位) |
 | 要寫守門/負測/突變 · 要下「零命中/沒覆蓋/構造不出來」這類斷言 · 要判 BLOCKER 前 | `docs/patterns/guard-and-instrument-traps.md`(恆綠格 / 紅錯地方 / 一發紅多格 / 守門一裝就紅 / 掃描字集比宣稱窄 / 可重跑 vs 不可重跑的證據;每條附 2026-08-14 當天實例與行號) |
+| 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
 | 夜跑多窗指揮(哨兵/派工/批次收割/佇列預派/斷線復原) | `docs/runbooks/night-run-command-playbook.md`(2026-08-06 Sean 拍板常設) |
 | 開新施工窗/新 session 主視窗建置/工作流移植他專案 | `docs/runbooks/multi-window-command-workflow.md`(2026-08-09 Sean 拍板常設;§B 主視窗/§C 施工窗啟動提示詞) |

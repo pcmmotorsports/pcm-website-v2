@@ -2,6 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { shippedDateText, trackingDisplay } from './shipping-doc-dispatch';
 
 // #10 片3 驗收 ③ ④ ⑤(plan `2026-08-16-shipping-doc-carrier-tracking-plan.md` §6)。
+//
+// 🔴 **2026-08-17 起,本檔的「紙上」要讀成「呈現給客人時」。**
+//    `Q-C5`=丙:出貨明細單**不印追蹤碼** ⇒ `trackingDisplay` 目前**零消費端**
+//    (理由在該函式 docstring;三種 `null` 的分法保留給 `Q-C9` 的出貨通知信)。
+//    ⚠️ **本檔一格都沒刪、一個斷言都沒改** —— 它測的是**判斷本身**,那件事沒有作廢。
+//    ⇒ 下面的測試名稱與註解仍用當時的語境(「印出來」「紙上」),**刻意不改寫**:
+//      改字面會讓 `git log -S` 找不到它們與那次拍板的關係,而語境已在這裡交代清楚。
 
 describe('追蹤碼:三種 null 在紙上不可以長成同一個樣子(plan §3.1)', () => {
   const base = { carrierCode: 'hct', trackingNumber: null, shippedAt: null };
