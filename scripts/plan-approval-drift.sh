@@ -55,11 +55,18 @@ scan() {
     _stem=$(basename "$f" .md)
     # 該檔名被提到的那幾行(只看提到檔名的【那一行】—— 射程①說的假陰性就在這裡)
     _lines=$(carriers | while read -r c; do grep -h "$_stem" "$c" 2>/dev/null; done)
+    # 🔴 把【命中的那一行】一起帶出去 —— 2026-08-18 實例:brand-showcase 那份的命中句是
+    #    「鐵則 8 重大改動 → 先提 plan 等 Sean 批准才動工」= **在敘述規則**,不是狀態欄
+    #    (真正的狀態欄長這樣:「狀態:等 Sean 批。批准前一行 code 都不動。」)。
+    #    ⇒ 這兩種在 grep 命中數上長得一樣,而【貼出原句】讓人五秒分得出來,
+    #      比讓腳本去猜「這句是不是狀態」可靠得多。
+    _hit=$(head -8 "$f" | grep -m1 -E "$PENDING_PAT" | sed 's/^[[:space:]>*]*//' | cut -c1-88)
     if [ -z "$_lines" ]; then
       _silent=$((_silent + 1)); _silent_list="$_silent_list$_stem
 "
     elif printf '%s' "$_lines" | grep -qE "$APPROVED_PAT"; then
       _mismatch=$((_mismatch + 1)); _mismatch_list="$_mismatch_list$_stem
+        命中句: $_hit
 "
     else
       _mentioned=$((_mentioned + 1)); _mentioned_list="$_mentioned_list$_stem
