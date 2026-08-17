@@ -45,15 +45,24 @@ export function BlockedSheet({ reason, orderDisplayId }: { reason: string; order
     <section
       role='alert'
       data-slot='print-blocked'
-      /* 🔴 `min-h-[170mm]` 是**「佔滿這個位置」那句話的落點**,不是裝飾。
-         量出來的(可重跑):`emit(1,'shipping-blocked',true)` 產物跑
-         `sh scripts/pagecount.sh` ⇒ **1 頁**(加這條之前也是 1 頁 ⇒ 沒有把紙變多);
-         `--png` 開來看 ⇒ 這一幅從抬頭正下方一路撐到紙面下緣。
-         ⚠️ **不要往上加大**:A4 可印高度是 271mm,而抬頭七值那一塊已經吃掉一段;
-         再加高就會把這一幅推到第 2 頁,而**第 2 頁上只有半幅警告比一幅完整的更糟**。
-         📎 為什麼是 `min-h` 不是 `h`:原因文字長度不一(八種面共用這個槽位),
-         `h` 會在長文案時把內容切掉。 */
-      className='border-foreground flex min-h-[170mm] flex-col gap-4 border-2 p-6'
+      /* 🔴 `flex-1` 是**「佔滿這個位置」那句話的落點**,不是裝飾。
+         它撐滿的是**紙面剩下的高度**,而剩多少由 `app/print/print-a4.css` 的
+         `@media print { .print-sheet { display:flex; flex-direction:column; min-height:271mm } }` 給。
+         **兩邊是一對** —— 少了任何一邊,這一幅就縮回內容高度。
+
+         🔴 **原本是固定值 `min-h-[170mm]`,而它壞在哪(留痕,不要改回去)**:
+         兩張紙的抬頭高度差很多(出貨明細單是七值卡片、揀貨單只有一行)
+         ⇒ **同一個固定值在兩張紙上剩下的空間不同** —— 出貨明細單幾乎填滿,
+         **而揀貨單只佔上半**(2026-08-17 `--png` 開圖看到的)。
+         往上調又會把出貨明細單那一幅**推到第 2 頁**,而**第 2 頁上只有半幅警告,
+         比一幅完整的更糟**。⇒ **一個固定值填不滿兩張紙**,所以改成「撐滿剩餘」。
+
+         🔴 **為什麼【不留】那個固定值當保險**:留著的話**兩個機制同時在,而只有一個起作用**
+         ⇒ 下一個人要調「這一幅多高」時會改到**沒在作用的那一個**,改完沒反應、再去別處亂改。
+         ⇒ 只留一個。**代價明說**:若有人把 `print-a4.css` 那三行拿掉,
+         這一幅會**靜默縮回內容高度** —— 不報錯、測試也不紅(那是版面,不是斷言抓得到的東西)。
+         ⇒ 所以那三行旁邊寫了「兩邊是一對」,**這裡也寫一次**,兩處互指。 */
+      className='border-foreground flex flex-1 flex-col gap-4 border-2 p-6'
     >
       <h2 className='text-4xl leading-tight font-bold tracking-wide'>本單不得出貨</h2>
       <div className='font-mono text-xl font-semibold tabular-nums'>{orderDisplayId}</div>

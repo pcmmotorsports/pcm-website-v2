@@ -108,7 +108,24 @@ tr {
     background: #fff;
   }
 
+  /* ── `#601` 續:讓紙面成為一個【有高度的容器】,阻印那一幅才撐得滿 ──────────
+     🔴 **為什麼需要它**:`BlockedSheet` 用 `flex-1` 撐滿剩餘空間,而 `flex-1` 只在
+        **容器有確定高度**時才有東西可以分。`.print-sheet` 原本高度 = 內容高度
+        ⇒ 沒有剩餘空間可分 ⇒ 那一幅只會跟內容一樣高。
+     🔴 **為什麼是 `271mm`**:A4 縱向 297mm 減掉 `@page` 的上 12mm、下 14mm = **271mm**
+        (就是上面那個 `margin` 的三個值)。**改 `@page` 的 margin 要同步改這裡** ——
+        兩處是同一個事實的兩個字面,而它們**不會互相報錯**。
+     🔴 **為什麼只在 `@media print` 裡**:螢幕上這張頁面是一般網頁,不該被撐成 A4 高。
+     ⚠️ **這一段會影響【所有列印頁】,而那個分母是【2】**:
+        `find apps/admin/src/app/print -name 'page.tsx'` ⇒ 2(picking / shipping),
+        `grep -rn 'print-sheet' apps/admin/src --include='*.tsx'` ⇒ 兩支 doc 元件各一處。
+        **兩張紙的六份 fixture 都當場量過、也開圖看過**(見本片 commit body)。
+     📎 **技法有既有量測背書**:`docs/specs/2026-08-17-qc5-…-list.md` §4c-2 的 v0–v8 表 ——
+        `v1 只開 flex ⇒ 1 頁`、`v2 flex + min-height:271mm ⇒ 1 頁`(負向對照 `400mm ⇒ 2 頁`)。 */
   .print-sheet {
     padding: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 271mm;
   }
 }

@@ -61,6 +61,17 @@ vi.mock('../../../../../../lib/shipping/order-shipments', () => ({
 }));
 
 import OrderShippingPrintPage from './page';
+/**
+ * 🔴 **揀貨單也在這一支檔裡量,而那是刻意的**(2026-08-17 夜補):
+ * 兩張紙共用**同一套鷹架** —— `builtCss()`、`OUT_DIR`、以及上面那個
+ * `order-repository` 的 mock(揀貨單頁只用 `findAdminOrderDetail`,而它已經在那個 mock 裡)。
+ * ⇒ **另開一支檔要把那一百多行抄一份**,而抄一份的下場是**兩份會漂**
+ * (同一支 repo 裡的既有紀錄:`shipping-doc.tsx` 抬頭七值那段註解)。
+ * ⚠️ **代價**:本檔的位置在 shipping 路由底下,而它現在量兩張紙 ⇒ **檔名比範圍窄**。
+ *    找它的人請用 `find apps/admin/src/app/print -name 'page-measure.test.tsx'`(⇒ 1 支),
+ *    **不要用萬用字元 glob** —— zsh 在無匹配時**回 0 而不是報錯**,那個 0 與「真的沒有」長得一樣。
+ */
+import OrderPickingPrintPage from '../../picking/page';
 
 const ORDER = '11111111-1111-4111-8111-111111111111';
 const SHIPMENT = '33333333-3333-4333-8333-333333333333';
@@ -173,6 +184,35 @@ async function emit(itemCount: number, name: string, blocked = false): Promise<s
   return html;
 }
 
+/**
+ * 揀貨單版的 `emit`。**只需要 `findAdminOrderDetail`** —— 揀貨單頁沒有箱的概念
+ * (`picking/page.tsx:48` 只呼叫那一支),所以上面那個 `order-repository` mock 就夠了。
+ *
+ * ⚠️ **`vi.mock` 的路徑深度不同,而模組是同一個**:本檔寫的是 `../../../../../../lib/...`
+ * (6 層)、揀貨單頁自己 import 的是 5 層 —— **兩者解析到同一個模組**,所以 mock 通吃。
+ * 🔴 這一點值得寫下來:看起來像「兩個不同的模組」,而 vitest 是**照解析後的路徑**認身分。
+ */
+async function emitPicking(
+  itemCount: number,
+  name: string,
+  over: Partial<AdminOrderDetail> = {},
+): Promise<string> {
+  const d = { ...detail(itemCount), ...over } as AdminOrderDetail;
+  mocks.findAdminOrderDetail.mockResolvedValue(d);
+
+  const { container } = render(await OrderPickingPrintPage({ params: Promise.resolve({ id: ORDER }) }));
+  const { css, files } = builtCss();
+  const html = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<title>${name}</title>
+<!-- 樣式來源(建置產物,非原始碼): ${files.join(' + ')} -->
+<style>${css}</style>
+</head><body>${container.innerHTML}</body></html>`;
+
+  mkdirSync(OUT_DIR, { recursive: true });
+  writeFileSync(join(OUT_DIR, `${name}.html`), html, 'utf8');
+  return html;
+}
+
 describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => {
   // 🔴 **正向對照必須在同一次執行裡**:沒有它,`.next` 不存在 / 元件沒 render 出東西 /
   //    CSS 撈到空字串,下面每一格都會「漂亮地通過」而產出一份沒用的檔。
@@ -203,6 +243,39 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    沒有它,兩份產出可能一模一樣,而後面數頁數會得到兩個【一樣正常】的數字。
     expect(many.length).toBeGreaterThan(one.length);
     expect(many).toContain('SKU-0011-LONG');
+  });
+
+  it('🔴 揀貨單三種 ⇒ 產出 picking-*.html(`#601` 的 A / C 兩幅要真的印出來看)', async () => {
+    // 🔴 **為什麼揀貨單也要**:`#601` 的 A(已取消)/ C(讀不到品項)兩種在 2026-08-17 落地,
+    //    而**當時沒有任何辦法把它們印出來看** —— 單測只證得了「內容與結構都在同一塊裡」。
+    //    ⇒ 本格補的就是那一格。用法:
+    //      sh scripts/pagecount.sh --png /tmp/pcm-print-measure/picking-blocked-cancelled.html <dir>
+    // ⚠️ **`picking-normal` 那一份【不是】一張真實的揀貨單**:本檔的 `detail()` 把
+    //    `quantitySummary` 建成 `null` ⇒ 每一列都會印「數量資料尚未就緒 / 這一項不要揀」。
+    //    ⇒ 它的用途**只有一個:當上面兩份的正向對照**(證明品項表本來印得出來)。
+    //    **不要拿它去驗揀貨單的正常版面。**
+    const normal = await emitPicking(3, 'picking-normal');
+    const cancelled = await emitPicking(3, 'picking-blocked-cancelled', {
+      cancelledAt: '2026-08-16T03:00:00+00:00',
+    });
+    const empty = await emitPicking(0, 'picking-blocked-empty');
+
+    // 正向對照:正常那份【有】品項表與料號 —— 沒有這一格,下面兩個 `not.toContain` 在
+    // 「emit 整個壞掉、回空字串」的世界裡也會過。
+    expect(normal).toContain('<table');
+    expect(normal).toContain('SKU-0000-LONG');
+    expect(normal).not.toContain('本單不得出貨');
+
+    // A 種:整幅阻印 + 表不在 + 料號不在。
+    expect(cancelled).toContain('本單不得出貨');
+    expect(cancelled).toContain('本頁不含品項明細');
+    expect(cancelled).not.toContain('<table');
+    expect(cancelled).not.toContain('SKU-0000-LONG');
+
+    // C 種:同上,而原因不同(這一種的文案保留「請重新整理」是刻意的,見 `picking-doc.tsx`)。
+    expect(empty).toContain('本單不得出貨');
+    expect(empty).toContain('讀不到任何品項');
+    expect(empty).not.toContain('<table');
   });
 
   it('🔴 `#601` 阻印狀態 ⇒ 產出 shipping-blocked.html(那一幅要真的印出來看)', async () => {
