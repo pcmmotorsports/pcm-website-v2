@@ -16637,3 +16637,83 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   🔴 **修法一行,不記會忘。**
 
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #628`(git ref CAS)+ 信箱佔位掃描零命中。
+
+---
+
+### #630 · products.supplier_slug / external_id 對 anon 可讀 —— **Sean 2026-08-18 拍板不修**(已知風險登記)
+
+- **性質**:🔴 **這不是待辦。** 這是一條「**已經知道、已經拍板不修**」的登記,存在的理由是
+  **讓下一個發現它的人不要重查一遍,也不要以為是漏網**。
+- **優先度**:—(不修)。**若哪天要重開,重開的理由會是商業的,不是技術的**(見下方射程)。
+- **發現**:2026-08-18 V 窗逐欄實打正式站 anon;E 窗判 `external_id` 與嚴重度。
+
+- **事實(量到的,不是讀 schema 推的)**
+  ```
+  量法  storefront anon key 打【正式站】PostgREST，products?select=<欄>&limit=1 逐欄各一發
+  分母  packages/adapters/src/supabase/database.types.ts 的 products Row = 25 欄
+  結果  401 擋住 5 欄:price_store / price_by_tier / metadata / listing_set_by / source_missing_at
+        200 可讀 20 欄:其中 supplier_slug、external_id 是本條的標的
+  真值  抽 800 列 select=supplier_slug ⇒ null 數 0
+        distinct 命中 evotech / eazigrip / lightech / kspeed / bonamici
+        ⇒ 這欄每個商品都填了真供應商 ⇒ 外洩是實的，不是「欄存在但空」
+  正本  ~/pcm-mailbox/V-050-products-anon-投影分母-20260818.md
+  ```
+  **三道正向對照(這是它成案的關鍵,不是它看到了什麼)**
+  ```
+  select=*        ⇒ 401「permission denied for table products」⇒ 欄級授權在擋，不是 key 沒生效
+  zz_bogus_col    ⇒ 400（不是 401）⇒ 🔴「被擋」與「欄不存在」分得開
+  price_store 單打 ⇒ 401 ⇒「anon 看不到經銷價」是量到的，不是「根本沒打到那欄」
+  ```
+
+- **✅ 經銷價那半是守住的**:`price_store` / `price_by_tier` / `metadata` 皆 401
+  ⇒ 2026-06-05 那條經銷價防護鏈**在欄級是有效的**。
+  🔴 **本條洩的是商業情報,不是金流。嚴重度=中,不要放大成「經銷價外洩」。**
+
+- 🔴 **`external_id` 的判定(主視窗要求「不要留可能」——這裡是判死的)**
+  ```
+  判定:external_id ＝【供應商的主料號】⇒ 與 supplier_slug 同族，同屬貨源情報
+  依據（逐字，三處互相對上）:
+    scripts/rpm-transform.ts:13   「external_id=乾淨 main_sku(無 RPM- 前綴、對齊 S3a 洗淨值)」
+    scripts/rpm-transform.ts:334  「external_id: mainSku, // 🔴 乾淨主料號、無前綴」
+    scripts/rpm-transform.ts:91-92「external_id 仍存原始 mainSku(join key、大寫)…SKU 保於 external_id」
+  結構佐證:
+    supabase/migrations/20260602192455_s3a_composite_keys_drop_rpm_prefix.sql:51
+      products 唯一鍵:全表 (external_id) → 複合 (supplier_slug, external_id)
+    ⇒ 它與 supplier_slug 合成唯一鍵 ⇒ 語意上就是「某供應商的某個料號」
+  ```
+  ⇒ **依 Sean 本次拍板,`external_id` 一樣不修。**
+
+- 🔴🔴 **而 `external_id` 就算要修也【不能只靠 REVOKE】—— 前台自己就在讀它**
+  ```
+  packages/adapters/src/supabase/SupabaseProductAdapter.ts:67-68
+    const PRODUCT_SELECT_DETAIL =
+      'id, external_id, title, subtitle, ...'
+                ^^^^^^^^^^^ 商品詳情投影【含 external_id】⇒ 它本來就會送到瀏覽器
+  ⇒ 收欄級權限會【直接斷商品詳情頁】，而且它早已透過網站本身公開
+  ```
+  對照:**`supplier_slug` 不在該投影裡**(`sed -n '67,70p' … | grep -c supplier_slug` ⇒ `0`)
+  ⇒ 收它**不會**斷這條路徑。
+  ⚠️ **射程**:我只逐條看了「商品詳情投影」這一條路徑。
+  **另有 `search_catalog_by_vehicle` RPC → `products_list_public` view,而該 view DDL 帶 `supplier_slug`**
+  (`supabase/migrations/20260811040000_…:209` `p.supplier_slug,`)
+  ⇒ **其餘讀取路徑我沒有逐條窮盡** —— 因為拍板不修,那道分母主視窗裁定不用查。
+  🔴 **哪天要重開,這道分母要先補完,不要把上面那個 `0` 當成「全站沒人讀」。**
+
+- 🔴🔴 **拍板與其射程(本條最重要的一段)**
+  ```
+  Sean 2026-08-18 逐字:「乙  無所謂 —— 看得到也沒差」
+  ⇒ 不 REVOKE、不修。
+  ```
+  **這個板的射程 =【今天的商業判斷】,不是技術結論。**
+  它成立的前提是「PCM 現在不介意競爭對手知道每個商品的貨源與料號」。
+  🔴 **競爭態勢變了就要重問 —— 而【不會有任何機械訊號提醒任何人】**:
+  三綠不紅、grep 找不到、沒有測試會失敗、權限也不會自己變。
+  **這條登記本身就是唯一的訊號載體,而它要有人回來讀。**
+
+- **不修未來會痛在哪**:痛點不在技術面,在**它會被靜默地當成「已經審過、沒問題」**。
+  下一個做安全稽核的人看到 `supplier_slug` 200 可讀,會**重跑一次同樣的量測、重寫一次同樣的判斷**,
+  然後**可能得出不同的嚴重度**而去打擾 Sean 第二次。
+  ⇒ 本條的價值 = **把「已經問過、答案是不修、以及那個答案為什麼可能過期」釘在同一個地方。**
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `#630`(git ref CAS 原子配號)
+  \+ 信箱佔位掃描 `grep -rn '佔位' ~/pcm-mailbox/*.md` ⇒ 與 `#630` 相關者零命中。
