@@ -1,0 +1,246 @@
+# `E686-1` 守門規格 —— `net` 兩表對 anon 是**全 DML + TRUNCATE**,而只有「讀」那一半被記錄過
+
+- **窗**:E(資安稽核,唯讀)　**日期**:2026-08-17　**面**:網站庫 `pcm-website-v2`(報價單庫同型,見 §6)
+- **性質**:**規格,不是實作。** E 唯讀 ⇒ 本檔只出規格與驗法,**不改 code、不跑 migration**。實作歸施工窗。
+- **正本 finding**:`docs/security/2026-08-16-external-exposure-audit.md` §4 `E686-1`。
+
+---
+
+## 1. 上層(白話,先看這段)
+
+pg_net 這個外掛有兩張表,一張存「**要送出去的請求**」、一張存「**送出去之後拿回來的回應**」。我們的排程(每 2 分鐘跑一次的結算兜底)就是靠它們運作的,而**我今天驗「結算兜底有沒有在跑」,看的就是那張回應表**。
+
+問題:這兩張表**對「網站訪客」這個身分是全開的** —— 不只看得到,還**改得動、刪得掉、能整張清空**。
+
+🔴 **要緊的不是「資料被看走」,是「紀錄可以被動手腳」**:那是我用來證明系統有沒有正常運作的那本帳。帳可以被改 ⇒ **我今天所有基於它的結論,嚴格說都只在「沒有人動過它」這個前提下成立。**
+
+**現在為什麼還沒出事**:訪客只能透過一個叫 PostgREST 的門進資料庫,而那扇門**目前沒有把 `net` 這個區域放進開放清單**。⇒ **擋著的只有這一道,而它是 Dashboard 上的一個設定,不在程式碼裡。**
+
+---
+
+## 2. 量到的事實(可重跑;每條附量法)
+
+### 2.1 權限矩陣 —— 五項全開,兩張表、兩個角色
+
+```sql
+SELECT r.rolname, t.tbl,
+       has_table_privilege(r.rolname,t.tbl,'SELECT')   AS sel,
+       has_table_privilege(r.rolname,t.tbl,'INSERT')   AS ins,
+       has_table_privilege(r.rolname,t.tbl,'UPDATE')   AS upd,
+       has_table_privilege(r.rolname,t.tbl,'DELETE')   AS del,
+       has_table_privilege(r.rolname,t.tbl,'TRUNCATE') AS trunc
+  FROM pg_roles r
+  CROSS JOIN (VALUES ('net._http_response'),('net.http_request_queue')) AS t(tbl)
+ WHERE r.rolname IN ('anon','authenticated') ORDER BY t.tbl, r.rolname;
+```
+**實測輸出(2026-08-17,`pcm_audit_ro`)**:4 列,`sel/ins/upd/del/trunc` **全部 `t`**。
+
+ACL 來源(`relacl` 第二項 grantee 為空 = `PUBLIC`,權限字串 `arwdDxtm` 含 `a`=INSERT `w`=UPDATE `d`=DELETE `D`=TRUNCATE):
+```
+_http_response     owner=supabase_admin  {supabase_admin=arwdDxtm/supabase_admin,=arwdDxtm/supabase_admin}
+http_request_queue owner=supabase_admin  {supabase_admin=arwdDxtm/supabase_admin,=arwdDxtm/supabase_admin}
+```
+
+### 2.2 RLS 兜不住 —— 兩層都不行
+
+```sql
+SELECT relrowsecurity AS rls_on, relforcerowsecurity AS rls_forced
+  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname='net' AND c.relname='_http_response';
+```
+**實測**:`rls_on = f` / `rls_forced = f`。
+
+🔴 **而且就算把 RLS 打開也擋不住 `TRUNCATE`** —— **`TRUNCATE` 不受 RLS 管**(這是本族既有坑,正本 `docs/patterns/revoking-function-execute-in-supabase.md`)。⇒ **「加 RLS policy」不是這條的修法**,寫規格的人不要往那個方向設計。
+
+### 2.3 現況殘留量(**只數不讀**)
+
+```sql
+SELECT count(*) FROM net.http_request_queue;   -- 實測 0
+SELECT count(*) FROM net._http_response;       -- 實測 180（6h TTL 窗）
+```
+
+🔴🔴 **驗這件事的人不得 SELECT `http_request_queue.headers`** —— 那一欄含 `Authorization: Bearer <CRON_SECRET>` **明碼**。**只准 `count(*)`。**
+理由不是潔癖:**為了論證某個東西危險而寫下的證據,本身就複製了那個危險**。要證明「這欄很敏感」,引用 `20260723120000…:36-37` 的既有記載即可,不要自己撈一筆出來當例子。
+
+### 2.4 🔴 外部目前打不到(**這是行為量測,不是設定宣稱**)
+
+以網站庫 publishable key 打正式站 REST,**同一輪三個值不同 ⇒ 404 不是鈍訊號**:
+
+| 端點 | 實測 | 意義 |
+|---|---|---|
+| `products_public` | **200** | 正向對照:key 有效、REST 通 |
+| `customers` | **401** | 在曝露 schema 內、僅無權限 |
+| `net.http_request_queue` | **404** | **不可達** |
+| `net._http_response` | **404** | **不可達** |
+
+**🆕 設定層也量到了(2026-08-17 傍晚補) —— 讓 PostgREST 自己把白名單講出來**:
+```bash
+curl -s -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+     -H "Accept-Profile: net" \
+     "https://bmpnplmnldofgaohnaok.supabase.co/rest/v1/_http_response?select=id&limit=0"
+```
+**實際回應**:
+```json
+{"code":"PGRST106","details":null,
+ "hint":"Only the following schemas are exposed: public, graphql_public",
+ "message":"Invalid schema: net"}
+```
+⇒ **曝露清單 = `public, graphql_public`,由執行中的 PostgREST 自己吐出來**,不是截圖、不是轉述。
+📌 **這比 Dashboard 截圖強**:截圖是**設定畫面**,這是**實際生效的那份設定**——兩者理論上可能不一致(設定沒 Save / 沒套用),而**我們要的是生效的那份**。
+📎 Sean 同日 Dashboard 截圖獨立佐證(展開後候選只有 `graphql_public` / `public` / `pcm_cron` 三個,`net` 連選項都不在),**兩個來源一致**。
+
+⚠️ **仍未確認的一格**:**`net` 到底能不能被手動加進去。**
+- Sean 截圖裡候選只有三個,而那三個的共同點是**由 `postgres` 擁有或屬標準 API schema**(`pcm_cron` 是我們自己 migration 建的);`net` 的 owner 是 **`supabase_admin`**(§2.1 量到)⇒ **推測** Supabase UI 只列前者。
+- 🔴 **這是推的,不是量的** —— 要證實得**真的去加一次**,那是平台設定變更(鐵則 12④)、且風險不對稱,**不做**。
+- ✅ **但守門設計不依賴這個答案**:§3.2 的外部探針**不管它是怎麼被加進去的都偵測得到**(加進去 ⇒ `net` 端點不再回 404)。⇒ 這一格**未確認不影響修法**,只影響「這道守門是防呆還是防壞」的敘事。
+
+### 2.5 🔴 SQL 修法路線 —— **已實測不可行,不要再試**
+
+```sql
+SELECT rolname, rolsuper FROM pg_roles WHERE rolname IN ('postgres','supabase_admin');
+```
+**實測**:`postgres` ⇒ `rolsuper = f`;`supabase_admin` ⇒ `t`。
+
+⇒ `net` 物件與其 grant **全由 `supabase_admin`(superuser)授予**,而我們能用的最高身分 `postgres` **非 superuser** ⇒ **`REVOKE` 對它靜默 no-op(不報錯、也沒效果)**。
+**既有記載**:`supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql:16-21`(當時已實測並寫明「物理不可行」)。
+
+🔴 **規格明令**:**不要留一條 `REVOKE ... FROM PUBLIC` 給下一個人去試。** 它會「跑成功」而**什麼都沒發生** —— 那比失敗更糟,因為會留下一份「我修好了」的錯誤紀錄。
+
+---
+
+## 3. 守門規格(**偵測型,不是強制型** —— 這一節是本檔重點)
+
+### 3.1 🔴 先講清楚這道守門的性質與它的天花板
+
+**它守的那個東西不在 repo 裡。** 曝露清單是 Supabase Dashboard 的設定,**repo 內任何 grep / 測試 / CI 都看不到它**;三綠**恆綠**、覆蓋率**算不到**。
+
+⇒ **這道守門只能「偵測狀態變了」,不能「阻止狀態被改」。** 寫的人與讀的人都要接受這個天花板:
+- ❌ 它**擋不住**有人去 Dashboard 把 `net` 加進清單。
+- ✅ 它能在**加進去之後**、下一次跑的時候**叫出來**。
+- ⇒ 因此**偵測頻率就是暴露窗**。這句要寫進實作的註解裡,否則下一個人會以為它是道牆。
+
+### 3.2 觀測點:**外部 REST 探針**,不是 repo grep
+
+**位置**:對正式站 `/rest/v1/` 發 GET,不需登入、不需 service_role,只需 publishable(anon)key。
+
+**斷言形狀(三格,缺一不可)**:
+| 格 | 打什麼 | 期望 | 為什麼要它 |
+|---|---|---|---|
+| **A 正向對照** | `products_public?select=id&limit=0` | **200** | 證明「探針本身是通的」。**沒有這格,一個網路故障會被讀成『很安全』。** |
+| **B 判別力對照** | `customers?select=id&limit=0` | **401** | 證明「404 不是我打錯路徑的通用回應」——曝露 schema 內的表回的是 401。 |
+| **C 主張** | `http_request_queue` 與 `_http_response` 各一發 | **404** | 主斷言:`net` 不可達。 |
+
+🔴 **三格必須在同一次執行內全部通過才算綠**。只有 C 綠 = 恆綠格(斷網、key 過期、專案睡著都會給你 404)。
+
+🔴 **失敗時要印的是【三格各自拿到什麼】,不是「不安全」** —— 兩個世界要印不同的值,而「不安全」在「真的曝露了」與「探針壞了」兩個世界是同一句話。
+
+### 3.3 跑在哪、多久跑一次
+
+- **不要放進單元測試 / 三綠**:它打的是**正式站**、依賴**外部網路**,放進去會做出一個時好時壞的測試,而**假紅比沒有守門更糟**(團隊會學會忽略它)。
+- **建議**:獨立腳本 `scripts/probe-net-schema-exposure.sh`,由**人**或**排程**跑;納入既有的部署後 smoke / milestone 收尾清單。
+- **頻率 = 暴露窗**(見 §3.1),由指揮者定;**Dashboard 動過設定之後必跑一次**是硬要件。
+
+### 3.4 順帶(同一支探針幾乎免費多守的)
+
+`cron` / `vault` / `auth` / `extensions` 這幾個 schema 同樣**不該**經 REST 可達,而它們的曝險等級**比 `net` 更高**(`vault` 存的就是 `cron_secret` 本體)。⇒ **探針的 C 格建議一次列這幾個**,邊際成本接近零。
+⚠️ 但**逐一附期望值**,不要寫成迴圈然後只斷言「全部都是 404」——那句在「清單是空的」時**恆真**(本族既有坑:`feedback_absence-read-as-verified`)。
+
+---
+
+## 4. 不做什麼(避免把規格寫成新的風險)
+
+- ❌ **不寫 `REVOKE`**(§2.5:已實測 no-op)。
+- ❌ **不加 RLS policy 當修法**(§2.2:`TRUNCATE` 不受 RLS 管)。
+- ❌ **不 SELECT `headers` 欄**(§2.3),包含「為了寫報告舉個例」。
+- ❌ **不對設定清單下斷言**(§2.4),那要 Sean 在 Dashboard 展開。
+- ❌ **不把探針塞進三綠**(§3.3)。
+
+---
+
+## 5. 這條的嚴重度為什麼是「低-中(潛伏)」而不是高
+
+- **低**的那一半:外部**現在打不到**(§2.4 量到的,含正負對照),⇒ **今天沒有可利用路徑**。
+- **中**的那一半:①擋著的**只有一道 Dashboard 設定**,沒有第二層;②後果**不是洩漏是湮滅**(可 `TRUNCATE` 稽核軌跡)⇒ 它會**破壞事後調查的能力本身**;③這一半**從未被任何文件記錄過** —— `20260723120000…:26` 只寫了「anon 即可讀 headers」,寫/刪/TRUNCATE 那一半**沒有人寫下來過**。
+- 🔴 **③ 才是這條值得開的理由**:有人查過這張表、**寫下了他看到的那一半**,而下一個人讀到那段會以為**整張表都被評估過了**。
+
+---
+
+## 6. 報價單庫(`pcm-quote-v2`)—— ✅ **已逐項複驗,結果與網站庫【完全相同】**(2026-08-17 傍晚補)
+
+~~同型,未逐項複驗~~ —— **已補齊,不再是推論**。
+
+**先過庫別三發對照**(兩把 anon key 同前綴同長度,拿錯不會報錯 ⇒ 這步不可略):
+
+| # | 打什麼 | 實測 | 意義 |
+|---|---|---|---|
+| 1 | quote-key → `storefront_catalog_v` | **200** | 確認在報價單庫 |
+| 2 | **site-key** → `storefront_catalog_v` | **401** | 反面:網站庫的 key 在這裡不通 ⇒ 我沒拿錯 |
+| 3 | quote-key → `net._http_response` | **404** | `net` 不可達 |
+
+⇒ **三個值不同**,身分確定。
+
+**逐項結果(`~/.pcm-readonly-quote-db`,`current_database()` 已確認)**:
+
+| 項目 | 報價單庫 | 網站庫 | 一致? |
+|---|---|---|---|
+| `net` 兩表 × `anon`/`authenticated` 的 `SELECT/INSERT/UPDATE/DELETE/TRUNCATE` | **4 列全 `t`** | 4 列全 `t` | ✅ 相同 |
+| PostgREST 曝露白名單(`Accept-Profile: net` 自曝) | `public, graphql_public` | `public, graphql_public` | ✅ 相同 |
+| `public` 內 SECURITY DEFINER 總數 | **57** | 80 | (數量不同,正常) |
+| 其中 `proconfig IS NULL`(可變 search_path) | **0** | 0 | ✅ 相同 |
+| 正向對照:`proconfig IS NULL` 在 `public` 內是否抓得到東西 | **38 支**(皆非 SECDEF) | 6 支 | ✅ 述詞有判別力,非恆綠 |
+
+⇒ 🔴 **`E686-1` 對報價單庫【同等成立】**(`net` 兩表全 DML+TRUNCATE、擋著的同樣只有曝露清單那一道),**修法與守門規格原樣適用**,§3.2 的三格探針把 base URL 換成報價單庫即可。
+⇒ ✅ SECURITY DEFINER 的 search_path 紀律**兩庫都乾淨**,且兩邊的 `0` 都有各自的正向對照。
+
+---
+
+## 6b. 探針腳本規格 `scripts/probe-schema-exposure.sh`(**規格,E 不實作**)
+
+> 命名刻意**不叫** `probe-net-*` —— §3.4 已說明它一次守多個 schema,**檔名比範圍窄會讓下一個人以為它只管 `net`**(本檔自己就犯過:`revoking-function-execute-in-supabase.md` 的檔名比它的範圍窄)。
+
+### 介面
+
+```
+用法：sh scripts/probe-schema-exposure.sh [site|quote|both]     預設 both
+輸入：不吃參數化的 URL/KEY —— 一律從檔案讀，避免有人把 key 打進命令列（會進 shell history）
+        ~/.pcm-site-anon-key    PCM_SITE_ANON_KEY    https://bmpnplmnldofgaohnaok.supabase.co
+        ~/.pcm-quote-anon-key   PCM_QUOTE_ANON_KEY   https://dllwkkfanaebrsuyuedy.supabase.co
+輸出：每格一行「格名 期望 實得 PASS/FAIL」+ 末行總判
+rc：   0 全格通過 / 3 有格 FAIL（真發現）/ 2 用法錯 / 1 工具自壞（缺 key、curl 不存在、網路不可達）
+```
+🔴 **`rc` 三態分得開是硬要件**(對齊 `scripts/where-is.sh` 的既有形狀):**「探針壞了」與「真的曝露了」必須是不同的 exit code** —— 兩者合流的話,CI 綠燈會同時代表兩件相反的事。
+
+### 每個庫要跑的四格(**缺一不可,順序不可調**)
+
+| 格 | 打什麼 | 期望 | 沒有它會怎樣 |
+|---|---|---|---|
+| **A 正向對照** | site: `/rest/v1/products_public?select=id&limit=0`<br>quote: `/rest/v1/storefront_catalog_v?select=id&limit=0` | **200** | 沒有它,**斷網 / key 過期 / 專案睡著**都會讓 C 格「通過」 |
+| **B 庫別對照** | 拿**另一個庫的 key** 打同一個 A 端點 | **401** | 沒有它,**兩把 key 同前綴同長度、拿錯不會報錯**,會量到另一個庫的答案 |
+| **C 判別力對照** | `/rest/v1/customers?select=id&limit=0`(site) | **401** | 沒有它,C' 的 `404` 可能只是「打錯路徑的通用回應」 |
+| **D 主張** | `/rest/v1/_http_response` 與 `/rest/v1/http_request_queue` | **404** | — |
+| **E 白名單自曝** | 任一端點加 `-H "Accept-Profile: net"` | body 含 `PGRST106` **且** `hint` 為 `Only the following schemas are exposed: public, graphql_public` | **最強的一格**:讓被測物**自己把邊界講出來**,不靠外部推論 |
+
+🔴 **A–E 必須同一次執行內全部通過才算綠。** 只有 D 綠 = 恆綠格。
+🔴 **E 格斷言要比對【完整字串】,不是只檢查含不含 `net`** —— 「`net` 不在裡面」在「清單是 `public, graphql_public`」與「清單是空的 / PostgREST 掛了」兩個世界一樣。
+
+### 順帶守的(邊際成本接近零)
+
+D 格的 URL 清單一次列:`_http_response` / `http_request_queue` / `cron.job` / `vault.secrets` / `pg_stat_statements`。
+⚠️ **逐一附期望值,不要寫成迴圈然後只斷言「全部都是 404」** —— 那句在**清單是空的**時**恆真**(本族既有坑)。⇒ 實作要斷言「**跑了 N 格且 N == 預期格數**」。
+
+### 🔴 明令不做(照抄 §4)
+
+- ❌ **不 SELECT / 不印 `headers` 欄**,連「為了寫報告舉個例」都不行。
+- ❌ **不把 key 印進 stdout / log / 錯誤訊息**;要引用只引用**前綴與長度**。
+- ❌ **不塞進三綠 / CI 必跑**(打正式站 + 依賴外部網路 ⇒ 會做出時好時壞的測試,**假紅比沒有守門更糟**)。
+- ❌ **不寫 `REVOKE`**(§2.5 已實測 `postgres` 非 superuser、對 `supabase_admin` 的 grant 靜默 no-op)。
+
+### 跑在哪
+
+人工 / 排程皆可;**硬要件 = Supabase Dashboard 動過「Exposed schemas」之後必跑一次**。納入部署後 smoke 或 milestone 收尾清單。**偵測頻率 = 暴露窗**(§3.1),這句要寫進腳本檔頭註解。
+
+---
+
+## 7. 口徑
+
+權限矩陣 / RLS 旗標 / `rolsuper` / 殘留列數 = **`pcm_audit_ro` 唯讀 SQL 實測**(2026-08-17,量法附在各處)。外部可達性 = **publishable key 打正式站 REST 實測**,含正向與判別力對照。**曝露清單的設定內容 = 未確認**(Sean 在查)。修法不可行性 = `20260723120000…:16-21` 既有實測 + 本輪 `rolsuper` 複核。**全程唯讀:只有 SELECT 與 GET,零寫入、零 DDL、未讀 `headers` 欄。**

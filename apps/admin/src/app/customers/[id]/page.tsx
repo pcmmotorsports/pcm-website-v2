@@ -3,6 +3,7 @@
 //    ⇒ admin 裡任何用 `@/` 的頁面,vitest 都解析不到 ⇒ **寫不出頁面層測試**。
 //    (同 repo 的 `app/@panel/*` 與 `app/customers/page.tsx` 也都是相對路徑,本檔改成一致。)
 //    ⚠️ 這是繞過一個【工具設定的缺口】,不是風格偏好 —— 缺口本身已另立案。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { loadCustomerDetail } from '../../../lib/customers/load-customer-detail';
