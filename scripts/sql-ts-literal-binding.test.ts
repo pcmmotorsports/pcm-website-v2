@@ -66,6 +66,20 @@ function pickLive(
       `${kind} ${name} 已在 ${lastDrop} 被 DROP 且其後無重建 —— 本測試綁的物件已不存在,請下架或改綁接替物件(死層定位=本檔要防的病)。`,
     );
   }
+  // 🔴 W1(V 窗 R2 擊中,分類=【規則縫隙】不是實作 bug):上面的比較是檔名粒度,
+  //    同檔內【CREATE 之後 DROP】(淨死;backfill 臨時 helper 常見)恆 false、安靜旁路。
+  //    補檔內序:live 檔內最後一個 define 命中位置 vs 最後一個 drop 命中位置,drop 在後 ⇒ throw。
+  const liveSql = files[live] ?? '';
+  const lastIdxIn = (re: RegExp): number => {
+    let at = -1;
+    for (const m of liveSql.matchAll(new RegExp(re.source, 'gi'))) at = m.index;
+    return at;
+  };
+  if (lastIdxIn(drop) > lastIdxIn(define)) {
+    throw new Error(
+      `${kind} ${name} 在 ${live} 檔內建後即刪(最後一筆命中是 DROP)—— 物件已不存在,同第 6 型處置。`,
+    );
+  }
   return { live, candidates };
 }
 
@@ -125,6 +139,16 @@ describe('定位器六型判別力(V 窗 R1 must-fix;每型一格,餵合成 migr
     // 反面:同檔 DROP+重建(20260811040000 的真實形狀)不 throw、live 正確
     const r = pickLive({ ...BASE, '0002_recreate.sql': 'DROP FUNCTION public.foo_fn(int);\nCREATE FUNCTION public.foo_fn(a int, b int)' }, 'FUNCTION', 'foo_fn');
     expect(r.live).toBe('0002_recreate.sql');
+  });
+
+  it('W1(R2 擊中的規則縫隙):同檔 CREATE 之後 DROP(淨死)⇒ throw,不安靜回 live', () => {
+    expect(() =>
+      pickLive(
+        { ...BASE, '0002_netdead.sql': 'CREATE FUNCTION public.foo_fn(a int);\n-- backfill 用完即刪\nDROP FUNCTION public.foo_fn(int);' },
+        'FUNCTION',
+        'foo_fn',
+      ),
+    ).toThrow(/檔內建後即刪/);
   });
 
   it('第 5 型:ALTER … RENAME TO 改名進來也算定義層', () => {
