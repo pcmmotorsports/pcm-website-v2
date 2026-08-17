@@ -1786,4 +1786,43 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     );
     expect(container.textContent ?? '').toContain('出貨完成');
   });
+
+  /**
+   * 🔴🔴 **驗收 12**(`plan §7#12`;2026-08-18 A 窗補)——
+   * **上面兩格斷言的是 `textContent`,而「未知」旁邊那個 `title` 是【零斷言】的。**
+   *
+   * 🔴 **為什麼這一格非有不可**:「未知」兩個字自己**不解釋任何事** ——
+   *    員工看到它會問「為什麼不知道」,而答案只長在 `title` 裡
+   *    (`orders-table.tsx:429` 逐字)。**那句話被刪掉、被改壞,上面兩格照樣全綠。**
+   *
+   * 🔴 **實作與這一格的時間差(寫下來,免得被讀成「一直都有」)**:
+   *    片 A-1 本體 `5e46360e`(08-17 14:44)已進 dev;驗收 12 是 `b174532f`(21:36)
+   *    才補進 plan 的 —— **實作之後 7 小時**。補進來當天實測
+   *    `grep -rn "算不出狀態" --include='*.test.tsx' | wc -l` ⇒ **0**。**這一格就是在補那個 0。**
+   */
+  const TRUNCATED_TITLE = '這張單的品項清單這次沒有完整載入,算不出狀態。請重新整理。';
+
+  it('🔴 驗收12a:截斷時那顆膠囊的 title 存在,且【逐字】等於 orders-table.tsx:429', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
+    );
+    // 🔴 **從「未知」那顆本人身上取 title**,不用 querySelector('[title]') ——
+    //    後者會撿到頁面上任何一顆帶 title 的東西,那是「量錯東西」。
+    const capsule = [...container.querySelectorAll('span')].find((el) => el.textContent === '未知');
+    expect(capsule).toBeDefined();
+    expect(capsule?.getAttribute('title')).toBe(TRUNCATED_TITLE);
+  });
+
+  /**
+   * 🔴 **負向對照** —— 沒有這一格,12a 可以靠「每顆膠囊都掛同一句 title」通過,
+   * 那時它量到的不是「截斷態有解釋」,而是「這個元件到處都有 title」。
+   */
+  it('🔴 驗收12b:非截斷時那顆狀態膠囊【不帶】那句 title', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
+    );
+    const capsule = [...container.querySelectorAll('span')].find((el) => el.textContent === '出貨完成');
+    expect(capsule).toBeDefined();
+    expect(capsule?.getAttribute('title')).not.toBe(TRUNCATED_TITLE);
+  });
 });
