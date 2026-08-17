@@ -30,6 +30,31 @@ describe('resolveTierFromRequest', () => {
     expect(tier).toBe('store');
   });
 
+  // 🔴 prod 硬閘(權限鐵則 12②)。兩個世界缺一不可:
+  //   拿掉 tier.ts 的 `NODE_ENV !== 'production' &&` 那道閘 ⇒ 下面第一格必須翻紅(負測)。
+  it('🔴 prod 硬閘:NODE_ENV=production + flag=1 + ?tier=store → override 失效、回 general', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('PCM_DEV_TIER_OVERRIDE', '1');
+    const tier = await resolveTierFromRequest({ tier: 'store' }, makeMockCookies());
+    expect(tier).toBe('general');
+  });
+
+  it('🔴 硬閘不誤傷 dev:NODE_ENV=development + flag=1 + ?tier=store → override 仍生效、回 store', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubEnv('PCM_DEV_TIER_OVERRIDE', '1');
+    const tier = await resolveTierFromRequest({ tier: 'store' }, makeMockCookies());
+    expect(tier).toBe('store');
+  });
+
+  // 🔴 硬閘與 #215 cookie 釘樁獨立(codex nit):prod 關掉的只是 `?tier=` override 這條路,
+  //   不是把 tier 一律壓成 general。override 死了要【落到 cookie】、不是短路回 general。
+  it('🔴 prod 硬閘只殺 override、不吞 cookie fallback:production + flag=1 + ?tier=store + cookie=premium_store → premiumStore', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('PCM_DEV_TIER_OVERRIDE', '1');
+    const tier = await resolveTierFromRequest({ tier: 'store' }, makeMockCookies('premium_store'));
+    expect(tier).toBe('premiumStore');
+  });
+
   it('PCM_DEV_TIER_OVERRIDE 關 + ?tier=store → 不走 override、走 fallback', async () => {
     vi.stubEnv('PCM_DEV_TIER_OVERRIDE', '');
     const tier = await resolveTierFromRequest({ tier: 'store' }, makeMockCookies());
