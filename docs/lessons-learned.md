@@ -1064,6 +1064,11 @@ A9h-1 應用層(12 參 rpc 呼叫)於 2026-08-06 夜先上線、對應的 `a9h_m
   - **機制觀測點在部署後、不在 repo 側**:repo hook 看不到 Vercel deploy 與手動 `db push`(兩者都不經 git)。
     可用的觀測點 = **apply 後對新簽章跑一次 PostgREST 具名參數 smoke**(回 `P0001` 之類的守門錯誤 = 函式在;回 `PGRST202` = 函式不在)。
     此 smoke 於 2026-08-07 已實跑並關閉 a9h 缺口(`STATUS.md` 當日「E 批兩支已 apply」條),**應登記為 apply 停點的固定步驟、而非一次性補驗**
+    - 🔴 **2026-08-18 修正上一句的判準(留痕不刪;V 窗對正式站實測三世界)**:上面「回 `PGRST202` = 函式不在」**寫成通則會誤報**。
+      `PGRST202` 說的是「schema cache 裡找不到【這個簽章】」——**參數給不全 / 型別不對 / 名字拼錯,全部回同一個碼**。V 窗實測:同一支【確實存在】的函式,參數只給一個 ⇒ 也回 404 `PGRST202`,與拿假名 ⇒ 404 `PGRST202` 一字不差。
+      ⇒ 判「函式不在」之前先自證:(a) 參數名是不是從呼叫端 grep 出來的(不是猜的)(b) 型別對不對 (c) 具名參數【給全】。正確判準=**給全所有具名參數 + 用保證命不中的 id**(如全 0 UUID)⇒ 回 200 / 業務碼(NOOP・P0001・CONFLICT)= 函式在;只有在參數自證給全後,`PGRST202` 才能升級成「函式不在」。
+      三向分辨法(正例 200 / 假名 PGRST202 / 存在但參數不全 PGRST202)已做成 `scripts/rpc-apply-smoke.sh`(V 窗)。**表半的等價坑**=`PGRST205`(表不在 schema cache)同理:表在 DB 但 cache 沒 reload ⇒ 也回 PGRST205,先 `NOTIFY pgrst, 'reload schema'` 再判。
+      🔴 **repo 其實早在 runbook 就知道這個「schema cache 有 vs DB 有」的分別**——`docs/runbooks/484a-view-apply-smoke.md:56`、`docs/runbooks/2026-08-14-apply-day-one-pager.md:56` 都寫「404 PGRST205 = 還不存在,但不是壞了,先確認 migration 真跑了」;而本教訓條(`:1065`)原句沒帶到 ⇒ 又一個「對的做法沒傳染」的實例,故此處互指。⚠️ **本條轉錄 V 窗實測,本檔改動者(T① 窗)未自持 service_role、未親跑那三發**。
   - repo 側做得到的那半:diff 同時含 `supabase/migrations/*` 與其消費端應用層檔時,commit body 必須寫出 apply 順序聲明
 - **enforce:** Claude.ai 寫 slice 指令引「migration 已落地」前自檢「指的是 commit 還是 apply?」、不明確即補字面;Code 偵察揭示「commit 落地但 apply 未落」立即 raise multi-select(對齊「事實 > 字面」鐵則 11);**跨 apply 停點的片,plan 必須明寫「先上的那半靠什麼保護」,答不出來 = 不准開工**
 

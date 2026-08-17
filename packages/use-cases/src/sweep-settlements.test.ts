@@ -47,6 +47,17 @@ function tradeRecordFor(orderId: string, over: Partial<TapPayTradeRecord> = {}):
     currency: 'TWD',
     recordStatus: 1, // OK
     isCaptured: true,
+    // 🔴🔴 2026-08-18 補,而**本檔是同一個病的第二半**:
+    //    `settle-charge.test.ts` 的 fixture 原本也不帶這一欄,而 `refund-baseline.ts:8`
+    //    記著 2026-08-03 probe 實測 **未退款紀錄必帶 `refunded_amount=0`**
+    //    ⇒ 不帶這一欄的 fixture 造的是一個【production 不會出現】的紀錄形狀。
+    // 🔴 **本檔與 settle-charge 走的是同一條路**:`sweep-settlements.ts:3` import 並呼叫
+    //    `settleCharge`,該檔 docstring 逐字「共呼 settleCharge(Record API 唯一權威)」
+    //    ⇒ 同一個 API、同一份契約 ⇒ 那個實測對本檔【同樣適用】,不是假設。
+    // ⚠️ `a1210748` 只修了 settle-charge 那一支、本檔沒動 ⇒ 收進 dev 後打紅 13 格。
+    //    ⇒ 教訓不是「fixture 要記得改」,是**改對外行為時只同步了【想得到的那一支】測試**。
+    // ⇒ 要測「欄缺」那個世界的格,請【明確】寫 `refundedAmount: undefined` 覆蓋它。
+    refundedAmount: toMoneyAmount(0),
     timeMillis: TXN_TIME_MS,
     ...over,
   };

@@ -123,6 +123,7 @@ four_greens() {
   FP_START="$(tree_fingerprint)"
   T_START="$(date '+%Y-%m-%d %H:%M:%S %Z')"
   VITEST_START="$(count_vitest)"
+  LOAD_START="$(load_avg_now)"
   echo "───── 這份結果量的是 ─────"
   echo "樹      : $(pwd)"
   echo "分支    : $(git branch --show-current)"
@@ -156,17 +157,29 @@ four_greens() {
   #    ⇒ 兩個都**不在** vitest 真正跑的那段時間裡。實測 2026-08-17 19:10 那一發:開始 0 / 結束 0。
   VITEST_PRE="$(count_vitest)"
   BUILD_PRE="$(count_build)"      # 🔴 同一刻的 build 並行數 —— 它與 vitest 搶同一批 CPU
+  LOAD_PRE="$(load_avg_now)"      # 🔴 這一個才答得出「機器有多忙」（並行數答的是別的問題）
   # 🔴 標記檔只在【真的在跑 vitest】那一段存在 —— 開在這一行之前、關在之後。
   #    trap 是為了 Ctrl-C；正常路徑靠下一行的 vitest_mark_end。
   # 🔴 codex R1 F3:訊號 trap 只刪檔【不退出】的話,收到 TERM 之後腳本會繼續跑,
   #    而標記已經沒了 ⇒ 「還在跑卻沒有標記」。⇒ 訊號路徑清完要把原訊號再送一次。
-  trap 'mark_end vitest' EXIT
-  trap 'mark_end vitest; trap - INT; kill -INT $$' INT
-  trap 'mark_end vitest; trap - TERM; kill -TERM $$' TERM
+  # 🔴 取樣器與標記檔【掛同一組 trap】—— 分開掛的話,少改一處就會留下一支
+  #    永遠在跑的背景迴圈,而它沒有任何輸出 ⇒ 看起來完全正常。
+  # 🔴 順序:trap 先掛,取樣器後起 —— 反過來的話,那兩行之間收到訊號,取樣器就活下來了。
+  #    (reviewer 打的:我原本寫在 trap 之前。移動成本是零,而漏掉的代價是一支永遠在跑的迴圈。)
+  trap 'runq_stop; mark_end vitest' EXIT
+  trap 'runq_stop; mark_end vitest; trap - INT; kill -INT $$' INT
+  trap 'runq_stop; mark_end vitest; trap - TERM; kill -TERM $$' TERM
+  runq_start "$(logdir_for "$MODE")/runq.samples"
   mark_begin vitest
   one 60 vitest    'vitest     (pnpm test = vitest run)'       pnpm test                        || vi=$?
   mark_end vitest
+  runq_stop
   trap - EXIT INT TERM
+  # 🔴 分診【事後只讀 log】—— 不重跑、不影響那一發的結果。
+  {
+    triage_vitest_log "$(logdir_for "$MODE")/vitest.full.log"
+    echo "vite 快取 mtime: $(vite_cache_age)"
+  } > "$(logdir_for "$MODE")/TRIAGE" 2>/dev/null || true
 
   echo
   echo "════════ 總表(這四個 rc 各屬各自的命令)════════"
@@ -193,7 +206,8 @@ four_greens() {
   drift_report "$FP_START" "$(tree_fingerprint)" "$(logdir_for "$MODE")" || dr=$?
   [ -n "${VITEST_END:-}" ] || VITEST_END="$(count_vitest)"   # 全綠那條路沒經過上面 ⇒ 這裡才取樣
   run_context "$T_START" "$VITEST_START" "$VITEST_PRE" "$VITEST_END" "$(logdir_for "$MODE")" \
-    "$BUILD_START" "$BUILD_PRE" "$tc" "$li" "$bu" "$vi"
+    "$BUILD_START" "$BUILD_PRE" "$tc" "$li" "$bu" "$vi" \
+    "$LOAD_START" "$LOAD_PRE" "$(load_avg_now)"
   # 🔴 DRIFT 要能【擋住下一個動作】,否則它什麼也買不到(V 窗 R3-3)。
   #    在此之前:警告印在會滾走的輸出裡、檔落在沒人查的目錄裡,而收割照收、四綠照綠 ——
   #    **沒有任何一條判準會因為 DRIFT 存在而停。** 那不是品質問題,是它現在買不到東西。
@@ -218,7 +232,7 @@ four_greens() {
 #    中間衝上去又掉下來,這兩個數看不到。要看得到得改成持續取樣,不在本片範圍。
 run_context() {
   rx_start=$1; rx_v0=$2; rx_vpre=$3; rx_v1=$4; rx_dir=$5; rx_b0=$6; rx_bpre=$7
-  rx_tc=$8; rx_li=$9; shift 9; rx_bu=$1; rx_vi=$2
+  rx_tc=$8; rx_li=$9; shift 9; rx_bu=$1; rx_vi=$2; rx_l0=$3; rx_lpre=$4; rx_lend=$5
   # 🔴 絕對路徑閘 —— 這不是防禦性程式設計潔癖,是**今晚真的發生過**:
   #    我在改這支函式的參數個數時,呼叫端與函式體有一瞬間對不上(4 個 vs 5 個)
   #    ⇒ `rx_dir` 收到的是 `"7"`(某個並行行程數)⇒ **selftest 在 repo 根目錄生了一個 `7/` 目錄**,
@@ -232,19 +246,69 @@ run_context() {
   mkdir -p "$rx_dir"
   {
     printf '開始 %s\n結束 %s\n' "$rx_start" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
-    printf '其他窗四綠vitest並行數(不含自己) 開始=%s vitest起跑前=%s 結束=%s\n' "$rx_v0" "$rx_vpre" "$rx_v1"
-    printf '其他窗四綠build並行數(不含自己) 開始=%s vitest起跑前=%s\n' "$rx_b0" "$rx_bpre"
+    printf '全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=%s vitest起跑前=%s 結束=%s\n' "$rx_v0" "$rx_vpre" "$rx_v1"
+    printf '全樹並行四綠build數(不含自己;2026-08-18 起跨工作樹) 開始=%s vitest起跑前=%s\n' "$rx_b0" "$rx_bpre"
     # 🔴 rc 也寫進來 —— 不是多餘的:沒有它,任何要做「並行數 × 紅綠」統計的人
     #    都得去 parse `run-rc.sh` 印的那句中文(`rc=0 ✅（…）`)⇒ 統計工具就綁死在那句措辭上,
     #    措辭一改、統計靜默失準。**把結論放在跟條件同一個檔裡,兩者一起被讀到。**
     printf 'rc typecheck=%s lint=%s build=%s vitest=%s\n' "$rx_tc" "$rx_li" "$rx_bu" "$rx_vi"
+    # 🔴 兩條限定跟著欄位一起寫進檔案 —— 檔頭那一格今晚剛證明擋不住誤讀。
+    printf 'load average(1m 5m 15m) 開始=[%s] vitest起跑前=[%s] 結束=[%s]\n' \
+      "$rx_l0" "$rx_lpre" "$rx_lend"
+    printf '  ⚠️ load 是過去 1/5/15 分鐘的【平均】不是當下 ⇒ 答「這段期間忙不忙」，答不了「逾時那一秒忙不忙」\n'
+    printf '  🔴 #608「load 高 ⇒ 撞 5000ms」假說【已被推翻】⇒ 記錄這個值【不等於】復活那個假說\n'
+    printf '  🔴 而【並行數那兩欄答的是「有幾個窗在跑四綠」，不是「機器有多忙」】—— 兩者曾被當成同一件事用過\n'
+    # 🔴 兩條限定同樣寫在【欄位旁邊】,不放檔頭。
+    printf 'vitest 期間 run queue(狀態 R 的行程數，0.5 秒取一發，OS=%s) %s\n' \
+      "$(uname -s 2>/dev/null || echo 未知)" "$(runq_summary "$rx_dir/runq.samples")"
+    printf '  🔴 這一欄是【瞬時值的分佈】不是平均 ⇒ 它是四個欄位裡最接近「逾時那一秒忙不忙」的\n'
+    printf '  ⚠️ 但 0.5 秒是【快照】：比它短的尖峰看不到 ⇒【最大值是下界，不是真最大】\n'
+    printf '  ⚠️ 這個數【含本發 vitest 自己的 worker】與取樣器自己 ⇒ 答得出「這台機器多忙」，答不出「別人多忙」\n'
+    printf '  ⚠️ macOS 與 Linux 尺規不同(Linux 閒置約 1-3、macOS 動輒數十)⇒【跨機器不可比】\n'
+    printf '  ⚠️ n<20 時 p95 恆等於最大 —— 那不是兩個獨立的數，別當成兩個證據\n'
+    printf '  ⚠️ 取樣器自己的 ps/grep 每發也被數進去(1-2)⇒ 底噪不是 0\n'
+    printf '  🔴🔴 上面那兩欄【並行數】的射程,2026-08-18 修過一次 —— 引用前先看是哪一版產的\n'
+    printf '     ~~舊~~ 標記檔落在自己這棵工作樹，而「其他窗」在別棵樹 ⇒ 那兩欄【構造上必然是 0】\n'
+    printf '     ✅ 現行 標記檔在 git common dir 的共用點 ⇒ 【真的跨工作樹看得到】(本檔 :570-571)\n'
+    printf '     🔴 新射程:只看得到也跑【新版腳本】的窗;跑舊 checkout 的窗仍寫舊路徑、對它隱形\n'
+    printf '        ⚠️ 有幾個窗跑新版 = runtime fleet 狀態,腳本讀不到 ⇒【未確認】\n'
+    printf '     🔴🔴 本檔【就是新版產的】⇒ 上面那兩欄的 0 是【量到的】,不是構造上必然\n'
+    printf '        而 2026-08-18 修正之前產的 RUN-CONTEXT,那兩欄的 0 是構造上必然\n'
+    printf '        ⇒ 兩者不可混在同一張表裡數(context-table 已隔離成「舊尺」不進四格)\n'
+    printf '     ✅ 本欄(run queue)不同：ps -A 是全機，當場驗過看得到 5 棵不同工作樹的行程\n'
   } > "$rx_dir/RUN-CONTEXT"
   echo
   echo "───── 這一發跑在什麼條件下(給三週後查因果的人)─────"
   echo "起訖              : $rx_start → $(date '+%Y-%m-%d %H:%M:%S %Z')"
-  echo "其他窗四綠 vitest 並行數(不含自己): 開始 $rx_v0 / 【我的 vitest 起跑前 $rx_vpre】/ 結束 $rx_v1"
-  echo "其他窗四綠 build  並行數(不含自己): 開始 $rx_b0 / 【我的 vitest 起跑前 $rx_bpre】"
+  echo "全樹並行四綠 vitest 數(不含自己;跨工作樹): 開始 $rx_v0 / 【我的 vitest 起跑前 $rx_vpre】/ 結束 $rx_v1"
+  echo "全樹並行四綠 build  數(不含自己;跨工作樹): 開始 $rx_b0 / 【我的 vitest 起跑前 $rx_bpre】"
   echo "                    ⚠️ build 這一欄是【把儀器補完整】,不是已有證據指向 build。"
+  echo "機器負載 load average(1m 5m 15m):"
+  echo "  開始 [$rx_l0] / 【我的 vitest 起跑前 $rx_lpre】/ 結束 [$rx_lend]"
+  echo "  🔴 這一欄才答得出「機器有多忙」;上面那兩欄答的是「有幾個窗在跑四綠」。"
+  echo "  ⚠️ 它是過去 1/5/15 分鐘的平均、不是當下;而 #608 那個 load 假說【已被推翻】,"
+  echo "     記錄這個值不等於復活它。"
+  echo "vitest 期間 run queue(狀態 R 的行程數,0.5 秒取一發,OS=$(uname -s 2>/dev/null || echo 未知)):"
+  echo "  $(runq_summary "$rx_dir/runq.samples")"
+  echo "  🔴 這一欄是【瞬時值的分佈】不是平均 —— 四個欄位裡它最接近「逾時那一秒忙不忙」。"
+  echo "     load average 答的是「這段期間」。"
+  echo "  🔴🔴 上面那兩欄【並行數】2026-08-18 被 I 窗證實射程比欄位名窄很多,**而當天已修**:"
+  echo "     ~~舊行為~~ 標記檔在 \$(pwd)/logs/four-greens/.running ⇒ 落在【自己這棵工作樹】,"
+  echo "     而「其他窗」照定義在別棵樹 ⇒ 那兩欄【構造上必然是 0】,不是量到閒。"
+  echo "     ✅ 現行 標記檔改到 \$(git rev-parse --git-common-dir)/pcm-four-greens-running"
+  echo "        ⇒ 全 worktree 共用一個位置 ⇒ 那兩欄【真的跨工作樹看得到】(見本檔 :570-571)。"
+  echo "     🔴 而新射程不是零:**只看得到也跑【新版腳本】的窗** —— 跑舊 checkout 的窗"
+  echo "        仍寫舊的 per-worktree 路徑,對新 counter 隱形。"
+  echo "        ⚠️ 「現在有幾個窗跑新版」是 runtime fleet 狀態,腳本讀不到 ⇒ **標未確認**。"
+  echo "     🔴🔴 給【引用舊 RUN-CONTEXT 的人】:2026-08-18 修正之前產生的那兩欄,"
+  echo "        它的 0 是【構造上必然】;之後產生的,0 是【量到的】。"
+  echo "        **兩者不可混在同一張表裡數** —— scripts/four-greens-context-table.sh"
+  echo "        已把舊格式隔離成「舊尺(看不見別樹)」、不進四格、不補 0。"
+  echo "     ⇒ 本欄(run queue)與那兩欄仍是不同的東西,不可互相佐證。"
+  echo "     ✅ 對照:本欄用 ps -A ⇒ 全機,當場驗過看得到 5 棵不同工作樹的行程。"
+  echo "  ⚠️ 但 0.5 秒是快照,比它短的尖峰看不到 ⇒【最大值是下界】,不是真最大。"
+  echo "  ⚠️ 它含本發 vitest 自己的 worker ⇒ 答「這台機器多忙」,答不出「別人多忙」;跨機器不可比。"
+  echo "  ⚠️ n 小的時候看【最大值】,中位數會把尖峰抹掉;而 n<20 時 p95 恆等於最大(不是兩個獨立的數)。"
   echo "                    🔴 中間那個才是判「我的 vitest 跟誰擠在一起」的那個數。"
   echo "                    (痕跡同時落在 $rx_dir/RUN-CONTEXT)"
 }
@@ -256,6 +320,204 @@ concurrency_note() {
   echo "🔴 這一發跑的時候,【還有幾個窗在跑四綠的 vitest】(不含自己):開始 $1 / 【我起跑前 $2】/ 結束 $3"
   echo "   中間那個是判 #618 那族隨機紅的那個數。若它 >0,把這一發連同 RUN-CONTEXT 存進 #618。"
   echo
+}
+
+# ── `#618` 症狀 B(module mock 失效)自動分診 ────────────────────────────
+# 提案來自另一個 T 線窗(socket 32075),主視窗核可,**而下面每個數字是我自己在 25 支
+# 已搶救 log 上獨立重量的**,不是採信它的回報(今晚實例 5:「儀器量的」≠「可信的」)。
+#
+# 🔴 **我量到的三組分離(逐檔跑,不只看數字)**:
+#   18 支綠         兩個 marker 皆 0
+#    6 支紅(症狀A)  兩個 marker 皆 0      ← ⚠️ 對方報 5 支，差的那支是我 21:41 那發（它的分析早於它）
+#    1 支紅(症狀B)  not set=28 / createSupaseServiceClient=14
+#   ⇒ **零假陽性,而【真陽性只有 1 支】。**
+# ⚠️🔴 **所以這道分診的正面判別力建立在【單一樣本】上** —— 它可能認得太窄(別的 mock 失效
+#   長不一樣就漏掉)。**它是候選標記器,不是分類器。** 標記為候選之後仍要人開 log 看。
+#
+# ⚠️ **對方建議的「第 2 件」(判斷失敗的是不是該檔【第一個執行的格】)我【沒有實作】,理由是量過的**:
+#   我們的 log **不是 verbose 模式** —— 8556 格只印得出 18 行失敗符號 ⇒ **執行順序不在 log 裡**。
+#   可導出的是**較弱的一件**:那一發 18 格失敗**集中度**(16 格在 `order-shipments.test.ts`、
+#   2 格在 `order-keyword-search-wiring.test.tsx`)⇒ 本函式落「最集中的那支檔與其失敗格數」,
+#   **不宣稱「整檔全紅」**(那需要知道該檔總格數,而 log 裡沒有)。
+triage_vitest_log() {
+  _log=$1
+  [ -f "$_log" ] || { echo "分診: log 不存在"; return 0; }
+  _ns="$(grep -c 'not set' "$_log" 2>/dev/null || true)"
+  _cs="$(grep -c 'createSupabaseServiceClient' "$_log" 2>/dev/null || true)"
+  _to="$(grep -c 'Test timed out in 5000ms' "$_log" 2>/dev/null || true)"
+  _red="$(grep -cE 'Test Files.*failed' "$_log" 2>/dev/null || true)"
+  # 最集中的那支失敗檔與其格數(可導出的那一半)
+  _top="$(grep -oE 'FAIL +\|[a-z]+\| [^ ]+\.test\.tsx?' "$_log" 2>/dev/null \
+          | sed 's/.*| //' | sort | uniq -c | sort -rn | head -1 | sed 's/^ *//' || true)"
+  if [ "$_ns" -gt 0 ] || [ "$_cs" -gt 0 ]; then _k='🔴症狀B候選(module mock 失效)'
+  elif [ "$_to" -gt 0 ];  then _k='症狀A(逾時)'
+  elif [ "$_red" -gt 0 ]; then _k='🔴紅但兩類皆不符(新形狀,值得看)'
+  else _k='綠'
+  fi
+  echo "分診: $_k"
+  echo "marker: not_set=$_ns service_client=$_cs timeout=$_to"
+  echo "最集中的失敗檔: ${_top:-無}"
+}
+
+# ── 機器負載(`load average`)—— 2026-08-17 23:1x 主視窗裁定加 ─────────────
+# 🔴 **加它的理由不是「想要更多資料」,是【現有欄位會讓人得出反向結論】**:
+#    同一晚兩發紅,`其他窗四綠vitest並行數 = 0`,而當場 `uptime` ⇒ **load 86.27 / 113.23 / 84.47**。
+#    ⇒ 那個 `0` 答的是「有幾個窗在跑四綠」,**不是「機器有多忙」**,而兩者被當成同一件事用過
+#      —— **主視窗據此對 Sean 說過「負載假說被推翻」,而那是錯的口徑**(它已去更正)。
+#    🔴 **而射程限定當時就寫在欄位名裡(`其他窗四綠vitest並行數`),兩個人都讀了、兩個人都誤讀**
+#       ⇒ **「寫下來」在這一格上失效過一次。** 所以下面兩條限定寫在【欄位旁邊】,不放檔頭。
+#
+# 為什麼是 `load average` 而不是「瞬時 CPU」:先前判「瞬時 CPU 不加」的理由是
+# **「要取樣不是取點,成本跳一級」** —— 而**那個理由對 `load average` 不成立**:
+# 它**本身就是平均**,一次 `uptime` 就有。**不是改變主意,是原本的理由不適用於這個東西。**
+#
+# ⚠️⚠️ **兩條限定(照主視窗指定,一個字不少;而它們會跟著欄位一起印出去)**:
+#   ① 🔴 `#608` 的「load 高 ⇒ 撞 5000ms」假說**已被推翻**
+#      ⇒ **記錄那個值【不等於】復活那個假說。**
+#   ② `load average` 是**過去 1/5/15 分鐘的平均、不是當下**
+#      ⇒ 它答「這段期間忙不忙」,**答不了「我這一格逾時的那一秒忙不忙」**。
+#
+# 🔴 **雙向驗為什麼【不是】用「造負載看它動」做成格子(當場實測的理由,不是偷懶)**:
+#    造 4 個燒 CPU 的行程、8 秒後 1 分鐘平均 `29.92 → 32.01`
+#    ⇒ **那個 +2.09 與機器自己的衰減分不開**(同一時段它正從 86 掉下來)
+#    ⇒ **1 分鐘平均的時間常數 ~60 秒,selftest 等不起,而等得起也分不乾淨。**
+#    ⇒ **所以格子測【解析器】(純函式、餵構造好的字串,兩個世界都能造);
+#       而「它會不會隨負載動」用【真實事件】背書,不用合成測試**:
+#         C 窗 21:56 靜默前 `16.92` → 跑完 `68.80`;本窗 23:11 `86.27` → 23:14 `29.92`
+#       ⇒ 它確實會動,而那是 OS 的性質,不是本檔的程式碼需要驗的東西。
+# ✅ **附帶一個它比並行數可信的理由**:`load average` **不需要任何人記得任何事**
+#    (不像標記檔要 begin/end 配對),而且它**不區分是誰造成的負載** —— 那正是我們要的。
+parse_load_avg() {
+  # macOS: `load averages: 1.23 4.56 7.89` / Linux: `load average: 1.23, 4.56, 7.89`
+  _l="$(printf '%s' "$1" | sed -n 's/.*load average[s]*: *//p' | tr -d ',' \
+        | awk '{ if (NF >= 3) printf "%s %s %s", $1, $2, $3 }')"
+  # 🔴 解析不出來就明說,**不印 0** —— 0 會讓「沒量到」長得像「機器很閒」,
+  #    而那是本檔今晚一直在修的那個病。
+  [ -n "$_l" ] && echo "$_l" || echo "讀不到"
+}
+load_avg_now() { parse_load_avg "$(uptime 2>/dev/null)"; }
+
+# ── 瞬時 run queue 取樣(2026-08-18 T 線加;主視窗裁定「做」)────────────────
+# 補的是本檔第 225 行自己寫下的那個缺口:
+#   「它記的是開始與結束兩個時點的瞬時值,不是期間的最大值 —— 中間衝上去又掉下來,
+#     這兩個數看不到。要看得到得改成持續取樣,不在本片範圍。」
+#
+# 🔴 為什麼不是 `ps -o %cpu`:**macOS 的 `%cpu` 是該行程【生涯平均】,不是當下**
+#    ⇒ 拿它當「瞬時」正是本檔一直在修的那個病(量到的東西不是宣稱的東西)。
+# 🔴 為什麼不是 `top -l 2`:當場量過 `/usr/bin/time -p top -l 2 -n 0 -s 1` ⇒ real 3.79s
+#    (單發,量於 2026-08-18 00:2x、該機 load≈220)。一發要 3.8 秒
+#    ⇒ 取樣間隔被工具本身決定,而不是被我們要的解析度決定。
+# ✅ 選 run queue 深度:`ps -A -o state=` 裡狀態為 `R` 的【行程】數。
+#    🔴 是【行程】不是執行緒 —— `ps -A` 不列執行緒(要列得加 `-M`/`-L`)。
+#       單位標錯的話,讀者會拿它跟核心數之類的東西比,而那是另一個量。
+#    成本當場量 `real 0.03`(單發,同上機器狀態)⇒ 夠便宜到 0.5 秒取一發;
+#    而它是**真瞬時**的快照,不是任何時間窗的平均。
+#
+# 雙向表演(2026-08-18 當場跑,不是推的)——🔴 **結論只到「方向」,不到「量值」**:
+#   基準(未另造負載),連取 5 發   ⇒ 76 72 66 73 72
+#   同時造 16 個燒 CPU 的行程     ⇒ 124 121 113 117 125 119
+#   ⚠️ 而「基準」那一組**不是一台閒置機器** —— 當時全陣八個窗在跑,uptime load≈78。
+#      16 個行程只換到 +48 而不是 +16 ⇒ **這一組證得了「它會隨負載動」這個方向,
+#      證不了「動多少」**。要量值得在一台安靜的機器上重做,本窗沒有那個環境。
+#   ✅ 但方向這件事它證得很硬:**一發之內就反應**。
+#      (對照:`load average` 造 4 個行程 8 秒後 1 分鐘平均只從 29.92 動到 32.01,
+#       且與同時段的自然衰減分不開 —— 那正是本檔 §load 段落當初拒絕用它驗的理由。
+#       瞬時量沒有那個問題,所以這一項【驗得起來】而 load average 驗不起來。)
+#
+# 🔴 這把尺的三個射程,寫在這裡也寫在欄位旁邊:
+#   ① **0.5 秒是快照不是連續紀錄** ⇒ 比取樣間隔短的尖峰(例如 300ms)完全看不到
+#      ⇒ 「最大值」是**下界**,不是真最大。它「有機會抓到」尖峰,不是「保證抓到」。
+#   ② **這個數含本發 vitest 自己的 worker**,也含取樣器自己那 1-2 個 ps/grep
+#      ⇒ 它答的是「這台機器多忙」,**答不出「別人有多忙」**。兩發相比的差,
+#        可能整個來自自己的 worker 數,而讀者很容易讀成「那次別人比較忙」。
+#   ③ **macOS 與 Linux 不同尺規**:Linux 的 state 只印單字元、閒置機約 1-3;
+#      macOS 動輒數十 ⇒ **跨機器不可比**,而 RUN-CONTEXT 正是要被跨機跨三週引用的那份。
+#   ④ 儀器本身有成本:每 0.5 秒兩個 fork,約一核的 6% ⇒ 它對被量的東西有非零貢獻。
+#   ⑤ 🔴 **它沒有保護的那一半,明寫在這裡**:看門狗擋得住「父死了子還在」,
+#      **擋不住「單一發 `ps` 自己卡住」** —— 後者沒有任何保護。
+#      不寫的話下一個人會以為看門狗涵蓋全部,而 2026-08-18 凌晨主視窗清掉的那五隻失控程序
+#      裡有四隻正是「一發 `uptime` 自己卡死」,各 90% CPU、跑了 1 小時 39 分。
+#      不加超時是當下的裁量(macOS 無現成 `timeout`,自己刻會讓這把尺變複雜,
+#      而最貴的後果 —— 孤兒永久跑 —— 已被看門狗關掉),**不是沒想到**。
+#
+# 🔴 部署風險寫在這裡,因為我自己踩了一次:寫這段時我用一條會逾時被砍的命令造尖峰,
+#    差一點留下 16 個燒 CPU 的行程在機器上(當場 `pgrep -x yes` 確認 0 才收手)。
+#    ⇒ **取樣器是背景迴圈,一定要掛在 trap 上**;漏掉的話,一次 Ctrl-C 就留下一支
+#      永遠在跑的迴圈,而它**看起來完全正常**(沒有輸出、沒有錯誤)。
+# 🔴 `ps` 壞掉時不可以吐 `0` —— 直接 `ps … | grep -c` 的話,`ps` 失敗會讓 grep 收到空輸入
+#    而印出字面 `0`,寫進樣本檔就跟「機器全閒」分不開(實測 `ps -A -o nosuchfield= | grep -c '^R'` ⇒ 0)。
+#    這正是 parse_load_avg 與格29-b 在彙總層擋掉、卻曾在取樣層放行的同一個病。
+#    ⇒ ps 失敗就【不寫這一發】,寧可 n 少一筆。(真的 0 幾乎不可能:ps 至少數得到自己。)
+runq_now() {
+  _s="$(ps -A -o state= 2>/dev/null)" || return 1
+  [ -n "$_s" ] || return 1
+  printf '%s\n' "$_s" | grep -c '^R'
+}
+
+runq_start() {
+  RUNQ_PID=''
+  # 開不了檔就放棄取樣,但**不讓四綠因此失敗** —— 這是輔助儀器,不是守門。
+  : > "$1" 2>/dev/null || return 0
+  # 🔴 這一行的每一段都是 reviewer 打出來的,四個獨立的「靜靜死掉」路徑:
+  #   ① `|| :`      —— `grep -c` 零命中回 rc=1(ps 暫時失敗也是),而本檔跑在 `set -e` 下
+  #                     ⇒ 子 shell 當場結束。實測:`sh -c 'set -e; (echo one>>f; false; echo two>>f) & wait'`
+  #                     只印 one。**取樣器會在第一次「機器全閒」時死掉,而那看起來完全正常。**
+  #   ② `kill -0 $$` —— trap 不是牽繩的全部:SIGHUP(關窗/斷線)、SIGQUIT、`kill -9` 都沒有 trap
+  #                     ⇒ 迴圈成孤兒、永遠跑、零輸出。`$$` 在子 shell 裡仍是父 PID
+  #                     ⇒ 父死它自己收攤。**trap 由此降級成保險,不是唯一那條繩。**
+  #   ③ `|| sleep 1` —— 小數秒不是每個 sh 的 `sleep` 都吃(busybox 無 FANCY_SLEEP、老 Solaris)。
+  #                     配上 ①之前的 `set -e`,它會死在第一發 ⇒ 樣本檔剛好 1 行
+  #                     ⇒ summary 印 `n=1 最大=X`,**長得完全正常**。不是忙迴圈,是安靜截斷。
+  ( while kill -0 $$ 2>/dev/null; do
+      runq_now >> "$1" 2>/dev/null || :
+      sleep 0.5 || sleep 1
+    done ) &
+  RUNQ_PID=$!
+}
+
+runq_stop() {
+  [ -n "${RUNQ_PID:-}" ] || return 0
+  # 🔴🔴 `|| :` 這五個字元是 R2 打出來的,而漏掉它的代價不成比例:
+  #    取樣器若已經自己死了(看門狗收攤 / 被 OS 殺),`kill` 回 rc=1,而本檔跑在 `set -e` 下
+  #    ⇒ **整支腳本當場結束在這一行** —— 而這一行的下游正是 summary_table / TRIAGE /
+  #      drift_report / run_context ⇒ **整份報告不見**,且退出碼 rc=1 與「四項裡有紅」
+  #      是同一個碼(本檔開頭自己標過這個碰撞)⇒ 看的人會以為是測試紅了。
+  kill "$RUNQ_PID" 2>/dev/null || :
+  # wait 一下:被殺當下那個 `sleep` 子行程否則會孤兒 ≤0.5 秒(無害),
+  # 順手把「PID 會不會被回收給別人」那個爭論一起關掉。
+  wait "$RUNQ_PID" 2>/dev/null || :
+  RUNQ_PID=''
+}
+
+# 讀樣本檔印分佈。🔴 印【最大值與分佈】不是平均 —— 平均會把尖峰抹掉,
+#    而我們要找的就是尖峰(「逾時那一秒」是尾端事件,不是平均事件)。
+# 🔴 沒樣本回「讀不到」不回 0(同 parse_load_avg:0 會讓「沒量到」長得像「機器很閒」)。
+runq_summary() {
+  _f="${1:-}"
+  { [ -n "$_f" ] && [ -s "$_f" ]; } || { printf '讀不到'; return 0; }
+  sort -n "$_f" 2>/dev/null | awk '
+    /^[0-9]+$/ { v[++n] = $1 + 0 }
+    END {
+      if (n == 0) { printf "讀不到"; exit }
+      # nearest-rank:索引取【天花板】不是地板。用 int() 直接截斷的話,
+      # n=5 的中位會落在 v[2] 而不是 v[3] —— selftest 格29-a 當場抓到過這個 off-by-one。
+      i95 = int(n * 0.95); if (i95 < n * 0.95) i95++; if (i95 < 1) i95 = 1
+      i50 = int(n * 0.50); if (i50 < n * 0.50) i50++; if (i50 < 1) i50 = 1
+      printf "n=%d 最大=%d p95=%d 中位=%d 最小=%d", n, v[n], v[i95], v[i50], v[1]
+    }'
+}
+
+# 快取年齡 —— 對方指的第 3 件之一。**刻意不掛任何假說**:
+# ⚠️ 「merge 改了 .ts ⇒ 快取冷」這個直覺**已被兩發純 docs merge 的紅 run 證偽**
+#    (`31fa9b7e` / `9946d24e`,對方量的)⇒ **這一欄只是捕捉當下值,不是在測那個假說。**
+# 🔴 路徑是當場找過的:本樹只有 `node_modules/.vite`(其餘三個候選都不存在)。
+#    不存在時明說「無此目錄」,**不印 0** —— 0 會讓「沒有快取」長得像「快取很新」。
+vite_cache_age() {
+  if [ -d node_modules/.vite ]; then
+    stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%S' node_modules/.vite 2>/dev/null || echo 讀不到
+  else
+    echo 無此目錄
+  fi
 }
 
 # 外生量:當下有幾個行程的【完整命令列】命中 <pattern>。
@@ -295,7 +557,33 @@ count_matching() { pgrep -f "$1" 2>/dev/null | wc -l | tr -d ' '; }
 # ⚠️ **射程限定(這一版換了一種瞎):只數【走這支腳本】的 run。**
 #    別窗手打 `npx vitest run …` 不會有標記檔 ⇒ **算不到**。
 #    ⇒ 它答的是「**還有幾個窗在跑四綠**」,不是「機器上總共有幾發 vitest」。**欄位名要照這個寫。**
-VITEST_MARKDIR="$(pwd)/logs/four-greens/.running"
+# 🔴🔴 **2026-08-18 補上漏掉的那一條(它比上面那條致命,而上面那條寫了會讓人以為那就是全部)**:
+#    舊版標記落在【各自的工作樹】⇒ **走這支腳本、但在別棵樹跑的也算不到**,
+#    而**別棵樹正是「別的窗」的定義** ⇒ 那個欄位【每一次都報 0】。
+#    ⇒ 已改成 git common dir 底下的共用點(見下方 `FOUR_GREENS_SHARED_ROOT`),
+#      欄位名同步改成「**全樹並行四綠 … 數**」—— **改了行為不改名,等於留一個新的假字面。**
+# 🔴🔴 **2026-08-18 修:標記檔【全樹共用一個位置】,不再各樹一份。**
+#
+# 病灶(I 窗當場量到,而它讓四格表整整一欄作廢):
+#   舊寫法 `VITEST_MARKDIR="$(pwd)/logs/four-greens/.running"`,而 `$(pwd)` = **跑它的那棵工作樹**。
+#   ⇒ 標記檔落在自己那棵樹;而「**其他窗**」照定義就在**別棵工作樹**,它們的標記落在它們自己的 `logs/`。
+#   ⇒ **這個欄位看不見任何別的窗,而且每一次都會報 0。**
+#   實測:`pcm-drift` 與 `pcm-website-v2` 兩份 `.running` 同時存在(全樹數 ⇒ 3),
+#         而同一刻的 `RUN-CONTEXT` 逐字 `其他窗四綠vitest並行數(不含自己) 開始=0 …=0 結束=0`。
+#   🔴 ⇒ **改尺之前所有的 `0` 是【構造上必然】,不是【量到的】**,而且**救不回來**
+#      (四格表要把改尺前/後分開數、各自具名、不補 0)。
+#
+# 📎 最該帶走的:`:295-297` 的射程限定寫著「只數走這支腳本的 run;別窗手打 npx vitest 算不到」——
+#   **那條是真的,而它漏了更大的一條(走這支腳本、但在別棵樹跑的也算不到)**,
+#   ⇒ **寫了一條射程,會讓讀者以為那就是全部。**
+#   而 `scripts/four-greens-context-table.sh:29` 早就寫著「別窗的 run 在它們自己的工作樹裡」
+#   ⇒ **知道的人寫下過它,卻沒有回頭改產數字那支的欄位名 —— 兩份檔各對一半。**
+#
+# 🔴 共用點用 **git common dir 的隔壁**,不寫死 `/Users/sean_1/pcm-*`:
+#   `git rev-parse --git-common-dir` 對**所有** worktree 都回**同一個** `.git`(主 repo 的),
+#   而寫死路徑會在 repo 搬家 / 別人 clone 時靜默變成「各自一份」——**回到同一個病**。
+FOUR_GREENS_SHARED_ROOT="$(git rev-parse --git-common-dir 2>/dev/null || echo .git)"
+VITEST_MARKDIR="$FOUR_GREENS_SHARED_ROOT/pcm-four-greens-running"
 
 # 兩道防呆一起上(缺一就會變成另一把騙人的尺):
 #   ① `trap` 刪自己那支 —— 正常結束/Ctrl-C 都清掉
@@ -737,6 +1025,100 @@ selftest() {
   r=$(printf '%s\n' "$fg_body" | grep -c '"\$BUILD_START" "\$BUILD_PRE"' || true)
   ck "格26-l build 那兩個值真的餵進 run_context(射程=原始碼行)" "$r" "1"
 
+  # ── 格27 系列:症狀 B 自動分診的四個世界。餵【構造好的 log】,不去讀真的 log ────
+  #   🔴 靶是我自己寫的假 log,四種各一支 —— 真 log 只有一支症狀 B,拿它當唯一測資
+  #      等於「用僅有的那個正例當考卷答案」。
+  tri_tmp="$(mktemp -d)"
+  printf 'Test Files  514 passed (514)\n' > "$tri_tmp/green.log"
+  printf 'FAIL  |admin| a/b.test.ts\nError: Test timed out in 5000ms.\nTest Files  1 failed | 513 passed\n' \
+    > "$tri_tmp/symA.log"
+  printf 'FAIL  |admin| a/b.test.ts\nError: NEXT_PUBLIC_SUPABASE_URL not set\n  createSupabaseServiceClient\nTest Files  1 failed\n' \
+    > "$tri_tmp/symB.log"
+  printf 'FAIL  |admin| a/b.test.ts\nAssertionError: nope\nTest Files  1 failed | 2 passed\n' \
+    > "$tri_tmp/other.log"
+  case "$(triage_vitest_log "$tri_tmp/green.log")" in *綠*) r=ok ;; *) r=bad ;; esac
+  ck "格27-a 全綠 log ⇒ 判綠" "$r" "ok"
+  case "$(triage_vitest_log "$tri_tmp/symA.log")" in *'症狀A(逾時)'*) r=ok ;; *) r=bad ;; esac
+  ck "格27-b 只有逾時 ⇒ 判症狀A" "$r" "ok"
+  case "$(triage_vitest_log "$tri_tmp/symB.log")" in *'症狀B候選'*) r=ok ;; *) r=bad ;; esac
+  ck "格27-c 有 not set / createSupabaseServiceClient ⇒ 判症狀B候選" "$r" "ok"
+  # 🔴 格27-d 是【新形狀】那一格:紅、但兩類 marker 都不符 ⇒ 不得被靜默歸進 A 或綠。
+  #    沒有這一格,一種沒見過的紅會被塞進最近的那個桶,而分診表看起來完整。
+  case "$(triage_vitest_log "$tri_tmp/other.log")" in *'兩類皆不符'*) r=ok ;; *) r=bad ;; esac
+  ck "格27-d 紅但兩類 marker 皆不符 ⇒ 要明說是新形狀,不得塞進既有桶" "$r" "ok"
+  # 格27-e:log 不存在時明說,不得靜默判綠(那會讓「沒量到」長得像「量到綠」)。
+  case "$(triage_vitest_log "$tri_tmp/nope.log")" in *'log 不存在'*) r=ok ;; *) r=bad ;; esac
+  ck "格27-e log 不存在 ⇒ 明說,不得靜默判綠" "$r" "ok"
+  rm -rf "$tri_tmp"
+  # ── 格28 系列:load average 解析器的三個世界(純函式,餵構造好的字串)──────
+  #   🔴 **刻意【不】做「造負載看它動」那一格**,而理由是量過的:
+  #      造 4 個燒 CPU 的行程、8 秒後 1 分鐘平均 29.92 → 32.01,而同時段機器正從 86 衰減
+  #      ⇒ 那 +2.09 與衰減分不開。1 分鐘平均的時間常數 ~60 秒,selftest 等不起。
+  #      ⇒ 「它會不會隨負載動」用真實事件背書(見函式上方),不用合成測試。
+  ck "格28-a macOS 式 uptime ⇒ 取出三個數" \
+     "$(parse_load_avg '23:14 up 5 days, 1 user, load averages: 29.92 73.84 72.93')" \
+     "29.92 73.84 72.93"
+  # 🔴 格28-b:Linux 式用【逗號】分隔 —— 而它同時證明了一件事(見格28-c 上方註解)。
+  ck "格28-b Linux 式(逗號分隔)也要解得出來" \
+     "$(parse_load_avg '23:14 up 1 day, load average: 0.00, 0.01, 0.05')" \
+     "0.00 0.01 0.05"
+  # 🔴🔴 格28-c:解不出來要回【讀不到】,**不可以回 0**。
+  #   主視窗原本要求加一格「不造負載時它不能是 0」,而**我沒有加那一格,因為它是錯的**:
+  #   格28-b 那個真實的 Linux 輸出就是 `0.00 0.01 0.05` ⇒ **`0` 是一個合法的讀數**。
+  #   ⇒ 真正該守的不是「不能是 0」,是**「沒量到」與「量到 0」要分得開** —— 就是這一格。
+  ck "格28-c 解析失敗 ⇒ 回【讀不到】而不是 0(沒量到 ≠ 量到 0)" \
+     "$(parse_load_avg '完全不相關的一行')" "讀不到"
+  # 格28-d:欄位數不足(只有兩個數)也算解不出來,不得回一個殘缺的值。
+  ck "格28-d 只有兩個數 ⇒ 讀不到(不得回殘缺值)" \
+     "$(parse_load_avg 'load averages: 1.00 2.00')" "讀不到"
+
+  # ── 格29 系列:run queue 取樣的彙總器(純函式,餵構造好的樣本檔)────────────
+  # 🔴 為什麼格子只測【彙總器】,不測「它會不會隨負載動」:
+  #    後者要造 CPU 尖峰,而**造尖峰的 selftest 是部署風險** —— 寫這一段時我自己用一條
+  #    會逾時被砍的命令造過 16 個燒 CPU 的行程,差點留在機器上(當場 pgrep 確認 0 才收手)。
+  #    ⇒ 「它會不會動」用【當場的真實量測】背書,數字與其限定寫在 runq_now 上方註解:
+  #      基準 76 72 66 73 72 / 同時造 16 個行程 124 121 113 117 125 119 ⇒ 方向分得開。
+  #      🔴 而那組「基準」是量在一台 load≈78 的機器上(全陣八窗在跑),不是閒置機
+  #         ⇒ 它證的是【會動】,不是【動多少】。引用時不要把它當成量值校準。
+  #    這與 load average 那一段的處置一致(格子測解析器、動不動用真實事件背書),
+  #    差別在:瞬時量【驗得起來】,而 load average 的 60 秒時間常數讓 selftest 等不起。
+  _rq="$(mktemp -d)"
+  printf '3\n9\n1\n5\n7\n' > "$_rq/s"
+  ck "格29-a 正常樣本 ⇒ n/最大/最小 都對(最大 9 最小 1,不是取首尾)" \
+     "$(runq_summary "$_rq/s")" "n=5 最大=9 p95=9 中位=5 最小=1"
+  # 🔴 格29-b:空檔要回【讀不到】不可以回 0 —— 同格28-c 那個病:
+  #    run queue 真的可能是 0(機器全閒)⇒ 0 是合法讀數,而「沒取到樣本」不是 0。
+  : > "$_rq/empty"
+  ck "格29-b 空樣本檔 ⇒ 讀不到(沒取到樣本 ≠ 量到 0)" \
+     "$(runq_summary "$_rq/empty")" "讀不到"
+  ck "格29-c 檔案不存在 ⇒ 讀不到(不得安靜當成 0)" \
+     "$(runq_summary "$_rq/does-not-exist")" "讀不到"
+  # 格29-d:非數字行不得被算進 n —— 取樣器若某一發吐了錯誤訊息,它不能污染分佈。
+  printf '4\nps: 壞掉了\n6\n' > "$_rq/dirty"
+  ck "格29-d 夾雜非數字行 ⇒ 只算數字行(n=2 不是 3)" \
+     "$(runq_summary "$_rq/dirty")" "n=2 最大=6 p95=6 中位=4 最小=4"
+  # 🔴🔴 格29-e 負測:把尖峰那一筆拿掉,【最大值必須跟著變】。
+  #    沒有這一格的話,一個永遠回傳固定字串的彙總器也會讓上面四格全綠。
+  printf '2\n2\n2\n99\n' > "$_rq/spike"
+  printf '2\n2\n2\n2\n'  > "$_rq/flat"
+  _mx_spike="$(runq_summary "$_rq/spike")"; _mx_flat="$(runq_summary "$_rq/flat")"
+  ck "格29-e 負測:有尖峰 vs 無尖峰,兩個世界的【最大】必須不同" \
+     "$([ "$_mx_spike" != "$_mx_flat" ] && echo 不同 || echo 相同)" "不同"
+  ck "格29-e2 而且尖峰那份的最大要是 99(不是中位數把它抹掉)" \
+     "$(printf '%s' "$_mx_spike" | sed -n 's/.*最大=\([0-9]*\).*/\1/p')" "99"
+  # 格29-f:取樣器本身回的要是非負整數(格式閘;它的「會不會動」見上方註解)。
+  ck "格29-f runq_now 回非負整數" \
+     "$(runq_now | grep -cE '^[0-9]+$')" "1"
+  rm -rf "$_rq"
+
+  # 格27-f:快取目錄不存在時要印【無此目錄】而不是 0 —— 0 會讓「沒有快取」長得像「快取很新」。
+  # ⚠️ 用【自己新開的】暫存檔 —— 第一版寫進 $mk_tmp,而那個目錄在格25 收尾就被 rm 掉了
+  #    ⇒ 讀回空字串、這一格當場紅。那次紅是對的,紅的是我的測試碼。
+  cache_probe="$(mktemp -d)"
+  ( CDPATH= cd "$cache_probe" && vite_cache_age ) > "$cache_probe/out.txt" 2>&1 || true
+  ck "格27-f 沒有快取目錄 ⇒ 印【無此目錄】不印 0" "$(cat "$cache_probe/out.txt")" "無此目錄"
+  rm -rf "$cache_probe"
+
   # 格22:one() 真的把【完整輸出】留下來 —— 不是只留尾 N 行。
   #   餵一個印 8 行的命令、尾巴只要 2 行 ⇒ 完整檔必須有 8 行。
   one 2 selftest-full '自測-完整 log' sh -c 'for i in 1 2 3 4 5 6 7 8; do echo line$i; done' \
@@ -748,9 +1130,17 @@ selftest() {
   # 格23:run_context 真的把兩個數寫進痕跡檔(餵構造好的值,靶目錄自己造)。
   rx_tmp="$(mktemp -d)"
   run_context "T0" "3" "5" "7" "$rx_tmp/ctx" "8" "9" "0" "1" "2" "3" >/dev/null 2>&1
-  r="$(grep -c '開始=3 vitest起跑前=5 結束=7' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
-  ck "格23 RUN-CONTEXT 要帶【三個】並行行程數的原值(含最有用的中間那個)" "$r" "1"
-  r="$(grep -c 'build並行數(不含自己) 開始=8 vitest起跑前=9' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
+  # 🔴 2026-08-18 補強:這一格原本只 grep 三個【值】,不認欄位名 ——
+  #    ⇒ 我同一批把 vitest 那個欄位名整個改掉,**這一格一聲不吭**,
+  #    而隔壁 `格23-d`(認前綴)當場就紅了。**兩格守同一支輸出,而判別力差一個數量級。**
+  #    ⇒ 補上前綴,讓改名這件事在兩個欄位上都擋得住。
+  r="$(grep -c '全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=3 vitest起跑前=5 結束=7' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
+  ck "格23 RUN-CONTEXT 要帶【三個】並行行程數的原值(含最有用的中間那個)+ 欄位名" "$r" "1"
+  # 🔴 2026-08-18:欄位名從「其他窗四綠build並行數」改成「全樹並行四綠build數」(跨工作樹修正),
+  #    這一格當場變紅 —— **而它紅得對**:改了對外字面而守門認的是舊字面。
+  #    ⚠️ 這裡**刻意不放寬成只認 `開始=8`** —— 那樣改名就再也擋不住,
+  #    而「位置不得與 vitest 那三個對調」正是靠這串前綴在守。
+  r="$(grep -c 'build數(不含自己;2026-08-18 起跨工作樹) 開始=8 vitest起跑前=9' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
   ck "格23-d build 那兩個值也要原字進檔(位置不得與 vitest 那三個對調)" "$r" "1"
   # 格23-e:rc 四個值原字進檔,且【位置不得對調】—— 餵 0/1/2/3 四個不同的值就分得出來。
   r="$(grep -c 'rc typecheck=0 lint=1 build=2 vitest=3' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"

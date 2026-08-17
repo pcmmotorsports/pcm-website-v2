@@ -28,7 +28,9 @@ import { compareByCreatedAtThenId } from './created-at-order';
  * 內嵌取消列的請求上限。
  *
  * 🔴 100 的理由:一張單的取消次數 = 部分取消的分次數,實務上個位數;100 遠高於任何合理值,
- * 又低於伺服器 `max-rows`(2026-08-02 production 實測 1000,量測方法見 `order-notes.ts` 檔頭)。
+ * 又低於伺服器 `max-rows`(~~2026-08-02 production 實測 1000~~ ⇒ **2026-08-18 實測 2000**,
+ * V 窗量:`products?select=id&limit=5000` ⇒ `content-range 0-1999/19777`;**本檔改動者未自驗**。
+ * 舊量測方法見 `order-notes.ts` 檔頭)。**兩個值之下本常數都嚴格更小 ⇒ 結論不變。**
  * ⚠️ **殘餘風險與全 repo 每個 embed limit 相同、非本片引入**(`order-notes.ts` 檔頭已逐字記錄):
  * 若日後把 `max-rows` 設到低於本值,截斷會發生在那個更低的數字上而本判定看不見。
  * 已立 backlog **#325**(max-rows 漂移偵測;commit `1a145ac`、`docs/phase-1-backlog.md`)。

@@ -819,7 +819,8 @@ export type AdminOrderDetailItem = {
    * 🔴 `procurements` **可能不完整**(fail-closed;兩個來源):
    * ①觸及請求端上限 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`(剛好等於上限時分不出「就這麼多」與
    *   「被切了」⇒ 一律當可能不完整)②內嵌鍵整個沒回來(投影退版)。
-   * 背景同 A9a-1 的 `notesTruncated`:PostgREST `max-rows` 對內嵌列同樣生效(production 實測 1000)
+   * 背景同 A9a-1 的 `notesTruncated`:PostgREST `max-rows` 對內嵌列同樣生效
+   * (~~production 實測 1000~~ ⇒ **2026-08-18 實測 2000**,V 窗量、本檔改動者未自驗)
    * ⇒ adapter 自己夾一個更低的上限,讓邊界與專案設定脫鉤。
    * 🔴 **A10b(寫入端)必讀**:true 時**不得送出採購表單** —— A5a 是全量 payload,
    * 拿一份不可信的 hydrate 去送 = 用空白/舊值覆蓋真實採購事實。畫面要說「讀取不完整、請重新整理」。
@@ -1193,8 +1194,12 @@ export type AdminOrderDetail = {
   customerNotified: boolean | null;
   /**
    * 🔴 notes 觸及請求端上限(`ORDER_NOTES_EMBED_LIMIT`)⇒ 時間軸**不完整**、`customerNotified` 為 null。
-   * 背景:PostgREST `max-rows` 對內嵌列同樣生效(2026-08-02 production 實測 = 1000:
-   * `brands?select=id,products(id)&id=eq.05be10ec-1581-4ff8-b01f-a437eefcf35b` 的 4566 筆子列只回 1000)
+   * 背景:PostgREST `max-rows` 對內嵌列同樣生效
+   * (~~2026-08-02 production 實測 = 1000:`brands?select=id,products(id)&id=eq.05be10ec-…` 的 4566 筆子列只回 1000~~
+   *  ⇒ **2026-08-18 頂層實測 2000**,V 窗量、本檔改動者未自驗。
+   *  🔴 **而【對內嵌列】的新值沒有人重量過** —— 上面那筆 2000 是【頂層】的。
+   *  內嵌那一面最後一次實量是 B 窗 2026-08-17 的**本機**探針(`db-max-rows=100` 自設),
+   *  **不是 production**。⇒ 這裡只能說「對內嵌同樣生效」,**值標未確認**)
    * ⇒ adapter 改為自己夾一個更低的上限,讓邊界與專案設定脫鉤(理由與殘餘風險見 `mappers/order-notes.ts`)。
    */
   notesTruncated: boolean;

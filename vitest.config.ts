@@ -55,6 +55,10 @@ export default defineConfig({
   // 純 TS 測試(domain / adapters)無 JSX、plugin 不影響。各 project extends: true 繼承。
   plugins: [react()],
   test: {
+    // 🔴 本檔【刻意不設】pool/isolate/fileParallelism(2026-08-18 #618):預設=每支測試檔
+    //    各自 fork 行程、跨檔不共享 module cache(實驗量到 2 init 2 pid,--no-file-parallelism
+    //    下亦然)。誰在這裡設 isolate:false 或 threads singleThread ⇒ #618「23 支 async-factory
+    //    測試檔關窗」結論作廢、要重分 —— 見 docs/probes/2026-08-17-chain5-2x2-acceptance/README.md。
     environment: 'node',
     // 🔴 **釘死測試時區 = Asia/Taipei**(#352-b-1 R3):
     //    本專案所有牆鐘語意都是台北(A5a `submitted_at` 由 server 補 +08:00、到貨時間同款),

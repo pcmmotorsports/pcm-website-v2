@@ -8,4 +8,10 @@
 # 🔴 部署時序 gate(Q26=A;plan docs/specs/2026-08-11-deploy-order-gate-plan.md v3):
 #    git 把 `<local-ref> <local-sha> <remote-ref> <remote-sha>` 由 stdin 餵進來,
 #    而 pnpm 那兩支不吃 stdin ⇒ 直接把 stdin 交給 gate(它自己逐行處理、也自己處理全 0 的 ref)。
-pnpm typecheck && pnpm lint && bash "$(git rev-parse --show-toplevel)/scripts/deploy-order-gate.sh"
+# 🔴 `TURBO_FORCE=1` 兩支各加一次(#621;Sean 2026-08-17 拍甲「修,每次推多等 20-30 秒」):
+#    少了它,turbo 命中既有快取時會 **replay 上一次的綠**。當場兩個世界實測 ——
+#      pnpm typecheck               ⇒ `Time: 117ms >>> FULL TURBO`   (重播,什麼都沒跑)
+#      TURBO_FORCE=1 pnpm typecheck ⇒ `Cached: 0 cached, 8 total`    (真跑)
+#    ⇒ 沒有前綴時,這道閘的前兩項會在 117 毫秒內「通過」。正本 `docs/phase-1-backlog.md` `#524`/`#621`。
+#    ⚠️ 第三段 `deploy-order-gate.sh` 不吃 turbo 快取、本來就真跑 ⇒ 不需要也不能加這個前綴。
+TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$(git rev-parse --show-toplevel)/scripts/deploy-order-gate.sh"

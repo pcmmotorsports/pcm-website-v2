@@ -1,0 +1,9 @@
+
+ RUN  v4.1.5 /Users/sean_1/pcm-sso-seclog
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  23:03:18
+   Duration  1.10s (transform 84ms, setup 0ms, import 271ms, tests 123ms, environment 0ms)
+

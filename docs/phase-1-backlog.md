@@ -6018,6 +6018,119 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     公開健康端點也還沒做 ⇒ **apply 完那張表會是空的(而空的是對的)**。
     🔴 **所以 ③ 現在【還不會告警】** —— 表在 ≠ 偵測到位。寫入端 + 健康端點是下一片。
   - ④ 轉人工:durable 旗標接後台/SQL 查 + 人工結案流程。
+
+  🔴 **2026-08-18 補:① 與 ④ 從「未實作」變成「可估的待辦」**(B 窗;**只估不做**,兩者都命中鐵則 8)。
+  ⚠️ **下面每個「多大」都是【估】,不是量出來的** —— 沒有人動手做過,估值會錯。
+  ⚠️ 而**檔案清單是量到的**(當場 `git grep -ln`),那部分不是估。
+
+  ---
+  **① Q4-B 跨路徑 skip —— 要做什麼、多大、命中哪條鐵則**
+
+  - **要做什麼(一句)**:讓「剛剛才試過 settle 的那一筆」在**另一條路**再進來時被跳過。
+    現況是 **in-memory 單 run 去重**(Q4=A 的降級版)⇒ **換一條路徑進來就失效**,
+    而三條路徑會對同一筆各打一次 TapPay Record ⇒ **對帳放大**。
+  - **改法**:`payment_charge_attempts` 加一欄 `last_settle_attempt_at`
+    (建表在 `supabase/migrations/20260612150000_m3_s2d_charge_attempts.sql`),
+    settle 之前查窗:`now() - last_settle_attempt_at < N` ⇒ skip。
+  - **「三路」實際是哪三支(當場 `git grep -ln 'settleCharge'`,非估)**:
+    ```
+    apps/storefront/src/app/api/checkout/tappay-notify/[secret]/route.ts   webhook
+    apps/storefront/src/app/api/cron/settle-sweep/route.ts                 sweeper
+    apps/storefront/src/app/api/orders/[orderId]/payment-status/route.ts   callback 輪詢
+    ```
+    🔴🔴 **而 `settleCharge` 的引用點共 36 支檔**(非測試檔;量法
+    `git grep -ln "settleCharge" -- 'apps/**' 'packages/**' | grep -v '\.test\.' | wc -l` ⇒ **36**)
+    ⇒ **「三路」是 plan 的說法,不是我量到的分母** —— 動工前要逐支開檔判哪些真的會 settle。
+    ⚠️ **36 之中絕大多數是型別 / port / wiring,不是 settle 呼叫點** —— 分母大不代表要改 36 支,
+    但**也不代表只有 3 支**。**那個判斷還沒有人做。**
+
+    > 📎 **留痕(這一格自己就踩過一次)**:本段初稿寫「共 **8** 支檔」。
+    > 那個 8 來自一條**接了 `head -8` 的 grep** —— 我把**被截斷的輸出**讀成了總數。
+    > 落筆後重數才發現是 36。
+    > 🔴 **`head -N` 之後的清單長度恆等於 N,而它看起來就是一份完整清單。**
+    > ⇒ 判別句:**這個數字是 `wc -l` 出來的,還是我數畫面上有幾行?**
+  - **多大(估)**:1 支 migration + `IChargeAttemptStore` / `PgChargeAttemptAdapter` 各一 +
+    `settle-charge.ts` 判斷 + 上面三支入口 ⇒ **約 6-8 支檔**。
+  - **命中**:🔴 **鐵則 12①(錢:payment)+ 12③(schema/migration)+ 鐵則 8(跨 3+ 檔)**
+    ⇒ **要 Sean 批准,而且 commit 前必過 codex 對抗審查,不自評免審。**
+  - **那個「窗」要多長 —— 🔴 給預設值,不空著等**(2026-08-18;主視窗裁「這題不進 Sean 桌」):
+
+    ### ⇒ **預設 5 分鐘(300 秒)。Sean 可改,而改之前先讀兩端的後果。**
+
+    **白話版(寫給不看 code 的人)**:
+    ```
+    太短 ⇒ 三條路還是各打一次 TapPay ⇒ 對帳次數放大、額度被吃掉
+    太長 ⇒ 一筆【真的失敗、真的該再試】的單被晾著，
+           客人的錢卡在那裡，而系統以為「剛剛才試過」
+    ```
+
+    **5 分鐘怎麼夾出來的(上下界都是【當場量到的 code 常數】,不是挑順眼的數)**:
+    ```
+    下界：sweeper 每 2 分鐘跑一次
+          supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql:128
+          cron.schedule('pcm-settle-sweep', '*/2 * * * *')
+          ⇒ 窗若 ≤ 2 分鐘，下一輪 sweeper 照樣重打 ⇒ 這道閘等於沒裝
+
+    上界：10 分鐘之後系統【自己】就認定那一筆卡住了、要回收重做
+          apps/storefront/src/app/api/cron/settle-sweep/route.ts:68
+          const STUCK_AGE_SECONDS = 600;
+          ⇒ 窗若 ≥ 10 分鐘，它會跟「卡住回收」那條邏輯互相打架
+
+    ⇒ 2 分鐘 < 窗 < 10 分鐘，取中間偏下的 5 分鐘（≈ 跳過 2 輪 sweeper）
+    ```
+
+    🔴🔴 **而這個推導有一個【真的缺口】,不要當成已經算完**:
+    上下界都來自**我們自己的排程**,**不是來自「TapPay 那邊要多久才反映得出來」**。
+    ```
+    我【沒有】TapPay Record 端到端延遲的實測值 —— repo 內查無，我也沒有量的管道
+    ⇒ 若 TapPay 實際要超過 5 分鐘才反映得出來，這個窗就是錯的（會把該重試的跳掉）
+    ⇒ 缺的那一道檢查：對 TapPay 量一次「送出 → Record 查得到」的延遲分布
+    ```
+    ⇒ 實作那一片要把這個數字做成**一個常數 + 一句註解**,**不要散在三條路各寫一次** ——
+    散開之後三處會各自漂,而**漂了不會有任何東西紅**。
+
+  ---
+  **④ 轉人工結案流程 / 後台 UI —— 要做什麼、多大、命中哪條鐵則**
+
+  - **要做什麼(一句)**:讓員工**看得到**哪幾筆被標成 `needs_manual_review`,並且**結得掉**。
+    現況:旗標寫得進去、**沒有任何畫面讀它** ⇒ 它今天等於**寫進黑洞**。
+  - **量到的現況(非估,兩條都當場 `| wc -l` 過)**:
+    ```
+    git grep -ln 'needs_manual_review' -- 'apps/admin'                       ⇒ 0
+    git grep -ln 'needs_manual_review' -- 'apps/**' 'packages/**' 'supabase/**' \
+      | grep -v '\.test\.' | wc -l                                            ⇒ 24
+    ```
+    ⇒ **24 支檔碰它,而 admin 端 0** —— 旗標寫得進去、**沒有任何畫面讀它**。
+    ⚠️ 本段初稿寫「全樹 **12** 支檔」—— **也是 `head` 截斷後數畫面數出來的**,
+    與上面 ① 那格**同一個病、同一段裡犯兩次**。⇒ 兩個數都改成 `wc -l` 的輸出。
+  - **改法(兩半,而第二半比第一半貴)**:
+    ```
+    看得到 ＝ 後台一個清單頁（讀 payment_charge_attempts 的旗標欄）
+    結得掉 ＝ 一個把旗標關掉的寫入路徑
+    ```
+    🔴 **第二半是動錢那張表的【寫入】** ⇒ 不是加個按鈕就好。
+  - **「結案」走 RPC 還是直接 UPDATE ⇒ ✅ 走 RPC**
+    (2026-08-18 **主視窗裁定**;🔴 **不是 Sean 拍板** —— 兩者不同級,見本條目其他處同樣的標法):
+    ```
+    走 RPC   ＝ 與本專案既有的錢路徑一致（audit / 冪等 / 前緣拒絕都在 DB）⇒ 貴，但對稱
+    直 UPDATE＝ 便宜，但 payment_charge_attempts 目前 service_role【唯讀】
+               ⇒ 要放寬權限 ＝ 🔴 為了一個後台按鈕擴大 blast radius，而那張表是【錢】
+    ```
+    📌 **判準(拿去別處用)**:
+    **當一個選項的代價是【工時】、另一個是【權限面】,預設選工時。**
+    **那兩者不是對等的交易** —— 工時花完就沒了,權限面打開之後會一直開著,
+    而**「後來誰用了那個權限」不會有任何東西通知你**。
+    ⚠️ **而這只裁了【方向】,不是開工** —— 它命中鐵則 12①,真要動工仍然要 Sean 點頭。
+  - **多大(估)**:清單頁約 2-3 支檔;結案那半走 RPC ⇒ **約 4-6 支**
+    (migration 一支 RPC + port + adapter + use-case + server action + UI)。
+    ⚠️ **上一版寫「1-6 支,看那題怎麼答」** —— 那題答了,區間收窄成 4-6。**估值仍是估的。**
+  - **命中**:🔴 **鐵則 12①(錢)**;走 RPC ⇒ **再加 12③(新 RPC = 新 DB 物件)**;跨 3+ 檔 ⇒ **鐵則 8**。
+    ⚠️ ~~原寫「走 RPC **或放寬權限**」~~ ⇒ **「放寬權限」那條已被裁掉(見上)**,不再是選項之一。
+  - **📎 而 ⑤(4a-2 殘餘 cosmetic 假告警)本來就掛在 ④ 底下** ⇒ 兩者同片處理,
+    ④ 的清單頁若不順手把 ⑤ 那種「`paid` 且 `needs_manual_review=true`」的列處理掉,
+    員工會看到一堆**已經沒事**的列 ⇒ **清單一開始就沒人想看,那等於沒做。**
+    🔴 **而「做了而沒人用」與「沒做」的成本一樣,前者還多花了工時。**
+    ⇒ 驗收條件要含**一句可以 yes/no 的**:**員工第一次打開這個清單,上面每一列都是他真的要處理的嗎?**
   - ⑤ 🆕 4a-2 殘餘窄 TOCTOU 清理(**Sean 2026-06-15 拍 A=留現狀、Phase II 後台 UI 順手清、非 4b**):expirer/mark 語句快照讀到 unpaid 後、並發 callback/confirm 才 commit order→paid → 可留 `paid + needs_manual_review=true` cosmetic 假告警(無雙扣/無金錢/無安全影響、人工複查即清)。歸入本條 ④ 後台轉人工流程一併處理(成交路徑或後台批次清同單 active attempt 的 needs_manual_review);4a-2 migration 檔頭已誠實揭示、不阻 bundle。
   - ⑥ 🆕 (對抗複驗 wbpvvr5b7 nit、benign 前瞻防禦)4a-1/4a-2 的 ALTER ADD COLUMN 後**未重 assert 表層 SELECT ACL**(s2d L124-146 有完整 table-ACL fail-closed assert、4a-1/4a-2 僅 assert RPC EXECUTE 矩陣 + payment_confirmer 全域 grants=0)。現況零實害:新欄皆 sweeper 簿記 / `last_settle_error` allowlist 錯誤碼集(零 PII)、service_role 本就唯讀;4a-2 與已簽核 4a-1 對稱(同省此 assert)。可選統一 polish=4a-1/4a-2 ALTER 後補 `has_table_privilege` anon/authenticated SELECT=false + service_role 唯 SELECT assert(對齊 s2d 防漂風格);非阻擋、非缺陷、forward-only migration 不會再編輯故價值邊際。
 - **不修會痛在:**
@@ -7257,6 +7370,41 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** E3 上線後才有真實資料;建議與 #282 併片(同為 pg_cron 族清理)
 - **發現於:** 2026-07-17 / M-4a Email 片 E1a(codex 關卡2 R5)
 - **相關:** #282 / M-4a Email 片 E1a `20260717020000` / plan v3.1 §3.4
+
+#### 併入(2026-08-18,B 窗查證;主視窗裁定**不另發號**):DB 層 `payload` 沒有 key/型別 allowlist
+
+- **現況 —— 先講清楚,免得被讀成「現在有洞」:**
+  - `email_outbox.payload` 的 CHECK **只約束成 jsonb object**,**沒有** key/型別 allowlist
+    (`supabase/migrations/20260717020000_m4a_email_outbox.sql:41-44`)。
+  - 🔴 **而第一層守門是好的、已驗過**:`enqueue` **根本不收 payload**
+    (`packages/ports/src/IEmailOutbox.ts:8` 逐字「enqueue **不收** payload/subject/…」),
+    payload 由邊界內部的 `buildOrderCreatedPayload` 顯式三欄 allowlist 組
+    (`SupabaseEmailOutboxAdapter.ts:196` / `order-email-assembly.ts:39-48`)。
+    ⇒ **一次 DTO spread 到不了 `enqueue` —— 型別上就傳不進去。**
+    ⇒ 那不是「有一道檢查擋住它」,是**讓那個失敗模式在結構上不存在**。
+  - ✅ **負向測試存在而且有牙齒**(2026-08-18 實查 + 突變):
+    `packages/adapters/src/email/order-email-assembly.test.ts:23`
+    (餵 email / phone / address / 巢狀物件,四個字面逐一 `not.toContain`;該檔共 4 格全綠)。
+    **突變**:把 return 改成 `{ ...src, … }`(註解點名的那個攻擊)⇒ **2 格紅**。不是恆綠格。
+- **所以還缺的是縱深的【最後一層】:** DB 自己不會擋。
+  🔴 **這一層的價值在於哪天有人新增第二個寫入端。**
+  🔴 **而「新增第二個寫入端」這件事,沒有任何機制會通知我們。**
+- **為什麼不現在做:** 補 DB 層 allowlist = 動 CHECK = 動 schema(鐵則 12③),
+  而它擋的那條路(繞過 `enqueue` 直接 INSERT)**目前沒有呼叫端** ⇒ 不划算。
+- **觸發事件:** 出現**第二個** `email_outbox` 寫入端(RPC / 腳本 / 另一支 adapter,任一)。
+- **⚠️ 引用 `migration:44` 那句時的射程限定(2026-08-18 立):**
+  逐字「**一次 DTO spread 就能把 email/電話/地址永久複製進本表**」——
+  它寫的是**【DB 這一層】的能力邊界**,不是**【現在的系統】會發生什麼**;
+  它寫在 E1b 落地**之前**,而 E1b 落地之後那句話的射程變了。
+  🔴 **它沒有過期**(DB 層確實仍無 allowlist)**,但單獨引用會讓人以為現在有洞。**
+  📎 判別句:**這句話成立的那一層,跟讀者以為它在講的那一層,是同一層嗎?**
+- **📎 怎麼被撿到的(留痕,過程本身是教訓):**
+  T① 掃寄信族時標「未確認」交出來;主視窗照 migration `:38-45` 派工,
+  要在拋棄式 DB 上「塞含 PII 的 payload 進 enqueue,該被拒的要真的被拒」。
+  🔴 **而反例就在它引的那幾行【下面兩行】**(`:45-47` 逐字「必須被**組裝層**擋掉(**不是靠 DB**)」)
+  ⇒ 照那樣做會量到「DB 接受了含 PII 的 payload」,**而那本來就是設計如此**
+  ⇒ **會把一個設計意圖回報成一個 finding。**
+  母題:**不是量錯東西,是【引用時只讀到自己要找的那半】。**
 
 ### #282. 🧹 `cron.job_run_details` 清理(pg_cron 執行紀錄無預設保留期、會長大拖效能)
 
@@ -16744,6 +16892,92 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   **實驗規格已寫、刻意不執行**:`docs/specs/2026-08-17-vitest-concurrency-experiment-spec.md`
   (含觸發條件三條、事前寫死的雙向判準、以及「`N=4` 全綠或 `N=0` 也紅 ⇒ **推翻方向更重要**,
   因為它省下所有後續投資」)。**它不是批准。**
+- 🔴🔴 **2026-08-17 23:20 —— `load average` 欄位【第一次使用就給了一個反例】,而它對負載假說不利**
+  ```
+  23:20 那發：四項 rc 全 0（綠）
+    load average(1m 5m 15m) 開始=[67.62 60.15 66.04]
+                            vitest起跑前=[148.79 82.84 74.03]   ← 🔴 我的 vitest 起跑那一刻
+                            結束=[215.78 112.50 85.61]
+  對照同晚兩發紅（23:00 / 23:05）：當場 uptime ⇒ load 86.27 / 113.23 / 84.47
+  ```
+  🔴 **綠在 `load 148.79`,紅在 `load 86`** ⇒ **「load 高 ⇒ 會紅」在這三筆上【不成立】。**
+  📎 那與 `#608` 那個**已被推翻**的 load 假說方向一致 —— **而這次是用新欄位量到的,不是推的。**
+  ⚠️⚠️ **三條限定,一條都不能省**:
+  ① **n=3**(1 綠 2 紅)。**三筆不是分佈**,而我在同一晚已經因為「一筆當分佈」退過一次。
+  ② `load average` 是**過去 1/5/15 分鐘的平均** ⇒ `vitest起跑前=148.79` 那個數
+  **包含我自己前面 typecheck/lint/build 造的負載**(它們就在那一分鐘內)⇒ **它不是「別人造成的負載」**。
+  ③ **它答不了「我這一格逾時的那一秒忙不忙」** —— 逾時是**尾端事件**,而這是平均值。
+  ⇒ 🔴 **正確口徑:「持續高負載」與「逾時」在這三筆上沒有對上,而【瞬時尖峰】仍未被任何欄位量到。**
+  **⇒ 下一個要量的東西已經被這一筆指出來了,而我【沒有】加它**(先前判「瞬時 CPU 要取樣不是取點、
+  成本跳一級」的理由**在這裡仍然成立**)。**要不要加,是主視窗的裁量,不是我可以自己補的。**
+
+- 🔴🔴 **2026-08-17 23:00 —— 第一筆【可信並行數的紅】,而它落在「低並行 × 紅」那一格**
+  ```
+  logs 目錄   c245211d… 之後的 990f8b35-20260817T230049-…（全量已搶救進 docs/probes/）
+  RUN-CONTEXT 其他窗四綠vitest並行數(不含自己) 開始=0 vitest起跑前=0 結束=0
+              其他窗四綠build並行數(不含自己)  開始=0 vitest起跑前=0
+              rc typecheck=0 lint=0 build=0 vitest=1
+  TRIAGE      分診: 症狀A(逾時)   marker: not_set=0 service_client=0 timeout=5
+              最集中的失敗檔: 3 scripts/check-syntax-nonts.gate.test.ts   ← spawn 族
+  Duration    168.89s（典型綠約 40-70s）
+  ```
+  ⇒ **四格表現在是 低×綠 1 / 低×紅 1 / 高×綠 0 / 高×紅 0。**
+  🔴 **這一筆的方向對「並行數造成紅」是【不利】的**:**零個其他四綠 vitest 在跑,而它紅了。**
+  📎 而那正是本片實驗規格事前寫死的那一條:**「`N=0` 也照樣紅 ⇒ 推翻方向,而那個方向更重要。」**
+  ⚠️⚠️ **但【不可以】就此宣告負載假說死掉,原因是這把尺自己的射程限定**:
+  `並行數` 只數**走 `dev-four-greens.sh` 的 run**(標記檔機制)⇒ **`0` 的意思是
+  「沒有別的窗在跑四綠」,不是「機器閒著」。** 而**同一發 `Duration 168.89s`
+  是典型綠的 2.4–4 倍** ⇒ **機器當時明顯在忙別的事**(別窗的 `npx vitest` / codex / build 都不算進這個欄位)。
+  ⇒ **正確口徑:這一筆推翻的是「【四綠之間】的並行是主因」,不是「負載不是主因」。**
+  🔴 **而它同時暴露了那把尺的真正缺口**:我們需要的是「機器有多忙」,而現有欄位只答得出
+  「有幾個窗在跑四綠」。**這兩者今晚被當成同一件事用過。**
+  ✅ **分診那一段在這一發【第一次於野外命中】**:它正確判成症狀 A、marker 兩個都 0(不是症狀 B)、
+  並指出最集中的失敗檔是 **spawn 族**那支 —— **與同日歷史統計的最大貢獻者是同一支檔。**
+- 📊 **2026-08-17 23:0x:歷史 25 發的【逾時分三類】統計(分類規則動手前先寫下,之後未改)**
+  🔴 **分類規則(先寫再分,主視窗指定)**:
+  ```
+  spawn 族   = 該測試檔內含 spawnSync / execSync / spawn(   ⇒ 會開子行程
+  jsdom 族   = 副檔名 .test.tsx（元件測試，走 jsdom）
+  純 TS 單元 = .test.ts 且不含 spawn 字面
+  三類互斥且窮盡，判定順序 spawn > jsdom > 純TS單元（.test.tsx 若也 spawn 歸 spawn，那是它慢的主因）
+  🔴 第三類的存在依據 = C 窗實錘：order-shipments.test.ts 是純 TS 單元而它會逾時
+     ⇒ F-2 原本的「spawn 族 vs jsdom 族」二分【不夠】
+  ```
+  **6 支症狀 A(純逾時)紅 log 的失敗檔逐一分類(26 個失敗條目 / 10 支相異檔):**
+  ```
+  失敗條目  檔                                                        類
+     7      scripts/check-syntax-nonts.gate.test.ts                   spawn 族
+     2      scripts/check-syntax-nonts.test.ts                        spawn 族
+     4      apps/admin/src/lib/shipping/order-shipments.test.ts       純 TS 單元
+     1      apps/admin/src/app/@panel/order-panel-wiring.test.ts      純 TS 單元
+     4      apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx  jsdom
+     4      apps/admin/src/app/products/[id]/page.test.tsx            jsdom
+     1      apps/admin/src/components/orders/shipment-launcher.test.tsx     jsdom
+     1      apps/storefront/src/components/ForgotPasswordPage.test.tsx      jsdom
+     1      apps/storefront/src/components/EvotechShowcase.test.tsx         jsdom
+     1      apps/storefront/src/components/CheckoutView.test.tsx            jsdom
+  ⇒ 按條目：spawn 9 / jsdom 12 / 純TS 5      按相異檔：spawn 2 / jsdom 6 / 純TS 2
+  ```
+- 🔴 **回答主視窗的問題:「這三類的比例,跟候選 4(首解析競態)的預期一致嗎?」——【部分不一致,而不一致的那半是新資訊】**
+  另一個 T 線窗提供候選 4 的形狀名單(**分母與交集我獨立重量過,逐項相同**):
+  ```
+  測試檔總數                       519   （我量：find apps packages scripts -name '*.test.ts*'）
+  含 importActual                    6
+  含 importOriginal                 19
+  兩者任一（去重）                  25   ⇒ 基準率 25/519 = 4.8%
+  10 支紅檔之中帶那個形狀的          3   ⇒ 30%（order-shipments / products[id]page / shipment-launcher）
+                                        ⇒ 富集約 6.2 倍
+  ```
+  ✅ **一致的那半**:帶形狀的檔在紅檔裡**富集約 6 倍** ⇒ 候選 4 值得繼續查。
+  🔴 **不一致的那半(這是重點)**:**單一最大貢獻者 `check-syntax-nonts.gate.test.ts`
+  佔 26 個失敗條目裡的 7 個(27%)、加上它的姊妹檔共 9 個(35%),而它【不帶那個形狀】** ——
+  它是 **spawn 族**(每一格開子行程),`#618` 條目上方早就記過它。
+  ⇒ **候選 4 解釋不了最大的那一塊。** 兩者是**並存的兩條路**,不是一條。
+  ⚠️ **而那個 6 倍富集有一個我排不掉的混淆**:
+  **會做大量 async mock 設定的檔,本身很可能就是比較慢的檔** ——
+  形狀可能只是「慢」的**代理**而不是**原因**。**這份資料分不開這兩者。**
+  ⇒ **不要把 6.2 倍寫成「候選 4 被支持」**,它只支持「值得再查」。
+  ⚠️ **樣本限定**:10 支相異檔、6 發 log;而紅檔**不是隨機樣本**(它們是重的那些)。
 - ✅ **同時做了一件不需要結論的**(V 窗指的那條):紅的時候**並行數印在失敗清單【前面】**,
   不再只躺在 `RUN-CONTEXT` 檔尾 —— **看紅的人先看失敗清單,看完就去改 code 了。**
   守門=格24(三個數各自透傳、順序不得對調)+ 格24-b(釘住它掛在 `verdict` 失敗分支裡);
@@ -16754,27 +16988,21 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   🔴 **隨機紅真正的成本不是浪費時間,是它讓「紅」這個訊號失去意義。**
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #618`(git ref CAS)。
 
-
 ---
-
 #### 🔴 2026-08-17 夜 V 窗換角度審 —— **原分析七處被打回,而結論僥倖沒倒**
-
 > 值由 V 窗(`claude-fable-5`,唯讀複驗)提供,**我(I 窗)未重跑它的任何一格**,照原字轉載。
 > 🔴 **每一次引用「N 次紅」都要標【分母未確認】** —— V 窗從 log 庫數到 **6 紅**,
 > 而 `afb33c0b`(log 改帶 hash、不再覆寫)**之前**的 log 是整支覆寫的 ⇒ 更早的紅有沒有痕跡 **未確認**。
 > ⇒ 前面寫的「八次量測」**不得當成分母**。
-
 **F-1(must-fix)量具跑在截斷的 log 上** —— 前面那句「當批新檔 `grep` ⇒ 0」是在**只剩尾 60 行**的
 log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp 檔重跑同一個檢查 ⇒ **仍然 0 命中**。
 ⇒ **結論沒倒,而量法必須改讀全量檔**。全量檔現在在 `docs/probes/2026-08-17-vitest-red-runs/`
 (24 支;數法 `ls docs/probes/2026-08-17-vitest-red-runs/*.txt | wc -l`)。
-
 **F-2(must-fix)「5000ms 對 spawn 格不成立」只蓋子集** —— 25 個 timeout 裡它只解釋 **9 個**
 (`gate.test` 7 + `check-syntax` CLI 2);其餘 **16 個**~~在 jsdom 元件測試~~
 **在「不是 spawn 的那一半」**,**純執行逾時 5s**,與 spawn 無關,形狀是 **worker 飢餓**。
 ⇒ 🔴 **spawn 那個形狀成立,但它是子集** —— **照它去調門檻會漏掉主體**。
 (上一節「真正的形狀」那段因此要讀成「其中一支的形狀」,不是全部。)
-
 > 🔴 **「jsdom 元件測試」那五個字 2026-08-17 夜被反例放寬**(C 窗第 2 發,見下方「三發新資料」):
 > `apps/admin/src/lib/shipping/order-shipments.test.ts` 是 **純 TS 單元、無 `render`、無子行程**,
 > 照樣 `Test timed out in 5000ms`。⇒ **`.ts` 純函式檔也會被 worker 飢餓打到。**
@@ -16782,32 +17010,25 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
 > 後半是一個**可被反例推翻的全稱句**,而反例已經來了。
 > ⚠️ **原字留刪除線** —— 下一個人拿 F-2 去**篩選候選檔**時,舊字面會讓他把 `.ts` 純單元漏掉。
 > ⚠️ **我沒有回去重數那 25 個**(C 窗也沒有)⇒ **`9` 與 `16` 這兩個數仍是 V 窗那次的量,未複驗。**
-
 **F-3 症狀 A 與 B 不是並列的兩個症狀** —— 唯一出現 B 的那一發(`31fa9b7e`):
 同一支檔**先有 2 格 timeout**,之後 **14 格全部** `requireEnv`。
 ⇒ **B 是 A 的同檔後遺症,不是獨立線。**
 **可證偽判準**:B 有沒有在「同檔沒有前置 timeout」的情況下出現過?**現有資料:0 次。**
-
 **F-4 有第三個症狀沒被記,而它是從帳不平看出來的** —— `31fa9b7e` `3+14=17 ≠ 18`;
 `da395345` `8 timeout ≠ 10 fail`。差額是 **AssertionError 型**:timed-out 那格的 in-flight async 腿
 打到**模組層共享的 `vi.fn`**(`order-shipments.test.ts:12-16`)⇒ **污染下一格**。
 ⇒ 三個症狀可以一元化:**主事件 = 飢餓逾時,B 與 C 都是它的下游污染。**
-
 **F-5 被標「不適用」的那幾格,其實是這條線最強的證據** —— 前一輪把純 `.md` 批次標成
 「沒有新檔可 grep ⇒ 不適用、留空白」。而 `31fa9b7e`(18 敗)與 `9946d24e 15:20`(1 敗)
 **都是 docs-only 的樹** ⇒ **「紅與當批改動無關」的最強證明正是這兩發。**
 🔴 **標空白是誠實的,而誠實地把證據丟掉,結果和沒發現一樣。**
 📎 另外 `9946d24e` **同一顆 hash** 有現成的紅綠對照對:`15:20` 紅(138.85s)→ `15:25` 綠(61.49s)
 ⇒ **同一棵樹、兩種結果**,兩發的完整 log 都在 `docs/probes/` 裡。
-
 **F-7(nit)`mkdtemp` 排除的射程比它讀起來窄** —— 它只排除了「**共用 `.git`**」那一面;
 **CPU / 檔案系統 / worker pool 仍然是共用的**。
 ⇒ 上一節那句「開檔讀完就排除了」**不得被讀成「窗間干擾已排除」**。
-
 **F-6 不在本條** —— 在四綠 harness 加 `pgrep -c vitest` 與起訖時戳,主視窗已派 T 窗。
-
 ##### 這一輪之後,本條的下一步變成什麼
-
 ```
 ① F-2 已經把「調門檻」從主線降成支線 ⇒ 先量 worker 飢餓那 16 格,不要先調 5000ms
 ② F-3/F-4 給了一個【可證偽】的統一假說:主事件 = 飢餓逾時,B/C 是下游污染
@@ -16816,33 +17037,23 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
 ③ order-shipments.test.ts:12-16 那個模組層共享 vi.fn 是【現在就可以修】的一格,
    它不依賴上面任何假說成立
 ```
-
 🔴 **證據的存放與它的效期**:24 支完整 log 已進 repo(`docs/probes/2026-08-17-vitest-red-runs/`,
 含該目錄 `README.md` 的四節:這是什麼 / 為什麼在 repo / 誰在用 / **`#618` 結案後可刪**)。
 **不要重跑到綠** —— 那批 log 的價值來自它們是紅的當下留下來的;重跑一發綠不推翻任何東西,
 只會讓下一個人以為問題不存在。
-
-
 ---
-
 #### 🔴 2026-08-17 夜 · C 窗三發新資料(來源 `~/pcm-mailbox/C-220` + `C-221`,兩封一起讀)
-
 > 值由 C 窗提供,**我(I 窗)未重跑它的任何一格**,照原字轉載。
 > ⚠️ `C-220` 只寫前兩發,第三發在 `C-221`;**它不回改已投遞那封,走後信取代** —— 引用要引兩封。
-
 **三發都在同一棵樹、同一份 code、間隔幾分鐘,而紅在【三個不同的、它沒動過的檔】:**
-
 | 發 | 檔 | 型別 | 單獨跑 | 連鎖 |
 |---|---|---|---|---|
 | 1 | `apps/admin/src/app/products/[id]/page.test.tsx` | jsdom 元件(`.tsx`) | 14 passed / 1.78s | 無 |
 | 2 | `apps/admin/src/lib/shipping/order-shipments.test.ts` | **純 TS 單元**(`.ts`) | 16 passed / 0.435s | **有** 1 格 |
 | 3 | `apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx` | wiring(`.tsx`) | 21 passed / 1.14s | **有** 1 格 |
-
 三發的第一行**都是** `Error: Test timed out in 5000ms`;整發 `Duration` 43.79s–93.66s,
 而**單獨跑 1.14s–1.78s** ⇒ **量級差 ~50 倍**。
-
 **這三發買到什麼(逐條對回 V 窗那七條):**
-
 - **F-2 的字面被放寬** —— 第 2 發是**純 TS 單元、無 `render`、無子行程** ⇒ 原字面「16 個在 jsdom
   元件測試」**被反例推翻**,已改成「不是 spawn 的那一半」(上方留刪除線)。
 - **F-4 獨立重現【兩次】** —— 第 2、3 發的連鎖格:
@@ -16855,7 +17066,6 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
   📎 **第 2 發尤其毒:紅的是【正向對照】那一格** —— 正向對照紅了,直覺是「這道守門誤擋了」,
   於是**下一個人會去查一個沒有壞的守門**。**那才是 F-4 真正的代價,不是多一格紅。**
 - **樣本數**:`#618` 的紅從「V 窗數到的 6 發」再 +3(**分母仍未確認**,兩邊都沒回頭重數 25 個 timeout)。
-
 **🔴 C 窗自標的限定,照原字帶走(不要在引用時掉):**
 ```
 · 沒有跑第四次（主視窗規矩:兩次夠判）
@@ -16867,21 +17077,16 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
 ```
 🔴 **它判「負載造成的逾時」而【沒有】據此放行 commit** —— 主視窗裁乙:等機器閒一點重跑,全綠才 commit。
 **判讀對與可以放行是兩件事。**
-
 **🧪 而這一晚同時產生了這條線第一個【控制實驗】的機會**:主視窗 21:5x 讓全陣暫停
 `vitest` / `build` / 收割後四綠約 10 分鐘,C 窗在安靜狀態下重跑。
 ⚠️ ~~本條落筆當下結果未知~~ **結果已回,見下。**
-
 #### 🧪 結果:**吻合,非證實** —— 而中間那個數字**整組退回**
-
 **① 實驗本身(C 窗,主視窗轉,我未複驗)**:三發紅(負載期)/ **第 4 發綠(靜默期)**。
 🔴 **口徑寫「吻合,非證實」,不得寫「已證實靜默可解」** —— T 線缺的那個控制實驗**還缺著**,
 只是方向對上了。**唯一的第三方硬數字** = `load average` 1 分平均**跑前 16.92**(15 分平均約 57)。
 ⚠️ C 窗**自陳它那把手動並行數量具是壞的**(`ps … | grep -c '[v]itest'` **自我命中它自己的 shell**)
 ⇒ 它**報不出**並行數,並把這件事原樣寫進 commit body。
-
 **② 🔴🔴 而 `RUN-CONTEXT` 的 `並行vitest行程數` 那個讀數【也不可信】,已寫進分析的兩筆全部作廢**
-
 ```
 作廢  C 窗 22:02  起跑前=12     ← 不是 12 個並行 run
 作廢  T 線 21:41  起跑前=2      ← 同一把壞尺
@@ -16890,7 +17095,6 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
 **作廢理由 = 量具特異性不足**(T 線實測,**而那把尺是它自己寫的**):
 `dev` 上是 `count_vitest() { count_matching '[v]itest'; }`(`scripts/dev-four-greens.sh:219`),
 `[v]itest` 那個括號技巧**只避開 `pgrep`/`grep` 自己,避不開別的行程命令列裡的那個字**。
-
 🔴 **我當場複驗過,而我量到的主要污染項與 T 線列的【不同,且更大】**:
 ```
 同一時刻   舊尺 ps -Ao command | grep -c '[v]itest'      ⇒ 13
@@ -16903,7 +17107,6 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
 ⇒ **舊尺量到的主要是【worker 行程數】,不是【run 數】。**
 T 線列的兩類假命中(別窗 `grep` 的 pattern 含該字、一支叫 `vitest-sampler.sh` 的腳本)**也成立**,
 **而在我這一發裡它們是小項。** 兩邊都留,**都不是「run 數」這個單位**。
-
 **③ 🔴 一個【反例】,不是「又一筆」**(C 窗 `fc065f3f`,`logs/four-greens/fc065f3f-20260817T220202-35813/`)
 那一發**不是**在靜默下跑的,**而它綠了**;`Duration 111.26s`(靜默那發 43.24s)。
 ⇒ 它推翻的是「**並行數高就會紅**」那個**最粗的版本**,**不是整個負載假說** ——
@@ -16912,7 +17115,6 @@ T 線列的兩類假命中(別窗 `grep` 的 pattern 含該字、一支叫 `vite
 **慢 2.6 倍而沒有紅 ⇒ 支持「逾時是尾端事件,不是平均值的函數」**,
 ⚠️ 而 `Duration` **部分內生**(V 窗)⇒ **也只是吻合。**
 📎 C 窗先前三發紅 + 一發綠**都沒有 `RUN-CONTEXT`** ⇒ 那四發本來就進不了「帶並行數的分佈」。
-
 **④ 🔴 這一輪最該帶走的一句(主視窗自陳,已歸戶給它)**
 > C 窗給那個 `12` 時逐字寫「**新儀器量的,不是我手打的**」,
 > **而我把「儀器量的」讀成了「可信的」。**
@@ -16920,23 +17122,15 @@ T 線列的兩類假命中(別窗 `grep` 的 pattern 含該字、一支叫 `vite
 🔴 **傳染路徑**:C 窗驗過自己的手動量法(**抓到了**)⇒ 改用儀器 ⇒ **下游不再驗**
 ⇒ **一個被信任的量具,會關掉它所有下游的懷疑。**
 📎 這是量具族第一個**跨窗傳染**的實例。
-
 ⏳ **T 線正在 commit 修好的版本**(`count_matching '[v]itest\.mjs'`)。
 🔴 **它進 dev 之前,任何新跑出來的那個數字也不要採信** ——
 包含收割窗在 `5a1c31ec` / `1006456c` 兩發四綠 `RUN-CONTEXT` 裡看到的那幾個數。
-
 🔴 **兩個方向都要記,不要只記符合預期的那一個。**
-
-
 ---
-
 #### 🔴🔴 2026-08-17 深夜 · T 線兩批構造 + I 窗讀 log 複驗 —— **「因果鏈」那個框架被證偽了**
-
 > 構造與 log 由 T 線提供(拋棄式檔已刪,log 在 T 線 scratchpad),**我(I 窗)未重跑它的構造**;
 > **而下面「讀 `31fa9b7e` 全量 log」那一段是我自己做的,證據在 repo 裡可回放。**
-
 ##### 一、`F-4`(timeout 污染下一格)**機制構造成立,雙向**
-
 治療組:模組層共享 `vi.fn` + `beforeEach mockReset`(= `order-shipments.test.ts:12-16` 形狀),
 格 A 留兩條 in-flight 腿(600ms / 1400ms 後打 mock)、A 掛永不 resolve、timeout 300。
 ```
@@ -16949,7 +17143,6 @@ A 紅 305ms → 格 B 量到恰好 ['stray-1-from-A']（腿打進下一格,mockR
 🔴 **對照組那個 `1403ms` 是整發實驗成立的原因** —— 它證明對照組**真的跑到了那個時間窗**
 (`≥1400`),不是「因為沒發生所以綠」。**沒有這一格,對照組等於沒跑。**
 **機制一句話**:`vitest` 的 timeout **只判那格失敗,不取消它的 event-loop 腿**;腿落在後續格的時間窗裡。
-
 **修法方向(照原字,第 ③ 條最重要)**:
 ```
 ① 同檔內「timeout 之後的失敗」一律先當【污染嫌疑】,單檔重跑再定罪
@@ -16958,9 +17151,7 @@ A 紅 305ms → 格 B 量到恰好 ['stray-1-from-A']（腿打進下一格,mockR
    —— 這一條擋掉的是【看起來最自然的那個錯誤修法】
 ```
 ⚠️ **邊界照原字**:只證了「**共享 `vi.fn`**」這一條;**症狀 B 那型(`requireEnv`)維度不同**,見下。
-
 ##### 二、症狀 B 第二型構造:**三個候選全被排除,結論【不成立】**
-
 鏡射現場形狀(`vi.hoisted` 模組層 `vi.fn` + `vi.mock` async factory + `vi.importActual` 投影常數
 + `beforeEach mockReset`),假「真模組」被呼叫即拋 `requireEnv(...) not set`。
 ```
@@ -16977,12 +17168,9 @@ c（setup 沒跑完被誤讀成 mock 失效）⇒ 排除,靠【簽名不同】
 ```
 ⚠️ **誠實邊界(原字)**:排除的精確命題 = 「**一格逾時會使同檔後續格 mock 失效**」這條因果鏈。
 「vitest worker 在高負載/OOM 下 **mock 註冊本身失敗**」這類 runner 內部失效**無法在本機構造,不在排除範圍**。
-
 ##### 三、🔴🔴 I 窗讀 `31fa9b7e` 全量 log:**「因果鏈」讀法被證偽**
-
 T 線給了一個**只要讀 log、不用重跑**的可測預測。證據在 repo:
 `docs/probes/2026-08-17-vitest-red-runs/31fa9b7e-20260817T161556-82508.txt`(400 行)。
-
 ```
 :8   ❯ order-shipments.test.ts (16 tests | 16 failed) 13631ms
 :9   × 🔴 超過自夾上限 → 回 `null`…            5070ms     ← 【第一格就紅】
@@ -16991,20 +17179,16 @@ T 線給了一個**只要讀 log、不用重跑**的可測預測。證據在 rep
 ⇒ **「先 2 格 timeout ⇒ 後 14 格 requireEnv」那個【因果鏈】讀法,在這一輪被證偽** ——
 **因為根本沒有「先綠後紅」這回事。**
 📎 **這一步只有全量 log 做得到** —— **尾 60 行看不到第一格。** 今晚把 24 支搬進 repo 的價值在這裡兌現。
-
 **T 線據此自撤它自己一句(照原字,不要寫進條目的舊版)**:
 ~~「env 有設的路徑→逾時形」~~ ⇒ **錯**。逾時那兩格**根本沒跑到 client code**,
 它們**掛在 import 上**(`5070ms ≈ 5000 門檻 + import 等待`)。
 **正確版**:**早期格掛在【被 mock 模組的 import 解析】上;之後所有 import 解析成真模組 ⇒ `requireEnv` 形。**
 ⇒ 🔴 **兩形的分佈是【時間序】,不是【格子性質】**:`:253`/`:278` 兩格的第一句與逾時兩格
 **完全同款**(`await import('./shipment-repository')`)而它們走 `requireEnv` 形。
-
 **最省的統一機制候選**:該檔 `vi.mock` 用 **async factory + `vi.importActual` 同一模組**
 (`order-shipments.test.ts:19-31`,2026-08-16 `MF6` 才改成這樣)。
 ⇒ ~~標【推論,非量到】,可測但未做~~ **已於同夜構造完成並【量到】,見下方第七節。**
-
 ##### 四、🔴 帳補平 —— 而 **`F-4` 原本那個「第三症狀」在本檔【不存在】**
-
 **我(I 窗)先前寫的 `14 + 3 = 17 ≠ 16` 是錯的,自撤。** 病根:**我拿 `grep` 的字串命中數當格數。**
 T 線的更正方式值得記 —— **它換了一個不需要推測的量法,不是重數一次**:
 ```
@@ -17017,17 +17201,13 @@ T 線的更正方式值得記 —— **它換了一個不需要推測的量法,�
 ```
 ⇒ **本檔內兩形合計恰 16、無第三症狀**;先前那個餘數**就是別檔那 1 格**。
 📎 這是「單位錯」那一族的第二次,而**同一晚、同一份 log、寫下那一則的人自己犯的**。
-
 ##### 五、對照組雙向(T 線補跑,主視窗要件)
-
 ```
 其餘 18 支【綠】log:grep requireEnv ⇒ 0、createSupabaseServiceClient ⇒ 0  全數
 另 5 支【紅】log:兩個 marker 也全 0 ⇒ 純症狀 A（check-syntax spawnSync 族為主）
 ⇒ 那兩個 marker【有判別力】,而症狀 A / B 分族成立
 ```
-
 ##### 六、🔴 三筆並行數全作廢 —— 含**一小時前才被宣布「第一筆可信」**的那筆
-
 ```
 21:41 起跑前=2   第一版        ⇒ 作廢
 22:02 起跑前=12  第一版（C 窗）⇒ 作廢
@@ -17038,17 +17218,13 @@ T 線的更正方式值得記 —— **它換了一個不需要推測的量法,�
 ⇒ **不要拿它支持任何假說,包含 T 線原本偏好的甲(排隊)。**
 🔴 **第二版那筆的作廢要特別標** —— 它**帶著「已修正」的標籤進了條目**,
 而**一個剛被宣布修好的量具,比一個沒人信的量具更容易被引用。**
-
 ##### 七、🔴🔴 上游機制【構造完成、量到、成立】—— 而它**不需要 timeout 當前因**
-
 > T 線構造(自造三檔已刪,log 在它 scratchpad `chain3-*.log`;**預期先寫後跑,`predictions` 檔同目錄**)。
 > **我(I 窗)未重跑它的構造** —— 本節照原字轉載。
-
 鏡射現場形狀(`vi.mock` async factory + `vi.importActual` 同一模組),假真模組被呼叫即拋 `requireEnv`。
 每發 `vi.resetModules()` 重解析,50 發/run。
 `race` = 同一 tick 雙路徑 import(直接 import 被 mock 模組 + import 靜態依賴它的被測模組);
 `serial` = 逐條 `await`(第二條在第一條 resolve 後才發起,序列性由構造保證)。
-
 **2×2 矩陣(每格 3 run、每 run 50 發)**:
 ```
 race + 冷快取（每 run 前 rm -rf node_modules/.vite/vitest）⇒ 🔴 2/3 run 命中
@@ -17062,19 +17238,16 @@ serial + 暖快取 ⇒ 0/1（50 發）
 ⇒ **兩個條件缺一不可:【同 tick 併發】且【冷 transform 快取】。**
 ⇒ **非決定性**(冷 race 3 run 有 1 乾淨)—— **與 `31fa9b7e`「同輸入兩種輸出、重跑即綠」逐字同形**:
 **重跑 = 快取已暖。**
-
 🔴🔴 **對 `#618` 的框架改寫(這是本條目最大的一次修正)**:
 ```
 上游 = 首解析競態（需【併發】+【冷快取】）;兩形（逾時 / requireEnv）皆為【下游可見形】
 ⇒ 「一格逾時害後面」死（chain2 三候選全排除）
 ⇒ 🔴「連鎖」這個框架【收掉】—— timeout 不是前因,它是下游可見形之一
 ```
-
 ⚠️ **T 線自標的誠實缺口(下一步就是它)**:`serial + 冷` **全乾淨** ⇒ **現場那檔的【併發源】未定** ——
 它的格子是逐條 `await` 的,**靠什麼湊出同 tick 雙路徑?** 候選:同 worker 多檔 /
 vitest runner 自身的 graph 預載 / hooks 與 import 交錯。
 🔴 **「機制存在於 vitest 解析層」已證;「現場那條觸發路徑」未證。**
-
 **修法方向(T 線標【推論】)**:
 ```
 ① 測試檔避免「async factory + importActual 拿同一模組」
@@ -17085,20 +17258,16 @@ vitest runner 自身的 graph 預載 / hooks 與 import 交錯。
 ⚠️ **邊界照原字**:單檔單 worker 構造;`resetModules` 重解析 **≠ 真首解析**
 (r2–50 全乾淨、命中只在 r1 也佐證這點);**現場 hang 形(5070ms)未直接構造**
 (它的假模組秒拋;「真模組鏈在冷快取下 transform 延遲 = 可信的 hang 來源」是**推論**)。
-
 📌 **高並行那半的樣本:主視窗裁定【不去製造,改被動收集】** ——
 理由:**刻意造的負載形狀是我們選的,而真實負載是八個窗在做不同的事混在一起;
 若紅與【形狀】有關而不只與【數量】有關,造出來的那一格會是一個不存在的世界。**
 ⇒ T 線會做一支**只讀不跑**的小工具,把 `logs/four-greens/*/RUN-CONTEXT` 全撈出來對上 `rc`,
 輸出「並行數 × 紅綠」四格表。
-
 ##### 八、🔴 這對本條目的意義有【三層】,不要壓縮成一句
-
 **第 1 層 —— 因果方向改了,而觀察本身沒有變假**
 「一格逾時 ⇒ 污染下一格」從**原因**降級成**下游症狀**。
 ⇒ 前面所有以它為前提的分析(含 `F-3` / `F-4`、四次跨窗觀察)**要標明「仍是真的觀察,但因果方向改了」**。
 🔴 **不要刪掉它們** —— **它們是那個症狀的紀錄**,而症狀紀錄在原因換人之後**照樣有價值**。
-
 **第 2 層 —— 🔴 負載假說失去了它最主要的兩個支持**
 「**重跑即綠 = 快取暖了**」直接解釋了兩件我們先前當成**負載證據**的事:
 ```
@@ -17109,7 +17278,6 @@ vitest runner 自身的 graph 預載 / hooks 與 import 交錯。
 ⇒ 🔴 **本條目稍早寫的「控制實驗 = 吻合,非證實」那一節,現在連「吻合」都要打折** ——
 **吻合的對象可能是快取狀態,不是負載。**(⚠️ 那一節**不刪**,在此標明它被本節改讀。)
 📎 而這正好是主視窗裁定「**不要製造高並行樣本**」的另一個理由,**事後看更對**。
-
 **第 3 層 —— 🔴 缺口要顯眼,本條目【不得】寫成「`#618` 找到原因了」**
 ```
 機制存在於 vitest 解析層          ⇒ 已證（race + 冷快取,2/3 run,症狀原字重現）
@@ -17119,12 +17287,9 @@ vitest runner 自身的 graph 預載 / hooks 與 import 交錯。
 📌 主視窗已派 T 線去找現場的併發源(候選含「**worker 之間**的首解析競態」)——
 🔴 **若是那個,今晚的並行觀察不是巧合,而原因與我們以為的完全不同**
 (不是「負載讓它逾時」,是「**並行讓它們同時首解析**」)。
-
 ##### 九、🔴🔴 找併發源:**沒找到** —— 而中途把上一節自己的一個前提也證偽了
-
 > T 線回報(log 在它 scratchpad `chain3-*` / `chain4-*`),**我未重跑它的構造**;
 > **而「那兩發紅 run 的 merge 是不是純 docs」那一格是我自己 `git show --stat` 驗的。**
-
 **① 🔴 「冷快取」那個前提,在【真實 run】上被證偽**
 上一節說「race + **冷快取**」是必要條件之一,而**真實那兩發紅 run 的 merge 都是純 docs**:
 ```
@@ -17138,7 +17303,6 @@ git show --stat 9946d24e ⇒ STATUS.md                                          
 ⇒ 🔴 **`chain3` 的「冷快取」條件,只在【同 tick 同 registry 雙路徑】那個構造裡有效。**
 📎 **這連帶把上一節第 2 層打折**:「重跑即綠 = 快取暖了」**在現場的成立性也回到未確認** ——
 **上一節那兩條「負載假說失去支持」的推論,現在自己也少了一隻腳。兩節都留,不挑一個消滅。**
-
 **② 已試維度(全部構造 + 雙向)**
 ```
 1 檔內 serial（= 現場形狀）× 冷快取          ⇒ 0/3    （chain3）
@@ -17150,7 +17314,6 @@ git show --stat 9946d24e ⇒ STATUS.md                                          
 ⇒ 候選 a / d **在【本機可構造的規模】不重現**。
 **仍活著的條件** = 真實規模(514 檔 / 多 worker / 全陣負載)與 **optimizer 中途重 bundle**
 —— 🔴 **今晚不可倫理地構造**:要反覆跑全套,**而那正是凍結全陣的那個問題本身**。
-
 **③ 🔴 檢定力誠實框定(這一格比結論重要)**
 ```
 症狀 B 全日只出現 1 次 / 24 發（base rate 約 4%）
@@ -17158,7 +17321,6 @@ git show --stat 9946d24e ⇒ STATUS.md                                          
 ⇒ 「構造不出來」在這個 base rate 下,不是強證據
 ```
 📎 `chain3` 的 same-tick 命中**仍是這個機制家族唯一構造成功的實例**。
-
 **④ 建議的下一步:機制優先,而且比繼續構造便宜一個數量級**
 > harness 現在會存 `vitest.full.log` 了 ⇒ 加一段 **post-run 自動分診**:
 > `grep 「not set」+ 真 client 堆疊` ⇒ 標記症狀 B run,**並同時落三個當下值**
@@ -17166,7 +17328,6 @@ git show --stat 9946d24e ⇒ STATUS.md                                          
 > ⇒ **下次它在野外再發生,條件自動被捕,不用任何重跑。**
 🔴 **這是「不要重跑到綠」的正面版本**:不重跑,而是**讓下一次自然發生時被記錄下來**。
 (harness 是別窗的地盤,T 線標明**非它實作**;要不要做由主視窗派。)
-
 **⑤ 本條目現行措辭(T 線建議,我採用)**
 ```
 機制家族存在              ⇒ chain3 量到
@@ -17174,23 +17335,17 @@ git show --stat 9946d24e ⇒ STATUS.md                                          
 「冷快取 = merge 內容失效」⇒ 已證偽
 下一步                    ⇒ 捕捉儀器優於再構造
 ```
-
-
 ---
-
 #### 🔴🔴 十、**野外新樣本:`F-4` 那個形狀在【零並行】之下發生了** —— 四格表的「低×紅」補上了
-
 > **這一發是收割窗自己跑的**(merge `3f06df74` 之後的規矩 8 四綠),**證據我當場保存進 repo**:
 > `docs/probes/2026-08-17-vitest-red-runs/3f06df74-20260817T225716-45587-RED-F4-inthewild.txt`
 > (134 行 = 全量 `vitest.full.log` + 檔尾附該發 `RUN-CONTEXT`)。
-
 **症狀**(`order-keyword-search-wiring.test.tsx`,21 tests | 2 failed):
 ```
 :99   Error: Test timed out in 5000ms.
 :112  AssertionError: expected "vi.fn()" to be called 1 times, but got 2 times
 ```
 🔴 **與 T 線 `chain2` 治療組的結果【逐字同形】** —— 先一格逾時,下一格拿到多打的那一發。
-
 🔴🔴 **而這一發的 `RUN-CONTEXT` 用的是【第三版】量具(可信),它印的是:**
 ```
 其他窗四綠 vitest 並行數(不含自己)  開始=0  vitest 起跑前=0  結束=0
@@ -17198,9 +17353,7 @@ git show --stat 9946d24e ⇒ STATUS.md                                          
 rc typecheck=0 lint=0 build=0 vitest=1
 ```
 ⇒ **零並行,而它紅了。**
-
 ##### 這一格買到什麼
-
 1. **四格表的「低×紅」從 0 變成 1** —— 在此之前**只有「低×綠」有樣本**(見第六節)。
    ⇒ **四格裡現在有兩格有樣本,而它們都在【低並行】那一欄。**
 2. 🔴 **負載假說再失一隻腳** —— 第八節第 2 層說它失去了兩個支持;
@@ -17212,46 +17365,50 @@ rc typecheck=0 lint=0 build=0 vitest=1
    (T 線爆炸半徑那一輪:它紅過 3 發而不帶 `async factory + 真 await` 形狀)
    ⇒ **它屬症狀 A** ⇒ **本樣本【不是】候選 4 的證據,不要拿去替候選 4 加分。**
    📎 **A / B 分族在這裡第四次成立。**
-
 ##### 🔴 而我(收割窗)在這一發上做對的一件,值得抄
-
 **我沒有先重跑。** 先開全量 log 判族(`timed out` 1 / `requireEnv` 0 / `ERR_EMPTY_RESPONSE` 0)、
 確認**這批 merge 的兩支檔都不在失敗清單裡**(`grep -c` 各 ⇒ 0)、**把 log 保存進 repo**,
 **然後才重跑**。
 ⇒ 🔴 **重跑會讓那一發的 `RUN-CONTEXT` 從「最新那一發」的位置掉下去** ——
 而 DRIFT 判準與四格表都只看最新那一發。**先保存、再重跑。**
-
 ---
-
 #### 🔧 十一、**修法有了,而它很小**(T 線爆炸半徑;三件寫死)
-
 ```
 分母 519 個測試檔;真 await factory 形 = 25 支（importActual 6 + importOriginal 19）
 與 6 支紅 log 的交集 = 3 支
 ⚠️ importOriginal 那 19 支的競態窗【未實測,標未確認】
 ```
-
 **1 修法是【改 2 支檔的寫法】,不是改 harness、不是改門檻**
 替代寫法:`sync factory + 字面值 + 另一格 drift-pin`(在測試 body 裡 `await importActual` 斷言字面 = 真值)
 ⇒ **保住 `MF6`「投影不複本」的意圖,而 factory 零 `await` = 零競態窗。**
 起步只改交集裡的 2 支 `importActual` 組(`order-shipments`、`shipment-launcher`)。
 🔴 **這是這整條線調查的實際兌現,也是它最後【沒有】變成「動驗證本身」的原因。**
-
 **2 🔴 驗收方式要寫死 —— race 是非決定性的**
 ```
 「改完跑起來綠了」什麼都不證明（它本來就常常是綠的）
 唯一夠格的證據 = 用同一套 2×2 harness:
     改寫前 race + 冷 ⇒ 2/3      改寫後必須 ⇒ 0/3
 ```
-
+🔴 那個 0/3 已跑、證據已落檔(T 線 05f767d3):docs/probes/2026-08-17-chain5-2x2-acceptance/
+   (README+12 支 vitest 完整輸出,量法命令對目錄內檔案可重跑)。
+🔴 引用「修好了」時,下列三行射程要跟著走,不准留在 README 自生自滅:
+   · 兩個新形的 serial 兩格【未跑】(race+冷=唯一量到過命中的格,新形在該格 0/3=關窗證據;
+     serial 屬從未見過命中的格,省略有理由且標明,但仍是未跑)
+   · old 形 race+冷的 run3 也乾淨 ⇒ 0/3 讀作【同條件打不出來】,不是【不可能】
+   · 樣本各 3 run
+   (↑ 以上為 T① 原文。以下這兩行是 I 窗補的數法,不屬原文:「12 支」的數法 =
+    `ls docs/probes/2026-08-17-chain5-2x2-acceptance/*.txt | wc -l`;
+    「唯一量到過命中的格」的分母 = 該目錄 2×2 四格 × 各 3 run,逐格檔名前綴
+    `chain5-{old,sync,hoist}-{1,2,3,warm}` 可自行列出比對。
+    ✅ 兩條都已可跑:`05f767d3` 已進 `dev`(merge `d4cf1175`),
+    上面那條 `ls … | wc -l` 當場實跑 ⇒ **12**,與 T① 原文的「12 支」對得上。)
+> 📌 **上面六行是 T① 線於 `2026-08-18 00:0x` 給的逐字補丁,由 I 窗原文轉貼、一字未改。**
+> ⚠️ **落筆當下 `05f767d3` 尚未進 `dev`**(它在分支 `sso-security-log` 上,等收割)
+> ⇒ 讀到這裡若 `git merge-base --is-ancestor 05f767d3 dev` 回非 0,那不是筆誤,是還沒收。
 **3 🔴 範圍界線:另 23 支帶同形狀而【未進交集】的,刻意不動**
 —— **這句要在,否則下一個人會順手全部改掉。**
-
-
 ---
-
 #### 🔴🔴 十二、**「低×紅」現在有 3 筆 —— 三發、三支不同的檔、全部零並行**
-
 > 三發都是收割窗自己跑的規矩 8 四綠(2026-08-17 23:0x 前後,連續三發)。
 > **三份全量 log 都已進 repo**,檔名 = 該發的 run 目錄名:
 > ```
@@ -17260,19 +17417,15 @@ rc typecheck=0 lint=0 build=0 vitest=1
 > docs/probes/2026-08-17-vitest-red-runs/bfbc2844-20260817T230205-71648-RED.txt              281 行
 > ```
 > (每份檔尾都附了該發的 `RUN-CONTEXT`,由收割窗附加、原檔位置寫在那一行裡。)
-
 | 發 | 失敗檔 | 形狀 | `timed out` | 並行數 |
 | --- | --- | --- | --- | --- |
 | 1 | `cancel-forms-hydrated.test.tsx` | `page.goto: net::ERR_EMPTY_RESPONSE`(真瀏覽器 + 本機伺服器) | 0 | 0 / 0 / 0 |
 | 2 | `order-keyword-search-wiring.test.tsx` | 逾時 → 下一格 `called 1 times, but got 2` (**`F-4` 形**) | 1 | 0 / 0 / 0 |
 | 3 | `note-compose-form.test.tsx` | `expected <input type="hidden"> to be null` | 0 | 0 / 0 / 0 |
-
 🔴 **三支【不同】的檔** —— 正是本條目一開始記的形狀(「檔案每次不同」)。
 🔴🔴 **而三發的並行數全部是 `0 / 0 / 0`**(第三版量具,可信)
 ⇒ **四格表的「低×紅」從 0 變成 3。**
-
 ##### 這三筆改變了什麼
-
 1. 🔴 **負載【不是必要條件】** —— 這句從「一筆反例」升級成「三筆」。
    ⚠️ **仍不排除它是加速因子** —— 那要「高×紅」那一格,**而那一格仍然是空的**。
 2. **三發是三個不同的形狀**(瀏覽器/伺服器、`F-4` 逾時鏈、單純斷言)
@@ -17280,9 +17433,7 @@ rc typecheck=0 lint=0 build=0 vitest=1
    📎 第 1 發那型(`ERR_EMPTY_RESPONSE`)**與 `#618` 是不同族**,先前已判過,這裡再記一次。
 3. ⚠️ **第 2 發的失敗檔不在候選 4 的形狀名單裡** ⇒ 它屬**症狀 A**,
    **不是候選 4 的證據**(A / B 分族第四次成立)。
-
 ##### 🔴 收割窗在這三發上的處置,寫下來給下一任
-
 ```
 1 先開全量 log 判族,【不先重跑】
 2 確認【這批 merge 動過的檔】不在失敗清單裡（grep -c 各 ⇒ 0）
@@ -17292,10 +17443,8 @@ rc typecheck=0 lint=0 build=0 vitest=1
 🔴 **理由(這一條是本輪新抽的)**:**重跑會讓那一發的 `RUN-CONTEXT` 從「最新那一發」的位置掉下去** ——
 而 **DRIFT 判準**(`ls -dt … | head -1`)與**四格表**都只看最新那一發。
 ⇒ **先保存、再重跑。** 順序反了,那一發就從所有下游統計裡消失,**而磁碟上還在,看起來沒事。**
-
 🔴 **而「不為了湊綠一直重跑」在這裡有第二個理由**:除了本條目原本禁止的「重跑到綠」,
 **每一次重跑都在銷毀上一發的統計地位。**
-
 ### #619 · STATUS 主表兩把尺在單日多批收割下讓每次落檔變成落檔+搬檔兩個動作(已量成本,未提修法)
 
 - **狀態:** 📋 **登記給 Sean,不動。** 🔴 那兩個數字(`≤ 30 非空行` 且 `≤ 15,000 字元`)是他拍的判準
@@ -17503,6 +17652,47 @@ rc typecheck=0 lint=0 build=0 vitest=1
   ⚠️ 代價要一起評:pre-push 會從 `100ms` 變成十幾秒到一分鐘 —— **那是要不要付的取捨,不是我可以自己拍的。**
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #621`(git ref CAS)。
 
+### #622 · tappay-notify 灌 inbox 路徑仍開著(secret 洩漏 + 真實 order UUID + active attempt)
+
+- **狀態**:這條路**仍開著**。Sean 2026-08-17 裁定丙(IP allowlist)結案不做 —— 逐字「tappay 我沒有 ip 可以索取」;WAF 剩下那半**維持現況**。
+  🔴 **本條不是「已接受風險」,不要那樣讀。** 它記的是「**這條路今天仍然通,成立條件是下面三個同時成立**」。
+  下一個人要**自己判那三條今天成不成立**,不要拿本條當背書 —— 條件會自己變成立,而本條不會自己更新。
+
+- **成立條件(A ∧ B ∧ C,三個都要)**
+  ```
+  A  TAPPAY_NOTIFY_PATH_SECRET 洩漏
+     （路徑動態段。不知道 secret ⇒ 極早退:
+       apps/storefront/src/app/api/checkout/tappay-notify/[secret]/route.ts:121 回 404，
+       零 body 讀 / 零 DB / 零 outbound）
+  B  攻擊者知道一個【真實的】order UUID
+  C  該單目前有 active attempt
+  ```
+  ⇒ 三者缺一,這條路打不通。
+
+- **三個到齊會痛在哪(放大器)**
+  去重鍵是 `rec_trade_id`、**不是 order** ⇒ 同一張單可以用**無限多個不同 `rec_trade_id`** 反覆灌
+  ⇒ inbox 膨脹 + settleCharge/Record 出站放大。🔴 **存在性閘擋不住「同一單、海量不同 rec」。**
+
+- **丁(secret 路徑)只覆蓋一半**:不知道 secret 確實擋掉了,**但函式仍被喚起**
+  (`[secret]` 是動態段 ⇒ 是 handler 內回 404,不是路由層 404)⇒ 它擋的是 body/DB/outbound,**不是喚起本身**。
+
+- **兩份文件結論相反(已知,非疏漏)**
+  `docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md:176` 要【擋】tappay-notify、自稱「唯一 app 前防線」;
+  `docs/security/2026-08-17-vercel-waf-setup-plan-hobby.md` 規則 2 說【永遠不要擋】(擋錯 ⇒ 付了款沒標已付)。
+  ⇒ 兩份都在講錢的正確性。**這是取捨題不是技術題**,已由 Sean 裁「維持現況」。
+
+- **今天嚴重度低的理由,以及它為什麼會過期**
+  Sean 2026-08-17 逐字:「現在沒有正式的訂單,都還沒對外開放使用,所有都是我們自己測試的。」
+  ⇒ 曝露面**是真的**(服務公開可達),但**可被偷走的錢與可被弄壞的真實訂單目前是零**。
+  🔴 **「還沒對外開放」過期的那一天,repo 裡不會有任何東西變紅。** ⇒ 見 `docs/security/2026-08-17-pre-launch-must-close-checklist.md`。
+
+- **不修未來會痛在哪:**
+  三個條件裡有**兩個會自己變成立**:B(真實 order UUID)在有真實訂單之後就存在;C(active attempt)在有人結帳時就存在。
+  ⇒ **三道閘會自己塌成一道**,只剩 A。而 A 是一個 secret —— **secret 的失效是單點、不可預警、事後才知道**。
+  🔴 三道變一道的那一天**不會有公告**,也不會有測試變紅。
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #622`(git ref CAS)+ 信箱佔位掃描(`grep -rn 佔位 ~/pcm-mailbox/*.md`)零命中,兩道閘都跑了。
+
 ### #623 · 採購作廢的死顯示路徑:畫面畫得出「已作廢」,而沒有任何按鈕做得到
 
 - **狀態:** ⏳ 待執行。🔴 **這條記的是【顯示與能力對不上】,不是「作廢功能未完成」** ——
@@ -17650,6 +17840,220 @@ rc typecheck=0 lint=0 build=0 vitest=1
   撞號複查:`grep -c '#625' docs/phase-1-backlog.md` ⇒ 保留前 `0`;
   `grep -rl '#625' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3020`;
   🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
+
+---
+
+### #626 · LINE 合成信箱兩份判定式語意不同(子網域)⇒ 真的寄信給不存在的信箱
+
+- **發現**:2026-08-17 E 窗(查 LINE cohort 人數時順手撈到,非專案主線)。**未修,僅記錄。**
+
+- **兩份判定式,語意不同(逐處附行號)**
+  ```
+  packages/schemas/src/notification-email.ts:37   isSyntheticEmailDomain
+    → domain === 'line.pcmmotorsports.local' 【或以 .該域結尾的子網域】(endsWith)
+  packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts:163   isSyntheticEmail
+    → 【只做等值比對，不含子網域】(normalized.slice(at+1) === normalizeForGate(syntheticDomain))
+  ```
+
+- **失敗形狀(🔴 對外不可回收)**
+  一個**子網域**的合成信箱(例:`line_U…@sub.line.pcmmotorsports.local`):
+  ```
+  後台 UI（走 schemas 那份）  → 認成 LINE cohort，顯示「LINE 無 Email」
+  email outbox（走 adapter 那份）→ 認成【真信箱】⇒ status='pending' ⇒ 進 due ⇒ 真的呼 Resend
+  ⇒ 寄一封真信給一個不存在的信箱 ⇒ 退信
+  ```
+  🔴 **退信是對外行為、不可回收**(鐵則 12⑤ 那一類),而**後台畫面同時顯示「這個人沒有 Email」**
+  ⇒ **兩個地方各自自洽,合起來互相矛盾,而沒有任何一邊會報錯。**
+
+- **🔴 而這裡有一句已經被違反的規則,原字抄進來**
+  `packages/schemas/src/notification-email.ts:32-35` 逐字:
+  > 合成網域字串目前已在兩處 hardcode(本檔 + `lib/auth/line.ts`),
+  > **不得再抄第三份;抄了就會在改網域時分岔成「產生規則」與「排斥規則」互不認識。**
+
+  **實查:已經有三份**(數法 `grep -rn "LINE_SYNTHETIC_EMAIL_DOMAIN\s*=" packages apps --include='*.ts'`)
+  ```
+  packages/schemas/src/notification-email.ts:5
+  apps/storefront/src/lib/auth/line.ts:38
+  apps/storefront/src/lib/auth/field-validation.ts:57   ← 第三份
+  ```
+  ⇒ 🔴 **那句註解預言了會發生什麼,然後它就發生了,而註解本身沒有任何執行力。**
+  **這條的價值有一半在這裡:它是「寫下來不等於被執行」的實證** —— 要防它只能靠機制
+  (共用判定式 + 守門測試),不能靠再寫一次更大聲的註解。
+
+- 🔴 **2026-08-17 升級:不是「今天不痛」,是【材料齊了,引爆綁定今天未接通】**(V 窗反向盤點)
+  ```
+  路1 LINE OAuth 產生器 lineSyntheticEmail(auth/line.ts:48)
+      sub 先過 ^U[0-9a-f]{32}$（:42）⇒ 產出永遠精確域、無點無子網域 ⇒ 【產不出】
+  路2 🔴 公開 anon signUp = 活路徑
+      field-validation.ts:100 denylist 用 endsWith('@域') ⇒ 漏子網域
+      customers.email 無任何域 CHECK（init_customers 只有 index）
+      ⇒ 子網域合成信箱【落得了 customers.email】     ⇒ 見 #627（獨立缺口）
+  路3 orders.notification_email：DB CHECK（20260718120000:132-133）
+      NOT LIKE '%.line.pcmmotorsports.local' ⇒ 【擋死】
+  ```
+  🔴 **樞紐 = `email_outbox.recipient_email` 源自哪一欄**,而**現在鎖不死它**:
+  ```
+  enqueue() 全 repo 零 production caller
+    數法:git grep '.enqueue(' apps packages | grep -v test ⇒ 空
+  ⇒ 這條寄信路【今天整個未接通】
+  設計意圖（20260717020000_m4a_email_outbox.sql:28 逐字「LINE 會員 customers.email = 合成假信箱」）
+    強指 recipient = customers.email
+  ⇒ 接通那天若綁 customers.email ⇒ 路2 引爆（本條成立）
+    若綁 notification_email     ⇒ 路3 擋死（本條不成立）
+  ```
+  ⇒ 🔴 **「接通時 `recipient_email` 綁哪一欄」就是本條的開關,那個決定要被明文拍下來。**
+  📄 已寫進 `docs/specs/2026-08-17-line-push-to-customers-feasibility-spec.md`
+
+- 🔴 **四份判定式、三種語意(不是「三份同一種病」)**
+  ```
+  位置                                          判定式                    精確域 子網域 尾點FQDN
+  notification-email.ts:37 isSyntheticEmailDomain  ===域 OR endsWith(.域)    ✅    ✅    ✅
+  adapter:163 isSyntheticEmail                     ===域（等值）             ✅    ❌    ✅
+  field-validation.ts:100 denylist                 endsWith(@域)             ✅    ❌    ❌
+  SQL CHECK 20260718120000:132-133                 <>域 AND NOT LIKE %.域    ✅    ✅    ✅
+  ```
+  🔴 **adapter 與 denylist 都漏子網域,【但方向相反】**:
+  **adapter 漏判 skip = 誤送**;**denylist 漏擋 = 誤准註冊**(⇒ `#627`)。
+  **`field-validation` 那份還多漏尾點 FQDN(四份裡唯一一份)。**
+  🔴 **而那句「不得再抄第三份」的註解只防了「有幾份」,沒有防「這幾份一不一致」** ——
+  **「有 N 份」與「N 份不一致」是兩件事,註解只防了前者。**
+
+- **嚴重度(🔴 降一級,誠實標,不要因為聽起來嚴重就寫成洩密)**
+  ```
+  .local 是 RFC6762 不可公網路由域 ⇒ 送出去 = DNS 無 MX → Resend 退信 → status 卡重試
+  ⇒ 實害 = 寄廢信 + outbox 髒列 + 重試耗損（噪音）
+  ⇒ 【不是】PII 外洩：攻擊者拿不到別人的資料，只能製造退信
+  「對外不可回收」成立（信確實送出去了），但受害的是我們的寄信信譽與 outbox 乾淨度
+  ```
+
+- **不修未來會痛在哪**
+  🔴 **一旦有人加了子網域,痛的當下不會有任何東西變紅**:
+  typecheck 綠、lint 綠、兩邊各自的單測都綠(**因為它們各自測自己那份判定式**)。
+  症狀會出現在**客人那邊**(收到不該收的信 / 客服看到「沒有 Email」卻有退信紀錄),
+  而那時要從退信反推回「兩份判定式語意不同」**非常貴**。
+  ⇒ **修法方向**:adapter 改用 `@pcm/schemas` 的 `isSyntheticEmailDomain`(註解自己講的「共用同一份」),
+  並補一格**跨兩份判定式的一致性測試**(餵子網域,兩邊答案必須相同)。
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #626`(git ref CAS)
+  + 信箱佔位掃描 `grep -rn '佔位' ~/pcm-mailbox/*.md` ⇒ 無 #62x 佔位宣告(掃描範圍僅信箱 .md)。
+
+### #627 · 註冊 denylist 漏子網域與尾點 FQDN ⇒ 可註冊出假的 LINE 會員身分(**今天就存在**)
+
+- **發現**:V 窗實測判定式 + E 窗逐層盤點(2026-08-17)。**與 `#626` 不同根,不要合併。**
+  `#626` 的病是「**兩份判定式不一致 ⇒ 誤送真信**」(要等 outbox 接通才引爆);
+  **本條的病是「denylist 擋不住 ⇒ 誤准註冊」**(**不需要任何東西接通,今天就成立**)。
+
+- **繞過方式**
+  ```
+  以 x@sub.line.pcmmotorsports.local 註冊
+  apps/storefront/src/lib/auth/field-validation.ts:100
+    str(o.email).trim().toLowerCase().endsWith(`@${LINE_SYNTHETIC_EMAIL_DOMAIN}`)
+  'x@sub.line.pcmmotorsports.local'.endsWith('@line.pcmmotorsports.local') ⇒ false  ← 不擋
+  'x@line.pcmmotorsports.local.'  (尾點 FQDN)                              ⇒ false  ← 也不擋
+  ```
+
+- 🔴 **逐層盤點:我掃過的 6 層都不擋(附分母與位置)**
+  ```
+  層1 client 驗證      field-validation.ts:100                ❌ endsWith(@域)，漏子網域＋尾點
+  層2 server 重驗      app/register/actions.ts:47             ❌ 呼叫【同一支】validateRegister
+  層3 zod schema      packages/schemas/src/index.ts:43        ❌ z.email() 只驗格式，無域限制
+  層4 use-case        use-cases/register-customer.ts（18 行）  ❌ 純 pass-through，零 email 處理
+  層5 auth adapter    SupabaseAuthAdapter.ts:39-45            ❌ 純 pass-through 到 supabase.auth.signUp
+  層6 DB             init_customers_and_subtables.sql         ❌ customers.email 無域 CHECK
+                     （該檔 CHECK 全在 addresses/wallet，非 email）
+  ```
+  ⚠️ 🔴 **「我沒找到第二道擋」與「沒有第二道擋」是兩句話。本條寫的是前者。**
+  **我讀不到的第 7 層**:**Supabase Auth 本身的 email domain 限制設定**(在 Sean 的 dashboard)。
+  ⇒ **若那裡有設,本條降級。要有人去看一眼才能定案。**
+  ⚠️ **我方【未實際跑一次註冊】** —— 那是寫入、對外可見(紀律不允許)。
+  上述為**逐層讀 code 的盤點**,不是端到端實證。
+
+- 🔴 **而正確的判定式【本 repo 已經有了】,而且就在隔壁**
+  ```
+  packages/schemas/src/notification-email.ts:55
+    NotificationEmailInput 的 superRefine 用 !isSyntheticEmailDomain(value)
+    ⇒ 那一份【含子網域、含尾點 FQDN】，是四份裡最完整的兩份之一
+  ```
+  ⇒ **同一個 package、隔兩個檔,而註冊路徑沒有用它。**
+  🔴 **這條的價值有一半在這裡:不是「沒人知道怎麼寫對」,是【寫對的那份沒有被接上去】。**
+
+- **失敗形狀(🔴 不是退信,是身分混淆)**
+  ```
+  註冊成功後 customers.email = x@sub.line.pcmmotorsports.local
+  後台客戶列表走 apps/admin/src/lib/customers/customer-list-view.ts:51
+    isSyntheticEmailDomain(email) ? LINE_NO_EMAIL_LABEL : email
+    ⇒ 該判定式【含子網域】⇒ 後台把這個帳號顯示成「LINE 無 Email」
+  ⇒ 一個【用 email/password 註冊的一般帳號】，在後台看起來是【LINE 會員】
+  ```
+  🔴 **員工看到的身分與實際的身分不同**,而 Sean 的北極星是「員工能獨立跑完一天」
+  ⇒ 這會讓員工對這個帳號做出**基於錯誤前提**的處置(例如「他是 LINE 的、沒有 Email、不用寄信」)。
+
+- **嚴重度(誠實標,不誇大)**
+  ```
+  不是   帳號接管 / 資料外洩 / 提權（攻擊者只是拿到一個自己的普通帳號）
+  是     身分顯示混淆 ＋ 汙染「LINE cohort」這個分類的可信度
+  🔴 而 LINE cohort 正在被拿來做決策（送達管道、推播規格）
+     ⇒ 一個【可被外人任意灌入】的分類，不能拿來當那些決策的分母
+  ```
+
+- **不修未來會痛在哪**
+  今天沒有真實客戶 ⇒ 沒人在看那個列表。上線後:**這個分類會被用來決定「誰要用 LINE 推播、誰寄 Email」**,
+  而它可以被任何訪客從外面灌入。🔴 **而灌入的當下不會有任何東西變紅** —— 註冊成功、驗證全過、
+  後台顯示得「很正常」(正常到剛好是錯的那一種)。
+
+- **修法方向(一行講完)**
+  **註冊路徑改用 `isSyntheticEmailDomain`**(`notification-email.ts:37`,已含子網域與尾點),
+  **不要再寫第五份判定式**;並補一格**跨判定式一致性測試**(見 `#626`)。
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #627`(git ref CAS)
+  + `grep -rn '佔位' ~/pcm-mailbox/*.md` ⇒ 無 #62x 佔位宣告(掃描範圍僅信箱 .md)。
+
+### #628 · brands/categories 的 REVOKE 未涵蓋 MAINTAIN(2026-06-05 寫於 repo 認識 MAINTAIN 之前)
+
+- **優先度**:🔴 **低** —— 併進 `E683-1` 那條線一起收(同一支 migration 加兩行),**不另開高優先項**。
+- **發現**:2026-08-17 E 窗,查「含 `CREATE TABLE` 而零 `REVOKE`」那 2 支檔時的下游發現。
+
+- **位置(逐字)**
+  ```
+  supabase/migrations/20260605120000_audit_revoke_overgrant_brands_categories.sql:65-66
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.brands     FROM anon, authenticated;
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.categories FROM anon, authenticated;
+            ^^^^^^ 六項。SELECT 刻意留著（公開目錄，正確）。而【沒有 MAINTAIN】。
+  ```
+
+- 🔴 **為什麼確定它是「當時不知道」而不是「刻意不收」—— 有日期可證**
+  ```
+  git grep -cn MAINTAIN -- supabase/migrations ⇒ 命中 9 檔，最早 20260730150000
+  正向對照:TRUNCATE 命中 38 檔（量具是活的）
+  ⇒ repo 對 MAINTAIN 的認知出現在 2026-07-30 之後
+  ⇒ 而這支寫於 2026-06-05 ⇒ 早於認知
+  ```
+  📎 **這個量法可重用**:任何「我們後來才知道要防 X」的東西,
+  都可以用「**這個 repo 什麼時候第一次出現 X 這個字**」去找出它之前寫的東西。
+
+- **口徑(🔴 不要升級成已確認)**
+  ```
+  已知(code 層) 那支 REVOKE 未涵蓋 MAINTAIN
+  未知(DB 層)   當初預設授權有沒有給 MAINTAIN、之後有沒有被別的動作收掉 ⇒ 【未確認】
+  缺的檢查      SELECT has_table_privilege('anon','public.brands','MAINTAIN');      -- 及 categories
+                （權限面 metadata，非業務表列;但我方無可連線憑證 ⇒ 未跑）
+  ```
+
+- **影響(不放大)**
+  ```
+  MAINTAIN 能做:VACUUM / ANALYZE / REINDEX / CLUSTER / REFRESH MAT VIEW / LOCK TABLE
+  ⇒ 🔴 不讀寫資料、不洩漏任何一列 ⇒ 【不是資料外洩】
+  ⇒ 是資源面:若真能下 LOCK TABLE / REINDEX ⇒ 服務中斷
+  ⇒ 而 anon 要到得了那個位置得先經過 PostgREST（不提供這些語句的入口）
+  ⇒ 我方判斷:實際可利用性【低】
+  🔴 但「低可利用性」與「不該存在的殘留授權」是兩件事，本條記的是後者
+  ```
+
+- **不修未來會痛在哪**:它是一個**沉默的殘留** —— 三綠不紅、`grep` 找不到(因為問題是**沒寫的那個字**)、
+  而 `E-684` 樣板當時也漏列 `MAINTAIN`(見 `~/pcm-mailbox/E-702`)⇒ **守門與被守的東西漏的是同一項**。
+  🔴 **修法一行,不記會忘。**
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #628`(git ref CAS)+ 信箱佔位掃描零命中。
 
 ---
 
@@ -17883,6 +18287,86 @@ max-rows 掉到 500 的世界：
 
 ---
 
+### #630 · products.supplier_slug / external_id 對 anon 可讀 —— **Sean 2026-08-18 拍板不修**(已知風險登記)
+
+- **性質**:🔴 **這不是待辦。** 這是一條「**已經知道、已經拍板不修**」的登記,存在的理由是
+  **讓下一個發現它的人不要重查一遍,也不要以為是漏網**。
+- **優先度**:—(不修)。**若哪天要重開,重開的理由會是商業的,不是技術的**(見下方射程)。
+- **發現**:2026-08-18 V 窗逐欄實打正式站 anon;E 窗判 `external_id` 與嚴重度。
+
+- **事實(量到的,不是讀 schema 推的)**
+  ```
+  量法  storefront anon key 打【正式站】PostgREST，products?select=<欄>&limit=1 逐欄各一發
+  分母  packages/adapters/src/supabase/database.types.ts 的 products Row = 25 欄
+  結果  401 擋住 5 欄:price_store / price_by_tier / metadata / listing_set_by / source_missing_at
+        200 可讀 20 欄:其中 supplier_slug、external_id 是本條的標的
+  真值  抽 800 列 select=supplier_slug ⇒ null 數 0
+        distinct 命中 evotech / eazigrip / lightech / kspeed / bonamici
+        ⇒ 這欄每個商品都填了真供應商 ⇒ 外洩是實的，不是「欄存在但空」
+  正本  ~/pcm-mailbox/V-050-products-anon-投影分母-20260818.md
+  ```
+  **三道正向對照(這是它成案的關鍵,不是它看到了什麼)**
+  ```
+  select=*        ⇒ 401「permission denied for table products」⇒ 欄級授權在擋，不是 key 沒生效
+  zz_bogus_col    ⇒ 400（不是 401）⇒ 🔴「被擋」與「欄不存在」分得開
+  price_store 單打 ⇒ 401 ⇒「anon 看不到經銷價」是量到的，不是「根本沒打到那欄」
+  ```
+
+- **✅ 經銷價那半是守住的**:`price_store` / `price_by_tier` / `metadata` 皆 401
+  ⇒ 2026-06-05 那條經銷價防護鏈**在欄級是有效的**。
+  🔴 **本條洩的是商業情報,不是金流。嚴重度=中,不要放大成「經銷價外洩」。**
+
+- 🔴 **`external_id` 的判定(主視窗要求「不要留可能」——這裡是判死的)**
+  ```
+  判定:external_id ＝【供應商的主料號】⇒ 與 supplier_slug 同族，同屬貨源情報
+  依據（逐字，三處互相對上）:
+    scripts/rpm-transform.ts:13   「external_id=乾淨 main_sku(無 RPM- 前綴、對齊 S3a 洗淨值)」
+    scripts/rpm-transform.ts:334  「external_id: mainSku, // 🔴 乾淨主料號、無前綴」
+    scripts/rpm-transform.ts:91-92「external_id 仍存原始 mainSku(join key、大寫)…SKU 保於 external_id」
+  結構佐證:
+    supabase/migrations/20260602192455_s3a_composite_keys_drop_rpm_prefix.sql:51
+      products 唯一鍵:全表 (external_id) → 複合 (supplier_slug, external_id)
+    ⇒ 它與 supplier_slug 合成唯一鍵 ⇒ 語意上就是「某供應商的某個料號」
+  ```
+  ⇒ **依 Sean 本次拍板,`external_id` 一樣不修。**
+
+- 🔴🔴 **而 `external_id` 就算要修也【不能只靠 REVOKE】—— 前台自己就在讀它**
+  ```
+  packages/adapters/src/supabase/SupabaseProductAdapter.ts:67-68
+    const PRODUCT_SELECT_DETAIL =
+      'id, external_id, title, subtitle, ...'
+                ^^^^^^^^^^^ 商品詳情投影【含 external_id】⇒ 它本來就會送到瀏覽器
+  ⇒ 收欄級權限會【直接斷商品詳情頁】，而且它早已透過網站本身公開
+  ```
+  對照:**`supplier_slug` 不在該投影裡**(`sed -n '67,70p' … | grep -c supplier_slug` ⇒ `0`)
+  ⇒ 收它**不會**斷這條路徑。
+  ⚠️ **射程**:我只逐條看了「商品詳情投影」這一條路徑。
+  **另有 `search_catalog_by_vehicle` RPC → `products_list_public` view,而該 view DDL 帶 `supplier_slug`**
+  (`supabase/migrations/20260811040000_…:209` `p.supplier_slug,`)
+  ⇒ **其餘讀取路徑我沒有逐條窮盡** —— 因為拍板不修,那道分母主視窗裁定不用查。
+  🔴 **哪天要重開,這道分母要先補完,不要把上面那個 `0` 當成「全站沒人讀」。**
+
+- 🔴🔴 **拍板與其射程(本條最重要的一段)**
+  ```
+  Sean 2026-08-18 逐字:「乙  無所謂 —— 看得到也沒差」
+  ⇒ 不 REVOKE、不修。
+  ```
+  **這個板的射程 =【今天的商業判斷】,不是技術結論。**
+  它成立的前提是「PCM 現在不介意競爭對手知道每個商品的貨源與料號」。
+  🔴 **競爭態勢變了就要重問 —— 而【不會有任何機械訊號提醒任何人】**:
+  三綠不紅、grep 找不到、沒有測試會失敗、權限也不會自己變。
+  **這條登記本身就是唯一的訊號載體,而它要有人回來讀。**
+
+- **不修未來會痛在哪**:痛點不在技術面,在**它會被靜默地當成「已經審過、沒問題」**。
+  下一個做安全稽核的人看到 `supplier_slug` 200 可讀,會**重跑一次同樣的量測、重寫一次同樣的判斷**,
+  然後**可能得出不同的嚴重度**而去打擾 Sean 第二次。
+  ⇒ 本條的價值 = **把「已經問過、答案是不修、以及那個答案為什麼可能過期」釘在同一個地方。**
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `#630`(git ref CAS 原子配號)
+  \+ 信箱佔位掃描 `grep -rn '佔位' ~/pcm-mailbox/*.md` ⇒ 與 `#630` 相關者零命中。
+
+---
+
 ### #633 · 出貨通知信的**收件人來源恆為 `null`** —— 寫入端兩處寫死,`B-4` 未做
 
 - **狀態:** ⏳ 待執行。🔴 **本條不是「資料缺漏」,是【寫入端刻意送 `null`】。**
@@ -17938,7 +18422,7 @@ max-rows 掉到 500 的世界：
 > **提報 = T① 窗(讀 dev 原文)/ 落檔 = C 窗(逐條複驗過,不照抄轉述)。**
 
 - **狀態:** 待決策(**是否接受 flat-authz**)。**非活洞** —— 現況只有三個可信的人在用。
-- **是什麼(本窗實查):**
+- **是什麼(C 窗 2026-08-18 實查):**
   ```
   apps/admin/src/lib/session/authorize.ts 的 authorizeAdminMutation()
     驗 ① 有效 admin session ② Origin ③ 具名 actor
@@ -17989,6 +18473,6 @@ max-rows 掉到 500 的世界：
   ```
 
 - **發號:** `sh scripts/reserve-backlog.sh`(T① 執行,git ref CAS)⇒ `RESERVED #635`。
-  撞號複查(**本窗自己重跑**):`grep -c '#635' docs/phase-1-backlog.md` ⇒ 落檔前 `0`;
+  撞號複查(**C 窗自己重跑,未照抄 T① 轉述**):`grep -c '#635' docs/phase-1-backlog.md` ⇒ 落檔前 `0`;
   `grep -rl '#635' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3059`;
   🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
