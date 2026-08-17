@@ -194,6 +194,53 @@ SELECT rolname, rolsuper FROM pg_roles WHERE rolname IN ('postgres','supabase_ad
 
 ---
 
+## 6b. 探針腳本規格 `scripts/probe-schema-exposure.sh`(**規格,E 不實作**)
+
+> 命名刻意**不叫** `probe-net-*` —— §3.4 已說明它一次守多個 schema,**檔名比範圍窄會讓下一個人以為它只管 `net`**(本檔自己就犯過:`revoking-function-execute-in-supabase.md` 的檔名比它的範圍窄)。
+
+### 介面
+
+```
+用法：sh scripts/probe-schema-exposure.sh [site|quote|both]     預設 both
+輸入：不吃參數化的 URL/KEY —— 一律從檔案讀，避免有人把 key 打進命令列（會進 shell history）
+        ~/.pcm-site-anon-key    PCM_SITE_ANON_KEY    https://bmpnplmnldofgaohnaok.supabase.co
+        ~/.pcm-quote-anon-key   PCM_QUOTE_ANON_KEY   https://dllwkkfanaebrsuyuedy.supabase.co
+輸出：每格一行「格名 期望 實得 PASS/FAIL」+ 末行總判
+rc：   0 全格通過 / 3 有格 FAIL（真發現）/ 2 用法錯 / 1 工具自壞（缺 key、curl 不存在、網路不可達）
+```
+🔴 **`rc` 三態分得開是硬要件**(對齊 `scripts/where-is.sh` 的既有形狀):**「探針壞了」與「真的曝露了」必須是不同的 exit code** —— 兩者合流的話,CI 綠燈會同時代表兩件相反的事。
+
+### 每個庫要跑的四格(**缺一不可,順序不可調**)
+
+| 格 | 打什麼 | 期望 | 沒有它會怎樣 |
+|---|---|---|---|
+| **A 正向對照** | site: `/rest/v1/products_public?select=id&limit=0`<br>quote: `/rest/v1/storefront_catalog_v?select=id&limit=0` | **200** | 沒有它,**斷網 / key 過期 / 專案睡著**都會讓 C 格「通過」 |
+| **B 庫別對照** | 拿**另一個庫的 key** 打同一個 A 端點 | **401** | 沒有它,**兩把 key 同前綴同長度、拿錯不會報錯**,會量到另一個庫的答案 |
+| **C 判別力對照** | `/rest/v1/customers?select=id&limit=0`(site) | **401** | 沒有它,C' 的 `404` 可能只是「打錯路徑的通用回應」 |
+| **D 主張** | `/rest/v1/_http_response` 與 `/rest/v1/http_request_queue` | **404** | — |
+| **E 白名單自曝** | 任一端點加 `-H "Accept-Profile: net"` | body 含 `PGRST106` **且** `hint` 為 `Only the following schemas are exposed: public, graphql_public` | **最強的一格**:讓被測物**自己把邊界講出來**,不靠外部推論 |
+
+🔴 **A–E 必須同一次執行內全部通過才算綠。** 只有 D 綠 = 恆綠格。
+🔴 **E 格斷言要比對【完整字串】,不是只檢查含不含 `net`** —— 「`net` 不在裡面」在「清單是 `public, graphql_public`」與「清單是空的 / PostgREST 掛了」兩個世界一樣。
+
+### 順帶守的(邊際成本接近零)
+
+D 格的 URL 清單一次列:`_http_response` / `http_request_queue` / `cron.job` / `vault.secrets` / `pg_stat_statements`。
+⚠️ **逐一附期望值,不要寫成迴圈然後只斷言「全部都是 404」** —— 那句在**清單是空的**時**恆真**(本族既有坑)。⇒ 實作要斷言「**跑了 N 格且 N == 預期格數**」。
+
+### 🔴 明令不做(照抄 §4)
+
+- ❌ **不 SELECT / 不印 `headers` 欄**,連「為了寫報告舉個例」都不行。
+- ❌ **不把 key 印進 stdout / log / 錯誤訊息**;要引用只引用**前綴與長度**。
+- ❌ **不塞進三綠 / CI 必跑**(打正式站 + 依賴外部網路 ⇒ 會做出時好時壞的測試,**假紅比沒有守門更糟**)。
+- ❌ **不寫 `REVOKE`**(§2.5 已實測 `postgres` 非 superuser、對 `supabase_admin` 的 grant 靜默 no-op)。
+
+### 跑在哪
+
+人工 / 排程皆可;**硬要件 = Supabase Dashboard 動過「Exposed schemas」之後必跑一次**。納入部署後 smoke 或 milestone 收尾清單。**偵測頻率 = 暴露窗**(§3.1),這句要寫進腳本檔頭註解。
+
+---
+
 ## 7. 口徑
 
 權限矩陣 / RLS 旗標 / `rolsuper` / 殘留列數 = **`pcm_audit_ro` 唯讀 SQL 實測**(2026-08-17,量法附在各處)。外部可達性 = **publishable key 打正式站 REST 實測**,含正向與判別力對照。**曝露清單的設定內容 = 未確認**(Sean 在查)。修法不可行性 = `20260723120000…:16-21` 既有實測 + 本輪 `rolsuper` 複核。**全程唯讀:只有 SELECT 與 GET,零寫入、零 DDL、未讀 `headers` 欄。**
