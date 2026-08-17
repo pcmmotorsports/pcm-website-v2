@@ -16639,8 +16639,13 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
   apps/admin/src/lib/sso/exchange.ts:30        const VALID_AMR = new Set<AdminSessionAmr>(['pwd', 'totp', 'bootstrap', 'recovery']);
   apps/admin/src/lib/session/session.ts:105    const VALID_AMR = new Set<AdminSessionAmr>(['pwd', 'totp', 'bootstrap', 'recovery']);
   ```
-- **已經有的守門是什麼:** B3 spec §6 **第 8 格**(格內含「兩份彼此也要相等,不成立**不得部署**」
-  與量法③ 那句紅判)。⚠️ **它是【部署日檢查表】,不是常駐測試。**
+- **已經有的守門是什麼:** ⛔ ~~B3 spec §6 **第 8 格**~~
+  🔴 **2026-08-17 同日搬家,正本已換位置**:`docs/specs/2026-08-17-m4b-e8b-b5-spec.md` **§B5-2 第 8 格**
+  (原因 = 範圍越界 codex `#2`,主視窗裁 `Q-B3範圍`=甲;B3 §6 只留一列**指標列**當入口)。
+  格內含「兩份彼此也要相等,不成立**不得部署**」與量法③ 那句紅判。
+  ⚠️ **它是【部署日檢查表】,不是常駐測試。**
+  📎 **本條目自己就是「引用會過期」的實例**:寫下它與搬走它相隔不到兩小時,
+  而抓到它的是搬完之後跑的那一發 `第 8 格` 舊字面掃描 —— **不是我記得。**
 - 🔴 **所以缺口是時間軸上的,不是覆蓋率上的:** 第 8 格**只在有人重跑它的那一天**紅;
   **兩次部署【之間】**進來的 desync(admin 側日常改動只改了其中一份)⇒ **零常駐守門**。
 - **不修未來會痛在哪:** desync 進來的那天,`exchange.ts:30` 放行、admin 簽出含該值的 cookie
