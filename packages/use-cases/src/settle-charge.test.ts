@@ -38,6 +38,13 @@ function tradeRecord(over: Partial<TapPayTradeRecord> = {}): TapPayTradeRecord {
     currency: 'TWD',
     recordStatus: 1, // OK
     isCaptured: true,
+    // 🔴🔴 2026-08-18 補:本 fixture 原本【不帶這一欄】,而 `refund-baseline.ts:8` 記著
+    //    2026-08-03 probe 實測 **未退款紀錄必帶 `refunded_amount=0`**
+    //    ⇒ 原 fixture 一直在造一個【production 不會出現】的紀錄形狀(欄位缺席),
+    //      而那正是 `(tr.refundedAmount ?? 0)` 那個洞躲得住的原因:
+    //      所有 happy path 都走在缺席那一路,沒有任何一格逼它面對「欄在且為 0」。
+    //    ⇒ 要測「欄缺」那個世界的格,請【明確】寫 `refundedAmount: undefined` 覆蓋它。
+    refundedAmount: toMoneyAmount(0),
     timeMillis: TXN_TIME_MS,
     ...over,
   };
@@ -391,6 +398,41 @@ describe('🔴 settleCharge — queryStatus=2 查詢成功放行(2026-06-21 quer
     expect(attempts.markCharged).not.toHaveBeenCalled();
     expect(errSpy).not.toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  // 🔴🔴 上面那格與本格是**同一個現實的兩種紀錄長相**:錢真的退光了,而
+  //    上面那筆 `refunded_amount` 回了 1050、本筆**整個欄位缺席**(解析失敗 / API 改欄名)。
+  //    ⚠️ 欄位缺席【不代表沒退款】—— `refund-baseline.ts:8` 記著 2026-08-03 probe 實測:
+  //       **未退款紀錄必帶 `refunded_amount=0`** ⇒ 欄在而為 0 才是「沒退」,欄不在是「不知道」。
+  //    🔴 而 `settle-charge.ts` 那道閘寫的是 `(tr.refundedAmount ?? 0) !== 0`
+  //       ⇒ 缺席被翻成 0 ⇒ 閘不會響 ⇒ 同一筆錢已退光的紀錄可能被判 paid。
+  //    ⇒ 與 `refund-baseline.ts:8` / `refund-judgment.ts:12` 兩處標成鐵律的
+  //      「`refundedAmount` 欄缺**嚴禁 `?? 0`**」直接牴觸(那兩處配的是「欄缺 = abort / 停」)。
+  it('🔴 status=1(OK)而 refunded_amount 欄【缺席】→ 擋在 refunded_amount_missing(欄缺=不知道,不是 0)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const attempts = makeAttempts();
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({
+          recordStatus: 1,
+          amount: toMoneyAmount(1050),
+          originalAmount: toMoneyAmount(1050),
+          // 🔴 明確覆蓋成 undefined —— fixture 預設帶 0(符合實測),本格要的是【欄缺】那個世界
+          refundedAmount: undefined,
+        }),
+      ),
+      attempts,
+    });
+    const out = await settleCharge(d, { orderId: ORDER_ID });
+    expect(out).not.toEqual({ kind: 'paid' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+    // 🔴 codex 2026-08-18 關卡2 nit 折出來的:只斷言「沒判 paid」【判別力不夠】——
+    //    未來若被別的閘提前擋下,本格照樣綠,而我要守的那道閘可能已經死了。
+    //    ⇒ 觀察點改成【失敗代號本身】。它進得了 log 是因為 refunded_amount_missing
+    //      已被列進 LOGGED_MATCH_FAILURES(那一列就是為了讓這件事看得見)。
+    const reasons = warnSpy.mock.calls.map((c) => (c[1] as { reason?: string } | undefined)?.reason);
+    expect(reasons).toContain('refunded_amount_missing');
+    warnSpy.mockRestore();
   });
 
   // 🔴 這條**單獨**驗「非退款態 amount 必須完好」:守恆式刻意成立(950 + 100 = 1050)、

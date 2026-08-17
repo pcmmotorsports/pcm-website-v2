@@ -374,13 +374,20 @@ type MatchFailure =
   | 'currency'
   | 'amount_eroded'
   | 'refunded_on_non_refund_status'
+  // 🔴 與上一條【刻意分開】:「已退金額不是 0」與「拿不到已退金額」是兩件事。
+  //    合成一個代號的話,值班與日後查因果的人分不出是【紀錄自相矛盾】還是【我們讀不到那一欄】,
+  //    而後者代表解析/API 出事,修法完全不同。
+  | 'refunded_amount_missing'
   | 'window';
 
-/** 只有這三種需要上線後 triage(其餘為既有防線,略過以免 log 灌爆)。 */
+/** 只有這幾種需要上線後 triage(其餘為既有防線,略過以免 log 灌爆)。 */
 const LOGGED_MATCH_FAILURES: readonly MatchFailure[] = [
   'window',
   'amount_eroded',
   'refunded_on_non_refund_status',
+  // 🔴 這一種**一定要記**:它響代表 TapPay 回的紀錄少了我們據以判斷的那一欄
+  //    (改欄名 / 解析壞掉)⇒ 是系統層事件,不是單筆交易的異常。
+  'refunded_amount_missing',
 ];
 
 function recordMatchesOrder(
@@ -415,7 +422,20 @@ function recordMatchesOrder(
   //    退款態(2/3)一律放行進 classifyRecordStatus 走告警。
   if (tr.recordStatus !== 2 && tr.recordStatus !== 3) {
     if (tr.amount !== attempt.orderTotal) return 'amount_eroded';
-    if ((tr.refundedAmount ?? 0) !== 0) return 'refunded_on_non_refund_status';
+    // 🔴🔴 **欄缺 ≠ 0** —— 這裡原本寫 `(tr.refundedAmount ?? 0) !== 0`,而那個 `?? 0`
+    //    把「拿不到已退金額」翻成「沒退過款」⇒ 這道閘對【欄位缺席】的紀錄不會響。
+    //    實證(2026-08-18 突變):同一筆「錢已退光卻宣稱交易完成」的紀錄,
+    //    欄位帶 1050 ⇒ 被擋;**整個欄位缺席 ⇒ 判 paid**。
+    //    ⚠️ 而欄缺【不代表沒退款】:`refund-baseline.ts:8` 記著 2026-08-03 probe 實測
+    //       **未退款紀錄必帶 `refunded_amount=0`** ⇒ 欄在而為 0 才是「沒退」,欄不在是「不知道」。
+    //    ⇒ 立場照本 repo 既有的兩處鐵律(`refund-baseline.ts:8` / `refund-judgment.ts:12`
+    //      「`refundedAmount` 欄缺**嚴禁 `?? 0`**」,兩處配的都是「欄缺 = abort / 停」)。
+    //    ⚠️ **代價寫在這裡不藏**(codex 2026-08-18 關卡2 指出):欄位【持續】缺席時,
+    //       這種單會一直停在 pending,只有 TapPay 恢復回傳該欄才自癒。
+    //       ⇒ 這是刻意的方向選擇:**卡住看得見(有 pending、有 log),而誤判 paid 沒有症狀。**
+    //       ⇒ 真的發生時修法是查 parser / 欄名有沒有變,不是把這道閘拿掉。
+    if (tr.refundedAmount === undefined) return 'refunded_amount_missing';
+    if (tr.refundedAmount !== 0) return 'refunded_on_non_refund_status';
   }
   if (!hasStrongKey && !withinAttemptWindow(tr.timeMillis, attempt.attemptCreatedAt)) return 'window';
   return null;
