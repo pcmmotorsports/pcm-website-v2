@@ -1,0 +1,594 @@
+
+> pcm-website-v2@0.0.0 test /Users/sean_1/pcm-website-v2
+> vitest run
+
+
+ RUN  v4.1.5 /Users/sean_1/pcm-website-v2
+
+ ❯ |admin| apps/admin/src/components/orders/shipment-launcher.test.tsx (18 tests | 1 failed) 8053ms
+     × 🔴 M2 重抓讓 remaining 改變,也不得再觸發一次重置 4353ms
+ ❯ |admin| apps/admin/src/app/products/[id]/page.test.tsx (14 tests | 3 failed) 18833ms
+     × 🔴 驗收 1:六個平欄區塊都看得到,料號 / 供應商 / 售價 / 狀態逐欄驗 5057ms
+     × 🔴 MF2:時間欄要釘台北曆面 —— 這格不存在時 MF1(差 8 小時)全綠溜過去 5726ms
+     × 🔴 R2 MF2:執行環境在 UTC 時仍印台北時間(唯一能證明 timeZone 有效的一格) 6490ms
+ ❯ |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx (21 tests | 3 failed) 19973ms
+     × 🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串) 5687ms
+     × 🔴 cookie 的搜尋詞真的餵進 repository 的 filter 5138ms
+     × 🔴🔴 畫面上所有 /orders 連結(含分頁與清除)都**不含搜尋詞** —— PII 不進 URL 5101ms
+ ❯ |admin| apps/admin/src/lib/shipping/order-shipments.test.ts (16 tests | 2 failed) 7662ms
+     × 🔴 超過自夾上限 → 回 `null`,不是回一份少了東西的清單 5043ms
+     × 🔴 正向對照:剛好等於上限(沒有第 N+1 筆)⇒ 正常回,不誤擋 2607ms
+ ❯ |admin| apps/admin/src/app/@panel/order-panel-wiring.test.ts (48 tests | 1 failed) 27171ms
+     × 沒帶 panel → null(這就是關閉面板的機制) 20063ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onContinueShopping (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CheckoutView.tsx:269:35)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at handleVehicleNavigate (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/ProductBreadcrumb.tsx:144:5)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at goContinue (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CartView.tsx:88:28)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at Timeout._onTimeout (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:80:7)
+    at listOnTimeout (node:internal/timers:585:17)
+    at processTimers (node:internal/timers:521:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |admin| apps/admin/src/app/@panel/order-panel-wiring.test.ts > #350c 守門 4:槽頁只在 panel 是合法 UUID 時才開 > 沒帶 panel → null(這就是關閉面板的機制)
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/app/@panel/order-panel-wiring.test.ts:382:3
+    380|   });
+    381|
+    382|   it('沒帶 panel → null(這就是關閉面板的機制)', async () => {
+       |   ^
+    383|     const Page = await load();
+    384|     await expect(Page({ searchParams: Promise.resolve({}) })).resolves…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/10]⎯
+
+ FAIL  |admin| apps/admin/src/components/orders/shipment-launcher.test.tsx > OrderShipButton — 成功只被處理一次(N1 守門) > 🔴 M2 重抓讓 remaining 改變,也不得再觸發一次重置
+AssertionError: expected 1 to be greater than 1
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"flex flex-wrap items-center justify-end gap-2"[39m
+      [36m>[39m
+        [36m<button[39m
+          [33mclass[39m=[32m"rounded-md border px-2 py-1 text-xs disabled:opacity-50"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [0m建立包裹[0m
+        [36m</button>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"bg-foreground/60 fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4"[39m
+        [36m>[39m
+          [36m<div[39m
+            [33maria-label[39m=[32m"建立包裹"[39m
+            [33mclass[39m=[32m"bg-card text-foreground mt-8 w-full max-w-2xl rounded-lg border"[39m
+            [33mrole[39m=[32m"dialog"[39m
+          [36m>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex items-center justify-between border-b px-4 py-3"[39m
+            [36m>[39m
+              [36m<h3[39m
+                [33mclass[39m=[32m"font-semibold"[39m
+              [36m>[39m
+                [0m建立包裹[0m
+              [36m</h3>[39m
+              [36m<button[39m
+                [33maria-label[39m=[32m"關閉"[39m
+                [33mclass[39m=[32m"text-muted-foreground px-2 disabled:opacity-40"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m✕[0m
+              [36m</button>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"space-y-3 px-4 py-3"[39m
+            [36m>[39m
+              [36m<p[39m
+                [33mclass[39m=[32m"text-muted-foreground text-xs"[39m
+              [36m>[39m
+                [0m收件:[0m
+                [0m客[0m
+                [0m · [0m
+                [0m09[0m
+                [0m · [0m
+                [0m—[0m
+              [36m</p>[39m
+              [36m<ul[39m
+                [33mclass[39m=[32m"divide-y rounded-md border"[39m
+              [36m>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"flex items-center gap-3 px-3 py-2"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"text-muted-foreground w-24 shrink-0 font-mono text-xs"[39m
+                  [36m>[39m
+                    [0mPCM-0001[0m
+                  [36m</span>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"min-w-0 flex-1"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"block truncate text-sm"[39m
+                    [36m>[39m
+                      [0m鈦合金頭段[0m
+                    [36m</span>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"text-muted-foreground block truncate font-mono text-xs"[39m
+                    [36m>[39m
+                      [0mS-Y10E9-HGEH[0m
+                    [36m</span>[39m
+                  [36m</span>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"text-muted-foreground shrink-0 text-xs"[39m
+                  [36m>[39m
+                    [0m還能出 2[0m
+                  [36m</span>[39m
+                  [36m<input[39m
+                    [33maria-label[39m=[32m"鈦合金頭段 要出的數量"[39m
+                    [33mclass[39m=[32m"w-16 shrink-0 rounded-md border-input border px-2 py-1 text-sm disabled:opacity-50"[39m
+                    [33mmax[39m=[32m"2"[39m
+                    [33mmin[39m=[32m"0"[39m
+                    [33mtype[39m=[32m"number"[39m
+                    [33mvalue[39m=[32m"2"[39m
+                  [36m/>[39m
+                [36m</li>[39m
+                [36m<li[39m
+                  [33mclass[39m=[32m"flex items-center gap-3 px-3 py-2"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"text-muted-foreground w-24 shrink-0 font-mono text-xs"[39m
+                  [36m>[39m
+                    [0mPCM-0001[0m
+                  [36m</span>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"min-w-0 flex-1"[39m
+                  [36m>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"block truncate text-sm"[39m
+                    [36m>[39m
+                      [0m鈦合金頭段[0m
+                    [36m</span>[39m
+                    [36m<span[39m
+                      [33mclass[39m=[32m"text-muted-foreground block truncate font-mono text-xs"[39m
+                    [36m>[39m
+                      [0mS-Y10E9-HGEH[0m
+                    [36m</span>[39m
+                  [36m</span>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"text-muted-foreground shrink-0 text-xs"[39m
+                  [36m>[39m
+                    [0m未到貨[0m
+                  [36m</span>[39m
+                  [36m<input[39m
+                    [33maria-label[39m=[32m"鈦合金頭段 要出的數量"[39m
+                    [33mclass[39m=[32m"w-16 shrink-0 rounded-md border-input border px-2 py-1 text-sm disabled:opacity-50"[39m
+                    [33mdisabled[39m=[32m""[39m
+                    [33mmax[39m=[32m"0"[39m
+                    [33mmin[39m=[32m"0"[39m
+                    [33mtype[39m=[32m"number"[39m
+                    [33mvalue[39m=[32m"0"[39m
+                  [36m/>[39m
+                [36m</li>[39m
+              [36m</ul>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"rounded-md border p-3"[39m
+              [36m>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"mb-2 flex items-center justify-between"[39m
+                [36m>[39m
+                  [36m<span[39m
+                    [33mclass[39m=[32m"text-sm font-medium"[39m
+                  [36m>[39m
+                    [0m登錄到貨[0m
+                  [36m</span>[39m
+                  [36m<button[39m
+                    [33mclass[39m=[32m"text-muted-foreground text-xs underline"[39m
+                    [33mtype[39m=[32m"button"[39m
+                  [36m>[39m
+                    [0m取消[0m
+                  [36m</button>[39m
+                [36m</div>[39m
+                [36m<div[39m
+                  [33mclass[39m=[32m"border-t pt-2"[39m
+                [36m>[39m
+                  [36m<p[39m
+                    [33mclass[39m=[32m"text-muted-foreground mb-1 text-xs"[39m
+                  [36m>[39m
+                    [0mRPM[0m
+                    [0m · 訂購 [0m
+                    [0m5[0m
+                    [0m · 已到貨[0m
+                    [0m [0m
+                    [0m1[0m
+                  [36m</p>[39m
+                  [36m<details[39m
+                    [33mclass[39m=[32m"mt-2"[39m
+                  [36m>[39m
+                    [36m<summary[39m
+                      [33maria-controls[39m=[32m"_r_1_"[39m
+                      [33mclass[39m=[32m"cursor-pointer text-sm font-medium select-none"[39m
+                    [36m>[39m
+                      [0m登錄到貨[0m
+                    [36m</summary>[39m
+                    [36m<form[39m
+                      [33maction[39m=[32m"javascript:throw new Error('A React form was unexpectedly submitted. If you called form.submit() manually, consider using form.requestSubmit() instead. If you\\'re trying to use event.stopPropagation() in a submit event handler, consider also calling event.preventDefault().')"[39m
+                      [33mclass[39m=[32m"mt-2 space-y-3 rounded-md border p-3"[39m
+                      [33mid[39m=[32m"_r_1_"[39m
+                    [36m>[39m
+                      [36m<input[39m
+                        [33mname[39m=[32m"order_id"[39m
+                        [33mtype[39m=[32m"hidden"[39m
+                        [33mvalue[39m=[32m"ord-uuid-1"[39m
+                      [36m/>[39m
+                      [36m<input[39m
+                        [33mname[39m=[32m"order_item_id"[39m
+                        [33mtype[39m=[32m"hidden"[39m
+                        [33mvalue[39m=[32m"oi-na"[39m
+                      [36m/>[39m
+                      [36m<input[39m
+                        [33mname[39m=[32m"procurement_id"[39m
+                        [33mtype[39m=[32m"hidden"[39m
+                        [33mvalue[39m=[32m"p-1"[39m
+                      [36m/>[39m
+                      [36m<input[39m
+                        [33mname[39m=[32m"request_id"[39m
+                        [33mtype[39m=[32m"hidden"[39m
+                        [33mvalue[39m=[32m"e3fea494-4a82-473b-9af0-5fe2cddf1468"[39m
+                      [36m/>[39m
+                      [36m<input[39m
+                        [33mname[39m=[32m"return_to"[39m
+                        [33mtype[39m=[32m"hidden"[39m
+                        [33mvalue[39m=[32m"/orders/ord-uuid-1"[39m
+                      [36m/>[39m
+                      [36m<input[39m
+                        [33mname[39m=[32m"inline"[39m
+                        [33mtype[39m=[32m"hidden"[39m
+                        [33mvalue[39m=[32m"1"[39m
+                      [36m/>[39m
+                      [36m<label[39m
+                        [33mclass[39m=[32m"flex flex-col gap-1 text-sm"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-muted-foreground text-xs font-medium"[39m
+                        [36m>[39m
+                          [0m到貨幾件[0m
+                        [36m</span>[39m
+                        [36m<input[39m
+                          [33mclass[39m=[32m"border-input bg-background h-9 rounded-md border px-3 text-sm"[39m
+                          [33mmin[39m=[32m"0"[39m
+                          [33mname[39m=[32m"quantity"[39m
+                          [33mstep[39m=[32m"1"[39m
+                          [33mtype[39m=[32m"number"[39m
+                          [33mvalue[39m=[32m"4"[39m
+                        [36m/>[39m
+                      [36m</label>[39m
+                      [36m<label[39m
+                        [33mclass[39m=[32m"flex flex-col gap-1 text-sm"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-muted-foreground text-xs font-medium"[39m
+                        [36m>[39m
+                          [0m什麼時候到的[0m
+                        [36m</span>[39m
+                        [36m<input[39m
+                          [33mclass[39m=[32m"border-input bg-background h-9 rounded-md border px-3 text-sm"[39m
+                          [33mname[39m=[32m"received_at_local"[39m
+                          [33mtype[39m=[32m"datetime-local"[39m
+                          [33mvalue[39m=[32m"2026-08-17T16:27"[39m
+                        [36m/>[39m
+                      [36m</label>[39m
+                      [36m<label[39m
+                        [33mclass[39m=[32m"flex flex-col gap-1 text-sm"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-muted-foreground text-xs font-medium"[39m
+                        [36m>[39m
+                          [0m溢收幾件(供應商多送的,不掛回這張單)[0m
+                        [36m</span>[39m
+                        [36m<input[39m
+                          [33mclass[39m=[32m"border-input bg-background h-9 rounded-md border px-3 text-sm"[39m
+                          [33mmin[39m=[32m"0"[39m
+                          [33mname[39m=[32m"surplus_quantity"[39m
+                          [33mstep[39m=[32m"1"[39m
+                          [33mtype[39m=[32m"number"[39m
+                          [33mvalue[39m=[32m"0"[39m
+                        [36m/>[39m
+                      [36m</label>[39m
+                      [36m<label[39m
+                        [33mclass[39m=[32m"flex flex-col gap-1 text-sm"[39m
+                      [36m>[39m
+                        [36m<span[39m
+                          [33mclass[39m=[32m"text-muted-foreground text-xs font-medium"[39m
+                        [36m>[39m
+                          [0m備註(選填)[0m
+                        [36m</span>[39m
+                        [36m<input[39m
+                          [33mclass[39m=[32m"border-input bg-background h-9 rounded-md border px-3 text-sm"[39m
+                          [33mmaxlength[39m=[32m"500"[39m
+                          [33mname[39m=[32m"note"[39m
+                          [33mtype[39m=[32m"text"[39m
+                          [33mvalue[39m=[32m""[39m
+                        [36m/>[39m
+                      [36m</label>[39m
+                      [36m<button[39m
+                        [33mclass[39m=[32m"bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm disabled:opacity-50"[39m
+                        [33mtype[39m=[32m"submit"[39m
+                      [36m>[39m
+                        [0m登錄到貨[0m
+                      [36m</button>[39m
+                    [36m</form>[39m
+                  [36m</details>[39m
+                [36m</div>[39m
+              [36m</div>[39m
+              [36m<div[39m
+                [33mclass[39m=[32m"grid gap-3 sm:grid-cols-2"[39m
+              [36m>[39m
+                [36m<label[39m
+                  [33mclass[39m=[32m"text-xs font-semibold"[39m
+                [36m>[39m
+                  [0m快遞商[0m
+                  [36m<select[39m
+                    [33mclass[39m=[32m"mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal"[39m
+                  [36m>[39m
+                    [36m<option[39m
+                      [33mvalue[39m=[32m"hct"[39m
+                    [36m>[39m
+                      [0m新竹物流[0m
+                    [36m</option>[39m
+                    [36m<option[39m
+                      [33mvalue[39m=[32m"sf"[39m
+                    [36m>[39m
+                      [0m順豐[0m
+                    [36m</option>[39m
+                    [36m<option[39m
+                      [33mvalue[39m=[32m"other"[39m
+                    [36m>[39m
+                      [0m其他[0m
+                    [36m</option>[39m
+                  [36m</select>[39m
+                [36m</label>[39m
+                [36m<label[39m
+                  [33mclass[39m=[32m"text-xs font-semibold"[39m
+                [36m>[39m
+                  [0m貨運單號[0m
+                  [36m<input[39m
+                    [33mclass[39m=[32m"mt-1 block w-full rounded-md border-input border px-2 py-1.5 text-sm font-normal"[39m
+                    [33mplaceholder[39m=[32m"標出貨前必填"[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</label>[39m
+              [36m</div>[39m
+            [36m</div>[39m
+            [36m<div[39m
+              [33mclass[39m=[32m"flex flex-wrap items-center gap-2 border-t px-4 py-3"[39m
+            [36m>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"bg-foreground text-background rounded-md px-3 py-1.5 text-sm font-semibold disabled:opacity-50"[39m
+                [33mdisabled[39m=[32m""[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m建箱並標出貨[0m
+              [36m</button>[39m
+              [36m<button[39m
+                [33mclass[39m=[32m"rounded-md border-input border px-3 py-1.5 text-sm disabled:opacity-50"[39m
+                [33mtype[39m=[32m"button"[39m
+              [36m>[39m
+                [0m只建箱、先不出貨[0m
+              [36m</button>[39m
+              [36m<span[39m
+                [33mclass[39m=[32m"text-xs font-semibold text-red-700"[39m
+              [36m>[39m
+                [0m快遞商是新竹物流或順豐時,標出貨前必須填貨運單號。[0m
+              [36m</span>[39m
+            [36m</div>[39m
+          [36m</div>[39m
+        [36m</div>[39m
+      [36m</span>[39m
+    [36m</div>[39m
+  [36m</body>[39m
+[36m</html>[39m
+ ❯ apps/admin/src/components/orders/shipment-launcher.test.tsx:461:79
+    459|     // 成功後表單重置一次(預設回滿量)—— 這是對的。
+    460|     await waitFor(() => expect(recordItemReceiptAction).toHaveBeenCall…
+    461|     await waitFor(() => expect(fetchItemProcurementChoices.mock.calls.…
+       |                                                                               ^
+    462|
+    463|     // 🔴 這兩條同時擋兩件事:①重取失控(C1 那類迴圈,會衝到數百次)
+ ❯ runWithExpensiveErrorDiagnosticsDisabled node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/10]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 🔴 出貨卡資料源:箱品項清單被截斷 ⇒ fail-closed 回 `null`(2026-08-16 codex 關卡1 ⑧) > 🔴 超過自夾上限 → 回 `null`,不是回一份少了東西的清單
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:86:3
+     84|   //    ⇒ 與同檔 `loadEmptyShipments` 那族**同一個約定、同一個常數**,不自創第二套。
+     85|
+     86|   it('🔴 超過自夾上限 → 回 `null`,不是回一份少了東西的清單', async () => {
+       |   ^
+     87|     const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repo…
+     88|     // 🔴 數量從 repository 的常數推,**不抄字面** —— 抄字面的話常數改了這格不會紅。
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/10]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 🔴 出貨卡資料源:箱品項清單被截斷 ⇒ fail-closed 回 `null`(2026-08-16 codex 關卡1 ⑧) > 🔴 正向對照:剛好等於上限(沒有第 N+1 筆)⇒ 正常回,不誤擋
+AssertionError: 本格前提是「載得完整」,而它回了 null(= 被判成截斷): expected null not to be null
+ ❯ loadOk apps/admin/src/lib/shipping/order-shipments.test.ts:74:51
+     72|   const { loadOrderShipments } = await import('./order-shipments');
+     73|   const g = await loadOrderShipments(t);
+     74|   expect(g, '本格前提是「載得完整」,而它回了 null(= 被判成截斷)').not.toBeNull();
+       |                                                   ^
+     75|   return g!;
+     76| };
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:118:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/10]⎯
+
+ FAIL  |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx > #347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、URL 帶不走** > 🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx:280:3
+    278|   };
+    279|
+    280|   it('🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串)', async () =…
+       |   ^
+    281|     // code-reviewer(2026-08-10)擊破:`cookieGet` 對**任何** key 都回同一個值,
+    282|     // 而全檔沒有一條斷言 key ⇒ 把 page 的 `get(ORDER_KEYWORD_COOKIE)` 改成別的字串,16 …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/10]⎯
+
+ FAIL  |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx > #347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、URL 帶不走** > 🔴 cookie 的搜尋詞真的餵進 repository 的 filter
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx:288:3
+    286|   });
+    287|
+    288|   it('🔴 cookie 的搜尋詞真的餵進 repository 的 filter', async () => {
+       |   ^
+    289|     await renderPage();
+    290|     // 突變:page 不把 cookie 合進 filter ⇒ 這格紅(而畫面上完全看不出差別:列表只是變成全部訂單)。
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/10]⎯
+
+ FAIL  |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx > #347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、URL 帶不走** > 🔴🔴 畫面上所有 /orders 連結(含分頁與清除)都**不含搜尋詞** —— PII 不進 URL
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx:298:3
+    296|   });
+    297|
+    298|   it('🔴🔴 畫面上所有 /orders 連結(含分頁與清除)都**不含搜尋詞** —— PII 不進 URL', async ()…
+       |   ^
+    299|     const { container } = await renderPage({ total: 100 });
+    300|     const hrefs = [...container.querySelectorAll('a[href], input[type=…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/10]⎯
+
+ FAIL  |admin| apps/admin/src/app/products/[id]/page.test.tsx > /products/[id] 詳情頁(#20 片1b-1) > 🔴 驗收 1:六個平欄區塊都看得到,料號 / 供應商 / 售價 / 狀態逐欄驗
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/app/products/[id]/page.test.tsx:90:3
+     88|
+     89| describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
+     90|   it('🔴 驗收 1:六個平欄區塊都看得到,料號 / 供應商 / 售價 / 狀態逐欄驗', async () => {
+       |   ^
+     91|     mocks.get.mockResolvedValue(PRODUCT);
+     92|     mocks.taxonomy.mockResolvedValue({ brandName: 'CNC RACING', catego…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/10]⎯
+
+ FAIL  |admin| apps/admin/src/app/products/[id]/page.test.tsx > /products/[id] 詳情頁(#20 片1b-1) > 🔴 MF2:時間欄要釘台北曆面 —— 這格不存在時 MF1(差 8 小時)全綠溜過去
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/app/products/[id]/page.test.tsx:121:3
+    119|   });
+    120|
+    121|   it('🔴 MF2:時間欄要釘台北曆面 —— 這格不存在時 MF1(差 8 小時)全綠溜過去', async () => {
+       |   ^
+    122|     mocks.get.mockResolvedValue(PRODUCT);
+    123|     mocks.taxonomy.mockResolvedValue({ brandName: null, categoryName: …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/10]⎯
+
+ FAIL  |admin| apps/admin/src/app/products/[id]/page.test.tsx > /products/[id] 詳情頁(#20 片1b-1) > 🔴 R2 MF2:執行環境在 UTC 時仍印台北時間(唯一能證明 timeZone 有效的一格)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/app/products/[id]/page.test.tsx:141:3
+    139|   });
+    140|
+    141|   it('🔴 R2 MF2:執行環境在 UTC 時仍印台北時間(唯一能證明 timeZone 有效的一格)', async () => {
+       |   ^
+    142|     // ⚠️ **上一格對「沒釘 timeZone」零判別力,我 R1 折的時候寫反了。**
+    143|     //    `vitest.config.ts:64` 把 `env: { TZ: 'Asia/Taipei' }` 釘死在所有測試上
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/10]⎯
+
+
+ Test Files  5 failed | 510 passed (515)
+      Tests  10 failed | 8552 passed | 2 expected fail | 1 skipped | 1 todo (8566)
+   Start at  16:27:02
+   Duration  140.07s (transform 176.59s, setup 0ms, import 353.29s, tests 370.48s, environment 228.87s)
+
+ ELIFECYCLE  Test failed. See above for more details.
