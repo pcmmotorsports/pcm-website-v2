@@ -168,6 +168,20 @@ ALTER POLICY storefront_public_read ON public.products
 
 ---
 
+## 5-b. 縱深修法規格(內部 grant,LOW,非對外洞但拿掉多餘授權)
+
+**現況(量到的,metadata)**:`net._http_response` / `net.http_request_queue`(RLS=**false**,存 cron 的 `Authorization` 標頭)與 `extensions.pg_stat_statements` / `pg_stat_statements_info`(存查詢文字)對 **anon 與 authenticated 皆 `SELECT=t`**(對照 postgres=t)。
+
+🔴 **它們今天外部打不到,只因 db-schemas 白名單 = `public, graphql_public`(§2)** —— **單一控制在擋**。若日後有人把 `net` 或 `extensions` 加進 db-schemas(為了暴露某個 helper),這四個立刻變外部可讀,而 net.* 那半直接是祕密。同前一任「延遲觸發的坑」(inventory §🟡)。
+
+**縱深修法(第二道獨立控制,施工窗判、動 report repo 需另談、不 db push)**:
+```sql
+REVOKE SELECT ON net._http_response, net.http_request_queue FROM anon, authenticated;
+REVOKE SELECT ON extensions.pg_stat_statements, extensions.pg_stat_statements_info FROM anon, authenticated;
+-- 若 ACL 顯示是經 PUBLIC 授的,對 PUBLIC 也 REVOKE(先查 relacl 再決定)
+```
+⚠️ **安全性**:app 用 pg_net 走 cron(service_role/postgres),**不經 anon/authenticated** ⇒ REVOKE 這兩個角色不影響功能。驗收:REVOKE 後 `has_table_privilege('anon',...)` 全轉 f、service_role 仍 t、cron 排程照跑。**價值=把「外部到不到」從『靠 db-schemas 設定對』升級成『靠授權+設定兩道』。**
+
 ## 6. 口徑再申明
 
 本檔的 `products` / RLS / 欄級數字**全部量自報價單庫**。A 庫經銷價是靠 `price_by_tier` 欄級 `f` 擋的、報價單庫是靠 `dealer_price_v` 獨立 view 沒發給 anon —— **同樣「經銷價安全」,不同機制,結論不互相引用。**
