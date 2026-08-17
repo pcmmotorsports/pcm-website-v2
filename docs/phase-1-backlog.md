@@ -16384,3 +16384,256 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   而那個反射對**真的回歸**也一樣有效 —— ⇒ 有一天真的壞了,第一反應會是重跑,然後它就綠了(換一批格子紅)。
   🔴 **隨機紅真正的成本不是浪費時間,是它讓「紅」這個訊號失去意義。**
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #618`(git ref CAS)。
+
+### #622 · tappay-notify 灌 inbox 路徑仍開著(secret 洩漏 + 真實 order UUID + active attempt)
+
+- **狀態**:這條路**仍開著**。Sean 2026-08-17 裁定丙(IP allowlist)結案不做 —— 逐字「tappay 我沒有 ip 可以索取」;WAF 剩下那半**維持現況**。
+  🔴 **本條不是「已接受風險」,不要那樣讀。** 它記的是「**這條路今天仍然通,成立條件是下面三個同時成立**」。
+  下一個人要**自己判那三條今天成不成立**,不要拿本條當背書 —— 條件會自己變成立,而本條不會自己更新。
+
+- **成立條件(A ∧ B ∧ C,三個都要)**
+  ```
+  A  TAPPAY_NOTIFY_PATH_SECRET 洩漏
+     （路徑動態段。不知道 secret ⇒ 極早退:
+       apps/storefront/src/app/api/checkout/tappay-notify/[secret]/route.ts:121 回 404，
+       零 body 讀 / 零 DB / 零 outbound）
+  B  攻擊者知道一個【真實的】order UUID
+  C  該單目前有 active attempt
+  ```
+  ⇒ 三者缺一,這條路打不通。
+
+- **三個到齊會痛在哪(放大器)**
+  去重鍵是 `rec_trade_id`、**不是 order** ⇒ 同一張單可以用**無限多個不同 `rec_trade_id`** 反覆灌
+  ⇒ inbox 膨脹 + settleCharge/Record 出站放大。🔴 **存在性閘擋不住「同一單、海量不同 rec」。**
+
+- **丁(secret 路徑)只覆蓋一半**:不知道 secret 確實擋掉了,**但函式仍被喚起**
+  (`[secret]` 是動態段 ⇒ 是 handler 內回 404,不是路由層 404)⇒ 它擋的是 body/DB/outbound,**不是喚起本身**。
+
+- **兩份文件結論相反(已知,非疏漏)**
+  `docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md:176` 要【擋】tappay-notify、自稱「唯一 app 前防線」;
+  `docs/security/2026-08-17-vercel-waf-setup-plan-hobby.md` 規則 2 說【永遠不要擋】(擋錯 ⇒ 付了款沒標已付)。
+  ⇒ 兩份都在講錢的正確性。**這是取捨題不是技術題**,已由 Sean 裁「維持現況」。
+
+- **今天嚴重度低的理由,以及它為什麼會過期**
+  Sean 2026-08-17 逐字:「現在沒有正式的訂單,都還沒對外開放使用,所有都是我們自己測試的。」
+  ⇒ 曝露面**是真的**(服務公開可達),但**可被偷走的錢與可被弄壞的真實訂單目前是零**。
+  🔴 **「還沒對外開放」過期的那一天,repo 裡不會有任何東西變紅。** ⇒ 見 `docs/security/2026-08-17-pre-launch-must-close-checklist.md`。
+
+- **不修未來會痛在哪:**
+  三個條件裡有**兩個會自己變成立**:B(真實 order UUID)在有真實訂單之後就存在;C(active attempt)在有人結帳時就存在。
+  ⇒ **三道閘會自己塌成一道**,只剩 A。而 A 是一個 secret —— **secret 的失效是單點、不可預警、事後才知道**。
+  🔴 三道變一道的那一天**不會有公告**,也不會有測試變紅。
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #622`(git ref CAS)+ 信箱佔位掃描(`grep -rn 佔位 ~/pcm-mailbox/*.md`)零命中,兩道閘都跑了。
+
+### #626 · LINE 合成信箱兩份判定式語意不同(子網域)⇒ 真的寄信給不存在的信箱
+
+- **發現**:2026-08-17 E 窗(查 LINE cohort 人數時順手撈到,非專案主線)。**未修,僅記錄。**
+
+- **兩份判定式,語意不同(逐處附行號)**
+  ```
+  packages/schemas/src/notification-email.ts:37   isSyntheticEmailDomain
+    → domain === 'line.pcmmotorsports.local' 【或以 .該域結尾的子網域】(endsWith)
+  packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts:163   isSyntheticEmail
+    → 【只做等值比對，不含子網域】(normalized.slice(at+1) === normalizeForGate(syntheticDomain))
+  ```
+
+- **失敗形狀(🔴 對外不可回收)**
+  一個**子網域**的合成信箱(例:`line_U…@sub.line.pcmmotorsports.local`):
+  ```
+  後台 UI（走 schemas 那份）  → 認成 LINE cohort，顯示「LINE 無 Email」
+  email outbox（走 adapter 那份）→ 認成【真信箱】⇒ status='pending' ⇒ 進 due ⇒ 真的呼 Resend
+  ⇒ 寄一封真信給一個不存在的信箱 ⇒ 退信
+  ```
+  🔴 **退信是對外行為、不可回收**(鐵則 12⑤ 那一類),而**後台畫面同時顯示「這個人沒有 Email」**
+  ⇒ **兩個地方各自自洽,合起來互相矛盾,而沒有任何一邊會報錯。**
+
+- **🔴 而這裡有一句已經被違反的規則,原字抄進來**
+  `packages/schemas/src/notification-email.ts:32-35` 逐字:
+  > 合成網域字串目前已在兩處 hardcode(本檔 + `lib/auth/line.ts`),
+  > **不得再抄第三份;抄了就會在改網域時分岔成「產生規則」與「排斥規則」互不認識。**
+
+  **實查:已經有三份**(數法 `grep -rn "LINE_SYNTHETIC_EMAIL_DOMAIN\s*=" packages apps --include='*.ts'`)
+  ```
+  packages/schemas/src/notification-email.ts:5
+  apps/storefront/src/lib/auth/line.ts:38
+  apps/storefront/src/lib/auth/field-validation.ts:57   ← 第三份
+  ```
+  ⇒ 🔴 **那句註解預言了會發生什麼,然後它就發生了,而註解本身沒有任何執行力。**
+  **這條的價值有一半在這裡:它是「寫下來不等於被執行」的實證** —— 要防它只能靠機制
+  (共用判定式 + 守門測試),不能靠再寫一次更大聲的註解。
+
+- 🔴 **2026-08-17 升級:不是「今天不痛」,是【材料齊了,引爆綁定今天未接通】**(V 窗反向盤點)
+  ```
+  路1 LINE OAuth 產生器 lineSyntheticEmail(auth/line.ts:48)
+      sub 先過 ^U[0-9a-f]{32}$（:42）⇒ 產出永遠精確域、無點無子網域 ⇒ 【產不出】
+  路2 🔴 公開 anon signUp = 活路徑
+      field-validation.ts:100 denylist 用 endsWith('@域') ⇒ 漏子網域
+      customers.email 無任何域 CHECK（init_customers 只有 index）
+      ⇒ 子網域合成信箱【落得了 customers.email】     ⇒ 見 #627（獨立缺口）
+  路3 orders.notification_email：DB CHECK（20260718120000:132-133）
+      NOT LIKE '%.line.pcmmotorsports.local' ⇒ 【擋死】
+  ```
+  🔴 **樞紐 = `email_outbox.recipient_email` 源自哪一欄**,而**現在鎖不死它**:
+  ```
+  enqueue() 全 repo 零 production caller
+    數法:git grep '.enqueue(' apps packages | grep -v test ⇒ 空
+  ⇒ 這條寄信路【今天整個未接通】
+  設計意圖（20260717020000_m4a_email_outbox.sql:28 逐字「LINE 會員 customers.email = 合成假信箱」）
+    強指 recipient = customers.email
+  ⇒ 接通那天若綁 customers.email ⇒ 路2 引爆（本條成立）
+    若綁 notification_email     ⇒ 路3 擋死（本條不成立）
+  ```
+  ⇒ 🔴 **「接通時 `recipient_email` 綁哪一欄」就是本條的開關,那個決定要被明文拍下來。**
+  📄 已寫進 `docs/specs/2026-08-17-line-push-to-customers-feasibility-spec.md`
+
+- 🔴 **四份判定式、三種語意(不是「三份同一種病」)**
+  ```
+  位置                                          判定式                    精確域 子網域 尾點FQDN
+  notification-email.ts:37 isSyntheticEmailDomain  ===域 OR endsWith(.域)    ✅    ✅    ✅
+  adapter:163 isSyntheticEmail                     ===域（等值）             ✅    ❌    ✅
+  field-validation.ts:100 denylist                 endsWith(@域)             ✅    ❌    ❌
+  SQL CHECK 20260718120000:132-133                 <>域 AND NOT LIKE %.域    ✅    ✅    ✅
+  ```
+  🔴 **adapter 與 denylist 都漏子網域,【但方向相反】**:
+  **adapter 漏判 skip = 誤送**;**denylist 漏擋 = 誤准註冊**(⇒ `#627`)。
+  **`field-validation` 那份還多漏尾點 FQDN(四份裡唯一一份)。**
+  🔴 **而那句「不得再抄第三份」的註解只防了「有幾份」,沒有防「這幾份一不一致」** ——
+  **「有 N 份」與「N 份不一致」是兩件事,註解只防了前者。**
+
+- **嚴重度(🔴 降一級,誠實標,不要因為聽起來嚴重就寫成洩密)**
+  ```
+  .local 是 RFC6762 不可公網路由域 ⇒ 送出去 = DNS 無 MX → Resend 退信 → status 卡重試
+  ⇒ 實害 = 寄廢信 + outbox 髒列 + 重試耗損（噪音）
+  ⇒ 【不是】PII 外洩：攻擊者拿不到別人的資料，只能製造退信
+  「對外不可回收」成立（信確實送出去了），但受害的是我們的寄信信譽與 outbox 乾淨度
+  ```
+
+- **不修未來會痛在哪**
+  🔴 **一旦有人加了子網域,痛的當下不會有任何東西變紅**:
+  typecheck 綠、lint 綠、兩邊各自的單測都綠(**因為它們各自測自己那份判定式**)。
+  症狀會出現在**客人那邊**(收到不該收的信 / 客服看到「沒有 Email」卻有退信紀錄),
+  而那時要從退信反推回「兩份判定式語意不同」**非常貴**。
+  ⇒ **修法方向**:adapter 改用 `@pcm/schemas` 的 `isSyntheticEmailDomain`(註解自己講的「共用同一份」),
+  並補一格**跨兩份判定式的一致性測試**(餵子網域,兩邊答案必須相同)。
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #626`(git ref CAS)
+  + 信箱佔位掃描 `grep -rn '佔位' ~/pcm-mailbox/*.md` ⇒ 無 #62x 佔位宣告(掃描範圍僅信箱 .md)。
+
+### #627 · 註冊 denylist 漏子網域與尾點 FQDN ⇒ 可註冊出假的 LINE 會員身分(**今天就存在**)
+
+- **發現**:V 窗實測判定式 + E 窗逐層盤點(2026-08-17)。**與 `#626` 不同根,不要合併。**
+  `#626` 的病是「**兩份判定式不一致 ⇒ 誤送真信**」(要等 outbox 接通才引爆);
+  **本條的病是「denylist 擋不住 ⇒ 誤准註冊」**(**不需要任何東西接通,今天就成立**)。
+
+- **繞過方式**
+  ```
+  以 x@sub.line.pcmmotorsports.local 註冊
+  apps/storefront/src/lib/auth/field-validation.ts:100
+    str(o.email).trim().toLowerCase().endsWith(`@${LINE_SYNTHETIC_EMAIL_DOMAIN}`)
+  'x@sub.line.pcmmotorsports.local'.endsWith('@line.pcmmotorsports.local') ⇒ false  ← 不擋
+  'x@line.pcmmotorsports.local.'  (尾點 FQDN)                              ⇒ false  ← 也不擋
+  ```
+
+- 🔴 **逐層盤點:我掃過的 6 層都不擋(附分母與位置)**
+  ```
+  層1 client 驗證      field-validation.ts:100                ❌ endsWith(@域)，漏子網域＋尾點
+  層2 server 重驗      app/register/actions.ts:47             ❌ 呼叫【同一支】validateRegister
+  層3 zod schema      packages/schemas/src/index.ts:43        ❌ z.email() 只驗格式，無域限制
+  層4 use-case        use-cases/register-customer.ts（18 行）  ❌ 純 pass-through，零 email 處理
+  層5 auth adapter    SupabaseAuthAdapter.ts:39-45            ❌ 純 pass-through 到 supabase.auth.signUp
+  層6 DB             init_customers_and_subtables.sql         ❌ customers.email 無域 CHECK
+                     （該檔 CHECK 全在 addresses/wallet，非 email）
+  ```
+  ⚠️ 🔴 **「我沒找到第二道擋」與「沒有第二道擋」是兩句話。本條寫的是前者。**
+  **我讀不到的第 7 層**:**Supabase Auth 本身的 email domain 限制設定**(在 Sean 的 dashboard)。
+  ⇒ **若那裡有設,本條降級。要有人去看一眼才能定案。**
+  ⚠️ **我方【未實際跑一次註冊】** —— 那是寫入、對外可見(紀律不允許)。
+  上述為**逐層讀 code 的盤點**,不是端到端實證。
+
+- 🔴 **而正確的判定式【本 repo 已經有了】,而且就在隔壁**
+  ```
+  packages/schemas/src/notification-email.ts:55
+    NotificationEmailInput 的 superRefine 用 !isSyntheticEmailDomain(value)
+    ⇒ 那一份【含子網域、含尾點 FQDN】，是四份裡最完整的兩份之一
+  ```
+  ⇒ **同一個 package、隔兩個檔,而註冊路徑沒有用它。**
+  🔴 **這條的價值有一半在這裡:不是「沒人知道怎麼寫對」,是【寫對的那份沒有被接上去】。**
+
+- **失敗形狀(🔴 不是退信,是身分混淆)**
+  ```
+  註冊成功後 customers.email = x@sub.line.pcmmotorsports.local
+  後台客戶列表走 apps/admin/src/lib/customers/customer-list-view.ts:51
+    isSyntheticEmailDomain(email) ? LINE_NO_EMAIL_LABEL : email
+    ⇒ 該判定式【含子網域】⇒ 後台把這個帳號顯示成「LINE 無 Email」
+  ⇒ 一個【用 email/password 註冊的一般帳號】，在後台看起來是【LINE 會員】
+  ```
+  🔴 **員工看到的身分與實際的身分不同**,而 Sean 的北極星是「員工能獨立跑完一天」
+  ⇒ 這會讓員工對這個帳號做出**基於錯誤前提**的處置(例如「他是 LINE 的、沒有 Email、不用寄信」)。
+
+- **嚴重度(誠實標,不誇大)**
+  ```
+  不是   帳號接管 / 資料外洩 / 提權（攻擊者只是拿到一個自己的普通帳號）
+  是     身分顯示混淆 ＋ 汙染「LINE cohort」這個分類的可信度
+  🔴 而 LINE cohort 正在被拿來做決策（送達管道、推播規格）
+     ⇒ 一個【可被外人任意灌入】的分類，不能拿來當那些決策的分母
+  ```
+
+- **不修未來會痛在哪**
+  今天沒有真實客戶 ⇒ 沒人在看那個列表。上線後:**這個分類會被用來決定「誰要用 LINE 推播、誰寄 Email」**,
+  而它可以被任何訪客從外面灌入。🔴 **而灌入的當下不會有任何東西變紅** —— 註冊成功、驗證全過、
+  後台顯示得「很正常」(正常到剛好是錯的那一種)。
+
+- **修法方向(一行講完)**
+  **註冊路徑改用 `isSyntheticEmailDomain`**(`notification-email.ts:37`,已含子網域與尾點),
+  **不要再寫第五份判定式**;並補一格**跨判定式一致性測試**(見 `#626`)。
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #627`(git ref CAS)
+  + `grep -rn '佔位' ~/pcm-mailbox/*.md` ⇒ 無 #62x 佔位宣告(掃描範圍僅信箱 .md)。
+
+### #628 · brands/categories 的 REVOKE 未涵蓋 MAINTAIN(2026-06-05 寫於 repo 認識 MAINTAIN 之前)
+
+- **優先度**:🔴 **低** —— 併進 `E683-1` 那條線一起收(同一支 migration 加兩行),**不另開高優先項**。
+- **發現**:2026-08-17 E 窗,查「含 `CREATE TABLE` 而零 `REVOKE`」那 2 支檔時的下游發現。
+
+- **位置(逐字)**
+  ```
+  supabase/migrations/20260605120000_audit_revoke_overgrant_brands_categories.sql:65-66
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.brands     FROM anon, authenticated;
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.categories FROM anon, authenticated;
+            ^^^^^^ 六項。SELECT 刻意留著（公開目錄，正確）。而【沒有 MAINTAIN】。
+  ```
+
+- 🔴 **為什麼確定它是「當時不知道」而不是「刻意不收」—— 有日期可證**
+  ```
+  git grep -cn MAINTAIN -- supabase/migrations ⇒ 命中 9 檔，最早 20260730150000
+  正向對照:TRUNCATE 命中 38 檔（量具是活的）
+  ⇒ repo 對 MAINTAIN 的認知出現在 2026-07-30 之後
+  ⇒ 而這支寫於 2026-06-05 ⇒ 早於認知
+  ```
+  📎 **這個量法可重用**:任何「我們後來才知道要防 X」的東西,
+  都可以用「**這個 repo 什麼時候第一次出現 X 這個字**」去找出它之前寫的東西。
+
+- **口徑(🔴 不要升級成已確認)**
+  ```
+  已知(code 層) 那支 REVOKE 未涵蓋 MAINTAIN
+  未知(DB 層)   當初預設授權有沒有給 MAINTAIN、之後有沒有被別的動作收掉 ⇒ 【未確認】
+  缺的檢查      SELECT has_table_privilege('anon','public.brands','MAINTAIN');      -- 及 categories
+                （權限面 metadata，非業務表列;但我方無可連線憑證 ⇒ 未跑）
+  ```
+
+- **影響(不放大)**
+  ```
+  MAINTAIN 能做:VACUUM / ANALYZE / REINDEX / CLUSTER / REFRESH MAT VIEW / LOCK TABLE
+  ⇒ 🔴 不讀寫資料、不洩漏任何一列 ⇒ 【不是資料外洩】
+  ⇒ 是資源面:若真能下 LOCK TABLE / REINDEX ⇒ 服務中斷
+  ⇒ 而 anon 要到得了那個位置得先經過 PostgREST（不提供這些語句的入口）
+  ⇒ 我方判斷:實際可利用性【低】
+  🔴 但「低可利用性」與「不該存在的殘留授權」是兩件事，本條記的是後者
+  ```
+
+- **不修未來會痛在哪**:它是一個**沉默的殘留** —— 三綠不紅、`grep` 找不到(因為問題是**沒寫的那個字**)、
+  而 `E-684` 樣板當時也漏列 `MAINTAIN`(見 `~/pcm-mailbox/E-702`)⇒ **守門與被守的東西漏的是同一項**。
+  🔴 **修法一行,不記會忘。**
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #628`(git ref CAS)+ 信箱佔位掃描零命中。
