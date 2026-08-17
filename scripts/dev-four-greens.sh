@@ -49,6 +49,10 @@ four_greens() {
   echo "時點    : $(date '+%Y-%m-%d %H:%M:%S %Z')"
 
   tc=0; li=0; bu=0; vi=0
+  # ⚠️ 用 `env` 起頭而不是 `TURBO_FORCE=1 one …`:POSIX 對「賦值前綴掛在【函式】呼叫上」
+  #    是否只在該次呼叫生效【未規定】,各家 shell 不同 ⇒ 可能洩到後面的 vitest 那行。
+  #    代價=run-rc.sh 印 rc 那行的標籤會寫 `env` 而不是 `pnpm typecheck`(它取 $1)。
+  #    ⇒ 標籤問題留著,真命令寫在上面那個 label 裡;寧可標籤醜,不要語意未定義。
   one 'typecheck  (TURBO_FORCE=1 pnpm typecheck)' env TURBO_FORCE=1 pnpm typecheck || tc=$?
   one 'lint       (TURBO_FORCE=1 pnpm lint)'      env TURBO_FORCE=1 pnpm lint      || li=$?
   one 'build      (TURBO_FORCE=1 pnpm build)'     env TURBO_FORCE=1 pnpm build     || bu=$?
@@ -57,28 +61,50 @@ four_greens() {
   echo
   echo "════════ 總表(這四個 rc 各屬各自的命令)════════"
   printf 'typecheck rc=%s\nlint      rc=%s\nbuild     rc=%s\nvitest    rc=%s\n' "$tc" "$li" "$bu" "$vi"
-  echo "🔴 上面每一項的 \`Cached:\` 行請自己看，本腳本不替你下結論。"
-  [ "$tc" = 0 ] && [ "$li" = 0 ] && [ "$bu" = 0 ] && [ "$vi" = 0 ]
+  echo "🔴 上面每一項的 \`Cached:\` 行請自己看,本腳本不替你下結論。"
+  verdict "$tc" "$li" "$bu" "$vi"
 }
 
-# 🔴 這支唯一會出錯的地方是「`|| rc=$?` 把失敗吃掉」——
-#    吃掉之後它會在四項有紅時印一張全 0 的總表,而那正是最貴的那種假綠。
+# 四項全 0 才回 0。抽成函式【只為了讓 selftest 餵得到它】——
+# 它原本是 four_greens 裡的一行 inline 判定,而 inline 的東西測不到。
+verdict() {
+  [ "$1" = 0 ] && [ "$2" = 0 ] && [ "$3" = 0 ] && [ "$4" = 0 ]
+}
+
+# 🔴 這支會出錯的地方有兩個(2026-08-17 code-reviewer 實測補上第二個;
+#    ~~原本寫「唯一會出錯的地方是 || rc=$? 把失敗吃掉」~~ —— 那句被突變測試推翻):
+#      ① one() 沒把非 0 rc 傳回來 ⇒ 四項有紅卻印一張全 0 的總表
+#      ② verdict() 壞掉        ⇒ 總表【照印 rc=1、看起來完全正常】而腳本 rc=0
+#         ⇒ 呼叫端寫 `sh scripts/dev-four-greens.sh && git merge …` 會在紅的時候放行
+#    ②比①毒:①的假綠印在臉上,②的假綠只存在於 exit code 裡,人眼看不到。
 selftest() {
   pass=0; fail=0
   ck() { if [ "$2" = "$3" ]; then pass=$((pass+1)); printf 'PASS  %s\n' "$1";
          else fail=$((fail+1)); printf 'FAIL  %s  得到「%s」預期「%s」\n' "$1" "$2" "$3"; fi; }
 
+  # 🔴 呼叫端的變數【不能叫 rc】—— POSIX sh 沒有 local,one() 內部的 rc 是同一個全域。
+  #    叫 rc 的話:刪掉 one() 的 `return "$rc"` ⇒ 格1 讀回的是 one() 自己剛寫進去的 13
+  #    ⇒ 恆綠。這正是 code-reviewer 2026-08-17 用單行突變打出來的洞。
   # 格1 [負測]:one() 必須把被跑命令的非 0 rc 傳回來,不得吞掉
-  rc=0; one '自測-必失敗' sh -c 'exit 13' >/dev/null 2>&1 || rc=$?
-  ck "格1 one() 透傳失敗 rc" "$rc" "13"
+  got=0; one '自測-必失敗' sh -c 'exit 13' >/dev/null 2>&1 || got=$?
+  ck "格1 one() 透傳失敗 rc" "$got" "13"
 
   # 格2 [正測]:成功時要回 0(否則格1 可能只是「永遠非 0」)
-  rc=0; one '自測-必成功' true >/dev/null 2>&1 || rc=$?
-  ck "格2 one() 成功回 0" "$rc" "0"
+  got=0; one '自測-必成功' true >/dev/null 2>&1 || got=$?
+  ck "格2 one() 成功回 0" "$got" "0"
 
-  # 格3:run-rc.sh 得在,否則整支是空跑
+  # 格3 [負測]:verdict() 只要有一項非 0 就必須非 0 —— 守的是「總表好看而 exit code 說謊」
+  got=0; verdict 0 0 0 1 || got=$?
+  [ "$got" != 0 ] && r=nonzero || r=zero
+  ck "格3 verdict(0 0 0 1) 非 0" "$r" "nonzero"
+
+  # 格4 [正測]:四項全 0 才回 0(否則格3 可能只是「永遠非 0」)
+  got=0; verdict 0 0 0 0 || got=$?
+  ck "格4 verdict(0 0 0 0) 回 0" "$got" "0"
+
+  # 格5:run-rc.sh 得在,否則整支是空跑
   [ -f "$RUNRC" ] && r=yes || r=no
-  ck "格3 依賴的 $RUNRC 存在" "$r" "yes"
+  ck "格5 依賴的 $RUNRC 存在" "$r" "yes"
 
   printf '\n合計  PASS=%s  FAIL=%s\n' "$pass" "$fail"
   [ "$fail" = "0" ]
