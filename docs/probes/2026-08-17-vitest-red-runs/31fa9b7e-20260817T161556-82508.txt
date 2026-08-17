@@ -1,0 +1,400 @@
+
+> pcm-website-v2@0.0.0 test /Users/sean_1/pcm-website-v2
+> vitest run
+
+
+ RUN  v4.1.5 /Users/sean_1/pcm-website-v2
+
+ ❯ |admin| apps/admin/src/lib/shipping/order-shipments.test.ts (16 tests | 16 failed) 13631ms
+     × 🔴 超過自夾上限 → 回 `null`,不是回一份少了東西的清單 5070ms
+     × 🔴 正向對照:剛好等於上限(沒有第 N+1 筆)⇒ 正常回,不誤擋 5048ms
+     × 🔴 作廢的箱**仍然列出來**(作廢=貨回到可出貨池,不是消失) 3383ms
+     × 同一箱裝多件 → 收斂成一組;不同箱 → 分開 7ms
+     × 🔴 查不到箱的品項跳過(不吐沒有箱資訊的空殼列) 9ms
+     × 品名由呼叫端的對照表帶入(資料層不碰 detail、更不碰金額) 3ms
+     × 沒有品項 / 沒有出貨紀錄 → 空陣列,且不打第二次查詢 19ms
+     × 🔴 沒裝任何品項的未出貨箱 → 列出來(這正是出貨卡看不到的那種箱) 2ms
+     × 🔴 裝了東西的箱**不算空箱**(那種箱出貨卡本來就看得到,重複列只會混淆) 12ms
+     × 🔴 已出貨的箱不算(它不是待收尾的問題) 1ms
+     × 🔴 已作廢的箱不算(那是**已經處理過**的,再列一次等於叫他重做) 1ms
+     × 🔴 查不到這張單的客人 → 一個都不列,而且回 `null`(算不出來 ≠ 沒有空箱) 0ms
+     × 沒有未出貨的箱 → 不去查品項(少打一次沒有意義的 DB) 2ms
+     × 🔴 混合:同一位客人的空箱與有貨箱並存時,只吐空的那個 0ms
+     × 🔴 品項清單回傳超過自夾上限 → 一個箱都不列,回 `null`(fail-closed 且講得出來) 1ms
+     × 剛好等於上限(沒有第 N+1 筆)⇒ 正常算,不誤擋 0ms
+ ❯ |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx (21 tests | 2 failed) 17646ms
+     × 🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串) 5182ms
+     × 🔴 cookie 的搜尋詞真的餵進 repository 的 filter 4612ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onContinueShopping (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CheckoutView.tsx:269:35)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at handleVehicleNavigate (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/ProductBreadcrumb.tsx:144:5)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at goContinue (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CartView.tsx:88:28)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at Timeout._onTimeout (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:80:7)
+    at listOnTimeout (node:internal/timers:585:17)
+    at processTimers (node:internal/timers:521:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 18 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx > #347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、URL 帶不走** > 🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx:280:3
+    278|   };
+    279|
+    280|   it('🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串)', async () =…
+       |   ^
+    281|     // code-reviewer(2026-08-10)擊破:`cookieGet` 對**任何** key 都回同一個值,
+    282|     // 而全檔沒有一條斷言 key ⇒ 把 page 的 `get(ORDER_KEYWORD_COOKIE)` 改成別的字串,16 …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx > #347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、URL 帶不走** > 🔴 cookie 的搜尋詞真的餵進 repository 的 filter
+AssertionError: expected "vi.fn()" to be called 1 times, but got 2 times
+ ❯ apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx:291:46
+    289|     await renderPage();
+    290|     // 突變:page 不把 cookie 合進 filter ⇒ 這格紅(而畫面上完全看不出差別:列表只是變成全部訂單)。
+    291|     expect(mocks.listOrderSummariesForAdmin).toHaveBeenCalledTimes(1);
+       |                                              ^
+    292|     expect(mocks.listOrderSummariesForAdmin.mock.calls[0]![0]).toMatch…
+    293|       keyword: KEYWORD,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 🔴 出貨卡資料源:箱品項清單被截斷 ⇒ fail-closed 回 `null`(2026-08-16 codex 關卡1 ⑧) > 🔴 超過自夾上限 → 回 `null`,不是回一份少了東西的清單
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:86:3
+     84|   //    ⇒ 與同檔 `loadEmptyShipments` 那族**同一個約定、同一個常數**,不自創第二套。
+     85|
+     86|   it('🔴 超過自夾上限 → 回 `null`,不是回一份少了東西的清單', async () => {
+       |   ^
+     87|     const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repo…
+     88|     // 🔴 數量從 repository 的常數推,**不抄字面** —— 抄字面的話常數改了這格不會紅。
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 🔴 出貨卡資料源:箱品項清單被截斷 ⇒ fail-closed 回 `null`(2026-08-16 codex 關卡1 ⑧) > 🔴 正向對照:剛好等於上限(沒有第 N+1 筆)⇒ 正常回,不誤擋
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:106:3
+    104|   });
+    105|
+    106|   it('🔴 正向對照:剛好等於上限(沒有第 N+1 筆)⇒ 正常回,不誤擋', async () => {
+       |   ^
+    107|     // 沒有這一格的話,把判定寫成 `>=` 會讓上一格照樣綠,而合法操作被誤擋。
+    108|     const { SHIPMENT_ITEM_ROWS_LIMIT } = await import('./shipment-repo…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 出貨卡資料源 > 🔴 作廢的箱**仍然列出來**(作廢=貨回到可出貨池,不是消失)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listShipmentItemsByOrderItemIds apps/admin/src/lib/shipping/shipment-repository.ts:505:33
+ ❯ loadOrderShipments apps/admin/src/lib/shipping/order-shipments.ts:42:23
+ ❯ loadOk apps/admin/src/lib/shipping/order-shipments.test.ts:73:19
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:127:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 出貨卡資料源 > 同一箱裝多件 → 收斂成一組;不同箱 → 分開
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listShipmentItemsByOrderItemIds apps/admin/src/lib/shipping/shipment-repository.ts:505:33
+ ❯ loadOrderShipments apps/admin/src/lib/shipping/order-shipments.ts:42:23
+ ❯ loadOk apps/admin/src/lib/shipping/order-shipments.test.ts:73:19
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:139:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 出貨卡資料源 > 🔴 查不到箱的品項跳過(不吐沒有箱資訊的空殼列)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listShipmentItemsByOrderItemIds apps/admin/src/lib/shipping/shipment-repository.ts:505:33
+ ❯ loadOrderShipments apps/admin/src/lib/shipping/order-shipments.ts:42:23
+ ❯ loadOk apps/admin/src/lib/shipping/order-shipments.test.ts:73:19
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:150:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 出貨卡資料源 > 品名由呼叫端的對照表帶入(資料層不碰 detail、更不碰金額)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listShipmentItemsByOrderItemIds apps/admin/src/lib/shipping/shipment-repository.ts:505:33
+ ❯ loadOrderShipments apps/admin/src/lib/shipping/order-shipments.ts:42:23
+ ❯ loadOk apps/admin/src/lib/shipping/order-shipments.test.ts:73:19
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:157:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > 出貨卡資料源 > 沒有品項 / 沒有出貨紀錄 → 空陣列,且不打第二次查詢
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listShipmentItemsByOrderItemIds apps/admin/src/lib/shipping/shipment-repository.ts:505:33
+ ❯ loadOrderShipments apps/admin/src/lib/shipping/order-shipments.ts:42:23
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:167:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 🔴 沒裝任何品項的未出貨箱 → 列出來(這正是出貨卡看不到的那種箱)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:185:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 🔴 裝了東西的箱**不算空箱**(那種箱出貨卡本來就看得到,重複列只會混淆)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:196:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 🔴 已出貨的箱不算(它不是待收尾的問題)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:204:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 🔴 已作廢的箱不算(那是**已經處理過**的,再列一次等於叫他重做)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:215:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 🔴 查不到這張單的客人 → 一個都不列,而且回 `null`(算不出來 ≠ 沒有空箱)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:225:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 沒有未出貨的箱 → 不去查品項(少打一次沒有意義的 DB)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:235:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 🔴 混合:同一位客人的空箱與有貨箱並存時,只吐空的那個
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:249:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 🔴 品項清單回傳超過自夾上限 → 一個箱都不列,回 `null`(fail-closed 且講得出來)
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:271:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/18]⎯
+
+ FAIL  |admin| apps/admin/src/lib/shipping/order-shipments.test.ts > #351④ loadEmptyShipments — 這位客人還沒收尾的空箱 > 剛好等於上限(沒有第 N+1 筆)⇒ 正常算,不誤擋
+Error: NEXT_PUBLIC_SUPABASE_URL not set
+ ❯ requireEnv packages/adapters/src/supabase/client.ts:28:11
+     26|   const value = process.env[name];
+     27|   if (!value) {
+     28|     throw new Error(`${name} not set`);
+       |           ^
+     29|   }
+     30|   return value;
+ ❯ createSupabaseServiceClient packages/adapters/src/supabase/client.ts:62:5
+ ❯ listOrderCustomerUserIds apps/admin/src/lib/shipping/shipment-repository.ts:372:33
+ ❯ loadEmptyShipments apps/admin/src/lib/shipping/order-shipments.ts:111:25
+ ❯ apps/admin/src/lib/shipping/order-shipments.test.ts:294:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/18]⎯
+
+
+ Test Files  2 failed | 512 passed (514)
+      Tests  18 failed | 8534 passed | 2 expected fail | 1 skipped | 1 todo (8556)
+   Start at  16:17:47
+   Duration  102.52s (transform 132.66s, setup 0ms, import 258.10s, tests 305.39s, environment 180.29s)
+
+ ELIFECYCLE  Test failed. See above for more details.
