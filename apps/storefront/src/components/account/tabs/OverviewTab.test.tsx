@@ -47,6 +47,7 @@ const SAMPLE_RECENT: OrderListItem[] = [
     fulfillmentStatus: 'shipped',
     total: { amount: toMoneyAmount(12345), currency: 'TWD' },
     itemCount: 3,
+    itemCountTruncated: false,
   },
 ];
 

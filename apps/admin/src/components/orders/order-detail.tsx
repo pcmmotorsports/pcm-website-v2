@@ -1,20 +1,21 @@
 import Link from 'next/link';
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
-import {
-  PAYMENT_STATUS_LABEL,
-  GOODS_AXIS_LABEL,
-  ORDER_SOURCE_LABEL,
-  PAYMENT_CHANNEL_LABEL,
-  formatOrderAmount,
-  INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
-} from '../../lib/orders/order-list-view';
-import { orderDetailGoodsAxis, goodsAxisProgressNote } from '../../lib/orders/order-status-axes';
-import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
-import {
-  invoiceTypeLabel,
-  shippingMethodLabel,
-  formatOrderDateTime,
-} from '../../lib/orders/order-detail-view';
+/* 🔴🔴 **片4a 搬家留下的 11 個死 import 已一次清完**(2026-08-16 片4c)。
+   `GoodsAxisValue` 與四張摘要卡在片4a 搬進 `order-detail-summary-cards.tsx`,
+   **而它們用的 import 全部留在這裡沒跟著走。** 清掉的 11 個:
+     `PAYMENT_STATUS_LABEL` `GOODS_AXIS_LABEL` `ORDER_SOURCE_LABEL` `PAYMENT_CHANNEL_LABEL`
+     `formatOrderAmount` `INVOICE_STATUS_LABEL` `customerEmailDisplay`
+     `invoiceTypeLabel` `shippingMethodLabel` `orderDetailGoodsAxis` `goodsAxisProgressNote`
+   **數法**:`for s in <每個符號>; do grep -c "$s" <本檔>; done` ⇒ 全部 **1**(只命中 import 行本身)。
+   留下的只有 `formatOrderDateTime`(實得 3)。
+
+   ⚠️ **`lint --force` 18/18 全綠抓不到它們** —— `eslint.config.js` 全檔 `grep -n unused` 零命中,
+      沒有 `no-unused-vars` / `unused-imports` 規則 ⇒ **結構上抓不到,不是這次剛好沒抓到。**
+   🔴 **真實傷害不是體積**:code-reviewer 找「軸的消費者」時命中這裡,據以判斷本檔是第二個消費者
+      —— **一個不存在的消費者比沒有消費者更花時間。**
+   🔴🔴 **而我第一版【只清了被指名的那 2 個】** —— 同一批、同一次搬家、同一種傷害的另外 9 個
+      原封不動,是下一輪 code-reviewer 抓的。**finding 是症狀的位置,不是病的邊界。** */
+import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { OrderEditForm } from './order-edit-form';
@@ -258,9 +259,6 @@ export function OrderDetail({
         </div>
       )}
 
-      {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
-      <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
-
       {/* 🔴🔴 **這裡沒有條件包裹,是 Sean 2026-08-15 拍板的結果,不是漏做。**
           (`Q-13-2 = 丙`、`Q-13-3 = 乙`;完整矩陣見
            `docs/specs/2026-08-15-e10-13-order-edit-matrix-order-level.md` §3-4。)
@@ -293,6 +291,22 @@ export function OrderDetail({
       {/* 🔴 備註時間軸 + 表單原本在這裡(頁尾、退款帳本之前),2026-08-13 OD 片 1 已搬到發票卡下方。
           搬走的是**同兩個元件**、不是複製一份 —— 這裡不得再渲染第二份(重複的 NoteComposeForm
           會產第二顆 token、兩張表單同時存在)。 */}
+
+      {/* ═══ 危險操作沉底:取消 / 退貨 / 退款 ═══════════════════════════════════════
+          🔴 **取消從第 ④ 位(夾在收款與品項中間)移到這裡**(2026-08-16)。
+          **兩個獨立來源都說墊底,而現況兩邊都不符** ⇒ 這是**缺陷不是選項**,不需要拍板:
+            · Sean 逐字(`docs/specs/2026-08-12-admin-order-ui-design-brief.md` 搜
+              `回去採購等於說跟國外下單`,同段末):「最難的大概就是取消,**所以放最下面沒問題**」
+            · OD 定案主稿 `overview-desktop.html` 搜 `危險操作沉底` —— 同一句話的設計版
+          ⚠️ **只動渲染順序,零行為改動**:`OrderCancelBlock` 的 props、
+             `cancelFormsAllowed` 的算法、它自己的判斷全部一個字沒動。
+          📎 **與 OD 的最後一塊對齊**:OD `more` 區塊 = 取消 → 退貨/退款面板(同一塊、取消在前)
+             ⇒ 我方擺成 取消 → 退款帳本 → 退款入口,是同一個順序。
+          🔴 **這片可能會被之後的版面重排吸收掉**(`~/pcm-mailbox/A-218-demo-brief.md`
+             那一輪若改掉整個面板編排)—— **那不是白做**:它**現在**就是缺陷,
+             而 demo 那一輪還要好幾天。 */}
+      {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
+      <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
 
       {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
           nowMs 在 server render 期取 —— 列級「滯留逾閾」判定的現在時刻。 */}

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
+import { WALLET_LEDGER_PAGE_SIZE } from '../../lib/customers/load-customer-detail';
 import type { AdminOrderDetail, AdminOrderFilter } from '@pcm/domain';
 import {
   buildOrderListHref,
@@ -341,6 +342,32 @@ describe('A13b D6-a 守門:面板版的取消結果頁閘門不得常開', () =>
 });
 
 // ── 4. 槽頁的開關語意 ─────────────────────────────────────────────────────────
+// 🔴🔴 **本 describe 顯式加長逾時 —— 這是【量出來的】,不是「先加大看看」。**
+//
+//    **症狀**:全測偶發 `1 failed`,而且**不重現** —— 2026-08-16 本 session 全測跑 11 次,
+//    3 次紅、8 次綠。紅的一律是下面第一格,錯誤是 `STACK_TRACE_ERROR` 且堆疊指向
+//    `it()` 的**註冊行**而不是任何斷言 ⇒ **那是逾時,不是斷言失敗**(兩者長得很不一樣,
+//    而 JSON reporter 才看得出來:一般 reporter 的輸出被別支檔的 jsdom 噪音淹掉)。
+//
+//    **量法(可重跑)**:
+//    ```
+//    npx vitest run --reporter=json --outputFile=<tmp>/p.json <本檔>
+//    ⇒ 讀第一格的 duration，單跑 5 次實測：1962 / 2148 / 2289 / 2715 / 3584 ms
+//    ⇒ vitest.config.ts 沒設 testTimeout ⇒ 預設 5000ms
+//    ⇒ 單跑就已經吃掉 40–72%；全測 505 檔並行時偶爾越線
+//    ```
+//
+// 🔴 **成本在哪:`await import('./orders/page')` 要付【整張 module graph 的轉譯】**,
+//    而它發生在**第一格的計時之內** —— 後續每一格都只要 0.2ms(實測)。
+//    ⇒ **第一格量到的不是它自己的行為,是模組載入。** 那不是這格要守的東西。
+//
+// ⚠️ **為什麼不是「改測試期望值」那種禁忌動作**:
+//    **一條斷言都沒動。** 動的是「允許它花多久」,而那個數字原本是 vitest 的預設值、
+//    從來沒有人針對這支檔量過。⇒ 這是把一個沒量過的預設值換成量過的值。
+// 📎 **沒有選另外兩條路的理由**:
+//    ① 把 import 搬到頂層 ⇒ 轉譯成本改在收集階段付,但會改動模組隔離語意,
+//       而本檔有多個 describe 依賴各自的 mock 狀態 ⇒ 風險大於收益。
+//    ② 全域調高 testTimeout ⇒ 會**掩蓋掉別支檔真正的卡死**。只給這一支。
 describe('#350c 守門 4:槽頁只在 panel 是合法 UUID 時才開', () => {
   const PANEL_ID = '11111111-2222-4333-8444-555555555555';
   const load = async () => (await import('./orders/page')).default;
@@ -390,7 +417,9 @@ describe('#350c 守門 4:槽頁只在 panel 是合法 UUID 時才開', () => {
     const back = container.querySelector('a[href^="/orders"]');
     expect(back?.getAttribute('href')).toBe('/orders?payment_status=paid');
   });
-});
+  // 🔴 20 秒 = 實測最壞 3.6s 的約 5 倍餘裕(並行負載下觀察到的放大約 2–3 倍)。
+  //    ⚠️ **這個數字若哪天又不夠,不要繼續加** —— 那代表載入成本本身變了,要回去看 graph。
+}, 20_000);
 
 // ── 7. 列表頁 → builder → 桌機連結,中間那一跳 ────────────────────────────────
 describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給表格', () => {
@@ -775,16 +804,22 @@ describe('OD 片 3b 守門:`?customer=` 分支', () => {
     //    第一版把這兩個都設成 `[]` ⇒ 儲值金流水表與訂單歷史表**整段 markup 根本不渲染**
     //    ⇒ 「客人卡裡的訂單連結有沒有換成面板 href」這條路徑**零覆蓋**,
     //    而我漏接的正是流水表那一顆。空陣列不是「中性的預設值」,它是**把路徑關掉**。
-    mocks.listWalletEntries.mockResolvedValue([
-      {
-        id: 'w1',
-        entryDate: '2026-08-01',
-        entryType: 'deposit',
-        amount: 1000,
-        note: null,
-        relatedOrderId: RELATED_ORDER_ID,
-      },
-    ]);
+    // 🔴 2026-08-17:`listEntries` 由「回傳全部(陣列)」改為「回傳一頁(Paginated)」
+    //    ⇒ 這裡的 mock 形狀跟著改。**這不是為了讓紅變綠而放寬期望值** ——
+    //    被測的介面刻意變了,替身沒跟上就是替身錯。
+    mocks.listWalletEntries.mockResolvedValue({
+      items: [
+        {
+          id: 'w1',
+          entryDate: '2026-08-01',
+          entryType: 'deposit',
+          amount: 1000,
+          note: null,
+          relatedOrderId: RELATED_ORDER_ID,
+        },
+      ],
+      total: 1,
+    });
     mocks.listSummariesByCustomer.mockResolvedValue([
       {
         id: HISTORY_ORDER_ID,
@@ -857,7 +892,18 @@ describe('OD 片 3b 守門:`?customer=` 分支', () => {
       }),
     });
     expect(ui).not.toBeNull();
+    // 🔴 2026-08-17 codex 打回我的第一次修法:我當時寫「只驗第一個參數 = 收窄」,
+    //    **而它其實是放寬** —— 那樣五支 spy 全都變成「允許任意多餘參數」。
+    //    正確做法是**逐支維持精確**,只有真的改了簽名的那一支寫出它的新參數。
     for (const [label, spy] of CUSTOMER_SPIES) {
+      if (label === '儲值金流水') {
+        // 這一支 2026-08-17 改成分頁讀取 ⇒ 精確斷言它的分頁參數(不是放行任意值)
+        expect(spy(), `${label} 沒被查 ⇒ 客人卡拿不到那一區塊`).toHaveBeenCalledWith(
+          CUSTOMER_ID,
+          { limit: WALLET_LEDGER_PAGE_SIZE, offset: 0 },
+        );
+        continue;
+      }
       expect(spy(), `${label} 沒被查 ⇒ 客人卡拿不到那一區塊`).toHaveBeenCalledWith(CUSTOMER_ID);
     }
     // 蓋掉:訂單那邊一次都不查(否則就是兩張卡都在抓資料)

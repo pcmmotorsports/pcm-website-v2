@@ -35,11 +35,17 @@ export type OrderShipmentGroup = {
  */
 export async function loadOrderShipments(
   titleByItemId: ReadonlyMap<string, string | null>,
-): Promise<OrderShipmentGroup[]> {
+): Promise<OrderShipmentGroup[] | null> {
   const ids = [...titleByItemId.keys()];
   if (ids.length === 0) return [];
 
   const items = await listShipmentItemsByOrderItemIds(ids);
+  // 🔴🔴 **`null` = 這批【可能不完整】,不是「沒有箱」**(2026-08-16 補;codex 關卡1 finding ⑧)。
+  //    截斷時回的是**非空但不完整**的一包 ⇒ 若照常往下走,出貨單會**少列品項**、
+  //    而金額接上去之後**本次小計偏低** —— **而紙看起來完全正常。少報沒有人會發現。**
+  //    ⇒ fail-closed,與本檔 `loadEmptyShipments`(錨點 `> SHIPMENT_ITEM_ROWS_LIMIT`)同一個約定,
+  //      **不自創第二種訊號**。呼叫端要把 `null` 與 `[]` 分開處理(兩者意思完全不同)。
+  if (items.length > SHIPMENT_ITEM_ROWS_LIMIT) return null;
   if (items.length === 0) return [];
 
   const shipments = await listShipmentsByIds([...new Set(items.map((i) => i.shipmentId))]);

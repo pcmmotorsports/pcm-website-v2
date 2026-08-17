@@ -14236,6 +14236,97 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 - **關閉條件:** (a)(b) 有書面結論寫回 ADR-0005 §8.4,且 (c) 那格**用突變驗過會紅**(新增第五道 disable ⇒ 必須失敗)。
 - **相關:** `docs/decisions/0005-custom-supabase-direct.md` §8.4;`docs/patterns/revoking-function-execute-in-supabase.md`;`#545`;`#546`;`#547`
 
+### #555 · `listAssignedQuantitiesByOrderItemIds` 無截斷訊號 —— 截斷會讓**同一件被裝進第二個箱**
+
+> ✅ **號碼已跑兩道閘**(2026-08-17 I 窗):
+> ① `sh scripts/next-backlog-number.sh` ⇒ 三層(主樹 `553` / 12 worktree `554` / 37 ref `553`)
+> 取最大 `554` ⇒ 下一個可用 `#555`(**`#554` 是 B 窗 `00:2x` 剛立的,主視窗當場告知**);
+> ② `grep -rn '#55[5-9]' ~/pcm-mailbox/*.md` ⇒ **零命中**。
+> 🔴 **那個零附正向對照與分母**:同一支 grep 換 `#55[0-4]` ⇒ **2 個檔命中**、
+> 分母 `ls ~/pcm-mailbox/*.md | wc -l` ⇒ **2957 檔** ⇒ 那個 0 是量出來的,不是 pattern 沒對上。
+
+- **狀態:** 未開工。**來源 = C 窗**(出貨單線),它在 `C-214-STOP.md` §4① 指名要開而**它沒有號可用**
+  ⇒ **I 窗搬運立案**。📎 **搬運者不是判斷者** —— 下面的事實與判斷都是 C 窗的。
+- **分流:** `P1` · **優先級:** 🟠 中高(**會產生錯的出貨,而畫面完全正常**)
+
+#### 事實(I 窗開原始檔核過,不是採信轉述)
+
+```
+apps/admin/src/lib/shipping/shipment-repository.ts:336   該函式本體：無 limit、無截斷訊號
+同檔 :511                                                 另一支 listShipmentItemsByOrderItemIds
+                                                          有 .limit(SHIPMENT_ITEM_ROWS_LIMIT + 1)
+同檔 :329-334                                             C 窗已把這件寫進該函式自己的 docstring
+```
+⇒ **同一支檔裡,兩支查同一張表的函式,一支有守一支沒有。**
+
+#### 為什麼這支比另一支嚴重(C 窗的判斷,原樣帶)
+
+- **它的輸入基數比同檔另外兩支【都大】** —— 是「N 張訂單的品項集合」,出處 `shipment-candidates.ts:68`。
+  ⚠️ **「比另外兩支都大」是 C 窗的判斷,I 窗未自己量**(要量的話:三支的呼叫端各自餵進去的 id 數,
+  數法 `grep -rn 'listAssignedQuantitiesByOrderItemIds\|listShipmentItemsByOrderItemIds' apps/admin/src --include='*.ts' | grep -v test`)
+  ⇒ **引用時要帶這個限定。**
+- 截斷 ⇒ `already`(已配箱數)**少算** ⇒ **已裝箱的品項顯示成還可以出** ⇒ **同一件被裝進第二個箱**。
+- 🔴 **那正是這支函式上方那段 docstring 拚命要擋的那件事** —— 守門與它要守的東西寫在同一段,而它沒有守。
+
+#### 為什麼 C 窗沒有在那一片修(它自己寫的理由)
+
+修它**要連呼叫端(建箱彈窗候選流程)一起 fail-closed**,那是另一條動線、另一片。
+🔴 **「登記」不等於「處置完畢」** —— 這條就是那個登記。
+
+#### 不修未來會痛在哪(鐵則 10,不寫「待 Sean 決定」空泛句)
+
+**它安靜。** 截斷發生時**沒有任何東西會紅** —— 沒有錯誤、沒有警告,
+畫面上就是「這個品項還可以出貨」,而它其實已經在另一個箱子裡。
+⇒ 發現的時機是**客人收到兩箱一樣的東西**、或倉庫發現貨對不上,
+**而那時候沒有人會想到是一支查詢回傳被截斷了。**
+
+- **關閉條件:** (a) 該函式有 `limit` + 截斷訊號 (b) 呼叫端收到截斷訊號時 **fail-closed**(不給建箱,不是顯示半個答案)(c) 有一格負測:**餵超過上限的品項數 ⇒ 必須擋、且該格用突變驗過會紅**。
+- **相關:** `C-214-STOP.md` §4①;`apps/admin/src/lib/shipping/shipment-repository.ts:329`;`#551`
+- **發現於**:2026-08-16 · C 窗 code-reviewer R1 MF1 · **I 窗 2026-08-17 搬運立案**
+
+### #553 · 報價單庫 `cron.job` 的**排程定義裡疑似寫著祕密**
+
+> ✅ **號碼已確認**(2026-08-17 I 窗,兩道閘都跑、第二道不接 `head`):
+> ① `sh scripts/next-backlog-number.sh` ⇒ 三層(主樹 / 12 worktree / 37 ref)最大號皆 **552**、下一個可用 `#553`
+> (腳本自印它給的是**下限不是保留鎖**,所以第二道非跑不可);
+> ② `grep -rn '#55[3-9]' ~/pcm-mailbox/*.md` ⇒ **零命中**。
+> 🔴 **那個零命中附正向對照與分母**:同一支 grep 換成 `#55[12]` ⇒ **2 個檔命中**、
+> 分母 `ls ~/pcm-mailbox/*.md | wc -l` ⇒ **2955 檔** ⇒ 那個 0 是量出來的。
+
+- **狀態:** 未開工。**來源 = E 窗(唯讀稽核窗)實查**,它自己落檔、由 I 窗**搬運立案**。
+  📎 **搬運者不是判斷者** —— 下面的事實與判斷都是 E 窗的,I 窗只發號 + 掛進 backlog。
+- **正本(完整內容與可貼 SQL 在這裡,不在本條)**:
+  `docs/security/2026-08-16-secrets-in-cron-job-definitions.md`
+- **分流:** `P1` · **優先級:** 🟡 中(**不是外部可達,是【信任面】問題**)
+
+#### 事實(E 窗實查)
+
+```
+pcm-quote-v2 的 cron.job 有 9 個排程，其中 2 個【疑似把祕密寫在排程定義裡】
+anon 進不去 ⇒ 外部安全
+但 postgres / supabase_admin 讀得到 —— 而那正是【Dashboard 的身分】
+```
+🔴 **⇒「排程定義裡的祕密」與「誰能開 Dashboard」是同一個信任面。**
+
+#### 🔴 那兩個排程的名字:**待補**
+
+⚠️ **刻意標「待補」而不是留空** —— **空著會被讀成「零」。**
+E 窗到落檔當下**仍然沒有拿到那兩個 `jobname`**(Sean 只回了計數)。
+
+🔴 **本條【只寫排程名】不寫 `command` 內容** —— **把祕密寫進 backlog 等於再洩一次。**
+📎 同族 memory `feedback_the-warning-can-reproduce-the-hazard`:
+**為了論證某個東西危險而寫下的證據,本身就複製了那個危險。**
+⇒ 要看內容請開正本檔的可貼 SQL,它**只回 `jobname` / `schedule`,不回 `command`**;
+而正本檔自己還帶一句限定:**「若某筆的 `jobname` 是 NULL 或無意義,也不要改抓 `command`。」**
+
+#### 不修未來會痛在哪(鐵則 10)
+
+Dashboard 的存取權目前**沒有被當成祕密的保護邊界在管** ——
+任何一次「多給一個人 Dashboard 權限」都會**同時**給出那些排程定義裡的東西,
+**而做那個決定的人不會知道**(他以為自己只是給了一個看儀表板的權限)。
+
+- **發現於**:2026-08-16 · E 窗安全稽核 run-1 Phase 2 · **I 窗 2026-08-17 搬運立案**
+
 ### #552 · Excel 匯入開工時**不要直接把 `xlsx` 裝回來** —— 它是被刻意移除的
 
 > ✅ **號碼已跑兩道閘**(`bash scripts/next-backlog-number.sh` → 下一個可用 `#552`;
@@ -15557,6 +15648,233 @@ grep -o ':[0-9]\{4\}/' supabase/.temp/pooler-url
   ⇒ 落地時要先答「非 hct 的代碼怎麼辦」,否則守門會對 sf 誤報。
 - **發現於**:2026-08-16 · C 窗 #10 片3(貨運商/追蹤碼/出貨日)· 由 C 窗立案
 
+---
+
+### #601 · 阻印狀態只有一行 Alert,而樣張要求整幅版面 —— 且 ⌘P 繞得過去
+
+> ✅ **號碼由 `sh scripts/reserve-backlog.sh` 配出**(git ref CAS,**兩窗同時配不會撞**),
+> 落筆當下 `sh scripts/reserve-backlog.sh --show` ⇒ 目前 `602` ⇒ 本條是 `#601`。
+> ⚠️ **舊的兩道閘這次【刻意沒跑】** —— 主視窗 2026-08-17 明示:兩套並行期間,
+> CAS 配號到「號碼落進檔案」之間有一個時間窗,**在那個窗裡舊閘一定少報**
+> (`#600` 已被 E 窗配走而檔案裡還沒有 ⇒ 舊閘那時會回報「`#600` 可用」)。
+> ⇒ **以 `--show` 為準,不以舊閘為準。** 本檔內對照 `grep -cE '^### #601 ' docs/phase-1-backlog.md`
+> ⇒ 落筆前 **0**。
+
+- **狀態:** 未開工。**來源 = C 窗**,由 `8f41e80e` / `492205ed` 兩片的 code-reviewer R1 MF3/MF4 抓出。
+- **分流:** `P1` · **優先級:** 🟠 中高(**紙印得出來、看起來正常,而它不該存在**)
+
+#### 事實(開原始檔核過)
+
+真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html` 的**樣張 B**,
+要求 28pt「本單不得出貨」+ 訂單號 + 原因 + 四條「請照這樣做」+ 逐字
+「**本頁不含品項明細。這不是資料漏印,是刻意不印。**」佔滿整幅。
+現行實作**只有一行 `<Alert>`**,怎麼找到它:`git grep -n 'Alert>🔴 {blocked}' -- apps/admin/src`。
+
+#### 🔴 為什麼「拿掉列印鈕」不等於修好
+
+`8f41e80e` / `492205ed` 把兩張紙的列印鈕都改成有條件渲染(怎麼找到它:
+`git grep -n 'PrintButton label' -- apps/admin/src/components/print` ⇒ 2 行、兩行都在條件式裡)。
+**而那不是一道守門,只是不再遞刀** —— `apps/admin/src/components/print/print-button.tsx` 自己的
+docstring 就寫著「為什麼要有這顆鈕、而不是叫員工按 Ctrl+P」⇒ **⌘P 那條路還在**。
+設計端對同一件事的答案逐字是「**印出來看起來正常的紙,員工就會照做,所以警告必須佔滿這個位置**」。
+
+- **不修未來會痛在哪:** ⌘P 印出來的紙上只有一行紅字,**而紙進了箱子就收不回來**;
+  員工也可能把那張紙當成「系統壞了」而自己手寫一張。**真正的擋法是讓那張紙自己說清楚**,不是藏按鈕。
+- **發現於**:2026-08-17 · C 窗 · code-reviewer R1 MF3/MF4
+
+---
+
+### #602 · 公司登記資料有兩份,而互指只有單向 ⇒ 兩邊會各自漂
+
+> ✅ **號碼由 `sh scripts/reserve-backlog.sh` 配出**,落筆當下 `--show` ⇒ `602`。
+> 本檔內對照 `grep -cE '^### #602 ' docs/phase-1-backlog.md` ⇒ 落筆前 **0**。
+
+- **狀態:** 未開工。**來源 = C 窗**,由 `8f41e80e` 的 code-reviewer R1 MF6 / nit7 抓出。
+- **分流:** `P2` · **優先級:** 🟡 中(**錯的公司登記資料會印在交給客人的紙上**)
+
+#### 事實
+
+`apps/storefront/src/lib/site-config.ts` 檔頭逐字標「內容分級 **L2**(hardcode + TODO +
+backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `8f41e80e` 在
+`apps/admin/src/components/print/shipping-doc.tsx` **又抄了一份七值**。
+怎麼找到它:`git grep -n '派達有限公司' -- apps`。
+
+**重複是刻意的**:`site-config.ts` 在 storefront 這個 app,admin 不 import 它。
+🔴 **數法要挑對** —— 我第一版寫「`git grep -rn site-config -- apps/admin/src | wc -l` ⇒ **0**」,
+**實跑是 `3`**,而那 3 行**全是我自己剛寫的註解在指它**(= 它自己的訃聞的反面:指標本身被當成用法)。
+**正確的數法** `git grep -n "from '.*site-config" -- apps/admin/src | wc -l` ⇒ **0**
+(正向對照:同一支 grep 換成 `from '@pcm/domain` 在同一批檔 ⇒ 有命中)
+⇒ **零 import 是量出來的,而「零提及」是假的。**
+📎 **判別法**:命中後開檔讀那一段 —— **「提到它」與「用到它」在 `wc -l` 上長得一模一樣。**
+**而代價是它們會各自漂** —— 電話已經分家:storefront 那份是 `+886-930-531-867`(連字號)、
+紙上那份是 `+886 930-531-867`(空格,樣張要求逐字不正規化)。**兩個都對,只是用途不同。**
+
+#### 🔴 目前的互指是【單向】
+
+只有 admin 那邊指過去,`site-config.ts` 一個字沒動 ⇒ **它仍然宣稱自己是唯一真相**,
+而下一個人照它做就會漏掉紙上那份。
+
+- **不修未來會痛在哪:** 登記資料變更(改地址 / 換電話)時,**跑 `literal-sweep.sh` 從任一邊
+  都掃不到另一邊** ⇒ 改了一半,而**改了一半跟改完長得一模一樣**。
+- **真正的收斂點是 `#248`**(登記資料進後台),不是在兩邊各造一個常數。
+- **發現於**:2026-08-17 · C 窗 · code-reviewer R1 MF6 / nit7
+
+### #600 · 報價單庫 products 對 anon 開 31/57 欄,缺一道釘住哪些欄的斷言
+
+- **🔴 這【不是】漏洞,先講清楚:** `public.products` 對 `anon` 開放是**刻意設計** ——
+  表級 `relacl` 沒有 `anon`,而 RLS 有一條 `storefront_public_read FOR SELECT TO anon`,
+  由 `storefront_catalog_v`(`security_invoker=true`)以呼叫者權限讀出去。**storefront 就是靠它。**
+- **缺的是什麼:** **沒有任何東西在守「哪 31 欄」。**
+- **現況量法(可重跑,對報價單庫 production,唯讀帳號):**
+  ```
+  products 總欄數 57 | anon 欄級可讀 31 | authenticated 2 | 對照 postgres 57
+  成本類欄位(cost|dealer|margin|profit|wholesale|purchase|supplier_price)= 1
+    ⇒ anon 讀得到 0(對照 postgres 1 ⇒ 判定式是活的)
+  🔴 量法必須用 has_column_privilege,不能用 has_table_privilege
+     (後者看不到欄級授權 ⇒ 少報;我 2026-08-17 就是這樣把 16 個關聯少報成 15)
+  ```
+- **不修未來會痛在哪:** 日後任何人 `GRANT SELECT (新欄) TO anon`,
+  **三綠不紅、`grep` 數不變、沒有任何東西會提醒他** ——
+  而那個新欄很可能就是下一個成本/毛利欄。**經銷價外洩是 Sean 明列的第二優先。**
+- **要做什麼:** 一道**釘住清單**的斷言(形狀同 `docs/security/2026-08-16-quote-db-audit-account-decision.md` §3
+  的 `c_accepted`):**現行 31 欄明文列出,多一個就紅**。
+- **🔴 現在做不了,而障礙是【缺一個東西】不是【缺工:**
+  那道斷言要住在**報價單 repo**,而**那個 repo 不在這台機器上** ——
+  量法 `find /Users/sean_1 -maxdepth 3 -type d -name migrations -path '*supabase*'`
+  ⇒ 10 個命中**全部**是 `pcm-website-v2` 的工作樹,零個是報價單 repo
+  (正向對照:`test -d /Users/sean_1/pcm-website-v2/supabase/migrations` ⇒ 有 ⇒ find 是活的)。
+  📎 與 memory `reference_quote-repo-truth-moved-to-mac-mini` 一致(真身在 mac mini)。
+  ⇒ **掛在「報價單 repo 怎麼取得」那個 Sean 題底下,當它的第二個理由**
+  (第一個是 B 窗的 `#4` production/repo 一致性)。
+- **發現於**:2026-08-17 · E 窗報價單庫稽核第一輪 · 主視窗裁定立案(屬流程/守門,不上呈 Sean)
+
+### #604 · 會員地址/車輛寫入走 check-then-act,而本 repo 的 RLS 已知缺一條政策
+
+- **🔴 這兩句要放在同一段讀,分開看兩個都是低嚴重度:**
+  ① `account/address`、`account/vehicle` 的第二軸是 **check-then-act** ——
+     先 `verifyAddressOwned(repo, user.id, addressId)` 讀一次驗歸屬,
+     **再 `addressRepo.update(addressId, patch)`,而那句寫入【不帶 userId】**
+     (`packages/use-cases/src/update-address.ts:38-43`)
+     ⇒ **RLS 失效時,擋越權的只剩前面那一次讀。**
+  ② 而**這個 repo 的 RLS 已經知道缺一條政策** —— STATUS「Blocker」欄逐字:
+     六張客戶表的 `FOR SELECT TO service_role` 那條**不存在**,Sean 已拍 `Q15`=甲要補、**尚未開工**。
+  ⇒ 🔴 **所以這不是「假設 RLS 失效」,是「我們已經知道 RLS 有一個洞,只是還沒補到那裡」。**
+- **與既有做法不一致(這是要修的第二個理由):**
+  `/api/orders/[orderId]/payment-status` 用的是 **scoped read** ——
+  歸屬條件 `.eq('customer_user_id', userId)` **就寫在同一句查詢裡**,不是先讀後寫。
+  ⇒ **同一個 repo 兩種形狀,而不一致會讓下一個人以為某一種就夠。**
+- **現況量法(可重跑):**
+  ```
+  grep -n "verifyAddressOwned\|repo.update\|addressRepo.update" packages/use-cases/src/update-address.ts
+    ⇒ :41 verifyAddressOwned(...)  /  :43 addressRepo.update(addressId, patch)   ← 寫入不帶 userId
+  grep -n "customer_user_id" apps/storefront/src/app/api/orders/\[orderId\]/payment-status/route.ts
+    ⇒ 命中(scoped read)  ← 正向對照:同一支 grep 在對照檔抓得到
+  ```
+- **不修未來會痛在哪:** 這一類洞的症狀是**沒有症狀** —— 越權寫入成功時,
+  受害者看到的是「我的地址被改了」而**不是任何錯誤**,而系統沒有任何東西會紅。
+  **貨會寄到別的地方,而那是不可回收的。**
+- **⚠️ 我沒有構造出攻擊,也沒有宣稱有:** 目前仍是兩軸(verify + RLS),
+  本條要的是**把第二軸改成 scoped write**(與 `payment-status` 一致),**不是宣告現在正在外洩**。
+- **發現於**:2026-08-17 · E 窗軸二第一批(帳號被盜視角)· 主視窗裁定立案並上調嚴重度
+### #603 · fetchAllPaginated 的 PAGE_SIZE 等於而非小於 max-rows：max-rows 一旦調低就會把「被砍過的一頁」誤判成末頁
+
+- **位置：** `packages/adapters/src/supabase/helpers/product-query-support.ts`（搜 `const PAGE_SIZE`）
+- **現況：** `PAGE_SIZE = 1000`，而 PostgREST 的 `db-max-rows` 實測也是 **1000**。
+  迴圈的終止判準是「本頁筆數 < PAGE_SIZE ⇒ 末頁」。
+- **今天為什麼沒事：** 請求正好要 1000 筆、伺服器上限也正好 1000 ⇒ 沒被砍 ⇒ 判準成立。
+  🔴 **它安全的理由是兩個數字剛好相等，不是因為有人設計成這樣。**
+- **不修未來會痛在哪：** `max-rows` 一旦被調低（例如 500），每一頁都會被伺服器砍成 500
+  ⇒ `500 < 1000` ⇒ **第一頁就被判成末頁** ⇒ 撈到一半停下、而呼叫端拿到的東西
+  **看起來就是一份完整的清單**。
+  ⚠️ **兩個世界印同一個東西**：「伺服器砍過的一頁」與「真正的末頁」回傳的筆數形狀完全一樣
+  ⇒ 這個迴圈**沒有任何辦法分辨它們**。
+- **影響面：** 🔴 **所有呼叫端，不只某一支** —— 數法
+  `grep -rn 'fetchAllPaginated' packages/ apps/ --include='*.ts' | grep -v '\.test\.'`
+  （落筆當下：`SupabaseProductAdapter` 的 `listAllByCategory` / `listAllProducts`、
+  `helpers/fitment-queries.ts` 的 `queryProductsByVehicle`）。
+- 🔴 **修法不要用 `max-rows - 1`：** 那把我們的正確性綁在一個**官方文件沒說清楚、而且是伺服器端可調**
+  的值上。方向應該是「頁大小由我方明確定義且**嚴格小於**任何可能的伺服器上限」，
+  或改用 **keyset 分頁**（游標綁資料、不綁位置 ⇒ 連並發寫入的頁界漂移一起解掉）。
+- 🔴 **範圍不只 helper：同一個病有【第二份獨立實作】**（V 窗 2026-08-17 掃出的 F-S3）
+  `apps/storefront/src/lib/products.ts` 的 `fetchVehicleTaxonomy`（搜函式名，落筆當下 `:700`）
+  是**手刻的分頁迴圈、沒有走共用 helper**，而它自己也是 `PAGE_SIZE == max-rows`。
+  ⇒ 🔴 **修共用 helper 的時候，這一支不會跟著好。**
+  ⚠️ **所以這條 backlog 不能只寫「修 helper」** —— 否則批准的人會以為兩處都修好了。
+  📎 與「同一份邏輯兩份實作、各自漂」是同一形狀。
+  ✅ 而這支自己記了一件對的事：它撞 `MAX_PAGES` 時**會 `console.warn`**
+  （逐字「MAX_PAGES 撞頂是**靜默截斷**(下拉少一截、沒人會叫)⇒ 至少留 log」）
+  ⇒ **寫的人知道這個病**；缺的是「知道」沒有變成「會紅的東西」。
+- **由來：** 2026-08-17 A 窗做儲值金分頁時撞到；V 窗整理的「分頁族五條陷阱」第 1 條，
+  而**實例就在我們自己的共用 helper 裡**。相關 plan：
+  `docs/specs/2026-08-17-wallet-ledger-pagination-plan.md` §6。
+- 🔗 **與 `#605` 同底層**（2026-08-17 A 窗 × 主視窗抽出）：
+  **先例的數字是綁在它的母體上的，而母體不會跟著被抄過來。**
+  **一個沒有上界的母體，任何固定數字都是暫時的。**
+  ⇒ 這兩條都是「把一個會成長的東西，綁在一個不會成長的數字上」：
+  `#603` 綁的是伺服器的 `max-rows`、`#605` 綁的是「`created_at` 夠不夠分辨」。
+  📎 抄先例的數字前先問:**原本那個母體的上界是什麼？我這個有嗎？**
+
+### #605 · 客戶列表分頁排序缺唯一鍵次序：同秒建立的客戶會跨頁重複或漏
+
+- **位置：** `packages/adapters/src/supabase/SupabaseCustomerAdapter.ts`
+  （搜 `.order('created_at'`，落筆當下 `:294-295`）
+- **現況：** `.order('created_at', { ascending: false }).range(offset, offset + limit - 1)`
+  —— 排序鍵**只有 `created_at`，沒有唯一鍵收尾**。
+- **不修未來會痛在哪：** `created_at` 撞值時（**批次匯入會整批同秒**）那幾筆的相對順序**未定義**
+  ⇒ 第 1 頁與第 2 頁是兩次獨立查詢 ⇒ 同一位客戶可能**兩頁都出現**、或**哪一頁都翻不到**，
+  而總數照樣正確 ⇒ **畫面上完全正常**。
+- 🔴 **這條真正的價值不是缺陷本身，是它揭露的第三種形狀：**
+  同型位置 `packages/adapters/src/supabase/SupabaseOrderAdapter.ts`（搜 `.order('created_at'`，
+  落筆當下 `:761-762`）**有次鍵，而且註解言明「防同秒單跨頁重複/漏單」**
+  ⇒ **有人想過這件事、寫下來了、而沒有套到全部。**
+  ⇒ 它既不是「有人決定不看」（那會有出處），也不是「沒人想到」（那不會有註解）——
+  **是「想過了、解過了、而沒有掃一遍同型位置」。**
+  📎 三種形狀在任何清單上都長成「未處理」，而**修法完全不同**：
+  第一種要重新決策、第二種要有人先看見、**第三種只要拿既有解去掃一遍**（最便宜、最容易被漏掉）。
+- **修法：** 加 `.order('id', { ascending: false })` 當 tiebreaker（照 `SupabaseOrderAdapter` 既有形狀）。
+  ⚠️ **不要只修這一支** —— 這條的重點是**掃一遍所有 `.order(...).range(...)` 組合**，
+  數法 `grep -rn "\.range(" packages/adapters/src apps/admin/src apps/storefront/src --include='*.ts' | grep -v '\.test\.'`，
+  逐處看排序鍵是不是全序。
+- **觸發面：** admin 客戶列表（客戶匯入批次同秒多筆）。**今天未觀察到實例，未量。**
+- **由來：** V 窗 2026-08-17 拿「分頁族五條陷阱」掃既有 code（F-S2）；主視窗裁「立案，不現在做」。
+- 🔗 **與 `#603` 同底層**（2026-08-17 A 窗 × 主視窗抽出）：
+  **先例的數字是綁在它的母體上的，而母體不會跟著被抄過來。**
+  **一個沒有上界的母體，任何固定數字都是暫時的。**
+  ⇒ 這兩條都是「把一個會成長的東西，綁在一個不會成長的數字上」：
+  `#603` 綁的是伺服器的 `max-rows`、`#605` 綁的是「`created_at` 夠不夠分辨」。
+  📎 抄先例的數字前先問:**原本那個母體的上界是什麼？我這個有嗎？**
+
+### #606 · vitest 的 `@` alias 只指 storefront ⇒ admin 任何用 `@/` 的頁面都寫不出頁面層測試
+
+- **位置：** `vitest.config.ts`（搜 `resolve:`，落筆當下 `:26-30`）
+  ```
+  resolve: { alias: { '@': fileURLToPath(new URL('./apps/storefront/src', …)) } }
+  ```
+- **現況：** `@` **只指向 `apps/storefront/src`**。而 `apps/admin` 的 `tsconfig` 也定義了 `@/*`
+  ⇒ **admin 的檔在 `next build` 下解析得到、在 `vitest` 下解析不到。**
+- **症狀長什麼樣：** 想替一支 admin 頁面寫測試時，vitest 報
+  `Failed to resolve import "@/lib/..." from "apps/admin/src/app/..."`
+  ⇒ 🔴 **而那個訊息看起來像「我 import 寫錯了」，不像「工具設定漏了一半」** ——
+  於是最省事的反應是「那就不要測這一支」，**而沒有人會記錄這個決定**。
+- **不修未來會痛在哪：** 這不是「少一個方便」，是**一整類檔案沒有守門而且沒人知道**。
+  📎 實例（2026-08-17）：客人卡頁面的 `?wpage → parsePage → 取數` 接線，
+  codex 指出「刪掉那行接線，測試仍全綠」⇒ 要補測試時才撞到本缺口，
+  當下的權宜是**把那一頁的 5 個 `@/` import 改成相對路徑**（見該檔檔頭註解）。
+- 🔴 **這是「守門邊界 vs 程式邊界不一樣」的第三個實例**（前兩個：`scripts/spikes/` 不在 typecheck、
+  `npx turbo typecheck` 少跑 root 的第二段）。⇒ 併看 `scripts/guard-coverage-map.py`。
+  ⚠️ **而這一個比前兩個隱蔽**：前兩個是「有檔案沒被檢查」，這一個是
+  **「有檔案沒辦法被寫測試」** —— 涵蓋圖掃不到它，因為那些檔在 `vitest` 的 include 裡，
+  只是**任何人真的去寫的時候會撞牆然後放棄**。
+- **修法（未定，兩個方向）：**
+  - 甲：alias 改成依 workspace 分別解析（admin → `apps/admin/src`、storefront → `apps/storefront/src`）
+  - 乙：admin 側統一改用相對路徑（與 `app/@panel/*`、`app/customers/page.tsx` 既有做法一致）
+  ⚠️ 甲要確認 vitest 能不能對同一個 `@` 依檔案位置分歧解析；**我沒有查證，標未確認。**
+- ⚠️ **那個相對路徑是【權宜】不是修法** —— 它讓【那一支】可測，
+  而**其餘用 `@/` 的 admin 檔仍然寫不出頁面層測試**。**本條未解**，
+  不要因為看到那一頁有測試就當作已修。
+- **由來：** 2026-08-17 A 窗補客人卡分頁接線測試時撞到；codex R2 的 finding ⑤ 是觸發點。
+  主視窗同日派 V 窗量規模（admin 有多少檔用 `@/`、其中多少沒有頁面層測試）——
+  🔴 **量出來才知道這是一支的問題還是一片的問題。**
 ### #554 · 🔴 「新物件收權斷言」只在 apply 那一刻成立 —— 日後權限被重新打開,**不會有任何東西叫**
 
 - **是什麼:** `b1b` migration 第三道斷言(service_role 的有效+可達權限恰好 `{SELECT, INSERT}`)

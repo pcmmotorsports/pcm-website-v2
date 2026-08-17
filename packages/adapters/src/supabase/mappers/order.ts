@@ -6,6 +6,7 @@ import type {
   OrderInvoice,
   AdminOrderDetail,
   AdminOrderDetailItem,
+  AdminOrderPrintItem,
   AdminOrderItemQuantitySummary,
   AdminOrderLine,
   AdminOrderSummary,
@@ -180,6 +181,11 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
     fulfillmentStatus: row.fulfillment_status,
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     itemCount: row.order_items.reduce((sum, item) => sum + item.quantity, 0),
+    // 🔴 **客人端的截斷旗標**(2026-08-16,`Q-EMBED-1` Sean 批)。
+    //    這一面的後果與後台不同:後台是**算錯一個狀態**,這裡是**印一個少算的件數**。
+    //    ⇒ 客人看到「3 件」而實際訂了 600 件 —— **他不會知道,也不會回報**(他沒有第二個來源可以對)。
+    //    判法逐字沿用另外兩處:**要 N 筆、拿回剛好 N 筆就當作可能被切了**。
+    itemCountTruncated: row.order_items.length >= ORDER_LIST_ITEMS_EMBED_LIMIT,
   };
 }
 
@@ -370,6 +376,17 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     // ⇒ CHECK 日後放寬或出現第四值時,裸 `as` 會把界外字串當成 enum 傳給 A11a-5 的查表(取到 undefined)。
     invoiceStatus: narrowInvoiceStatus(row.invoice_status),
     lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
+    // 🔴 **列表側的截斷旗標(2026-08-16,`Q-EMBED-1` Sean 批)。**
+    //    判法與明細那條逐字相同:**要 N 筆、拿回剛好 N 筆就當作可能被切了**
+    //    (不是 N+1 —— 沿用 `itemsTruncated: row.order_items.length >= ORDER_ITEMS_EMBED_LIMIT` 的既有形狀,
+    //     不在同一個 repo 裡放兩種判法)。
+    // 🔴🔴 **為什麼列表需要它**:`orderStatusView` → `orderGoodsAxis` → `goodsAxisOfLines(lines)`
+    //    三條判定都是 `.every(...)` ⇒ **子集全出貨就答「出貨完成」**,而沒載進來的可能一件都沒出。
+    //    ⇒ 員工看到「出貨完成」就不再動作 —— **他做對了,但結果是錯的。**
+    // ⚠️ `?? []` 那半:缺鍵(投影退版)⇒ 空陣列 ⇒ 長度 0 ⇒ 旗標 false。
+    //    **那是對的** —— 缺鍵不是「被截斷」,它是另一件事(顯示端兜「—」)。
+    //    兩者混成同一個旗標會讓「投影壞了」被讀成「品項太多」。
+    itemsTruncated: (row.order_items ?? []).length >= ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
   };
 }
 
@@ -388,6 +405,37 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
  * 數字上而本判定看不見(同 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 的殘餘風險,治本要 `count: 'exact'`)。
  */
 export const ORDER_ITEMS_EMBED_LIMIT = 200;
+
+/**
+ * **列表**側內嵌 `order_items` 的請求上限(2026-08-16,`Q-EMBED-1` Sean 批)。
+ *
+ * 🔴 **為什麼與明細那個分開一個常數,而不是共用 200**:兩者的用途不同 ——
+ *    明細要**逐列顯示**品項(200 是「畫得出來的量」);
+ *    列表只拿它**算彙總**(件數、貨品軸),不逐列畫 ⇒ 上限可以更高、代價只是傳輸量。
+ *    **共用一個常數會讓「調整其中一邊」變成「同時調整另一邊」,而那兩件事沒有理由綁在一起。**
+ *
+ * 🔴🔴 **這個上限存在的理由【不是】「避免傳太多」,是【把邊界從伺服器手上拿回來】。**
+ *    `db-max-rows` **會**套用到內嵌陣列,而**內嵌被截斷時 PostgREST 不給任何訊號**
+ *    (仍回 HTTP 200、`Content-Range` 不反映)⇒ **不設上限 = 一個偵測不到的懸崖。**
+ *    證據與層級寫在 `docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md`
+ *    (⚠️ 該檔明載:出處是官方 repo issue 作者的敘述、**不是 maintainer 聲明**,當高可信不當定案)。
+ *
+ * 值 = 500:**嚴格低於**實測的伺服器上限(1000),又遠高於明細的 200
+ * ⇒ 一張單的品項數在 200~500 之間時,**明細會說「未知」而列表仍算得出正確的軸** —— 那是刻意的。
+ * ⚠️ 與明細那條共用同一個殘餘風險:若專案 `max-rows` 日後被設到低於本值,
+ *    截斷會發生在那個更低的數字上而本判定看不見(治本要 `count: 'exact'`)。
+ */
+export const ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
+
+/**
+ * **前台(客人)訂單列表**內嵌 `order_items` 的請求上限(2026-08-16,`Q-EMBED-1` Sean 批)。
+ *
+ * 🔴 **與後台那個分開一個常數,理由同前**:這一面只拿它 `reduce` 出 `itemCount`,
+ *    連品項欄位都只投影 `quantity`(`ORDER_LIST_SELECT` 逐字)⇒ 傳輸成本最低、上限可以最寬。
+ * 值 = 500:與後台列表同值,**而那是巧合不是耦合** —— 兩者各自可調,改一個不必動另一個。
+ * ⚠️ 同一組殘餘風險:若專案 `max-rows` 被設到低於本值,截斷發生在更低的數字上而本判定看不見。
+ */
+export const ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
 
 /**
  * 內嵌 `payment_charge_attempts` 的請求上限(M-4b E10 A9g-2)。
@@ -656,6 +704,48 @@ function pickString(obj: unknown, key: string): string | null {
   if (obj === null || typeof obj !== 'object') return null;
   const value = (obj as Record<string, unknown>)[key];
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
+ * **列印用**品項投影的 wire 形狀(`Q-C18` 甲,2026-08-17)。
+ *
+ * 🔴 與 `SupabaseAdminOrderDetailRow['order_items'][number]` 是**同一張表的兩個投影,刻意不同**:
+ * 明細那份是**內嵌**撈的(筆數被 `ORDER_ITEMS_EMBED_LIMIT` 夾住);這份是**頂層分頁**撈的,
+ * 用途是讓「這張單有哪些品項」不再被上限截斷。
+ * ⚠️ **刻意沒有 `order_item_procurement`** —— 它自己就是另一道內嵌上限
+ * (`ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`),取了等於把同一個病帶進新的查詢。
+ * **看到這裡覺得「漏了採購」而順手補上去的人,請先讀 `AdminOrderPrintItem` 的 docstring。**
+ * ⚠️ **`unit_price` / `line_total` 是【另一個理由】,不要跟上面那條混**:它們是同列 scalar、
+ * **取了不產生任何截斷面**,現在沒取純粹因為紙上零金額 ⇒ **金額片可以直接加,不受上面那條約束。**
+ */
+export type SupabaseOrderItemPrintRow = {
+  id: string;
+  variant_sku: string;
+  quantity: number;
+  product_snapshot: unknown;
+  /** 形狀(陣列 or 單物件 or 缺鍵)與明細那份逐字相同 —— 理由見 `mapQuantitySummary` docstring。 */
+  order_item_quantity_summary?:
+    | SupabaseOrderItemQuantitySummaryRow[]
+    | SupabaseOrderItemQuantitySummaryRow
+    | null;
+};
+
+/**
+ * `SupabaseOrderItemPrintRow` → `AdminOrderPrintItem`。
+ *
+ * 🔴 **重用 `pickString` / `pickSpec` / `mapQuantitySummary` 三支私有函式,而那正是本函式住在這裡
+ * 而不是住在 `apps/admin` 的理由** —— 那三支沒有 `export`,放 admin 就得抄一份,
+ * 而「同一份資料兩份實作」正是 backlog `#602` 登記的病。
+ */
+export function mapSupabaseOrderItemPrintRow(row: SupabaseOrderItemPrintRow): AdminOrderPrintItem {
+  return {
+    id: row.id,
+    variantSku: row.variant_sku,
+    title: pickString(row.product_snapshot, 'title'),
+    spec: pickSpec(row.product_snapshot),
+    quantity: row.quantity,
+    quantitySummary: mapQuantitySummary(row.order_item_quantity_summary),
+  };
 }
 
 /** product_snapshot.spec 防禦解析:物件且值全轉字串;缺/非物件 → null。 */

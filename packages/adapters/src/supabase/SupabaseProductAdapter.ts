@@ -23,6 +23,7 @@ import {
 } from './helpers/fitment-queries';
 import {
   SEARCHABLE_COLUMNS,
+  assertPositiveIntegerPoolLimit,
   buildIlikeOrFilter,
   fetchAllPaginated,
   findSingle,
@@ -175,16 +176,27 @@ export class SupabaseProductAdapter implements IProductRepository {
    * Resolve 流程:`categories.raw_path` UNIQUE query → categoryId(內部 resolveCategoryId);
    * 找不到 categoryId → return [](不 throw、對齊 PRD §3.2)。
    */
-  async listByCategory(category: CategoryPath): Promise<Product[]> {
+  async listByCategory(
+    category: CategoryPath,
+    poolLimit: number,
+  ): Promise<Product[]> {
+    assertPositiveIntegerPoolLimit('listByCategory', poolLimit);
+
     const categoryId = await resolveCategoryId(this.supabase, category.raw);
     if (categoryId === null) {
       return [];
     }
 
+    // 🔴 下一個方法(`listAllByCategory`)的註解**早就診斷完這個病**:逐字「listByCategory 走單次
+    //    `.select()`、會撞 PostgREST/Supabase 『Max rows = 1000』硬上限(品類 >1000 件時靜默截斷)」。
+    //    ⇒ 兩個方法的**分工是對的**(取樣版 vs 全量版),缺的只是取樣版**沒有把上限講出來** ——
+    //    於是它看起來像「全部」。實測 3 個分類破千(1,642 / 1,627 / 1,295,2026-08-17 anon 側 production)。
     const { data, error } = await this.supabase
       .from('products_public')
       .select(PRODUCT_SELECT_DETAIL_VIEW)
-      .eq('category_id', categoryId);
+      .eq('category_id', categoryId)
+      .order('handle', { ascending: true })
+      .limit(poolLimit);
 
     if (error) {
       throw error;
@@ -285,15 +297,45 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
-   * 依 brand 列出 product。對齊 PRD §3.3 + supabase-schema-design.md §3.3。
+   * 依 brand 列出 product,最多 `poolLimit` 筆。對齊 PRD §3.3 + supabase-schema-design.md §3.3。
    *
    * `brandId` 已是 UUID、不需 resolve(對齊 IProductRepository.listByBrand 簽名)。
+   *
+   * 🔴 **`.order('id')` 不是排版偏好,是讓「取哪 N 筆」變成決定性的** ——
+   * 沒有 `order` 時 PostgREST 回哪幾列由 planner 決定,同一個查詢兩次可以不同
+   * ⇒ 推薦內容會無故漂移,而那種漂移查不出原因。
+   *
+   * ⚠️ **為什麼不用同檔 `listAllProducts` 那個 `fetchAllPaginated`(撈完)**:
+   * 撈完在這裡**做得到**(品牌最大 4,566 筆、5 頁),而**推薦引擎只吐個位數**
+   * ⇒ 撈 4,566 筆完整列(帶 `images`/`description` jsonb)只為了挑 8 筆是淨浪費。
+   * ⇒ 這裡要的是**明示的取樣**,不是撈完。**明示取樣與靜默截斷的差別是:前者寫在這一行、看得到。**
    */
-  async listByBrand(brandId: string): Promise<Product[]> {
-    const { data, error } = await this.supabase
+  async listByBrand(
+    brandId: string,
+    poolLimit: number,
+    categoryRaw?: string,
+  ): Promise<Product[]> {
+    assertPositiveIntegerPoolLimit('listByBrand', poolLimit);
+
+    // 🔴 分類 filter【下推 DB】而不是拉回來再篩(2026-08-17 codex):
+    //    找不到該分類 ⇒ 回 [](與 `listByCategory` 同慣例,不 throw)。
+    let categoryId: string | null = null;
+    if (categoryRaw !== undefined) {
+      categoryId = await resolveCategoryId(this.supabase, categoryRaw);
+      if (categoryId === null) {
+        return [];
+      }
+    }
+
+    const base = this.supabase
       .from('products_public')
       .select(PRODUCT_SELECT_DETAIL_VIEW)
       .eq('brand_id', brandId);
+    const { data, error } = await (categoryId === null
+      ? base
+      : base.eq('category_id', categoryId))
+      .order('handle', { ascending: true })
+      .limit(poolLimit);
 
     if (error) {
       throw error;
@@ -312,11 +354,17 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 兩步查詢與年份範圍重疊邏輯抽至 `helpers/fitment-queries.ts`(鐵則 6);prod 無 caller、
    * 行為以 contract + 兩實作測為準。
    */
-  async listByFitment(spec: FitmentSpec): Promise<Product[]> {
+  async listByFitment(
+    spec: FitmentSpec,
+    poolLimit: number,
+  ): Promise<Product[]> {
+    assertPositiveIntegerPoolLimit('listByFitment', poolLimit);
+
     const rows = await queryProductsByFitment(
       this.supabase,
       spec,
       PRODUCT_SELECT_DETAIL_VIEW,
+      poolLimit,
     );
     return rows.map(mapSupabaseProductToDomain);
   }
@@ -364,10 +412,13 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 查詢抽至 `helpers/fitment-queries.ts` queryGeneralProducts(products_public + RLS、
    * `fitments = '[]'` jsonb 等值);「非空全髒不算通用」= Sean 2026-07-08 逐筆判斷(見 helper 註解)。
    */
-  async listGeneral(): Promise<Product[]> {
+  async listGeneral(poolLimit: number): Promise<Product[]> {
+    assertPositiveIntegerPoolLimit('listGeneral', poolLimit);
+
     const rows = await queryGeneralProducts(
       this.supabase,
       PRODUCT_SELECT_DETAIL_VIEW,
+      poolLimit,
     );
     return rows.map(mapSupabaseProductToDomain);
   }
@@ -396,10 +447,26 @@ export class SupabaseProductAdapter implements IProductRepository {
     const offset = params.offset ?? 0;
     const filter = buildIlikeOrFilter(SEARCHABLE_COLUMNS, q);
 
+    // 🔴 `.order('id')` 不是排版,是**分頁正確性的前提**(2026-08-17 V 窗掃出、A 窗修)。
+    //    SQL **沒有 ORDER BY 就不保證列的順序** —— 而本方法是分頁(`.range(offset, …)`),
+    //    兩頁是**兩次獨立查詢**:planner 只要在兩次之間換了計畫(資料量變化、統計更新、
+    //    parallel scan 與否),同一列就可能出現在兩頁、或一頁都沒出現。
+    //    ⇒ 客人翻到第 2 頁看到第 1 頁看過的商品,或某個商品**任何一頁都翻不到**,
+    //      而 `count` 照樣回報正確總數 ⇒ **畫面上完全正常**。
+    //
+    //    ⚠️ **我試過構造這個漂移,構造不出來**:對 production 用本方法的 filter
+    //    (`title/subtitle/description` ILIKE)命中 13,945 筆、每頁 1,000 逐頁翻完 14 頁
+    //    ⇒ **重複 0 筆、漏 0 筆**;同一頁連跑 4 次指紋相同。
+    //    ⇒ **所以這一條是【結構性的】不是【觀察到的】** —— 今天的資料量與計畫下它剛好穩定,
+    //      而「穩定」不是「保證」。**修它是預防,不是止血。**
+    //
+    //    選 `id`(PK uuid)而不是 `handle`:現況無排序 ⇒ 客人看到的順序本來就無語意,
+    //    用 `id` 是**行為改變最小**的穩定序;改用 `handle` 會讓搜尋結果變成字母序 = 行為改變。
     const { data, error, count } = await this.supabase
       .from('products_public')
       .select(PRODUCT_SELECT_DETAIL_VIEW, { count: 'exact' })
       .or(filter)
+      .order('id', { ascending: true })
       .range(offset, offset + params.limit - 1);
 
     if (error) {

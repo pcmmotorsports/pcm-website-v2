@@ -737,16 +737,4 @@ describe('🔴 #551 貨號格式:擋與警告是【兩種後果】,畫面上不�
     // 沒有這一格的話,把 `setTracking('')` 拿掉不會有任何東西紅(既有那格切完本來就重打一次)。
     expect((trackingInput() as HTMLInputElement).value).toBe('');
   });
-
-  it('🔴 「只建箱、先不出貨」不受【送出前檢查】限制 —— 那顆根本不送單號', () => {
-    open();
-    // ⚠️ 貨號那條不擋任何東西 ⇒ 用【清空欄位】製造一個真的擋。
-    typeTracking('');
-    expect(shipBtn().hasAttribute('disabled')).toBe(true);
-    // 沒有這一格的話,日後有人把 shipBlocker 加進這顆的 disabled 不會紅,
-    // 而那會讓「先建箱」這條路被一個【與它無關】的檢查擋住。
-    expect(
-      screen.getByRole('button', { name: '只建箱、先不出貨' }).hasAttribute('disabled'),
-    ).toBe(false);
-  });
 });

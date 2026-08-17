@@ -18,6 +18,8 @@ import {
   CustomerVehiclesSection,
 } from './customer-detail-sections';
 import { WalletAdjustForm } from './wallet-adjust-form';
+import { ListPagination } from '../shared/list-pagination';
+import { WALLET_LEDGER_PAGE_SIZE } from '../../lib/customers/load-customer-detail';
 import { TierEditForm } from './tier-edit-form';
 import { ProfileEditForm } from './profile-edit-form';
 
@@ -54,11 +56,19 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 function WalletLedgerTable({
   entries,
   orderHref = (orderId) => `/orders/${orderId}`,
+  emptyHint,
 }: {
   entries: WalletLedgerEntry[];
   orderHref?: (orderId: string) => string;
+  /** 空清單時的替代文案（總數 > 0 卻本頁無列時用，避免與「共 N 筆」互相矛盾）。 */
+  emptyHint?: string;
 }) {
   if (entries.length === 0) {
+    // 🔴 `emptyHint`:總數 > 0 卻這一頁空的（例如 URL 竄改成 ?wpage=999）
+    //    ⇒ 不能說「目前沒有交易紀錄」，那與旁邊的「共 N 筆」互相矛盾。
+    if (emptyHint) {
+      return <p className='text-muted-foreground py-2 text-sm'>{emptyHint}</p>;
+    }
     return <p className='text-muted-foreground py-2 text-sm'>目前沒有儲值金交易紀錄。</p>;
   }
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
@@ -107,6 +117,9 @@ export function CustomerDetail({
   customer,
   walletEntries,
   walletLoadFailed,
+  walletTotal,
+  walletPage,
+  walletPageHref,
   orders,
   ordersLoadFailed,
   addresses,
@@ -118,6 +131,12 @@ export function CustomerDetail({
 }: {
   customer: Customer;
   walletEntries: WalletLedgerEntry[];
+  /** 儲值金流水總筆數（伺服器 count，不是本頁筆數）。 */
+  walletTotal: number;
+  /** 目前頁（1-indexed）。 */
+  walletPage: number;
+  /** 給定頁碼 → 連結；面板版沒有自己的 URL ⇒ 傳 undefined 代表「不顯示翻頁」。 */
+  walletPageHref?: (page: number) => string;
   /** 各區塊載入失敗旗標(基本資料仍可看;誠實顯示錯誤態、不顯空清單假象)。 */
   walletLoadFailed: boolean;
   orders: OrderListItem[];
@@ -193,7 +212,36 @@ export function CustomerDetail({
             交易紀錄載入失敗,請稍後再試(基本資料不受影響)。
           </p>
         ) : (
-          <WalletLedgerTable entries={walletEntries} orderHref={orderHref} />
+          <>
+            <WalletLedgerTable
+              entries={walletEntries}
+              orderHref={orderHref}
+              emptyHint={
+                walletTotal > 0
+                  ? '這一頁沒有資料 —— 可能是頁碼超出範圍，請回到第 1 頁。'
+                  : undefined
+              }
+            />
+            {/* 🔴 翻頁只在【有自己的 URL】的整頁版顯示；面板是抽屜、沒有 URL。 */}
+            {walletPageHref ? (
+              <ListPagination
+                page={walletPage}
+                total={walletTotal}
+                pageSize={WALLET_LEDGER_PAGE_SIZE}
+                shownCount={walletEntries.length}
+                buildHref={walletPageHref}
+              />
+            ) : (
+              // 🔴 面板【也要說出這只是一部分】(codex 2026-08-17 抓到):
+              //    不說的話，員工會把抽屜裡的最近 20 筆當成完整帳本
+              //    ⇒ 那正是本片要修的那個病，只是被搬進了抽屜。
+              walletTotal > walletEntries.length && (
+                <p className='text-muted-foreground pt-2 text-xs'>
+                  顯示最近 {walletEntries.length} 筆，共 {walletTotal} 筆 —— 完整紀錄請開整頁。
+                </p>
+              )
+            )}
+          </>
         )}
       </section>
 

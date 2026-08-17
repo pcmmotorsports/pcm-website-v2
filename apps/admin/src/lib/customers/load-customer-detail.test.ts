@@ -19,7 +19,7 @@ vi.mock('../orders/order-repository', () => ({
 }));
 vi.mock('server-only', () => ({}));
 
-import { loadCustomerDetail } from './load-customer-detail';
+import { loadCustomerDetail, WALLET_LEDGER_PAGE_SIZE } from './load-customer-detail';
 
 // OD 片 3a:客戶明細五路取數抽成共用實作的守門。
 //
@@ -36,7 +36,9 @@ const CUSTOMER = { userId: 'cu-1', name: '王小明' };
 
 function allOk() {
   mocks.findById.mockResolvedValue(CUSTOMER);
-  mocks.listEntries.mockResolvedValue([{ id: 'w1' }]);
+  // 🔴 2026-08-17:`listEntries` 由「回傳全部(陣列)」改為「回傳一頁(Paginated)」
+  //    ⇒ 替身形狀跟著改（被測介面刻意變了，不是放寬期望值）。
+  mocks.listEntries.mockResolvedValue({ items: [{ id: 'w1' }], total: 1 });
   mocks.listSummariesByCustomer.mockResolvedValue([{ id: 'o1' }]);
   mocks.listAddresses.mockResolvedValue([{ id: 'a1' }]);
   mocks.listVehicles.mockResolvedValue([{ id: 'v1' }]);
@@ -131,7 +133,7 @@ describe('loadCustomerDetail — 五路取數', () => {
         releaseFirst = () => resolve(CUSTOMER);
       }),
     );
-    mocks.listEntries.mockResolvedValue([]);
+    mocks.listEntries.mockResolvedValue({ items: [], total: 0 });
     mocks.listSummariesByCustomer.mockResolvedValue([]);
     mocks.listAddresses.mockResolvedValue([]);
     mocks.listVehicles.mockResolvedValue([]);
@@ -166,5 +168,39 @@ describe('loadCustomerDetail — 五路取數', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain('車庫');
     expect(messages[0]).not.toContain('收件地址');
+  });
+});
+
+describe('loadCustomerDetail — 儲值金分頁參數傳遞（2026-08-17）', () => {
+  it('🔴 walletPage=3 ⇒ 用 offset 40 去查（而不是永遠查第 1 頁）', async () => {
+    mocks.listEntries.mockResolvedValue({ items: [], total: 100 });
+
+    await loadCustomerDetail('cu-1', { walletPage: 3 });
+
+    // (3-1) * 20 = 40
+    expect(mocks.listEntries).toHaveBeenCalledWith('cu-1', {
+      limit: WALLET_LEDGER_PAGE_SIZE,
+      offset: 40,
+    });
+  });
+
+  it('負向對照:省略 walletPage ⇒ 第 1 頁（offset 0）', async () => {
+    mocks.listEntries.mockResolvedValue({ items: [], total: 100 });
+
+    await loadCustomerDetail('cu-1');
+
+    expect(mocks.listEntries).toHaveBeenCalledWith('cu-1', {
+      limit: WALLET_LEDGER_PAGE_SIZE,
+      offset: 0,
+    });
+  });
+
+  it('總數與頁碼有回傳給畫面（否則 ListPagination 印不出「共 N 筆」）', async () => {
+    mocks.listEntries.mockResolvedValue({ items: [], total: 137 });
+
+    const data = await loadCustomerDetail('cu-1', { walletPage: 2 });
+
+    expect(data.walletTotal).toBe(137);
+    expect(data.walletPage).toBe(2);
   });
 });

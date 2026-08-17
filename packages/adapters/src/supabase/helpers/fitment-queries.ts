@@ -34,46 +34,51 @@ export function buildFitmentYearFilter(spec: FitmentSpec): string | null {
 /**
  * 依 fitment spec 反查商品(對齊 IProductRepository.listByFitment)。
  *
- * 兩步:① 正規化索引表 `product_fitments` 過濾(moto_brand + model_code 等值 + 年份範圍重疊)
- * 取 distinct product_id(RLS 濾下架 fitment;步①只 select product_id、零金額欄);② `products_public`
- * `.in('id', ids)` 取商品(RLS 二層濾下架 + 經銷價物理排除)。空結果短路、不查 products_public。
+ * 🔴 **2026-08-17 由「兩步」改為「一步 `!inner` join」** —— 舊寫法是
+ * ①`product_fitments` 撈 `product_id` ②`products_public.in('id', ids)`。
+ * 換掉的理由不是風格,是**舊形狀有三個病而新形狀讓它們不存在**:
  *
- * R2a 由舊 jsonb `.contains` @> + client cross-check 改走此正規化索引;正規化一列一相容 →
- * 結構性消掉舊版跨車型 false-positive(不再需 client `some()` 補救)。
- * 🔴 `.in('id', ids)` 無上限:熱門車型可能配大量商品(URL/參數上限風險、引擎下游 cap;stopgap #51)。
+ * 1. **兩步都會被 `max-rows` 靜默截斷**,而且是**串聯**的:步①被夾過的 id 餵給步②,
+ *    步②**查得到它拿到的每一個 id** ⇒ 看起來完全正常 ⇒ **只修步②等於沒修**。
+ *    (實測:`BMW / S 1000 RR` 1,423 列 fitment = 724 個商品 ⇒ 步①實得 1,000 列 ⇒ 只剩 490 個。)
+ * 2. **`.in('id', ids)` 的 URL 長度**:每個 uuid 約 37 字元,724 個 ⇒ 約 27KB,
+ *    超過常見 8KB header 上限 ⇒ 舊形狀**結構上無法**把熱門車型撈完(這正是 stopgap `#51` 記的風險)。
+ * 3. 兩次 round trip。
+ *
+ * 新形狀:**頂層是商品、fitment 當 filter**。
+ * ⇒ 回來的天生 distinct(不必去重)、沒有 `.in()`(URL 限制消失)、一次往返;
+ * ⇒ 而且 `content-range` 給的總數是**商品數**(724)不是 fitment 列數(1,423)。
+ * **實測**(anon 側 production、2026-08-17):`…&limit=600` ⇒ `content-range: 0-599/724`、
+ * 回傳 600 筆 distinct 600;帶年份 filter(2020)⇒ 總數收斂為 327。
+ *
+ * R2a 由舊 jsonb `.contains` @> + client cross-check 改走正規化索引的語意不變:
+ * 正規化一列一相容 → 結構性消掉舊版跨車型 false-positive。
  */
 export async function queryProductsByFitment(
   supabase: SupabaseClient<Database>,
   spec: FitmentSpec,
   productSelect: string,
+  poolLimit: number,
 ): Promise<SupabaseProductRow[]> {
-  let pfQuery = supabase
-    .from('product_fitments')
-    .select('product_id')
-    .eq('moto_brand', spec.motoBrand)
-    .eq('model_code', spec.modelCode);
+  let query = supabase
+    .from('products_public')
+    .select(`${productSelect}, product_fitments!inner(moto_brand)`)
+    .eq('product_fitments.moto_brand', spec.motoBrand)
+    .eq('product_fitments.model_code', spec.modelCode);
 
   const yearFilter = buildFitmentYearFilter(spec);
   if (yearFilter !== null) {
-    pfQuery = pfQuery.or(yearFilter);
+    // 年份條件套在**被內嵌的那張表**上(不是商品表)—— 語意與舊寫法的 `pfQuery.or(...)` 相同。
+    query = query.or(yearFilter, { referencedTable: 'product_fitments' });
   }
 
-  const { data: pfRows, error: pfError } = await pfQuery;
-  if (pfError) {
-    throw pfError;
-  }
-
-  const productIds = Array.from(
-    new Set((pfRows ?? []).map((row) => row.product_id)),
-  );
-  if (productIds.length === 0) {
-    return [];
-  }
-
-  const { data, error } = await supabase
-    .from('products_public')
-    .select(productSelect)
-    .in('id', productIds);
+  // `.order('handle')` 不是排版偏好:推薦引擎最重要的那一層(同分類、`score 100`)用
+  // `byHandleAsc` 決定性排序取前幾筆(`rule-based-engine.ts` 搜 `byHandleAsc`)
+  // ⇒ **池的排序鍵與消費端一致時,取前 N 筆對那一層是無損的**;
+  // 若這裡改用 `id` 排序,handle 最小的那幾筆可能整批不在池內 ⇒ 那才是有偏的取樣。
+  const { data, error } = await query
+    .order('handle', { ascending: true })
+    .limit(poolLimit);
   if (error) {
     throw error;
   }
@@ -176,11 +181,17 @@ export async function queryInheritedFitments(
 export async function queryGeneralProducts(
   supabase: SupabaseClient<Database>,
   productSelect: string,
+  poolLimit: number,
 ): Promise<SupabaseProductRow[]> {
+  // 🔴 通用款是這一族裡母體最大的一支:實測 **3,995** 筆(2026-08-17 anon 側 production)
+  //    ⇒ 舊寫法靜默停在 1,000、少 2,995,而它是推薦引擎「湊不滿時的最後補位」
+  //    ⇒ 少掉的那些**永遠輪不到**,且畫面上看不出任何異常。
   const { data, error } = await supabase
     .from('products_public')
     .select(productSelect)
-    .eq('fitments', '[]');
+    .eq('fitments', '[]')
+    .order('handle', { ascending: true })
+    .limit(poolLimit);
   if (error) {
     throw error;
   }

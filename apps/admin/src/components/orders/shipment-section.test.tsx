@@ -103,6 +103,30 @@ describe('#351④ 空箱區', () => {
   //
   // 🔴 `null` = 算不出來(查不到客人 / 品項列被截斷),`[]` = 真的沒有空箱。
   //    這兩者原本畫出來**一模一樣**(整區不出現)⇒ 員工照彈窗文案來這裡,看到一張空白頁。
+  describe('🔴 本單包裹清單算不出來時(loadOrderShipments 回 null)', () => {
+    // 🔴🔴 **這一族 2026-08-16 才補,而在它之前那個 null 分支【零測試】** ——
+    //    code-reviewer R1 MF3 抓的:把整段 null 分支刪掉退回 `groups.length === 0`,
+    //    105 格照樣全綠。**我加的守門自己沒有守門。**
+    //    ⚠️ 形狀就在同一支檔的下面(`empties === null` 那族),而我沒抄。
+    it('🔴 要講出來,不是畫成「還沒有任何包裹」', async () => {
+      loadOrderShipments.mockResolvedValue(null);
+      render(await ShipmentSection({ detail }));
+      expect(
+        screen.queryByText(/沒能完整載入/),
+        '截斷靜默 ⇒ 與「這張訂單還沒有任何包裹」畫面相同 ⇒ 員工會去建第二個箱。',
+      ).not.toBeNull();
+      // 🔴 正向對照:那句「還沒有任何包裹」**不可以同時出現** —— 兩句意思相反。
+      expect(screen.queryByText(/還沒有任何包裹/)).toBeNull();
+    });
+
+    it('🔴 不列任何箱 —— 寧可不列,也不要列一份少了東西的清單', async () => {
+      loadOrderShipments.mockResolvedValue(null);
+      render(await ShipmentSection({ detail }));
+      // 底下那句「這裡只列這張訂單…」是清單存在時才該出現的
+      expect(screen.queryByText(/這裡只列/)).toBeNull();
+    });
+  });
+
   describe('算不出來時(null)', () => {
     it('🔴 要講出來,不是靜默消失', async () => {
       loadEmptyShipments.mockResolvedValue(null);
@@ -159,5 +183,27 @@ describe('#351④ 空箱區', () => {
   it('前提 — 空箱查詢只吃訂單 id(不把帶成交價與 PII 的 detail 交給資料層)', async () => {
     render(await ShipmentSection({ detail }));
     expect(loadEmptyShipments).toHaveBeenCalledWith('o1');
+  });
+});
+
+
+// ── 🔴 入口鈕的名字(2026-08-17)──
+//
+// 🔴 **這一格是【突變打偏】撿到的**:I 窗驗上一批時把「列印鈕改回無條件」誤打成
+//    「入口鈕改回舊名」(`列印出貨明細單` -> `列印出貨單`)⇒ **rc=0、零格轉紅**
+//    ⇒ **入口鈕改名這件事零測試覆蓋。**
+// 📎 **突變打偏通常被當雜訊丟掉,而它其實是一次免費的覆蓋率量測。**
+//
+// ⚠️ 為什麼這個字面值得一格:紙上的 `<h1>` 與瀏覽器分頁名都已是「出貨明細單」
+//    ⇒ **入口鈕留著舊名,員工會以為那是兩種不同的單**,而畫面上不會有任何異常。
+//    (影響低是對的 —— 但「所以不必補」不成立:它是 Sean 肉眼會看到的面,而肉眼驗不是每次都做。)
+describe('🔴 出貨卡的列印入口鈕名稱', () => {
+  it('鈕上寫「列印出貨明細單」,不是舊名「列印出貨單」', async () => {
+    loadOrderShipments.mockResolvedValue([
+      { shipment: emptyBox('K7X2MP'), lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }] },
+    ]);
+    const { container } = render(await ShipmentSection({ detail }));
+    const link = container.querySelector('a[href*="/shipping/"]');
+    expect(link?.textContent?.trim()).toBe('列印出貨明細單');
   });
 });

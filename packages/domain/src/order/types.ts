@@ -182,6 +182,18 @@ export type OrderListItem = {
   total: Money;
   /** 商品總數量 Σquantity(Q4=B、非 distinct 品項列數) */
   itemCount: number;
+  /**
+   * `itemCount` 可能**少算**(2026-08-16,`Q-EMBED-1` Sean 批)。
+   *
+   * 🔴 **與後台那個旗標的後果不同,不要當成同一件事**:
+   *   後台 `AdminOrderSummary.itemsTruncated` ⇒ **整單狀態被算錯**(`.every()` 對子集單調)
+   *   這裡                                    ⇒ **印一個少算的件數**
+   * ⇒ **客人看到「3 件」而實際訂了 600 件,他不會知道、也不會回報**(沒有第二個來源可以對)。
+   *
+   * ⚠️ **`true` = 「不知道完不完整」,不是「一定被截了」** —— 剛好 N 個品項的單也會命中。
+   * 🔴 顯示端**不得印 0、不得留空**;`itemCount` 那個數字本身**在旗標為真時不可信**。
+   */
+  itemCountTruncated: boolean;
 };
 
 // ── M-4a 訂單線:後台管理讀模型(order_source / payment_channel / admin 篩選 + 摘要)──
@@ -581,6 +593,27 @@ export type AdminOrderSummary = {
   invoiceStatus: InvoiceStatus;
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
+  /**
+   * `lines` 觸及內嵌上限 ⇒ **可能不完整**(2026-08-16,`Q-EMBED-1` Sean 批)。
+   *
+   * 🔴🔴 **它守的不是「少幾列」,是【整單狀態被算錯】。**
+   * `orderStatusView` → `orderGoodsAxis` → `goodsAxisOfLines(lines)` 三條判定都是 `.every(...)`,
+   * 而 `.every()` 對子集**單調**(全集為真 ⇒ 子集必真,反之不然)
+   * ⇒ **子集算出來的階段恆 ≥ 真實階段** ⇒ **看得見的全出貨了就答「出貨完成」。**
+   * ⇒ 員工看到「出貨完成」**就不會再動作**,而那張單其實還有貨沒出。
+   *
+   * 🔴 **為什麼需要一個【我方自己算】的旗標,而不是讀伺服器的訊號**:
+   * PostgREST 的 `db-max-rows` **會**套用到內嵌陣列,而**內嵌被截斷時它不給任何訊號**
+   * —— 仍回 HTTP 200、`Content-Range` 不反映(`docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md`;
+   * ⚠️ 該檔明載出處是官方 repo issue **作者的敘述**、非 maintainer 聲明 ⇒ 當高可信不當定案)。
+   * ⇒ **不自己算的話,這件事偵測不到。**
+   *
+   * ⚠️ **`true` 的意思是「不知道完不完整」,不是「一定被截了」** —— 判法是
+   * 「要 N 筆、拿回剛好 N 筆」,而一張**剛好 N 個品項**的單也會命中。
+   * **顯示端一律照「不知道」處理**(`Q-EMBED-2` = 甲:整格印「未知」+ 一行說明)。
+   * 🔴 **不得顯示成 0、不得留空** —— 那兩者都會被讀成「就是沒有」,而這裡的語意是「我們不知道」。
+   */
+  itemsTruncated: boolean;
 };
 
 /** 開票紀錄狀態(orders.invoice_status;DB CHECK 三值,v1 簡單欄位、不串電子發票 API)。 */
@@ -823,6 +856,39 @@ export type AdminOrderDetailItem = {
    */
   quantitySummary: AdminOrderItemQuantitySummary | null;
 };
+
+/**
+ * **列印用**的品項投影(`Q-C18` 甲,2026-08-17)。
+ *
+ * 🔴 **為什麼要一個比 `AdminOrderDetailItem` 窄的型別 —— 這不是風格選擇。**
+ * 明細那份是**內嵌**在訂單查詢裡撈的,而內嵌撈得到幾列由請求端上限
+ * (`ORDER_ITEMS_EMBED_LIMIT = 200`)決定 ⇒ 一張 200 品項的單就會被截,而**紙看起來完全正常**。
+ * 治本是改走**頂層分頁查詢**(`SupabaseOrderAdapter.listOrderItemsForPrint`)。
+ *
+ * 而頂層那支刻意不取四個欄,而**它們被排除的理由是兩種,不要合在一起讀**
+ * (V 窗 2026-08-17 打回我第一版:合在一起會讓下一個人拿結構性理由拒絕一個 YAGNI 的東西):
+ *
+ * - **排除 `procurements` / `procurementTruncated` —— 結構性理由,永久成立**:
+ *   它是**內嵌陣列**,受 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 管
+ *   ⇒ 取它進來**等於把我們正在拆的那道牆換個位置裝回來**。
+ * - **排除 `unitPrice` / `lineTotal` —— 只是 YAGNI,會過期**:現行紙上零金額,現在不需要。
+ *   🔴 **金額片要加這兩個欄時【不受上面那條約束】** —— 它們是**同列 scalar**,
+ *   **取它們不產生任何截斷面**。看到上面那條就以為金額欄也不能加的人,請讀完這一段。
+ *
+ * ⇒ 型別對不上有兩種解法,而其中一種(把 `procurements` 一起取)會把病帶進來;選窄的這條。
+ *
+ * **這 6 欄是量出來的,不是列的**:對 `apps/admin/src/components/print/shipping-doc.tsx`
+ * 與 `apps/admin/src/lib/shipping/shipping-doc-quantities.ts` 掃品項欄位用法後逐處分類
+ * (量法與分類表寫在 `docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md` §2)。
+ * ⚠️ **金額片落地時會需要 `unitPrice` / `lineTotal`** —— 那時再加,**不要順手先加**。
+ *
+ * 用 `Pick` 而不是重打一遍:欄位語意(尤其 `quantitySummary` 的 `null` = 「不知道」不是 0)
+ * 只有一份權威,**兩份會漂**(同 backlog `#602` 的病)。
+ */
+export type AdminOrderPrintItem = Pick<
+  AdminOrderDetailItem,
+  'id' | 'variantSku' | 'title' | 'spec' | 'quantity' | 'quantitySummary'
+>;
 
 /**
  * 品項三軸數量摘要(M-4b E10 A9g-1)——**衍生快取** `order_item_quantity_summary`

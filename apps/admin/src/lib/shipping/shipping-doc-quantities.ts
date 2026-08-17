@@ -7,7 +7,17 @@
 //       而那會讓「算式對不對」與「畫面有沒有印出來」兩件事混在同一格裡紅。
 //    ⚠️ 兩件都要測,但**不該是同一格**:算式在這裡測,畫面在 page.test.tsx 測。
 
-import type { AdminOrderDetailItem } from '@pcm/domain';
+import type { AdminOrderDetailItem, AdminOrderPrintItem } from '@pcm/domain';
+
+/**
+ * 本檔兩支算式**只讀 `quantitySummary`**(`Q-C18` 甲落地時實查確認),
+ * 所以參數收窄成「明細品項**或**列印品項」——
+ * 🔴 收窄的理由不是型別潔癖:出貨明細單的品項改走**頂層分頁查詢**之後拿到的是
+ * `AdminOrderPrintItem`(6 欄),**它沒有 `unitPrice` / `procurements`**;
+ * 若這裡仍然要求整包 `AdminOrderDetailItem`,唯一的過關方式就是把那些欄補進新查詢,
+ * **而 `procurements` 自己是另一道內嵌上限** ⇒ 等於把我們正在拆的那道牆換個位置裝回來。
+ */
+type QuantityItem = AdminOrderDetailItem | AdminOrderPrintItem;
 
 /**
  * 這一列**還欠客人幾件**(= 這張紙印在「尚未出貨」區的那個數)。`null` = 不知道(不是 0)。
@@ -64,7 +74,7 @@ import type { AdminOrderDetailItem } from '@pcm/domain';
  *    那個問「倉庫現在有幾件可以揀」= `instock − shipped`;這個問「還欠客人幾件」(沒到貨的照樣欠)。
  */
 export function outstandingQuantity(args: {
-  item: AdminOrderDetailItem;
+  item: QuantityItem;
   /** **這一箱**裡屬於這一列的量。 */
   thisShipmentQuantity: number;
   /** 這一箱是否**已標記出貨**(`shipments.shipped_at !== null`)。 */
@@ -85,6 +95,6 @@ export function outstandingQuantity(args: {
  *    **本次出貨** / **尚未出貨** / **訂單取消** 分隔起來就好」。
  *    ⚠️ **區名「訂單取消」照抄他的字,不要正規化成「已取消品項」之類。**
  */
-export function cancelledQuantityOf(item: AdminOrderDetailItem): number | null {
+export function cancelledQuantityOf(item: QuantityItem): number | null {
   return item.quantitySummary?.cancelledQuantity ?? null;
 }

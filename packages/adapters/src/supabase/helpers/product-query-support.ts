@@ -9,6 +9,23 @@
 /** PostgREST not-found error code(`.single()` 找不到 row)。 */
 export const PGRST_NOT_FOUND = 'PGRST116';
 
+/**
+ * `poolLimit` 入口驗證(fail-closed,對齊同 adapter `listAllProducts` 既有的 limit 驗證形狀)。
+ *
+ * 🔴 **為什麼 throw 而不是靜靜代入一個預設值**:這一族方法要解的病就是「靜默」——
+ * 呼叫端傳了壞值卻拿到一個看起來正常的結果,正是本片在修的那個形狀的翻版。
+ */
+export function assertPositiveIntegerPoolLimit(
+  method: string,
+  poolLimit: number,
+): void {
+  if (!Number.isInteger(poolLimit) || poolLimit <= 0) {
+    throw new Error(
+      `SupabaseProductAdapter.${method}: poolLimit 須為正整數、收到 ${poolLimit}`,
+    );
+  }
+}
+
 /** searchByKeyword ILIKE 三欄(對齊 PRD §3.5 + supabase-schema-design.md §2.5 dev 階段)。 */
 export const SEARCHABLE_COLUMNS = ['title', 'subtitle', 'description'] as const;
 

@@ -8,6 +8,7 @@ import type {
   PlaceOrderInput,
   PlaceOrderResult,
   AdminOrderDetail,
+  AdminOrderPrintItem,
   AdminOrderFilter,
   AdminOrderListResult,
   AdminOrderSummary,
@@ -32,10 +33,14 @@ import {
   mapSupabaseOrderRowToListItem,
   mapSupabaseAdminOrderRowToSummary,
   mapSupabaseAdminOrderDetailRowToDetail,
+  mapSupabaseOrderItemPrintRow,
   type CreateOrderRpcResult,
   type SupabaseAdminOrderRow,
   type SupabaseAdminOrderDetailRow,
+  type SupabaseOrderItemPrintRow,
   ORDER_ITEMS_EMBED_LIMIT,
+  ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
+  ORDER_LIST_ITEMS_EMBED_LIMIT,
   PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
@@ -383,6 +388,42 @@ export const ADMIN_ORDER_DETAIL_SELECT =
  * `${referencedTable}.order` / `:455` `${referencedTable}.limit`)⇒ 傳這個帶點的路徑,
  * 送出的正是上面實測過的 wire 形狀。
  */
+/**
+ * **列印用**品項的頂層投影(`Q-C18` 甲,2026-08-17)。
+ *
+ * 🔴 **比 `ADMIN_ORDER_DETAIL_SELECT` 內嵌的那份【窄】,而且兩種欄被排除的理由不同**:
+ * - **沒有 `order_item_procurement`** —— **結構性、永久成立**:它是內嵌陣列、受
+ *   `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 管 ⇒ 取進來等於把我們正在拆的那道牆換個位置裝回去。
+ * - **沒有 `unit_price` / `line_total`** —— **只是 YAGNI**:紙上目前零金額。
+ *   🔴 **金額片要加它們時不受上面那條約束** —— 同列 scalar,**取它們不產生任何截斷面**。
+ * ⇒ **零 PII、零價格** —— 白名單比明細那份更安全,不是更寬。
+ * ⚠️ `order_item_quantity_summary` 是 1:1(`order_item_id` 為 PK)⇒ 它不會被截。
+ */
+const ORDER_ITEMS_PRINT_SELECT =
+  'id, variant_sku, quantity, product_snapshot, order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)';
+
+/**
+ * 列印用分頁的頁大小。
+ *
+ * 🔴 **為什麼是 200 而不是 1000**(A 窗 2026-08-17 在共用 helper 裡實測到這個坑):
+ * 頁大小**等於** `db-max-rows` 時,「伺服器砍過的一頁」與「真正的末頁」**回傳同樣的筆數**
+ * ⇒ 兩個世界印同一個東西 ⇒ 用「本頁不滿即停」的迴圈會靜默提早收工。
+ * 既有共用 helper `fetchAllPaginated` 的 `PAGE_SIZE` 正是 `1000` = **零餘裕**。
+ * ⚠️ **而這裡刻意不寫成 `max-rows - 1`** —— 那會把正確性綁在一個**未確認**的值上
+ * (repo 側 docstring 說 1000、A 窗頂層實測 1000,而官方文件**沒有說它對內嵌資源怎麼算**)。
+ * ⇒ 挑一個**明顯更小的固定值**。
+ * 🔴 **但本迴圈的正確性根本不依賴這個數**:終止條件是「拿到 0 列」、`from` 前進**實得筆數**
+ * ⇒ 伺服器把頁切短時只是多跑幾圈,不會跳過任何一列
+ * (詳 `listOrderItemsForPrint` docstring)。**這個數只影響往返次數。**
+ */
+const PRINT_ORDER_ITEMS_PAGE_SIZE = 200;
+
+/**
+ * 防呆上限:`200 × 50 = 10,000` 列。
+ * ⚠️ 命中時**throw、不回部分** —— 理由見 `listOrderItemsForPrint` docstring 最後一段。
+ */
+const PRINT_ORDER_ITEMS_MAX_PAGES = 50;
+
 const PROCUREMENT_EMBED_PATH = 'order_items.order_item_procurement';
 
 /**
@@ -495,6 +536,14 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     const { data, error } = await this.supabase
       .from('orders')
       .select(ORDER_LIST_SELECT)
+      // 🔴 內嵌上限:把邊界從伺服器的 `db-max-rows` 手上拿回來(2026-08-16,`Q-EMBED-1` Sean 批)。
+      //    不設的話 `order_items` 會在伺服器上限處被切,而**PostgREST 對內嵌截斷不給任何訊號**
+      //    ⇒ `itemCount` 會印一個少算的數,而客人**沒有第二個來源可以對**。
+      //    設了之後 `mapOrderListItem` 才算得出 `itemCountTruncated`(該處有完整理由)。
+      // ⚠️ `.order()` 與 `.limit()` 成對:未排序的截斷會讓兩次查詢拿到不同子集
+      //    ⇒ 同一張單的件數可能在兩次重新整理之間跳動。
+      .order('id', { referencedTable: 'order_items', ascending: true })
+      .limit(ORDER_LIST_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
       .eq('customer_user_id', customerId)
       .neq('payment_status', 'unpaid') // #249 治標:藏放棄付款的 unpaid 孤兒單(前提=無線下待付款單)
       .order('created_at', { ascending: false });
@@ -641,7 +690,16 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    `ADMIN_ORDER_LIST_SELECT` 的四值字面與 view 的對應仍是人工比對。`#499` 不得標為已解。
     let query = this.supabase
       .from('admin_order_list_v')
-      .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+      .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' })
+      // 🔴 **內嵌上限:把邊界從伺服器的 `db-max-rows` 手上拿回來**(2026-08-16,`Q-EMBED-1` Sean 批)。
+      //    不設的話,`order_items` 會在伺服器的上限處被切,而**PostgREST 對內嵌截斷不給任何訊號**
+      //    (仍回 200、`Content-Range` 不反映)⇒ 偵測不到。
+      //    設了之後,`mapAdminOrderSummary` 才算得出 `itemsTruncated`(該處有完整理由)。
+      // ⚠️ **`.order()` 與 `.limit()` 要成對** —— 沒有明確排序時「前 N 筆」是哪 N 筆未定義,
+      //    而截斷判定只看「筆數是不是剛好 N」、不看是哪幾筆,但**未排序的截斷會讓兩次查詢拿到不同子集**
+      //    ⇒ 同一張單的軸可能在兩次重新整理之間跳動。明細那支(`findAdminOrderDetail`)同樣成對。
+      .order('id', { referencedTable: 'order_items', ascending: true })
+      .limit(ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' });
     if (orderIdFilter) query = query.in('id', orderIdFilter);
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     // 🔴 `.in()` 不是 `.eq()`:現行 producer(單選下拉)只給 0 或 1 個值,但型別是陣列(片 B 的 chip UI)。
@@ -814,6 +872,97 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       return null;
     }
     return mapSupabaseAdminOrderDetailRowToDetail(data as unknown as SupabaseAdminOrderDetailRow);
+  }
+
+  /**
+   * **列印用**:把一張訂單的品項**撈到盡**,不吃任何內嵌上限(`Q-C18` 甲,Sean 2026-08-17 批)。
+   *
+   * ## 為什麼需要它
+   * `findAdminOrderDetail` 的品項是**內嵌**撈的,筆數被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住,
+   * 觸及時翻成 `itemsTruncated` ⇒ 出貨明細單直接擋下不印。
+   * 而 Sean 2026-08-17 逐字說一張單「**可能到 200 個品項**」,判定又是 `>=`
+   * ⇒ **正常業務的上緣就是那個值,這不是「未來可能發生」。**
+   *
+   * ## 🔴 迴圈的終止條件是「空頁」,不是「本頁不滿」——這是刻意的
+   * 既有的共用 helper `helpers/product-query-support.ts` 的 `fetchAllPaginated` 用
+   * 「`batch.length < PAGE_SIZE` 即停」,而它的 `PAGE_SIZE = 1000` **等於**傳聞中的伺服器
+   * `db-max-rows`(1000,引自 `mappers/order.ts` docstring 的 production 實測紀錄、**我未自己量**)。
+   * ⇒ **只要伺服器上限低於頁大小,每一頁都會「不滿」⇒ 第一頁就停,而且是靜默的**
+   *   —— 那正是本函式要消滅的那個病,換個位置而已。
+   * ⇒ 本迴圈:**拿到 0 列才停**,而且 `from` **前進實得筆數**(不是前進頁大小)
+   *   ⇒ 伺服器把頁切短時只是多跑一圈,**不會跳過任何一列**。
+   * 📎 代價 = 撈完之後固定多一次空查詢。**用一次往返換掉一個靜默截斷,划算。**
+   *
+   * ## 排序必須全序
+   * `.order('id')` —— `order_items.id` 是 PK ⇒ 唯一 ⇒ 頁界不會漂
+   * (非唯一鍵分頁時同一列可能兩頁都出現、也可能兩頁都不出現)。
+   *
+   * ## 失敗時不回部分
+   * 任何一頁 `error` ⇒ **直接 throw**,不回已累積的前 N-1 頁。
+   * 回部分 = 「部分資料而沒有旗標」= 舊病重生。列印頁的既有立場逐字是
+   * 「讀不到時唯一正確的行為是**不要印出一張紙**」。
+   *
+   * ## 🔴 OFFSET 分頁在並發寫入下會漂移 —— 這條路徑判為【不會】,而我仍然加了去重
+   * OFFSET 分頁的固有性質:撈到一半時集合內有新增/刪除 ⇒ 某一列**兩頁都出現**或**兩頁都不出現**。
+   * **而「多了」也是壞的** —— 紙上同一個品項印兩次;更毒的是它會讓 `count` 對帳**看起來剛好**
+   * (漏一列 + 重複一列 ⇒ 筆數相同)⇒ **對帳擋不住它要擋的那個病。**
+   *
+   * **本路徑的判斷(量出來的,不是推的)**:`order_items` 在建單之後**不再被新增或刪除** ——
+   * 數法 `git grep -lni 'INSERT INTO public.order_items|DELETE FROM order_items|UPDATE order_items'
+   * -- supabase/migrations` ⇒ 8 支檔,**逐支再數 `DELETE`/`UPDATE` 皆為 `0`**,八支全是
+   * `create_order` RPC 的各代版本;app 層 `git grep -n "from('order_items')"` ⇒ 3 處**皆為讀**。
+   * ⇒ 對**一張既有訂單**而言,列集合在列印當下是固定的 ⇒ **漂移在這條路徑上構造不出來。**
+   * ⚠️ **這個結論的失效條件寫在這裡**:哪天有「訂單成立後補品項 / 刪品項」的功能
+   * (例如手動建單、改單),**這一段就不成立了,要回頭改成 keyset(游標綁資料不綁位置)**。
+   *
+   * 🔴 **而我仍然按 `id` 去重** —— 理由不是不信上面那段,是**去重是兩行,而上面那段是一個論證**:
+   * 論證會過期而且過期時沒有症狀;去重讓「重複」這個失敗模式**在結構上不存在**,
+   * 並且讓 `reportedTotal` 的對帳恢復判別力(漏了就是筆數少,不會被重複補平)。
+   *
+   * ## `count` 是對帳訊號,不是終止判準
+   * `reportedTotal` 取自第一頁的 `count: 'exact'`。**它量在那一個瞬間**,而迴圈跨多次查詢
+   * ⇒ 中途有寫入時 `count !== items.length` 是**正常**的,不是錯。
+   * ⇒ **不拿它判「撈完了」**(那是 TOCTOU);它的用途是讓呼叫端看得出「有沒有對不上」。
+   */
+  async listOrderItemsForPrint(
+    orderId: string,
+  ): Promise<{ items: AdminOrderPrintItem[]; reportedTotal: number | null }> {
+    // 🔴 用 Map 按 `id` 去重(理由見 docstring「OFFSET 漂移」那段):
+    //    重複列會讓紙上同一個品項印兩次,而且會把 `reportedTotal` 對帳補平成「剛好」。
+    const byId = new Map<string, SupabaseOrderItemPrintRow>();
+    let reportedTotal: number | null = null;
+    let from = 0;
+
+    for (let page = 0; page < PRINT_ORDER_ITEMS_MAX_PAGES; page += 1) {
+      const { data, error, count } = await this.supabase
+        .from('order_items')
+        .select(ORDER_ITEMS_PRINT_SELECT, page === 0 ? { count: 'exact' } : undefined)
+        .eq('order_id', orderId)
+        .order('id', { ascending: true })
+        .range(from, from + PRINT_ORDER_ITEMS_PAGE_SIZE - 1);
+      if (error) {
+        throw error;
+      }
+      if (page === 0 && typeof count === 'number') {
+        reportedTotal = count;
+      }
+      const batch = (data ?? []) as unknown as SupabaseOrderItemPrintRow[];
+      if (batch.length === 0) {
+        return { items: [...byId.values()].map(mapSupabaseOrderItemPrintRow), reportedTotal };
+      }
+      for (const r of batch) byId.set(r.id, r);
+      // 🔴 `from` 前進**這一頁實得的筆數**(不是去重後的筆數,也不是頁大小)——
+      //    它是「伺服器游標走到哪」,與我們留下幾列是兩件事。
+      from += batch.length;
+    }
+
+    // 🔴 撞到防呆上限 ⇒ **throw,不回部分、不 console.warn**。
+    //    `console.warn` 在 server component 裡沒有人會看到 —— 那等於靜默截斷。
+    throw new Error(
+      `listOrderItemsForPrint(${orderId}) 達 MAX_PAGES=${PRINT_ORDER_ITEMS_MAX_PAGES}` +
+        `(${PRINT_ORDER_ITEMS_MAX_PAGES * PRINT_ORDER_ITEMS_PAGE_SIZE} 列)仍未撈完;` +
+        `不回傳部分結果 —— 部分結果會讓紙上少列品項而紙看起來完全正常。`,
+    );
   }
 
   /**

@@ -9,6 +9,7 @@ import type {
   CustomerAddress,
   CustomerVehicle,
   OrderListItem,
+  Paginated,
   WalletLedgerEntry,
 } from '@pcm/domain';
 import {
@@ -44,6 +45,17 @@ function settle<T>(
   return { value: fallback, failed: true };
 }
 
+/**
+ * 客人卡「儲值金交易紀錄」每頁筆數。
+ *
+ * **【抄】既有慣例、不新造**：`PRODUCTS_PAGE_SIZE` / `CUSTOMERS_PAGE_SIZE` / `ORDERS_PAGE_SIZE`
+ * 三處都是 20 ⇒ 這裡沿用同一個數。
+ * ⚠️ 抄的理由是**一致性**（員工在不同列表看到同樣的翻頁節奏），
+ * 不是這個數字有什麼技術特性 —— 今天稍早我才吃過「抄了形狀也抄了參數」的虧，
+ * 兩種抄的理由不同，這裡是前者。
+ */
+export const WALLET_LEDGER_PAGE_SIZE = 20;
+
 export type CustomerDetailData = {
   /**
    * 客戶本體。
@@ -56,6 +68,10 @@ export type CustomerDetailData = {
   customerFailed: boolean;
   walletEntries: WalletLedgerEntry[];
   walletLoadFailed: boolean;
+  /** 該會員儲值金流水【總筆數】（伺服器 count，非本頁筆數）。 */
+  walletTotal: number;
+  /** 目前是第幾頁（1-indexed；URL 竄改由 `parsePage` 下界到 1）。 */
+  walletPage: number;
   orders: OrderListItem[];
   ordersLoadFailed: boolean;
   addresses: CustomerAddress[];
@@ -70,18 +86,32 @@ export type CustomerDetailData = {
  * 🔴 `allSettled` 不是 `all`:單一區塊壞掉只讓該區塊顯示錯誤列,**基本資料不連坐**
  * (與訂單明細頁同慣例)。改成 `all` 會讓「車庫查詢壞掉」把整張客人卡打成錯誤頁。
  */
-export async function loadCustomerDetail(id: string): Promise<CustomerDetailData> {
+export async function loadCustomerDetail(
+  id: string,
+  options: { walletPage?: number } = {},
+): Promise<CustomerDetailData> {
+  // 🔴 分頁「顯示」不是分頁「撈取」：這一頁只要這一頁的列 + 伺服器算的總數。
+  //    `count:'exact'` 不受 `db-max-rows` 限制 ⇒ 畫面能印「共 N 筆」而不必先把 N 筆撈下來。
+  const walletPage = options.walletPage ?? 1;
   const [customerSettled, walletSettled, ordersSettled, addressesSettled, vehiclesSettled] =
     await Promise.allSettled([
       (async () => getAdminCustomerRepository().findById(id))(),
-      (async () => getAdminWalletRepository().listEntries(id))(),
+      (async () =>
+        getAdminWalletRepository().listEntries(id, {
+          limit: WALLET_LEDGER_PAGE_SIZE,
+          offset: (walletPage - 1) * WALLET_LEDGER_PAGE_SIZE,
+        }))(),
       (async () => getAdminOrderRepository().listSummariesByCustomer(id))(),
       (async () => getAdminAddressRepository().listByCustomer(id))(),
       (async () => getAdminVehicleRepository().listByCustomer(id))(),
     ]);
 
   const customerResult = settle<Customer | null>(customerSettled, null, '客戶明細');
-  const wallet = settle<WalletLedgerEntry[]>(walletSettled, [], '儲值金流水');
+  const wallet = settle<Paginated<WalletLedgerEntry>>(
+    walletSettled,
+    { items: [], total: 0 },
+    '儲值金流水',
+  );
   const orders = settle<OrderListItem[]>(ordersSettled, [], '訂單歷史');
   const addresses = settle<CustomerAddress[]>(addressesSettled, [], '收件地址');
   const vehicles = settle<CustomerVehicle[]>(vehiclesSettled, [], '車庫');
@@ -89,8 +119,10 @@ export async function loadCustomerDetail(id: string): Promise<CustomerDetailData
   return {
     customer: customerResult.value,
     customerFailed: customerResult.failed,
-    walletEntries: wallet.value,
+    walletEntries: wallet.value.items,
     walletLoadFailed: wallet.failed,
+    walletTotal: wallet.value.total ?? 0,
+    walletPage,
     orders: orders.value,
     ordersLoadFailed: orders.failed,
     addresses: addresses.value,

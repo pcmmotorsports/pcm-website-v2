@@ -103,7 +103,14 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>揀貨單</h1>
         <span className='text-xl font-semibold tabular-nums'>{detail.displayId}</span>
-        <PrintButton label='列印' />
+        {/* 🔴 **擋住內容卻沒擋住列印鈕 = 守門裝在沒有事的那條路上**(2026-08-17;
+            與 `shipping-doc.tsx` 同批,那邊 code-reviewer R2 F3 點名這裡一個字沒改)。
+            兩種狀態下這張紙都**不該被拿去揀貨**(訂單已取消 / 清單沒載完),
+            而改之前這顆鈕在警告**上面**、不受影響 ⇒ 員工按得下去,印出一張紙照樣進倉庫。
+            🔴 **這不是守門,只是不再遞刀** —— `print-button.tsx:5-7` 自己就寫著
+               「為什麼要有這顆鈕、而不是叫員工按 Ctrl+P」⇒ ⌘P 那條路還在,
+               真正的解法是整幅阻印版面(樣張 B),**已立案 `#601`**、不在本片。 */}
+        {cancelledAt === null && !detail.itemsTruncated && <PrintButton label='列印' />}
       </div>
 
       {cancelledAt !== null && (
@@ -121,8 +128,16 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
               既有同型處置 `components/orders/item-procurement-section.tsx:253`。 */}
           {detail.itemsTruncated && (
             <Alert>
-              這張單的品項清單這次沒有完整載入,下面看到的不是全部。請重新整理後再列印;
-              不要拿這張去揀貨。
+              {/* 🔴 **舊字面是一句假話**(2026-08-17,與 `shipping-doc.tsx:76` 同批):
+                  原本逐字「請重新整理後再列印」,而觸發它的是**固定上限**
+                  (`ORDER_ITEMS_EMBED_LIMIT = 200`,
+                  `packages/adapters/src/supabase/mappers/order.ts:406`,判定 `:830` 是 `>=`)
+                  ⇒ **重整一百次拿回同一個數字**,那句話叫員工去做一件永遠不會成功的事,
+                  而他會照做、會做很多次,然後以為是自己哪裡沒弄對。
+                  ⚠️ **文案裡連「重新整理」這個詞根都不留** —— 守門禁的是詞根不是祈使形白名單
+                  (白名單被穿透兩次的紀錄在 `shipping-doc` 那片的 commit body)。 */}
+              這張訂單的品項達到 200 筆上限,系統一次列不完,下面看到的不是全部。
+              這是系統的固定限制,不是暫時的狀況。請聯絡負責人處理,不要拿這張去揀貨。
             </Alert>
           )}
 

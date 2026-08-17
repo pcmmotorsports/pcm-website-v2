@@ -41,7 +41,7 @@
 |---|---|---|---|
 | **P2-1** | `xlsx@0.18.5` 在 `package.json`，**零程式碼引用**，帶 **2 個 HIGH 且官方無修補版** | **中（前瞻性）** | ❌ 今天不可 —— **沒有任何程式碼載入它** |
 | **P2-2** | `sharp@0.34.5` libvips 4 個 CVE | 低 | ❌ **web runtime 完全碰不到**（見下） |
-| P2-3 | `shipment-actions.ts` 4 支 action 無授權閘 | 低（稽核歸屬，非存取控制） | ❌ 已由 Phase 1 界定 |
+| P2-3 | `shipment-actions.ts` **5 支** action 無授權閘（原寫 4 支，F6 更正） | 低（稽核歸屬，非存取控制） | ❌ 已由 Phase 1 界定 |
 | **P2-4** | 🔴 **出貨線五支 RPC 零 `admin_audit_log` 留痕**，而呼叫它們的正是 P2-3 那個無閘的檔 ⇒ **兩層都沒有留痕**（隔壁七條業務線都有） | **中（可觀測性，非存取控制）** | ❌ 外部呼不到（`admin_*` 28 支對 anon／authenticated 皆 0） —— **但「帳號被盜／誤操作」查不出是誰** |
 
 **其餘 dev 工具鏈的 11 個 high／moderate（`vite`／`esbuild`／`turbo`／`@babel/core`／`brace-expansion`／`ws`）
@@ -90,8 +90,16 @@ pattern（不分大小寫、不限 import 寫法，連字串提及都算）：
 **程式碼載入：0。**
 
 ⇒ **今天不可利用：1659 個原始碼檔裡沒有任何一個提到它。**
-⚠️ **這個數字能撐住的只有「今天不可利用」** —— 它**不**說明「移除之後不會壞」，
-但 `0/1659` 加上兩個正向對照，已足以支撐「移除的風險是零」這個決定。
+⚠️ **這個數字能撐住的只有「今天不可利用」** —— 它**不**說明「移除之後不會壞」。
+
+> 🔴 **F10 更正（措辭自相矛盾）**：原文下一句寫「已足以支撐**移除的風險是零**」，
+> 與前一句「**不**說明移除之後不會壞」**互斥**。**「零」是過強的字。**
+>
+> **正確措辭：`0/1659` 支撐的是「未見任何原始碼使用、移除風險【低】」，不是「零」。**
+>
+> ⚠️ 而且**分母本身有邊界**：只涵蓋 `.ts/.tsx/.js/.mjs/.cjs`，
+> **沒有涵蓋** shell 腳本、Python、`.json` 設定、或 **repo 外的消費者**。
+> ⇒ 要說「零風險」，得先把那幾類也掃過。**本輪沒掃。**
 
 **為什麼還是要報**：`docs/specs/2026-08-14-supplier-excel-import-recon.md` 顯示
 **「供應商 Excel 匯入」是規劃中的功能**。那條路一旦開通，就是
@@ -116,7 +124,30 @@ HIGH  sharp inherited libvips CVE-2026-33327 / 33328 / 35590 / 35591   patched: 
    ⇒ 連本地圖片都沒有走優化器
 ```
 
-⇒ **`sharp` 在 web 請求路徑上根本不會被載入。**
+> # 🔴🔴 F4 更正（V 窗指出，我重量後確認）：**「web runtime 碰不到」是錯的**
+>
+> **`next/image` 的 import 數【不是】image optimizer 的可達性控制。**
+> Next server **本身就掛著 `/_next/image` 端點**，與有沒有人寫 `<Image>` 無關。
+>
+> 而 `next.config.ts` 是**全空的 `{}`**（無 `images` 設定，實測 `grep -c images` = **0**）
+> ⇒ **本地路徑預設全部允許**；`apps/storefront/public/` 有 **269 個圖檔**（實測）
+> ⇒ 外部只要打 `GET /_next/image?url=/<某圖>&w=..&q=..`，
+> **web runtime 就會 `require('sharp')` 並把 bytes 餵進去。**
+>
+> ⇒ **我用「`<Image>` 引用數 = 0」推「sharp 不會被載入」是錯的推論** ——
+> **我量的是【誰在用它】，而要問的是【誰打得到它】。**
+>
+> ## ✅ 但可利用性**沒有**改變，仍然低
+>
+> libvips 那幾個 CVE 要**惡意 bytes**。而：
+> - 本地圖來自 `public/`（**team 自己 commit 的**，可信）
+> - `remotePatterns` 為空 ⇒ **外部無法餵任意遠端 bytes 給 sharp**
+>
+> ⇒ **可達性 claim 錯（本段已改），嚴重度維持【低】，`>=0.35.0` 的升級建議不變。**
+
+~~⇒ `sharp` 在 web 請求路徑上根本不會被載入。~~
+**⇒ 更正後：`sharp` 【會】在 web 請求路徑上被載入（`/_next/image`），
+但外部餵不進惡意 bytes（本地圖可信 + 無遠端來源）。**
 唯一真的餵 bytes 給它的是 `scripts/image-trim-scan.ts`
 （**抓供應商 CDN 的圖 → `sharp` 量測**）＋ 一支測試。
 
@@ -154,16 +185,42 @@ HIGH  sharp inherited libvips CVE-2026-33327 / 33328 / 35590 / 35591   patched: 
 
 **未涵蓋**：`markdown`／`marked`／`remark`／`rehype`／`showdown` **零依賴**（Phase 1 量過）⇒ 無 markdown 渲染路徑。
 
-### 3.2 Server Action 授權 —— **28 個檔逐檔建矩陣**
+### 3.2 Server Action 授權 —— **19 個指令檔 / 30 支 action 逐一建矩陣**
 
-跑法：對每個含 `'use server'` 的 `apps/admin/src/lib/**` 檔，數 `authorizeAdminMutation` 出現次數
-與 `export async function` 數，逐檔比對。
+> # 🔴🔴 F6 更正：本節原本的數字**互相對不上**，已全部重量
+>
+> 原文寫「**28 個檔**」「23 個檔有閘、2 個沒有」—— **`23 + 2 = 25 ≠ 28`，三個數不自洽。**
+> 成因（我自己的診斷）：**那幾個數不是同一次、同一把尺量出來的**，
+> 而每一個單看都像真的 ⇒ **合起來才露餡。**
+> **而原文沒有寫下「量在哪個 commit、用什麼 pattern」⇒ 下一個人重建不出來。** 這次補上。
+>
+> ```
+> commit  : 37b9b896
+> 範圍    : apps/admin/src/lib/**/*.ts
+> 判定    : 檔案【第一個非空行】是 'use server' 指令（排除「註解裡提到」的假命中）
+> action  : grep -c '^export async function'
+> 閘      : grep -c 'authorizeAdminMutation('
+> ```
+>
+> **重量結果（自洽）：**
+>
+> ```
+> 指令檔           = 19
+> exported action  = 30
+>   有閘檔內       = 24
+>   無閘檔內       =  6      ← 24 + 6 = 30 ✅
+> 無閘檔           =  2      actor-actions.ts(1 支，設計如此)
+>                            shipment-actions.ts(🔴 5 支，不是我原本寫的 4 支)
+> ```
+>
+> ✅ **V 窗獨立列舉也得到 19 個指令檔、shipment 5 支 ⇒ 兩顆腦收斂。**
+> ✅ **存取控制結論不變**：無閘的就是那 2 個檔，**沒有漏掉任何一道閘**。**錯的只有數字。**
 
-**結果：23 個檔全部有閘。兩個沒有：**
+**結果：17 個檔（24 支 action）全部有閘。兩個檔沒有：**
 
 | 檔 | action 數 | 判讀 |
 |---|---|---|
-| `shipping/shipment-actions.ts` | 4 | **P2-3，Phase 1 已界定**（`E690-1`，殘留是稽核歸屬非存取控制） |
+| `shipping/shipment-actions.ts` | **5** | **P2-3，Phase 1 已界定**（`E690-1`，殘留是稽核歸屬非存取控制） |
 | `session/actor-actions.ts` | 1 | ✅ **設計如此**：只寫 actor cookie，而 `session/actor.ts:6-7` 明寫 actor **不是**授權邊界；非名單 id fail-closed（`:25` 直接 return） |
 
 ### 3.3 🔴 我提出的一條攻擊鏈 —— **被實測推翻**
@@ -243,10 +300,108 @@ public schema 55 個關聯 ×  SELECT / INSERT / UPDATE / DELETE / TRUNCATE
   ⇒ 五項全部 granted = 0 / 55
 ```
 
-⇒ 🔴 **它一張表都讀不到。** 它只能 `EXECUTE` 那 24 支金流 SECDEF 函式。
+⇒ 🔴 **它一張表都讀不到。** 它只能 `EXECUTE` 那 **23** 支金流 SECDEF 函式。
 
-**對威脅模型的意義**：**那把憑證外流，拿到的人一列客戶資料都讀不到。**
-損害面是「可以亂動付款狀態」（詐欺），**不是「可以把客戶資料撈走」**（Sean 唯一擔心的那件）。
+> # 🔴🔴 F2 更正（V 窗 codex 複驗指出；我獨立覆核後**確認它是對的**）
+>
+> **下面那句「拿到的人一列客戶資料都讀不到」是【錯的】，已劃掉。**
+>
+> **`0/55` 只量了【表】這一個面。而 `SECURITY DEFINER` 的存在意義就是【繞過表層權限】** ——
+> 我量了表層權限，卻拿它下了關於「這個角色能拿到什麼」的全稱結論，
+> **跳過了那些 RPC【回傳什麼】。**
+>
+> **我自己重量的結果**（production，`pg_get_function_result`）：
+>
+> ```
+> payment_confirmer 可 EXECUTE 的 SECDEF 函式 = 23 支   ← 我原本寫「24 支」，那也是錯的
+>   回 void（不吐資料）  =  3 支
+>   會回傳資料           = 20 支
+> ```
+>
+> **可構造的鏈**（V 窗提出，我開 migration 覆核過）：
+> `claim_due_webhook_events()` → `TABLE(rec_trade_id, order_number, attempt_count)`
+> → 拿 `order_number` 餵 `get_active_charge_attempt(orderId)`
+> → `rec_trade_id / bank_transaction_id / order_total / order_payment_status / order_display_id`
+> （`20260624120007_…` 的 `jsonb_build_object` 逐欄讀過）。
+>
+> ## ✅ 限定要照帶 —— 不要把這條抬高成 PII 外洩
+>
+> | | |
+> |---|---|
+> | **前提** | 必須先有 `payment_confirmer` **憑證外流**（它是 `rolcanlogin = t` 的登入角色） |
+> | **拿得到** | 訂單**交易 metadata**：金額、付款狀態、訂單顯示編號、交易碼 |
+> | **拿不到** | **姓名／電話／地址／卡號／經銷價** —— 同檔作者逐字：「**只回非 PII 對帳欄（零 token／卡資料／經銷價／customer PII）**」 |
+>
+> **⇒ 正確口徑（請照這句引用）：**
+> > **「撈不到客戶 PII」成立；「一列資料都讀不到」不成立 —— 交易 metadata 經 SECDEF RPC 可達。**
+>
+> 🔴 **這正是我今晚一整夜在抓的形狀，而我在自己講得最漂亮的那一條上犯了**：
+> **量了一個面，下了一個關於全部的結論。**
+> **我自己的判別句原封適用：這個結論，如果那個東西根本不從【表】走呢？**
+>
+> ✅ **2026-08-16 補完：20 支【全部】逐支審過**（原本只讀了 2 支）—— 見下方 §5.1-b。
+
+~~**對威脅模型的意義**：那把憑證外流，拿到的人一列客戶資料都讀不到。~~
+**對威脅模型的意義（更正後）**：那把憑證外流，**拿不到客戶 PII，但拿得到訂單交易 metadata**。
+損害面是「可以亂動付款狀態」（詐欺）**加上「可以讀到訂單金額／狀態／交易碼」**，
+**仍然不是「可以把客戶身分資料撈走」**（Sean 唯一擔心的那件）。
+
+#### 5.1-b F2 完整版：那 20 支會回傳資料的 RPC，**逐支列出回傳欄位**
+
+> **F2 只證明了「有東西會回傳」。而「回傳的是什麼」才決定那把憑證外流的真實損害面** ——
+> 那正是威脅模型唯一在意的那件事。所以補完，不留在「未確認」。
+
+**先把可以用型別排除的分掉**（scalar 載不了 PII）：
+
+| 回傳型別 | 支數 | 內容 | PII |
+|---|---|---|---|
+| `integer` | 6 | 受影響列數／回收筆數 | ❌ 不可能 |
+| `boolean` | 5 | 成功與否 | ❌ 不可能 |
+| `TABLE(...)` | 3 | 簽章即可見：`attempt_id`／`order_id`／`order_number`／`rec_trade_id`／`attempt_count`／`superseded_at` | ❌ 無 |
+| **`jsonb`** | **6** | **要開檔逐支讀 ↓** | — |
+
+**六支 `jsonb` 的回傳鍵（逐支開檔讀 `jsonb_build_object`）：**
+
+| 函式 | 回傳鍵 | 作者自述 |
+|---|---|---|
+| `confirm_order_payment` | `confirmed` / `idempotent`（**兩個 boolean，就這樣**） | 有 |
+| `get_active_charge_attempt` | `attempt_id` `status` `rec_trade_id` `bank_transaction_id` `attempt_created_at` `order_total` `order_payment_status` `order_display_id` | 有（「只回非 PII 對帳欄」） |
+| `get_payment_anomaly_alert_summary` | 全部是 `*_count` / `oldest_open_age_seconds`（**純聚合**） | 有 |
+| `mark_charge_attempt_released_for_user` | `released` | 無 |
+| `supersede_charge_attempt_for_user` | `superseded` / `reason` / `record_not_found` | 無 |
+| 🔴 `begin_charge_attempt` | `acquired` `reason` `attempt_id` **`fallback_token`** `existing_order_id` `existing_display_id` `existing_rec_trade_id` `existing_bank_transaction_id` `existing_paid` `in_flight_order_id` | 無 |
+
+### ⇒ 結論：**20 支全部零 PII**
+
+**沒有任何一支回傳姓名／電話／地址／卡號／經銷價。**
+⇒ **F2 的限定（「撈不到客戶 PII」）在【逐支審完之後】仍然成立** —— 現在它是普查，不是抽樣。
+
+### 🔴 但補一件 F2 沒問到的：`begin_charge_attempt` 會回 `fallback_token`
+
+那不是 PII，**是一把能力憑證** —— 它正是 `mark_charge_attempt_charged_fallback` 的三道護欄之一。
+
+**為什麼仍然不構成升級**（我開檔確認過）：那支 fallback **另外要求 `auth.uid() = customer_user_id`**
+⇒ **光有 `payment_confirmer` 憑證（那是 DB 登入角色、沒有 JWT 身分）拿到 token 也用不了。**
+⇒ **兩道護欄不是同一把鑰匙**，這是設計對的地方。
+⚠️ **但這是「兩道之一外洩」** ⇒ 記入縱深防禦帳，**不要因為今天用不了就當它不存在**。
+
+### 🔴 誰還能呼叫這 20 支？—— **沒有別人**
+
+```
+20 支的 proacl 全部是 {postgres=X/postgres, payment_confirmer=X/postgres}
+anon / authenticated / service_role  ⇒  20 支全部 false
+```
+⇒ **這張風險圖只掛在那一把憑證上**，沒有第二個角色分支。**20 支 ACL 一致、零例外。**
+
+### 關於「作者自述」這一欄（為什麼要列）
+
+6 支裡 **3 支有**意圖自述、**3 支沒有**。
+🔴 **重點不是「沒自述就有問題」** —— 而是：**「非 PII」是一個判斷，
+別人要能複驗那個判斷，就必須看到欄位名。** 所以上表列的是**欄位**，不是我的結論。
+✅ **本輪三支「無自述」的實測結果都沒有超出** ⇒ **沒有出現「宣稱與事實不符」的情況**
+（那才是比「沒寫」嚴重的那一種）。
+
+---
 
 **這個好狀態是【被守住的】還是【碰巧的】？—— 兩者都有，分開講：**
 - **被守住的**：`20260811060000_…:363-374` 連**誰可以成為 `payment_confirmer` 的成員**都斷言了
@@ -419,6 +574,22 @@ public 裡 admin_* 開頭的函式：28 支
 
 ⇒ **取消過的件不可能到過貨 ⇒ 不可能進到「可出量」⇒ 不可能被出貨。不變量成立。**
 
+> 🔴🔴 **F5 更正（V 窗指出，我開檔確認）：承重的是【第三道】，我只列了兩道。**
+>
+> 上面那兩道只證了**一個方向**：「**已到貨的不能再取消**」。
+> **它們沒有證反方向**：「**先取消了，之後不能再到貨**」。
+>
+> **真正擋反方向的是到貨 writer 那支**：
+> `supabase/migrations/20260811010000_m4b_e10_352c_item_level_room_guard.sql`
+> —— 它用 `v_room = quantity − cancelled − received` 限制登錄量，
+> **且與取消走同一筆 `order_items` 的列鎖 ⇒ 併發登錄會序列化**（我開檔讀過 `v_room` / `v_cancelled` 宣告）。
+>
+> ⇒ **結論（不變量成立）仍然對，但我列的證據撐不起它，而且漏掉了真正承重的那一道。**
+> 🔴 **具體風險**：**有人可能以為第三道是冗餘的而把它移除** ——
+> 而移除之後，上面那兩道**照樣成立**，**壞掉的是我沒寫出來的那個方向。**
+>
+> 🔴 **形狀與 F3 相同**：我找到了兩道真的守門，然後寫成「就這兩道相乘」。**全稱句。**
+
 🔴 **留給下一個人的比結論值錢**：
 **我又一次重新推導出一個「原始碼已經明文警告過」的假設** —— 與本輪 C 案同一形狀
 （那次是 migration 註解，這次是 TS 註解）。
@@ -548,7 +719,8 @@ PERFORM 1 FROM public.order_items oi
   🔴 而且累加**要問「累加的是哪一個集合」**：失敗的／in-flight 的／已 void 的算不算？
   `blocked_by` 有一個 `unknown` 值 ⇒ **不確定的那些算不算進累計，決定它是保守還是漏。**
 - **`sweeper` 與 `webhook` 相撞**沒撞過（`claim_*` 系列有 lease，但**我沒讀它的租約邏輯**）。
-- 併發只驗了**掛品項**這一條路；**出貨、作廢、取消**三條的併發**沒看**。
+- ✅ **出貨／作廢／取消的併發已補**，見 §6.11（CAS + ROW_COUNT，兩方向同時來會序列化）。
+  ⚠️ 該節是**讀 code** 不是實測；併發**實測**過的只有掛品項那條（§6.5(b)）。
 
 ### 6.6 🔴 退款：**三套帳本**，先分清哪一套是活的
 
@@ -749,9 +921,30 @@ END $$;
 | `checkout/reconcile-actions.ts:92` | ✅ |
 | `api/orders/[orderId]/payment-status/route.ts:141` | ✅ |
 | 🔴 **`api/checkout/tappay-notify/[secret]/route.ts:191`（webhook 的 `after()`）** | ❌ **沒有** |
+| 🔴 **`checkout/callback/page.tsx`（3DS callback）** | ❌ **沒有** ← **F3 補上，原表漏了這條** |
 
 **加上 sweeper 走 `claim_stuck_unsettled_attempts` 的列級 claim。**
-⇒ **webhook 快路徑是唯一一個沒有互斥、可與 sweeper 同時對同一張單跑 `settleCharge` 的入口。**
+> 🔴🔴 **F3 更正（V 窗指出，我重量後確認）**：原文寫「**唯一**一個沒有互斥的入口」，**錯**。
+> **我重量了全部呼叫點**（`grep -rl 'settleCharge(getSettleChargeDeps'`，排除測試）：
+>
+> ```
+> tappay-notify/[secret]/route.ts   claimPollSettle = 0   ← 沒節流
+> checkout/callback/page.tsx        claimPollSettle = 0   ← 沒節流（原表【漏了這條】）
+> payment-status/route.ts           claimPollSettle = 1
+> checkout/charge-actions.ts        claimPollSettle = 1
+> checkout/reconcile-actions.ts     claimPollSettle = 1
+> lib/payment/composition.ts        claimPollSettle = 0   ← 工廠不是入口，不計
+> ```
+>
+> ⇒ **沒節流的是【兩個】：webhook 與 3DS callback。**
+> **安全性結論不變**（§6.10-c 的終點冪等同時覆蓋這兩條），
+> **但依賴那棵冪等樹的路徑比我寫的多一條** ——
+> 🔴 **有人日後以為「只有 webhook 會 race」而在 callback 那條省掉冪等，就會引 bug。**
+>
+> 🔴 **形狀：我找到了一條真的沒節流的路，然後把它寫成「唯一」。全稱句今晚第四次。**
+> 📎 traps §⑯ 那條原封適用：**這句話的範圍，比我實際看過的範圍大嗎？**
+
+⇒ **`settleCharge` 有【兩個】入口沒有互斥（webhook 與 3DS callback），可與 sweeper 同時對同一張單跑。**
 
 #### 6.10-c 兩個失敗方向**都判**（不是只找「同時拿到」）
 
@@ -780,8 +973,176 @@ END $$;
 > 哪天有人「優化」掉那棵冪等樹（它看起來只是提早 return），**webhook 這條路會第一個壞，
 > 而壞的樣子是重複入帳。**
 
-⚠️ **我沒做的**：沒有真的併發跑 webhook × sweeper（要搭真 schema + TapPay stub，成本遠高於今天的收益）
-⇒ **上面是「讀 code + 讀那支 RPC 的冪等樹」，不是實測。**（對照 §6.5(b) 那條我是**實測**過的。）
+#### 6.10-e ✅ **已補實測**（2026-08-16，拋棄式 PG 17.10）—— 原本這裡寫「沒做」
+
+> 上面整段原本是**讀 code**。做成最小 harness 跑了一次，**結論成立，而代價比我寫的更具體。**
+
+**情境**：**三個**入口同時結算同一張 100 元的單 ——
+`tappay-notify` 的 `after()`、**`checkout/callback/page.tsx`**（F3 補上的第二條沒節流的）、以及 sweeper。
+兩個版本**只差有沒有那棵冪等樹**（它的形狀就是「提早 `RETURN`」）。
+
+```
+🔴 控制組（冪等樹被「優化」掉）  →  order_payments 3 列 / 合計 300 元   ← 🔴🔴 **此數字已作廢，見下框**
+```
+
+> # 🔴🔴 **上面兩個數字已作廢**（2026-08-16，V 窗讀碼指出，我重跑確認）
+>
+> **我的模型少了真實系統有的兩道後備**（對著 `20260810170000` 逐項核過）：
+> **② 條件式 `UPDATE … WHERE payment_status='unpaid'`** 與 **③ `UNIQUE` backstop**。
+> ⇒ **我測到的是一個比真實系統脆弱的世界。**
+>
+> **帶滿三道後備重跑（同樣三個入口同時結算一張 100 元的單）：**
+> ```
+> 控制組（只拿掉冪等樹，三道保留）→ REJECT / REJECT / CHARGED  ｜ 1 列 / 100 元  ← 【沒有】重複入帳
+> 有冪等樹                        → IDEMPOTENT / CHARGED / IDEMPOTENT ｜ 1 列 / 100 元
+> ```
+>
+> ## ⇒ 真正的結論（與原本相反）
+> **擋住重複入帳的是【條件式 UPDATE + 鎖 + UNIQUE】，不是冪等樹。**
+> **冪等樹改的是【回給呼叫端的值】**：無樹 ⇒ 落敗者收到 `REJECT`，**而那張單其實已付款成功**
+> ⇒ **真實後果是「上游把一張已成交的單當成失敗處理」，不是「重複入帳」。**
+> 📎 **那正是我自己在冪等規格 §2.1 寫過的那條** —— 我寫了它，然後在框架裡用了相反的說法。
+>
+> 🔴 **病根**：**我的控制組把【要證的那道】與【本來就有的其他道】一起拿掉了**
+> ⇒ 我以為在測「冪等樹的價值」，實際在測「三道全拿掉會怎樣」。**突變要只動一個變因。**
+
+```
+✅ 真實形狀（有冪等樹）          →  order_payments 1 列 / 合計 100 元
+```
+
+⇒ **控制組確實紅了** ⇒ harness 有鑑別力（不是兩邊都綠的空測）。
+⇒ **§6.10-c 的推論成立**：那兩條沒有互斥的路，**安全確實只由那棵樹保證**。
+
+🔴 **而它壞掉的樣子現在有數字了：不是「可能重複入帳」，是【一張單記三次、金額三倍】。**
+📎 這也順帶量化了 F3 的實質：**依賴那棵樹的入口是【兩條】不是一條**
+⇒ **拿掉它，兩條路一起壞**，而三條有節流的入口**完全不會有徵兆**。
+
+> # 🔴 順帶一條方法論：**「字面錯而結論對」有兩種，不要混為一談**
+>
+> 本輪十條 finding 裡有一半被歸成「字面 vs 事實」——**而它們不是同一級**：
+>
+> | | 例 | 是不是 nit |
+> |---|---|---|
+> | **不影響結論** | 「28 個檔」實為 28 支 action（F6）；`:517` 行號錯（F7） | 要修，但**不改變任何人的決定** |
+> | 🔴 **讓結論偏向樂觀** | 「webhook 是**唯一**沒節流的入口」（F3）—— **實際是兩條** | **不是 nit** |
+>
+> **F3 的字面錯，剛好【低估】了賠錢面積（一條 → 兩條）。**
+> 而讀者是照那個數字決定「要不要保護那棵樹」的。
+>
+> ⇒ **判別句：我這個字面如果被照著相信，讀者對風險的估計會偏高還是偏低？
+> 偏低的那些不是 nit，不管它看起來多像用詞問題。**
+
+⚠️ **誠實邊界**：證的是**機制**（同構最小模型，含 `FOR UPDATE` 臨界區與人工放大的競態窗），
+**沒有搬真 schema／TapPay stub** ⇒ 撐得住「冪等樹是那兩條路的唯一防線」，
+**撐不住「真實函式的每一條路徑都如此」**。冪等規格 §3 的 N1/N2/N3 仍要在真函式上跑。
+
+### 6.11 出貨／作廢／取消的併發 —— **CAS，不是鎖；沒有天花板是【因為沒有租約】**
+
+#### 6.11-a 先數入口（第一動）
+
+五支 RPC **全部有活的呼叫端**：`create` 6 / `add_items` 5 / `mark_shipped` 3 / `void` 4 / `unvoid` 3。
+（控制組：一個不存在的名字回 **0** ⇒ 計數有鑑別力。）
+
+#### 6.11-b 正反成對操作：`void` × `unvoid` **同時來**會怎樣
+
+**兩支都不是「先查再改」，是把狀態述詞寫進 `UPDATE` 的 `WHERE`（CAS）：**
+
+```sql
+-- void                                    -- unvoid
+UPDATE shipments SET deleted_at = now()    UPDATE shipments SET deleted_at = NULL
+ WHERE id = ? AND deleted_at IS NULL;       WHERE id = ? AND deleted_at IS NOT NULL;
+GET DIAGNOSTICS v_n = ROW_COUNT;           GET DIAGNOSTICS v_n = ROW_COUNT;
+IF v_n <> 1 THEN RAISE …                   IF v_n <> 1 THEN RAISE …
+```
+
+⇒ **兩個方向同時來**：兩者在同一列上序列化，**先到的改成 1 列、後到的 `WHERE` 不再成立 ⇒ 0 列 ⇒ `RAISE`**。
+**不會兩邊都成功，也不會靜默覆蓋。** 錯誤訊息逐字是「**這個包裹的狀態剛剛被別人改過…請重新整理畫面確認**」。
+
+🔴 **而作者把這條的來歷寫在旁邊**：
+> `-- 🔴 WHERE 帶上 deleted_at IS NULL（W3-3 的 F6 教訓：只有 id= 會有 TOCTOU）`
+> `-- 🔴 …（W3-3 F6 的 TOCTOU 教訓，本線第三次用）`
+
+**「本線第三次用」** ⇒ 這不是零星補的，是**這條線上固定的做法**。
+`mark_shipped` 同款（且註解點明「0 列的成因有二：①真的沒這箱 ②**併發**把它作廢或出貨了」）。
+
+#### 6.11-c 「拿了不還」那個方向 —— **它在這條線上不存在**
+
+退款／金流線有專門的天花板函式（`expire_stuck_attempts_at_ceiling` 等）。
+**出貨線 `grep 'ceiling'` ⇒ 0。** 上一輪我把這標成「缺口」的候選，**這輪去量了，結論相反：**
+
+```
+shipments / shipment_items      欄名含 lease|claim|lock|attempt|expire|token|until  ⇒ 【0】
+payment_charge_attempts /
+payment_webhook_events           同一 pattern                                        ⇒ 【9】
+  （attempt_count、released_at、last_expired_settle_at、settle_attempt_count …）
+```
+
+⇒ **兩條線用的是【不同的併發策略】：**
+
+| | 策略 | 需要天花板嗎 |
+|---|---|---|
+| 金流／退款線 | **claim／lease（有狀態，東西被「持有」）** | ✅ 需要 —— 持有者掛了就要有人回收 |
+| **出貨線** | **CAS（無狀態，沒有東西被持有）** | ❌ **不需要 —— 沒有東西可以卡住** |
+
+🔴 **⇒ 「出貨線零天花板函式」不是缺口，是 CAS 策略的必然結果。**
+**我上一輪的猜測（「沒有的話那是缺口」）被這個量測推翻了。**
+📌 **留檔理由**：下一個人看到「一條線有天花板、另一條沒有」很自然會當成不一致 ——
+**判別式是「這條線上有沒有東西被【持有】」，不是「有沒有天花板函式」。**
+
+#### 6.11-d 但這條線**確實**有一個缺口 —— 只是不在併發上
+
+🔴 **併發是好的，而這五支動作【零 `admin_audit_log` 留痕】（§6.2 / P2-4）。**
+⇒ **兩件是同一條線的兩半**：
+**併發控制擋住了「兩個人同時改壞」，但如果哪天真的出錯（或有人蓄意），事後沒有任何地方查得到是誰。**
+
+#### 6.11-e ✅ **已補實測**（拋棄式 PG 17.10）—— 原本這節寫「只讀 code」
+
+> ⚠️ **CAS 的控制組不好構造，我第一次就構造錯了 —— 留檔。**
+
+**第一次的情境**：一張**已作廢**的包裹，甲要復原、乙要再作廢（兩個方向同時來）。
+
+```
+控制組（TOCTOU）  unvoid=UNVOIDED  void=REJECTED   最終：未作廢
+真實形狀（CAS）   unvoid=UNVOIDED  void=REJECTED   最終：未作廢     ← 一模一樣
+```
+
+🔴 **控制組沒有紅 ⇒ 那一輪零判別力，整輪作廢。**
+**原因**：包裹**一開始就是已作廢的**，所以 TOCTOU 版的 `void` **在讀那一步就 REJECT 了** ——
+**競態根本沒有發生。** 我把「兩個方向」當成了「會競爭」，**而它們競爭的前提是【兩邊的檢查都要先通過】。**
+
+**改對的情境**：一張**未作廢**的包裹，**甲乙兩人同時按下作廢**（同方向 ⇒ 兩邊檢查都會通過）：
+
+```
+🔴 控制組（先查再改 / TOCTOU）
+     甲: VOIDED      乙: VOIDED          ← 🔴 兩個人【都】收到成功
+     最終保留的作廢原因: 甲的原因         ← 而只有一個原因活下來
+
+✅ 真實形狀（CAS + ROW_COUNT）
+     甲: REJECTED(狀態剛被別人改過)   乙: VOIDED
+     最終保留的作廢原因: 乙的原因         ← 一致，且被拒的人知道自己被拒
+```
+
+⇒ **CAS 擋住的具體東西：「兩個人都以為自己作廢了它，而其中一個是錯的、且他不會知道。」**
+
+#### 6.11-f 🔴 而這一格與 P2-4 是**同一條線的兩半**，合起來才看得出份量
+
+```
+CAS      擋住了「兩個人同時改壞」                        ✅ 有
+稽核列   出錯時查得出「到底是誰做的」                    ❌ 沒有（P2-4）
+```
+
+**在 TOCTOU 的世界裡，甲乙兩人都收到「成功」** —— 而**出貨線零 `admin_audit_log`**
+⇒ **事後沒有任何地方能重建「實際生效的是誰那一次」。**
+
+✅ **今天 CAS 讓這件事不會發生。**
+🔴 **但「不會發生」與「發生了查得到」是兩道不同的防線，而這條線上只有第一道。**
+⇒ 這正是 Sean 已拍板要補的那件（補稽核列 + 補授權閘，兩件一起）。
+
+#### 6.11-g 誠實邊界
+
+⚠️ 證的是**機制**（同構最小模型，人工放大讀寫之間的窗），**沒有搬真 schema**
+⇒ 撐得住「CAS 這個形狀擋得住同方向併發」，**撐不住「他們那五支的每一條路徑都真的走了 CAS」**
+（後者仍是**讀 code** 判斷的）。
 
 ### 6.4 建議（**我唯讀，只提**）
 
