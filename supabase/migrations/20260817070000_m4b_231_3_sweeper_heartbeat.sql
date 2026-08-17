@@ -87,6 +87,41 @@ REVOKE ALL ON public.sweeper_heartbeat FROM authenticated;
 --    所以「開了 RLS」不能推論「anon 動不了這張表」。兩道各管一件事。
 ALTER TABLE public.sweeper_heartbeat ENABLE ROW LEVEL SECURITY;
 
+-- ══ 4b. 🔴🔴 service_role 的存取【顯式宣告】,不依賴平台預設、不依賴 BYPASSRLS ═══════
+--
+-- **E 窗 2026-08-17 更正自己的規格並拍板(E-702 §4):①②③ 三件都要。**
+-- 原規格寫「零 policy + `service_role` 走 BYPASSRLS ⇒ 不受影響」,而 E 窗自己複驗後判**那句不該被依賴**:
+--
+-- 🔴 **理由一:與本 repo 慣例相反。** 既有表**明確為 `service_role` 建 policy**,不靠 BYPASSRLS:
+--    `20260523034911_init_customers_and_subtables.sql:155-157`
+--      `CREATE POLICY customers_insert_service_role ON customers FOR INSERT TO service_role WITH CHECK (true);`
+--    同檔 `:159` delete / `:213` wallet_insert(該檔 `service_role` 命中 12 處)。
+-- 🔴 **理由二:這個坑 repo 已經被咬過。** `docs/reviews/2026-08-02-e10-a6-k2-codex.md:14` 逐字
+--    「非 BYPASSRLS owner 的 dedup SELECT 看不到列、audit INSERT 直接 42501」。
+-- 🔴 **理由三(這條最重要):失敗形狀是【自我擊敗】。**
+--    本表存在的目的是偵測「sweeper 死掉的沉默」。
+--    **若 `service_role` 被零 policy 的 RLS 擋住 ⇒ 心跳寫入靜默失敗 ⇒ 那張表永遠不更新
+--      ⇒ 巡邏報「sweeper 死了」,而 sweeper 其實活著。**
+--    ⇒ **一個為了消除假陰性而建的東西,變成假陽性的來源** —— 而 migration 全綠、沒有任何東西會紅。
+--
+-- ⇒ 兩道一起下,**任一道單獨都不夠**:`GRANT` 過的是權限層、`POLICY` 過的是 RLS 層。
+-- ⚠️ **最小權限**:只給 `SELECT / INSERT / UPDATE`(upsert + 健康端點讀)。
+--    **不給 `DELETE` / `TRUNCATE`** —— 心跳表從不刪列,給了只是擴大面。
+GRANT SELECT, INSERT, UPDATE ON public.sweeper_heartbeat TO service_role;
+
+CREATE POLICY sweeper_heartbeat_select_service_role ON public.sweeper_heartbeat
+  FOR SELECT TO service_role
+  USING (true);
+
+CREATE POLICY sweeper_heartbeat_insert_service_role ON public.sweeper_heartbeat
+  FOR INSERT TO service_role
+  WITH CHECK (true);
+
+CREATE POLICY sweeper_heartbeat_update_service_role ON public.sweeper_heartbeat
+  FOR UPDATE TO service_role
+  USING (true)
+  WITH CHECK (true);
+
 -- ═══════════════════════════════════════════════════════════════════════════
 --  新物件收權 fail-closed 斷言(樣板逐字出自 `~/pcm-mailbox/E-684-新物件收權斷言樣板.md` §2)
 --  🔴 **沒有自己手寫一份** —— 那份樣板已被 B 窗打穿過一次並修好(欄級授權那一圈),
@@ -189,6 +224,8 @@ $newobj_guard$;
 
 -- ══ 5. 本片自己的兩條斷言(上面那支樣板不管這兩件)═══════════════════════════════
 DO $hb_guard$
+DECLARE
+  v_priv text;
 BEGIN
   -- ① RLS 開著(樣板不查 RLS —— 它查的是 ACL)
   IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.sweeper_heartbeat'::regclass) THEN
@@ -208,6 +245,37 @@ BEGIN
       '(NULL = 沿用預設值。它安不安全取決於 E683-1 apply 了沒 —— '
       '而本要求是「不論兩支誰先 apply,REVOKE 都不能省」,見 §4。)';
   END IF;
+
+  -- ③ service_role 的三項權限【顯式存在】(E-702 §4-①)
+  --    🔴 這一條與上面那支樣板方向【相反】:樣板證「anon 沒有」,本條證「service_role 有」。
+  --       缺了它,ADP 漂移時 migration 仍全綠而寫入端失效(codex 原話)。
+  FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE'] LOOP
+    IF NOT has_table_privilege('service_role', 'public.sweeper_heartbeat'::regclass, v_priv) THEN
+      RAISE EXCEPTION 'HB:service_role 缺少 % —— 心跳寫入或健康端點讀取會失敗', v_priv;
+    END IF;
+  END LOOP;
+
+  -- ④ 最小權限:不該給的就是不該有
+  FOREACH v_priv IN ARRAY ARRAY['DELETE','TRUNCATE'] LOOP
+    IF has_table_privilege('service_role', 'public.sweeper_heartbeat'::regclass, v_priv) THEN
+      RAISE EXCEPTION 'HB:service_role 不該有 % —— 心跳表從不刪列,給了只是擴大面', v_priv;
+    END IF;
+  END LOOP;
+
+  -- ⑤ 三條 policy 顯式存在(E-702 §4-②;不依賴 BYPASSRLS)
+  --    🔴 **這一條與 ③ 也不是同一件事**:③ 過的是權限層,本條過的是 RLS 層。
+  --       兩層任一缺,寫入都會失敗,而失敗方式是【靜默】——
+  --       心跳不更新 ⇒ 巡邏誤報「sweeper 死了」而它其實活著(自我擊敗的假陽性)。
+  FOREACH v_priv IN ARRAY ARRAY['r','a','w'] LOOP   -- r=SELECT a=INSERT w=UPDATE
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policy p
+       WHERE p.polrelid = 'public.sweeper_heartbeat'::regclass
+         AND p.polcmd = v_priv
+         AND 'service_role'::regrole = ANY (p.polroles)
+    ) THEN
+      RAISE EXCEPTION 'HB:缺少 service_role 的 % policy(polcmd)—— 零 policy 的 RLS 會擋住寫入', v_priv;
+    END IF;
+  END LOOP;
 END
 $hb_guard$;
 
@@ -235,6 +303,27 @@ $hb_guard$;
 --     ⇒ **差的那一項就是 `MAINTAIN`** —— 樣板掃不到本檔自己舉的那個例子。
 --     ⇒ 這一發是**兩個實作並排印不同的數**,不是「我改完覺得比較好」。
 --
+--   🔴🔴 **`service_role` 那兩道的【行為】對照(E-702 §4-③;2026-08-17 補跑)**
+--     —— 這一發是本批**最強的一發**,因為它不是查元資料,是**真的以那個角色寫進去**:
+--     ```
+--     本機 pg_roles ⇒ postgres rolbypassrls=true / service_role rolbypassrls=false
+--       ⇒ 🔴 本機的 service_role【沒有】BYPASSRLS ⇒ 底下那發寫入是【policy 扛的】
+--     SET ROLE service_role → 兩發 upsert（成功輪／失敗輪）⇒ ✅ 都寫進去，count=1
+--     把三條 policy DROP 掉、同一個 service_role 再寫一次
+--       ⇒ 🔴 ERROR: new row violates row-level security policy for table "sweeper_heartbeat"
+--     SET ROLE anon → SELECT ⇒ 🔴 ERROR: permission denied for table sweeper_heartbeat
+--       正向對照:postgres 身分同一句 ⇒ 讀到 1 列（⇒ anon 那個錯是「被擋」不是「表不存在」）
+--     ```
+--     ⇒ **這正好把 E 窗擔心的那個失敗世界演出來了**:沒有 policy、而角色沒有 BYPASSRLS
+--       ⇒ 心跳寫入被 RLS 擋 ⇒ 表永遠不更新 ⇒ **巡邏報「sweeper 死了」而它其實活著。**
+--     ⚠️ **效度限定**:本機 `service_role` 是 `CREATE ROLE` 造的,`rolbypassrls=false`;
+--       **正式庫的 `service_role` 是不是同樣沒有 BYPASSRLS,本輪未查** ——
+--       但**本片已經不依賴那個答案**(兩道都顯式)。缺的那道仍列著:正式庫查 `pg_roles.rolbypassrls`。
+--
+--   拿掉 `GRANT` / 拿掉 `policy` 的兩發**斷言層**對照:
+--     拿掉 GRANT   ⇒ 🔴 `HB:service_role 缺少 SELECT —— 心跳寫入或健康端點讀取會失敗`
+--     拿掉 policy  ⇒ 🔴 `HB:缺少 service_role 的 r policy(polcmd)—— 零 policy 的 RLS 會擋住寫入`
+--
 --   §5-② 那條**單獨做過雙向對照**(它是 B 窗自己加的,不在 E 窗規格內):
 --     世界 A:有跑過 ACL 操作 ⇒ `relacl` 非 NULL ⇒ ✅ 綠
 --     世界 B:完全沒動過 ACL ⇒ `relacl` NULL   ⇒ 🔴 紅
@@ -245,17 +334,18 @@ $hb_guard$;
 --
 --   ⚠️ **本機效度限制(不要當成 Supabase 上也驗過;codex 2026-08-17 逐條點名)**:
 --     · 本機的預設 ACL 是**手動構造**的,不是 Supabase 平台給的
---     · `service_role` 是本機 `CREATE ROLE` 造的 ⇒ 🔴 **「`service_role` 走 BYPASSRLS」這句
---       完全沒有被本機對照支撐**,它是**引用來的前提,不是本輪量到的**。
---       缺的那一道 = 正式庫查 `pg_roles.rolbypassrls` 與角色關係。
+--     · 🔴 **「`service_role` 走 BYPASSRLS」那句已被 E 窗自己撤回**(`E-702` §3),
+--       本片改成**兩道都顯式**(GRANT + POLICY)⇒ **不再依賴那個前提**。
+--       ⚠️ 正式庫的 `service_role` 到底有沒有 BYPASSRLS,**本輪仍未查**(本機那個是 `false`);
+--       缺的那一道 = 正式庫 `pg_roles.rolbypassrls` 與角色關係 —— 但**答案不影響本片正確性**。
 --     · 🔴 **沒跑過的四種負向對照**(⇒ 「anon 權限 0」**不能**外推成「完整不可達」):
 --         `PUBLIC`-only 授權 / `MAINTAIN`-only 授權 / `SET ROLE` 繞路 / 陌生第三 grantee
 --     · **未在任何真實 DB apply**;Supabase 端等 Sean 在場
 --
---   🔴 **本檔沒有顯式 `GRANT` 給 `service_role`**(codex `must-fix`,**B 窗刻意不自行補**):
---     現在靠的是平台的預設授權。**ADP 若漂移,這支 migration 仍然全綠,而寫入端與健康端點會失效。**
---     ⇒ 要不要加一行顯式 `GRANT SELECT, INSERT, UPDATE ON … TO service_role` + 對應斷言,
---       **是授權面的設計決定,不是施工細節** ⇒ **已列為問題送回 E 窗(規格作者兼驗收方)。**
+--   ✅ ⛔ ~~本檔沒有顯式 `GRANT` 給 `service_role`~~ **已於 2026-08-17 補上,見 §4b**
+--     (codex `must-fix` ⇒ B 窗不自行拍板、退回規格作者 ⇒ **E 窗 `E-702` §4 拍板「①②③ 都要」** ⇒ 補)。
+--     🔴 **E 窗同時更正了它自己原規格那句「零 policy + BYPASSRLS 不受影響」** —— 判它**不該被依賴**。
+--     ⇒ 現在是 `GRANT`(權限層)+ `POLICY`(RLS 層)兩道都顯式,**不依賴平台預設、不依賴 BYPASSRLS**。
 --
 -- ══ 7. 本片【不涵蓋】(誠實標明監控鏈的最後一環)═════════════════════════════════
 --   · 寫入端（`settle-sweep` route 的 upsert）與公開健康端點 ⇒ **另一片,本檔只建表**
