@@ -17650,3 +17650,58 @@ rc typecheck=0 lint=0 build=0 vitest=1
   撞號複查:`grep -c '#625' docs/phase-1-backlog.md` ⇒ 保留前 `0`;
   `grep -rl '#625' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3020`;
   🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
+
+---
+
+### #629 · PostgREST max-rows 若低於 200,itemsTruncated 判定看不見那次截斷
+
+- **狀態:** ⏳ 待執行。**本條不是「現在壞了」,是「壞掉的那天沒有任何東西會出聲」。**
+- **病的形狀(三步,每一步都合法):**
+  ```
+  ① 明細查詢送 .limit(ORDER_ITEMS_EMBED_LIMIT = 200)
+       packages/adapters/src/supabase/SupabaseOrderAdapter.ts:847
+  ② PostgREST 的專案設定 max-rows 若 < 200（例如 150）⇒ 伺服器【先】夾到 150
+  ③ 判定 row.order_items.length >= 200 拿 150 去比 ⇒ false
+       packages/adapters/src/supabase/mappers/order.ts:873
+  ⇒ 🔴 itemsTruncated = false，而品項【真的少了】
+  ```
+  這個殘餘風險**不是本條發現的**,`mappers/order.ts:404-406` 自己逐字寫著:
+  > 「若專案 `max-rows` 日後被設到低於本值,截斷會發生在那個更低的數字上而**本判定看不見**」
+  ⇒ **本條要登記的是「它沒有守門」這件事**,不是重新發現那個風險。
+- **今天不成立,而那是【量到的】不是推的:**
+  ```
+  2026-08-18 V 窗親手探（不是 dashboard、不是轉述）:
+    storefront anon key 打正式站 REST
+    products?select=id&limit=5000
+    ⇒ HTTP 206、content-range: 0-1999/19777、實回 2000 列
+  🔴 分母 19,777 > 2000 ⇒ 量到的是【天花板本人】，不是「資料只有這麼多」
+  ⇒ max-rows = 2000 > 200 ⇒ 本病今天不成立
+  ⚠️ 這個值的效度限定：正式站、storefront anon key、2026-08-18。
+     換專案 / 換 key / 之後被改，都不在這次量測的射程內。
+  ```
+- 🔴 **為什麼它沒有守門(這才是本條的正文):**
+  ```
+  · max-rows 是【伺服器端專案設定】⇒ repo 內沒有任何字面可以掃
+  · 測試看不到它（單測 mock 掉 supabase client；整合測試也是打本機或 mock）
+  · 三綠恆綠、literal-sweep 恆零命中
+  ⇒ 有人把它調低的那一天，這裡【完全靜默】
+  ```
+- **不修未來會痛在哪:**
+  🔴 **痛在「少印的那次」和「印對的那次,紙上長得一模一樣」。**
+  揀貨單的 `B` 態(表在紙上而少了幾列)是**四態裡最貴的一種** ——
+  揀的人一列一列勾完,紙看起來就是揀完了,**少的那一件零症狀**,到客人收到貨才發現。
+  而 `#601` / `B` 態那些修法**全部建立在 `itemsTruncated` 這個旗標可信之上**
+  (射程分析在 `docs/specs/2026-08-16-shipping-doc-sample-vs-impl.md` §6-a-2 底下)
+  ⇒ **這個前提一破,那些修法【一個都不會觸發】,而紙看起來完全正常。**
+- **已知治本方向(不是本條現在要做的):**
+  `count: 'exact'` —— `mappers/order.ts:404-406` 同一段註解自己寫的。
+  ⚠️ 那要動**共用讀取路徑**(`findAdminOrderDetail` 的內嵌查詢)⇒ **高風險片**,
+  且會多一次 count 查詢的成本 ⇒ **要先量代價再決定,不是順手改。**
+  📎 **更便宜的候選(未評估,寫下來給下一個人)**:把「送出去的 limit」與「拿回來的筆數」
+  在 adapter 內部比一次 —— 拿回來 < 送出去且**不等於實際列數**時出聲。
+  ⚠️ **我沒有驗過這個做法在 PostgREST 上分不分得出「真的只有 150 筆」與「被夾到 150」**
+  ⇒ **標未確認,不要當成現成解。**
+- **發號:** `sh scripts/reserve-backlog.sh '<標題>'` ⇒ `RESERVED #629`(git ref CAS)。
+  撞號複查:`grep -c '#629' docs/phase-1-backlog.md` ⇒ 保留前 `0`;
+  `grep -rl '#629' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3040`;
+  🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
