@@ -25,9 +25,32 @@ export function invoiceTypeLabel(type: string | null): string | null {
   return type;
 }
 
-/** 出貨方式標籤(既有欄、結帳現值 'home';未知值原樣顯示,Slice C 起 admin 可改)。 */
+/**
+ * 出貨方式標籤(既有欄;未知值**原樣顯示、不編造**,Slice C 起 admin 可改)。
+ *
+ * 🔴 **`'store'` → 「自取」是 Sean 2026-08-17 拍的**(`Q3`,逐字「甲＝自取」)。
+ *    在此之前這裡只認得 `'home'`,而 `create_order` RPC 的白名單是 **`home` / `store` 兩個**
+ *    (`20260630120000:144-145`)⇒ **合法寫進來的 `store` 會在後台原樣印出英文。**
+ *
+ * ⚠️ **不要把這個「自取」與出貨通知信裡的「自取」收成同一個常數**(Sean 同日 `Q1`/`Q2`:
+ *    信裡的字面走**包裹的貨運商欄** + 既有的「自送」)。**兩處都叫自取是巧合般的一致,
+ *    不是同一個資料來源** —— 合併成常數之後,改其中一邊會靜靜地改到另一邊。
+ *
+ * 🔴🔴 **`'store'` 這個字在本 repo 有【兩個完全不同的意思】,不要全域取代**:
+ *    ① 這裡 = `orders.shipping_method` 的「自取」
+ *    ② `MemberTier` 的 `'general' | 'store' | 'premiumStore'`(= 店家會員等級,經銷價那條線)
+ *    數法:`git grep -n "'store'" -- apps packages | grep -v '\.test\.'` ⇒ 命中裡**多數是 ②**。
+ *    ⇒ 對 `'store'` 下 sed 會把經銷價體系一起改掉,而型別不一定會紅。
+ *
+ * ⚠️ **未知值仍然原樣顯示,那是刻意的** —— 而它現在有一個真實的來源:
+ *    後台改單的「出貨方式」是**自由文字輸入**(`components/orders/order-edit-form.tsx:57-64`,
+ *    `type='text'` + `maxLength={64}`),**沒有下拉、沒有白名單** ⇒ 這裡拿得到任何字串。
+ *    那件事的風險不只是標籤難看,見該檔;**本片不動它**(涉退款白名單 = 鐵則 12①)。
+ */
 export function shippingMethodLabel(method: string): string {
-  return method === 'home' ? '宅配' : method;
+  if (method === 'home') return '宅配';
+  if (method === 'store') return '自取';
+  return method;
 }
 
 /**

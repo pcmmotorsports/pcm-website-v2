@@ -16263,6 +16263,16 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   信箱佔位掃描 `grep -rn '#612' ~/pcm-mailbox/*.md docs/` ⇒ 保留前零命中,
   正向對照 `grep -rc '#606' ~/pcm-mailbox/*.md | grep -v ':0$'` ⇒ 命中 3 檔以上 ⇒ 那個 0 是量出來的。
 
+### #613 · sso security-log 五呼叫點零斷言:鑑識軌跡與不記密規則無機械檢查
+
+- **狀態:** ⏳ 待執行(reviewer 2026-08-17 sso route 測試片 F2 記錄;該片明定不強制同片補)
+- **病:** `apps/admin/src/app/api/sso/callback/route.ts` 五處 `logSsoLogin`(行號錨:`grep -n logSsoLogin` 當場取,49/59/65/72/81 為落筆當下值)全數零斷言;
+  `security-log.ts` 無測試檔(`find apps/admin -name 'security-log*test*'` ⇒ 0)。
+  刪掉五行或把 reason 全改 'ok' ⇒ 全綠。
+- **不修未來會痛在哪:** ①SSO 攻擊(state mismatch 爆量)的鑑識軌跡靜默消失,出事時查無 log 可對;
+  ②`security-log.ts:6`「絕不記 code/secret/session token」紅線零機械檢查——未來有人把 code 塞進
+  fields,沒有東西會紅=洩密走這條路不會被測試擋。
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #613`(CAS);信箱 `grep -rn '#613' ~/pcm-mailbox/*.md` ⇒ 保留前零命中。
 ### #614 · 訂單列表六顆欄寬的餘裕債(含發票欄只剩 1px)
 
 - **狀態:** ⏳ 待執行(需 Sean 拍板取捨,不是純技術題)
@@ -16292,4 +16302,80 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   完整量法與射程限定見 `docs/design/admin-design-system.md` 檔頭落地狀態表的 `§0-D` 那一列。
 - **相關:** `docs/specs/2026-08-17-admin-list-bmw-m-shape-plan.md` §9-b(三軸擺法與寬度的引用限定)。
 - **號碼來源:** `sh scripts/reserve-backlog.sh` 原子配號(git ref CAS),非 `next-backlog-number.sh` 的下限值。
+### #617 · commit-msg hook 要求 merge body 帶四綠 log 目錄名 —— 已評估判定淨值為負
 
+- **狀態:** ❌ **已評估、判定淨值為負,不做**(2026-08-17 I 窗提、主視窗裁)。
+  🔴 **不是「暫緩」也不是「沒空」** —— 寫成候選是為了讓下一個人**不用再評一次**,不是為了排期。
+- **原始問題:** 規矩 8「一支 merge 配一次四綠」**事後查不到誰跑過**。
+  舊版四綠 log 每跑一次整支覆寫(已由 `afb33c0b` 修掉,現為 `logs/four-greens/<hash>-<時點>-<PID>/`),
+  但 `logs/` 在 `.gitignore:48` 裡 ⇒ **痕跡只活在跑的那台機器、進不了 git**。
+- **提過的機制版:** commit-msg hook —— merge commit 的 body 若不含 log 目錄名就擋下。
+- 🔴 **為什麼淨值為負(這是本條的重點,不要只讀結論):**
+  commit-msg hook **擋下一次 commit 會把 index 還原** ——
+  那正是 memory `feedback_restage-after-edit-lint-staged-trap` 的**第二個觸發源**
+  (2026-08-11 B 窗與 P 窗同日各踩一次:第二次 `--amend` **只換訊息、內容一個字沒進去**,
+  而 commit 本身回報成功、印出檔案數 ⇒ 看起來完全正常)。
+  ⇒ **為了治「痕跡不足」而加一個會製造「內容靜默不見」的東西。**
+  痕跡不足是**讀得出來的缺**;內容靜默不見是**讀不出來的缺**。用後者換前者,方向是錯的。
+  📎 母條 memory `feedback_a-guard-on-a-safe-path-is-net-negative`:
+  **判別句 = 這個機制擋的那條路上真的會出事嗎**;而這裡更進一步 —— **它自己會製造一條新的。**
+- **現行靠什麼(不要讀成洞已關閉):**
+  ①一般 commit ⇒ 三綠結果寫進自己的 body(既有慣例)
+  ②**merge commit ⇒ 結構上帶不了**(merge 在四綠之前就生成了,body 只能寫承諾)
+    ⇒ 痕跡的家是 **STATUS 收帳條目**,實例 `1f237fb2-20260817T160013-41551` / `96e54933-20260817T160304-49703`
+- 🔴 **落筆當日遵守率(留著這個數,下一個人才知道有沒有變好):**
+  ```
+  git log --no-merges --since='2026-08-17 00:00' 逐顆看 body
+    提到 三綠/四綠/typecheck   85 / 144 ⇒ 59%   ⚠️【寬鬆計】提到 ≠ 貼了結果
+    帶 log 目錄名               3 / 144         （三顆都是在講四綠工具本身那幾片）
+  merge commit
+    帶 log 目錄名               0 / 47
+  ```
+  ⚠️ **這個 59% 本身就是「文件擋不住」的證據** —— 而本條的處置正是再寫一份文件。
+  📎 該矛盾的正本 = memory `feedback_written-down-is-not-enforced`(2026-08-17 一天三例)。
+- **不修未來會痛在哪:** 有人問「這顆 merge 有沒有跑過四綠」時,答案只在 STATUS 條目裡;
+  **STATUS 條目沒寫的那幾批,事後永遠答不出來** —— 而「沒寫」和「沒跑」在 repo 上長得一樣。
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #617`(git ref CAS)。
+  🔴 **刻意不用 `next-backlog-number.sh` + 信箱佔位掃描那兩道閘** ——
+  2026-08-17 E 窗實錘:那兩道全指向 `#614`,而 CAS `--show` 說 `#614` 已被保留、只是還沒寫進檔
+  ⇒ **那兩道給的是下限不是保留鎖**,照它們配號會發出一個已佔用的號。
+  📎 仍另跑了一次**事後**撞號複查(不是配號依據,是留痕):`grep -rl '#617' ~/pcm-mailbox/*.md | wc -l` ⇒ **0**,
+  分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ **3,008**;
+  🔴 **正向對照換過一次** —— 我第一把尺(`grep -rlc … | wc -l`)對 `#613` 也回 0 ⇒ **零判別力、當場作廢**;
+  改用 `grep -rl '#612'` ⇒ **3 檔命中** ⇒ 這把尺量得到東西,那個 `0` 才是量出來的。
+### #618 · vitest 隨機紅:先把假說重寫成量得到的東西(#608 的 load average 假說已被推翻)
+
+- **狀態:** ⏳ 待執行。🔴 **本條刻意【不提出新假說】** —— 它要的第一個產出是「一個量得到的假說」,
+  不是「一個聽起來合理的成因」。2026-08-17 這一天已經有一個假說被自己的資料打死了(見下)。
+- **已知的兩個症狀(同一族,不同長相):**
+  ```
+  症狀 A（#608 記的）  timed out（5000ms）—— 08-17 六支不同的檔都紅過
+  症狀 B（本條新增）    requireEnv('…') not set
+                        🔴 堆疊裡是【真的】createSupabaseServiceClient 被呼叫到
+                           (packages/adapters/src/supabase/client.ts:28 → :62
+                            → shipment-repository.ts:372 → order-shipments.ts:111)
+                        ⇒ 是 module mock 沒生效，【不是逾時】
+  ```
+  症狀 B 的實錘:merge `31fa9b7e` 的四綠 vitest rc=1、`2 failed | 512 passed (514)`、`18 failed`;
+  **同一棵樹、同一條 `pnpm test` 立刻重跑一次 ⇒ `514 passed` / `8552 passed` / rc=0**。
+  ⇒ **隨機紅成立(同輸入兩種輸出),不是回歸。**
+- 🔴 **不要重跑一個已死的假說:** `#608` 原假說「load 高 ⇒ 撞 5000ms」**已被推翻** ——
+  I 窗 `I-007 §4` 記著:`load1m=173` 之下 512 檔全綠、51 秒。
+  而 `#608` 條目裡的判準**已經寫死**「閒的時候仍然紅 ⇒ 假說被推翻」
+  ⇒ **不要在不夠閒的時候跑那個控制實驗**:紅了會誤推翻一個可能是對的假說,綠了也證不了什麼。
+- **要先做的事(這一條就是本條的驗收):**
+  ```
+  ① 定義一個【兩個世界會印不同東西】的量：
+     load average 是過去一分鐘的平均、不是當下 ⇒ 它不是那個量。
+     候選方向（都要先證明量得到，不是先相信）：
+       · 該次 run 期間的實際並行度／CPU 飽和度（不是 load average）
+       · vitest 的 pool / isolate 設定與 module mock 的交互（症狀 B 指向這裡）
+       · 是否只在「同時有另一支 vitest 在跑」時發生（本機今天常態如此）
+  ② 蒐集樣本時【每次都存整份 log】——
+     現在 logs/four-greens/<hash>-<時點>-<PID>/ 已經不覆寫（afb33c0b），樣本留得住了
+  ③ 有了可證偽的假說再去跑控制實驗，不要反過來
+  ```
+- **不修未來會痛在哪:** 隨機紅會**訓練出「再跑一次就好」的反射**,
+  而那個反射對**真的回歸**也一樣有效 —— ⇒ 有一天真的壞了,第一反應會是重跑,然後它就綠了(換一批格子紅)。
+  🔴 **隨機紅真正的成本不是浪費時間,是它讓「紅」這個訊號失去意義。**
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #618`(git ref CAS)。

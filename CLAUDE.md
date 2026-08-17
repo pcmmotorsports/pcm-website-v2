@@ -56,7 +56,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 引用其他 session 的 commit body / 跨 session 交接 | `docs/lessons-learned.md` §12-30/12-25/12-16 |
 | 要在任何規則檔新增條目(立法)前 | `docs/lessons-learned.md` §12-34/12-36 |
 | 偵察類工作(凡結論將寫「X 未實作/未覆蓋/查無」)/ 下此類斷言前 | `docs/lessons-learned.md` §13 |
-| 其他事故式教訓(37 條事故 log) | `docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條) |
+| 其他事故式教訓(事故 log;條數會長,當場 `grep -c '^### 12-'` 才算數) | `docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條) |
 | 決策題 / 報告格式細節 / Sean 說看不懂 | `docs/working-style.md` §1/§2 |
 | 需要 Sean 操作 dashboard / GUI / 查環境路徑 | `docs/working-style.md` §4 |
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
