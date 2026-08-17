@@ -411,6 +411,38 @@ describe('#10 片1 本次應揀合計', () => {
     row('EEE', 0, 0, true),
   ];
 
+  // 🔴🔴 **這一格的來源是【真伺服器 + 真資料】,不是想出來的**(2026-08-18)。
+  //    真單 `PCM-2026-0102`:1 個品項、`quantitySummary` 為 `null`
+  //    ⇒ 頁首「有 1 項的數量資料尚未就緒…這張單仍然不算處理完」
+  //    ⇒ 而頁尾同時印「勾選欄共 0 項,全部勾完才算揀完。」
+  //    ⇒ 🔴 **「把 0 個框全部勾完」是一個【不做任何事就成立】的條件。**
+  //    ⚠️ 兩句話互相矛盾時,拿著紙的人會信**離簽名欄近的那一句**。
+  //    📎 **六份量測 fixture 一份都沒照出這一格** —— 它們要嘛每列都有數量、要嘛零品項,
+  //       而真資料是**有品項、但數量不知道**,那是 fixture 沒有的第三種。
+  const ALL_UNKNOWN = [row('ZZZ', 0, 0, true)];
+
+  it('🔴 一項都不用揀時 ⇒ 不得印一句「全部勾完才算揀完」(0 個框那句恆真)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: ALL_UNKNOWN } as unknown as Partial<AdminOrderDetail>),
+    );
+    const t = textOf((await renderPage()).container);
+    // 正向對照:確認這份測資真的走到「合計 0」那條路,而不是整塊沒 render。
+    expect(t).toContain('本次應揀合計');
+    expect(t).toContain('數量資料尚未就緒');
+    // 🔴 本格釘的那一句。
+    expect(t).not.toContain('全部勾完才算揀完');
+    expect(t).toContain('這不等於「已經揀完」');
+  });
+
+  it('🔴 而有東西要揀時,那句話必須【還在】(否則上一格靠刪字面就能過)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
+    );
+    const t = textOf((await renderPage()).container);
+    expect(t).toContain('全部勾完才算揀完');
+    expect(t).not.toContain('這不等於「已經揀完」');
+  });
+
   it('🔴 合計 = 真的要動手的列數,**不是表格列數**', async () => {
     mocks.findAdminOrderDetail.mockResolvedValue(
       detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),

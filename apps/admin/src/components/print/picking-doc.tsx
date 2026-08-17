@@ -338,9 +338,25 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     ⇒ 「全部勾完才算揀完」變成「勾完這 3 項就結束了」,而缺的那幾列沒有人知道。
                     ⚠️ **這比沒有合計更糟** —— 沒有合計時他至少不會覺得自己完成了;
                     有一個【看起來精確的數字】反而給了他一個假的完成條件。 */}
+                {/* 🔴🔴 **`pickableCount === 0` 那一格原本印的是一句【恆真的完成條件】**
+                    (2026-08-18,**在真伺服器 + 真資料上看到的**,六份 fixture 一份都沒照出來):
+                    真單 `PCM-2026-0102` 只有 1 個品項、`quantitySummary` 為 `null`
+                    ⇒ 頁首說「有 1 項的數量資料尚未就緒…這張單仍然不算處理完」,
+                    而頁尾同時印「**勾選欄共 0 項,全部勾完才算揀完。**」
+                    ⇒ **「把 0 個框全部勾完」是一個【不做任何事就成立】的條件**
+                       —— 拿著這張紙的人在頁尾讀到的是「這張單沒事」。
+                    ⚠️ 頁首那段警告**有**講清楚,而**兩句話互相矛盾時,人會信離簽名欄近的那一句**。
+                    ⇒ 三分支:截斷 / 零項 / 正常。**零項不給完成條件,只說發生了什麼。**
+                    🔴 **這一格 fixture 照不出來的原因值得留**:`page-measure.test.tsx` 的
+                       `withQuantity` 要嘛全給數量(每列都有框)、要嘛全 `null`(走「品項:0」那條),
+                       **而真資料是「有品項、但數量不知道」** —— 那是 fixture 沒有的第三種。 */}
                 {detail.itemsTruncated ? (
                   <span className='text-sm font-medium text-amber-800'>
                     🔴 清單沒載完 —— 這個數字不是全部,不要拿它當揀完的依據。
+                  </span>
+                ) : pickableCount === 0 ? (
+                  <span className='text-sm font-medium text-amber-800'>
+                    這張單這次沒有任何一項要揀 —— 這不等於「已經揀完」,不要在這裡簽名收工。
                   </span>
                 ) : (
                   <span className='text-muted-foreground text-xs'>
