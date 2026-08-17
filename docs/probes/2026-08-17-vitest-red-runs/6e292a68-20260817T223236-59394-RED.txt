@@ -1,0 +1,124 @@
+
+> pcm-website-v2@0.0.0 test /Users/sean_1/pcm-website-v2
+> vitest run
+
+
+ RUN  v4.1.5 /Users/sean_1/pcm-website-v2
+
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onContinueShopping (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CheckoutView.tsx:269:35)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at handleVehicleNavigate (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/ProductBreadcrumb.tsx:144:5)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at Timeout._onTimeout (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:80:7)
+    at listOnTimeout (node:internal/timers:585:17)
+    at processTimers (node:internal/timers:521:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at goContinue (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CartView.tsx:88:28)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+ ❯ |admin| apps/admin/src/components/orders/cancel-forms-hydrated.test.tsx (5 tests | 1 failed) 34443ms
+     × 🔴 reset 窗口的兩格(hasItem / reason_detail 停在舊值):**從推論級升成實測級** 169ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |admin| apps/admin/src/components/orders/cancel-forms-hydrated.test.tsx > 片 2 真元件:同一條 reset 路徑之下,送出去的永遠是 partial > 🔴 reset 窗口的兩格(hasItem / reason_detail 停在舊值):**從推論級升成實測級**
+Error: page.goto: net::ERR_EMPTY_RESPONSE at http://localhost:54546/
+Call log:
+  - navigating to "http://localhost:54546/", waiting until "load"
+
+ ❯ withHydratedPage apps/admin/src/components/orders/cancel-forms-hydrated.test.tsx:311:16
+    309|   });
+    310|   try {
+    311|     await page.goto(`http://localhost:${port}/`);
+       |                ^
+    312|     await run(page, bodies);
+    313|   } finally {
+ ❯ apps/admin/src/components/orders/cancel-forms-hydrated.test.tsx:531:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 518 passed (519)
+      Tests  1 failed | 8595 passed | 2 expected fail | 1 skipped | 1 todo (8600)
+   Start at  22:33:07
+   Duration  48.10s (transform 41.83s, setup 0ms, import 97.84s, tests 147.06s, environment 86.31s)
+
+ ELIFECYCLE  Test failed. See above for more details.
+
+───── RUN-CONTEXT（收割窗附加,原檔在 logs/four-greens/6e292a68-20260817T223236-59394/RUN-CONTEXT）─────
+開始 2026-08-17 22:32:36 CST
+結束 2026-08-17 22:33:55 CST
+並行vitest行程數 開始=0 vitest起跑前=0 結束=0

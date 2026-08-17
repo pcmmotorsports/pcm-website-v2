@@ -152,6 +152,21 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
     // 內文不含收件者 email(PII 不進模板)
     const sentText = (sender.send.mock.calls[0]![0] as { text: string }).text;
     expect(sentText).not.toContain('customer@example.com');
+    // 🔴 body 契約 = exact-match(2026-08-18 突變普查):對外不可回收的信,契約是【只能有這些】
+    //    不是【至少要有這些】。stringContaining 只保「有編號+沒收件信箱」⇒ 把整包 payload JSON
+    //    塞進 orderLine 時三條 contains 斷言全過(display_id 在 JSON 裡、收件 email 不在 payload 裡)。
+    //    ⚠️ 血半徑:當前 code 安全 —— buildOrderCreatedText 只讀 display_id、不渲染任意 payload。
+    //    本格釘的是【body 內容契約】,不是修一個現存的洩漏。靶用具名 fixture(job() 的 display_id
+    //    'PCM-2026-0001'),不對真實 payload 做 exact(那會恆紅)。
+    const EXPECTED_ORDER_CREATED_BODY = [
+      '您好,',
+      '',
+      '您的訂單 PCM-2026-0001 已付款成功。',
+      '我們將盡快為您安排出貨;訂單明細與最新狀態請至 PCM 會員中心查看。',
+      '',
+      'PCM Motorsports',
+    ].join('\n');
+    expect(sentText).toBe(EXPECTED_ORDER_CREATED_BODY);
     expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-1', 3);
     expect(outbox.markFailed).not.toHaveBeenCalled();
     expect(res).toEqual({ reclaimed: 0, claimed: 1, sent: 1, failed: 0, deferred: 0, staleMarks: 0, errors: 0 });

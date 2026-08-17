@@ -97,7 +97,9 @@ export class InMemoryProductRepository implements IProductRepository {
   /**
    * 依 category 列出全部 product（#220、全量版、對齊 IProductRepository.listAllByCategory contract）。
    *
-   * in-memory 無 PostgREST「Max rows = 1000」上限 → 行為等同 listByCategory（全量回傳）；
+   * in-memory 無 PostgREST `db-max-rows` 上限（~~原寫「Max rows = 1000」~~;真值 2026-08-18 實測 2000,
+   *   而**本檔是 in-memory,那個值多少都與它無關** —— 留在這裡只是為了對照 Supabase 實作)
+   *   → 行為等同 listByCategory（全量回傳）；
    * 真 adapter(SupabaseProductAdapter)才需 .range 分頁迴圈繞過上限。
    */
   async listAllByCategory(category: CategoryPath): Promise<Product[]> {
@@ -112,7 +114,8 @@ export class InMemoryProductRepository implements IProductRepository {
   /**
    * 列出全目錄非下架 product —— 全量、跨分類(接線 plan C4、對齊 IProductRepository.listAllProducts contract)。
    *
-   * in-memory 無 PostgREST「Max rows = 1000」上限、無下架概念(DB/RLS 概念)→ 回全部庫存 product;
+   * in-memory 無 PostgREST `db-max-rows` 上限(~~原寫「Max rows = 1000」~~;同上,值與本檔無關)、
+   * 無下架概念(DB/RLS 概念)→ 回全部庫存 product;
    * 真 adapter(SupabaseProductAdapter)才需 .range 分頁迴圈繞上限 + RLS 濾下架。
    *
    * `options.limit`(perf/P2):給定時**先依 orderBy 排序再取前 limit 筆**——Map 迭代序是

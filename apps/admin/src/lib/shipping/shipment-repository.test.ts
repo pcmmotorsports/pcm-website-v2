@@ -220,23 +220,88 @@ describe('掛品項 · 形狀轉換', () => {
 });
 
 describe('已配箱數量 · 與 shipped_quantity 是不同的問題', () => {
-  /** 建一個 supabase 查詢鏈的 mock,記錄呼叫過的過濾條件。 */
-  function chain(rows: unknown[]) {
-    const calls: Record<string, unknown[]> = {};
+  /**
+   * 建一個 supabase 查詢鏈的 mock。
+   *
+   * 🔴 2026-08-17 本支改成**翻頁**(外層 chunk `.in()` 的 id、內層 `.range()` 翻頁)
+   *    ⇒ 這個 mock 要能**照 `.range()` 真的切**,否則迴圈第二圈拿到同一批、永遠停不下來。
+   *    ⚠️ **它是照「單一 chunk」在模擬**:`rows` 是這一批 id 的完整答案,
+   *       range 之外回空 ⇒ 迴圈看到 0 列就收。
+   */
+  type Row = { id: string; order_item_id: string; shipped_quantity: number; shipments: unknown };
+
+  function chain(rows: Row[]) {
+    const calls: Record<string, unknown[]> = { pages: [] };
     const rec = (k: string) => (...a: unknown[]) => {
       calls[k] = a;
       return api;
     };
+    /** 這一圈的過濾/游標狀態;每次 `.in()` 起一輪新的鏈。 */
+    let inIds: string[] = [];
+    let cursor: string | null = null;
+    let pageSize = Infinity;
+    const settle = () => {
+      // 🔴🔴 **mock 一定要真的套用 `.in()` 過濾**(codex R3 抓到我第一版沒套):
+      //    沒套的話,測試查 `['oi-1']` 卻收到 `oi-0..oi-406` 的列 ——
+      //    **真 PostgREST 產不出那種回應** ⇒ 那幾格量的是一個不存在的世界。
+      //    (突變會紅、覆蓋率算它、而它證不了任何真行為。)
+      const visible = rows
+        .filter((r) => inIds.includes(r.order_item_id))
+        .filter((r) => (cursor === null ? true : r.id > cursor))
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      const page = visible.slice(0, pageSize);
+      (calls.pages as unknown[]).push({ inIds: [...inIds], cursor, got: page.length });
+      return Promise.resolve({ data: page, error: null });
+    };
     const api: Record<string, unknown> = {
       select: rec('select'),
-      in: rec('in'),
-      is: (...a: unknown[]) => {
-        calls.is = a;
-        return Promise.resolve({ data: rows, error: null });
+      in: (...a: unknown[]) => {
+        inIds = a[1] as string[];
+        cursor = null;
+        // 🔴 每個 chunk 都記下來(不是覆蓋)—— 「有沒有分批」這件事只有在這裡看得到。
+        (calls.inCalls ??= []).push(inIds);
+        calls.in = a;
+        return api;
+      },
+      is: rec('is'),
+      order: rec('order'),
+      /** keyset 游標。有它就從它之後開始。 */
+      gt: (...a: unknown[]) => {
+        // 🔴 **每一次都記**(不是覆蓋)—— 只留最後一次的話,「第一頁之後的游標是什麼」
+        //    這件事就看不到了,而斷言會不知不覺變成在檢查最後一頁。
+        (calls.gtCalls ??= []).push(a);
+        cursor = a[1] as string;
+        return settle();
+      },
+      /**
+       * 🔴 `.limit()` **同時是頁大小、也是鏈的可 await 端**(第一頁沒有 `.gt()`)。
+       *    回一個 thenable:接了 `.gt()` 就走 `.gt()` 那條,直接 await 就在這裡結算。
+       */
+      limit: (...a: unknown[]) => {
+        pageSize = a[0] as number;
+        calls.limit = a;
+        return {
+          ...api,
+          then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+            settle().then(res, rej),
+        };
       },
     };
     return { api, calls };
   }
+
+  /**
+   * 產 n 列。
+   * 🔴 `id` 補零成定寬 —— keyset 用字串比大小,`si-9 > si-10` 會讓翻頁在第 10 列就亂掉。
+   *    (真表的 `id` 是 uuid、定寬,所以補零才是**對齊真實**,不是為了讓測試好過。)
+   */
+  const rowsOf = (n: number, itemIds: readonly string[]): Row[] =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `si-${String(i).padStart(6, '0')}`,
+      order_item_id: itemIds[i % itemIds.length]!,
+      shipped_quantity: 1,
+      shipments: { deleted_at: null },
+    }));
 
   it('🔴 必須排除已作廢的箱(作廢後品項要回到可出貨池,漏過濾等於把貨永久鎖住)', async () => {
     const { api, calls } = chain([]);
@@ -255,15 +320,117 @@ describe('已配箱數量 · 與 shipped_quantity 是不同的問題', () => {
 
   it('同一品項散在多箱 → 數量相加', async () => {
     const { api } = chain([
-      { order_item_id: 'oi-1', shipped_quantity: 1, shipments: { deleted_at: null } },
-      { order_item_id: 'oi-1', shipped_quantity: 2, shipments: { deleted_at: null } },
-      { order_item_id: 'oi-2', shipped_quantity: 5, shipments: { deleted_at: null } },
+      { id: 'si-1', order_item_id: 'oi-1', shipped_quantity: 1, shipments: { deleted_at: null } },
+      { id: 'si-2', order_item_id: 'oi-1', shipped_quantity: 2, shipments: { deleted_at: null } },
+      { id: 'si-3', order_item_id: 'oi-2', shipped_quantity: 5, shipments: { deleted_at: null } },
     ]);
     from.mockReturnValue(api);
     const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
     const m = await listAssignedQuantitiesByOrderItemIds(['oi-1', 'oi-2']);
     expect(m.get('oi-1'), '同一品項分裝兩箱時數量沒有相加 ⇒ 會讓它看起來還能再出').toBe(3);
     expect(m.get('oi-2')).toBe(5);
+  });
+
+  describe('🔴🔴 撈到盡 —— 截斷 = fail-open(2026-08-17 codex R1 MF1 / R2 打回自夾上限那版)', () => {
+    // 病:本支原本**沒有 limit 也沒有截斷訊號**。PostgREST 一截,`already` 就少算
+    // ⇒ **已經裝進別的箱的件顯示成「還可以出」** ⇒ 同一件被裝進第二個箱,而畫面完全正常。
+    //
+    // 🔴 **第一版的修法(自夾 900 列、超過回 null)被 codex R2 打回,理由不是數字挑錯是形狀錯**:
+    //    那個做法要同時猜「伺服器 max-rows」與「合法最大用量」,而兩個都沒量過 ——
+    //    猜低了常態性失敗、猜高了守門靜默 no-op。⇒ 改成翻頁,**沒有任何數字承擔正確性**。
+    //    ⇒ 所以這一族守的不再是「有沒有送對 limit」,是「**會不會真的翻到底**」。
+
+    it('🔴 撈到盡:資料超過一頁時要繼續翻,不是拿第一頁就走', async () => {
+      const { ASSIGNED_QUANTITY_PAGE_SIZE } = await import('./shipment-repository');
+      const n = ASSIGNED_QUANTITY_PAGE_SIZE * 2 + 7;
+      // 🔴 查的 id 與列上的 `order_item_id` **要對得上** —— mock 會真的套 `.in()` 過濾,
+      //    對不上就回 0 列(而那正是真 PostgREST 的行為)。
+      const ids = ['oi-a', 'oi-b', 'oi-c'];
+      const { api, calls } = chain(rowsOf(n, ids));
+      from.mockReturnValue(api);
+      const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+      const m = await listAssignedQuantitiesByOrderItemIds(ids);
+      expect(
+        [...m.values()].reduce((a, b) => a + b, 0),
+        '只拿了第一頁 ⇒ 後面那些件的已配箱量少算 ⇒ 會被裝進第二個箱',
+      ).toBe(n);
+      // 🔴 4 次 = 3 頁有料 + 1 頁空的才停。**終止條件是「拿到 0 列」不是「本頁不滿」** ——
+      //    後者在頁大小等於伺服器上限時會把「被切斷」讀成「撈完了」。
+      expect((calls.pages as unknown[]).length, '少一次 ⇒ 用的是「本頁不滿即停」').toBe(4);
+    });
+
+    it('🔴🔴 游標綁【資料】不綁【位置】—— `shipment_items` 是會被寫的表(codex R3)', async () => {
+      // 🔴 `order_items` 建單後不再增刪 ⇒ 那支用 OFFSET 是安全的;
+      //    **本表不是** —— 建箱會新增、作廢會讓列退出結果集 ⇒ OFFSET 位移會【跳過】還沒讀到的列,
+      //    而 Map 去重救不了漏列(去重處理「出現兩次」,漏列是「一次都沒出現」)。
+      const { ASSIGNED_QUANTITY_PAGE_SIZE } = await import('./shipment-repository');
+      const ids = ['oi-a'];
+      const { api, calls } = chain(rowsOf(ASSIGNED_QUANTITY_PAGE_SIZE + 5, ids));
+      from.mockReturnValue(api);
+      const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+      await listAssignedQuantitiesByOrderItemIds(ids);
+      expect(
+        (calls.gtCalls as unknown[] | undefined)?.[0],
+        '第二頁不是用 `.gt(id, 上一頁最後一列的 id)` 取的 ⇒ 用的是位移量,' +
+          '而這張表的集合會在翻頁中途變動。',
+      ).toEqual(['id', `si-${String(ASSIGNED_QUANTITY_PAGE_SIZE - 1).padStart(6, '0')}`]);
+      expect(calls.range, '還在用 `.range()` ⇒ OFFSET 漂移會漏列').toBeUndefined();
+    });
+
+    it('🔴 排序鍵必須唯一 —— 沒有穩定排序,翻頁會【漏】列(不只是重複)', async () => {
+      const { api, calls } = chain(rowsOf(1, ['oi-a']));
+      from.mockReturnValue(api);
+      const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+      await listAssignedQuantitiesByOrderItemIds(['oi-a']);
+      expect(
+        calls.order,
+        '沒有按唯一鍵排序 ⇒ 同一列可能在兩頁都不出現,而漏掉的方向就是危險那一邊。',
+      ).toEqual(['id', { ascending: true }]);
+    });
+
+    it('🔴🔴 同一個品項散在 N+ 個箱 —— 判定不可以按「有幾個不同品項」算(codex R2 MF6)', async () => {
+      // 🔴 R2 抓到我第一版這一族**全部用不同的 `order_item_id`** ⇒
+      //    一個「按 distinct 品項數判翻頁」的錯實作會**全綠**,而同一件分裝很多箱時照樣少算。
+      //    ⇒ 這一格把列數與品項數**拆開**:很多列、只有一個品項。
+      const { ASSIGNED_QUANTITY_PAGE_SIZE } = await import('./shipment-repository');
+      const n = ASSIGNED_QUANTITY_PAGE_SIZE * 2 + 3;
+      const { api } = chain(rowsOf(n, ['oi-a']));
+      from.mockReturnValue(api);
+      const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+      const m = await listAssignedQuantitiesByOrderItemIds(['oi-a']);
+      expect(m.size, '只有一個品項').toBe(1);
+      expect(
+        m.get('oi-a'),
+        '按品項數判翻頁 ⇒ 第一頁就以為撈完了 ⇒ 這一件的已配箱量少算一大截。',
+      ).toBe(n);
+    });
+
+    it('🔴 `.in()` 的 id 要分批 —— 上萬個 uuid 塞進 GET query 會先被 URL 上限擋掉(codex R2 MF3)', async () => {
+      const { ASSIGNED_QUANTITY_ID_CHUNK } = await import('./shipment-repository');
+      const { api, calls } = chain([]);
+      from.mockReturnValue(api);
+      const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+      const ids = Array.from({ length: ASSIGNED_QUANTITY_ID_CHUNK * 2 + 1 }, (_, i) => `oi-${i}`);
+      await listAssignedQuantitiesByOrderItemIds(ids);
+      const chunks = calls.inCalls as string[][];
+      expect(chunks.length, '沒分批 ⇒ 一個請求塞上萬個 uuid,連守門都走不到').toBe(3);
+      expect(
+        Math.max(...chunks.map((c) => c.length)),
+        '有一批超過上限 ⇒ 分批切錯',
+      ).toBeLessThanOrEqual(ASSIGNED_QUANTITY_ID_CHUNK);
+      // 🔴 分批不可以把 id 弄丟 —— 少問的那些「已配箱量」查不到,而那不算截斷、零訊號。
+      expect(chunks.flat().sort(), '分批之後 id 對不上原輸入').toEqual([...ids].sort());
+    });
+
+    it('🔴 正向對照 — 一頁裝得下時只打一次翻頁(不可以無條件多跑)', async () => {
+      // 沒有這一格,一個「永遠翻 50 頁」的實作也會讓上面幾格全綠 —— 而那是 50 倍的 DB 往返。
+      const { api, calls } = chain(rowsOf(3, ['oi-a']));
+      from.mockReturnValue(api);
+      const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
+      const m = await listAssignedQuantitiesByOrderItemIds(['oi-a']);
+      expect(m.get('oi-a'), '3 列全掛同一個品項 ⇒ 加總是 3').toBe(3);
+      expect((calls.pages as unknown[]).length, '3 列只需要 2 次:一次有料、一次空的').toBe(2);
+    });
   });
 
   it('🔴 本檔不得改用 `shipped_quantity` 欄(那是「已寄出」,不含草稿箱 ⇒ 會被裝進第二個箱)', () => {
@@ -277,7 +444,7 @@ describe('已配箱數量 · 與 shipped_quantity 是不同的問題', () => {
 
   it('空輸入短路,不發請求', async () => {
     const { listAssignedQuantitiesByOrderItemIds } = await import('./shipment-repository');
-    expect((await listAssignedQuantitiesByOrderItemIds([])).size).toBe(0);
+    expect((await listAssignedQuantitiesByOrderItemIds([]))?.size).toBe(0);
     expect(from).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,261 @@
+
+> pcm-website-v2@0.0.0 test /Users/sean_1/pcm-website-v2
+> vitest run
+
+
+ RUN  v4.1.5 /Users/sean_1/pcm-website-v2
+
+ ❯ |admin| apps/admin/src/app/products/[id]/page.test.tsx (14 tests | 1 failed) 5508ms
+     × 🔴 驗收 1:六個平欄區塊都看得到,料號 / 供應商 / 售價 / 狀態逐欄驗 5044ms
+ ❯ |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx (21 tests | 1 failed) 7238ms
+     × 🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串) 6253ms
+ ❯ |node| scripts/check-syntax-nonts.test.ts (26 tests | 2 failed) 20736ms
+     × 🔴 合法 PG E-string `E'it\'s ok'` → 綠(防誤擋合法 SQL) 7799ms
+     × 無檔案參數 → exit 0 且明講跳過(不誤紅) 6403ms
+ ❯ |node| scripts/check-syntax-nonts.gate.test.ts (9 tests | 5 failed) 55202ms
+     × 🔴 壞 .sh staged → gate 擋下(exit=1,且失敗來自本守門) 11666ms
+     × 🔴 壞 .yaml staged → gate 擋下(exit=1,且失敗來自本守門) 14756ms
+     × 好 .sql staged → 放行(exit=0) 7419ms
+     × 好 .sh staged → 放行(exit=0) 7211ms
+     × 好 .yaml(含多文件)staged → 放行(exit=0) 9024ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onContinueShopping (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CheckoutView.tsx:269:35)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at handleVehicleNavigate (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/ProductBreadcrumb.tsx:144:5)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+ ❯ |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx (15 tests | 1 failed) 10744ms
+     × 🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次 5632ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at goContinue (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CartView.tsx:88:28)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at Timeout._onTimeout (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:80:7)
+    at listOnTimeout (node:internal/timers:585:17)
+    at processTimers (node:internal/timers:521:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+ ❯ |storefront| apps/storefront/src/components/EvotechShowcase.test.tsx (2 tests | 1 failed) 10679ms
+     × N°01:eyebrow logo + h2 + lead + 3 卡 7243ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 🔴 壞 .sh staged → gate 擋下(exit=1,且失敗來自本守門)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:112:3
+    110|   });
+    111|
+    112|   it('🔴 壞 .sh staged → gate 擋下(exit=1,且失敗來自本守門)', () => {
+       |   ^
+    113|     const r = stageAndRunGate('bad.sh', '#!/bin/bash\nif true; then\n …
+    114|     expect(r.status).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 🔴 壞 .yaml staged → gate 擋下(exit=1,且失敗來自本守門)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:118:3
+    116|   });
+    117|
+    118|   it('🔴 壞 .yaml staged → gate 擋下(exit=1,且失敗來自本守門)', () => {
+       |   ^
+    119|     const r = stageAndRunGate('bad.yaml', 'title: "他說 "這樣" 不行"\n');
+    120|     expect(r.status).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 好 .sql staged → 放行(exit=0)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:125:3
+    123|
+    124|   // ── 好檔必須放行。誤擋會逼人 --no-verify,整條 gate 就死了 ──
+    125|   it('好 .sql staged → 放行(exit=0)', () => {
+       |   ^
+    126|     expect(stageAndRunGate('ok.sql', "SELECT * FROM t WHERE n = 'ok';\…
+    127|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 好 .sh staged → 放行(exit=0)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:129:3
+    127|   });
+    128|
+    129|   it('好 .sh staged → 放行(exit=0)', () => {
+       |   ^
+    130|     expect(stageAndRunGate('ok.sh', '#!/bin/bash\nset -e\necho ok\n').…
+    131|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 好 .yaml(含多文件)staged → 放行(exit=0)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:133:3
+    131|   });
+    132|
+    133|   it('好 .yaml(含多文件)staged → 放行(exit=0)', () => {
+       |   ^
+    134|     expect(stageAndRunGate('ok.yaml', 'a: 1\n---\nb: 2\n').status).toB…
+    135|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.test.ts > CLI 端到端(commit gate 實際走的路徑) > 🔴 合法 PG E-string `E'it\'s ok'` → 綠(防誤擋合法 SQL)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.test.ts:216:3
+    214|
+    215|   // 🔴 釘住 must-fix 4:合法的 PG escape string 曾被誤判成「單引號未閉合」而擋下 commit。
+    216|   it("🔴 合法 PG E-string `E'it\\'s ok'` → 綠(防誤擋合法 SQL)", () => {
+       |   ^
+    217|     const f = w('cli-estring.sql', "SELECT E'it\\'s ok';\n");
+    218|     const r = run(SCRIPT, [f]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.test.ts > CLI 端到端(commit gate 實際走的路徑) > 無檔案參數 → exit 0 且明講跳過(不誤紅)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.test.ts:222:3
+    220|   });
+    221|
+    222|   it('無檔案參數 → exit 0 且明講跳過(不誤紅)', () => {
+       |   ^
+    223|     const r = run(SCRIPT, []);
+    224|     expect(r.status).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/EvotechShowcase.test.tsx > EvotechShowcase > N°01:eyebrow logo + h2 + lead + 3 卡
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/components/EvotechShowcase.test.tsx:14:3
+     12|
+     13| describe('EvotechShowcase', () => {
+     14|   it('N°01:eyebrow logo + h2 + lead + 3 卡', () => {
+       |   ^
+     15|     render(<EvotechShowcase />);
+     16|     expect(document.querySelector('#pd-h-evo01')).not.toBeNull();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · action throw(站台設定錯誤) > 🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:207:3
+    205|   });
+    206|
+    207|   it('🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次', async () => {
+       |   ^
+    208|     vi.useFakeTimers();
+    209|     try {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  |admin| apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx > #347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、URL 帶不走** > 🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx:280:3
+    278|   };
+    279|
+    280|   it('🔴 讀 cookie 用的是 ORDER_KEYWORD_COOKIE 這個名字(不是任何別的字串)', async () =…
+       |   ^
+    281|     // code-reviewer(2026-08-10)擊破:`cookieGet` 對**任何** key 都回同一個值,
+    282|     // 而全檔沒有一條斷言 key ⇒ 把 page 的 `get(ORDER_KEYWORD_COOKIE)` 改成別的字串,16 …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  |admin| apps/admin/src/app/products/[id]/page.test.tsx > /products/[id] 詳情頁(#20 片1b-1) > 🔴 驗收 1:六個平欄區塊都看得到,料號 / 供應商 / 售價 / 狀態逐欄驗
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/admin/src/app/products/[id]/page.test.tsx:90:3
+     88|
+     89| describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
+     90|   it('🔴 驗收 1:六個平欄區塊都看得到,料號 / 供應商 / 售價 / 狀態逐欄驗', async () => {
+       |   ^
+     91|     mocks.get.mockResolvedValue(PRODUCT);
+     92|     mocks.taxonomy.mockResolvedValue({ brandName: 'CNC RACING', catego…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  6 failed | 509 passed (515)
+      Tests  11 failed | 8553 passed | 2 expected fail | 1 skipped | 1 todo (8568)
+   Start at  16:37:14
+   Duration  302.56s (transform 268.24s, setup 0ms, import 723.89s, tests 831.97s, environment 513.42s)
+
+ ELIFECYCLE  Test failed. See above for more details.

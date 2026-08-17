@@ -1,0 +1,274 @@
+
+> pcm-website-v2@0.0.0 test /Users/sean_1/pcm-website-v2
+> vitest run
+
+
+ RUN  v4.1.5 /Users/sean_1/pcm-website-v2
+
+stderr | apps/admin/src/components/orders/note-compose-form.test.tsx > NoteComposeForm — A10a-3 > [5] confirm 閘(債⑥):更正模式 confirm=false 擋下送出、true 放行;非更正不問
+A component suspended inside an `act` scope, but the `act` call was not awaited. When testing React components that depend on asynchronous data, you must await the result:
+
+await act(() => ...)
+
+ ❯ |admin| apps/admin/src/components/orders/note-compose-form.test.tsx (11 tests | 1 failed) 3231ms
+     × [5] confirm 閘(債⑥):更正模式 confirm=false 擋下送出、true 放行;非更正不問 3052ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onContinueShopping (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CheckoutView.tsx:269:35)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at handleVehicleNavigate (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/ProductBreadcrumb.tsx:144:5)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at goContinue (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/CartView.tsx:88:28)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-website-v2/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-website-v2/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at Timeout._onTimeout (/Users/sean_1/pcm-website-v2/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:80:7)
+    at listOnTimeout (node:internal/timers:585:17)
+    at processTimers (node:internal/timers:521:7) undefined
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |admin| apps/admin/src/components/orders/note-compose-form.test.tsx > NoteComposeForm — A10a-3 > [5] confirm 閘(債⑥):更正模式 confirm=false 擋下送出、true 放行;非更正不問
+AssertionError: expected <input type="hidden" …(2)></input> to be null
+
+Ignored nodes: comments, script, style
+[36m<html>[39m
+  [36m<head />[39m
+  [36m<body>[39m
+    [36m<div>[39m
+      [36m<section[39m
+        [33mclass[39m=[32m"bg-card text-card-foreground rounded-lg border p-4"[39m
+        [33mid[39m=[32m"note-compose"[39m
+      [36m>[39m
+        [36m<h2[39m
+          [33mclass[39m=[32m"text-muted-foreground mb-3 text-xs font-medium"[39m
+        [36m>[39m
+          [0m更正備註[0m
+        [36m</h2>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"[39m
+        [36m>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"font-medium"[39m
+          [36m>[39m
+            [0m正在更正 #[0m
+            [0m2[0m
+            [0m([0m
+            [0m內部備註[0m
+            [0m):[0m
+            [36m<span[39m
+              [33mclass[39m=[32m"font-normal"[39m
+            [36m>[39m
+              [0m原內容[0m
+            [36m</span>[39m
+          [36m</p>[39m
+          [36m<p[39m
+            [33mclass[39m=[32m"mt-1 text-xs"[39m
+          [36m>[39m
+            [0m更正送出後不可撤回;對更正再做更正,也不會讓最早那筆恢復有效。若誤更正了有效的告知紀錄,唯一的還原方式是重新登記一筆新的「已告知客人」紀錄。[0m
+          [36m</p>[39m
+          [36m<a[39m
+            [33mclass[39m=[32m"mt-1 inline-block text-xs font-medium underline"[39m
+            [33mhref[39m=[32m"/orders/3f2f2c1e-0000-4000-8000-000000000001"[39m
+          [36m>[39m
+            [0m取消更正[0m
+          [36m</a>[39m
+        [36m</div>[39m
+        [36m<form[39m
+          [33maction[39m=[32m"javascript:throw new Error('A React form was unexpectedly submitted. If you called form.submit() manually, consider using form.requestSubmit() instead. If you\\'re trying to use event.stopPropagation() in a submit event handler, consider also calling event.preventDefault().')"[39m
+          [33mclass[39m=[32m"space-y-3"[39m
+        [36m>[39m
+          [36m<input[39m
+            [33mname[39m=[32m"order_id"[39m
+            [33mtype[39m=[32m"hidden"[39m
+            [33mvalue[39m=[32m"3f2f2c1e-0000-4000-8000-000000000001"[39m
+          [36m/>[39m
+          [36m<input[39m
+            [33mname[39m=[32m"request_token"[39m
+            [33mtype[39m=[32m"hidden"[39m
+            [33mvalue[39m=[32m"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"[39m
+          [36m/>[39m
+          [36m<input[39m
+            [33mname[39m=[32m"return_to"[39m
+            [33mtype[39m=[32m"hidden"[39m
+            [33mvalue[39m=[32m"/orders?payment_status=paid"[39m
+          [36m/>[39m
+          [36m<input[39m
+            [33mname[39m=[32m"corrects_note_id"[39m
+            [33mtype[39m=[32m"hidden"[39m
+            [33mvalue[39m=[32m"cccccccc-1111-4222-8333-444444444444"[39m
+          [36m/>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex flex-wrap gap-4"[39m
+          [36m>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"flex items-center gap-1.5 text-sm"[39m
+            [36m>[39m
+              [36m<input[39m
+                [33mchecked[39m=[32m""[39m
+                [33mname[39m=[32m"note_type"[39m
+                [33mtype[39m=[32m"radio"[39m
+                [33mvalue[39m=[32m"internal"[39m
+              [36m/>[39m
+              [0m內部備註[0m
+            [36m</label>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"flex items-center gap-1.5 text-sm"[39m
+            [36m>[39m
+              [36m<input[39m
+                [33mname[39m=[32m"note_type"[39m
+                [33mtype[39m=[32m"radio"[39m
+                [33mvalue[39m=[32m"contact_log"[39m
+              [36m/>[39m
+              [0m聯絡紀錄[0m
+            [36m</label>[39m
+            [36m<label[39m
+              [33mclass[39m=[32m"flex items-center gap-1.5 text-sm"[39m
+            [36m>[39m
+              [36m<input[39m
+                [33mname[39m=[32m"note_type"[39m
+                [33mtype[39m=[32m"radio"[39m
+                [33mvalue[39m=[32m"customer_notified"[39m
+              [36m/>[39m
+              [0m已告知客人[0m
+            [36m</label>[39m
+          [36m</div>[39m
+          [36m<label[39m
+            [33mclass[39m=[32m"flex flex-col gap-1 text-sm"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-muted-foreground text-xs font-medium"[39m
+            [36m>[39m
+              [0m更正後的內容[0m
+            [36m</span>[39m
+            [36m<textarea[39m
+              [33mclass[39m=[32m"border-input bg-background rounded-md border px-3 py-2 text-sm"[39m
+              [33mmaxlength[39m=[32m"4000"[39m
+              [33mname[39m=[32m"body"[39m
+              [33mplaceholder[39m=[32m"備註送出後無法刪除,只能事後更正。"[39m
+              [33mrequired[39m=[32m""[39m
+              [33mrows[39m=[32m"3"[39m
+            [36m/>[39m
+          [36m</label>[39m
+          [36m<div[39m
+            [33mclass[39m=[32m"flex items-center justify-end gap-3"[39m
+          [36m>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"text-muted-foreground mr-auto text-xs"[39m
+            [36m>[39m
+              [0m備註為永久紀錄、送出後不可刪除。[0m
+            [36m</span>[39m
+            [36m<button[39m
+              [33mclass[39m=[32m"bg-primary text-primary-foreground h-9 rounded-md px-5 text-sm font-medium disabled:opacity-50"[39m
+              [33mtype[39m=[32m"submit"[39m
+            [36m>[39m
+              [0m送出更正[0m
+            [36m</button>[39m
+          [36m</div>[39m
+        [36m</form>[39m
+      [36m</section>[39m
+    [36m</div>[39m
+  [36m</body>[39m
+[36m</html>[39m
+
+- Expected:
+null
+
++ Received:
+<input
+  name="corrects_note_id"
+  type="hidden"
+  value="cccccccc-1111-4222-8333-444444444444"
+/>
+
+ ❯ waitFor.timeout apps/admin/src/components/orders/note-compose-form.test.tsx:159:79
+    157|     //      要再加只能連格 timeout 一起加,不要只動這裡。條件本身一字未動、仍必須成真。
+    158|     await waitFor(
+    159|       () => expect(container.querySelector('input[name="corrects_note_…
+       |                                                                               ^
+    160|       { timeout: 3000 },
+    161|     );
+ ❯ runWithExpensiveErrorDiagnosticsDisabled node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:47:12
+ ❯ checkCallback node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:124:77
+ ❯ Timeout.checkRealTimersCallback node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/wait-for.js:118:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 519 passed | 1 skipped (521)
+      Tests  1 failed | 8606 passed | 2 expected fail | 2 skipped | 1 todo (8612)
+   Start at  01:28:29
+   Duration  45.23s (transform 37.29s, setup 0ms, import 96.22s, tests 122.59s, environment 86.25s)
+
+ ELIFECYCLE  Test failed. See above for more details.

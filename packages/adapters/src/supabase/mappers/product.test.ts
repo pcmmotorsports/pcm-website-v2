@@ -169,6 +169,20 @@ describe('mapSupabaseProductToDomain 變體整合', () => {
     expect(p.variantCount).toBe(0);
   });
 
+  it('🔴 經銷價防護:product-level priceByTier.store / premiumStore = dummy 0(非 price_general)', () => {
+    // 🔴 本格守的是【檔頭 product.ts:172 那個宣稱】(「product mapper 的 priceByTier.store
+    //    走 dummy」)—— 在此格之前只有 mapVariantRow 的 dummy 被斷(:86-92),product-level
+    //    零覆蓋(2026-08-18 突變普查:把 :216 改成 leak price_general ⇒ 全套照綠)。
+    // ⚠️ 本格【不是】防真經銷價外洩 —— 那由 view 排除守(SupabaseProductAdapter.test.ts 的
+    //    SELECT 投射不含 price_store)。兩道防線各自有格,別拆錯那一道:這格拆了 = 檔頭宣稱失守;
+    //    view 排除拆了 = 真經銷價才會進 row。
+    const p = mapSupabaseProductToDomain({ ...baseProductRow, price_general: 8400 });
+    expect(p.priceByTier.store.amount).toBe(0);
+    expect(p.priceByTier.premiumStore.amount).toBe(0);
+    expect(p.priceByTier.store.amount).not.toBe(8400);
+    expect(p.priceByTier.premiumStore.amount).not.toBe(8400);
+  });
+
   // ── 2026-08-08 Q28:list 投射改 embed `product_variants_public(id)`(只一欄,為了數 variantCount)──
   //
   // 🔴 這族守的是一條真實踩過的坑:列表卡片分不出「這款真的沒變體」與「有變體但沒帶下來」,

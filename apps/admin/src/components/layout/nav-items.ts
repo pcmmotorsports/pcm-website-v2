@@ -11,6 +11,7 @@ import type { Icons } from '../icons';
 //   而該檔 `:16-19` 也寫死了為什麼不能改用渲染測試補:`app-sidebar.tsx` 經
 //   `@/components/ui/sidebar` 進 shadcn 積木、那支自己還有 9 個 `@/` import 並繼續連鎖,
 //   而 vitest 的 `@` alias 指向 **`apps/storefront/src`**(`vitest.config.ts:28`)⇒ resolve 不到。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 //   ⇒ **搬到一支「runtime 依賴為零」的檔,是這個約束下唯一拿得到真行為守門的做法。**
 //   (主視窗 2026-08-15 裁定「准」,並附三個硬條件:讀取路徑改但斷言不放寬 /
 //    改完各打一發突變證明 `#380`、`#350a` 兩道守門還會紅 / 兩件寫進 STOP 交 E 驗。)

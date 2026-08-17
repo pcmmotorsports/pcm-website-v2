@@ -1,5 +1,6 @@
 import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
 
 // #10 片1:揀貨單(給倉庫的人拿在手上、對著箱子勾的那張紙)。
@@ -113,16 +114,29 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
             而改之前這顆鈕在警告**上面**、不受影響 ⇒ 員工按得下去,印出一張紙照樣進倉庫。
             🔴 **這不是守門,只是不再遞刀** —— `print-button.tsx:5-7` 自己就寫著
                「為什麼要有這顆鈕、而不是叫員工按 Ctrl+P」⇒ ⌘P 那條路還在,
-               真正的解法是整幅阻印版面(樣張 B),**已立案 `#601`**、不在本片。 */}
-        {cancelledAt === null && !detail.itemsTruncated && <PrintButton label='列印' />}
+               真正的解法是整幅阻印版面(樣張 B)—— **`#601` 的 A / C 兩種已落地,見下方**。
+            🔴 **`items.length === 0` 補進條件裡了**(2026-08-17,`#601` 同批):
+               在那之前**這顆鈕在那一種狀態下還在**,而紙上是一行「讀不到任何品項」
+               ⇒ **鈕的條件與紙的條件不一致 = 守門裝在一半的路上**。
+               數法:`grep -n 'items.length === 0' <本檔>` 落地前 1 處(只在 JSX 裡),現在 2 處。 */}
+        {cancelledAt === null && !detail.itemsTruncated && detail.items.length > 0 && (
+          <PrintButton label='列印' />
+        )}
       </div>
 
+      {/* 🔴 `#601` A 種:整張訂單已取消 ⇒ **整幅阻印版面**,不是一行警告。
+          為什麼換掉那一行 `<Alert>`:設計端逐字(樣張 `:551`)「印出來看起來正常的紙,
+          員工就會照做,所以警告必須佔滿這個位置」——而 ⌘P 擋不住(見上方那段)。
+          ⚠️ **原本那句「品項清單已隱藏,避免有人照著這張紙出貨」沒有消失,是被【換成更好的】**:
+             `BlockedSheet` 固定印「本頁不含品項明細。這不是資料漏印,是刻意不印。」(樣張 `:509` 逐字)
+             ⇒ 同一個意思、而且是設計端的字面。**不要為了「保留原文案」把兩句都印。**
+          ⚠️ `reason` 只放**原因**,不放「不要揀貨」—— 那句在 `BlockedSheet` 的四條動作裡
+             (「不要依本單揀貨、裝箱或出貨。」)。兩處都寫 = 紙上同一件事說兩次。 */}
       {cancelledAt !== null && (
-        <Alert>
-          🔴 這張訂單已取消({formatOrderDateTime(cancelledAt)})。不要揀貨。
-          <br />
-          品項清單已隱藏,避免有人照著這張紙出貨。
-        </Alert>
+        <BlockedSheet
+          reason={`這張訂單已於 ${formatOrderDateTime(cancelledAt)} 取消。`}
+          orderDisplayId={detail.displayId}
+        />
       )}
 
       {cancelledAt === null && (
@@ -140,7 +154,11 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   而他會照做、會做很多次,然後以為是自己哪裡沒弄對。
                   ⚠️ **文案裡連「重新整理」這個詞根都不留** —— 守門禁的是詞根不是祈使形白名單
                   (白名單被穿透兩次的紀錄在 `shipping-doc` 那片的 commit body)。 */}
-              這張訂單的品項達到 200 筆上限,系統一次列不完,下面看到的不是全部。
+              {/* 🔴 **「筆」原本在這裡,而同一張紙上其他地方數品項都用「項」**
+                  (「品項:N 項」、「本次應揀合計 N 項」)——
+                  **同一種東西、同一張紙、兩個量詞** ⇒ 對照著看的人要先自己想通它們是同一件事。
+                  2026-08-18 紙上文字審查第四則。**這兩處的字是我們自己寫的,不是設計端的** ⇒ 可以改。 */}
+              這張訂單的品項達到 200 項上限,系統一次列不完,下面看到的不是全部。
               這是系統的固定限制,不是暫時的狀況。請聯絡負責人處理,不要拿這張去揀貨。
             </Alert>
           )}
@@ -154,7 +172,10 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   與「品項:N 項」同一個病,不能只修被指名的那一處。 */}
               {detail.itemsTruncated && '(而且清單沒載完,未載入的列裡可能還有)'}。
               <br />
-              那幾項沒有算進「本次應揀合計」⇒ 勾完合計那個數字,這張單仍然不算處理完,請回報。
+              {/* 🔴 **這句原本中間是一個 `⇒`** —— 那是我們寫註解用的**邏輯符號(蘊含)**,
+                  2026-08-18 紙上文字審查掃出來的第二則(掃渲染產物的邏輯/裝飾符號 ⇒ 只命中它,2 處)。
+                  ⚠️ **揀貨的人不讀邏輯符號。** 換成「所以」——**句意一個字都沒改,只是用人話接。** */}
+              那幾項沒有算進「本次應揀合計」。所以就算勾完合計那個數字,這張單仍然不算處理完,請回報。
             </Alert>
           )}
 
@@ -171,7 +192,17 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
           {/* 🔴 面7:空清單。印一張只有表頭的空表格 = 看起來像「這張單沒東西要揀」,
               而它其實可能是投影出問題。與 `itemsTruncated` 同一條 fail-closed 立場。 */}
           {detail.items.length === 0 ? (
-            <Alert>這張單讀不到任何品項。請重新整理;不要拿這張去揀貨。</Alert>
+            /* 🔴 `#601` C 種:這張單讀不到任何品項 ⇒ **整幅阻印版面**,不是一行警告。
+                與 A 種同一個理由(⌘P 擋不住、一行紅字的紙看起來正常),而**這一種原本更糟**:
+                改之前**列印鈕在這一種狀態下還在**(鈕條件只看 `cancelledAt` 與 `itemsTruncated`)
+                ⇒ 我們自己遞了刀。鈕的條件已同批補上 `items.length > 0`。
+                ⚠️ **原文案「請重新整理」保留在 `reason` 裡是刻意的** —— 這一種與 `itemsTruncated`
+                   不同:那一種是**固定上限**(重整一百次拿回同一個數字,`:143` 那段講過),
+                   而這一種是**投影出問題**,重整**真的可能好**。⇒ 這句話在這裡不是假話。 */
+            <BlockedSheet
+              reason='這張單讀不到任何品項(可能是資料讀取出問題)。請重新整理;仍然一樣請回報。'
+              orderDisplayId={detail.displayId}
+            />
           ) : (
             /* 🔴🔴 **跨頁表頭:已實測會自動重複,所以這裡沒有任何 `print:` class —— 那是刻意的。**
                 揀貨單的正常情境就是品項多 ⇒ 幾乎一定跨頁;第 2 頁沒有欄名 = 一堆數字不知道哪欄是哪欄 = 揀錯貨。
@@ -193,6 +224,26 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   症狀評估(**這句是推的、不是量的**):難看但讀得懂 ⇒ 不會揀錯貨。片2 一起量。 */
             <table className='w-full border-collapse'>
               <thead>
+                {/* ── `Q-C20` 續頁抬頭(Sean 2026-08-17 拍**甲**:照設計稿做,不要另外發明)──
+                    🔴 真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html:291`
+                       的 `contbar` 那一列(在 `<thead>` 裡、欄名那一列的上面)。
+                       完整理由與量測寫在 `components/print/shipping-doc.tsx` 的同一段註解,
+                       **本檔只寫兩張紙【不一樣】的那一件事**,不重複貼一份。
+                    🔴 **這張紙沒有箱號** —— 揀貨單的單位是「一張訂單」,箱是出貨明細單那邊的事
+                       (`shipments` 表刻意沒有 `order_id`;本元件的 props 裡也沒有 shipment)。
+                       ⇒ 這一列**只帶訂單編號**。**不要為了跟另一張紙長得一樣而去湊一個箱號。**
+                    🔴 樣張右側那個 `<i>續頁欄名重複</i>` 本片同樣**刻意不印**(2026-08-17 裁定)
+                       —— **不是漏做**;完整依據(樣張自己的 `.caption` 在列印時 `display:none`、
+                       而那六個字沒被藏)寫在 `shipping-doc.tsx` 的同一段註解裡,不重複貼。 */}
+                <tr className='contbar'>
+                  <th
+                    colSpan={4}
+                    className='text-muted-foreground px-2 pt-2 pb-1 text-left text-xs font-bold tracking-[0.16em] uppercase'
+                  >
+                    品項明細　訂單{' '}
+                    <b className='text-foreground font-mono tracking-[0.04em]'>{detail.displayId}</b>
+                  </th>
+                </tr>
                 <tr className='border-b'>
                   <th className='w-10 px-2 py-2 text-left text-xs font-medium'>✓</th>
                   <th className='px-2 py-2 text-left text-xs font-medium'>料號</th>
@@ -267,6 +318,61 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     </tr>
                   );
                 })}
+
+                {/* ── 🔴🔴 `B` 態(`itemsTruncated`)· 甲案「表身標記型」(2026-08-18 落地)──
+                    **四態裡最貴的一種**:A(已取消)/ C(讀不到品項)的品項表**不在紙上**
+                    ⇒ 印出來明顯不能用;而 `B` 的表**在紙上、只是少了幾列**
+                    ⇒ **一張看起來完整、可以照著揀的紙**,揀的人一列一列勾完就以為揀完了,
+                       **少的那一件零症狀**,到客人收到貨才發現。
+
+                    🔴 **為什麼是甲(把缺列印在表身)而不是乙(表尾一整幅)** ——
+                    判準不是好不好看,是**員工會不會少出貨**:
+                    · **病灶是「這張表看起來有結尾」**,而甲**直接消滅那個結尾**;
+                      乙讓表照樣乾淨收尾,再在旁邊貼一張紙說它不正常。
+                    · 揀貨的動作是**沿著表格列往下走**,甲的標記**就在他下一眼會落到的位置**;
+                      表尾那一幅要他**讀完表之後還往下看**。
+                    · 📎 實測到的第三個理由:乙那一幅在 12 品項那份 fixture 上**跨頁被切開**,
+                      第 1 頁底只留一條邊框線 —— 而 `blocked-sheet.tsx` 的註解逐字寫過
+                      「**第 2 頁上只有半幅警告比一幅完整的更糟**」。
+                    ⚠️ **Sean 尚未拍板**(artifact `cd112cc7-…` 他還沒回)。
+                       主視窗裁定「先做一案、不對再換」⇒ **要換成乙就是把這一塊搬到 `</table>` 之後**,
+                       改動範圍 = 本區塊,`rollback` 便宜。
+
+                    🔴 **為什麼是【三列】而不是「缺幾列就印幾列」**:
+                    **我們不知道缺幾列。** `itemsTruncated` 是個布林,上游只說「有被截」、
+                    不說「截掉幾筆」(`mappers/order.ts:873` 是 `length >= 上限` 的比較,不是差值)
+                    ⇒ 印一個**具體數字**會是編的。三列 + 一行收尾句 = **一段看得出來的空缺**,
+                    而**每一格都印 `?`,不印任何數字。**
+
+                    📏 **量過的代價**(真尺寸 200 品項、A4、headless Chrome):
+                    現況 14 頁 → 甲案 **14 頁**,**一張紙都沒多**。 */}
+                {detail.itemsTruncated && (
+                  <>
+                    {[0, 1, 2].map((i) => (
+                      <tr key={`truncated-${i}`} className='border-b bg-amber-500/10'>
+                        <td className='px-2 py-3 align-top' />
+                        <td className='px-2 py-3 align-top font-mono text-sm whitespace-nowrap text-amber-800'>
+                          ? ? ? ?
+                        </td>
+                        <td className='px-2 py-3 align-top text-sm text-amber-800'>
+                          <div className='font-medium'>未載入的品項 —— 這一列不在這張紙上</div>
+                          <div className='mt-0.5 text-xs'>
+                            系統一次只列得出 200 項,這張單超過了
+                          </div>
+                        </td>
+                        <td className='px-2 py-3 text-right align-top text-amber-800'>
+                          <span className='text-xl font-semibold'>?</span>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className='border-b bg-amber-500/10'>
+                      <td className='px-2 py-3 align-top' />
+                      <td className='px-2 py-3 align-top text-sm font-medium text-amber-800' colSpan={3}>
+                        以上不是全部。還缺幾列 —— 系統也不知道,所以這張表沒有結尾。
+                      </td>
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
           )}
@@ -294,9 +400,32 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     ⇒ 「全部勾完才算揀完」變成「勾完這 3 項就結束了」,而缺的那幾列沒有人知道。
                     ⚠️ **這比沒有合計更糟** —— 沒有合計時他至少不會覺得自己完成了;
                     有一個【看起來精確的數字】反而給了他一個假的完成條件。 */}
+                {/* 🔴🔴 **`pickableCount === 0` 那一格原本印的是一句【恆真的完成條件】**
+                    (2026-08-18,**在真伺服器 + 真資料上看到的**,六份 fixture 一份都沒照出來):
+                    真單 `PCM-2026-0102` 只有 1 個品項、`quantitySummary` 為 `null`
+                    ⇒ 頁首說「有 1 項的數量資料尚未就緒…這張單仍然不算處理完」,
+                    而頁尾同時印「**勾選欄共 0 項,全部勾完才算揀完。**」
+                    ⇒ **「把 0 個框全部勾完」是一個【不做任何事就成立】的條件**
+                       —— 拿著這張紙的人在頁尾讀到的是「這張單沒事」。
+                    ⚠️ 頁首那段警告**有**講清楚,而**兩句話互相矛盾時,人會信離簽名欄近的那一句**。
+                    ⇒ 三分支:截斷 / 零項 / 正常。**零項不給完成條件,只說發生了什麼。**
+                    🔴 **這一格 fixture 照不出來的原因值得留**:`page-measure.test.tsx` 的
+                       `withQuantity` 要嘛全給數量(每列都有框)、要嘛全 `null`(走「品項:0」那條),
+                       **而真資料是「有品項、但數量不知道」** —— 那是 fixture 沒有的第三種。 */}
                 {detail.itemsTruncated ? (
                   <span className='text-sm font-medium text-amber-800'>
-                    🔴 清單沒載完 —— 這個數字不是全部,不要拿它當揀完的依據。
+                    {/* 🔴 **這句原本開頭帶一個 `🔴`,而那是【我們寫註解用的內部符號漏到紙上】**
+                        (2026-08-18 文字審查掃出來的:掃渲染輸出的表情符號 ⇒ 3 種,
+                        `✓` 是欄名合理,`🔴` 兩份 fixture 命中、都在 B 態)。
+                        ⚠️ 倉庫是**單色印表機** ⇒ 它印出來是**一顆沒有意義的黑點**;
+                        而本檔的字型是系統堆疊(見 `page-measure.test.tsx` 檔頭)
+                        ⇒ **換一台機器可能是一個缺字框**。兩種都不傳達任何東西給揀貨的人。
+                        ⇒ 拿掉。**句子本身一個字都沒改。** */}
+                    清單沒載完 —— 這個數字不是全部,不要拿它當揀完的依據。
+                  </span>
+                ) : pickableCount === 0 ? (
+                  <span className='text-sm font-medium text-amber-800'>
+                    這張單這次沒有任何一項要揀 —— 這不等於「已經揀完」,不要在這裡簽名收工。
                   </span>
                 ) : (
                   <span className='text-muted-foreground text-xs'>

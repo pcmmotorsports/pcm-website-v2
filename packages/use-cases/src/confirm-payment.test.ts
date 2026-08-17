@@ -337,6 +337,10 @@ describe('confirmPayment — charge 側失敗', () => {
 });
 
 describe('confirmPayment — 孤兒單(orphan、已扣款不重刷)', () => {
+  // 🔴🔴 本格守的是【全鏈唯一】驗「TapPay 真扣了 total」之處(confirm-payment.ts:133-134
+  //    逐字「全鏈唯一在地驗」)—— 它沒有第二道。2026-08-18 突變普查:把那道 amount 比對停掉
+  //    ⇒ 扣錯金額溜過、confirm 照走 ⇒ 本格 RED+EXEC(有牙齒)。想簡化這格的人:它不是重複格,
+  //    刪了就沒有任何東西在守「扣的錢 == 該扣的錢」。
   it('PF-X3 實扣 ≠ total → orphan/amount_mismatch、不呼 confirm;markCharged 已先落(PF-X1)', async () => {
     const d = deps({
       tappay: makeTapPay(async () =>

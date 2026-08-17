@@ -61,12 +61,57 @@ BEGIN
                     AND conname  = 'admin_user_staff_map_staff_whitelist') THEN
     RAISE EXCEPTION 'B2-seed 前提斷言:CHECK 白名單約束不見了。表被改過,拒繼續。';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger
-                  WHERE tgrelid = to_regclass('public.admin_user_staff_map')
-                    AND tgname  = 'admin_user_staff_map_no_delete_trg'
-                    AND NOT tgisinternal) THEN
-    RAISE EXCEPTION 'B2-seed 前提斷言:禁 DELETE 的 trigger 不見了。表被改過,拒繼續。';
-  END IF;
+  -- 📌 codex 第四輪 [nit]「這道被 0.6 蓋掉了、可刪」—— **不採納,理由記在這裡**:
+  --    0.6 確實也會紅,但它紅出來的話是「擋不住 test_01」⇒ 讀的人會去找【約束的內容】被改了什麼。
+  --    而真相是【整個約束不見了】,該做的是把它加回來。**兩種紅指向不同的修法**,
+  --    而這條線的原則就是「失敗的位置決定下一個人會去改什麼」⇒ 留著它換一句精準的診斷。
+  -- 🔴 2026-08-17 B 窗審 B2 抓到:上面那句註解寫「有人改了 CHECK / trigger / RLS」,
+  --    而原版**三道 trigger 只檢查了 no_delete 一道** —— no_truncate / no_rebind 零檢查。
+  --    ⇒ 有人把「禁 TRUNCATE」或「禁重綁」拆掉,B2 照樣成功寫入,而沒有任何東西會說。
+  --    📎 這是 B1-b 檔內 :191 那句「**同一個理由,我只套了兩個動詞**」的第三次 ——
+  --       那次是 DELETE/TRUNCATE 有 trigger 而 UPDATE 沒有,這次是斷言只驗了三道裡的一道。
+  --    ⇒ 逐一列名檢查,不用 count(*) —— count 對得上不代表**是這三道**。
+  --
+  -- 🔴🔴 codex 對抗審查 2026-08-17 [must-fix]:上一版只驗【名字在不在】。
+  --    · `tgenabled = 'D'`(被停用)⇒ pg_trigger 那一列**還在**,而 trigger **不會跑**。
+  --      🔴 這不是假想的路徑 —— **本檔檔頭 :23-26 的退場程序第 1 步就是 `DISABLE TRIGGER`**,
+  --        而第 3 步(重新 ENABLE)那裡自己寫著「忘了它,那張表從此沒有保護,
+  --        而【沒有任何東西會提醒你】」。⇒ 這道斷言本來正是那個「提醒你」的東西,而它看不見。
+  --    · 綁到別的函式 ⇒ 名字對、行為換掉。⇒ 一起驗 tgfoid。
+  --
+  -- 🔴🔴 codex 對抗審查【第二輪】2026-08-17 [must-fix] —— 我上一版的修法是**半套的**:
+  --    · 我寫 `tgenabled <> 'D'`,而 `tgenabled` 有四個值:
+  --      `O`=正常 / `D`=停用 / `R`=**只在 replica 模式下觸發** / `A`=一律觸發。
+  --      ⇒ `ALTER TABLE … ENABLE REPLICA TRIGGER x` 把它設成 `R`,
+  --        **正常操作下它跟停用一模一樣不會跑**,而我的 `<> 'D'` 讓它過。
+  --      📎 形狀:我窮舉了「開 / 關」兩個狀態,而這個欄位有四個。**又一次「只想到自己想得到的維度」。**
+  --      ⇒ 改成白名單 `IN ('O','A')` —— 列出【可接受的】,而不是排除【想得到的壞的】。
+  --    · 事件型別(tgtype)上一版我標成「誠實邊界不補」,codex 判 must-fix 而它是對的:
+  --      同一個函式改掛成 `BEFORE INSERT`,名字與函式都對得上,而禁刪根本沒在守。
+  --      成本是一欄比對,不是「構造不出來」⇒ 我原本的成本理由不成立。
+  --      🔴 tgtype 的值是**當場量的**(拋棄式 PG 17.10 跑完 B1-b 後查 pg_trigger),不是我算的:
+  --         no_delete=11(ROW|BEFORE|DELETE) / no_rebind=19(ROW|BEFORE|UPDATE) / no_truncate=34(BEFORE|TRUNCATE)
+  DECLARE
+    v_trg text;
+  BEGIN
+    SELECT string_agg(t.want, ', ') INTO v_trg
+      FROM (VALUES ('admin_user_staff_map_no_delete_trg',   'public.admin_user_staff_map_no_delete',   11::smallint),
+                   ('admin_user_staff_map_no_truncate_trg', 'public.admin_user_staff_map_no_truncate', 34::smallint),
+                   ('admin_user_staff_map_no_rebind_trg',   'public.admin_user_staff_map_no_rebind',   19::smallint))
+             AS t(want, fn, ttype)
+     WHERE NOT EXISTS (SELECT 1 FROM pg_trigger g
+                        WHERE g.tgrelid   = to_regclass('public.admin_user_staff_map')
+                          AND g.tgname    = t.want
+                          AND NOT g.tgisinternal
+                          AND g.tgenabled IN ('O', 'A')
+                          AND g.tgtype    = t.ttype
+                          AND g.tgfoid    = to_regproc(t.fn));
+    IF v_trg IS NOT NULL THEN
+      RAISE EXCEPTION E'B2-seed 前提斷言:這些保護 trigger 不見了、被停用、或綁到別的函式:%\n'
+        '   ⇒ 表被改過(no_delete=禁刪 / no_truncate=禁清空 / no_rebind=禁改識別欄),拒繼續。\n'
+        '   ⚠️ 「不見了」與「還在但 tgenabled=D」是兩件事,這句話涵蓋兩者 —— 去查 pg_trigger 看是哪一種。', v_trg;
+    END IF;
+  END;
   IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.admin_user_staff_map')) THEN
     RAISE EXCEPTION 'B2-seed 前提斷言:RLS 沒開。表被改過,拒繼續。';
   END IF;
@@ -105,7 +150,118 @@ BEGIN
       '   ⇒ 本支是【只該跑一次】的 seeding。要加人請另寫一支,不要重跑這支。', v_existing;
   END IF;
 
-  RAISE NOTICE 'B2-seed 前提斷言通過:表在且形狀正確、兩個 uuid 存在且互異、表為空。';
+  -- 0.6 🔴🔴 CHECK 白名單要【真的擋得住】,不是【名字還在】
+  --     codex 對抗審查 2026-08-17 [must-fix]:0.1 那道只比對 conname。
+  --     ⇒ 有人把它 DROP 掉再用**同一個名字**加回 `CHECK (true)`,0.1 完全看不見,
+  --       而白名單是「誰這輩子綁得了帳號」的那道線 —— 它形同虛設而全綠。
+  --     ⚠️ 為什麼不用 `pg_get_constraintdef` 掃字面:`CHECK (staff_id IN (…) OR true)`
+  --        字面上三個名字都在、掃得到,而它照樣恆真。**字面檢查在這裡有洞,行為檢查沒有。**
+  --     ⇒ 拿 `test_01`(明確不該能登入的那個)當探針,插進去【必須被擋】。
+  --        探針跑在 0.5 之後 ⇒ 表保證是空的 ⇒ 不會撞 PK,也不會留下任何一列。
+  --     🔴🔴 codex 對抗審查【第二輪】[must-fix]:光看「有沒有 check_violation」會被【遮蔽】——
+  --        白名單被掏空之後,只要表上**任何另一道 CHECK** 也擋下這一列,探針就看到 check_violation
+  --        而下結論「白名單還好好的」。⇒ 必須問【是哪一道約束擋的】,不是【有沒有被擋】。
+  --        📎 母題:錯的那次和對的那次長得一樣(`docs/patterns/guard-and-instrument-traps.md`)。
+  --
+  -- 🔴🔴 codex【第四輪】[must-fix]:上一版只拿 `test_01` 一個代號當探針。
+  --    ⇒ 同名的 `CHECK (staff_id <> 'test_01')` **通得過探針**,而它放行【其他任意代號】。
+  --      「擋得住 test_01」比「白名單完好」**寬得多**,而我把前者寫成了後者。
+  --    ⇒ 兩道一起下:①定義裡三個名字都要在 ②兩個非白名單代號都要被【白名單本人】擋下。
+  --
+  -- ⚠️🔴 **誠實邊界(這三道加起來仍證不到的事)**:證不了白名單是【恰好】那三個。
+  --    例:`IN ('sean','staff_1','staff_2','x9')` 三道全過,而 `x9` 綁得了帳號。
+  --    我窮舉過的維度:①單一 session 邏輯 ②時間/並發 ③突變改檔 ④權限/角色 ⑤schema 漂移
+  --    ⇒ 在 ③ 之下它**構造得出來**,所以這是【判別力上限】不是【構造不出來】。
+  --    要證「恰好」得比對 `pg_get_constraintdef` 全等字面,而那會隨 PG 版本的排版變動誤紅
+  --    ⇒ **選擇不做**,理由是誤紅會在 apply 當天把 Sean 擋在門外(見 0.7 同一個取捨)。
+  DECLARE
+    v_leaked boolean := false;
+    v_cname  text;
+    v_def    text;
+    v_probe  text;
+  BEGIN
+    SELECT pg_get_constraintdef(oid) INTO v_def FROM pg_constraint
+     WHERE conrelid = to_regclass('public.admin_user_staff_map')
+       AND conname  = 'admin_user_staff_map_staff_whitelist';
+    IF v_def IS NULL
+       OR position('''sean'''    in v_def) = 0
+       OR position('''staff_1''' in v_def) = 0
+       OR position('''staff_2''' in v_def) = 0 THEN
+      RAISE EXCEPTION E'B2-seed 前提斷言:白名單的定義裡少了 sean / staff_1 / staff_2 其中之一。\n'
+        '   實際定義:%\n   ⇒ 名單被縮掉了。拒繼續。', COALESCE(v_def, '(查無此約束)');
+    END IF;
+
+    FOREACH v_probe IN ARRAY ARRAY['test_01', 'b2_probe_not_whitelisted'] LOOP
+      v_leaked := false;
+      BEGIN
+        INSERT INTO public.admin_user_staff_map (auth_user_id, staff_id) VALUES (v_sean, v_probe);
+        v_leaked := true;   -- 插得進去 = 白名單沒在擋
+      EXCEPTION
+        WHEN check_violation THEN
+          GET STACKED DIAGNOSTICS v_cname = CONSTRAINT_NAME;
+          IF v_cname IS DISTINCT FROM 'admin_user_staff_map_staff_whitelist' THEN
+            RAISE EXCEPTION E'B2-seed 前提斷言:擋下 % 的是【%】,不是白名單。\n'
+              '   ⇒ 白名單可能已被掏空,而另一道約束剛好也擋下這一列 ⇒ 探針被【遮蔽】了。\n'
+              '   ⇒ 這種情況下不可以 seed:白名單是「誰綁得了帳號」那道線,它的狀態現在是未知的。',
+              v_probe, COALESCE(v_cname, '(約束名為空)');
+          END IF;
+          -- ✅ 走到這裡才是預期:被【白名單本人】擋下
+        WHEN OTHERS THEN
+          RAISE EXCEPTION E'B2-seed 前提斷言:白名單探針(%)出現【非預期】錯誤(% / %)。\n'
+            '   ⇒ 預期是 check_violation。紅在別的地方 = 這道探針測到的不是白名單,拒繼續。',
+            v_probe, SQLSTATE, SQLERRM;
+      END;
+      IF v_leaked THEN
+        RAISE EXCEPTION E'B2-seed 前提斷言:CHECK 白名單擋不住 % —— 它已經形同虛設。\n'
+          '   ⇒ 約束名字還在,但內容被改過(例如換成 CHECK (true),或只擋了 test_01 一個)。\n'
+          '   ⇒ 白名單是「誰綁得了帳號」的那道線,它壞掉時不可以 seed。拒繼續。', v_probe;
+      END IF;
+    END LOOP;
+  END;
+
+  -- 0.7 🔴🔴 codex 對抗審查【第三輪 · 換模型 gpt-5.6-sol · 換角度「沒說出口的前提」】[must-fix]
+  --     上面 0.1 驗了 tgname / tgenabled / tgtype / tgfoid 四樣,而它們**全都是綁定的元資料**。
+  --     🔴 `CREATE OR REPLACE FUNCTION` **不換 OID** ⇒ 有人把函式本體換成 `BEGIN RETURN NEW; END`,
+  --        `tgfoid` 一個位元都沒變、四道檢查全綠,而三道保護**全部形同虛設**。
+  --     ⇒ 唯一測得出來的方法是**真的去做那個動作,看它擋不擋**。
+  --     · TRUNCATE 是 statement-level ⇒ 空表也會觸發 ⇒ 這一道現在就能測。
+  --     · DELETE / UPDATE 是 row-level ⇒ 空表不觸發 ⇒ **那兩道搬到 §2、INSERT 之後測**。
+  --     ⚠️ 一樣要問【是誰擋的】不是【有沒有被擋】(第二輪的遮蔽教訓):比對錯誤訊息的特徵字。
+  --     ⚠️🔴 **這道探針要求跑它的角色是表的 owner**(code-reviewer 2026-08-17 [nit]):
+  --        `TRUNCATE` 不是 B1-b 授出去的權限(那裡只 GRANT SELECT, INSERT 給 service_role)
+  --        ⇒ 非 owner 角色會拿到 42501 insufficient_privilege ⇒ 掉進下面的 `WHEN OTHERS` ⇒ **誤紅**。
+  --        今天不發作的理由:apply 管道 = MCP `apply_migration`,它走 `postgres`(=本表 owner)。
+  --        ⇒ **換管道跑這支之前先確認角色是 owner**,否則一切正常的世界也裝不上去。
+  --
+  -- 🔴🔴 codex【第四輪 · 換角度「質疑框架本身」】[must-fix]:上一版用**錯誤訊息的字**認人。
+  --    ⇒ 有人只改了 trigger 的文案(保護完全正常),**apply 當天三個探針全部誤紅、Sean 裝不上去**。
+  --    📎 這是第二輪修法的反作用:為了關「遮蔽」而把診斷字串變成 apply 的前提。
+  --    ⇒ 改用 `PG_EXCEPTION_CONTEXT` 認【是哪個函式丟的】—— 認身分,不認措辭。
+  DECLARE
+    v_leaked boolean := false;
+    v_ctx    text;
+  BEGIN
+    BEGIN
+      TRUNCATE public.admin_user_staff_map;
+      v_leaked := true;
+    EXCEPTION
+      WHEN raise_exception THEN
+        GET STACKED DIAGNOSTICS v_ctx = PG_EXCEPTION_CONTEXT;
+        IF position('admin_user_staff_map_no_truncate()' in COALESCE(v_ctx, '')) = 0 THEN
+          RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 被擋下了,但丟例外的不是 no_truncate。\n'
+            '   呼叫堆疊:%\n   ⇒ 保護的狀態是未知的,拒繼續。', COALESCE(v_ctx, '(無 context)');
+        END IF;
+      WHEN OTHERS THEN
+        RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 探針出現【非預期】錯誤(% / %)。拒繼續。', SQLSTATE, SQLERRM;
+    END;
+    IF v_leaked THEN
+      RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 沒有被擋下 —— no_truncate 的【函式本體】已被掏空。\n'
+        '   ⇒ trigger 還掛著、OID 也沒變(CREATE OR REPLACE 不換 OID),所以元資料檢查看不見。\n'
+        '   ⇒ 這張表現在可以被一句話清空,而清空之後稽核軌對不到任何人。拒繼續。';
+    END IF;
+  END;
+
+  RAISE NOTICE 'B2-seed 前提斷言通過:表在且形狀正確、三道 trigger 都活著、白名單與禁 TRUNCATE 實測擋得住、兩個 uuid 存在且互異、表為空。';
 END
 $seed_precheck$;
 
@@ -145,20 +301,82 @@ BEGIN
   --       那正好會讓他測不出他想測的東西,而且不會有任何東西紅。
   SELECT string_agg(auth_user_id::text || '=' || staff_id, ',' ORDER BY staff_id) INTO v_ids
     FROM public.admin_user_staff_map;
-  IF v_ids <> ('f5fb22ee-29f8-4af9-83b8-7fc9121eb533=sean,'
-             ||'63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f=staff_2') THEN
+  -- 🔴 `IS DISTINCT FROM` 不是 `<>`(2026-08-17 B 窗審 B2):
+  --    v_ids 若為 NULL,`NULL <> '…'` 得 NULL ⇒ IF 走 false ⇒ **這道斷言不會叫**。
+  --    今天靠上面 v_n<>2 先擋住所以觸發不到,但那是「另一道斷言剛好在前面」,不是本道自己安全。
+  --    📎 同形狀已在 B1-a 上真的發生過(SELECT…INTO 無 STRICT ⇒ 綠著漏掉 staff_2 的指派)。
+  IF v_ids IS DISTINCT FROM ('f5fb22ee-29f8-4af9-83b8-7fc9121eb533=sean,'
+                           ||'63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f=staff_2') THEN
     RAISE EXCEPTION E'B2-seed 落地斷言:配對不符。\n   實際:%\n'
       '   ⇒ 最可能的原因是兩個 uuid 貼的順序跟人對不起來(對調)。\n'
       '   🔴 這一條驗的是【誰對到誰】,不是【有哪幾個人】—— 後者對調之後仍然會過。', v_ids;
   END IF;
 
-  -- 🔴 系統帳號與 test_01 不該在裡面 —— CHECK 白名單擋得住,而這一道是【明說我檢查過】
-  IF EXISTS (SELECT 1 FROM public.admin_user_staff_map
-              WHERE staff_id IN ('op4_backfill', 'payment_confirmer', 'test_01')) THEN
-    RAISE EXCEPTION 'B2-seed 落地斷言:表裡出現了不該登入的帳號。';
-  END IF;
+  -- ⛔ 2026-08-17 刪掉的斷言(codex 第四輪 [nit],成立):
+  --    原本這裡有一道「表裡不可以出現 op4_backfill / payment_confirmer / test_01」。
+  --    它**永遠走不到** —— 上面那道精確配對已經把表的內容釘死成【恰好那兩列、恰好那兩個 uuid】,
+  --    任何第三列都會先讓 v_n<>2 或配對字串不符而紅。
+  --    🔴 保留一個永遠不會叫的斷言,下一個人會把它讀成「這件事有人在守」,而其實守它的是別人。
+  --    ⇒ 刪掉;真正在守「系統帳號綁不了」的是 **0.6 的白名單行為探針**(那道會叫、也有負測 S15/S18)。
 
-  RAISE NOTICE '✅ B2-seed 落地斷言通過:3 列、集合正確、無不該登入的帳號。';
+  -- 🔴🔴 codex 第三輪 [must-fix] 的另外兩半 —— 見 §0.7 的說明,同一個病:
+  --    `CREATE OR REPLACE FUNCTION` 不換 OID ⇒ no_delete / no_rebind 被掏空時元資料全綠。
+  --    這兩道是 row-level,空表不觸發 ⇒ 只能在【有列之後】測,所以放在這裡。
+  --    ⚠️ 兩個探針都跑在子交易裡:被擋下 ⇒ 子交易回滾、什麼都沒變;
+  --       沒被擋下 ⇒ 設旗標後 RAISE ⇒ 整支 migration 回滾,那兩列也不會留下。**方向是安全的。**
+  --    ⚠️ 「整支回滾」這句的承重前提是本檔自己的 `BEGIN;`(檔首)與 `COMMIT;`(檔尾),
+  --       **那兩行不在任何一次 diff 裡,所以很容易被當成環境給的**(code-reviewer 2026-08-17 [nit])。
+  --       而檔頭寫的 apply 管道 MCP `apply_migration` 自己也會開交易 ⇒ 檔尾的 `COMMIT;` 會先關掉外層。
+  --       今天結果仍是全有全無(COMMIT 之後這支檔沒有東西了),但**換管道時要重新確認這一點**。
+  --    🔴 codex【第四輪】[must-fix]:認人一律用 `PG_EXCEPTION_CONTEXT`(函式身分),
+  --       **不用 SQLERRM 的字** —— 只改文案而保護正常的世界,不可以讓 apply 失敗。
+  DECLARE
+    v_del_ok boolean := false;
+    v_upd_ok boolean := false;
+    v_ctx    text;
+  BEGIN
+    BEGIN
+      DELETE FROM public.admin_user_staff_map WHERE staff_id = 'sean';
+      v_del_ok := true;
+    EXCEPTION
+      WHEN raise_exception THEN
+        GET STACKED DIAGNOSTICS v_ctx = PG_EXCEPTION_CONTEXT;
+        IF position('admin_user_staff_map_no_delete()' in COALESCE(v_ctx, '')) = 0 THEN
+          RAISE EXCEPTION E'B2-seed 落地斷言:DELETE 被擋下了,但丟例外的不是 no_delete。\n   呼叫堆疊:%\n   ⇒ 拒繼續。',
+            COALESCE(v_ctx, '(無 context)');
+        END IF;
+      WHEN OTHERS THEN
+        RAISE EXCEPTION E'B2-seed 落地斷言:DELETE 探針出現【非預期】錯誤(% / %)。拒繼續。', SQLSTATE, SQLERRM;
+    END;
+    IF v_del_ok THEN
+      RAISE EXCEPTION E'B2-seed 落地斷言:DELETE 沒有被擋下 —— no_delete 的【函式本體】已被掏空。\n'
+        '   ⇒ 代號可以被刪掉再重綁到另一個人,而歷史稽核的解讀會跟著翻轉、零訊號。拒繼續。';
+    END IF;
+
+    BEGIN
+      UPDATE public.admin_user_staff_map SET staff_id = 'staff_1' WHERE staff_id = 'sean';
+      v_upd_ok := true;
+    EXCEPTION
+      WHEN raise_exception THEN
+        GET STACKED DIAGNOSTICS v_ctx = PG_EXCEPTION_CONTEXT;
+        IF position('admin_user_staff_map_no_rebind()' in COALESCE(v_ctx, '')) = 0 THEN
+          RAISE EXCEPTION E'B2-seed 落地斷言:UPDATE 被擋下了,但丟例外的不是 no_rebind。\n   呼叫堆疊:%\n   ⇒ 拒繼續。',
+            COALESCE(v_ctx, '(無 context)');
+        END IF;
+      WHEN OTHERS THEN
+        RAISE EXCEPTION E'B2-seed 落地斷言:UPDATE 探針出現【非預期】錯誤(% / %)。拒繼續。', SQLSTATE, SQLERRM;
+    END;
+    IF v_upd_ok THEN
+      RAISE EXCEPTION E'B2-seed 落地斷言:UPDATE 沒有被擋下 —— no_rebind 的【函式本體】已被掏空。\n'
+        '   ⇒ 識別欄可以直接改掉 = 與「刪掉再新增」完全相同的重綁效果。拒繼續。';
+    END IF;
+  END;
+
+  -- ⛔ 2026-08-17 B 窗審 B2 改掉的過期字面:原句寫「**3 列**、集合正確」——
+  --    ① 列數是 **2** 不是 3(檔頭與上面 v_n<>2 都寫 2,只有這句沒跟著改)
+  --    ② 驗的是【精確配對】不是【集合】—— 集合正確是舊版的說法,而舊版正是關卡2 [高] finding 打掉的那個
+  --    🔴 這一行是 **apply 當天 Sean 在 log 裡會親眼看到的那句**,寫錯等於當場給他一個假的驗收結論。
+  RAISE NOTICE '✅ B2-seed 落地斷言通過:2 列、每個 uuid 精確配對到人、無不該登入的帳號。';
 END
 $seed_verify$;
 

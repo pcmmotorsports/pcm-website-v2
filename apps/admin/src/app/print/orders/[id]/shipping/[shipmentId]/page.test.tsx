@@ -183,9 +183,44 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     expect(block({ detail: { itemsTruncated: true } })).toBeNull();
   });
 
-  it('🔴 面6 `reportedTotal` 為 null(沒拿到 count)⇒ 不擋,但也不假裝有對過帳', () => {
-    // count 拿不到時**不能**把它當成 0 或當成「對上了」—— 前者會誤擋,後者是假的保證。
-    expect(block({ reportedTotal: null })).toBeNull();
+  // ── 🔴🔴 **這一格 2026-08-18 被翻過來,原本斷言的是「不擋」** ────────────────
+  //    🔴 **誰翻的(兩級分開,不要合成一句)**:
+  //      **裁定人 = 主視窗(2026-08-18)。非 Sean 拍板。**
+  //      提報 = T② 窗 ／ 量測 = V 窗 ／ 落地 = C 窗。
+  //      ⚠️ **Sean 已被直接問過;他若另有裁示,以他為準、本裁定作廢。**
+  //      (兩級分開寫的理由:合成一句之後,三個月後沒有人分得出來「他到底同意了沒」。)
+  //    **原本那格的名字與理由**(留著,不要刪):
+  //      「`reportedTotal` 為 null(沒拿到 count)⇒ **不擋**,但也不假裝有對過帳」
+  //      理由逐字:「count 拿不到時不能把它當成 0 或當成『對上了』——
+  //                 前者會誤擋,**後者是假的保證**。」
+  //    🔴 **翻它的依據,是那句理由【反對它自己的斷言】**:
+  //      **「不擋」就是把它當成對上了** —— 紙照印,而且沒有經過完整性檢查
+  //      ⇒ **那正是他自己說的「假的保證」,只是換成了紙的形式。**
+  //      而測試名字裡那句「**但也不假裝有對過帳**」——**紙上沒有任何一個字在說「這張沒對過帳」**,
+  //      那句話**沒有落點**。
+  //    🔴 **而 Sean 對這個形狀拍過板**(2026-08-17 `Q2`=甲,逐字):
+  //      「**撈不全就整區失敗、不顯示任何一列**」/「**標了警告的清單,對帳的人還是會照著算**」
+  //      ⇒ 翻這一格**不是同儕窗的判斷蓋過前人**,是**把它對齊一個後來的拍板**。
+  //    ⚠️ 原作者防住的是「**在比較式裡誤用 null**」,而沒有防住「**不比較就放行**」——
+  //      **兩者是同一個病的兩個面。** 這一格現在守後者。
+  it('🔴🔴 面6-b `reportedTotal` 為 null(沒拿到對帳訊號)⇒ **擋印**', () => {
+    const msg = block({ reportedTotal: null });
+    expect(msg).not.toBeNull();
+    // 🔴 訊息必須是「**沒得對**」那一句,不是「**對不上**」那一句 ——
+    //    值班的人要分得出「系統壞了」與「資料真的少了」。
+    expect(msg).toContain('讀不到');
+    expect(msg).toContain('無法確認');
+    expect(msg).not.toContain('對不上');
+    // 🔴 沿用同檔既有紀律:文案不准叫他做會失敗的動作。
+    for (const bad of ['重新整理', '重試', '再試一次', '稍後']) {
+      expect(msg, `文案叫員工做一件他做不到的事:${bad}`).not.toContain(bad);
+    }
+  });
+
+  it('🔴 面6-b 反向:拿得到總數而且對得上 ⇒ **印得出來**(否則上一格靠「一律擋」就能過)', () => {
+    // 沒有這一格的話,把整支 blocker 改成「永遠回一句話」上一格照樣綠。
+    expect(block({ reportedTotal: null })).not.toBeNull();
+    expect(block({})).toBeNull(); // fixture 預設 reportedTotal = items.length
   });
 
   // 🔴 **2026-08-17 補**:舊文案逐字「請重新整理後再列印」,而觸發它的是**固定上限**
@@ -354,6 +389,43 @@ describe('#10 片2b — 版面', () => {
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
     expect(container.querySelector('table')).toBeNull();
     expect(container.textContent).not.toContain('LTC-BK-XL');
+  });
+
+  it('🔴🔴 `#601` 被擋時是【整幅】阻印版面,不是一行警告 —— 釘的是份量不是字面', async () => {
+    // 🔴 **這一格守的是「員工會不會照著那張紙做」,而那件事的變數是【份量】。**
+    //    設計端逐字(樣張 `:551`):「印出來看起來正常的紙,員工就會照做,
+    //    所以警告必須佔滿這個位置。」
+    // 🔴 **為什麼不能只斷言 `toContain('本單不得出貨')`**:把這一幅縮回一行
+    //    `<Alert>本單不得出貨</Alert>`,那個斷言**照樣綠**,而紙又變回「看起來正常」——
+    //    也就是這件事整個沒做。⇒ 斷言**結構與條目數**,不只斷言字面。
+    // 🔴 **也不能只斷言 `[role="alert"]` 存在** —— 上一格已經那樣做了,而它在
+    //    「一行 Alert」的世界裡也是綠的(落地前 61 格全過就是證據)。
+    // ⚠️ 誠實:單測量不到「它在紙上佔多大」。本格證的是**那些內容都在同一塊裡、而且沒被砍**;
+    //    真的印出來看的紀錄另外走 `scripts/pagecount.sh --png`。
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: detail().items, reportedTotal: 5 });
+    const { container } = await renderPage();
+    const panel = container.querySelector('[data-slot="print-blocked"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.getAttribute('role')).toBe('alert');
+    // 標題、訂單編號、以及「這不是漏印」那一句 —— 三者缺一,紙上就少了一層意思。
+    expect(panel?.textContent).toContain('本單不得出貨');
+    expect(panel?.textContent).toContain('PCM-2026-0042');
+    expect(panel?.textContent).toContain('本頁不含品項明細');
+    expect(panel?.textContent).toContain('這不是資料漏印,是刻意不印');
+    // 🔴 四條「請照這樣做」逐字照樣張,**條目數也釘住** —— 少一條就是少一個動作,
+    //    而少掉的那一條(例如「若貨已裝箱,先停下」)正是最貴的那一種情境。
+    const actions = [...(panel?.querySelectorAll('li') ?? [])].map((li) => li.textContent?.trim());
+    expect(actions).toEqual([
+      '不要依本單揀貨、裝箱或出貨。',
+      '不要把本單放進任何箱子。',
+      '把本單作廢並回報主管,由系統重新確認後再列印。',
+      '若貨已裝箱,先停下並確認箱內狀態,不要交給貨運。',
+    ]);
+    // 原因那一格吃的是 `shippingDocBlocker()` 那句話,不是另外寫一份文案。
+    expect(panel?.textContent).toContain('出貨明細單可能少印品項');
+    // 🔴 樣張列了「六種情形」那張清單,而我們有八種 ⇒ **刻意不印那張清單**。
+    //    印一張比實際少兩種的清單,員工會以為自己遇到的狀況不在系統的預期內。
+    expect(panel?.textContent).not.toContain('六種');
   });
 
   it('🔴 金額區塊還沒做(已答但排下一片)⇒ 紙上不得出現任何金額', async () => {
@@ -576,15 +648,52 @@ describe('#10 片2b — 三區(Sean 2026-08-16 逐字:本次出貨 / 尚未出�
     const tables = container.querySelectorAll('table');
     expect(tables.length).toBe(3);
 
+    // 🔴 **2026-08-17 `Q-C20` 之後 `thead` 是兩列**:第 1 列續頁抬頭、第 2 列才是欄名。
+    //    ⚠️ 本 helper 原本把 `thead` 底下**所有** `th` 攤平比對,那把「欄名有哪幾個」與
+    //       「thead 裡有沒有別的列」綁成同一個斷言 ⇒ 加抬頭那一列時它會紅,
+    //       **而紅的理由讀起來像「欄名壞了」**。⇒ 只取欄名那一列。
+    //    📎 續頁抬頭本身**另有一格**釘(見下一格),兩件事不共用一個斷言。
     const headerTexts = (t: Element) => {
       const thead = t.querySelector(':scope > thead');
       expect(thead).not.toBeNull(); // ← thead 換成 tbody 時死在這裡
-      return [...(thead?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim());
+      const colRow = thead?.querySelector(':scope > tr:last-child');
+      return [...(colRow?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim());
     };
     expect(headerTexts(must(tables[0], '本次出貨表'))).toEqual(['料號', '品名 / 規格', '本次出貨']);
     expect(headerTexts(must(tables[1], '尚未出貨表'))).toEqual(['料號', '品名 / 規格', '還欠幾件']);
     // 🔴 第三區也要各釘一次,理由同上:不該假設三張表永遠共用同一份 JSX。
     expect(headerTexts(must(tables[2], '訂單取消表'))).toEqual(['料號', '品名 / 規格', '已取消']);
+  });
+
+  it('🔴🔴 `Q-C20` 續頁抬頭:三張表【每一張】的 `<thead>` 裡都要有訂單編號與箱號', async () => {
+    // 🔴 **守的是「第 2 頁認得出這是哪一張單、哪一箱」**,而關鍵不是「頁面上有沒有單號」——
+    //    頁首本來就印著一個。**只有 `<thead>` 裡那一份會被瀏覽器逐頁重複。**
+    //    ⇒ 本格斷言的是**位置**:把這一列搬出 `thead`(挪去 `<caption>` 或表格上方的 div),
+    //      畫面幾乎一樣、`textContent` 照樣含單號,而**第 2 頁會變回沒有單號**。
+    //      那條路只有位置斷言擋得住 —— 內容型斷言在那個世界裡照樣綠。
+    // 🔴 **三張各釘一次**:今天它們共用同一份 `Section` JSX,而守門不該假設那永遠成立。
+    //    只釘第一張的話,哪天有人把「訂單取消」那區拆出去自己寫,它會靜默失去抬頭。
+    // 🔴 落地前實印的缺口長什麼樣:12 品項那份的第 2 頁**欄名有、而整頁沒有單號也沒有箱號**
+    //    (三張 PNG 與量法在 `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b-4)。
+    // ⚠️ 誠實:單測沒有分頁概念 ⇒ 本格證的是那個原生保證的**前提還在**,不是第 2 頁真的印了。
+    setDetail(withSummary(summary({ quantity: 9, cancelledQuantity: 1, shippedQuantity: 0 })));
+    const { container } = await renderPage();
+    const tables = [...container.querySelectorAll('table')];
+    expect(tables.length).toBe(3);
+    for (const [i, t] of tables.entries()) {
+      const bar = t.querySelector(':scope > thead > tr.contbar > th');
+      expect(bar, `第 ${i + 1} 張表少了續頁抬頭那一列`).not.toBeNull();
+      expect(bar?.textContent).toContain('品項明細');
+      expect(bar?.textContent).toContain('PCM-2026-0042');
+      expect(bar?.textContent).toContain('K7X2MP');
+      // 跨欄要蓋滿三欄,少一欄的話那一列只撐在左邊、右邊被欄名擠上來。
+      expect(bar?.getAttribute('colspan')).toBe('3');
+      // 🔴 它必須排在欄名那一列**上面** —— 排下面的話續頁上它會出現在欄名之後,
+      //    而樣張 `:291` 的位置是欄名之上。順序錯了畫面上看得出來,但沒有守門就沒人擋。
+      const rows = [...(t.querySelectorAll(':scope > thead > tr') ?? [])];
+      expect(rows.length).toBe(2);
+      expect(rows[0]?.classList.contains('contbar')).toBe(true);
+    }
   });
 
   it('🔴 三區的母體各不相同,紙上要各自講出來(不然會被讀成同一個東西)', async () => {
@@ -656,7 +765,7 @@ describe('🔴 #10 片3 — 貨運資訊(落地前紙上一個字都沒有)', ()
   });
 
   // ── 🔴 `Q-C5`=丙 的反向守門(2026-08-17)──
-  //    Sean 逐字 `q3: 丙` ⇒ **出貨明細單不印追蹤碼,追蹤碼只走簡訊／Email**。
+  //    Sean 逐字 `q3: 丙` ⇒ **出貨明細單不印追蹤碼,追蹤碼只走LINE／Email**。
   //    🔴 **這一族取代的是四格「印出來了嗎」**,而它們原本各自釘一種 `null` 語意
   //       (有碼 / `missing` / `selfService` / `pending`)⇒ **這裡逐一狀態都要餵一次**,
   //       否則只有「本來就不印」的那一種被守到,而那一種在丙之前就不印了 = 零判別力。

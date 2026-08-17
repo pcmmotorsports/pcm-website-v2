@@ -1,6 +1,6 @@
 import 'server-only';
 import { cookies, headers } from 'next/headers';
-// 相對 import(非 @/):見 session/actor.ts 註解(vitest @ alias 指 storefront)。
+// 相對 import(非 @/):#606 前的歷史遺留,見 session/actor.ts 註解(#612 更新:#606 起可用 @/,既有不回改)。
 import { ADMIN_SESS_COOKIE, verifySession } from './session';
 import { getSessionActor } from './actor';
 import { isAllowedOrigin } from '../orders/workflow-form';

@@ -1,5 +1,9 @@
 # M-3 3DS-6 — charge-actions flag 分岔 + client redirect plan(2026-06-19、鐵則 8 + 鐵則 12、待 Sean 批准)
 
+> ⛔ **2026-08-17:本檔多處寫的「3DS-4 前不設 backend_notify_url / 不開 `TAPPAY_3DS_ENABLED` / 不開放 prod 結帳」硬 gate 已解除。**
+> 全文(為什麼曾經這樣定 / 何時解除 / 現在靠什麼守)在 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段。
+> 🔴 本檔正文刻意不逐句改寫(它記錄的是當時的決定,沒有錯);**引用本檔任何一句 gate 前先讀那一段。**
+
 > **真權威**:master plan v5 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` §1(啟動/結算雙半段)/ §2(Phase II 子片 3DS-6/3DS-7)/ §6(影響面)。
 > 上承 `docs/specs/2026-06-19-m3-3ds-5ab-charge-initiate-plan.md`(5a/5b 已完成 + 審查 sign-off PASS;5b migration `20260619120000` 已 db push 落 prod)。
 > **5a/5b 已交付的可消費介面**(本片接線、不改):

@@ -113,7 +113,7 @@ describe('NoteComposeForm — A10a-3', () => {
     expect(getByText('取消更正').getAttribute('href')).toBe(`/orders/${ORDER_ID}`);
   });
 
-  it('[5] confirm 閘(債⑥):更正模式 confirm=false 擋下送出、true 放行;非更正不問', async () => {
+  it('[5] confirm 閘(債⑥):更正模式 confirm=false 擋下送出、true 放行;非更正不問', { timeout: 10000 }, async () => {
     // 🔴 觀察點 = action 呼叫次數,不是 submit 事件的 preventDefault ——
     //    React 19 接手 form action 時本來就會 preventDefault,事件層分不出「誰擋的」。
     const confirmSpy = vi.spyOn(window, 'confirm');
@@ -130,6 +130,12 @@ describe('NoteComposeForm — A10a-3', () => {
     expect(actionMock.mock.calls.length).toBe(0);
     confirmSpy.mockReturnValue(true);
     fireEvent.submit(form);
+    // 🔴 本格這兩發 waitFor(本行 + `actionMock===2` 那發)【刻意不帶 timeout】,不是漏做:
+    //    格預算現為 10000ms(見下方 deadline 沿革),下面 corrects_note_id 那發吃 7000 ⇒
+    //    這兩發沿用庫預設 1000 各一 ⇒ 最壞 1000+7000+1000=9000 < 10000,留 1000 margin
+    //    讓失敗訊息保持是「哪一發 waitFor 沒成真」而非退化成泛用 Test timed out。
+    //    若這兩發哪天【自己】野外紅:先看是不是 corrects 那發的 7000 吃掉了預算(那要縮它、
+    //    不是加這兩發);真要加這兩發,連格 timeout 一起抬並回頭讀下面停止規則。
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(1));
     // 非更正模式:不問 confirm
     rerender(<NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />);
@@ -141,10 +147,28 @@ describe('NoteComposeForm — A10a-3', () => {
     //    **可能還是舊的 TARGET** ⇒ 這一送出會多問一次 confirm ⇒ 下面那條得到 3 不是 2。
     //    ⚠️ 它要**多 worker 競爭**才輸得掉這個 race ⇒ 正好是「全測會紅、單跑不會」,
     //       而那個形狀會讓人以為是「環境問題」而不是測試裡的真 race。
+    //       (2026-08-17 野生實例 bfbc2844 收窄了條件面:零並行下也輸過一次 ⇒ 不只多 worker。)
     //    ⇒ 等的東西挑 `corrects_note_id`:那顆 hidden 只在 `correctTarget` 非 null 時渲染
     //      (元件錨點 `NOTE_CORRECTS_FIELD`)⇒ 它消失 = 新的 props 真的 commit 進去了。
-    await waitFor(() =>
-      expect(container.querySelector('input[name="corrects_note_id"]')).toBeNull(),
+    //    🔴 deadline 沿革(每一次抬都留痕,別讓下一個人以為這是第一次):
+    //      1000ms(testing-library 庫預設,從沒被人為這格選過)
+    //        → 3000ms(9d353733;當時推導=≈3×唯一量到的越線點 1029ms)
+    //        → 10000ms 格 + 7000ms waitFor(本次;3000 在 dev d86c3d50 野外被超 52ms=3052ms,
+    //          load 61.73)。格 timeout 10000、本 waitFor 7000:另兩發 bare waitFor 各吃庫預設
+    //          1000 ⇒ 最壞 1000+7000+1000=9000 < 10000,留 1000 margin ⇒ 失敗訊息保持
+    //          「waitFor 這個條件沒成真」而非退化成泛用「Test timed out」。連格一起抬=前一版註解
+    //          預寫的撤退動作(「若野外紅 ⇒ 連格 timeout 一起加」),不是慌時挑數字。
+    //      🔴🔴 停止規則:如果它在 {timeout:10000} 之下【再紅一次】,答案【不是】改成 20000
+    //        ——「再加一點」永遠是當下最便宜的動作,而它每次都成立一點點(在同一框架裡找更細的問題)。
+    //        再紅=這格的設計錯了,要換做法:①換成不依賴牆鐘的確定性等待條件,或②移出四綠、
+    //        隔離成獨立跑的一格。做這決定的人要看到這條:1000→3000→10000 已經發生過【兩次】。
+    //      🔴 誠實邊界:1029ms 是在【當時機器狀態】量的,而 load 今晚在 6~88 擺盪 ⇒ 用倍率設
+    //        deadline、分母浮動時倍率不保護任何東西。任何【固定】deadline 在無上界 load 下都證不了
+    //        安全;10000 遠高於觀測 3052 是【緩解】不是【證明】。真根是症狀 A(load/冷快取 transform
+    //        ×檔重,見 #618),不是這格寫錯——所以「再加」修的是錯的那一層。
+    await waitFor(
+      () => expect(container.querySelector('input[name="corrects_note_id"]')).toBeNull(),
+      { timeout: 7000 },
     );
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(2));
@@ -168,9 +192,14 @@ describe('NoteComposeForm — A10a-3', () => {
       <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     fireEvent.submit(container.querySelector('form')!);
-    await waitFor(() => {
-      expect(getByRole('button', { name: '送出中…' })).toHaveProperty('disabled', true);
-    });
+    // pending 態=同一套 useActionState transition 家族(bfbc2844 量到該家族合法延遲
+    // 可 >1000);本格只有這一發 waitFor、前置全同步 ⇒ 3000 距格預算 5000 餘裕足,安全帶。
+    await waitFor(
+      () => {
+        expect(getByRole('button', { name: '送出中…' })).toHaveProperty('disabled', true);
+      },
+      { timeout: 3000 },
+    );
     fireEvent.click(getByRole('button', { name: '送出中…' }));
     expect(actionMock.mock.calls.length).toBe(1);
   });

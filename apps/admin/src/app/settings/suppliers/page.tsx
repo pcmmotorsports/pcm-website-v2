@@ -17,6 +17,7 @@ import { SUPPLIER_RESULT_MESSAGES } from '../../../lib/supplier-result-messages'
 //     這正是 `settings/staff/page.tsx` 的頁面層行為至今零測試的原因,
 //     也是 `[K1-M7]` 那個「loadFailed 仍渲染新增表單」的缺陷沒有被任何測試抓到的原因。
 //     ⇒ 本頁刻意不繼承那個寫法,好讓 `page.test.tsx` 測得到 loadFailed 與 `?r=` 兩條路。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 
 export const dynamic = 'force-dynamic';
 

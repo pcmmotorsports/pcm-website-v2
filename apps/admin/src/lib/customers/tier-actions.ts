@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-// 相對 import(非 @/):見 session/actor.ts 註解(vitest @ alias 指 storefront)。
+// 相對 import(非 @/):#606 前的歷史遺留,見 session/actor.ts 註解(#612 更新:#606 起可用 @/,既有不回改)。
 import { authorizeAdminMutation } from '../session/authorize';
 import { getRequestId } from '../audit/context';
 import { setCustomerTier } from './customer-repository';

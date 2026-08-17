@@ -104,8 +104,8 @@ fetchAllPaginated 的 PAGE_SIZE 餘裕      歸零
 
 | # | 位置 | 誰在上面 | 失效 |
 |---|---|---|---|
-| 1 | `packages/adapters/src/supabase/helpers/product-query-support.ts:56` / `:91`(`fetchAllPaginated`,PAGE_SIZE=1000 **零餘裕**) | storefront 分類 / 全商品列表 | **靜默**(零錯誤零 log);`1000 → 999` 就中 ⇒ 第一頁被夾短當末頁 |
-| 2 | `apps/storefront/src/lib/products.ts:682-718`(`fetchVehicleTaxonomy` 手刻迴圈,零餘裕) | 車輛下拉 | **靜默** |
+| 1 | `packages/adapters/src/supabase/helpers/product-query-support.ts:56` / `:91`(`fetchAllPaginated`,PAGE_SIZE=1000;~~**零餘裕**~~ ⇒ **2026-08-18 起 `1000 < 2000` 有餘裕**) | storefront 分類 / 全商品列表 | **靜默**(零錯誤零 log);🔴 **餘裕是設定給的** —— `max-rows` 被改回 `1000`(或更低)就**再次**中 ⇒ 第一頁被夾短當末頁,而檔沒改、測試沒紅 |
+| 2 | `apps/storefront/src/lib/products.ts:682-718`(`fetchVehicleTaxonomy` 手刻迴圈,PAGE_SIZE=1000;~~零餘裕~~ ⇒ 同上,2026-08-18 起有餘裕) | 車輛下拉 | **靜默**;🔴 **本行的檔【尚未就地更新】** —— `bmw-m-headline` 正在動它、那棵樹被押著 ⇒ 檔內仍寫舊結論,見 STATUS 緊急 backlog |
 
 🔴 **`V-038` 原列有第三條,而它【已撤回】—— 出貨單列印 `SupabaseOrderAdapter.ts:936-966`。**
 撤回理由(`V-034` §0):**該迴圈終止於【空頁】、游標按實得筆數前進、撞頂 throw 不回部分 ⇒ 對 max-rows 調小免疫。**
@@ -127,8 +127,14 @@ fetchAllPaginated 的 PAGE_SIZE 餘裕      歸零
 
 ### 🔴 抄表的人要一起帶走的兩條裁定(`V-038` §三)
 
-1. **修法 plan 有硬前置**:「**內嵌是否受 max-rows 管**」量掉之前**不准出修法 plan** ——
-   **前提為假的話,監控會裝在一條不會出事的路上**(那本身是淨負的)。量法 = staging 構造 >1000 內嵌列;執行另派。
+1. ~~**修法 plan 有硬前置**:「**內嵌是否受 max-rows 管**」量掉之前**不准出修法 plan**~~
+   ✅ **2026-08-17 B 窗已量掉,前提為【真】** ⇒ **這道硬前置解除,修法 plan 可以出。**
+   結果:內嵌**受** `db-max-rows` 管,**且顯式 embed limit 也會被夾**(`limit=200` 實測回 100)。
+   ⇒ 「監控會裝在一條不會出事的路上」那個風險**不成立** —— 族 A 的失效條件成立,監控裝在對的路上。
+   🔴 **範圍限定(引用必帶)**:量在**本機拋棄式 PostgREST 14.16 / PG 17.10 / `db-max-rows=100`(自設)**。
+   **不是 production。** 這個 100 與上一列 production 的 1000 是兩個不同的東西,**不得互相引用**。
+   ⚠️ 未做的那一發:production 的 PostgREST 版本**未比對**(規格允許用 staging 補一發,判定「甲跑出受管即可收」)。
+   量法:`bash scripts/v041-embed-max-rows-probe.sh`(規格 `~/pcm-mailbox/V-041-內嵌max-rows前提量測規格.md`)。
 2. **`1000` 是量測值不是常數** —— A 窗 2026-08-17 凌晨量的(頂層/anon/production),**引用要帶時點**。
    memory `project_0817-order-line-item-ceiling-is-200` 裡那句「200 之下還有真牆 1000」**同源** ⇒ **旋鈕一動,兩處同時過期。**
 
@@ -138,8 +144,8 @@ fetchAllPaginated 的 PAGE_SIZE 餘裕      歸零
 
 | 值／平台行為 | 記載數 | 量的還是讀來的 | 量法(可重跑) | 範圍標籤 | 誰站在它上面 |
 |---|---|---|---|---|---|
-| PostgREST `db-max-rows`(**頂層**) | 1000 | **量的**(A 窗) | anon 對 production 任一表不帶 Range 拉一次、數回列 | production／anon／頂層／2026-08-17 凌晨 | `fetchAllPaginated` PAGE_SIZE==1000 零餘裕;F-S3 手刻迴圈;所有 `rows.length >= LIMIT` 截斷旗標的有效性 |
-| `db-max-rows` **對內嵌資源** | 「也套用」 | 🔴 **讀來的**(issue #2776 作者敘述;**官方文件沒寫**,C 窗查證) | 要量得構造一張內嵌 >1000 列的單(A 窗自陳:無可寫正式庫的環境,**量不到**)⇒ 缺的檢查=正式庫構造測試單或 staging | **未確認** | embed-truncation 整條線的前提;Q2=甲 的觸發面;itemCount／貨品軸 `.every()` 誤判情境 |
+| PostgREST `db-max-rows`(**頂層**) | **2000**(~~1000~~,2026-08-18 起) | **量的**(V 窗 2026-08-18);⚠️ **主視窗與 I 窗均未自驗**;第二來源=Sean 口頭「max rows 已經調整到2000」「已經safe」 | storefront anon key 打【正式站】REST `products?select=id&limit=5000` ⇒ HTTP 206、`content-range: 0-1999/19777`、實回 2000 列(🔴 分母 19,777 > 2000 ⇒ 量到的是**天花板本人**,不是資料只有這麼多) | production／anon／頂層／**2026-08-18**(~~2026-08-17 凌晨的 1000~~ 已被 Dashboard 改動作廢) | `fetchAllPaginated` PAGE_SIZE=1000(~~零餘裕~~⇒有餘裕);F-S3 手刻迴圈;所有 `rows.length >= LIMIT` 截斷旗標的有效性。🔴 **此值的有效期繫於 Supabase Dashboard 的一個設定** —— 它一被改動,**全樹 45 處記載一起失效**,而**檔沒改、測試沒紅、`grep` 數不變**。數法(可重跑):`grep -rn '1000 上限\|1000-row\|1000 列上限\|PostgREST 1000\|max-rows.*1000\|1000.*max-rows' --include='*.ts' --include='*.tsx' --include='*.md' apps packages docs | grep -v '\.test\.' | wc -l`(⇒ **45**,量於 `dev @ 6c7f2f05`、2026-08-18 00:3x;⚠️ **在別棵樹上量會得到別的數**,不是誰數錯) |
+| `db-max-rows` **對內嵌資源** | **套用**;且**顯式 embed limit 也會被夾** | ✅ **量的**(B 窗 2026-08-17;~~原「讀來的:issue #2776 作者敘述、官方文件沒寫」~~) | `bash scripts/v041-embed-max-rows-probe.sh` —— 自帶拋棄式 PG+PostgREST、構造自證(A=250／B=50)與正向對照(頂層必須被夾);三發:頂層對照／內嵌無 limit／內嵌 `limit=200` | 🔴 **本機／PostgREST 14.16／PG 17.10／`db-max-rows=100`(我自設)／2026-08-17** —— **不是 production**;本機這個 100 與上一列 production 的 1000 是**兩個不同的東西,不得互相引用** | embed-truncation 整條線的前提;Q2=甲 的觸發面;itemCount／貨品軸 `.every()` 誤判情境 |
 | `statement_timeout` | anon=3s／authenticated·authenticator=8s／service_role=300s | **量的**(08-09 實量,落 `20260809180000` 檔頭;⚠️ repo 註解曾寫錯一次,08-11 更正在 memory `reference_supabase-anon-rpc-verify-generic-plan-timeout`) | 各角色連線跑 `show statement_timeout` | production／各角色／**2026-08-09**(⚠️ 全表最舊的一列) | 車型 view「最終不修」裁定(3047ms>3s);anon RPC 效能驗證方法論;翻頁保留搜尋詞那片 |
 | vitest 測試環境 TZ | `Asia/Taipei` 釘死 | **量的**(`vitest.config.ts:64` 逐字＋C 窗 §8.1 探針證明 naive/fixed 在此 TZ 下 960 個整點零差異) | `grep -n "TZ" vitest.config.ts` | repo／CI／測試環境 | **所有時區類守門的判別力**;F-D1 五份 `Asia/Taipei` 複本的測試各自全盲;出貨日那格的假綠機制 |
 | pcm-admin 的 production 分支 | `dev` | 讀來的(memory `project_pcm-admin-production-tracks-dev`,多輪引用;**未見有人本輪親看 dashboard**) | Vercel dashboard → pcm-admin → production branch 親看 | 平台設定 | 「push 即上線」全部紀律;「CI 是事後警報」那條 Blocker;收割窗不推的份量 |

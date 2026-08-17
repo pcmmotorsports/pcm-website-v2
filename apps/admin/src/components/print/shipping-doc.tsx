@@ -8,6 +8,7 @@ import { carrierLabelOf } from '../../lib/shipping/carrier-label';
 //    那支函式**沒有刪**(目前零消費端、保留給 `Q-C9` 出貨通知信)——
 //    理由在 `shipping-doc-dispatch.ts` 的 `trackingDisplay` docstring。
 import { shippedDateText } from '../../lib/shipping/shipping-doc-dispatch';
+import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
 
 // #10 片2b:出貨單(一個箱 × 一張訂單)。
@@ -88,7 +89,38 @@ export function shippingDocBlocker(args: {
   //    **那在別的路徑上是正常的**;而本路徑實查 `order_items` 建單後不再增刪
   //    (數法寫在 `SupabaseOrderAdapter.listOrderItemsForPrint` 的 docstring)
   //    ⇒ **在這裡對不上就是真的有問題**,fail-closed。
-  if (reportedTotal !== null && items.length !== reportedTotal) {
+  // 🔴🔴 **面6-b:對帳訊號【缺席】時也要擋**(2026-08-18;T② 提報、V 窗量測、本窗修)。
+  //
+  //    **落地前的形狀**:判準是 `reportedTotal !== null && …` ⇒ **`null` 短路 ⇒ 不擋、照印**
+  //    (`grep -c 'reportedTotal === null'` 本檔 ⇒ **0**,全檔沒有任何 `null` 分支)。
+  //    ⇒ **「沒有對帳訊號」與「對帳通過」被印成同一張紙。那是 fail-open,而且零症狀。**
+  //
+  //    🔴 **修的理由【不是】「`count` 可能是 `null`」** —— 那條今天**構造不出來**:
+  //      V 窗對正式站唯讀試了 **9 條路**(不帶 `Prefer` / planned / estimated / embed /
+  //      range 超界 / `max-rows` 夾住 / 無 limit / 空結果集 / 完整重現本查詢形狀),
+  //      **唯一讓 `count` 消失的是「沒帶 `Prefer: count=exact`」**,
+  //      而 `SupabaseOrderAdapter.ts` 的 `page === 0 ? { count: 'exact' } : undefined`
+  //      **第 0 頁恆帶** ⇒ 這條路上產不出來。
+  //      ⚠️ **口徑:那 9 條路構造不出,【不宣稱不可能】**(網路層截斷 / PostgREST 逾時未涵蓋)。
+  //      ⇒ **所以不要拿「null 會發生」當理由** —— 下一個人一驗會判它不成立、然後撤掉這道守門。
+  //
+  //    ✅ **真正的理由是【失敗方向錯了】,而這個 repo 已經有兩處寫死了相反立場**:
+  //      · `SupabaseOrderAdapter.ts:986`(撞 MAX_PAGES)逐字:「**throw,不回部分**…
+  //        部分結果會讓紙上少列品項而**紙看起來完全正常**」
+  //      · `SupabaseWalletAdapter.listEntries` 逐字:「**本方法以『共 N 筆』為前提,
+  //        沒有 N 就不回傳一份看起來完整的一頁**」
+  //      ⇒ **adapter 兩處寧可炸,而列印頁在訊號缺席時放行 —— 三處裡只有這裡是相反的。**
+  //
+  //    🔴 **而 Sean 自己對這個形狀拍過板**(2026-08-17 `Q2`=甲,逐字):
+  //      「**撈不全就整區失敗、不顯示任何一列**」,理由「**標了警告的清單,對帳的人還是會照著算**」
+  //      ⇒ 本條是那個拍板的**第三個落地面**。
+  //
+  //    ⚠️ **訊息與下面那一句刻意不同,值班的人要分得出來**:
+  //      **這一句 = 沒得對**(讀不到總數)／**下面那句 = 對不上**(讀到的與總數不符)。
+  if (reportedTotal === null) {
+    return '讀不到這張訂單的品項總數,無法確認下面的清單是不是完整的。這是系統的問題,不是你操作錯。請聯絡負責人處理,不要拿這張紙出貨。';
+  }
+  if (items.length !== reportedTotal) {
     // ⚠️ 逐字寫「達到 200 筆」不是「超過 200 筆」:判定是 `>=`
     //    (`packages/adapters/src/supabase/mappers/order.ts:830`)⇒ **剛好 200 項就會走到這裡**。
     //    🔴 而 Sean 2026-08-17 逐字說一張單「可能到 200 個品項」⇒ **正常業務的上緣就是這個值**。
@@ -181,11 +213,17 @@ function Section({
   title,
   note,
   qtyHeader,
+  orderDisplayId,
+  shipmentReference,
   children,
 }: {
   title: string;
   note: string;
   qtyHeader: string;
+  /** 續頁抬頭要帶的訂單編號(`Q-C20`)。 */
+  orderDisplayId: string;
+  /** 續頁抬頭要帶的箱號(`Q-C20`)。 */
+  shipmentReference: string;
   children: React.ReactNode;
 }) {
   return (
@@ -196,6 +234,42 @@ function Section({
       </div>
       <table className='w-full border-collapse'>
         <thead>
+          {/* ── `Q-C20` 續頁抬頭(Sean 2026-08-17 拍**甲**:照設計稿做,不要另外發明)──
+              🔴 **真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html:291`**
+                 (當場 `search_files` + `get_file` 開的,不是憑記憶),逐字:
+                 `<tr class="contbar"><th colspan="7">品項明細　訂單 <b>…</b>　箱號 <b>…</b>…</th></tr>`
+                 —— **這一列在 `<thead>` 裡、在欄名那一列的上面**。
+              🔴 **它為什麼解得掉跨頁**:`<thead>` 由瀏覽器原生逐頁重複(UA 預設
+                 `display:table-header-group`)⇒ 這一列跟著欄名一起出現在第 2、3 頁。
+                 **實測到的缺口長什麼樣**:落地前印 12 品項那份,第 2 頁上欄名有、
+                 而**整頁沒有訂單編號也沒有箱號** ⇒ 那張紙跟第 1 頁分開就認不出是哪一單
+                 (量法與三張 PNG 見 `docs/specs/2026-08-17-qc5-…-list.md` §4b-4)。
+              ⚠️ **Sean 選甲 = 區塊標題那一行【留著】** ⇒ 第 1 頁上三個區塊各多一列,
+                 那是他看過數字之後選的(乙案 +0 行,他沒選)。**不要「順手」把標題併進來省行。**
+              📎 **字級沒有照搬 `8pt`**:樣張是 pt 體系,而這張紙**從來沒有為列印設過字級**
+                 (`print-a4.css` 規則層唯一的 `font-size` 是頁碼那個 8pt)⇒ 這裡沒有可乘的對象,
+                 用本檔既有的 `text-xs`。`tracking`/字重/大小寫/顏色照樣張。
+              🔴 **樣張那一列右側還有 `<i>續頁欄名重複</i>`,而我們【刻意不印】** ——
+                 **不是漏做。** 依據:那六個字是**設計端給看樣張的人的自述**,不是單據內容。
+                 同一支樣張的 `.caption`(「版面樣張 A ── 正常狀態…」)在 `@media print`
+                 裡是 `display:none`(`:46`),⇒ 設計端**有**「這是說明、不要印」這個概念;
+                 而這六個字**沒有被藏**(`.contbar th i` 只有 `float:right`,`:137`)。
+                 ⇒ 兩種可能:設計端漏了、或它真的要印。**印一句倉庫與客人都看不懂的
+                 內部說明,代價比少印它高**(對外可見、且它描述的是排版行為不是貨的事實)。
+                 ⇒ **2026-08-17 主視窗裁定:維持不印,不再拿去問 Sean**(成本不對稱 ——
+                 少了他看得到會直接講,而問他要為六個字再切換一次注意力)。
+                 📎 **要印的話**:加一個右浮的 `<span>` 即可,其餘一個字都不用動。
+                 ⚠️ **不要「照樣張補齊」把它加回來而不讀這一段。** 例外清單的正本在
+                 `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b-3。 */}
+          <tr className='contbar'>
+            <th
+              colSpan={3}
+              className='text-muted-foreground px-2 pt-2 pb-1 text-left text-xs font-bold tracking-[0.16em] uppercase'
+            >
+              品項明細　訂單 <b className='text-foreground font-mono tracking-[0.04em]'>{orderDisplayId}</b>
+              　箱號 <b className='text-foreground font-mono tracking-[0.04em]'>{shipmentReference}</b>
+            </th>
+          </tr>
           <tr className='border-b'>
             <th className='px-2 py-2 text-left text-xs font-medium'>料號</th>
             <th className='px-2 py-2 text-left text-xs font-medium'>品名 / 規格</th>
@@ -218,6 +292,7 @@ function Alert({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
 
 export function ShippingDoc({
   detail,
@@ -367,7 +442,12 @@ export function ShippingDoc({
       </div>
 
       {blocked !== null ? (
-        <Alert>🔴 {blocked}</Alert>
+        /* 🔴 `#601` 落地(2026-08-17):**一行 `<Alert>` 換成整幅阻印版面**。
+            為什麼:上面那顆列印鈕拿掉之後**只是不再遞刀**,⌘P 那條路仍然通,
+            而在這之前 ⌘P 印出來的紙**只有一行紅字、其餘看起來像正常單據**。
+            設計端的答案逐字在樣張 `:551`:「印出來看起來正常的紙,員工就會照做,
+            所以警告必須佔滿這個位置。」細節見 `BlockedSheet` 的 docstring。 */
+        <BlockedSheet reason={blocked} orderDisplayId={detail.displayId} />
       ) : (
         <>
           {/* 收件人。`blocked === null` 已保證 `recipientSnapshot` 非 null 且三欄都有內容。 */}
@@ -382,7 +462,7 @@ export function ShippingDoc({
               🔴 **這一區在落地之前,紙上關於「誰送的」一個字都沒有。**
               ⚠️ **原文接著寫「設計需求書把追蹤碼列為必須(缺),理由逐字『客人查貨的唯一依據』」**
                  —— 那句**仍然是設計需求書的原文**,但 `Q-C5`=丙 之後**不再由這張紙負責**:
-                 Sean 選的是「這件事根本不該由紙做」,追蹤碼走簡訊／Email(`Q-C9`)。
+                 Sean 選的是「這件事根本不該由紙做」,追蹤碼走LINE／Email(`Q-C9`)。
                  ⇒ 需求書那句沒有被推翻,是**載體換了**。
               🔴 資料全在 `ShipmentRow` 裡 ⇒ 零 migration、零新查詢。純粹是「有資料沒印出來」。
               ⚠️ 各欄位的判斷都在 `lib/shipping/shipping-doc-dispatch.ts` 與
@@ -409,7 +489,7 @@ export function ShippingDoc({
               <span>日期:{shippedDateText(shipment.shippedAt)}</span>
             </div>
             {/* ── 🔴 追蹤碼那一列在這裡,而它被 `Q-C5`=丙 拿掉了(2026-08-17)──
-                Sean 逐字 `q3: 丙` ⇒ **出貨明細單不印追蹤碼欄位,追蹤碼只走簡訊／Email 給客人。**
+                Sean 逐字 `q3: 丙` ⇒ **出貨明細單不印追蹤碼欄位,追蹤碼只走LINE／Email 給客人。**
                 作廢清單:`docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §1。
                 🔴 **同一區的「貨運商」與「日期」留著**(`Q-C19`=乙 逐字「只拿掉追蹤碼那列」)——
                    「日期」是他自己拍過的(`Q-C6`),整區拿掉會把他拍過的東西一起收掉。
@@ -427,7 +507,13 @@ export function ShippingDoc({
           </div>
 
           {/* ── 區塊一:這箱裡、屬於這張訂單的東西 ── */}
-          <Section title='本次出貨' note='這個箱子裡屬於這張訂單的品項' qtyHeader='本次出貨'>
+          <Section
+            title='本次出貨'
+            note='這個箱子裡屬於這張訂單的品項'
+            qtyHeader='本次出貨'
+            orderDisplayId={detail.displayId}
+            shipmentReference={shipment.shipmentReference}
+          >
             {lines.map((l) => {
               // `blocked === null` 已保證每一條 line 都對得到品項(面7)。
               const item = itemById.get(l.orderItemId);
@@ -465,6 +551,8 @@ export function ShippingDoc({
               title='尚未出貨'
               note='這張訂單還欠客人的東西(不含這一箱要寄的)'
               qtyHeader='還欠幾件'
+              orderDisplayId={detail.displayId}
+              shipmentReference={shipment.shipmentReference}
             >
               {outstandingRows.map(({ item, qty }) => (
                 <tr key={item.id} className='border-b'>
@@ -493,7 +581,13 @@ export function ShippingDoc({
                  「**不揀貨就不需要寫在上方**…不用把不揀貨還要寫在上面**造成誤會**」。
                  ⇒ 「造成誤會」把它定性成**正確性**問題:員工要一眼看出哪些要出、哪些不出。 */}
           {cancelledRows.length > 0 && (
-            <Section title='訂單取消' note='這張訂單裡已經取消的品項,不會出貨' qtyHeader='已取消'>
+            <Section
+              title='訂單取消'
+              note='這張訂單裡已經取消的品項,不會出貨'
+              qtyHeader='已取消'
+              orderDisplayId={detail.displayId}
+              shipmentReference={shipment.shipmentReference}
+            >
               {cancelledRows.map(({ item, qty }) => (
                 <tr key={item.id} className='border-b'>
                   <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />

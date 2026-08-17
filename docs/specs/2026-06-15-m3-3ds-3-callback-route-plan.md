@@ -1,5 +1,9 @@
 # M-3 3DS-3 — callback 完成頁 plan(2026-06-15、鐵則 8 + 鐵則 12、待 Sean 批)
 
+> ⛔ **2026-08-17:本檔這句「誠實中間態 / ≠ 開放 prod 結帳」的前提可能已變。**
+> 正本(為什麼曾經這樣定 / 何時解除 / 🔴 **仍未完成的硬前置** / 🔴 **`STATUS.md` 與正本互相矛盾未解**)在
+> `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段。**引用本檔任何一句 gate 前先讀那一段。**
+
 > **真權威**:master plan v5 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` §1(a)/§2(3DS-3)/§4 + v5 B/D。
 > **前序已成**:settleCharge 對帳脊椎(3DS-1b)+ getSettleChargeDeps cookieless factory + webhook route(3DS-2)皆已 commit。
 > **流程**:本 plan → codex 關卡1(read-only 審 plan vs master/design)→ 自修 → 決策批次問 Sean → 批准才實作。

@@ -1,5 +1,19 @@
-# `Q-C9` · 追蹤碼怎麼到客人手上 · **PLAN(未批准,等 Sean)**
+# `Q-C9` · 追蹤碼怎麼到客人手上 · **PLAN(✅ 已批准,2026-08-17)**
 
+> ## ✅ 批准狀態(2026-08-17 晚更新;**檔頭原本寫「未批准,等 Sean」,那已經過期**)
+>
+> **Sean 2026-08-17 拍 `Q4`=甲「批,開工」。**
+> 出處兩個獨立來源:`~/pcm-mailbox/C-219-STOP-20260817.md:180`(`Q-C9` plan 那一列)、
+> `~/pcm-mailbox/MAIN-009-主視窗交接與開窗提示詞-20260817夜.md:101`。
+> 🔴 **他批的是「開工」,不是「每一條都對」** —— 下面 §3 的 `Q2` / `Q3` **仍然沒有答案**,
+> 見本檔 §5-DONE-d 的「還在等他的」那一格。
+>
+> 📎 **為什麼要把這一格寫進檔頭**:已批的 plan 檔頭還寫著「未批准」,
+> 下一個接手的人會**停下來等一個已經拍過的板**,而那一停沒有任何東西會提醒他。
+> (同型復發紀錄:memory `project_0816-window-fleet-rulings` —— 當天兩份已批 plan 檔頭都還寫著尚未批准。)
+>
+> ---
+>
 > **窗** C · **2026-08-17** · 座標實測自 worktree `/Users/sean_1/pcm-print` @ `a8d1ce85`
 > ⚠️ **出處一律用 grep 錨點文字,不用行號**(行號會漂)。
 >
@@ -111,8 +125,47 @@ backlog `#336` 逐字:E4 原本掛在 `updateOrderItemWorkflowAction`,該 action
 
 ## §3 要 Sean 拍的三題(**其他的我自己判,不拿去問他**)
 
+> ## ✅ 三題的現況(2026-08-17 晚;**先讀這一格,下面的選項表是原文留痕**)
+>
+> | 題 | 答案 | 誰擋著 |
+> |---|---|---|
+> | `Q1` 客人在哪裡看到追蹤碼 | **未答** | 屬 `C9-a`,**不擋 `C9-b`** |
+> | `Q2` 信裡放不放品項清單 | ✅ **乙 = 放** | — |
+> | `Q3` 自取 / 自送那封信 | ✅ **甲 = 照寄,信裡寫「本批為自取/自送,無追蹤碼」** | — |
+>
+> ⇒ **`C9-b` 已解鎖,可以開工。**
+>
+> 🔴 **`Q2`=乙 的存在理由是【辨識】不是【對帳】**:他先前拍過「一箱兩單就寄兩封」
+> ⇒ 客人會收到多封,**而多封之間分不分得出來,是那個決定的後果**。
+> ⇒ **收信人要能一眼看出「這封講的是哪一箱」** —— 這決定放幾欄、怎麼排,
+> **不是要他拿這封信去對帳**(對帳等式在紙上都刻意不印了,見 `…qc5-…-list.md` §4b-3 E2)。
+>
+> 🔴 **`Q3`=甲 的文案要寫「所以你要做什麼」,不是只寫狀態。**
+> 「本批為自取,無追蹤碼」講完了**狀態**,而自取的人接著要知道**去哪裡拿、什麼時候可以拿**。
+> **兩件都有既成真值,不必問 Sean**:
+>
+> ```text
+> 地址      apps/storefront/src/lib/site-config.ts:26-34  新北市新莊區化成路736巷18號1樓
+> 可取時間  apps/storefront/src/lib/site-config.ts:37-42  OPENING_HOURS
+>           = 週一–六 10:00–19:00（檔內逐字註解：Sean 2026-07-04 全站 20:00→19:00）
+> 數法（含正向對照）：
+>   grep -rl '營業時間\|營業時段\|取貨時間\|可取貨' --include='*.ts' --include='*.tsx' \
+>     --include='*.md' --include='*.sql' apps packages docs supabase   ⇒ 21 檔
+>   正向對照 同範圍找 '自取'（僅 ts/tsx）                              ⇒ 27 檔
+> ```
+>
+> 🔴 **我第一版在這裡寫「全 repo 我沒有找到 ⇒ 待問 Sean」,而那是【假的查無】** ——
+> 我當時**一次都沒跑那支 grep**。跑了就是 21 檔,而 SSoT 就在其中。
+> **留著這句**:一個沒跑過的 grep 與一個跑過回 0 的 grep,**寫出來的句子一模一樣**。
+>
+> ⚠️ **仍有一件要處理,而它不是「值不見了」是「值在別的 app」**:
+> `site-config.ts` 在 **storefront**,而信件模板在 `packages/use-cases` / `packages/adapters`。
+> ⇒ 與抬頭七值同一個病(`shipping-doc.tsx` 那段註解逐字寫過)⇒ **不要在信件端再造第三份常數**,
+> 落地時把取值方式一起寫進 `C9-b` 的實作決定,收斂點是 backlog `#248`。
+
 > 判準:「這個功能換一個後台/前台也會有嗎?會 ⇒ 自己補。」
 > 下面三題不是「基本功能」,是**業務語意**或**他看得到的東西**。
+> ⚠️ **下面這個選項表是原文,`Q2` / `Q3` 已經有答案了**(見正上方那一格)。
 
 ```
 Q1 客人在哪裡看到追蹤碼？
@@ -136,13 +189,31 @@ Q3 「這家不給碼」（自取／自送）的那封信要怎麼寫？
      而 DB COMMENT 已經明文要求模板依「有沒有單號」分流，甲就是那個分流。）
 ```
 
-⚠️ **我沒有把「dedup_key 用什麼」拿去問他** —— 那是技術題,我自己判:
+> ### 🔴🔴 這一段已被 Sean 推翻(2026-08-17 晚)—— **原文留痕在下面,不要照它做**
+>
+> **現行答案:`dedup_key` = `shipment_id` + `order_id`。**
+> 依據:Sean 拍**乙 =「一箱兩單就兩封,一封講一張訂單」**
+> (`~/pcm-mailbox/C-219-STOP-20260817.md:181`)。
+> ⇒ 下面那段判 `shipment_reference`(**箱層**、一箱一封)**與他的答案不一致**,**作廢**。
+>
+> 🔴 **這一段為什麼特別危險**:本檔 §5-DONE-c 末尾**已經**寫著新答案
+> (「E4 定案 dedup_key 算法後」那個前提 08-17 晚到齊 ⇒ `shipment_id + order_id`)
+> ⇒ **同一份檔裡兩個答案並存**,而讀 §3 的人不會往下讀到 §5-DONE-c。
+> 📎 判別句:**這段描述的是「本檔的內容」還是「世界的狀態」?**
+> (memory `feedback_status-file-fixed-fields-hide-stale-claims`)
+
+~~⚠️ **我沒有把「dedup_key 用什麼」拿去問他** —— 那是技術題,我自己判:
 **`shipment_reference`**(包裹編號,6 碼、`永不重用`、migration COMMENT 逐字寫著這個保證)。
 它正是 e10 v2 plan 點名的候選(錨點 `order_shipped` 去重鍵的候選)。
 🔴 **而這個判斷有一個前提要驗**:S2=B 的「一批」= 一個包裹,**還是**一次「標記出貨」動作
 (一次可能標多個包裹)?**兩者的 dedup_key 不同,而寄幾封信也不同。**
 ⇒ 這條列進 §5 的偵察項,**不是拿去問 Sean 的題**(他已經答過「每出一批一封」,
-我要做的是把「批」對到 code 裡的哪個東西,那是我的工作)。
+我要做的是把「批」對到 code 裡的哪個東西,那是我的工作)。~~
+
+📎 **那個「前提要驗」的判斷本身是對的** —— 它問對了問題(箱層還是單層),
+只是**答案不是它猜的那個**,而且**不是技術題**:一箱含同一位客人兩張訂單時要寄幾封,
+是 Sean 看得到的東西。⇒ 端給他之後他選了單層。**留著這句,是因為下一個人會想知道
+「為什麼當初判成技術題」——那一步錯在【誰該決定】,不在【怎麼算】。**
 
 ---
 
@@ -184,7 +255,7 @@ Q3 「這家不給碼」（自取／自送）的那封信要怎麼寫？
 ```
 ⇒ **一次標記出貨 = 一個 `shipment`,DB 保證,不是慣例。** `dedup_key` 因此掛在 **shipment 層**。
 
-### 🔴 第 4 條:偵察順手答了一半,而**剩下那一半是真的岔路,要 Sean 拍**
+### ✅ 第 4 條:**已答 = 乙**(2026-08-17 晚;原本標「要 Sean 拍」,那已經過期)
 
 ```
 shipments【沒有 order_id】——箱掛的是【客人】不是訂單
@@ -201,6 +272,15 @@ shipments【沒有 order_id】——箱掛的是【客人】不是訂單
 
 🔴 **這題不由本窗判**:`S2=B` 那句「一批」他講的時候,**很可能還沒有「一箱可含兩張單」這個前提**
 —— 與 `Q-E` 那次同型。⇒ **要連前例一起端給他問**([[feedback_ask-sean-with-the-precedent-attached]])。
+
+> #### ✅ 他答了:**乙**(逐字「一箱兩單就兩封,一封講一張訂單」)
+>
+> 出處 `~/pcm-mailbox/C-219-STOP-20260817.md:181`。
+> ⇒ **`dedup_key` = `shipment_id` + `order_id`**(上表乙那一列)。
+> ⇒ §3 那段判 `shipment_reference` 的**已作廢**,見該節新加的作廢框。
+> 📎 「連前例一起端給他問」這個做法**這一次真的有用**:他選的是**乙**,
+> 也就是**上表那個「跟紙一致」的**,而不是他自己先前那句話的**字面**(甲)。
+> ⇒ 只端字面去問,會拿到甲。
 
 ### ✅ 第 2 條:fail-closed **擋在哪一層** —— 前一任自標的未確認已關掉
 
@@ -256,6 +336,124 @@ shipments【沒有 order_id】——箱掛的是【客人】不是訂單
 3. ⚠️ **這不代表 C9-b 要順便把 E3 做掉。** 兩者共用 adapter,但觸發點不同(付款成功 vs 標記出貨)。
    **順手做 = 範圍擴張,鐵則 8。** 要做要另外提。
 
+### ✅ 第 5 條:**預覽怎麼做 —— 答案是「一格快照測試,快照檔本身就是預覽」**
+
+`§4` 提的要求是硬的:**C9-b 的 rollback 不對稱(已寄的信收不回)⇒ 寄第一封真信之前要有人看過真的 render。**
+
+**現況盤點**:`git grep -ln 'preview\|預覽' -- apps/admin/src packages/adapters/src/email packages/use-cases/src`
+⇒ **3 個檔命中,而沒有一個是信件預覽**(一個是我的列印 CSS、兩個是退款/取消畫面)。**零機制。**
+
+**為什麼這件事其實很便宜 —— 因為內文是【純函式】**:
+`sweep-email-outbox.ts:108` 的 `buildEmailText(job)` 回傳 `string`、**零 I/O、零 DB**,
+而 `buildOrderCreatedText`(`:125-144`)產的是**純文字**(`[...].join('\n')`),不是 HTML。
+⇒ **要看它長什麼樣,只要呼叫它。不需要寄、不需要 DB、不需要 Resend 金鑰。**
+
+**做法(最小):一格 `toMatchFileSnapshot`,快照檔進 git。**
+```
+expect(buildOrderShippedText(fixtureJob)).toMatchFileSnapshot('__previews__/order-shipped.txt')
+```
+- **零新依賴** —— vitest 內建(本 repo 已裝,版本 4.1.5)。
+- **快照檔是純文字、進 git ⇒ 人打開就看得懂**,而且可以在 commit / 交接信裡直接指路給 Sean。
+- **模板一改快照就變 ⇒ 不會靜默過期**。這正是「預覽」與「一次性截圖」的差別。
+
+⚠️ **一個要在 commit body 講清楚的代價**:本 repo **目前零 snapshot 用法** ——
+`git grep -ln 'toMatchFileSnapshot\|toMatchSnapshot\|toMatchInlineSnapshot' -- apps packages scripts` ⇒ **0**
+(正向對照:同範圍 `git grep -l 'expect(' -- apps packages` ⇒ **489**)⇒ 那個 0 是量出來的。
+⇒ **這是引入一個新模式**,不是沿用既有慣例。理由 = 一般斷言只證「字串裡有某幾個字」,
+**證不了「整封信讀起來對不對」**,而後者正是這裡要人看的東西。
+
+**被我否決的替代做法**:寫一支 script 手動跑印出來。
+🔴 **沒有守門** —— 模板改了不會有人想到要重跑它,而那時預覽就是一份過期的紙。
+
+### 🔴🔴 §5-DONE-b · **兩條規則看起來打架,而它們在講不同的軸**(動手寫模板前必讀)
+
+**這一節寫的是【正確解與錯誤解兩個都寫】** —— 只寫正確解擋不住下一個人,
+因為**他會自己推出錯誤解那個方向**,而那個方向「看起來安全」。
+
+```
+DB COMMENT（20260805170000 的 COLUMN COMMENT，逐字）
+  「E4 的 order_shipped 模板必須依此分流，不得寄出【已出貨但無單號】的通用信」
+  ⇒ 它講的是【內容分流】
+
+sweep 既有約定（sweep-email-outbox.ts:120-124，逐字）
+  「payload 形狀異常 → 退回不含編號的通用文案，【不因文案缺欄位就不寄】
+    （付款成功通知的存在比編號重要）」
+  ⇒ 它講的是【送不送】
+```
+
+| | 做法 | 滿足 COMMENT? | 滿足 sweep 約定? |
+|---|---|---|---|
+| ✅ **正確解** | 有單號走 A 模板、無單號走 **B 模板**(B 也是**真模板**,不是通用信) | ✅ 分流了 | ✅ 照樣寄 |
+| 🔴 **錯誤解** | 無單號時 **throw / 不寄** | ❌ **沒有** | ❌ 違反 |
+
+🔴 **為什麼錯誤解【看起來】是對的**:它長得像 fail-closed,而本 repo 到處都是 fail-closed。
+🔴 **為什麼它其實是錯的**:`COMMENT` 要的是「**不要寄錯的信**」,**不是「不要寄」**。
+把「內容不對」處置成「不送」,是**把兩個軸壓成一個**。
+
+🔴 **錯誤解的實際後果(而它不會有人發現)**:
+`sweep-email-outbox.ts:231-235` 的 per-job catch 對 throw 的處置逐字是
+「**不補標不重試:列留 `sending`**,lease 到期由下輪回收」
+⇒ **出貨信會卡在 `sending` 直到 attempts 耗盡,而客人什麼都沒收到。**
+⇒ 症狀是「客人說沒收到出貨通知」,而 code 這邊**每一格測試都是綠的**。
+
+📎 **B 模板的內容有現成的知識可用**:`trackingDisplay` 的**三種 `null`**
+(還沒出貨 / 缺漏 / `other` 免碼)—— 那正是 `Q-C5`=丙 時**刻意保留它**的理由,
+而 **DB COMMENT 用它自己的話要求了同一件事**。
+⇒ **兩個沒有互相參照的來源指向同一個設計**,那比任何一方單獨的論證都強。
+
+**那一格守門的驗收(三種都要分得出來)**:
+```
+無單號 ⇒ 走 B 模板      → 該綠
+無單號 ⇒ 走通用模板     → 該紅
+🔴 無單號 ⇒ throw / 不寄 → 【也該紅】
+   這一格最容易漏，因為它「看起來安全」
+```
+🔴 而**拿掉分流時它必須紅** —— 拿掉之後 A 與 B 會產出同一串,那一格就抓得到。
+
+### ✅ §5-DONE-c · `SupabaseEmailOutboxAdapter` **全文讀過**(不是只讀 grep 命中)
+
+📎 **為什麼要特別聲明**:前一任在**同一支檔**上踩過「只讀 `git grep` 的 5 行命中、
+把 migration 註解的轉述當成讀過 code」。
+
+```
+檔長 419 行（wc -l），已讀全文。
+dedup_key 的【寫入路徑】= 1 條，只有 :201-204 那個 .insert()
+  數法：grep -n '\.insert(\|\.update(' ⇒ 4 處
+        :201 insert  ← 唯一寫 dedup_key 的
+        :306 update  → status / claimed_at / attempts        （tryClaim）
+        :375 update  → status / claimed_at / last_error_code / next_retry_at（reclaimStaleLeases）
+        :409 update  → { ...values, claimed_at: null }        （leaveSending）
+```
+🔴 **`:409` 那個 `...values` 是唯一的展開,我特別查了它**:
+型別是 `Database['public']['Tables']['email_outbox']['Update']`
+⇒ **型別上【允許】帶 `dedup_key`**,但三個呼叫端(`:324` / `:340` / `:349`)
+實際傳的只有 `status` / `sent_at` / `last_error_code` / `next_retry_at`。
+⇒ **今天沒有第二條寫入路徑;而型別沒有擋住將來出現一條。** 兩件分開講。
+
+**要動的四處(不是一處)**:
+```
+:196  payload  = buildOrderCreatedPayload(...)   ← 寫死 order_created
+:197  dedupKey = input.orderId                    ← 寫死 order 層
+:206  subject  = orderCreatedSubject(...)         ← 寫死模板
+:235  resolveUniqueViolation 的 .eq('dedup_key', input.orderId)
+      🔴 這一處最容易漏 —— 它【自己又算了一次 dedup_key】而不是用 :197 那個。
+         改了 :197 沒改 :235 ⇒ 撞鍵回查查【錯的鍵】⇒ 查無 ⇒ throw
+         「撞唯一鍵但查無同事件列」。症狀出現在【第二次寄同一批】，離改動很遠。
+```
+⇒ **修法不是兩處各改一次,是把 `dedupKey` 算出來之後【傳給】`resolveUniqueViolation`**
+—— 一個來源、兩個消費端。
+
+### 📌 做法**不用發明** —— `IEmailOutbox.ts:145-152` 已經寫死了
+
+逐字:
+> 「目前只開放 `order_created`(codex 關卡2 R1:過早開放 `order_shipped` 會讓
+> 「出貨事件+付款 payload」在型別上合法、且**錯占唯一鍵** → E4 正確事件被當 duplicate 吞掉)。
+> E4 定案 payload 與 dedup_key 算法後,**以 discriminated union 增員**(事件⇔payload 綁定、不共用自由欄)。」
+
+⇒ `eventType: 'order_created'` 是**字面型別**,今天連傳 `'order_shipped'` 都編不過。
+⚠️ 我原本以為「呼叫端可以標錯 `event_type` 卻塞付款 payload」是個潛在 bug —— **型別已經擋住了。**
+📌 而「E4 定案 dedup_key 算法後」那個前提**2026-08-17 晚到齊**(Sean 拍乙 ⇒ `shipment_id + order_id`)。
+
 ### ✅ 一個原本要提的風險,**實查之後撤掉**
 
 我本來要提「`Q-D`=乙 要連品項一起寫 ⇒ payload allowlist 只有三欄,要擴,而那是 PII 邊界」。
@@ -269,6 +467,104 @@ payload 只需要帶得到 **shipment 身分**(id,不是 PII)。**PII 那道防�
 `:227-245` 的 23505 處理也寫死 `.eq('dedup_key', input.orderId)`。
 **那是刻意鎖死的安全設計(呼叫端不能偷渡字串)** ⇒ 支援 `order_shipped` **一定要動那支**,
 不是「多傳一個參數」。而那支 = 信件管線 = **鐵則 12⑤ 對外不可回收 ⇒ codex 不降級。**
+
+---
+
+### 🔴🔴 §5-DONE-d · 第 3 條「信件寄給誰」—— **不是讀模型的選擇題,是呼叫端要填的一個欄**
+
+前一任把它寫成「訂單的 email 還是會員帳號的 email?」的二選一。**實查之後那個框架不對。**
+
+```
+收件人是【enqueue 的入參】,不是 outbox 自己去查的:
+  packages/ports/src/IEmailOutbox.ts:158   recipientEmail: string   ← EnqueueEmailInput 的必填欄
+  packages/ports/src/IEmailOutbox.ts:180   recipientEmail: string   ← ClaimedEmailJob 原樣帶出
+⇒ 「寄給誰」由【我要寫的那個 enqueue 呼叫端】決定,今天 code 裡沒有任何既成答案可以照抄
+   (呼叫端數 = 0,數法與正向對照見本檔 §5-DONE 第 3 條那一格)。
+```
+
+**而訂單這一側有欄可用,它可以是 `null`**:
+
+```
+packages/domain/src/order/types.ts:1156
+  customer: { name: string | null; email: string | null; phone: string | null };
+```
+
+### 🔴🔴 而實查撞到一個**沒有人登記過**的洞:LINE 客人收不到這封信
+
+```
+packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts:198  isSyntheticEmail(...) 判合成假信箱
+                                                        :208  status = 'skipped_no_real_email'
+                                                        :222  回 { kind: 'skipped_no_real_email' }
+packages/ports/src/IEmailOutbox.ts:166 逐字「落表佔位但不進 due、不呼 Resend」
+```
+
+⇒ **LINE cohort(合成假信箱)的客人,這封出貨通知信【永遠不會寄出】。**
+⇒ 而 `Q-C5`=丙 已經把**紙上的追蹤碼拿掉了** ⇒ **對這群客人,兩個載體同時是空的。**
+
+🔴 **這不是本片的 bug,是丙的代價在這群人身上的具體形狀** ——
+丙的原話是「追蹤碼走**LINE/Email**」,而**LINE 那一半在本 plan 的範圍外,我沒有查它做了沒**(未查)。
+⇒ **要端給 Sean**:這群人有多少、要不要在客人訂單頁(C9-a)上補、或LINE 那半到底有沒有。
+⚠️ **這群人的人數我沒有量**(要 DB;施工窗沒有)。**「有這個洞」是讀 code 讀出來的,
+「有幾個人掉進去」未量。** 兩件分開講。
+
+### 📌 還在等 Sean 的兩題
+
+**數法(可重跑,分母寫出來)**:本檔要 Sean 拍的題共 3 條(§3 `Q1` / `Q2` / `Q3`,
+`grep -cE '^Q[123] ' <本檔>` ⇒ 3,命中在 `:132` / `:140` / `:146`);要偵察的共 5 條(§5 那張編號清單 1–5)。
+⚠️ 我第一版把那條 pattern 寫成 `'^   Q[123] '`(以為有三格縮排)⇒ **回 0**。
+**留著這句**:0 命中與「這些題不存在」在畫面上長得一樣,而**錯的是我的 pattern 不是世界**。
+逐條狀態:`Q1` 未答(屬 C9-a,本片不擋)、`Q2` 未答、`Q3` 未答;
+偵察 1/2/4/5 已完成(§5-DONE 各有一格)、3 本節剛完成。
+⇒ **擋住 C9-b 動工的只有 `Q2` 與 `Q3` 這兩條。**
+
+| 題 | 內容 | 為什麼不由本窗判 |
+| --- | --- | --- |
+| §3 `Q2` | 出貨通知信裡要不要放「這一箱裝了什麼」(品項清單) | 客人看得到的東西 |
+| §3 `Q3` | 「自取 / 自送」那種沒有碼的批次,信要照寄還是不寄 | 業務語意 |
+
+🔴 **`Q2` 的推薦理由在他拍乙之後【變強了】**:他選的是「一封講一張訂單」⇒ 客人會收到多封,
+**不寫清楚哪一封講哪一箱哪一單,多封信之間分不出來**。⇒ 端題時要把「他已經拍了乙」一起帶上。
+
+---
+
+### 🔴🔴 §5-DONE-e · **`Q2`=乙 落不進現在這個 sweeper** —— 它手上沒有可以查主表的東西
+
+**這一節是動手寫 code 的第一分鐘撞到的,不是推的。**
+
+設計意圖寫得很清楚(`packages/adapters/src/email/order-email-assembly.ts:12` 逐字):
+> 「品項/金額/地址等渲染資料**寄信時即時查主表**(E2a/E3),不進 payload(可後台改的欄存了會過期)」
+
+**而那個能力不存在**:
+
+```text
+packages/use-cases/src/sweep-email-outbox.ts:42-45   ← 2026-08-17 深夜重驗（原寫 42-44，收尾 } 在 45）
+  export type SweepEmailOutboxDeps = {
+    outbox: IEmailOutbox;
+    sender: IEmailSender;
+  };                       <= 就這兩個，沒有任何可以讀 orders / shipments 的東西
+
+同檔 :108-117  buildEmailText(job) 是【純函式】，只拿得到 job
+同檔 :125-143  buildOrderCreatedText 只從 payload 取 display_id 一欄
+```
+
+⇒ **要在信裡放品項清單(`Q2`=乙),現在無處可查。**
+🔴 **而這不只是 `Q2` 的問題**:**追蹤碼本身也在 `shipments` 表、不在 payload**
+⇒ **就算 `Q2` 選甲(只放單號/貨運商/追蹤碼),一樣查不到。**
+**這條卡的是整個 `C9-b`,不是只卡品項那一段。**
+
+#### 兩條路(這是**架構取捨**,不是文案題)
+
+| | 做法 | 代價 |
+|---|---|---|
+| **甲** | `SweepEmailOutboxDeps` 加**第三個依賴** = 一個寄送時讀取用的 port(讀這箱這單的品項與追蹤碼) | 動**共用 use-case 的依賴契約** + composition root(**`apps/storefront/src/lib/email/composition.ts:55`** —— 🔴 2026-08-17 深夜 C 窗更正,原本寫的 `route.ts:140` 是**呼叫點**不是 composition,詳 `2026-08-17-qc9b-sweeper-read-port-plan.md` §4;**production 呼叫端數 = 1**,在 `route.ts:140`,數法 `grep -rn 'sweepEmailOutbox(' apps packages --include='*.ts' \| grep -v '\.test\.'` ⇒ 當日重跑 **3 行**:定義 `sweep-email-outbox.ts:145` + 真呼叫 `route.ts:140` + **一行註解** `route.ts:4`,原寫「2 行」漏算註解那行,結論〔呼叫端 = 1〕不變) |
+| **乙** | 把品項清單與追蹤碼**放進 payload** | 🔴 **直接違反 payload allowlist 那道防線**(`order-email-assembly.ts:4-11`:那層逐字寫著它是「PII 不落表的**真防線**」、「禁 spread、禁整包轉存」);而且**追蹤碼後台可改** ⇒ 存了會過期,信寄出去帶的是舊碼 |
+
+**本窗推薦 = 甲。** 理由:乙省下的是一次契約改動,付出的是**那份 code 裡唯一一道真防線**,
+而且它會製造一種**寄出去才看得到、且收不回來**的錯(舊追蹤碼)。
+
+🔴 **這一條【超出已批准的 plan 範圍】** —— 批准時這份檔寫的是「管線是活的,只差 E4 那一段」,
+而**那句話再一次讀窄了**(§5-DONE 第 3 條已經修過一次:生產端零呼叫端;**這是第二處**)。
+⇒ **依 R3「範圍擴張必停問 Sean」,本窗不自行開工甲,先端出去。**
 
 ---
 
@@ -291,8 +587,12 @@ payload 只需要帶得到 **shipment 身分**(id,不是 PII)。**PII 那道防�
 - 🔴 **本 plan 沒有動任何 code**:`git status --porcelain | grep -cv '\.md$'` ⇒ 落筆時 **0**。
 - 🔴 **§2 全部是 grep 出來的,而我【沒有跑過任何一封信】** —— 沒有 DB、沒有 Resend 金鑰,
   施工窗做不到端到端。⇒ 「管線是活的」是**讀 code 讀出來的**,不是量到的。
-- ⚠️ **我沒有讀 `sweep-email-outbox.ts` 全文**,只讀了 `git grep 'order_shipped'` 的 5 行命中。
-  §5-2 那條就是為此而列。**「fail-closed throw」是引 migration 註解的轉述,不是我親眼看到那行 code。**
+- ~~⚠️ **我沒有讀 `sweep-email-outbox.ts` 全文**,只讀了 `git grep 'order_shipped'` 的 5 行命中。
+  §5-2 那條就是為此而列。**「fail-closed throw」是引 migration 註解的轉述,不是我親眼看到那行 code。**~~
+  ✅ **已關(2026-08-17 晚)**:全文 240 行已讀,擋的位置逐字在
+  `packages/use-cases/src/sweep-email-outbox.ts:108-117`(見本檔 §5-DONE 第 2 條)。
+  🔴 **這一條為什麼不是刪掉而是劃掉**:它記著「當時只讀了 5 行命中就下了結論」這件事本身,
+  而那正是本條要防的病。刪掉的話,下一個人看不到那個誤差長什麼樣。
 - ⚠️ **§2-a 說「沒有訂單明細頁」的分母**是 `apps/storefront/src/app` 之下的目錄結構;
   若有人用別的路由形狀(例如 catch-all)做了明細頁,這個結論會漏掉。**未逐檔開檔確認。**
 - ⚠️ `#336` 的「前置已解除」是我對照 backlog 修法方向與現行出貨線得到的**推論**,
