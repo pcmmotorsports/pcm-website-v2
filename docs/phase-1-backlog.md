@@ -16262,3 +16262,14 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
 - **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #612`(git ref CAS);
   信箱佔位掃描 `grep -rn '#612' ~/pcm-mailbox/*.md docs/` ⇒ 保留前零命中,
   正向對照 `grep -rc '#606' ~/pcm-mailbox/*.md | grep -v ':0$'` ⇒ 命中 3 檔以上 ⇒ 那個 0 是量出來的。
+
+### #613 · sso security-log 五呼叫點零斷言:鑑識軌跡與不記密規則無機械檢查
+
+- **狀態:** ⏳ 待執行(reviewer 2026-08-17 sso route 測試片 F2 記錄;該片明定不強制同片補)
+- **病:** `apps/admin/src/app/api/sso/callback/route.ts` 五處 `logSsoLogin`(行號錨:`grep -n logSsoLogin` 當場取,49/59/65/72/81 為落筆當下值)全數零斷言;
+  `security-log.ts` 無測試檔(`find apps/admin -name 'security-log*test*'` ⇒ 0)。
+  刪掉五行或把 reason 全改 'ok' ⇒ 全綠。
+- **不修未來會痛在哪:** ①SSO 攻擊(state mismatch 爆量)的鑑識軌跡靜默消失,出事時查無 log 可對;
+  ②`security-log.ts:6`「絕不記 code/secret/session token」紅線零機械檢查——未來有人把 code 塞進
+  fields,沒有東西會紅=洩密走這條路不會被測試擋。
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #613`(CAS);信箱 `grep -rn '#613' ~/pcm-mailbox/*.md` ⇒ 保留前零命中。
