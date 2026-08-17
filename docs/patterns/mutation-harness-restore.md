@@ -280,6 +280,15 @@ beacon=NOT-EXECUTED(=②被抓到)。
 
 ⚠️ 信標寫進 stderr,vitest 會帶進你重導的 log;若你的跑法吞 stderr,信標盲。
 ⚠️ 信標只判「執行過」,不判「執行結果影響了斷言」——③ 的排除仍要人掃冗餘產出點。
+🔴 **還原機制對「你沒列進清單、卻被寫壞的檔」完全沉默(2026-08-18 實錘,harness 自己的 bug)**:
+harness 的 `restore_all` 只還原你列進去的 source 檔並印 RESTORE-OK ——而一個參數索引錯誤
+讓 `npx vitest … > "$LOG"` 的 `$LOG` 算成了【測試檔路徑】,vitest 輸出【覆寫進三個 tracked
+測試檔】(各被砍數百行)。cksum 對「我列的那些」全過、RESTORE-OK 照印——它對那三個
+【我沒列進還原清單】的檔是完全沉默的。⇒ 抓到它的【唯一】那道是**收工前的 `git status --porcelain`**:
+source 檔 cksum 還原騙不過「沒列進清單卻 M 了的檔」。⇒ **收工 git status 不是儀式,它是唯一
+涵蓋「我沒想到的檔」的那道。** root cause 同族「輸出的目標要由【結果】決定、不能算錯位置」——
+修法在機制層(重導目標槽與資料路徑槽分開),不是提醒層。
+
 🔴 **信標對【文字掃描型測試】盲(2026-08-18 F3 實錘)**:守門若是「掃 SQL/原始碼【文字】」
 而不執行被突變的 code(例:refund-remaining-single-source 掃 migration 文字),那你埋進
 註解的信標【永遠 NOT-EXEC】——因為那段根本沒被【跑】。⇒ 這裡 NOT-EXEC **不是**②(突變沒執行),
