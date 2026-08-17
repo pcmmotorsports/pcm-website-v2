@@ -679,6 +679,32 @@ export async function fetchCategories(): Promise<MockCategory[]> {
 const getVehicleTaxonomyCached = unstable_cache(
   async (): Promise<MockMotoBrand[]> => {
     const client = createSupabaseAnonClient();
+    /**
+     * 🔴 **這個值與 PostgREST `db-max-rows` 之間有一條【隱形依賴】**(2026-08-18 A 窗補;
+     * backlog **`#629`**;全文與分母 `docs/specs/2026-08-18-storefront-truncation-inventory.md` §3)。
+     *
+     * **要求**:`PAGE_SIZE` 必須**嚴格小於** `db-max-rows`
+     * (`docs/patterns/pagination-loop-review.md` 準則①)。
+     * **現況**:`1000 < 2000` ✅ —— `db-max-rows = 2000`,
+     * **量測**:2026-08-18 凌晨、正式站、storefront anon key 打 REST
+     * `products?select=id&limit=5000` ⇒ `206` + `content-range 0-1999/19777`
+     * (🔴 分母 19,777 > 2000 ⇒ 量到的是**天花板本人**,不是資料不夠)。
+     *
+     * 🔴🔴 **`db-max-rows` 只要低於 `PAGE_SIZE`,整份車款表就【停在第一頁那麼多】**
+     * (2026-08-18 C 窗開檔複核,更正我原本寫的「每頁少一筆、漸進漏」——**那個形狀會讓人低估它**):
+     * ```
+     * max-rows = 999 ⇒ 第 0 頁拿到 999   ⇒ 999 < 1000 為真 ⇒ 第 0 頁就 break
+     * max-rows = 500 ⇒ 第 0 頁被夾到 500 ⇒ 500 < 1000 為真 ⇒ 一樣第 0 頁就 break
+     * ⇒ 不是漸進漏，是【只剩一頁】。而畫面完全正常。
+     * ```
+     * 🔴 **而下面 `:722` 那道 `console.warn` 救不了這一面 —— 它裝在一條【到不了的路】上**:
+     * 它的條件是 `page === MAX_PAGES - 1`(第 49 頁才判),
+     * 而 `max-rows < PAGE_SIZE` 的世界**第 0 頁就 break** ⇒ **`page` 永遠走不到 49 ⇒ 那道 warn 一次都不會響**。
+     * ⚠️ **不要讀成「它沒有涵蓋 max-rows、再加一個條件就好」** —— 它守的是 `MAX_PAGES` 撞頂,
+     * 那是另一個世界;這一面會讓迴圈**在它之前就結束**。
+     * ⚠️ **`db-max-rows` 住在 Supabase 面板,不在這個 repo 裡**
+     * ⇒ 改它的人看不到這一行,而這一行是唯一寫著這個依賴的地方。
+     */
     const PAGE_SIZE = 1000;
     const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
     const fitments: NonNullable<MockProduct['fitments']> = [];
