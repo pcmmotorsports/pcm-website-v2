@@ -69,3 +69,23 @@ await,從不在真 await 25 裡),對帳抓到,正確=25−已修 2=23。
   pool threads singleThread,本節作廢、23 支要重分。
 - 🔴 野生 31fa9b7e 的併發源仍未定——跨檔共享被排除後,搜尋空間再縮一格
   (剩:單檔內 runner 自身的解析交錯、與 optimizer 中途重 bundle 一類 runner 內部路徑)。
+
+## 附:紅2(playwright ERR_EMPTY_RESPONSE)歸類挑戰結果(2026-08-18 凌晨;主視窗令,寫本檔不開新檔)
+
+主視窗假說=「server 沒 ready 就 goto、等待方沒等」。量完:**假說不成立,原歸類(第三族、
+測試碼層無一行修法)存活,且從假設升級成量到**。
+
+1 等法原文:cancel-forms-hydrated.test.tsx:302 `await new Promise<void>((r) => server.listen(0, r));`
+  → :311 goto。有等,等的是 listen(無輪詢 200、無 sleep)。
+2 錯誤形狀三世界(chain7 拋棄式探針,同 playwright chromium,已刪;shapes 檔在 T 線 scratchpad):
+  W1 回應極慢(40s)⇒ `TimeoutError: page.goto: Timeout 30000ms exceeded`——與現場【不同形】
+  W2 goto 進行中 server 被 close ⇒ `Error: page.goto: net::ERR_EMPTY_RESPONSE`——與現場【逐字同形】
+  W3 正常 ⇒ NO-ERROR
+  ⇒ 「起得慢+沒等」印的是 Timeout 形;現場的 EMPTY_RESPONSE 只有「連線中途被關」印得出來。
+  加輪詢就緒【修不到】這個病 ⇒ 一行修法不存在於此。
+3 現場 log 再讀(logs/four-greens/6e292a68-…223236-59394/vitest.full.log:92-98):
+  該檔 5 格 4 綠 1 紅、紅格 169ms=秒殺形;同格 finally 在 goto pending 時結構上走不到、
+  跨檔連行程都不共享(chain6)⇒ 檔內找不到那個「關掉它的東西」。
+4 W4(同 browser 連線池+port 重用+舊 keep-alive)⇒ NO-ERROR ×3,此候選不重現。
+⇒ 剩餘候選=Chromium network service 在高壓下自關 socket / OS 層 teardown,皆在測試碼層之外;
+  歸「第三族、觀察收集」正確。⚠️ 檢定力:野生 1 例、各世界 1-3 rep,同 1/24 那條限定。
