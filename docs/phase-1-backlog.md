@@ -16498,3 +16498,35 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   📎 **依據是一個已經發生過的好處,不是一個道理**:2026-08-17 T 窗把定位器重構成**純函式**,
   **而那讓 V 窗可以把它移植出來實跑** ⇒ **可測性與可審性同源**。
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #620`(git ref CAS)。
+
+### #621 · pre-push hook 的三綠會命中 turbo 快取 ⇒ 前半是重播的綠(2026-08-17 真上線實測)
+
+- **狀態:** ⏳ 待執行。🔴 **這是機制缺口,不是紀律問題** —— 那條命令是 hook 自己寫的,不是人忘了加。
+- **實測輸出(2026-08-17 17:39 Sean 真推 270 顆時,pre-push 印的):**
+  ```
+  Tasks:  8 successful, 8 total
+  Cached: 8 cached, 8 total          ← 🔴 全部命中快取
+  Time:   100ms >>> FULL TURBO
+  lint 同：10 cached, 10 total / 406ms >>> FULL TURBO
+  ```
+  🔴 那正是 `CLAUDE.md` 鐵則 11 明文記的坑:**三綠指令一律加 `TURBO_FORCE=1`,
+  少了它 turbo 命中既有快取時會 replay 舊的綠**(`#524`)。
+- ✅ **而不是完全沒驗,口徑要準**:那條命令的**後半**(`tsc -p tsconfig.scripts.json --noEmit`
+  / `eslint 'scripts/*.ts'`)**不吃 turbo 快取,是真的跑了且過了**。
+  ⇒ 🔴 **正確口徑 =「前半重播、後半實跑」,不得寫成「pre-push 三綠通過」。**
+- 🔴 **同一次推另有一件要一起記(不是本條要修的,但同一個現場):**
+  ```
+  remote: Bypassed rule violations for refs/heads/dev:
+  remote: - Required status check "check" is expected.
+  ⇒ GitHub 分支保護要求 CI 通過才能推，而權限直接繞過
+  ⇒ 🔴 意思是【這次上線沒有經過 CI】。有那個權限、不是錯，但要記。
+  ```
+  📎 而 `STATUS.md` Blocker 欄早就寫著「**CI 不是閘、是事後警報,而沒有人在看**」——
+  ⇒ **今天那句從「描述」變成「發生過」。**
+- **不修未來會痛在哪:** pre-push 是**上線前最後一道自動檢查**,而它現在
+  **在「真的綠」與「重播舊的綠」兩個世界印同一組數字**(`#524` 逐字:真跑與 replay 印的完全相同)。
+  ⇒ 🔴 **它不是失效,是【失去判別力】** —— 而那比失效難發現,因為它照樣會擋真正的紅…
+  **只要那個紅沒有被快取過。**
+- **修法方向:** hook 裡那條命令加 `TURBO_FORCE=1`(與鐵則 11 的三綠指令對齊)。
+  ⚠️ 代價要一起評:pre-push 會從 `100ms` 變成十幾秒到一分鐘 —— **那是要不要付的取捨,不是我可以自己拍的。**
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #621`(git ref CAS)。
