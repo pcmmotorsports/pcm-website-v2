@@ -194,11 +194,22 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
 });
 
 describe('CancelReviewSection — 不可取消時逐條文案', () => {
-  it('已付款 ⇒ 說「這期還不能」而不是「不能取消」(Sean 07-26 拍已付款可取消,缺口在第 3 批)', () => {
+  // 🔴 2026-08-18 文案審查(E-706 §1)只改字面,**本格守的意圖一個字沒變**:
+  //    「已付款不能取消」是【暫時】的(Sean 07-26 拍已付款可取消,缺口在第 3 批)
+  //    ⇒ 畫面上必須讀得出暫時性,不可以講死。
+  //    改的原因:原字面用「這期」—— 那是我們的開發週期,員工的世界裡沒有這個詞
+  //    (同族還有「退款線」「開通」)。⇒ 換成白話的「目前」:暫時性不變、內部語彙消失。
+  //    ⚠️ 本格因此**同時**斷言三件事,而不是只換一個字串。
+  it('已付款 ⇒ 要讀得出「目前」還不能(暫時),不可以講死、也不可以用內部語彙', () => {
     const { container } = render(
       <CancelReviewSection detail={detail({ paymentStatus: 'paid' })} />,
     );
-    expect(container.textContent).toContain('這期還不能在這裡取消');
+    expect(container.textContent).toContain('目前還不能在這裡取消');
+    // 🔴 負向:不得退回沒有暫時性副詞的講死版本 —— 那正是這格當初要擋的東西
+    expect(container.textContent).not.toContain('已付款的單不能在這裡取消');
+    // 🔴 內部語彙不得回流
+    expect(container.textContent).not.toContain('這期');
+    expect(container.textContent).not.toContain('退款線');
   });
 
   it('自動失效 ⇒ 說「未付款已自動失效」,不說「已經取消過」', () => {
@@ -230,7 +241,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
       />,
     );
     expect(container.querySelectorAll('li').length).toBeGreaterThanOrEqual(3);
-    expect(container.textContent).toContain('這期還不能在這裡取消');
+    expect(container.textContent).toContain('目前還不能在這裡取消');
     expect(container.textContent).toContain('付款狀態沒有讀完整');
     expect(container.textContent).toContain('品項太多');
   });
@@ -242,7 +253,7 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
     );
     expect(paid.container.textContent).not.toContain('還在進行中');
     // 擋人是對的,錯的只有理由 ⇒ 該說的那句仍要在。
-    expect(paid.container.textContent).toContain('這期還不能在這裡取消');
+    expect(paid.container.textContent).toContain('目前還不能在這裡取消');
 
     // 🔴 正向對照:未付款 + 在途,那句是真的,不可以連它一起消失。
     const unpaid = render(

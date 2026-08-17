@@ -162,7 +162,9 @@ function ProcurementRows({
               <td className={TD}>
                 {/* 🔴 label 為 null = 內嵌沒回來(A9a-2),不是「這家沒有名字」⇒ 誠實顯示缺 */}
                 <span className={voided ? 'line-through' : undefined}>
-                  {p.supplierLabel ?? <span className='text-muted-foreground'>(供應商資料缺)</span>}
+                  {p.supplierLabel ?? (
+                    <span className='text-muted-foreground'>(查不到這家供應商)</span>
+                  )}
                 </span>
                 {/* 🔴 作廢標示排在停用標示**之前**:兩者可以同時成立,而「這筆撤了」比
                     「這家停用了」更決定員工的下一步(撤了就別再看這一列)。 */}

@@ -114,13 +114,13 @@ describe('ItemProcurementSection — 採購列顯示', () => {
   });
 
   // 🔴 A9a-2:label 為 null = 內嵌沒回來,不是「這家沒有名字」⇒ 誠實顯示缺、不得空白
-  it('supplierLabel 為 null → 顯示「(供應商資料缺)」', () => {
+  it('supplierLabel 為 null → 顯示「(查不到這家供應商)」', () => {
     const d = detail();
     d.items[0]!.procurements = [proc({ supplierLabel: null })];
     const { getByText } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
-    expect(getByText('(供應商資料缺)')).toBeTruthy();
+    expect(getByText('(查不到這家供應商)')).toBeTruthy();
   });
 
   it.each([

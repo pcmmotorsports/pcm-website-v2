@@ -82,7 +82,7 @@ export function OrderEditForm({
           name={INVOICE_NUMBER_FIELD}
           defaultValue={detail.invoiceNumber ?? ''}
           maxLength={64}
-          placeholder='留空=清除'
+          placeholder='不填就會清空'
           className={ADMIN_INPUT_CLASS}
         />
       </AdminFormField>
@@ -93,7 +93,7 @@ export function OrderEditForm({
           inputMode='numeric'
           name={INVOICE_AMOUNT_FIELD}
           defaultValue={detail.invoiceAmount ? String(detail.invoiceAmount.amount) : ''}
-          placeholder='留空=清除'
+          placeholder='不填就會清空'
           className={ADMIN_INPUT_CLASS}
         />
       </AdminFormField>

@@ -169,7 +169,10 @@ export function CancelFormBody({
               rows={2}
               required={enhanced}
               className='border-input bg-background rounded-md border px-3 py-2 text-sm'
-              placeholder='選「其他」時必填;選其他原因時請留空,填了會被退回。'
+              /* 🔴 2026-08-18 文案審查(E-706 §3):原字面「選「其他」時必填;選其他原因時請留空」
+                 —— 「選「其他」」與「選其他原因」**只差一組引號、意思相反**,並排在同一句裡
+                 會被讀成同一件事。改成把「只有」提到句首,兩半的主詞就分得開。 */
+              placeholder='只有原因選「其他」時才填;其他原因請留空,填了會被退回。'
             />
           </AdminFormField>
         )}
