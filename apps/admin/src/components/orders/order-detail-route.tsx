@@ -166,7 +166,7 @@ export async function OrderDetailRoute({
   if (detail !== null) {
     try {
       const full = await getAdminOrderRepository().listOrderItemsForDetail(id);
-      detail = mergeDetailItems(detail, full.items);
+      detail = mergeDetailItems(detail, full.items, full.reportedTotal);
     } catch (e) {
       console.error('[admin/order-detail] 品項清單撈到盡失敗(整頁 fail-closed,不退回內嵌那份)', e);
       detail = null;

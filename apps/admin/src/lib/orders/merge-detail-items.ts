@@ -41,7 +41,24 @@ import type { AdminOrderDetail, AdminOrderDetailFullItem } from '@pcm/domain';
 export function mergeDetailItems(
   detail: AdminOrderDetail,
   fullItems: readonly AdminOrderDetailFullItem[],
+  reportedTotal: number | null,
 ): AdminOrderDetail {
+  // 🔴🔴 **對帳:撈到的筆數與伺服器說的對不上 ⇒ 這份【不是完整的】**(codex 2026-08-18 MF-1)。
+  //    `reportedTotal` 取自第一頁的 `count: 'exact'`。
+  //    ⚠️ **第一版沒有這道,而它是本片最嚴重的洞**:撈到盡那支若少撈了,
+  //    下面那個 `itemsTruncated: false` 會讓摘要卡、出貨狀態、取消複核
+  //    **開始相信一份殘缺的清單** ⇒ 🔴 **從 fail-closed 變成 fail-open**,
+  //    而那正是本片要修的病、換一個位置發作。
+  //
+  // 🔴 **這裡【不 throw】,與建箱候選那條刻意不同** ——
+  //    建箱候選沒有「顯示不完整」這個 UI,只能整區失敗;
+  //    而明細頁**本來就有那一套**(`itemsTruncated` ⇒ 摘要印「未知」、取消區 fail-closed)。
+  //    ⇒ **讓那一套接手,比丟掉整頁好** —— 員工至少還看得到單號、收款、退款。
+  //
+  // ⚠️ **`reportedTotal === null` 不算對不上** —— 那是「伺服器沒給 count」,不是「數字不符」。
+  //    把它當成截斷會讓一個【正常但沒 count 的回應】把整頁降級。
+  const incomplete = reportedTotal !== null && fullItems.length !== reportedTotal;
+
   // 內嵌那份按 id 索引 —— 它帶著採購資料,而撈到盡那份沒有。
   const embedded = new Map(detail.items.map((it) => [it.id, it]));
 
@@ -69,9 +86,11 @@ export function mergeDetailItems(
         procurementTruncated: true,
       };
     }),
-    // 🔴 品項清單本身現在完整了 ⇒ 這個旗標必須翻成 false,否則畫面會對一份
-    //    **真的完整**的清單說「沒有列完」—— 那會讓取消複核區永遠 fail-closed。
-    //    ⚠️ 而它翻成 false 的代價寫在本函式的 docstring:採購那面只剩 per-item 那道。
-    itemsTruncated: false,
+    // 🔴 品項清單完整時翻成 false —— 否則畫面會對一份**真的完整**的清單說「沒有列完」,
+    //    而那會讓取消複核區**永遠** fail-closed(那張單永遠取消不了)。
+    // 🔴🔴 **而對帳不過時它必須留著 `true`** —— 見上方 `incomplete` 那段。
+    //    ⚠️ **這一行是本片 fail-open / fail-closed 的分界**:
+    //    寫死 `false` 的版本在「撈到盡少撈了」時會讓整頁相信殘缺的清單。
+    itemsTruncated: incomplete,
   };
 }
