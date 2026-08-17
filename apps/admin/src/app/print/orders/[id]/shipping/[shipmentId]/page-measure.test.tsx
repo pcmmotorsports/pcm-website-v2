@@ -109,7 +109,17 @@ function builtCss(): { css: string; files: string[] } {
   return { css: parts.join('\n'), files: used };
 }
 
-function detail(itemCount: number): AdminOrderDetail {
+/**
+ * 🔴 `withQuantity` 存在的唯一理由:**`quantitySummary: null` 的揀貨單不是一張可以揀的紙。**
+ * 預設的 `null` 會讓每一列都印「數量資料尚未就緒 / 這一項不要揀」、**一個勾選框都沒有**
+ * (`picking-doc.tsx` 的面5)⇒ 那份 fixture 只能當「品項表印得出來」的正向對照。
+ *
+ * 而 `B` 態(`itemsTruncated`)要看的東西**恰好相反**:它的病是
+ * **「這張紙看起來完整、可以照著揀」**,所以量它的 fixture **必須真的有勾選框與應揀數量**,
+ * 否則量到的是一張本來就不能用的紙 —— 那會把「B 有多危險」整個量不到。
+ * ⇒ `instock 3 − shipped 0 = 3` ⇒ 每一列都有框、都印放大的 `3`。
+ */
+function detail(itemCount: number, withQuantity = false): AdminOrderDetail {
   const items = Array.from({ length: itemCount }, (_, i) => ({
     id: `item-${i}`,
     variantSku: `SKU-${String(i).padStart(4, '0')}-LONG`,
@@ -120,7 +130,15 @@ function detail(itemCount: number): AdminOrderDetail {
     lineTotal: { amount: 222549, currency: 'TWD' },
     procurements: [],
     procurementTruncated: false,
-    quantitySummary: null,
+    quantitySummary: withQuantity
+      ? {
+          quantity: 3,
+          orderedQuantity: 3,
+          instockQuantity: 3,
+          cancelledQuantity: 0,
+          shippedQuantity: 0,
+        }
+      : null,
   }));
   return {
     id: ORDER,
@@ -196,8 +214,9 @@ async function emitPicking(
   itemCount: number,
   name: string,
   over: Partial<AdminOrderDetail> = {},
+  withQuantity = false,
 ): Promise<string> {
-  const d = { ...detail(itemCount), ...over } as AdminOrderDetail;
+  const d = { ...detail(itemCount, withQuantity), ...over } as AdminOrderDetail;
   mocks.findAdminOrderDetail.mockResolvedValue(d);
 
   const { container } = render(await OrderPickingPrintPage({ params: Promise.resolve({ id: ORDER }) }));
@@ -276,6 +295,56 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     expect(empty).toContain('本單不得出貨');
     expect(empty).toContain('讀不到任何品項');
     expect(empty).not.toContain('<table');
+  });
+
+  it('🔴 揀貨單 `B` 態 ⇒ 產出 picking-truncated.html(表【在】紙上而少了幾列)', async () => {
+    // 🔴🔴 **為什麼 `B` 要單獨一份,而不是沿用上面那三份**:
+    //    A(已取消)/ C(讀不到品項)兩種的品項表**不在紙上** ⇒ 印出來明顯不能用。
+    //    `B` 是唯一一種**表在紙上、而它少了幾列**的 ——
+    //    揀的人一列一列勾完,紙上看起來就是揀完了,**少的那一件零症狀**,到客人收到貨才發現。
+    //    ⇒ 要量的正是「這張紙看起來多完整」,所以這一份**必須有勾選框**(`withQuantity`)、
+    //      而且**必須多品項**(12 項 = Sean 要看的「乘出來」的樣子),不能用 3 項糊弄。
+    //
+    // ⚠️ **本份 fixture 量得到的是【紙】,不是【旗標對不對】。**
+    //    `itemsTruncated` 是上游給的旗標,`picking-doc` 只是忠實反映它;
+    //    上游該 `true` 卻算成 `false` ⇒ 紙少列而 B 根本不觸發 ⇒ 這一份看不到那個世界。
+    //    洞在旗標來源(`ORDER_ITEMS_EMBED_LIMIT`),不在這支檔。(`C-223` §3 的射程上限)
+    const truncated = await emitPicking(12, 'picking-truncated', { itemsTruncated: true }, true);
+
+    // ── B 態的三個字面(頁首 Alert / 表頭那句 / 合計旁那句)──
+    expect(truncated).toContain('達到 200 筆上限');
+    expect(truncated).toContain('未載完,不是總數');
+    expect(truncated).toContain('清單沒載完');
+    // 🔴 **這一份與 A / C 的差別就是這兩格**:表在、而且真的有框可以勾。
+    //    沒有這兩格,一份「表被擋掉」的產出也會通過上面三格,而那是另一種紙。
+    expect(truncated).toContain('<table');
+    expect(truncated).toContain('picking-checkbox');
+    expect(truncated).toContain('SKU-0011-LONG');
+
+    // 🔴 **負向對照(同樣 12 項、只差旗標)**:上面那三個字面必須【消失】,
+    //    而勾選框必須【還在】—— 兩個方向都要動,才證得了「那三句是旗標帶出來的」
+    //    而不是「這個版面本來就長那樣」。
+    const normal = await emitPicking(12, 'picking-12item', {}, true);
+    expect(normal).not.toContain('達到 200 筆上限');
+    expect(normal).not.toContain('未載完,不是總數');
+    expect(normal).not.toContain('清單沒載完');
+    expect(normal).toContain('picking-checkbox');
+    // 🔴 再一發:`withQuantity` 沒生效的世界裡,上面那個 `picking-checkbox` 會消失
+    //    而其他格照樣全過 ⇒ 這一格釘的是「勾選框是我餵的數量帶出來的」。
+    const noQty = await emitPicking(12, 'picking-12item-noqty');
+    expect(noQty).not.toContain('picking-checkbox');
+    expect(noQty).toContain('數量資料尚未就緒');
+
+    // 🔴🔴 **真尺寸那一份**:`B` 態的觸發條件是**剛好載到 200 筆**
+    //    (`ORDER_ITEMS_EMBED_LIMIT = 200`,`packages/adapters/src/supabase/mappers/order.ts:407`,
+    //     判定用 `>=`)⇒ **真的印出來是 200 列**,不是上面那 12 列。
+    //    ⚠️ 上面那份 12 項的用途是**看得懂的縮尺樣本**;
+    //       **任何「多幾頁 / 標記落在第幾頁」的數字都只能拿這一份量**,不能拿 12 項那份換算。
+    //       (Sean 2026-08-17 業務事實:一張訂單品項**可能到 200 個** ⇒ 這不是未來風險,是上緣。)
+    const real = await emitPicking(200, 'picking-truncated-200', { itemsTruncated: true }, true);
+    expect(real).toContain('SKU-0199-LONG');
+    expect(real).not.toContain('SKU-0200-LONG');
+    expect(real).toContain('達到 200 筆上限');
   });
 
   it('🔴 `#601` 阻印狀態 ⇒ 產出 shipping-blocked.html(那一幅要真的印出來看)', async () => {
