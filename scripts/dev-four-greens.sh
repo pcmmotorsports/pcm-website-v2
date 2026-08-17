@@ -28,7 +28,13 @@
 #    —— 數字離開量測現場就要帶著範圍走,所以那四樣要跟結果一起複製。
 
 set -e
-cd "$(dirname "$0")/.."
+# 🔴 在 cd 之前把自己的絕對路徑存起來 —— 格19 要 grep 本檔,而 cd 之後 `$0` 這個相對路徑
+#    只有「從 repo 根呼叫」那一種情況還解得開,其餘全解不開 ⇒ 那格會變成假紅。
+# 🔴 `CDPATH=` 不可省(codex R1 F6 實測):使用者環境若有 `CDPATH=.`,`cd` 會把它解到的路徑
+#    印到 stdout ⇒ 這個 command substitution 收到【兩行】⇒ SELF 變成一個含換行的爛路徑。
+#    下面那個 cd 同理 —— 它壞掉整支腳本就跑錯目錄,而畫面上不會有任何一行字說它跑錯了。
+SELF="$(CDPATH= cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+CDPATH= cd "$(dirname "$0")/.."
 RUNRC="scripts/run-rc.sh"
 
 # 🔴 【尾 N 行】落在 repo 內的 logs/ 而不是系統暫存區(logs/ 已在 .gitignore)。
@@ -109,6 +115,7 @@ one() {
 }
 
 four_greens() {
+  FP_START="$(tree_fingerprint)"
   echo "───── 這份結果量的是 ─────"
   echo "樹      : $(pwd)"
   echo "分支    : $(git branch --show-current)"
@@ -145,7 +152,64 @@ four_greens() {
     echo "   四項各自的 log:"
     ls -t "$(logdir_for "$MODE")" 2>/dev/null | head -4 | sed "s|^|     $(logdir_for "$MODE")/|"
   fi
+  drift_report "$FP_START" "$(tree_fingerprint)" "$(logdir_for "$MODE")"
   verdict "$tc" "$li" "$bu" "$vi"
+}
+
+# ── DRIFT:這一發【期間】樹有沒有被動過 ────────────────────────────────────
+# 病:目錄名的 hash 是【跑之前】取的,而後段項目量的是【當下】的樹 ⇒ 兩個世界零痕跡:
+#   ① 中途有人 commit ⇒ 目錄名指的樹 ≠ 實際量的樹
+#   ② 髒樹跑(slice 流程本來就是先跑四綠再 commit)⇒ 目錄名 = 父 commit,量的是父 + 未提交改動
+# 🔴 兩種 run 的目錄名【長得一樣】。⇒ 頭尾各取一次指紋,不同就落一支 DRIFT 標記檔。
+#
+# 🔴 上一版(`#620` 撤回的那份)整組的病都長在【沒有這一跳】:判定寫成 four_greens 裡的
+#    一行 inline `if [ "$FP_START" != "$FP_END" ]`,格子碰不到它 ⇒ 改成 `if false` 照樣 22/22 全綠。
+#    ⇒ 本版把判定與落痕跡都抽成吃【字串】的函式,格子餵構造好的指紋去打它。
+drifted_between() { [ "$1" != "$2" ]; }
+
+# 判定 + 落痕跡 + 印警告。三個參數全是字串:不自己取指紋、不自己算目錄
+# ⇒ selftest 餵得到,而且靶是它自己造的暫存目錄,**不是現場的 logs/**
+#   (`docs/patterns/mutation-harness-restore.md`:拿來當靶的要是你造的,不是現場的)。
+# 🔴 變數名刻意不用 `d` —— one() 的 `d` 是同一個全域(POSIX sh 無 local),上一版就是這麼撞的。
+drift_report() {
+  dr_start=$1; dr_end=$2; dr_dir=$3
+  drifted_between "$dr_start" "$dr_end" || return 0
+  mkdir -p "$dr_dir"
+  printf '開始 %s\n結束 %s\n' "$dr_start" "$dr_end" > "$dr_dir/DRIFT"
+  echo
+  echo "🔴 DRIFT:這一發【跑到一半樹被動過】 —— 目錄名指的不是它實際量的東西。"
+  echo "   開始 $dr_start"
+  echo "   結束 $dr_end"
+  echo "   ⇒ 這一發的結果【不要拿去背書任何一顆 commit】,重跑一次。"
+  echo "   痕跡落在 $dr_dir/DRIFT"
+}
+
+# 樹態指紋。三欄:HEAD + 未提交【檔案清單】的 cksum + 已追蹤【內容】的 cksum。
+# 🔴 上一版第三欄是 `git status --porcelain | wc -l`(**行數**)⇒ 開跑前已髒、途中把該檔內容
+#    整個換掉而行數不變 ⇒ 前後都 `dirty=1`、**零 DRIFT**,而那正是檔頭點名的「髒樹跑 = 常態」。
+#    ⇒ 換成兩個 cksum:清單那欄抓「換了哪一支」,內容那欄抓「同一支裡改了什麼」。
+# 🔴 三欄各自帶【失敗字面】,不可以讓 git 失敗長得像「乾淨的樹」(codex R1 F2)——
+#    `git status … | cksum` 這種寫法,git 死掉時 cksum 吃到空輸入,回的是一個**固定的數**
+#    (`4294967295 0`)⇒ 前後兩次都拿到同一個常數 ⇒ **DRIFT 永遠不亮,而畫面上一切正常**。
+#    那正是上一版 F5 被打掉的那個病,只是換一個位置長出來。
+#    ⇒ 改成先接住 git 的 rc,失敗就寫 `GITFAIL-*` 進指紋,再由格14-0 把這件事變成一格。
+# ⚠️ **兩條射程限定(未守,明寫不假裝)**:
+#    ① `git diff HEAD` 看不到**未追蹤檔的內容** ⇒ 只改一支未追蹤檔的內容(檔名沒變)⇒ 不亮。
+#       (未追蹤檔的**增刪**看得到 —— 那是 `-uall` 那一半;看不到的是**內容**。)
+#    ② **ABA**:期間被改動、收尾前又改回原狀 ⇒ 頭尾指紋相同 ⇒ 不亮(codex R1 F7)。
+#       頭尾兩點取樣天生看不到中間,要看得到得改成持續監看,不在本片範圍。
+# ⚠️ 它記的是「這一發【期間】樹有沒有動」,**不是**「這一發量的是哪一版」。
+tree_fingerprint() {
+  fp_head="$(git rev-parse HEAD 2>/dev/null)" || fp_head=nohead
+  # 🔴 `-uall` 不可省(codex R2):預設 `git status --porcelain` 會把一整個未追蹤【目錄】
+  #    縮成一列 `?? dir/` ⇒ 在那個目錄裡增檔刪檔,指紋一個位元都不會變。
+  if fp_st="$(git status --porcelain -uall 2>/dev/null)"; then
+    fp_st="$(printf '%s' "$fp_st" | cksum | tr -d ' ')"
+  else fp_st=GITFAIL-status; fi
+  if fp_df="$(git diff HEAD 2>/dev/null)"; then
+    fp_df="$(printf '%s' "$fp_df" | cksum | tr -d ' ')"
+  else fp_df=GITFAIL-diff; fi
+  echo "$fp_head $fp_st $fp_df"
 }
 
 # 四項全 0 才回 0。抽成函式【只為了讓 selftest 餵得到它】——
@@ -277,6 +341,100 @@ selftest() {
   #   **那件事零守門** —— 把路徑改成 `/tmp/…` ⇒ 前面每一格照樣綠(R2 F-7 實測)。
   ck "格13 log 落在 repo 內的 logs/four-greens/ 底下" \
      "$(in_stamp "$(logdir_for run)" "$(pwd)/logs/four-greens/")" "yes"
+
+  # ── 格14-0~格19:DRIFT ────────────────────────────────────────────────────
+  # 🔴 上一版(撤回的那份)這一族有 5 條 must-fix,而**它們全部長在同一個形狀上**:
+  #    格子驗的是「兩次呼叫同一支函式會不會相等」(恆真)與字串運算(不是那支函式)
+  #    ⇒ 把函式換成 `echo CONSTANT`、把判定換成 `if false`,22/22 照樣全綠。
+  #    ⇒ 本版一律【餵構造好的值給抽出來的函式】,而且靶是自造的拋棄式 repo / 暫存目錄。
+
+  # 格14-0:鏡像格8-0。git 不可用時三欄會一起塌成常數 ⇒ 前後恆等 ⇒ DRIFT 恆不亮。
+  #   🔴 codex R1 F1 指出上一輪只擋字面 `nohead`,任何【別的常數】照樣過這一格。
+  #      —— 那半是對的,而「其餘五格全綠」不成立:突變 M3(`echo CONSTANT`)實測**格15 會紅**。
+  #      本輪仍收緊這一格,理由是【每一格要能自己說出它守什麼】,不靠隔壁那格兜底。
+  #   ⇒ 改成釘 HEAD 欄的形狀(40 個 hex)+ 兩個 GITFAIL 字面。
+  fp_now="$(tree_fingerprint)"
+  fp_h="${fp_now%% *}"
+  case "$fp_h" in
+    *[!0-9a-f]*) r=bad ;;
+    *) [ "${#fp_h}" = 40 ] && r=ok || r=bad ;;
+  esac
+  #   🔴 標籤照 codex R2 收窄:它擋的是 `nohead` 與**非 hex 的**常數。
+  #      一個【40 碼小寫 hex 的寫死常數】仍然過得了這一格 —— 那個世界由格15 擋(實測 M3/M7 會紅)。
+  #      宣稱不可以大於事實:這一格說得出「HEAD 欄長得像 hash」,說不出「它是真的 HEAD」。
+  ck "格14-0 指紋 HEAD 欄是 40 碼 hex(擋 nohead 與非 hex 常數;擋不了 hex 常數)" "$r" "ok"
+  case "$fp_now" in *GITFAIL*) r=yes ;; *) r=no ;; esac
+  ck "格14-1 指紋不含 GITFAIL(git 死掉不得長得像乾淨的樹)" "$r" "no"
+  # 格14-2 [兩個世界]:在【非 git 目錄】跑 ⇒ 上面兩格守的東西必須真的出現,證它們不是恆真。
+  #   🔴 `GIT_CEILING_DIRECTORIES` 不可省(codex R2):`mktemp -d` 只保證目錄是新的,
+  #      **不保證它的祖先裡沒有 `.git`**(TMPDIR 被指到某個 worktree 底下就破功)——
+  #      那樣這一格的「非 git 目錄」前提就是假的。天花板一釘,git 不會往上走。
+  nogit_tmp="$(mktemp -d)"
+  fp_nogit="$(cd "$nogit_tmp" && GIT_CEILING_DIRECTORIES="$nogit_tmp" tree_fingerprint)"
+  rmdir "$nogit_tmp"
+  case "$fp_nogit" in 'nohead '*GITFAIL*) r=yes ;; *) r=no ;; esac
+  ck "格14-2 [負向對照] 非 git 目錄的指紋要自己承認(nohead + GITFAIL)" "$r" "yes"
+
+  # 格15/16:指紋對【內容】有沒有判別力 —— 在【自造的拋棄式 repo】上跑,不動現場的樹。
+  #   🔴 格15 就是上一版 F4 的「世界 C」:開跑前已髒、途中把該檔內容整個換掉、**行數不變**
+  #      ⇒ 舊指紋(`wc -l`)前後同值、零 DRIFT。它同時也擋住「函式被換成常數」那個突變。
+  #   🔴 `-c` 那一串是 codex R1 F5 打出來的:拋棄式 repo 會繼承使用者/CI 的 `init.templateDir`
+  #      (帶 hooks)與 `commit.gpgsign` ⇒ 別台機器上這兩格會變成**環境性假紅**。
+  #      🔴 codex R2 又補一刀:`--no-verify` **只跳過 pre-commit / commit-msg**,
+  #         `prepare-commit-msg`、`post-commit` 照跑,而全域 `core.hooksPath` 更是繞過樣板那道。
+  #         ⇒ 直接把 hooksPath 指到一個不存在的地方,才是真的沒有 hook。
+  #      📌 這一段全部是在治【假紅】 —— 一格在該綠的世界誤紅,比沒有那一格更糟:
+  #         它會讓下一個人以為 DRIFT 壞了,然後把整族格子關掉。
+  drift_tmp="$(mktemp -d)"
+  ( cd "$drift_tmp" && git -c init.templateDir= -c core.hooksPath=/dev/null init -q . \
+    && printf 'AAA\n' > f.txt && git -c core.hooksPath=/dev/null add f.txt \
+    && git -c user.email=t@example.invalid -c user.name=t -c commit.gpgsign=false \
+         -c core.hooksPath=/dev/null commit -q --no-verify -m base ) >/dev/null 2>&1
+  fp_a="$(cd "$drift_tmp" && printf 'XXX\n' > f.txt && tree_fingerprint)"
+  fp_b="$(cd "$drift_tmp" && printf 'YYY\n' > f.txt && tree_fingerprint)"
+  fp_b2="$(cd "$drift_tmp" && tree_fingerprint)"
+  #   格15-b:未追蹤【目錄】裡增檔 —— 預設 `git status --porcelain` 把整個目錄縮成一列 `?? sub/`,
+  #   多一支檔它一個位元都不變(codex R2)。這一格釘的就是 `-uall`。
+  fp_c="$(cd "$drift_tmp" && mkdir -p sub && printf 'x\n' > sub/one.txt && tree_fingerprint)"
+  fp_d="$(cd "$drift_tmp" && printf 'y\n' > sub/two.txt && tree_fingerprint)"
+  rm -rf "$drift_tmp"
+  [ "$fp_a" != "$fp_b" ] && r=diff || r=same
+  ck "格15 [世界C] 髒樹內容被換掉而檔數不變 ⇒ 指紋必須不同" "$r" "diff"
+  [ "$fp_b" = "$fp_b2" ] && r=same || r=diff
+  ck "格16 [正向對照] 樹沒動 ⇒ 指紋必須相同(證格15 不是恆 diff)" "$r" "same"
+  [ "$fp_c" != "$fp_d" ] && r=diff || r=same
+  ck "格15-b 未追蹤目錄裡多一支檔 ⇒ 指紋必須不同(釘 -uall)" "$r" "diff"
+
+  # 格17/18:DRIFT 判定【本體】—— 餵構造好的指紋字串,靶目錄自己造。
+  #   把 drifted_between 改成 `false`(或 `true`)⇒ 兩格必有一格紅。
+  dr_tmp="$(mktemp -d)"
+  drift_report "same-fp" "same-fp" "$dr_tmp/nodrift" >/dev/null 2>&1
+  [ -e "$dr_tmp/nodrift/DRIFT" ] && r=yes || r=no
+  ck "格17 [正向對照] 兩個指紋相同 ⇒ 不得落 DRIFT 檔" "$r" "no"
+  dr_out="$(drift_report "fp-開始" "fp-結束" "$dr_tmp/drift" 2>&1)"
+  r="$(tr '\n' ' ' < "$dr_tmp/drift/DRIFT" 2>/dev/null || true)"
+  rm -rf "$dr_tmp"
+  ck "格18 兩個指紋不同 ⇒ DRIFT 檔要帶【兩個】指紋原字" "$r" "開始 fp-開始 結束 fp-結束 "
+  # 格18-b:🔴 codex R1 F4 —— 格18 只驗【檔】,而人看到的是【螢幕上那段字】。
+  #   把整段 echo 刪掉 ⇒ 檔還在、格18 照樣綠,而跑的人什麼都不會看到(DRIFT 又不改 rc)。
+  case "$dr_out" in *DRIFT*不要拿去背書*) r=yes ;; *) r=no ;; esac
+  ck "格18-b DRIFT 要印在螢幕上(檔案有痕跡不等於人看得到)" "$r" "yes"
+
+  # 格19:釘住呼叫點 —— 格17/18 證的是那支函式會做對的事,證不到 four_greens 有沒有用它
+  #   (= 上一版 F3「判定本體零守門」剩下的那一跳)。
+  #   ⚠️ **這格的射程只到「原始碼裡那一行還在」**,不是「那一行執行過」——
+  #      要證後者得真跑一次四綠,而那要 15-60 秒 × 4。明寫,不假裝已守。
+  #   🔴 pattern 是【拼出來的】,為的是不讓本行自己命中自己(偵測字串自命中)——
+  #      第一版寫成完整字面 `'^  drift_report '`,實跑得到 **3**(呼叫點 1 + 格17/18 那兩行),
+  #      而那兩行同樣是兩格縮排。⇒ 改成鎖 `$FP_START`,並把字面拆成兩段接起來。
+  #   🔴 而 codex R1 F3 又打掉一次:只 grep 整份檔案 ⇒ 把呼叫行從 four_greens【搬到別的函式】
+  #      仍然是 1 ⇒ 照樣 PASS。⇒ 先用 sed 切出 four_greens() 的函式體,只在那一段裡數。
+  #   ⚠️ **這個範圍表達式的前提(codex R2 指出,寫下來不假裝沒有)**:four_greens() 的函式體裡
+  #      不能出現任何【第一欄就是 `}`】的行,否則範圍會提早收掉 ⇒ 假紅。落筆當下成立,
+  #      數法 `sed -n '/^four_greens() {$/,/^}$/p' scripts/dev-four-greens.sh | grep -c '^}'` ⇒ 1(只有結尾那個)。
+  anchor='^  drift_'"report \"\$FP_START\""
+  r=$(sed -n '/^four_greens() {$/,/^}$/p' "$SELF" | grep -c "$anchor" || true)
+  ck "格19 呼叫點在 four_greens() 函式體【之內】(射程=原始碼行,不證它執行過)" "$r" "1"
 
   printf '\n合計  PASS=%s  FAIL=%s\n' "$pass" "$fail"
   [ "$fail" = "0" ]
