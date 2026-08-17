@@ -362,7 +362,7 @@ export function ShippingDoc({
        讓紙面邊界**只由** `@page{margin:12mm 12mm 14mm 12mm}` 決定,不然會內縮兩次。
        ⚠️ 改名要同步那支 CSS —— 那裡是「這張紙是不是 A4」的唯一決定點,
        而改名之後的症狀是**紙印出來邊距不對**,三綠與單測都不會紅。 */
-    <div className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
+    <div data-slot='shipping-doc' className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
       {/* 🔴 **每個號碼各自帶標籤**(plan §4)。設計需求書早就標了這個風險:
           「**兩個碼並排裸印,客人不知道該拿哪個去查**」。
           ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。
@@ -458,7 +458,7 @@ export function ShippingDoc({
             而在這之前 ⌘P 印出來的紙**只有一行紅字、其餘看起來像正常單據**。
             設計端的答案逐字在樣張 `:551`:「印出來看起來正常的紙,員工就會照做,
             所以警告必須佔滿這個位置。」細節見 `BlockedSheet` 的 docstring。 */
-        <BlockedSheet reason={blocked} orderDisplayId={detail.displayId} />
+        <BlockedSheet kind='shipping-blocked' reason={blocked} orderDisplayId={detail.displayId} />
       ) : (
         <>
           {/* 收件人。`blocked === null` 已保證 `recipientSnapshot` 非 null 且三欄都有內容。 */}

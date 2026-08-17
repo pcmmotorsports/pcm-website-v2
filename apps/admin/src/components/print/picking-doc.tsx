@@ -118,7 +118,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
        讓紙面邊界**只由** `@page{margin:12mm 12mm 14mm 12mm}` 決定,不然會內縮兩次。
        ⚠️ 改名要同步那支 CSS;改名後的症狀是**紙印出來邊距不對**,三綠與單測都不會紅。
        📎 Sean 逐字「出貨單都是 A4」⇒ **揀貨單一起吃**,兩張紙同一套版面。 */
-    <div className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
+    <div data-slot='picking-doc' className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>揀貨單</h1>
         <span className='text-xl font-semibold tabular-nums'>{detail.displayId}</span>
@@ -148,6 +148,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
              (「不要依本單揀貨、裝箱或出貨。」)。兩處都寫 = 紙上同一件事說兩次。 */}
       {cancelledAt !== null && (
         <BlockedSheet
+          kind='picking-cancelled'
           reason={`這張訂單已於 ${formatOrderDateTime(cancelledAt)} 取消。`}
           orderDisplayId={detail.displayId}
         />
@@ -214,6 +215,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                    不同:那一種是**固定上限**(重整一百次拿回同一個數字,`:143` 那段講過),
                    而這一種是**投影出問題**,重整**真的可能好**。⇒ 這句話在這裡不是假話。 */
             <BlockedSheet
+              kind='picking-no-items'
               reason='這張單讀不到任何品項(可能是資料讀取出問題)。請重新整理;仍然一樣請回報。'
               orderDisplayId={detail.displayId}
             />
@@ -299,7 +301,10 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                       <td className='px-2 py-3 text-right align-top'>
                         {pickable === null ? (
                           // 🔴 面5:不知道就明說,**不印下單量、不補 0**(契約見 `pickableQuantity` docstring)。
-                          <span className='text-sm font-medium text-amber-800'>
+                          <span
+                            data-slot='picking-qty-unknown'
+                            className='text-sm font-medium text-amber-800'
+                          >
                             數量資料尚未就緒
                             <br />
                             這一項不要揀
