@@ -33,8 +33,14 @@ describe('標籤', () => {
     expect(invoiceTypeLabel(null)).toBeNull();
   });
 
-  it('出貨方式:home → 宅配、未知值原樣(Slice C 起 admin 可改)', () => {
+  it('出貨方式:home → 宅配、store → 自取、未知值原樣(Slice C 起 admin 可改)', () => {
     expect(shippingMethodLabel('home')).toBe('宅配');
+    // 🔴 `store` → 自取:Sean 2026-08-17 `Q3` 逐字「甲＝自取」。
+    //    這一格釘的是一個**真的發生過的畫面** —— 在它之前,`create_order` 白名單裡合法的
+    //    `store` 會在後台原樣印出英文 `store`。
+    expect(shippingMethodLabel('store')).toBe('自取');
+    // ⚠️ 未知值原樣顯示**仍然是刻意的**,而它現在有真實來源:後台改單的「出貨方式」
+    //    是自由文字輸入(`order-edit-form.tsx:57-64`,無下拉、無白名單)⇒ 這裡拿得到任何字串。
     expect(shippingMethodLabel('DHL Express')).toBe('DHL Express');
   });
 });
