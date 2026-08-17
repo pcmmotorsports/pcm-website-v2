@@ -1,0 +1,331 @@
+
+> pcm-website-v2@0.0.0 test /Users/sean_1/pcm-drift
+> vitest run
+
+
+ RUN  v4.1.5 /Users/sean_1/pcm-drift
+
+ ❯ |node| scripts/check-syntax-nonts.gate.test.ts (9 tests | 4 failed) 34062ms
+     × 好 .sql staged → 放行(exit=0) 5990ms
+     × 好 .sh staged → 放行(exit=0) 5748ms
+     × 好 .yaml(含多文件)staged → 放行(exit=0) 6123ms
+     × 🔴 .md staged → 這條 entry 根本不該匹配(量 glob 本身,非量退出碼) 5782ms
+ ❯ |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx (15 tests | 5 failed) 19971ms
+     × 冷卻結束後點「再寄一次」→ 再呼叫一次 action、顯示已再寄提示 5208ms
+     × 點「換一個 Email」→ 回狀態 A、清空欄位 14ms
+     × 🔴 送出時 action throw ⇒ 顯示頂部錯誤、且鈕解鎖(不得永久卡 disabled) 3ms
+     × 🔴 頂部那條 throw 錯改 Email 就清掉(本頁唯一與另外三頁不同的主張,要有可執行字面) 2ms
+     × 🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次 5ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-drift/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onContinueShopping (/Users/sean_1/pcm-drift/apps/storefront/src/components/CheckoutView.tsx:269:35)
+    at executeDispatch (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+ ❯ |storefront| apps/storefront/src/app/dev-preview/mobile-catalog-ux/MobileCatalogUxPreview.test.tsx (9 tests | 2 failed) 33894ms
+     × 從車輛摘要清除車輛後回到全部商品並清除分類 7164ms
+     × 黏頂車輛列提供快速清除入口 5959ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-drift/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at handleVehicleNavigate (/Users/sean_1/pcm-drift/apps/storefront/src/components/ProductBreadcrumb.tsx:144:5)
+    at executeDispatch (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+ ❯ |storefront| apps/storefront/src/components/brand/BrandPageBrandWall.test.tsx (17 tests | 1 failed) 15305ms
+     × 🔴 每一家當作當前品牌時,磚都還是 20 塊(不把自己濾掉) 5941ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-drift/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at goContinue (/Users/sean_1/pcm-drift/apps/storefront/src/components/CartView.tsx:88:28)
+    at executeDispatch (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at Timeout._onTimeout (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:80:7)
+    at listOnTimeout (node:internal/timers:585:17)
+    at processTimers (node:internal/timers:521:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-drift/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-drift/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-drift/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-drift/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-drift/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-drift/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-drift/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-drift/apps/storefront/src/components/VehicleFinder.tsx:134:13)
+    at executeDispatch (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-drift/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+ ❯ |storefront| apps/storefront/src/components/CheckoutView.test.tsx (61 tests | 1 failed) 48913ms
+     × Email flag on：無效值留在 Step1 顯示欄位錯誤；有效值 canonical 後才前進 5474ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |storefront| apps/storefront/src/components/CheckoutView.test.tsx > CheckoutView(M-3-S2-b2-e1) > Email flag on：無效值留在 Step1 顯示欄位錯誤；有效值 canonical 後才前進
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/components/CheckoutView.test.tsx:291:3
+    289|   });
+    290|
+    291|   it('Email flag on：無效值留在 Step1 顯示欄位錯誤；有效值 canonical 後才前進', async () =…
+       |   ^
+    292|     setCart([{ productId: 'rpm-1', qty: 1 }]);
+    293|     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' }…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · 送出成功 → 狀態 B(已寄出) > 冷卻結束後點「再寄一次」→ 再呼叫一次 action、顯示已再寄提示
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:143:3
+    141|   });
+    142|
+    143|   it('冷卻結束後點「再寄一次」→ 再呼叫一次 action、顯示已再寄提示', async () => {
+       |   ^
+    144|     vi.useFakeTimers();
+    145|     try {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · 送出成功 → 狀態 B(已寄出) > 點「換一個 Email」→ 回狀態 A、清空欄位
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ submitValid apps/storefront/src/components/ForgotPasswordPage.test.tsx:94:29
+     92|   async function submitValid() {
+     93|     renderPage();
+     94|     fireEvent.change(screen.getByPlaceholderText('your@email.com'), { …
+       |                             ^
+     95|     await act(async () => {
+     96|       fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' }));
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:166:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · action throw(站台設定錯誤) > 🔴 送出時 action throw ⇒ 顯示頂部錯誤、且鈕解鎖(不得永久卡 disabled)
+TestingLibraryElementError: Unable to find a label with the text of: /Email/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:181:29
+    179|     mockAction.mockRejectedValueOnce(new Error('NEXT_PUBLIC_SITE_URL 未…
+    180|     renderPage();
+    181|     fireEvent.change(screen.getByLabelText(/Email/), { target: { value…
+       |                             ^
+    182|     await act(async () => {
+    183|       fireEvent.submit(screen.getByText('寄出重設連結').closest('form') as H…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · action throw(站台設定錯誤) > 🔴 頂部那條 throw 錯改 Email 就清掉(本頁唯一與另外三頁不同的主張,要有可執行字面)
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:196:29
+    194|     mockAction.mockRejectedValueOnce(new Error('NEXT_PUBLIC_SITE_URL 未…
+    195|     renderPage();
+    196|     fireEvent.change(screen.getByPlaceholderText('your@email.com'), { …
+       |                             ^
+    197|     await act(async () => {
+    198|       fireEvent.submit(screen.getByText('寄出重設連結').closest('form') as H…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · action throw(站台設定錯誤) > 🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:211:31
+    209|     try {
+    210|       renderPage();
+    211|       fireEvent.change(screen.getByPlaceholderText('your@email.com'), …
+       |                               ^
+    212|       await act(async () => {
+    213|         fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' })…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/brand/BrandPageBrandWall.test.tsx > BrandPageBrandWall · 版型 > 🔴 每一家當作當前品牌時,磚都還是 20 塊(不把自己濾掉)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/components/brand/BrandPageBrandWall.test.tsx:60:3
+     58|   });
+     59|
+     60|   it('🔴 每一家當作當前品牌時,磚都還是 20 塊(不把自己濾掉)', () => {
+       |   ^
+     61|     for (const slug of SLUGS) {
+     62|       const { container } = render(<BrandPageBrandWall currentSlug={sl…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/app/dev-preview/mobile-catalog-ux/MobileCatalogUxPreview.test.tsx > MobileCatalogUxPreview > 從車輛摘要清除車輛後回到全部商品並清除分類
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/app/dev-preview/mobile-catalog-ux/MobileCatalogUxPreview.test.tsx:98:3
+     96|   });
+     97|
+     98|   it('從車輛摘要清除車輛後回到全部商品並清除分類', () => {
+       |   ^
+     99|     render(<MobileCatalogUxPreview />);
+    100|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/13]⎯
+
+ FAIL  |storefront| apps/storefront/src/app/dev-preview/mobile-catalog-ux/MobileCatalogUxPreview.test.tsx > MobileCatalogUxPreview > 黏頂車輛列提供快速清除入口
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/app/dev-preview/mobile-catalog-ux/MobileCatalogUxPreview.test.tsx:111:3
+    109|   });
+    110|
+    111|   it('黏頂車輛列提供快速清除入口', () => {
+       |   ^
+    112|     render(<MobileCatalogUxPreview />);
+    113|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/13]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 好 .sql staged → 放行(exit=0)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:125:3
+    123|
+    124|   // ── 好檔必須放行。誤擋會逼人 --no-verify,整條 gate 就死了 ──
+    125|   it('好 .sql staged → 放行(exit=0)', () => {
+       |   ^
+    126|     expect(stageAndRunGate('ok.sql', "SELECT * FROM t WHERE n = 'ok';\…
+    127|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/13]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 好 .sh staged → 放行(exit=0)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:129:3
+    127|   });
+    128|
+    129|   it('好 .sh staged → 放行(exit=0)', () => {
+       |   ^
+    130|     expect(stageAndRunGate('ok.sh', '#!/bin/bash\nset -e\necho ok\n').…
+    131|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/13]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 好 .yaml(含多文件)staged → 放行(exit=0)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:133:3
+    131|   });
+    132|
+    133|   it('好 .yaml(含多文件)staged → 放行(exit=0)', () => {
+       |   ^
+    134|     expect(stageAndRunGate('ok.yaml', 'a: 1\n---\nb: 2\n').status).toB…
+    135|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/13]⎯
+
+ FAIL  |node| scripts/check-syntax-nonts.gate.test.ts > lint-staged → check-syntax-nonts 真效果測(backlog #340) > 🔴 .md staged → 這條 entry 根本不該匹配(量 glob 本身,非量退出碼)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ scripts/check-syntax-nonts.gate.test.ts:140:3
+    138|   //    斷 exit=0 是不夠的(那是恆真:.md 就算被 entry 吃下,腳本也會因 GUARDED_EXT skip 而回 …
+    139|   //    斷「lint-staged 說它找不到符合的檔」才真的在量 glob 有沒有把 .md 排除掉。
+    140|   it('🔴 .md staged → 這條 entry 根本不該匹配(量 glob 本身,非量退出碼)', () => {
+       |   ^
+    141|     const r = stageAndRunGate('note.md', '# 隨便寫 " 不平衡的引號 (\n');
+    142|     expect(r.status).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/13]⎯
+
+
+ Test Files  5 failed | 514 passed (519)
+      Tests  13 failed | 8583 passed | 2 expected fail | 1 skipped | 1 todo (8600)
+   Start at  23:08:03
+   Duration  168.34s (transform 166.80s, setup 0ms, import 397.12s, tests 539.15s, environment 279.18s)
+
+ ELIFECYCLE  Test failed. See above for more details.
+開始 2026-08-17 23:05:50 CST
+結束 2026-08-17 23:10:52 CST
+其他窗四綠vitest並行數(不含自己) 開始=0 vitest起跑前=0 結束=0
+其他窗四綠build並行數(不含自己) 開始=0 vitest起跑前=0
+rc typecheck=0 lint=0 build=0 vitest=1
+
+分診: 症狀A(逾時)
+marker: not_set=0 service_client=0 timeout=9
+最集中的失敗檔: 5 apps/storefront/src/components/ForgotPasswordPage.test.tsx
+vite 快取 mtime: 2026-08-17T19:12:20
