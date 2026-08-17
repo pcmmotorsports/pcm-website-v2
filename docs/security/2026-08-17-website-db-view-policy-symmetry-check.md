@@ -75,6 +75,39 @@ anon  對 28 張表:表級 SELECT 全 f、欄級可讀欄數全 0    ← 外部�
 
 ⇒ **每一條都綁 `auth.uid()`=own** ⇒ **被盜/惡意的會員 token 只能讀自己的客戶/訂單/地址/車輛/儲值資料,讀不到別的會員**(帳號被盜情境的 DB 層防線成立;與軸二 app 層「無 IDOR」互相印證,是同一件事的兩層)。
 
+## 6. 🔴 外部 REST 實打確認(2026-08-17,Sean 交付網站庫 anon key 後)
+
+前面 §1-5 是 DB metadata;本節用**真正的網站庫 anon key**(`sb_publishable_…`,len 46,新格式;REST base `https://bmpnplmnldofgaohnaok.supabase.co/rest/v1`)**外部實打**,把兩大優先從「metadata 證」升成「外部 REST 證」。全程 GET-only、count-only、雙向表演、不印 key。
+
+**庫別三發對照(確定打的是網站庫,不是報價單庫 —— 兩把 key 同前綴同長度,拿錯不報錯)**:
+```
+網站 key + products_public       ⇒ 206  0-0/19777   （products_public 是網站庫限定 view）
+報價單 key + 同 endpoint          ⇒ 401              （報價單 key 對網站專案無效）
+網站 key + storefront_catalog_v   ⇒ 404              （storefront_catalog_v 是報價單庫限定）
+⇒ 三個世界印不同的東西 ⇒ 確定我在網站庫、用對 key
+```
+
+**🔴 Sean 第一優先(客戶/訂單/金流外部零存取)**:
+```
+customers               ⇒ 401  body 42501「permission denied … GRANT SELECT ON public.customers TO anon」
+orders / order_items / order_payments / payment_charge_attempts / customer_addresses ⇒ 全 401
+```
+⇒ **外部匿名對客戶/訂單/金流 REST 端點全部 permission denied**(anon 連 grant 都沒有),不倚賴 RLS(grant 層直接擋)。
+
+**🔴 Sean 第二優先(經銷價外部零漏,雙重擋)**:
+```
+products?select=handle       ⇒ 206  0-0/19777   （授權欄,對照亮）
+products?select=price_store  ⇒ 401              （anon 無欄級授權）
+products?select=price_by_tier⇒ 401              （anon 無欄級授權）
+products_public?select=price_store ⇒ 400 body 42703「column products_public.price_store does not exist」
+```
+⇒ **經銷價外部讀不到,而且是兩道獨立擋**:① products 表對 anon 的欄級授權不含 price_store/price_by_tier(401)② 對外的 `products_public` view **物理排除** price_store 欄(連欄都不存在)。
+
+**OpenAPI root**:`GET /rest/v1/` ⇒ 401「Only secret API keys can be used」⇒ anon 拉不到 schema introspection,攻擊者無法用公開 key 枚舉整個 table/RPC 面(同報價單庫的硬化)。
+
+⇒ **兩大優先在網站庫【外部 REST 層】確認,不只 DB metadata**;與報價單庫同樣的對照面都齊了。
+📎 §1 的 facet-counts 放大(#1)/ resolveCartLines 往返(#7)是 **Vercel app 層**(route / server action),**anon key 打的是 Supabase REST、量不到它們**;#3 是壓測、明文不在正式站做 ⇒ 那三條不因這把 key 而解,見 `section1-unverified-items-round2` §1。
+
 ## 口徑
 
-網站庫這輪:對稱檢查**無 asymmetry**(3 支 invoker view 皆委派 RLS)、經銷價欄級 anon=0、definer view 今天非敏感、**外部 anon 對 28 張客戶/訂單/金流表零存取、會員 token own-only(RLS 綁 auth.uid())**。全 metadata、零業務列。0 命中(asymmetry)已附控制組(policy t / view f)+ 分母(4 支 anon view / 28 張敏感表)+ 比對維度清單。
+網站庫這輪:對稱檢查**無 asymmetry**(3 支 invoker view 皆委派 RLS)、經銷價欄級 anon=0、definer view 今天非敏感、**外部 anon 對 28 張客戶/訂單/金流表零存取、會員 token own-only(RLS 綁 auth.uid())**;§6 外部 REST 實打再證兩大優先(客戶 401、經銷價 401+欄不存在)。全 metadata + 外部 GET count-only、零業務列。

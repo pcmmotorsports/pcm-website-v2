@@ -23,7 +23,7 @@
 
 - **admin 19 個 'use server' 業務檔**(全改資料或讀 PII/成交價/成本):**逐一有 `authorizeAdminMutation`,兩個例外**:
   - `lib/session/actor-actions.ts` `selectActorAction`:只選操作人身分 cookie,`actor.ts` 自陳「非授權邊界」,不改業務資料 ⇒ **設計如此、非破口**。
-  - ✅ **已自核** `lib/shipping/shipment-actions.ts:219-261` `fetchShipmentCandidates`:讀訂單明細(成交價+PII),只靠 `proxy.ts` 登入閘、略過 Origin/actor。**這是唯一沒過 `authorizeAdminMutation` 的業務檔**,已 Sean 拍板 `Q-AUDIT-1a`=甲(檔內 227-261 行逐字):**存取控制沒失守(仍要求有效 admin session、外部呼不到)、缺的是事後留痕**。仍需 `ADMIN_SESS_COOKIE`(會員拿不到)⇒ **不跨會員↔員工邊界**;因讀敏感而檢查層級低於其他 action,列此複核。(讀取型 action 略過 Origin 的 CSRF 風險低:SOP 擋住跨源頁面讀回應。)
+  - ✅ **已自核** `lib/shipping/shipment-actions.ts:219-261` `fetchShipmentCandidates`:**內部**讀訂單明細(碰得到成交價+PII)**但回傳窄 DTO(零金額欄,見 §4-③ 收窄)**,只靠 `proxy.ts` 登入閘、略過 Origin/actor。**這是唯一沒過 `authorizeAdminMutation` 的業務檔**,已 Sean 拍板 `Q-AUDIT-1a`=甲(檔內 227-261 行逐字):**存取控制沒失守(仍要求有效 admin session、外部呼不到)、缺的是事後留痕**。仍需 `ADMIN_SESS_COOKIE`(會員拿不到)⇒ **不跨會員↔員工邊界**;因讀敏感而檢查層級低於其他 action,列此複核。(讀取型 action 略過 Origin 的 CSRF 風險低:SOP 擋住跨源頁面讀回應。)
 - **admin route.ts 2 支**(SSO start/callback,state CSRF)+ **storefront route.ts 8 支**(facet-counts 唯讀公開+三道白名單;tappay-notify 走 secret 路徑段 timing-safe;cron ×3 `CRON_SECRET` Bearer timingSafeEqual;auth/line callback 是登入端點本身)⇒ **查無「改資料/讀敏感卻無檢查」的 route**。
 
 ### ✅ 2-verify 三支 auth 關鍵 guard 主對話親讀(不採信盤點)—— 2026-08-17
@@ -64,8 +64,9 @@
 
 - 🔴 **一個觀察** `fetchShipmentCandidates`(`shipment-actions.ts:219` → `shipment-candidates.ts:227-236`):**orderIds 陣列零長度上限**(只有 `length===0` 早退,然後 `Promise.all(orderIds.map(findAdminOrderDetail))` 逐張打)。
   - 檔內註解自陳假設「員工一次勾的張數是個位數 ⇒ 不預先最佳化」——**但這是 server action,呼叫端不受 UI 個位數的現實約束**。被盜的 admin session 可直接餵上千個 orderId:
-    - (a) **一次撈全部訂單的成交價 + PII**(單一請求,而非 N 次 UI 翻頁)⇒ 帳號被盜時的**批次外洩放大器**。
-    - (b) **無界並行 DB fan-out**(N 個 orderId = N 次 `findAdminOrderDetail`)⇒ 自我 DoS 味道(**DoS 幅度未量,標推**)。
+    - (a) 🔴 **【2026-08-17 收窄 —— C 窗實作時開 DTO 核出,取代我原本的誇大】**:~~一次撈全部訂單的成交價 + PII~~ **不成立**。C 窗開 `shipment-candidates.ts` 的回傳 DTO 核出:**它回的是窄 DTO、零金額欄**,`recipient` 只有**第一張單**的。⇒ 真正的批次外洩面 = **大量訂單的【品項 / 料號 / 單號】對映**(非成交價、非完整 PII)。
+      🔴 **原本錯在哪(留成因,不寫「其實沒那麼嚴重」)**:我從「函式【碰得到】什麼」推「它【回得出】什麼」—— `shipment-candidates.ts` 帶 `server-only`、確實碰得到成交價與 PII(那正是它要 `server-only` 的理由),**但「碰得到 ≠ 回得出來」,中間隔著一個我沒開檔看的 DTO**。〔codex 兩輪把這句當 must-fix、C 窗已加上限 `b5500042`〕
+    - (b) **無界並行 DB fan-out**(N 個 orderId = N 次 `findAdminOrderDetail`)⇒ 自我 DoS 味道(**DoS 幅度未量,標推**)。**這條不受上面收窄影響,是真危害。**
   - 🔴 **口徑**:**不跨授權邊界**(資料本就員工可見、仍要有效 admin session、外部呼不到)⇒ 在「員工不分權限」前提下不是高。它是**帳號被盜(Sean 擴充威脅模型)**下的縱深缺口 + robustness smell,**與 facet-counts 的無界 fan-out 同形狀**。
   - **建議修法(引先例)**:給 orderIds 一個長度上限(對齊 UI 個位數現實),與既有做法一致(`ORDER_ITEMS_EMBED_LIMIT=200`、facet-counts 白名單上限)。施工窗判。
 

@@ -8,15 +8,15 @@
 
 | # | 項目 | 本輪結果 | 還缺什麼 |
 |---|---|---|---|
-| 1 | facet-counts 放大 108× | 未推進 | 實打數 RPC 次數(**需 anon key**) |
+| 1 | facet-counts 放大 108× | 🔴 **anon key 到了也量不到** —— 放大是 **server 端 RPC fan-out(Vercel app route)**,anon key 打的是 Supabase REST、看不到內部 RPC 次數 ⇒ **維持「讀來的 108×」不升級**(a4 拍板:量不到就別因打過而升級) | 要真量倍數得從 app 內側觀測(非外部 REST) |
 | 2 | facet-counts key 空間規模 | 未推進 | 有權限的人數合法組合(**帳號被鎖**) |
-| 3 | 會不會被打爆 | 未推進 | 非正式環境評估 |
-| 4 | tappay-notify 限流委派 Vercel WAF | 未推進 | Vercel WAF 規則(**Dashboard,Sean**) |
+| 3 | 會不會被打爆 | 未推進(**明文不在正式站壓測**) | 非正式環境評估 |
+| 4 | tappay-notify 限流委派 Vercel WAF | 未推進 | Vercel WAF 規則(**Dashboard,Sean**;已立 backlog `#607`) |
 | **5** | **tappay-notify 端點還沒真上線** | ✅ **見下 §5,升級成 code 強制 gate** | 只缺 `TAPPAY_3DS_ENABLED` 的**正式站 env 現值** |
 | **6** | **cache() 只同請求內對同 handle 去重** | ✅ **見下 §6,code + React 語意確認** | 無(結構已定;實測只確認計數) |
-| 7 | resolveCartLines 400 往返 | 未推進 | 實打 200 行請求(**需 anon key / 非正式環境**) |
-| 8 | login/forgot 節流粒度 | ✅ 已收口(另檔 `supabase-recovery-throttle-granularity`) | provider 是內建/自建(Dashboard,Sean) |
-| 9 | 報價單 RSC/HTML 面、anon 實看到什麼 | 未推進 | 真以 anon 身分發請求(**需報價單 anon key**) |
+| 7 | resolveCartLines 400 往返 | ✅ 結構已定(§7,有上限 200+循序=LOW);**app server action,外部 REST 量不到、實測只確認計數不改結構** | — |
+| 8 | login/forgot 節流粒度 | ✅ 已收口(`supabase-recovery-throttle-granularity`;Sean 截圖=自建 Resend、判輕) | — |
+| 9 | 報價單 anon 經 REST 實看到什麼(net/pg_stat) | ✅ **已收口**:net/extensions 經 REST **406 不可達**、db-schemas 白名單=public+graphql_public(`quote-db-round2` §2) | — |
 
 ---
 
