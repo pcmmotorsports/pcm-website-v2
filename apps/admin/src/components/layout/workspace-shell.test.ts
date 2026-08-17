@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-// 🔴 相對路徑不用 `@/`:vitest 的 `@` alias 指向 `apps/storefront/src`(`app-sidebar.test.ts` 檔頭記過)。
+// 相對路徑(#606 前 vitest @ alias 只指 storefront 的歷史遺留;#612 更新:現可用 @/,既有不回改)。
 import { stripComments } from '../../lib/test-support/strip-comments';
 import { MIN_CONTENT_WIDTH, MIN_PANEL_WIDTH } from '../../lib/layout/workspace-panel';
 

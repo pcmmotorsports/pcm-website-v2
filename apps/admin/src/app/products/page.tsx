@@ -1,6 +1,7 @@
 // 相對 import(非 `@/`):根 `vitest.config.ts` 的 `@` alias 指向 **storefront** 的 src
 // ⇒ admin 檔案用 `@/` 在測試裡 resolve 不到、這頁就測不起來(先例逐字見
 // `app/settings/suppliers/page.tsx:14-19`、`app/customers/page.tsx:2-4`)。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductFilterChips } from '../../components/products/product-filter-chips';
 import { ListPagination } from '../../components/shared/list-pagination';

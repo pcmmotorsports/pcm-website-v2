@@ -1,4 +1,4 @@
-// 相對 import(非 @/):vitest 的 `@` alias 指向 storefront(見 `lib/session/actor.ts` 註解)
+// 相對 import(非 @/):#606 前的歷史遺留(見 `lib/session/actor.ts` 註解;#612 更新:#606 起可用 @/,既有不回改)
 // ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
 import {

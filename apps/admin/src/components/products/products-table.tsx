@@ -13,6 +13,7 @@ import {
 
 // M-4b #20 片1a:商品列表表格。相對 import(非 `@/`)—— 根 vitest.config 的 `@` alias 指向 storefront,
 // admin 檔案用 `@/` 在測試裡 resolve 不到(先例逐字見 app/settings/suppliers/page.tsx:14-19)。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 //
 // 🔴 **本檔不得直接讀 `row.price_general` / `row.delisted_at` / `row.listing_set_by` /
 //    `row.source_missing_at`** —— 一律經 `resolvePrice` / `resolveListingState` /
