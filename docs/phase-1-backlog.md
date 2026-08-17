@@ -16058,3 +16058,37 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
 - **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #609`(CAS,不是下限);
   信箱佔位掃描 `grep -rn '#609' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
   附正向對照 `grep -rc '#608' docs/phase-1-backlog.md` ⇒ 命中 3 ⇒ **那個 0 是量出來的**。
+
+### #610 · `customer_wallet_balance_check` 的 `SUM(amount)::integer` 會在累計破 21.4 億分時噴錯
+
+- 🔴 **本條是錢族(鐵則 12①)—— 這行放首段是刻意的,防插隊。**
+  動它 = 改動**錢的對帳工具**的 schema,**不是隨手改**:要走完整流程(plan、三綠、codex 對抗審查、不 push)。
+  修法本身**一行**(`::integer` → `::bigint` 或拿掉 cast),**而流程不能省** —— 一行的修法最容易被當成順手做掉的事。
+- 🔴 **方向是 `fail-loud` 不是靜默錯值** —— 所以它是 backlog 不是片。
+  cast 破界時對帳查詢**整個報錯**(`integer out of range`),不會回一個錯的數字。
+- **現況(行號當場重核,兩處皆命中):**
+  ```
+  supabase/migrations/20260523034911_init_customers_and_subtables.sql:129
+    COALESCE(SUM(amount), 0)::integer                                       AS computed_balance,
+  同檔 :130
+    COALESCE(SUM(amount) FILTER (WHERE entry_type = 'deposit'), 0)::integer AS computed_total_deposit,
+  ```
+  單一客人**終身累計**儲值/異動超過 `2,147,483,647` 分(≈ NT$2,140 萬)時噴錯。
+- 🔴 **與 2026-08-16 紀律不一致的原因 = 「舊 view 早於教訓」,不是有意例外:**
+  `admin_customer_list_v`(`supabase/migrations/20260816030000_…:54-58`)已明文立下
+  「`sum(int4)` 在 PG 回 `bigint`、`count(*)` 也是 `bigint`,**兩顆都不轉回 integer**」
+  (該處還記著 plan 初版自己跟自己矛盾、被 codex 關卡1 抓出來的經過)。
+  **本 view 建於 2026-05-23,早於那條教訓近三個月。**
+  ⚠️ **不要把它讀成「這裡刻意要 integer」** —— 那會讓下一個人以為有理由而不敢改。
+- **不修未來會痛在哪:** 哪天有經銷商終身儲值破線,對帳工具**在最需要它的時刻(大客戶對帳)開始報錯**;
+  而 `Q1`=甲 的儲值金修理片上線後,**儲值金流量只會變大**。
+- **連動面:** ①view 回傳型別變 `bigint` ⇒ 消費端(**目前 code 層零 runtime 消費端**,V 窗 `V-037` 量過;
+  若 `V-037` 甲案「dashboard 第四格」先落地,那格要一起改型別預期)
+  ②`domain/identity/wallet.ts:40` 的註解引用本 view,改時**同 commit 對齊字面**。
+- **引用口徑(`V-033` 已立、主視窗已裁):** 本 view 的「一致」只能寫「**SUM 一致**」,**不得寫「對帳一致」**
+  —— 等額互抵的錯帳它看不見。判別句與全文在 `docs/patterns/guard-and-instrument-traps.md`。
+- **來源:** V 窗 `V-040` 文案擬稿(**編號刻意留給落檔窗發**)+ 主視窗對 `V-033` §2-1 的裁定「進 backlog 不開片」;
+  I 窗 2026-08-17 落檔,行號當場重核。
+- **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #610`(CAS,不是下限);
+  信箱佔位掃描 `grep -rn '#610' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
+  附正向對照 `grep -rc '#609' docs/phase-1-backlog.md` ⇒ 命中 3 ⇒ **那個 0 是量出來的**。
