@@ -7258,6 +7258,41 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-17 / M-4a Email 片 E1a(codex 關卡2 R5)
 - **相關:** #282 / M-4a Email 片 E1a `20260717020000` / plan v3.1 §3.4
 
+#### 併入(2026-08-18,B 窗查證;主視窗裁定**不另發號**):DB 層 `payload` 沒有 key/型別 allowlist
+
+- **現況 —— 先講清楚,免得被讀成「現在有洞」:**
+  - `email_outbox.payload` 的 CHECK **只約束成 jsonb object**,**沒有** key/型別 allowlist
+    (`supabase/migrations/20260717020000_m4a_email_outbox.sql:41-44`)。
+  - 🔴 **而第一層守門是好的、已驗過**:`enqueue` **根本不收 payload**
+    (`packages/ports/src/IEmailOutbox.ts:8` 逐字「enqueue **不收** payload/subject/…」),
+    payload 由邊界內部的 `buildOrderCreatedPayload` 顯式三欄 allowlist 組
+    (`SupabaseEmailOutboxAdapter.ts:196` / `order-email-assembly.ts:39-48`)。
+    ⇒ **一次 DTO spread 到不了 `enqueue` —— 型別上就傳不進去。**
+    ⇒ 那不是「有一道檢查擋住它」,是**讓那個失敗模式在結構上不存在**。
+  - ✅ **負向測試存在而且有牙齒**(2026-08-18 實查 + 突變):
+    `packages/adapters/src/email/order-email-assembly.test.ts:23`
+    (餵 email / phone / address / 巢狀物件,四個字面逐一 `not.toContain`;該檔共 4 格全綠)。
+    **突變**:把 return 改成 `{ ...src, … }`(註解點名的那個攻擊)⇒ **2 格紅**。不是恆綠格。
+- **所以還缺的是縱深的【最後一層】:** DB 自己不會擋。
+  🔴 **這一層的價值在於哪天有人新增第二個寫入端。**
+  🔴 **而「新增第二個寫入端」這件事,沒有任何機制會通知我們。**
+- **為什麼不現在做:** 補 DB 層 allowlist = 動 CHECK = 動 schema(鐵則 12③),
+  而它擋的那條路(繞過 `enqueue` 直接 INSERT)**目前沒有呼叫端** ⇒ 不划算。
+- **觸發事件:** 出現**第二個** `email_outbox` 寫入端(RPC / 腳本 / 另一支 adapter,任一)。
+- **⚠️ 引用 `migration:44` 那句時的射程限定(2026-08-18 立):**
+  逐字「**一次 DTO spread 就能把 email/電話/地址永久複製進本表**」——
+  它寫的是**【DB 這一層】的能力邊界**,不是**【現在的系統】會發生什麼**;
+  它寫在 E1b 落地**之前**,而 E1b 落地之後那句話的射程變了。
+  🔴 **它沒有過期**(DB 層確實仍無 allowlist)**,但單獨引用會讓人以為現在有洞。**
+  📎 判別句:**這句話成立的那一層,跟讀者以為它在講的那一層,是同一層嗎?**
+- **📎 怎麼被撿到的(留痕,過程本身是教訓):**
+  T① 掃寄信族時標「未確認」交出來;主視窗照 migration `:38-45` 派工,
+  要在拋棄式 DB 上「塞含 PII 的 payload 進 enqueue,該被拒的要真的被拒」。
+  🔴 **而反例就在它引的那幾行【下面兩行】**(`:45-47` 逐字「必須被**組裝層**擋掉(**不是靠 DB**)」)
+  ⇒ 照那樣做會量到「DB 接受了含 PII 的 payload」,**而那本來就是設計如此**
+  ⇒ **會把一個設計意圖回報成一個 finding。**
+  母題:**不是量錯東西,是【引用時只讀到自己要找的那半】。**
+
 ### #282. 🧹 `cron.job_run_details` 清理(pg_cron 執行紀錄無預設保留期、會長大拖效能)
 
 - **狀態:** ⏳ 待執行(**E2b 啟用 pg_cron 之後才有意義**)
