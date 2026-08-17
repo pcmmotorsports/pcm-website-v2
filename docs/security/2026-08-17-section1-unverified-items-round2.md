@@ -28,9 +28,20 @@
 - route 檔頭(`tappay-notify/[secret]/route.ts:18`)寫的是**設計不變量**:「3DS-4 sweeper(**未實作**)前不設 backend_notify_url、不開 `TAPPAY_3DS_ENABLED`、不開放 prod 結帳」。
 - **即使 webhook URL 被打**,無 flag ⇒ 無真 3DS 流 ⇒ 無 active attempt ⇒ route 處理序第 5 步 `findActiveByOrderId` = null → 200 drop(**端點對不上本機單就丟**)。
 
-⇒ **判定**:E-698 說這條「替嚴重度打折」——**折扣站得住,而且比原本更硬**:它不是一句可能過期的註解,是「flag 預設 off + 3DS-4 未實作」兩道 code gate。**除非有人在 prod 把 `TAPPAY_3DS_ENABLED=true` 翻開(而 3DS-4 還沒好)**,折扣才失效。
+⇒ **判定(2026-08-17 重估:折扣的觸發條件成立、折扣作廢)**:我原本寫「折扣站得住,除非有人在 prod 把 `TAPPAY_3DS_ENABLED=true` 翻開而兜底還沒好」。**那個條件成立了。**
 
-🔴 **未確認(缺哪一道)**:`TAPPAY_3DS_ENABLED` 的**正式站現值**。它是 env var(Vercel),**DB 端與本機樹(無 .env.local)都讀不到**。缺的檢查 = 看 Vercel prod env 的 `TAPPAY_3DS_ENABLED`(Sean / Dashboard;`vercel env` 需授權,唯讀窗沒有)。若量到 `=true` 而 3DS-4 未實作 ⇒ 嚴重度往上調。
+🔴 **量到的(五條)**:
+① `TAPPAY_3DS_ENABLED = true`(Sean,Production)。
+② `CRON_SWEEPER_ENABLED` 在 Production **不存在**(a4 `vercel env ls production`,分母 39 行,正向對照 `ANOMALY_ALERT_ENABLED` grep=1 ⇒ 那個 0 是量的)。
+③ 未設 ⇒ `settle-sweep` route **200 no-op**(`route.ts:105` `CRON_SWEEPER_ENABLED !== 'true'` + `:102` 註解「嚴格 opt-in、只認 'true'、預設 off」)。
+④ `route.ts:19` 自列的啟用三步,第 ② 步(Sean 設 `CRON_SWEEPER_ENABLED='true'`)**未做**。
+⑤ tappay-notify `route.ts:17-18` **設計不變量**「3DS-4 前不開 `TAPPAY_3DS_ENABLED`、不開放 prod 結帳」**被違反**。
+
+🔴 **「兜底掃描沒在跑」= 量到的(不再是推論)**:排程器 2026-07-23 已從 Vercel cron 搬到 pg_cron(`supabase/migrations/20260723120000` 建 `pcm-settle-sweep` `*/2`)⇒ 查 `vercel.json` 是**錯的分母**(我早先犯、已改、留痕)。但雙分支窮舉:pg_cron 活 + flag 未設 ⇒ 每 2 分打進來、route 200 no-op ⇒ 沒掃描;pg_cron 沒活 + flag 未設 ⇒ 沒被呼叫 ⇒ 沒掃描。**不論 pg_cron 活不活,結論都成立**(靠 ②③ 兩個量到的事實 + 窮舉,不靠題①)。
+
+🔴 **仍未量(一條不拿掉)**:①best-effort 快路徑實際多常失敗(決定缺口多常咬人)②4a migration 有沒有進 prod ③**prod 是否真在收 3DS 單**(不變量說「不開放 prod 結帳」,單可能還沒進來)④pg_cron job 活不活(`pcm_audit_ro` 無 cron schema USAGE、查不到;不影響結論、影響修法)。
+
+🔴 **等級 = HIGH-結構**:結構缺口=量到的、金流(鐵則 12①)、active(flag=true)⇒ HIGH-結構;**頻率未量 ⇒ 不拉滿**。修法=拍板題(設 `CRON_SWEEPER_ENABLED='true'`〔+ pg_cron 未活則 apply `20260723120000`〕,或把 `TAPPAY_3DS_ENABLED` 關回 false)——E 只出事實,拍板歸 Sean。
 
 ---
 

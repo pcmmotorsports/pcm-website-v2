@@ -11,7 +11,7 @@
 | 2 | 報價單庫 | `storefront_public_read` policy 的 USING ≠ view 的 WHERE(**少 `is_listed`**)⇒ anon 繞過 view 直查 `products` 可枚舉「未上架但有價有分類未隱藏」品項 | 🟠 結構 MEDIUM / **當前曝險 0 筆** | 外部可達=✅實打 206;gap 今天=**0 筆(實打 `*/0`)**;結構仍在(觸發條件已明寫)⇒ 未降級 | `quote-db-round2-storefront-catalog-rls` |
 | 3 | 網站庫 admin | `fetchShipmentCandidates` orderIds **零長度上限** ⇒ 被盜 admin session:①無界並行 fan-out ②大量訂單【品項/料號/單號】對映(🔴 08-17 收窄:~~成交價+PII~~ 不成立,C 窗開 DTO 核出回窄 DTO 零金額欄) | 🟡 LOW–MEDIUM(不跨邊界、仍要 admin session) | 上限已加 `b5500042`(C 窗) | `axis2` §4-③ |
 | 4 | 網站庫 storefront | login/forgot 重設信節流粒度=全域(僅內建 provider);PCM=自建 Resend SMTP ⇒ 全域 DoS 不成立,殘留只剩 §10 防列舉隱藏寄信失敗 | 🟢 LOW(已定案) | ✅ Sean Dashboard 截圖=自建 SMTP + `Minimum interval per user 60s`;不上調 | `supabase-recovery-throttle-granularity` |
-| 5 | 網站庫 storefront | tappay-notify「未上線」折扣 —— 是 **code 強制 gate**(flag 預設 off + 3DS-4 未實作 + 端點對不上就 drop),折扣站得住 | ℹ️ INFO(折扣有效) | 卡 Vercel env 看 `TAPPAY_3DS_ENABLED` 現值 | `section1-unverified-items-round2` §5 |
+| 5 | 網站庫 金流 | 🔴 **折扣作廢**:`TAPPAY_3DS_ENABLED=true`(prod)違反設計不變量,而結算兜底 `CRON_SWEEPER_ENABLED` 在 prod **不存在**⇒ sweeper 200 no-op⇒**3DS 付款缺最終結算保證**(active) | 🔴 **HIGH-結構(頻率未量、不拉滿)** | 量到:flag=true + env 不存在(CLI 分母39)+ 雙分支窮舉;未量:best-effort 失敗率 / prod 是否真收單。拍板:設 flag 或關 3DS | `section1-unverified-items-round2` §5 |
 | 6 | 網站庫 storefront | resolveCartLines 最壞 400 循序往返/請求 —— **有上限(200)+ 循序**,匿名可達但每請求有界 | ℹ️ LOW(200 截斷已緩解) | 結構已定;實測只確認計數(需 anon key) | `section1` §7 |
 
 ## B. 負向/乾淨結論(這輪確認沒問題的,寫下來免得重審)
