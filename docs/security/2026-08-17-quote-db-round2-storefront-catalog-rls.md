@@ -107,6 +107,19 @@ Accept-Profile: extensions  pg_stat_statements    ⇒ 406  PGRST106
 ```
 ⇒ **PostgREST db-schemas 白名單 = `public, graphql_public` 兩個而已**(這正是前一任「`pg_db_role_setting` 裡查不到 `pgrst.db_schemas`」缺的那個事實,由錯誤訊息自曝)。**`net` / `extensions` 不在名單 ⇒ 外部匿名經 REST 打不到那些表**,不論 DB grant 如何。§2.1/2.2 的外部曝險 = **關閉(外部不可達)**;DB 內部的 grant 縱深仍建議收(RLS/REVOKE),但不是對外洞。
 
+### 🔴 報價單庫外部 anon REST 面 —— 完整確認(2026-08-17 實打)
+| 端點 | http | 說明 |
+|---|---|---|
+| `storefront_catalog_v` | 206 (51811) | 型錄 view,對外本應開 |
+| `products` | 206 (51811) | 直查可達,但經銷欄 401(見上)|
+| `term_synonyms` | 206 (184) | 同義詞字典,非敏感 |
+| `dealer_price_v` | **401** | 經銷價 view,permission denied |
+| `suppliers` | **401** | 供應商表,擋 |
+| `quote_snapshots` | **401** | 報價快照,擋 |
+| `net` / `extensions` schema | **406** | 不在 db-schemas 白名單 |
+| **REST root `/` (OpenAPI schema)** | **401** | 🔴 **"Only secret API keys can be used"** ⇒ **anon 拉不到 schema introspection = 一道外部硬化,攻擊者無法用公開 key 枚舉整個 table/RPC 面** |
+⇒ 外部 anon 可達的業務物件僅 **型錄 view + products(無經銷欄)+ 同義詞字典**;供應商/報價/經銷價全 401。**經銷價、供應商成本、報價資料外部零漏**(量到的,雙向對照齊)。
+
 ---
 
 ## 3. 這一條為什麼前一輪沒抓到(給後手的找法)
