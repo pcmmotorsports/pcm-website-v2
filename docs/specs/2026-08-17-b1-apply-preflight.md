@@ -22,11 +22,12 @@
 |---|---|---|
 | 1 | `8fb1efb9` 欄級補丁 V 窗複查 | ✅ 已回 `V-020` FAIL 2 條 → 已折 → `V-023` 再 FAIL 2 條 → **已折,待 V 窗窄確認** |
 | 2 | pg_cron 殘留處置 | ✅ **完成** — 判不建 + 立案 `#554`(`fba62d35`) |
-| 3 | 關卡2 獨立模型背書(codex) | ⏳ R1 FAIL(9 must-fix + 2 nit)→ 已折 → **R2 跑中** |
+| 3 | 關卡2 獨立模型背書(codex) | 🔴 **未過** — R1 FAIL(9 must-fix + 2 nit)→ 已折 → R2 FAIL(8)→ 已折;**2026-08-17 04:0x B 窗再跑兩輪,兩輪都【零 findings】**:R1 12 分全花在反覆讀檔被 watchdog 砍、R2(明文禁開檔)連一個 assistant turn 都沒有,兩輪都伴隨 `codex_models_manager::cache: missing field base_instructions`。⇒ **認列缺口,不是 PASS。** 替代=`adversarial-reviewer` + `code-reviewer` 兩條 fresh context |
 | 4 | 報價單 **production schema 與 repo 一致性** | 🔴 **未關,且做不完** — 見下方專段 |
 | 5 | `B1-a` 的 `select distinct actor` 重跑 | 可選(已跑過一次:`sean` 48 / `staff_1` 17) |
 | 6 | 🔴 **`MAINTAIN` 補進權限清單** | ✅ **完成** — 見下方專段 |
 | 7 | 🔴 **RLS preflight**(主視窗 2026-08-17 裁定新增) | ⏳ **未做** — 見下方專段 |
+| 8 | 🔴 **正式庫 `service_role` 可 `SET ROLE` 到哪些角色**(B 窗 2026-08-17 新增) | ⏳ **未做** — 見下方專段。**這一項擋 apply**,不是資訊性欄位 |
 
 ---
 
@@ -82,13 +83,69 @@ Table 5.2 表物件權限字串 = **`arwdDxtm`**,共 **8** 項,`m` = `MAINTAIN`
 📎 同型 = A 庫 `#550`(全樹唯一一支底表 RLS 對它無效的 view)。
 ⇒ **主視窗裁定:「這張表 RLS 開了沒」要加進 apply preflight。** 本窗尚未實作,**不要讀成已加**。
 
+## `#8` 正式庫 `service_role` 可 `SET ROLE` 到哪些角色 —— **未做,而它擋 apply**
+
+**為什麼是擋板不是資訊**:B1-b 的「新物件收權斷言」第 2 層會對**每一個** `service_role`
+可 `SET ROLE` 到的角色逐一問權限。2026-08-17 B 窗在本機 PG 17.10 實測到的形狀:
+
+```
+零可達角色            ⇒ rc=0
+一個【零權限】可達角色 ⇒ rc=3
+```
+⇒ **可達角色的存在本身**就會讓那段跑起來。修 Critical 之前它會 `ERROR: unrecognized privilege type`
+當場炸;修完之後不會炸了,但**只要那些角色裡有任何一個對本表持有任何權限,apply 就會紅**
+(那正是它該做的事)。⇒ **apply 當天才第一次知道有幾個角色 = 把一個可預先量測的東西留到最貴的時刻。**
+
+**查法(唯讀,Sean 在場時對正式庫跑)**:
+```sql
+select rolname
+  from pg_roles r
+ where pg_has_role('service_role', r.oid, 'SET')
+   and rolname <> 'service_role'
+ order by rolname;
+```
+🔴 **這道查詢要雙向讀,不要只看「有幾個」**:
+- 回**零列** ⇒ 第 2 層在正式庫上**整段不會被求值** ⇒ 它 apply 當天**一格判別力都沒有**
+  (⚠️ 那不是「安全」,是「這道守門今天沒有意義」—— 別把零列讀成通過)。
+- 回**非零** ⇒ 逐一確認每個角色對 `public.admin_user_staff_map` 的權限,
+  預期**全部為零**;有任何一項 ⇒ apply 會紅,而且 `REVOKE` 收不掉(要拆 role membership)。
+
+📎 來源:`B-579-STOP` §4-5 提出、本檔 2026-08-17 由 B 窗落為正式前置項。
+⚠️ **本項狀態是「未做」** —— 本機拋棄式樁上量的東西**不能**當正式庫的答案。
+
 ---
 
 ## 現況驗收(可重跑;會過期,引用前重跑)
 
 ```
 sh /Users/sean_1/pcm-website-v2/scripts/run-rc.sh 3 -- bash scripts/b1b-acceptance-harness.sh
-  ⇒ 通過 32 格 / 失敗 0 格 / rc=0
+  ⇒ 通過 39 格 / 失敗 0 格 / rc=0     ← 2026-08-17 B 窗
+     (~~32 格~~ ~~37 格~~ 均已過期:本輪新增 A19 / A19m / A19m紅對地方 / MA-2a / MA-2b / MA-2c 六格)
 ```
-⚠️ **這個全綠【不代表可以 apply】** —— 上表 `#3`(R2 跑中)、`#4`(做不完)、`#7`(未做)都在它看不到的地方。
-⚠️ 32 格全在**拋棄式 PG 樁**上,不是 Supabase;樁沒有真 `auth` schema 的角色/權限/trigger。
+⚠️ **這個全綠【不代表可以 apply】** —— 上表 `#3`(codex 未過)、`#4`(做不完)、`#7`(未做)、
+`#8`(未做)都在它看不到的地方。
+⚠️ 39 格全在**拋棄式 PG 樁**(本機 PG 17.10)上,不是 Supabase;樁沒有真 `auth` schema 的角色/權限/trigger。
+🔴 **格數會隨新增格漂;引用前重跑,不要抄這個數字。** 真正的結論是下面那張突變覆蓋表的【集合】。
+
+### 突變覆蓋(2026-08-17 B 窗五發,每發錨點唯一性當場 assert;基線 39 格 / 失敗 0)
+
+**怎麼重跑(不要相信下表,自己跑一次)**:對 `docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql`
+逐一套下列**唯一錨點**替換,每套一發就跑 `bash scripts/b1b-acceptance-harness.sh <port>` 並記錄翻綠的格,
+跑完還原。**替換前先 assert 錨點在全檔恰好命中 1 次**(命中數 ≠ 1 ⇒ 那一發的結論不可信):
+
+| # | 錨點(`grep -c` 應回 1) | 改成 |
+|---|---|---|
+| 1 | `AND attacl IS NOT NULL AND cardinality(attacl) > 0` | 後面接一行 `AND false` |
+| 2 | `pg_has_role('service_role', r.oid, 'SET')` | `false` |
+| 3 | `AND has_table_privilege(r.oid, oc.oid, d.privilege_type)` | 前面插 `AND false` |
+| 4 | `FROM unnest(ARRAY['SELECT','INSERT','UPDATE','REFERENCES']) AS c(privilege_type)` | 陣列換成 `ARRAY[]::text[]` |
+| 5 | `IF has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_priv)` | `IF` 後插 `false AND` |
+
+| 停用哪一段 | 翻綠的格 | 計數 |
+|---|---|---|
+| 第 1 層 `attacl` sweep | `A17` + `A3` | 37/2 |
+| 第 2 層 `v_reach` 整段 | `A19m`(兩格)+ `MA-2b` + `MA-2c` | 35/4 |
+| └ `v_reach` **表級臂** | **只有 `MA-2c`** | 38/1 |
+| └ `v_reach` **欄級臂** | **零行為格**(構造不出來,理由在 harness) | 37/1 |
+| service_role 表級有效權限迴圈 | `A15` + `MA-2a` | 37/2 |
+🔴 **這個數字是 B 窗單方面的量測,無人復現** —— 引用時要帶這個限定。
