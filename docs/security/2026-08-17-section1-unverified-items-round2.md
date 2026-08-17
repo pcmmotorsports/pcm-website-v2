@@ -213,6 +213,54 @@ SELECT created, content FROM net._http_response
 
 ---
 
+## §5-e 兩條與 `TAPPAY_3DS_ENABLED=true` 綁在一起的前置,逐字核對結果(2026-08-17 傍晚,B 窗提問)
+
+### ① BLOCKER「WAF 對 tappay-notify 限流」= **乙(要擋)**,而現況**不擋** ⇒ **未滿足**
+
+**不從「限流」這個詞推**(那個詞在兩個世界都讀得通),**讀原文**(`docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md:176`,逐字):
+> 🔴 **BLOCKER — Vercel Firewall/WAF** 對 `/api/checkout/tappay-notify/*` 限流已設:= inbox 膨脹(去重鍵 rec_trade_id 非 order、存在性閘擋不住同單海量不同 rec)+ settleCharge/Record API 出站放大 的**唯一 app 前防線**;**未設 → 不得設 backend_notify_url / 不得開 `TAPPAY_3DS_ENABLED` / 不得開放 prod 結帳**
+
+**判定依據(兩處字面,不是語感)**:①它自稱**「防線」**;②它要防的是兩件**具體會發生的事**(inbox 膨脹、出站放大)。**`log` 模式對這兩件事一件都不防** —— 它只是把膨脹記錄下來。⇒ **要求的是乙。**
+
+**現況(我 2026-08-17 實測,`v1/security/firewall/config/active`)**:規則 2 = `Log TapPay notify requests`,`action: "log"`,**`rateLimit: null`** ⇒ **它根本不是一條限流規則**,是純記錄規則。
+⇒ 🔴 **BLOCKER 未滿足,而 `TAPPAY_3DS_ENABLED` 已是 `true`。**
+
+### 🔴🔴 但這不是「有人忘了」—— 是**兩份文件互相牴觸**,而較新的那份是本窗自己寫的
+
+`docs/security/2026-08-17-vercel-waf-setup-plan-hobby.md` 規則 2 節逐字:
+> **永遠只 Log,不要擋** … **動作(Then):Log**(🔴 **不要改成 Deny/Challenge/Rate Limit**)
+> 🔴 **為什麼只 Log**:這是 TapPay 付款結果通知的入口。**擋錯 = TapPay 的通知進不來 = 訂單付了款卻沒被標成已付**(錢的狀態不一致,鐵則 12①)
+
+⇒ **兩份都在講錢的正確性,而結論相反**:
+| 文件 | 日期 | 要求 | 怕的是 |
+|---|---|---|---|
+| 3DS-2 plan `:176` | 06-14 | **要擋**(唯一 app 前防線) | inbox 膨脹 / 出站放大 |
+| WAF plan 規則 2 | 08-17 | **永遠不要擋** | 擋掉真通知 ⇒ 付了款沒標已付 |
+
+⚠️ **WAF plan 沒有引用、也沒有提到那個 BLOCKER** ⇒ **它很可能是在不知情的狀況下寫的**(本窗前一任所寫;我沒有證據說它讀過那份 plan ⇒ **標未確認**,不寫成「它忽略了」)。
+
+**⇒ 這不是我能拍的板:兩邊都是金流正確性,擋與不擋各有真實代價。**
+📌 **但 WAF plan 自己寫了一條同時滿足兩邊的路**(規則 2 末段):**跟 TapPay 要固定 IP 段 → 設「只允許這些 IP」(IP Blocking,Hobby 免費)**,而**不是**限流。⇒ 這樣既有「防線」(擋掉非 TapPay 來源的洪水)、又不會誤擋真通知。**硬前置 = 拿到 TapPay 的 IP 清單。**
+
+### ② `#231` 的 ②真 alert channel / ③cron 靜默死偵測
+
+| 項 | 現況 | 依據 |
+|---|---|---|
+| ② **有沒有東西會主動發通知** | ✅ **有**。`checkAnomalyAlerts` 對「所有已設定管道」(LINE / Email)推播;`ANOMALY_ALERT_ENABLED=true`;排程 `0 1 * * *`(`20260723120000…:131`) | `packages/use-cases/src/check-anomaly-alerts.ts` 檔頭 |
+| ③ **cron 停掉會不會有東西紅** | ❌ **不會** | 見下 |
+
+🔴🔴 **③ 的形狀比「沒做」更糟,兩個獨立理由**:
+1. **告警的觸發條件全部是「DB 裡有壞狀態」**(`open>0 \|\| refundingStuck>0 \|\| attemptManualReview>0 \|\| releasedStuck>0`),**沒有一條是「sweeper 沒跑」**。
+   而 `attemptManualReview` **要靠 sweeper 活著才會被推上去**(轉人工發生在 `mark_*_retry` 的 `attempt_count >= 8`,見 §5-d)⇒ **sweeper 死掉 ⇒ 沒有東西遞增 ⇒ 沒有東西達 ceiling ⇒ 那個計數停在 0 ⇒ 不告警。**
+   ⇒ **死掉的 sweeper 在【正好用來報告它的那個計數器】上產生沉默。**
+2. **告警自己跟被監控的東西共用同一套基礎設施**:`pcm-settle-sweep` 與 `pcm-anomaly-alert` **同一支 migration、同一個 wrapper `pcm_cron.invoke_cron_route`、同一組 vault secret**(`20260723120000…:128-133`)⇒ **pg_cron / wrapper / secret 任一壞掉,兩個一起停,而停掉的那個正是要來通知你的那個。**
+
+⚠️ **口徑(不要寫成「正在燒」)**:我今天實測**零漏跑**(6h 窗 180 列 = `*/2` 的理論值)、`errors` 只有 `08:04` **單發**且自行恢復。
+⇒ 正確寫法是:**「偵測缺口:它壞了要靠人去查」** —— 我今天能證明 sweeper 活著,靠的是**我去看 `net._http_response`**,不是**它會叫**。**`#231` 自己寫的後果「sweeper 死了沒人發現」成立。**
+⚠️ **未量**:是否有 repo 外的外部監控(uptime/Vercel 通知)覆蓋這一格 —— **不在我可讀範圍,標未確認。**
+
+---
+
 ## §6:cache() 去重範圍 —— per-request per-argument(結構確定)
 
 **量到的(code + React 語意)**:`fetchProductByHandle = cache(async (handle) => ...)`(`products.ts:759`),React `cache()`。檔內註解(`:754-758`)自陳「同一請求內去重、React per-request memoization、跨請求不共享」。
