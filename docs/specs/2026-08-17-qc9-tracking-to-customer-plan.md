@@ -527,6 +527,47 @@ packages/ports/src/IEmailOutbox.ts:166 逐字「落表佔位但不進 due、不�
 
 ---
 
+### 🔴🔴 §5-DONE-e · **`Q2`=乙 落不進現在這個 sweeper** —— 它手上沒有可以查主表的東西
+
+**這一節是動手寫 code 的第一分鐘撞到的,不是推的。**
+
+設計意圖寫得很清楚(`packages/adapters/src/email/order-email-assembly.ts:12` 逐字):
+> 「品項/金額/地址等渲染資料**寄信時即時查主表**(E2a/E3),不進 payload(可後台改的欄存了會過期)」
+
+**而那個能力不存在**:
+
+```text
+packages/use-cases/src/sweep-email-outbox.ts:42-44
+  export type SweepEmailOutboxDeps = {
+    outbox: IEmailOutbox;
+    sender: IEmailSender;
+  };                       <= 就這兩個，沒有任何可以讀 orders / shipments 的東西
+
+同檔 :108-117  buildEmailText(job) 是【純函式】，只拿得到 job
+同檔 :125-143  buildOrderCreatedText 只從 payload 取 display_id 一欄
+```
+
+⇒ **要在信裡放品項清單(`Q2`=乙),現在無處可查。**
+🔴 **而這不只是 `Q2` 的問題**:**追蹤碼本身也在 `shipments` 表、不在 payload**
+⇒ **就算 `Q2` 選甲(只放單號/貨運商/追蹤碼),一樣查不到。**
+**這條卡的是整個 `C9-b`,不是只卡品項那一段。**
+
+#### 兩條路(這是**架構取捨**,不是文案題)
+
+| | 做法 | 代價 |
+|---|---|---|
+| **甲** | `SweepEmailOutboxDeps` 加**第三個依賴** = 一個寄送時讀取用的 port(讀這箱這單的品項與追蹤碼) | 動**共用 use-case 的依賴契約** + composition root(`apps/storefront/src/app/api/cron/email-sweep/route.ts:140`,**production 呼叫端數 = 1**,數法 `grep -rn 'sweepEmailOutbox(' apps packages --include='*.ts' \| grep -v '\.test\.'` ⇒ 2 行,其中 1 行是定義) |
+| **乙** | 把品項清單與追蹤碼**放進 payload** | 🔴 **直接違反 payload allowlist 那道防線**(`order-email-assembly.ts:4-11`:那層逐字寫著它是「PII 不落表的**真防線**」、「禁 spread、禁整包轉存」);而且**追蹤碼後台可改** ⇒ 存了會過期,信寄出去帶的是舊碼 |
+
+**本窗推薦 = 甲。** 理由:乙省下的是一次契約改動,付出的是**那份 code 裡唯一一道真防線**,
+而且它會製造一種**寄出去才看得到、且收不回來**的錯(舊追蹤碼)。
+
+🔴 **這一條【超出已批准的 plan 範圍】** —— 批准時這份檔寫的是「管線是活的,只差 E4 那一段」,
+而**那句話再一次讀窄了**(§5-DONE 第 3 條已經修過一次:生產端零呼叫端;**這是第二處**)。
+⇒ **依 R3「範圍擴張必停問 Sean」,本窗不自行開工甲,先端出去。**
+
+---
+
 ## §5 動工前要先偵察的(**這些沒答之前我不會寫 code**)
 
 1. 🔴 **S2=B 的「一批」在 code 裡是誰?** 一個 `shipment` 還是一次標記動作?
