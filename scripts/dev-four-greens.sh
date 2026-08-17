@@ -193,7 +193,7 @@ four_greens() {
   drift_report "$FP_START" "$(tree_fingerprint)" "$(logdir_for "$MODE")" || dr=$?
   [ -n "${VITEST_END:-}" ] || VITEST_END="$(count_vitest)"   # 全綠那條路沒經過上面 ⇒ 這裡才取樣
   run_context "$T_START" "$VITEST_START" "$VITEST_PRE" "$VITEST_END" "$(logdir_for "$MODE")" \
-    "$BUILD_START" "$BUILD_PRE"
+    "$BUILD_START" "$BUILD_PRE" "$tc" "$li" "$bu" "$vi"
   # 🔴 DRIFT 要能【擋住下一個動作】,否則它什麼也買不到(V 窗 R3-3)。
   #    在此之前:警告印在會滾走的輸出裡、檔落在沒人查的目錄裡,而收割照收、四綠照綠 ——
   #    **沒有任何一條判準會因為 DRIFT 存在而停。** 那不是品質問題,是它現在買不到東西。
@@ -218,6 +218,7 @@ four_greens() {
 #    中間衝上去又掉下來,這兩個數看不到。要看得到得改成持續取樣,不在本片範圍。
 run_context() {
   rx_start=$1; rx_v0=$2; rx_vpre=$3; rx_v1=$4; rx_dir=$5; rx_b0=$6; rx_bpre=$7
+  rx_tc=$8; rx_li=$9; shift 9; rx_bu=$1; rx_vi=$2
   # 🔴 絕對路徑閘 —— 這不是防禦性程式設計潔癖,是**今晚真的發生過**:
   #    我在改這支函式的參數個數時,呼叫端與函式體有一瞬間對不上(4 個 vs 5 個)
   #    ⇒ `rx_dir` 收到的是 `"7"`(某個並行行程數)⇒ **selftest 在 repo 根目錄生了一個 `7/` 目錄**,
@@ -233,6 +234,10 @@ run_context() {
     printf '開始 %s\n結束 %s\n' "$rx_start" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
     printf '其他窗四綠vitest並行數(不含自己) 開始=%s vitest起跑前=%s 結束=%s\n' "$rx_v0" "$rx_vpre" "$rx_v1"
     printf '其他窗四綠build並行數(不含自己) 開始=%s vitest起跑前=%s\n' "$rx_b0" "$rx_bpre"
+    # 🔴 rc 也寫進來 —— 不是多餘的:沒有它,任何要做「並行數 × 紅綠」統計的人
+    #    都得去 parse `run-rc.sh` 印的那句中文(`rc=0 ✅（…）`)⇒ 統計工具就綁死在那句措辭上,
+    #    措辭一改、統計靜默失準。**把結論放在跟條件同一個檔裡,兩者一起被讀到。**
+    printf 'rc typecheck=%s lint=%s build=%s vitest=%s\n' "$rx_tc" "$rx_li" "$rx_bu" "$rx_vi"
   } > "$rx_dir/RUN-CONTEXT"
   echo
   echo "───── 這一發跑在什麼條件下(給三週後查因果的人)─────"
@@ -742,10 +747,15 @@ selftest() {
 
   # 格23:run_context 真的把兩個數寫進痕跡檔(餵構造好的值,靶目錄自己造)。
   rx_tmp="$(mktemp -d)"
-  run_context "T0" "3" "5" "7" "$rx_tmp/ctx" >/dev/null 2>&1
+  run_context "T0" "3" "5" "7" "$rx_tmp/ctx" "8" "9" "0" "1" "2" "3" >/dev/null 2>&1
   r="$(grep -c '開始=3 vitest起跑前=5 結束=7' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
-  rm -rf "$rx_tmp"
   ck "格23 RUN-CONTEXT 要帶【三個】並行行程數的原值(含最有用的中間那個)" "$r" "1"
+  r="$(grep -c 'build並行數(不含自己) 開始=8 vitest起跑前=9' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
+  ck "格23-d build 那兩個值也要原字進檔(位置不得與 vitest 那三個對調)" "$r" "1"
+  # 格23-e:rc 四個值原字進檔,且【位置不得對調】—— 餵 0/1/2/3 四個不同的值就分得出來。
+  r="$(grep -c 'rc typecheck=0 lint=1 build=2 vitest=3' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
+  ck "格23-e rc 四個值原字進檔且位置正確(統計工具靠它,不必去 parse 中文措辭)" "$r" "1"
+  rm -rf "$rx_tmp"
   # 格23-b [負向對照]:參數錯位的世界。**今晚真的發生過** —— 呼叫端與函式體參數個數對不上一瞬間,
   #   `rx_dir` 收到 `"7"` ⇒ selftest 在 repo 根生了一個 `7/` 目錄,而**印的是全綠**。
   #   靶用一個絕對不存在的相對名字,確認它 ①回 rc=2 ②不生任何東西。
