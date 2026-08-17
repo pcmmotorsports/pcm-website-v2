@@ -222,6 +222,61 @@ REVOKE SELECT ON extensions.pg_stat_statements, extensions.pg_stat_statements_in
 
 三張 taxonomy 表對 `authenticated` 是 **`USING true`**(無條件全表讀)。**我沒有量**報價單庫實際上有沒有 `authenticated` 身分在用(有沒有真人登入 / 發過 user JWT)。**沒量就不判它是不是曝險** —— 無人登入則是死條款,有人登入則是三張分類表全開。⇒ **標未確認**,留給知道該系統怎麼被使用的人。
 
+### 7.6 🆕 production schema vs repo 一致性(B 窗要的 `#4`)—— **零差集,兩向皆驗**
+
+**限制先講**:`supabase_migrations` schema 對 `pcm_audit_ro` 為 **`f`**(實測)⇒ **我讀不到 migration ledger**,無法回答「哪幾支 migration 套用過」。
+⇒ **本節改問一個不需要 ledger 也答得出來的問題:repo 的 migration 宣告要建的物件,是否與正式庫實際存在的物件一致。**
+
+**量法(兩邊各自獨立取,可重跑)**:
+```bash
+# repo 側：只讀 origin/main（工作樹落後 16 顆，memory 有記）
+cd ~/API大量上架/PCM報價單-V2 && git fetch
+for f in $(git ls-tree -r --name-only origin/main -- supabase/migrations | grep '\.sql$'); do
+  git show "origin/main:$f"; done > /tmp/quote_mig.sql          # 16 檔、11,572 行
+grep -oiE "CREATE (OR REPLACE )?(MATERIALIZED )?(TABLE|VIEW) (IF NOT EXISTS )?[a-z0-9_.\"]+" /tmp/quote_mig.sql \
+ | sed -E 's/.*(TABLE|VIEW) (IF NOT EXISTS )?//I; s/public\.//; s/"//g' | sort -u > /tmp/repo_objs.txt
+
+# 正式庫側
+psql "$PCM_AUDIT_RO_QUOTE_URL" -X -t -A -c "SELECT c.relname FROM pg_class c
+  JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname='public' AND c.relkind IN ('r','v','m') ORDER BY 1;" | sed '/^$/d' | sort -u > /tmp/prod_objs.txt
+
+comm -23 /tmp/repo_objs.txt /tmp/prod_objs.txt   # repo 宣告了、正式庫沒有
+comm -13 /tmp/repo_objs.txt /tmp/prod_objs.txt   # 正式庫有、repo 沒宣告
+```
+
+**結果**:`repo = 98` / `prod = 98` / **兩個差集皆 `0`**。
+
+🔴 **兩向反面對照(`0` 一定要證明它抓得到東西,否則是恆綠格)**:
+```
+往 repo 清單注入一個假物件 zzz_this_object_does_not_exist ⇒ comm -23 得 1 ✅（印出該名）
+從 repo 清單移掉一個真物件 products                      ⇒ comm -13 得 1 ✅（印出 products）
+```
+⇒ **比較器在兩個方向都會叫** ⇒ 上面那組 `0/0` 是**量到的**,不是恆真。
+
+### 🔴 7.6-a 我在這一節踩的坑(**留著,它是今天同族第三次**)
+
+**第一版的字元類是 `[a-z_."]+` —— 少了數字** ⇒ 每個名字都在**第一個數字處被截斷**:
+```
+taxonomy_v2_major              → taxonomy_v
+front3d_pricing_configs        → front
+audit_results_backup_20260715  → audit_results_backup_
+```
+⇒ 產出「A 差集 15、B 差集 17」,而那**看起來像一份正常的不一致報告**。
+🔴 **拆穿它的不是任何一個計數,是【兩份差集長得像成對的】** —— 左邊 `taxonomy_v`、右邊 `taxonomy_v2_major`。
+✅ **修正後的正向對照**:`grep -c '[0-9]' /tmp/repo_objs.txt` ⇒ **17**(舊版必為 `0`)⇒ 證明「名字裡的數字現在抽得到了」。
+
+📎 **今天第三次「量具少報而輸出看起來正常」**:①`has_table_privilege` 看不到欄級授權 ②`information_schema` 被權限過濾 ③本次 regex 漏數字。
+🔴 **三次的共同形狀:輸出都是【合法的、格式正確的、數量合理的】,沒有任何一次會紅。** 三次都是靠**另外量一格**抓到的(欄級版 / 正向對照 / 成對特徵)。
+
+### 7.7 本節**沒有**回答的
+
+| 沒答 | 為什麼 |
+|---|---|
+| 哪幾支 migration 實際套用過 | `supabase_migrations` 對稽核帳號 `f`,**量不到,不是不存在** |
+| 欄位層級是否一致(欄名/型別/約束) | **本節只比物件名**;欄位層級未比,**標未確認** |
+| `CREATE INDEX` / `CREATE FUNCTION` / policy 是否一致 | 同上,本節分母僅 `TABLE`/`VIEW`/`MATERIALIZED VIEW` |
+
 ---
 
 ## 6. 口徑再申明
