@@ -101,9 +101,23 @@ git log origin/dev..dev --since="2026-08-17 00:00" --pretty=%H --name-only \
 > **為什麼重要(現成最佳論證)**:`lessons:1065` 那條 —— 原文 runbook(`docs/reviews/2026-08-07-e-batch-apply-runbook.md:164-166`)有「PGRST202 = 具名參數對不上」的限定,而 lessons **摘要弄丟了它**,摘成「函式不在」,活了 11 天並被當通則引用。
 > ⇒ **限定會在轉載時掉,而掉了之後沒有人知道它掉過。** commit body 不會被讀第二次,code 註解會 ⇒ 血半徑限定必須進 code 註解。
 
-抽樣(續):
-- fa958b0c:「shipping-doc.tsx:81 未核、刻意不動」寫在 commit body ⇒ **待查是否也進了 code 註解**。
-- (下一輪補其餘高風險顆的 d 欄抽樣。)
+範圍=27 顆裡的錢/權限/schema/出貨 9 顆。方法:`git show <h> -- <非測試檔>` 撈新增註解行,比對 body 的血半徑限定句有沒有【同一句】進 code 註解。
+
+| commit | 面 | body 的血半徑限定 | 進了 code 註解? |
+|---|---|---|---|
+| 7305cf8d | tier | 硬閘≠#215、cookie 認證化未做/等 M-2-08 | ✅ a(tier.ts 註解) |
+| 1fd291d6 | 錢 | 半份資料/兩種語意並存/EMBED_LIMIT=500 | ✅ a(orders-table.tsx JSDoc) |
+| fa958b0c | 出貨 | 9 條路構造不出、【不宣稱不可能】、網路層/PostgREST 逾時未涵蓋 | ✅ a(shipping-doc.tsx 逐字有) |
+| e0c343db | 出貨 | 200=Sean 口述業務上緣、URL 長度≠列數、max-rows 未量 | ✅ a(shipment-candidates/repository 註解,含 codex R2 的 URL≠列數) |
+| 251c2307 | 權限/schema | 未 apply、三支要一起跑、MAINTAIN=PG17-only、本機節錄版 | ✅ a(SQL 檔頭「誠實界」段) |
+| 8cb69570 | 權限/schema | 未 apply、寫/驗分離、產生器問題、supabase_admin 仍自帶授權 | ✅ a(SQL 註解豐富) |
+| 🌟 92ac213c | 權限/schema | **正式庫 service_role 有沒有 BYPASSRLS 未查(本機 false),但本片不依賴那答案(兩道都顯式)** | ✅ **a 模範** —— 效度限定 + 「缺的那道仍列著:正式庫查 pg_roles.rolbypassrls」都在 SQL 註解 |
+| 62acdf57 | schema/契約 | 三個契約決定(linesTruncated fail-closed / null=讀不到 / 不傳維持 fail-closed) | ✅ a(IShippedEmailContext.ts JSDoc) |
+| 🔴 15d8b19c | 錢 | **「出貨單 shipping-doc.tsx:81 的新判準我沒核完、刻意不動」** | 🔴 **b —— 只在 body,code 註解 0 命中** |
+
+**b 類(只有一顆)排序**:15d8b19c 的「shipping-doc 未核」是【我沒覆蓋哪個 sibling】型限定 —— 掉了之後下一個人會假設**所有截斷面都 fail-closed 了**、不去查 shipping-doc(=錯的決定,不只是不知道)。⚠️ **但它已自解**:fa958b0c 隨後就把 shipping-doc 那個面改成 fail-closed ⇒ 錯誤決定的窗口已關,現況嚴重度 LOW。
+
+**column d 結論(正向)**:這一欄艦隊做得好 —— 9 顆裡 8 顆把血半徑限定寫進了 code 註解,migration 那幾顆(92ac213c/8cb69570)尤其把「未查/效度限定」直接放進 SQL,**正是 `lessons:1065` 沒做到的那件事的反面模範**。唯一的 b(15d8b19c)還自己解掉了。no c(全都有血半徑限定)。
 
 ---
 
