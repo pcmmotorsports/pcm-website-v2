@@ -4,7 +4,10 @@ import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { cancelledQuantityOf, outstandingQuantity } from '../../lib/shipping/shipping-doc-quantities';
 import { carrierLabelOf } from '../../lib/shipping/carrier-label';
-import { shippedDateText, trackingDisplay } from '../../lib/shipping/shipping-doc-dispatch';
+// 🔴 `Q-C5`=丙(Sean 2026-08-17):**追蹤碼不印在這張紙上** ⇒ `trackingDisplay` 這裡不再 import。
+//    那支函式**沒有刪**(目前零消費端、保留給 `Q-C9` 出貨通知信)——
+//    理由在 `shipping-doc-dispatch.ts` 的 `trackingDisplay` docstring。
+import { shippedDateText } from '../../lib/shipping/shipping-doc-dispatch';
 import { PrintButton } from './print-button';
 
 // #10 片2b:出貨單(一個箱 × 一張訂單)。
@@ -270,10 +273,11 @@ export function ShippingDoc({
 
   return (
     <div className='mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
-      {/* 🔴 **三個號碼各自帶標籤**(plan §4)。設計需求書早就標了這個風險(當時只有兩個碼):
-          「**兩個碼並排裸印,客人不知道該拿哪個去查**」。現在紙上有三個
-          —— 訂單編號 / 箱號 / 追蹤碼 —— 而**只有追蹤碼是拿去別人家網站查的**。
-          ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。 */}
+      {/* 🔴 **每個號碼各自帶標籤**(plan §4)。設計需求書早就標了這個風險:
+          「**兩個碼並排裸印,客人不知道該拿哪個去查**」。
+          ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。
+          ⚠️ **原文寫「現在紙上有三個 —— 訂單編號 / 箱號 / 追蹤碼」,`Q-C5`=丙 之後只剩兩個**
+             (追蹤碼那一列已拿掉,見下方貨運資訊區的作廢註解)。 */}
       {/* ── 抬頭七值(#10,2026-08-17 落地)──
           🔴 **真權威是 OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html:228-241`**
              (我當場開過,不是轉述;`list_projects` 當場列出該專案)。
@@ -371,10 +375,13 @@ export function ShippingDoc({
           </div>
 
           {/* ── 貨運資訊(#10 片3)──
-              🔴 **這一區在落地之前,紙上關於「誰送的、去哪查」一個字都沒有。**
-                 設計需求書把追蹤碼列為「必須(缺)」,理由逐字:**「客人查貨的唯一依據」**。
+              🔴 **這一區在落地之前,紙上關於「誰送的」一個字都沒有。**
+              ⚠️ **原文接著寫「設計需求書把追蹤碼列為必須(缺),理由逐字『客人查貨的唯一依據』」**
+                 —— 那句**仍然是設計需求書的原文**,但 `Q-C5`=丙 之後**不再由這張紙負責**:
+                 Sean 選的是「這件事根本不該由紙做」,追蹤碼走簡訊／Email(`Q-C9`)。
+                 ⇒ 需求書那句沒有被推翻,是**載體換了**。
               🔴 資料全在 `ShipmentRow` 裡 ⇒ 零 migration、零新查詢。純粹是「有資料沒印出來」。
-              ⚠️ 三個欄位各自的判斷都在 `lib/shipping/shipping-doc-dispatch.ts` 與
+              ⚠️ 各欄位的判斷都在 `lib/shipping/shipping-doc-dispatch.ts` 與
                  `carrier-label.ts`,**不在這裡** —— 它們要有不需渲染就跑得動的測試。 */}
           <div className='rounded-md border p-3 text-sm'>
             <div className='text-muted-foreground mb-1 text-xs'>貨運資訊</div>
@@ -397,36 +404,17 @@ export function ShippingDoc({
                      而**那句話在同一批被 `Q-C9b` 刪掉了** —— 改前件沒翻後件,已更正。 */}
               <span>日期:{shippedDateText(shipment.shippedAt)}</span>
             </div>
-            {/* 追蹤碼自成一列:它是**最長、也最會被抄下來**的那個號碼。 */}
-            <div className='mt-1'>{(() => {
-              const t = trackingDisplay(shipment);
-              if (t.kind === 'number') {
-                return (
-                  <span>
-                    {t.label}:
-                    <span className='font-mono text-base font-semibold'>{t.value}</span>
-                  </span>
-                );
-              }
-              // 🔴🔴 **`missing` 一定要看得出來** —— 那代表寫入鏈有洞,而這張紙正要跟著貨出門。
-              //    留白的話員工不會發現,客人拿到一張查不到貨的紙。(plan §3.1 情形③)
-              if (t.kind === 'missing') {
-                // ⚠️ **不放 emoji**(R1 nit 15):這條路徑那張紙**是會跟著貨出門的**,
-                //    而 `Alert` 那條路徑整張紙不出門 ⇒ 兩者不能照抄。
-                //    單色雷射印表機上 emoji 會糊成一坨黑。⇒ 用粗體 + 暖色,印得出來也看得見。
-                // 🔴 **這一支【不加「追蹤碼:」前綴、也不接任何常數字尾**(R2 F2 + F4):
-                //    ① 加前綴 ⇒ 「追蹤碼:追蹤碼缺漏…」四個字重複。
-                //    🔴🔴 ② 接常數字尾會讓頁測那格**恆真** —— 它量的是這一列有幾個字,
-                //       而常數字尾自己就 12 個字 ⇒ `t.text` 被改成空字串時**照樣過**。
-                //       ⇒ 這一列印出來的字**全部來自 `t.text`**,量它才量得到東西。
-                return <span className='font-semibold text-amber-800'>{t.text}</span>;
-              }
-              // 🔴 `Q-C9b`=乙:`pending`(還沒出貨)⇒ **整列不印,連「追蹤碼:」四個字都不印**。
-              //    只把 text 換成空字串的話,紙上會留下一個「追蹤碼:」加空白 ——
-              //    那不是「空格」,那是一個看起來壞掉的欄位。
-              if (t.kind === 'pending') return null;
-              return <span className='text-muted-foreground'>追蹤碼:{t.text}</span>;
-            })()}</div>
+            {/* ── 🔴 追蹤碼那一列在這裡,而它被 `Q-C5`=丙 拿掉了(2026-08-17)──
+                Sean 逐字 `q3: 丙` ⇒ **出貨明細單不印追蹤碼欄位,追蹤碼只走簡訊／Email 給客人。**
+                作廢清單:`docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §1。
+                🔴 **同一區的「貨運商」與「日期」留著**(`Q-C19`=乙 逐字「只拿掉追蹤碼那列」)——
+                   「日期」是他自己拍過的(`Q-C6`),整區拿掉會把他拍過的東西一起收掉。
+                🔴 **丙沒有說「不用追蹤碼」,說的是「不走這張紙」** ⇒ 這些**仍然成立、不准順手拆**:
+                   ① `mark_shipped` 的「非 `other` 且追蹤碼空白 ⇒ 拒絕標記出貨」(寫入守門)
+                   ② `Q-C551` 乙 的入口格式守門
+                   ③ `trackingDisplay` 的三種 `null` 語意(留給 `Q-C9` 的出貨通知信)
+                📎 這一列原本印的東西(`number` / `missing` / `selfService` / `pending` 四支)
+                   完整留在 git 歷史與 `trackingDisplay` 的 docstring 裡,沒有跟著失傳。 */}
           </div>
 
           <div className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-1 text-sm'>
