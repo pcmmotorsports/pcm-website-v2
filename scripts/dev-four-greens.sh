@@ -31,12 +31,34 @@ set -e
 cd "$(dirname "$0")/.."
 RUNRC="scripts/run-rc.sh"
 
+# 🔴 完整輸出落在【repo 內】的 logs/ 而不是系統暫存區(logs/ 已在 .gitignore)。
+#    原因是實戰踩到的:run-rc.sh 用 mktemp,檔案在 /var/folders/…,**會被系統清掉**
+#    ⇒ 印出來的那個路徑,等你要開的時候可能已經不在了。
+# ⚠️ 我第一版是「把 TMPDIR 指過去讓 run-rc 的 mktemp 照著用」——**當場實測不成立**:
+#    macOS 的 `mktemp`(無參數)吃的是 darwin 的 per-user 暫存目錄,**不理 TMPDIR**。
+#    量法(兩個世界):`TMPDIR=<repo>/logs/four-greens mktemp` ⇒ 仍然回 /var/folders/…
+#    ⇒ 改成本檔自己收 log,不動 run-rc.sh。
+LOGDIR="$(pwd)/logs/four-greens"
+mkdir -p "$LOGDIR"
+
+# 🔴 尾行數是【參數】不是固定值,原因是實戰踩到的(2026-08-17 收割 products 那次):
+#    vitest 紅的時候,失敗明細在 `Failed Tests` 那一段,而總結行在最後 ——
+#    尾 8 行只夠印到「Test Files 1 failed」,**印不到是哪一格紅、為什麼紅**。
+#    ⇒ 我當時是靠 run-rc.sh 印的完整輸出路徑才撈回來,而我第一次還把那行 grep 掉了。
+#    `run-rc.sh` 檔頭早就寫著「失敗時尾 N 行可能沒有含到真正的錯誤,請開全檔」——
+#    **規則寫了而照樣踩,所以改成機制:讓紅的那一項自己就印得夠多。**
+# one <尾幾行> <log 檔名> <標題> -- 命令...
 one() {
-  label=$1; shift
+  n=$1; slug=$2; label=$3; shift 3
   echo
   echo "════════ $label ════════"
+  echo "(跑完會印在下面;完整輸出留在 $LOGDIR/$slug.log)"
   rc=0
-  sh "$RUNRC" 8 -- "$@" || rc=$?
+  # 🔴 【沒有管線】—— 輸出整份落檔、rc 是 run-rc.sh 的(而它的 rc 是被跑命令的)。
+  #    代價:不是即時串流,要等該項跑完才看得到。四項各 15-60 秒,可以接受;
+  #    換來的是【一個叫得出名字、不會被系統清掉的檔】。
+  sh "$RUNRC" "$n" -- "$@" > "$LOGDIR/$slug.log" 2>&1 || rc=$?
+  cat "$LOGDIR/$slug.log"
   return "$rc"
 }
 
@@ -57,15 +79,26 @@ four_greens() {
   #    不改的真正理由是另一個:那樣寫會把 one() 的 label 區塊繞掉,四項就少了標題與分隔。
   #    代價 = run-rc.sh 印 rc 那行的標籤寫 `env` 而不是 `pnpm typecheck`(它取 $1);
   #    真命令寫在下面那個 label 裡,不影響判讀。
-  one 'typecheck  (TURBO_FORCE=1 pnpm typecheck)' env TURBO_FORCE=1 pnpm typecheck || tc=$?
-  one 'lint       (TURBO_FORCE=1 pnpm lint)'      env TURBO_FORCE=1 pnpm lint      || li=$?
-  one 'build      (TURBO_FORCE=1 pnpm build)'     env TURBO_FORCE=1 pnpm build     || bu=$?
-  one 'vitest     (pnpm test = vitest run)'       pnpm test                        || vi=$?
+  # 尾行數:turbo 三項的 `Cached:` 行就在最後幾行 ⇒ 8 夠。
+  # vitest 用 60 —— 它把 `Failed Tests` 明細印在總結【之前】,8 行只印得到「1 failed」。
+  one  8 typecheck 'typecheck  (TURBO_FORCE=1 pnpm typecheck)' env TURBO_FORCE=1 pnpm typecheck || tc=$?
+  one  8 lint      'lint       (TURBO_FORCE=1 pnpm lint)'      env TURBO_FORCE=1 pnpm lint      || li=$?
+  one  8 build     'build      (TURBO_FORCE=1 pnpm build)'     env TURBO_FORCE=1 pnpm build     || bu=$?
+  one 60 vitest    'vitest     (pnpm test = vitest run)'       pnpm test                        || vi=$?
 
   echo
   echo "════════ 總表(這四個 rc 各屬各自的命令)════════"
   summary_table "$tc" "$li" "$bu" "$vi"
   echo "🔴 上面每一項的 \`Cached:\` 行請自己看,本腳本不替你下結論。"
+  # 有紅才印這一段。它指的是【上面各項自己印過的】完整輸出路徑,
+  # 🔴 而它存在的理由是:那行路徑很容易在 grep / 複製回報時被濾掉,而它是唯一能查出「誰紅」的線。
+  if ! verdict "$tc" "$li" "$bu" "$vi"; then
+    echo
+    echo "🔴 有項目非 0。四項的【完整輸出】都在:$LOGDIR"
+    echo "   尾行數是裁過的,失敗的真正原因【可能不在印出來的那幾行裡】⇒ 開全檔。"
+    echo "   四項各自的 log:"
+    ls -t "$LOGDIR" 2>/dev/null | head -4 | sed "s|^|     $LOGDIR/|"
+  fi
   verdict "$tc" "$li" "$bu" "$vi"
 }
 
@@ -96,9 +129,9 @@ summary_table() {
 #    ②③④ 比①毒:①的假綠印在臉上,②③④的假綠只存在於 exit code 裡,人眼看不到。
 #
 # ⚠️ ③④ 與下列三處目前【沒有格子守】,列出來是為了不假裝它們被守住了:
-#      · ck() 自己的比對(:82)—— 它是全套斷言的底座,改成 true ⇒ 五格恆 PASS
+#      · ck() 自己的比對(錨點 `ck() { if [ "$2" = "$3" ]`)—— 它是全套斷言的底座,改成 true ⇒ 五格恆 PASS
 #      · run-rc.sh 有沒有真的在路徑上 —— 格5 只驗檔案存在,不驗 one() 有沒有走它
-#      · 總表 printf 的標籤與變數對應(:63)—— 對調會把紅算到別項頭上(exit code 仍對,非假綠)
+#      · 總表 printf 的標籤與變數對應(錨點 `summary_table()`)—— 對調會把紅算到別項頭上(exit code 仍對,非假綠)
 #    後兩者本版已補格(格6/格7);③④與 ck() 需要「拿整支去跑」才測得到,
 #    而那要一個假 pnpm harness ⇒ **本版不做,明寫在這裡,不寫成已守。**
 selftest() {
@@ -110,11 +143,11 @@ selftest() {
   #    叫 rc 的話:刪掉 one() 的 `return "$rc"` ⇒ 格1 讀回的是 one() 自己剛寫進去的 13
   #    ⇒ 恆綠。這正是 code-reviewer 2026-08-17 用單行突變打出來的洞。
   # 格1 [負測]:one() 必須把被跑命令的非 0 rc 傳回來,不得吞掉
-  got=0; one '自測-必失敗' sh -c 'exit 13' >/dev/null 2>&1 || got=$?
+  got=0; one 3 selftest '自測-必失敗' sh -c 'exit 13' >/dev/null 2>&1 || got=$?
   ck "格1 one() 透傳失敗 rc" "$got" "13"
 
   # 格2 [正測]:成功時要回 0(否則格1 可能只是「永遠非 0」)
-  got=0; one '自測-必成功' true >/dev/null 2>&1 || got=$?
+  got=0; one 3 selftest '自測-必成功' true >/dev/null 2>&1 || got=$?
   ck "格2 one() 成功回 0" "$got" "0"
 
   # 格3 系列 [負測]:verdict() 的【每一個位置】各餵一發 ——
@@ -142,8 +175,8 @@ selftest() {
   ck "格5 依賴的 $RUNRC 存在" "$r" "yes"
 
   # 格6:one() 必須【真的走 run-rc.sh】—— 格5 只驗檔案存在,驗不到有沒有用它。
-  #     判準取 run-rc.sh 自己印的分隔線;把 :39 的 `sh "$RUNRC" 8 --` 拿掉就會消失。
-  one '自測-有沒有走 run-rc' true 2>&1 | grep -q 'exit code' && r=yes || r=no
+  #     判準取 run-rc.sh 自己印的分隔線;把 one() 裡的 `sh "$RUNRC" "$n" --` 拿掉就會消失。
+  one 3 selftest '自測-有沒有走 run-rc' true 2>&1 | grep -q 'exit code' && r=yes || r=no
   ck "格6 one() 真的經過 $RUNRC" "$r" "yes"
 
   # 格7 系列:總表的標籤與變數要對得上 —— 對調會把紅算到別項頭上(exit code 仍對,所以人眼是唯一防線)。
