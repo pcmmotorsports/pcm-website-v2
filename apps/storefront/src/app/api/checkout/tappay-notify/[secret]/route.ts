@@ -14,8 +14,27 @@
 //   7. best-effort 快路徑 settleCharge(僅首見;after() 非 durable queue → 最終保證交 3DS-4 sweeper)。
 //   8. 回 200。
 //
-// ⚠️ 誠實邊界(plan §1/§3.2):本 route 只「durable 捕獲 + best-effort 快路徑」;最終結算保證 = 3DS-4 sweeper(未實作)。
-//    3DS-4 前不設 TapPay backend_notify_url、不開 TAPPAY_3DS_ENABLED、不開放 prod 結帳(master §2 中間態誠實)。
+// ⚠️ 誠實邊界(plan §1/§3.2):本 route 只「durable 捕獲 + best-effort 快路徑」——
+//    **這一段仍然成立**:`after()` 是 best-effort、不是 durable queue,最終結算保證不在本 route,在 3DS-4 sweeper。
+//
+// ⛔ 曾經的【設計不變量】,2026-08-17 已解除 —— Sean 拍板 QC=甲(他知情、可以接受):
+//      原句逐字 =「3DS-4 前不設 TapPay backend_notify_url、不開 TAPPAY_3DS_ENABLED、不開放 prod 結帳」
+//                (master §2 中間態誠實)
+//    · **為什麼曾經這樣定**:3DS-4 sweeper 當時沒實作 ⇒ 沒有最終結算保證
+//      ⇒ 開了 prod 結帳會出現「錢收了而單沒結」且沒有人會去撿的情況。
+//    · **何時解除**:3DS-4 sweeper 已實作;`TAPPAY_3DS_ENABLED=true`、
+//      `CRON_SWEEPER_ENABLED=true`(Sean 2026-08-17 下午設定並重新部署)。
+//    · 🔴 **現在靠什麼守**:sweeper 的「掃描 → 認領 → 處理 → 退避」**全鏈已閉環(2026-08-17 實測)**;
+//      🔴 **而 `settled` 寫入路徑未被行使、未確認** —— 那是這條鏈上還沒走到的那一步。
+//      ⇒ 不得把這裡讀成「3DS 結算兜底已驗證」,也不得讀成「已驗證 sweeper 正常」:
+//        兩句都超出量到的範圍,而它們**聽起來跟上面那句一樣有把握**。
+//    🔴 **為什麼不直接把原句刪掉**:刪掉會讓「為什麼曾經不開放」一起消失,
+//      下一個人就分不出「現在開放了」是有人想過、還是有人忘了關。
+//    📎 這段的**正本**在 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭。
+//      🔴 **本段不含正本裡的兩條硬前置**(backlog `#231` 狀態仍 ⏳ 待執行、
+//         `06-14 plan:176` 的 Vercel WAF BLOCKER 未確認)⇒ **「已解除」不等於「前置都做完了」**,
+//         要判斷能不能放心開 prod 結帳,一定要去讀正本那一段,不能只讀這裡。
+//      (同族字面另在兩份 3DS plan + 兩支 cron route 裡,各有一行指標指回正本。)
 // 🔴 端點 hard 限流 = Vercel WAF(plan §14 prod 前置、Sean Q1=A);本 route 不寫 code 限流。
 //
 // @see docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md §4/§5/§8
