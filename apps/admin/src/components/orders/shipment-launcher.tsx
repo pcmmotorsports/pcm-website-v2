@@ -25,6 +25,9 @@ import { useRouter, unstable_isUnrecognizedActionError } from 'next/navigation';
 import { ShipmentDialog } from './shipment-dialog';
 import { toMessage } from '../../lib/shipping/error-message';
 import { fetchShipmentCandidates } from '../../lib/shipping/shipment-actions';
+// 🔴 從 `shipment-limits`(**沒有** `server-only`)拿,不要從 `shipment-candidates` 拿 ——
+//    後者帶 `server-only`,client 檔 import 它是**建置期錯誤**。
+import { MAX_SHIPMENT_CANDIDATE_ORDERS } from '../../lib/shipping/shipment-limits';
 import type { ShipmentCandidates } from '../../lib/shipping/shipment-candidates';
 
 /**
@@ -83,6 +86,25 @@ export function useShipmentLauncher(
 
   const openDialog = useCallback(async () => {
     setError(null);
+    // 🔴 **一次勾太多張:在【送出之前】就擋,而這一道是【文案】不是安全控制。**
+    //    真正的安全控制在 server(`loadShipmentCandidates`,同一個常數)——
+    //    這裡擋不住被竄改的請求,也不該假裝擋得住。
+    // 🔴 **那為什麼還要有這一道**:server 那道是 `throw`,而
+    //    **Next 在 production 會遮蔽 server action 丟出的原始 Error message**
+    //    ⇒ 下面 `catch` 裡的 `toMessage(e)` 拿到的是一則通用訊息,員工看不到「最多 50 張」
+    //    = 他不知道自己該分批,只知道「壞了」。
+    // ⚠️ 這不是「為不會發生的事寫文案」:勾選狀態住在 `ShippingSelectionProvider`
+    //    且純 search-param 換頁會保留 ⇒ **員工翻幾頁就合法累積得到 51 張**
+    //    (codex 2026-08-17 讀 Next 原始碼查到;**我沒有在真瀏覽器上驗過**,標未實測 ——
+    //     而正因為沒定論,這句文案才更該有:它讓「踩不踩得到」這個問題不再重要)。
+    // 🔴 **常數只准有一份**(`lib/shipping/shipment-limits.ts`,那支刻意沒有 `server-only`)。
+    //    在這裡抄一個 50 進來,兩邊就會各自漂,而漂掉的症狀是**文案說 50、server 擋在別的數字**。
+    if (orderIds.length > MAX_SHIPMENT_CANDIDATE_ORDERS) {
+      setError(
+        `一次最多勾 ${MAX_SHIPMENT_CANDIDATE_ORDERS} 張訂單(你勾了 ${orderIds.length} 張)。請取消一些勾選、分批建箱。`,
+      );
+      return;
+    }
     setLoading(true);
     try {
       const data = await fetchShipmentCandidates(orderIds);

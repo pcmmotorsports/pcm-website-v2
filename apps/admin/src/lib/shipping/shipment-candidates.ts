@@ -68,6 +68,11 @@ import {
   listAssignedQuantitiesByOrderItemIds,
   listOrderCustomerUserIds,
 } from './shipment-repository';
+// 🔴 上限常數住在【沒有 server-only】的 `shipment-limits.ts`,因為 client 端的文案也要用同一個值。
+//    抄成兩份的話,兩邊會各自漂而**沒有任何東西會紅**。
+import { MAX_SHIPMENT_CANDIDATE_ORDERS } from './shipment-limits';
+
+export { MAX_SHIPMENT_CANDIDATE_ORDERS };
 
 /** 彈窗用的一個可出貨品項。**刻意沒有任何金額欄位**(見檔頭)。 */
 export type ShipmentCandidateItem = {
@@ -217,17 +222,88 @@ function itemsOf(detail: AdminOrderDetail, assigned: Map<string, number>): Shipm
   });
 }
 
+
 /**
  * 勾選的訂單 → 品項清單(**含出不了的**;出不了的那些帶 `blockedReason`,見該欄註解)。
  *
  *
  * ⚠️ 逐張訂單各打一次 `findAdminOrderDetail`(N 張 = N 次查詢)。
  * 員工一次勾的張數是個位數 ⇒ 先用最簡單的做法;真的變慢再改批次查詢,**不預先最佳化**。
+ *
+ * @throws 勾超過 {@link MAX_SHIPMENT_CANDIDATE_ORDERS} 張時直接丟,**在打任何 DB 查詢之前**。
  */
 export async function loadShipmentCandidates(
   orderIds: readonly string[],
 ): Promise<ShipmentCandidates> {
   if (orderIds.length === 0) return { items: [], customerUserId: null, recipient: null };
+
+  // 🔴 **輸入長度上限 —— 必須在下面那個 `Promise.all` 【之前】。**
+  //
+  //    病:`fetchShipmentCandidates` 是 **server action**(`shipment-actions.ts`),
+  //    而這支對 `orderIds` 原本**零長度上限**、只有 `length === 0` 早退
+  //    ⇒ 一個被盜的 admin session 可以餵上千個 id,觸發**無界並行** DB fan-out(`Promise.all` 一次全發)。
+  //
+  //    🔴🔴 **病的描述要收窄 —— 我第一版(照抄規格)寫「一次撈走全部訂單的成交價 + 客人 PII」,
+  //       而那是【假的】**(codex 2026-08-17 R2 開檔核出來的):
+  //       這支回的是**刻意很窄的 DTO**(見檔頭,零金額欄),而 `recipient` 只有
+  //       **`details[0]` 那一張單的**收件資料 ⇒ **成交價根本不回,也不是 N 份 PII。**
+  //       ✅ **真正證實的危害只有兩件**:① 無界 DB fan-out ② 一次拿到大量訂單的品項 / 料號 / 單號對映。
+  //       📎 **為什麼要專程收窄**:誇大的威脅描述會讓下一個人把力氣投在錯的地方
+  //          (例如去做「不要回傳金額」—— **它本來就沒回**),而真正該做的是速率限制。
+  //          **論證寫得越有說服力,搬走的人越不會回頭核它。**
+  //    ⚠️ **等級 LOW-MEDIUM**:它**不跨授權邊界**、仍然要有 admin session
+  //    ⇒ 它是**帳號被盜之後的放大器**,不是入口。(E 窗 2026-08-17 稽核找到,主視窗背書。)
+  //
+  //    🔴🔴 **這道上限【只】綁住【單一請求】的 fan-out(≤ N),擋不住跨請求放大。**
+  //    原規格與我第一版註解寫「長度一上限,fan-out 自動有界 ⇒ **不需要另外做 concurrency 限制**」
+  //    —— **那句話是錯的**(codex 2026-08-17 抓到):同一個被盜 session
+  //    **平行送 20 個請求、每個 50 個不同 id ⇒ 照樣 1000 次明細查詢。**
+  //    ⇒ 真正要治它的是**速率限制 / 全域並行上限**,那是另一件事、另一片:**backlog `#611`**。
+  //    📎 **本片沒有變成白做**:它把「一個請求 = 無限」變成「一個請求 = 50」,
+  //       攻擊者要達到同樣量得**自己發 N 倍的請求**,而那是速率限制看得見的形狀。
+  //       **但不要把本片讀成「fan-out 問題解決了」。**
+  //
+  // 🔴 **為什麼是【擋掉】不是【截斷】** —— 這條理由 2026-08-17 換過一次,**換過的痕跡要留著**:
+  //    ❌ 原規格寫「對齊 Sean `Q2`=甲(撈不全就整區失敗)」⇒ **那條理由已作廢**:
+  //       Sean 同日下午把 `Q-5`(=`Q2`)**改判乙**(顯示已取得的 + 標示不完整)。
+  //    ✅ 現行理由是它自己的那條:**截斷會靜默丟單** —— 員工以為全勾進去了、實際少幾張,
+  //       而少的那幾張**不會有任何症狀**。這與 Sean 拍 `Q-C16` 甲的理由同一件事:
+  //       **「少印沒人會發現,多印客人會打電話」。**
+  //    🔴 **而且 `Q-5`=乙【在這裡不成立】,不是被我忽略**:
+  //       ```
+  //       Q-5 講的是「【撈】不完整時，畫面要怎麼呈現」 ← 資料撈不回來，是系統的問題
+  //       這裡講的是「使用者【送】了超量輸入」        ← 輸入超限，是請求的問題
+  //       ```
+  //       ⇒ 不是同一件事。乙(顯示部分 + 標示)在這裡**沒有「部分」可以顯示**,
+  //         只有一個不該被接受的請求。
+  //    ⚠️ 看到「`Q2`=甲」的字面**不要**以為本片過期;看到 `Q-5`=乙 **也不要**拿來把這道擋板改掉。
+  //
+  // ⚠️ **丟例外而不是回 `{ ok:false }`,而【員工在正式站上看不到下面這句話】。**
+  //    🔴 **Next 在 production 會遮蔽 server action 丟出的原始 Error message**
+  //       (codex 2026-08-17 抓到,而我第一版註解寫「這句話會直接印給員工看」—— **錯的**)。
+  //       `shipment-launcher.openDialog` 確實有 `try/catch` + `toMessage(e)`,
+  //       但它拿到的會是一則通用訊息,**不是「一次最多勾 50 張」**。
+  //    ❌ **我第二版寫「知情之下仍然不補 UI 文案,因為合法使用者踩不到」—— 那個理由【也垮了】。**
+  //       我當時自己標了「跨頁勾選會不會保留,未查證」,而 codex R2 去查了:
+  //       勾選狀態住在 `ShippingSelectionProvider`(`app/orders/page.tsx:247`),
+  //       純 search-param 換頁**會保留** ⇒ **員工翻到第三頁就合法累積得到 51 張。**
+  //       ⚠️ 那條**我沒有在真瀏覽器上驗過**(codex 讀 Next 原始碼推出來的)⇒ 仍標未實測。
+  //    ✅ **處置:不再爭論踩不踩得到,直接讓它不重要** ——
+  //       `shipment-launcher.openDialog` 在**送出之前**先擋並顯示明確文案(見該檔)。
+  //       ⇒ **client 那道是文案、不是安全控制;下面這道才是安全控制。** 兩道都要有:
+  //         少了 client 那道,員工看到一則沒有解釋的通用錯誤;
+  //         少了這一道,被竄改的請求直接進 fan-out。
+  //    📎 訊息本身只有兩個數字,**不含 PII 也不含內部識別碼** ⇒ 就算哪天沒被遮蔽也不外洩。
+  //    ⚠️ 另一個呼叫點 `onRefreshCandidates` 用的是**當下 render 的 `orderIds`**、不是開窗快照,
+  //       而 `shipment-dialog.tsx:137` 是 `void onRefreshCandidates?.()` ⇒ **沒有接住 rejection**。
+  //       (我第一版寫它「踩不到這裡」—— **那是推的**。而 codex R2 又指出更廣的一面:
+  //        **一般 DB / 網路錯誤本來就會在那裡變成 unhandled rejection**,與 50 這道閘無關
+  //        ⇒ 那是既有缺口、不是本片造成的,**已記進 `#611`**,本片不順手改它。)
+  if (orderIds.length > MAX_SHIPMENT_CANDIDATE_ORDERS) {
+    throw new Error(
+      `一次最多勾 ${MAX_SHIPMENT_CANDIDATE_ORDERS} 張訂單(這次勾了 ${orderIds.length} 張)。請分批建箱。`,
+    );
+  }
 
   const repo = getAdminOrderRepository();
   const details = (await Promise.all(orderIds.map((id) => repo.findAdminOrderDetail(id)))).filter(

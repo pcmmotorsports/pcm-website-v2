@@ -435,3 +435,67 @@ describe('🔴🔴 第 ③ 道閘 — 客人身分由 server 查、跨客人不�
     expect(r.customerUserId, '一張單查無就整批建不了箱 ⇒ 員工會卡在一個沒有解釋的錯誤').toBe('cu-A');
   });
 });
+
+describe('🔴 `orderIds` 長度上限 —— 擋掉,不截斷(E 窗 2026-08-17 稽核)', () => {
+  // 病:這支是 server action 的資料源,而它對 `orderIds` 原本零長度上限
+  // ⇒ 被盜 session 可餵上千 id,一次撈全部訂單成交價 + PII,並觸發無界並行 DB fan-out。
+  //
+  // 🔴 **本族最重要的一格是「打 DB 之前就擋」,不是「有沒有丟」** ——
+  //    餵 N+1 個 id 卻仍然打了 DB,上限就形同虛設**而測試照樣綠**(它只驗到最後有丟)。
+  //    ⇒ 兩個世界都要餵:超限的與剛好在線上的。
+
+  it('🔴 超過上限 ⇒ 在打【任何】DB 查詢之前就丟', async () => {
+    const { loadShipmentCandidates, MAX_SHIPMENT_CANDIDATE_ORDERS } = await import(
+      './shipment-candidates'
+    );
+    const ids = Array.from({ length: MAX_SHIPMENT_CANDIDATE_ORDERS + 1 }, (_, i) => `o-${i}`);
+    await expect(loadShipmentCandidates(ids)).rejects.toThrow();
+    // ⇐ 這三條才是「短路發生在 fan-out 之前」的證據。少了它們,把守門搬到 Promise.all
+    //    後面也會全綠 —— 而那個版本已經把全部資料撈回來了。
+    expect(findAdminOrderDetail, '守門在 fan-out 之後 ⇒ 資料已經撈回來了才擋,等於沒擋').not.toHaveBeenCalled();
+    expect(listAssigned).not.toHaveBeenCalled();
+    expect(listCustomers).not.toHaveBeenCalled();
+  });
+
+  it('丟出的 Error 訊息帶得出上限值與這次的張數', async () => {
+    // ⚠️ **這格證的是「Error 物件裡有這兩個數字」,不是「員工看得到它」** ——
+    //    Next 在 production 會遮蔽 server action 丟出的訊息(codex 2026-08-17)。
+    //    員工看得到的那句話在 `shipment-launcher.openDialog` 的**送出前**擋那一段。
+    //    ⇒ 本格的用處是 dev / log 可讀,以及釘住「訊息不是空的」。
+    const { loadShipmentCandidates, MAX_SHIPMENT_CANDIDATE_ORDERS } = await import(
+      './shipment-candidates'
+    );
+    const n = MAX_SHIPMENT_CANDIDATE_ORDERS + 3;
+    await expect(loadShipmentCandidates(Array.from({ length: n }, (_, i) => `o-${i}`))).rejects.toThrow(
+      new RegExp(`${MAX_SHIPMENT_CANDIDATE_ORDERS}[^\\d]*張[\\s\\S]*${n}`),
+    );
+  });
+
+  it('🔴 正向對照 — 剛好 50 張 ⇒ 照常走完,而且真的打了 50 次 DB', async () => {
+    // 🔴🔴 **本格原本用 `MAX_SHIPMENT_CANDIDATE_ORDERS` 去產 ids,而那讓它對「上限改成 0」【恆綠】**
+    //    (codex 2026-08-17 抓到 —— 而我原本還在上一行註解裡宣稱它擋得住):
+    //    `MAX = 0` ⇒ `Array.from({length: 0})` = `[]` ⇒ 走 `length === 0` 早退 ⇒
+    //    `resolves.toBeTruthy()` 成立、`toHaveBeenCalledTimes(0)` 也成立 ⇒ **兩條斷言一起說謊。**
+    //    📎 病的形狀:**測資與期望值來自同一個常數** ⇒ 常數怎麼漂,兩邊一起漂,
+    //       要區分的那兩個世界**在資料裡從來沒有分開過**。⇒ 改成寫死 50。
+    const { loadShipmentCandidates, MAX_SHIPMENT_CANDIDATE_ORDERS } = await import(
+      './shipment-candidates'
+    );
+    expect(MAX_SHIPMENT_CANDIDATE_ORDERS, '上限值變了 ⇒ 本格寫死的 50 要一起改').toBe(50);
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listCustomers.mockResolvedValue(new Map([['o1', 'cu-A']]));
+    const ids = Array.from({ length: 50 }, (_, i) => `o-${i}`);
+    await expect(loadShipmentCandidates(ids)).resolves.toBeTruthy();
+    // ⚠️ **`findAdminOrderDetail` 是 `vi.fn()`(本檔 `:18-24`)** ⇒ 這行證的是
+    //    「**mock 被呼叫 50 次**」,**不是「真的打了 50 次 DB」**(codex 2026-08-17 R2 更正我的措辭)。
+    //    它守得住的是「守門有沒有提早擋掉合法的 50 張」,守不住任何真實 DB 行為。
+    expect(findAdminOrderDetail, '上限被改小 ⇒ 這裡會丟,或根本沒呼叫到 50 次').toHaveBeenCalledTimes(50);
+  });
+
+  it('上限值 = 50,而且【不是】抄 ORDER_ITEMS_EMBED_LIMIT 的 200(母體不同)', async () => {
+    // 釘死這個數字的理由不是它神聖,是**它很容易被「對齊既有慣例」改成 200** ——
+    // 200 是「一張訂單有幾個品項」的業務上緣,這裡的母體是「一次勾幾張訂單」。
+    const { MAX_SHIPMENT_CANDIDATE_ORDERS } = await import('./shipment-candidates');
+    expect(MAX_SHIPMENT_CANDIDATE_ORDERS).toBe(50);
+  });
+});
