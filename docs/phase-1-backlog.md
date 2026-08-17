@@ -17653,9 +17653,65 @@ rc typecheck=0 lint=0 build=0 vitest=1
 
 ---
 
-### #629 · PostgREST max-rows 若低於 200,itemsTruncated 判定看不見那次截斷
+### #629 · code 依賴一個住在**伺服器設定**裡的數字(`max-rows`),而那個依賴**沒有任何載體、調低時完全靜默**
+
+> **保留時的標題**(`reserve-backlog.sh` 的 git ref 裡存的)是
+> 「PostgREST max-rows 若低於 200,itemsTruncated 判定看不見那次截斷」——
+> **那是本條的第一個站點,不是本條的範圍。** 2026-08-18 主視窗指出另外兩處同病
+> ⇒ 收成**一個號一張站點表**。
+> 🔴 **為什麼不開三個號**:三個號會讓下一個人以為是三件事、**修一個就結案**。
 
 - **狀態:** ⏳ 待執行。**本條不是「現在壞了」,是「壞掉的那天沒有任何東西會出聲」。**
+- 🔴 **共同病根(一句話):**
+  > **code 讀一個【伺服器端設定】決定的邊界,而那個邊界在 repo 裡沒有字面、
+  > 在測試裡沒有觀測點 ⇒ 它被調低的那一天,每一個站點都靜默地開始少東西。**
+
+#### 站點表(⚠️ **本表未窮舉** —— 這三處是 2026-08-18 兩個窗各自撞到的,沒有做過全樹盤點)
+
+| # | 站點 | 調低 `max-rows` 之後會怎樣 | 今天的餘裕 |
+|---|---|---|---|
+| 1 | `itemsTruncated` 判定<br>`mappers/order.ts:873` | 伺服器先夾到 150 ⇒ `150 >= 200` 為 `false` ⇒ **旗標說沒事而品項真的少了** | `2000 > 200` |
+| 2 | `vehicle_taxonomy` 翻頁迴圈<br>`apps/storefront/src/lib/products.ts:682/719` | 🔴 **比「每頁少一筆」嚴重得多** —— 見下方站點 2 詳述 | `2000 > 1000`,**只差一倍** |
+| 3 | `listCategories`(「全站共 N 類」的分母)<br>`packages/adapters/src/supabase/helpers/category-queries.ts:54` | 該查詢**無 `.limit()`、無 `.range()`** ⇒ 直接吃 `max-rows` ⇒ **N 少報而畫面上沒有任何提示**(顯示端 `apps/storefront/src/components/CategoryGrid.tsx:236`) | 分類數今天遠小於 2000,**未量** |
+
+✅ **三處都是本窗 2026-08-18 自己開檔驗的**(第 2、3 兩處由主視窗指出、我沒有照抄它的描述)。
+數法:
+```
+grep -n 'PAGE_SIZE\|vehicle_taxonomy' apps/storefront/src/lib/products.ts       ⇒ :682 :695 :705 :719
+grep -n 'limit(\|range(\|\.from(' packages/adapters/src/supabase/helpers/category-queries.ts
+   ⇒ 只有三行 .from(，零個 .limit( 、零個 .range(   （檔全長 93 行）
+grep -n '全站共' apps/storefront/src/components/CategoryGrid.tsx               ⇒ :236
+```
+
+#### 🔴 站點 2 詳述 —— **它不是「少一筆」,是「第一頁就停」**
+
+```
+apps/storefront/src/lib/products.ts
+  :682   const PAGE_SIZE = 1000;
+  :695   .range(from, from + PAGE_SIZE - 1)
+  :719   if (!data || data.length < PAGE_SIZE) break;      ← 終止判準
+
+max-rows 掉到 500 的世界：
+  第 0 頁 .range(0, 999) ⇒ 伺服器夾到 500 列 ⇒ 500 < 1000 為真
+  ⇒ 🔴 【第一頁就 break】⇒ 整份車款表停在 500 筆，其餘全部不見
+  ⇒ 而 VehicleFinder 的下拉少一大截，沒有任何一行字說它不完整
+```
+🔴 **既有的那道 log 守在【另一條路上】**:`:705` 的 `console.warn` 只在
+`page === MAX_PAGES - 1`(第 49 頁)且滿頁時才印 —— 而上面那個世界**第 0 頁就 break 了**,
+`page` 永遠不會走到 49 ⇒ **那道 warn 一次都不會響**。
+📎 這正是 `docs/patterns/guard-and-instrument-traps.md` 那條「守門裝在沒有事的那條路上」。
+
+📎 **repo 裡早就有這條規則,缺的是【它還成不成立】的守門**:
+`docs/patterns/pagination-loop-review.md` 五條準則第一條逐字 = **「頁大小嚴格小於 `db-max-rows`」**。
+```
+今天 PAGE_SIZE 1000 < max-rows 2000  ✅ 成立
+而 2026-08-17 Sean 口頭的 1000 之下：1000 < 1000  ❌ 不成立（零餘裕）
+⇒ 🔴 這條準則【已經被違反過一次】，只是那時候沒有人拿數字去對
+```
+
+#### 站點 1 詳述(本窗自己量的)
+
+#### 站點 1 詳述(本窗自己量的)
 - **病的形狀(三步,每一步都合法):**
   ```
   ① 明細查詢送 .limit(ORDER_ITEMS_EMBED_LIMIT = 200)
