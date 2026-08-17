@@ -448,7 +448,7 @@ function OrderGroup({
                 {order.itemsTruncated ? (
                   <span
                     className={status.capsuleClass}
-                    title='這張單的品項太多,列表這裡算不出狀態。重新整理不會改變。'
+                    title='這張單的品項達到 500 筆上限,系統一次載不完,算不出狀態。這是系統的固定限制,不是暫時的狀況。請聯絡負責人處理。'
                   >
                     未知
                   </span>
