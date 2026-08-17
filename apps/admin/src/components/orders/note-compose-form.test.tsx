@@ -130,6 +130,10 @@ describe('NoteComposeForm — A10a-3', () => {
     expect(actionMock.mock.calls.length).toBe(0);
     confirmSpy.mockReturnValue(true);
     fireEvent.submit(form);
+    // 🔴 本格這兩發 waitFor(:133/:159)【刻意不帶 timeout】,不是漏做:格預算 5000ms 內
+    //    已有 :154 的 3000,再各加 3000 ⇒ 最壞疊加 7000 撞格預算,失敗訊息退化成泛用
+    //    Test timed out(同 :154 註解那筆帳)。若這兩發哪天野外紅:連格 timeout 一起加
+    //    ({ timeout: 10000 } 於 it 第二參數),不要只加 waitFor 的。
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(1));
     // 非更正模式:不問 confirm
     rerender(<NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />);
@@ -177,9 +181,14 @@ describe('NoteComposeForm — A10a-3', () => {
       <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
     fireEvent.submit(container.querySelector('form')!);
-    await waitFor(() => {
-      expect(getByRole('button', { name: '送出中…' })).toHaveProperty('disabled', true);
-    });
+    // pending 態=同一套 useActionState transition 家族(bfbc2844 量到該家族合法延遲
+    // 可 >1000);本格只有這一發 waitFor、前置全同步 ⇒ 3000 距格預算 5000 餘裕足,安全帶。
+    await waitFor(
+      () => {
+        expect(getByRole('button', { name: '送出中…' })).toHaveProperty('disabled', true);
+      },
+      { timeout: 3000 },
+    );
     fireEvent.click(getByRole('button', { name: '送出中…' }));
     expect(actionMock.mock.calls.length).toBe(1);
   });
