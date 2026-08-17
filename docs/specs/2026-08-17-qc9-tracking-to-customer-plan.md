@@ -285,6 +285,95 @@ expect(buildOrderShippedText(fixtureJob)).toMatchFileSnapshot('__previews__/orde
 **被我否決的替代做法**:寫一支 script 手動跑印出來。
 🔴 **沒有守門** —— 模板改了不會有人想到要重跑它,而那時預覽就是一份過期的紙。
 
+### 🔴🔴 §5-DONE-b · **兩條規則看起來打架,而它們在講不同的軸**(動手寫模板前必讀)
+
+**這一節寫的是【正確解與錯誤解兩個都寫】** —— 只寫正確解擋不住下一個人,
+因為**他會自己推出錯誤解那個方向**,而那個方向「看起來安全」。
+
+```
+DB COMMENT（20260805170000 的 COLUMN COMMENT，逐字）
+  「E4 的 order_shipped 模板必須依此分流，不得寄出【已出貨但無單號】的通用信」
+  ⇒ 它講的是【內容分流】
+
+sweep 既有約定（sweep-email-outbox.ts:120-124，逐字）
+  「payload 形狀異常 → 退回不含編號的通用文案，【不因文案缺欄位就不寄】
+    （付款成功通知的存在比編號重要）」
+  ⇒ 它講的是【送不送】
+```
+
+| | 做法 | 滿足 COMMENT? | 滿足 sweep 約定? |
+|---|---|---|---|
+| ✅ **正確解** | 有單號走 A 模板、無單號走 **B 模板**(B 也是**真模板**,不是通用信) | ✅ 分流了 | ✅ 照樣寄 |
+| 🔴 **錯誤解** | 無單號時 **throw / 不寄** | ❌ **沒有** | ❌ 違反 |
+
+🔴 **為什麼錯誤解【看起來】是對的**:它長得像 fail-closed,而本 repo 到處都是 fail-closed。
+🔴 **為什麼它其實是錯的**:`COMMENT` 要的是「**不要寄錯的信**」,**不是「不要寄」**。
+把「內容不對」處置成「不送」,是**把兩個軸壓成一個**。
+
+🔴 **錯誤解的實際後果(而它不會有人發現)**:
+`sweep-email-outbox.ts:231-235` 的 per-job catch 對 throw 的處置逐字是
+「**不補標不重試:列留 `sending`**,lease 到期由下輪回收」
+⇒ **出貨信會卡在 `sending` 直到 attempts 耗盡,而客人什麼都沒收到。**
+⇒ 症狀是「客人說沒收到出貨通知」,而 code 這邊**每一格測試都是綠的**。
+
+📎 **B 模板的內容有現成的知識可用**:`trackingDisplay` 的**三種 `null`**
+(還沒出貨 / 缺漏 / `other` 免碼)—— 那正是 `Q-C5`=丙 時**刻意保留它**的理由,
+而 **DB COMMENT 用它自己的話要求了同一件事**。
+⇒ **兩個沒有互相參照的來源指向同一個設計**,那比任何一方單獨的論證都強。
+
+**那一格守門的驗收(三種都要分得出來)**:
+```
+無單號 ⇒ 走 B 模板      → 該綠
+無單號 ⇒ 走通用模板     → 該紅
+🔴 無單號 ⇒ throw / 不寄 → 【也該紅】
+   這一格最容易漏，因為它「看起來安全」
+```
+🔴 而**拿掉分流時它必須紅** —— 拿掉之後 A 與 B 會產出同一串,那一格就抓得到。
+
+### ✅ §5-DONE-c · `SupabaseEmailOutboxAdapter` **全文讀過**(不是只讀 grep 命中)
+
+📎 **為什麼要特別聲明**:前一任在**同一支檔**上踩過「只讀 `git grep` 的 5 行命中、
+把 migration 註解的轉述當成讀過 code」。
+
+```
+檔長 419 行（wc -l），已讀全文。
+dedup_key 的【寫入路徑】= 1 條，只有 :201-204 那個 .insert()
+  數法：grep -n '\.insert(\|\.update(' ⇒ 4 處
+        :201 insert  ← 唯一寫 dedup_key 的
+        :306 update  → status / claimed_at / attempts        （tryClaim）
+        :375 update  → status / claimed_at / last_error_code / next_retry_at（reclaimStaleLeases）
+        :409 update  → { ...values, claimed_at: null }        （leaveSending）
+```
+🔴 **`:409` 那個 `...values` 是唯一的展開,我特別查了它**:
+型別是 `Database['public']['Tables']['email_outbox']['Update']`
+⇒ **型別上【允許】帶 `dedup_key`**,但三個呼叫端(`:324` / `:340` / `:349`)
+實際傳的只有 `status` / `sent_at` / `last_error_code` / `next_retry_at`。
+⇒ **今天沒有第二條寫入路徑;而型別沒有擋住將來出現一條。** 兩件分開講。
+
+**要動的四處(不是一處)**:
+```
+:196  payload  = buildOrderCreatedPayload(...)   ← 寫死 order_created
+:197  dedupKey = input.orderId                    ← 寫死 order 層
+:206  subject  = orderCreatedSubject(...)         ← 寫死模板
+:235  resolveUniqueViolation 的 .eq('dedup_key', input.orderId)
+      🔴 這一處最容易漏 —— 它【自己又算了一次 dedup_key】而不是用 :197 那個。
+         改了 :197 沒改 :235 ⇒ 撞鍵回查查【錯的鍵】⇒ 查無 ⇒ throw
+         「撞唯一鍵但查無同事件列」。症狀出現在【第二次寄同一批】，離改動很遠。
+```
+⇒ **修法不是兩處各改一次,是把 `dedupKey` 算出來之後【傳給】`resolveUniqueViolation`**
+—— 一個來源、兩個消費端。
+
+### 📌 做法**不用發明** —— `IEmailOutbox.ts:145-152` 已經寫死了
+
+逐字:
+> 「目前只開放 `order_created`(codex 關卡2 R1:過早開放 `order_shipped` 會讓
+> 「出貨事件+付款 payload」在型別上合法、且**錯占唯一鍵** → E4 正確事件被當 duplicate 吞掉)。
+> E4 定案 payload 與 dedup_key 算法後,**以 discriminated union 增員**(事件⇔payload 綁定、不共用自由欄)。」
+
+⇒ `eventType: 'order_created'` 是**字面型別**,今天連傳 `'order_shipped'` 都編不過。
+⚠️ 我原本以為「呼叫端可以標錯 `event_type` 卻塞付款 payload」是個潛在 bug —— **型別已經擋住了。**
+📌 而「E4 定案 dedup_key 算法後」那個前提**2026-08-17 晚到齊**(Sean 拍乙 ⇒ `shipment_id + order_id`)。
+
 ### ✅ 一個原本要提的風險,**實查之後撤掉**
 
 我本來要提「`Q-D`=乙 要連品項一起寫 ⇒ payload allowlist 只有三欄,要擴,而那是 PII 邊界」。
