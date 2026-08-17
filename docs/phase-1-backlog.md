@@ -15928,3 +15928,44 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   第二道閘 `grep -rn '#55[0-9]' ~/pcm-mailbox/*.md` ⇒ 命中 2 檔皆為 `#551`(C 窗)、**`#554` 零命中**,
   而該零命中附正向對照(`#54[0-9]` ⇒ 7 檔命中)與分母(信箱 2957 檔)⇒ **那個 0 是量出來的**。
 - **發現於**:2026-08-16 · B 窗 真登入線 E8-B `b1-b` 關卡2 R2 折後 · 由 B 窗立案
+
+### #608 · check-syntax-nonts.gate.test.ts 三格 timeout — 同一顆樹紅一次、四次重跑全綠、成因未確認
+
+- **原始事實(照字面寫,不整理成好看的版本):**
+  ```
+  同一顆樹上出現過一次 3 格 timeout（scripts/check-syntax-nonts.gate.test.ts），
+  之後【四次】重跑全綠 —— 三次單獨重跑 + 一次完整 pnpm test。
+  成因未確認。「負載造成」是推論不是量到的。
+  ```
+- **🔴 三格都是 `timed out` 不是斷言失敗** ⇒ 病在「5 秒上限 vs 真的建暫存 git repo + stage + 跑 gate」,
+  **不在 gate 的邏輯**。原文逐字:
+  ```
+  Error: Test timed out in 5000ms.
+   ❯ scripts/check-syntax-nonts.gate.test.ts:105  🔴 壞 .sql staged → gate 擋下
+   ❯ scripts/check-syntax-nonts.gate.test.ts:118  🔴 壞 .yaml staged → gate 擋下
+                                                  好 .sql staged → 放行
+  ```
+  該檔與 `vitest.config.ts` **都沒有設 `testTimeout`** ⇒ 吃 vitest 預設 5000ms
+  (量法 `grep -n 'timeout\|testTimeout' scripts/check-syntax-nonts.gate.test.ts vitest.config.ts` ⇒ **零命中**;
+   正向對照:同一支 grep 換 `describe` ⇒ 命中,證明那個 0 是量出來的)。
+  該檔自己的檔頭寫著每格 `~600ms,全是 node 啟動`。
+- **🔴 修法是【設計選擇】,不是撿現成的 —— 兩條方向不同:**
+  ```
+  甲 加 testTimeout            便宜，但【會讓這格對「gate 真的變慢了」失去判別力】
+  乙 那三格改成不跑真 git      保住判別力，但要重寫 harness，而它現在測的正是「真的會擋」
+  ```
+  ⚠️ **不要因為甲比較快就寫成「加 timeout 就好」** —— 代價要一起看。
+- **⚠️ 一條【被我讀了 code 之後推翻】的成因假說,留著防重踩:**
+  C 窗同日回報「全套測試的紅會被工作樹髒不髒影響」,並點名這支「對**真的 git index** 下 `git add`」。
+  **開檔實查:不是。** `stageAndRunGate()` 的 `git add` 帶 `{ cwd: scratch }`,
+  而 `scratch` 是 `mkdtempSync()` 建的**暫存 repo** ⇒ **它碰不到主樹的 index。**
+  ⇒ C 窗那個相關性可能是真的,**但它給的機制對這支檔不成立**。
+  📎 這條留著的理由:**結論可能對而理由錯**,而下一個人會照理由去修。
+- **不修未來會痛在哪:** 收割窗每併一支就跑一次四綠,**而這是唯一會隨機紅的那一格** ——
+  紅一次就要花一輪去查「是不是那批 commit 帶進來的」。今天已經發生一次,
+  查完的結論是「不是那批」,**而那一輪的成本是真的付掉了**。
+  更糟的方向:**紅得夠頻繁之後,人會開始預設它是假警報。**
+- **由來:** 2026-08-17 I 窗收割 `products`(merge `5a624da8`)後跑四綠時撞到。
+- **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #608`(CAS,不是下限);
+  信箱佔位掃描 `grep -rn '#608' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
+  附正向對照 `grep -rc '#606' ~/pcm-mailbox/*.md | grep -v ':0$'` ⇒ 命中 3+ 檔 ⇒ **那個 0 是量出來的**。
