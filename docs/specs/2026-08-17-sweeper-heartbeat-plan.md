@@ -82,6 +82,54 @@ id bigint | ran_at timestamptz | status text | <幾個 counts int> | run_id uuid
 ### 1b. sweeper 每輪成功時寫一列
 `settle-sweep` route 在回 200 前寫入。**失敗輪(503)不寫 `ok`。**
 
+> ## 🔴🔴 1b **做不了 —— 硬卡在 apply,而這是量到的不是推的**(2026-08-18 B 窗)
+>
+> `sweeper_heartbeat` **不在 `database.types.ts` 裡**
+> (`grep -c 'sweeper_heartbeat' packages/adapters/src/supabase/database.types.ts` ⇒ **0**)——
+> 那份是**從真實 DB 生成**的,而本表的 migration **還沒 apply 到任何真實 DB**。
+> ⇒ `supabase.from('sweeper_heartbeat')` **通不過 typecheck**。
+>
+> **我寫了一個拋棄式探針實測,不是讀 code 推的**:
+> ```
+> 探針：createSupabaseServiceClient().from('sweeper_heartbeat')
+>         .upsert({ job_name: 'settle-sweep', last_success_at: … })
+> 實得：error TS2769  No overload matches this call
+>       error TS2353  'job_name' does not exist in type 'RejectExcessProperties<…44 more…>'
+>       Tasks: 6 successful, 8 total（storefront typecheck 紅）
+> 探針已刪，git status --porcelain 空
+> ```
+>
+> ### ⇒ 真正的順序鏈(而它的頭在 Sean 手上)
+> ```
+> Sean apply migration（runbook: docs/reviews/2026-08-17-heartbeat-e683-apply-runbook.md）
+>   ↓
+> supabase gen types 重生 database.types.ts
+>   ↓
+> 1b 寫入端才做得了
+>   ↓
+> 1c 健康端點才有東西可讀
+> ```
+> 🔴 **這不是「還沒開始」,是【開不了工】。** 兩者在進度表上長得一樣,而處置完全不同:
+> 前者要派人,後者要**Sean 按一個鈕**。
+>
+> ### 📎 而這是 repo 既有的慣例,不是我發明的例外
+> `docs/phase-1-backlog.md:12778` 逐字:
+> > 片 A2 = adapter 換源 + admin + 測試 ⇒ ⏸ **等 A1 apply 後 `supabase gen types` 才能開工(型別雞生蛋)**
+>
+> ⇒ **不要繞過它**(手改生成檔 / `as any` / 自建型別)——
+> 那會讓「型別與真實 schema 不同」變成一個**沒有任何東西會紅**的狀態,
+> 而生成檔下次重生時會把手改的部分**靜默蓋掉**。
+>
+> ### ⚠️ 而 1b 的規格本身仍然缺兩件(apply 之後才會撞到,先寫下來)
+> ```
+> a) 失敗輪要不要寫 last_failure_at / consecutive_failures？
+>    §1b 只寫了「失敗輪不寫 ok」—— 那是【不寫成功】，不等於【要寫失敗】
+>    而表上那兩欄（migration :57-58）就是為這件事開的 ⇒ 不寫的話它們永遠是初值
+> b) 心跳寫入自己失敗時怎麼辦？
+>    🔴 它【不可以】改變 route 的回應 —— 否則「監控」會把「被監控者」弄壞
+>    ⇒ 必須 best-effort + 自己吞掉例外，而【吞掉】這件事要留一條 log
+> ```
+
 ### 1c. 新增公開唯讀端點
 ```
 GET /api/health/settle-sweep     公開、不需 secret
