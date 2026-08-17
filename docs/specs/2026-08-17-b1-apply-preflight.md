@@ -26,7 +26,7 @@
 | 4 | 報價單 **production schema 與 repo 一致性** | 🟡 **部分完成**(~~未關,且做不完~~ 已作廢:repo 側一直都在,原判是 `find -maxdepth 3` 掃不到造成的)— repo 側 ✅ / schema shape ✅ / **migration ledger 讀不到 ⇒ 需 Sean** — 見下方專段 |
 | 5 | `B1-a` 的 `select distinct actor` 重跑 | 可選(已跑過一次:`sean` 48 / `staff_1` 17) |
 | 6 | 🔴 **`MAINTAIN` 補進權限清單** | ✅ **完成** — 見下方專段 |
-| 7 | 🔴 **RLS preflight**(主視窗 2026-08-17 裁定新增) | 🟡 **部分完成** — 本表已守且已具名(**限 B2 apply 當下**);**整庫 10 關聯盤點未做,需正式庫** — 見下方專段 |
+| 7 | 🔴 **RLS preflight**(主視窗 2026-08-17 裁定新增) | 🟡 **部分完成** — 本表已守且已具名、**兩層都有**(`A21` + `A20`),但**仍限 apply 當下**;**apply 後被 DISABLE 無人偵測**(event trigger 機制可行【已實測】,但**現有告警管線接不了這種事件** ⇒ 裁定**不建**);**整庫 10 關聯盤點未做,需正式庫** — 見下方專段 |
 | 8 | 🔴 **正式庫 `service_role` 可 `SET ROLE` 到哪些角色**(B 窗 2026-08-17 新增) | ✅ **已量 = 0 列**(2026-08-17 05:12 UTC,E 窗)—— 🔴 **但 0 不是「安全」**:它代表第 2 層在正式庫上**判別力為零**;且**apply 當天必須當場重跑**。見下方專段 |
 
 ---
@@ -139,7 +139,7 @@ Table 5.2 表物件權限字串 = **`arwdDxtm`**,共 **8** 項,`m` = `MAINTAIN`
 >
 > | 範圍 | 狀態 | 誰做的 |
 > |---|---|---|
-> | `admin_user_staff_map` **這一張表** | 🟡 **已守且已具名 —— 但【限 B2 apply 當下】** | B 窗 2026-08-17 |
+> | `admin_user_staff_map` **這一張表** | 🟡 **已守且已具名、兩層(`A21` + `A20`)—— 但仍【限 apply 當下】** | B 窗 2026-08-17 |
 > | 正式庫**整庫** 10 個疑似含祕密的關聯(RLS 開 6 **關 4**) | 🔴 **未做**,需要正式庫 ⇒ **要 Sean 在場** | E 窗盤點、未動工 |
 >
 > ⇒ 下面那一段(E 窗原話)講的是**整庫**那一半,**它仍然成立、仍然未做**。
@@ -154,11 +154,30 @@ Table 5.2 表物件權限字串 = **`arwdDxtm`**,共 **8** 項,`m` = `MAINTAIN`
 ⚠️ **問題不是沒保護,是那個紅【說不出自己是誰】**:讀的人看到「B2 seeding 壞了」,
 要翻三層才知道真因是 RLS 被關掉 —— 而最可能的錯修是**跑去把 B2 的前提斷言放寬**。
 
-⇒ **處置:不新增保護,只把既有保護具名。** 新增 `A20` 兩格:
+⇒ **處置分兩步**:
+**(一)先把既有保護具名**(不新增保護)—— `A20` 兩格:
 - `A20 RLS 被關掉時 B2 必須拒絕 seeding`(預期紅)
 - `A20 紅對地方`(錯誤訊息必須指名「RLS 沒開」—— 否則與「B2 因別的原因壞掉」分不出來)
 
-**判別力實測**:把 B2 的 RLS 前提斷言停用 ⇒ **只有 A20 那兩格翻綠**(基線 41 格 ⇒ 39/2)。
+**判別力實測**:把 B2 的 RLS 前提斷言停用 ⇒ **只有 A20 那兩格翻綠**(量於基線 41 格 ⇒ 39/2)。
+
+⚠️🔴 **A20 的構造 2026-08-17 換過一次,而換的理由本身是個發現**:
+舊構造是「把 `ENABLE ROW LEVEL SECURITY` 從 B1-b 刪掉再跑」。
+**加了下面 (二) 的 `A21` 之後那個構造失效** —— B1-b 會自己當場紅、整支回滾
+⇒ 表根本不存在 ⇒ A20 的前提檢查印 `relrowsecurity=`(空)而不是 `f`,**fail-closed 擋住,沒變成假綠**。
+⇒ 新構造:**讓 B1-b 正常跑完,再 `DISABLE ROW LEVEL SECURITY`**,然後跑 B2。
+📎 **而新構造更接近真實世界** —— 它模擬的正是本節講的那個缺口:**apply 之後有人把 RLS 關掉**。
+
+**(二)再加一道同層的落地斷言**(2026-08-17,主視窗批准、鐵則 12 全套跑過):
+B1-b 的 `$rls_premise$` 區塊加 `IF v_rls IS DISTINCT FROM true THEN RAISE`
+- `A21` 拿掉 `ENABLE` 那一行 ⇒ **B1-b 自己當場紅**,訊息指名「RLS 沒有開起來」
+- `A21b` 正向對照:原檔 ⇒ 不誤報
+🔴 用 `IS DISTINCT FROM true` **不是** `= false`:表不存在時 `relrowsecurity` 是 NULL
+⇒ `NULL = false` 為 NULL ⇒ `IF` 走 false 分支 ⇒ 斷言不會叫。**同一個 commit 稍早才在 B1-a 修完這個形狀。**
+
+📌 **兩格守的不是同一件事,兩格都要**:
+`A20` → 「RLS 沒開時**下游 B2** 會擋」;`A21` → 「RLS 沒開時 **B1-b 自己**當場紅」。
+**失敗的位置決定下一個人會去改什麼** —— 紅在 B2,最可能的錯修是放寬 B2 的前提斷言。
 
 📌 **本表這一半【不需要正式庫】** —— 它是 migration 自帶的斷言,apply 當下就會紅。
    整庫那一半需要連 production ⇒ 不在本窗權限內,見上表。
@@ -178,9 +197,68 @@ adversarial-reviewer 2026-08-17 `F2`,**雙突變實測**(同時拿掉 B1-b 的 `
 「你日後任何一支 migration 只要給其中一張表一個 SELECT,RLS 不會接住」)
 ⇒ **所以本表這一半也只是【部分】,不要因為 A20 綠了就當本表結案。**
 
-📌 **最便宜的補法(建議、非本片必做)**:B1-b 既有的 DO 區塊加一行
-`IF NOT relrowsecurity THEN RAISE`,讓保護與它的斷言**放在同一層**。
-本片刻意不做:它會動到 migration 本體 ⇒ 命中鐵則 12②③ ⇒ 該走完整審查流程,不夾帶。
+📌 **同一層的落地斷言 ✅ 已做**(2026-08-17,主視窗批准、鐵則 12 全套跑過):
+B1-b 的 `$rls_premise$` 區塊加了 `IF v_rls IS DISTINCT FROM true THEN RAISE`,
+負測 = harness `A21`(拿掉 `ENABLE` 那行 ⇒ B1-b **自己當場紅**、訊息指名「RLS 沒有開起來」)
++ `A21b` 正向對照(原檔 ⇒ 不誤報)。
+🔴 **但它守的是「有人把那行從檔案裡刪掉」,【不是】本節講的 apply 後被 DISABLE。**
+   這支 migration 只跑一次、不會重跑 ⇒ 事後的狀態它一概看不到。**本節的缺口仍然開著。**
+
+### 🔴🔴 而「用 event trigger 關掉這個缺口」—— **這條路是通的,與 role 那條相反**
+
+B1-b 檔內另有一段寫著「**這道殘留不能用 event trigger 關**」。
+⚠️ **那句是對【role membership 的 GRANT】說的,不能套到 RLS 上** ——
+官方的例外是「**shared objects**(databases / roles / tablespaces)不觸發」,
+而 `ALTER TABLE … DISABLE ROW LEVEL SECURITY` 的目標是**表 = local object**。
+
+**B 窗 2026-08-17 實測(PG 17.10,`ddl_command_end` event trigger,附雙向對照)**:
+```
+① ALTER TABLE … DISABLE ROW LEVEL SECURITY  ⇒ 觸發(命中 1)
+② 正向對照 ALTER TABLE … ADD COLUMN          ⇒ 觸發(命中 1)← 量具是活的
+③ 反向對照 CREATE ROLE(shared object)       ⇒ **不觸發**(命中 0)← 與 role 那條一致
+④ 事後 relrowsecurity                        ⇒ f              ← RLS 真的被關掉了
+```
+⇒ **event trigger 抓得到 RLS 被關,抓不到 role 被 GRANT。兩者結論相反,不要互相套用。**
+
+📌 **本窗不自己建它** —— 那是新機制、新的常駐物件,超出「加一道斷言」的範圍(鐵則 8 + 12)。
+
+### 「警報去哪裡」—— 查過了,而答案是**現有那條管線接不了這種事件**
+
+**先講已量到的(2026-08-17,主視窗 + Sean 實查)**:告警管線**是醒著的**——
+`ANOMALY_ALERT_ENABLED = true`(Sean 從 Vercel Dashboard 讀出)、
+`LINE_CHANNEL_ACCESS_TOKEN` / `LINE_ALERT_TO` / `RESEND_API_KEY` / `ALERT_EMAIL_TO` **皆存在**、
+pg_cron job `pcm-anomaly-alert`(`0 1 * * *`)**active = true**。
+而 `apps/storefront/src/lib/payment/composition.ts:218-236`:**enabled 但零管道 ⇒ throw**
+⇒ **「開了卻沒人收」這條路本身是 fail-closed 的。**
+
+🔴🔴 **但那條管線【不是通用告警槽】,所以這一格仍然填不出來**(B 窗 2026-08-17 讀 code 查證):
+`packages/use-cases/src/check-anomaly-alerts.ts:11` 逐字 —— `summary = reader.getAlertSummary(...)`,
+型別 `IAnomalyAlertReader` / `AnomalyAlertSummary`,資料來自
+`get_payment_anomaly_alert_summary` 那支 SECDEF 聚合 RPC(**payment anomaly 的計數**)。
+⇒ **它是「某一種輸入的定時輪詢器」,不是「有事就丟進來的匯流排」。**
+⇒ event trigger 要用它,**不是接上去就好**,擇一:
+  (a) 新增「RLS 被關」的計數來源 + 擴 `AnomalyAlertSummary` 型別 + 擴訊息 + 擴測試
+  (b) 另開路徑直接呼叫 notifier
+  **兩條都是新工程。**
+
+### 🔴 第三條成本(adversarial-reviewer 2026-08-17 補,本檔原本漏了)
+
+**event trigger 自己可以被靜默拿掉。** 官方那句例外的**後半**逐字:
+「…or for commands targeting **event triggers themselves**」
+⇒ 實測:`ALTER EVENT TRIGGER … DISABLE` 與 `DROP EVENT TRIGGER`,**另一支 event trigger 也看不到**(rows=0)。
+⚠️ **這正是本檔 `#8` 那段判 `pg_cron`「不現在建」的理由①**(能下那個指令的人也刪得掉守門)
+⇒ 兩個選項的成本表**必須對稱**,不能只寫在 pg_cron 那邊。
+
+⇒ **裁定:event trigger 維持【不建】**,三條理由:
+1. 新機制、新常駐物件(鐵則 8 + 12),超出「加一道斷言」的範圍
+2. **現有告警管線接不了這種事件**(它是 payment anomaly 的輪詢器,不是匯流排)
+3. **它自己可以被靜默拿掉**,而拿掉它的人正是我們要防的那種操作
+⚠️ 理由 2 **不是**原本那句籠統的「沒有人會讀到的警報去處」——
+**去處是有的**(LINE + Email,且 enabled 零管道會 throw),問題是**它吃不吃這種事件**。
+
+📎 **形狀留痕**(主視窗自陳):看到「有一條會發 LINE + Email 的東西」就推「那是告警去處」,
+**而沒有讀它吃什麼**。與本檔其他幾條同族:**「碰得到」≠「回得出來」、「存在」≠「開著」、
+「有管線」≠「吃你這種事件」。**
 
 ---
 
@@ -285,16 +363,16 @@ select rolname
 
 ```
 sh /Users/sean_1/pcm-website-v2/scripts/run-rc.sh 3 -- bash scripts/b1b-acceptance-harness.sh
-  ⇒ 通過 41 格 / 失敗 0 格 / rc=0     ← 2026-08-17 B 窗
-     (~~32 格~~ ~~37 格~~ ~~39 格~~ 均已過期:本輪共新增 8 格 ——
-      A19 / A19m / A19m紅對地方 / MA-2a / MA-2b / MA-2c / A20 / A20紅對地方)
+  ⇒ 通過 43 格 / 失敗 0 格 / rc=0     ← 2026-08-17 B 窗
+     (~~32 格~~ ~~37 格~~ ~~39 格~~ ~~41 格~~ 均已過期:本輪共新增 10 格 ——
+      A19 / A19m / A19m紅對地方 / MA-2a / MA-2b / MA-2c / A20 / A20紅對地方 / A21 / A21b)
 ```
 ⚠️ **這個全綠【不代表可以 apply】** —— 上表 `#3`(codex 未過)、
 `#4`(**部分完成**:ledger 讀不到)、`#7`(**部分完成**:本表已守、整庫未做)、
 `#8`(**已量 = 0 列,而 0 不是「安全」** —— 它代表第 2 層在正式庫上**判別力為零**,
 且 **apply 當天必須當場重跑**,見 §`#8` 的執行步驟)
 都在它看不到的地方。
-⚠️ 41 格全在**拋棄式 PG 樁**(本機 PG 17.10)上,不是 Supabase;樁沒有真 `auth` schema 的角色/權限/trigger。
+⚠️ 43 格全在**拋棄式 PG 樁**(本機 PG 17.10)上,不是 Supabase;樁沒有真 `auth` schema 的角色/權限/trigger。
 🔴 **格數會隨新增格漂;引用前重跑,不要抄這個數字。** 真正的結論是下面那張突變覆蓋表的【集合】。
 
 ### 突變覆蓋(2026-08-17 B 窗**六發**,每發錨點唯一性當場 assert)
@@ -317,15 +395,28 @@ sh /Users/sean_1/pcm-website-v2/scripts/run-rc.sh 3 -- bash scripts/b1b-acceptan
 | 6 | (在 **B2** 檔)`IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.admin_user_staff_map')) THEN` | `IF` 後插 `false AND` |
 
 **集合才是結論,計數只是量測現場的隨身標籤。**
+🔴 下表**第 1-5 發已於 2026-08-17 在基線 43 格上全部重跑**(加了 A20/A21 之後),
+**集合一格不差、只有計數跟著基線移動** —— 這正是「集合是結論、計數是標籤」的實例。
 
-| # | 停用哪一段 | 翻綠的格 | 計數(pass/fail) |
+| # | 停用哪一段 | 翻綠的格 | 計數(基線 43) |
 |---|---|---|---|
-| 1 | 第 1 層 `attacl` sweep | `A17` + `A3` | 37/2 |
-| 2 | 第 2 層 `v_reach` 整段 | `A19m`(兩格)+ `MA-2b` + `MA-2c` | 35/4 |
-| 3 | └ `v_reach` **表級臂** | **只有 `MA-2c`** | 38/1 |
-| 4 | └ `v_reach` **欄級臂** | **零行為格**(構造不出來,理由在 harness) | 37/1 ⚠️ |
-| 5 | service_role 表級有效權限迴圈 | `A15` + `MA-2a` | 37/2 |
-| 6 | B2 的 RLS 前提斷言(**在 B2 檔**) | **只有 `A20` 那兩格** | 39/2 |
+| 1 | 第 1 層 `attacl` sweep | `A17` + `A3` | 41/2 |
+| 2 | 第 2 層 `v_reach` 整段 | `A19m`(兩格)+ `MA-2b` + `MA-2c` | 39/4 |
+| 3 | └ `v_reach` **表級臂** | **只有 `MA-2c`** | 42/1 |
+| 4 | └ `v_reach` **欄級臂** | **零行為格**(構造不出來,理由在 harness) | 41/1 ⚠️ |
+| 5 | service_role 表級有效權限迴圈 | `A15` + `MA-2a` | 41/2 |
+| 6 | B2 的 RLS 前提斷言(**在 B2 檔**) | **只有 `A20` 那兩格** | **41/2**(reviewer 於基線 43 重跑複現) |
+| 7 | ⚠️ B1-b 的 `ENABLE ROW LEVEL SECURITY` 那一行 | **不適用本表的讀法** —— 見下方 ⛔ | — |
+
+⛔⛔ **第 7 列原本寫「翻綠的格:只有 `A21`」,那是【錯的】,2026-08-17 由 adversarial-reviewer 實測打回:**
+把 `ENABLE ROW LEVEL SECURITY` 整行從 B1-b 拿掉後跑全 harness ⇒ **`15/25`**,
+**沒有任何格翻綠;`A21` 是【紅】的,而且連同 24 格一起紅** —— B1-b 當場 abort ⇒ 表不存在 ⇒ 下游全塌。
+🔴 **我錯在把兩種不同的量法混進同一張表**:第 1-6 列是「全檔停用該段後**重跑整支 harness**、看誰**由紅翻綠**」;
+而第 7 列講的是「harness **內部**只把突變檔餵給 A21 那一格」——**兩者不是同一種量測**,
+而我在計數欄寫「見 harness」把這個差異蓋掉了。
+⇒ **A21 的判別力另有實證**(reviewer M1):把新斷言**整段回退到 HEAD**、harness 不動
+  ⇒ **42/1,唯一紅 = `A21`**,`A20` 兩格與 `A21b` 全綠 ⇒ **A21 的紅在因果上就是這道斷言。**
+  **那一發才是 A21 的負測,不是第 7 列那種。**
 
 ⚠️ **第 4 列的 `37/1` 加起來是 38、不是基線 39 —— 那不是筆誤**(adversarial-reviewer `N1` 點出,已查明):
 該發突變把 `A19m` 的 **sed 錨點字串本身**拿掉了 ⇒ 錨點自檢先叫「突變沒生效」並記一次 FAIL,
