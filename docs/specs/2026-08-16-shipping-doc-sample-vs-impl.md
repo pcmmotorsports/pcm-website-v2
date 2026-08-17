@@ -188,6 +188,52 @@ C：維持三項 —— 🔴 不推薦：第二箱會印出一條加不起來的
 > ⇒ **本節所有修法的射程上限 = 「`itemsTruncated` 這個旗標本身可信」。**
 > **那個前提不在這支檔裡,而它沒有被本節任何一條守門覆蓋。**
 
+#### ✅ 2026-08-18 C 窗:**那個前提去追了,對揀貨單這張紙【成立】**
+
+上面那段是**沒追過**的時候寫的。追法 = 問一句:
+> **「去要 200 筆」的那個常數,跟「判有沒有滿 200」的那個常數,是不是同一個?**
+
+```
+要      packages/adapters/src/supabase/SupabaseOrderAdapter.ts:847
+        .limit(ORDER_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
+判      packages/adapters/src/supabase/mappers/order.ts:873
+        itemsTruncated: row.order_items.length >= ORDER_ITEMS_EMBED_LIMIT
+定義    同檔 :407   export const ORDER_ITEMS_EMBED_LIMIT = 200
+數法    grep -rn 'ORDER_ITEMS_EMBED_LIMIT' --include='*.ts' packages apps | grep -v '\.test\.'
+        ⇒ 16 命中，而其中【是 code 的只有 4 行】，其餘 12 行是註解/docstring：
+             mappers/order.ts:407          定義（= 200）
+             SupabaseOrderAdapter.ts:41    import
+             SupabaseOrderAdapter.ts:847   拿它當 .limit()
+             mappers/order.ts:873          拿它當判定門檻
+        ⇒ 這條路上【沒有第二個字面】，要幾筆與判幾筆讀的是同一個 const
+```
+⚠️ **「4 行」的分法**:上面那支 grep 再過 `| grep -v '//'` 並濾掉行首是 `*` 的 docstring 行。
+**這個濾法是機械的、可能濾錯**(例如同一行既有 code 又有尾註)——
+我**逐行看過那 4 行的內容**確認它們是 code;**那 12 行我沒有逐行開檔**,只確認它們被濾掉。
+⇒ **要幾筆與判幾筆綁在同一個常數上** ⇒ 「拿回 200 筆」與「判定 `>= 200`」不會分家
+⇒ 🔴 **對揀貨單這張紙,那個旗標是可信的。射程上限解除。**
+
+#### ⚠️ 而它**換成了一個更窄的前提**,不是消失了
+
+`mappers/order.ts:404-406` 自己逐字寫著剩下的那個洞:
+> 「**若專案 `max-rows` 日後被設到低於本值,截斷會發生在那個更低的數字上而本判定看不見**」
+
+也就是說:PostgREST 先夾到 150 筆 ⇒ 回來 150 列 ⇒ `150 >= 200` 為 **false**
+⇒ **旗標說沒事、而紙真的少列** —— 正是 6-a-2 原本擔心的那個世界。
+
+```
+🔴 現在的前提 = 「專案 max-rows > 200」
+   狀態：⚠️ 未自驗。Sean 2026-08-17 口頭答 1000、主視窗 08-18 轉述他已改成 2000。
+        兩個數都是【轉述】，本窗沒有自己量過（施工窗無 dashboard）。
+        兩個數都 > 200 ⇒ 若屬實則不成立，但【屬實這件事沒有被任何機制盯著】。
+🔴 而它【沒有守門】：max-rows 是伺服器端設定，repo 內沒有字面可掃、測試也看不到
+   ⇒ 有人把它調低的那一天，這裡是靜默的。
+   治本寫在同一段註解裡：count: 'exact'（改共用讀取路徑 ⇒ 高風險片，不在本節範圍）。
+```
+📎 **這一則的形狀值得留**:原本的天花板寫成「前提不可信」,而追下去發現
+**前提成立、只是它自己還站在另一個前提上**。
+⇒ **「射程上限」不會消失,只會往上搬一層。** 每搬一層都要問一次「這一層有沒有守門」。
+
 ### 6-b 🔴 B 那一種比出貨明細單的任何一面都危險
 
     A / C ：品項表【不在紙上】⇒ 印出來明顯不能用
