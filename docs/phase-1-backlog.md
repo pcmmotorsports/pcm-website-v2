@@ -16446,3 +16446,44 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #619`(git ref CAS)。
   事後撞號複查:`grep -rl '#619' ~/pcm-mailbox/*.md | wc -l` ⇒ 0,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l`;
   正向對照 `grep -rl '#612' ~/pcm-mailbox/*.md | wc -l` ⇒ 非 0(那把尺量得到東西)。
+
+### #620 · 四綠 DRIFT 偵測:功能可行但守門是空的(R1 五條 must-fix 已備,實作版在 scratchpad)
+
+- **狀態:** ⏳ 待執行。🔴 **已實作、已被 `code-reviewer`(opus)判 R1 FAIL、已由作者【撤回不 commit】。**
+  ⇒ 這條不是「還沒開始」,是**做到一半而且知道哪裡不夠**,下一個人不用從零評估。
+- **原始需求(V 窗抽驗、主視窗核可):** `scripts/dev-four-greens.sh` 的目錄名 hash 是**跑之前**取的,
+  而有兩個世界沒被記錄:①中途有人 commit ⇒ 目錄名指的樹 ≠ 後段項目實際量的樹,**零痕跡**
+  ②髒樹跑(slice 流程本來就是先跑四綠再 commit)⇒ 目錄名 = 父 commit,實際量的是父 + 未提交改動。
+  🔴 **兩種 run 的目錄名長得一樣。**
+- **已做到哪(實作版留在 `…/scratchpad/drift/dfg-DRIFT-version.sh`,22,619 bytes):**
+  `tree_fingerprint()` + `four_greens()` 頭尾各取一次 + 不同就落 `DRIFT` 檔;selftest 20 → 22 格。
+  ✅ **兩個世界真的表演過,而且 reviewer 獨立重現**:樹不動不亮;build 途中弄髒 ⇒ 亮並落痕跡檔。
+- 🔴 **為什麼撤回:功能是真的,而【守門是空的】** —— R1 五條 must-fix(逐條都是實測不是推論):
+  ```
+  F1 格14 恆真：它比 tree_fingerprint() 與 tree_fingerprint()（同一支函式兩次呼叫）
+     ⇒ 把該函式換成 echo CONSTANT 或 : ⇒ selftest 仍 22/22 全綠
+  F2 格15 測的是字串運算不是那支函式：[ "$fp1" != "${fp1%dirty=*}dirty=999" ]
+     ⇒ 餵 ""/"CONSTANT"/"abc dirty=0" 全回 diff ⇒ 唯一能讓它 FAIL 的輸入產不出來
+     🔴 = 同日 R1 打掉的「負向對照沒與正向共用比對器」原形【第三次】復發
+  F3 DRIFT 判定本體零守門：if [ "$FP_START" != "$FP_END" ] 改成 if false ⇒ 22/22 全綠
+     ⇒ 整個功能被拔掉，沒有任何一格會紅
+  F4 宣稱「期間樹有沒有動」，實際只看得到「HEAD 變」或「未提交【行數】變」
+     ⇒ 世界C（開跑前已髒、途中把該檔內容整個換掉，前後都 dirty=1）⇒ 零 DRIFT
+     🔴 而那正是檔頭自己點名的「髒樹跑 = slice 流程常態」
+     便宜對照：git status --porcelain | cksum 抓得到「檔數不變但換了哪一支」，抓不到內容改
+              ⇒ 要真守內容得加 git diff HEAD | cksum
+  F5 非 git 目錄 / git 不可用時指紋塌成 "nohead dirty=0" ⇒ DRIFT 恆不亮
+     🔴 = 同檔 格8-0 當初就是為這個病加的，而格14/15 沒有對應那一格
+  ```
+  另有 4 條 nit(DRIFT 亮了 `rc` 仍是 0、射程限定寫在函式註解不在檔頭清單、先落檔後印警告、
+  `d=` 覆寫 `one()` 的全域 `d`)。
+- 🔴 **撤回的理由值得寫下來**:同一天作者才把
+  「**綠燈不可以同時代表沒問題和沒檢查成**」與「**負向對照必須與正向共用比對器**」寫進 memory,
+  ⇒ **commit 一個守門是空的量具,會讓下一個人以為 DRIFT 有人守。**
+  **功能沒有比「知道它沒被守著」更值錢。**
+- **修法方向(已具體,執行者不用重想):** 把 DRIFT 判定抽成一支吃兩個字串的函式
+  (如 `drifted_between(a,b)`),格子餵**構造好的指紋字串**去測它、再加一格釘住
+  `four_greens()` 真的用了那支函式(= 同檔 格12 的做法);另補一格擋 `nohead` 塌陷(= 格8-0 的做法)。
+- **不修未來會痛在哪:** 現行版本**沒有 DRIFT** ⇒ 「跑到一半樹被動過」的那一發,
+  結果會被當成乾淨的證據拿去背書一顆 commit,**而它長得跟一次正常的四綠一模一樣**。
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #620`(git ref CAS)。
