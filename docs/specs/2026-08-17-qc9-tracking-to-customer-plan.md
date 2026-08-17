@@ -231,6 +231,31 @@ shipments【沒有 order_id】——箱掛的是【客人】不是訂單
 **照 fail-closed 的直覺把它寫成 throw,出貨信會卡在 `sending` 直到 attempts 耗盡,而客人什麼都沒收到。**
 📌 這條要寫進 C9-b 的驗收條件。
 
+### 🔴🔴 第 3 條偵察途中撞到的:**§2-b「管線是活的」只對了一半,而另一半會改變 C9-b 的工期**
+
+`§2-b` 原文寫「信那一側:**管線是活的**,只差 E4 那一段」。
+**消費端(claim → send → mark → 回收)確實是活的。而生產端【一個呼叫端都沒有】。**
+
+```
+數法（可重跑，附正向對照與分母）：
+  git grep -n 'enqueue(' -- apps packages | grep -v '\.test\.' \
+    | grep -v 'IEmailOutbox.ts' | grep -v 'SupabaseEmailOutboxAdapter.ts'   ⇒ 0
+  正向對照：同一支 grep 改找 claimDue(                                       ⇒ 4
+  第三個角度：git grep -n 'SupabaseEmailOutboxAdapter' -- apps packages（排定義與測試）⇒ 11 行，
+    全部在 composition / re-export（apps/storefront/src/lib/email/composition.ts:47 有 new），
+    【沒有一行是 .enqueue(...)】
+```
+⇒ **`order_created` 也一樣沒有人 enqueue。** 那個 0 是量出來的,不是我沒找到。
+📎 這與 memory `project_0815-evening-seven-rulings` 對得上:Sean 08-15 拍「訂單信=要做」時,
+   已經記著「**缺 E3 enqueue**」。⇒ **這不是新發現的缺口,是【本 plan 的 §2-b 把它讀窄了】。**
+
+🔴 **對 C9-b 的實際影響**:
+1. C9-b 不是「照 `order_created` 的樣子再做一個」—— **沒有那個樣子可以照。**
+   ⇒ 交辦範本 T2 的「先讀相鄰實作對齊風格」那一步,**在這裡沒有鄰居。**
+2. ⇒ 工期要往上修,而**修多少我沒有估**(未估,不是估了很小)。
+3. ⚠️ **這不代表 C9-b 要順便把 E3 做掉。** 兩者共用 adapter,但觸發點不同(付款成功 vs 標記出貨)。
+   **順手做 = 範圍擴張,鐵則 8。** 要做要另外提。
+
 ### ✅ 一個原本要提的風險,**實查之後撤掉**
 
 我本來要提「`Q-D`=乙 要連品項一起寫 ⇒ payload allowlist 只有三欄,要擴,而那是 PII 邊界」。
