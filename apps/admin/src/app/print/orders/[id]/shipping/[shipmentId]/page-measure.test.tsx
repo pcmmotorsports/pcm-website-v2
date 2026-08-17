@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
@@ -231,6 +231,27 @@ async function emitPicking(
   writeFileSync(join(OUT_DIR, `${name}.html`), html, 'utf8');
   return html;
 }
+
+/**
+ * 🔴🔴 **每一輪先把整個輸出目錄清掉。這一行是機制,不是潔癖。**
+ *
+ * **2026-08-18 真的被騙到一次**:我改完 `picking-doc.tsx` 的合計文案、跑完本檔,
+ * 然後拿 `/tmp/pcm-print-measure/picking-normal.html` 去做文字審查
+ * ⇒ 讀到的是**舊字面**,而我一度把它當成「**我的修法沒有生效**」,
+ * 差一點回報一個假 finding。
+ * **刪掉那個檔、重跑一次 ⇒ 新字面就在裡面。修法從頭到尾都是好的。**
+ *
+ * 🔴 **病灶不是「忘記重跑」** —— 我**有**重跑;病灶是
+ * **「這一輪沒有寫過的檔」與「這一輪寫出來的檔」在目錄裡長得一模一樣**
+ * (同樣的檔名、看起來合理的 mtime、開起來是一份完整的 HTML)。
+ * ⇒ 那是 `docs/patterns/guard-and-instrument-traps.md` 的母題:
+ * **錯的那次和對的那次長得一樣。**
+ * ⇒ **提醒擋不住它,只有「舊的不可能還在」擋得住。**
+ *
+ * ⚠️ **代價明說**:`OUT_DIR` 是固定路徑 ⇒ **兩個窗同時跑本檔會互相清掉對方的產物**。
+ * 症狀是「我剛量的檔不見了」,**不是靜默的錯值** ⇒ 兩害相權取這一邊。
+ */
+rmSync(OUT_DIR, { recursive: true, force: true });
 
 describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => {
   // 🔴 **正向對照必須在同一次執行裡**:沒有它,`.next` 不存在 / 元件沒 render 出東西 /
