@@ -15821,6 +15821,25 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   ⇒ 這兩條都是「把一個會成長的東西，綁在一個不會成長的數字上」：
   `#603` 綁的是伺服器的 `max-rows`、`#605` 綁的是「`created_at` 夠不夠分辨」。
   📎 抄先例的數字前先問:**原本那個母體的上界是什麼？我這個有嗎？**
+- 🔴 **2026-08-17 就地補(I 窗;來源 V 窗 `V-034` §0/§2-3,經 `V-042` §1-2 派工。刻意【不開新號】——同一顆病有兩個號比沒號更糟):**
+  **上面那句「這個迴圈沒有任何辦法分辨它們」對【短頁型】為真,而 repo 內有一個【不適用那句話】的實作。**
+  範本 = `listOrderItemsForPrint`(`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`,四個字面當場重核皆命中):
+  ```
+  :419  PRINT_ORDER_ITEMS_PAGE_SIZE = 200      ← 200 < 1000，有餘裕
+  :950  if (batch.length === 0)                 ← 終止只認【空頁】，不認「短頁」
+  :956  from += batch.length;                   ← 游標只加【實得筆數】
+  :962  達 MAX_PAGES=… 仍未撈完（throw）        ← 撞頂 throw，不回部分
+  ```
+  ⇒ **空頁終止 + 實得游標【根本不需要分辨】被砍的頁與真末頁** ⇒ 對 `max-rows` 調小**免疫**(只是多翻幾頁)。
+  ⇒ 🔴 **所以修法有第三個選項,而且是三個裡最便宜的:照抄 repo 內這個現成範本,不用上 keyset。**
+  **上面「方向應該是…或改用 keyset 分頁」那句要連同本條一起讀** —— 只讀那句的人會直接去做大工程。
+  📎 完整判別句與五條準則:`docs/patterns/pagination-loop-review.md`。
+- 🔴 **同批補的第二塊(nit,同一顆病的另一面):`fetchAllPaginated` 自己撞 `MAX_PAGES` 的處置弱於上面那個範本。**
+  它是 `console.warn` + **回已撈到的部分**;而範本那支的註解逐字寫著
+  「`console.warn` 在 server component 裡**沒有人會看到** —— 那等於靜默截斷」並選擇 throw。
+  ⇒ **兩者矛盾,而範本是晚寫的那個 = 教訓版。**
+  現值 50 頁 × 1000 = 5 萬件,**今天撞不到**;目錄長大那天,`warn` 版會靜默少一截。
+  ⚠️ **修法已存在、照抄範本即可,不需設計** —— 這一句要留著,否則它會被當成一件要先想過的事而一直排不進去。
 
 ### #605 · 客戶列表分頁排序缺唯一鍵次序：同秒建立的客戶會跨頁重複或漏
 
@@ -16010,6 +16029,77 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
 - **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #608`(CAS,不是下限);
   信箱佔位掃描 `grep -rn '#608' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
   附正向對照 `grep -rc '#606' ~/pcm-mailbox/*.md | grep -v ':0$'` ⇒ 命中 3+ 檔 ⇒ **那個 0 是量出來的**。
+
+---
+
+### #609 · jsonb→正規化表同步層缺車款字面一致性檢查：篩選頁與商品頁徽章讀兩個實體儲存，「同源」沒有人守
+
+- **來源:** V 窗 `V-035` P7(第二輪補查版)+ `V-042` §1-3 派工;**主視窗已裁「列 backlog 不開片」。**
+  值與定位是 V 窗查的;**本條的四處 `檔案:行號` 由 I 窗 2026-08-17 落檔時當場重核,四處全部命中。**
+- **同一個事實(「此商品適用此車」)走兩條路,而兩條路的字面嚴格度不同:**
+  ```
+  篩選頁     DB RPC search_products_by_vehicle：moto_brand = p_brand 【字面全等】
+  商品頁徽章 checkFitment：NFKC 全形半形正規化 + 小寫 之後才比
+             （apps/storefront/src/lib/fitment-match.ts 檔頭逐字，V-2h/MF-1 拍板）
+  ```
+  **嚴/寬各自有理由,病不在兩份實作。**
+- **🔴 病在:它們讀的是【兩個實體儲存】,而「同源」不是結構保證。**
+  ```
+  商品頁 fitments   走 products_public 的 jsonb 欄
+                    packages/adapters/src/supabase/helpers/product-query-support.ts:108
+  RPC / taxonomy    走正規化表 product_fitments(+effective)
+                    packages/adapters/src/supabase/SupabaseProductAdapter.ts:352 / :375
+                    taxonomy view FROM 同表：
+                    supabase/migrations/20260811100000_m4b_storefront_277c_vehicle_taxonomy_direct_years.sql:123
+  ```
+  ⇒ **兩者一致,是那條 `jsonb → 正規化表` 的同步管線在維持的。** 而**沒有任何東西在檢查它維持住了**。
+- **🔴 守門要裝在哪(這條是本條的重點,不要修錯地方):**
+  **裝在同步層的字面一致性檢查,不是改比對邏輯。**
+  改比對邏輯(把 RPC 也放寬、或把 TS 收緊)是**讓兩條路長得一樣**,
+  **而問題是它們讀的資料可能已經不一樣了** —— 那是**資料品質前提**,不是 code 前提。
+- **不修未來會痛在哪:** 同步哪天寫出全形/大小寫不一致的字面(例:`Ｚ９００` vs `Z900`、`z900` vs `Z900`)⇒
+  **篩選頁篩不到,而商品頁徽章說「適用」** ⇒ 客人照徽章下單、買到裝不上的東西。
+  🔴 **而它上線時零機械訊號**:沒有測試會紅、沒有 `grep` 數會變、兩支實作各自都還是對的。
+  📎 掃 backlog 想找「已知資料風險」的人,在這條存在之前找不到它。
+- **⚠️ 未確認:** 「同步管線目前有沒有產生過不一致的字面」**沒有人量過**。
+  本條記的是**結構上沒人守**,不是**已經壞了**。要量的話 = 對正式庫比對兩個儲存的車款字面集合。
+- **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #609`(CAS,不是下限);
+  信箱佔位掃描 `grep -rn '#609' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
+  附正向對照 `grep -rc '#608' docs/phase-1-backlog.md` ⇒ 命中 3 ⇒ **那個 0 是量出來的**。
+
+### #610 · `customer_wallet_balance_check` 的 `SUM(amount)::integer` 會在累計破 21.4 億分時噴錯
+
+- 🔴 **本條是錢族(鐵則 12①)—— 這行放首段是刻意的,防插隊。**
+  動它 = 改動**錢的對帳工具**的 schema,**不是隨手改**:要走完整流程(plan、三綠、codex 對抗審查、不 push)。
+  修法本身**一行**(`::integer` → `::bigint` 或拿掉 cast),**而流程不能省** —— 一行的修法最容易被當成順手做掉的事。
+- 🔴 **方向是 `fail-loud` 不是靜默錯值** —— 所以它是 backlog 不是片。
+  cast 破界時對帳查詢**整個報錯**(`integer out of range`),不會回一個錯的數字。
+- **現況(行號當場重核,兩處皆命中):**
+  ```
+  supabase/migrations/20260523034911_init_customers_and_subtables.sql:129
+    COALESCE(SUM(amount), 0)::integer                                       AS computed_balance,
+  同檔 :130
+    COALESCE(SUM(amount) FILTER (WHERE entry_type = 'deposit'), 0)::integer AS computed_total_deposit,
+  ```
+  單一客人**終身累計**儲值/異動超過 `2,147,483,647` 分(≈ NT$2,140 萬)時噴錯。
+- 🔴 **與 2026-08-16 紀律不一致的原因 = 「舊 view 早於教訓」,不是有意例外:**
+  `admin_customer_list_v`(`supabase/migrations/20260816030000_…:54-58`)已明文立下
+  「`sum(int4)` 在 PG 回 `bigint`、`count(*)` 也是 `bigint`,**兩顆都不轉回 integer**」
+  (該處還記著 plan 初版自己跟自己矛盾、被 codex 關卡1 抓出來的經過)。
+  **本 view 建於 2026-05-23,早於那條教訓近三個月。**
+  ⚠️ **不要把它讀成「這裡刻意要 integer」** —— 那會讓下一個人以為有理由而不敢改。
+- **不修未來會痛在哪:** 哪天有經銷商終身儲值破線,對帳工具**在最需要它的時刻(大客戶對帳)開始報錯**;
+  而 `Q1`=甲 的儲值金修理片上線後,**儲值金流量只會變大**。
+- **連動面:** ①view 回傳型別變 `bigint` ⇒ 消費端(**目前 code 層零 runtime 消費端**,V 窗 `V-037` 量過;
+  若 `V-037` 甲案「dashboard 第四格」先落地,那格要一起改型別預期)
+  ②`domain/identity/wallet.ts:40` 的註解引用本 view,改時**同 commit 對齊字面**。
+- **引用口徑(`V-033` 已立、主視窗已裁):** 本 view 的「一致」只能寫「**SUM 一致**」,**不得寫「對帳一致」**
+  —— 等額互抵的錯帳它看不見。判別句與全文在 `docs/patterns/guard-and-instrument-traps.md`。
+- **來源:** V 窗 `V-040` 文案擬稿(**編號刻意留給落檔窗發**)+ 主視窗對 `V-033` §2-1 的裁定「進 backlog 不開片」;
+  I 窗 2026-08-17 落檔,行號當場重核。
+- **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #610`(CAS,不是下限);
+  信箱佔位掃描 `grep -rn '#610' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
+  附正向對照 `grep -rc '#609' docs/phase-1-backlog.md` ⇒ 命中 3 ⇒ **那個 0 是量出來的**。
 
 ---
 

@@ -4,6 +4,24 @@
 - **憑證**:`pcm_audit_ro`,真登入(`current_user`=`session_user`)
 - **來源**:`pg_catalog`,**不是** `information_schema`(後者對零權限稽核帳號會系統性回 0)
 
+> ## ⛔⛔ 2026-08-17 下午更正 —— **下面那句「repo 那一半不在這台機器上」是錯的**
+>
+> **它一直都在**,路徑 `~/API大量上架/PCM報價單-V2`(主視窗當日實查:
+> `test -d` ⇒ EXISTS、`git fetch` rc=0、`origin/main` = `482bec5`、
+> `ls-tree origin/main -- supabase/migrations | wc -l` ⇒ **16**;mac mini 上同一個 repo 的
+> `origin/main` **也是 `482bec5`** ⇒ 兩邊同版、零漂移)。
+>
+> 🔴 **錯的成因值得記**:下面那支 `find` 用 `-maxdepth 3`,而真實路徑在**第 4 層** ⇒ 掃不到。
+> **那次還配了正向對照,而對照目標剛好在深度 3 之內** ⇒ **對照過了、結論還是錯的。**
+> 📎 正向對照只證「工具會動」,**不證「掃描範圍涵蓋目標」**。
+>
+> ⇒ **下面那一節逐字保留**(它是當日觀察的證據),但**不要拿它當現況**。
+> ⇒ `#4` 的現況與剩餘缺口見 `docs/specs/2026-08-17-b1-apply-preflight.md` §`#4`
+>    (repo 側 ✅ 已解 / schema shape ✅ / **migration ledger 讀不到 ⇒ 仍需 Sean**)。
+>
+> — 更正者:B 窗 2026-08-17。來源=主視窗實查 + code-reviewer 指出本檔仍留舊字面。
+> 📎 **下修寫在這裡而不是只寫在 preflight**:引用這份盤點的人不會去讀 preflight。
+
 ## 🔴 這份只有【一半】,而缺的是哪一半要講清楚
 
 B 窗要的 `#4` 是「production schema **與 repo** 一致性」。**repo 那一半不在這台機器上。**

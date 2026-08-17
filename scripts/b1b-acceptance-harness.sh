@@ -26,7 +26,19 @@ for f in "$B1B" "$B2"; do
   [ -f "$f" ] || { echo "🔴 找不到 $f" >&2; exit 2; }
 done
 
-psqlq() { psql -h 127.0.0.1 -p "$PORT" -U postgres -tA "$@" 2>&1; }
+# 🔴 **`-X` 是承重的,不是潔癖**(adversarial-reviewer 2026-08-17 `F1`,已量到的假綠路徑):
+#    不加 `-X` ⇒ psql 讀 `~/.psqlrc`。那裡若有 `\set ECHO all`,**輸入的 SQL 會被回印進輸出**
+#    ⇒ 下面 A20 用 `grep 'RLS 沒開'` 掃輸出時,會掃到 **B2 檔案自己那句字串**、而不是真正的錯誤訊息
+#      ⇒ **B2 明明紅在別的原因(例如找不到 relation),那一格照樣印 ✅。**
+#    📎 形狀 = **偵測字串自命中**(本 repo `feedback_assertion-measures-the-wrong-thing` 有記)。
+#    ⚠️ Sean 這台目前沒有 `~/.psqlrc`(查無)⇒ **今天不會發作**;而這支檔的賣點就是「下一個人重跑」。
+#    ⇒ 五處 psql 一律 `-X`,且該格的 grep 另外錨到 `ERROR:`(**不帶 `^`**)—— 兩道都做,不擇一。
+# ⚠️🔴 **這一行原本寫「錨到 `^ERROR:`」,那是【已被證偽】的字面,2026-08-17 改掉**
+#    (code-reviewer 抓;同檔 A20 那格的註解早就寫明「`^ERROR:` 永遠不會命中」——
+#     psql 的錯誤行是 `psql:<檔>:<行>: ERROR:  …`,**前面有前綴**)。
+#    🔴 **檔頭是「指示」,下一個人會照它把 code 修齊** ⇒ 留一個被證偽的字面在這裡,
+#      等於指示別人**裝回一個永遠不會叫的偵測器**。這比註解過期嚴重一級。
+psqlq() { psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA "$@" 2>&1; }
 
 cell() { # cell <名稱> <預期 red|green> <命令...>
   local name="$1" expect="$2"; shift 2
@@ -41,8 +53,8 @@ cell() { # cell <名稱> <預期 red|green> <命令...>
   fi
 }
 
-run_sql_file() { psql -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$1" > /dev/null 2>&1; }
-run_sql()      { psql -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -c "$1" > /dev/null 2>&1; }
+run_sql_file() { psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$1" > /dev/null 2>&1; }
+run_sql()      { psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -c "$1" > /dev/null 2>&1; }
 
 cleanup() { pg_ctl -D "$D/data" stop -m fast > /dev/null 2>&1; rm -rf "$D"; }
 trap cleanup EXIT
@@ -272,18 +284,21 @@ PY
   #    那些話是對**舊的手寫四臂結構**說的,而丙案已經把四臂換成【儲存層直讀三層制】——
   #    **臂沒了,而宣稱留著。** 讀的人會以為那三格在守第 2 層的欄級查法,它們沒有。
   #
-  # 🔴 **現況以【停用某一段 ⇒ 誰翻綠】實測重建**(B 窗 2026-08-17,PG 17.10 拋棄式樁;
-  #    **五發突變,每發的錨點唯一性都在突變當下 assert**,基線 39 格 / 失敗 0):
-  #    | 停用哪一段                          | 翻綠的格(= 只有它們在守這一段)          | 計數  |
-  #    |------------------------------------|------------------------------------------|-------|
-  #    | 第 1 層 `attacl` sweep              | `A17` + `A3`                              | 37/2 |
-  #    | 第 2 層 `v_reach` **整段**          | `A19m`(兩格)+ `MA-2b` + `MA-2c`         | 35/4 |
-  #    | └ `v_reach` **表級臂**              | **只有 `MA-2c`**                          | 38/1 |
-  #    | └ `v_reach` **欄級臂**              | **零行為格**(只有 A19m 的錨點檢查會叫)   | 37/1 |
-  #    | service_role 表級有效權限迴圈        | `A15` + `MA-2a`                           | 37/2 |
-  #    ⚠️ 「欄級臂零行為格」是**構造不出來**不是漏做,理由寫在 MA-2 那段(欄級授權必進 attacl
-  #       ⇒ 第 1 層必定搶先紅 ⇒ 沒有「只有欄級臂會紅」的世界)。**不要把它讀成待補的格。**
-  #    ⚠️ 計數會隨新增格漂,**集合才是結論**;引用時連同「基線 39 格」一起帶走。
+  # 🔴 **現況以【停用某一段 ⇒ 誰翻綠】實測重建**(B 窗 2026-08-17,PG 17.10 拋棄式樁,
+  #    每發的錨點唯一性都在突變當下 assert)。
+  #
+  # 📌📌 **完整的突變覆蓋表【正本在別的檔】,這裡不複製一份:**
+  #        `docs/specs/2026-08-17-b1-apply-preflight.md` §「突變覆蓋」
+  #        (含六發的錨點、替換方式、翻綠的格、兩個不同基線的註記,以及可重跑的步驟)
+  #
+  # ⚠️🔴 **這裡原本抄了一份五列的表,而它在我加了第六發之後就過期了**
+  #    (code-reviewer 2026-08-17 抓;分類=**複本不同步**,不是「無斷言」)。
+  #    ⇒ 修法是**讓複本指回正本**,不是兩邊各補一次 ——
+  #      兩份都維護的東西,遲早只有一份被維護,而另一份讀起來一樣有說服力。
+  #
+  # 只留一句對讀這支腳本的人最要緊的結論:
+  #    **`v_reach` 的欄級臂零行為格,那是【構造不出來】不是漏做**(欄級授權必進 attacl
+  #    ⇒ 第 1 層必定搶先紅 ⇒ 沒有「只有欄級臂會紅」的世界)。**不要把它讀成待補的格。**
   #
   # 🔴🔴 **`A13` / `A13c` / `A13d` 在上面三發突變裡【全部照樣紅】** ——
   #    它們的世界(可達角色 + 欄級授權)**同時**被 `attacl` sweep 與 `v_reach` 抓到
@@ -498,6 +513,16 @@ run_sql "drop role if exists col_insert_outsider;"
 #    ⇒ **那個角色有沒有權限完全不影響** —— 死的是【問這個問題】本身。
 #    ⇒ 正式庫只要存在任何一個可 SET ROLE 的角色,apply 當場死。**這是 apply 當天才會遇到的世界。**
 #
+# ⚠️🔴 **而那個條件今天【不成立】,這件事必須跟這段話一起讀**(2026-08-17 05:12 UTC 實測):
+#    報價單庫(本檔的落點)`select rolname from pg_roles where pg_has_role('service_role',oid,'SET')
+#    and rolname<>'service_role'` ⇒ **0 列**(正向對照:`authenticator` 可 SET 到三個角色 ⇒ 機制是活的)。
+#    ⇒ **第 2 層 v_reach 在正式庫上判別力為零;上面那個 Critical 在正式庫上也【不會發作】。**
+#    ⇒ **本段那幾格(MA-2b / MA-2c / A19m)是「綠在一個今天不存在的世界」** ——
+#      它們證的是「這段 code 的邏輯對」,**不是**「這段 code 今天在正式庫有作用」。兩件事分開講。
+#    ⇒ 那為什麼還要修、還要留?**角色是後台點一下就能加的,而這支 migration 只跑一次不會重跑**
+#      ⇒ 危險窗口正好落在 apply 那一刻。**今天的 0 只保證今天。**
+#    📎 完整脈絡與 apply 當天的重跑步驟:`docs/specs/2026-08-17-b1-apply-preflight.md` §`#8`
+#
 # 📌 前提要兩道,少任何一道這格的綠都沒有意義:
 #    ① 角色**真的可達**(否則 WHERE 一列都不求值 ⇒ 綠來自「沒有列」,不是「查法對」)
 #    ② 角色對本表**零權限**(否則它本來就該紅,測到的就不是「自爆」這件事)
@@ -529,7 +554,7 @@ else
     # 🔴 **紅了不等於紅對地方**(本檔 MA-2a 段的教訓,這裡把它套用上):
     #    A19m 期望的紅【必須】是 `unrecognized privilege type`,不能是任何其他錯。
     #    少了這道,抽取產物壞掉 / 樁沒建好 ⇒ 它照樣紅、照樣「通過」。
-    A19M_ERR=$(psql -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$D/a19m.sql" 2>&1 \
+    A19M_ERR=$(psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$D/a19m.sql" 2>&1 \
                  | grep -c 'unrecognized privilege type')
     if [ "$A19M_ERR" -ge 1 ]; then
       PASS=$((PASS+1)); printf "  ✅ %-34s 錯誤訊息含 unrecognized privilege type\n" "A19m 紅對地方"
@@ -756,6 +781,59 @@ else
   FAIL=$((FAIL+1)); printf "  🔴 %-34s 表被建出來了(%s)⇒ 沒有原子性\n" "A1b 原子性" "$N"
 fi
 run_sql "update public.auth_state set require_2fa=false;"
+
+echo ""
+# 🔴 標題用單引號:雙引號內的反引號會被 shell 當【命令替換】吃掉。
+#    第一版寫成 "══ A20:`ENABLE ROW LEVEL SECURITY` 這一行…" ⇒ 實跑印出
+#    「══ A20: 這一行有沒有人在守 ══」—— **那段字直接消失,而句子還讀得通、只是掉了主詞。**
+#    (CLAUDE.md 明列此坑,本窗 2026-08-17 當場踩了一次、由實跑輸出抓到。)
+echo '══ A20:ENABLE ROW LEVEL SECURITY 這一行有沒有人在守 ══'
+# 🔴 起因(2026-08-17 B 窗查 apply preflight `#7` 時實測):把 B1-b 的
+#    `ALTER TABLE … ENABLE ROW LEVEL SECURITY;` 註解掉重跑 ⇒ **零格翻綠**,
+#    但 **S2 由 green 變 red、S4 抓不到列**。
+#    ⇒ **它其實是被守住的** —— 守它的是 `B2-seed` 自己的前提斷言
+#      (`2026-08-16-m4b-e8b-b2-seed-migration-draft.sql` 內
+#       `IF NOT (SELECT relrowsecurity …) THEN RAISE '…RLS 沒開。表被改過,拒繼續。'`)。
+#    ⚠️ **但那個紅【說不出自己是誰】**:讀的人看到的是「B2 seeding 壞了」,
+#       要翻三層才知道真因是「RLS 被關掉」。本線今晚整晚在修的就是這個形狀。
+#    ⇒ 這一格把那道守門**具名**:不是新增保護,是讓既有保護的紅【講得出自己是誰】。
+#    📎 順帶擋掉一條很可能發生的錯修:有人看到 S2 紅,會想去把 B2 的前提斷言放寬。
+drop_objs
+sed 's|^ALTER TABLE public.admin_user_staff_map ENABLE ROW LEVEL SECURITY;$|-- A20 MUTATED OUT|' \
+    "$B1B" > "$D/a20.sql"
+if [ "$(grep -c '^-- A20 MUTATED OUT' "$D/a20.sql")" != "1" ]; then
+  # ⚠️ 兩種成因,第二種嚴重得多(reviewer `N3`):突變沒生效只是這一格瞎了,
+  #    而「那一行已從 B1-b 消失」= **RLS 根本沒開,而且沒有任何人在守**。訊息要把後者講出來。
+  echo "  🔴 A20 突變沒生效:B1-b 內找不到 ENABLE ROW LEVEL SECURITY 那一行"
+  echo "     ⇒ 兩種可能:①錨點漂了(這一格失去判別力)②**那一行真的被拿掉了 ⇒ 先去確認 B1-b**"; FAIL=$((FAIL+1))
+else
+  run_sql_file "$D/a20.sql"
+  # 前提:表真的建出來了、而且 RLS 真的是關的(否則下面的紅來自別處)
+  A20_RLS=$(psqlq -c "select relrowsecurity from pg_class where oid=to_regclass('public.admin_user_staff_map')")
+  if [ "$A20_RLS" != "f" ]; then
+    FAIL=$((FAIL+1)); printf "  🔴 %-34s 前提沒成立:relrowsecurity=%s(要的是 f)⇒ 突變沒真的關掉 RLS\n" "A20 前提" "$A20_RLS"
+  else
+    cell "A20 RLS 被關掉時 B2 必須拒絕 seeding" red run_sql_file "$B2"
+    # 🔴 紅了還要紅對地方:訊息必須指名 RLS,否則它與「B2 因為別的原因壞掉」分不出來。
+    # 🔴 錨到 `ERROR:` 而不是裸字串:少了這個錨,任何**回印 SQL 原文**的路徑都會自命中
+    #    (見檔頭 psqlq 的 `-X` 註解)。`-X` 與這個錨兩道一起做,不擇一。
+    # ⚠️🔴 **不能用 `^ERROR:`** —— psql 的錯誤行是 `psql:<檔>:<行>: ERROR:  …`,**前面有前綴**
+    #    ⇒ `^ERROR:` **永遠不會命中** = 一個裝上去就再也不會叫的偵測器。
+    #    我第一版就是寫 `^ERROR:`,**是這一格自己的正向對照把它抓出來的**
+    #    (實跑:A20 紅對地方 由 ✅ 變 🔴)—— 只驗「該回 0 的回 0」不會發現這件事。
+    A20_MSG=$(psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$B2" 2>&1 \
+                | grep -cE 'ERROR:.*RLS 沒開')
+    if [ "$A20_MSG" -ge 1 ]; then
+      PASS=$((PASS+1)); printf "  ✅ %-34s 錯誤訊息指名「RLS 沒開」\n" "A20 紅對地方"
+    else
+      # ⚠️ 字面要涵蓋兩種失敗:B2 根本沒紅、或紅了但紅在別的地方(reviewer `N2`:
+      #    突變 6 之下 B2 其實是【綠的】,而舊字面寫「紅了但…」= 計數對、字面錯)。
+      FAIL=$((FAIL+1)); printf "  🔴 %-34s B2 沒紅、或紅了但訊息沒指名 RLS ⇒ 紅錯地方\n" "A20 紅對地方"
+    fi
+  fi
+fi
+echo "     ↑ 🔴 這一格守的是【既有保護的可讀性】,不是新保護。"
+echo "       拿掉 B2 的 RLS 前提斷言 ⇒ 這一格翻綠,而 S2/S4 也會一起壞 —— 兩者一起看才知道真因。"
 
 echo ""
 echo "══ 第三段:B2 seeding ══"
