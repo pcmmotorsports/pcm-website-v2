@@ -270,12 +270,23 @@ else
   bad "⑰真 push 沒被擋:rc=$PUSH_RC $(printf '%s' "$PUSH_OUT" | tail -2 | tr '\n' ' ')"
 fi
 
-# ⑱ 本 repo 的 .husky/pre-push 形狀:可執行 + 三段以 && 串接(關卡2 #1/#2 的回歸)
+# ⑱ 本 repo 的 .husky/pre-push 形狀:可執行 + 三段以 && 串接 + 前兩段帶 TURBO_FORCE=1
+#    🔴 #621(2026-08-17,codex 關卡2 must-fix):原本這一格 grep 的是
+#    `pnpm typecheck && pnpm lint && bash` 那一整串字面,而 #621 在前兩段各加了 `TURBO_FORCE=1`
+#    前綴 ⇒ 舊字面必然落空 ⇒ 這一格會變成【假紅】(它紅的是自己的判準過期,不是 hook 壞了)。
+#    ⇒ 拆成三個各自說得出自己在守什麼的判準:typecheck 帶前綴 / lint 帶前綴 / 串得到 gate。
+#    🔴 只看【非註解行】—— `.husky/pre-push` 的說明註解裡**就有** `TURBO_FORCE=1 pnpm typecheck`
+#    這串字。若直接 grep 全檔,把最後那一行真命令整條刪掉,這一格照樣會綠 = 恆真的守門。
+#    負向對照(2026-08-17 當場跑,兩個世界):拿掉前綴 ⇒ 本格 bad;裝回去 ⇒ 本格 ok。
 HK="$(cd "$(dirname "$0")/.." && pwd)/.husky/pre-push"
-if [ -x "$HK" ] && grep -q 'pnpm typecheck && pnpm lint && bash' "$HK"; then
-  ok "⑱.husky/pre-push:可執行,且三段以 && 串接(typecheck 紅不會被後面洗成綠)"
+HK_CMD="$(grep -v '^[[:space:]]*#' "$HK" 2>/dev/null | grep -v '^[[:space:]]*$')"
+if [ -x "$HK" ] \
+  && printf '%s\n' "$HK_CMD" | grep -q 'TURBO_FORCE=1 pnpm typecheck &&' \
+  && printf '%s\n' "$HK_CMD" | grep -q 'TURBO_FORCE=1 pnpm lint &&' \
+  && printf '%s\n' "$HK_CMD" | grep -q '&& bash'; then
+  ok "⑱.husky/pre-push:可執行,三段 && 串接,前兩段帶 TURBO_FORCE=1(#621:少了它 turbo 會 replay 上一次的綠)"
 else
-  bad "⑱.husky/pre-push 形狀不對:可執行=$([ -x "$HK" ] && echo yes || echo no);$(grep -c '&& bash' "$HK" 2>/dev/null) 條 && 串接"
+  bad "⑱.husky/pre-push 形狀不對:可執行=$([ -x "$HK" ] && echo yes || echo no);非註解行=[$HK_CMD]"
 fi
 
 # ⑲ 抽取器的三種寫法(小寫 / `FUNCTION` 後換行才寫名字 / `IF NOT EXISTS`)——
