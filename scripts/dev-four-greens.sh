@@ -31,15 +31,60 @@ set -e
 cd "$(dirname "$0")/.."
 RUNRC="scripts/run-rc.sh"
 
-# 🔴 完整輸出落在【repo 內】的 logs/ 而不是系統暫存區(logs/ 已在 .gitignore)。
+# 🔴 【尾 N 行】落在 repo 內的 logs/ 而不是系統暫存區(logs/ 已在 .gitignore)。
+# ⚠️ **更正一句本檔原本寫錯的**:~~完整輸出落在 repo 內~~ —— **不是**。
+#    `run-rc.sh` 把完整輸出寫進它自己的 `mktemp`(/var/folders/…),只把【尾 N 行】印出來,
+#    而本檔收下的就是那份尾 N 行 ⇒ **repo 內的 log 是裁過的,完整那份仍然在會被系統清掉的地方。**
+#    量法(2026-08-17 當場):故意弄紅 typecheck 跑一發 ⇒ `logs/four-greens/<hash>-<時點>-<PID>/typecheck.log`
+#    看得到 `@pcm/admin#typecheck` 出現在 turbo 的 Failed 那一行(⚠️ 該行標籤後面是**四個空白**不是一個,
+#    照抄成 `Failed: @pcm/…` 去 grep 會零命中)與 `rc=2`,**看不到是哪一支檔**(`grep -c __four-greens-probe` ⇒ 0),
+#    只留了一行指向 /var/folders 的路徑 —— 而那正是本段一開始要避開的東西。
+#    ⇒ **這個缺口本版【不修】**(改它要動 one() 的行為,超出「只動落檔路徑」的授權範圍),明寫在這裡不假裝已解。
 #    原因是實戰踩到的:run-rc.sh 用 mktemp,檔案在 /var/folders/…,**會被系統清掉**
 #    ⇒ 印出來的那個路徑,等你要開的時候可能已經不在了。
 # ⚠️ 我第一版是「把 TMPDIR 指過去讓 run-rc 的 mktemp 照著用」——**當場實測不成立**:
 #    macOS 的 `mktemp`(無參數)吃的是 darwin 的 per-user 暫存目錄,**不理 TMPDIR**。
 #    量法(兩個世界):`TMPDIR=<repo>/logs/four-greens mktemp` ⇒ 仍然回 /var/folders/…
 #    ⇒ 改成本檔自己收 log,不動 run-rc.sh。
-LOGDIR="$(pwd)/logs/four-greens"
-mkdir -p "$LOGDIR"
+# 🔴 log 目錄帶【當下 tip 短 hash + 時點】—— 2026-08-17 I 窗量到的守門缺口:
+#    舊版每一次跑都寫同一組 `logs/four-greens/<項目>.log`,**後一次整支覆寫前一次**。
+#    實錘量法:`ls -lT logs/four-greens/` ⇒ 5 支檔 mtime 全落在同一分鐘,
+#    而當天有【四支 merge 連著收】⇒ 規矩「一支 merge 配一次四綠」**事後查不到誰跑過**。
+#    🔴 病灶不是有人偷懶,是【遵守與否驗不出來 = 沒有守門】:
+#       規矩寫得出來,而 repo 上沒有任何東西會因為漏跑而變得不一樣。
+# ⚠️ **四條射程限定,一起看**(R1 對抗審查打出來的,逐條都是實測不是設想):
+#    1 它記的是「這次四綠量的是哪一顆 commit」,**不是**「這顆 commit 一定有人跑過四綠」——
+#      沒跑就是沒有那個目錄,而【沒有目錄】和【還沒跑】仍然長得一樣。缺席變成可查,不變成不可能。
+#    2 🔴 **反向也一樣**:【有目錄】≠【綠了】。目錄在 `mkdir -p` 當下就生 ——
+#      紅的、跑到一半 Ctrl-C 的,留下的目錄和一次全綠的長得完全一樣。要看綠不綠請開 log 裡的 rc 行。
+#    3 🔴 `logs/` 在 `.gitignore` 裡 ⇒ **這份痕跡只活在跑的那台機器上,進不了 git**。
+#      118🏁 診斷的兩半(覆寫 / git 上沒痕跡)本版只關前一半,後一半仍然開著,不要讀成整條關掉。
+#    4 `mkdir -p` 失敗時 `set -e` 讓整支以 rc=1 收場,和「四項有紅」**同一個 rc**
+#      ⇒ 呼叫端分不出「量具沒起來」與「量到紅」。本版不修(要動收尾流程),明寫不假裝已解。
+#
+# 🔴 `-$$`(PID)不可省:時點只到【秒】,而本檔實際發生過同秒兩次呼叫擠進同一個目錄
+#    (`selftest.log` 與四項 log 落在同一個 `…152523/` 裡)⇒ 那正是本次要治的病原封不動。
+# 🔴 selftest 的目錄【刻意不同形】:格1/格2 也會呼叫 one() 而產生目錄,
+#    若與真四綠 run 同形,稽核「這顆 merge 有沒有跑過四綠」時它是**假陽性**(有目錄、零四綠證據)。
+HEADHASH="$(git rev-parse --short HEAD 2>/dev/null || echo nogit)"
+STAMP="$(date '+%Y%m%dT%H%M%S')-$$"
+
+# 抽成函式【只為了讓 selftest 餵得到它】—— inline 的東西測不到(同 verdict()/summary_table() 的理由)。
+# $1 = selftest | run
+runstamp_for() {
+  if [ "$1" = selftest ]; then echo "selftest-$STAMP"; else echo "$HEADHASH-$STAMP"; fi
+}
+# 🔴 **沒有 `LOGDIR` 這個變數** —— R2 對抗審查打掉的兩個洞都長在「函式算一份、變數存一份」那一跳上:
+#    ①格子測 `runstamp_for()`,而真正建目錄的是 `LOGDIR` ⇒ 只改 `LOGDIR` 一行,格子全綠而病復發。
+#    ②`LOGDIR` 寫死成 `$(runstamp_for selftest)` ⇒ selftest 期間兩者同值、恆綠,
+#      而**每一次真四綠 run 都落進 `selftest-…` 目錄** ⇒ 稽核變成假陰性(格10 守的假陽性的鏡像)。
+#    ⇒ 補格子只會追著洞跑。**把那一跳整個拿掉**:所有使用點一律現算 `logdir_for "$MODE"`。
+logdir_for() { echo "$(pwd)/logs/four-greens/$(runstamp_for "$1")"; }
+
+# 🔴 `mkdir -p` 搬進 one() —— 原本在頂層、在參數分派【之前】跑,
+#    ⇒ 打錯字(`--self-test`)那種非法參數會印用法、rc=2,**而磁碟留下一個零檔案的「真 run 形狀」目錄**
+#      = 稽核假陽性的另一扇門(R2 F-3 實測)。放進 one() 之後,只有真的要寫 log 才會生目錄。
+if [ "${1:-}" = --selftest ]; then MODE=selftest; else MODE=run; fi
 
 # 🔴 尾行數是【參數】不是固定值,原因是實戰踩到的(2026-08-17 收割 products 那次):
 #    vitest 紅的時候,失敗明細在 `Failed Tests` 那一段,而總結行在最後 ——
@@ -50,15 +95,16 @@ mkdir -p "$LOGDIR"
 # one <尾幾行> <log 檔名> <標題> -- 命令...
 one() {
   n=$1; slug=$2; label=$3; shift 3
+  d="$(logdir_for "$MODE")"; mkdir -p "$d"
   echo
   echo "════════ $label ════════"
-  echo "(跑完會印在下面;完整輸出留在 $LOGDIR/$slug.log)"
+  echo "(跑完會印在下面;尾 $n 行留在 $d/$slug.log)"
   rc=0
   # 🔴 【沒有管線】—— 輸出整份落檔、rc 是 run-rc.sh 的(而它的 rc 是被跑命令的)。
   #    代價:不是即時串流,要等該項跑完才看得到。四項各 15-60 秒,可以接受;
   #    換來的是【一個叫得出名字、不會被系統清掉的檔】。
-  sh "$RUNRC" "$n" -- "$@" > "$LOGDIR/$slug.log" 2>&1 || rc=$?
-  cat "$LOGDIR/$slug.log"
+  sh "$RUNRC" "$n" -- "$@" > "$d/$slug.log" 2>&1 || rc=$?
+  cat "$d/$slug.log"
   return "$rc"
 }
 
@@ -94,10 +140,10 @@ four_greens() {
   # 🔴 而它存在的理由是:那行路徑很容易在 grep / 複製回報時被濾掉,而它是唯一能查出「誰紅」的線。
   if ! verdict "$tc" "$li" "$bu" "$vi"; then
     echo
-    echo "🔴 有項目非 0。四項的【完整輸出】都在:$LOGDIR"
+    echo "🔴 有項目非 0。四項的【尾 N 行】都在:$(logdir_for "$MODE")"
     echo "   尾行數是裁過的,失敗的真正原因【可能不在印出來的那幾行裡】⇒ 開全檔。"
     echo "   四項各自的 log:"
-    ls -t "$LOGDIR" 2>/dev/null | head -4 | sed "s|^|     $LOGDIR/|"
+    ls -t "$(logdir_for "$MODE")" 2>/dev/null | head -4 | sed "s|^|     $(logdir_for "$MODE")/|"
   fi
   verdict "$tc" "$li" "$bu" "$vi"
 }
@@ -134,6 +180,13 @@ summary_table() {
 #      · 總表 printf 的標籤與變數對應(錨點 `summary_table()`)—— 對調會把紅算到別項頭上(exit code 仍對,非假綠)
 #    後兩者本版已補格(格6/格7);③④與 ck() 需要「拿整支去跑」才測得到,
 #    而那要一個假 pnpm harness ⇒ **本版不做,明寫在這裡,不寫成已守。**
+#
+# 🔴 **還有一跳,本版【刻意不補格】,理由寫在這裡**:`one()` 內部呼叫 `logdir_for "$MODE"` ——
+#    若有人把它改成寫死的 `logdir_for selftest`,**selftest 期間兩者同值 ⇒ 每一格照樣綠**,
+#    而真四綠 run 會落進 `selftest-…` 目錄(稽核假陰性)。
+#    要守它只能在 selftest 裡【真的用 run 模式跑一發 one()】,而那會在 repo 裡生一個
+#    「真 run 形狀、裡面只有一支測試 log」的目錄 —— **那正是格10 要防的假陽性本人**。
+#    ⇒ 補這個格會製造它要防的東西。**列出來,不假裝已守。**
 selftest() {
   pass=0; fail=0
   ck() { if [ "$2" = "$3" ]; then pass=$((pass+1)); printf 'PASS  %s\n' "$1";
@@ -194,6 +247,36 @@ selftest() {
     r=$(summary_table "$a" "$b" "$c" "$d" | grep -c "$want" || true)
     ck "格7-$i 總表第 $i 格對應第 $i 個變數" "$r" "1"
   done
+
+  # 格8~格11:log 目錄命名 —— 釘的是【不覆寫】與【selftest 不冒充四綠 run】。
+  # 🔴 上一版被 R1 對抗審查打掉,兩個洞都值得留在這裡:
+  #    ① 格8 與格9 原本是【各自獨立的 case】⇒ 把格8 的比對改成「永遠 yes」,
+  #      格9 碰不到它、照樣 PASS,合計仍 15/15。**負向對照必須跟正向共用同一支比對函式**,
+  #      否則它對照的是另一個東西(= 本檔 `summary_table()` 上方那句「不要把答案抄進考卷」;
+#      🔴 這裡原本寫的是行號 `:128`,而本片讓檔案長了二十幾行 ⇒ 自指行號會自己過期,改用文字錨點)。
+  #    ② 格8 在【非 git 目錄】恆綠:`HEADHASH` 塌成 `nogit`、路徑也是 `nogit-…`,兩邊一起塌就自動吻合
+  #      ⇒ 目錄裡一個 hash 都沒有而格8 印 PASS。⇒ 格8-0 先擋住那個世界。
+  # 🔴 格8~13 全部餵【`logdir_for()` 算出來的真路徑】,不餵中間變數 ——
+  #    R2 打掉的 F-1 就是這個形狀:格11 原本量 `$STAMP`,而把 PID 剝在 `runstamp_for()` 裡
+  #    ⇒ 19/19 全綠而目錄退回秒解析度。**量中間值 = 量了旁邊那個。**
+  in_stamp() { case "$1" in *"$2"*) echo yes ;; *) echo no ;; esac; }
+
+  [ "$HEADHASH" = nogit ] && r=no || r=yes
+  ck "格8-0 取得到真的 tip 短 hash(不是塌成 nogit)" "$r" "yes"
+  ck "格8 真四綠 run 的目錄帶 tip 短 hash($HEADHASH)" \
+     "$(in_stamp "$(logdir_for run)" "$HEADHASH")" "yes"
+  ck "格9 [負向對照] 假 hash 不得命中(證格8 不是恆真)" \
+     "$(in_stamp "$(logdir_for run)" 'zzzzzzz-not-a-hash')" "no"
+  ck "格10 selftest 目錄【不得】帶 tip hash(否則稽核假陽性)" \
+     "$(in_stamp "$(logdir_for selftest)" "$HEADHASH")" "no"
+  ck "格11 真 run 目錄帶 PID(同秒兩次呼叫不得撞同一個)" \
+     "$(in_stamp "$(logdir_for run)" "-$$")" "yes"
+  [ "$(logdir_for run)" = "$(logdir_for selftest)" ] && r=same || r=diff
+  ck "格12 run 與 selftest 兩種目錄名不得相同" "$r" "diff"
+  # 格13:🔴 檔頭 `:34` 宣稱的整個目的是「落在 repo 內、不落系統暫存區」,而在 R2 之前
+  #   **那件事零守門** —— 把路徑改成 `/tmp/…` ⇒ 前面每一格照樣綠(R2 F-7 實測)。
+  ck "格13 log 落在 repo 內的 logs/four-greens/ 底下" \
+     "$(in_stamp "$(logdir_for run)" "$(pwd)/logs/four-greens/")" "yes"
 
   printf '\n合計  PASS=%s  FAIL=%s\n' "$pass" "$fail"
   [ "$fail" = "0" ]
