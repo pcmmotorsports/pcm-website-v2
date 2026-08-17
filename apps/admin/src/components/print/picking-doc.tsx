@@ -99,7 +99,11 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
   const unknownCount = pickables.filter((q) => q === null).length;
 
   return (
-    <div className='mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
+    /* 🔴 `print-sheet` 是 `app/print/print-a4.css` 唯一的掛勾:列印時把 `p-6` 歸零,
+       讓紙面邊界**只由** `@page{margin:12mm 12mm 14mm 12mm}` 決定,不然會內縮兩次。
+       ⚠️ 改名要同步那支 CSS;改名後的症狀是**紙印出來邊距不對**,三綠與單測都不會紅。
+       📎 Sean 逐字「出貨單都是 A4」⇒ **揀貨單一起吃**,兩張紙同一套版面。 */
+    <div className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>揀貨單</h1>
         <span className='text-xl font-semibold tabular-nums'>{detail.displayId}</span>
