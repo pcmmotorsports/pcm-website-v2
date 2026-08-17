@@ -4,17 +4,19 @@
 - **憑證**:`pcm_audit_ro`,真登入(`current_user`=`session_user`)
 - **來源**:`pg_catalog`,**不是** `information_schema`(後者對零權限稽核帳號會系統性回 0)
 
-## 🔴🔴 更正(2026-08-17 下午):下面那句「repo 不在這台機器上」是【量錯】,repo 一直都在本機
+## 🔴🔴 更正(2026-08-17 下午):下面那句「repo 那一半不在這台機器上」是【量錯】,repo 一直都在本機
 
-**正確事實**:報價單 repo 在本機 `~/API大量上架/PCM報價單-V2`(`origin/main`=`482bec5`、`supabase/migrations` 16 檔、與 mac mini 同版;a4 實查可重跑)。
+**正確事實**:報價單 repo 在本機 `~/API大量上架/PCM報價單-V2`(主視窗當日實查:`test -d` ⇒ EXISTS、`git fetch` rc=0、`origin/main` = `482bec5`、`ls-tree origin/main -- supabase/migrations | wc -l` ⇒ **16**;mac mini 上同一個 repo 的 `origin/main` **也是 `482bec5`** ⇒ 兩邊同版、零漂移)。用前必 `git fetch`、**只讀 `origin/main`**(工作樹落後 16 顆)、**絕不 `db push`**(memory `reference_quote-repo-migration-ledger-desync`)。
 
-**🔴 為什麼會量錯(寫明成因,不只寫「其實有」)**:下面那條 `find` 用 `-maxdepth 3`,而真實路徑 `~/API大量上架/PCM報價單-V2/supabase/migrations` 是**從 `~` 算起第 4 層** ⇒ `-maxdepth 3` **掃不到它**。⚠️ **而當時配的正向對照(`pcm-website-v2/supabase/migrations`)剛好在深度 3 之內、所以「find 是活的」過了,結論卻仍錯** —— **對照組要選在【被懷疑的那一維(深度)】上有差異的東西,而它沒測到深度。**
+🔴 **錯的成因值得記**:下面那支 `find` 用 `-maxdepth 3`,而真實路徑 `~/API大量上架/PCM報價單-V2/supabase/migrations` 在**第 4 層** ⇒ 掃不到。**那次還配了正向對照,而對照目標(`pcm-website-v2/supabase/migrations`)剛好在深度 3 之內 ⇒ 對照過了、結論還是錯的。** 📎 **正向對照只證「工具會動」,不證「掃描範圍涵蓋目標」** —— 對照組要選在【被懷疑的那一維＝深度】上有差異的東西。
 
-**⇒ production-vs-repo 一致性現在可做**:用前必 `git fetch`、**只讀 `origin/main`**(工作樹落後 16 顆)、**絕不 `db push`**(memory `reference_quote-repo-migration-ledger-desync`)。
-
----
+⇒ `#4` 的現況與剩餘缺口見 `docs/specs/2026-08-17-b1-apply-preflight.md` §`#4`(repo 側 ✅ 已解 / schema shape ✅ / **migration ledger 讀不到 ⇒ 仍需 Sean**)。
+📎 **下修寫在這裡而不是只寫在 preflight**:引用這份盤點的人不會去讀 preflight。
+— 更正:B 窗 2026-08-17 首寫(來源=主視窗實查 + code-reviewer 指出本檔仍留舊字面);E 窗 2026-08-17 解 `customers`↔`dev` 衝突時**合併兩版**(原為兩人各自獨立更正同一句、內容一致)。
 
 <details><summary>▼ 原文(保留為錯誤紀錄,結論已由上方更正)</summary>
+
+## 🔴 這份只有【一半】,而缺的是哪一半要講清楚
 
 B 窗要的 `#4` 是「production schema **與 repo** 一致性」。~~repo 那一半不在這台機器上。~~
 

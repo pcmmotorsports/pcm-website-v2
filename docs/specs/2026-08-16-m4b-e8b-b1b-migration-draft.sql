@@ -48,6 +48,22 @@ DECLARE
   v_auth_users_id text;
   v_state_rows    bigint;
 BEGIN
+  -- 0.0 🔴 **PG 版本前提:本檔的收權斷言列舉【表權限的完整集合】,而 `MAINTAIN` 是 PG 17 才有的。**
+  --     不加這道的話,在 PG 16 apply 會炸在 `has_table_privilege(…,'MAINTAIN')` 這種
+  --     **看不出所以然的地方**(它會說 privilege type "MAINTAIN" 不存在)。
+  --     ⇒ 讓它炸在這裡,並且說得出為什麼。
+  --     來源(2026-08-17 當場查官方,非記憶):
+  --       https://www.postgresql.org/docs/17/ddl-priv.html
+  --       Table 5.2 表物件的權限字串 = `arwdDxtm`(8 項),其中 `m` = MAINTAIN
+  --       逐字:「MAINTAIN — Allows VACUUM, ANALYZE, CLUSTER, REFRESH MATERIALIZED VIEW,
+  --              REINDEX, and LOCK TABLE on a relation.」
+  IF current_setting('server_version_num')::int < 170000 THEN
+    RAISE EXCEPTION E'B1-b 前提斷言:需要 PostgreSQL 17 以上,實際 %。\n'
+      '   ⇒ 本檔的收權斷言列舉表權限的完整集合(arwdDxtm 共 8 項),而 MAINTAIN 是 17 才有的。\n'
+      '   ⇒ 在舊版上跑,那個斷言會少查一項【而且不會有人發現】。',
+      current_setting('server_version');
+  END IF;
+
   -- 0.1 2FA 必須是休眠狀態 —— 這是整條線「7 片、不碰 TOTP」那個拆法的前提。
   --     🔴 2026-08-16 Sean 實查為 false/0/0，而【查到的事實會過期，斷言不會】。
   --        這一段的存在就是為了讓那次查詢在每次 apply 時被重新問一次。
@@ -281,20 +297,59 @@ BEGIN
       RAISE EXCEPTION '新物件收權斷言:找不到關聯 % —— 名字打錯或沒建成。拒繼續。', r;
     END IF;
     v_checked := v_checked + 1;
-    FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+    -- 🔴 **清單由伺服器推導,不手寫**(丙案 MA-1)。2026-08-17 由手寫 8 項改成推導。
+    --    ⚠️ 為什麼要改:adversarial-reviewer 2026-08-17 實測 —— 把這裡從 8 項縮成
+    --       `ARRAY['SELECT']` ⇒ **37 格全綠**。⇒ 這份手寫清單**零覆蓋**,
+    --       而同一支檔的 `v_reach` 段立了「不准手寫」的原則。**原則只被執行了三分之一。**
+    --    ⇒ PG 18 若新增第 9 種表權限,推導那臂自動入列,這裡不會 —— 正是本片在修的
+    --       「枚舉的集合比世界窄」。改成推導 = 把這個債關掉,不是記錄它。
+    -- 🔴 `DISTINCT` 在**這裡**是承重的(與 `v_reach` 那邊不同,見該段):
+    --    這是個**迴圈**,同一個權限型別出現兩次會讓 `v_bad` 多加一次 ⇒ 計數失真。
+    FOR v_priv IN
+      SELECT DISTINCT d.privilege_type
+        FROM aclexplode(acldefault('r', (SELECT relowner FROM pg_class WHERE oid = v_oid))) d
+    LOOP
       IF has_table_privilege('anon', v_oid, v_priv)
          OR has_table_privilege('authenticated', v_oid, v_priv) THEN
         v_bad := v_bad + 1;
         IF v_first IS NULL THEN v_first := format('%s 上仍有 %s', r, v_priv); END IF;
       END IF;
     END LOOP;
-    -- 🔴 欄級那圈:has_table_privilege 對【只有欄級授權】回 false
-    --    (2026-08-16 實測:表級說沒有、而該角色實際讀得到那幾欄)
-    FOR v_col IN SELECT attname FROM pg_attribute WHERE attrelid = v_oid AND attnum > 0 AND NOT attisdropped LOOP
-      IF has_column_privilege('anon', v_oid, v_col, 'SELECT')
-         OR has_column_privilege('authenticated', v_oid, v_col, 'SELECT') THEN
-        v_bad := v_bad + 1;
-        IF v_first IS NULL THEN v_first := format('%s.%s 上仍有【欄級】SELECT', r, v_col); END IF;
+    -- ══════════════════════════════════════════════════════════════════
+    -- 🔴 第 1 層(丙案):**`attacl` sweep —— 非空即紅**,不枚舉角色、不枚舉權限型別
+    -- ══════════════════════════════════════════════════════════════════
+    -- **舊版是**:對每個欄位跑 `has_column_privilege(anon|authenticated, …, 'SELECT')`。
+    -- 它有兩個病,而且兩個都是靜默的:
+    --   ① **只查 `SELECT`** ⇒ 欄級 INSERT / UPDATE / REFERENCES **全部放行**(codex R2 `b1b:309`)
+    --   ② **只查兩個角色** ⇒ 任何第三個角色的欄級授權看不見(codex R2 `b1b:476`)
+    --   📎 ①② 是同一個病的兩面:**枚舉的集合比世界窄。**
+    --
+    -- **新版直讀儲存層**:欄級授權**一定**寫進 `pg_attribute.attacl`
+    --   ⇒ 一道查詢涵蓋 **所有欄 × 所有權限型別(含 PG 日後新增)× 所有角色**,而且**不會過期**。
+    --   實測背書(V 窗 S0-S2,拋棄式 PG 17.10):
+    --     S0 新表 ⇒ attacl 非空欄數 **0**
+    --     S1 `grant update (a)` + 表級 MAINTAIN ⇒ 非空**恰 1 欄**(**表級授權不污染 attacl**)
+    --     S2 revoke 欄級 ⇒ 歸 **0**、無空陣列殘留 ⇒ **零誤報**
+    --
+    -- ⚠️ **本表【不該有任何欄級授權】** —— 落筆當下實查:本檔的欄級 `GRANT` 數 = **0**
+    --    (`grep -cE 'GRANT +[A-Z]+ *\('` 回 1,而那 1 個是**註解行** ——
+    --     即下面寫「`GRANT UPDATE(auth_user_id)` 住在 `pg_attribute.attacl`」的那一行;
+    --     正向對照:表級 `^GRANT ` = 1 ⇒ 那支 grep 是活的)
+    --    ⚠️🔴 **這裡原本寫死行號 `:345`,而實際在 `:370`**(code-reviewer 2026-08-17 抓)。
+    --       ⇒ 改成**用內容指路**:行號會隨每次編輯漂,而漂掉之後它仍然「讀起來像個證據」。
+    --    ⇒ 所以「非空即紅」不會誤報**現行**設計。日後若真要授欄級,**改這裡並在本檔寫明理由**。
+    --
+    -- 📌 `cardinality(…) > 0` 那半:S2 實測 revoke 後是 NULL 不是空陣列,
+    --    這一條是**便宜的保險**(別的路徑若留下 `{}`,不該被讀成「有授權」)。
+    FOR v_col IN
+      SELECT format('%I ⇒ %s', attname, attacl::text)
+        FROM pg_attribute
+       WHERE attrelid = v_oid AND attnum > 0 AND NOT attisdropped
+         AND attacl IS NOT NULL AND cardinality(attacl) > 0
+    LOOP
+      v_bad := v_bad + 1;
+      IF v_first IS NULL THEN
+        v_first := format('%s 上有【欄級授權】(第 1 層 attacl sweep):%s', r, v_col);
       END IF;
     END LOOP;
   END LOOP;
@@ -339,8 +394,21 @@ BEGIN
       v_col   text;
       v_reach text;
     BEGIN
-      -- 表級:七種權限逐一問【有效權限】。預期只有 SELECT 與 INSERT 為真。
-      FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] LOOP
+      -- 表級:**推導出來的每一種**權限逐一問【有效權限】,預期只有 SELECT 與 INSERT 為真。
+      -- 🔴 清單同樣由伺服器推導(丙案 MA-1),2026-08-17 由手寫 8 項改成推導 ——
+      --    理由與上面 anon/authenticated 那圈相同:手寫版**零覆蓋**
+      --    (adversarial-reviewer 實測把它縮成一項仍 37 格全綠),而原則就寫在同一支檔裡。
+      -- ⚠️🔴 這一段的註解原本寫「**七種**」而陣列是 8 項(code-reviewer 2026-08-17 抓)。
+      --    **「清單漏一項而沒人發現」正是本片在修的那個病,同一段又復發一次。**
+      --    ⇒ 改成推導之後這個數字**不再需要寫在註解裡** —— 沒有數字就沒有會漂的數字。
+      -- 📌 `<> (v_priv IN ('SELECT','INSERT'))` 這半是【可接受的集合】,**刻意手寫**:
+      --    它是白名單、是business 決定,不是「世界有哪些權限型別」。兩者不混在一起。
+      FOR v_priv IN
+        SELECT DISTINCT d.privilege_type
+          FROM pg_class oc
+          CROSS JOIN LATERAL aclexplode(acldefault('r', oc.relowner)) d
+         WHERE oc.oid = to_regclass('public.admin_user_staff_map')
+      LOOP
         IF has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_priv)
            <> (v_priv IN ('SELECT','INSERT')) THEN
           v_bad := coalesce(v_bad || ', ', '') || format('表級 %s', v_priv);
@@ -375,25 +443,148 @@ BEGIN
       --
       --    ⚠️ 另一個實測到的坑:`GRANT <role> TO <role>` 的繼承旗標是【授與當下】決定的
       --       ⇒ 事後 `ALTER ROLE … INHERIT` **不會**讓既有 membership 變成繼承。
-      SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO v_reach
+      -- ══════════════════════════════════════════════════════════════════
+      -- 🔴 第 2 層(丙案 MA-1):權限清單【由伺服器自己推導】,不手寫
+      -- ══════════════════════════════════════════════════════════════════
+      -- `acldefault('r', …)` 展開 = **這台伺服器上表物件的完整權限集**
+      -- ⇒ PG 日後新增權限型別**自動入列**,不必有人記得回來加。
+      -- 實測(B 窗獨立複驗,拋棄式 PG 17.10;V 窗 E6 亦同):
+      --   ⇒ DELETE INSERT MAINTAIN REFERENCES SELECT TRIGGER TRUNCATE UPDATE 共 **8** 項
+      --   雙向對照(重點不是那個 8):MAINTAIN 在裡面=t / SELECT 在裡面=t / 'NOTAPRIV' 在裡面=**f**
+      --   ⇒ **這把量具分得出「有」與「沒有」。**
+      -- ⚠️🔴 **這裡原本寫「`DISTINCT` 是承重的」,對本段而言那是錯的,已更正**
+      --    (adversarial-reviewer 2026-08-17:拿掉 `DISTINCT` ⇒ **37 格全綠**;
+      --     結構上也不可能有差 —— `v_reach` 的推導集住在 `EXISTS` 子查詢裡,
+      --     只影響「有沒有任一列」,**不進外層列集** ⇒ 重複與否對結果無影響。)
+      --    它引的理由(`acldefault('f',…)` 回兩筆 EXECUTE,owner + PUBLIC,實測確認 = 2)
+      --    **只對已經不存在的 `CROSS JOIN LATERAL` 版本成立**。
+      --    📎 這正是本檔 `v_reach` 段自己寫的病的反面:過期註解不只會叫人刪掉有用的 code,
+      --       也會叫人**保留一個 no-op 並以為它在做事**。
+      --    ✅ `DISTINCT` 真正承重的地方是上面兩個 **FOR 迴圈**(重複一項 ⇒ 多算一次),
+      --       理由寫在那兩處。這裡的 `EXISTS` 沒有用 `DISTINCT`,也不需要。
+      --
+      -- ⚠️🔴 **這裡從【手寫四臂】換成【完整 8 項】,是語意變更,理由寫在這裡好被反駁:**
+      --    舊版查 DELETE / TRUNCATE / 欄級 UPDATE / 欄級 REFERENCES —— **刻意不含 SELECT 與 INSERT**,
+      --    **而那個「刻意」的理由沒有落檔**(我追 git log 也只追到自己補欄級的那幾顆)。
+      --    V 窗 2026-08-17 實測後給出的答案是:**漏 INSERT 是【真洞】,不是嚴格度風格題** ——
+      --      · 本表的白名單有一個**沒綁的空位**(`staff_1` 刻意不綁,見規格 §3)
+      --      · 可達角色只要持有 **INSERT**,就能把**任意 `auth_user` 綁上 `staff_1`**
+      --        ⇒ **憑空造出一個員工身分**
+      --      · 而 `no_rebind` trigger **只攔 UPDATE**,`no_delete`/`no_truncate` 攔不到 INSERT
+      --    ⇒ 這不是「比原意嚴」,是**把原意沒寫下來所以沒人發現的洞關掉**。
+      --    📎 結構理由(丙案已裁的原則):**「查的集合」與「可接受的集合」不要混在同一個地方。**
+      --       查的集合 = 完整 8 項(恆等於世界);可接受的 = 交給白名單表達。
+      --    📎 V 窗同世界對照實測:乾淨世界(service_role 只有直授 SELECT,INSERT、**無可達角色**)
+      --       四臂與完整 8 項【都是空的】。
+      --    ⚠️🔴 **這句原本接「⇒ 換法不會憑空多出原版沒有的紅」,那半句已刪 —— 它被實測推翻**
+      --       (code-reviewer 2026-08-17,獨立構造):造一個**只持有表級 SELECT 的可達角色**
+      --         現行 guard ⇒ `rc=3`,報「可 SET ROLE 到的角色持有本表權限:sel_only」
+      --         同一世界的舊四臂謂詞 ⇒ **回空**
+      --       ⇒ **換法【確實】會多出原版沒有的紅**,而且那正是它該做的事(SELECT 也能讀走綁定關係)。
+      --       📎 病的形狀:**量到的是「乾淨樁」那一個世界,寫出來的是全稱句。**
+      --         上一行「無可達角色」這個前提就寫在同一段,而結論句把它丟了。
+      -- 🔴🔴🔴 **表級與欄級【餵不同的集合】,這是承重的分家,不是風格**
+      --    (2026-08-17 B 窗接手第一件;來源 = code-reviewer Critical,B 窗本機 PG 17.10 獨立複驗)
+      --
+      --    **病**:上一版把機械推導的完整 8 項【同時】餵給兩個 `has_*`。
+      --    而 `has_any_column_privilege` **只吃四種**,其餘四種直接丟 ERROR。
+      --    B 窗實測(PG 17.10 Homebrew,逐一單問,每種各一次):
+      --      SELECT / INSERT / UPDATE / REFERENCES ⇒ 回 f(正常作答)
+      --      DELETE / TRUNCATE / TRIGGER / MAINTAIN ⇒ `ERROR: unrecognized privilege type`
+      --    對照組(同一庫、同一角色、同一張表):`has_table_privilege` **八種全部正常回 f**
+      --    ⇒ **量具分得出兩個世界,不是「都壞掉」。**
+      --
+      --    **它為什麼在樁上看不出來**(B 窗雙世界實測,同一支檔、同一顆叢集):
+      --      零可達角色           ⇒ rc=0            ← WHERE 根本沒對任何一列求值
+      --      一個【零權限】可達角色 ⇒ rc=3,`ERROR: unrecognized privilege type: "TRUNCATE"`
+      --    ⇒ **正式庫只要存在任何一個 service_role 可 SET ROLE 到的角色(哪怕它對本表零權限),
+      --      整支 apply 當場死。** 而那個角色有沒有權限完全不影響 —— 死的是【問問題這個動作】本身。
+      --    📎 形狀:守門自己炸掉,而它在開發樁上是綠的。
+      --
+      -- ⚠️🔴 **上面那句是【條件句】,而那個條件今天不成立 —— 這行必須跟它一起讀**
+      --    (2026-08-17 05:12 UTC,E 窗以 `pcm_audit_ro` 唯讀量於**報價單庫**=本檔落點):
+      --      `select rolname from pg_roles
+      --         where pg_has_role('service_role', oid, 'SET') and rolname <> 'service_role'`  ⇒ **0 列**
+      --      正向對照:`authenticator` 可 SET 到 anon / authenticated / service_role(非零)
+      --      ⇒ 那個 0 是**量出來的**,不是憑證被鎖住而看不到。
+      --    ⇒ **所以這個 Critical 在正式庫上【不會發作】,而第 2 層在正式庫上判別力為零。**
+      --    🔴 **不要把修掉它讀成「避免了一次正式庫事故」** —— 以此時點,它本來就不會炸。
+      --      修它的理由是:**角色是後台點一下就能加的,而這支 migration 只跑一次、不會重跑**
+      --      ⇒ 危險窗口正好落在 apply 那一刻。**今天的 0 只保證今天。**
+      --    ⇒ **apply 之前必須當場重跑那支查詢**(步驟寫在
+      --      `docs/specs/2026-08-17-b1-apply-preflight.md` §`#8`,那是步驟不是註腳)。
+      --
+      --    **為什麼欄級這半只能【具名硬寫】**:`acldefault('c', …)` 實測回 `{}`
+      --    ⇒ **沒有機械來源可用**。MA-1「不准手寫」的方向對,但它管的是【表級推導集】;
+      --    欄級這四種是 PG 語法層面的封閉集合(GRANT 的 column_privilege 文法只有這四個),
+      --    不是「我懶得推導」。日後 PG 若新增可欄級授權的權限型別,這裡要有人回來加 ——
+      --    ⚠️ **這是一筆已知的、有主人的債,不是漏掉。**
+      --
+      --    **為什麼用 `EXISTS` 兩段而不是 `p.privilege_type IN (…) AND has_any_column_privilege(…)`**:
+      --    PostgreSQL **不保證** WHERE 裡 AND/OR 子運算式的求值順序
+      --    (官方 Expression Evaluation Rules 逐字:"the order of evaluation of subexpressions is not defined")
+      --    ⇒ 靠短路擋掉四種非法值的寫法,**能不能活取決於 planner 當天怎麼排** = 又一個間歇性的死法。
+      --    `EXISTS` 兩段的作法是**根本不把非法值餵進去**,與求值順序無關。
+      SELECT string_agg(DISTINCT r.rolname, ', ' ORDER BY r.rolname) INTO v_reach
         FROM pg_roles r
        WHERE pg_has_role('service_role', r.oid, 'SET')
          AND r.rolname <> 'service_role'
-         AND (has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'UPDATE')
-           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'DELETE')
-           OR has_table_privilege(r.oid, to_regclass('public.admin_user_staff_map'), 'TRUNCATE')
-           -- 🔴🔴 **欄級也要查,而且原因是我第二次犯同一個錯**(V 窗 2026-08-16 完整性註記)。
-           --    本輪 F-R3-2 折的就是「表級查法對欄級盲」,而我補的這第三道**又只寫了表級**
-           --    ⇒ 某個可 SET ROLE 過去的角色只被授欄級 UPDATE(auth_user_id)時,第三道看不到它。
-           --    ⚠️ 那正是最要命的一欄 —— 改它就等於**把某人的登入帳號重綁到別人的員工身分上**。
-           --    可達性低不是省略的理由:低可達性 × 高後果 = 正好是沒人會去看的那一格。
+         AND (
+              -- 表級:走機械推導(丙案 MA-1)。完整 8 項,PG 日後新增權限型別自動入列。
+              -- 🔴 owner 取**本表真正的 `relowner`**,不寫死 `'postgres'::regrole`
+              --    (2026-08-17 B 窗實測後改;下面 `v_extra` 段本來就是這樣寫的,這裡對齊它)。
+              --    ① 寫死的那版在**沒有 `postgres` 這個角色**的叢集上直接
+              --       `ERROR: role "postgres" does not exist` ⇒ 整支 apply 死。
+              --       (實測:`initdb -U bossman` 的叢集上 `pg_roles` 內 `postgres` 計數 **0**、
+              --        `bossman` 計數 **1**(正向對照)⇒ 該版當場報上面那個 ERROR。)
+              --    ② 而寫死**換不到任何東西**:owner 只決定「誰」拿到預設權限,
+              --       **不決定權限型別的集合**。同一顆叢集實測兩個不同 owner,
+              --       展開都是 `DELETE INSERT MAINTAIN REFERENCES SELECT TRIGGER TRUNCATE UPDATE`(8 項)。
+              --    ⚠️ 正式 Supabase **確實有** `postgres` 角色 ⇒ 舊寫法在那裡不會炸。
+              --       改它不是因為今天會壞,是因為它是一個**換不到好處的未驗證依賴**。
+              EXISTS (
+                SELECT 1
+                  FROM pg_class oc
+                  CROSS JOIN LATERAL aclexplode(acldefault('r', oc.relowner)) d
+                 WHERE oc.oid = to_regclass('public.admin_user_staff_map')
+                   AND has_table_privilege(r.oid, oc.oid, d.privilege_type)
+              )
+              -- 欄級:PG 只允許這四種欄級授權(見上面實測),**故意具名**。
            OR EXISTS (
-                SELECT 1 FROM unnest(ARRAY['auth_user_id','staff_id']::text[]) AS c(col)
-                 WHERE has_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'), c.col, 'UPDATE')
-                    OR has_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'), c.col, 'REFERENCES')
-              ));
+                SELECT 1
+                  FROM unnest(ARRAY['SELECT','INSERT','UPDATE','REFERENCES']) AS c(privilege_type)
+                 WHERE has_any_column_privilege(r.oid, to_regclass('public.admin_user_staff_map'),
+                                                c.privilege_type)
+              )
+         );
+        -- 🔴🔴 **上面兩段【不是】重複,前一版的註解說反了,已更正**:
+        --    舊註解寫「`has_any_column_privilege` 嚴格蘊含 `has_table_privilege` ⇒ 前者是便宜的防禦深度」。
+        --    那句話**只對那四種成立**。分家之後:
+        --      DELETE / TRUNCATE / TRIGGER / MAINTAIN **只有表級那段查得到**
+        --    ⇒ **表級那段是承重的,刪掉它會靜默漏掉四種權限**(其中 TRUNCATE 能清空整表、
+        --      不受 RLS 管、也不觸發 DELETE trigger)。
+        --    ⚠️ 保留這行是因為**過期的註解會叫下一個人去刪一段有用的 code**,而它讀起來很有道理。
+        --
+        -- 📎 欄級那段的來歷(保留,因為它擋掉的洞還在):
+        --    可 SET ROLE 過去的角色若只被授**欄級** `UPDATE(auth_user_id)`,表級查法看不到它
+        --    —— 而那正是最要命的一欄:改它就等於**把某人的登入帳號重綁到別人的員工身分上**。
+        --    這裡曾經寫成 `unnest(ARRAY['auth_user_id','staff_id'])` 兩欄枚舉 ⇒ **對枚舉外的欄盲**
+        --    (本表第三欄 `created_at` 就在枚舉之外)。`has_any_column_privilege` 涵蓋所有欄含未來新欄。
+        -- ⚠️🔴 **這裡原本寫「負測 = harness `A13c`(退回兩欄枚舉即變綠)」,已作廢**
+        --    (code-reviewer 2026-08-17:同一顆 commit 的 `harness` 覆蓋表明文宣告那句不成立,
+        --     **而兩檔對同一件事講反,apply 當天被讀的是 .sql 這一份**)。
+        --    實測:把第 2 層整段停用,`A13c` **照樣紅** ⇒ 它不是第 2 層的負測,
+        --    它被第 1 層 `attacl` sweep 與 `v_reach` **雙重覆蓋**、隔離不出任何一段。
+        --    ⇒ **欄級這半目前沒有專屬負測**(第 2 層的專屬負測是 `MA-2b`)。不要在這裡假裝有。
+        --    ⚠️ V 窗 `V-020 F-V20-1` 當初給的失敗情境是「角色只被授 `UPDATE(label)`」——
+        --       **本表沒有 `label` 欄**(它住在 A 庫的 `staff` 表)。**結論對而理由錯**,
+        --       照那個理由寫負測會靜默失敗(`run_sql` 吞 stderr)⇒ 格子變綠 ⇒ 看起來像「修法沒生效」。
       IF v_reach IS NOT NULL THEN
-        v_bad := coalesce(v_bad || ', ', '') || format('可 SET ROLE 到的角色持有寫權:%s', v_reach);
+        -- 🔴 訊息寫「持有**本表權限**」不是「持有寫權」(code-reviewer 2026-08-17 抓):
+        --    上面的謂詞含 SELECT / REFERENCES / TRIGGER / MAINTAIN 與四種欄級 ——
+        --    一個**只有 SELECT** 的可達角色也會走到這裡,而舊訊息會叫 apply 當天的操作者
+        --    **去找一個不存在的「寫權授與」**。訊息比謂詞窄 ⇒ 把人指向錯的地方。
+        v_bad := coalesce(v_bad || ', ', '') || format('可 SET ROLE 到的角色持有本表權限:%s', v_reach);
       END IF;
 
       -- ═══════════════════════════════════════════════════════════════════
