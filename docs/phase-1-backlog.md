@@ -15948,6 +15948,22 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   而該零命中附正向對照(`#54[0-9]` ⇒ 7 檔命中)與分母(信箱 2957 檔)⇒ **那個 0 是量出來的**。
 - **發現於**:2026-08-16 · B 窗 真登入線 E8-B `b1-b` 關卡2 R2 折後 · 由 B 窗立案
 
+### #607 · 型錄對外端點全域節流(facet-counts / tappay-notify)
+
+- **是什麼:** 兩個對外端點的「防被打爆」目前完全靠 app 之外的東西擋 —— `facet-counts` 靠單一 process 內併發上限 `MAX_CONCURRENT_FANOUTS = 3`(`apps/storefront/src/lib/vehicle-facet-counts.ts:69`,拒絕邏輯 `:177`)、`tappay-notify` 委派 Vercel WAF(`app/api/checkout/tappay-notify/[secret]/route.ts:18` 註解)。缺一道**全站級(跨實例)**的請求節流。
+- **🔴 份量在結構不在數字(不管放大倍數、key 空間多大都成立):** 唯一的節流是 **per-process**(`vehicle-facet-counts.ts:179` 拒絕訊息逐字「本 process」),而 Vercel 會**自動多開實例** ⇒ per-process 上限 **≠** 全域上限 ⇒ **實質上沒有一道全站級請求上限**。這一點與「facet-counts 放大幾倍(檔頭標實測 108×,`route.ts:10`)」「合法 key 全集可枚舉(`route.ts:17`)」到底多大**無關** —— 那些數字就算錯了,這個結構結論仍成立。
+- **拍板:** Sean 2026-08-17 `Q-8`=乙(排隊、上線前必做;不現在開片)。
+- **🔴 不修未來會痛在哪(鐵則 10):** 上線後任何人(無需登入)可對這兩個端點高頻打 —— facet-counts 每發放大成多次 RPC 查詢、tappay-notify 每發觸發 webhook 處理。**沒有全域節流時,單一來源就能把 Supabase 查詢額度 / Vercel 函式執行時間吃光**;而 per-process 的上限只會讓平台**多開實例去承接** = **等於幫攻擊者擴容**。第一次被打就是全站級服務降級,而**當下沒有一個地方能擋**(只能臨時關端點)。它的引爆不需要任何內部改動 ⇒ 不會有測試紅、不會有掃描命中。
+- **現況量法(可重跑):**
+  ```
+  grep -n 'MAX_CONCURRENT_FANOUTS = 3' apps/storefront/src/lib/vehicle-facet-counts.ts   ⇒ :69 命中
+  grep -n '本 process' apps/storefront/src/lib/vehicle-facet-counts.ts                     ⇒ :179 命中(證「只在單一 process」)
+  grep -riE 'rate.?limit|throttle' apps/storefront/src/app/api/checkout/tappay-notify      ⇒ route 內無 code 限流
+  正向對照:同 tappay-notify route grep -c 'timingSafe' ⇒ 非 0(證明「無 code 限流」是掃出來的、非沒掃到)
+  ```
+- **修法方向(不設計、待施工窗評估):** 一道跨實例的節流(共享狀態的 rate limiter / 平台級 firewall 規則 / 外部 KV 計數),兩端點共用。
+- **由來:** E-698 §1#1/#4/#5 併題(facet-counts 放大面 + tappay-notify WAF 委派),`docs/security/2026-08-17-section1-unverified-items-round2.md` §1 表;Sean `Q-8`=乙。
+- **發現於:** 2026-08-17 · E 窗(資安稽核)· 由 E 窗立案(`#607` 經 `scripts/reserve-backlog.sh` 原子配號、非佔位)
 ### #608 · check-syntax-nonts.gate.test.ts 三格 timeout — 同一顆樹紅一次、四次重跑全綠、成因未確認
 
 - **原始事實(照字面寫,不整理成好看的版本):**
