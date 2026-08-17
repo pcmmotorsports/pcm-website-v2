@@ -54,20 +54,25 @@ route 兩世界字面不同:disabled ⇒ `{"enabled":false,"skipped":"sweeper_di
 
 **量具身分(附分母與 pattern)**:
 - **disabled 態分得開**:`grep -rn "sweeper_disabled" --include="*.ts" --include="*.tsx" . | grep -v node_modules` ⇒ **2 命中**皆 settle-sweep(`route.ts:106` 本體 + `route.test.ts:130`);anomaly 印的是 `anomaly_alert_disabled`(同法 2 命中,`anomaly-alert/route.ts:106`)。
-- 🔴 **enabled 態【分不開】,`"enabled":true` 不是 sweeper 專屬**:`anomaly-alert/route.ts:126` 與 `:130` 兩處也印 `enabled: true`(200 與 503 皆含)。⇒ **world_b 必須改用 sweeper 專屬欄位** `inboxClaimed`(`grep -rn "inboxClaimed" --include="*.ts" . | grep -v node_modules | grep -v test` ⇒ **3 命中全在** `packages/use-cases/src/sweep-settlements.ts:56,120,165`);anomaly 專屬欄取 `notifiersTotal`(`check-anomaly-alerts.ts:55`)。
+- 🔴 **enabled 態【分不開】,`"enabled":true` 不是 sweeper 專屬**:`anomaly-alert/route.ts:126` 與 `:130` 兩處也印 `enabled: true`(200 與 503 皆含)。⇒ **world_b 必須改用 sweeper 專屬欄位** `inboxClaimed`(`grep -rn "inboxClaimed" --include="*.ts" . | grep -v node_modules | grep -v test` ⇒ **3 命中全在** `packages/use-cases/src/sweep-settlements.ts:56,120,165`);anomaly 專屬欄取 `notifiersTotal`(`check-anomaly-alerts.ts:56`)。
+- ⚠️ **`anom_off` / `anom_on` 兩個桶【從未被活列行使過】**(本窗零 anomaly 列)⇒ 它們目前是**未表演過的格**,不能當「已驗證可用」。**廉價轉正:今晚 `01:00 UTC` 之後重跑一次,期望 `anom_off ≥ 1`**(anomaly 的 flag 若仍關著就是 `anom_off`;開了則 `anom_on`)。**待辦,未做。**
 - 🔴🔴 **重跑時段警告**:`pcm-anomaly-alert` 排程 `0 1 * * *`(`supabase/migrations/20260723120000…:131`)⇒ **在 01:00–07:00 UTC 之間重跑本查詢,anomaly 的列會進入 6h 窗**。用舊的 `"enabled":true` pattern 會把它算成 sweeper。下方查詢已改成**逐 job 歸戶 + 殘差桶**,任何時段重跑都算得清。
 
 **量到的(`pcm_audit_ro` 唯讀 SELECT;單一快照 `snapshot_utc = 2026-08-17 07:27:43 UTC`)**:
 
 ```sql
--- 可重跑(任何時段皆可;殘差桶 unattributed 必須為 0,否則有第三支 job 混進來)
+-- 可重跑(任何時段皆可)
+-- 🔴 判準:unattributed = 0 【且】 sweep_off+sweep_on+anom_off+anom_on+null_content+unattributed = total
+--    只看 unattributed=0 不夠 —— 見下方「NULL 陷阱」。
 WITH w AS (SELECT * FROM net._http_response WHERE created > now() - interval '6 hours')
 SELECT count(*) AS total,
   count(*) FILTER (WHERE content LIKE '%sweeper_disabled%')       AS sweep_off,
   count(*) FILTER (WHERE content LIKE '%inboxClaimed%')           AS sweep_on,
   count(*) FILTER (WHERE content LIKE '%anomaly_alert_disabled%') AS anom_off,
   count(*) FILTER (WHERE content LIKE '%notifiersTotal%')         AS anom_on,
-  count(*) FILTER (WHERE content NOT LIKE '%sweeper_disabled%'
+  count(*) FILTER (WHERE content IS NULL)                         AS null_content,  -- 🔴 必要,見下
+  count(*) FILTER (WHERE content IS NOT NULL                                        -- 🔴 這道 guard 不可拿掉
+                     AND content NOT LIKE '%sweeper_disabled%'
                      AND content NOT LIKE '%inboxClaimed%'
                      AND content NOT LIKE '%anomaly_alert_disabled%'
                      AND content NOT LIKE '%notifiersTotal%')     AS unattributed,
@@ -78,9 +83,16 @@ SELECT count(*) AS total,
 FROM w;
 ```
 
-| total | sweep_off | sweep_on | anom_off | anom_on | **unattributed** | non_200 | timedout |
-|---|---|---|---|---|---|---|---|
-| 180 | 159 | 21 | 0 | 0 | **0** | 0 | 0 |
+🔴 **NULL 陷阱(為什麼 `unattributed = 0` 單獨看是假綠)**:
+`NULL NOT LIKE '…'` 得到的是 **`NULL` 不是 `true`**(實測 `SELECT (NULL::text NOT LIKE '%x%') IS NULL` ⇒ `t`)⇒ 若不加 `content IS NOT NULL`,**`content` 為 NULL 的列不會進任何桶、也不會進 `unattributed`**;而 `status_code` 同時為 NULL ⇒ `status_code <> 200` 也是 NULL ⇒ **連 `non_200` 都躲過,只有 `total` 會多**。
+⚠️ **pg_net 對「連線根本失敗」的列就是 `content`/`status_code` 雙 NULL、只填 `error_msg`** ⇒ **在「請求全部失敗」的世界裡,舊版查詢會印出 `unattributed = 0`**——正是「錯的那次和對的那次長得一樣」。
+⇒ 故判準必須是**兩條**:`unattributed = 0` **且各桶總和 = `total`**。
+
+| snapshot_utc | total | sweep_off | sweep_on | anom_off | anom_on | null_content | **unattributed** | non_200 | timedout |
+|---|---|---|---|---|---|---|---|---|---|
+| 2026-08-17 07:38:05 UTC | 180 | 153 | 27 | 0 | 0 | **0** | **0** | 0 | 0 |
+
+加總核對:`153+27+0+0+0+0 = 180 = total` ✅ 兩條判準皆過。
 
 - **兩個世界同一窗都在** ⇒ 內建負向對照,不必自餵:`sweep_off` 159 列止於 `06:44:00 UTC`,`sweep_on` 21 列起於 `06:46:00 UTC`。
 - **分母閉合是【歸戶閉合】不是算術巧合**:`159+21+0+0 = 180 = total` 且 **`unattributed = 0`** ⇒ 窗內每一列都被歸到具名 job;`anom_off/anom_on = 0` 是**量到的**(本窗不含 anomaly 的 01:00 那列),不是假設。
