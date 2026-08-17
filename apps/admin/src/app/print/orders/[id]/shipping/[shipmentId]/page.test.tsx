@@ -356,6 +356,43 @@ describe('#10 片2b — 版面', () => {
     expect(container.textContent).not.toContain('LTC-BK-XL');
   });
 
+  it('🔴🔴 `#601` 被擋時是【整幅】阻印版面,不是一行警告 —— 釘的是份量不是字面', async () => {
+    // 🔴 **這一格守的是「員工會不會照著那張紙做」,而那件事的變數是【份量】。**
+    //    設計端逐字(樣張 `:551`):「印出來看起來正常的紙,員工就會照做,
+    //    所以警告必須佔滿這個位置。」
+    // 🔴 **為什麼不能只斷言 `toContain('本單不得出貨')`**:把這一幅縮回一行
+    //    `<Alert>本單不得出貨</Alert>`,那個斷言**照樣綠**,而紙又變回「看起來正常」——
+    //    也就是這件事整個沒做。⇒ 斷言**結構與條目數**,不只斷言字面。
+    // 🔴 **也不能只斷言 `[role="alert"]` 存在** —— 上一格已經那樣做了,而它在
+    //    「一行 Alert」的世界裡也是綠的(落地前 61 格全過就是證據)。
+    // ⚠️ 誠實:單測量不到「它在紙上佔多大」。本格證的是**那些內容都在同一塊裡、而且沒被砍**;
+    //    真的印出來看的紀錄另外走 `scripts/pagecount.sh --png`。
+    mocks.listOrderItemsForPrint.mockResolvedValue({ items: detail().items, reportedTotal: 5 });
+    const { container } = await renderPage();
+    const panel = container.querySelector('[data-slot="print-blocked"]');
+    expect(panel).not.toBeNull();
+    expect(panel?.getAttribute('role')).toBe('alert');
+    // 標題、訂單編號、以及「這不是漏印」那一句 —— 三者缺一,紙上就少了一層意思。
+    expect(panel?.textContent).toContain('本單不得出貨');
+    expect(panel?.textContent).toContain('PCM-2026-0042');
+    expect(panel?.textContent).toContain('本頁不含品項明細');
+    expect(panel?.textContent).toContain('這不是資料漏印,是刻意不印');
+    // 🔴 四條「請照這樣做」逐字照樣張,**條目數也釘住** —— 少一條就是少一個動作,
+    //    而少掉的那一條(例如「若貨已裝箱,先停下」)正是最貴的那一種情境。
+    const actions = [...(panel?.querySelectorAll('li') ?? [])].map((li) => li.textContent?.trim());
+    expect(actions).toEqual([
+      '不要依本單揀貨、裝箱或出貨。',
+      '不要把本單放進任何箱子。',
+      '把本單作廢並回報主管,由系統重新確認後再列印。',
+      '若貨已裝箱,先停下並確認箱內狀態,不要交給貨運。',
+    ]);
+    // 原因那一格吃的是 `shippingDocBlocker()` 那句話,不是另外寫一份文案。
+    expect(panel?.textContent).toContain('出貨明細單可能少印品項');
+    // 🔴 樣張列了「六種情形」那張清單,而我們有八種 ⇒ **刻意不印那張清單**。
+    //    印一張比實際少兩種的清單,員工會以為自己遇到的狀況不在系統的預期內。
+    expect(panel?.textContent).not.toContain('六種');
+  });
+
   it('🔴 金額區塊還沒做(已答但排下一片)⇒ 紙上不得出現任何金額', async () => {
     // 🔴 **標題更正(2026-08-15)**:原本寫「`Q-D-4` 未答」,而 `Q-D-4` 已經答了(乙 = 兩區各自合計)
     //    ⇒ 那句話從那一刻起就是假的,只是格子照樣綠 ⇒ **沒有任何東西會告訴我它過期。**
