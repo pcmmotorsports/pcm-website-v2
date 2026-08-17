@@ -159,6 +159,60 @@ SELECT created, content FROM net._http_response
 
 ---
 
+## §5-d 預言結果:**世界 A 成立 —— ceiling 有效**(量於 `08:05`–`08:09 UTC`;§5-c 原文未改一字)
+
+### 結果(唯讀 SELECT,`net._http_response`)
+
+| UTC | status | inboxClaimed | stuckClaimed | expiredInboxAtCeiling | errors |
+|---|---|---|---|---|---|
+| 07:58 | 200 | 0 | 0 | 0 | 0 |
+| 08:00 | 200 | **0** | 0 | 0 | 0 |
+| **08:02** | 200 | **3** | **1** | 0 | 0 |
+| 08:04 | **503** | 0 | 0 | 0 | **1** |
+| 08:06 | 200 | 0 | 0 | **0** | 0 |
+| 08:08 | 200 | 0 | 0 | **0** | 0 |
+
+### ① substance ✅ 命中;tick ❌ 差一格(**且差在哪是事前寫下的**)
+
+- **tick**:認領發生在 **`08:02`** 不是 §5-c 表格寫的 `08:00`。**成因事前已標**:`next_retry_at ≈ 08:00:00.033` 而 sweeper 於 `08:00:00.018` 開跑 ⇒ `.033 > .018` ⇒ 該輪不到期(claim 述詞 `next_retry_at <= now()`,`…4a1…:80`)。
+- **substance**:判別器是「**再被認領一次之後就停,還是永遠停不下來**」⇒ **停了** ⇒ **世界 A**。
+
+### ② 🔴 但「`inboxClaimed = 0`」單獨看**不足以**下這個結論 —— 我差點踩進去
+
+`08:04/06/08` 的 `inboxClaimed = 0` 在**兩個世界一樣**:
+- **世界 A**:已轉 `needs_manual_review` ⇒ 被 claim 的 `needs_manual_review = false` 濾掉。
+- **世界 A'**:**只是又進入 16 分退避**(`08:02 + 16min = 08:18`)⇒ 未到期,同樣 claim 不到。
+⇒ **兩者都印 0。** 要等到 `08:18` 之後才分得開 —— **除非另找一個現在就分得開的讀數。**
+
+**那個讀數 = `expiredInboxAtCeiling`**(`expire_webhook_events_at_ceiling`,`…4a1…:56,64`):它掃的是 `attempt_count >= 8 AND processed = false AND needs_manual_review = false`。
+- 那 3 列在 `08:02` 被 claim ⇒ `attempt_count` 由 7 **遞增為 8**(claim 自帶 `++`),且 `processed` 仍為 `false`。
+- `08:06` 與 `08:08`(**皆 `200`、`errors = 0`,即 expirer 確實跑完沒 throw)量到 `expiredInboxAtCeiling = 0`。
+- ⇒ **不存在「`attempt_count >= 8` 且未 processed 且未 manual」的列** ⇒ **那 3 列的 `needs_manual_review` 必為 `true`** ⇒ **世界 A 成立,現在就成立,不必等 `08:18`。**
+(`stuckClaimed` 側同理:`expiredStuckAtCeiling` 於同兩輪亦為 `0`。)
+
+### ③ 🔴🔴 而那個沒預測到的 `503`,**正好落在我要拿來當判別器的那個計數上**
+
+`08:04` 回 **`503` / `errors: 1`**,其餘計數全 `0`。
+🔴 四個前置守衛(`sweep-settlements.ts:137-151`)與 claim(`:160-164`)**都是裸 `catch {}`**,只做 `result.errors++` ⇒ **從 counts 分不出是哪一個 throw 的**。
+⇒ 而 `expireEventsAtCeiling` **正是那四個之一** ⇒ **若 `08:04` throw 的是它,那一輪的 `expiredInboxAtCeiling = 0` 就不是「掃到 0」而是「根本沒掃成」** ⇒ **該輪讀數無效**。
+✅ **故本節的結論只採用 `08:06` / `08:08` 這兩輪**(`200` + `errors = 0`,守衛確實跑完)。**`08:04` 一律不引用。**
+📌 這件事的形狀:**一個沒被預測到的錯誤,剛好污染了我要用的那把量具** —— 若當時只看 `08:04` 就宣布 ceiling 有效,會是**用一個沒跑成的檢查當證據**。
+
+### ④ 🆕 順帶撈到的可觀測性缺口(**新條,非本次預言範圍**)
+
+`errors > 0 → 503` 這件事本身是對的(不吞成 200)。**但 503 之後沒有人能知道是哪一步壞的**:
+- 四個守衛 + claim **共 5 處** `catch {}`,**皆不帶步驟識別、不帶 reason code**;`console.error` 印的是 counts,而 counts 在五種 throw 下**長得一樣**(全 0 + `errors:1`)。
+- ⇒ **這一輪的 `503` 我查不出成因,而下一次也一樣查不出。**
+- **本次影響**:單發、`08:06`/`08:08` 已自行恢復 ⇒ **不擴大解讀為故障**;但**若哪天變成持續 503,現有 telemetry 不足以定位**。
+- **建議修法(給施工窗,E 不改 code)**:五處 `catch` 各帶一個固定步驟碼(如 `expire_inbox` / `expire_stuck` / `flag_non_unpaid` / `claim_inbox` / `claim_stuck`)進結構化 log —— **沿用姊妹片 `email-sweep` 的固定碼集做法即可,零 PII**。
+
+### ⑤ 口徑
+
+`08:02` 那輪把四筆推過 ceiling **是量到的**;`needs_manual_review` 轉為 `true` 是**由 `expiredInboxAtCeiling = 0` 推出的**(我無業務表 SELECT 權限,**沒有直接讀到那個旗標**)—— 推論鏈已完整列於 ②,但**它是推的不是讀的**,要直接證實請以 `postgres` 身分查該欄。
+三筆 `record_unverified`(6/101/340)**經 Sean 確認為其測試單**;**`2SQH2P`(1500)他未答 ⇒ 未確認**。**不得寫成「四筆都是測試資料」。**
+
+---
+
 ## §6:cache() 去重範圍 —— per-request per-argument(結構確定)
 
 **量到的(code + React 語意)**:`fetchProductByHandle = cache(async (handle) => ...)`(`products.ts:759`),React `cache()`。檔內註解(`:754-758`)自陳「同一請求內去重、React per-request memoization、跨請求不共享」。
