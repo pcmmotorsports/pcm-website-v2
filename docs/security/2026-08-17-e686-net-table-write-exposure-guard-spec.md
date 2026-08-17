@@ -165,10 +165,32 @@ SELECT rolname, rolsuper FROM pg_roles WHERE rolname IN ('postgres','supabase_ad
 
 ---
 
-## 6. 報價單庫(`pcm-quote-v2`)同型,**未逐項複驗**
+## 6. 報價單庫(`pcm-quote-v2`)—— ✅ **已逐項複驗,結果與網站庫【完全相同】**(2026-08-17 傍晚補)
 
-`pcm_audit_ro` 在**兩個庫**對 `net` 都有 `USAGE`(實測 `has_schema_privilege` ⇒ 兩庫皆 `t`),且 pg_net 的 PUBLIC 授予來自**外掛安裝 SQL、非本專案**(⇒ 兩庫同源、**推論**)。
-⚠️ **標未確認**:報價單庫的**權限矩陣與外部 REST 三格對照我這一輪沒跑**。要下結論請照 §2.1 / §2.4 對報價單庫各跑一次(`~/.pcm-readonly-quote-db` + `~/.pcm-quote-anon-key`,**兩把 anon key 同長度同前綴、開打前先做庫別三發對照**)。
+~~同型,未逐項複驗~~ —— **已補齊,不再是推論**。
+
+**先過庫別三發對照**(兩把 anon key 同前綴同長度,拿錯不會報錯 ⇒ 這步不可略):
+
+| # | 打什麼 | 實測 | 意義 |
+|---|---|---|---|
+| 1 | quote-key → `storefront_catalog_v` | **200** | 確認在報價單庫 |
+| 2 | **site-key** → `storefront_catalog_v` | **401** | 反面:網站庫的 key 在這裡不通 ⇒ 我沒拿錯 |
+| 3 | quote-key → `net._http_response` | **404** | `net` 不可達 |
+
+⇒ **三個值不同**,身分確定。
+
+**逐項結果(`~/.pcm-readonly-quote-db`,`current_database()` 已確認)**:
+
+| 項目 | 報價單庫 | 網站庫 | 一致? |
+|---|---|---|---|
+| `net` 兩表 × `anon`/`authenticated` 的 `SELECT/INSERT/UPDATE/DELETE/TRUNCATE` | **4 列全 `t`** | 4 列全 `t` | ✅ 相同 |
+| PostgREST 曝露白名單(`Accept-Profile: net` 自曝) | `public, graphql_public` | `public, graphql_public` | ✅ 相同 |
+| `public` 內 SECURITY DEFINER 總數 | **57** | 80 | (數量不同,正常) |
+| 其中 `proconfig IS NULL`(可變 search_path) | **0** | 0 | ✅ 相同 |
+| 正向對照:`proconfig IS NULL` 在 `public` 內是否抓得到東西 | **38 支**(皆非 SECDEF) | 6 支 | ✅ 述詞有判別力,非恆綠 |
+
+⇒ 🔴 **`E686-1` 對報價單庫【同等成立】**(`net` 兩表全 DML+TRUNCATE、擋著的同樣只有曝露清單那一道),**修法與守門規格原樣適用**,§3.2 的三格探針把 base URL 換成報價單庫即可。
+⇒ ✅ SECURITY DEFINER 的 search_path 紀律**兩庫都乾淨**,且兩邊的 `0` 都有各自的正向對照。
 
 ---
 
