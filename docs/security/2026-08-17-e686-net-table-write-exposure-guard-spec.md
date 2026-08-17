@@ -73,8 +73,26 @@ SELECT count(*) FROM net._http_response;       -- 實測 180（6h TTL 窗）
 | `net.http_request_queue` | **404** | **不可達** |
 | `net._http_response` | **404** | **不可達** |
 
-⚠️ **口徑(這條最容易被寫壞)**:上表量到的是「**外部經 REST 現在打不到**」= **行為**。
-它**不等於**「Dashboard 的曝露清單內容是 X」= **設定**。**本檔不對設定清單下斷言** —— 那要 Sean 在 Dashboard 展開才算(已請他確認,回報前一律「未確認」)。
+**🆕 設定層也量到了(2026-08-17 傍晚補) —— 讓 PostgREST 自己把白名單講出來**:
+```bash
+curl -s -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+     -H "Accept-Profile: net" \
+     "https://bmpnplmnldofgaohnaok.supabase.co/rest/v1/_http_response?select=id&limit=0"
+```
+**實際回應**:
+```json
+{"code":"PGRST106","details":null,
+ "hint":"Only the following schemas are exposed: public, graphql_public",
+ "message":"Invalid schema: net"}
+```
+⇒ **曝露清單 = `public, graphql_public`,由執行中的 PostgREST 自己吐出來**,不是截圖、不是轉述。
+📌 **這比 Dashboard 截圖強**:截圖是**設定畫面**,這是**實際生效的那份設定**——兩者理論上可能不一致(設定沒 Save / 沒套用),而**我們要的是生效的那份**。
+📎 Sean 同日 Dashboard 截圖獨立佐證(展開後候選只有 `graphql_public` / `public` / `pcm_cron` 三個,`net` 連選項都不在),**兩個來源一致**。
+
+⚠️ **仍未確認的一格**:**`net` 到底能不能被手動加進去。**
+- Sean 截圖裡候選只有三個,而那三個的共同點是**由 `postgres` 擁有或屬標準 API schema**(`pcm_cron` 是我們自己 migration 建的);`net` 的 owner 是 **`supabase_admin`**(§2.1 量到)⇒ **推測** Supabase UI 只列前者。
+- 🔴 **這是推的,不是量的** —— 要證實得**真的去加一次**,那是平台設定變更(鐵則 12④)、且風險不對稱,**不做**。
+- ✅ **但守門設計不依賴這個答案**:§3.2 的外部探針**不管它是怎麼被加進去的都偵測得到**(加進去 ⇒ `net` 端點不再回 404)。⇒ 這一格**未確認不影響修法**,只影響「這道守門是防呆還是防壞」的敘事。
 
 ### 2.5 🔴 SQL 修法路線 —— **已實測不可行,不要再試**
 
