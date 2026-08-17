@@ -141,10 +141,19 @@ describe('NoteComposeForm — A10a-3', () => {
     //    **可能還是舊的 TARGET** ⇒ 這一送出會多問一次 confirm ⇒ 下面那條得到 3 不是 2。
     //    ⚠️ 它要**多 worker 競爭**才輸得掉這個 race ⇒ 正好是「全測會紅、單跑不會」,
     //       而那個形狀會讓人以為是「環境問題」而不是測試裡的真 race。
+    //       (2026-08-17 野生實例 bfbc2844 收窄了條件面:零並行下也輸過一次 ⇒ 不只多 worker。)
     //    ⇒ 等的東西挑 `corrects_note_id`:那顆 hidden 只在 `correctTarget` 非 null 時渲染
     //      (元件錨點 `NOTE_CORRECTS_FIELD`)⇒ 它消失 = 新的 props 真的 commit 進去了。
-    await waitFor(() =>
-      expect(container.querySelector('input[name="corrects_note_id"]')).toBeNull(),
+    //    🔴 timeout 3000 是【設的】不是【調高的】:原本 1000ms 是 testing-library waitFor
+    //      的庫預設,從沒被人為這格選過;野生實例 bfbc2844(docs/probes/…-RED.txt:13-14,
+    //      該格 1029ms=預設到期+餘量)量到合法 transition 延遲會越 1000 線。
+    //      🔴 3000 的來源:≈3× 唯一量到的越線點(1029ms),而【刻意 < vitest 格預算
+    //      5000ms】——本格前面還有兩段 await,waitFor 若設 5000 會先撞格預算,
+    //      失敗訊息從「waitFor 這個條件沒成真」退化成泛用「Test timed out」,診斷力歸零。
+    //      要再加只能連格 timeout 一起加,不要只動這裡。條件本身一字未動、仍必須成真。
+    await waitFor(
+      () => expect(container.querySelector('input[name="corrects_note_id"]')).toBeNull(),
+      { timeout: 3000 },
     );
     fireEvent.submit(container.querySelector('form')!);
     await waitFor(() => expect(actionMock.mock.calls.length).toBe(2));
