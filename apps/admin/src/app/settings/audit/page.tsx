@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 //    (`vitest.config.ts:28`)⇒ 用 `@/` 寫,`page.test.tsx` 就 resolve 不到本檔的依賴,
 //    而那道「直接打網址會不會被擋」的負測就**跑不起來**(症狀是整族解析失敗,不是紅一格)。
 //    形狀照抄同層既有前例 `app/settings/suppliers/page.tsx:2-9`(該頁檔頭寫了同一個理由)。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { isAuditUiEnabled } from '../../../lib/audit/audit-ui-flag';
 import { toAuditListRow } from '../../../lib/audit/audit-list-view';
 import { diffAuditPayload } from '../../../lib/audit/audit-diff';

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
-// 相對 import(非 @/):見 session/actor.ts 註解(vitest @ alias 指 storefront)。
+// 相對 import(非 @/):#606 前的歷史遺留,見 session/actor.ts 註解(#612 更新:#606 起可用 @/,既有不回改)。
 // #365 片③:單值欄位的唯一讀法。
 import { readSingleString } from '../forms/single-value';
 import { resolveStaff } from '../staff';

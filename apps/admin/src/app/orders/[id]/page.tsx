@@ -9,6 +9,7 @@ import { customerDetailHref } from '../../../lib/orders/order-detail-view';
 // 相對 import(非 `@/`):root vitest.config 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話這一頁
 // **完全沒辦法被單測載入**(A10b 關卡2 codex MF10 要求補頁層接線測試時當場踩到)。
 // 同 `lib/session/actor.ts:2` 的既有慣例。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 //
 // M-4a Slice B:後台訂單明細頁(server component、唯讀)。
 // 🔴 PII:客人姓名/電話/email+收件快照只在本頁(明細專用白名單、service_role、登入閘後);列表不帶。

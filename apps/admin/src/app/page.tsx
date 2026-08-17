@@ -1,6 +1,7 @@
 // 🔴 **相對路徑、不用 `@/`**:根 `vitest.config.ts:27-29` 的 `@` alias 指向 **storefront** 的 src,
 //    admin 檔案用 `@/` 在 vitest 裡 resolve 不到 ⇒ 本頁就永遠測不到。
 //    姊妹頁 `app/orders/page.tsx` 為了同一個理由做過同一件事(`orders/page.test.tsx:15-17` 有記)。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { selectActorAction } from '../lib/session/actor-actions';
 import { ACTOR_ID_FIELD, getSessionActor } from '../lib/session/actor';
 import { listActiveStaff } from '../lib/staff';

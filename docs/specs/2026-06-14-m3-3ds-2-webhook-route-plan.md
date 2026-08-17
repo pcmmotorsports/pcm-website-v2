@@ -1,5 +1,9 @@
 # Slice Plan:3DS-2 ②-⑥ webhook route(`app/api/checkout/tappay-notify`)
 
+> ⛔ **2026-08-17:本檔多處寫的「3DS-4 前不設 backend_notify_url / 不開 `TAPPAY_3DS_ENABLED` / 不開放 prod 結帳」硬 gate 已解除。**
+> 全文(為什麼曾經這樣定 / 何時解除 / 現在靠什麼守)在 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段。
+> 🔴 本檔正文刻意不逐句改寫(它記錄的是當時的決定,沒有錯);**引用本檔任何一句 gate 前先讀那一段。**
+
 > 作者:Claude Code(執行側、自驅 SOP step 2)/ 日期:2026-06-14
 > 真權威:`docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` v5 §2(3DS-2 列)/ §3(webhook 規格)/ §7(TapPay 坑)/ §9(prod 前置)
 > 鐵則:**8**(新 API route + 新 port `IWebhookInbox` + 新 adapter `PgWebhookInboxAdapter` + composition factory + 新 env)+ **12**(payment / 對帳 / **未驗證公開寫入口**)→ codex 關卡1(本檔)+ 關卡2(diff)+ code-reviewer
@@ -168,6 +172,23 @@
 ## ⑭ Prod 前置 checklist(consolidated;codex r2 consider 2 + nit 3)
 
 「啟用任何 TapPay backend_notify_url / 開放 prod 結帳」前,以下**全部**到位(散見 §1/§6/§7/§12 之集中清單):
+
+> ⛔ **2026-08-17:`TAPPAY_3DS_ENABLED` 與 `CRON_SWEEPER_ENABLED` 都已經開了**(Sean 拍板 QC=甲),
+> 而**下面這幾格沒有一個被勾起來**。🔴 checkbox 常被單獨掃描、檔頭那行指標蓋不到這裡,所以在這裡再寫一次。
+> 逐格現況(我能判的才寫,判不了的寫未確認):
+> · `3DS-4 sweeper 已實作` → **已實作**(掃描→認領→處理→退避 全鏈 2026-08-17 實測閉環;
+>   🔴 `settled` 寫入路徑未被行使、未確認)。
+> · `🔴 BLOCKER — Vercel Firewall/WAF` → **未確認**。我不碰 Vercel dashboard、不碰 `.env`
+>   ⇒ 我不知道它設了沒,而它逐字寫著「未設 → 不得開 `TAPPAY_3DS_ENABLED`」。**這格要有人去看。**
+> · `TAPPAY_NOTIFY_PATH_SECRET 已設` → **未確認**(同上)。
+> · `此前不設 notify URL / 不開 flag / 不開放 prod 結帳` → **此條已解除**(見下)。
+> · `PAY-06 velocity rate-limit` → **未確認**。
+> ⇒ 另有 `docs/phase-1-backlog.md` `#231`(狀態 ⏳ 待執行,逐字「flag-on 前必 land」)。
+> 全文與上呈狀況見 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段。
+> 🔴 **checkbox 刻意都不勾** —— 沒做完的事不會因為 flag 開了就變成做完了。
+> 📎 本清單的格數數法:`sed -n '190,196p' docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md | grep -c '^- \[ \]'`
+>   (行號會隨本檔增修漂移 ⇒ 抓不到就改用 `grep -n '^- \[ \]' <本檔>` 自己看範圍,**不要沿用我寫的行號**)。
+
 - [ ] **3DS-4 sweeper 已實作**(最終結算保證;3DS-2 單片只 durable 捕獲 + best-effort)。
 - [ ] 🔴 **BLOCKER — Vercel Firewall/WAF** 對 `/api/checkout/tappay-notify/*` 限流已設:= inbox 膨脹(去重鍵 rec_trade_id 非 order、存在性閘擋不住同單海量不同 rec)+ settleCharge/Record API 出站放大 的**唯一 app 前防線**;**未設 → 不得設 backend_notify_url / 不得開 `TAPPAY_3DS_ENABLED` / 不得開放 prod 結帳**(≠ PAY-06 velocity)。
 - [ ] `TAPPAY_NOTIFY_PATH_SECRET` 已設(≥32 URL-safe、route `requireNotifySecret()` enforce)。

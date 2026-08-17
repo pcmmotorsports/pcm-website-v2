@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// 🔴 相對路徑不用 `@/`:vitest 的 `@` alias 指向 `apps/storefront/src`(本檔檔頭記過的同一個坑)。
+// 相對路徑(#606 前 vitest @ alias 只指 storefront 的歷史遺留;#612 更新:現可用 @/,既有不回改)。
 import { stripComments } from '../../lib/test-support/strip-comments';
 
 // app-sidebar.test.ts — M-4b E10 S3b-3(`[K1-M9]`)。
@@ -17,6 +17,7 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 //    並繼續往下連鎖,而 vitest 的 `@` alias 指向 **`apps/storefront/src`**
 //    (`vitest.config.ts:28`,admin 沒有自己的 alias)⇒ 整條依賴鏈 resolve 不到。
 //    把那一串改成相對路徑遠超本片範圍(動的是 shadcn 抄來的 `ui/` 檔)。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 //    ⇒ 本檔**擋得住**:那一行被刪掉、href 被改錯字、label 被改掉、整項被註解掉
 //      (下方 `SOURCE` 先剝註解才解析,理由見該處)。
 //      **擋不住**(逐條列,不要讀成「導覽已驗證」):

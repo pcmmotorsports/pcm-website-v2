@@ -197,10 +197,10 @@ anon 的 rolcanlogin = f   ← anon【不能直接登入資料庫】
 |---|---|
 | **讀任何一列業務資料** | 刻意。碰之前要先報備 |
 | **讀 `cron.job` 的 `command`** | 🔴 **做不到也不用做**：`has_schema_privilege('pcm_audit_ro','cron','USAGE')` ⇒ **f**。順帶量到 **`anon` 對 `cron` 也是 `f`** ⇒ **排程裡那兩個疑似祕密，`anon` 從資料庫這一側碰不到** |
-| PostgREST 實際暴露哪些 schema | 需要該專案的 REST 端點與 anon key |
-| RLS policy 逐條讀（16 條那種） | 下一輪 |
-| `storefront_catalog_v` 的**底表**是誰、RLS 怎麼設 | 下一輪 |
-| B 窗要的 `#4`（production schema vs repo 一致性） | 下一輪，**這條做完直接給 B 窗** |
+| ~~PostgREST 實際暴露哪些 schema~~ ✅ **已做** | `Accept-Profile: net` 讓 PostgREST **自曝**:`PGRST106` `hint` 逐字 = `Only the following schemas are exposed: public, graphql_public`(兩庫皆同)。**這比 Dashboard 截圖強:截圖是設定畫面,這是實際生效的那份。** |
+| ~~RLS policy 逐條讀(**16 條那種**)~~ ✅ **已做**,見 `quote-db-round2-storefront-catalog-rls.md` §7 | 🔴 **而「16 條」是錯的 —— 實際 9 條**(`public` 9 + `cron` 2;對照網站庫 `public` **36**)。<br>🔴 **這正是本檔 §1.2-b 警告過的「兩個 16」的【第三次外洩】** —— 那裡已寫明「16 **欄位** / 16 **關聯**,數值相同是巧合,**引用一律帶單位**」,而**這一行仍然把它當成 policy 條數用掉了**。<br>⚠️ **害處不是記錯數字,是它設定了錯的預期規模**:下一個人來做這件會去找 16 條、**只找到 9 條,然後懷疑自己漏了 7 條**。<br>📎 **原句劃掉留痕、不刪** —— 它是「同一份檔警告過自己、而下游仍然犯」的證據。 |
+| ~~`storefront_catalog_v` 的**底表**是誰、RLS 怎麼設~~ ✅ **已做** | `round2` §1.1-1.5:唯一底表 `products`、`security_invoker=true`、policy 與 view 在 `is_listed` 這一維不對稱 |
+| ~~B 窗要的 `#4`(production schema vs repo 一致性)~~ ✅ **已做** | `round2` §7.6:repo 98 / prod 98 / **兩個差集皆 0**,含兩向反面對照。⚠️ **只比物件名**;欄位層級、INDEX/FUNCTION/policy **未比**,已在 §7.7 逐項標明 |
 
 📌 **順帶實測（本庫值，不是搬 A 庫的）**：`statement_timeout` ⇒ `anon=3s`／`authenticated=8s`／`authenticator=8s`。
 **與 A 庫的更正後數值相同 —— 但這是各自量的，不是引用。**

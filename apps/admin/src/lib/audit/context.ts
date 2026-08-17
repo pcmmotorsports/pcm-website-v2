@@ -1,5 +1,5 @@
 import { headers } from 'next/headers';
-// 相對 import(非 @/):見 session/actor.ts 註解(vitest @ alias 指 storefront)。
+// 相對 import(非 @/):#606 前的歷史遺留,見 session/actor.ts 註解(#612 更新:#606 起可用 @/,既有不回改)。
 import { generateRequestId, REQUEST_ID_HEADER } from '../request-id';
 import { getSessionActor } from '../session/actor';
 import type { AuditLogRepository } from './repository';

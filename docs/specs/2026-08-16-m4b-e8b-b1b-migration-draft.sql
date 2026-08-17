@@ -131,7 +131,13 @@ CREATE TABLE public.admin_user_staff_map (
 COMMENT ON TABLE public.admin_user_staff_map IS
   '真登入線(M-4b E8-B):Supabase Auth 使用者 → A 庫 staff.id 的映射。'
   '只描述【會登入的人】;系統帳號不進本表(它們是 admin_audit_log.actor 的字串,不經登入路徑)。'
-  'staff_id 為永久識別碼、永不重用(Sean 2026-08-16 拍板)。';
+  'staff_id 為永久識別碼、永不重用(Sean 2026-08-16 拍板)。'
+  '🔴 本表【刻意不曝露 Data API】(PostgREST / supabase-js .from()):anon 與 authenticated 兩道 REVOKE 都下了,'
+  '只有 service_role 拿到 SELECT/INSERT,讀取一律走 server 端。'
+  '⇒ 這不是漏了 GRANT。2026-08-17 實測:apps/ 與 packages/ 共 1477 個追蹤檔內,'
+  'admin_user_staff_map 零命中(同一把量具在同一範圍找得到 admin_audit_log / customers 等 .from() 呼叫,量具是活的)。'
+  '⚠️ Sean 2026-08-17 已把 Supabase 的 Automatically expose new tables 關閉;本表不依賴那個開關,'
+  '因為它自己下了兩道 REVOKE 再明文 GRANT。';
 
 COMMENT ON COLUMN public.admin_user_staff_map.staff_id IS
   '對應 A 庫 public.staff.id。🔴 跨庫無 FK,以 CHECK 白名單替代;'

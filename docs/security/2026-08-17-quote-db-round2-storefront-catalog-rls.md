@@ -184,6 +184,101 @@ REVOKE SELECT ON extensions.pg_stat_statements, extensions.pg_stat_statements_in
 ```
 ⚠️ **安全性**:app 用 pg_net 走 cron(service_role/postgres),**不經 anon/authenticated** ⇒ REVOKE 這兩個角色不影響功能。驗收:REVOKE 後 `has_table_privilege('anon',...)` 全轉 f、service_role 仍 t、cron 排程照跑。**價值=把「外部到不到」從『靠 db-schemas 設定對』升級成『靠授權+設定兩道』。**
 
+## 7. 第三輪:RLS policy 全庫逐條(2026-08-17 傍晚)—— 補 `external-exposure-audit` §3「沒做」表那一項
+
+### 7.1 🔴 先更正那張表的字面:**不是「16 條那種」,是 9 條**
+
+`external-exposure-audit.md` §3 把這件寫成「**RLS policy 逐條讀(16 條那種)**」。**當場數**(`SELECT schemaname, count(*) FROM pg_policies GROUP BY 1;`)⇒ 報價單庫 **`public` 9 條** + `cron` 2 條;對照**網站庫** `public` **36 條**。**兩邊都不是 16。**
+⇒ 🔴 **那個「16」是同一份檔自己警告過的「兩個 16」的【第三次外洩】** —— §1.2-b 已寫明「16 **欄位** / 16 **關聯**,數值相同是巧合,引用一律帶單位」,而**待辦清單那一行仍把它當成 policy 條數用掉了**。
+⚠️ **害處不是記錯數字,是【設定了錯的預期規模】**:下一個人來做這件會找 16 條、只找到 9 條,然後懷疑自己漏了 7 條。
+
+### 7.2 九條逐條(verbatim,`pg_policies`)
+
+| 表 | policy | cmd | roles | USING |
+|---|---|---|---|---|
+| `products` | `storefront_public_read` | SELECT | **`anon`** | `major_category IS NOT NULL AND price_store IS NOT NULL AND price_store > 0 AND NOT hidden_from_store` |
+| `term_synonyms` | `term_synonyms_public_read` | SELECT | **`anon`**,`authenticated` | `is_active` |
+| `category_taxonomy_map` | `category_taxonomy_map_read` | SELECT | `authenticated` | **`true`** |
+| `taxonomy_v2_major` | `taxonomy_v2_major_read` | SELECT | `authenticated` | **`true`** |
+| `taxonomy_v2_sub` | `taxonomy_v2_sub_read` | SELECT | `authenticated` | **`true`** |
+| `products` | `dealer_price_read` | SELECT | `dealer_price_reader` | `is_listed` |
+| `products`/`audit_results`/`orphan_review` | `pcm_reparse_owner_all` ×3 | ALL | `pcm_reparse_owner` | `true` |
+
+⇒ **對 `anon` 開的只有兩條**(`products` / `term_synonyms`)⇒ 與 §1.4/§1.5 的分析範圍**完全一致、無第三條**。
+
+### 7.3 ✅ §1.4 的不對稱本輪**獨立重現**(不是引用)
+
+當場各自量:policy `USING` **不含** `is_listed`;`pg_get_viewdef('storefront_catalog_v')` 的 `WHERE` **是** `p.is_listed AND NOT p.hidden_from_store`。⇒ **集合差與 §1.4 相同** ⇒ 該結論**經第二次獨立量測成立**,分級不變。
+
+### 7.4 🆕 RLS 覆蓋全貌(本輪新量)
+
+`public` 表 **78** 張 / `relrowsecurity` **78** / `relforcerowsecurity` **0**;而**有 policy 的只有 7 張**。
+**⇒ 71 張是「RLS 開著、零 policy」= 預設 deny-all**,對 `anon`/`authenticated` 讀不到任何一列 ⇒ **這是安全的那一邊,不是缺口。**
+⚠️ 兩條限定要跟著走:
+1. **`relforcerowsecurity = 0`** ⇒ **表 owner 仍繞過 RLS**(網站庫 `E685-1` 同族形狀)。deny-all 只對**非 owner、非 BYPASSRLS** 成立。
+2. deny-all 靠的是**「沒有人幫它加 policy」** ⇒ 未來誰加一條 `USING true` 就整張打開,而**不會有任何東西紅**(`E683-1` 同族:靠每個人都記得)。
+
+### 7.5 ⚠️ 一格我看到但**不下判斷**
+
+三張 taxonomy 表對 `authenticated` 是 **`USING true`**(無條件全表讀)。**我沒有量**報價單庫實際上有沒有 `authenticated` 身分在用(有沒有真人登入 / 發過 user JWT)。**沒量就不判它是不是曝險** —— 無人登入則是死條款,有人登入則是三張分類表全開。⇒ **標未確認**,留給知道該系統怎麼被使用的人。
+
+### 7.6 🆕 production schema vs repo 一致性(B 窗要的 `#4`)—— **零差集,兩向皆驗**
+
+**限制先講**:`supabase_migrations` schema 對 `pcm_audit_ro` 為 **`f`**(實測)⇒ **我讀不到 migration ledger**,無法回答「哪幾支 migration 套用過」。
+⇒ **本節改問一個不需要 ledger 也答得出來的問題:repo 的 migration 宣告要建的物件,是否與正式庫實際存在的物件一致。**
+
+**量法(兩邊各自獨立取,可重跑)**:
+```bash
+# repo 側：只讀 origin/main（工作樹落後 16 顆，memory 有記）
+cd ~/API大量上架/PCM報價單-V2 && git fetch
+for f in $(git ls-tree -r --name-only origin/main -- supabase/migrations | grep '\.sql$'); do
+  git show "origin/main:$f"; done > /tmp/quote_mig.sql          # 16 檔、11,572 行
+grep -oiE "CREATE (OR REPLACE )?(MATERIALIZED )?(TABLE|VIEW) (IF NOT EXISTS )?[a-z0-9_.\"]+" /tmp/quote_mig.sql \
+ | sed -E 's/.*(TABLE|VIEW) (IF NOT EXISTS )?//I; s/public\.//; s/"//g' | sort -u > /tmp/repo_objs.txt
+
+# 正式庫側
+psql "$PCM_AUDIT_RO_QUOTE_URL" -X -t -A -c "SELECT c.relname FROM pg_class c
+  JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname='public' AND c.relkind IN ('r','v','m') ORDER BY 1;" | sed '/^$/d' | sort -u > /tmp/prod_objs.txt
+
+comm -23 /tmp/repo_objs.txt /tmp/prod_objs.txt   # repo 宣告了、正式庫沒有
+comm -13 /tmp/repo_objs.txt /tmp/prod_objs.txt   # 正式庫有、repo 沒宣告
+```
+
+**結果**:`repo = 98` / `prod = 98` / **兩個差集皆 `0`**。
+
+🔴 **兩向反面對照(`0` 一定要證明它抓得到東西,否則是恆綠格)**:
+```
+往 repo 清單注入一個假物件 zzz_this_object_does_not_exist ⇒ comm -23 得 1 ✅（印出該名）
+從 repo 清單移掉一個真物件 products                      ⇒ comm -13 得 1 ✅（印出 products）
+```
+⇒ **比較器在兩個方向都會叫** ⇒ 上面那組 `0/0` 是**量到的**,不是恆真。
+
+### 🔴 7.6-a 我在這一節踩的坑(**留著,它是今天同族第三次**)
+
+**第一版的字元類是 `[a-z_."]+` —— 少了數字** ⇒ 每個名字都在**第一個數字處被截斷**:
+```
+taxonomy_v2_major              → taxonomy_v
+front3d_pricing_configs        → front
+audit_results_backup_20260715  → audit_results_backup_
+```
+⇒ 產出「A 差集 15、B 差集 17」,而那**看起來像一份正常的不一致報告**。
+🔴 **拆穿它的不是任何一個計數,是【兩份差集長得像成對的】** —— 左邊 `taxonomy_v`、右邊 `taxonomy_v2_major`。
+✅ **修正後的正向對照**:`grep -c '[0-9]' /tmp/repo_objs.txt` ⇒ **17**(舊版必為 `0`)⇒ 證明「名字裡的數字現在抽得到了」。
+
+📎 **今天第三次「量具少報而輸出看起來正常」**:①`has_table_privilege` 看不到欄級授權 ②`information_schema` 被權限過濾 ③本次 regex 漏數字。
+🔴 **三次的共同形狀:輸出都是【合法的、格式正確的、數量合理的】,沒有任何一次會紅。** 三次都是靠**另外量一格**抓到的(欄級版 / 正向對照 / 成對特徵)。
+
+### 7.7 本節**沒有**回答的
+
+| 沒答 | 為什麼 |
+|---|---|
+| 哪幾支 migration 實際套用過 | `supabase_migrations` 對稽核帳號 `f`,**量不到,不是不存在** |
+| 欄位層級是否一致(欄名/型別/約束) | **本節只比物件名**;欄位層級未比,**標未確認** |
+| `CREATE INDEX` / `CREATE FUNCTION` / policy 是否一致 | 同上,本節分母僅 `TABLE`/`VIEW`/`MATERIALIZED VIEW` |
+
+---
+
 ## 6. 口徑再申明
 
 本檔的 `products` / RLS / 欄級數字**全部量自報價單庫**。A 庫經銷價是靠 `price_by_tier` 欄級 `f` 擋的、報價單庫是靠 `dealer_price_v` 獨立 view 沒發給 anon —— **同樣「經銷價安全」,不同機制,結論不互相引用。**
