@@ -17716,6 +17716,41 @@ grep -n '全站共' apps/storefront/src/components/CategoryGrid.tsx             
 🔴 **漏掉的兩處是 `mappers/order.ts:399` 與 `:444`,而那正是站點 1 所在的同一個檔。**
 ⇒ **引用站點清單前自己跑一次那支 sweep**,不要照抄任何人給的條列(**包含本表**)。
 
+##### 🔴🔴 而「幾處」這個問題,**那支 sweep 答不出來** —— 兩個獨立的理由
+
+**理由一:訃聞裡面也含那個字面。**
+已更正的寫法是**留痕**(`~~production 實測 1000~~ ⇒ 2026-08-18 起是 2000`)
+⇒ **劃掉的那份仍然被 `grep 'production 實測 1000'` 命中**
+⇒ **「還沒改」與「已改但留痕」在 sweep 輸出上是同一筆。**
+
+**理由二:那個數字是【某個 checkout 在某個時點】的性質,不是 repo 的性質。**
+```
+本窗 2026-08-18 01:xx 在 print-docs（基底比當時的 dev 舊 31 顆）⇒ 10
+同一時刻 products 分支上 :399 / :448 已經是【劃掉版】 ⇒ B 窗真的改了，只是還沒進 dev
+```
+
+**⇒ 要分得開,必須【分開數兩種形狀】。可重跑的分法**:
+```
+git grep -l 'production 實測 1000' dev  →  逐檔逐行判斷該行是否含 ~~production 實測 1000~~
+```
+**在 `dev` 上跑出來(2026-08-18 深夜)**:
+```
+分母 12 行  ⇒  🔴 待辦 10 ／ 訃聞 2
+
+待辦  docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md:106
+待辦  docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md:53 / :63
+待辦  docs/specs/2026-08-18-storefront-truncation-inventory.md:190 / :191   ← 🔴 沒有人列過
+待辦  packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:2288 / :2300
+待辦  packages/adapters/src/supabase/mappers/order-cancellations.ts:31
+待辦  packages/adapters/src/supabase/mappers/order.test.ts:737
+待辦  packages/adapters/src/supabase/mappers/order.ts:399
+訃聞  packages/adapters/src/supabase/mappers/order.ts:445
+訃聞  packages/domain/src/order/types.ts:823
+```
+🔴 **那兩處「沒有人列過」的是 A 窗剛進 dev 的新檔** ——
+**站點表在被寫下來的當下就開始過期**,而**新增的站點沒有任何機制會通知這張表**。
+⇒ **這正是「登記不等於處置完畢」的第二層:登記完的那一刻,分母就已經不是那個數了。**
+
 #### 🔴 改的時候要過的兩條判準(B 窗立的,決定「怎麼改」不是「改哪裡」)
 
 ```
