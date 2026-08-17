@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>A4 列印能力量測 · 第 3/4/5 條(跨頁抬頭 / 頁碼 / 簽名只在最後一頁)</title>
+<!--
+  ══════════════════════════════════════════════════════════════════
+  ✅ 已量到結果 —— 2026-08-17,Sean 用真印表機實印,Chrome。
+  ══════════════════════════════════════════════════════════════════
+  逐字回報:「列印出來,一切正確」;追問「總共幾頁」⇒「3頁」。
+
+  ⇒ ③ 跨頁抬頭(thead 重複)       ✅ 可用
+    ④ 頁碼(@page @bottom-center)  ✅ 可用
+    ⑤ 簽名只在最後一頁             ✅ 可用
+    ⑤b 簽名沒有被擠到單獨一頁      ✅(含在「一切正確」裡)
+
+  🔴 那個「3 頁」不是閒聊,它是這四個勾的【效度檢查】——
+     ③④⑤ 全部是**跨頁才會發生**的事。若他只印到 1 頁,
+     「跨頁抬頭正確」不是通過,是**沒有機會出錯**,而那張紙看起來會跟測過的一模一樣。
+     3 頁 ≥ 3 ⇒ 三項都真的被跨頁條件測到了。
+     📎 檢查表裡那一格「總共幾頁 ____」就是為了這個而放的。
+
+  🔴🔴 這個資料點【不可重跑】—— 要再驗一次就得再麻煩 Sean 一次。
+     ⇒ 引用它的人請照原樣帶三個限定,不要升級:
+     1. 只針對 Chrome。換瀏覽器印,結果不能沿用。
+     2. 量到的是「對這份 fixture 而言」。正式頁 DOM 更複雜
+        ⇒ 不等於接上去就會動 ⇒ 接上去之後**要再印一次**。
+     3. ③ 的代價他等於一起答應了:那個技法代表整份單據要包在一個 <table> 裡,
+        而那句代價**印在紙上**,所以他看得到。
+        ⚠️ 實作時若發現代價比紙上寫的大(某個區塊塞不進 table)⇒ 停下來回報,不要硬塞。
+
+  📌 本檔留著不要刪 —— 接上正式頁之後要再印一次,它是那一次的對照組。
+  ══════════════════════════════════════════════════════════════════
+
+  這份檔【不是設計稿,是量具】。
+  ────────────────────────────────────────────────────────────────
+  用途:Sean 2026-08-17 給的四條 A4 版面需求裡,第 3、4、5 條
+        (跨頁保留抬頭 / 頁碼連續性 / 簽名只在最後一頁)
+        OD 樣張【沒有】答案,而且樣張自己在檔尾寫著「Chrome 是否支援 @page
+        邊距框我【未實測】」。⇒ 這三條在寫進 code 之前必須先知道瀏覽器做不做得到。
+
+  🔴 為什麼要做成一張紙給人印:施工窗印不出紙、也量不到列印預覽。
+     單測只證得了「CSS 字面在檔案裡」,證不了紙上長什麼樣。
+
+  🔴 量具紀律(本檔的設計重點,不是裝飾):
+     每一項在【支援】與【不支援】兩個世界會印出【不同的東西】。
+     只印「支援時才出現的東西」是不夠的 —— 什麼都沒有的那張紙,
+     與「你忘了印」長得一模一樣。所以每一項都附一句「沒看到 X = 不支援」。
+
+  怎麼用:用 Chrome 開這個檔 → ⌘P → 紙張選 A4、邊界選「預設」
+          → 把 Chrome 自己的「頁首及頁尾」【關掉】(很重要,見下)
+          → 印出來(或另存 PDF),照最後一頁的檢查表逐項打勾。
+-->
+<style>
+  /* ── 需求 1、2(已落地在 app 裡)在這裡照抄,讓量測條件與正式頁一致 ── */
+  @page {
+    size: A4 portrait;
+    margin: 12mm 12mm 14mm 12mm;
+
+    /* ── 量測項 ④:頁碼 ──────────────────────────────────────────
+       CSS Paged Media 的「邊距框」。規格上這是印頁碼的正統做法,
+       🔴 而 Chrome 支援與否【就是這份檔要量的東西】。
+       不支援時它會被整段忽略 ⇒ 紙上什麼都不會出現(所以內文有一句對照)。 */
+    @bottom-center {
+      content: "第 " counter(page) " 頁 / 共 " counter(pages) " 頁　（④ 頁碼:有印出來 = @page 邊距框可用）";
+      font-family: system-ui, "PingFang TC", sans-serif;
+      font-size: 8pt;
+      color: #444;
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+    font-size: 10pt; line-height: 1.5; color: #1f1f1f;
+    padding: 12mm;
+  }
+  @media print { body { padding: 0; } }
+
+  h1 { font-size: 18pt; letter-spacing: .04em; }
+  h2 { font-size: 12pt; margin-top: 6mm; border-top: 1pt solid #1f1f1f; padding-top: 2mm; }
+  .sub { font-size: 8pt; color: #666; letter-spacing: .1em; text-transform: uppercase; }
+  .note { font-size: 9pt; color: #444; }
+  .hint { font-size: 8pt; color: #7a4a00; background: #fff6e5; border: .5pt solid #e0b870;
+          padding: 1.5mm 2mm; margin: 1.5mm 0; }
+  @media print { .hint { background: transparent; } }
+
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  /* 需求 2:跨頁保留【表格欄名】—— UA 預設就會做,這裡不寫 display 也照樣重複。 */
+  tr { break-inside: avoid; page-break-inside: avoid; }
+  th, td { padding: 1.6mm 1.2mm; text-align: left; font-size: 9pt; }
+  tbody td { border-bottom: .35pt solid #ddd; }
+  .colhead th { border-top: .5pt solid #1f1f1f; border-bottom: 1pt solid #1f1f1f;
+                font-size: 8pt; letter-spacing: .06em; }
+
+  /* ── 量測項 ③:跨頁抬頭 ──────────────────────────────────────
+     技法 = 把抬頭【放進 thead】。瀏覽器對 thead 的原生行為是每頁重複,
+     而那正是需求 3 要的東西。⚠️ 這代表整份單據要包在一個 <table> 裡,
+     是一個【版面結構的決定】,不只是加一條 CSS。 */
+  .masthead-cell { border-bottom: 1pt solid #1f1f1f; padding-bottom: 2mm; }
+  .masthead-cell .row { display: flex; align-items: baseline; gap: 4mm; }
+  .masthead-cell .doc { font-size: 14pt; font-weight: 700; }
+  .masthead-cell .no { font-family: ui-monospace, Menlo, monospace; font-size: 11pt; font-weight: 700; }
+
+  /* ── 量測項 ⑤ 的【反例】:tfoot 會每頁都印 ────────────────────
+     放進來是為了讓兩種行為【在同一張紙上並排】,不必憑記憶比較。 */
+  .repeat-foot td { border-top: .5pt dashed #999; font-size: 8pt; color: #666; padding-top: 1.5mm; }
+
+  /* ── 量測項 ⑤:簽名只在最後一頁 ──────────────────────────────
+     技法 = 放在文件流的最末端(不是 tfoot)。它自然只會出現一次。
+     ⚠️ 真正的難點【不是「只出現一次」,是「貼在最後一頁的底部」】——
+        內容剛好填滿時它會被擠到新的一頁,那張紙上只有簽名欄。 */
+  .sig { margin-top: 8mm; border-top: 1pt solid #1f1f1f; padding-top: 4mm; break-inside: avoid; }
+  .sig .line { display: inline-block; width: 60mm; border-bottom: .5pt solid #1f1f1f; height: 8mm; }
+
+  .checklist { margin-top: 6mm; border: 1pt solid #1f1f1f; padding: 4mm; break-inside: avoid; }
+  .checklist li { margin: 2mm 0 2mm 5mm; font-size: 9pt; }
+  .box { display: inline-block; width: 4mm; height: 4mm; border: .5pt solid #1f1f1f;
+         margin-right: 2mm; vertical-align: -.5mm; }
+</style>
+</head>
+<body>
+
+<div class="sub">PCM · A4 列印能力量測</div>
+<h1>這張紙是量具,不是設計稿</h1>
+<p class="note">
+  Sean 2026-08-17 給了四條 A4 版面需求。<b>第 1、2 條已經做進系統了</b>(A4 尺寸與邊距、跨頁保留表格欄名)。
+  <b>第 3、4、5 條 OD 樣張沒有答案</b>,而且樣張自己寫著「Chrome 是否支援 <code>@page</code> 邊距框我未實測」。
+  <b>施工窗印不出紙</b> ⇒ 這三條只能請你印一次,照最後一頁的檢查表回報。
+</p>
+
+<div class="hint">
+  <b>印之前請先做這一步:把 Chrome 列印視窗裡的「頁首及頁尾」<u>取消勾選</u>。</b>
+  沒關掉的話,Chrome 自己會在紙上加一組頁碼 —— 那不是我們做的,
+  <b>而它會讓「④ 頁碼」看起來成功了</b>。紙張選 <b>A4</b>、邊界選<b>預設</b>、縮放 <b>100%</b>。
+</div>
+
+<h2>③ 跨頁抬頭 —— 下面這張表的抬頭放在 <code>thead</code> 裡</h2>
+<p class="note">
+  技法:把「出貨明細單 + 訂單編號」放進 <code>&lt;thead&gt;</code>,借用瀏覽器對表頭的原生重複行為。
+  <b>代價要知道:這代表整份單據得包在一個 <code>&lt;table&gt;</code> 裡</b>,是版面結構的決定,不只是加一條 CSS。
+</p>
+
+<table>
+  <thead>
+    <tr><th colspan="3" class="masthead-cell">
+      <div class="row">
+        <span class="doc">出貨明細單</span>
+        <span class="no">PCM-2026-0042</span>
+        <span class="note">③ 這一整塊如果<b>只出現在第 1 頁</b> = 跨頁抬頭沒生效</span>
+      </div>
+    </th></tr>
+    <tr class="colhead"><th style="width:32mm">料號</th><th>品名 / 規格</th><th style="width:20mm">數量</th></tr>
+  </thead>
+
+  <tfoot>
+    <tr class="repeat-foot"><td colspan="3">
+      ⑤ 反例對照 —— 這一行放在 <code>tfoot</code>,所以它<b>每一頁都會印</b>。
+      簽名欄<b>不可以</b>用這個做法(客人會收到三個簽名欄)。
+    </td></tr>
+  </tfoot>
+
+  <tbody>
+    <!-- 60 列:把內容撐到 3 頁以上,不然量不到「跨頁」。 -->
+    <tr><td>LTC-BK-XL</td><td>前叉防甩頭　顏色: 黑</td><td>2</td></tr>
+    <tr><td>AKR-S-Y10</td><td>鈦合金頭段　全段</td><td>1</td></tr>
+    <tr><td>BRK-PAD-07</td><td>燒結煞車來令片　前輪</td><td>4</td></tr>
+    <tr><td>OHL-STX36</td><td>後避震器　可調阻尼</td><td>2</td></tr>
+    <tr><td>RZM-GRP-22</td><td>握把套　22mm</td><td>1</td></tr>
+    <tr><td>SPK-IR-9</td><td>銥合金火星塞</td><td>4</td></tr>
+    <tr><td>CHN-520X</td><td>黃金油封鏈條　520 規格</td><td>1</td></tr>
+    <tr><td>SPR-F15</td><td>前齒盤　15T</td><td>1</td></tr>
+    <tr><td>SPR-R45</td><td>後齒盤　45T</td><td>1</td></tr>
+    <tr><td>OIL-10W40</td><td>全合成機油　10W-40　1L</td><td>3</td></tr>
+    <tr><td>FLT-OIL-3</td><td>機油濾芯</td><td>2</td></tr>
+    <tr><td>FLT-AIR-K</td><td>高流量空氣濾芯</td><td>1</td></tr>
+    <tr><td>MIR-CNC-B</td><td>後照鏡　CNC 黑</td><td>2</td></tr>
+    <tr><td>LVR-SET-R</td><td>拉桿組　紅</td><td>1</td></tr>
+    <tr><td>BAR-END-T</td><td>平衡端子　鈦色</td><td>2</td></tr>
+    <tr><td>TIR-120-70</td><td>前輪胎　120/70-17</td><td>1</td></tr>
+    <tr><td>TIR-180-55</td><td>後輪胎　180/55-17</td><td>1</td></tr>
+    <tr><td>BAT-LI-12</td><td>鋰鐵電池　12V</td><td>1</td></tr>
+    <tr><td>LED-H4-6K</td><td>LED 大燈　H4　6000K</td><td>2</td></tr>
+    <tr><td>SIG-SEQ-A</td><td>流水方向燈　前組</td><td>1</td></tr>
+    <tr><td>SCR-M6-BK</td><td>白鐵螺絲　M6　黑</td><td>20</td></tr>
+    <tr><td>WSH-AL-6</td><td>鋁墊片　6mm</td><td>10</td></tr>
+    <tr><td>CBL-THR-S</td><td>油門線　短</td><td>1</td></tr>
+    <tr><td>CBL-CLT-L</td><td>離合器線　長</td><td>1</td></tr>
+    <tr><td>GSK-EX-52</td><td>排氣墊片　52mm</td><td>2</td></tr>
+    <tr><td>CLP-EX-50</td><td>排氣管束環</td><td>2</td></tr>
+    <tr><td>STD-SIDE</td><td>側柱加大座</td><td>1</td></tr>
+    <tr><td>PLT-SKD</td><td>引擎下護板</td><td>1</td></tr>
+    <tr><td>SEA-GEL-M</td><td>凝膠坐墊　中</td><td>1</td></tr>
+    <tr><td>WND-SCR-H</td><td>風鏡　加高</td><td>1</td></tr>
+    <tr><td>GRD-RAD</td><td>水箱護網</td><td>1</td></tr>
+    <tr><td>HOS-BRK-F</td><td>金屬煞車油管　前</td><td>1</td></tr>
+    <tr><td>FLU-DOT4</td><td>煞車油　DOT4</td><td>2</td></tr>
+    <tr><td>CLN-CHN</td><td>鏈條清潔劑</td><td>1</td></tr>
+    <tr><td>LUB-CHN</td><td>鏈條油</td><td>1</td></tr>
+    <tr><td>TOL-HEX-S</td><td>六角板手組</td><td>1</td></tr>
+    <tr><td>TOL-TRQ</td><td>扭力扳手</td><td>1</td></tr>
+    <tr><td>STK-PCM-L</td><td>PCM 貼紙　大</td><td>5</td></tr>
+    <tr><td>STK-PCM-S</td><td>PCM 貼紙　小</td><td>10</td></tr>
+    <tr><td>COV-BIKE</td><td>車罩　防水</td><td>1</td></tr>
+    <tr><td>LOK-DISC</td><td>碟煞鎖　含警報</td><td>1</td></tr>
+    <tr><td>HLM-VIS-D</td><td>安全帽鏡片　深色</td><td>1</td></tr>
+    <tr><td>GLV-SUM-L</td><td>夏季手套　L</td><td>1</td></tr>
+    <tr><td>JKT-MSH-M</td><td>網眼騎士外套　M</td><td>1</td></tr>
+    <tr><td>PRT-KNE</td><td>護膝組</td><td>1</td></tr>
+    <tr><td>CAM-ACT-4</td><td>行車紀錄器　前後雙鏡</td><td>1</td></tr>
+    <tr><td>MNT-PHN</td><td>手機架　鋁合金</td><td>1</td></tr>
+    <tr><td>USB-DUAL</td><td>雙孔 USB 充電座</td><td>1</td></tr>
+    <tr><td>ALM-GPS</td><td>GPS 定位防盜器</td><td>1</td></tr>
+    <tr><td>SNS-TPM</td><td>胎壓偵測器　一組兩顆</td><td>1</td></tr>
+    <tr><td>BAG-TNK</td><td>磁吸油箱包</td><td>1</td></tr>
+    <tr><td>BAG-SDE</td><td>側掛包　一對</td><td>1</td></tr>
+    <tr><td>RCK-TOP</td><td>後箱架</td><td>1</td></tr>
+    <tr><td>BOX-45L</td><td>後箱　45L</td><td>1</td></tr>
+    <tr><td>KIT-SVC-1</td><td>小保養套組</td><td>1</td></tr>
+    <tr><td>KIT-SVC-2</td><td>大保養套組</td><td>1</td></tr>
+    <tr><td>FUS-BOX</td><td>保險絲盒　含線組</td><td>1</td></tr>
+    <tr><td>REL-12V</td><td>繼電器　12V</td><td>2</td></tr>
+    <tr><td>TAP-ELE</td><td>電工膠帶</td><td>3</td></tr>
+    <tr><td>TIE-CAB</td><td>束線帶　100 入</td><td>1</td></tr>
+  </tbody>
+</table>
+
+<h2>⑤ 簽名處 —— 這一塊放在文件流的最末端(不是 <code>tfoot</code>)</h2>
+<p class="note">
+  技法:單純放在最後。它<b>自然只會出現一次</b>,與上面那條每頁都印的虛線 <code>tfoot</code> 剛好是對照組。
+</p>
+
+<div class="sig">
+  <div class="note" style="margin-bottom:3mm">
+    ⑤ 這一塊<b>只能出現在最後一頁</b>。如果你在前面幾頁也看到它 = 技法選錯了。
+  </div>
+  出貨人簽名:<span class="line"></span>
+  　　　收件人簽名:<span class="line"></span>
+</div>
+
+<div class="checklist">
+  <div class="sub">印出來之後,請照這四項回報</div>
+  <p class="note" style="margin:2mm 0">
+    <b>不必寫評語,只要回報你在紙上看到什麼。</b> 每一項都寫了「沒看到 X = 不支援」,
+    所以「什麼都沒有」也是一個有效的答案 —— 那正是我們要知道的事情之一。
+  </p>
+  <ul style="list-style:none">
+    <li><span class="box"></span><b>③ 跨頁抬頭:</b>第 2 頁、第 3 頁的最上面,有沒有「出貨明細單 PCM-2026-0042」?
+        <br><span class="note">有 ⇒ 技法可用。只有第 1 頁有 ⇒ 不可用,要換做法。</span></li>
+    <li><span class="box"></span><b>④ 頁碼:</b>每一頁的<b>最下面正中央</b>,有沒有「第 N 頁 / 共 M 頁」?
+        <br><span class="note">有 ⇒ Chrome 支援 <code>@page</code> 邊距框,頁碼可以做。
+        完全沒有 ⇒ 不支援,頁碼要另外想辦法(或改用 Chrome 自己的頁尾設定)。
+        <b>⚠️ 前提是你已經把 Chrome 的「頁首及頁尾」關掉了</b>,不然看到的可能是 Chrome 印的。</span></li>
+    <li><span class="box"></span><b>⑤ 簽名只在最後一頁:</b>「出貨人簽名 / 收件人簽名」那兩條線,是不是<b>只在最後一頁</b>出現一次?
+        <br><span class="note">前面幾頁也有 ⇒ 技法選錯。另外請看:那條虛線的
+        「⑤ 反例對照」是不是<b>每一頁都有</b>?(它應該每頁都有,那是刻意的反例。)</span></li>
+    <li><span class="box"></span><b>⑤b 簽名有沒有被擠到單獨一頁:</b>最後一頁是不是<b>只有簽名欄、沒有品項</b>?
+        <br><span class="note">這是這三條裡最容易出事的一個 —— 客人會收到一張只有兩條線的紙。
+        若發生了請講,那要另外處理。</span></li>
+  </ul>
+  <p class="note" style="margin-top:3mm">
+    <b>總共幾頁?　____ 頁</b>　(這個數字讓我確認你印到的與我設計的是同一份)
+  </p>
+</div>
+
+</body>
+</html>

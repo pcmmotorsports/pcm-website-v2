@@ -9584,6 +9584,17 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **狀態:** ⏳ 待執行(2026-08-06 A9w4a code-reviewer 抓到活的下游依賴;M-4a 通知線=暫緩非作廢)
 - **現況**:`2026-07-16-m4a-email-notify-plan.md:257/:363` 的 E4 觸發點逐字掛在 `updateOrderItemWorkflowAction`——該 action 已於 A9w4a(`01478a2`)拆除;plan 兩處已補紅字。殘留的 `admin_update_order_item_workflow` RPC 與 port 方法都在退場鏈上(A9w4c 後半/A9v),**不宜改掛**。
 - **修法方向**:E4 開工時重定觸發點——候選=出貨線 B2 的 `shipped_at` 寫入路徑(S2 之後才存在);與 #334 無關。
+- ✅ **前置已解除(2026-08-17,C 窗)** —— **上一行那個「候選」現在存在了。**
+  出貨線 B2 已落地,`shipped_at` 的寫入路徑就是**標記出貨那條鏈**
+  (錨點 `git grep -n 'mark_shipped' -- apps/admin/src supabase/migrations`)。
+  ⇒ **本條不再 blocked,它變成「`Q-C9` 那片順手收掉的一段」**;
+  設計寫在 `docs/specs/2026-08-17-qc9-tracking-to-customer-plan.md` §2-c。
+  🔴 **是什麼讓它解除的要寫出來**:**不是有人回頭來修 `#336`,是出貨線做完之後這個前置自己成立了。**
+  ⇒ 這一類條目**不會有人來通知你它可以做了** —— 只有下一個碰到同一塊的人才會發現,
+  而**在那之前它會一直看起來像「還在等別人」**。
+  📎 我是**照本條目自己寫的「修法方向」去對現況**才發現的 ⇒ **那一行寫得夠具體,所以它救得了自己。**
+  ⚠️ **仍未確認**:「一批」在 code 裡對到哪個東西(一個 `shipment`,還是一次標記動作)——
+  它決定 `dedup_key` 與**客人會收到幾封信**,列在該 plan §5-1,**動工前必答**。
 - **不修會痛在哪**:通知線解凍時照舊 plan 施工會掛到不存在的 action 上,或更糟——把觸發器掛回正在退場的 RPC,擋住 A9v。
 
 ### #337. 🧪 首頁分類區「進榜分類缺 icon」E2E 轉紅 — 需真資料環境
@@ -16041,6 +16052,41 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   紅一次就要花一輪去查「是不是那批 commit 帶進來的」。今天已經發生一次,
   查完的結論是「不是那批」,**而那一輪的成本是真的付掉了**。
   更糟的方向:**紅得夠頻繁之後,人會開始預設它是假警報。**
+- 🔴 **2026-08-17 午後 I 窗補:六次自有觀測,而它們推翻了本條原本的一個前提。**
+  同一顆樹、同一天、同一台機器,`pnpm test` 各次:
+
+  | # | Duration | 結果 |
+  |---|---|---|
+  | 1 | `246.08s` | 2 檔紅 |
+  | 2 | `59.37s` | **全綠** |
+  | 3 | `72.96s` | **全綠** |
+  | 4 | `108.21s` | 1 檔紅 |
+  | 5 | `221.91s` | 3 檔紅 |
+  | 6 | `227.96s` | 2 檔紅 |
+
+  🔴 **紅的【不只 `check-syntax-nonts.gate.test.ts` 一支】** —— 今天實際紅過的檔至少六支:
+  ```
+  scripts/check-syntax-nonts.gate.test.ts
+  apps/admin/src/lib/shipping/order-shipments.test.ts
+  apps/admin/src/app/products/[id]/page.test.tsx
+  apps/admin/src/app/@panel/order-panel-wiring.test.ts
+  apps/admin/src/app/orders/[id]/nine-code-retire.test.tsx
+  apps/storefront/src/app/account/profile/actions.test.ts
+  ```
+  **每一發的錯誤訊息都是 `Error: Test timed out in 5000ms.`**(少數幾格是那一發 timeout 之後的連鎖斷言失敗)。
+  ⇒ 🔴 **本條原本寫的兩個修法(加 `testTimeout` / 重寫 gate harness)【都預設病在 gate 那支檔】,而那個前提【已被推翻】。**
+  📎 這個缺口是 C 窗先指出來的(它量到 `@panel/order-panel-wiring.test.ts` 也紅過、與 gate harness 無關),
+  I 窗這六次觀測把它從「一筆」變成「跨六支檔」。
+  ⇒ **修法方向要重估**:若成因是全域的(預設 5000ms 對這台機器在高負載下太緊),
+  那是 `vitest.config.ts` 一個 `testTimeout` 的事,**而不是去改任何一支測試檔**。
+  ⚠️ **仍未確認的是「為什麼會慢」** —— 「負載」是**相關性不是機制**;
+  六次裡快的兩次都全綠、慢的四次都有紅,**而我沒有控制變因跑過對照實驗**。
+- **⚠️ 一條【被開檔實查推翻】的成因假說,留著防重踩:**
+  C 窗曾回報「全套測試的紅會被工作樹髒不髒影響」,並點名 gate 那支「對**真的 git index** 下 `git add`」。
+  **開檔實查:不是。** `stageAndRunGate()` 的 `git add` 帶 `{ cwd: scratch }`,
+  而 `scratch` 是 `mkdtempSync()` 建的**暫存 repo** ⇒ **它碰不到主樹的 index。**
+  而 C 窗**隨後自己也推翻了那條相關性**(交出三筆髒樹卻全綠的紀錄 + 一筆全 staged 卻紅的)。
+  📎 留著的理由:**結論可能對而理由錯,而下一個人會照理由去修。**
 - **由來:** 2026-08-17 I 窗收割 `products`(merge `5a624da8`)後跑四綠時撞到。
 - **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #608`(CAS,不是下限);
   信箱佔位掃描 `grep -rn '#608' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
