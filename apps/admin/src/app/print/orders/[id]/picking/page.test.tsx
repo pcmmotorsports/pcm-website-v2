@@ -589,6 +589,34 @@ describe('#10 片1 本次應揀合計', () => {
     expect(PICTOGRAPHS.test('未載入的品項 —— 這一列不在這張紙上')).toBe(false);
   });
 
+  // 🔴🔴 **第四則:同一張紙上,同一種東西不得有兩個量詞。**
+  //    2026-08-18 掃出來的:截斷那兩句原本寫「200 **筆**」,
+  //    而同一張紙其他地方數品項都用「項」(「品項:N 項」、「本次應揀合計 N 項」)
+  //    ⇒ **對照著看的人要先自己想通它們是同一件事。**
+  //    ⚠️ **禁的是「數字 + 筆」這個形狀,不是「筆」這個字** ——
+  //       商品名稱可能真的含「筆」(油性筆、簽字筆),整字禁會誤傷真商品。
+  //    📎 同型但**不在本片射程內**:出貨明細單的「本次出貨」在同一張紙上有兩個意思
+  //       (頁首 = 列數 / 欄名 = 件數),而那幾個字疑似來自設計端樣張 ⇒ 鐵則 1,要 Sean 判。
+  it('🔴 同一張紙不得用兩個量詞數品項(「200 筆」vs「N 項」)', async () => {
+    for (const over of [
+      { items: MIXED, itemsTruncated: true },
+      { items: MIXED },
+      { items: ALL_UNKNOWN },
+    ]) {
+      mocks.findAdminOrderDetail.mockResolvedValue(
+        detail(over as unknown as Partial<AdminOrderDetail>),
+      );
+      const t = textOf((await renderPage()).container);
+      expect(t, `這一態的紙上用了「筆」數品項:${JSON.stringify(over)}`).not.toMatch(/\d+\s*筆/);
+    }
+    // 🔴 正向對照:B 態確實印得出那個上限句,而它現在用「項」——
+    //    沒有這一格,把整段刪掉也會讓上面三發通過。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED, itemsTruncated: true } as unknown as Partial<AdminOrderDetail>),
+    );
+    expect(textOf((await renderPage()).container)).toContain('200 項上限');
+  });
+
   it('🔴🔴 清單沒載完 ⇒ 合計旁邊不得說「全部勾完才算揀完」(那句話會說謊)', async () => {
     // 🔴 codex 對抗審查 2026-08-16 抓的,而**我第一版真的印了它**。
     //    itemsTruncated = 有幾列根本沒被載進來 ⇒ 它們不在合計裡

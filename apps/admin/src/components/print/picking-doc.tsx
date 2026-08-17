@@ -154,7 +154,11 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   而他會照做、會做很多次,然後以為是自己哪裡沒弄對。
                   ⚠️ **文案裡連「重新整理」這個詞根都不留** —— 守門禁的是詞根不是祈使形白名單
                   (白名單被穿透兩次的紀錄在 `shipping-doc` 那片的 commit body)。 */}
-              這張訂單的品項達到 200 筆上限,系統一次列不完,下面看到的不是全部。
+              {/* 🔴 **「筆」原本在這裡,而同一張紙上其他地方數品項都用「項」**
+                  (「品項:N 項」、「本次應揀合計 N 項」)——
+                  **同一種東西、同一張紙、兩個量詞** ⇒ 對照著看的人要先自己想通它們是同一件事。
+                  2026-08-18 紙上文字審查第四則。**這兩處的字是我們自己寫的,不是設計端的** ⇒ 可以改。 */}
+              這張訂單的品項達到 200 項上限,系統一次列不完,下面看到的不是全部。
               這是系統的固定限制,不是暫時的狀況。請聯絡負責人處理,不要拿這張去揀貨。
             </Alert>
           )}
@@ -353,7 +357,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                         <td className='px-2 py-3 align-top text-sm text-amber-800'>
                           <div className='font-medium'>未載入的品項 —— 這一列不在這張紙上</div>
                           <div className='mt-0.5 text-xs'>
-                            系統一次只列得出 200 筆,這張單超過了
+                            系統一次只列得出 200 項,這張單超過了
                           </div>
                         </td>
                         <td className='px-2 py-3 text-right align-top text-amber-800'>
