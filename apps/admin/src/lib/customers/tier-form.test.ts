@@ -159,4 +159,13 @@ describe('#365 逐欄「送兩份 → 被拒」(同時是 TIER_SINGLE_FIELDS 完
       ['customer_id', 'tier', 'note', 'return_to'].sort(),
     );
   });
+  // 🔴 X1(const-echo 掃描 A 類):TIER_NOTE_MAX 必須是字面 200 —— 第二來源在 DB。
+  //    supabase/migrations/20260717010000_m4a_admin_set_customer_tier_rpc.sql:114
+  //    (char_length(v_note) > 200 ⇒ 拒)。app 這顆單獨改掉 ⇒ UI+server action+全部
+  //    相對式測試一起跟著動、照樣全綠,201 字備註到 DB 才被拒(已實測:200→500 突變
+  //    當時 12 格全綠)。模式抄 SupabaseOrderAdapter.test.ts「必須是字面 100」pin 格。
+  //    改這顆 ⇒ 先改上面那支 migration 的字面,兩邊同 commit。
+  it('🔴 TIER_NOTE_MAX 必須是字面 200(DB RPC 獨立寫死同值)', () => {
+    expect(TIER_NOTE_MAX).toBe(200);
+  });
 });
