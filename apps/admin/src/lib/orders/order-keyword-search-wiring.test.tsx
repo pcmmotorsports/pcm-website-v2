@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MAX_ORDER_KEYWORD_LENGTH } from '@pcm/domain';
 import {
@@ -263,6 +263,41 @@ describe('#347-2b 守門 3:搜尋狀態必須看得見、關得掉', () => {
 // ── 4. 列表頁:cookie → 查詢 → 翻頁,整條 ─────────────────────────────────────
 describe('#347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、URL 帶不走**', () => {
   const KEYWORD = '王小明';
+
+  // 🔴 這一頁的 import 原本寫在 renderPage 裡面 ⇒ 每一格都在自己的 5000ms 預算裡背著它。
+  //
+  // 【量到的】2026-08-18 本機,改前、格內 import 的寫法:
+  //   · 那一發下面第一格 5030ms 逾時,同一發裡下一格印出 listOrderSummariesForAdmin
+  //     「被呼叫 2 次」(野生紅 3f06df74 同形)。測試印得出來的就到這裡為止。
+  //   · 之後同檔重跑兩次:1443ms 綠 / 584ms 綠。
+  //   · 改後,格內 import 移走:同檔第一格 445ms → 15ms
+  //     (兩個數都是【暖狀態下、該格自己的 duration】,不是整檔;445ms 那筆量於改前)。
+  // 【推的,未證實】①「下一格那 2 次裡有 1 次是上一格漏過來的」——本格自己只發一次呼叫
+  //   是讀 code 得出的,不是那一發印出來的;②「逾時那條腿還在飛、等它落地才呼叫
+  //   repository,而那時已跨到下一格」= 與觀察一致的解釋,但我【構造不出】那個失敗世界:
+  //   清 node_modules/.vite 重跑 445ms 綠(⚠️ 那一發【也是】清空後的第一發 ⇒ 不能說
+  //   「只有第一發慢」,只能說慢那次 n=1);拿「拋棄一條飛行中的 renderPage」當探針,
+  //   import 在格內與在 beforeAll 兩種寫法都是 22 passed ⇒ 那把探針沒有判別力。
+  // 【未確認】那 5030ms 花在哪。缺的是一道能把它拆給 transform / resolve / render
+  //   三段的量法 —— 現有工具只印得出該格的總 duration。
+  //
+  // ⇒ 本改動的理由不靠上面那些推論,靠兩件可查的事:
+  //   ① vitest.config.ts 全檔沒設 testTimeout / hookTimeout ⇒ 格 5s、hook 10s,
+  //      這一搬直接把這段的預算加倍(而最慢一發量到 5030ms ⇒ 餘裕仍只有約 2x)。
+  //   ② 格逾時會靜默污染隔壁格的計數;hook 逾時則紅得回 hook —— 但別誤讀成「一眼看得懂」,
+  //      同 repo cancel-forms-hydrated.test.tsx:252-258 記著 hook 逾時的表徵是
+  //      「檔案紅、但零個測試紅」,最容易被誤記成 flake。
+  //   關掉的是「紅指不回病」這個形狀,不是那個未知成因。
+  //   ⚠️ 順序變更:import 現在跑在 :59 vi.clearAllMocks() 之前(以前在之後)。
+  //      page.tsx 模組頂層目前只有宣告、無副作用;日後若在頂層加了會碰 mock 的東西,
+  //      這兩格的計數語意會【靜默】改變。
+  //   ⚠️ 同檔另兩處格內動態 import(:92 load、:229 OrderKeywordSearch)刻意不動:
+  //      模組小、未觀察到逾時。上面「每格都背著它」那句對它們同樣成立,只是還沒發作。
+  let OrdersPage: (typeof import('../../app/orders/page'))['default'];
+  beforeAll(async () => {
+    OrdersPage = (await import('../../app/orders/page')).default;
+  });
+
   const renderPage = async (extra: Partial<{ keywordTruncated: boolean; items: unknown[]; total: number }> = {}) => {
     mocks.cookieGet.mockReturnValue({ value: encodeOrderKeywordCookie(KEYWORD) });
     mocks.listOrderSummariesForAdmin.mockResolvedValue({
@@ -272,7 +307,6 @@ describe('#347-2b 守門 4:搜尋詞真的進查詢、而且**翻頁帶得走、
       keywordMatchCount: 0,
       ...extra,
     });
-    const OrdersPage = (await import('../../app/orders/page')).default;
     const ui = await OrdersPage({ searchParams: Promise.resolve({ payment_status: 'paid' }) });
     return render(ui as React.ReactElement);
   };
