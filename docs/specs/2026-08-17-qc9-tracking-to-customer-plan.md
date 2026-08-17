@@ -256,6 +256,35 @@ shipments【沒有 order_id】——箱掛的是【客人】不是訂單
 3. ⚠️ **這不代表 C9-b 要順便把 E3 做掉。** 兩者共用 adapter,但觸發點不同(付款成功 vs 標記出貨)。
    **順手做 = 範圍擴張,鐵則 8。** 要做要另外提。
 
+### ✅ 第 5 條:**預覽怎麼做 —— 答案是「一格快照測試,快照檔本身就是預覽」**
+
+`§4` 提的要求是硬的:**C9-b 的 rollback 不對稱(已寄的信收不回)⇒ 寄第一封真信之前要有人看過真的 render。**
+
+**現況盤點**:`git grep -ln 'preview\|預覽' -- apps/admin/src packages/adapters/src/email packages/use-cases/src`
+⇒ **3 個檔命中,而沒有一個是信件預覽**(一個是我的列印 CSS、兩個是退款/取消畫面)。**零機制。**
+
+**為什麼這件事其實很便宜 —— 因為內文是【純函式】**:
+`sweep-email-outbox.ts:108` 的 `buildEmailText(job)` 回傳 `string`、**零 I/O、零 DB**,
+而 `buildOrderCreatedText`(`:125-144`)產的是**純文字**(`[...].join('\n')`),不是 HTML。
+⇒ **要看它長什麼樣,只要呼叫它。不需要寄、不需要 DB、不需要 Resend 金鑰。**
+
+**做法(最小):一格 `toMatchFileSnapshot`,快照檔進 git。**
+```
+expect(buildOrderShippedText(fixtureJob)).toMatchFileSnapshot('__previews__/order-shipped.txt')
+```
+- **零新依賴** —— vitest 內建(本 repo 已裝,版本 4.1.5)。
+- **快照檔是純文字、進 git ⇒ 人打開就看得懂**,而且可以在 commit / 交接信裡直接指路給 Sean。
+- **模板一改快照就變 ⇒ 不會靜默過期**。這正是「預覽」與「一次性截圖」的差別。
+
+⚠️ **一個要在 commit body 講清楚的代價**:本 repo **目前零 snapshot 用法** ——
+`git grep -ln 'toMatchFileSnapshot\|toMatchSnapshot\|toMatchInlineSnapshot' -- apps packages scripts` ⇒ **0**
+(正向對照:同範圍 `git grep -l 'expect(' -- apps packages` ⇒ **489**)⇒ 那個 0 是量出來的。
+⇒ **這是引入一個新模式**,不是沿用既有慣例。理由 = 一般斷言只證「字串裡有某幾個字」,
+**證不了「整封信讀起來對不對」**,而後者正是這裡要人看的東西。
+
+**被我否決的替代做法**:寫一支 script 手動跑印出來。
+🔴 **沒有守門** —— 模板改了不會有人想到要重跑它,而那時預覽就是一份過期的紙。
+
 ### ✅ 一個原本要提的風險,**實查之後撤掉**
 
 我本來要提「`Q-D`=乙 要連品項一起寫 ⇒ payload allowlist 只有三欄,要擴,而那是 PII 邊界」。
