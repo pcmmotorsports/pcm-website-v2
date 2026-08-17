@@ -1,5 +1,73 @@
 # M-3 ②-⑥ + 3DS 重設計 — master plan v5(2026-06-13、鐵則 8、Sean 批准開工)
 
+> ## ⛔ 2026-08-17 · 本檔 §2 那條「中間態誠實」硬 gate **已解除**(Sean 拍板 QC=甲:他知情、可以接受)
+>
+> **原句**(措辭取自 `docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md:80` 的硬 gate;
+> 本檔 §2「中間態誠實」是同一個精神,但**不是逐字相同**,`2026-06-19-…redirect-plan.md:34` 也是改寫版
+> —— ⛔ 本行原本寫「本檔 §2 與下游三處**都引它**、原句**逐字**」,那是我沒逐處核就寫下的,
+> code-reviewer 2026-08-17 抓;真正逐字命中的只有 `06-14:80` 與 route.ts 舊句,而那兩者彼此也不同):
+> 「3DS-4 sweeper 完成前 **不設 TapPay `backend_notify_url`、不開 `TAPPAY_3DS_ENABLED`、不開放 prod 結帳**」
+>
+> · **為什麼曾經這樣定**:3DS-4 sweeper 沒實作 ⇒ 沒有最終結算保證
+>   ⇒ 開了 prod 結帳會出現「錢收了而單沒結」且沒有人會去撿的情況。
+> · **何時解除**:3DS-4 sweeper 已實作;`TAPPAY_3DS_ENABLED=true`、
+>   `CRON_SWEEPER_ENABLED=true`(Sean 2026-08-17 下午設定並重新部署)。
+> · 🔴 **現在靠什麼守**:sweeper 的「掃描 → 認領 → 處理 → 退避」**全鏈已閉環(2026-08-17 實測)**;
+>   🔴 **而 `settled` 寫入路徑未被行使、未確認** —— 那是這條鏈上還沒走到的一步。
+>   ⇒ **不得**把它讀成「3DS 結算兜底已驗證」或「已驗證 sweeper 正常」,兩句都超出量到的範圍。
+>
+> ## 🔴🔴🔴 未解決的矛盾:`STATUS.md` 與本段對「flag 現在是什麼」給相反的答案
+> (code-reviewer R2 2026-08-17 抓,本段成立與否**取決於這題**,所以放在最前面。)
+>
+> · **本段主張**:`TAPPAY_3DS_ENABLED=true`、`CRON_SWEEPER_ENABLED=true`(2026-08-17 已開)。
+>   來源=主視窗轉述 Sean。🔴 **我沒有第一手證據**(不碰 Vercel dashboard、不碰 `.env`)。
+> · **`STATUS.md`**(專案 SSoT)逐字:「🟡 M-3 prod checkout 仍不可開(**3DS flag 全 false**、獨立線、非本線)」。
+>   量法:`grep -n '3DS flag 全 false' STATUS.md`。
+> · `apps/storefront/src/lib/payment/three-ds-flag.ts:11-13` 亦逐字:「**prod checkout 仍一律不可開**」。
+>
+> 🔴 **我不挑一個消滅** —— 兩邊我都沒親自量,分歧本身就是證據(memory `feedback_downgrade-a-source-inside-the-file-people-cite`)。
+> ⇒ **在這題答完之前,本段整段的效力是「條件式」的**:若 flag 其實仍為 false,則「已解除」四個字不成立,
+>   而下面那節硬前置的急迫性也跟著改變。**已上呈主視窗**(B 窗不動 `STATUS.md`,收帳權不在子窗)。
+> ⇒ 需要的那一道檢查很小:**當場讀一次 Vercel Production env 的兩個變數**。誰讀誰就把這節關掉。
+>
+> ## 🔴🔴 而「解除」不等於「前置都做完了」—— 兩條硬前置目前仍是【待執行】
+> (code-reviewer 2026-08-17 抓;我原本只寫「現在靠什麼守」,讀起來像安全網已完整。)
+> 1. **`docs/phase-1-backlog.md` `#231`**,狀態逐字「⏳ 待執行(**`TAPPAY_3DS_ENABLED` flag-on 前必 land**)」,
+>    四項:①跨路徑 recently-settled skip ②真 alert channel ③cron 靜默死偵測 heartbeat ④轉人工結案流程。
+>    它自己寫的後果逐字:「**sweeper 死了沒人發現**」。⇒ **而 flag 現在是開的。**
+> 2. **`docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md:176` 的 🔴 BLOCKER**:
+>    Vercel Firewall/WAF 對 `/api/checkout/tappay-notify/*` 限流,逐字「**未設 → 不得開 `TAPPAY_3DS_ENABLED`**」。
+>    ⇒ **我沒有查證它設了沒**(不碰 Vercel dashboard、不碰 `.env`)⇒ 這格是【未確認】,不是【已設】。
+>
+> 🔴 **Sean 拍的 QC=甲 是針對「那行過期字面要改成現況」,不是針對這兩條前置。**
+> ⇒ 這兩條要不要在開著 flag 的情況下續留、還是先補上,**是 Sean 的決定,本檔不代為判斷**;
+>   已上呈主視窗(2026-08-17)。在他拍板之前,任何人不得引用本段當「可以放心開 prod 結帳」的依據。
+>
+> 🔴 **本檔正文那些句子刻意不逐句改寫** —— 它們記錄的是 2026-06-13 當下的決定,那個記錄沒有錯;
+> 錯的是「拿它當現況」。⇒ 現況以本段為準;引用正文任何一句 gate 之前先回來讀這一段。
+> 📎 **落點與分母**(2026-08-17):
+> · `bash scripts/literal-sweep.sh '3DS-4 前不設 TapPay backend_notify_url'` ⇒ 掃 2356 個文字檔、
+>   跳過 284 個非 UTF-8、**3 命中**(其中 1 筆是本段自己的引號 = 它自己的訃聞)。
+>   ⛔ 本行原本寫「2 命中」—— 那是**加上本段之前**量的,加完就過期了。**更正本身也會過期。**
+> · 🔴 **而那一條 pattern 比我的宣稱窄**(code-reviewer 抓):同族載體有些措辭是
+>   「**prod 不跑 / prod 不推播**」,四個 pattern 一個都掃不到。補掃到的 live code:
+>   `apps/storefront/src/app/api/cron/settle-sweep/route.ts:18`、
+>   `apps/storefront/src/app/api/cron/anomaly-alert/route.ts:24` ⇒ 兩處已補指標。
+> · `apps/storefront/src/lib/payment/three-ds-flag.ts:6` 命中 `CRON_SWEEPER_ENABLED` 但**判定不是過期載體**:
+>   它講的是「只認字面 'true'」的**解析紀律**,不是「prod 有沒有開」的狀態宣稱。開檔讀過本體才判的。
+> · 🔴 **第二次掃還是不夠寬**(code-reviewer R2 抓,換 pattern `誠實中間態` / `prod.*不可開`):
+>   `docs/specs/2026-06-15-m3-3ds-3-callback-route-plan.md:126`、
+>   `docs/specs/2026-06-15-m3-3ds-4-sweeper-cron-plan.md:134`、
+>   `apps/storefront/src/lib/payment/three-ds-flag.ts:11-13`(**同檔 :6 我判過不是載體、判對了,而我只看了那一行**)
+>   ⇒ 三處已補指標。📎 **同一種錯連續兩輪** —— 字集窄了一次,補完再窄一次。
+> · 已補指標的落點共 **8 處**(**已知 8 處,非窮舉** —— 這個數字只代表「我掃到的」):上述兩支 cron route +
+>   上述三處 +
+>   `docs/specs/2026-06-14-m3-3ds-2-webhook-route-plan.md`、
+>   `docs/specs/2026-06-19-m3-3ds-6-charge-actions-redirect-plan.md`、
+>   `apps/storefront/src/app/api/checkout/tappay-notify/[secret]/route.ts`。
+> · ⚠️ **未處理(刻意)**:`PROGRESS.md` 是歷史流水帳、`docs/security/2026-08-17-*` 是 E 窗正在改的報告
+>   ⇒ 兩類都不動,避免踩別人正在寫的檔。
+
 > **真權威**:kickoff `docs/handoff/2026-06-11-m3-stage2-tappay-kickoff.md` + 審查側 5 段交辦 + 業界紮根研究
 > `docs/specs/2026-06-13-m3-checkout-industry-research-synthesis.md`(全球+台灣+稽核 84 findings)。
 > **Sean 拍**:D-範圍=A / 庫存 Phase 1 不做 / S1=B(發票 fast-follow 手開)/ S2=B(退款 Phase 2)/ S3=B(ATM Phase 2)/ **🔴 D4 override(v5):orphan-pending 改「retry 即時 settleCharge 裁決」、不永久擋**(§1(d)/§4)。

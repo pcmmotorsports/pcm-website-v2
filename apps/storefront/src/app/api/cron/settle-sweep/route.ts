@@ -15,6 +15,14 @@
 //      (claim RPC 回);settleCharge 冪等 + Record 唯一權威 + 金額整數 → 即使被觸發亦不雙扣/不偽 paid(縱深)。
 //
 // 🔴 GET handler(Vercel cron 走 GET;寫成 POST 等 → cron 永不觸發 = 靜默不結算;plan §5.3 群5)。
+// ⛔ 2026-08-17:下面那句「**prod 不跑**」**現在是假的** —— Sean 已於 Vercel Production env 設
+//    `CRON_SWEEPER_ENABLED='true'` 並重新部署(來源:主視窗轉述 Sean;我未親自看 Vercel 設定畫面)。
+//    🔴 原文刻意保留 —— 它記錄的是當時的中間態,那個記錄沒有錯;錯的是【拿它當現況】。
+//    正本(為什麼曾經這樣定 / 何時解除 / 現在靠什麼守 / 🔴 **仍未完成的兩條硬前置**)在
+//    `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段。
+//    📎 這一處是同族舊字面掃描**漏掉**的載體:它的措辭是「prod 不跑」,而當時掃的四個 pattern
+//       都是「不設 / 不開 / 不開放」⇒ 一個都對不上(code-reviewer 2026-08-17 抓)。
+//       教訓:**pattern 的寬度決定了「零命中」的意義**,而寫宣稱的人只記得自己掃過。
 // ⚠️ 誠實中間態(master §2 / plan §5.4):4c route commit 到 dev 即可,但 **prod 不跑** 直到 ① 4d(vercel.json
 //    crons 段)② Sean 於 Vercel Production env 設 CRON_SWEEPER_ENABLED='true' ③ 4a migration 進 prod;route 預設
 //    disabled + fail-closed → commit 4c **零部署風險**(Phase I 結帳關閉、零 pending、即使誤啟亦 no-op)。

@@ -21,6 +21,14 @@
 // 🔴 不變式(lazy 跨包契約、鏡像 settle-sweep route 警語):getAnomalyAlertDeps factory **必須維持 lazy**——建構子
 //    只存連線字串/密鑰、零 module-top env 讀取 / 零連線建立。下方 GET 的 disabled 路徑(ANOMALY_ALERT_ENABLED gate
 //    在「建 deps 前」return)之「零 DB env 依賴」保證仰賴此;改 @/lib/payment/composition 前必守此 lazy 契約。
+// ⛔ 2026-08-17:下面那句「prod 不推播」**很可能已經是假的,而我沒有親自量**。
+//    依據:`~/pcm-mailbox/B-580-STOP-20260817.md` §6-5/§6-6 記載 `ANOMALY_ALERT_ENABLED=true`、
+//    LINE/Email 密鑰皆存在、pg_cron `pcm-anomaly-alert` active。**那是別人量的,我沒看 Vercel 設定畫面。**
+//    ⇒ 寫作「未確認」而不是「已解除」—— 缺的那道檢查 = 當場讀一次 Production env。
+//    🔴 而同一份 B-580 §6-6 另記一件更重要的:**沒有人收到過任何一封告警**
+//       ⇒「真的沒異常」與「它其實發不出來」**印同一句話**。⇒ 不得把本 route 存在讀成「告警會叫」。
+//    📎 同族正本在 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段
+//       (那段講的是 `CRON_SWEEPER_ENABLED`;本檔的閘是 `ANOMALY_ALERT_ENABLED`,**是兩個不同的 env**)。
 // ⚠️ 誠實中間態:route commit 到 dev 即可,但 prod 不推播直到 ① vercel.json crons 段 ② Sean 於 Vercel Production env
 //    設 ANOMALY_ALERT_ENABLED='true' + 管道密鑰(LINE_CHANNEL_ACCESS_TOKEN/LINE_ALERT_TO 或 RESEND_API_KEY/
 //    ALERT_EMAIL_FROM/ALERT_EMAIL_TO);route 預設 disabled + fail-closed → commit 零部署風險。
