@@ -396,7 +396,10 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
  * 內嵌 `order_items` 的請求上限(A9a-2 補;關卡2 codex MF2)。
  *
  * 🔴 **為什麼現在才需要**:A9a-1 起明細就沒給 `order_items` 上限,邊界一直握在伺服器 `max-rows`
- * (production 實測 1000)手上。A9a-2 在品項底下掛了 per-item 的 `procurementTruncated` ——
+ * (~~production 實測 1000~~ ⇒ **2026-08-18 起是 `2000`**:Sean 親手調、V 窗實測
+ * REST `206` / `content-range 0-1999/19777`;**我未自驗**)手上。
+ * ⚠️ **數字換了,這一段的論證沒換** —— 它講的是「邊界握在【遠端設定】手上」,而那件事沒變。
+ * A9a-2 在品項底下掛了 per-item 的 `procurementTruncated` ——
  * 而**品項自己被切掉時,那個旗標連同品項一起消失**,呼叫端看到的每個旗標都還是 false。
  * ⇒ 邊界必須由我們的常數擁有,觸及時翻成 `AdminOrderDetail.itemsTruncated`。
  *
@@ -441,8 +444,12 @@ export const ORDER_LIST_ITEMS_EMBED_LIMIT = 500;
  * 內嵌 `payment_charge_attempts` 的請求上限(M-4b E10 A9g-2)。
  *
  * 🔴 50 的理由:單張訂單的扣款嘗試實務上是個位數(一次結帳一筆、失敗重試再一筆);
- * 50 遠高於任何合理值,又低於伺服器 `max-rows`(production 實測 1000)——
+ * 50 遠高於任何合理值,又低於伺服器 `max-rows`
+ * (~~production 實測 1000~~ ⇒ **2026-08-18 起是 `2000`**:Sean 親手調、V 窗實測;**我未自驗**)——
  * 讓截斷邊界由我們的常數擁有(理由同 `ORDER_NOTES_EMBED_LIMIT`)。
+ * ⚠️ **這一處的結論【變得更成立】,不是被推翻**:`50 < 1000` 本來就成立,`50 < 2000` 更寬。
+ * 🔴 而下面那條「只在 `max-rows > 50` 時成立」的限定**照舊要留著** ——
+ * 它防的是**設定被調小**,而那個風險與現值是 1000 還是 2000 無關。
  * 🔴 **「與專案設定脫鉤」只在 `max-rows > 50` 時成立**(關卡2 codex MF3 更正原本說太滿的字面):
  * 若日後把 `max-rows` 調到 50 以下,伺服器會先截斷、回傳筆數永遠 < 50 ⇒ 本檔判不出截斷、
  * 閘會靜默變 `'clear'`。單元測試看不見伺服器設定 ⇒ 只能由常數的範圍守門
