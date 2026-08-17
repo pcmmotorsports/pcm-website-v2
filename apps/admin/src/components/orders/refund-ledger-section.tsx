@@ -81,6 +81,37 @@ export function RefundLedgerSection({
       </section>
     );
   }
+  // 🔴🔴 **Sean 2026-08-17 Q2 ＝ 甲:撈不完整時,那一區塊【明確失敗、不顯示任何一列】。**
+  //   他否決的乙案正是本區塊 0a3e2a44(2026-08-04)的原設計:「顯示已取得的 + 標可能不完整」。
+  //   🔴 理由逐字:**「標了警告的清單,對帳的人還是會照著算。」**
+  //      —— 而這一區塊就是【退款帳本】= 對帳本身,他講的就是這個畫面。
+  //   ⚠️ 原本的處置留痕(不要默默當它沒存在過):`rowsTruncated` 曾經只印一行紅字
+  //      「⚠ 帳本列超過顯示上限,更舊的紀錄未列出 —— 完整清單請以資料庫對帳為準。」
+  //      然後【列照印】。那行字沒有錯,錯的是它下面還有一張可以照著算的表。
+  //   📌 這格比拍板早 13 天 ⇒ 不是明知故犯,是拍板之後沒有人回頭掃它推翻掉的既有實作。
+  //   🔴 順序:排在零列早退【之前】—— 截斷時 rows.length 必 > 0,但別讓下一個人改動零列
+  //      分支時把這條擠到後面去(同 :62-64 那個順序坑,本檔已經踩過一次)。
+  if (rowsTruncated) {
+    return (
+      <section className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
+        <h2 className='text-destructive mb-1 text-sm font-semibold'>退款紀錄</h2>
+        {/* 文案要回答三件(Sean 08-11「操作直覺化」):發生什麼 / 現在能不能信這一頁 / 他該做什麼。
+            🔴🔴 **不得宣稱「錢沒有變動」或「沒有退款被取消」** —— codex 2026-08-18 關卡2 抓到:
+               本元件只知道「列被截斷」,它【看不到被藏起來的那些列】⇒ 那兩句它證明不了,
+               而值班會把它讀成「退款還沒發生」,然後【重複發起退款】。
+               ⚠️ 這與 :69-75 那條是同一個病(當時是誤稱「退款按鈕被關掉了」)——
+                  本檔第二次在同一個地方犯:**對值班說一句自己證明不了的話。**
+            ⚠️ 不混 Markdown 星號 —— 這是 `<p>` 純文字,`**` 會原樣顯示。 */}
+        <p className='text-destructive'>
+          這張單的退款紀錄太多,超過本頁一次能列出的上限。
+          為了不讓任何人照著一份缺漏的清單對帳,這一區塊不顯示任何一列。
+          也就是說,這一頁現在看不出這張單有沒有退款、退了多少 —— 請不要用這一頁判斷,
+          也不要在這個狀態下發起退款。
+          請通知系統維護直接從資料庫調這張單的完整退款帳本。
+        </p>
+      </section>
+    );
+  }
   if (rows.length === 0) return null;
 
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
@@ -118,12 +149,9 @@ export function RefundLedgerSection({
         </span>
       </div>
 
-      {rowsTruncated && (
-        <p className='text-destructive mb-2 text-xs font-medium'>
-          ⚠ 帳本列超過顯示上限,更舊的紀錄未列出 —— 完整清單請以資料庫對帳為準。
-        </p>
-      )}
-
+      {/* 🔴 這裡曾經有一段 `rowsTruncated && <p>⚠ …更舊的紀錄未列出…</p>`,而下面的表照印。
+          Sean 2026-08-17 Q2＝甲推翻了那個設計 ⇒ 已改成上面的 early-return(見 :84 起)。
+          留這行註解是為了讓「這裡為什麼沒有截斷提示」有答案 —— 否則下一個人會以為漏了。 */}
       <div className='overflow-x-auto'>
         <table className='w-full border-collapse'>
           <thead>

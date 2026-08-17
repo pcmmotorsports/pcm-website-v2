@@ -180,11 +180,40 @@ describe('RefundLedgerSection — RW3', () => {
     expect(container.textContent).not.toContain('NT$ -');
   });
 
-  it('[5d] 帳本列截斷旗標 → 顯「更舊的紀錄未列出」警示(codex MF1)', () => {
+  // 🔴 本格的期望值被【拍板】推翻過一次,不是被 code 現況推翻的 ——
+  //    原格(0a3e2a44,2026-08-04,codex MF1)釘的是「顯警示 + 列照印」;
+  //    Sean 2026-08-17 Q2＝甲(撈不全就整區失敗、不顯示任何一列)推翻了那個設計。
+  //    ⚠️ 原格的斷言字面留在這裡備查:`toContain('更舊的紀錄未列出')`。
+  //       它當時是對的 —— 錯的不是那行警示,是警示下面還有一張可以照著算的表。
+  it('[5d] 帳本列截斷 → 整區失敗、一列都不印(Sean 2026-08-17 Q2＝甲 推翻 0a3e2a44 的原設計)', () => {
     const { container } = render(
       <RefundLedgerSection rows={[row()]} unregisteredAmount={500} rowsTruncated nowMs={NOW} />,
     );
-    expect(container.textContent).toContain('更舊的紀錄未列出');
+    // 正向對照:這把尺量得到東西 —— 該出現的說明真的在。
+    expect(container.textContent).toContain('不顯示任何一列');
+    // 🔴 判別力在這兩條:一列都不印。少了它們,「印說明 + 列照印」
+    //    (正是被推翻的那個設計)會讓本格全綠。
+    expect(container.querySelector('table')).toBeNull();
+    expect(container.textContent).not.toContain(row().id);
+    // 舊行為不得復活:那行警示現在是誤導 —— 它暗示下面還有一張表可看。
+    expect(container.textContent).not.toContain('更舊的紀錄未列出');
+  });
+
+  // 🔴 codex 2026-08-18 關卡2 must-fix 折出來的格:我第一版文案寫了
+  //    「錢沒有因為這個狀況而變動,也沒有任何退款被這個狀況取消」——
+  //    而本元件【看不到被藏起來的那些列】,那兩句它證明不了;
+  //    值班會讀成「退款還沒發生」然後重複發起退款。
+  //    ⇒ 本格釘住「不准再寫回去」。與 :69-75 那條(誤稱退款按鈕被關掉)同族。
+  it('[5e] 截斷文案不得宣稱錢沒動 / 沒有退款被取消(元件看不到被藏起來的列,證明不了)', () => {
+    const { container } = render(
+      <RefundLedgerSection rows={[row()]} unregisteredAmount={500} rowsTruncated nowMs={NOW} />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).not.toContain('錢沒有');
+    expect(text).not.toContain('沒有任何退款被');
+    // 正向對照:它該講的是「別用這一頁判斷、別在這個狀態發起退款」。
+    expect(text).toContain('不要用這一頁判斷');
+    expect(text).toContain('不要在這個狀態下發起退款');
   });
 
   it('[6] 異常列(processing 滯留逾 30 分)→ 顯異常清單連結;新鮮 processing 不顯', () => {
