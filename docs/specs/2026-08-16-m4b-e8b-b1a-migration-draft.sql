@@ -7,7 +7,8 @@
 --    v1 規格曾把兩個庫混在一起寫,被關卡1 抓到 ⇒ 檔頭第一句就講清楚在哪。
 --
 --  ── 為什麼要做 ────────────────────────────────────────────────────────────
---  `test_01` 是【主管且啟用】,而 Sean 2026-08-16 逐字:
+--  `test_01` 是【主管且啟用】(2026-08-16 實查現況;⚠️ **本支不驗 is_manager**,見 §0.2),
+--  而 Sean 2026-08-16 逐字:
 --      「昨天開給你測試用得帳號…結果好像沒用到…」
 --      「原先以為是要設定好帳號給你才可以登入使用,結果最後你開網頁我手動登入就好」
 --  ⇒ 為了讓 AI 登入而開,而那個需求最後不存在。確定無用途。
@@ -17,23 +18,64 @@
 --     它該做,但不因 B1-b 而急。**這支可以獨立 apply。**
 --
 --  ── 🔴 為什麼是 is_active=false 而不是 DELETE ────────────────────────────
---  `admin_audit_log.actor` 是 **text 欄不是 FK**
---  (supabase/migrations/20260712210000_m4a_admin_audit_log.sql:45)
---  ⇒ 刪掉它、若它寫過紀錄,就製造一筆孤兒。
---  **目前孤兒 = 0**(2026-08-16 Sean 實查)——
---  **刪它是唯一會弄壞這個 0 的動作,而 is_active 可逆、DELETE 不可逆。**
+--  有【兩個】理由,而原本這裡只寫了較弱的那一個(2026-08-17 code-reviewer 抓後補):
 --
---  ── 🔴 開工前置(還沒做)──────────────────────────────────────────────────
+--  (1) **強的那個:DELETE 根本會被擋下來。**
+--      `public.staff(id)` 被 **3 個檔 / 6 處** FK 指著,且**全部 `ON DELETE RESTRICT`**:
+--        supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:112
+--        supabase/migrations/20260731120000_m4b_e10_a7b_m_refund_jobs.sql:184-186
+--        supabase/migrations/20260810100000_m4b_e10_op1_order_payments_m.sql:243,246
+--      數法:`grep -rn 'REFERENCES public\.staff' supabase/migrations/*.sql`
+--      ⇒ test_01 只要在那些表寫過任何一列,DELETE 直接噴 23503。
+--
+--  (2) **弱的那個(原本只寫這個):`admin_audit_log.actor` 是 text 欄不是 FK**
+--      (supabase/migrations/20260712210000_m4a_admin_audit_log.sql:45)
+--      ⇒ 刪掉它、若它寫過紀錄,就製造一筆孤兒。
+--      **目前孤兒 = 0**(2026-08-16 Sean 實查)。
+--
+--  ⇒ **結論不變**(is_active 可逆、DELETE 不可逆),**而理由要寫全** ——
+--     只寫 (2) 會讓下一個人以為「反正孤兒是 0,刪掉也還好」,
+--     **而事實是他根本刪不掉,會撞 FK。理由窄會讓人做出不同的決定。**
+--
+--  ── ✅ 開工前置(已做,2026-08-16)────────────────────────────────────────
 --  跑一次:select distinct actor from public.admin_audit_log order by 1;
 --  ⇒ 確認 test_01 有沒有寫過紀錄。
---  **有寫過** ⇒ 本支照跑(停用不影響既有紀錄),但要知道它的名字會留在稽核軌裡。
---  **沒寫過** ⇒ 同樣照跑。
---  ⚠️ 那一句【還沒跑】。它不改變本支的動作,但它改變我們對「這個帳號是什麼」的理解
---     —— 所以列為前置而不是可選。
+--  **實查結果**:只有 `sean` 48 筆、`staff_1` 17 筆 ⇒ **test_01 零筆,沒寫過任何紀錄。**
+--  ⇒ 本支照跑;它的名字**不會**留在稽核軌裡(因為它從來沒進去過)。
+--
+--  ⚠️🔴 **這一段原本寫「那一句【還沒跑】」,2026-08-17 改掉 —— 它與本檔自己矛盾**:
+--     同一支檔下面 §1b 就引用了那次實查的數字(sean 48 / staff_1 17),
+--     而 `docs/specs/2026-08-17-b1-apply-preflight.md` `#5` 也記「已跑過一次」。
+--     ⇒ **數字到貨了,而它旁邊那句「還沒跑」沒有跟著動** ——
+--       留著它會讓下一個人去重跑一件已經做完的事,或誤以為這支還缺前置而不敢 apply。
+--     📎 這是本條線 2026-08-17 一整天反覆出現的同一個形狀:
+--       **改了表格/數字,沒改它旁邊那句散文,而散文才是被引用的那半。**
 --
 --  ── 出事怎麼退 ────────────────────────────────────────────────────────────
---      UPDATE public.staff SET is_active = true, updated_at = now() WHERE id = 'test_01';
---  **完全可逆,零資料損失。** 這是本片刻意選 is_active 而非 DELETE 的直接好處。
+--  🔴 本支改了【三件事】,三件都要退。
+--     ⚠️ 2026-08-17 更正(adversarial-reviewer 抓):這一段原本**只列了第 1 條**,
+--        卻寫著「完全可逆,零資料損失」⇒ 照它退完,staff_2 仍掛著測試說明、
+--        表註解已被換掉,**而檔頭告訴你已經退乾淨了**。
+--
+--    1. test_01 停用:
+--       UPDATE public.staff SET is_active = true, updated_at = now() WHERE id = 'test_01';
+--
+--    2. staff_2 的 label(本支把它從占位字串改成測試帳號說明):
+--       UPDATE public.staff SET label = '員工 2(占位)', updated_at = now() WHERE id = 'staff_2';
+--       ⚠️ 這個舊值取自建表 migration 的 seed
+--          (supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql:36)。
+--          **退之前先確認正式庫的現值真的是它** —— 中間若有人改過,照抄會蓋掉別人的改動。
+--
+--    3. `COMMENT ON TABLE public.staff`(本支是**整段覆蓋**,不是附加):
+--       原文在 supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql:26-27,
+--       退的時候把那兩行的字串原樣寫回去。
+--       ⚠️ 被覆蓋掉的字面包含「id 是寫入 admin_audit_log.actor 的穩定 slug」。
+--
+--  ⇒ **三條都做完才叫「退乾淨」。** 逐條可逆、**零資料列損失**(沒有任何 DELETE)——
+--     ⚠️ 但**不是「完全還原」**:三條 rollback 都寫 `updated_at = now()`
+--        ⇒ **`updated_at` 不會回到原值**(code-reviewer 2026-08-17 抓)。
+--        要連它一起還原就得先存下原值,而本支刻意不做 —— `updated_at` 本來就該記「最後一次被動的時間」。
+--     這是本片刻意選 is_active 而非 DELETE 的直接好處,但**「可逆」不等於「退一條就好」**。
 --
 --  ⚠️ 前提:所有語句在同一個 session。statement-mode pooler 下 BEGIN 無效且零警告。
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -62,9 +104,16 @@ BEGIN
       '   ⇒ 本支屬 A 庫,拒繼續。';
   END IF;
 
-  -- 0.2 test_01 必須存在,而且【現在確實是啟用中的主管】
+  -- 0.2 test_01 必須存在,而且【現在確實是啟用中】
   --     🔴 若它已經被別人停用了,本支就沒事可做 ——
   --        而「沒事可做卻回報成功」是本 repo 反覆踩過的形狀 ⇒ 明確紅。
+  --
+  -- ⚠️🔴 **這裡原本寫「啟用中的【主管】」,而 `is_manager` 從頭到尾沒有被判過**
+  --    (adversarial-reviewer 2026-08-17 抓)。`v_manager` 只出現在下面那則 NOTICE 裡。
+  --    ⇒ **test_01 若已被降成非主管,本支照跑照綠。** 字面已改成它真的驗得出來的範圍。
+  --    📌 **刻意不補 is_manager 判斷**:本支的目的是「停用這個帳號」,
+  --       而它是不是主管**不改變該不該停用** —— 補一道會讓本支在一個無關的維度上變脆。
+  --       ⇒ 這是「把宣稱降到斷言表達得出的層級」,不是「補齊斷言」。
   SELECT is_active, is_manager INTO v_active, v_manager
     FROM public.staff WHERE id = 'test_01';
   IF NOT FOUND THEN
@@ -164,13 +213,28 @@ BEGIN
   -- 🔴 staff_2 的 label 必須真的改到,而且不得再含「員工 2」那種會被誤讀成真員工的字
   DECLARE v_label text; v_s1 text;
   BEGIN
+    -- 🔴🔴 **`IS DISTINCT FROM` 不是 `<>`,這一行是承重的**(2026-08-17 B 窗實測後修):
+    --    `SELECT … INTO` **沒有 `STRICT`** ⇒ 零列不報錯,只把變數設成 NULL。
+    --    而 `NULL <> '…'` 的結果是 **NULL**,`IF NULL` 走 **false 分支**
+    --    ⇒ **staff_2 整列不存在時,這道斷言【不會叫】= 指派沒發生也整支綠。**
+    --    實測(拋棄式 PG 17.10):staff_2 不存在 + 用另一個人把「啟用中」湊回 3
+    --      ⇒ 舊寫法 **rc=0(整支綠)**,而 staff_2 從頭到尾不存在。
+    --      正向對照:staff_2 存在 ⇒ rc=0 且 label 確實被改 ⇒ 量具分得出,而舊斷言分不出。
+    --    ⚠️ 平常看不到,是因為上面「啟用中 = 3」那道閘通常先紅;
+    --       **只要有別人補上那個名額,閘就過了,而這道靜默放行。**
+    --    ⇒ `IS DISTINCT FROM` 對 NULL 回 **true** ⇒ 缺列時會叫。
+    --    📎 這道斷言存在的唯一目的就是在 apply 當天叫;叫不出來的警報器比沒有警報器更糟。
     SELECT label INTO v_label FROM public.staff WHERE id = 'staff_2';
-    IF v_label <> 'Sean 測試帳號(一般員工權限,非真員工)' THEN
+    IF v_label IS DISTINCT FROM 'Sean 測試帳號(一般員工權限,非真員工)' THEN
       RAISE EXCEPTION 'B1-a 落地斷言:staff_2 的 label 是「%」,指派沒有生效。', v_label;
     END IF;
     -- 對照組:staff_1 的 label【不得】被動到(本支刻意不碰它)
+    -- 🔴 **同一個病的第二處** —— 修的時候一起修,不要只改被指名那一處。
+    --    這是【對照組】:它要證「staff_1 沒被動到」。而 staff_1 整列不見時
+    --    `v_s1` 是 NULL ⇒ 舊寫法 `NULL <> '…'` ⇒ NULL ⇒ 不叫
+    --    ⇒ **「有人把 staff_1 刪掉」與「staff_1 好好的」在舊斷言眼裡一模一樣。**
     SELECT label INTO v_s1 FROM public.staff WHERE id = 'staff_1';
-    IF v_s1 <> '員工 1(占位)' THEN
+    IF v_s1 IS DISTINCT FROM '員工 1(占位)' THEN
       RAISE EXCEPTION E'B1-a 落地斷言:staff_1 的 label 變成「%」——本支不該碰它。\n'
         '   ⇒ 要嘛我動錯列,要嘛它已經被別人改過。兩種都停下來看。', v_s1;
     END IF;
