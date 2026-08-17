@@ -18387,3 +18387,28 @@ max-rows 掉到 500 的世界：
   🔴 **那個「為什麼」不在 code 裡** —— 沒有它,任何「改用別的收件人來源」的提案都是猜的。
 
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `#632`(git ref CAS)+ 信箱佔位掃描與 `#632` 相關者零命中。
+
+- 🔴🔴 **這條是一條鏈的三節,不是一件事(2026-08-18 併入 B-5 / B-6)**
+  **併號的理由**:三節的「不修會痛在哪」是同一句(**沒有收件人**)⇒ 分開發號會製造三個看起來獨立的待辦。
+  🔴 **但併號不等於併敘述** —— **做完 B-4 還有兩節,下面分行列出,各自附證據**:
+  ```
+  B-4 charge-actions 串接 canonical email 存入 create_order
+      證據:寫死 null 兩處
+        packages/adapters/src/supabase/mappers/order.ts:144-146
+        apps/storefront/src/app/checkout/charge-actions.ts:266-267
+  B-5 enqueue 掛 §3.2 兩個匯聚點;付款優先、全 catch
+      證據:charge-actions.ts 內【零 enqueue 命中】
+      🔴 PRD 原文抄回（七月的人留給我們的話）:
+         「**可部署但不得宣稱功能上線**（gate 見 §6）」
+  B-6 收緊片:notification_email 由 nullable 收成必填
+      證據:20260719120000 之後【沒有任何 migration 動 notification_email】
+      ⚠️ PRD 警告原文:「不可用裸 SET NOT NULL(會驗全部存量列，舊單與過渡窗 NULL 必炸)」
+  ```
+  ⇒ **規格正本三節都在** `docs/specs/2026-07-18-b0-order-notification-email-prd.md:90-95`。
+
+- ⚠️ **代號對帳(2026-08-18 順帶量到,不屬本條但會誤導查本條的人)**
+  同批 code 註解還引用了 `E8-B`(真登入線)與 `#26`,而
+  🔴 **backlog `#26` 實際是「partiallyRefunded transition 評估」且狀態 ✅ 已收** ——
+  **與真認證無關。** 照那個號去查的人會查到一條已關閉的東西,**得到「已經做完了」的錯結論**。
+  ⇒ 真認證這件實際散在 `#215` / `#436` / `#534` / `#536`。**代號修正未做,已回報主視窗。**
+
