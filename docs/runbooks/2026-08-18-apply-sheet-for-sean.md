@@ -250,32 +250,66 @@ SELECT
 前面第 ① 格答的是「**設定表上有沒有殘留**」。
 這一段是**真的去建一張表看它拿到什麼** —— 兩件事,要一起跑才夠。
 
-**整段貼進去(包含最後那個 `ROLLBACK`,它會讓那張測試表不留下來):**
+> ## 🔴🔴 **這一步會印出一個紅色的錯誤,而那是【預期的】。先讀完再貼。**
+>
+> 它是**故意設計成這樣**的,理由有三個:
+> ```
+> 1 它整段是【一個語句】⇒ 介面拆不開，你也貼不了一半
+>    （貼一半 = 語法錯誤，當場紅；不會變成「一半跑掉了」）
+> 2 那個「錯誤」會強制回滾 ⇒ 🔴 那張測試表【不可能留在你的資料庫裡】
+>    —— 清理不是你要記得的一行，是這個語句自己的後果
+> 3 結果走錯誤通道 ⇒ 而【錯誤一定看得到】
+>    ⇒ 順便解掉前面那個「我不確定這個介面顯不顯示 NOTICE」的問題
+> ```
+> ⚠️ **上面三點我在拋棄式資料庫上跑過三個世界驗證了**(不是推的)——
+> 輸出貼在本步驟末尾。
+
+**整段貼進去、按執行:**
 
 ```sql
-BEGIN;
-CREATE TABLE public.pcm_acl_probe_tmp(x int);
-SELECT CASE
-  WHEN (SELECT relacl FROM pg_class
-         WHERE oid = 'public.pcm_acl_probe_tmp'::regclass) IS NULL
-    THEN '乾淨(新表零顯式授權)'
-  ELSE coalesce((SELECT string_agg(DISTINCT a.grantee::regrole::text, ', ')
-                   FROM pg_class c, LATERAL aclexplode(c.relacl) a
-                  WHERE c.oid = 'public.pcm_acl_probe_tmp'::regclass
-                    AND a.grantee <> 0
-                    AND a.grantee::regrole::text NOT IN ('postgres','service_role')),
-                '乾淨(只有 owner / service_role)')
-END AS "新表出生時被誰拿到權限_應為乾淨";
-ROLLBACK;
+DO $$
+DECLARE v text;
+BEGIN
+  CREATE TABLE public.pcm_acl_probe_tmp(x int);
+  SELECT CASE
+    WHEN (SELECT relacl FROM pg_class
+           WHERE oid = 'public.pcm_acl_probe_tmp'::regclass) IS NULL
+      THEN '乾淨(新表零顯式授權)'
+    ELSE coalesce((SELECT string_agg(DISTINCT a.grantee::regrole::text, ', ')
+                     FROM pg_class c, LATERAL aclexplode(c.relacl) a
+                    WHERE c.oid = 'public.pcm_acl_probe_tmp'::regclass
+                      AND a.grantee <> 0
+                      AND a.grantee::regrole::text NOT IN ('postgres','service_role')),
+                  '乾淨(只有 owner / service_role)')
+  END INTO v;
+  RAISE EXCEPTION '探測結果(這一行是正常的,不是出事):%', v;
+END $$;
 ```
 
 ### 你應該看到什麼
+**一行紅色的 ERROR,而它的內容就是答案:**
 ```
-「乾淨(新表零顯式授權)」  ⇒ ✅ 成功
-印出「anon」或別的名字     ⇒ 🔴 洞還在。停下來貼回來。
+ERROR: 探測結果(這一行是正常的,不是出事):乾淨(新表零顯式授權)
+   ⇒ ✅ 成功（限於【你這個帳號】建的表 —— 見下方限定）
+
+ERROR: 探測結果(這一行是正常的,不是出事):anon
+   ⇒ 🔴 洞還在。停下來貼回來。
+
+看到【別的】錯誤（例如 syntax error / unterminated）
+   ⇒ 你可能只貼到一半。整段重貼一次即可 —— 🔴 而這種情況【不會留下任何東西】
 ```
+
 ⚠️ **這一段只量得到「你這個帳號建表時會發生什麼」** ——
-若還有別的身分在建表,這一段量不到那條。那條靠步驟 4 的第 ① 格看。
+若還有別的身分在建表,這一段量不到那條。**那條靠步驟 4 的第 ① 格看,兩個要一起讀。**
+
+### 📎 我在拋棄式 PostgreSQL 17.10 上跑的三個世界(2026-08-18)
+```
+甲 預設授權乾淨      ⇒ ERROR「…乾淨(新表零顯式授權)」   表沒留下 ✅
+乙 種一條 anon 授權  ⇒ ERROR「…anon」                    表沒留下 ✅  ← 正向對照，證明它抓得到
+丙 只貼前 8 行       ⇒ ERROR unterminated dollar-quoted  表沒留下 ✅
+```
+🔴 **乙那一格是重點** —— 沒有它,「甲」再漂亮也證不了它**抓得到真的有授權**,
+只證得了「它會印一句話」。
 
 ---
 
@@ -309,4 +343,11 @@ ROLLBACK;
 1. **我們在拋棄式資料庫上跑過的「32 條檢查全過」,不等於你的正式站會過。**
    那個拋棄式的是節錄版,驗不到正式站真正的角色設定、權限拓樸、RLS。
 2. **這兩支【沒有】包含 `#628`(另一支 REVOKE)** —— 那一支還缺兩道審查,**不要順手一起貼**。
+   🔴 **而「不要順手貼」是一句提醒,提醒會被跳過** ⇒ 給你一個**當場看得到的判準**:
+   ```
+   你貼進去的東西裡，不應該出現這三個字串：
+       #628      brands      categories
+   出現任何一個 ⇒ 🔴 你貼錯了。停下來。
+   ```
+   (那一支動的是 `brands` / `categories` 兩張表,這兩支完全不碰它們。)
 3. **在你把輸出貼回來之前,我不會把這件事寫成「已生效」。** 這一條沒有例外。
