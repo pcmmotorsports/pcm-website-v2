@@ -43,6 +43,7 @@ import SupplierSettingsPage from './page';
 //    vitest 的 `@` alias 指向 `apps/storefront/src`(`vitest.config.ts:28`)⇒ resolve 不到。
 //    本頁改用相對路徑就是為了讓 `[K1-M7]`(讀取失敗 ⇒ 不渲染新增表單)這條**真的測得到**
 //    —— 它是本片刻意偏離 staff 樣板的那一條,沒有測試就只是一句 plan 裡的話。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 
 const RAW: readonly SupplierRow[] = [
   { id: 'id-webike-tw', label: 'Webike TW', is_active: true },

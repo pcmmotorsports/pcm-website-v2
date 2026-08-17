@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isAuditUiEnabled } from './audit-ui-flag';
-// 🔴 相對路徑不用 `@/`(vitest 的 `@` 指向 `apps/storefront/src`);沿用 `app-sidebar.test.ts` 的既有剝註解工具。
+// 相對路徑(#606 前的歷史遺留;#612 更新:現可用 @/,既有不回改);沿用 `app-sidebar.test.ts` 的既有剝註解工具。
 import { stripComments } from '../test-support/strip-comments';
 
 // audit-ui-flag.test.ts — 證明這個開關**預設是關的**。

@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 // 🔴 本片同時把 `page.tsx` 的 `@/…` import 改成相對路徑:根 `vitest.config.ts:27` 的 `@` alias
 //    指向 **storefront** 的 src,admin 檔案用 `@/` 在 vitest 裡 resolve 不到。姊妹頁
 //    `refund-exceptions/page.tsx` 本來就用相對路徑 —— 這頁用 `@/` 只是因為它從來沒有測試。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 const mocks = vi.hoisted(() => ({ list: vi.fn() }));
 const cookieState = vi.hoisted(() => ({ keyword: undefined as string | undefined }));
 vi.mock('../../lib/orders/order-repository', () => ({

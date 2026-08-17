@@ -5,6 +5,7 @@ import { PickingDoc } from '../../../../../components/print/picking-doc';
 
 // 相對 import(非 `@/`):根 `vitest.config.ts` 的 `@` alias 指向 storefront ⇒ 用 `@/` 的話
 // 這一頁**完全沒辦法被單測載入**。同 `app/orders/[id]/page.tsx:1` 的既有慣例。
+// ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 //
 // #10 片1:揀貨單列印頁(server component、唯讀)。
 //
