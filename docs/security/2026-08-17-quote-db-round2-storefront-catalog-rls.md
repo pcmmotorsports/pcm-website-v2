@@ -184,6 +184,46 @@ REVOKE SELECT ON extensions.pg_stat_statements, extensions.pg_stat_statements_in
 ```
 ⚠️ **安全性**:app 用 pg_net 走 cron(service_role/postgres),**不經 anon/authenticated** ⇒ REVOKE 這兩個角色不影響功能。驗收:REVOKE 後 `has_table_privilege('anon',...)` 全轉 f、service_role 仍 t、cron 排程照跑。**價值=把「外部到不到」從『靠 db-schemas 設定對』升級成『靠授權+設定兩道』。**
 
+## 7. 第三輪:RLS policy 全庫逐條(2026-08-17 傍晚)—— 補 `external-exposure-audit` §3「沒做」表那一項
+
+### 7.1 🔴 先更正那張表的字面:**不是「16 條那種」,是 9 條**
+
+`external-exposure-audit.md` §3 把這件寫成「**RLS policy 逐條讀(16 條那種)**」。**當場數**(`SELECT schemaname, count(*) FROM pg_policies GROUP BY 1;`)⇒ 報價單庫 **`public` 9 條** + `cron` 2 條;對照**網站庫** `public` **36 條**。**兩邊都不是 16。**
+⇒ 🔴 **那個「16」是同一份檔自己警告過的「兩個 16」的【第三次外洩】** —— §1.2-b 已寫明「16 **欄位** / 16 **關聯**,數值相同是巧合,引用一律帶單位」,而**待辦清單那一行仍把它當成 policy 條數用掉了**。
+⚠️ **害處不是記錯數字,是【設定了錯的預期規模】**:下一個人來做這件會找 16 條、只找到 9 條,然後懷疑自己漏了 7 條。
+
+### 7.2 九條逐條(verbatim,`pg_policies`)
+
+| 表 | policy | cmd | roles | USING |
+|---|---|---|---|---|
+| `products` | `storefront_public_read` | SELECT | **`anon`** | `major_category IS NOT NULL AND price_store IS NOT NULL AND price_store > 0 AND NOT hidden_from_store` |
+| `term_synonyms` | `term_synonyms_public_read` | SELECT | **`anon`**,`authenticated` | `is_active` |
+| `category_taxonomy_map` | `category_taxonomy_map_read` | SELECT | `authenticated` | **`true`** |
+| `taxonomy_v2_major` | `taxonomy_v2_major_read` | SELECT | `authenticated` | **`true`** |
+| `taxonomy_v2_sub` | `taxonomy_v2_sub_read` | SELECT | `authenticated` | **`true`** |
+| `products` | `dealer_price_read` | SELECT | `dealer_price_reader` | `is_listed` |
+| `products`/`audit_results`/`orphan_review` | `pcm_reparse_owner_all` ×3 | ALL | `pcm_reparse_owner` | `true` |
+
+⇒ **對 `anon` 開的只有兩條**(`products` / `term_synonyms`)⇒ 與 §1.4/§1.5 的分析範圍**完全一致、無第三條**。
+
+### 7.3 ✅ §1.4 的不對稱本輪**獨立重現**(不是引用)
+
+當場各自量:policy `USING` **不含** `is_listed`;`pg_get_viewdef('storefront_catalog_v')` 的 `WHERE` **是** `p.is_listed AND NOT p.hidden_from_store`。⇒ **集合差與 §1.4 相同** ⇒ 該結論**經第二次獨立量測成立**,分級不變。
+
+### 7.4 🆕 RLS 覆蓋全貌(本輪新量)
+
+`public` 表 **78** 張 / `relrowsecurity` **78** / `relforcerowsecurity` **0**;而**有 policy 的只有 7 張**。
+**⇒ 71 張是「RLS 開著、零 policy」= 預設 deny-all**,對 `anon`/`authenticated` 讀不到任何一列 ⇒ **這是安全的那一邊,不是缺口。**
+⚠️ 兩條限定要跟著走:
+1. **`relforcerowsecurity = 0`** ⇒ **表 owner 仍繞過 RLS**(網站庫 `E685-1` 同族形狀)。deny-all 只對**非 owner、非 BYPASSRLS** 成立。
+2. deny-all 靠的是**「沒有人幫它加 policy」** ⇒ 未來誰加一條 `USING true` 就整張打開,而**不會有任何東西紅**(`E683-1` 同族:靠每個人都記得)。
+
+### 7.5 ⚠️ 一格我看到但**不下判斷**
+
+三張 taxonomy 表對 `authenticated` 是 **`USING true`**(無條件全表讀)。**我沒有量**報價單庫實際上有沒有 `authenticated` 身分在用(有沒有真人登入 / 發過 user JWT)。**沒量就不判它是不是曝險** —— 無人登入則是死條款,有人登入則是三張分類表全開。⇒ **標未確認**,留給知道該系統怎麼被使用的人。
+
+---
+
 ## 6. 口徑再申明
 
 本檔的 `products` / RLS / 欄級數字**全部量自報價單庫**。A 庫經銷價是靠 `price_by_tier` 欄級 `f` 擋的、報價單庫是靠 `dealer_price_v` 獨立 view 沒發給 anon —— **同樣「經銷價安全」,不同機制,結論不互相引用。**
