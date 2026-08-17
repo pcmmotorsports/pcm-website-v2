@@ -1,7 +1,8 @@
 // app/sitemap.ts — /sitemap.xml(Next App Router metadata route)。GEO P0「地圖」。
 //
 // 商品來源 = fetchCatalogProducts()(匿名 client、tier 釘 general、走 products_public view →
-// 經銷價零外洩、已分頁繞 1000 列上限)。C4/#205 後 fetchCatalogProducts 改 listAllProducts()
+// 經銷價零外洩、已分頁繞 `db-max-rows` 上限(~~1000~~ ⇒ 2026-08-18 實測 2000,V 窗量、未自驗))。
+// C4/#205 後 fetchCatalogProducts 改 listAllProducts()
 // 撈**全目錄**(不綁分類)→ sitemap 天然涵蓋所有品類、多品牌(#212)上架後不再靜默漏頁(補上舊
 // category-scoped 漏其他品類的**覆蓋缺口**、即 #247 主痛點)。🔴 #247 效能治本仍未結:此處仍撈 detail
 // 全欄僅為取 handle,輕量 listAllHandlesPublic(products_list_public 只取 id+handle)+ <lastmod> 補欄待 #247。

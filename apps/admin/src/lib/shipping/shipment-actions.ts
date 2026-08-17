@@ -141,7 +141,8 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
     //      擁有者**,建箱與掛品項對得起來,構造不出跨客人的箱。
     // 🔴🔴 **跨檔依賴,寫下來是唯一讓下一個人知道的方法**(2026-08-16 與 C 窗對過檔名時查出來的)。
   //    下面「恰好一位客人才建箱」的擋法,正確性**依賴 `shipment-repository` 的 fail-closed**:
-  //    `listCustomerUserIdsByOrderItemIds` 在有任何品項查不到(含 PostgREST 1000 列靜默截斷)時
+  //    `listCustomerUserIdsByOrderItemIds` 在有任何品項查不到(含 PostgREST `db-max-rows` 靜默截斷;
+  //    該上限 2026-08-18 起實測 **2000**、~~原寫 1000~~,V 窗量、本檔改動者未自驗)時
   //    **回空 Set**,於是走到「查無擁有者 → 拒絕」那條。
   //    ⚠️ 那裡若哪天改成 fail-open(拿查得到的那幾筆「湊」一位客人),
   //       **本處會靜默退化成放行** —— 而這裡的 code 一個字都不用改、測試也不會紅。
