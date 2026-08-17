@@ -1,5 +1,49 @@
 # `Q-C9` · 追蹤碼怎麼到客人手上 · **PLAN(✅ 已批准,2026-08-17)**
 
+> ## 🔴🔴 硬前置:**這條線今天【沒有收件人】,而且不是資料缺漏**(2026-08-18,E 窗查、C 窗複驗)
+>
+> **兩處都把收件信箱寫死成 `null`,而 code 自己的註解說那是【刻意分階段】**:
+> ```
+> packages/adapters/src/supabase/mappers/order.ts:144-146
+>   ...(Object.prototype.hasOwnProperty.call(input, 'notificationEmail')
+>     ? { p_notification_email: null }        ← 寫死 null
+>     : {}),
+>
+> apps/storefront/src/app/checkout/charge-actions.ts:266-267
+>   // B-3 只切到 9-param RPC 形狀；canonical 真值持久化刻意留 B-4。
+>   ...(notificationEmailEnabled ? { notificationEmail: null } : {}),   ← 也寫死 null
+> ```
+> ✅ **兩處本窗逐字開檔複驗過**(不是照抄轉述)。
+>
+> 🔴 **所以「13 筆沒有 `notification_email`」要重新讀**:
+> ```
+> ❌ 舊讀法「只有 13 筆沒填」⇒ 下一步是人工補
+> ✅ 真相：13 / 13 = 100%，而且【寫入端刻意送 null】
+> ⇒ 下一步不是補資料，是【B-4 沒做】
+> ```
+> 🔴🔴 **而最要緊的一句**:
+> **不只現有那些是 `null` —— 在 `B-4` 落地之前,【之後每一張新單也都會是 `null`】。**
+> ⇒ **本線做完之後,寄信時去讀那個欄位會永遠讀到 `null`。**
+> ⇒ **那不是「少數客人收不到」,是【一個都收不到】,而畫面與測試都不會紅。**
+>
+> ⚠️ **旗標不是那個閘**:`CHECKOUT_NOTIFICATION_EMAIL_ENABLED`
+> (`apps/storefront/src/lib/email/notification-email-gate.ts:7`)**現值未確認**(env),
+> 🔴 **而它就算是 `true` 也一樣** —— 上面兩處寫死 `null`,**旗標開不開寫進去的都是 `null`**。
+> 📎 一般會先問「旗標開了沒」,而**這裡問錯了問題**。
+>
+> ### ⇒ 對本線的處置(2026-08-18 C 窗判,可被 Sean 推翻)
+> ```
+> ✅ 已做   讀取 port 介面（packages/ports/src/IShippedEmailContext.ts，零 production 呼叫端）
+> ⏸ 押著   adapter ／ Deps 選用欄 ／ composition 那一行
+>          🔴 卡點【不是】那一行的授權，是【收件人來源不存在】——
+>            做完也驗不了，而且驗收會在零收件人時全綠
+> 🔴 驗收條款硬規定：**不可以寫「寄出成功」或「email_outbox 有列 = 成功」**
+>          —— `recipient_email` 是 `null` 時那一列【照樣進得去】
+>          ⇒ 驗收必須包含「收件人是一個真的信箱」這一句，否則它在最壞的世界裡全綠
+> ```
+> ⚠️ **未查(不影響結論)**:那 13 筆是不是欄位加上去之前建的
+> —— 就算是歷史單,**寫入端寫死 `null` 這件事仍然成立**。
+
 > ## ✅ 批准狀態(2026-08-17 晚更新;**檔頭原本寫「未批准,等 Sean」,那已經過期**)
 >
 > **Sean 2026-08-17 拍 `Q4`=甲「批,開工」。**

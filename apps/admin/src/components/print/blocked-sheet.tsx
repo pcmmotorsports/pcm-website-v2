@@ -40,11 +40,30 @@
  *    前者整份紙都還沒有;後者**我們現在根本沒有金額區**(金額片未落地)⇒ 沒有東西可以「不印」。
  *    兩塊都等版面片一起補,不在這裡半套。
  */
-export function BlockedSheet({ reason, orderDisplayId }: { reason: string; orderDisplayId: string }) {
+export function BlockedSheet({
+  reason,
+  orderDisplayId,
+  kind,
+}: {
+  reason: string;
+  orderDisplayId: string;
+  /**
+   * 🔴 **量測管線用來認【是哪一種阻印】的錨點,不是樣式、不給人看。**
+   *
+   * **為什麼需要**(2026-08-18,一次真的 dev 紅換來的):量測管線原本用
+   * `toContain('讀不到任何品項')` 這類**文案字面**去確認 fixture 落在哪一種阻印
+   * ⇒ **同一句話有兩個所有權人**(量測管線一份、`page.test.tsx` 一份)⇒ **必然會漂**。
+   * ⇒ 文案的所有權**只留在 `page.test.tsx`**;量測管線改抓這個。
+   * ⚠️ **不動既有的 `data-slot='print-blocked'`** —— 已有三處測試在查它,
+   *    這是**新增第二個屬性**,不是改名。
+   */
+  kind?: string;
+}) {
   return (
     <section
       role='alert'
       data-slot='print-blocked'
+      data-blocked-kind={kind}
       /* 🔴 `flex-1` 是**「佔滿這個位置」那句話的落點**,不是裝飾。
          它撐滿的是**紙面剩下的高度**,而剩多少由 `app/print/print-a4.css` 的
          `@media print { .print-sheet { display:flex; flex-direction:column; min-height:271mm } }` 給。

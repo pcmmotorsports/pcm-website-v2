@@ -29,6 +29,35 @@ import type { AdminOrderDetail } from '@pcm/domain';
 // sh scripts/pagecount.sh /tmp/pcm-print-measure/shipping-12item.html
 // ```
 //
+// ── ✅ **本檔【不再斷言任何文案字面】**(2026-08-18 補完)────────────────
+//   **數法(可重跑,結果應為 0)**:
+// ```
+//   grep -cE "expect\([^)]*\)\.(not\.)?toContain\('[^']*[一-鿿]" <本檔>
+// ```
+//   🔴 **這件事分兩次做完,而【中間那一次是不完整的】,留痕如下**:
+//     · `8e576886` 只改了 **4 格**(B 態那批,**因為它們讓 dev 紅過**),
+//       而那顆的 commit body 把它寫成「拆掉同一句話有兩個所有權人」= **根因修法**
+//       ⇒ **實際是 13 格修了 4 格。那句話的字面比事實大**(commit 改不動,更正落在這裡)。
+//     · 其餘 **9 格**在本次補完。
+//   🔴 **為什麼那 9 格當時沒被發現**:**它們全是綠的** ——
+//     只有在**有人去改那 9 句文案**時才會紅 ⇒ **觸發條件是【下一個人做一件正常的事】**。
+//     ⇒ **一個不完整的修法,與完整的修法,在測試輸出上長得一模一樣。**
+//   📎 而它是**去做別的事撞到的**,不是回頭複核找到的 ——
+//     **複核天生只會複核你做過的那部分。**
+//
+//   **現在改抓的錨點**(全部是 `data-slot` / `data-blocked-kind`,不是文案):
+// ```
+//   shipping-doc / picking-doc            兩張紙的身分
+//   print-blocked                         有沒有落在整幅阻印版面
+//   picking-cancelled / picking-no-items  是哪一種阻印（A 種 / C 種）
+//   shipping-blocked                      出貨明細單那一幅
+//   picking-truncated-notice / -band      B 態（頁首那幅 / 表身標記帶）
+//   picking-qty-unknown                   「數量不知道」那一格
+//   picking-checkbox / picking-total      勾選框 / 合計
+// ```
+//   🔴 **文案的所有權【只在】`page.test.tsx`** ——
+//     判別法兩句都要成立:**改文案時本檔不該紅** ／ **文案錯時 `page.test.tsx` 一定要紅。**
+//
 // ── 🔴 本管線的分母【不含什麼】────────────────────────────────────────
 //   · **不驗紙上的內容對不對**,只保證「這份 HTML 帶著真樣式」。
 //   · **字型是系統堆疊**(`--font-sans: ui-sans-serif, system-ui, …, "PingFang TC", …`;
@@ -270,7 +299,7 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     const html = await emit(1, 'shipping-1item');
     // 掛勾對不上 = CSS 寫了等於沒寫(`print-a4.css` 唯一的掛勾)。
     expect(html).toContain('print-sheet');
-    expect(html).toContain('出貨明細單');
+    expect(html).toContain('data-slot="shipping-doc"');
     // 🔴 負向對照:確認這一份【真的只有一個品項】,不是 fixture 沒生效。
     expect(html.match(/SKU-\d{4}-LONG/g)?.length).toBeGreaterThan(0);
     expect(html).not.toContain('SKU-0001-LONG');
@@ -304,17 +333,15 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     // 「emit 整個壞掉、回空字串」的世界裡也會過。
     expect(normal).toContain('<table');
     expect(normal).toContain('SKU-0000-LONG');
-    expect(normal).not.toContain('本單不得出貨');
+    expect(normal).not.toContain('print-blocked');
 
     // A 種:整幅阻印 + 表不在 + 料號不在。
-    expect(cancelled).toContain('本單不得出貨');
-    expect(cancelled).toContain('本頁不含品項明細');
+    expect(cancelled).toContain('picking-cancelled');
     expect(cancelled).not.toContain('<table');
     expect(cancelled).not.toContain('SKU-0000-LONG');
 
     // C 種:同上,而原因不同(這一種的文案保留「請重新整理」是刻意的,見 `picking-doc.tsx`)。
-    expect(empty).toContain('本單不得出貨');
-    expect(empty).toContain('讀不到任何品項');
+    expect(empty).toContain('picking-no-items');
     expect(empty).not.toContain('<table');
   });
 
@@ -364,7 +391,7 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    而其他格照樣全過 ⇒ 這一格釘的是「勾選框是我餵的數量帶出來的」。
     const noQty = await emitPicking(12, 'picking-12item-noqty');
     expect(noQty).not.toContain('picking-checkbox');
-    expect(noQty).toContain('數量資料尚未就緒');
+    expect(noQty).toContain('picking-qty-unknown');
 
     // 🔴🔴 **真尺寸那一份**:`B` 態的觸發條件是**剛好載到 200 筆**
     //    (`ORDER_ITEMS_EMBED_LIMIT = 200`,`packages/adapters/src/supabase/mappers/order.ts:407`,
@@ -385,8 +412,7 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    而**份量是單測量不到的東西** —— `page.test.tsx` 那格只證得了內容都在同一塊裡。
     //    ⇒ 這份 fixture 的用途是 `sh scripts/pagecount.sh --png <它> <dir>` 之後**開來看**。
     const blocked = await emit(1, 'shipping-blocked', true);
-    expect(blocked).toContain('本單不得出貨');
-    expect(blocked).toContain('本頁不含品項明細');
+    expect(blocked).toContain('shipping-blocked');
     // 🔴 負向對照兩發,證明這份**真的是阻印態**而不是我多產了一份正常頁:
     //    ① 品項表整個不在 ② 料號一個都不在
     expect(blocked).not.toContain('<table');
