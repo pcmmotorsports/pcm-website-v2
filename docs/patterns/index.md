@@ -20,6 +20,7 @@
 | `codex-inspector-role.md` | 給新 Codex 視窗的「檢查者」角色說明(唯讀審查) |
 | `cowork-review-chain.md` | Cowork 五階段對抗審查鏈規範 |
 | `guard-and-instrument-traps.md` | **守門與量具的坑**(恆綠格 / 紅錯地方 / 一發紅多格 / 恆紅閘 / 掃描字集太窄 / 證據可不可重跑 / `cd` 改作用域 / 「共 N 處」重數還是錯 / 折出假的守門)。**條目數不寫在標題裡**——帶數字的標題沒有人會回頭改。**寫完守門要說「已驗證」之前、下全稱句之前、審別人驗收表之前**各查一次;每條附 2026-08-14 當天實例 + `檔案:行號` |
+| `pagination-loop-review.md` | **分頁迴圈五條準則**(頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵)+ 錢族那把刀(「漏一筆+多一筆會不會剛好對上」)。**審或寫任何 `.range()`・翻頁迴圈之前讀**。🔴 檔頭有**證據等級聲明**:原始全文已隨 session 消失,本檔是轉錄版 —— **引用前先讀那一段** |
 | `revoking-function-execute-in-supabase.md` | 🔴 **檔名寫 function,實際涵蓋【表 / view / 函式】三者** —— 找建表注意事項的人不要因為檔名走開。**新建任何 DB 物件之前讀**:新物件出生就自帶 `anon` 權限(表是整套寫權含 `TRUNCATE`、函式是 `EXECUTE`),而**那個授權在 repo 裡沒有 `GRANT` 語句可以被掃到、三綠也不會紅**。含兩道 REVOKE、`TRUNCATE` 不受 RLS 管、`has_*_privilege` 對欄級授權少報、ACL 欄是 `NULL` 時 PUBLIC 看不見、改參數型別會多出一支而舊的不會消失 |
 
 ---
