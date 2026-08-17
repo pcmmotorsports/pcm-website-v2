@@ -108,9 +108,23 @@ fi
 #    而重複 merge 會讓 merge-base 落在它先前那幾次 merge 之前
 #    ⇒ **dev 自己的收帳行(主視窗/I 窗寫的)被算成「作者這側動過」** ⇒ 條件③不成立 ⇒ 擋下。
 #    🔴 撞到這種的人:**不要 unstage**(見下方訊息),那會洗掉 dev 的收帳行。
-#       正解=確認自己真的一行都沒 author 過,再走逃生門:
-#         git log --no-merges $(git merge-base HEAD MERGE_HEAD)..HEAD -- STATUS.md   ⇒ 應為零筆
-#         git diff HEAD MERGE_HEAD --stat -- STATUS.md                               ⇒ 應為 0 行差異
+#       正解=確認自己真的一行都沒 author 過,再走逃生門。**用這一條**:
+#         git log --no-merges $(git merge-base HEAD MERGE_HEAD)..HEAD --not MERGE_HEAD -- STATUS.md
+#         ⇒ 零筆 = 你沒 author 過(那些 STATUS 動作全是 merge 繼承來的)⇒ 可以走逃生門
+#         ⇒ 非零 = 印出來的就是你自己那幾顆,先看清楚再決定
+#
+#    🔴 `--not MERGE_HEAD` 那一段不可拿掉,而 `aea624a6` body 記的兩條【不要照抄】:
+#       ~~git log --no-merges $(git merge-base …)..HEAD -- STATUS.md      ⇒ 應為零筆~~
+#       ~~git diff HEAD MERGE_HEAD --stat -- STATUS.md                    ⇒ 應為 0 行差異~~
+#       兩條在【本節這第三種情境】的無辜世界裡都印「你動過」(1 筆 / 非空)——
+#       前者會把 **dev 自己的收帳 commit** 算進來(它經 merge 可從 HEAD 到達、又不在 merge-base 之前),
+#       後者只有在作者【剛好已經吸收 dev 現行 STATUS】時才是 0,那是狀態相依、不是判準。
+#       ⇒ 無辜的人照舊版跑會得到「我動過」,而那正是本節要救的那個人。
+#
+#    📎 證據等級:上面「照這條跑」是**量到的**;交叉 merge 造成本節這種誤擋是**構造出來的**
+#       (拋棄式 repo、雙向各一發:無辜 ⇒ C 回 0、有罪 ⇒ C 回 1 並印出那顆;
+#        `git merge-base --all HEAD MERGE_HEAD` ⇒ **2 個 base**,那是交叉 merge 的指紋)。
+#       ⚠️ E 窗當時遇到的**是不是同一條路徑,未確認** —— 我沒有它當時那棵樹。
 
 cat >&2 <<'MSG'
 
