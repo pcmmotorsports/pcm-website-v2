@@ -675,17 +675,70 @@ describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
     expect(offenders, '投影式陰影復發 —— BMW M 用 1px 描邊分層,不用投影').toEqual([]);
   });
 
-  it('🔴🔴 兩處 `ring` 是承重的,不得被當成陰影一起掃掉', () => {
+  it('🔴🔴 未收款標記與側欄描邊是承重的,不得被當成陰影一起掃掉', () => {
     // 🔴 這一格與上一格**方向相反**:上面禁止,這裡**要求存在**。
     //    合報「13 處 shadow」會讓下一個人一次 sed 掃掉,而這兩處掃掉會拿走真訊號:
-    //      · `order-status-axes.ts` 的未收款紅框 = 「這張單還沒收到錢」的唯一視覺載體
+    //      · 未收款標記 = 「這張單還沒收到錢」的唯一視覺載體
     //      · `ui/sidebar.tsx` 的 1px 描邊 = OD `--elev-ring` 的形狀本身
+    //
+    // 🔴🔴 **2026-08-17 片 A-1:未收款那半換了【載體】,沒有換【它守什麼】。**
+    //    舊 = `order-status-axes.ts` 裡的 Tailwind 任意值 `shadow-[0_0_0_1.5px_var(--destructive)…]`(雙層**外**環)
+    //    新 = 元件端只掛 class `cap-unpaid`,規則本體在 `globals.css`(OD `-bmw-m:218` 的 **inset 左緣紅槓**)
+    //    ⇒ **這一格必須跟著移到新載體上** —— 不移的話它守的是一個已經不存在的字面,
+    //       而那種格子的紅**不代表訊號不見了**,只代表「這格自己過期了」。
+    //    ⚠️ **兩端都要釘**:只釘元件端 ⇒ CSS 規則被刪不會紅;只釘 CSS ⇒ 元件不掛 class 不會紅。
     const src = (p: string[]) => readFileSync(join(__dirname, '..', ...p), 'utf8');
-    expect(src(['lib', 'orders', 'order-status-axes.ts']), '未收款紅框不見了').toMatch(
-      /shadow-\[0_0_0_1\.5px_var\(--destructive\)/,
+    expect(src(['lib', 'orders', 'order-status-axes.ts']), '未收款標記的 class 不見了').toMatch(
+      /unpaid:\s*'cap-unpaid'/,
+    );
+    expect(CSS, '未收款標記的 CSS 規則不見了').toMatch(
+      /\.cap-unpaid\s*\{[^}]*box-shadow:\s*inset\s+3px\s+0\s+0\s+var\(--destructive\)/,
+    );
+    // 🔴 **未收出貨那顆例外【不在 CSS 裡】,而那是刻意的** —— OD `-bmw-m:219` 是
+    //    「掛上去再用 `.cap.risk.m-unpaid{box-shadow:none}` 蓋掉」;我方 `isRisk` 分支**不套 mark**。
+    //    ⇒ 照 OD 寫會產生一條**永遠選不到元素的死 CSS**(片 A-1 試過、測試當場抓到)。
+    //    ⇒ 「未收出貨不吃 mark」由 `order-status-axes.test.ts` 在**元件端**釘,不在這裡。
+    expect(CSS, '死 CSS 復活:.cap-risk.cap-unpaid 選不到任何元素').not.toMatch(
+      /\.cap-risk\.cap-unpaid/,
     );
     expect(src(['components', 'ui', 'sidebar.tsx']), '側欄 1px 描邊不見了').toMatch(
       /shadow-\[0_0_0_1px_var\(--sidebar-border\)\]/,
+    );
+  });
+
+  it('🔴🔴 選中訂單的色塊:CSS 那半也要釘 —— DOM 那半綠不代表畫面上看得到', () => {
+    // 🔴🔴 **這一格是 V 窗 R1 的 F-2,而它的份量不在「少一格」,在【我知道這條原則、
+    //    在同一片裡對 `cap-unpaid` 執行了它(上一格的「兩端都要釘」)、而這個漏掉】。**
+    //
+    // **漏掉的世界長什麼樣**:把 `globals.css` 那條 `[data-selected]` 規則刪掉 ⇒
+    //   · `orders-table.test.tsx` 的 4 格 DOM 守門**照樣全綠**(屬性還在 DOM 上)
+    //   · 畫面回到「點開面板左邊沒反應」= 改版前的樣子
+    //   ⇒ **綠燈 + 功能不見,而那正是 Sean 點名的第一件事。**
+    //
+    // ⚠️ **釘「存在 + 關鍵值」,不釘整條規則字面** —— 釘整條會在任何微調時假紅。
+    //    兩個關鍵值各自承重:`inset` 少了會被 `.orders-grid th,td` 的 `overflow:hidden` 切掉;
+    //    `var(--primary)` 少了就不是 M 藍。
+    expect(CSS, '選中訂單的色塊規則不見了 ⇒ 點開面板左邊不會有任何變化').toMatch(
+      /\.orders-group\[data-selected\][^{]*\{[^}]*box-shadow:\s*inset\s+3px\s+0\s+0\s+var\(--primary\)/,
+    );
+    // 🔴 底色那半分開釘:只有左緣條而沒有底色時,多品項單的第 2、3 列**看不出屬於同一組**
+    //    (左緣條在每一格畫,但整組的「亮起來」是底色帶的)。
+    //
+    // 🔴🔴 **`var(--card)` 必須是【第一個參數】,而這一維是本片【刻意與 OD 相反】的承重設計。**
+    //    OD `-bmw-m:177` 寫的是 `color-mix(in oklab, var(--accent) 8%, var(--surface))`(強調色在前);
+    //    我方**故意對調**成 `var(--card) 92%, var(--primary)` —— **數學等值,降級行為相反**:
+    //    lightningcss 會自動產老瀏覽器降級版,而它挑的降級值 = **第一個參數**
+    //    ⇒ 照 OD 的順序寫,降級值就是純 `var(--primary)` ⇒ **整列變實心藍**。
+    //
+    //    ⚠️ **V 窗 R2 的 nit,而它守的是我自己的論證**:我第一版的 regex 是 `color-mix([^)]*var(--card)`,
+    //    **只要 `--card` 出現在裡面就過** ⇒ 把兩個參數對調回 OD 序:
+    //      · 這兩顆釘 **照樣綠**
+    //      · 正常瀏覽器 **照樣亮**
+    //      · 只有降級瀏覽器整列變實心藍 —— **而那台機器不在任何一條測試路徑上。**
+    //    🔴 **通則**:釘「存在 + 關鍵值」時,「關鍵值」要包含**你刻意選擇的那些維度**,
+    //       不只是看得到的視覺結果。**刻意的偏離沒被守住 = 那段論證遲早被還原掉。**
+    expect(CSS, '選中訂單的淺藍底不見了 ⇒ 多品項單看不出整組被選中').toMatch(
+      /\.orders-group\[data-selected\][^{]*\{[^}]*background:\s*color-mix\(\s*in oklab,\s*var\(--card\)/,
     );
   });
 

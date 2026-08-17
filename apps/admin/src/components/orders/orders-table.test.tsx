@@ -132,6 +132,14 @@ type OrderOverrides = {
   cancelledAt?: AdminOrderSummary['cancelledAt'];
   /** 2026-08-16 `Q-EMBED-1`:品項清單可能不完整 ⇒ 狀態欄改印「未知」。預設 false。 */
   itemsTruncated?: AdminOrderSummary['itemsTruncated'];
+  /**
+   * 片 A-1(2026-08-17):`data-selected` 要能驗「**只有被選中的那一組**帶屬性」
+   * ⇒ fixture 必須造得出**兩張 id 不同的單**。
+   * 🔴 沒有這個覆寫的話,兩張單的 `id` 都是預設的 `ord-1` ⇒ 兩組都會被選中
+   *    ⇒ 「另一組不帶」那條斷言**構造不出來**(同 `cancelledAt` 那條記過的形狀:
+   *    fixture 造不出反例時,斷言是恆真的)。
+   */
+  id?: AdminOrderSummary['id'];
 };
 
 function order(overrides: OrderOverrides): AdminOrderSummary {
@@ -620,9 +628,11 @@ describe('L3 片1 — 狀態八值欄(取代 A11b 兩組膠囊配色)', () => {
       return [...container.querySelectorAll('tbody tr td')][STATUS_CELL_INDEX]!.querySelector('span')!.className;
     };
 
-    expect(cls('unpaid')).toContain('shadow-[');
-    expect(cls('paid')).not.toContain('shadow-[');
-    // 兩者的底色相同 ⇒ 證明差別真的只在紅框那一項,不是整個換了配色。
+    // ⚠️ **2026-08-17 片 A-1:未收款標記的載體從 `shadow-[…]` 換成 class `cap-unpaid`**
+    //    (OD `-bmw-m:218` 的 inset 左緣紅槓)。**這格守的是「未收有標記、已收沒有」,與載體無關。**
+    expect(cls('unpaid')).toContain('cap-unpaid');
+    expect(cls('paid')).not.toContain('cap-unpaid');
+    // 兩者的底色相同 ⇒ 證明差別真的只在標記那一項,不是整個換了配色。
     expect(cls('unpaid')).toContain('cap-bl');
     expect(cls('paid')).toContain('cap-bl');
   });
@@ -1383,6 +1393,55 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
     expect(container.textContent).not.toContain('已取消');
   });
 
+  // ═══ 片 A-1(2026-08-17):選中的那張單要有色塊指示 ═══════════════════════════════
+  // Sean 逐字:「我在點擊訂單時候,跳出左邊側邊欄位後,**左邊訂單列會有色塊指示是在哪一個訂單**」。
+  // 🔴 **改版前這件事完全沒有**(掃 5 個 pattern、分母 238 支檔全 0),不是壞掉,是沒做。
+  //
+  // 🔴🔴 **這一族三格【必須同時存在】,少任何一格都會變成恆綠**:
+  //   ① 選中那組**有** `data-selected`      ← 只有這格 ⇒ 全部都掛也會過
+  //   ② 沒選中那組**沒有** `data-selected`  ← 只有這格 ⇒ 全部都不掛也會過
+  //   ③ 沒傳 prop 時**一組都不掛**          ← 擋「呼叫端漏傳」那條路（症狀是「看起來沒做」而非「壞掉」）
+  // ⚠️ **屬性要用「存不存在」判,不能用值判**:React 對 `undefined` 是不渲染屬性,
+  //    而 `data-selected={false}` 會渲染成 `data-selected="false"` ⇒ CSS 的 `[data-selected]` 全部命中。
+  describe('片 A-1 — 選中的那張單(`data-selected`)', () => {
+    const twoOrders = [
+      order({ id: 'o-1', lines: [line('l1', 1, 1000)] }),
+      order({ id: 'o-2', lines: [line('l2', 1, 2000)] }),
+    ];
+    const groups = (selectedOrderId?: string | null) => {
+      const { container } = render(
+        <OrdersTable buildPanelHref={panelHref} orders={twoOrders} selectedOrderId={selectedOrderId} />,
+      );
+      return [...container.querySelectorAll('tbody.orders-group')].map((g) =>
+        g.hasAttribute('data-selected'),
+      );
+    };
+
+    it('🔴 面板打開的那一組帶 `data-selected`,另一組不帶(兩個世界都餵)', () => {
+      expect(groups('o-1'), 'o-1 被選中時應只有第一組帶屬性').toEqual([true, false]);
+      // 🔴 反向再餵一次:換一張單,亮的那一組要跟著換 —— 只餵一邊的話「永遠亮第一組」也會過。
+      expect(groups('o-2'), 'o-2 被選中時應只有第二組帶屬性').toEqual([false, true]);
+    });
+
+    it('🔴 面板沒開(`null`)⇒ 一組都不帶 —— 那是正確狀態,不是沒生效', () => {
+      expect(groups(null)).toEqual([false, false]);
+    });
+
+    it('🔴 呼叫端漏傳 prop ⇒ 一組都不帶(預設 `null`,不得意外全亮)', () => {
+      expect(groups()).toEqual([false, false]);
+    });
+
+    it('🔴 屬性的【值】必須是空字串,不得是 "false" —— CSS 選的是存在性', () => {
+      const { container } = render(
+        <OrdersTable buildPanelHref={panelHref} orders={twoOrders} selectedOrderId='o-1' />,
+      );
+      const all = [...container.querySelectorAll('tbody.orders-group')];
+      expect(all[0]!.getAttribute('data-selected')).toBe('');
+      // 沒選中的那組:屬性**整個不存在**(不是 "false")
+      expect(all[1]!.getAttribute('data-selected')).toBeNull();
+    });
+  });
+
   it('🔴 空狀態只有一份 markup(不複製第二份)', () => {
     const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[]} />);
     expect((container.innerHTML.split('目前沒有符合條件的訂單').length - 1)).toBe(1);
@@ -1401,8 +1460,9 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       return container.querySelector('td.col-status span')!.className;
     };
 
-    expect(capsuleCls('unpaid')).toContain('shadow-[');
-    expect(capsuleCls('paid')).not.toContain('shadow-[');
+    // ⚠️ 2026-08-17 片 A-1:標記載體 `shadow-[…]` → class `cap-unpaid`(OD `-bmw-m:218`)。判準沒變。
+    expect(capsuleCls('unpaid')).toContain('cap-unpaid');
+    expect(capsuleCls('paid')).not.toContain('cap-unpaid');
   });
 
   it('空 lines 的佔位:仍渲染一列、品項欄顯示「—」(不是整段消失)', () => {

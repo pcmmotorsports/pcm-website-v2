@@ -176,9 +176,11 @@ describe('L1 — 收款軸(含照 OD 字面實作的已知落差)', () => {
     expect(view.payAxis).toBeNull(); // 矩陣外 ⇒ 兩軸都不適用
     expect(view.goodsAxis).toBeNull();
     expect(view.cancelled).toBe(false); // 退款不是取消:別把兩件事壓成同一個布林
-    // 🔴 反向釘死:舊字面與「去催款」的紅框都不得再出現在這條路上
+    // 🔴 反向釘死:舊字面與「去催款」的未收款標記都不得再出現在這條路上
+    // ⚠️ **2026-08-17 片 A-1:標記的載體從 `shadow-[…]`(Tailwind 任意值)換成 class `cap-unpaid`。**
+    //    這一格守的是「已退款的單不吃催款標記」,**與載體無關** ⇒ 只換要找的字串,語意一個字沒改。
     expect(view.label).not.toBe('未收未定');
-    expect(view.capsuleClass).not.toContain('shadow-[');
+    expect(view.capsuleClass).not.toContain('cap-unpaid');
   });
 
   // 🔴 本格與上一格**不重複**:上一格量的是 `orderStatusView`(使用者真的看到的那顆膠囊),
@@ -231,13 +233,15 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
     expect(toneOf('paid', goods)).toContain(tone);
   });
 
-  it('🔴 同一個貨品階段:未收與已收**底色相同**,差別只在紅框(這就是 Q27=B 的意思)', () => {
+  it('🔴 同一個貨品階段:未收與已收**底色相同**,差別只在未收款標記(這就是 Q27=B 的意思)', () => {
+    // ⚠️ **2026-08-17 片 A-1:標記從 `shadow-[…]` 換成 class `cap-unpaid`(OD `-bmw-m:218` 的左緣紅槓)。**
+    //    這一格守的是「**顏色由貨品軸決定、收款只加標記**」⇒ **與標記長什麼樣無關**,只換要找的字串。
     const paid = toneOf('paid', 'instock');
     const unpaid = toneOf('unpaid', 'instock');
-    expect(unpaid, '未收沒有紅框 ⇒ 風險看不出來').toContain('shadow-[');
-    expect(paid, '已收不該有紅框').not.toContain('shadow-[');
-    // 去掉紅框之後兩者應完全相同 ⇒ 證明顏色**不是**由收款軸決定的
-    expect(unpaid.replace(/\s*shadow-\[[^\]]*\]/, '')).toBe(paid);
+    expect(unpaid, '未收沒有標記 ⇒ 風險看不出來').toContain('cap-unpaid');
+    expect(paid, '已收不該有標記').not.toContain('cap-unpaid');
+    // 去掉標記之後兩者應完全相同 ⇒ 證明顏色**不是**由收款軸決定的
+    expect(unpaid.replace(/\s*cap-unpaid/, '')).toBe(paid);
   });
 
   it('🔴🔴 Q28=A 唯一例外:`未收出貨` 是**實心深紅**,不是「淡綠 + 紅框」', () => {
@@ -253,8 +257,14 @@ describe('L1 — 配色:貨品軸決定色、收款只加標記(Q27=B)', () => {
     // 🔴 冗餘訊號:白字 + 粗體是**獨立於色相**的兩個訊號(色盲 / 黑白列印仍跳得出來)
     expect(risk.capsuleClass).toContain('text-white');
     expect(risk.capsuleClass).toContain('font-bold');
-    // 🔴 不再疊紅框(紅上加紅看不出來)—— 這條擋「順手把 mark 也套上去」
-    expect(risk.capsuleClass, '實心深紅上再套紅框 = 紅上加紅').not.toContain('shadow-[');
+    // 🔴 不再疊紅槓(紅上加紅看不出來)—— 這條擋「順手把 mark 也套上去」。
+    // ⚠️ **2026-08-17 片 A-1:標記載體換成 class `cap-unpaid`,判準與方向【都沒變】。**
+    //    🔴 **我一度把這格改成「要求 `cap-unpaid` 存在」**(照 OD `-bmw-m:219` 的結構:掛上去再用
+    //       CSS 蓋掉)—— **測試當場證明那是錯的**:`isRisk` 分支根本不套 `mark`,
+    //       所以那條 CSS 永遠選不到東西。**照 OD 的結構寫會產生一條死 CSS,已全部撤回。**
+    //    ⇒ **我方「不掛」比 OD「掛了再蓋掉」少一個會壞的環節** —— 知情的結構偏離,寫在
+    //       `order-status-axes.ts` 的 `RISK_TONE` 上方。
+    expect(risk.capsuleClass, '實心深紅上再套紅槓 = 紅上加紅').not.toContain('cap-unpaid');
   });
 
   it('🔴 正向對照:`出貨完成`(已收)走一般綠,不吃例外那套', () => {
@@ -299,7 +309,8 @@ describe('L1 — 收款軸第三值的擴充性(Q22=A:預留、這輪不畫)', (
     //    同一個貨品階段下,兩個收款軸的 class 去掉標記之後**完全相同**
     //    ⇒ 顏色與收款軸零耦合 ⇒ 第三值回來時只需在 `ORDER_STATUS_LABEL` / `PAY_MARK` 各補一列。
     //    若哪天有人把顏色改成「看收款軸」,這格會紅,而那正是 Q27=B 被推翻的訊號。
-    const strip = (c: string) => c.replace(/\s*shadow-\[[^\]]*\]/, '');
+    // ⚠️ 2026-08-17 片 A-1:標記載體換成 class `cap-unpaid`,strip 的對象跟著換。**判準沒變。**
+    const strip = (c: string) => c.replace(/\s*cap-unpaid/, '');
     for (const goods of ['none', 'ordered', 'instock'] as const) {
       const paid = orderStatusView(order({ lines: [AT_STAGE[goods]], paymentStatus: 'paid' }));
       const unpaid = orderStatusView(order({ lines: [AT_STAGE[goods]], paymentStatus: 'unpaid' }));

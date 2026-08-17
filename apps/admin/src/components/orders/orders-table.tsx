@@ -166,9 +166,15 @@ const CELL = {
 function OrderGroup({
   order,
   buildPanelHref,
+  selectedOrderId,
 }: {
   order: AdminOrderSummary;
   buildPanelHref: (orderId: string) => string;
+  /**
+   * 現在被右側面板打開的那張單(= 網址上的 `panel=<id>`);沒開面板時是 `null`。
+   * 🔴 **只用來畫「這一組是選中的」那個色塊,不參與任何資料查詢或篩選。**
+   */
+  selectedOrderId: string | null;
 }) {
   const cancelled = order.cancelledAt !== null;
   // 品項展開;空陣列(理論不發生,create_order 保證 ≥1 line)→ 兜一列 null 佔位、顯示「—」。
@@ -198,7 +204,17 @@ function OrderGroup({
     //       並沒有這個缺口,那句話是錯的字面**(宣稱有追蹤而實際沒有,同 M3 那族)。
     //       正確狀態:條目本文已寫進 STOP 信、號碼由主視窗發(backlog 檔在別的 worktree、我不得直接改)。
     //       ⇒ 號一發下來就把編號補進本行;在那之前**不得**宣稱已有追蹤項。
-    <tbody className='orders-group' aria-label={`訂單 ${order.displayId}`}>
+    /* 🔴 **`data-selected` 只在「這一組就是面板打開的那張單」時【存在】,否則整個屬性不出現。**
+       CSS 選的是 `[data-selected]` 的**存在性**(`globals.css` 的 `.orders-group[data-selected]`)——
+       寫成 `data-selected={false}` 或 `'false'` 會讓**每一組都命中**,而畫面上「每一列都被選中」
+       看起來像壞掉、不像沒生效,**反而比較容易被發現**;但寫 `undefined` 才是對的:React 對
+       `undefined` 是**不渲染這個屬性**。
+       ⚠️ 面板沒開時 `selectedOrderId` 是 `null` ⇒ 恆不相等 ⇒ 一組都不亮。**那是正確狀態,不是沒生效。** */
+    <tbody
+      className='orders-group'
+      aria-label={`訂單 ${order.displayId}`}
+      data-selected={order.id === selectedOrderId ? '' : undefined}
+    >
       {rows.map((line, i) => {
         const first = i === 0;
         // R2 F5:`formatOrderItemVehicle` 原本在同一列被呼叫兩次(一次判 `data-empty`、一次印值)。
@@ -489,9 +505,21 @@ function OrderGroup({
 export function OrdersTable({
   orders,
   buildPanelHref,
+  selectedOrderId = null,
   density = ORDER_DENSITY_DEFAULT,
 }: {
   orders: AdminOrderSummary[];
+  /**
+   * 片 A-1:面板打開的是哪一張單 —— **拿來畫「選中色塊」,別無他用**。
+   * Sean 2026-08-17 逐字:「我在點擊訂單時候,跳出左邊側邊欄位後,**左邊訂單列會有色塊指示是在哪一個訂單**」。
+   *
+   * 🔴 **值的唯一來源是網址上的 `panel=<id>`**(`readOpenPanelOrderId`),呼叫端已經在讀它 ——
+   *    本 prop **沒有新增任何查詢、投影或狀態**,只是把一個原本被丟掉的值接上畫面。
+   * ⚠️ **預設 `null` 是為了呼叫端漏傳時「不亮任何一組」**,不是為了讓它可以不傳:
+   *    漏傳的症狀是「點開面板左邊沒反應」= 回到改版前的樣子,**看起來像沒做,而不是像壞掉**
+   *    ⇒ 守門在 `orders-table.test.tsx`(選中那組有 `data-selected`、其餘沒有;兩個世界都餵)。
+   */
+  selectedOrderId?: string | null;
   /**
    * L3 片4:列高與字級三檔(Sean 拍 Q3=A 走 URL 參數)。
    * 🔴 **本檔只把它標成 `data-den`,三檔的實際數值全在 `globals.css`** ——
@@ -579,7 +607,12 @@ export function OrdersTable({
           </tr>
         </thead>
         {orders.map((order) => (
-          <OrderGroup key={order.id} order={order} buildPanelHref={buildPanelHref} />
+          <OrderGroup
+            key={order.id}
+            order={order}
+            buildPanelHref={buildPanelHref}
+            selectedOrderId={selectedOrderId}
+          />
         ))}
       </table>
     </div>
