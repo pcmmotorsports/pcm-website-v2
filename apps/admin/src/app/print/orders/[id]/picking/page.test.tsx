@@ -549,6 +549,36 @@ describe('#10 片1 本次應揀合計', () => {
     expect(textOf((await renderPage()).container)).not.toContain('**');
   });
 
+  // 🔴🔴 **同一族的第二個出口:表情符號。** 上面那格守的是 markdown 標記,
+  //    而 2026-08-18 的紙上文字審查掃出**另一個內部符號漏到紙上** ——
+  //    合計那句原本開頭帶一個 `🔴`(我們寫註解用的嚴重度標記)。
+  //    ⚠️ 倉庫是**單色印表機** ⇒ 印出來是一顆沒有意義的黑點;字型是系統堆疊
+  //       ⇒ 換一台機器可能是一個**缺字框**。兩種都不傳達任何東西給揀貨的人。
+  //    🔴 **禁的是【範圍】不是白名單** —— 白名單版在本 repo 被穿透過兩次
+  //       (`shipping-doc` 那片的祈使形白名單)。這裡禁 `U+1F300–U+1FAFF` 那一段,
+  //       而 `✓`(`U+2713`,勾選欄的欄名)**不在那個範圍裡** ⇒ 不必開例外、也就沒有例外可以被鑽。
+  it('🔴 紙上不得出現表情符號(內部嚴重度標記漏到給倉庫的紙上)', async () => {
+    const PICTOGRAPHS = /[\u{1F300}-\u{1FAFF}]/u;
+    for (const over of [
+      { items: MIXED, itemsTruncated: true },
+      { items: MIXED },
+      { items: ALL_UNKNOWN },
+      { items: [] },
+      { cancelledAt: '2026-08-16T03:00:00+00:00' },
+    ]) {
+      mocks.findAdminOrderDetail.mockResolvedValue(
+        detail(over as unknown as Partial<AdminOrderDetail>),
+      );
+      const t = textOf((await renderPage()).container);
+      expect(PICTOGRAPHS.test(t), `這一態的紙上有表情符號:${JSON.stringify(over)}`).toBe(false);
+    }
+    // 🔴 正向對照:證明這支正則抓得到東西 —— 沒有它,把 regex 寫壞成永不命中也會全綠。
+    expect(PICTOGRAPHS.test('清單沒載完')).toBe(false);
+    expect(PICTOGRAPHS.test('🔴 清單沒載完')).toBe(true);
+    // 🔴 而 `✓`(勾選欄名)必須【不被誤傷】—— 否則下一個人會來加白名單。
+    expect(PICTOGRAPHS.test('✓')).toBe(false);
+  });
+
   it('🔴🔴 清單沒載完 ⇒ 合計旁邊不得說「全部勾完才算揀完」(那句話會說謊)', async () => {
     // 🔴 codex 對抗審查 2026-08-16 抓的,而**我第一版真的印了它**。
     //    itemsTruncated = 有幾列根本沒被載進來 ⇒ 它們不在合計裡

@@ -407,7 +407,14 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                        **而真資料是「有品項、但數量不知道」** —— 那是 fixture 沒有的第三種。 */}
                 {detail.itemsTruncated ? (
                   <span className='text-sm font-medium text-amber-800'>
-                    🔴 清單沒載完 —— 這個數字不是全部,不要拿它當揀完的依據。
+                    {/* 🔴 **這句原本開頭帶一個 `🔴`,而那是【我們寫註解用的內部符號漏到紙上】**
+                        (2026-08-18 文字審查掃出來的:掃渲染輸出的表情符號 ⇒ 3 種,
+                        `✓` 是欄名合理,`🔴` 兩份 fixture 命中、都在 B 態)。
+                        ⚠️ 倉庫是**單色印表機** ⇒ 它印出來是**一顆沒有意義的黑點**;
+                        而本檔的字型是系統堆疊(見 `page-measure.test.tsx` 檔頭)
+                        ⇒ **換一台機器可能是一個缺字框**。兩種都不傳達任何東西給揀貨的人。
+                        ⇒ 拿掉。**句子本身一個字都沒改。** */}
+                    清單沒載完 —— 這個數字不是全部,不要拿它當揀完的依據。
                   </span>
                 ) : pickableCount === 0 ? (
                   <span className='text-sm font-medium text-amber-800'>
