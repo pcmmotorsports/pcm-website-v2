@@ -1,9 +1,25 @@
-# 2026-08-17 四綠 harness · vitest 完整輸出 24 支
+# 2026-08-17 四綠 harness · vitest 完整輸出
+
+> 🔴🔴 **目錄名寫 `vitest-red-runs`,而本目錄【不只有紅的】。**
+> **落筆當下實際內容(2026-08-17 夜 T 窗當場數的):**
+> ```
+> 總數  ls -1 *.txt | wc -l                          ⇒ 25
+> 紅     逐檔 grep -cE 'Test Files.*failed'           ⇒ 7
+> 綠     同上取零命中者                                ⇒ 18   ← 🔴 是紅的 2.5 倍
+> 帶 RUN-CONTEXT（併發數）  grep -l 並行vitest行程數  ⇒ 1（只有 21:41 那發）
+> ```
+> ⚠️ **為什麼不改目錄名**:已有多處引用它,改名會全部斷掉 ⇒ **改成把落差寫在這裡**。
+> 🔴 **這一行存在的理由是一次真實的誤導**:T 窗要分析 `#618` 隨機紅時,
+> **照目錄名假設「這裡面全是紅的 ⇒ 我沒有對照組」**,差點照那個前提寫「資料不足」——
+> **打開來數才發現對照組一直都在。** 教訓全文在
+> `docs/patterns/traps-inbox/T-20260817.md`「容器的【名字】是一個對內容的宣稱」。
+> ⇒ **要對本目錄的內容下任何宣稱之前,先跑上面那四條數法。**
 
 ## 1 這是什麼
 
 `scripts/dev-four-greens.sh` 在 2026-08-17 當天跑過的**每一發** vitest 的**完整** stdout,
-24 支(數法 `ls docs/probes/2026-08-17-vitest-red-runs/*.txt | wc -l` ⇒ 落筆當下 `24`),
+**落筆當下 25 支**(數法 `ls docs/probes/2026-08-17-vitest-red-runs/*.txt | wc -l`;
+原文寫 24,T 窗 21:5x 又搶救了一支【帶 `RUN-CONTEXT`】的紅 ⇒ 現為 25),
 共 3,349 行(`cat docs/probes/2026-08-17-vitest-red-runs/*.txt | wc -l`)。
 檔名 = 當時的 run 目錄名 `<merge hash>-<時點>-<PID>`,與 `logs/four-greens/<同名>/` 一一對應。
 

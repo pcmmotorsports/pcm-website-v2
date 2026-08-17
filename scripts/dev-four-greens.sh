@@ -148,7 +148,17 @@ four_greens() {
   #    「開始」那個是兩分鐘前(typecheck 之前)、「結束」那個是我的 vitest 已經跑完之後
   #    ⇒ 兩個都**不在** vitest 真正跑的那段時間裡。實測 2026-08-17 19:10 那一發:開始 0 / 結束 0。
   VITEST_PRE="$(count_vitest)"
+  # 🔴 標記檔只在【真的在跑 vitest】那一段存在 —— 開在這一行之前、關在之後。
+  #    trap 是為了 Ctrl-C；正常路徑靠下一行的 vitest_mark_end。
+  # 🔴 codex R1 F3:訊號 trap 只刪檔【不退出】的話,收到 TERM 之後腳本會繼續跑,
+  #    而標記已經沒了 ⇒ 「還在跑卻沒有標記」。⇒ 訊號路徑清完要把原訊號再送一次。
+  trap 'vitest_mark_end' EXIT
+  trap 'vitest_mark_end; trap - INT; kill -INT $$' INT
+  trap 'vitest_mark_end; trap - TERM; kill -TERM $$' TERM
+  vitest_mark_begin
   one 60 vitest    'vitest     (pnpm test = vitest run)'       pnpm test                        || vi=$?
+  vitest_mark_end
+  trap - EXIT INT TERM
 
   echo
   echo "════════ 總表(這四個 rc 各屬各自的命令)════════"
@@ -158,6 +168,14 @@ four_greens() {
   # 🔴 而它存在的理由是:那行路徑很容易在 grep / 複製回報時被濾掉,而它是唯一能查出「誰紅」的線。
   if ! verdict "$tc" "$li" "$bu" "$vi"; then
     echo
+    # 🔴 紅的時候【第一眼】就要看到並行數(V 窗:它原本只在 RUN-CONTEXT 檔尾,
+    #    而看紅的人先看的是失敗清單、看完就去改 code 了)。
+    #    `#618` 那族隨機紅的判別靠這個數,放在這裡的成本是三行,漏掉的成本是一筆樣本。
+    # 🔴 codex R1 F5:「結束」只取樣【一次】—— 印在畫面上的那個數與存進 RUN-CONTEXT 的
+    #    必須是同一個值,否則別窗在這兩次取樣之間起停一發,螢幕與檔案就互相矛盾,
+    #    而那是最難查的一種:兩邊都「有紀錄」。
+    VITEST_END="$(count_vitest)"
+    concurrency_note "$VITEST_START" "$VITEST_PRE" "$VITEST_END"
     echo "🔴 有項目非 0。四項的【尾 N 行】都在:$(logdir_for "$MODE")"
     echo "   尾行數是裁過的,失敗的真正原因【可能不在印出來的那幾行裡】⇒ 開全檔。"
     echo "   四項各自的 log:"
@@ -165,7 +183,8 @@ four_greens() {
   fi
   dr=0
   drift_report "$FP_START" "$(tree_fingerprint)" "$(logdir_for "$MODE")" || dr=$?
-  run_context "$T_START" "$VITEST_START" "$VITEST_PRE" "$(count_vitest)" "$(logdir_for "$MODE")"
+  [ -n "${VITEST_END:-}" ] || VITEST_END="$(count_vitest)"   # 全綠那條路沒經過上面 ⇒ 這裡才取樣
+  run_context "$T_START" "$VITEST_START" "$VITEST_PRE" "$VITEST_END" "$(logdir_for "$MODE")"
   # 🔴 DRIFT 要能【擋住下一個動作】,否則它什麼也買不到(V 窗 R3-3)。
   #    在此之前:警告印在會滾走的輸出裡、檔落在沒人查的目錄裡,而收割照收、四綠照綠 ——
   #    **沒有任何一條判準會因為 DRIFT 存在而停。** 那不是品質問題,是它現在買不到東西。
@@ -201,14 +220,23 @@ run_context() {
     *) echo "🔴 run_context:目錄必須是絕對路徑,收到「$rx_dir」(參數錯位?)" >&2; return 2 ;;
   esac
   mkdir -p "$rx_dir"
-  printf '開始 %s\n結束 %s\n並行vitest行程數 開始=%s vitest起跑前=%s 結束=%s\n' \
+  printf '開始 %s\n結束 %s\n其他窗四綠vitest並行數(不含自己) 開始=%s vitest起跑前=%s 結束=%s\n' \
     "$rx_start" "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$rx_v0" "$rx_vpre" "$rx_v1" > "$rx_dir/RUN-CONTEXT"
   echo
   echo "───── 這一發跑在什麼條件下(給三週後查因果的人)─────"
   echo "起訖              : $rx_start → $(date '+%Y-%m-%d %H:%M:%S %Z')"
-  echo "並行 vitest 行程數: 開始 $rx_v0 / 【我的 vitest 起跑前 $rx_vpre】/ 結束 $rx_v1"
+  echo "其他窗四綠 vitest 並行數(不含自己): 開始 $rx_v0 / 【我的 vitest 起跑前 $rx_vpre】/ 結束 $rx_v1"
   echo "                    🔴 中間那個才是判「我的 vitest 跟誰擠在一起」的那個數。"
   echo "                    (痕跡同時落在 $rx_dir/RUN-CONTEXT)"
+}
+
+# 紅的時候印在最前面的那三行。抽成函式【只為了讓 selftest 餵得到它】。
+# 🔴 它刻意【不下結論】—— 不寫「所以是負載造成的」。`#618` 現在只有 1 筆帶並行數的樣本,
+#    而一筆不是分佈。這裡只把數字擺到眼前,判斷留給累積夠多樣本之後。
+concurrency_note() {
+  echo "🔴 這一發跑的時候,【還有幾個窗在跑四綠的 vitest】(不含自己):開始 $1 / 【我起跑前 $2】/ 結束 $3"
+  echo "   中間那個是判 #618 那族隨機紅的那個數。若它 >0,把這一發連同 RUN-CONTEXT 存進 #618。"
+  echo
 }
 
 # 外生量:當下有幾個行程的【完整命令列】命中 <pattern>。
@@ -216,7 +244,69 @@ run_context() {
 #    ⇒ 只能 `| wc -l`。這裡接管線是對的:我要的就是 `wc` 的輸出,不是 `pgrep` 的 rc。
 # 🔴 pattern 寫成 `[v]itest` 這種括號形,免得 pgrep 命中【包著它的那個 shell】自己。
 count_matching() { pgrep -f "$1" 2>/dev/null | wc -l | tr -d ' '; }
-count_vitest() { count_matching '[v]itest'; }
+# 🔴🔴 pattern 必須認【行程的身分】,不能認「命令列裡提到那個字」。
+#    2026-08-17 22:0x 實測,本檔第一版用 `[v]itest` ⇒ **量到的不是 vitest 在跑,是誰的命令列提到 vitest**:
+#      真的有 vitest 在跑時   舊尺 23~25   新尺 2   ← 新尺 = 真的 run 數（兩個窗各一）
+#      沒有 vitest 在跑時     舊尺 ≥3      新尺 0   ← 舊尺的「地板」來自別窗的 shell 包裝
+#    舊尺撈到的假命中實例(當場 `pgrep -fl` 列出來的):
+#      · 別窗的 `/bin/zsh -c … grep -E "^typecheck|^lint|^build|^vitest…"`  ← grep 的 pattern 裡有那個字
+#      · 別窗一支叫 `vitest-sampler.sh` 的腳本                              ← 檔名裡有那個字
+#    🔴 `[v]itest` 那個括號技巧**只避開 pgrep/grep 自己**,避不開**別人命令列裡的那個字**。
+#    ⇒ 認 `vitest.mjs`(runner 的進入點:`node …/vitest/vitest.mjs run`)。
+#    ⚠️ 它數的是【幾個 run】不是【幾個行程】—— worker(`vitest@4.x` 那些)刻意不算,
+#       當天實測一個 run 帶 ~9 個 worker,把 worker 算進來會讓這個數跟著 CPU 數浮動。
+# ── 並行 vitest run 數:**不從 `ps` 數**(2026-08-17 夜,兩把字串尺連續被打掉之後的第三版)──
+#
+# 🔴 為什麼放棄字串比對(兩次實測,兩次都是我自己的尺):
+#   第一版 `pgrep -f '[v]itest'`      ⇒ 量到的是「誰的命令列提到 vitest」
+#     假命中:別窗 `grep -E "…|^vitest…"` 的 pattern、一支叫 `vitest-sampler.sh` 的腳本
+#   第二版 `pgrep -f '[v]itest\.mjs'` ⇒ **仍然自我命中**。I 窗當場量到【零個真 run 而它讀到 5】:
+#     3 個是它自己的 zsh(它在同一條命令裡 echo 了一段含該字面的解釋文字)
+#     2 個是別窗的 codex(**prompt 文字裡有那個字面**)
+#     🔴 而我自己也做過同一件事:我請 codex 審這把尺,prompt 裡就寫著那個字面。
+#   ⇒ **`[x]` 那個括號技巧只避開 `grep`/`pgrep` 自己,避不開「有人正在談論它」。**
+#   🔴🔴 **這把尺的地板高度 = 現在有多少人正在打字提到它**,而**討論強度在事故當天最高**
+#        ⇒ 最糟的一種噪音:它與我們調查這件事的力度正相關。
+#   📎 I 窗抽的判別句:**命令列是【任何人都能寫進去的字串】,而檔案系統不是。**
+#      **凡是從 `ps`/`pgrep` 的命令列數東西,你數的是「誰提到過它」,不是「它在不在跑」。**
+#
+# ⇒ 改成:**跑 vitest 的那一段,自己在 logs/ 開一支以 PID 命名的標記檔,跑完刪掉。**
+#   那不是字串比對,是**只有真的有那一發 run 才會存在的東西**。
+#
+# ⚠️ **射程限定(這一版換了一種瞎):只數【走這支腳本】的 run。**
+#    別窗手打 `npx vitest run …` 不會有標記檔 ⇒ **算不到**。
+#    ⇒ 它答的是「**還有幾個窗在跑四綠**」,不是「機器上總共有幾發 vitest」。**欄位名要照這個寫。**
+VITEST_MARKDIR="$(pwd)/logs/four-greens/.running"
+
+# 兩道防呆一起上(缺一就會變成另一把騙人的尺):
+#   ① `trap` 刪自己那支 —— 正常結束/Ctrl-C 都清掉
+#   ② 讀的時候用 `kill -0` 驗那個 PID **還活著** —— 🔴 `trap` 對 SIGKILL 與斷電無效,
+#      沒有這一道,一次被 kill 的 run 會讓這個數**永遠多算 1**
+# 🔴 標記檔的【內容】是那個 PID 的行程啟動時間(codex R1 F1/F2)——
+#    光有 PID 不夠:PID 會被作業系統回收,一支沒清掉的死標記若號碼被別的無關行程拿到,
+#    `kill -0` 會成功 ⇒ **這個數會一直多算 1,而它看起來完全正常**。
+#    ⇒ 讀的時候比對「PID 還在 **而且** 啟動時間一樣」,兩者都對才算。
+proc_start_of() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' ' | sed 's/^ *//;s/ *$//'; }
+vitest_mark_begin() { mkdir -p "$VITEST_MARKDIR"; proc_start_of "$$" > "$VITEST_MARKDIR/$$"; }
+vitest_mark_end()   { rm -f "$VITEST_MARKDIR/$$"; }
+
+# 🔴 欄位語意寫在函式名裡,不留給讀的人猜:**不含自己**。
+count_other_vitest_runs() {
+  n=0
+  for f in "$VITEST_MARKDIR"/*; do
+    [ -e "$f" ] || continue                      # glob 沒命中時的字面
+    pid="$(basename "$f")"
+    [ "$pid" = "$$" ] && continue                # 不算自己
+    # 🔴 兩個條件都要:行程還在(ps 撈得到)**而且**啟動時間與當初記的一致(擋 PID 回收)
+    if [ "$(proc_start_of "$pid")" = "$(cat "$f" 2>/dev/null)" ] && [ -n "$(proc_start_of "$pid")" ]; then
+      n=$((n+1))
+    else
+      rm -f "$f"                                 # 死了、或那個號碼被別人拿去用了 ⇒ 清掉
+    fi
+  done
+  echo "$n"
+}
+count_vitest() { count_other_vitest_runs; }
 
 # ── DRIFT:這一發【期間】樹有沒有被動過 ────────────────────────────────────
 # 病:目錄名的 hash 是【跑之前】取的,而後段項目量的是【當下】的樹 ⇒ 兩個世界零痕跡:
@@ -318,6 +408,10 @@ summary_table() {
 #    ⇒ 補這個格會製造它要防的東西。**列出來,不假裝已守。**
 selftest() {
   pass=0; fail=0
+  # four_greens() 的函式體,多個「釘呼叫點」的格子共用(格19/格24-b/格25-j/k)。
+  # 🔴 在最前面算好 —— 它原本定義在格19 旁邊,而後來新增的格子在它【上面】⇒ 那幾格會拿到空字串
+  #    ⇒ grep -c 回 0 ⇒ 假紅。(改這裡的時候撞到過一次。)
+  fg_body="$(sed -n '/^four_greens() {$/,/^}$/p' "$SELF")"
   ck() { if [ "$2" = "$3" ]; then pass=$((pass+1)); printf 'PASS  %s\n' "$1";
          else fail=$((fail+1)); printf 'FAIL  %s  得到「%s」預期「%s」\n' "$1" "$2" "$3"; fi; }
 
@@ -500,7 +594,6 @@ selftest() {
   #      不能出現任何【第一欄就是 `}`】的行,否則範圍會提早收掉 ⇒ 假紅。落筆當下成立,
   #      數法 `sed -n '/^four_greens() {$/,/^}$/p' scripts/dev-four-greens.sh | grep -c '^}'` ⇒ 1(只有結尾那個)。
   anchor='^  drift_'"report \"\$FP_START\""
-  fg_body="$(sed -n '/^four_greens() {$/,/^}$/p' "$SELF")"
   r=$(printf '%s\n' "$fg_body" | grep -c "$anchor" || true)
   ck "格19 呼叫點在 four_greens() 函式體【之內】(射程=原始碼行,不證它執行過)" "$r" "1"
   # 格19-b:DRIFT 的 rc 有沒有被【接起來】—— drift_report 自己回 3(格18-c 守),
@@ -527,6 +620,64 @@ selftest() {
   ck "格21 [負向對照] 它結束之後 ⇒ 同一把尺要回到 0(證格20 不是恆 1)" \
      "$(count_matching "$probe_marker")" "0"
 
+  # ── 格25 系列:並行數量具(標記檔版)。四個世界,一個也不能少 ──────────────
+  # 🔴 為什麼整組重寫:前兩版是字串尺,兩次都自我命中(成因寫在 count_vitest 上方)。
+  #    這一版數的是**檔案**,所以它的病也換了 —— 下面四格各守一種。
+  #    🔴 靶全部是【我自己造的假標記檔】,放在自己造的暫存目錄,不碰真的 .running/。
+  mk_tmp="$(mktemp -d)"
+  mk_saved="$VITEST_MARKDIR"; VITEST_MARKDIR="$mk_tmp/running"; mkdir -p "$VITEST_MARKDIR"
+
+  # 格25-a [地板]:沒有任何 run ⇒ 必須是 0。**這是前兩版最大的病(它們有地板)。**
+  ck "格25-a 零個 run ⇒ 並行數必須是 0(舊版字串尺在這裡有地板)" "$(count_vitest)" "0"
+
+  # 格25-b [單位]:兩發【獨立】的 run ⇒ 必須是 2,不是 1、也不是 worker 數。
+  #   🔴 這一格是為了解掉一個真實的分歧:同一時刻我報 2、I 窗報 1,而那是字串尺量的
+  #      ⇒ 誰都不知道那是「兩發 run」還是「一發兩個命中」。數檔案就沒有這個歧義。
+  sh -c 'sleep 6' & mk_p1=$!
+  sh -c 'sleep 6' & mk_p2=$!
+  proc_start_of "$mk_p1" > "$VITEST_MARKDIR/$mk_p1"
+  proc_start_of "$mk_p2" > "$VITEST_MARKDIR/$mk_p2"
+  ck "格25-b 兩發獨立 run ⇒ 並行數必須是 2(單位是 run 不是行程)" "$(count_vitest)" "2"
+
+  # 格25-c [不算自己]:欄位語意是「不含自己」⇒ 自己那支標記檔不得被算進去。
+  proc_start_of "$$" > "$VITEST_MARKDIR/$$"
+  ck "格25-c 自己那支標記檔不得算進去(欄位語意=不含自己)" "$(count_vitest)" "2"
+  rm -f "$VITEST_MARKDIR/$$"
+
+  # 格25-d [死掉的不算]:🔴 trap 對 SIGKILL 無效 ⇒ 沒有這一道,一次被 kill 的 run
+  #   會讓這個數【永遠多算 1】。殺掉其中一個 ⇒ 必須掉回 1,而且那支檔要被順手清掉。
+  kill "$mk_p1" 2>/dev/null || true
+  wait "$mk_p1" 2>/dev/null || true
+  ck "格25-d PID 已死的標記檔不得算進去(trap 對 SIGKILL 無效)" "$(count_vitest)" "1"
+  [ -e "$VITEST_MARKDIR/$mk_p1" ] && r=left || r=cleaned
+  ck "格25-e 而且那支死掉的標記檔要被順手清掉(否則目錄會長大)" "$r" "cleaned"
+  # 格25-f [PID 回收,codex R1 F1]:標記檔的號碼指到一個【活著但無關】的行程 ⇒ 不得算。
+  #   構造:拿還活著的 mk_p2 當號碼,但把內容寫成一個【不同的】啟動時間(模擬號碼被回收)。
+  #   🔴 沒有這一格,光靠 kill -0 的版本會把它算進去,而那個多算【永遠不會消失】。
+  echo 'Thu Jan  1 00:00:00 1970' > "$VITEST_MARKDIR/$mk_p2"
+  ck "格25-f PID 活著但啟動時間不符(號碼被回收)⇒ 不得算進去" "$(count_vitest)" "0"
+  kill "$mk_p2" 2>/dev/null || true; wait "$mk_p2" 2>/dev/null || true
+
+  # 格25-g [lifecycle,codex R1 F7]:上面五格全是【手工造檔】⇒ 把 vitest_mark_begin/end
+  #   整個刪掉,那五格照樣全綠。這一格真的呼叫那兩支函式,驗檔案出現、然後消失。
+  vitest_mark_begin
+  [ -e "$VITEST_MARKDIR/$$" ] && r=yes || r=no
+  ck "格25-g vitest_mark_begin 真的開出標記檔" "$r" "yes"
+  mk_content="$(cat "$VITEST_MARKDIR/$$" 2>/dev/null)"
+  [ -n "$mk_content" ] && r=nonempty || r=empty
+  ck "格25-h 標記檔內容不得是空的(空的話 PID 回收那道就形同虛設)" "$r" "nonempty"
+  vitest_mark_end
+  [ -e "$VITEST_MARKDIR/$$" ] && r=left || r=gone
+  ck "格25-i vitest_mark_end 真的把它刪掉" "$r" "gone"
+
+  VITEST_MARKDIR="$mk_saved"; rm -rf "$mk_tmp"
+  # 格25-j [呼叫點,codex R1 F7 的另一半]:那兩支函式有沒有真的掛在 vitest 那一項前後。
+  #   射程同格19/格24-b:只證原始碼那兩行還在 four_greens() 裡。
+  r=$(printf '%s\n' "$fg_body" | grep -c '^  vitest_mark_begin$' || true)
+  ck "格25-j vitest_mark_begin 掛在 four_greens 裡(射程=原始碼行)" "$r" "1"
+  r=$(printf '%s\n' "$fg_body" | grep -c '^  vitest_mark_end$' || true)
+  ck "格25-k vitest_mark_end 也掛在裡面(射程=原始碼行)" "$r" "1"
+
   # 格22:one() 真的把【完整輸出】留下來 —— 不是只留尾 N 行。
   #   餵一個印 8 行的命令、尾巴只要 2 行 ⇒ 完整檔必須有 8 行。
   one 2 selftest-full '自測-完整 log' sh -c 'for i in 1 2 3 4 5 6 7 8; do echo line$i; done' \
@@ -552,6 +703,18 @@ selftest() {
   #    這正是「突變 harness 要有後置檢查:上一發還原乾淨了嗎」那條的最小版本。
   rm -rf dfg-should-never-exist
   ck "格23-c 而且不得在 repo 裡留下任何東西" "$r" "no"
+
+  # 格24 系列:紅的時候那三行要真的帶【三個】並行數,而且要接在 verdict 失敗那條路上。
+  #   餵構造好的值,證它三個位置各自透傳(位置對調會把中間那個最有用的數印到別的位置去)。
+  cn_out="$(concurrency_note 11 22 33)"
+  # ⚠️ pattern 別跟著抄空白:實際輸出是「起跑前 22】」(後面接的是全形括號不是空白),
+  #    第一版寫成 `'起跑前 22 '` ⇒ 這一格當場紅。**那次紅是對的,紅的是我的 pattern。**
+  case "$cn_out" in *'開始 11 '*'起跑前 22'*'結束 33'*) r=ok ;; *) r=bad ;; esac
+  ck "格24 concurrency_note 三個並行數各自透傳(順序不得對調)" "$r" "ok"
+  # 格24-b:釘住它掛在【verdict 失敗】那一條路上 —— 只印在 RUN-CONTEXT 檔尾等於沒解決 V 窗那條。
+  #   射程同格19:只證原始碼那一行還在 four_greens() 的失敗分支裡。
+  r=$(printf '%s\n' "$fg_body" | grep -c 'concurrency_note "\$VITEST_START"' || true)
+  ck "格24-b 那三行掛在 verdict 失敗分支裡(射程=原始碼行)" "$r" "1"
 
   printf '\n合計  PASS=%s  FAIL=%s\n' "$pass" "$fail"
   [ "$fail" = "0" ]
