@@ -5979,14 +5979,44 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 ### #231. 🧹 3DS-4 sweeper prod 上線前硬前置(Q4-B 跨路徑 skip / 告警 channel / heartbeat / 轉人工流程)
 
 - **狀態:** ⏳ 待執行(`TAPPAY_3DS_ENABLED` flag-on 前必 land、master plan §9 已 amend)
+  🔴 **2026-08-17 逐項重量,四項【不是同一個狀態】,不要整條當成待執行也不要整條關掉**:
+
+  | 項 | 現況 | 依據(當場 `git grep`,量具已雙向驗過:正向 `needs_manual_review` 全樹 57 / 反向假字串 0) |
+  |---|---|---|
+  | ① Q4-B 跨路徑 skip | 🔴 **未實作** | `git grep -ln 'last_settle_attempt_at'` ⇒ **3 檔,而三檔【全部是文件】**(本檔 + 兩支 plan)⇒ **零 code、零 migration** |
+  | ② 真 alert channel | ✅ **已實作** | `apps/storefront/src/app/api/cron/anomaly-alert/route.ts` 有 LINE / Email 兩管道。⚠️ 而**它要不要真的送**取決於 `ANOMALY_ALERT_ENABLED` 與管道密鑰 —— **Sean 2026-08-17 回報該 flag 為 `true`**,🔴 **那是【他回報】不是我方看 Vercel 面板量的**(該檔 `:26` 自己也寫著「那是別人量的,我沒看 Vercel 設定畫面」) |
+  | ③ cron 靜默死偵測 heartbeat | 🟡 **code 已落地,正式庫未生效** | 見下方 ③ 那一行 |
+  | ④ 轉人工結案流程 / 後台 UI | 🔴 **未實作** | `git grep -ln 'needs_manual_review' -- apps/admin` ⇒ **0**(全樹 57 命中都在別處)⇒ **admin 端沒有任何 UI** |
+
+  ⇒ 🔴 **`#231` 整條【不能關】** —— ① 與 ④ 零實作。本次只把 ③ 那一格的狀態講準。
 - **優先級:** 🟠 中(Phase I 零真流量 benign;Phase II 開 prod 真刷卡前升為硬前置)
 - **問題:**
-  - 3DS-4 sweeper Phase I 落地降級版:① recently-settled skip 僅 in-memory 單 run 去重(Q4=A)、**不**覆蓋 callback/webhook/sweeper 跨路徑 Record 放大;② 告警僅 `console.error` + durable `needs_manual_review` 旗標、**無真 alert channel**;③ 無 cron 靜默死偵測(heartbeat);④ 轉人工僅 durable 旗標、無人工結案流程/後台 UI。
+  - 🔴 **時態:本段描述的是【立案當下(2026-06-15)】的降級版,不是現況**(2026-08-17 標明;現況逐項見上方「狀態」那張表)。
+    3DS-4 sweeper Phase I 落地降級版:① recently-settled skip 僅 in-memory 單 run 去重(Q4=A)、**不**覆蓋 callback/webhook/sweeper 跨路徑 Record 放大;② 告警僅 `console.error` + durable `needs_manual_review` 旗標、**無真 alert channel**;③ 無 cron 靜默死偵測(heartbeat);④ 轉人工僅 durable 旗標、無人工結案流程/後台 UI。
+    ⚠️ **其中 ② 與 ③ 兩句已經過期**(② 管道已實作、③ code 已落地而正式庫未生效)——
+    **保留原句是為了留住「這條當初為什麼立案」**;不標時態的話,它會被讀成「今天還是這樣」。
+    🔴 而 ① 與 ④ 兩句**至今仍然成立**(2026-08-17 重量:`last_settle_attempt_at` 零 code、`needs_manual_review` 在 `apps/admin` 零命中)。
   - Phase I 零真刷卡 → 撞三路機率≈0、無告警對象 → 降級可接受;但 Phase II 開 prod 真流量後,缺這些 = 對帳放大打爆 Record 額度 / 失敗單靜默卡死無人知 / sweeper 死了沒人發現。
 - **預期解法:**
   - ① Q4-B:`payment_charge_attempts.last_settle_attempt_at` 欄 + callback/webhook/sweeper 三路 settle 前查窗 skip(回改已上線 3DS-2/3)。
   - ② 告警 channel:notify×5 全失敗 / `needs_manual_review` 達標 / Record final-failed → LINE/email alert。
   - ③ heartbeat / dead-man's-snitch:sweeper 長時間沒跑 → 告警。
+    🟡 **2026-08-17 狀態更新(本行不刪,只加狀態與指標)**:
+    **心跳表的 code 已落地**,兩支 migration:
+    `supabase/migrations/20260817070000_m4b_231_3_sweeper_heartbeat.sql`(心跳表甲′ = 單列三值 upsert)
+    `supabase/migrations/20260817060000_e683_1_public_default_privileges_revoke.sql`(它咬在一起的預設授權)
+    apply runbook:`docs/reviews/2026-08-17-heartbeat-e683-apply-runbook.md`
+    🔴🔴 **口徑:「code 已落地」不是「已完成」。三條邊界照 E 窗驗收原字,一個字不能拿掉**:
+    ```
+    · 未 apply 到任何真實 DB ⇒ 這是「code 正確 + 本機行為正確」，不是「正式庫已生效」
+    · 四種負向對照未跑（PUBLIC-only／MAINTAIN-only／SET ROLE 繞路／陌生第三 grantee）
+      ⇒「anon 權限 0」不得外推成「完整不可達」
+    · 兩支不是同一交易 ⇒ 心跳表成功而 E683-1 失敗時，那張表安全而【未來的新表仍裸露】
+      ⇒ 不得把「其中一支成功」寫成整案完成
+    ```
+    ⚠️ **而本項【還缺一片】**:心跳表建好之後**還沒有任何程式往裡面寫**,
+    公開健康端點也還沒做 ⇒ **apply 完那張表會是空的(而空的是對的)**。
+    🔴 **所以 ③ 現在【還不會告警】** —— 表在 ≠ 偵測到位。寫入端 + 健康端點是下一片。
   - ④ 轉人工:durable 旗標接後台/SQL 查 + 人工結案流程。
   - ⑤ 🆕 4a-2 殘餘窄 TOCTOU 清理(**Sean 2026-06-15 拍 A=留現狀、Phase II 後台 UI 順手清、非 4b**):expirer/mark 語句快照讀到 unpaid 後、並發 callback/confirm 才 commit order→paid → 可留 `paid + needs_manual_review=true` cosmetic 假告警(無雙扣/無金錢/無安全影響、人工複查即清)。歸入本條 ④ 後台轉人工流程一併處理(成交路徑或後台批次清同單 active attempt 的 needs_manual_review);4a-2 migration 檔頭已誠實揭示、不阻 bundle。
   - ⑥ 🆕 (對抗複驗 wbpvvr5b7 nit、benign 前瞻防禦)4a-1/4a-2 的 ALTER ADD COLUMN 後**未重 assert 表層 SELECT ACL**(s2d L124-146 有完整 table-ACL fail-closed assert、4a-1/4a-2 僅 assert RPC EXECUTE 矩陣 + payment_confirmer 全域 grants=0)。現況零實害:新欄皆 sweeper 簿記 / `last_settle_error` allowlist 錯誤碼集(零 PII)、service_role 本就唯讀;4a-2 與已簽核 4a-1 對稱(同省此 assert)。可選統一 polish=4a-1/4a-2 ALTER 後補 `has_table_privilege` anon/authenticated SELECT=false + service_role 唯 SELECT assert(對齊 s2d 防漂風格);非阻擋、非缺陷、forward-only migration 不會再編輯故價值邊際。
