@@ -66,7 +66,8 @@
   - 檔內註解自陳假設「員工一次勾的張數是個位數 ⇒ 不預先最佳化」——**但這是 server action,呼叫端不受 UI 個位數的現實約束**。被盜的 admin session 可直接餵上千個 orderId:
     - (a) 🔴 **【2026-08-17 收窄 —— C 窗實作時開 DTO 核出,取代我原本的誇大】**:~~一次撈全部訂單的成交價 + PII~~ **不成立**。C 窗開 `shipment-candidates.ts` 的回傳 DTO 核出:**它回的是窄 DTO、零金額欄**,`recipient` 只有**第一張單**的。⇒ 真正的批次外洩面 = **大量訂單的【品項 / 料號 / 單號】對映**(非成交價、非完整 PII)。
       🔴 **原本錯在哪(留成因,不寫「其實沒那麼嚴重」)**:我從「函式【碰得到】什麼」推「它【回得出】什麼」—— `shipment-candidates.ts` 帶 `server-only`、確實碰得到成交價與 PII(那正是它要 `server-only` 的理由),**但「碰得到 ≠ 回得出來」,中間隔著一個我沒開檔看的 DTO**。〔codex 兩輪把這句當 must-fix、C 窗已加上限 `b5500042`〕
-    - (b) **無界並行 DB fan-out**(N 個 orderId = N 次 `findAdminOrderDetail`)⇒ 自我 DoS 味道(**DoS 幅度未量,標推**)。**這條不受上面收窄影響,是真危害。**
+      ✅ **E 窗 merge C 窗實作後【親開 DTO 核】**(`shipment-candidates.ts:78-130`):`ShipmentCandidateItem` 欄=`orderId`/`orderItemId`/`orderDisplayId`/`variantSku`(`:92` 註明**非價格欄**)/`title`/`remaining`/`blockedReason`,**零金額欄**;`ShipmentCandidates.recipient`(`:125`)**只取第一張單**。⇒ 收窄成立、我親眼核過,不只採信 C 窗。上限 `MAX_SHIPMENT_CANDIDATE_ORDERS=50`(`shipment-limits.ts`)**擋掉不截斷**,與我規格一致。
+    - (b) **無界並行 DB fan-out**(N 個 orderId = N 次 `findAdminOrderDetail`)⇒ 自我 DoS 味道(**DoS 幅度未量,標推**)。**這條不受上面收窄影響,是真危害;上限=50 後每請求也連帶有界。**
   - 🔴 **口徑**:**不跨授權邊界**(資料本就員工可見、仍要有效 admin session、外部呼不到)⇒ 在「員工不分權限」前提下不是高。它是**帳號被盜(Sean 擴充威脅模型)**下的縱深缺口 + robustness smell,**與 facet-counts 的無界 fan-out 同形狀**。
   - **建議修法(引先例)**:給 orderIds 一個長度上限(對齊 UI 個位數現實),與既有做法一致(`ORDER_ITEMS_EMBED_LIMIT=200`、facet-counts 白名單上限)。施工窗判。
 

@@ -101,7 +101,10 @@ products?select=price_store  ⇒ 401              （anon 無欄級授權）
 products?select=price_by_tier⇒ 401              （anon 無欄級授權）
 products_public?select=price_store ⇒ 400 body 42703「column products_public.price_store does not exist」
 ```
-⇒ **經銷價外部讀不到,而且是兩道獨立擋**:① products 表對 anon 的欄級授權不含 price_store/price_by_tier(401)② 對外的 `products_public` view **物理排除** price_store 欄(連欄都不存在)。
+⇒ **經銷價外部讀不到,而且是兩道【機制不同】的獨立擋(縱深兩層,不是單一控制;同 §5-b 那把尺)**:
+- ① products 表:`401` = **欄存在、但 anon 沒有欄級授權**(靠 grant 設定對)。
+- ② `products_public` view:`400「column does not exist」` = **這條對外路上根本沒選那一欄**(靠 view 定義,比 grant 更強:不倚賴任何權限設定維持正確)。
+🔴 **兩道要同時失效才漏** —— 有人給 anon 補一個 price_store 欄級授權(破①),products_public 那條路仍然沒有那一欄(②還在);反之亦然。**這比「單一 grant 在擋」穩一層。**
 
 **OpenAPI root**:`GET /rest/v1/` ⇒ 401「Only secret API keys can be used」⇒ anon 拉不到 schema introspection,攻擊者無法用公開 key 枚舉整個 table/RPC 面(同報價單庫的硬化)。
 
