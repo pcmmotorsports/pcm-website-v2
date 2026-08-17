@@ -11,7 +11,9 @@
 // 具名身分不在此 payload:報價單=共用密碼登入,SSO 只帶認證(amr/auth_time)、無 per-user 身分。
 //   「操作者是誰」仍走 lib/session/actor.ts 的 picker(到 M-4b 真帳號)。SSO=認證,不是身分綁定。
 //
-// 相對 import(非 @/):root vitest.config 的 @ alias 指 storefront,被單測引用的 lib 檔必須相對路徑。
+// 相對 import 是歷史遺留(#606 前 root vitest alias 只指 storefront、lib 檔被迫走相對路徑);
+// #606 起 admin project 有自己的 @ alias(proxy.test.ts 已用 @/ import 本檔),新 code 可直接用 @/。
+// 既有相對路徑的整批清理=#612,不在單一 slice 裡混改。
 import { b64urlFromBytes, b64urlToBytes } from '../base64url';
 
 /** 報價單 exchange 回傳並經 admin 端自驗過的 amr 值(對齊報價單 lib/session.ts SessionAmr)。 */
