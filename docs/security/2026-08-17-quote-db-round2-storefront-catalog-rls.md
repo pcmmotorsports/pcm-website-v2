@@ -172,7 +172,9 @@ ALTER POLICY storefront_public_read ON public.products
 
 **現況(量到的,metadata)**:`net._http_response` / `net.http_request_queue`(RLS=**false**,存 cron 的 `Authorization` 標頭)與 `extensions.pg_stat_statements` / `pg_stat_statements_info`(存查詢文字)對 **anon 與 authenticated 皆 `SELECT=t`**(對照 postgres=t)。
 
-🔴 **它們今天外部打不到,只因 db-schemas 白名單 = `public, graphql_public`(§2)** —— **單一控制在擋**。若日後有人把 `net` 或 `extensions` 加進 db-schemas(為了暴露某個 helper),這四個立刻變外部可讀,而 net.* 那半直接是祕密。同前一任「延遲觸發的坑」(inventory §🟡)。
+🔴 **正確的框不是「有洞 / 沒洞」,是「縱深只有一層」**:它們今天外部打不到,**只因 db-schemas 白名單 = `public, graphql_public`(§2)這【單一控制】在擋**。REVOKE 掉多餘的 anon/authenticated 授權 = **加第二道彼此獨立的控制**(授權層),兩道要同時失效才漏。
+
+🔴 **為什麼值得加第二道(這半是關鍵理由,不只是「多一道比較好」)**:那個 db-schemas 白名單**是 Dashboard 設定**(我是從 `PGRST106` 錯誤訊息挖出來的、DB 端 `pg_db_role_setting` 查不到)—— **同 `db-max-rows` 那一族:後台點一下就能改、repo 內看不到、零監控。** ⇒ 唯一在擋的那道控制,**改它不留痕、不會有測試紅、不會有掃描命中**。日後有人把 `net`/`extensions` 加進白名單(為了暴露某個 helper),這四個立刻變外部可讀、net.* 那半直接是祕密,而**那次改動看起來與資安完全無關**。同前一任「延遲觸發的坑」(inventory §🟡)。
 
 **縱深修法(第二道獨立控制,施工窗判、動 report repo 需另談、不 db push)**:
 ```sql

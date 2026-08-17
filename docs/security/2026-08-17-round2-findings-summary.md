@@ -53,6 +53,20 @@
 2. production vs repo 一致性:讀報價單 repo `origin/main`(本機,已解鎖)比對 production schema(B 窗 apply 前置同缺口)。
 3. `TAPPAY_3DS_ENABLED` prod 值回來 → 定案 finding#5。
 
+## F. 🔴 踩在「Dashboard 一點就變 / repo 查不到 / 零監控」值上的結論(apply/上線當天要重驗)
+
+2026-08-17 一天內第三次撞到這個形狀 ⇒ 盤點哪些結論站在它上面。共通病:**唯一在擋的那道控制改起來不留痕、不會有測試紅、不會有掃描命中**,而引爆它的改動看起來與資安無關。
+
+| 結論 | 踩在哪個值 | 值在哪(repo 查不到) | 若它變了 |
+|---|---|---|---|
+| finding#4 recovery 節流=輕 | 自建 SMTP 開著 + `Minimum interval per user 60s` | Supabase Dashboard→Auth→SMTP | 關自建 SMTP → 回內建全域 2/小時;改 60s → 改節流粒度 |
+| §1#9/§5-b net·pg_stat 外部不可達 | db-schemas 白名單 = `public, graphql_public` | PostgREST 設定(從 `PGRST106` 挖出、DB 端查不到) | 加 `net`/`extensions` 進白名單 → 那四張外部可讀、net.* 是祕密 |
+| #8 service_role SET ROLE=0(供 B 窗) | 當前角色成員圖 | 角色可後台新增 / 授 membership | 新增一個「service_role 有 SET」的角色 → 0 變非零、B 窗那道斷言重獲判別力 |
+| finding#5 tappay-notify 未上線折扣 | `TAPPAY_3DS_ENABLED` 現值 | Vercel prod env | 翻 true(而 3DS-4 未實作)→ 折扣失效、嚴重度上調 |
+| §1#4 / backlog #607 tappay-notify 限流 | Vercel WAF 規則存在與否 | Vercel Dashboard(未驗) | 規則不存在 / 被移除 → 端點無限流 |
+
+🔴 **共通處置**:這些結論一律**帶時點、不寫無時效句**;**apply / 上線當天重驗一次**,不能拿今天的值當那天的值。正本(env 值 → 誰踩在上面)在 `docs/reference/environment-values-and-what-stands-on-them.md`(I 窗維護);上列依賴文字 E 已交主視窗轉。
+
 ## 口徑
 
 本檔是索引,結論以各分檔為準。所有「未確認」都附了缺哪一道檢查。正式庫全程唯讀,零寫入/DDL/業務資料列內容;報價單 gap count 經 anon key PostgREST **count-only**(`Range:0-0`+`Prefer:count=exact`,只取 Content-Range 總數、不落 row)取得=0 筆。
