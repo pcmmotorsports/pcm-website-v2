@@ -89,7 +89,38 @@ export function shippingDocBlocker(args: {
   //    **那在別的路徑上是正常的**;而本路徑實查 `order_items` 建單後不再增刪
   //    (數法寫在 `SupabaseOrderAdapter.listOrderItemsForPrint` 的 docstring)
   //    ⇒ **在這裡對不上就是真的有問題**,fail-closed。
-  if (reportedTotal !== null && items.length !== reportedTotal) {
+  // 🔴🔴 **面6-b:對帳訊號【缺席】時也要擋**(2026-08-18;T② 提報、V 窗量測、本窗修)。
+  //
+  //    **落地前的形狀**:判準是 `reportedTotal !== null && …` ⇒ **`null` 短路 ⇒ 不擋、照印**
+  //    (`grep -c 'reportedTotal === null'` 本檔 ⇒ **0**,全檔沒有任何 `null` 分支)。
+  //    ⇒ **「沒有對帳訊號」與「對帳通過」被印成同一張紙。那是 fail-open,而且零症狀。**
+  //
+  //    🔴 **修的理由【不是】「`count` 可能是 `null`」** —— 那條今天**構造不出來**:
+  //      V 窗對正式站唯讀試了 **9 條路**(不帶 `Prefer` / planned / estimated / embed /
+  //      range 超界 / `max-rows` 夾住 / 無 limit / 空結果集 / 完整重現本查詢形狀),
+  //      **唯一讓 `count` 消失的是「沒帶 `Prefer: count=exact`」**,
+  //      而 `SupabaseOrderAdapter.ts` 的 `page === 0 ? { count: 'exact' } : undefined`
+  //      **第 0 頁恆帶** ⇒ 這條路上產不出來。
+  //      ⚠️ **口徑:那 9 條路構造不出,【不宣稱不可能】**(網路層截斷 / PostgREST 逾時未涵蓋)。
+  //      ⇒ **所以不要拿「null 會發生」當理由** —— 下一個人一驗會判它不成立、然後撤掉這道守門。
+  //
+  //    ✅ **真正的理由是【失敗方向錯了】,而這個 repo 已經有兩處寫死了相反立場**:
+  //      · `SupabaseOrderAdapter.ts:986`(撞 MAX_PAGES)逐字:「**throw,不回部分**…
+  //        部分結果會讓紙上少列品項而**紙看起來完全正常**」
+  //      · `SupabaseWalletAdapter.listEntries` 逐字:「**本方法以『共 N 筆』為前提,
+  //        沒有 N 就不回傳一份看起來完整的一頁**」
+  //      ⇒ **adapter 兩處寧可炸,而列印頁在訊號缺席時放行 —— 三處裡只有這裡是相反的。**
+  //
+  //    🔴 **而 Sean 自己對這個形狀拍過板**(2026-08-17 `Q2`=甲,逐字):
+  //      「**撈不全就整區失敗、不顯示任何一列**」,理由「**標了警告的清單,對帳的人還是會照著算**」
+  //      ⇒ 本條是那個拍板的**第三個落地面**。
+  //
+  //    ⚠️ **訊息與下面那一句刻意不同,值班的人要分得出來**:
+  //      **這一句 = 沒得對**(讀不到總數)／**下面那句 = 對不上**(讀到的與總數不符)。
+  if (reportedTotal === null) {
+    return '讀不到這張訂單的品項總數,無法確認下面的清單是不是完整的。這是系統的問題,不是你操作錯。請聯絡負責人處理,不要拿這張紙出貨。';
+  }
+  if (items.length !== reportedTotal) {
     // ⚠️ 逐字寫「達到 200 筆」不是「超過 200 筆」:判定是 `>=`
     //    (`packages/adapters/src/supabase/mappers/order.ts:830`)⇒ **剛好 200 項就會走到這裡**。
     //    🔴 而 Sean 2026-08-17 逐字說一張單「可能到 200 個品項」⇒ **正常業務的上緣就是這個值**。

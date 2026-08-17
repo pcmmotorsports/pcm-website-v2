@@ -1,6 +1,40 @@
-# Plan:收掉「新表出生自帶 `anon` TRUNCATE」的預設授權(`E683-1`)—— 鐵則 8 + 12③,**等 Sean 批**
+# Plan:收掉「新表出生自帶 `anon` TRUNCATE」的預設授權(`E683-1`)—— 鐵則 8 + 12③,**✅ Sean 已批**
 
-- **提出**:E 窗(資安稽核,唯讀)　**日期**:2026-08-17　**狀態**:🔴 **尚未批准,未動任何 code**
+> ## 🔴 2026-08-18 更正 —— 原檔頭寫「尚未批准,未動任何 code」,而他早就批了
+>
+> ~~**狀態**:🔴 **尚未批准,未動任何 code**~~ ⇒ **原句保留劃掉,不刪。**
+> **批准早於本次更正** ⇒ 那句在被讀到的每一天都是假的,
+> 而「未動任何 code」是**禁止句**,比「等批」更容易讓下一個窗直接放下。
+>
+> ✅ **Sean 2026-08-17 夜拍 `Q4` = A**,逐字(**我當場開檔核過,不是轉來的**):
+> ```
+> memory project_0817-night-four-rulings-and-env-literals.md:28
+> 「Q4 E683-1 預設權限 | A：現在批 | 新表出生自帶 anon Dxtm（含 TRUNCATE）。
+>   plan 在 docs/specs/2026-08-17-e683-default-privileges-plan.md。
+>   🔴 框架是「顯式宣告成目標狀態」，不是照抄報價單庫；
+>   🔴 這不是他關掉的那個「Automatically expose new tables」開關
+>      —— 關掉之後 anon=Dxtm 仍在（E 窗實測）」
+> ```
+> 🔴 那條 memory **直接指名本檔**,沒有模糊空間。
+>
+> ### 現況(2026-08-18)
+> ```
+> migration  ✅ code 已落地
+>               supabase/migrations/20260817060000_e683_1_public_default_privileges_revoke.sql
+>            🔴 而【未 apply 到任何真實 DB】
+>               apply runbook: docs/reviews/2026-08-17-heartbeat-e683-apply-runbook.md
+> ```
+> ⚠️ **兩個限定,引用時不要拿掉**:
+> ```
+> 1 本片【動不了 supabase_admin 那一份預設授權】（權限不夠，postgres 不是超級使用者）
+>   ⇒ 由那個身分建的物件仍會自帶預設授權。本片不宣稱把這條路關死。
+>   🔴 而 apply runbook 的第①格【原本看不見這一條】（只濾 defaclrole='postgres'）——
+>      2026-08-18 B 窗實測構造過：①印 0 而 supabase_admin 建的新表拿到 anon。該格已改成不過濾角色。
+> 2 這兩支 migration【不是同一個交易】⇒ 心跳表成功而本支失敗時，未來的新表仍裸露
+>   ⇒ 不得把「其中一支成功」寫成整案完成
+> ```
+
+- **提出**:E 窗(資安稽核,唯讀)　**日期**:2026-08-17　**狀態**:✅ **已批**(見上方更正段)
 - **finding 正本**:`docs/security/2026-08-16-external-exposure-audit.md` `E683-1` + **§7f(先例)**
 - 🔴 **命中**:鐵則 **12③**(DB 結構/授權)+ 鐵則 **8**。
 

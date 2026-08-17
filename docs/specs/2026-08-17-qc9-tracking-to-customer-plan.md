@@ -537,7 +537,7 @@ packages/ports/src/IEmailOutbox.ts:166 逐字「落表佔位但不進 due、不�
 **而那個能力不存在**:
 
 ```text
-packages/use-cases/src/sweep-email-outbox.ts:42-44
+packages/use-cases/src/sweep-email-outbox.ts:42-45   ← 2026-08-17 深夜重驗（原寫 42-44，收尾 } 在 45）
   export type SweepEmailOutboxDeps = {
     outbox: IEmailOutbox;
     sender: IEmailSender;
@@ -556,7 +556,7 @@ packages/use-cases/src/sweep-email-outbox.ts:42-44
 
 | | 做法 | 代價 |
 |---|---|---|
-| **甲** | `SweepEmailOutboxDeps` 加**第三個依賴** = 一個寄送時讀取用的 port(讀這箱這單的品項與追蹤碼) | 動**共用 use-case 的依賴契約** + composition root(`apps/storefront/src/app/api/cron/email-sweep/route.ts:140`,**production 呼叫端數 = 1**,數法 `grep -rn 'sweepEmailOutbox(' apps packages --include='*.ts' \| grep -v '\.test\.'` ⇒ 2 行,其中 1 行是定義) |
+| **甲** | `SweepEmailOutboxDeps` 加**第三個依賴** = 一個寄送時讀取用的 port(讀這箱這單的品項與追蹤碼) | 動**共用 use-case 的依賴契約** + composition root(**`apps/storefront/src/lib/email/composition.ts:55`** —— 🔴 2026-08-17 深夜 C 窗更正,原本寫的 `route.ts:140` 是**呼叫點**不是 composition,詳 `2026-08-17-qc9b-sweeper-read-port-plan.md` §4;**production 呼叫端數 = 1**,在 `route.ts:140`,數法 `grep -rn 'sweepEmailOutbox(' apps packages --include='*.ts' \| grep -v '\.test\.'` ⇒ 當日重跑 **3 行**:定義 `sweep-email-outbox.ts:145` + 真呼叫 `route.ts:140` + **一行註解** `route.ts:4`,原寫「2 行」漏算註解那行,結論〔呼叫端 = 1〕不變) |
 | **乙** | 把品項清單與追蹤碼**放進 payload** | 🔴 **直接違反 payload allowlist 那道防線**(`order-email-assembly.ts:4-11`:那層逐字寫著它是「PII 不落表的**真防線**」、「禁 spread、禁整包轉存」);而且**追蹤碼後台可改** ⇒ 存了會過期,信寄出去帶的是舊碼 |
 
 **本窗推薦 = 甲。** 理由:乙省下的是一次契約改動,付出的是**那份 code 裡唯一一道真防線**,

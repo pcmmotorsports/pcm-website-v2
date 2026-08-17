@@ -16,11 +16,37 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const findAdminOrderDetail = vi.fn();
+const listOrderItemsForPrint = vi.fn();
 const listAssigned = vi.fn();
 const listCustomers = vi.fn();
 vi.mock('server-only', () => ({}));
+
+/**
+ * 🔴 **`detailsSeen` 為什麼在,以及它自己是個坑 —— 兩件都要寫。**
+ *
+ * 本檔既有 20+ 格用 `findAdminOrderDetail.mockResolvedValue(detail())` 餵資料。
+ * 品項來源改成 `listOrderItemsForPrint`(2026-08-17 `D2` 甲)之後,若不做任何事,
+ * 那 20+ 格會**全部拿到空清單** ⇒ 要一次改 20 幾處 fixture,而每一處都是新的出錯機會。
+ * ⇒ 折衷:`listOrderItemsForPrint` 的**預設**實作從剛剛那張 detail 的 `items` 導出,
+ *   讓既有格繼續量它們本來在量的東西(排序 / `blockedReason` / 客人閘 / 上限)。
+ *
+ * 🔴🔴 **代價要講白:這個預設讓「讀 `detail.items`」與「讀 `listOrderItemsForPrint`」
+ *    在那 20+ 格上印出【同一個東西】** ⇒ **它們對本片的修法零判別力**。
+ *    ⇒ 判別力**全部**集中在下面「品項來源」那一族 —— 只有那一族把兩份**刻意做成不一樣**,
+ *      兩個世界才分得開。⚠️ 看到這個 helper 就以為「來源有被守住」的人,請只看那一族。
+ */
+const detailsSeen = new Map<string, { id: string; items: unknown[] }>();
 vi.mock('../orders/order-repository', () => ({
-  getAdminOrderRepository: () => ({ findAdminOrderDetail }),
+  getAdminOrderRepository: () => ({
+    // 包一層只為了記下「這次回了哪張單」,好讓預設的 print 實作導得出來。
+    // 🔴 斷言仍然打在 `findAdminOrderDetail` 這個 `vi.fn()` 上(呼叫次數 / 未被呼叫),行為不變。
+    findAdminOrderDetail: async (id: string) => {
+      const d = await findAdminOrderDetail(id);
+      if (d !== null && d !== undefined) detailsSeen.set(d.id, d);
+      return d;
+    },
+    listOrderItemsForPrint,
+  }),
 }));
 vi.mock('./shipment-repository', () => ({
   listAssignedQuantitiesByOrderItemIds: listAssigned,
@@ -60,6 +86,13 @@ const detail = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   findAdminOrderDetail.mockReset();
+  detailsSeen.clear();
+  listOrderItemsForPrint.mockReset();
+  // 預設 = 從那張 detail 的 items 導出(理由與代價見 `detailsSeen` 的 docstring)。
+  listOrderItemsForPrint.mockImplementation(async (id: string) => {
+    const items = detailsSeen.get(id)?.items ?? [];
+    return { items, reportedTotal: items.length };
+  });
   listAssigned.mockReset();
   listAssigned.mockResolvedValue(new Map());
   listCustomers.mockReset();
@@ -497,5 +530,171 @@ describe('🔴 `orderIds` 長度上限 —— 擋掉,不截斷(E 窗 2026-08-17 
     // 200 是「一張訂單有幾個品項」的業務上緣,這裡的母體是「一次勾幾張訂單」。
     const { MAX_SHIPMENT_CANDIDATE_ORDERS } = await import('./shipment-candidates');
     expect(MAX_SHIPMENT_CANDIDATE_ORDERS).toBe(50);
+  });
+});
+
+describe('🔴🔴 品項來源 —— 頂層分頁撈到盡,不是內嵌的 `detail.items`(`D2` 甲,2026-08-17)', () => {
+  // 病:`detail.items` 是內嵌撈的、被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住(判定還是 `>=`)。
+  //    ⇒ 一張 200 項的單(Sean 說那是**正常業務上緣**)第 201 項之後**永遠進不了建箱彈窗**
+  //    ⇒ 不是顯示不全,是**員工做不到事**,而畫面完全正常。
+  //
+  // 🔴 **本族是本檔對這個修法【唯一】有判別力的地方**(理由見檔頭 `detailsSeen` 的 docstring):
+  //    其餘 20+ 格的兩份品項是同一份 ⇒ 實作讀哪一邊都全綠。
+  //    ⇒ 本族的做法是把兩份**做成不一樣**,兩個世界才印得出不同的東西。
+
+  /** 內嵌那份**故意只有 1 件**(= 被夾過的世界);頂層那份有 3 件(= 真相)。 */
+  const truncated = () => detail({ items: [{ ...detail().items[0]!, id: 'oi-embed-1' }] });
+  const full = ['oi-full-1', 'oi-full-2', 'oi-full-3'].map((id) => ({
+    ...detail().items[0]!,
+    id,
+    title: id,
+  }));
+
+  it('🔴🔴 真的餵 201 項 —— 第 201 項要在,而且不是靠「兩份不同」矇到的(codex R2 MF5)', async () => {
+    // 🔴 **這一格與下一格不是重複。** 下一格用 3 項證「讀的是哪一份」,
+    //    而 codex R2 抓到:**3 項的 fixture 對 `items.slice(0, 200)` 這種實作完全恆綠** ——
+    //    宣稱守的是「第 201 項」,量的卻是「兩份長得不一樣」。⇒ 這裡真的餵 201 項。
+    const many = Array.from({ length: 201 }, (_, i) => ({
+      ...detail().items[0]!,
+      id: `oi-${i + 1}`,
+      title: `item-${i + 1}`,
+    }));
+    findAdminOrderDetail.mockResolvedValue(detail({ items: many.slice(0, 200) }));
+    listOrderItemsForPrint.mockResolvedValue({ items: many, reportedTotal: 201 });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(r.items.length, '少了幾件 ⇒ 那幾件永遠裝不了箱,而畫面完全正常').toBe(201);
+    expect(
+      r.items.map((i) => i.orderItemId),
+      '第 201 項不在 ⇒ 實作某處還夾著 200(不管是內嵌、slice 還是別的)。',
+    ).toContain('oi-201');
+    // 🔴 下游餵的也要是 201 個 —— 少餵的那些「已配箱量」查不到,而那不算截斷、零訊號。
+    expect((listAssigned.mock.calls[0]![0] as string[]).length).toBe(201);
+  });
+
+  it('🔴 品項讀的是 `listOrderItemsForPrint`,不是 `detail.items`', async () => {
+    findAdminOrderDetail.mockResolvedValue(truncated());
+    listOrderItemsForPrint.mockResolvedValue({ items: full, reportedTotal: 3 });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1']);
+    expect(
+      r.items.map((i) => i.orderItemId),
+      '拿到內嵌那 1 件 ⇒ 實作退回讀 `detail.items` ⇒ 第 201 項之後的件裝不了箱,而畫面正常。',
+    ).toEqual(['oi-full-1', 'oi-full-2', 'oi-full-3']);
+    expect(listOrderItemsForPrint, '沒有用訂單 id 去撈品項').toHaveBeenCalledWith('o1');
+  });
+
+  it('🔴🔴 「A 餵壞 B」—— 問已配箱量時餵的是【完整】那份 id,不是被夾過的那份', async () => {
+    // 這一格與上一格**不是重複**:上一格看的是「吐出去的清單」,這一格看的是
+    // 「餵給下游的 id 集合」。只修前者的話,`listAssigned` 仍拿被夾過的 id
+    // ⇒ 後面那些件的「已配箱」查不到 ⇒ **那不算截斷、零訊號**(plan §2-b)。
+    findAdminOrderDetail.mockResolvedValue(truncated());
+    listOrderItemsForPrint.mockResolvedValue({ items: full, reportedTotal: 3 });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    await loadShipmentCandidates(['o1']);
+    expect(
+      listAssigned,
+      '餵了被 200 夾過的 id ⇒ 第 201 項之後那些件的已配箱量查不到,而系統不會說。',
+    ).toHaveBeenCalledWith(['oi-full-1', 'oi-full-2', 'oi-full-3']);
+  });
+
+  it('🔴 負向對照 — 頂層回空 ⇒ 清單就是空的,【不會】偷偷退回內嵌那份', async () => {
+    // 沒有這一格的話,一個「print 為空就 fallback 到 detail.items」的實作
+    // 會讓上面兩格照樣綠(它們的 print 都非空)—— 而那個 fallback 正是把病裝回來。
+    findAdminOrderDetail.mockResolvedValue(truncated());
+    listOrderItemsForPrint.mockResolvedValue({ items: [], reportedTotal: 0 });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    expect((await loadShipmentCandidates(['o1'])).items).toEqual([]);
+  });
+
+  it('🔴 撈不完就整區失敗 —— `listOrderItemsForPrint` 丟,這支就跟著丟(不回部分清單)', async () => {
+    // `listOrderItemsForPrint` 在 `MAX_PAGES = 50`(10,000 列)時 throw、不回部分。
+    // **這裡就是要它 throw**:回部分 = 彈窗少幾件而畫面正常,正是本片在修的那個病。
+    // 立場與 Sean `Q2` 甲一致(撈不全就整區失敗,不顯示任何一列)。
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listOrderItemsForPrint.mockRejectedValue(new Error('達 MAX_PAGES=50'));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    await expect(
+      loadShipmentCandidates(['o1']),
+      '吞掉例外回部分清單 ⇒ 員工看到一份少了幾件的彈窗,而彈窗看起來完全正常。',
+    ).rejects.toThrow('MAX_PAGES');
+  });
+
+  it('🔴 `reportedTotal` 對不上 ⇒ 整區失敗(codex MF2:丟掉對帳訊號 = 病原樣復發)', async () => {
+    // adapter 回「撈到 1 筆、伺服器說有 2 筆」⇒ 這份清單少了東西,而彈窗上零症狀。
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listOrderItemsForPrint.mockResolvedValue({ items: [detail().items[0]!], reportedTotal: 2 });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    await expect(
+      loadShipmentCandidates(['o1']),
+      '照常顯示那 1 筆 ⇒ 少的那一件不會有任何人發現,正是本片在修的病。',
+    ).rejects.toThrow(/對不上|1[\s\S]*2/);
+  });
+
+  it('🔴 正向對照 — 對得上就照常過(不可以連正常的也擋掉)', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listOrderItemsForPrint.mockResolvedValue({ items: [detail().items[0]!], reportedTotal: 1 });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    expect((await loadShipmentCandidates(['o1'])).items.length).toBe(1);
+  });
+
+  it('`reportedTotal` 是 `null`(伺服器沒給 count)⇒ 不當成對不上', async () => {
+    // adapter 的 count 只在第一頁要;拿不到時它回 null。null 不是 0,不可以拿去比。
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listOrderItemsForPrint.mockResolvedValue({ items: [detail().items[0]!], reportedTotal: null });
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    expect((await loadShipmentCandidates(['o1'])).items.length).toBe(1);
+  });
+
+  it('🔴🔴 已配箱量撈不完 ⇒ 整區失敗,不吞掉例外用部分結果算(codex R1 MF1)', async () => {
+    // 🔴 `listAssignedQuantitiesByOrderItemIds` 撈不完會 throw(它自己翻頁,見它的 docstring)。
+    //    這裡要證的是**這支不吞它**:吞掉之後 `already` 少算
+    //    ⇒ **已經裝進別的箱的件顯示成還可以出** ⇒ 同一件被裝進第二個箱,而彈窗完全正常。
+    //    ⚠️ 更糟的吞法是 `catch(() => new Map())` —— 空 Map 的意思是「全部都可以出」。
+    findAdminOrderDetail.mockResolvedValue(detail());
+    listAssigned.mockRejectedValue(new Error('達 MAX_PAGES=50 仍未撈完'));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    await expect(
+      loadShipmentCandidates(['o1']),
+      '吞掉例外 ⇒ 系統主動邀請員工把同一件貨再裝一次,而沒有任何人看得出來。',
+    ).rejects.toThrow(/MAX_PAGES/);
+  });
+
+  it('🔴 重複的 `orderIds` 只算一次(codex MF3:同一批品項出兩份)', async () => {
+    findAdminOrderDetail.mockResolvedValue(detail());
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1', 'o1', 'o1']);
+    expect(
+      r.items.map((i) => i.orderItemId),
+      '同一張單被查三次 ⇒ 彈窗重複列、送出的 payload 帶重複 order_item_id、最後被 DB 退件,' +
+        '而員工看到的是一個沒有解釋的失敗。',
+    ).toEqual(['oi-1']);
+    expect(findAdminOrderDetail, '重複 id 仍各打一次 DB ⇒ fan-out 被白白放大').toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 去重在【長度上限之後】—— 餵 51 個重複 id 仍然要被擋掉', async () => {
+    // 先去重的話 `['o1'×51]` 會變成 1 張而合法通過 ⇒ 上限被繞過。
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    await expect(
+      loadShipmentCandidates(Array.from({ length: 51 }, () => 'o1')),
+      '去重被放在上限之前 ⇒ 送 1000 個重複 id 也照樣過。',
+    ).rejects.toThrow();
+    expect(findAdminOrderDetail).not.toHaveBeenCalled();
+  });
+
+  it('多張單各撈各的,不會把 A 單的品項算到 B 單頭上', async () => {
+    findAdminOrderDetail
+      .mockResolvedValueOnce(detail())
+      .mockResolvedValueOnce(detail({ id: 'o2', displayId: 'PCM-0002' }));
+    listOrderItemsForPrint.mockImplementation(async (id: string) => ({
+      items: [{ ...detail().items[0]!, id: `${id}-item` }],
+      reportedTotal: 1,
+    }));
+    const { loadShipmentCandidates } = await import('./shipment-candidates');
+    const r = await loadShipmentCandidates(['o1', 'o2']);
+    expect(r.items.map((i) => [i.orderDisplayId, i.orderItemId])).toEqual([
+      ['PCM-0001', 'o1-item'],
+      ['PCM-0002', 'o2-item'],
+    ]);
   });
 });

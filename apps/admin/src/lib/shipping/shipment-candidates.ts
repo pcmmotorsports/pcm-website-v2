@@ -62,7 +62,7 @@ import 'server-only';
 //    「0 件品項不預選+標『未到貨』」)。改成到貨量起算後,「可出 0」從罕見態變成**常態**
 //    (東西還沒到),整列消失會製造 #351 原本要修的那個症狀的變體:員工找不到品項、以為系統壞了。
 
-import type { AdminOrderDetail } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderPrintItem } from '@pcm/domain';
 import { getAdminOrderRepository } from '../orders/order-repository';
 import {
   listAssignedQuantitiesByOrderItemIds,
@@ -177,9 +177,19 @@ function blockedReasonOf(
   return 'not_arrived';
 }
 
-/** 從一張訂單明細算出它的候選品項(不含金額)。 */
-function itemsOf(detail: AdminOrderDetail, assigned: Map<string, number>): ShipmentCandidateItem[] {
-  return detail.items.map((it) => {
+/**
+ * 從一張訂單算出它的候選品項(不含金額)。
+ *
+ * 🔴 **品項【不】從 `detail.items` 來** —— 那份是內嵌撈的、被 `ORDER_ITEMS_EMBED_LIMIT = 200` 夾住。
+ *    呼叫端改餵 `listOrderItemsForPrint` 撈到盡的那份(理由見 `loadShipmentCandidates`)。
+ *    `detail` 這個參數現在只出借**訂單層**的兩個欄(`id` / `displayId`),不再出借品項。
+ */
+function itemsOf(
+  detail: AdminOrderDetail,
+  items: readonly AdminOrderPrintItem[],
+  assigned: Map<string, number>,
+): ShipmentCandidateItem[] {
+  return items.map((it) => {
     const summary = it.quantitySummary;
     const already = assigned.get(it.id) ?? 0;
 
@@ -227,8 +237,10 @@ function itemsOf(detail: AdminOrderDetail, assigned: Map<string, number>): Shipm
  * 勾選的訂單 → 品項清單(**含出不了的**;出不了的那些帶 `blockedReason`,見該欄註解)。
  *
  *
- * ⚠️ 逐張訂單各打一次 `findAdminOrderDetail`(N 張 = N 次查詢)。
+ * ⚠️ 逐張訂單各打一次 `findAdminOrderDetail`,**再**逐張打一次 `listOrderItemsForPrint`
+ * (它自己還會依品項數翻頁)⇒ N 張 = N 次明細 + N×(品項頁數) 次品項查詢。
  * 員工一次勾的張數是個位數 ⇒ 先用最簡單的做法;真的變慢再改批次查詢,**不預先最佳化**。
+ * 🔴 **而「變慢」現在沒有量測值**:本片(2026-08-17)改成撈到盡時**未量**改前改後的回應時間。
  *
  * @throws 勾超過 {@link MAX_SHIPMENT_CANDIDATE_ORDERS} 張時直接丟,**在打任何 DB 查詢之前**。
  */
@@ -305,17 +317,99 @@ export async function loadShipmentCandidates(
     );
   }
 
+  // 🔴 **去重要在長度上限【之後】、fan-out【之前】**(codex 2026-08-17 MF3)。
+  //    · 在上限之後:餵 1000 個重複 id 仍然是一個該被拒絕的請求,
+  //      先去重的話它會變成「1 張」而合法通過 ⇒ 上限被繞過。
+  //    · 在 fan-out 之前:`['o1','o1']` 原本會讓同一張單被查兩次、
+  //      **同一批品項出現兩份** ⇒ 彈窗重複列、送出的 payload 帶重複 `order_item_id`
+  //      (最後被 DB 退件,而員工看到的是一個沒有解釋的失敗)。
+  //    📎 這個形狀在本片之前就在了(舊版 `details.flatMap` 同樣吐兩份);
+  //       本片把品項改成用 `Map` 按單號存,**兩邊的重複程度不再一致** ⇒ 順手收掉,不留半修狀態。
+  const uniqueOrderIds = [...new Set(orderIds)];
+
   const repo = getAdminOrderRepository();
-  const details = (await Promise.all(orderIds.map((id) => repo.findAdminOrderDetail(id)))).filter(
-    (d): d is AdminOrderDetail => d !== null,
-  );
+  const details = (
+    await Promise.all(uniqueOrderIds.map((id) => repo.findAdminOrderDetail(id)))
+  ).filter((d): d is AdminOrderDetail => d !== null);
   if (details.length === 0) return { items: [], customerUserId: null, recipient: null };
 
-  const allItemIds = details.flatMap((d) => d.items.map((it) => it.id));
+  // 🔴🔴 **品項改走頂層分頁查詢撈到盡**(`D2` 甲,Sean 2026-08-17 批;plan §3 的 A)。
+  //    `detail.items` 是**內嵌**撈的、被 `ORDER_ITEMS_EMBED_LIMIT = 200`
+  //    (`packages/adapters/src/supabase/mappers/order.ts:407`)夾住,而 Sean 逐字說
+  //    一張單「可能到 200 個品項」⇒ **那是正常業務的上緣,不是極端值**。
+  //    ⚠️ **措辭要準**(codex 2026-08-17 nit 更正我第一版的「恰好 200 就已經被截」):
+  //       **恰好 200 項時查詢會回完整的 200 筆**,沒有掉東西;
+  //       只是判定寫成 `>=` ⇒ 它**證不出**是不是還有更多 ⇒ 旗標會是 `true`(保守)。
+  //       **真的會掉件的輸入是「至少 201 項」。** 兩者差一,而差的那一件就是病。
+  //    這條路上被截的後果**不是顯示不全,是功能上做不到**:第 201 項之後的件
+  //    **永遠不會出現在建箱彈窗裡** ⇒ 員工沒有任何辦法把它裝箱,而畫面完全正常。
+  //
+  // 🔴 **而這一行同時解掉「A 餵壞 B」那條連鎖** —— 下面 `allItemIds` 以前來自
+  //    `d.items`(**已被 200 夾過**)⇒ 第 201 項之後的 id 根本不會拿去問
+  //    `listAssignedQuantitiesByOrderItemIds` ⇒ **那不算截斷、零訊號**。
+  //    ⇒ **只修品項那半等於沒修**,兩半必須同一顆改(plan §2-b)。
+  //
+  // ⚠️ **不重寫第二支分頁迴圈** —— 沿用 `listOrderItemsForPrint`(`Q-C18` 甲已落地、已有單測)。
+  //    它在 `MAX_PAGES = 50`(10,000 列)時**throw、不回部分**,而**這裡就是要它 throw**:
+  //    回部分 = 彈窗少幾件而畫面正常,正是本片在修的那個病。
+  //    (方向與 Sean `Q2` 甲一致:撈不全就整區失敗,不顯示任何一列。)
+  //
+  // 🔴 **它沒有進 `IOrderRepository`**(`git grep -n 'listOrderItemsForPrint' packages/ports/src/IOrderRepository.ts` ⇒ 零命中);
+  //    這裡能呼叫是因為 `getAdminOrderRepository()` 的回傳型別逐字是 `SupabaseOrderAdapter`
+  //    (`../orders/order-repository.ts:24`)。**本片沿用具體型別 = 最小改動**,
+  //    與同一支方法的另一個呼叫端(`app/print/orders/[id]/shipping/[shipmentId]/page.tsx:61`)一致。
+  //    ⇒ 要不要提進 port 是一件獨立的事(動共用契約 = 鐵則 12⑥),不夾在本片做。
+  //
+  // ⚠️ **代價:多打 DB,而且要把數字寫出來**(codex 2026-08-17 MF5 算的,我核過形狀):
+  //    ```
+  //    改之前：50 張單 →  50 次明細 + 2 次下游            =  52 次
+  //    改之後：50 張單 →  50 次明細 + 100 次品項 + 2 次    = 152 次
+  //                                   ^^^ 每張至少 2 頁：一頁有料、一頁空的才停
+  //                                       （終止條件是「拿到 0 列」，見 adapter docstring；
+  //                                         改成「本頁不滿即停」會把零餘裕那個病裝回來 ⇒ 不改）
+  //    ```
+  //    🔴 **⇒ `MAX_SHIPMENT_CANDIDATE_ORDERS = 50` 這道閘擋住的 fan-out 變成約 3 倍。**
+  //    ⚠️ 而那個 `50` **本來就不是量出來的**(它自己的 docstring 第一句就這麼寫)⇒
+  //       **本片沒有把它變成量過的**,只是讓它守的東西變大。
+  //       要不要調低 / 要不要改批次查詢 = **Sean 的取捨**(員工一次勾幾張 vs 等多久),已寫進 STOP。
+  //    🔴 **本片未量**改前改後的實際回應時間 ⇒ 上面全是**次數**不是**秒數**(plan §4 同一條)。
+  //
+  // 🔴 **`reportedTotal` 要對帳,不可以丟掉**(codex 2026-08-17 MF2)。
+  //    adapter 回 `{items, reportedTotal}`,而 `reportedTotal` 是第一頁 `count: 'exact'` 的值。
+  //    對帳不上(例如回了 199 筆而 count 說 200)⇒ **這份清單少了東西**,
+  //    而少的那幾件在彈窗上**沒有任何症狀** —— 正是本片在修的那個病原樣復發。
+  //    ⚠️ **adapter 自己說 `count !== items.length` 在有並發寫入時是正常的**(它的 docstring:
+  //       「不拿它判『撈完了』(那是 TOCTOU)」)。這裡仍然當成錯,理由是**這條路上寫入構造不出來**:
+  //       同一份 docstring 量過「`order_items` 在建單之後不再新增或刪除」(8 支 migration 逐支數過)。
+  //       🔴 **那個結論的失效條件寫在那裡**:哪天有「訂單成立後補品項 / 刪品項」的功能,
+  //          這裡就會開始誤報 ⇒ **到時要改的是這一段,不是把對帳拿掉。**
+  const itemsByOrderId = new Map(
+    await Promise.all(
+      details.map(async (d) => {
+        const { items, reportedTotal } = await repo.listOrderItemsForPrint(d.id);
+        if (reportedTotal !== null && items.length !== reportedTotal) {
+          throw new Error(
+            `訂單 ${d.displayId} 的品項對不上:撈到 ${items.length} 筆,伺服器說有 ${reportedTotal} 筆。` +
+              `不顯示部分清單 —— 少幾件的彈窗看起來與正常的一模一樣。`,
+          );
+        }
+        return [d.id, items] as const;
+      }),
+    ),
+  );
+
+  const allItemIds = [...itemsByOrderId.values()].flat().map((it) => it.id);
   const [assigned, customerByOrderId] = await Promise.all([
     listAssignedQuantitiesByOrderItemIds(allItemIds),
     listOrderCustomerUserIds(details.map((d) => d.id)),
   ]);
+
+  // 🔴 **`listAssignedQuantitiesByOrderItemIds` 現在自己翻頁撈到盡、撈不完直接 throw**
+  //    (2026-08-17 codex R2 打回第一版的「自夾 900 列」形狀 —— 那個做法要同時猜
+  //     伺服器上限與合法最大用量,兩個都沒量過。詳見它自己的 docstring)。
+  //    ⇒ **這裡不需要再判一次**:它要嘛回完整的 Map,要嘛丟。
+  //    ⚠️ 而「回部分」是這條路上最貴的失敗:`already` 少算 ⇒ 已裝進別的箱的件顯示成還可以出
+  //       ⇒ **同一件被裝進第二個箱**,而彈窗看起來完全正常。
 
   // 🔴 **恰好一位**才給:0 位(查不到)與 2 位以上(跨客人)都回 null ⇒ 呼叫端開不了窗。
   //    ⚠️ 用 `details` 的 id 而不是輸入的 `orderIds` —— 查無的訂單上面已經濾掉了,
@@ -338,7 +432,7 @@ export async function loadShipmentCandidates(
     //    員工才對得起訂單頁。ES2019 起 `Array.prototype.sort` **保證穩定**,所以比較子
     //    **只准比「能不能出」這一個鍵**;多加任何 tie-breaker 都會把那個對齊打散。
     items: details
-      .flatMap((d) => itemsOf(d, assigned))
+      .flatMap((d) => itemsOf(d, itemsByOrderId.get(d.id)!, assigned))
       .sort((a, b) => Number(a.remaining === 0) - Number(b.remaining === 0)),
     customerUserId: complete ? [...distinct][0]! : null,
     recipient: details[0]!.shippingAddress,
