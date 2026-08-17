@@ -60,6 +60,26 @@
 - **無資料曝露**(只公開 general 價);amplification 是「一請求 ≤400 循序查詢」的 DoS 味道,匿名可重複,但**每請求有界**。典型購物車遠不到 200 相異品、`cache()` 再去重 ⇒ 400 是最壞上界、非常態。
 - **未推進的那半**:實打一發 200 行請求量真實往返數與延遲 = **需 anon key / 非正式環境**;但那只會**確認**這個上界,不改結構結論(結構從循序 await + 2 查詢/handle 即可斷)。
 
+## 8. §1#1 觀測點規格(要在正式站真量 facet-counts 放大,施工窗照這加;E 出規格、不實作)
+
+**為什麼外部 anon key 量不到**:放大是 **server 端 fan-out**(`vehicle-facet-counts.ts`:一次 facet-counts 請求 → 對 `search_catalog_by_vehicle` 發 **92 分類(15 大類 + 77 子類)+ 16 品牌 = 108** 次 `p_limit=1` 查詢)。外部只看得到 HTTP 回應,看不到 server 內部發了幾次 RPC。`108×` 是 **2026-07-31 本機打正式 Supabase 量的**(檔頭 `:16`);正式站的真實 per-request 次數/延遲/快取命中率**沒在正式站量過**(`:50-52` 自陳「正式站延遲完全沒量」)。
+
+**要量什麼(per facet-counts request,結構化一行 log)**:
+1. `rpc_count` — 這次實際發了幾次 `search_catalog_by_vehicle`(冷 miss=~108、快取命中=0、部分分類短路可能 <108)。
+2. `duration_ms` — fan-out 總時間。
+3. `cache_hit` — `unstable_cache` 命中(true→~0 RPC)或 miss(false→full fan-out)。
+4. `fanout_rejected` — 是否被 `MAX_CONCURRENT_FANOUTS = 3`(`:69`)擋(→null→503)。
+5. `facet_key_count` — 這次算了幾個 facet(92+16 的當下值,隨字典變)。
+
+**在哪加(只加觀測、不改 fan-out 行為)**:
+- `vehicle-facet-counts.ts` fan-out 迴圈:request-scoped 計數器,每發一次 RPC +1;`fetchVehicleFacetCounts` 收尾 emit 上面 5 欄一行 log。
+- `cache_hit`:`unstable_cache` callback 有沒有被呼叫到(進 callback=miss)。
+- `fanout_rejected`:`activeFanouts >= MAX_CONCURRENT_FANOUTS`(`:177`)分支命中時記一次。
+
+**怎麼讀回來**:log → Vercel logs / 既有 sink 聚合,看正式站 `rpc_count` 分布(確認真是 ~108 還是更多/更少)、p95 `duration_ms`、cache miss 率、被拒率。**這才是把「讀來的 108×」升成「正式站量到」的那道檢查。**
+
+🔴 **紀律**:純加觀測、不改 fan-out 行為;log 不帶 PII(facet 是公開車輛資料);**每 request 一行、不是每 RPC 一行**(否則 log 量本身變成新放大面)。
+
 ## 口徑
 
-本檔只對網站庫 storefront 成立。#5 的 env 現值、#1/#2/#3/#9 的實打面仍缺(anon key / 非正式環境 / Dashboard),已逐項標明缺哪一道。#6/#7 結構已從 code 定案、實測只確認計數。
+本檔只對網站庫 storefront 成立。#5 的 env 現值、#1(app 內側觀測,規格見 §8)/#2/#3 的實打面仍缺(anon key / 非正式環境 / Dashboard），已逐項標明缺哪一道。#6/#7/#9 結構或外部面已定。
