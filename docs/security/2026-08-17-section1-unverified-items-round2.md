@@ -94,8 +94,8 @@ FROM w;
 
 加總核對:`153+27+0+0+0+0 = 180 = total` ✅ 兩條判準皆過。
 
-- **兩個世界同一窗都在** ⇒ 內建負向對照,不必自餵:`sweep_off` 159 列止於 `06:44:00 UTC`,`sweep_on` 21 列起於 `06:46:00 UTC`。
-- **分母閉合是【歸戶閉合】不是算術巧合**:`159+21+0+0 = 180 = total` 且 **`unattributed = 0`** ⇒ 窗內每一列都被歸到具名 job;`anom_off/anom_on = 0` 是**量到的**(本窗不含 anomaly 的 01:00 那列),不是假設。
+- **兩個世界同一窗都在** ⇒ 內建負向對照,不必自餵:`sweep_off`(該快照 **153** 列)止於 `06:44:00 UTC`,`sweep_on`(該快照 **27** 列)起於 `06:46:00 UTC`。**兩個列數隨滾動窗漂移,兩個時刻不漂**(見下方效度三條)。
+- **分母閉合是【歸戶閉合】不是算術巧合**:`153+27+0+0+0+0 = 180 = total` 且 **`unattributed = 0`** ⇒ 窗內每一列都被歸到具名 job;`anom_off/anom_on = 0` 是**量到的**(本窗不含 anomaly 的 01:00 那列),不是假設。
 - **`total=180` 佐證排程節奏**:`*/2` 於 6h = 30/h × 6 = **180**,實測正好 180 ⇒ 該窗**零漏跑**。
 - 首發真掃(`06:46:00`):`inboxClaimed:40, inboxProcessed:37, inboxRetried:3, flaggedNonUnpaid:3, stuckClaimed:1, stuckRetried:1, errors:0`。
 - 🔴 **「DB 狀態真的變了」有【活對照組】,不是推論**:同一窗內那 **3 筆 `inboxRetried`** 在 `06:48/06:52/06:58/07:08` **反覆重現**(非 terminal 項每輪被重新認領)⇒ 證明「**未真正處理掉的東西會一直冒出來**」。而首發那 **37 筆 `inboxProcessed` 在其後 28 分鐘內零重現** ⇒ **排除了「只是被 lease 暫時藏住」那個世界**。retried 是這個量測自帶的正向對照。
@@ -118,6 +118,44 @@ FROM w;
 3. 觀測窗 = `net._http_response` 6h TTL,更早歷史不可考。
 
 **判定**:原 HIGH-結構(3DS 收單而無最終結算保證)**解除**——兜底已真跑、真消化積壓、零錯。殘餘追蹤項:上述 4 筆滯留 + `stuckSettled` 路徑未行使 + tappay-notify 設計不變量「不開放 prod 結帳」與 flag=true 的矛盾是否已由 Sean 知情接受(拍板歸 Sean)。
+
+---
+
+## §5-c 🔴 事前預言:`08:00 UTC` 那一輪會不會把四筆轉人工(**寫於 `07:51 UTC`,事件尚未發生**)
+
+> 🔴 **本節寫在事件【之前】並先行 commit** —— 事後補寫的預測不是預測。結果另立 §5-d,不改本節一個字。
+
+**背景(量到的)**:Sean 於 `postgres` 身分跑唯讀 SQL,查出**現存 4 列**:1 列 `payment_charge_attempts`(`2SQH2P` / 1500)+ 3 列 `payment_webhook_events`(`record_unverified`,6 / 101 / 340),**四列 `attempt_count = 7`、`needs_manual_review = 否`**。
+對上我方 `net._http_response` 的 `07:44:00 UTC` 那輪:`inboxClaimed:3 / inboxRetried:3 / stuckClaimed:1 / stuckRetried:1` ⇒ **兩個獨立來源指向同一批**。
+
+**機制(讀 code,附行號;`supabase/migrations/20260615120000_m3_3ds_4a1_webhook_sweeper_rpc.sql`)**:
+```
+claim 濾            attempt_count < 8                                  :79
+退避                next_retry_at = now() + LEAST(2^(attempt_count-1),16) 分鐘   :135-137
+達 ceiling 轉人工    needs_manual_review = (needs_manual_review OR attempt_count >= 8)   :139
+孤兒 expirer        attempt_count >= 8 且未 processed/manual → 轉 manual   :56,64
+```
+`attempt_count = 7` ⇒ 退避 `LEAST(2^6,16) = 16` 分鐘 ⇒ `07:44 + 16min` = **`08:00 UTC`**(= 台北 16:00,與 Sean 查到的 `下次重試` 相符)。
+
+### 🔴 預言(兩個世界印不同的值)
+
+| 世界 | `08:00 UTC` 那輪 | `08:02` 起各輪 | 判準 |
+|---|---|---|---|
+| **A. ceiling 正常** | `inboxClaimed: 3`(+`stuckClaimed: 1`)→ `attempt_count` 變 8 → 轉 `needs_manual_review` | **`inboxClaimed: 0`,四筆不再出現** | 被 `:79` 的 `< 8` 濾掉 |
+| **B. ceiling 壞掉** | 同上認領 | **`08:02`/`08:04`… 持續認領同一批** | 永遠不轉人工 = **卡死而沒人知道** |
+
+**量法(唯讀,可重跑)**:
+```sql
+SELECT created, content FROM net._http_response
+ WHERE created >= '2026-08-17 08:00:00+00' AND content LIKE '%inboxClaimed%'
+ ORDER BY created;
+```
+**判準**:看 `08:02` 之後連續數輪的 `inboxClaimed` —— **歸零且不再回升 = 世界 A;持續為 3 = 世界 B**。
+
+🔴 **若落在世界 B,那不是稽核發現,那是 bug** ⇒ 當場回報、不等報告寫完。
+⚠️ **窗口**:`net._http_response` TTL **6h**,且這是**一次性事件**(這批走過 ceiling 就不會再走一次)⇒ **`08:04` 之後儘速量,錯過要等下一批。**
+⚠️ **樣本性質**:三筆 `record_unverified`(6/101/340)**經 Sean 確認為他自己的 3DS 測試單**;**`2SQH2P`(1500,卡 7 天 20 小時)他未答 ⇒ 未確認**。**不得寫成「四筆都是測試資料」。**
+📌 **但機制問題不因樣本是測試而消失** —— 判別句:**如果那是一筆真單,現在的行為會有任何不同嗎?** 不會 ⇒ 這個行為就是要查的東西。
 
 ---
 
