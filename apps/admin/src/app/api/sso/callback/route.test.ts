@@ -8,9 +8,12 @@ import { buildExchangeUrl } from '@/lib/sso/config';
 // 框架 runtime 邊界:next/headers 的 headers()/cookies() 在無 Next request scope 時會拋、
 // server-only 在非 react-server 條件下 import 即拋(既有慣例同 customers/page.test.tsx)。
 // 只墊框架 runtime accessor,不 mock 任何本專案模組(exchange 走真 code、stub 全域 fetch)。
+// #613:headers 帶固定 x-request-id ⇒ 安全事件 log 的 request_id 可斷【原值貫穿】,
+//      不是「有個非空字串就算」(request-id.ts REQUEST_ID_HEADER 的字面)。
+const REQ_ID = vi.hoisted(() => 'req_613-fixed-correlation-id');
 vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({
-  headers: async () => new Headers(),
+  headers: async () => new Headers({ 'x-request-id': REQ_ID }),
   cookies: async () => ({ get: () => undefined, getAll: () => [] }),
 }));
 
@@ -29,6 +32,12 @@ function expectSecurityHeaders(res: Response): void {
 }
 
 const ENV_KEYS = ['PCM_QUOTE_SSO_BASE', 'PCM_SSO_EXCHANGE_SECRET', 'ADMIN_SESSION_SECRET'] as const;
+
+// #613 前半:五個 logSsoLogin 呼叫點【逐點】斷言。觀察點=console 真輸出(security-log 不 mock,
+// 與本檔「不 mock 本專案模組」同律)⇒ 守的是「呼叫點參數 → stdout JSON」整條,值班撈得到的那行。
+function secLogs(spy: ReturnType<typeof vi.spyOn>): Array<Record<string, unknown>> {
+  return spy.mock.calls.map((c: readonly unknown[]) => JSON.parse(String(c[0])) as Record<string, unknown>);
+}
 
 function okExchangeResponse(): Response {
   return new Response(
@@ -51,18 +60,23 @@ function callbackReq(opts: { cookie?: string; code?: string; state?: string; ext
 
 describe('sso/callback route', () => {
   let saved: Record<string, string | undefined>;
+  let info: ReturnType<typeof vi.spyOn>;
+  let warn: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
     saved = {};
     for (const k of ENV_KEYS) saved[k] = process.env[k];
     process.env.PCM_QUOTE_SSO_BASE = QUOTE_BASE;
     process.env.PCM_SSO_EXCHANGE_SECRET = EXCHANGE_SECRET;
     process.env.ADMIN_SESSION_SECRET = SESSION_SECRET;
+    info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
   afterEach(() => {
     for (const k of ENV_KEYS) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -103,6 +117,34 @@ describe('sso/callback route', () => {
     expect(state?.value).toBe('');
     expect(state?.maxAge).toBe(0);
     expectSecurityHeaders(res);
+    // #613 呼叫點5(route.ts:81 success):info 一筆、warn 零筆;request_id=header 原值、amr 原封。
+    expect(warn).not.toHaveBeenCalled();
+    expect(secLogs(info)).toEqual([{
+      evt: 'sso.login',
+      outcome: 'success',
+      request_id: REQ_ID,
+      source_app: 'quote',
+      amr: 'pwd+totp',
+    }]);
+  });
+
+  it('#613 amr 貫穿判別格:第二組 amr 的成功登入,log 記的是那一組(reviewer must-fix:單一樣本分不出「貫穿」與「寫死成 pwd+totp」)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ ok: true, amr: ['pwd'], auth_time: AUTH_TIME }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )));
+    const res = await GET(
+      callbackReq({ cookie: encodeStateCookie(STATE, '/'), code: 'c2', state: STATE }),
+    );
+    expect(res.status).toBe(303);
+    // route.ts:81 寫死 ['pwd','totp'] ⇒ 本格紅;寫死 ['pwd'] ⇒ 上面成功格紅。兩格互為對照。
+    expect(secLogs(info)).toEqual([{
+      evt: 'sso.login',
+      outcome: 'success',
+      request_id: REQ_ID,
+      source_app: 'quote',
+      amr: 'pwd',
+    }]);
   });
 
   it('cookie 的 returnTo 被竄成絕對網址 ⇒ 仍導回同源 "/"(decode+route 雙層擋;decode 單層防線由 state.test.ts 守)', async () => {
@@ -132,6 +174,15 @@ describe('sso/callback route', () => {
       expectSecurityHeaders(res); // codex MF4
     }
     expect(fetchSpy).not.toHaveBeenCalled();
+    // #613 呼叫點2(route.ts:59 state-mismatch):三個變體各記一筆 warn、reason 逐筆釘死。
+    expect(info).not.toHaveBeenCalled();
+    expect(secLogs(warn)).toEqual(cases.map(() => ({
+      evt: 'sso.login',
+      outcome: 'fail',
+      request_id: REQ_ID,
+      source_app: 'quote',
+      reason: 'state-mismatch',
+    })));
   });
 
   it('🔴 失敗路徑不清 session cookie(雙擊/並發防護):帶既有 session 的失敗請求,回應只清 state', async () => {
@@ -160,6 +211,15 @@ describe('sso/callback route', () => {
     expect(new URL(res.headers.get('location') ?? '').searchParams.get('sso')).toBe('error');
     expect(res.cookies.get(ADMIN_SESS_COOKIE)).toBeUndefined();
     expectSecurityHeaders(res); // codex MF4(R2 抓漏:唯一沒掛 helper 的一格)
+    // #613 呼叫點3(route.ts:65 exchange-failed)。
+    expect(info).not.toHaveBeenCalled();
+    expect(secLogs(warn)).toEqual([{
+      evt: 'sso.login',
+      outcome: 'fail',
+      request_id: REQ_ID,
+      source_app: 'quote',
+      reason: 'exchange-failed',
+    }]);
   });
 
   it('config 缺 ⇒ 500,不動任何 cookie、不打 exchange', async () => {
@@ -174,6 +234,15 @@ describe('sso/callback route', () => {
     expect(res.cookies.get(ADMIN_SESS_COOKIE)).toBeUndefined();
     expect(fetchSpy).not.toHaveBeenCalled();
     expectSecurityHeaders(res); // codex MF4
+    // #613 呼叫點1(route.ts:49 config-missing)。
+    expect(info).not.toHaveBeenCalled();
+    expect(secLogs(warn)).toEqual([{
+      evt: 'sso.login',
+      outcome: 'fail',
+      request_id: REQ_ID,
+      source_app: 'quote',
+      reason: 'config-missing',
+    }]);
   });
 
   it('🔴 兌換成功但簽不出 session(secret 缺)⇒ 500 而非 303(防 /start 無限迴圈)', async () => {
@@ -185,5 +254,14 @@ describe('sso/callback route', () => {
     expect(res.status).toBe(500);
     expect(res.cookies.get(ADMIN_SESS_COOKIE)).toBeUndefined();
     expectSecurityHeaders(res); // codex MF4
+    // #613 呼叫點4(route.ts:72 sign-failed-config)。
+    expect(info).not.toHaveBeenCalled();
+    expect(secLogs(warn)).toEqual([{
+      evt: 'sso.login',
+      outcome: 'fail',
+      request_id: REQ_ID,
+      source_app: 'quote',
+      reason: 'sign-failed-config',
+    }]);
   });
 });
