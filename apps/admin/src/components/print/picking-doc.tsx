@@ -57,10 +57,24 @@ export function pickableQuantity(item: AdminOrderDetailItem): number | null {
   return Math.max(0, s.instockQuantity - s.shippedQuantity);
 }
 
-function Alert({ children }: { children: React.ReactNode }) {
+/**
+ * 🔴 `slot` 是**給量測管線抓狀態用的錨點**,不是樣式,也不是給人看的。
+ *
+ * **為什麼要有它**(2026-08-18,一次真的 dev 紅換來的):
+ * `page-measure.test.tsx` 原本用 `toContain('達到 200 筆上限')` 之類的**文案字面**
+ * 去確認「這份 fixture 真的處在 B 態」⇒ **同一句話有兩個所有權人**
+ * (那支檔一份、`page.test.tsx` 一份)⇒ **必然會漂,而漂的那天只有一邊會紅。**
+ * 實際發生:改文案那一顆同步了 `page.test.tsx`、漏了量測管線 ⇒ dev 紅。
+ *
+ * ⇒ **分家**:文案的所有權**只在 `page.test.tsx`**;量測管線改抓這個 `data-slot`。
+ * 🔴 **這不是把守門放寬** —— 判別法是兩句都要成立:
+ *   **改文案時量測管線不該紅** ／ **文案錯時 `page.test.tsx` 一定要紅。**
+ */
+function Alert({ children, slot }: { children: React.ReactNode; slot?: string }) {
   return (
     <div
       role='alert'
+      data-slot={slot}
       className='rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm font-medium text-amber-800'
     >
       {children}
@@ -145,7 +159,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
               而少的那件不會有任何症狀 —— 到客人收到貨才發現。
               既有同型處置 `components/orders/item-procurement-section.tsx:253`。 */}
           {detail.itemsTruncated && (
-            <Alert>
+            <Alert slot='picking-truncated-notice'>
               {/* 🔴 **舊字面是一句假話**(2026-08-17,與 `shipping-doc.tsx:76` 同批):
                   原本逐字「請重新整理後再列印」,而觸發它的是**固定上限**
                   (`ORDER_ITEMS_EMBED_LIMIT = 200`,
@@ -365,7 +379,7 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                         </td>
                       </tr>
                     ))}
-                    <tr className='border-b bg-amber-500/10'>
+                    <tr data-slot='picking-truncated-band' className='border-b bg-amber-500/10'>
                       <td className='px-2 py-3 align-top' />
                       <td className='px-2 py-3 align-top text-sm font-medium text-amber-800' colSpan={3}>
                         以上不是全部。還缺幾列 —— 系統也不知道,所以這張表沒有結尾。
