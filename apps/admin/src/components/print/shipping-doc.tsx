@@ -181,11 +181,17 @@ function Section({
   title,
   note,
   qtyHeader,
+  orderDisplayId,
+  shipmentReference,
   children,
 }: {
   title: string;
   note: string;
   qtyHeader: string;
+  /** 續頁抬頭要帶的訂單編號(`Q-C20`)。 */
+  orderDisplayId: string;
+  /** 續頁抬頭要帶的箱號(`Q-C20`)。 */
+  shipmentReference: string;
   children: React.ReactNode;
 }) {
   return (
@@ -196,6 +202,34 @@ function Section({
       </div>
       <table className='w-full border-collapse'>
         <thead>
+          {/* ── `Q-C20` 續頁抬頭(Sean 2026-08-17 拍**甲**:照設計稿做,不要另外發明)──
+              🔴 **真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html:291`**
+                 (當場 `search_files` + `get_file` 開的,不是憑記憶),逐字:
+                 `<tr class="contbar"><th colspan="7">品項明細　訂單 <b>…</b>　箱號 <b>…</b>…</th></tr>`
+                 —— **這一列在 `<thead>` 裡、在欄名那一列的上面**。
+              🔴 **它為什麼解得掉跨頁**:`<thead>` 由瀏覽器原生逐頁重複(UA 預設
+                 `display:table-header-group`)⇒ 這一列跟著欄名一起出現在第 2、3 頁。
+                 **實測到的缺口長什麼樣**:落地前印 12 品項那份,第 2 頁上欄名有、
+                 而**整頁沒有訂單編號也沒有箱號** ⇒ 那張紙跟第 1 頁分開就認不出是哪一單
+                 (量法與三張 PNG 見 `docs/specs/2026-08-17-qc5-…-list.md` §4b-4)。
+              ⚠️ **Sean 選甲 = 區塊標題那一行【留著】** ⇒ 第 1 頁上三個區塊各多一列,
+                 那是他看過數字之後選的(乙案 +0 行,他沒選)。**不要「順手」把標題併進來省行。**
+              📎 **字級沒有照搬 `8pt`**:樣張是 pt 體系,而這張紙**從來沒有為列印設過字級**
+                 (`print-a4.css` 規則層唯一的 `font-size` 是頁碼那個 8pt)⇒ 這裡沒有可乘的對象,
+                 用本檔既有的 `text-xs`。`tracking`/字重/大小寫/顏色照樣張。
+              ⚠️ **樣張那一列右側還有 `<i>續頁欄名重複</i>`,本片【沒有印】** ——
+                 它是設計端給看的人的自述(同檔 `.caption` 在列印時是 `display:none`,
+                 而這六個字沒有被藏)。印不印已列成問題送 Sean,**他還沒答** ⇒
+                 現況是不印;他若說要印,加一個右浮的 `<span>` 即可,其餘不動。 */}
+          <tr className='contbar'>
+            <th
+              colSpan={3}
+              className='text-muted-foreground px-2 pt-2 pb-1 text-left text-xs font-bold tracking-[0.16em] uppercase'
+            >
+              品項明細　訂單 <b className='text-foreground font-mono tracking-[0.04em]'>{orderDisplayId}</b>
+              　箱號 <b className='text-foreground font-mono tracking-[0.04em]'>{shipmentReference}</b>
+            </th>
+          </tr>
           <tr className='border-b'>
             <th className='px-2 py-2 text-left text-xs font-medium'>料號</th>
             <th className='px-2 py-2 text-left text-xs font-medium'>品名 / 規格</th>
@@ -427,7 +461,13 @@ export function ShippingDoc({
           </div>
 
           {/* ── 區塊一:這箱裡、屬於這張訂單的東西 ── */}
-          <Section title='本次出貨' note='這個箱子裡屬於這張訂單的品項' qtyHeader='本次出貨'>
+          <Section
+            title='本次出貨'
+            note='這個箱子裡屬於這張訂單的品項'
+            qtyHeader='本次出貨'
+            orderDisplayId={detail.displayId}
+            shipmentReference={shipment.shipmentReference}
+          >
             {lines.map((l) => {
               // `blocked === null` 已保證每一條 line 都對得到品項(面7)。
               const item = itemById.get(l.orderItemId);
@@ -465,6 +505,8 @@ export function ShippingDoc({
               title='尚未出貨'
               note='這張訂單還欠客人的東西(不含這一箱要寄的)'
               qtyHeader='還欠幾件'
+              orderDisplayId={detail.displayId}
+              shipmentReference={shipment.shipmentReference}
             >
               {outstandingRows.map(({ item, qty }) => (
                 <tr key={item.id} className='border-b'>
@@ -493,7 +535,13 @@ export function ShippingDoc({
                  「**不揀貨就不需要寫在上方**…不用把不揀貨還要寫在上面**造成誤會**」。
                  ⇒ 「造成誤會」把它定性成**正確性**問題:員工要一眼看出哪些要出、哪些不出。 */}
           {cancelledRows.length > 0 && (
-            <Section title='訂單取消' note='這張訂單裡已經取消的品項,不會出貨' qtyHeader='已取消'>
+            <Section
+              title='訂單取消'
+              note='這張訂單裡已經取消的品項,不會出貨'
+              qtyHeader='已取消'
+              orderDisplayId={detail.displayId}
+              shipmentReference={shipment.shipmentReference}
+            >
               {cancelledRows.map(({ item, qty }) => (
                 <tr key={item.id} className='border-b'>
                   <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />

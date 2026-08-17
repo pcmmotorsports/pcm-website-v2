@@ -193,6 +193,24 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                   症狀評估(**這句是推的、不是量的**):難看但讀得懂 ⇒ 不會揀錯貨。片2 一起量。 */
             <table className='w-full border-collapse'>
               <thead>
+                {/* ── `Q-C20` 續頁抬頭(Sean 2026-08-17 拍**甲**:照設計稿做,不要另外發明)──
+                    🔴 真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html:291`
+                       的 `contbar` 那一列(在 `<thead>` 裡、欄名那一列的上面)。
+                       完整理由與量測寫在 `components/print/shipping-doc.tsx` 的同一段註解,
+                       **本檔只寫兩張紙【不一樣】的那一件事**,不重複貼一份。
+                    🔴 **這張紙沒有箱號** —— 揀貨單的單位是「一張訂單」,箱是出貨明細單那邊的事
+                       (`shipments` 表刻意沒有 `order_id`;本元件的 props 裡也沒有 shipment)。
+                       ⇒ 這一列**只帶訂單編號**。**不要為了跟另一張紙長得一樣而去湊一個箱號。**
+                    ⚠️ 樣張右側那個 `<i>續頁欄名重複</i>` 本片同樣沒印(問題已送 Sean、未答)。 */}
+                <tr className='contbar'>
+                  <th
+                    colSpan={4}
+                    className='text-muted-foreground px-2 pt-2 pb-1 text-left text-xs font-bold tracking-[0.16em] uppercase'
+                  >
+                    品項明細　訂單{' '}
+                    <b className='text-foreground font-mono tracking-[0.04em]'>{detail.displayId}</b>
+                  </th>
+                </tr>
                 <tr className='border-b'>
                   <th className='w-10 px-2 py-2 text-left text-xs font-medium'>✓</th>
                   <th className='px-2 py-2 text-left text-xs font-medium'>料號</th>

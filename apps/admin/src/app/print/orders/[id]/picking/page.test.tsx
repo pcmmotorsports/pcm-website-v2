@@ -155,13 +155,37 @@ describe('#10 片1 揀貨單列印頁', () => {
     const { container } = await renderPage();
     const thead = container.querySelector('table > thead');
     expect(thead).not.toBeNull();
-    expect([...(thead?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim())).toEqual([
-      '✓',
-      '料號',
-      '品名 / 規格',
-      '應揀數量',
-    ]);
+    // 🔴 **2026-08-17 `Q-C20` 之後 `thead` 是兩列**:第 1 列續頁抬頭、第 2 列才是欄名。
+    //    ⚠️ 本格原本把 `thead` 底下**所有** `th` 攤平比對成四個字串,
+    //       而那寫法把「欄名有哪幾個」與「thead 裡有沒有別的列」**綁成同一個斷言** ——
+    //       加抬頭那一列時它會紅,而**紅的理由讀起來像「欄名壞了」**。⇒ 改成逐列各自斷言。
+    const headRows = [...(thead?.querySelectorAll(':scope > tr') ?? [])];
+    expect(headRows.length).toBe(2);
+    expect(
+      [...(headRows[1]?.querySelectorAll('th') ?? [])].map((th) => th.textContent?.trim()),
+    ).toEqual(['✓', '料號', '品名 / 規格', '應揀數量']);
     expect(container.querySelectorAll('table > tbody > tr').length).toBe(1);
+  });
+
+  it('②c🔴 `Q-C20` 續頁抬頭:訂單編號必須在 `<thead>` 【裡面】,不是在頁面上任何地方', async () => {
+    // 🔴 **這一格守的是「第 2 頁認得出是哪一張單」**,而它的關鍵不是「頁面上有沒有訂單編號」——
+    //    頁首本來就印著一個(`picking-doc.tsx` 的 `<h1>` 旁邊)。
+    //    **只有在 `<thead>` 裡的那一份會被瀏覽器逐頁重複。**
+    //    ⇒ 所以本格斷言的是**位置**不是**存在**:把這一列搬出 `thead`(例如挪去 `<caption>`
+    //      或表格上方的 div),畫面上看起來幾乎一樣、`textContent` 也照樣含訂單編號,
+    //      而**第 2 頁會變回沒有單號** —— 那條路只有這個位置斷言擋得住。
+    // ⚠️ 誠實:本格**證不了**第 2 頁真的印出來了(單測沒有分頁概念),
+    //    它證的是那個原生保證的**前提還在**。真的印出來看過的紀錄在
+    //    `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b-4。
+    const { container } = await renderPage();
+    const contbar = container.querySelector('table > thead > tr.contbar > th');
+    expect(contbar).not.toBeNull();
+    expect(contbar?.textContent).toContain('品項明細');
+    expect(contbar?.textContent).toContain('PCM-2026-0042');
+    // 🔴 揀貨單的單位是「一張訂單」⇒ 這一列**不帶箱號**(出貨明細單那張才有)。
+    expect(contbar?.textContent).not.toContain('箱號');
+    // 跨欄要蓋滿,少一欄的話那一列只會撐在左邊、右邊被欄名擠上來。
+    expect(contbar?.getAttribute('colspan')).toBe('4');
   });
 
   it('③品項沒載完 ⇒ fail-closed 明說「不要拿這張去揀貨」', async () => {
