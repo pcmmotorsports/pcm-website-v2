@@ -6018,6 +6018,78 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     公開健康端點也還沒做 ⇒ **apply 完那張表會是空的(而空的是對的)**。
     🔴 **所以 ③ 現在【還不會告警】** —— 表在 ≠ 偵測到位。寫入端 + 健康端點是下一片。
   - ④ 轉人工:durable 旗標接後台/SQL 查 + 人工結案流程。
+
+  🔴 **2026-08-18 補:① 與 ④ 從「未實作」變成「可估的待辦」**(B 窗;**只估不做**,兩者都命中鐵則 8)。
+  ⚠️ **下面每個「多大」都是【估】,不是量出來的** —— 沒有人動手做過,估值會錯。
+  ⚠️ 而**檔案清單是量到的**(當場 `git grep -ln`),那部分不是估。
+
+  ---
+  **① Q4-B 跨路徑 skip —— 要做什麼、多大、命中哪條鐵則**
+
+  - **要做什麼(一句)**:讓「剛剛才試過 settle 的那一筆」在**另一條路**再進來時被跳過。
+    現況是 **in-memory 單 run 去重**(Q4=A 的降級版)⇒ **換一條路徑進來就失效**,
+    而三條路徑會對同一筆各打一次 TapPay Record ⇒ **對帳放大**。
+  - **改法**:`payment_charge_attempts` 加一欄 `last_settle_attempt_at`
+    (建表在 `supabase/migrations/20260612150000_m3_s2d_charge_attempts.sql`),
+    settle 之前查窗:`now() - last_settle_attempt_at < N` ⇒ skip。
+  - **「三路」實際是哪三支(當場 `git grep -ln 'settleCharge'`,非估)**:
+    ```
+    apps/storefront/src/app/api/checkout/tappay-notify/[secret]/route.ts   webhook
+    apps/storefront/src/app/api/cron/settle-sweep/route.ts                 sweeper
+    apps/storefront/src/app/api/orders/[orderId]/payment-status/route.ts   callback 輪詢
+    ```
+    🔴🔴 **而 `settleCharge` 的引用點共 36 支檔**(非測試檔;量法
+    `git grep -ln "settleCharge" -- 'apps/**' 'packages/**' | grep -v '\.test\.' | wc -l` ⇒ **36**)
+    ⇒ **「三路」是 plan 的說法,不是我量到的分母** —— 動工前要逐支開檔判哪些真的會 settle。
+    ⚠️ **36 之中絕大多數是型別 / port / wiring,不是 settle 呼叫點** —— 分母大不代表要改 36 支,
+    但**也不代表只有 3 支**。**那個判斷還沒有人做。**
+
+    > 📎 **留痕(這一格自己就踩過一次)**:本段初稿寫「共 **8** 支檔」。
+    > 那個 8 來自一條**接了 `head -8` 的 grep** —— 我把**被截斷的輸出**讀成了總數。
+    > 落筆後重數才發現是 36。
+    > 🔴 **`head -N` 之後的清單長度恆等於 N,而它看起來就是一份完整清單。**
+    > ⇒ 判別句:**這個數字是 `wc -l` 出來的,還是我數畫面上有幾行?**
+  - **多大(估)**:1 支 migration + `IChargeAttemptStore` / `PgChargeAttemptAdapter` 各一 +
+    `settle-charge.ts` 判斷 + 上面三支入口 ⇒ **約 6-8 支檔**。
+  - **命中**:🔴 **鐵則 12①(錢:payment)+ 12③(schema/migration)+ 鐵則 8(跨 3+ 檔)**
+    ⇒ **要 Sean 批准,而且 commit 前必過 codex 對抗審查,不自評免審。**
+  - **🔴 動工前要先答的一題(現在沒有答案)**:那個「窗」要多長?
+    太短 = 跳不掉、太長 = 真的該重試的被跳過。**這是取捨題,不是實作細節。**
+
+  ---
+  **④ 轉人工結案流程 / 後台 UI —— 要做什麼、多大、命中哪條鐵則**
+
+  - **要做什麼(一句)**:讓員工**看得到**哪幾筆被標成 `needs_manual_review`,並且**結得掉**。
+    現況:旗標寫得進去、**沒有任何畫面讀它** ⇒ 它今天等於**寫進黑洞**。
+  - **量到的現況(非估,兩條都當場 `| wc -l` 過)**:
+    ```
+    git grep -ln 'needs_manual_review' -- 'apps/admin'                       ⇒ 0
+    git grep -ln 'needs_manual_review' -- 'apps/**' 'packages/**' 'supabase/**' \
+      | grep -v '\.test\.' | wc -l                                            ⇒ 24
+    ```
+    ⇒ **24 支檔碰它,而 admin 端 0** —— 旗標寫得進去、**沒有任何畫面讀它**。
+    ⚠️ 本段初稿寫「全樹 **12** 支檔」—— **也是 `head` 截斷後數畫面數出來的**,
+    與上面 ① 那格**同一個病、同一段裡犯兩次**。⇒ 兩個數都改成 `wc -l` 的輸出。
+  - **改法(兩半,而第二半比第一半貴)**:
+    ```
+    看得到 ＝ 後台一個清單頁（讀 payment_charge_attempts 的旗標欄）
+    結得掉 ＝ 一個把旗標關掉的寫入路徑
+    ```
+    🔴 **第二半是動錢那張表的【寫入】** ⇒ 不是加個按鈕就好。
+  - **🔴 動工前要先答的一題(現在沒有答案,而它決定片有多大)**:
+    **「結案」走 RPC 還是直接 UPDATE?**
+    ```
+    走 RPC   ＝ 與本專案既有的錢路徑一致（audit / 冪等 / 前緣拒絕都在 DB）⇒ 貴，但對稱
+    直 UPDATE＝ 便宜，但 payment_charge_attempts 目前 service_role【唯讀】
+               ⇒ 要放寬權限 ＝ 為了一個後台按鈕擴大 blast radius
+    ```
+    **答案沒定之前,「多大」估不準。**
+  - **多大(估,而且區間很寬)**:清單頁約 2-3 支檔;結案那半 **1-6 支**(看上面那題怎麼答)。
+  - **命中**:🔴 **鐵則 12①(錢)**;走 RPC 或放寬權限 ⇒ **再加 12③(DB 結構/授權)**;
+    跨 3+ 檔 ⇒ **鐵則 8**。
+  - **📎 而 ⑤(4a-2 殘餘 cosmetic 假告警)本來就掛在 ④ 底下** ⇒ 兩者同片處理,
+    ④ 的清單頁若不順手把 ⑤ 那種「`paid` 且 `needs_manual_review=true`」的列處理掉,
+    員工會看到一堆**已經沒事**的列 ⇒ **清單一開始就沒人想看,那等於沒做。**
   - ⑤ 🆕 4a-2 殘餘窄 TOCTOU 清理(**Sean 2026-06-15 拍 A=留現狀、Phase II 後台 UI 順手清、非 4b**):expirer/mark 語句快照讀到 unpaid 後、並發 callback/confirm 才 commit order→paid → 可留 `paid + needs_manual_review=true` cosmetic 假告警(無雙扣/無金錢/無安全影響、人工複查即清)。歸入本條 ④ 後台轉人工流程一併處理(成交路徑或後台批次清同單 active attempt 的 needs_manual_review);4a-2 migration 檔頭已誠實揭示、不阻 bundle。
   - ⑥ 🆕 (對抗複驗 wbpvvr5b7 nit、benign 前瞻防禦)4a-1/4a-2 的 ALTER ADD COLUMN 後**未重 assert 表層 SELECT ACL**(s2d L124-146 有完整 table-ACL fail-closed assert、4a-1/4a-2 僅 assert RPC EXECUTE 矩陣 + payment_confirmer 全域 grants=0)。現況零實害:新欄皆 sweeper 簿記 / `last_settle_error` allowlist 錯誤碼集(零 PII)、service_role 本就唯讀;4a-2 與已簽核 4a-1 對稱(同省此 assert)。可選統一 polish=4a-1/4a-2 ALTER 後補 `has_table_privilege` anon/authenticated SELECT=false + service_role 唯 SELECT assert(對齊 s2d 防漂風格);非阻擋、非缺陷、forward-only migration 不會再編輯故價值邊際。
 - **不修會痛在:**
