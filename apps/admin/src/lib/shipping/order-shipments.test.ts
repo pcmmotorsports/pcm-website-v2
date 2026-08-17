@@ -15,19 +15,20 @@ const listItemsByShipment = vi.fn();
 const listByCustomer = vi.fn();
 const listOrderCustomers = vi.fn();
 vi.mock('server-only', () => ({}));
-vi.mock('./shipment-repository', async () => ({
+// 🔴🔴 **sync factory + 字面 500,刻意不用 async + importActual**(2026-08-17 #618 候選4 收成):
+//    async factory 的 await 期間=【首解析競態窗】——31fa9b7e 那發本檔 16/16 全紅
+//    (14 格 requireEnv 打到真 client)的機制已被構造量到(2×2 harness:舊形 race+冷快取
+//    2/3 run 命中、本 sync 形 0/3;log 在 #618)。**不要改回 async+importActual——那正是
+//    症狀 B 的形狀。** MF6「投影不複本」(2026-08-16 R1)的意圖沒有丟:改由檔尾 drift-pin
+//    格保住——字面與真值漂,那一格當場紅(負測:真值 500→501 ⇒ 紅,已驗)。
+//    「抄不動就漂不掉」換成「漂了就紅」,而競態窗歸零。
+vi.mock('./shipment-repository', () => ({
   listShipmentItemsByOrderItemIds: listItems,
   listShipmentsByIds: listShipments,
   listShipmentItemsByShipmentIds: listItemsByShipment,
   listShipmentsByCustomer: listByCustomer,
   listOrderCustomerUserIds: listOrderCustomers,
-  // 🔴🔴 **常數從【真模組】拿,不抄字面**(2026-08-16 code-reviewer R1 MF6 更正)。
-  //    ⚠️ **原本這裡寫死 `500`,而註解宣稱「真值改了這裡沒改,下面那兩格會紅」——【那句是假的】**:
-  //       受測碼與測試**讀的是同一個假值** ⇒ 真值改成 800 時兩邊都拿 500 ⇒ **靜默通過**。
-  //    ⇒ 用 `importActual` 讓它成為真值的**投影**而不是複本 —— 抄不動,就漂不掉。
-  SHIPMENT_ITEM_ROWS_LIMIT: (await vi.importActual<typeof import('./shipment-repository')>(
-    './shipment-repository',
-  )).SHIPMENT_ITEM_ROWS_LIMIT,
+  SHIPMENT_ITEM_ROWS_LIMIT: 500,
 }));
 
 const box = (over: Record<string, unknown> = {}) => ({
@@ -294,5 +295,15 @@ describe('#351④ loadEmptyShipments — 這位客人還沒收尾的空箱', () 
       (await loadEmptyShipments('o1'))?.map((s) => s.shipmentReference),
       '把 `>` 寫成 `>=` ⇒ 剛好取滿(但沒被截斷)的合法情況被誤擋,空箱區平白消失。',
     ).toEqual(['EMPTY1']);
+  });
+});
+
+describe('drift-pin(檔頭 sync mock 的字面由本格看守)', () => {
+  // 🔴 檔頭 mock 改 sync+字面 500(競態窗歸零,理由見檔頭)之後,「字面與真值漂」
+  //    的風險由本格接手:在測試 body(非 factory)await importActual 拿真值對字面——
+  //    body 的 await 不在 mock 解析路徑上,無競態窗。真值改了本格紅,紅訊息指路。
+  it('🔴 mock 字面 500 = shipment-repository 真值(改真值必先改檔頭 mock 與本格,三處同動)', async () => {
+    const real = await vi.importActual<typeof import('./shipment-repository')>('./shipment-repository');
+    expect(real.SHIPMENT_ITEM_ROWS_LIMIT).toBe(500);
   });
 });

@@ -34,8 +34,16 @@ vi.mock('server-only', () => ({}));
 //    整包替換的話 `unstable_isUnrecognizedActionError` 會是 `undefined` ⇒ 元件的 catch 一走就 TypeError
 //    (實測:本檔既有兩格當場紅)。而且**不可以拿假的 predicate 頂替** —— 那樣這裡驗的是
 //    我自己寫的假設,不是 Next 真的怎麼判(換版分支的唯一判準就是它)。
-vi.mock('next/navigation', async () => ({
-  ...(await vi.importActual<typeof import('next/navigation')>('next/navigation')),
+// 🔴🔴 **importActual 移出 factory、factory 保持 sync**(2026-08-17 #618 候選4 收成):
+//    async factory 的 await 期間=首解析競態窗(2×2 harness:舊形 race+冷快取 2/3 run
+//    命中、本 hoisted 形 0/3)。真模組在 top-level await 先取好,factory 零 await=零窗。
+//    **不要改回 async factory 內 await importActual——那正是 31fa9b7e 症狀 B 的形狀。**
+//    (這裡不能像 order-shipments 用字面:要保的是 Next 真的 predicate 函式,抄不了字面。)
+const navActual = await vi.hoisted(
+  async () => await vi.importActual<typeof import('next/navigation')>('next/navigation'),
+);
+vi.mock('next/navigation', () => ({
+  ...navActual,
   useRouter: () => ({ refresh }),
 }));
 vi.mock('../../lib/shipping/shipment-actions', () => ({ fetchShipmentCandidates, submitShipment }));
