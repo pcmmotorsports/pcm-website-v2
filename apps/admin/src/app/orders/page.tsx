@@ -95,7 +95,13 @@ export default async function OrdersPage({
   //    🔴 判準必須是 `readOpenPanelOrderId`(= 槽頁決定開不開面板的**同一支**),不能自己看
   //    `rawSearchParams.panel` 在不在:`?panel=not-a-uuid&r=saved` 時槽頁回 null(面板不開),
   //    列表若也停畫就是**零橫幅** —— 動作做完了畫面上一個字都不說。
-  const panelOpen = readOpenPanelOrderId(rawSearchParams) !== null;
+  /* 🔴 **片 A-1:這裡原本把 `readOpenPanelOrderId` 的回傳值【算成布林就丟掉】。**
+     選中色塊需要的就是那個 id,**不是新查一次** —— 留住它,`panelOpen` 的語意一個字沒變。
+     ⚠️ **判準仍必須是 `readOpenPanelOrderId`(= 槽頁決定開不開面板的同一支)**,理由見上面那段:
+        自己看 `rawSearchParams.panel` 在不在會與槽頁不一致。**選中色塊也吃這個一致性** ——
+        `?panel=not-a-uuid` 時面板不開,而列表**也不該有任何一組亮著**。 */
+  const panelOrderId = readOpenPanelOrderId(rawSearchParams);
+  const panelOpen = panelOrderId !== null;
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);
@@ -251,6 +257,7 @@ export default async function OrdersPage({
               orders={orders}
               density={display.density}
               buildPanelHref={(orderId) => buildOrderListHref(filter, display, page, orderId)}
+              selectedOrderId={panelOrderId}
             />
           </ShippingSelectionProvider>
           <ListPagination

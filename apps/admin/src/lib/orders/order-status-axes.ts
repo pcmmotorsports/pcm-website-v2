@@ -87,16 +87,35 @@ const GOODS_TONE: Record<OrderGoodsAxis, string> = {
 };
 
 /**
- * 未收款的紅框。
+ * 未收款的標記:**膠囊左緣 3px 實心紅**。
  *
  * 🔴 **用 `shadow` 畫、不吃任何寬度** —— 狀態欄寬是凍結值(L3 的 13 欄寬),
- *    加內距或加一個實體紅點都會把四個中文字擠出去。
- * 🔴 **雙層(外深內淡)是刻意的**,逐字照 OD:單層在四種底色上只有灰底看得清楚。
- *    ⚠️ 這串是 Tailwind 任意值(空格要寫成底線),醜但**與 OD 逐像素相同**;
- *    改寫成 `ring-2 ring-destructive` 會是「翻譯」不是「搬」(鐵則 1)。
+ *    加內距或加一個實體紅點都會把四個中文字擠出去。**這一條沒有變。**
+ *
+ * 🔴🔴 **2026-08-17 片 A-1:從「雙層外環」換成「左緣紅槓」,而那不是改設計,是【改對版本】。**
+ * ```
+ * 舊版 overview-desktop.html:191  box-shadow:0 0 0 1.5px …, 0 0 0 3px …   ← 雙層【外】環
+ * M 版 overview-desktop-bmw-m.html:218  box-shadow:inset 3px 0 0 var(--danger)  ← 左緣紅槓
+ * ```
+ * ⚠️ **本段原本寫「雙層(外深內淡)是刻意的,逐字照 OD…與 OD 逐像素相同」** ——
+ *    **那句話對【舊版】成立、對【BMW M 版】是錯的字面。**
+ *    它沒有騙人的意思,而它會讓下一個人以為這顆已經對齊 BMW M 了。**這種錯零機械訊號。**
+ * 🔴 **判準(給下一個引用 OD 的人)**:`overview-desktop.html` 是**定案版**,
+ *    **版面 / 資訊架構 / 欄寬 / 密度 / 文案**引它是對的(bmw-m 版檔頭逐字「資訊架構一個字都沒動」);
+ *    **只有【外觀】(顏色 / 形狀 / 字距 / 膠囊 / 選中態)要改引 `-bmw-m` 那份。**
+ *
+ * 🔴 **順帶治好一個既有病(不是本片的目標)**:舊的外環**往外長 3px**,而
+ *    `.orders-grid th,td` 有 `overflow: hidden` ⇒ 實測 **8/15 顆**未收款膠囊的紅框被切掉
+ *    (`globals.css` 的 `.col-status` 那段記過)。**`inset` 畫在 padding box 內 ⇒ 切不到。**
+ *
+ * ⚠️ **改用 CSS class 而不是 Tailwind 任意值**:`inset` 陰影搭 `var()` 在任意值裡要寫成
+ *    `shadow-[inset_3px_0_0_var(--destructive)]`,而它**只有在源碼出現過才會被編出來** ——
+ *    本檔今天已經因為「Tailwind 只產源碼裡的字面」踩過一次。
+ *    規則本體改放 `globals.css` 的 `.cap-unpaid`,與 `.cap-*` 四顆同一區、同一份權威。
+ * 🔴 **`Q-視覺4` = 甲(Sean 2026-08-17,看實體版本後拍)。**
  */
 const PAY_MARK: Record<OrderPayAxis, string | null> = {
-  unpaid: 'shadow-[0_0_0_1.5px_var(--destructive),0_0_0_3px_oklch(0.90_0.06_25)]',
+  unpaid: 'cap-unpaid',
   paid: null, // 收到錢了 ⇒ 不加標記
   // cod: '…', // 貨到付款回來時給它自己的標記,不用動 GOODS_TONE 任何一格
 };
@@ -118,7 +137,26 @@ const PAY_MARK: Record<OrderPayAxis, string | null> = {
       (實心底 + 白字 + `font-bold`),那三個是本檔原本就寫下的理由,一個都沒少。
    ⚠️ **OD `:215` 的 `::before{content:"▲"}` 沒有搬** —— 那會多一個字元寬,
       而狀態欄寬是凍結值(L3 的 13 欄寬)⇒ **刻意不搬,不是漏看。** */
-const RISK_TONE = 'bg-destructive font-bold text-white';
+/* 🔴 **未收出貨的「不加紅槓」是【在這支 code 裡】做掉的,不是靠 CSS —— 而 OD 是靠 CSS。**
+   OD `-bmw-m:218/:219` 的結構是「**照樣掛 `m-unpaid`,再用 `.cap.risk.m-unpaid{box-shadow:none}` 把它消掉**」;
+   我方 `orderStatusView` 的 `isRisk` 分支**根本不套 `mark`** ⇒ 同樣的畫面,少一層。
+   ⚠️ **這是知情的結構偏離,不是漏做** —— 而且是**更好的那個方向**:
+      「不掛」比「掛了再蓋掉」少一個會壞的環節,也不會留下一條選不到任何元素的死 CSS。
+   🔴 **片 A-1 曾經照 OD 的結構做過一次**(加 `.cap-risk.cap-unpaid{box-shadow:none}`),
+      **測試當場證明那條 CSS 永遠選不到東西** —— 因為 mark 從來沒被掛上去。**那條規則已移除。**
+      ⚠️ **但 `cap-risk` 這個 class 留下來了,而它現在有【別的】用途** ——
+         見上方:它是**形狀規則**的掛勾(內距 / 字距 / 字重)。**同一個名字、兩個不同的理由,別搞混。**
+   ⚠️ **主視窗 2026-08-17 從截圖讀成「未收四格都有紅條」是錯的 —— 四格裡只有三格有。** */
+/* 🔴 **`cap-risk` 在這裡的用途是【形狀】,不是顏色,也不是「不加紅槓」。**
+   `globals.css` 的形狀規則(內距 3px / 字距 0.5px / 字重 700)掛在
+   `.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk` 這張清單上 —— OD 的 `.cap` 是**所有**膠囊的基底,
+   `.cap.risk` 只是多了實心底,那三顆它照吃。
+   ⚠️ **實測(片 A-1,沒有 `cap-risk` 的那一版)**:未收出貨量到 `padding-top: 2px` / `font-weight: 500`,
+      而本檔下面那段宣稱「實心 + 白字 + **700 字重**是三個獨立訊號」——
+      🔴 **那三個當時只有兩個真的存在**:`font-bold` 與 `STATUS_CAPSULE` 的 `font-medium`
+      是同特異性 utility 對撞,**贏的是 `font-medium`**。**既有落差,本片量到並收掉。**
+   ⚠️ **不要以為它「只是個沒作用的 class」就刪掉** —— 刪了字重會悄悄掉回 500,而**沒有東西會紅**。 */
+const RISK_TONE = 'cap-risk bg-destructive font-bold text-white';
 
 /** 已取消:與「未定」同樣是灰,靠**虛線外框 + 透明底**分開 —— 灰不能同時代表兩件事。 */
 const CANCELLED_TONE = 'border border-dashed border-muted-foreground/50 text-muted-foreground';

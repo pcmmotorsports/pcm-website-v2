@@ -41,24 +41,56 @@ export function ItemAxisCell({ summary }: { summary: AdminOrderItemQuantitySumma
   if (!summary) {
     return <span className='text-muted-foreground text-xs'>數量資料尚未就緒</span>;
   }
+  /* 🔴🔴 **片 A-1(2026-08-17):直排 → 橫排,並補上「出貨」這一段。**
+   *
+   * **Sean 是看實體版本選的,不是看文字**(兩案並排、各附整個商品區總高):
+   * ```
+   * 甲 直排（往下疊）  439px   一般列 77 / 有取消 97
+   * 乙 橫排（一行）    219px   全部 37      ← 🏁 他選這個
+   * ⇒ 5 品項的單，甲比乙高【一倍】（多 220px）
+   * ⚠️ 他在文字階段答過甲、看完圖改成乙。以最終那次為準。
+   * ```
+   * 形狀取自 OD **定案版** `overview-desktop.html:1036-1038` 的 `.pcstep`
+   * (`訂貨 n/q · 到貨 n/q · 出貨 n/q` 擺同一行)。
+   *
+   * 🔴 **`shippedQuantity` 不是新資料** —— `packages/domain/src/order/types.ts:940` 早就有,
+   *    全樹 20 個消費端而**沒有一個在本檔** ⇒ 這是「資料在、畫面沒顯示」,零 schema、零查詢改動。
+   *
+   * 🔴 **「已取消」仍是條件顯示**(0 件取消是常態,每列印一個 0 是噪音;原本就這樣、沒改)。
+   *    它與前三段的關係是**例外**、不是第四段 ⇒ 保留 `text-destructive` 讓它跳出來。
+   *
+   * ⚠️ **用 `gap-x-3` 分隔,不放 `·` 之類的字元** —— 那會多吃寬度,而且螢幕閱讀器會念出來。
+   * ⚠️ **不加 `flex-wrap`** —— 外層 `<td>` 帶 `whitespace-nowrap`,容器窄時應該讓**整張表橫捲**
+   *    (與全表一致的行為),而不是這一格自己折兩行 —— **那會把「列高不變」這個他選乙的理由弄丟。**
+   *
+   * 🔴 **收工時不准寫「商品導向做完了」** —— 定案版的商品導向是 `.pcard` 商品卡 + 三個收合段
+   *    + 到貨登錄移出 9 欄表(`overview-desktop.html:1024-1101`),**本片一個字都沒做**。
+   *    ⚠️ **而這一格改完之後會長得很像 `.pcstep`** —— **長得像不等於做到了。**
+   */
   return (
-    <div className='text-xs leading-5'>
-      <div>
+    <div className='flex items-center gap-x-3 text-xs leading-5'>
+      <span>
         訂貨{' '}
         <span className='tabular-nums'>
           {summary.orderedQuantity}/{summary.quantity}
         </span>
-      </div>
-      <div>
+      </span>
+      <span>
         到貨{' '}
         <span className='tabular-nums'>
           {summary.instockQuantity}/{summary.quantity}
         </span>
-      </div>
+      </span>
+      <span>
+        出貨{' '}
+        <span className='tabular-nums'>
+          {summary.shippedQuantity}/{summary.quantity}
+        </span>
+      </span>
       {summary.cancelledQuantity > 0 && (
-        <div className='text-destructive'>
+        <span className='text-destructive'>
           已取消 <span className='tabular-nums'>{summary.cancelledQuantity}</span>
-        </div>
+        </span>
       )}
     </div>
   );
@@ -127,8 +159,10 @@ export function ItemsTable({
             <th className={`${TH} text-right`}>數量</th>
             <th className={`${TH} text-right`}>單價</th>
             <th className={`${TH} text-right`}>小計</th>
-            {/* 取消那一列只在 >0 時出現(0 件取消是常態、每列印一個 0 是噪音),欄名仍列出來 */}
-            <th className={TH}>訂貨 · 到貨 · 取消</th>
+            {/* 取消那一段只在 >0 時出現(0 件取消是常態、每列印一個 0 是噪音),欄名仍列出來。
+                🔴 片 A-1:補「出貨」⇒ 欄名跟著補。**欄名與 `ItemAxisCell` 印的段數必須對得上** ——
+                   對不上不會有任何東西紅,只會讓員工找不到欄名說的那一段。 */}
+            <th className={TH}>訂貨 · 到貨 · 出貨 · 取消</th>
           </tr>
         </thead>
         <ItemAmountRowGroup>

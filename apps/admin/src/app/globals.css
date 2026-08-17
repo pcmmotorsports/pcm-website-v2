@@ -115,7 +115,13 @@
           🔴 **⇒ 誰要把它們直接拿來當文字色,必須先重算。** */
   --fg-2: #334155;
   --success: #12883e;
-  --warning: #a56a07;
+  /* 🏁 **2026-08-17 Sean 拍 `Q-視覺2` = 甲「全部依照設計稿」** ⇒ `#a56a07` → OD `:26` 的 `--warn` `#f59e0b`。
+     ⚠️ **舊值不是隨便挑的**:`#a56a07` 是**為了「直接當文字色」而壓深過的**(見上面 `:112-115` 那段)。
+     🔴 **換成 `#f59e0b` 之後,它【更不能】直接當文字色** —— 亮琥珀對白底遠低於 4.5。
+        今天無害的理由與舊值同款:**唯一的消費端是 `.cap-y`,而那裡兩端都經過 `color-mix`**
+        (底 = 混 `--card` 82%、字 = 混黑 38%)。**誰要把它直接拿去當文字色,必須先重算。**
+     📎 對比由 `design-tokens.test.ts` 的膠囊那格**實算並斷言**,不是抄在這裡的數字。 */
+  --warning: #f59e0b;
   --border: #d7dee8;
   /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
      **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
@@ -404,6 +410,64 @@
   color: color-mix(in oklab, var(--success), black 22%);
 }
 
+/* ═══ 膠囊的形狀(片 A-1;OD `overview-desktop-bmw-m.html:206-207` 逐字)═══════════
+   **片3b 只搬了【顏色】,沒有搬【形狀】。** 三個實測差(瀏覽器 computed value,片 A-1 當天量):
+     上下內距  OD `3px`      / 我方 `2px`(元件 `STATUS_CAPSULE` 的 `py-0.5`)⇒ **差 1px**
+     字距      OD `0.5px`    / 我方 `normal`
+     字重      OD `700`      / 我方 `500`(元件是 `font-medium`)
+   🔴🔴 **這一段原本寫「我方 `0px 8px`,是密度規則把 `py-0.5` 壓掉」—— 那是【錯的字面】(V 窗 R1 抓到)。**
+      **三個獨立理由**:①同一筆 diff 的 `order-status-axes.ts` 註解自己寫著「實測 2px」,**兩處互斥**;
+      ②機制上不可能 —— `.orders-grid th,td` 那條內距規則作用在 `<td>`,**壓不到 `<td>` 裡面那顆 `<span>`**;
+      ③與當天真渲染重量(`padding-top: 2px`)矛盾。
+      **成因**:那個 `0px` 是我**第一版手打 `py-[3px]`** 時期的量測殘留 ——
+      `py-[3px]` 在編譯產物裡不存在、**靜默失效** ⇒ 當時量到 0,而我把那個數字留在了註解裡。
+      ⚠️ **本片存在的理由就是「錯字面零機械訊號」** —— **不能自己再埋一句。**
+   ⚠️ **上下內距改在本檔、不改元件端**:元件的 `py-0.5` 是 `STATUS_CAPSULE` 這個**共用常數**,
+      改它會動到列表以外的消費端;而這裡要的是「OD 的膠囊形狀」⇒ 對膠囊自己的 class 寫,範圍剛好。
+   🔴 **`--radius: 0` 已經在管圓角,這裡不重寫 `border-radius`** —— 多一個等值字面而已。 */
+/* 🔴 **`.cap-risk` 也要在這張清單裡** —— OD 的 `.cap`(`-bmw-m:206-207`)是**所有**膠囊的基底,
+   `.cap.risk` 只是多了實心底,形狀那三顆(內距 / 字距 / 字重)它照吃。
+   ⚠️ **實測**:少了它,未收出貨那顆量到 `padding-top: 2px` / `font-weight: 500` ——
+      而 `order-status-axes.ts` 的註解宣稱「實心 + 白字 + **700 字重**是三個獨立訊號」。
+      🔴 **那三個訊號當時只有兩個真的存在**:`font-bold` 與 `STATUS_CAPSULE` 的 `font-medium` 是
+      同特異性的 utility 對撞、由編譯順序決定,而**贏的是 `font-medium`**。
+      **這是本片量出來的既有落差,不是本片造成的** —— 順手在這裡收掉。 */
+.cap-n,
+.cap-y,
+.cap-bl,
+.cap-g,
+.cap-risk {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+/* ═══ 未收款標記:雙層外環 → 左緣 3px 實心紅(片 A-1)═══════════════════════════
+   **OD `:218` 逐字** `.cap.m-unpaid{box-shadow:inset 3px 0 0 var(--danger)}`。
+   🔴 **原本抄的是【舊版】** `overview-desktop.html:191` 的
+      `box-shadow:0 0 0 1.5px …, 0 0 0 3px …`(雙層**外**環)——
+      而 `order-status-axes.ts` 的註解逐字寫著「逐字照 OD」,**那句話對舊版成立、對 BMW M 版是錯的**。
+      2026-08-17 Sean 拍 `Q-視覺4` = 甲:換成設計稿的左緣紅槓。
+   🔴🔴 **順帶治好一個既有病,而它不是本片的目標**:舊的外環**往外長 3px**,而
+      `.orders-grid th,td` 有 `overflow: hidden` ⇒ **實測 8/15 顆未收款膠囊的紅框被切掉**
+      (本檔 `.col-status` 那段記過)。**`inset` 畫在 padding box 裡面 ⇒ 切不到。**
+      ⚠️ **`td.col-status{vertical-align:middle}` 那條【不要順手拿掉】** —— 它現在不再是紅框的
+      唯一救命索,但它仍在做「膠囊垂直置中」這件事本身。 */
+.cap-unpaid {
+  box-shadow: inset 3px 0 0 var(--destructive);
+}
+
+/* 🔴 **「未收出貨不加紅槓」這條【不在本檔】,而那是刻意的。**
+   OD `-bmw-m:219` 用 `.cap.risk.m-unpaid{box-shadow:none}` 把已經掛上去的槓蓋掉;
+   我方 `order-status-axes.ts` 的 `isRisk` 分支**根本不套 mark** ⇒ 同樣的畫面,少一層。
+   🔴 **本片試過照 OD 的結構寫,測試當場證明那條規則【永遠選不到任何元素】** ——
+      因為 `cap-unpaid` 從來不會出現在未收出貨那顆上。**寫進去就是一條死 CSS,已移除。**
+   ⚠️ **`cap-risk` 這個 class 本身還在,但它現在管的是【形狀】**(上面那張清單:內距/字距/字重)
+      —— **同一個名字、兩個不同的理由。** 看到它不要以為紅槓那條規則還在。
+   ⚠️ **主視窗從截圖讀成「未收四格都有紅條」是錯的 —— 四格裡只有三格有。**(2026-08-17 回 OD 原檔複核)
+   ⚠️ **下一個「照 OD 補齊」的人請先讀這段** —— 那條規則不是漏做。 */
+
 /* ═══ M 三色條(片2;OD `overview-desktop-bmw-m.html:87-88` 逐字)═══════════════
    OD 對它的定位逐字寫在 `:83-86`:
      「**全系統唯一的裝飾元素,只當分隔與品牌標記,絕不當按鈕底色**」
@@ -613,6 +677,60 @@
    ⚠️ 這一格**不需要 ellipsis**:狀態是八值列舉、最長 4 個中文字,88px 欄實測 0/15 截斷。 */
 .orders-grid td.col-status {
   vertical-align: middle;
+}
+
+/* ═══ 選中的那張單(片 A-1;OD `overview-desktop-bmw-m.html:177-178` 逐字)═══════════
+   Sean 2026-08-17 逐字:「**我在點擊訂單時候,跳出左邊側邊欄位後,左邊訂單列會有色塊指示是在哪一個訂單**」。
+   **改版前這件事完全沒有** —— 點開面板,左邊列表一個像素都不變。
+
+   **OD 原文** `tbody tr.sel td{background:color-mix(in oklab,var(--accent) 8%,var(--surface));
+                              box-shadow:inset 3px 0 0 var(--accent)}`
+
+   🔴 **混色的參數順序【故意與 OD 相反】,值完全相同** —— `A 8%, B` ≡ `B 92%, A`。
+      理由與本檔 `.cap-*` 那段同一條:lightningcss 會自動產老瀏覽器降級版,而它挑的降級值
+      = **第一個參數**。照 OD 的順序寫,降級值就是純 `var(--primary)` ⇒ **整列變實心藍**。
+      把 `--card` 放第一個 ⇒ 降級值 = 白底 = 與現況相同,只是沒有淡藍。**壞掉的方向要選對。**
+   🔴 **綁 `<tbody>` 不綁 `<tr>`** —— 一張單有多個品項列,OD 自己也是整組一起亮
+      (`:680` `for (const tr of tb.querySelectorAll('tr')) tr.classList.toggle('sel', on)`)。
+   ⚠️ **`inset` 是承重的**:本檔 `.orders-grid th,td` 有 `overflow: hidden`,**往外長的陰影會被切掉**
+      (未收款紅框那個病就是這樣來的)。`inset` 畫在 padding box 內 ⇒ 切不到。
+   ⚠️ **每一格都會畫一條左緣** —— 這是 OD 的形狀,不是 bug(它的選擇器也是 `td`)。 */
+.orders-grid tbody.orders-group[data-selected] td {
+  background: color-mix(in oklab, var(--card) 92%, var(--primary));
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+/* ═══ 表頭:36px / 12px(片 A-1;OD `overview-desktop-bmw-m.html:166-169` 逐字)═════
+   **字距 `1.5px` 與字重 `700` 早就做了**(元件 `TH` 常數裡的 `tracking-[1.5px] font-bold`)——
+   🔴 **2026-08-17 我一度回報「字距沒做」,那是錯的**:我餵給瀏覽器的 `<th>` 用錯了常數(拿 `TD` 去當表頭)。
+      **把【已做】報成【沒做】比反過來更貴** —— 下一個人會去做一件已經完成的事,而動的過程會把對的改壞。
+   ⇒ **這裡只補【還沒做的兩顆】:高度 40 → 36、字級 13 → 12。**
+   ⚠️ **不搬 `text-transform: uppercase`** —— 對中文是 no-op,設計參照已裁「永不採用」。
+      寫上去畫面一個像素都不會變,卻會留下一行「已照 OD 做大寫」的假字面。
+   ⚠️ **只動 `thead th`,不動 `--od-fs-sm`** —— 那顆同時餵日期/料號/發票三個資料格,
+      改它會把三個沒人要求改的欄一起動到。 */
+/* 🔴 **`.text-xs` 那半是承重的,不是湊數** —— 元件的 `TH` 常數帶 `text-xs`,而本檔上方的
+   `.orders-grid th.text-xs{font-size:var(--od-fs-sm)}` 是 **(0,2,1)**、
+   只寫 `.orders-grid thead th` 是 **(0,1,2)** ⇒ **輸掉,字級停在 13px。**
+   ⚠️ **我第一版就是只寫前者,量出來 13px、以為改好了** —— 那條規則在檔案裡、瀏覽器不認。
+   ⇒ 兩個選擇器都列,後者 (0,2,2) 穩定壓過。**不用 `!important`。** */
+.orders-grid thead th,
+.orders-grid thead th.text-xs {
+  height: 36px;
+  font-size: 12px;
+}
+
+/* ═══ 單號:等寬字 + 700(片 A-1;OD `overview-desktop-bmw-m.html:181` 逐字)══════════
+   OD `td.oid{font-family:var(--font-mono);font-weight:700;color:var(--fg)}`。
+   **單號是拿來【比對】的字串**(跟客人核、跟供應商核、複製貼上)⇒ 等寬字讓逐字元對齊。
+   ⚠️ **顏色那一項不搬**:OD 的 `var(--fg)` 對應我方 `--foreground`,而這一格的字色**現在就是它**
+      (實測 `rgb(17,24,39)`)⇒ 寫上去是等值字面。
+   ⚠️ **字重寫在 `td` 上、不寫在裡面那個 `<a>` 上** —— 那顆 `<a>` 帶 `font-medium`(500),
+      特異性比本條高 ⇒ 必須用 `.orders-grid td.col-oid a` 才蓋得過。 */
+.orders-grid td.col-oid,
+.orders-grid td.col-oid a {
+  font-family: 'SF Mono', ui-monospace, 'SFMono-Regular', menlo, monospace;
+  font-weight: 700;
 }
 
 /* 🔴 `table-layout: fixed` 是欄寬**生效的前提**(OD `overview-desktop.html:103` 逐字同款):
