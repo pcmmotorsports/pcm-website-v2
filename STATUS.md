@@ -82,7 +82,7 @@ vitest 明細:`Test Files 508 passed (508)` / `Tests 8511 passed | 2 expected fa
 | # | 原條目 | 態 | 結果 |
 |---|---|---|---|
 | 1 | traps 停止編號(丙裁定)尚未執行 | **關掉** | 已執行,commit `24a069ce` |
-| 2 | `#606` 第 2 步(改 vitest alias)等 Sean | **仍等 Sean** | 見下 §2 |
+| 2 | `#606` 第 2 步(改 vitest alias)等 Sean | ✅ **關掉**(2026-08-17 午後) | Sean 拍 `Q-4`=甲、T 窗執行、I 窗收割 `06202367`;見下 §2 |
 | 3 | `shellcheck` 本機未安裝 ⇒ 含 `.sh` 的批次都標「未確認」 | **關掉,而且它問錯了問題** | 見下 §3 |
 | 4 | 「繳稅註解 33 支」vs V 窗 15 支 | **關掉(主視窗裁)** | **兩個數都在,量法已佚失,不再引用** |
 | 5 | `environment-values` 表六列「讀來的」未第一手重量 | **不歸我** | 載體是 V 窗的 `~/pcm-mailbox/V-027-環境值依賴表.md` |
@@ -106,7 +106,12 @@ vitest 明細:`Test Files 508 passed (508)` / `Tests 8511 passed | 2 expected fa
 ⚠️ **射程照抄不放大**:`bash -n` 抓語法錯,**抓不到邏輯錯與 runtime 行為**;且 gate **只認副檔名**
 ⇒ `.husky/pre-commit`、`.husky/pre-push` 這種**無副檔名的 shell 腳本收不到**(`slice-checkpoint.md:201` 早已寫著)。
 
-### §2 `#606` vitest alias —— **問題還在、plan 沒被偷跑**
+### §2 `#606` vitest alias —— ✅ **已執行**(2026-08-17 午後;~~問題還在、plan 沒被偷跑~~ 已過期)
+
+> **現況一句**:Sean 拍 `Q-4`=甲 ⇒ T 窗執行(`06202367`,vitest 拆三個 project、per-app `@` alias)⇒ I 窗收割。
+> ✅ **而我當時附的那條射程限定被兌現了**:「前一任證的是 `proxy.ts` **一支**、用的是**複本**;**真改設定後要在【原檔】上重跑才算數**」
+> ⇒ **T 窗把 `proxy.ts` 的 7 格行為測試打在【原檔】上,不是複本。** 那句限定不是形式,它指定了驗收條件。
+> 📎 下面那四行**是拍板【之前】的現況快照,逐字保留當紀錄** —— 不要當現況讀。
 
     docs/specs/2026-08-17-admin-vitest-alias-plan.md   存在（10,165 bytes）
     檔頭逐字「鐵則 8 命中（動 vitest 設定=平台設定層）⇒ 等 Sean 批，不自行執行」
