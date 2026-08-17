@@ -279,6 +279,23 @@ Q-C20 出貨明細單/揀貨單的「跨頁抬頭」怎麼做?
 
 ## §4c 🔴 收窄與縮字(Sean 2026-08-17 晚兩條逐字)—— **參數與量法**
 
+> ### 🔴🔴 射程限定(2026-08-17 晚補;**先讀這一格,再讀本節任何一個數字**)
+>
+> **本節下面每一個頁數與係數,量的都是【設計稿版面的一份重製】,不是正式頁。**
+> 兩者是**兩份不同的文件**:品項表 3 欄 vs 7 欄;正式頁 `grep -c` 全是 0 的有
+> 應揀 / 數量對帳 / QR / 簽收 / 買受人 / 客戶公司名;而正式頁**從來沒有為列印設過字級**
+> (它用 Tailwind 的 `text-sm` / `text-xs`,**不是 pt**;`print-a4.css` 規則層唯一的 `font-size`
+> 是頁碼那個 8pt)。
+> ⇒ **`×0.90` / `×0.80` 那組係數在正式頁上沒有可乘的對象**,不要直接套。
+> ⇒ **Sean 拍的「內文 8pt」射程也是設計稿版面**,套上正式頁要重新量。
+> ⇒ 下表第一列「基準 1 品項 = **2 頁**」是**那份重製**的行為;
+> **正式頁的單品項訂單是 1 頁**(實測見本節末 §4c-2)。
+>
+> 📎 **為什麼這一格寫在這裡、而不是只寫在交接信裡**:會引用這組參數的人讀的是本節,不是那封信。
+> **下修寫在別處等於沒寫**(memory `feedback_downgrade-a-source-inside-the-file-people-cite`)。
+>
+> ---
+>
 > **artifact 是會消失的載體,本節不會。** 他選完之後真正被引用的是下面那組參數。
 > 確認稿(當時的網址)`https://claude.ai/code/artifact/493a7931-2bee-4717-9332-87c1a76a1758`
 > ⚠️ **那個網址會被後續的片覆蓋** ⇒ 引用參數請以本節為準,不要回頭找圖。
@@ -344,6 +361,67 @@ logo 12mm ⇒ 字級 0.90    ⇒ 三個一模一樣
 **而「漏驗」不會有任何東西紅** —— 單品項那張跑起來會全綠,因為它根本沒有機會觸發那三條,
 **而那張紙看起來與測過的一模一樣。**
 📎 判別句:**這張測資在「收窄之後」的世界裡還會跨頁嗎?不會 ⇒ 它驗不了跨頁。**
+
+---
+
+### 🔴🔴 §4c-2 · 貼底:**在【正式頁】上不與「單品項 1 頁」互斥**(2026-08-17 晚實測)
+
+**前一輪的結論**(留痕不刪):在設計稿重製上,`flex + min-height:Xmm` + 底部區 `margin-top:auto`
+一開下去,**`X` 從 271 掃到 180mm 全部變成 2 頁** ⇒ 當時記成「貼底與單品項 1 頁**互斥**,
+而 `min-height:180mm` 對一個本來就超過 180mm 的區塊**應該**沒有作用 —— 它不一樣,成因未查明」。
+
+🔴 **那個矛盾在正式頁上不出現。判【已關】,不必再查成因。**
+**推翻的是【前提】不是結論**:互斥是**那份重製的性質**,不是版面技法的性質。
+⇒ 下一個人**不必回頭重查 `min-height`**,也不必重跑前一輪已排除的三個候選
+(wrapper 無害 / flex-alone 無害 / 不是 `box-sizing`)。
+
+**量法(可重跑,三步)**:
+
+```
+1  產出正式頁的靜態 HTML（要先 build，它讀建置產物的 CSS）
+   TURBO_FORCE=1 pnpm build
+   npx vitest run apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page-measure.test.tsx
+   ⇒ /tmp/pcm-print-measure/shipping-1item.html
+2  只在 </head> 前多注入一段 <style>，其餘 byte 不動：
+   python3 -c "import io,sys; s=io.open(sys.argv[1],encoding='utf-8').read(); \
+   io.open(sys.argv[3],'w',encoding='utf-8').write(s.replace('</head>','<style>'+sys.argv[2]+'</style></head>',1))" \
+   <src> '<css>' <out>
+3  sh scripts/pagecount.sh <out>          數頁數
+   sh scripts/pagecount.sh --png <out> /tmp/shots   把每頁輸出成 PNG，真的開來看
+```
+
+`FLEX` = `.print-sheet{display:flex;flex-direction:column}` +
+`.print-sheet>*:last-child{margin-top:auto!important}`
+(⚠️ `!important` 是**因為 Tailwind 的 `space-y-4` 在同一個位置放了 `margin-top`** ——
+不加的話 `margin-top:auto` 會被蓋掉,而**症狀是「貼底沒生效」而不是報錯**。)
+
+| 變體 | 注入的 CSS | 頁數 |
+|---|---|---|
+| v0 基準 | 不注入 | **1** |
+| v1 | `FLEX` | 1 |
+| v2 | `FLEX` + `min-height:271mm` | **1** ← 前一輪在重製上量到 2 |
+| v3 | `FLEX` + `min-height:180mm` | **1** ← 那個「180mm 矛盾」不出現 |
+| v4 | 只 `min-height:271mm`(不開 flex) | 1 ← 前一輪沒量過的那一格 |
+| v5 | 只 `min-height:180mm` | 1 |
+| v6 | `FLEX` + `min-height:100vh` | 1 |
+| **v7** | **只 `min-height:400mm`** | **2** 🔴 負向對照 |
+| **v8** | **`FLEX` + `min-height:400mm`** | **2** 🔴 負向對照 |
+
+🔴 **v7 / v8 是這張表的證據力所在。** 沒有它們,「七格都 1 頁」與「我的注入根本沒生效」
+**是同一個觀測**。有它們才知道那七個 1 是量出來的。
+
+🔴 **而且印出來看過了**(`--png`,不只數頁數):v2 的第 1 頁 —— 內容在上、**中間一大片空白**、
+「出貨人:____」**貼在紙底**、頁尾正中央印著「第 1 頁 / 共 1 頁」。
+⇒ **貼底成功 + 單品項 1 頁,同時成立。**
+
+📎 **順帶收掉半個頁碼缺口**(§4b 第 4 條):這一發是用 `--no-pdf-header-footer`
+(**Chrome 自己的頁首頁尾關掉**)印的,而紙上仍然出現「第 1 頁 / 共 1 頁」
+⇒ **`@page` 的 `@bottom-center` 在 Chrome 真的會渲染,那一行不是 Chrome 加的。**
+⚠️ **三條限定跟著走**:headless Chrome / macOS / 這一份 fixture。
+**真印表機那一發仍然未確認**,要 Sean 照 §4b 那兩個問法做(先確認「頁首及頁尾」沒打勾,再照抄紙上那行字)。
+
+⚠️ **本節【沒有】驗到什麼**:①正式頁**加上金額區 / QR / 簽收 / 勾選欄之後**還會不會是 1 頁
+(那些區塊還沒做,見 §4b);②多品項長單開了貼底之後跨頁切在哪裡;③非 Chrome 的瀏覽器。
 
 ---
 
