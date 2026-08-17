@@ -131,6 +131,15 @@ describe('delta_mismatch(∉ {0, refund_amount} = Portal 介入痕跡)', () => {
     });
   });
 
+  it('🔴 正:超退(delta > refund_amount)= mismatch,不得誤判 executed —— over-refund 是錢最危險的方向', () => {
+    // 出身:2026-08-18 錢/權限突變普查。原本行使過的 delta 全集={−50,0,1,249,250},
+    // delta>250 一格都沒有 ⇒ executed 閘的 `=== refundAmount` 被改成 `>=` 時,退超過凍結額
+    // 的那筆會被靜默判成 executed 乾淨結案、全套照綠。本格釘住那個上緣。
+    // 期望值當場量(withRefundedNow(360)、before=100、refund=250 ⇒ delta=260),不是手算。
+    const judged = judgeRefundRecovery(withRefundedNow(360), ROW, 0);
+    expect(judged).toMatchObject({ verdict: 'delta_mismatch', refundedNow: 360, delta: 260 });
+  });
+
   it('負:差額全等且 others=0 → 不是 mismatch(executed)', () => {
     expect(judgeRefundRecovery(withRefundedNow(350), ROW, 0)).toMatchObject({
       verdict: 'executed',
