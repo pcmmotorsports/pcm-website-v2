@@ -44,8 +44,18 @@ CDPATH= cd "$(dirname "$0")/.."
 # 抽出來【只為了讓 selftest 餵得到它】—— 這支檔的整個教訓就是 inline 的東西測不到。
 # 印 `- - 格式未知` 表示這份不認識(舊格式/壞檔),**由呼叫端決定怎麼算,本函式不猜**。
 parse_context() {
-  _v="$(printf '%s\n' "$1" | sed -n 's/^其他窗四綠vitest並行數(不含自己) .*vitest起跑前=\([0-9]*\).*/\1/p')"
-  _b="$(printf '%s\n' "$1" | sed -n 's/^其他窗四綠build並行數(不含自己) .*vitest起跑前=\([0-9]*\).*/\1/p')"
+  # 🔴🔴 2026-08-18:欄位名換過一次,而**新舊兩把尺量的不是同一個東西** ——
+  #    舊尺 `其他窗四綠…` 的標記檔落在【各自的工作樹】⇒ 它看不見別的窗 ⇒ **每一次都報 0**;
+  #    新尺 `全樹並行四綠…` 的標記落在 git common dir 的共用點 ⇒ 才真的跨工作樹。
+  #    ⇒ **兩者【絕不合併】,也絕不把舊尺的 0 當成「量到 0」** ——
+  #      本檔檔頭自己就寫著「補 0 會讓『沒量到』長得像『量到 0』」,而舊尺整批就是那個形狀。
+  #    ⇒ 舊尺的樣本一律標成 `舊尺(看不見別樹)`,不進四格表的並行分檔。
+  _vnew="$(printf '%s\n' "$1" | sed -n 's/^全樹並行四綠vitest數(不含自己;[^)]*) .*vitest起跑前=\([0-9]*\).*/\1/p')"
+  _bnew="$(printf '%s\n' "$1" | sed -n 's/^全樹並行四綠build數(不含自己;[^)]*) .*vitest起跑前=\([0-9]*\).*/\1/p')"
+  _vold="$(printf '%s\n' "$1" | sed -n 's/^其他窗四綠vitest並行數(不含自己) .*vitest起跑前=\([0-9]*\).*/\1/p')"
+  if [ -n "$_vold" ] && [ -z "$_vnew" ]; then echo "- - 舊尺(看不見別樹)"; return 0; fi
+  _v="$_vnew"
+  _b="$_bnew"
   _rc="$(printf '%s\n' "$1" | sed -n 's/^rc typecheck=\([0-9]*\) lint=\([0-9]*\) build=\([0-9]*\) vitest=\([0-9]*\)$/\1\2\3\4/p')"
   # 🔴 三種「不完整」要分開講,不可以用同一個標籤 ——
   #    我第一版把「舊欄位名」與「有 vitest 但沒有 build 欄」都印成「格式未知」,
@@ -73,7 +83,7 @@ bucket_of() { if [ "$1" -ge "$CONCURRENCY_THRESHOLD" ] 2>/dev/null; then echo �
 
 collect() {
   root="${1:-logs/four-greens}"
-  lo_g=0; lo_r=0; hi_g=0; hi_r=0; unknown_rc=0; unknown_fmt=0; total=0
+  lo_g=0; lo_r=0; hi_g=0; hi_r=0; unknown_rc=0; unknown_fmt=0; legacy=0; total=0
   only_v=0; only_v_norc=0
   for d in "$root"/*/; do
     [ -f "$d/RUN-CONTEXT" ] || continue
@@ -85,6 +95,11 @@ collect() {
       rc未知)            unknown_rc=$((unknown_rc+1)); continue ;;
       僅vitest且rc未知)  only_v_norc=$((only_v_norc+1)); continue ;;
       僅vitest)          only_v=$((only_v+1)); continue ;;
+      # 🔴 2026-08-18:少了這一行,舊尺的樣本會【掉進四格表】——
+      #    `v` 是 `-`、`bucket_of -` 回「低」、`verdict` 不是「綠」⇒ 全部被算成【低×紅】。
+      #    ⚠️ 我加完 parse_context 的新標籤【就以為做完了】,而呼叫端沒接 ——
+      #    真表當場印「並行低 16 紅」才發現。**同一批改動裡的第三次「只改被指名那一處」。**
+      舊尺*)             legacy=$((legacy+1)); continue ;;
     esac
     # 分檔用「vitest 與 build 之中較大的那個」—— 兩者搶同一批 CPU,只看一個會低估。
     m="$v"; [ "$b" -gt "$m" ] 2>/dev/null && m="$b"
@@ -103,12 +118,15 @@ collect() {
   printf '並行低      %-7s %s\n' "$lo_g" "$lo_r"
   printf '並行高      %-7s %s\n' "$hi_g" "$hi_r"
   echo
-  echo "不進四格(四種原因分開數,不合併成一個標籤):"
+  echo "不進四格(五種原因分開數,不合併成一個標籤):"
   echo "  欄位名未知        $unknown_fmt 發   前兩版量具的舊欄位名 ⇒ 那些數字本身已作廢(見 #618)"
   echo "  僅vitest且rc未知  $only_v_norc 發   有 vitest 並行數、沒有 build 欄也沒有 rc 行"
   echo "  僅vitest          $only_v 發   有 vitest 並行數與 rc、但沒有 build 欄(build 欄 22:41 才加)"
   echo "  rc未知            $unknown_rc 發   兩個並行數都有、缺 rc 行(rc 行 22:5x 才加)"
-  echo "  🔴 這四種【不補 0、不猜】—— 補 0 會讓「沒量到」長得像「量到 0」。"
+  echo "  🔴舊尺(看不見別樹) $legacy 發   2026-08-18 之前的量法:標記檔落在【各自的工作樹】"
+  echo "                              ⇒ 它看不見任何別的窗 ⇒ 那些 0 是【構造上必然】不是量到的"
+  echo "                              ⇒ 不得當成「並行 0 的樣本」;救不回來,只能重新收集。"
+  echo "  🔴 這五種【不補 0、不猜】—— 補 0 會讓「沒量到」長得像「量到 0」。"
   echo
   # 🔴 判停條件由這支自己印出來 —— 寫在檔頭沒人讀,印在結果旁邊才會被看到。
   if [ "$lo_g" -gt 0 ] && [ "$lo_r" -gt 0 ] && [ "$hi_g" -gt 0 ] && [ "$hi_r" -gt 0 ]; then
@@ -128,7 +146,7 @@ selftest() {
          else fail=$((fail+1)); printf 'FAIL  %s  得到「%s」預期「%s」\n' "$1" "$2" "$3"; fi; }
 
   # 格1-4:parse_context 的四個世界。**餵構造好的字串**,不去讀真的檔。
-  ctx_new() { printf '開始 X\n結束 Y\n其他窗四綠vitest並行數(不含自己) 開始=%s vitest起跑前=%s 結束=%s\n其他窗四綠build並行數(不含自己) 開始=%s vitest起跑前=%s\nrc typecheck=%s lint=%s build=%s vitest=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"; }
+  ctx_new() { printf '開始 X\n結束 Y\n全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=%s vitest起跑前=%s 結束=%s\n全樹並行四綠build數(不含自己;2026-08-18 起跨工作樹) 開始=%s vitest起跑前=%s\nrc typecheck=%s lint=%s build=%s vitest=%s\n' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9"; }
   ck "格1 全綠 ⇒ 判綠,並行數取【vitest起跑前】那個" \
      "$(parse_context "$(ctx_new 9 2 9 9 3 0 0 0 0)")" "2 3 綠"
   ck "格2 vitest 非 0 ⇒ 判紅" \
@@ -136,19 +154,29 @@ selftest() {
   # 🔴 格3:紅【不只看 vitest】—— typecheck 紅也是紅。第一版只看第 4 個位置就會漏。
   ck "格3 typecheck 非 0 也算紅(不得只看 vitest 那一位)" \
      "$(parse_context "$(ctx_new 9 2 9 9 3 2 0 0 0)")" "2 3 紅"
-  # 格4:舊格式(沒有 rc 那一行)⇒ 明說 rc未知,**不猜**。
-  old_ctx="$(printf '開始 X\n結束 Y\n其他窗四綠vitest並行數(不含自己) 開始=0 vitest起跑前=1 結束=0\n其他窗四綠build並行數(不含自己) 開始=0 vitest起跑前=2\n')"
-  ck "格4 舊 RUN-CONTEXT 沒有 rc 行 ⇒ 回 rc未知(不猜)" \
+  # 格4:缺 rc 那一行 ⇒ 明說 rc未知,**不猜**。
+  #    ⚠️ 2026-08-18:本格的 fixture 原本用【舊欄位名】,而舊欄位名現在有它自己的分類
+  #    ⇒ 若不改 fixture,這一格測到的會變成「舊尺」那條路,**而它要測的是缺 rc 那條**。
+  #    ⇒ fixture 換成新欄位名;舊欄位名另立 `格4b` 專門守。
+  old_ctx="$(printf '開始 X\n結束 Y\n全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=0 vitest起跑前=1 結束=0\n全樹並行四綠build數(不含自己;2026-08-18 起跨工作樹) 開始=0 vitest起跑前=2\n')"
+  ck "格4 缺 rc 行 ⇒ 回 rc未知(不猜)" \
      "$(parse_context "$old_ctx")" "1 2 rc未知"
+  # 🔴 格4b:**舊尺的樣本不得進四格表**(2026-08-18 跨工作樹修正)。
+  #    舊尺的標記檔落在各自的工作樹 ⇒ 它看不見別的窗 ⇒ 那些 `0` 是【構造上必然】不是量到的。
+  #    ⇒ 必須被標成 `舊尺(看不見別樹)`,而**不是**「並行 0」。
+  #    ⚠️ 沒有這一格的話,舊樣本會被讀成「低並行」,而整欄的結論就建在一堆假 0 上。
+  legacy_ctx="$(printf '開始 X\n結束 Y\n其他窗四綠vitest並行數(不含自己) 開始=0 vitest起跑前=0 結束=0\n其他窗四綠build並行數(不含自己) 開始=0 vitest起跑前=0\nrc typecheck=0 lint=0 build=0 vitest=0\n')"
+  ck "格4b 舊欄位名 ⇒ 標成【舊尺】,不得當成並行 0 的綠樣本" \
+     "$(parse_context "$legacy_ctx")" "- - 舊尺(看不見別樹)"
   # 格5:連並行數欄位都不認得(更舊的版本/壞檔)⇒ 格式未知。
   ck "格5 完全不認識的內容 ⇒ 回欄位名未知" \
      "$(parse_context "隨便一段東西")" "- - 欄位名未知"
   # 🔴 格5b/5c:「有 vitest 但沒有 build 欄」是【另一種】不完整,不得與格5 共用標籤。
   #    第一版兩者都印「格式未知」⇒ 同一個標籤兩種意思(今晚一直在修的那個病)。
-  only_v_ctx="$(printf '開始 X\n結束 Y\n其他窗四綠vitest並行數(不含自己) 開始=0 vitest起跑前=3 結束=0\nrc typecheck=0 lint=0 build=0 vitest=0\n')"
+  only_v_ctx="$(printf '開始 X\n結束 Y\n全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=0 vitest起跑前=3 結束=0\nrc typecheck=0 lint=0 build=0 vitest=0\n')"
   ck "格5b 有 vitest 欄、沒有 build 欄、有 rc ⇒ 回【僅vitest】而不是欄位名未知" \
      "$(parse_context "$only_v_ctx")" "3 - 僅vitest"
-  only_v_norc_ctx="$(printf '開始 X\n結束 Y\n其他窗四綠vitest並行數(不含自己) 開始=0 vitest起跑前=4 結束=0\n')"
+  only_v_norc_ctx="$(printf '開始 X\n結束 Y\n全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=0 vitest起跑前=4 結束=0\n')"
   ck "格5c 只有 vitest 欄、連 rc 都沒有 ⇒ 回【僅vitest且rc未知】" \
      "$(parse_context "$only_v_norc_ctx")" "4 - 僅vitest且rc未知"
 
