@@ -1800,7 +1800,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
    *    才補進 plan 的 —— **實作之後 7 小時**。補進來當天實測
    *    `grep -rn "算不出狀態" --include='*.test.tsx' | wc -l` ⇒ **0**。**這一格就是在補那個 0。**
    */
-  const TRUNCATED_TITLE = '這張單的品項清單這次沒有完整載入,算不出狀態。請重新整理。';
+  const TRUNCATED_TITLE = '這張單的品項太多,列表這裡算不出狀態。重新整理不會改變。';
 
   it('🔴 驗收12a:截斷時那顆膠囊的 title 存在,且【逐字】等於 orders-table.tsx:429', () => {
     const { container } = render(

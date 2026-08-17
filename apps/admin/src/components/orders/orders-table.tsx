@@ -448,7 +448,7 @@ function OrderGroup({
                 {order.itemsTruncated ? (
                   <span
                     className={status.capsuleClass}
-                    title='這張單的品項清單這次沒有完整載入,算不出狀態。請重新整理。'
+                    title='這張單的品項太多,列表這裡算不出狀態。重新整理不會改變。'
                   >
                     未知
                   </span>
