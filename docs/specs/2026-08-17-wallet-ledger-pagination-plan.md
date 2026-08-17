@@ -22,8 +22,11 @@ packages/adapters/src/supabase/SupabaseWalletAdapter.ts  listEntries()
     .order('entry_date', desc).order('created_at', desc)
   ⇒ 沒有 .range() / .limit()
 ```
-PostgREST `db-max-rows` 實測 **1000** ⇒ **靜默停在第 1000 筆**(HTTP 200、`content-range` 不反映、
-無 `Preference-Applied`)⇒ 會員累積 1,001 筆時**最舊的那些直接消失**,而畫面上看不出異常。
+PostgREST `db-max-rows` ⇒ **靜默停在上限那一筆**(HTTP 200、`content-range` 不反映、
+無 `Preference-Applied`)⇒ 會員累積超過上限時**最舊的那些直接消失**,而畫面上看不出異常。
+🔴 **上限值 2026-08-18 起 = 2000**(~~原文寫的 1000 已過期~~;V 窗 2026-08-18 對正式站實測
+`products?select=id&limit=5000` ⇒ HTTP 206、`content-range 0-1999/19777`。**主視窗與 I 窗均未自驗**)
+⇒ 觸發門檻從 1,001 筆變成 2,001 筆,**而本節的病一模一樣**:它壞在「靜默」,不壞在那個數字。
 
 **這是金額歷史** ⇒ 鐵則 12①。
 
@@ -99,7 +102,8 @@ customer_wallet_ledger 全表   3 列
 
 ### ⇒ 結論:**單次查詢這條路走不通**
 
-`LIMIT` 要大到涵蓋終身帳本 ⇒ 會超過 `max-rows` 1000 ⇒ 回到必須分頁。
+`LIMIT` 要大到涵蓋終身帳本 ⇒ 會超過 `max-rows`(2026-08-18 起 **2000**,~~原寫 1000~~)⇒ 回到必須分頁。
+📎 **結論不變** —— 終身帳本沒有上界,`2000` 與 `1000` 一樣擋不住它。
 ⇒ **主視窗說的「兩層」是對的,而我省掉了第一層**:
 **keyset 分頁管「翻頁不漂」,先例的 N+1 偵測管「撈不完要說出來」——兩層都要。**
 
@@ -247,10 +251,18 @@ packages/adapters/src/supabase/SupabaseOrderAdapter.ts:496
 
 - **母體 3 筆是「今天」** —— 沒有任何守門會在它長到 1,000 時響。
 - **keyset 分頁我沒有實作也沒有實測**,§4-a 是方向不是驗過的方案。
-- **`fetchAllPaginated` 的 `PAGE_SIZE = 1000` 等於(不是小於)`max-rows`** ——
-  今天剛好安全(請求正好 1000、伺服器上限也是 1000),但**若 `max-rows` 被調低,
-  它會把「伺服器砍過的一頁」誤判成末頁而提早收工** ⇒ 這是**共用 helper 的既有風險**,
-  影響所有用它的呼叫端,不只 Wallet。**未修,未立案。**
+- ~~**`fetchAllPaginated` 的 `PAGE_SIZE = 1000` 等於(不是小於)`max-rows`**~~
+  🔴 **2026-08-18 更新:這句的事實部分已不成立** —— `db-max-rows` 實測 **2000**
+  ⇒ `1000 < 2000`,**現在是嚴格小於**。
+  (V 窗 2026-08-18 對正式站實測:`products?select=id&limit=5000` ⇒ HTTP 206、
+   `content-range 0-1999/19777`;第二來源 = Sean 口頭「已經調整到2000」。
+   ⚠️ **主視窗與 I 窗均未自驗**。)
+  🔴 **而這一條【不能就此關掉】,因為它指出的風險一個字都沒消失**:
+  餘裕是**設定給的**、不是程式保證的 —— `max-rows` 在 Dashboard 上被改回 1000 或更低,
+  `fetchAllPaginated` 就**再次**把「伺服器砍過的一頁」誤判成末頁而提早收工,
+  而**檔沒改、測試沒紅、`grep` 數不變**。
+  ⇒ 這仍是**共用 helper 的既有風險**,影響所有用它的呼叫端,不只 Wallet。
+  **未修,未立案。**(改動的只有「今天是否觸發」,不是「這個病存不存在」。)
 
 ## 7. 我需要的批准
 

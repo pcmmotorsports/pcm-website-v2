@@ -50,8 +50,18 @@ export function buildIlikeOrFilter(columns: readonly string[], q: string): strin
 }
 
 /**
- * 全量分頁上限(繞 PostgREST/Supabase「Max rows = 1000」硬上限)。
+ * 全量分頁上限(繞 PostgREST/Supabase `db-max-rows` 硬上限)。
  * MAX_PAGES 防呆:50 × 1000 = 5 萬件上限(遠超現況、防迴圈失控)。
+ *
+ * 🔴 `db-max-rows` = **2000**(~~2026-08-02 起記載的 1000 已過期~~)。
+ * V 窗 2026-08-18 對正式站實測:`products?select=id&limit=5000`
+ * ⇒ HTTP 206、`content-range 0-1999/19777`(分母 19,777 > 2000 ⇒ 量到的是天花板本人)。
+ * **本檔改動者未自驗,轉錄 V 窗量測。**
+ * ⇒ `PAGE_SIZE = 1000` 目前 **嚴格小於** 上限,~~零餘裕~~ 已解除。
+ * 🔴 **但餘裕是【設定給的】、不是這支程式保證的** —— 那個值在 Supabase Dashboard 上
+ * 被改回 1000(或更低),本檔的「`batch.length < PAGE_SIZE` 即停」就**再次零判別力**:
+ * 伺服器砍出來的頁與真正的末頁**回傳同樣的筆數**,迴圈靜默提早收工,
+ * 而**檔沒改、測試沒紅、`grep` 數不變**。判準正本 `docs/patterns/pagination-loop-review.md` §1。
  */
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 50;

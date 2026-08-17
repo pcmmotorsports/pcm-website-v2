@@ -19,7 +19,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=32
+EXPECT_TOTAL=36
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -270,12 +270,23 @@ else
   bad "⑰真 push 沒被擋:rc=$PUSH_RC $(printf '%s' "$PUSH_OUT" | tail -2 | tr '\n' ' ')"
 fi
 
-# ⑱ 本 repo 的 .husky/pre-push 形狀:可執行 + 三段以 && 串接(關卡2 #1/#2 的回歸)
+# ⑱ 本 repo 的 .husky/pre-push 形狀:可執行 + 三段以 && 串接 + 前兩段帶 TURBO_FORCE=1
+#    🔴 #621(2026-08-17,codex 關卡2 must-fix):原本這一格 grep 的是
+#    `pnpm typecheck && pnpm lint && bash` 那一整串字面,而 #621 在前兩段各加了 `TURBO_FORCE=1`
+#    前綴 ⇒ 舊字面必然落空 ⇒ 這一格會變成【假紅】(它紅的是自己的判準過期,不是 hook 壞了)。
+#    ⇒ 拆成三個各自說得出自己在守什麼的判準:typecheck 帶前綴 / lint 帶前綴 / 串得到 gate。
+#    🔴 只看【非註解行】—— `.husky/pre-push` 的說明註解裡**就有** `TURBO_FORCE=1 pnpm typecheck`
+#    這串字。若直接 grep 全檔,把最後那一行真命令整條刪掉,這一格照樣會綠 = 恆真的守門。
+#    負向對照(2026-08-17 當場跑,兩個世界):拿掉前綴 ⇒ 本格 bad;裝回去 ⇒ 本格 ok。
 HK="$(cd "$(dirname "$0")/.." && pwd)/.husky/pre-push"
-if [ -x "$HK" ] && grep -q 'pnpm typecheck && pnpm lint && bash' "$HK"; then
-  ok "⑱.husky/pre-push:可執行,且三段以 && 串接(typecheck 紅不會被後面洗成綠)"
+HK_CMD="$(grep -v '^[[:space:]]*#' "$HK" 2>/dev/null | grep -v '^[[:space:]]*$')"
+if [ -x "$HK" ] \
+  && printf '%s\n' "$HK_CMD" | grep -q 'TURBO_FORCE=1 pnpm typecheck &&' \
+  && printf '%s\n' "$HK_CMD" | grep -q 'TURBO_FORCE=1 pnpm lint &&' \
+  && printf '%s\n' "$HK_CMD" | grep -q '&& bash'; then
+  ok "⑱.husky/pre-push:可執行,三段 && 串接,前兩段帶 TURBO_FORCE=1(#621:少了它 turbo 會 replay 上一次的綠)"
 else
-  bad "⑱.husky/pre-push 形狀不對:可執行=$([ -x "$HK" ] && echo yes || echo no);$(grep -c '&& bash' "$HK" 2>/dev/null) 條 && 串接"
+  bad "⑱.husky/pre-push 形狀不對:可執行=$([ -x "$HK" ] && echo yes || echo no);非註解行=[$HK_CMD]"
 fi
 
 # ⑲ 抽取器的三種寫法(小寫 / `FUNCTION` 後換行才寫名字 / `IF NOT EXISTS`)——
@@ -382,6 +393,46 @@ expect_pass "㉔只有 docs 提到函式名(零 app 變更)⇒ 放行" \
   "$(run_gate "$R17" "refs/heads/dev $T17 refs/heads/dev $B17")"
 mutate_and_check "M5 拿掉 app 面路徑限定(-- apps packages)" \
   '-- apps packages@@@--' block "$R17" "refs/heads/dev $T17 refs/heads/dev $B17"
+# ── 摘要行三世界(2026-08-18;V 窗提、主視窗立案)──────────────────────────
+# 🔴 為什麼要【三個】世界而不是一個:只驗「通過時有印一行」的話,
+#    一支**恆印同一句**的實作也會過 —— 那就是一道零判別力的守門。
+#    三世界要求那一行的**內容由結果決定**:
+#      A 通過(有 pending、沒東西該擋)  ⇒ 0 blocked
+#      B 擋下(應用層用到未 apply 的函式) ⇒ 1 blocked（數字不同)
+#      C 推的不是 dev/main              ⇒ 「未檢查任何 ref」（🔴 與 0 blocked 是兩件事:
+#                                          印 0 blocked 會被讀成「檢查過而乾淨」)
+R18="$WORK/r18"; setup_repo "$R18"; add_pending_migration "$R18"
+( cd "$R18" && git add -A && git commit -qm "只有 pending migration" )
+B18="$(cd "$R18" && git rev-parse HEAD~1)"; PASS18="$(cd "$R18" && git rev-parse HEAD)"
+cp "$R/apps/admin/src/consumer.ts" "$R18/apps/admin/src/consumer.ts"
+( cd "$R18" && git add -A && git commit -qm "應用層用到那支函式" )
+BLOCK18="$(cd "$R18" && git rev-parse HEAD)"
+
+sum_line() { printf '%s' "${1#*|}" | grep '^gate:' | tail -1; }
+S_PASS="$(sum_line "$(run_gate "$R18" "refs/heads/dev $PASS18 refs/heads/dev $B18")")"
+S_BLOCK="$(sum_line "$(run_gate "$R18" "refs/heads/dev $BLOCK18 refs/heads/dev $B18")")"
+S_OTHER="$(sum_line "$(run_gate "$R18" "refs/heads/feature-x $BLOCK18 refs/heads/feature-x $B18")")"
+
+case "$S_PASS" in
+  *"0 blocked"*) ok "㉕摘要行·通過世界 ⇒ 印 0 blocked [$S_PASS]" ;;
+  *) bad "㉕摘要行·通過世界 ⇒ 期望含 0 blocked,實際 [$S_PASS]" ;;
+esac
+case "$S_BLOCK" in
+  *"1 blocked"*) ok "㉖摘要行·擋下世界 ⇒ 印 1 blocked [$S_BLOCK]" ;;
+  *) bad "㉖摘要行·擋下世界 ⇒ 期望含 1 blocked,實際 [$S_BLOCK]" ;;
+esac
+case "$S_OTHER" in
+  *"未檢查任何 ref"*) ok "㉗摘要行·非 dev/main ⇒ 印「未檢查任何 ref」而不是 0 blocked [$S_OTHER]" ;;
+  *) bad "㉗摘要行·非 dev/main ⇒ 期望「未檢查任何 ref」,實際 [$S_OTHER]" ;;
+esac
+# 🔴 這一格才是真正在守「有判別力」:三句話必須互不相同。
+#    少了它,上面三格可以被一支恆印 "gate: 0 blocked / 1 blocked / 未檢查任何 ref" 的實作同時滿足。
+if [ "$S_PASS" != "$S_BLOCK" ] && [ "$S_BLOCK" != "$S_OTHER" ] && [ "$S_PASS" != "$S_OTHER" ]; then
+  ok "㉘摘要行·三個世界三句話互不相同(內容由結果決定,不是恆印同一句)"
+else
+  bad "㉘摘要行·三世界有重複 ⇒ 那一行零判別力:A=[$S_PASS] B=[$S_BLOCK] C=[$S_OTHER]"
+fi
+
 echo
 echo "══ 結果:PASS=$PASS FAIL=$FAIL(期望 PASS=$EXPECT_TOTAL)══"
 if [ "$FAIL" -eq 0 ] && [ "$PASS" -ne "$EXPECT_TOTAL" ]; then

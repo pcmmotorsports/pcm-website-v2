@@ -232,8 +232,8 @@ run_context() {
   mkdir -p "$rx_dir"
   {
     printf '開始 %s\n結束 %s\n' "$rx_start" "$(date '+%Y-%m-%d %H:%M:%S %Z')"
-    printf '其他窗四綠vitest並行數(不含自己) 開始=%s vitest起跑前=%s 結束=%s\n' "$rx_v0" "$rx_vpre" "$rx_v1"
-    printf '其他窗四綠build並行數(不含自己) 開始=%s vitest起跑前=%s\n' "$rx_b0" "$rx_bpre"
+    printf '全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=%s vitest起跑前=%s 結束=%s\n' "$rx_v0" "$rx_vpre" "$rx_v1"
+    printf '全樹並行四綠build數(不含自己;2026-08-18 起跨工作樹) 開始=%s vitest起跑前=%s\n' "$rx_b0" "$rx_bpre"
     # 🔴 rc 也寫進來 —— 不是多餘的:沒有它,任何要做「並行數 × 紅綠」統計的人
     #    都得去 parse `run-rc.sh` 印的那句中文(`rc=0 ✅（…）`)⇒ 統計工具就綁死在那句措辭上,
     #    措辭一改、統計靜默失準。**把結論放在跟條件同一個檔裡,兩者一起被讀到。**
@@ -242,8 +242,8 @@ run_context() {
   echo
   echo "───── 這一發跑在什麼條件下(給三週後查因果的人)─────"
   echo "起訖              : $rx_start → $(date '+%Y-%m-%d %H:%M:%S %Z')"
-  echo "其他窗四綠 vitest 並行數(不含自己): 開始 $rx_v0 / 【我的 vitest 起跑前 $rx_vpre】/ 結束 $rx_v1"
-  echo "其他窗四綠 build  並行數(不含自己): 開始 $rx_b0 / 【我的 vitest 起跑前 $rx_bpre】"
+  echo "全樹並行四綠 vitest 數(不含自己;跨工作樹): 開始 $rx_v0 / 【我的 vitest 起跑前 $rx_vpre】/ 結束 $rx_v1"
+  echo "全樹並行四綠 build  數(不含自己;跨工作樹): 開始 $rx_b0 / 【我的 vitest 起跑前 $rx_bpre】"
   echo "                    ⚠️ build 這一欄是【把儀器補完整】,不是已有證據指向 build。"
   echo "                    🔴 中間那個才是判「我的 vitest 跟誰擠在一起」的那個數。"
   echo "                    (痕跡同時落在 $rx_dir/RUN-CONTEXT)"
@@ -295,7 +295,33 @@ count_matching() { pgrep -f "$1" 2>/dev/null | wc -l | tr -d ' '; }
 # ⚠️ **射程限定(這一版換了一種瞎):只數【走這支腳本】的 run。**
 #    別窗手打 `npx vitest run …` 不會有標記檔 ⇒ **算不到**。
 #    ⇒ 它答的是「**還有幾個窗在跑四綠**」,不是「機器上總共有幾發 vitest」。**欄位名要照這個寫。**
-VITEST_MARKDIR="$(pwd)/logs/four-greens/.running"
+# 🔴🔴 **2026-08-18 補上漏掉的那一條(它比上面那條致命,而上面那條寫了會讓人以為那就是全部)**:
+#    舊版標記落在【各自的工作樹】⇒ **走這支腳本、但在別棵樹跑的也算不到**,
+#    而**別棵樹正是「別的窗」的定義** ⇒ 那個欄位【每一次都報 0】。
+#    ⇒ 已改成 git common dir 底下的共用點(見下方 `FOUR_GREENS_SHARED_ROOT`),
+#      欄位名同步改成「**全樹並行四綠 … 數**」—— **改了行為不改名,等於留一個新的假字面。**
+# 🔴🔴 **2026-08-18 修:標記檔【全樹共用一個位置】,不再各樹一份。**
+#
+# 病灶(I 窗當場量到,而它讓四格表整整一欄作廢):
+#   舊寫法 `VITEST_MARKDIR="$(pwd)/logs/four-greens/.running"`,而 `$(pwd)` = **跑它的那棵工作樹**。
+#   ⇒ 標記檔落在自己那棵樹;而「**其他窗**」照定義就在**別棵工作樹**,它們的標記落在它們自己的 `logs/`。
+#   ⇒ **這個欄位看不見任何別的窗,而且每一次都會報 0。**
+#   實測:`pcm-drift` 與 `pcm-website-v2` 兩份 `.running` 同時存在(全樹數 ⇒ 3),
+#         而同一刻的 `RUN-CONTEXT` 逐字 `其他窗四綠vitest並行數(不含自己) 開始=0 …=0 結束=0`。
+#   🔴 ⇒ **改尺之前所有的 `0` 是【構造上必然】,不是【量到的】**,而且**救不回來**
+#      (四格表要把改尺前/後分開數、各自具名、不補 0)。
+#
+# 📎 最該帶走的:`:295-297` 的射程限定寫著「只數走這支腳本的 run;別窗手打 npx vitest 算不到」——
+#   **那條是真的,而它漏了更大的一條(走這支腳本、但在別棵樹跑的也算不到)**,
+#   ⇒ **寫了一條射程,會讓讀者以為那就是全部。**
+#   而 `scripts/four-greens-context-table.sh:29` 早就寫著「別窗的 run 在它們自己的工作樹裡」
+#   ⇒ **知道的人寫下過它,卻沒有回頭改產數字那支的欄位名 —— 兩份檔各對一半。**
+#
+# 🔴 共用點用 **git common dir 的隔壁**,不寫死 `/Users/sean_1/pcm-*`:
+#   `git rev-parse --git-common-dir` 對**所有** worktree 都回**同一個** `.git`(主 repo 的),
+#   而寫死路徑會在 repo 搬家 / 別人 clone 時靜默變成「各自一份」——**回到同一個病**。
+FOUR_GREENS_SHARED_ROOT="$(git rev-parse --git-common-dir 2>/dev/null || echo .git)"
+VITEST_MARKDIR="$FOUR_GREENS_SHARED_ROOT/pcm-four-greens-running"
 
 # 兩道防呆一起上(缺一就會變成另一把騙人的尺):
 #   ① `trap` 刪自己那支 —— 正常結束/Ctrl-C 都清掉
@@ -748,9 +774,17 @@ selftest() {
   # 格23:run_context 真的把兩個數寫進痕跡檔(餵構造好的值,靶目錄自己造)。
   rx_tmp="$(mktemp -d)"
   run_context "T0" "3" "5" "7" "$rx_tmp/ctx" "8" "9" "0" "1" "2" "3" >/dev/null 2>&1
-  r="$(grep -c '開始=3 vitest起跑前=5 結束=7' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
-  ck "格23 RUN-CONTEXT 要帶【三個】並行行程數的原值(含最有用的中間那個)" "$r" "1"
-  r="$(grep -c 'build並行數(不含自己) 開始=8 vitest起跑前=9' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
+  # 🔴 2026-08-18 補強:這一格原本只 grep 三個【值】,不認欄位名 ——
+  #    ⇒ 我同一批把 vitest 那個欄位名整個改掉,**這一格一聲不吭**,
+  #    而隔壁 `格23-d`(認前綴)當場就紅了。**兩格守同一支輸出,而判別力差一個數量級。**
+  #    ⇒ 補上前綴,讓改名這件事在兩個欄位上都擋得住。
+  r="$(grep -c '全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=3 vitest起跑前=5 結束=7' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
+  ck "格23 RUN-CONTEXT 要帶【三個】並行行程數的原值(含最有用的中間那個)+ 欄位名" "$r" "1"
+  # 🔴 2026-08-18:欄位名從「其他窗四綠build並行數」改成「全樹並行四綠build數」(跨工作樹修正),
+  #    這一格當場變紅 —— **而它紅得對**:改了對外字面而守門認的是舊字面。
+  #    ⚠️ 這裡**刻意不放寬成只認 `開始=8`** —— 那樣改名就再也擋不住,
+  #    而「位置不得與 vitest 那三個對調」正是靠這串前綴在守。
+  r="$(grep -c 'build數(不含自己;2026-08-18 起跨工作樹) 開始=8 vitest起跑前=9' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"
   ck "格23-d build 那兩個值也要原字進檔(位置不得與 vitest 那三個對調)" "$r" "1"
   # 格23-e:rc 四個值原字進檔,且【位置不得對調】—— 餵 0/1/2/3 四個不同的值就分得出來。
   r="$(grep -c 'rc typecheck=0 lint=1 build=2 vitest=3' "$rx_tmp/ctx/RUN-CONTEXT" 2>/dev/null || true)"

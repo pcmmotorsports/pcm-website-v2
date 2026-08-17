@@ -42,7 +42,7 @@ export interface IProductRepository {
    * 依 category 列出 product —— 全量版(#220、/products 列表頁)。
    *
    * 與 listByCategory 差異:adapter 實作以 .order + .range 分頁迴圈繞過 PostgREST/Supabase
-   * 「Max rows = 1000」硬上限、撈完整品類(非下架商品全量);listByCategory 留單次查
+   * `db-max-rows` 硬上限(~~原寫「Max rows = 1000」~~ ⇒ 2026-08-18 實測 **2000**)、撈完整品類(非下架商品全量);listByCategory 留單次查
    * (featured 等只取前 N、不退化效能)。
    *
    * 🔴 stopgap:全量撈進 client(client filter/分頁)。多品牌(#212)目錄長大後須改
@@ -53,7 +53,7 @@ export interface IProductRepository {
    * 列出**全目錄**非下架 product —— 全量、跨分類(接線 plan C4、#205)。
    *
    * 與 listAllByCategory 差異:不綁分類、撈整個公開目錄;adapter 實作以 .order('id') + .range
-   * 分頁迴圈繞過 PostgREST/Supabase「Max rows = 1000」硬上限。/products 列表頁 + 首頁精選 +
+   * 分頁迴圈繞過 PostgREST/Supabase `db-max-rows` 硬上限(~~原寫 1000~~ ⇒ 2026-08-18 實測 **2000**)。/products 列表頁 + 首頁精選 +
    * sitemap 由此撈全站(解除舊「寫死單一分類『碳纖維部品』」、多品牌上架後客人可跨分類瀏覽)。
    *
    * RPM 零回歸:現況全站公開商品恰在單一分類「碳纖維部品」,故 listAllProducts()
