@@ -38,6 +38,42 @@
 
 ---
 
+## 🧪 dev 基準四綠(2026-08-17 早 I 窗;主視窗裁定落附屬區、不進主表)
+
+> **這是 dev 當下 tip 的真四綠紀錄。**
+> ⚠️ **我原本要寫「第一次有人對 dev 整棵樹跑真四綠」,實查之後撤掉那句 —— 它是假的。**
+> 量法 `grep -c '0 cached' STATUS.md` ⇒ **21 行**,🔴 **而其中 7 行是本節自己寫的**(偵測字串自命中)⇒ **本節以外 14 行**;其中 `108🏁`(2026-08-16 傍晚)逐字寫著「**四綠全真跑**」
+> ⇒ **每一次收割 merge 之後本來就都對 dev 跑過四綠**,不是沒人量過。
+> 📎 **這一節真正補的缺口比較窄,不要放大**:`~/pcm-mailbox/I-006-STOP-收割窗交接.md` §5-1 自陳 —— 分界 commit `e33a0bd7` **之前**的批次用的是**舊的三綠指令**、C 窗自曝它四顆的 typecheck 是 **replay 的綠**
+> ⇒ 缺的不是「有沒有量」,是「**最後那幾批之後、用定案指令、對現在這顆 `43abb127`**」的一次。**本節就是那一次,僅此而已。**
+> 而 `dev` = pcm-admin 的 **production**,Sean 一推就上線 ⇒ 值得留一個有時點的基準。
+
+**量的是主樹 `/Users/sean_1/pcm-website-v2`、分支 `dev`、commit `43abb127`;量測時點 2026-08-17 11:45–11:47 CST。**
+
+| 項目 | 指令 | rc | `Cached:` 那一行 | 時間 |
+| --- | --- | --- | --- | --- |
+| typecheck | `TURBO_FORCE=1 pnpm typecheck` | `0` | `0 cached, 8 total` | 15.475s |
+| lint | `TURBO_FORCE=1 pnpm lint` | `0` | `0 cached, 10 total` | 10.978s |
+| build | `TURBO_FORCE=1 pnpm build` | `0` | `0 cached, 2 total` | 14.605s |
+| vitest | `pnpm test`(= `vitest run`) | `0` | 無(不經 turbo,見射程②) | 45.69s |
+
+vitest 明細:`Test Files 508 passed (508)` / `Tests 8511 passed | 2 expected fail | 1 skipped | 1 todo (8515)`。
+**`2 expected fail` 是測試自己宣告的預期失敗,不是紅。** rc 皆為各指令自己的(沒有接管線)。
+
+🔴 **`0 cached` 是證據的條件寫在這裡,不要拆開引用**:`docs/phase-1-backlog.md` `#524` 逐字 ——
+**真跑與 replay 之下 `Cached:` 印的東西完全相同** ⇒ 那一行**零判別力**。
+⇒ 上面三個 `0 cached` 之所以算數,**只因為是我自己加了 `TURBO_FORCE=1` 之後印的** ——
+它證的是「**我強制它真跑了**」,**不是「它本來就真跑」**。
+**不要拿別人回報的 `0 cached` 當他真跑過的證據,除非他寫了他加了什麼。**
+
+🔴 **兩條射程限定 —— 跟數字寫在同一段,因為表會被複製走而前後文不會:**
+
+1. **`build` 的分母是 2,不是 8。** 量法 `grep -rl '"build"' --include=package.json apps packages` ⇒ 只有 `apps/storefront` 與 `apps/admin` 兩支。
+   ⇒ **「build 全綠」只涵蓋兩個 app,不涵蓋 `packages/*`**(那些有 typecheck 沒 build)。這不是紅,是**量具的射程比字面窄**。
+2. **`pnpm test` 走根 `package.json` 的 `vitest run`、不經 turbo** ⇒ 它**沒有 replay 問題,也沒有 `Cached` 行可貼**。拿不出那一行不是漏報。
+
+⚠️ **這份綠只證 `43abb127` 這一顆。** 之後任何一次收割都要各自重跑,**本節不得被引用成「dev 是綠的」這種沒有時點的句子**。
+
 ## 🗂️ 主表溢出存放(2026-08-16,B 窗 `B-578` F1)
 > 🔴 **主表(分隔線上)≤30 行嚴守** —— 而它超標到 **48 行**,規定就寫在本檔 `:2`。
 > **超標不讓任何一句變假,它讓「下一個 session 最先讀的三十行」變成四十八行。**
