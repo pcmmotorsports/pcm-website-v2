@@ -12,6 +12,59 @@
 > 而那句話**第二次被證明讀窄了**(第一次是 §5-DONE 第 3 條:生產端零呼叫端)。
 > 本檔要動的是**共用 use-case 的依賴契約** ⇒ **超出已批准的影響面** ⇒ 依 R3 重新提 plan。
 > 🔴 **方向(甲)已由主視窗裁定**;要 Sean 批的**不是甲還是乙**,是「**這個影響面可以動**」。
+>
+> ---
+>
+> ## 🔴🔴 授權狀態(2026-08-18 落檔;**兩級分開寫,不要合成一句**)
+>
+> **第一級 —— 已批,而【批的是目標,不是檔案清單】**
+> ```
+> Sean 2026-08-17 拍 D1 ＝「批」
+> 🔴 逐字【只有「批」這一個字】；題目文字由主視窗撰寫，且【當時沒有列檔案清單】
+> ⇒ 所以他批的是「出貨通知信【前置工程】」這個目標，不是下面那四處
+> ⇒ 「四處與那段描述一致嗎」這個問題【無法對照】—— 當時沒有可對照的東西
+>    （主視窗 2026-08-18 逐字自陳，我沒有替它美化）
+> ```
+> **第二級 —— 主視窗 2026-08-18 認定「落在該描述內」,依據三條**
+> ```
+> ① 目標一致：四處都是【讓出貨通知信拿得到出貨脈絡】的管線，沒有一處在做別的事
+> ② 不命中硬線：本片【不寄任何東西】（order_shipped 仍 fail-closed）
+>    ⇒ 鐵則 12⑤（對外不可回收）不觸發
+> ③ Sean 08-18 常設令「先做吧，要修正我在修正」⇒ 可逆、非硬線 ⇒ 做
+> ```
+> **本片範圍(四處,逐一列出)**
+> ```
+> 1 packages/ports/src/            新檔（讀取 port 介面）          純新增
+> 2 packages/use-cases/src/sweep-email-outbox.ts:42-45  Deps 加一個【選用】欄
+> 3 packages/adapters/src/         新檔（port 實作）              純新增
+> 4 apps/storefront/src/lib/email/composition.ts:55     一行組裝
+> ```
+>
+> ## 🔴🔴 **而【開始真的寄】那一片不在此範圍**
+> 模板 + enqueue 呼叫端 ⇒ **命中鐵則 12⑤(對外不可回收)** ⇒ **另需 Sean 點頭,不沿用 D1。**
+> ⚠️ **兩級分開寫的理由**:合成一句之後,**三個月後沒有人分得出來
+> 「他批的是哪一級」** —— 而那時要判的正是「寄信這件事他到底同意了沒」。
+>
+> ---
+>
+> ## 🔴 2026-08-17 深夜 · 重驗紀錄(本檔寫於 tip `5da16975`,之後樹前進 56 顆)
+>
+> **重跑了本檔自己的每一條數法。三處座標漂了、一處是錯的(不是漂的):**
+>
+> | 原本 | 現在 | 性質 |
+> |---|---|---|
+> | `sweep-email-outbox.ts:42-44` | `:42-45` | 漂一行(收尾 `}`) |
+> | 數法 ⇒ 「2 行」 | **3 行**(多一行**註解** `route.ts:4`) | 分母漏算,結論〔呼叫端 = 1〕不變 |
+> | §3 / §4 的 composition = `route.ts:140` | **`composition.ts:55`** | 🔴 **這一條是錯的,不是漂的** —— 詳 §4 那段更正 |
+>
+> ✅ **仍然成立、當場重驗過的**:
+> `buildEmailText` 是純函式(`:108`)、`order_shipped` 現在 fail-closed throw(`:112-113`)、
+> payload allowlist 只有三欄(`order-email-assembly.ts:43-47`)、
+> 「渲染資料寄信時即時查主表」那句設計意圖(`order-email-assembly.ts:12`)、
+> LINE cohort 那個洞的三個行號(`SupabaseEmailOutboxAdapter.ts:198/208/222`)。
+>
+> ⚠️ **重驗的是【座標與 code 現況】,不是【授權範圍】。** Sean 對 `D1` 的逐字只有「**批**」一個字,
+> 而題目文字是主視窗寫的 ⇒ **實作範圍若超出那段描述,就不在他批的範圍裡**,要回去重問。
 
 ---
 
@@ -22,7 +75,7 @@
 
 **當場量的(可重跑)**:
 ```
-packages/use-cases/src/sweep-email-outbox.ts:42-44
+packages/use-cases/src/sweep-email-outbox.ts:42-45   ← 2026-08-17 深夜重驗（原寫 42-44，收尾 } 在 45）
   export type SweepEmailOutboxDeps = {
     outbox: IEmailOutbox;
     sender: IEmailSender;
@@ -62,17 +115,21 @@ packages/use-cases/src/sweep-email-outbox.ts:42-44
 | # | 動什麼 | 落點 | 性質 |
 |---|---|---|---|
 | 1 | **新增**一支讀取 port | `packages/ports/src/`(新檔) | 純新增 |
-| 2 | `SweepEmailOutboxDeps` **多一個【選用】欄** | `packages/use-cases/src/sweep-email-outbox.ts:42-44` | 見 §4,**選用**是 rollback 的關鍵 |
+| 2 | `SweepEmailOutboxDeps` **多一個【選用】欄** | `packages/use-cases/src/sweep-email-outbox.ts:42-45` | 見 §4,**選用**是 rollback 的關鍵 |
 | 3 | 實作那支 port | `packages/adapters/src/`(新檔) | 純新增 |
-| 4 | composition 傳進去 | `apps/storefront/src/app/api/cron/email-sweep/route.ts:140` | 一處 |
+| 4 | composition 傳進去 | `apps/storefront/src/lib/email/composition.ts:55`(`return { outbox, sender };`) | 一處 |
 | 5 | 既有測試的 deps 建構 | `packages/use-cases/src/sweep-email-outbox.test.ts` | 選用欄 ⇒ **不傳也編得過**,見 §4 |
 
 **production 呼叫端 = 1 個**,數法(可重跑):
 ```
 grep -rn 'sweepEmailOutbox(' apps packages --include='*.ts' | grep -v '\.test\.'
-⇒ 2 行，其中 1 行是【定義本身】（sweep-email-outbox.ts:145）
-  ⇒ 真正的呼叫端只有 apps/storefront/src/app/api/cron/email-sweep/route.ts:140
-正向對照（證明這支 grep 會命中）：同一支改找 claimDue( ⇒ 4 行
+⇒ 2026-08-17 深夜重跑 = 3 行（原本寫 2 行，🔴 漏算了註解那一行）：
+     sweep-email-outbox.ts:145   ← 定義本身
+     route.ts:140                ← 真正的呼叫端
+     route.ts:4                  ← 🔴 一行【註解】，這支 grep 會命中註解
+  ⇒ 結論不變：真正的呼叫端只有 apps/storefront/src/app/api/cron/email-sweep/route.ts:140
+  ⚠️ 但分母變了 ⇒ 誰要拿「幾行」當守門，先知道它把註解也算進去
+正向對照（證明這支 grep 會命中）：同一支改找 claimDue( ⇒ 4 行（重跑仍是 4）
 ```
 
 ---
@@ -98,8 +155,17 @@ export type SweepEmailOutboxDeps = {
 
 | 退到哪 | 動作 | 退完的行為 |
 |---|---|---|
-| 完全復原 | composition 那一行拿掉(`route.ts:140`) | `shippedContext` 為 `undefined` ⇒ `order_shipped` **回到今天的 fail-closed throw**、`order_created` **一個字都沒變** |
+| 完全復原 | composition 那一行拿掉(`apps/storefront/src/lib/email/composition.ts:55` 的 `return { outbox, sender };`) | `shippedContext` 為 `undefined` ⇒ `order_shipped` **回到今天的 fail-closed throw**、`order_created` **一個字都沒變** |
 | 只停出貨信 | 同上 | 同上(這就是同一個動作) |
+
+> 🔴🔴 **2026-08-17 深夜 C 窗更正:上面這一格原本寫的是 `route.ts:140`,而那是【呼叫點】不是【composition】。**
+> **照原字退會把整支寄信 sweeper 關掉** —— `route.ts:140` 是 `await sweepEmailOutbox(deps, {…})` 本身,
+> 拿掉它 `order_created` 也不寄了,而那正是這一格宣稱「一個字都沒變」的東西。
+> deps 是 `getSweepEmailOutboxDeps()` 建的(`route.ts:138` 呼叫、本體在 `composition.ts:46-56`),
+> `shippedContext` 要加在 `composition.ts:55` 那個 return,退也退那一行。
+> ⚠️ **而本檔 §3 的 `route.ts:140` 是對的** —— 那一句講的是「production 呼叫端在哪」,
+> 不是「composition 在哪」。**同一個字面在這份檔裡一處對一處錯**,
+> 掃字面的人請逐處開檔判斷,不要整份取代。
 | 連型別一起退 | 三支新檔刪掉 + 那個選用欄刪掉 | 回到 `5da16975` 的形狀 |
 
 🔴 **「退掉之後會怎樣」不是推的,它就是今天的行為**:
@@ -109,6 +175,43 @@ case 'order_shipped':
   throw new Error('sweepEmailOutbox:order_shipped 模板未定義(E4 未落地)、fail-closed 不寄');
 ```
 ⇒ **今天寄不出去**,而退掉之後**也是寄不出去**。**兩者是同一個狀態,不是兩個。**
+
+### ✅ 🔴 2026-08-18 · **rollback 走查(動 code 之前跑的,不是事後補的)**
+
+> **為什麼要先走**:本檔 §3/§4 的 composition 落點**今晚剛被抓到指錯地方**
+> (原寫 `route.ts:140` = 呼叫點,退掉會關掉整支寄信)。
+> ⇒ **撤退路線是唯一沒有人會在出事前驗的東西** ⇒ **這次不假設它現在是對的。**
+
+**走查結論:上面那個 rollback 不只成立,它【已經被 10 格既有測試持續驗著】。**
+
+```
+數法（可重跑）：
+  grep -c 'sweepEmailOutbox({ outbox, sender }' packages/use-cases/src/sweep-email-outbox.test.ts
+  ⇒ 10
+
+🔴 那個呼叫形狀 —— 只傳 outbox + sender、沒有 shippedContext ——
+   【就是 rollback 之後的形狀】。
+```
+**那 10 格裡,兩個方向都有人守**:
+```
+order_created 照樣寄得出去   :123 / :157 / :195  （res.sent = 1）
+order_shipped 仍然 fail-closed :246
+   逐字：sender.send 零呼叫、markSent/markFailed 零呼叫、errors = 1、sent = 0
+實跑：npx vitest run packages/use-cases/src/sweep-email-outbox.test.ts ⇒ 29 passed
+```
+
+🔴 **而這給了「選用欄」這個設計一個原本沒寫出來的好處**:
+**加一個【選用】欄之後,那 10 格【一個字都不用改】就繼續通過**
+⇒ **rollback 後的行為每一次跑測試都在被驗。**
+⚠️ **反過來也成立,而那正是守門所在**:若有人日後把它改成**必填**,
+**那 10 格會立刻 typecheck 紅** ⇒ **「選用」這件事本身有機制盯著,不靠記憶。**
+
+📎 **走查沒有涵蓋的那一半(照實寫)**:上面驗的是**use-case 這一層**。
+`composition.ts:55` 那一行拿掉之後**整個 route 還跑不跑得起來**,
+要**真的起 server + 打那條 cron route** 才算驗到 —— **本窗沒有做**(無 `.env`,見 STOP)。
+⇒ **口徑:rollback 的【use-case 層】已驗;【組裝層】未驗。**
+
+---
 
 ⚠️ **選用欄的代價我也寫出來**:型別上「忘記傳」與「刻意不傳」**長得一樣**。
 ⇒ 落地時 `order_shipped` 那條路要**明確處理 `undefined`**(fail-closed + 錯誤訊息說明是組裝缺依賴,

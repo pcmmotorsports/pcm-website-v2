@@ -411,6 +411,68 @@ describe('#10 片1 本次應揀合計', () => {
     row('EEE', 0, 0, true),
   ];
 
+  // 🔴🔴 **這一格的來源是【真伺服器 + 真資料】,不是想出來的**(2026-08-18)。
+  //    真單 `PCM-2026-0102`:1 個品項、`quantitySummary` 為 `null`
+  //    ⇒ 頁首「有 1 項的數量資料尚未就緒…這張單仍然不算處理完」
+  //    ⇒ 而頁尾同時印「勾選欄共 0 項,全部勾完才算揀完。」
+  //    ⇒ 🔴 **「把 0 個框全部勾完」是一個【不做任何事就成立】的條件。**
+  //    ⚠️ 兩句話互相矛盾時,拿著紙的人會信**離簽名欄近的那一句**。
+  //    📎 **六份量測 fixture 一份都沒照出這一格** —— 它們要嘛每列都有數量、要嘛零品項,
+  //       而真資料是**有品項、但數量不知道**,那是 fixture 沒有的第三種。
+  const ALL_UNKNOWN = [row('ZZZ', 0, 0, true)];
+
+  it('🔴 一項都不用揀時 ⇒ 不得印一句「全部勾完才算揀完」(0 個框那句恆真)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: ALL_UNKNOWN } as unknown as Partial<AdminOrderDetail>),
+    );
+    const t = textOf((await renderPage()).container);
+    // 正向對照:確認這份測資真的走到「合計 0」那條路,而不是整塊沒 render。
+    expect(t).toContain('本次應揀合計');
+    expect(t).toContain('數量資料尚未就緒');
+    // 🔴 本格釘的那一句。
+    expect(t).not.toContain('全部勾完才算揀完');
+    expect(t).toContain('這不等於「已經揀完」');
+  });
+
+  it('🔴 而有東西要揀時,那句話必須【還在】(否則上一格靠刪字面就能過)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
+    );
+    const t = textOf((await renderPage()).container);
+    expect(t).toContain('全部勾完才算揀完');
+    expect(t).not.toContain('這不等於「已經揀完」');
+  });
+
+  // ── 🔴🔴 `B` 態 · 甲案「表身標記型」(2026-08-18)────────────────────────
+  //    病灶 = **這張表看起來有結尾** ⇒ 揀的人勾完最後一列就以為揀完了。
+  //    甲案把缺列印進**表身**,直接消滅那個結尾。
+  //    ⚠️ 這幾格釘的是**表身裡有沒有那段標記**,不是版面 —— 版面要 `pagecount.sh --png` 開圖看。
+  it('🔴 B 態 ⇒ 品項表【自己】要說它沒有結尾(缺列印在表身,不是只在表尾講)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED, itemsTruncated: true } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    const t = textOf(container);
+    // 正向對照:表要【在】—— B 與 A/C 的分野就在這裡,照抄整幅阻印會把 B 變成「一列都沒有」。
+    expect(container.querySelector('table')).not.toBeNull();
+    expect(t).toContain('AAA');
+    // 🔴 標記必須在 `<tbody>` 裡面,不是表格外面 —— 在外面就退化成乙案了。
+    const tbody = container.querySelector('tbody');
+    expect(tbody?.textContent).toContain('未載入的品項');
+    expect(tbody?.textContent).toContain('這張表沒有結尾');
+    // 🔴 **不得印任何具體的缺件數** —— 上游只給布林,印數字就是編的。
+    expect(tbody?.textContent).toContain('?');
+  });
+
+  it('🔴 而沒有截斷時,那段標記必須【整段不在】(否則上一格靠常駐字面就能過)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
+    );
+    const t = textOf((await renderPage()).container);
+    expect(t).not.toContain('未載入的品項');
+    expect(t).not.toContain('這張表沒有結尾');
+  });
+
   it('🔴 合計 = 真的要動手的列數,**不是表格列數**', async () => {
     mocks.findAdminOrderDetail.mockResolvedValue(
       detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
@@ -485,6 +547,74 @@ describe('#10 片1 本次應揀合計', () => {
       detail({ items: MIXED, itemsTruncated: true } as unknown as Partial<AdminOrderDetail>),
     );
     expect(textOf((await renderPage()).container)).not.toContain('**');
+  });
+
+  // 🔴🔴 **同一族的第二個出口:表情符號。** 上面那格守的是 markdown 標記,
+  //    而 2026-08-18 的紙上文字審查掃出**另一個內部符號漏到紙上** ——
+  //    合計那句原本開頭帶一個 `🔴`(我們寫註解用的嚴重度標記)。
+  //    ⚠️ 倉庫是**單色印表機** ⇒ 印出來是一顆沒有意義的黑點;字型是系統堆疊
+  //       ⇒ 換一台機器可能是一個**缺字框**。兩種都不傳達任何東西給揀貨的人。
+  //    🔴 **禁的是【範圍】不是白名單** —— 白名單版在本 repo 被穿透過兩次
+  //       (`shipping-doc` 那片的祈使形白名單)。這裡禁 `U+1F300–U+1FAFF` 那一段,
+  //       而 `✓`(`U+2713`,勾選欄的欄名)**不在那個範圍裡** ⇒ 不必開例外、也就沒有例外可以被鑽。
+  // 🔴 **第三個出口:邏輯符號。** 2026-08-18 同一輪審查掃出合計旁那句中間是一個 `⇒`
+  //    (蘊含符號,我們寫註解用的)⇒ **揀貨的人不讀邏輯符號**,已換成「所以」。
+  //    ⇒ 本格把**箭頭區(`U+2190–U+21FF`、`U+27F0–U+27FF`)與數學運算子區(`U+2200–U+22FF`)**
+  //      一起禁掉。**這三段裡沒有任何一個字是這張紙用得到的** ——
+  //      而 `·`(`U+00B7`,規格分隔,紙上 265 處)與 `——`(`U+2014`)**都不在這三段裡**
+  //      ⇒ 同樣不必開例外。
+  it('🔴 紙上不得出現表情符號(內部嚴重度標記漏到給倉庫的紙上)', async () => {
+    const PICTOGRAPHS = /[\u{1F300}-\u{1FAFF}\u{2190}-\u{21FF}\u{2200}-\u{22FF}\u{27F0}-\u{27FF}]/u;
+    for (const over of [
+      { items: MIXED, itemsTruncated: true },
+      { items: MIXED },
+      { items: ALL_UNKNOWN },
+      { items: [] },
+      { cancelledAt: '2026-08-16T03:00:00+00:00' },
+    ]) {
+      mocks.findAdminOrderDetail.mockResolvedValue(
+        detail(over as unknown as Partial<AdminOrderDetail>),
+      );
+      const t = textOf((await renderPage()).container);
+      expect(PICTOGRAPHS.test(t), `這一態的紙上有表情符號:${JSON.stringify(over)}`).toBe(false);
+    }
+    // 🔴 正向對照:證明這支正則抓得到東西 —— 沒有它,把 regex 寫壞成永不命中也會全綠。
+    expect(PICTOGRAPHS.test('清單沒載完')).toBe(false);
+    expect(PICTOGRAPHS.test('🔴 清單沒載完')).toBe(true);
+    // 🔴 而 `✓`(勾選欄名)必須【不被誤傷】—— 否則下一個人會來加白名單。
+    expect(PICTOGRAPHS.test('✓')).toBe(false);
+    // 🔴 第三個出口(邏輯符號)的雙向對照:`⇒` 要抓到,而紙上真的在用的兩個符號不能誤傷。
+    expect(PICTOGRAPHS.test('⇒ 勾完合計')).toBe(true);
+    expect(PICTOGRAPHS.test('顏色: 黑 · 規格: 通用')).toBe(false);
+    expect(PICTOGRAPHS.test('未載入的品項 —— 這一列不在這張紙上')).toBe(false);
+  });
+
+  // 🔴🔴 **第四則:同一張紙上,同一種東西不得有兩個量詞。**
+  //    2026-08-18 掃出來的:截斷那兩句原本寫「200 **筆**」,
+  //    而同一張紙其他地方數品項都用「項」(「品項:N 項」、「本次應揀合計 N 項」)
+  //    ⇒ **對照著看的人要先自己想通它們是同一件事。**
+  //    ⚠️ **禁的是「數字 + 筆」這個形狀,不是「筆」這個字** ——
+  //       商品名稱可能真的含「筆」(油性筆、簽字筆),整字禁會誤傷真商品。
+  //    📎 同型但**不在本片射程內**:出貨明細單的「本次出貨」在同一張紙上有兩個意思
+  //       (頁首 = 列數 / 欄名 = 件數),而那幾個字疑似來自設計端樣張 ⇒ 鐵則 1,要 Sean 判。
+  it('🔴 同一張紙不得用兩個量詞數品項(「200 筆」vs「N 項」)', async () => {
+    for (const over of [
+      { items: MIXED, itemsTruncated: true },
+      { items: MIXED },
+      { items: ALL_UNKNOWN },
+    ]) {
+      mocks.findAdminOrderDetail.mockResolvedValue(
+        detail(over as unknown as Partial<AdminOrderDetail>),
+      );
+      const t = textOf((await renderPage()).container);
+      expect(t, `這一態的紙上用了「筆」數品項:${JSON.stringify(over)}`).not.toMatch(/\d+\s*筆/);
+    }
+    // 🔴 正向對照:B 態確實印得出那個上限句,而它現在用「項」——
+    //    沒有這一格,把整段刪掉也會讓上面三發通過。
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED, itemsTruncated: true } as unknown as Partial<AdminOrderDetail>),
+    );
+    expect(textOf((await renderPage()).container)).toContain('200 項上限');
   });
 
   it('🔴🔴 清單沒載完 ⇒ 合計旁邊不得說「全部勾完才算揀完」(那句話會說謊)', async () => {

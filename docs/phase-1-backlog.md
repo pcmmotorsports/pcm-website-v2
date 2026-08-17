@@ -16177,6 +16177,14 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   ⇒ 與「5 秒上限 vs 機器負載」相符；與「工作樹狀態」不相符
   ⚠️ 我沒有量任何一次的機器負載，也沒有做控制變因的重跑 ⇒ 這條同樣未證實
   ```
+  🔴 **2026-08-17 深夜 C 窗補:上面那個方向【後來被推翻了】,不要照它往下修。**
+  本條目自己的第十節與第十二節有**三筆【零並行而紅】**的野外樣本(`:17173` / `:17245`),
+  而 C 窗當天另有一筆 **並行 11/15、223s ⇒ 綠** —— **兩個方向都與「負載」不符。**
+  現行機制寫在第十節之後:**`vi.mock` async factory + `vi.importActual` 的首解析競態**
+  (需併發 + 冷快取)⇒ **逾時是下游症狀,不是原因。**
+  ⚠️ 上面那段留著不刪,是因為它記錄了「當時看到什麼」;**刪掉會讓下一個人重走一次同一條路。**
+  ⚠️ 而並行數那把尺**已知會多算**(撈到別窗命令列裡的字)⇒ 只能當**上界**;
+     **上界是 0 時真值只能是 0**,所以那三筆零並行的樣本不受這個限制影響。
   🔴 **一筆本條目原本沒有的事實:紅的【不只這支檔】。**
   E 那次同時紅了 `apps/admin/src/app/@panel/order-panel-wiring.test.ts`
   的「桌機單號連結 = 帶著篩選與頁碼的 panel href」(`5481ms`),而它與 gate harness 無關。
@@ -17851,4 +17859,234 @@ rc typecheck=0 lint=0 build=0 vitest=1
 - **發號:** `sh scripts/reserve-backlog.sh '<標題>'` ⇒ `RESERVED #625`(git ref CAS)。
   撞號複查:`grep -c '#625' docs/phase-1-backlog.md` ⇒ 保留前 `0`;
   `grep -rl '#625' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3020`;
+  🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
+
+---
+
+### #629 · code 依賴一個住在**伺服器設定**裡的數字(`max-rows`),而那個依賴**沒有任何載體、調低時完全靜默**
+
+> **保留時的標題**(`reserve-backlog.sh` 的 git ref 裡存的)是
+> 「PostgREST max-rows 若低於 200,itemsTruncated 判定看不見那次截斷」——
+> **那是本條的第一個站點,不是本條的範圍。** 2026-08-18 主視窗指出另外兩處同病
+> ⇒ 收成**一個號一張站點表**。
+> 🔴 **為什麼不開三個號**:三個號會讓下一個人以為是三件事、**修一個就結案**。
+
+- **狀態:** ⏳ 待執行。**本條不是「現在壞了」,是「壞掉的那天沒有任何東西會出聲」。**
+- 🔴 **共同病根(一句話):**
+  > **code 讀一個【伺服器端設定】決定的邊界,而那個邊界在 repo 裡沒有字面、
+  > 在測試裡沒有觀測點 ⇒ 它被調低的那一天,每一個站點都靜默地開始少東西。**
+
+#### 站點表(⚠️ **本表未窮舉** —— 這三處是 2026-08-18 兩個窗各自撞到的,沒有做過全樹盤點)
+
+| # | 站點 | 調低 `max-rows` 之後會怎樣 | 今天的餘裕 |
+|---|---|---|---|
+| 1 | `itemsTruncated` 判定<br>`mappers/order.ts:873` | 伺服器先夾到 150 ⇒ `150 >= 200` 為 `false` ⇒ **旗標說沒事而品項真的少了** | `2000 > 200` |
+| 2 | `vehicle_taxonomy` 翻頁迴圈<br>`apps/storefront/src/lib/products.ts:682/719` | 🔴 **比「每頁少一筆」嚴重得多** —— 見下方站點 2 詳述 | `2000 > 1000`,**只差一倍** |
+| 3 | `listCategories`(「全站共 N 類」的分母)<br>`packages/adapters/src/supabase/helpers/category-queries.ts:54` | 該查詢**無 `.limit()`、無 `.range()`** ⇒ 直接吃 `max-rows` ⇒ **N 少報而畫面上沒有任何提示**(顯示端 `apps/storefront/src/components/CategoryGrid.tsx:236`) | 分類數今天遠小於 2000,**未量** |
+
+✅ **三處都是本窗 2026-08-18 自己開檔驗的**(第 2、3 兩處由主視窗與 A 窗指出、我沒有照抄它們的描述)。
+
+📎 **A 窗有一份逐條盤點**:`docs/specs/2026-08-18-storefront-truncation-inventory.md`
+(commit `5e4fa524`,分支 `bmw-m-headline`;§3/§4 = 站點 2/3 的逐條依據、§5 明列那份盤點守不住什麼、
+§7 是三處歸一的病根段)。
+⚠️ **那份檔在別的分支上,本條寫成時 `print-docs` 看不到它** ⇒ **本條沒有引用它的內容**,
+只登記位置。**進 dev 之後誰先看到誰把兩邊對一次。**
+🔴 A 窗會在站點 2、3 各補一行**指回 `#629`** 的註解(零行為改動)⇒ **兩邊互指,任一邊被讀到都找得到另一邊。**
+
+數法:
+```
+grep -n 'PAGE_SIZE\|vehicle_taxonomy' apps/storefront/src/lib/products.ts       ⇒ :682 :695 :705 :719
+grep -n 'limit(\|range(\|\.from(' packages/adapters/src/supabase/helpers/category-queries.ts
+   ⇒ 只有三行 .from(，零個 .limit( 、零個 .range(   （檔全長 93 行）
+grep -n '全站共' apps/storefront/src/components/CategoryGrid.tsx               ⇒ :236
+```
+
+#### 🔴🔴 **登記不等於處置完畢**(B 窗立的抬頭句,原封收)
+
+**本條現在有三批站點,而【沒有一處被改】。**
+一張站點表**最容易被讀成「已經處理」** —— 它只代表**有人看到了**。
+
+#### 第三批:**寫死「production 實測 1000」的 10 處**(2026-08-18)
+
+`max-rows` 的**世界狀態**已由 V 窗實測為 **2000**(見上方「探法」),
+而 repo 裡有 10 處字面仍寫著 `production 實測 1000`。
+```
+數法（本窗自己重跑，不是照抄）：
+  bash scripts/literal-sweep.sh 'production 實測 1000'   ⇒ 10 命中
+
+  docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md:106
+  docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md:53 / :63
+  packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:2288 / :2300
+  packages/adapters/src/supabase/mappers/order.test.ts:737
+  🔴 packages/adapters/src/supabase/mappers/order.ts:399 / :444
+  packages/adapters/src/supabase/mappers/order-cancellations.ts:31
+  packages/domain/src/order/types.ts:822
+```
+⚠️ **轉述說「8 處」而列了 9 條路徑,實際掃到 10 處** ——
+🔴 **漏掉的兩處是 `mappers/order.ts:399` 與 `:444`,而那正是站點 1 所在的同一個檔。**
+⇒ **引用站點清單前自己跑一次那支 sweep**,不要照抄任何人給的條列(**包含本表**)。
+
+##### 🔴🔴 而「幾處」這個問題,**那支 sweep 答不出來** —— 兩個獨立的理由
+
+**理由一:訃聞裡面也含那個字面。**
+已更正的寫法是**留痕**(`~~production 實測 1000~~ ⇒ 2026-08-18 起是 2000`)
+⇒ **劃掉的那份仍然被 `grep 'production 實測 1000'` 命中**
+⇒ **「還沒改」與「已改但留痕」在 sweep 輸出上是同一筆。**
+
+**理由二:那個數字是【某個 checkout 在某個時點】的性質,不是 repo 的性質。**
+```
+本窗 2026-08-18 01:xx 在 print-docs（基底比當時的 dev 舊 31 顆）⇒ 10
+同一時刻 products 分支上 :399 / :448 已經是【劃掉版】 ⇒ B 窗真的改了，只是還沒進 dev
+```
+
+**⇒ 要分得開,必須【分開數兩種形狀】。可重跑的分法**:
+```
+git grep -l 'production 實測 1000' dev  →  逐檔逐行判斷該行是否含 ~~production 實測 1000~~
+```
+**在 `dev` 上跑出來(2026-08-18 深夜)**:
+```
+分母 12 行  ⇒  🔴 待辦 10 ／ 訃聞 2
+
+待辦  docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md:106
+待辦  docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md:53 / :63
+待辦  docs/specs/2026-08-18-storefront-truncation-inventory.md:190 / :191   ← 🔴 沒有人列過
+待辦  packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:2288 / :2300
+待辦  packages/adapters/src/supabase/mappers/order-cancellations.ts:31
+待辦  packages/adapters/src/supabase/mappers/order.test.ts:737
+待辦  packages/adapters/src/supabase/mappers/order.ts:399
+訃聞  packages/adapters/src/supabase/mappers/order.ts:445
+訃聞  packages/domain/src/order/types.ts:823
+```
+🔴 **那兩處「沒有人列過」的是 A 窗剛進 dev 的新檔** ——
+**站點表在被寫下來的當下就開始過期**,而**新增的站點沒有任何機制會通知這張表**。
+⇒ **這正是「登記不等於處置完畢」的第二層:登記完的那一刻,分母就已經不是那個數了。**
+
+#### 🔴 改的時候要過的兩條判準(B 窗立的,決定「怎麼改」不是「改哪裡」)
+
+```
+① 同一個數字在同一份檔裡可以是【兩種東西】：
+     PAGE_SIZE = 1000            ← code 事實，沒變 ⇒ 🔴 不能改
+     正式站 db-max-rows = 1000   ← 世界狀態，已變 2000 ⇒ 要改
+   ⇒ 整份 sed 會把 code 事實一起改掉
+
+② 更正一個字面有【三種結果】，而三種的動作不同：
+     被推翻  ⇒ 結論要改
+     被加強  ⇒ 結論不變，只換數字
+     只是換例子 ⇒ 連結論的形狀都不動
+   實例：「50 遠高於任何合理值，又低於伺服器 max-rows（1000）」
+        ⇒ 2000 之後是【被加強】（50 < 2000 更成立）
+        ⇒ 而它下面「只在 max-rows > 50 時成立」那條限定【照舊留著】
+          —— 那條防的是【設定被調小】，與現值是多少無關
+```
+🔴 **②那條就是本條目存在的理由的縮影**:限定句防的是**未來的變動**,
+**不是現在的數值** ⇒ **現值變好了不代表限定句可以刪。**
+
+#### 🔴 站點 2 詳述 —— **它不是「少一筆」,是「第一頁就停」**
+
+```
+apps/storefront/src/lib/products.ts
+  :682   const PAGE_SIZE = 1000;
+  :695   .range(from, from + PAGE_SIZE - 1)
+  :719   if (!data || data.length < PAGE_SIZE) break;      ← 終止判準
+
+max-rows 掉到 500 的世界：
+  第 0 頁 .range(0, 999) ⇒ 伺服器夾到 500 列 ⇒ 500 < 1000 為真
+  ⇒ 🔴 【第一頁就 break】⇒ 整份車款表停在 500 筆，其餘全部不見
+  ⇒ 而 VehicleFinder 的下拉少一大截，沒有任何一行字說它不完整
+```
+🔴 **既有的那道 log 守在【另一條路上】**:`:705` 的 `console.warn` 只在
+`page === MAX_PAGES - 1`(第 49 頁)且滿頁時才印 —— 而上面那個世界**第 0 頁就 break 了**,
+`page` 永遠不會走到 49 ⇒ **那道 warn 一次都不會響**。
+📎 這正是 `docs/patterns/guard-and-instrument-traps.md` 那條「守門裝在沒有事的那條路上」。
+
+📎 **repo 裡早就有這條規則,缺的是【它還成不成立】的守門**:
+`docs/patterns/pagination-loop-review.md` 五條準則第一條逐字 = **「頁大小嚴格小於 `db-max-rows`」**。
+```
+今天 PAGE_SIZE 1000 < max-rows 2000  ✅ 成立
+而 2026-08-17 Sean 口頭的 1000 之下：1000 < 1000  ❌ 不成立（零餘裕）
+⇒ 🔴 這條準則【已經被違反過一次】，只是那時候沒有人拿數字去對
+```
+
+#### 站點 1 詳述(本窗自己量的)
+
+#### 站點 1 詳述(本窗自己量的)
+- **病的形狀(三步,每一步都合法):**
+  ```
+  ① 明細查詢送 .limit(ORDER_ITEMS_EMBED_LIMIT = 200)
+       packages/adapters/src/supabase/SupabaseOrderAdapter.ts:847
+  ② PostgREST 的專案設定 max-rows 若 < 200（例如 150）⇒ 伺服器【先】夾到 150
+  ③ 判定 row.order_items.length >= 200 拿 150 去比 ⇒ false
+       packages/adapters/src/supabase/mappers/order.ts:873
+  ⇒ 🔴 itemsTruncated = false，而品項【真的少了】
+  ```
+  這個殘餘風險**不是本條發現的**,`mappers/order.ts:404-406` 自己逐字寫著:
+  > 「若專案 `max-rows` 日後被設到低於本值,截斷會發生在那個更低的數字上而**本判定看不見**」
+  ⇒ **本條要登記的是「它沒有守門」這件事**,不是重新發現那個風險。
+- **今天不成立,而那是【量到的】不是推的:**
+  ```
+  2026-08-18 V 窗親手探（不是 dashboard、不是轉述）:
+    storefront anon key 打正式站 REST
+    products?select=id&limit=5000
+    ⇒ HTTP 206、content-range: 0-1999/19777、實回 2000 列
+  🔴 分母 19,777 > 2000 ⇒ 量到的是【天花板本人】，不是「資料只有這麼多」
+  ⇒ max-rows = 2000 > 200 ⇒ 本病今天不成立
+  ⚠️ 這個值的效度限定：正式站、storefront anon key、2026-08-18。
+     換專案 / 換 key / 之後被改，都不在這次量測的射程內。
+  ```
+- 🔴 **為什麼它沒有守門(這才是本條的正文):**
+  ```
+  · max-rows 是【伺服器端專案設定】⇒ repo 內沒有任何字面可以掃
+  · 測試看不到它（單測 mock 掉 supabase client；整合測試也是打本機或 mock）
+  · 三綠恆綠、literal-sweep 恆零命中
+  ⇒ 有人把它調低的那一天，這裡【完全靜默】
+  ```
+- **不修未來會痛在哪:**
+  🔴 **痛在「少印的那次」和「印對的那次,紙上長得一模一樣」。**
+  揀貨單的 `B` 態(表在紙上而少了幾列)是**四態裡最貴的一種** ——
+  揀的人一列一列勾完,紙看起來就是揀完了,**少的那一件零症狀**,到客人收到貨才發現。
+  而 `#601` / `B` 態那些修法**全部建立在 `itemsTruncated` 這個旗標可信之上**
+  (射程分析在 `docs/specs/2026-08-16-shipping-doc-sample-vs-impl.md` §6-a-2 底下)
+  ⇒ **這個前提一破,那些修法【一個都不會觸發】,而紙看起來完全正常。**
+#### 🔴🔴 修法方向 —— **把依賴拿掉,不要盯著依賴**
+
+> **一個不存在的依賴,不需要有人盯著。**(機制優先律;主視窗 2026-08-18 裁定)
+
+🔴 **先否決一個聽起來很合理的做法:寫一支腳本掃 repo 內的頁大小常數、對照 `max-rows`。**
+**否決理由是它自己的判別力**:那支腳本必須**寫死一個 `max-rows` 假設值**,
+而那個值**可以被人在腳本不知情的情況下改掉**
+⇒ **它會靜默過期,而過期的它跟正常的它印一樣的東西。**
+⇒ **那正是本條要修的病本身。用它去修它自己,是同一個坑的第二層。**
+
+**三個站點的形狀不同,修法不能共用一句話:**
+
+| 站點 | 為什麼會依賴 | 拿掉依賴的方向 |
+|---|---|---|
+| 2 翻頁迴圈 | 終止條件是**「這頁比 `PAGE_SIZE` 少 ⇒ 收工」** ⇒ 伺服器夾一下就提早收工 | 🔴 **改成「拿到 0 列 ⇒ 收工」,或 keyset(游標綁 `id`、不綁位移)** ⇒ **夾不夾、夾到多少都不影響正確性** |
+| 3 無分頁的整表查詢 | 完全沒有 `.limit()` / `.range()` ⇒ 邊界**整個**由伺服器決定 | 同上:**加上帶 0 列終止的翻頁**;若確定只要一個數字,改用 `count: 'exact'` 拿計數而不是數回傳列 |
+| 1 內嵌 + 門檻判定 | **不是迴圈** —— 是「要 200、回來滿 200 就當截斷」 | 🔴 **這一處拿不掉「數回傳列」這件事** ⇒ 只能改成 `count: 'exact'`(讓計數由伺服器自己給,不從回傳筆數推)。`mappers/order.ts:404-406` 同一段註解本來就寫著這個方向 |
+
+⚠️ **站點 1 的代價要先量再決定**:那要動**共用讀取路徑**(`findAdminOrderDetail` 的內嵌查詢)
+⇒ **高風險片**,且多一次 count 查詢 ⇒ **不是順手改。**
+
+📎 **B 窗同夜同族問題的逐字**(拿去當樣板,不要重新發明):
+> 「我這片**刻意不吃那個餘裕**:終止條件是**拿到 0 列** ⇒
+> **沒有任何一個數字承擔正確性**,2000 還是 1000 都不影響它。」
+
+🔴 **而 B 窗另有一條會咬到站點 2 / 3 的**:
+`.range()` 翻頁**只在「集合在翻頁期間不變」時成立** —— 中途被寫入會**漏列或重列**。
+```
+站點 2 vehicle_taxonomy_public ：是 view、寫入頻率未量 ⇒ 🔴 要判，不要假設它不變
+站點 3 categories              ：寫入頻率未量 ⇒ 同上
+⇒ 會被寫的那些一律走 keyset（游標綁唯一鍵），不要只把終止條件換掉就收工
+```
+📎 五條翻頁準則的正本在 `docs/patterns/pagination-loop-review.md`
+(第一條逐字 = **「頁大小嚴格小於 `db-max-rows`」**,而本條的存在理由就是**那條準則沒有守門**)。
+
+❌ **一個我評估過而【不推薦】的候選,寫下來免得下一個人重想**:
+在 adapter 內部比「送出去的 limit」與「拿回來的筆數」,少了就出聲。
+**⚠️ 未確認,而且很可能不成立**:它**分不出**「真的只有 150 筆」與「被夾到 150」——
+兩者回傳的筆數一模一樣。⇒ **它會變成下一個假旗標。不要做。**
+- **發號:** `sh scripts/reserve-backlog.sh '<標題>'` ⇒ `RESERVED #629`(git ref CAS)。
+  撞號複查:`grep -c '#629' docs/phase-1-backlog.md` ⇒ 保留前 `0`;
+  `grep -rl '#629' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3040`;
   🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
