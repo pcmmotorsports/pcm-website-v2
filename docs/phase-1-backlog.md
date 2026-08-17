@@ -16736,6 +16736,92 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   **實驗規格已寫、刻意不執行**:`docs/specs/2026-08-17-vitest-concurrency-experiment-spec.md`
   (含觸發條件三條、事前寫死的雙向判準、以及「`N=4` 全綠或 `N=0` 也紅 ⇒ **推翻方向更重要**,
   因為它省下所有後續投資」)。**它不是批准。**
+- 🔴🔴 **2026-08-17 23:20 —— `load average` 欄位【第一次使用就給了一個反例】,而它對負載假說不利**
+  ```
+  23:20 那發：四項 rc 全 0（綠）
+    load average(1m 5m 15m) 開始=[67.62 60.15 66.04]
+                            vitest起跑前=[148.79 82.84 74.03]   ← 🔴 我的 vitest 起跑那一刻
+                            結束=[215.78 112.50 85.61]
+  對照同晚兩發紅（23:00 / 23:05）：當場 uptime ⇒ load 86.27 / 113.23 / 84.47
+  ```
+  🔴 **綠在 `load 148.79`,紅在 `load 86`** ⇒ **「load 高 ⇒ 會紅」在這三筆上【不成立】。**
+  📎 那與 `#608` 那個**已被推翻**的 load 假說方向一致 —— **而這次是用新欄位量到的,不是推的。**
+  ⚠️⚠️ **三條限定,一條都不能省**:
+  ① **n=3**(1 綠 2 紅)。**三筆不是分佈**,而我在同一晚已經因為「一筆當分佈」退過一次。
+  ② `load average` 是**過去 1/5/15 分鐘的平均** ⇒ `vitest起跑前=148.79` 那個數
+  **包含我自己前面 typecheck/lint/build 造的負載**(它們就在那一分鐘內)⇒ **它不是「別人造成的負載」**。
+  ③ **它答不了「我這一格逾時的那一秒忙不忙」** —— 逾時是**尾端事件**,而這是平均值。
+  ⇒ 🔴 **正確口徑:「持續高負載」與「逾時」在這三筆上沒有對上,而【瞬時尖峰】仍未被任何欄位量到。**
+  **⇒ 下一個要量的東西已經被這一筆指出來了,而我【沒有】加它**(先前判「瞬時 CPU 要取樣不是取點、
+  成本跳一級」的理由**在這裡仍然成立**)。**要不要加,是主視窗的裁量,不是我可以自己補的。**
+
+- 🔴🔴 **2026-08-17 23:00 —— 第一筆【可信並行數的紅】,而它落在「低並行 × 紅」那一格**
+  ```
+  logs 目錄   c245211d… 之後的 990f8b35-20260817T230049-…（全量已搶救進 docs/probes/）
+  RUN-CONTEXT 其他窗四綠vitest並行數(不含自己) 開始=0 vitest起跑前=0 結束=0
+              其他窗四綠build並行數(不含自己)  開始=0 vitest起跑前=0
+              rc typecheck=0 lint=0 build=0 vitest=1
+  TRIAGE      分診: 症狀A(逾時)   marker: not_set=0 service_client=0 timeout=5
+              最集中的失敗檔: 3 scripts/check-syntax-nonts.gate.test.ts   ← spawn 族
+  Duration    168.89s（典型綠約 40-70s）
+  ```
+  ⇒ **四格表現在是 低×綠 1 / 低×紅 1 / 高×綠 0 / 高×紅 0。**
+  🔴 **這一筆的方向對「並行數造成紅」是【不利】的**:**零個其他四綠 vitest 在跑,而它紅了。**
+  📎 而那正是本片實驗規格事前寫死的那一條:**「`N=0` 也照樣紅 ⇒ 推翻方向,而那個方向更重要。」**
+  ⚠️⚠️ **但【不可以】就此宣告負載假說死掉,原因是這把尺自己的射程限定**:
+  `並行數` 只數**走 `dev-four-greens.sh` 的 run**(標記檔機制)⇒ **`0` 的意思是
+  「沒有別的窗在跑四綠」,不是「機器閒著」。** 而**同一發 `Duration 168.89s`
+  是典型綠的 2.4–4 倍** ⇒ **機器當時明顯在忙別的事**(別窗的 `npx vitest` / codex / build 都不算進這個欄位)。
+  ⇒ **正確口徑:這一筆推翻的是「【四綠之間】的並行是主因」,不是「負載不是主因」。**
+  🔴 **而它同時暴露了那把尺的真正缺口**:我們需要的是「機器有多忙」,而現有欄位只答得出
+  「有幾個窗在跑四綠」。**這兩者今晚被當成同一件事用過。**
+  ✅ **分診那一段在這一發【第一次於野外命中】**:它正確判成症狀 A、marker 兩個都 0(不是症狀 B)、
+  並指出最集中的失敗檔是 **spawn 族**那支 —— **與同日歷史統計的最大貢獻者是同一支檔。**
+- 📊 **2026-08-17 23:0x:歷史 25 發的【逾時分三類】統計(分類規則動手前先寫下,之後未改)**
+  🔴 **分類規則(先寫再分,主視窗指定)**:
+  ```
+  spawn 族   = 該測試檔內含 spawnSync / execSync / spawn(   ⇒ 會開子行程
+  jsdom 族   = 副檔名 .test.tsx（元件測試，走 jsdom）
+  純 TS 單元 = .test.ts 且不含 spawn 字面
+  三類互斥且窮盡，判定順序 spawn > jsdom > 純TS單元（.test.tsx 若也 spawn 歸 spawn，那是它慢的主因）
+  🔴 第三類的存在依據 = C 窗實錘：order-shipments.test.ts 是純 TS 單元而它會逾時
+     ⇒ F-2 原本的「spawn 族 vs jsdom 族」二分【不夠】
+  ```
+  **6 支症狀 A(純逾時)紅 log 的失敗檔逐一分類(26 個失敗條目 / 10 支相異檔):**
+  ```
+  失敗條目  檔                                                        類
+     7      scripts/check-syntax-nonts.gate.test.ts                   spawn 族
+     2      scripts/check-syntax-nonts.test.ts                        spawn 族
+     4      apps/admin/src/lib/shipping/order-shipments.test.ts       純 TS 單元
+     1      apps/admin/src/app/@panel/order-panel-wiring.test.ts      純 TS 單元
+     4      apps/admin/src/lib/orders/order-keyword-search-wiring.test.tsx  jsdom
+     4      apps/admin/src/app/products/[id]/page.test.tsx            jsdom
+     1      apps/admin/src/components/orders/shipment-launcher.test.tsx     jsdom
+     1      apps/storefront/src/components/ForgotPasswordPage.test.tsx      jsdom
+     1      apps/storefront/src/components/EvotechShowcase.test.tsx         jsdom
+     1      apps/storefront/src/components/CheckoutView.test.tsx            jsdom
+  ⇒ 按條目：spawn 9 / jsdom 12 / 純TS 5      按相異檔：spawn 2 / jsdom 6 / 純TS 2
+  ```
+- 🔴 **回答主視窗的問題:「這三類的比例,跟候選 4(首解析競態)的預期一致嗎?」——【部分不一致,而不一致的那半是新資訊】**
+  另一個 T 線窗提供候選 4 的形狀名單(**分母與交集我獨立重量過,逐項相同**):
+  ```
+  測試檔總數                       519   （我量：find apps packages scripts -name '*.test.ts*'）
+  含 importActual                    6
+  含 importOriginal                 19
+  兩者任一（去重）                  25   ⇒ 基準率 25/519 = 4.8%
+  10 支紅檔之中帶那個形狀的          3   ⇒ 30%（order-shipments / products[id]page / shipment-launcher）
+                                        ⇒ 富集約 6.2 倍
+  ```
+  ✅ **一致的那半**:帶形狀的檔在紅檔裡**富集約 6 倍** ⇒ 候選 4 值得繼續查。
+  🔴 **不一致的那半(這是重點)**:**單一最大貢獻者 `check-syntax-nonts.gate.test.ts`
+  佔 26 個失敗條目裡的 7 個(27%)、加上它的姊妹檔共 9 個(35%),而它【不帶那個形狀】** ——
+  它是 **spawn 族**(每一格開子行程),`#618` 條目上方早就記過它。
+  ⇒ **候選 4 解釋不了最大的那一塊。** 兩者是**並存的兩條路**,不是一條。
+  ⚠️ **而那個 6 倍富集有一個我排不掉的混淆**:
+  **會做大量 async mock 設定的檔,本身很可能就是比較慢的檔** ——
+  形狀可能只是「慢」的**代理**而不是**原因**。**這份資料分不開這兩者。**
+  ⇒ **不要把 6.2 倍寫成「候選 4 被支持」**,它只支持「值得再查」。
+  ⚠️ **樣本限定**:10 支相異檔、6 發 log;而紅檔**不是隨機樣本**(它們是重的那些)。
 - ✅ **同時做了一件不需要結論的**(V 窗指的那條):紅的時候**並行數印在失敗清單【前面】**,
   不再只躺在 `RUN-CONTEXT` 檔尾 —— **看紅的人先看失敗清單,看完就去改 code 了。**
   守門=格24(三個數各自透傳、順序不得對調)+ 格24-b(釘住它掛在 `verdict` 失敗分支裡);
