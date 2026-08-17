@@ -16273,3 +16273,18 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
   ②`security-log.ts:6`「絕不記 code/secret/session token」紅線零機械檢查——未來有人把 code 塞進
   fields,沒有東西會紅=洩密走這條路不會被測試擋。
 - **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #613`(CAS);信箱 `grep -rn '#613' ~/pcm-mailbox/*.md` ⇒ 保留前零命中。
+
+### #615 · settle-sweep 五處裸 catch 無步驟碼:503 之後查不出是哪一步壞的
+
+- **狀態:** ⏳ 待執行(E 窗 2026-08-17 §5-d 量測時撞到;**非急件**,見下方觸發條件)
+- **病:** `packages/use-cases/src/sweep-settlements.ts` 的四個前置守衛(`:137-151`,`expireEventsAtCeiling` / `expireStuckAtCeiling` / `flagNonUnpaidActive`)與 claim(`:160-164`,`claimDueEvents`)**共五處**皆為**裸 `catch {}` 只做 `result.errors++`** —— **不帶步驟識別、不帶 reason code**。
+  ⇒ 五種 throw 產生的 counts **完全一樣**(其餘計數全 `0` + `errors:1`),route 據此回 `503`(`apps/storefront/src/app/api/cron/settle-sweep/route.ts:128-131`),而 `console.error` 印的就是那組 counts。
+  **實例(量到的)**:`2026-08-17 08:04:00 UTC` 該輪 `status 503 / errors 1`、其餘全 `0`;**無法判定是五處中的哪一處**。
+- **🔴 連帶危害(比「查不到成因」更要緊):** 那五處之一是 `expireEventsAtCeiling`,而它的回傳 `expiredInboxAtCeiling` **正是判斷「ceiling 有沒有把逾限筆數轉人工」的判別器**。
+  ⇒ 該輪 throw 時 `expiredInboxAtCeiling` 停在 `0` —— 與「掃過了、沒有」**印出同一個值** ⇒ **不知情的人會拿一個沒跑成的檢查當證據**。本次是靠**同輪的 `status` / `errors`** 才排除掉;**若健康訊號沒有跟讀數放在同一筆輸出裡,就分不開**。
+- **不修未來會痛在哪:** ①金流兜底 sweeper 若哪天**持續** 503,現有 telemetry **不足以定位是哪一步壞的**,只能逐一試 —— 而那是「錢沒被最終結算」的路徑,**停機成本最高的時候線索最少**;②任何引用 `expired*AtCeiling` / `flaggedNonUnpaid` 的稽核結論,**在沒有同輪健康訊號的前提下都不可靠**,而現況**不會有任何東西紅**。
+- **修法(有現成形狀,照抄即可):** 五處 `catch` 各帶一個**固定步驟碼**進結構化 log(如 `expire_inbox` / `expire_stuck` / `flag_non_unpaid` / `claim_inbox` / `claim_stuck`)。
+  🔴 姊妹片 `email-sweep` 已有**固定碼集 + 顯式 allowlist** 的同源紀律(`apps/storefront/src/app/api/cron/email-sweep/route.ts:86-88`)⇒ **零 PII、零設計成本**。
+- **觸發條件 / 嚴重度:** **本次為單發**(`08:06`、`08:08` 兩輪即回 `200` / `errors 0`,自行恢復)⇒ **不是正在燒、不擴大解讀為故障**。**升級條件 = 出現連續 ≥2 輪 503**。
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #615`(CAS);信箱 `grep -rn '#615' ~/pcm-mailbox/*.md` ⇒ **0 命中**;`grep -c '#615' docs/phase-1-backlog.md` ⇒ 保留前 **0**。
+  ⚠️ **順帶留痕(下一個配號的人請讀這行)**:`scripts/next-backlog-number.sh` 當下報「下一個可用號 = **#614**」,而 CAS 計數器 `--show` 報「目前 614 ⇒ 下一個是 **#615**」 ⇒ **#614 已被保留但尚未寫進本檔** ⇒ **只信前者就會撞號**。**配號一律以 `reserve-backlog.sh`(CAS)為準。**
