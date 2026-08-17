@@ -301,7 +301,8 @@ export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
  * 撈整個公開目錄全量供 /products 列表頁 + sitemap(#220 列表頁遷真、C4/#205 解除寫死單一分類)。
  *
  * 行為:
- *   - listAllProducts()〔.order('id') + .range 分頁迴圈、繞 PostgREST/Supabase「Max rows=1000」硬上限、
+ *   - listAllProducts()〔.order('id') + .range 分頁迴圈、繞 PostgREST/Supabase `db-max-rows` 硬上限
+ *     (~~原寫「Max rows=1000」~~ ⇒ **2026-08-18 實測 2000**,與本檔 :683-696 那段同一個值、同一個來源)、
  *     撈**全目錄**非下架公開商品(不綁分類)〕→ map toUIProduct(p,'general')
  *   - adapter 回 [](空目錄)→ `{ products: [], error: false }`、UI 走 empty 分支「找不到符合條件的商品」
  *   - adapter throw error → console.error + `{ products: [], error: true }`、UI 走 error 分支「載入失敗、請稍後再試」
@@ -660,7 +661,10 @@ export async function fetchCategories(): Promise<MockCategory[]> {
  *   這是**刻意的取捨**(view 端正規化實測 413ms→1,170ms 且排序溢出磁碟),
  *   守門在 `products-vehicle-taxonomy.test.ts` 的「字面變體」那格。⇒ 別把那個 normalize 拿掉。
  *
- * 分頁:PostgREST「Max rows=1000」硬上限 ⇒ .range 迴圈(MAX_PAGES 防呆)。
+ * 分頁:PostgREST `db-max-rows` 硬上限 ⇒ .range 迴圈(MAX_PAGES 防呆)。
+ *   🔴 ~~原寫「Max rows=1000」~~ 已過期 ⇒ **2026-08-18 實測 2000**;
+ *   **這一行與下面 `:683-696` 那段講的是同一個值** —— 那段有完整的量法與隱形依賴說明,
+ *   ⚠️ 而它 2026-08-18 被補上時,**本行與 `:304` 兩處沒有跟著改** ⇒ 同一支檔內三處、只改了一處。
  *   **四欄一起 order 是必要的**:上半四欄 DISTINCT、下半每個 (廠牌,車型) 一列且與上半互斥
  *   (實測 `UNION ALL` 與 `UNION` 列數同為 8,390)⇒ 四欄唯一 ⇒ 四欄升冪 = 嚴格全序,翻頁不漏。
  *   少 order 任一欄,同鍵列的相對順序未定義、翻頁會漏資料。
