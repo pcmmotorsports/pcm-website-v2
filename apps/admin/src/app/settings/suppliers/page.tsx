@@ -67,7 +67,7 @@ export default async function SupplierSettingsPage({
     locate !== null && located.length > 0 && located.length < rows.length;
 
   return (
-    <div className='mx-auto max-w-6xl space-y-4'>
+    <div className='mx-auto space-y-4'>
       <div className='space-y-1'>
         <h1 className='text-2xl font-semibold'>供應商管理</h1>
         {/* 🔴 這裡是 JSX 純文字,**不會**解析 markdown —— 第一版寫了 `**建立後不可刪除**`,

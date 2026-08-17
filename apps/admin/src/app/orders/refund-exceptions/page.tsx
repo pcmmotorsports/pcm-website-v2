@@ -50,7 +50,7 @@ export default async function RefundExceptionsPage({
   const TD = 'px-3 py-2 text-sm align-top';
 
   return (
-    <div className='mx-auto max-w-6xl space-y-4'>
+    <div className='mx-auto space-y-4'>
       <div>
         <h1 className='text-2xl font-semibold'>退款異常清單</h1>
         <p className='text-muted-foreground mt-1 text-sm'>

@@ -66,7 +66,7 @@ export default async function ProductsPage({
   const total = result?.total ?? 0;
 
   return (
-    <div className='mx-auto max-w-6xl space-y-4'>
+    <div className='mx-auto space-y-4'>
       <div className='flex items-center justify-between'>
         <h1 className='text-2xl font-semibold'>商品</h1>
         {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 件</p>}

@@ -31,7 +31,7 @@ export default async function StaffSettingsPage({
   }
 
   return (
-    <div className='mx-auto max-w-6xl space-y-4'>
+    <div className='mx-auto space-y-4'>
       <div className='space-y-1'>
         <h1 className='text-2xl font-semibold'>員工管理</h1>
         <p className='text-muted-foreground text-sm'>
