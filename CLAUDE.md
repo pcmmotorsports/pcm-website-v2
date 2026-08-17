@@ -67,6 +67,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 鐵則字面的詳解與程式碼範例(規則以本檔為準) | `docs/patterns/general.md` + `docs/patterns/pcm-specific.md` |
 | 想知道 `docs/patterns/` 有哪些細節檔 / 從零接手本 repo 找入口 | `docs/patterns/index.md`(全目錄索引與各檔定位) |
 | 要寫守門/負測/突變 · 要下「零命中/沒覆蓋/構造不出來」這類斷言 · 要判 BLOCKER 前 | `docs/patterns/guard-and-instrument-traps.md`(恆綠格 / 紅錯地方 / 一發紅多格 / 守門一裝就紅 / 掃描字集比宣稱窄 / 可重跑 vs 不可重跑的證據;每條附 2026-08-14 當天實例與行號) |
+| 要跑任何會【改檔案】的腳本 · 要寫突變/還原流程之前 | `docs/patterns/mutation-harness-restore.md`(來源=2026-08-16 A 窗實錘:**一份被突變的 migration 被 commit 進正式分支**(`02dd510e`,修在 `e37fbea5`)。🔴 **病灶不是忘了還原,是用一個會殺掉還原的方式跑它** ⇒ 那不是提醒能防的,是流程層) |
+| 要下「查無 / 不存在 / 零命中」這種斷言,而對象是【一個檔案路徑】 | 先跑 `bash scripts/where-is.sh <path>`(四處分開報:工作樹 / dev / 所有 ref(分支・remote-tracking・tag) / 信箱;**查無 rc=3 / 用法錯 rc=2 / 工具自壞 rc=1,三者分得開**)。🔴 **`git ls-files` / `test -e` 只看【當前 checkout】,不是整個 repo** —— 未收割分支上的檔在那裡是隱形的(2026-08-17 實錘:一份真實存在的資安報告差點被記成「不存在」;成因全文 `docs/lessons-learned.md` §12-43) |
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
 | 夜跑多窗指揮(哨兵/派工/批次收割/佇列預派/斷線復原) | `docs/runbooks/night-run-command-playbook.md`(2026-08-06 Sean 拍板常設) |
