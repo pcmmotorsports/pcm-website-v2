@@ -787,7 +787,10 @@ echo ""
 #    第一版寫成 "══ A20:`ENABLE ROW LEVEL SECURITY` 這一行…" ⇒ 實跑印出
 #    「══ A20: 這一行有沒有人在守 ══」—— **那段字直接消失,而句子還讀得通、只是掉了主詞。**
 #    (CLAUDE.md 明列此坑,本窗 2026-08-17 當場踩了一次、由實跑輸出抓到。)
-echo '══ A20:ENABLE ROW LEVEL SECURITY 這一行有沒有人在守 ══'
+# ⚠️ 標題 2026-08-17 改過(reviewer `F3`):新構造**完全不碰** ENABLE 那一行
+#    (改成「B1-b 跑完後才 DISABLE」)⇒ 舊標題會讓人以為 A20 還在測檔案完整性。
+#    **守那一行的現在是 A21。**
+echo '══ A20:RLS 被關掉時,下游 B2 會不會擋 ══'
 # 🔴 起因(2026-08-17 B 窗查 apply preflight `#7` 時實測):把 B1-b 的
 #    `ALTER TABLE … ENABLE ROW LEVEL SECURITY;` 註解掉重跑 ⇒ **零格翻綠**,
 #    但 **S2 由 green 變 red、S4 抓不到列**。
@@ -798,21 +801,21 @@ echo '══ A20:ENABLE ROW LEVEL SECURITY 這一行有沒有人在守 ══'
 #       要翻三層才知道真因是「RLS 被關掉」。本線今晚整晚在修的就是這個形狀。
 #    ⇒ 這一格把那道守門**具名**:不是新增保護,是讓既有保護的紅【講得出自己是誰】。
 #    📎 順帶擋掉一條很可能發生的錯修:有人看到 S2 紅,會想去把 B2 的前提斷言放寬。
+# ⚠️🔴 **A20 的構造 2026-08-17 改過一次,理由本身就是一個發現:**
+#    舊構造是「把 `ENABLE ROW LEVEL SECURITY` 那行從 B1-b 刪掉再跑」。
+#    **加了 A21(B1-b 自己的 RLS 落地斷言)之後,那個構造失效了** ——
+#    B1-b 會在建表後**當場自己紅**,表整支回滾 ⇒ 表根本不存在 ⇒ 前提檢查印
+#    `relrowsecurity=`(空字串)而不是 `f`。**前提 fail-closed 擋住了,沒有變成假綠。**
+#    ⇒ 新構造:**讓 B1-b 正常跑完(RLS 有開),再把 RLS 關掉**,然後跑 B2。
+#    📎 而新構造**更接近真實世界**:它模擬的正是 preflight §`#7` 講的那個缺口 ——
+#      **apply 之後有人下 `DISABLE ROW LEVEL SECURITY`**。
 drop_objs
-sed 's|^ALTER TABLE public.admin_user_staff_map ENABLE ROW LEVEL SECURITY;$|-- A20 MUTATED OUT|' \
-    "$B1B" > "$D/a20.sql"
-if [ "$(grep -c '^-- A20 MUTATED OUT' "$D/a20.sql")" != "1" ]; then
-  # ⚠️ 兩種成因,第二種嚴重得多(reviewer `N3`):突變沒生效只是這一格瞎了,
-  #    而「那一行已從 B1-b 消失」= **RLS 根本沒開,而且沒有任何人在守**。訊息要把後者講出來。
-  echo "  🔴 A20 突變沒生效:B1-b 內找不到 ENABLE ROW LEVEL SECURITY 那一行"
-  echo "     ⇒ 兩種可能:①錨點漂了(這一格失去判別力)②**那一行真的被拿掉了 ⇒ 先去確認 B1-b**"; FAIL=$((FAIL+1))
+run_sql_file "$B1B" > /dev/null 2>&1
+run_sql "alter table public.admin_user_staff_map disable row level security;"
+A20_RLS=$(psqlq -c "select relrowsecurity from pg_class where oid=to_regclass('public.admin_user_staff_map')")
+if [ "$A20_RLS" != "f" ]; then
+  FAIL=$((FAIL+1)); printf "  🔴 %-34s 前提沒成立:relrowsecurity=%s(要的是 f)⇒ RLS 沒真的被關掉\n" "A20 前提" "$A20_RLS"
 else
-  run_sql_file "$D/a20.sql"
-  # 前提:表真的建出來了、而且 RLS 真的是關的(否則下面的紅來自別處)
-  A20_RLS=$(psqlq -c "select relrowsecurity from pg_class where oid=to_regclass('public.admin_user_staff_map')")
-  if [ "$A20_RLS" != "f" ]; then
-    FAIL=$((FAIL+1)); printf "  🔴 %-34s 前提沒成立:relrowsecurity=%s(要的是 f)⇒ 突變沒真的關掉 RLS\n" "A20 前提" "$A20_RLS"
-  else
     cell "A20 RLS 被關掉時 B2 必須拒絕 seeding" red run_sql_file "$B2"
     # 🔴 紅了還要紅對地方:訊息必須指名 RLS,否則它與「B2 因為別的原因壞掉」分不出來。
     # 🔴 錨到 `ERROR:` 而不是裸字串:少了這個錨,任何**回印 SQL 原文**的路徑都會自命中
@@ -830,10 +833,54 @@ else
       #    突變 6 之下 B2 其實是【綠的】,而舊字面寫「紅了但…」= 計數對、字面錯)。
       FAIL=$((FAIL+1)); printf "  🔴 %-34s B2 沒紅、或紅了但訊息沒指名 RLS ⇒ 紅錯地方\n" "A20 紅對地方"
     fi
-  fi
 fi
 echo "     ↑ 🔴 這一格守的是【既有保護的可讀性】,不是新保護。"
 echo "       拿掉 B2 的 RLS 前提斷言 ⇒ 這一格翻綠,而 S2/S4 也會一起壞 —— 兩者一起看才知道真因。"
+
+# ══ A21:B1-b 自己的 RLS 落地斷言(2026-08-17 B 窗補,主視窗已批)══
+# 🔴 它與 A20 守的**不是同一件事**,兩格都要:
+#    · A20 → 「RLS 沒開時 **B2** 會拒絕 seeding」(下游、隔一支檔)
+#    · A21 → 「RLS 沒開時 **B1-b 自己當場就紅**」(同一層、指向真正那一行)
+#    失敗的**位置**決定下一個人會去改什麼:紅在 B2 ⇒ 最可能的錯修是放寬 B2 的前提斷言。
+# ⚠️ **兩格都【不】守「apply 之後有人 DISABLE RLS」** —— 那個缺口仍開著,見 preflight §#7。
+drop_objs
+sed 's|^ALTER TABLE public.admin_user_staff_map ENABLE ROW LEVEL SECURITY;$|-- A21 MUTATED OUT|' \
+    "$B1B" > "$D/a21.sql"
+if [ "$(grep -c '^-- A21 MUTATED OUT' "$D/a21.sql")" != "1" ]; then
+  echo "  🔴 A21 突變沒生效:B1-b 內找不到 ENABLE ROW LEVEL SECURITY 那一行"
+  echo "     ⇒ ①錨點漂了(本格失去判別力)②**那一行真的被拿掉了 ⇒ 先去確認 B1-b**"; FAIL=$((FAIL+1))
+else
+  A21_MSG=$(psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$D/a21.sql" 2>&1 \
+              | grep -c 'RLS 沒有開起來')
+  if [ "$A21_MSG" -ge 1 ]; then
+    PASS=$((PASS+1)); printf "  ✅ %-34s 紅,且訊息指名「RLS 沒有開起來」\n" "A21 B1-b 自己抓到 RLS 沒開"
+  else
+    FAIL=$((FAIL+1)); printf "  🔴 %-34s 沒紅、或紅了但訊息沒指名 RLS ⇒ 紅錯地方\n" "A21 B1-b 自己抓到 RLS 沒開"
+  fi
+fi
+# 🔴 正向對照:原檔(RLS 有開)⇒ 這道斷言必須【不叫】。
+#    少了它,一個「無論如何都 RAISE」的斷言也會讓上面那格綠。
+drop_objs
+# ⚠️🔴 **A21b 不能只是「再跑一次原檔」**(adversarial-reviewer 2026-08-17 `F2`):
+#    第一版與 `A0 原檔跑` **逐字同一條命令、同一個預期** ⇒ reviewer 實測:把新斷言整段刪掉,
+#    **A21b 照樣綠** ⇒ 它控不到「這道斷言存在且沒誤報」,只控到「整支檔綠」(A0 already 在做)。
+#    **它是 +1 計數,不是 +1 判別力。** ⇒ 改成斷言那道 NOTICE 的**新字面**。
+#
+# ⚠️🔴 **而它守得到什麼、守不到什麼,我量過了,寫準:**
+#    實測(把 `IF v_rls IS DISTINCT FROM true` 改成 `IF false AND …`)⇒ **只有 `A21` 紅,`A21b` 照樣綠。**
+#    ⇒ **A21b【不】偵測「那道 IF 被停用」** —— NOTICE 是**另一條 statement**,IF 停掉它照印。
+#    ⇒ 它真正守的是:**`$rls_premise$` 整個區塊有跑完**(整段被刪 / 中途 abort ⇒ NOTICE 不會出現)。
+#    ⇒ 「那道 IF 還活著」由 `A21` 守(上面那發突變已證它單獨會紅)。**兩格分工寫清楚,不要互相冒充。**
+#    📎 我第一版註解寫「斷言不在了 ⇒ NOTICE 也不會是這一句」—— **那是錯的,被這發突變打回。**
+A21B_OUT=$(psql -X -h 127.0.0.1 -p "$PORT" -U postgres -tA -v ON_ERROR_STOP=1 -f "$B1B" 2>&1)
+A21B_RC=$?
+if [ "$A21B_RC" -ne 0 ]; then
+  FAIL=$((FAIL+1)); printf "  🔴 %-34s 原檔跑不過 ⇒ 不是「不誤報」,是整支壞了\n" "A21b 正向對照"
+elif echo "$A21B_OUT" | grep -q "RLS 已開"; then
+  PASS=$((PASS+1)); printf "  ✅ %-34s 綠,且 NOTICE 含「RLS 已開」(證斷言真的跑過)\n" "A21b 正向對照"
+else
+  FAIL=$((FAIL+1)); printf "  🔴 %-34s 綠了但 NOTICE 沒有「RLS 已開」⇒ 那道斷言根本沒執行\n" "A21b 正向對照"
+fi
 
 echo ""
 echo "══ 第三段:B2 seeding ══"

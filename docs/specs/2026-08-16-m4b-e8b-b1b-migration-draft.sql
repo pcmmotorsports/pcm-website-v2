@@ -267,7 +267,36 @@ BEGIN
       '      (a) 確認正式庫的 service_role 確實有 BYPASSRLS(Supabase 預設有,但【要看過才算】)\n'
       '      (b) 改成明文開一條給 service_role 的 policy,不依賴 BYPASSRLS';
   END IF;
-  RAISE NOTICE 'B1-b:service_role 具 BYPASSRLS,RLS 零 policy 的前提成立。';
+  -- 🔴 落地斷言:RLS 真的開起來了。**保護與它的斷言放在同一層**,不要隔一支檔。
+  --    (2026-08-17 B 窗補,主視窗已批;鐵則 12②③ 全套跑過。)
+  --
+  -- ⚠️🔴 **這一道【不】關掉「apply 之後有人 DISABLE RLS 沒人發現」那個缺口 ——
+  --    講清楚它守什麼、不守什麼,因為它很容易被讀成守了那個。**
+  --      · **守得到**:有人把上面那行 `ALTER TABLE … ENABLE ROW LEVEL SECURITY;` 從本檔刪掉
+  --        / 改壞 ⇒ **apply 當場紅在這裡**,而不是等到下游 B2 才紅在「RLS 沒開」。
+  --        (在此之前唯一會叫的是 B2 的前提斷言 —— **隔一支檔、訊息指向 seeding**,
+  --         讀的人要翻三層才知道真因。)
+  --      · **守不到**:apply 之後任何時點的 `ALTER TABLE … DISABLE ROW LEVEL SECURITY`。
+  --        **這支 migration 只跑一次、不會重跑** ⇒ 事後的狀態它一概看不到。
+  --        那個缺口仍然開著,記在 `docs/specs/2026-08-17-b1-apply-preflight.md` §`#7`。
+  --
+  -- 📌 為什麼仍值得加(而不是「反正 B2 會擋」):失敗的**位置**決定下一個人會去改什麼。
+  --    紅在 B2 ⇒ 最可能的錯修是「把 B2 的前提斷言放寬」;紅在這裡 ⇒ 指向真正的那一行。
+  DECLARE v_rls boolean;
+  BEGIN
+    SELECT relrowsecurity INTO v_rls
+      FROM pg_class WHERE oid = to_regclass('public.admin_user_staff_map');
+    IF v_rls IS DISTINCT FROM true THEN
+      RAISE EXCEPTION E'B1-b 落地斷言:admin_user_staff_map 的 RLS 沒有開起來(relrowsecurity=%)。\n'
+        '   ⇒ 本表的設計是「RLS 開 + 零 policy = default deny」,RLS 沒開等於**整張表對所有角色敞開**。\n'
+        '   ⇒ 檢查本檔的 `ALTER TABLE … ENABLE ROW LEVEL SECURITY;` 那一行是不是被刪掉或改壞了。', v_rls;
+    END IF;
+  END;
+  -- 🔴 `IS DISTINCT FROM true` 不是 `= false`:`to_regclass` 回 NULL(表不存在)時
+  --    `relrowsecurity` 是 NULL ⇒ `NULL = false` 為 NULL ⇒ `IF` 走 false 分支 ⇒ **斷言不會叫**。
+  --    (今天 B1-a 就是栽在這個形狀上,同一顆 commit 之前才修完。)
+
+  RAISE NOTICE 'B1-b:service_role 具 BYPASSRLS、RLS 已開,零 policy 的前提成立。';
 END
 $rls_premise$;
 
@@ -607,6 +636,20 @@ BEGIN
       --    ⚠️ **而它會失敗得非常安靜**:event trigger 建得起來、掃描掃得到它、測試也綠,
       --       **它只是永遠不會被呼叫。機制存在本身會讓下一個人停止追問。**
       --       ⇒ **不要伸手拿 event trigger 來關這道。**
+      --
+      -- 🔴🔴 **而「這道」只指【role membership 的 GRANT】—— 不要把它讀成「event trigger 沒用」。**
+      --    界線是官方那句例外的字面:**shared objects(databases / roles / tablespaces)不觸發**。
+      --    ⇒ 目標是**表**的 DDL 是 local object,**照樣觸發**。
+      --    B 窗 2026-08-17 實測(PG 17.10,`ddl_command_end`,附雙向對照):
+      --      ① `ALTER TABLE … DISABLE ROW LEVEL SECURITY` ⇒ **觸發**(命中 1)
+      --      ② 正向對照 `ALTER TABLE … ADD COLUMN`        ⇒ 觸發(命中 1)← 量具是活的
+      --      ③ 反向對照 `CREATE ROLE`                     ⇒ **不觸發**(命中 0)← 與本段一致
+      --    ⇒ **同一個機制,對 RLS 有用、對 role 沒用。結論相反,不可互相套用。**
+      --    📌 要不要真的建一個來守「apply 後 RLS 被關」= 新機制、新常駐物件(鐵則 8 + 12),
+      --      **本窗不自己建**,已列為給 Sean 的選項,連同它的真成本一起寫在
+      --      `docs/specs/2026-08-17-b1-apply-preflight.md` §`#7`:
+      --      **event trigger 只在 DDL 當下叫,叫完要有人看得到** ——
+      --      沒有「人會讀到的警報去處」之前,它和 `pg_cron` 是同一族。
       --
       -- 唯一能關的做法 = `pg_cron` 週期重跑本段斷言。
       -- 🔴 **而本窗 2026-08-16 判「不現在建」**,理由寫在這裡好被反駁:
