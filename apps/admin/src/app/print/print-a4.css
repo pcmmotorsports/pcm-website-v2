@@ -1,0 +1,56 @@
+/* A4 版面 —— Sean 2026-08-17 逐字:「出貨單都是 A4 請設計、排版好滿版式樣,
+   跨頁面也要保留標題與頁碼連續性。末端簽名處只有最後一張要顯示。」
+   本檔**只做那四條裡的第 1、2 條**(A4 滿版 / 跨頁表格欄名);
+   第 3、4、5 條(跨頁抬頭 / 頁碼 / 簽名只在最後一頁)**樣張沒有、是新設計**,
+   而且要**真的印出來**才驗得掉 ⇒ 不在本檔,登記在
+   `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b。
+
+   🔴 **真權威 = OD 專案 `pcm-print-docs` / `shipping-picking-doc-a4.html`**
+      (2026-08-17 當場用 `list_projects` + `get_file` 開過,不是憑記憶;下面每條都附樣張行號)。
+
+   🔴🔴 **本檔的每一條我都【沒有印出來看過】。** 施工窗印不出紙、也量不到列印預覽。
+      單測只證得了「這些字面在檔案裡、而且會被載入」,**證不了紙上長什麼樣** ——
+      A4 尺寸、邊距 mm 數、跨頁切在哪裡,一律**未確認**,留 Sean 肉眼驗。
+
+   🔴 **為什麼是 route-scoped 而不是進 `globals.css`**:`@page` 是頁面層 at-rule、
+      沒有選擇器可以侷限它 ⇒ 放進 `globals.css` 會讓**後台每一頁**列印時都變成 A4 12mm。
+      本檔由 `app/print/layout.tsx` import ⇒ Next 只在 `/print/...` 這段路由載入它。 */
+
+/* 樣張 `:21` 逐字 —— 一個字都沒改(含 `portrait` 與四個 mm 值的順序)。
+   ⚠️ 落地前 repo 內 `@page` 是**零命中**:`git grep -c '@page' -- apps/admin/src` ⇒ 0。 */
+@page {
+  size: A4 portrait;
+  margin: 12mm 12mm 14mm 12mm;
+}
+
+/* 樣張 `:130` 逐字。
+   🔴 **樣張同一段還有 `thead{display:table-header-group}`,而我【刻意沒搬】** ——
+      那等於 UA 預設,而 `picking-doc.tsx`(錨點 `跨頁表頭:已實測會自動重複`)有 2026-08-15
+      的真瀏覽器量測**含負向對照**:注入 `display:table-row-group !important` 之後第 2 頁欄名整排消失。
+      ⇒ 搬過來會是一條**永遠不會失效的字面**,而「紅不起來的守門比沒有更糟」。
+      📎 真正會弄壞跨頁欄名的是**把 `<table>/<thead>` 改成 div 排版**,那條路由
+      `page.test.tsx` 的結構格守著(它斷言 `:scope > thead` 存在),不是靠 CSS 字面。
+   ⚠️ 而 `break-inside` **與它不同,是搬的**:它不是 UA 預設(預設是 `auto`)。
+      2026-08-15 那次拒絕加它的理由是「沒量過」,而**當時樣張還不存在**;
+      現在版面真權威明寫了這一條 ⇒ 依鐵則 1 直接搬。
+      🔴 **但「搬了」不等於「驗了」** —— 一列會不會剛好被切成兩半,我**沒有印出來看過**。 */
+tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* 樣張 `:44` 的 `@media print{ .sheet{ padding:0 } }` 對應物。
+   我們的兩張紙用的是 Tailwind 容器(`mx-auto max-w-3xl space-y-4 p-6 print:max-w-none`),
+   `p-6` 在列印時**不會消失** ⇒ 會疊在 `@page` 的 12mm 上面,紙面內縮兩次。
+   ⇒ 版面邊界**只由 `@page` 決定**,螢幕上的內距在列印時歸零。
+   📎 這一條寫在 CSS 而不是加 `print:p-0` class 的理由:兩張紙各加一次 = 兩個載體,
+      而下一張紙(合併片)會忘記加。 */
+@media print {
+  body {
+    background: #fff;
+  }
+
+  .print-sheet {
+    padding: 0;
+  }
+}
