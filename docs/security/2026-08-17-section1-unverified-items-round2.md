@@ -22,6 +22,8 @@
 
 ## §5:tappay-notify「還沒真上線」—— 不只是註解,是 code 強制的 gate(嚴重度**維持折扣**)
 
+> 🟢 **08-17 傍晚重驗(E 第三輪):下方「兜底沒在跑 = HIGH-結構」已解除,證據見本節末〈§5-b 重驗〉。** 中間的原始論證保留當歷史,引用請以 §5-b 為準。
+
 **量到的(讀 code)**:
 - `TAPPAY_3DS_ENABLED` 是 **env var**:`three-ds-flag.ts:19` = `process.env.TAPPAY_3DS_ENABLED === 'true'`(非 `'true'` 一律 off、**預設 off**)。
 - `backend_notify_url` **只在 flag on 時**於 runtime 組(`three-ds-urls.ts`:charge-actions flag on 才組),**不是常駐設定**。
@@ -42,6 +44,55 @@
 🔴 **仍未量(一條不拿掉)**:①best-effort 快路徑實際多常失敗(決定缺口多常咬人)②4a migration 有沒有進 prod ③**prod 是否真在收 3DS 單**(不變量說「不開放 prod 結帳」,單可能還沒進來)④pg_cron job 活不活(`pcm_audit_ro` 無 cron schema USAGE、查不到;不影響結論、影響修法)。
 
 🔴 **等級 = HIGH-結構**:結構缺口=量到的、金流(鐵則 12①)、active(flag=true)⇒ HIGH-結構;**頻率未量 ⇒ 不拉滿**。修法=拍板題(設 `CRON_SWEEPER_ENABLED='true'`〔+ pg_cron 未活則 apply `20260723120000`〕,或把 `TAPPAY_3DS_ENABLED` 關回 false)——E 只出事實,拍板歸 Sean。
+
+### §5-b 重驗(2026-08-17 傍晚,E 第三輪)—— sweeper 已真掃,HIGH-結構 解除
+
+**背景**:Sean 08-17 下午設 `CRON_SWEEPER_ENABLED=true` 並重部署 ⇒ 上方②③④(env 不存在 ⇒ 200 no-op)過期。
+
+**量具(兩世界會印不同值,非 200)**:`net._http_response.content`(pg_cron→pg_net 打 route 的**回應 body**)。
+route 兩世界字面不同:disabled ⇒ `{"enabled":false,"skipped":"sweeper_disabled"}`(`route.ts:106`);enabled ⇒ `{"enabled":true,…counts}`(`route.ts:134`)。
+
+**量具身分(附分母與 pattern)**:`grep -rn "sweeper_disabled" --include="*.ts" --include="*.tsx" . | grep -v node_modules` ⇒ **2 命中**,皆 settle-sweep(`route.ts:106` 本體 + `route.test.ts:130` 測試),**無其他 route 會印這個字面**;anomaly 印的是別的字面(`anomaly_alert_disabled`,同法 2 命中,`anomaly-alert/route.ts:106`)⇒ 兩支 cron 的 body 分得開,不會誤認。
+
+**量到的(`pcm_audit_ro` 唯讀 SELECT;單一快照 `snapshot_utc = 2026-08-17 07:14:37 UTC`,避免滾動窗前後不一致)**:
+
+```sql
+-- 可重跑;6h = net._http_response 的 TTL 窗
+WITH w AS (SELECT * FROM net._http_response WHERE created > now() - interval '6 hours')
+SELECT count(*) AS total,
+       count(*) FILTER (WHERE status_code<>200)                     AS non_200,
+       count(*) FILTER (WHERE timed_out)                            AS timedout,
+       count(*) FILTER (WHERE content LIKE '%sweeper_disabled%')    AS world_a,
+       count(*) FILTER (WHERE content LIKE '%"enabled":true%')      AS world_b,
+       count(*) FILTER (WHERE content LIKE '%"enabled":true%'
+                          AND content NOT LIKE '%"errors":0%')      AS enabled_with_errors,
+       max(created) FILTER (WHERE content LIKE '%sweeper_disabled%') AS last_disabled,
+       min(created) FILTER (WHERE content LIKE '%"enabled":true%')   AS first_enabled
+FROM w;
+```
+
+| total | non_200 | timedout | world_a(空轉) | world_b(真掃) | enabled_with_errors |
+|---|---|---|---|---|---|
+| 180 | 0 | 0 | 165 | 15 | **0** |
+
+- **兩個世界同一窗都在** ⇒ 內建負向對照,不必自餵:世界 A(`sweeper_disabled`)165 列止於 `06:44:00 UTC`,世界 B(`enabled:true`)15 列起於 `06:46:00 UTC`。**翻轉點 06:44→06:46 UTC = 台北 14:44→14:46**,與 Sean「下午重部署」吻合。
+- **`total=180` 獨立佐證排程節奏**:`*/2` 於 6h = 30/h × 6 = **180**,實測正好 180 ⇒ 該窗內**零漏跑**(此為 code 宣告 `*/2` 與實測列數相符,非另一把量具)。
+- 首發真掃(`06:46:00`):`inboxClaimed:40, inboxProcessed:37, inboxRetried:3, flaggedNonUnpaid:3, stuckClaimed:1, stuckRetried:1, errors:0` ⇒ **不只 gate 開了,積壓 40 筆 inbox 當場真消化 37 筆**(其後各列不再出現這 37 筆 = DB 狀態真的變了)。
+- `enabled_with_errors=0`、`non_200=0`、`timedout=0`(以上皆同一快照的 FILTER 計數,非目視)。
+
+⚠️ **滾動窗提醒**:此表的 `world_a/world_b` 會隨時間漂移(先前 07:10 快照為 167/13;舊列滾出窗、新列進來)。**引用要連 `snapshot_utc` 一起帶走**;會漂的是兩世界的**列數**,不會漂的是**翻轉點時刻**與**首發那列的 counts**。
+
+**連帶收口(原「仍未量」四條中的兩條半)**:
+- ④ pg_cron 活不活 ⇒ **活**(每 2 分真發請求,量到)。
+- ② 4a migration 進 prod 沒 ⇒ **走過的路徑上是**(claim/flagNonUnpaidActive/markRetry/markProcessed 各 RPC 實際執行且 `errors:0`;**settled 寫入路徑未走過**,見誠實邊界)。
+- ③ prod 有沒有單 ⇒ inbox 有 **40 筆 webhook 列**(存在=量到;**性質未知**,業務表對 `pcm_audit_ro` 鎖定、開不了列)。
+
+**誠實邊界(三條)**:
+1. `stuckSettled:0` 全程 ⇒ 「真的把一筆從未結算改成已結算」這條路徑**本窗未被行使**,閉環證的是掃描→認領→處理→退避全鏈,不含 settled 寫入那一步。
+2. 殘餘 **3 筆 inbox + 1 筆 stuck 在退避循環**(06:48/06:52/06:58/07:08 間隔遞增),`settleCharge` 回 pending → markRetry,設計內行為非 error;`flaggedNonUnpaid:3` 已按 code 落 durable `needs_manual_review`(`sweep-settlements.ts:148,231`)。**這 4 筆是什麼,要有業務表權限的窗開列**——E 鎖定開不了。
+3. 觀測窗 = `net._http_response` 6h TTL,更早歷史不可考。
+
+**判定**:原 HIGH-結構(3DS 收單而無最終結算保證)**解除**——兜底已真跑、真消化積壓、零錯。殘餘追蹤項:上述 4 筆滯留 + `stuckSettled` 路徑未行使 + tappay-notify 設計不變量「不開放 prod 結帳」與 flag=true 的矛盾是否已由 Sean 知情接受(拍板歸 Sean)。
 
 ---
 
