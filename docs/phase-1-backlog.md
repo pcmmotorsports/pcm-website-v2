@@ -17691,6 +17691,51 @@ grep -n 'limit(\|range(\|\.from(' packages/adapters/src/supabase/helpers/categor
 grep -n '全站共' apps/storefront/src/components/CategoryGrid.tsx               ⇒ :236
 ```
 
+#### 🔴🔴 **登記不等於處置完畢**(B 窗立的抬頭句,原封收)
+
+**本條現在有三批站點,而【沒有一處被改】。**
+一張站點表**最容易被讀成「已經處理」** —— 它只代表**有人看到了**。
+
+#### 第三批:**寫死「production 實測 1000」的 10 處**(2026-08-18)
+
+`max-rows` 的**世界狀態**已由 V 窗實測為 **2000**(見上方「探法」),
+而 repo 裡有 10 處字面仍寫著 `production 實測 1000`。
+```
+數法（本窗自己重跑，不是照抄）：
+  bash scripts/literal-sweep.sh 'production 實測 1000'   ⇒ 10 命中
+
+  docs/specs/2026-08-16-postgrest-max-rows-embed-finding.md:106
+  docs/specs/2026-08-17-shipping-doc-truncation-exit-plan.md:53 / :63
+  packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:2288 / :2300
+  packages/adapters/src/supabase/mappers/order.test.ts:737
+  🔴 packages/adapters/src/supabase/mappers/order.ts:399 / :444
+  packages/adapters/src/supabase/mappers/order-cancellations.ts:31
+  packages/domain/src/order/types.ts:822
+```
+⚠️ **轉述說「8 處」而列了 9 條路徑,實際掃到 10 處** ——
+🔴 **漏掉的兩處是 `mappers/order.ts:399` 與 `:444`,而那正是站點 1 所在的同一個檔。**
+⇒ **引用站點清單前自己跑一次那支 sweep**,不要照抄任何人給的條列(**包含本表**)。
+
+#### 🔴 改的時候要過的兩條判準(B 窗立的,決定「怎麼改」不是「改哪裡」)
+
+```
+① 同一個數字在同一份檔裡可以是【兩種東西】：
+     PAGE_SIZE = 1000            ← code 事實，沒變 ⇒ 🔴 不能改
+     正式站 db-max-rows = 1000   ← 世界狀態，已變 2000 ⇒ 要改
+   ⇒ 整份 sed 會把 code 事實一起改掉
+
+② 更正一個字面有【三種結果】，而三種的動作不同：
+     被推翻  ⇒ 結論要改
+     被加強  ⇒ 結論不變，只換數字
+     只是換例子 ⇒ 連結論的形狀都不動
+   實例：「50 遠高於任何合理值，又低於伺服器 max-rows（1000）」
+        ⇒ 2000 之後是【被加強】（50 < 2000 更成立）
+        ⇒ 而它下面「只在 max-rows > 50 時成立」那條限定【照舊留著】
+          —— 那條防的是【設定被調小】，與現值是多少無關
+```
+🔴 **②那條就是本條目存在的理由的縮影**:限定句防的是**未來的變動**,
+**不是現在的數值** ⇒ **現值變好了不代表限定句可以刪。**
+
 #### 🔴 站點 2 詳述 —— **它不是「少一筆」,是「第一頁就停」**
 
 ```
