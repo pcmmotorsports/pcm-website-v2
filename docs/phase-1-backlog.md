@@ -16810,3 +16810,35 @@ log 上跑的 ⇒ 那個 0 的分母是全量的約 15%。V 窗用**全量** tmp
   🔴 **我的建議是 1**,而這是排程判斷、不是我可以拍的板。
 - **來源:** A 窗 2026-08-17 補畫確認稿五塊時撞到(前一任 `A-222-STOP` §3-④ 已標,本條是把它落檔並重量一次)。
 - **發號:** `sh scripts/reserve-backlog.sh '採購作廢的死顯示路徑'` ⇒ `RESERVED #623`(git ref CAS)。
+
+### #624 · admin 兩份 VALID_AMR desync 的常駐守門(跨模組一致性行為測試)
+
+- **來源:** 2026-08-17 V 窗複驗 B3 §6 第 8 格時抽出來的一問「desync 的那天,有沒有哪一格會紅?」
+- **現況(當場 `git grep -n 'VALID_AMR' apps/admin`,兩份逐字相同):**
+  ```
+  apps/admin/src/lib/sso/exchange.ts:30        const VALID_AMR = new Set<AdminSessionAmr>(['pwd', 'totp', 'bootstrap', 'recovery']);
+  apps/admin/src/lib/session/session.ts:105    const VALID_AMR = new Set<AdminSessionAmr>(['pwd', 'totp', 'bootstrap', 'recovery']);
+  ```
+- **已經有的守門是什麼:** ⛔ ~~B3 spec §6 **第 8 格**~~
+  🔴 **2026-08-17 同日搬家,正本已換位置**:`docs/specs/2026-08-17-m4b-e8b-b5-spec.md` **§B5-2 第 8 格**
+  (原因 = 範圍越界 codex `#2`,主視窗裁 `Q-B3範圍`=甲;B3 §6 只留一列**指標列**當入口)。
+  格內含「兩份彼此也要相等,不成立**不得部署**」與量法③ 那句紅判。
+  ⚠️ **它是【部署日檢查表】,不是常駐測試。**
+  📎 **本條目自己就是「引用會過期」的實例**:寫下它與搬走它相隔不到兩小時,
+  而抓到它的是搬完之後跑的那一發 `第 8 格` 舊字面掃描 —— **不是我記得。**
+- 🔴 **所以缺口是時間軸上的,不是覆蓋率上的:** 第 8 格**只在有人重跑它的那一天**紅;
+  **兩次部署【之間】**進來的 desync(admin 側日常改動只改了其中一份)⇒ **零常駐守門**。
+- **不修未來會痛在哪:** desync 進來的那天,`exchange.ts:30` 放行、admin 簽出含該值的 cookie
+  (`session/session.ts:93` 進 payload、`:97` 簽),而下一個 request 走 `verifySession` →
+  `isPayload` `:118` **整包拒** ⇒ **使用者看到的是「登入成功、下一個動作被踢出去」的迴圈**。
+  🔴 **這個症狀比「登入直接失敗」難診斷得多** —— 登入那一步是**成功**的,
+  值班的人會先去查 cookie、查時鐘、查 session TTL,而病灶在**兩支檔的常數不一致**。
+  ⚠️ 而 `tsc --noEmit --strict` **不會紅**:`new Set<T>([...])` **不要求窮舉 `T`**
+  (2026-08-17 B 窗實跑複驗:型別加 `'webauthn'`、Set 不動 ⇒ **rc=0 綠**,而 runtime `gate accepts: false`)。
+- **修法方向:** admin 側加**一格跨模組一致性行為測試**,**經公開 API**
+  (`exchangeCode` 收得下的值 ⇔ `verifySession` 收得下的值)。
+  🔴 **兩份 Set 都是 module-private、沒有 export** ⇒ **只能走行為層,不能直接比對常數**。
+  ⚠️ 這一格必須**自帶負向對照**:改掉其中一份 Set 要能讓它紅(否則又是一格恆綠)。
+- **歸屬:** admin / B5 測試線 —— **不是 B3 那支 `.md` 的債**。實作由主視窗派,不歸 B 窗。
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #624`(git ref CAS);
+  同時跑 `grep -rn '佔位' ~/pcm-mailbox/*.md` ⇒ **無人佔用具體號碼**。
