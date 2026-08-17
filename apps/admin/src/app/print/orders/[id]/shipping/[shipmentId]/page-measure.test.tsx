@@ -332,10 +332,21 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    洞在旗標來源(`ORDER_ITEMS_EMBED_LIMIT`),不在這支檔。(`C-223` §3 的射程上限)
     const truncated = await emitPicking(12, 'picking-truncated', { itemsTruncated: true }, true);
 
-    // ── B 態的三個字面(頁首 Alert / 表頭那句 / 合計旁那句)──
-    expect(truncated).toContain('達到 200 項上限');
-    expect(truncated).toContain('未載完,不是總數');
-    expect(truncated).toContain('清單沒載完');
+    // ── 🔴🔴 **抓【狀態錨點】,不抓文案字面**(2026-08-18,一次真的 dev 紅換來的)──
+    //    這裡原本是三個 `toContain('達到 200 筆上限')` 之類的**文案字面**。
+    //    ⇒ **同一句話有兩個所有權人**(本檔一份、`page.test.tsx` 一份)
+    //      ⇒ **必然會漂,而漂的那天只有一邊會紅。**
+    //    實際發生:改文案那一顆同步了 `page.test.tsx`(`:617` 已是新字面),**漏了本檔** ⇒ dev 紅。
+    //
+    //    🔴 **而根因不是「漏改一支」,是本檔【違反自己宣告的分母】** ——
+    //      檔頭逐字:「**不驗紙上的內容對不對**,只保證『這份 HTML 帶著真樣式』」。
+    //      這幾格真正要守的是「**這份 fixture 真的處在 B 態**」= **正向對照**,不是文案檢查。
+    //
+    //    ⚠️ **這【不是】把守門放寬。判別法兩句都要成立**:
+    //      **改文案時本檔不該紅** ／ **文案錯時 `page.test.tsx` 一定要紅。**
+    //      (文案的所有權留在 `page.test.tsx`,那裡逐句釘、且有突變驗過。)
+    expect(truncated).toContain('picking-truncated-notice');
+    expect(truncated).toContain('picking-truncated-band');
     // 🔴 **這一份與 A / C 的差別就是這兩格**:表在、而且真的有框可以勾。
     //    沒有這兩格,一份「表被擋掉」的產出也會通過上面三格,而那是另一種紙。
     expect(truncated).toContain('<table');
@@ -346,9 +357,8 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    而勾選框必須【還在】—— 兩個方向都要動,才證得了「那三句是旗標帶出來的」
     //    而不是「這個版面本來就長那樣」。
     const normal = await emitPicking(12, 'picking-12item', {}, true);
-    expect(normal).not.toContain('達到 200 項上限');
-    expect(normal).not.toContain('未載完,不是總數');
-    expect(normal).not.toContain('清單沒載完');
+    expect(normal).not.toContain('picking-truncated-notice');
+    expect(normal).not.toContain('picking-truncated-band');
     expect(normal).toContain('picking-checkbox');
     // 🔴 再一發:`withQuantity` 沒生效的世界裡,上面那個 `picking-checkbox` 會消失
     //    而其他格照樣全過 ⇒ 這一格釘的是「勾選框是我餵的數量帶出來的」。
@@ -365,7 +375,9 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     const real = await emitPicking(200, 'picking-truncated-200', { itemsTruncated: true }, true);
     expect(real).toContain('SKU-0199-LONG');
     expect(real).not.toContain('SKU-0200-LONG');
-    expect(real).toContain('達到 200 項上限');
+    // 🔴 同上:抓狀態錨點,不抓文案(文案的所有權在 `page.test.tsx`)。
+    expect(real).toContain('picking-truncated-notice');
+    expect(real).toContain('picking-truncated-band');
   });
 
   it('🔴 `#601` 阻印狀態 ⇒ 產出 shipping-blocked.html(那一幅要真的印出來看)', async () => {
