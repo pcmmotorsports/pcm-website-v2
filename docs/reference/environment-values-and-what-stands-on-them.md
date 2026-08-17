@@ -12,6 +12,15 @@
 > `statement_timeout` 是 **8 天前** ⇒ **列了時點,就自帶「該不該重量」的答案。**
 > **這正是這張表比散落在各處的註解強的地方。**
 >
+> ## 🔴 表裡最危險的那一類,形狀是固定的
+>
+> **後台點一下就能改 / repo 裡查不到 / 零監控** —— 三件同時成立的那幾列,
+> 是**別人可以在我們毫不知情的情況下改掉**、而且**改掉之後沒有任何東西會紅**的。
+> (本表現有這一類:兩顆 `db-max-rows`、報價單庫的 `db-schemas` 白名單。**這個清單只增不會自己減。**)
+> ⚠️ **數量刻意不寫在標題裡** —— 帶數字的標題沒有人會回頭改(同 `docs/patterns/guard-and-instrument-traps.md` 檔頭的教訓)。
+> 📎 判別句:**這個值,是我們 repo 裡的東西,還是別人後台裡的東西?**
+> 後者 ⇒ 它的現值**只是一個量測值**,不是一個常數;**引用要帶時點,而且要指得出「誰去看、去哪裡看」。**
+>
 > ## 📎 它與 `STATUS.md` 那條常設規矩是同一條線的兩端
 >
 > `STATUS.md` 附屬區「🧭 世界狀態句附量法」:**每一句描述現況的話,旁邊附一條可重跑的量法**。
@@ -133,6 +142,7 @@ fetchAllPaginated 的 PAGE_SIZE 餘裕      歸零
 | GoTrue 設定(Q-AUTH-1 前提③) | 截圖為證 | 🔴 **讀圖的**(B-554 §6:**SQL 原理上查不到**,住 GoTrue config 不在 DB) | 量不到(DB 內無)⇒ 缺的檢查=Supabase Auth dashboard 親看或 Auth admin API | Supabase Auth／截圖時點 | 真登入線甲案前提③ —— B 窗自標「證據是截圖不是機器輸出」 |
 | 報價單庫「108 放大倍數」 | 108 | 讀來的(E 窗自標;🔴 **本列是主視窗轉述,V 窗無第一手**) | 出處與量法在 E 窗檔,本表只登記它的證據等級 | 報價單庫 | `#553`／E-694 相關判讀 —— **引用前先去 E 窗檔核出處** |
 | PG 版本(正式庫) | 17.6(拋棄式 17.10,同 major) | 讀來的(B-554 引;**本輪未重查**) | `select version()` 唯讀帳號 | production／08-16 | event trigger shared-object 結論的適用性;MAINTAIN 權限存在性;丙案 acldefault 推導集的內容 |
+| PostgREST `db-schemas` 白名單(**報價單庫**) | `public, graphql_public` | **量的**(🔴 **E 窗 2026-08-17 實打,不是我量的**) | 🔴 **DB 端查不到** —— 它存在 PostgREST/Supabase 設定裡,`pg_db_role_setting` 沒有它 ⇒ **只能從 `PGRST106` 錯誤訊息反推**;出處 `docs/security/2026-08-17-quote-db-round2-*.md` §2 | 報價單庫／平台設定／2026-08-17 | 決定 anon 經 REST 碰得到哪些 schema。**§1#9 與 §5-b「net·pg_stat 外部不可達」整條踩在它上面** ⇒ **把 `net` / `extensions` 加進白名單就漏**。零監控 |
 
 ---
 
