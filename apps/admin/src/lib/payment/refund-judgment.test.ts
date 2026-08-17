@@ -136,8 +136,22 @@ describe('delta_mismatch(∉ {0, refund_amount} = Portal 介入痕跡)', () => {
     // delta>250 一格都沒有 ⇒ executed 閘的 `=== refundAmount` 被改成 `>=` 時,退超過凍結額
     // 的那筆會被靜默判成 executed 乾淨結案、全套照綠。本格釘住那個上緣。
     // 期望值當場量(withRefundedNow(360)、before=100、refund=250 ⇒ delta=260),不是手算。
+    // 🔴 不對稱(V 窗抓,別刪本格當重複):`=== → >` 突變會讓現有 executed 正格
+    //    withRefundedNow(350)(delta=250)翻紅、那個方向已被守;但 `=== → >=` 突變下
+    //    250>=250=true 仍 executed,只有 delta>250 的【本格】能抓 ⇒ 本格對 `>=` 必要、
+    //    對 `>` 冗餘(冗餘不壞)。
     const judged = judgeRefundRecovery(withRefundedNow(360), ROW, 0);
     expect(judged).toMatchObject({ verdict: 'delta_mismatch', refundedNow: 360, delta: 260 });
+  });
+
+  it('🔴 正:反向超額(delta < −refund_amount)= mismatch —— 先前已退多、這次凍結少,是真實可能的世界', () => {
+    // V 窗抓:現有負格 withRefundedNow(50)(delta=−50)只證 −refundAmount<delta<0 那一段;
+    // delta<−250 在預設 fixture(before=100)下【構造不出】(refundedNow≥0 ⇒ delta≥−100)。
+    // ⇒ 換 fixture(before=300、refund=250、refundedNow=0)才到得了,故【不是誠實缺口】。
+    // 期望值當場量(delta=0−300=−300、verdict=delta_mismatch),不是手算。
+    const REVERSE: RefundRecoverySnapshot = { ...ROW, recordRefundedBefore: 300 };
+    const judged = judgeRefundRecovery(withRefundedNow(0), REVERSE, 0);
+    expect(judged).toMatchObject({ verdict: 'delta_mismatch', refundedNow: 0, delta: -300 });
   });
 
   it('負:差額全等且 others=0 → 不是 mismatch(executed)', () => {
