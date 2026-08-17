@@ -152,12 +152,35 @@ Sean 拍 `Q-SEARCH-0` = **乙**:維持「M-4b 之後再開搜尋線」,**但先�
 **CJK 一個字 3 bytes ⇒ 兩者差約 1.7 倍。** 門檻 `15,000` 是照**字元**訂的,
 拿 byte 去比會**永遠超標**。落筆當下量法:
 
-    python3 -c "import io;m=[];\
-    [m.append(l) for l in io.open('STATUS.md',encoding='utf-8').read().split(chr(10)) if l.strip()!='---' or m.append(None)]"
+    python3 -c "
+    import io
+    n=0
+    for l in io.open('STATUS.md',encoding='utf-8'):
+        if l.rstrip(chr(10))=='---': break
+        n+=len(l.rstrip(chr(10)))
+    print(n)"
+
+🔴 **上面這支是 2026-08-17 早 I 窗換掉的第二版。~~原第一版~~ 有兩個病,而兩個病都不會報錯**
+(原文逐字保存在下方「🗂️ 壞掉的量法原文」,零刪除):
+**①它從頭到尾沒有 `print` 任何東西** ⇒ 跑完是**空輸出**;**②`or m.append(None)` 回傳 `None`**
+⇒ `if` 恆為真、分隔線那行**不會終止迴圈** ⇒ 就算有 print 也會把整份檔都數進去。
+⇒ **照抄它的人拿到的是一片空白,而空白很容易被讀成「我跑過了」** —— 那正是
+`feedback_absence-read-as-verified` 的形狀,**發生在一條【為了防止量錯而新訂的規定】自己身上**。
+📎 **換掉它比在主表擠一行提醒有用**:一支**印得出數字**的量法,錯了會看得出來。
 
 (嫌長就用 `python3 - <<'EOF'` 多行版;**重點不是哪一支工具,是先講清楚你在數哪一個。**)
 📎 `MEMORY.md` 檔頭早就記著同一個坑(「`ls -l` 的 bytes 與字元數不是同一個東西,hook 報的又是第三個數」)
 —— **而它今天又發生了一次,在一條【為了防止量錯而新訂的規定】上。**
+
+#### 🗂️ 壞掉的量法原文(2026-08-17 早 I 窗換版時搬下,**逐字保存、零刪除**)
+
+    python3 -c "import io;m=[];\
+    [m.append(l) for l in io.open('STATUS.md',encoding='utf-8').read().split(chr(10)) if l.strip()!='---' or m.append(None)]"
+
+**留著它的理由不是考古**:它是**「一支讀起來很像有在數東西的東西」的實體樣本** ——
+`io.open` 有、`encoding='utf-8'` 有、分隔線的字面 `'---'` 有、`split(chr(10))` 有,
+**該有的零件全都在,而它一個數字都不會印。**
+⇒ **下次審一支量法,先問「它在【該有值】與【該沒值】兩個世界會印不同的東西嗎」,不要看它長得像不像。**
 
 #### 為什麼是兩把不是換一把
 
