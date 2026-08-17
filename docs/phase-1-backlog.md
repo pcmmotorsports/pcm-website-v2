@@ -16023,3 +16023,38 @@ backlog `#248`)…**此處為唯一真相,勿在各元件重複硬寫**」,而 `
 - **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #608`(CAS,不是下限);
   信箱佔位掃描 `grep -rn '#608' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
   附正向對照 `grep -rc '#606' ~/pcm-mailbox/*.md | grep -v ':0$'` ⇒ 命中 3+ 檔 ⇒ **那個 0 是量出來的**。
+
+### #609 · jsonb→正規化表同步層缺車款字面一致性檢查：篩選頁與商品頁徽章讀兩個實體儲存，「同源」沒有人守
+
+- **來源:** V 窗 `V-035` P7(第二輪補查版)+ `V-042` §1-3 派工;**主視窗已裁「列 backlog 不開片」。**
+  值與定位是 V 窗查的;**本條的四處 `檔案:行號` 由 I 窗 2026-08-17 落檔時當場重核,四處全部命中。**
+- **同一個事實(「此商品適用此車」)走兩條路,而兩條路的字面嚴格度不同:**
+  ```
+  篩選頁     DB RPC search_products_by_vehicle：moto_brand = p_brand 【字面全等】
+  商品頁徽章 checkFitment：NFKC 全形半形正規化 + 小寫 之後才比
+             （apps/storefront/src/lib/fitment-match.ts 檔頭逐字，V-2h/MF-1 拍板）
+  ```
+  **嚴/寬各自有理由,病不在兩份實作。**
+- **🔴 病在:它們讀的是【兩個實體儲存】,而「同源」不是結構保證。**
+  ```
+  商品頁 fitments   走 products_public 的 jsonb 欄
+                    packages/adapters/src/supabase/helpers/product-query-support.ts:108
+  RPC / taxonomy    走正規化表 product_fitments(+effective)
+                    packages/adapters/src/supabase/SupabaseProductAdapter.ts:352 / :375
+                    taxonomy view FROM 同表：
+                    supabase/migrations/20260811100000_m4b_storefront_277c_vehicle_taxonomy_direct_years.sql:123
+  ```
+  ⇒ **兩者一致,是那條 `jsonb → 正規化表` 的同步管線在維持的。** 而**沒有任何東西在檢查它維持住了**。
+- **🔴 守門要裝在哪(這條是本條的重點,不要修錯地方):**
+  **裝在同步層的字面一致性檢查,不是改比對邏輯。**
+  改比對邏輯(把 RPC 也放寬、或把 TS 收緊)是**讓兩條路長得一樣**,
+  **而問題是它們讀的資料可能已經不一樣了** —— 那是**資料品質前提**,不是 code 前提。
+- **不修未來會痛在哪:** 同步哪天寫出全形/大小寫不一致的字面(例:`Ｚ９００` vs `Z900`、`z900` vs `Z900`)⇒
+  **篩選頁篩不到,而商品頁徽章說「適用」** ⇒ 客人照徽章下單、買到裝不上的東西。
+  🔴 **而它上線時零機械訊號**:沒有測試會紅、沒有 `grep` 數會變、兩支實作各自都還是對的。
+  📎 掃 backlog 想找「已知資料風險」的人,在這條存在之前找不到它。
+- **⚠️ 未確認:** 「同步管線目前有沒有產生過不一致的字面」**沒有人量過**。
+  本條記的是**結構上沒人守**,不是**已經壞了**。要量的話 = 對正式庫比對兩個儲存的車款字面集合。
+- **發號兩道閘都跑了:** `sh scripts/reserve-backlog.sh` ⇒ `RESERVED #609`(CAS,不是下限);
+  信箱佔位掃描 `grep -rn '#609' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**,
+  附正向對照 `grep -rc '#608' docs/phase-1-backlog.md` ⇒ 命中 3 ⇒ **那個 0 是量出來的**。
