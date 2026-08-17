@@ -443,6 +443,36 @@ describe('#10 片1 本次應揀合計', () => {
     expect(t).not.toContain('這不等於「已經揀完」');
   });
 
+  // ── 🔴🔴 `B` 態 · 甲案「表身標記型」(2026-08-18)────────────────────────
+  //    病灶 = **這張表看起來有結尾** ⇒ 揀的人勾完最後一列就以為揀完了。
+  //    甲案把缺列印進**表身**,直接消滅那個結尾。
+  //    ⚠️ 這幾格釘的是**表身裡有沒有那段標記**,不是版面 —— 版面要 `pagecount.sh --png` 開圖看。
+  it('🔴 B 態 ⇒ 品項表【自己】要說它沒有結尾(缺列印在表身,不是只在表尾講)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED, itemsTruncated: true } as unknown as Partial<AdminOrderDetail>),
+    );
+    const { container } = await renderPage();
+    const t = textOf(container);
+    // 正向對照:表要【在】—— B 與 A/C 的分野就在這裡,照抄整幅阻印會把 B 變成「一列都沒有」。
+    expect(container.querySelector('table')).not.toBeNull();
+    expect(t).toContain('AAA');
+    // 🔴 標記必須在 `<tbody>` 裡面,不是表格外面 —— 在外面就退化成乙案了。
+    const tbody = container.querySelector('tbody');
+    expect(tbody?.textContent).toContain('未載入的品項');
+    expect(tbody?.textContent).toContain('這張表沒有結尾');
+    // 🔴 **不得印任何具體的缺件數** —— 上游只給布林,印數字就是編的。
+    expect(tbody?.textContent).toContain('?');
+  });
+
+  it('🔴 而沒有截斷時,那段標記必須【整段不在】(否則上一格靠常駐字面就能過)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),
+    );
+    const t = textOf((await renderPage()).container);
+    expect(t).not.toContain('未載入的品項');
+    expect(t).not.toContain('這張表沒有結尾');
+  });
+
   it('🔴 合計 = 真的要動手的列數,**不是表格列數**', async () => {
     mocks.findAdminOrderDetail.mockResolvedValue(
       detail({ items: MIXED } as unknown as Partial<AdminOrderDetail>),

@@ -311,6 +311,61 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
                     </tr>
                   );
                 })}
+
+                {/* ── 🔴🔴 `B` 態(`itemsTruncated`)· 甲案「表身標記型」(2026-08-18 落地)──
+                    **四態裡最貴的一種**:A(已取消)/ C(讀不到品項)的品項表**不在紙上**
+                    ⇒ 印出來明顯不能用;而 `B` 的表**在紙上、只是少了幾列**
+                    ⇒ **一張看起來完整、可以照著揀的紙**,揀的人一列一列勾完就以為揀完了,
+                       **少的那一件零症狀**,到客人收到貨才發現。
+
+                    🔴 **為什麼是甲(把缺列印在表身)而不是乙(表尾一整幅)** ——
+                    判準不是好不好看,是**員工會不會少出貨**:
+                    · **病灶是「這張表看起來有結尾」**,而甲**直接消滅那個結尾**;
+                      乙讓表照樣乾淨收尾,再在旁邊貼一張紙說它不正常。
+                    · 揀貨的動作是**沿著表格列往下走**,甲的標記**就在他下一眼會落到的位置**;
+                      表尾那一幅要他**讀完表之後還往下看**。
+                    · 📎 實測到的第三個理由:乙那一幅在 12 品項那份 fixture 上**跨頁被切開**,
+                      第 1 頁底只留一條邊框線 —— 而 `blocked-sheet.tsx` 的註解逐字寫過
+                      「**第 2 頁上只有半幅警告比一幅完整的更糟**」。
+                    ⚠️ **Sean 尚未拍板**(artifact `cd112cc7-…` 他還沒回)。
+                       主視窗裁定「先做一案、不對再換」⇒ **要換成乙就是把這一塊搬到 `</table>` 之後**,
+                       改動範圍 = 本區塊,`rollback` 便宜。
+
+                    🔴 **為什麼是【三列】而不是「缺幾列就印幾列」**:
+                    **我們不知道缺幾列。** `itemsTruncated` 是個布林,上游只說「有被截」、
+                    不說「截掉幾筆」(`mappers/order.ts:873` 是 `length >= 上限` 的比較,不是差值)
+                    ⇒ 印一個**具體數字**會是編的。三列 + 一行收尾句 = **一段看得出來的空缺**,
+                    而**每一格都印 `?`,不印任何數字。**
+
+                    📏 **量過的代價**(真尺寸 200 品項、A4、headless Chrome):
+                    現況 14 頁 → 甲案 **14 頁**,**一張紙都沒多**。 */}
+                {detail.itemsTruncated && (
+                  <>
+                    {[0, 1, 2].map((i) => (
+                      <tr key={`truncated-${i}`} className='border-b bg-amber-500/10'>
+                        <td className='px-2 py-3 align-top' />
+                        <td className='px-2 py-3 align-top font-mono text-sm whitespace-nowrap text-amber-800'>
+                          ? ? ? ?
+                        </td>
+                        <td className='px-2 py-3 align-top text-sm text-amber-800'>
+                          <div className='font-medium'>未載入的品項 —— 這一列不在這張紙上</div>
+                          <div className='mt-0.5 text-xs'>
+                            系統一次只列得出 200 筆,這張單超過了
+                          </div>
+                        </td>
+                        <td className='px-2 py-3 text-right align-top text-amber-800'>
+                          <span className='text-xl font-semibold'>?</span>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className='border-b bg-amber-500/10'>
+                      <td className='px-2 py-3 align-top' />
+                      <td className='px-2 py-3 align-top text-sm font-medium text-amber-800' colSpan={3}>
+                        以上不是全部。還缺幾列 —— 系統也不知道,所以這張表沒有結尾。
+                      </td>
+                    </tr>
+                  </>
+                )}
               </tbody>
             </table>
           )}
