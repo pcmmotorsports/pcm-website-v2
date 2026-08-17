@@ -17930,3 +17930,65 @@ max-rows 掉到 500 的世界：
   撞號複查:`grep -c '#633' docs/phase-1-backlog.md` ⇒ 保留前 `0`;
   `grep -rl '#633' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3056`;
   🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
+
+---
+
+### #635 · 後台寫入**沒有 per-resource 授權** —— 任何登入者能動任一單,而 `E8-B`(身分)修不了這個
+
+> **提報 = T① 窗(讀 dev 原文)/ 落檔 = C 窗(逐條複驗過,不照抄轉述)。**
+
+- **狀態:** 待決策(**是否接受 flat-authz**)。**非活洞** —— 現況只有三個可信的人在用。
+- **是什麼(本窗實查):**
+  ```
+  apps/admin/src/lib/session/authorize.ts 的 authorizeAdminMutation()
+    驗 ① 有效 admin session ② Origin ③ 具名 actor
+    🔴 而【沒有任何一段】把動作綁到「這個人能不能碰這一張單」
+  ```
+  **分母 pattern(可重跑)**:
+  ```
+  git grep -n '屬不屬於你\|能不能碰這張單\|任何登入者' -- '*.ts' '*.tsx'
+  ⇒ 6 行，落在兩支檔：
+     apps/admin/src/lib/orders/payment-actions.ts:51-54
+     apps/admin/src/lib/orders/payment-reverse-actions.ts:26-28
+  ```
+  🔴 **而那兩處是 code【自己招的】**,逐字:
+  > 「**不驗這個人能不能碰這張單** …… **任何登入者都能對任一張單登錄收款**
+  > ⇒ 所以**不做**「這張單屬不屬於你」那種檢查(**做了也只是假的安心**)。」
+
+- 🔴🔴 **為什麼它必須獨立於 `E8-B`,而不是「等 E8-B 做完就好」:**
+  ```
+  E8-B 解的是【你是誰】       ← 身分（authentication）
+  本條  是【你能不能動這一張單】← 授權（authorization）
+  🔴 而 code 註解把授權 defer 給 E8-B ⇒ 那是【誤 defer】
+  ⇒ E8-B 上線之後，「任何登入者能動任一單」【不會自動關】
+  ⇒ 而會有人以為「身分做完了就覆蓋了」⇒ 🔴 靜默遺留
+  ```
+  📎 **這就是本條存在的全部理由**:**一個被 defer 到錯的地方的缺口,
+  在那個地方完成的那一天會【消失在視野裡】,而它還在。**
+
+- **正向對照(證明它不是既有號的重複;逐條核過)**:
+  ```
+  #547  讀寫授權【層】不對稱（頁面受不受保護 = 門鎖有沒有鎖）  ← 不是 per-resource
+  #436  帳本上的「誰做的」可不可信（p_actor 存在性驗證）       ← 身分，不是授權
+  #534 / #536  具名身分 cookie 的 stopgap                      ← 身分
+  #215  storefront 的 tier cookie                              ← 另一條線
+  ⇒ 四者都不是「任一登入者能動任一單」
+  ```
+  📎 `#547` 存在性已核(`grep -c '^### #547' docs/phase-1-backlog.md` ⇒ **1**)。
+
+- **不修未來會痛在哪:**
+  **員工變多之後,任一員工可以沖任一單的收款** ⇒ **職責分離(SoD)缺口**。
+  ⚠️ **今天不痛**,是因為「後台只有三個可信的人在用」——
+  🔴 **而那是一個【會過期而沒有機械訊號】的前提**(同族:memory `feedback_status-file-fixed-fields-hide-stale-claims`)。
+
+- **給引用者的分面**(`apps/admin/src/app/settings/audit/page.tsx` 已照此改):
+  ```
+  身分那面  E8-B（真登入線代號，非 #NNN）／ #436 ／ #534 ／ #536
+  授權那面  🔴 本條 #635
+  ⇒ 兩面【不要合成一個號】—— 合了之後其中一面做完會讓另一面靜默消失
+  ```
+
+- **發號:** `sh scripts/reserve-backlog.sh`(T① 執行,git ref CAS)⇒ `RESERVED #635`。
+  撞號複查(**本窗自己重跑**):`grep -c '#635' docs/phase-1-backlog.md` ⇒ 落檔前 `0`;
+  `grep -rl '#635' ~/pcm-mailbox/*.md` ⇒ `0`,分母 `ls -1 ~/pcm-mailbox/*.md | wc -l` ⇒ `3059`;
+  🔴 正向對照 `grep -rl '#612'` ⇒ **4 檔命中** ⇒ 那把尺量得到東西,那個 `0` 是量出來的。
