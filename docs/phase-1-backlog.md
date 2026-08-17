@@ -6018,6 +6018,78 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     公開健康端點也還沒做 ⇒ **apply 完那張表會是空的(而空的是對的)**。
     🔴 **所以 ③ 現在【還不會告警】** —— 表在 ≠ 偵測到位。寫入端 + 健康端點是下一片。
   - ④ 轉人工:durable 旗標接後台/SQL 查 + 人工結案流程。
+
+  🔴 **2026-08-18 補:① 與 ④ 從「未實作」變成「可估的待辦」**(B 窗;**只估不做**,兩者都命中鐵則 8)。
+  ⚠️ **下面每個「多大」都是【估】,不是量出來的** —— 沒有人動手做過,估值會錯。
+  ⚠️ 而**檔案清單是量到的**(當場 `git grep -ln`),那部分不是估。
+
+  ---
+  **① Q4-B 跨路徑 skip —— 要做什麼、多大、命中哪條鐵則**
+
+  - **要做什麼(一句)**:讓「剛剛才試過 settle 的那一筆」在**另一條路**再進來時被跳過。
+    現況是 **in-memory 單 run 去重**(Q4=A 的降級版)⇒ **換一條路徑進來就失效**,
+    而三條路徑會對同一筆各打一次 TapPay Record ⇒ **對帳放大**。
+  - **改法**:`payment_charge_attempts` 加一欄 `last_settle_attempt_at`
+    (建表在 `supabase/migrations/20260612150000_m3_s2d_charge_attempts.sql`),
+    settle 之前查窗:`now() - last_settle_attempt_at < N` ⇒ skip。
+  - **「三路」實際是哪三支(當場 `git grep -ln 'settleCharge'`,非估)**:
+    ```
+    apps/storefront/src/app/api/checkout/tappay-notify/[secret]/route.ts   webhook
+    apps/storefront/src/app/api/cron/settle-sweep/route.ts                 sweeper
+    apps/storefront/src/app/api/orders/[orderId]/payment-status/route.ts   callback 輪詢
+    ```
+    🔴🔴 **而 `settleCharge` 的引用點共 36 支檔**(非測試檔;量法
+    `git grep -ln "settleCharge" -- 'apps/**' 'packages/**' | grep -v '\.test\.' | wc -l` ⇒ **36**)
+    ⇒ **「三路」是 plan 的說法,不是我量到的分母** —— 動工前要逐支開檔判哪些真的會 settle。
+    ⚠️ **36 之中絕大多數是型別 / port / wiring,不是 settle 呼叫點** —— 分母大不代表要改 36 支,
+    但**也不代表只有 3 支**。**那個判斷還沒有人做。**
+
+    > 📎 **留痕(這一格自己就踩過一次)**:本段初稿寫「共 **8** 支檔」。
+    > 那個 8 來自一條**接了 `head -8` 的 grep** —— 我把**被截斷的輸出**讀成了總數。
+    > 落筆後重數才發現是 36。
+    > 🔴 **`head -N` 之後的清單長度恆等於 N,而它看起來就是一份完整清單。**
+    > ⇒ 判別句:**這個數字是 `wc -l` 出來的,還是我數畫面上有幾行?**
+  - **多大(估)**:1 支 migration + `IChargeAttemptStore` / `PgChargeAttemptAdapter` 各一 +
+    `settle-charge.ts` 判斷 + 上面三支入口 ⇒ **約 6-8 支檔**。
+  - **命中**:🔴 **鐵則 12①(錢:payment)+ 12③(schema/migration)+ 鐵則 8(跨 3+ 檔)**
+    ⇒ **要 Sean 批准,而且 commit 前必過 codex 對抗審查,不自評免審。**
+  - **🔴 動工前要先答的一題(現在沒有答案)**:那個「窗」要多長?
+    太短 = 跳不掉、太長 = 真的該重試的被跳過。**這是取捨題,不是實作細節。**
+
+  ---
+  **④ 轉人工結案流程 / 後台 UI —— 要做什麼、多大、命中哪條鐵則**
+
+  - **要做什麼(一句)**:讓員工**看得到**哪幾筆被標成 `needs_manual_review`,並且**結得掉**。
+    現況:旗標寫得進去、**沒有任何畫面讀它** ⇒ 它今天等於**寫進黑洞**。
+  - **量到的現況(非估,兩條都當場 `| wc -l` 過)**:
+    ```
+    git grep -ln 'needs_manual_review' -- 'apps/admin'                       ⇒ 0
+    git grep -ln 'needs_manual_review' -- 'apps/**' 'packages/**' 'supabase/**' \
+      | grep -v '\.test\.' | wc -l                                            ⇒ 24
+    ```
+    ⇒ **24 支檔碰它,而 admin 端 0** —— 旗標寫得進去、**沒有任何畫面讀它**。
+    ⚠️ 本段初稿寫「全樹 **12** 支檔」—— **也是 `head` 截斷後數畫面數出來的**,
+    與上面 ① 那格**同一個病、同一段裡犯兩次**。⇒ 兩個數都改成 `wc -l` 的輸出。
+  - **改法(兩半,而第二半比第一半貴)**:
+    ```
+    看得到 ＝ 後台一個清單頁（讀 payment_charge_attempts 的旗標欄）
+    結得掉 ＝ 一個把旗標關掉的寫入路徑
+    ```
+    🔴 **第二半是動錢那張表的【寫入】** ⇒ 不是加個按鈕就好。
+  - **🔴 動工前要先答的一題(現在沒有答案,而它決定片有多大)**:
+    **「結案」走 RPC 還是直接 UPDATE?**
+    ```
+    走 RPC   ＝ 與本專案既有的錢路徑一致（audit / 冪等 / 前緣拒絕都在 DB）⇒ 貴，但對稱
+    直 UPDATE＝ 便宜，但 payment_charge_attempts 目前 service_role【唯讀】
+               ⇒ 要放寬權限 ＝ 為了一個後台按鈕擴大 blast radius
+    ```
+    **答案沒定之前,「多大」估不準。**
+  - **多大(估,而且區間很寬)**:清單頁約 2-3 支檔;結案那半 **1-6 支**(看上面那題怎麼答)。
+  - **命中**:🔴 **鐵則 12①(錢)**;走 RPC 或放寬權限 ⇒ **再加 12③(DB 結構/授權)**;
+    跨 3+ 檔 ⇒ **鐵則 8**。
+  - **📎 而 ⑤(4a-2 殘餘 cosmetic 假告警)本來就掛在 ④ 底下** ⇒ 兩者同片處理,
+    ④ 的清單頁若不順手把 ⑤ 那種「`paid` 且 `needs_manual_review=true`」的列處理掉,
+    員工會看到一堆**已經沒事**的列 ⇒ **清單一開始就沒人想看,那等於沒做。**
   - ⑤ 🆕 4a-2 殘餘窄 TOCTOU 清理(**Sean 2026-06-15 拍 A=留現狀、Phase II 後台 UI 順手清、非 4b**):expirer/mark 語句快照讀到 unpaid 後、並發 callback/confirm 才 commit order→paid → 可留 `paid + needs_manual_review=true` cosmetic 假告警(無雙扣/無金錢/無安全影響、人工複查即清)。歸入本條 ④ 後台轉人工流程一併處理(成交路徑或後台批次清同單 active attempt 的 needs_manual_review);4a-2 migration 檔頭已誠實揭示、不阻 bundle。
   - ⑥ 🆕 (對抗複驗 wbpvvr5b7 nit、benign 前瞻防禦)4a-1/4a-2 的 ALTER ADD COLUMN 後**未重 assert 表層 SELECT ACL**(s2d L124-146 有完整 table-ACL fail-closed assert、4a-1/4a-2 僅 assert RPC EXECUTE 矩陣 + payment_confirmer 全域 grants=0)。現況零實害:新欄皆 sweeper 簿記 / `last_settle_error` allowlist 錯誤碼集(零 PII)、service_role 本就唯讀;4a-2 與已簽核 4a-1 對稱(同省此 assert)。可選統一 polish=4a-1/4a-2 ALTER 後補 `has_table_privilege` anon/authenticated SELECT=false + service_role 唯 SELECT assert(對齊 s2d 防漂風格);非阻擋、非缺陷、forward-only migration 不會再編輯故價值邊際。
 - **不修會痛在:**
@@ -7257,6 +7329,41 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** E3 上線後才有真實資料;建議與 #282 併片(同為 pg_cron 族清理)
 - **發現於:** 2026-07-17 / M-4a Email 片 E1a(codex 關卡2 R5)
 - **相關:** #282 / M-4a Email 片 E1a `20260717020000` / plan v3.1 §3.4
+
+#### 併入(2026-08-18,B 窗查證;主視窗裁定**不另發號**):DB 層 `payload` 沒有 key/型別 allowlist
+
+- **現況 —— 先講清楚,免得被讀成「現在有洞」:**
+  - `email_outbox.payload` 的 CHECK **只約束成 jsonb object**,**沒有** key/型別 allowlist
+    (`supabase/migrations/20260717020000_m4a_email_outbox.sql:41-44`)。
+  - 🔴 **而第一層守門是好的、已驗過**:`enqueue` **根本不收 payload**
+    (`packages/ports/src/IEmailOutbox.ts:8` 逐字「enqueue **不收** payload/subject/…」),
+    payload 由邊界內部的 `buildOrderCreatedPayload` 顯式三欄 allowlist 組
+    (`SupabaseEmailOutboxAdapter.ts:196` / `order-email-assembly.ts:39-48`)。
+    ⇒ **一次 DTO spread 到不了 `enqueue` —— 型別上就傳不進去。**
+    ⇒ 那不是「有一道檢查擋住它」,是**讓那個失敗模式在結構上不存在**。
+  - ✅ **負向測試存在而且有牙齒**(2026-08-18 實查 + 突變):
+    `packages/adapters/src/email/order-email-assembly.test.ts:23`
+    (餵 email / phone / address / 巢狀物件,四個字面逐一 `not.toContain`;該檔共 4 格全綠)。
+    **突變**:把 return 改成 `{ ...src, … }`(註解點名的那個攻擊)⇒ **2 格紅**。不是恆綠格。
+- **所以還缺的是縱深的【最後一層】:** DB 自己不會擋。
+  🔴 **這一層的價值在於哪天有人新增第二個寫入端。**
+  🔴 **而「新增第二個寫入端」這件事,沒有任何機制會通知我們。**
+- **為什麼不現在做:** 補 DB 層 allowlist = 動 CHECK = 動 schema(鐵則 12③),
+  而它擋的那條路(繞過 `enqueue` 直接 INSERT)**目前沒有呼叫端** ⇒ 不划算。
+- **觸發事件:** 出現**第二個** `email_outbox` 寫入端(RPC / 腳本 / 另一支 adapter,任一)。
+- **⚠️ 引用 `migration:44` 那句時的射程限定(2026-08-18 立):**
+  逐字「**一次 DTO spread 就能把 email/電話/地址永久複製進本表**」——
+  它寫的是**【DB 這一層】的能力邊界**,不是**【現在的系統】會發生什麼**;
+  它寫在 E1b 落地**之前**,而 E1b 落地之後那句話的射程變了。
+  🔴 **它沒有過期**(DB 層確實仍無 allowlist)**,但單獨引用會讓人以為現在有洞。**
+  📎 判別句:**這句話成立的那一層,跟讀者以為它在講的那一層,是同一層嗎?**
+- **📎 怎麼被撿到的(留痕,過程本身是教訓):**
+  T① 掃寄信族時標「未確認」交出來;主視窗照 migration `:38-45` 派工,
+  要在拋棄式 DB 上「塞含 PII 的 payload 進 enqueue,該被拒的要真的被拒」。
+  🔴 **而反例就在它引的那幾行【下面兩行】**(`:45-47` 逐字「必須被**組裝層**擋掉(**不是靠 DB**)」)
+  ⇒ 照那樣做會量到「DB 接受了含 PII 的 payload」,**而那本來就是設計如此**
+  ⇒ **會把一個設計意圖回報成一個 finding。**
+  母題:**不是量錯東西,是【引用時只讀到自己要找的那半】。**
 
 ### #282. 🧹 `cron.job_run_details` 清理(pg_cron 執行紀錄無預設保留期、會長大拖效能)
 

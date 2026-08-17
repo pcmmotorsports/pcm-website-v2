@@ -76,6 +76,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 要驗一支 migration 而手上沒有 DB access(施工窗常態)/ 要在本機起拋棄式 Postgres 或 PostgREST | `docs/runbooks/throwaway-postgres-for-migration-verification.md`(PCM 專屬 bootstrap 清單、`apply 成功 ≠ 斷言通過`、本機效度限制) |
 | 🔴 **新建任何 DB 物件(表 / view / 函式)**,或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` / 改既有函式的參數型別 | `docs/patterns/revoking-function-execute-in-supabase.md`(**檔名比範圍窄,表也在裡面**)。**新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅**;含兩道 REVOKE、`TRUNCATE` 不受 RLS 管、`has_*_privilege` 對欄級授權少報、ACL 欄是 `NULL` 時 PUBLIC 看不見 |
 | 🔴 **要用瀏覽器打開後台看畫面**(本機;**不需要任何 `.env` 檔**) | `docs/design/admin-design-system.md` **檔頭第一段** —— 一行 `cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001`。**這條路一直都在**(`proxy.ts:16` 註解寫著用途),而 2026-08-16 全窗花了兩輪才找到 —— **寫對地方 ≠ 會被讀到** |
+| 🔴🔴 **要驗「這個功能到底行不行」**(Sean 2026-08-17 定為全陣預設:「不用再用 artifacts,直接來真的但是開伺服器做＋看」) | `docs/runbooks/local-admin-with-real-data-probe.md` —— 拋棄式 PG + PostgREST + 自簽 JWT + 前綴代理 + 真後台,**零 secret、不碰 `.env*`**(施工窗工作樹沒有 `.env.local`)。含 5 個會擋住你的坑(UTF8 / socket 長度 / `auth.uid()` / `service_role` GRANT + BYPASSRLS / `/rest/v1` 前綴)與**效度限制**。⚠️ **替身(fixture / mock / artifact)不再是「確認功能可用」的合格載體** |
 | 後台 UI 片的視覺真權威 / BMW M 設計語言 / 某條做了沒 | `docs/design/admin-design-system.md`(**檔頭「落地狀態」表決定你能不能直接照抄下面的東西**) |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
 | 接手/重啟/被交辦一條「看起來停住、沒結論」的線 —— 在你說「那要開線」之前 | `docs/patterns/stalled-line-triage.md`(甲沒有落點/乙結論住錯地方/丙照拍板在等;丙型誤判=推翻當事人自己的拍板) |

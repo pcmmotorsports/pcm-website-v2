@@ -1,6 +1,37 @@
-# Plan:sweeper 心跳表 + 公開健康端點(鐵則 8 + 12③ ⇒ **等 Sean 批准**)
+# Plan:sweeper 心跳表 + 公開健康端點(鐵則 8 + 12③ ⇒ **✅ Sean 已批**)
 
-- **提出**:E 窗(資安稽核,唯讀)　**日期**:2026-08-17　**狀態**:🔴 **尚未批准,未動任何 code**
+> ## 🔴 2026-08-18 更正 —— 原檔頭寫「尚未批准,未動任何 code」,而他早就批了
+>
+> ~~**狀態**:🔴 **尚未批准,未動任何 code**~~ ⇒ **原句保留劃掉,不刪。**
+> **批准早於本次更正** ⇒ 那句在被讀到的每一天都是假的。
+> 而它比「等批」更毒:**「未動任何 code」是一句禁止句,下一個窗讀到會直接放下。**
+>
+> ✅ **Sean 2026-08-17 夜拍 `Q2` = 甲′**,逐字(**我當場開檔核過,不是轉來的**):
+> ```
+> memory project_0817-night-four-rulings-and-env-literals.md:26
+> 「Q2 sweeper 心跳表 | A（＝我推薦的）批甲′ | 單列三值 last_success_at /
+>   last_failure_at / consecutive_failures。plan 在
+>   docs/specs/2026-08-17-sweeper-heartbeat-plan.md。
+>   動 schema ⇒ 鐵則 8＋12③，【這一批就是那個批准】」
+> ```
+> 🔴 **那條 memory 直接指名本檔** ⇒ 沒有「是不是在講這一份」的模糊空間。
+>
+> ### 現況(2026-08-18)
+> ```
+> 心跳表 migration  ✅ code 已落地
+>                      supabase/migrations/20260817070000_m4b_231_3_sweeper_heartbeat.sql
+>                   🔴 而【未 apply 到任何真實 DB】
+>                      apply runbook: docs/reviews/2026-08-17-heartbeat-e683-apply-runbook.md
+> 寫入端            ⏳ 一行都沒開始。🔴 沒有東西在寫的心跳表【不會心跳】
+>                      ⇒「sweeper 從沒跑過」與「sweeper 死了」在健康端點上印同一件事
+> 健康端點          ⏳ 未做。E-701 §2-3 已先處理一半（零列 ⇒ 503、
+>                      🔴 絕不可回 secondsSinceLastSuccess: 0 —— 0 秒會被讀成「剛剛才跑」＝最壞的假綠）
+> ```
+> ⚠️ **「寫入端在不在 `Q2` 甲′ 的批准範圍內」= 主視窗 2026-08-18 裁定「在」**
+> (理由逐字:「他批的是要有心跳,不是要有一張表」)——**那是主視窗裁定,不是 Sean 逐字**。
+> 🔴 **兩種來源在同一份檔裡。不要合併引用,三個月後沒人分得出來。**
+
+- **提出**:E 窗(資安稽核,唯讀)　**日期**:2026-08-17　**狀態**:✅ **已批**(見上方更正段)
 - **對應**:`docs/phase-1-backlog.md` `#231` ③「cron 靜默死偵測 heartbeat」
 - **規格正本**:`docs/security/2026-08-17-sweeper-health-endpoint-spec.md`(本 plan 不重複規格細節,只講四節)
 - 🔴 **命中**:鐵則 **12③**(DB 結構 / migration)+ 鐵則 **8**(跨檔、動 schema)⇒ **Sean 批准才執行**。
