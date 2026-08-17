@@ -94,6 +94,13 @@ describe('SupabaseProductAdapter — SELECT 投射經銷價防護(M-11 安全回
     for (const col of DEALER_COLUMNS) {
       expect(captured.select).not.toContain(col);
     }
+    // 🔴 正向斷言【必留】(2026-08-18 V 窗抓、突變普查證):上面全是【否定斷言】⇒
+    //    `captured.select=''`(沒呼叫 select)或 `select *`(帶回 price_store)都會讓 not.toContain
+    //    恆真、這格恆綠。正向斷言把「量具真的量到一個非空、且是安全欄的投射」釘住 ——
+    //    findByHandle 的同款免疫是【意外】得來的(那條 toContain 本為驗 embed 次數而寫),
+    //    本格是【刻意】補上。⚠️ 有人「簡化」時把這行拿掉 = findById 對 `select *` 手滑恆綠、
+    //    而 `select *` 正好會把經銷價帶回。
+    expect(captured.select).toContain('price_general');
   });
 });
 
