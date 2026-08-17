@@ -208,7 +208,7 @@ SELECT n.nspname, has_schema_privilege('anon', n.nspname, 'USAGE') AS anon_usage
 | ID | 嚴重度 | 內容 | 卡在誰 |
 |---|---|---|---|
 | ~~`net` 曝露~~ **已關閉** | ~~未知~~ **非活洞** | ✅ **2026-08-16 實測關閉**：以公開 publishable key 打正式站 `/rest/v1/`，`http_request_queue` 回 **404**（打不到）。🔴 判別力有證明：`customers` 回 **401**（在曝露的 `public` 內、僅無權限），`products_public` 回 **200**（19,777 列，控制組）⇒ **404 不是鈍訊號**。`realtime.subscription`／`cron.job`／`storage.buckets`／`extensions.pg_stat_statements` 同為 404。Data API 曝露清單經 Sean 展開確認：**只有 `public` + `graphql_public`**。詳 `E-689` | — |
-| `E683-1` | 常設風險 | 新物件出生自帶 `anon` 權限（表含 RLS 管不到的 `TRUNCATE`；函式含 `EXECUTE`）。**現況 46 張全乾淨，但靠的是每個人都記得。** | 部分已解：`E-684` 斷言樣板已交 B 窗，**新 migration 起用** |
+| `E683-1` | 常設風險 | 新物件出生自帶 `anon` 權限（表含 RLS 管不到的 `TRUNCATE`；函式含 `EXECUTE`）。**現況 46 張全乾淨，但靠的是每個人都記得。**<br>🔴 **2026-08-17 傍晚:找到【repo 內先例】—— 報價單庫沒有這個問題,而兩庫的差別就在 `pg_default_acl` 一行**(見 §7f)。⇒ **修法不必設計,照抄報價單庫即可。**<br>⚠️ 並確認:Sean 當天關掉「Automatically expose new tables」**沒有動到這一格**——網站庫 `anon=Dxtm` 仍在。 | 部分已解：`E-684` 斷言樣板已交 B 窗，**新 migration 起用**；🔴 **修法有先例(§7f),待派** |
 | ~~`E682-1`~~ **已修** | ~~低~~ **已關閉** | ✅ **2026-08-16 Sean 親自在正式庫貼了 REVOKE 並回貼驗收輸出**（`anon_still = false` / `auth_still = false`）。`customer_wallet_balance_check` 對 `anon` 與 `authenticated` 的 SELECT **兩格都關上了**。⇒ `packages/adapters/src/supabase/SupabaseWalletAdapter.ts:87` 註解裡寫的那道「不對 authenticated GRANT」的控制，**現在真的存在**（先前是程式碼相信一道不存在的控制）。⚠️ **限定**：那兩格 false 來自 `has_table_privilege`，證的是**表級**收乾淨；`has_*_privilege` 對**欄級授權會少報**（§2.3）⇒ 不等於欄級零殘留。**2026-08-16 已補查欄級**：見 §7c-3。 | — |
 | `E680-1` | 低（未守路徑）→ **重評後維持低,見 §7e** | `settle-sweep` route 用 blind spread `...result` 回應，而回應會落進 PUBLIC 可讀、保留 6h 的 `net._http_response`。**今天不洩**（`SweepSettlementsResult` 全是計數），但**姊妹片 email-sweep 用顯式 allowlist 且寫明理由**。<br>🔵 **2026-08-17 重評(E 第三輪)**:本條前提是「**型別全是計數**」,**不是**「sweeper 沒在跑」;機械複核 **12 欄全 `number`** ⇒ **前提仍成立、嚴重度不變**。重評時撈到另一件更硬、且**與 blind spread 無關**的 ⇒ 見 **`E686-1`**。 | 待派 |
 | **`E686-1`** 🆕 | **低-中(潛伏;閘門是單一 Dashboard 設定)** | `net._http_response` / `net.http_request_queue` 對 `anon` 與 `authenticated` **SELECT/INSERT/UPDATE/DELETE/TRUNCATE 五項全 `true`**(實測矩陣 §7e),且 `_http_response` **RLS 關閉**(`relrowsecurity=f`)。<br>🔴 `supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql:26` 只寫了**讀**的那一半(「anon 即可讀 headers(Authorization 明碼)」)—— **寫 / 刪 / TRUNCATE 那一半從未被記錄**,而它的後果不是洩漏、是**湮滅與偽造稽核軌跡**。<br>擋著的**只有** PostgREST 曝露清單(`public`+`graphql_public`)**這一道 Dashboard 設定**。 | 待派 |
@@ -636,3 +636,40 @@ DROP VIEW + CREATE VIEW                       → reloptions = NULL
 `E-677` 那 6 張嚴重度 · `E-678` 預測封存 · `E-679` 連線 · `E-680` pg_net repo 盤點 ·
 `E-681` 密碼 · `E-682` 正式庫實測 · `E-683` 低估成因 · `E-684` 斷言樣板
 （皆在 `~/pcm-mailbox/`，**不進 git**）
+
+---
+
+## §7f `E683-1` 的修法先例:**報價單庫沒有這個問題,差別就在 `pg_default_acl` 一行**(2026-08-17 傍晚,E 第三輪)
+
+**量法(兩庫各自跑同一支,可重跑)**:
+```sql
+SELECT pg_get_userbyid(d.defaclrole) AS grantor,
+       CASE d.defaclobjtype WHEN 'r' THEN 'table' WHEN 'S' THEN 'seq' WHEN 'f' THEN 'func' END AS objtype,
+       d.defaclacl::text AS default_acl
+  FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace
+ WHERE n.nspname='public' ORDER BY 1,2;
+```
+
+**`grantor = postgres`(= 我們自己 migration 建表時套用的那組)的 `table` 那一列**:
+
+| 庫 | 預設 ACL | `anon` 拿到什麼 |
+|---|---|---|
+| **網站庫** `pcm-website-v2` | `{postgres=arwdDxtm, anon=Dxtm, authenticated=Dxtm, service_role=Dxtm}` | 🔴 **`Dxtm`** = `D`**TRUNCATE** / `x`REFERENCES / `t`TRIGGER / `m`MAINTAIN |
+| **報價單庫** `pcm-quote-v2` | `{postgres=arwdDxtm, service_role=arwdDxtm}` | ✅ **什麼都沒有**(清單裡根本沒有 `anon` / `authenticated`) |
+
+⇒ 🔴 **`E683-1` 是網站庫獨有的,報價單庫不受影響。** 而**差別就是這一行預設授權**。
+
+### 為什麼這件值錢
+
+1. **修法不必設計** —— **同一個組織、同一套工具鏈裡已經有一個「對的樣子」**。要做的是把網站庫的 `ALTER DEFAULT PRIVILEGES` 收成報價單庫那樣。
+2. **它證實了 `quote-db-audit-startup-checklist.md:37` 當時寫下的假設**:「若**沒有** ⇒ 這個專案較新、已套用新預設;那 A 庫的結論**不能直接搬過來**」—— **今天量到的正是「沒有」。**
+
+### ⚠️ 三條限定(不要讀成「改一行就好」)
+
+1. **成因未確認**:兩庫差異**可能**是「報價單專案較新、Supabase 換了預設」,**也可能**是有人跑過 `ALTER DEFAULT PRIVILEGES … REVOKE`。**我沒有量哪一個** ⇒ 動手前要先確認,否則會在錯誤的假設上收緊。
+2. **`ALTER DEFAULT PRIVILEGES` 只影響【之後】建的物件** —— **既有 46 張不會被它改到**。既有的要另外 `REVOKE`(而 §7c 已量到既有 46 張的 `anon` 寫權限**本來就是 0**,所以既有那批**不急**)。
+3. 🔴 **Sean 當天關掉「Automatically expose new tables」沒有動到這一格** —— 關掉之後網站庫的 `anon=Dxtm` **仍在**(當天實測)。⇒ **那個開關與這個預設 ACL 是兩件事**,不要把它記成已解。
+
+### 口徑
+
+兩庫的 `pg_default_acl` 皆為 2026-08-17 `pcm_audit_ro` 唯讀實測。**「兩庫為何不同」= 未確認**。**本節不含任何修改動作** —— E 唯讀,只指出先例。
