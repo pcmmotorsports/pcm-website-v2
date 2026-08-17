@@ -34,6 +34,31 @@ docs/patterns/traps-inbox/<窗>-<日期>.md     例:A-20260817.md / C-20260817.m
 **收割窗(I 窗)。** 沒有頻率規定,由收割窗判斷時機。
 併入時把整節搬進 canonical、**零刪除一字未改**,再刪掉這裡的來源檔。
 
+🔴🔴 **刪之前先量:有沒有窗【正在寫】那一份**(2026-08-17 夜補;下面有實例)
+
+```bash
+for b in $(git for-each-ref --format='%(refname:short)' refs/heads/ | grep -v '^dev$'); do
+  [ "$(git rev-list --count dev..$b)" = 0 ] && continue
+  n=$(git diff --name-only dev...$b -- docs/patterns/traps-inbox/<該檔> | wc -l)
+  [ "$n" != 0 ] && echo "🔴 $b 正在寫它 ⇒ 只併不刪"
+done
+```
+**有人在寫 ⇒ 只併、不刪**,等它交件之後再刪。
+**實例**:2026-08-17 夜第一次併入時,收割窗 `git rm` 了 `C-20260817.md`,
+而 C 窗**同一時間還在寫它** ⇒ 它下一批交件 `git merge-tree --write-tree` 回 **rc=1**:
+```
+CONFLICT (modify/delete): docs/patterns/traps-inbox/C-20260817.md
+  deleted in dev and modified in <界線>
+```
+🔴 **而這種衝突用 `grep -c '<<<<<<<'` 掃不到** —— `modify/delete` 是**樹層級**衝突,
+**不會產生任何衝突標記**。⇒ 衝突預演一律用 `--write-tree` 的 rc。
+
+🔴 **收割窗自陳(留著,因為它解釋了為什麼這一句是必要的、而不是「有人不小心」)**:
+> **規則是我寫的,缺口也是我留的。**
+📎 **同一晚同一形狀第三次**(往 canonical 檔尾插隊 / 兩個窗各建一份 README / 刪掉它正在寫的檔)。
+**三次的共同點不是「不小心」,是:**
+> 🔴 **我在做一件【全域動作】,而其他窗正在那個位置工作,而我沒有量。**
+
 ## 🔴 這個目錄自己的已知風險:第二個真相
 
 暫存區存在的期間,**同一則會同時活在兩個地方**。

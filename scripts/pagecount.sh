@@ -38,7 +38,12 @@
 #
 # 用法:
 #   sh scripts/pagecount.sh docs/probes/xxx.html
+#   sh scripts/pagecount.sh --png docs/probes/xxx.html /tmp/shots   ⇒ 每頁一張 PNG,開來看
 #   sh scripts/pagecount.sh --selftest
+#
+# 🔴 上面第 25 行那句「量完之後要把那一頁輸出成人看得懂的形式看一眼」**現在有工具了**
+#    (`--png`,2026-08-17 晚補)。在那之前它是一句沒有落點的指示,而**沒有落點的指示不會被執行** ——
+#    實錘:同日有一輪量到「貼底之後 2 頁」,而**第 2 頁上有沒有東西沒有人看過**,那條線就卡在那裡。
 
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
@@ -121,6 +126,24 @@ if [ "$1" = "--selftest" ]; then
     echo "BROKEN  不存在的檔沒回 2 ⇒ 「查無此檔」與「0 頁」混在一起了"
     fail=1
   fi
+  # 🔴 第四發:`--png` 必須為跨頁那份產出【剛好 2 張】圖。
+  #    沒有這一格的話,`--png` 壞掉會靜默產 0 張,而呼叫的人把「沒圖可看」讀成「沒東西可看」——
+  #    那正是這個模式被加進來要解掉的那個病(見下方 `--png` 的檔頭)。
+  if ! command -v gs >/dev/null 2>&1; then
+    echo "ENV-FAIL  --png 這一格跳過:找不到 gs(Ghostscript)。這【不是】你改壞了。"
+    envfail=1
+  else
+    shotdir=$(mktemp -d -t pcshot)
+    sh "$0" --png "$two" "$shotdir" >/dev/null 2>&1
+    shots=$(ls "$shotdir"/p*.png 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$shots" = "2" ]; then
+      echo "PASS  --png 跨頁那份 ⇒ 剛好 2 張圖"
+    else
+      echo "BROKEN  --png 期望 2 張圖,得 '$shots' 張 ⇒ 看得到頁內這件事壞了"
+      fail=1
+    fi
+    rm -rf "$shotdir"
+  fi
   rm -f "$one" "$two"
   if [ $fail -ne 0 ]; then
     echo "selftest BROKEN —— 判別力壞了,修好再 commit"
@@ -134,7 +157,35 @@ if [ "$1" = "--selftest" ]; then
   exit 0
 fi
 
-[ -n "$1" ] || { echo "用法: sh $0 <file.html> | --selftest" >&2; exit 2; }
+# ── `--png`:把每一頁輸出成 PNG,讓人真的開來看 ────────────────────────────
+# 🔴 **為什麼要有這個模式**:`pagecount` 只回一個數字,而 2026-08-17 卡住這條線的那一題
+#    是「**貼底之後變 2 頁,那第 2 頁上有東西嗎**」—— **數字答不出來**,
+#    而當時的 C 窗就停在那裡,因為它的量具答不出它真正想問的問題。
+# ⚠️ **本模式不驗任何東西** —— 判別力在【看的人】身上,不在這支。
+#    它只保證「你看到的那張圖確實是這份 HTML 印出來的那一頁」。
+# ⚠️ 圖的解析度固定 70dpi:夠看版面與有沒有字,**不夠看細字的字型 fallback**。
+if [ "$1" = "--png" ]; then
+  [ -n "$2" ] && [ -n "$3" ] || { echo "用法: sh $0 --png <file.html> <outdir>" >&2; exit 2; }
+  [ -f "$2" ] || { echo "查無此檔: $2" >&2; exit 2; }
+  command -v gs >/dev/null 2>&1 || {
+    echo "ENV-FAIL  找不到 gs(Ghostscript)。這【不是】版面有問題,是環境:brew install ghostscript" >&2
+    exit 3
+  }
+  pdf=$(render "$(cd "$(dirname "$2")" && pwd)/$(basename "$2")") || {
+    echo "Chrome 沒有產出 PDF(工具自壞或逾時)—— 這【不是】0 頁" >&2
+    exit 3
+  }
+  mkdir -p "$3" || { rm -f "$pdf"; exit 2; }
+  rm -f "$3"/p*.png                  # 🔴 同 render 那條:不讓上一輪的圖混進來被當成這一輪的
+  gs -sDEVICE=png16m -r70 -dNOPAUSE -dBATCH -o "$3/p%d.png" "$pdf" >/dev/null 2>&1
+  rm -f "$pdf"
+  n=$(ls "$3"/p*.png 2>/dev/null | wc -l | tr -d ' ')
+  [ "$n" -gt 0 ] || { echo "gs 沒有產出任何 PNG —— 這【不是】空白頁" >&2; exit 4; }
+  ls "$3"/p*.png
+  exit 0
+fi
+
+[ -n "$1" ] || { echo "用法: sh $0 <file.html> | --png <file.html> <outdir> | --selftest" >&2; exit 2; }
 [ -f "$1" ] || { echo "查無此檔: $1" >&2; exit 2; }
 
 pdf=$(render "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")") || {

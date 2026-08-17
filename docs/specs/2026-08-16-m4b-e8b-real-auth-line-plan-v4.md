@@ -49,14 +49,20 @@ Sean 的第一反應不是選項,是反問(逐字):
 | admin 端**零登入機制** | `git grep -nE 'signIn\|signOut\|admin_users' -- apps/admin/src` ⇒ 只命中測試檔的 mock,零實作 |
 | 身分是使用者自選的 cookie,**自陳非授權邊界** | `apps/admin/src/lib/session/actor.ts:5-7` 逐字「這**不是**登入 / 授權邊界」 |
 | SSO session payload **不帶是誰** | `apps/admin/src/lib/session/session.ts:15-16` 逐字「SSO 只帶認證(amr/auth_time)、無 per-user 身分」 |
-| 真 server action 共 **19** 支,**17** 支走共用授權閘 | 量法見下方「量法附錄 A」 |
-| 沒走閘的 **2** 支 | `lib/session/actor-actions.ts`(選身分本人,本線上線後整支下架)、`lib/shipping/shipment-actions.ts`(**真缺口**) |
+| 真 server action **模組**共 **19** 支,~~**17** 支~~ **⇒ 2026-08-17 重量 = 18 支模組【含】共用授權閘**<br>🔴 **是「模組含有字面」,不是「每一支 exported action 都先走閘」**(codex 2026-08-17 `must-fix`):`git grep -l` 是**檔級篩子**,一個模組裡五支 action 只有一支加閘也會被算進來。**函式級證明本表沒有,缺的那道 = 逐支 exported action 確認第一個授權動作** | 量法見下方「量法附錄 A」;**2026-08-17 B 窗當場重跑的那條(數字旁邊帶量法,表被抄走時它跟著走)**:<br>`git grep -lE "^[[:space:]]*['\"]use server['\"]" apps/admin \| grep -v '\.test\.' \| wc -l` ⇒ **19**(分母)<br>`comm -12 <(上式排序) <(git grep -l 'authorizeAdminMutation' apps/admin \| grep -v '\.test\.' \| sort) \| wc -l` ⇒ **18** |
+| ~~沒走閘的 **2** 支~~ **⇒ 2026-08-17 重量 = 只剩 1 支** | ✅ **仍沒走閘**:`lib/session/actor-actions.ts`(選身分本人,本線上線後整支下架)<br>⛔ ~~`lib/shipping/shipment-actions.ts`(**真缺口**)~~ **已補上,不再是缺口**(2026-08-17 量到 `apps/admin/src/lib/shipping/shipment-actions.ts:23` `import { authorizeAdminMutation }` / `:113` `const auth = await authorizeAdminMutation();`) |
 | SSO 收端很小 | `lib/sso/exchange.ts` 91 行 / `app/api/sso/callback/route.ts` 83 行 / `lib/session/session.ts` 161 行 / `actor.ts` 35 行 |
 
 🔴 **v3 的 codex F1 已過期**:它指控 `apps/admin/src/lib/orders/status-option-actions.ts` 自拼三道檢查繞過共用閘。
 **該檔 2026-08-16 實查【不存在】**(`find apps/admin/src -name '*status-option*'` 零命中),
 `lib/staff-actions.ts` 也已改成走閘(`git grep -c authorizeAdminMutation` = 4)。
-**⇒ F1 的「兩條授權路徑」現在是【一條閘 + 一支漏網的 `shipment-actions.ts`】。**
+⛔ ~~**⇒ F1 的「兩條授權路徑」現在是【一條閘 + 一支漏網的 `shipment-actions.ts`】。**~~
+🔴 **2026-08-17 重量後更正**:`shipment-actions.ts` **已經走閘了**(`:23` import / `:113` 呼叫)
+⇒ **現在是【一條閘 + 一支仍未走閘的 `actor-actions.ts`】**,而那一支依 §1.2 表與 §4 `B6`
+**本線上線後整支下架** ⇒ **它的狀態是「預定退場」,不是「待補的漏網」。**
+⚠️ **本次只更新「現在是什麼」,不動任何決定。**
+🔴 上一版我在這裡多寫了一句施工指令(「不要給它補閘」)—— **那是【應該做什麼】,超出本次授權,已移除**
+(codex 2026-08-17 `must-fix`)。該指引寫在 B3 spec §7.1 涵蓋證明那節,**不在本 plan**。
 
 ### 1.3 報價單端(`~/API大量上架/PCM報價單-V2`)
 
@@ -82,7 +88,8 @@ Sean 的第一反應不是選項,是反問(逐字):
 - admin 端 HMAC session 簽/驗(`session.ts`,runtime-neutral 硬規則已驗)
 - SSO code 兌換全鏈(authorize / exchange / callback / state)
 - A庫 `staff` 表 + `resolveStaff()` 白名單 + `admin_audit_log`
-- 共用授權閘 `authorizeAdminMutation`,**17 支已接**
+- 共用授權閘 `authorizeAdminMutation`,~~**17 支已接**~~ **⇒ 2026-08-17 重量 = 18 個模組已接**
+  (量法與射程限定見 §1.2 那一列;🔴 **檔級篩子,非函式級證明**)
 - 報價單端 `login_rate_buckets` 限速、`safeEqualHex` 常數時間比對
 
 ---
@@ -165,7 +172,7 @@ admin 端  一個環境開關 ADMIN_REQUIRE_REAL_IDENTITY，預設關
 | **B3** | session payload 加 `sub` + 版本欄 `v:2` | 報價單 auth | 🔴 | B2 |
 | **B4** | SSO 帶身分:`sso_codes` **expand 加選填欄** + authorize 寫入 + exchange 回傳 | 報價單 | 🔴 | B3 |
 | **B5** | admin 吃身分:payload 型別 + callback + `actor.ts` 改讀 session + **`resolveStaff` 進讀取閘** | admin | 🔴 | B4 |
-| **B6** | admin 收尾:下架自選下拉(開關控)、**`shipment-actions.ts` 補上共用閘**、備援唯讀橫幅 | admin | 🔴 | B5 |
+| **B6** | admin 收尾:下架自選下拉(開關控)、~~**`shipment-actions.ts` 補上共用閘**~~ **✅ 已完成(2026-08-17 量到 `shipment-actions.ts:23` / `:113` 已有共用閘)—— 本行保留不刪,以免「B6 曾經包含這件」消失**、備援唯讀橫幅 | admin | 🔴 | B5 |
 | **B7** | 端到端負向驗收(§6)+ 打開開關 | 兩邊 | — | B6 |
 
 🔴 **順序是硬的,不是建議**:帳號存在(B1)才認得了人(B2);先認人才改 payload(B3),

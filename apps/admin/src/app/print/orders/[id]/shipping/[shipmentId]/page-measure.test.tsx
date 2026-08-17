@@ -23,7 +23,7 @@ import type { AdminOrderDetail } from '@pcm/domain';
 //
 // **怎麼用(兩步)**:
 // ```
-// TURBO_FORCE=1 pnpm build                 # 🔴 先 build，本檔要讀建置產物的 CSS
+// TURBO_FORCE=1 pnpm build                 # 🔴 【每次動過樣式之後】都要先 build，見下方那一格
 // npx vitest run apps/admin/src/app/print/orders/'[id]'/shipping/'[shipmentId]'/page-measure.test.tsx
 // sh scripts/pagecount.sh /tmp/pcm-print-measure/shipping-1item.html
 // sh scripts/pagecount.sh /tmp/pcm-print-measure/shipping-12item.html
@@ -139,8 +139,15 @@ const SHIPMENT_ROW = {
   },
 };
 
-async function emit(itemCount: number, name: string): Promise<string> {
+async function emit(itemCount: number, name: string, blocked = false): Promise<string> {
   const d = detail(itemCount);
+  if (blocked) {
+    // 🔴 `#601` 整幅阻印版面的量測產物。**用面4(整張訂單已取消)當代表**:
+    //    八種阻印狀態共用同一個槽位(樣張逐字「原因文字換掉即可,版面不變」)
+    //    ⇒ 量一種就量得到那個版面;**而八種文案本身由 `page.test.tsx` 逐面釘,不在這裡重複。**
+    //    ⚠️ 這份 fixture 量得到的是**版面**,不是**哪一種原因會觸發** —— 兩件事分開。
+    (d as { cancelledAt: string | null }).cancelledAt = '2026-08-16T03:00:00+00:00';
+  }
   mocks.findAdminOrderDetail.mockResolvedValue(d);
   mocks.listOrderItemsForPrint.mockResolvedValue({ items: d.items, reportedTotal: d.items.length });
   mocks.loadOrderShipments.mockResolvedValue([
@@ -196,5 +203,23 @@ describe('列印量測管線 —— 產出帶真樣式的正式頁 HTML', () => 
     //    沒有它,兩份產出可能一模一樣,而後面數頁數會得到兩個【一樣正常】的數字。
     expect(many.length).toBeGreaterThan(one.length);
     expect(many).toContain('SKU-0011-LONG');
+  });
+
+  it('🔴 `#601` 阻印狀態 ⇒ 產出 shipping-blocked.html(那一幅要真的印出來看)', async () => {
+    // 🔴 **為什麼這一份非產不可**:`#601` 守的是**份量**(「警告必須佔滿這個位置」),
+    //    而**份量是單測量不到的東西** —— `page.test.tsx` 那格只證得了內容都在同一塊裡。
+    //    ⇒ 這份 fixture 的用途是 `sh scripts/pagecount.sh --png <它> <dir>` 之後**開來看**。
+    const blocked = await emit(1, 'shipping-blocked', true);
+    expect(blocked).toContain('本單不得出貨');
+    expect(blocked).toContain('本頁不含品項明細');
+    // 🔴 負向對照兩發,證明這份**真的是阻印態**而不是我多產了一份正常頁:
+    //    ① 品項表整個不在 ② 料號一個都不在
+    expect(blocked).not.toContain('<table');
+    expect(blocked).not.toContain('SKU-0000-LONG');
+    // 🔴 正向對照:同一支 `emit` 不帶 blocked 時,上面那兩個「不在」必須【在】——
+    //    沒有這一格,`not.toContain` 在「emit 整個壞掉、回空字串」的世界裡也會過。
+    const normal = await emit(1, 'shipping-1item');
+    expect(normal).toContain('<table');
+    expect(normal).toContain('SKU-0000-LONG');
   });
 });
