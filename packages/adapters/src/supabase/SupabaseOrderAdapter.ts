@@ -1031,8 +1031,25 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       if (error) {
         throw error;
       }
-      if (page === 0 && typeof count === 'number') {
-        reportedTotal = count;
+      // 🔴🔴 **`Number.isFinite` 而不是 `typeof === 'number'`**(T① 2026-08-18 拋棄式環境實測):
+      //    PostgREST 回 `Content-Range: 0-200/*`(沒有總數)時,supabase-js 走 `parseInt('*')`
+      //    ⇒ **`NaN`**,而 **`typeof NaN === 'number'` 是 `true`** ⇒ `reportedTotal = NaN`,不是 `null`。
+      //
+      // 🔴 **病根一句**:這道守門**想擋的是「沒有數字」,實際擋的是「不是 number 型別」**
+      //    —— 而 **`NaN` 是 number**。註解說得出「要有數字」,斷言只表達得出「型別對」。
+      //
+      // ⚠️ **兩個下游各自壞法不同,而且都不會紅**:
+      //    ① 出貨單 `shipping-doc` 面6-b 判 `reportedTotal === null` ⇒ **滑過**
+      //       ⇒ 改由面6(數字對不上)觸發 ⇒ 畫面逐字印「資料庫說有 **NaN** 項」給值班看
+      //    ② 明細頁 `mergeDetailItems` 的對帳 `length !== reportedTotal`
+      //       ⇒ 🔴 **`x !== NaN` 恆為 true** ⇒ `itemsTruncated` 恆為 `true`
+      //       ⇒ **摘要永遠印「未知」、取消複核區永遠鎖死** = `D2` C 條剛修好的那個病原樣復發
+      //    ⇒ 兩邊都仍然 fail-closed(不漏印、不少算)⇒ **不是安全問題**,是可用性與可讀性。
+      //
+      // ⚠️ **觸發條件未確認**:T① 是用前綴代理**模擬**剝掉 count 才造出來的;
+      //    **正式站真實故障時會不會回那種 `Content-Range`,沒有人證實過。**
+      if (page === 0 && Number.isFinite(count)) {
+        reportedTotal = count as number;
       }
       const batch = (data ?? []) as unknown as TRow[];
       if (batch.length === 0) {

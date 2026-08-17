@@ -57,7 +57,20 @@ export function mergeDetailItems(
   //
   // ⚠️ **`reportedTotal === null` 不算對不上** —— 那是「伺服器沒給 count」,不是「數字不符」。
   //    把它當成截斷會讓一個【正常但沒 count 的回應】把整頁降級。
-  const incomplete = reportedTotal !== null && fullItems.length !== reportedTotal;
+  // 🔴🔴 **用 `Number.isFinite` 而不是 `!== null`** —— 縱深,不只靠上游修好
+  //    (T① 2026-08-18 在 `listOrderItemsForPrint` 那支撞到的同一個形狀):
+  //    ```
+  //    PostgREST 回 Content-Range: 0-200/*（沒有總數）⇒ supabase-js parseInt('*') ⇒ NaN
+  //    而 typeof NaN === 'number' 為 true ⇒ 上游那道 typeof 守門【放它過】
+  //    ⇒ 到這裡 reportedTotal = NaN，而 🔴【x !== NaN 恆為 true】
+  //    ⇒ incomplete 恆為 true ⇒ itemsTruncated 恆為 true
+  //    ⇒ 摘要永遠印「未知」、取消複核區【永遠鎖死】＝ 本片剛修好的那個病原樣復發
+  //    ```
+  //    🔴 **而它不會紅**:型別是 `number | null`,`NaN` 完全合法;三綠、單測、grep 都看不到。
+  //    ⇒ 上游那道已改成 `Number.isFinite`(同一顆),**這裡仍然自己擋一次** ——
+  //      理由:這支是**純函式、可被任何人呼叫**,而「上游會把 NaN 濾掉」是一個
+  //      **住在另一支檔裡的假設**。假設會過期,而它過期時這裡不會有任何訊號。
+  const incomplete = Number.isFinite(reportedTotal) && fullItems.length !== reportedTotal;
 
   // 內嵌那份按 id 索引 —— 它帶著採購資料,而撈到盡那份沒有。
   const embedded = new Map(detail.items.map((it) => [it.id, it]));

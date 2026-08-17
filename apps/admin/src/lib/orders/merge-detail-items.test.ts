@@ -122,6 +122,20 @@ describe('🔴🔴 對帳:撈到盡那支【自己少撈了】的時候(codex 20
     expect(mergeDetailItems(detailOf(200), full, 200).itemsTruncated).toBe(false);
   });
 
+  it('🔴🔴 `reportedTotal = NaN` 不可以讓它恆為截斷(T① 2026-08-18 在列印那支撞到的同一形狀)', () => {
+    // 機轉:PostgREST 回 `Content-Range: 0-200/*`(沒有總數)⇒ supabase-js `parseInt('*')` ⇒ NaN
+    //      而 `typeof NaN === 'number'` 為 true ⇒ 上游的 typeof 守門【放它過】
+    // 🔴 而 `x !== NaN` 恆為 true ⇒ 舊式 `reportedTotal !== null && length !== reportedTotal`
+    //    會讓 incomplete 恆為 true ⇒ 摘要永遠印「未知」、取消複核區【永遠鎖死】
+    //    = 本片剛修好的那個病原樣復發。
+    // ⚠️ **斷言刻意不是「有沒有擋住」** —— 那在修之前也綠(舊式也會擋,只是擋過頭)。
+    //    要斷言的是【它不該擋】:數字給不出來 ≠ 數字對不上。
+    expect(
+      mergeDetailItems(detailOf(200), full, Number.NaN).itemsTruncated,
+      'NaN 被當成「對不上」⇒ 這張單【永遠】顯示沒列完、【永遠】取消不了。',
+    ).toBe(false);
+  });
+
   it('🔴 `reportedTotal === null` 不算對不上 —— 那是「沒給 count」不是「數字不符」', () => {
     // 把它當截斷 ⇒ 一個【正常但沒 count 的回應】會把整頁降級。
     expect(mergeDetailItems(detailOf(200), full, null).itemsTruncated).toBe(false);
