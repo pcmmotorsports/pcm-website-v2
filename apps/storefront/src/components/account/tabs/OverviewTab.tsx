@@ -124,14 +124,28 @@ export function OverviewTab({
                        蓋掉它員工還看得到別的欄;而**這裡蓋掉的是客人辨識自己訂單的資訊**。
                        ⇒ 只把**那個不可信的數字**換掉,單號與日期照常。
                     🔴 **不印 0、不留空** —— 兩者都會被讀成「這單沒東西」。
-                       印 `?` 是「我們也不確定」,而它旁邊的 title 給得出下一步。 */}
+                       印 `?` 是「我們也不確定」,而下一步寫在下面那段**看得見的**說明裡
+                       (~~原本寫「它旁邊的 title 給得出下一步」~~ —— `#639` 甲之後那句已不成立)。 */}
                     {formatOrderDate(o.createdAt)} ·{' '}
                     {o.itemCountTruncated ? (
-                      <span title={ORDER_ITEM_COUNT_TRUNCATED_NOTE}>? 件</span>
+                      <span>? 件</span>
                     ) : (
                       <>{o.itemCount} 件</>
                     )}
                   </div>
+                  {/* 🔴 `#639` 甲(Sean 2026-08-18 拍板;送給他的選項逐字:「整段直接印在
+                      畫面上。客人 0 個動作,那張訂單卡變高」)——**他是在知道那個代價下選的**。
+                    (送他看的時候我估「約 3.4 倍」,**做出來在真顧客站量是 2.0–2.7 倍**;
+                     那段常數是 **112 個字元**,不是我當時寫的 79。兩個數字都在 artifact 上更正了。)
+                      ⇒ **不要折衷成「前兩句直接印、其餘收起來」** —— 那是乙,他沒選乙。要偏離就先問他。
+                      三案並排 <https://claude.ai/code/artifact/a15cced4-de75-4680-b3f8-6afd696d9832>。
+                      🔴 **這段字原本住在上面那個 `title=` 裡**,而 `title` 是 hover-only、
+                      **觸控裝置沒有 hover** ⇒ 手機客人四段**一段都拿不到**
+                      (W4 2026-08-18 在真顧客站實測:四段出現在畫面文字 **0/4**)。
+                      **不要把它搬回 `title`。** */}
+                  {o.itemCountTruncated && (
+                    <p className="acc-order-note">{ORDER_ITEM_COUNT_TRUNCATED_NOTE}</p>
+                  )}
                 </div>
                 <div className="acc-order-r">
                   <div className="acc-order-total">NT$ {o.total.amount.toLocaleString()}</div>

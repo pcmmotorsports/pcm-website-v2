@@ -1871,15 +1871,46 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
    */
   const TRUNCATED_TITLE = '這張單的品項達到 500 筆上限,系統一次載不完。這是系統的固定限制,不是暫時的狀況。這一格現在看不出這張單實際走到哪一步,請不要用它判斷這張單的進度。請聯絡負責人處理。';
 
-  it('🔴 驗收12a:截斷時那顆膠囊的 title 存在,且【逐字】等於 orders-table.tsx:429', () => {
+  it('🔴🔴 驗收12a(2026-08-18 `#639 甲` 反轉):那顆膠囊【不得】再帶那句 title', () => {
+    // 🔴 **這一格原本斷言的是「title 存在,且逐字等於那句話」——它把病寫成了規格。**
+    //    `#639` 立案的正是「說明掛在 `title` 上」這個載體;Sean 2026-08-18 拍 `#639 甲`
+    //    ⇒ 三處一起換載體(顧客站兩處印在畫面上,這裡把理由讓給下面那一列)。
+    //    ⇒ 期望值整個反過來:**存在 ⇒ 紅**。
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
     );
-    // 🔴 **從「未知」那顆本人身上取 title**,不用 querySelector('[title]') ——
-    //    後者會撿到頁面上任何一顆帶 title 的東西,那是「量錯東西」。
     const capsule = [...container.querySelectorAll('span')].find((el) => el.textContent === '未知');
-    expect(capsule).toBeDefined();
-    expect(capsule?.getAttribute('title')).toBe(TRUNCATED_TITLE);
+    expect(capsule, '截斷時仍要印「未知」——這一格不是把膠囊拿掉').toBeDefined();
+    expect(capsule?.getAttribute('title'), '說明不得再掛回 title').toBeNull();
+    // 整棵樹都不准出現那句話的 title 版本(有人搬到別的節點上一樣算)
+    const titles = [...container.querySelectorAll('[title]')].map((el) => el.getAttribute('title'));
+    expect(titles).not.toContain(TRUNCATED_TITLE);
+  });
+
+  it('🔴🔴 理由沒有消失:原本 title 裡那【三件事】都要出現在畫面文字上', () => {
+    // 🔴 **這一格原本只驗「數量未知」,codex 判 must-fix:那時完整理由已經被我刪掉,而它照樣綠。**
+    //    「拿掉 title」與「把說明搬到看得見的地方」是兩件事,只做前者 = 資訊刪減。
+    //    ⇒ 期望值改成逐條驗那三件,任一件被拿掉就紅。
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: true })]} />,
+    );
+    const note = [...container.querySelectorAll('tbody tr')].find((r) =>
+      r.textContent?.includes('另有'),
+    );
+    expect(note, '截斷時那一列必須在').toBeDefined();
+    const text = note?.textContent ?? '';
+    expect(text, '① 這是固定限制、不會自己好').toContain('固定限制');
+    expect(text, '② 狀態那一格不能拿來判斷進度').toContain('不能拿來判斷');
+    expect(text, '③ 下一步:找誰').toContain('負責人');
+  });
+
+  it('正向對照:非截斷時那三件【不出現】(⇒ 上一格不是恆真)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
+    );
+    for (const s of ['固定限制', '不能拿來判斷', '負責人']) {
+      expect(container.textContent, `非截斷時不該出現「${s}」`).not.toContain(s);
+    }
   });
 
   /**
@@ -1946,7 +1977,7 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     });
   });
 
-  it('🔴 驗收12b:非截斷時那顆狀態膠囊【不帶】那句 title', () => {
+  it('正向對照:非截斷時那顆狀態膠囊也不帶那句 title(⇒ 上面那格不是靠「反正沒有 title」恆真)', () => {
     const { container } = render(
       <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: shippedLines, itemsTruncated: false })]} />,
     );

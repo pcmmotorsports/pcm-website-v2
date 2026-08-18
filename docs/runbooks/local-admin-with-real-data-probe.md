@@ -372,9 +372,13 @@ http://localhost:3011/orders   403 零筆
 
 **判別法(照抄就好;兩個世界會印不同的東西)**:
 ```js
-[...document.querySelectorAll('input,button')].some(el => Object.keys(el).some(k => k.startsWith('__reactFiber')))
-// true = React 接手了（有 hydrate）    false = 整頁是死的 HTML
-// （React 對每個它接手的 DOM 節點掛一支 `__reactFiber$…`。）
+// 🔴 印【兩個數字】，不要只印一個 true/false —— `.some()` 在【零個節點】時也回 false
+//    ⇒ 「頁面根本沒有 input/button」與「有但沒被接手」會給出同一個答案（codex R4 抓到）。
+const els = [...document.querySelectorAll('input,button')];
+({ 掃到: els.length, 被接手: els.filter(el => Object.keys(el).some(k => k.startsWith('__reactFiber'))).length })
+// 掃到 0            ⇒ 這支探針【沒有量到東西】，換個選擇器，不要當成 false
+// 掃到 N / 被接手 0 ⇒ 整頁是死的 HTML
+// 掃到 N / 被接手 N ⇒ React 接手了（有 hydrate）
 ```
 我兩個世界各量一次:`127.0.0.1` ⇒ **false**、`localhost` ⇒ **true**。
 

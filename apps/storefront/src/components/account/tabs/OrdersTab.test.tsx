@@ -122,11 +122,27 @@ describe('itemCountTruncated ⇒ 件數印「?」', () => {
   // 🔴 `#636` 接線格:那個「?」旁邊掛的必須**就是**共用常數。
   //    沒有這一格,常數可以寫得完美而**根本沒被用到**(或某天被人在這裡寫回一句 inline 字面),
   //    而 `account-order-copy.test.ts` 那六格照樣全綠 —— 它測的是常數,不是畫面。
-  it('🔴 `#636` 「?」的說明文字 = 共用常數(不是就地另寫一句)', () => {
+  it('🔴 `#636`+`#639甲` 說明文字 = 共用常數,而且印在【畫面上】不是 title 裡', () => {
+    // 🔴 **這一格 2026-08-18 改過期望值,而改法本身就是驗收點。**
+    //    原本斷言 `getByText(/\? 件商品/).getAttribute('title')` 等於那個常數
+    //    ⇒ 它**把「說明住在 title 裡」寫成了規格**,而 `#639` 立案的正是這件事:
+    //    `title` 是 hover-only、觸控裝置沒有 hover ⇒ 手機客人四段一段都拿不到(實測 0/4)。
+    //    Sean 2026-08-18 拍 `#639 甲`(整段直接印在畫面上)⇒ 期望值換成「畫面文字」。
     render(<OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: true }]} />);
-    expect(screen.getByText(/\? 件商品/).getAttribute('title')).toBe(
-      ORDER_ITEM_COUNT_TRUNCATED_NOTE,
+    expect(screen.getByText(ORDER_ITEM_COUNT_TRUNCATED_NOTE)).toBeDefined();
+  });
+
+  it('🔴🔴 那段說明【不得】再掛回任何 `title` 屬性上(`#639` 這條病的定義)', () => {
+    const { container } = render(
+      <OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: true }]} />,
     );
+    const titles = [...container.querySelectorAll('[title]')].map((el) => el.getAttribute('title'));
+    expect(titles).not.toContain(ORDER_ITEM_COUNT_TRUNCATED_NOTE);
+  });
+
+  it('正向對照:旗標關掉 ⇒ 那段說明**不出現**(⇒ 上面兩格不是恆真)', () => {
+    render(<OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: false }]} />);
+    expect(screen.queryByText(ORDER_ITEM_COUNT_TRUNCATED_NOTE)).toBeNull();
   });
 
   /**

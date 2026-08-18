@@ -265,11 +265,17 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
 
     // 🔴 接線格:說明文字必須**就是**共用常數,不是就地另寫一句
     //    ——「請重新整理」正是這樣長回來的。
-    it('🔴 「?」的說明文字 = 共用常數', () => {
+    it('🔴 說明文字 = 共用常數,而且印在【畫面上】不是 title 裡(`#639 甲`)', () => {
+      // 期望值 2026-08-18 由「title 屬性」改成「畫面文字」——理由同 `OrdersTab.test.tsx` 同名那格:
+      // 原本的斷言把「說明住在 title 裡」寫成了規格,而那正是 `#639` 立案的病。
       renderTab({ recentOrders: truncated });
-      expect(screen.getByText(/\? 件/).getAttribute('title')).toBe(
-        ORDER_ITEM_COUNT_TRUNCATED_NOTE,
-      );
+      expect(screen.getByText(ORDER_ITEM_COUNT_TRUNCATED_NOTE)).toBeDefined();
+    });
+
+    it('🔴🔴 那段說明【不得】再掛回任何 `title` 屬性上(`#639` 這條病的定義)', () => {
+      const { container } = renderTab({ recentOrders: truncated });
+      const titles = [...container.querySelectorAll('[title]')].map((el) => el.getAttribute('title'));
+      expect(titles).not.toContain(ORDER_ITEM_COUNT_TRUNCATED_NOTE);
     });
   });
 });
