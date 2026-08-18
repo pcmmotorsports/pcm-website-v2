@@ -70,7 +70,7 @@ memory feedback_copying-design-literally-inherits-its-bugs（2026-08-18 立）�
 ⇒ 設計稿沒做過 a11y 稽核(條目自己寫的),它的沉默不構成一個決定。
 ```
 **而我把它標成【代裁】,不當成已經解決**(memory `feedback_mark-a-proxy-ruling-so-sean-can-overturn-it`):
-- **代裁人:G1。可推翻。**
+- **代裁人:MAIN(主視窗,2026-08-18 深夜)。可推翻。**(~~原寫 G1~~ —— 主視窗接手裁定,見 §⑨)
 - **佐證一(同族先例)**:`#310` 同一天同一個品牌頁的 a11y/視覺偏離,**Sean 拍 A = 程式側直接修、不等設計側回寫**。
 - **佐證二(常設授權)**:Sean 2026-08-18 對純 UX 慣例題整包授權「**正常的網站該怎麼做就怎麼做**」,
   並交代**同類題不要再送他**(memory `project_0818-sean-delegates-favorites-ux`)。
@@ -96,3 +96,56 @@ memory feedback_copying-design-literally-inherits-its-bugs（2026-08-18 立）�
 ## ⑧ 我沒做的事
 - **沒開真瀏覽器量過**。上面「焦點框會被裁掉」是**讀 `brand-page.css:335-344` 的既有註解**得來的,
   那是 2026-08-04 別人的真機量測,**我沒有複驗**。⇒ 批准後我會用 storefront probe 真的量一次再收工。
+
+---
+
+## ⑨ 🔴 鐵則 1 兩道查證:**跑完了**(2026-08-18 23:5x,主視窗要求)
+
+主視窗裁:兩道都跑、查無就把「查無 + 掃過的分母」寫進來,然後它裁定不算偏離、不必送 Sean 拍這一格。
+**兩道都跑了,而結果比「查無」更有話講。**
+
+### 道一 · `design-reference` 字面 grep(分母寫出來)
+```
+分母:find design-reference -type f \( -name '*.html' -o -name '*.css' -o -name '*.jsx' -o -name '*.js' \) ⇒ **49 檔**
+字集(多變體):focus\(|\.focus|focus-visible|tabindex|tabIndex|aria-live|autofocus|role="dialog"  ⇒ 8 行
+影片/播放器:grep -rlniE 'poster|player|<video|iframe' ⇒ **0 檔**
+```
+🔴 **`design-reference` 裡根本沒有這個播放器** —— 它整個不在那份真權威裡。
+(與元件檔頭一致:`BrandPageMedia.tsx:3-5` 逐字「字面搬自 Open Design `pcm-home-redesign/brand-page.html`;
+鐵則 1 例外 = 2026-08-03 Sean 拍 Q1=B,**本線真權威在 OD**」。)
+📎 而 `design-reference` **本身會做焦點管理**:`components/SearchOverlay.jsx:16` `inputRef.current?.focus()`、
+`:94` 清除後 refocus、`AccountPages.jsx:208` `autoFocus`。⇒ **焦點管理在 design 的語彙裡,不是外來品。**
+
+### 道二 · OD `list_projects` 當場列全部(分母寫出來)
+```
+list_projects ⇒ **9 個專案**(pcm-home-redesign / -opus5 / -codex / pcm-print-docs /
+  pcm-admin-order-ui / pcm-product-edit-screen / pcm-product-admin-4dir / 報價單-V2 LINE / 二手車網站)
+本線真權威 = pcm-home-redesign（Sean 2026-08-03 Q1=B）
+```
+在 `pcm-home-redesign/brand-page.html`(**totalLines 2260**)裡:
+```
+search '.focus('  ⇒ 全專案 13 命中;brand-page.html 佔 3:  :1927  :1933  :1940
+search 'poster.remove' ⇒ 全專案 **1 命中**:brand-page.html:**2029**
+```
+**逐行開檔核過(不是只看命中數)**:
+- `:1927 / :1933 / :1940` 是**車輛選配 modal**(`vf-` 前綴)的焦點管理 ——
+  開啟時 `VF.lastFocus = document.activeElement` + `$('vf-brand').focus()`,
+  關閉時 `VF.lastFocus.focus()` **完整的焦點借還**。
+- `:2029` 的 `poster.remove()`,前後 50 行(:2005-2064 全讀過)**零焦點處理**。
+
+### ⇒ 這一格的結論(而它比原本的論證更強)
+```
+不是「design 沒想過焦點」——**同一個檔案裡它做了完整的焦點借還**,只是【沒做在播放器這一段】。
+⇒ 沉默 ≠ 反對,而且這裡的沉默有旁證:作者會這一招,在別處用了,在這裡沒用。
+⇒ 而修法要照它自己的語彙（借還 lastFocus 那套），不是另發明。
+```
+✅ **主視窗據此裁定:不算偏離鐵則 1,這一格不必送 Sean。**(鐵則 8 的批准仍要,見 §①。)
+
+### 🔴 順帶抓到一個過期座標(這條要回寫 backlog)
+```
+`#309` 條目與 `BrandPageMedia.tsx:1xx` 註解都寫「設計稿 :1926 的 poster.remove()」
+實查:**:2029**。漂移 ~103 行。
+⇒ 與派工池點名的 `#386`(引的 migration 座標過期)同一個形狀。
+⚠️ 我**沒有**查 2026-08-04 當時是不是真的在 :1926 —— 可能是當時就寫錯,也可能是檔案後來長高了。
+   **兩種我都沒證據**,所以只寫「今天實查是 :2029」,不寫「有人寫錯了」。
+```
