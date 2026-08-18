@@ -490,7 +490,8 @@ const CANCELLATION_ITEMS_EMBED_PATH = 'order_cancellations.order_cancellation_it
  * 訂單查詢(plan §7)。
  *
  * #106:client 注入 `SupabaseClient<Database>` generic、findTotal 欄位 compile 期檢。`.rpc('create_order', args)`
- * 入參走 mapper 白名單；B-3 依 flag 產精確 8 / 9 鍵(database.types.ts 的 9th key 已拍板留 B-4 重 gen)。
+ * 入參走 mapper 白名單;🔴 B-4 起實際送出的一律是 9 鍵(`database.types.ts:3595` 已是 9 參,不需重 gen)。
+ * ~~B-3 依 flag 產精確 8 / 9 鍵(database.types.ts 的 9th key 已拍板留 B-4 重 gen)。~~
  * `data as unknown as CreateOrderRpcResult` **保留**(create_order RPC generated
  * `Returns: Json`、wire 為 narrowed `{order_id, display_id}` DTO、Json→DTO 須 cast;非 type-safety 漏洞、
  * 是 RPC jsonb scalar 邊界的正當投射)。RPC `RETURNS jsonb` scalar → data 即該物件、不需 `.single()`。
@@ -504,7 +505,8 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * RPC 錯誤(RAISE / 網路)原樣上拋不吞(對齊既有 adapter 裸 throw 慣例);回 `{orderId, displayId}`。
    */
   async placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
-    // B-3:mapper 以 notificationEmail 屬性是否存在，產精確 8 / 9 鍵；同一 RPC 名稱不變。
+    // 🔴 B-4:mapper 產 9 鍵(notificationEmail 鍵由呼叫端無條件帶上);同一 RPC 名稱不變。
+    //    ~~B-3:以 notificationEmail 屬性是否存在,產精確 8 / 9 鍵。~~
     const { data, error } = await this.supabase.rpc(
       'create_order',
       mapPlaceOrderToCreateOrderArgs(input),

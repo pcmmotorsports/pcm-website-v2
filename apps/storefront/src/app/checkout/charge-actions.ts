@@ -4,12 +4,14 @@
 //
 // 🔴 鐵則 12 成交 path:組「建單(既有 placeOrder)→ charge → confirm」整鏈。
 // 前端契約 = { addressId, shippingMethod, invoice, lines, prime, cartSessionId, agreed,
-//   notificationEmail?(B-3 flag-on) } —— **零價、零 cardholder、零 orderId**
+//   notificationEmail?(只在 flag-on 時進 schema;flag-off 一律 strip) } —— **零價、零 cardholder、零 orderId**
+// 🔴 B-4 更正(codex 關卡2 nit 3):~~不採用 client 這個值~~ 說反了。實際是
+//   **flag on ⇒ 採用【經 server schema 驗過的】那個值(收件人第一候選);flag off ⇒ 該鍵被 strip、完全不進來**。
 // (client 多塞的鍵一律不讀;金額 = server read-back orders.total 單一來源;cardholder = server 組裝)。
 //
 // 信任邊界(五層 + 付款層;沿用 addAddressAction 既有五層信任邊界 pattern):
 // - ① server session getUser:純登入 gate(不把 user.id 傳進建單 use-case;身分由 create_order RPC
-//      auth.uid() 重查)。user.id/email 只餵 cardholder 組裝(本就 server session 權威值)。
+//      auth.uid() 重查)。user.id/email 餵 cardholder 組裝**與 B-4 通知信收件人解析**(本就 server session 權威值)。
 // - ② CheckoutInput + PlaceOrderLinesInput + TapPayPrimeInput 三段 safeParse(strip 未知欄)。
 // - ③ buildCardholder **先於建單**(PII 缺失不產垃圾 unpaid 單;fail → 對應引導文案、placeOrder 零呼叫)。
 // - ④ placeOrder(RPC server 權威算價)→ ⑤ findTotal read-back(🔴 單一金額來源;null → 拒、零扣款)
@@ -47,6 +49,7 @@ import {
   preflightReleaseSibling,
 } from '@pcm/use-cases';
 import { createCheckoutInputSchema, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
+import { resolveNotificationRecipient } from '@/lib/email/resolve-notification-recipient';
 import type {
   ConfirmPaymentOutcome,
   InitiatePaymentOutcome,
@@ -263,8 +266,18 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       termsVersion: CURRENT_TERMS_VERSION,
       clientIp,
       clientUserAgent,
-      // B-3 只切到 9-param RPC 形狀；canonical 真值持久化刻意留 B-4。
-      ...(notificationEmailEnabled ? { notificationEmail: null } : {}),
+      // 🔴 M-4a B-4:通知信收件人【無條件】送(不再受 flag 管;plan §4.1 的申報偏離 ——
+      //    UI/client/server-schema 三層仍受 flag 管、仍 off,只有「送不送第 9 參」拿出來)。
+      //    ~~B-3 只切到 9-param RPC 形狀;canonical 真值持久化刻意留 B-4。~~
+      //    候選順位 = plan §3:①flag-on 時客人自己填的 ②session 註冊信箱 ③收件地址 email。
+      //    🔴 ① 不能拿掉:flag 將來被翻成 on 時,:129-131 會強制客人填 Email,少了它會被靜默丟掉。
+      notificationEmail: resolveNotificationRecipient([
+        // flag-off 時 schema 沒這個鍵 ⇒ undefined ⇒ resolver 自動跳過。
+        // 型別註記而非 `in` 收窄:union 上的 `in` 會把型別放大成 unknown(實測 TS2322)。
+        (parsedCheckout.data as { notificationEmail?: string }).notificationEmail,
+        user.email,
+        built.addressEmail,
+      ]),
     };
     const orderRepo = await getOrderRepo();
     const placed = await placeOrder(orderRepo, placeOrderInput);
@@ -323,7 +336,20 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     return await settleInFlightThenRetryOnce(runConfirm, inFlightOrderIdOfOutcome, (o) =>
       mapOutcome(o, placed.displayId),
     );
-  } catch {
+  } catch (err) {
+    // 🔴 B-4:第 9 參從 flag 底下拿出來之後(plan §4.1),**每一筆結帳都走 9 參 create_order**。
+    //    prod 若其實還是 8 參 ⇒ PostgREST `PGRST202`(找不到符合的函式)/ PG `42883`
+    //    ⇒ **結帳整條斷**,而客人與客服看到的只有通用字面。
+    //    這行的用途不是除錯,是**把那 10 秒的答案放進錯誤訊息** —— 甲(硬閘)真正的弱點不是
+    //    壞得太大聲,是壞掉的人不知道為什麼壞。比在金流路徑加一個 fallback 分支便宜一個數量級。
+    //    🔴 只印錯誤碼與固定修法字串,**不印 err 本體**(PII / error 不洩;Q2=A 逐字不變)。
+    const rpcErrorCode = (err as { code?: unknown } | null)?.code;
+    if (rpcErrorCode === 'PGRST202' || rpcErrorCode === '42883') {
+      console.error('[checkout] create_order 簽章不符', {
+        code: rpcErrorCode,
+        fix: 'prod 的 create_order 可能仍是 8 參:跑 bash scripts/verify-create-order-9param.sh,只有 exit 0 才可部署',
+      });
+    }
     // 🔴 Q2=A 通用字面、零原始 error 透傳。走到此處的 throw 全屬零扣款路徑
     // (cardholder repo / placeOrder RPC / findTotal / attempts.begin;charge 之後的失敗
     //  已由 confirmPayment 收斂為 outcome、不 throw)→「請稍後再試」誠實且安全。

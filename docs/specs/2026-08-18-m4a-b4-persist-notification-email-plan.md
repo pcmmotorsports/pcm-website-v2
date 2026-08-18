@@ -234,7 +234,7 @@ AddressEmailInput = NotificationEmailInput + ≤40 octets（packages/schemas/src
 |---|---|---|
 | 1 | 一般客人:session email 真值 ⇒ `p_notification_email` = **那個具體值**(不是「非 null」) | 把 `:267` 改回 `null` |
 | 2 | LINE 客人:session 是合成域 ⇒ 落到 `address.email` **那個具體值**。⚠️ 要**自己改** `charge-actions.test.ts:139` 的 mock 補 `addressEmail`(`F16`) | **把 resolver 的候選順位反過來**(局部、只打紅這一格族) |
-| 3 | 🔴 **§3.3 的真釘子**(取代原 #6):`buildCardholder` 回 ok 的**任何**輸入下,resolver **必非 null** —— 用 `cardholder.test.ts` 那批既有的 ok 樣本逐個餵 | 把 resolver 的驗證換成比 `AddressEmailInput` 嚴的(例如再加一條長度限制)⇒ 這格必須紅 |
+| 3 | 🔴 **§3.3 的真釘子**(取代原 #6):`buildCardholder` 回 ok 的**任何**輸入下,resolver **必非 null** —— 用 `cardholder.test.ts` 那批既有的 ok 樣本逐個餵。🔴 **2026-08-18 實作時更正(codex 關卡2 R1 must-fix 2)**:**只斷言「非 null」的話,這格幾乎恆真** ⇒ 已加一列 `LONG_SESSION`(52 octets:過 `NotificationEmailInput`、**不過** `AddressEmailInput`)並斷言**等於 canonical session email** | ~~把 resolver 的驗證換成比 `AddressEmailInput` 嚴的(例如再加一條長度限制)⇒ 這格必須紅~~ 🔴 **這句話是錯的、實測不成立**:七列樣本的 email **全都 ≤40 octets**,把接受集縮成 `AddressEmailInput` 對它們沒有差別 ⇒ **七列照樣全綠**。(要壓到 ≤10 才會紅,那比這裡寫的嚴得多。)**現行有效突變(各紅恰一格,2026-08-18 實跑)**:①接受集縮成 ≤40 ②候選順位交換 —— 兩發都只打紅新增那一列 |
 | 4 | **flag off 時第 9 參的值 = 那個具體 email**(🔴 `F17`:只斷言「鍵存在」擋不住日後有人寫成 `flag ? resolved : null`) | 把 `:267` 包回 flag 條件 |
 | 5 | 🔴 同一張單的 `cardholder.email` 與 `notification_email` **可以不同**(§3.2) | 把 resolver 順位改成地址優先(與 #2 同一發,一發打兩格) |
 | 6 | `mappers/order.test.ts:77,83` 那兩格**反過來**:真值**進得去** domain / wire(原本是 `@ts-expect-error` 擋它) | 把 mapper 改回 `p_notification_email: null` |

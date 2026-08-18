@@ -73,17 +73,16 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     expect(Reflect.get(args, 'p_notification_email')).toBeNull();
   });
 
-  it('B-3 型別只允許 null marker，不允許真 Email 提前穿過 domain／wire 邊界', () => {
-    // @ts-expect-error B-3 不得讓 canonical 真值進 PlaceOrderInput；B-4 才會擴型。
-    const forbiddenDomainInput: PlaceOrderInput = { ...input(), notificationEmail: 'real@example.com' };
-    const forbiddenWireArgs: CreateOrderRpcArgs = {
-      ...mapPlaceOrderToCreateOrderArgs(input()),
-      // @ts-expect-error B-3 wire 第 9 鍵只允許 null；B-4 才會擴型。
-      p_notification_email: 'real@example.com',
-    };
+  it('🔴 B-4:canonical 真值進得去 domain／wire，且 mapper 把它【原樣送出】(不是送 null)', () => {
+    // ~~B-3:這兩處是 @ts-expect-error,型別只收 null~~ ⇒ B-4 擴型後那兩個 expect-error 變 unused(TS2578)。
+    // 🔴 這格不是「刪掉了事」:它反過來釘住【真值送得到 wire】。突變=把 mapper 改回 p_notification_email: null ⇒ 必紅。
+    // 🔴 domain 那一半由 **typecheck** 表達,不由 runtime 斷言:擴型前這一行是 `@ts-expect-error`,
+    //    擴型後它編得過。~~原本這裡還 expect 了 domainInput.notificationEmail~~ —— 那是斷言
+    //    「剛剛寫進 object literal 的值還在」,任何 mapper 突變都不會讓它紅(codex 關卡2 nit 5)。
+    const domainInput: PlaceOrderInput = { ...input(), notificationEmail: 'real@example.com' };
 
-    expect(forbiddenDomainInput.notificationEmail).toBe('real@example.com');
-    expect(forbiddenWireArgs.p_notification_email).toBe('real@example.com');
+    const args: CreateOrderRpcArgs = mapPlaceOrderToCreateOrderArgs(domainInput);
+    expect(args.p_notification_email).toBe('real@example.com');
   });
 
   it('🔴 #241:termsVersion → p_terms_version;clientIp/UA → p_client_ip/ua(缺 → null)', () => {

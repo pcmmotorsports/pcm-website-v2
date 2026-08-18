@@ -1393,7 +1393,8 @@ export type OrderInvoice = {
  * PlaceOrderInput: 建單 use-case / repo 寫入 input(client → server 線契約、value-object)。
  *
  * 對齊 create_order RPC 簽名(p_lines / p_address_id / p_shipping_method / p_invoice / p_cart_session_id
- * / p_terms_version / p_client_ip / p_client_ua + B-2 p_notification_email、flag-off 8 / flag-on 9-param):
+ * / p_terms_version / p_client_ip / p_client_ua + p_notification_email = **9-param**;
+ * 🔴 M-4a B-4 起結帳這條路無條件送 9 參,~~flag-off 8 / flag-on 9~~ 已不成立):
  * - `lines`:購物車品項(1..200、每筆 qty 1..10000、上限 RPC 驗)
  * - `addressId`:收件地址 id(RPC 以 auth.uid() 驗本人歸屬、防 IDOR)
  * - `shippingMethod`:配送方式(運費 RPC §7 自算、見 shipping.ts)
@@ -1423,10 +1424,14 @@ export type PlaceOrderInput = {
   /** 🔴 #241 best-effort 同意來源 User-Agent(server 抓、可 null)。 */
   clientUserAgent?: string | null;
   /**
-   * B-3 RPC shape marker：屬性不存在=flag off、維持精確 8 參數；屬性存在=flag on、送第 9 參數。
-   * B-3 刻意只送 null，不寫入客人 Email；canonical 真值接線保留 B-4。
+   * 訂單通知信的收件人(canonical)。
+   * 🔴 **M-4a B-4 起:這個鍵【無條件】送**,值 = `resolveNotificationRecipient` 的結果(解不出 ⇒ `null`)。
+   * ~~B-3 RPC shape marker:屬性不存在=flag off、維持精確 8 參數;屬性存在=flag on、送第 9 參數。~~
+   * ~~B-3 刻意只送 null,不寫入客人 Email;canonical 真值接線保留 B-4。~~
+   * ⇒ **B-4 之後正式站每一筆結帳都走 9 參呼叫**(plan §4.1 的申報偏離),
+   *   部署前必須確認 prod 的 `create_order` 確實是 9 參(plan §7 的硬閘)。
    */
-  notificationEmail?: null;
+  notificationEmail?: string | null;
 };
 
 /**

@@ -61,7 +61,17 @@ export type BuildCardholderFailReason =
   | 'phone_missing'; // 地址 + profile 雙空 → 引導補手機
 
 export type BuildCardholderResult =
-  | { ok: true; cardholder: Cardholder }
+  | {
+      ok: true;
+      cardholder: Cardholder;
+      /**
+       * 🔴 M-4a B-4:收件地址上那個 email 的**原值(未驗)**,給通知信的收件人解析當第三候選。
+       * 驗證由呼叫端的 `resolveNotificationRecipient` 用 `NotificationEmailInput` 做 ——
+       * **本檔不替它驗**:先驗會讓那道閘變成恆真守門(同 `pickUsableEmail` 上方那段的理由)。
+       * ⚠️ 這個值與 `cardholder.email` **可能不同**,而那是預期的(兩者候選順位刻意相反)。
+       */
+      addressEmail: string | null;
+    }
   | { ok: false; reason: BuildCardholderFailReason };
 
 export type BuildCardholderDeps = {
@@ -115,5 +125,9 @@ export async function buildCardholder(
     return { ok: false, reason: 'email_unusable' };
   }
 
-  return { ok: true, cardholder: { name, email, phoneNumber } };
+  return {
+    ok: true,
+    cardholder: { name, email, phoneNumber },
+    addressEmail: address.email ?? null, // B-4:原值直傳,驗證留給呼叫端
+  };
 }

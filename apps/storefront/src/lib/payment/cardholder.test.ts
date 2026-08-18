@@ -61,6 +61,7 @@ describe('buildCardholder — happy + Q3=B 級聯', () => {
     expect(res).toEqual({
       ok: true,
       cardholder: { name: '王小明', email: 'a@b.com', phoneNumber: '0912345678' },
+      addressEmail: null, // 🔴 B-4:ok 分支多這個原值(未驗)給通知信解析;地址 fixture 預設 email:null
     });
   });
 
@@ -91,6 +92,7 @@ describe('buildCardholder — happy + Q3=B 級聯', () => {
     expect(res).toEqual({
       ok: true,
       cardholder: { name: '收件人甲', email: 'a@b.com', phoneNumber: '0900111222' },
+      addressEmail: null, // 🔴 B-4:原值直傳、本層不驗(地址 fixture 預設 email:null)
     });
   });
 });
@@ -170,6 +172,7 @@ describe('buildCardholder — M-4b 收件地址 Email', () => {
     expect(res).toEqual({
       ok: true,
       cardholder: { name: '王小明', email: 'line-user@mail.tw', phoneNumber: '0912345678' },
+      addressEmail: 'line-user@mail.tw', // 🔴 B-4:LINE 客人的通知信就是靠這個值落地
     });
   });
 

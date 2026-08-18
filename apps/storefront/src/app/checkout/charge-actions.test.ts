@@ -40,6 +40,9 @@ const mockResolveThreeDSConfig = vi.fn();
 const mockBuildResultUrls = vi.fn();
 const mockIsHttpsUrl = vi.fn();
 
+// 🔴 B-4:charge-actions 現在 import `lib/email/resolve-notification-recipient`(真模組、不 mock —— 
+//    收件人解析是本片的被測行為),而那支檔頭有 `import 'server-only'` ⇒ node env 下要先中和它。
+vi.mock('server-only', () => ({}));
 vi.mock('@pcm/use-cases', () => ({
   placeOrder: (...args: unknown[]) => mockPlaceOrder(...args),
   confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
@@ -136,7 +139,9 @@ beforeEach(() => {
   mockClaimPollSettle.mockResolvedValue(true); // 🔴 L4b 預設節流放行;不放行的那格顯式 override
   mockGetPollSettleThrottle.mockReturnValue({ claimPollSettle: (...a: unknown[]) => mockClaimPollSettle(...a) });
   mockSettleCharge.mockResolvedValue({ kind: 'paid', idempotent: false, displayId: 'PCM-2026-NS' });
-  mockBuildCardholder.mockResolvedValue({ ok: true, cardholder: CARDHOLDER });
+  // 🔴 B-4:預設補 addressEmail(舊地址 = null),否則既有格會靜默跑在 undefined 上而 typecheck 不會紅。
+  //    要驗「落到地址 email」的格各自 override。
+  mockBuildCardholder.mockResolvedValue({ ok: true, cardholder: CARDHOLDER, addressEmail: null });
   mockPlaceOrder.mockResolvedValue({ orderId: 'order-server-1', displayId: 'PCM-2026-0001' });
   mockFindTotal.mockResolvedValue(TOTAL);
   mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: false });
@@ -174,12 +179,51 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     expect(mockPlaceOrder).not.toHaveBeenCalled();
   });
 
-  it('B-3 flag off：不要求 Email，client 偷塞也不進 PlaceOrderInput，維持 8-param marker absent', async () => {
+  it('🔴 B-4 flag off：第 9 參【無條件】送，值 = server 解出的 session email(不是 client 偷塞的、也不是 null)', async () => {
+    // ~~B-3:flag off ⇒ 不進 PlaceOrderInput、維持 8-param marker absent~~(plan §4.1 申報偏離)。
+    // 🔴 這格同時守三件:①值是那個具體 email(不是「非 null」)②flag off 也要有值
+    //    ③client 偷塞的值到不了建單 —— 第三件是這格改寫前唯一的守門,不可順手刪(plan §6 #7)。
     const action = await getAction();
     await action(validInput({ notificationEmail: 'attacker@example.com' }));
 
     const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
-    expect(placeOrderInput).not.toHaveProperty('notificationEmail');
+    expect(placeOrderInput.notificationEmail).toBe('a@b.com'); // = mockGetUser 的 session email
+    expect(JSON.stringify(placeOrderInput)).not.toContain('attacker@example.com');
+  });
+
+  it('🔴 B-4 LINE 客人：session 是合成域 ⇒ 落到收件地址那個【具體】email', async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: { id: 'user-1', email: `line_U${'a'.repeat(32)}@line.pcmmotorsports.local` } },
+    });
+    mockBuildCardholder.mockResolvedValue({
+      ok: true,
+      cardholder: { ...CARDHOLDER, email: 'line-user@mail.tw' },
+      addressEmail: 'line-user@mail.tw',
+    });
+    const action = await getAction();
+    await action(validInput());
+
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput.notificationEmail).toBe('line-user@mail.tw');
+  });
+
+  it('🔴 B-4 plan §3.2：同一張單的 cardholder.email 與 notification_email【可以不同】,那是預期行為', async () => {
+    // 順位刻意相反:cardholder = 地址優先(TapPay)、notification = 註冊信箱優先(Sean 拍板)。
+    // 這格擋的是「下一個人順手把兩者統一」。突變 = 把 resolver 順位改成地址優先 ⇒ 兩者相等 ⇒ 紅。
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'member@example.com' } } });
+    mockBuildCardholder.mockResolvedValue({
+      ok: true,
+      cardholder: { ...CARDHOLDER, email: 'ship-to@mail.tw' },
+      addressEmail: 'ship-to@mail.tw',
+    });
+    const action = await getAction();
+    await action(validInput());
+
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput.notificationEmail).toBe('member@example.com');
+    const [, confirmInput] = mockConfirmPayment.mock.calls[0]!;
+    expect(confirmInput.cardholder.email).toBe('ship-to@mail.tw');
+    expect(placeOrderInput.notificationEmail).not.toBe(confirmInput.cardholder.email);
   });
 
   it.each([
@@ -196,15 +240,40 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     expect(mockPlaceOrder).not.toHaveBeenCalled();
   });
 
-  it('B-3 flag on：合法 padded Email 通過 server canonical 驗證，但只送 9th null，真值留 B-4', async () => {
+  it('🔴 B-4 flag on：客人自己填的那個值【被採用】(第一候選),canonical 後送出', async () => {
+    // ~~B-3:只送 9th null,真值留 B-4~~ —— 舊格的 `not.toContain('Member@example.com')`
+    // 那個字面**正好是新行為的正確值**(plan §4)。
+    // 🔴 這格釘的是 R3-F1:flag 將來被翻成 on 時,:129-131 會強制客人填 Email;
+    //    resolver 少了第一候選 ⇒ 客人親手填的信箱被靜默丟掉、畫面全正常、零測試會紅。
+    //    突變 = 把第一候選從 :272 的呼叫拿掉 ⇒ 這格必紅(會落回 session 的 a@b.com)。
     mockIsCheckoutNotificationEmailEnabled.mockReturnValue(true);
     const action = await getAction();
     await action(validInput({ notificationEmail: ' Member@EXAMPLE.COM ' }));
 
     const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
-    expect(placeOrderInput.notificationEmail).toBeNull();
-    expect(JSON.stringify(placeOrderInput)).not.toContain('Member@example.com');
+    expect(placeOrderInput.notificationEmail).toBe('Member@example.com');
   });
+
+  // 🔴 兩個 code 各釘一格(codex 關卡2 nit 4):只測 PGRST202 的話,刪掉 `|| rpcErrorCode === '42883'`
+  //    整套仍綠 —— 而正式站若回的是 PG 那一側的 42883,指名修法的 log 就消失了。
+  it.each(['PGRST202', '42883'])(
+    '🔴 B-4 硬閘的回聲:create_order 簽章不符(%s)→ 通用字面照舊,而 log 指名修法',
+    async (code) => {
+      // 這條路 = prod 沒 apply 到 9 參版本的世界。客人看到的字面不變(Q2=A、零 error 透傳),
+      // 但收到通報的人要在 log 裡直接拿到「跑哪支腳本」。突變 = 刪掉那個 if ⇒ 這格必紅。
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockPlaceOrder.mockRejectedValue(Object.assign(new Error('boom'), { code }));
+      const action = await getAction();
+      const res = await action(validInput());
+
+      expect(res).toEqual({ formError: '付款失敗,請稍後再試或聯繫客服 LINE' });
+      expect(spy).toHaveBeenCalledWith(
+        '[checkout] create_order 簽章不符',
+        expect.objectContaining({ code, fix: expect.stringContaining('verify-create-order-9param.sh') }),
+      );
+      spy.mockRestore();
+    },
+  );
 
   it('lines 非法(缺 variantId)→ formError REJECT 整單', async () => {
     const action = await getAction();

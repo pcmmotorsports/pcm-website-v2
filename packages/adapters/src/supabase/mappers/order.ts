@@ -40,7 +40,8 @@ import {
  * domain `quantity` → RPC `qty`(對齊 create_order RPC `v_line->>'qty'`)。
  *
  * (ADR-0003 §3.4:wire 字面只在 mapper 邊界、不 leak domain/ports/use-case。)
- * 對齊 migration create_order **flag-off 8 / flag-on 9-param**(B-2 第 9 參數 p_notification_email)+ return DTO `{order_id, display_id}`。
+ * 對齊 migration create_order **9-param**(第 9 參數 p_notification_email)+ return DTO `{order_id, display_id}`。
+ * 🔴 **M-4a B-4 起鍵無條件存在 ⇒ 實際送出的一律是 9 參**;~~flag-off 8 / flag-on 9~~ 是 B-2/B-3 的形狀,已不成立。
  *
  * 讀路徑「摘要」(orders row + 內嵌 order_items(quantity) → `OrderListItem`)= M-3 OrdersTab,見
  * `mapSupabaseOrderRowToListItem`(繞過 #217:摘要不含 items[])。完整 Order 重建
@@ -66,7 +67,9 @@ type CreateOrderRpcInvoice = {
   donateCode?: string;
 };
 
-/** create_order RPC 入參(wire；B-3 以 optional key 區分 flag-off 8 / flag-on 9 參數形狀)。 */
+/** create_order RPC 入參(wire;🔴 B-4 起第 9 鍵無條件帶上 ⇒ 實際永遠是 9 參)。 */
+/* ~~B-3 以 optional key 區分 flag-off 8 / flag-on 9 參數形狀~~ —— 型別上仍 optional(舊 caller 相容),
+   而結帳這條唯一的建單路徑 `charge-actions.ts` 已無條件帶鍵。 */
 export type CreateOrderRpcArgs = {
   p_lines: CreateOrderRpcLine[];
   p_address_id: string;
@@ -76,7 +79,7 @@ export type CreateOrderRpcArgs = {
   p_terms_version: string; // 🔴 #241 同意條款版本(server 注入);RPC NULL/空 fail-closed
   p_client_ip: string | null; // 🔴 #241 best-effort 同意來源 IP(可 null;RPC left 截 128);PII、非價
   p_client_ua: string | null; // 🔴 #241 best-effort User-Agent(可 null;RPC left 截 1024);PII、非價
-  p_notification_email?: null; // B-3 flag-on 只允許 null marker；canonical 真值到 B-4 才擴型
+  p_notification_email?: string | null; // 🔴 B-4 起送 canonical 真值(解不出 ⇒ null);~~B-3 只允許 null marker~~
 };
 
 /** create_order RPC return DTO(wire、對齊 RPC RETURNS jsonb `{order_id, display_id}`、零價結構)。 */
@@ -142,8 +145,11 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
     p_terms_version: input.termsVersion, // 🔴 #241 同意條款版本(server 注入 CURRENT_TERMS_VERSION)
     p_client_ip: input.clientIp ?? null, // 🔴 #241 best-effort PII(缺 → null;RPC 容忍)
     p_client_ua: input.clientUserAgent ?? null, // 🔴 #241 best-effort PII(缺 → null)
+    // 🔴 B-4:鍵存在就送【真值】(input 解不出收件人時本來就是 null)。
+    //    ~~B-3:鍵存在也只送 null marker~~ —— 那一版的前提是「flag 決定送不送第 9 參」,
+    //    而 B-4 把持久化拿出 flag 之外(plan §4.1),鍵從此無條件存在。
     ...(Object.prototype.hasOwnProperty.call(input, 'notificationEmail')
-      ? { p_notification_email: null }
+      ? { p_notification_email: input.notificationEmail ?? null }
       : {}),
   };
 }
