@@ -152,6 +152,17 @@ $precheck$;
 --        保留它原本的樣子,是為了讓將來翻紀錄的人看得出「這個帳號當時的權限有多大」。
 --        把它一起降級會抹掉那個事實。
 -- ───────────────────────────────────────────────────────────────────────────
+-- 🔴🔴 2026-08-18 新增(codex 關卡1 R5,角度=本機綠正式庫不綠)。codex 逐字:
+--    「本機固定六列使啟用名單恰為三人;正式庫若已合法新增員工,**完全正確的 migration 仍會誤紅**。」
+--    **屬實,而且這是最貴的一種紅** —— 誤紅發生在 apply 當天、Sean 在旁邊,
+--    而**最順手的修法是把斷言放寬**(`~/.claude/rules/00-work-rules.md` R4:動驗證本身=立即停止訊號)。
+--    ⇒ 改法不是放寬,是**換問題**:本支真正要保證的是「**除了我改的,沒有別的列被動到**」,
+--      而不是「這個庫剛好有那三個人」。⇒ 先照相,最後比對。
+--    ✅ 這樣正式庫多了幾個員工也不會紅,而「動到不該動的列」照樣會紅(判別力反而更強)。
+--    ⚠️ TEMP + ON COMMIT DROP ⇒ 交易結束自動消失,不留物件、不需退場步驟。
+CREATE TEMP TABLE b1a_before ON COMMIT DROP AS
+  SELECT id, is_active, label FROM public.staff;
+
 UPDATE public.staff
    SET is_active  = false,
        updated_at = now()
@@ -195,6 +206,7 @@ DECLARE
   v_active   boolean;
   v_others   bigint;
   v_active_ids text;
+  v_drift    text;
 BEGIN
   SELECT is_active INTO v_active FROM public.staff WHERE id = 'test_01';
   IF v_active IS NULL THEN
@@ -220,12 +232,49 @@ BEGIN
   --    ⛔ ~~原本只驗「啟用中的 staff 共 3 列」~~ —— codex 逐字:「一個真人被停用、另一個系統帳號
   --       被啟用時仍是 3,整支照綠」。**屬實:數量相同的世界有很多個,我只想到其中一個。**
   --    ⇒ 改成驗【是哪三個】,不是【有幾個】。數量那句留在訊息裡幫忙診斷。
+  -- 🔴🔴 2026-08-18 再改(codex R5):⛔ ~~驗「啟用中的恰好是 sean,staff_1,staff_2」~~
+  --    ⇒ 那會在【正式庫合法多了一個員工】的世界誤紅,而誤紅的修法最順手的那條是放寬斷言。
+  --    ⇒ 改成拿 b1a_before 的快照比對:**本支只允許兩種差異**,其餘任何差異一律紅。
+  --      ① test_01:is_active true → false
+  --      ② staff_2:label 被改(本支第 2 段刻意做的)
   SELECT count(*) INTO v_others FROM public.staff WHERE is_active;
   SELECT string_agg(id, ',' ORDER BY id) INTO v_active_ids FROM public.staff WHERE is_active;
+
+  SELECT string_agg(format('%s(%s)', COALESCE(a.id, b.id), d.what), ', ' ORDER BY COALESCE(a.id, b.id))
+    INTO v_drift
+    FROM b1a_before b
+    FULL JOIN public.staff a ON a.id = b.id
+    CROSS JOIN LATERAL (SELECT CASE
+             WHEN b.id IS NULL THEN '新增了這一列'
+             WHEN a.id IS NULL THEN '這一列不見了'
+             WHEN a.is_active IS DISTINCT FROM b.is_active AND a.id <> 'test_01' THEN 'is_active 被改'
+             WHEN a.label IS DISTINCT FROM b.label AND a.id <> 'staff_2' THEN 'label 被改'
+             WHEN a.id = 'test_01' AND NOT (b.is_active AND NOT a.is_active) THEN 'test_01 的變化不是 true→false'
+             ELSE NULL END AS what) d
+   WHERE d.what IS NOT NULL;
+
+  -- 🔴🔴 **這裡有一個【刻意的降級】,寫出來讓下一輪審查攻擊它**(2026-08-18):
+  --    原本「啟用中的恰好是 sean,staff_1,staff_2」這道是**會擋住 apply 的紅**。
+  --    我把它降成下面的 NOTICE,而**降級本身命中 `00-work-rules.md` R4 的停止訊號**
+  --    (想動驗證本身 ⇒ 立即停止),所以理由要經得起看:
+  --      · 那道原本要守的東西是註解自己寫的「**本支只該動一列**」——
+  --        而那件事**現在由上面的 b1a_before 快照比對守著,而且守得更緊**(它連 label 被改都抓)。
+  --      · 那道**實際**在判的是另一件事:「這個庫的名單跟 2026-08-16 的實查一不一樣」。
+  --        那是**世界的狀態**,不是**本支的行為** —— 而正式庫合法多一個員工是**預期會發生的事**。
+  --        用它擋 apply ⇒ 誤紅發生在 Sean 在旁邊的那一刻,而最順手的修法是放寬斷言。
+  --      · ⇒ **保留資訊、移除阻擋**:印出來給當天的人看,不擋。
+  --    ⚠️ **如果下一輪審查認為這個降級不成立,改回去的成本是三行** —— 把 NOTICE 換回 RAISE EXCEPTION。
   IF v_active_ids IS DISTINCT FROM 'sean,staff_1,staff_2' THEN
-    RAISE EXCEPTION E'B1-a 落地斷言:啟用中的 staff 是 [%](共 % 列),預期恰好 sean,staff_1,staff_2。\n'
-      '   ⇒ 要嘛我動到了不該動的列,要嘛這個庫的 staff 現況已經跟 2026-08-16 的實查不同。\n'
-      '   ⇒ 兩種都要停下來看,不要當成通過。', COALESCE(v_active_ids, '(空)'), v_others;
+    RAISE NOTICE E'⚠️ B1-a:啟用中的 staff 是 [%](共 % 列),與 2026-08-16 實查的 sean,staff_1,staff_2 不同。\n'
+      '   這【不擋】apply —— 本支只動 test_01,而「只動它」由上面的快照比對守著。\n'
+      '   但請看一眼:多出來的人是誰?少掉的人為什麼被停用?', COALESCE(v_active_ids, '(空)'), v_others;
+  END IF;
+
+  IF v_drift IS NOT NULL THEN
+    RAISE EXCEPTION E'B1-a 落地斷言:本支動到了不該動的東西:%\n'
+      '   ⇒ 允許的差異只有兩種:test_01 的 is_active true→false、staff_2 的 label。\n'
+      '   ⇒ 現在啟用中的是 [%](共 % 列)—— 這兩個數字只是幫你診斷,判定不看它們。\n'
+      '   ⇒ 停下來看,不要當成通過。', v_drift, COALESCE(v_active_ids, '(空)'), v_others;
   END IF;
 
   -- 🔴 staff_2 的 label 必須真的改到,而且不得再含「員工 2」那種會被誤讀成真員工的字

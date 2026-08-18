@@ -2,7 +2,12 @@
 --  B1-b · admin_user_staff_map  —— 真登入線的身分映射表
 --
 --  🔴🔴 這是【草稿】,不是可以直接 apply 的東西。位置也是暫時的。
---     · 規格:docs/specs/2026-08-16-m4b-e8b-b1-spec.md(三輪關卡1 審查後定稿)
+--     · 🔴 **apply 之前先讀這兩份(2026-08-18 codex R5 角度=操作者視角:
+--       原本檔頭只導向那份很長的規格,而操作者最可能只讀檔頭)**:
+--         ① docs/specs/2026-08-17-b1-apply-preflight.md   ← 自稱「apply 前置單一正本」
+--         ② docs/reviews/2026-08-18-b1-k1-r3-findings-triage.md §3 / §7
+--            ← 折完之後【還沒做的事】與【本機驗不到的事】都在那裡
+--     · 規格:docs/specs/2026-08-16-m4b-e8b-b1-spec.md(§0.5 先讀;R3/R4/R5 三輪審查後定稿)
 --     · 最終落點:報價單 repo(~/API大量上架/PCM報價單-V2)的 supabase/migrations/
 --     · apply 管道:MCP apply_migration,【需要 Sean 在場】
 --       (報價單 repo 明文禁 supabase db push,docs/ops/MULTI_WINDOW_WORKFLOW.md:165)
@@ -296,8 +301,17 @@ BEGIN
       '      ① 直接授權(含 ADP)⇒ REVOKE ALL ON TABLE … FROM service_role; 放在 GRANT 之前\n'
       '      ② 欄級授權        ⇒ REVOKE … (欄名) ON TABLE … FROM service_role;\n'
       '      ③ 可 SET ROLE 過去的角色持有 ⇒ REVOKE 收不掉,要拆 role membership\n'
-      '      ⇒ 先查是哪一種:SELECT * FROM information_schema.table_privileges\n'
-      '                       WHERE table_name = ''admin_user_staff_map'';', v_bad;
+      '      ⛔ 2026-08-18 codex R5 標【折錯】:我上一輪只給了一條【表級】查詢,\n'
+      '         而它看不到 ② 與 ③ —— 照它查完會得到「沒有直授」然後回頭改錯東西。\n'
+      '      ⇒ 三條一起查,一種來源一條(哪一條有東西,修法就是那一種):\n'
+      '         ① SELECT * FROM information_schema.table_privileges\n'
+      '             WHERE table_name = ''admin_user_staff_map'' AND grantee = ''service_role'';\n'
+      '         ② SELECT * FROM information_schema.column_privileges\n'
+      '             WHERE table_name = ''admin_user_staff_map'' AND grantee = ''service_role'';\n'
+      '         ③ SELECT g.rolname AS 可切換到, r.rolinherit FROM pg_auth_members m\n'
+      '             JOIN pg_roles r ON r.oid = m.member JOIN pg_roles g ON g.oid = m.roleid\n'
+      '             WHERE r.rolname = ''service_role'';\n'
+      '      ⚠️ 三條都空而這道仍紅 ⇒ 停下來回報,不要放寬這道斷言。', v_bad;
   END IF;
   -- 🔴 對照組:SELECT 必須【有】。少了它,上面那道會在「什麼權限都沒有」的世界裡也綠,
   --    而那個世界裡報價單登入查不到 staff_id ⇒ 全公司登入失敗。

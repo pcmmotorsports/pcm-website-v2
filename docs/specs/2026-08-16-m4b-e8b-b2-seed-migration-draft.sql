@@ -1,5 +1,12 @@
 -- ═══════════════════════════════════════════════════════════════════════════
---  B2-seed · 把三個真人塞進 admin_user_staff_map
+--  B1-c(舊稱 B2-seed)· 把【兩個】真人塞進 admin_user_staff_map
+--
+--  🔴 檔名裡的 `b2-seed` 是舊稱,**不要據它推論這支屬於母 plan 的 B2** ——
+--     母 plan 的 `B2` 是【登入認人】(`…-real-auth-line-plan-v4.md:187`),完全是另一件事。
+--     本支是 B1 的第三步:B1-a 停用 test_01 / B1-b 建表 / **B1-c 塞人**。
+--     檔名不改的理由:已被 commit body、triage、兩封信與規格多處指到,改名只換來好看。
+--     (2026-08-18 codex 關卡1 R5 標【最貴】的那條:代號撞名 ⇒ 交接者可能把 seed 完成誤當登入認人完成。)
+--  🔴 「三個」是舊字面:現實是**兩個**(sean / staff_2,都是 Sean 本人);`staff_1` 刻意不綁。
 --
 --  🔴🔴 這是【草稿】,而且它比 B1-b 那支更不能直接跑 ——
 --     **2026-08-16 已填入真值(兩個,不是三個 —— 見 §0 DECLARE 那段的理由)。**
@@ -106,6 +113,7 @@ DECLARE
   v_staff_2 uuid := '63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f';  -- shopee1@partscheaper.net
   v_missing text;
   v_acl_bad text;
+  v_acl_col_bad text;
   v_existing bigint;
 BEGIN
   -- 0.1 B1-b 必須已經跑過,**而且那張表還是 B1-b 建出來的那個版本**
@@ -154,9 +162,22 @@ BEGIN
        WHERE oc.oid = to_regclass('public.admin_user_staff_map')
     ) d
    WHERE has_table_privilege(r, to_regclass('public.admin_user_staff_map'), d.privilege_type);
-  IF v_acl_bad IS NOT NULL THEN
-    RAISE EXCEPTION E'B2-seed 前提斷言:anon / authenticated 對這張表仍有權限(%)。\n'
-      '   ⇒ anon 是 storefront 印在訪客瀏覽器裡的公開角色。拒繼續。', v_acl_bad;
+
+  -- 🔴🔴 2026-08-18 codex R5 標【折錯】:上一輪我把「權限型別」改成推導了,
+  --    **而問法還是只有 `has_table_privilege`** —— 欄級授權(`GRANT SELECT (staff_id) …`)
+  --    在表級那一問回 `f` ⇒ **B2 假綠,而 anon 讀得到那一欄**。
+  --    📎 B1-b 那支檔早就分成【表級一圈 + 欄級一圈】兩段,而我抄了它的「推導」沒抄它的「兩圈」。
+  --    ⇒ 補上欄級這一圈。PG 只允許四種欄級授權,**故意具名**(與 B1-b 同一個理由:
+  --       DELETE/TRUNCATE/TRIGGER/MAINTAIN 沒有欄級形式,寫進來反而會誤紅)。
+  SELECT string_agg(format('%s:欄級 %s', r, c), ', ') INTO v_acl_col_bad
+    FROM unnest(ARRAY['anon','authenticated']) AS r
+    CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','REFERENCES']) AS c
+   WHERE has_any_column_privilege(r, to_regclass('public.admin_user_staff_map'), c);
+
+  IF v_acl_bad IS NOT NULL OR v_acl_col_bad IS NOT NULL THEN
+    RAISE EXCEPTION E'B2-seed 前提斷言:anon / authenticated 對這張表仍有權限(表級:% / 欄級:%)。\n'
+      '   ⇒ anon 是 storefront 印在訪客瀏覽器裡的公開角色。拒繼續。',
+      COALESCE(v_acl_bad, '無'), COALESCE(v_acl_col_bad, '無');
   END IF;
 
   -- 🔴 對照組:service_role 必須【有 SELECT】。三道全紅的世界(整張表誰都碰不到)
@@ -164,10 +185,35 @@ BEGIN
   -- 🔴 2026-08-18 補(codex R4):B1-b 的設計【承重在 service_role 有 BYPASSRLS】
   --    (RLS 開 + 零 policy ⇒ 沒有 BYPASSRLS 的 service_role 一列都讀不到)。
   --    兩支之間若有人撤掉它,**B2 照樣 seed 成功、而登入永遠讀不到映射** —— 那是「事後才發現」的形狀。
+  -- 🔴🔴 2026-08-18 補(codex 關卡1 R5,角度=本機綠正式庫不綠):
+  --    B1-b 檔內寫著「緩解已經下在 B2-seed 的前提斷言裡(它會印出當下角色與缺哪個權限)」
+  --    —— codex 逐字:「實檔沒有」。**屬實:那是一句【我宣稱有、而實際沒寫】的話。**
+  --    ⇒ 現在真的加上去。失敗世界:`apply_migration` 若不是以表 owner 連線,
+  --      下面的 INSERT 會回一句乾巴巴的 permission denied,而讀的人不會知道那是【管道問題】。
+  IF NOT pg_catalog.has_table_privilege(current_user, to_regclass('public.admin_user_staff_map'), 'INSERT') THEN
+    RAISE EXCEPTION E'B1-c 前提斷言:目前角色(current_user = %)對 admin_user_staff_map 沒有 INSERT 權。\n'
+      '   ⇒ 這不是資料問題,是【誰在跑這支】的問題。\n'
+      '   ⇒ B1-b 刻意只給 service_role SELECT(寫入端唯一入口 = migration 本身,以表 owner 執行)。\n'
+      '   ⇒ 正常管道 = MCP apply_migration 走 postgres(= 本表 owner)。走到這裡代表管道不同,\n'
+      '      請改回正常管道;若確定要改管道,那要先改 B1-b 的授權設計,不是在這裡放寬。', current_user;
+  END IF;
+
   IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'service_role') THEN
     RAISE EXCEPTION E'B2-seed 前提斷言:service_role 沒有 BYPASSRLS(B1-b apply 當時是有的)。\n'
       '   ⇒ 本表是「RLS 開 + 零 policy」,沒有 BYPASSRLS ⇒ 報價單登入查映射會回 0 列,而不是報錯。\n'
       '   ⇒ 先確認是誰改的,再決定要不要改走明文 policy。拒繼續。';
+  END IF;
+
+  -- 🔴 2026-08-18 補(codex R5 角度 4·下游繼承):B1-b 的「service_role 沒有任何寫入權」
+  --    只在 B1-b apply 那一刻成立,而**下游(B2 登入認人 / B5)會把「migration 是唯一寫入端」當成既成事實**。
+  --    ⇒ 在真人身分放進去之前,再問一次。
+  SELECT string_agg(p, ', ') INTO v_acl_bad
+    FROM unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) AS p
+   WHERE has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), p);
+  IF v_acl_bad IS NOT NULL THEN
+    RAISE EXCEPTION E'B2-seed 前提斷言:service_role 又拿到寫入權了(%)。\n'
+      '   ⇒ B1-b 之後有人加了 GRANT。「寫入端唯一入口 = migration」在權限層已經不成立,\n'
+      '      而下游會把它當成既成事實。拒把真人身分放進去。', v_acl_bad;
   END IF;
 
   IF NOT has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), 'SELECT') THEN
@@ -402,8 +448,20 @@ BEGIN
           RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 被擋下了,但丟例外的不是 no_truncate。\n'
             '   呼叫堆疊:%\n   ⇒ 保護的狀態是未知的,拒繼續。', COALESCE(v_ctx, '(無 context)');
         END IF;
+      WHEN insufficient_privilege THEN
+        -- 🔴 2026-08-18 補(codex R5 `[不確定]`,角度=本機綠正式庫不綠):
+        --    上面那段註解已經寫了「非 owner ⇒ 42501 ⇒ 掉進 WHEN OTHERS ⇒ 誤紅」,
+        --    **而它只寫在註解裡** —— 真的發生時,Sean 看到的是一句「非預期錯誤」。
+        --    ⇒ 明捕它,並把【它不是保護失效】與【該怎麼辦】寫進訊息本身。
+        --    ⚠️ 這裡仍然是紅的:探針測不到 ≠ 保護還在。**不放行,但要讓人知道往哪走。**
+        RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 探針【權限不足】(42501),不是保護失效。\n'
+          '   ⇒ 跑這支的角色(current_user = %)不是本表的 owner,而 TRUNCATE 不在 B1-b 授出去的權限裡。\n'
+          '   ⇒ 這代表【這道探針測不到 no_truncate】,不代表 no_truncate 壞了 —— 兩者不可混為一談。\n'
+          '   ⇒ 正常管道(MCP apply_migration 走 postgres = 本表 owner)不會走到這裡;\n'
+          '      走到了 = 你換了管道。請改回正常管道,或先確認角色是 owner。', current_user;
       WHEN OTHERS THEN
-        RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 探針出現【非預期】錯誤(% / %)。拒繼續。', SQLSTATE, SQLERRM;
+        RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 探針出現【非預期】錯誤(% / % / current_user=%)。拒繼續。',
+          SQLSTATE, SQLERRM, current_user;
     END;
     IF v_leaked THEN
       RAISE EXCEPTION E'B2-seed 前提斷言:TRUNCATE 沒有被擋下 —— no_truncate 的【函式本體】已被掏空。\n'
