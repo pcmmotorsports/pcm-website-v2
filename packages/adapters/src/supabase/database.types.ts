@@ -284,6 +284,14 @@
 //     · 內嵌註解 90 行:83 行以同樣雙鍵回貼;其餘 7 行屬 ⑫、隨該段退場
 //   🔴 **自洽檢查(可重跑)**:合併後掃全檔 ⇒ **11 個函式 / 27 處**,與算式相符;
 //      而 `database-types-manual-count.test.ts` 是機械版的同一件事(它抓到過我漏改條目)。
+//   ✅ **拆掉 `login-event.ts` 窄 cast 之後,型別守門【當場表演過】**(不是「改完就算」):
+//        欄名加 `_TYPO` ⇒ `TS2322: Type 'string' is not assignable to type 'never'`  🔴 紅
+//        表名加 `_TYPO` ⇒ `TS2769: No overload matches this call`                    🔴 紅
+//      ⇒ backlog `#652` 結案(`fc27309f`);兩發表演與拆 cast 在 `acc68f81`。
+//   🔴 **本次合併踩到的坑(修法在 `docs/patterns/guard-and-instrument-traps.md` 最末一節)**:
+//      用「區塊界定」刪 ⑫ 那一條時**吃掉了後面 36 行檔頭**(含上面那段 `--project-id` 警告),
+//      而**三綠全綠** —— 那些是註解,刪掉不影響任何斷言。
+//      ⇒ 修法:**從原檔頭重來、只動要動的那幾行,然後逐行複驗「舊檔頭每一行還在嗎」。**
 //   ⚠️ **本次新進來的**:`admin_sso_login_events` / `purge_admin_sso_login_events`(本班的)+
 //      `admin_customer_list_v` / `sweeper_heartbeat` / `graphql`(**不是我 apply 的** ——
 //      它們先前就在正式庫,是本檔落後於它)。
