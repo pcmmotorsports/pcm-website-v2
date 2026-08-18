@@ -553,7 +553,18 @@ Vercel 官方 Drains · Usage and pricing（last_updated 2026-07-22）逐字：
    但我們照 Git 紀律直推 dev ⇒ CI 紅的時候東西已經在 dev 上，而 dev = admin 的 production
    （正本 STATUS.md Blocker「CI 不是閘、是事後警報,而【沒有人在看】」）
    ⇒ 「有守門」與「改壞會被擋下來」是兩件事，本條只達成前者
-```
+
+🔴🔴 ③ 惡化一級（2026-08-18 11:2x，我自量，不是轉述）：**那個警報現在【一直在響】。**
+   ci.yml 沒有 build 步驟 —— 量法 `grep -cE '^\s+run: .*build' .github/workflows/ci.yml` ⇒ **0**
+   （步驟只有 Checkout / Setup / Install / Typecheck / Lint / Playwright / Test / SQL probes）
+   而有測試需要建置產物 ⇒ 它們【刻意紅、不 skip】（作者紀律是對的，紅比假綠好）
+   ⇒ 🔴 **CI 從現在起每次都紅** ⇒ **紅色不再是訊號。**
+   ⇒ 對本條的意思：`proxy-matcher.test.ts` 就算紅了，也會淹在一片恆紅裡沒有人分得出來。
+   📎 這比「事後警報」更糟一級：事後警報至少響的時候有人可能會看；
+      **一個永遠在響的警報，等於沒有警報**，而它看起來像「監控有在跑」。
+   ⚠️ `E2E (production build)` 是綠的 ⇒ **線上是好的，紅的是量測管線**（主視窗轉 W1，我未自驗）。
+   ⇒ 這一件不是本清單能修的（要一個 CI 順序的決定），但**必須寫在這裡**，
+      否則 ⑱ 會被讀成「有守門所以安全」。
 📄 `docs/phase-1-backlog.md` `#547`(已加同一段更正)
 
 ---
