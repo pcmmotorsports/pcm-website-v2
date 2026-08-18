@@ -8281,6 +8281,39 @@ order by n desc, 1;
 > ⇒ **員工從訂單頁「採購」區塊登錄到貨(列表模式)⇒ 沒有確認、也沒有撤銷,兩者皆無。**
 > 另 `receipt-undo-bar.tsx:15-21` 逐字:它**只撤得掉「這個表單這次登錄的那筆」**,更早的沒有入口。
 >
+> ##### 🔴 第三層查核(2026-08-19 G2,獨立重量):**上面那句「兩者皆無」成立,而它比逐檔讀更硬**
+> G6 那一版的限定是「**讀 code + 呼叫端旗標,沒有實跑後台**」。我沒有實跑後台(理由在最後一行),
+> 而我換了一個**不需要跑畫面也答得出來**的問法:**撤銷這個東西,全 repo 有幾個呼叫點?**
+> ```
+> git grep -n 'ReceiptUndoBar' -- apps packages
+>   ⇒ 非測試呼叫點【恰好 1 個】:receipt-record-form.tsx:288
+> 而它掛在條件 undoKey !== null 之下(:287)
+> setUndoKey 全檔【恰好 1 次】(:178),在 useEffect 內,守門式為
+>   if (state.status !== 'recorded_inline' || state.procurementId !== procurementId) return;   (:168)
+> 而 recorded_inline 只有在送出 RCPT_INLINE_FIELD 時才產生,那個 hidden input 掛在 {inline && …}(:214)
+> inline 預設 false(:67);item-procurement-rows.tsx:173-179 沒有傳 inline
+> ```
+> ⇒ **不是「這個表單沒顯示撤銷鈕」,是「提供撤銷的那個元件在這條路上結構性到不了」。**
+> **一張截圖只證某一筆單當下沒有鈕;上面這條鏈證的是它不可能有。**
+>
+> **確認那一半也重量了(附正向對照,證明尺會動)**:
+> ```
+> 字集(事前攔那一類):confirm|二次確認|requireConfirm|攔截|你確定|window.confirm
+> 那條路的三個檔  item-procurement-rows.tsx / receipt-record-form.tsx / item-procurement-section.tsx
+>                ⇒ 三個檔【全部 0 命中】
+> 正向對照(同一把尺、同一個目錄)⇒ 8 個檔有命中,例:
+>   refund-exception-resolve.tsx:13 / result-banner.tsx:9 / refund-section.tsx:6 / payment-reverse-button.tsx:4
+> ```
+> ⚠️ **而「兩者皆無」不等於「零防護」** —— 那條路上仍有一道**額度閘**:
+> 表單預填 `remaining`(`item-procurement-rows.tsx:178`),超額由 RPC 回 `QUANTITY_EXCEEDS_ALLOCATED` 擋。
+> 缺的是**事前攔**與**事後撤**這兩類,不是全部四類。(四類的分法見
+> `docs/patterns/guard-and-instrument-traps.md`「這個面有沒有防護 vs 有沒有我想到的那種防護」。)
+>
+> 🔴 **我沒有做的那一件,寫在這裡不要被讀成做了**:**我沒有開瀏覽器看過那條路。**
+> 理由是本機三個 `.env.local` 全部指著**正式站**(`bash scripts/which-db-am-i-pointed-at.sh` 三行全紅),
+> 而零風險的替代路(`docs/runbooks/local-admin-with-real-data-probe.md`)是一套多步驟手工程序、**沒有一鍵腳本**。
+> ⇒ 上面的結論全部是**靜態可重跑的量測**,**不含任何視覺確認**。要視覺確認 ⇒ 走那份 runbook。
+>
 > #### `tier` = **不是尺的問題。兩把尺都 0,真的零機制。**
 > 開過 4 支檔全文,現有縱深只有:必填變更原因(`tier-edit-form.tsx:47-56`)、
 > pending disable 防雙擊(`tier-edit-submit.tsx:14`)、RPC `NO_CHANGE` 冪等、稽核入 `admin_audit_log`。
