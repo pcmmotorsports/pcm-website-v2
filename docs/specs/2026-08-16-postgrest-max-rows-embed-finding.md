@@ -134,3 +134,67 @@ ADMIN_ORDER_LIST_SELECT   內嵌 6 個：brands( customers( order_item_quantity_
   它若被改小,門檻會跟著變低,而**本檔的「難踩」結論建立在那個 1000 上**。
 - **我沒有查 storefront 那支 `ORDER_LIST_SELECT` 的消費端會不會受影響** ——
   只確認了它同樣沒設上限。它的下游做什麼,未查。
+
+---
+
+## 6. 🔴 實測補完(2026-08-18,W3;**純追加,上面一個字沒改**)
+
+> **這一節關掉 §5 第一條誠實缺口的一半。** §5 逐字「**我沒有實測**…**我沒有那個環境**」——
+> 那句在寫的當下為真;現在有人有那個環境了,所以把量到的補在這裡,**而不是留在一封信裡**。
+> ⚠️ **§5 那段留著不刪**:它記著本檔前半的證據等級是「官方文件 + issue 作者敘述」,那件事沒有變。
+
+### 6-a 本檔沒答的那一題:`max-rows` 是**每個內嵌陣列各自算**,還是**整份回應合計**?
+
+**答案:per-array —— 每個內嵌陣列各自算,整份合計不受限。**
+
+**量測環境(要跟著數字走,不可拆開引用)**
+```
+拋棄式 PG 55503 + PostgREST 3999（docs/runbooks/local-admin-with-real-data-probe.md）
+db-max-rows 臨時設 5（跑完已還原 2000 並驗過，見 6-c）
+2026-08-18 10:4x CST
+🔴 這測的是【PostgREST 的行為】，不是【正式站的 db-max-rows 設定值】。兩件事分開。
+```
+
+**量具先表演兩個世界(正向對照在前,不是事後補的)**
+```
+A 正向對照 —— 先證明這個擺法看得見截斷
+  一張 6 品項的單、max-rows=5
+  GET /orders?select=display_id,order_items(id)&display_id=eq.PCM-2026-9099
+  ⇒ 撈到品項 = 5        ✅ 看得見。所以下面那個「沒被砍」是真的沒被砍，不是量不到
+
+B 主實驗
+  三張單 × 4 品項（每張 4 < 5，合計 12 > 5）、max-rows=5
+  GET /orders?select=display_id,order_items(id)&display_id=in.(9001,9002,9003)
+  ⇒ 4 / 4 / 4       外層 3 張、內嵌合計 12
+  ⇒ per-array。整份合計【沒有】被砍到 5
+```
+
+⇒ **對本檔 §4 的含義**:①與②兩條路**都還成立**,而「有一種看不見的合計截斷」這個更壞的可能
+**被排除了**(在單層內嵌這個範圍內)。
+
+⚠️ **射程限定**:只測了**單層內嵌**(`orders → order_items`)。
+**巢狀兩層**(`orders → order_items → order_item_procurement`)會不會共用額度 —— **未測**。
+
+### 6-b 順手量到的 `Content-Range` 形狀(與 `#634` 的 NaN 同源)
+
+```
+GET /orders?select=display_id                    （外層被 max-rows 砍）
+  HTTP/1.1 200 OK
+  Content-Range: 0-4/*          ← 🔴 這個 `*` 就是 parseInt('*') ⇒ NaN 的來源
+
+同一發加 Prefer: count=exact
+  HTTP/1.1 206 Partial Content
+  Content-Range: 0-4/6
+```
+🔴 **兩件事值得記住**:
+1. **不帶 `count` 時狀態碼是 `200` 不是 `206`** ⇒ 「拿狀態碼判有沒有截斷」在**沒帶 count 的呼叫上恆判成沒截斷**。
+2. `206` 是一個**不經過 `parseInt`** 的獨立訊號 —— 但**它只有帶 `Prefer: count=exact` 時才出現**
+   ⇒ **不要直接拿去當通用判準**,要先查呼叫端有沒有帶。**那半未查,標未確認。**
+
+### 6-c 不留痕(照 `docs/patterns/mutation-harness-restore.md`)
+
+```
+改：db-max-rows 5   →  跑完   →  還原 2000  →  重啟 PostgREST
+還原驗證：同一張 6 品項的單回 6（不是 5）✅  —— 驗的是行為，不是「我改回去了」這句話
+```
+**這一發是在拋棄式環境做的,沒有碰任何 `.env*`、沒有碰正式站、沒有碰共用設定檔。**
