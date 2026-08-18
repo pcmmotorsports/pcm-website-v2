@@ -1,0 +1,101 @@
+# apply 彩排:`supabase db push` 的六個機制,全部在拋棄式 PG 上量到(2026-08-18 19:4x-20:0x)
+
+彩排人:G1。主視窗派,理由=**別讓 Sean 真按下去那次是那條路的第一次執行**
+(而 apply 比 push 更不可逆:push 錯了再推一顆,apply 錯了要另寫一支 DROP)。
+
+🔴 **全程不碰正式庫、不碰任何連線字串、不碰 `.env*`。** 環境=本機拋棄式 PG 17.10(Homebrew)。
+🔴 **這是彩排【機制】,不是核准【內容】。** 那兩支都還沒到可 apply 的狀態。
+
+---
+
+## ① `supabase db push` **強制 TLS**,而 `sslmode=disable` 它不理
+```
+--db-url postgresql://postgres@127.0.0.1:55501/postgres
+  ⇒ failed to connect: tls error (server refused TLS connection)
+加 ?sslmode=disable ⇒ 【一模一樣的錯】，CLI 忽略它
+解：給拋棄式叢集一張自簽憑證
+  openssl req -new -x509 -days 1 -nodes -subj "/CN=localhost" -keyout data/server.key -out data/server.crt
+  chmod 600 data/server.key
+  postgresql.conf 追加 ssl=on / ssl_cert_file='server.crt' / ssl_key_file='server.key'
+  ⇒ 之後 psql "...?sslmode=require" 通、db push 通
+```
+📌 **這一格單獨就值回票價**:真 apply 那天若在這裡卡住,是卡在正式庫前面而不是拋棄式 DB 前面。
+⚠️ 射程:這是**本機**現象。正式 Supabase 本來就有 TLS ⇒ 真 apply 不會撞這一格。
+   它擋的是**彩排**,不是真 apply。**寫清楚免得下一個人以為真 apply 要準備憑證。**
+
+## ② push **不是整批原子的** —— 一支一支來,成功一支記一支
+實測(把 182 支推進空 DB,第 55 支炸):
+```
+帳本筆數 54          ← 前 54 支全部 applied 且【已記帳】
+失敗那支 20260712183000 在帳本裡 ⇒ 0 筆   ← 失敗的不記
+```
+⇒ **中途失敗 = 前面的東西【已經在庫裡了】,不會因為後面炸就一起退回。**
+
+## ③ 重跑 = 從失敗那支續跑,**已記帳的一支都不會重跑**
+原封再推一次:
+```
+rc=1（同一支同樣失敗）
+Applying migration 的次數 ⇒ 1   ← 只重試失敗那支
+帳本仍然 54                      ← 前面 54 支一支都沒重跑
+```
+🔴 **這一格直接回答「不帶 `IF NOT EXISTS` 的那支會不會在重跑時炸」:不會** ——
+   只要它成功過一次並記了帳,重跑根本不會執行到它。
+
+## ④ 一支 migration 跑到一半失敗 ⇒ **整支回滾,不留半成品**
+構造(在另一個乾淨 DB):
+```sql
+-- 20260101000001_half_then_fail.sql
+CREATE TABLE public.probe_partial (id int);
+CREATE INDEX probe_partial_idx ON public.probe_partial (id);
+SELECT 1/0;              -- 在 statement 2 炸
+```
+量到:
+```
+probe_partial 存在？ ⇒ 0   ← 不存在，前半的 DDL 沒有留下
+probe_first  存在？ ⇒ 1   ← 【正向對照】前一支建的表在，證明這把尺量得到「存在」
+帳本            ⇒ 1   ← 只記成功那支
+```
+⇒ **失敗的 migration 不會留下半個表**,所以重跑不會撞到自己上一次的殘留。
+
+## ⑤ 🔴 帳本裡有一支本機目錄沒有的版本 ⇒ **整發拒絕,一支都不推**
+```
+Remote migration versions not found in local migrations directory.
+try repairing: supabase migration repair --status reverted <version>
+```
+⇒ fail-closed。**修復指令也彩排過**:`migration repair --status reverted <version>` rc=0,帳本清空。
+📎 這跟 memory `reference_quote-repo-migration-ledger-desync`(報價單 repo 本地 146 檔 vs ledger 160 筆
+   ⇒ 不能跑 db push)是**同一個機制** —— 那條 memory 現在有可重跑的量法了。
+
+## ⑥ 那兩支【已 commit 的版本】一起推:乾淨過
+```
+rc=0
+Applying migration 20260818170000_m4b_g3_customer_favorites     ← 順序照檔名
+Applying migration 20260818190000_m4b_admin_sso_login_events
+帳本 2 筆
+建出來：table customer_favorites / table admin_sso_login_events
+        func purge_admin_sso_login_events
+        policy customer_favorites_{select,insert,delete}_own
+原封再推一次 ⇒ rc=0、Applying 次數 0、"Remote database is up to date."
+```
+
+## 🔴 我推的是【已 commit 的那份】,不是主樹那份(這一格差點被我報成 bug)
+```
+dev HEAD 上該支  205 行
+主樹工作檔        287 行   ← G4【尚未 commit】的 WIP，含一支 force_occurred_at trigger 函式
+```
+我先發現 DB 裡沒有那個函式,**差一點報成「apply 少建了東西」**。
+照 runbook §0.4 先查自己的環境 ⇒ 查出來是**那份根本沒有那段**。
+⇒ **本檔驗的是 `dev` 上那份(205 行)。G4 那 82 行 WIP 未彩排。**
+
+---
+
+## 🔴 沒有測到的(不要當成已驗)
+```
+· #628「記帳被拒」：本機我是 superuser ⇒ 帳本 INSERT 當然過。
+  那題是【權限】問題，本檔對它【零判別力】。
+· 從零重放全部歷史：第 55 支就炸（產生於 product_fitments_effective 不存在）。
+  ⇒ 「db push --include-all 到空庫」這條路【不通】，而真 apply 不走這條路。
+· 前置只建了最小集合（brands / categories / customers / products，逐字取自 repo migration）
+  + auth.users 骨架 + auth.uid() 樁（回 NULL）⇒ 任何依賴真 auth.uid() 的行為本檔答不了。
+· 本機 PG 17.10 Homebrew ≠ Supabase 平台（角色是我自己 CREATE 的、無 BYPASSRLS 差異驗證）。
+```
