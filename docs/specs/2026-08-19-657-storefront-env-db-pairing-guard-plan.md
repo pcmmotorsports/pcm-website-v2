@@ -239,15 +239,57 @@ TAPPAY_ENV 未設 / 空值 會怎樣(量到的)
      ——(而對 preview 而言「不能刷卡」正是我們要的,見下方給 Sean 的步驟 甲)
 ```
 
-### 🔴 量不到的(要 dashboard 才答得出,已列進要問 Sean 的那批)
+### 🔴 原本列為「量不到」的三格 —— **兩格後來查到了,而其中最重要那格是【我停早了一步】**
+
+⛔ **原文(訃聞,不要照它讀)**:
 ```
-1. storefront 與 admin 是不是兩個 Vercel 專案?各自的 production branch 是哪一個?
-2. 現在實際掛著幾個 preview deployment?哪些分支?
-3. 那些 cron 路徑(settle-sweep / anomaly-alert)是誰在觸發?
-   🔴 這一格最重要:若 preview 也會被觸發 ⇒ preview 的 cron 正在對【正式庫】跑掃補款
-   ⇒ 而 vercel.json 零 crons ⇒ 觸發來源不在 repo 裡 ⇒ 我查不到
-   📎 memory reference_pcm-platform-plans-vercel-hobby-supabase-pro 記著「排程別預設綁 Vercel」
-      ⇒ 可能是外部排程器 ⇒ 那樣 preview 就不會被觸發。而【那是推測,不是查到的】
+~~3. 那些 cron 路徑是誰在觸發?…而 vercel.json 零 crons ⇒ 觸發來源不在 repo 裡 ⇒ 我查不到
+     ⇒ 可能是外部排程器…而【那是推測,不是查到的】~~
+```
+
+#### ✅ 格3(cron 觸發來源)⇒ **完整查到了,而 preview 的 cron 風險【關掉】**
+```
+git log --oneline -S'"crons"' -- vercel.json     ← 🔴 這一發就是我上一輪漏掉的
+  a5d76192  2026-07-24  settle-sweep+anomaly-alert 搬 Supabase pg_cron、flag 留 S4   ← 移掉 vercel crons
+  92d9e84c  2026-06-17  啟用 vercel.json settle-sweep cron                          ← 當初加的
+  77812284 / 4e6bf6f0   2026-05-17  LINE 追單那組(更早的一輪)
+
+⇒ 現況:cron 由 Supabase pg_cron 觸發,不是 Vercel
+supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql:9-12 逐字
+  「私有 schema pcm_cron + Vault-backed SECURITY DEFINER wrapper invoke_cron_route(path)
+   → wrapper 執行期讀 vault.decrypted_secrets(cron_base_url + cron_secret)…net.http_get 打對應 Next route」
+同檔 :12  cron.schedule 兩 job:pcm-settle-sweep(*/2 * * * *)、pcm-anomaly-alert(0 1 * * *)
+```
+🔴 **⇒ pg_cron 打的是【Vault 裡那一個固定 base URL】。preview 的網址是隨機 branch alias,pg_cron 不知道它。**
+⇒ **preview 的 cron 不會被觸發** ⇒ 「preview 的排程正在對正式庫跑掃補款」**那個擔心不成立。**
+⚠️ 而**那個 base URL 的值我沒看**(在 Vault 裡)⇒ 「它指的是正式站」是**強推論不是量測**:
+   若它指錯地方,線上補款早就壞了而那會很明顯。
+
+#### 🔴 而這一格的教訓比它本身值錢 —— **新的一種穿法**
+```
+我上一輪寫「vercel.json 零 crons ⇒ 觸發來源不在 repo 裡 ⇒ 我查不到」
+⇒ 那句【每個字都是真的】,而結論錯:答案就在 repo 裡,只是不在【現在的檔案】裡
+⇒ 🔴 判別句:**「現在的檔案裡沒有」≠「repo 裡查不到」**
+   —— 設定可能被【搬走了】,而【搬走那一刻的 commit body 就是答案】
+⇒ 機械修法:對「這個設定為什麼不見了」這類問題,先跑 `git log -S'<字面>' -- <檔>`
+   而不是只看當前檔案。成本一行。
+📎 這是既有那條「0 命中要附分母與 pattern」的**另一半**:
+   我附了 pattern,而 pattern 掃的是【當前狀態】,問題問的是【歷史】。
+```
+
+#### ⚠️ 格1 / 格2:**部分查到,而剩下的縮小了**
+```
+memory project_deploy-topology-main-stale-dev-live 記著(2026-06-17 由 build-log 實證):
+  · Vercel project `pcm-website-v2`(prj_4yNDP3XOt202tQIlYwF9auf5fLN7、team pcm-motorsports)
+    production branch = main;**所有 dev push 都是 target=null(preview only)**,
+    branchAlias 形如 `pcm-website-v2-git-dev-…`
+  · Root Directory = repo 根 ⇒ 根 vercel.json 才是 Vercel 實際讀的檔
+⇒ ✅ **「每一次推 dev 都會產生一個 preview」不再是推論,是有 build-log 背書的**
+⇒ ⚠️ 而那份 memory 只記了【一個】專案。另一份 memory(project_pcm-admin-production-tracks-dev)
+   說 admin 的 production 追 dev ⇒ **邏輯上必有第二個專案,而它沒有被記錄**
+   🔴 兩份 memory 都是【當時的轉述】,不是我這次量的
+⇒ **剩下要問 Sean 的縮小成**:admin 那個專案叫什麼 / 它的 production branch 是不是 dev
+   + 現在實際掛著幾個 preview(這一格只有 dashboard 看得到)
 ```
 
 ---
