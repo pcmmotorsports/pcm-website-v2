@@ -480,9 +480,22 @@ Vercel 官方 Drains · Usage and pricing（last_updated 2026-07-22）逐字：
 **今天為何還好**:`proxy.ts` 本身寫得好(預設擋、matcher 涵蓋全部非靜態路徑)。
 🔴 **上線那天為何嚴重**:`matcher` 哪天被改窄(為了讓某個新頁面繞過登入、或修一個 redirect 迴圈)
 ⇒ **客戶資料變成公開頁,而 diff 看起來只是一行路由設定** ⇒ 頁面照渲染、測試照綠、稽核不記。
-**怎麼驗它已補齊**:`#547` 的關閉條件已寫好 —— 選 (a) 逐頁自驗 或 (b) 釘住 matcher 的守門,
-**且用突變驗過它紅得起來**(把 matcher 改窄一條 ⇒ 必須有東西失敗)。
-📄 `docs/phase-1-backlog.md` `#547`
+🔴 **2026-08-18 W6 更正:(b) 那案【已經做完了】,而 `#547` 還寫著「兩案未選」。**
+`apps/admin/src/proxy-matcher.test.ts` 2 格,實跑 `2 passed`
+(`TURBO_FORCE=1 npx vitest run apps/admin/src/proxy-matcher.test.ts` @ 2026-08-18 10:41:56)。
+✅ 連帶答掉 `#547` 的未答子題:matcher 是**否定式**(everything-except,排除項恰 3 個)
+⇒ **沒有一份要維護的路徑清單** ⇒ 新頁面出生那天就自動被涵蓋 ⇒ (b) 沒有過期風險。
+
+**怎麼驗它已補齊**:🔴 **本條不因此關掉,還差兩件**:
+```
+① 突變未實跑 —— 格1 是精確相等 ⇒「改 matcher 必紅」是【推得出來】不是【量到的】
+   要在【獨立 worktree】跑，不在主樹（主樹多窗並發，突變檔被別人 commit 走有實錘先例）
+   兩個世界：把 matcher 加一項排除 ⇒ 必須紅；不動 ⇒ 必須綠
+② 該檔自己聲明的量具邊界仍成立：它守【字面與清單結構】，
+   不驗「這條 pattern 在 Next runtime 下實際攔截哪些路徑」
+   ⇒ 讀路徑的【行為】那一層仍無守門
+```
+📄 `docs/phase-1-backlog.md` `#547`(已加同一段更正)
 
 ---
 

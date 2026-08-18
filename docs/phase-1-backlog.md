@@ -14387,6 +14387,38 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
   - **擴充性:** 真登入線(E8-B)會讓「讀到的人是誰」第一次變成真證據,那時這個不對稱的代價變高
   - **可維護性:** 現在「這頁受不受保護」的答案不在頁面裡,要跨檔去讀 proxy 的 matcher 正規式
   - **bug 可追蹤性:** 保護失效時零訊號(頁面正常渲染),**屬於「壞掉而看起來成功了」那一族**
+> ## 🔴 2026-08-18 W6 更正 —— **(b) 已經做完了,而本條還寫著「兩案未選」**
+>
+> `apps/admin/src/proxy-matcher.test.ts` **存在,而且正是 (b)**(2 格,實跑 `2 passed`,
+> `TURBO_FORCE=1 npx vitest run apps/admin/src/proxy-matcher.test.ts` @ 2026-08-18 10:41:56)。
+> 格1 對 `config.matcher` 做**逐字面 `toEqual`**、格2 釘住排除清單**恰三項**。
+>
+> ✅ **本條的未答子題也連帶有答案了 ——「守門怎麼知道哪些路徑必須被涵蓋,那份清單會不會過期」:**
+> ```
+> matcher = /((?!_next/static|_next/image|favicon.ico).*)
+> 形狀 = 否定式（everything-except），排除項恰 3 個（量法見下）
+> ⇒ 🔴 它【沒有一份要維護的路徑清單】——新頁面出生那天就自動被涵蓋
+> ⇒ 那個子題問的東西不存在，(b) 因此沒有過期風險，也比 (a) 便宜得多
+> 量法：python3 -c 抽 (?!…) 內容 split('|') ⇒ ['_next/static','_next/image','favicon.ico']
+> ```
+>
+> 🔴 **而【不能因此把本條整條關掉】,還差兩件:**
+> ```
+> ① 突變未實跑 —— 格1 是精確相等 ⇒ 改 matcher 必紅是【推得出來】的，不是【量到的】。
+>    我沒跑，理由寫在這裡：主樹此刻多窗並發 commit，而突變一支業務檔在共用樹上
+>    有被別人 commit 走的實錘先例（docs/patterns/mutation-harness-restore.md）。
+>    ⇒ 這一發要在【獨立 worktree】跑，不是在主樹。
+> ② 該檔【自己聲明的量具邊界】仍成立，不要讀成已覆蓋：
+>    它守的是「字面與清單結構」，不驗「這條 pattern 在 Next runtime 下實際攔截哪些路徑」。
+>    ⇒ 讀路徑的【行為】那一層仍無守門。
+> ```
+> 📎 **這條是怎麼被抓到的(值得留)**:我原本要寫「零守門」——
+> `git grep -c 'matcher' apps/admin/src/proxy.test.ts` ⇒ **0**,看起來就是零命中。
+> **是旁邊那條正向對照把我打回來的**:`git grep -c 'matcher' -- 'apps/admin/src/*'`
+> ⇒ 命中 6 支,其中 `proxy-matcher.test.ts:9`。
+> 🔴 **我查錯了檔案,而那個 `0` 是真的 —— 一個正確的數字,量在錯的東西上。**
+> 同族:memory `feedback_absence-read-as-verified`(0 命中必附分母與 pattern)。
+
 - **關閉條件:** 選定 (a) 或 (b) 並實作,且**用突變驗過它紅得起來**
   (把 `matcher` 改窄一條 / 拿掉某頁的自驗 ⇒ 必須有東西失敗)。
 - **相關:** `apps/admin/src/proxy.ts`;`apps/admin/src/lib/session/authorize.ts`;`#546`;E8-B 真登入線
