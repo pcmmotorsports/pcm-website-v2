@@ -11,8 +11,21 @@
 //       那是一個產品決定(登出後該直接看到登入表單、還是先看一頁道別),不是照抄一行。
 //    ② `logoutAction` 是 auth server action ⇒ 動它命中**鐵則 12②(權限)**,
 //       commit 前必過 codex 對抗審查。夜跑窗不碰高風險面。
-//    ⇒ 本頁先建起來讓 Sean 能直接開 `/logout` 看長相;接線與否列進 STOP 等他拍板。
+//    ~~⇒ 本頁先建起來讓 Sean 能直接開 `/logout` 看長相;接線與否列進 STOP 等他拍板。~~
+//    🔴 **更正(2026-08-18 G3 收尾對帳):上面那句「等他拍板」已經【不成立】——他拍過了。**
+//    ```
+//    memory project_site-redesign-content-pages-decisions.md:17 逐字:
+//      「Q2=A:/logout 道別頁要接線 —— 登出 redirect 由 /login 改 /logout；
+//        動 logoutAction（auth server action）= 鐵則 12② 高風險片，
+//        排白天 + codex 對抗審查不降級，夜間不動」
+//    ```
+//    ⇒ **現在擋著它的不是「等拍板」,是「排白天 + 對抗審查」** —— 兩者對下一個人的意思完全不同:
+//      前者要去問 Sean(而那會【重問一個他已經答過的問題】),後者只要排時段。
+//    ⇒ 現況(2026-08-18 實查):`app/account/actions.ts:19` 仍是 `redirect('/login')`,**尚未接線**。
 //    **在接線之前,這條路由只有直接輸入網址才到得了,沒有任何連結指向它。**
+//
+//    📎 這一筆本身是個教訓:**拍板落了 memory,而【那個決定指著的這支檔】不知道自己被拍過了。**
+//       (同族 memory:`feedback_a-ruling-must-update-the-files-it-points-at`)
 //
 // 🔴 **字面全部是設計稿新寫的,沒有真站來源可對照**(`SITE-MAP.md` 2026-08-05 追加那節逐字)。
 //    所以這裡一個字都沒有自己發明,全部逐字照搬 `logout-page.html:88-99`。
