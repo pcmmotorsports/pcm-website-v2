@@ -188,14 +188,63 @@ apps/storefront      · 一支 useFavorites()（單一資料源，兩顆愛心�
 ### 1-f `.pd-like` 在 390 看不見(MAIN 第 5 題)
 
 **實測**:`.pd-like` 在 390 `display:none`、rect 0×0;1440 看得見 48×48。
-`.pcard-heart` 390 與 1440 都看得見。
-🔴 **我查不出這是刻意還是漏的** —— 我沒有找到任何一條註解或拍板寫著「商品頁的收藏鈕手機不顯示」。
-⇒ **本片不改它**(改 = 在手機商品頁新增一顆按鈕 = 視覺決定 = Sean 的地盤)。
-⇒ **寫成一條決策題跟 plan 一起送**,他答了再做。今天的狀態:手機客人只能從**商品卡**收藏。
+~~`.pcard-heart` 390 與 1440 都看得見。~~ 🔴 **那句是我量錯的,見 §1-e** ——
+它 `opacity: 0`、只有 hover 才浮出來 ⇒ **手機上兩顆都看不見。**
+🔴 **我查不出 `.pd-like` 手機關掉是刻意還是漏的** —— 找不到任何註解或拍板寫著它。
+~~⇒ 本片不改它,寫成決策題跟 plan 一起送。~~
+
+✅ **已裁定(2026-08-18,Sean 授權 MAIN):`Q3 = 打開,與 Q1 一致`。**
+理由(MAIN):**同一個功能在兩個地方行為不同,客人會以為是壞的。**
+⇒ 本片要做:移除 `.pd-like` 在 390 的 `display: none`,讓商品頁那顆在手機上也看得見。
+⚠️ **「刻意還是漏的」這個問題仍然沒有答案** —— 裁定的是「往後要怎樣」,不是「當初為什麼」。
+   ⇒ 若日後有人找到當初刻意關掉的理由,**這一格要重開**,不要當它已經結案。
 
 ---
 
-## 2. 🔴 未登入的客人點愛心 —— **這一格我不定調,出樣本給 Sean**
+## 1-g 🔴 本片與前一片(`0a7988c9`)的界線 —— **別讓下一個人以為 `none` 是永久狀態**
+
+```
+0a7988c9（已做，獨立成立、獨立可回滾）
+  只修一件事：.pcard-heart 【看不見的時候】不吃點擊
+  基底 pointer-events: none ＋ hover 態 pointer-events: auto
+  它不新增功能、不動 schema、不依賴任何還沒批的東西
+
+本片（等批）
+  🔴 Q1=甲 落地時，`pointer-events: none` 那一行【要跟著改】——
+     愛心在手機常駐顯示之後，它會變成「看得見卻按不到」。
+  ⇒ 屆時的正解不是刪掉那一行，是讓「可見」與「可點」綁在一起
+    （照同檔 .pcard-quick :195/:197 的形狀：不可見時 none、可見時 auto）
+```
+⚠️ **我刻意沒有預先為 Q1 鋪路** —— plan 還沒批,先鋪的路如果被改就是白鋪;
+而現在這一片的界線乾淨,壞了可以單獨退回。
+
+## 1-h ✅ Sean / MAIN 的三個裁定(2026-08-18)
+
+Sean 逐字:「**愛心的問題給你決定就好,正常的網站該怎麼做就怎麼做**」⇒ 三題授權 MAIN 裁:
+```
+Q1 手機上的愛心           ⇒ 甲 常駐顯示
+Q2 沒登入點愛心           ⇒ 乙 顯示，按了請他登入
+Q3 商品頁那顆手機版被關掉  ⇒ 打開，與 Q1 一致
+```
+🔴 **他授權的是【UX 長相】,不是 schema** ⇒ **新表那一關沒鬆,本 plan 仍要他批。**
+
+### 依據(比「design 沒規定」硬一級)
+鐵則 1 查證(2026-08-18 實跑,含正向對照):
+```bash
+grep -rn "pcard-heart" design-reference/   ⇒ 4 命中（styles/product-card.css:78 / :95 / :96 + ProductCard.jsx:107）
+   design 有 opacity:0 + .pcard:hover 那組，但【沒有任何一句說手機也要維持隱藏】
+正向對照 grep -rn "pcard-name" design-reference/ ⇒ 8 命中 / 分母 49 個 design 檔（尺量得到東西）
+```
+⇒ 屬「**沒規定**」不是「規定了」。
+🔴 **而更硬的一條**:`design-reference/design-reference/HANDOFF-DETAILS.md:468` 逐字
+> 商品卡 hover translateY(-2px):**僅桌機**,手機 `:hover` 不觸發(用 `@media (hover: hover)` 包)
+
+⇒ **design 的作者知道手機沒有 hover,而且交辦過要處理它。**
+⇒ 所以不只是「design 沒規定所以我們自己決定」,是「**design 規定的方向與這三個裁定一致**」。
+⚠️ 而**本站沒照那句做**(`product-card.css` 對 `hover: hover` 零命中,該檔 hover 字面 13 個)——
+**那是這一整族的病根**,已開 `#642` 追,MAIN 裁定**現在不做**(視覺回歸面大、只有 Sean 驗得了)。
+
+## 2. 🔴 未登入的客人點愛心 —— **已由 MAIN 裁定 Q2=乙(顯示、按了請登入)**
 
 `Q-愛心=甲` 定的是「要登入才能收藏」,而**甲有兩種長相**:
 ```
@@ -203,7 +252,9 @@ apps/storefront      · 一支 useFavorites()（單一資料源，兩顆愛心�
 甲-2  沒登入時愛心【出現、可點，點了請他登入】
 ```
 現況:那兩顆元件**完全不知道有沒有登入**(`grep auth|session|user` ⇒ 0 命中)⇒ 兩種都要新增判斷。
-⇒ 依 Sean 08-17 常設令,**做成 artifact 並排給他看**,不用文字讓他想像。**本 plan 不預設哪一種。**
+~~⇒ 依 Sean 08-17 常設令,做成 artifact 並排給他看。本 plan 不預設哪一種。~~
+✅ **artifact 送出、Sean 授權 MAIN 裁 ⇒ Q2=乙(顯示、按了請他登入)。**
+理由(MAIN):藏起來 ⇒ 沒登入的人不知道有這個功能 ⇒ 少一個註冊誘因;業界慣例是顯示 + 引導。
 
 🎨 **artifact 已做好(2026-08-18)**:`https://claude.ai/code/artifact/8a37c104-1226-4abf-af45-76325e953192`
 內含三段,而**第一段才是真正要他決定的那個**:
@@ -227,8 +278,10 @@ apps/storefront      · 一支 useFavorites()（單一資料源，兩顆愛心�
        ProductCard.tsx:155 / ProductInfo.tsx:197（useState → 共用資料源）
        docs/design-storefront-manifest.yaml（favoritesEmptyState 條目要改寫，它現在還在描述空狀態）
        docs/phase-1-backlog.md #191（做完要收掉）
+       product-card.css / product-page.css（Q1 常駐顯示、Q3 打開 .pd-like 的手機顯示）
+         🔴 連動:Q1 落地時 .pcard-heart 的 pointer-events 那一行要跟著改（見 §1-g）
 不動   購物車（語義不同，#191:5058）／訂單／任何金流路徑
-       .pd-like 在手機看不見那件（等 Sean 答）
+       product-card.css 的其餘 hover 態（= #642，MAIN 裁定現在不做）
 ```
 🔴 **跨 3+ 檔 + 動 schema + 動權限** ⇒ 鐵則 8 + 12② 雙中標,**commit 前跑 codex 對抗審查**。
 

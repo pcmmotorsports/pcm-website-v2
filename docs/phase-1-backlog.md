@@ -19460,3 +19460,63 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
   > **沒有任何窗在做它,而它連一個號都沒有** ⇒ **唯一活得夠久的載體 = 那一片自己的條目。**
   > 發號兩道前置都跑過(`next-backlog-number.sh` ⇒ `#641`;信箱佔位 `#631`/`#636` 不撞;
   > 別名掃描 `--search 手動建單 非網站商品 手建` ⇒ 命中 2 條**皆為別的條目在引用**)。
+
+---
+
+### #642. 🔴 `product-card.css` 沒照 design 交辦用 `@media (hover: hover)` 包 —— 這是「隱形陷阱」那一族的產生器
+
+- **狀態:** ⏳ 待執行(2026-08-18 MAIN 裁定**現在不做**,理由見「觸發事件」)
+- **優先級:** 🟠 中(立即傷害已被 `0a7988c9` 止住;但它是**產生器**,不修會再長出新的)
+- **問題:**
+  - `design-reference/design-reference/HANDOFF-DETAILS.md:468` **逐字**寫著:
+    > 商品卡 hover translateY(-2px):**僅桌機**,手機 `:hover` 不觸發(用 `@media (hover: hover)` 包)
+  - 🔴 **本站沒有照做。** 量法(可重跑,含正向對照):
+    ```bash
+    grep -n 'hover: *hover' apps/storefront/src/styles/*.css
+      ⇒ 只命中 apps/storefront/src/styles/header.css:153
+      ⇒ apps/storefront/src/styles/product-card.css 【零命中】
+    grep -c 'hover' apps/storefront/src/styles/product-card.css   ⇒ 13
+      ← 正向對照:這把尺對該檔量得到東西，零命中不是尺壞掉
+    ```
+  - ⇒ 該檔的每一條 hover 態(`:39` `:91` `:143` `:159` `:237` 等,共 13 個 `hover` 字面)
+    在**觸控裝置上都是「存在但永遠不會發生」的狀態**。
+- 🔴 **為什麼這是【產生器】不是另一件小事:**
+  - 2026-08-18 修掉的那個陷阱(`.pcard-heart` 看不見卻吃點擊,`0a7988c9`)是這個結構的**產物**:
+    ```
+    如果當初照 design 交辦用 @media (hover: hover) 包起來
+    ⇒ 那些 hover 態在手機上根本不會存在
+    ⇒ 「看不見卻吃點擊」在結構上就不會產生
+    ⇒ 也不會有「手機客人收藏不了」這一題（favorites plan §1-e）
+    ```
+  - ⇒ **我們修掉的是症狀,病根是一條沒被執行的 design 交辦。**
+- **觸發事件(任一觸發即啟動實作):**
+  - Sean 回到可以肉眼驗視覺回歸的狀態(2026-08-18 他遠端遙控,而**視覺回歸只有他驗得了**);
+  - 或商品卡再長出第三個「只有滑鼠看得到」的元素。
+- **預期解法:**
+  - `product-card.css` 的純視覺 hover 態(卡片浮起 / 圖遮罩 / 標題變色 / 小圓點)
+    包進 `@media (hover: hover)`;
+  - ⚠️ **不是全部 hover 都該包** —— `.pcard-heart` / `.pcard-quick` 這種**承載功能**的,
+    要的是「手機上換一種顯示方式」,不是「手機上不存在」(那是 favorites plan 在處理的題)。
+  - 形狀參考同 repo 既有正例 `apps/storefront/src/styles/header.css:153`。
+- **不修會痛在:**
+  - **擴充性:🔴 這是那一族的產生器** —— 每新增一個 hover-only 的裝飾或按鈕,
+    就多一個「桌機看得到、手機不存在(或更糟:看不見卻吃點擊)」的東西。
+    守門 `styles/invisible-tap-targets.test.ts` **只掃已知的三個、不會自動發現第四個**
+    (天花板寫在該檔檔頭)⇒ **不修這條,下一個陷阱一樣沒有人會發現。**
+  - **可維護性:** 該檔現在有兩套心智模型並存(有些 hover 是裝飾、有些承載功能),
+    而 CSS 上看不出差別 ⇒ 下一個人改哪一條都可能踩到。
+  - **bug 可追蹤性:** 這族 bug **對每一道既有檢查都是隱形的**
+    (typecheck / lint / build / vitest 全綠,畫面上也看不出來 —— 它本來就看不見)
+    ⇒ 唯一抓得到的是真瀏覽器逐點 `elementFromPoint`,而那不在 CI 裡。
+- **估時:** ~45-90 min ⚠️ **這是估的、不是量的**(13 處 hover 逐一分類 + 視覺回歸 + Sean 肉眼驗)
+- **依賴:** 無技術依賴;**卡在「Sean 能肉眼驗視覺回歸」這個條件**
+- **發現於:** 2026-08-18 / G3 查 favorites 的鐵則 1 前置時,grep `design-reference` 撈到 `HANDOFF-DETAILS.md:468`
+- **相關:** `0a7988c9`(修掉症狀的那一片)、`apps/storefront/src/styles/invisible-tap-targets.test.ts`(守門與其天花板)、
+  `docs/specs/2026-08-18-g3-favorites-plan.md` §1-e、`docs/design-storefront-manifest.yaml`
+  的 `ProductCard.technical_overrides.hiddenHeartMustNotEatTaps`
+- **發號兩道前置(2026-08-18 實跑):**
+  - `bash scripts/next-backlog-number.sh` ⇒ 三層(主樹 / 11 個 worktree / 47 個 ref)最大號皆 `641` ⇒ **下一個 = `#642`**
+  - 信箱佔位掃描 ⇒ 命中 `#606 #631 #634 #636 #637 #639 #640 #641 #646 #647 #660`,**`#642` 不在其中**;
+    另 `grep -rn '#642' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**
+  - 別名掃描 `python3 scripts/backlog-duplicate-scan.py --search hover 觸控 手機 隱形`
+    ⇒ 命中 `#459 #473 #496 #519 #540 #463 #464 #465`,**逐條看過皆為後台或無關**,無重複
