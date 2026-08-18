@@ -13988,6 +13988,20 @@ lib/orders/order-keyword-search-wiring.test.tsx:244 '王小明'
 > 守門:`keyword-search-action.test.ts` 新增一格(突變:改回裸導回 ⇒ 恰好 1 格紅);
 > **舊那格只驗「沒寫 cookie」⇒ 裸導回照樣全綠** —— 那正是這個病的形狀。
 >
+> ### 第三個被點名的出口:`receipt-actions.ts:383` —— **量完了,它不是靜默**(2026-08-18 20:5x,G2)
+> G6 標「`return null` 靠呼叫端,而**它沒驗呼叫端**」;主視窗裁「先不動」。
+> ⇒ 我**把呼叫端驗了**(這比不動多一步,而成本是三個 grep):
+> ```
+> receipt-panel.tsx:28  const rows = await fetchItemProcurementChoices(...)
+>              :30-32  if (rows === null) { setChoicesState('error'); return; }
+>              :95-98  choicesState === 'error' ⇒ <p role='alert'> 逐字
+>                      「讀不到這個品項的採購紀錄。請關掉這個彈窗、重新整理訂單頁再試一次;
+>                        若還是讀不到,請通知系統維護(這批貨先不要出)。」
+> ```
+> ⇒ **委託有被接住,而且接住之後有一則看得見的 `role='alert'`** ⇒ **不是 `#534` 這條病。**
+> ⚠️ 仍值得記的殘留:那一則**沒有守門**(我沒查到有測試釘它)⇒ 若哪天有人把 `'error'` 那個分支拿掉,
+> 會退回靜默。**那是「守門只驗擋住了」那一族,不是本條** ⇒ 不在這裡處理。
+
 > ### 沒有主張
 > ```
 > · 客戶域（儲值金/會員等級/客戶搜尋）**沒有複驗** —— 那是別的窗的域
