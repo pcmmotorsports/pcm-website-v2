@@ -38,7 +38,7 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { CONTACT_PHONE_DISPLAY, OPENING_HOURS, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
+import { CONTACT_PHONE_DISPLAY, OPENING_HOURS, SOCIAL_URLS, TAX_ID, openDaysLabel } from '@/lib/site-config';
 
 // 🔶 D7「頁尾回深 + 版權年份動態」(2026-08-05,由第0批 0b 執行;主視窗 `D-107-A` 裁 A 案)。
 // 真權威 = 母計畫 `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:114` 逐字:
@@ -132,10 +132,8 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
                 在此之前這行硬寫,而 `MobileMenu.tsx:73` / `data/legal-content.ts:67`(**法律頁**)
                 / `lib/org-jsonld.ts:55-57`(**搜尋引擎**)三處吃 SSoT
                 ⇒ 改常數會讓站上出現兩種營業時間,其中一份在法律頁。
-                ⚠️ **「週一-週六」這段仍硬寫**(與 `MobileMenu.tsx:73` 同款):
-                `OPENING_HOURS.days` 的中文推導只存在 `legal-content.ts:40-66`,
-                要共用得把那段抽出來 ⇒ **不在本片,已回報**。 */}
-            <p>週一-週六 {OPENING_HOURS.opens}-{OPENING_HOURS.closes}</p>
+                ✅ **星期那半已於 `#528`(2026-08-19)接上** —— 見下一行。 */}
+            <p>{openDaysLabel('-')} {OPENING_HOURS.opens}-{OPENING_HOURS.closes}</p>
             <p>{CONTACT_PHONE_DISPLAY}</p>
           </div>
         </div>

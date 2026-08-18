@@ -31,40 +31,17 @@ import {
   CONTACT_EMAIL,
   STORE_ADDRESS,
   OPENING_HOURS,
+  openDaysLabel,
 } from '@/lib/site-config';
 import { LINE_OA_ID } from '@/lib/line-cta';
 
 // 🔴 聯絡 / 登記資訊一律從 SSoT 衍生、**不在本檔硬寫**(#291 驗收條件:「聯絡資訊取自 site-config SSoT」)。
 //   理由:硬寫會在 Sean 換電話 / 換地址時靜默漂移 —— 而法律頁印錯聯絡方式是實質瑕疵。
 const ADDRESS_LINE = `${STORE_ADDRESS.postalCode} ${STORE_ADDRESS.region}${STORE_ADDRESS.locality}${STORE_ADDRESS.street}`;
-/** 英→中星期(營業日顯示用;SSoT `OPENING_HOURS.days` 存英文)。 */
-const ZH_DAY: Record<string, string> = {
-  Sunday: '日',
-  Monday: '一',
-  Tuesday: '二',
-  Wednesday: '三',
-  Thursday: '四',
-  Friday: '五',
-  Saturday: '六',
-};
-const WEEK_ORDER = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-/**
- * 營業日字串:連續 → 「週一至週六」;不連續 → 「週一、週三、週五」。
- * 🔴 連續性**實際判斷**、不假設 —— Sean 若改成只開平日或跳日,這裡自動跟著對,
- *    不會像寫死「週一至週六」那樣靜默說謊。
- */
-const OPEN_DAYS_LABEL = (() => {
-  const days = [...OPENING_HOURS.days];
-  if (days.length === 0) return '';
-  const idx = days.map((d) => WEEK_ORDER.indexOf(d)).sort((a, b) => a - b);
-  const contiguous = idx.every((v, i) => i === 0 || v === (idx[i - 1] ?? -99) + 1);
-  const zh = (i: number) => `週${ZH_DAY[WEEK_ORDER[i] ?? ''] ?? ''}`;
-  if (days.length === 1) return zh(idx[0] ?? 0);
-  return contiguous
-    ? `${zh(idx[0] ?? 0)}至${zh(idx[idx.length - 1] ?? 0)}`
-    : idx.map((i) => zh(i)).join('、');
-})();
-const SERVICE_HOURS = `營業時間 ${OPEN_DAYS_LABEL} ${OPENING_HOURS.opens}–${OPENING_HOURS.closes}`;
+/* 🔴 英→中星期推導**已搬到 `lib/site-config.ts` 的 `openDaysLabel()`**(`#528`,2026-08-19)。
+   搬的理由不是整潔:從前只有本檔從 `days` 推導,三個畫面顯示點硬寫「週一-週六」
+   ⇒ 加開一天,本檔與 JSON-LD 會變、畫面不會。**本檔的字面一個字都沒變**(joiner 預設「至」)。 */
+const SERVICE_HOURS = `營業時間 ${openDaysLabel('至')} ${OPENING_HOURS.opens}–${OPENING_HOURS.closes}`;
 /** 客服三管道(多條條文重複引用 → 抽一份,避免各自寫分歧版本)。 */
 const SUPPORT_CHANNELS = `客服 LINE ${LINE_OA_ID} / 電話 ${CONTACT_PHONE_DISPLAY} / 信箱 ${CONTACT_EMAIL}`;
 

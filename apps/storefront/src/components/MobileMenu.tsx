@@ -29,7 +29,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { OPENING_HOURS, SOCIAL_URLS, STORE_ADDRESS } from '@/lib/site-config';
+import { OPENING_HOURS, SOCIAL_URLS, STORE_ADDRESS, openDaysLabel } from '@/lib/site-config';
 
 // 🔴 R1 修復(2026-08-07,真瀏覽器 390px 實測抓到):
 //
@@ -70,7 +70,8 @@ const ACCOUNT_ITEMS = [
 // 門市地址/營業時間組字:來源 = lib/site-config.ts(STORE_ADDRESS/OPENING_HOURS,
 // Sean 2026-06-21 提供的 SSoT,HomeFooter.tsx 頁尾同一組資料的來源)。
 const STORE_LINE_1 = `${STORE_ADDRESS.region}${STORE_ADDRESS.locality}${STORE_ADDRESS.street}`;
-const STORE_LINE_2 = `週一-週六 ${OPENING_HOURS.opens}-${OPENING_HOURS.closes}`;
+// 🔴 `#528`(2026-08-19):星期改吃 `openDaysLabel('-')`,不再硬寫。
+const STORE_LINE_2 = `${openDaysLabel('-')} ${OPENING_HOURS.opens}-${OPENING_HOURS.closes}`;
 
 export function MobileMenu({ navItems }: { navItems: MobileMenuNavItem[] }) {
   const [open, setOpen] = useState(false);

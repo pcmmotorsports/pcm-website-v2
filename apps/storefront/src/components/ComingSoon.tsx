@@ -25,7 +25,7 @@
 //    的門市 / 營業時間 / 社群 / 版權 / 統編**各出現兩次**(R1 抓到、真瀏覽器 count 實測 = 2)。
 //    現在的規則很單純:**有天地 = 頁尾整個不渲染**(見下面 `!hasNav` 那段)。
 
-import { OPENING_HOURS, TAX_ID } from '@/lib/site-config';
+import { OPENING_HOURS, TAX_ID, openDaysLabel } from '@/lib/site-config';
 
 /** 20 家代理品牌的深色版 logo(`public/brands-dark/`,sha256 逐位元組核過源檔)。
  *  🔴 **寫死陣列、不用 glob 或 JS 產生**:設計端 §四 逐字「整站版是零 JS 頁,牆不該因為
@@ -195,8 +195,8 @@ export function ComingSoon(props: ComingSoonProps) {
             <div className="cs-foot-col">
               <h2>營業時間</h2>
               {/* 🔴 E R3(2026-08-15):與 `HomeFooter.tsx` 同時改吃 `OPENING_HOURS` SSoT。
-                  「週一-週六」仍硬寫(理由見該檔;`days` 的中文推導只在 `legal-content.ts:40-66`)。 */}
-              <p>週一-週六 {OPENING_HOURS.opens}-{OPENING_HOURS.closes}</p>
+                  ✅ 星期那半已於 `#528`(2026-08-19)接上 —— `openDaysLabel('-')`。 */}
+              <p>{openDaysLabel('-')} {OPENING_HOURS.opens}-{OPENING_HOURS.closes}</p>
             </div>
             <div className="cs-foot-col">
               <h2>社群</h2>

@@ -30,9 +30,27 @@
 // ⚠️ **本支守的是【接線】不是【值】** —— 值有沒有對是上面那四格的事,兩者不可互相取代。
 // ⚠️ **本支會在「有人把消費端改回硬寫」時紅,不會在「改 SSoT」時紅** —— 那是刻意的分工。
 
+/*
+ * 🔴🔴 **本檔的通則(2026-08-19 `#528` 折 GR-051 時第三次付學費之後立)**
+ *
+ * 這支檔為「**掃描器沒剝註解**」付過三次學費,而**三次不是同一個人重複犯錯** ——
+ * 是同一支檔裡【**三個不同的掃描器**】各自需要它:
+ *   `:116-121` 逐欄 wiring   ⇒ 做過了(docstring 逐字「偵測字串命中了自己的輸入」)
+ *   反向硬寫掃描              ⇒ **沒做**(星期字面一加進字集就假紅在 `ComingSoon.tsx:217` 的註解)
+ *   新的地址守門              ⇒ **沒做**(GR-051 F1 must-fix)
+ * 🔴 **做過的那一個不會幫還沒做的那一個。**
+ *
+ * 🔴 **判別句**:我這一發是不是【新開了一個掃描器】?是 ⇒ **它自己要剝一次**。
+ * 🔴 **可機械化(這一句才是它從提醒變成機制的地方)**:
+ *   **本檔新增任何 `readFileSync(...)` + 字面比對 ⇒ 檢查它有沒有經過 `stripComments()`。**
+ *   量法:`grep -n 'readFileSync' <本檔>` 逐行看下一個非空白 token 是不是 `stripComments`。
+ * ⚠️ 而**這條通則本身沒有守門** —— 它靠讀到的人執行。要做成機制的話,
+ *   形狀是「掃本檔的 `readFileSync` 呼叫點」的 meta 測試,**還沒做**。
+ */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { STORE_ADDRESS } from './site-config';
 
 const SRC = join(__dirname, '..');
 
@@ -70,30 +88,31 @@ function stripComments(code: string): string {
  * ⇒ 那支守門會給人「**已經接上了**」的錯覺(本窗自己在 `#528` 條目裡寫下這句)。
  * **收緊成逐檔指名**:每支檔宣告它**應該**吃哪幾個欄位,少吃一個就紅。
  *
- * ⚠️ **`days: false` 不是「這樣是對的」,是「這是 `#528` 記著的債」** ——
- * 三個顯示點的星期目前硬寫,要修得把 `legal-content.ts` 的英→中推導抽成共用(重構,另一片)。
- * 🔴 **修好那三支之後,這張表要把 `days` 改成 `true`** —— 否則守門會繼續放行舊狀態。
+ * ✅ **2026-08-19 `#528` 修完:三個顯示點的 `days` 已改成 `true`。**
+ * 推導從 `legal-content.ts` 搬到 `lib/site-config.ts` 的 `openDaysLabel(joiner)`,四個消費端共用。
+ * 🔴 **`days: true` 的意思是「這支檔取用了 `days` 這個欄位」,不是「它顯示的星期是對的」** ——
+ *    真的顯示對不對,靠下面那格突變(`days` 加一個 `Sunday`,四個顯示點要全部跟著變)。
  */
 const CONSUMERS: readonly (readonly [
   rel: string,
   fields: { opens: boolean; closes: boolean; days: boolean },
   why: string,
 ])[] = [
-  // 顯示點三支:吃時段、**星期硬寫**(= `#528` 的債,不是設計)
+  // 顯示點三支:2026-08-19 `#528` 修完之後**三個欄位都吃**(星期改吃 `openDaysLabel('-')`)
   [
     'components/HomeFooter.tsx',
-    { opens: true, closes: true, days: false },
-    '頁尾門市欄(2026-08-15 由硬寫改為接 SSoT;星期仍硬寫 = #528)',
+    { opens: true, closes: true, days: true },
+    '頁尾門市欄(2026-08-15 接時段、2026-08-19 #528 接星期)',
   ],
   [
     'components/ComingSoon.tsx',
-    { opens: true, closes: true, days: false },
+    { opens: true, closes: true, days: true },
     '/coming-soon /stores /install 的頁尾(同上)',
   ],
   [
     'components/MobileMenu.tsx',
-    { opens: true, closes: true, days: false },
-    '手機選單門市資訊(吃了時段卻沒吃星期 —— #528 點名的那支)',
+    { opens: true, closes: true, days: true },
+    '手機選單門市資訊(#528 點名的那支,已接)',
   ],
   // 結構化 / 法律頁兩支:三個欄位都吃
   [
@@ -123,7 +142,16 @@ describe('SSoT 接線:`OPENING_HOURS` 的消費端必須真的接著常數', () 
       );
       // ② 🔴 **逐欄**驗,不是「任一欄」——「任一欄」會放行只吃時段的檔(見上方 docstring)。
       for (const f of ['opens', 'closes', 'days'] as const) {
-        const used = new RegExp(String.raw`\bOPENING_HOURS\s*\.\s*${f}\b`).test(src);
+        // 🔴 `days` 這一欄有【兩種合法接法】(2026-08-19 `#528` 之後):
+        //    ① 直接讀 `OPENING_HOURS.days`（`lib/org-jsonld.ts` 要的是英文原值）
+        //    ② 呼叫 `openDaysLabel()`（要中文標籤的四個消費端;推導住在 site-config,吃的就是 days）
+        //    🔴 **只認 ① 的話,把星期接好的檔會被判成脫鉤** —— 而那正是修好 `#528` 之後
+        //       這支守門的第一個反應(本窗 2026-08-19 當場撞到,四格紅)。
+        //    ⚠️ 而 `openDaysLabel` 算「接上」的前提是:它**真的**從 `OPENING_HOURS.days` 推導。
+        //       那個前提由 `site-config.ts` 自己顧,不由本支驗 —— 這是本格的已知射程。
+        const used =
+          new RegExp(String.raw`\bOPENING_HOURS\s*\.\s*${f}\b`).test(src) ||
+          (f === 'days' && /\bopenDaysLabel\s*\(/.test(src));
         if (fields[f]) {
           expect(used, `${rel} 應該吃 OPENING_HOURS.${f},但沒有 ⇒ 那一欄脫鉤了`).toBe(true);
         } else {
@@ -145,14 +173,66 @@ describe('SSoT 接線:`OPENING_HOURS` 的消費端必須真的接著常數', () 
     for (const [rel] of CONSUMERS) scanned.push(rel);
     // 這裡只掃已知消費端;全樹掃在 CI 之外由人跑(量法見上方 docstring)。
     for (const rel of scanned) {
-      const src = readFileSync(join(SRC, rel), 'utf8');
-      // 只看「渲染/組字」那一類殘留:字面時段。註解裡出現是允許的(本檔自己就有)。
-      const codeLines = src
-        .split('\n')
-        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-        .filter((l) => !l.includes('週一-週六 10:00-19:00 」'));
-      const hardcoded = codeLines.filter((l) => /['"`][^'"`]*10:00\s*[-–]\s*19:00/.test(l));
-      expect(hardcoded, `${rel} 有硬寫的時段字面 —— 它應該吃 OPENING_HOURS`).toEqual([]);
+      // 🔴 **用 stripComments 剝,不用行首 regex**(折 GR-051 F4 時當場撞到):
+      //    原本的 `^\s*(//|\*|/\*)` 只認【行首】是註解標記的行,而 JSX 區塊註解
+      //    `{/* … */}` 的中間行常常以內文開頭 —— `ComingSoon.tsx:217` 那行逐字含「週一-週六」
+      //    ⇒ 星期字面一加進掃描字集,那行就被當成硬寫殘留、**假紅**。
+      //    這與 F1(地址守門)是同一個病,而它在同一支檔裡已經被記過兩次。
+      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'));
+      // 只看「渲染/組字」那一類殘留。
+      const codeLines = src.split('\n');
+      // 🔴 GR-051 F4:原本這條**只掃時段字面**,星期不在掃描字集
+      //    ⇒ 有人把渲染退回硬寫「週一-週六」而只留一個沒用的 `openDaysLabel()` 呼叫,
+      //      上面那組 wiring 綠、這條也綠、而釘測的期望值【自己就是】`週一-週六`
+      //      ⇒ 三道全綠而畫面已經脫鉤。**把星期字面加進來**。
+      const hardcoded = codeLines.filter((l) =>
+        /['"`][^'"`]*10:00\s*[-–]\s*19:00/.test(l) || /週一\s*[-–]\s*週六/.test(l),
+      );
+      expect(hardcoded, `${rel} 有硬寫的時段或星期字面 —— 它應該吃 OPENING_HOURS`).toEqual([]);
     }
   });
+});
+
+describe('`#528` 同族:門市地址(硬寫的字面必須與 `STORE_ADDRESS` 一致)', () => {
+  // 🔴 **為什麼是守門而不是改成吃 SSoT**:`HomeFooter.tsx:127-129` 逐字寫著
+  //    「空格與 `<br/>` 是本頁尾的排版、不是地址的一部分,正典值本身沒有空格」。
+  //    要讓那兩支直接吃 `STORE_ADDRESS`,得把 `street`(`化成路736巷18號1樓`)
+  //    再拆成「路名 / 巷號」兩欄 —— 那會動到 `lib/org-jsonld.ts`(餵搜尋引擎)與法律頁,
+  //    **而它們現在是對的**。⇒ 重塑 SSoT 的代價 > 這裡要防的風險。
+  // 🔴🔴 **【代裁】這個取捨是 G1 判的、MAIN 2026-08-19 追認,Sean 可推翻。**
+  //    (GR-051 F7:理由寫得再好,少了「誰判的、可推翻」那半句,下一個人會把它讀成既定事實。)
+  //    他要真的把 `street` 拆欄位,另開一片 —— 本守門就可以退場。
+  // 🔴 **這裡要防的風險只有一個**:Sean 換地址 ⇒ `STORE_ADDRESS` 改了、這兩支的硬寫沒改
+  //    ⇒ 同一個站兩種地址。**去掉空白後比對**就抓得到,而畫面一個字都不用動。
+  // 🔴 GR-051 F1(must-fix):**先剝註解再掃** —— `ComingSoon.tsx:217` 的註解**已經含**
+  //    「新北市新莊區化成路」,現在排在 `:190` 渲染之後純屬順序運氣:
+  //    註解若加在渲染上方 ⇒ 假紅;註解若引了完整地址 ⇒ **假綠而渲染已漂**。
+  //    同一支檔 `:116-121` 四十行前才為同一件事付過學費(「偵測字串命中了自己的輸入」)。
+  // 🔴 GR-051 F2:比對用**完整相等**不是 `startsWith` —— 前綴比對會放行
+  //    「SSoT 改短成舊值的前綴」(例:拿掉「1樓」)⇒ 過期樓層無聲存活。
+  // ⚠️ 它擋不住「兩邊【同時】被改錯」,也擋不住排版走樣 —— 那是別的東西的事。
+  const FULL = `${STORE_ADDRESS.region}${STORE_ADDRESS.locality}${STORE_ADDRESS.street}`;
+
+  for (const rel of ['components/HomeFooter.tsx', 'components/ComingSoon.tsx']) {
+    it(`🔴 ${rel} 的門市地址字面(去空白後)必須【完整等於】STORE_ADDRESS 串接`, () => {
+      const src = stripComments(readFileSync(join(SRC, rel), 'utf8'));
+      const i = src.indexOf(STORE_ADDRESS.region);
+      expect(
+        i,
+        `${rel} 剝掉註解之後找不到 ${STORE_ADDRESS.region} —— 地址是不是被改寫或搬走了?`,
+      ).toBeGreaterThan(-1);
+      // 取「那一段地址」:從 region 起到收尾的 `</p>` 為止(兩支都把地址包在單一 <p> 內)。
+      const end = src.indexOf('</p>', i);
+      expect(end, `${rel} 的地址區塊沒有收尾的 </p>`).toBeGreaterThan(i);
+      const rendered = src
+        .slice(i, end)
+        .replace(/<br\s*\/?>/g, '')
+        .replace(/[<>{}]/g, '')
+        .replace(/\s+/g, '');
+      expect(
+        rendered,
+        `${rel} 的地址字面與 STORE_ADDRESS 不一致 ——\n  期望: ${FULL}\n  實際: ${rendered}`,
+      ).toBe(FULL);
+    });
+  }
 });
