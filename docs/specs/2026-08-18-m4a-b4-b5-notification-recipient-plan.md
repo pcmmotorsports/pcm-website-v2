@@ -41,7 +41,33 @@ L 級 N/A(非內容)。**高風險片**(鐵則 12 ①)。零 migration / 零 db 
 ## 3. 收件人解析(唯一一段依賴 `Q-W5-3`)
 
 單一 server-only 函式,**一個呼叫點、一份規則**;驗證一律走既有 `NotificationEmailInput`
-(`packages/schemas/src/notification-email.ts`)—— **不在本片長出第二套 email 規則**。
+(`packages/schemas/src/notification-email.ts`)—— **本片不長出第二套 email 規則**。
+
+### 3.1 🔴 而第二套【已經在了】,而且它就守在 `Q4=甲` 的那個來源上
+
+本節第一版寫「不長出第二套」時,我沒有量過樹上有幾套。量完是**兩套**:
+```
+量法:grep -rn "z\.email\|\[^@\]+@" --include='*.ts' --include='*.tsx' apps packages | grep -v '\.test\.'
+  packages/schemas/src/index.ts:33   LoginInput.email    = z.email()
+  packages/schemas/src/index.ts:43   RegisterInput.email = z.email()      ← 🔴 註冊信箱是這一套把關的
+  packages/schemas/src/notification-email.ts:16  NotificationEmailInput   ← 寄信是這一套把關的
+```
+🔴 **`Q4=甲` 的收件人 = `customers.email` = 註冊時由 `z.email()` 驗過的值**,
+而寄信時要過的是 `NotificationEmailInput` —— **兩套的嚴格度不同,且差在四個地方**:
+```
+NotificationEmailInput 有、z.email() 沒有:
+  ① 只允許可列印 ASCII ^[!-~]$      ② <=254 octets
+  ③ 拒 LINE 合成域(含子網域、去尾點)  ④ canonicalize(domain 轉小寫)
+```
+⇒ **一個【註冊時被接受】的信箱,可能在【寄信時被拒】。**
+⇒ 而依 §5「enqueue 全 catch 不上拋」,那個拒絕**不會有任何人看到**:
+   付款正常、畫面正常、沒有東西紅、客人沒收到信。**第五張臉。**
+
+🔴 **⇒ 本片的驗收必須包含一格:餵一個「`z.email()` 過、`NotificationEmailInput` 不過」的值,
+   斷言系統留下【可觀測的痕跡】。** 光寫「落一行 log」不算 —— **沒有人在看的 log 與沒有 log 是同一件事**
+   (STATUS 已記:CI 紅了目前不會通知任何人)⇒ 觀測點要指得出「誰會看到、在哪裡看到」。
+
+⚠️ **本片不去統一那兩套**(動 `RegisterInput` = 動註冊路徑,範圍外)。**只登記這個縫,並要求它有觀測點。**
 
 **若 `Q-W5-3=甲`**:候選依序 `customers.email` → `address.email`,取第一個 parse 過的。
 **若 `Q-W5-3=乙`**:只看 `customers.email`。
