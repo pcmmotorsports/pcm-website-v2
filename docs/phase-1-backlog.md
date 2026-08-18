@@ -17019,3 +17019,49 @@ T 線列的兩類假命中(別窗 `grep` 的 pattern 含該字、一支叫 `vite
   - `container-type` 對彈窗定位的實際影響**沒有實測**,上面那段是讀規範推的 ⇒ 缺:真的加上去點一次建箱彈窗
 - **連動:** `#631`(同一頁的截斷態)、`docs/specs/2026-08-10-350-workspace-shell-plan.md` §Q5、
   `docs/specs/2026-08-10-350c-order-panel-wire-plan.md:18` ③(「手機照 Q5 維持整頁」那一列 —— **它成立**)
+
+### #640 · 六個列表頁的滿版沒有守門,而剩下的四支 max-w 正是複製新頁面的樣板
+
+- **發現者:** W7 2026-08-18,複驗 `bmw-m-headline` 那 8 顆時**從 diff 推出來的**(主視窗指派、條件是不從 commit body 推)。
+- **來歷:** Sean 2026-08-17 逐字「網頁都沒有滿版」⇒ A 窗 `7f6d0ac1` 把六支列表頁的 `max-w-6xl` 拿掉,已隨 `6dcaf0d1` 進 dev。**那個修法本身是對的**,本條講的是它旁邊那個洞。
+- **事實(可重跑)**
+  - 改過的六支:`customers/page.tsx` / `orders/refund-exceptions/page.tsx` / `products/page.tsx` /
+    `settings/audit/page.tsx` / `settings/staff/page.tsx` / `settings/suppliers/page.tsx`
+  - **沒改、仍帶 `max-w-*` 的四支**(`grep -rn 'max-w-' apps/admin/src/app --include='*.tsx' | grep -v '\.test\.'` ⇒ 4 命中):
+    ```
+    app/page.tsx:51             max-w-4xl   總覽頁
+    app/customers/[id]/page.tsx:50   max-w-6xl   客戶詳情
+    app/products/[id]/page.tsx:64    max-w-6xl   商品詳情
+    app/orders/[id]/page.tsx:95      max-w-6xl   訂單詳情
+    ```
+  - **分類尺我獨立複驗過,它會動**:`grep -c '<table\|Table' <檔>` ⇒ 改的六支全部 ≥1(2/1/2/3/2/2)、
+    沒改的四支全部 = 0。⇒ 「有表格才滿版」這條規則**在今天的十支上是一致的**。
+- **🔴 洞在哪(兩個,第二個才是重點)**
+  1. **零守門。** `grep -rn 'max-w-' apps/admin/src --include='*.test.ts' --include='*.test.tsx'` ⇒ **0 命中**
+     ⇒ 誰把 `max-w-6xl` 加回任何一支列表頁,**typecheck / lint / build / vitest 都不會紅**。
+  2. 🔴🔴 **那四支就是複製新頁面時最順手的樣板** —— 要做一個新的後台列表頁,最自然的動作是打開
+     `products/[id]/page.tsx` 或 `customers/[id]/page.tsx` 抄外框。**抄到的外框帶著 `max-w-6xl`。**
+     ⇒ 這不是「有一天可能有人手滑」,是**現行複製路徑的預設輸出就是壞的那一種**。
+- **🔴 而「那四支是刻意留的」這件事,code 裡查不到**
+  - 逐支查過:四支的 `max-w-*` 那一行**都沒有任何說明它為什麼留著的註解**
+    (`grep -n '刻意' <四支>` 的命中都在講別的事:`customers/[id]:37` 講 `notFound()`、
+     `orders/[id]:84` 講 `back.href`;`app/page.tsx` 與 `products/[id]` **零命中**)。
+  - 理由目前只住在 `~/pcm-mailbox/A-224-STOP-20260818.md` §3-⑦(「總覽頁 = 刻意不改,不是漏做」
+    + 「無 table 的三支 = 詳情表單頁,長文字行過寬更難讀」)。
+  - ⇒ **一封會被捲走的信,是「這是刻意的」目前唯一的載體。**下一個人看到它只會看到一個沒有理由的 `max-w-6xl`。
+- **不修未來會痛在哪**
+  - Sean 那句抱怨會**靜默復發**,而且是從新頁面長出來的 ⇒ 沒有 diff 會顯示「這裡改壞了」,新頁面天生就是壞的。
+  - 而症狀是「畫面右邊一片空白」—— **它看起來像設計選擇,不像 bug** ⇒ 不會有人回報,直到 Sean 又看到一次。
+- **修法方向(兩件都便宜,建議一起做)**
+  - ① 一格守門:掃 `apps/admin/src/app/**/page.tsx`,**有 `<table`/`Table` 的檔不得含 `max-w-`**;
+    配一個分母斷言(掃到的檔數 > 0,不然它是恆綠的)+ 一發突變(給任一支列表頁加回 `max-w-6xl` 必須紅)。
+  - ② 四支各補一行註解寫清楚為什麼留著,把 `A-224` §3-⑦ 那兩句搬進 code。
+    🔴 **②不能省** —— 只做①的話,守門會在「有人正確地新增一個詳情頁」時擋錯人,而他不知道規則是什麼。
+- **nit(併在這裡,不另開)**
+  - 六支拿掉 `max-w-6xl` 之後 `mx-auto` 變成**死 class**(沒有 max-width 就沒有 auto margin 可分配):
+    `grep -rn "className='mx-auto space-y-4'" apps/admin/src/app --include='*.tsx'` ⇒ **6 命中**。
+    無害,但它讀起來像「這頁是置中固定寬」,與實際相反。
+- **🔴 我沒驗的**
+  - 我**沒有**重量那六支改後的表格寬(A 窗量過其中三支,另三支我與它都沒量)⇒ 缺的檢查:真瀏覽器逐頁量 `<table>` 寬與右緣留白。
+  - 我**不是 fresh context**(我在那棵樹上工作過、也讀過那些 commit body)⇒ 本條是從 diff 推的,但這個限定要跟著結論走。
+- **連動:** `7f6d0ac1`(在 dev)、`~/pcm-mailbox/A-224-STOP-20260818.md` §3-⑦、`~/pcm-mailbox/W7-001-STOP-20260818.md`
