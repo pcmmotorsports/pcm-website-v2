@@ -148,6 +148,17 @@ before / after 建議 = {delisted_at, listing_set_by} 兩欄
 □ 同值再按一次 ⇒ NO_CHANGE、零寫入、零 audit 列(照樣板的行為)
 □ admin_audit_log 多一列,actor / action / target / before / after 都對得上
 □ EXECUTE 權限:anon / authenticated 打不到(照樣板的 REVOKE→GRANT)
+□ 🔴🔴 **NO_CHANGE 時,員工打的備註不能靜默蒸發**(GR R1 must-fix-lite,**這是真世界的路徑**)
+   ```
+   員工在一件【已下架】的商品上,附了備註再按一次「下架」
+   ⇒ RPC 回 NO_CHANGE ⇒ 零寫入、零稽核列 ⇒ **那段備註哪裡都沒有**
+   ⇒ 而 UI 若只顯示「沒有變更」,員工會以為【他留了紀錄】,而世界上沒有
+   ```
+   🔴 **修法不在 SQL** —— RPC 零寫入是對的(重複按不該蓋時間戳、不該灌稽核噪音)。
+   ⇒ **server action 要對「NO_CHANGE 且 note 非空」這一格 surface 出來**:
+     例:「這件商品已經是下架狀態,沒有變更。**你打的備註沒有被記錄。**」
+   □ 突變:拿掉那個分支 ⇒ 對應那格必須紅
+
 □ 四綠 TURBO_FORCE=1(動 .tsx ⇒ 含 build)
 
 □ 🔴🔴 **apply 之前必跑拋棄式 Postgres**(`docs/runbooks/throwaway-postgres-for-migration-verification.md`)
