@@ -145,7 +145,7 @@ admin 檔頭 `:61-69` 自己列了四條它擋不住的。逐條重問:
 |---|---|---|
 | ① partner key 是別的商戶(TapPay key 無 sandbox/production 形狀標記) | ✅ **原樣成立**,機械上仍判別不了 |
 | ② 非正式 Supabase 專案裡裝的是正式資料複本 ⇒ 被當 sandbox 側放行 | ✅ **原樣成立** |
-| ③ `TAPPAY_MERCHANT_ID` 與該筆交易的商戶不同 —— admin 說「由 adapter 的 recordQuery 恆帶 merchant_id + action 層擋」 | 🔴 **不成立,要另外查**:`git grep -n 'merchant_id' -- apps/storefront/src/app/checkout` ⇒ **零命中** ⇒ storefront 的 charge 路徑**沒有那一層對應的擋**(而 adapter 層可能有,我沒查到那麼深)⇒ **標未確認** |
+| ③ `TAPPAY_MERCHANT_ID` 與該筆交易的商戶不同 —— admin 說「由 adapter 的 recordQuery 恆帶 merchant_id + action 層擋」 | ✅ **原樣成立,而且比 admin 那句寫得更強**(2026-08-19 補查)。⛔ ~~本檔初版寫「不成立、standard 未確認」,理由是 `git grep -n 'merchant_id' -- apps/storefront/src/app/checkout` ⇒ 零命中~~ —— **那是搜錯層**:它不在 app 層,在**兩個 app 共用的那一層**。逐字實查:`packages/adapters/src/tappay/TapPayChargeAdapter.ts:507` `const filters = { merchant_id: [this.config.merchantId] }`(恆帶);`packages/use-cases/src/settle-charge.ts:79` `tappay.recordQuery(...)`;同檔 `:356` 逐字「**merchant 由 adapter recordQuery wire 完整性已 fail-closed(每筆 merchant_id 必本商戶、否則 throw)**」;而兩個 app 的 composition 都 `new TapPayChargeAdapter`(`admin:149` / `storefront:74`)⇒ **同一支** |
 | ④ 正式站日後改用自訂網域連 Supabase ⇒ 判定整個反過來(production 被誤擋、sandbox × 正式帳本被誤放,單向盲區) | 🔴 **搬過去會【變糟】**,見下 |
 
 ### 🔴 邊界④ 為什麼變糟:**它會產生第二份「正確值」,而那正是 admin 自己警告的事**
