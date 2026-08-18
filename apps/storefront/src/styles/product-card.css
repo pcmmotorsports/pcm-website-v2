@@ -158,6 +158,17 @@
 }
 .pcard:hover .pcard-heart { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .pcard-heart:hover { background: #fff; }
+/* 🔴 Q1(Sean 2026-08-18 親口:「手機客人要能收藏」)—— 觸控裝置上愛心【常駐顯示】。
+   在這之前它只有 `.pcard:hover` 才浮出來,而**觸控裝置沒有 hover** ⇒ 手機客人
+   根本沒有入口可以收藏(兩顆愛心在手機上都看不見)。
+   🔴 **`opacity` 與 `pointer-events` 必須寫在一起**:只開 `opacity` 會變成
+   【看得見卻按不到】—— 那是上一片(`0a7988c9`)剛補的 `pointer-events: none` 的反面。
+   守門 `invisible-tap-targets.test.ts` 有一格盯著這個配對。
+   ⚠️ **不動基底規則**:桌機仍照 design(`design-reference/styles/product-card.css:78-95`)
+   的 hover 才浮出 ⇒ 那支守門的前三格**照樣綠**,不需要改期望值。 */
+@media (hover: none) {
+  .pcard-heart { opacity: 1; transform: translateY(0); pointer-events: auto; }
+}
 
 /* Gallery dots */
 .pcard-dots {

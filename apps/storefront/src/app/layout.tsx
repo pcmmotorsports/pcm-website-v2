@@ -31,6 +31,7 @@ import type { ReactNode } from 'react';
 import { headers } from 'next/headers';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { CartProvider } from '@/contexts/CartContext';
+import { FavoritesProvider } from '@/contexts/FavoritesContext';
 import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import { serializeOrganizationJsonLd } from '@/lib/org-jsonld';
@@ -55,6 +56,7 @@ import '../styles/checkout.css';
 import '../styles/error.css'; // A3:404 頁 err-*(design 序 error.css 在 checkout 後;獨立 class 零 cascade 交互)
 import '../styles/pages-shipping.css'; // A2:/info/shipping(design pages.css 抽段;faq 家族帶 .shipping-content scope 防撞 product-page.css)
 import '../styles/coming-soon.css'; // 第2批:/coming-soon /stores /install(.cs-* 色票 scope 在 .cs-page、零 cascade 交互)
+import '../styles/favorites.css'; // M-4b #191:收藏寫入失敗提示(.fav-error;獨立 class 零 cascade 交互)
 import '../styles/tier.css';
 import '../styles/mobile-tabbar.css';
 // 🔴 **必須排在所有樣式的最後一支**:它靠「同 specificity 時 source order 勝出」蓋掉各表單自訂的
@@ -108,8 +110,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         />
         <MobileProvider value={isMobile}>
           <CartProvider>
-            {children}
-            <MobileTabBar />
+            {/* M-4b #191:收藏的單一資料源(兩顆愛心共用)。放在 CartProvider 內、children 外層,
+                理由與 CartProvider 同:它要跨頁存活,而未登入的訪客不會因此多打一趟 server。 */}
+            <FavoritesProvider>
+              {children}
+              <MobileTabBar />
+            </FavoritesProvider>
           </CartProvider>
         </MobileProvider>
       </body>

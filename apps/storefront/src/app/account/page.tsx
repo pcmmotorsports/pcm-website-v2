@@ -37,11 +37,11 @@
 
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getAddressRepo, getVehicleRepo, getOrderRepo } from '@/lib/auth/composition';
+import { getAddressRepo, getVehicleRepo, getOrderRepo, getFavoritesRepo } from '@/lib/auth/composition';
 import { AccountView } from '@/components/account/AccountView';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
-import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem } from '@pcm/domain';
+import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem, FavoriteListItem } from '@pcm/domain';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,6 +130,17 @@ export default async function AccountPage() {
     console.error('[account/page] orders 讀取失敗、退化空陣列:', orderError);
   }
 
+  // M-4b #191:讀自己的收藏清單(getFavoritesRepo→listByCustomer、RLS favorites_select_own 守自己 row)。
+  // 鏡像 g-5a/g-6a 退化 pattern:adapter error → 退化空陣列 + console.error、頁面不 500(走空狀態)。
+  // 🔴 客人看不到的商品(軟下架)**不會出現在這裡** —— adapter `products!inner` + RLS 的自然結果
+  // (Sean 2026-08-18 逐字「甲 = 不顯示(清單直接少一項)」),本頁沒有也不該有過濾邏輯。
+  let favorites: FavoriteListItem[] = [];
+  try {
+    favorites = await (await getFavoritesRepo()).listByCustomer(user.id);
+  } catch (favoriteError) {
+    console.error('[account/page] favorites 讀取失敗、退化空陣列:', favoriteError);
+  }
+
   // V-1c++(Sean 07-16 實測回饋二輪):車型欄改品牌/車型雙下拉(與首頁同 combobox 原型),
   // 結構化 taxonomy 直傳(unstable_cache 900s、失敗回 []=表單退回純自由輸入);
   // 點選組出的名稱=字典標準字面「品牌 車型」→ 首頁愛車 chips 一鍵套用可精確命中。
@@ -145,6 +156,7 @@ export default async function AccountPage() {
       vehicles={vehicles}
       vehicleBrands={vehicleBrands}
       orders={orders}
+      favorites={favorites}
     />
   );
 }

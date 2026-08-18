@@ -36,6 +36,7 @@ import { useRouter } from 'next/navigation';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
+import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { ProductSwatchPreview } from './ProductSwatchPreview';
 import { ProductServices } from './ProductServices';
@@ -191,10 +192,13 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
       .filter((g) => g.values.length > 1);
   }, [product.variants, rpmShape]);
 
-  // OD-4a:selectedVariant 提升 ProductPage(props 受控)、本元件只持 qty / liked local。
+  // OD-4a:selectedVariant 提升 ProductPage(props 受控)、本元件只持 qty local
+  //   (~~liked~~ 2026-08-18 起在 FavoritesContext,不再是本元件的 state)。
   //   product 變更時 selectedVariant reset 由 ProductPage 統一處理(gallery 同步換圖);本處只 reset qty。
   const [qty, setQty] = useState<number>(1);
-  const [liked, setLiked] = useState<boolean>(false);
+  // M-4b #191:收藏改吃 FavoritesContext(與商品卡那顆同一個資料源)。
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const liked = isFavorite(product.slug);
   const { addItem } = useCart();
   const router = useRouter();
 
@@ -365,7 +369,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
         <button
           type="button"
           className={`pd-like ${liked ? 'is-liked' : ''}`}
-          onClick={() => setLiked(!liked)}
+          onClick={() => toggleFavorite(product.slug)}
           aria-label="收藏"
           aria-pressed={liked}
         >
@@ -380,6 +384,11 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
           >
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
           </svg>
+          {/* Q3(主視窗代裁,Sean 授權「愛心的問題給你決定就好」):手機也要看得見這顆。
+              整條 `.pd-buy-row` 在 ≤1079 是 `display: none`(改由 sticky 購買列接手),
+              手機版把這顆單獨放回來、拉成整列 ⇒ 一顆 48×48 的裸方框看起來像壞掉,故補字。
+              桌機 `.pd-like-label` 是 `display: none`、視覺零變化。 */}
+          <span className="pd-like-label">{liked ? '已收藏' : '收藏'}</span>
         </button>
       </div>
 

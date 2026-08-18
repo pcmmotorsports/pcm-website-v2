@@ -18,27 +18,27 @@
 //    ⇒ 日後照鐵則 1 重搬那支檔的人會把這個洞搬回來,**這一格就是攔他的**。
 //
 // ═══════════════════════════════════════════════════════════════════════════
-// 🔴🔴 **給未來把愛心改成「手機常駐顯示」的那個人:這 4 格【預期會紅】,而它們不該被刪掉。**
+// ✅ **Q1(手機常駐顯示)已落地(2026-08-18)—— 而這 4 格【沒有紅】。**
 // ═══════════════════════════════════════════════════════════════════════════
-//   背景:`Q1 = 手機上的愛心常駐顯示`(Sean 2026-08-18 親口確認「手機客人要能收藏」;
-//   plan `docs/specs/2026-08-18-g3-favorites-plan.md` §1-h)。
-//   一旦 `.pcard-heart` 在手機上要**看得見**,它就不能再是 `opacity: 0`
-//   ⇒ 本檔第一組(`HOVER_GATED` 逐條)對 `.pcard-heart` 那一格**會紅**。
-//
-//   🔴 **那時候要做的是【改期望值 + 重新想它在守什麼】,不是刪掉它:**
+//   🔴 **本段是更正**:上一版檔頭寫著「這 4 格預期會紅、要改期望值」。
+//   **那個預測沒有成真**,原因是落地的做法與預測時想的不一樣:
+//   ```
+//   預測時想的：把基底的 opacity: 0 拿掉 ⇒ 前三格的前提消失 ⇒ 紅
+//   實際做的　：基底不動（桌機仍照 design 的 hover 才浮出），
+//              另加一條 @media (hover: none) 讓【觸控裝置】常駐顯示
+//              ⇒ 基底規則一個字沒改 ⇒ 這 4 格照樣綠
+//   ```
+//   ⚠️ 留著這段不刪,是因為**下一個人可能會走預測的那條路**(直接改基底)——
+//   那時候前三格才會紅,而**那時候的正解仍然是「改期望值 + 重想它在守什麼」,不是刪掉**:
 //   ```
 //   它守的病 = 「看不見的東西不准吃點擊」
-//   而那個病在 .pcard-dots 與 .pcard-quick 上【仍然成立】—— 那兩個還是 hover-gated
-//   ⇒ 把 .pcard-heart 從 HOVER_GATED 那張表移出來，讓另外兩個繼續被守
-//   ⇒ 而 .pcard-heart 屆時要換一個新的斷言:「可見」與「可點」必須綁在一起
-//      （看得見 ⇒ pointer-events 不得是 none;否則變成【看得見卻按不到】）
+//   而那個病在 .pcard-dots 與 .pcard-quick 上仍然成立 ⇒ 那兩個不該跟著陪葬
 //   ```
-//   ⚠️ **最容易走錯的那一步**:看到紅、以為守門過時了、整支刪掉
-//   ⇒ 那會讓 `.pcard-dots` / `.pcard-quick` 同時失去保護,**而它們是無辜的**。
+//   📎 背景:`Q1 = 手機上的愛心常駐顯示`(Sean 2026-08-18 親口確認「手機客人要能收藏」;
+//   plan `docs/specs/2026-08-18-g3-favorites-plan.md` §1-h)。
+//   ⇒ 新增的第 5 格盯的是**新做法自己的風險**:`@media (hover: none)` 那條裡
+//   `opacity` 與 `pointer-events` 必須成對 —— 只開 `opacity` = 看得見卻按不到。
 //
-//   📎 這一段寫在這裡而不是只寫在交接檔裡,理由是今天的母題:
-//   **改這支檔的人讀的是這支檔,不是別人的檢查點。**
-
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -63,6 +63,21 @@ describe('看不見的東西不准吃點擊(product-card.css)', () => {
       rule,
       `${sel} 看不見卻沒有 pointer-events: none ⇒ 它會在隱形狀態下吃掉客人的點擊`,
     ).toMatch(/pointer-events:\s*none\s*;/);
+  });
+
+  it('🔴 Q1:觸控裝置那條裡「看得見」與「可以按」必須成對出現', () => {
+    const css = read('product-card.css');
+    const touch = /@media\s*\(hover:\s*none\)\s*\{[\s\S]*?\n\}/.exec(css)?.[0];
+    expect(
+      touch,
+      '找不到 @media (hover: none) 區塊 ⇒ 手機客人又沒有入口可以收藏了(Q1 被拿掉?)',
+    ).toBeTruthy();
+    expect(touch, '手機常駐顯示那條沒把 .pcard-heart 打開').toContain('.pcard-heart');
+    expect(touch, '.pcard-heart 在觸控裝置沒有變成看得見').toMatch(/opacity:\s*1\s*;/);
+    expect(
+      touch,
+      '看得見了卻沒有把 pointer-events 收回來 ⇒ 客人看得到愛心但按不下去',
+    ).toMatch(/pointer-events:\s*auto\s*;/);
   });
 
   it('🔴 `.pcard-heart` 浮出來時要把點擊收回去(否則桌機按不到)', () => {

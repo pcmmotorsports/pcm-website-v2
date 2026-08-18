@@ -17,10 +17,10 @@
 // customers_update_own(auth.uid()=user_id 限自己改自己),寫入 ownership 靠 RLS row 守、欄位靠 GRANT 守。
 
 import 'server-only';
-import type { IAuthService, ICustomerRepository, IAddressRepository, IVehicleRepository, IOrderRepository } from '@pcm/ports';
+import type { IAuthService, ICustomerRepository, IAddressRepository, IVehicleRepository, IOrderRepository, IFavoritesRepository } from '@pcm/ports';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入 IAuthService;SupabaseAuthAdapter 不持 service_role(收注入的 anon-ssr client)、本檔永不 import createSupabaseServiceClient / SupabaseWalletAdapter
 import { SupabaseAuthAdapter } from '@pcm/adapters/server';
-import { SupabaseCustomerAdapter, SupabaseAddressAdapter, SupabaseVehicleAdapter, SupabaseOrderAdapter } from '@pcm/adapters';
+import { SupabaseCustomerAdapter, SupabaseAddressAdapter, SupabaseVehicleAdapter, SupabaseOrderAdapter, SupabaseFavoritesAdapter } from '@pcm/adapters';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
@@ -85,4 +85,19 @@ export async function getVehicleRepo(): Promise<IVehicleRepository> {
 export async function getOrderRepo(): Promise<IOrderRepository> {
   const supabase = await createServerSupabaseClient();
   return new SupabaseOrderAdapter(supabase);
+}
+
+/**
+ * 建本次 request 的 IFavoritesRepository(SupabaseFavoritesAdapter + cookie-aware authenticated server client)。
+ * M-4b #191:會員中心收藏清單(server component 讀)+ 加入 / 取消收藏 server action。
+ *
+ * **鏡像 getAddressRepo**:SupabaseFavoritesAdapter 在 @pcm/adapters root export、來源 client.ts
+ * 頂層 `import 'server-only'`、整條 chain 受 server-only 約束(本檔已 import)。
+ * **不持 service_role**:authenticated client 走 RLS favorites_*_own(auth.uid()=customer_user_id),
+ * DB 端 authenticated 只有 SELECT / INSERT / DELETE(**刻意無 UPDATE**、見 migration
+ * `20260818170000_m4b_g3_customer_favorites`)。
+ */
+export async function getFavoritesRepo(): Promise<IFavoritesRepository> {
+  const supabase = await createServerSupabaseClient();
+  return new SupabaseFavoritesAdapter(supabase);
 }

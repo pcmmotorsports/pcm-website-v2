@@ -687,12 +687,75 @@
   color: var(--c-red-dark); /* 🔶 0c:白底錯誤訊息 = 文字層 ⇒ 深熔橘 */
 }
 
+/* ============ FAVORITES tab(M-4b #191:接真清單)============
+   字面直接搬 design-reference/styles/account.css `.acc-fav-grid` ~ `.acc-fav-price`
+   (L697-736)+ mobile L912,零改動。
+   🔴 g-3 當年沒搬這一段是因為當時**沒有真收藏**(整個分頁只有空狀態);
+      現在清單接上了才需要它 —— 不是「補漏」,是那時候還用不到。 */
+.acc-fav-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--c-border);
+  border: 1px solid var(--c-border);
+}
+.acc-fav {
+  background: var(--c-surface);
+  color: var(--c-text);
+  display: flex;
+  flex-direction: column;
+}
+.acc-fav img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: var(--c-surface-2);
+}
+.acc-fav-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.acc-fav-brand {
+  /* 🔴 **這兩行偏離 design 字面,而那是刻意的**(2026-08-18 被守門 `auth-account.test.ts:93` 當場擋下):
+     design 這裡寫死 `"IBM Plex Mono"` + `0.12em`,而 `DESIGN-HANDOFF-2026-08-05.md` §4-3 逐字
+     「原本多處寫死 IBM Plex Mono,但該字體**全站從未載入**…已全數改吃 `var(--f-mono)`、
+     字距統一 `0.14em`。**不要改回去。**」
+     ⇒ 逐字搬 design 會把一個**已經修掉的 bug 搬回來**。這是鐵則 1 的既有例外,不是我自己發明的偏離。
+     📎 而它是**守門抓到的、不是我搬的時候想到的** —— 「字面直接搬」這個動作本身會攜帶上游的舊 bug。 */
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.acc-fav-name {
+  font-size: 13px;
+  line-height: 1.4;
+}
+.acc-fav-price {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
 /* ---- mobile(對齊 design account.css L881-908 acc-* 殼規則)---- */
 /* [#192 A1] 手機 viewport @media(主、SSR-safe、無需 JS / attr)
  * + .acc-head h1 加 word-break: break-word(g-2 肉眼驗發現「Sean-PCM重機零件販售」斷行醜、本 slice 順手修)
  */
 @media (max-width: 1079px) {
   .acc-main { padding: 24px 16px 40px; }
+  /* 🔴 **手機兩欄要【雙寫】**(`#192 A1` 的既有慣例:`@media` 為主、`[data-mobile]` 兜底)。
+     design 那份**只有 `[data-mobile="true"]` 那一條** ⇒ 逐字搬過來的話,在 390 寬的真瀏覽器上
+     收藏格仍然是**三欄**。
+     🔴 這不是推的:2026-08-18 真瀏覽器 390×844 量到 `grid-template-columns: 118px 118px 118px`
+     ——**三張 118px 的卡擠在一支手機上**;補這一條之後量到 `177.5px 177.5px`。
+     🔴 **而它必須放在【這個既有區塊】裡,不能自己在檔尾另開一個 `@media (max-width: 1079px)`** ——
+     `auth-account.test.ts` 的 M4 有一格盯著「平板段之後不得再出現涵蓋整個平板區間的手機段」,
+     我第一版就是那樣寫的、**當場被它擋下**(那一格是別人為了另一個病寫的,而它守住了這一個)。
+     📎 母題:**「字面直接搬 design」會把 design 的覆蓋機制一起繼承,而本站的機制比它多一路。** */
+  .acc-fav-grid { grid-template-columns: 1fr 1fr; }
   .acc-head { grid-template-columns: 52px 1fr; /* 🔶 R1 9-3:頭像實際 52px(同桌機 80→72 的錯位問題;R1 抓到我漏改) */ gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
   .acc-avatar { width: 52px; height: 52px; font-size: 20px; }
   .acc-head h1 { font-size: 22px; word-break: break-word; }
@@ -790,6 +853,9 @@
 [data-mobile="true"] .acc-nav button.is-active .acc-nav-icon { color: rgba(255,255,255,0.75); }
 /* overview / orders tab mobile(對齊 design L909-911)*/
 [data-mobile="true"] .acc-stats { grid-template-columns: 1fr; }
+/* 收藏格手機兩欄的 [data-mobile] 兜底那一路(@media 那一路在上面的手機段裡)。 */
+[data-mobile="true"] .acc-fav-grid { grid-template-columns: 1fr 1fr; }
+
 /* 同 MF7,`[data-mobile]` 兜底那一路。 */
 [data-mobile="true"] .acc-stat { min-height: 0; padding: 18px 18px 16px; }
 [data-mobile="true"] .acc-stat-v { font-size: 26px; margin: 8px 0 0; padding-bottom: 6px; }
@@ -873,3 +939,4 @@
   border-left: 2px solid var(--c-border);
   max-width: 52ch; /* 長段落限寬:寬螢幕上一行 100+ 字會讀不下去 */
 }
+

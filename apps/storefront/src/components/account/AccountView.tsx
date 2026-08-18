@@ -49,7 +49,7 @@ import { FavoritesTab } from '@/components/account/tabs/FavoritesTab';
 import { VehiclesTab } from '@/components/account/tabs/VehiclesTab';
 import { AddressTab } from '@/components/account/tabs/AddressTab';
 import { ProfileTab } from '@/components/account/tabs/ProfileTab';
-import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem } from '@pcm/domain';
+import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem, FavoriteListItem } from '@pcm/domain';
 import type { FeaturedResult } from '@/lib/products';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
@@ -141,9 +141,11 @@ export type AccountViewProps = {
   // M-3:訂單摘要清單(page.tsx getOrderRepo→listSummariesByCustomer 算好傳入;forward 給 OrdersTab 全列 +
   // OverviewTab 最近訂單 slice(0,2)。orderCount 與此同源、Q5=A 一致)
   orders: OrderListItem[];
+  // M-4b #191:收藏清單(page.tsx getFavoritesRepo→listByCustomer 算好傳入;forward 給 FavoritesTab)
+  favorites: FavoriteListItem[];
 };
 
-export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders }: AccountViewProps) {
+export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites }: AccountViewProps) {
   const [tab, setTab] = useState<TabId>('overview');
 
   // g-4a Q4=A:displayName / avatarChar 用 profile.name(customers.name SoT)為主、displayEmail 退化、
@@ -213,7 +215,7 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
             )}
             {tab === 'orders' && <OrdersTab orders={orders} />}
             {tab === 'wallet' && <WalletTab />}
-            {tab === 'favorites' && <FavoritesTab />}
+            {tab === 'favorites' && <FavoritesTab favorites={favorites} />}
             {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} vehicleBrands={vehicleBrands} />}
             {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}

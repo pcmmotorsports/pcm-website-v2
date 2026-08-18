@@ -52,4 +52,10 @@ export type FavoriteProductSummary = {
   brandName: string;
   /** 一般會員價(整數,單位同 products.price_general)。 */
   priceGeneral: number | null;
+  /**
+   * 代表圖 URL(= `products.images[0]`;沒有圖就是 `null`)。
+   * design `AccountPages.jsx:568` 的收藏卡是**圖片主導**的(`.acc-fav img` 佔滿整個卡寬、
+   * `aspect-ratio: 1`)⇒ 少了它那張卡會塌成一條字。
+   */
+  imageUrl: string | null;
 };

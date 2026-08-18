@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { MockProduct } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
+import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { Price } from './Price';
 import { formatCardFits } from './product-card-fits';
@@ -49,7 +50,10 @@ export type ProductCardProps = {
 
 export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact = false, href, onClick }: ProductCardProps) {
   const [hover, setHover] = useState(false);
-  const [liked, setLiked] = useState(false);
+  // M-4b #191:收藏改吃 FavoritesContext(單一資料源)。原本是 `useState(false)` =
+  // 純畫面狀態:重新整理就消失、同一件商品在列表與商品頁還互不知道。
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const liked = isFavorite(p.slug);
   const { addItem } = useCart();
   // Q2=A(Sean 2026-08-08):加購回饋做在鈕本身、1.5 秒後復原。存**時間戳**而非布林——
   // 布林在連點時第二次 setState 值沒變 ⇒ effect 不重跑 ⇒ 計時器不重置、第二次的回饋會提早消失。
@@ -152,8 +156,9 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
             ⚠️ 既有測試從沒測過「有 href **且** 點按鈕」這個組合(兩個 case 各測一半、沒交叉)⇒ 本片補上。 */}
         <button
           className="pcard-heart"
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLiked(!liked); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFavorite(p.slug); }}
           aria-label="收藏"
+          aria-pressed={liked}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill={liked ? 'var(--c-red)' : 'none'} stroke={liked ? 'var(--c-red)' : 'currentColor'} strokeWidth="1.6">
             <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>

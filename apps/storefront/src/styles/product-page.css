@@ -533,6 +533,8 @@
   transition: border-color 0.15s, color 0.15s;
 }
 .pd-like:hover { border-color: var(--c-text); color: var(--c-red); }
+/* 桌機:只有那顆心,沒有字(design ProductPage.jsx 的字面)。Q3 的手機版才把字打開。 */
+.pd-like-label { display: none; }
 .pd-like.is-liked { color: var(--c-red); border-color: var(--c-red); }
 
 .pd-buynow-btn {
@@ -1957,6 +1959,17 @@
   .pd-page { padding: 24px 16px 96px; }
   .pd-buy-row,
   .pd-buynow-btn { display: none !important; }
+  /* 🔴 Q3(2026-08-18):手機也要能收藏。整條 buy row 仍然隱藏(數量 + 加入購物車由下方
+     sticky 購買列接手),**只把收藏鈕放回來**、拉成整列並補上文字。
+     理由(主視窗裁定):同一個功能在兩個地方行為不同,客人會以為是壞的 —— 商品卡那顆
+     已經在手機常駐顯示(Q1),商品頁這顆卻看不見,那個不一致比兩顆都沒有更糟。
+     ⚠️ **「當初手機關掉是刻意還是漏的」查不出來**(全樹找不到任何註解或拍板)——
+     裁定的是「往後要怎樣」,不是「當初為什麼」。日後若有人找到當初的理由,這一格要重開。 */
+  .pd-buy-row { display: flex !important; }
+  .pd-buy-row .pd-qty,
+  .pd-buy-row .pd-add-btn { display: none; }
+  .pd-like { width: 100%; height: 46px; gap: 8px; }
+  .pd-like-label { display: inline; font-size: 13px; font-weight: 600; }
   .pd-mobile-buybar { display: flex; }
   .pd-spotlight { grid-template-columns: 1fr; }
   .pd-spot-text { padding: 32px; }

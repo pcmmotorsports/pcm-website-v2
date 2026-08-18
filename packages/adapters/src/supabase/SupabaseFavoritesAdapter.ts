@@ -22,7 +22,7 @@ import type { Database } from './database.types';
  * (鐵則:經銷價絕不傳到一般會員瀏覽器)。
  */
 const FAVORITE_SELECT =
-  'customer_user_id, product_id, created_at, products!inner(id, handle, title, price_general, brands!inner(name))';
+  'customer_user_id, product_id, created_at, products!inner(id, handle, title, price_general, images, brands!inner(name))';
 
 type FavoriteRow = {
   customer_user_id: string;
@@ -33,6 +33,8 @@ type FavoriteRow = {
     handle: string;
     title: string;
     price_general: number | null;
+    /** jsonb;來源 shape 不保證 ⇒ 型別標寬鬆、下方 runtime 收斂為 string | null。 */
+    images: unknown;
     brands: { name: string };
   };
 };
@@ -73,6 +75,11 @@ export class SupabaseFavoritesAdapter implements IFavoritesRepository {
         title: row.products.title,
         brandName: row.products.brands.name,
         priceGeneral: row.products.price_general,
+        // images 是 jsonb ⇒ 可能是 null / 非陣列 / 元素非 string。這裡**收斂不丟錯**:
+        // 一張圖讀不出來不該讓整個收藏清單掛掉(對齊 `mappers/product.ts:326` 對 null 的處置)。
+        imageUrl: Array.isArray(row.products.images) && typeof row.products.images[0] === 'string'
+          ? row.products.images[0]
+          : null,
       },
     }));
   }

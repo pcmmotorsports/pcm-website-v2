@@ -22,6 +22,9 @@ export { SupabaseVehicleAdapter } from './supabase/SupabaseVehicleAdapter';
 // (authenticated client 對 orders/order_items 僅 SELECT、建單只能走 RPC)→ root public export、
 // 鏡像 Address/Customer/Vehicle(非 /server 受控小門〔那是 Wallet service_role 用〕)。
 export { SupabaseOrderAdapter } from './supabase/SupabaseOrderAdapter';
+// M-4b #191:SupabaseFavoritesAdapter 走客人自己的 authenticated client(RLS favorites_*_own、
+// DB 端 authenticated 只有 SELECT/INSERT/DELETE)→ **零 service_role**、鏡像 Address/Vehicle 走 root export。
+export { SupabaseFavoritesAdapter } from './supabase/SupabaseFavoritesAdapter';
 // M-4b E10 A9w4c(後半收尾):`SupabaseOrderStatusOptionsAdapter` 已隨 port 與讀取鏈整支移除
 // (A11a-1 後零 production 呼叫端)。DB 端 service_role 的**寫**權由 A9v `20260807120000`
 // 撤除(SELECT 保留),apply 後生效。

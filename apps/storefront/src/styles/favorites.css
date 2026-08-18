@@ -1,0 +1,32 @@
+/* favorites.css — 收藏線的全站級樣式(M-4b #191)
+ *
+ * 現在只有一條:寫入失敗時的提示。它**不是**裝飾 ——
+ * 樂觀更新失敗要「退回 **並且** 讓客人看得見」,只退回不講,客人會以為是自己按錯。
+ * (愛心本身的樣式在 product-card.css / product-page.css;收藏清單頁在 account.css。)
+ */
+.fav-error {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60; /* 高於 .pd-mobile-buybar(50) */
+  max-width: calc(100vw - 32px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 2px 12px #00000026;
+}
+.fav-error button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}

@@ -89,6 +89,8 @@ function renderView(overrides: Partial<AccountViewProps> = {}) {
     vehicles: [],
     // M-3:orders prop 必填、預設空陣列(OrdersTab 全列 + OverviewTab slice(0,2) 最近訂單)
     orders: [],
+    // M-4b #191:favorites prop 必填、預設空陣列(FavoritesTab 唯讀清單;切到 favorites tab 才渲染)
+    favorites: [],
     ...overrides,
   };
   return render(

@@ -21,12 +21,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { SupabaseFavoritesAdapter } from './SupabaseFavoritesAdapter';
 
 /** 只記下呼叫參數的假 client。回傳值固定,因為本檔不測資料轉換以外的東西。 */
-function makeFakeClient() {
+function makeFakeClient(rows: unknown[] = []) {
   const calls: { table: string; op: string; args: unknown[] }[] = [];
   const chain = {
     select: (...args: unknown[]) => { calls.push({ table: 'x', op: 'select', args }); return chain; },
     eq: (...args: unknown[]) => { calls.push({ table: 'x', op: 'eq', args }); return chain; },
-    order: (...args: unknown[]) => { calls.push({ table: 'x', op: 'order', args }); return Promise.resolve({ data: [], error: null }); },
+    order: (...args: unknown[]) => { calls.push({ table: 'x', op: 'order', args }); return Promise.resolve({ data: rows, error: null }); },
     upsert: (...args: unknown[]) => { calls.push({ table: 'x', op: 'upsert', args }); return Promise.resolve({ error: null }); },
     delete: (...args: unknown[]) => { calls.push({ table: 'x', op: 'delete', args }); return chain; },
     then: undefined as unknown,
@@ -71,5 +71,41 @@ describe('SupabaseFavoritesAdapter', () => {
     const eqs = calls.filter((c) => c.op === 'eq');
     expect(eqs).toHaveLength(2);
     expect(eqs.map((e) => e.args[0])).toEqual(['customer_user_id', 'product_id']);
+  });
+
+  // ── imageUrl:jsonb 進來,shape 不保證 ────────────────────────────────────
+  // 🔴 為什麼是「收斂不丟錯」:一張讀不出來的圖不該讓整個收藏清單掛掉。
+  //   對照組是同 repo `mappers/product.ts:325` 的變體 images —— **那裡是 throw**,
+  //   因為那條路上圖是商品頁的主體;這裡少一張圖只是卡片少一塊。**兩種處置刻意不同。**
+  const row = (images: unknown) => ({
+    customer_user_id: 'u-1',
+    product_id: 'p-1',
+    created_at: '2026-08-18T00:00:00.000Z',
+    products: {
+      id: 'p-1',
+      handle: 'probe-1',
+      title: '零件',
+      price_general: 100,
+      images,
+      brands: { name: 'PROBE' },
+    },
+  });
+
+  it('imageUrl 取 images[0]', async () => {
+    const { client } = makeFakeClient([row(['a.jpg', 'b.jpg'])]);
+    const out = await new SupabaseFavoritesAdapter(client).listByCustomer('u-1');
+    expect(out[0]!.product.imageUrl).toBe('a.jpg');
+  });
+
+  it.each([
+    ['null', null],
+    ['空陣列', []],
+    ['非陣列(jsonb 物件)', { url: 'a.jpg' }],
+    ['元素非 string', [123]],
+  ])('🔴 images 是 %s ⇒ imageUrl 收斂成 null、不丟錯', async (_label, images) => {
+    const { client } = makeFakeClient([row(images)]);
+    const out = await new SupabaseFavoritesAdapter(client).listByCustomer('u-1');
+    expect(out).toHaveLength(1);
+    expect(out[0]!.product.imageUrl).toBeNull();
   });
 });
