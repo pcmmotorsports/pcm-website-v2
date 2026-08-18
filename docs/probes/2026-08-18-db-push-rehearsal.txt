@@ -99,3 +99,58 @@ dev HEAD 上該支  205 行
   + auth.users 骨架 + auth.uid() 樁（回 NULL）⇒ 任何依賴真 auth.uid() 的行為本檔答不了。
 · 本機 PG 17.10 Homebrew ≠ Supabase 平台（角色是我自己 CREATE 的、無 BYPASSRLS 差異驗證）。
 ```
+
+---
+
+# 🔴 真實世界的對照(2026-08-18 20:5x Sean 在正式庫跑的那一發)
+
+**這是我唯一能拿到的真 apply 樣本。**原文由主視窗轉(Sean 貼的,我沒重打):
+```
+supabase db push
+Initialising login role...
+Connecting to remote database...
+Do you want to push these migrations to the remote database?
+ • 20260818190000_m4b_admin_sso_login_events.sql
+ [Y/n] yy
+Applying migration 20260818190000_m4b_admin_sso_login_events.sql...
+Finished supabase db push.
+
+（apply 之後）supabase db push --dry-run ⇒ Remote database is up to date.
+（apply 之前）                          ⇒ Would push these migrations: • 20260818190000…
+```
+
+## ✅ 對得上的
+```
+· 一支一支來、apply 完就進帳本 ⇒ apply 後 dry-run 回 up to date（②③ 成立）
+· 順序與檔名一致
+· 冪等:已 apply 的不會被再推
+```
+
+## 🔴 對不上的兩格 —— **而它們都是【我彩排的東西比真實的窄】**
+
+**A. 真實那一發有【互動確認】,我的彩排完全沒有這一步**
+```
+真實  Do you want to push these migrations to the remote database?  [Y/n]
+彩排  沒有這一行
+```
+成因(當場查 `supabase db push --help`):**跳過提示的旗標是 `--yes`,不是 `--include-all`**
+⇒ 我的彩排沒出現提示,是因為**跑在非互動環境**(CLI 自己偵測 agent),不是因為那個旗標。
+🔴 **意思是:那一格【真按下去的人會看到的東西】我沒有彩排到。**
+   對 Sean 而言那正是他要做決定的那一秒 —— 而我的彩排在那一秒是空白的。
+
+**B. 🔴🔴 我跑的命令跟他跑的【不是同一個】**
+```
+我     supabase db push --include-all
+Sean   supabase db push          （沒有旗標）
+`--help` 逐字:--include-all = Include all migrations not found on remote history table
+```
+⇒ **語意不同**:`--include-all` 會把「時間戳比較舊、但遠端帳本沒有」的那些也帶上;
+   不加它的話,那種**排序在已 apply 之後才被加進來的舊時間戳 migration,可能不會被推**。
+🔴 **這一格的代價**:我彩排的六個機制,是在 `--include-all` 的世界裡量的。
+   ②③④⑤ 那幾條**不依賴這個旗標**(它們講的是失敗/重跑/帳本),
+   而「**哪些 migration 會被選中**」這一題 —— **我量的那個答案不適用於 Sean 的命令。**
+⇒ **未量,標未確認。** 要補只差一發:同一個拋棄式環境,不加旗標再跑一次。
+
+## 📌 還有一行我沒有的
+`Initialising login role...` —— 正式 Supabase 才有的一步,本機拋棄式環境不會出現。
+**它出錯會長什麼樣,我彩排不到。**
