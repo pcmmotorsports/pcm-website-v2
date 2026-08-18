@@ -122,13 +122,56 @@
 🔴 **絕不**:未經 Sean 同意直接對正式庫下 `DELETE` / `UPDATE`。
 (鐵則 12③;而**刪除是不可逆的**,錯了沒有回頭路。)
 
-### 5-B 停止處理利用(「不要再寄信給我」)
-這一格**現在就做得完**,不卡甲乙丙:
+### 5-B 停止處理利用(「不要再寄信給我」)—— **查過了,而答案不是你以為的那個**
+
+> 2026-08-19 G1 實查(唯讀,量法在每一行後面)。~~原本寫「我沒查有沒有現成的退訂開關」~~ ⇒ 查完了。
+
+**① 我們寄給客人的信只有兩種,而且兩種都是交易信**
 ```
-停掉行銷/通知信的寄送對象 ⇒ 找得到的載體是 email_outbox 的來源（哪個流程把他放進去）
-⚠️ 而我沒有查「有沒有現成的退訂開關」—— 這是【我沒查】不是【查無】。
-   做這一步之前先查一次；沒有的話那是一個要另外開的條目。
+CHECK 白名單（唯一定義處，沒有第二支 migration 改過它）:
+  supabase/migrations/20260717020000_m4a_email_outbox.sql:315
+  CHECK (event_type IN ('order_created', 'order_shipped'))
+量法: `git grep -ln 'email_outbox_event_type_check' -- supabase/migrations` ⇒ 只有那一支
 ```
+⇒ **訂單成立通知 + 出貨通知。沒有電子報、沒有行銷信、沒有促銷信。**
+📎 另外兩條寄信路徑**不是寄給客人的行銷信**:
+```
+· api/cron/anomaly-alert + EmailAlertNotifierAdapter ⇒ 收件人來自 env `ALERT_EMAIL_TO` = **我們自己人**
+· 忘記密碼信 ⇒ 客人自己按的，走認證服務、不經我們的 outbox
+  ⚠️ 我沒有逐行追完忘記密碼那條鏈（ForgotPasswordPage.tsx 裡沒有直接呼叫）—— **這是我沒追完，不是查無**
+```
+
+**② 沒有任何退訂開關 / 行銷同意欄位**
+```
+量法: `git grep -rniE 'unsubscribe|opt_out|marketing_consent|email_consent|退訂|取消訂閱' -- apps packages supabase`
+      排除測試檔後 ⇒ **5 命中,而 5 個全部是 Supabase realtime 的 `subscription.unsubscribe()`**
+      （Header.tsx:110/114/123、FavoritesContext.tsx:146/157）—— **與電子報無關**
+`customers` 表的欄位(型別檔實查): birthday / created_at / email / name / phone / tier /
+      total_deposit / updated_at / user_id / wallet_balance ⇒ **沒有任何同意或退訂欄**
+```
+🔴 **這一格是「同一個字兩個意思」的陷阱**:`unsubscribe` 在程式裡是「取消訂閱**事件流**」,不是「退訂**電子報**」。
+**只看命中數會得到「有 5 個退訂相關的東西」—— 而正確答案是 0。**
+
+**③ 退訂的檢查點在哪 ⇒ 兩個位置都可以放,而現在【兩個都沒有】**
+```
+排信那一刻  packages/use-cases/src/enqueue-order-created-emails.ts:94
+            收件人 = notificationEmail ?? customers.email；唯一的跳過條件是「沒有真信箱」
+寄出那一刻  packages/use-cases/src/sweep-email-outbox.ts:209  to: job.recipientEmail
+            **沒有任何收件人層級的過濾**
+```
+🔴 **⇒ 已經排進 outbox 還沒寄的信,今天沒有任何東西攔得住它。**
+
+### ⇒ 所以員工現在要怎麼回答客人
+```
+客人說「不要再寄信給我」⇒ 先問清楚他指的是哪一種:
+  · 「廣告信 / 電子報」  ⇒ 據實說明：**我們不寄行銷信**，他收到的是訂單成立與出貨通知
+  · 「訂單相關的通知也不要」⇒ 🔴 那會影響他自己的權益（不知道出貨了）。
+                            說明清楚，並記下他仍堅持 ⇒ 這一格要 Sean 判（併入 §0 乙）
+  · 「已經排著要寄的那封擋掉」⇒ **今天只能人工改 email_outbox 那列的狀態**
+                            🔴 而那是動正式庫 ⇒ 依 §5-A 必須 Sean 同意，不可自己下手
+```
+⚠️ **本節不代表「我們沒有寄信給客人」** —— 我們有,只是**都是交易信**。
+把「沒有行銷信」講成「沒有寄信」會在客人問「那我收到的是什麼」時當場破功。
 
 ### 5-C 查詢 / 複本
 照 §4 逐表查出這位客人的資料,整理成一份文件給他。**不需要甲乙丙。**
