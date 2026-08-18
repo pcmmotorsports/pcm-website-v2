@@ -73,6 +73,20 @@ vi.mock('next/navigation', () => ({
 vi.mock('../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({
     findAdminOrderDetail: mocks.findAdminOrderDetail,
+    // 🔴 `D2` C 條(2026-08-18):明細頁改走頂層分頁撈到盡 ⇒ route 會多呼叫這一支。
+    //    從上一次 `findAdminOrderDetail` 回的那份導出,讓本檔既有各格繼續量它們本來在量的東西
+    //    (面板 / return_to / 客人入口…)。
+    //    🔴 **本檔對「品項撈不撈得全」零判別力** —— 那一面由
+    //    `lib/orders/merge-detail-items.test.ts` 守(它真的餵 201 項)。
+    //    ⚠️ 用 `mock.results` 不再呼叫一次:再呼叫會消耗 `mockResolvedValueOnce` 鏈。
+    listOrderItemsForDetail: async () => {
+      const d = await mocks.findAdminOrderDetail.mock.results.at(-1)?.value;
+      const items = d?.items ?? [];
+      return {
+        items,
+        reportedTotal: d?.itemsTruncated === true ? items.length + 1 : items.length,
+      };
+    },
     listOrderSummariesForAdmin: mocks.listOrderSummariesForAdmin,
     // OD 片 3b:客人卡的訂單歷史走同一個 repository。
     listSummariesByCustomer: mocks.listSummariesByCustomer,

@@ -43,7 +43,29 @@ const mocks = vi.hoisted(() => ({
   listSuppliers: vi.fn(),
 }));
 vi.mock('../../../lib/orders/order-repository', () => ({
-  getAdminOrderRepository: () => ({ findAdminOrderDetail: mocks.findAdminOrderDetail }),
+  getAdminOrderRepository: () => ({
+    findAdminOrderDetail: mocks.findAdminOrderDetail,
+    // 🔴 `D2` C 條(2026-08-18):明細頁改走頂層分頁撈到盡 ⇒ route 會多呼叫這一支。
+    //    這裡從【上一次 `findAdminOrderDetail` 回的那份】導出,讓本檔既有各格
+    //    繼續量它們本來在量的東西(收款 / 取消 / 採購 / 排序…)。
+    //    🔴🔴 **代價要講白:這樣導出之後,本檔【對「品項撈不撈得全」零判別力】** ——
+    //    兩份永遠一樣。那一面由 `lib/orders/merge-detail-items.test.ts` 守(它真的餵 201 項)。
+    //    ⚠️ 用 `mock.results` 而不是再呼叫一次:再呼叫會**消耗 `mockResolvedValueOnce` 鏈**。
+    listOrderItemsForDetail: async () => {
+      const d = await mocks.findAdminOrderDetail.mock.results.at(-1)?.value;
+      const items = d?.items ?? [];
+      // 🔴 **把 fixture 的意圖翻譯到新機制上**:
+      //    `D2` C 條之後,「這張單的品項沒列完」不再由 detail 的 `itemsTruncated` 表達
+      //    (那一份是內嵌撈的、而明細頁已經改走撈到盡)——
+      //    改由【撈到的筆數與伺服器說的對不上】表達。
+      //    ⇒ fixture 說 truncated ⇒ 這裡回一個對不上的 count,讓 merge 判它不完整。
+      //    ⚠️ 不這樣翻的話,本檔那幾格「截斷時要印未知」的守門會【無法構造那個狀態】而被誤刪。
+      return {
+        items,
+        reportedTotal: d?.itemsTruncated === true ? items.length + 1 : items.length,
+      };
+    },
+  }),
 }));
 // 🔴 只換掉 `listSuppliers`,`sortSuppliersByLabel` 用**真的**那一把 ——
 //    選單順序是這條測試的一部分,mock 掉排序等於在測 mock。
