@@ -8989,7 +8989,12 @@ order by n desc, 1;
   - `BrandPageMedia.tsx` 按下封面 → 封面按鈕整個從 DOM 移除、換成播放器。
     React 不會轉移焦點 ⇒ 用鍵盤按 Enter 播放的人,焦點當場掉回 `<body>`,
     要從整頁最上面重新 Tab 回來才能繼續。
-  - 這是**照設計稿搬**的結果:`brand-page.html:1926` 的 `poster.remove()` 同樣不轉移焦點。
+  - 這是**照設計稿搬**的結果:`brand-page.html:2029` 的 `poster.remove()` 同樣不轉移焦點。
+    🔴 **座標更正(2026-08-18 G1 實查,OD `search_files` ⇒ 全專案 `poster.remove` 只 1 命中)**:
+    ~~`:1926`~~ → **`:2029`**(該檔 totalLines 2260)。⚠️ 我**沒有**查 2026-08-04 當時是不是真在 `:1926`
+    ⇒ 只能寫「今天實查是 `:2029`」,**不能寫「當時寫錯了」**。同族形狀見 `#386`(引的 migration 座標過期)。
+    📎 `BrandPageMedia.tsx:108` 註解也寫著 `:1926` —— **本輪刻意不改**(動 `.tsx` 要跑三綠,
+    而 `#309` 那片本來就會動那個檔)⇒ 已寫進 `docs/specs/2026-08-19-g1-309-video-focus-plan.md` 實作清單。
     設計稿是純前端 demo、沒做過 a11y 稽核。
 - **觸發事件:**
   - 2026-08-04 / D2c-2 關卡2(code-reviewer nit)。同批的另一條(焦點框被
@@ -8997,8 +9002,14 @@ order by n desc, 1;
 - **預期解法:**
   - 掛載播放器時把焦點移到播放器容器(`.bp-film-frame` 給 `tabIndex={-1}` 後 `.focus()`),
     或直接聚焦 `<video>`(它本身可聚焦)。
-  - 🔴 兩種都是**新增設計稿沒有的行為**,依鐵則 1 要走拍板路徑;
-    另一個更乾淨的解是由設計側先在 Open Design 補,再搬過來(同 #308 的處理方式)。
+  - 🔴 ~~兩種都是**新增設計稿沒有的行為**,依鐵則 1 要走拍板路徑~~ ——
+    **2026-08-18 主視窗裁定推翻本句(代裁人 MAIN,可推翻)**:實查 OD `brand-page.html` 同一個檔的
+    `:1927/:1933/:1940` **做了完整的焦點借還**(車輛選配 modal 的 `lastFocus`),只是**沒做在播放器那段**
+    (`:2005-2064` 整段零焦點處理);`design-reference/components/SearchOverlay.jsx:16` 同樣有 `focus()`。
+    ⇒ **設計稿是沉默不是反對,而且沉默有旁證** ⇒ **不算偏離鐵則 1、這一格不送 Sean**。
+    (鐵則 8 的批准仍要 —— 跨 4 檔。)修法**照它自己的借還語彙**,不另發明。
+  - ~~另一個更乾淨的解是由設計側先在 Open Design 補~~(同上,已不需要);
+
   - 一併評估:`blocked` 退路面板出現時焦點也在同一個位置消失。
 - **不修會痛在:**
   - 擴充性:20 家品牌頁裡 11 家有影片;D4 品牌總覽頁若沿用同一個播放器會擴散。
@@ -9008,7 +9019,7 @@ order by n desc, 1;
 - **依賴:** 鐵則 1 偏離的拍板路徑(Sean 或設計側)
 - **發現於:** 2026-08-04 / D2c-2 關卡2 折入
 - **相關:** `apps/storefront/src/components/brand/BrandPageMedia.tsx`(封面按鈕與播放器切換)/
-  Open Design `pcm-home-redesign/brand-page.html:1926` / #308(同族 a11y 偏離拍板)
+  Open Design `pcm-home-redesign/brand-page.html:2029`(~~:1926~~,見上方座標更正)/ #308(同族 a11y 偏離拍板)
 
 ---
 
@@ -13932,7 +13943,62 @@ from public.order_notes where occurred_at is not null;
 - **⚠️ 沒量的:** 正式庫目前**零筆**被判錯的退款 ⇒ 本條的場景**構造不出來、只能讀 code 推**
   (依 `feedback_blocker-must-prove-scenario-reachable-first`:機制為真 ≠ 場景已發生;
   但**可達性成立** —— `admin_finalize_order_refund` 的 `failed` 分支是真實可走的路,不是恆假)。
-- **依賴:** 無前置。但**排在 `473b-1` apply 之後**比較省事(那時「更正後的數」才有地方拿)。
+> ## 🔴🔴 2026-08-19 第二層查核(G6):**機制全部還在;而本條的表已經少了一項,且「依賴」那行講反了**
+>
+> ### ① ✅ 機制逐字複驗:**一個字都沒變**
+> ```
+> 20260803150000:772-784   步 7 仍是 IF v_after.status='confirmed' ⇒ SUM(...) WHERE status='confirmed'
+>                          且**不呼叫** pcm_order_refundable_remaining
+> 全樹 grep 'FUNCTION public.admin_finalize_order_refund' ⇒ 只有 20260803150000 一支
+>                          ⇒ **從未被重定義**,本條引的座標仍然正確 ✅
+> order-display.ts:67-68   case 'paid': return '處理中';   ← 客人看到的字面仍是「處理中」✅
+> ```
+>
+> ### ② 🔴 而上面那張兩欄表 **2026-08-14 起就少了一項**
+> `pcm_order_refundable_remaining` 已於 `20260814190000:403` **重定義**(`#473b-1` 那支),
+> 現在是**三段**不是兩段(同檔 `:410-425`):
+> ```
+> ① o.total
+> ② − SUM(refund_amount) WHERE status IN ('processing','confirmed')
+> ③ − SUM(refund_amount) WHERE status='failed' AND failed_reason='manual_failed'
+>                          AND 更正後 corrected_to='money_moved'      ← **新的第三段**
+> ```
+> ⇒ **兩套的差距比本條寫的更大**:額度那套已經認得「判錯了、錢其實有動」,
+>   而 `payment_status` 那套**完全不認**。⇒ 本條的表請照 `20260814190000:410-425` 重寫。
+>
+> ### ③ 🔴🔴 **一條沒有人寫成排序約束的耦合:接 `#473` 的 UI 會【製造】本條的 bug**
+> `20260814190000:387-388` COMMENT **逐字**:
+> ```
+> 「corrected_to=money_moved **不會**讓該筆變 confirmed —— 它的效果是
+>   pcm_order_refundable_remaining 會扣掉它、以及畫面看得出判錯過。
+>   **orders.payment_status 不受影響(#497)**。」
+> ```
+> ⇒ **作者知道**,而它只寫在那支 migration 的 COMMENT 裡,**沒有變成任何一條排序約束**。
+> ⇒ 🔴 **`#473` 的更正 UI 一接上去,員工就能按出一筆「錢有動、而客人的訂單頁永遠寫『處理中』」** ——
+>   那正是本條描述的永久錯誤狀態,**而且是被設計出來的路徑,不是邊角**。
+> ⇒ **`#473` 接線與 `#497` 必須同一批做。** 先接 `#473` = 親手製造本條。
+>
+> ### ④ 🔴 本條「場景構造不出來」那句今天成立,**而它的理由不是本條寫的那個**
+> 本條寫「正式庫目前零筆被判錯的退款 ⇒ 場景構造不出來」。
+> **今天它成立的真正原因是:更正入口根本沒接上去。**
+> ```
+> admin_correct_order_refund_verdict  定義 20260814190000:191  apply APPLIED.tsv:191 2026-08-14
+> 產品側呼叫端 = 0(分母 全樹 12,608 支;僅有命中在 scripts/473b1-concurrency-probe.sh = harness)
+> 負向對照(同尺同分母)admin_initiate_order_refund ⇒ 142 命中 ✅
+> ```
+> ⇒ **這個「構造不出來」是【承重的】,而且它的到期日 = `#473` 接線那天。**
+>   ⇒ 引用「本條今天無害」的人必須連這個條件一起引,否則那句話會在接線當天靜靜變假。
+>
+> ### ⑤ 誠實揭示
+> ```
+> · 全部是讀 migration + 讀 storefront code,**沒有在任何 DB 上跑過**
+> · 我**沒有**查正式庫有沒有 manual_failed 的列(需 DB access)
+> · ③ 的「一接上去就能按出來」是讀兩支函式的字面推的合流,我沒走過那個流程
+> ```
+
+- **依賴:** ~~無前置。但**排在 `473b-1` apply 之後**比較省事~~
+  🔴 **2026-08-19 更正:`473b-1` 早就 apply 了(`APPLIED.tsv:191`,2026-08-14)**,
+  而真正的約束**方向相反**:**不是本條要排在它後面,是 `#473` 的 UI 不得先於本條上線**(理由見上方查核段 ③)。
 - **發現於:** 2026-08-14 傍晚 · R 窗反向盤點 · 主視窗開 migration 與 storefront 兩檔複驗並更正一處字面 · 號由 `scripts/next-backlog-number.sh` 取得
 
 ### #498. 🧱 兩支 RPC 對「作廢」完全看不見 —— 正確性靠乙片的 V7 守門承重
