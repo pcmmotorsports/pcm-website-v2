@@ -6,7 +6,16 @@
 > ⇒ **「先做 A、B 寫進 backlog 之後補」這條路在這件事上【關了】。**
 > ⇒ 本檔取代 `docs/specs/2026-08-18-manual-review-queue-has-no-exit-plan.md` §4 的實作範圍
 >   (那份的**病理分析仍然有效、留痕不刪**;換掉的是**做什麼**)。
-> **狀態:未批。** 命中 **鐵則 8**(跨 3+ 檔、動 schema)+ **鐵則 12 ①錢 ②權限 ③schema** ⇒ 要 Sean 批 + 對抗審查。
+> ~~**狀態:未批。**~~ ✅ **2026-08-19 已批,而【批准來源】要寫清楚:**
+> ```
+> Sean 逐字(主視窗貼原文):  Q6  B: 你判斷就好，直接開工
+> ⇒ 鐵則 8 過了。
+> 🔴 而他批的是「**你判斷就好**」,不是「我看過這份檔」——
+>    **批准來源 = Sean 授權主視窗判斷,他本人未逐條看過本檔。**
+> ⇒ 寫出來是因為那是下一個人推翻它的入口:
+>    引用「Sean 批了」時不得升級成「Sean 同意這裡面每一句」。
+> ```
+> 仍然成立:命中 **鐵則 12 ①錢 ②權限 ③schema** ⇒ **對抗審查不降級**;`.sql` 與 apply 另有各自的閘。
 
 > ## 🔴🔴 檔頭警語(2026-08-19 加,**接手的人先讀這段**)
 >
@@ -326,6 +335,75 @@ scripts/l5b0-verify.sh:51 逐字
 ⇒ 那要決定:把 `composition.ts` 抽到共用套件,還是在 admin 複製一份?
    **兩條路的代價我沒有量過** ⇒ **~60 分這個數字站不住,標【依據不足】。**
 📌 這正是主視窗要依據不要數字的理由:**攤開來才看得到那一格是空的。**
+
+### 7-依據-步2 🔴🔴 **量完了,而「抽共用 vs 複製一份」這個分岔【問錯了】**
+
+> 由來:主視窗 2026-08-19 派工「先量兩條路的代價(composition 抽共用套件 vs admin 複製一份)」。
+> **量的結果:那兩條路的代價一樣,因為它們卡在同一個地方 —— 而那個地方不是「共用不共用」。**
+
+#### 先更正我自己前一版寫過的話
+```
+我寫過:「admin 側沒有組裝根」⇒ 🔴 **講太滿,是錯的。**
+實查:apps/admin/src/lib/payment/composition.ts【已存在,154 行】
+     檔頭逐字:「admin 唯一注入金流 server-only adapter 的『受控單檔』」
+⇒ 組裝根【在】。所以「依據不足」的【理由】要換,而結論(60 分站不住)不變。
+```
+
+#### `settleCharge` 要哪三樣,admin 手上有幾樣
+`packages/use-cases/src/settle-charge.ts:41` 逐字 `SettleChargeDeps = { tappay; attempts; confirmer }`
+
+| dep | admin 現況(量到的) | 缺口性質 |
+|---|---|---|
+| `tappay: ITapPayAdapter` | `getTapPayAdapter()` 在,而回**窄型別** `Pick<TapPayChargeAdapter,'refund'\|'recordQuery'>`(`:126`) | 🔴 要**放寬一道刻意的守門** |
+| `attempts: IChargeAttemptStore` | 需 `PAYMENT_CONFIRMER_DB_URL`;`git grep -l PAYMENT_CONFIRMER_DB_URL -- 'apps/admin/*'` ⇒ **0** | 🔴 admin 要**新增一把 DB 憑證** |
+| `confirmer: IPaymentConfirmer` | `git grep -l getPaymentConfirmer -- 'apps/admin/*'` ⇒ **0** | 隨上一列一起 |
+
+**admin 現有 env 全貌(對照組,證明它從來沒有 DB 憑證)**
+`git grep -oh 'process\.env\.[A-Z_]*' -- 'apps/admin/src/*' | sort | uniq -c | sort -rn`
+⇒ 前幾名 `REFUND_UI_ENABLED` / `ADMIN_SESSION_SECRET` / `TZ` / `NODE_ENV` / `AUDIT_UI_ENABLED`
+—— **全是 UI 旗標與 session 密鑰,零 DB 連線字串。**
+
+#### 🔴🔴 那道窄型別是刻意的,而檔案自己說了實際承重點在哪
+`apps/admin/src/lib/payment/composition.ts:120-126` 逐字:
+```
+⚠️ **只是型別層**(關卡2 codex C5):runtime 回的仍是完整 adapter,呼叫端硬轉型還是叫得到
+`charge()`。「後台不刷卡」這件事的實際承重點是「composition 是唯一取得管道 + 本片的三格結構守門」,
+不是這個 `Pick`。
+```
+⇒ **放寬成 `ITapPayAdapter` 不是型別整理,是把「後台不刷卡」那個設計往回退一格。**
+(`ITapPayAdapter` 要 `charge()` 與 `initiateThreeDSCharge()`,`packages/ports/src/ITapPayAdapter.ts:20,:32`)
+
+#### ⇒ 兩條路把同樣三件事搬進 admin
+```
+A 抽共用到 packages/  ⇒ 動 packages/ = 鐵則 12⑥,而 admin【仍然】要那把憑證與那個放寬
+B admin 複製一份      ⇒ 不動 packages/,而 admin【仍然】要那把憑證與那個放寬
+⇒ 差別只在【程式碼住哪】,不在【admin 拿到什麼權力】。而貴的是後者。
+```
+
+#### 第三條路(不是結論,它要人拍)
+```
+C. admin 不自己呼 settleCharge —— 只用窄 RPC 讓那一列被【既有的 settle 路徑】重新看得到,
+   由已經有那三樣的 storefront 那條路去做。⇒ admin 零新憑證、零放寬。
+🔴 而 C 有自己的擋路石,一樣量了:
+   · sweeper 認領述詞逐字 AND a.needs_manual_review = false(20260615120001:131)
+     而旗標要留著(§4-3 計數靠它)⇒ 需要一個「單列例外」機制,那本身要設計
+   · 既有 sweeper route【現在是關的】:
+     apps/storefront/src/app/api/cron/settle-sweep/route.ts:10 逐字
+     「sequencing gate = CRON_SWEEPER_ENABLED:預設 false」;:19 逐字要 Sean 去 Vercel 設
+   ⇒ C 不是免費的:成本從「admin 拿權力」換成「排程要先開起來」。
+```
+
+#### 結論(誠實版)
+```
+🔴 **這一格我不能自己拍。** 三條路各自命中:
+   A ⇒ 鐵則 12⑥(packages/)+ 12②(權限放寬)+ 12④(新 env)
+   B ⇒ 12② + 12④
+   C ⇒ 12④(Sean 開 CRON_SWEEPER_ENABLED)+ 一個「單列例外」的新設計
+⇒ **三條都要 Sean 動 Vercel env** ⇒ 這一格是決策題,不是實作題。
+⇒ 我傾向 **C**:它是唯一【不讓後台拿到刷卡能力、也不讓後台拿到 DB 憑證】的路,
+   而那兩樣正是這個 repo 花了力氣擋住的東西。
+⚠️ C 的「單列例外」我**還沒設計、也沒量過** —— 寫出來是為了不讓它變成隱形成本。
+```
 
 #### 本節的證據等級
 ```
