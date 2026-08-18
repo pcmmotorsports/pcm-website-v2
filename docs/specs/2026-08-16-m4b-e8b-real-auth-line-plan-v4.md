@@ -208,7 +208,7 @@ admin 端  一個環境開關 ADMIN_REQUIRE_REAL_IDENTITY，預設關
 | 片 | 內容 | 在哪 | 風險 | 前置 |
 |---|---|---|---|---|
 | **B0** | 規格凍結。**pull 報價單後複量 §1.3 全表** + 四項實查(見 §5)+ D0-a 落地 | docs | 低 | Sean 批 |
-| **B1** | 帳號存放:`admin_users`(或 Supabase Auth + `staff_id` 映射表)+ seed 三人 + ACL deny-all | 報價單 DB | 🔴 | B0 |
+| **B1** | 帳號存放:`admin_users`(或 Supabase Auth + `staff_id` 映射表)+ ⛔ ~~seed 三人~~ **seed 兩人**(`sean`/`staff_2`;`staff_1` 刻意不綁)+ ACL deny-all | 報價單 DB | 🔴 | B0 |
 | **B2** | 登入認人:登入頁加帳號欄(**留空走舊路**)、備援分支、**關掉 legacy fail-open**、首次登入強制改密碼 | 報價單 auth | 🔴 | B1 |
 | **B3** | session payload 加 `sub` + 版本欄 `v:2` | 報價單 auth | 🔴 | B2 |
 | **B4** | SSO 帶身分:`sso_codes` **expand 加選填欄** + authorize 寫入 + exchange 回傳 | 報價單 | 🔴 | B3 |
