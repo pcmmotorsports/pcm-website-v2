@@ -21,6 +21,13 @@
 //    ⚠️ 而 **body / html 的裁切【不排除】** —— 被 body 裁掉 = 內容真的被切了,那要報。
 //
 // ⚠️ 它量的是「有沒有東西超出視窗或被切」,**不是**「好不好看 / 好不好按」。
+// 🔴🔴 **已知盲點(2026-08-18 咬過我一次,寫在這裡免得下一個人再被咬)**:
+//    本尺的可見性判斷是 `display !== 'none' && visibility !== 'hidden' && rect.width > 0`,
+//    **它看不到 `opacity: 0`**。而 `opacity:0` 的元素**照樣有 rect、照樣吃點擊**
+//    ⇒ 我拿它判過「`.pcard-heart` 在 390 看得見 2/2」,而那顆愛心其實是 `opacity:0`、
+//      只有 `.pcard:hover` 才浮出來(手機沒有 hover)。**尺說「看得見」,客人看不到。**
+//    ⇒ 要判「客人看不看得見」,`opacity` 與**祖先的 opacity** 都要一起算;
+//      要判「會不會吃到點擊」,問 `document.elementFromPoint(x, y)`。**兩件事不同,不要混。**
 // ⚠️ MCP 傳輸會把中文 `text` 欄弄成亂碼;tag / class / 數字是好的,引用時只引後者。
 
 export function run(expected, fingerprint) {
