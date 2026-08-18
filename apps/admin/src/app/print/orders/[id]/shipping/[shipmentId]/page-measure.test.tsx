@@ -120,8 +120,11 @@ function builtCss(): { css: string; files: string[] } {
   const dir = join(NEXT_DIR, 'static', 'chunks');
   if (!existsSync(dir)) {
     throw new Error(
-      `找不到建置產物目錄 ${dir} —— 請先跑 \`TURBO_FORCE=1 pnpm build\`。` +
-        '這【不是】版面出問題,是還沒 build。',
+      `找不到建置產物目錄 ${dir} —— 這【不是】版面出問題,是還沒 build。` +
+        '本機:跑 `TURBO_FORCE=1 pnpm build`(或只建這個 app:`pnpm --filter @pcm/admin build`)。' +
+        'CI:`ci.yml` 已有 `Build admin` 那一步 ⇒ 若在 CI 看到這則,是那一步被拿掉或失序了,' +
+        '不是你的測試壞了。🔴 **不要把 `pnpm build`(全 monorepo)加進 `ci.yml`** —— ' +
+        '那個做法 2026-08-18 已被裁定否決(理由與代價見該檔那一步上方的註解)。',
     );
   }
   const files = readdirSync(dir).filter((f) => f.endsWith('.css'));
