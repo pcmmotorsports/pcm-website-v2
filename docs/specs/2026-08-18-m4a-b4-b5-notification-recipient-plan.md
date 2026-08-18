@@ -97,6 +97,17 @@ settle-charge.ts:535   return { kind:'paid', idempotent, displayId: attempt.orde
 
 三綠 `TURBO_FORCE=1` + **vitest**(不在三綠內,自己跑)。
 
+🔴 **`build` 對本片的主戰場【幾乎沒有判別力】,不要拿它當驗收**(我當場量的,不是讀來的):
+```
+量法:逐個 package.json 看有沒有 build / typecheck script
+  build     ⇒ 2 支   apps/storefront、apps/admin
+  typecheck ⇒ 8 支   上面兩支 + packages/{ui,schemas,adapters,use-cases,ports,domain}
+```
+⇒ **本片的 enqueue 掛點在 `packages/use-cases`,那裡【沒有 build】。**
+真正在守它的是 **typecheck + vitest**,不是 build。
+⚠️ 誠實邊界:app build 會連編到被 import 的 workspace code,所以**不是零覆蓋**,
+但那條路徑的判別力**我沒有量過** ⇒ 一律當「未確認」,不寫進驗收。
+
 🔴 **`#633` 的驗收條款是硬規定,照抄不改**:
 ```
 ❌ 不可寫「寄出成功」或「email_outbox 有列 = 成功」
