@@ -137,13 +137,12 @@ const FAILURE_MESSAGES: Record<ProcurementFailureCode, string> = {
   denied: '沒有權限或登入狀態已失效,採購沒有寫入。',
   invalid: '表單內容不正確,採購沒有寫入。',
   // 🔴 `#643` B(2026-08-18):**這一句是那個截斷警告的【伺服器端回聲】,不是另一件事。**
-  //    `stale` 由 `item-procurement-form.tsx:248` 的 hidden 欄位帶上來,而它的值是
-  //    `value={truncated ? '1' : '0'}`,`truncated = item.procurementTruncated || detail.itemsTruncated`
-  //    ⇒ **與畫面上那個警告【同一個旗標】。**
-  //    ⚠️ 舊字面逐字 ~~「請重新整理這張單再操作。」~~ —— 而 `detail.itemsTruncated` 是
-  //    `order_items.length >= 200`(固定上限)⇒ **重整永遠不會好**,那句話是叫員工做白工。
-  //    ⇒ 改成與畫面那則**同一個句型**(條件句)。**兩處要一起改** ——
-  //    只改看得見那則的話,員工照樣送出、然後從這裡拿到舊的錯指示。
+  //    `stale` 由 `item-procurement-form.tsx` 的 hidden 欄位帶上來。
+  //    ~~原註寫的配方:`truncated = item.procurementTruncated || detail.itemsTruncated`~~
+  //    🔴 **`#646`(2026-08-18)起那個配方是舊的**:表單接到的是 `blocked`
+  //    (`= unreadable || truncated`,`item-procurement-section.tsx` 算)⇒ 它現在**多含「讀不到」那一半**。
+  //    ⚠️ 舊字面逐字 ~~「請重新整理這張單再操作。」~~ —— 而 `detail.itemsTruncated` 含
+  //    `order_items.length >= 200`(固定上限)⇒ **重整不會好**,那句話是叫員工做白工。
   //    📎 全陣紀律逐字 `apps/storefront/src/lib/account-order-copy.ts:16`:
   //       「請重新整理」只准出現在【真的重整就會好】的地方。
   // 🔴🔴 `#646`(2026-08-18)關卡2 code-reviewer:**這一句不再自己複述下一步。**
