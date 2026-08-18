@@ -173,6 +173,35 @@ STUB
   exit 1
 fi
 
+# ── ✅ 2026-08-18 18:5x G1:**push + 廣播 這一半也實測過了** ────────────────
+#   在此之前本檔的標法是「只有 deploy_status() 那一半測過」。**現在兩半都測過了。**
+#   🔴 **為什麼要在真推之前做**(主視窗的話,採用):下一次真推會是這半支的**第一次執行**,
+#      而那一刻 Sean 在場、主視窗在等、六個窗停著 —— **最不該當第一次的時刻。**
+#
+#   量法(**全程不碰真 origin**;任何人可重跑,約 1 分鐘):
+#     T=$(mktemp -d)
+#     git init --bare -q "$T/fake-remote.git"
+#     git clone --local -q /Users/sean_1/pcm-website-v2 "$T/repo"   # --local 走硬連結，快
+#     cd "$T/repo" && git remote set-url origin "$T/fake-remote.git"
+#     git remote get-url origin | grep fake-remote || exit 1        # 🔴 這道不可省
+#     git push -q origin "$(git rev-parse HEAD~5):refs/heads/dev" && git fetch -q origin
+#     PUSH_ANNOUNCE_BOX="$T/box" VERCEL_BIN="$T/no-vercel" \
+#       bash scripts/push-and-announce.sh "$(git rev-parse HEAD)" G1-TEST
+#
+#   量到的四個世界(逐格都有兩個世界會印不同的東西):
+#     A 推得動        假 remote 的 dev == 要推的 sha ✅ / 信箱檔數 1 ✅ / rc=0
+#     B non-fast-fwd  rc=1 / 信箱檔數 **0** / 假 remote 的 ref 沒被動到
+#     B2 同上(另一顆)  rc=1 / 0
+#     B3 remote 端 hook 拒絕(在 bare 裡放一支 exit 1 的 pre-receive,且刻意讓它是 fast-forward
+#        ⇒ 失敗只能來自 hook;hook 的訊息 grep ⇒ 1)  rc=1 / 0 / ref 沒被動到
+#   ⇒ **「push 成功才寫信」這條在三種失敗下都成立,而且 rc 是 1 不是 0。**
+#
+#   ⚠️ **仍未測到的(不要當成已驗)**:
+#     · 本次 VERCEL_BIN 指向一個不存在的路徑 ⇒ 信裡部署那段走的是「量不到」分支。
+#       **push 與【真的 vercel 查詢】兩件事沒有在同一次執行裡跑過。**
+#     · B 與 B2 的失敗機制其實是同一種(non-fast-forward);真正不同的第三種是 B3。
+#     · 沒有測過推到真 remote 之後 deploy_status 的輪詢會不會等到正確的那一發
+#       —— 那要真推才走得到,仍等 Sean。
 SHA="${1:-}"
 WHO="${2:-}"
 # 🔴 窗代號【必填】—— 這支腳本的全部意義就是「答得出是誰推的」,
