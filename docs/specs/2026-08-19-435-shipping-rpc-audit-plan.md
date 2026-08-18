@@ -145,14 +145,53 @@ shipment.unvoid / shipment.unvoid.replay
 ⚠️ 而「P2B 是不是這條線的專屬前綴」我沒查 ⇒ 標未確認
 ```
 
-## 3. 影響面(鐵則 8 必備)
+## 3. 影響面(鐵則 8 必備)—— 🔴 **本節前一版寫錯了,見 3-b**
 ```
 動的檔:一支新 migration(改五支函式本體)
-不動:  packages/ / apps/ / 任何前端 —— **稽核是 DB 層的事**
-下游:  admin_audit_log 多五種 action ⇒ 🔴 **有沒有人在讀那張表、會不會被新 action 搞混?**
-       ⚠️ **我沒查** —— 而 #423 檔頭提過「查『這張單有幾筆收款』的人濾 payment.record」
-       ⇒ 表示**確實有人在濾 action** ⇒ 這一格要查清楚才不會弄壞既有查詢
+       🔴 **+ `apps/admin/src/lib/audit/audit-list-view.ts`**(見 §3-b)
+~~不動:packages/ / apps/ / 任何前端 —— 稽核是 DB 層的事~~ **← 那句是假的**
+下游:  admin_audit_log 多【十】種 action ⇒ ✅ **查完了,見 §3-b**
 ```
+
+
+### 3-b ✅ **誰在讀 `admin_audit_log`、會不會被新 action 弄壞**(2026-08-19 查完)
+
+**結論:不會壞,而會【變醜】—— 而修法是這片必須一起做的。**
+```
+app 層命中 admin_audit_log:41 檔
+🔴 而關鍵那支是 apps/admin/src/lib/audit/audit-list-view.ts:38
+   export const AUDIT_ACTION_LABEL: Record<string, string> = { … }   ← action → 中文標籤
+   而 :73-75  formatAuditAction(action) { return AUDIT_ACTION_LABEL[action] ?? action; }
+⇒ **字典沒有的代碼【原樣回傳代碼本身】** ⇒ 不會爆,而員工看到的是 `shipment.ship.replay`
+```
+**該檔自己的註解逐字(`:69-72`)把這件事講得比我好**:
+> 「**『不會爆』與『顯示得體』是兩件事,這裡兩件都要**…
+>  回 `未知動作` = 得體但**把資訊丟掉** ⇒ **原樣回代碼:醜,但可查。**
+>  稽核紀錄的用途是追查,不是好看。」
+
+### 🔴 而 `#423` 的先例證明【這一步是同一片的責任】
+```
+該字典裡已經有: 'payment.record.replay': '收款重送(冪等)'
+⇒ **#423 補稽核的時候,同時把 replay 的中文標籤加進來了。**
+⇒ 所以本片的十個 action 也要一起加,而**不是「之後再補」**。
+```
+### 🔴🔴 而那支檔自己記載著:**這件事被漏過一次**
+```
+同檔 :58-61 逐字:「這兩個是 E 窗 R1 must-fix 補的…**而我抄 plan §1 的清單時漏了。**
+                   ⚠️ 那份清單是 **08-14 數的**,而**分母是那天的樹**」
+同檔 :36 逐字:「🔴 **重掃時要掃兩個分母**:主樹 dev **與** 各窗分支的聯集
+               —— 新 migration 可能還沒進 dev」
+```
+⇒ **這片的驗收條件要加一條**:
+**十個 action 各在 `AUDIT_ACTION_LABEL` 裡有一筆**,而量法是 `grep -c` 逐個,不是「我加了」。
+
+### ✅ 而【沒有人拿 action 當查詢條件】
+```
+git grep -n "'action'" -- 'apps/admin/src/*' 濾掉 label/format/type 之後:
+  只有 audit-log-table.tsx:43 —— 那是**表格欄位定義**(cell: row => row.action),不是篩選
+⇒ **沒有既有查詢會因為多了十個代碼而漏看。** 這一格是安全的。
+```
+⚠️ 限定:我掃的是 `apps/admin/src/`。**SQL 層有沒有人濾 action 我沒掃** ⇒ 標未確認。
 
 ---
 
@@ -194,7 +233,8 @@ shipment.unvoid / shipment.unvoid.replay
 ## 5. 我沒查的(實作前要補)
 ```
 ~~· 出貨線有沒有重放/冪等路徑~~ ✅ **查完,見 §2-5:有,而且是統一的一層 ⇒ 要十個 action 碼不是五個**
-· 🔴 admin_audit_log 現在有誰在讀、有沒有人濾 action
+~~· admin_audit_log 有誰在讀、有沒有人濾 action~~ ✅ **查完,見 §3-b** ——
+  不會壞而會變醜;而**十個中文標籤是本片的責任**(#423 就是這樣做的);沒有人拿 action 當查詢條件
 ~~· 五支 live 定義是不是等於那三檔~~ ✅ **repo 側查完**(見 §4:三檔是最後一版、且帳本各 1)
   🔴 **而「有沒有人繞過 migration 直改 live」查不到** ⇒ 要正式庫,已併進要問 Sean 的批次
 ~~· ERRCODE 哪些已被占用~~ ✅ **掃完,見 §2-6**(82 個;P2B 段已到 44 + 50 ⇒ 建議 P2B45 起)
