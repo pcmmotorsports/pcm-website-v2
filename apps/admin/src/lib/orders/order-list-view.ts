@@ -167,7 +167,27 @@ export const PAYMENT_CHANNEL_VALUES: readonly PaymentChannel[] = [
 export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   paid: '已付款',
   unpaid: '待付款',
-  partiallyPaid: '付款確認中',
+  // 🔴 2026-08-18 Sean 拍板(Q3=「已收訂金」):~~付款確認中~~ 作廢。
+  //    病灶(E-711 §1 逐字):enum 語意是 `partially_captured`=**收了一部分、這張單還欠錢**,
+  //    而「付款確認中」讀起來是「錢在路上、等一下就好」⇒ **員工不會去催尾款**。
+  //    差別不在措辭好不好聽,在**員工會不會去做事**。
+  // ⚠️ **客人端那半(`apps/storefront/src/lib/orders/order-display.ts:46`)Sean 還沒答**,
+  //    刻意不一起改 —— 兩端各寫一份、沒有 import 關係(E-711 §2),而
+  //    `paid` 早就是後台「已付款」/ 客人「處理中」兩個詞(E-711 §3)⇒ **不一致是慣例,不是漏改**。
+  //
+  // 🔴🔴 **射程限定(code-reviewer 抓到,我原本沒寫,而它會讓人高估這一改的效果)**:
+  //    **員工每天看的那個畫面(訂單【列表】)根本印不出這個字面。**
+  //    `orders-table.tsx` 零引用 `PAYMENT_STATUS_LABEL`(量法 `grep -c 'PAYMENT_STATUS_LABEL'
+  //    apps/admin/src/components/orders/orders-table.tsx` ⇒ 0);列表走的是
+  //    `order-status-axes.ts:204 orderPayAxis`,它把 `paid` 以外**全部**收斂成 `unpaid`
+  //    ⇒ 列表顯示「未收…」,不分「一毛沒收」與「收了訂金」。
+  //    ⇒ 本改動只在**三個**地方生效(出處 = 本檔 `:208-209` 自己記的消費端清單):
+  //      ① 篩選下拉 `PAYMENT_STATUS_OPTIONS`(`order-filter-bar.tsx:40`)
+  //      ② 訂單明細頁付款狀態欄(`order-detail-summary-cards.tsx:332`)
+  //      ③ 客戶明細頁的訂單列(`customer-detail-sections.tsx:89`)
+  //    ⇒ 🔴 **「讓員工去催尾款」這個動機,在最常看的畫面上【還沒有】達成** —— 那要另一片
+  //      (列表的收款軸要不要從二值長出第三值),而那動的是 `#494` 拍過的狀態八值,不是本片。
+  partiallyPaid: '已收訂金',
   refunded: '已退款',
   // M-3 RF2a:部分退款(退了一部分、訂單仍有保留品項)。與會員側 order-display.ts 同字面。
   partiallyRefunded: '已退部分',

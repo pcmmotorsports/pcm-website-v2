@@ -208,6 +208,14 @@ describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
       'unpaid',
     ]);
   });
+  // 🔴 2026-08-18:`partiallyPaid` 的**字面本身**在此之前**沒有任何一格在守**
+  //    (上面兩格一格只驗 truthy、一格只驗值域 ⇒ 把標籤改回去、或改成任何非空字串,兩格照樣全綠)。
+  //    Sean 拍板要的是**那個詞**(它決定員工去不去催尾款),不是「有一個標籤」⇒ 補這一格。
+  //    ⚠️ 只釘後台這一份;客人端 `order-display.ts` 是**另一份、另一個受眾**,不在本格射程。
+  it('付款狀態 — partiallyPaid 的字面釘死為「已收訂金」(Sean 2026-08-18 拍板)', () => {
+    expect(PAYMENT_STATUS_LABEL.partiallyPaid).toBe('已收訂金');
+    expect(Object.values(PAYMENT_STATUS_LABEL)).not.toContain('付款確認中');
+  });
   it('出貨狀態', () => {
     for (const v of FULFILLMENT_STATUS_VALUES) expect(FULFILLMENT_STATUS_LABEL[v]).toBeTruthy();
   });
