@@ -5042,9 +5042,38 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-27 / g-1 codex 關卡1(Sean 決策 1=A、B 此條)
 - **相關:** M-1-14e-f1-c(Google OAuth open-redirect 修)、f2(LINE callback redirect 紀律)、`POST_AUTH_REDIRECT`
 
-### #191. ⏳ 收藏清單(favorites)後端待建
+### #191. ✅ 收藏清單(favorites)—— 後端 + 前端接線皆已落地(2026-08-18)
 
-- **狀態:** ⏳ 後端待建(g-3 已落地空狀態 UI、本條追蹤後端 entity / RLS / use-case / UI 接線)
+- **狀態:** ✅ 完成(2026-08-18、G3 窗;plan `docs/specs/2026-08-18-g3-favorites-plan.md` Sean 已批)
+- **實作摘要:**
+  - DB `20260818170000_m4b_g3_customer_favorites`(2026-08-18 已 apply 正式庫):複合主鍵取代 surrogate id、
+    RLS own-only 三條、**四道 REVOKE**(含 `service_role`)+ fail-closed 斷言;
+    刻意不給 `authenticated` UPDATE(一筆收藏沒有可改的東西)。
+  - `packages/domain` entity + `packages/ports` `IFavoritesRepository` + `SupabaseFavoritesAdapter`
+    (`products!inner` ⇒ 下架商品自然從清單消失 = Sean 拍的甲案;`ignoreDuplicates` **承重不是最佳化**)。
+  - `apps/storefront`:`contexts/FavoritesContext.tsx`(兩顆愛心的單一資料源、樂觀更新 + 失敗退回並顯示)、
+    `app/account/favorites/actions.ts`(三支 server action)、`FavoritesTab` 由純靜態改成吃 server prop。
+  - UX 三題:Q1 手機愛心常駐顯示(**Sean 本人**)、Q2 未登入顯示並引導登入(主視窗代裁)、
+    Q3 商品頁那顆手機打開(主視窗代裁)。🔴 **三題出處不同,引用時不要一起升級成「Sean 拍的」。**
+- **🔴 真瀏覽器實測(2026-08-18,拋棄式鑽機 + 真 PostgREST,鑽機當回合已拆):**
+  ```
+  點愛心 ⇒ DB customer_favresite 真的多一列（psql 直查，不是看畫面）
+  重新整理 ⇒ 12 顆愛心紅的 1 顆（修前是【紅的 0 顆】= 本條要治的病）
+  商品頁那顆【沒有被點過】就已經是「已收藏」⇒ 兩顆同步是自然結果，不是另寫的邏輯
+  取消 ⇒ 該列從 DB 消失；連按兩下 ⇒ 仍是紅心、零錯誤 UI（冪等）
+  未登入按 ⇒ 導 /login?next=%2Fproducts（真觸控模擬 hover:none，愛心 opacity 1、pointer-events auto）
+  ```
+  ⚠️ **鑽機的 GRANT 與 BYPASSRLS 是腳本自己下的 ⇒ 這一輪【證不了正式站的權限設定】**;
+  權限那半的證據是 migration apply 時的 fail-closed 斷言,兩件不同的證據不要合成一句。
+- **🔴 兩個「逐字搬 design」帶進來的 bug,都是【真瀏覽器 / 既有守門】抓到的,不是我搬的時候想到的:**
+  1. design 的 `.acc-fav-brand` 寫死 `"IBM Plex Mono"`(該字體全站從未載入)⇒ 被 `auth-account.test.ts` 擋下,
+     改吃 `var(--f-mono)`。
+  2. design 的手機兩欄**只有 `[data-mobile]` 那一路**,而本站是 `#192 A1` 的**雙寫**慣例
+     ⇒ 逐字搬過來在 390 真瀏覽器量到 `118px×3`(三張卡擠在一支手機上),補 `@media` 那一路後為 `177.5px×2`。
+  📎 母題:**「字面直接搬」會把上游的舊 bug 與上游的覆蓋機制一起繼承。**
+- ~~**優先級:** 🟡 低~~(2026-08-18 Sean 逐字「愛心卡要完善功能與運作」⇒ 提前做掉)
+- **以下為原條目內容(留痕,不刪):**
+- **原狀態:** ⏳ 後端待建(g-3 已落地空狀態 UI、本條追蹤後端 entity / RLS / use-case / UI 接線)
 - **優先級:** 🟡 低(會員黏著、非核心交易;Phase 1 後 / M-3+ 評估)
 - **問題:**
   - 會員中心「收藏清單」tab(design AccountPages.jsx L561-578)無對應後端 —— domain / ports / use-cases / schema 皆無 favorites entity。g-3 先搬空狀態 markup、真資料無源。
@@ -20016,8 +20045,19 @@ design 那句（轉述，見 E）  「商品卡 hover translateY(-2px)：僅桌�
   ② admin 側：下架 lib/session/actor-actions.ts 整支 + app/page.tsx 的選身分表單
   ③ 兩側各留一格「舊 cookie 打進來 ⇒ 擋」的測試（拆完之後那格才是恆真的，拆之前它會紅）
   ⚠️ 動 auth ⇒ 鐵則 12②，要 plan + 對抗審查，不是順手清理
-  🔴 前置：ADMIN_REQUIRE_REAL_IDENTITY（或報價單對應物）已經【永久開】且確認不會關回去
+  ⛔ ~~前置：ADMIN_REQUIRE_REAL_IDENTITY（或報價單對應物）已經【永久開】~~
+  🔴 前置（2026-08-18 G6 抓，我原本寫「或」，那個連接詞是承重的）：
+     【兩顆都永久開】ADMIN_REQUIRE_REAL_IDENTITY（admin）【且】QUOTE_REQUIRE_REAL_IDENTITY（報價單）
+     而且要對號入座：拆 ① 只認【報價單】那顆；拆 ② 只認【admin】那顆
      —— 拆早了 = 把 rollback 一起拆掉
+  🔴 「或」的具體危害（G6 的原話，我照抄）：做 ① 的人去確認 ADMIN_ 那顆開著 ⇒ 覺得前置滿足
+     ⇒ 拆掉報價單那半，而 QUOTE_ 那顆可能還關著 ⇒ rollback 被拆掉，【沒有任何東西會紅】。
+     這正是「只開一顆 ⇒ 報價單端仍收 30 天 legacy cookie」那條已知的坑。
+     依據：`docs/specs/2026-08-18-m4b-e8b-b2-spec.md:181` 逐字警告兩個 repo 兩顆、不要混名。
+  📌 排程用的一格（G6 量的，2026-08-18，我沒重跑）：報價單庫 `grep QUOTE_REQUIRE_REAL_IDENTITY`
+     （lib / app / middleware.ts）⇒ 0 命中；正向對照同樹同數法 `ADMIN_COOKIE =` ⇒ `lib/auth.ts:4` 命中
+     ⇒ 那顆開關【今天還不存在】，本條的前置離滿足還隔著整個 B2 + B7
+     ⇒ **「未排程」是對的，不要因為它讀起來像資安洞就往前排。**
   ```
 - **狀態:** 未排程。**主視窗 2026-08-18 裁定立案(逐字「legacy 那個孤兒 ⇒ 立案,你發號」),G5 發 `#645`。**
   號碼來源:`scripts/next-backlog-number.sh` ⇒ 下一個可用 `#645`(三層最大號皆 644);
