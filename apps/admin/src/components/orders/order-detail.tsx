@@ -233,21 +233,6 @@ export function OrderDetail({
         correctionMissing={correctNoteId !== null && correctTarget === null}
       />
 
-      {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。
-          🔴 位置 = 收款緊跟在付款狀態與發票這一組之後:員工看完付款狀態,下一個問題就是「錢收了哪幾筆」。
-          ⚠️ 2026-08-13 OD 片 1 更正字面:原本寫「緊接『付款』卡之後」,備註搬進中間後那句已不成立
-          (現在順序 = grid〔含付款卡、發票卡〕→ 備註 → 收款)。改的是描述、不是位置意圖。
-          退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。 */}
-      {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
-          前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
-          後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 彙總行直接相減、零換算。 */}
-      <PaymentSection
-        orderId={detail.id}
-        returnTo={returnTo}
-        payments={payments}
-        amountDue={detail.total.amount}
-      />
-
       {cancelled && (
         <div className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>
           <span className='text-destructive font-medium'>
@@ -284,8 +269,38 @@ export function OrderDetail({
         suppliersFailed={suppliersFailed}
       />
 
+      {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。
+          🔴 位置 = 採購與到貨【之後】、出貨之前(2026-08-18 Sean 逐字 `09 收款區搬到到貨之後 = 甲`;
+          出處 memory `project_0818-sean-eleven-rulings-noon.md:19`,plan
+          `docs/specs/2026-08-18-m4b-order-detail-payment-block-order-plan.md`)。
+          🔴 這個位置推翻了原本寫在這裡的一個理由,而**那個理由不是錯的** —— 兩個都成立:
+            看單  打開這張單想知道現況 ⇒ 付款狀態 → 錢收了哪幾筆   ← 原安排(收款緊跟付款/發票那一組)
+            做事  要把這張單往前推一步 ⇒ …到貨了 → 收尾款 → 出貨   ← Sean 09=甲 拍的是這個
+          搬**之前**量到的病(過去式,不是現況):收尾款得捲回頁面上方 ↑2,578 px
+          (5 品項單;真後台真資料 viewport 1728×1117、**拋棄式庫非正式站**)。
+          搬之後那一步是 ↓569。⚠️ **折返沒有消失,只是換了位置** —— 收訂金現在也在採購下面,
+          第 1→2 步變成 ↑2,322。Sean 的五步裡收款出現兩次,線性頁面在其中一次會折返。
+          (所以不要寫「唯一的折返」——那句在改前改後都不成立。)
+          **留著這段是為了不讓下一個人照「看單」那個理由把它搬回去。**
+          ⚠️ 只動渲染順序:零 props、零查詢、零業務邏輯改動。
+          🔴 **但不要寫成「什麼行為都沒變」** —— DOM 順序就是鍵盤 Tab 與螢幕閱讀器的朗讀順序,
+          它跟著一起變了(codex 對抗審查 2026-08-18 抓到)。這是**這片本來就要的效果**、不是副作用,
+          但它是行為。「已取消」橫幅留在原地(訂單層狀態、不屬收款)。
+          退款相關的兩塊刻意留在頁尾(危險操作沉底,見 `RefundSection` 那段),不與收款混在一起。 */}
+      {/* 🔴 `detail.total.amount` 與 `order_payments.amount` **同單位(整數元、非分)**:
+          前者見 `order-list-view.ts:675` 逐字引 migration `20260604120000`「金額一律 integer 元位」,
+          後者見 `order_payments.amount` 欄 COMMENT 逐字「整數元、非零」⇒ 彙總行直接相減、零換算。 */}
+      <PaymentSection
+        orderId={detail.id}
+        returnTo={returnTo}
+        payments={payments}
+        amountDue={detail.total.amount}
+      />
+
       {/* 2c:出貨卡。**查看與補救用,不是主要建箱動線**(建箱走訂單總覽勾單、Sean 拍 S1=A)。
-          放在採購之後、備註之前 —— 採購(進貨)→ 出貨(出貨)是員工的實際時序。 */}
+          位置 = 採購與到貨 → 收款 → **出貨**,收在頁面主流程的最後一步
+          (2026-08-18 收款搬位後更新這一行;~~原寫「放在採購之後、備註之前」~~ 兩半都已不成立:
+           備註 2026-08-13 搬到發票卡下方、收款 2026-08-18 插進採購與出貨之間)。 */}
       <ShipmentSection detail={detail} />
 
       {/* 🔴 備註時間軸 + 表單原本在這裡(頁尾、退款帳本之前),2026-08-13 OD 片 1 已搬到發票卡下方。
@@ -294,12 +309,16 @@ export function OrderDetail({
 
       {/* ═══ 危險操作沉底:取消 / 退貨 / 退款 ═══════════════════════════════════════
           🔴 **取消從第 ④ 位(夾在收款與品項中間)移到這裡**(2026-08-16)。
-          **兩個獨立來源都說墊底,而現況兩邊都不符** ⇒ 這是**缺陷不是選項**,不需要拍板:
+          **兩個獨立來源都說墊底,而【當時的】現況兩邊都不符** ⇒ 這是**缺陷不是選項**,不需要拍板。
+          (2026-08-18 修字面:那句原本是現在式,而它描述的是 08-16 改**之前**;現在已經墊底了。)
             · Sean 逐字(`docs/specs/2026-08-12-admin-order-ui-design-brief.md` 搜
               `回去採購等於說跟國外下單`,同段末):「最難的大概就是取消,**所以放最下面沒問題**」
             · OD 定案主稿 `overview-desktop.html` 搜 `危險操作沉底` —— 同一句話的設計版
-          ⚠️ **只動渲染順序,零行為改動**:`OrderCancelBlock` 的 props、
+          ⚠️ **只動渲染順序,零 props / 零查詢 / 零業務邏輯改動**:`OrderCancelBlock` 的 props、
              `cancelFormsAllowed` 的算法、它自己的判斷全部一個字沒動。
+             🔴 **這裡原本還寫了一句「什麼行為都沒變」,2026-08-18 撤回**(codex R2 抓到,
+             與收款搬位那段同一個病):搬動含互動元件的區塊會改變**鍵盤 Tab 與螢幕閱讀器的朗讀順序**
+             —— 那也是行為。(撤回句刻意不留原字面:留著的話字面掃描會一直命中一句已經作廢的話。)
           📎 **與 OD 的最後一塊對齊**:OD `more` 區塊 = 取消 → 退貨/退款面板(同一塊、取消在前)
              ⇒ 我方擺成 取消 → 退款帳本 → 退款入口,是同一個順序。
           🔴 **這片可能會被之後的版面重排吸收掉**(`~/pcm-mailbox/A-218-demo-brief.md`

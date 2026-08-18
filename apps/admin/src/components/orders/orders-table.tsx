@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { OrderShipCheckbox } from './shipping-selection';
+import { OrdersCutoffNotice, ORDERS_CUTOFF_NOTICE_ID } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
   INVOICE_STATUS_LABEL,
@@ -171,6 +172,16 @@ function shouldMergeAmount(order: AdminOrderSummary): boolean {
  *    而我(W7)**沒有看到他的原始訊息**:W4 與主視窗**兩條獨立轉述路徑字面一致**,我依此動手。
  *    這個限定寫在這裡,不是寫在信裡 —— 信會被捲走,而下一個想改這個 3 的人會先看到這裡。
  * ⚠️ 這個數字**不是版面算出來的**(不是「3 列剛好塞得下」),是他挑的 ⇒ **要改它得再問他一次。**
+ *
+ * 🔴 **這句話的兩半,守門強度不一樣(誠實缺口,codex R1 逼出來的)**:
+ *    · `orderStatusView` **有守門**:`orders-table.test.tsx` 的「前 3 列全出貨、第 4 列沒出貨」那格
+ *      —— 把切過的 lines 餵給它會紅(實測突變一發:唯一紅那格就是它)。
+ *      它守的是那個真病:`.every(...)` 在子集上會答「出貨完成」,而員工看到就不再動作。
+ *    · `shouldMergeAmount` **守不了,而且是【構造不出反例】不是我懶**:
+ *      它 = `itemsTruncated || lines.length > 1 || some(q > 1)`,
+ *      而「有東西被收起來」⇒ 至少 4 列 ⇒ 切到 3 之後 `length > 1` 仍成立
+ *      ⇒ **切與不切的輸出恆等**。實測:把 `slice` 餵給它,97 格**一格都沒紅**。
+ *      ⇒ 這裡沒有守門格,不是漏做;要有反例得先把 `MAX_VISIBLE_LINES` 降到 1。
  */
 const MAX_VISIBLE_LINES = 3;
 
@@ -193,6 +204,7 @@ const CELL = {
   invoice: 'col-invoice',
   ops: 'col-ops',
 } as const;
+
 
 function OrderGroup({
   order,
@@ -222,10 +234,20 @@ function OrderGroup({
    * 501 項的單會印「另有 497 項」而真值是 498 —— **而它讀起來完全正常。**
    * ⇒ 與同一支檔既有的那條紀律同源(截斷態狀態欄印「未知」、**不得印 0、不得留空**):
    *   **「不知道」與「知道是某個值」不可以長得一樣。**
+   *
+   * 🔴 **2026-08-18 收斂紀錄(兩個窗做了同一件事)**:`#631 甲`(`66fe671b`,先進 dev)與
+   * `07=甲`(G2 `39a95189`)是 **Sean 同一個拍板派給了兩個窗**,兩版都寫完了。
+   * 收斂時**以 dev 那版為基準**(它多了兩件真的比較好的東西:那一列**可點**、
+   * 而且有 `data-l` ⇒ 手機卡片上不是無標籤孤兒),只從 G2 那版接回一樣東西:
+   *   **截斷態的字面加上「(數量未知)」** —— 原本兩版都只寫「另有多項」,
+   *   而「多項」讀起來像「我知道有幾項只是懶得講」,「數量未知」才是事實。
+   * 🔴 **G2 那版還有一個東西【刻意不接回來】**:它把說明放在 `title=` 屬性裡。
+   *   `#639` 這個 backlog 條目講的正好就是「說明掛在 `title` 上 ⇒ 手機一段都讀不到」
+   *   ⇒ 接回來等於在同一天親手複製一次已經立案的缺陷。
    */
   const hasMoreLines = hiddenCount > 0 || order.itemsTruncated;
   const moreLinesLabel = order.itemsTruncated
-    ? '另有多項，點進去看'
+    ? '另有多項(數量未知)，點進去看'
     : `另有 ${hiddenCount} 項，點進去看`;
   const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
@@ -631,7 +653,28 @@ export function OrdersTable({
     //    「L2 — `globals.css` 卡片化區塊」那組釘在一起(它**真的讀** `globals.css`)。
     //    ⚠️ 這句話在 R1 時是**錯的字面**:當時測試從頭到尾沒讀過 `globals.css`,
     //    「有守門」是宣稱不是事實(code-reviewer M3、鐵則 11)。守門已於同批補上。
-    <div className='orders-grid bg-card overflow-x-auto rounded-lg border' data-den={density}>
+    <div
+      className='orders-grid bg-card overflow-x-auto rounded-lg border'
+      data-den={density}
+      // 🔴 **`tabIndex={0}` 是無障礙的必要條件,不是裝飾**(codex R3 must-fix):
+      //    一個 `overflow-x:auto` 的 `<div>` **預設拿不到鍵盤焦點** ⇒ 純鍵盤的員工
+      //    讀到「這一區可以左右捲動」也**捲不動** —— 那三欄裡有非互動的「狀態 / 發票」,
+      //    他連 Tab 到某個控件順便捲過去的路都沒有。加了它才 Tab 得到、才能用方向鍵捲。
+      //    (WCAG 2.1.1 鍵盤可操作;可捲動區域要可聚焦是標準做法。)
+      // 🔴 有 `tabIndex` 就必須有可讀的名字,否則螢幕閱讀器只會唸「群組」。
+      tabIndex={0}
+      role='region'
+      aria-label='訂單列表(可左右捲動)'
+      aria-describedby={ORDERS_CUTOFF_NOTICE_ID}
+    >
+      {/* 11=丙(Sean 2026-08-18 中午):右邊被切掉的欄要在【看不到的人的螢幕上】講出來。
+          🔴 它掛在這裡而不是表格外面,是因為**它要 sticky 在這個捲動容器裡** ——
+             捲到右邊時這句話自己捲走的話,它就沒在提醒任何人。
+          🔴 觸發條件是**真的溢出**(逐欄比「`<th>` 右緣 vs 容器右緣」,配 `ResizeObserver` 與 `scroll`),
+             **不是視窗斷點** —— 側邊欄收合 / 瀏覽器縮放 / 字級變大都會改可視寬而視窗寬沒動。
+          ⚠️ 這是本表**唯一**的 client component 邊界(勾選欄那顆 `OrderShipCheckbox` 之外);
+             表格本體仍是 server component。 */}
+      <OrdersCutoffNotice />
       <table className='w-full border-collapse'>
         <thead>
           <tr>

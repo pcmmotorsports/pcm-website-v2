@@ -2073,3 +2073,62 @@ describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列�
     ).not.toBeNull();
   });
 });
+
+// ── V-07 補三格(2026-08-18 收斂:`#631 甲` 與 `07=甲` 是同一個拍板派給兩個窗,
+//    實作以 dev 那版為基準。這三格是 G2 那版有、而上面那組沒有的判別力,只留判別力、不留重複)──
+describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
+  const nLines = (n: number) => Array.from({ length: n }, (_, i) => line(`v${i + 1}`, 1, 1000));
+
+  it('🔴🔴 收合【不影響狀態判定】:前 3 列全出貨、第 4 列沒出貨 ⇒ 狀態**不得**是「出貨完成」', () => {
+    // 🔴 這一格才有判別力:`orderStatusView` 走 `.every(...)`,把切過的 3 列餵給它
+    //    ⇒ 「子集全出貨就答出貨完成」——**員工看到出貨完成就不再動作,他做對了但結果是錯的**
+    //    (`mappers/order.ts` 那段註解逐字寫的就是這個病)。
+    //    突變複跑驗過:把 `order.lines.slice(0, MAX_VISIBLE_LINES)` 餵給 `orderStatusView`
+    //    ⇒ 全檔唯一紅的就是這一格。
+    const mixed = [
+      lineAt('s1', 1, 'shipped'),
+      lineAt('s2', 1, 'shipped'),
+      lineAt('s3', 1, 'shipped'),
+      lineAt('s4', 1, 'none'),
+    ];
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: mixed })]} />,
+    );
+    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[STATUS_CELL_INDEX]!;
+    expect(statusCell.textContent).not.toBe('出貨完成');
+  });
+
+  it('正向對照:四列**全部**出貨 ⇒ 狀態就是「出貨完成」(⇒ 上一格不是恆真)', () => {
+    const allShipped = [1, 2, 3, 4].map((n) => lineAt(`a${n}`, 1, 'shipped'));
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: allShipped })]} />,
+    );
+    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[STATUS_CELL_INDEX]!;
+    expect(statusCell.textContent).toBe('出貨完成');
+  });
+
+  it('表頭沒有任何 <th> 用 colSpan —— 否則「`CELL` 鍵數 = 欄數」那個推法會靜默算錯', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: nLines(4) })]} />,
+    );
+    const spans = [...container.querySelectorAll('thead th')].map(
+      (th) => (th as HTMLTableCellElement).colSpan,
+    );
+    expect(spans.every((n) => n === 1)).toBe(true);
+  });
+
+  it('🔴 截斷態那一列的字面帶「數量未知」 —— 「另有多項」讀起來像「我知道只是懶得講」', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: nLines(10), itemsTruncated: true })]}
+      />,
+    );
+    const note = [...container.querySelectorAll('tbody tr')].find((r) =>
+      r.textContent?.includes('另有'),
+    )!;
+    expect(note.textContent).toContain('數量未知');
+    // 說明【不得】掛在 `title` 上 —— `#639` 立案的就是這個載體(手機一段都拿不到)
+    expect(note.querySelector('[title]')).toBeNull();
+  });
+});

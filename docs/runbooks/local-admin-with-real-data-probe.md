@@ -330,3 +330,71 @@ FATAL: postmaster became multithreaded during startup
 
 🔴 **那個錯訊息完全不會讓你想到 locale** —— 它讀起來像 Postgres 自己壞了。
 ⇒ 改成 `export LC_ALL=C`(讓後續每一個行程都吃到),不要只給單一命令加前綴。
+
+
+### 9-b **admin 這一面也成立**,而且我補上了 §9 標「未確認」的兩件
+
+> **G2,2026-08-18 下午,獨立撞到同一個坑**(我不知道 §9 已經在,繞了**六輪**才找到 ——
+> 一直以為病在我自己的 client 元件裡)。**兩次測量互為獨立佐證。**
+> ⚠️ 但**別把兩份數字混講**:G3 量的是 storefront 埠 3020,我量的是 **admin 埠 3011**。
+
+§9 自己標了兩個未確認,這裡各補一個:
+
+**① 「沒量 admin」⇒ 量了。** 同一台 dev server、同一頁、同一分鐘,只換主機名:
+```
+量法  playwright 掛 page.on('response') 收 403 的【網址】
+
+http://127.0.0.1:3011/orders   403 六筆
+http://localhost:3011/orders   403 零筆
+```
+六筆逐字**全列**(不列的話「六筆全是 client bundle」這個全稱句沒人覆核得了):
+```
+/_next/static/chunks/apps_admin_src_1w05cfn._.js
+/_next/static/chunks/0zmr_next_14rzkp-._.js
+/_next/static/chunks/09ls_%40tabler_icons-react_dist_esm_1j3gn2s._.js
+/_next/static/chunks/1ton_%40base-ui_react_11f11mw._.js
+/_next/static/chunks/1hn7_tailwind-merge_dist_bundle-mjs_mjs_04a_myf._.js
+/_next/static/chunks/node_modules__pnpm_1a1s6-3._.js
+```
+⇒ **六個全部是 `/_next/static/chunks/*.js`,沒有一個是資料請求。**
+
+**② 「機制名稱未確認」⇒ dev server 自己印了**(`admin.log` 逐字):
+> `⚠ Blocked cross-origin request to Next.js dev resource /_next/hmr from "127.0.0.1".`
+> `To allow this host in development, add it to "allowedDevOrigins" in next.config.js`
+
+⚠️ **這仍然不是「我查了官方文件」** —— 是 dev server 自報。我引用它、沒驗它。
+比 §9 的「未確認」強一格,但**不到「官方文件證實」**。
+
+### 9-c 🔴 那個坑真正的形狀:**「元素在」不等於「它活著」**
+
+§9 講的是「client JS 靜靜地不見」。再往下一層,**你會看到 `<input>`、看到按鈕,而它們沒有掛上任何行為**
+—— 這兩件事在 DOM 上長得**一模一樣**,截圖也一樣。
+
+**判別法(照抄就好;兩個世界會印不同的東西)**:
+```js
+[...document.querySelectorAll('input,button')].some(el => Object.keys(el).some(k => k.startsWith('__reactFiber')))
+// true = React 接手了（有 hydrate）    false = 整頁是死的 HTML
+// （React 對每個它接手的 DOM 節點掛一支 `__reactFiber$…`。）
+```
+我兩個世界各量一次:`127.0.0.1` ⇒ **false**、`localhost` ⇒ **true**。
+
+🔴 **不要用「按鈕在不在」問** —— 它在兩個世界是同一句話。
+🔴 **也不要用「我那顆元件出現了沒」問** —— 它缺席有一堆別的解(沒觸發條件、我的 effect 自己壞了、
+   runtime 錯誤)。**那不是 hydrate 的量具,那是我的功能的量具。**
+   我第一版就是拿它當證據,推不出結論 —— 上面那支探針是第二輪才補的。
+
+**這條因果鏈證到哪裡(範圍限定)**
+```
+證到了  ① 403 的六個網址全部是 client bundle（逐個列在上面）
+        ② 探針掃過的節點集合（該頁全部的 <input> 與 <button>）裡，
+           127.0.0.1 世界【零個】帶 __reactFiber，localhost 世界【有】
+沒證到  · Next 內部是哪一段程式擋的（那句話是 dev server 自己印的）
+        · 「整頁每一個 client 元件都死了」——探針只掃 input/button 兩種標籤
+          ⇒ 保守講法：**掃到的節點沒有一個被 React 接手**，
+             而那已足以判定「用這個網址驗互動不算數」
+```
+
+---
+
+📎 同族教訓:memory `feedback_absence-read-as-verified`(什麼都沒有被讀成檢查過了)、
+`feedback_assertion-measures-the-wrong-thing`(我量的不是我以為的那個東西)。
