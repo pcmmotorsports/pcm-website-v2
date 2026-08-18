@@ -64,7 +64,7 @@ R003	要推的時候推【指定 sha】,不是推 tip	docs/runbooks/multi-window
 R004	檔頭與信頭的時戳用 date 實跑值,不寫近似值	docs/runbooks/multi-window-command-workflow.md	一律用 `date` 的實跑值	>=1	2026-08-18	GR 抓到主視窗三封信時戳互相矛盾
 R005	發過急件的人負責發【解除】	docs/runbooks/multi-window-command-workflow.md	負責發【解除】	>=1	2026-08-18	急件前提 6 分鐘後消失而沒有人解除
 R006	commit 帶 pathspec;而新檔要先逐一 git add(pathspec 對 untracked 無效)	docs/runbooks/multi-window-command-workflow.md	新檔要先逐一	>=1	2026-08-18	G1 撞到 did not match any file known to git
-R007	git add 之前先 git diff --stat 看那個數字是不是只有我改的量	docs/runbooks/multi-window-command-workflow.md	之前先 `git diff --stat	>=1	2026-08-18	同日三例歸屬錯亂(內容沒掉)
+R007	git add 之前先 git diff --stat —— 它給的是【停下來問人】的訊號,不是答案(它答不出那幾行是誰的)	docs/runbooks/multi-window-command-workflow.md	之前先 `git diff --stat	>=1	2026-08-18	同日三例歸屬錯亂(內容沒掉)
 R008	前置檢查與被保護動作之間有別人可以動手的空隙 ⇒ 那是儀式不是機制	docs/patterns/guard-and-instrument-traps.md	我自己發明的前置檢查	>=1	2026-08-18	G1 的 merge 交集檢查,一分鐘內失效兩次
 R009	push-and-announce 的 deploy_status 已對真 vercel CLI 實測(不再整支標零實測)	scripts/push-and-announce.sh	這一半【已經對真的 vercel CLI 實測過】	>=1	2026-08-18	該標籤蓋住兩件事而其中一件已經變了
 R010	push-and-announce 推的是被綠涵蓋的那顆,不是 tip	scripts/push-and-announce.sh	推【被驗過的那一顆】,不是推 tip	>=1	2026-08-18	同 R003,寫在推的人當下會讀的那支檔
