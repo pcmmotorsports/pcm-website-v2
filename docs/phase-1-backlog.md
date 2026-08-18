@@ -2821,7 +2821,10 @@ order by n desc, 1;
   - 可維護性:table-driven 在多維度時可讀性可能變差、需評估
   - bug 可追蹤性:test 失敗時 table row 比 it 名抽象、debug 成本看設計
 - **估時:** 30 min(合進 #93 同 slice、或 #93 後獨立 slice)
-- **依賴:** #93 補完 8 個 boundary case
+- **依賴:** ~~#93 補完 8 個 boundary case~~ ⇒ 🔴 **2026-08-19 G6:已滿足,本條沒有前置了。**
+  `#93` **✅ 完成 2026-06-16**,commit `5fb914e9` 逐字 `test(adapters): matchFitment 補 8 邊界 case 測 [m-1]`
+  (**用 commit 驗的,不是讀狀態欄**;`git show -s 5fb914e9`)。
+  📌 寫法照 `#255`/`#258` 的既有形狀 —— **在依賴欄裡標註,不要留一個裸號碼。**
 - **發現於:** 2026-05-05 / M-1-03-prep audit Round 2 F17
 - **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.test.ts`、#93、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F17
 
@@ -5624,7 +5627,25 @@ order by n desc, 1;
   - 可維護性:若 Phase 1 硬塞結構化欄位、Phase 2 重構 vehicles 時變兩套 schema 對映;
   - bug 可追蹤性:自由文字硬接 filter、對不上時 silently 回空、難回溯是資料問題還是邏輯問題。
 - **估時:** Phase 2 範圍(結構化 vehicles + filter 過濾 + 帶入鈕 + 正規化合計數天);Phase 1.5 盡力版約 2-3 hr(依賴 #152)。
-- **依賴:** Phase 2 結構化 vehicles entity;#152(filter 真過濾);#177(vehicle service 正規化周邊);#195(/vehicle-search 找車路由)。
+- **依賴:** ~~Phase 2 結構化 vehicles entity;#152(filter 真過濾);#177(vehicle service 正規化周邊);#195(/vehicle-search 找車路由)。~~
+  🔴🔴 **2026-08-19 G6 整條改寫 —— 四個依賴裡三個已滿足,而上面 ② 那句話今天是【假的】。**
+  ```
+  #152  🟡「**vehicle 部分 ✅ 完成**(2026-07-03、S1 車輛篩選 slice)」
+        ⇒ 🔴 **本條要的正是 vehicle 那一半,而那一半就是完成的那一半**
+  #177  ✅ 2026-06-16,commit 5a80574c「正規化 VehicleInput.service 空值為 null 防 date 欄炸」(commit 驗過)
+  #195  ✅ 2026-08-03(片 A1;⚠️ Sean 08-03 拍 B 案 ⇒ **沒有建 `/vehicle-search` 路由**
+        ⇒ 依賴欄原本寫的那個路由**不會出現**,不是還沒做)
+  Phase 2 結構化 vehicles entity ⇒ **仍未做**(這是本條唯一還在的依賴)
+  ```
+  🔴 **而內文 ② 那句「現照搬 design 不過濾」今天是假的** —— 車款過濾**已經是活的**,只是換了實作面:
+  ```
+  apps/storefront/src/components/ProductsPage.tsx:24 逐字:
+    「matchesVehicle **已移除**=F4、useVehicleUrlSync 負責 cascade.vehicle→URL→**server 重查**」
+  ⇒ 不是關著,是**改成 server 端過濾**
+  掃 SHOW_VEHICLE|VEHICLE_FILTER|vehicleFilterEnabled ⇒ **零旗標**(負向對照:同尺對 buildVehicleTaxonomy ⇒ 14 命中 ✅)
+  ```
+  ⇒ **本條的真實狀態:只剩「Phase 2 結構化 vehicles entity」,而 Phase 1.5 盡力版的那個前置(`#152` 啟用)已經好了。**
+  ⚠️ **本次只改依賴欄與其說明,沒有改狀態欄、沒有改結論**(主視窗 2026-08-19 明文限定)。
 - **發現於:** 2026-05-31 / g-6 規劃 / graphify 結構驗證(Identity↔Catalog 零邊)
 - **相關:** packages/domain/src/identity/vehicle.ts(CustomerVehicle 自由文字)/ packages/domain/src/catalog/types.ts FitmentSpec / apps/storefront/src/components/FilterSide.tsx + filter-state.ts / design-reference/design-reference/HANDOFF-OVERVIEW.md L133/L141(vehicleFilter SoT)/ docs/features/vehicle-service-ecosystem.md(Phase 2 PRD)/ #152 / #177 / #195
 
@@ -6760,7 +6781,20 @@ order by n desc, 1;
   - 可維護性:會員查單一律導客服 LINE、人力成本;「查看詳情」死鈕長期掛著是 UX 債。
   - bug 可追蹤性:客服無自助查單畫面、只能口頭對單號,易對錯單。
 - **估時:** ~60-90 min(含解 #217 + findById 實作 + 詳情頁 + 測;鐵則 8 需 plan + codex)
-- **依賴:** [[#217]](order_items 無 product_id)、M-3 訂單列表(已落地)
+- **依賴:** ~~[[#217]](order_items 無 product_id)~~、M-3 訂單列表(已落地)
+  🔴 **2026-08-19 G6 更正:`#217` 已於 2026-08-18 19:2x 結案,而【它的「✅」意思是「裁了 D:不動 domain」,不是「寫了 code」】。**
+  ⇒ **本條不是被擋住,是【要做一個新的唯讀投影】,而範本已經在了。那是工作量,不是阻擋。**
+  ```
+  packages/ports/src/IOrderRepository.ts:60 逐字:
+    「🔴 **deferred stub,而且是【刻意不提供】,不是「待 #217」**(2026-08-18 `#217` 裁定 D)」
+  同檔 :62 逐字:
+    「`AdminOrderDetail` **沒有 productId 而後台明細頁一直是好的**
+      ⇒ **畫一張明細不需要重建 domain `Order`**」
+  ⇒ 範本 = `AdminOrderDetail` 那個唯讀投影(`findAdminOrderDetail`,同檔 :118-124)
+  ⚠️ 而**客人側那支投影還沒有** —— `findById` / `listByCustomer` 都是 deferred stub(:67 / :77)
+  ```
+  ⇒ **要做的是「照 `AdminOrderDetail` 的形狀,做一支會員側的唯讀明細投影」** —— 不必碰 domain。
+  ⚠️ **驗法(不用狀態欄)**:上面兩處逐字都在 `packages/ports/src/IOrderRepository.ts`,開檔即見。
 - **發現於:** 2026-06-20 / M-3 OrdersTab 接真訂單(Q1=A 拍板:列表先渲染無行為鈕、詳情頁另開 slice)
 - **相關:** `apps/storefront/src/components/account/tabs/OrdersTab.tsx`(查看詳情鈕)、`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`(findById deferred-stub)、[[#217]]
 
