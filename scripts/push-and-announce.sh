@@ -41,6 +41,20 @@ BOX="${PUSH_ANNOUNCE_BOX:-$HOME/pcm-mailbox}"
 #      (2026-08-18 實測 admin 建置 29 秒,但那不是保證。)
 #
 # ⚠️ 天花板:本段只在**用這支腳本推**的時候有效;直接 `git push` 一樣沒有人在看。
+#
+# ── ✅ 2026-08-18 17:5x G1:**這一半【已經對真的 vercel CLI 實測過】** ──────────
+#   在此之前本檔整支被標成「零實測」(它只通過自己的 --selftest,而那用的是樁)。
+#   🔴 **那個標法現在要拆成兩半講,不要再整支這樣標**:
+#     ✅ deploy_status() 這一半  = 真實測過(下面那道命令,任何人可重跑)
+#     🔴 push + 廣播 那一半      = 仍然零實測 —— 它需要一次【真的 push】,仍等 Sean
+#   量法(不執行主流程、不推任何東西;抽出函式餵真 CLI):
+#     sed -n '44,80p' scripts/push-and-announce.sh > /tmp/ds.sh
+#     sh -c '. /tmp/ds.sh; deploy_status pcm-admin; deploy_status pcm-website-v2'
+#   當時的輸出:兩個專案各印出 Production 與 Preview 兩列 + `⇒ ✅ Production Ready`,rc=0。
+#   🔴 **順帶推翻一個我自己先前的擔心**:本函式呼叫的是 `vercel ls <專案名>`、**沒有 `--scope`**,
+#      而它照樣解得到 `pcm-motorsports` ⇒ **不需要補 `--scope`**。
+#   ⚠️ 射程:這證的是「量得到、格式對、rc=0」,**證不出**「push 之後它會等到正確的那一發」——
+#      那條路徑(推完 → 輪詢 → Ready)要真的 push 才走得到。
 VERCEL_BIN="${VERCEL_BIN:-vercel}"
 DEPLOY_WAIT_MAX="${DEPLOY_WAIT_MAX:-180}"   # 秒;上限,不是保證
 
