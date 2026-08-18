@@ -139,10 +139,21 @@ AS $fn$
           AND ( a.status = 'pending'
                 OR ( a.superseded_at IS NOT NULL
                      AND a.status IN ('charged', 'released') ) )
-          AND o.payment_status = 'unpaid'::public.payment_status
-          -- 🔴 M-4a 出口:有人看過了就離開這個計數。**這是本檔唯一改動的一行。**
-          --    它【不】改 status、【不】清 needs_manual_review ⇒ 鎖仍在、自動重試仍關著。
-          AND a.manual_reviewed_at IS NULL),
+          AND o.payment_status = 'unpaid'::public.payment_status),
+          -- 🔴🔴 **2026-08-19 R2 反轉:`unknown` 【不再】退出主告警。**
+          --    ~~原本這裡有一行 `AND a.manual_reviewed_at IS NULL`~~ —— 審查器兩輪都指同一件事:
+          --    **`unknown` 是唯一會通過的路,而它不要求任何對帳證據** ⇒ 讓它退出主告警
+          --    = 把「真扣款但本地仍 pending/unpaid」的單,沿**阻力最小的路**送出視線之外。
+          --    ⇒ **在「證據」這道要求存在之前,退出主告警這件事本身就是那個洞。**
+          --
+          --    🔴 **而原始問題(下一筆卡住時看起來跟舊的一樣)仍然解掉了,靠的是【算術】不是【移除】**:
+          --    ```
+          --    未檢視數 = attempt_manual_review_count − reviewed_unknown_unresolved_count
+          --    新到一筆 ⇒ 那個差【0 → 1】⇒ 它就是「有新的」的訊號
+          --    ```
+          --    ⇒ **沒有任何一列從視線裡消失**,而「新的」仍然看得出來。
+          --    ⇒ **要開啟真正的退出,是把上面那一行加回來** —— 而那一步的前置是
+          --      「`unknown` 必須附帶伺服器端 TapPay 查詢結果」,**不是**「員工貼一段文字」。
     -- 🔴🔴 **M-4a:`unknown` 的可見性 —— 它與出口【必須同一交付】**(codex 關卡2 Critical 1)。
     --    沒有它,選 `unknown` 之後那張單:告警 1→0、鎖還在(客人付不了)、自動重試仍關著
     --    ⇒ **完全不可見** ⇒ 我們只是把「響的告警」換成「安靜的黑洞」,而【安靜】正是這條線最初的病。
@@ -153,13 +164,15 @@ AS $fn$
       (SELECT pg_catalog.count(*)
          FROM public.payment_charge_attempts a
          JOIN public.orders o ON o.id = a.order_id
-        WHERE a.needs_manual_review = true
-          AND ( a.status = 'pending'
-                OR ( a.superseded_at IS NOT NULL
-                     AND a.status IN ('charged', 'released') ) )
-          AND o.payment_status = 'unpaid'::public.payment_status
-          AND a.manual_reviewed_at IS NOT NULL
-          AND a.manual_review_outcome = 'unknown'),
+        -- 🔴 **這裡刻意【不綁 attempt.status】**(2026-08-19 R2 Critical):
+        --    原本綁著 `pending OR (superseded AND charged/released)`,而**既有的
+        --    `mark_charge_attempt_charged()` 可以在關閉【之後】把 pending 改成 charged**
+        --    (`20260612150000:260`,它不看 `manual_reviewed_at`)
+        --    ⇒ 那一列若沒有 `superseded_at`,就會**同時掉出主告警與本存量** ⇒ 守恆宣稱破功。
+        --    ⇒ 存量只認「**被判為 unknown、而訂單仍未付款**」——**狀態怎麼變都還在視線裡**,
+        --      直到訂單真的變成 paid/refunded(那才是它被解決了)。
+        WHERE a.manual_review_outcome = 'unknown'
+          AND o.payment_status = 'unpaid'::public.payment_status),
     'released_stuck_count',
       (SELECT pg_catalog.count(*)
          FROM public.payment_charge_attempts a
@@ -422,15 +435,27 @@ BEGIN
     RAISE EXCEPTION '出口 RPC EXECUTE 異常 — service_role 應執行得了(後台要用);拒繼續';
   END IF;
   -- 5d-2. 🔴 **有效權限那一半**:ACL 乾淨不代表沒有人**經由角色成員資格**拿得到。
-  FOREACH v_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
-    IF pg_catalog.pg_has_role(v_role, 'service_role', 'USAGE') THEN
-      RAISE EXCEPTION '角色拓樸異常 — % 是 service_role 的成員 ⇒ 它取得得了出口 RPC 的 EXECUTE;拒繼續', v_role;
-    END IF;
-    IF has_function_privilege(v_role,
-         'public.admin_close_manual_review_attempt(uuid,uuid,text,text,text,text)', 'EXECUTE') THEN
-      RAISE EXCEPTION '出口 RPC EXECUTE 異常 — % 不應執行得了;拒繼續', v_role;
-    END IF;
-  END LOOP;
+  -- 🔴 **遍歷【所有】角色,不點名**(R2:~~只問 anon/authenticated~~ ⇒ 任何**別的**角色
+  --    是 service_role 的成員就取得得了 EXECUTE,而那兩問全綠)。
+  SELECT count(*) INTO v_cnt
+    FROM pg_catalog.pg_roles r
+   WHERE r.rolname <> current_user
+     AND r.rolname <> 'service_role'
+     AND NOT r.rolname LIKE 'pg\_%'                       -- PG 內建角色
+     AND pg_catalog.pg_has_role(r.rolname, 'service_role', 'USAGE');
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION '角色拓樸異常 — 有 % 個角色是 service_role 的(轉遞)成員 ⇒ 它們取得得了出口 RPC 的 EXECUTE;拒繼續', v_cnt;
+  END IF;
+  SELECT count(*) INTO v_cnt
+    FROM pg_catalog.pg_roles r
+   WHERE r.rolname <> current_user
+     AND r.rolname <> 'service_role'
+     AND NOT r.rolname LIKE 'pg\_%'
+     AND has_function_privilege(r.rolname,
+           'public.admin_close_manual_review_attempt(uuid,uuid,text,text,text,text)', 'EXECUTE');
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION '出口 RPC EXECUTE 異常 — 有 % 個非 owner/service_role 的角色執行得了;拒繼續', v_cnt;
+  END IF;
 
   -- 5e. 🔴 owner 必須是跑 migration 的角色(SECURITY DEFINER 的身分就是 owner)
   SELECT count(*) INTO v_cnt
