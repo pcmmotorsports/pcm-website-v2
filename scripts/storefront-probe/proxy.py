@@ -12,6 +12,19 @@ AUTH_JWT = open("/tmp/pcm-g3-probe/authjwt.txt").read().strip()
 SESSION = {"access_token": AUTH_JWT, "token_type": "bearer", "expires_in": 3600,
            "expires_at": 4102444800, "refresh_token": "probe-refresh", "user": USER}
 
+# 🔴 第二個客人(2026-08-18 加):**為了「換帳號」那一類題目**。
+#    沒有第二個帳號時，「A 的收藏會不會漏給 B」「A 的東西會不會被 B 的動作刪掉」
+#    這一族【構造不出來】—— 而構造不出來與「沒有這個 bug」在報告上長得一樣。
+#    ⚠️ 仍然【不驗密碼】(見檔頭);它只是讓你【選得到】要當哪一個人:
+#       登入時 email 填 probe2@example.com ⇒ 拿到乙的 session，其餘任何字串 ⇒ 甲。
+USER2 = dict(USER, id="22222222-2222-2222-2222-222222222222", email="probe2@example.com")
+AUTH_JWT2 = open("/tmp/pcm-g3-probe/authjwt2.txt").read().strip()
+SESSION2 = {"access_token": AUTH_JWT2, "token_type": "bearer", "expires_in": 3600,
+            "expires_at": 4102444800, "refresh_token": "probe-refresh2", "user": USER2}
+# 這條鏈沒有真的 session store ⇒ 用一個「最後一次登入的是誰」的旗標，
+# 讓 /auth/v1/user（Next server 端會打的那支）跟著切。
+CURRENT = {"user": USER}
+
 class H(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def log_message(self, *a): pass
@@ -21,8 +34,17 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def _auth(self, body):
         p = self.path.split("?")[0]
-        if p == "/auth/v1/user": return self._json(200, USER)
-        if p in ("/auth/v1/token", "/auth/v1/signup"): return self._json(200, SESSION)
+        if p == "/auth/v1/user": return self._json(200, CURRENT["user"])
+        if p in ("/auth/v1/token", "/auth/v1/signup"):
+            email = ""
+            if body:
+                try: email = (json.loads(body) or {}).get("email", "") or ""
+                except Exception: email = ""
+            if email.strip().lower() == "probe2@example.com":
+                CURRENT["user"] = USER2
+                return self._json(200, SESSION2)
+            CURRENT["user"] = USER
+            return self._json(200, SESSION)
         if p == "/auth/v1/logout":
             self.send_response(204); self.send_header("Content-Length", "0"); self.end_headers(); return
         return self._json(404, {"message": "probe proxy: no route " + p})

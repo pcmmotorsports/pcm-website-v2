@@ -93,8 +93,12 @@ print("ANON="+tok({"role":"anon"}))
 print("SERVICE="+tok({"role":"service_role"}))
 print("AUTH="+tok({"role":"authenticated","aud":"authenticated",
                    "sub":"11111111-1111-1111-1111-111111111111"}))
+# 第二個客人的 JWT(換帳號那一類題目要用;見 seed.sql 的說明)
+print("AUTH2="+tok({"role":"authenticated","aud":"authenticated",
+                    "sub":"22222222-2222-2222-2222-222222222222"}))
 PY
-grep AUTH= $S/jwts.txt | cut -d= -f2- > $S/authjwt.txt
+grep '^AUTH=' $S/jwts.txt | cut -d= -f2- > $S/authjwt.txt
+grep '^AUTH2=' $S/jwts.txt | cut -d= -f2- > $S/authjwt2.txt
 
 cp "$SP/proxy.py" $S/proxy.py
 nohup python3 $S/proxy.py > $S/proxy.log 2>&1 &

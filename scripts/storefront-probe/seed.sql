@@ -30,3 +30,13 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO customers (user_id, email, name, phone, tier)
 VALUES ('11111111-1111-1111-1111-111111111111','probe@example.com','探針測試客人','0912345678','general')
 ON CONFLICT (user_id) DO NOTHING;
+
+-- 🔴 第二個客人:**為了「換帳號」那一類題目**（2026-08-18 加）。
+--    沒有第二個帳號的時候，「A 的資料會不會漏給 B」「A 的東西會不會被 B 的動作刪掉」
+--    這一整族題目【構造不出來】—— 而構造不出來與「沒有這個 bug」在報告上長得一樣。
+INSERT INTO auth.users (id, email, raw_user_meta_data)
+VALUES ('22222222-2222-2222-2222-222222222222','probe2@example.com','{"name":"探針測試客人乙"}')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO customers (user_id, email, name, phone, tier)
+VALUES ('22222222-2222-2222-2222-222222222222','probe2@example.com','探針測試客人乙','0987654321','general')
+ON CONFLICT (user_id) DO NOTHING;
