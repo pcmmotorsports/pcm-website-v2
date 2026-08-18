@@ -88,4 +88,73 @@ curl -s -o /dev/null -w '%{http_code} → %{redirect_url}'
 · 沒有改任何 app code、沒有動任何設定
 ```
 
-— G5(待續:等主視窗/Sean 選甲或乙)
+---
+
+# §4 【乙】拋棄式環境:走到哪、為什麼停(2026-08-19T02:22 CST · **已全部收攤驗死**)
+
+## 🔴 乙的結論一句話
+**乙【答不了分類②(有畫面但按不動)】,而那不是我沒走完 —— 是它在設計上到不了那一格。**
+
+## ① 環境建起來了,而過程中補了 runbook 一個真缺口
+```
+拋棄式 PG 17.10 / PostgREST / 前綴代理 / admin dev(ADMIN_DEV_BYPASS=1)
+表 10/10、RPC 11/12、migration ok=157 → 失敗 28 → 修鏈頭後 23
+🔴 鏈頭:runbook §2 沒有 pgcrypto,而 migration 要的是 extensions.gen_random_bytes
+   ⇒ 少了它【出貨那條路的四支 RPC 一支都不存在】⇒ 已補進 runbook §2
+```
+
+## ② 🔴 寫入站:**全部走不了,而擋我的是【登入態】不是產品**
+自己開檔複驗(不採信轉述):
+```
+apps/admin/src/lib/session/authorize.ts:29-30  verifySession(cookie) ⇒ !session ⇒ return null   ← 沒有 devBypass
+                                        :31    isAllowedOrigin(..., { devBypass: DEV_BYPASS })  ← 只有這裡有
+grep -c 'ADMIN_DEV_BYPASS' apps/admin/src/lib/session/session.ts ⇒ 0
+```
+⇒ `ADMIN_DEV_BYPASS=1` **讓我看得到頁,而它從來沒有給我一個 session**
+⇒ 收款/採購/到貨/尾款/出貨/退款/備註/編輯/取消 **九個寫入站全部會回 denied**
+⇒ 🔴 **而那不是「員工做不到」,是我的環境沒有登入態。**
+**⇒ 我在按任何一個之前先確認了,而不是按完再解釋。**
+
+**而「自簽一個 admin session」我不做** —— 偽造登入態 + 碰 session 密鑰。
+**若乙需要偽造登入態才走得動,那就是走不動。**
+
+## ③ 讀取站:資料層通了,**而 UI 顯示 0 筆,我沒有隔離出原因**
+```
+✅ 塞了一筆 PCM-2026-0001 進拋棄式庫(過了 5 道 CHECK:display_id 格式 / invoice 白名單 /
+   收件地址白名單 …)
+✅ PostgREST 用【adapter 那條一模一樣的 select】打 admin_order_list_v ⇒ 回得到那一列
+✅ service_role 對該 view has_table_privilege ⇒ t
+🔴 而後台列表畫出來是「目前沒有符合條件的訂單。共 0 筆」,admin log 零錯誤
+⇒ 【資料層拿得到、UI 拿不到】,而我【沒有隔離出斷在哪一層】
+```
+⚠️ **所以讀取站我也不下結論** —— 一個我解釋不了的 0,不能拿去說「列表壞了」。
+
+## ④ 🔴 我為什麼把伺服器關掉(理由不是診斷卡住)
+`apps/admin/.env.local` **裡面有 `NEXT_PUBLIC_SUPABASE_URL`**(我只 `grep -c` 數行數,**沒有讀值**)。
+⇒ 我**無法排除**它蓋過我用 shell 設的那個。
+⇒ 🔴 **一台我不確定指向哪裡的伺服器,不該繼續開著。** 關掉,而不是一邊查一邊讓它跑。
+
+## ⑤ 收攤(用【不會說謊的量法】,而舊的那把今晚剛被證明會說謊)
+```
+:3011 / :3998 / :3999 / :55501  ⇒ curl 全 000、lsof 全無人聽
+PG ⇒ 連不上;/tmp/pcm-probe ⇒ 已清
+⚠️ 同機另有兩支別窗的 next-server(43930 / 81985)⇒ 【沒有動】。收攤是收自己的,不是收乾淨
+```
+
+## ⑥ 本機限定(引用本節任何一句都要帶)
+```
+🔴 拋棄式庫的 orders_display_id_format = '^PCM-[0-9]{4}-[0-9]{4,}$'
+   ⇒ 那是 expand【之前】的世界(d0_display_id_expand 在失敗的 23 支裡)
+   ⇒ 任何我在本機對 display_id / #477 的觀察【都不算數】
+🔴 而整節照舊帶那句:【乙全綠不代表甲會通】—— 本機 RLS/GRANT/trigger 都是我自己補的
+```
+
+## ⑦ 乙實際交付了什麼(不誇大)
+```
+✅ runbook 兩個真缺口(pgcrypto、收攤那把尺會說謊)—— 下一個人省下我繞的兩圈
+✅ 「寫入站在拋棄式環境走不了」這個結論本身 ⇒ 它把【甲】從「其中一條路」變成【唯一的路】
+❌ 分類② 一格都沒判定
+❌ 讀取站也沒下結論(那個 0 我解釋不了)
+```
+
+— G5
