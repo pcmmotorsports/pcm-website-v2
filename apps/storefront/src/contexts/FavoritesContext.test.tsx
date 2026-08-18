@@ -432,6 +432,11 @@ describe('FavoritesContext', () => {
     await waitFor(() => expect(removeFavoriteAction).toHaveBeenCalledTimes(1));
 
     // 🔴 就是現在:舊 worker 收尾（finally 動到誰的 map?）
+    // ⚠️ **未斷言的前提**(GR 確認輪的 nit,寫下來不假裝沒有):
+    //   下面那個 20ms 只有在「舊 worker 的收尾走 microtask」時才必然完成。
+    //   ⇒ **日後若 worker 收尾引入真的計時器(setTimeout / 動畫 / 重試退避),
+    //     這個構造會【靜默退化成綠】** —— 也就是退化成我第一版那種「測試綠、bug 還在」。
+    //   ⇒ 動 worker 收尾路徑的人:先確認這一格【對壞版本仍然會紅】,再相信它。
     await act(async () => {
       releaseOldAdd({ ok: true });
       await new Promise((r) => setTimeout(r, 20));
@@ -467,6 +472,39 @@ describe('FavoritesContext', () => {
     expect(text).toContain('這件商品已下架');
     expect(text, '兩種失敗被統一成一句 ⇒ Sean 拍的「分兩句」被丟掉了').not.toContain('請再試一次');
     addFavoriteAction.mockImplementation(async () => ({ ok: true }));
+  });
+
+  it('🔴 GR §4:載入中按了【一顆】⇒ 不得把整份清單丟掉(其他商品的紅心全滅)', async () => {
+    // 客人面症狀:網路慢、清單還在載入時他手快按了一顆
+    //   ⇒ 他原本收藏的【其他】商品紅心全部消失，要重整才回來。
+    //   資料沒掉，但他會以為收藏被弄丟了 ——「DB 有、畫面沒有」的窄觸發版。
+    let release: (v: { handles: string[] }) => void = () => {};
+    listFavoriteHandlesAction.mockImplementation(
+      () => new Promise<{ handles: string[] }>((r) => { release = r; }),
+    );
+    const { container } = render(
+      <FavoritesProvider>
+        <Heart handle="他按的那顆" />
+        <Heart handle="他本來就收藏的" />
+      </FavoritesProvider>,
+    );
+    const [pressed, existing] = [...container.querySelectorAll('button')];
+    await login();
+    // 清單還在路上，他先按了第一顆
+    await act(async () => {
+      pressed!.click();
+    });
+    // 現在清單回來了，裡面有【另一顆】他本來就收藏的
+    await act(async () => {
+      release({ handles: ['他本來就收藏的'] });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(pressed!.getAttribute('aria-pressed'), '他剛按的那顆不該被清單蓋掉').toBe('true');
+    expect(
+      existing!.getAttribute('aria-pressed'),
+      '他本來就收藏的那顆滅了 ⇒ 整份清單被丟掉了(按一顆害到全部)',
+    ).toBe('true');
+    listFavoriteHandlesAction.mockImplementation(async () => ({ handles: ['already-fav'] }));
   });
 
   it('沒有 Provider 也不炸(愛心只是沒作用)', () => {

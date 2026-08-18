@@ -131,6 +131,14 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
   const confirmedRef = useRef(new Set<string>());
   const runningRef = useRef(new Set<string>());
 
+  /**
+   * 這一代裡**客人動過的商品**(不論成功與否)。
+   * 🔴 用途:載入回來的那份清單是**比我們的寫入更舊的快照** ——
+   *   對客人碰過的那幾顆,我們手上的 `confirmed` / `desired` 才是新的;
+   *   對他沒碰過的,清單才是真的。⇒ 合併時只讓清單填**沒碰過**的那些。
+   */
+  const touchedRef = useRef(new Set<string>());
+
   // 會員態:鏡像 `Header.tsx` 的 onAuthStateChange 慣例(訂閱後即 emit INITIAL_SESSION、
   // 讀本地 session 不打網路)⇒ 未登入的訪客**不會**因為本 Provider 多打一趟 server action。
   useEffect(() => {
@@ -168,6 +176,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     //   換新物件之後,舊 worker 手上那份變成孤兒,它怎麼清都碰不到新的那份。
     desiredRef.current = new Map();
     runningRef.current = new Set();
+    touchedRef.current = new Set();
     setHandles(new Set());
     setError(null);
     if (!userId) return;
@@ -177,7 +186,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       .then((res) => {
         // 🔴 載入期間客人已經動過(desired 有東西)、或人已經換了 ⇒ 丟掉這份,它已經過期。
         //   套下去會蓋掉他剛按的那顆 ⇒ 畫面說沒收藏、DB 說有(codex R1 must-fix 2)。
-        if (!active || userIdRef.current !== userId || desiredRef.current.size > 0) return;
+        if (!active || userIdRef.current !== userId) return;
         // 🔴 讀不到 ⇒ **講出來**,不要靜靜地當成「沒有收藏」(`MAIN-035 ①-1`,標【必修】)。
         //   愛心此刻全是空心的 —— 那是**未知**,不是「你沒收藏過」。
         //   ⚠️ 這正是本片自己在 plan 驗收裡折掉的病(「或 0 列」讓壞掉的世界與正常的世界
@@ -186,9 +195,29 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
           setError(LOAD_FAILED_MESSAGE);
           return;
         }
-        confirmedRef.current = new Set(res.handles);
-        handlesRef.current = new Set(res.handles);
-        setHandles(new Set(res.handles));
+        // 🔴🔴 **合併,不是整份覆蓋、也不是整份丟棄**(GR/Fable R3 §4 must-fix)。
+        // ```
+        // 舊版:載入期間只要客人按過【任何一顆】⇒ desired.size>0 ⇒ 【整份清單丟掉】
+        //   ⇒ confirmed 恆空 ⇒ 他【其他】已收藏商品的紅心全滅，要重整才回來
+        //   ⇒ 資料沒掉，而他會以為收藏被弄丟了（慢網路 + 手快 = 窄觸發，很難自己發現）
+        // 🔴 而我構造它的時候撞到【第二半】，GR 沒點名而它更糟:
+        //   那一發若在清單回來【之前】就成功了，desired 已被 finally 清掉
+        //   ⇒ 舊版守門根本不會擋 ⇒ 清單整份覆蓋 ⇒【剛剛才存進 DB 的那一顆被抹掉】
+        // ```
+        // 正解:清單是**比我們的寫入更舊的快照** ⇒ 只讓它填「這一代沒碰過」的那些,
+        // 碰過的以我們手上的 confirmed / desired 為準。
+        const confirmed = confirmedRef.current;
+        res.handles.forEach((h) => {
+          if (!touchedRef.current.has(h)) confirmed.add(h);
+        });
+        // 畫面 = server 確認過的 ∪ 客人正在等結果的那幾顆(desired 當覆蓋層)。
+        const merged = new Set(confirmed);
+        desiredRef.current.forEach((want, h) => {
+          if (want) merged.add(h);
+          else merged.delete(h);
+        });
+        handlesRef.current = merged;
+        setHandles(merged);
       })
       .catch(() => {
         // 動態 import / 網路層爆掉:同樣要講出來(理由同上)。
@@ -209,6 +238,7 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         return;
       }
       const owner = userId;
+      touchedRef.current.add(handle);
       // 🔴 **把「這一代」的三個容器抓在手上**(GR R3):worker 是非同步的,
       //   而它跑到一半時 `xxxRef.current` 可能已經被換成**下一個帳號的**那一份。
       //   抓住當下這一份 ⇒ 換帳號之後這支 worker 只會動到自己的孤兒容器。
