@@ -275,7 +275,15 @@ attempt_manual_review_count = needs_manual_review=true AND status='pending' AND 
 ```
 📌 **與 `#651` 同族**:一個欄位承擔兩個**要求不同**的角色。⇒ 新增獨立時戳,**不動那面旗子**。
 
-#### ⑤ 既有的唯一清除路徑**不能抄**
+#### ⑤ ~~既有的唯一清除路徑不能抄~~ 🔴 **「唯一」那兩個字已被推翻(2026-08-19)**
+
+> **那個全稱句是錯的**:GR-040 盤到第二支既有出口
+> `supabase/migrations/20260624120010_m3_3ds_r1c3_close_released_attempt.sql`(owner-only 人工結案)。
+> ⇒ 完整說明見 `docs/specs/2026-08-19-manual-review-queue-full-scope-plan.md` **§10-①**。
+> ⚠️ 本節下面的論證(「抄它就是把不確定當成確定」)**仍然成立** —— 被推翻的只有「唯一」那兩個字。
+> 📌 落這一行是因為:**推翻的當下要去改被推翻的那份**,而本檔原本沒有訃聞
+>    ⇒ 下一個開本檔的人會照字面讀。(G4 對自己跑 `literal-sweep` 掃出來的。)
+
 `20260624120002_m3_3ds_r1a3_mark_charge_attempt_released_for_user.sql:53-58` 會清 `needs_manual_review`,
 **但它同時把 `status` 改成 `released`** —— 那是「**確定沒扣到、放客人走**」的路。
 🔴 **抄它就是把不確定當成確定。**
