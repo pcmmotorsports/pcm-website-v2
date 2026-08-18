@@ -144,6 +144,38 @@ apps/storefront      · 一支 useFavorites()（單一資料源，兩顆愛心�
 我的判準是 `rect.width > 0`,而 `opacity:0` 的元素照樣有 rect。**尺說看得見,客人看不到。**
 已在 `FavoritesTab.tsx` / manifest / 量具檔頭三處留痕更正。
 
+#### 🔴 MAIN 問「另外兩個同款的也吃點擊嗎?」—— **量了,答案是不吃。全卡只有一個陷阱。**
+
+同檔還有兩處 `opacity: 0`(MAIN 15:1x 撈到的,我複核屬實):
+```
+:155  .pcard-dots   opacity: 0  +  :157 pointer-events: none   ← 有寫
+:175  .pcard-quick  opacity: 0  +  :180 pointer-events: none   ← 有寫
+      :181 .pcard-quick.is-visible { … pointer-events: auto }  ← 浮出來時才收回點擊
+:139  .pcard-heart  opacity: 0  +  🔴 沒有 pointer-events 這一行
+```
+**掃描量測**(390×844,對第一張卡 `173×291` 以 6px 網格取樣、逐點問 `elementFromPoint`):
+```
+看得見的區域            div.pcard-img-wrap / info / brand / name / fits / price-row …
+看不見但【不在 button 內】 img.pcard-gallery-img ×762  ← hover 交叉淡入用的第二張圖
+🔴 看不見且【在 button 內】 button.pcard-heart ×22      ← 只有這一個
+   .pcard-dots 與 .pcard-quick 在【所有取樣點】都不是最上層元素（0 次）
+   ⇒ 與它們寫了 pointer-events: none 一致
+```
+**點下去實測(兩個世界各一次,以工具回報的 Page URL 為準)**:
+```
+點在「看不見但不在 button 內」那類（第二張圖上）⇒ 🟢 有跳走
+   Page URL 變成 /products/g3-probe-0011?from=catalog…
+點在愛心中心（162, 311）⇒ 🔴 沒有跳走，網址一動也沒動
+```
+⚠️ **誠實記一筆**:第一次我用頁內 `location.pathname` 判,它在 500ms 內還沒更新
+⇒ **我的檢查印 `navigated: false`,而工具回報的 Page URL 顯示它其實跳走了。**
+真相是靠**工具回報的網址**,不是靠我那個檢查。**我沒有拿我那個結果去下結論。**
+
+⇒ **答案:陷阱只有一個(愛心),不是三個。** 而它的成因很具體:
+**同一支檔裡它的兩個鄰居都寫了 `pointer-events: none`,只有它沒寫。**
+⇒ 修法可以很小(補一行 `pointer-events: none` 在未浮出時),
+但**那只解「不再吃掉點擊」,不解「手機客人收藏不了」** —— 後者是視覺決定,見 §2。
+
 ⇒ **對本片的意思**:
 1. 手機客人**今天沒有任何入口可以收藏** —— 兩顆都看不見。
    ⇒ 「做成真功能」若不處理這一格,**手機客人還是收藏不了**,只是後端多了一張空表。
@@ -172,6 +204,16 @@ apps/storefront      · 一支 useFavorites()（單一資料源，兩顆愛心�
 ```
 現況:那兩顆元件**完全不知道有沒有登入**(`grep auth|session|user` ⇒ 0 命中)⇒ 兩種都要新增判斷。
 ⇒ 依 Sean 08-17 常設令,**做成 artifact 並排給他看**,不用文字讓他想像。**本 plan 不預設哪一種。**
+
+🎨 **artifact 已做好(2026-08-18)**:`https://claude.ai/code/artifact/8a37c104-1226-4abf-af45-76325e953192`
+內含三段,而**第一段才是真正要他決定的那個**:
+```
+現況對照   客人看到的 vs 同一畫面把「看不見卻吃點擊」的地方標出來（四張卡的乘出來樣子）
+問題一     手機上的愛心要長怎樣 —— 甲 常駐顯示 / 乙 不做收藏只補陷阱 / 丙 只在商品頁收藏
+問題二     沒登入點愛心 —— 甲 不顯示 / 乙 顯示、按了請登入
+另問       .pd-like 手機關掉是刻意還是漏的（我查不出來）／ 收藏要不要有數量上限（我想到的、非量到的）
+```
+⚠️ **artifact 裡我沒有替他選。** 三個做法的差別被寫成「客人會遇到什麼 / 代價 / 陷阱解不解」三行。
 
 ---
 
