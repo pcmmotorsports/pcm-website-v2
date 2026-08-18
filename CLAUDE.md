@@ -46,19 +46,11 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 | 觸發情境 | 讀 |
 |---|---|
-| 判斷功能是否屬 Phase 1 範圍 / 範圍爭議 | `docs/PHASE-1-NORTHSTAR.md` §1 |
-| 動 design-reference / design 與文件矛盾 / 找真權威位置 | `docs/PHASE-1-NORTHSTAR.md` §2 |
-| 上線/公測就緒判斷 | `docs/PHASE-1-NORTHSTAR.md` §5 |
+| ①判斷功能是否屬 Phase 1 範圍 / 範圍爭議<br>②動 design-reference / design 與文件矛盾 / 找真權威位置<br>③上線/公測就緒判斷 | ①`docs/PHASE-1-NORTHSTAR.md` §1<br>②`docs/PHASE-1-NORTHSTAR.md` §2<br>③`docs/PHASE-1-NORTHSTAR.md` §5 |
 | 寫或審 slice 指令格式(六件套完整規格) | `docs/patterns/slice-instruction-six-piece.md` |
-| 寫 slice 指令前的逐條自檢 | `docs/working-style.md` §6.3 |
+| ①寫 slice 指令前的逐條自檢<br>②決策題 / 報告格式細節 / Sean 說看不懂<br>③需要 Sean 操作 dashboard / GUI / 查環境路徑 | ①`docs/working-style.md` §6.3<br>②`docs/working-style.md` §1/§2<br>③`docs/working-style.md` §4 |
 | diff 含 use 開頭 hook(useState/useEffect/useCallback/useMemo/useRef…)/ 動 eslint 設定 / client component 抓資料 | `docs/patterns/react-nextjs-rules.md` |
-| 寫 rsync / env・secret 操作 / 跨 repo 同步指令 | `docs/lessons-learned.md` §12-6/12-8/12-9/12-15(🔴) |
-| 引用其他 session 的 commit body / 跨 session 交接 | `docs/lessons-learned.md` §12-30/12-25/12-16 |
-| 要在任何規則檔新增條目(立法)前 | `docs/lessons-learned.md` §12-34/12-36 |
-| 偵察類工作(凡結論將寫「X 未實作/未覆蓋/查無」)/ 下此類斷言前 | `docs/lessons-learned.md` §13 |
-| 其他事故式教訓(事故 log;條數會長,當場 `grep -c '^### 12-'` 才算數) | `docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條) |
-| 決策題 / 報告格式細節 / Sean 說看不懂 | `docs/working-style.md` §1/§2 |
-| 需要 Sean 操作 dashboard / GUI / 查環境路徑 | `docs/working-style.md` §4 |
+| ①寫 rsync / env・secret 操作 / 跨 repo 同步指令<br>②引用其他 session 的 commit body / 跨 session 交接<br>③要在任何規則檔新增條目(立法)前<br>④偵察類工作(凡結論將寫「X 未實作/未覆蓋/查無」)/ 下此類斷言前<br>⑤其他事故式教訓(事故 log;條數會長,當場 `grep -c '^### 12-'` 才算數) | ①`docs/lessons-learned.md` §12-6/12-8/12-9/12-15(🔴)<br>②`docs/lessons-learned.md` §12-30/12-25/12-16<br>③`docs/lessons-learned.md` §12-34/12-36<br>④`docs/lessons-learned.md` §13<br>⑤`docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條) |
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
 | 🔴 **不知道某個東西牽動到哪 / 想知道「改這支檔會影響什麼」** | 查地圖:`graphify query "<檔名或識別字>"`(在 repo 根跑,例 `graphify query "orders-table"`)。它回傳那個節點 BFS depth=2 的連動子圖,答得出**跨檔關係**而 grep 只答得出字面命中。**查完一定要開檔核** —— 地圖給方向,檔案給事實 |
 | ⚠️ **地圖問不出來的東西**(先知道,免得以為它壞了) | ①**中文白話問句零命中**(2026-08-18 實測「訂單列表的品項在哪裡展開成一列」⇒ `No matching nodes`)②**不是節點名的識別字也零命中**(同日實測 `itemsTruncated` ⇒ 0)③🔴 **沒有 HTML 可以開** —— 圖的節點數超過 viz 上限,`graphify update` 會**跳過並移除** `graph.html`(2026-08-18 實測 `ls graphify-out/graph.html` ⇒ `No such file or directory`)。**⇒ 只用 `query`,沒有圖可以看** |
@@ -78,11 +70,9 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 開新施工窗/新 session 主視窗建置/工作流移植他專案 | `docs/runbooks/multi-window-command-workflow.md`(2026-08-09 Sean 拍板常設;§B 主視窗/§C 施工窗啟動提示詞) |
 | 要驗一支 migration 而手上沒有 DB access(施工窗常態)/ 要在本機起拋棄式 Postgres 或 PostgREST | `docs/runbooks/throwaway-postgres-for-migration-verification.md`(PCM 專屬 bootstrap 清單、`apply 成功 ≠ 斷言通過`、本機效度限制) |
 | 🔴 **新建任何 DB 物件(表 / view / 函式)**,或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` / 改既有函式的參數型別 | `docs/patterns/revoking-function-execute-in-supabase.md`(**檔名比範圍窄,表也在裡面**)。**新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅**;含兩道 REVOKE、`TRUNCATE` 不受 RLS 管、`has_*_privilege` 對欄級授權少報、ACL 欄是 `NULL` 時 PUBLIC 看不見 |
-| 🔴 **要用瀏覽器打開後台看畫面**(本機;**不需要任何 `.env` 檔**) | `docs/design/admin-design-system.md` **檔頭第一段** —— 一行 `cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001`。**這條路一直都在**(`proxy.ts:16` 註解寫著用途),而 2026-08-16 全窗花了兩輪才找到 —— **寫對地方 ≠ 會被讀到** |
-| 🔴🔴 **要驗「這個功能到底行不行」**(Sean 2026-08-17 定為全陣預設:「不用再用 artifacts,直接來真的但是開伺服器做＋看」) | `docs/runbooks/local-admin-with-real-data-probe.md` —— 拋棄式 PG + PostgREST + 自簽 JWT + 前綴代理 + 真後台,**零 secret、不碰 `.env*`**(施工窗工作樹沒有 `.env.local`)。含 5 個會擋住你的坑(UTF8 / socket 長度 / `auth.uid()` / `service_role` GRANT + BYPASSRLS / `/rest/v1` 前綴)與**效度限制**。⚠️ **替身(fixture / mock / artifact)不再是「確認功能可用」的合格載體** |
+| ①🔴 **要用瀏覽器打開後台看畫面**(本機;**不需要任何 `.env` 檔**)<br>②後台 UI 片的視覺真權威 / BMW M 設計語言 / 某條做了沒 | ①`docs/design/admin-design-system.md` **檔頭第一段** —— 一行 `cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001`。**這條路一直都在**(`proxy.ts:16` 註解寫著用途),而 2026-08-16 全窗花了兩輪才找到 —— **寫對地方 ≠ 會被讀到**<br>②`docs/design/admin-design-system.md`(**檔頭「落地狀態」表決定你能不能直接照抄下面的東西**) |
+| ①🔴🔴 **要驗「這個功能到底行不行」**(Sean 2026-08-17 定為全陣預設:「不用再用 artifacts,直接來真的但是開伺服器做＋看」)<br>②🔴🔴 **本機 dev server 打開了,而畫面「看起來像功能沒做」**(按鈕沒反應 / 停在載入中 / console 有 chunk 403) | ①`docs/runbooks/local-admin-with-real-data-probe.md` —— 拋棄式 PG + PostgREST + 自簽 JWT + 前綴代理 + 真後台,**零 secret、不碰 `.env*`**(施工窗工作樹沒有 `.env.local`)。含 5 個會擋住你的坑(UTF8 / socket 長度 / `auth.uid()` / `service_role` GRANT + BYPASSRLS / `/rest/v1` 前綴)與**效度限制**。⚠️ **替身(fixture / mock / artifact)不再是「確認功能可用」的合格載體**<br>②**先換 `http://localhost:<port>`,不要用 `http://127.0.0.1:<port>`,再看一次。** Next 16 dev 只認 `localhost` 這個 `Origin`;用 127 時 HTML/CSS 正常、**只有 client JS 靜靜地不見**。量測與限定見 `docs/runbooks/local-admin-with-real-data-probe.md` §9(2026-08-18 G3 量;機制名稱未確認、只量過 storefront) |
 | 🔴 **要在本機開【顧客站】來看或量畫面**(手機版面 / 走一遍客人動線 / 購物車結帳) | `bash scripts/storefront-probe/up.sh` 一行起完整鏈(拋棄式 PG + PostgREST + `/auth/v1` 替身 + 種子商品 + storefront dev:3020),收攤 `down.sh`(逐項 pgrep + 逐埠 lsof 驗死)。量版面用同目錄 `overflow-ruler.mjs`(**每次量測自帶三條自檢,`selfCheck.ok=false` ⇒ findings 作廢**)。效度限制照 runbook §5/§8-f 不放寬 |
-| 🔴🔴 **本機 dev server 打開了,而畫面「看起來像功能沒做」**(按鈕沒反應 / 停在載入中 / console 有 chunk 403) | **先換 `http://localhost:<port>`,不要用 `http://127.0.0.1:<port>`,再看一次。** Next 16 dev 只認 `localhost` 這個 `Origin`;用 127 時 HTML/CSS 正常、**只有 client JS 靜靜地不見**。量測與限定見 `docs/runbooks/local-admin-with-real-data-probe.md` §9(2026-08-18 G3 量;機制名稱未確認、只量過 storefront) |
-| 後台 UI 片的視覺真權威 / BMW M 設計語言 / 某條做了沒 | `docs/design/admin-design-system.md`(**檔頭「落地狀態」表決定你能不能直接照抄下面的東西**) |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
 | 接手/重啟/被交辦一條「看起來停住、沒結論」的線 —— 在你說「那要開線」之前 | `docs/patterns/stalled-line-triage.md`(甲沒有落點/乙結論住錯地方/丙照拍板在等;丙型誤判=推翻當事人自己的拍板) |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
