@@ -243,6 +243,25 @@
     (依據 memory `feedback_a-guard-on-a-safe-path-is-net-negative`)。
     ⚠️ **已知天花板:本條不是守門。** 它跟本區塊其他 11 條一樣,**窗不跑這份提示詞就一樣沒有東西紅** ——
     它降低機率,不製造訊號。
+    ✅ **在共用主樹上,`git add` 與 `git commit` 之間不該有任何一步。**
+      (2026-08-18 20:0x Sean 工作模式規範升格,主視窗裁准;**病例是本條的作者本人**)
+      · 校正前:沒有這條。以為「`git add` 之後 commit 失敗」= 什麼都沒發生。
+      · 為什麼改:**`add` 成功而 `commit` 失敗 = 你的東西正躺在【共用的】index 裡**,
+        而下一個完成 commit 的人(尤其是 merge —— **merge commit 不能帶 pathspec、吃的是整個索引**)
+        會把它一起帶走。**而沒有任何東西會紅。**
+      · 病例(2026-08-18,寫這條的人自己踩的,而且踩的正是他當下正在打字的那條規則):
+        ```
+        git add ✅  ／  git commit -F … -- <path>
+          ⇒ fatal: cannot do a partial commit during a merge
+        🔴 那句 fatal 只講了 commit 失敗,【沒講 add 還在】
+        ⇒ 29 行躺在共用 index ⇒ 被另一個窗同刻完成的 merge 帶走(`ef2eb74f`)
+        ⇒ **內容零損失,損失的是【來歷】**:那顆的 body 一個字沒提它
+        ```
+      · 🔴 **推論(G1 同日自曝,比修法重要)**:這個縫**關不起來** ——
+        merge commit 吃整個索引,而索引是八個窗共用的,**「量索引」與「commit」之間永遠有別人**。
+        ⇒ 正確做法不是把縫縮小,是**不要宣稱事前驗過的射程**:
+          **merge commit 的射程只能【事後】報**(`git show --stat <本顆>`)。
+      · 📎 動手前的一秒鐘檢查:`ls .git/MERGE_HEAD`(存在 ⇒ 有人在 merge,**現在不要 add**)。
 13. 🔴🔴 **`git commit --amend` 之前先問一句:`git log -1 --format='%h %s'`** ——
     **subject 不是我寫的那句 ⇒ 不准 amend。**
     · `--amend` 不是「改訊息」,它是**「用現在的 `HEAD` 與現在的索引,重做一顆 commit」**。
