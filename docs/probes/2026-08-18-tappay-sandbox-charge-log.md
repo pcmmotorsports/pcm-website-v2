@@ -185,6 +185,83 @@ rec_trade_id  D202608199JvV9j   NT$ 1,500(沙盒假錢)/ 3DS 待轉導、我沒�
    這正是下面那條 backlog 的「不修未來會痛在哪」。
 ```
 
+## 🔴🔴 第 3 輪:「最可能」升級成「量到」—— 我們的 code **從來沒有把東西送到 TapPay**
+
+時間 2026-08-19 00:0x CST。**本輪零刷卡、零新訂單** —— 用的是 TapPay 的查詢 API 與 repo 閱讀。
+
+### 決定性那一發:問 TapPay「這段時間你收到過什麼」
+```
+打法(可重跑):POST https://sandbox.tappaysdk.com/tpc/transaction/query
+              partner_key 取自 .env.local(值不印),時窗 2026-08-18 23:30 → 08-19 00:15
+回應:number_of_transactions = 1
+      唯一那筆 = D202608199JvV9j / 1500 / details "g3 probe amex 3ds"
+```
+🔴 **那一筆是我第 2 輪【自己繞過 code】打的那一發,不是我們的結帳打的。**
+⇒ 我們的兩次結帳(23:44:48、00:00:49)**在 TapPay 那邊一筆紀錄都沒有**。
+
+**這一發為什麼有判別力(兩個世界會印不同的東西)**:
+```
+· 正向對照【自帶】:我自己那筆真的被列出來了 ⇒ 這支查詢【看得見】這個時窗的交易。
+  ⇒ 「查無」不是因為尺壞掉。(這正是「0 命中要附分母」那條要的東西:分母=1,而那 1 是我放進去的。)
+· 若我們的 code 有送出去而 TapPay 拒絕 ⇒ 仍會有一筆 record(狀態不同)⇒ 也會被列出來。
+  ⇒ 「沒送出去」與「送了被拒」在這支查詢上【長得不一樣】。
+```
+
+### 第二發:把 `init_failed` 這條岔路排除掉(靠文案字面,不靠猜)
+```
+initiate-payment.ts:93 的 recordInitiationBankTxn 失敗 ⇒ 回 init_failed(不 throw)
+charge-actions.ts:518-520 把 init_failed 映成 MSG.chargeFailedWait
+MSG.chargeFailedWait 逐字(charge-actions.ts:86)=「付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試」
+而我們畫面上看到的逐字是 MSG.generic(charge-actions.ts:84)=「付款失敗,請稍後再試或聯繫客服 LINE」
+⇒ 兩句不同 ⇒ **不是 init_failed,是走到了外層 catch(charge-actions.ts:339)= 有東西 throw 了。**
+```
+
+### ⇒ 收斂結果
+```
+在 TapPay 被呼叫(packages/use-cases/src/initiate-payment.ts:103)之前,會 throw 的只剩一格:
+   🔴 attempts.begin(orderId)   packages/use-cases/src/initiate-payment.ts:55
+      = PgChargeAttemptAdapter.ts:64-66 的 `SELECT public.begin_charge_attempt($1::uuid)`
+```
+**這不再是「最可能」,是把其他每一格都用有判別力的檢查關掉之後剩下的那一格。**
+
+### 從 repo 能排除的(全部讀檔,不是猜)
+```
+✅ 連線角色對:PAYMENT_CONFIRMER_DB_URL 的 user 屬 payment_confirmer 系
+   (分類法:只印分類、不印值),而 GRANT EXECUTE 就是給它
+   出處 supabase/migrations/20260612150000_m3_s2d_charge_attempts.sql:427(REVOKE)/:430(GRANT)
+✅ 那支函式是 SECURITY DEFINER + SET search_path=''(20260809210000:63-67)
+   ⇒ 讀 orders / FOR UPDATE 用的是 definer 的權限 ⇒ **不是表權限問題**
+✅ ACL 在 apply 當下被斷言過:同檔 :288 有一條 RAISE,除非 EXECUTE grantee 恰為
+   payment_confirmer + postgres 且零 GRANT OPTION 否則拒繼續;而它在 supabase/APPLIED.tsv 有列
+   ⇒ apply 成功 = 那條斷言當時通過
+✅ cart_session_id 不可能是 null:create_order 對它 fail-closed
+   (20260730120100:231-233 逐字 RAISE '缺 cart_session_id'),而單建出來了
+```
+
+### 🔴 剩下要 DB 才答得出來的(給拿到唯讀權限的人:候選就這四條)
+`begin_charge_attempt` 裡會 RAISE 的位置,逐條附行號(檔=`supabase/migrations/20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql`):
+```
+:84-86   隔離閘 —— current_setting('transaction_isolation') <> 'read committed' ⇒ ERRCODE P8C01
+         🔴 這條最值得先看:它跟【連線走哪個 pooler / 有沒有設 default_transaction_isolation】有關,
+            而那是【本機這條連線特有】的東西,正式站不一定一樣。
+:94-96   訂單查無(WHERE id = p_order_id FOR UPDATE ⇒ NOT FOUND)
+:101-104 取消守門(cancelled_at 非空 或 order_cancellations 有列)
+:107-109 cart_session_id IS NULL(已從 create_order 那側排除)
+```
+**一次查詢就能砍一半**(主視窗已把這個問法送 Sean):
+```
+payment_charge_attempts 裡有沒有 WCYCW5 / Z6QDV9 這兩張單的列?
+  有 ⇒ begin 過了、壞在更後面(而 TapPay 沒收到 ⇒ 更奇怪,要重看)
+  沒 ⇒ 就是 begin,再照上面四條分。
+```
+⚠️ 我**沒有**正式庫查詢權限;試跑 `scripts/verify-create-order-9param.sh` 時被 harness 權限守門擋下,**沒有繞**。
+
+### 本輪的邊界(主視窗 00:0x 裁的,硬的)
+```
+🔴 停止再刷卡。每測一次多一張孤兒單在正式站,而已經知道刷不過 ⇒ 再刷不會多知道任何事。
+現有留痕全部不動:WCYCW5 / Z6QDV9 / 測試帳號 / 那筆地址 / TapPay 沙盒 D202608199JvV9j
+```
+
 ## 已知天花板(每次報告都要帶,不因為刷成功而拿掉)
 ```
 · 3DS 態 -1 ERROR 在沙盒【構造不出來】—— 這不是我這一班量的,出處是 backlog #353
