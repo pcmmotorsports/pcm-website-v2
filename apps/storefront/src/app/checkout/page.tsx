@@ -6,6 +6,18 @@
 // server 守門(對齊 app/account/page.tsx):getUser()(向 auth server 驗 JWT、非可偽造 getSession)→
 //   無 user redirect('/login')。直打網址也擋。cart 的「前往結帳」鈕導此、未登入由此處攔(非 client 檢查)。
 //
+// 🔴 **「為什麼不讓訪客結帳」—— 這是拍板,不是還沒做**(2026-08-18 Sean 拍;寫在這裡是因為
+//    下一個看到「結帳被轉去登入」的人會在這支檔找答案,而不是去翻信箱)。
+//    ```
+//    Q: 客人結帳，一定要先註冊登入嗎？
+//    A（Sean 逐字）: 對，維持要登入 —— **訂單要綁會員、之後查訂單/退款才有依據**
+//    ```
+//    ⇒ 理由是**業務的**不是技術的:訪客單沒有會員可綁 ⇒ 客人日後查訂單、要退款時,
+//      我們沒有一個「這張單是誰的」的依據。
+//    ⚠️ 所以**不要**把它當成「待辦的訪客結帳功能」——它是被拍掉的,不是沒排到。
+//      要重開這一格,得先回答「訪客單怎麼綁身分」,那是新題不是把 redirect 拿掉。
+//    📎 出處(可考古):`~/pcm-mailbox/MAIN-050-Sean三答-付款其實驗過-20260818.md` 第 ② 題。
+//
 // dynamic:經 createServerSupabaseClient 讀 cookies()、本就動態;force-dynamic 顯式標記。
 //
 // 退化(對齊 account/page.tsx):customers row missing(PGRST116、極罕)/ RLS 異常 → tier='general' +
