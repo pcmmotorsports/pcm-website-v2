@@ -220,6 +220,30 @@ app 層命中 admin_audit_log:41 檔
 ⇒ **這片的驗收條件要加一條**:
 **十個 action 各在 `AUDIT_ACTION_LABEL` 裡有一筆**,而量法是 `grep -c` 逐個,不是「我加了」。
 
+### 3-c ✅✅ **更硬的一版:讀取端【只有一個】,而它今天是關著的**(2026-08-19 實跑 + 實查)
+```
+真正【讀】admin_audit_log 的入口只有一支:AuditLogReader.listRecent(limit)
+  介面    apps/admin/src/lib/audit/repository.ts:68
+  實作    apps/admin/src/lib/audit/supabase-repository.ts:54
+  呼叫端  **只有 apps/admin/src/app/settings/audit/page.tsx:91**(唯一一處實呼)
+⇒ 其餘 38 個提到 admin_audit_log 的檔,絕大多數是【寫】(tier-actions / profile-actions / staff-actions…)
+
+而 listRecent 的查詢本體(:54-72)逐行讀過:
+  只驗 limit 是正整數 ⇒ this.selector.select(limit) ⇒ 回 data ?? []
+  🔴 **沒有任何 action 條件、沒有 eq/filter** —— 它就是「最近 N 筆」
+
+🔴 而那一頁**今天是關著的**:AUDIT_UI_ENABLED 預設未設,而 audit-ui-flag.ts 只認 `=== '1'`
+   (Sean 2026-08-18 Q19 已答「開」,而**尚未執行**)
+```
+**⇒ 所以「十個新 action 碼會不會讓現有讀取端漏看」這個擔心【消失了】**:
+```
+· 讀取端只有一個,而它撈「最近 N 筆」不濾 action ⇒ 新碼一定會被撈到
+· 而它現在還沒上線 ⇒ **連「既有使用習慣」都還沒形成**
+⇒ 🔴 **本片不會弄壞任何既有功能。**
+```
+⚠️ **而 §3-b 那條【要一起加中文標籤】不受影響、仍然要做** ——
+  那不是「怕弄壞」,是「開了之後員工看得懂」。**兩件事不要混。**
+
 ### ✅ 而【沒有人拿 action 當查詢條件】
 ```
 git grep -n "'action'" -- 'apps/admin/src/*' 濾掉 label/format/type 之後:
