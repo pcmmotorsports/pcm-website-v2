@@ -24,6 +24,54 @@ const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
 const TH = 'px-2 py-1.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-2 py-1.5 text-sm align-top';
 
+/**
+ * 截斷警告。**兩個 scope 的文案刻意不同,而差別不在語氣,在【重整會不會好】。**
+ *
+ * 🔴 **這一段 2026-08-18 改過,而原因是原文叫員工做一件永遠不會成功的事。**
+ * 舊字面(兩個 scope 共用,因為那句在三元運算子**外面**):
+ * ~~「請重新整理這張單;在完整載入之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。」~~
+ *
+ * 全陣紀律逐字(`apps/storefront/src/lib/account-order-copy.ts:16`):
+ * > **「請重新整理」只准出現在【真的重整就會好】的地方。**
+ * 顧客站的舊句已因這條被改掉(`#636`);**後台這句一模一樣的話一直還在**(`#643` B)。
+ *
+ * ## 🔴 為什麼是【條件句】而不是「請重新整理這張單」(**這是本段的重點,不要改回去**)
+ *
+ * 兩個句型的差別**不是囉唆**:
+ * ```
+ * 「請重新整理這張單」        ⇒ 宣稱重整【會】好          ← 紀律要防的正是這個
+ * 「可以先重新整理看看；      ⇒ 只說值得試一次，
+ *   如果還是這樣，那是固定限制」  並且給出【試完之後】的判準與出路
+ * ```
+ * 而它必須是條件句的**機械理由**是:這個警告會被兩種旗標印出來,而兩種的真假相反 ——
+ * ```
+ * order  detail.itemsTruncated = order_items.length >= ORDER_ITEMS_EMBED_LIMIT
+ *        （mappers/order.ts:911，常數 :411 = 200）
+ *        ⇒ 【純固定上限】。重整拿到同一個數字 ⇒ 叫他重整就是叫他做白工
+ *
+ * item   procurementTruncated = missing || safeRows.length >= ORDER_ITEM_PROCUREMENT_EMBED_LIMIT
+ *        （mappers/order-procurement.ts:158，常數 :44 = 50）
+ *        ⇒ 🔴 **一個旗標，兩個世界**：
+ *           missing（rows == null，投影缺鍵）→ 可能是暫時的 ⇒ **重整真的可能會好**
+ *           >= 50（固定上限）              → 重整不會好
+ * ```
+ * ⇒ **把「重新整理」整個拿掉會讓 `missing` 那個【真的重整就會好】的世界失去唯一正確的指示;
+ *    照舊寫「請重新整理這張單」則對另外兩個世界說謊。** 條件句是唯一在三個世界都不假的講法。
+ * 📎 形狀抄 `cancel-result-panel.tsx:107` / `:127` 的既有先例,不是新創。
+ *
+ * 🔴 **主視窗 2026-08-18 裁【乙】:一句話、兩個 scope 共用,不分開講。**
+ *    我當時做的是分 scope 版(每種都對),它判「下一個人要先搞懂為什麼有兩種」⇒ 收斂成一句。
+ * ⚠️ **乙沒有解掉的那一半,已另立 backlog(見下)**:
+ *    `order` scope 是**純固定上限**,重整對它**永遠**沒用 —— 這句話仍會讓那個世界的員工
+ *    白按一次重整。**它不再說謊,但也還沒精準。**
+ * ⚠️ **要讓 item 那半也能講死,得先把 `missing` 從旗標裡拆出來**(動 mapper 回傳形狀、
+ *    跨 `packages/adapters`)⇒ 那不是文案片,**本片刻意不做**。
+ *
+ * 🔴 **「在完整載入之前不能編輯採購」這半句留著,因為它描述的是【真的擋著的行為】**:
+ *    `item-procurement-form.tsx:263` `<fieldset disabled={truncated || …}>`,
+ *    而該檔 `:49` 自陳 action 端還有第二道(`hidden stale=1`)⇒ **兩道,不是文案自嗨。**
+ *    把一句描述真實限制的話當廢話刪掉,會製造一個新的靜默失敗。
+ */
 function TruncationWarning({ scope }: { scope: 'item' | 'order' }) {
   return (
     <div
@@ -33,7 +81,9 @@ function TruncationWarning({ scope }: { scope: 'item' | 'order' }) {
       {scope === 'order'
         ? '這張單的品項清單這次沒有完整載入,下面看到的採購紀錄可能不是全部。'
         : '這個品項的採購紀錄這次沒有完整載入,下面看到的可能不是全部。'}
-      請重新整理這張單;在完整載入之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。
+      可以先重新整理看看;
+      <strong>如果還是這樣,那是系統的固定限制、不會自己好</strong>,請找負責人處理。
+      在完整載入之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。
     </div>
   );
 }
