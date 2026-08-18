@@ -32,7 +32,12 @@
 // @see packages/use-cases/src/sweep-settlements.ts(3DS-4b-2 use-case)
 
 import { timingSafeEqual } from 'node:crypto';
-import { sweepSettlements, type SweepSettlementsDeps } from '@pcm/use-cases';
+import {
+  reconfirmExpiredOrphans,
+  sweepSettlements,
+  type ReconfirmExpiredOrphansResult,
+  type SweepSettlementsDeps,
+} from '@pcm/use-cases';
 // 🔴 不變式(N2、審查側 4c sign-off):getSettleChargeDeps / getWebhookInbox factory **必須維持 lazy**——
 //    建構子只存連線字串、零 module-top env 讀取 / 零連線池建立(連線延遲到首次呼叫)。下方 GET 的 disabled
 //    路徑(CRON_SWEEPER_ENABLED gate 在「建 deps 前」return)之「零 DB env 依賴」保證仰賴此跨包不變式;
@@ -68,6 +73,40 @@ const STUCK_LIMIT = 50;
 const STUCK_AGE_SECONDS = 600;
 const SWEEP_CONCURRENCY = 1;
 
+/**
+ * 🔴 M-4a 人工待確認佇列的重查(B1b、`reconfirmExpiredOrphans`)—— **本輪加掛在既有 sweeper 之後**。
+ *
+ * 為什麼掛這裡而不是新蓋一條:B1a(`claim_expired_pending_attempts`)**本來就**不濾 `needs_manual_review`、
+ * 繞 ceiling、有自己的 6h throttle(`supabase/migrations/20260627120000_…`:**SQL 在 `:94`**
+ * `a.last_expired_settle_at < now() - interval '6 hours'`;設計說明在 `:22` / `:30-32`,COMMENT 在 `:69`),
+ * 而 `ReconfirmExpiredOrphansDeps` **就是** `SettleChargeDeps`(`packages/use-cases/src/reconfirm-expired-orphans.ts:37`)
+ * ⇒ 本 route 既有的 `getSettleChargeDeps()` 直接餵得動,零新欄、零新 RPC、零新認領路徑。
+ *
+ * 🔴🔴 **射程限定(讀這段 code 的人要當場知道,不要去翻 plan)**:
+ *   B1a 的年齡閘是**硬寫的 12 小時** —— **SQL 在同檔 `:92`**
+ *   (`a.created_at < pg_catalog.now() - interval '12 hours'`;`:13` 是根因散文、不是那行 SQL),
+ *   而它的簽章只吃 `p_limit` ⇒ **調不了**。
+ *   而一列大約 **1 小時**就會進人工佇列(8 次退避、封頂 16min)。
+ *   ⇒ **未滿 12 小時的列,這條路一列都不收。**
+ *   ⇒ 這條路不是「按了立刻查」,是「**12 小時後才收得到**」。等多久算可接受 = 產品決定(plan §16 標待裁)。
+ *
+ * 🔴 limit=5 是**保守值,不是量出來的**:既有註解自陳單輪最壞 ≈50s / `maxDuration` 60s ⇒ 真餘量 ~10s。
+ *   5 × ~500ms ≈ 2.5s。**而真正防止吃穿的不是這個數字,是下面的剩餘預算閘** —— 見 `RECONFIRM_MIN_BUDGET_MS`。
+ *   佇列列數天生少(它們是卡住的例外)+ B1a 有 6h throttle ⇒ 每輪 5 筆足夠;不夠再調,forward-only。
+ */
+const RECONFIRM_LIMIT = 5;
+
+/**
+ * 🔴 剩餘預算閘:主 sweep 跑完之後,**只有在還剩得下**才跑重查。
+ *
+ * 為什麼要這道而不是只靠 `RECONFIRM_LIMIT`:主 sweep 的耗時是**變動的**(取決於本輪有幾筆、
+ * Record API 多慢),而「單輪最壞 ≈50s」是**既有註解的估、我沒有在正式站量過**。
+ * ⇒ 與其猜一個安全的 limit,不如**讓它不需要猜**:跑之前看時鐘,不夠就跳過並誠實回報。
+ * ⇒ 跳過的代價 = 那幾筆留到下一輪(B1a throttle 本來就是 6h 級,不差這一輪);
+ *   而**吃穿的代價 = 整輪 timeout ⇒ 主 sweep 也一起沒跑完**,兩者不對稱。
+ */
+const RECONFIRM_MIN_BUDGET_MS = 12_000;
+
 /** 等長 constant-time 比對;長度不等先回 false(timingSafeEqual 要求等長 Buffer、否則 throw;沿 3DS-2 safeEqual)。 */
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -86,6 +125,10 @@ function requireCronSecret(): string {
 }
 
 export async function GET(request: Request): Promise<Response> {
+  // 🔴 **時鐘要在最前面起**(fable 關卡2 nit):認證 / 限流 / flag 閘也吃時間,
+  //    起太晚 ⇒ 剩餘預算被**系統性高估**。仍不含冷啟與 module init —— **那兩段量不到**,
+  //    所以 RECONFIRM_MIN_BUDGET_MS 的餘裕本來就要吸得掉它們(而那個門檻是**我定的、沒有量測依據**)。
+  const startedAt = Date.now();
   // 1. 認證:CRON_SECRET Bearer 硬驗。env 未設/弱 → 500(設定錯、拒不執行);Bearer 缺/不符 → 401(不揭內部)。
   let expected: string;
   try {
@@ -127,19 +170,97 @@ export async function GET(request: Request): Promise<Response> {
       concurrency: SWEEP_CONCURRENCY,
     });
 
+    // 3b. 🔴 M-4a 人工待確認佇列的重查(B1b)—— 主 sweep 之後、**只有在預算還剩得下才跑**。
+    //     · deps 直接沿用上面那份(ReconfirmExpiredOrphansDeps === SettleChargeDeps)⇒ 不重建、不多開連線。
+    //     · 🔴 跳過時**誠實回報 reconfirm.skipped**,不靜默 —— 靜默的跳過與「本來就沒東西」在回應上分不出來。
+    //     · 射程限定見 RECONFIRM_LIMIT 的註解:**未滿 12 小時的列這條路一列都不收。**
+    //
+    //     🔴🔴 **三道閘,而它們擋的是【不同的】東西**(fable 關卡2 must-fix:前一版只有第一道):
+    //       ① sweep 有錯 ⇒ 不跑(`sweep_errors`)。不健康的一輪不該對人工列蓋 6h throttle ——
+    //          蓋了就是把那幾筆推遲 6 小時,而這一輪本來就不可信。
+    //       ② 起跑前預算不足 ⇒ 不跑(`budget`)。
+    //       ③ 🔴 **跑起來之後自己吃穿 ⇒ 硬砍**(`timeout`)。
+    //          **為什麼 ② 擋不住 ③**:settleCharge 的 Record 呼叫**沒有傳 signal/timeout**
+    //          (`TapPayChargeAdapter.recordQuery` 支援 `options.signal`,而 settleCharge 路徑不傳)
+    //          ⇒ Record API 掛住不回時,5 筆順序 hang 可以吃掉整個 60s ⇒ **函式被平台砍、
+    //          連 sweep 的 counts 都一起消失、無 503、無 log**。而 ② 只在【起跑前】看時鐘,對這個世界零判別力。
+    //          ⇒ `Promise.race` 上界到期 ⇒ 回 `skipped:'timeout'`,**讓 sweep 的 counts 照常送出去**。
+    //          ⚠️ 被砍的那幾筆 throttle 已經蓋了(6h) —— 冪等、6h 後自癒,**不是錢的 bug**,而要寫下來。
+    //          🔴🔴 **而 ③ 只蓋 reconfirm 這半邊**(GR R2 N3):**sweep 自己的 Record 呼叫同樣不帶 signal**
+    //          ⇒ **sweep hang 住仍然會滅掉整輪**(連 ③ 都跑不到)。那是本片【沒有解】的舊病。
+    //          ⇒ 不要把 ③ 讀成「hang 的問題解決了」—— 它只保證**新加的這半不會是兇手**。
+    //
+    //     ⚠️ **已知浪費(不修,寫下來)**:B1a 不濾 manual/ceiling ⇒ 主 sweep 這輪剛 settleRetry 過的
+    //       >12h pending 列,幾秒後可能被本段再 claim、再打一次 Record。冪等、每列每 6h 至多一次
+    //       ⇒ 純浪費額度而非正確性問題;佇列小,可接受。要修得在 use-case 層排除,超出本片範圍。
+    // 🔴 `skipped` 用**字面聯集**不是 `string`(GR R2 Q2):四個值由構造保證互斥窮盡,
+    //    而型別要跟著說 —— 打錯字或新增第五種原因,TS 當場紅。
+    //
+    // 🔴🔴 **timeout 那格【不帶計數】,而那是刻意的**(GR R2 N1):
+    //    `Promise.race` 的輸家**沒有被取消、也取消不了**(settleCharge 不傳 signal)
+    //    ⇒ timeout 之後它還在跑:**claim 已經發生、throttle 已經蓋了、settle 可能事後才完成。**
+    //    ⇒ 這時候送 `claimed: 0` 是**一句關於世界的假話**(監控端跨輪加總會低估)。
+    //    ⇒ 所以 timeout 回的是「**沒有計數**」不是「計數為零」——
+    //      **不知道**與**零**在下游是兩件事,而它們長得一樣。
+    type ReconfirmReport =
+      | { skipped: 'timeout' }
+      | (ReconfirmExpiredOrphansResult & { skipped: null | 'sweep_errors' | 'budget' });
+    const NO_ACTIVITY: ReconfirmExpiredOrphansResult = {
+      claimed: 0,
+      settled: 0,
+      noAttempt: 0,
+      pending: 0,
+      errors: 0,
+    };
+    const budgetLeftMs = maxDuration * 1000 - (Date.now() - startedAt);
+    let reconfirm: ReconfirmReport;
+    if (result.errors > 0) {
+      reconfirm = { skipped: 'sweep_errors', ...NO_ACTIVITY };
+    } else if (budgetLeftMs < RECONFIRM_MIN_BUDGET_MS) {
+      reconfirm = { skipped: 'budget', ...NO_ACTIVITY };
+    } else {
+      // 🔴 硬上界:留 RECONFIRM_MIN_BUDGET_MS 給收尾(回應序列化 + log),其餘給 reconfirm。
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const capMs = budgetLeftMs - RECONFIRM_MIN_BUDGET_MS;
+      const raced = await Promise.race([
+        reconfirmExpiredOrphans(deps, { limit: RECONFIRM_LIMIT, concurrency: SWEEP_CONCURRENCY }),
+        new Promise<'timeout'>((r) => {
+          timer = setTimeout(() => r('timeout'), capMs);
+        }),
+      ]);
+      if (timer !== undefined) clearTimeout(timer);
+      reconfirm = raced === 'timeout' ? { skipped: 'timeout' } : { skipped: null, ...raced };
+    }
+
     // 4. 🔴 本輪有錯 → 503 + 結構化 counts log,**不偽 200**(plan §5.3「RPC missing / DB error 必 5xx」)。
     //    result.errors>0 = DB/RPC 層 throw(claim/mark/guard RPC 失敗)**或** 非預期 per-item throw;對 plan §5.3
     //    「RPC missing / DB error」涵蓋且更寬(主來源為 DB/RPC 失敗,因 settleCharge 本身 fail-closed→pending 不 throw、
     //    normal pending→markRetry 計 inboxRetried 非 errors → 不誤 503)。任一情況行為皆安全且回 503。use-case 已逐筆
     //    fail-closed 續跑 + durable needs_manual_review;HTTP 層誠實標本輪非全綠(cron 標失敗可見、下輪 lease/退避/冪等
     //    重來)。counts only 零 PII。
-    if (result.errors > 0) {
-      console.error('[settle-sweep] 🔴 本輪有錯(回 503;不吞成 200 偽裝成功)', { ...result });
-      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    // 🔴 **回應體只加鍵、不改既有鍵**:reconfirm 的計數**巢狀**在 `reconfirm` 底下,不展開 ——
+    //    ~~它與 sweep 的 result 有同名鍵(errors / pending)~~ 🔴 **真正相撞的只有 `errors`**
+    //    (fable 關卡2:`SweepSettlementsResult` 逐欄核過**沒有 `pending` 鍵**,
+    //     `packages/use-cases/src/sweep-settlements.ts:55-77`;而測試裡 `expect(body.pending).toBeUndefined()`
+    //     正是那個證據)。**巢狀這個決定不變,而理由要寫對。**
+    //    展開會**靜默覆蓋既有鍵**,
+    //    而既有消費者讀到的 errors 會變成別人的數字。
+    const reconfirmErrors = 'errors' in reconfirm ? reconfirm.errors : 0;
+    if (result.errors > 0 || reconfirmErrors > 0) {
+      // 🔴 **指名是哪一側壞的**(fable 關卡2):body 頂層 `errors` 是 sweep 的,
+      //    reconfirm 壞掉時頂層仍是 0 ⇒ **人眼查 503 會先看錯地方**。log 先講清楚。
+      const failedSide =
+        result.errors > 0 && reconfirmErrors > 0 ? 'both' : result.errors > 0 ? 'sweep' : 'reconfirm';
+      console.error('[settle-sweep] 🔴 本輪有錯(回 503;不吞成 200 偽裝成功)', {
+        failedSide,
+        ...result,
+        reconfirm,
+      });
+      return Response.json({ ok: false, enabled: true, ...result, reconfirm }, { status: 503 });
     }
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。
-    return Response.json({ ok: true, enabled: true, ...result }, { status: 200 });
+    return Response.json({ ok: true, enabled: true, ...result, reconfirm }, { status: 200 });
   } catch {
     // deps/env 缺(factory requireEnv throw)或非預期 throw → 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;codex K2 consider):payment 端點**不**把任意 err.message 入 log 縱深——

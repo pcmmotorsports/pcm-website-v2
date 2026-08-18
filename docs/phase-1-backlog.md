@@ -991,6 +991,33 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #33. ⏳ IInventoryRepository 缺位(inventory context port + entity 欄位)
 
+> ### 🔴 2026-08-19 G6 第二層查核:**code 註解說本條有一份「Supersede 註」,而條目裡沒有那份東西**
+> ```
+> packages/domain/src/catalog/types.ts:210 逐字:
+>   「inventoryQuantity:M-1-02 **Q4=A1 拍板不做**(訂貨型業務不需數字)、見 backlog #33 **Supersede 註**」
+> ```
+> **而本條目全文找不到任何 supersede / 拍板不做 的字樣** ——
+> 條目讀起來是**完全開著的 🔴 高 / P1-before-launch**,而 code 那邊記著「**拍板不做**」。
+> ```
+> 可重跑:l=$(grep -n '^### #33\.' docs/phase-1-backlog.md | cut -d: -f1)
+>         sed -n "${l},$((l+14))p" docs/phase-1-backlog.md | grep -cE 'Supersede|supersede|拍板不做'  ⇒ **0**
+> 負向對照(同尺該命中的)同段落 grep -c 'inventory' ⇒ 非 0(條目通篇在講 inventory)
+> ```
+> ⇒ 🔴 **這是「決定住錯地方」的鏡像**:平常是**決定沒回頭改紙**,
+>   這一條是**紙上指著一份不存在的決定** —— code 叫你去看 `#33` 的 supersede 註,而它不在。
+> ⇒ **要裁的一格(我不自己判)**:
+> ```
+> 甲 那份「Q4=A1 拍板不做」只涵蓋 **inventoryQuantity 這個欄位**,
+>    而本條要的 **IInventoryRepository(port)** 是另一件事 ⇒ 本條仍然開著,只是 code 註解指錯了
+> 乙 「訂貨型業務不需數字」把整個 inventory 面都關掉了 ⇒ 本條該降級或結案
+> ```
+> 🔴 **兩個讀法差很多**(一個是 🔴 高 P1-before-launch、一個是結案),而**條目本身答不出來**。
+> 📎 同族旁證:`#89`(前台顯示庫存)已於同日查出「Sean 改成訂貨型 ⇒ 一個都不顯」⇒ **乙的方向有旁證**,
+>   而**旁證不是拍板**;本查核不替它下判斷。
+>
+> **誠實揭示**:全部是讀 code 註解 + 讀條目,**沒有查 `docs/decisions/0004-m1-pre-launch-decisions.md`**
+> (`catalog/types.ts:215` 指向它)—— **那份檔可能就是缺的那半,我沒開**。這一格是我這輪的缺口,不是結論。
+
 - **狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
 - **優先級:** 🔴 高
@@ -2185,8 +2212,19 @@ order by n desc, 1;
 > supabase/migrations/20260531142533_init_product_variants.sql:39   CREATE TABLE product_variants
 >   :43  spec  jsonb NOT NULL DEFAULT '{}'   -- 逐字註解「{weave,finish,special} **可擴 N 層**」
 > ```
-> ⇒ 這就是本條的 **候選 B(PCM 自家 schema、走 jsonb、完全自由)**。
 > 🔴 **建表日期 `2026-05-31`,而本條的「推延」拍板是 `2026-05-20`** —— **11 天後就做了。**
+>
+> ⚠️ **自我更正(同日稍晚)——「這就是候選 B」那句我收回,改成「不判」**
+> 我原本寫「⇒ 這就是本條的候選 B(PCM 自家 schema、走 jsonb)」。而:
+> ```
+> packages/domain/src/catalog/types.ts:207 逐字:
+>   「variants:ProductVariant[](backlog **#81 A** 真變體)」   ← 它說 **A**
+> ```
+> ⇒ **兩處說法不一致,而我沒有第三個來源可以判。**
+>   實物是「**PCM 自家的 `product_variants` 表 + `spec jsonb`**」——
+>   它**不是** Medusa 內建(⇒ 不像原文的 A),也**不是** `metadata.variants jsonb`(⇒ 不完全是原文的 B)。
+> ⇒ 🔴 **本查核只主張【實物長什麼樣】,不主張它對應哪個字母。**
+>   **而本條的可行動結論不受影響**:無論它叫 A 還是 B,**那個 spike 已經有答案了,不要重新選一次。**
 >
 > **② 而且它不是躺著,是整條線都吃它**
 > ```
@@ -22818,3 +22856,33 @@ F2 別用動詞白名單猜函式名(updateProduct|create… 換個名字就逃�
 - **相關:** `#200`(顧客站愛車→filter,不同件事)、`#659`(同一次走查抓到的另一格)
 - **發現於:** 2026-08-19 · G3 走查後台非訂單面時(完整走查 `docs/probes/2026-08-19-admin-non-order-surfaces-walkthrough.md` §4)
   ⚠️ **量的是本機 `localhost:3001` + `ADMIN_DEV_BYPASS=1` + 連正式庫,不是線上部署那一份。**
+
+### #662 · 🔴 sweeper 的 Record 呼叫**不帶 signal** —— 對方一掛住,整輪 cron 就消失(而每 2 分鐘重演)
+
+- **狀態:** 待執行(2026-08-19 由 G4 從 `settle-sweep` 重查片的 R2 審查撈出;**既有債,不是那片造成的**)
+- **在哪:** `apps/storefront/src/app/api/cron/settle-sweep/route.ts` → `sweepSettlements`
+  → `settleCharge` → `TapPayChargeAdapter.recordQuery`
+- **病:** `recordQuery` **支援** `options.signal`,而 `settleCharge` 這條路徑**不傳**。
+  ⇒ TapPay Record API 連線掛住不回時,sweep 的迴圈會一路等下去。
+  ⇒ 吃穿 `maxDuration = 60` ⇒ **函式被平台砍**。
+- **不修未來會痛在哪:**
+  ```
+  ① 那一輪的【回應整個消失】—— 不是 503,是【沒有回應】
+     ⇒ sweep 的 counts 一起沒了、無 console.error、無任何結構化紀錄
+  ② 而 pg_cron 這一側【看不出來】:net.http_get 非同步,job 一律記成功
+     (20260723120000_…:113-118 逐字 `SELECT net.http_get(…) INTO v_req; RETURN v_req;`)
+  ③ 回應躺在 net._http_response,而**零程式在讀**
+     (`git grep -ln '_http_response' -- 'apps/*' 'packages/use-cases/*'` ⇒ 0;
+      負向對照 `sweepSettlements` 同範圍 ⇒ 7,尺會動)
+  ④ 心跳表 `sweeper_heartbeat` 蓋好了而**沒有寫入端**
+     (`2026-08-17-sweeper-heartbeat-plan.md:25` 逐字「寫入端 ⏳ 一行都沒開始」)
+  ⇒ **四層都聽不到 ⇒ 沒有人會知道金流兜底 sweeper 已經每 2 分鐘死一次。**
+  ⇒ 而 cron 是 `*/2 * * * *`(`20260723120000_…:128`)⇒ **Record 中斷期間,每 2 分鐘重演一次。**
+  ```
+- **邊界(不要讀錯):** M-4a 重查片(`settle-sweep` 加呼 `reconfirmExpiredOrphans`)已加一道
+  `Promise.race` 上界,**而它只護住 reconfirm 那半邊**;**sweep 自己這半仍然裸著**。
+  ⇒ 那片的註解已點名這件事,**不要把它讀成「hang 的問題解決了」**。
+- **修法方向(未驗證,估):** 給 `settleCharge` 一條 `signal` 的路,由呼叫端注入 deadline;
+  或在 `sweepSettlements` 層加同款上界。🔴 **動的是金流路徑 ⇒ 鐵則 12①,要對抗審查。**
+- **證據等級:** 全部讀檔 + `git grep` 量到,**沒有在正式站觀察到這個故障發生過**。
+  ⇒ 這是**構造出來的失敗情境**,不是事故報告。

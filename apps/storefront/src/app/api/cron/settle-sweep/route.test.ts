@@ -13,13 +13,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { sweepSpy, getDepsSpy, getInboxSpy } = vi.hoisted(() => ({
+const { sweepSpy, getDepsSpy, getInboxSpy, reconfirmSpy } = vi.hoisted(() => ({
   sweepSpy: vi.fn(),
   getDepsSpy: vi.fn(),
   getInboxSpy: vi.fn(),
+  reconfirmSpy: vi.fn(),
 }));
 
-vi.mock('@pcm/use-cases', () => ({ sweepSettlements: sweepSpy }));
+vi.mock('@pcm/use-cases', () => ({ sweepSettlements: sweepSpy, reconfirmExpiredOrphans: reconfirmSpy }));
 vi.mock('@/lib/payment/composition', () => ({
   getSettleChargeDeps: getDepsSpy,
   getWebhookInbox: getInboxSpy,
@@ -48,6 +49,8 @@ const CLEAN_RESULT = {
   errors: 0,
 };
 
+const CLEAN_RECONFIRM = { claimed: 0, settled: 0, noAttempt: 0, pending: 0, errors: 0 };
+
 const DEPS = { tappay: {}, attempts: {}, confirmer: {} };
 const INBOX = { __inbox: true };
 
@@ -65,6 +68,7 @@ beforeEach(() => {
   sweepSpy.mockReset().mockResolvedValue({ ...CLEAN_RESULT });
   getDepsSpy.mockReset().mockReturnValue({ ...DEPS });
   getInboxSpy.mockReset().mockReturnValue(INBOX);
+  reconfirmSpy.mockReset().mockResolvedValue({ ...CLEAN_RECONFIRM });
   resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
 });
 
@@ -281,5 +285,111 @@ describe('GET settle-sweep — 應用層限流(#254 縱深 hardening)', () => {
     expect((await GET(makeReq(bearer()))).status).toBe(429); // 限流在 gate 前 → 超限優先於 disabled no-op
     expect(getDepsSpy).not.toHaveBeenCalled();
     expect(getInboxSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET settle-sweep — M-4a 人工佇列重查(reconfirmExpiredOrphans)加掛', () => {
+  it('預算夠 → 跑重查,且收 route 端常數(limit 5 / concurrency 1)', async () => {
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(reconfirmSpy).toHaveBeenCalledTimes(1);
+    // deps 沿用同一份(不重建、不多開連線)
+    expect(reconfirmSpy.mock.calls[0]![0]).toMatchObject(DEPS);
+    expect(reconfirmSpy.mock.calls[0]![1]).toEqual({ limit: 5, concurrency: 1 });
+  });
+
+  it('🔴 回應體【只加鍵不改鍵】:reconfirm 巢狀,不覆蓋 sweep 的同名鍵(errors / pending)', async () => {
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, inboxClaimed: 7 });
+    reconfirmSpy.mockResolvedValue({ ...CLEAN_RECONFIRM, claimed: 3, pending: 2 });
+    const body = await (await GET(makeReq(bearer()))).json();
+    expect(body).toMatchObject({ ok: true, enabled: true, inboxClaimed: 7, errors: 0 });
+    expect(body.reconfirm).toMatchObject({ claimed: 3, pending: 2, errors: 0, skipped: null });
+    // 🔴 sweep 的 errors 沒有被 reconfirm 的同名鍵覆蓋(展開就會靜默覆蓋 = 這格的存在理由)
+    expect(body.pending).toBeUndefined();
+  });
+
+  it('🔴 重查 errors>0 → 503(與 sweep errors 同等待遇,不吞成 200)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    reconfirmSpy.mockResolvedValue({ ...CLEAN_RECONFIRM, errors: 2 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, reconfirm: { errors: 2 } });
+    errSpy.mockRestore();
+  });
+
+  it('🔴 預算不夠 → 跳過重查,而【誠實回報 skipped】不靜默(靜默跳過與「本來就沒東西」分不出來)', async () => {
+    // 主 sweep 慢到吃掉預算:Date.now 前後差 > maxDuration*1000 - RECONFIRM_MIN_BUDGET_MS
+    const realNow = Date.now;
+    let t = realNow();
+    vi.spyOn(Date, 'now').mockImplementation(() => t);
+    sweepSpy.mockImplementation(async () => {
+      t += 55_000; // 55s 已花掉 ⇒ 剩 5s < 12s 門檻
+      return { ...CLEAN_RESULT };
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+    expect(reconfirmSpy).not.toHaveBeenCalled(); // 🔴 沒跑
+    expect((await res.json()).reconfirm).toMatchObject({ skipped: 'budget', claimed: 0, errors: 0 });
+    vi.mocked(Date.now).mockRestore();
+    expect(Date.now).toBe(realNow);
+  });
+
+  it('負向對照:同一把時鐘、只把耗時改小 → 重查【必須】有跑(證明上一格的紅是預算造成的)', async () => {
+    let t = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => t);
+    sweepSpy.mockImplementation(async () => {
+      t += 1_000; // 只花 1s ⇒ 剩 59s > 12s
+      return { ...CLEAN_RESULT };
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(reconfirmSpy).toHaveBeenCalledTimes(1);
+    // 🔴「有跑」與「回應照實說有跑」是兩件事(fable nit)⇒ 兩個都要驗
+    expect((await res.json()).reconfirm.skipped).toBeNull();
+    spy.mockRestore();
+  });
+});
+
+describe('GET settle-sweep — 🔴 重查的三道閘(fable 關卡2 must-fix)', () => {
+  it('🔴 reconfirm 自己 hang 住 → 硬砍回 skipped:timeout,而【sweep 的 counts 照常送出去】', async () => {
+    // 這一格排除的世界:閘只在起跑前看時鐘 ⇒ reconfirm 自己吃穿 ⇒ 整個函式被平台砍 ⇒ 回應全沒了。
+    // 🔴 mock 世界裡 reconfirm 恆為即回 promise,所以【耗時這個維度】必須自己造出來。
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, inboxClaimed: 9 });
+    reconfirmSpy.mockImplementation(() => new Promise(() => {})); // 永不 resolve = Record API 黑洞
+    vi.useFakeTimers();
+    const p = GET(makeReq(bearer()));
+    await vi.advanceTimersByTimeAsync(60_000);
+    const res = await p;
+    vi.useRealTimers();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // 🔴 timeout 回的是【沒有計數】不是【計數為零】(GR R2 N1):
+    //    race 的輸家取消不掉 ⇒ claim 已發生、throttle 已蓋 ⇒ 送 0 是一句關於世界的假話
+    expect(body.reconfirm).toEqual({ skipped: 'timeout' });
+    expect(body.reconfirm.claimed).toBeUndefined(); // **不知道** 與 **零** 在下游是兩件事
+    expect(body.inboxClaimed).toBe(9); // 🔴 sweep 的數字沒有跟著消失 —— 這才是這道閘買到的東西
+  });
+
+  it('🔴 sweep 本輪有錯 → 不跑重查(不健康的一輪不該對人工列蓋 6h throttle)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, errors: 1 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(reconfirmSpy).not.toHaveBeenCalled();
+    expect((await res.json()).reconfirm).toMatchObject({ skipped: 'sweep_errors' });
+    errSpy.mockRestore();
+  });
+
+  it('🔴 503 的 log 指名【是哪一側壞的】—— 頂層 errors 是 sweep 的,人眼會先看錯地方', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    reconfirmSpy.mockResolvedValue({ ...CLEAN_RECONFIRM, errors: 4 });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    // 🔴 這一格釘的是【現況會誤導人】,不是【頂層 errors 應該永遠是 0】(GR R2 N2)。
+    expect((await res.json()).errors, 
+      '🔴 這個紅【可能是進步】:若有人把頂層 errors 改成涵蓋 reconfirm,請【改本格】不要改回行為。'
+    ).toBe(0);
+    const logged = JSON.stringify(errSpy.mock.calls);
+    expect(logged).toContain('"failedSide":"reconfirm"'); // ⇒ 所以 log 要講清楚
+    errSpy.mockRestore();
   });
 });

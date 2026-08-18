@@ -230,7 +230,8 @@ P 族  settleCharge 回 paid   ⇒ 訂單變 paid ⇒ 不再 unpaid ⇒ 自然�
 
 R 族  close_released_attempt 已存在且形狀正確(不讓人宣告、三欄成組 + CHECK)
       🔴 而它 owner-only、一個角色都不 GRANT ⇒ **後台按不到**
-      ⇒ 決策題(不是我能拍的,見 §10-A):維持 Sean 手動,還是 GRANT 給 admin 路徑?
+      ⇒ ~~決策題(不是我能拍的)~~ **§10-A 已裁 A = 維持 owner-only、後台只顯示不給鈕**
+        (2026-08-19,**代裁、Sean 可推翻** —— 那個標記就是他推翻它的入口)
         後者動權限 ⇒ 鐵則 12②。
 
 C 族  ⏸🔴🔴 **【等 Sean 裁,原地不動】** —— 2026-08-19 發現他**已經裁過這一格**:
@@ -278,7 +279,8 @@ C 族  ⏸🔴🔴 **【等 Sean 裁,原地不動】** —— 2026-08-19 發現�
    ⇒ 改為:**在 settle-sweep route 多呼一次 `reconfirmExpiredOrphans`**(§16-1),零新 RPC
    🔴 照舊句動手 = 做出被裁掉的 A/B 形狀
 3. C 族出口 RPC(新造,最高風險,單獨對抗審查)
-4. R 族決策落地(§10-A 拍板之後才動;A 案也有事要做,見 §7 第 4 行)
+4. R 族決策落地 —— **§10-A 已裁 A**(2026-08-19,**代裁、Sean 可推翻**,見 §10-A-裁)
+   ⇒ ~~拍板之後才動~~ **可以動了**;A 案也有事要做(不是 no-op),見 §7 第 4 行與 §10-A-驗
 5. 清單頁(三族分開顯示)
 6. 🔴 補入帳那一發驗證:沙盒刷一筆,走完 settleCharge 回 paid 的整條路(S7)
 ```
@@ -293,7 +295,8 @@ C 族  ⏸🔴🔴 **【等 Sean 裁,原地不動】** —— 2026-08-19 發現�
 三族計數            ⇒ 要   (改 get_payment_anomaly_alert_summary)
 留痕 RPC            ⇒ 要
 C 族出口 RPC        ⇒ 要   (新造)
-R 族 GRANT          ⇒ 看 §10-A 怎麼拍;要動就是鐵則 12②
+R 族 GRANT          ⇒ **不做**(§10-A 已裁 A = 維持 owner-only)。~~看怎麼拍~~
+                       ⚠️ 只有 Sean 推翻成 B 才需要,那時才命中鐵則 12②
 清單頁              ⇒ 不用(讀上面建好的欄位)
 補入帳              ⇒ 不用(已存在)
 移檔                ⇒ 不是 migration,是 git mv(而它自己是一片)
@@ -343,7 +346,7 @@ parseCount 缺欄位 ⇒ throw ⇒ anomaly-alert/route.ts:139-145 catch ⇒ 503 
 2. ~~admin server action + 留痕 RPC + 測試  ~60 分~~ **作廢(C 案)**
      改為 settle-sweep route 加呼 + 測試            ~40 分(🔴 **估**,不含 §16-3 的預算量測)
 3. C 族出口 RPC(最高風險,含斷言與拋棄式 PG 驗)          ~90 分
-4. R 族決策落地(§10-A 拍板後;🔴 **兩案成本差很多,不是同一行**)
+4. R 族決策落地(**§10-A 已裁 A**;下面兩案留著是因為 **Sean 可推翻**,不是還沒決定)
      A ⇒ 清單頁標明「這族由 Sean 手動收」+ 寫出那支 RPC 怎麼呼    ~30 分
          (🔴 **不是 no-op** —— 不寫的話那一族在畫面上會像沒人管)
      B ⇒ GRANT + 權限模型改動,**另計對抗審查**(鐵則 12②)         ~90 分 + 審查
@@ -408,6 +411,14 @@ parseCount 缺欄位 ⇒ throw ⇒ anomaly-alert/route.ts:139-145 catch ⇒ 503 
 | `tappay: ITapPayAdapter` | `getTapPayAdapter()` 在,而回**窄型別** `Pick<TapPayChargeAdapter,'refund'\|'recordQuery'>`(`:126`) | 🔴 要**放寬一道刻意的守門** |
 | `attempts: IChargeAttemptStore` | 需 `PAYMENT_CONFIRMER_DB_URL`;`git grep -l PAYMENT_CONFIRMER_DB_URL -- 'apps/admin/*'` ⇒ **0** | 🔴 admin 要**新增一把 DB 憑證** |
 | `confirmer: IPaymentConfirmer` | `git grep -l getPaymentConfirmer -- 'apps/admin/*'` ⇒ **0** | 隨上一列一起 |
+
+🔴 **雙向表演的原始數字(2026-08-19 量;原本只活在一顆 commit body,而那顆變成 orphan ⇒ 搬進本檔)**:
+```
+grep -rl settleCharge apps/admin/src       ⇒ **0**   ← admin 側零
+grep -rl settleCharge apps/storefront/src  ⇒ **17**  ← 同一把尺對【該命中的】東西會動
+```
+📌 為什麼搬進來:那兩個數是「admin 沒有這條線」的**證據**,而 plan 裡原本只有**結論**。
+   **結論沒有它的證據就站不住**,而 commit body 不是可靠載體 —— **commit 會變成 orphan,而 orphan 沒有人會去讀。**
 
 **admin 現有 env 全貌(對照組,證明它從來沒有 DB 憑證)**
 `git grep -oh 'process\.env\.[A-Z_]*' -- 'apps/admin/src/*' | sort | uniq -c | sort -rn`
@@ -924,6 +935,20 @@ GR 追加三條      ⇒ §14-2a 射程同段 / §14-3 第 ② 項 APPLIED.tsv /
    ⇒ 它是獨立一片(§5 第 0 步),規格已在 §14,**本輪只寫規格不動手**。
 ```
 
+### 15-3b 🔴 **同一種病,fable 指名三處,而我自己掃出另外兩處**(2026-08-19)
+```
+fable 關卡2 指名的三個假行號【在 code 註解裡】:12h / 6h throttle / 同名鍵
+🔴 而我掃 plan 時又找到【兩處同族】,它一處都沒指名(它審的是 code 不是 plan):
+   plan 引 B1a 的 12h  寫 :13   ⇒ 實際 :92(:13 是根因散文)
+   plan 引 B1a 的述詞  寫 :11   ⇒ 實際 :90(:11 是註解行)
+```
+📌 **共同形狀**:我引的都是那份 migration 的**檔頭散文**(它前 40 行全是設計說明),
+   而**我要指的是本體 SQL**。散文與 SQL 講同一件事 ⇒ 引錯了讀起來也對 ⇒ **零機械訊號**。
+⇒ 機械判別句:**我引的那一行,`sed -n '<行>p'` 印出來是不是【我說的那段字面】?**
+   印出 `--` 開頭 ⇒ 我引的是註解不是 code。
+📎 同族 memory `feedback_folding-a-finding-defaults-to-the-named-spot-only`:
+   **finding 是症狀位置,不是病的邊界。** 這次是自己掃出邊界,不是等下一輪審查指名。
+
 ### 15-4 這一版的證據等級(整份)
 ```
 · 本 plan 全部由【讀檔 + grep】得到,**沒有在 PG 上跑過任何 SQL**
@@ -939,7 +964,9 @@ GR 追加三條      ⇒ §14-2a 射程同段 / §14-3 第 ② 項 APPLIED.tsv /
 > 🔴🔴 **先講射程,因為它決定這條路能不能用**(fable R3 + G4 實測):
 > ```
 > B1a 的年齡閘是【硬寫的 12 小時】
->   supabase/migrations/20260627120000_…:13 逐字 a.created_at < now() - interval '12 hours'
+>   supabase/migrations/20260627120000_…**:92** 逐字
+>     `AND a.created_at < pg_catalog.now() - interval '12 hours'`
+>     (~~:13~~ 是根因散文,不是那行 SQL —— 2026-08-19 自查更正)
 >   而它的簽章只吃 p_limit(:111 `claim_expired_pending_attempts(integer)`)⇒ **調不了**
 > 而一列大約【1 小時】就會進佇列(8 次退避、封頂 16min)
 > ⇒ **未滿 12 小時的列,最小路一列都不收。**
@@ -970,7 +997,8 @@ apps/storefront/src/app/api/cron/settle-sweep/route.ts:122 已建 { ...getSettle
 
 ### 16-2 它只收 P 族,**而那是對的**(不是缺點)
 ```
-B1a 述詞逐字 a.status = 'pending'(20260627120000:11)⇒ 只收 P 族。
+B1a 述詞逐字 `AND a.status = 'pending'`(20260627120000**:90**;~~:11~~ 是註解行,
+2026-08-19 自查更正)⇒ 只收 P 族。
 🔴 而對 R 族 / C 族重查【永遠改不了任何狀態】:
    mark_charge_attempt_charged:superseded_at 非 NULL ⇒ **一律 RAISE、永不轉 charged**
      (20260810170000:237 COMMENT 逐字,閘位在冪等分支【之前】)
@@ -979,7 +1007,28 @@ B1a 述詞逐字 a.status = 'pending'(20260627120000:11)⇒ 只收 P 族。
 ⇒ 所以「把述詞放寬到三族」不只是多做,是**做一件保證無效的事**。~~前一版 §16-1 差異B~~ 作廢。
 ```
 
-### 16-3 route 的時間預算 —— **最小路讓這條變得更重要,不是更輕**
+### 16-3 route 的時間預算 —— ✅ **已實作,而形狀與本節原本寫的【不一樣】**
+
+> 🔴 **2026-08-19 更新(fable 關卡2 must-fix)**:本節原本只想到「壓 limit」,
+> **而那擋不住真正會發生的那個世界**。實作出來的是**三道閘**,擋的是不同東西:
+> ```
+> ① sweep 有錯      ⇒ 不跑(skipped:'sweep_errors')
+>    不健康的一輪不該對人工列蓋 6h throttle —— 蓋了就是把那幾筆推遲 6 小時
+> ② 起跑前預算不足  ⇒ 不跑(skipped:'budget')      ← 本節原本只想到這個
+> ③ 🔴 跑起來自己吃穿 ⇒ 硬砍(skipped:'timeout')  ← **②對這個世界零判別力**
+> ```
+> **為什麼 ② 擋不住 ③**:`settleCharge` 的 Record 呼叫**沒有傳 signal/timeout**
+> ⇒ Record 掛住不回時,5 筆順序 hang 可以吃掉整個 60s
+> ⇒ **函式被平台砍 ⇒ 連 sweep 的 counts 都一起消失、無 503、無 log**。
+> 而 ② 只在【起跑前】看一次時鐘(`budgetLeftMs = maxDuration*1000 - (Date.now()-startedAt)`,算一次)。
+> ⇒ ③ 用 `Promise.race` 上界到期就回 `timeout`,**讓 sweep 的 counts 照常送出去**。
+> ⚠️ 被砍那幾筆的 throttle 已經蓋了(6h)—— 冪等、6h 後自癒,**不是錢的 bug**,而要寫下來。
+>
+> 🔴 **`RECONFIRM_LIMIT = 5` 是保守值、不是量出來的**;真正防吃穿的是閘③ 不是那個數字。
+> 🔴 **`RECONFIRM_MIN_BUDGET_MS = 12s` 是我定的,沒有量測依據** —— 保留這句,不要因為審查沒挑就拿掉。
+> 📌 **我沒有量到「單輪最壞」** —— 那要正式站資料。改成**讓它不需要量**:跑之前看時鐘、跑起來設上界。
+
+~~### 16-3 route 的時間預算(原始版,留痕)~~
 ```
 settle-sweep route 自述:concurrency=1、單輪最壞 (50+50)×~500ms ≈ 50s,maxDuration 60s
 ⇒ **真餘量約 10s**
@@ -991,6 +1040,10 @@ settle-sweep route 自述:concurrency=1、單輪最壞 (50+50)×~500ms ≈ 50s,m
 
 ### 16-4 驗收(雙向表演,照 §16 舊版保留)
 ```
+🔴 **已實作並驗過(2026-08-19)**:37 格測試 + 三發突變(各紅在對的那格、還原逐位元組相同)。
+   而**「耗時」這個維度在 mock 世界裡不存在** ⇒ 那一格是用「永不 resolve 的 promise + 假時鐘」**自己造出來的**,
+   不是加一格看起來很像的測試。
+
 正向:一列 pending + unpaid + 年齡 ≥12h + throttle 到期 + needs_manual_review=true
      ⇒ **必須**被 claim(這正是 B1a 明文涵蓋的 manual=true)
 反向:同一輪、其餘相同而 throttle 未到期的另一列 ⇒ **必須不**被 claim
@@ -1027,8 +1080,12 @@ settle-sweep route 自述:concurrency=1、單輪最壞 (50+50)×~500ms ≈ 50s,m
 ```
 【待 Sean 裁】12 小時的等待可不可接受(§16 檔頭那格)—— 產品決定
 【待 Sean 裁】C 族出口:他 2026-08-10 拍過「那筆錢的唯一出口是退款」⇒ 見 §4-1 的待裁標記
-【待補】     route 加呼之後的單輪最壞時間 —— **沒有量過**
-【未確認】   vercel.json 無 crons 段 ⇒ 那支 cron 現在是誰在排、失敗會不會通知 —— 沒有人查過
+【待補·降級】 route 加呼之後的單輪最壞時間 —— **仍然沒有量過**,
+             而它**已不是硬前置**:閘③(`Promise.race` 上界)讓這片不需要那個數字就安全。
+             🔴 **而它仍然值得量**,理由是 `RECONFIRM_MIN_BUDGET_MS = 12s` **沒有量測依據** ——
+             量到真值才調得動那個門檻。⇒ 這條**不擋上線,擋的是「把 12s 講成有根據」**。
+~~【未確認】 vercel.json 無 crons 段 ⇒ 誰在排、失敗會不會通知~~ ✅ **2026-08-19 查完,見 §18**
+             (排程 = pg_cron 每 2 分鐘 ✅;而**壞了不會有人知道** 🔴)
 ```
 
 ---
@@ -1075,4 +1132,94 @@ settle-sweep route 自述:concurrency=1、單輪最壞 (50+50)×~500ms ≈ 50s,m
 · 「上一版本體在 20260810220000」是 §6-2 引的,我**沒有逐行比對過那支與現行 live 定義**
   ⇒ 回滾前要先確認 live 定義真的等於那一版(l5b0-verify.sh:51 的指紋就是幹這個的)
 · 「08-07 同型事故壞 8 小時」= 引自 memory `feedback_app-layer-must-not-ship-before-migration-apply`,我未重查原始紀錄
+```
+
+---
+
+## 18. 🔴 「這片壞了會不會有人知道」—— **查完了,答案是【不會】**
+
+> 由來:我自己標的「vercel.json 無 crons 段 ⇒ 誰在排、失敗會不會通知,**沒有人查過**」。
+> 主視窗指派 + G5 指路(pg_cron)。**全部唯讀量到,沒有在 PG 上跑過。**
+
+### 18-1 ✅ 誰在排:**pg_cron,不是 Vercel cron** —— 我先前那格的分母找錯地方
+```
+supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql:128 逐字
+  cron.schedule('pcm-settle-sweep', '*/2 * * * *',
+    $job$SELECT pcm_cron.invoke_cron_route('/api/cron/settle-sweep')$job$);
+  PERFORM cron.alter_job(job_id => v_id, active => true);
+```
+⇒ **每 2 分鐘打一次,而且打的正是我這片改的那支 route。** ✅ 前提成立。
+🔴 **而我先前寫「vercel.json 無 crons 段 ⇒ 沒有人排」是【找錯地方】** ——
+`find . -name vercel.json` 三份逐份 `grep -c crons` 全是 0,**那個 0 是真的,而它不是我要問的問題**。
+📌 判別句:**我掃的地方,是這件事會發生的地方嗎?**
+
+### 18-2 🔴 那麼失敗會怎樣:**pg_net 是非同步的,route 回 503 【不會】讓 cron job 失敗**
+```
+wrapper 逐字(同檔 :113-118):
+  SELECT net.http_get(url := …, headers := …, timeout_milliseconds := 70000) INTO v_req;
+  RETURN v_req;                                   ← 回的是【request id】,不是回應
+```
+⇒ **wrapper 送出就 return** ⇒ SQL 成功 ⇒ `cron.job_run_details` 記**成功**,
+**不管 route 回 200 還是 503**。
+⇒ **我前一版寫「503 是吵不是啞」要收窄**:
+```
+它確實會回 503 + console.error ——【而那個吵只吵在 Vercel log 裡】
+pg_cron 這一側【完全聽不到】。
+```
+
+### 18-3 🔴🔴 回應躺在 `net._http_response`,而**沒有任何程式在讀它**
+```
+git grep -ln "_http_response"                                   ⇒ 24 檔
+  分布:docs/security 12 / docs/specs 4 / docs/handoff 3 / supabase/migrations 2 /
+       scripts 1(check-anon-grants-prod.sh,是資安腳本不是健康檢查)/ archive 1 / PROGRESS 1
+git grep -ln "_http_response" -- 'apps/*' 'packages/use-cases/*'  ⇒ **0**
+負向對照:git grep -ln "sweepSettlements" -- 'apps/*' 'packages/use-cases/*' ⇒ **7**(尺會動)
+```
+⇒ **答案在資料庫裡躺著,而沒有人去看。**
+
+### 18-4 🔴🔴 那本來要解這件事的機器**已經蓋好了,而它沒有接線**
+```
+supabase/migrations/20260817070000_m4b_231_3_sweeper_heartbeat.sql:65
+  CREATE TABLE public.sweeper_heartbeat (…consecutive_failures…)
+  檔頭逐字:「`#231` ③:sweeper **靜默死亡**偵測 —— 心跳表」
+而:
+  grep -n 'CREATE OR REPLACE FUNCTION' <該檔>                   ⇒ 零命中(**只有表,沒有寫入 RPC**)
+  git grep -ln "heartbeat" -- 'apps/*' 'packages/use-cases/*'   ⇒ **0**
+```
+✅ **而這不是我發現的,是【已知且已落檔】的缺口**(引用時不要說成新發現):
+```
+docs/specs/2026-08-17-sweeper-heartbeat-plan.md:25 逐字
+  「寫入端 ⏳ 一行都沒開始。🔴 **沒有東西在寫的心跳表【不會心跳】**」
+```
+
+### 18-5 ⇒ 對**我這片**的結論(誠實版)
+```
+✅ 排程會打到它:成立(每 2 分鐘)
+🔴 而【這片壞了沒有人會知道】:
+   · cron job 狀態:看不到(pg_net 非同步)
+   · net._http_response:有答案,而**零程式在讀**
+   · sweeper_heartbeat:表在,**沒有東西在寫**
+⇒ 我這片新增的 reconfirm 若整段 throw ⇒ route 回 503 ⇒ **和現在的沉默完全一樣。**
+```
+🔴 **而這【不是我這片造成的】,也【不是我這片能修的】** —— 它是整條 sweeper 線既有的缺口。
+⇒ **我要做的是不要讓它變更糟**,而我做了三件:
+```
+① reconfirm 的 errors 併進 503 判定(不吞成 200)—— 至少它與既有 sweep 同等待遇
+② 跳過時回報 `reconfirm.skipped`(**三種原因分得開**:`sweep_errors` / `budget` / `timeout`)—— **不靜默**
+   ⇒ 有人去讀 `net._http_response` 或哪天心跳接線時,**分得出「跳過」與「沒東西」**
+③ 503 的 log 帶 `failedSide`(`sweep` / `reconfirm` / `both`)——
+   🔴 因為 body 頂層的 `errors` 是 **sweep 的**,reconfirm 壞掉時頂層仍是 0
+   ⇒ **人眼查 503 會先看錯地方**(fable 關卡2 指出,我沒想到)
+```
+⚠️ **而在寫入端接線之前,上面三件都只是【讓證據存在】,不是【讓人知道】。** 兩者不要混。
+📌 自註(2026-08-19):本節從「兩件」變「三件」時,我**第一版只改了清單、沒改上下兩句的數字**,
+   而那句「兩件」讀起來完全正常 ⇒ **零機械訊號**。自己掃到才改的,寫出來當實例。
+📎 這一格與 `#231` ③ 的寫入端是同一件事 ⇒ **接線那片做完,本節才算關掉。**
+
+### 18-6 🔴 而閘③ **只護住一半** —— 另一半已開 `#662`(GR R2 N3)
+```
+sweep 自己的 Record 呼叫【同樣不帶 signal】⇒ sweep hang 住仍然會滅掉整輪(連閘③ 都跑不到)。
+那是【既有債】,不是本片造成的,也不是本片修的。
+⇒ 已開 docs/phase-1-backlog.md `#662`,含四層「聽不到」的證據與 cron 的 */2 頻率。
+🔴 **不要把閘③ 讀成「hang 的問題解決了」** —— 它只保證【新加的這半不會是兇手】。
 ```
