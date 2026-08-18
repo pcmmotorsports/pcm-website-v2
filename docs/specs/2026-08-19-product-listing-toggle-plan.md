@@ -51,6 +51,15 @@ Sean 2026-08-15 拍板 Q-B-2=甲 / Q-關哪一條=乙 ⇒ 下架權威從供應�
 ② 🔴 UPDATE 要同時寫兩欄:delisted_at 與 listing_set_by='staff'
    不寫第二欄 ⇒ 同步下一輪確實不會碰 delisted_at(已拍板),
    但【誰決定的】這個資訊就丟了 —— 而它正是 Sean 那個拍板的載體
+   ✅ **而「只寫一欄」那個壞世界【構造不出來】**(GR R1 ② 量的,我抄它的量法):
+   ```
+   全樹今天【零個】listing_set_by 的寫入者 —— 唯一的值來源是 DDL DEFAULT 'sync'
+     (20260815030000:58 逐字 `ADD COLUMN listing_set_by text NOT NULL DEFAULT 'sync'`)
+     而同步的輸出型別根本沒有這個 key
+   ⇒ 本片的 RPC 是【第一個也是唯一的】寫入者,且它在【單一 UPDATE】裡兩欄一起寫(原子)
+   ⇒ 「delisted_at 變了而 listing_set_by 沒變」這個世界,今天構造不出來
+   ```
+   ⚠️ **而突變那格仍然要做** —— 它守的是「**未來有人把那半拿掉**」,不是今天的可達性。
 ③ repository 寫路徑(商品域第一條)+ server action
 ④ 元件:那顆鈕(位置見 §3)
 ⑤ 測試:含突變 —— 拿掉 listing_set_by 那半 ⇒ 必須有一格紅
@@ -75,8 +84,9 @@ before / after 建議 = {delisted_at, listing_set_by} 兩欄
   ① M-4a 佇列出口那支      動 payment_charge_attempts 相關
   ② #435 出貨稽核          動 shipments / 稽核
   ③ 本片                    新增一支函式 + GRANT,UPDATE products 兩欄
-判斷依據(機械的):三支動的 DB 物件【零交集】
-  —— 本片不改任何既有函式、不改任何既有表結構,只新增一支函式
+判斷依據(機械的):三支的 **DDL 物件零交集** —— 本片不改任何既有函式、不改任何既有表結構,只新增一支函式
+🔴 **而「零交集」這個字面是錯的,已修**(GR R1 nit-③):**三支都會 INSERT `admin_audit_log`**
+  ⇒ 那是**共用的 DML 目標**,而 **DML 目標共用不構成 apply 依賴**(誰先 apply 都不影響對方能不能建)。
 ⇒ **無先後依賴,三支可以任意順序 apply。**
 ⚠️ 而若寫 code 時發現需要【動到既有 RPC】而不只是新增一支 ⇒ 🔴 **停下回報主視窗**
    (它明文說那是另一個風險層)
@@ -139,8 +149,24 @@ before / after 建議 = {delisted_at, listing_set_by} 兩欄
 □ admin_audit_log 多一列,actor / action / target / before / after 都對得上
 □ EXECUTE 權限:anon / authenticated 打不到(照樣板的 REVOKE→GRANT)
 □ 四綠 TURBO_FORCE=1(動 .tsx ⇒ 含 build)
-□ 🔴 apply 前後對正式站跑一次 smoke:那支函式解析得到、具名參數對得上
-   (08-07 那次壞 8 小時的教訓:應用層不得先於 migration apply 上線)
+□ 🔴🔴 apply 後對正式站跑一次 **零寫入 smoke**(GR R1 MF-A;**原本的寫法會誘導人真按一次**)
+   ```
+   ❌ 舊寫法「那支函式解析得到、具名參數對得上」——
+      照字面做最省事的驗法就是【真按一次】,而那會真的下架一件正式站商品
+   ✅ 新寫法:拿一個【不存在的 product_id】呼叫它,期望回 'NOT_FOUND'
+      函式在 ✓  具名參數對得上 ✓  零寫入 ✓  而且兩個世界印不同的東西
+      (函式不在 ⇒ PostgREST 404 / 參數名漂 ⇒ 42883,都不會是 'NOT_FOUND')
+   ```
+   ✅ **而這一條本片的 RPC 設計【已經滿足】**:`NOT_FOUND` 是 `RETURN` 的字串值不是例外
+   ⇒ 呼叫端拿得到、零寫入、零稽核列。(照樣板 `admin_set_customer_tier` 的三回傳值形狀。)
+   📎 08-07 那次壞 8 小時的教訓仍然適用:**應用層不得先於 migration apply 上線。**
+
+□ 🔴 **OD 那份稿要跟著改**(GR R1 MF-B):`pcm-product-edit-screen/brief.md:429` 逐字
+   「不提供下架按鈕。目前 `delisted_at` 與 `listing_set_by` 沒有任何既有寫入流程…」
+   ⇒ **本片 ship 的那一刻,那個理由就變成假的**,而沒有人改它 ⇒ 下一個設計者照舊不畫。
+   ⇒ 落點指名:**在 OD `pcm-product-edit-screen` 的 `brief.md` 該行加訃聞**
+     (原句留著標作廢 + 指向本片的 migration 檔名)。
+   📎 這正是本檔自己在 §0-a 講的那件事的反面:**一句「因為 X 所以不做」,不會在 X 消失時變色。**
 ```
 
 ## 6. 誠實揭示
