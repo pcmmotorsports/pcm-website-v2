@@ -1873,6 +1873,19 @@ order by n desc, 1;
 
 ### #69. ⏳ 個資法資料權利流程(取出 / 刪除、30 天回應)
 
+> ✅ **2026-08-19 G6 第二層查核:成立,零實作、無任何東西推翻它。**
+> ```
+> grep -rnE '個人資料|個資法|資料可攜|刪除帳號|delete_account|export_personal|dataExport'
+>   apps packages(.ts/.tsx,排 node_modules、排測試)
+>   ⇒ 命中全部是**會員中心的「個人資料」編輯分頁**(`account/profile/actions.ts` / `ProfileTab.tsx`),
+>     **零個是資料權利(取出 / 刪除 / 30 天回應)**
+> 分母 666 支;負向對照(同尺該命中的)`隱私|privacy` ⇒ **43 命中** ✅
+> ```
+> 🔴 **而我第一次量錯了,留下來當證物**:原 pattern 用 `個資` ⇒ **誤中「整**個資**料」「兩**個資**料夾」**
+> ⇒ 一個中文子字串會跨詞邊界。**收緊成 `個人資料|個資法` 才問對問題。**
+> 📌 教訓:**中文 grep 沒有 `\b` 詞界** —— 短詞 pattern 會安靜地多報,而多報看起來像「有做」。
+> ⚠️ **未量**:本條是**法遵流程**題,還牽涉對外承諾與人工作業,`grep` 只覆蓋 code 那一面。
+
 - **狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
 - **優先級:** 🟠 中
@@ -1893,6 +1906,15 @@ order by n desc, 1;
 - **相關:** `docs/architecture/security-timeline.md` §3 #C7 / #C8、`docs/audits/2026-05-02-full-audit.md` Audit-F31
 
 ### #70. ⏳ B2B 月結對帳 SOP(月底跑列表 + 加總)
+
+> ✅ **2026-08-19 G6 第二層查核:成立,零實作、無任何東西推翻它。**
+> ```
+> grep -rn '月結|對帳單|statement' apps/admin/src(.ts/.tsx,排測試)
+>   ⇒ 命中全部是 `statement_timeout`(product-repository.ts:128 / payment-action-state.ts:96-101),
+>     **零個與月結對帳有關**
+> 負向對照(同範圍該命中的)`對帳` ⇒ **112 命中** ✅ 尺會動
+> ```
+> ⚠️ **未量**:沒開過後台;本條是 **SOP/流程**題,`grep` 只答得出「有沒有 code」,答不出「員工現在怎麼做」。
 
 - **狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
@@ -4445,6 +4467,16 @@ order by n desc, 1;
 ---
 
 ### #159. ⏳ filter-top.css 手機 responsive 字級漏(design 缺、storefront 對齊一致)
+
+> ✅ **2026-08-19 G6 第二層查核:成立,且座標未過期。**
+> ```
+> apps/storefront/src/styles/filter-top.css
+>   @media 區塊數 = **0**       font-size 行數 = **11**
+> ⇒ 11 處字級、零個 responsive 斷點 ⇒ 手機與桌機同一組字級。**與本條描述一致。**
+> ```
+> ⚠️ **未量**:**沒有開過瀏覽器、沒有量過實際渲染字級**;`0 個 @media` 只證明**這支檔**沒有斷點,
+> **不排除**字級被別支 CSS 或全域 rem 縮放蓋掉。要判「手機上到底幾 px」得照
+> `docs/runbooks/local-admin-with-real-data-probe.md` 那條真瀏覽器量測路走。
 
 - **狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
@@ -7748,7 +7780,24 @@ order by n desc, 1;
 ### #283. 📧 Resend bounce webhook 接入(退信目前零回饋、只能靠 Resend 後台人工看)
 
 - **狀態:** ⏳ 待執行
+  · 🔴 **2026-08-19 G6:觸發條件 ③「E3 上線滿一個月」的時鐘,看起來已經走完了。見下方查核段。**
 - **優先級:** 🟡 低(E3 上線後升 🟠 中)
+
+> ### 🔴 2026-08-19 第二層查核(G6)
+> **① ✅ 現況成立:bounce 今天仍然零實作**
+> ```
+> grep -rn 'bounce' apps packages --include='*.ts' --include='*.tsx'(排 node_modules、排測試)⇒ **0 命中**
+> 分母 666 支 .ts/.tsx;負向對照(同範圍該命中的)`隱私|privacy` ⇒ **43 命中** ✅ 尺會動
+> ```
+> **② 🔴 而觸發條件 ③ 的時鐘**
+> ```
+> apps/storefront/src/app/api/cron/email-sweep/route.ts  首次進 repo = **2026-07-18**(`5af0aa6f`)
+> 今天 2026-08-19 ⇒ **32 天**
+> ```
+> ⚠️ **而「檔案進 repo」不等於「上線」** —— 本條寫的是「E3 **上線**滿一個月」,
+> 而部署狀態不在 repo 裡 ⇒ 🔴 **這一格要有部署權的人答,我答不出來。**
+> ⇒ 我只能說:**時鐘至少已經走了 32 天**,若 E3 當時就上線,觸發條件 ③ 已滿足。
+> ⚠️ 觸發 ①(Resend 後台 bounce rate)與 ②(客訴)**都在 repo 外**,我一格都驗不了。
 - **問題:**
   - E1a 的假信箱 gate(`skipped_no_real_email`)只擋**已知合成域** `line.pcmmotorsports.local`;**真實但打錯/已停用的信箱**(客人自己填錯)仍會被寄、被 Resend 判 bounce,而系統**完全收不到這個回饋** → outbox 標 `sent`(從 Resend API 角度確實接受了),客人實際沒收到。
   - Resend 要求 **bounce rate < 4%**,超標會 suspend 寄送 → 影響的是**已驗證網域 `pcmmotorsports.com` 的寄件信譽**(全站告警信 + 未來所有信的共用資產)。
@@ -7806,6 +7855,16 @@ order by n desc, 1;
 - **問題:**
   - Sean 07-16 拍 **Q4=A:文案 L2 hardcode**(要改找 Claude 改)。🔴 此題**兩審查員意見相反**(Fable 判 L2 成立;codex 判「頻率未經證實、按鐵則 9 拿不準應預設 L3」)→ 由 Sean 親自拍板銷案。
   - 即:本條是**已知的、被 Sean 明示接受的取捨**,不是遺漏。
+  - ✅ **2026-08-19 G6 第二層查核:三個觸發器都沒有扣下,本條原樣成立。**
+    ```
+    觸發 ①「Sean 一季內要求改文案 ≥ 2 次」
+      量法:git log --since=2026-06-01 -- packages/adapters/src/email/order-email-assembly.ts
+                                          apps/storefront/src/lib/email/composition.ts
+      實得 5 顆,逐顆讀 subject:**全部是 feature / refactor,零顆是「Sean 要求改文案」**
+      ⚠️ **限定**:我量的是「**檔案被改**」,不是「**Sean 提出要求**」——
+         要求可能被拒絕或還沒落地 ⇒ 這把尺會**少報**。真答案只有 Sean 知道。
+    觸發 ②(A/B 或多語系)③(行銷自己改)⇒ **repo 內無跡象,而它們本來就不是 repo 答得出來的**
+    ```
 - **觸發事件:**
   - (任一觸發即啟動)①Sean 一季內要求改文案 ≥ 2 次(= L2 假設被證偽、實為 L3)②要做 A/B 或多語系 ③行銷要自己改。
 - **預期解法:**
@@ -9983,6 +10042,22 @@ order by n desc, 1;
 ### #325. 📏 PostgREST `max-rows` 漂移偵測 — 全 repo 內嵌 limit 截斷判定的共同前提
 
 - **狀態:** ⏳ 待執行(A 窗片 2 R3 Fable 明確要求立案;2026-08-05)
+  · 🔴🔴 **2026-08-19 G6:本條防的那個漂移【2026-08-18 真的發生了】,而抓到它的不是偵測器,是人。**
+
+> ### 🔴🔴 2026-08-19 第二層查核(G6):**假設變成事實了**
+> ```
+> apps/storefront/src/app/sitemap.ts:4 逐字:
+>   「已分頁繞 `db-max-rows` 上限(~~1000~~ ⇒ **2026-08-18 實測 2000**,V 窗量、**未自驗**)」
+> apps/storefront/src/lib/products.ts:687-700  已把這條隱形依賴寫成整段註解:
+>   「`PAGE_SIZE` 必須**嚴格小於** `db-max-rows`」/「現況 `1000 < 2000` ✅」
+>   「🔴🔴 `db-max-rows` 只要低於 `PAGE_SIZE`,整份車款表就【停在第一頁那麼多】」
+> ```
+> ⇒ **本條 2026-08-05 立案時是「假設它會漂移」;2026-08-18 它從 1000 變成 2000。**
+> ⇒ 🔴 **這次漂的方向剛好是安全的**(變大 ⇒ `1000 < 2000` 仍成立)⇒ **沒有出事,而那是運氣。**
+>   反方向(調小到 999)照 `products.ts:700` 的推導就是「第 0 頁就 break」= **靜默少資料**。
+> ⇒ **本條的優先級判準因此變了**:不再是「將來可能漂」,是「**它會漂,而我們沒有任何東西在看**」。
+> ⚠️ **未量**:`2000` 是 V 窗量的、檔案自己標「**未自驗**」;我**沒有**重量過那個值,也沒有 DB access。
+>   引用這個數字要帶它自己的限定。
 - **現況**:所有讀模型的內嵌截斷判定(取 N+1 筆、回傳 ≥N+1 ⇒ truncated)都隱含前提
   「伺服器端 `max-rows` ≥ 我們的常數」。Supabase PostgREST 預設 max-rows 遠大於現用常數,
   但它是 dashboard 可調的伺服器設定 —— 被調低到常數以下時,回傳筆數永遠小於 N+1,
