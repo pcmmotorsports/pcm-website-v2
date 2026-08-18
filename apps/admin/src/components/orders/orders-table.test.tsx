@@ -983,6 +983,75 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       expect(norm(cardMedias()[0]!.params)).toBe(CARD_QUERY);
     });
 
+    // 🔴🔴 **截斷三件只給 `td`,`th` 不套**(W7 2026-08-18,把 OD 搬對)。
+    //
+    // **症狀**:表頭「數量」被截成「數…」。**根因不是欄太窄,是我們把 `td` 的截斷抄到了 `th` 上。**
+    //   真瀏覽器量到(`localhost:3002` / viewport 1728):`th.col-qty` 可用 **25px**,
+    //   「數量」帶表頭字距 `1.5px` = **27px**、不帶 = **24px** ⇒ **溢出的 2px 全部來自字距**,
+    //   而字距在最後一個字後面還加一次 —— 那 1.5px 是**看不到的尾空**。
+    // **OD 逐字**(兩份檔都一樣,開檔讀的):`table.g th{…white-space:nowrap}` 沒有 overflow / ellipsis;
+    //   三件只在 `table.g td`(`overview-desktop.html:106-107` / `-bmw-m:168-170`)。
+    // 📌 **這一格守的是「範圍」不是「有沒有」** —— 原本的引用(`:107`)是對的,
+    //    錯的是把那條 `td` 規則的**適用對象**擴大成 `th, td`。**引用正確不代表範圍正確。**
+    //
+    // ⚠️ **誠實邊界**:postcss 看不到瀏覽器算出來的樣式,也算不了跨選擇器的特異性競爭
+    //    (與本區塊上方 `lastDecl` 的自報邊界同一條)。這一格能證的是**原始碼裡誰宣告了它**。
+    // 🔴 **兩格成對,缺一就恆綠**:
+    //    ①`td` 那條**還在**(有人整條刪掉 ⇒ 資料格互相壓,而只守 `th` 的話這格照樣綠);
+    //    ②沒有任何帶 `th` 的選擇器宣告 `overflow`(有人改回 `th, td` ⇒ 刪節號回來)。
+    it('🔴 截斷三件只給 `td`:`td` 那條還在,而**沒有任何 `th` 選擇器**宣告 `overflow`', () => {
+      // ① 正向(同時是本格的量具自檢:找得到才代表這支 parser 真的看得見這條規則)
+      // 🔴 **不能用 `lastDecl`** —— 它回「全檔最後一條」,而卡片化區塊裡有一條
+      //    `.orders-grid td { overflow: visible }`(縱向卡片不能截斷)⇒ 全檔最後一條恆為 `visible`。
+      //    **這是實跑告訴我的**:第一版斷言 `toBe('hidden')` 直接紅在 `visible` 上。
+      //    ⇒ 桌機那條要問的是「**卡片化以外**的最後一條」。
+      const tdOverflows: Array<{ value: string; insideCard: boolean }> = [];
+      ROOT.walkRules((rule) => {
+        if (norm(rule.selector) !== '.orders-grid td') return;
+        rule.walkDecls('overflow', (decl) => {
+          let node: postcss.Container | postcss.Document | undefined = rule.parent;
+          let insideCard = false;
+          while (node) {
+            if (node.type === 'atrule' && norm((node as postcss.AtRule).params) === CARD_QUERY) {
+              insideCard = true;
+              break;
+            }
+            node = node.parent;
+          }
+          tdOverflows.push({ value: norm(decl.value), insideCard });
+        });
+      });
+      const desktop = tdOverflows.filter((d) => !d.insideCard);
+      const card = tdOverflows.filter((d) => d.insideCard);
+      expect(
+        desktop.length,
+        '卡片化之外一條 `.orders-grid td` 的 overflow 都沒有 ⇒ fixed 版面下資料格會互相壓',
+      ).toBeGreaterThan(0);
+      expect(desktop[desktop.length - 1]!.value, '桌機那條 `td` 截斷被改掉了').toBe('hidden');
+      // 卡片化那條也一起釘:它被刪掉的話,換行後的第二行會被裁掉(縱向卡片沒有欄寬)
+      expect(card.map((d) => d.value), '卡片化區塊的 `td` overflow 解除被動到了').toEqual(['visible']);
+
+      // ② 反向:任何選擇器只要含 `.orders-grid th` 就不得宣告 overflow
+      const offenders: string[] = [];
+      ROOT.walkRules((rule) => {
+        if (!/\.orders-grid\s+th\b/.test(norm(rule.selector))) return;
+        rule.walkDecls('overflow', (decl) => {
+          offenders.push(`${norm(rule.selector)} { overflow: ${norm(decl.value)} }`);
+        });
+      });
+      expect(
+        offenders,
+        `表頭被套上 overflow ⇒ 「數量」這種剛好差 2px 的表頭會被打成「數…」。命中:${offenders.join(' / ')}`,
+      ).toEqual([]);
+
+      // ③ 分母:上面那個正規式真的掃得到 `th` 選擇器嗎(掃不到的話 ② 是恆綠的)
+      let thRules = 0;
+      ROOT.walkRules((rule) => {
+        if (/\.orders-grid\s+th\b/.test(norm(rule.selector))) thRules += 1;
+      });
+      expect(thRules, '一個 `.orders-grid th` 選擇器都沒掃到 ⇒ ② 那格沒有判別力,不是通過').toBeGreaterThan(0);
+    });
+
     it('🔴 四條承重規則:**最後一條宣告**落在卡片化 media 內、值正確(不是「出現過」)', () => {
       const cases: Array<[string, string, string, string]> = [
         ['.orders-grid thead', 'display', 'none', 'thead 沒收起 ⇒ 卡片頂端出現一排桌機欄名'],

@@ -716,7 +716,7 @@ describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
     //   ⇒ **綠燈 + 功能不見,而那正是 Sean 點名的第一件事。**
     //
     // ⚠️ **釘「存在 + 關鍵值」,不釘整條規則字面** —— 釘整條會在任何微調時假紅。
-    //    兩個關鍵值各自承重:`inset` 少了會被 `.orders-grid th,td` 的 `overflow:hidden` 切掉;
+    //    兩個關鍵值各自承重:`inset` 少了會被 `.orders-grid td` 的 `overflow:hidden` 切掉;
     //    `var(--primary)` 少了就不是 M 藍。
     expect(CSS, '選中訂單的色塊規則不見了 ⇒ 點開面板左邊不會有任何變化').toMatch(
       /\.orders-group\[data-selected\][^{]*\{[^}]*box-shadow:\s*inset\s+3px\s+0\s+0\s+var\(--primary\)/,
