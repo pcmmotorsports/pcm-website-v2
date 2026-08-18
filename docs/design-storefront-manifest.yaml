@@ -876,7 +876,7 @@ components:
       component: "apps/storefront/src/components/ProductFAQ.tsx"
       css: "apps/storefront/src/styles/product-page.css"
       last_modified_commit: "62dd89a3"  # 記可達祖先=本 slice(交期對齊片)父 commit;前錨 3a0cf221=[Showcase 還原片]、3e62482=[Q5=A 重編號]、188ad76
-      last_modified_date: "2026-08-18 [交期對齊片]:leadtime 字面「2–6 週」→「2–12 週」,對齊 `/terms` 第 7 條(`data/legal-content.ts:133`)。🔴 **這是施工端判斷、待 Sean 確認** —— 兩份字面都是他的(06-03 給 FAQ 的 2–6、07-23 給條款的 2–12),理由與 revert 範圍見本條目 `technical_overrides.faqLeadTimeAlignedToTermsClause7`。守門 `ProductFAQ.test.tsx` 加一格(比對區間、非寫死數字),突變兩向各自轉紅。⚠️ 同一支檔的**運費句**不在本片:W5 已 commit 在 `e75035a1`,而那顆當時尚未進 dev。前:2026-08-07 [Showcase 還原片 · **Q5=A 已被 Q19=A 撤銷**;本條目回到 N°04]:Sean 2026-08-07 傍晚推翻同日早上的 H7 D8 全刪 ⇒ 品牌形象區(N°01/N°02)還原 ⇒ Q5=A 重編號的前提「01/02 空出來了」不再成立,Sean 拍 **Q19=A 連編號一起回到線上現況** ⇒ 本元件回到 **N°04**(`ProductFAQ.tsx` 與 `ProductFAQ.test.tsx` 皆已逐字取回 `origin/main` 版、`eb-no` 斷言為 `04`)。🔴 **下面那段 [Q5=A 重編號] 已非現況、僅存查**(SOP⑥ code-reviewer 抓到本條頭部仍以現況口吻宣告已被撤銷的 Q5=A —— 與 `SwatchLightbox` 那處同族、同一片內的第二處)。前:2026-08-07 [Q5=A 商品頁重編號;純標籤零內容零行為]:Sean 2026-08-07 拍板 Q5=A —— 相關商品 N°03→**N°01**、常見問題 N°04→**N°02**(`pd-eb-no` 兩處渲染值 + 兩條測試期望值 + 全樹 PDP 語境註解/測試名/CSS 段標)。起因=H7(c4a47484)整組刪除商品頁品牌形象區後 PDP 只剩 03/04、01/02 吊空,所有品牌看到的頁面都從「03」開始;⚠️ 別記到 D8-b(acb87ea3)頭上,那片只刪 H7 之後的孤兒檔、對渲染零影響。business_overrides.faqSectionNumber 同批改寫(Q5=A **部分推翻** Sean 2026-06-02 Q1 override:數字被換掉、「FAQ 接相關商品之後」的順序存活)。測試檔數/條數零變動(358 檔 5461 綠 1 todo);突變:兩處編號各自改壞值(保留 `.pd-eb-no` 選擇器)→ 各紅對應那一條。首頁 N°01-N°07 與結帳頁 N°03/N°04 是各自獨立的編號系,逐條核過未被觸碰。⚠️ 本次只更新編號相關欄位,**不為本條目其餘內容背書**:`related_storefront` 仍列著 H7/D8-b 已刪的 16 個檔(BrandShowcase + 13 支 *Showcase + ProductHighlights/ProductSwatchWall/ProductSpotlight)、`business_overrides.brandShowcasePlacement` 也仍在描述已刪版位 —— 那是 H7 遺債,待詳情頁批清。前:2026-07-05 (視覺易讀性:rpm-policies 保固文案移除 CJK-CJK 多餘空格〔6 處空格接<strong>〕,FAQ 保固題共用同一份、同步生效、僅空格零字義改動〔消保法§19 法律字面不變〕。前:2026-06-03 OD-13 FAQ 內文修正〔order/leadtime + 保固 3→4 段〕見 od_redesign)"
+      last_modified_date: "2026-08-18 [交期對齊片]:leadtime 字面「2–6 週」→「2–12 週」,對齊 `/terms` 第 7 條(`data/legal-content.ts:133`)。✅ **2026-08-18 14:0x Sean 拍板 `Q-G3-1 = 甲`,已確認**(~~原記「施工端判斷、待 Sean 確認」~~)—— 兩份字面都是他的(06-03 給 FAQ 的 2–6、07-23 給條款的 2–12),理由與 revert 範圍見本條目 `technical_overrides.faqLeadTimeAlignedToTermsClause7`。守門 `ProductFAQ.test.tsx` 加一格(比對區間、非寫死數字),突變兩向各自轉紅。⚠️ 同一支檔的**運費句**不在本片:W5 已 commit 在 `e75035a1`,而那顆當時尚未進 dev。前:2026-08-07 [Showcase 還原片 · **Q5=A 已被 Q19=A 撤銷**;本條目回到 N°04]:Sean 2026-08-07 傍晚推翻同日早上的 H7 D8 全刪 ⇒ 品牌形象區(N°01/N°02)還原 ⇒ Q5=A 重編號的前提「01/02 空出來了」不再成立,Sean 拍 **Q19=A 連編號一起回到線上現況** ⇒ 本元件回到 **N°04**(`ProductFAQ.tsx` 與 `ProductFAQ.test.tsx` 皆已逐字取回 `origin/main` 版、`eb-no` 斷言為 `04`)。🔴 **下面那段 [Q5=A 重編號] 已非現況、僅存查**(SOP⑥ code-reviewer 抓到本條頭部仍以現況口吻宣告已被撤銷的 Q5=A —— 與 `SwatchLightbox` 那處同族、同一片內的第二處)。前:2026-08-07 [Q5=A 商品頁重編號;純標籤零內容零行為]:Sean 2026-08-07 拍板 Q5=A —— 相關商品 N°03→**N°01**、常見問題 N°04→**N°02**(`pd-eb-no` 兩處渲染值 + 兩條測試期望值 + 全樹 PDP 語境註解/測試名/CSS 段標)。起因=H7(c4a47484)整組刪除商品頁品牌形象區後 PDP 只剩 03/04、01/02 吊空,所有品牌看到的頁面都從「03」開始;⚠️ 別記到 D8-b(acb87ea3)頭上,那片只刪 H7 之後的孤兒檔、對渲染零影響。business_overrides.faqSectionNumber 同批改寫(Q5=A **部分推翻** Sean 2026-06-02 Q1 override:數字被換掉、「FAQ 接相關商品之後」的順序存活)。測試檔數/條數零變動(358 檔 5461 綠 1 todo);突變:兩處編號各自改壞值(保留 `.pd-eb-no` 選擇器)→ 各紅對應那一條。首頁 N°01-N°07 與結帳頁 N°03/N°04 是各自獨立的編號系,逐條核過未被觸碰。⚠️ 本次只更新編號相關欄位,**不為本條目其餘內容背書**:`related_storefront` 仍列著 H7/D8-b 已刪的 16 個檔(BrandShowcase + 13 支 *Showcase + ProductHighlights/ProductSwatchWall/ProductSpotlight)、`business_overrides.brandShowcasePlacement` 也仍在描述已刪版位 —— 那是 H7 遺債,待詳情頁批清。前:2026-07-05 (視覺易讀性:rpm-policies 保固文案移除 CJK-CJK 多餘空格〔6 處空格接<strong>〕,FAQ 保固題共用同一份、同步生效、僅空格零字義改動〔消保法§19 法律字面不變〕。前:2026-06-03 OD-13 FAQ 內文修正〔order/leadtime + 保固 3→4 段〕見 od_redesign)"
     design:
       authority: "open-design: Website V2 / product-detail-rpm-template.html §N°FAQ(RPM 共用區塊)"
     business_overrides:
@@ -909,12 +909,21 @@ components:
                          條文本體在同檔 `:133`,`/terms` **第 7 條**)
         storefront_value: |
           [2026-08-18] `ProductFAQ.tsx` leadtime 由「2–6 週」改為「2–12 週」,對齊 `/terms` 第 7 條。
-          🔴 **待 Sean 確認 —— 這是施工端判斷,不是他拍的板。**
-          已請主視窗把決策題端上去:兩份都是他的字,要以哪一份為準。
-          若他選 2–6,revert 的範圍 = 這一個字面 + `ProductFAQ.test.tsx` 那一格會自動轉綠(守門比的是區間、不是寫死的數)。
+          ✅ **2026-08-18 14:0x Sean 拍板 `Q-G3-1 = 甲` —— 已確認。**
+          送他的選項逐字:「甲 = 2–12 週(與合約一致,G3 已經改好,你確認就收工)」;
+          落檔 memory `project_0818-four-rulings-1400.md`(G2 2026-08-18 17:2x 開檔核過原文)。
+          ~~🔴 待 Sean 確認 —— 這是施工端判斷,不是他拍的板。已請主視窗把決策題端上去。~~
+          🔴 **舊句劃掉留痕**:那個決策題**當天 14:0x 就有答案了**,而本條目到 17:2x 都還寫著「待確認」
+          ⇒ 判別句:**拍板落檔的時候,那個決定【指著的那幾份檔】有沒有一起改?**
+          若他日後改回 2–6,revert 的範圍 = 這一個字面 + `ProductFAQ.test.tsx` 那一格會自動轉綠(守門比的是區間、不是寫死的數)。
         decided_at: "2026-08-18"
         decision_source: |
-          **施工端技術判斷(非 Sean 拍板)**。理由=較新的那份(07-23)勝過較舊的(06-03),
+          ✅ **Sean 拍板(2026-08-18 14:0x,`Q-G3-1 = 甲`)** —— 追認 `d8c176b9`。
+          ~~施工端技術判斷(非 Sean 拍板)~~ ← 落地當下的授權來源,已被上述拍板取代。
+          🔴 **這一欄的值從「施工端」變成「Sean」不是文字修飾** —— 本檔頭 `:21` 逐字寫著
+          「`technical_overrides` 的授權來源 = **施工端判斷**,審查者應**逐條檢視理由是否成立**」
+          ⇒ 授權來源改變之後,**審查者不必再逐條檢視這一條的理由**,它有拍板背書了。
+          原理由(仍成立、留著當背景):較新的那份(07-23)勝過較舊的(06-03),
           且方向是**把客人看到的承諾拉長到與合約一致**(保守方向、不增加曝險)。
           ⚠️ **不要引 `#291` Q2=A** —— 那條(`docs/phase-1-backlog.md:7773`)裁的是
           「出貨後 1-3 個工作天」加前綴,**沒有提 FAQ、也沒有立 2–12 為正典**。
