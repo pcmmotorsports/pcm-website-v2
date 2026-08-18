@@ -6,6 +6,7 @@ export type * from './IProductRepository';
 export type * from './ICustomerRepository';
 export type * from './IAddressRepository';
 export type * from './IVehicleRepository';
+export type * from './IFavoritesRepository';
 export type * from './IWalletRepository';
 export type * from './IAuthService';
 export type * from './IOrderRepository';
