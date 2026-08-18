@@ -10,6 +10,18 @@
 > ⇒ 動 schema／RLS = 鐵則 8 + 12② ⇒ 守門一格都不能省（migration 要過對抗審查）
 > ⇒ apply 由主視窗跑（CLI 走 keychain，2026-08-18 已證），不必等 Sean 到場
 > ```
+> ### ✅ **migration 已 apply(2026-08-18 17:0x,主視窗跑的)**
+> ```
+> supabase db push --workdir /tmp/sbwork
+>   Applying migration 20260818170000_m4b_g3_customer_favorites.sql...
+>   NOTICE: customer_favorites 收權斷言通過：anon/PUBLIC/service_role 全零、
+>           authenticated 恰好 SELECT/INSERT/DELETE（含欄級）、RLS 開、policy 3 條且皆 own-only。
+>   Finished supabase db push.
+> ```
+> 🔴 **那正是同日 `sweeper_heartbeat` 死掉的同一格,而本片一次就過** ——
+> 因為下的是**四道** REVOKE(含 `service_role`),不是只收兩個角色的舊慣例。
+> ⚠️ **而正式庫證明的是「四道過得了」,不是「兩道一定會死」** ——
+> 兩道會死是**心跳表**證的,不是本片證的。**兩件不同的證據,不要合成一句。**
 > ⚠️ 這一段是被要求寫的,因為同日已有兩個反例:
 > **`plan v4` 批了沒寫**(大家以為還在等)/ 而 **只寫「已批」不寫射程,會被讀成可以直接 apply**。
 > **兩個方向都會出事。**
