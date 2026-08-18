@@ -444,6 +444,11 @@ apps/admin/src/lib/session/session.ts:125 逐字
    已補齊 ⇒ 舊 cookie 回 302 /api/sso/start
 🔴 這一發要真的做,不能用「理論上 HMAC 換金鑰就會失效」代替。
 ```
+📄 **① 已落檔**:`docs/runbooks/2026-08-18-admin-session-compromise.md`(W6,2026-08-18)。
+⚠️ **但它自己的檔頭寫著「每一個步驟都還沒有被執行過」** —— 那份 runbook 是從 code 讀出來的推導,
+**②(演練)沒跑之前,本條【不算補齊】,只算「有文件了」。**
+🔴 **不要把「runbook 已存在」讀成這一格已打勾** —— 那正是報價單「全部重新登入」機制的形狀:
+文件寫得好好的,而 Edge Config 實查只有一筆 `hello world`,**功能從未被執行過**。
 
 ---
 
