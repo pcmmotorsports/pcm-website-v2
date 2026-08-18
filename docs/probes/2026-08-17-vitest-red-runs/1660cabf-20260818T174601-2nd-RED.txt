@@ -1,0 +1,45 @@
+# 1660cabf-20260818T174601-第二發-RED — 同一顆 sha 立刻重跑,症狀 A 換了一個檔
+
+搶救人:G1,2026-08-18 17:5x CST。**與 1660cabf-20260818T173801-83518-RED.txt 是同一顆 sha 的兩發。**
+🔴 這一發**不是**用 `scripts/dev-four-greens.sh` 跑的(直接 `TURBO_FORCE=1 pnpm test`)
+   ⇒ **沒有 RUN-CONTEXT、沒有 runq.samples、沒有並行數** —— 那三樣這一發拿不出來,不是漏貼。
+   ⇒ 它也因此**沒有**產生新的 `logs/four-greens/<目錄>`,第一發仍是最新那一發(DRIFT 判準沒被動到)。
+
+## 兩發並排(這才是這一份的價值)
+```
+                第一發 17:38:01              第二發 17:46:01
+四項            typecheck0 lint0 build0       只跑 vitest（前三項同顆 sha 已 rc=0）
+vitest rc       1                             1
+紅              7 格 / 1 個檔                 1 格 / 1 個檔
+紅在哪          ForgotPasswordPage.test.tsx   MobileCatalogUxPreview.test.tsx
+                （第二發它全過）               （第一發它全過）
+症狀            A 逾時 5310ms + 帶壞同檔 6 格  A 逾時 5060ms（超過門檻 60 毫秒）
+passed          8721                          8727
+總格數          8733                          8733
+Duration        221.92s                       164.02s
+```
+🔴 **兩發交叉互證:各自紅的那個檔在另一發是綠的** ⇒ **不是那兩個檔壞了。**
+🔴 **而「重跑就會綠」在這一發【不成立】** —— 它只是換了一個檔紅。
+   ⇒ 對 #618「不為了湊綠一直重跑」那條的實錘:**重跑不是通往綠的路,它是換一個地方紅。**
+
+## 第二發的逐字
+```
+Test Files  1 failed | 526 passed | 1 skipped (528)
+     Tests  1 failed | 8727 passed | 2 expected fail | 2 skipped | 1 todo (8733)
+  Duration  164.02s
+
+FAIL |storefront| apps/storefront/src/app/dev-preview/mobile-catalog-ux/MobileCatalogUxPreview.test.tsx
+     > MobileCatalogUxPreview > 分類與商品篩選使用不同面板，商品篩選不重新選車
+Error: Test timed out in 5000ms.
+ ❯ MobileCatalogUxPreview.test.tsx:49:3
+     49|   it('分類與商品篩選使用不同面板，商品篩選不重新選車', () => {
+     50|     render(<MobileCatalogUxPreview />);
+```
+⚠️ 同一份輸出裡另有一段 `Not implemented: window.scrollTo` 的堆疊,指向
+   `catalog-navigation.ts:34` ← `CheckoutView.tsx:269` —— **那是別的檔印的噪音,不是本格的失敗原因**
+   (本格的原因是上面那句 `Test timed out in 5000ms`)。**同款噪音在 26c49369 那份樣本裡也有。**
+
+## 🔴 我停在這裡,沒有跑第三發
+依據 #618 條目自己寫的「**不為了湊綠一直重跑**」,以及 00-work-rules「同一件事最多重試 2 輪」。
+⇒ **落筆當下,涵蓋 dev `1660cabf` 那 31 顆未推 commit 的【乾淨四綠】不存在。**
+   有的是:typecheck / lint / build 三項 rc=0(第一發,同顆 sha)+ vitest 兩發都紅在不同的單格。
