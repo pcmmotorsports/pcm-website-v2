@@ -71,49 +71,58 @@ export function useFavorites(): FavoritesContextValue {
 export function FavoritesProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+
+  /** 畫面上的收藏(樂觀值:客人按下去的當下就變)。 */
   const [handles, setHandles] = useState<Set<string>>(() => new Set());
   /**
-   * 🔴 **存的是 user id,不是 `isAuthed` 布林**(codex 對抗審查 must-fix 1)。
+   * 🔴 **存的是 user id,不是 `isAuthed` 布林**(codex R1 must-fix 1)。
    * 原本存布林 ⇒ **A 帳號直接切成 B 帳號時,它從 `true` 變 `true`**
    * ⇒ 載入清單那個 effect **不會重跑** ⇒ **B 看到的是 A 的紅心。**
-   * ⚠️ 它不會讓 B 動到 A 的資料(那一層是 server session + RLS 守的),
-   *   但畫面會對 B 說謊 —— 而那正是本片要治的病。
    */
   const [userId, setUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  /** 非同步回來時要問「現在還是同一個人嗎」,而 state 在 closure 裡是舊的 ⇒ 用 ref 讀當下值。 */
+  /**
+   * 非同步回來時要問「現在還是同一個人嗎」,而 state 在 closure 裡是舊的 ⇒ 用 ref 讀當下值。
+   * 🔴 **在 effect 裡寫、不在 render 期間寫**(codex R2 must-fix 4):
+   *   render 期間改 ref 是 React 明文的 side effect —— 併發 render 下,
+   *   一個**還沒 commit、甚至最後被丟掉**的 render 會先把它改掉,
+   *   讓還在畫面上的舊請求被誤判成「換人了」而跳過該做的退回。
+   */
   const userIdRef = useRef<string | null>(null);
-  userIdRef.current = userId;
+  useEffect(() => {
+    userIdRef.current = userId;
+  }, [userId]);
 
   /**
    * 🔴 **同一個 tick 裡連按兩下時,`handles` 這個 state 還沒更新**
-   * ⇒ 若用它算「現在是不是已收藏」,第二下會**再算一次「還沒收藏」⇒ 又送一個 add**
-   * ⇒ 客人連按兩下,期待是「加了又取消」,實際是**留在已收藏**。
-   * (2026-08-18 真瀏覽器實測到這個:連按兩下 ⇒ `aria-pressed` 停在 `true`。)
-   * ⇒ 用 ref 當**當下真值**,按下的瞬間就更新它 ⇒ 第二下讀到的是第一下的結果。
+   * ⇒ 若用它算「現在是不是已收藏」,第二下會再算一次「還沒收藏」⇒ 又送一個 add
+   * ⇒ 客人連按兩下,期待「加了又取消」,實際**留在已收藏**
+   * (2026-08-18 真瀏覽器實測到這個:連按兩下 ⇒ `aria-pressed` 停在 `true`)。
    */
   const handlesRef = useRef<Set<string>>(handles);
 
   /**
-   * 客人按了幾次(codex must-fix 2;我同輪自己也抓到、修法相同)。
-   * 登入後那趟「載入既有收藏」要跑一小段時間,而客人**在它回來之前就按了愛心**的話,
-   * 晚回來的清單會把他剛按的那顆**蓋掉** ⇒ 畫面退回未收藏,而 DB 裡其實已經寫進去了。
-   * ⇒ 做法:載入開始前記下計數,回來時**如果有人動過就整份丟掉**(下次重整自然會對)。
-   * ⚠️ 不用「合併」解:合併會讓載入期間的**取消**被那份舊清單復活,那是反方向的同一種病。
+   * 🔴🔴 **這三個 ref 是 codex R2 四條 must-fix 的共同修法** —— 從「補丁式退回」換成
+   * 一個**會收斂的狀態機**。R2 打破的正是補丁式退回:
+   * ```
+   * 舊做法：每次操作記住「我按之前是什麼」，失敗時把那個差量套回去
+   * 破法（R2 finding 1）：連按三下 add→remove→add，第一個 add 失敗時，
+   *   它的退回會把【第三下留下的紅心】刪掉；後面成功的 add 只改 DB 不改畫面
+   *   ⇒ DB 有收藏、畫面沒有。而客人看不出來。
+   * ```
+   * 新做法(三個值,語意清楚):
+   * - `desired`   客人**最後一次**的意思(每按一下就覆蓋,不排隊)
+   * - `confirmed` **server 確認過**的狀態(只有成功回來才動)
+   * - `running`   這個商品有沒有 worker 在跑(同一個商品同時只有一支在送)
+   * worker 迴圈:只要 `desired !== confirmed` 就送一發;成功就更新 confirmed;
+   * 失敗就**把畫面拉回 confirmed**(不是拉回某個差量)並報錯。
+   * ⇒ 不論客人按幾下、哪幾發失敗,**畫面最後一定等於 confirmed 或等於 desired**,
+   *   不會停在一個「兩邊都不是」的中間態。
    */
-  const toggleCount = useRef(0);
-
-  /**
-   * 每個商品自己的一條佇列(codex 對抗審查 must-fix 3)。
-   * 🔴 病:同一顆愛心快速開→關,`add` 與 `remove` 會**同時在路上**;
-   *   若 `remove` 先到、`add` 後到,**兩個都成功**,而 DB 最後是「有收藏」、畫面是「沒收藏」。
-   *   ⚠️ 既有的雙擊測試只證明「不報錯」,**沒有證明最終狀態一致** —— codex 這句是對的。
-   * ⇒ 做法:同一個 handle 的操作**串成一條鏈**,後一個等前一個結束才送
-   *   ⇒ 到達順序 = 按下順序 ⇒ DB 的最終狀態 = 客人最後一次的意思。
-   * ponytail: 一個 Map 的 promise 鏈;跨分頁一致要別的機制(那是 realtime 的題目,不在本片)。
-   */
-  const queues = useRef(new Map<string, Promise<unknown>>());
+  const desiredRef = useRef(new Map<string, boolean>());
+  const confirmedRef = useRef(new Set<string>());
+  const runningRef = useRef(new Set<string>());
 
   // 會員態:鏡像 `Header.tsx` 的 onAuthStateChange 慣例(訂閱後即 emit INITIAL_SESSION、
   // 讀本地 session 不打網路)⇒ 未登入的訪客**不會**因為本 Provider 多打一趟 server action。
@@ -137,21 +146,24 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
   // 登入(或換人)後載入那個人的收藏;登出清空。
   // 🔴 `userId` 進 deps ⇒ **換帳號會重跑**(存布林的舊版不會,見上)。
   useEffect(() => {
+    userIdRef.current = userId;
     handlesRef.current = new Set();
+    confirmedRef.current = new Set();
+    desiredRef.current.clear();
+    runningRef.current.clear();
     setHandles(new Set());
-    queues.current.clear();
     setError(null);
     if (!userId) return;
     let active = true;
-    const startedAt = toggleCount.current;
     actions()
       .then((m) => m.listFavoriteHandlesAction())
       .then((list) => {
-        // 載入期間客人動過、或人已經換了 ⇒ 丟掉這份(它已經過期)。
-        if (active && userIdRef.current === userId && toggleCount.current === startedAt) {
-          handlesRef.current = new Set(list);
-          setHandles(new Set(list));
-        }
+        // 🔴 載入期間客人已經動過(desired 有東西)、或人已經換了 ⇒ 丟掉這份,它已經過期。
+        //   套下去會蓋掉他剛按的那顆 ⇒ 畫面說沒收藏、DB 說有(codex R1 must-fix 2)。
+        if (!active || userIdRef.current !== userId || desiredRef.current.size > 0) return;
+        confirmedRef.current = new Set(list);
+        handlesRef.current = new Set(list);
+        setHandles(new Set(list));
       })
       .catch(() => {
         // 讀不到就當作空的(愛心顯示為未收藏);使用者一按仍會走 server、不會寫壞資料。
@@ -170,43 +182,71 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         router.push(`/login?next=${encodeURIComponent(pathname || '/')}`);
         return;
       }
-      toggleCount.current += 1;
-      // 🔴 讀 ref 不讀 state(見 `handlesRef` 的說明):同 tick 連按兩下才會真的一開一關。
-      const wasFavorite = handlesRef.current.has(handle);
+      const owner = userId;
+      // 🔴 讀 ref 不讀 state(見 `handlesRef`):同 tick 連按兩下才會真的一開一關。
+      const want = !handlesRef.current.has(handle);
+      desiredRef.current.set(handle, want);
+
       // 樂觀更新:先動畫面,ref 同步跟上。
       const optimistic = new Set(handlesRef.current);
-      if (wasFavorite) optimistic.delete(handle);
-      else optimistic.add(handle);
+      if (want) optimistic.add(handle);
+      else optimistic.delete(handle);
       handlesRef.current = optimistic;
       setHandles(optimistic);
       setError(null);
 
-      const owner = userId;
-      /** 失敗時把畫面退回去(只在還是同一個人的時候)。 */
-      const rollback = () => {
-        if (userIdRef.current !== owner) return;
-        const reverted = new Set(handlesRef.current);
-        if (wasFavorite) reverted.add(handle);
-        else reverted.delete(handle);
-        handlesRef.current = reverted;
-        setHandles(reverted);
-        // 🔴 **只顯示固定文案**(codex must-fix 5):原本顯示 `e.message`,而動態 import 失敗的
-        //   訊息裡會帶著 chunk 網址 / 模組路徑 —— 那是講給工程師聽的,不該出現在客人畫面上。
-        setError(FAILED_MESSAGE);
+      /** 把某一個商品的畫面拉回「server 確認過的樣子」(失敗時用;不是套差量)。 */
+      const resyncFromConfirmed = () => {
+        const fixed = new Set(handlesRef.current);
+        if (confirmedRef.current.has(handle)) fixed.add(handle);
+        else fixed.delete(handle);
+        handlesRef.current = fixed;
+        setHandles(fixed);
       };
 
-      const run = async () => {
-        const m = await actions();
-        const res = await (wasFavorite ? m.removeFavoriteAction : m.addFavoriteAction)(handle);
-        // 🔴 回來時人已經換了(或登出了)⇒ **什麼都不做**(codex must-fix 4):
-        //   否則 A 的失敗會把 A 的紅心 rollback 到 B 的畫面上。
-        if (userIdRef.current !== owner) return;
-        if (!('ok' in res)) rollback();
-      };
+      // 同一個商品同時只有一支 worker(codex R1 must-fix 3:add 與 remove 不得同時在路上)。
+      if (runningRef.current.has(handle)) return;
+      runningRef.current.add(handle);
 
-      // 同一個 handle 串一條鏈(must-fix 3);前一環無論成功失敗都要接下去,鏈不能斷。
-      const prev = queues.current.get(handle) ?? Promise.resolve();
-      queues.current.set(handle, prev.then(run, run).catch(rollback));
+      void (async () => {
+        try {
+          const m = await actions();
+          // 只要還有落差就繼續送;客人中途再按,改的是 desired,這個迴圈自然會追上去。
+          while (desiredRef.current.get(handle) !== confirmedRef.current.has(handle)) {
+            // 🔴 **送出【之前】就要問是不是同一個人**(codex R2 must-fix 2):
+            //   排進佇列但還沒送出的操作,若在換帳號之後才送,
+            //   server action 會照**當下的 session** 寫進去 ⇒ **寫到 B 的收藏裡**。
+            if (userIdRef.current !== owner) return;
+            const next = desiredRef.current.get(handle)!;
+            const res = await (next ? m.addFavoriteAction : m.removeFavoriteAction)(handle, owner);
+            // 回來時人已經換了 ⇒ 什麼都不做(codex R1 must-fix 4):
+            // 否則 A 的失敗會把 A 的紅心退回到 B 的畫面上。
+            if (userIdRef.current !== owner) return;
+            if ('ok' in res) {
+              if (next) confirmedRef.current.add(handle);
+              else confirmedRef.current.delete(handle);
+              continue;
+            }
+            // 失敗:畫面拉回 confirmed(不是套差量)+ 講出來 + 放棄這個 desired。
+            desiredRef.current.delete(handle);
+            resyncFromConfirmed();
+            setError(FAILED_MESSAGE);
+            return;
+          }
+        } catch {
+          // 動態 import / 網路層爆掉:同樣拉回 confirmed。
+          // 🔴 **只顯示固定文案**(codex R1 must-fix 5):例外訊息裡可能帶 chunk 網址或模組路徑,
+          //   那是講給工程師聽的,不該出現在客人畫面上。
+          if (userIdRef.current !== owner) return;
+          desiredRef.current.delete(handle);
+          resyncFromConfirmed();
+          setError(FAILED_MESSAGE);
+        } finally {
+          // 🔴 收掉,不留(codex R2 must-fix 3:舊版的 Map 只增不減、每碰一個新商品就多一條)。
+          runningRef.current.delete(handle);
+          desiredRef.current.delete(handle);
+        }
+      })();
     },
     [pathname, router, userId],
   );

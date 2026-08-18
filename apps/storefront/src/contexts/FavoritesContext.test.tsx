@@ -34,13 +34,20 @@ vi.mock('@/lib/supabase/browser', () => ({
   }),
 }));
 
+type ActionResult = { ok: true } | { error: string };
 const listFavoriteHandlesAction = vi.fn(async () => ['already-fav']);
-const addFavoriteAction = vi.fn(async (_h: string) => ({ ok: true }) as { ok: true } | { error: string });
-const removeFavoriteAction = vi.fn(async (_h: string) => ({ ok: true }) as { ok: true } | { error: string });
+// 🔴 第二個參數(expectedUserId)要**原樣轉進去** —— 少了它,守「換帳號那一發」的那格
+//   會拿到 undefined 而永遠紅,而病根在測試的 mock、不在 code(2026-08-18 真的踩到)。
+const addFavoriteAction = vi.fn(
+  async (_h: string, _owner?: string) => ({ ok: true }) as ActionResult,
+);
+const removeFavoriteAction = vi.fn(
+  async (_h: string, _owner?: string) => ({ ok: true }) as ActionResult,
+);
 vi.mock('@/app/account/favorites/actions', () => ({
   listFavoriteHandlesAction: (...a: []) => listFavoriteHandlesAction(...a),
-  addFavoriteAction: (h: string) => addFavoriteAction(h),
-  removeFavoriteAction: (h: string) => removeFavoriteAction(h),
+  addFavoriteAction: (h: string, owner?: string) => addFavoriteAction(h, owner),
+  removeFavoriteAction: (h: string, owner?: string) => removeFavoriteAction(h, owner),
 }));
 
 import { FavoritesProvider, useFavorites } from './FavoritesContext';
@@ -115,7 +122,7 @@ describe('FavoritesContext', () => {
     await act(async () => {
       heart().click();
     });
-    expect(addFavoriteAction).toHaveBeenCalledWith('probe-1');
+    expect(addFavoriteAction).toHaveBeenCalledWith('probe-1', 'u-1');
     expect(heart().getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -147,7 +154,7 @@ describe('FavoritesContext', () => {
       heart().click();
     });
     await waitFor(() => expect(heart().getAttribute('aria-pressed')).toBe('true'));
-    expect(removeFavoriteAction).toHaveBeenCalledWith('already-fav');
+    expect(removeFavoriteAction).toHaveBeenCalledWith('already-fav', 'u-1');
   });
 
   it('🔴 登出 → 清空(下一個人不該看到上一個人的紅心)', async () => {
@@ -189,19 +196,34 @@ describe('FavoritesContext', () => {
     expect(listFavoriteHandlesAction).toHaveBeenCalledTimes(2);
   });
 
-  it('🔴 must-fix 3:同一顆快速開→關 ⇒ 兩支 action【依序】送出(不得同時在路上)', async () => {
-    const order: string[] = [];
-    let releaseAdd: () => void = () => {};
-    addFavoriteAction.mockImplementation(
-      () =>
-        new Promise((r) => {
-          order.push('add-start');
-          releaseAdd = () => {
-            order.push('add-end');
-            r({ ok: true });
-          };
-        }),
+  it('🔴 must-fix 3-a:同一 tick 連按兩下(開→關)⇒ 淨結果是【沒收藏】,而且【一發都不必送】', async () => {
+    render(
+      <FavoritesProvider>
+        <Heart />
+      </FavoritesProvider>,
     );
+    await login();
+    await act(async () => {
+      heart().click(); // 想要收藏
+      heart().click(); // 又不要了
+    });
+    await waitFor(() => expect(heart().getAttribute('aria-pressed')).toBe('false'));
+    // 🔴 狀態機比對的是「客人最後的意思」與「server 確認過的狀態」——
+    //   兩邊都是「沒收藏」⇒ 根本沒有落差 ⇒ 不送任何請求。
+    //   (舊的排隊版會送 add 再送 remove,兩趟網路換一個沒變的結果。)
+    expect(addFavoriteAction).not.toHaveBeenCalled();
+    expect(removeFavoriteAction).not.toHaveBeenCalled();
+  });
+
+  it('🔴 must-fix 3-b:前一發還在路上時再按 ⇒ 第二發要等它結束才送(不得同時在路上)', async () => {
+    const order: string[] = [];
+    let releaseAdd: (v: { ok: true }) => void = () => {};
+    addFavoriteAction.mockImplementation(() => {
+      order.push('add-start');
+      return new Promise((r) => {
+        releaseAdd = (v) => { order.push('add-end'); r(v); };
+      });
+    });
     removeFavoriteAction.mockImplementation(async () => {
       order.push('remove-start');
       return { ok: true };
@@ -213,18 +235,105 @@ describe('FavoritesContext', () => {
     );
     await login();
     await act(async () => {
-      heart().click(); // add
-      heart().click(); // remove
+      heart().click(); // add 送出去
     });
-    // add 還沒回來 ⇒ remove 不得已經送出去
+    await waitFor(() => expect(order).toEqual(['add-start']));
+    await act(async () => {
+      heart().click(); // add 還沒回來就再按一次
+    });
     expect(order, 'remove 在 add 還沒結束就送出去了 ⇒ 到達順序無保證').toEqual(['add-start']);
     await act(async () => {
-      releaseAdd();
-      await Promise.resolve();
+      releaseAdd({ ok: true });
     });
     await waitFor(() => expect(order).toEqual(['add-start', 'add-end', 'remove-start']));
+    await waitFor(() => expect(heart().getAttribute('aria-pressed')).toBe('false'));
     addFavoriteAction.mockImplementation(async () => ({ ok: true }));
     removeFavoriteAction.mockImplementation(async () => ({ ok: true }));
+  });
+
+  it('🔴 R2 must-fix 1:add 失敗、期間客人又按了兩下 ⇒ 畫面不得停在「DB 有、畫面沒有」', async () => {
+    // 第一發 add 失敗;失敗的當下,客人已經按到「想要收藏」。
+    let failAdd: (v: { error: string }) => void = () => {};
+    addFavoriteAction.mockImplementation(
+      () => new Promise((r) => { failAdd = r; }),
+    );
+    render(
+      <FavoritesProvider>
+        <Heart />
+      </FavoritesProvider>,
+    );
+    await login();
+    await act(async () => {
+      heart().click(); // add(送出)
+    });
+    await act(async () => {
+      heart().click(); // remove(改 desired)
+      heart().click(); // add(改 desired)
+    });
+    expect(heart().getAttribute('aria-pressed')).toBe('true');
+    await act(async () => {
+      failAdd({ error: '存不起來' });
+    });
+    // 🔴 失敗 ⇒ 畫面拉回【server 確認過的狀態】(沒收藏),不是套某一次的差量。
+    await waitFor(() => expect(heart().getAttribute('aria-pressed')).toBe('false'));
+    expect(screen.getByRole('alert').textContent).toContain('收藏沒有存成功');
+    addFavoriteAction.mockImplementation(async () => ({ ok: true }));
+  });
+
+  it('🔴 R2 must-fix 2:換帳號後【還沒送出】的那一發 ⇒ 不得寄到新帳號名下', async () => {
+    let releaseAdd: (v: { ok: true }) => void = () => {};
+    const seen: (string | undefined)[] = [];
+    addFavoriteAction.mockImplementation((_h: string, owner?: string) => {
+      seen.push(owner);
+      return new Promise((r) => { releaseAdd = r; });
+    });
+    render(
+      <FavoritesProvider>
+        <Heart />
+      </FavoritesProvider>,
+    );
+    await login('u-1');
+    await act(async () => {
+      heart().click();
+    });
+    await waitFor(() => expect(seen).toHaveLength(1));
+    // 🔴 送出去時就帶著 owner ⇒ server 那端還有一道「對不上就拒絕」。
+    expect(seen[0], 'action 沒帶 expectedUserId ⇒ server 那道否決不會生效').toBe('u-1');
+    await act(async () => {
+      heart().click(); // 製造第二發(還沒送)
+    });
+    await login('u-2'); // 換人
+    await act(async () => {
+      releaseAdd({ ok: true }); // 第一發現在才回來
+    });
+    // 第二發不得送出(owner 已經不是 u-1)
+    expect(seen, '換帳號後那一發還是送出去了').toHaveLength(1);
+    addFavoriteAction.mockImplementation(async () => ({ ok: true }));
+  });
+
+  it('🔴 R2 must-fix 3:佇列跑完要收乾淨(不得每碰一個新商品就永久多留一條)', async () => {
+    const { container } = render(
+      <FavoritesProvider>
+        <Heart handle="a" />
+      </FavoritesProvider>,
+    );
+    await login();
+    await act(async () => {
+      container.querySelector('button')!.click();
+    });
+    await waitFor(() => expect(addFavoriteAction).toHaveBeenCalled());
+    // 再按一次同一個 ⇒ 若上一輪沒收乾淨,worker 會以為還在跑而不啟動 ⇒ 這一發永遠不會送。
+    addFavoriteAction.mockClear();
+    removeFavoriteAction.mockClear();
+    await act(async () => {
+      container.querySelector('button')!.click();
+    });
+    await waitFor(() =>
+      expect(
+        removeFavoriteAction,
+        '第二輪沒送出 ⇒ running/desired 沒被收掉,worker 卡住了',
+      ).toHaveBeenCalledWith('a', 'u-1'),
+    );
   });
 
   it('🔴 must-fix 4:回應在【登出之後】才到 ⇒ 不得把上一個人的紅心 rollback 到畫面上', async () => {

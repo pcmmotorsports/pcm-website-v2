@@ -42,6 +42,19 @@ export type FavoriteActionResult = { ok: true } | { error: string };
 /** 未登入 / 查無商品的共用文案(不洩 Supabase 原始 error)。 */
 const ERR_AUTH = '請重新登入';
 const ERR_SAVE = '收藏沒有存成功,請再試一次';
+/**
+ * 🔴 **換帳號中途才送到的那一發**(codex 對抗審查 R2 must-fix 2)。
+ *
+ * 客人按了愛心 ⇒ 那一發還在路上 ⇒ 他**換了帳號** ⇒ 這一發才抵達 server。
+ * 這支 action 的 `customerUserId` 一律取自**當下的 session**(那是對的、也不能改),
+ * ⇒ 少了下面那道比對,**A 按的收藏會寫進 B 的帳號裡**。
+ *
+ * ⚠️ **`expectedUserId` 是 client 送的、不可信** —— 所以它**只用來否決,不用來授權**:
+ * 對不上就拒絕,對得上也不代表什麼(真正決定寫進誰名下的,還是 server 自己的 `getUser()`)。
+ * ⇒ 這個參數**只會讓寫入變少、不會變多**,偽造它拿不到任何東西。
+ * 🔴 client 端也有一道(送出前比對),但那道**擋不住已經在路上的**;這一道才是最後那格。
+ */
+const ERR_SWITCHED = '帳號已變更,請重新操作';
 
 /**
  * 取本次 request 的登入者 id;未登入回 null。
@@ -86,10 +99,18 @@ export async function listFavoriteHandlesAction(): Promise<string[]> {
   }
 }
 
-/** 加入收藏(冪等 —— adapter 走 `ON CONFLICT DO NOTHING`,重複收藏同一件不算錯)。 */
-export async function addFavoriteAction(handle: string): Promise<FavoriteActionResult> {
+/**
+ * 加入收藏(冪等 —— adapter 走 `ON CONFLICT DO NOTHING`,重複收藏同一件不算錯)。
+ *
+ * `expectedUserId` 見 `ERR_SWITCHED` 的說明。
+ */
+export async function addFavoriteAction(
+  handle: string,
+  expectedUserId?: string,
+): Promise<FavoriteActionResult> {
   const userId = await currentUserId();
   if (!userId) return { error: ERR_AUTH };
+  if (expectedUserId && expectedUserId !== userId) return { error: ERR_SWITCHED };
   const productId = await resolveProductId(handle);
   if (!productId) return { error: ERR_SAVE };
   try {
@@ -102,9 +123,13 @@ export async function addFavoriteAction(handle: string): Promise<FavoriteActionR
 }
 
 /** 取消收藏(同樣冪等 —— 刪一個本來就不在的,PostgREST 回 204、不是錯)。 */
-export async function removeFavoriteAction(handle: string): Promise<FavoriteActionResult> {
+export async function removeFavoriteAction(
+  handle: string,
+  expectedUserId?: string,
+): Promise<FavoriteActionResult> {
   const userId = await currentUserId();
   if (!userId) return { error: ERR_AUTH };
+  if (expectedUserId && expectedUserId !== userId) return { error: ERR_SWITCHED };
   const productId = await resolveProductId(handle);
   if (!productId) return { error: ERR_SAVE };
   try {
