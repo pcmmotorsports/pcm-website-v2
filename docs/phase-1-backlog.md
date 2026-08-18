@@ -19548,10 +19548,23 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
     grep -n 'hover: *hover' apps/storefront/src/styles/*.css
       ⇒ 只命中 apps/storefront/src/styles/header.css:153
       ⇒ apps/storefront/src/styles/product-card.css 【零命中】
-    grep -c 'hover' apps/storefront/src/styles/product-card.css   ⇒ 13
+    grep -c 'hover' apps/storefront/src/styles/product-card.css   ⇒ 15
       ← 正向對照:這把尺對該檔量得到東西，零命中不是尺壞掉
     ```
-  - ⇒ 該檔的每一條 hover 態(`:39` `:91` `:143` `:159` `:237` 等,共 13 個 `hover` 字面)
+  - 🔴 **那個 `15` 不是「15 條 hover 規則」,而且它會漂 —— 更正如下(2026-08-18 立案當天發現):**
+    ```
+    立案時我寫 13。回頭重跑 ⇒ 15。
+    🔴 成因是我自己:0a7988c9 在同一支檔加了一大段【含 hover 字樣的註解】
+       ⇒ 我修好那個 bug 之後，我的量法把我自己寫的註解算了進去。
+    剝掉註解重數（python3 re.sub(r'/\*[\s\S]*?\*/','',src)）:
+      含註解 15 行 ／ 剝註解後【7 行】  ← 這 7 行才是真正的 hover 規則
+      剝註解後 `hover: *hover` 命中 ⇒ 仍然 0（主張不受影響）
+    ```
+    ⇒ **主張成立(該檔零 `hover: hover`),而分母要用 7。**
+    ⚠️ MAIN 裁「現在不做」時引的是「13 處」——**正確是 7 條規則**;
+    它的理由(視覺回歸面大、只有 Sean 驗得了)在 7 條下仍然成立,但**引用時請用 7**。
+  - ⇒ 該檔的每一條 hover 態(`.pcard:hover::before` / `img-wrap::after` / `.pcard-heart` /
+    `.pcard-dots` / `.pcard-name` 等,**剝註解後 7 行**)
     在**觸控裝置上都是「存在但永遠不會發生」的狀態**。
 - 🔴 **為什麼這是【產生器】不是另一件小事:**
   - 2026-08-18 修掉的那個陷阱(`.pcard-heart` 看不見卻吃點擊,`0a7988c9`)是這個結構的**產物**:
@@ -19581,7 +19594,7 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
   - **bug 可追蹤性:** 這族 bug **對每一道既有檢查都是隱形的**
     (typecheck / lint / build / vitest 全綠,畫面上也看不出來 —— 它本來就看不見)
     ⇒ 唯一抓得到的是真瀏覽器逐點 `elementFromPoint`,而那不在 CI 裡。
-- **估時:** ~45-90 min ⚠️ **這是估的、不是量的**(13 處 hover 逐一分類 + 視覺回歸 + Sean 肉眼驗)
+- **估時:** ~45-90 min ⚠️ **這是估的、不是量的**(7 條 hover 規則逐一分類 + 視覺回歸 + Sean 肉眼驗)
 - **依賴:** 無技術依賴;**卡在「Sean 能肉眼驗視覺回歸」這個條件**
 - **發現於:** 2026-08-18 / G3 查 favorites 的鐵則 1 前置時,grep `design-reference` 撈到 `HANDOFF-DETAILS.md:468`
 - **相關:** `0a7988c9`(修掉症狀的那一片)、`apps/storefront/src/styles/invisible-tap-targets.test.ts`(守門與其天花板)、
