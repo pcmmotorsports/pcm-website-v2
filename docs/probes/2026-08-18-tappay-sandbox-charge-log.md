@@ -262,6 +262,72 @@ payment_charge_attempts 裡有沒有 WCYCW5 / Z6QDV9 這兩張單的列?
 現有留痕全部不動:WCYCW5 / Z6QDV9 / 測試帳號 / 那筆地址 / TapPay 沙盒 D202608199JvV9j
 ```
 
+## 🔴 第 4 輪:隔離閘那條**收掉了** —— 08-12 那筆是【帶著它】刷成功的(推論,不是直接觀察)
+
+主視窗轉 Sean 逐字:「8/12 `9G5Y6V`, 這一筆確定可以跳到 3D 驗證,就表示可以刷卡成功」
+⇒ 08-12 正式站走到了 3DS ⇒ 那一筆的 `begin_charge_attempt` **過了**。
+要判斷它是不是「帶著隔離閘」過的,就要知道 `20260809210000` 什麼時候 apply。
+
+### 🔴 第一個答案:帳本【查得到那一列,而那一列答不出這題】
+```
+pattern:grep -n "20260809210000" supabase/APPLIED.tsv
+命中 1 列(第 154 行),而第 3 欄逐字是 `backfill` —— **不是日期**。
+```
+`backfill` = 事後補登,不是 apply 當下觀察到的。⇒ **這一欄在兩個世界會印同一個東西。**
+```
+分布(分母與 pattern 都在):grep -vE '^#|^$' supabase/APPLIED.tsv | cut -f3 | sort | uniq -c | sort -rn
+  ⇒ backfill 159 / 帶真日期 25 / 分母 184
+負向對照(證明這把尺分得出兩種世界):帶 `^2026-` 日期格式的列數 = 25 ≠ 0
+  ⇒ 帳本【有能力】記真日期,只是我們要的那一列沒有。
+```
+
+### ✅ 第二個答案:繞過那一欄,用【順序】推出來
+```
+打法:列出「帶真日期、且版本號大於 20260809210000」的列
+grep -vE '^#|^$' supabase/APPLIED.tsv | awk -F'\t' '$3 ~ /^2026-/ && $1 > 20260809210000 {print $1, $3}' | sort | head
+⇒ 最早的兩列:
+   20260811110000  2026-08-11
+   20260811120000  2026-08-11
+```
+🔴 **`db push` 依版本號順序套用、不會跳過更早的未套用版本**
+⇒ `20260811110000` 在 **08-11** 被觀察到 apply
+⇒ 版本更小的 `20260809210000` 必定在 **08-11 或更早**就 apply 了
+⇒ **早於 08-12。**
+
+### ⇒ 這條收掉
+```
+08-12 那筆 9G5Y6V 是【帶著這道隔離閘、帶著這個版本的 begin_charge_attempt】刷成功的
+⇒ 正式站不受它擋 ⇒ 🔴 **本機環境差異,不是產品 bug**
+⇒ 而且它比隔離閘那一條更廣:**整支 begin_charge_attempt 的這個版本在正式站是work 的**,
+   所以壞的不是那支 SQL 的邏輯,是【我這條連線 / 這個本機環境】。
+```
+⚠️ **這是推論,不是直接觀察**,依賴兩件事,引用時要一起帶:
+```
+① 08-11 那兩列的日期是準的(它們是 25 筆帶真日期的其中兩筆,不是 backfill)
+② supabase db push 的順序語意(依版本號、不跳過)
+🔴 我【沒有】直接觀察到 20260809210000 的 apply 時刻 —— 那個時刻沒有被任何人記下來。
+```
+
+### 順帶關掉另一條:「也許正式站走的是同步路徑、不走 3DS」這個假設**是死的**
+```
+我原本想:local 的 TAPPAY_3DS_ENABLED=true,而 STATUS.md:34 自陳 prod 那個值
+「是 Sean 說的、沒有人親眼看過 Vercel 面板」⇒ 也許 prod 走同步路徑、繞開這條?
+🔴 不成立:同步路徑【也】呼 attempts.begin
+   證據:packages/use-cases/src/confirm-payment.ts:48 `const lock = await attempts.begin(orderId);`
+   (3DS 路徑那支在 packages/use-cases/src/initiate-payment.ts:55)
+⇒ **兩條路都會經過 begin** ⇒ 那個 flag 是 true 是 false,對本案不生影響。
+```
+
+### 順帶:未推的那批**沒有動到**這條路的關鍵處
+```
+打法:git diff --stat origin/dev..dev -- <charge-actions / lib/payment / initiate-payment / adapters/payment / migrations>
+⇒ 動到的是:charge-actions.ts(+36/-7)、cardholder.ts(+18)、三支新 migration
+   讀 diff 內容:B-4 通知信收件人無條件送第 9 參 + PGRST202/42883 的除錯 log + cardholder 多回一個 addressEmail
+⇒ **都不在 begin 這條路上**,而且 9 參 create_order 對正式庫【實際成功了】(單建得出來)
+⚠️ 這只說「這幾支檔的 diff 不像元兇」,**不等於**「未推的 dev 可以推」——
+   那題要靠一次刷得過的實測才答得出來,而現在刷不過。
+```
+
 ## 已知天花板(每次報告都要帶,不因為刷成功而拿掉)
 ```
 · 3DS 態 -1 ERROR 在沙盒【構造不出來】—— 這不是我這一班量的,出處是 backlog #353
