@@ -184,6 +184,29 @@ describe('同客人閘 — 行為', () => {
     expect(after[2]!.disabled, '別的客人的框沒有變灰 ⇒ 員工會勾下去、然後被 DB 退件').toBe(true);
   });
 
+  it('🔴 #643 A ②:框變灰的同時,理由要出現在【畫面文字】裡(不是只有 title/aria-label)', () => {
+    renderTwo();
+    const [a1] = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    fireEvent.click(a1!);
+    expect((screen.getAllByRole('checkbox') as HTMLInputElement[])[2]!.disabled).toBe(true);
+    // 🔴 getByText 只撈**文字節點** —— title / aria-label 是屬性,撈不到。
+    //    這是本格判別力的第一半:把畫面上那句話刪掉 ⇒ 紅;只留屬性 ⇒ 一樣紅。
+    const line = screen.getByText(/同一位客人/);
+    expect(
+      line,
+      '別的客人的框變灰了,而畫面上沒有一個字說為什麼 ⇒ 觸控員工看到一排點不動的框',
+    ).toBeDefined();
+    // 🔴 第二半(對抗審查 2026-08-18 抓的):jsdom **不解析 Tailwind class**
+    //    ⇒ 把它改成 `sr-only` / `hidden`,上面那格照樣綠,而員工照樣看不到 ——
+    //    那正是本片要修的病。這裡改用 class 字面擋住那條路。
+    //    ⚠️ 已知天花板:字面比對擋得住這幾個 utility,擋不住任意 CSS(例如父層 `overflow:hidden`
+    //       或自訂類名把它藏掉)。**真可讀性(對比/換行)未在瀏覽器看過,見 commit body。**
+    expect(
+      line.className,
+      '那句話被改成螢幕閱讀器專用/隱藏 ⇒ 看得見的員工還是看不到',
+    ).not.toMatch(/sr-only|(^|[\s:])hidden|invisible|opacity-0/);
+  });
+
   // 🔴 **本組直接打純函式 `nextSelection`,不透過畫面。**
   //    第一版是透過畫面 `fireEvent.change` 一個 disabled 的框來模擬「繞過 disabled」——
   //    但對 disabled 的 input 發事件**根本進不到 handler**,所以那條測試綠得毫無意義:
