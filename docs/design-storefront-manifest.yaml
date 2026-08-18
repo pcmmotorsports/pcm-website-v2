@@ -311,6 +311,19 @@ components:
           以及任何不符那三個 UA 字串的行動瀏覽器。
           ⚠️ **不要對外講成「客人看到的版面壞掉」** —— 我原本的 storefront_value 就是那樣寫的,
           由 code-reviewer R1 打回。
+          🔴 **而 R1 那條與我當時的複核都只是【讀 CSS 特異度推出來的】。2026-08-18 收工前補量,
+          四個世界各跑一次,現在它是量到的:**
+          ```
+                                   修好的 CSS        舊 CSS（把移除那條原樣塞回 <head> 最後）
+            data-mobile="false"    10/380/370 ✅     10/400/390 🔴 壞  ← 桌機 UA 縮到 ≤640
+            data-mobile="true"     10/380/370 ✅     10/380/370 ✅     ← 真手機這條路，修前就沒壞
+          ```
+          SSR 那一半也雙向量過(`curl` 帶 UA 打 `/products`,抓 `data-mobile="…"`):
+          ```
+            iPhone UA  ⇒ data-mobile="true"      桌機 Chrome UA ⇒ data-mobile="false"
+          ```
+          ⇒ **「真手機修前就沒壞」是量到的,不是推的**;而右下那一格同時證明
+          **這個量法在「有 bug」的世界會印不同的東西**(左下 390 vs 右下 370)= 它有判別力。
         decided_at: "2026-08-18"
         decision_source: |
           **施工端技術判斷(非 Sean 拍板)**。理由=design 那兩條規則**互相矛盾**,
