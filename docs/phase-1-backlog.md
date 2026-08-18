@@ -19768,9 +19768,24 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
 
 - **相關**:`#631`(後台列表面)、`#634`(同一家族的 `NaN` 面,已修)、`Q-EMBED-1`(code 內原始標記,
   🔴 **23 處 code 引用而 backlog 零提及** —— 見 `#638` 同族的代號對帳問題)。
-### #649 · `item-procurement-section.tsx` 501 行越過鐵則 6 的 400 行線 —— **`#646` 當下刻意不拆的債**
+### #649 · `item-procurement-section.tsx` 501 行越過鐵則 6 的 400 行線 —— ✅ **已拆(2026-08-18 21:3x)**
 
-- **狀態:** ⏳ 待排。**由主視窗指示落檔(2026-08-18 20:0x)**,逐字:
+- **狀態:** ✅ **完成**。拆成三檔,原檔 **502 → 211 行**(回到 400 線以下):
+  ```
+  item-procurement-section.tsx   211  Section ＋ UnsourcedNotice ＋ CARD
+  item-procurement-warnings.tsx  109  三種情況的檔頭 ＋ TruncationWarning ＋ UnreadableWarning
+  item-procurement-rows.tsx      202  TH/TD ＋ VoidReasonCell ＋ ProcurementRows
+  ```
+  **驗收清單四步逐步跑過(結果寫在下面「拆完的驗收清單」那節旁)**:
+  ```
+  ① typecheck   8/8 rc=0（**第一次就過** ⇒ 沒有搬漏）
+  ② 那 48 格    48 passed（零紅 ⇒ 沒有隱性耦合）
+  ③ 🔴 class 常數 CARD/TH/TD 各只有一處定義，且**與 dev 逐字相同**（cut-paste，不是重打）
+       量法：`git show dev:<原檔> | grep "^const X = "` 與拆後三檔的同一行比對 ⇒ 三個都相同
+  ④ 對外介面   `<ItemProcurementSection` 仍只有 order-detail.tsx:265 一處，props 未變
+  ```
+  四綠:typecheck 8/8、lint 10/10、build 2/2 rc 全 0;vitest 528 files / 8764 passed。
+  ~~原狀態~~:⏳ 待排。**由主視窗指示落檔(2026-08-18 20:0x)**,逐字:
   「理由成立,寫進 commit body 就夠。🔴 **但那是債不是結論** ⇒ 開一個 backlog 條目記著,
    不要只留在 commit body(**commit body 不是會被讀到的載體**,這句今天已經證過三次)。」
 - **號:** `bash scripts/next-backlog-number.sh` ⇒ `#649`;信箱佔位掃描 ⇒ 只命中 `#660`,不撞;
