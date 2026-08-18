@@ -19223,11 +19223,26 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
 
 - **相關**:`#631`(後台列表面)、`#634`(同一家族的 `NaN` 面,已修)、`Q-EMBED-1`(code 內原始標記,
   🔴 **23 處 code 引用而 backlog 零提及** —— 見 `#638` 同族的代號對帳問題)。
-### #644 · `procurementTruncated` 一個旗標兩個世界 —— 文案已不再說謊,但還沒精準
+### #646 · `procurementTruncated` 一個旗標兩個世界 —— 文案已不再說謊,但還沒精準
+
+> 🔴 **本條原本是 `#644`,2026-08-18 17:0x 改成 `#646` —— 因為【撞號了】。**
+> G5 在 dev 上也發了 `#644`(`product_image_trim` 的 `TRUNCATE`),兩條同號。
+> **移動的是我這條**,理由:G5 那條已經在 `dev` 上(被引用的機會較多),我這條還在未併的分支上。
+> ```
+> 撞號怎麼發生的：我 16:0x 發號時跑了 next-backlog-number.sh（回 #643 已用 ⇒ 取 644）
+>                 與信箱佔位掃描（只有 #631 #636）——【兩道都跑了，而還是撞】
+> 🔴 因為那兩道都只看得到【當下已經落檔的東西】，看不到另一個窗【同一時間正在寫】的號
+>    ⇒ 腳本給的是【下限】不是【保留鎖】——memory feedback_issue-backlog-number-must-scan-mailbox-claims
+>       逐字記過這件事，而我照做了兩道仍然撞到 ⇒ **那兩道擋不住併發，只擋得住疏忽。**
+> 改號時逐處開檔改，沒有用全域 sed（同一份 memory 的另一半）。
+> ```
+> ⚠️ **`be5702fc` 的 commit body 裡寫的是「另立 `#644`」,那顆已經 commit、改不了**
+> ⇒ **看到那句的人請認本條(`#646`)**。這是已知的、不可回收的舊字面。
 
 - **提出:** G2,2026-08-18 16:0x(做 `#643` B 的文案時撞到;主視窗裁乙的**同時**指定要另立這條)。
-- **號:** `next-backlog-number.sh` ⇒ `#643` 已被我用掉 ⇒ 本條取 **`#644`**;
-  信箱佔位掃描(`grep -rn '佔位\|RESERVED #6' ~/pcm-mailbox/*.md`)⇒ 只有 `#631` `#636`,不撞。
+- **號:** 原取 `#644` ⇒ 撞號 ⇒ 改 **`#646`**(2026-08-18 17:0x 重跑
+  `bash scripts/next-backlog-number.sh` ⇒ 下一個可用號 `#646`;
+  信箱佔位掃描 ⇒ `#631` `#636` `#645`,`#646` 不撞)。
 
 ## 病:一個旗標,兩個真假相反的世界
 
@@ -19696,48 +19711,117 @@ JS 探針   inp.validationMessage ⇒ 「請符合要求的格式。」
 
 ---
 
-### #642. 🔴 `product-card.css` 沒照 design 交辦用 `@media (hover: hover)` 包 —— 這是「隱形陷阱」那一族的產生器
+### #642. `product-card.css` 與 design 那句 hover 交辦對不上 —— **文件對齊,不是病根**
 
-- **狀態:** ⏳ 待執行(2026-08-18 MAIN 裁定**現在不做**,理由見「觸發事件」)
-- **優先級:** 🟠 中(立即傷害已被 `0a7988c9` 止住;但它是**產生器**,不修會再長出新的)
-- **問題:**
-  - `design-reference/design-reference/HANDOFF-DETAILS.md:468` **逐字**寫著:
-    > 商品卡 hover translateY(-2px):**僅桌機**,手機 `:hover` 不觸發(用 `@media (hover: hover)` 包)
-  - 🔴 **本站沒有照做。** 量法(可重跑,含正向對照):
-    ```bash
-    grep -n 'hover: *hover' apps/storefront/src/styles/*.css
-      ⇒ 只命中 apps/storefront/src/styles/header.css:153
-      ⇒ apps/storefront/src/styles/product-card.css 【零命中】
-    grep -c 'hover' apps/storefront/src/styles/product-card.css   ⇒ 15
-      ← 正向對照:這把尺對該檔量得到東西，零命中不是尺壞掉
-    ```
-  - 🔴 **那個 `15` 不是「15 條 hover 規則」,而且它會漂 —— 更正如下(2026-08-18 立案當天發現):**
-    ```
-    立案時我寫 13。回頭重跑 ⇒ 15。
-    🔴 成因是我自己:0a7988c9 在同一支檔加了一大段【含 hover 字樣的註解】
-       ⇒ 我修好那個 bug 之後，我的量法把我自己寫的註解算了進去。
-    剝掉註解重數（python3 re.sub(r'/\*[\s\S]*?\*/','',src)）:
-      含註解 15 行 ／ 剝註解後【7 行】  ← 這 7 行才是真正的 hover 規則
-      剝註解後 `hover: *hover` 命中 ⇒ 仍然 0（主張不受影響）
-    ```
-    ⇒ **主張成立(該檔零 `hover: hover`),而分母要用 7。**
-    ⚠️ MAIN 裁「現在不做」時引的是「13 處」——**正確是 7 條規則**;
-    它的理由(視覺回歸面大、只有 Sean 驗得了)在 7 條下仍然成立,但**引用時請用 7**。
-  - ⇒ 該檔的每一條 hover 態(`.pcard:hover::before` / `img-wrap::after` / `.pcard-heart` /
-    `.pcard-dots` / `.pcard-name` 等,**剝註解後 7 行**)
-    在**觸控裝置上都是「存在但永遠不會發生」的狀態**。
-- 🔴 **為什麼這是【產生器】不是另一件小事:**
-  - 2026-08-18 修掉的那個陷阱(`.pcard-heart` 看不見卻吃點擊,`0a7988c9`)是這個結構的**產物**:
-    ```
-    如果當初照 design 交辦用 @media (hover: hover) 包起來
-    ⇒ 那些 hover 態在手機上根本不會存在
-    ⇒ 「看不見卻吃點擊」在結構上就不會產生
-    ⇒ 也不會有「手機客人收藏不了」這一題（favorites plan §1-e）
-    ```
-  - ⇒ **我們修掉的是症狀,病根是一條沒被執行的 design 交辦。**
-- **觸發事件(任一觸發即啟動實作):**
-  - Sean 回到可以肉眼驗視覺回歸的狀態(2026-08-18 他遠端遙控,而**視覺回歸只有他驗得了**);
-  - 或商品卡再長出第三個「只有滑鼠看得到」的元素。
+> # 🔴🔴 2026-08-18 16:5x 整條重寫,原標題與原判斷【是錯的】,先讀這段
+>
+> **原標題**:~~`product-card.css` 沒照 design 交辦用 `@media (hover: hover)` 包 —— 這是「隱形陷阱」那一族的產生器~~
+> **原判斷**:~~照做的話,那些 hover 態在手機上根本不會存在 ⇒「看不見卻吃點擊」在結構上就不會產生~~
+>
+> **兩句都不成立,而推翻它們的是量測(G2 2026-08-18 第一段盤點,零改動)。**
+> 原標題與原描述**刻意保留在上面劃掉** —— 它記錄的是**我們當時怎麼判斷的**,那本身是資料。
+> ⇒ **降級**:從「病根 / 產生器」改成 **文件對齊**。
+
+---
+
+## A. 🔴 為什麼「產生器」那個判斷是錯的
+
+`0a7988c9` 修掉的那個陷阱(`.pcard-heart` 看不見卻吃點擊),**包 `@media (hover: hover)` 擋不住**:
+
+```
+陷阱的兩個成分     base 的 opacity: 0          ← 讓它看不見
+                   base 少了 pointer-events    ← 讓它照樣吃點擊
+@media (hover:hover) 拿掉的是  `.pcard:hover .pcard-heart { opacity: 1 }`  ← 只是那條【加法】
+⇒ 包起來之後，觸控裝置上：opacity 仍然 0、pointer-events 仍然 auto
+⇒ **同一個陷阱，一個位元都沒少。**
+```
+🔴 **媒體查詢處理的是「hover 時要不要顯示」,陷阱來自「base 沒把點擊收掉」——**
+**兩者是不同的東西,而原條目把它們當成同一件。**
+📎 真正的正解就在同一支檔裡:`.pcard-quick` base 寫 `pointer-events: none`、
+`.is-visible` 才翻成 `auto`。`0a7988c9` 照抄的就是這個形狀。
+
+## B. 盤點:那 7 條逐條分類(G2 2026-08-18,零改動)
+
+**數法(可重跑;剝註解之後數「選擇器含 `:hover` 的規則區塊」,不是 `grep -c`)**
+```bash
+python3 - <<'PYX'
+import io,re
+s=re.sub(r'/\*[\s\S]*?\*/','',io.open('apps/storefront/src/styles/product-card.css',encoding='utf-8').read())
+print(len(re.findall(r'[^{}]*:hover[^{}]*\{[^{}]*\}', s)))
+PYX
+# ⇒ 7
+```
+
+| # | 規則 | 類 | 吃點擊? | 手機上失去什麼 |
+|---|---|---|---|---|
+| 1 | `.pcard:hover::before` → `scaleX(1)` | A 純視覺 | 否(base `pointer-events:none`) | 沒有 |
+| 2 | `.pcard:hover .pcard-img-wrap::after` → 暗色遮罩 | A 純視覺 | 否(同上) | 沒有 |
+| 3 | `.pcard:hover .pcard-heart` → `opacity:1` | **B 讓東西出現** | ~~會~~ **已修**(`0a7988c9`) | 收藏功能(見 D) |
+| 4 | `.pcard-heart:hover` → 換底色 | A 純視覺 | 否 | 沒有 |
+| 5 | `.pcard:hover .pcard-dots` → `opacity:1` | **B 讓東西出現** | 否(base `pointer-events:none`) | 圖片小圓點,而它 `aria-hidden="true"` = **純裝飾** |
+| 6 | `.pcard-quick-btn:hover` → 換底色 | A 純視覺 | 否 | 沒有 |
+| 7 | `.pcard:hover .pcard-name` → 字變黑 | A 純視覺 | 否 | 沒有 |
+
+**A 六條 / B 兩條 / C 零條。** 兩條 B 裡,一條已修、另一條是純裝飾。
+
+**實測**(CSS harness:`product-card.css` 原文照貼 + 真 markup 形狀;`390×844`、`hasTouch+isMobile`;
+`matchMedia('(hover: hover)')` ⇒ `false`、`(pointer: coarse)` ⇒ `true`):
+```
+修前   .pcard-heart  opacity 0 / pointer-events auto / 32×32 / elementFromPoint 中心 → **pcard-heart 自己**
+       .pcard-dots / .pcard-quick / .pcard-quick-btn ⇒ 全部 pointer-events none，穿透到卡片
+```
+⚠️ **這是 CSS harness,不是真的商品頁** —— 它證的是「這段 CSS 會產生什麼行為」。
+📌 **真頁面的量測是 G3 做的**(`0a7988c9` 的 commit body:390×844 對一張 173×291 的卡
+以 6px 網格取樣約 1,400 點 ⇒ 看不見且落在 button 內的命中 = `button.pcard-heart` ×22,
+點它中心網址一動也沒動,並有負向對照)。**兩份量測互相獨立、結論一致。**
+
+## C. 結論:**要包的是 0 條**
+
+```
+包 @media (hover: hover) 對那 7 條【沒有任何一條】會產生可觀察的差別
+  · A 那 6 條：手機上本來就碰不到、也不吃點擊 ⇒ 包不包一樣
+  · 第 5 條：純裝飾且 pointer-events: none ⇒ 包不包一樣
+  · 第 3 條：包了之後 opacity 仍 0、pointer-events 仍照 base ⇒ 包不包一樣（見 A）
+```
+⇒ **這條 backlog 不再是「要不要包那 7 條」。** 它剩下的是 D 那個文件層的對不上。
+
+## D. 🔴 剩下真正沒解決的:**design 那句交辦講的東西,我們根本沒有**
+
+```
+design 那句（轉述，見 E）  「商品卡 hover translateY(-2px)：僅桌機…用 @media (hover: hover) 包」
+我方實況（G2 當場量）      grep -n 'translateY(-2px)' apps/storefront/src/styles/product-card.css ⇒ **零命中**
+```
+⇒ **design 講的那條 hover 效果,與我方現行的 7 條【不是同一組】。**
+兩種可能,而**沒有人查過是哪一種**:
+```
+甲 我們【漏做】了那個 translateY(-2px) 的 hover 效果   ⇒ 那是視覺缺漏，與 hover 包不包無關
+乙 design 後來改了 / 那句話指的是別的元件            ⇒ 那是文件過期
+```
+⇒ **下一步是【查清楚是甲還是乙】,不是去包 hover。**
+
+## E. ⚠️ 這條的證據鏈,誰查的、誰沒複驗
+
+```
+· design-reference 那句原文        G3 查的、MAIN 轉述。
+  🔴 **G2 沒有複驗** —— 這個 worktree 的 design-reference submodule【沒有 checkout】
+     （git submodule status 前面是 `-`）⇒ G2 開不到那份檔。
+     ⇒ 對 G2 而言那句是【轉述】，不是鐵則 1 要求的「grep 到字面」。
+· 7 條的分類與 N=0             G2 自己量的（數法在 B）
+· 真頁面 1,400 點取樣與修法    G3 做的（0a7988c9），G2 開 commit 核過那一行真的在檔案裡：
+                               .pcard-heart 現在有 pointer-events: none、
+                               .pcard:hover .pcard-heart 有 pointer-events: auto
+· 🔴 G3 另外查到而 G2 無法複驗的一件（同上，開不到檔）：
+     design-reference 自己的 product-card.css:78-95 的 .pcard-heart **也沒有 pointer-events**
+     ⇒ 若屬實，那個疏漏是【從上游搬過來的】，不是 PCM 寫壞的
+```
+
+## F. 不修未來會痛在哪(重寫後)
+
+```
+· 「病根沒解」這句話如果留著，下一班會去做一件【量過沒有效果】的事（包那 7 條）
+  —— 而那要動 7 處、視覺回歸面被估成「很大」，成本全是白付的
+· 而 D 那個真的對不上（design 有、我們沒有的那條效果）沒人追 ⇒ 商品卡與 design 的差距會繼續擴大
+```
 - **預期解法:**
   - `product-card.css` 的純視覺 hover 態(卡片浮起 / 圖遮罩 / 標題變色 / 小圓點)
     包進 `@media (hover: hover)`;
