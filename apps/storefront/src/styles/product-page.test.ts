@@ -21,6 +21,7 @@ const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '');
 
 const PAGE = strip(read('product-page.css'));
 const TABS = read(resolve(HERE, '../components/ProductTabs.tsx'));
+const INSTALL = read(resolve(HERE, '../components/InstallResources.tsx'));
 
 function block(src: string, label: string, selector: string): string {
   const i = src.indexOf(selector);
@@ -177,5 +178,47 @@ describe('Q3=A 觸控救援 · 商品頁麵包屑(Sean 2026-08-09 拍板,最小�
       `容器下 padding+margin = ${navPadBottom + navMarBottom}px ≠ 24px ⇒ 麵包屑與下方主區的間距被改掉了` +
         '(24px 是這一片動手前的原值,真瀏覽器量到下一個元素 top=134 不變)',
     ).toBe(24);
+  });
+});
+
+describe('說明書 chip 的長標籤(Sean 2026-08-19 親自報:手機商品頁可以往右滑)', () => {
+  // 🔴 為什麼要守這兩條:標籤來自**供應商官方 PDF 檔名**,長度我們控制不了。
+  //    正式站實測(390 視窗、repo 自己的 overflow-ruler、selfCheck.ok=true):
+  //      修前  findings=[a.pd-ir-doc-sm over=301 w=656]   document.scrollWidth 691
+  //      修後  findings=[]                                document.scrollWidth 390
+  //    而**兩條宣告都在承重** —— 只加 max-width、留著 nowrap ⇒ 仍溢出 266px(scrollWidth 679)。
+  // ⚠️ 本檔是文字層守門:它看不到 cascade 勝負、看不到真實渲染寬度(檔頭已聲明)。
+  //    「真的不再撐寬」只有真瀏覽器量得到,那份量測寫在
+  //    docs/specs/2026-08-19-g1-manual-label-overflow-plan.md。
+  it('前提 — `.pd-ir-doc-n` 真的被 InstallResources 掛在畫面上(不是死 CSS)', () => {
+    expect(
+      INSTALL,
+      'InstallResources.tsx 已經不再有 className="pd-ir-doc-n" ⇒ 下面兩條守的是沒人用的死 CSS',
+    ).toMatch(/className="pd-ir-doc-n"/);
+  });
+
+  it('🔴 `.pd-ir-doc-n` 不得是 `white-space: nowrap` —— 82 字的標籤會把整頁撐寬', () => {
+    const body = block(PAGE, 'product-page.css', '.pd-ir-doc-n');
+    expect(
+      body,
+      'nowrap 是逐字搬 OD pcm-product.css:708 的結果,而 OD 的長標籤樣本只有 20 字、' +
+        '真實世界那一筆 82 字 ⇒ design 是沉默不是決定(同 #309,代裁人 MAIN、可推翻)',
+    ).not.toMatch(/white-space:\s*nowrap/);
+    expect(body, '要能換行,否則單一個長 chip 仍取 max-content 寬').toMatch(/overflow-wrap:\s*anywhere/);
+  });
+
+  it('🔴 `.pd-ir-doc-sm` 必須有 `max-width: 100%` —— flex-wrap 只換行、不會讓單一 chip 縮', () => {
+    const body = block(PAGE, 'product-page.css', '.pd-ir-doc-sm');
+    expect(
+      body,
+      '正式站實測:只留 overflow-wrap 而拿掉 max-width,chip 仍可寬過容器',
+    ).toMatch(/max-width:\s*100%/);
+  });
+
+  it('前提 — `.pd-ir-doc-s`(PDF · 大小)維持 nowrap:它短、拆行反而醜,不在本次射程', () => {
+    const body = block(PAGE, 'product-page.css', '.pd-ir-doc-s ');
+    expect(body, '若它也被改動,表示有人把本次射程擴大了 ⇒ 回頭確認是不是誤改').toMatch(
+      /white-space:\s*nowrap/,
+    );
   });
 });

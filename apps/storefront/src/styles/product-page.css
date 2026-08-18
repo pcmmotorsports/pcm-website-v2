@@ -1771,9 +1771,24 @@
   display: inline-flex; align-items: center; gap: 8px;
   padding: 8px 11px; border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text);
   text-decoration: none; font-size: 13px; transition: border-color 0.15s, background 0.15s;
+  /* 🔴 chip 不得寬過容器(Sean 2026-08-19 報:手機商品頁可以往右滑)。
+     `.pd-ir-docs-sm` 是 flex-wrap ⇒ 它會換【行】,但單一個 chip 仍取 max-content 寬
+     ⇒ 沒有這一條的話,一個過長的 chip 自己就撐破視窗。 */
+  max-width: 100%;
 }
 .pd-ir-doc-sm:hover { border-color: var(--c-text); background: var(--c-surface-2); }
-.pd-ir-doc-n { font-weight: 600; white-space: nowrap; }
+/* 🔴🔴 這裡原本逐字搬 OD `pcm-product.css:708` 的 `white-space: nowrap`,而 nowrap 在
+   【真實世界的標籤長度】下會把整頁撐寬 —— 2026-08-19 Sean 親自報,正式站實測:
+     `安裝說明書(YZF-R9 MT-09 Tracer Tracer GT plus and Scrambler XSR900 XSR900 GP 2025-2026)`
+     = 82 字 ⇒ 標籤自身 609px、chip 656px,而手機視窗 390px ⇒ document.scrollWidth 691。
+   🔴 **design 不是決定讓它撐開,是沒遇過這麼長的**:OD `product-detail-data.js:305` 註解
+      自稱「測的是長標籤」,而它的樣本 `安裝說明書(1198 2007-2013)` 只有 **20 字**。
+      ⇒ 沉默不是反對(同 `#309`,代裁人 MAIN、可推翻)。
+   🔴 **兩條宣告都在承重**:只加 `max-width` 而留著 nowrap,正式站實測仍溢出 266px
+      (`docScrollWidth` 679)⇒ 不要以為刪掉其中一條是等價的。
+   label 來自**供應商官方 PDF 檔名**(products.manuals ← 報價單 pdf_urls),我們控制不了長度
+   ⇒ 只能讓 CSS 對任意長度穩健,不能靠改資料。 */
+.pd-ir-doc-n { font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
 .pd-ir-doc-s { font-family: var(--f-mono); font-size: 11px; color: var(--c-text-2); white-space: nowrap; }
 .pd-ir-doc-dl { flex: none; width: 15px; height: 15px; position: relative; color: var(--c-text-2); }
 .pd-ir-doc-dl::before {
