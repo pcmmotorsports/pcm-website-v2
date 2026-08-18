@@ -211,7 +211,7 @@ describe('CartVehicleField', () => {
     const onChange = vi.fn();
     render(<CartVehicleField label="x" value={{ kind: 'dict', brand: 'Yamaha', model: 'MT-09', year: 2021, source: 'search' }} onChange={onChange} motoBrands={BRANDS} />);
     expect(screen.getByText('2021 Yamaha MT-09')).toBeTruthy();
-    expect(screen.getByText('來自你的搜尋')).toBeTruthy();
+    expect(screen.getByText('來自您的搜尋')).toBeTruthy();
     fireEvent.click(screen.getByText('清除'));
     expect(onChange).toHaveBeenCalledWith(null);
   });

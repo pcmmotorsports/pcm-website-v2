@@ -38,7 +38,7 @@ function pickByTyping(label: string, text: string) {
 describe('VehicleFinder(V-1c combobox 版)', () => {
   it('should render the vehicle finder without crashing', () => {
     render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
-    expect(screen.getByText('輸入你的車輛')).toBeDefined();
+    expect(screen.getByText('輸入您的車輛')).toBeDefined();
     expect(screen.getByText('搜尋部品')).toBeDefined();
     // A8:hint 走 A 表定版。舊字面賣了一個不存在的能力(選車輸入裡沒有「引擎代號」欄),
     // 且該字面原本零守門 —— 改回去照樣全綠。

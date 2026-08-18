@@ -41,8 +41,8 @@ export function cartVehicleFitStatus(
 const ALL_LAYERS_MOOT = { brand: true, model: true, year: true } as const;
 
 const SOURCE_NOTE: Record<CartItemVehicle['source'], string> = {
-  search: '來自你的搜尋',
-  garage: '來自你的車庫',
+  search: '來自您的搜尋',
+  garage: '來自您的車庫',
   picker: '',
   freetext: '自由輸入 · 我們會人工確認',
 };
@@ -131,7 +131,7 @@ export function CartVehicleField({
             {formatCartVehicle(value)}
           </span>
           {fit === 'no-match' && (
-            <span className="cvf-mismatch" role="status">可能不適用 · 下單前我們會與你確認</span>
+            <span className="cvf-mismatch" role="status">可能不適用 · 下單前我們會與您確認</span>
           )}
           {SOURCE_NOTE[value.source] && <span className="cvf-note">{SOURCE_NOTE[value.source]}</span>}
           <button type="button" className="cvf-link" onClick={startEdit}>更改</button>

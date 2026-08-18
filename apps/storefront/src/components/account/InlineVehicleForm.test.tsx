@@ -342,10 +342,10 @@ describe('#378 錯誤隨輸入清除', () => {
 
   it('自行輸入框:打字 → 清掉車型欄的錯', async () => {
     const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
-    // 🔴 錨點用「清單裡找不到你的車」而非 /改用自行輸入/ —— 後者同時命中錯誤字面
+    // 🔴 錨點用「清單裡找不到您的車」而非 /改用自行輸入/ —— 後者同時命中錯誤字面
     //    「請選擇廠牌與車型，或改用自行輸入」,錯誤在場時 getByText 會 multiple match 直接炸。
     //    (本檔既有那幾格用寬 regex 沒事,只因為那時畫面上沒有錯。)
-    fireEvent.click(screen.getByText(/清單裡找不到你的車/));
+    fireEvent.click(screen.getByText(/清單裡找不到您的車/));
     const free = screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement;
     fireEvent.change(free, { target: { value: 'x' } });
     onSubmit.mockResolvedValue({ fieldErrors: { name: '請填寫車型' } });
@@ -411,16 +411,16 @@ describe('#378 錯誤隨輸入清除', () => {
 
   it('「改用自行輸入」切換鈕 → 清掉錯(切換也是動車型欄)', () => {
     showFieldErr();
-    fireEvent.click(screen.getByText(/清單裡找不到你的車/));
+    fireEvent.click(screen.getByText(/清單裡找不到您的車/));
     expect(screen.queryByText('請選擇廠牌與車型，或改用自行輸入')).toBeNull();
   });
 
   it('「改用清單選車」切換鈕 → 清掉錯', async () => {
     const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
-    // 🔴 錨點用「清單裡找不到你的車」而非 /改用自行輸入/ —— 後者同時命中錯誤字面
+    // 🔴 錨點用「清單裡找不到您的車」而非 /改用自行輸入/ —— 後者同時命中錯誤字面
     //    「請選擇廠牌與車型，或改用自行輸入」,錯誤在場時 getByText 會 multiple match 直接炸。
     //    (本檔既有那幾格用寬 regex 沒事,只因為那時畫面上沒有錯。)
-    fireEvent.click(screen.getByText(/清單裡找不到你的車/));
+    fireEvent.click(screen.getByText(/清單裡找不到您的車/));
     const free = screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement;
     fireEvent.change(free, { target: { value: 'x' } });
     onSubmit.mockResolvedValue({ fieldErrors: { name: '請填寫車型' } });

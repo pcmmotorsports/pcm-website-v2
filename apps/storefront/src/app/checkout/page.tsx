@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: '結帳 — PCM Motorsports',
-  description: '填寫收件與付款資料,完成你的 PCM 訂單。',
+  description: '填寫收件與付款資料,完成您的 PCM 訂單。',
 };
 
 export default async function CheckoutRoute() {

@@ -10,7 +10,7 @@ import { LoginPage } from '@/components/LoginPage';
 
 export const metadata: Metadata = {
   title: '登入 — PCM Motorsports',
-  description: '登入你的 PCM 帳號，查看訂單與收藏。',
+  description: '登入您的 PCM 帳號，查看訂單與收藏。',
 };
 
 export default async function LoginRoute({

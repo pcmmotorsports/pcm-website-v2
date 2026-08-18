@@ -15,7 +15,7 @@ import { getVehicleRepo } from '@/lib/auth/composition';
 
 export const metadata: Metadata = {
   title: '購物車 — PCM Motorsports',
-  description: '查看你選購的部品、數量與金額，前往結帳。',
+  description: '查看您選購的部品、數量與金額，前往結帳。',
 };
 
 // V-2a:車款欄需車款字典(VehicleSelect)+ 登入會員愛車(快選);per-user 車庫讀取 → force-dynamic

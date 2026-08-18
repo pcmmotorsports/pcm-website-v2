@@ -49,7 +49,7 @@ const SLIDES = [
   },
   { n: '02', eyebrow: 'FITMENT ‧ 依車款匹配', title: ['輸入車款與年份，', '只看裝得上的東西'] },
   { n: '03', eyebrow: 'BRANDS ‧ 代理品牌', title: ['數十個改裝品牌，', '都在同一個購物車'] },
-  { n: '04', eyebrow: 'INSTALL ‧ 安裝與合作車行', title: ['不只把零件賣給你，', '安裝也幫你約好'] },
+  { n: '04', eyebrow: 'INSTALL ‧ 安裝與合作車行', title: ['不只把零件賣給您，', '安裝也幫您約好'] },
 ] as const;
 
 /** 停留時間(OD :1308 的 `DWELL`)。 */

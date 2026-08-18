@@ -320,7 +320,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
             <div className="pd-install-cta">
               <div>
                 <div className="pd-install-cta-title">不想自己裝？</div>
-                <div className="pd-install-cta-desc">全台合作店家可以幫你直接搞定</div>
+                <div className="pd-install-cta-desc">全台合作店家可以幫您直接搞定</div>
               </div>
               <button
                 type="button"

@@ -20,7 +20,7 @@ import { ComingSoon } from '@/components/ComingSoon';
 export const metadata: Metadata = {
   title: '安裝預約 · 即將上線 — PCM MOTOR PARTS',
   description:
-    'PCM 線上安裝預約正在開發中。之後填一次表單，技師一個工作天內就回你工時與費用，零件由 PCM 直送店家。',
+    'PCM 線上安裝預約正在開發中。之後填一次表單，技師一個工作天內就回您工時與費用，零件由 PCM 直送店家。',
 };
 
 export default function InstallPage() {
@@ -34,9 +34,9 @@ export default function InstallPage() {
         titleAccent="即將上線。"
         lede={
           <>
-            <strong>線上安裝預約</strong>正在開發中。之後填一次表單，技師一個工作天內就回你工時與費用，零件由 PCM 直送店家。
+            <strong>線上安裝預約</strong>正在開發中。之後填一次表單，技師一個工作天內就回您工時與費用，零件由 PCM 直送店家。
             <br />
-            現在要約安裝一樣沒問題 —— 先用 LINE 找我們，照樣幫你排。
+            現在要約安裝一樣沒問題 —— 先用 LINE 找我們，照樣幫您排。
           </>
         }
         etaText="功能開發中"

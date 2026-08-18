@@ -80,7 +80,7 @@ export function confirmProceedIfInflight(): boolean {
   const marker = getActivePaymentInflight();
   if (!marker) return true;
   const proceed = window.confirm(
-    '你有一筆付款可能還在進行中。若你已在另一個視窗 / 分頁完成付款,請勿重複付款。確定要再付一次嗎?',
+    '您有一筆付款可能還在進行中。若您已在另一個視窗 / 分頁完成付款,請勿重複付款。確定要再付一次嗎?',
   );
   if (proceed) clearPaymentInflight();
   return proceed;

@@ -41,7 +41,7 @@ describe('ProductFitmentCheck（§7）', () => {
   it('context dict 命中(年份區間內)→ ✓ 適用', () => {
     setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy();
     expect(screen.getByText('✓')).toBeTruthy();
   });
 
@@ -60,12 +60,12 @@ describe('ProductFitmentCheck（§7）', () => {
     //   有人把這句「補成全形」照樣全綠,而它屬計畫 §2.6 明列凍結、不得動的既有文案。
     //   (與 R2-I2 帳號那條同型切口:不是沒測試,是測試切在逗號旁邊。)
     expect(screen.getByText('此商品適用 YAMAHA MT-09,但有年份限制')).toBeTruthy();
-    expect(screen.getByText(/請確認你的年份/)).toBeTruthy();
+    expect(screen.getByText(/請確認您的年份/)).toBeTruthy();
   });
 
-  it('無 context → 現選入口(確認是否適用你的車)', () => {
+  it('無 context → 現選入口(確認是否適用您的車)', () => {
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
-    expect(screen.getByText('確認是否適用你的車')).toBeTruthy();
+    expect(screen.getByText('確認是否適用您的車')).toBeTruthy();
     expect(screen.getByRole('combobox', { name: '選擇廠牌' })).toBeTruthy();
   });
 
@@ -78,7 +78,7 @@ describe('ProductFitmentCheck（§7）', () => {
       />,
     );
     fireEvent.click(screen.getByText('2022 MT-09'));
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy();
   });
 
   // A10b:PDP 自刻 chips 退場,換全站唯一的 GarageChips(設計稿 C4 After 行內密度)。
@@ -100,22 +100,24 @@ describe('ProductFitmentCheck（§7）', () => {
   // 🔴 §7 正確性紅線:換 chips 殼時最容易順手把整段重寫。
   //    ⚠️ 測試名只講它真的驗到的:**match 一態 + 壞連結提示**。
   //    其餘三態的正面守門在本檔上方三條既有測試(no-match `:48` / qualified `:56` / match `:41`)。
-  //    🔴 `undetermined`(「已記下你的車款」)**全檔零正面守門,而且是刻意的** ——
+  //    🔴 `undetermined`(現字面「已記下您的車款」)**全檔零正面守門,而且是刻意的** ——
   //    `checkFitment` 只在 `kind:'free'` 或 brandName/modelName 不齊時回它
   //    (`lib/fitment-match.ts:35,37`),而本元件的 `chosen` 恆是 `kind:'dict'` + 兩個非空字典字面
   //    (四個賦值點:URL 解析、鏡讀入、URL 變更、commit —— 全部走 truthy 守門或字典選項)
   //    ⇒ 這一態在本元件**不可構造**,那段 JSX 是防禦性渲染。
   //    2026-08-05 實測:把「已記下你的車款」改成別的字,全套 storefront 測試照樣全綠。
+  //    ⚠️ 上一行是 08-05 那次量測的【原字面】,刻意保留「你」—— 那次量的就是「你」版。
+  //       現字面是「已記下您的車款」(2026-08-18 敬語拍板);把歷史量測改寫成現字面會讓它變成沒發生過的事。
   //    **不為它補測試**(構造不出來的測試只能靠 cast 造假狀態);寫在這裡讓下一個人不必重新推。
   it('換殼後 match 態文案與壞連結提示逐字仍在(§7 紅線)', () => {
     setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy();
     expect(screen.getByText('清除車輛')).toBeTruthy(); // Q28②:「更改車款」已改字面(行為亦不同,見專屬測試)
     cleanup();
 
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle="invalid" />);
-    expect(screen.getByText('先前的車款連結已失效,請重新選擇你的車。')).toBeTruthy();
+    expect(screen.getByText('先前的車款連結已失效,請重新選擇您的車。')).toBeTruthy();
   });
 
   it('無 fitments → 整段不渲染', () => {
@@ -134,7 +136,7 @@ describe('ProductFitmentCheck（§7）', () => {
         urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }}
       />,
     );
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy(); // 顯 URL 車、非鏡的舊車
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy(); // 顯 URL 車、非鏡的舊車
     const raw = window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY);
     const ctx = JSON.parse(raw!) as { brandName?: string; modelName?: string; year?: number };
     expect(ctx.brandName).toBe('YAMAHA'); // 鏡已同步=addToCart 帶入同源、不再分家
@@ -156,7 +158,7 @@ describe('ProductFitmentCheck（§7）', () => {
     render(
       <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA' }} />,
     );
-    expect(screen.getByText('確認是否適用你的車')).toBeTruthy();
+    expect(screen.getByText('確認是否適用您的車')).toBeTruthy();
     const ctx = JSON.parse(window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY)!) as {
       brandName?: string;
       modelName?: string;
@@ -171,15 +173,15 @@ describe('ProductFitmentCheck（§7）', () => {
     setContext({ brandName: 'APRILIA', modelName: 'DORSODURO 750', year: 2015 }); // 過期鏡=舊車
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle="invalid" />);
     expect(screen.queryByText(/DORSODURO 750/)).toBeNull(); // 舊車判定不出現(不讀過期鏡)
-    expect(screen.queryByText(/已記下你的車款/)).toBeNull(); // 亦無 undetermined 判定訊息
-    expect(screen.getByText('確認是否適用你的車')).toBeTruthy(); // 現選入口
+    expect(screen.queryByText(/已記下您的車款/)).toBeNull(); // 亦無 undetermined 判定訊息
+    expect(screen.getByText('確認是否適用您的車')).toBeTruthy(); // 現選入口
     expect(screen.getByText(/先前的車款連結已失效/)).toBeTruthy(); // 失效提示
   });
 
   it('V-2h/MF-2:urlVehicle=null(無參數)→ 照舊讀鏡顯車(對照:只 invalid 才不讀)', () => {
     setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={null} />);
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy();
     expect(screen.queryByText(/先前的車款連結已失效/)).toBeNull(); // 無失效提示
   });
 
@@ -189,7 +191,7 @@ describe('ProductFitmentCheck（§7）', () => {
     const { rerender } = render(
       <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }} />,
     );
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy(); // 2022 在 2021-2024 → match
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy(); // 2022 在 2021-2024 → match
     rerender(
       <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2019 }} />,
     );
@@ -201,9 +203,9 @@ describe('ProductFitmentCheck（§7）', () => {
     const { rerender } = render(
       <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }} />,
     );
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy();
     rerender(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={null} />);
-    expect(screen.getByText('確認是否適用你的車')).toBeTruthy(); // 現選入口
+    expect(screen.getByText('確認是否適用您的車')).toBeTruthy(); // 現選入口
     expect(screen.queryByText(/CB650R/)).toBeNull(); // 不回填舊鏡的 HONDA
   });
 
@@ -263,7 +265,7 @@ describe('ProductFitmentCheck（§7）', () => {
   it('Q27 A4:qualified 態 picker label 換句、手機強制展開(不用點擊)', () => {
     setContext({ brandName: 'YAMAHA', modelName: 'MT-09' });
     const { container } = render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
-    expect(screen.getByText('選一下年份，就能給你確定的答案')).toBeTruthy();
+    expect(screen.getByText('選一下年份，就能給您確定的答案')).toBeTruthy();
     expect(container.querySelector('.pfc-picker')!.classList.contains('pfc-picker-open')).toBe(true);
   });
 
@@ -273,7 +275,7 @@ describe('ProductFitmentCheck（§7）', () => {
     const year = screen.getByRole('combobox', { name: '選擇年份' });
     fireEvent.change(year, { target: { value: '2022' } });
     fireEvent.mouseDown(screen.getByRole('option', { name: '2022' }));
-    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.getByText(/適用您的 2022 YAMAHA MT-09/)).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: '選擇年份' })).toBeNull(); // picker 收起
   });
 
@@ -319,8 +321,8 @@ describe('ProductFitmentCheck（§7）', () => {
     expect(screen.queryByText('更改車款')).toBeNull(); // 舊字面不在
     fireEvent.click(screen.getByText('清除車輛'));
     expect(window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY)).toBeNull(); // context 被清
-    expect(screen.queryByText(/適用你的 2022 YAMAHA MT-09/)).toBeNull(); // 結果框消失(chosen 被清)
-    expect(screen.getByText('確認是否適用你的車')).toBeTruthy(); // 回到現選入口
+    expect(screen.queryByText(/適用您的 2022 YAMAHA MT-09/)).toBeNull(); // 結果框消失(chosen 被清)
+    expect(screen.getByText('確認是否適用您的車')).toBeTruthy(); // 回到現選入口
   });
 
   // 🔴 D-222-A ① 裁 A 補的兩格。理由:本站 **URL 才是真相源**
@@ -348,7 +350,7 @@ describe('ProductFitmentCheck（§7）', () => {
     //    「重載後 URL 還帶著車」這個情境**在 jsdom 構造不出來**。
     //    URL 那一半由上一條(`toHaveBeenCalledWith(null)`)在**接縫**上守,真正的端到端要真瀏覽器。
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
-    expect(screen.queryByText(/適用你的 2022 YAMAHA MT-09/)).toBeNull();
-    expect(screen.getByText('確認是否適用你的車')).toBeTruthy();
+    expect(screen.queryByText(/適用您的 2022 YAMAHA MT-09/)).toBeNull();
+    expect(screen.getByText('確認是否適用您的車')).toBeTruthy();
   });
 });

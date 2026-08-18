@@ -43,7 +43,7 @@ export default function StoresPage() {
           <>
             <strong>合作店家地圖</strong>正在整理中。全台合作車行的名單、地址與各家能做的施工項目，很快就會在這裡查得到。
             <br />
-            在那之前想找店家安裝，直接用 LINE 跟我們說，我們幫你接。
+            在那之前想找店家安裝，直接用 LINE 跟我們說，我們幫您接。
           </>
         }
         etaText="名單整理中"
