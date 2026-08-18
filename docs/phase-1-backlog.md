@@ -989,7 +989,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/architecture/medusa-schema-design.md` §5、`docs/decisions/0003-domain-entity-naming.md` §4 第 6 條、`docs/audits/2026-05-02-full-audit.md` Audit-F16
 
-### #33. ⏳ IInventoryRepository 缺位(inventory context port + entity 欄位)
+### #33. 🚫【已 Supersede】~~IInventoryRepository 缺位(inventory context port + entity 欄位)~~ —— **Phase 2 觸發,Phase 1 不做**
 
 > # 🔴🔴 2026-08-19 **本查核錯了,我自己撤回** —— 那份 Supersede 註**就在下面第 1039 行**
 >
@@ -1051,10 +1051,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 > **誠實揭示**:全部是讀 code 註解 + 讀條目,**沒有查 `docs/decisions/0004-m1-pre-launch-decisions.md`**
 > (`catalog/types.ts:215` 指向它)—— **那份檔可能就是缺的那半,我沒開**。這一格是我這輪的缺口,不是結論。
 
-- **狀態:** ⏳ 待執行
-- **分流:** P1-before-launch
-- **優先級:** 🔴 高
-- **問題:**
+- **狀態:** 🚫 **已 Supersede**(2026-05-04 / M-1-02;Sean 業務訊號:PCM 訂貨型、需訂貨 3-6 週、客人只需看「可訂 / 訂不到」)
+  · **trigger:** Phase 2 真撞高頻 `availability` 變動 / 多倉庫業務(PCM 倉 + 合作店家倉)時再重評
+  · ~~⏳ 待執行~~(原值留痕)
+  · 🔴 **2026-08-19 主視窗代裁**【代裁人 MAIN,Sean 可推翻】:**讓標題與狀態欄追上條目自己第 48 行(`:1039`)的 Supersede 註。**
+    理由逐字 = 「那是 **2026-05-04 Sean 自己的業務訊號**,不是我在改他的決定,是**讓標題追上他的決定**。」
+- **分流:** ~~P1-before-launch~~ → **Phase 2 觸發**
+- **優先級:** ~~🔴 高~~ → **🟢 觀察**(Phase 1 不做)
+- **問題(原文,已被下方 Supersede 註推翻,留痕供比對):**
   - PHASE-1-MILESTONES §8 M-5-05 規劃 auto-update-inventory use-case、schema-design §2.1 寫「inventory 推延到 M-1-02 補」、但無 IInventoryRepository
   - 10w 商品庫存批次同步、靠 `IProductRepository.save(product)` 整 entity 覆寫、N 次 round-trip 效能差
 - **觸發事件:**
