@@ -47,6 +47,38 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm --filter @pcm/admin exec playwright install --with-deps chromium
 
+      # 🔴 `apps/admin` 有兩支測試量的是【編譯後產物】(`.next/static/chunks` 與編譯後 CSS):
+      #      apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page-measure.test.tsx
+      #      apps/admin/src/components/orders/orders-status-visibility-browser.test.tsx
+      #    它們在缺產物時**刻意 throw 而不是 skip** —— skip 會把「有守門」變成「有宣稱」。
+      #    ⇒ 少了這一步,CI 恆紅;而恆紅與恆綠一樣沒有判別力。
+      #
+      # 🔴 **為什麼只 build admin,不是 `pnpm build`(全 monorepo)**:
+      #    今天【已知】依賴編譯產物的測試,兩支都在 `apps/admin`
+      #    ⇒ admin 產物涵蓋得到它們。⚠️ **這不等於「沒有別的測試依賴產物」** ——
+      #    plan `§6 Rollback` 寫著沒有可靠的機械方式列舉「依賴編譯產物的測試」;有新的就要擴這一步(見下)。
+      #    🔴 **用 grep 定位不用行號**(codex 關卡2 R2 nit:我第一版寫 `:286`,而我自己在它上面加了字 ⇒ 當場漂成 :313):
+      #      `grep -n '是【下限】不是【全部】' docs/specs/2026-08-18-ci-build-before-test-plan.md`
+      #      (錨點刻意避開逗號 —— 該檔那一行用的是全形「，」,抄成半形就零命中,我第一版正是那樣)
+      #    **一個指向別人檔案的行號,會被【我這邊的編輯】弄假 —— 而兩邊都不會有東西紅。**
+      #    而本 workflow 的 job 層與 step 層【零個 `env:` 鍵】,量法要用會避開註解的那把尺:
+      #      `grep -cE '^[[:space:]]+env:' .github/workflows/ci.yml`      ⇒ 0
+      #      正向對照(證明這把尺量得到東西)同尺量 `e2e-prod.yml`         ⇒ 1
+      #    🔴 **不要用 `grep -c 'env:'`** —— 這段註解自己就含 `env:` 兩個字,那把尺會被自己的說明染色
+      #       (2026-08-18 codex 關卡2 must-fix:我第一版寫的正是那把尺,而它落筆當下就已為假)。
+      #    ⇒ 全 build 會連 storefront 一起建,產出一份 `NEXT_PUBLIC_*` 內插為空的 client bundle
+      #      —— 對那兩支無影響(它們量 CSS/chunks),但那是**多出來、與線上結構不同**的產物。
+      #    ⚠️ **「它不會失敗」的射程只有本機**:無 `.env.local` 的拋棄式鑽機 2026-08-18 兩發 rc=0
+      #       (plan §9-a),而**那份 build log 有 81 次 `NEXT_PUBLIC_SUPABASE_URL not set`**
+      #       ⇒ 它是【綠而資料層全失敗】,不是【沒事】。**GitHub runner 上會怎樣,沒有人量過。**
+      #    ⇒ 所以不做全 build 的理由是「沒有人要它」,不是「它會爆」——**也不是「它保證不爆」。**
+      #
+      # ⚠️ **給未來的人(乙的已知代價,寫下來就不再是隱形的坑)**:
+      #    若你在 `apps/storefront` 新增依賴編譯產物的測試,這一步要一起擴到 storefront,
+      #    並自行處理它需要的 env(參考 `e2e-prod.yml` 那步的 `env:` 區塊)。
+      - name: Build admin (編譯產物類測試的前置)
+        run: TURBO_FORCE=1 pnpm --filter @pcm/admin build
+
       - name: Test
         run: pnpm test
 

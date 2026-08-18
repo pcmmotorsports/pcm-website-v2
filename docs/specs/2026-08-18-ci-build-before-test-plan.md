@@ -1,8 +1,15 @@
 # Plan · CI 在 `Test` 之前補一步 `build`（鐵則 8 + 鐵則 12④）
 
-> 狀態：**尚未批准，`ci.yml` 未動。** 提案人 W1（dev 守門），2026-08-18。
-> 量法（可重跑）：`git status --porcelain .github/workflows/ci.yml | wc -l` ⇒ **0**；
-> 正向對照（證明這把尺對這個檔量得到東西）：`grep -c 'run:' .github/workflows/ci.yml` ⇒ **7**。
+> 🔴 狀態(2026-08-18 13:4x G1 更新)：**Sean 已批(`Q1=甲` 照 plan 改 / `Q2=乙` 不開 PR、直接進 dev)，`ci.yml` 已動、未推。**
+> ~~尚未批准，`ci.yml` 未動~~。提案人 W1（dev 守門），執行 G1。
+> Sean 逐字只有一句「5 題依照建議」⇒ **內容在 `~/pcm-mailbox/MAIN-021-給G1-Sean批了CI-20260818.md` 貼的選項原文裡**，不在那句話裡。
+> 🔴 **他沒批的**：feature branch 紀律例外（走乙之後不必答，不是被批准）。**不要記成他批了。**
+> 量法（可重跑）：`grep -c 'pnpm --filter @pcm/admin build' .github/workflows/ci.yml` ⇒ **1**；
+> `git rev-list --count origin/dev..dev` ⇒ 非 0（未推）。
+> ~~量法：`git status --porcelain .github/workflows/ci.yml | wc -l` ⇒ **0**~~ —— **這句 2026-08-18 13:4x 起為假**：
+> 那一步已經插進去了（未 commit 時該量法 ⇒ 1、commit 後 ⇒ 0，**兩個 0 意思相反**，別拿舊的那個 0 當「還沒動」）。
+> 現行量法：`grep -c 'pnpm --filter @pcm/admin build' .github/workflows/ci.yml` ⇒ **1**（改前 0）。
+> 正向對照（證明這把尺對這個檔量得到東西）：`grep -c 'run:' .github/workflows/ci.yml` ⇒ **8**（插入前 7）。
 > 🔴 裁定：主視窗 2026-08-18 11:5x 裁【乙】(只 build admin)——~~11:1x 那版裁【甲】已被推翻~~,
 > 理由與推翻過程在 §9-c(:427)與 :103。`ci.yml` = 鐵則 12④ 平台設定 ⇒ 需 codex 對抗審查 + Sean 批。
 > 🔴 本檔所有「現況」句都附可重跑量法。量測時點 2026-08-18 11:1x CST、`dev = a482b428`。
@@ -110,23 +117,12 @@ ci.yml 的順序：              typecheck → lint → （無 build）→ test
 `.github/workflows/ci.yml`，在 `:50 Test` **之前**插入一步：
 
 ```yaml
-      # 🔴 `apps/admin` 有兩支測試量的是【編譯後產物】(`.next/static/chunks` 與編譯後 CSS)：
-      #      apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page-measure.test.tsx
-      #      apps/admin/src/components/orders/orders-status-visibility-browser.test.tsx
-      #    它們在缺產物時**刻意 throw 而不是 skip** —— skip 會把「有守門」變成「有宣稱」。
-      #    ⇒ 少了這一步，CI 恆紅；而恆紅與恆綠一樣沒有判別力。
-      #
-      # 🔴 **為什麼只 build admin，不是 `pnpm build`(全 monorepo)**：
-      #    那兩支測試都在 `apps/admin` ⇒ admin 產物就是需求的全部。
-      #    而 `ci.yml` 有【零個 `env:`】(`grep -c 'env:' .github/workflows/ci.yml` ⇒ 0)，
-      #    全 build 會連 storefront 一起建，產出一份 `NEXT_PUBLIC_*` 內插為空的 client bundle
-      #    —— 對這兩支無影響(它們量 CSS/chunks)，但那是**多出來、與線上結構不同**的產物。
-      #    ⚠️ 實測它【不會失敗】(見本 plan §9-a，無 `.env.local` 的鑽機四發皆 rc=0)，
-      #       所以這不是「會爆」，是「沒有人要它」。
-      #
-      # ⚠️ **給未來的人（乙的已知代價，寫下來就不再是隱形的坑）**：
-      #    若你在 `apps/storefront` 新增依賴編譯產物的測試，這一步要一起擴到 storefront，
-      #    並自行處理它需要的 env（參考 `e2e-prod.yml` 那步的 `env:` 區塊）。
+      # 🔴 **註解正本在 `.github/workflows/ci.yml`(那一步的上方)，不在這裡。**
+      #    ~~本區塊原本抄了一份完整註解~~ —— 2026-08-18 13:5x G1 拿掉(codex 關卡2 R2 三條 must-fix)：
+      #    R1 的三條修正只折進了 workflow，**這份複本原封不動地留著錯的字面**
+      #    (「admin 產物就是需求的全部」/ 被自己註解染色的 `grep -c 'env:'` / 「不會失敗」)
+      #    ⇒ **一份提案裡的 code 複本，落地之後就是一個沒有人會去更新的第二真相。**
+      #    判別句：**這段字有兩個地方在講同一件事嗎？有 ⇒ 其中一份遲早是假的。**
       - name: Build admin (編譯產物類測試的前置)
         run: TURBO_FORCE=1 pnpm --filter @pcm/admin build
 ```
@@ -152,7 +148,17 @@ ci.yml 的順序：              typecheck → lint → （無 build）→ test
 
 ---
 
-## 4. 為什麼是甲，不是乙或丙
+## 4. ~~為什麼是甲，不是乙或丙~~ —— 🔴 **整節已被 §9-c 與 Sean 的 `Q1=甲`+`Q2=乙` 取代，照做會走回舊方案**
+
+> 🔴 **2026-08-18 13:5x G1 加註（codex 關卡2 must-fix）**：本節從標題到表格到「仍選甲」那句，
+> **講的都是【甲：全 monorepo build】**，而現行方案是**【乙：只 build admin】**（§3-a、§9-c、`ci.yml:76`）。
+> **零刪除保留**是因為它記著「丁為什麼被否決」那條理由（那條在乙底下仍然成立）。
+> ⚠️ **但只讀本節的人會去改成 `pnpm build`** —— 那正是本檔記過的形狀：
+> **改了方案而論證段留在原地沒跟著改。**
+> ⇒ 引用本節前先讀 §9-c(`:427` 起) 與 §3-a。
+> 📌 **注意「甲」這個字在本檔有兩個意思**：§4 的「甲」= 全 build 方案；
+> Sean `Q1=甲` = 「批准，照 plan 改」那個選項 —— **兩者不是同一件事**，別把後者讀成前者。
+
 
 | 案 | 內容 | 判定 |
 |---|---|---|
@@ -219,8 +225,10 @@ ci.yml 的順序：              typecheck → lint → （無 build）→ test
   ⇒ **本欄結論改為：CI 增加的時間【未量，且原本的估法無效】。** 乙只 build admin ⇒ 約為上述其中一半，**仍未量**。
   📌 這條對三案比較有影響：**甲的時間成本被低估**，而丁的賣點之一正是「兩個 job 可並行」⇒ **它把天平往丁推一點**（但丁的兩處清單同步成本未變，見 §4-b）。
   ✅ **而它讓【乙】更強**：乙只 build admin ⇒ **冷編譯只付一次，不是兩次。**
-  🔴 **本項在 §9-f 的三分法裡屬第 (b) 種「現在查不到」** —— 要真值只能推一次 PR 去量，
-  **而那件本身就是 §7 驗收 3 的動作** ⇒ 它會在驗收時自然拿到，不需要為它另外做一件事。
+  🔴 **本項在 §9-f 的三分法裡屬第 (b) 種「現在查不到」** —— ~~要真值只能推一次 PR 去量，
+  而那件本身就是 §7 驗收 3 的動作~~ **已被 Sean `Q2=乙` 推翻(2026-08-18 13:5x G1 更正)**：
+  驗收 3 現在是「**Sean 推 `dev` 之後那一發 CI**」，不是 PR。
+  ⇒ 結論那半不變(它仍會在驗收時自然拿到)，**但取得它的動作變成「等他推」，不是「我開個 PR」。**
   ⚠️ 目前能說的只有：**它比本 plan 原本估的高一個量級**，而**確切值未確認**。
 
   📌 **一個對全陣有用的副產品（W6 發現）**：拋棄式 worktree **天生不帶 gitignored 檔** ⇒
@@ -229,9 +237,29 @@ ci.yml 的順序：              typecheck → lint → （無 build）→ test
 
 ### 5-b 執行面影響（codex R1 F5：「只寫改檔範圍，未分析執行影響」）
 
-- 🔴 **`pnpm build` 是【全 monorepo】的 build，不只 admin。** 分母 `grep -rl '"build"' --include=package.json apps packages | wc -l` ⇒ **2**（storefront / admin）。
-  ⇒ **從此 storefront 的 build 失敗也會讓 CI 紅** —— 而它今天不會。**這是新增的失敗面，不是零成本。**
-  ⚠️ 但那個紅是**真的紅**（storefront build 壞了本來就該擋），不是假紅 ⇒ 我判定為**可接受**，而不是「沒有影響」。
+- 🔴 **2026-08-18 13:5x G1 更正(codex 關卡2 must-fix)：本項整條是【甲】的影響面，不是現行【乙】的。**
+  ~~`pnpm build` 是【全 monorepo】的 build，不只 admin。分母 2（storefront / admin）
+  ⇒ 從此 storefront 的 build 失敗也會讓 CI 紅 —— 而它今天不會。這是新增的失敗面，不是零成本。
+  ⚠️ 但那個紅是真的紅（storefront build 壞了本來就該擋），不是假紅 ⇒ 判定為可接受。~~
+  ✅ **乙底下這件【不會發生】**：落地的是 `TURBO_FORCE=1 pnpm --filter @pcm/admin build`
+  （量法 `grep -c 'pnpm --filter @pcm/admin build' .github/workflows/ci.yml` ⇒ **1**；
+  反向 `grep -cE '^\s+run: TURBO_FORCE=1 pnpm build$' .github/workflows/ci.yml` ⇒ **0**）
+  ⇒ **storefront build 壞掉仍然不會讓 `ci.yml` 紅。**
+  🔴 **而「storefront build 沒有人守」是【假的】——我落筆時差點這樣寫，查完才改掉：**
+  `E2E (production build)`（`e2e-prod.yml`，同樣 `on: push: branches: [dev, main]` + `pull_request`）
+  跑 `pnpm test:e2e:prod` ⇒ `playwright.prod.config.ts` 的 `webServer.command` 是
+  **`command: 'node scripts/e2e-prod-preflight.mjs && pnpm build && pnpm exec next start --port 3200'`**
+  （`apps/storefront/playwright.prod.config.ts:73` 本體，**不是註解** —— codex R2 打回我第一版只憑
+  `:14` 註解就下結論，它對；我回頭讀了 command 那一行）⇒ **storefront build 壞掉，那支 workflow 會紅。**
+  ⚠️ **但它守的位置不同**，兩件事不要混：
+  ```
+  守不守得到 storefront build 壞掉        ⇒ 守得到（e2e-prod）
+  紅的時候【那顆已經在 dev 上】了嗎        ⇒ 是（兩支都是 push 後才跑）
+  ci.yml 這一支會不會因為它紅              ⇒ 不會（乙只 build admin）
+  ```
+  ⇒ 所以乙的代價**不是**「沒人守」，是**「訊號分在兩支 workflow，而看的人要記得兩支都看」**。
+  ✅ **`reuse 命中就不 build` 那個逃生門在這份 config 上是關的**：同檔 `:75` `reuseExistingServer: false`
+  ⇒ 每一發都真的 build。（~~原本寫「涵蓋率未量」~~ —— 那是我只讀註解時的保守話，讀了 code 就不必猜了。）
 - 🔴 **新的環境依賴**：build 需要的 env。
   ~~原本寫：`E2E (production build)` 能在 CI build 成功 ⇒ 推論在【同一個 runner】上 `pnpm build` 也建得起來。~~
   **那句是錯的（codex R2 F5-b）**，逐字：「另一支 workflow 並非『同一個 runner』，且未比對 env，不能據此推論本 workflow 能 build。」
@@ -290,16 +318,33 @@ codex R2 逐字：「用錯誤訊息字串計數無法完整識別所有依賴 b
 
 ## 7. 驗收條件（每條可 yes/no）
 
-1. `grep -c 'pnpm --filter @pcm/admin build' .github/workflows/ci.yml` ⇒ **1**（現在是 0）。
+1. `grep -c 'pnpm --filter @pcm/admin build' .github/workflows/ci.yml` ⇒ **1**。
+   ✅ **已達成（2026-08-18 13:5x，未 commit 時量的）** —— ~~（現在是 0）~~ 那個「現在」指的是改之前，已過期（codex 關卡2 nit）。
    ⚠️ **驗收字面已跟著【乙】改** —— 原本寫的是 `grep -cE "pnpm build|turbo run build"`，那是甲的字面。
    📌 這是本 repo 記過的形狀：**改了方案而驗收條款留在另一節沒跟著改**（`feedback_claimed-sync-but-only-patched-touched-lines`）。
 2. Build 步驟在 `Test` 步驟**之前**：`grep -n "name: Build\|name: Test" .github/workflows/ci.yml` 的行號，Build < Test。
-3. 🔴 **PR 上**那一發 CI（**不推 dev**；理由與三條路的分工見 §7-b、執行面限制見 §9-e）：`gh run view <id> --json conclusion` ⇒ **success**，且 `Test Files` 的 failed 數 ⇒ **0**。
+3. 🔴 **Sean 推 `dev` 之後那一發 CI**：`gh run list --branch dev --limit 1 --json headSha,conclusion` 的 `headSha`
+   對得上含本步的那顆，且 `conclusion` ⇒ **success**，`Test Files` 的 failed 數 ⇒ **0**。
+   🔴 ~~PR 上那一發 CI（不推 dev）~~ **已被 Sean 2026-08-18 的 `Q2=乙` 推翻**（原文在 `~/pcm-mailbox/MAIN-021-給G1-Sean批了CI-20260818.md`，
+   他逐字只說「5 題依照建議」，內容在該檔貼的選項原文裡）。乙 = 那一行直接進 dev、等下次推 dev 時看那一發 CI。
+   ⚠️ **代價要寫在這裡不是藏在 §7-b**：猜錯就是 CI 再紅一次 —— 跟現在一模一樣。
+   ⚠️ **這條的 yes/no 不在施工窗手上** —— 只有 Sean 推得動 `dev`，所以本條在他推之前**恆為「未驗」**，
+   不是 fail。誰引用本 plan 說「已驗收」，要先答得出那一發 CI 的 run id。
+   📌 §9-e 那兩個執行面（feature branch 紀律例外 / 只有 Sean 推得動）**因為走乙而變成不必答，不是被批准**
+   （MAIN-021 明寫 Sean 沒批 feature branch 例外）。
 4. 🔴 **負向對照（不可省）**：拿掉 Build ⇒ 那兩支**必須再度紅**，錯訊息仍是「找不到建置產物」。
    —— 沒有這一發，只證明「現在綠了」，不證明「是這一步讓它綠的」。
 5. `E2E (production build)` 仍然 success（證明沒有波及另一支 workflow）。
 
-### 7-b 🔴 「只能 push 後才驗得到」那個矛盾，已經解掉了（codex R1 F2 打破 + 主視窗裁定）
+### 7-b 🔴 ~~「只能 push 後才驗得到」那個矛盾，已經解掉了~~ —— **半條又回來了（Sean `Q2=乙`）**
+
+> 🔴 **2026-08-18 13:5x G1 加註（codex 關卡2 must-fix）**：本節原本解的是「不推 dev 也驗得到正向」，
+> 而 **Sean 選了乙 = 不開 PR、直接進 dev** ⇒ **正向那半又變回「只能推上去才驗得到」**。
+> ✅ **沒有回來的是【負向那半】**：`a482b428` 那一發已經是「沒有 Build」的世界，仍然免費、仍然成立。
+> ⇒ 本節下面的表格第一列已改；**codex R1 F2 那條技術事實（`ci.yml` 支援 PR）仍然為真**，
+> 只是**我們選擇不走它**——`grep -n "pull_request" .github/workflows/ci.yml` ⇒ `:6`（我重跑過）。
+> ⚠️ **不要把「沒走」讀成「走不了」**，也不要把它讀成「Sean 批了 feature branch 例外」（他沒批）。
+
 
 ~~原本寫：驗收 3/4 只能在推上去之後才做得到，是本案無法在 commit 前關掉的一段。~~ **那句是錯的。**
 
@@ -312,7 +357,7 @@ codex R1 F2：ci.yml 支援 PR ⇒ 不必推 dev 也驗得到正向結果
 
 | 要證的 | 怎麼證 | 在哪 |
 |---|---|---|
-| 正向：加了 Build 之後 CI 綠 | 開 PR，看那一發 CI | GitHub PR，**不碰 dev** |
+| 正向：加了 Build 之後 CI 綠 | 🔴 ~~開 PR，看那一發 CI~~ **已被 Sean `Q2=乙` 推翻** ⇒ 那一行直接進 `dev`，等他下次推 `dev` 時看那一發 CI | `dev` 推上去之後，**不開 PR、不開 feature branch** |
 | 負向：沒有 Build 就會紅 | 🔴 **`a482b428` 那一發【已經是】負向對照** —— 它就是「沒有 Build」的世界，而它 FAILURE、訊息是「找不到建置產物」 | 已存在，run `32094343674` |
 | 負向（第二道，本機） | 在拋棄式鑽機上不 build 直接跑那兩支 ⇒ 必須紅 | `pcm-w1-fg2`，可重跑 |
 
@@ -450,19 +495,33 @@ W6 量的是**主樹**的 build(會印 `- Environments: .env.local`);我的四�
    ci.yml 的 Build 步驟要一起擴到 storefront,並自行處理它需要的 env。
    ```
 
-⚠️ **我推翻的是我自己上一版的推薦,也連帶推翻主視窗基於那版做的裁定** ⇒ **這一項必須重新裁,不能沿用。**
+⚠️ **我推翻的是我自己上一版的推薦,也連帶推翻主視窗基於那版做的裁定** ⇒ ~~這一項必須重新裁,不能沿用。~~
+✅ **已裁完(2026-08-18 13:5x G1 更正,codex 關卡2 R2 must-fix)**:主視窗 11:5x 裁【乙】、Sean 13:20 批
+(`Q1=甲` 照 plan 改 / `Q2=乙` 不開 PR)⇒ **本行不再是待辦**。留著是因為它記錄了「推薦被自己推翻」那個過程。
+⚠️ 不要因為讀到「必須重新裁」就以為這份 plan 還在等人拍板 —— 檔頭 `:3` 是現況的權威。
 
 ### 9-d F8(must-fix):§7 驗收 3 與 §7-b 互相矛盾 —— 已改
 
 `§7 驗收 3` 原本寫「推上去之後那一發 CI」,而 `§7-b` 裁的是「不推、開 PR」。
-⇒ **照著做的人會照 §7 做,不會先讀 §7-b。** 驗收 3 已改寫成「**PR 上那一發 CI**」。
+⇒ **照著做的人會照 §7 做,不會先讀 §7-b。** ~~驗收 3 已改寫成「PR 上那一發 CI」~~
+🔴 **2026-08-18 13:4x 更新:那次改寫【又被推翻了】** —— Sean `Q2=乙` ⇒ 不開 PR、直接進 dev,
+驗收 3 現在寫的是「**Sean 推 dev 之後那一發 CI**」(`:296`)。
+📌 **這一節本身就是那個形狀的實例**:它記錄的是「兩節互相矛盾、已對齊」,
+而對齊之後**上游又變了一次**,於是這一節自己變成新的過期字面 —— 而它讀起來像一則已結案的紀錄。
 
-### 9-e F9:開 PR 這條路的執行面兩個未答
+### 9-e ~~F9:開 PR 這條路的執行面兩個未答~~ —— 🔴 **這條路沒有被走(Sean `Q2=乙`)**
 
-機制上成立(`on: pull_request:` 無分支過濾)。但:
-1. `CLAUDE.md` Git 紀律「slice 都在 dev、暫不開 feature branch」⇒ **這是紀律例外,沒有人批過。**
-2. 「不自動 push」⇒ **施工窗推不了那個分支,要 Sean 動手。**
-⇒ **這條路需要 Sean 開分支並推,或需要一次 feature-branch 例外。** 已請主視窗排進他桌上。
+> **2026-08-18 13:5x G1 更正(codex 關卡2 R2 must-fix)**:本節原本以「我們要走開 PR 這條路」的口吻寫,
+> 而 Sean 已選【乙 = 不開 PR、那一行直接進 dev】⇒ **下面兩個未答【變成不必答】。**
+> 🔴 **不必答 ≠ 被批准。** `MAIN-021` 明寫「feature branch 例外,他沒有批」。
+> ⇒ 誰日後要走 PR 那條路,這兩件要**重新問**,不能引用本節當作已解決。
+
+~~機制上成立(`on: pull_request:` 無分支過濾)。但:~~
+1. ~~`CLAUDE.md` Git 紀律「slice 都在 dev、暫不開 feature branch」⇒ 這是紀律例外,沒有人批過。~~
+2. ~~「不自動 push」⇒ 施工窗推不了那個分支,要 Sean 動手。~~
+⇒ ~~這條路需要 Sean 開分支並推,或需要一次 feature-branch 例外。~~
+📌 **技術事實仍為真**:`grep -n 'pull_request' .github/workflows/ci.yml` ⇒ `:6`(我重跑過)
+⇒ **走得了,只是沒走。**
 
 ### 9-f 全檔「未確認」逐條掃描(W6 的判準:查得到而沒查 vs 現在查不到)
 
