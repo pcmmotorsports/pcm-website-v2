@@ -19605,6 +19605,34 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
 · 測試檔本身**沒有** readFileSync 自己的原始碼（我查過）⇒ 不會因為改檔名而紅
 ```
 
+### ✅ 拆完的驗收清單(**可執行,不是「跑一下測試」**)
+
+```
+① typecheck 先跑 —— 它是這次拆檔最強的一道
+   移動一個元件而漏搬它用到的東西（constants / helpers / type）⇒ **編譯期就紅**
+   ⇒ 所以「搬漏了」這一類【不需要靠測試】，靠 tsc
+
+② 跑那 48 格：`npx vitest run apps/admin/src/components/orders/item-procurement-section.test.tsx`
+   全綠 ⇒ 行為零改變（48 格全部透過 <ItemProcurementSection> 渲染）
+   有紅 ⇒ **紅的那幾格就是隱性耦合的清單**，逐格看它斷言什麼
+   🔴 怎麼分辨【耦合】與【真迴歸】：
+      · 紅在「找不到元素 / undefined」   ⇒ 多半是搬漏（回去看 ① 為什麼沒紅：可能是 any 吃掉了）
+      · 紅在「文字對不上」               ⇒ **真迴歸**：搬的時候改到了字面
+      · 紅在「順序/數量」                 ⇒ 真迴歸：JSX 結構被動到
+
+③ 🔴🔴 **最貴的那一項:class 字面【沒有人守】** —— 這是本次拆檔唯一的【靜默】失敗模式
+   實測：那 48 格只斷言過 `opacity-60`（:525 :526 :621），
+   而版面用的 CARD / TH / TD **零斷言** ⇒ 拆檔時把它們**重打一次而打錯**，
+   **四綠全過、48 格全綠，而畫面壞掉。**
+   ⇒ 驗收動作（成本一行）：
+      /usr/bin/grep -rn "const \(CARD\|TH\|TD\) = " apps/admin/src/components/orders/
+      ⇒ 每個常數**恰好一處定義**（拆完仍是一處，不是兩處各自漂）
+   ⇒ 做法紀律：**搬（cut-paste）不要重打**；要共用就 export，不要在新檔複製一份字面。
+
+④ 對外介面沒變：`git grep -n "<ItemProcurementSection" apps/admin/src` ⇒ 仍只有
+   `order-detail.tsx` 一處，且 props 未變
+```
+
 ### 🔴 這份盤點沒有主張什麼
 ```
 · 沒有主張現在就該拆 —— 何時做由主視窗排（本條的價值是「下一次動它的人負責拆」）
