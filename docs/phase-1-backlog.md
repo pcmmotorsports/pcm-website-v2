@@ -8901,8 +8901,50 @@ order by n desc, 1;
 - **觸發事件:**
   - 2026-08-04 A10b(採購表單 UI)施工;關卡2 codex `gpt-5.6-sol` 指出「記錄未實作不等於關閉需求」;
     Sean 當日拍板 A(這期不做、開具名後續片)。
+> ### 🔴 2026-08-19 第二層查核(G6):**問題還在;而本條建議的兩條路,一條已被否決、一條已經被蓋好了**
+>
+> **① ✅ 現況成立:採購表單那顆仍是純 `<select>`**
+> ```
+> item-procurement-form.tsx:291  <select …>   :299 supplierChoices.map(...)
+> buildSupplierChoices 仍在      procurement-suppliers.ts:28
+>                                消費端 item-procurement-section.tsx:176, :199
+> sortSuppliersByLabel 仍是單一排序入口   supplier.ts:52(export;條目引的 :44-52 是含註解區塊)
+> ```
+>
+> **② 🔴 本條寫的「datalist」這條路 —— 這個 repo 已經評估過並【否決】了**
+> `supplier-candidates.ts:6-8` **逐字**:
+> ```
+> 🔴 原生 `<datalist>` 的比對規則由**瀏覽器**決定、各家不同 ⇒「打 Webike 恰 3 筆」
+>    這種驗收在單元測試裡釘不住。自己寫比對才測得住 —— 但只有在**邏輯不在元件裡**時才成立。
+> ```
+> ⇒ 那是 **Sean D1=B** 的成立基礎(同檔 `:5`)。**本條的「或 datalist」今天是一條死路,不要照它做。**
+>
+> **③ 🔴 而「既有 UI 積木」今天是**具體的兩支檔**,不是一個待找的東西**
+> S3b-3(新增供應商)已經把同一件事做出來了,而且拆成可重用的形狀:
+> ```
+> apps/admin/src/lib/supplier-candidates.ts        純函式候選過濾(零 React、零 IO ⇒ 單元測得住)
+> apps/admin/src/components/settings/supplier-label-input.tsx:13   client island:輸入框 + 候選提示
+> apps/admin/src/components/settings/supplier-create-form.tsx:7    server 外框只把輸入框切成 client
+> ```
+> ⇒ **本條的體積因此比條目寫的小**:是「把 S3b-3 的形狀搬到採購表單」,不是「挑一個元件」。
+> ⚠️ **而有一格必須跟著搬,否則會壞**:`supplier-candidates.ts:10-12` 逐字
+> 「**它是提醒,不是關卡**(Sean D2=A):員工無視候選照樣送得出去」——
+> 而採購表單那顆的約束**相反**:`buildSupplierChoices` 要保證
+> 「**本品項已有採購列指向的停用供應商仍要選得到**」⇒ 它是**受限清單**不是自由輸入。
+> 🔴 ⇒ **搬的是「輸入框 + 純函式過濾」的骨架,不是 S3b-3 的自由輸入語意。**
+>   照抄會把一個受限清單變成自由文字,而母 plan 驗收 16 後半明文禁止那件事(同檔 `:11-12` 記著它移交給 A10b)。
+>
+> **④ 誠實揭示**
+> ```
+> · 全部是讀 code,**沒有開過後台畫面**、沒有量過今天有幾家供應商
+>   ⇒ 本條的優先級判準(「隨家數成長而升溫」)我**答不出來** —— 那要正式庫的 suppliers 筆數
+> · ② 的「死路」是引該檔逐字的評估,**不是我自己測瀏覽器測出來的**
+> · 掃描範圍 apps/admin/src 的 .ts/.tsx(排測試);負向對照:同範圍 `<select` ⇒ 13 命中 ✅
+> ```
+
 - **預期解法:**
-  - `<select>` 換成可輸入過濾的元件(datalist 或既有 UI 積木);資料來源不變(S3a `listSuppliers()`),
+  - `<select>` 換成可輸入過濾的元件(~~datalist 或~~ **既有 UI 積木 —— 見上方查核段 ②③,
+    `datalist` 已被否決、積木已存在**);資料來源不變(S3a `listSuppliers()`),
     排序仍走 `sortSuppliersByLabel` 單一入口,**不得**另建 collator。
   - 🔴 沿用 A10b 既有約束:**本品項已有採購列指向的停用供應商仍要選得到**
     (`procurement-suppliers.ts:buildSupplierChoices`),否則那一列永遠改不了。
