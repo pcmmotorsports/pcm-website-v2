@@ -161,17 +161,19 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     expect(container.querySelector('details')).toBeNull();
   });
 
-  // 🔴🔴 **`truncated` 的另外那一半 —— 沒有這一格,把 `!truncated` 換成 `!detail.itemsTruncated`
-  //    會【全綠】**(code-reviewer 2026-08-18 實測突變,32 格全過)。
-  //    而這不是理論狀態,是**兩條真的生產路徑**:
-  //      `mappers/order-procurement.ts:158`      內嵌鍵整個沒回來 ⇒ missing
-  //      `merge-detail-items.ts:97-100`          品項落在 ORDER_ITEMS_EMBED_LIMIT 之外 ⇒
-  //                                              逐字 `procurements: []` + `procurementTruncated: true`
-  //    🔴 後者就是 Sean 那張 200 品項的單(memory `project_0817-order-line-item-ceiling-is-200`)。
-  it('零採購列【但品項層被截斷,訂單層沒有】→ 一樣不收合(單邊守門會漏掉 200 品項那張單)', () => {
+  // 🔴🔴 **本格的 fixture `#646`(2026-08-18)換過,而換的理由要留著:**
+  //    ~~舊 fixture `procurements: []` + `procurementTruncated: true`~~,理由段還宣稱它來自
+  //    「兩條真的生產路徑」(`order-procurement.ts` 的 missing、`merge-detail-items.ts` 的第 201 項)。
+  //    🔴 `#646` 之後**那兩條路徑都改回 `procurements: null`** ⇒ 舊 fixture 變成一個
+  //    **生產端造不出來的狀態**(memory `feedback_green-in-a-world-that-cannot-happen`:
+  //    突變會紅、覆蓋率算它、而它測的世界上游產不出來)。
+  //    ⇒ 換成**現在真的產得出來**的那一個:`procurements: null`(讀不到)、訂單層沒截斷。
+  //    守的東西不變:**零採購列的收合快樂路徑,不得在「其實是沒讀到」時出現**
+  //    (把條件寫成單看 `detail.itemsTruncated` 的實作會在這裡紅)。
+  it('讀不到採購【而訂單層沒截斷】→ 一樣不收合(單邊守門會漏掉這條路)', () => {
     const d = detail();
-    d.items[0]!.procurements = [];
-    d.items[0]!.procurementTruncated = true;
+    d.items[0]!.procurements = null;
+    d.items[0]!.procurementTruncated = false;
     d.itemsTruncated = false;
     const { container, queryByText } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
@@ -225,7 +227,7 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
     const { container, getByText } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
-    expect(getByText(/採購紀錄這次沒有完整載入/)).toBeTruthy();
+    expect(getByText(/採購紀錄太多,超過一次能載入的上限/)).toBeTruthy();
     expect(container.querySelector('button[type="submit"]')).toBeNull();
   });
 
@@ -235,8 +237,9 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
   //    而 `itemsTruncated = order_items.length >= 200`(`mappers/order.ts:911`)
   //    ⇒ 重整拿到同一個數字。全陣紀律逐字(`account-order-copy.ts:16`):
   //    **「請重新整理」只准出現在【真的重整就會好】的地方。**
-  // ⚠️ 這一組守的是**句型**,不是某個字 —— 光禁「重新整理」四個字會擋掉那個
-  //    【真的重整就會好】的世界(`procurementTruncated` 的 `missing` 那半)。
+  // ⚠️ 這一組守的是**句型**,不是某個字 —— 光禁「重新整理」四個字會擋掉條件句那半。
+  //    (~~原註寫「`procurementTruncated` 的 `missing` 那半」~~ —— `#646` 之後那一半已經
+  //     不在這顆布林裡了,改由 `procurements === null` 表示。)
   it.each([
     ['order（外層 itemsTruncated）', () => detail({ itemsTruncated: true })],
     [
@@ -265,24 +268,119 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
         return d;
       },
     ],
-  ])('🔴 %s:三個要件都要在(可執行動作 / 重整後的判準與出路 / 不能編輯採購)', (_label, make) => {
+  ])('🔴 %s:兩個 scope 都不得出現【宣稱重整會好】的句型', (_label, make) => {
     const { getByRole } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={make()} suppliers={[]} suppliersFailed={false} />,
     );
     const t = getByRole('alert').textContent ?? '';
-    expect(t, '① 先給一個可執行的動作').toContain('可以先重新整理看看');
-    expect(t, '② 重整之後還是這樣的判準').toContain('如果還是這樣');
-    expect(t, '② 出路:找誰').toContain('負責人');
-    // 🔴 ③ 這半句描述的是【真的擋著的行為】(`item-procurement-form.tsx:263` 的 fieldset disabled
+    expect(t, '「請重新整理這張單」宣稱重整會好').not.toContain('請重新整理這張單');
+    expect(t, '出路:找誰').toContain('負責人');
+    // 🔴 這半句描述的是【真的擋著的行為】(`item-procurement-form.tsx:263` 的 fieldset disabled
     //    + 該檔 `:49` 自陳 action 端第二道)⇒ 把它當廢話刪掉會製造一個新的靜默失敗。
-    expect(t, '③ 那半句真的擋著的行為').toContain('不能編輯採購');
+    expect(t, '那半句真的擋著的行為').toContain('不能編輯採購');
+  });
+
+  // 🔴🔴 `#646` 關卡2 codex must-fix:**兩個 scope 的講法不同,而理由是【證據不同】。**
+  //    item  scope 的旗標語意只有「撞到採購內嵌上限」            ⇒ 純固定 ⇒ 講得死
+  //    order scope 的旗標併了「>= 200」與「筆數對帳不符」兩個來源 ⇒ 後者**重整可能會好**
+  //    ⇒ 對 order 講死 = 對那條路說謊。**這兩格成對,只留一格會讓「兩邊都講死」的壞實作有一格綠。**
+  it('🔴 item(內層):純固定證據 ⇒ 講死「重新整理不會改變」', () => {
+    const d = detail();
+    d.items[0]!.procurementTruncated = true;
+    const { getByRole } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
+    );
+    const t = getByRole('alert').textContent ?? '';
+    expect(t, 'item 這一半有純固定證據,要講死').toContain('固定限制');
+    expect(t).toContain('重新整理不會改變');
+  });
+
+  it('🔴 order(外層):旗標併了兩個來源 ⇒ **不得**斷言固定,要保留條件句', () => {
+    const { getByRole } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={detail({ itemsTruncated: true })} suppliers={[]} suppliersFailed={false} />,
+    );
+    const t = getByRole('alert').textContent ?? '';
+    expect(t, '① 先給一個可執行的動作(這條路重整【可能】會好)').toContain('可以先重新整理看看');
+    expect(t, '② 重整之後還是這樣的判準').toContain('如果還是這樣');
+    expect(
+      t,
+      '🔴 斷言「重新整理不會改變」對【筆數對帳不符】那條路是假的(codex 關卡2 must-fix)',
+    ).not.toContain('重新整理不會改變');
+  });
+
+  // ── `#646`(2026-08-18,Sean 批「現在做」)─────────────────────────────
+  //
+  // 🔴 **本組是這一片存在的理由**:舊形狀一顆布林兩個世界 ⇒ 文案只能寫條件句。
+  //    拆開之後**四種組合各自講死**,而下面四格就是「兩個世界會不會印出不同的東西」的測量。
+  describe('`#646` 讀不到 vs 觸及上限:四種組合各說各的話', () => {
+    const unreadable = (truncated: boolean) => {
+      const d = detail();
+      d.items[0]!.procurements = null;
+      d.items[0]!.procurementTruncated = truncated;
+      return d;
+    };
+
+    // 🔴🔴 關卡2 codex 兩輪之後的契約:**「讀不到」這一種【不宣稱】是哪個世界。**
+    //    理由(寫在 `UnreadableWarning` 上方):我們手上沒有品項級的證據可以斷定
+    //    ——「訂單層撞過上限」是**訂單**的事實,穿在**品項**身上就是猜的(codex round2 抓到)。
+    //    ⇒ 下面兩格釘住的是【不准說謊】:兩個方向的斷言都不得出現。
+    it.each([
+      ['該品項自己沒有截斷旗標', false, false],
+      ['該品項自己帶著截斷旗標', true, false],
+      ['整張單也截斷了', false, true],
+    ])('🔴 讀不到(%s)⇒ 講「沒有讀到」+ 條件句,兩個方向的斷言都不准', (_l, itemFlag, orderFlag) => {
+      const d = unreadable(itemFlag);
+      d.itemsTruncated = orderFlag;
+      const { getAllByRole } = render(
+        <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
+      );
+      const t = getAllByRole('alert').find((a) => (a.textContent ?? '').includes('沒有讀到'))?.textContent ?? '';
+      expect(t, '沒讀到 ≠ 沒有採購,這一句是本片的核心').toContain('沒有讀到');
+      expect(t, '① 給一個可執行的動作(這條路重整【可能】會好)').toContain('可以先重新整理看看');
+      expect(t, '② 試完之後的判準與出路').toContain('如果還是這樣');
+      expect(
+        t,
+        '🔴 不得斷言【固定】:我們沒有品項級證據 —— 拿訂單層事實去斷定品項 = codex round2 那條',
+      ).not.toContain('重新整理不會改變');
+      expect(
+        t,
+        '🔴 也不得斷言【暫時】:「請重新整理這張單」是宣稱重整會好,那一樣沒有證據',
+      ).not.toContain('請重新整理這張單');
+    });
+
+    it('🔴 讀不到時**不得**走「還沒跟任何供應商訂」那條快樂路徑(那句話是假的)', () => {
+      const { container } = render(
+        <ItemProcurementSection returnTo={RETURN_TO} detail={unreadable(false)} suppliers={[]} suppliersFailed={false} />,
+      );
+      const t = container.textContent ?? '';
+      expect(t, '「沒撈到」被講成「沒有」——這正是 `#646` 要修的病').not.toContain('還沒跟任何供應商訂');
+    });
+
+    it('🔴 讀不到時採購表單要停用(fail-closed 沒有因為拆旗標而變鬆)', () => {
+      const { container } = render(
+        <ItemProcurementSection returnTo={RETURN_TO} detail={unreadable(false)} suppliers={[]} suppliersFailed={false} />,
+      );
+      // 舊版靠 missing ⇒ truncated=true 擋住;`#646` 之後由 `unreadable` 接手擋。
+      expect(container.querySelector('button[type="submit"]')).toBeNull();
+      expect(
+        container.querySelector<HTMLInputElement>('input[name="procurement_stale"]')!.value,
+        'stale 沒帶 1 ⇒ 伺服器端那道也一起失效',
+      ).toBe('1');
+    });
+
+    it('🔴 正向對照:讀得到 + 沒截斷 ⇒ 一則警告都不該出現(否則上面四格可能是恆真的)', () => {
+      const { queryByRole } = render(
+        <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
+      );
+      expect(queryByRole('alert')).toBeNull();
+    });
   });
 
   // 🔴 **伺服器端那則是同一個病的回聲,不是另一件事** ——
   //    `stale` 由表單 hidden 欄位帶上來,值 = `truncated ? '1' : '0'`(`item-procurement-form.tsx:248`),
   //    而 `truncated = item.procurementTruncated || detail.itemsTruncated` ⇒ **同一個旗標**。
   //    只改看得見那則的話,員工照樣按送出、然後從這裡拿到舊的錯指示。
-  it('🔴 伺服器端 `stale` 那則也要同一個句型(不得再說「請重新整理這張單再操作」)', () => {
+  it('🔴 伺服器端 `stale` 那則:不複述下一步、指向畫面那則(`#646` 之後分不出是哪一種)', () => {
     // 🔴 走【公開函式】拿訊息,不是 import 內部常數表 ——
     //    後者測得到字串卻測不到「這個碼真的會拿到這句」。
     // 🔴 走【公開函式】而不是 import 內部常數表:後者測得到字串,測不到「這個碼真的會拿到這句」。
@@ -292,9 +390,13 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
     expect(state.status).toBe('failed');
     const msg = state.status === 'failed' ? state.message : '';
     expect(msg).not.toContain('請重新整理這張單');
-    expect(msg).toContain('可以先重新整理看看');
-    expect(msg).toContain('如果還是這樣');
-    expect(msg).toContain('負責人');
+    // 🔴 `#646`:伺服器端這則**分不出是哪一種**(hidden `stale` 只帶得上來一個 1)
+    //    ⇒ 契約從「同一個句型」改成「不自己複述下一步、指向畫面那則」。
+    expect(msg, '不得再宣稱重整會好').not.toContain('請重新整理這張單再操作');
+    expect(msg, '要指向那則真正分得出情況的說明').toContain('畫面上那則說明');
+    expect(msg, '仍要講清楚現在送出的後果').toContain('覆蓋既有資料');
+    // ~~原本還要求「如果還是這樣」「負責人」~~ —— 那兩句是**下一步指示**,
+    // 而本則現在刻意不給下一步(它分不出是哪一種情況)⇒ 兩條期望隨契約一起撤掉。
   });
 
   it('負向對照:同一份文案表裡【真的重整就會好】那幾則不受影響(不是把四個字全域禁掉)', () => {

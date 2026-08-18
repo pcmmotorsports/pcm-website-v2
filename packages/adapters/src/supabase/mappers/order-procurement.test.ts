@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import type { AdminOrderItemProcurement } from '@pcm/domain';
 import {
   mapSupabaseProcurementRowsToProjection,
   ORDER_ITEM_PROCUREMENT_EMBED_LIMIT,
+  type AdminOrderItemProcurementProjection,
   type SupabaseOrderItemProcurementRow,
 } from './order-procurement';
 
@@ -33,19 +35,33 @@ function proc(
   };
 }
 
+/**
+ * 🔴 `#646`:`procurements` 從 `T[]` 變成 `T[] | null`,而 `null` 的意思是**讀不到**(內嵌鍵沒回來)。
+ *
+ * 本檔絕大多數案例都**有餵 rows** ⇒ 那些案例拿到 `null` 就是 mapper 壞了,**當場炸**比 `?.` 吞掉好:
+ * `?.` 會讓「mapper 回 null」和「第一列的欄位真的是 undefined」在斷言上長得一樣。
+ * ⇒ 「讀不到」那個世界由本檔自己的專屬案例驗(見「#646 兩個世界」那個 describe)。
+ */
+function rows(res: AdminOrderItemProcurementProjection): AdminOrderItemProcurement[] {
+  if (res.procurements === null) {
+    throw new Error('預期讀得到採購清單,而 mapper 回了 null(`#646`:null = 讀不到)');
+  }
+  return res.procurements;
+}
+
 describe('mapSupabaseProcurementRowsToProjection — 供應商 embed 正規化', () => {
   it('單物件 embed → supplierLabel / supplierIsActive 直取', () => {
     const res = mapSupabaseProcurementRowsToProjection([proc({ id: 'p-1' })]);
-    expect(res.procurements[0]?.supplierLabel).toBe('RPM Carbon');
-    expect(res.procurements[0]?.supplierIsActive).toBe(true);
+    expect(rows(res)[0]?.supplierLabel).toBe('RPM Carbon');
+    expect(rows(res)[0]?.supplierIsActive).toBe(true);
   });
 
   it('陣列形 embed(生成型別對 many-to-one 推斷不穩)→ 取第一個、不炸', () => {
     const res = mapSupabaseProcurementRowsToProjection([
       proc({ id: 'p-1', suppliers: [{ label: 'Webike JP', is_active: false }] }),
     ]);
-    expect(res.procurements[0]?.supplierLabel).toBe('Webike JP');
-    expect(res.procurements[0]?.supplierIsActive).toBe(false);
+    expect(rows(res)[0]?.supplierLabel).toBe('Webike JP');
+    expect(rows(res)[0]?.supplierIsActive).toBe(false);
   });
 
   // 🔴 label 是 NOT NULL + UNIQUE(S1a :32,:45)⇒ null 只代表「內嵌沒回來」。誠實回 null,
@@ -56,9 +72,9 @@ describe('mapSupabaseProcurementRowsToProjection — 供應商 embed 正規化',
       const res = mapSupabaseProcurementRowsToProjection([
         proc({ id: 'p-1', supplier_id: 'sup-x', suppliers }),
       ]);
-      expect(res.procurements[0]?.supplierId).toBe('sup-x'); // A10b 送 A5a 靠它,不能一起消失
-      expect(res.procurements[0]?.supplierLabel).toBeNull();
-      expect(res.procurements[0]?.supplierIsActive).toBeNull();
+      expect(rows(res)[0]?.supplierId).toBe('sup-x'); // A10b 送 A5a 靠它,不能一起消失
+      expect(rows(res)[0]?.supplierLabel).toBeNull();
+      expect(rows(res)[0]?.supplierIsActive).toBeNull();
     }
   });
 
@@ -69,7 +85,7 @@ describe('mapSupabaseProcurementRowsToProjection — 供應商 embed 正規化',
       proc({ id: 'p-1', suppliers: { label: 'Webike JP', is_active: false } }),
     ]);
     expect(res.procurements).toHaveLength(1);
-    expect(res.procurements[0]?.supplierIsActive).toBe(false);
+    expect(rows(res)[0]?.supplierIsActive).toBe(false);
   });
 });
 
@@ -80,7 +96,7 @@ describe('mapSupabaseProcurementRowsToProjection — 排序合約(PostgREST 內�
       proc({ id: 'p-early', created_at: '2026-08-03T10:00:00+00:00' }),
       proc({ id: 'p-mid', created_at: '2026-08-03T11:00:00+00:00' }),
     ]);
-    expect(res.procurements.map((p) => p.id)).toEqual(['p-early', 'p-mid', 'p-late']);
+    expect(rows(res).map((p) => p.id)).toEqual(['p-early', 'p-mid', 'p-late']);
   });
 
   // 🔴 `Date.parse` 只解析到毫秒、而 created_at 是微秒精度 ⇒ 少了「同毫秒比字面」那層,
@@ -90,7 +106,7 @@ describe('mapSupabaseProcurementRowsToProjection — 排序合約(PostgREST 內�
       proc({ id: 'aaa', created_at: '2026-08-03T10:00:00.123999+00:00' }),
       proc({ id: 'zzz', created_at: '2026-08-03T10:00:00.123456+00:00' }),
     ]);
-    expect(res.procurements.map((p) => p.id)).toEqual(['zzz', 'aaa']);
+    expect(rows(res).map((p) => p.id)).toEqual(['zzz', 'aaa']);
   });
 
   it('跨時區偏移:比的是時間點不是字面(字典序會排反)', () => {
@@ -98,7 +114,7 @@ describe('mapSupabaseProcurementRowsToProjection — 排序合約(PostgREST 內�
       proc({ id: 'p-utc', created_at: '2026-08-03T10:00:00+00:00' }), // 18:00 台北
       proc({ id: 'p-tpe', created_at: '2026-08-03T17:00:00+08:00' }), // 09:00 UTC ⇒ 較早
     ]);
-    expect(res.procurements.map((p) => p.id)).toEqual(['p-tpe', 'p-utc']);
+    expect(rows(res).map((p) => p.id)).toEqual(['p-tpe', 'p-utc']);
   });
 
   it('時間字面全同 → id 字典序 tie-break(全序、不回 NaN)', () => {
@@ -106,7 +122,7 @@ describe('mapSupabaseProcurementRowsToProjection — 排序合約(PostgREST 內�
       proc({ id: 'p-b' }),
       proc({ id: 'p-a' }),
     ]);
-    expect(res.procurements.map((p) => p.id)).toEqual(['p-a', 'p-b']);
+    expect(rows(res).map((p) => p.id)).toEqual(['p-a', 'p-b']);
   });
 
   it('created_at 腐壞(解析不出來)→ 排最後、不炸', () => {
@@ -114,7 +130,7 @@ describe('mapSupabaseProcurementRowsToProjection — 排序合約(PostgREST 內�
       proc({ id: 'p-bad', created_at: 'not-a-timestamp' }),
       proc({ id: 'p-ok' }),
     ]);
-    expect(res.procurements.map((p) => p.id)).toEqual(['p-ok', 'p-bad']);
+    expect(rows(res).map((p) => p.id)).toEqual(['p-ok', 'p-bad']);
   });
 
   it('輸入陣列不被就地改動(mapper 不得有副作用)', () => {
@@ -151,16 +167,30 @@ describe('mapSupabaseProcurementRowsToProjection — 截斷判定(雙向)', () =
   });
 
   // 🔴 關卡2 codex MF1:**「沒問到」≠「答案是零筆」**。投影退版時內嵌鍵整個不見,
-  //    若也回 false,A10b(寫入端、A5a 全量 payload)會把空白清單當「新建」送出去 = 覆蓋真實採購事實。
-  //    ⇒ 缺鍵與空陣列必須分得出來,這條與上一條**成對**(只留一條的話,把兩者都回 true 或都回 false
-  //    的壞實作各有一條會綠)。
-  it('🔴 內嵌鍵整個缺(null / undefined)⇒ 空清單但 procurementTruncated = true(不可信,非「零筆」)', () => {
+  //    若也當成零筆,A10b(寫入端、A5a 全量 payload)會把空白清單當「新建」送出去 = 覆蓋真實採購事實。
+  //    ⇒ 缺鍵與空陣列必須分得出來,這條與上一條**成對**(只留一條的話,把兩者都回同一種形狀
+  //    的壞實作會有一條綠)。
+  //
+  // 🔴🔴 `#646`(2026-08-18)改的就是**怎麼**分得出來:
+  //    ~~缺鍵 ⇒ `[] + procurementTruncated: true`~~(舊)⇒ **缺鍵 ⇒ `procurements: null`**(新)。
+  //    理由:舊形狀把「讀不到」與「觸及上限」擠進同一顆布林,而那兩個世界對員工的指示**相反**
+  //    (前者重整真的可能會好、後者永遠不會)。拆開之後 `procurementTruncated` **只**表示上限。
+  //    ⚠️ **fail-closed 沒有變鬆**:寫入端改看 `procurements === null`(型別強迫它先處理)。
+  it('🔴 `#646` 內嵌鍵整個缺(null / undefined)⇒ `procurements: null`(讀不到),而**不是**零筆', () => {
     for (const rows of [null, undefined]) {
       expect(mapSupabaseProcurementRowsToProjection(rows)).toEqual({
-        procurements: [],
-        procurementTruncated: true,
+        procurements: null,
+        procurementTruncated: false,
       });
     }
+  });
+
+  // 🔴 `#646` 的**正向對照**:上面那條只證「缺鍵回 null」。若實作把**兩種**都回 null,
+  //    上一條照樣綠 ⇒ 這一條釘住「空陣列**不得**被壓成 null」(它是「問過了,答案是零筆」)。
+  it('🔴 `#646` 空陣列與缺鍵不得混為一談:`[]` 保持 `[]`、不得變成 `null`', () => {
+    const empty = mapSupabaseProcurementRowsToProjection([]);
+    expect(empty.procurements, '空陣列被壓成 null ⇒ 畫面會把「沒訂過貨」講成「讀不到」').toEqual([]);
+    expect(empty.procurements).not.toBeNull();
   });
 
   // 🔴 這條**只**證明常數落在我們宣稱的區間內,**不**證明正式站現在的 max-rows ≥ 50
@@ -195,7 +225,7 @@ describe('mapSupabaseProcurementRowsToProjection — 欄位對映(A5a 全量 pay
         created_at: '2026-08-01T02:00:00+00:00',
       }),
     ]);
-    expect(res.procurements[0]).toEqual({
+    expect(rows(res)[0]).toEqual({
       id: 'p-1',
       supplierId: 'sup-a',
       supplierLabel: 'RPM Carbon',
@@ -233,8 +263,8 @@ describe('mapSupabaseProcurementRowsToProjection — 欄位對映(A5a 全量 pay
     ]);
     // 仍然在清單裡(不是被濾掉)—— 樣板 `order-shipments.ts:11`「否則畫面上會變成貨憑空消失」
     expect(res.procurements).toHaveLength(1);
-    expect(res.procurements[0]?.voidedAt).toBe('2026-08-14T03:00:00+00:00');
-    expect(res.procurements[0]?.voidReason).toBe('供應商回報缺料、改下另一家');
+    expect(rows(res)[0]?.voidedAt).toBe('2026-08-14T03:00:00+00:00');
+    expect(rows(res)[0]?.voidReason).toBe('供應商回報缺料、改下另一家');
   });
 
   it('五種 reply_status 都原樣帶出(建表檔 :86-87 allowlist)', () => {
@@ -244,6 +274,6 @@ describe('mapSupabaseProcurementRowsToProjection — 欄位對映(A5a 全量 pay
         proc({ id: `p-${i}`, reply_status: code, created_at: `2026-08-03T1${i}:00:00+00:00` }),
       ),
     );
-    expect(res.procurements.map((p) => p.replyStatus)).toEqual([...codes]);
+    expect(rows(res).map((p) => p.replyStatus)).toEqual([...codes]);
   });
 });

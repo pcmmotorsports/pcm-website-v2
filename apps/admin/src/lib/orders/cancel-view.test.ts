@@ -33,7 +33,10 @@ const ITEM_B = '4b4b4b4b-4b4b-4b4b-8b4b-4b4b4b4b4b4b';
  * 造一顆完整的 `AdminOrderItemProcurement` 只會讓 fixture 變重而不增加判別力。
  * (刻意用 cast 並在此說明,不是偷懶:這個 fixture 的角色就是「陣列非空」。)
  */
-const A_PROCUREMENT_ROW = {} as CancelViewOrder['items'][number]['procurements'][number];
+// 🔴 `#646`:`procurements` 現在是 `T[] | null`(null = 讀不到)⇒ 取元素型別要先 NonNullable。
+const A_PROCUREMENT_ROW = {} as NonNullable<
+  CancelViewOrder['items'][number]['procurements']
+>[number];
 
 /**
  * 🔴 **健康基準的每個值都被刻意選過**(memory `feedback_fixture-value-makes-guard-vacuous`):
@@ -144,6 +147,52 @@ describe('投影退版:缺鍵(undefined)要與 null 同向 fail-closed', () => {
       }),
     );
     expect(view.items[0]?.maxCancellable).toBe(5);
+  });
+
+  // 🔴🔴 `#646`(2026-08-18):`procurements` 從 `T[]` 變成 `T[] | null`,`null` = **讀不到**。
+  //    `cancel-view.ts` 的 `zeroInferable` 因此多了一行 `item.procurements !== null &&`。
+  //    ⚠️ **本組是那一行【唯一】的守門** —— code-reviewer 實查:把那行刪掉,全套 8735 格照樣全綠
+  //    (`grep -c "procurements: null" cancel-view.test.ts` ⇒ 0)。
+  //    ⇒ 沒有這兩格,那一行就是一段沒有人在守的 fail-closed 宣稱。
+  it('🔴 `#646` 採購讀不到(procurements=null)+ 缺摘要 ⇒ **推不出 0/0**,要 fail-closed', () => {
+    const view = buildOrderCancelView(
+      order({
+        items: [
+          {
+            id: ITEM_A,
+            quantity: 5,
+            procurements: null,
+            procurementTruncated: false,
+            quantitySummary: null,
+          } as unknown as CancelViewOrder['items'][number],
+        ],
+      }),
+    );
+    expect(
+      view.blockReasons,
+      '讀不到採購卻推出「零採購」⇒ 可取消量被算大 ⇒ 畫面放行超量取消、送出必被 RPC 拒',
+    ).toContain('quantity_summary_missing');
+    // 🔴 `null` = **不知道**(本 repo 的既有契約:不得補 0 —— 補 0 會讓可取消量被算大)。
+    expect(view.items[0]?.maxCancellable, '算不出來要誠實回 null,不是 0').toBeNull();
+  });
+
+  // 🔴 **成對的正向對照**:同樣缺摘要,但採購是**讀得到的空清單**(`[]`,問過了答案是零筆)
+  //    ⇒ 這是舊行為、必須**照樣**推得出 0/0。少了這一格,一個「一律擋」的實作也會讓上一格綠。
+  it('🔴 `#646` 正向對照:採購讀得到且為空(`[]`)+ 缺摘要 ⇒ 照舊推得出 0/0', () => {
+    const view = buildOrderCancelView(
+      order({
+        items: [
+          {
+            id: ITEM_A,
+            quantity: 5,
+            procurements: [],
+            procurementTruncated: false,
+            quantitySummary: undefined,
+          } as unknown as CancelViewOrder['items'][number],
+        ],
+      }),
+    );
+    expect(view.items[0]?.maxCancellable, '`[]` 與 `null` 被當成同一件事 ⇒ 這一片白做').toBe(5);
   });
 });
 

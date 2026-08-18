@@ -311,7 +311,7 @@ describe('CancelReviewSection — 數量欄', () => {
           items: [
             item({
               quantitySummary: null,
-              procurements: [{} as AdminOrderDetailItem['procurements'][number]],
+              procurements: [{} as NonNullable<AdminOrderDetailItem['procurements']>[number]],
             }),
           ],
         })}
