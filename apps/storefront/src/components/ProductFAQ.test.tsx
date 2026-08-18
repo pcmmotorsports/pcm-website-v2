@@ -9,6 +9,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 
 import { ProductFAQ } from './ProductFAQ';
 import { RPM_WARRANTY_PARAGRAPHS } from '../data/rpm-policies';
+import { TERMS_SECTIONS } from '../data/legal-content';
 
 afterEach(cleanup);
 
@@ -36,6 +37,23 @@ describe('ProductFAQ', () => {
       .join('');
     expect(firstPara).toContain('接單後才向原廠訂製的客製商品');
     expect(text).toContain('接單後才向原廠訂製的客製商品');
+  });
+
+  // 交期守門(2026-08-18):FAQ 的「N–M 週」必須等於 /terms 第 7 條那個區間。
+  // 病史:FAQ 寫「2-6 週」、合約寫「2-12 週」=> 客人讀到的比綁約的短一半。
+  // 🔴 刻意【不】另加 `not.toContain('2-6 週')`:合約日後若真的改回短版,那行會恆紅、擋住正確行為;
+  //    而 FAQ 單邊退回時上面那條 positive 斷言就已經紅了,加了也是冗餘。
+  // 判別力:改任一邊(FAQ 字面或 TERMS 條文)而沒改另一邊 => 本格紅;兩邊一起改 => 綠(正確行為)。
+  it('交期字面與 /terms 第 7 條同一個週數區間', () => {
+    const clause = TERMS_SECTIONS.find((s) => s.heading.includes('第 7 條'))
+      ?.items?.find((i) => i.includes('週'));
+    expect(clause).toBeDefined();
+    const range = clause!.match(/\d+\s*[–-]\s*\d+\s*週/)?.[0];
+    expect(range).toBeDefined();
+
+    render(<ProductFAQ />);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain(range!);
   });
 
   it('emits valid FAQPage JSON-LD with 5 questions', () => {

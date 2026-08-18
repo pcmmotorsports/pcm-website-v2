@@ -77,7 +77,7 @@ od_redesign:
     - "OD-12b:移除『未確認』標(Sean 2026-06-03 拍『不該』— 下單前 LINE 本就會確認車款合用、標製造多餘焦慮)。精準 4 檔(零動 S6 檔):① ProductFitments.tsx 刪 td 內 `{f.unconfirmed && <span.pd-fit-unconfirmed>未確認</span>}`、車型格回 `<td>{f.modelCode}</td>` + header 註解 unconfirmed 段改記移除;② product-page.css 刪 .pd-fit-unconfirmed 整條規則 + 段註更新;③ ProductFitments.test 刪 unconfirmed 測(6→5);④ manifest 刪 fitmentsUnconfirmedTag override(3→2)+ OD-12 slices_done 去未確認句。🔴 保留 lib/products.ts toUIProduct 的 unconfirmed 映射(S6 檔、harmless 公開資料、不擴 scope)。三綠全綠(只動 OD-12 自家 4 檔、無動共用元件;typecheck turbo 7/7 + scripts tsc 0 / lint turbo 10/10 / build storefront 1/1 / 完整 pnpm test 81 檔 543 測〔544−1〕)。follow-up commit 記可達祖先 750ffa7(OD-12)、未 push"
     - "OD-12c:桌機適用車款表年式欄收窄(product-page.css only、Sean 2026-06-03 桌機真機驗:年式欄過寬)— 原 .pd-fit-table width:100% 把窄內容三等分撐滿、年式欄 ~700px 撐到頁右緣留大量空白。加 @media(min-width:1080):表寬改 auto(欄貼內容)+ 欄間 padding-right:64px 留呼吸感 + 末欄(年式)正常右距 16px → 年式欄收窄貼齊車型、表收在年式後。≤1079 沿用 100% 滿版(手機/平板不動、720/480 縮字規則不變)。純 CSS、無動 TSX/test。三綠全綠(typecheck turbo 7/7 + scripts tsc 0 / lint turbo 10/10 / build storefront 1/1 / 完整 pnpm test 81 檔 543 測不變)。⚠️ 幅度可調(欄間距/是否改用 max-width cap)、需 Sean 桌機複驗;follow-up commit 記可達祖先 9abb5c3(OD-12b)、未 push"
     - "OD-12d:適用車款表重設計 — 扁平表 → 依車廠/車型分組 + 年式 chips(ProductFitments.tsx + .test + product-page.css fitments 段;Sean 2026-06-03 真機驗 + /frontend-design 協助)。Sean 拍:OD-12c width:auto 縮整表是錯方向(他要『欄位文字之間收窄』非整表變窄)、要『整體比例協調 + 資訊密集 + 不要滑很久』。根因 = OD §7.5 扁平 row-per-fitment 表對真資料(每品 ~8 fitments、同車廠/車型重複多列〔如 Aprilia ×8、RSV4/Tuono V4 各 ×4 年式〕)→ 資訊稀疏 + 欄位撐開 + 往下滑久。① ProductFitments.tsx:改 groupFitments 依車廠→車型分組(保留首見順序)、年式於車型內升序(yearSortKey、無 yearStart 排末);渲染 .pd-fit-groups > .pd-fit-group〔.pd-fit-brand mono 標頭〕> .pd-fit-rows > .pd-fit-row〔.pd-fit-model + .pd-fit-years〕> .pd-fit-year chip;formatYears 三態不變。8 列扁平表 → 1 品牌標頭 + N 車型列(年式 chip 橫排)、消重複變矮。② product-page.css:整段換掉(移除 .pd-fit-table/thead/tbody/td 表格 CSS + OD-12c width:auto + 720/480 縮字)、新 .pd-fit-groups 上 1.5px anchor 線 / .pd-fit-group 13px padding + 細線分隔 / .pd-fit-brand mono uppercase / .pd-fit-row grid 132px+1fr / .pd-fit-model 15px 600 / .pd-fit-year mono surface-2 底 sharp corner;≤540 車型堆疊年式上方。維持 OD 美學(mono / sharp corner / 薄線 / surface token)、非另起風格。③ supersede OD §7.5 扁平表保真(Sean 主導 UX 重設計、business override fitmentsGroupedLayout)+ OD-12c width:auto。④ ProductFitments.test 改寫(5→7 測:空狀態 2 + 渲染 + 單車廠分組 + 多車廠分組 + 年式三態升序 + 無年份排末)。三綠全綠(typecheck turbo 7/7 + scripts tsc 0 / lint turbo 10/10 / build storefront 1/1 / 完整 pnpm test 81 檔 545 測〔543→545、+2 測〕)。⚠️ 視覺需 Sean 桌機 + 手機真機驗(主樹 :3001 合併後、真 RPM 商品頁如 aprilia-01);幅度可調(品牌標是否顯/chip 樣式/欄寬 132px)。follow-up commit 記可達祖先 654e471(OD-12c)、未 push"
-    - "OD-13:FAQ 詢問欄位內文修正(ProductFAQ.tsx order/leadtime + data/rpm-policies.ts 保固;Sean 2026-06-03 提供修正內文)。① order『下單』行改『確認商品是否適用後直接下單即可,如不確定歡迎直接 LINE 我們確認商品適用性與交期。』(原『選好紋路與表面後…確認貨況與交期』;付款/運費不變);② leadtime 整段改『預購商品為〔下定後與原廠訂購〕,需等待 2–6 週不等,部分商品等待時間較長,預估等待時間以詢問時回報之時間為準。』(原『大多數…2–6 週;客製…1–4 個月…』);③ 保固(rpm-policies RPM_WARRANTY_PARAGRAPHS、ProductTabs+ProductFAQ 共用單一真相):Sean 把原第 2 段拆成兩段(『…我們會負責換貨處理。』|『退換貨時商品需維持…』)、3 段→4 段;**第 1 段 + 鑑賞期法律段(消保法 §19 第 1 項)逐字不變**(Sean 仍確認準確性、本次只拆段提升可讀性、非改法律字面)。標點正規化對齊產品頁家族(全形逗號→半形 / 範圍 2-6→2–6 + 空格 / LINE 前後空格)、保留 Sean 用詞。FAQPage JSON-LD 隨 FAQ_ITEMS plainAnswer 自動同步。三綠全綠(typecheck turbo 7/7 + scripts tsc 0 / lint turbo 10/10 / build storefront 1/1 / 完整 pnpm test 81 檔 545 測不變〔純內容改、保固/FAQ 既有斷言字面仍含〕)。follow-up commit 記可達祖先 9b21a8e(OD-12d)、未 push;⚠️ 視覺需 Sean 真機驗(主樹 :3001 合併後展開 FAQ + 保固分頁)"
+    - "OD-13:FAQ 詢問欄位內文修正(ProductFAQ.tsx order/leadtime + data/rpm-policies.ts 保固;Sean 2026-06-03 提供修正內文)。① order『下單』行改『確認商品是否適用後直接下單即可,如不確定歡迎直接 LINE 我們確認商品適用性與交期。』(原『選好紋路與表面後…確認貨況與交期』;付款/運費不變);② leadtime 整段改『預購商品為〔下定後與原廠訂購〕,需等待 2–6 週不等,部分商品等待時間較長,預估等待時間以詢問時回報之時間為準。』(原『大多數…2–6 週;客製…1–4 個月…』);🔴 **其中「2–6 週」已非現況、僅存查**(2026-08-18 交期對齊片改為 2–12 週對齊 /terms 第 7 條;理由見 components.ProductFAQ.technical_overrides.faqLeadTimeAlignedToTermsClause7)。③ 保固(rpm-policies RPM_WARRANTY_PARAGRAPHS、ProductTabs+ProductFAQ 共用單一真相):Sean 把原第 2 段拆成兩段(『…我們會負責換貨處理。』|『退換貨時商品需維持…』)、3 段→4 段;**第 1 段 + 鑑賞期法律段(消保法 §19 第 1 項)逐字不變**(Sean 仍確認準確性、本次只拆段提升可讀性、非改法律字面)。標點正規化對齊產品頁家族(全形逗號→半形 / 範圍 2-6→2–6 + 空格 / LINE 前後空格)、保留 Sean 用詞。FAQPage JSON-LD 隨 FAQ_ITEMS plainAnswer 自動同步。三綠全綠(typecheck turbo 7/7 + scripts tsc 0 / lint turbo 10/10 / build storefront 1/1 / 完整 pnpm test 81 檔 545 測不變〔純內容改、保固/FAQ 既有斷言字面仍含〕)。follow-up commit 記可達祖先 9b21a8e(OD-12d)、未 push;⚠️ 視覺需 Sean 真機驗(主樹 :3001 合併後展開 FAQ + 保固分頁)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -795,8 +795,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductFAQ.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "3a0cf221"  # 記可達祖先=本 slice(Showcase 還原片)父 commit;本 slice 真改見 git log [Showcase 還原片]。前錨 3e62482=[Q5=A 重編號]、188ad76
-      last_modified_date: "2026-08-07 [Showcase 還原片 · **Q5=A 已被 Q19=A 撤銷**;本條目回到 N°04]:Sean 2026-08-07 傍晚推翻同日早上的 H7 D8 全刪 ⇒ 品牌形象區(N°01/N°02)還原 ⇒ Q5=A 重編號的前提「01/02 空出來了」不再成立,Sean 拍 **Q19=A 連編號一起回到線上現況** ⇒ 本元件回到 **N°04**(`ProductFAQ.tsx` 與 `ProductFAQ.test.tsx` 皆已逐字取回 `origin/main` 版、`eb-no` 斷言為 `04`)。🔴 **下面那段 [Q5=A 重編號] 已非現況、僅存查**(SOP⑥ code-reviewer 抓到本條頭部仍以現況口吻宣告已被撤銷的 Q5=A —— 與 `SwatchLightbox` 那處同族、同一片內的第二處)。前:2026-08-07 [Q5=A 商品頁重編號;純標籤零內容零行為]:Sean 2026-08-07 拍板 Q5=A —— 相關商品 N°03→**N°01**、常見問題 N°04→**N°02**(`pd-eb-no` 兩處渲染值 + 兩條測試期望值 + 全樹 PDP 語境註解/測試名/CSS 段標)。起因=H7(c4a47484)整組刪除商品頁品牌形象區後 PDP 只剩 03/04、01/02 吊空,所有品牌看到的頁面都從「03」開始;⚠️ 別記到 D8-b(acb87ea3)頭上,那片只刪 H7 之後的孤兒檔、對渲染零影響。business_overrides.faqSectionNumber 同批改寫(Q5=A **部分推翻** Sean 2026-06-02 Q1 override:數字被換掉、「FAQ 接相關商品之後」的順序存活)。測試檔數/條數零變動(358 檔 5461 綠 1 todo);突變:兩處編號各自改壞值(保留 `.pd-eb-no` 選擇器)→ 各紅對應那一條。首頁 N°01-N°07 與結帳頁 N°03/N°04 是各自獨立的編號系,逐條核過未被觸碰。⚠️ 本次只更新編號相關欄位,**不為本條目其餘內容背書**:`related_storefront` 仍列著 H7/D8-b 已刪的 16 個檔(BrandShowcase + 13 支 *Showcase + ProductHighlights/ProductSwatchWall/ProductSpotlight)、`business_overrides.brandShowcasePlacement` 也仍在描述已刪版位 —— 那是 H7 遺債,待詳情頁批清。前:2026-07-05 (視覺易讀性:rpm-policies 保固文案移除 CJK-CJK 多餘空格〔6 處空格接<strong>〕,FAQ 保固題共用同一份、同步生效、僅空格零字義改動〔消保法§19 法律字面不變〕。前:2026-06-03 OD-13 FAQ 內文修正〔order/leadtime + 保固 3→4 段〕見 od_redesign)"
+      last_modified_commit: "62dd89a3"  # 記可達祖先=本 slice(交期對齊片)父 commit;前錨 3a0cf221=[Showcase 還原片]、3e62482=[Q5=A 重編號]、188ad76
+      last_modified_date: "2026-08-18 [交期對齊片]:leadtime 字面「2–6 週」→「2–12 週」,對齊 `/terms` 第 7 條(`data/legal-content.ts:133`)。🔴 **這是施工端判斷、待 Sean 確認** —— 兩份字面都是他的(06-03 給 FAQ 的 2–6、07-23 給條款的 2–12),理由與 revert 範圍見本條目 `technical_overrides.faqLeadTimeAlignedToTermsClause7`。守門 `ProductFAQ.test.tsx` 加一格(比對區間、非寫死數字),突變兩向各自轉紅。⚠️ 同一支檔的**運費句**不在本片:W5 已 commit 在 `e75035a1`,而那顆當時尚未進 dev。前:2026-08-07 [Showcase 還原片 · **Q5=A 已被 Q19=A 撤銷**;本條目回到 N°04]:Sean 2026-08-07 傍晚推翻同日早上的 H7 D8 全刪 ⇒ 品牌形象區(N°01/N°02)還原 ⇒ Q5=A 重編號的前提「01/02 空出來了」不再成立,Sean 拍 **Q19=A 連編號一起回到線上現況** ⇒ 本元件回到 **N°04**(`ProductFAQ.tsx` 與 `ProductFAQ.test.tsx` 皆已逐字取回 `origin/main` 版、`eb-no` 斷言為 `04`)。🔴 **下面那段 [Q5=A 重編號] 已非現況、僅存查**(SOP⑥ code-reviewer 抓到本條頭部仍以現況口吻宣告已被撤銷的 Q5=A —— 與 `SwatchLightbox` 那處同族、同一片內的第二處)。前:2026-08-07 [Q5=A 商品頁重編號;純標籤零內容零行為]:Sean 2026-08-07 拍板 Q5=A —— 相關商品 N°03→**N°01**、常見問題 N°04→**N°02**(`pd-eb-no` 兩處渲染值 + 兩條測試期望值 + 全樹 PDP 語境註解/測試名/CSS 段標)。起因=H7(c4a47484)整組刪除商品頁品牌形象區後 PDP 只剩 03/04、01/02 吊空,所有品牌看到的頁面都從「03」開始;⚠️ 別記到 D8-b(acb87ea3)頭上,那片只刪 H7 之後的孤兒檔、對渲染零影響。business_overrides.faqSectionNumber 同批改寫(Q5=A **部分推翻** Sean 2026-06-02 Q1 override:數字被換掉、「FAQ 接相關商品之後」的順序存活)。測試檔數/條數零變動(358 檔 5461 綠 1 todo);突變:兩處編號各自改壞值(保留 `.pd-eb-no` 選擇器)→ 各紅對應那一條。首頁 N°01-N°07 與結帳頁 N°03/N°04 是各自獨立的編號系,逐條核過未被觸碰。⚠️ 本次只更新編號相關欄位,**不為本條目其餘內容背書**:`related_storefront` 仍列著 H7/D8-b 已刪的 16 個檔(BrandShowcase + 13 支 *Showcase + ProductHighlights/ProductSwatchWall/ProductSpotlight)、`business_overrides.brandShowcasePlacement` 也仍在描述已刪版位 —— 那是 H7 遺債,待詳情頁批清。前:2026-07-05 (視覺易讀性:rpm-policies 保固文案移除 CJK-CJK 多餘空格〔6 處空格接<strong>〕,FAQ 保固題共用同一份、同步生效、僅空格零字義改動〔消保法§19 法律字面不變〕。前:2026-06-03 OD-13 FAQ 內文修正〔order/leadtime + 保固 3→4 段〕見 od_redesign)"
     design:
       authority: "open-design: Website V2 / product-detail-rpm-template.html §N°FAQ(RPM 共用區塊)"
     business_overrides:
@@ -818,6 +818,40 @@ components:
         decided_at: "2026-06-03"
         decision_source: "OD-10 plan(GEO/SEO JSON-LD、Sean Q1 同格式)"
         reason: "原生 details 省 client JS;JSON-LD 提升 FAQ rich result"
+    technical_overrides:
+      - field: "faqLeadTimeAlignedToTermsClause7"
+        design_value: |
+          🔴 這一格的權威不是 OD,是 **Sean 自己的字**,而且**有兩份、日期不同**:
+            2026-06-03  Sean 提供 FAQ leadtime 文案「需等待 2–6 週不等」
+                        (逐字在本檔 od_redesign 的 `OD-13` 條)
+            2026-07-23  Sean 提供 /terms 的訂貨時程事實「一般約 2–12 週」
+                        (`data/legal-content.ts:9` 逐字「訂貨時程…由 Sean 2026-07-23 提供」;
+                         條文本體在同檔 `:133`,`/terms` **第 7 條**)
+        storefront_value: |
+          [2026-08-18] `ProductFAQ.tsx` leadtime 由「2–6 週」改為「2–12 週」,對齊 `/terms` 第 7 條。
+          🔴 **待 Sean 確認 —— 這是施工端判斷,不是他拍的板。**
+          已請主視窗把決策題端上去:兩份都是他的字,要以哪一份為準。
+          若他選 2–6,revert 的範圍 = 這一個字面 + `ProductFAQ.test.tsx` 那一格會自動轉綠(守門比的是區間、不是寫死的數)。
+        decided_at: "2026-08-18"
+        decision_source: |
+          **施工端技術判斷(非 Sean 拍板)**。理由=較新的那份(07-23)勝過較舊的(06-03),
+          且方向是**把客人看到的承諾拉長到與合約一致**(保守方向、不增加曝險)。
+          ⚠️ **不要引 `#291` Q2=A** —— 那條(`docs/phase-1-backlog.md:7773`)裁的是
+          「出貨後 1-3 個工作天」加前綴,**沒有提 FAQ、也沒有立 2–12 為正典**。
+          ⚠️ `CheckoutStep1.tsx:201` / `InfoShippingPage.tsx:76` 只在**註解**裡提到 2-12 週,
+          **畫面上沒有那個數** ⇒ 不成立「同站另兩處已對齊」,FAQ 也不是「唯一沒跟上的一處」。
+        reason: |
+          病=同一件事(一般預購交期)有兩個數,而**客人在商品頁讀到的比綁約那份短一半**;
+          `FAQ_ITEMS` 同時餵畫面與 FAQPage JSON-LD(`ProductFAQ.tsx:89-93` → `:98-102`)
+          ⇒ Google 讀走的也是短版。`/info/shipping` FAQ tab 共用同一份(`InfoShippingPage.tsx:27` import)
+          ⇒ 兩個渲染面一起被修好。
+          🔴 **刻意沒有把兩個字面收成一個常數**:合約條文是散文、FAQ 是另一種語氣,
+          共用常數會逼兩邊講同一句話。改用「守門比對區間」⇒ 兩邊各自寫自己的話,而數字不准分岔。
+          守門 = `ProductFAQ.test.tsx`「交期字面與 /terms 第 7 條同一個週數區間」一格。
+          突變自驗(2026-08-18 實跑):FAQ 單邊改回 2–6 ⇒ 1 紅 4 綠;TERMS 單邊改 2–8 ⇒ 1 紅 4 綠;
+          兩次還原後與備份逐字元 diff 一致。
+          ⚠️ **不是同一件事**:`ProductTabs.tsx:277` / `ProductSwatchWall.tsx:95` 的「1–4 個月」
+          是【特殊樣式】另一個品類,兩處彼此已一致 —— 不要順手一起改。
     open_drifts: []
 
   ProductFitments:
