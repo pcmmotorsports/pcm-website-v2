@@ -196,3 +196,86 @@ git status --porcelain    # 應為空
 `grep -n 'itemsTruncated' shipment-launcher.tsx` ⇒ **零命中**,那個推論是假的。
 🔴 **真因是我自己的種子沒有到貨資料。**
 ⇒ **開伺服器看到的東西仍然要區分「量到的」與「看到之後推的」。** 畫面不會替你做那個區分。
+
+---
+
+## §9 🔴🔴 用 `127.0.0.1` 開這個後台,**整頁不會 hydrate** —— 而畫面看起來完全正常
+
+> **G2,2026-08-18 下午。** 起因:驗 `11=丙`(訂單列表死區提示,一個 client component)。
+> 它在真瀏覽器裡**什麼都沒畫**,我花了六輪才發現病不在我的元件。
+
+### 9-a 兩個世界,同一台 server、同一頁、同一分鐘
+
+```
+量法  playwright 掛 page.on('response') 收 403 的【網址】,
+      再用【直接的 hydrate 探針】問 React 到底有沒有掛上去:
+        [...document.querySelectorAll('input,button')]
+          .some(el => Object.keys(el).some(k => k.startsWith('__reactFiber')))
+      （React 對每一個它接手的 DOM 節點掛一支 `__reactFiber$…`;沒掛 = 沒 hydrate。
+        🔴 這一步是【第二輪才補的】—— 第一版我只有「我的元件沒出現」,
+           而那句話有一堆別的解(沒溢出 / 我自己的 effect 壞了 / runtime 錯誤)⇒ 推不出「沒 hydrate」。）
+
+                              403 的網址                                    __reactFiber 探針
+127.0.0.1:3011/orders   6 筆,【全部】是 /_next/static/chunks/*.js          false  ← 一個節點都沒被 React 接手
+localhost:3011/orders   0 筆                                                true
+```
+403 的六個網址**逐字全列**(codex R2 判 must-fix:原本只列兩個而宣稱「六個全部是」,
+**那個「全部」沒有人覆核得了** —— 這正是 §6-b 的全稱句):
+```
+/_next/static/chunks/apps_admin_src_1w05cfn._.js
+/_next/static/chunks/0zmr_next_14rzkp-._.js
+/_next/static/chunks/09ls_%40tabler_icons-react_dist_esm_1j3gn2s._.js
+/_next/static/chunks/1ton_%40base-ui_react_11f11mw._.js
+/_next/static/chunks/1hn7_tailwind-merge_dist_bundle-mjs_mjs_04a_myf._.js
+/_next/static/chunks/node_modules__pnpm_1a1s6-3._.js
+```
+⇒ **六個全部是 `/_next/static/chunks/*.js`(client bundle),沒有一個是資料請求。**
+(數法可重跑:`page.on('response', r => r.status() === 403 && log(r.url()))`,同一次載入。)
+
+dev server 自己也印了(`admin.log` 逐字):
+> `⚠ Blocked cross-origin request to Next.js dev resource /_next/hmr from "127.0.0.1".`
+
+⇒ Next 的 `allowedDevOrigins` 預設不含 `127.0.0.1` ⇒ **`/_next/static/chunks/*.js` 被擋成 403**
+⇒ **client bundle 沒載到 ⇒ React 沒有接手任何節點(探針 `false`)⇒ 所有 `'use client'` 元件都是死的。**
+
+⚠️ **這條因果鏈證到哪裡(範圍限定,codex R3 要求收窄)**:
+```
+證到了  ① 403 的六個網址全部是 client bundle（逐個列在上面）
+        ② 探針掃過的節點集合（該頁全部的 <input> 與 <button>）裡，
+           127.0.0.1 世界【零個】帶 __reactFiber，localhost 世界【有】
+沒證到  · Next 內部是哪一段程式擋的（那句話是 dev server 自己印的，我引用它、沒驗它）
+        · 「整頁每一個 client 元件都死了」——探針只掃 input/button 兩種標籤。
+          理論上可能有某個 island 的 chunk 沒被擋而活著。
+          ⇒ 保守講法：**掃到的節點沒有一個被 React 接手**，而那已足以判定「用這個網址驗互動不算數」。
+```
+
+### 9-b 🔴 為什麼這個坑特別貴
+
+```
+· 頁面回 200、HTML 完整、CSS 正常、截圖【完全正常】
+· server component 的東西全都在（表格、資料、版面）⇒ 你會以為整頁都活著
+· 你看得到 <input type="checkbox">、看得到按鈕 —— 但它們【沒有掛上任何行為】
+  ⇒ 「元素在」不等於「它活著」。這兩件事在 DOM 上長得一模一樣
+· 因此:任何用 127.0.0.1 驗過的【互動 / client component】結論,都要重驗
+```
+**判別法(照抄就好,兩個世界會印不同的東西)**:
+```js
+// 在 devtools console 或 playwright evaluate 裡跑
+[...document.querySelectorAll('input,button')].some(el => Object.keys(el).some(k => k.startsWith('__reactFiber')))
+// true = React 接手了(有 hydrate)   false = 整頁是死的 HTML
+```
+🔴 **不要用「按鈕在不在」問** —— 它在兩個世界是同一句話(§6-b 那條「人也是量具」的同族)。
+🔴 也不要只用「我那顆元件出現了沒」問 —— 它缺席有一堆別的解(沒溢出、我的 effect 自己壞了、
+   runtime 錯誤),**那不是 hydrate 的量具,那是我的功能的量具。**
+
+### 9-c 修法(二選一,建議前者)
+
+```
+① 網址一律用 http://localhost:3011  ← 零設定、當場生效
+② next.config 加 allowedDevOrigins: ['127.0.0.1'] 再重啟   ← 動平台設定檔,鐵則 12④,不建議為了驗一片而動
+```
+⚠️ **本檔前面幾節的 `127.0.0.1` 是給 `curl` / `psql` / PostgREST 用的,那些沒事**
+(它們不經過 Next 的 dev-origin 檢查)。**只有【用瀏覽器開 admin 那一步】要換成 `localhost`。**
+
+📎 同族教訓:memory `feedback_absence-read-as-verified`(什麼都沒有被讀成檢查過了)、
+`feedback_assertion-measures-the-wrong-thing`(我量的不是我以為的那個東西)。

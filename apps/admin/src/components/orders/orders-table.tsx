@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { OrderShipCheckbox } from './shipping-selection';
+import { OrdersCutoffNotice, ORDERS_CUTOFF_NOTICE_ID } from './orders-cutoff-notice';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
   INVOICE_STATUS_LABEL,
@@ -638,7 +639,28 @@ export function OrdersTable({
     //    「L2 — `globals.css` 卡片化區塊」那組釘在一起(它**真的讀** `globals.css`)。
     //    ⚠️ 這句話在 R1 時是**錯的字面**:當時測試從頭到尾沒讀過 `globals.css`,
     //    「有守門」是宣稱不是事實(code-reviewer M3、鐵則 11)。守門已於同批補上。
-    <div className='orders-grid bg-card overflow-x-auto rounded-lg border' data-den={density}>
+    <div
+      className='orders-grid bg-card overflow-x-auto rounded-lg border'
+      data-den={density}
+      // 🔴 **`tabIndex={0}` 是無障礙的必要條件,不是裝飾**(codex R3 must-fix):
+      //    一個 `overflow-x:auto` 的 `<div>` **預設拿不到鍵盤焦點** ⇒ 純鍵盤的員工
+      //    讀到「這一區可以左右捲動」也**捲不動** —— 那三欄裡有非互動的「狀態 / 發票」,
+      //    他連 Tab 到某個控件順便捲過去的路都沒有。加了它才 Tab 得到、才能用方向鍵捲。
+      //    (WCAG 2.1.1 鍵盤可操作;可捲動區域要可聚焦是標準做法。)
+      // 🔴 有 `tabIndex` 就必須有可讀的名字,否則螢幕閱讀器只會唸「群組」。
+      tabIndex={0}
+      role='region'
+      aria-label='訂單列表(可左右捲動)'
+      aria-describedby={ORDERS_CUTOFF_NOTICE_ID}
+    >
+      {/* 11=丙(Sean 2026-08-18 中午):右邊被切掉的欄要在【看不到的人的螢幕上】講出來。
+          🔴 它掛在這裡而不是表格外面,是因為**它要 sticky 在這個捲動容器裡** ——
+             捲到右邊時這句話自己捲走的話,它就沒在提醒任何人。
+          🔴 觸發條件是**真的溢出**(逐欄比「`<th>` 右緣 vs 容器右緣」,配 `ResizeObserver` 與 `scroll`),
+             **不是視窗斷點** —— 側邊欄收合 / 瀏覽器縮放 / 字級變大都會改可視寬而視窗寬沒動。
+          ⚠️ 這是本表**唯一**的 client component 邊界(勾選欄那顆 `OrderShipCheckbox` 之外);
+             表格本體仍是 server component。 */}
+      <OrdersCutoffNotice />
       <table className='w-full border-collapse'>
         <thead>
           <tr>
