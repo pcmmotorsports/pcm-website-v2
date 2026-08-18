@@ -18799,6 +18799,24 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
   ```
   ⚠️ **這一段存在的理由**:「還沒做」會被人撿去做,「刻意不做」不會。不寫這句,下一個盤點的人會來補一支新 migration。
 
+- ✅ **而「不要改那支 .sql」不只是一句話 —— 已經有東西會擋(2026-08-18 W8 讀 code 確認,不是讀註解)**
+  ```
+  .husky/pre-push:17  … && bash scripts/deploy-order-gate.sh
+  scripts/deploy-order-gate.sh:110-112
+      sha="$(git show "$rev:$f" | shasum -a 256 | cut -d' ' -f1)"
+      [ "$rec" = "$sha" ] || printf '%s\t%s\n' "$ver" "$f"      ← sha 對不上 ⇒ 列為 PENDING
+  ```
+  ⇒ **改動已 apply 的 migration(哪怕只改一個註解字元)⇒ sha 變 ⇒ 該版本被算成 PENDING ⇒ pre-push 擋下。**
+  🔴 **所以本條選甲不需要靠人記得** —— 機制在,而且是**每次 push 都會跑**的那一條路上。
+  📌 這也是為什麼**乙案(寫進新 migration)更糟**:它會產出一支真的 PENDING、真的要 apply 的 SQL。
+
+  ⚠️ **那個 gate 自己寫下的限度,照抄不磨**(`deploy-order-gate.sh:29`):
+  > 「`APPLIED.tsv` 是**自陳帳**:更新了卻沒真 apply、或正式庫被 restore ⇒ 攔不到。」
+  ⇒ 合起來的正確口徑:**hash 對得上證的是【這份檔沒被動過】,不是【它被 apply 過】。**
+  兩件事不同層,而同一本帳同時被拿來論證兩件 —— **只有前者成立。**
+  📎 佐證(W5 2026-08-18 量、W8 重跑):`APPLIED.tsv` 第 3 欄 **159/179 = 89% 寫的是 `backfill` 不是真日期**
+  (`grep -vE '^#|^$' supabase/APPLIED.tsv | cut -f3 | sort | uniq -c | sort -rn`)。
+
 - **相關**:`#26`(被誤指的那條,已收)、`#215` / `#436` / `#534` / `#536`(真認證實際散落處)、
   `#635`(寫入面授權)、`90a7e183`(已修的那一半)、`docs/patterns/guard-and-instrument-traps.md`。
 
