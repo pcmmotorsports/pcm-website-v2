@@ -7,7 +7,6 @@ import {
 } from '../../lib/orders/procurement-suppliers';
 import { REPLY_STATUS_LABEL, unsourcedQuantity } from '../../lib/orders/procurement-view';
 import { ItemProcurementForm } from './item-procurement-form';
-import { ReceiptRecordForm } from './receipt-record-form';
 
 // M-4b E10 A10b:訂單明細的採購區塊(server-render 清單 + 每個品項一份表單)。
 // 🔴 中文字面全部暫定、待 Sean 肉眼定稿(結構鎖、字不鎖)。
