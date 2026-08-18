@@ -38,6 +38,17 @@ function renderForm(props: Partial<Parameters<typeof PaymentRecordForm>[0]> = {}
   );
 }
 
+// ── `#493`(同一條拍板的第三個落點)──────────────────────────────────────
+// 「收款日期」= 錢已經收到了我才在登記 ⇒ **已發生** ⇒ 預設當下。
+describe('`#493` 收款日期預設當下', () => {
+  it('🔴 一開啟就帶著當下(本欄只到日 ⇒ 形狀是 YYYY-MM-DD)', () => {
+    const { container } = renderForm();
+    const v = container.querySelector<HTMLInputElement>('input[type="date"]')?.value ?? '';
+    expect(v, '空的 ⇒ 同 `#493`:員工以為系統會填').not.toBe('');
+    expect(v, 'type=date 只吃 YYYY-MM-DD;多帶時分會被瀏覽器靜默丟掉').toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
 /** 表單此刻**真的會送出去**的 payload —— 斷言對象一律是它,不是畫面上的字。 */
 function payload(container: HTMLElement): FormData {
   const form = container.querySelector('form');

@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from 'react';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
+import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
 import { recordManualPaymentAction } from '../../lib/orders/payment-actions';
 import {
   PAYMENT_RAILS,
@@ -112,6 +113,20 @@ export function PaymentRecordForm({
   const [open, setOpen] = useState(false);
   /** 🔴 Sean 2026-08-12 拍 Q-D8=B:全新掛載預設停用送出,勾了才啟用。 */
   const [confirmed, setConfirmed] = useState(false);
+
+  // 🔴 `#493`(Sean 2026-08-14 拍 `Q-日期預設` = A):**「已經發生的」欄位預設當下。**
+  //    「收款日期」= 錢已經收到了我才在登記 ⇒ 已發生那一類。
+  // ⚠️ 紀律與採購/到貨兩支相同:掛載後才填(避開 SSR 的 hydration mismatch)、**只在空的時候填**
+  //    (失敗回來時下面那個 effect 會把員工自己打的值寫回來,不得被今天蓋掉)。
+  // 🔴 `slice(0, 10)`:本欄是 `type='date'`(只到日),而 `toTaipeiInputValue` 回的是
+  //    `YYYY-MM-DDTHH:mm` ⇒ 取前 10 碼。**時區換算共用同一支**,不在這裡自己算一份。
+  useEffect(() => {
+    setValues((prev) =>
+      prev.receivedDate === ''
+        ? { ...prev, receivedDate: toTaipeiInputValue(new Date().toISOString()).slice(0, 10) }
+        : prev,
+    );
+  }, []);
 
   // 🔴 **每一個新的 failed state 同步一次**受控欄位:不這樣做的話「保留員工輸入」是空頭支票
   //    (`receipt-record-form.tsx:82-85` 立過同一條:`defaultValue` 只在掛載那一次寫進 DOM)。
