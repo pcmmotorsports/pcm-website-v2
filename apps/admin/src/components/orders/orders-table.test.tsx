@@ -1886,3 +1886,118 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     expect(capsule?.getAttribute('title')).not.toBe(TRUNCATED_TITLE);
   });
 });
+
+// ── V-07:最多顯示前 3 項 +「另有 N 項」(Sean 2026-08-18 中午 `07 訂單列表品項怎麼顯示 = 甲`)──
+//
+// 🔴 **本組落地前,整個回歸網裡沒有任何一張單超過 3 個品項** ——
+//    量法 `npx vitest run apps/admin/src/components/orders/orders-table.test.tsx` 在只改 code、
+//    一格測試都沒加的狀態下 **88 passed**(2026-08-18 實跑)。
+//    ⇒ 「既有測試沒紅」證明不了這片是對的,它只證明**沒有一格看得到這片**。
+describe('V-07 — 列表最多畫 3 個品項,其餘收成一列', () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => line(`l${i + 1}`, 1, 1000));
+  const noteRow = (container: HTMLElement) =>
+    [...container.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes('另有'));
+
+  it('3 品項:照舊三列、**沒有**「另有」列(界線的下方,負向對照)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: lines(3) })]} />,
+    );
+    expect(container.querySelectorAll('tbody tr').length).toBe(3);
+    expect(noteRow(container)).toBeUndefined();
+  });
+
+  it('🔴 4 品項:只畫 3 列品項 + 1 列「另有 1 項」(拿掉上限這條就紅)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: lines(4) })]} />,
+    );
+    const rows = [...container.querySelectorAll('tbody tr')];
+    expect(rows.length).toBe(4);
+    // 前三列是真的品項列(各 14 格),第四列是那句話(1 格)
+    expect(rows.map((r) => r.querySelectorAll('td').length)).toEqual([14, 14, 14, 1]);
+    expect(rows[3]?.textContent).toBe('另有 1 項');
+  });
+
+  it('10 品項:「另有 7 項」(N 是算出來的,不是寫死的)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: lines(10) })]} />,
+    );
+    expect(noteRow(container)!.textContent).toBe('另有 7 項');
+  });
+
+  it('🔴🔴 `itemsTruncated`:**不印數字** —— DOM 內不得出現「另有 7 項」', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: lines(10), itemsTruncated: true })]}
+      />,
+    );
+    const note = noteRow(container)!;
+    // 病的形狀:`order.lines` 在截斷時本身就是半份的 ⇒ 7 是**少報**的,
+    // 而它會印出一個看起來剛好可以拿去對帳的數字。
+    expect(container.textContent).not.toContain('另有 7 項');
+    expect(note.textContent).toContain('數量未知');
+    expect(note.querySelector('span')?.getAttribute('title')).toContain('請到訂單明細頁看');
+  });
+
+  it('那一列橫跨【全部】欄位:colSpan === 表頭 <th> 數(防欄位增減時漂掉)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: lines(4) })]} />,
+    );
+    const thCount = container.querySelectorAll('thead th').length;
+    expect(thCount).toBe(14); // 與 V1 同一個數,兩處同時漂才騙得過
+    expect(noteRow(container)!.querySelector('td')!.getAttribute('colspan')).toBe(String(thCount));
+  });
+
+  it('🔴🔴 收合【不影響狀態判定】:前 3 列全出貨、第 4 列沒出貨 ⇒ 狀態**不得**是「出貨完成」', () => {
+    // 🔴 **這一格取代了原本那個恆真的「不影響算式」格**(codex R1 判 must-fix:
+    //    那格就算把收合功能整個刪掉也綠)。
+    //    這一格才有判別力:`orderStatusView` 走 `.every(...)`,把切過的 3 列餵給它
+    //    ⇒ 「子集全出貨就答出貨完成」——**員工看到出貨完成就不再動作,他做對了但結果是錯的**
+    //    (`mappers/order.ts:382-388` 那段註解逐字寫的就是這個病)。
+    const mixed = [
+      lineAt('s1', 1, 'shipped'),
+      lineAt('s2', 1, 'shipped'),
+      lineAt('s3', 1, 'shipped'),
+      lineAt('s4', 1, 'none'),
+    ];
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: mixed })]} />,
+    );
+    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[STATUS_CELL_INDEX]!;
+    expect(statusCell.textContent).not.toBe('出貨完成');
+  });
+
+  it('正向對照:四列**全部**出貨 ⇒ 狀態就是「出貨完成」(⇒ 上一格不是恆真)', () => {
+    const allShipped = [1, 2, 3, 4].map((n) => lineAt(`a${n}`, 1, 'shipped'));
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: allShipped })]} />,
+    );
+    const statusCell = container.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')[STATUS_CELL_INDEX]!;
+    expect(statusCell.textContent).toBe('出貨完成');
+  });
+
+  // codex R1 補的兩格 ───────────────────────────────────────────────
+  it('🔴 `itemsTruncated` + 只載到 2 列(hiddenCount = 0):那一列**仍要出現**', () => {
+    // 病的形狀:條件只寫 `hiddenCount > 0` 的話這一列會整個消失,
+    // 而消失掉的正是「這張單的品項沒載完」這個事實。
+    // ⚠️ 今天的 adapter 產不出這個狀態(`mappers/order.ts:390` 的旗標 = `lines.length >= 500`)
+    //    ⇒ 這一格釘的是「不依賴那個上游不變式」,不是「今天會發生」。
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: lines(2), itemsTruncated: true })]}
+      />,
+    );
+    const note = noteRow(container);
+    expect(note).toBeDefined();
+    expect(note!.textContent).toContain('數量未知');
+  });
+
+  it('表頭沒有任何 <th> 用 colSpan(否則「鍵數 = 欄數」這個推法會錯 —— codex R1 nit)', () => {
+    const { container } = render(
+      <OrdersTable buildPanelHref={panelHref} orders={[order({ lines: lines(4) })]} />,
+    );
+    const spans = [...container.querySelectorAll('thead th')].map((th) => (th as HTMLTableCellElement).colSpan);
+    expect(spans.every((n) => n === 1)).toBe(true);
+  });
+});

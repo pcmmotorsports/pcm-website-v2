@@ -184,6 +184,36 @@ const CELL = {
   ops: 'col-ops',
 } as const;
 
+/**
+ * 07=甲(Sean 2026-08-18 中午逐字 `07 訂單列表品項怎麼顯示 = 甲`;
+ * memory `project_0818-sean-eleven-rulings-noon.md` 落地含義那節逐字
+ * 「訂單列表**最多顯示前 3 項 + 「另有 N 項」**」)。
+ *
+ * 🔴 **只影響【列表】的顯示,不影響任何算式** —— `shouldMergeAmount` / `orderStatusView`
+ *    這些仍然吃**完整的** `order.lines`。收合是視覺的,不是把資料丟掉。
+ *
+ * 🔴 **這句話的兩半,守門強度不一樣(誠實缺口,codex R1 逼出來的)**:
+ *    · `orderStatusView` **有守門**:`orders-table.test.tsx` 的「前 3 列全出貨、第 4 列沒出貨」那格
+ *      —— 把切過的 lines 餵給它會紅(實測突變一發:唯一紅那格就是它)。
+ *      它守的是那個真病:`.every(...)` 在子集上會答「出貨完成」,而員工看到就不再動作。
+ *    · `shouldMergeAmount` **守不了,而且是【構造不出反例】不是我懶**:
+ *      它 = `itemsTruncated || lines.length > 1 || some(q > 1)`,
+ *      而「有東西被收起來」⇒ 至少 4 列 ⇒ 切到 3 之後 `length > 1` 仍成立
+ *      ⇒ **切與不切的輸出恆等**。實測:把 `slice` 餵給它,97 格**一格都沒紅**。
+ *      ⇒ 這裡沒有守門格,不是漏做;要有反例得先把 `MAX_VISIBLE_LINES` 降到 1。
+ */
+const MAX_VISIBLE_LINES = 3;
+
+/**
+ * 「另有 N 項」那一列要橫跨幾欄。
+ *
+ * 🔴 **從 `CELL` 推出來,不寫死數字** —— 寫 `colSpan={14}` 的話,
+ *    下一個人加一欄時這裡不會紅、也不會有人記得改,而畫面上只是少跨一格(看得出來的機率很低)。
+ *    `CELL` 的每一個鍵 = 表頭的一個 `<th>`,守門在 `orders-table.test.tsx`
+ *    (把 `Object.keys(CELL).length` 與實際 `<th>` 數釘在一起)。
+ */
+const COLUMN_COUNT = Object.keys(CELL).length;
+
 function OrderGroup({
   order,
   buildPanelHref,
@@ -199,7 +229,10 @@ function OrderGroup({
 }) {
   const cancelled = order.cancelledAt !== null;
   // 品項展開;空陣列(理論不發生,create_order 保證 ≥1 line)→ 兜一列 null 佔位、顯示「—」。
-  const rows = order.lines.length > 0 ? order.lines : [null];
+  const allLines = order.lines.length > 0 ? order.lines : [null];
+  // 07=甲:最多畫前 3 列,其餘收成一句「另有 N 項」。
+  const rows = allLines.slice(0, MAX_VISIBLE_LINES);
+  const hiddenCount = allLines.length - rows.length;
   const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
   const status = orderStatusView(order);
@@ -519,6 +552,37 @@ function OrderGroup({
           </tr>
         );
       })}
+
+      {/* 🔴 07=甲 的「另有 N 項」列。**只在真的有被收起來的品項時出現。**
+          ⚠️ **`itemsTruncated` 時不印數字** —— 那時 `order.lines` 本身就是半份的
+          (上限常數 `ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT`,現值查 `mappers/order.ts` 那一行、本檔不抄數字)
+          ⇒ `hiddenCount` 會**少報**,而它會印出一個**看起來很精確**的數字。
+          這與同一支檔狀態欄的處置同向(`itemsTruncated ⇒ 印「未知」`,2026-08-16 `Q-EMBED-2` Sean 拍甲):
+          **寧可說不知道,不要說一個剛好可以拿去對帳的錯數字。**
+          🔴 為什麼不整組不顯示(Sean 08-17 Q2=甲 那個立場):Q2 講的是**金額彙總**——
+          少一筆錢就是錯的。這裡收起來的品項**仍然完整地在明細頁**,列表只是不畫它們
+          ⇒ 收合不等於撈不全,兩件事不要套同一條規則。
+          🔴 **條件是 `hiddenCount > 0 || order.itemsTruncated`,那個 `||` 不是保險** ——
+          codex R1 抓到:只看 `hiddenCount` 的話,`itemsTruncated` 但只載到 ≤3 列時整列會消失、
+          **截斷這件事在這一格就不見了**。
+          ⚠️ 我實查過上游:`mappers/order.ts:390` 的 `itemsTruncated` = `lines.length >= 500`
+          (常數 `:432`)⇒ **今天的 adapter 產不出「截斷且 ≤3 列」**。
+          留這半條的理由不是「今天會發生」,是**它讓這一格不依賴那個上游不變式**
+          —— 那個不變式改掉時,這裡不會有東西紅。
+          📎 `data-l` 刻意不掛:卡片模式下這是一整句話,不是一個有欄名的欄位。 */}
+      {(hiddenCount > 0 || order.itemsTruncated) && (
+        <tr className='border-border-soft border-t'>
+          <td className={`${TD} text-muted-foreground text-xs`} colSpan={COLUMN_COUNT}>
+            {order.itemsTruncated ? (
+              <span title='這張單的品項達到系統一次能載入的上限。這一列看不出來還有幾項,請到訂單明細頁看。這是系統的固定限制,不是暫時的狀況。'>
+                另有多項(數量未知 —— 這張單的品項太多,系統一次載不完)
+              </span>
+            ) : (
+              `另有 ${hiddenCount} 項`
+            )}
+          </td>
+        </tr>
+      )}
     </tbody>
   );
 }
