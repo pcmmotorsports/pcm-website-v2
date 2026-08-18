@@ -19,13 +19,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { sweepSpy, getDepsSpy } = vi.hoisted(() => ({
+const { sweepSpy, getDepsSpy, enqueueSpy, getEnqueueDepsSpy } = vi.hoisted(() => ({
   sweepSpy: vi.fn(),
   getDepsSpy: vi.fn(),
+  // 🔴 B-5:enqueue 那半有**自己的** use-case 與**自己的** deps factory(plan §3.1)。
+  enqueueSpy: vi.fn(),
+  getEnqueueDepsSpy: vi.fn(),
 }));
 
-vi.mock('@pcm/use-cases', () => ({ sweepEmailOutbox: sweepSpy }));
-vi.mock('@/lib/email/composition', () => ({ getSweepEmailOutboxDeps: getDepsSpy }));
+vi.mock('@pcm/use-cases', () => ({
+  sweepEmailOutbox: sweepSpy,
+  enqueueOrderCreatedEmails: enqueueSpy,
+}));
+vi.mock('@/lib/email/composition', () => ({
+  getSweepEmailOutboxDeps: getDepsSpy,
+  getEnqueueOrderCreatedDeps: getEnqueueDepsSpy,
+}));
 
 import * as route from './route';
 import { CRON_RATE_MAX_HITS, resetCronRateLimit } from '@/lib/cron/rate-limit';
@@ -204,8 +213,13 @@ describe('GET email-sweep — 🔴 counts allowlist(不 blind spread ...result�
     expect(body).not.toHaveProperty('recipient_email');
     expect(body).not.toHaveProperty('last_error_message');
     expect(JSON.stringify(body)).not.toContain('leak@example.com');
+    // 🔴 B-5:`enqueueStatus` 是**刻意**多出來的一欄(四態互斥)——
+    //    env 沒設 ⇒ `skipped_no_cutoff`。「跳過了」「格式錯」「跑完了」「爆掉了」必須分得開。
     expect(Object.keys(body).sort()).toEqual(
-      ['claimed', 'deferred', 'errors', 'failed', 'ok', 'reclaimed', 'sent', 'staleMarks'].sort(),
+      [
+        'claimed', 'deferred', 'enqueueStatus', 'errors', 'failed',
+        'ok', 'reclaimed', 'sent', 'staleMarks',
+      ].sort(),
     );
     errSpy.mockRestore();
   });
@@ -282,5 +296,204 @@ describe('GET email-sweep — 應用層限流(#254 縱深 hardening)', () => {
     expect(limited.status).toBe(429);
     expect(getDepsSpy).not.toHaveBeenCalled();
     expect(sweepSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── 🔴 M-4a B-5:掃描式 enqueue 的接線(plan §6 #7/#8 + R3 must-fix 3 的真跑路徑)──
+describe('GET email-sweep — 🔴 B-5 enqueue 接線', () => {
+  const CUTOFF = '2026-08-19T03:14:00.000Z';
+  const ENQ_CLEAN = {
+    scanned: 0, scannedPages: 1, truncated: false,
+    enqueued: 0, skippedNoRealEmail: 0, duplicate: 0, noRecipient: 0, errors: 0,
+  };
+
+  beforeEach(() => {
+    // deps factory 是 mock ⇒ 預設回一個物件,否則 `expect.anything()` 對 undefined 會失敗。
+    getEnqueueDepsSpy.mockReturnValue({ outbox: {}, scanner: {} });
+  });
+
+  afterEach(() => {
+    delete process.env.B4_DEPLOY_CUTOFF;
+  });
+
+  it('env 沒設 ⇒ 整段 enqueue **不跑**,回應 `enqueueStatus: skipped_no_cutoff`', async () => {
+    sweepSpy.mockResolvedValue(CLEAN_RESULT);
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(getEnqueueDepsSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(body.enqueueStatus).toBe('skipped_no_cutoff');
+  });
+
+  it('🔴 env 格式不合 ⇒ 不跑、**回 503**、狀態是 skipped_bad_cutoff,且 log 不印那個值', async () => {
+    // 填錯而沒有人發現,正是本片要防的那種安靜壞掉 ⇒ 它必須吵。
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = '2026-08-19 03:14'; // 不是 ISO UTC
+    sweepSpy.mockResolvedValue(CLEAN_RESULT);
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(body.enqueueStatus).toBe('skipped_bad_cutoff');
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain('2026-08-19 03:14');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 R5 must-fix:env 設了但值是【空字串】⇒ skipped_bad_cutoff(不是 no_cutoff)', async () => {
+    // 原本寫 `!raw` ⇒ 空字串被判成「沒設」⇒ 回 200 ⇒ **設定貼錯而整件事安靜地沒發生**。
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = '';
+    sweepSpy.mockResolvedValue(CLEAN_RESULT);
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(body.enqueueStatus).toBe('skipped_bad_cutoff');
+    errSpy.mockRestore();
+  });
+
+  it.each([
+    ['形狀就不對', '2026-08-19 03:14'],
+    ['🔴 R4-MF3 形狀對但【日期不存在】', '2026-13-40T25:61:61Z'],
+    ['🔴 R4-MF3 形狀對但會被正規化成別天', '2026-02-30T00:00:00Z'],
+  ])('cutoff %s ⇒ skipped_bad_cutoff(不得一路送進 DB 才失敗)', async (_label, bad) => {
+    // 送進 DB 才失敗的話,回的是 `failed` + `stage=orders` + DB code
+    // ⇒ **接手的人會往權限 / schema / 網路查,而不是去看 env** —— 我們設計的分流當場失效。
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = bad;
+    sweepSpy.mockResolvedValue(CLEAN_RESULT);
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(enqueueSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(body.enqueueStatus).toBe('skipped_bad_cutoff');
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain(bad); // 不印那個值
+    errSpy.mockRestore();
+  });
+
+  it.each(['2026-08-19T03:14:00.000Z', '2026-08-19T03:14:00Z'])(
+    '合法 cutoff %s(帶不帶毫秒都算合法)⇒ 真的跑',
+    async (good) => {
+      // 🔴 負對照:上面那組全被擋掉,這一組必須過 —— 不然「擋得很嚴」與「全部擋掉」長得一樣。
+      process.env.B4_DEPLOY_CUTOFF = good;
+      enqueueSpy.mockResolvedValue(ENQ_CLEAN);
+      sweepSpy.mockResolvedValue(CLEAN_RESULT);
+      const res = await GET(makeReq(bearer()));
+      const body = await res.json();
+
+      expect(enqueueSpy).toHaveBeenCalledWith(expect.anything(), { cutoff: good, limit: 50 });
+      expect(body.enqueueStatus).toBe('completed');
+      expect(res.status).toBe(200);
+    },
+  );
+
+  it('🔴 R4-MF1:兩個 limit 的調參建議不得寫成「同步就好」(source-contract)', () => {
+    // 接手者照舊註解「順手同步」CLAIM_LIMIT 與 ENQUEUE_LIMIT ⇒ 被濫用時放大面一起變大,而測試全綠。
+    expect(ROUTE_SOURCE).not.toContain('兩者不同步沒有意義');
+    expect(ROUTE_SOURCE).toContain('不要因為調了 `CLAIM_LIMIT` 就「順手同步」');
+  });
+
+  it('🔴🔴 R3-MF3 啟用路徑真的跑:cutoff 有值 ⇒ enqueue 被 await、結果進 body、狀態 completed', async () => {
+    // 原本這條路一格 runtime test 都跑不到 ⇒ 兩發真行為突變會存活:
+    //   ①`void enqueueOrderCreatedEmails(...)`(不 await)②不把結果指定給 enqueueCounts。
+    process.env.B4_DEPLOY_CUTOFF = CUTOFF;
+    enqueueSpy.mockResolvedValue({ ...ENQ_CLEAN, scanned: 3, enqueued: 2, duplicate: 1 });
+    sweepSpy.mockResolvedValue(CLEAN_RESULT);
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(enqueueSpy).toHaveBeenCalledWith(expect.anything(), { cutoff: CUTOFF, limit: 50 });
+    expect(res.status).toBe(200);
+    expect(body.enqueueStatus).toBe('completed');
+    expect(body.enqScanned).toBe(3);
+    expect(body.enqEnqueued).toBe(2);
+    expect(body.enqDuplicate).toBe(1);
+  });
+
+  it('🔴 R3-MF3:enqueue 必須【resolve 之後】sweeper 才開始(不是只有原始碼順序)', async () => {
+    // source-contract 證得了「寫在前面」,證不了「有 await」。這格用呼叫時序證。
+    process.env.B4_DEPLOY_CUTOFF = CUTOFF;
+    const order: string[] = [];
+    enqueueSpy.mockImplementation(async () => {
+      order.push('enqueue:start');
+      await new Promise((r) => setTimeout(r, 5));
+      order.push('enqueue:done');
+      return ENQ_CLEAN;
+    });
+    sweepSpy.mockImplementation(async () => {
+      order.push('sweep:start');
+      return CLEAN_RESULT;
+    });
+    await GET(makeReq(bearer()));
+
+    expect(order).toEqual(['enqueue:start', 'enqueue:done', 'sweep:start']);
+  });
+
+  it('🔴 enqueue 整段 throw ⇒ 狀態 failed(**不是** skipped)、回 503、sweeper 照樣跑完', async () => {
+    // 這是 R3 must-fix 2 的核心:兩種完全不同的世界原本共用同一個訊號。
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = CUTOFF;
+    enqueueSpy.mockRejectedValue(Object.assign(new Error('boom'), { stage: 'orders', code: 'PGRST500' }));
+    sweepSpy.mockResolvedValue({ ...CLEAN_RESULT, sent: 1 });
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(sweepSpy).toHaveBeenCalled(); // 🔴 掃描壞掉不得阻止已排好的信寄出去
+    expect(res.status).toBe(503);
+    expect(body.enqueueStatus).toBe('failed');
+    expect(body.sent).toBe(1);
+    expect(JSON.stringify(errSpy.mock.calls)).toContain('enqueue_scan_throw');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 單筆 enqueue 有 errors ⇒ 一樣 503(不吞成 200)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = CUTOFF;
+    enqueueSpy.mockResolvedValue({ ...ENQ_CLEAN, scanned: 2, enqueued: 1, errors: 1 });
+    sweepSpy.mockResolvedValue(CLEAN_RESULT);
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body.enqueueStatus).toBe('completed'); // 整段沒爆,只是有單筆失敗 —— 兩件事分開講
+    expect(body.enqErrors).toBe(1);
+    errSpy.mockRestore();
+  });
+
+  it('🔴 #7 enqueue result 混入 PII sentinel 欄 ⇒ 回應與 log 皆不含(allowlist 真的跑過)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.env.B4_DEPLOY_CUTOFF = CUTOFF;
+    enqueueSpy.mockResolvedValue({
+      ...ENQ_CLEAN,
+      recipient_email: 'leak@example.com',
+      last_error_message: 'PII leak text',
+    });
+    sweepSpy.mockResolvedValue(CLEAN_RESULT);
+    const res = await GET(makeReq(bearer()));
+    const body = await res.json();
+
+    expect(body).not.toHaveProperty('recipient_email');
+    expect(JSON.stringify(body)).not.toContain('leak@example.com');
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain('leak@example.com');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 #8 enqueue 用【自己的】deps,且排在 sweeper deps **之前**(source-contract)', async () => {
+    // plan §3.1:`getSweepEmailOutboxDeps()` 會 requireEnv Resend 兩顆、缺就 throw ⇒ 503。
+    // 若 enqueue 共用它,**Resend 沒設好的期間連「排進 outbox」都不會發生**。
+    // 🔴 尺要對準【呼叫點】,不是函式名 —— 函式名在註解裡也出現,
+    //    我第一版就是被自己寫的那句 1c 註解騙到(它提到 `getSweepEmailOutboxDeps()` 且排在前面)。
+    const enqueueCallSite = 'const enqueueDeps: EnqueueOrderCreatedEmailsDeps = getEnqueueOrderCreatedDeps()';
+    const sweepCallSite = 'const deps: SweepEmailOutboxDeps = getSweepEmailOutboxDeps()';
+    expect(ROUTE_SOURCE).toContain(enqueueCallSite);
+    expect(ROUTE_SOURCE).toContain(sweepCallSite);
+    expect(ROUTE_SOURCE.indexOf(enqueueCallSite)).toBeLessThan(ROUTE_SOURCE.indexOf(sweepCallSite));
+    expect(ROUTE_SOURCE).toContain('function pickEnqueueCounts');
+    expect(ROUTE_SOURCE).not.toContain('...enqueueResult');
   });
 });

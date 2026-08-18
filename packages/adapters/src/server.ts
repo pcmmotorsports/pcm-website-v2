@@ -95,6 +95,14 @@ export {
   type EmailOutboxClient,
   type SupabaseEmailOutboxAdapterConfig,
 } from './email/SupabaseEmailOutboxAdapter';
+// 🔴 M-4a B-5(掃描式 enqueue):「已付款但還沒排過 order_created」的窄讀 adapter。
+// 同樣走 server-only subpath —— 它回兩個 email 欄(PII),client 注入 service_role。
+export {
+  SupabasePaidOrderScannerAdapter,
+  ScanQueryError,
+  type PaidOrderScannerClient,
+  type ScanStage,
+} from './email/SupabasePaidOrderScannerAdapter';
 export {
   ResendEmailSenderAdapter,
   type ResendEmailSenderConfig,

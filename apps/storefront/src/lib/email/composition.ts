@@ -14,10 +14,11 @@
 //    故由本 composition 注入(SupabaseEmailOutboxAdapter 建構參數必填無預設)。
 
 import 'server-only';
-import type { SweepEmailOutboxDeps } from '@pcm/use-cases';
+import type { EnqueueOrderCreatedEmailsDeps, SweepEmailOutboxDeps } from '@pcm/use-cases';
 // eslint-disable-next-line no-restricted-imports -- 受控例外(鏡像 payment/composition.ts):composition root 注入 email server-only adapter;SupabaseEmailOutboxAdapter 持 service_role client(email_outbox 含 recipient_email PII)、ResendEmailSenderAdapter 持 RESEND_API_KEY、皆 server-only 不進 client bundle。
 import {
   SupabaseEmailOutboxAdapter,
+  SupabasePaidOrderScannerAdapter,
   ResendEmailSenderAdapter,
   createSupabaseServiceClient,
 } from '@pcm/adapters/server';
@@ -53,4 +54,27 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
     from: requireEnv('ORDER_EMAIL_FROM'),
   });
   return { outbox, sender };
+}
+
+/**
+ * 建 `EnqueueOrderCreatedEmailsDeps`(M-4a B-5 掃描式 enqueue;email-sweep route 在 sweeper **之前**跑)。
+ *
+ * 🔴🔴 **刻意【不共用】`getSweepEmailOutboxDeps()`**(plan §3.1,這是本 factory 存在的全部理由):
+ *    那支會 `requireEnv('RESEND_API_KEY')` 與 `requireEnv('ORDER_EMAIL_FROM')`,缺就 throw ⇒ route 503。
+ *    若 enqueue 共用它,**Resend 還沒設 env 的那段期間,連「把信排進 outbox」都不會發生**
+ *    —— 而那正是今天的狀態(那兩顆 env 在正式站的現值我量不到、repo 側無管道)。
+ *    ⇒ 分開的 deps ⇒ **信先排進去,寄的那半晚點再開**,兩件事互不綁死。
+ *    ⚠️ 改動這裡之前先問:我是不是又把「排信」綁回「寄信」的前置條件上了?
+ *
+ * 🔴 lazy 契約同檔頭:env 在此讀、非 module-top(本 factory 其實一顆 env 都不讀,更不該破例)。
+ * 🔴 scanner 與 outbox **共用 service_role** —— scanner 讀 orders / email_outbox / customers 三張表,
+ *    其中兩張含 PII;它回的 email 只准被交給 `outbox.enqueue`(port 檔頭明文)。
+ */
+export function getEnqueueOrderCreatedDeps(): EnqueueOrderCreatedEmailsDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN,
+    }),
+    scanner: new SupabasePaidOrderScannerAdapter(createSupabaseServiceClient()),
+  };
 }

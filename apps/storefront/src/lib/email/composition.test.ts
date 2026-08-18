@@ -18,28 +18,30 @@ vi.mock('server-only', () => ({}));
 const COMPOSITION_SOURCE = readFileSync(new URL('./composition.ts', import.meta.url), 'utf8');
 
 // 🔴 vi.mock 工廠會被 hoist 到檔頂 → 其引用的常數必須走 vi.hoisted(否則 ReferenceError:早於初始化)。
-const { outboxCtor, senderCtor, serviceClientSpy, SERVICE_CLIENT, SYNTHETIC_DOMAIN } = vi.hoisted(
-  () => ({
+const { outboxCtor, senderCtor, scannerCtor, serviceClientSpy, SERVICE_CLIENT, SYNTHETIC_DOMAIN } =
+  vi.hoisted(() => ({
     outboxCtor: vi.fn(),
     senderCtor: vi.fn(),
+    scannerCtor: vi.fn(), // 🔴 B-5:掃描式 enqueue 的 adapter
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
     SYNTHETIC_DOMAIN: 'line.pcmmotorsports.local',
-  }),
-);
+  }));
 
 vi.mock('@pcm/adapters/server', () => ({
   SupabaseEmailOutboxAdapter: outboxCtor,
   ResendEmailSenderAdapter: senderCtor,
+  SupabasePaidOrderScannerAdapter: scannerCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 vi.mock('@/lib/auth/line', () => ({ LINE_SYNTHETIC_EMAIL_DOMAIN: SYNTHETIC_DOMAIN }));
 
-import { getSweepEmailOutboxDeps } from './composition';
+import { getEnqueueOrderCreatedDeps, getSweepEmailOutboxDeps } from './composition';
 
 beforeEach(() => {
   outboxCtor.mockReset();
   senderCtor.mockReset();
+  scannerCtor.mockReset();
   serviceClientSpy.mockReset().mockReturnValue(SERVICE_CLIENT);
   process.env.RESEND_API_KEY = 'test-resend-key';
   process.env.ORDER_EMAIL_FROM = 'orders@test.example';
@@ -112,5 +114,36 @@ describe('getSweepEmailOutboxDeps — 缺 env fail-closed(route 接 → 503)', (
   it('缺 ORDER_EMAIL_FROM → throw(缺少必要環境變數)', () => {
     delete process.env.ORDER_EMAIL_FROM;
     expect(() => getSweepEmailOutboxDeps()).toThrow(/ORDER_EMAIL_FROM/);
+  });
+});
+
+// ── 🔴 M-4a B-5 plan §3.1:enqueue 的 deps **刻意不共用** sweeper 的 ──
+describe('getEnqueueOrderCreatedDeps — 不吃 Resend env(這是它存在的全部理由)', () => {
+  it('🔴🔴 #8 `RESEND_API_KEY` / `ORDER_EMAIL_FROM` 都不存在 ⇒ **仍然建得出 deps、不 throw**', () => {
+    // 病的形狀:若 enqueue 共用 getSweepEmailOutboxDeps(),那支會 requireEnv 兩顆 Resend env、
+    // 缺就 throw ⇒ route 503 ⇒ **Resend 還沒設好的那段期間,連「把信排進 outbox」都不會發生**。
+    // 而那正是今天的狀態(那兩顆 env 在正式站的現值 repo 側量不到)。
+    delete process.env.RESEND_API_KEY;
+    delete process.env.ORDER_EMAIL_FROM;
+
+    const deps = getEnqueueOrderCreatedDeps();
+
+    expect(Object.keys(deps).sort()).toEqual(['outbox', 'scanner']); // 🔴 沒有 sender
+    expect(senderCtor).not.toHaveBeenCalled();
+    expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { syntheticEmailDomain: SYNTHETIC_DOMAIN });
+    expect(scannerCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
+  });
+
+  it('對照組:同樣缺 env 時 `getSweepEmailOutboxDeps()` **會** throw(證上面那格不是恆真)', () => {
+    // 🔴 沒有這一格,上面那格在「requireEnv 整個壞掉」的世界裡也會綠。
+    delete process.env.RESEND_API_KEY;
+    delete process.env.ORDER_EMAIL_FROM;
+    expect(() => getSweepEmailOutboxDeps()).toThrow(/RESEND_API_KEY/);
+  });
+
+  it('🔴 lazy 契約:本 factory 一顆 env 都不讀(source-contract)', () => {
+    const fn = COMPOSITION_SOURCE.slice(COMPOSITION_SOURCE.indexOf('export function getEnqueueOrderCreatedDeps'));
+    expect(fn).not.toContain('requireEnv');
+    expect(fn).not.toContain('process.env');
   });
 });

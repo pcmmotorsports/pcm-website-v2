@@ -102,3 +102,13 @@ export {
   type SweepEmailOutboxOptions,
   type SweepEmailOutboxResult,
 } from './sweep-email-outbox';
+
+// 🔴 M-4a B-5(Sean `Q-G4-1`=甲 掃描式):把「已付款但還沒排過 order_created」的單排進 outbox。
+// 掛在 email-sweep route 的最前面、sweepEmailOutbox 之前、且用**自己的 deps**(不要 Resend;plan §3.1)。
+// **本片一封信都不會寄** —— 那是設計好的落點(PRD §6 gate #1),不是缺陷。
+export {
+  enqueueOrderCreatedEmails,
+  type EnqueueOrderCreatedEmailsDeps,
+  type EnqueueOrderCreatedEmailsOptions,
+  type EnqueueOrderCreatedEmailsResult,
+} from './enqueue-order-created-emails';

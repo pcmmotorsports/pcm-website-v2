@@ -33,6 +33,9 @@ export type * from './IEmailSender';
 // 🔴 `Q-C9-b` 前置(2026-08-18):出貨通知信的寄送時讀取 port。
 // **目前零 production 呼叫端** —— 組裝那一行(`composition.ts:55`)刻意沒接,理由見該檔檔頭。
 export type * from './IShippedEmailContext';
+// 🔴 M-4a B-5(掃描式 enqueue,Sean `Q-G4-1`=甲):「已付款但還沒排過 order_created」的窄讀 port。
+// 它回 PII(兩個 email 欄)⇒ 實作 server-only + service_role;呼叫端只准把值交給 outbox.enqueue。
+export type * from './IPaidOrderScanner';
 
 // Contract test framework 不從 main entry re-export(M-1-03-prep-audit S1 修正):
 // - tree-shaking 樂觀假設不可信、main entry re-export 會把 vitest 拉進 production bundle
