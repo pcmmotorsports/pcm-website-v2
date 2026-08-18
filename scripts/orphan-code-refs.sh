@@ -38,6 +38,11 @@
 #
 # 用法: bash scripts/orphan-code-refs.sh [repo 根目錄]   (預設 = 當前目錄)
 #
+# 🔴 2026-08-18 撤掉一個排除規則(留痕):第一版排除了 `Q-*`,理由寫「那是 Sean 的拍板題號」。
+#    同日實查推翻:`Q-EMBED-1` 是**工作代號**,code 內 23 處引用、backlog 零提及、零標題認領
+#    —— 而它正是 `#636` 的原始標記。⇒ **`Q-` 底下兩種東西混住**(Sean 的題號 `Q-C9` / 工作碼 `Q-EMBED-1`),
+#    用前綴分不開 ⇒ **不排除,交人工判**。教訓:一個「看起來很合理的排除規則」造出的是假分母。
+#
 # ponytail: 只掃【連字號】代號(B-4 / E8-B / DS-0b)。OP5 / A9g2 這種無連字號的形式不掃
 #           —— 用字形和一般英數詞分不開。要涵蓋它們得換判準,不是放寬 pattern。
 #           ② 區只認【兩位數以上】的 backlog 號:單位數命中的全是信件內的 findings 編號
@@ -66,11 +71,11 @@ grep -E "$DEFER" "$TMP/comments" > "$TMP/defer" || true
 grep -E "$EXPECT" "$TMP/comments" > "$TMP/expect" || true
 
 DEFER_N=$(wc -l < "$TMP/defer" | tr -d ' ')
-grep -ohE "$CODE" "$TMP/defer" | sort -u | grep -vE '^Q-' > "$TMP/codes" || true
+grep -ohE "$CODE" "$TMP/defer" | sort -u > "$TMP/codes" || true
 
 echo "== 分母(掃描根目錄 $ROOT)=="
 echo "帶延後語的非測試註解行 : $DEFER_N"
-echo "從中抽出的連字號代號   : $(wc -l < "$TMP/codes" | tr -d ' ')  (已排除 Q-*:那是 Sean 的拍板題號,不是工作代號)"
+echo "從中抽出的連字號代號   : $(wc -l < "$TMP/codes" | tr -d ' ')  (不排除 Q-*,理由見檔頭)"
 echo
 
 echo "== ① 無號:有人指望 × 沒人在追 =="
