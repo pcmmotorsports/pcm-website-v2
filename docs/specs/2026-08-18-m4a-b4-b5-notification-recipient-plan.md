@@ -43,6 +43,13 @@ L 級 N/A(非內容)。**高風險片**(鐵則 12 ①)。零 migration / 零 db 
 單一 server-only 函式,**一個呼叫點、一份規則**;驗證一律走既有 `NotificationEmailInput`
 (`packages/schemas/src/notification-email.ts`)—— **本片不長出第二套 email 規則**。
 
+**若 `Q-W5-3=甲`**:候選依序 `customers.email` → `address.email`,取第一個 parse 過的。
+**若 `Q-W5-3=乙`**:只看 `customers.email`。
+
+兩案共同:全部候選皆不合格 ⇒ **不 enqueue**,寫一行結構化 log(**只帶 `orderId`,禁帶 email 原值**,PRD §7)。
+⚠️ **合成域由 `NotificationEmailInput` 自己擋**(`isSyntheticEmailDomain`)⇒ LINE 的假信箱在甲/乙都不會被選中,
+**差別只在它之後有沒有下一個候選。**
+
 ### 3.1 🔴 而第二套【已經在了】,而且它就守在 `Q4=甲` 的那個來源上
 
 本節第一版寫「不長出第二套」時,我沒有量過樹上有幾套。量完是**兩套**:
@@ -68,13 +75,6 @@ NotificationEmailInput 有、z.email() 沒有:
    (STATUS 已記:CI 紅了目前不會通知任何人)⇒ 觀測點要指得出「誰會看到、在哪裡看到」。
 
 ⚠️ **本片不去統一那兩套**(動 `RegisterInput` = 動註冊路徑,範圍外)。**只登記這個縫,並要求它有觀測點。**
-
-**若 `Q-W5-3=甲`**:候選依序 `customers.email` → `address.email`,取第一個 parse 過的。
-**若 `Q-W5-3=乙`**:只看 `customers.email`。
-
-兩案共同:全部候選皆不合格 ⇒ **不 enqueue**,寫一行結構化 log(**只帶 `orderId`,禁帶 email 原值**,PRD §7)。
-⚠️ **合成域由 `NotificationEmailInput` 自己擋**(`isSyntheticEmailDomain`)⇒ LINE 的假信箱在甲/乙都不會被選中,
-**差別只在它之後有沒有下一個候選。**
 
 ## 4. 範圍
 
