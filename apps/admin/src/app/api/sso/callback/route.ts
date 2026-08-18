@@ -8,7 +8,10 @@ import {
 } from '@/lib/session/session';
 import { getSsoConfig } from '@/lib/sso/config';
 import { exchangeCode } from '@/lib/sso/exchange';
-import { logSsoLogin } from '@/lib/sso/security-log';
+// 🔴 M-4b:改叫 `recordSsoLogin`(它自己會先寫 console 再 best-effort 進 DB)。
+//    ~~原本直接叫 `logSsoLogin`~~ —— 兩個分開叫的話,下一個人加第五處失敗路徑時
+//    很可能只叫其中一個,而**那時 DB 少一列不會有任何東西紅**。
+import { recordSsoLogin } from '@/lib/sso/login-event';
 import {
   SSO_STATE_COOKIE,
   clearStateCookieOptions,
@@ -46,7 +49,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const config = getSsoConfig();
   if (!config) {
-    logSsoLogin('fail', { requestId, reason: 'config-missing' });
+    await recordSsoLogin('fail', { requestId, reason: 'config-missing' }, req.headers);
     return configError();
   }
 
@@ -56,20 +59,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   // state 綁定:cookie 必須存在且 === query.state(cookie 缺 = 拒),code 必填。
   if (!decoded || !code || !queryState || decoded.s !== queryState) {
-    logSsoLogin('fail', { requestId, reason: 'state-mismatch' });
+    await recordSsoLogin('fail', { requestId, reason: 'state-mismatch' }, req.headers);
     return failResponse(req);
   }
 
   const result = await exchangeCode(code, decoded.s, config);
   if (!result) {
-    logSsoLogin('fail', { requestId, reason: 'exchange-failed' });
+    await recordSsoLogin('fail', { requestId, reason: 'exchange-failed' }, req.headers);
     return failResponse(req);
   }
 
   const token = await signSession(buildAdminSession(result.amr, result.auth_time));
   if (!token) {
     // 🔴 簽不出 = ADMIN_SESSION_SECRET 缺(設定缺漏)→ 顯式 500,不導 /start(否則未登入→/start→…→再簽不出=無限迴圈,Fable REQ4)。
-    logSsoLogin('fail', { requestId, reason: 'sign-failed-config' });
+    await recordSsoLogin('fail', { requestId, reason: 'sign-failed-config' }, req.headers);
     return configError();
   }
 
@@ -78,6 +81,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   res.cookies.set(SSO_STATE_COOKIE, '', clearStateCookieOptions());
   res.headers.set('Referrer-Policy', 'no-referrer');
   res.headers.set('Cache-Control', 'no-store');
-  logSsoLogin('success', { requestId, amr: result.amr });
+  await recordSsoLogin('success', { requestId, amr: result.amr }, req.headers);
   return res;
 }
