@@ -35,7 +35,7 @@ vi.mock('@/lib/supabase/browser', () => ({
 }));
 
 type ActionResult = { ok: true } | { error: string };
-const listFavoriteHandlesAction = vi.fn(async () => ['already-fav']);
+const listFavoriteHandlesAction = vi.fn(async () => ({ handles: ['already-fav'] }) as { handles: string[] } | { error: true });
 // 🔴 第二個參數(expectedUserId)要**原樣轉進去** —— 少了它,守「換帳號那一發」的那格
 //   會拿到 undefined 而永遠紅,而病根在測試的 mock、不在 code(2026-08-18 真的踩到)。
 const addFavoriteAction = vi.fn(
@@ -175,7 +175,7 @@ describe('FavoritesContext', () => {
   // 🔴 共同形狀:**四件都是「畫面與 DB 不一致,而客人看不出來」** —— 與本片要治的病同族。
 
   it('🔴 must-fix 1:A 帳號【直接切成】B ⇒ 不得讓 B 看到 A 的紅心', async () => {
-    listFavoriteHandlesAction.mockImplementation(async () => ['already-fav']);
+    listFavoriteHandlesAction.mockImplementation(async () => ({ handles: ['already-fav'] }));
     render(
       <FavoritesProvider>
         <Heart handle="already-fav" />
@@ -184,7 +184,7 @@ describe('FavoritesContext', () => {
     await login('u-1');
     await waitFor(() => expect(heart().getAttribute('aria-pressed')).toBe('true'));
     // B 的收藏是空的
-    listFavoriteHandlesAction.mockImplementation(async () => []);
+    listFavoriteHandlesAction.mockImplementation(async () => ({ handles: [] }));
     // 🔴 中間【沒有登出】—— 舊版存布林時,這一步是 true→true ⇒ effect 不重跑 ⇒ B 看到 A 的紅心
     await login('u-2');
     await waitFor(() =>
@@ -276,7 +276,9 @@ describe('FavoritesContext', () => {
     });
     // 🔴 失敗 ⇒ 畫面拉回【server 確認過的狀態】(沒收藏),不是套某一次的差量。
     await waitFor(() => expect(heart().getAttribute('aria-pressed')).toBe('false'));
-    expect(screen.getByRole('alert').textContent).toContain('收藏沒有存成功');
+    // 🔴 印的是 **server 回的那一句**(`MAIN-036`,Sean 拍板要分兩句:下架 vs 其他)——
+    //   統一成一句就等於把他的裁定丟掉。這裡用 mock 回的字面驗「有照著印」。
+    expect(screen.getByRole('alert').textContent).toContain('存不起來');
     addFavoriteAction.mockImplementation(async () => ({ ok: true }));
   });
 
@@ -382,8 +384,88 @@ describe('FavoritesContext', () => {
     const text = screen.getByRole('alert').textContent ?? '';
     expect(text, '內部細節漏到客人畫面上了').not.toContain('_next');
     expect(text, '內部細節漏到客人畫面上了').not.toContain('http');
-    expect(text).toContain('收藏沒有存成功');
+    expect(text).toContain('請再試一次');
     expect(heart().getAttribute('aria-pressed'), '失敗了卻沒退回').toBe('false');
+    addFavoriteAction.mockImplementation(async () => ({ ok: true }));
+  });
+
+  it('🔴🔴 R3:舊帳號的 worker 收尾時,不得把【新帳號】的 desired 清掉(會無限連發 remove、刪掉新帳號真實收藏)', async () => {
+    // GR(Fable,R3)讀碼推演出來的路徑。本格是「構造它」那一步。
+    // ```
+    // 換帳號時 confirmed/handles 換【新物件】，而 desired/running 用 .clear() 留【同一個物件】
+    //   ⇒ 舊 worker 的 finally 清掉的是【新帳號正在用的那一份】
+    //   ⇒ 新 worker 的 while 條件把 undefined 讀成「有落差」(undefined !== false)
+    //   ⇒ next=undefined ⇒ 走 remove ⇒ 而 confirmed 永遠不會再變 ⇒ 【無限連發 remove】
+    // ```
+    // 🔴 **要撞上這一格，時序必須是「舊 worker 的 finally 落在新 worker 正 await 的那個空檔」** ——
+    //    第一版我讓新 worker 先跑完才放舊的，**測試綠、而 bug 還在**（構造失敗看起來跟沒有 bug 一樣）。
+    let releaseOldAdd: (v: { ok: true }) => void = () => {};
+    addFavoriteAction.mockImplementation(
+      () => new Promise((r) => { releaseOldAdd = r; }),
+    );
+    let releaseRemove: (v: { ok: true }) => void = () => {};
+    removeFavoriteAction.mockImplementation(
+      () => new Promise((r) => { releaseRemove = r; }),
+    );
+
+    render(
+      <FavoritesProvider>
+        <Heart handle="shared" />
+      </FavoritesProvider>,
+    );
+    await login('u-1');
+    await act(async () => {
+      heart().click(); // u-1 的 add 送出去，卡在路上
+    });
+    await waitFor(() => expect(addFavoriteAction).toHaveBeenCalledTimes(1));
+
+    // u-2 進來，而且 u-2 本來就收藏了 shared
+    listFavoriteHandlesAction.mockImplementation(async () => ({ handles: ['shared'] }));
+    await login('u-2');
+    await waitFor(() => expect(heart().getAttribute('aria-pressed')).toBe('true'));
+
+    // u-2 按一下想取消 ⇒ 新 worker 送出 remove，然後【停在 await 上】
+    removeFavoriteAction.mockClear();
+    await act(async () => {
+      heart().click();
+    });
+    await waitFor(() => expect(removeFavoriteAction).toHaveBeenCalledTimes(1));
+
+    // 🔴 就是現在:舊 worker 收尾（finally 動到誰的 map?）
+    await act(async () => {
+      releaseOldAdd({ ok: true });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // 新 worker 的那一發這才回來 ⇒ 它接下來會重新判斷 while 條件
+    await act(async () => {
+      releaseRemove({ ok: true });
+      await new Promise((r) => setTimeout(r, 80));
+    });
+
+    expect(
+      removeFavoriteAction.mock.calls.length,
+      `remove 被連發 ${removeFavoriteAction.mock.calls.length} 次 ⇒ 舊 worker 的 finally 清掉了新帳號的 desired`,
+    ).toBe(1);
+    addFavoriteAction.mockImplementation(async () => ({ ok: true }));
+    removeFavoriteAction.mockImplementation(async () => ({ ok: true }));
+    listFavoriteHandlesAction.mockImplementation(async () => ({ handles: ['already-fav'] }));
+  });
+
+  it('🔴 MAIN-036(Sean 拍板):server 說「這件商品已下架」⇒ 畫面要照印,不得統一成通用文案', async () => {
+    addFavoriteAction.mockImplementation(async () => ({ error: '這件商品已下架' }));
+    render(
+      <FavoritesProvider>
+        <Heart />
+      </FavoritesProvider>,
+    );
+    await login();
+    await act(async () => {
+      heart().click();
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    const text = screen.getByRole('alert').textContent ?? '';
+    expect(text).toContain('這件商品已下架');
+    expect(text, '兩種失敗被統一成一句 ⇒ Sean 拍的「分兩句」被丟掉了').not.toContain('請再試一次');
     addFavoriteAction.mockImplementation(async () => ({ ok: true }));
   });
 

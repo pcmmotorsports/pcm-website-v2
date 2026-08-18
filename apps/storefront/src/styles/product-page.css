@@ -194,13 +194,24 @@
      `ProductGallery.tsx:192` 的 hero onClick 還逐字寫著
      `if (target.closest('.pd-hero-arrow, .pd-hero-counter')) return;`
      ⇒ 就算按鈕自己不動作,燈箱也不會開。**補這一行之後,那個 `closest` 檢測自然就不會命中了。**
-     ⚠️ 本片**只解「不再吃掉點擊」**,不解「手機要不要看得見箭頭」——
-     後者是視覺取捨(手機本來就能滑動換圖),要問 Sean,已寫進 STOP。
+     ⚠️ 本片**只解「不再吃掉點擊」**,不解「手機要不要看得見箭頭」。
+     ✅ **後者已裁定:甲 = 不顯示(主視窗代裁,2026-08-18)** —— 現況就是甲,不必再動。
+     理由:**手機換圖本來就能滑 ⇒ 箭頭有替代入口,而愛心沒有**
+     ⇒ 與愛心 Q1(手機常駐顯示)結論不同**不是不一致**,是同一條判準
+     (Sean 逐字「正常的網站該怎麼做就怎麼做」)套在兩個不同事實上的結果。
+     🔴 標【主視窗代裁】是刻意的 —— **那個標記就是 Sean 推翻它的入口**
+     (他 2026-08-18 已經用過一次:把軟下架從主視窗代裁的乙翻成甲)。
+     📎 射程依據:`memory feedback/project_0818-sean-delegates-favorites-ux` ——
+     判別句是**「這題有沒有商業取捨」**,不是「這題是不是愛心」。
      📎 來源:G6 讀 code 推出來的(`G6-005 §④`),我用真瀏覽器把它量死並補上 disabled 那半。 */
   pointer-events: none;
 }
-/* 浮出來時才把點擊收回去(照 `.pcard-quick` / `.pcard-heart` 的既有形狀)。 */
-.pd-hero-img:hover .pd-hero-arrow { opacity: 1; pointer-events: auto; }
+/* 浮出來時才把點擊收回去(照 `.pcard-quick` / `.pcard-heart` 的既有形狀)。
+   🔴 `:not(:disabled)` 是承重的(GR/Fable R3):`.pd-hero-arrow:disabled` 有
+   `opacity: 0 !important` ⇒ **第一張(左鍵)與最後一張(右鍵)那顆是看不見的**,
+   而少了這個 `:not()`,桌機 hover 時它照樣拿回 `pointer-events: auto`
+   ⇒ **看不見卻擋在最上層** ⇒ 那一下的燈箱又不會開。與本檔上面那個病同族,只是換一個觸發條件。 */
+.pd-hero-img:hover .pd-hero-arrow:not(:disabled) { opacity: 1; pointer-events: auto; }
 .pd-hero-arrow:hover:not(:disabled) { transform: translateY(-50%) scale(1.12); }
 .pd-hero-arrow:active:not(:disabled) { transform: translateY(-50%) scale(0.96); }
 .pd-hero-arrow:disabled { opacity: 0 !important; cursor: not-allowed; }

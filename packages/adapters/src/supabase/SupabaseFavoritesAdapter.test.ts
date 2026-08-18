@@ -15,7 +15,9 @@
 //    ⇒ Sean 拍的甲（不顯示）成立，而「收藏會自己回來」也是量到的，不是我推的
 // ```
 // ⚠️ **那一輪不可重跑**(鑽機拆了)⇒ 本檔守的是「呼叫形狀別被改壞」,
-//    行為那半的證據在 commit `<本片>` 的 body 裡。
+//    行為那半的證據在 commit `7528ce8b` 的 body 裡。
+//    🔴 **這個指標是那份證據的【唯一入口】** —— 鑽機已拆、那一輪不可重跑
+//    ⇒ 指錯就等於沒有。(原本寫 `<本片>` 佔位符沒代換,GR-008 抓到。)
 
 import { describe, expect, it, vi } from 'vitest';
 import { SupabaseFavoritesAdapter } from './SupabaseFavoritesAdapter';

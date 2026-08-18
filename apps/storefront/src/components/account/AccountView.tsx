@@ -143,9 +143,11 @@ export type AccountViewProps = {
   orders: OrderListItem[];
   // M-4b #191:收藏清單(page.tsx getFavoritesRepo→listByCustomer 算好傳入;forward 給 FavoritesTab)
   favorites: FavoriteListItem[];
+  /** 🔴 讀取失敗(≠ 沒有收藏)。兩者必須印不同的畫面 —— `MAIN-035 ①-1`。 */
+  favoritesFailed?: boolean;
 };
 
-export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites }: AccountViewProps) {
+export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed }: AccountViewProps) {
   const [tab, setTab] = useState<TabId>('overview');
 
   // g-4a Q4=A:displayName / avatarChar 用 profile.name(customers.name SoT)為主、displayEmail 退化、
@@ -215,7 +217,7 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
             )}
             {tab === 'orders' && <OrdersTab orders={orders} />}
             {tab === 'wallet' && <WalletTab />}
-            {tab === 'favorites' && <FavoritesTab favorites={favorites} />}
+            {tab === 'favorites' && <FavoritesTab favorites={favorites} loadFailed={favoritesFailed} />}
             {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} vehicleBrands={vehicleBrands} />}
             {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}

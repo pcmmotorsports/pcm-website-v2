@@ -88,10 +88,16 @@ describe('看不見的東西不准吃點擊', () => {
 
   it('🔴 `.pd-hero-arrow` 浮出來時要把點擊收回去(否則桌機的左右換圖按不到)', () => {
     const css = read('product-page.css');
-    const hoverRule = /\.pd-hero-img:hover\s+\.pd-hero-arrow\s*\{[^}]*\}/.exec(css)?.[0];
+    const hoverRule = /\.pd-hero-img:hover\s+\.pd-hero-arrow(:not\(:disabled\))?\s*\{[^}]*\}/.exec(css)?.[0];
     expect(hoverRule, '找不到 .pd-hero-img:hover .pd-hero-arrow ⇒ 前提失效').toBeTruthy();
     expect(hoverRule, 'hover 態沒有 pointer-events: auto ⇒ 桌機的左右換圖會按不到')
       .toMatch(/pointer-events:\s*auto\s*;/);
+    // 🔴 GR/Fable R3:`:disabled` 那顆有 `opacity: 0 !important` ⇒ 它【看不見】,
+    //   而 hover 規則若不排除它,它會拿回 pointer-events ⇒ 看不見卻擋在最上層。
+    expect(
+      hoverRule,
+      'hover 規則沒排除 :disabled ⇒ 第一張/最後一張的那顆會【看不見卻吃點擊】',
+    ).toContain(':not(:disabled)');
   });
 
   it('🔴 Q1:觸控裝置那條裡「看得見」與「可以按」必須成對出現', () => {

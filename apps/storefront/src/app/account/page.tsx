@@ -135,10 +135,15 @@ export default async function AccountPage() {
   // 🔴 客人看不到的商品(軟下架)**不會出現在這裡** —— adapter `products!inner` + RLS 的自然結果
   // (Sean 2026-08-18 逐字「甲 = 不顯示(清單直接少一項)」),本頁沒有也不該有過濾邏輯。
   let favorites: FavoriteListItem[] = [];
+  // 🔴 **讀取失敗不得與「沒有收藏」印同一個畫面**(`MAIN-035 ①-1`,標【必修】)。
+  //   這一格與同頁的 addresses / vehicles / orders **刻意不同形** —— 那三條退化成 `[]`
+  //   是既有慣例,而本片被明確要求分開。⇒ 若日後有人「統一風格」把它改回去,那是回歸。
+  let favoritesFailed = false;
   try {
     favorites = await (await getFavoritesRepo()).listByCustomer(user.id);
   } catch (favoriteError) {
-    console.error('[account/page] favorites 讀取失敗、退化空陣列:', favoriteError);
+    console.error('[account/page] favorites 讀取失敗:', favoriteError);
+    favoritesFailed = true;
   }
 
   // V-1c++(Sean 07-16 實測回饋二輪):車型欄改品牌/車型雙下拉(與首頁同 combobox 原型),
@@ -157,6 +162,7 @@ export default async function AccountPage() {
       vehicleBrands={vehicleBrands}
       orders={orders}
       favorites={favorites}
+      favoritesFailed={favoritesFailed}
     />
   );
 }

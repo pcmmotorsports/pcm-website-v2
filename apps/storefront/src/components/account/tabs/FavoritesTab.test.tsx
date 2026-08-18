@@ -79,6 +79,24 @@ describe('FavoritesTab(M-4b #191)', () => {
     expect(container.querySelector('.acc-fav img')).toBeNull();
   });
 
+  it('🔴 MAIN-035 ①-1:讀取失敗與「沒有收藏」必須是【兩個畫面】', () => {
+    const empty = render(<FavoritesTab favorites={[]} />).container.textContent;
+    cleanup();
+    const failed = render(<FavoritesTab favorites={[]} loadFailed />).container.textContent;
+    expect(empty).toContain('目前尚無收藏商品');
+    expect(failed).toContain('收藏清單讀取失敗');
+    expect(
+      failed,
+      '讀取失敗印成「沒有收藏」⇒ 客人會以為他的收藏不見了,而我們也看不出來是哪一種',
+    ).not.toContain('目前尚無收藏商品');
+    expect(empty).not.toContain('讀取失敗');
+  });
+
+  it('讀取失敗那格要讓讀螢幕軟體聽得到(role=alert)', () => {
+    const { container } = render(<FavoritesTab favorites={[]} loadFailed />);
+    expect(container.querySelector('.acc-empty[role="alert"]')).toBeTruthy();
+  });
+
   it('🔴 沒有價格就不渲價格列(不印「NT$ null」也不印「NT$ 0」)', () => {
     const { container } = render(<FavoritesTab favorites={[item({ priceGeneral: null })]} />);
     expect(container.querySelector('.acc-fav-price')).toBeNull();

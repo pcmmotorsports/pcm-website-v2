@@ -25,17 +25,29 @@ import Link from 'next/link';
 import type { FavoriteListItem } from '@pcm/domain';
 
 export type FavoritesTabProps = {
-  /** page.tsx getFavoritesRepo→listByCustomer 算好傳入;讀取失敗退化 [](走空狀態)。 */
+  /** page.tsx getFavoritesRepo→listByCustomer 算好傳入。 */
   favorites: FavoriteListItem[];
+  /**
+   * 🔴 **讀取失敗**(≠ 沒有收藏)。`MAIN-035 ①-1` 標【必修】:
+   * 兩者印同一個畫面的話,客人會以為**他的收藏不見了**,而我們也看不出來哪一種發生了。
+   * ⇒ 空清單說「還沒收藏」,讀不到說「讀不到」。
+   */
+  loadFailed?: boolean;
 };
 
-export function FavoritesTab({ favorites }: FavoritesTabProps) {
+export function FavoritesTab({ favorites, loadFailed }: FavoritesTabProps) {
   return (
     <div className="acc-section" data-tab="favorites">
       <div className="acc-section-head">
         <h2>收藏清單</h2>
       </div>
-      {favorites.length === 0 ? (
+      {loadFailed ? (
+        // 🔴 沿用 `.acc-empty` 的殼(版面一致),而**文案完全不同** —— 這一格不是「沒有」,是「不知道」。
+        <div className="acc-empty" role="alert">
+          收藏清單讀取失敗
+          <div className="acc-empty-sub">請重新整理頁面再試一次</div>
+        </div>
+      ) : favorites.length === 0 ? (
         <div className="acc-empty">
           目前尚無收藏商品
           <div className="acc-empty-sub">您的收藏會顯示在此</div>

@@ -39,9 +39,41 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export type FavoriteActionResult = { ok: true } | { error: string };
 
+/**
+ * 讀清單的結果。
+ * 🔴 **`[]` 與「讀不到」必須分得開**(`MAIN-035 ①-1`,標【必修】)——
+ *   退化成 `[]` 會讓「讀取失敗」與「沒有收藏」印**同一個畫面**,
+ *   而那正是本片自己在 plan 驗收裡折掉的那條病(「或 0 列」讓壞掉的世界與正常的世界印同一個「過」)
+ *   **在應用層重生**。
+ */
+export type FavoriteListResult = { handles: string[] } | { error: true };
+
 /** 未登入 / 查無商品的共用文案(不洩 Supabase 原始 error)。 */
 const ERR_AUTH = '請重新登入';
-const ERR_SAVE = '收藏沒有存成功,請再試一次';
+/**
+ * 🔴 **兩種失敗要分兩句**(`MAIN-036`,**Sean 本人拍板**,他逐字:
+ * 「A: 分兩句 —— 下架就說『這件商品已下架』,其他才說『請再試一次』」)。
+ *
+ * 送到他桌上的選項原文(引用這一板要連這段一起引):
+ * ```
+ * A: 分兩句 —— 下架就說「這件商品已下架」，其他才說「請再試一次」   ← 他選這個
+ * B: 統一改成「暫時無法收藏」，不解釋原因
+ * ```
+ * 🔴 **文案字面以 MAIN-036 為準,不要潤飾**成「此商品已停售」之類 —— 那是另一個字面。
+ *
+ * **兩種失敗在應用層分得開嗎?分得開,而且分界很乾淨:**
+ * ```
+ * resolveProductId() 回 null ＝ 客人的 RLS 看不到這件商品
+ *   ⇒ 對「從商品頁/商品卡按下愛心」這條路來說，那就是【它剛剛被下架了】
+ * 其餘（adapter throw / 網路 / session）⇒ 「請再試一次」
+ * ```
+ * ⚠️ **誠實的邊界**:`null` 嚴格說是「查不到」,不等於「下架」——
+ *   一個**根本不存在的 handle** 也會回 null。但那條路只有在有人手改網址時才走得到
+ *   (愛心的 handle 來自剛剛才渲染出來的商品),⇒ 對真實客人而言這兩者同一件事。
+ *   若日後愛心的 handle 來源變成客人可以自己輸入的東西,**這個假設要重新檢查**。
+ */
+const ERR_DELISTED = '這件商品已下架';
+const ERR_SAVE = '請再試一次';
 /**
  * 🔴 **換帳號中途才送到的那一發**(codex 對抗審查 R2 must-fix 2)。
  *
@@ -85,17 +117,20 @@ async function resolveProductId(handle: string): Promise<string | null> {
 
 /**
  * 列出自己收藏的商品 handle(給兩顆愛心的單一資料源用)。
- * 未登入 → `[]`(不是錯:沒登入本來就沒有收藏)。讀取失敗 → `[]` + console.error、不炸畫面。
+ *
+ * 未登入 → `{ handles: [] }`(**不是錯**:沒登入本來就沒有收藏,那是一個成立的空清單)。
+ * 🔴 讀取失敗 → `{ error: true }`,**不再退化成 `[]`**(`MAIN-035 ①-1`)——
+ *   兩者印同一個畫面的話,客人會以為自己的收藏不見了,而我們也看不出來哪一種發生了。
  */
-export async function listFavoriteHandlesAction(): Promise<string[]> {
+export async function listFavoriteHandlesAction(): Promise<FavoriteListResult> {
   const userId = await currentUserId();
-  if (!userId) return [];
+  if (!userId) return { handles: [] };
   try {
     const items = await (await getFavoritesRepo()).listByCustomer(userId);
-    return items.map((i) => i.product.handle);
+    return { handles: items.map((i) => i.product.handle) };
   } catch (e) {
-    console.error('[favorites/actions] 讀取收藏失敗、退化空陣列:', e);
-    return [];
+    console.error('[favorites/actions] 讀取收藏失敗:', e);
+    return { error: true };
   }
 }
 
@@ -112,7 +147,7 @@ export async function addFavoriteAction(
   if (!userId) return { error: ERR_AUTH };
   if (expectedUserId && expectedUserId !== userId) return { error: ERR_SWITCHED };
   const productId = await resolveProductId(handle);
-  if (!productId) return { error: ERR_SAVE };
+  if (!productId) return { error: ERR_DELISTED };
   try {
     await (await getFavoritesRepo()).add(userId, productId);
     return { ok: true };
@@ -131,7 +166,7 @@ export async function removeFavoriteAction(
   if (!userId) return { error: ERR_AUTH };
   if (expectedUserId && expectedUserId !== userId) return { error: ERR_SWITCHED };
   const productId = await resolveProductId(handle);
-  if (!productId) return { error: ERR_SAVE };
+  if (!productId) return { error: ERR_DELISTED };
   try {
     await (await getFavoritesRepo()).remove(userId, productId);
     return { ok: true };

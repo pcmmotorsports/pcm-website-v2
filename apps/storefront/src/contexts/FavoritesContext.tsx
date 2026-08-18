@@ -43,7 +43,14 @@ const actions = () => import('@/app/account/favorites/actions');
  * 原本把 `e.message` 直接印到畫面上 —— 那裡面可能是動態 import 失敗帶的 chunk 網址、
  * 模組路徑或執行期例外字串。**細節留 console、畫面只講人話。**
  */
-const FAILED_MESSAGE = '收藏沒有存成功,請再試一次';
+const FAILED_MESSAGE = '請再試一次';
+
+/**
+ * 🔴 讀清單失敗時的那一句(`MAIN-035 ①-1`,標【必修】)。
+ * **「讀不到」與「沒有收藏」必須是兩個畫面** —— 靜靜地當成空的,
+ * 客人會以為他的收藏不見了,而我們也看不出來哪一種發生了。
+ */
+const LOAD_FAILED_MESSAGE = '收藏狀態讀取失敗,重新整理再試一次';
 
 export type FavoritesContextValue = {
   /** 這件商品在不在收藏裡(未登入恆 false)。 */
@@ -149,24 +156,43 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     userIdRef.current = userId;
     handlesRef.current = new Set();
     confirmedRef.current = new Set();
-    desiredRef.current.clear();
-    runningRef.current.clear();
+    // 🔴🔴 **換【新物件】,不是 `.clear()`**(GR/Fable R3 must-fix,已用測試構造出來)。
+    //   `.clear()` 留下的是**同一個物件** ⇒ 上一個帳號那支還在路上的 worker,
+    //   收尾時 `finally` 動到的會是**新帳號正在用的那一份**:
+    //   ```
+    //   舊 worker 的 finally 刪掉新帳號的 desired['x']
+    //     ⇒ 新 worker 的 while 條件把 undefined 讀成「有落差」(undefined !== false)
+    //     ⇒ next = undefined ⇒ 走 remove ⇒ 而 confirmed 不會再變 ⇒ 【無限連發 remove】
+    //     ⇒ **新帳號真實的收藏被一直刪**
+    //   ```
+    //   換新物件之後,舊 worker 手上那份變成孤兒,它怎麼清都碰不到新的那份。
+    desiredRef.current = new Map();
+    runningRef.current = new Set();
     setHandles(new Set());
     setError(null);
     if (!userId) return;
     let active = true;
     actions()
       .then((m) => m.listFavoriteHandlesAction())
-      .then((list) => {
+      .then((res) => {
         // 🔴 載入期間客人已經動過(desired 有東西)、或人已經換了 ⇒ 丟掉這份,它已經過期。
         //   套下去會蓋掉他剛按的那顆 ⇒ 畫面說沒收藏、DB 說有(codex R1 must-fix 2)。
         if (!active || userIdRef.current !== userId || desiredRef.current.size > 0) return;
-        confirmedRef.current = new Set(list);
-        handlesRef.current = new Set(list);
-        setHandles(new Set(list));
+        // 🔴 讀不到 ⇒ **講出來**,不要靜靜地當成「沒有收藏」(`MAIN-035 ①-1`,標【必修】)。
+        //   愛心此刻全是空心的 —— 那是**未知**,不是「你沒收藏過」。
+        //   ⚠️ 這正是本片自己在 plan 驗收裡折掉的病(「或 0 列」讓壞掉的世界與正常的世界
+        //   印同一個「過」)**在應用層重生** —— 折過的病會換一層再出現一次。
+        if ('error' in res) {
+          setError(LOAD_FAILED_MESSAGE);
+          return;
+        }
+        confirmedRef.current = new Set(res.handles);
+        handlesRef.current = new Set(res.handles);
+        setHandles(new Set(res.handles));
       })
       .catch(() => {
-        // 讀不到就當作空的(愛心顯示為未收藏);使用者一按仍會走 server、不會寫壞資料。
+        // 動態 import / 網路層爆掉:同樣要講出來(理由同上)。
+        if (active && userIdRef.current === userId) setError(LOAD_FAILED_MESSAGE);
       });
     return () => {
       active = false;
@@ -183,9 +209,15 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
         return;
       }
       const owner = userId;
+      // 🔴 **把「這一代」的三個容器抓在手上**(GR R3):worker 是非同步的,
+      //   而它跑到一半時 `xxxRef.current` 可能已經被換成**下一個帳號的**那一份。
+      //   抓住當下這一份 ⇒ 換帳號之後這支 worker 只會動到自己的孤兒容器。
+      const desired = desiredRef.current;
+      const confirmed = confirmedRef.current;
+      const running = runningRef.current;
       // 🔴 讀 ref 不讀 state(見 `handlesRef`):同 tick 連按兩下才會真的一開一關。
       const want = !handlesRef.current.has(handle);
-      desiredRef.current.set(handle, want);
+      desired.set(handle, want);
 
       // 樂觀更新:先動畫面,ref 同步跟上。
       const optimistic = new Set(handlesRef.current);
@@ -198,39 +230,44 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       /** 把某一個商品的畫面拉回「server 確認過的樣子」(失敗時用;不是套差量)。 */
       const resyncFromConfirmed = () => {
         const fixed = new Set(handlesRef.current);
-        if (confirmedRef.current.has(handle)) fixed.add(handle);
+        if (confirmed.has(handle)) fixed.add(handle);
         else fixed.delete(handle);
         handlesRef.current = fixed;
         setHandles(fixed);
       };
 
       // 同一個商品同時只有一支 worker(codex R1 must-fix 3:add 與 remove 不得同時在路上)。
-      if (runningRef.current.has(handle)) return;
-      runningRef.current.add(handle);
+      if (running.has(handle)) return;
+      running.add(handle);
 
       void (async () => {
         try {
           const m = await actions();
           // 只要還有落差就繼續送;客人中途再按,改的是 desired,這個迴圈自然會追上去。
-          while (desiredRef.current.get(handle) !== confirmedRef.current.has(handle)) {
+          while (desired.get(handle) !== confirmed.has(handle)) {
             // 🔴 **送出【之前】就要問是不是同一個人**(codex R2 must-fix 2):
             //   排進佇列但還沒送出的操作,若在換帳號之後才送,
             //   server action 會照**當下的 session** 寫進去 ⇒ **寫到 B 的收藏裡**。
             if (userIdRef.current !== owner) return;
-            const next = desiredRef.current.get(handle)!;
+            const next = desired.get(handle);
+            // 🔴 **保險絲**(GR R3 的第二道):`undefined` 表示這一格已經被誰清掉了。
+            //   少了它,`undefined !== false` 會讓迴圈**永遠成立**,而 `next` 是 undefined
+            //   ⇒ 一路走 remove ⇒ 無限連發。上面換新物件已經解掉已知的那條路徑,
+            //   這一行擋的是**還沒被想到的那條**:迴圈的終止條件不該依賴「沒有人清它」。
+            if (next === undefined) return;
             const res = await (next ? m.addFavoriteAction : m.removeFavoriteAction)(handle, owner);
             // 回來時人已經換了 ⇒ 什麼都不做(codex R1 must-fix 4):
             // 否則 A 的失敗會把 A 的紅心退回到 B 的畫面上。
             if (userIdRef.current !== owner) return;
             if ('ok' in res) {
-              if (next) confirmedRef.current.add(handle);
-              else confirmedRef.current.delete(handle);
+              if (next) confirmed.add(handle);
+              else confirmed.delete(handle);
               continue;
             }
             // 失敗:畫面拉回 confirmed(不是套差量)+ 講出來 + 放棄這個 desired。
-            desiredRef.current.delete(handle);
+            desired.delete(handle);
             resyncFromConfirmed();
-            setError(FAILED_MESSAGE);
+            setError(res.error);
             return;
           }
         } catch {
@@ -238,13 +275,13 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
           // 🔴 **只顯示固定文案**(codex R1 must-fix 5):例外訊息裡可能帶 chunk 網址或模組路徑,
           //   那是講給工程師聽的,不該出現在客人畫面上。
           if (userIdRef.current !== owner) return;
-          desiredRef.current.delete(handle);
+          desired.delete(handle);
           resyncFromConfirmed();
           setError(FAILED_MESSAGE);
         } finally {
           // 🔴 收掉,不留(codex R2 must-fix 3:舊版的 Map 只增不減、每碰一個新商品就多一條)。
-          runningRef.current.delete(handle);
-          desiredRef.current.delete(handle);
+          running.delete(handle);
+          desired.delete(handle);
         }
       })();
     },

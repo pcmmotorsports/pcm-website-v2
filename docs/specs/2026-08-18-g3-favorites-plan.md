@@ -128,6 +128,10 @@ migration 尾端 `DO $$ … RAISE EXCEPTION … $$`,任一條不成立就**讓 a
 ```
 anon          全部權限型別零（由 acldefault 推導，PG 加第九種會自動入列）
 PUBLIC        同上
+              🔴 **migration 沒有【獨立】的 PUBLIC 檢查,靠 anon 那一列傳遞覆蓋**
+              (anon 繼承 PUBLIC ⇒ anon 全零就蘊含 PUBLIC 全零)。語義成立,
+              而**下一個拿這份清單當樣板的人會誤判「漏一列」** ⇒ 這句話是寫給他的。
+              (GR-008 nit 3;抄這份清單去別張表時,記得那張表的角色繼承關係要重新確認。)
 🔴 service_role 同上（GR must-fix 1 指出 plan 舊版清單漏列 —— 而 migration 一直有它，見下）
 authenticated 恰好 SELECT / INSERT / DELETE；其餘（含 TRUNCATE）全零
               🔴 外加【反向】:那三個必須真的有 —— 這一列就是正向對照
