@@ -4220,6 +4220,9 @@ order by n desc, 1;
 
 ### #147. ⏳ mock-categories.ts L2 內容真實分類來源
 
+> ⚠️ **2026-08-19 G6:本條被【七支 dev-preview 的註解】誤引** —— 那些註解要找的是 `#148`,不是本條。
+> 詳情與逐檔清單寫在 `#148` 的查核段。**本條的內容沒有問題,只是被指錯。**
+
 - **狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
@@ -4245,6 +4248,33 @@ order by n desc, 1;
 ---
 
 ### #148. ⏳ dev-preview/* 臨時驗證 route 部署前移除
+
+> ## 🔴🔴 2026-08-19 G6:**七支檔的註解全部引到【錯的號碼】,而正確的這一條零個指標**
+> ```
+> apps/storefront/src/app/dev-preview/ 底下引「backlog #147」的  = **7 行 / 7 支檔**
+>   filter-top/page.tsx / brands/page.tsx / brands/[slug]/page.tsx /
+>   brand-page/[slug]/page.tsx / _components/PreviewHarness.tsx /
+>   filter-side/page.tsx / filter-drawer/page.tsx
+> 而 `#147` 的題目是 **`mock-categories.ts` L2 內容真實分類來源** —— **與 dev-preview 無關**
+> 全 apps/storefront/src 引「backlog #148」(正確號)⇒ **0 行**
+> 負向對照:`#147` 在**對的地方**(`data/mock-categories.ts`)被引 ⇒ **1 行** ✅ 尺會動
+> ```
+> ⇒ 🔴 **後果不是「引用不精確」,是【跟著指標走的人會到錯的條目】** ——
+> 他打開 `#147` 看到「分類來源」,找不到任何 dev-preview 的字 ⇒ 他會判「這個註解過期了」而放掉它。
+> ⇒ **修法 = 那 7 支檔的註解把 `#147` 改成 `#148`(純註解、零行為)。**
+> ⚠️ **本窗只動 `.md`,那 7 支 `.tsx` 我沒碰** ⇒ 已回報主視窗轉派。
+> 📌 **而我自己就是被它騙的第一個人**:我 2026-08-19 稍早回報「已查 `#147`(dev-preview)」——
+> **那是照著 code 註解寫的,而 code 註解是錯的。** ⇒ 指標錯一次,下游每個人都錯一次。
+>
+> ## ✅ 附:本條的**曝險**那一半今天不成立(2026-08-19 G6 實查)
+> 條目說「不應上 production」,而 `#385` 已經把整個 `/dev-preview/*` 在正式站關成 **404**:
+> ```
+> apps/storefront/src/app/dev-preview/layout.tsx:1 逐字「#385:正式站把整個 `/dev-preview/*` 關成 404」
+> 同檔 :7-14  fail-closed 判準矩陣(Vercel production ⇒ 404;讀不到 env ⇒ **也 404**)
+> ```
+> ⇒ **「部署前移除」的觸發器已經扣下(站已上線),而擋住曝險的是【另一條】。**
+> ⇒ 本條剩下的是**清理**(路由還在 repo 裡),不是**風險**。
+> ⚠️ 而 `layout.tsx:33-37` 自己寫著它**擋不住**什麼:「`dev-preview/*/fixtures.ts` 的字面仍在 **git 與 JS bundle** 裡」。
 
 - **狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
