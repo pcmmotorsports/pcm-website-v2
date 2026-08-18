@@ -66,6 +66,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 要下「查無 / 不存在 / 零命中」這種斷言,而對象是【一個檔案路徑】 | 先跑 `bash scripts/where-is.sh <path>`(四處分開報:工作樹 / dev / 所有 ref(分支・remote-tracking・tag) / 信箱;**查無 rc=3 / 用法錯 rc=2 / 工具自壞 rc=1,三者分得開**)。🔴 **`git ls-files` / `test -e` 只看【當前 checkout】,不是整個 repo** —— 未收割分支上的檔在那裡是隱形的(2026-08-17 實錘:一份真實存在的資安報告差點被記成「不存在」;成因全文 `docs/lessons-learned.md` §12-43) |
 | 要寫或審任何 `.range()` · 翻頁迴圈 · 「撈全部」的迴圈 | `docs/patterns/pagination-loop-review.md`(🔴 **檔頭有證據等級聲明** —— 原文已隨 session 消失、本檔是轉錄版,引用前先讀那一段;五條準則:頁大小嚴格小於 `db-max-rows` / `.range()` 兩端皆含 / 中途失敗要 throw 不得 break / `count` 不當終止判準 / 排序帶唯一鍵) |
 | 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight,單一入口) |
+| 🔴 **客人來要求「查我的資料 / 刪掉我的資料 / 不要再寄信給我」** | `docs/runbooks/data-rights-sop.md` —— 🔴 **隱私政策 `legal-content.ts:199` 已經對客人承諾五種權利、行使方式=客服三管道,而那頁現在就在線上** ⇒ 這不是未來的工作,是已經答應了。含 PII 落點表(分母 58 表/view)、**「刪除」在三個地方不成立**(訂單快照 / 已寄出的信 / 同意證據)、回覆範本。⚠️ **三格待 Sean 拍板**(保存期限 / 硬刪 vs 匿名化 / 窗口是誰),而檔內寫的是「擋住哪一步」不是「待補」 |
 | 夜跑多窗指揮(哨兵/派工/批次收割/佇列預派/斷線復原) | `docs/runbooks/night-run-command-playbook.md`(2026-08-06 Sean 拍板常設) |
 | 開新施工窗/新 session 主視窗建置/工作流移植他專案 | `docs/runbooks/multi-window-command-workflow.md`(2026-08-09 Sean 拍板常設;§B 主視窗/§C 施工窗啟動提示詞) |
 | 要驗一支 migration 而手上沒有 DB access(施工窗常態)/ 要在本機起拋棄式 Postgres 或 PostgREST | `docs/runbooks/throwaway-postgres-for-migration-verification.md`(PCM 專屬 bootstrap 清單、`apply 成功 ≠ 斷言通過`、本機效度限制) |
