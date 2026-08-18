@@ -19338,11 +19338,24 @@ packages/adapters/src/supabase/mappers/order-cancellations.ts:88
 **本條不裁定用哪個** —— 但寫 plan 的人要先讀乙那一段,不要重新發明一次。
 ⚠️ 差別不只是形狀:乙**把「讀不到」變成型別上的必答題**,甲則是多一個消費端可以忽略的字串。
 
-常數複驗(2026-08-18 18:2x,開檔):
+常數複驗(2026-08-18 18:2x,開檔)—— 🔴 **值寫死、行號不寫死**:
 ```
-ORDER_ITEM_PROCUREMENT_EMBED_LIMIT = 50   order-procurement.ts:44
-ORDER_ITEMS_EMBED_LIMIT            = 200  order.ts:411   ← 🔴 不是 :417（那行是註解）
+/usr/bin/grep -n "EMBED_LIMIT = " packages/adapters/src/supabase/mappers/order.ts
+/usr/bin/grep -n "ORDER_ITEM_PROCUREMENT_EMBED_LIMIT" packages/adapters/src/supabase/mappers/order-procurement.ts
+⇒ ORDER_ITEM_PROCUREMENT_EMBED_LIMIT = 50 / ORDER_ITEMS_EMBED_LIMIT = 200
 ```
+### 🔴 這一格 18:3x 更正過一次,而更正的內容是【不要寫行號】
+
+我 18:2x 在這裡寫過「那個 200 在 `:411` 不是 `:417`,`:417` 是註解行」,並拿它去更正 G6。
+**兩邊都對,而我們讀的不是同一份檔**:
+```
+od-order-list（我的樹）  411:export const ORDER_ITEMS_EMBED_LIMIT = 200;   檔 922 行
+dev                       417:export const ORDER_ITEMS_EMBED_LIMIT = 200;   檔 928 行
+```
+⇒ **同一顆常數、同一個值,行號差 6,因為那兩棵樹的檔本來就差 6 行。**
+🔴 而這正是 `docs/patterns/guard-and-instrument-traps.md`「會離開 repo 的字面,一律不准寫行號」
+那條在多 worktree 下的版本:**行號在【一棵樹裡】是事實,一離開那棵樹就是猜測** ——
+而它讀起來跟事實一模一樣,還會讓收訊的人拿它去「更正」一個沒有錯的人(我就這樣做了一次)。
 ```
 
 ## 不修未來會痛在哪
