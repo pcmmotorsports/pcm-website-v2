@@ -490,7 +490,8 @@ apps/admin/src/lib/session/session.ts:125 逐字
 ① 有一支 runbook,寫著「懷疑後台被入侵時,照這幾步做」
 ② 演練一次:換掉 ADMIN_SESSION_SECRET ⇒ 一個【還沒過期】的舊 cookie 必須當場被拒
    未補齊 ⇒ 舊 cookie 仍進得去（或根本沒有人敢按）
-   已補齊 ⇒ 舊 cookie 回 302 /api/sso/start
+   已補齊 ⇒ 舊 cookie 回 **303** /api/sso/start
+🔴 **~~302~~ ⇒ 303**（2026-08-18 G4 開檔量:`apps/admin/src/proxy.ts:45` 逐字 `NextResponse.redirect(startUrl, 303)`)
 🔴 這一發要真的做,不能用「理論上 HMAC 換金鑰就會失效」代替。
 ```
 🔴🔴 **2026-08-18 追加,而它讓本條嚴重度往上跳一級 —— 鑑識視窗是【一小時】**:
@@ -511,6 +512,7 @@ Vercel 官方 Drains · Usage and pricing（last_updated 2026-07-22）逐字：
 📄 **① 已落檔**:`docs/runbooks/2026-08-18-admin-session-compromise.md`(W6,2026-08-18)。
 ⚠️ **但它自己的檔頭寫著「每一個步驟都還沒有被執行過」** —— 那份 runbook 是從 code 讀出來的推導,
 **②(演練)沒跑之前,本條【不算補齊】,只算「有文件了」。**
+📄 **演練前置清單已補**(2026-08-18 G4):該 runbook **§5.0** 七格 —— 含「先抓舊 cookie」「量具先在該綠的世界表演一次」與 🔴 **P5 的順序**(換 env 後先不 redeploy 量一次,否則 §6 那個未確認永遠問不出答案)。**演練本身仍未跑,本條仍未補齊。**
 🔴 **不要把「runbook 已存在」讀成這一格已打勾** —— 那正是報價單「全部重新登入」機制的形狀:
 文件寫得好好的,而 Edge Config 實查只有一筆 `hello world`,**功能從未被執行過**。
 

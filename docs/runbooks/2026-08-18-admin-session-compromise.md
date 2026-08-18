@@ -138,6 +138,53 @@ Vercel → pcm-admin → Logs，撈 evt":"sso.login"，整段【存下來】
 
 ---
 
+## 5.0 🔴 演練【前置清單】(2026-08-18 G4;§5 那一發不是說跑就跑)
+
+> 這一節在答一件事:**照 §5 按下去之前,哪些東西要先在手上,否則那一發不是白做就是把自己鎖在外面。**
+> 逐條都有「怎麼算數」,不是提醒句。
+
+```
+[ ] P1 現在做最便宜 —— 而這一格會過期
+    今天後台只有 Sean 一個人在用（memory project_admin-preprod-planning-posture:「後台未啟用、只有 Sean 測試」）
+    ⇒ 踢掉所有人的代價 ≈ 0。員工上工之後同一發的代價 = 全公司當下停擺 N 分鐘。
+    🔴 這是【現在做】的理由，不是【可以慢慢做】的理由。
+
+[ ] P2 逃生路徑：把【舊的 secret 值】先存下來
+    換完之後若登入整條壞掉，唯一便宜的回頭路就是把舊值換回去。
+    🔴 ADMIN_DEV_BYPASS 救不了你 —— apps/admin/src/proxy.ts:16-18 逐字：
+       「dev 本機須顯式設 ADMIN_DEV_BYPASS=1 才放行；prod(NODE_ENV=production)永遠擋、bypass 無效」
+    ⇒ 正式站被鎖在外面時，那條路不存在。
+
+[ ] P3 先抓一個【還沒到期】的舊 cookie —— 那是 §5 步驟③ 的唯一測資
+    瀏覽器 DevTools → Application → Cookies → 名字是 `__Host-pcm_admin_sess`
+    （量法：apps/admin/src/lib/session/session.ts:38，prod 用 __Host- 前綴、dev 才是 pcm_admin_sess_dev）
+    🔴 那個值就是一把 12 小時的後台鑰匙（session.ts:39 ADMIN_SESSION_MAX_AGE_SEC = 60*60*12）
+    ⇒ 不貼進任何對話、不寫進任何檔；演練換完 secret 之後它自然作廢。
+
+[ ] P4 量具先在【該綠的世界】表演一次
+    換 secret 【之前】就先跑下面這條，必須印 200；印別的 ⇒ 是量具或網址錯了，不是結論。
+      curl -s -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+        --cookie '__Host-pcm_admin_sess=<剛剛抓到的值>' '<後台網址>/'
+    🔴 沒有這一發，換完之後看到 303 你分不出是「secret 換掉生效了」還是「這條命令本來就打不開」。
+
+[ ] P5 順序：換 env 之後【先不要 redeploy】，先跑一次 P4 那條命令
+    仍 200 ⇒ 再 redeploy，然後再跑一次 ⇒ 答案是「需要 redeploy」
+    已 303 ⇒ 答案是「不需要 redeploy」
+    🔴 順序不能顛倒 —— 先按 redeploy，§6 那一格【就永遠問不出答案】，而它是本檔三個未確認之一。
+
+[ ] P6 計時：從「決定要踢」到「舊 cookie 被拒」實際幾分鐘，當場記下來寫回 §5
+    出事那天要知道這個數；事後回想的數字沒有用。
+
+[ ] P7 演練【不換】報價單那組共用密碼（§3 步驟 2）
+    那是另一個 repo、另一個人、另一個代價。演練只驗 secret 這一發。
+    🔴 真的出事時兩件都要做，順序是先 secret 再密碼（§3 步驟 2 已寫）。
+```
+
+⚠️ **本清單沒有涵蓋**:對外通報 / 個資法義務(§4 已標未查)、報價單側的操作步驟、DB 層 key 外洩。
+⚠️ **P5 量到的答案只對【當下那個 deployment】成立** —— Vercel 之後改行為不會通知我們。
+
+---
+
 ## 5. 🔴 演練(**這一節沒跑之前,本檔不算存在**)
 
 上線前要跑一次,而且**兩個世界要印不同的東西**:
@@ -147,7 +194,9 @@ Vercel → pcm-admin → Logs，撈 evt":"sso.login"，整段【存下來】
 ③ 拿①那個 cookie 再打一次後台
 
    沒生效 ⇒ 照樣進得去（或畫面正常）
-   生效   ⇒ 302 導向 /api/sso/start
+   生效   ⇒ **303** 導向 /api/sso/start
+🔴 **~~302~~ ⇒ 303 更正(2026-08-18 G4 當場開檔量)**:`apps/admin/src/proxy.ts:45`
+   逐字 `NextResponse.redirect(startUrl, 303)`。**照舊字面去對 302 的人會看到 303 而以為沒生效。**
 🔴 ③ 一定要用【舊 cookie】試。用新登入試 = 兩個世界印同一個東西（都進得去），零判別力。
 ```
 **順便會量到的兩件事**(這才是演練真正的價值,不是確認 code 對):
@@ -163,7 +212,7 @@ Vercel → pcm-admin → Logs，撈 evt":"sso.login"，整段【存下來】
 ```
 [x] Vercel Hobby runtime log 保留期        ⇒ 1 hour（官方文件 2026-08-18 親讀，見 §2-(b)）
     🔴 而 Hobby 也不能開 log drain ⇒ 延長視窗要 Sean 拍板（升 Pro／改寫進自家 DB）
-[ ] 改 Production env 要不要 redeploy      ← §3 步驟 1-c，演練順便會答掉
+[ ] 改 Production env 要不要 redeploy      ← §3 步驟 1-c；🔴 只有照 **§5.0 P5 的順序**（先不 redeploy 量一次）才問得出來
 [ ] 演練跑過一次，把實際耗時寫回 §5        ← 沒跑 = 本檔效度為零
 ```
 🔴 **打勾要附證據(命令 + 看到的輸出),不是把 `[ ]` 改成 `[x]`。**
