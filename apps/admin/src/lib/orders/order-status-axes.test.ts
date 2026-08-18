@@ -1,5 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
+import {
+  ORDER_GOODS_AXIS_VALUES,
+  toMoneyAmount,
+  type AdminOrderLine,
+  type AdminOrderSummary,
+} from '@pcm/domain';
 import {
   ORDER_STATUS_LABEL,
   ORDER_STATUS_REFUNDED_LABEL,
@@ -439,5 +446,56 @@ describe('#522 取消數量:軸與小字共用同一個分母', () => {
     // total = max(0, 6 − 3) = 3、done = instockQuantity = 0
     // ⚠️ 全形括號是原始碼裡的字面,不要改成半形。
     expect(goodsAxisProgressNote(L)).toBe('（本單 3 件中已到貨 0 件）');
+  });
+});
+
+// ── `#499`(2026-08-18 G2):**三份字面之間第一道守門**────────────────────────────
+//
+// 條目逐字:貨品軸同時存在於三個地方,**兩兩之間都沒有守門**
+//   ① TS 常數 `ORDER_GOODS_AXIS_VALUES`
+//   ② SQL `admin_order_list_v.goods_axis` 的 CASE
+//   ③ 本檔的 `goodsAxisOfLines()`
+// ①↔③ 已同源(型別);而 ②(SQL)那份**綁不住** —— 條目說「那道守門要連線才驗得到、進不了 CI」。
+//
+// 🔴 **那句話對【行為】成立,對【字面與判序】不成立。**
+//    migration 是 repo 裡的一個檔案 ⇒ **讀它的文字不需要任何連線**。
+//    本組守的就是那一半:**四個值一樣、而且優先順序一樣**。
+// ⚠️ **本組【不】驗每個 WHEN 裡面的條件**(那要真的跑 SQL)⇒ 判序倒過來會紅,
+//    而「條件寫錯但順序沒變」**抓不到** —— 那個缺口留著,寫在這裡免得被讀成「SQL 那份已經被綁住了」。
+describe('`#499` 貨品軸:SQL 與 TS/JS 的字面與判序要對得上', () => {
+  const MIGRATION = 'supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql';
+
+  /** migration 的 CASE 依序吐出的四個軸字面。 */
+  const sqlArms = (): string[] => {
+    const sql = readFileSync(join(__dirname, '../../../../..', MIGRATION), 'utf8');
+    const body = sql.slice(sql.indexOf('goods_axis'));
+    return [...body.matchAll(/THEN\s+'(none|ordered|instock|shipped)'/g)].map((m) => m[1]!);
+  };
+
+  /** 本檔實作依序 return 的四個軸字面(不含最後那個 fallback 'none')。 */
+  const jsArms = (): string[] => {
+    const src = readFileSync(join(__dirname, 'order-status-axes.ts'), 'utf8');
+    const fn = src.slice(src.indexOf('function goodsAxisOfLines'));
+    return [...fn.matchAll(/return '(none|ordered|instock|shipped)'/g)].map((m) => m[1]!);
+  };
+
+  it('🔴 四個值的集合完全一致(SQL 改一個字 ⇒ 這裡紅)', () => {
+    expect(new Set(sqlArms()), 'SQL 的四值與 domain 常數對不上').toEqual(
+      new Set(ORDER_GOODS_AXIS_VALUES),
+    );
+  });
+
+  it('🔴 判序一致:shipped → instock → ordered(倒過來 ⇒ 篩選結果與畫面膠囊會對不起來)', () => {
+    const order = (arms: string[]) => arms.filter((a) => a !== 'none');
+    expect(order(sqlArms()), 'SQL 的 CASE 判序').toEqual(['shipped', 'instock', 'ordered']);
+    expect(order(jsArms()), '本檔實作的判序').toEqual(['shipped', 'instock', 'ordered']);
+    expect(order(sqlArms()), '兩邊判序不一致 ⇒ 同一張單在列表與膠囊上會是兩個答案').toEqual(
+      order(jsArms()),
+    );
+  });
+
+  it('前提自斷言:兩邊都真的抓到東西(抓不到就變恆綠)', () => {
+    expect(sqlArms().length, '正則沒抓到 SQL 的 CASE ⇒ 上面兩格恆綠').toBeGreaterThanOrEqual(4);
+    expect(jsArms().length, '正則沒抓到本檔的 return ⇒ 上面那格恆綠').toBeGreaterThanOrEqual(4);
   });
 });
