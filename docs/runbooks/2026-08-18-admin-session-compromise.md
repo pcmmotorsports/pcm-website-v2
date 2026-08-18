@@ -42,11 +42,45 @@ apps/admin/src/lib/session/session.ts:8-9 逐字
 有   evt / outcome / request_id / source_app / reason / amr
 沒有 🔴 來源 IP、🔴 User-Agent、🔴 是哪個人（source_app 恆為 'quote' 字面，:26）
 ```
-⇒ **「什麼時候被進來的、從哪裡進來的」——這份 log 答不出來。**
-⚠️ **未確認、且是本檔最該先補的一格**:Vercel **Hobby 方案的 runtime log 保留多久**。
-方案別=Hobby(memory `reference_pcm-platform-plans-vercel-hobby-supabase-pro`)。
-**保留期短到某個程度,連上面那幾欄也會在你發現之前就消失。**
-⇒ **這一格要在上線前查,不要等出事那天才查。**
+⚠️ **精確一點(2026-08-18 10:18 CST 修,原句我寫得太寬)**:上面說的是**我們自己那行 JSON**。
+**Vercel 自己的 log row 另有 `Request User Agent` 與 `Region`**(官方 Log details 表列出的欄位;
+🔴 **兩者都不是來源 IP** —— 官方那張表沒有 IP 欄)。
+⇒ 準確講法:**UA 與 region 拿得到,「是哪個人」與「來源 IP」拿不到。**
+
+### 🔴🔴 而鑑識視窗是【一小時】—— 2026-08-18 官方文件當場查證,已不是未確認
+
+```
+Vercel 官方 Runtime Logs 文件 · Limits 節(last_updated 2026-08-03)
+  Hobby                              1 hour of logs      ← 🔴 我們是這個
+  Pro                                1 day of logs
+  Pro + Observability Plus           30 days of logs
+  Enterprise                         3 days of logs
+  Enterprise + Observability Plus    30 days of logs
+來源 https://vercel.com/docs/logs/runtime  (2026-08-18 10:1x CST 親讀)
+方案別=Hobby ⇒ memory reference_pcm-platform-plans-vercel-hobby-supabase-pro
+```
+🔴 **意思是:一小時內沒有人去看,那次入侵在我們這邊就【沒有發生過】。**
+沒有 log、沒有時間、沒有 UA、沒有 region —— 而 `#436` 讓稽核表的「誰做的」也不可信。
+
+🔴 **而「把 log 送到別的地方存」這條路在 Hobby 上【是關的】**:
+```
+Vercel 官方 Drains 文件 · Usage and pricing(last_updated 2026-07-22)逐字:
+  「Drains are available to all users on the Pro and Enterprise plans. …
+    If you are on the Hobby or Pro Trial plan, you'll need to upgrade to Pro
+    to access non-audit-log drains.」
+來源 https://vercel.com/docs/drains  (2026-08-18 10:1x CST 親讀)
+```
+⇒ **這一格不是「還沒做」,是「這個方案做不到」。**
+⇒ **要延長鑑識視窗,只有兩條路**:
+```
+甲  升 Pro（1 天;+Observability Plus 30 天）
+乙  不靠 Vercel log —— 把 sso.login 事件【寫進我們自己的 DB】
+    📎 security-log.ts:3-5 檔頭自己就寫著它是「S3b 正式接 admin_audit_log」之前的 stopgap
+    ⇒ 乙不是新設計，是那條線本來就規劃好的下一步
+```
+⚠️ **兩條都要錢或要工 ⇒ 這是 Sean 的決策題,不是施工窗自己能拍的。**
+🔴 **而它有時效**:上線之後才升 Pro,**升級前那段時間的 log 已經永久沒了**
+(官方那句「limits are applied immediately when upgrading」講的是**往後**,不是回溯)。
 
 ---
 
@@ -127,7 +161,8 @@ Vercel → pcm-admin → Logs，撈 evt":"sso.login"，整段【存下來】
 ## 6. 收尾:上線前要把本檔的三個未確認關掉
 
 ```
-[ ] Vercel Hobby runtime log 保留期        ← §2-(b)，查了才知道鑑識視窗有多長
+[x] Vercel Hobby runtime log 保留期        ⇒ 1 hour（官方文件 2026-08-18 親讀，見 §2-(b)）
+    🔴 而 Hobby 也不能開 log drain ⇒ 延長視窗要 Sean 拍板（升 Pro／改寫進自家 DB）
 [ ] 改 Production env 要不要 redeploy      ← §3 步驟 1-c，演練順便會答掉
 [ ] 演練跑過一次，把實際耗時寫回 §5        ← 沒跑 = 本檔效度為零
 ```

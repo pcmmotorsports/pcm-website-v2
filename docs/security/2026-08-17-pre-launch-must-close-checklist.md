@@ -444,6 +444,21 @@ apps/admin/src/lib/session/session.ts:125 逐字
    已補齊 ⇒ 舊 cookie 回 302 /api/sso/start
 🔴 這一發要真的做,不能用「理論上 HMAC 換金鑰就會失效」代替。
 ```
+🔴🔴 **2026-08-18 追加,而它讓本條嚴重度往上跳一級 —— 鑑識視窗是【一小時】**:
+```
+Vercel 官方 Runtime Logs · Limits（last_updated 2026-08-03；W6 2026-08-18 10:1x CST 親讀）
+  Hobby 1 hour of logs / Pro 1 day / Pro+Observability Plus 30 days
+  我們 = Hobby（memory reference_pcm-platform-plans-vercel-hobby-supabase-pro）
+Vercel 官方 Drains · Usage and pricing（last_updated 2026-07-22）逐字：
+  「Drains are available to all users on the Pro and Enterprise plans. …
+    If you are on the Hobby or Pro Trial plan, you'll need to upgrade to Pro」
+```
+⇒ **一小時內沒有人去看,那次入侵在我們這邊就沒有發生過** —— 沒 log、沒時間、沒 UA、沒 region;
+而 `#436`(見 ⑲)讓稽核表的「誰做的」也不可信 ⇒ **兩層鑑識同時是空的。**
+🔴 **而「把 log 送去別的地方存」在 Hobby 上是關的 ⇒ 這不是「還沒做」,是「這個方案做不到」。**
+⇒ **這是 Sean 的決策題(甲 升 Pro / 乙 把 `sso.login` 寫進自家 DB —— 乙正是 `security-log.ts:3-5`
+自陳的 S3b 下一步,不是新設計),而且有時效:升級不回溯,升 Pro 之前那段的 log 永久沒了。**
+
 📄 **① 已落檔**:`docs/runbooks/2026-08-18-admin-session-compromise.md`(W6,2026-08-18)。
 ⚠️ **但它自己的檔頭寫著「每一個步驟都還沒有被執行過」** —— 那份 runbook 是從 code 讀出來的推導,
 **②(演練)沒跑之前,本條【不算補齊】,只算「有文件了」。**
