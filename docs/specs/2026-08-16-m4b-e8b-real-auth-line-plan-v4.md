@@ -122,7 +122,7 @@ Sean 的第一反應不是選項,是反問(逐字):
 | `auth_state` 是 **`CHECK(id)` 鎖死的單列表**,`last_consumed_step` **全域單值** | 同檔 `:3281-3291` |
 | **零密碼雜湊函式庫** | `package.json` 對 `bcrypt\|argon2\|jose\|iron-session\|next-auth\|jsonwebtoken` 全零命中;唯一相關是 `otpauth ^9.5.1`(`:32`) |
 | session 簽章是**手刻** `crypto.subtle` HMAC | `lib/session.ts:7`(格式註解)、`:46`(subtle 呼叫) |
-| 🔴 **migration 紀律:`supabase db push` 明文禁用** | `docs/ops/MULTI_WINDOW_WORKFLOW.md:165` 逐字;唯一合法管道 = MCP `apply_migration`(`CLAUDE.md:37-39`) |
+| 🔴 **migration 紀律:`supabase db push` 明文禁用** | `docs/ops/MULTI_WINDOW_WORKFLOW.md:165` 逐字。⛔ ~~唯一合法管道 = MCP `apply_migration`~~ 🔴 **2026-08-18 實測:那個管道在這台機器上不存在** ——**禁令仍成立,而它指的替代路徑不成立** ⇒ 量法、正反對照與甲/乙兩條路**只寫在一處**:`docs/specs/2026-08-16-m4b-e8b-b1-spec.md` §5(**本表不重述,重述會長出第二個真相**) |
 
 ### 1.4 已經在的地基(不要重新發明)
 
@@ -233,8 +233,9 @@ admin 端  一個環境開關 ADMIN_REQUIRE_REAL_IDENTITY，預設關
 | 4 | A庫 `staff` 三列與 `admin_audit_log` 筆數**複查** | v3 引的「三列 / 27 筆」是 E8-A1 當時的數,**本輪未複查** | 對不上 ⇒ 身分鍵映射要重定 |
 
 ⚠️ **①與②只有能連到那兩個平台的人查得到。** 我(施工窗)沒有 `.env*` 存取權、
-**且報價單 repo 明文禁用 `supabase db push`** ⇒ **B1 起的每一支 migration 都要走 MCP `apply_migration`,
-而那需要 Sean 在場。這是排程上的硬約束,不是我拖。**
+**且報價單 repo 明文禁用 `supabase db push`** ⇒ **B1 起的每一支 migration 都要 Sean 在場。這是排程上的硬約束,不是我拖。**
+⛔ ~~都要走 MCP `apply_migration`~~ 🔴 **2026-08-18 實測那個管道不存在**(`…-b1-spec.md` §5,含量法與甲/乙兩條路)。
+⇒ **「要 Sean 在場」這個結論沒變,而【他到場要做什麼】變了** —— 從「陪跑 MCP」變成「先決定甲還是乙」。
 
 ---
 
