@@ -4730,6 +4730,29 @@ order by n desc, 1;
 
 ### #162. ⏳ brand 表 country 欄位(副標「原裝進口」原產國)— Phase 2 接 Supabase
 
+> ## 🔴 2026-08-19 G6:**狀態欄是對的(仍 Phase 2),而「不修會痛在」那段【今天已經不成立】**
+> 本條的**痛點**是「hardcoded『義大利』對非義大利品牌(Akrapovič 等)字面誤導」。
+> **那個 hardcode 已經被拿掉了,而且有守門測試釘著它不准回來。**
+> ```
+> ProductInfo.tsx:280(現行)  <div className="pd-sub">{product.subtitle || `適用 ${product.fits || '通用款'}`}</div>
+>                             ⇒ **顯 DB 真 subtitle,零寫死國名**
+> 同檔 :277-278 逐字:「副標顯 DB 真 subtitle…**拿掉寫死「義大利原裝進口」(RPM 非義大利、backlog #162 placeholder 退場)**」
+> lib/products.ts:190 同樣具名記載
+> 🔴 **而它有守門**:ProductInfo.test.tsx:87 與 :94 各一句
+>    `expect(screen.queryByText(/義大利原裝進口/)).toBeNull();`  ⇒ **回來就紅**
+> ```
+> **量法(條目自己指定的那一發)**:`grep -rn '義大利原裝進口' apps/storefront/src design-reference`
+> ```
+> storefront 側命中 5 行 ⇒ **全部是註解(2)與「不准出現」的斷言(2)與測試註解(1)**,**零個是渲染字面**
+> design-reference 側命中 5 行 ⇒ 設計稿原字面,**不在本條範圍**(storefront 對齊 design 的方向已由業務拍板反轉)
+> 負向對照:同尺對『原裝進口』(不限國名)⇒ **11 命中** ✅ 尺會動
+> ```
+> ⇒ 🔴 **要改的是「不修會痛在」那一段,不是狀態欄。**
+> **本條剩下的是【正解】(brand 表 country 欄位),而【止血】已經做完了。**
+> ⇒ 對排程的意義:**它從「有一個現在正在誤導客人的字面」降級成「一個 Phase 2 的資料模型欠缺」。**
+>
+> ⚠️ **未量**:沒開瀏覽器看真實商品頁;`product.subtitle` 在正式庫有多少筆是空的(空 ⇒ 走 fallback「適用 …」)我**沒查**。
+
 - **狀態:** ⏳ 待 trigger
 - **分流:** P2-later(Phase 1 hardcoded 對沖、Phase 2 啟動商品 schema 上 Supabase 時順手)
 - **優先級:** 🟡 低(顯示層美觀問題、不影響業務流程;但長期 drift 累積影響品牌資訊正確性)
