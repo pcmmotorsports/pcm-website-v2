@@ -1,0 +1,68 @@
+# 2badddfa-耗時分佈 — #618 ① 要的那個【可證偽的量】,08-17 缺到現在
+
+量的人:G1,2026-08-18 18:5x CST。
+量法(任何人可重跑,鑽機裡約 3 分鐘):
+```
+cd <拋棄式鑽機>
+npx vitest run --reporter=json --outputFile=<路徑>.json
+python3 讀 testResults[].assertionResults[].duration
+```
+🔴 **這一發是【綠】的**(同 `2badddfa-20260818T184327-16812-GREEN.txt` 那一顆 sha,但**是另一次執行**)。
+
+## 分佈
+```
+有耗時數字的格數  8776   （整份 numTotalTests 8779 ⇒ 3 格沒有 duration，未追查）
+中位              0.4 ms
+平均             16.5 ms
+最大           4039   ms
+
+  >= 1000 ms :  9 格  (0.103%)
+  >= 2000 ms :  2 格
+  >= 3000 ms :  1 格
+  >= 4000 ms :  1 格
+  >= 4500 ms :  0 格
+  >= 5000 ms :  0 格
+```
+
+🔴 **先自己拆一個恆真陷阱(不拆的話下面整段是騙人的)**:
+「>= 5000ms 有 0 格」在一發**綠**的執行裡**幾乎是恆真的** ——
+超過 5000ms 的格子會被判逾時、那一發就不是綠的了。**所以那一格沒有判別力。**
+✅ **有判別力的是它旁邊那格:`>= 4500ms 也是 0`** ⇒ **這一發連一格「差一點就撞」的都沒有。**
+
+## 🔴 最慢的 9 格,7 格是同一族
+```
+4039 ms  lint-staged → check-syntax-nonts 好 .yaml
+2095 ms  lint-staged → check-syntax-nonts 好 .sh
+1758 ms  #350c 守門 4:槽頁 UUID
+1684 ms  lint-staged → check-syntax-nonts 壞 .sql
+1538 ms  片 2 真元件 hydrate → 填表送出
+1257 ms  lint-staged → check-syntax-nonts 好 .sql
+1247 ms  lint-staged → check-syntax-nonts 壞 .sh
+1203 ms  lint-staged → check-syntax-nonts .md
+1070 ms  lint-staged → check-syntax-nonts 壞 .yaml
+```
+⇒ `#618` 2026-08-17 傍晚那條「**spawn 族:每一格都 spawn 一個 lint-staged 行程**」
+   **當時是讀碼推的,現在有分佈了** —— 它確實佔滿了慢端。
+
+## 🔴🔴 而這份分佈推翻了「門檻與那格做的事不相稱」這個框架
+`#618` 原本的方向是:**門檻(5000ms)對 spawn 族太緊** ⇒ 該不該分開設門檻。
+**但紅的那兩發,紅的都【不是】spawn 族**:
+```
+17:38 RED  ForgotPasswordPage · 倒數歸零        5310 ms  ← 逾時
+18:5x 本發 ForgotPasswordPage · 同一批格子        980 ms / 908 ms
+18:43 RED（第二發）MobileCatalogUxPreview        5060 ms  ← 逾時
+```
+⇒ **那些格子平常跑 ~1 秒,偶爾變成 >5 秒 —— 五倍以上。**
+⇒ 🔴 **它不是「平常 4900、偶爾超過 5000」的邊界問題。**
+   **調高門檻只會把「五倍爆炸」變成「十倍才會被抓到」,不會讓爆炸消失。**
+⇒ 🔴 **要問的問題換了**:不是「門檻夠不夠鬆」,是
+   **「什麼東西會讓一個 1 秒的格子變成 5 秒?」**
+
+## 下一步(給接手的人,而我沒有做)
+```
+① 這份是【綠】那一發的分佈。缺的是【紅】那一發的同一份分佈
+   —— 紅的時候是「所有格子普遍變慢」還是「只有那一格爆炸」？兩者指向完全不同的成因。
+   量法一樣，只是要在紅的那一發跑，而紅是隨機的 ⇒ 需要連續跑幾發並全部留 json
+② 那 3 格沒有 duration 的是什麼，我沒追
+```
+⚠️ **本檔只有一發的資料。** 不要拿它單獨去下「spawn 族是唯一慢端」這種跨執行的結論。
