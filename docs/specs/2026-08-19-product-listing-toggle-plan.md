@@ -149,6 +149,18 @@ before / after 建議 = {delisted_at, listing_set_by} 兩欄
 □ admin_audit_log 多一列,actor / action / target / before / after 都對得上
 □ EXECUTE 權限:anon / authenticated 打不到(照樣板的 REVOKE→GRANT)
 □ 四綠 TURBO_FORCE=1(動 .tsx ⇒ 含 build)
+
+□ 🔴🔴 **apply 之前必跑拋棄式 Postgres**(`docs/runbooks/throwaway-postgres-for-migration-verification.md`)
+   **這一發不是省掉,是移到正確的時點**(主視窗裁):先送審 ⇒ 簽章/權限面是審查最可能動的地方,
+   **先驗再被改一次等於驗了一個作廢的版本**。⇒ 審查定稿後、apply 之前跑。
+   🔴 而那份 runbook 自己的那句話原樣抄在這裡,不要因為語法閘綠了就跳過:
+   ```
+   **語法過 ≠ 斷言會過 ≠ 行為對**
+   ```
+   本片今天只跑到第一層:`npx tsx scripts/check-syntax-nonts.ts <該 migration>`
+   ⇒「檢查 1 檔、0 個不過」—— **那只證明它 parse 得動。**
+   要驗的三件:①前置閘在缺少依賴時真的 RAISE ②apply 期斷言在權限沒收好時真的 RAISE
+   ③NO_CHANGE / NOT_FOUND / UPDATED 三條路各走一次且**寫入筆數符合預期**(NO_CHANGE 要 0 列稽核)
 □ 🔴🔴 apply 後對正式站跑一次 **零寫入 smoke**(GR R1 MF-A;**原本的寫法會誘導人真按一次**)
    ```
    ❌ 舊寫法「那支函式解析得到、具名參數對得上」——
