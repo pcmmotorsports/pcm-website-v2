@@ -23,6 +23,13 @@
 #   ⇒ **不要只看前幾名** —— 所以預設輸出【全部候選、每對一行】,排序不承載判斷。
 #   ⇒ 也不要接成 hook / CI 閘(memory feedback_a-guard-on-a-safe-path-is-net-negative)。
 #
+#
+# 🔴 錨定紀律(2026-08-18,兩個窗同日各撞一次,是同一個坑的兩面):
+#    沒錨尾 ⇒ `^### #(\d{1,3})` 把 `#220b` / `#220c` 讀成 `#220`,報出假重複(W8)
+#    沒錨頭 ⇒ `#6[3-9][0-9]` 撈到 `#64738a`(十六進位色碼)、`supabase/auth#6603`(GitHub issue)(W7)
+#    ⇒ **backlog 號與色碼在字形上是同一個東西,差別只在前後那一個字元。**
+#    ⇒ 不管用哪個 pattern,**命中都要開檔看一眼再採信**。
+#
 # 用法: python3 scripts/backlog-duplicate-scan.py [top_n]   (預設全部)
 import collections
 import io
