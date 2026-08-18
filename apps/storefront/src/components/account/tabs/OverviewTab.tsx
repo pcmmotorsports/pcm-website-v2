@@ -27,6 +27,7 @@ import { ProductRail } from '@/components/ProductRail';
 import type { AccountStats } from '@/components/account/AccountView';
 import type { FeaturedResult } from '@/lib/products';
 import { formatOrderDate, orderStatusLabel } from '@/lib/orders/order-display';
+import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
 
 export type OverviewTabProps = {
   stats: AccountStats;
@@ -126,7 +127,7 @@ export function OverviewTab({
                        印 `?` 是「我們也不確定」,而它旁邊的 title 給得出下一步。 */}
                     {formatOrderDate(o.createdAt)} ·{' '}
                     {o.itemCountTruncated ? (
-                      <span title="這張訂單的品項太多,件數這次沒有完整載入。請重新整理,或聯絡我們。">? 件</span>
+                      <span title={ORDER_ITEM_COUNT_TRUNCATED_NOTE}>? 件</span>
                     ) : (
                       <>{o.itemCount} 件</>
                     )}
