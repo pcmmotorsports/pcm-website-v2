@@ -77,7 +77,10 @@ pq -d atpl -q -c "INSERT INTO public.staff (id,label,is_manager,is_active) VALUE
    ('test_01','測試帳號 01',true,true),('op4_backfill','補登用',false,false),('payment_confirmer','收款確認',false,false);" >/dev/null
 
 echo "── B1-a(A 庫:停用 test_01)──"
-case1 a_ctrl     atpl "" "$B1A" GREEN
+# 🔴 GREEN 那幾格也要有字串斷言(2026-08-18 MAIN 追問後補):
+#    「沒有 ERROR」在【檔案根本沒跑起來】的世界裡也成立 —— 綠也會綠錯原因。
+#    ⇒ 對照組改成要求看到那支檔自己印的成功 NOTICE。
+case1 a_ctrl     atpl "" "$B1A" GREEN "沒有第三種差異"
 case1 a_newhire  atpl "INSERT INTO public.staff (id,label,is_manager,is_active) VALUES ('staff_3','新員工 3',false,true)" "$B1A" GREEN "不擋"
 case1 a_swap     atpl "UPDATE public.staff SET is_active=false WHERE id='staff_1'; UPDATE public.staff SET is_active=true WHERE id='op4_backfill'" "$B1A" GREEN "不擋"
 case1 a_gone     atpl "DELETE FROM public.staff WHERE id='test_01'" "$B1A" RED "沒有 test_01"
@@ -100,11 +103,11 @@ pq -d qtpl -q -c "CREATE SCHEMA auth;
   CREATE TABLE public.recovery_codes (id bigserial PRIMARY KEY);" >/dev/null
 
 echo "── B1-b(報價單庫:建映射表)──"
-case1 b_ctrl qtpl "" "$B1B" GREEN
+case1 b_ctrl qtpl "" "$B1B" GREEN "新物件收權斷言通過"
 pq -d qtpl -q -f "$B1B" >/dev/null 2>&1 || { echo "[FAIL] qtpl 套 B1-b 失敗"; FAIL=$((FAIL+1)); }
 
 echo "── B1-c(報價單庫:塞人)──"
-case1 c_ctrl     qtpl "" "$B1C" GREEN
+case1 c_ctrl     qtpl "" "$B1C" GREEN "落地斷言通過"
 case1 c_email    qtpl "UPDATE auth.users SET email='x@example.com' WHERE id='63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f'" "$B1C" RED "email 不是預期的那個"
 case1 c_wl4      qtpl "ALTER TABLE public.admin_user_staff_map DROP CONSTRAINT admin_user_staff_map_staff_whitelist; ALTER TABLE public.admin_user_staff_map ADD CONSTRAINT admin_user_staff_map_staff_whitelist CHECK (staff_id IN ('sean','staff_1','staff_2','x9'))" "$B1C" RED "白名單裡的字面有 4 個"
 case1 c_anon     qtpl "GRANT SELECT ON TABLE public.admin_user_staff_map TO anon" "$B1C" RED "anon:SELECT"
