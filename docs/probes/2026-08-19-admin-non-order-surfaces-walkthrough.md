@@ -265,3 +265,90 @@ apps/admin/.env.local  含 ^AUDIT_UI_ENABLED= 的行數 = 0
 ```
 ⚠️ 特別是第 5 條:本檔說某一面「① 做得到」,依據是**它渲染得出來、按鈕沒有 disabled**,
 **不是**「我按下去而它成功了」。⇒ **不要把本檔的 ① 讀成「這一面驗過了」。**
+
+---
+
+# 🔴 補記(2026-08-19 02:0x CST,同一班 G3):第 5 條**已經不是「我沒按」了,是「按不了」**
+
+> 上面第 5 條原本是一句自我限定(「本輪一顆寫入按鈕都沒按」)。
+> **我後來去按了。** 而結果把那句限定的性質整個換掉 —— 它不是「還沒做」,是**在這個環境做不到**,
+> 而**理由是結構性的**。原句留著不刪,因為它記錄了當時我只知道到哪裡。
+
+## 實際按下去發生什麼(兩發,都在 `員工管理`)
+
+```
+發 1  02:07:44 CST  填 g3_probe /「G3 測試(可刪)」→ 按「新增員工」
+      ⇒ 轉導 /settings/staff?r=denied
+      ⇒ 畫面逐字:「沒有權限或登入狀態已失效,未儲存。」
+      ⇒ 列數 6 → 6(沒變);全文 /g3_probe/ ⇒ false
+      ⇒ **零寫入、fail-closed、沒有寫一半**
+
+發 2  排除「是不是因為沒選具名身分」:先到總覽把身分切成 TEST
+      ⇒ 那一發【成功】(頁面逐字變成「目前身分:TEST」)⇒ 所以不是「所有寫入都不通」
+      ⇒ 再按一次新增員工 ⇒ **仍然 ?r=denied**
+```
+
+## 為什麼(讀 code,不是從 denied 推的)
+
+```
+apps/admin/src/lib/session/authorize.ts:24-35  authorizeAdminMutation 三道閘:
+  ① const session = await verifySession(cookieStore.get(ADMIN_SESS_COOKIE)?.value);
+     if (!session) return null;
+  ② if (!isAllowedOrigin(headerStore.get('origin'), { devBypass: DEV_BYPASS })) return null;
+  ③ const actor = await getSessionActor(); if (!actor) return null;
+```
+🔴 **`DEV_BYPASS` 只餵給【②Origin】那一道,沒有餵給【①session】。**
+而 `apps/admin/src/lib/session/session.ts:146` 的 `verifySession` **全檔零 `ADMIN_DEV_BYPASS` 字面**
+(數法:``grep -c ADMIN_DEV_BYPASS apps/admin/src/lib/session/session.ts`` ⇒ 0),
+且它 `if (!token) return null`。
+⇒ **`ADMIN_DEV_BYPASS=1` 讓我【看得到頁】,而它從來沒有給我一個 session**
+⇒ **每一個寫入都必定被①擋下。**
+
+## 🔴 射程:這不只影響本檔這幾面
+
+```
+呼叫 authorizeAdminMutation 的檔(數法:`grep -rln authorizeAdminMutation apps/admin/src`):
+  orders 族:payment / payment-reverse / cancel / procurement / receipt / shipment /
+             refund / refund-recovery / amount / note
+  customers 族:tier / wallet / profile / keyword-search
+  staff-actions / supplier-actions
+⇒ 收款→採購→到貨→尾款→出貨→退款,**每一步都經過同一道閘**
+```
+⇒ **任何人在 `ADMIN_DEV_BYPASS=1` 的本機後台測寫入,都會在每一步撞到同一句 `denied`。**
+🔴 **而它與「功能沒做」在畫面上長得一樣** —— 這正是本檔三分類會踩的坑,**不要把 `denied` 讀成 ③。**
+
+## ⇒ 所以本檔那些「① 做得到」要怎麼讀
+
+```
+員工管理 / 供應商 / 客戶 那幾面標的「①」,在【這個環境】下正確的讀法是:
+  **渲染得到、按鈕不是 disabled,而寫入一律被拒(理由是缺 session,不是缺功能)**
+⇒ 它們是不是真的「做得到」,**要有一個真的登入態的人去按才知道**,本檔答不了。
+```
+
+## 我沒有做的事(兩條路都在,我兩條都不走)
+
+```
+甲-1 用線上後台按 ⇒ 需要 Sean 的 SSO 密碼
+     🔴 我沒有索取、沒有使用。他授權的是「測功能」,不是「取得他的憑證」——
+        **那條界線不因為授權而移動。**
+甲-2 在本機自簽一個 admin session cookie ⇒ 那是**偽造登入態**,還要碰 session 密鑰
+     🔴 不做,也不建議別人做。
+```
+
+## 一個佐證的限定(不要把它當決定性證據)
+
+```
+我另外量了瀏覽器 cookie 鍵名 ⇒ 只有一個 Supabase 的,沒有 admin session cookie
+⚠️ 而 document.cookie **看不到 httpOnly** ⇒ 這一發是佐證、不是決定性
+   決定性的是上面那段 code + 實際觀察到兩次 denied
+```
+
+## 這一班在後台留下的東西
+
+```
+零寫入成功。唯一成功的寫是「切換具名身分」(它不走 authorizeAdminMutation)
+⇒ 🔴 那顆身分現在停在 **TEST**(原本是「尚未選擇」)—— 我改了它。
+   它只影響稽核 log 記名,而**稽核那一頁現在看不到**(§8)⇒ 現階段無可見後果。
+   要切回「尚未選擇」隨時可以,在總覽頁那個下拉。
+```
+
