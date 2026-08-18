@@ -19565,6 +19565,37 @@ b  class 不得是 sr-only/hidden/…        ⇒ 突變「className 改 sr-only�
      ⇒ 標【未確認】，不要再拿我那個假說當線索。
 ```
 
+### G-5 🔴 把 A 的範圍限定補掉了 —— 整個 admin 掃完,**沒有新的一處**(2026-08-18 18:2x)
+
+A 段自標「只數了 `components/orders/*.tsx` 那一層,別拿本條當『後台一共 4 處』的來源」。現在數完了:
+
+```
+(跑的是 /usr/bin/grep —— 這台機器的 grep 是 shell function、會吃 .gitignore)
+cd apps/admin/src && /usr/bin/grep -rn "title=" --include="*.tsx" . | /usr/bin/grep -v "\.test\."
+⇒ 16 行 / 8 個檔（含 app/** 在內的整棵 admin，不只 components/orders）
+```
+新出現的三個檔,逐檔開檔判定 ⇒ **沒有一個是這條病**:
+```
+components/print/shipping-doc.tsx   :536 :547 :576 :584
+   ⇒ 那是 <Section> / <ItemCells> 的 **React prop 名叫 title**，不是 HTML title 屬性。
+   🔴 本檔 guard-and-instrument-traps「同一個值在不同層的字面」那條的活標本：
+      同一個字面 `title=` 在兩層是兩個東西，而 grep 分不出來。
+components/settings/staff-edit-row.tsx:38
+   ⇒ <span title={staff.id}>代碼不可修改</span>：**不是停用控件**，可見文字已經講了規則，
+     title 放的是員工代碼（額外資訊）。🔶 **nit**：觸控使用者拿不到那個代碼，而客服對話會用到它。
+     沒有列為 must-fix，也沒有動它。
+components/ui/sidebar.tsx:327
+   ⇒ shadcn sidebar rail，title 與 aria-label 成對、且**不是停用控件**。不是病。
+```
+⇒ **`#643 A` 的分母現在是整棵 admin 的 `.tsx`,而答案沒有變。**
+
+⚠️ 這一掃**沒有**主張什麼:
+```
+· 只掃 .tsx 的【字面 title=】 ⇒ 動態展開（{...props}）或別的層傳進去的 title，這把尺看不到
+· 沒有掃 packages/ui（那是共用元件庫，動它是鐵則 12 ⑥）
+· 「觸控裝置上 title 叫不出來」仍然是平台性質，本輪一樣沒有去證它
+```
+
 ### G-4b ② 的真瀏覽器量測(補上 G-2 標著未確認的那半)
 
 ```
