@@ -1,0 +1,31 @@
+# rule-ledger.tsv — 被校正過的規範,一條一列。跑 `sh scripts/rule-audit.sh` 稽核。
+#
+# 🔴 這張表要治的病(Sean 2026-08-18 逐字:「我要可以自動迭代的優化方式」):
+#   規則寫進去了,而【沒有人回頭看它還在不在】。
+#   · 有人校正一條規範 ⇒ 多一列 ⇒ 表自己長大
+#   · 每次稽核 ⇒ 把【所有過去的規則】重驗一次 ⇒ 舊規則死掉會被抓到
+#   📎 病例:一份 memory 在寫下的【當天】就過期(#484a),而它讓一整條已完成的線
+#      被當成「還卡著 Sean」—— **零機械訊號**。
+#
+# 🔴 pattern 欄是這張表的靈魂:它要能機械回答「這條規則現在還活著嗎」。
+#   **填不出 pattern 的那一列 = 一條還沒真的落地的規則** —— 那本身就是發現。
+#
+# 🔴 射程(不要放大):它驗的是【那段字面還在那個檔裡】,
+#   **不驗任何人有沒有照做**。規則被刪掉/被改寫會紅;規則還在而全隊都無視,它是綠的。
+#
+# 欄:id / 規則一句話 / 落點檔 / pattern(grep -F 固定字串) / expect(>=1 或 ==0) / 立法日 / 病例來源
+id	rule	file	pattern	expect	since	source
+R001	要發 backlog 號跑 claim-backlog-number.sh(舊那兩道看不到別人正在寫的號)	docs/runbooks/multi-window-command-workflow.md	claim-backlog-number.sh	>=1	2026-08-18	G2 與 G5 同時拿到 #644,merge 才發現
+R002	開瀏覽器驗東西用 localhost 不用 127.0.0.1(127 讓 client JS 靜靜不見)	docs/runbooks/multi-window-command-workflow.md	不要 `http://127.0.0.1	>=1	2026-08-18	W2 卡一整輪購物車;G2 繞六輪
+R003	要推的時候推【指定 sha】,不是推 tip	docs/runbooks/multi-window-command-workflow.md	要推的時候推【指定 sha】	>=1	2026-08-18	主視窗發凍結令,Sean 一問就撤回
+R004	檔頭與信頭的時戳用 date 實跑值,不寫近似值	docs/runbooks/multi-window-command-workflow.md	一律用 `date` 的實跑值	>=1	2026-08-18	GR 抓到主視窗三封信時戳互相矛盾
+R005	發過急件的人負責發【解除】	docs/runbooks/multi-window-command-workflow.md	負責發【解除】	>=1	2026-08-18	急件前提 6 分鐘後消失而沒有人解除
+R006	commit 帶 pathspec;而新檔要先逐一 git add(pathspec 對 untracked 無效)	docs/runbooks/multi-window-command-workflow.md	新檔要先逐一	>=1	2026-08-18	G1 撞到 did not match any file known to git
+R007	git add 之前先 git diff --stat 看那個數字是不是只有我改的量	docs/runbooks/multi-window-command-workflow.md	之前先 `git diff --stat	>=1	2026-08-18	同日三例歸屬錯亂(內容沒掉)
+R008	前置檢查與被保護動作之間有別人可以動手的空隙 ⇒ 那是儀式不是機制	docs/patterns/guard-and-instrument-traps.md	我自己發明的前置檢查	>=1	2026-08-18	G1 的 merge 交集檢查,一分鐘內失效兩次
+R009	push-and-announce 的 deploy_status 已對真 vercel CLI 實測(不再整支標零實測)	scripts/push-and-announce.sh	這一半【已經對真的 vercel CLI 實測過】	>=1	2026-08-18	該標籤蓋住兩件事而其中一件已經變了
+R010	push-and-announce 推的是被綠涵蓋的那顆,不是 tip	scripts/push-and-announce.sh	推【被驗過的那一顆】,不是推 tip	>=1	2026-08-18	同 R003,寫在推的人當下會讀的那支檔
+R011	push-and-announce 的 --selftest 有六個世界(含零 migration 不印假警報)	scripts/push-and-announce.sh	六個世界都對	>=1	2026-08-18	主視窗抓到信裡一句無條件印的警告
+R012	四綠腳本把 TURBO_FORCE=1 寫死(不然 turbo 會 replay 舊的綠)	scripts/dev-four-greens.sh	TURBO_FORCE=1	>=1	2026-08-17	#524:真跑與 replay 的 Cached 行完全相同
+R013	guard-traps 不得殘留 merge 衝突標記	docs/patterns/guard-and-instrument-traps.md	<<<<<<< HEAD	==0	2026-08-18	G1 與 G2 同日在該檔結尾各 append 一條而撞車
+R014	共用主樹上 git add 與 git commit 之間不該有任何一步	docs/runbooks/multi-window-command-workflow.md	之間不該有任何一步	>=1	2026-08-18	G6 的 add 生效而 commit 被 merge 擋下,東西躺進別人索引
