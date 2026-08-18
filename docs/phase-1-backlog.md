@@ -19707,3 +19707,51 @@ B  把「請重新整理這張單」換掉。⚠️ 但要**先確認那半句�
 - **📎 同族:** `#628`(brands/categories 的 REVOKE 未涵蓋 `MAINTAIN`)—— **同一種病、不同權限、不同表**;
   兩條都是「REVOKE 的清單比實際會被授予的窄」。
 - **狀態:** 未開工、無人認領。**② 比 ① 急**:①是一張可重建的表,②決定下一張表會不會重演。
+
+### #645 · 真登入上線之後,**舊的「共用密碼 cookie」那條路還活著** —— 而七片裡沒有一片負責拆它
+
+- **發現者:** G5 2026-08-18T16:1x,報價單 pull 到最新之後**在最新樹上實地盤點**時撈到(主視窗指定盤點)。
+- **⚠️ 立案範圍限定(不要重複立案)**:**「不發」那一半已經折進 `B2` spec**
+  (`fbd5320e`:§3.3-b + 驗收第 12/13 格)。**本條只立「開關永久開之後把它整支拆掉」那一片。**
+- **事實(可重跑,2026-08-18 量於報價單 `HEAD = 1149e05`)**
+  ```
+  lib/auth.ts:4        export const ADMIN_COOKIE = 'pcm_admin';
+  lib/auth.ts:6        adminToken(password)          ← 舊 cookie 的值 = 由 ADMIN_PASSWORD 現算
+  login/route.ts:65    maxAge: 60 * 60 * 24 * 30     ← 這顆 cookie 活 30 天
+  lib/auth-server.ts:41-47  hasValidLegacy()  註解逐字「過渡雙讀」
+  lib/auth-server.ts:50-67  requireAdmin():沒有新 cookie（或驗不了）⇒ 【接受 legacy】
+  ⇒ 這顆 cookie 上面沒有 amr、沒有身分。
+  ```
+- **🔴 今天沒有天然緩解**
+  ```
+  auth-server.ts:66 逐字：require_2fa 開著時一律拒 legacy
+  ⇒ 而 require_2fa 現在是 false（母 plan §1.3 十列複量，2026-08-18 G5 於最新樹複量）
+  ⇒ 那道窄化【今天不生效】，不能當成緩解寫進任何文件。
+  ```
+- **🔴 不修未來會痛在哪**
+  ```
+  真登入(E8-B)整條線的目的是「知道是誰做的」。
+  而只要這條雙讀還在：任何人拿著一顆【30 天內簽出的、無身分的】cookie
+  就能通過 requireAdmin ⇒ 新的身分驗證被整條繞過，而【畫面上完全正常】。
+  ⇒ 它不是「還沒做的功能」，是【做完之後仍然開著的後門】。
+  ```
+- **為什麼七片都沒有涵蓋它**
+  ```
+  B2 的職責是「登入認人」⇒ 它只到「不再【發】legacy」+「開關開之後不【收】」
+  B6 的職責是「admin 收尾」⇒ 它對 actor-actions.ts 有【一模一樣】的處置：開關控、不刪檔
+  ⇒ 兩片都刻意保留舊路當 rollback ⇒ 而「rollback 不需要了之後誰來拆」沒有任何一片負責
+  🔴 同一個形狀有兩個實例（legacy 雙讀 / actor-actions.ts）⇒ 這不是個案，是【缺一片】。
+  ```
+- **建議做法(一片,B7 之後)**
+  ```
+  ① 報價單側：拆 hasValidLegacy() 與 requireAdmin() 裡那條分支；ADMIN_COOKIE 的簽發端一併移除
+  ② admin 側：下架 lib/session/actor-actions.ts 整支 + app/page.tsx 的選身分表單
+  ③ 兩側各留一格「舊 cookie 打進來 ⇒ 擋」的測試（拆完之後那格才是恆真的，拆之前它會紅）
+  ⚠️ 動 auth ⇒ 鐵則 12②，要 plan + 對抗審查，不是順手清理
+  🔴 前置：ADMIN_REQUIRE_REAL_IDENTITY（或報價單對應物）已經【永久開】且確認不會關回去
+     —— 拆早了 = 把 rollback 一起拆掉
+  ```
+- **狀態:** 未排程。**主視窗 2026-08-18 裁定立案(逐字「legacy 那個孤兒 ⇒ 立案,你發號」),G5 發 `#645`。**
+  號碼來源:`scripts/next-backlog-number.sh` ⇒ 下一個可用 `#645`(三層最大號皆 644);
+  信箱佔位掃描 ⇒ `#600/#617/#620/#629/#631/#636/#637`,**不含 645**;
+  別名檢查 `backlog-duplicate-scan.py --search legacy 雙讀 pcm_admin 下架` ⇒ **無同題命中**(命中的 4 條都是別的主題)。
