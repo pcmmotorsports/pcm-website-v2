@@ -19225,6 +19225,20 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
   🔴 **23 處 code 引用而 backlog 零提及** —— 見 `#638` 同族的代號對帳問題)。
 ### #639 · 會員中心「? 件」的說明掛在 `title` 上 —— **手機客人一段都看不到**
 
+- 🔴 **狀態(2026-08-18 15:1x,G2):方案已出,【等 Sean 拍板】。動手前不要自己挑一案。**
+  ```
+  決策題與事實  ~/pcm-mailbox/G2-003-639決策題-給Sean-20260818.md
+  並排三案       https://claude.ai/code/artifact/a15cced4-de75-4680-b3f8-6afd696d9832
+  甲 整段印出來 / 乙 一句話 + 點開看全文 / 丙 只留一句不給全文
+  ```
+  ⚠️ **兩件跟著這個狀態走的限定**:
+  · artifact 上「約 3.4 倍 / 1.3 倍」是**在那張比較頁上量的,不是顧客站上量的** ⇒ 近似值。
+  · **拍完之後,選中那一案要在真顧客站上重量一次再收工** —— 現在沒有任何一案被真的做出來量過。
+  🔴 **同日順帶查到的一件**:觸發門檻 `ORDER_ITEMS_EMBED_LIMIT = 200`
+  (`packages/adapters/src/supabase/mappers/order.ts:411`),而 Sean 08-17 逐字說過
+  **一張單品項可能到 200**(memory `project_0817-order-line-item-ceiling-is-200`)
+  ⇒ **這不是理論風險,是生意的正常上緣。**
+
 - **提出:** W4,2026-08-18(`#636` 落地時由 code-reviewer 在同一輪抓到,不是後來想到的)。
 - **在哪:** `apps/storefront/src/components/account/tabs/OverviewTab.tsx`(最近訂單)
   與 `OrdersTab.tsx`(訂單記錄),兩處都是 `<span title={ORDER_ITEM_COUNT_TRUNCATED_NOTE}>`。
