@@ -19606,3 +19606,53 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
     另 `grep -rn '#642' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**
   - 別名掃描 `python3 scripts/backlog-duplicate-scan.py --search hover 觸控 手機 隱形`
     ⇒ 命中 `#459 #473 #496 #519 #540 #463 #464 #465`,**逐條看過皆為後台或無關**,無重複
+
+### #644 · `product_image_trim` 的 `service_role` 帶著沒人宣告的 `TRUNCATE` —— 而 G5 那道新守門只擋另外一半
+
+- **發現者:** G4 2026-08-18,修心跳表 apply 失敗時**順著同一條線量出來的**(主視窗指定要判「這是不是共同形狀」)。
+- **來歷:** `20260817070000` 心跳表在正式庫 apply 失敗,錯誤逐字
+  `HB:service_role 不該有 TRUNCATE —— 心跳表從不刪列,給了只是擴大面`
+  ⇒ 根因=**新表出生時 `service_role` 自帶預設授權 `Dxtm`**,而 `E683-1` 的射程**刻意不含 `service_role`**。
+- **事實(可重跑,2026-08-18 量於 dev)**
+  ```
+  量法：逐檔解析（去掉整行註解 → 依 ';' 切句 → 只看「REVOKE 且句中含 public.<該檔建的表>」）
+  分母：含 CREATE TABLE public. 的 (檔,表) 組合 = 33
+  🔴 該表的 REVOKE 沒有含 service_role 的 = 2
+     20260817070000_m4b_231_3_sweeper_heartbeat.sql | sweeper_heartbeat  ← 已修（本次）
+     20260719150000_catalog_product_image_trim.sql  | product_image_trim ← 🔴 已在正式庫上
+  對照（同檔 :67-69）：
+     REVOKE ALL ON public.product_image_trim FROM PUBLIC, anon, authenticated;   ← 沒有 service_role
+     GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_image_trim TO service_role;
+  ⚠️ 我第一版的尺【數錯】:單行 pattern 把多行 REVOKE（FROM 在下一行）誤判成「沒收」⇒ 4 個假陽性；
+     改成攤平後又變成「0 個」（尺太寬,吃到別的物件的 REVOKE）⇒ 最後才用逐句解析。
+     🔴 三把尺三個答案（4 / 0 / 2）,而只有第三把在數我要數的東西。
+  ```
+- **嚴重度:低,但不是零**
+  ```
+  它已經有 DELETE ⇒ TRUNCATE 多給的是「一次清空」與「不受 RLS 管」那一面
+  ⇒ 不是資料外洩，是【被拿到 service_role 金鑰時，破壞面比宣告的大】
+  ⇒ 而那張表是 catalog 的裁切資料（可重建）⇒ 業務衝擊小
+  ```
+- **🔴 為什麼要立案(不修未來會痛在哪)**
+  ```
+  G5 2026-08-18 新增的靜態守門是「建表 migration 沒有對應 GRANT 就紅」
+  ⇒ 它擋的是【忘了給】，而這一條是【給了但沒先收乾淨】—— 同一面牆的另一半
+  ⇒ 不補的話：下一支建表 migration 只要 GRANT 寫得漂亮就會過關，
+    而它的表仍然帶著出生自帶的 Dxtm，且【沒有任何東西會紅】（本次是靠那支 migration
+    自己寫了斷言才被擋下來，而斷言不是每支都有）
+  ```
+- **建議做法(兩件,第二件更重要)**
+  ```
+  ① 修 product_image_trim：一支新 migration 補
+     REVOKE ALL ON public.product_image_trim FROM service_role;
+     再重下它原本要的 GRANT SELECT, INSERT, UPDATE, DELETE
+     ⚠️ 動既有表的授權 ⇒ 鐵則 12②③ ⇒ 要 plan + 拍板，不是順手改
+  ② 把守門補成另一半：建表 migration 若對某角色有 GRANT，就必須有一句
+     針對同一張表、同一角色（或 REVOKE ALL … FROM 該角色）的 REVOKE
+     ⇒ 掛進 scripts/migration-static-checks.sh（G5 那支的同一個位置）
+     🔴 而它要先在【今天的 33 個組合】上跑一次：預期恰好紅 2 個（本條 + 已修的心跳表）
+        —— 紅別的數字就是尺又量錯了東西
+  ```
+- **📎 同族:** `#628`(brands/categories 的 REVOKE 未涵蓋 `MAINTAIN`)—— **同一種病、不同權限、不同表**;
+  兩條都是「REVOKE 的清單比實際會被授予的窄」。
+- **狀態:** 未開工、無人認領。**② 比 ① 急**:①是一張可重建的表,②決定下一張表會不會重演。

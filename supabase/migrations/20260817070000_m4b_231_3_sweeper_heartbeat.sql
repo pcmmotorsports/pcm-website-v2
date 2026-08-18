@@ -5,6 +5,16 @@
 -- 規格來源(自足、逐字):`~/pcm-mailbox/E-701-B窗兩份可施工規格-心跳表甲prime與E683-1-20260817.md` §②
 -- 🔴 **寫/驗分離**:B 窗寫、**E 窗驗**。本檔作者不驗自己的產出。
 --
+-- 🔴🔴 **2026-08-18 正式庫 apply 失敗一次,已修(G4)**
+--   錯誤逐字:`ERROR: HB:service_role 不該有 TRUNCATE —— 心跳表從不刪列,給了只是擴大面 (SQLSTATE P0001)`
+--   ⇒ 那是**本檔自己的斷言④**擋下本檔的寫入。**零半套狀態**(單一交易 + 斷言在交易內 ⇒ 整個退回)。
+--   根因:`:77-79` 只 REVOKE 了 `PUBLIC / anon / authenticated`,而**新表出生時 `service_role`
+--   自帶預設授權 `Dxtm`**;`E683-1` 的射程**刻意不含 `service_role`** ⇒ 本檔在 E683 前後 apply 都會撞。
+--   修法:`:80` 起補一行 `REVOKE ALL … FROM service_role;`,再由 `:110` 的 GRANT 窄放 SELECT/INSERT/UPDATE。
+--   📌 **下一支建新表的 migration 會撞同一件事** —— 全樹量過:33 個(檔,表)組合裡,
+--      **該表的 REVOKE 沒有含 `service_role` 的只有 2 個**(本檔 + `product_image_trim`)⇒ 不是共同形狀,
+--      但**另一個已經在正式庫上了**(見 backlog)。
+--
 -- 🔴🔴 **本檔對 E 窗規格有三處【刻意偏離】,理由都是 repo 自己的守門要求(不是我改主意)**:
 --   ① 規格寫 `CREATE TABLE IF NOT EXISTS` ⇒ **改成裸 `CREATE TABLE`**。
 --      `scripts/migration-static-checks.sh` ① 明文禁 `IF NOT EXISTS`,理由逐字:
@@ -77,6 +87,11 @@ COMMENT ON TABLE public.sweeper_heartbeat IS
 REVOKE ALL ON public.sweeper_heartbeat FROM PUBLIC;
 REVOKE ALL ON public.sweeper_heartbeat FROM anon;
 REVOKE ALL ON public.sweeper_heartbeat FROM authenticated;
+-- 🔴 2026-08-18 G4 補這一行 —— 少了它,本檔【自己的斷言④】會擋下自己(正式庫實際發生過,見檔頭)。
+--    新表出生時 `service_role` 自帶預設授權 `Dxtm`(含 DELETE / TRUNCATE),
+--    而 `E683-1`(20260817060000)的射程**只收 anon 與 authenticated**、**刻意不含 service_role**
+--    ⇒ 這張表在 E683 之前或之後 apply 都一樣會撞。收乾淨之後再由下面的 GRANT 窄放。
+REVOKE ALL ON public.sweeper_heartbeat FROM service_role;
 
 -- 縱深防禦:開 RLS 且**不建任何 policy**。
 -- ⚠️ **「`service_role` 走 BYPASSRLS 所以不受影響」是【引用來的前提,本輪未驗】**
