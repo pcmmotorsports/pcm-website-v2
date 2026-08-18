@@ -336,3 +336,197 @@ grep -vE '^#|^$' supabase/APPLIED.tsv | awk -F'\t' '$3 ~ /^2026-/ && $1 > 202608
 · 沙盒證明的是「我們送出去的東西對不對」,不證明「真的發卡行會怎麼回」
 · 持卡人 email ≤40 字元硬限制 ⇒ 失敗可能跟 3DS 無關,是踩到這條
 ```
+
+---
+
+# 交接:這條線的結論(2026-08-19 00:2x CST 落檔,G3)
+
+> **這一節的存在理由**:接手的人**不用重跑上面那五輪**。
+> 上面是過程與證據,這一節是**結論 + 它的限定 + 還沒答的那題**。
+> 🔴 **本機刷卡這條路已由主視窗裁定收掉** —— 不要再從第一輪重來一次。
+
+## ① 本機刷不過的完整因果鏈(每步附行號,可逐步複查)
+
+```
+畫面上那句                                      「付款失敗,請稍後再試或聯繫客服 LINE」
+  └─ 它是 MSG.generic                            apps/storefront/src/app/checkout/charge-actions.ts:84
+     ⚠️ 判別點:init_failed 那條岔路會顯示【另一句】
+        MSG.chargeFailedWait「付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試」  同檔 :86
+        映射在 同檔 :518-520 ⇒ 兩句不同 ⇒ **不是 init_failed**
+  └─ 所以走的是外層 generic catch                同檔 :339-356
+     ⇒ 有東西 **throw** 了(不是回傳失敗態)
+        🔴 而那個 err **刻意不透傳**(同檔 :355 逐字「Q2=A 通用字面、零原始 error 透傳」)
+        ⇒ **看不到錯誤內容不是缺陷,是設計** —— 不要花時間找 log,它不存在
+
+在 throw 之前【已經成功】的步驟(每步都有獨立證據,不是推的):
+  placeOrder   ✅ 訂單真的建出來(WCYCW5 / Z6QDV9,後台看得到)
+  findTotal    ✅ 後台訂單詳情逐字「總計 NT$ 1,500」⇒ orders.total 非 null
+  3DS 設定     ✅ resolveThreeDSConfig 不合會在 placeOrder【之前】throw
+                  (charge-actions.ts:208-210 + apps/storefront/src/lib/payment/three-ds-urls.ts:74)
+                  ⇒ 單建得出來 = 它過了
+  cardholder   ✅ 被擋會印 console.error '[checkout] cardholder blocked'(charge-actions.ts:204)⇒ 沒印
+  前端 SDK     ✅ getPrime 200 / status 0 / lastfour 4563(瀏覽器 Network 實抓)
+
+在 throw 之後【沒有發生】的事(這是把範圍砍一半的那一刀):
+  🔴 TapPay **從來沒有收到任何東西**
+     打法:POST https://sandbox.tappaysdk.com/tpc/transaction/query,時窗 08-18 23:30 → 08-19 00:15
+     ⇒ number_of_transactions = 1,唯一那筆是我自己繞過 code 打的 D202608199JvV9j
+     判別力:**正向對照自帶** —— 我那筆真的被列出來 ⇒ 查詢看得見這個時窗;
+             而「送了被拒」也會留 record ⇒ 與「根本沒送」長得不一樣
+
+⇒ 夾在中間、會 throw 的只剩一格:
+   🔴 attempts.begin(orderId)   packages/use-cases/src/initiate-payment.ts:55
+      = packages/adapters/src/payment/PgChargeAttemptAdapter.ts:64-66
+        `SELECT public.begin_charge_attempt($1::uuid)`
+```
+
+**`begin_charge_attempt` 裡會 RAISE 的四個候選**
+(檔 `supabase/migrations/20260809210000_m4b_lifecycle_l4a1_begin_in_flight_order_id.sql`):
+```
+:84-86   隔離閘 transaction_isolation <> 'read committed' ⇒ ERRCODE P8C01
+:94-96   訂單查無(FOR UPDATE ⇒ NOT FOUND)
+:101-104 取消守門(cancelled_at 非空 或 order_cancellations 有列)
+:107-109 cart_session_id IS NULL
+         ✅ **已排除**:create_order 對它 fail-closed
+            (supabase/migrations/20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:231-233)
+            而單建出來了 ⇒ 那個值不可能是 null
+```
+🔴 **哪一條是真兇,至今【未確認】** —— 要確認需要正式庫唯讀查詢,而那個權限沒有拿到
+(我試跑 `scripts/verify-create-order-9param.sh` 時被 harness 權限守門擋下,**沒有繞**)。
+
+## ② 正式站不受影響 —— 推論,以及它的兩個依賴(**不要精簡掉限定**)
+
+```
+Sean 逐字(經主視窗轉):「8/12 9G5Y6V, 這一筆確定可以跳到3D驗證,就表示可以刷卡成功」
+⇒ 08-12 正式站走到 3DS ⇒ 那一筆的 begin_charge_attempt 過了
+```
+要知道那筆是不是「帶著這道閘」過的,就要知道 `20260809210000` 何時 apply:
+```
+🔴 帳本答不出來:grep -n "20260809210000" supabase/APPLIED.tsv ⇒ 命中 1 列(:154),
+   第 3 欄逐字 `backfill`,**不是日期** ⇒ 那一欄在兩個世界會印同一個東西
+   分布:grep -vE '^#|^$' supabase/APPLIED.tsv | cut -f3 | sort | uniq -c | sort -rn
+        ⇒ backfill 159 / 帶真日期 25 / 分母 184
+   負向對照:帶 `^2026-` 格式的列數 = 25(非 0)⇒ 這把尺有能力記日期,只是那一列沒記
+
+✅ 改用【順序】推:
+   grep -vE '^#|^$' supabase/APPLIED.tsv | awk -F'\t' '$3 ~ /^2026-/ && $1 > 20260809210000 {print $1, $3}' | sort | head
+   ⇒ 最早兩列 20260811110000 / 20260811120000 皆 2026-08-11
+   db push 依版本號順序套用、不跳過更早的未套用版本
+   ⇒ 版本更小的 20260809210000 必定在 08-11 或更早 apply ⇒ **早於 08-12**
+```
+⇒ **08-12 那筆是帶著這個版本的 `begin_charge_attempt` 刷成功的**
+⇒ 正式站不受它擋 ⇒ **本機刷不過不是產品缺陷,是本機環境差異**。
+
+⚠️ **這是推論,不是直接觀察。兩個依賴,引用時必須一起帶**:
+```
+① 08-11 那兩列的日期是準的(它們屬於帶真日期的那 25 筆,不是 backfill)
+② supabase db push 的順序語意(依版本號、不跳過)
+🔴 沒有人直接觀察到 20260809210000 的 apply 時刻 —— 那個時刻沒有被記下來,現在也補不回來
+```
+
+**另一條【已經自己打掉】的假設,不要再撿起來**:
+```
+❌「也許正式站 TAPPAY_3DS_ENABLED=false、走同步路徑繞開這條」
+   不成立:同步路徑【也】呼 attempts.begin
+   packages/use-cases/src/confirm-payment.ts:48   ← 同步路徑
+   packages/use-cases/src/initiate-payment.ts:55  ← 3DS 路徑
+⇒ 那個 flag 是 true 是 false,對本案不生影響 ⇒ 不必為此去要 Vercel 面板的值
+```
+
+## ③ ✅ 「未推的 dev 能不能推」= **已回答**(2026-08-19,答的人是 Sean)
+
+### 🔴 原句留著,標作廢 —— 它記錄了「當時為什麼答不出來」
+```
+~~「未推的 dev 能不能推」= 仍然沒有被回答~~                        ← 2026-08-19 00:2x 作廢
+~~這條線從頭到尾的目的就是這一題,而它到現在【一個字都沒答到】。~~
+~~不要把本檔任何一段讀成「未推的 dev 驗過了」。連基線都沒有 —— 一筆都沒刷成功過。~~
+```
+**為什麼當時答不出來(這一段仍然成立,不要一起劃掉)**:本機那條路量的是**本機**、不是正式站
+⇒ 在本機再刷幾次都不會讓這題前進一格。
+
+### ✅ 答案與答法(**答法與我們設想的相反**)
+```
+Sean 逐字(經主視窗轉):「q14: a, 以刷卡成功 訂單 8X3N5Q」
+脈絡:275 顆(84f57eda)已推上 main 與 dev(兩邊都推了)⇒ 他在【正式站刷真卡】⇒ 成功。
+```
+🔴 **不是「先驗再推」,是「先推、再刷」** —— 順序反了而結論一樣有效:
+要驗的是「**這批改動有沒有弄壞刷卡**」,而那件事在推之後照樣量得到。
+
+📌 **這一格與本檔 ② 那個推論是同一條推理的兩端,接起來讀**:
+```
+② 證出「本機刷不過【不是產品缺陷】,是本機環境差異」
+   ⇒ 所以正確的動作不是修本機,是【去找一個站在對的世界裡的人來刷】
+③ 那個人是 Sean(他有真卡、他在正式站)⇒ 他刷了 8X3N5Q ⇒ 成功
+```
+⚠️ 反過來說:如果當時把「本機刷不過」硬讀成產品缺陷、然後投人去修本機環境,
+**這題到現在還是不會有答案**,而且會修一個沒有人會用的東西。
+
+### 🔴 射程(四條,一條都不要掉)
+```
+✅ 證了  這批推上去的改動【沒有弄壞刷卡】—— 客人付得出錢
+🔴 沒證  那 275 顆【各自】都對(四綠只是「在那個樹狀態上四項 rc=0」,涵蓋 ≠ 沒有已知缺陷)
+🔴 沒證  3DS 態 -1 ERROR 那條路(sandbox 構造不出來,出處 backlog #353)
+🔴 沒證  後台那一半(dev 也推了,而【沒有人走過一遍員工動線】)
+```
+
+### ⚠️ 本檔 ① 那條因果鏈**沒有因此失效,只是降級**
+```
+「本機 attempts.begin 會 throw」這件事仍然是真的、仍然沒有找出是四個候選中的哪一條。
+它現在的性質從【擋住上線的問題】變成【本機環境的一個未解謎題】
+⇒ 不再是急件;要不要查是裁量,不是必須。
+```
+**要回答它,需要的是**:
+```
+一次【在與正式站同款環境】刷得過的沙盒實測。
+本機這條路已經證明它量的是【本機】,不是正式站 ⇒ 修本機環境不會讓這題前進一格。
+候選做法(主視窗 2026-08-19 00:2x 已送 Sean,尚未回話):
+  把未推那批部署到 Vercel preview,在那裡刷沙盒卡
+  🔴 它需要 push 一個分支才會產生 preview ⇒ **push 是 Sean 的動作**(鐵則 8+12)
+  ⇒ 在他回話之前:不要 push、不要碰任何部署設定
+```
+**已知但與本題無關的一格**(不要混):未推那批動到的 `charge-actions.ts` / `cardholder.ts` diff
+讀過了,是 B-4 第 9 參 + 除錯 log + `addressEmail`,**都不在 begin 這條路上**;
+而 9 參 `create_order` 對正式庫**實際成功了**(單建得出來)。
+⚠️ 這只說「這幾支檔的 diff 不像元兇」,**不等於可以推**。
+
+## ④ 留痕:五筆,**全部還在,等 Sean 決定**
+
+```
+WCYCW5                  正式站訂單。orders.id 52d1f82f-89fc-4785-9c4d-613c1f51c814
+                        NT$1,500 / 已收 0 / 待付款 / 2026-08-18 23:45
+Z6QDV9                  正式站訂單。2026-08-19 凌晨,同內容同金額
+                        🔴 兩張都是【客人端看不到】的孤兒單(成因見 backlog #659)
+                        後台要打開「顯示刷卡未付款(預設隱藏)」才看得到
+g3-sandbox-test@pcmmotorsports.com   正式站 auth 帳號(結帳強制登入,不建就走不到刷卡欄位)
+(一筆收件地址)          同帳號名下,新北市新莊區化成路736巷18號1樓
+D202608199JvV9j         TapPay **沙盒**交易 NT$1,500(假錢),3DS 待轉導、payment_url 我沒點
+                        🔴 它【不對應任何 PCM 訂單】—— 我為了診斷繞過 code 打的
+                        ⇒ 對帳時找不到對應訂單是正常的,不要去找
+```
+🔴 **處置狀態:五筆都沒有動過。** 清不清是 Sean 的(鐵則 12①,不順手清)。
+主視窗已於 2026-08-19 00:0x 報給 Sean。
+
+⚠️ **不要把 `8X3N5Q` 算進這張表** —— 那是 Sean **自己刷的真卡**(見 ③)。
+```
+這五筆 = 我的探測留下來的東西(要不要清是問題)
+8X3N5Q = 他的驗證動作(那是【證據】,不是留痕)
+```
+
+## ⑤ 接手的人最可能踩的三個坑(都是我親自踩過的)
+
+```
+1. 顧客站 /account 顯示「目前尚無訂單紀錄」⇒ **不代表沒有建單**
+   成因 packages/adapters/src/supabase/SupabaseOrderAdapter.ts:582 的
+   .neq('payment_status','unpaid')(#249 治標);數法
+   `grep -cn "neq('payment_status'" packages/adapters/src/supabase/SupabaseOrderAdapter.ts` ⇒ 2
+   🔴 我一度照那個畫面下了「沒有建單」的結論,是錯的。要看真相只能開後台 + 打開那個開關。
+
+2. dev server 的 .next 會留【上一次 probe 環境】的產物
+   我開頁看到 12 個 g3-probe-XXXX 商品,一度以為正式庫被種了假商品。
+   判別法:加一個 cache-buster 參數再抓一次(curl "…/products?cb=$RANDOM")⇒ 我這次就變 0 命中。
+   🔴 「畫面上有 probe 商品」與「正式庫真的有 probe 商品」長得一樣。
+
+3. 「憑證是第一嫌疑」這句**已經作廢**(詳 docs/reference/tappay-sandbox-test-cards.md 那一節)
+   實測:餵假 prime 打 sandbox pay-by-prime ⇒ {'status':121,'msg':'Invalid arguments : prime'}
+   ⇒ 過了認證那一關才輪得到嫌 prime ⇒ Sean 那句「沙盒跟正式都用一樣的」在沙盒端成立。
+```
