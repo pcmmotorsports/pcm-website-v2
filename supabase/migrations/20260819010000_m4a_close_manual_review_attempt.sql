@@ -41,6 +41,33 @@
 --     🔴 它需要**自己的可見性**(一份清單,不是告警)⇒ **本片不做**,已寫進 plan §7 誠實揭示。
 --     **寫在這裡是因為「不做」與「沒想到」在檔案上長得一樣。**
 --
+-- ── 🔴🔴 誠實揭示:這支 RPC【解不掉】的那一格,以及它會怎麼咬人 ──────
+--   **它是什麼**:一筆**TapPay 那側真的扣成功了、而我們這側從來沒觀察到**的單。
+--   它的 `attempt.status` 仍是 `pending`(我們沒收到結果)、`orders.payment_status` 仍是 `unpaid`
+--   ⇒ **它就在佇列裡**,而**資料層看不出它收過錢**。
+--
+--   **它會怎麼咬人(具體,不是「有風險」)**:
+--   ```
+--   某天早上，員工看到「人工待確認 3 筆」，想把畫面清乾淨。
+--   他點第一筆：選「確定沒扣到」⇒ 系統噴錯（那條沒做）
+--             選「確定扣到了」⇒ 系統噴錯（那條也沒做）
+--             選「真不確定」  ⇒ 通過了。
+--   🔴 三個選項裡，【兩個會噴錯、一個會通過】—— 那不是選單，是一條阻力最小的路。
+--   於是那一筆離開告警、進入 unknown 存量。而客人的錢【真的被扣了】，
+--   訂單狀態永遠是 unpaid，客人打電話來的時候，我們的系統上沒有任何一個地方說他付過錢。
+--   ```
+--   **本片做到與沒做到的,分開講**:
+--   ```
+--   ✅ 資料【說得出來】的那一半已經是強制的：status='charged' ⇒ 選 unknown 會被 RAISE 擋下（⑤-2）
+--   🔴 資料【說不出來】的那一半解不掉：我們沒觀察到的扣款，DB 裡沒有任何欄位知道它
+--      ⇒ 唯一的來源是【去 TapPay 那側查】，而那不是這支 RPC 做得到的事
+--   ⇒ 所以 unknown 仍然是「一條會通過的路」，而它的正確性【靠人】
+--   ```
+--   **⇒ 這是一個產品決定,不是技術題**:要嘛先做「確定扣到了」那條(補入帳),
+--   要嘛在介面上強制「按 unknown 之前必須先貼上 TapPay 查詢結果」。**本片兩者都沒做。**
+--   ⚠️ 而 `unknown` 存量計數(`reviewed_unknown_unresolved_count`)**只讓它可見,不讓它被解決** ——
+--     **誰、什麼時候、看什麼清單去解那些單,本片沒有答案。**
+--
 -- Plan: docs/specs/2026-08-18-manual-review-queue-has-no-exit-plan.md §4.0-e
 -- Rollback(forward-only、僅供參考):
 --   DROP FUNCTION public.admin_close_manual_review_attempt(uuid,uuid,text,text,text,text);
@@ -260,6 +287,18 @@ BEGIN
        AND o.payment_status = 'unpaid'::public.payment_status
   ) THEN
     RAISE EXCEPTION '%', v_generic_msg;
+  END IF;
+
+  -- ⑤-2 🔴🔴 **`unknown` 不是一個「可以隨便選」的出口 —— 資料說得出來的,就不准宣告不知道。**
+  --     (2026-08-19:Sean 揭露「後台的單都是真的刷過」+ 主視窗指出「三個選項裡兩個會噴錯、一個會通過
+  --      ⇒ 那不是選單,是一條阻力最小的路」⇒ 這一格把**能由資料決定的部分**從宣告改成強制。)
+  --     `status = 'charged'` 的意思是**我們自己的系統觀察到扣款成功了** ⇒ 那筆**確定收過錢**
+  --     ⇒ 對它宣告 `unknown` 是**說謊**,而說謊的後果是那筆錢從告警消失、沒有人去補入帳。
+  IF EXISTS (
+    SELECT 1 FROM public.payment_charge_attempts
+     WHERE id = p_attempt_id AND status = 'charged'
+  ) THEN
+    RAISE EXCEPTION '這一筆的 attempt 狀態是 charged —— 系統【已經觀察到扣款成功】,不得宣告 unknown。它要走「確定扣到了」那條(補入帳),而那條尚未實作 ⇒ 請回報。';
   END IF;
 
   -- ⑥ 寫時戳與結果。🔴 **status 與 needs_manual_review 一個字都不動** ——
