@@ -44,7 +44,7 @@ Sean 逐字：「是我測試的…只是用不同帳號，而且也沒有收錢
 | | 甲(推薦)**用既有 terminal + 既有稽核表** | 乙 新增「已處理」欄 | 丙 直接清 `needs_manual_review` |
 |---|---|---|---|
 | 做法 | 人看過 ⇒ 呼既有 `mark_charge_attempt_failed(attempt, order)`(`PgChargeAttemptAdapter.ts:84`)⇒ status 離開 `pending` ⇒ **自然掉出述詞**;**同一個動作寫一列 `admin_audit_log`** | 加 `manual_review_resolved_at` / `resolved_by` / `reason` + 改告警述詞 | `UPDATE … SET needs_manual_review=false` |
-| migration | **零** | 要(鐵則 12③) | 零 |
+| migration | 🔴 **要**(見 §4;我原本寫「零」,查完是錯的) | 要(鐵則 12③) | 零 |
 | 留痕(三個月後查得到「誰決定的、為什麼」) | ✅ `admin_audit_log`(**append-only**、`service_role` 只有 INSERT:`20260712210000:89,113-115`) | ✅ 欄位裡 | ❌ **零痕跡** —— 那一列就這樣消失 |
 | 語意對不對 | ✅ 那筆**確實沒有收到錢** ⇒ `failed` 是真的 | ✅ | ⚠️ flag 清掉而 attempt 仍 `pending` ⇒ **狀態機裡多一個沒人管的活列** |
 | 🔴 與前例的關係 | 順著既有設計走(那條註解**刻意**讓 terminal 掉出計數) | 新增第二套結案語意 | **正是那條註解在防的東西** |
@@ -53,11 +53,37 @@ Sean 逐字：「是我測試的…只是用不同帳號，而且也沒有收錢
 
 ## 4. 甲案要答的三件(實作時要有答案,現在先寫清楚)
 
+### 4.0 🔴 查完了:後台**現在沒有路,而且那道牆是【刻意】立的**(2026-08-18 G4 實查,純讀)
+
 ```
-① 誰按那個鈕
-   mark_charge_attempt_failed 現在走 payment_confirmer 窄權連線（PgChargeAttemptAdapter）
-   ⇒ 後台要按 = 要一條有權限的路。🔴 這是本片最大的未知，實作前要先量：
-      後台現行有沒有任何一條路能呼那支 RPC？（我沒查，標未確認）
+GRANT（20260612150000_m3_s2d_charge_attempts.sql:429,432）
+  REVOKE ALL ON FUNCTION public.mark_charge_attempt_failed(uuid,uuid)
+  GRANT EXECUTE … TO payment_confirmer          ← 只有這個角色
+apply 期 fail-closed 斷言（同檔 :451-453 逐字）
+  has_function_privilege('anon', …) OR has_function_privilege('authenticated', …)
+  OR has_function_privilege('service_role', 'public.mark_charge_attempt_failed(uuid,uuid)','EXECUTE')
+  ⇒ 任一為真就整支 migration RAISE
+呼叫端（grep -rn "markFailed|mark_charge_attempt_failed" --include='*.ts' apps packages | grep -v '\.test\.'）
+  ⇒ 全部在 storefront 側（settle-charge / confirm-payment / PgChargeAttemptAdapter）
+  ⇒ apps/admin 零命中
+```
+🔴 **後台跑在 `service_role` 上,而那道斷言【明文禁止 `service_role` 拿到這支的 EXECUTE】**
+⇒ **不是「還沒接」,是「接上去會讓 migration 當場紅」** —— 那是設計,不是疏漏。
+
+**⇒ 所以甲案的真實成本是:一支新的窄 RPC(要 migration,鐵則 12③),不是我原本寫的「零 migration」。**
+形狀有現成前例(後台的寫入一律走這個形狀,不直接動表):
+```
+grep -rn "GRANT EXECUTE ON FUNCTION public.admin_" supabase/migrations/*.sql ⇒ 6+ 支
+  admin_update_order_workflow / admin_adjust_wallet / admin_set_customer_tier / admin_append_order_note …
+⇒ 新增 admin_close_manual_review(attempt_id, order_id, actor, reason)
+   SECURITY DEFINER、owner=postgres、search_path=''、GRANT EXECUTE TO service_role
+   內部：①把 attempt 收斂成 terminal（讓它離開告警述詞）②同一個交易寫一列 admin_audit_log
+🔴 ②要在【同一個交易】裡：分開寫 = 有一個「關掉了但沒有紀錄」的中間態，而那正是丙案的病
+```
+⚠️ **仍要 Sean 批**(鐵則 12①錢 + 12③ schema)。**查到有路 ≠ 可以接上去。**
+
+```
+① 誰按那個鈕 ⇒ 見 §4.0：現在沒有路，要新增一支窄 RPC（有前例形狀可抄）
 ② 按之前要看到什麼
    至少：attempt_id / order display_id / 卡多久 / last_settle_error / 有沒有真的扣到錢
    ⇒ 那正是 scripts/triage-manual-review-alert.sh 印的東西 ⇒ 後台那一頁照它的欄位長
