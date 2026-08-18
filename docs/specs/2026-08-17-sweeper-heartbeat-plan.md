@@ -89,7 +89,7 @@ id bigint | ran_at timestamptz | status text | <幾個 counts int> | run_id uuid
 > 那份是**從真實 DB 生成**的,而本表的 migration **還沒 apply 到任何真實 DB**。
 > ⇒ `supabase.from('sweeper_heartbeat')` **通不過 typecheck**。
 >
-> **我寫了一個拋棄式探針實測,不是讀 code 推的**:
+> **B 窗 2026-08-18 寫了一個拋棄式探針實測,不是讀 code 推的**(本檔已有三方在加段落 ⇒ 具名):
 > ```
 > 探針：createSupabaseServiceClient().from('sweeper_heartbeat')
 >         .upsert({ job_name: 'settle-sweep', last_success_at: … })
@@ -112,7 +112,7 @@ id bigint | ran_at timestamptz | status text | <幾個 counts int> | run_id uuid
 > 🔴 **這不是「還沒開始」,是【開不了工】。** 兩者在進度表上長得一樣,而處置完全不同:
 > 前者要派人,後者要**Sean 按一個鈕**。
 >
-> ### 📎 而這是 repo 既有的慣例,不是我發明的例外
+> ### 📎 而這是 repo 既有的慣例,不是任何一個窗發明的例外
 > `docs/phase-1-backlog.md:12778` 逐字:
 > > 片 A2 = adapter 換源 + admin + 測試 ⇒ ⏸ **等 A1 apply 後 `supabase gen types` 才能開工(型別雞生蛋)**
 >

@@ -93,6 +93,43 @@ SELECT count(*) AS orders_without_notify_email FROM orders WHERE notification_em
 | --------------------------- |
 | 13                          |
 
+> ## 🔴🔴 2026-08-18 更正 —— **這題我問錯了,而錯的答案讓下一步做錯**
+>
+> ~~我當時的結論:「**只有 13 筆** ⇒ 人工處理就好,不必寫程式。」~~ **原句劃掉,不刪。**
+>
+> **① 分母掉了 —— 13 是 100%,不是少數例外**(V 窗實測,含正向對照):
+> ```
+> notification_email IS NULL      ⇒ 13
+> notification_email IS NOT NULL  ⇒ 0
+> orders 總筆數                    ⇒ 13
+> 正向對照 id IS NOT NULL          ⇒ 13   （證明查法有效、不是恆 0）
+> ```
+> 🔴 **我上面那句問法(「這個數字是 3 還是 3000」)本身就漏了分母** ——
+> **同一個 13,在分母 3000 與分母 13 之下是完全相反的兩件事。**
+>
+> **② 而真因不是「漏填」,是【寫入端刻意寫死 null】**(E 窗 2026-08-18 當場開檔):
+> ```
+> packages/adapters/src/supabase/mappers/order.ts:144-146
+>   ? { p_notification_email: null }
+> apps/storefront/src/app/checkout/charge-actions.ts:266-267
+>   // B-3 只切到 9-param RPC 形狀;canonical 真值持久化刻意留 B-4。
+>   ...(notificationEmailEnabled ? { notificationEmail: null } : {}),
+> ```
+> ⇒ 🔴 **不只現有 13 筆是 null —— 在 B-4 落地之前,之後每一張新單也都是 null。**
+> ⇒ **所以「人工補那 13 筆」是錯的下一步:補完了,新單照樣是 null。**
+>
+> **③ 反直覺的一格**:`CHECKOUT_NOTIFICATION_EMAIL_ENABLED`(`notification-email-gate.ts:7`)
+> **不是那個閘** —— 上面兩處寫死 null,**旗標開了寫進去的還是 null**。
+> ⇒ 一般會先問「旗標開了沒」,**而這裡問那個會得到一個沒有判別力的答案**。
+> ⚠️ 該旗標現值**未確認**(env,E 窗不讀 `.env`)—— **而它不影響結論**。
+>
+> **④ 未查而不影響結論**:那 13 筆是不是「欄位加上去之前」建的
+> (`orders.created_at` vs `20260718120000`)—— **就算全是歷史單,寫入端寫死 null 這件事仍然成立。**
+>
+> 📌 **這題真正該問 Sean 的不是數字,是**:`notification_email` 當初為什麼要獨立一欄
+> (而不是用客人帳號的 email)?**那個「為什麼」不在 code 裡**,而沒有它,
+> 任何替代收件人來源的提案都是猜的。
+
 ### B4. 這句貼進 SQL Editor(**報價單庫**)
 
 ```sql

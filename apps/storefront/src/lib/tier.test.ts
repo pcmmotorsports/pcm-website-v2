@@ -31,7 +31,9 @@ describe('resolveTierFromRequest', () => {
   });
 
   // 🔴 prod 硬閘(權限鐵則 12②)。兩個世界缺一不可:
-  //   拿掉 tier.ts 的 `NODE_ENV !== 'production' &&` 那道閘 ⇒ 下面第一格必須翻紅(負測)。
+  //   拿掉 tier.ts 的 `NODE_ENV !== 'production' &&` 那道閘 ⇒ 【①③兩格】必須翻紅(負測;V 窗 2026-08-18 獨立重跑實測 2 failed|6 passed)。
+  //   ③(cookie fallback 那格)也依賴這道閘:閘沒了 ⇒ override 活著 ⇒ 蓋掉 cookie ⇒ 回 store 而非 premiumStore。
+  //   ⚠️ 別數成「多紅一格」—— 加了 ③ 之後,「拆掉會紅幾格」就從 1 變 2 了。
   it('🔴 prod 硬閘:NODE_ENV=production + flag=1 + ?tier=store → override 失效、回 general', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('PCM_DEV_TIER_OVERRIDE', '1');

@@ -51,7 +51,7 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
         </p>
       ) : groups.length === 0 ? (
         <p className='text-muted-foreground text-sm'>
-          這張訂單還沒有任何包裹。按右上角<b>建立包裹</b>直接出這一單;要和這位客人的其他訂單裝同一箱,
+          這張訂單還沒有任何包裹。按右上角<b>出貨</b>直接出這一單;要和這位客人的其他訂單裝同一箱,
           請到<b>訂單列表</b>勾選那幾張單、按「出貨」。
         </p>
       ) : (

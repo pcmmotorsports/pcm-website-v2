@@ -1067,6 +1067,8 @@ A9h-1 應用層(12 參 rpc 呼叫)於 2026-08-06 夜先上線、對應的 `a9h_m
     - 🔴 **2026-08-18 修正上一句的判準(留痕不刪;V 窗對正式站實測三世界)**:上面「回 `PGRST202` = 函式不在」**寫成通則會誤報**。
       `PGRST202` 說的是「schema cache 裡找不到【這個簽章】」——**參數給不全 / 型別不對 / 名字拼錯,全部回同一個碼**。V 窗實測:同一支【確實存在】的函式,參數只給一個 ⇒ 也回 404 `PGRST202`,與拿假名 ⇒ 404 `PGRST202` 一字不差。
       ⇒ 判「函式不在」之前先自證:(a) 參數名是不是從呼叫端 grep 出來的(不是猜的)(b) 型別對不對 (c) 具名參數【給全】。正確判準=**給全所有具名參數 + 用保證命不中的 id**(如全 0 UUID)⇒ 回 200 / 業務碼(NOOP・P0001・CONFLICT)= 函式在;只有在參數自證給全後,`PGRST202` 才能升級成「函式不在」。
+      🔴🔴 **歸因(V 窗查原文、T① 親讀證實 2026-08-18):不是「原句當年對、只是不該寫成通則」——是【摘要當年就弄丟了原文的限定】。** 原文 `docs/reviews/2026-08-07-e-batch-apply-runbook.md:164-166` 逐字寫「`PGRST202` = **具名參數對不上** ⇒ 正是 09:45 那場事故的症狀」,且 body 把**全部 12 個**具名參數(`p_order_item_id`…`p_preserve_optional_fields`)都給了(我 grep 該檔 `p_` 去重=12,對得上)。⇒ **病名=摘要比原文弱**:原文有「參數對不上」這個限定,`lessons:1065` 摘成「函式不在」把它弄丟了,而**被當通則引用的正是這份摘要**,活了 11 天。
+      🔴 **三份互指,權威等級不同**:`lessons:1065`(**摘要**)↔ `docs/reviews/2026-08-07-e-batch-apply-runbook.md:164-166`(**原文**)↔ `scripts/rpc-apply-smoke.sh`(**可執行版**)。**本條是摘要;原文的限定見 runbook:164-166;摘要與原文不一致時以原文為準。**
       三向分辨法(正例 200 / 假名 PGRST202 / 存在但參數不全 PGRST202)已做成 `scripts/rpc-apply-smoke.sh`(V 窗)。**表半的等價坑**=`PGRST205`(表不在 schema cache)同理:表在 DB 但 cache 沒 reload ⇒ 也回 PGRST205,先 `NOTIFY pgrst, 'reload schema'` 再判。
       🔴 **repo 其實早在 runbook 就知道這個「schema cache 有 vs DB 有」的分別**——`docs/runbooks/484a-view-apply-smoke.md:56`、`docs/runbooks/2026-08-14-apply-day-one-pager.md:56` 都寫「404 PGRST205 = 還不存在,但不是壞了,先確認 migration 真跑了」;而本教訓條(`:1065`)原句沒帶到 ⇒ 又一個「對的做法沒傳染」的實例,故此處互指。⚠️ **本條轉錄 V 窗實測,本檔改動者(T① 窗)未自持 service_role、未親跑那三發**。
   - repo 側做得到的那半:diff 同時含 `supabase/migrations/*` 與其消費端應用層檔時,commit body 必須寫出 apply 順序聲明
