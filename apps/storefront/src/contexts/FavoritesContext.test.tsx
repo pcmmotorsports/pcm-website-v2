@@ -404,8 +404,12 @@ describe('FavoritesContext', () => {
       () => new Promise((r) => { releaseOldAdd = r; }),
     );
     let releaseRemove: (v: { ok: true }) => void = () => {};
+    // 🔴 `removeSettled` 存在的唯一理由:把本格的【時序前提】變成一道會紅的斷言(見下)。
+    let removeSettled = false;
     removeFavoriteAction.mockImplementation(
-      () => new Promise((r) => { releaseRemove = r; }),
+      () => new Promise((r) => {
+        releaseRemove = (v) => { removeSettled = true; r(v); };
+      }),
     );
 
     render(
@@ -431,11 +435,21 @@ describe('FavoritesContext', () => {
     });
     await waitFor(() => expect(removeFavoriteAction).toHaveBeenCalledTimes(1));
 
+    // 🔴🔴 **本格的時序前提,現在是一道【會紅的斷言】,不再只是註解**(GR 確認輪的 nit)。
+    //   這一格能抓到東西,靠的是「舊 worker 的收尾**落在新 worker 正 await 的那個空檔**」。
+    //   ⇒ 若新 worker 的那一發【已經回來了】，這個空檔就不存在，
+    //     整格會**靜默退化**成我第一版那種「測試綠、而 bug 還在」。
+    //   ⇒ 所以先斷言那個空檔真的存在,再放舊的。
+    expect(
+      removeSettled,
+      '新 worker 的 remove 已經回來了 ⇒ 本格要構造的那個空檔【不存在】' +
+        ' ⇒ 這一格此刻沒有判別力,不要相信它的綠(先回去看 worker 收尾是不是引入了真計時器)',
+    ).toBe(false);
+
     // 🔴 就是現在:舊 worker 收尾（finally 動到誰的 map?）
-    // ⚠️ **未斷言的前提**(GR 確認輪的 nit,寫下來不假裝沒有):
-    //   下面那個 20ms 只有在「舊 worker 的收尾走 microtask」時才必然完成。
-    //   ⇒ **日後若 worker 收尾引入真的計時器(setTimeout / 動畫 / 重試退避),
-    //     這個構造會【靜默退化成綠】** —— 也就是退化成我第一版那種「測試綠、bug 還在」。
+    // ⚠️ 仍然未斷言的那一半(誠實寫著):下面那個 20ms 之所以夠,是因為舊 worker 的收尾走
+    //   microtask。**日後若那條路徑引入真的計時器(retry backoff / 動畫),20ms 可能不夠** ——
+    //   上面那道斷言擋得住「空檔不存在」,擋不住「空檔在、而舊 worker 還沒跑完」。
     //   ⇒ 動 worker 收尾路徑的人:先確認這一格【對壞版本仍然會紅】,再相信它。
     await act(async () => {
       releaseOldAdd({ ok: true });
