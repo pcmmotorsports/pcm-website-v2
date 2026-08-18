@@ -13169,6 +13169,25 @@ order by n desc, 1;
 聯絡時間是**告知義務的稽核證據**(`notes-timeline.tsx` 的 `customer_notified` 那一族逐字這樣寫)。
 ⇒ 一筆「我幾點通知過客人」的紀錄若偏移 8 小時,**在爭議時它站不住**,而且**查不出是從哪一天開始偏的**。
 
+## 🔴 射程:**只有一處活的入口,而 repo 早就寫過警語**(2026-08-18 21:1x 補量)
+
+主視窗問「修法會不會不能只修這一支」⇒ **量了,答案是只有這一支**:
+```
+/usr/bin/grep -rn "new Date(local\|new Date(values\.\|new Date(occurred\|new Date(receivedAt" \
+  apps/admin/src --include="*.ts" --include="*.tsx" | grep -v "\.test\."
+⇒ 活的呼叫只有 1 處：note-compose-form.tsx:64
+⇒ 另外 3 個命中【全是警語，不是用法】：
+     procurement-view.ts:34  「兩個方向都用同一個常數,不用 `new Date(local)`(那是**裝置**時區)」
+     procurement-view.ts:49  「⇒ 用裝置時區的話,員工在非台北時區的機器上打 14:30 會存成別的時刻」
+     payment-form.ts:205     「不需要時區資料庫、也**不准**用 `new Date(local)`(那是**裝置**時區)」
+```
+🔴 **這條 repo 早就知道了,而且寫下來了 —— 只是這一支沒有照做。**
+⇒ 修法因此**不是設計題,是照既有慣例補**:改用固定偏移那一套(`toTaipeiIso` / `toTaipeiInputValue`,
+`TAIPEI_OFFSET_MINUTES` 寫死 +8;台灣不用日光節約 ⇒ 今天成立)。
+⚠️ 而**歷史上這個坑有兩種踩法**(兩者都已在 repo 留下痕跡):
+`receipt-record-form` 是**自己算偏移**踩到(該檔註解記著「少 8 小時、沒有症狀」),
+本條是**交給 `new Date()` 算**踩到 —— **修法要同時擋掉兩種,而固定偏移那一套正好兩種都擋。**
+
 ## 修法方向(未評估、未拍板)
 
 ```
