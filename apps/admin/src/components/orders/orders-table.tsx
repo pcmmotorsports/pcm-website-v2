@@ -185,7 +185,12 @@ function shouldMergeAmount(order: AdminOrderSummary): boolean {
  */
 const MAX_VISIBLE_LINES = 3;
 
-const CELL = {
+/**
+ * 🔴 `#475`(2026-08-18)起 **export**:卡片模式的縱向順序守門要拿它當**單一真相源**,
+ * 而不是在測試檔裡硬寫一份 14 個字串的清單(硬寫的那份會與本表各自漂,而漂掉時不會紅)。
+ * ⚠️ 只有測試在用這個 export;元件內用法一行沒變。
+ */
+export const CELL = {
   pick: 'col-pick',
   oid: 'col-oid',
   date: 'col-date',

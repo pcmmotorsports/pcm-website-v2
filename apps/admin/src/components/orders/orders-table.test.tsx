@@ -26,7 +26,7 @@ import { ShippingSelectionProvider } from './shipping-selection';
 const render = (ui: React.ReactElement) =>
   rtlRender(<ShippingSelectionProvider>{ui}</ShippingSelectionProvider>);
 
-import { OrdersTable } from './orders-table';
+import { CELL, OrdersTable } from './orders-table';
 
 // #350c:桌機單號連結改由呼叫端注入(`/orders?…&panel=<id>`)。這裡給一個最小假 builder ——
 // 本檔既有的斷言都不看單號連結的 href;真正釘住「桌機走注入 href / 手機仍是字面路徑」的是
@@ -1185,32 +1185,60 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       );
     });
 
-    it('🔴 CSS 掛勾與 TSX 的 `col-*` 名字對得上(對不上 = 卡片內順序亂掉,零錯誤訊息)', () => {
-      const inCard = new Set<string>();
-      // 🔴 大括號不可省:`Set.add` 回傳 Set,而 `walkRules` 的 callback 回傳 `false` 代表**中止走訪**
-      //    ⇒ 寫成單運算式會讓型別對不上(tsc 實際擋下來),而且語意上是在回傳一個「不是 false 的值」。
+    /**
+     * 🔴🔴 `#475`(2026-08-18 重寫):**舊版只驗「有沒有提到」,三件事一件都不驗。**
+     *
+     * 舊版逐字 `[...inCard].some((s) => s.includes(`.${col}`))` + **硬寫的 14 個字串清單**:
+     * ```
+     * ① 那條規則的 order **值**是多少        —— 不驗
+     * ② 同一個 order 值有沒有被兩個欄共用（重號）—— 不驗
+     * ③ 清單【之外】還有沒有殘留規則          —— 不驗
+     * ④ 清單本身硬寫 ⇒ 與 TSX 的 CELL 各自漂時也不會紅
+     * ```
+     * 實錘(條目記的):2026-08-14 一次踩中兩個盲區(`.col-ordered` 刪漏 + 與 `.col-qty` 重號),
+     * **456 檔 7622 格沒有一格會紅**,抓到它的是人工逐行列 `order`。
+     *
+     * ⚠️ **與條目建議的差異(刻意,理由在這)**:條目寫「每個 `col-*` **恰一條**規則」,
+     *    而實測 `.col-amount` **合法地有兩條**(合併態在抬頭段 `order:7`、非合併態在品項段 `order:15`,
+     *    CSS 那兩處自己的註解寫著理由)⇒ 本組改成「**至少一條** + **值兩兩相異** + **集合相等**」。
+     *    照條目原文寫會擋掉一個正確的設計。
+     */
+    it('🔴 `#475` 卡片縱向順序:每欄都有 order、值不重號、且集合恰等於 TSX 的 CELL', () => {
+      /** 卡片 media 內所有「宣告了 order」的規則 ⇒ `[col, order 值]`。 */
+      const orderRules: Array<[string, string]> = [];
       cardMedias()[0]!.walkRules((r) => {
-        inCard.add(norm(r.selector));
+        r.walkDecls('order', (decl) => {
+          // 一條規則可以同時掛多個 col(選擇器逗號分隔)⇒ 逐個記。
+          // 🔴 用 postcss 走訪而不是自己 regex 切:**註解裡提到的 `.col-*` 不算數** ——
+          //    我第一版用 regex 掃原始碼,把註解文字當成選擇器,量出兩個不存在的重號(自己踩過)。
+          for (const col of new Set(norm(r.selector).match(/\.col-[a-z]+/g) ?? [])) {
+            orderRules.push([col.slice(1), norm(decl.value)]);
+          }
+        });
       });
-      for (const col of [
-        'col-pick',
-        'col-oid',
-        'col-date',
-        'col-brand',
-        'col-sku',
-        'col-title',
-        'col-vehicle',
-        'col-qty',
-        'col-unit',
-        'col-amount',
-        'col-customer',
-        'col-status',
-        'col-invoice',
-        'col-ops',
-      ]) {
+
+      // ① 每個 TSX 宣告的欄,在卡片模式都要有落點(至少一條 order 規則)
+      const withOrder = new Set(orderRules.map(([col]) => col));
+      for (const col of Object.values(CELL)) {
         expect(
-          [...inCard].some((s) => s.includes(`.${col}`)),
-          `${col} 在卡片化 media 內沒有落點 ⇒ 它在卡片上的縱向位置沒有被定義`,
+          withOrder.has(col),
+          `${col} 在卡片化 media 內沒有 order ⇒ 它的縱向位置退回 DOM 順序,而畫面看起來「就是這樣」`,
+        ).toBe(true);
+      }
+
+      // ② 🔴 order 值兩兩相異 —— 重號時順序退回 DOM 順序,**靜默**、沒有錯誤訊息
+      const values = orderRules.map(([, v]) => v);
+      expect(
+        new Set(values).size,
+        `order 值重號:${values.join(',')} ⇒ 重號的那兩欄誰在前面由 DOM 順序決定,而那不是設計`,
+      ).toBe(values.length);
+
+      // ③ 🔴 沒有 CELL 之外的殘留 —— 這一格抓的正是 2026-08-14 那個「刪漏的 .col-ordered」
+      const declared = new Set<string>(Object.values(CELL));
+      for (const col of withOrder) {
+        expect(
+          declared.has(col),
+          `${col} 有 order 規則但 TSX 的 CELL 沒有它 ⇒ 不是刪漏就是改名沒同步(而它會佔掉一個 order 值)`,
         ).toBe(true);
       }
     });
