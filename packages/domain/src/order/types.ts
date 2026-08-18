@@ -164,7 +164,10 @@ export type Order = {
  *
  * 用途:account OrdersTab 列表 / Overview「最近訂單」preview / 未來月結等只讀清單。
  * 刻意**不含** `items[]`:order_items 表無 `product_id`(backlog #217)、無法忠實重建
- * `OrderItem.productId`;列表只需摘要,故繞過 #217(明細頁未來 slice 才需完整 Order + 解 #217)。
+ * `OrderItem.productId`;列表只需摘要,故繞過 #217。
+ * 🔴 ~~「明細頁未來 slice 才需完整 Order + 解 #217」~~ —— **那句話 2026-08-18 起是假的**(`#217` 裁定 D):
+ * 明細頁**也**走唯讀投影,不解 `#217`。後台的 `AdminOrderDetailItem` 就是這樣做的
+ * (它沒有 `productId`,而後台明細頁一直是好的)⇒ 不要照舊句去改 domain 型別。
  *
  * 🔴 鐵則 12:型別層**無** price_by_tier / price_store / cost(經銷價零滲入);`total` 為會員
  * 自己訂單的總額(RLS own-only、非經銷價)。`itemCount` = Σquantity(總數量、非 distinct 列數;

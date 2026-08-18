@@ -184,6 +184,34 @@ function refundForm(container: HTMLElement): HTMLFormElement {
   return form;
 }
 
+/**
+ * 🔴 取「退款帳本」區塊本體(`#428`)。
+ *
+ * 病:本檔原本用 `container.textContent` 驗帳本區塊專屬的宣稱,而
+ * 「讀取失敗」這四個字在**同一頁的多個元件**都印得出來
+ * (`cancel-review-section` / `cancel-result-panel` / `refund-ledger-section` …)
+ * ⇒ 斷言吃得到**第三方餵的字串**,與帳本區塊有沒有正確顯示無關。
+ * 2026-08-12 reviewer 的突變證據:把帳本文案改壞 + 拿掉 `<PaymentList>`,該檔 13 格照樣全綠。
+ *
+ * 錨 = `<h2>退款紀錄</h2>`(全樹唯一,`refund-ledger-section.tsx` 四條渲染路徑都掛它;
+ * 數法 `/usr/bin/grep -rn "退款紀錄" apps/admin/src --include="*.tsx"` ⇒ 非測試命中只有它與一個 placeholder)。
+ * 🔴 找不到就 **throw、不回 null** —— 回 null 會讓「區塊根本沒渲染」與「渲染了但沒那句話」
+ * 在斷言上長得一樣,那正是本條在修的病。寫法抄 `payment-list-wiring.test.tsx` 的 `paymentSection()`。
+ */
+function ledgerSection(container: HTMLElement): HTMLElement {
+  const heading = Array.from(container.querySelectorAll('h2')).find(
+    (h) => h.textContent === '退款紀錄',
+  );
+  const section = heading?.closest('section');
+  if (!section) throw new Error('找不到退款帳本區塊(<h2>退款紀錄</h2> 的 section)');
+  return section as HTMLElement;
+}
+
+/** 帳本區塊裡的文字(所有帳本專屬斷言都走這支,不要再用 container.textContent)。 */
+function ledgerText(container: HTMLElement): string {
+  return ledgerSection(container).textContent ?? '';
+}
+
 describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
   it('🔴 旗標未設(預設)→ 入口不渲染', async () => {
     delete process.env.REFUND_UI_ENABLED;
@@ -283,11 +311,12 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     });
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
     const { container } = await renderPage();
-    expect(container.textContent).toContain('退款紀錄');
+    // 🔴 `#428`:帳本專屬的宣稱一律鎖進帳本區塊,不用整頁 textContent。
+    expect(ledgerText(container)).toContain('退款紀錄');
     // 'NT$ 777' 全字面:fixture displayId='ABC123' 會讓裸 '123' 恆真(opus R1 nit、撞號教訓)。
-    expect(container.textContent).toContain('NT$ 777');
-    expect(container.textContent).toContain('帳本未登記額');
-    expect(container.textContent).toContain('877');
+    expect(ledgerText(container)).toContain('NT$ 777');
+    expect(ledgerText(container)).toContain('帳本未登記額');
+    expect(ledgerText(container)).toContain('877');
     // 🔴 codex MF5:mock 不看參數,A 單顯 B 單帳本這類錯接只有參數斷言抓得到。
     expect(mocks.listOrderRefunds.mock.calls[0]).toEqual([ORDER]);
     expect(mocks.getLedgerUnregisteredAmount.mock.calls[0]).toEqual([ORDER]);
@@ -299,7 +328,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     process.env.REFUND_UI_ENABLED = '1';
     mocks.listOrderRefunds.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
-    expect(container.textContent).toContain('退款帳本載入失敗');
+    expect(ledgerText(container)).toContain('退款帳本載入失敗');
     expect(hasRefundEntry(container)).toBe(false);
   });
 
@@ -315,7 +344,7 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     });
     mocks.getLedgerUnregisteredAmount.mockResolvedValue(-1000);
     const { container } = await renderPage();
-    expect(container.textContent).toContain('對帳異常');
+    expect(ledgerText(container)).toContain('對帳異常');
     expect(hasRefundEntry(container)).toBe(false);
   });
 
@@ -358,8 +387,9 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     });
     mocks.getLedgerUnregisteredAmount.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
-    expect(container.textContent).toContain('讀取失敗');
-    expect(container.textContent).not.toContain('查無');
+    // 🔴 `#428` 的正主:「讀取失敗」全頁有 4+ 個來源,整頁比對驗不到帳本這一格。
+    expect(ledgerText(container)).toContain('讀取失敗');
+    expect(ledgerText(container)).not.toContain('查無');
     expect(hasRefundEntry(container)).toBe(false);
   });
 
