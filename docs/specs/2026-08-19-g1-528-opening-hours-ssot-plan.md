@@ -47,7 +47,7 @@ Sean 哪天加開週日 ⇒ **法律頁正文與餵搜尋引擎的 JSON-LD 會�
 lib/site-config.ts   + export function openDaysLabel(joiner = '至'): string   ← 從 legal-content.ts 整段搬
                      + export const STORE_ADDRESS_LINE                        ← 地址那半同理
 data/legal-content.ts  改成 import(刪掉本地那 27 行)
-components/HomeFooter.tsx   `週一-週六` → {openDaysLabel('-')}  ／ 地址 → STORE_ADDRESS_LINE
+components/HomeFooter.tsx   `週一-週六` → {openDaysLabel('-')}  ／ ~~地址 → STORE_ADDRESS_LINE~~（見 §⑨）
 components/ComingSoon.tsx   同上
 components/MobileMenu.tsx   `週一-週六` → openDaysLabel('-')(地址已經對了,不動)
 ```
@@ -76,3 +76,46 @@ components/MobileMenu.tsx   `週一-週六` → openDaysLabel('-')(地址已經�
 - **不動 `design-reference`**(鐵則 1:design 是真權威;本片只改 storefront 怎麼取值,**不改它顯示什麼**)。
 - **不做後台 CRUD**(L1,鐵則 9 不要求)。
 - **不碰 `org-jsonld.ts`**(它本來就吃 SSoT,是對的)。
+
+---
+
+## ⑨ 🔴 落地更正(2026-08-19 實作當下,**本 plan 的地址那半沒有照上面做**)
+
+> **先講結論:地址那半【做完了】,而做法不是 §④ 寫的那個。**
+> 寫在這裡是因為**下一個讀這份 plan 的人會照 §④ 去核** —— 而 §④ 已經不是事實。
+
+### 為什麼改做法(動手才讀到的一段逐字)
+`apps/storefront/src/components/HomeFooter.tsx:127-129` 註解逐字:
+```
+「1樓」是 Sean 2026-08-15 逐字拍板的正典值,不得被改回「一樓」;
+空格與 `<br/>` 是本頁尾的排版、不是地址的一部分,**正典值本身沒有空格**。
+```
+⇒ 兩條路都不行:
+```
+甲 直接吃 STORE_ADDRESS   ⇒ 畫面從兩行變一行、空格消失 ⇒ **違反驗收 1(畫面一個字都不能變)**
+乙 把 street 拆成路名/巷號兩欄 ⇒ 動到 lib/org-jsonld.ts（餵搜尋引擎）與法律頁
+                              ⇒ **而它們現在是對的**，改它們是拿正確的東西去冒險
+```
+
+### 實際做法:**守門,不是重構**
+```
+site-config-wiring.test.ts 新增兩格:
+  HomeFooter.tsx / ComingSoon.tsx 的地址字面【去空白後】必須等於
+  `${STORE_ADDRESS.region}${STORE_ADDRESS.locality}${STORE_ADDRESS.street}`
+突變驗過:把 STORE_ADDRESS.street 改成別的值（兩支硬寫沒跟著改）⇒ 兩支各自紅（未突變先綠）
+```
+🔴 **要防的風險只有一個:Sean 換地址 ⇒ SSoT 改了、兩支硬寫沒改 ⇒ 站上兩種地址。**
+**那個風險被關掉了,而畫面零改動。**
+
+### 這不是「做一半」——理由要寫清楚
+Sean 關掉的是「**A 做完、B 寫進 backlog 之後補**」。
+這裡 **B 是用另一種方式做完了**,有突變證據、有射程限定,不是留給未來的人。
+⚠️ **射程限定(留著,不當免責)**:它擋不住「兩邊【同時】被改錯」,也擋不住排版走樣。
+【**代裁,代裁人 MAIN,Sean 可推翻**】—— 他要真的拆欄位,另開一片。
+
+### 順帶:本 plan 另外兩處與事實的差
+```
+· 射程 §④ 估 5 檔,實際 **6 檔** —— 多的是 site-config-wiring.test.ts（守門本身要改判準）
+· 驗收 5 的 literal-sweep 已跑:apps/storefront/src 非測試檔的殘留 **3 筆全是註解**，零渲染字面
+  （總計 175 命中 / 掃 4129 檔,而那個數字是【2026-08-19 這個 checkout】的性質，不是 repo 的）
+```
