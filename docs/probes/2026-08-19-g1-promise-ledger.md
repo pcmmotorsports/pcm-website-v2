@@ -275,3 +275,68 @@ Q：商品頁 FAQ 的付款那句要不要改？（現況：寫三種，結帳�
 ⇒ 而 🔴 **「做得到」這一堆是最危險的一堆** —— 一句錯的「做不到」會有人來反駁，
    一句錯的「做得到」**沒有人會反駁，而它會被拿去回覆客人。**
 ```
+
+---
+
+# ✅ ⑨ 把 §① 剩下的三條逐條驗完 —— **沒有第四條錯的**
+
+§⑧ 抓到「取消/改單」那條之後,**同一堆剩下三條我逐條去驗**(2026-08-19 05:5x)。
+**結論:三條都站得住。** 而**其中一條是今晚唯一一個【結構上被強制執行】的承諾。**
+
+## ✅ 「本公司不儲存您的完整卡號」—— **三層都驗過,而且是結構強制,不是政策宣示**
+原句兩處:`legal-content.ts:117`(隱私政策)與 `:184`(服務條款)。
+```
+① **DB schema 是白名單，零卡片欄位**
+   `20260613120000_m3_3ds_0a_webhook_events.sql:52-72` 全部欄位：
+     rec_trade_id / order_number / reported_status / amount / bank_transaction_id /
+     transaction_time_millis / **raw_hash（sha256 hex，不是原文）** / 處理狀態五欄
+   🔴 同檔 `:63` 註解逐字：「**不存原文 = 不落 masked_credit_card_number / card_identifier PII**」
+   ⇒ TapPay 的 notify payload **含**那兩個欄位，而我們**只存整包的 sha256**。
+
+② **錯誤字串是 allowlist、零 PII**
+   `packages/adapters/src/payment/PgWebhookInboxAdapter.ts:103` 逐字：「`last_error` allowlist 零 PII」
+   （這一層重要：`last_error text` 是最容易把 payload 漏進 DB 的那個欄。）
+
+③ **log 只印 orderId**
+   `apps/.../api/checkout/tappay-notify/[secret]/route.ts:212`
+     console.error('[tappay-notify] 背景 settleCharge 失敗…', { orderId: orderNumber })
+   （量法：全樹 grep `console.(log|error|info|warn)` 且含 body|payload|raw|notify ⇒ **只有這一行**）
+
+而應用層本來就碰不到卡號：前端走 TapPay iframe fields，我們的 code 只拿 **`prime`**（一次性 token）。
+```
+🔴 **而這句承諾的【範圍寫得剛好】**:它說的是「**本公司**不儲存」,
+而卡片由 TapPay 依 PCI-DSS 處理 —— **它沒有替 TapPay 背書,只講自己這一半。**
+📌 **今晚看過的承諾裡,這是範圍寫得最準的一句。**
+
+### ⚠️ 而我沒驗的三層(寫在這裡,不要當成「全部驗過」)
+```
+· **平台層的 request log**（Vercel / Supabase 有沒有留 HTTP body）—— 我在 repo 裡看不到，**未確認**
+· **admin app 與其他 repo** —— 本次只掃 storefront + packages + migrations
+· **TapPay 那一側** —— 不在我們控制範圍（而承諾本身也沒有涵蓋它）
+```
+
+## ✅ 「我要退款」—— 做得到,而且入口是刻意 fail-closed
+```
+兩支 owner RPC + `refund-repository.ts`（唯一呼叫端）+ `RefundSection` 掛在訂單頁
+而入口在三種情況下**刻意隱藏**（不是壞掉）：帳本讀取失敗 / 未登記額讀取失敗 /
+channel 記錯而 rec_trade_id 其實存在
+🔴 而 `order-detail.tsx:348` 的理由逐字：
+   「入口 fail-closed —— **同一頁「文字叫你別按、按鈕還亮著」就是自打嘴巴**」
+⇒ ✅ **那是一個把「寧可少一個入口」寫成明文理由的設計**，不是能力缺口。
+```
+
+## ✅ 「不適用 7 天鑑賞期」+ 瑕疵認定 —— 立場與判準都寫好了
+(`rpm-policies.ts` 的 `RPM_WARRANTY_PARAGRAPHS` 第 4 段與 `RPM_WARRANTY_NOTES` 前兩條。)
+而它的缺口不在能力,在**位置**:**那份話術寫在客人看的頁面上,員工得自己去讀**(§③ 已列)。
+
+---
+
+## 📌 ⇒ 這一輪的答案:**「做得到」那一堆,四條裡錯一條,已改**
+
+而我要把 §⑧ 那句判別句補一個**反向用法**:
+```
+§⑧：我確認的是「這顆按鈕存在」，還是「它在【那張單的狀態下】按得下去」？
+🔴 反向：**如果一個承諾【結構上做不到違反】，那它比任何檢查都強。**
+   卡號那條就是：DB 沒有那個欄位 ⇒ **沒有人「忘記」得了。**
+⇒ 而那正是三堆裡唯一一條【不需要靠人記得】的承諾。
+```
