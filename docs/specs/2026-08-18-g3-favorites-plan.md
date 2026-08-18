@@ -111,14 +111,38 @@ CREATE POLICY favorites_delete_own ON customer_favorites FOR DELETE TO authentic
 ```
 (無 UPDATE policy —— 對應上面不給 UPDATE。)
 
-**fail-closed 斷言**(形狀抄 `20260712210000_m4a_admin_audit_log.sql:113-115`,✅ 我開檔核過):
+**fail-closed 斷言** —— ✅ **已實作於 `20260818170000_m4b_g3_customer_favorites.sql`(commit `3e718617`)**。
 migration 尾端 `DO $$ … RAISE EXCEPTION … $$`,任一條不成立就**讓 apply 失敗**:
 ```
-anon         7 個權限全零（🔴 尤其 TRUNCATE —— 它不受 RLS 管，這條是本片的主角）
-PUBLIC       7 個權限全零
-authenticated 恰好只有 SELECT / INSERT / DELETE，其餘 4 個全零（含 TRUNCATE）
-RLS          relrowsecurity = true，且 policy 恰好 3 條
+anon          全部權限型別零（由 acldefault 推導，PG 加第九種會自動入列）
+PUBLIC        同上
+🔴 service_role 同上（GR must-fix 1 指出 plan 舊版清單漏列 —— 而 migration 一直有它，見下）
+authenticated 恰好 SELECT / INSERT / DELETE；其餘（含 TRUNCATE）全零
+              🔴 外加【反向】:那三個必須真的有 —— 這一列就是正向對照
+欄級          anon / service_role / authenticated 的欄級授權皆零
+              🔴 外加 attacl 全掃:新表出生時欄級必空 ⇒ 非空即紅（涵蓋任何角色，含自訂角色）
+RLS           relrowsecurity = true；policy 恰好 3 條
+              🔴 且【內容】要對:每條角色恰好 authenticated、條件同時含 auth.uid() 與 customer_user_id
 ```
+
+### 🔴 GR must-fix 1 的處理:**降級成 plan 文字問題,而我【不採用】它推薦的甲案**
+```
+GR 的甲（推薦）:照 customer_addresses 慣例【收下 service_role 全開】+ 斷言加一列正向對照
+GR 的乙        :照 audit_log 釘死（REVOKE 含 service_role + 只補需要的）
+```
+**我選乙,而且 migration 一開始就是乙。理由(有量測,不是意見)**:
+1. 🔴 `customer_addresses:235` 只 REVOKE `anon` / `authenticated` **兩個角色**
+   —— **那正是 `sweeper_heartbeat` 今天踩死的坑**(漏了 `service_role` ⇒ 被自己的斷言擋下,
+   該檔 `:9-13` 逐字)。⇒ 「照既有慣例」在這一格 = **照一個今天剛被證明不夠的慣例**。
+2. 「有沒有 server 端路徑需要 `service_role` 讀收藏」我答得出來:**今天沒有**
+   —— storefront 走客人自己的 `authenticated` JWT。要用再顯式加,不預留。
+3. **突變證明它有判別力**:拿掉 `REVOKE … FROM service_role` ⇒ 斷言炸 **20 項**,
+   第一項就是「`service_role` 仍有 TRUNCATE」。
+4. **GR 擔心的「前三列在誰都碰不到的世界裡恆真」已經被解掉** ——
+   我的斷言有**反向那一列**(白名單三個必須真的有);實測拿掉 `GRANT` ⇒ 紅 3 項,
+   第一項「authenticated 少了 DELETE」。⇒ **不恆真,而那是量出來的。**
+⚠️ **這是我不採納審查推薦的一次,明寫在這裡**;主視窗 2026-08-18 已駁回甲案並同意本理由。
+📌 值得記的形狀:**「照既有慣例」是一個【假設既有慣例是對的】的建議** —— 而今天剛好有反例。
 🔴 **同檔 §3.5 明寫「兩道 REVOKE 是必要基線,不是『已經關上』的證明」** ⇒
 **驗收看的是 `has_table_privilege` 的結果,不是「我下了 REVOKE」這個動作。**
 
@@ -135,6 +159,44 @@ apps/storefront      · 一支 useFavorites()（單一資料源，兩顆愛心�
                      · FavoritesTab 從純靜態改成讀真清單（殼不動，對齊既有 acc-empty 空狀態）
                      · ProductCard / ProductInfo 的 useState 換掉
 ```
+
+### 1-c-2 🔴 應用層的兩個陷阱 —— **兩個都是「畫面說一套、實際另一套」的鏡像**
+
+#### 陷阱一:`add` 必須冪等,否則**雙擊愛心會假性彈回**(GR must-fix 4)
+```
+supabase-js 的 .upsert() 預設走 ON CONFLICT DO UPDATE
+⇒ 我們【沒有 UPDATE 權限、也沒有 UPDATE policy】⇒ 會紅
+雙擊 / 兩分頁競態:第二發 INSERT 撞 PK ⇒ 23505
+⇒ 若照驗收第 10 條「失敗就退回」⇒ 🔴 愛心【假性彈回】：客人看到「收藏了又取消了」
+```
+⇒ **做法**:`add` 用 `insert(...).select()` 搭 `ignoreDuplicates`(= `ON CONFLICT DO NOTHING`),
+或明捕 `23505` **視為成功**。
+⚠️ **配一格雙擊測試**:連按兩下 ⇒ **仍是紅心、零錯誤 UI**。
+🔴 **為什麼這條特別要記**:它是本片要治的病(「畫面說成功、其實沒有」)的**鏡像** ——
+「**實際成功了,而畫面說失敗**」。兩個方向都要防,只防一邊等於沒防。
+⚠️ GR 標明這條是**依知識、非實測** ⇒ **實作時當場驗**,不要當它已證。
+
+#### 陷阱二:🔴 收藏了一個商品,然後它從清單消失(**沒有人問過我,而客人會遇到**)
+```
+本站商品是【軟下架】：products.delisted_at
+  20260602135934_s1_supplier_slug_delisted_clean_metadata.sql:50 逐字「不硬刪避免撞訂單」
+而 products_select_public 的 RLS 是 USING (delisted_at IS NULL) ⇒ 下架商品對客人隱形
+⇒ 收藏那一列【還在】（cascade 不會觸發，因為沒有 DELETE）
+⇒ 但「收藏清單」join 商品時【join 不到】
+```
+⇒ **客人的體驗**:他收藏過的東西,**有一天自己從清單裡不見了,而沒有任何說明**。
+🔴 **這是產品決定,不是技術決定** ⇒ 兩個做法,已請主視窗送 Sean:
+```
+甲 = 不顯示（清單直接少一項）
+     客人:東西默默消失，他會以為是網站弄丟了
+     好處:清單裡不會有點不進去的東西
+乙 = 顯示並標「已下架」，不可點
+     客人:知道發生什麼事，而不是以為系統壞了
+     代價:要一句文案（= Sean 的地盤）；清單會留著點不進去的項目
+```
+⚠️ **本 migration 不處理它**(它是應用層的顯示決定);已寫進 migration 註解,**這裡再寫一次**
+—— 因為**做前端那半的人讀的是 plan,不是 migration**。
+📌 這正是今天講了一整天的「**寫對地方 ≠ 會被讀到**」。
 
 ### 1-d 兩顆愛心怎麼同步(MAIN 第 4 題)
 
@@ -244,9 +306,14 @@ apps/storefront      · 一支 useFavorites()（單一資料源，兩顆愛心�
 Sean 逐字:「**愛心的問題給你決定就好,正常的網站該怎麼做就怎麼做**」⇒ 三題授權 MAIN 裁:
 ```
 Q1 手機上的愛心           ⇒ 甲 常駐顯示
-Q2 沒登入點愛心           ⇒ 乙 顯示，按了請他登入
-Q3 商品頁那顆手機版被關掉  ⇒ 打開，與 Q1 一致
+   🔴 **2026-08-18 17:0x 升級:Sean 本人親口確認「手機客人要能收藏」**
+   ⇒ 這一題現在是【他講的】，不再是主視窗代裁
+Q2 沒登入點愛心           ⇒ 乙 顯示，按了請他登入   ← ⚠️ **仍是主視窗代裁**
+Q3 商品頁那顆手機版被關掉  ⇒ 打開，與 Q1 一致        ← ⚠️ **仍是主視窗代裁**
 ```
+🔴 **三題的出處【不一樣】,不要一起升級成「Sean 拍的」。**
+引用 Q2 / Q3 時要講「主視窗代裁(Sean 授權『愛心的問題給你決定就好』)」,
+引用 Q1 才可以講「Sean 本人講的」。
 🔴 **他授權的是【UX 長相】,不是 schema** ⇒ **新表那一關沒鬆,本 plan 仍要他批。**
 
 ### 依據(比「design 沒規定」硬一級)
@@ -262,8 +329,11 @@ grep -rn "pcard-heart" design-reference/   ⇒ 4 命中（styles/product-card.cs
 
 ⇒ **design 的作者知道手機沒有 hover,而且交辦過要處理它。**
 ⇒ 所以不只是「design 沒規定所以我們自己決定」,是「**design 規定的方向與這三個裁定一致**」。
-⚠️ 而**本站沒照那句做**(`product-card.css` 對 `hover: hover` 零命中,該檔 hover 字面 13 個)——
-**那是這一整族的病根**,已開 `#642` 追,MAIN 裁定**現在不做**(視覺回歸面大、只有 Sean 驗得了)。
+⚠️ 而**本站沒照那句做**(`product-card.css` 對 `hover: hover` 零命中)——已開 `#642` 追。
+🔴 **2026-08-18 現況更正(G2 量掉的)**:~~那是這一整族的病根~~ **不成立** ——
+包 `@media (hover: hover)` 對那 7 條 hover 規則**一條都不會有差別**;
+陷阱來自 base 少一行 `pointer-events: none`,**而那一行就是 `0a7988c9` 補的**。
+⇒ **`0a7988c9` 不是「先擋一下等病根」,它就是正解。** `#642` 降級成文件對齊。
 
 ## 2. 🔴 未登入的客人點愛心 —— **已由 MAIN 裁定 Q2=乙(顯示、按了請登入)**
 
@@ -323,7 +393,9 @@ Code  三支新檔刪除 + 兩處 useState 還原 + FavoritesTab 還原 ⇒ 單�
 □ apply 後 has_table_privilege('anon','customer_favorites', <7 權限>) 逐一為 false（含 TRUNCATE）
 □ 同上 PUBLIC 逐一 false
 □ authenticated 恰好 SELECT/INSERT/DELETE 為 true，其餘 4 個為 false
-□ 負向對照:未登入（anon JWT）打 REST 拿收藏 ⇒ 401/403 或 0 列，【不是】拿到別人的
+□ 負向對照:未登入（anon JWT）打 REST 拿收藏 ⇒ **只認權限錯**（401/403/42501）
+   🔴 ~~或 0 列~~ **已拿掉**（GR must-fix 2）:「0 列」的世界是【anon 拿到了 SELECT 而 RLS 在濾】
+   —— 那正是本片要防的漂移態。留著「或 0 列」會讓**壞掉的世界與正常的世界印同一個「過」**。
 □ 兩個帳號各收藏一件 ⇒ 互相看不到對方的（RLS own-only 實跑，不是讀 policy 文字）
 □ 點愛心 → 重新整理 → 仍然是紅的（今天這一步是紅的變沒有，那正是本片要解的）
 □ 換一個瀏覽器登入同一帳號 ⇒ 收藏還在（甲的整個賣點）

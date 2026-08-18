@@ -198,7 +198,12 @@ BEGIN
         v_first := format('authenticated 仍有 %s（白名單只有 SELECT/INSERT/DELETE）', v_priv);
       END IF;
     END IF;
-    -- 🔴 反向:白名單那三個【必須真的有】—— 少了的話功能是壞的，而 apply 會綠
+    -- 🔴🔴 反向:白名單那三個【必須真的有】——【這一列就是本斷言的正向對照】。
+    --    GR 對 plan 的 must-fix ① 擔心的是:前面那幾列在「誰都碰不到」的世界裡**恆真**
+    --    (全部零權限 ⇒ 每一條「不該有」都成立 ⇒ 斷言綠,而功能是壞的)。
+    --    ⇒ 這一列讓那個世界**紅**:少了 SELECT/INSERT/DELETE 任一個就炸。
+    --    實測(2026-08-18):拿掉 `GRANT … TO authenticated` ⇒ 紅 3 項,第一項「authenticated 少了 DELETE」。
+    --    ⇒ **本斷言不是恆真的,而那是量出來的、不是宣稱的。**
     IF v_priv = ANY (v_allowed_authenticated)
        AND NOT has_table_privilege('authenticated', v_rel, v_priv) THEN
       v_bad := v_bad + 1;
@@ -236,6 +241,22 @@ BEGIN
       END IF;
     END LOOP;
   END LOOP;
+
+  -- 6b-2. 🔴 attacl 全掃(GR 對 plan 的 nit 3;形狀 `b1b:467-477`)——
+  --    上面 6b 只問了三個【我想得到的】角色。這一道改問資料本身:
+  --    **新表出生時 `pg_attribute.attacl` 必定是空的** ⇒ **非空即紅、零誤報**。
+  --    它涵蓋**任何角色**(含日後才建的自訂角色),補上 6b 那三個具名角色的射程缺口。
+  --    ⚠️ 但它只涵蓋**欄級**;表級的自訂角色仍在 §7-⑤ 的已知限制裡。
+  IF EXISTS (
+    SELECT 1 FROM pg_attribute a
+     WHERE a.attrelid = v_rel AND a.attnum > 0 AND NOT a.attisdropped
+       AND a.attacl IS NOT NULL
+  ) THEN
+    v_bad := v_bad + 1;
+    IF v_first IS NULL THEN
+      v_first := '有欄級授權存在（新表出生時該是空的）—— 任何角色都算，含自訂角色';
+    END IF;
+  END IF;
 
   -- 6c. RLS 必須開,且 policy 恰好三條(select / insert / delete，皆 own-only)
   SELECT count(*) INTO v_cnt FROM pg_class WHERE oid = v_rel AND relrowsecurity;
