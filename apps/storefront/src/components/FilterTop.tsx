@@ -78,7 +78,7 @@ export function FilterTop({
   setSort,
 }: {
   data: FilterTopData;
-  resultCount: number;
+  resultCount: number | null;   // null = 撈不到，不是 0 件
   sort: string;
   setSort: (value: string) => void;
 } & CascadeControlledProps & ExtrasControlledProps) {
@@ -144,7 +144,7 @@ export function FilterTop({
             )}
           </div>
           <div className="ft-right">
-            <span className="ft-count">{resultCount} 件商品</span>
+            <span className="ft-count">{resultCount === null ? '件數未能載入' : `${resultCount} 件商品`}</span>
             <div className="ft-divider" />
             <select className="ft-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
               <option value="recommend">推薦排序</option>

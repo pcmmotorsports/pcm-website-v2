@@ -36,6 +36,13 @@
 #             原封不動 —— 也就是說 ② 區第一次跑就撈到一條【真的、還活著的】殘留。
 #             (那正是 memory feedback_folding-a-finding-defaults-to-the-named-spot-only 的形狀。)
 #
+#
+# 🔴 錨定紀律(2026-08-18,兩個窗同日各撞一次,是同一個坑的兩面):
+#    沒錨尾 ⇒ `^### #(\d{1,3})` 把 `#220b` / `#220c` 讀成 `#220`,報出假重複(W8)
+#    沒錨頭 ⇒ `#6[3-9][0-9]` 撈到 `#64738a`(十六進位色碼)、`supabase/auth#6603`(GitHub issue)(W7)
+#    ⇒ **backlog 號與色碼在字形上是同一個東西,差別只在前後那一個字元。**
+#    ⇒ 不管用哪個 pattern,**命中都要開檔看一眼再採信**。
+#
 # 用法: bash scripts/orphan-code-refs.sh [repo 根目錄]   (預設 = 當前目錄)
 #
 # 🔴 2026-08-18 撤掉一個排除規則(留痕):第一版排除了 `Q-*`,理由寫「那是 Sean 的拍板題號」。
@@ -65,13 +72,28 @@ CODE='[A-Z]{1,3}[0-9]{0,2}-[0-9A-Za-z]{1,3}[a-z]?'
 TMP=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
-grep -rnE '(//|--|\*|#)' --include='*.ts' --include='*.tsx' --include='*.sql' "${SRC_DIRS[@]}" 2>/dev/null \
+# 🔴 --exclude-dir 是【正確性】不是效能:2026-08-18 實測,不排除的話 node_modules 的註解
+#    會進語料(當時實測 9 行命中),分母比宣稱的寬,而輸出看起來完全正常。
+grep -rnE '(//|--|\*|#)' --include='*.ts' --include='*.tsx' --include='*.sql' \
+  --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=dist --exclude-dir=.turbo \
+  "${SRC_DIRS[@]}" 2>/dev/null \
   | grep -vE '\.(test|spec)\.|__tests__|/test/' > "$TMP/comments" || true
 grep -E "$DEFER" "$TMP/comments" > "$TMP/defer" || true
+# docs/ 全文抓一次(下面每個代號都要對它比一次;逐次 grep -r 會讓整支跑成分鐘級)
+find "$ROOT/docs" -type f -name '*.md' -exec cat {} + > "$TMP/docs-all" 2>/dev/null || true
 grep -E "$EXPECT" "$TMP/comments" > "$TMP/expect" || true
 
 DEFER_N=$(wc -l < "$TMP/defer" | tr -d ' ')
 grep -ohE "$CODE" "$TMP/defer" | sort -u > "$TMP/codes" || true
+
+# 🔴 形狀六(W7 2026-08-18):條目有號、有內容,而住在一個【沒被收割的分支】上
+#    ⇒ 對只看 checkout 的掃描是隱形的,會被誤報成「無號」。
+#    這裡不自動掃 refs(那會讓上面那兩個歷史負向對照不可重跑),改成【把盲區印出來】。
+AHEAD=$(git -C "$ROOT" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null \
+  | while read -r b; do
+      n=$(git -C "$ROOT" rev-list --count "dev..$b" 2>/dev/null || echo 0)
+      [ "${n:-0}" -gt 0 ] && echo "  $b(+$n)"
+    done)
 
 echo "== 分母(掃描根目錄 $ROOT)=="
 echo "帶延後語的非測試註解行 : $DEFER_N"
@@ -83,7 +105,9 @@ N1=0
 while read -r code; do
   [ -z "$code" ] && continue
   # 必須是專案真的在用的代號:docs/ 內查得到(濾掉 JSON-LD / OWNER-COMPANY 這類詞片段)
-  grep -rqE "(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$ROOT/docs" 2>/dev/null || continue
+  # ⚡ 用一次抓好的 docs 合併檔,不要每個代號 grep -r 一次整個 docs/
+  #    (2026-08-18 實測:每代號一次 grep -r ⇒ 整支跑不完 2 分鐘;合併後見檔頭時間)
+  grep -qE "(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$TMP/docs-all" || continue
   grep -qE "^### #.*(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$BACKLOG" && continue
   N1=$((N1+1))
   echo "--- ${code}  (backlog 內文提及 $(grep -cE "(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$BACKLOG") 次、無標題認領)"
@@ -99,10 +123,23 @@ for n in $(grep -ohE '#[0-9]{2,3}' "$TMP/expect" | sort -u); do
   [ -z "$h" ] && continue
   case "$h" in *✅*|*已收*) ;; *) continue;; esac
   N2=$((N2+1))
-  echo "--- ${n} ⇒ ${h:0:80}"
+  # 🔴 不要用 ${h:0:80} 截斷:bash 的子字串在非 UTF-8 locale 下是【按位元組】切,
+  #    切在 CJK 字元中間 ⇒ 產出非法 UTF-8 ⇒ file 把整個輸出檔判成 extended-ASCII
+  #    ⇒ grep 當它是二進位而【靜默跳過】(2026-08-18 實測:3 處斷字、51 個 0x85 被讀成 NEL)。
+  #    ⇒ 印全長,不截。報告長一點沒關係,一個 grep 讀不到的報告才是問題。
+  echo "--- ${n} ⇒ ${h}"
   grep -E "(^|[^0-9])${n}([^0-9]|\$)" "$TMP/expect" | cut -d: -f1,2 | sed "s|^${ROOT}/||;s|^|      |" | head -3
 done
 [ "$N2" = 0 ] && echo "(無候選)"
 
 echo
 echo "候選數: 無號 $N1 / 錯號 $N2"
+echo
+echo "== ⚠️ 盲區(形狀六):本掃描只看【當前 checkout】 =="
+if [ -n "$AHEAD" ]; then
+  echo "下列分支領先 dev,它們上面的 backlog 條目在本次掃描裡是隱形的:"
+  echo "$AHEAD"
+  echo "要涵蓋:git grep -l '^### #' <branch> -- docs/phase-1-backlog.md"
+else
+  echo "沒有分支領先 dev ⇒ 這一輪沒有這個盲區。"
+fi

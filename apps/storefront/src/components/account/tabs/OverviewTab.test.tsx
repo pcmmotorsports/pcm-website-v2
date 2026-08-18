@@ -32,6 +32,7 @@ import { OverviewTab } from './OverviewTab';
 import type { FeaturedResult } from '@/lib/products';
 import type { MockProduct } from '@/data/mock-products';
 import { toMoneyAmount, type OrderListItem } from '@pcm/domain';
+import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
 
 afterEach(cleanup);
 
@@ -241,6 +242,34 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     it('🔴 少量商品照樣全畫(不會反過來變成「一定要湊滿幾筆」)', () => {
       const { container } = renderTab({ featured: { products: manyProducts(2), error: false } });
       expect(container.querySelectorAll('.pcard').length).toBe(2);
+    });
+  });
+
+  // 🔴🔴 `#636`(2026-08-18 W4 補)——**這條分支落地前本檔一格都沒有。**
+  //    `itemCountTruncated` 在本檔只以 fixture 的 `false` 出現過(`:50`)⇒ 真值那一半
+  //    **從來沒有被渲染過**。`OrdersTab` 有它的雙向格,而這裡沒有;同一個病、同一句文案,
+  //    只有一面被守著 ⇒ 「? 件」在這一面可以壞掉而不會有任何東西紅。
+  describe('🔴 `#636` itemCountTruncated ⇒ 件數印「?」', () => {
+    const truncated = [{ ...SAMPLE_RECENT[0]!, itemCountTruncated: true }];
+
+    it('🔴 旗標為真 ⇒ 印「? 件」,而那個少算的數字一個字都不出現', () => {
+      renderTab({ recentOrders: truncated });
+      expect(screen.getByText(/\? 件/)).toBeTruthy();
+      expect(screen.queryByText(/3 件/), '少算的數字不得出現').toBeNull();
+    });
+
+    it('正向對照:旗標為假 ⇒ 「3 件」照常印(否則上一格靠「永遠印 ?」也能過)', () => {
+      renderTab({ recentOrders: SAMPLE_RECENT });
+      expect(screen.getByText(/3 件/)).toBeTruthy();
+    });
+
+    // 🔴 接線格:說明文字必須**就是**共用常數,不是就地另寫一句
+    //    ——「請重新整理」正是這樣長回來的。
+    it('🔴 「?」的說明文字 = 共用常數', () => {
+      renderTab({ recentOrders: truncated });
+      expect(screen.getByText(/\? 件/).getAttribute('title')).toBe(
+        ORDER_ITEM_COUNT_TRUNCATED_NOTE,
+      );
     });
   });
 });

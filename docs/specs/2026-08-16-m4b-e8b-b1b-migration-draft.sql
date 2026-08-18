@@ -20,9 +20,22 @@
 --
 --  ── 🔴 出事怎麼退(寫在檔頭,不是只寫在操作文件裡)──────────────────────
 --  本支全退(照順序,反向):
---      DROP TRIGGER  admin_user_staff_map_no_delete_trg ON public.admin_user_staff_map;
+--  🔴🔴 2026-08-18 更正(codex 關卡1 R3,角度=災難當天可用性):
+--     ⛔ ~~原本這裡只列了 no_delete 一支~~ —— **本檔實際建了三支函式 + 三支 trigger**
+--        (`:153` no_delete / `:173` no_truncate / `:201` no_rebind)。
+--     ⇒ 照原文退完,`no_truncate` 與 `no_rebind` **兩支函式會殘留**,
+--        而本檔明文禁用 `OR REPLACE`(檔頭硬規則 2)⇒ **下一次重跑會在 `CREATE FUNCTION` 當場撞名**。
+--        (那是「當場紅」不是靜默,但**紅在錯的地方**:訊息會說「函式已存在」,
+--         讀的人要自己想到「上一次沒退乾淨」。)
+--      DROP TRIGGER  admin_user_staff_map_no_rebind_trg   ON public.admin_user_staff_map;
+--      DROP TRIGGER  admin_user_staff_map_no_truncate_trg ON public.admin_user_staff_map;
+--      DROP TRIGGER  admin_user_staff_map_no_delete_trg   ON public.admin_user_staff_map;
 --      DROP TABLE    public.admin_user_staff_map;
+--      DROP FUNCTION public.admin_user_staff_map_no_rebind();
+--      DROP FUNCTION public.admin_user_staff_map_no_truncate();
 --      DROP FUNCTION public.admin_user_staff_map_no_delete();
+--  ⚠️ `DROP TABLE` 會連帶把三支 trigger 一起帶走 ⇒ 三行 DROP TRIGGER 其實是**冗餘**的;
+--     留著是為了「只想退 trigger 不想退表」的那種半退場,**照順序跑不會出錯**。
 --  🔴🔴 **B2(seeding)已經跑過的話,要退【必須先 DROP TRIGGER】** ——
 --     否則 `DELETE` 會被【本檔自己建的那道保護】擋住。
 --     **那是作者刻意造出來的退場成本,不是意外。** 半年後要退的人會先撞到它。
@@ -133,7 +146,9 @@ COMMENT ON TABLE public.admin_user_staff_map IS
   '只描述【會登入的人】;系統帳號不進本表(它們是 admin_audit_log.actor 的字串,不經登入路徑)。'
   'staff_id 為永久識別碼、永不重用(Sean 2026-08-16 拍板)。'
   '🔴 本表【刻意不曝露 Data API】(PostgREST / supabase-js .from()):anon 與 authenticated 兩道 REVOKE 都下了,'
-  '只有 service_role 拿到 SELECT/INSERT,讀取一律走 server 端。'
+  '只有 service_role 拿到 SELECT(⛔ 2026-08-18 起【沒有任何寫入權】,原文寫 SELECT/INSERT 已作廢),讀取一律走 server 端。'
+  '🔴 寫入端唯一入口 = migration 本身(以本表 owner 執行);看到這行不要「順手把寫權補回去」——'
+  '   那會讓任何持 service key 的程序都能新增身分映射,而 admin_audit_log.actor 的可信度就是靠這個。'
   '⇒ 這不是漏了 GRANT。2026-08-17 實測:apps/ 與 packages/ 共 1477 個追蹤檔內,'
   'admin_user_staff_map 零命中(同一把量具在同一範圍找得到 admin_audit_log / customers 等 .from() 呼叫,量具是活的)。'
   '⚠️ Sean 2026-08-17 已把 Supabase 的 Automatically expose new tables 關閉;本表不依賴那個開關,'
@@ -249,7 +264,48 @@ REVOKE ALL ON FUNCTION public.admin_user_staff_map_no_rebind()   FROM anon, auth
 --    禁了 DELETE 卻留 UPDATE = 鎖了前門開了後門。
 --    ⚠️ 而作者自己的 A9 驗收格【把 UPDATE 驗成綠色】—— 那一格在驗證這個漏洞是好的。
 --    ⇒ 本表的兩個識別欄是 append-only:要換人綁定,走 Auth 側 disable + 新增一列新代號。
-GRANT SELECT, INSERT ON TABLE public.admin_user_staff_map TO service_role;
+-- 🔴🔴 2026-08-18 更正(codex 關卡1 R3,角度=回歸與權限面):
+--    ⛔ ~~`GRANT SELECT, INSERT … TO service_role;`~~ ⇒ **INSERT 拿掉,只留 SELECT。**
+--    codex 逐字:「規格稱寫入唯一入口是 migration,卻永久授予共用 `service_role` INSERT;
+--    所有既有 fetcher／server service key 都同步取得新增身分映射的能力。」—— **屬實**。
+--    · **誰需要 SELECT**:報價單登入流程要用已驗證的 `auth_user_id` 查出 `staff_id`,
+--      那條路走 `supabaseServer`(= service_role)⇒ SELECT **必須留**。
+--    · **誰需要 INSERT**:只有 B2-seed 那支 migration,而它是**以 migration 角色(表的 owner)跑的**
+--      ⇒ 不需要 service_role 的 INSERT。
+--    · ⇒ 拿掉之後,「寫入端唯一入口 = migration」**從一句散文變成一道權限**。
+--
+--  🔴 **而這一改帶著一個【我沒查證的前提】,不要當它已驗**:
+--     `apply_migration` 究竟以哪個角色連線 —— 若它走的是 `service_role`(不是 owner),
+--     **B2-seed 會在 INSERT 那一步被權限擋下**。
+--     ⇒ 緩解已經下在 B2-seed 的前提斷言裡(它會印出當下角色與缺哪個權限,不會只回一句 permission denied)。
+--     ⇒ **這是「把未知變成一個會自己說明的失敗」,不是「查過了」。**
+GRANT SELECT ON TABLE public.admin_user_staff_map TO service_role;
+
+-- 🔴 落地斷言:service_role **不得**有任何寫入權(把上面那段散文變成機械檢查)。
+DO $no_write_for_service_role$
+DECLARE v_bad text;
+BEGIN
+  SELECT string_agg(p, ', ') INTO v_bad
+    FROM unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE']) AS p
+   WHERE has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), p);
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION E'B1-b 落地斷言:service_role 仍持有寫入權(%)。\n'
+      '   ⇒ 「寫入端唯一入口 = migration」在權限層不成立;有 service key 的任何程序都能新增身分映射。\n'
+      '   🔴 來源有三種,修法不同 —— 【不要預設是第①種】(codex R4:本道比下面那道「可達權限」早跑,\n'
+      '      照「REVOKE 直授」去做而來源其實是③的話,你會改了一個沒壞的東西然後看它繼續紅):\n'
+      '      ① 直接授權(含 ADP)⇒ REVOKE ALL ON TABLE … FROM service_role; 放在 GRANT 之前\n'
+      '      ② 欄級授權        ⇒ REVOKE … (欄名) ON TABLE … FROM service_role;\n'
+      '      ③ 可 SET ROLE 過去的角色持有 ⇒ REVOKE 收不掉,要拆 role membership\n'
+      '      ⇒ 先查是哪一種:SELECT * FROM information_schema.table_privileges\n'
+      '                       WHERE table_name = ''admin_user_staff_map'';', v_bad;
+  END IF;
+  -- 🔴 對照組:SELECT 必須【有】。少了它,上面那道會在「什麼權限都沒有」的世界裡也綠,
+  --    而那個世界裡報價單登入查不到 staff_id ⇒ 全公司登入失敗。
+  IF NOT has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), 'SELECT') THEN
+    RAISE EXCEPTION 'B1-b 落地斷言:service_role 沒有 SELECT —— 報價單登入將查不到 staff_id。';
+  END IF;
+END
+$no_write_for_service_role$;
 
 ALTER TABLE public.admin_user_staff_map ENABLE ROW LEVEL SECURITY;
 -- 零 policy = default deny。
@@ -268,7 +324,9 @@ BEGIN
   END IF;
   IF NOT v_bypass THEN
     RAISE EXCEPTION E'B1-b:service_role 沒有 BYPASSRLS,而本表是「RLS 開 + 零 policy」。\n'
-      '   ⇒ 這張表會建起來但【沒有人寫得進去】,而且要到有人真的寫才會發現。\n'
+      '   ⇒ 這張表會建起來但 service_role 【一列都讀不到】,而且要到有人真的讀才會發現。\n'
+      '      (🔴 2026-08-18 更正主詞:原文寫「沒有人寫得進去」—— 那是 service_role 還有 INSERT 那個版本的話。\n'
+      '       現在 service_role 只有 SELECT,壞掉的面是【報價單登入查不到 staff_id】,不是寫不進去。)\n'
       '   ⇒ 兩條路擇一,不要硬跑:\n'
       '      (a) 確認正式庫的 service_role 確實有 BYPASSRLS(Supabase 預設有,但【要看過才算】)\n'
       '      (b) 改成明文開一條給 service_role 的 policy,不依賴 BYPASSRLS';
@@ -294,7 +352,11 @@ BEGIN
       FROM pg_class WHERE oid = to_regclass('public.admin_user_staff_map');
     IF v_rls IS DISTINCT FROM true THEN
       RAISE EXCEPTION E'B1-b 落地斷言:admin_user_staff_map 的 RLS 沒有開起來(relrowsecurity=%)。\n'
-        '   ⇒ 本表的設計是「RLS 開 + 零 policy = default deny」,RLS 沒開等於**整張表對所有角色敞開**。\n'
+        '   ⇒ 本表的設計是「RLS 開 + 零 policy = default deny」。\n'
+        '   ⚠️ 2026-08-18 修辭更正(codex R4 nit):RLS 沒開【不等於】對所有角色敞開 ——\n'
+        '      表級 ACL 的兩道 REVOKE 仍然在,anon/authenticated 照樣碰不到。\n'
+        '      失去的是【第二層】:任何日後被授到權的角色,將不再被 default deny 擋住。\n'
+        '      (把失效誇大成另一個沒發生的狀態,會讓讀的人去查錯的地方。)\n'
         '   ⇒ 檢查本檔的 `ALTER TABLE … ENABLE ROW LEVEL SECURITY;` 那一行是不是被刪掉或改壞了。', v_rls;
     END IF;
   END;
@@ -344,6 +406,18 @@ BEGIN
       SELECT DISTINCT d.privilege_type
         FROM aclexplode(acldefault('r', (SELECT relowner FROM pg_class WHERE oid = v_oid))) d
     LOOP
+      -- 🔴 2026-08-18 codex 關卡1 R3 [不確定] D3:`has_table_privilege` 走的是【繼承後】的權限,
+      --    而 `NOINHERIT` 成員可以先 `SET ROLE` 再取得目標角色的權限 ⇒ 這一問可能綠、路仍可達。
+      --    **本檔【不】在這裡加那道檢查**,理由:Supabase 的切換者是 `authenticator`(它才是 anon /
+      --    authenticated / service_role 的成員),而 `anon` 本身**不是** service_role 的成員 ——
+      --    ⚠️ **而上面這句是我從架構推的,不是查到的。**
+      --    ⇒ **缺的那一道檢查(apply 當天貼上去跑,一行)**:
+      --         SELECT r.rolname AS member, g.rolname AS can_set_role_to, r.rolinherit
+      --           FROM pg_auth_members m
+      --           JOIN pg_roles r ON r.oid = m.member
+      --           JOIN pg_roles g ON g.oid = m.roleid
+      --          WHERE g.rolname IN ('service_role','postgres') ORDER BY 1,2;
+      --    ⇒ 若結果裡出現 `anon` 或 `authenticated` 當 member ⇒ **停下來回報**,本表的收權斷言射程不足。
       IF has_table_privilege('anon', v_oid, v_priv)
          OR has_table_privilege('authenticated', v_oid, v_priv) THEN
         v_bad := v_bad + 1;
@@ -436,8 +510,13 @@ BEGIN
       -- ⚠️🔴 這一段的註解原本寫「**七種**」而陣列是 8 項(code-reviewer 2026-08-17 抓)。
       --    **「清單漏一項而沒人發現」正是本片在修的那個病,同一段又復發一次。**
       --    ⇒ 改成推導之後這個數字**不再需要寫在註解裡** —— 沒有數字就沒有會漂的數字。
-      -- 📌 `<> (v_priv IN ('SELECT','INSERT'))` 這半是【可接受的集合】,**刻意手寫**:
+      -- 📌 `<> (v_priv IN ('SELECT'))` 這半是【可接受的集合】,**刻意手寫**:
       --    它是白名單、是business 決定,不是「世界有哪些權限型別」。兩者不混在一起。
+      -- 🔴 2026-08-18 隨 codex R3 D1 一起改:⛔ ~~`IN ('SELECT','INSERT')`~~ ⇒ **只剩 SELECT**。
+      --    **這一處是拋棄式 PG 實跑抓到的,不是我改 GRANT 時想到的** ——
+      --    改完 GRANT 直接跑,這道斷言當場紅在「表級 INSERT 不符」。
+      --    📎 形狀:**可接受集合寫在兩個地方(GRANT 一份、斷言一份),改一份不會有東西提醒你改另一份**
+      --    —— 而它剛好是這支檔在防的同一個病(清單漏一項而沒人發現),只是這次是我漏。
       FOR v_priv IN
         SELECT DISTINCT d.privilege_type
           FROM pg_class oc
@@ -445,18 +524,24 @@ BEGIN
          WHERE oc.oid = to_regclass('public.admin_user_staff_map')
       LOOP
         IF has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_priv)
-           <> (v_priv IN ('SELECT','INSERT')) THEN
+           <> (v_priv IN ('SELECT')) THEN
           v_bad := coalesce(v_bad || ', ', '') || format('表級 %s', v_priv);
         END IF;
       END LOOP;
 
-      -- 欄級:逐欄問可欄級授權的四種。任何一欄多出 UPDATE / REFERENCES 都要紅。
-      -- 🔴 SELECT / INSERT 在表級已為真 ⇒ 欄級必然為真,不重複判;這裡只抓【多出來的】。
+      -- 欄級:逐欄問可欄級授權的四種。任何一欄多出 INSERT / UPDATE / REFERENCES 都要紅。
+      -- 🔴 SELECT 在表級已為真 ⇒ 欄級必然為真,不重複判;這裡只抓【多出來的】。
+      -- 🔴🔴 2026-08-18 隨 D1 一起改:⛔ ~~陣列是 `['UPDATE','REFERENCES']`~~ ⇒ **加回 `INSERT`**。
+      --    原本不判欄級 INSERT 的理由是「表級 INSERT 已為真」;**那個前提剛剛被我自己拿掉了**
+      --    ⇒ 不加回去的話,`GRANT INSERT (staff_id) ON … TO service_role` 這種欄級授權
+      --      **表級那圈看不到、欄級這圈也不看** = 從兩道之間漏過去。
+      --    📎 這是「拿掉一個授權」的連帶效應,而它**不在 codex 的 finding 裡** ——
+      --      折 finding 的動作本身會製造新的面,折完要重走一次自己的檢查清單。
       FOR v_col IN
         SELECT attname FROM pg_attribute
          WHERE attrelid = to_regclass('public.admin_user_staff_map') AND attnum > 0 AND NOT attisdropped
       LOOP
-        FOREACH v_priv IN ARRAY ARRAY['UPDATE','REFERENCES'] LOOP
+        FOREACH v_priv IN ARRAY ARRAY['INSERT','UPDATE','REFERENCES'] LOOP
           IF has_column_privilege('service_role', to_regclass('public.admin_user_staff_map'), v_col, v_priv) THEN
             v_bad := coalesce(v_bad || ', ', '') || format('欄級 %s.%s', v_col, v_priv);
           END IF;
@@ -669,7 +754,7 @@ BEGIN
       --    ⚠️ 這是判斷、可被推翻。要現在建的話請直接指定警報去哪裡。
 
       IF v_bad IS NOT NULL THEN
-        RAISE EXCEPTION E'新物件收權斷言:service_role 的【有效 + 可達權限】不符,預期恰好 {SELECT, INSERT}。\n'
+        RAISE EXCEPTION E'新物件收權斷言:service_role 的【有效 + 可達權限】不符,預期恰好 {SELECT}。\n'
           '   不符處:%\n'
           '   🔴 來源有三種,修法不同:\n'
           '      ① 直接授權(含 ADP)⇒ `REVOKE ALL ON TABLE … FROM service_role;` 放在 GRANT 之前\n'

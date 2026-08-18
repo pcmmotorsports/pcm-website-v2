@@ -200,7 +200,7 @@ export function ProductFitmentCheck({
         : null;
   // Q27 A4:qualified 時 picker 在手機(≤1023px)強制展開,否則客人看不到補年份的欄位。
   const pickerEffectivelyOpen = pickerOpen || status === 'qualified';
-  const pickerLabel = status === 'qualified' ? '選一下年份，就能給你確定的答案' : '確認是否適用你的車';
+  const pickerLabel = status === 'qualified' ? '選一下年份，就能給您確定的答案' : '確認是否適用您的車';
 
   return (
     <div className="pfc">
@@ -210,7 +210,7 @@ export function ProductFitmentCheck({
             {status === 'match' ? '✓' : status === 'no-match' ? '✗' : '?'}
           </span>
           <div className="pfc-msg">
-            {status === 'match' && <><b>適用你的 {chosenLabel(chosen)}</b></>}
+            {status === 'match' && <><b>適用您的 {chosenLabel(chosen)}</b></>}
             {status === 'no-match' && (
               <>
                 <b>{chosenLabel(chosen)} 未列於適用清單</b>
@@ -220,13 +220,13 @@ export function ProductFitmentCheck({
             {status === 'qualified' && (
               <>
                 <b>此商品適用 {vehicleLabel(chosen.brandName, chosen.modelName)},但有年份限制</b>
-                <span className="pfc-sub">請確認你的年份是否在下方適用車款表範圍內</span>
+                <span className="pfc-sub">請確認您的年份是否在下方適用車款表範圍內</span>
               </>
             )}
             {status === 'undetermined' && (
               <>
-                <b>已記下你的車款</b>
-                <span className="pfc-sub">下單後我們會人工為你確認是否適用</span>
+                <b>已記下您的車款</b>
+                <span className="pfc-sub">下單後我們會人工為您確認是否適用</span>
               </>
             )}
           </div>
@@ -260,7 +260,7 @@ export function ProductFitmentCheck({
           <div className="pfc-picker-label">{pickerLabel}</div>
           {/* MF-2:URL 車款對不到 taxonomy(壞/過期連結)→ 提示重新選車、不顯任何過期舊車判定 */}
           {urlInvalid && (
-            <p className="pfc-sub pfc-invalid" role="status">先前的車款連結已失效,請重新選擇你的車。</p>
+            <p className="pfc-sub pfc-invalid" role="status">先前的車款連結已失效,請重新選擇您的車。</p>
           )}
           {/* A10b:自刻的 chips + 建議清單退場,換全站唯一的 GarageChips(設計稿 C4 After 行內密度)。
               PDP 沒有 cascade reducer、走 `commit()` ⇒ 用 A9 的互斥 `onApply` 出口。

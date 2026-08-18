@@ -47,6 +47,10 @@ export default async function AdminHomePage() {
     console.error('[admin/home] 今日對帳載入失敗', todaySettled.reason);
   }
 
+  // 🔴 `max-w-4xl` **刻意留著,不是漏做**(`7f6d0ac1` 那次六支列表頁拿掉時逐支判過):
+  //    本頁是**總覽**、沒有表格,拉滿寬只會讓幾張卡片攤在一片空白裡。
+  //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
+  //    (`#640` 守門在 `app/design-tokens.test.ts`)。
   return (
     <div className='mx-auto max-w-4xl space-y-4 py-10'>
       <h1 className='text-2xl font-semibold'>PCM 後台</h1>

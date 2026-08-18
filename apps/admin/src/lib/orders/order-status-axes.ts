@@ -105,7 +105,7 @@ const GOODS_TONE: Record<OrderGoodsAxis, string> = {
  *    **只有【外觀】(顏色 / 形狀 / 字距 / 膠囊 / 選中態)要改引 `-bmw-m` 那份。**
  *
  * 🔴 **順帶治好一個既有病(不是本片的目標)**:舊的外環**往外長 3px**,而
- *    `.orders-grid th,td` 有 `overflow: hidden` ⇒ 實測 **8/15 顆**未收款膠囊的紅框被切掉
+ *    `.orders-grid td` 有 `overflow: hidden` ⇒ 實測 **8/15 顆**未收款膠囊的紅框被切掉
  *    (`globals.css` 的 `.col-status` 那段記過)。**`inset` 畫在 padding box 內 ⇒ 切不到。**
  *
  * ⚠️ **改用 CSS class 而不是 Tailwind 任意值**:`inset` 陰影搭 `var()` 在任意值裡要寫成

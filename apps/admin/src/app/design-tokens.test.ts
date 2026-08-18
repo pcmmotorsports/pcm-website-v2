@@ -716,7 +716,7 @@ describe('BMW M:無陰影(片6;Sean 2026-08-16 批「3 可以做」)', () => {
     //   ⇒ **綠燈 + 功能不見,而那正是 Sean 點名的第一件事。**
     //
     // ⚠️ **釘「存在 + 關鍵值」,不釘整條規則字面** —— 釘整條會在任何微調時假紅。
-    //    兩個關鍵值各自承重:`inset` 少了會被 `.orders-grid th,td` 的 `overflow:hidden` 切掉;
+    //    兩個關鍵值各自承重:`inset` 少了會被 `.orders-grid td` 的 `overflow:hidden` 切掉;
     //    `var(--primary)` 少了就不是 M 藍。
     expect(CSS, '選中訂單的色塊規則不見了 ⇒ 點開面板左邊不會有任何變化').toMatch(
       /\.orders-group\[data-selected\][^{]*\{[^}]*box-shadow:\s*inset\s+3px\s+0\s+0\s+var\(--primary\)/,
@@ -798,6 +798,17 @@ describe('BMW M:表格內文色 --fg-2(片5)', () => {
       join(__dirname, '..', 'components', 'orders', 'orders-table.tsx'),
       'utf8',
     ).replace(/\/\*[\s\S]*?\*\//g, '');
+    //
+    // 🏁 **2026-08-18(`#631` 甲):5 → 6。而這一格【不是被我調高的,是它叫我回去重看理由,我看完了】。**
+    //    🔴 **改期望值本來就是停止訊號**(規則 R4)⇒ 所以把「看了什麼、結論是什麼」寫在這裡,
+    //       而不是把數字一改了事:
+    //       · 新增的第 6 處 = `#631` 那一列「另有 …,點進去看」的 `<td>`。
+    //       · 回去看 `globals.css` `.orders-grid` 那段的理由(容器繼承 `--fg-2`、格子上的顏色一定贏):
+    //         它要防的是「**次要欄的顏色被拿掉**」而讓「繼承 vs td」那套論證失去對象。
+    //       · 本次是**新增一個本來就該是次要色的格**(整列的補充說明,不是資料格)
+    //         ⇒ 與那套論證**同向**,不是把它推翻。
+    //    ⚠️ **這一格的判別力沒有變**:它仍然在任何一次增減時紅,而紅了就要再做一次上面這件事。
+    //       **不要把它改成 `toBeGreaterThan`** —— 那會讓「有人拿掉兩個、又加回兩個」永遠不紅。
     const n = (table.match(/text-muted-foreground/g) ?? []).length;
     expect(n, `刻意的次要色從 6 變成 ${n} ⇒ 回去重看 globals.css .orders-grid 那段的理由`).toBe(6);
   });
@@ -924,5 +935,67 @@ describe('Tailwind v4 的裸圓角類別陷阱', () => {
     //       **本格是它落地之前的替代品,不是它的等價物。**
     //       ⚠️ **`#544` 明文【不在測試裡自建 Tailwind】** —— 本 session 自建探針三次、三次都是死量具
     //          (而三次都印出長得完全正常的結果)。**讀真 build 的產物則五次五次成功。**
+  });
+});
+
+// ── #640:有表格的頁面不得帶 `max-w-` ────────────────────────────────────────────
+//
+// 🔴 **來歷**:Sean 2026-08-17 逐字「網頁都沒有滿版」⇒ `7f6d0ac1` 把六支列表頁的 `max-w-6xl` 拿掉。
+//    **那個修法是對的,而它旁邊有一個洞**:改完之後**零守門**
+//    (`grep -rn 'max-w-' apps/admin/src --include='*.test.*'` 在本格落地前 ⇒ **0 命中**)。
+//
+// 🔴🔴 **為什麼一定要有這一格**(不是「順手多加一個」):
+//    仍帶 `max-w-*` 的四支是 `app/page.tsx` / `customers/[id]` / `products/[id]` / `orders/[id]` ——
+//    **而那四支正是要做一個新後台頁面時最順手的複製樣板。**
+//    ⇒ 這不是「有一天可能有人手滑」,是**現行複製路徑的預設輸出就是壞的那一種**,
+//      而症狀(畫面右邊一片空白)**看起來像設計選擇,不像 bug** ⇒ 沒有人會回報。
+//
+// ⚠️ **這一格會擋人,所以它的錯誤訊息要說得出規則** —— 光有守門而沒有理由,
+//    被擋的人只會去繞過它(#640 條目裡「②不能省」講的就是這件事;那四支的理由已補在各自檔內)。
+//
+// ⚠️ **誠實邊界**:`/<table|Table/` 是**字面**判準,它會把「import 了某個 `Table` 元件」的頁面
+//    也算成有表格。**今天沒有那種頁**(四支未改的逐支量 ⇒ 0 命中),而哪天有,
+//    正確的動作是**問那頁需不需要寬**,不是把判準改窄 —— 有 Table 通常就是需要寬。
+describe('#640 有表格的 admin 頁面不得帶 `max-w-`(滿版守門)', () => {
+  const listPages = () => {
+    const { globSync } = require('node:fs') as typeof import('node:fs');
+    const pages = globSync(join(__dirname, '**', 'page.tsx')) as string[];
+    // 🔴 分母①:glob 掃不到檔 ⇒ 下面每一格都恆綠。2026-08-18 實測 admin 共 15 支 page.tsx。
+    expect(pages.length, 'glob 掃到 0 支 page.tsx = 這一格失去判別力,不是通過').toBeGreaterThan(8);
+    const withTable = pages.filter((p) => /<table|Table/.test(readFileSync(p, 'utf8')));
+    // 🔴 分母②:判準對不上任何檔 ⇒ offenders 也會是空的。2026-08-18 實測 6 支。
+    expect(
+      withTable.length,
+      '一支「有表格」的頁都沒認出來 = 判準壞了(或頁面結構變了),不是通過',
+    ).toBeGreaterThan(3);
+    return withTable;
+  };
+
+  it('🔴 有 `<table` / `Table` 的頁面,外框不得帶 `max-w-`', () => {
+    const offenders = listPages()
+      .filter((p) => /max-w-/.test(readFileSync(p, 'utf8')))
+      .map((p) => p.replace(/^.*\/apps\/admin\//, 'apps/admin/'));
+    expect(
+      offenders,
+      '這幾支頁面有表格卻被 `max-w-` 夾住 ⇒ 表格右邊會被切、而畫面上沒有任何提示。' +
+        '規則:有表格 = 列表頁 = 吃滿寬;沒有表格的詳情/表單頁才留 `max-w-`(長文字行過寬更難讀)。' +
+        '若這頁真的是詳情頁而只是 import 了 Table 元件,請在該檔寫一行說明再來調整本格。命中:' +
+        offenders.join(' / '),
+    ).toEqual([]);
+  });
+
+  it('🔴 負向對照:判準本身認得出 `max-w-`(不然上一格是恆綠的)', () => {
+    // 上一格是「零命中 = 通過」的形狀 ⇒ 必須證明那把尺在【該紅的世界】會紅。
+    // 用**真的還帶著 `max-w-` 的那四支**當測資,不是自己編一段字串。
+    const { globSync } = require('node:fs') as typeof import('node:fs');
+    const all = globSync(join(__dirname, '**', 'page.tsx')) as string[];
+    const withMaxW = all.filter((p) => /max-w-/.test(readFileSync(p, 'utf8')));
+    expect(
+      withMaxW.length,
+      'repo 內一支帶 `max-w-` 的頁都找不到 ⇒ 上一格的「零命中」證明不了任何事',
+    ).toBeGreaterThan(0);
+    // 而它們必須全部是**沒有表格**的那一種 —— 否則上一格早該紅了,兩格會自相矛盾。
+    const contradiction = withMaxW.filter((p) => /<table|Table/.test(readFileSync(p, 'utf8')));
+    expect(contradiction, '兩格自相矛盾:同一支檔同時「有表格」與「帶 max-w-」').toEqual([]);
   });
 });

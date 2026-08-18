@@ -5,6 +5,28 @@
 > 待 Sean 早上①批准方向 ②回答下方 §9 的一個設計岔路 → 才進 codex 關卡1 審 plan → 實作。
 > 真權威來源:PRD `docs/specs/2026-07-18-b0-order-notification-email-prd.md` §3.3/§3.4/§4(B-4 列)/§5;
 > 舊字面清單=B-2 plan `docs/specs/2026-07-19-m4a-b2-create-order-9param-plan.md` §8.2。
+>
+> ---
+> 🔴🔴 **2026-08-18 W5 檔頭下修 —— 本檔 §4 / §5 的【現況描述】已過期,而 B-4 的核心結論仍成立。**
+> 本檔寫於 2026-07-24。`cardholder.ts` 已於 **2026-08-09 LINE 3DS 修復**整支重寫,下列字面**當場實查為假**:
+> · ~~「`cardholder.ts:49,75` = `email = (user.email ?? '').trim()`,**完全不驗 ≤40 / RFC 5322**」~~
+>   ⇒ **現況已驗**:`pickUsableEmail()` 對每個候選跑整支 `AddressEmailInput`
+>   (`packages/schemas/src/index.ts:110-113` = `NotificationEmailInput` + `≤40`),涵蓋 printable ASCII /
+>   ≤254 octets / email 基本形狀 / **禁 LINE 合成域** / **≤40**。(`apps/storefront/src/lib/payment/cardholder.ts:56-63,120-124`)
+> · ~~「email ← 無條件 session `user.email`」~~ ⇒ **現況是兩候選依序**、且**收件地址 email 優先**:
+>   `pickUsableEmail([address.email, input.user.email])`(`cardholder.ts:120`)。
+> · ~~§5「B-4 後 flag-off 會從『送合成假 email』變成『送空字串』」~~ ⇒ **那個行為變更 08-09 已經發生了一半**:
+>   合成域 / 超長**現在已經被擋**,只是終態是 **fail-closed 拒單**(`reason: 'email_unusable'`)、**不是空字串**。
+> · `charge-actions.ts:247` 的行號已漂至 **`:266-267`**。
+> 🔴 **⇒ §9-Q1(Sean 2026-07-24 已拍 A = 統一三分支)問的那個世界已經不存在** —— flag-off 的驗證閘**已經在了**。
+>   真正還沒拍的是**另一題**:`email_unusable` 要不要從【拒單】改成【送空字串】
+>   (PRD §3.3 原文寫空字串,而 08-09 的修復**刻意**選了 fail-closed)。
+>   ⇒ 🔴 **不要照 §4「移除 `email_missing` 分支」直接動手** —— 那會把 08-09 的 fail-closed 拆掉。
+> ✅ **仍然成立、不受本次下修影響**:§3 檔案清單(唯一例外 = `database.types.ts` **已是 9 參**、無須重生,
+>   量法 `grep -n p_notification_email packages/adapters/src/supabase/database.types.ts` ⇒ `:3595`)、
+>   §6 驗證計畫、§8 跨片順序、§9-Q2 / Q3。**B-4 的核心一行(`notificationEmail: null` → 帶真值)一個字都沒變。**
+> 📎 **現況重量法(引用前重跑)**:`grep -n "pickUsableEmail\|email_unusable" apps/storefront/src/lib/payment/cardholder.ts`
+> ---
 
 ---
 

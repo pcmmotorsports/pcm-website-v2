@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { toMoneyAmount, type OrderListItem } from '@pcm/domain';
 import { OrdersTab } from './OrdersTab';
+import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
 
 afterEach(cleanup);
 
@@ -116,6 +117,16 @@ describe('itemCountTruncated ⇒ 件數印「?」', () => {
     expect(screen.getByText(/\? 件商品/), '應改印問號').toBeDefined();
     // 🔴 反向:那個不可信的數字一個字都不准出現。
     expect(screen.queryByText(/3 件商品/), '少算的數字不得出現').toBeNull();
+  });
+
+  // 🔴 `#636` 接線格:那個「?」旁邊掛的必須**就是**共用常數。
+  //    沒有這一格,常數可以寫得完美而**根本沒被用到**(或某天被人在這裡寫回一句 inline 字面),
+  //    而 `account-order-copy.test.ts` 那六格照樣全綠 —— 它測的是常數,不是畫面。
+  it('🔴 `#636` 「?」的說明文字 = 共用常數(不是就地另寫一句)', () => {
+    render(<OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: true }]} />);
+    expect(screen.getByText(/\? 件商品/).getAttribute('title')).toBe(
+      ORDER_ITEM_COUNT_TRUNCATED_NOTE,
+    );
   });
 
   /**

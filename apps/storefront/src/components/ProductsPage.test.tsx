@@ -211,6 +211,24 @@ describe('ProductsPage', () => {
     expect(screen.queryByText('找不到符合條件的商品')).toBeNull();
   });
 
+  // 🔴 件數在【撈不到】與【真的 0 筆】兩個世界必須印不同的東西。
+  //    病灶:`fetchCatalogPage` 失敗回 `total: 0`(lib/products.ts:508),而件數渲染在 error 分支【外面】
+  //    ⇒ 客人看到「0 件商品」+「載入失敗」+ 側欄還印著各分類的件數,三種互相矛盾的說法。
+  //    ⚠️ 上面那格(:207)在修之前渲染的正是「0 件商品」,而它只斷言錯誤訊息 ⇒ 對這個病零判別力。
+  //    下面兩格是【一對】:少了任何一格,把 ProductsPage 的 displayCount 改回 resultCount 都不會紅。
+  it('🔴 error=true → 不印件數(印「件數未能載入」),因為那個 0 是「沒撈到」不是「沒有商品」', () => {
+    render(<ProductsPage products={[]} error={true} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.getAllByText('件數未能載入').length).toBeGreaterThan(0);
+    expect(screen.queryByText('0 件商品')).toBeNull();
+  });
+
+  it('🔴 負對照:error=false 且真的 0 筆 → 仍要印「0 件商品」(新字面不可以把真 0 一起吃掉)', () => {
+    render(<ProductsPage products={[]} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.getByText('0 件商品')).toBeDefined();
+    expect(screen.queryByText('件數未能載入')).toBeNull();
+    expect(screen.getByText('找不到符合條件的商品')).toBeDefined();
+  });
+
   it('C4a+C3:零件分類 + 品牌側欄現身(解除 hideCategory/hideBrand);顏色/其他仍隱藏、保留價格範圍', () => {
     render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     // C4a:零件分類樹解除隱藏 → accordion 標題 + 真分類名(碳纖維部品)現身於側欄(ProductCard 不渲染 category、故唯一)

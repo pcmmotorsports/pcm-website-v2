@@ -65,7 +65,7 @@ describe('LoginPage', () => {
   it('renders design 字面 without crashing', () => {
     renderPage();
     expect(screen.getByText('歡迎回來')).toBeDefined();
-    expect(screen.getByText('登入你的 PCM 帳號，查看訂單與收藏。')).toBeDefined();
+    expect(screen.getByText('登入您的 PCM 帳號，查看訂單與收藏。')).toBeDefined();
     expect(screen.getByText('N°01 · Sign in')).toBeDefined();
     expect(screen.getByRole('button', { name: '登入' })).toBeDefined();
   });

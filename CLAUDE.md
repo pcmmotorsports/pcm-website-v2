@@ -60,6 +60,9 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 決策題 / 報告格式細節 / Sean 說看不懂 | `docs/working-style.md` §1/§2 |
 | 需要 Sean 操作 dashboard / GUI / 查環境路徑 | `docs/working-style.md` §4 |
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
+| 🔴 **不知道某個東西牽動到哪 / 想知道「改這支檔會影響什麼」** | 查地圖:`graphify query "<檔名或識別字>"`(在 repo 根跑,例 `graphify query "orders-table"`)。它回傳那個節點 BFS depth=2 的連動子圖,答得出**跨檔關係**而 grep 只答得出字面命中。**查完一定要開檔核** —— 地圖給方向,檔案給事實 |
+| ⚠️ **地圖問不出來的東西**(先知道,免得以為它壞了) | ①**中文白話問句零命中**(2026-08-18 實測「訂單列表的品項在哪裡展開成一列」⇒ `No matching nodes`)②**不是節點名的識別字也零命中**(同日實測 `itemsTruncated` ⇒ 0)③🔴 **沒有 HTML 可以開** —— 圖的節點數超過 viz 上限,`graphify update` 會**跳過並移除** `graph.html`(2026-08-18 實測 `ls graphify-out/graph.html` ⇒ `No such file or directory`)。**⇒ 只用 `query`,沒有圖可以看** |
+| 地圖過期了 / 收工前要刷 | `graphify update`(增量)。**milestone 收尾或每日收工跑一次**,不隨每 slice。⚠️ **本表不記節點數與刷新時間** —— 那種數字寫進常載檔就會過期,而過期時零機械訊號;要現值就當場跑 `graphify update` 看它自己印 |
 | 跨專案關聯問題(老闆腦/報價單/上架鏈與本 repo 怎麼連) | 四 repo 合併圖 `/Users/sean_1/老闆腦/跨專案圖/`(cd 進去 `graphify query "問題"`;repo 內問題優先用本 repo `graphify-out/`,較新;合併圖由老闆腦維護、本 repo 不更新它) |
 | 三綠細節 / 字面vs事實背景 | `docs/patterns/slice-checkpoint.md` |
 | 歷史 Codex Packet 格式(已停用、僅備查) | `docs/patterns/codex-review-packet.md` |
@@ -77,6 +80,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 🔴 **新建任何 DB 物件(表 / view / 函式)**,或動 `GRANT` / `REVOKE` / `SECURITY DEFINER` / 改既有函式的參數型別 | `docs/patterns/revoking-function-execute-in-supabase.md`(**檔名比範圍窄,表也在裡面**)。**新物件出生就自帶 anon 權限、repo 內零 `GRANT` 字面可掃、三綠不紅**;含兩道 REVOKE、`TRUNCATE` 不受 RLS 管、`has_*_privilege` 對欄級授權少報、ACL 欄是 `NULL` 時 PUBLIC 看不見 |
 | 🔴 **要用瀏覽器打開後台看畫面**(本機;**不需要任何 `.env` 檔**) | `docs/design/admin-design-system.md` **檔頭第一段** —— 一行 `cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001`。**這條路一直都在**(`proxy.ts:16` 註解寫著用途),而 2026-08-16 全窗花了兩輪才找到 —— **寫對地方 ≠ 會被讀到** |
 | 🔴🔴 **要驗「這個功能到底行不行」**(Sean 2026-08-17 定為全陣預設:「不用再用 artifacts,直接來真的但是開伺服器做＋看」) | `docs/runbooks/local-admin-with-real-data-probe.md` —— 拋棄式 PG + PostgREST + 自簽 JWT + 前綴代理 + 真後台,**零 secret、不碰 `.env*`**(施工窗工作樹沒有 `.env.local`)。含 5 個會擋住你的坑(UTF8 / socket 長度 / `auth.uid()` / `service_role` GRANT + BYPASSRLS / `/rest/v1` 前綴)與**效度限制**。⚠️ **替身(fixture / mock / artifact)不再是「確認功能可用」的合格載體** |
+| 🔴 **要在本機開【顧客站】來看或量畫面**(手機版面 / 走一遍客人動線 / 購物車結帳) | `bash scripts/storefront-probe/up.sh` 一行起完整鏈(拋棄式 PG + PostgREST + `/auth/v1` 替身 + 種子商品 + storefront dev:3020),收攤 `down.sh`(逐項 pgrep + 逐埠 lsof 驗死)。量版面用同目錄 `overflow-ruler.mjs`(**每次量測自帶三條自檢,`selfCheck.ok=false` ⇒ findings 作廢**)。效度限制照 runbook §5/§8-f 不放寬 |
+| 🔴🔴 **本機 dev server 打開了,而畫面「看起來像功能沒做」**(按鈕沒反應 / 停在載入中 / console 有 chunk 403) | **先換 `http://localhost:<port>`,不要用 `http://127.0.0.1:<port>`,再看一次。** Next 16 dev 只認 `localhost` 這個 `Origin`;用 127 時 HTML/CSS 正常、**只有 client JS 靜靜地不見**。量測與限定見 `docs/runbooks/local-admin-with-real-data-probe.md` §9(2026-08-18 G3 量;機制名稱未確認、只量過 storefront) |
 | 後台 UI 片的視覺真權威 / BMW M 設計語言 / 某條做了沒 | `docs/design/admin-design-system.md`(**檔頭「落地狀態」表決定你能不能直接照抄下面的東西**) |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
 | 接手/重啟/被交辦一條「看起來停住、沒結論」的線 —— 在你說「那要開線」之前 | `docs/patterns/stalled-line-triage.md`(甲沒有落點/乙結論住錯地方/丙照拍板在等;丙型誤判=推翻當事人自己的拍板) |

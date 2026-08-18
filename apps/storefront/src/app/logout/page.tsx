@@ -58,7 +58,7 @@ export default function LogoutPage() {
           <p className="lo-note">
             感謝使用 PCM MOTOR PARTS,
             <br />
-            期待再次為你服務。
+            期待再次為您服務。
           </p>
           <div className="lo-actions">
             <Link className="auth-submit" href="/login">

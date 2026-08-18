@@ -100,3 +100,7 @@ apps/*/CLAUDE.md
 
 # Sean 2026-08-14 家目錄整理:PCM 網站截圖存查(本機參考、不入 git)
 .screenshots/
+
+# Python 語法檢查(py_compile)的產物 —— 2026-08-18 曾經被 commit 進去一次
+__pycache__/
+*.pyc

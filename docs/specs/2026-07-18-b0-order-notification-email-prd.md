@@ -10,6 +10,31 @@
 > · **Q3=A：PRD 收案、不開第四輪審查、動工 B-1。**
 > **審查史收斂曲線**：R1 26 條 → R2 13 條 → R3 4 條（皆既有條目補完、**新 BLOCKER＝0**）→ 全數修畢。
 > R3 判定：Fable **PASS**／codex FAIL（4 條部分落地，已全修）。
+>
+> ---
+> 🔴🔴 **2026-08-18:本檔 `D1=A` 【已被 Sean 當日推翻】,不要再照它施工。**
+> ✅ **裁定(2026-08-18 中午,`Q-02`=甲;主視窗轉,落檔 memory `project_0818-sean-eleven-rulings-noon`)**:
+>   結帳頁那個 email 欄**不用了** —— **留著、關著、不刪**(`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 維持 off)。
+>   通知信收件人改採 `Q-W5-3`=甲:**一般客人用註冊信箱、LINE 客人用收件地址那欄的 Email**。
+>   現行 plan = `docs/specs/2026-08-18-m4a-b4-b5-notification-recipient-plan.md`。
+> ⚠️ **`D1=A` 這一段本身不刪**(留痕):它記錄了 2026-07-18 當時的決定與理由,而**推翻它的是後來的事實**
+>   (收件地址 08-09 才長出必填 Email 欄,PRD 寫的時候還沒有它)。
+> 🔴 **以下這段是【裁定前】的分析,保留只為了說明推翻的理由,不要當成現行狀態讀:**
+> · 本檔 `D1=A`(2026-07-18)=「**結帳頁收件資料區塊內可直接填寫的 email 欄**」,且 **B-3 已把它蓋好上線**
+>   (`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 預設 off)。
+> · Sean 2026-08-18 `Q4=甲` 逐字(主視窗轉)=「**會員註冊的信箱**」。
+> 🔴 **兩句話指向不同的欄位。** 而 **`Q4` 的提問裡沒有出現「B-3 已經蓋好了」這件事**
+>   ⇒ 依 `R3`「新訊息疑似推翻舊拍板 ⇒ 確認、不假設」,**本檔在確認之前【不得】被讀成「`D1=A` 已作廢」,
+>   也不得被讀成「`Q4` 只是複述 `D1`」。**
+> 🔴 **而不論哪一個為準,都有一個【兩案共同】的缺口要先答**:
+>   **用 LINE 登入的客人沒有「會員註冊的信箱」** —— `handle_new_auth_user` trigger 把
+>   `auth.users.email` 原封抄進 `customers.email`(`20260523034911_init_customers_and_subtables.sql:282-288`,
+>   該函式的 `COMMENT` 逐字寫明「LINE OAuth 註冊也走此 trigger」),而 LINE 的 `auth.users.email`
+>   是**合成假信箱** `line_{sub}@line.pcmmotorsports.local`(`apps/storefront/src/lib/auth/line.ts:38,48`)。
+>   ⇒ **`Q4=甲` 照字面實作,LINE 客人一封通知信都收不到**,而本檔 §3.2 的 fallback 會把它記成
+>   `skipped_no_real_email` —— **那是一個【看起來正常運作】的靜默終態。**
+>   ⚠️ **未量**:正式庫有幾位 LINE 登入客人(repo 側量不到;要 production 側查 `customers.email` 命中該網域的筆數)。
+> ---
 
 ## 1. 目標（字面已收斂）
 
@@ -89,7 +114,7 @@ notification_email IS NULL OR (
 | B-2 🔴 | migration：**同一 migration 內 DROP 舊 8-param + CREATE 9-param（第 9 參 `DEFAULT NULL`）** + **ACL 鏡像重建 + `has_function_privilege` fail-closed 斷言**。🔴 **函式體必須以 prod 當下最新版為基底**（`pg_get_functiondef` 取出、**禁從舊 migration 複製**）並**逐行 diff 驗證** vehicle snapshot／vehicle type guard／法律同意／cart dedup／價格與敏感欄防護**零遺失**（codex R2：複製錯版＝靜默回滾已上線防護）；prod 交易模擬 | 金流 RPC、鐵則12 Packet |
 | B-3 | 結帳頁收件資料區塊加 email 欄（D1=A）+ zod 驗證（254 octet、與 DB 同源常數,🔴 **必鏡像 §3.4 全部六條件**：可列印 ASCII / 去尾點 / 擋子網域 —— 漏做＝app 放行、DB 擋、結帳 500）+ 預填規則（會員真 email 預填／合成域空白）+ **UI 揭露文案** + smoke test；**gate＝單一 env flag 同時翻四層**（UI 顯示／client payload／server schema requirement／RPC 呼叫形態），**預設 off**、四層同刻翻轉＝**app 內無層間順序問題**。🔴 **但跨片有唯一合法順序（codex R3 #7）**：`B-1/B-2 完成並驗證 → B-3/B-4 部署但 flag 保持 off → 開 flag 並記錄精確切換時戳（＝§5 R3 的 cutoff）→ 觀察窗 → B-6`。**不得在 B-2 未完成前開 flag**（server 要求 email 但 RPC 尚無該參數＝結帳中斷） | 共用結帳元件 |
 | B-4 🔴 | `charge-actions` 串接：canonical email 存入 `create_order`；**條件帶入** `buildCardholder`（§3.3 三分支：canonical 合格／session 合格／皆不合格帶空字串），三路徑各測試 + 40/41 octet 邊界測試；更新 `cardholder.ts` 拍板註解 | 金流 action、鐵則12 |
-| B-5 🔴 | enqueue 掛 §3.2 兩個匯聚點；付款優先、全 catch；**可部署但不得宣稱功能上線**（gate 見 §6） | 鐵則12 |
+| B-5 🔴 | ~~enqueue 掛 §3.2 兩個匯聚點~~ 🔴 **2026-08-18 Sean 批准改【掃描式】**（`Q-G4-1`=甲:在既有 email cron 前面加一步,掃「已付款但 `email_outbox` 無 `order_created` 列」的單 → enqueue）。**理由=掛兩個匯聚點要把 `service_role` 帶進結帳路徑,而 `settleCharge` 那半走 `payment_confirmer`、零 table 權限,沒有有權限的路**;附帶好處=**天然可重入**（首次失敗下一輪再撈到),而 §6 gate #2 的 `C-1` **目前沒有實作**。現行 plan `docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md`。🔴 **§3.2 其餘規定一律不變**（付款優先、全 catch、NULL fallback、禁寫 fail-closed）;**可部署但不得宣稱功能上線**（gate 見 §6） | 鐵則12 |
 | B-6 🔴 | **收緊片**：⚠️ 不可用裸 `SET NOT NULL`（會驗全部存量列，舊單與過渡窗 NULL 必炸；回填合成值又撞 §3.1 禁合成域 CHECK＝自相矛盾）→ 改 **cutoff 式 CHECK**：`created_at >= <切換時戳> → notification_email IS NOT NULL`；**同片移除 RPC 第 9 參數 DEFAULT**（否則 authenticated caller 可直呼 RPC 省略該參數繞過必填，app 層 schema 擋不住 — codex R2 #3）；明文 backfill／刪除政策 + 觀察窗 N 天 | schema、獨立片、**列入 §6 上線 gate** |
 
 ## 5. 風險 / rollback
