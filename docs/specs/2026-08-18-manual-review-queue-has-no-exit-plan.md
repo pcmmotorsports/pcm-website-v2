@@ -43,7 +43,7 @@ Sean 逐字：「是我測試的…只是用不同帳號，而且也沒有收錢
 
 | | 甲(推薦)**用既有 terminal + 既有稽核表** | 乙 新增「已處理」欄 | 丙 直接清 `needs_manual_review` |
 |---|---|---|---|
-| 做法 | 人看過 ⇒ 呼既有 `mark_charge_attempt_failed(attempt, order)`(`PgChargeAttemptAdapter.ts:84`)⇒ status 離開 `pending` ⇒ **自然掉出述詞**;**同一個動作寫一列 `admin_audit_log`** | 加 `manual_review_resolved_at` / `resolved_by` / `reason` + 改告警述詞 | `UPDATE … SET needs_manual_review=false` |
+| 做法 | 🔴 **一支新的窄 RPC,在【同一個交易】裡做兩件事**(收斂 + 寫稽核;理由見 §4.0):人看過 ⇒ 呼 `mark_charge_attempt_failed(attempt, order)`(`PgChargeAttemptAdapter.ts:84`)⇒ status 離開 `pending` ⇒ **自然掉出述詞**;**同一個動作寫一列 `admin_audit_log`** | 加 `manual_review_resolved_at` / `resolved_by` / `reason` + 改告警述詞 | `UPDATE … SET needs_manual_review=false` |
 | migration | 🔴 **要**(見 §4;我原本寫「零」,查完是錯的) | 要(鐵則 12③) | 零 |
 | 留痕(三個月後查得到「誰決定的、為什麼」) | ✅ `admin_audit_log`(**append-only**、`service_role` 只有 INSERT:`20260712210000:89,113-115`) | ✅ 欄位裡 | ❌ **零痕跡** —— 那一列就這樣消失 |
 | 語意對不對 | ✅ 那筆**確實沒有收到錢** ⇒ `failed` 是真的 | ✅ | ⚠️ flag 清掉而 attempt 仍 `pending` ⇒ **狀態機裡多一個沒人管的活列** |
@@ -78,7 +78,10 @@ grep -rn "GRANT EXECUTE ON FUNCTION public.admin_" supabase/migrations/*.sql ⇒
 ⇒ 新增 admin_close_manual_review(attempt_id, order_id, actor, reason)
    SECURITY DEFINER、owner=postgres、search_path=''、GRANT EXECUTE TO service_role
    內部：①把 attempt 收斂成 terminal（讓它離開告警述詞）②同一個交易寫一列 admin_audit_log
-🔴 ②要在【同一個交易】裡：分開寫 = 有一個「關掉了但沒有紀錄」的中間態，而那正是丙案的病
+🔴 ②要在【同一個交易】裡:**分開寫 = 有一個「關掉了但沒有紀錄」的中間態**
+   ⇒ **那正是丙案的病,只是換成分散在兩個語句之間** —— 不寫這句的話,
+     下一個實作的人會覺得「先關再記」也一樣(它在正常路徑上確實一樣;**它們只在出錯那一刻不一樣**,
+     而出錯那一刻正是三個月後有人來查的那一刻)
 ```
 ⚠️ **仍要 Sean 批**(鐵則 12①錢 + 12③ schema)。**查到有路 ≠ 可以接上去。**
 
