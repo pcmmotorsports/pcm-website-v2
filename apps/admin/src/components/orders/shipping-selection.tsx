@@ -176,6 +176,14 @@ export function ShippingSelectionBar() {
       <span className='text-sm'>
         已勾 <b>{s.orderIds.length}</b> 張訂單
       </span>
+      {/* 🔴 #643 A ②:別的客人的框變灰時,理由原本【只】掛在那個框的 title 與 aria-label 上
+          ⇒ 觸控/平板員工看不到任何解釋,只看到一排點不動的框。
+          放這裡而不是逐列加字:本列的渲染條件(有勾選)與「別人變灰」的條件是同一個,
+          印一次涵蓋所有灰掉的列,而表格一格塞不下一句話(#643 D 講的空間問題)。
+          框上的 title/aria-label 保留 —— 它們現在是補充,不再是唯一載體。 */}
+      <span className='text-xs opacity-80'>
+        同一箱只能裝同一位客人的東西,其他客人的訂單暫時勾不動
+      </span>
       {error !== null && <span className='w-full text-xs'>{error}</span>}
     </div>
     {/* 🔴 彈窗**刻意放在動作列 `<div>` 外面**。2026-08-09 Sean 正式站實測白字白底,
