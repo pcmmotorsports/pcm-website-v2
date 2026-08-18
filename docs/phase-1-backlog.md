@@ -4249,6 +4249,30 @@ order by n desc, 1;
 
 ### #148. ⏳ dev-preview/* 臨時驗證 route 部署前移除
 
+> ## 🔴 2026-08-19 G1:**曝險那一半今天不成立;而 code 裡指著本條的指標【全部指錯】,已修**
+>
+> **① 曝險已關(我實測,不是引用)**:`#385` 已加 `app/dev-preview/layout.tsx` 在正式環境 `notFound()`(fail-closed)。
+> 唯讀實測 2026-08-19:
+> ```
+> curl -o /dev/null -w %{http_code} https://shop.pcmmotorsports.com/dev-preview/brands    ⇒ **404**
+> 同上 /dev-preview/filter-top                                                            ⇒ **404**
+> 🔴 正向對照(同一發、證明不是整站掛了):/products                                       ⇒ **200**
+> ```
+> ⇒ **剩下的是【清理】,不是【風險】。** 📎 而 `#385` 條目寫著「仍待 Sean 肉眼驗」—— **這一發把那格補上了。**
+>
+> **② 指標錯:7 支 dev-preview 檔全部引到 `#147`(分類來源),而正確的是本條 `#148`。已改。**
+> ```
+> 改前 `git grep -n 'backlog #147' -- apps/storefront/src` ⇒ 8 行
+>      逐行分類:7 行在 dev-preview（錯）/ 1 行在 data/mock-categories.ts（**對**，那才是 #147 的題目）
+>      `git grep -n 'backlog #148' -- apps/storefront/src` ⇒ **0 行**
+> 改後 #147 ⇒ 1 行（只剩對的那支）/ #148 ⇒ 7 行
+> ```
+> 🔴 **後果不是「引用不精確」**:跟著指標走的人打開 `#147` 看到「分類來源」、找不到任何 dev-preview 的字
+> ⇒ **他會判「這註解過期了」而放掉它**。
+> **而回報這件事的窗自己就是被騙的第一個** —— 它稍早回報「已查 `#147`(dev-preview)」,
+> 那是照著 code 註解寫的,而 **code 註解是錯的** ⇒ **指標錯一次,下游每個人都錯一次。**
+
+
 > ## 🔴🔴 2026-08-19 G6:**七支檔的註解全部引到【錯的號碼】,而正確的這一條零個指標**
 > ```
 > apps/storefront/src/app/dev-preview/ 底下引「backlog #147」的  = **7 行 / 7 支檔**
@@ -6883,9 +6907,37 @@ order by n desc, 1;
 
 ---
 
-### #245. 🛡️ client cart_session_id 讀取時補 UUID 格式驗證(防 localStorage 污染卡死結帳)
+### #245. 🏁【已完成】~~client cart_session_id 讀取時補 UUID 格式驗證~~(防 localStorage 污染卡死結帳)
 
-- **狀態:** ⏳ 待執行
+> ## 🔴🔴 2026-08-19 G6:**這條已經做完了,而狀態欄還寫著 `⏳ 待執行`**
+> ```
+> apps/storefront/src/contexts/CartContext.tsx:195-198 逐字:
+>   「🔴 **#245**:只信任 UUID 格式(對齊 charge-actions / callback server 端 UUID_RE fail-closed)。
+>     非 UUID 污染值…→ 丟棄視同無 key,交 mount `?? 補生` + writeSessionId 覆寫自癒;
+>     否則重整恆讀回污染值 → server 拒 → **結帳卡死不自癒**」
+>   實作 :198  `return typeof raw === 'string' && UUID_RE.test(raw) ? raw : null;`
+> 同檔 :56    「#245:cart_session_id 讀回格式守門(inline 重複、對齊 charge-actions / callback)」
+> 而且**有兩格測試,而且都用號碼命名**:
+>   CartContext.test.tsx:284「#245:SESSION_KEY 被污染成非 UUID + 有品項 → 丟棄污染值…」
+>   CartContext.test.tsx:300「#245:SESSION_KEY 被污染 + 空車 → cartSessionId 維持 null…」
+> ```
+> ⇒ **實作 + 測試 + 三處以號碼具名的引用,而條目狀態欄零變動。**
+>
+> ### 📌 這是「⏳ 條目其實已經做完」的實例,而它**怎麼被找到的**值得記
+> ```
+> ❌ 前一輪那把尺(「依賴欄指名的號全部已滿足」⇒ 可疑已做完)**撈不到本條**
+>    —— 因為本條根本沒有依賴欄爭議,它只是【沒人回頭改狀態】
+> ✅ 撈到它的是【路徑尺】:掃 backlog 裡提到 `apps/storefront/src/(components|app)/` 的條目
+>    ⇒ 涉及客人畫面且仍 ⏳ 的 32 條 ⇒ 逐條開檔
+> ```
+> 🔴 **教訓:「它做完了沒」只有【打開它點名的檔】答得出來** ——
+> 任何靠 backlog 內部欄位交叉比對的尺,都只看得到**紙與紙的關係**,看不到**紙與世界的關係**。
+>
+> ⚠️ **本查核只驗「那段 code 與測試在不在」,沒有實跑測試、沒有開瀏覽器污染 localStorage 試過。**
+> ⚠️ 狀態欄與標題由本窗改;**若原作者認為還有沒做完的部分,以他為準**(留痕在下方原文)。
+
+- **狀態:** 🏁 **已完成**(2026-08-19 G6 實查:`CartContext.tsx:195-198` 實作 + `CartContext.test.tsx:284,300` 兩格測試,皆以 `#245` 具名)
+  · ~~⏳ 待執行~~(原值留痕)
 - **優先級:** 🟡 低(自我 DoS / UX robustness;**非雙扣、非安全**——normal flow 永遠是 `crypto.randomUUID()` 合法值,server 對非法值已 fail-closed 拒)
 - **問題:**
   - `CartContext.tsx` `readSessionId()`(L123-130)只驗 localStorage `pcm-cart-session-v1` **非空**、**未驗 UUID 格式**;mount 還原同款。
