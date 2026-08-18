@@ -18,6 +18,7 @@
 //   英文 / 程式碼維持半形。Sean 2026-06-10 Q2=B:商品詳情頁散文家族全改全形、反轉原 OD「半形家族慣例」(業務 override、鐵則 1 例外)。
 
 import { Fragment } from 'react';
+import { FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from '@pcm/domain';
 import { RPM_WARRANTY_PARAGRAPHS, type PolicyRun } from '@/data/rpm-policies';
 import { safeJsonLd } from '@/lib/json-ld';
 
@@ -33,7 +34,18 @@ export const FAQ_ITEMS: FaqItem[] = [
     a: [
       [{ b: '下單：' }, '確認商品是否適用後直接下單即可，如不確定歡迎直接 LINE 我們確認商品適用性與交期。'],
       [{ b: '付款：' }, '目前沒有貨到付款，可用 ', { b: '銀行轉帳、線上刷卡、LINE Pay' }, ' 支付。'],
-      [{ b: '運費：' }, '宅配 $100。'],
+      // 🔴 運費字面**吃常數、不 hardcode**(2026-08-18 W5):原字面 `宅配 $100。` 只講費用、不講免運門檻,
+      //   而**同一個商品頁**另有兩處講門檻(`ProductInfo` 的「滿 NT$ 5,000 免運」、`ProductServices` 的
+      //   「NT$ 5,000 以上免運費」)⇒ 客人在同一畫面同時讀到「要 100」與「滿 5000 免運」。
+      //   🔴 而 `FAQ_ITEMS` **同時餵 JSON-LD**(見上方「單一真相」註)⇒ 分歧會被 Google 讀走。
+      //   措辭直接抄同站正例 `InfoShippingPage.tsx:73`(鐵則 1:照抄不自己翻譯)。
+      //   ⇒ 驗收:免運門檻若要改,全站只需要改 `packages/domain/src/order/shipping.ts` 一處。
+      //   ⚠️ 那支常數的註解自己寫著它與 `create_order` RPC §7 的 `5000` / `100` **是人工同步的兩處**
+      //      —— 本片沒有解那一半,不要因為這裡吃了常數就以為 DB 那邊也跟著動。
+      [
+        { b: '運費：' },
+        `宅配 NT$ ${HOME_SHIPPING_FEE}（滿 NT$ ${FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運）。`,
+      ],
     ],
   },
   {
