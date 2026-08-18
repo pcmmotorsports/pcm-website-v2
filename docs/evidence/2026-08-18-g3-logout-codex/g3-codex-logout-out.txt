@@ -1,0 +1,272 @@
+Reading additional input from stdin...
+2026-08-18T14:28:31.747406Z ERROR codex_models_manager::cache: failed to load models cache: missing field `base_instructions` at line 97 column 5
+OpenAI Codex v0.144.1
+--------
+workdir: /Users/sean_1/pcm-website-v2
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a01546-1f34-7ef0-8f4c-c498f14a214b
+--------
+user
+你是獨立對抗 code reviewer(fresh context)。以下是一份【已 staged】的 diff 全文,直接審它。
+
+限制(硬性):禁 grep / 禁搜尋全 repo;最多另開這 2 個白名單檔:
+  apps/storefront/src/app/logout/page.tsx
+  apps/storefront/src/app/account/actions.ts
+
+背景(已知,直接驗,不要當新 finding 再提):
+  · 這是把登出後的 redirect 由 /login 改成 /logout 道別頁。Sean 2026-08-06 拍板要接線。
+  · 這命中 PCM 鐵則 12②(auth server action),所以才在跑你這一關。
+  · 那格守門【原本】釘住「未接線」,這次翻面成釘住「已接線」。plan §2 解釋了為什麼那不是「改測試期望值來讓它過」。
+  · 已實測:把 redirect 改回 /login,那格會紅(有判別力);/logout 是純靜態頁、無 middleware 保護。
+
+審查角度(逐條回答):
+  1. auth 正確性:session 真的清乾淨了嗎?redirect 目的地換掉會不會讓「登出失敗」被誤顯示成「登出成功」?
+  2. 守門翻面後【判別力有沒有變窄】—— 新的兩條斷言,有沒有哪種壞法它現在測不到而舊版測得到?
+  3. 註解剝除那段(先剝 /* */ 再剝 //)有沒有引入新的恆真/恆假?
+  4. 字面 vs 事實:檔頭與 plan 裡的敘述,跟 diff 實際做的事有沒有偏離?
+
+只輸出 PASS|FAIL + findings(每條:位置 + 失敗情境 + 修法 + must-fix|nit)。不要修改任何檔案。
+
+=== DIFF ===
+diff --git a/apps/storefront/src/app/account/actions.ts b/apps/storefront/src/app/account/actions.ts
+index 34b84322..eb22d487 100644
+--- a/apps/storefront/src/app/account/actions.ts
++++ b/apps/storefront/src/app/account/actions.ts
+@@ -2,7 +2,7 @@
+ 
+ // app/account/actions.ts — 會員中心 server actions(g-1a)
+ //
+-// logout:getAuthService() → logoutCustomer(IAuthService.signOut 清 session cookie)→ redirect('/login')。
++// logout:getAuthService() → logoutCustomer(IAuthService.signOut 清 session cookie)→ redirect('/logout')。
+ // 不在 client AccountView 直接 supabase.signOut(auth 真邊界在 server;codex 關卡1 finding-4)。
+ // 鏡像 app/login/actions.ts 範式('use server' + getAuthService + next/navigation redirect)。
+ 
+@@ -11,10 +11,19 @@ import { logoutCustomer } from '@pcm/use-cases';
+ import { getAuthService } from '@/lib/auth/composition';
+ 
+ /**
+- * 登出:清 session cookie 後導回 /login。
++ * 登出:清 session cookie 後導回 **`/logout` 道別頁**(不是登入表單)。
+  * 以 <form action={logoutAction}> 觸發(FormData 不需、故無參數);logoutCustomer 失敗(罕見)向上拋。
++ *
++ * 🔴 接線的出處與身分(2026-08-18):
++ *   · **要接線 = Sean 拍的**(2026-08-06 `Q2=A`:登出 redirect 由 /login 改 /logout)
++ *   · **「現在做」= 主視窗【代裁】,不是 Sean 拍的** —— 原拍板附帶「排白天、夜間不動」,
++ *     代裁的理由是**那個條件的【目的】是「有人看著」,而 Sean 今晚明顯在線上**
++ *     ⇒ 條件的目的滿足了,**不是條件被廢掉**。
++ *   · 🔴 **射程只到「Sean 在線上」為止。他不在線上時,這一格要重新判。**
++ *   · Sean 原拍板明寫的 **鐵則 12② 對抗審查不降級** —— 代裁沒有動它,已照跑。
++ *   · plan:`docs/specs/2026-08-18-g3-logout-wiring-plan.md`
+  */
+ export async function logoutAction(): Promise<void> {
+   await logoutCustomer(await getAuthService());
+-  redirect('/login');
++  redirect('/logout');
+ }
+diff --git a/apps/storefront/src/app/logout/page.tsx b/apps/storefront/src/app/logout/page.tsx
+index f5c3260b..12bfbce2 100644
+--- a/apps/storefront/src/app/logout/page.tsx
++++ b/apps/storefront/src/app/logout/page.tsx
+@@ -2,29 +2,27 @@
+ //
+ // 真權威 = OD `logout-page.html`。Sean 2026-08-05 指出「登出頁面也沒有做」。
+ //
+-// 🔴🔴 **這一頁目前「做好了但沒接上」—— 這是刻意的,不是漏做。**
+-//    設計端檔頭寫「要採用這頁,網站端得新開 `app/logout/page.tsx` 並把 logoutAction 的
+-//    redirect 目的地由 `'/'` 改成 `'/logout'`」。**本批只做前半。**
+-//    ① 設計端說的「真站登出跑完直接 redirect 回**首頁**」與事實不符 ——
+-//       實查 `app/account/actions.ts:19` 是 `redirect('/login')`,不是 `'/'`。
+-//       ⇒ 「改 redirect 目的地」實際上是把登出後的落點從**登入頁**換成**這一頁**,
+-//       那是一個產品決定(登出後該直接看到登入表單、還是先看一頁道別),不是照抄一行。
+-//    ② `logoutAction` 是 auth server action ⇒ 動它命中**鐵則 12②(權限)**,
+-//       commit 前必過 codex 對抗審查。夜跑窗不碰高風險面。
+-//    ~~⇒ 本頁先建起來讓 Sean 能直接開 `/logout` 看長相;接線與否列進 STOP 等他拍板。~~
+-//    🔴 **更正(2026-08-18 G3 收尾對帳):上面那句「等他拍板」已經【不成立】——他拍過了。**
++// ✅ **這一頁已經接上了(2026-08-18 G3)。** 登出之後客人會落在這裡,不是登入表單。
++//    `app/account/actions.ts` 的 `logoutAction` 已 `redirect('/logout')`;守門在
++//    `styles/coming-soon.test.ts`(那一格【翻過面】了:原本釘「不准沒過審查就接線」,
++//    現在釘「目的地必須是 /logout」)。plan:`docs/specs/2026-08-18-g3-logout-wiring-plan.md`。
++//
++//    🔴 **接線的身分要分開講,不要合併:**
++//      · **「要接線」= Sean 本人拍的**(2026-08-06 `Q2=A`,逐字見下)
++//      · **「現在做」= 主視窗【代裁】** —— 原拍板附帶「排白天、夜間不動」,
++//        代裁的理由是**那個條件的目的是「有人看著」,而 Sean 今晚在線上**
++//        ⇒ 條件的【目的】滿足了,**不是條件被廢掉**。射程只到他在線上為止。
++//      · Sean 原拍板明寫的 **鐵則 12② 對抗審查不降級** —— 代裁沒動它,已照跑。
+ //    ```
+ //    memory project_site-redesign-content-pages-decisions.md:17 逐字:
+ //      「Q2=A:/logout 道別頁要接線 —— 登出 redirect 由 /login 改 /logout；
+ //        動 logoutAction（auth server action）= 鐵則 12② 高風險片，
+ //        排白天 + codex 對抗審查不降級，夜間不動」
+ //    ```
+-//    ⇒ **現在擋著它的不是「等拍板」,是「排白天 + 對抗審查」** —— 兩者對下一個人的意思完全不同:
+-//      前者要去問 Sean(而那會【重問一個他已經答過的問題】),後者只要排時段。
+-//    ⇒ 現況(2026-08-18 實查):`app/account/actions.ts:19` 仍是 `redirect('/login')`,**尚未接線**。
+-//    **在接線之前,這條路由只有直接輸入網址才到得了,沒有任何連結指向它。**
++//    ⚠️ 設計端檔頭寫的是「redirect 目的地由 `'/'` 改成 `'/logout'`」,而**真站當時是 `'/login'`**
++//       (不是 `'/'`)⇒ 實際換掉的落點是**登入表單**,不是首頁。照抄設計稿那行會描述錯現況。
+ //
+-//    📎 這一筆本身是個教訓:**拍板落了 memory,而【那個決定指著的這支檔】不知道自己被拍過了。**
++//    📎 這一筆本身是個教訓:**拍板落了 memory,而【那個決定指著的這支檔】曾經不知道自己被拍過。**
+ //       (同族 memory:`feedback_a-ruling-must-update-the-files-it-points-at`)
+ //
+ // 🔴 **字面全部是設計稿新寫的,沒有真站來源可對照**(`SITE-MAP.md` 2026-08-05 追加那節逐字)。
+diff --git a/apps/storefront/src/styles/coming-soon.test.ts b/apps/storefront/src/styles/coming-soon.test.ts
+index aba016bc..68b91420 100644
+--- a/apps/storefront/src/styles/coming-soon.test.ts
++++ b/apps/storefront/src/styles/coming-soon.test.ts
+@@ -245,7 +245,7 @@ describe('第2批 · 三條路由各自的殼與 robots(整站版 vs 站內頁
+   });
+ });
+ 
+-describe('第2批 · /logout(建好了但刻意沒接線)', () => {
++describe('第2批 · /logout 道別頁(2026-08-18 已接線,見本 describe 最後一格)', () => {
+   it('🔴 `.lo-*` 的響應式提權到 .auth-card.lo-card(裸 .lo-card 會被 [data-mobile] 兜底蓋掉)', () => {
+     // `[data-mobile="true"] .auth-card`(0,2,0)贏過裸 `.lo-card`(0,1,0),**與順序無關** ⇒
+     // 照設計稿字面搬,手機上的內距與標題字級會被靜默蓋掉。
+@@ -272,25 +272,31 @@ describe('第2批 · /logout(建好了但刻意沒接線)', () => {
+     ).toBeGreaterThan(AUTH.indexOf('[data-mobile="true"] .auth-card'));
+   });
+ 
+-  it('🔴 這一頁**沒有**去改登出 server action 的 redirect(那是 auth 面、鐵則 12②)', () => {
+-    // 接線 = 把 `logoutAction` 的 redirect 由 /login 改成 /logout。那是產品決定 + 高風險面,
+-    // 不歸夜跑窗。這條在「有人順手接了但沒過對抗審查」時會紅。
+-    // 🔴 收割確認輪 MF1:整檔比對會被檔頭註解的 `redirect('/login')` 字面餵成恆真(改了真碼照樣綠,
+-    //    突變實測證實)⇒ 先剝 `//` 行註解、再錨定「行首縮排+分號」的語句形。
++  it('🔴 登出的 redirect 目的地是 `/logout` 道別頁(接線已完成、且不准被改回去)', () => {
++    // 🔴 這一格【翻過面】(2026-08-18)。它原本釘的是「**沒有人可以在沒過對抗審查的情況下接線**」——
++    //    它的紅**就是那張傳票**,不是「redirect 必須永遠是 /login」。傳票收到了、鐵則 12② 對抗審查
++    //    跑完了、接線完成 ⇒ 它改守新的不變式:**目的地是 /logout**(有人改回 /login 或改到第三個地方會紅)。
++    //    出處與身分見 `docs/specs/2026-08-18-g3-logout-wiring-plan.md` §2
++    //    (「要接線」= Sean 2026-08-06 Q2=A;「現在做」= 主視窗代裁)。
++    // 🔴 收割確認輪 MF1 的坑照舊防著:整檔比對會被**註解裡的字面**餵成恆真(改了真碼照樣綠)⇒
++    //    先剝註解、再錨定「行首縮排 + 分號」的語句形。
++    //    ⚠️ 接線那次檔頭改成了 `/** */` 區塊註解 —— 只剝 `//` 行【擋不住它】,故兩種註解都要剝。
+     const actions = read('../app/account/actions.ts')
++      .replace(/\/\*[\s\S]*?\*\//g, '')
+       .split('\n')
+       .filter((l) => !/^\s*\/\//.test(l))
+       .join('\n');
+-    expect(actions, 'logoutAction 的 redirect 被改了 ⇒ 動 auth server action 要先過鐵則 12② 對抗審查').toMatch(
+-      /^\s*redirect\('\/login'\);/m,
+-    );
+-    expect(actions, 'redirect 目的地出現 /logout ⇒ 有人接線了、必須先過鐵則 12② 對抗審查').not.toMatch(
++    expect(actions, 'logoutAction 沒有導到 /logout ⇒ 接線被改掉了').toMatch(
+       /^\s*redirect\('\/logout'\);/m,
+     );
+-    // ⚠️ 對整支檔比 `/logoutAction/` 會命中**檔頭註解**(那裡逐字解釋了為什麼沒接線)——
++    expect(actions, 'logoutAction 又導回 /login ⇒ 道別頁被繞過了(Sean 2026-08-06 Q2=A 要的是道別頁)').not.toMatch(
++      /^\s*redirect\('\/login'\);/m,
++    );
++    // ⚠️ 對整支檔比 `/logoutAction/` 會命中**檔頭註解**(那裡逐字解釋了接線的出處)——
+     //    第1批的 nit N8 是同一族的錯。只比 import 陳述,對註解免疫。
++    //    道別頁自己**不該**再去呼叫登出 action(它是登出【之後】才到得了的頁,再登出一次是迴圈)。
+     const imports = PAGE_LOGOUT.split('\n').filter((l) => /^\s*import\b/.test(l));
+-    expect(imports.join('\n'), '/logout 頁面 import 了 server action ⇒ 那是接線動作、不歸本批').not.toMatch(
++    expect(imports.join('\n'), '/logout 道別頁 import 了登出 server action ⇒ 它是登出後才到的頁,不該再登出一次').not.toMatch(
+       /actions|logoutAction/,
+     );
+   });
+diff --git a/docs/specs/2026-08-18-g3-logout-wiring-plan.md b/docs/specs/2026-08-18-g3-logout-wiring-plan.md
+new file mode 100644
+index 00000000..10f13d13
+--- /dev/null
++++ b/docs/specs/2026-08-18-g3-logout-wiring-plan.md
+@@ -0,0 +1,68 @@
++# `/logout` 道別頁接線 — plan(鐵則 8)
++
++> **狀態:主視窗代裁批准(2026-08-18)。**
++> 🔴 **這是【主視窗代裁】,不是 Sean 拍的** —— 那個標記就是他推翻它的入口。
++> **Sean 拍的是「要接線」本身**(2026-08-06 `Q2=A`);**代裁的只有「現在可以做」這一格**。
++
++## 0. 為什麼現在可以做(理由要用對的那個版本)
++
++Sean 原拍板逐字(`memory project_site-redesign-content-pages-decisions.md:17`):
++> 「**Q2=A:/logout 道別頁要接線** —— 登出 redirect 由 `/login` 改 `/logout`;
++>   動 `logoutAction`(auth server action)= 鐵則 12② 高風險片,**排白天+codex 對抗審查不降級**,夜間不動。」
++
++```
++✅ 代裁的理由:那個條件的【目的】是「有人看著」，而 Sean 現在明顯在線上（今晚回了多題）
++   ⇒ **條件本身成立**，不是條件消失
++❌ 【不是】這個理由:「新常設令說沒有階段性 ⇒ 夜間不動被溶掉了」
++   —— 那會變成【用一條拍板去解除另一條拍板的附帶條件】，並在紀錄裡留下一個壞先例
++```
++🔴 **射程:代裁只涵蓋「Sean 在線上的這段時間」。若他離線,這一格要重新判。**
++🔴 **`codex 對抗審查不降級` 是 Sean 原拍板明寫的 —— 代裁沒有動它,照跑。**
++
++## 1. 要改什麼(兩處,不多不少)
++
++```
++① apps/storefront/src/app/account/actions.ts:19
++     redirect('/login')  →  redirect('/logout')
++② apps/storefront/src/styles/coming-soon.test.ts:275-286（那格「刻意沒接線」的守門）
++     翻面:從「釘住【未接線】」改成「釘住【已接線】」
++```
++
++## 2. 🔴 為什麼改守門【不是】改測試期望值來讓它過
++
++這是本片唯一需要正面回答的問題(改測試期望值是「立即停止訊號」)。
++
++```
++那道守門的註解【自己寫著】它的用途:
++  「接線 = 把 logoutAction 的 redirect 由 /login 改成 /logout。那是產品決定 + 高風險面」
++  「logoutAction 的 redirect 被改了 ⇒ 動 auth server action 要先過鐵則 12② 對抗審查」
++⇒ 它守的不是「redirect 必須是 /login」，而是
++  **「沒有人可以在【沒過對抗審查】的情況下把它接起來」**
++⇒ 那道紅【就是那張傳票】。傳票收到了、審查跑了 ⇒ 接線完成 ⇒ 它要改守新的不變式
++```
++**接線後它要守什麼**:①redirect 目的地是 `/logout`(回歸守門:別人改回去或改到第三個地方會紅)
++②`/logout` 那一頁還在(目的地存在)。**同一格的判別力不減,只是換了守的對象。**
++
++## 3. 預期影響面
++
++```
++客人:登出之後看到【道別頁】而不是【登入表單】
++     —— 而 design 為那一頁寫了字（logout-page.html），本來就是要給他看的
++不動:登入、註冊、忘記密碼、session 清除本身（logoutCustomer 一個字都不動）
++不動:任何其他 redirect
++```
++
++## 4. Rollback
++```
++把那一行改回 redirect('/login')、把守門翻回去 ⇒ 兩處，單一 revert 可回
++（session 清除邏輯全程沒動 ⇒ 回滾不會留下半登出狀態）
++```
++
++## 5. 驗收
++```
++□ 三綠（動 .ts/.tsx ⇒ 含 build）
++□ codex 關卡2 對抗審查跑過、findings 折完（Sean 原拍板明寫不降級）
++□ 真瀏覽器:登入 → 按登出 → 到 /logout、且 session 真的清掉（重新整理不再是登入態）
++□ 守門翻面後【對壞版本仍然會紅】（把 redirect 改回 /login ⇒ 那一格要紅）
++□ 不 push
++```
+2026-08-18T14:28:33.654975Z ERROR codex_memories_write::phase2: Phase 2 no changes
+warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.
+codex
+我會套用 PCM 對抗審查與台灣繁中規範；只依你貼的 diff 判斷，不搜尋 repo、不修改檔案，也不另開白名單程式檔。
+exec
+/bin/zsh -lc "sed -n '1,240p' /Users/sean_1/.agents/skills/pcm-codex-inspector/SKILL.md && sed -n '1,240p' /Users/sean_1/.agents/skills/taiwan-traditional-chinese/SKILL.md" in /Users/sean_1/pcm-website-v2
+ succeeded in 105ms:
+codex
+FAIL
+
+findings（auth 正確性與守門判別力未見退化）
+
+- `docs/specs/2026-08-18-g3-logout-wiring-plan.md:21,56`｜plan 宣稱「兩處，不多不少」及 rollback 只需兩處，但 diff 實際還同步修改 `/logout` 頁面檔頭並新增 plan；照目前 rollback 會留下「已接線」的錯誤註解。修法：改稱「兩個行為改動，另同步頁面註解及新增 plan」，rollback 明列同步還原頁面檔頭。｜must-fix
+
+- `apps/storefront/src/styles/coming-soon.test.ts:286`｜先用正規表示式剝除 `/* */` 不會讓目前測試恆真或恆假，但若未來字串或 template literal 含註解界定符，可能誤刪真正的 redirect，造成誤判。修法：改用 TypeScript AST 取出 `logoutAction` 函式本體及其 redirect；至少應限制在該函式範圍並確認只有一個 redirect。｜nit
+tokens used
+31,103
+FAIL
+
+findings（auth 正確性與守門判別力未見退化）
+
+- `docs/specs/2026-08-18-g3-logout-wiring-plan.md:21,56`｜plan 宣稱「兩處，不多不少」及 rollback 只需兩處，但 diff 實際還同步修改 `/logout` 頁面檔頭並新增 plan；照目前 rollback 會留下「已接線」的錯誤註解。修法：改稱「兩個行為改動，另同步頁面註解及新增 plan」，rollback 明列同步還原頁面檔頭。｜must-fix
+
+- `apps/storefront/src/styles/coming-soon.test.ts:286`｜先用正規表示式剝除 `/* */` 不會讓目前測試恆真或恆假，但若未來字串或 template literal 含註解界定符，可能誤刪真正的 redirect，造成誤判。修法：改用 TypeScript AST 取出 `logoutAction` 函式本體及其 redirect；至少應限制在該函式範圍並確認只有一個 redirect。｜nit
