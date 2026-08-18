@@ -7434,7 +7434,56 @@ order by n desc, 1;
 - **狀態:** ⏳ 待執行
 - **優先級:** 🟠 中
 - **問題:**
-  - 客戶明細-b 訂單歷史復用 storefront 的 `listSummariesByCustomer`(`SupabaseOrderAdapter.ts:190` 隱含 `.neq('payment_status','unpaid')`=#249 治標、會員視角藏放棄付款孤兒單)。後台客戶明細因此**看不到該客的待付款單**(含 late-success 扣款爭議單=🔴 memory 明載必須查得到的類型),但 admin `/orders` 列表有「待付款」篩選看得到同一單 → 兩後台頁互相矛盾。
+  - 客戶明細-b 訂單歷史復用 storefront 的 `listSummariesByCustomer`(`SupabaseOrderAdapter.ts:582` 隱含 `.neq('payment_status','unpaid')`=#249 治標、會員視角藏放棄付款孤兒單)。後台客戶明細因此**看不到該客的待付款單**(含 late-success 扣款爭議單=🔴 memory 明載必須查得到的類型),但 admin `/orders` 列表有「待付款」篩選看得到同一單 → 兩後台頁互相矛盾。
+
+> ## 🔴🔴 2026-08-19 第二層查核(G6):**這條的前提已經被推翻,而推翻它的東西已經上線了**
+>
+> ### ① 座標更正
+> 原文引 `SupabaseOrderAdapter.ts:190` ⇒ **現行位置 `:582`**(過濾器本體)、註解在 `:562-566`。
+> 呼叫鏈仍成立:`load-customer-detail.ts:104` → `listSummariesByCustomer`;
+> 已知限制註解也還在 `customer-detail-sections.tsx:13`。⇒ **結論成立,只有行號過期。**
+>
+> ### ② 🔴🔴 而**過濾器自己寫的「須重審」觸發條件已經發生了,沒有人回頭審**
+> `SupabaseOrderAdapter.ts:564` 逐字:
+> ```
+> ⚠️ 前提=絕大多數 unpaid 皆「沒付成的孤兒」(PCM 現僅 TapPay 即時刷卡、**無線下待付款單**);
+>    **未來加線下付款方式須重審**。
+> ```
+> **實查:線下/人工付款登錄早就上線了,而且是接好的。**
+> ```
+> RPC     supabase/migrations/20260810200000_m4b_e10_op5_record_manual_payment.sql:106
+>           CREATE FUNCTION public.admin_record_manual_payment(...)
+> apply   supabase/APPLIED.tsv:165   20260810200000 … backfill  backfill-P七代
+> 呼叫端  apps/admin/src/lib/orders/payment-repository.ts:201, :206  client.rpc('admin_record_manual_payment', …)
+>           (非測試、非 database.types.ts;另 :7 / :121 / :217 / :312-324 一整套錯誤處置)
+> ```
+> ⇒ **那句「PCM 現僅 TapPay 即時刷卡」今天是假的。**
+> ⇒ 這個過濾器**建立在一個已經不成立的前提上**,而它同時服務 **storefront 客人自己的訂單頁**
+>   (`account/page.tsx:128`)與 **admin 客戶明細**(`load-customer-detail.ts:104`)兩處。
+>
+> ### ③ 🔴 與 Sean 2026-08-18 的拍板直接對撞
+> Sean 深夜更正:**待處理訂單 = `unpaid` ∪ `partiallyPaid`**(memory `project_0818-pending-orders-partiallypaid-reaffirmed`)。
+> ```
+> partiallyPaid  ⇒ .neq('unpaid') 濾不到它 ⇒ 看得見 ✅
+> unpaid         ⇒ 被濾掉         ⇒ **客人在自己的帳號頁看不到自己的待付款單**
+> ```
+> ⇒ 🔴 **本條的範圍不只是「後台客戶明細」** —— 同一個過濾器也擋著客人自己那一頁。
+>   原條目只寫了 admin 那半,因為它立案時(2026-07-16)前提還成立。
+>
+> ### ④ 誠實揭示(**這一格決定嚴重度,而我答不出來**)
+> ```
+> · 我證的是:①過濾器還在 ②它的前提句寫著「加線下付款須重審」③線下付款登錄已上線且已接好
+> · 我**沒有**證:今天實際上有沒有「長期停在 unpaid、等匯款」的真訂單
+>   —— 那要查正式庫(`orders` 依 payment_status 分佈),我沒有 DB access
+> · ⇒ 所以我只能說「**前提已被推翻、過濾器沒有跟著重審**」,
+>   **不能說**「現在有客人看不到自己的單」。那句要有正式庫的數字才講得出口。
+> · 未查:admin_record_manual_payment 是先建單再登錄、還是同時建單(決定 unpaid 態存不存在)
+> ```
+> ### ⑤ 📌 形狀
+> **註解裡的「未來 X 發生時須重審」是一顆沒有人在監聽的鬧鐘。**
+> `X` 發生在**另一條線**(OP5 人工付款)、由**另一批人**做,他們沒有理由打開 `SupabaseOrderAdapter.ts`。
+> ⇒ 這類自我設限句要嘛配一道機器守門,要嘛在 `X` 那條線的 plan 裡留一行反向指標;
+>   **寫在被影響的那支檔裡,只有已經知道的人讀得到。**
 - **觸發事件:**
   - 2026-07-16 客戶明細-b code-reviewer R1 must-fix 1(揭示即收、修法另片);本片已在 sections.tsx 註解 + commit body 揭示。
 - **預期解法:**
