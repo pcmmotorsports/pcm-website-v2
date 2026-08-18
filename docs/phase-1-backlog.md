@@ -12794,7 +12794,48 @@ order by n desc, 1;
   1. 新增一支 RW4 逆向 RPC:`manual_failed → processing`(需同時放寬 `20260803150000:211-215` 狀態機,**動的是已 apply 的 migration ⇒ 鐵則 12③**)。
   2. 不動狀態機,改在 `#445` 守門式加「同單另有一列 `recovered_*` 覆寫」的沖銷語意(與 `#442` 同族)。
   3. ✅ **已做(`#473b-2` + `#483`,2026-08-14)** —— 只做「唯讀救濟」:異常清單納入 `manual_failed`、訂單頁也掛徽章,讓值班至少看得到、由工程師手動 SQL 解。**這條不解卡單,只解看不見** ⇒ **`#445b` 的硬前置仍然維持**,還是要做 1 或 2。
-- **📄 (b) 的 plan(2026-08-14 R 窗,等 Sean 批):** `docs/specs/2026-08-14-473b-manual-verdict-correction-plan.md`。結論 = **不動狀態機**(`20260803150000:211-215` 只讀 `status`、放寬會連 `rejected_out_of_range`/`not_sent` 一起打開),抄姊妹 `admin_correct_refund_manual_verdict`(`20260812140000:572`)的**形狀**:append-only、舊列不動、CAS、員工面一個動作。**兩題待拍**:`Q-473-1`(有效判定=最新一筆 vs 只准更正一次)、`Q-473-2`(新表 vs 加欄 vs 就地改 `failed_reason`)。
+> ## 🔴🔴 2026-08-19 第二層查核(G6):**(b) 的 DB 那半【已經做完,而且已經 apply 了】**
+>
+> **條目與 plan 都還寫著「等 Sean 批」,而機器已經在正式庫裡跑了五天。**
+>
+> ### ① 量到的(唯讀,可重跑)
+> ```
+> 函式        supabase/migrations/20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191
+>             CREATE FUNCTION public.admin_correct_order_refund_verdict(uuid,uuid,text,text,text,text)
+> 權限        同檔 :392-395  REVOKE PUBLIC/anon/authenticated/authenticator → GRANT EXECUTE TO service_role
+>             ⇒ 🔴 **admin 就是走 service_role ⇒ 接 UI【不需要】再動任何 GRANT**
+> apply       supabase/APPLIED.tsv:191   20260814190000 … 2026-08-14  主視窗-eca254fb
+> ```
+> ### ② 🔴 而**應用層零呼叫端** —— 員工今天仍然按不到
+> ```
+> grep -rn 'admin_correct_order_refund_verdict' --include='*.ts' --include='*.tsx' apps packages
+>   ⇒ 命中 1 處,且那唯一一處是 packages/adapters/src/supabase/database.types.ts:3515(產生的型別)
+>   分母:apps + packages 全樹 .ts/.tsx = 1,189 支
+>   負向對照(證明尺會動):同尺對 admin_initiate_order_refund ⇒ 7 命中 ✅
+> ```
+> ⇒ **本條的形狀今天變了**:從「**沒有機器**」變成「**機器在,沒接線**」——
+> 與 `#386` 是**同一個形狀**(DB 出口已存在、UI 沒接),而兩條的條目都還在用舊形狀描述自己。
+> 🔴 **這會讓估時整個錯掉**:條目寫「方案 1 = 90-150 分(動 schema + 對抗審查 + 回退)」,
+> 而 schema 那半已經沒了 —— 剩下的是前端接線。
+>
+> ### ③ 🔴 要主視窗裁的一格(**我不自己判**)
+> `#445` 的 apply 停點逐字是「**`#473` 沒有出口之前不得 apply `445b`**」。
+> **現在「出口」有兩種讀法,而它們的結論相反:**
+> ```
+> 讀法甲:出口 = DB 有一支能改判定的 RPC   ⇒ 已滿足(08-14 apply)⇒ 445b 的停點可以解
+> 讀法乙:出口 = 員工按得到的入口          ⇒ 未滿足(零呼叫端)⇒ 停點維持
+> ```
+> ⇒ **這一格不是我能判的**(它決定一支動錢 migration 能不能 apply)。原文寫「出口」沒有定義它指哪一個。
+>
+> ### ④ 誠實揭示
+> ```
+> · 我沒有在任何 DB 上跑過那支函式,只讀了 migration 與 APPLIED.tsv 的那一列
+> · 「plan 與條目都還寫等批」是事實;**而 Sean 到底批了沒有,我不知道** ——
+>   我只能說「已 apply」與「文件說等批」互相矛盾,不能說是誰錯
+> · 未查:20260814190000 是不是完整實作了 plan 的 §1(我比對的是函式名與作用面,不是逐條驗收)
+> ```
+
+- **📄 (b) 的 plan(⚠️ **檔頭仍寫「等 Sean 批」,而見上方 08-19 查核段 ①:實作已 apply**):** `docs/specs/2026-08-14-473b-manual-verdict-correction-plan.md`。結論 = **不動狀態機**(`20260803150000:211-215` 只讀 `status`、放寬會連 `rejected_out_of_range`/`not_sent` 一起打開),抄姊妹 `admin_correct_refund_manual_verdict`(`20260812140000:572`)的**形狀**:append-only、舊列不動、CAS、員工面一個動作。**兩題待拍**:`Q-473-1`(有效判定=最新一筆 vs 只准更正一次)、`Q-473-2`(新表 vs 加欄 vs 就地改 `failed_reason`)。
 - **估時:** 方案 1 = 90-150 分(動 schema + 對抗審查 + 回退);方案 3 = 30-45 分。⚠️ plan v1 重估:`473b-1` 90-140 分 + `473b-2` 35-50 分 + `473c` 60-90 分。
 - **依賴:** `#445b` 的 apply 停點(硬前置,見上);方案 1 命中鐵則 12③ ⇒ 需 Sean 批准 plan。
 - **發現於:** 2026-08-14 · R 窗 · `#445` plan v3 R3 對抗審查(findings 見 `~/pcm-mailbox/附件-R-445-R3-findings.md` E1)

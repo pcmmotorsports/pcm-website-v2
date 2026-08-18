@@ -1,6 +1,19 @@
 # `#473(b)` plan v1 —— `manual_failed` 的更正出口
 
 > **狀態:等 Sean 批**(鐵則 8:動 schema)。R 窗 2026-08-14。
+>
+> 🔴🔴 **2026-08-19 G6 查核旗標(不改上面那行狀態 —— 那不是我能判的,只是把矛盾寫在你會讀到的地方)**:
+> 上面寫「等批」,而 **本 plan 的 DB 那半看起來已經做完而且已經 apply**:
+> ```
+> supabase/migrations/20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:191
+>   CREATE FUNCTION public.admin_correct_order_refund_verdict(uuid,uuid,text,text,text,text)
+> supabase/APPLIED.tsv:191   20260814190000 … 2026-08-14  主視窗-eca254fb
+> 應用層呼叫端 = 0(分母 apps+packages 1,189 支 .ts/.tsx;唯一命中是產生的 database.types.ts:3515)
+> 負向對照:同尺對 admin_initiate_order_refund ⇒ 7 命中 ✅
+> ```
+> ⇒ **在動這份 plan 之前先解掉這個矛盾**(是已批而沒回頭改檔頭?還是那支 migration 走了別條路?)。
+> ⚠️ **我沒有判定誰對** —— 我只量到「已 apply」與「檔頭說等批」同時成立。
+> 📎 完整查核寫在 `docs/phase-1-backlog.md` 的 `### #473.` 段。
 > **刻意短。** 本檔不重複 `#473` backlog 條目(`docs/phase-1-backlog.md`,搜 `### #473.`;**行號刻意不寫死**——那份檔天天在長)已寫的問題描述與痛點。
 > `#473(a)`(文案誠實化 + `revalidatePath`)已收工 = commit `4caf73bb`;**它沒有解掉本條**。
 
