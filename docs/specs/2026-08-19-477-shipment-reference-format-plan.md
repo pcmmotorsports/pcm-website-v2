@@ -139,17 +139,28 @@ apps/admin/src/components/print/shipping-doc.tsx:452   箱號 {shipmentReference
 > 原五步留在本節末尾當訃聞 —— **照原五步做會把出貨整條弄壞**,那個錯值得留著。
 
 ```
+🔴🔴 **①-⑦ 必須在【同一支 migration、單一交易】裡**(R2 MF-2)——
+   切成多檔的失敗形狀:檔1(新 CHECK)成功、檔2(改呼叫端)失敗
+   ⇒ 停在「**新 CHECK + 舊產號器**」= M1 那個病的狀態,**而且會一直停在那裡直到下次成功 apply**。
+   ⇒ M1 的病會在**接縫上**重生。單交易讓它要嘛全成、要嘛全退。
+
 ① apply 期斷言(M3;放在 migration 最前面,見 §3-a)
-     IF EXISTS (SELECT 1 FROM public.shipments) THEN RAISE EXCEPTION '有列了 ⇒ 走路 B';
+     IF EXISTS (SELECT 1 FROM public.shipments) THEN RAISE EXCEPTION
+       '#477 路 A 前置不成立:shipments 已有列 ⇒ 改走路 B(見 plan §3 路 B)。
+        🔴 回報主視窗,不要重試 —— 重試不會讓它變成 0。';
+     🔴 訊息裡那半句是刻意的(R2 nit-a):`db push` 失敗時的自然直覺就是再跑一次,
+        而這一條**重試永遠不會過**,不寫清楚會讓人白試好幾輪。
 ② 新 migration:DROP 舊 CHECK、ADD 新 CHECK(新形狀)
 ③ 產號器:pcm_generate_display_id 固定 6 碼且被【訂單】共用
    ⇒ 🔴 不要改它。包裹要自己的產號路徑,否則訂單號會一起變長。
    兩個做法(§5 Q2):加參數 / 另開一支 pcm_generate_shipment_reference()
 ④ 🔴🔴 **改呼叫端 —— 這一步原本【整個漏掉】(M1,BLOCKER)**
-     CREATE OR REPLACE public.create_shipment,把產號那行改成新路徑
-     supabase/migrations/20260807170000_m4b_e10_b2_w3a_create_shipment.sql:161 逐字
-       v_ref := public.pcm_generate_display_id();
-     並照本 repo 慣例補 N3b 式前置閘(20260730120100:65 那種:新函式解析不到就 RAISE)
+     CREATE OR REPLACE public.admin_create_shipment,把產號那行改成新路徑
+     🔴 **函式名是 `admin_create_shipment`,不是 `create_shipment`**(R2 MF-1;見下方)
+     ⇒ **以 w3a 那一版為底**(`20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83` 是現行定義;
+        w2 `20260807160000:599` 是它的前一代冪等層,拿 w2 當底會把冪等層退掉)
+     要改的那一行:同檔 `:161` 逐字 `v_ref := public.pcm_generate_display_id();`
+     並照本 repo 慣例補 N3b 式前置閘(`20260730120100:65` 那種:新函式解析不到就 RAISE)
 ⑤ TS 側:新增 SHIPMENT_REFERENCE_RE(N1),形狀照 order-number-format.ts
    ⚠️ 現況非測試 code 零 6 碼釘(GR 補量;我未重跑)⇒ 加它不是為了修今天的洞,
       是**給未來的 grep 一個錨點**,讓「DB 與 TS 不同步」這件事有地方被抓到。
@@ -157,6 +168,25 @@ apps/admin/src/components/print/shipping-doc.tsx:452   箱號 {shipmentReference
 ⑦ 回退:新 migration 附 rollback 段(照本 repo 慣例)
 ```
 估:**90-150 分**(⚠️ 看影響面估的,**沒拆到步驟級**;上修是因為 ④⑤⑥ 是折疊後新增的)。
+
+#### 🔴 R2 MF-1:**M1 的病差點在【它自己的修法】裡活下來**
+
+```
+本檔第一版的 ④ 寫「CREATE OR REPLACE public.create_shipment」
+而那個名字【不存在】(我獨立重跑確認):
+  git grep -c "FUNCTION public.create_shipment" -- supabase/migrations   ⇒ 命中檔數 0
+  git grep -n "CREATE OR REPLACE FUNCTION public.admin_create_shipment" -- supabase/migrations
+    ⇒ 20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:599
+      20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83      ← 現行版本
+```
+⇒ 照第一版字面做:`CREATE OR REPLACE` 一個不存在的名字 = **憑空 CREATE 出一支孤兒**,
+   而**真正的 `admin_create_shipment` 繼續呼舊產號器** ⇒ **M1 的病原封不動地活下來,而 apply 全綠。**
+
+🔴 **這個錯名是 R1 的審查者遞給我的**(它把檔名當函式名),它自己在 R2 認了。
+📌 **而這一格的形狀值得記**:
+**我抓了它路徑少一段(`m4b_e10_b2_`),而同一句裡的函式名也是錯的 —— 兩個人都沒抓到。**
+⇒ **部分更正會讓剩下的部分看起來更可信。** 我修了它的路徑,於是那一句「已經被檢查過了」。
+⇒ **可操作**:引函式名一律 `grep -n "CREATE OR REPLACE FUNCTION"` 開檔抄,**不從檔名推**。
 
 #### 🔴 M1 的失敗情境(具體,而且三綠與 18 檔 TS 全綠)
 
