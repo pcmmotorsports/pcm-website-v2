@@ -1981,7 +1981,10 @@ order by n desc, 1;
 > ⚠️ **未量**:沒開過後台;本條是 **SOP/流程**題,`grep` 只答得出「有沒有 code」,答不出「員工現在怎麼做」。
 
 - **狀態:** ⏳ 待執行
-- **分流:** P1-before-launch
+- **分流:** ~~P1-before-launch~~ ⇒ 🔴 **Phase 2**(2026-08-19 G1 判定,判定書 `docs/specs/2026-08-19-g1-70-scope-verdict.md`、commit `67109655`)
+  - 三條理由:①NORTHSTAR `§1.2:57` 把「店家端」明列 Phase 2 ②系統零基礎建設(無付款條件/額度/到期日;SOP 要用的 `listByDateRange` 本身是 `IOrderRepository.ts:200` 的 TODO)③**零對外承諾**(線上 `/terms` 實查:月結/帳期/對帳/經銷/批發 各 0 命中)
+  - 🔴 **一題可推翻本判定,已進 Sean 清單**:**現在有沒有經銷商在跟你月結(不是系統裡,是實際上)?**有 ⇒ 那件事今天就在系統外發生,SOP 仍值得寫。⚠️ 這格我量不到 —— 業務事實,不在 repo 也不在站上
+  - ⚠️ 別誤讀 `NORTHSTAR §1.1:43`「三級會員 tier 機制在 Phase 1」——實查 `packages/domain/src/catalog/pricing.ts:21`,**tier 指的是【價格】不是【帳期】**
 - **優先級:** 🟠 中
 - **問題:**
   - store / premiumStore tier 月結客戶、月底結帳、admin 怎麼產對帳單?無 SOP
