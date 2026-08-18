@@ -15,6 +15,10 @@ vi.mock('../../lib/orders/procurement-actions', () => ({
 // 只 mock 倉庫層,排序仍走真的那一把。
 vi.mock('../../lib/supplier-repository', () => ({ listSupplierRows: vi.fn() }));
 
+import {
+  EMPTY_PROCUREMENT_VALUES,
+  procurementFailure,
+} from '../../lib/orders/procurement-action-state';
 import { ItemProcurementSection } from './item-procurement-section';
 
 const SUP_A = '33333333-3333-4333-8333-333333333333';
@@ -223,6 +227,90 @@ describe('ItemProcurementSection — 兩個截斷旗標都要接', () => {
     );
     expect(getByText(/採購紀錄這次沒有完整載入/)).toBeTruthy();
     expect(container.querySelector('button[type="submit"]')).toBeNull();
+  });
+
+  // ── `#643` B(2026-08-18):那句話原本叫員工做一件永遠不會成功的事 ──────────
+  //
+  // 🔴 **舊字面逐字:「請重新整理這張單;在完整載入之前不能編輯採購(…)」**
+  //    而 `itemsTruncated = order_items.length >= 200`(`mappers/order.ts:911`)
+  //    ⇒ 重整拿到同一個數字。全陣紀律逐字(`account-order-copy.ts:16`):
+  //    **「請重新整理」只准出現在【真的重整就會好】的地方。**
+  // ⚠️ 這一組守的是**句型**,不是某個字 —— 光禁「重新整理」四個字會擋掉那個
+  //    【真的重整就會好】的世界(`procurementTruncated` 的 `missing` 那半)。
+  it.each([
+    ['order（外層 itemsTruncated）', () => detail({ itemsTruncated: true })],
+    [
+      'item（內層 procurementTruncated）',
+      () => {
+        const d = detail();
+        d.items[0]!.procurementTruncated = true;
+        return d;
+      },
+    ],
+  ])('🔴 %s:不得出現「請重新整理這張單」那個【宣稱重整會好】的句型', (_label, make) => {
+    const { getByRole } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={make()} suppliers={[]} suppliersFailed={false} />,
+    );
+    const alert = getByRole('alert');
+    expect(alert.textContent, '這個句型宣稱重整會好').not.toContain('請重新整理這張單');
+  });
+
+  it.each([
+    ['order（外層）', () => detail({ itemsTruncated: true })],
+    [
+      'item（內層）',
+      () => {
+        const d = detail();
+        d.items[0]!.procurementTruncated = true;
+        return d;
+      },
+    ],
+  ])('🔴 %s:三個要件都要在(可執行動作 / 重整後的判準與出路 / 不能編輯採購)', (_label, make) => {
+    const { getByRole } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={make()} suppliers={[]} suppliersFailed={false} />,
+    );
+    const t = getByRole('alert').textContent ?? '';
+    expect(t, '① 先給一個可執行的動作').toContain('可以先重新整理看看');
+    expect(t, '② 重整之後還是這樣的判準').toContain('如果還是這樣');
+    expect(t, '② 出路:找誰').toContain('負責人');
+    // 🔴 ③ 這半句描述的是【真的擋著的行為】(`item-procurement-form.tsx:263` 的 fieldset disabled
+    //    + 該檔 `:49` 自陳 action 端第二道)⇒ 把它當廢話刪掉會製造一個新的靜默失敗。
+    expect(t, '③ 那半句真的擋著的行為').toContain('不能編輯採購');
+  });
+
+  // 🔴 **伺服器端那則是同一個病的回聲,不是另一件事** ——
+  //    `stale` 由表單 hidden 欄位帶上來,值 = `truncated ? '1' : '0'`(`item-procurement-form.tsx:248`),
+  //    而 `truncated = item.procurementTruncated || detail.itemsTruncated` ⇒ **同一個旗標**。
+  //    只改看得見那則的話,員工照樣按送出、然後從這裡拿到舊的錯指示。
+  it('🔴 伺服器端 `stale` 那則也要同一個句型(不得再說「請重新整理這張單再操作」)', () => {
+    // 🔴 走【公開函式】拿訊息,不是 import 內部常數表 ——
+    //    後者測得到字串卻測不到「這個碼真的會拿到這句」。
+    // 🔴 走【公開函式】而不是 import 內部常數表:後者測得到字串,測不到「這個碼真的會拿到這句」。
+    //    回傳是 union ⇒ 先收窄成 'failed',否則 `.message` 在型別上不存在
+    //    (⚠️ vitest 綠而 typecheck 紅 —— 我第一版就是這樣,四綠才抓到)。
+    const state = procurementFailure('stale', null, EMPTY_PROCUREMENT_VALUES);
+    expect(state.status).toBe('failed');
+    const msg = state.status === 'failed' ? state.message : '';
+    expect(msg).not.toContain('請重新整理這張單');
+    expect(msg).toContain('可以先重新整理看看');
+    expect(msg).toContain('如果還是這樣');
+    expect(msg).toContain('負責人');
+  });
+
+  it('負向對照:同一份文案表裡【真的重整就會好】那幾則不受影響(不是把四個字全域禁掉)', () => {
+    // `error` / `bug` 是寫入之後的狀態不明 ⇒ 重整就是正確的下一步 ⇒ 那句話在那裡是對的。
+    // 沒有這一格,上面那格會誘導下一個人去做全域字串替換。
+    for (const code of ['error', 'bug'] as const) {
+      const st = procurementFailure(code, null, EMPTY_PROCUREMENT_VALUES);
+      expect(st.status === 'failed' && st.message).toContain('請重新整理這張單');
+    }
+  });
+
+  it('負向對照:兩個旗標都 false ⇒ **完全沒有** alert(⇒ 上面四格不是恆真)', () => {
+    const { queryByRole } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(queryByRole('alert')).toBeNull();
   });
 
   it('兩個都 false → 表單可送', () => {

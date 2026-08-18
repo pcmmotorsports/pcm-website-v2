@@ -136,9 +136,19 @@ const FAILURE_MESSAGES: Record<ProcurementFailureCode, string> = {
   SUPPLIER_NOT_FOUND: '找不到這家供應商,採購沒有寫入。請停手並通知系統維護。',
   denied: '沒有權限或登入狀態已失效,採購沒有寫入。',
   invalid: '表單內容不正確,採購沒有寫入。',
+  // 🔴 `#643` B(2026-08-18):**這一句是那個截斷警告的【伺服器端回聲】,不是另一件事。**
+  //    `stale` 由 `item-procurement-form.tsx:248` 的 hidden 欄位帶上來,而它的值是
+  //    `value={truncated ? '1' : '0'}`,`truncated = item.procurementTruncated || detail.itemsTruncated`
+  //    ⇒ **與畫面上那個警告【同一個旗標】。**
+  //    ⚠️ 舊字面逐字 ~~「請重新整理這張單再操作。」~~ —— 而 `detail.itemsTruncated` 是
+  //    `order_items.length >= 200`(固定上限)⇒ **重整永遠不會好**,那句話是叫員工做白工。
+  //    ⇒ 改成與畫面那則**同一個句型**(條件句)。**兩處要一起改** ——
+  //    只改看得見那則的話,員工照樣送出、然後從這裡拿到舊的錯指示。
+  //    📎 全陣紀律逐字 `apps/storefront/src/lib/account-order-copy.ts:16`:
+  //       「請重新整理」只准出現在【真的重整就會好】的地方。
   stale:
     '這個品項的採購清單這次沒有完整載入,現在送出會用不完整的內容覆蓋既有資料。' +
-    '請重新整理這張單再操作。',
+    '可以先重新整理看看;如果還是這樣,那是系統的固定限制、不會自己好,請找負責人處理。',
   not_hydrated:
     '這張表單還沒載入完成就被送出,採購沒有寫入(避免把沒填到的欄位清空)。' +
     '請等畫面載入完成後再操作一次。',
