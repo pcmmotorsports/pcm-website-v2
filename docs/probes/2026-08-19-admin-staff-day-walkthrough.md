@@ -127,7 +127,49 @@ grep -c 'ADMIN_DEV_BYPASS' apps/admin/src/lib/session/session.ts ⇒ 0
 🔴 而後台列表畫出來是「目前沒有符合條件的訂單。共 0 筆」,admin log 零錯誤
 ⇒ 【資料層拿得到、UI 拿不到】,而我【沒有隔離出斷在哪一層】
 ```
-⚠️ **所以讀取站我也不下結論** —— 一個我解釋不了的 0,不能拿去說「列表壞了」。
+### ✅✅ 而那個 0 【隔離出來了】(2026-08-19T02:26 CST,純讀 code、沒有再起環境)
+
+**UI 是對的。是我的測試資料剛好落在【被設計成預設隱藏】的那一格。**
+```
+SupabaseOrderAdapter.ts:830-831 逐字
+  if (!filter.includeUnpaidCardOrders) {
+    query = query.or('payment_channel.neq.tappay,payment_status.neq.unpaid');
+  }
+order-list-view.ts:414 逐字
+  includeUnpaidCardOrders: firstValue(raw[SHOW_UNPAID_CARD_PARAM]) === SHOW_UNPAID_CARD_ON
+  ⇒ 沒帶參數 ⇒ false ⇒ 那道 .or() 會套上
+```
+**而我塞的那一筆**(兩個都是欄位預設值,我沒有指定):
+```
+payment_channel = tappay      ← .or() 第一支條件 neq.tappay ⇒ 不成立
+payment_status  = unpaid      ← .or() 第二支條件 neq.unpaid ⇒ 不成立
+⇒ 兩支都不成立 ⇒ 該列被濾掉 ⇒ 共 0 筆,而且【零錯誤是應該的】
+```
+🔴 **這就是那個「顯示刷卡未付款(預設隱藏)」的勾** —— Sean 逐字要求藏起來的那批(`:829` 註解)。
+
+### 🔴 我當初為什麼沒看出來(這一格才是教訓)
+```
+我做的比對:  我手打的 select   vs   adapter 的 select 【字面】
+而頁面實際跑的:adapter 的 select  +  【parseOrderListSearchParams 給的預設 filter】
+⇒ 我比對的是【查詢的一半】,而被濾掉的原因在【另一半】
+⇒ 判別句:我手打那一發,有沒有把【呼叫端會加上去的東西】一起帶上?
+```
+📌 同一族的第三種形狀:**我量的東西比實際跑的窄** ——
+第一種是掃錯地方、第二種是量具缺一塊,**這一種是我把管線截掉一段再去量**。
+
+### ⇒ 四格的答案(主視窗問的)
+```
+① 同一條 select 嗎?  ⇒ select 是,而【filter 不是】—— 我漏了呼叫端加的那半
+② 有沒有預設篩選?    ⇒ 🔴 有,而且就是它。includeUnpaidCardOrders 預設 false
+                        (日期那軸:order-list-view.ts:421-423,呼叫端不給 options.now 就不套 ⇒ 本次無關)
+③ 查到 0 還是沒查?   ⇒ 【真的查了,而且 0 是正確答案】—— 零錯誤是應該的,不是吞掉
+④ view 濾掉的嗎?     ⇒ 不是。view 回得到那一列(我單獨打過),濾掉它的是 adapter 那道 .or()
+```
+
+### ⇒ 讀取站的結論可以從「未判定」升級成【正向結果】
+**「刷卡未付款預設隱藏」這條規則,在本機是【真的生效】的** —— 而且它的失敗形狀很乾淨:
+不是報錯、不是空白頁,是**誠實地回 0 筆**。
+⚠️ **而這仍然只證本機**(乙全綠不代表甲會通),且**沒有證**勾起來之後撈不撈得到 —— 那要按,而按不了。
 
 ## ④ 🔴 我為什麼把伺服器關掉(理由不是診斷卡住)
 `apps/admin/.env.local` **裡面有 `NEXT_PUBLIC_SUPABASE_URL`**(我只 `grep -c` 數行數,**沒有讀值**)。
