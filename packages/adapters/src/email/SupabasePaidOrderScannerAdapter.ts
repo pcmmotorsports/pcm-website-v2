@@ -180,7 +180,8 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
     // 🔴 多要一列:拿得到 `limit + 1` 就代表**後面還有** ⇒ `truncated`。
     //    ⚠️ **它仍然依賴 `db-max-rows`**(codex 關卡2 更正我原本寫的「不依賴」):
     //    若伺服器上限 ≤ `input.limit`,探針那一列會被**伺服器**截掉 ⇒ `truncated` 假陰性。
-    //    ⇒ 上面那道 `MAX_LIMIT` 就是為此:`limit + 1 ≤ 51` 遠小於 `db-max-rows`(2026-08-18 量到 = 2000)。
+    //    ⇒ 上面那道 `MAX_LIMIT` 就是為此:`limit + 1 ≤ 201` 遠小於 `db-max-rows`(2026-08-18 量到 = 2000)。
+    //    (~~`≤ 51`~~ 是寫錯的數:`MAX_LIMIT` 是 200 不是 50;codex 關卡2 R2 抓到、**R3 抓到我沒改到**。)
     //    🔴 而那個值是 dashboard 上改得回去、改了不會有任何東西紅的設定 ⇒ 餘裕要留大,不要貼著上限走。
     const probeLimit = input.limit + 1;
 
