@@ -1,13 +1,11 @@
 /**
  * @module @pcm/adapters/email/SupabasePaidOrderScannerAdapter — 「已付款但還沒排過通知信」的窄讀 adapter(M-4a B-5)
  *
- * 實作 `IPaidOrderScanner`。client 注入 **service_role**(`orders` / `email_outbox` / `customers`
- * 對 anon/authenticated 的權限與這條路無關;本 class 不持金鑰、不做 authorization,
- * 只能由 server-side 受控模組組裝 —— export 走 `@pcm/adapters/server` subpath、composition 在
+ * 實作 `IPaidOrderScanner`。client 注入 **service_role**;本 class 不持金鑰、不做 authorization,
+ * 只能由 server-side 受控模組組裝(export 走 `@pcm/adapters/server`,composition 在
  * `apps/storefront/src/lib/email/composition.ts`)。
  *
- * 🔴 **零 migration、零新 RPC**:三個 PostgREST 讀查詢,差集在 app 層算。
- *    這是掃描式(Sean `Q-G4-1`=甲)最主要的好處 —— 它不需要任何新的權限面。
+ * 🔴 **零 migration、零新 RPC**:一個 PostgREST 讀查詢(anti-join)+ 一個 fallback 讀查詢。
  *
  * 🔴 **`cutoff` 卡兩邊、不是一邊**(PRD §5 R3 明文):`paid_at >= cutoff` **且** `created_at >= cutoff`。
  *    只卡 `paid_at` 的話,cutoff **之前**建立、cutoff **之後**才晚翻 paid 的舊單會被誤納入
@@ -15,38 +13,71 @@
  *
  * 🔴 **PII**:本 adapter 回兩個 email 欄。它們只准被交給 `outbox.enqueue`,
  *    **不得進 log / result / 錯誤訊息**(PRD §7)。本檔自己一行 log 都不寫。
- *    🔴 **錯誤訊息只帶 PostgREST 的 `code`,絕不內插 `error.message`** —— DB 的訊息會夾帶行內容,
- *    而行內容裡就是收件信箱。我第一版就是內插 `message` 寫出去的,而那一格的測試
- *    (標題寫著「不得夾帶任何 email」)只斷言了訊息開頭那幾個字 ⇒ **它會恆綠**。
+ *    🔴 **錯誤訊息只帶 `stage` + PostgREST `code`,絕不內插 `error.message`** —— DB 的訊息會夾帶行內容,
+ *    而行內容裡就是收件信箱。(我第一版就是內插 `message` 寫出去的,而那一格的測試
+ *    ——標題寫著「不得夾帶任何 email」——只斷言了訊息開頭那幾個字 ⇒ **它會恆綠**。)
  *
- * 🔴🔴 **為什麼要翻頁,而不是「一次 limit N 筆再算差集」**(codex 關卡2 R1 must-fix 1):
- *    `limit` 若在**算差集之前**就套到 `orders`,而最舊的那 N 筆剛好都已經排過信
- *    ⇒ **每一輪都只看到那 N 筆、差集恆空 ⇒ 後面的單永遠排不進去。**
- *    那不是「慢一點」,是**永久飢餓**,而且**沒有任何症狀**:route 回 200、counts 全 0、測試全綠。
- *    ⚠️ 這與 `SupabaseEmailOutboxAdapter` 檔頭記的是**同一個病**(「死列 next_retry_at 恆最老、
- *    恆佔滿窗口 → dead letter 積到 limit 件時活信永久餓死」)—— 我照樣走進去了一次。
- *    ⇒ **改成翻頁,一路翻到收滿 `limit` 筆【真正待排的】或翻完為止。**
+ * ── 🔴🔴 差集在 DB 端做(2026-08-19 換掉 app 端差集 + keyset 翻頁)────────────────
  *
- * 🔴 **翻頁用 keyset(`.gt('id', 游標)`)、不用 `.range()`**(`docs/patterns/pagination-loop-review.md` 第 6 條):
- *    判別句是「**我要翻的那張表,在我翻的時候會不會被寫?**」——
- *    `orders` **會**(結帳一直在建單、`confirm_order_payment` 一直在把單翻成 paid)
- *    ⇒ OFFSET 位移之後會**跳過還沒讀到的列**,而 `Map` 去重救不了漏列。
- *    · 排序鍵 = `id`(uuid,**唯一**)⇒ 滿足第 5 條;**刻意不排 `paid_at`** —— 它不唯一,
- *      要處理頁界同值就得寫 `.or(paid_at.gt.X,and(paid_at.eq.X,id.gt.Y))`,把時戳字面拼進過濾字串。
- *      排信順序由 outbox 自己決定,這裡不需要「最舊的先」。
- *    · `PAGE_SIZE` **嚴格小於** `db-max-rows`(第 1 條)⇒ 「短頁 = 末頁」才有判別力。
- *      🔴 `db-max-rows` 是 dashboard 上點一下就能改的專案設定(2026-08-18 量到 = 2000),
- *      **它被改小,這裡就再次歸零而且不會有任何東西紅** ⇒ 餘裕留大(200 vs 2000)。
- *    · 任一頁失敗 **throw、不 break**(第 3 條):`break` 會把「第 3 頁掛了」變成「總共只有 3 頁」。
- *    ⚠️ **殘餘(照實寫)**:`id` 是 uuid、非遞增 ⇒ 翻頁中途新建、而 uuid 恰好排在游標之前的單,
- *      **這一輪讀不到**。下一輪會撈到(差集是即時算的、集合只會長大)⇒ 可接受,但不是「沒有縫」。
+ * **舊版**:撈一頁 `orders` → 再查一次 `email_outbox` → app 端算差集 → 翻頁直到收滿。
+ * **舊版有一個天花板**:已排過信的單會永遠留在結果集裡、排在待排的前面而且每天變長
+ * ⇒ 前綴超過 `MAX_PAGES × PAGE_SIZE` 的那天,**後面的單永遠讀不到**,而 route 回 200、counts 全 0。
+ * ⇒ **現在改成 PostgREST 的 anti-join,天花板整個消失**(結果集本身就只有待排的)⇒ 翻頁也不需要了。
  *
- * 差集為什麼在 app 層算(而不是一句 `not.in`):`order_id in (...)` 的名單就是①的結果,
- * 兩邊都是同一批 id ⇒ 在 app 層做 `Set.has` 比較,**不需要**把①的 id 再塞回一個
- * PostgREST 過濾字串裡(那條路遇到含逗號/引號的值會靜默壞掉,而 uuid 今天不含它們——
- * 「今天不含」不是一個值得依賴的性質)。
+ * **字面(2026-08-19 實測,PostgREST 14.16 拋棄式環境)**:
+ * ```
+ * select=…,email_outbox!left(order_id)
+ *   &email_outbox.event_type=eq.order_created   ← 先用 event_type 篩【子表】
+ *   &email_outbox=is.null                       ← 再看【父列】有沒有剩下的子列
+ * ```
+ * 🔴🔴 **這個字面差一個欄名就會靜默壞掉,而兩個世界都回 200**:
+ * ```
+ * ✅ email_outbox=is.null            ⇒ 只回沒排過的            （對）
+ * 🔴 email_outbox.order_id=is.null   ⇒ 回【全部的列】+ 空 embed（錯，而且看起來完全正常）
+ * ```
+ * 帶欄名的寫法把 filter 套在**內嵌資源**上、不當父列條件 ⇒ **前綴一列都沒短**。
+ * ⇒ **`.test.ts` 有一格【字面斷言】盯這三個部件**(`argsOf(orders,'is')` 那格),含一條反向斷言。
+ * 🔴 **而單元測試守得住的【只有查詢字面與 adapter 的傳遞行為】**(codex 關卡2 指出我原本這裡寫過頭):
+ *    mock **不會執行 PostgREST 的過濾語意** ⇒ 那格「逐列比對」是**mock 預先造好答案**的
+ *    —— 真查詢若錯誤納入了不該納入的列,只要 mock 照樣回三列,它還是綠。
+ *    ⇒ **實際過濾語意只能由部署前的真實測打證明**(見下方效度限定),不是這裡。
  *
- * @see docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md §4
+ * 🔴 **`event_type` 那道篩子不能省**:一張單可能有 `order_shipped` 而**沒有** `order_created`
+ *    ⇒ 少了它,那種單會被當成「排過了」而**永久跳過** ⇒ 那批客人**永遠收不到通知信**。
+ *    (這一格 2026-08-19 我自己補量:`O2` 只有 `order_shipped` ⇒ 正確答案必須包含它。)
+ *
+ * ⚠️ **效度限定(引用本段請一起帶走)**:上面那三發量在 **PostgREST 14.16** 的最小構造上
+ *    (兩表一 FK、4 列、無 RLS、無分頁);**正式站(Supabase 託管)的版本未確認,而內嵌過濾語意在版本間改過**。
+ *    🔴 **上線前的驗收(codex 關卡2 收緊:只看「互補」仍可能驗到錯誤分組)** ——
+ *    要在**正式站**(preview 只有在版本 / schema / FK / RLS / API 設定都與正式站相同時才算數)
+ *    造這四種訂單、逐筆核對它們各自落在哪一邊:
+ *    ```
+ *    有 order_created          ⇒ 只出現在 not.is.null
+ *    只有 order_shipped        ⇒ 只出現在 is.null      ← 漏掉它 = 那批客人永遠收不到信
+ *    完全沒有 outbox 列        ⇒ 只出現在 is.null
+ *    多筆、混合事件且含 created ⇒ 只出現在 not.is.null
+ *    ```
+ *    這件事同時寫在 plan §4.3;**兩處都寫是刻意的** —— 改這支檔的人不一定會去讀 plan。
+ *
+ * 📌 索引已經有了、而且是**為這件事建的**:`email_outbox_order_idx (order_id, event_type)`
+ *    (`20260717020000_m4a_email_outbox.sql:113` 逐字「正是為此 anti-join 而設」)。**那是效能面。**
+ *
+ * 🔴 **並行競態不是靠這個查詢擋的,是靠唯一鍵**(codex 關卡2 指出我原本只提了效能索引):
+ *    掃描是單一 statement 的 snapshot ⇒ **掃描開始之後才寫入的 `order_created`,這一輪仍會納入那張單**;
+ *    兩個 scanner 同時跑也可能拿到同一批。
+ *    ⇒ 真正保證「一單一封」的是 `20260717020000_m4a_email_outbox.sql:377`:
+ *      `CREATE UNIQUE INDEX email_outbox_event_uniq ON public.email_outbox (event_type, dedup_key)`
+ *      而 `order_created` 的 `dedup_key = orderId`(`SupabaseEmailOutboxAdapter.ts:197`)
+ *      ⇒ 第二次寫入撞唯一鍵 ⇒ `enqueue` 回 `duplicate`(不 throw)⇒ use-case 記進 `duplicate` 桶。
+ *    ⚠️ **所以這支 adapter【不保證】不重複撈,它保證的是「撈到的都還沒排過(在那個 snapshot 上)」。**
+ *      不重複**寄**由唯一鍵保證。**兩件事不要混。**
+ *
+ * ⚠️ **既有的終態列(`skipped_no_real_email` / `failed@max`)也會讓那張單被永久排除** ——
+ *    因為這裡只看「有沒有 `order_created` 列」,不看它的狀態。
+ *    **那是刻意的**(重排會把「至少寄一次」變成「可能寄很多次」),而它是一個**隱含依賴**:
+ *    修那些列要靠終態對帳/dead-man,而那個機制**今天不存在**。已寫進 plan §7-⑩。
+ *
+ * @see docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md §4 / §4.3
  * @see docs/specs/2026-07-18-b0-order-notification-email-prd.md §3.2 / §5 R3 / §7
  */
 import 'server-only';
@@ -64,14 +95,14 @@ import type { Database } from '../supabase/database.types';
 /** 生成型別直接把關表名/欄名/回傳形狀(鏡像 `EmailOutboxClient` 2026-08-11 #415 拆窄 cast 之後的形狀)。 */
 export type PaidOrderScannerClient = SupabaseClient<Database>;
 
-/** 每頁筆數。🔴 **嚴格小於** `db-max-rows`(2026-08-18 量到 = 2000)⇒「短頁 = 末頁」才有判別力。 */
-const PAGE_SIZE = 200;
-
-/** 單輪翻頁上限(runaway 守門)。撞到就回 `truncated: true`,**不靜默截斷**。 */
-const MAX_PAGES = 25;
-
 /** 掃描的三個階段。**固定字面、非 PII**,可以安全進 log 與回應。 */
-export type ScanStage = 'orders' | 'email_outbox' | 'customers';
+/**
+ * 單輪上限的硬天花板。`limit + 1`(探針)必須遠小於 `db-max-rows`(2026-08-18 量到 = 2000),
+ * 否則探針會被伺服器截掉 ⇒ `truncated` 假陰性。同時也是 fallback 查詢一次撈多少 PII 的上界。
+ */
+const MAX_LIMIT = 200;
+
+export type ScanStage = 'orders' | 'customers';
 
 /**
  * 🔴 **安全錯誤:只帶 `stage` 與 `code` 兩個固定欄**(codex 關卡2 R3 must-fix 2)。
@@ -132,114 +163,74 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
   async listPaidWithoutOrderCreatedEmail(
     input: ListPaidWithoutOrderCreatedEmailInput,
   ): Promise<ListPaidWithoutOrderCreatedEmailResult> {
-    const pending: OrderRow[] = [];
-    let cursor: string | null = null;
-    let scannedPages = 0;
-    /**
-     * 🔴 **只有【親眼看到末頁】才算掃完**(codex 關卡2 R2 must-fix 2)。
-     * 原本寫成 `pending.length > input.limit` ⇒ **剛好收滿 limit 時 `truncated` 會是 false**
-     * (例:整頁 200 筆裡剛好 5 筆待排、limit 也是 5 ⇒ 迴圈條件不成立而結束,而後面其實還有)。
-     * ⇒ 改成**預設沒掃完**,看到空頁或短頁才翻成掃完了。保守方向 = 寧可多說一次「還有」。
-     */
-    let exhausted = false;
+    // 🔴 `limit` 的契約在這裡**強制**,不是靠註解(codex 關卡2:adapter 本身沒 clamp,
+    //    而「最多 50 筆」原本只是註解裡的假設 ⇒ 若 caller 沒驗,customers 查詢與 PII 量都可能爆掉)。
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > MAX_LIMIT) {
+      throw new Error(`掃描 limit 必須是 1..${MAX_LIMIT} 的整數(拿到 ${String(input.limit)})`);
+    }
 
-    while (pending.length < input.limit) {
-      if (scannedPages >= MAX_PAGES) {
-        break; // 撞上限 ⇒ exhausted 維持 false ⇒ truncated=true(不得靜默截斷)
-      }
+    // 🔴 多要一列:拿得到 `limit + 1` 就代表**後面還有** ⇒ `truncated`。
+    //    ⚠️ **它仍然依賴 `db-max-rows`**(codex 關卡2 更正我原本寫的「不依賴」):
+    //    若伺服器上限 ≤ `input.limit`,探針那一列會被**伺服器**截掉 ⇒ `truncated` 假陰性。
+    //    ⇒ 上面那道 `MAX_LIMIT` 就是為此:`limit + 1 ≤ 51` 遠小於 `db-max-rows`(2026-08-18 量到 = 2000)。
+    //    🔴 而那個值是 dashboard 上改得回去、改了不會有任何東西紅的設定 ⇒ 餘裕要留大,不要貼著上限走。
+    const probeLimit = input.limit + 1;
 
-      // ① 已付款、且【建立與付款】都在 cutoff 之後的單(keyset 翻頁)
-      let query = this.client
+    const page = await safeQuery('orders', () =>
+      this.client
         .from('orders')
-        .select('id, display_id, paid_at, notification_email, customer_user_id')
+        // 🔴 anti-join:`event_type` 篩【子表】、`email_outbox=is.null` 篩【父列】。
+        //    **不要寫成 `email_outbox.order_id=is.null`** —— 那會回全部的列而且回 200(見檔頭)。
+        .select('id, display_id, paid_at, notification_email, customer_user_id, email_outbox!left(order_id)')
         .eq('payment_status', 'paid')
         .gte('paid_at', input.cutoff)
         .gte('created_at', input.cutoff) // 🔴 PRD §5 R3:少了這一半,晚翻 paid 的舊單會被誤寄
+        .eq('email_outbox.event_type', 'order_created')
+        .is('email_outbox', null)
         .order('id', { ascending: true })
-        .limit(PAGE_SIZE);
-      if (cursor !== null) {
-        query = query.gt('id', cursor);
-      }
-      const page = await safeQuery('orders', () => query);
-      scannedPages += 1;
-      if (!page || page.length === 0) {
-        exhausted = true;
-        break; // 空頁 = 掃完了
-      }
-      cursor = page[page.length - 1]!.id;
+        .limit(probeLimit),
+    );
 
-      // ② 這一頁裡已經排過 order_created 的
-      const existing = await safeQuery('email_outbox', () =>
-        this.client
-          .from('email_outbox')
-          .select('order_id')
-          .eq('event_type', 'order_created')
-          .in(
-            'order_id',
-            page.map((o) => o.id),
-          ),
-      );
-      const alreadyQueued = new Set((existing ?? []).map((r) => r.order_id));
-
-      // ③ 差集(在【每一頁】上算,所以 limit 數的是「真正待排的」不是「掃過的」)
-      pending.push(...page.filter((o) => !alreadyQueued.has(o.id)));
-
-      if (page.length < PAGE_SIZE) {
-        exhausted = true;
-        break; // 短頁 = 末頁(成立的前提是 PAGE_SIZE 嚴格小於 db-max-rows,見檔頭)
-      }
-    }
-
-    // 🔴 codex 關卡2 R3 must-fix 1:`!exhausted` **還有一種假陰性** ——
-    //    末頁是短頁(⇒ exhausted=true)、但那一頁裡待排的筆數**超過 limit**
-    //    (例:短末頁 10 筆全待排、limit=5 ⇒ 只回 5 筆,而 truncated 說「掃完了」)。
-    //    值班的人看到 `enqTruncated=false` 會判斷沒有 backlog,實際還有 5 筆。
-    const truncated = !exhausted || pending.length > input.limit;
-    const rows = pending.slice(0, input.limit);
+    const scanned = page ?? [];
+    const truncated = scanned.length >= probeLimit;
+    const rows = (truncated ? scanned.slice(0, input.limit) : scanned) as unknown as OrderRow[];
     if (rows.length === 0) {
-      return { rows: [], scannedPages, truncated };
+      return { rows: [], scannedPages: 1, truncated: false };
     }
 
-    // ④ 只在【真的有人需要 fallback】時才去讀 customers —— 那張表的 email 是 PII,
-    //    B-4 之後絕大多數單的 notification_email 都有值,沒必要每輪都撈一次。
-    // 🔴 這裡的「有沒有值」必須與 use-case 的判準【逐字相同】(codex 關卡2 R1 must-fix 2):
-    //    我第一版用 `!o.notification_email`(falsy),而 use-case 用 `trim() !== ''`
-    //    ⇒ `'   '` 這種值在 adapter 眼裡「有值」、在 use-case 眼裡「沒有值」
-    //    ⇒ adapter 不去撈 customers ⇒ 該收的信永遠不會被排進去,而測試全綠。
-    const needsFallback = rows.filter((o) => !hasText(o.notification_email));
+    // 🔴 **無條件撈 fallback 信箱,不再「只在需要時才撈」**(GR nit 1)。
+    //    舊版在這裡自己判了一次「有沒有值」,而 use-case 也判了一次 —— **兩個判準會漂**,
+    //    而漂掉那天的症狀是「該收的信永遠不會被排進去」,測試全綠(codex R1 must-fix 2 就是這一格)。
+    //    ⇒ 判斷只留一處(use-case 的 `firstNonEmpty`),這裡只負責**把值拿回來**。
+    //    代價:`rows` 都有 `notification_email` 時多一個查詢。`rows` 上限 = `limit`(50)⇒ 代價固定且小,
+    //    換掉的是一整類「兩處判準不一致」的 bug。
+    const customers = await safeQuery('customers', () =>
+      this.client
+        .from('customers')
+        // 🔴 `customers` 的主鍵欄是 `user_id`,不是 `id`(生成型別當場擋下我原本寫的 `id`)。
+        .select('user_id, email')
+        .in('user_id', [...new Set(rows.map((o) => o.customer_user_id))]),
+    );
     const customerEmailById = new Map<string, string | null>();
-    if (needsFallback.length > 0) {
-      const customers = await safeQuery('customers', () =>
-        this.client
-          .from('customers')
-          // 🔴 `customers` 的主鍵欄是 `user_id`,不是 `id`(生成型別當場擋下我原本寫的 `id`)。
-          //    `email` 在 DB 是 NOT NULL ⇒ 有這一列就一定有值;查不到列才會是 null。
-          .select('user_id, email')
-          .in('user_id', [...new Set(needsFallback.map((o) => o.customer_user_id))]),
-      );
-      for (const c of customers ?? []) {
-        customerEmailById.set(c.user_id, c.email);
-      }
+    for (const c of customers ?? []) {
+      customerEmailById.set(c.user_id, c.email);
     }
 
     return {
       rows: rows.map((o) => ({
         orderId: o.id,
         displayId: o.display_id,
-        // `paid_at` 在型別上可為 null,而 ① 的述詞是 `payment_status='paid' AND paid_at >= cutoff`
+        // `paid_at` 在型別上可為 null,而述詞是 `payment_status='paid' AND paid_at >= cutoff`
         // ⇒ 走到這裡不可能是 null。`?? ''` 是防腐:真的拿到空值就讓 `enqueue` 的組裝層 throw
         // (它會驗 paidAt 非空),由 use-case 記成 errors、下一輪再撈到,**不要靜默送一個假時戳**。
         paidAt: o.paid_at ?? '',
         notificationEmail: o.notification_email,
         customerEmail: customerEmailById.get(o.customer_user_id) ?? null,
       })),
-      scannedPages,
+      // 🔴 anti-join 之後**沒有翻頁了**(結果集本身就只有待排的)⇒ 這一欄恆為 1。
+      //    保留它是因為 route 已經在回應裡印它;移除是 port 契約改動,不在本次範圍。
+      scannedPages: 1,
       truncated,
     };
   }
-}
-
-/** 與 use-case 的 `firstNonEmpty` **同一個判準**(見上方註解:兩層不一致 = 信永遠排不進去)。 */
-function hasText(value: string | null): boolean {
-  return typeof value === 'string' && value.trim() !== '';
 }

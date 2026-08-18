@@ -128,41 +128,64 @@ packages/adapters/.../SupabaseEmailOutboxAdapter.ts:163  只做完全等值比�
 ⇒ **今天沒有可達路徑把子網域合成值餵進 adapter。**
 🔴 **但這是「今天沒有」不是「不會有」** ⇒ 列進 §7 誠實揭示 + backlog,**不在本片修**(改 adapter 的閘會動到已驗證過的狀態機)。
 
-## 4.3 🔴🔴 掃描式有一個【天花板】,而它需要一支 migration 才能拿掉(2026-08-18 codex 關卡2 R2 抓到)
+## 4.3 ✅ 那個天花板拆掉了(2026-08-19;原文留痕在下面,**不要刪**)
 
-**病的形狀**(codex 逐字):
-```
-cutoff 之後累積的【已排過信】的單，會永遠留在掃描的結果集裡，排在待排的那幾筆前面。
-每一輪都從 cursor = null 重新開始 ⇒ 已排過的那一段前綴每天變長
-⇒ 前綴長到超過單輪掃描上限的那一天，後面的單【永遠讀不到】
-⇒ 而 route 回 200、counts 全 0、truncated=true —— 沒有人在看 truncated
-```
-🔴 **`truncated` 只讓它【可觀測】,沒有讓下一輪【真的繼續】。** 這兩件事不要混。
+**做法**:差集從 app 端搬進 DB,用 PostgREST 的 anti-join ⇒ **結果集本身就只有待排的**
+⇒ 已排過信的前綴不再出現在結果裡 ⇒ **天花板消失、翻頁整段拿掉**(單一查詢)。
 
-**天花板是多少**(算的,不是量的 —— 兩個乘數是我寫死的常數,分母是別人記的量級):
+```
+select=…,email_outbox!left(order_id)
+  &email_outbox.event_type=eq.order_created   ← 先用 event_type 篩【子表】
+  &email_outbox=is.null                       ← 再看【父列】有沒有剩下的子列
+```
+
+🔴🔴 **這個字面差一個欄名就會靜默壞掉,而兩個世界都回 200**(2026-08-19 實測):
+```
+✅ email_outbox=is.null            ⇒ 只回沒排過的
+🔴 email_outbox.order_id=is.null   ⇒ 回【全部的列】+ 空 embed  ← 看起來完全正常，前綴一列都沒短
+```
+⇒ `.test.ts` 有一格**逐列比對**的守門盯這個字面 + 一條**反向斷言**(毒分支不得出現)。
+**只斷言 http=200 或「非空」的守門,對寫錯的那版照樣全綠。**
+
+🔴 **`event_type` 那道篩子不能省**:一張單可能有 `order_shipped` 而**沒有** `order_created`
+⇒ 少了它,那種單會被當成「排過了」而**永久跳過** ⇒ 那批客人**永遠收不到通知信**。
+📌 這一格是 **G6 那六發沒涵蓋到的**(它量的是「有沒有任何 outbox 列」)⇒ G4 自己補量。
+
+📌 索引已經有了、而且是**為這件事建的**:`email_outbox_order_idx (order_id, event_type)`
+(`20260717020000_m4a_email_outbox.sql:113` 逐字「正是為此 anti-join 而設」)。
+
+### ⚠️ 效度限定(引用本節請一起帶走)
+```
+· 量測環境 = 拋棄式 PostgREST 14.16 + PG 17.10，最小構造（兩表一 FK、4 列、無 RLS、無分頁）
+· 🔴 正式站（Supabase 託管）的 PostgREST 版本【未確認】，而內嵌過濾語意在版本間改過
+· 沒測：RLS 之下的行為、與 .range() 分頁組合
+```
+🔴 **上線前要做的一個動作(寫在這裡是因為它會被讀到,不是留在信裡)**:
+在**正式站或 preview** 打同一組兩發,看回的是不是**互補的兩組**:
+```
+…&email_outbox.event_type=eq.order_created&email_outbox=is.null       ⇒ 應為「沒排過的」
+…&email_outbox.event_type=eq.order_created&email_outbox=not.is.null   ⇒ 應為「排過的」
+🔴 判準是【兩組互補且都不是全部】——「回全部」看起來像成功。
+```
+**同一段限定也寫在 `SupabasePaidOrderScannerAdapter.ts` 檔頭**;兩處都寫是刻意的
+—— **改那支檔的人不一定會來讀這份 plan。**
+
+<details>
+<summary>~~原文(2026-08-18 那版:app 端差集 + keyset 翻頁 + 天花板)~~ —— 留痕不刪</summary>
+
+原本的做法是「撈一頁 orders → 再查一次 email_outbox → app 端算差集 → keyset 翻頁直到收滿」,
+而它有一個天花板:
 ```
 單輪掃描上限 = MAX_PAGES(25) × PAGE_SIZE(200) = 5,000 筆
-出信量級     = 10-30 封/日   ← 來源 packages/use-cases/src/sweep-email-outbox.ts:34（別人記的，我沒量）
-⇒ 5,000 / 30 ≈ 166 天 ≈ 5.5 個月     ⇒ 標【估】,不是量到的
-⚠️ 這個估算假設「一封信 ≈ 一張已付款的單」。促銷檔期、批次補單都會讓它更快到。
+已排過信的單會永遠留在結果集裡、排在待排的前面，而且每天變長
+⇒ 前綴超過 5,000 的那天，後面的單【永遠讀不到】，而 route 回 200、counts 全 0
+估：5,000 / 30 封每日 ≈ 166 天（分母來源 sweep-email-outbox.ts:34，別人記的，我沒量）
 ```
+當時列的三條路是「甲 DB 端 anti-join(要 migration)/ 乙 跨輪 cursor(要一張表)/
+丙 PostgREST embedded anti-join(**未確認**)」—— **丙成立了,而且不必 migration。**
+🔴 **當時我猜的那個丙的字面正是上面那個毒分支** ⇒ 猜對方向、猜錯字面,而那個錯法不會報錯。
 
-**為什麼本片不修**:三條路都出本片的範圍——
-```
-甲 DB 端 anti-join（view 或 RPC 做 NOT EXISTS）⇒ 要 migration ⇒ 鐵則 8 + 12③ ⇒ 要自己的 plan 與批准
-乙 跨輪持久化 cursor                            ⇒ 要一張表 ⇒ 同上
-丙 PostgREST 的 embedded-resource anti-join
-   （orders?select=*,email_outbox!left(order_id)&email_outbox.order_id=is.null 這個形狀）
-   🔴 我【沒有驗過】它在本專案的 PostgREST 版本上成不成立，也沒有 DB access 可以驗
-   ⇒ 依 §6-b 標「未確認」。它可能是零 migration 的解，也可能根本不支援。
-```
-⇒ **本片交付的是「有天花板、而天花板寫在這裡」的版本**,不是「解掉了」。
-⇒ **已回報主視窗當決策題**:要不要為丙做一次 5 分鐘的實測(有 DB access 的窗跑一次 curl 就知道),
-   還是直接走甲開一片 migration。**我不自己拍這個板**(它動 schema)。
-
-⚠️ **在天花板到之前這片是好的** —— 它今天就能把信排進去,而且可重入。
-   ~~「這一輪漏掉的,下一輪自己再撈到」~~ **那句話要加限定**:**在前綴還沒長到 5,000 之前**成立。
-   use-case 檔頭那句已同步加上限定。
+</details>
 
 ## 5. 失敗語意
 
