@@ -19,8 +19,17 @@
 #
 # ── 🔴 兩條射程限定(跟數字一起看,別放大)────────────────────────────────
 #   1 `build` 的分母是 2 不是 8 —— 只有 apps/storefront 與 apps/admin 有 build script,
-#     `packages/*` 有 typecheck 沒 build ⇒「build 全綠」涵蓋不到共用套件的產物。
+#     `packages/*` 有 typecheck 沒 build。
 #     量法: grep -rl '"build"' --include=package.json apps packages
+#     🔴 **2026-08-18 更正(W5 量、W1 落檔):~~「build 全綠」涵蓋不到共用套件的產物~~ 是【錯的】。**
+#     那是把一個【有分母的事實】(2 不是 8)推成了一個【全稱結論】,而推的那一步沒有量。
+#     ✅ 正確講法:**app build 會連編到 import 進去的 workspace code ⇒ 不是零覆蓋**;
+#        而「那條路徑對 `packages/*` 有多少判別力」= **未量,標未確認**。
+#     🔴 為什麼這個更正值得佔三行:舊句會讓人以為共用套件完全沒被 build 驗過,
+#        於是去補一個**可能不需要的守門** —— 而裝在沒有事的那條路上的機制,淨值為負
+#        (memory `feedback_a-guard-on-a-safe-path-is-net-negative`)。
+#     📌 這句錯字面 2026-08-18 當天已被至少兩手轉述出去(W1 抄進報告、主視窗抄進給 Sean 的版本),
+#        兩邊都已更正。**下一個引用本段的人:引的是上面 ✅ 那兩行,不是刪除線那句。**
 #   2 `pnpm test` 走根 package.json 的 `vitest run`、**不經 turbo**
 #     ⇒ 它沒有 replay 問題,也**沒有 `Cached` 行可貼**。拿不出那一行不是漏報。
 #
