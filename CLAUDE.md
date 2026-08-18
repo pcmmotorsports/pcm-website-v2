@@ -60,6 +60,9 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 決策題 / 報告格式細節 / Sean 說看不懂 | `docs/working-style.md` §1/§2 |
 | 需要 Sean 操作 dashboard / GUI / 查環境路徑 | `docs/working-style.md` §4 |
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
+| 🔴 **不知道某個東西牽動到哪 / 想知道「改這支檔會影響什麼」** | 查地圖:`graphify query "<檔名或識別字>"`(在 repo 根跑,例 `graphify query "orders-table"`)。它回傳那個節點 BFS depth=2 的連動子圖,答得出**跨檔關係**而 grep 只答得出字面命中。**查完一定要開檔核** —— 地圖給方向,檔案給事實 |
+| ⚠️ **地圖問不出來的東西**(先知道,免得以為它壞了) | ①**中文白話問句零命中**(2026-08-18 實測「訂單列表的品項在哪裡展開成一列」⇒ `No matching nodes`)②**不是節點名的識別字也零命中**(同日實測 `itemsTruncated` ⇒ 0)③🔴 **沒有 HTML 可以開** —— 圖的節點數超過 viz 上限,`graphify update` 會**跳過並移除** `graph.html`(2026-08-18 實測 `ls graphify-out/graph.html` ⇒ `No such file or directory`)。**⇒ 只用 `query`,沒有圖可以看** |
+| 地圖過期了 / 收工前要刷 | `graphify update`(增量)。**milestone 收尾或每日收工跑一次**,不隨每 slice。⚠️ **本表不記節點數與刷新時間** —— 那種數字寫進常載檔就會過期,而過期時零機械訊號;要現值就當場跑 `graphify update` 看它自己印 |
 | 跨專案關聯問題(老闆腦/報價單/上架鏈與本 repo 怎麼連) | 四 repo 合併圖 `/Users/sean_1/老闆腦/跨專案圖/`(cd 進去 `graphify query "問題"`;repo 內問題優先用本 repo `graphify-out/`,較新;合併圖由老闆腦維護、本 repo 不更新它) |
 | 三綠細節 / 字面vs事實背景 | `docs/patterns/slice-checkpoint.md` |
 | 歷史 Codex Packet 格式(已停用、僅備查) | `docs/patterns/codex-review-packet.md` |
