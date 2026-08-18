@@ -601,3 +601,72 @@ scripts/a7c-preflight.sh:98 逐字:「任何**未 apply** 的 migration 都會�
       ↑ 不可換(理由見 14-0)
 ⚠️ 而移檔動到 supabase/migrations/ ⇒ 命中鐵則 12③ ⇒ 它自己也要走對抗審查,不是「順手 git mv」。
 ```
+
+---
+
+## 15. GR-043 折了哪些 / **沒折哪些**(GR 要求理由寫在檔裡,不要只在訊息裡)
+
+### 15-1 我開檔核過的座標(**在別的檔案裡,不會隨本檔位移**)
+> GR 給的是 `f7c2f133` 那一版的座標。下面是我**自己開檔印出原文**核過的七處。
+
+| # | 座標 | 我核到什麼 |
+|---|---|---|
+| 1 | `scripts/triage-manual-review-alert.sh:83-85` | 三族述詞逐字,與 GR 引的相同 |
+| 2 | `supabase/migrations/20260612150000_m3_s2d_charge_attempts.sql:283` | `AND status = 'pending'` |
+| 3 | 同上 `:334` | `AND status = 'pending'` |
+| 4 | `supabase/migrations/20260624120010_…close_released_attempt.sql:104` | 「非 released、不可 close」 |
+| 5 | 同上 `:139` | 「REVOKE 5 角色…無 GRANT = owner/postgres only」 |
+| 6 | `supabase/migrations/20260615120001_…attempt_sweeper_rpc.sql:131,:217` | 皆 `AND a.needs_manual_review = false` |
+| 7 | `supabase/migrations/20260621120000_…poll_settle_throttle.sql:36,:49,:70` | `last_poll_settle_at` 欄 / 「durable 旗標」/ 同款旗標判 |
+
+另外兩發是**我自己下的數**(非 GR 給的):
+```
+grep -c settle_attempt_count packages/use-cases/src/settle-charge.ts        ⇒ 0
+sed -n '70,78p' scripts/triage-manual-review-alert.sh                       ⇒ 九欄,無「誰按的/何時/結果」
+```
+🔴 **S5 / S6 / S7 / S8 我沒有逐條複驗座標**,是照 GR 的敘述折的 ⇒ 標【未複驗】。
+
+### 15-2 折了(S1–S8 逐條落點)
+```
+S1 三族 vs 一族   ⇒ §1-1 表 + §4-1 三條出口(改寫,非附註)
+S2 缺欄位         ⇒ §4-2 + §6-1(把「不用 migration」改掉)
+S3 RPC 兩頭落空   ⇒ §3-1 整段作廢 + §3-2 改成「留痕」理由
+S4 app 層鏈       ⇒ §6-2(含 l5b0-verify.sh:51 指紋會過期)
+S5 §13 是遺物     ⇒ §13 降條件節 + §14-0 降級(文字保留)+ 檔頭警語追加
+S6 順序與估時     ⇒ §5 補第 0 步移檔;§7 5.5h → 11h(🔴 兩者皆【估】)
+S7 補入帳待驗     ⇒ §2 改寫 + §5 第 6 步;§9/§12 的舊問句就地標已答
+S8 甲乙丙代號     ⇒ §1 檔頭停用宣告 + 全檔改寫 + 我自己 STOP 兩處
+GR 追加三條      ⇒ §14-2a 射程同段 / §14-3 第 ② 項 APPLIED.tsv / §14-0 與 §13 同時改
+```
+
+### 15-3 🔴 **沒折的,以及為什麼**
+```
+① S8 的 MAIN-052:70 那一行
+   不折的理由:**那是主視窗的檔,不是我的射程。** 主視窗 2026-08-19 已自行改完並回報。
+   ⇒ 這一格【已關,而不是我關的】。
+
+② GR-042 §④ 的 B-7 / D-11 / D-12 / D-13 / C-8 / C-9 / C-10
+   不折的理由:**那是 GR 對自己前一封 findings 的複核附錄,不是對本 plan 的 finding。**
+   其中 D-12 明說要在報價單 repo(`/Users/sean_1/API大量上架/PCM報價單-V2`)裡查 ——
+   **不在本 repo,也不在我的線上。** ⇒ 不屬本 plan,不折。
+
+③ A-6「告警述詞三份載體互釘」—— **這條我折了一半,另一半明寫在這裡**
+   已折:§4-3 要求計數分三族、§6-2 列出下游鏈 ⇒ 述詞改動的**影響面**寫進工作清單了。
+   🔴 未折:**「三處必須一致」這件事沒有做成機制**(rule-ledger 沒有那一列)。
+   不做的理由:那要動 `docs/ops/rule-ledger.tsv`,而本輪主視窗的邊界是【只動這份 plan】。
+   ⇒ 它是 §5 第 1 步的**驗收條件之一**,寫在這裡:
+     `get_payment_anomaly_alert_summary` 的述詞 / triage 腳本的述詞 / RPC 的守門述詞
+     三處改動要同 commit,且加一道斷言或 ledger 列。**現在【沒有】那道守門。**
+
+④ §14-1 移檔本身
+   不折的理由:主視窗邊界「repo 裡任何 .sql 一行都不動」,且它自己命中鐵則 12③
+   ⇒ 它是獨立一片(§5 第 0 步),規格已在 §14,**本輪只寫規格不動手**。
+```
+
+### 15-4 這一版的證據等級(整份)
+```
+· 本 plan 全部由【讀檔 + grep】得到,**沒有在 PG 上跑過任何 SQL**
+  唯一的例外是 §14-2a(拋棄式環境實跑,含負向對照)
+· §7 的估時是【估】,不是量到的
+· §2 補入帳那條 path **沒有人跑過** —— 它排進 §5 第 6 步,不是已完成
+```
