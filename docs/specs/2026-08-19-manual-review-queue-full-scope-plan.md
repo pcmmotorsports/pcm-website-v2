@@ -157,3 +157,70 @@ admin_request_manual_settle(p_attempt_id, p_order_id, p_actor, p_reason, p_reque
 · 本 plan 沒有處理「TapPay 永遠查不出來」的極端情況 —— 那種單會永遠留在清單上，
   🔴 而那是【正確的】：它確實還沒有答案。不要為了清單好看而給它一個假出口。
 ```
+
+---
+
+## 10. 🔴 GR 第二意見(`~/pcm-mailbox/GR-040-…`)折進來的五格 —— 其中一格**推翻了我的全稱句**
+
+### ①🔴 既有出口我盤點漏了一支,**而它正是甲/丙該長的形狀 —— 新設計從它開始,不要從零**
+`supabase/migrations/20260624120010_m3_3ds_r1c3_close_released_attempt.sql`
+```
+COMMENT 逐字：「owner-only 人工結案(SECDEF、search_path='')。
+  Sean 取得 TapPay 明確終局(未扣款)後收尾 released attempt：released→failed +
+  寫 released_closed_at / released_closed_by / released_close_resolution(三欄成組、滿足 group_chk)」
+權限逐字：「REVOKE 5 角色含 payment_confirmer、無 GRANT = owner/postgres only(Phase 1 受控人工流程)」
+```
+🔴 **我在前一份 plan 寫「全樹只有一處把 `needs_manual_review` 設回 false」= 全稱句,被這一支推翻。**
+📌 **它的三個性質正是我們要的**:
+```
+· 【不讓人宣告】—— 它要求「已取得 TapPay 明確終局」當前提，然後只做狀態收尾
+· 【owner-only、一個角色都不 GRANT】—— Phase 1 就是刻意讓它走人工受控流程
+· 依據寫成【三欄成組 + CHECK】，不是自由文字備註
+```
+⚠️ 它**只收 `released`**(其餘狀態一律拒)⇒ **`pending` 那族仍無對應結案 RPC** = 缺口的真正邊界。
+
+### ②🔴 released 族的**對稱缺口**
+我的 ⑤-2 只擋 `charged` 宣告 `unknown` ⇒ **`released` 列宣告 `unknown` 照樣過 = 反向的說謊**。
+⇒ `not_charged` 要**分 pending / released 兩支**(released 那支就是 ①)。
+
+### ③🔴 指路訊息住在一條**被我自己禁掉的通道**
+我在 COMMENT 寫「**API 不得把 DB 例外原文回給前端**」,
+而我的指路訊息(「請回報,不要改選 unknown」)**只活在例外原文裡** ⇒ **自相矛盾,操作者永遠看不到。**
+⇒ 改成**結構化回傳**(`{ok:false, reason, next}`);RAISE 只留給「不該發生」。
+
+### ④🔴 我自標「未重跑」的 C-B,GR 指出**差值不變式會破**
+```
+我寫：未檢視數 = attempt_manual_review_count − reviewed_unknown_unresolved_count
+而兩述詞【已解綁】⇒ 一列 unknown-closed 之後變 charged 且無 superseded_at
+⇒ 它在 unknown 存量裡、不在主告警裡 ⇒ **差值可以變負**
+⇒ 「新到一筆 ⇒ 差 0→1」在負數的世界裡不成立
+```
+⇒ **這是重跑的第一發。** 📌 而教訓是:**標了「未驗」不等於可以宣稱。**
+
+### ⑤ 三份述詞要互釘
+`attempt_manual_review_count` / RPC 的 ⑤ / unknown 存量 —— **三處各寫一份**,必須一致。
+⇒ 抽成單一 SQL 函式(只寫一次)或加斷言驗三者同源;並進 rule-ledger。
+
+---
+
+## 11. `20260819010000` 的處置 —— **GR 裁「不能單獨上」,而【在哪個標準下】要寫清楚**
+```
+GR 逐字：「不能單獨上 —— 新標準下它照定義就是做一半」
+        「dev commit 不必回退，gate = apply + UI 片等完整範圍」
+        「斷言群是今晚最強的一套，新版直接繼承免重驗」
+```
+🔴 **那個「新標準」= Sean 2026-08-19 的「不准做一半」** ——
+**不是**「那支自己有問題」。⇒ **三天後有人看到一顆綠的 commit 卡著,不要以為 gate 可以拆** ——
+**gate 的解除條件是【甲+乙+丙 完整範圍就緒】,不是「那支修好了」。**
+```
+處置：commit 留著（不回退）／【不 apply】／新 migration 不建立在它之上
+⚠️ 「不 apply」需要會被讀到的載體 ⇒ 已在該檔檔頭；另請主視窗在待推清單標記
+```
+
+## 12. 🔴 非真 DB 不可的那一格(Sean 說「如果需要」,下一班拿這段去要)
+```
+甲那條 path：settleCharge 回 paid ⇒ 真的收斂成已付款
+🔴 而它缺的【不是 DB 權限】，是【TapPay sandbox 的一筆真交易】
+⇒ 所以：**不要為了這一格去要 DB 權限** —— 權限給不了它
+⇒ 真正要問的是：「甲那條 path 由誰、在什麼環境驗過?」
+```
