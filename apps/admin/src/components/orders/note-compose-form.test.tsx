@@ -100,8 +100,27 @@ describe('NoteComposeForm — A10a-3', () => {
     const hidden = container.querySelector<HTMLInputElement>('input[name="occurred_at"]');
     // 帶偏移字面(債②:datetime-local 原始值會被解析器拒收)
     expect(hidden?.value).toMatch(/(Z|[+-]\d{2}:\d{2})$/);
-    // 台北 14:30 = UTC 06:30(把 local 當 UTC 解析的突變會給 14:30Z,差 8 小時 → 紅)
-    expect(hidden!.value).toBe('2026-08-02T06:30:00.000Z');
+
+    // 🔴🔴 `#655`(2026-08-18):**期望值從 `…06:30:00.000Z` 換成固定偏移字面。**
+    //
+    //   ⚠️ **這不是把期望值改成現況** —— 兩者**是同一個時刻**(台北 14:30 = UTC 06:30),
+    //   換掉的是**產生它的方式**:舊實作 `new Date(local).toISOString()` 吃**裝置時區**,
+    //   新實作 `toTaipeiIso()` 是純字串轉換 + 寫死 `+08:00`。
+    //
+    //   🔴 **而這一格為什麼抓不到舊的病 —— 值得記**:本檔第 1 行把 `TZ` 釘成 `Asia/Taipei`
+    //   (上面 `:92` 還自斷言它生效)⇒ **測試被固定在【那個 bug 看不見的世界】裡**。
+    //   在台北機器上舊實作是對的;在 UTC / 紐約機器上它差 8 / 12 小時,而**沒有任何一格會紅**。
+    //
+    //   ✅ **新期望值連那個世界一起擋掉**:`+08:00` 這種字面
+    //   **`new Date(x).toISOString()` 在任何時區都產不出來**(它恆以 `Z` 結尾)
+    //   ⇒ 只要有人把實作換回 `new Date(local)`,這一格**在任何 TZ 下都紅**。
+    expect(hidden!.value, '換回 new Date(local) ⇒ 會變成 Z 結尾 ⇒ 此格紅(且不吃執行環境的 TZ)').toBe(
+      '2026-08-02T14:30:00+08:00',
+    );
+    // 而它仍然必須是**同一個時刻**(換算對不對,與字面長相分開驗)
+    expect(Date.parse(hidden!.value), '偏移寫錯 ⇒ 字面對而時刻錯').toBe(
+      Date.parse('2026-08-02T06:30:00.000Z'),
+    );
   });
 
   it('[4] 更正模式:不可撤回文案 + hidden corrects_note_id + 取消更正連結', () => {
