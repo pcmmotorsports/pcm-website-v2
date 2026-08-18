@@ -245,7 +245,7 @@ describe('第2批 · 三條路由各自的殼與 robots(整站版 vs 站內頁�
   });
 });
 
-describe('第2批 · /logout(建好了但刻意沒接線)', () => {
+describe('第2批 · /logout 道別頁(2026-08-18 已接線,見本 describe 最後一格)', () => {
   it('🔴 `.lo-*` 的響應式提權到 .auth-card.lo-card(裸 .lo-card 會被 [data-mobile] 兜底蓋掉)', () => {
     // `[data-mobile="true"] .auth-card`(0,2,0)贏過裸 `.lo-card`(0,1,0),**與順序無關** ⇒
     // 照設計稿字面搬,手機上的內距與標題字級會被靜默蓋掉。
@@ -272,25 +272,42 @@ describe('第2批 · /logout(建好了但刻意沒接線)', () => {
     ).toBeGreaterThan(AUTH.indexOf('[data-mobile="true"] .auth-card'));
   });
 
-  it('🔴 這一頁**沒有**去改登出 server action 的 redirect(那是 auth 面、鐵則 12②)', () => {
-    // 接線 = 把 `logoutAction` 的 redirect 由 /login 改成 /logout。那是產品決定 + 高風險面,
-    // 不歸夜跑窗。這條在「有人順手接了但沒過對抗審查」時會紅。
-    // 🔴 收割確認輪 MF1:整檔比對會被檔頭註解的 `redirect('/login')` 字面餵成恆真(改了真碼照樣綠,
-    //    突變實測證實)⇒ 先剝 `//` 行註解、再錨定「行首縮排+分號」的語句形。
-    const actions = read('../app/account/actions.ts')
+  it('🔴 登出的 redirect 目的地是 `/logout` 道別頁(接線已完成、且不准被改回去)', () => {
+    // 🔴 這一格【翻過面】(2026-08-18)。它原本釘的是「**沒有人可以在沒過對抗審查的情況下接線**」——
+    //    它的紅**就是那張傳票**,不是「redirect 必須永遠是 /login」。傳票收到了、鐵則 12② 對抗審查
+    //    跑完了、接線完成 ⇒ 它改守新的不變式:**目的地是 /logout**(有人改回 /login 或改到第三個地方會紅)。
+    //    出處與身分見 `docs/specs/2026-08-18-g3-logout-wiring-plan.md` §2
+    //    (「要接線」= Sean 2026-08-06 Q2=A;「現在做」= 主視窗代裁)。
+    // 🔴 收割確認輪 MF1 的坑照舊防著:整檔比對會被**註解裡的字面**餵成恆真(改了真碼照樣綠)⇒
+    //    先剝註解、再錨定「行首縮排 + 分號」的語句形。
+    //    ⚠️ 接線那次檔頭改成了 `/** */` 區塊註解 —— 只剝 `//` 行【擋不住它】,故兩種註解都要剝。
+    //    🔴 codex 關卡2 R1 nit:整檔剝註解仍可能誤刪(字串/template literal 裡的 `/*`)⇒
+    //    再收斂一層:**只看 `logoutAction` 函式本體**。壞法「別的函式裡有 redirect('/logout')」
+    //    現在也騙不過它。
+    const wholeFile = read('../app/account/actions.ts');
+    const fnStart = wholeFile.indexOf('export async function logoutAction');
+    expect(fnStart, 'actions.ts 裡找不到 logoutAction ⇒ 它被改名或搬走了').toBeGreaterThan(-1);
+    //    🔴 R2 抓到的靜默通過:`indexOf` 找不到結尾會回 `-1`,而 `slice(fnStart, -1)` **照樣切得出東西**
+    //    ⇒ 只要後面別的地方有 `redirect('/logout')` 就會誤判通過。先斷言結尾在起點【之後】。
+    const fnEnd = wholeFile.indexOf('\n}', fnStart);
+    expect(fnEnd, 'logoutAction 找不到函式結尾 ⇒ 下面的切片會靜默吃到整支檔的後半').toBeGreaterThan(fnStart);
+    const fnBody = wholeFile.slice(fnStart, fnEnd);
+    const actions = fnBody
+      .replace(/\/\*[\s\S]*?\*\//g, '')
       .split('\n')
       .filter((l) => !/^\s*\/\//.test(l))
       .join('\n');
-    expect(actions, 'logoutAction 的 redirect 被改了 ⇒ 動 auth server action 要先過鐵則 12② 對抗審查').toMatch(
-      /^\s*redirect\('\/login'\);/m,
-    );
-    expect(actions, 'redirect 目的地出現 /logout ⇒ 有人接線了、必須先過鐵則 12② 對抗審查').not.toMatch(
+    expect(actions, 'logoutAction 沒有導到 /logout ⇒ 接線被改掉了').toMatch(
       /^\s*redirect\('\/logout'\);/m,
     );
-    // ⚠️ 對整支檔比 `/logoutAction/` 會命中**檔頭註解**(那裡逐字解釋了為什麼沒接線)——
+    expect(actions, 'logoutAction 又導回 /login ⇒ 道別頁被繞過了(Sean 2026-08-06 Q2=A 要的是道別頁)').not.toMatch(
+      /^\s*redirect\('\/login'\);/m,
+    );
+    // ⚠️ 對整支檔比 `/logoutAction/` 會命中**檔頭註解**(那裡逐字解釋了接線的出處)——
     //    第1批的 nit N8 是同一族的錯。只比 import 陳述,對註解免疫。
+    //    道別頁自己**不該**再去呼叫登出 action(它是登出【之後】才到得了的頁,再登出一次是迴圈)。
     const imports = PAGE_LOGOUT.split('\n').filter((l) => /^\s*import\b/.test(l));
-    expect(imports.join('\n'), '/logout 頁面 import 了 server action ⇒ 那是接線動作、不歸本批').not.toMatch(
+    expect(imports.join('\n'), '/logout 道別頁 import 了登出 server action ⇒ 它是登出後才到的頁,不該再登出一次').not.toMatch(
       /actions|logoutAction/,
     );
   });
