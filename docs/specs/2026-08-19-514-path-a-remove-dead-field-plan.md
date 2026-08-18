@@ -40,12 +40,18 @@
 ⚠️ **座標更正**:`#514` 條目寫 mapper 直送在 `:180` ⇒ **實際是 `:188` 與 `:373`**(行號已漂)。
 
 ### 1-a ✅ 一個讓範圍變小的發現:**state machine 那半也是死的**
+
+🔴 **而這個死家族有【五個成員】,不是兩個**(GR R1 MF-1;本檔第一版只列了兩個):
 ```
-git grep -n "withFulfillmentStatus" -- apps packages(排除測試、排除定義檔與 barrel 匯出)
-  ⇒ **0 個呼叫端**
+① withFulfillmentStatus        state-machine.ts:120   呼叫端 0(排測試/定義/barrel)
+② assertFulfillmentTransition  state-machine.ts:93    同上
+③ canFulfillmentTransition     state-machine.ts:66    🔴 第一版漏列
+   —— 它的非測試命中只有三處:barrel 匯出(index.ts:73)、自己的定義、
+      以及【被 ② 呼叫】(:97)⇒ ② 死了它就跟著死
+④ FULFILLMENT_TRANSITIONS      state-machine.ts:50    轉移表,只被 ③ 讀(:70)
+⑤ FulfillmentStatus 型別        types.ts / order.ts    + barrel 兩行匯出
 ```
-⇒ `withFulfillmentStatus` / `assertFulfillmentTransition` **沒有任何生產程式在用**
-⇒ **可以一起移除**,而不需要先找替代品。
+⇒ **五個一起移除。** ③④ 是被 ①② 撐著的,不是獨立的東西。
 
 ---
 
@@ -94,7 +100,9 @@ git grep -n "withFulfillmentStatus" -- apps packages(排除測試、排除定義
 路 A 完成之後 ⇒ 「沒有任何東西讀那個欄位」這個前提【成立且可機械複驗】:
    git grep -c "fulfillmentStatus" -- apps packages ⇒ 期望 0(含測試)
    git grep -c "fulfillment_status" -- apps packages ⇒ 期望 0
-⇒ **路 B(DROP COLUMN)的前置就滿足了。**
+⇒ **路 B(DROP COLUMN)的【應用層】前置就滿足了。**
+⚠️ 🔴 **而那只是應用層那一半**(GR R1 nit-②):**DB 側還有沒有 reader**(view / 函式 / trigger 讀那一欄)
+**屬於路 B 自己的偵察**,不在本片射程。本片只保證「apps 與 packages 不讀它」。
 🔴 而**路 B 要不要做、什麼時候做,本片不判** —— 那碰 schema(鐵則 12③),是另一片、另一次拍板。
 ```
 
@@ -103,12 +111,32 @@ git grep -n "withFulfillmentStatus" -- apps packages(排除測試、排除定義
 ## 5. 驗收(逐條 yes/no)
 
 ```
-□ git grep -c "fulfillmentStatus" -- apps packages ⇒ **0**(含測試檔)
-□ git grep -c "fulfillment_status" -- apps packages ⇒ **0**
+□ 🔴🔴 **驗收的尺換成【詞幹級】,不要用 camelCase**(GR R1 MF-1 —— **我第一版的尺比宣稱窄**)
+   ```
+   ❌ 第一版:git grep -c "fulfillmentStatus" -- apps packages
+      ⇒ 它是 **case-sensitive** 且只抓 camelCase 欄位名
+      ⇒ 🔴 `FulfillmentStatus`(型別)/ `FULFILLMENT_TRANSITIONS`(常數)/
+         `canFulfillmentTransition`(函式)**全部逃得掉** ⇒ 驗收照樣 0、照樣過,
+         而型別還在、下一個人 import 得到 ⇒ **「不可能再發生」只做一半**
+   ✅ 改成:git grep -ci "fulfillment" -- apps packages ⇒ **0**(詞幹級,一把蓋全形態)
+   量到的差距(我自己重跑,2026-08-19):
+     camelCase 尺 ⇒ 命中 **27** 個檔
+     詞幹級尺     ⇒ 命中 **38** 個檔
+     ⇒ 🔴 **11 個檔對我第一版的驗收是隱形的**
+   ```
    ⚠️ `supabase/migrations/` **不在射程內**(欄位還在 DB,migration 的歷史紀錄不動)
+   ⇒ 所以尺要限定 `-- apps packages`,不要掃全 repo。
 □ 🔴 顧客站的訂單狀態文字**一個字都沒變**
    —— 那是本片的核心性質:`orderStatusLabel` 的 switch 只看 payment,第二參數今天已經沒在用
    ⇒ 突變:把 `orderStatusLabel` 改成回別的字 ⇒ 既有測試必須紅(**證明那組測試守得住文案**)
+   🔴 **而突變證的是「有測試釘住【某些】字面」= 必要非充分**(GR R1 nit-④)⇒ 補兩格:
+   ```
+   · 突變要標【分母】:PaymentStatus 有 5 個值,這一輪的突變釘住了幾個?
+   · 加一條機械檢查:**`orderStatusLabel` 的 switch 本體零 diff** —— 本片只准動【參數行】
+     (若 switch 也被動到 ⇒ 那就不是「零行為改變」了,停下回報)
+   ```
+□ 🔴 **付款軸零 diff**(GR R1 nit-⑤):同一支檔裡就有付款軸的六個函式
+   ⇒ 驗收要明確檢查它們**一個字沒動** —— 防「順手誤刪隔壁」。
 □ 四綠 TURBO_FORCE=1(動 .ts/.tsx ⇒ 含 build)
 □ 20 支測試檔全綠
 □ 🔴 **零行為改變**:本片不應該改變任何一個畫面上的字或任何一條查詢
