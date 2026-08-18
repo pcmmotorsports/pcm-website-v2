@@ -1,6 +1,10 @@
 # Plan — M-4a **B-5:`order_created` 通知信 enqueue**(2026-08-18 G4 重寫版)
 
-> ⚠️ **未批准。** 命中 **鐵則 8** + **鐵則 12 ①錢 / ②權限**(要動 `service_role` 的使用面)⇒ 提 plan 等 Sean 批。
+> ✅ **2026-08-18 16:3x Sean 批准**(逐字「那就依照建議就好」,對應主視窗送的**甲=四份全批**;主視窗轉,我未直接聽到)。
+> 🔴 **批准的射程(照抄,免得下一個人讀成別的)**:**批的是「可以開始做」**;
+> **動 schema / 權限的部分仍要各自過對抗審查**,而 **migration 由主視窗 apply**(CLI 走 keychain,今日已證)。
+> ⇒ **「已批」不等於「可以直接 apply」。**
+> ~~⚠️ **未批准。**~~ 命中 **鐵則 8** + **鐵則 12 ①錢 / ②權限**(要動 `service_role` 的使用面)⇒ 提 plan 等 Sean 批。
 > ✅ **`Q-G4-1` Sean 2026-08-18 14:0x 已拍 = 甲(掃描式)**(逐字「甲、甲、甲、甲」四題共用;主視窗轉)。
 > 🔴 **他批的是【一個對 PRD §3.2 的偏離】,不是只批一個做法** ⇒ **PRD §4 B-5 的契約本體要標註**,
 > 否則下一個讀 PRD 的人會把這個實作當成違約(已於本次同時標,見 PRD `:118` 那一列)。
@@ -14,7 +18,8 @@
 ## 1. 契約(逐字,不要重新發明)
 
 ```
-PRD §4 B-5   :「enqueue 掛 §3.2 兩個匯聚點;付款優先、全 catch;**可部署但不得宣稱功能上線**(gate 見 §6)」
+PRD §4 B-5(🔴 **這是【原契約】,已被 `Q-G4-1` 取代;PRD `:117` 現在寫的是掃描式** —— GR nit 6):
+             ~~「enqueue 掛 §3.2 兩個匯聚點」~~;**其餘不變**:「付款優先、全 catch;**可部署但不得宣稱功能上線**(gate 見 §6)」
 PRD §3.2 失敗:「付款結果優先;enqueue 全 catch 不上拋;缺列由 C-1 對帳補寄 + 訊號 4 告警兜底」
 PRD §3.2 NULL:「訂單欄 NULL → 取 customers.email → 既有 isSyntheticEmail 閘 → 合成域落 skipped_no_real_email」
 PRD §7 PII   :「log／告警／錯誤訊息／回應 body 一律禁帶 email 原值」
@@ -80,8 +85,12 @@ PRD §7 PII   :「log／告警／錯誤訊息／回應 body 一律禁帶 email �
    → outbox.enqueue({ orderId, displayId, paidAt, recipientEmail })
 ```
 🔴 **`cutoff` 同時卡 `paid_at` 與 `created_at`,是 PRD §5 R3 明文**(舊單在 cutoff 之後才晚翻 paid 會被誤納入「應該有信」的集合)。
-🔴 **`cutoff` = flag 實際開啟時戳,不是部署時戳**(PRD §5 R3 已釘死,兩者極易弄反)。
-   **本片的 cutoff 取值 = B-4 部署上線的時戳**(因為 B-4 之後才有真值可存)⇒ **由 Sean 在開啟時記錄、寫進 env 或常數,本片不代填。**
+🔴 **`cutoff` = 【B-4 這一片部署上線的時戳】**(Sean 2026-08-18 `Q-G4-5`=甲)。
+~~「cutoff = flag 實際開啟時戳,不是部署時戳(PRD §5 R3 已釘死)」~~ **已被 `Q-G4-5` 推翻,留痕不刪**
+—— 那條規則的前提(「部署後、開 flag 前建的單仍是 NULL」)已被 B-4 §4.1 抽掉,而 `Q-02` 之下**那個開啟事件不會發生**。
+(GR `C2` 抓到:本檔 `:83-84` 相鄰兩行互相打架,而 `Q-G4-5` 的折抵當時**零字進到真正消費 cutoff 的這一節**
+—— 量法 `grep -c 'Q-G4-5'` 當時 B-4 plan 4 / 本檔 **0**。)
+⇒ **取值方式**:B-4 部署那一次的時戳,**寫進 commit body + `STATUS.md` 待動作欄**(見 B-4 plan §7 落點),本片讀常數、不代填。
 ⚠️ **`limit` 與 cutoff 都是 route 端常數,零 client 輸入**(鏡像 email-sweep route 的紀律)。
 
 ### 4.1 `V2` / `F13`:全不合格時**照 PRD 落一列**,不是靜默跳過
@@ -93,6 +102,19 @@ SupabaseEmailOutboxAdapter.ts:198,208,222  isSyntheticEmail ⇒ status='skipped_
 ```
 ⇒ **有一列查得到的痕跡**,而不是一行沒有人在看的 log。
 ⚠️ 兩個候選都是 NULL / 空字串(理論上 B-4 之後不該發生)⇒ **不 enqueue、計數 +1**,計數進 route 的 counts-only 回應。
+
+### 4.1-b 🔴🔴 這個 fallback 在【手動建單】那個世界會過度寄信(GR `C1`,must-fix)
+
+```
+PRD §3.2（:86）規定：訂單欄 NULL → customers.email → 寄（只有合成域才 skip）
+Sean 2026-08-18 逐字：「那手建訂單可以不填email嗎？ 可以不發送」
+⇒ 員工刻意不填 email 的手動單，客人若有真的註冊信箱 ⇒ 本片的 fallback【照樣寄】
+⇒ 直接違反那句產品拍板，而本片八格測試【全綠】
+```
+🔴 **今天沒有可達路徑**(手動建單那片還沒做)—— **但本片現在批的正是那個述詞。**
+⇒ **`#641` 的來源標記落地之後,本片的 fallback 述詞要一起改**(不是 orders 的事就與我無關:
+**B-5 的 fallback 是 `#641` 的第四個消費者**,而 B-4 §10.3 原本只列了 B-6 / C-1 / 手動建單三個)。
+⇒ 在那之前:**本片照 PRD §3.2 實作,而這一條寫進 §7 誠實揭示,不假裝它不存在。**
 🔴 **counts-only、零 PII**(PRD §7)。
 
 ### 4.2 `F12`:adapter 的合成域閘比 schema 窄 —— 本片為什麼仍然不修它
@@ -147,6 +169,8 @@ packages/adapters/.../SupabaseEmailOutboxAdapter.ts:163  只做完全等值比�
 5. **PII**:`email_outbox.recipient_email` 保留 **120 天**(PRD §7,Sean 2026-07-18 拍),清理 job `#281` **本片不做**。
 6. **`customers.email` 是註冊當下的凍結快照**(`handle_new_auth_user` 只掛 `AFTER INSERT`,全樹零 UPDATE 同步)⇒ auth email 改過的客人,fallback 拿到的是舊值。**照 PRD 做,缺口登記在此。**
 7. **`F12` 的窄閘縫**(§4.2)未修。
+8. 🔴 **fallback 在手動建單世界會過度寄信**(§4.1-b;GR `C1`)——
+   今天無可達路徑,而**手動建單那片一上線,這條就會真的寄錯**。修法綁 `#641` 的來源標記。
 8. ⚠️ **未量**:`RESEND_API_KEY` / `ORDER_EMAIL_FROM` 在正式站的現值(repo 側無管道)。缺值行為已查:sweep route ⇒ `requireEnv` throw ⇒ 503。
 
 ## 8. rollback

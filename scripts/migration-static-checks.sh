@@ -109,9 +109,58 @@ else
   echo "✅ 兩邊都是 $OBJ 個"
 fi
 
+echo "── ④ 建了表就必須明寫 GRANT ───────────────────────────────────────"
+# 🔴 2026-08-18 新增(G5 提案、主視窗批准)。它擋的是【下一個人】,不是這一支:
+#    `E683-1` 收掉 public schema 對 anon/authenticated 的【預設】授權之後,
+#    **新建的表不再自動帶授權** ⇒ 建表卻沒明寫 GRANT ⇒ 那張表對 service_role 以外的角色是隱形的,
+#    而症狀是【上線後某個頁面讀不到東西】,不是 apply 當下紅。
+#    ⇒ 量法依據(2026-08-18 當場跑):最近 10 支 migration 裡唯一有 CREATE TABLE 的那支(心跳表)
+#      本來就明寫了 GRANT ⇒ 這條規則不是新規矩,是把既有慣例變成會紅的東西。
+#
+# 🔴🔴 **這道檢查的天花板,寫在它旁邊(主視窗要求)**:
+#    · 它是**靜態字面比對** ⇒ **抓不到「GRANT 給錯角色」**(給了 anon 也算過)
+#    · **抓不到「GRANT 寫在另一支檔」**(那是合法做法,而這裡會誤紅 ⇒ 用下方的豁免註解)
+#    · 它只看「有沒有一行 GRANT 提到那張表」,**不驗權限集合** —— 那要靠 migration 自己的收權斷言
+#    ⇒ **看到 ④ 綠,不代表這張表的權限是對的。**
+#
+# 🔴 **它會讓一批【歷史檔】變紅,而那不是那些檔有問題** —— 2026-08-18 當場量:
+#    全 182 支 migration 裡 **8 支**會紅(`init_brands_categories` / `init_products` /
+#    `init_product_variants` / `3ds_r1b1a_double_charge_anomaly_tables` / `241_checkout_consent` /
+#    `w0b_shipping_idempotency` / `op1_order_payments_m` / `l5b_refund_ledger`)。
+#    抽驗兩支確認**真的零 GRANT**(不是我的 regex 誤判)。
+#    ⇒ 它們建表的時候 ADP 還在自動授權 ⇒ **紅在舊檔代表【規則變了】,不代表那支壞了。**
+#    ⇒ pre-commit 只掃**這次 staged 的檔** ⇒ 實務上不會擋住任何人,除非你去動那 8 支。
+#
+# 豁免:同一支檔內寫 `-- static-checks:no-grant-needed <理由>` 即跳過(理由必填,會被印出來)。
+CREATED=$(grep -oiE '^CREATE[[:space:]]+TABLE[[:space:]]+[a-z0-9_."]+' "$STRIPPED" \
+          | grep -viE 'CREATE[[:space:]]+(TEMP|TEMPORARY|UNLOGGED)' \
+          | awk '{print $3}' | tr -d '"' | sed 's/.*\.//' | sort -u || true)
+EXEMPT=$(grep -iE -- '--[[:space:]]*static-checks:no-grant-needed' "$F" || true)
+if [ -z "$CREATED" ]; then
+  echo "✅ 本檔沒有 CREATE TABLE,這道不適用"
+elif [ -n "$EXEMPT" ]; then
+  echo "⚠️ 本檔宣告豁免(理由要看得懂,不然就是免責貼紙):"
+  echo "$EXEMPT" | sed 's/^/     /'
+else
+  MISS=""
+  for t in $CREATED; do
+    grep -qiE "^GRANT[[:space:]].*[[:space:].\"]${t}([[:space:]]|\(|;|\"|$)" "$STRIPPED" || MISS="$MISS $t"
+  done
+  if [ -n "$MISS" ]; then
+    echo "🔴 這些表建了、而本檔沒有一行 GRANT 提到它們:$MISS"
+    echo "   ⇒ E683-1 之後,新表【不再自動帶授權】 ⇒ 沒明寫 GRANT = 它對 service_role 以外的角色是隱形的。"
+    echo "   ⇒ 症狀不是 apply 當下紅,是【上線後某個頁面讀不到東西】。"
+    echo "   ⇒ 若這張表【本來就不該給任何人】,或 GRANT 刻意寫在別支檔 ⇒"
+    echo "      在本檔加一行:-- static-checks:no-grant-needed <理由>"
+    RC=1
+  else
+    echo "✅ 建了 $(echo $CREATED | wc -w | tr -d ' ') 張表,每一張都有對應的 GRANT 行"
+  fi
+fi
+
 echo "──────────────────────────────────────────────────────────────────"
 if [ "$RC" = "0" ]; then
-  echo "✅ 三道靜態檢查全過:$F"
+  echo "✅ 四道靜態檢查全過:$F"
 else
   echo "🔴 有檢查未過:$F"
 fi

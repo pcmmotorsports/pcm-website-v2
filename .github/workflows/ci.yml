@@ -76,6 +76,11 @@ jobs:
       # ⚠️ **給未來的人(乙的已知代價,寫下來就不再是隱形的坑)**:
       #    若你在 `apps/storefront` 新增依賴編譯產物的測試,這一步要一起擴到 storefront,
       #    並自行處理它需要的 env(參考 `e2e-prod.yml` 那步的 `env:` 區塊)。
+      # 📌 `TURBO_FORCE=1` 在這條路徑上是【慣例,不是防護】(GR 第三輪 nit;主視窗裁定:留著並註明):
+      #    admin 的 build script 是 `next build`(`apps/admin/package.json`)、`pnpm --filter` **不經 turbo**,
+      #    而 CI 每次都是冷 checkout ⇒ **這條路徑沒有 turbo 快取可繞,它現在防不到任何東西**。
+      #    留著的理由是與鐵則 11「三綠指令一律加 `TURBO_FORCE=1`」一致 ——
+      #    **刪掉會讓下一個人以為這條路徑不必想快取的事**。
       - name: Build admin (編譯產物類測試的前置)
         run: TURBO_FORCE=1 pnpm --filter @pcm/admin build
 

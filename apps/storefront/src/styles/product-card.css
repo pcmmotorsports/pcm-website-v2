@@ -139,8 +139,24 @@
   opacity: 0;
   transform: translateY(-4px);
   transition: opacity 0.2s, transform 0.2s, background 0.15s;
+  /* 🔴 2026-08-18 補上這一行。少了它,這顆按鈕在【看不見的時候照樣吃點擊】。
+     它 `opacity: 0` 而只有 `.pcard:hover` 才浮出來 ⇒ **觸控裝置沒有 hover ⇒ 它永遠是隱形的**,
+     而 `ProductCard.tsx:155` 的 onClick 會 `preventDefault()`(那是刻意的、為了讓「收藏」不要
+     連帶打開商品頁 —— 在有 hover 的桌機上是對的)
+     ⇒ 兩者相乘 = 每一張商品圖的右上角有一個 **32×32 看不見的洞,客人點下去商品不會打開**。
+     390×844 真瀏覽器實測(修前):對一張 173×291 的卡以 6px 網格取樣約 1400 點 ⇒
+       看不見且落在 button 內的命中 = `button.pcard-heart` **×22**(其餘 0)
+       點它中心(162,311)⇒ 網址 `/products` **一動也沒動**
+       負向對照:點旁邊「看不見但不在 button 內」的第二張圖 ⇒ 正常跳到 `/products/<商品>`
+     🔴 **同一支檔裡它是唯一漏寫的**:`.pcard-dots`(`:157`)與 `.pcard-quick`(`:180`)都寫了,
+     而 `.pcard-quick` 還示範了正解 —— 浮出來時才把點擊收回去(`:181`)。本行照抄那個形狀。
+     ⚠️ **這不是 PCM 自己寫壞的**:`design-reference/styles/product-card.css:78-95` 的
+     `.pcard-heart` **同樣沒有 pointer-events**,而同檔 `:24 / :109 / :131` 都有
+     ⇒ 逐字搬 design 時把上游的疏漏一起搬過來了(與 `filter-drawer.css` 那次同族)。
+     ⇒ 本行是**申報偏離 design 字面**,理由如上,記在 manifest。 */
+  pointer-events: none;
 }
-.pcard:hover .pcard-heart { opacity: 1; transform: translateY(0); }
+.pcard:hover .pcard-heart { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .pcard-heart:hover { background: #fff; }
 
 /* Gallery dots */

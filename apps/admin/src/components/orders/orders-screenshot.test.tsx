@@ -63,7 +63,10 @@ function findCompiledCss(): string {
     if (css.includes('orders-grid') && css.includes('col-status')) return css;
   }
   throw new Error(
-    `找不到含 .orders-grid 的編譯後 CSS(掃到 ${hits.length} 支)。先跑 TURBO_FORCE=1 pnpm build。`,
+    `找不到含 .orders-grid 的編譯後 CSS(掃到 ${hits.length} 支)。` +
+      `本機:先跑 TURBO_FORCE=1 pnpm build,或只建這個 app:pnpm --filter @pcm/admin build。` +
+      `CI:ci.yml 已有 Build admin 那一步 ⇒ 在 CI 看到這則代表那一步被拿掉或失序了。` +
+      `🔴 不要把 pnpm build(全 monorepo)加進 ci.yml —— 那個做法 2026-08-18 已被裁定否決。`,
   );
 }
 

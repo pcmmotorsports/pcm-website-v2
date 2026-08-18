@@ -15,6 +15,7 @@
 #
 # rc:0=兩格都查到且對照組正常 / 2=用法錯 / 1=工具問題(psql 沒裝、連不上、量具證不出來)
 #     6=這個庫沒有指定的校準表(你可能在跑報價單庫 ⇒ 用 CALIB_YES / CALIB_NO 指定)
+#     8=第 ③ 段跑完了,而 net 兩表【不存在】⇒ 第 ④ 段不適用(不是「乾淨」)
 #     7=校準表在,但它的權限現值不符預期 ⇒ 🔴 **這是一個【發現】,不是工具壞掉**
 #   🔴 rc=1 / 6 都不是「查無」—— 不要當成「權限已經收乾淨了」。
 #
@@ -150,6 +151,9 @@ echo "         relacl NULL 的表 has_table_privilege('anon',…,'TRUNCATE') ⇒
 echo "         而在 anon 預設授權下出生的表,relacl 會被【寫實】成 anon=arwdDxtm ⇒ 下面 (a) 撈得到)"
 echo "      ⚠️ 這條【只對表成立】。函式的 proacl 是 NULL 時 PUBLIC 反而【有】EXECUTE ——"
 echo "         本腳本不查函式,要查請看 docs/patterns/revoking-function-execute-in-supabase.md" 
+NET_N=$(run "select count(*) from unnest(array['_http_response','http_request_queue']) t
+             where to_regclass('net.'||t) is not null;")
+case "$NET_N" in *[!0-9]*) NET_N=-1;; esac
 echo "  (a) 🔴 表級 —— 走 pg_class.relacl(pg_catalog,**不受可見性過濾**):"
 run "select c.relname||' × '||a.grantee::regrole||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
        from pg_class c join pg_namespace n on n.oid=c.relnamespace,
@@ -182,3 +186,12 @@ echo "         (2026-08-18 實測:非 owner 非 grantee 的角色查 information
 echo "  📄 docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md"
 echo
 echo "🔴 本次結果只代表【這個庫、這一刻】。報價單庫要跑 ⇒ 先用 CALIB_YES / CALIB_NO 給它自己的校準表(見檔頭)。"
+
+# ── 5. 🔴 net 兩表都不存在 ⇒ 第 ④ 段【不適用】,不是【乾淨】────────────────────
+#    沒有這一段的話:輸出是「④ 全空 + rc=0」,而那正是會被讀成「已收乾淨」的形狀
+#    （2026-08-18 G4 自查:同 GR-004 那個「零是濾網壞掉印出來的」家族）
+if [ "$NET_N" = "0" ]; then
+  echo "🔴 這個庫【沒有 net 那兩張表】(可能沒裝 pg_net)⇒ 第 ④ 段是【不適用】,不是【已收乾淨】。" >&2
+  echo "   ⇒ 第 ③ 段(E683 預設授權)的結果仍然有效。" >&2
+  exit 8
+fi

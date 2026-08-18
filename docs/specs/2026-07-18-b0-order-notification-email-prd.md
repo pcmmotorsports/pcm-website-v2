@@ -16,7 +16,11 @@
 > ✅ **裁定(2026-08-18 中午,`Q-02`=甲;主視窗轉,落檔 memory `project_0818-sean-eleven-rulings-noon`)**:
 >   結帳頁那個 email 欄**不用了** —— **留著、關著、不刪**(`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 維持 off)。
 >   通知信收件人改採 `Q-W5-3`=甲:**一般客人用註冊信箱、LINE 客人用收件地址那欄的 Email**。
->   現行 plan = `docs/specs/2026-08-18-m4a-b4-b5-notification-recipient-plan.md`。
+>   現行 plan（2026-08-18 15:2x 更新；原本指到已被取代的合併片 ⇒ 要兩跳才到現行）:
+>   **`docs/specs/2026-08-18-m4a-b4-persist-notification-email-plan.md`（B-4）**
+>   ＋ **`docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md`（B-5）**
+>   ＋ 折抵表 `docs/specs/2026-08-18-b4-b5-findings-disposition.md`。
+>   ~~`docs/specs/2026-08-18-m4a-b4-b5-notification-recipient-plan.md`~~（合併片，已被取代、留痕）
 > ⚠️ **`D1=A` 這一段本身不刪**(留痕):它記錄了 2026-07-18 當時的決定與理由,而**推翻它的是後來的事實**
 >   (收件地址 08-09 才長出必填 Email 欄,PRD 寫的時候還沒有它)。
 > 🔴 **以下這段是【裁定前】的分析,保留只為了說明推翻的理由,不要當成現行狀態讀:**
@@ -79,7 +83,12 @@ notification_email IS NULL OR (
 🔴 **入口盤點（R2 雙審實查修正；v2 的「3DS initiate 後同步 confirm」是錯項、已刪）**：
 - `confirmPayment()` ← 僅**同步刷卡**一個 caller。
 - `settleCharge()` ← `checkout/callback` 頁、`tappay-notify` webhook、payment-status 輪詢、`settle-sweep` cron、**`preflightReleaseSibling`（重刷前置）**、**`adjudicateSettlement`（dedup）**、**`reconfirmExpiredOrphans`（孤兒再確認）**。
-- 兩者皆呼 `confirmer.confirm`（全樹僅此 2 處）→ **enqueue 掛此 2 個 use-case 內、confirmer 成功之後**；**嚴禁掛 `charge-actions`**（掛那裡＝webhook/cron/孤兒路徑收斂的單永不寄信）。
+- 🔴 **2026-08-18 Sean 批准偏離(`Q-G4-1`=甲):enqueue 改【掃描式】** —— 在既有 email cron route 內掃
+  「已付款但 `email_outbox` 無 `order_created` 列」的單。理由=掛兩個匯聚點要把 `service_role` 帶進結帳路徑,
+  而 `settleCharge` 那半走 `payment_confirmer`、**零 table 權限,沒有有權限的路**;掃描另有天然可重入。
+  現行 plan `docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md`(同列標註見 §4 B-5 列)。
+  ✅ **底下「嚴禁掛 `charge-actions`」那半【仍然成立】,而掃描式也沒掛在那裡。**
+- ~~兩者皆呼 `confirmer.confirm`（全樹僅此 2 處）→ **enqueue 掛此 2 個 use-case 內、confirmer 成功之後**~~；**嚴禁掛 `charge-actions`**（掛那裡＝webhook/cron/孤兒路徑收斂的單永不寄信）。
 - **測試須覆蓋全部上述入口 + idempotent replay**。
 
 **失敗語意**：**付款結果優先**；enqueue 全 `catch` 不上拋（付款已成功不得回錯誤、避免誘發重刷）；缺列由 C-1 對帳補寄 + 訊號 4 告警兜底。⚠️ 用詞不得寫「fail-closed」（那是相反語意）。
@@ -88,6 +97,10 @@ notification_email IS NULL OR (
 ### 3.3 與 TapPay 持卡人 email 的關係（**D4=A′：分開存、條件帶入**）
 - 訂單 `notification_email` 存**完整 canonical 值**（≤254 octet，不受 TapPay 40 拖累）。
 - 送 TapPay：canonical 值 **≤40 octet 且通過 RFC 5322 驗證** → 帶入 `cardholder.email`。
+- 🔴🔴 **2026-08-18 標註：本節的「帶空字串」與【現行實作】分歧，而現行是 fail-closed 拒單。**
+  `apps/storefront/src/lib/payment/cardholder.ts:113-115`：`pickUsableEmail` 全不過 ⇒ `{ ok:false, reason:'email_unusable' }` ⇒ **拒單**（2026-08-09 LINE 3DS 修復刻意選的）。
+  **要不要改回空字串 = 未拍板的題**；分歧原本只記在 07-24 舊 B-4 plan 的檔頭下修段 ⇒ 單讀本檔的人會以為空字串是現行契約。
+  ⚠️ 連帶：本檔 §4 `B-4` 列寫的交付（三分支條件帶入／40-41 octet 邊界測試／`cardholder.ts` 註解更新）**在 2026-08-18 重寫版 B-4 plan 裡整半不做**（該版明文「不動 `cardholder.ts` 的 fail-closed 與候選順位」）⇒ **那半目前無人認領、也沒有拍板說要丟掉。**
 - 🔴 **>40 或驗證不過時（v3 補：codex R2 抓的矛盾）**：**不可無條件改送 session email** —— session email 必須通過**同一套** canonical 驗證與 ≤40 octet 才可帶入；**兩者皆不合格 → 帶空字串**（F11：官方允許非必填欄位帶空字串），**絕不送已知不合規值**（TapPay 會靜默改預設值、我方無從得知）。
 - 🔴 **v2 的「同一份值同時送 DB 與 TapPay」字面作廢**：訂單存的值與送 TapPay 的值**可能不同，且這個不同是刻意的**；兩者各自的來源與驗證規則如上，實作須分別命名（`notificationEmail` / `cardholderEmail`）避免混用。
 - 🔴 仍放寬既有拍板「cardholder 不收 client 值」——**僅限 email 一欄、僅在通過上述驗證時**；name/phone 維持 server 權威。須更新 `cardholder.ts` 註解並記錄 Sean 07-18 授權。
@@ -113,16 +126,20 @@ notification_email IS NULL OR (
 | B-1 🔴 | migration：`notification_email` **nullable** 加欄 + §3.1 CHECK（octet 單位）；不動既有單 | schema、Sean db push + 交易模擬 |
 | B-2 🔴 | migration：**同一 migration 內 DROP 舊 8-param + CREATE 9-param（第 9 參 `DEFAULT NULL`）** + **ACL 鏡像重建 + `has_function_privilege` fail-closed 斷言**。🔴 **函式體必須以 prod 當下最新版為基底**（`pg_get_functiondef` 取出、**禁從舊 migration 複製**）並**逐行 diff 驗證** vehicle snapshot／vehicle type guard／法律同意／cart dedup／價格與敏感欄防護**零遺失**（codex R2：複製錯版＝靜默回滾已上線防護）；prod 交易模擬 | 金流 RPC、鐵則12 Packet |
 | B-3 | 結帳頁收件資料區塊加 email 欄（D1=A）+ zod 驗證（254 octet、與 DB 同源常數,🔴 **必鏡像 §3.4 全部六條件**：可列印 ASCII / 去尾點 / 擋子網域 —— 漏做＝app 放行、DB 擋、結帳 500）+ 預填規則（會員真 email 預填／合成域空白）+ **UI 揭露文案** + smoke test；**gate＝單一 env flag 同時翻四層**（UI 顯示／client payload／server schema requirement／RPC 呼叫形態），**預設 off**、四層同刻翻轉＝**app 內無層間順序問題**。🔴 **但跨片有唯一合法順序（codex R3 #7）**：`B-1/B-2 完成並驗證 → B-3/B-4 部署但 flag 保持 off → 開 flag 並記錄精確切換時戳（＝§5 R3 的 cutoff）→ 觀察窗 → B-6`。**不得在 B-2 未完成前開 flag**（server 要求 email 但 RPC 尚無該參數＝結帳中斷） | 共用結帳元件 |
-| B-4 🔴 | `charge-actions` 串接：canonical email 存入 `create_order`；**條件帶入** `buildCardholder`（§3.3 三分支：canonical 合格／session 合格／皆不合格帶空字串），三路徑各測試 + 40/41 octet 邊界測試；更新 `cardholder.ts` 拍板註解 | 金流 action、鐵則12 |
+| B-4 🔴 | `charge-actions` 串接：canonical email 存入 `create_order`。🔴 **本列另外三項的 2026-08-18 逐項處置(主視窗裁定:技術範圍題不上呈,但【不准只是消失】)**:<br>① ~~條件帶入 `buildCardholder`(§3.3 三分支,皆不合格帶空字串)~~ ⇒ **不做,維持現況**。**它保護的事(不把不合規值送 TapPay)已由 2026-08-09 的修復達成**,只是終態是 fail-closed 拒單而非空字串(`cardholder.ts:113-115`)。**改成空字串 = 一個獨立的未拍板題**(07-24 舊 B-4 plan 檔頭已記),不屬 B-4;**不做 ⇒ 客人看到的不變**(現況即是拒單)。<br>② ✅ **40/41 octet 邊界測試【已經存在】** —— `apps/storefront/src/lib/payment/cardholder.test.ts:269-275` 逐字「⑥ 長度邊界:40 過 / 41 拒(差一錯寫成 < 40 只有前者會紅)」⇒ 這一項**已達成,不是待辦**。<br>③ ~~更新 `cardholder.ts` 拍板註解(記 07-18「僅 email 一欄放寬 client 值」)~~ ⇒ **不做,因為那個授權的前提消失了**:現行 email **不是 request 裡的 client 值**,是以 `listByCustomer(user.id)` + RLS own-only 從 DB 讀出來的(`cardholder.ts:87,113`),而 `Q-02` 已廢掉結帳表單那個欄位 ⇒ **補那條註解會讓人誤以為我們收 client 值**。檔頭現況已完整記錄 email 來源、≤40 與 fail-closed(`cardholder.ts:3-11`)。 | 金流 action、鐵則12 |
 | B-5 🔴 | ~~enqueue 掛 §3.2 兩個匯聚點~~ 🔴 **2026-08-18 Sean 批准改【掃描式】**（`Q-G4-1`=甲:在既有 email cron 前面加一步,掃「已付款但 `email_outbox` 無 `order_created` 列」的單 → enqueue）。**理由=掛兩個匯聚點要把 `service_role` 帶進結帳路徑,而 `settleCharge` 那半走 `payment_confirmer`、零 table 權限,沒有有權限的路**;附帶好處=**天然可重入**（首次失敗下一輪再撈到),而 §6 gate #2 的 `C-1` **目前沒有實作**。現行 plan `docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md`。🔴 **§3.2 其餘規定一律不變**（付款優先、全 catch、NULL fallback、禁寫 fail-closed）;**可部署但不得宣稱功能上線**（gate 見 §6） | 鐵則12 |
-| B-6 🔴 | **收緊片**：⚠️ 不可用裸 `SET NOT NULL`（會驗全部存量列，舊單與過渡窗 NULL 必炸；回填合成值又撞 §3.1 禁合成域 CHECK＝自相矛盾）→ 改 **cutoff 式 CHECK**：`created_at >= <切換時戳> → notification_email IS NOT NULL`；**同片移除 RPC 第 9 參數 DEFAULT**（否則 authenticated caller 可直呼 RPC 省略該參數繞過必填，app 層 schema 擋不住 — codex R2 #3）；明文 backfill／刪除政策 + 觀察窗 N 天 | schema、獨立片、**列入 §6 上線 gate** |
+| B-6 🔴 | 🔴 **2026-08-18 追加約束（Sean `Q-G4-5` 同一則逐字「那手建訂單可以不填email嗎? 可以不發送」）**:**收緊條款不得寫成全表必填** —— 手動建單允許不填 email（不填=不寄）⇒ 要寫成「**二選一：有 email，或明確標了不寄**」,而「哪一種 NULL」需要一個來源標記（`#641`）。**收緊片**：⚠️ 不可用裸 `SET NOT NULL`（會驗全部存量列，舊單與過渡窗 NULL 必炸；回填合成值又撞 §3.1 禁合成域 CHECK＝自相矛盾）→ 改 **cutoff 式 CHECK**：`created_at >= <切換時戳> → notification_email IS NOT NULL`；**同片移除 RPC 第 9 參數 DEFAULT**（否則 authenticated caller 可直呼 RPC 省略該參數繞過必填，app 層 schema 擋不住 — codex R2 #3）；明文 backfill／刪除政策 + 觀察窗 N 天 | schema、獨立片、**列入 §6 上線 gate** |
 
 ## 5. 風險 / rollback
 
 - **R1 RPC 簽章與函式體**：見 B-2。DROP+CREATE 須同一 migration 原子完成；**最大風險是複製到舊版函式體而靜默回滾防護** → diff 驗證為硬性交付物。
 - **R2 動 TapPay payload**：驗證矩陣見 §6。殘餘風險（收單行風控行為）**無法由 sandbox 證明**，須 Sean 明示接受或向 TapPay 確認。**TapPay 對超長／不合規的實際行為（是否單獨報錯）＝UNVERIFIED**。
 - **R3 舊 cohort（兩審分歧已裁決）**：付款面採 Fable（payload 一次性、placeOrder 先於 charge → in-flight 零付款風險）；**通知面採 codex（風險成立）** —— B-4 前建立、之後才由 `settleCharge` 晚翻 paid 的舊單，`notification_email` 為 NULL，只能走 §3.2 fallback（多半落 `skipped_no_real_email`）。
-  → **收斂（codex R3 #8 修正，v3 原字面有誤）**：cutoff **必須是「flag 實際開啟時戳」**，不是 B-4 部署時戳（B-4 部署後、flag 開啟前建立的單仍是 NULL，用部署時戳會把它們誤歸新 cohort）。
+  → ~~**收斂（codex R3 #8 修正）**：cutoff **必須是「flag 實際開啟時戳」**，不是 B-4 部署時戳~~
+  🔴 **2026-08-18 Sean 拍板推翻（`Q-G4-5`=甲）：cutoff = 【B-4 這一片部署上線的時戳】。**
+  **理由消失了、不只是換一個值**:上面那條的依據是「B-4 部署後、flag 開啟前建立的單仍是 NULL」,
+  而 B-4 §4.1 把持久化拿出 flag 之外 ⇒ 那個中間狀態不存在;且 `Q-02` 之下**那個開啟事件不會發生**
+  ⇒ 舊字面會讓 cutoff **永遠取不到值**。(memory `project_0818-qg45-cutoff-and-manual-order-email-optional`)
   🔴 **且界定欄位必須是 `created_at`、不能只用 `paid_at`**：C-1 現以 `orders.paid_at >= 下界` 掃描，舊單若在 cutoff **之後**才晚翻 paid 會被誤納入「應該有信」的集合 → **C-1 述詞須同時要求 `created_at >= cutoff`**。B-6 的 cutoff CHECK 使用**同一個時戳**。
 - **rollback**：切回相容 app／RPC 路徑 + **保留 nullable 欄**。`DROP COLUMN` **不是日常 rollback**（永久刪 PII、且撤不回已送 TapPay 的 payload），僅能作日後另行批准的清理 migration。
 

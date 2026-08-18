@@ -1,6 +1,10 @@
 # Plan — M-4a **B-4:通知 email 真值持久化**(2026-08-18 G4 重寫版)
 
-> ⚠️ **未批准。** 命中 **鐵則 8**(動 3+ 檔、跨 storefront/adapters/domain 三包)+ **鐵則 12 ①錢**
+> ✅ **2026-08-18 16:3x Sean 批准**(逐字「那就依照建議就好」,對應主視窗送的**甲=四份全批**;主視窗轉,我未直接聽到)。
+> 🔴 **批准的射程(照抄,免得下一個人讀成別的)**:**批的是「可以開始做」**;
+> **動 schema / 權限的部分仍要各自過對抗審查**,而 **migration 由主視窗 apply**(CLI 走 keychain,今日已證)。
+> ⇒ **「已批」不等於「可以直接 apply」。**
+> ~~⚠️ **未批准。**~~ 命中 **鐵則 8**(動 3+ 檔、跨 storefront/adapters/domain 三包)+ **鐵則 12 ①錢**
 > (改 `charge-actions.ts` 成交 path)⇒ 提 plan 等 Sean 批 → 對抗審查(關卡1)→ 才實作。
 >
 > 🔴 **本檔取代 `docs/specs/2026-08-18-m4a-b4-b5-notification-recipient-plan.md`(該檔 R1 FAIL、只在 `notify-email` 分支)。**
@@ -144,10 +148,13 @@ apps/storefront/src/lib/payment/cardholder.ts:113-115    pickUsableEmail 全不�
 
 ### 3.5 🔴 LINE 分流的正確性掛在【三份 hardcode 字面相等】上(R3 `R3-F2`)
 ```
-量法(可重跑):grep -rn "line.pcmmotorsports.local" --include='*.ts' apps packages | grep -v '\.test\.'
-  packages/schemas/src/notification-email.ts:5        ← resolver 靠這份【擋】
-  apps/storefront/src/lib/auth/line.ts:38             ← 合成信箱由這份【產生】
-  apps/storefront/src/lib/auth/field-validation.ts:57 ← 第三份(R3 說兩份,我實測【三份】)
+🔴 尺要用【常數宣告】那把，不要用字面那把（GR 抓到我這裡尺與數字不匹配）：
+  grep -rn "LINE_SYNTHETIC_EMAIL_DOMAIN = " --include='*.ts' apps packages | grep -v '\.test\.'  ⇒ 3
+    packages/schemas/src/notification-email.ts:5        ← resolver 靠這份【擋】
+    apps/storefront/src/lib/auth/line.ts:38             ← 合成信箱由這份【產生】
+    apps/storefront/src/lib/auth/field-validation.ts:57 ← 第三份（R3 說兩份，實測三份）
+  ~~grep -rn "line.pcmmotorsports.local" …~~ ⇒ 今天 5 命中，多的兩個是【註解】
+    （customer-list-view.ts:22 / notification-email.ts:31）⇒ 那把尺會吃到說明文字
 ```
 ⇒ `line.ts:38` 那份一改(或多一個合成域登入來源),**合成假信箱就過得了 resolver ⇒ 假信箱被持久化**,
 B-5 那邊再把它 skip 掉 ⇒ **客人永遠收不到信,而一路全綠。**
@@ -163,7 +170,7 @@ B-5 那邊再把它 skip 掉 ⇒ **客人永遠收不到信,而一路全綠。**
 |---|---|
 | 新 `apps/storefront/src/lib/email/resolve-notification-recipient.ts` | §3 的解析(≈12 行) |
 | `apps/storefront/src/lib/payment/cardholder.ts:63-65` **與** `:118` | 🔴 **兩處**(R1 `F15`):`:63-65` 型別宣告、`:118` `return { ok: true, ... }`。ok 分支多一個 `addressEmail: string \| null`(**原值、未驗**)。**不動** `pickUsableEmail` / `email_unusable` fail-closed |
-| `apps/storefront/src/app/checkout/charge-actions.ts:267` | `...(notificationEmailEnabled ? { notificationEmail: null } : {})` → **無條件** `notificationEmail: resolveNotificationRecipient([user.email, built.addressEmail])` |
+| `apps/storefront/src/app/checkout/charge-actions.ts:267` | `...(notificationEmailEnabled ? { notificationEmail: null } : {})` → **無條件** `notificationEmail: resolveNotificationRecipient([parsedCheckout.data.notificationEmail, user.email, built.addressEmail])` 🔴 **三個候選,第一個是 flag-on 時客人自己填的那個值**(GR `C3`:我 §3 寫三個、這一列原本只寫兩個 ⇒ 照舊字面實作會把 `R3-F1` 的修法靜默丟掉,而那正是 `R3-F1` 描述的失效)。flag-off 時該鍵不存在 ⇒ 自動跳過 |
 | `packages/domain/src/order/types.ts:1429` | `notificationEmail?: null` → `notificationEmail?: string \| null` |
 | `packages/adapters/src/supabase/mappers/order.ts:79,145-147` | `p_notification_email?: null` → `string \| null`;`? { p_notification_email: null }` → `? { p_notification_email: input.notificationEmail ?? null }` |
 | 🔴 `packages/adapters/src/supabase/mappers/order.test.ts:77,83` | 兩個 `@ts-expect-error`(逐字「B-4 才會擴型」)在擴型之後**變成 unused ⇒ `TS2578` ⇒ typecheck 直接紅**(R1 `F2`;`packages/adapters/tsconfig.json:7` 的 `include` 含 `.test.ts`)⇒ 該格改成**斷言真值進得去**,不是刪掉了事 |
@@ -232,6 +239,7 @@ AddressEmailInput = NotificationEmailInput + ≤40 octets（packages/schemas/src
 | 5 | 🔴 同一張單的 `cardholder.email` 與 `notification_email` **可以不同**(§3.2) | 把 resolver 順位改成地址優先(與 #2 同一發,一發打兩格) |
 | 6 | `mappers/order.test.ts:77,83` 那兩格**反過來**:真值**進得去** domain / wire(原本是 `@ts-expect-error` 擋它) | 把 mapper 改回 `p_notification_email: null` |
 | 7 | `charge-actions.test.ts:178-183` **改寫後仍在守**:client 偷塞的 `notificationEmail` **不等於**實際送出的值 | 讓 `:267` 直接吃 `raw.notificationEmail` ⇒ 這格必須紅 |
+| 8 | 🔴 **flag-on 時,客人自己填的那個值【被採用】**(GR `C3`:我原本七格裡**零格**測第一候選,量法 `grep -cE '表單\|parsedCheckout\|notificationEmailEnabled'` 該區段 ⇒ 0) | 把第一候選從 resolver 的呼叫拿掉 ⇒ 這格必須紅 |
 
 🔴 **突變紀律(R1 `F9` 的教訓)**:**突變要打在本片改的那幾行上**。
 要去改 `packages/schemas/src/notification-email.ts` 才紅的,**不是本片的突變** —— 它會一次打紅一堆無關格,
@@ -409,6 +417,9 @@ Sean 逐字（同一則）：「那手建訂單可以不填email嗎？ 可以不
 1. 手動建單可以不填 email（Sean 2026-08-18 拍）⇒ 不填 = 不寄
 2. 但要留下【是哪一種 NULL】的痕跡（見 10.2）⇒ 否則 C-1 巡檢會天天誤報
 3. cutoff = B-4 上線時戳（Q-G4-5=甲）⇒ B-6 的 CHECK 與 C-1 的下界都用這一個值
+4. 🔴 第四個消費者（GR 2026-08-18 抓到，我原本只列三個）：**B-5 掃描的 fallback 述詞**
+   —— 它照 PRD §3.2「NULL ⇒ 取 customers.email 去寄」，而手動單刻意不填時【照樣寄】
+   ⇒ 違反 Sean「可以不發送」那句拍板。詳 B-5 plan §4.1-b
 ```
 ✅ **已開號:`#641`**(2026-08-18 G4;`docs/phase-1-backlog.md` 檔尾)——
 **載體是那個條目,不是本 plan 也不是任何一封信**:做手動建單那片的時候,寫這段的人與轉這段的信都不在了。

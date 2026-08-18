@@ -19462,6 +19462,23 @@ JS 探針   inp.validationMessage ⇒ 「請符合要求的格式。」
 - **在哪:** `apps/storefront/src/components/account/tabs/OverviewTab.tsx`(最近訂單)
   與 `OrdersTab.tsx`(訂單記錄),兩處都是 `<span title={ORDER_ITEM_COUNT_TRUNCATED_NOTE}>`。
 
+- 🔴 **同病第三處(2026-08-18 G1 收割 `od-order-list` 逐檔核時撈到;主視窗裁定併入本條、不開新號)**
+  ```
+  apps/admin/src/components/orders/orders-table.tsx:500   後台訂單列表【狀態膠囊】的 title=
+  ```
+  · **非本批帶進來** —— `git show 6afd8914:apps/admin/src/components/orders/orders-table.tsx | grep -c "title='這張單的品項達到 500 筆上限"` ⇒ **1**
+    (`6afd8914` = 那次收割【之前】的 dev);`git log -1 -S "title='這張單的品項達到 500 筆上限" -- <該檔>` ⇒ **`3a2a8200`**。
+  · **它是同一個病的另一張臉**:說明藏在 hover 裡、**觸控裝置讀不到** ——
+    差別只在**這一處是後台(員工)、上面兩處是顧客站(客人)**。
+  · ⚠️ **後台這一處的急迫度低於顧客站**(員工多半在桌機),**但形狀完全相同**
+    ⇒ **Sean 拍完本條的放法之後,這一處要一起套**,不要讓它變成「修了兩處、留了第三處」。
+  · 📌 **為什麼併進來而不開新號**:開新號 = 一事兩號,而本 repo 今天才跑過別名掃描在防這件事
+    (`#632`/`#633` 就是那個前例)。**同一個病的不同落點,歸同一條。**
+  · 🔴 **它是怎麼被撈到的,值得記**:不是任何守門、也不是掃描 ——
+    是**收割時逐項 grep 驗「另有 N 項那列的 `title` 有沒有拿掉」**,而那一發 `grep -c` 回 **1 不是 0**
+    ⇒ 開檔看才發現**命中的是另一個元素**。**一個「數字不對」的驗證,比一個通過的驗證有用。**
+    (稱謂:標題那句「兩處」講的是顧客站那兩處,**本行之後全條共三處**。)
+
 - **病:**
   ```
   itemCountTruncated 為真 ⇒ 件數印「?」，而「為什麼是 ?」整段掛在 title= 屬性上
@@ -19647,6 +19664,10 @@ JS 探針   inp.validationMessage ⇒ 「請符合要求的格式。」
   1. 手動建單可以不填 email（Sean 2026-08-18 拍）⇒ 不填 = 不寄
   2. 要留下【是哪一種 NULL】的痕跡 ⇒ 否則 C-1 巡檢天天誤報
   3. cutoff = B-4 上線時戳 ⇒ B-6 的 CHECK 與 C-1 的下界【用同一個值】
+  4. 🔴 **第四個消費者(2026-08-18 GR 抓到,原本只列了三個)**:**B-5 掃描的 fallback 述詞**
+     —— 它照 PRD §3.2 寫成「訂單欄 NULL ⇒ 取 `customers.email` 去寄」,
+     而**手動單刻意不填 email 時,客人若有真的註冊信箱,它會照樣寄** ⇒ 違反「可以不發送」那句拍板。
+     ⇒ 本標記落地時,**B-5 的 fallback 要一起改成「來源=手動且未填 ⇒ 不寄」**。
   ```
   ⇒ **B-6 的收緊條款因此要寫成「二選一:有 email,或明確標了不寄」,不是全表 `NOT NULL`** ——
     寫成 `NOT NULL` 會把手動單擋死,而 Sean 明說可以不填。
@@ -19672,3 +19693,174 @@ JS 探針   inp.validationMessage ⇒ 「請符合要求的格式。」
   > **沒有任何窗在做它,而它連一個號都沒有** ⇒ **唯一活得夠久的載體 = 那一片自己的條目。**
   > 發號兩道前置都跑過(`next-backlog-number.sh` ⇒ `#641`;信箱佔位 `#631`/`#636` 不撞;
   > 別名掃描 `--search 手動建單 非網站商品 手建` ⇒ 命中 2 條**皆為別的條目在引用**)。
+
+---
+
+### #642. 🔴 `product-card.css` 沒照 design 交辦用 `@media (hover: hover)` 包 —— 這是「隱形陷阱」那一族的產生器
+
+- **狀態:** ⏳ 待執行(2026-08-18 MAIN 裁定**現在不做**,理由見「觸發事件」)
+- **優先級:** 🟠 中(立即傷害已被 `0a7988c9` 止住;但它是**產生器**,不修會再長出新的)
+- **問題:**
+  - `design-reference/design-reference/HANDOFF-DETAILS.md:468` **逐字**寫著:
+    > 商品卡 hover translateY(-2px):**僅桌機**,手機 `:hover` 不觸發(用 `@media (hover: hover)` 包)
+  - 🔴 **本站沒有照做。** 量法(可重跑,含正向對照):
+    ```bash
+    grep -n 'hover: *hover' apps/storefront/src/styles/*.css
+      ⇒ 只命中 apps/storefront/src/styles/header.css:153
+      ⇒ apps/storefront/src/styles/product-card.css 【零命中】
+    grep -c 'hover' apps/storefront/src/styles/product-card.css   ⇒ 15
+      ← 正向對照:這把尺對該檔量得到東西，零命中不是尺壞掉
+    ```
+  - 🔴 **那個 `15` 不是「15 條 hover 規則」,而且它會漂 —— 更正如下(2026-08-18 立案當天發現):**
+    ```
+    立案時我寫 13。回頭重跑 ⇒ 15。
+    🔴 成因是我自己:0a7988c9 在同一支檔加了一大段【含 hover 字樣的註解】
+       ⇒ 我修好那個 bug 之後，我的量法把我自己寫的註解算了進去。
+    剝掉註解重數（python3 re.sub(r'/\*[\s\S]*?\*/','',src)）:
+      含註解 15 行 ／ 剝註解後【7 行】  ← 這 7 行才是真正的 hover 規則
+      剝註解後 `hover: *hover` 命中 ⇒ 仍然 0（主張不受影響）
+    ```
+    ⇒ **主張成立(該檔零 `hover: hover`),而分母要用 7。**
+    ⚠️ MAIN 裁「現在不做」時引的是「13 處」——**正確是 7 條規則**;
+    它的理由(視覺回歸面大、只有 Sean 驗得了)在 7 條下仍然成立,但**引用時請用 7**。
+  - ⇒ 該檔的每一條 hover 態(`.pcard:hover::before` / `img-wrap::after` / `.pcard-heart` /
+    `.pcard-dots` / `.pcard-name` 等,**剝註解後 7 行**)
+    在**觸控裝置上都是「存在但永遠不會發生」的狀態**。
+- 🔴 **為什麼這是【產生器】不是另一件小事:**
+  - 2026-08-18 修掉的那個陷阱(`.pcard-heart` 看不見卻吃點擊,`0a7988c9`)是這個結構的**產物**:
+    ```
+    如果當初照 design 交辦用 @media (hover: hover) 包起來
+    ⇒ 那些 hover 態在手機上根本不會存在
+    ⇒ 「看不見卻吃點擊」在結構上就不會產生
+    ⇒ 也不會有「手機客人收藏不了」這一題（favorites plan §1-e）
+    ```
+  - ⇒ **我們修掉的是症狀,病根是一條沒被執行的 design 交辦。**
+- **觸發事件(任一觸發即啟動實作):**
+  - Sean 回到可以肉眼驗視覺回歸的狀態(2026-08-18 他遠端遙控,而**視覺回歸只有他驗得了**);
+  - 或商品卡再長出第三個「只有滑鼠看得到」的元素。
+- **預期解法:**
+  - `product-card.css` 的純視覺 hover 態(卡片浮起 / 圖遮罩 / 標題變色 / 小圓點)
+    包進 `@media (hover: hover)`;
+  - ⚠️ **不是全部 hover 都該包** —— `.pcard-heart` / `.pcard-quick` 這種**承載功能**的,
+    要的是「手機上換一種顯示方式」,不是「手機上不存在」(那是 favorites plan 在處理的題)。
+  - 形狀參考同 repo 既有正例 `apps/storefront/src/styles/header.css:153`。
+- **不修會痛在:**
+  - **擴充性:🔴 這是那一族的產生器** —— 每新增一個 hover-only 的裝飾或按鈕,
+    就多一個「桌機看得到、手機不存在(或更糟:看不見卻吃點擊)」的東西。
+    守門 `styles/invisible-tap-targets.test.ts` **只掃已知的三個、不會自動發現第四個**
+    (天花板寫在該檔檔頭)⇒ **不修這條,下一個陷阱一樣沒有人會發現。**
+  - **可維護性:** 該檔現在有兩套心智模型並存(有些 hover 是裝飾、有些承載功能),
+    而 CSS 上看不出差別 ⇒ 下一個人改哪一條都可能踩到。
+  - **bug 可追蹤性:** 這族 bug **對每一道既有檢查都是隱形的**
+    (typecheck / lint / build / vitest 全綠,畫面上也看不出來 —— 它本來就看不見)
+    ⇒ 唯一抓得到的是真瀏覽器逐點 `elementFromPoint`,而那不在 CI 裡。
+- **估時:** ~45-90 min ⚠️ **這是估的、不是量的**(7 條 hover 規則逐一分類 + 視覺回歸 + Sean 肉眼驗)
+- **依賴:** 無技術依賴;**卡在「Sean 能肉眼驗視覺回歸」這個條件**
+- **發現於:** 2026-08-18 / G3 查 favorites 的鐵則 1 前置時,grep `design-reference` 撈到 `HANDOFF-DETAILS.md:468`
+- **相關:** `0a7988c9`(修掉症狀的那一片)、`apps/storefront/src/styles/invisible-tap-targets.test.ts`(守門與其天花板)、
+  `docs/specs/2026-08-18-g3-favorites-plan.md` §1-e、`docs/design-storefront-manifest.yaml`
+  的 `ProductCard.technical_overrides.hiddenHeartMustNotEatTaps`
+- **發號兩道前置(2026-08-18 實跑):**
+  - `bash scripts/next-backlog-number.sh` ⇒ 三層(主樹 / 11 個 worktree / 47 個 ref)最大號皆 `641` ⇒ **下一個 = `#642`**
+  - 信箱佔位掃描 ⇒ 命中 `#606 #631 #634 #636 #637 #639 #640 #641 #646 #647 #660`,**`#642` 不在其中**;
+    另 `grep -rn '#642' ~/pcm-mailbox/*.md docs/` ⇒ **零命中**
+  - 別名掃描 `python3 scripts/backlog-duplicate-scan.py --search hover 觸控 手機 隱形`
+    ⇒ 命中 `#459 #473 #496 #519 #540 #463 #464 #465`,**逐條看過皆為後台或無關**,無重複
+
+### #644 · `product_image_trim` 的 `service_role` 帶著沒人宣告的 `TRUNCATE` —— 而 G5 那道新守門只擋另外一半
+
+- **發現者:** G4 2026-08-18,修心跳表 apply 失敗時**順著同一條線量出來的**(主視窗指定要判「這是不是共同形狀」)。
+- **來歷:** `20260817070000` 心跳表在正式庫 apply 失敗,錯誤逐字
+  `HB:service_role 不該有 TRUNCATE —— 心跳表從不刪列,給了只是擴大面`
+  ⇒ 根因=**新表出生時 `service_role` 自帶預設授權 `Dxtm`**,而 `E683-1` 的射程**刻意不含 `service_role`**。
+- **事實(可重跑,2026-08-18 量於 dev)**
+  ```
+  量法：逐檔解析（去掉整行註解 → 依 ';' 切句 → 只看「REVOKE 且句中含 public.<該檔建的表>」）
+  分母：含 CREATE TABLE public. 的 (檔,表) 組合 = 33
+  🔴 該表的 REVOKE 沒有含 service_role 的 = 2
+     20260817070000_m4b_231_3_sweeper_heartbeat.sql | sweeper_heartbeat  ← 已修（本次）
+     20260719150000_catalog_product_image_trim.sql  | product_image_trim ← 🔴 已在正式庫上
+  對照（同檔 :67-69）：
+     REVOKE ALL ON public.product_image_trim FROM PUBLIC, anon, authenticated;   ← 沒有 service_role
+     GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_image_trim TO service_role;
+  ⚠️ 我第一版的尺【數錯】:單行 pattern 把多行 REVOKE（FROM 在下一行）誤判成「沒收」⇒ 4 個假陽性；
+     改成攤平後又變成「0 個」（尺太寬,吃到別的物件的 REVOKE）⇒ 最後才用逐句解析。
+     🔴 三把尺三個答案（4 / 0 / 2）,而只有第三把在數我要數的東西。
+  ```
+- **嚴重度:低,但不是零**
+  ```
+  它已經有 DELETE ⇒ TRUNCATE 多給的是「一次清空」與「不受 RLS 管」那一面
+  ⇒ 不是資料外洩，是【被拿到 service_role 金鑰時，破壞面比宣告的大】
+  ⇒ 而那張表是 catalog 的裁切資料（可重建）⇒ 業務衝擊小
+  ```
+- **🔴 為什麼要立案(不修未來會痛在哪)**
+  ```
+  G5 2026-08-18 新增的靜態守門是「建表 migration 沒有對應 GRANT 就紅」
+  ⇒ 它擋的是【忘了給】，而這一條是【給了但沒先收乾淨】—— 同一面牆的另一半
+  ⇒ 不補的話：下一支建表 migration 只要 GRANT 寫得漂亮就會過關，
+    而它的表仍然帶著出生自帶的 Dxtm，且【沒有任何東西會紅】（本次是靠那支 migration
+    自己寫了斷言才被擋下來，而斷言不是每支都有）
+  ```
+- **建議做法(兩件,第二件更重要)**
+  ```
+  ① 修 product_image_trim：一支新 migration 補
+     REVOKE ALL ON public.product_image_trim FROM service_role;
+     再重下它原本要的 GRANT SELECT, INSERT, UPDATE, DELETE
+     ⚠️ 動既有表的授權 ⇒ 鐵則 12②③ ⇒ 要 plan + 拍板，不是順手改
+  ② 把守門補成另一半：建表 migration 若對某角色有 GRANT，就必須有一句
+     針對同一張表、同一角色（或 REVOKE ALL … FROM 該角色）的 REVOKE
+     ⇒ 掛進 scripts/migration-static-checks.sh（G5 那支的同一個位置）
+     🔴 而它要先在【今天的 33 個組合】上跑一次：預期恰好紅 2 個（本條 + 已修的心跳表）
+        —— 紅別的數字就是尺又量錯了東西
+  ```
+- **📎 同族:** `#628`(brands/categories 的 REVOKE 未涵蓋 `MAINTAIN`)—— **同一種病、不同權限、不同表**;
+  兩條都是「REVOKE 的清單比實際會被授予的窄」。
+- **狀態:** 未開工、無人認領。**② 比 ① 急**:①是一張可重建的表,②決定下一張表會不會重演。
+
+### #645 · 真登入上線之後,**舊的「共用密碼 cookie」那條路還活著** —— 而七片裡沒有一片負責拆它
+
+- **發現者:** G5 2026-08-18T16:1x,報價單 pull 到最新之後**在最新樹上實地盤點**時撈到(主視窗指定盤點)。
+- **⚠️ 立案範圍限定(不要重複立案)**:**「不發」那一半已經折進 `B2` spec**
+  (`fbd5320e`:§3.3-b + 驗收第 12/13 格)。**本條只立「開關永久開之後把它整支拆掉」那一片。**
+- **事實(可重跑,2026-08-18 量於報價單 `HEAD = 1149e05`)**
+  ```
+  lib/auth.ts:4        export const ADMIN_COOKIE = 'pcm_admin';
+  lib/auth.ts:6        adminToken(password)          ← 舊 cookie 的值 = 由 ADMIN_PASSWORD 現算
+  login/route.ts:65    maxAge: 60 * 60 * 24 * 30     ← 這顆 cookie 活 30 天
+  lib/auth-server.ts:41-47  hasValidLegacy()  註解逐字「過渡雙讀」
+  lib/auth-server.ts:50-67  requireAdmin():沒有新 cookie（或驗不了）⇒ 【接受 legacy】
+  ⇒ 這顆 cookie 上面沒有 amr、沒有身分。
+  ```
+- **🔴 今天沒有天然緩解**
+  ```
+  auth-server.ts:66 逐字：require_2fa 開著時一律拒 legacy
+  ⇒ 而 require_2fa 現在是 false（母 plan §1.3 十列複量，2026-08-18 G5 於最新樹複量）
+  ⇒ 那道窄化【今天不生效】，不能當成緩解寫進任何文件。
+  ```
+- **🔴 不修未來會痛在哪**
+  ```
+  真登入(E8-B)整條線的目的是「知道是誰做的」。
+  而只要這條雙讀還在：任何人拿著一顆【30 天內簽出的、無身分的】cookie
+  就能通過 requireAdmin ⇒ 新的身分驗證被整條繞過，而【畫面上完全正常】。
+  ⇒ 它不是「還沒做的功能」，是【做完之後仍然開著的後門】。
+  ```
+- **為什麼七片都沒有涵蓋它**
+  ```
+  B2 的職責是「登入認人」⇒ 它只到「不再【發】legacy」+「開關開之後不【收】」
+  B6 的職責是「admin 收尾」⇒ 它對 actor-actions.ts 有【一模一樣】的處置：開關控、不刪檔
+  ⇒ 兩片都刻意保留舊路當 rollback ⇒ 而「rollback 不需要了之後誰來拆」沒有任何一片負責
+  🔴 同一個形狀有兩個實例（legacy 雙讀 / actor-actions.ts）⇒ 這不是個案，是【缺一片】。
+  ```
+- **建議做法(一片,B7 之後)**
+  ```
+  ① 報價單側：拆 hasValidLegacy() 與 requireAdmin() 裡那條分支；ADMIN_COOKIE 的簽發端一併移除
+  ② admin 側：下架 lib/session/actor-actions.ts 整支 + app/page.tsx 的選身分表單
+  ③ 兩側各留一格「舊 cookie 打進來 ⇒ 擋」的測試（拆完之後那格才是恆真的，拆之前它會紅）
+  ⚠️ 動 auth ⇒ 鐵則 12②，要 plan + 對抗審查，不是順手清理
+  🔴 前置：ADMIN_REQUIRE_REAL_IDENTITY（或報價單對應物）已經【永久開】且確認不會關回去
+     —— 拆早了 = 把 rollback 一起拆掉
+  ```
+- **狀態:** 未排程。**主視窗 2026-08-18 裁定立案(逐字「legacy 那個孤兒 ⇒ 立案,你發號」),G5 發 `#645`。**
+  號碼來源:`scripts/next-backlog-number.sh` ⇒ 下一個可用 `#645`(三層最大號皆 644);
+  信箱佔位掃描 ⇒ `#600/#617/#620/#629/#631/#636/#637`,**不含 645**;
+  別名檢查 `backlog-duplicate-scan.py --search legacy 雙讀 pcm_admin 下架` ⇒ **無同題命中**(命中的 4 條都是別的主題)。
