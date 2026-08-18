@@ -13143,10 +13143,24 @@ order by n desc, 1;
 ### #484. 🧱 訂單列表工具列 chip 排的殼 + 「全部」「未到貨」兩顆
 
 - **狀態:** 🔀 **已拆三片,原本這條的範圍不再成立**(2026-08-14 主視窗裁):
-  - **`#484a` 片 A1 = 貨品軸 view + 回退 + runbook** ⇒ ✅ **已 commit `ce5f4c86`,等 Sean apply**
+  - **`#484a` 片 A1 = 貨品軸 view + 回退 + runbook** ⇒ 🏁 **已 apply(2026-08-14)**
+    · 帳本 `supabase/APPLIED.tsv:189` = `20260814140000` / `2026-08-14` / `主視窗-1a727dd4`
+    · sha 逐字元對得上:`shasum -a 256 supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql`
+      ⇒ `b0da3580745cb77ca6fdd3d3497b392d556c2c75baab9c0a9afd32dc53722f19` = 帳本那一欄
+    · ~~✅ 已 commit `ce5f4c86`,等 Sean apply~~ 🔴 **這句話在 apply 之後又活了四天**(2026-08-14 → 08-19 G2 實查才關掉),
+      期間被抄進 `~/pcm-mailbox/G2-018-壓縮前STOP-20260818.md` §② 與艦隊總交接 `MAIN-052` §4-④,**三個載體零機械訊號**。
+      教訓已收:`docs/patterns/guard-and-instrument-traps.md`「一句『等 X』不會在 X 到了的時候變色」。
+    ⚠️ **一格是推的不是量的**:正式庫裡那支 view 真的存在 —— 沒有人查過 `pg_catalog`。
+      理由是強推論(view 不存在 ⇒ PostgREST 回 `42703` ⇒ 線上訂單列表整個壞掉,而它沒壞),**不是量測**。
     (plan `docs/specs/2026-08-14-484a-order-goods-axis-view-plan.md`)
-  - **片 A2 = adapter 換源 + admin + 測試** ⇒ ⏸ **等 A1 apply 後 `supabase gen types` 才能開工**(型別雞生蛋)
-  - **片 B = chip 排 UI(本條原本的內容)** ⇒ ⏸ 等 A2
+  - **片 A2 = adapter 換源 + admin + 測試** ⇒ 🏁 **已完成並在 `origin/dev` 上**
+    · `packages/adapters/src/supabase/SupabaseOrderAdapter.ts:726` `.from('admin_order_list_v')` / `:743` `.in('goods_axis', …)`
+    · gen types 已跑:`packages/adapters/src/supabase/database.types.ts:3091` `goods_axis: string | null`
+    · ~~⏸ 等 A1 apply 後 `supabase gen types` 才能開工(型別雞生蛋)~~ **前置四天前就解了**
+  - **片 B = chip 排 UI(本條原本的內容)** ⇒ 🏁 **已完成並在 `origin/dev` 上**
+    · `apps/admin/src/components/orders/order-filter-chips.tsx:104-110`(`全部` / `待收款/待訂貨` / `未到貨`)
+    · **而且真的掛上去了**(不是「code 裡有這條路」):`apps/admin/src/components/orders/order-toolbar.tsx:72`
+    · ~~⏸ 等 A2~~ **前置已解**
   ⚠️ 舊 plan `2026-08-14-484-orders-toolbar-chips-plan.md` **仍在 repo,但它的結論是「先別開工」**;
      現行權威是上面那支 `484a` plan。**不要照舊那份動手。**
 - **起因:** Sean 2026-08-14 對照 OD 指出四項殼差異之一。OD 真權威 `overview-desktop.html:610-614`(`.bar` + 4 顆 `.fchip`)/ CSS `:91-99`;我們現在**沒有 chip 排**,篩選只有 `<select>` 下拉(`order-filter-controls.tsx:186-204`)。
