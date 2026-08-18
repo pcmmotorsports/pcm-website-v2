@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 /**
  * 11=丙:訂單列表右邊被切掉的欄,在**看不到的人的螢幕上**講出來。
@@ -30,14 +30,15 @@ import { useEffect, useRef, useState } from 'react';
  * ```
  * ⚠️ 上表量在**一張 5 品項的單**上(拋棄式庫、非正式站);欄寬不隨資料變,但字長會。
  */
-/**
- * 空殼的 id。`<table aria-describedby>` 指到它。
- * 🔴 **id 放在恆存在的空殼上,不是放在那句話上** —— 那句話是條件渲染的,
- *    id 跟著它走的話,`aria-describedby` 會有一半時間指向不存在的節點。
- */
-export const ORDERS_CUTOFF_NOTICE_ID = 'orders-cutoff-notice';
-
 export function OrdersCutoffNotice() {
+  /**
+   * 🔴 **每一顆自己的 id,用 `useId()` 不用固定字串。**
+   * 我上一版用 `export const ORDERS_CUTOFF_NOTICE_ID = 'orders-cutoff-notice'`,
+   * codex R4 判 must-fix:**一頁兩張表就會有兩個一樣的 id**,
+   * 第二個 region 的 `aria-describedby` 會讀到第一張表的提示 ——
+   * 這與 R1 抓到的 `document.querySelector` 是**同一個病**(全域唯一的假設),我換了個地方再犯一次。
+   */
+  const noticeId = useId();
   // `null` = 還沒量(SSR 與第一次 paint 之前);`[]` = 量過而沒有欄被切。
   const [cutColumns, setCutColumns] = useState<string[] | null>(null);
   /**
@@ -67,6 +68,26 @@ export function OrdersCutoffNotice() {
         .map((th) => th.textContent?.trim() ?? '')
         .filter((t) => t.length > 0);
       setCutColumns(cut);
+
+      /**
+       * 🔴 **容器的鍵盤與無障礙狀態由這裡開關,不是寫死在 `orders-table.tsx` 上。**
+       * codex R4 判 must-fix:寫死的話,**沒有溢出的螢幕(例如 Sean 的 1728)也會多一個 Tab 停點,
+       * 而且那一區的名字還宣稱「可左右捲動」** —— 對他是一句錯的指示。
+       * 只有這裡知道「現在到底捲不捲得動」⇒ 由這裡設。
+       * · 有溢出 ⇒ `tabIndex=0`(WCAG 2.1.1:可捲動區域要能拿到鍵盤焦點,否則純鍵盤的人捲不動)
+       *          + `role=region` + 名字帶「可左右捲動」+ `aria-describedby` 指向那句話
+       * · 沒溢出 ⇒ **四個屬性全部移掉**,回到一個乾淨的 `<div>`
+       */
+      if (cut.length > 0) {
+        grid.setAttribute('tabindex', '0');
+        grid.setAttribute('role', 'region');
+        grid.setAttribute('aria-label', '訂單列表(可左右捲動)');
+        grid.setAttribute('aria-describedby', noticeId);
+      } else {
+        for (const attr of ['tabindex', 'role', 'aria-label', 'aria-describedby']) {
+          grid.removeAttribute(attr);
+        }
+      }
     };
 
     measure();
@@ -100,15 +121,15 @@ export function OrdersCutoffNotice() {
       grid.removeEventListener('scroll', measure);
       ro.disconnect();
     };
-  }, []);
+  }, [noticeId]);
 
   // 🔴 **不能 `return null`** —— `hostRef` 沒掛上去的話,上面那個 effect 永遠找不到容器。
   //    沒有東西要講的時候渲染一個**空的**殼(零高度、零內容)。
   if (cutColumns === null || cutColumns.length === 0)
-    return <div ref={hostRef} id={ORDERS_CUTOFF_NOTICE_ID} />;
+    return <div ref={hostRef} id={noticeId} />;
 
   return (
-    <div ref={hostRef} id={ORDERS_CUTOFF_NOTICE_ID}>
+    <div ref={hostRef} id={noticeId}>
       <div
         // 🔴 `sticky left-0` 是承重的:這一列住在**會左右捲動的容器裡**,
         //    沒有它的話捲到右邊時這句話自己也捲出畫面 —— 而它正是要告訴你「右邊有東西」。
@@ -121,8 +142,11 @@ export function OrdersCutoffNotice() {
         //  ⚠️ 它只藏這句提示,**沒有解決「印出來的表格一樣會被裁掉」** —— 那是列印樣式的另一題。
         className='border-border bg-muted text-foreground sticky left-0 z-20 w-fit border-b px-3 py-1.5 text-xs print:hidden'
         // 🔴 `note` 是**非 live** 的角色:遇到才讀,不會像 `status` 那樣每次改內容就插播。
-        //    表格用 `aria-describedby` 指到**外層那個恆存在的空殼**(見下方 `ORDERS_CUTOFF_NOTICE_ID`)
-        //    ⇒ 螢幕閱讀器進到表格時會讀到這句;沒有東西要講時空殼是空的,描述就是空的。
+        //    捲動容器用 `aria-describedby` 指到**外層那個恆存在的空殼**(id 見 `noticeId`)
+        //    ⇒ 螢幕閱讀器進到那一區時會讀到這句;沒有東西要講時空殼是空的,描述就是空的
+        //    (codex R4 查過:空節點依規範**等同沒有描述**,不會比缺屬性更糟)。
+        //    ⚠️ 我原本在註解裡寫成 `<table aria-describedby>`,而它其實掛在**外層捲動容器**上
+        //    —— codex R4 nit,字面與事實差一層。
         //    🔴 **我原本在這裡寫「那個 id 會有一半時間指向不存在的節點,所以做不到」——
         //       codex R3 判 must-fix,而它是對的:空殼本來就恆渲染,id 掛在空殼上就沒有這個問題。
         //       那句話是【把做得到的事寫成做不到】。**

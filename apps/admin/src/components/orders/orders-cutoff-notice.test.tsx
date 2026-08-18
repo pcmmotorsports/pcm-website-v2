@@ -206,6 +206,72 @@ describe('11=丙 — 右邊沒完整顯示的欄,在【看不到的人的螢幕�
     expect(removed).toContain(added[0]);
   });
 
+  // ── codex R4 補的四格:上面 8 格【一格都沒有】守到 id / aria / tabIndex ──────
+  //    (R4 逐字:「刪掉 ID、aria-describedby、tabIndex、region 名稱,現有 8 格仍全綠」)
+  it('🔴 有溢出 ⇒ 容器拿到 tabIndex / role / 名字 / describedby 四件', () => {
+    const { grid, host } = makeGrid({ boxRight: 1000, ths: [col('操作', 950, 1100)] });
+    render(<OrdersCutoffNotice />, { container: host });
+    expect(grid.getAttribute('tabindex')).toBe('0'); // 純鍵盤的人要能聚焦才捲得動
+    expect(grid.getAttribute('role')).toBe('region');
+    expect(grid.getAttribute('aria-label')).toContain('可左右捲動');
+    // describedby 要真的指到那句話所在的節點,不是隨便一個 id
+    const described = grid.getAttribute('aria-describedby')!;
+    expect(described).toBeTruthy();
+    // jsdom 沒有 CSS.escape,而 useId 的值含 «» ⇒ 改用屬性選擇器
+    expect(grid.querySelector(`[id="${described}"]`)).not.toBeNull();
+  });
+
+  it('🔴🔴 **沒有溢出 ⇒ 那四件全部不在**(Sean 的 1728 螢幕:不多一個 Tab 停點、不宣稱可以捲)', () => {
+    const { grid, host } = makeGrid({
+      boxRight: 1000,
+      ths: [col('單號', 0, 200), col('操作', 200, 400)],
+    });
+    render(<OrdersCutoffNotice />, { container: host });
+    for (const attr of ['tabindex', 'role', 'aria-label', 'aria-describedby']) {
+      expect(grid.getAttribute(attr), `沒溢出還留著 ${attr}`).toBeNull();
+    }
+  });
+
+  it('🔴 兩張表的 id **不得相同**(固定字串 id 會讓第二張讀到第一張的提示)', () => {
+    const a = makeGrid({ boxRight: 1000, ths: [col('操作', 950, 1100)] });
+    const b = makeGrid({ boxRight: 1000, ths: [col('操作', 950, 1100)] });
+    render(<OrdersCutoffNotice />, { container: a.host });
+    render(<OrdersCutoffNotice />, { container: b.host });
+    const ida = a.grid.getAttribute('aria-describedby');
+    const idb = b.grid.getAttribute('aria-describedby');
+    expect(ida).toBeTruthy();
+    expect(idb).toBeTruthy();
+    expect(ida).not.toBe(idb);
+  });
+
+  it('🔴 溢出消失後,那四件要【收回去】(不是加上去就不管了)', () => {
+    let right = 1100;
+    const grid = document.createElement('div');
+    grid.className = 'orders-grid';
+    grid.getBoundingClientRect = () => ({ left: 0, right: 1000 }) as DOMRect;
+    const table = document.createElement('table');
+    const thead = document.createElement('thead');
+    const tr = document.createElement('tr');
+    const th = document.createElement('th');
+    th.textContent = '操作';
+    th.getBoundingClientRect = () => ({ left: right - 150, right }) as DOMRect;
+    tr.appendChild(th);
+    thead.appendChild(tr);
+    table.appendChild(thead);
+    grid.appendChild(table);
+    const host = document.createElement('div');
+    grid.insertBefore(host, table);
+    document.body.appendChild(grid);
+
+    render(<OrdersCutoffNotice />, { container: host });
+    expect(grid.getAttribute('tabindex')).toBe('0');
+
+    right = 900; // 側邊欄收起來 / 視窗變寬 ⇒ 不再溢出
+    act(() => roCallbacks.forEach((cb) => cb()));
+    expect(grid.getAttribute('tabindex')).toBeNull();
+    expect(grid.getAttribute('aria-describedby')).toBeNull();
+  });
+
   it('🔴 一頁兩張表:各量各的(原本用 document.querySelector 時,第二張會拿第一張的答案)', () => {
     const a = makeGrid({ boxRight: 1000, ths: [col('單號', 0, 200)] }); // 沒有溢出
     const b = makeGrid({ boxRight: 1000, ths: [col('操作', 950, 1100)] }); // 有溢出
