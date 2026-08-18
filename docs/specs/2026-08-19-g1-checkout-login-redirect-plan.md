@@ -84,8 +84,52 @@ components/LoginPage.tsx           next 指向 /checkout 時多顯示一句（�
 ## ⑧ 我沒做/沒查的
 ```
 · 沒有實走 Google / LINE 登入（③ 是讀 code 得到的）
-· 沒有判 checkout/callback/page.tsx:94 未登入時「導回結帳」是不是對的
-  —— 那是 3DS 回來的落點，導回去可能重複建單。**這一格要另外查，不要照抄 §⑥。**
+· ~~沒有判 checkout/callback/page.tsx:94~~ ⇒ **查完了,見 §⑨。答案是【不可以照抄】。**
 · 沒有量「客人真的會不會放棄」—— 那要行為數據，我沒有
 · 沒有查 /register 那條路（客人可能選註冊而不是登入）⇒ 註冊成功後會不會回結帳，未查
+```
+
+---
+
+## ⑨ 🔴 `checkout/callback/page.tsx:94` ⇒ **不可以照抄 §⑥ 的改法。理由是錢。**
+
+> 這一格是我自己在 §⑧ 標「要另外查」的,查完了。**答案是:那裡【不能】帶 `next=/checkout`。**
+
+### 為什麼(量到的,附行號)
+```
+建單順序   apps/storefront/src/app/checkout/charge-actions.ts:5 逐字:
+           「鐵則 12 成交 path:組【建單(既有 placeOrder)→ charge → confirm】整鏈」
+           :16 buildCardholder 先於建單 / :17 placeOrder → findTotal read-back → 才扣款
+⇒ 客人從 3DS 銀行頁回到 callback 的那一刻，**訂單【已經建好】，而且可能【已經扣款】**
+```
+🔴 **所以若在 `:94` 寫 `redirect('/login?next=/checkout')`**:
+```
+客人登入完 → 落在【結帳頁】→ 他會以為剛才沒成功 → **再結一次**
+⇒ 第二張單 + 可能的第二次扣款，而第一張單可能已經 paid
+⇒ 這不是 UX 問題，是**鐵則 12① 錢**
+```
+📌 **形狀**:`/checkout` 對「還沒下單的人」是正確的落點,對「**剛下完單的人**」是**最危險的落點**。
+**同一個 `next` 值,在兩個情境裡意義相反。**
+
+### ⇒ 這一格的正確做法(而它仍要 Sean 批,因為仍是 auth + 錢)
+```
+next 應指回【結果頁本身】並保留 order 參數:
+   /login?next=/checkout/callback%3Forder%3D<uuid>
+⇒ 登入完落在【那張單的結果頁】，不是新的結帳
+✅ sanitizeNextParam 允許站內路徑 + query（helper docstring 明列 `/products?cat=x` 是允許形狀）
+⚠️ 已知代價（檔頭自己寫的）:pending 狀態重刷會【重打 Record】——
+   而那是【重新整理本來就有】的既有行為，不是本改法新增的；per-order 節流由 3DS-4 補。
+```
+### ⚠️ 而我建議的最小動作是:**這一支【先不要動】**
+```
+現況 redirect('/login') ⇒ 客人落在首頁，**多走幾步，但不會被推去建第二張單**
+⇒ 它現在是【安全的差體驗】。而改壞的代價是【錢】。
+⇒ 結帳那支（§⑥ 第一條）先做，這一支獨立判、獨立審。
+```
+🔴 **兩支長得一樣、住在同一個資料夾、而處置相反** —— 這一段寫在這裡就是為了擋住「順手一起改」。
+
+### 我還是沒查的
+```
+· 沒有實走 3DS（檔頭自己寫「Phase I 建好但無真 3DS 流量」）⇒ ⑨ 全部是讀 code 得到的
+· 沒查「客人回來時 session 真的會不會掉」—— 那要真流量；若根本不會掉，這整格是空的
 ```
