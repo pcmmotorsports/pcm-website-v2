@@ -1,0 +1,50 @@
+# apply 彩排【第二次】—— 這次推的是 G4 已 commit 的那份(2026-08-18 20:2x)
+
+彩排人:G1。觸發=主視窗佇列 2b:**我第一次彩排的是 205 行那版,而那份沒有 trigger 函式。**
+🔴 全程拋棄式 PG、不碰正式庫、不碰連線字串、不碰 `.env*`。拆機兩層都驗(程序 0 / 埠 0)。
+
+## 先跑我自己寫進 runbook 的那道檢查(它的第一個使用者是我)
+```
+20260818170000_m4b_g3_customer_favorites.sql    推的 332 行 / dev 上 332 行
+20260818190000_m4b_admin_sso_login_events.sql   推的 318 行 / dev 上 318 行
+```
+📌 第一次彩排時這一格是 `205 / 287`(推的是 commit 版、工作檔是別人的 WIP)。
+   **那道檢查現在有了第二次使用紀錄,而且兩次的值不同 ⇒ 它有判別力。**
+
+## 結果
+```
+supabase db push --include-all  ⇒ rc=0
+Applying migration 20260818170000_m4b_g3_customer_favorites
+Applying migration 20260818190000_m4b_admin_sso_login_events   ← 順序照檔名
+原封再推一次 ⇒ rc=0、Applying 次數 0、"Remote database is up to date."
+```
+建出來的(第一次彩排時**沒有**的那兩個,現在都在):
+```
+func    admin_sso_login_events_force_occurred_at   ← 新增（第一次彩排時不存在）
+func    purge_admin_sso_login_events
+trigger admin_sso_login_events_force_occurred_at_trg ← 新增（第一次彩排時 0 個 trigger）
+table   customer_favorites / admin_sso_login_events
+policy  customer_favorites_{select,insert,delete}_own
+```
+
+## 🔴 那個 trigger 我不只驗它「存在」,我驗它「會做事」——兩個世界
+```
+世界一  trigger 在   insert occurred_at='2001-01-01' ⇒ 存進去是 2026-08-18   ✅ 被覆寫
+世界二  trigger 拿掉  同一句 insert                    ⇒ 存進去是 2001-01-01   ✅ 留下來
+```
+⇒ **負向對照證明那個綠是 trigger 造成的,不是 DEFAULT 造成的。**
+   (該欄同時有 DEFAULT;只驗世界一的話,兩個成因分不開。)
+📌 這正是該 migration 檔頭寫的理由:`GRANT INSERT ON TABLE` 是**整列**的
+   ⇒ 拿到 key 的人可以自己指定 `occurred_at`,**DEFAULT 擋不住他,只有 trigger 擋得住**。
+   **那句宣稱現在有實測了。**
+
+## 途中一格值得記:錯誤訊息裡藏著答案
+第一次我漏填必填欄 ⇒ `null value in column "outcome" ... violates not-null constraint`。
+🔴 而那句錯誤的 `詳細資料:` 把**失敗列的完整內容**印出來了,裡面的 `occurred_at` 已經是當下時間
+⇒ **在我還沒成功 insert 之前,那個錯誤訊息就已經證明 trigger 跑過了**
+  (PostgreSQL 的 BEFORE INSERT trigger 在 NOT NULL 檢查【之前】跑)。
+⚠️ 我沒有停在那裡 —— 那是**間接證據**,我仍然補了乾淨的兩個世界。**間接證據對了不代表可以省掉量測。**
+
+## 沒有變的限定(與第一次相同,不重複全文)
+`#628` 記帳被拒:本機 superuser ⇒ **零判別力**。
+前置只建最小集合 + `auth.uid()` 是回 NULL 的樁。本機 PG 17.10 ≠ Supabase 平台。
