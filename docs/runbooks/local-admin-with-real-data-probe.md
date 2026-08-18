@@ -69,8 +69,18 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
 
 -- 🔴 RLS policy 直接呼叫這三支；沒有的話 `function auth.uid() does not exist`，
 --    而它會讓【所有帶 policy 的 migration】一起失敗（2026-08-18 實測：74 支）。
+-- 🔴🔴 **下面這一行在 PostgREST 14 上是【壞的】,而它壞得沒有聲音 —— 修法與實測見 §8。**
+--    ~~SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid~~
+--    PostgREST **14 起不再設** `request.jwt.claim.sub` 這個 GUC(改設 `request.jwt.claims`,JSON)
+--    ⇒ `auth.uid()` 恆為 `null` ⇒ **所有綁它的 RLS 濾成 0 列,而 HTTP 仍是 200**。
+--    ⚠️ **這是版本差,不是筆誤** —— 你若在**舊版**上讀到這一行,它在那裡是對的。
+--    🔴 **admin 那條路永遠看不到它** —— admin 走 `service_role` + `BYPASSRLS`,不經過 `auth.uid()`。
+--    (量測:PostgREST **14.16**,W4 2026-08-18。**本檔檔名比它的射程窄。**)
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
-  SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+  SELECT nullif(coalesce(
+           current_setting('request.jwt.claim.sub', true),
+           (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
+         ), '')::uuid $$;
 CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('request.jwt.claim.role', true), '')::text $$;
 CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS $$
@@ -196,3 +206,81 @@ git status --porcelain    # 應為空
 `grep -n 'itemsTruncated' shipment-launcher.tsx` ⇒ **零命中**,那個推論是假的。
 🔴 **真因是我自己的種子沒有到貨資料。**
 ⇒ **開伺服器看到的東西仍然要區分「量到的」與「看到之後推的」。** 畫面不會替你做那個區分。
+
+---
+
+## §8 🔴🔴 顧客站(登入的客人)那一面 —— **§2 的 `auth.uid()` 在這條路上是壞的**
+
+> **W4,2026-08-18 11:1x。** 起因:驗 `#636`(會員中心「? 件」的文案)。
+> **§1-§4 那條鏈只涵蓋 admin,而 admin 走 `service_role` + `BYPASSRLS` ⇒ 它從頭到尾不經過 `auth.uid()`。**
+> ⇒ **下面這個 bug 在 admin 路徑上【永遠不會顯形】。**
+
+### 8-a 病:`request.jwt.claim.sub` 這個 GUC,PostgREST 14 不再設了
+
+§2 給的替身逐字是:
+```sql
+CREATE FUNCTION auth.uid() ... SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+```
+**我實測(PostgREST `14.16`,自建 `public.probe_guc()` 從資料庫裡把三個值一起印出來)**:
+```
+claims    = {"sub":"1111…","role":"authenticated","aud":"authenticated",…}   ← 有
+claim_sub = null                                                              ← 🔴 沒有
+auth.uid()= null                                                              ← 🔴 因此是 null
+```
+⇒ **所有綁 `auth.uid()` 的 RLS 政策一律濾成 0 列,而 HTTP 是 `200`。**
+
+🔴 **為什麼它特別毒**:本檔 §4 自己寫著「**`200 + 0 列` 與『真的沒有資料』長得一模一樣**」——
+那句話會把你推去查**資料**(種子對不對、`user_id` 對不對),
+**而真因在一支你三十行之前才貼上去、看起來理所當然的函式裡。**
+
+### 8-b 修法(兩個 GUC 都讀;新舊 PostgREST 都吃得下)
+
+```sql
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
+  SELECT nullif(coalesce(
+           current_setting('request.jwt.claim.sub', true),
+           (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
+         ), '')::uuid $$;
+```
+**實測兩個方向都對(不是只驗會過的那一半)**:
+```
+authenticated JWT ⇒ 200，回自己的 2 張單        ← 正向
+anon（不帶 JWT）  ⇒ 401 permission denied        ← 負向：RLS 沒有被我改鬆
+```
+
+### 8-c 還有兩道 §2 沒給、少了會卡住的 GRANT
+
+```sql
+GRANT USAGE ON SCHEMA auth TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.jwt() TO authenticated, anon, service_role;
+```
+少了它 ⇒ `permission denied for schema auth`。⚠️ **這個錯【會】明講,不像 8-a 那樣靜默** —— 兩者不要混為一談。
+
+### 8-d 顧客站還需要一段 `/auth/v1` 替身(§4 的前綴代理只轉 `/rest/v1`)
+
+`apps/storefront/src/app/account/page.tsx` 逐字 `await supabase.auth.getUser()`,無 user 就 `redirect('/login')`
+⇒ 代理要多接三條:`GET /auth/v1/user` 回 user JSON、`POST /auth/v1/token`(與 `/signup`)回 session JSON、
+`POST /auth/v1/logout` 回 204。
+🔴 **然後【走網站自己的 `/login` 表單登入】,不要自己塞 cookie** ——
+`@supabase/ssr` 的 cookie 名與分段編碼由它自己決定(預設 `sb-${hostname.split('.')[0]}-auth-token`),
+**手工偽造那個 cookie 是在複製一份會漂的實作細節**;讓它自己寫,順便真的驗到了登入流程。
+
+### 8-e 兩個會讓你以為是權限問題、而其實不是的坑
+
+1. **`NEXT_PUBLIC_SUPABASE_ANON_KEY` 不能填 `dummy-anon`** —— PostgREST 回 `Expected 3 parts in JWT; got 1`。
+   要用同一把 secret 自簽一個 `{"role":"anon"}` 的 JWT。
+2. 🔴 **`listSummariesByCustomer` 有 `.neq('payment_status','unpaid')`**,而 `orders.payment_status` 的**欄位預設就是 `unpaid`**
+   ⇒ **照預設種出來的單,在會員中心一張都不會出現。**
+   ⚠️ **我在這裡第二次掉進 `200 + 0 列`**:剛修完 `auth.uid()`,手上有個現成的嫌犯,就先懷疑 RLS。
+   📎 **便宜的判別法(下次先做這個)**:**拿 `curl` 打同一個 URL**。
+   curl 回得出來 ⇒ 不是 RLS/JWT,是**查詢條件或資料**。一次請求就把兩族分開。
+
+### 8-f 這條鏈能證什麼(沿用 §0 的口徑,不放寬)
+
+```
+✅ 能證  「登入的客人，在這種資料下，畫面會畫出什麼」
+❌ 不能證 正式站的 auth 行為 —— /auth/v1 整段是我寫的替身，不是 GoTrue
+❌ 不能證 密碼、session 過期、refresh、OAuth ——【替身一律回成功】
+```
+🔴 **最後那條要特別記**:替身**不驗密碼**,任何字串都登得進去。
+⇒ **不要拿這條鏈去驗任何「擋不擋得住」的題目**,它在那些題目上恆綠。
