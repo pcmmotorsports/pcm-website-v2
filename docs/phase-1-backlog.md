@@ -5193,9 +5193,38 @@ order by n desc, 1;
 - **發現於:** 2026-05-24 / 進度地圖刷新 Option A
 - **相關:** `~/.claude/skills/pcm-roadmap/roadmap-data.json`、`docs/PHASE-1-MILESTONES.md` M-1-14/15 + M-2-03/04、STATUS「下一步」
 
-### #179. 🟡 f1 登入註冊衍生的 stage g follow-up(4 項、g 開工前必處置)
+### #179. 🟡【4 項裡 2 項已完成】f1 登入註冊衍生的 stage g follow-up
 
-- **狀態:** ⏳ 待執行(stage g〔AccountPage 7 tab〕開工時處置)
+> ## 🔴 2026-08-19 G6 逐項實查:**①② 已完成、③ 未完成、④ 判不出來**
+> ```
+> ① Header 登入態條件路由  ✅ **已完成**
+>    Header.tsx:41-42 逐字:「'account' **刻意不入此表**:g-1b 起改「條件路由」(見 handleNav)
+>      — 已登入→/account、未登入→/login。(**取代 f1-a 的 /login stopgap;#179 D-f 收尾**)」
+>    同檔 :104 「Header 會員態(g-1b、純 cosmetic):決定會員圖示去向」
+>    ⇒ **它具名寫著本條的編號與「收尾」兩個字。**
+>
+> ② ap-page / ap-mono shared base 抽取  ✅ **已完成**
+>    `.ap-page` 的**定義只有一處**:`styles/auth.css:19`(量法:git grep -n '^\.ap-page' -- styles/)
+>    而**使用**它的有 auth / cart / checkout / coming-soon / error **五支** CSS
+>    ⇒ **那正是條目要的「共用 base」形狀:一處定義、多處使用。**
+>
+> ③ OAuth 會員補 phone 流程  🔴 **未完成**
+>    `auth/callback/route.ts:13-14` 仍逐字「OAuth 會員 phone 可空、**補 phone 留 stage g**」
+>    ⇒ 那句話今天還在,而它就是本項的內容。
+>
+> ④ storefront requireEnv 去重  ⚠️ **我判不出來,標未確認**
+>    條目說三份(`lib/supabase/server.ts` + `browser.ts` + `adapters/client.ts`)
+>    今天 `git grep -ln 'function requireEnv\|const requireEnv'` ⇒ **4 支檔**,
+>    而**沒有一支是條目點名的那兩支**(現在是三支 `composition.ts` + `adapters/client.ts`)
+>    ⇒ **東西搬過家,而「是不是去重了」我答不出來** —— 要逐支開檔比對實作才算,我沒做。
+> ```
+> ⇒ 🔴 **本條不是「4 項待處置」,是「2 項已完成 / 1 項未完成 / 1 項未確認」。**
+> ⇒ 對排程的意義:**它的體積掉了一半,而它的狀態欄看不出來。**
+>
+> ⚠️ **未量**:沒有實跑、沒開瀏覽器;① 我讀的是註解與 `NAV_ROUTE_MAP` 的缺席,**沒有實際點過那顆圖示**。
+
+- **狀態:** 🟡 **4 項裡 2 項已完成**(2026-08-19 G6 逐項實查:①② 完成、③ 未完成、④ 未確認)
+  · ~~⏳ 待執行(stage g〔AccountPage 7 tab〕開工時處置)~~(原值留痕)
 - **優先級:** 🟡 中(各自不修會痛、但都屬 g-scope、f1 不碰)
 - **來源:** M-1-14e-f1 plan v4(codex 關卡1 4 輪 + 陪審腦 verdict flags [B]/[H]/final-2 + code-reviewer consider);plan 全文 `docs/handoff/2026-05-24-m-1-14e-f1-plan.md`
 - **4 項:**
