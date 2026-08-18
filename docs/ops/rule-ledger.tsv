@@ -44,7 +44,13 @@
 #
 # 🔴 `#!rows=N` 是給稽核對帳用的,**改動列數要同步改它** ——
 #   沒有它,一張被清空的表會印「綠 0 / 紅 0」然後 rc=0,**死掉的樣子跟全過的樣子一模一樣**。
-#!rows=15
+#!rows=16
+#
+# 🔴 本表【只驗字面】,不跑任何命令(不引入 eval)。**覆蓋率型的檢查住在自己的腳本裡** ——
+#   例:`scripts/authz-failure-visibility.sh`(授權被擋時員工看不看得見)。
+#   ⇒ **R016 驗的是「那支檢查器還在、而且還宣告著同一個期望值」,不是「覆蓋率還是那樣」。**
+#   🔴 要知道覆蓋率有沒有變,**必須自己跑那支腳本** —— 本表全綠**不代表**覆蓋率沒變。
+#   ⇒ 開工三件的第 1 件之後,兩支都要跑:`sh scripts/rule-audit.sh` 與那支覆蓋率腳本。
 #
 # 欄:id / 規則一句話 / 落點檔 / pattern(grep -F 固定字串) / expect(>=1 或 ==0) / 立法日 / 病例來源
 id	rule	file	pattern	expect	since	source
@@ -63,3 +69,4 @@ R012	四綠腳本把 TURBO_FORCE=1 寫死(不然 turbo 會 replay 舊的綠)	scr
 R013	guard-traps 不得殘留 merge 衝突標記	docs/patterns/guard-and-instrument-traps.md	<<<<<<< HEAD	==0	2026-08-18	G1 與 G2 同日在該檔結尾各 append 一條而撞車
 R014	共用主樹上 git add 與 git commit 之間不該有任何一步	docs/runbooks/multi-window-command-workflow.md	之間不該有任何一步	>=1	2026-08-18	G6 的 add 生效而 commit 被 merge 擋下,東西躺進別人索引
 R015	廢止一條規則必須用 ~~ 劃線形,不可以只用散文寫「本條作廢」	docs/ops/rule-ledger.tsv	廢止一條規則必須用 `~~` 劃線形	>=1	2026-08-18	GR 指出散文式廢止是立法問題不是量具問題;主視窗裁准立為契約
+R016	授權被擋時員工要看得見(不是裸 redirect);覆蓋率檢查器要在、且期望值仍寫死	scripts/authz-failure-visibility.sh	EXPECT_BARE=2	>=1	2026-08-18	G6 量出 28 呼叫點/裸 redirect 2;主視窗指示先只做這一個形狀不推廣
