@@ -157,7 +157,7 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
         ok: false,
         message:
           owners.size === 0
-            ? '找不到這些品項所屬的訂單,無法建立包裹(請重新整理後再試)。'
+            ? '找不到這些品項所屬的訂單,無法出貨(請重新整理後再試)。'
             : '這些品項不屬於同一位客人,不能裝同一箱。',
         shipmentReference: null,
       };

@@ -6,6 +6,7 @@ import type {
   OrderInvoice,
   AdminOrderDetail,
   AdminOrderDetailItem,
+  AdminOrderDetailFullItem,
   AdminOrderPrintItem,
   AdminOrderItemQuantitySummary,
   AdminOrderLine,
@@ -754,6 +755,34 @@ export function mapSupabaseOrderItemPrintRow(row: SupabaseOrderItemPrintRow): Ad
     spec: pickSpec(row.product_snapshot),
     quantity: row.quantity,
     quantitySummary: mapQuantitySummary(row.order_item_quantity_summary),
+  };
+}
+
+/**
+ * **明細頁**的品項列(`D2` C 條,2026-08-18)= 列印那份 **+ 兩個同列 scalar**。
+ *
+ * 🔴 用交集型別而不是重打一份:兩者的共同欄只有一個定義處,**漂不了**。
+ * ⚠️ 而 `unit_price` / `line_total` 是**成交價**(該單實際賣價,非經銷價表)——
+ * 見本檔 `:257` 那段既有註解。**它們只走後台明細,不進任何 client DTO。**
+ */
+export type SupabaseOrderItemDetailRow = SupabaseOrderItemPrintRow & {
+  unit_price: number;
+  line_total: number;
+};
+
+/**
+ * `SupabaseOrderItemDetailRow` → `AdminOrderDetailFullItem`。
+ *
+ * 🔴 **金額走 `toMoneyAmount` 中央守門,不 `as MoneyAmount`** —— 與本檔 `:340-341`
+ * 既有兩處逐字同源(整數/非負、零浮點)。**第三份實作不可以有自己的規則。**
+ */
+export function mapSupabaseOrderItemDetailRow(
+  row: SupabaseOrderItemDetailRow,
+): AdminOrderDetailFullItem {
+  return {
+    ...mapSupabaseOrderItemPrintRow(row),
+    unitPrice: { amount: toMoneyAmount(row.unit_price), currency: 'TWD' },
+    lineTotal: { amount: toMoneyAmount(row.line_total), currency: 'TWD' },
   };
 }
 
