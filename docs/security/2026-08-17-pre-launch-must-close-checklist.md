@@ -122,6 +122,15 @@ Sean 2026-08-17 逐字:
 🔴 驗收**必須先跑負向對照**:**該綠的餵一發必須綠、該紅的餵一發必須紅**;兩發都表演得出來才看斷言。
 ⚠️ **`has_table_privilege` 看不到欄級授權**(E 窗 2026-08-17 實測少報 2 vs 實際 3)⇒ **驗收查詢一律用欄級版**。
 📄 `docs/specs/2026-08-17-e683-default-privileges-plan.md`(框架=**顯式宣告成目標狀態**,不是照抄報價單庫)
+✅ **2026-08-18 G4 補上那條可執行的斷言**(半格 ⇒ 整格):
+```
+read -rs PGURL && export PGURL && bash scripts/check-anon-grants-prod.sh && unset PGURL
+  ⇒ 它先跑對照組(legal_terms_versions×anon 必須 >0、admin_audit_log×anon 必須 =0),
+     任一不符 rc=1 拒絕報數 —— 空輸出不會被讀成「已收乾淨」
+  未補齊 ⇒ pg_default_acl 印出 anon=arwdDxtm/postgres
+  已補齊 ⇒ 那一行消失（兩個世界印不同的東西）
+```
+🔴 **仍未關**:那支腳本**一次都沒有對正式庫跑過**(G4 無 prod access)⇒ **需要 Sean 或有 access 的窗跑,兩個庫都要。**
 
 ---
 
@@ -142,7 +151,17 @@ Sean 2026-08-17 逐字:
 ⇒ **本條現在【沒有人在接】。** 我把這句留在這裡而不是刪掉,因為刪掉之後
 這一條讀起來會像「有人在處理」——**而那正是本清單 ⑳ 在講的同一個病:
 把一件事 defer 給一個接不住它的對象,那個對象消失時,缺口會靜靜地變成「已處理」。**
-**缺的是**:一條對 `net._http_response` 的欄級權限查詢(`has_table_privilege` 看不到欄級,見 ③),
+✅ **2026-08-18 G4:上面那句「缺的是…」已經補起來了** —— 同一支腳本的第 ④ 段就是欄級版:
+```
+read -rs PGURL && export PGURL && bash scripts/check-anon-grants-prod.sh && unset PGURL
+  (a) 表級  information_schema.role_table_grants
+  (b) 欄級  information_schema.column_privileges   ← 🔴 has_table_privilege 看不到的就是這一層
+  (c) RLS   pg_class.relrowsecurity + policy 數
+  未補齊 ⇒ 兩表 × 兩角色印出 DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+  已補齊 ⇒ (a)(b) 全空（G4 在拋棄式 PG 17.10 上把兩個世界都造出來跑過）
+```
+🔴 **仍未關**:未對正式庫跑過,且**兩個庫都要跑**(網站庫 + 報價單庫,§6 實測兩庫相同)。
+**原本缺的那一句**(留痕):一條對 `net._http_response` 的欄級權限查詢(`has_table_privilege` 看不到欄級,見 ③),
 兩個世界會不同的值 = `anon` 的 DML/TRUNCATE 權限**在**與**不在**。
 📄 `docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md`
 
@@ -709,8 +728,8 @@ plan v4 `:46-49`、memory `project_0816-sean-morning-13-rulings.md:55`。
 
 | 條 | 判定 | 病 |
 |---|---|---|
-| ④ `E686` net 兩表 | 🔴 **假驗法** | 「規格已落檔、已指派」是狀態 —— 兩個世界同一句 |
-| ③ `E683` 新表 anon | 🔴 **半格** | 有方法(負向對照、欄級版)、**沒有可執行的斷言** |
+| ④ `E686` net 兩表 | 🟡 **已補可執行斷言**(08-18 G4) | ~~「規格已落檔、已指派」是狀態~~ ⇒ 現為 `scripts/check-anon-grants-prod.sh` 的欄級查詢;**但未對正式庫跑過** |
+| ③ `E683` 新表 anon | 🟡 **已補可執行斷言**(08-18 G4) | ~~有方法、沒有可執行的斷言~~ ⇒ 現為同一支腳本的 `pg_default_acl` 段(含對照組先驗量具);**未對正式庫跑過** |
 | ⑨ `ADMIN_DEV_BYPASS` | 🔴 **方向錯** | 行號對,而指的那格量的是**執行期環境值**,不是**原始碼字面**;它自己寫著那半構造不出來 |
 | ⑯ 共用密碼 | 🔴 **反向**(已修) | 我原本寫「已補齊 ⇒ 進不去」,而 plan 明文保留備援 ⇒ **會叫人去拆掉刻意留的東西** |
 | ⑳ `#635` | 🔴 **沒有**(已補) | 整條無驗法格 |
