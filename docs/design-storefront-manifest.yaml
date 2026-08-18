@@ -170,8 +170,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductsPage.tsx"
       css: "apps/storefront/src/styles/products-page.css"
-      last_modified_commit: "02c1f7ac"  # 記可達祖先=敬語+件數片的父 commit(#180 案 A)(前錨 24276784)
-      last_modified_date: "2026-08-18 [撈不到資料時不再印「0 件商品」]:`fetchCatalogPage` 失敗回 `total: 0`(lib/products.ts:508),而件數渲染在 error 分支【外面】⇒ 客人同時看到「0 件商品」+「載入失敗、請稍後再試」+ 側欄各分類件數(走另一條沒壞的資料源)照樣印著 9/9/9/9 = 三種互相矛盾的說法。改 `displayCount = error ? null : resultCount`,頂部三個顯示點(SortBar / FilterTop / FilterDrawer)在 null 時不給數字;`resultCount` 本身不動(分頁算式要用,而分頁在 error 時本就不渲染)。🔴 修法照同 repo 既有判斷 `MobileVehicleSheet.tsx:277-280`(刻意不印算不出來的 N)。🔴 `FilterDrawer` 的 null 字面與桌機【刻意不同】(「商品載入失敗」vs「件數未能載入」;codex 關卡2 nit):手機抽屜覆蓋整個畫面、客人看不到「載入失敗」那句。⚠️ **側欄 facet 件數沒有一起關掉**(`useFacetCountResolver`,另一條資料源、沒壞)—— 刻意留:它證明「商品是存在的」。守門 = `ProductsPage.test.tsx` 新增一對格(error=true 不得出現「0 件商品」/ 負對照:真 0 筆仍要印「0 件商品」);**突變實測**:把 `count={displayCount}` 改回 `count={resultCount}` ⇒ 前者紅、後者仍綠 = 兩格各有判別力。行為另用拋棄式 PG + PostgREST + 真 next dev 三世界對照實看過(正常 26 件 / 撤 anon EXECUTE 印「件數未能載入」/ 還原 10 件)。" # 前版 2026-08-08 [選車卡比例第二輪] 見 git history
+      last_modified_commit: "b4b3a301"  # 記可達祖先=篩選抽屜寬度片的父 commit(#180 案 A)(前錨 02c1f7ac=敬語+件數片、24276784)
+      last_modified_date: "2026-08-18 [篩選抽屜面板寬度:移除蓋掉 width:auto 的 width:100vw]:手機篩選抽屜 `.fd-drawer` 的右緣掉在畫面外 10px(390 實測 left 10 / right 400 / width 390 ⇒ 修後 380/370)。🔴 **射程比它聽起來窄**:真手機走 `[data-mobile=\"true\"]` 那條(特異度較高、本來就 width:auto)⇒ **iPhone/Android 客人修前修後都一樣**,被咬到的只有「桌機 UA 縮到 ≤640」那條路 ⇒ 縱深修正、非客訴修復(這句是 code-reviewer R1 打回我原本的誇大版本後改的)。守門 `styles/filter-drawer-width.test.ts` 3 格(禁 100vw / 1079 塊前提正向對照 / [data-mobile] 那條也要 auto),突變塞回 100vw ⇒ 恰好 1 紅 2 綠、還原逐字元一致。理由與考古更正見本條目 `technical_overrides.fdDrawerWidthAutoNot100vw`。前:2026-08-18 [撈不到資料時不再印「0 件商品」]:`fetchCatalogPage` 失敗回 `total: 0`(lib/products.ts:508),而件數渲染在 error 分支【外面】⇒ 客人同時看到「0 件商品」+「載入失敗、請稍後再試」+ 側欄各分類件數(走另一條沒壞的資料源)照樣印著 9/9/9/9 = 三種互相矛盾的說法。改 `displayCount = error ? null : resultCount`,頂部三個顯示點(SortBar / FilterTop / FilterDrawer)在 null 時不給數字;`resultCount` 本身不動(分頁算式要用,而分頁在 error 時本就不渲染)。🔴 修法照同 repo 既有判斷 `MobileVehicleSheet.tsx:277-280`(刻意不印算不出來的 N)。🔴 `FilterDrawer` 的 null 字面與桌機【刻意不同】(「商品載入失敗」vs「件數未能載入」;codex 關卡2 nit):手機抽屜覆蓋整個畫面、客人看不到「載入失敗」那句。⚠️ **側欄 facet 件數沒有一起關掉**(`useFacetCountResolver`,另一條資料源、沒壞)—— 刻意留:它證明「商品是存在的」。守門 = `ProductsPage.test.tsx` 新增一對格(error=true 不得出現「0 件商品」/ 負對照:真 0 筆仍要印「0 件商品」);**突變實測**:把 `count={displayCount}` 改回 `count={resultCount}` ⇒ 前者紅、後者仍綠 = 兩格各有判別力。行為另用拋棄式 PG + PostgREST + 真 next dev 三世界對照實看過(正常 26 件 / 撤 anon EXECUTE 印「件數未能載入」/ 還原 10 件)。" # 前版 2026-08-08 [選車卡比例第二輪] 見 git history
     design:
       component: "design-reference/components/ProductsPage.jsx"
       css: "design-reference/styles/products-page.css"
@@ -279,6 +279,73 @@ components:
         decision_source: "Sean 開站實測 feedback「確認適用車款的文字太小、大小要跟左邊篩選欄位一樣」(視覺 Sean 掌舵)"
         backlog: ""
         reason: "Sean 親自視覺拍板;.cft-select 原即 13px 與左欄同級、僅 label 落差"
+    technical_overrides:
+      - field: "fdDrawerWidthAutoNot100vw"
+        design_value: |
+          🔴 **design 自己這一支檔互相打架,兩條規則都在裡面**
+          (`design-reference/styles/filter-drawer.css`,2026-08-18 逐字實查):
+            `:28-40`   `@media (max-width: 640px) { .fd-drawer { right:12px; left:12px; width:auto; … } }`
+            `:257-260` `@media (max-width: 640px) { .fd-drawer { width: 100vw; } }`  ← 在後面,同特異度 ⇒ 它贏
+          ⇒ **照鐵則 1 逐字搬,搬到的是後者。** 那兩條至今仍在 design 側,本站刻意偏離。
+        storefront_value: |
+          [2026-08-18] `apps/storefront/src/styles/filter-drawer.css` 的
+          `@media (max-width: 640px) { .fd-drawer { width: 100vw; } }` **整條移除**(留註解說明)。
+          同 block 的 `.fd-tabs { width: 108px; }` 留在原處不動(它是 `.fd-body` flex row 裡
+          `flex-shrink: 0` 的固定寬側欄,不讀 drawer 寬度)。
+          病:同檔 `@media (max-width: 1079px)` 那塊設 `left: 10px; right: 10px; width: auto;`
+          = 左右各留 10px 的浮動面板;`width: 100vw` 在更後面 ⇒ 蓋掉 `width: auto`
+          ⇒ 盒子從 `left: 10` 起算、寬 `100vw` ⇒ **右緣掉在畫面外 10px。**
+          390×844 真瀏覽器實測(拋棄式 DB + 真 next dev,`getBoundingClientRect`):
+            修前 ⇒ left 10 / right **400** / width 390
+            修後 ⇒ left 10 / right **380** / width **370**   左右對稱
+          未回歸(同一輪):`768` ⇒ left 10 / right 758;
+          `1440` ⇒ computed `width: 440px / right: 0 / left: auto`(桌機側抽屜規則,未觸及)。
+        射程與嚴重度: |
+          🔴🔴 **R1 更正 —— 真手機走的不是壞掉那條路,這是縱深修正、不是客訴修復。**
+          `apps/storefront/src/app/layout.tsx:90,93` 用 UA regex `/iPhone|Android|Mobile/i`
+          SSR 設 `<html data-mobile="true">`,而 `filter-drawer.css:58` 的
+          `[data-mobile="true"] .fd-drawer`(特異度 0,2,0)本來就是 `width: auto`,
+          **壓過 media query 內的 `.fd-drawer`(0,1,0)**
+          ⇒ **iPhone / Android 客人修前修後都是 left 10 / right 380 / width 370。**
+          被舊規則咬到的只有「**桌機 UA 把視窗縮到 ≤640**」(= 我量測的那個世界)
+          以及任何不符那三個 UA 字串的行動瀏覽器。
+          ⚠️ **不要對外講成「客人看到的版面壞掉」** —— 我原本的 storefront_value 就是那樣寫的,
+          由 code-reviewer R1 打回。
+        decided_at: "2026-08-18"
+        decision_source: |
+          **施工端技術判斷(非 Sean 拍板)**。理由=design 那兩條規則**互相矛盾**,
+          而矛盾不是設計決定。
+          🔴 **R1 更正了我原本的考古(我寫反了)**:`8f5d90c6`(2026-05-19 FilterDrawer 首版)
+          **同一顆 commit 裡就同時有這兩塊**
+          (`git show 8f5d90c6 -- apps/storefront/src/styles/filter-drawer.css` 的
+           `+72..+78` 浮動面板 `left:12px; width:auto` 與 `+301..+302` `width:100vw`)。
+          ⇒ **不是**「`4da63c61`(2026-05-28 #192)加了新的沒刪舊的」,
+          **是首版照鐵則 1 逐字搬 design、把 design 自己的矛盾一起搬進來** ——
+          而這反而是更強的鐵則 1 論據:**逐字搬會把上游的 bug 一起搬過來,而它不會有症狀。**
+        backlog: |
+          🔴 **R1 更正:我原本寫「沒有機械守門、突變也難構造」是假的,而那句話正好會讓人不去補。**
+          本 repo `apps/storefront/src/styles/` 已有 19 支 `*.test.ts` 在做 CSS 規則字面斷言
+          (`viewport-units.test.ts` 是可抄的形狀,它的 `read()` 還會先剝掉註解)。
+          ⇒ 已補 `apps/storefront/src/styles/filter-drawer-width.test.ts`,3 格:
+            ① `.fd-drawer` 任一規則不得含 `width: 100vw`
+            ② 正向對照:1079 那塊仍同時有 left/right/width:auto(前提還在才算數)
+            ③ `[data-mobile="true"]` 那條(真手機走的)也必須是 width:auto
+          突變實測(2026-08-18):把 `width: 100vw` 塞回去 ⇒ **3 格中恰好 ① 紅、②③ 綠**;
+          還原後與備份**逐字元 diff 一致**、3 格全綠。
+          ⚠️ 本守門守的是「別再被寫回來」,**不是「版面現在是對的」** —— 後者只有真瀏覽器量得到。
+        reason: |
+          🔴 **這條的真正教訓不在 CSS**:它從 2026-05-19 活到 2026-08-18,
+          而**每一道既有的檢查都看不見它**。原因兩層(R1 更正了我原本寫的機制):
+            ① `.fd-drawer` 是 `position: fixed`(`filter-drawer.css:12`)
+               ⇒ **不參與 document 的可捲動溢出**,本來就不會產生橫捲軸。這是根本原因。
+            ② `FilterDrawer.tsx:152` 在抽屜開著時把 `document.body.style.overflow` 設成 `hidden`
+               —— 那是 **JS 設的 inline style,不是 CSS 規則**。
+               ⚠️ 我原本寫「`body { overflow-x: hidden }`」,而**全樹 grep 那個字面只會命中我自己的註解**;
+               我是在瀏覽器量到 computed 值就直接推了一個 CSS 來源。R1 打回這一條。
+          ⇒ typecheck / lint / build / 8685 格 vitest 全綠。**「沒有人回報」在這種病上不是證據。**
+          ⚠️ 順帶記、**本片刻意不動**:本檔 `:28-40` 那整塊 `@media (max-width: 640px)`
+          現在**每個值都被 `:42-54` 的 1079 塊蓋掉**(12px→10px / 72px→60px / 70vh→65vh)= inert。
+          留著一塊「讀起來像生效、其實一條都沒生效」的 CSS 正是這次 bug 的成因形狀,但屬另一片。
     open_drifts:  # S1 曾列 VehicleFinder 靜態 id drift;同 slice 併 S2(#220b)收斂 → 撤(Fable5 F1 must-fix)
       - field: "vehicleParamStaleAfterManualClear"
         note: "#6 既有行為(非本次回歸):?vehicle= 進頁後使用者手動改/清車輛篩選,URL vehicle 參數殘留(回寫 effect 只管 page/sort/per、刻意保留外來參數)→ refresh/back 會還原已清掉的車輛篩選;page/sort/per 進 URL 後網址更顯權威、此漂移更易被注意(#6 code-reviewer Minor)"

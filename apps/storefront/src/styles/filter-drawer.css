@@ -280,7 +280,42 @@
 .fd-foot-apply:hover { background: #000; }
 
 @media (max-width: 640px) {
-  .fd-drawer { width: 100vw; }
+  /* 🔴 2026-08-18:這裡原本還有一條 `.fd-drawer { width: 100vw; }`,**已移除**。
+     病:上面 `@media (max-width: 1079px)` 那塊設 `left: 10px; right: 10px; width: auto;`
+     = 左右各留 10px 的浮動面板;而 `width: 100vw` 在檔案更後面、同特異度 ⇒ 蓋掉 `width: auto`
+     ⇒ 盒子從 `left: 10` 起算、寬 `100vw` ⇒ **右緣掉在畫面外 10px。**
+     390×844 真瀏覽器實測(2026-08-18,拋棄式 DB + 真 next dev,`getBoundingClientRect`):
+       修前 ⇒ left 10 / right **400** / width 390
+       修後 ⇒ left 10 / right **380** / width **370**   左右對稱
+     未回歸(同一輪):768 ⇒ left 10 / right 758;1440 ⇒ computed `width:440px / right:0 / left:auto`。
+
+     🔴🔴 **射程(R1 更正,先讀這段再引用):真手機走的不是這條路。**
+     `app/layout.tsx:90,93` 用 UA regex `/iPhone|Android|Mobile/i` SSR 設 `<html data-mobile="true">`,
+     而本檔 `:58` 的 `[data-mobile="true"] .fd-drawer`(特異度 0,2,0)本來就是 `width: auto`,
+     **壓過 media query 內的 `.fd-drawer`(0,1,0)** ⇒ **iPhone / Android 客人修前修後都是 10/380/370。**
+     被舊規則咬到的只有「**桌機 UA 把視窗縮到 ≤640**」那條路 —— 也就是我量測的那個世界,
+     以及任何不符那三個 UA 字串的行動瀏覽器。
+     ⇒ 這是**縱深修正,不是客訴修復**。不要對外講成「客人看到的版面壞掉」。
+
+     🔴 **為什麼一直沒被發現(R1 更正:不是我原本寫的那個機制)**:
+     ① `.fd-drawer` 是 `position: fixed`(本檔 `:12`)⇒ **不參與 document 的可捲動溢出**,
+        本來就不會產生橫捲軸 —— 這是根本原因。
+     ② 而且 `FilterDrawer.tsx:152` 在抽屜開著時把 `document.body.style.overflow` 設成 `hidden`
+        (**JS 的 inline style,不是 CSS 規則** —— 全樹 grep `overflow-x: hidden` 只會命中註解)。
+     ⇒ 不捲、不報錯、typecheck / lint / build / 8685 格 vitest 全綠。
+
+     來歷(R1 更正:我原本寫反了):`8f5d90c6`(2026-05-19 FilterDrawer 首版)**同一顆 commit 裡
+     就同時有這兩塊**(`+72..+78` 浮動面板 `left:12px;width:auto` 與 `+301..+302` `width:100vw`)
+     ⇒ 不是「後來的人加了新的沒刪舊的」,是**首版照鐵則 1 逐字搬 design,把 design 自己的矛盾一起搬進來**。
+     ⚠️ `design-reference/styles/filter-drawer.css` 的 `:28-40` 與 `:257-260` 那兩條**至今仍互相打架**;
+     本站刻意偏離,理由記在 `docs/design-storefront-manifest.yaml`
+     的 `components.ProductsPage.technical_overrides.fdDrawerWidthAutoNot100vw`。
+     守門:`filter-drawer-width.test.ts`(禁止 `.fd-drawer` 任一規則再出現 `width: 100vw`)。
+
+     ⚠️ 順帶記一筆、**本片刻意不動**:本檔 `:28-40` 那整塊 `@media (max-width: 640px)` 現在
+     **每一個值都被 `:42-54` 的 1079 塊蓋掉**(12px→10px / 72px→60px / 70vh→65vh)= 它是 inert 的。
+     留著一塊「讀起來像生效、其實一條都沒生效」的 CSS 正是這次 bug 的成因形狀,
+     但刪它與本片的修法無關、屬另一片。 */
   .fd-tabs { width: 108px; }
 }
 
