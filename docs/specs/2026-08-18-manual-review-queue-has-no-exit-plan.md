@@ -117,6 +117,56 @@ grep -rn "GRANT EXECUTE ON FUNCTION public.admin_" supabase/migrations/*.sql ⇒
 ⇒ 這一條是【對抗審查的第一個題目】，不是實作時順手判的事
 ```
 
+### 4.0-c 🔴 park 的那題往前推了一格(2026-08-18 18:0x G4 實查,純讀;**不是結論,是把題目問對**)
+
+**① 量到的兩件(可重跑)**
+```
+grep -rn "mark_charge_attempt_failed" supabase/migrations/*.sql | grep -iE "grant|revoke"
+  20260612150000_m3_s2d_charge_attempts.sql:429  REVOKE ALL ON FUNCTION … FROM PUBLIC, anon, authenticated, service_role
+  20260612150000_m3_s2d_charge_attempts.sql:432  GRANT EXECUTE ON FUNCTION … TO payment_confirmer
+```
+⇒ **今天,一把被盜的 `service_role` 金鑰【打不到】那支函式** —— 那道 REVOKE 是明文的、逐個角色點名的。
+
+```
+begin_charge_attempt(20260612150000:168 起)的 per-user 閘述詞(:202-211):
+  a.status IN ('pending','charged') AND a.created_at > now() - interval '10 minutes'
+  AND o.payment_status <> 'paid'
+```
+
+**② 由這兩件【推出來】的(標明:推論,不是量測)**
+```
+把一筆 pending 標成 failed ⇒ 它離開上面那個述詞 ⇒ per-user 10 分鐘閘不再擋這位客人
+⇒ 同一個人可以【立刻再開一次 charge】
+而 mark_charge_attempt_failed 的 order-paid guard 只擋 orders.payment_status <> 'unpaid'
+⇒ 🔴 人工待確認佇列裡的每一筆，【定義上】就是「我們不知道錢有沒有扣到」那一種
+   ⇒ 它們的 orders.payment_status 仍然是 unpaid ⇒ **那道 guard 對它們一律放行**
+```
+🔴 **所以危險的形狀不是「動到已付款的單」**(那道 guard 擋得住,而那正是它被寫出來的理由),
+**是「動到我們不知道有沒有付款的單」** —— 若那一筆其實在 TapPay 端成功了(late success),
+標 failed ⇒ 釋鎖 ⇒ 第二次扣款 ⇒ **重複扣款**。
+⚠️ **這一段每一句都是從 SQL 讀出來推的,我沒有跑過任何一次真實序列。** 不得升級措辭。
+
+**③ 而權限那一面比 park 時寫的更重(這條是新的)**
+`§4.0-b` 的「為什麼呼得動」寫得像便利性 —— 它其實是**權限提升**:
+```
+新 RPC = SECURITY DEFINER + owner=postgres + GRANT EXECUTE TO service_role
+⇒ 它執行時是 owner 身分 ⇒ 內層那道「明文 REVOKE FROM service_role」對它不生效
+⇒ 🔴 這支薄殼把一道【逐個角色點名的 REVOKE】洗成一個【有效的 EXECUTE】
+```
+**這不是反對做它** —— 窄門本來就是這樣蓋的。**但它必須被當成「刻意開的權限」寫進審查與稽核,
+不能被 `§4.0-b` 那段「不需要額外 GRANT」的說法蓋過去。**
+
+**④ 審查前一定要先量的三件(我沒有 DB access,量不到)**
+```
+甲 正式庫上 mark_charge_attempt_failed 與新 RPC 的 owner 是不是同一個（§4.0-b 已標未確認）
+乙 「標 failed 之前必須先對帳過一次」有沒有被強制？
+   —— 若沒有，那個鈕就是「把不確定變成確定失敗」，而它沒有權力做這個決定
+丙 釋鎖之後，同一張單/同一個人真的能重開 charge 嗎？
+   —— begin 對【同一張單】有 not_unpaid 擋，對【同一個人的下一張單】沒有。這兩條路要分開量
+```
+⇒ **在甲乙丙量到之前,這支 RPC 不該被實作成「標失敗」。** 更可能正確的形狀是
+**「標成已人工處理/已對帳」而不釋放任何鎖** —— 但那要看乙的答案,現在下不了。
+
 ⚠️ **仍要過審查才可落地**(鐵則 12①錢 + 12②權限 + 12③ schema)。**查到有路 ≠ 可以接上去。**
 
 ```
