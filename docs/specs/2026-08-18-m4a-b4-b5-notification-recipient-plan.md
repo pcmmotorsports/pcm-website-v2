@@ -82,9 +82,37 @@ L 級 N/A(非內容)。**高風險片**(鐵則 12 ①)。零 migration / 零 db 
 ```
 - `resolve-notification-recipient`:甲/乙 各候選命中 + **合成域候選被跳過** + 全不合格回 `null`。
 - `charge-actions` / `mapper`:flag-on **送真值(非 null)**;flag-off 回歸不變。
-- enqueue 掛點:**PRD §3.2 全部上游入口各一格** —— 同步刷卡 / `checkout/callback` / `tappay-notify` webhook /
-  payment-status 輪詢 / `settle-sweep` cron / `preflightReleaseSibling` / `adjudicateSettlement` /
-  `reconfirmExpiredOrphans`,**外加 idempotent replay 不重複 enqueue**。
+- enqueue 掛點 —— 🔴 **下面這份入口清單是【我當場量的】,不是抄 PRD §3.2 的**。
+  **PRD 那份漏了一個、也少數了一個**(它寫於 2026-07-18,之後長出新 caller):
+  ```
+  量法(可重跑):
+    grep -rn "settleCharge(" --include='*.ts' --include='*.tsx' apps packages | grep -v '\.test\.'
+    grep -rn "confirmPayment(" --include='*.ts' --include='*.tsx' apps packages | grep -v '\.test\.'
+
+  confirmPayment ← 1 個 caller(與 PRD 一致 ✅)
+    charge-actions.ts:310                      同步刷卡
+
+  settleCharge ← 9 個【實際呼叫點】(PRD 列 7 路)
+    charge-actions.ts:391                      preflightReleaseSibling 後
+    charge-actions.ts:538                      adjudicateSettlement / needs_settle
+    callback/page.tsx:125                      3DS 前台導回
+    payment-status/route.ts:143                輪詢
+    tappay-notify/[secret]/route.ts:210        webhook
+    reconfirm-expired-orphans.ts:96            孤兒再確認
+    sweep-settlements.ts:173                   cron ② due inbox      🔴 PRD 把 sweeper 當一路,實際兩個呼叫點
+    sweep-settlements.ts:211                   cron ③ stuck unsettled
+    🔴 reconcile-actions.ts:101                【PRD 清單裡沒有這一路】
+       檔內自稱「第 N 路 caller」⇒ 它是 PRD 定稿之後才長出來的
+    (composition.ts:165 是注入包裝、不是第 10 路 —— 它包的就是 preflight 那一路)
+  ```
+  🔴 **這件事本身要寫進 commit body**:我第一版 §6 直接抄了 PRD 的七路,
+  **抄的時候它讀起來完全正確** —— 一份三週前的清單,漏掉的那一路不會有任何東西提醒你。
+  ✅ **對正確性的影響 = 零**:enqueue 掛在 `settleCharge` / `confirmPayment` **內部**
+  (`confirmer.confirm` 成功之後)⇒ 幾路 caller 都會經過它。
+  ❌ **對【測試矩陣】的影響 = 有**:PRD 逐字「測試須覆蓋全部上述入口」,
+  照抄那份就會**少一格 `reconcile-actions`、少一格 sweeper 的第二個呼叫點**,
+  而那兩格缺席時測試**照樣全綠**。
+- **外加 idempotent replay 不重複 enqueue**(dedup_key = orderId,`order_created` 一單一封)。
 - **enqueue throw ⇒ 付款仍回 `paid`**(§5 那條要有自己的一格,不能只靠讀 code 相信)。
 
 🔴 **突變自驗(每一條都要真的跑、看到紅)**:
