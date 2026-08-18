@@ -201,10 +201,11 @@ Sean 逐字要它,而 **`docs/design/admin-design-system.md` 的落地狀態表�
 | `apps/admin/src/components/orders/item-procurement-section.tsx` | 312 | 逐品項那一圈(`:269 detail.items.map`)拆開:每個品項的內容變成卡內「訂貨」段 |
 | `apps/admin/src/components/orders/item-procurement-form.tsx` | 403 | **預設不渲染**,由「＋ 跟供應商下訂」開;既有 props 一個不動 |
 | `apps/admin/src/components/orders/shipment-section.tsx` | 213 | 逐件可出狀態下放到卡內「出貨」段;建箱入口留在區塊層(Sean S1=A:建箱走列表勾單) |
-| **新** `apps/admin/src/components/orders/order-item-card.tsx` | — | 一張卡(server component;收合狀態是唯一的 client 島) |
-| **新** `apps/admin/src/components/orders/order-item-card-fold.tsx` | — | client:握 `open` 與 `stuck` 預設 |
+| **新** `apps/admin/src/components/orders/order-item-card.tsx` | — | 一張卡。**server component、零 client state** —— 收合走原生 `<details>`,`stuck`(該展開哪一段)在 server 算好直接吐 `open`(見 §7-①) |
 
-⇒ **7 支檔、其中 2 支新增** ⇒ 鐵則 8 成立(跨 3+ 檔)。
+⇒ **6 支檔、其中 1 支新增** ⇒ 鐵則 8 成立(跨 3+ 檔)。
+📎 ~~原本規劃第 7 支 `order-item-card-fold.tsx`(client,握 `open` 狀態)~~ **§7-① 查完後拿掉** ——
+`<details>` 不需要它。**留痕的理由**:少一支檔、少一個 client 島是**查證的結果**,不是我漏寫。
 
 ### 4-a 鐵則 12 逐條過(硬清單,不憑自評)
 
@@ -215,9 +216,9 @@ Sean 逐字要它,而 **`docs/design/admin-design-system.md` 的落地狀態表�
 | ③DB 結構或大量寫入 | 否 | **零 migration、零查詢改動**(所有欄位今天都已經撈了) |
 | ④平台設定 | 否 | 不動 next.config / vercel.json / CI / env |
 | ⑤對外不可回收 | 否 | 後台畫面,不寄信不發布 |
-| ⑥`packages/ui` 行為 | **待確認** | 見 §7-① |
+| ⑥`packages/ui` 行為 | **否**(2026-08-18 已查) | `ls packages/ui/src/` ⇒ `filters` / `index.ts`;`grep -rniE 'collapsib\|accordion\|<details\|disclosure' packages/ui/src` ⇒ **0 命中** ⇒ 沒有可用元件、也不需要改它。收合走原生 `<details>`(admin 既有 8 處在用)。全文 §7-① |
 
-⇒ **目前判定:標準片(非高風險片)**,除非 §7-① 查出來是動 `packages/ui` 的行為。
+⇒ **判定:標準片(非高風險片)**,六類全不命中。
 ⚠️ 這是**我的判定**,不是背書;主視窗或 Sean 要加審我不反對(自評有風險只能加審不能免審)。
 
 ---
@@ -262,10 +263,38 @@ git revert <sha> 即可，沒有資料面殘留（因為沒有資料面改動）
 
 ## §7 🔴 已知未確認(**批准前我會查完,但不假裝已經查過**)
 
-1. **`packages/ui` 有沒有現成的收合元件?** 沒查。
-   有 ⇒ 用它(鐵則 12⑥ 只在**改它的行為**時命中,單純使用不命中);
-   沒有 ⇒ 卡的收合用 `<details>`(原生、零 JS、SSR 就能收合)。
-   ⚠️ **在查完之前,§4-a ⑥ 那格必須留在「待確認」。**
+1. ~~**`packages/ui` 有沒有現成的收合元件?** 沒查。~~ ✅ **2026-08-18 已查完,結論:沒有,用原生 `<details>`。**
+
+   **數法(可重跑)**
+   ```
+   ls packages/ui/src/                                      ⇒ filters / index.ts（兩項）
+   cat packages/ui/src/index.ts                             ⇒ 只 export cascadeFilterReducer
+   grep -rniE 'collapsib|accordion|<details|disclosure' packages/ui/src
+                                                            ⇒ 0 命中
+   grep -rn '<details' apps/admin/src --include='*.tsx' | grep -v '.test.'
+                                                            ⇒ 8 支非測試檔在用
+   ```
+   ⇒ `packages/ui` **沒有**收合元件,而 admin 已經有一套**用了 8 次的既有做法**:原生
+   `<details>/<summary>`,而且理由逐字寫在 code 裡(`payment-list.tsx:34`
+   「**鍵盤可及、螢幕閱讀器認得**」、`item-procurement-section.tsx:89`「**零 JS、零依賴**」、
+   `cancel-review-section.tsx:13`「**不需要任何 client JS**」)。
+   ⇒ **照既有做法,不新發明,也不動 `packages/ui`。**
+
+   🔴 **⇒ §4-a ⑥ 那格從「待確認」改判為【不命中】⇒ 本片片型 = 標準片(非高風險片)。**
+
+   🔴🔴 **而有一條反例必須寫在這裡,免得下一個人以為我沒看到它**:
+   `orders-table.tsx:76-78` 逐字記著 **2026-08-14 的 hit test 證偽了「零 JS `<details>` 彈出選單」
+   —— 3/3 點不到**。**那條結論成立,而它管的不是本片**:
+   ```
+   那次     = 表格 <td> 裡的【浮層】選單，被 .orders-grid 自己的 overflow 夾掉
+   這一片   = 正常文件流裡的【展開列】，不浮起、不脫離流、沒有 overflow 容器夾它
+   ```
+   ⇒ **兩件事的差別是「浮不浮起來」,不是「用不用 `<details>`」** ——
+   同一支檔的結論不可以整條搬過來。**如果本片實作時發現卡也被夾到,那才是同一個病,要回頭讀那條。**
+
+   ⚠️ **對 OD 的偏離要講明(鐵則 1)**:OD 用 `data-open` + JS 切換,我方用 `<details open>`。
+   **視覺結果相同、機制不同**,而機制不是 design 在管的東西。
+   好處是 `stuck`(該展開哪一段)可以**在 server 算好直接吐 `open`** ⇒ 零 client state。
 
 2. **`ItemAmountRow`(改金額的展開列)怎麼進卡?** 它今天是品項表的一列展開。
    併進商品卡之後,「改金額」是第四段?還是留在卡頭?**未決,片 2 前要決。**
