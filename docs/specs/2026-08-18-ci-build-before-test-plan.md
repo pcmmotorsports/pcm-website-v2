@@ -364,10 +364,33 @@ codex R2 逐字：「用錯誤訊息字串計數無法完整識別所有依賴 b
    ⇒ CI 沒有建 storefront（量法 grep -c '@pcm/storefront:build|storefront.*Compiled' ⇒ 0，符合乙的設計）
    ```
    ⇒ **主視窗裁定(三句分開)**：①**乙案的前提成立** —— 那個「零 env storefront bundle」的疑慮在 CI 上不存在
-   ②**那個 `1` 與本步無因果**(它在 `Test` 那一步)③🔴 **但它自己是一格待查**：
-   有一支測試在拿不到 env 的情況下走進資料讀取然後 throw,**而整套測試全過**
-   ⇒ 兩種可能意思完全相反(**那格就是在斷言這個 throw** vs **throw 被吞掉了**)——
-   **已另立待辦,不塞進本 plan。**
+   ②**那個 `1` 與本步無因果**(它在 `Test` 那一步)③~~但它自己是一格待查~~
+
+   ✅ **③ 已查完(2026-08-18 16:3x,G1;主視窗批准回寫)⇒ 是【甲:那支測試就是在斷言這個 throw】。**
+   ```
+   那句字串的來源  apps/storefront/src/app/api/catalog/facet-counts/route.test.ts:128
+                   fetchCatalogBrandTaxonomy.mockRejectedValue(new Error('NEXT_PUBLIC_SUPABASE_URL not set'))
+                   ⇒ 🔴 它是【測試自己 mock 的 Error 訊息】，不是真的環境變數缺漏
+   印出來的地方    route.ts:110 的 console.error（在 try/catch 的 catch 裡，緊接著 return 503）
+   斷言那一格      route.test.ts:127「上游 taxonomy 直接 throw → 一樣收斂成 503,不得變成 500」
+   ```
+   🔴 **而我沒有停在「讀起來像甲」—— 兩個世界都跑了**(拋棄式工作樹,主樹一個字不動):
+   ```
+   原版             ⇒ Test Files 1 passed / Tests 14 passed (14)
+   拿掉那道 try/catch ⇒ Test Files 1 failed / Tests 1 failed | 13 passed
+                       紅的正是 :127 那一格
+   拆除後主樹 git status --porcelain -- route.ts ⇒ 0 行
+   ```
+   ⇒ **它在「保護還在」與「保護被拿掉」兩個世界印不同的東西 ⇒ 不是恆綠格。**
+
+   📌 **它的來歷,寫一行給下一個看到那行 log 的人(免得他再查一遍)**:
+   `route.test.ts:125-126` 註解逐字 ——「**2026-07-31 實跑抓到:`createSupabaseAnonClient()` 寫在 try
+   外面 ⇒ 環境變數缺漏時是未捕捉的 throw、直接 500、繞過上面那道 503 守門**」
+   ⇒ **那格是為一個真的發生過的洞寫的**,而它選的測資就是當時那句真的錯誤訊息。
+   🔴🔴 **所以那個字串出現在 CI log 裡,恰恰是那道守門在運作的證據** ——
+   **我們把一道守門的正常心跳,讀成了一個症狀。**
+   ⇒ 判別句(主視窗落交接):**一個「看起來像問題」的 log,先問【它會不會是某道守門正在說話】** ——
+   **守門說話的樣子與症狀的樣子,在 log 裡是同一種東西。**
    📌 §9-e 那兩個執行面（feature branch 紀律例外 / 只有 Sean 推得動）**因為走乙而變成不必答，不是被批准**
    （MAIN-021 明寫 Sean 沒批 feature branch 例外）。
 4. 🔴 **負向對照（不可省）**：拿掉 Build ⇒ 那兩支**必須再度紅**，錯訊息仍是「找不到建置產物」。

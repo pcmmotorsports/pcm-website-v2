@@ -29,6 +29,56 @@ set -eu
 
 BOX="${PUSH_ANNOUNCE_BOX:-$HOME/pcm-mailbox}"
 
+# ── 部署狀態:push 之後【沒有人在看那個部署】是 2026-08-18 記下的缺口 ──────────
+#   `dev` = pcm-admin 的 production 分支 ⇒ 每次 push 都會觸發後台重新部署,
+#   而**那件事今天之前不在任何人的常設動作裡**(當天是主視窗事後補查才知道它 Ready)。
+#
+# 🔴 三條約束(逐條都有理由,不要簡化掉):
+#   ① **量不到就寫「量不到」,不要留白** —— 留白會被讀成「沒問題」。
+#   ② **Production 與 Preview 分開印** —— 它們在 `vercel ls` 的輸出裡長得幾乎一樣,
+#      而「客人看到了沒」只有 Production 那一列答得出來。
+#   ③ **等待有上限,而「還在 Building」不是失敗** ⇒ 印成【未完成】,不是【失敗】。
+#      (2026-08-18 實測 admin 建置 29 秒,但那不是保證。)
+#
+# ⚠️ 天花板:本段只在**用這支腳本推**的時候有效;直接 `git push` 一樣沒有人在看。
+VERCEL_BIN="${VERCEL_BIN:-vercel}"
+DEPLOY_WAIT_MAX="${DEPLOY_WAIT_MAX:-180}"   # 秒;上限,不是保證
+
+deploy_status() {  # $1=vercel 專案名
+  _proj="$1"
+  if ! command -v "$VERCEL_BIN" >/dev/null 2>&1; then
+    printf '%s: 🔴 量不到 —— `%s` 不在 PATH（沒裝或沒登入）。**這一格不是「沒問題」,是沒量到。**\n' \
+      "$_proj" "$VERCEL_BIN"
+    return 0
+  fi
+  _waited=0
+  while :; do
+    _out=$("$VERCEL_BIN" ls "$_proj" 2>&1) || {
+      printf '%s: 🔴 量不到 —— `%s ls` 失敗(未登入 / 專案名不對 / 網路)。**沒量到,不是沒問題。**\n' \
+        "$_proj" "$VERCEL_BIN"
+      return 0
+    }
+    # 最新那一列 Production
+    _prod=$(printf '%s' "$_out" | grep 'Production' | head -1)
+    case "$_prod" in
+      *Ready*|*Error*|*Canceled*) break ;;
+    esac
+    [ "$_waited" -ge "$DEPLOY_WAIT_MAX" ] && break
+    sleep 10
+    _waited=$((_waited + 10))
+  done
+  _prev=$(printf '%s' "$_out" | grep 'Preview' | head -1)
+  # 🔴 兩種環境分開印;各自沒有就明說「這次沒有」,不要留白
+  printf '%s Production: %s\n' "$_proj" "${_prod:-🔴 這次的輸出裡沒有 Production 那一列（沒量到，不是沒有部署）}"
+  printf '%s Preview   : %s\n' "$_proj" "${_prev:-（本次輸出無 Preview 列）}"
+  case "$_prod" in
+    *Ready*)  printf '%s ⇒ ✅ Production Ready\n' "$_proj" ;;
+    *Error*)  printf '%s ⇒ 🔴 Production Error —— 有人要去看\n' "$_proj" ;;
+    *)        printf '%s ⇒ ⏳ **未完成**（等了 %s 秒仍未 Ready）—— 這【不是失敗】,是還沒好或我沒等到\n' \
+                "$_proj" "$_waited" ;;
+  esac
+}
+
 # ── 廣播:抽成函式,因為 --selftest 要在【不真的 push】的情況下驗它 ──
 announce() {  # $1=sha  $2=窗代號  $3=推之前的 origin/dev  $4=顆數
   _sha="$1"; _who="$2"; _before="$3"; _n="$4"
@@ -50,7 +100,16 @@ announce() {  # $1=sha  $2=窗代號  $3=推之前的 origin/dev  $4=顆數
     printf '```\n\n'
     printf '🔴 **`migrations` 那一格不是 0 ⇒ 有人要問「apply 了沒」** —— '
     printf '先 apply 再 push 的順序若反過來,正式站會壞(2026-08-07 約 8 小時)。\n\n'
-    printf '⚠️ 本信只說「推了什麼」,**不說「它被驗過」** —— 那是另一件事,問推的人要四綠的 sha。\n'
+    printf '⚠️ 本信只說「推了什麼」,**不說「它被驗過」** —— 那是另一件事,問推的人要四綠的 sha。\n\n'
+    printf '## 部署(push 之後量的;`dev` = pcm-admin 的 production 分支)\n\n```\n'
+    deploy_status pcm-admin
+    printf -- '---\n'
+    deploy_status pcm-website-v2
+    printf '```\n'
+    printf '🔴 **Production 與 Preview 是兩件事** —— storefront 那邊常常只有 Preview,'
+    printf '而 Preview 不代表客人看到了。\n'
+    printf '⚠️ 出現「量不到」或「未完成」⇒ **那一格沒有人看過**,要有人去補;'
+    printf '**留白與「沒問題」在這裡是同一種字面,所以本段不留白。**\n'
   } > "$_f"
   echo "已廣播: $_f"
 }
@@ -75,9 +134,25 @@ if [ "${1:-}" = "--selftest" ]; then
   B=$(find "$T" -name 'PUSH-*.md' | grep -c . || true)
   echo "  信件數 $B   期望 0"
 
+  echo "== 世界三:部署【量得到】⇒ 信裡要有 Production 那幾行 =="
+  # 用一個假的 vercel 樁,兩個世界都不碰真的網路
+  cat > "$T/fake-vercel" <<'STUB'
+#!/bin/sh
+echo "  Age  Project  Deployment  Status  Environment  Duration"
+echo "  1m   x/y      https://z   ● Ready  Production   29s"
+echo "  2m   x/y      https://z2  ● Ready  Preview      31s"
+STUB
+  chmod +x "$T/fake-vercel"
+  C=$(VERCEL_BIN="$T/fake-vercel" deploy_status pcm-admin | grep -c 'Production' || true)
+  echo "  Production 行數 $C   期望 >=1"
+
+  echo "== 世界四:部署【量不到】⇒ 信裡要有「量不到」那句(不可留白) =="
+  D=$(VERCEL_BIN="$T/definitely-not-installed-$$" deploy_status pcm-admin | grep -c '量不到' || true)
+  echo "  「量不到」行數 $D   期望 1"
+
   echo "  (跑的是 $(command -v git) / $(command -v find))"
-  if [ "$A" = "1" ] && [ "$B" = "0" ]; then
-    echo "✅ 兩個世界都對:成功才寫信,失敗不寫信"
+  if [ "$A" = "1" ] && [ "$B" = "0" ] && [ "$C" -ge 1 ] && [ "$D" = "1" ]; then
+    echo "✅ 四個世界都對:成功才寫信、失敗不寫信、量得到印狀態、量不到明說量不到"
     exit 0
   fi
   echo "🔴 壞了 —— 不要用這支腳本推東西"
