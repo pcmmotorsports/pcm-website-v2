@@ -10259,6 +10259,43 @@ order by n desc, 1;
 - **修法方向**:讓 RPC `search_catalog_by_vehicle` 回傳每列的變體數(或一個 `has_variants` 布林),
   `CatalogListRow` 與 `catalogRowToUIProduct` 跟著帶。⇒ **動 DB 函式 = migration = 鐵則 12③ + 鐵則 8**,
   要 plan + codex 對抗審查,不在 UI 片範圍。
+
+> ### 🔴 2026-08-19 第二層查核(G6):**條目全部成立、座標一個都沒過期;而修法體積被低估了**
+>
+> **① 現況逐字複驗(可重跑)**
+> ```
+> CatalogListRow        catalog-page.ts:5-21   13 個欄位,**零 variantCount / has_variants** ✅
+>                        負向對照:同型別有 card_image_trim(S4a 加的)⇒ 尺看得到新增欄位
+> catalogRowToUIProduct catalog-page.ts:54     ← 條目引的座標**仍然正確** ✅
+> fail-closed 那半      cart/actions.ts:168-171  有變體卻沒帶 variantId ⇒ found:false ✅
+> 幽靈行後果            useResolvedCart.tsx:108-110 ✅
+> ```
+>
+> **② 🔴 立案時引的是舊版 RPC —— 它已於 `20260811040000` 整支重寫**
+> ```
+> 現行定義  supabase/migrations/20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266
+>           簽章 :266-279(11 參數,RETURNS TABLE (item jsonb, total bigint))
+>           函式體 :266-441 = **176 行**
+> apply     APPLIED.tsv:173  backfill
+> grep -c 'variant' 該檔 ⇒ **0**    負向對照 grep -c 'image' ⇒ **7** ✅(尺會動)
+> ```
+> 🔴 **寫下這一格的理由**:本條 2026-08-08 立案,而 RPC 08-11 被整支重寫 ——
+> **下一個人拿條目的舊印象去對檔,對不上會以為自己找錯檔。**
+>
+> **③ 🔴 「動 DB 函式」實際上是什麼體積**
+> 那支檔自己寫著(`:288-289` 逐字):
+> ```
+> 🔴 改這個數字要開**新的 migration** 重貼整支函式 —— 本檔一旦 apply 就不該再編輯,
+>    改舊檔 `db push` 不會重跑、正式庫的門檻不會變(codex R3)
+> ```
+> ⇒ 本條的修法 = **開一支新 migration、重貼 176 行、再過鐵則 8 + 12③**,
+>   不是「加一個回傳欄位」那種體積。**條目原句方向對、體積低估。**
+> ⚠️ **一個刻意不擴大的限定**:同段 `:290` 說「**改 N** ⇒ 檔頭那組突變證據作廢、要用
+>   `scripts/269b-evidence.sql` §2b 重量」—— **加一個欄位不是改 N**,
+>   所以本查核**不主張**突變證據一定作廢。**那是實作者要自己判的,這裡只把那行指給他看。**
+>
+> **④ 誠實揭示**:全部是讀 migration + 讀 storefront code,**沒有在任何 DB 上跑過、沒有開過瀏覽器**。
+> 「176 行」是 `:266` 到 `$fn$;` 所在的 `:441`,量法可重跑。
 - **不修會痛在哪**:Sean 回報的原始症狀是「**商品目錄**的加入購物車沒反應」。現在它不再是壞的
   (不會製造幽靈品項),但也還不是他要的「按了就加進去」——在那一面只是換成跳頁。
   這條沒做完,他的原始需求就只完成了三/五。
