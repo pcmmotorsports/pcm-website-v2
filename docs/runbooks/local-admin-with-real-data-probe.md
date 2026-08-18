@@ -180,6 +180,26 @@ cd apps/admin && ADMIN_DEV_BYPASS=1 \
 
 ## §6 收攤(**逐項驗它們真的死了,不看指令回傳**)
 
+> ## 🔴🔴 而 `pgrep -f "next dev -p …"` 這把尺【會對活著的伺服器說零命中】(2026-08-19 G5 實錘)
+> **`next dev` 啟動後會把自己改名成 `next-server (vX.Y.Z)`** ——
+> 拿【啟動時的指令字串】去 `pgrep -f` **匹配不到它**。
+> ```
+> 我報過「pkill 完 ⇒ pgrep 零命中 ✅ / lsof :3001 沒人佔 ✅ ⇒ 已驗死」
+> 30 分鐘後要起第二台,Next 自己說:
+>   ⨯ Another next dev server is already running.  PID: 99393
+> 當場複驗:ps -p 99393 ⇒ 活著;curl :3001 ⇒ 200
+> 🔴 「零命中」的意思是【我的 pattern 對不上】,不是【它死了】
+> ```
+> ✅ **改用兩把不會說謊的**:
+> ```bash
+> kill <PID>                      # PID 用 Next 自己印的那個,不用指令字串猜
+> ps -p <PID> -o pid=             # 空 = 真的死了
+> curl -s --max-time 3 -o /dev/null -w '%{http_code}' http://localhost:<port>/   # 000 = 沒人在聽
+> ```
+> ⚠️ **而收攤是收【自己的】不是收乾淨** —— 同一台機器上可能有別窗的 `next-server`
+> (實例:`43930` 帶 Claude Code token、`81985` 帶 OD port)⇒ **不要 `pkill -f next-server`。**
+> 📎 這與 §9-c「元素在 ≠ 它活著」是同一個母題的另一半:**零命中 ≠ 不存在。**
+
 ```bash
 pkill -f "next dev -p 3011"; pkill -f "proxy.py"; pkill -f "postgrest"
 pg_ctl -D /tmp/pcm-probe/pg stop -m immediate; rm -rf /tmp/pcm-probe
