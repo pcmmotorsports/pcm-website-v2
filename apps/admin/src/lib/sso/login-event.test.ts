@@ -213,11 +213,18 @@ describe('recordSsoLogin — 兩半一起做', () => {
       const baseline = spies.reduce((n, s) => n + s.mock.calls.length, 0);
       expect(baseline).toBeGreaterThan(0); // 正向對照:它真的會印東西
 
-      // 失敗:不得比基準多印任何一行
+      // 失敗①:reject(連線層炸了)
       insertSpy.mockRejectedValue(new Error('row 203.0.113.7 SecretAgent/9 failed'));
       await recordSsoLogin('success', { requestId: 'req-5' }, h);
+      expect(spies.reduce((n, s) => n + s.mock.calls.length, 0)).toBe(baseline * 2);
+
+      // 🔴 失敗②:resolve 成 { error } —— **主要失敗路徑**(codex 關卡2 R2 中6:
+      //    舊版只測了 reject ⇒ 有人在那個顯式 `{ error }` 分支加一行 `console.error(result.error)`,
+      //    整份測試照樣全綠,而 DB 給的錯誤訊息裡就是那一行的 IP 與 UA)。
+      insertSpy.mockResolvedValue({ error: { message: 'row 203.0.113.7 SecretAgent/9 failed' } });
+      await recordSsoLogin('success', { requestId: 'req-6' }, h);
       const after = spies.reduce((n, s) => n + s.mock.calls.length, 0);
-      expect(after).toBe(baseline * 2); // 只多了第二次的那一份基準,沒有多出錯誤 log
+      expect(after).toBe(baseline * 3); // 三發各自只有那一份基準,沒有任何一發多印錯誤 log
 
       const printed = JSON.stringify(spies.map((s) => s.mock.calls));
       expect(printed).not.toContain('203.0.113.7');
