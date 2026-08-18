@@ -8222,7 +8222,9 @@ order by n desc, 1;
     該檔今天只有 143 行)、client 讀取端 `products-url-parsers.ts` 的 `parseBrandFiltersFromUrl`、
     server 讀取端 `lib/catalog-query.ts` 的 `parseCatalogQuery`(原寫 `:64-66`,那裡今天是型別宣告)、
     共用解析 `lib/catalog-query.ts` 的 `parseBrandSlugsFromUrl` + 對應測試三支。
-  - 屬鐵則 8 重大改動(跨 3 檔 + 動對外可見的 URL 合約)→ **須先提 plan 等 Sean 批准**。
+  - ~~屬鐵則 8 重大改動(跨 3 檔 + 動對外可見的 URL 合約)→ **須先提 plan 等 Sean 批准**。~~
+  ⇒ 🔴 **這句已過期(2026-08-19 G1)**:本條狀態欄逐字「✅ **已實作**(2026-08-11 / S 窗四代;plan = 信箱 `S-043-PLAN.md`,**Sean `S-044-A` 批准**)」⇒ **plan 提了、Sean 批了、東西做了。**
+  ⚠️ 而**原句不刪** —— 它是當初的判斷,留著看演化。
 - **不修會痛在:**
   - 擴充性:任何新的「可複選」篩選軸若沿用重複 key,會複製同一個 bug;現行修法是偵測碰撞後補救,
     不是從結構上消除碰撞。
