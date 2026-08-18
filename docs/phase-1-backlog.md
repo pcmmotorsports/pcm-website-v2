@@ -6200,6 +6200,16 @@ order by n desc, 1;
 
 ### #229. 🔐 卡片記憶(Pay by Card Token)+ Remove Card(TapPay 加值里程碑 4/4、最重)
 
+> ✅ **2026-08-19 G6 第二層查核:零實作,條目原樣成立。**(唯讀;本條屬 TapPay 線,findings 交主視窗轉)
+> ```
+> grep 'card_key|card_token' apps packages(.ts/.tsx,排 node_modules、排測試)⇒ **0 命中**
+>   ⚠️ `remember` 的命中全部是**登入頁的「記住我」**,與卡片無關(`login/actions.ts:10,44,58`)
+>       ⇒ 這是一個**同字不同意**的誤中,列出來免得下一個人以為做了一半
+> 負向對照(同尺該命中的)`rec_trade_id` ⇒ **117 命中** ✅ 尺會動
+> ```
+> ⚠️ **未查**:條目的兩個**前置**(①書面問 TapPay 的 PCI / 合約義務 ②同意流程 + 刪卡流程設計)
+> **在 repo 外**,我一格都驗不了 ⇒ 「零實作」講的是 code,**不是**「前置沒做」。
+
 - **狀態:** ⏳ 待執行
 - **優先級:** 🟡 低(post-M-3、最重、法規前置多)
 - **問題:**
@@ -9213,6 +9223,16 @@ order by n desc, 1;
 ---
 
 ### #309. ⌨️ 品牌頁影片播放後鍵盤焦點掉回頁面最上面
+
+> ✅ **2026-08-19 G6 第二層查核:零修復,條目原樣成立。**(唯讀;本條屬 G1,findings 交主視窗轉)
+> ```
+> apps/storefront/src/components/brand/BrandPageMedia.tsx(**205 行**)
+>   `focus` 只出現在 :24 的**註解**(講播放鈕的 `:focus-visible` 樣式)
+>   `useRef` 只有 :59 的 `loaded` 旗標 ⇒ **沒有任何焦點轉移邏輯**
+> ```
+> 條目 2026-08-18 的座標更正(G1 實查)也還成立。
+> ⚠️ **未量**:**沒有用鍵盤實際走過那個流程**;`grep` 只證明「沒有寫轉移焦點的 code」,
+> 不排除瀏覽器預設行為在某些情況下剛好把焦點放對(**那要真的按一次才知道**)。
 
 - **狀態:** ⏳ 待執行
 - **分流:** P2-later
@@ -16610,6 +16630,21 @@ Dashboard 的存取權目前**沒有被當成祕密的保護邊界在管** —�
 - **發現於:** 2026-08-16 · D 窗 · 做回填單號入口時開檔查 RPC 語意撞到
 
 ### #528. 🕐 `OPENING_HOURS.days` 三處硬寫 —— 加開一天,法律頁會變、畫面不會
+
+> ### 🔴 2026-08-19 G6 第二層查核:**它正在被修,而狀態欄分不出「待執行」與「進行中」**
+> `git status` 顯示工作樹有五支**未 commit**的改動,而它們正是本條點名的載體:
+> ```
+> apps/storefront/src/components/HomeFooter.tsx
+> apps/storefront/src/components/ComingSoon.tsx
+> apps/storefront/src/components/MobileMenu.tsx
+> apps/storefront/src/data/legal-content.ts
+> apps/storefront/src/lib/site-config.ts
+> ```
+> ⇒ 🔴 **本條的真實狀態是「進行中」,而狀態欄只有「待執行 / 已完成」兩格。**
+>   ⇒ 挑條目的人看到 `⏳ 待執行` 會以為沒人碰 ⇒ **兩個窗撞在同一支檔上**(今晚已經發生過)。
+> 🔴 **我一支都沒碰**(那是別窗的工作樹改動)。
+> ⚠️ **未量**:我**沒有讀那五支檔的 diff**,只從**檔名**對上本條點名的載體
+> ⇒ **不能斷言它們改的就是本條**(可能是同檔的別件事)。這個限定要跟著這一格走。
 
 - **狀態:** ⏳ 待執行
 - **分流:** P2
