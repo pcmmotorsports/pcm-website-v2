@@ -16,6 +16,22 @@
 >    引用「Sean 批了」時不得升級成「Sean 同意這裡面每一句」。
 > ```
 > 仍然成立:命中 **鐵則 12 ①錢 ②權限 ③schema** ⇒ **對抗審查不降級**;`.sql` 與 apply 另有各自的閘。
+>
+> ## 🔴 檔頭前置(2026-08-19 加,**不埋在內文**)
+> ```
+> Sean 逐字:「走 C —— 後台不拿鑰匙，我去 Vercel 打開那個排程」⇒ 走 C 案,A/B 不做。
+> ⚠️ 他在【白話版】上選的,不是在技術細節上選的 ⇒ 不得升級成「Sean 審過 C 的設計」。
+>
+> 🔴 **C 的硬前置有三件,兩件不是我的**:
+>   ① Sean 去 Vercel 設 CRON_SWEEPER_ENABLED=true(現在仍是 false)——【他的動作】
+>   ② 而【開了】不等於【那些列會被撿到】:sweeper 認領述詞逐字 needs_manual_review = false
+>      (20260615120001:131)⇒ 仍要一條新的認領路徑。詳 §16-5。
+>   ③ 既有的「繞 ceiling/manual」執行端 B1b 是【客人瀏覽器觸發的 server action】,不是排程
+>      (reconcile-actions.ts:1 `use server` ← useReconcilePayment.tsx)
+>      ⇒ 對「客人沒回來」那批單,它永遠不會跑。
+> 🔴 **不得用「Sean 說他會開」當驗收依據** —— 量具與它的陷阱見 §16-6
+>    (陷阱:HTTP 狀態碼在兩個世界都是 200,判別力在【body】不在 status)。
+> ```
 
 > ## 🔴🔴 檔頭警語(2026-08-19 加,**接手的人先讀這段**)
 >
@@ -879,4 +895,147 @@ GR 追加三條      ⇒ §14-2a 射程同段 / §14-3 第 ② 項 APPLIED.tsv /
   唯一的例外是 §14-2a(拋棄式環境實跑,含負向對照)
 · §7 的估時是【估】,不是量到的
 · §2 補入帳那條 path **沒有人跑過** —— 它排進 §5 第 6 步,不是已完成
+```
+
+---
+
+## 16. C 案的「單列例外」設計 —— **不是發明的,repo 裡已經有一支**
+
+> 由來:Sean 2026-08-19 逐字「**走 C —— 後台不拿鑰匙，我去 Vercel 打開那個排程**」。
+> 🔴 **限定**:他是在**白話版**(「給不給後台鑰匙」)上選的,**不是在技術細節上選的**
+> ⇒ 引用時不得升級成「Sean 審過 C 的設計」。
+> ⇒ 連帶:`packages/` 不動;`composition.ts:120-126` 那個 `Pick` 窄型別**維持原樣、不放寬**。
+
+### 16-1 🔴 機制形狀:**既有慣例已經存在,而且它的名字就是這件事**
+
+爬到的是 **B1a**:`supabase/migrations/20260627120000_m3_3ds_b1a_claim_expired_pending_attempts.sql`
+```
+COMMENT :107 逐字:
+  「原子 claim 12h pending 孤兒(放棄未重刷)再確認…
+   **不濾 needs_manual_review(manual=true/false 都進)、不濾 settle_attempt_count(繞 ceiling)**;
+   只蓋 last_expired_settle_at=now()(不清 manual、不動 next_settle_at/count)。
+   回 attempt_id/order_id/needs_manual_review(orderId 餵 settleCharge 再確認)。只 payment_confirmer 可呼。」
+
+而 port 層那行講得更直白:
+  packages/ports/src/IChargeAttemptStore.ts:138 逐字
+  「12h 孤兒**專用人工列再確認路徑**(claim_expired_pending_attempts、**繞 sweeper ceiling/manual**)」
+```
+⇒ **「繞過 ceiling 與 manual 旗標、而不清掉那面旗子」這件事,這個 repo 已經做過一次、而且整條接好了**
+(RPC → `PgChargeAttemptAdapter.ts:221` → `IChargeAttemptStore.ts:150` → `ChargeAttemptStoreWithFallback.ts:95`)。
+
+**⇒ 設計 = 照抄 B1a 的三個要素,不要發明:**
+```
+① 【獨立的 throttle 欄】,不動 next_settle_at    ← B1a 用 last_expired_settle_at,與 sweeper 分軌
+② 【述詞不濾 manual、不濾 count】               ← 這就是「例外」的全部,而它不需要改旗標
+③ 【GRANT 只給 payment_confirmer】              ← B1a:REVOKE …FROM PUBLIC, anon, authenticated, service_role
+                                                   GRANT EXECUTE …TO payment_confirmer(`:111-112`)
+```
+
+**而我們與 B1a 的兩個差異(要自己決定的部分)**:
+```
+差異 A  B1a 是【掃描式】(p_limit + 12h 年齡);我們是【定點式】(指名一個 attempt_id)
+        ⇒ 定點更窄、更好驗,而它需要一個「誰指的名」的來源 ⇒ 見 16-3
+差異 B  B1a 述詞逐字 status = 'pending'(:11,註解自陳「隱含排除 released/charged」)
+        ⇒ 🔴 **它只收 P 族。R 族與 C 族它一列都不收。**
+        ⇒ 我們要覆蓋三族 ⇒ 述詞要放到 status IN (pending, charged, released),
+          並保留 order unpaid ⇒ **這一放就要單獨對抗審查**(charged 那族= 錢可能已動)
+```
+
+### 16-2 它擋不住什麼(照慣例必寫)
+```
+· 誤觸的後果 = 對那張單多跑一次 settleCharge。
+  而 settleCharge 以 Record API 為唯一權威、且冪等(settle-charge.ts:15,:30)
+  ⇒ **它造不出 TapPay 沒有回報的錢。** 誤觸的代價是一次多餘的 Record 查詢,不是錢動。
+· 能不能重複觸發 ⇒ **能,而這是它最現實的風險**(有人連點)。
+  B1a 的答案就是要素 ①:獨立 throttle 欄 + 間隔(它用 6h)。**照抄,不要靠前端 disable 按鈕。**
+· 🔴 它【不】保護的:
+  - 不阻止那一列之後又被標回 manual(旗標本來就沒清)—— 這是**刻意的**,§4-3 的計數靠它
+  - 不處理「TapPay 永遠查不出來」⇒ 那一列會留在清單上,而 §4-1 已經說那是正確的
+  - 🔴 **不保證有人會去執行它** —— 見 16-5,那才是 C 案真正的洞
+```
+
+### 16-3 權限:**admin 呼不到,所以要拆兩段**(讀建表 migration 的 GRANT,非 `information_schema`)
+```
+表層(20260612150000:118-121 逐字):
+  REVOKE ALL ON TABLE public.payment_charge_attempts FROM PUBLIC, anon, authenticated;
+  REVOKE ALL ON TABLE public.payment_charge_attempts FROM service_role;
+  GRANT SELECT ON TABLE public.payment_charge_attempts TO service_role;      ← **只有 SELECT**
+函式層(B1a :111-112 逐字):
+  REVOKE ALL ON FUNCTION …FROM PUBLIC, anon, authenticated, service_role;    ← **service_role 明文排除**
+  GRANT EXECUTE ON FUNCTION …TO payment_confirmer;
+```
+⇒ **admin 走 `service_role` ⇒ 它既寫不了那張表,也呼不到 B1a 這族函式。**
+⇒ **兩段式(而這正是 C 的本體):**
+```
+第 1 段(admin 側,窄)  一支新 RPC,GRANT 給 service_role,**只寫留痕/舉旗,不做任何結算**
+                       🔴 而那個「旗」不需要新欄位 —— **它就是 §4-2 已經要的留痕欄**
+                       (誰按的/何時/結果)⇒ **一欄兩用,不要加第二欄。**
+第 2 段(執行側)        跑在 payment_confirmer 的既有路徑,認領被舉旗的那一列 → 餵 settleCharge
+                       ⇒ admin 全程沒有 DB 憑證、沒有 TapPay charge 能力。
+```
+
+### 16-4 驗收條件(雙向表演,兩發都要)
+```
+正向:對某一列下了例外 ⇒ 它【必須】被認領(回傳含該 attempt_id)
+反向:同一輪裡【沒有】下例外、而其餘條件相同的另一列 ⇒ 【必須不】被認領
+🔴 兩列要在同一次呼叫、同一個交易世界裡 —— 否則量到的是「兩次跑的差異」不是「例外的效果」
+另加 throttle 的雙向:剛觸發過的那一列在間隔內【必須不】被再次認領
+```
+
+### 16-5 🔴🔴 C 案真正的洞:**執行端現在沒有一個是「自己會跑」的**
+
+> 這一格是我查完才知道的,它**改變了 C 的成本**,不是細節。
+
+```
+既有的「繞 ceiling/manual」執行端 = B1b(packages/use-cases/src/reconfirm-expired-orphans.ts)
+而它的呼叫鏈:apps/storefront/src/app/checkout/reconcile-actions.ts(`'use server'`,:1)
+             ← apps/storefront/src/hooks/useReconcilePayment.tsx
+🔴 **那是【客人的瀏覽器回到結帳頁】才會觸發的 server action,不是排程。**
+⇒ 佇列裡的單正是【客人沒有回來】的那種 ⇒ **B1b 這條路對它們永遠不會跑。**
+
+另一條 = settle-sweep cron,而它 route.ts:113 逐字
+  if (process.env.CRON_SWEEPER_ENABLED !== 'true') {
+    return Response.json({ ok: true, enabled: false, skipped: 'sweeper_disabled' }, { status: 200 });
+⇒ 預設關;Sean 說他會去 Vercel 開。
+```
+**⇒ 所以 C 的完整成本是三件,不是一件:**
+```
+① 新的窄 RPC(舉旗)+ 新的認領路徑(繞 ceiling/manual,照 B1a)
+② Sean 去 Vercel 開 CRON_SWEEPER_ENABLED     ← 他的動作,不是我的
+③ 🔴 而 sweeper 的認領述詞【不會】撿被舉旗的列(20260615120001:131 逐字 needs_manual_review = false)
+   ⇒ **要嘛在 sweeper route 裡多呼一次新的認領 RPC,要嘛另開一支 route。**
+   ⇒ 這一格會動 apps/storefront 的 route ⇒ **不在「零 code 改動」的想像裡。**
+```
+
+### 16-6 🔴 「排程開了沒」的量具 —— **而最順手的那個是陷阱**
+主視窗要求:找一個**開了與沒開會印不同東西**的量具。找到了,而順帶找到一個會騙人的:
+```
+❌ **HTTP 狀態碼不是量具** —— route.ts:114 關著時回 `status: 200`,:142 開著時也回 `status: 200`
+   ⇒ 只看「cron 有沒有成功」的人,**在兩個世界看到同一個綠。**
+✅ 量具 =【回應的 body】:關著 {"ok":true,"enabled":false,"skipped":"sweeper_disabled"}
+                          開著 {"ok":true,"enabled":true, …}
+   ⚠️ 而要打那個端點需要 CRON_SECRET(:79 逐字「未設 / <32 → throw」)⇒ **那是 Sean 手上的東西**
+✅ 第二把(DB 側,不需要 secret):sweeper 認領時會 settle_attempt_count+1 且
+   next_settle_at = now() + interval '5 minutes'(20260615120001:141-142)
+   ⇒ 查「最近有沒有列的 next_settle_at 被推到未來」⇒ 兩個世界印不同的東西
+   🔴 **效度限定:只有在【確定有合格的列】時才有判別力** —— 零合格列時,開著也不會動任何東西
+      ⇒ 用它之前要先證明分母非零,否則量到的 0 與「沒開」無法分辨
+```
+
+### 16-7 附帶查證:fable 中斷那輪指的兩個檢查點(**線索不是結論,我自己查的**)
+```
+① anomaly adapter 的 parseCount 嚴格度 ⇒ **真的會 throw,而結果是【吵】不是【啞】**
+   PgAnomalyAlertReaderAdapter.ts parseCount 逐字:非有限/負/非整數 → throw
+   而缺欄位 ⇒ undefined ⇒ 既非 number 也非 string ⇒ NaN ⇒ **throw**
+   ⇒ 混版窗口(app 期待新欄位而函式還沒改,或反向)⇒ 整份 summary parse 失敗
+   ✅ 而 route 沒有吞掉它:anomaly-alert/route.ts:139-145 catch → **503 + console.error**,
+     註解逐字「不吞 200 偽裝成功」
+   ⇒ **結論:不是「弄啞告警」,是「告警整條變 503」** —— 前提是**有人在看 cron 失敗**
+   ⇒ 仍是 §5 第 1 步的**排序約束**:migration 要先於「app 期待新欄位」落地。寫進 §6-2。
+② 告警述詞的 P 族是否含 superseded pending ⇒ **字面上含,而實務上產不出來**
+   述詞第一支 a.status = 'pending' **沒有排除 superseded_at 非 NULL** ⇒ 字面上會收
+   而 L5a-1 讓路時 `SET status = 'released'`(20260810010000:259)+ 閘⑥ `superseded_at IS NULL`
+   真 write-once(:274)⇒ **supersede 只會產出 superseded+released,不會產出 superseded+pending**
+   ⇒ §1-1 的三族表**不必改**;而 P 族那格要補一句「字面上含 superseded pending,
+     只是現行寫入端產不出來」——🔴 **這是【我讀寫入端推出來的】,不是量到的**,標未確認。
 ```
