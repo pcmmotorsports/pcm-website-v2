@@ -12,7 +12,14 @@
 > R3 判定：Fable **PASS**／codex FAIL（4 條部分落地，已全修）。
 >
 > ---
-> 🔴🔴 **2026-08-18 W5:本檔 `D1=A` 與 Sean 當日 `Q4=甲` 【疑似衝突,未確認哪一個為準】—— 引用 `D1` 前先讀 `~/pcm-mailbox/W5-002-*`。**
+> 🔴🔴 **2026-08-18:本檔 `D1=A` 【已被 Sean 當日推翻】,不要再照它施工。**
+> ✅ **裁定(2026-08-18 中午,`Q-02`=甲;主視窗轉,落檔 memory `project_0818-sean-eleven-rulings-noon`)**:
+>   結帳頁那個 email 欄**不用了** —— **留著、關著、不刪**(`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 維持 off)。
+>   通知信收件人改採 `Q-W5-3`=甲:**一般客人用註冊信箱、LINE 客人用收件地址那欄的 Email**。
+>   現行 plan = `docs/specs/2026-08-18-m4a-b4-b5-notification-recipient-plan.md`。
+> ⚠️ **`D1=A` 這一段本身不刪**(留痕):它記錄了 2026-07-18 當時的決定與理由,而**推翻它的是後來的事實**
+>   (收件地址 08-09 才長出必填 Email 欄,PRD 寫的時候還沒有它)。
+> 🔴 **以下這段是【裁定前】的分析,保留只為了說明推翻的理由,不要當成現行狀態讀:**
 > · 本檔 `D1=A`(2026-07-18)=「**結帳頁收件資料區塊內可直接填寫的 email 欄**」,且 **B-3 已把它蓋好上線**
 >   (`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 預設 off)。
 > · Sean 2026-08-18 `Q4=甲` 逐字(主視窗轉)=「**會員註冊的信箱**」。
