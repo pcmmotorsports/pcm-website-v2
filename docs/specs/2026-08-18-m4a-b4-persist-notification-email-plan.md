@@ -1,6 +1,10 @@
 # Plan — M-4a **B-4:通知 email 真值持久化**(2026-08-18 G4 重寫版)
 
-> ⚠️ **未批准。** 命中 **鐵則 8**(動 3+ 檔、跨 storefront/adapters/domain 三包)+ **鐵則 12 ①錢**
+> ✅ **2026-08-18 16:3x Sean 批准**(逐字「那就依照建議就好」,對應主視窗送的**甲=四份全批**;主視窗轉,我未直接聽到)。
+> 🔴 **批准的射程(照抄,免得下一個人讀成別的)**:**批的是「可以開始做」**;
+> **動 schema / 權限的部分仍要各自過對抗審查**,而 **migration 由主視窗 apply**(CLI 走 keychain,今日已證)。
+> ⇒ **「已批」不等於「可以直接 apply」。**
+> ~~⚠️ **未批准。**~~ 命中 **鐵則 8**(動 3+ 檔、跨 storefront/adapters/domain 三包)+ **鐵則 12 ①錢**
 > (改 `charge-actions.ts` 成交 path)⇒ 提 plan 等 Sean 批 → 對抗審查(關卡1)→ 才實作。
 >
 > 🔴 **本檔取代 `docs/specs/2026-08-18-m4a-b4-b5-notification-recipient-plan.md`(該檔 R1 FAIL、只在 `notify-email` 分支)。**
