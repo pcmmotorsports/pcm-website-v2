@@ -7,8 +7,19 @@
 //   🔴 **這一句 2026-08-18 起不成立,而它會讓下一個人判錯**(留痕不刪):
 //   愛心鈕**現在到處都是** —— `ProductCard.tsx:154`(商品卡,四個掛載面都有)
 //   與 `ProductInfo.tsx:369`(商品頁本體)。
+//   🔴 **兩顆的出沒裝置不一樣(2026-08-18 真瀏覽器量的,不是推的)**:
+//     `.pcard-heart`  商品卡那顆 —— 390 與 1440 **都看得見**(390 實測 2/2 可見)
+//     `.pd-like`      商品頁那顆 —— 390 **量不到**(`display:none`、rect 0×0)、1440 **看得見**(48×48)
+//   ⇒ **手機上只有商品卡那顆會被點到。** 要拿掉的話兩顆都要拿,不然桌機還留著一顆。
+//   🔴 而 `.pd-like` 那顆還會把假成功**講給讀螢幕軟體聽**:
+//     實測點一下 ⇒ `aria-pressed` 由 `"false"` 變 `"true"`、class 加 `is-liked`、
+//     `fill` 由 `none` 變 `currentColor`,而 `localStorage` 仍然只有購物車那兩把鑰匙。
 //   ⚠️ **但它們不產生真收藏**:`ProductCard.tsx:155` 的 onClick 只有 `setLiked(!liked)`
 //   = **純 React 畫面狀態**,沒有任何持久化。
+//   `ProductInfo.tsx` 那顆同款,而且**可以窮舉**:全檔 `grep -n liked` **6 個命中**
+//   (`:194` 註解 / `:197` `useState(false)` / `:367` className / `:368` onClick / `:370` aria-pressed
+//    / `:376` fill),**沒有任何一個在 effect、localStorage 或送 server 的路徑上**
+//   (該檔唯一的 `useEffect`(`:202`)重設的是 `qty`,不是 `liked`)。
 //   本機實測(2026-08-18,真瀏覽器 390×844、真資料):
 //     點愛心 ⇒ `fill` 由 `none` 變 `var(--c-red)`（畫面告訴客人「收藏成功」）
 //     `localStorage` ⇒ 只有購物車那兩把鑰匙,**零收藏**
