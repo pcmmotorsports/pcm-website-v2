@@ -20,8 +20,15 @@
 #
 # ── 母體與已知缺口(2026-08-18 G6 量、G1 複量,兩支 grep 都跑過)────────────
 #   呼叫點 28 個 / 18 支檔(apps/admin/src,排除 .test.)
-#   🔴 裸 redirect **1**:lib/customers/keyword-search-action.ts
-#      (~~orders 那支~~ 已由 G2 `fb1d1f9f` 修掉 —— #534 訂單域最後一個靜默出口)
+#   ✅ 裸 redirect **0** —— 兩支都補完了(2026-08-18 21:2x):
+#      ~~orders~~ G2 `fb1d1f9f`(#534 訂單域)/ ~~customers~~ G2 `81051b7c`(#534 客戶域)
+#   🔴🔴 **從這一刻起,這支腳本的意思變了**:
+#      它不再是【數缺口】,而是【守住 0】—— **紅 = 有人新增了一個裸 redirect。**
+#      ⇒ 看到紅的人要做的是「去看是誰加的」,不是「回來改期望值」。
+#   🔴 **而 0 正是 fixture 唯一能派上用場的時刻**(它在這之前只是保險):
+#      真實樹 0 而 fixture 1 ⇒ 世界真的乾淨
+#      兩邊都 0              ⇒ **是 pattern 壞了,不是缺口沒了**
+#      落地當下實測:fixture ⇒ 1 ✅、真實樹 ⇒ 0 ⇒ **這個 0 是量到的,不是尺壞掉的。**
 #   ✅ ~~未驗 1:lib/orders/receipt-actions.ts~~ —— **G2 量完了,不是本病**:
 #      呼叫端 `receipt-panel.tsx:30-32` 接住 null、`:95-98` 顯示 `role='alert'`
 #      (逐字「讀不到這個品項的採購紀錄…這批貨先不要出」)。
@@ -47,7 +54,7 @@
 #      ⇒ 我先前照抄了那句未量的宣稱進本檔頭。**兩支在這一點上是對稱的,不是一有一沒有。**
 set -eu
 CDPATH= cd "$(dirname "$0")/.." || exit 1
-EXPECT_BARE=1
+EXPECT_BARE=0
 # 🔴 正向對照:同一支 pattern 對這支 fixture 【恆為 1】—— 它不隨 EXPECT_BARE 走。
 #    理由:真實樹數到 0 的那天,「pattern 打錯」與「真的沒缺口」在輸出上不可分辨。
 #    (G6 2026-08-18 提並實測;我今晚才自曝過「自檢抄一份 production 的魔術數字會壞掉」
@@ -115,7 +122,13 @@ BARE=$(count_bare "$ROOT"); ALL=$(count_all "$ROOT")
 printf '正向對照        fixture %s(恆應 %s)✅\n呼叫點總數      %s\n裸 redirect 數  %s(期望 %s)\n(量的是 %s,跑的是 %s)\n' \
   "$FIX" "$FIXTURE_EXPECT" "$ALL" "$BARE" "$EXPECT_BARE" "$ROOT" "$(command -v grep)"
 if [ "$BARE" = "$EXPECT_BARE" ]; then
-  printf '✅ 與已知缺口數相同 —— **這不代表沒問題,代表【沒有變化】。**\n'
+  # 🔴 訊息由【狀態】決定 —— 0 與 >0 是兩種意思,印同一句會讓人用錯的方式處置
+  if [ "$EXPECT_BARE" = "0" ]; then
+    printf '✅ 守住 0 —— 沒有裸 redirect。**而這個 0 是量到的**:fixture 同時回 %s。\n' "$FIX"
+    printf '   ⇒ 下次這裡變紅,意思是【有人新增了一個】,不是「回來改期望值」。\n'
+  else
+    printf '✅ 與已知缺口數相同 —— **這不代表沒問題,代表【沒有變化】。**\n'
+  fi
   exit 0
 fi
 if [ "$BARE" -gt "$EXPECT_BARE" ]; then
