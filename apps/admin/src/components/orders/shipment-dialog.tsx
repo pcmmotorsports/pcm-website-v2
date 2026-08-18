@@ -32,6 +32,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { unstable_isUnrecognizedActionError } from 'next/navigation';
 import { ReceiptPanel, useReceiptEntry } from './receipt-panel';
 import { toMessage } from '../../lib/shipping/error-message';
+import {
+  RECIPIENT_NAME_REQUIRED,
+  recipientWarning,
+  toRecipientSnapshot,
+} from '../../lib/shipping/recipient';
 import { parseShipmentError } from '../../lib/shipping/shipment-error-view';
 import type { ShipmentCandidateItem } from '../../lib/shipping/shipment-candidates';
 import { blockedText, emptySelectionMessage, staleDeploymentMessage } from './shipment-dialog-copy';
@@ -170,17 +175,31 @@ export function ShipmentDialog({
     [candidates, qty],
   );
 
+  // 🔴 `#503` 甲:判定走 `lib/shipping/recipient.ts` 這**一個**真相源(client 與 server 共用同一支)。
+  //    為什麼不寫在這裡:server action 也要擋(關卡2 codex must-fix:UI 擋不住舊 client / 竄改請求 /
+  //    將來新增的呼叫端)⇒ 兩邊各寫一份判斷就會各自漂,而漂掉時沒有任何東西會紅。
+  const recipientSnapshot = useMemo(() => toRecipientSnapshot(recipient), [recipient]);
+  const recipientNote = useMemo(() => recipientWarning(recipient), [recipient]);
+
   // 🔴 送出前的體驗層檢查。每一條都對應一個 DB 端的 CHECK,措辭盡量貼近 DB 的訊息。
   const blocker = useMemo<string | null>(() => {
     if (chosen.length === 0) {
       return emptySelectionMessage(candidates);
+    }
+    // 🔴 `#503` 乙:缺收件人時**不給按**,而且講得出缺什麼 ——
+    //    讓他按下去才被 DB 退件是最糟的:那時他已經以為建好了。
+    // 🔴 `#503` 乙:缺姓名時**不給按**,而且講得出缺什麼 ——
+    //    讓他按下去才被 server 退件是最糟的:那時他已經以為建好了。
+    //    ⚠️ **只擋姓名**;沒有地址是**警告不是擋**(自取現在只是自由文字、分不出來,見那支 lib)。
+    if (recipientSnapshot === null) {
+      return RECIPIENT_NAME_REQUIRED;
     }
     if (carrier === 'other' && note.trim() === '')
       return `快遞商選「${CARRIER_LABEL.other}」時必須填寫送法說明。`;
     if (carrier !== 'other' && note.trim() !== '')
       return `說明欄只給「${CARRIER_LABEL.other}」用,選${NON_OTHER_NAMES}時請清空。`;
     return null;
-  }, [chosen.length, carrier, note, candidates]);
+  }, [chosen.length, carrier, note, candidates, recipientSnapshot]);
 
   /**
    * 貨號格式(`#551`)。**擋與警告分開兩顆,不合併成一句話。**
@@ -206,12 +225,16 @@ export function ShipmentDialog({
 
   const run = useCallback(
     async (markShipped: boolean) => {
+      // 🔴 `#503` 甲的第二道:`blocker` 是體驗層,這裡是**送出路徑自己**的護欄。
+      //    兩道都要 —— `run()` 是 `useCallback`,將來多一個呼叫點(鍵盤送出/自動重試)時
+      //    不會自動繼承按鈕的 disabled。少了它,那個新呼叫點會安靜地送出空收件人。
+      if (recipientSnapshot === null) return;
       setBusy(true);
       setResult(null);
       try {
         const r = await submitShipment({
           idempotencyKey, // 🔴 不重生:重試沿用同一把
-          recipient: { name: recipient.name ?? '', phone: recipient.phone ?? '', line: recipient.line ?? '' },
+          recipient: recipientSnapshot,
           carrierCode: carrier,
           ...(carrier === 'other' ? { carrierNote: note.trim() } : {}),
           items: chosen,
@@ -501,6 +524,11 @@ export function ShipmentDialog({
               畫面同時出現「沒選品項」與「檢查碼對不上」,而後者此刻無關。 */}
           {trackingIssue?.level === 'warn' && blocker === null && (
             <span className='text-xs font-medium text-amber-700'>{trackingIssue.message}</span>
+          )}
+          {/* 🔴 `#503`:沒有地址**不擋**(自取/站到站照建),但要讓他在按下去之前看見。
+              顏色與 `shipBlocker`(紅、會擋)刻意不同 —— 長得一樣的話員工會以為自己被擋住了。 */}
+          {recipientNote !== null && blocker === null && (
+            <span className='text-xs font-medium text-amber-700'>{recipientNote}</span>
           )}
           {busy && <span className='text-muted-foreground text-xs'>送出中…</span>}
         </div>

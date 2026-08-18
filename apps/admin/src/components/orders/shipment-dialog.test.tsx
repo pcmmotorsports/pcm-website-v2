@@ -86,6 +86,47 @@ describe('🔴 每一列三件都在:訂單編號 + 商品名稱 + 料號(Sean 2
   });
 });
 
+// ── `#503` 乙(2026-08-18):收件人不完整時的畫面行為 ────────────────────────
+//
+// 🔴 判定本身在 `lib/shipping/recipient.ts`,**由 `recipient.test.ts` 直接打純函式**。
+//    本組只驗**畫面接得對不對**(擋/警告分得開)。
+//    ⚠️ 上一版這裡有一格「click 已 disabled 的按鈕、斷言 action 沒被呼叫」——**那格恆綠**
+//    (對 disabled 的按鈕發事件進不到 handler),關卡2 codex 抓到,已刪。
+//    送出路徑那一道現在由 `shipment-actions.test.ts` 的 server 端那格承重。
+describe('`#503` 缺收件人:姓名擋、地址只警告', () => {
+  const submitButtons = (c: HTMLElement) =>
+    [...c.querySelectorAll('button')].filter((b) => /建箱/.test(b.textContent ?? ''));
+
+  it('🔴 缺姓名 ⇒ 兩顆建箱鈕都停用,而且畫面說得出缺什麼', () => {
+    const { container, getByText } = open({ recipient: { name: '   ', phone: '09', line: '台北市…' } });
+    const btns = submitButtons(container);
+    // 🔴 先釘住「找得到鈕」——否則 selector 一失效,`every()` 對空陣列恆真(codex nit)。
+    expect(btns.length, '找不到建箱鈕 ⇒ 這一格失去判別力').toBe(2);
+    expect(btns.every((b) => (b as HTMLButtonElement).disabled), '缺姓名還按得下去').toBe(true);
+    expect(getByText(/沒有收件人姓名/)).toBeTruthy();
+  });
+
+  // 🔴🔴 **這一格是關卡2 codex 打回來的**:畫面上「客人自取」現在只是 `carrierNote` 的自由文字,
+  //    沒有結構化的自取模式 ⇒ 硬擋沒有地址的單,會讓**既有的自取單從可建箱變成完全無出口**。
+  it('🔴 缺地址 ⇒ **照樣可以建箱**,但要先看見一則警告(自取/站到站)', () => {
+    const { container, getByText } = open({ recipient: { name: '客', phone: '09', line: null } });
+    const btns = submitButtons(container);
+    expect(btns.length).toBe(2);
+    expect(
+      btns.some((b) => !(b as HTMLButtonElement).disabled),
+      '沒有地址被擋住了 ⇒ 自取單從此建不出來,那是把人鎖在門外不是修好',
+    ).toBe(true);
+    expect(getByText(/沒有收件地址/), '不擋,但要讓他在按下去之前看見').toBeTruthy();
+  });
+
+  it('🔴 只有電話空 ⇒ 既不擋也不警告(空電話是業務允許的值)', () => {
+    const { container, queryByText } = open({ recipient: { name: '客', phone: '', line: '台北市…' } });
+    expect(submitButtons(container).some((b) => !(b as HTMLButtonElement).disabled)).toBe(true);
+    expect(queryByText(/沒有收件人姓名/)).toBeNull();
+    expect(queryByText(/沒有收件地址/)).toBeNull();
+  });
+});
+
 describe('🔴🔴 送出中不給關窗(關掉再開 = 新的冪等鍵 = 同一批貨建成兩箱)', () => {
   it('送出前 ✕ 可用;送出中 ✕ 變成 disabled', async () => {
     // 讓 action 卡住不回,模擬「飛在半空中」的那一段。
