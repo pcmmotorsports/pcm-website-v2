@@ -1692,7 +1692,12 @@ order by n desc, 1;
 - **觸發事件:**
   - 2026-05-02 / 全專案 audit / operations:risk-assessment(R1)
 - **預期解法:**
-  - M-1-16(200 SKU 種子)落地前 Sean 拍板升 Supabase Pro($25/mo)
+  - ~~M-1-16(200 SKU 種子)落地前 Sean 拍板升 Supabase Pro($25/mo)~~
+    🏁 **升級動作本身已經發生了(2026-08-19 G2 查 memory)**:`reference_pcm-platform-plans-vercel-hobby-supabase-pro`
+    逐字「**Supabase = Pro(已付費)**、Org `PCM MOTORSPORTS`、`plan: pro`」(2026-07-16 MCP 實查)。
+    ⇒ **M-6-08 上線前 checklist 那格不要再去升一次、也不要再問 Sean。**
+    ⚠️ 只作廢「升級」那一半 —— **quota 驗證那一半沒查**,仍留在 M-6-08。
+    ⚠️ 證據是 2026-07-16 的量測,不是今天的;要現值請當場查 Supabase org 方案。
   - M-6-08 上線前 checklist 加 quota 驗證
 - **不修會痛在:**
   - 擴充性:Phase 2 加 Vehicle / Booking / Wallet 表、row 數爆、不升級無法擴
@@ -21869,7 +21874,9 @@ console error   0
 
 - **狀態:** ✅ **已完成**。(本行 2026-08-18 22:0x 由 G6 補) 依據:條目內逐字「Sean 2026-08-18 下午拍 `甲`(整段直接印在畫面上)。**已落地並在真顧客站重量**」。
 
-- 🔴 **狀態(2026-08-18 15:1x,G2):方案已出,【等 Sean 拍板】。動手前不要自己挑一案。**
+- ~~🔴 **狀態(2026-08-18 15:1x,G2):方案已出,【等 Sean 拍板】。動手前不要自己挑一案。**~~
+  🏁 **已作廢(2026-08-19 G2 自劃)** —— 他當天下午就拍了(見下方 ✅),而**這一行是粗體、排在拍板上面**
+  ⇒ 掃「等 Sean」的人先撞到它。留原文是為了保住那三案的出處連結,**但它不再是待辦。**
   ```
   決策題與事實  ~/pcm-mailbox/G2-003-639決策題-給Sean-20260818.md
   並排三案       https://claude.ai/code/artifact/a15cced4-de75-4680-b3f8-6afd696d9832
