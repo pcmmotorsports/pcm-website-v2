@@ -18891,3 +18891,98 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
   - `container-type` 對彈窗定位的實際影響**沒有實測**,上面那段是讀規範推的 ⇒ 缺:真的加上去點一次建箱彈窗
 - **連動:** `#631`(同一頁的截斷態)、`docs/specs/2026-08-10-350-workspace-shell-plan.md` §Q5、
   `docs/specs/2026-08-10-350c-order-panel-wire-plan.md:18` ③(「手機照 Q5 維持整頁」那一列 —— **它成立**)
+
+---
+
+### #634 · ✅ 已修(2026-08-18)· `NaN` 是 `number` —— 守門想擋「沒有數字」,實際擋的是「型別不對」
+
+> 🔻 **這條是【補登帳本】,不是待辦。** 號 2026-08-18 由 T① 用 CAS 發出、修也在同一天落地,
+> **而條目本身從來沒有存在過任何分支上** —— W8 2026-08-18 盤點時補寫。
+> 量法(可重跑,附時點):`for b in $(git branch --format='%(refname:short)'); do git grep -c '^### #634 ' $b -- docs/phase-1-backlog.md; done` ⇒ 零命中
+> @ 2026-08-18 10:4x CST,dev tip `6dcaf0d1`(W1 獨立複驗過同一個 0);正向對照同尺對 `#631`/`#637` 在 dev 上各命中 1 ⇒ 尺量得到東西。
+
+- **狀態:** ✅ **已修並已在 `dev` 上**。`656cb995`(修)、`8a977401`(收 `products` 帶進)。
+  W8 複驗:`git merge-base --is-ancestor 656cb995 HEAD` ⇒ 在 dev。
+- **發現:** T① 2026-08-18 在拋棄式真資料環境撞到的**真 bug**(不是靜態掃出來的)。
+
+- **機轉(W8 逐字開檔核過,不是抄 commit body)**
+  ```
+  PostgREST 回 Content-Range: 0-200/*(沒有總數)
+    ⇒ supabase-js 走 parseInt('*') ⇒ NaN
+    ⇒ 而 typeof NaN === 'number' 是 true
+    ⇒ 守門 typeof count === 'number' 放行 ⇒ reportedTotal = NaN
+  症狀:出貨單印「資料庫說有 NaN 項」
+  ```
+- 🔴 **病根一句(現行 code 的註解自己寫著,`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:1034-1039`)**:
+  > **這道守門想擋的是「沒有數字」,實際擋的是「不是 number 型別」—— 而 `NaN` 是 number。**
+  > **註解說得出「要有數字」,斷言只表達得出「型別對」。**
+
+- **修法與縱深(兩處,`656cb995` 三檔)**
+  ```
+  packages/adapters/src/supabase/SupabaseOrderAdapter.ts:1051  if (page === 0 && Number.isFinite(count))
+  apps/admin/src/lib/orders/merge-detail-items.ts:73           const incomplete = Number.isFinite(reportedTotal) && ...
+    :60 逐字「用 Number.isFinite 而不是 !== null —— 縱深,不只靠上游修好」
+  + apps/admin/src/lib/orders/merge-detail-items.test.ts(+14)
+  ```
+  📎 **比派工單範圍大**:派工單只點名 `SupabaseOrderAdapter`,作者連下游 `merge-detail-items.ts` 也修了(縱深)。
+  ⚠️ **W8 未複驗的一格**:主視窗轉述「還修了第三個下游 shipping-doc」——
+  W8 在 `apps/admin/src/components/print/` 與 `apps/admin/src/lib/shipping/` 掃 `Number.isFinite` ⇒ **零命中**,
+  而 `656cb995` 的 `--stat` 只有三支檔 ⇒ **「第三個下游」這句未獲證實,標未確認**(可能指的就是 `merge-detail-items`)。
+
+- 🔴 **負測的硬規定(立條時 T① 就寫死,補登時原樣保留)**
+  ```
+  負測要斷言【畫面不含 NaN 字樣】,不是「有擋印」
+  —— 後者在修【之前】也是綠的 ⇒ 那個斷言在兩個世界印同一個東西
+  ```
+- **不修未來會痛在哪(已不適用,留著給後人看形狀)**:
+  出貨單是**印出來給人看的最終答案**,而「印 NaN」與「印真的件數」在測試面沒有任何東西會紅。
+  📎 同族 `docs/patterns/guard-and-instrument-traps.md`、`#631`(同一個 embed 上限家族的列表面)。
+
+- **相關**:`#631`(列表面 embed limit 500)、`#636`(客人面雙胞胎)。三者是同一個上限家族的不同面,**不是同一件事**。
+
+---
+
+### #636 · 客人面「`? 件` · 請重新整理」—— 而重新整理不會好,那是固定上限
+
+> 🔻 **補登帳本**:號 2026-08-18 由 T① 用 CAS 發出並掃過信箱佔位,**條目從未存在於任何分支**(量法與時點同 `#634`)。
+> ⚠️ **這條與 `#631` 是同一個 embed 上限家族的不同面,不是同一件事**(`#631` = 後台列表、本條 = 顧客站帳戶頁)。
+> 🔴 **要不要合併由 W4 / W7 裁,W8 不判** —— 寫成兩條是為了讓兩個載體都被看見,不是主張它們獨立。
+
+- **狀態:** ⏳ **客人面未修**(W8 2026-08-18 11:2x CST 在 dev `ccdb9860` 當場開檔核)。
+- **事實(W8 自己開檔,不是抄別人的 STOP)**
+  ```
+  apps/storefront/src/components/account/tabs/OverviewTab.tsx:129
+    <span title="這張訂單的品項太多,件數這次沒有完整載入。請重新整理,或聯絡我們。">? 件</span>
+  apps/storefront/src/components/account/tabs/OrdersTab.tsx:47
+    同一句字面,結尾是「? 件商品」
+  兩處都由 itemCountTruncated 觸發,原始標記 `Q-EMBED-1`(2026-08-16)
+  ```
+- 🔴 **病**:「**請重新整理**」出現在一個**重整不會好**的地方。
+  那是 embed 的**固定上限**,不是暫時的載入失敗 ⇒ 客人會一直重整,然後以為是自己的網路有問題。
+  📎 通則(T① 從三格對照歸納,`docs/reviews/2026-08-18-pre-push-audit.md` §5):
+  **「請重新整理」只准出現在【真的重整就會好】的地方。**
+
+- ✅ **後台那半已經做完了(線主 W7 複驗,W8 再量一次)**
+  ```
+  apps/admin/src/components/orders/orders-table.tsx:448-456
+    title='這張單的品項達到 500 筆上限,系統一次載不完。這是系統的固定限制,不是暫時的狀況。
+           這一格現在看不出這張單實際走到哪一步,請不要用它判斷這張單的進度。請聯絡負責人處理。'
+    件數不印算錯的數字,改印「未知」
+  commits e508d16b / 3a2a8200 / aead9259
+  🔴 W7 回報時說「未併 dev」,而 W8 11:2x 複量:三顆【已經在 dev 上】
+     (W1 10:39 收 bmw-m-headline = 6dcaf0d1)⇒ 引用 W7 那句要帶時點
+  可重跑:grep -c '請重新整理' apps/admin/src/components/orders/orders-table.tsx ⇒ 0
+  ```
+  ⚠️ **線主 W7 自己標的限度,照抄不磨掉**:
+  「**code 字面已讀、真瀏覽器 tooltip 未看**」—— 要種 501 品項的單才觸發,
+  配方在 `~/pcm-mailbox/probe-501-item-order-recipe.md`。
+  ⚠️ 另注意:`grep -rc '請重新整理' apps/admin/src/components/orders/` 全目錄 ⇒ **25 命中散在 10 支別的檔**,
+  那些**不屬本條**(W7 量的是單一檔的 0,分母不同,不要混成一句)。
+
+- **不修未來會痛在哪**
+  🔴 客人看到的是「`? 件`」+ 一個**做了也沒用的指示**。
+  他不會知道那是系統上限,只會重整、然後打電話問 —— 而電話那頭的員工看到的是**同一個上限的另一面**。
+  ⇒ 修的時候請用後台那半已經驗過的四段骨架(①講事實 ②明說是固定限制不是暫時的 ③不印算錯的數字 ④指向真的存在的出口)。
+
+- **相關**:`#631`(後台列表面)、`#634`(同一家族的 `NaN` 面,已修)、`Q-EMBED-1`(code 內原始標記,
+  🔴 **23 處 code 引用而 backlog 零提及** —— 見 `#638` 同族的代號對帳問題)。
