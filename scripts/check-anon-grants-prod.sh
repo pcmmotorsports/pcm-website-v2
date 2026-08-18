@@ -26,6 +26,12 @@
 #         CALIB_NO=public.<那個庫裡 anon【不該】有任何權限的表> bash scripts/check-anon-grants-prod.sh
 #    ⚠️ E686 §6 講的是「兩庫的【結果】相同」,**不代表同一支校準在兩個庫都成立** —— 兩件事。
 #
+# 🔴🔴 **`information_schema` 會依【連線角色】過濾,而 `pg_catalog` 不會**(2026-08-18 G4 實測:
+#    非 owner 非 grantee 的角色查 `information_schema.role_table_grants` ⇒ **0**,
+#    同一時刻同一張表 `pg_class.relacl` ⇒ **7 項全開**)
+#    ⇒ 本腳本第 ④ 段(`net` 兩表)**改走 `relacl` / `attacl`**,`information_schema` 只留作對照。
+#    ⇒ **舊版對 `net` 那半印出來的「空」不算數** —— 它可能只是我們這條連線看不到。
+#
 # 🔴 **為什麼負向對照【不能單獨用】**(同日實錘,值得留在檔頭):
 #    `admin_audit_log × anon ⇒ 0` 在「表被鎖好了」與「表根本不存在」兩個世界**印同一個東西**。
 #    今天救了這支腳本的是**正向那一格**(表不在時它會掉到 0 而報紅)。
@@ -132,23 +138,38 @@ echo
 
 # ── 2. E686:net 兩表的表級 + 欄級權限 ──────────────────────────────────────
 echo "── ④ E686:net 兩表對 anon / authenticated 的實際權限 ───────────"
-echo "  (a) 表級:"
+echo "  (0) 🔴 先問【表在不在】—— 表不存在時,下面每一格都會印空,而空會被讀成「已收乾淨」:"
+run "select 'net.'||t||' ⇒ '||coalesce(to_regclass('net.'||t)::text,'🔴 不存在(下面的空不算數)')
+       from unnest(array['_http_response','http_request_queue']) t;" | sed 's/^/    /'
+echo "  (a) 🔴 表級 —— 走 pg_class.relacl(pg_catalog,**不受可見性過濾**):"
+run "select c.relname||' × '||a.grantee::regrole||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
+       from pg_class c join pg_namespace n on n.oid=c.relnamespace,
+            lateral aclexplode(c.relacl) a
+      where n.nspname='net' and a.grantee::regrole::text in ('anon','authenticated')
+      group by c.relname, a.grantee order by 1;" | sed 's/^/    /'
+echo "  (b) 欄級 —— 走 pg_attribute.attacl(同上;🔴 has_table_privilege 看不到這一層):"
+run "select c.relname||'.'||at.attname||' × '||a.grantee::regrole||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
+       from pg_class c join pg_namespace n on n.oid=c.relnamespace
+       join pg_attribute at on at.attrelid=c.oid and at.attnum>0 and not at.attisdropped,
+            lateral aclexplode(at.attacl) a
+      where n.nspname='net' and a.grantee::regrole::text in ('anon','authenticated')
+      group by c.relname, at.attname, a.grantee order by 1;" | sed 's/^/    /'
+echo "  (a2) 對照:同一件事走 information_schema(🔴 **它會依連線角色過濾**,兩者不一致以 (a) 為準):"
 run "select table_name||' × '||grantee||' ⇒ '||string_agg(privilege_type, ',' order by privilege_type)
        from information_schema.role_table_grants
       where table_schema='net' and grantee in ('anon','authenticated')
       group by table_name, grantee order by 1;" | sed 's/^/    /'
-echo "  (b) 欄級(🔴 has_table_privilege 看不到這一層,E 窗 2026-08-17 實測少報):"
-run "select table_name||'.'||column_name||' × '||grantee||' ⇒ '||string_agg(privilege_type, ',' order by privilege_type)
-       from information_schema.column_privileges
-      where table_schema='net' and grantee in ('anon','authenticated')
-      group by table_name, column_name, grantee order by 1;" | sed 's/^/    /'
 echo "  (c) RLS 開了沒:"
 run "select c.relname||' ⇒ rls='||c.relrowsecurity||' / policies='||
             (select count(*) from pg_policy p where p.polrelid=c.oid)
        from pg_class c join pg_namespace n on n.oid=c.relnamespace
       where n.nspname='net' and c.relkind='r' order by 1;" | sed 's/^/    /'
 echo "  🔴 判讀:(a)(b) 任一有 DELETE/TRUNCATE/UPDATE/INSERT ⇒ 【還沒補齊】"
-echo "         三格全空 ⇒ 已收乾淨。⚠️ 空輸出要配上面的對照組才算數"
+echo "         全空 ⇒ 已收乾淨,**但要三個條件同時成立**:(0) 兩張表都存在、上面的對照組過了、"
+echo "         且 (a) 與 (a2) 的【列】一致。🔴 (a2) 少了一整列 ⇒ 那是【可見性過濾】不是【權限被收掉】"
+echo "         ⚠️ 已知的良性差異:(a) 會多一個 MAINTAIN(PG17 新權限,information_schema 不報)"
+echo "            ⇒ 只差 MAINTAIN 這個字 = 正常;差【整列】才是可見性問題"
+echo "         (2026-08-18 實測:非 owner 非 grantee 的角色查 information_schema 得 0,同時 relacl 看得到 7 項)"
 echo "  📄 docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md"
 echo
 echo "🔴 本次結果只代表【這個庫、這一刻】。報價單庫要跑 ⇒ 先用 CALIB_YES / CALIB_NO 給它自己的校準表(見檔頭)。"
