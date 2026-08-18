@@ -71,7 +71,16 @@ export async function applyCustomerKeywordSearchAction(formData: FormData): Prom
   //    但 `lib/session/authorize.ts` 明文「安全縱深不只靠 proxy 登入閘」,
   //    **例外會變成慣例,慣例會被下一支真的碰資料的 action 抄走。**
   //    未授權 ⇒ 什麼都不做、直接導回列表(不擲錯:proxy 那層本來就會把未登入的人導去 SSO)。
-  if ((await authorizeAdminMutation()) === null) redirect('/customers');
+  // 🔴 `#534`(2026-08-18 G2,主視窗裁定 + G6 撤回「刻意例外」標記):**帶上 `r=denied`,不要裸導回。**
+  //    上面那段自陳(「只寫呼叫者自己的 cookie,實害有限」)講的是**資料面** ——
+  //    而 `#534` 的病是**可用性面**:員工搜尋被擋、**畫面完全正常**,他以為自己搜過了。
+  //    ⇒ **擋得對,而失敗看不見。** 那句自陳從頭到尾沒有在講可用性 ⇒ **不構成豁免**
+  //      (`lib/orders/` 那支有一模一樣的自陳,而它已經被修掉了 —— 兩支同形狀不該兩種待遇)。
+  //    ⚠️ 這一行**不改授權行為**(擋的還是同一件事、仍 fail-closed),只讓那個失敗**看得見**。
+  //    🔴 而「送出訊息碼」與「畫面真的印出來」是兩件事 ⇒ 動手前先驗過後者:
+  //      `app/customers/page.tsx:20/41/78` 本來就讀 `?r=` 並渲染 `<ResultBanner>`,
+  //      `denied` 的字面在 `components/orders/result-banner.tsx:46`。**不是新機制,是接回既有那條。**
+  if ((await authorizeAdminMutation()) === null) redirect(`/customers?r=denied`);
 
   // 🔴 兩欄都走「`getAll()` 恰一筆」讀法:
   //    · 搜尋詞送兩份 ⇒ 讀成 null ⇒ 正規化回 `empty` ⇒ **刪 cookie**。

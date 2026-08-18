@@ -141,4 +141,17 @@ describe('#525 搜尋 action 的 cookie 語意', () => {
     expect(hoisted.set).not.toHaveBeenCalled();
     expect(hoisted.del).not.toHaveBeenCalled();
   });
+
+  // 🔴 `#534`(2026-08-18):**「擋住了」與「員工看得見自己被擋」是兩件事。**
+  //    上面那格只驗前者 ⇒ 裸 `redirect('/customers')` 照樣全綠,
+  //    而員工看到的是**畫面完全正常**、以為自己搜過了。
+  //    ⚠️ 本格**不驗授權行為**(那道沒有變),驗的是**失敗有沒有出口**。
+  //    出口是既有的:`app/customers/page.tsx` 讀 `?r=` 並渲染 `<ResultBanner>`。
+  it('🔴 `#534` 未授權 ⇒ 導回時要帶 `r=denied`(否則畫面完全正常、員工不知道沒搜到)', async () => {
+    hoisted.authorize.mockResolvedValueOnce(null as never);
+    const to = await run({ [CUSTOMER_KEYWORD_FIELD]: '王' });
+    expect(to, '裸導回 ⇒ /customers 的 ResultBanner 不會亮(它讀 ?r=)').toContain('r=denied');
+    // 🔴 同格順帶釘 PII 紅線:失敗出口也不得把搜尋詞帶進 URL(本檔既有紀律)。
+    expect(to, '搜尋詞進了 URL ⇒ 進瀏覽歷史、access log、Referer').not.toContain('王');
+  });
 });
