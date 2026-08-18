@@ -38,6 +38,40 @@ Sean 2026-08-15 拍板 Q-B-2=甲 / Q-關哪一條=乙 ⇒ 下架權威從供應�
 
 ---
 
+## 0-c 🔴🔴 應用層【卡在 apply】—— 而這是型別層的硬阻擋,不是偏好
+
+```
+生成型別裡有 admin_set_product_listing 嗎?
+  /usr/bin/grep -c "admin_set_product_listing" packages/adapters/src/supabase/database.types.ts ⇒ **0**
+正向對照(一支已 apply 的同族 RPC,證明這把尺會動)
+  /usr/bin/grep -c "admin_set_customer_tier"    同一個檔                                    ⇒ **1**
+```
+⇒ `.rpc('admin_set_product_listing', {...})` **今天寫下去 typecheck 就紅**(函式名不在生成型別裡)。
+
+**唯一的繞法是【窄 cast】,而本 repo 已經明文把它拆掉過**:
+`apps/admin/src/lib/customers/customer-repository.ts:99-108` 逐字記著 ——
+「~~窄 cast `TierRpcClient`~~ 🔴 **2026-08-11 已拆(backlog `#415`)**…
+**cast 留著只會讓 typecheck 對這條路失效**」
+⇒ **重新引入它是回歸,不是權宜。** 本片不做。
+
+### ⇒ 順序是硬的,寫成可機械複驗的等待條件(不要寫「等 Sean apply」)
+
+```
+① 本片的 migration commit 完成          ✅ 05d3a10e
+② Sean apply                            ⏳
+   🔴 到了要怎麼看出來(可 grep,不用問人):
+      grep -c '^20260819040000' supabase/APPLIED.tsv  ⇒ 期望 1
+③ 重跑 supabase gen types
+   🔴 到了要怎麼看出來:
+      grep -c 'admin_set_product_listing' packages/adapters/src/supabase/database.types.ts ⇒ 期望 ≥1
+④ 才寫應用層(repository / server action / 那顆鈕)
+```
+📎 **這一段的寫法是刻意的**:本檔自己在 `docs/patterns/guard-and-instrument-traps.md` 記過
+「**一句『等 X』不會在 X 到了的時候變色**」——
+⇒ 所以這裡**不寫「等 Sean apply」**,寫的是**兩條 grep**。任何人一秒鐘就能判斷現在能不能開工。
+
+---
+
 ## 1. 要做什麼(五樣)
 
 ```
