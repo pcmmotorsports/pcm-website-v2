@@ -155,7 +155,14 @@ listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]>;
   |---|---|---|
   | `refunded` | (任意) | 已退款 |
   | `unpaid` | (任意) | 待付款 |
-  | `partiallyPaid` | (任意) | 付款確認中 |
+  | `partiallyPaid` | (任意) | ~~付款確認中~~ ⇒ **現字面 `已收訂金`** |
+
+> 🔴 **2026-08-18 更正(W2)**:Sean 拍 Q06=甲,`partiallyPaid` 的客人端字面由「付款確認中」改**「已收訂金」**
+> (`apps/storefront/src/lib/orders/order-display.ts:52`);後台那半由 W3 同日改成同字。
+> **本表下方 `:176` 的 code 片段是當時的字面,一併視為舊版,留痕不刪。**
+> 病的形狀:原字面**描述的是另一個狀態** —— 客人讀「付款確認中」= 系統在驗我的付款、我不用做事;
+> 實際語意 = 訂金收了、尾款還欠。⇒ 這不是換個說法,是**原本那句是錯的**。
+> ⚠️ 兩端是**各寫一份字面、無 import 關係**(`E-711 §2` 量過),改一邊不會動到另一邊、漂開也不會有東西紅。
   | `paid` | `notOrdered` | 處理中 |
   | `paid` | `ordered` | 調貨中 |
   | `paid` | `inStock` | 備貨完成‧待出貨 |

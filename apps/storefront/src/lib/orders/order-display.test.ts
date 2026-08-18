@@ -1,7 +1,10 @@
 // order-display.test.ts — 訂單顯示工具測試
 //
 // - orderStatusLabel:20 組 exhaustive(5 payment × 4 fulfillment 全列)逐一斷言中文(codex N1);
-//   明確鎖 partiallyPaid→「付款確認中」、refunded→「已退款」、partiallyRefunded→「已退部分」、
+//   🔴 **這張表證的是「付款狀態不受出貨軸影響」,證不了「partiallyPaid 一定是收了訂金」** ——
+//   它沒有那個維度(沒有『部分收款 / 付清後沖銷 / 部分退款 / 超收』這幾種來源的案例)。
+//   codex 關卡2 2026-08-18 指出這一點;為什麼今天仍可以這樣寫、以及那張欠條,見 order-display.ts 的 JSDoc。
+//   明確鎖 partiallyPaid→「已收訂金」(2026-08-18 Sean Q06=甲,原「付款確認中」)、refunded→「已退款」、partiallyRefunded→「已退部分」、
 //   paid→(任意 fulfillment)「處理中」(A9f row47:stale 出貨軸下架、第 1 批固定文案)、絕不空字串。
 // - formatOrderDate:ISO → YYYY-MM-DD(Asia/Taipei、含跨日 UTC 邊界)。
 
@@ -21,10 +24,10 @@ const STATUS_CASES: Array<[PaymentStatus, FulfillmentStatus, string]> = [
   ['unpaid', 'ordered', '待付款'],
   ['unpaid', 'inStock', '待付款'],
   ['unpaid', 'shipped', '待付款'],
-  ['partiallyPaid', 'notOrdered', '付款確認中'],
-  ['partiallyPaid', 'ordered', '付款確認中'],
-  ['partiallyPaid', 'inStock', '付款確認中'],
-  ['partiallyPaid', 'shipped', '付款確認中'],
+  ['partiallyPaid', 'notOrdered', '已收訂金'],
+  ['partiallyPaid', 'ordered', '已收訂金'],
+  ['partiallyPaid', 'inStock', '已收訂金'],
+  ['partiallyPaid', 'shipped', '已收訂金'],
   ['partiallyRefunded', 'notOrdered', '已退部分'],
   ['partiallyRefunded', 'ordered', '已退部分'],
   ['partiallyRefunded', 'inStock', '已退部分'],
@@ -47,7 +50,7 @@ describe('orderStatusLabel(20 組 exhaustive 雙軸映射、Q2=A)', () => {
   });
 
   it('關鍵狀態鎖定 + 絕不回空字串', () => {
-    expect(orderStatusLabel('partiallyPaid', 'notOrdered')).toBe('付款確認中');
+    expect(orderStatusLabel('partiallyPaid', 'notOrdered')).toBe('已收訂金');
     expect(orderStatusLabel('refunded', 'shipped')).toBe('已退款');
     expect(orderStatusLabel('paid', 'shipped')).toBe('處理中'); // A9f:paid 不再顯出貨階段
     for (const [payment, fulfillment] of STATUS_CASES) {
