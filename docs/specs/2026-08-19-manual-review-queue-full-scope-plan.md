@@ -23,7 +23,11 @@
 > ⚠️ 他在【白話版】上選的,不是在技術細節上選的 ⇒ 不得升級成「Sean 審過 C 的設計」。
 >
 > 🔴 **C 的硬前置有三件,兩件不是我的**:
->   ① Sean 去 Vercel 設 CRON_SWEEPER_ENABLED=true(現在仍是 false)——【他的動作】
+>   ① ~~Sean 去 Vercel 設 CRON_SWEEPER_ENABLED=true(現在仍是 false)~~ ✅ **已付清,不是待辦**
+>      `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md:14` 逐字
+>      「CRON_SWEEPER_ENABLED=true(**Sean 2026-08-17 下午設定並重新部署**)」;同源 `STATUS.md:34`
+>      🔴 來源屬性:**Sean 回報 → 主視窗轉 → 落檔;沒有人親眼看過 Vercel 面板。**
+>      🔴 我上一版把 `route.ts:10` 的【程式預設值】讀成【現況】—— 正是那支檔 ⛔ 段警告的那款誤讀。
 >   ② 而【開了】不等於【那些列會被撿到】:sweeper 認領述詞逐字 needs_manual_review = false
 >      (20260615120001:131)⇒ 仍要一條新的認領路徑。詳 §16-5。
 >   ③ 既有的「繞 ceiling/manual」執行端 B1b 是【客人瀏覽器觸發的 server action】,不是排程
@@ -197,7 +201,13 @@ markCharged / markFailed 的 UPDATE 逐字都是
 ⇒ **admin 直呼 `settleCharge` 這條路,天生就在 8 次上限之外** —— 不需要繞過任何東西。
 📌 爬梯子第一階:**這支 RPC 不需要存在。** 前一版是為一個不存在的障礙設計了一道門。
 
-### 3-2 那還需要 RPC 嗎:**需要,而理由是【留痕】不是【繞過】**
+### 3-2 ⏸ **整節 2026-08-19 作廢(Sean 裁 C 案)** —— 下面留痕不刪,**不得照它動手**
+> 🔴 C 案明文:**admin 不直呼 `settleCharge`、不拿 DB 憑證、不放寬 `Pick`**。
+> ⇒ 現行形狀 = **§16 最小路**:在既有 settle-sweep route 多呼一次 `reconfirmExpiredOrphans`,
+>   **零新欄、零新 RPC、零新認領路徑**。
+> ⇒ 照本節動手 = 做出**被裁掉的 A/B 形狀**。
+
+~~### 3-2 那還需要 RPC 嗎:需要,而理由是【留痕】不是【繞過】~~
 ```
 admin server action：settleCharge(getSettleChargeDeps(), { orderId })
                      與 reconcile-actions.ts:101 同一條路,逐字重用、零改語意
@@ -223,7 +233,12 @@ R 族  close_released_attempt 已存在且形狀正確(不讓人宣告、三欄�
       ⇒ 決策題(不是我能拍的,見 §10-A):維持 Sean 手動,還是 GRANT 給 admin 路徑?
         後者動權限 ⇒ 鐵則 12②。
 
-C 族  🔴🔴 **零出口,要新造。** 形狀照 close_released_attempt(§10-① 已認定它是對的形狀):
+C 族  ⏸🔴🔴 **【等 Sean 裁,原地不動】** —— 2026-08-19 發現他**已經裁過這一格**:
+      `20260810170000:237` COMMENT 逐字「superseded_at 非 NULL ⇒ 一律 RAISE、永不轉 charged;
+      **那筆錢的唯一出口是退款(Sean 2026-08-10 拍板 A)**」
+      ⇒ 下面這段是**在不知道那條拍板的情況下寫的**,留痕不刪、而**不得照它動手**:
+      ⚠️ 若那條拍板成立 ⇒「完整範圍」的定義會縮,**而縮範圍是 Sean 的決定**(他拍過「不准做一半」)。
+      ~~🔴🔴 零出口,要新造。~~ 形狀照 close_released_attempt(§10-① 已認定它是對的形狀):
       owner-only 或窄 GRANT / 不讓人宣告 / 依據寫成欄組 + CHECK
       ⚠️ 它是三族裡**風險最高**的一格:「標記已扣款、而訂單仍未付」
          ⇒ 錢可能真的收了 ⇒ 這一格的設計要單獨過對抗審查。
@@ -259,7 +274,9 @@ C 族  🔴🔴 **零出口,要新造。** 形狀照 close_released_attempt(§10
      它是獨立一片、命中鐵則 12③、要走對抗審查。§14 是它的規格。
 1. 新欄位 migration(重查留痕欄)+ 三族計數改告警函式
      ⚠️ 這一步扯出一整條 app 層鏈,見 §6-2(S4)
-2. admin server action(直呼 settleCharge)+ 留痕 RPC
+2. ~~admin server action(直呼 settleCharge)+ 留痕 RPC~~ **作廢(C 案)**
+   ⇒ 改為:**在 settle-sweep route 多呼一次 `reconfirmExpiredOrphans`**(§16-1),零新 RPC
+   🔴 照舊句動手 = 做出被裁掉的 A/B 形狀
 3. C 族出口 RPC(新造,最高風險,單獨對抗審查)
 4. R 族決策落地(§10-A 拍板之後才動;A 案也有事要做,見 §7 第 4 行)
 5. 清單頁(三族分開顯示)
@@ -297,6 +314,23 @@ scripts/l5b0-verify.sh:51 逐字
   PROSRC_S_C3="12a1605c7c9705b1ab1a1c363febbd79"   # get_payment_anomaly_alert_summary
 ```
 它是「該片已套用」的身分閘 ⇒ **函式一改就對不上** ⇒ 改的同時要更新那個 hash,
+
+🔴 **而混版窗口那一格有一個【前提】,它本身要進驗收條件**(2026-08-19 查證,§16-7①):
+```
+parseCount 缺欄位 ⇒ throw ⇒ anomaly-alert/route.ts:139-145 catch ⇒ 503 + console.error
+(註解逐字「不吞 200 偽裝成功」)⇒ **不是弄啞告警,是告警整條變 503。**
+🔴 而「503 比啞好」這件事**只在【有人在看 cron 失敗】時成立** ——
+   **沒有人看 ⇒ 503 與啞掉是同一件事。**
+⇒ 所以排序約束是硬的:**migration 要先於「app 期待新欄位」落地**,
+  不能靠「反正壞了會叫」。而「誰在看 cron 失敗」是要問 Sean 的第三題(主視窗會併)。
+
+🔴 **而那是【兩條】約束,不是一條**(fable R3 BLOCKER;前一版只寫了第一條):
+  ① **apply 先於 deploy** —— 新函式要先在 DB 裡,app 才能期待新鍵
+  ② **jsonb 舊 7 鍵一鍵不少(只加不改)** —— 新版函式**只准加鍵**
+     ⇒ 這條讓「反方向」(函式先改、app 還沒更新)也不會 throw
+  📌 ①保護一個方向、②保護另一個方向,**不能只寫一條就當覆蓋了**。
+  ⇒ 兩條都要進 apply 期斷言或 code review 清單,不是註解。
+```
 否則下一個跑 `l5b0-verify.sh` 的人會拿到一個**紅在錯地方**的結果。
 
 ---
@@ -306,7 +340,8 @@ scripts/l5b0-verify.sh:51 逐字
 0. 移檔片(含 literal-sweep 改指標 + 對抗審查)          ~60 分
 1. 留痕欄位 + 三族計數 migration + apply 期斷言          ~75 分
    + app 層鏈六處 + gen types + 更新 l5b0 指紋           ~60 分
-2. admin server action + 留痕 RPC + 測試                 ~60 分
+2. ~~admin server action + 留痕 RPC + 測試  ~60 分~~ **作廢(C 案)**
+     改為 settle-sweep route 加呼 + 測試            ~40 分(🔴 **估**,不含 §16-3 的預算量測)
 3. C 族出口 RPC(最高風險,含斷言與拋棄式 PG 驗)          ~90 分
 4. R 族決策落地(§10-A 拍板後;🔴 **兩案成本差很多,不是同一行**)
      A ⇒ 清單頁標明「這族由 Sean 手動收」+ 寫出那支 RPC 怎麼呼    ~30 分
@@ -899,143 +934,145 @@ GR 追加三條      ⇒ §14-2a 射程同段 / §14-3 第 ② 項 APPLIED.tsv /
 
 ---
 
-## 16. C 案的「單列例外」設計 —— **不是發明的,repo 裡已經有一支**
+## 16. C 案的執行路徑 —— **最小路:呼叫既有的那一支,不要蓋新的**
 
-> 由來:Sean 2026-08-19 逐字「**走 C —— 後台不拿鑰匙，我去 Vercel 打開那個排程**」。
-> 🔴 **限定**:他是在**白話版**(「給不給後台鑰匙」)上選的,**不是在技術細節上選的**
-> ⇒ 引用時不得升級成「Sean 審過 C 的設計」。
-> ⇒ 連帶:`packages/` 不動;`composition.ts:120-126` 那個 `Pick` 窄型別**維持原樣、不放寬**。
+> 🔴🔴 **先講射程,因為它決定這條路能不能用**(fable R3 + G4 實測):
+> ```
+> B1a 的年齡閘是【硬寫的 12 小時】
+>   supabase/migrations/20260627120000_…:13 逐字 a.created_at < now() - interval '12 hours'
+>   而它的簽章只吃 p_limit(:111 `claim_expired_pending_attempts(integer)`)⇒ **調不了**
+> 而一列大約【1 小時】就會進佇列(8 次退避、封頂 16min)
+> ⇒ **未滿 12 小時的列,最小路一列都不收。**
+> ⇒ **最小路不是「立刻能用」,是「12 小時後才收得到」。**
+> ```
+> 要「按了立刻查」就不是這條路 —— 而 C 案下按鈕本來就**不是同步的**。
+> ⇒ **這一格是產品決定(等多久算可接受),不是技術決定。** 標【待裁】。
 
-### 16-1 🔴 機制形狀:**既有慣例已經存在,而且它的名字就是這件事**
-
-爬到的是 **B1a**:`supabase/migrations/20260627120000_m3_3ds_b1a_claim_expired_pending_attempts.sql`
+### 16-0 🔴 我上一版錯在哪(留著,因為它是這一輪最貴的一課)
 ```
-COMMENT :107 逐字:
-  「原子 claim 12h pending 孤兒(放棄未重刷)再確認…
-   **不濾 needs_manual_review(manual=true/false 都進)、不濾 settle_attempt_count(繞 ceiling)**;
-   只蓋 last_expired_settle_at=now()(不清 manual、不動 next_settle_at/count)。
-   回 attempt_id/order_id/needs_manual_review(orderId 餵 settleCharge 再確認)。只 payment_confirmer 可呼。」
-
-而 port 層那行講得更直白:
-  packages/ports/src/IChargeAttemptStore.ts:138 逐字
-  「12h 孤兒**專用人工列再確認路徑**(claim_expired_pending_attempts、**繞 sweeper ceiling/manual**)」
-```
-⇒ **「繞過 ceiling 與 manual 旗標、而不清掉那面旗子」這件事,這個 repo 已經做過一次、而且整條接好了**
-(RPC → `PgChargeAttemptAdapter.ts:221` → `IChargeAttemptStore.ts:150` → `ChargeAttemptStoreWithFallback.ts:95`)。
-
-**⇒ 設計 = 照抄 B1a 的三個要素,不要發明:**
-```
-① 【獨立的 throttle 欄】,不動 next_settle_at    ← B1a 用 last_expired_settle_at,與 sweeper 分軌
-② 【述詞不濾 manual、不濾 count】               ← 這就是「例外」的全部,而它不需要改旗標
-③ 【GRANT 只給 payment_confirmer】              ← B1a:REVOKE …FROM PUBLIC, anon, authenticated, service_role
-                                                   GRANT EXECUTE …TO payment_confirmer(`:111-112`)
+我找到了 B1a 這個既有慣例,然後【照它蓋了一份新的】——
+新欄位 + 新舉旗 RPC + 新定點認領路徑,三樣。
+而正確動作是【直接呼叫那個已經存在的東西】。
+📌 爬梯子爬到第 2 階,看到梯子,然後自己焊了一階。
+📎 同族:「機器在、沒接線」的另一面 —— **看到既有的東西,而把它當範本不是當工具。**
 ```
 
-**而我們與 B1a 的兩個差異(要自己決定的部分)**:
+### 16-1 最小路(硬證據三行,我實測)
 ```
-差異 A  B1a 是【掃描式】(p_limit + 12h 年齡);我們是【定點式】(指名一個 attempt_id)
-        ⇒ 定點更窄、更好驗,而它需要一個「誰指的名」的來源 ⇒ 見 16-3
-差異 B  B1a 述詞逐字 status = 'pending'(:11,註解自陳「隱含排除 released/charged」)
-        ⇒ 🔴 **它只收 P 族。R 族與 C 族它一列都不收。**
-        ⇒ 我們要覆蓋三族 ⇒ 述詞要放到 status IN (pending, charged, released),
-          並保留 order unpaid ⇒ **這一放就要單獨對抗審查**(charged 那族= 錢可能已動)
+packages/use-cases/src/reconfirm-expired-orphans.ts:37 逐字
+  export type ReconfirmExpiredOrphansDeps = SettleChargeDeps;    ← 型別【就是】同一個
+apps/storefront/src/app/api/cron/settle-sweep/route.ts:41  已 import getSettleChargeDeps
+apps/storefront/src/app/api/cron/settle-sweep/route.ts:122 已建 { ...getSettleChargeDeps(), inbox }
+```
+⇒ **在那支 route 多呼一次 `reconfirmExpiredOrphans(getSettleChargeDeps(), { limit })`。**
+⇒ **零新欄、零新 RPC、零新認領路徑、零 migration。**
+而 B1a 那支本來就:不濾 `needs_manual_review`、繞 ceiling、獨立 throttle(6h)、`GRANT` 只給 `payment_confirmer`。
+
+### 16-2 它只收 P 族,**而那是對的**(不是缺點)
+```
+B1a 述詞逐字 a.status = 'pending'(20260627120000:11)⇒ 只收 P 族。
+🔴 而對 R 族 / C 族重查【永遠改不了任何狀態】:
+   mark_charge_attempt_charged:superseded_at 非 NULL ⇒ **一律 RAISE、永不轉 charged**
+     (20260810170000:237 COMMENT 逐字,閘位在冪等分支【之前】)
+   mark_charge_attempt_failed :WHERE … AND status = 'pending'(20260612150000:334)⇒ ROW_COUNT=0
+⇒ 對那兩族按重查 = **只燒 Record 查詢,不會有任何一列離開清單。**
+⇒ 所以「把述詞放寬到三族」不只是多做,是**做一件保證無效的事**。~~前一版 §16-1 差異B~~ 作廢。
 ```
 
-### 16-2 它擋不住什麼(照慣例必寫)
+### 16-3 route 的時間預算 —— **最小路讓這條變得更重要,不是更輕**
 ```
-· 誤觸的後果 = 對那張單多跑一次 settleCharge。
-  而 settleCharge 以 Record API 為唯一權威、且冪等(settle-charge.ts:15,:30)
-  ⇒ **它造不出 TapPay 沒有回報的錢。** 誤觸的代價是一次多餘的 Record 查詢,不是錢動。
-· 能不能重複觸發 ⇒ **能,而這是它最現實的風險**(有人連點)。
-  B1a 的答案就是要素 ①:獨立 throttle 欄 + 間隔(它用 6h)。**照抄,不要靠前端 disable 按鈕。**
-· 🔴 它【不】保護的:
-  - 不阻止那一列之後又被標回 manual(旗標本來就沒清)—— 這是**刻意的**,§4-3 的計數靠它
-  - 不處理「TapPay 永遠查不出來」⇒ 那一列會留在清單上,而 §4-1 已經說那是正確的
-  - 🔴 **不保證有人會去執行它** —— 見 16-5,那才是 C 案真正的洞
+settle-sweep route 自述:concurrency=1、單輪最壞 (50+50)×~500ms ≈ 50s,maxDuration 60s
+⇒ **真餘量約 10s**
+而最小路是在同一支 route 裡【多跑一輪 Record 查詢迴圈】⇒ 直接吃那 10s
+⇒ 兩條路都要列成本(前一版兩條都沒列):
+   · 同 route 加呼 ⇒ 要壓 limit,並量「加了之後單輪最壞是多少」
+   · 另開 route   ⇒ 要新 cron 排程 + CRON_SECRET 配置(而 vercel.json 目前【無 crons 段】,未確認是誰在排)
 ```
 
-### 16-3 權限:**admin 呼不到,所以要拆兩段**(讀建表 migration 的 GRANT,非 `information_schema`)
+### 16-4 驗收(雙向表演,照 §16 舊版保留)
 ```
-表層(20260612150000:118-121 逐字):
-  REVOKE ALL ON TABLE public.payment_charge_attempts FROM PUBLIC, anon, authenticated;
-  REVOKE ALL ON TABLE public.payment_charge_attempts FROM service_role;
-  GRANT SELECT ON TABLE public.payment_charge_attempts TO service_role;      ← **只有 SELECT**
-函式層(B1a :111-112 逐字):
-  REVOKE ALL ON FUNCTION …FROM PUBLIC, anon, authenticated, service_role;    ← **service_role 明文排除**
-  GRANT EXECUTE ON FUNCTION …TO payment_confirmer;
-```
-⇒ **admin 走 `service_role` ⇒ 它既寫不了那張表,也呼不到 B1a 這族函式。**
-⇒ **兩段式(而這正是 C 的本體):**
-```
-第 1 段(admin 側,窄)  一支新 RPC,GRANT 給 service_role,**只寫留痕/舉旗,不做任何結算**
-                       🔴 而那個「旗」不需要新欄位 —— **它就是 §4-2 已經要的留痕欄**
-                       (誰按的/何時/結果)⇒ **一欄兩用,不要加第二欄。**
-第 2 段(執行側)        跑在 payment_confirmer 的既有路徑,認領被舉旗的那一列 → 餵 settleCharge
-                       ⇒ admin 全程沒有 DB 憑證、沒有 TapPay charge 能力。
+正向:一列 pending + unpaid + 年齡 ≥12h + throttle 到期 + needs_manual_review=true
+     ⇒ **必須**被 claim(這正是 B1a 明文涵蓋的 manual=true)
+反向:同一輪、其餘相同而 throttle 未到期的另一列 ⇒ **必須不**被 claim
+兩列要在同一次呼叫、同一個交易世界 —— 否則量到的是「兩次跑的差異」不是「這條路的效果」
 ```
 
-### 16-4 驗收條件(雙向表演,兩發都要)
+### 16-5 🔴 `CRON_SWEEPER_ENABLED` 的現況 —— **我上一版把程式預設值讀成了現況**
 ```
-正向:對某一列下了例外 ⇒ 它【必須】被認領(回傳含該 attempt_id)
-反向:同一輪裡【沒有】下例外、而其餘條件相同的另一列 ⇒ 【必須不】被認領
-🔴 兩列要在同一次呼叫、同一個交易世界裡 —— 否則量到的是「兩次跑的差異」不是「例外的效果」
-另加 throttle 的雙向:剛觸發過的那一列在間隔內【必須不】被再次認領
-```
-
-### 16-5 🔴🔴 C 案真正的洞:**執行端現在沒有一個是「自己會跑」的**
-
-> 這一格是我查完才知道的,它**改變了 C 的成本**,不是細節。
-
-```
-既有的「繞 ceiling/manual」執行端 = B1b(packages/use-cases/src/reconfirm-expired-orphans.ts)
-而它的呼叫鏈:apps/storefront/src/app/checkout/reconcile-actions.ts(`'use server'`,:1)
-             ← apps/storefront/src/hooks/useReconcilePayment.tsx
-🔴 **那是【客人的瀏覽器回到結帳頁】才會觸發的 server action,不是排程。**
-⇒ 佇列裡的單正是【客人沒有回來】的那種 ⇒ **B1b 這條路對它們永遠不會跑。**
-
-另一條 = settle-sweep cron,而它 route.ts:113 逐字
-  if (process.env.CRON_SWEEPER_ENABLED !== 'true') {
-    return Response.json({ ok: true, enabled: false, skipped: 'sweeper_disabled' }, { status: 200 });
-⇒ 預設關;Sean 說他會去 Vercel 開。
-```
-**⇒ 所以 C 的完整成本是三件,不是一件:**
-```
-① 新的窄 RPC(舉旗)+ 新的認領路徑(繞 ceiling/manual,照 B1a)
-② Sean 去 Vercel 開 CRON_SWEEPER_ENABLED     ← 他的動作,不是我的
-③ 🔴 而 sweeper 的認領述詞【不會】撿被舉旗的列(20260615120001:131 逐字 needs_manual_review = false)
-   ⇒ **要嘛在 sweeper route 裡多呼一次新的認領 RPC,要嘛另開一支 route。**
-   ⇒ 這一格會動 apps/storefront 的 route ⇒ **不在「零 code 改動」的想像裡。**
+❌ 我寫過:「現在仍是 false(route.ts:10 預設 false)」⇒ **那是程式的預設值,不是世界的狀態。**
+✅ 現況:docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md:14 逐字
+   「CRON_SWEEPER_ENABLED=true(**Sean 2026-08-17 下午設定並重新部署**)」
+   同源另一處 STATUS.md:34(Sean 給的字面值三個 flag 皆 true)
+🔴 來源屬性(不得美化):**Sean 回報 → 主視窗轉 → 落檔;沒有人親眼看過 Vercel 面板。**
+⇒ **C 案的硬前置①【已經付清】**,不是待辦。
+📌 這正是 route.ts ⛔ 段警告的那一款誤讀,而我照樣踩了。
 ```
 
-### 16-6 🔴 「排程開了沒」的量具 —— **而最順手的那個是陷阱**
-主視窗要求:找一個**開了與沒開會印不同東西**的量具。找到了,而順帶找到一個會騙人的:
+### 16-6 量具(**基線跟著改**)
 ```
-❌ **HTTP 狀態碼不是量具** —— route.ts:114 關著時回 `status: 200`,:142 開著時也回 `status: 200`
-   ⇒ 只看「cron 有沒有成功」的人,**在兩個世界看到同一個綠。**
-✅ 量具 =【回應的 body】:關著 {"ok":true,"enabled":false,"skipped":"sweeper_disabled"}
-                          開著 {"ok":true,"enabled":true, …}
-   ⚠️ 而要打那個端點需要 CRON_SECRET(:79 逐字「未設 / <32 → throw」)⇒ **那是 Sean 手上的東西**
-✅ 第二把(DB 側,不需要 secret):sweeper 認領時會 settle_attempt_count+1 且
-   next_settle_at = now() + interval '5 minutes'(20260615120001:141-142)
-   ⇒ 查「最近有沒有列的 next_settle_at 被推到未來」⇒ 兩個世界印不同的東西
-   🔴 **效度限定:只有在【確定有合格的列】時才有判別力** —— 零合格列時,開著也不會動任何東西
-      ⇒ 用它之前要先證明分母非零,否則量到的 0 與「沒開」無法分辨
+🔴 前一版拿「關著」當基線 ⇒ **基線錯了**(它 08-17 就開了)⇒ 量到 enabled:true 不代表「剛開的」。
+❌ HTTP 狀態碼不是量具:route.ts:114 關著回 200、:142 開著也回 200
+   ⇒ 只看「cron 有沒有成功」的人,在兩個世界看到同一個綠
+✅ 量具在【body】:{"enabled":false,"skipped":"sweeper_disabled"} vs {"enabled":true,…}
+   ⚠️ 打那個端點要 CRON_SECRET(:79)⇒ 在 Sean 手上
+✅ 第二把(DB 側)—— 🔴 **而最小路落地後它會量錯機器**:
+   前一版寫「查 next_settle_at 被推到未來」= sweeper 認領的副作用;
+   **而 B1a 型認領刻意【不動】next_settle_at**(只蓋 last_expired_settle_at)
+   ⇒ 最小路上線後,要量的是 **last_expired_settle_at**,不是 next_settle_at。
+   效度限定不變:**只有確定有合格列時才有判別力**;零合格列時開著也不動任何東西
+   ⇒ 用它前先證明分母非零,否則 0 與「沒開」分不出來。
 ```
 
-### 16-7 附帶查證:fable 中斷那輪指的兩個檢查點(**線索不是結論,我自己查的**)
+### 16-7 待裁 / 待補(**不要讀成已解決**)
 ```
-① anomaly adapter 的 parseCount 嚴格度 ⇒ **真的會 throw,而結果是【吵】不是【啞】**
-   PgAnomalyAlertReaderAdapter.ts parseCount 逐字:非有限/負/非整數 → throw
-   而缺欄位 ⇒ undefined ⇒ 既非 number 也非 string ⇒ NaN ⇒ **throw**
-   ⇒ 混版窗口(app 期待新欄位而函式還沒改,或反向)⇒ 整份 summary parse 失敗
-   ✅ 而 route 沒有吞掉它:anomaly-alert/route.ts:139-145 catch → **503 + console.error**,
-     註解逐字「不吞 200 偽裝成功」
-   ⇒ **結論:不是「弄啞告警」,是「告警整條變 503」** —— 前提是**有人在看 cron 失敗**
-   ⇒ 仍是 §5 第 1 步的**排序約束**:migration 要先於「app 期待新欄位」落地。寫進 §6-2。
-② 告警述詞的 P 族是否含 superseded pending ⇒ **字面上含,而實務上產不出來**
-   述詞第一支 a.status = 'pending' **沒有排除 superseded_at 非 NULL** ⇒ 字面上會收
-   而 L5a-1 讓路時 `SET status = 'released'`(20260810010000:259)+ 閘⑥ `superseded_at IS NULL`
-   真 write-once(:274)⇒ **supersede 只會產出 superseded+released,不會產出 superseded+pending**
-   ⇒ §1-1 的三族表**不必改**;而 P 族那格要補一句「字面上含 superseded pending,
-     只是現行寫入端產不出來」——🔴 **這是【我讀寫入端推出來的】,不是量到的**,標未確認。
+【待 Sean 裁】12 小時的等待可不可接受(§16 檔頭那格)—— 產品決定
+【待 Sean 裁】C 族出口:他 2026-08-10 拍過「那筆錢的唯一出口是退款」⇒ 見 §4-1 的待裁標記
+【待補】     route 加呼之後的單輪最壞時間 —— **沒有量過**
+【未確認】   vercel.json 無 crons 段 ⇒ 那支 cron 現在是誰在排、失敗會不會通知 —— 沒有人查過
+```
+
+---
+
+## 17. 🔴 回滾(鐵則 8 逐字要求 plan 含 rollback;**前一版整份 1041 行零回滾段**)
+
+> 由來:fable R3 must-fix。量法(可重跑):
+> `grep -c '回滾\|rollback\|Rollback' <本檔>` ⇒ 補之前 **1**,而那一處在講 `scripts/` 慣例、**不是本 plan 的回滾**。
+
+### 17-0 先講最重要的:**這條線的回滾不是「revert commit」**
+```
+🔴 code 可以 revert,而【已經 apply 的函式不會跟著回去】。
+⇒ 每一支要 apply 的東西,都要有一份【不依賴任何人記得】的回滾素材,
+  而不是「出事再想辦法」。
+```
+
+### 17-1 逐步的回滾素材(每步都要有,缺一不准 commit)
+| §5 步 | 出事的樣子 | 回滾素材(**要跟著那一步一起交**) |
+|---|---|---|
+| **1** 告警函式加三族計數 | 新函式有 bug ⇒ 每輪 cron **503** ⇒ 通道靜默 | 🔴 `scripts/<步1>-down.sql`:**整支重貼上一版本體**。上一版在 `20260810220000`(§6-2 已指)。**連帶要把 `scripts/l5b0-verify.sh:51` 的指紋 hash 一起回切** —— 否則回滾後那支守門會紅在錯地方 |
+| **2** settle-sweep route 加呼 | 單輪吃穿 60s ⇒ 每輪 timeout ⇒ sweeper 實質降速 | code 層 revert 即可(**不動 DB**)⇒ 這一步的回滾是便宜的,**而那正是選最小路的另一個好處** |
+| **3** (若 Sean 裁要做)C 族相關 | — | ⏸ 等 §4-1 的待裁 |
+
+### 17-2 回滾的**觸發判準**(寫出來,否則沒有人敢按)
+```
+步 1  cron 連續 2 輪 503,且 body 指向 parse 失敗 ⇒ 立刻回滾,不要現場除錯
+      (依據:告警靜默的成本 = 雙扣看不見;而 08-07 同型事故壞了 8 小時)
+步 2  單輪執行時間 > 50s(留 10s 餘裕)⇒ 回滾或壓 limit
+```
+
+### 17-3 誰能執行回滾 —— 🔴 **這一格是缺口,寫出來不掩蓋**
+```
+回滾步 1 要對正式庫跑 psql，而【憑證在 Sean 手上】(§8/§12 已述:窗沒有 DB 權限)
+⇒ **半夜出事時,能按下回滾的只有 Sean。**
+⇒ 這不是我能解的,而**它必須寫在 plan 裡**,不能讓下一個人以為「有 down script 就安全了」。
+⇒ 要降低這一格,只有兩條路:①事前把 down script 交到他手上並確認他跑得動
+                            ②把步 1 的風險降到不需要半夜回滾(例如先只加鍵不改語意)
+   **②正是 §6-2 那條「jsonb 只加不改」的另一個理由。**
+```
+
+### 17-4 本節的證據等級
+```
+· down script 的【內容】我還沒寫 —— 本節寫的是【要求與判準】,不是成品
+· 「上一版本體在 20260810220000」是 §6-2 引的,我**沒有逐行比對過那支與現行 live 定義**
+  ⇒ 回滾前要先確認 live 定義真的等於那一版(l5b0-verify.sh:51 的指紋就是幹這個的)
+· 「08-07 同型事故壞 8 小時」= 引自 memory `feedback_app-layer-must-not-ship-before-migration-apply`,我未重查原始紀錄
 ```
