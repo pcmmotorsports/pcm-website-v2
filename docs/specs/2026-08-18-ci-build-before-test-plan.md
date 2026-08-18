@@ -100,7 +100,41 @@ ci.yml 的順序：              typecheck → lint → （無 build）→ test
 
 ## 3. 要改什麼
 
+> 🔴 **2026-08-18 11:5x 裁定更新：採【乙】(只 build admin)，不是甲。**
+> 經過 R1/R2/R3 三輪與 §9 的重新推導，**本節原本寫的甲已被取代**。原文保留在下方刪除線裡，零刪除。
+> 主視窗自陳它兩次都錯在同一個地方（原文）：**「我在權衡兩個方案的【性質】，而沒有先問【需求到底是什麼】。」**
+
+### 3-a 現行提案（乙）
+
 `.github/workflows/ci.yml`，在 `:50 Test` **之前**插入一步：
+
+```yaml
+      # 🔴 `apps/admin` 有兩支測試量的是【編譯後產物】(`.next/static/chunks` 與編譯後 CSS)：
+      #      apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page-measure.test.tsx
+      #      apps/admin/src/components/orders/orders-status-visibility-browser.test.tsx
+      #    它們在缺產物時**刻意 throw 而不是 skip** —— skip 會把「有守門」變成「有宣稱」。
+      #    ⇒ 少了這一步，CI 恆紅；而恆紅與恆綠一樣沒有判別力。
+      #
+      # 🔴 **為什麼只 build admin，不是 `pnpm build`(全 monorepo)**：
+      #    那兩支測試都在 `apps/admin` ⇒ admin 產物就是需求的全部。
+      #    而 `ci.yml` 有【零個 `env:`】(`grep -c 'env:' .github/workflows/ci.yml` ⇒ 0)，
+      #    全 build 會連 storefront 一起建，產出一份 `NEXT_PUBLIC_*` 內插為空的 client bundle
+      #    —— 對這兩支無影響(它們量 CSS/chunks)，但那是**多出來、與線上結構不同**的產物。
+      #    ⚠️ 實測它【不會失敗】(見本 plan §9-a，無 `.env.local` 的鑽機四發皆 rc=0)，
+      #       所以這不是「會爆」，是「沒有人要它」。
+      #
+      # ⚠️ **給未來的人（乙的已知代價，寫下來就不再是隱形的坑）**：
+      #    若你在 `apps/storefront` 新增依賴編譯產物的測試，這一步要一起擴到 storefront，
+      #    並自行處理它需要的 env（參考 `e2e-prod.yml` 那步的 `env:` 區塊）。
+      - name: Build admin (編譯產物類測試的前置)
+        run: TURBO_FORCE=1 pnpm --filter @pcm/admin build
+```
+
+**只加一步，不動既有任何一步。** 不改測試、不加 skip、不改任何斷言。
+
+### 3-b ~~原提案（甲）~~ —— 已被取代，保留備查
+
+~~`.github/workflows/ci.yml`，在 `:50 Test` **之前**插入一步：~~
 
 ```yaml
       # 🔴 `page-measure.test.tsx` 與 `orders-status-visibility-browser.test.tsx` 量的是
@@ -162,7 +196,10 @@ ci.yml 的順序：              typecheck → lint → （無 build）→ test
 - **只動一個檔**：`.github/workflows/ci.yml`（加 5 行 + 註解）。零 code、零 schema、零 migration。
 - **不影響 `E2E (production build)`**：那是另一支 workflow（`e2e-prod.yml`），本案不碰。
 - **不影響本機三綠/四綠**：本機順序本來就有 build。
-- **CI 耗時會變長**。本機實測 `TURBO_FORCE=1 pnpm build`（`0 cached, 2 total`）：**8.175s / 14.706s / 18.31s / 43.173s**（四發，同一台機器不同負載）。
+- **CI 耗時會變長**。
+  🔴 **注意分母：下面這組數字是【全 monorepo build】量的（`0 cached, 2 total` = 兩個 app），而現行提案是【乙，只 build admin】** ⇒ **實際會比這組數字短，短多少未量。**
+  本機實測 `TURBO_FORCE=1 pnpm build`（兩個 app）：**8.175s / 14.706s / 18.31s / 43.173s**（四發，同一台機器不同負載）。
+  📌 這一處是 `scripts/literal-sweep.sh 'TURBO_FORCE=1 pnpm build'` 掃出來的 —— **方案從甲改乙時，這個數字留在另一節沒跟著改。** 正是 `feedback_claimed-sync-but-only-patched-touched-lines` 那個形狀。
   🔴 **GitHub runner 上要多久 = 未量**（`ubuntu-latest` 規格與本機不同，我沒有辦法在批准前量它）。
   ⇒ 以 CI 現行 201 秒為基數，**估**增加一至兩分鐘；**這個數字是估的，不是量到的。**
 
@@ -229,7 +266,9 @@ codex R2 逐字：「用錯誤訊息字串計數無法完整識別所有依賴 b
 
 ## 7. 驗收條件（每條可 yes/no）
 
-1. `grep -cE "pnpm build|turbo run build" .github/workflows/ci.yml` ⇒ **1**（現在是 0）。
+1. `grep -c 'pnpm --filter @pcm/admin build' .github/workflows/ci.yml` ⇒ **1**（現在是 0）。
+   ⚠️ **驗收字面已跟著【乙】改** —— 原本寫的是 `grep -cE "pnpm build|turbo run build"`，那是甲的字面。
+   📌 這是本 repo 記過的形狀：**改了方案而驗收條款留在另一節沒跟著改**（`feedback_claimed-sync-but-only-patched-touched-lines`）。
 2. Build 步驟在 `Test` 步驟**之前**：`grep -n "name: Build\|name: Test" .github/workflows/ci.yml` 的行號，Build < Test。
 3. 🔴 **PR 上**那一發 CI（**不推 dev**；理由與三條路的分工見 §7-b、執行面限制見 §9-e）：`gh run view <id> --json conclusion` ⇒ **success**，且 `Test Files` 的 failed 數 ⇒ **0**。
 4. 🔴 **負向對照（不可省）**：拿掉 Build ⇒ 那兩支**必須再度紅**，錯訊息仍是「找不到建置產物」。
