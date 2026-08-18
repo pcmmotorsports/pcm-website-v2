@@ -815,13 +815,31 @@ export type AdminOrderDetailItem = {
   /**
    * 本品項的採購列(M-4b E10 A9a-2)。排序 = `createdAt` ASC,三層全序
    * (權威實作 = `mappers/created-at-order.ts` 的 `compareByCreatedAtThenId`)。
-   * 沒訂過貨 = 空陣列(**不是** null)。
+   *
+   * 🔴 **`#646`(2026-08-18)起 `null` 有意義,而它與 `[]` 是兩件相反的事**:
+   * ```
+   * null  = 【讀不到】一列都沒讀到（內嵌鍵沒回來／投影退版／本項不在內嵌那份裡）
+   * []    = 問過了，答案是零筆（這個品項沒訂過貨）⇒ 這是**正常狀態**，不是錯誤
+   * ```
+   * ⚠️ **`null` 【不】告訴你「重整會不會好」——那是另一個問題,而本欄沒有答案。**
+   *    本 repo 內對這件事有**兩個相反的說法**,兩個都沒有量測:
+   *    · 本欄第一版(我寫的)寫「投影退版 ⇒ 重整真的可能會好」
+   *    · `apps/admin/src/lib/orders/cancel-view.ts` 的 `charge_attempt_unknown` 逐字
+   *      「成因之一是投影退版 / 內嵌鍵沒回來,那種情況**重新整理不會好**」
+   *    ⇒ **標未確認,兩種都當可能** ⇒ 顯示端一律用條件句(可以先重整看看／還是這樣就是固定限制),
+   *      不得往任一邊斷言。(`#646` 關卡2 code-reviewer 抓到這個矛盾。)
+   * ~~原註「沒訂過貨 = 空陣列(**不是** null)」~~ 那句**仍然成立**(沒訂過貨依舊回 `[]`),
+   * 但它當時的言下之意「本欄不會是 null」**從 `#646` 起是假的**。
+   * ⇒ 顯示端與寫入端都**必須先分辨 `null`**(型別會逼你);`null` 時走 fail-closed,
+   *   而給員工的話要說「**重新整理**」—— 那是這一種**真的會好**的世界。
    */
-  procurements: AdminOrderItemProcurement[];
+  procurements: AdminOrderItemProcurement[] | null;
   /**
-   * 🔴 `procurements` **可能不完整**(fail-closed;兩個來源):
-   * ①觸及請求端上限 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`(剛好等於上限時分不出「就這麼多」與
-   *   「被切了」⇒ 一律當可能不完整)②內嵌鍵整個沒回來(投影退版)。
+   * 🔴 `procurements` **可能不完整** —— `#646` 起**只剩一個來源**:
+   * 觸及請求端上限 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`(剛好等於上限時分不出「就這麼多」與
+   * 「被切了」⇒ 一律當可能不完整)。**這個世界重整不會好,文案不得叫員工重整。**
+   * ~~②內嵌鍵整個沒回來(投影退版)~~ **已移出本旗標**,改由 `procurements === null` 表示
+   * (`#646`:一個旗標兩個世界 ⇒ 消費端分不出自己在哪一個)。
    * 背景同 A9a-1 的 `notesTruncated`:PostgREST `max-rows` 對內嵌列同樣生效
    * (~~production 實測 1000~~ ⇒ **2026-08-18 實測 2000**,V 窗量、本檔改動者未自驗)
    * ⇒ adapter 自己夾一個更低的上限,讓邊界與專案設定脫鉤。

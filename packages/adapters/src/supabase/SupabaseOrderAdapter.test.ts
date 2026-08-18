@@ -1531,10 +1531,14 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(res?.customerNotified).toBeNull();
     // 🔴 這一欄仍是 false,而且**必須**是 —— 它是畫面分辨「讀取失敗」與「被截斷」的唯一依據。
     expect(res?.notesTruncated).toBe(false);
-    // 🔴 A9a-2 + 關卡2 codex MF1:採購內嵌鍵整個缺(投影退版)→ 空清單、不 throw,
-    //    但 **procurementTruncated = true**(「沒問到」不等於「答案是零筆」;A10b 據此拒絕送出表單)。
-    expect(res?.items[0]?.procurements).toEqual([]);
-    expect(res?.items[0]?.procurementTruncated).toBe(true);
+    // 🔴 A9a-2 + 關卡2 codex MF1:採購內嵌鍵整個缺(投影退版)→ 不 throw,
+    //    而且「沒問到」不得等於「答案是零筆」(A10b 據此拒絕送出表單)。
+    // 🔴🔴 `#646`(2026-08-18)換了**表達方式**:~~`[]` + `procurementTruncated: true`~~
+    //    ⇒ **`procurements: null`**(讀不到),`procurementTruncated` 從此只表示「觸及上限」。
+    //    ⚠️ 這裡斷言 `toBeNull()` 而**不是** `not.toEqual([])`:後者對 `undefined`、`0`、
+    //    任何非空陣列都會綠 ⇒ 那把尺答的是別的問題。
+    expect(res?.items[0]?.procurements).toBeNull();
+    expect(res?.items[0]?.procurementTruncated).toBe(false);
   });
 
   // 🔴 關卡2 codex MF2 的**方向二**:施工當場的突變 M12(把 itemsTruncated 寫死成 false)

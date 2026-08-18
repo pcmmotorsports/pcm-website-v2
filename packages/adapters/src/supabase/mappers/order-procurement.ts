@@ -81,10 +81,27 @@ export type SupabaseOrderItemProcurementRow = Pick<
   suppliers?: SupabaseProcurementSupplierEmbed;
 };
 
-/** 單一品項的採購投影(清單 + 「清單不可信」旗標一起回,避免呼叫端各自重算)。 */
+/**
+ * 單一品項的採購投影(清單 + 「觸及上限」旗標一起回,避免呼叫端各自重算)。
+ *
+ * 🔴 **`#646`(2026-08-18,Sean 批「現在做」、主視窗裁乙):兩個世界拆成兩個欄位。**
+ * 舊形狀是**一顆布林**同時代表「讀不到」與「觸及上限」——
+ * 而那兩個世界對員工的指示**相反**(前者重整真的可能會好,後者永遠不會好)
+ * ⇒ 消費端拿到 `true` 分不出自己在哪一個,文案只能寫成條件句。
+ * 拆法**不是**多一個原因字串(那樣消費端可以繼續只看布林、編譯器不攔),
+ * 而是**讓型別逼人回答**:`null` 進不了 `.length` / `.map`。
+ */
 export type AdminOrderItemProcurementProjection = {
-  procurements: AdminOrderItemProcurement[];
-  /** true = 清單**可能不完整**(觸及請求端上限,或內嵌鍵整個沒回來);見 domain 型別註解 */
+  /**
+   * `null` = **讀不到**(內嵌鍵整個沒回來 / 投影退版)⇒ 重整**真的可能會好**。
+   * `[]` = 問過了,答案是零筆(這個品項沒訂過貨)。**兩者不可混為一談** ——
+   * 混在一起正是 `#646` 在修的病(同 `order-cancellations.ts` 的既有處置)。
+   */
+  procurements: AdminOrderItemProcurement[] | null;
+  /**
+   * `true` = **觸及請求端上限**(`ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`)⇒ 固定限制,**重整不會好**。
+   * 🔴 `#646` 起它**只**表示這一件事;「讀不到」改由 `procurements === null` 表示。
+   */
   procurementTruncated: boolean;
 };
 
@@ -101,12 +118,17 @@ export function mapSupabaseProcurementRowsToProjection(
   // 🔴 **內嵌鍵整個缺(`undefined`)≠「這個品項沒訂過貨」**(關卡2 codex MF1):
   //    投影退版時 `?? []` 會把「沒問到」翻譯成「問過了,答案是零筆」—— 而下游 A10b 是**寫入端**
   //    (A5a 全量 payload),照著空清單當「新建」送出去 = 用空白覆蓋掉真實的採購事實。
-  //    ⇒ 缺鍵一律當**清單不可信**(`procurementTruncated = true`),語意與「被截斷」同一格:
-  //      「你拿到的不是全部」。A10b 看到這個旗標就不得送出表單(見 domain 型別註解)。
+  //    ~~⇒ 缺鍵一律當**清單不可信**(`procurementTruncated = true`),語意與「被截斷」同一格~~
+  //    🔴 **上面那句 `#646`(2026-08-18)起作廢**:缺鍵改回 `procurements: null`,
+  //      `procurementTruncated` 只表示「觸及上限」。fail-closed 沒有變鬆 ——
+  //      A10b 改看 `procurements === null`(型別強迫它先處理),見下方 `#646` 那段與 domain 型別註解。
   //    ⚠️ 這是 fail-closed 的降級,不是偵測:它讓退版**看得見**,不代表退版不會發生
   //      (真正擋住退版的是 `SupabaseOrderAdapter.test.ts` 的投影 byte-equal + `toContain` 兩道)。
-  const missing = rows == null;
-  const safeRows = rows ?? [];
+  // 🔴 `#646`:缺鍵不再翻成 `truncated=true`,而是**回 `null`** ——
+  //    語意從「你拿到的不是全部」精確成「**我沒讀到**」,而型別會逼下游先處理它。
+  //    fail-closed 的立場沒有變(下游拿到 `null` 一樣不得送出寫入表單),變的是**它分得出是哪一種**。
+  if (rows == null) return { procurements: null, procurementTruncated: false };
+  const safeRows = rows;
   const procurements = [...safeRows].sort(compareByCreatedAtThenId).map((row): AdminOrderItemProcurement => {
     const supplier =
       row.suppliers == null ? null : Array.isArray(row.suppliers) ? (row.suppliers[0] ?? null) : row.suppliers;
@@ -155,6 +177,6 @@ export function mapSupabaseProcurementRowsToProjection(
   });
   return {
     procurements,
-    procurementTruncated: missing || safeRows.length >= ORDER_ITEM_PROCUREMENT_EMBED_LIMIT,
+    procurementTruncated: safeRows.length >= ORDER_ITEM_PROCUREMENT_EMBED_LIMIT,
   };
 }

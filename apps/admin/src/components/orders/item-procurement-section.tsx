@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderDetailItem, AdminOrderItemProcurement } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import {
   buildSupplierChoices,
@@ -25,52 +25,45 @@ const TH = 'px-2 py-1.5 text-left text-xs font-medium text-muted-foreground whit
 const TD = 'px-2 py-1.5 text-sm align-top';
 
 /**
- * 截斷警告。**兩個 scope 的文案刻意不同,而差別不在語氣,在【重整會不會好】。**
+ * 截斷警告。**三種情況的文案刻意不同,而差別不在語氣,在【我們有沒有證據】。**
  *
- * 🔴 **這一段 2026-08-18 改過,而原因是原文叫員工做一件永遠不會成功的事。**
- * 舊字面(兩個 scope 共用,因為那句在三元運算子**外面**):
- * ~~「請重新整理這張單;在完整載入之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。」~~
- *
- * 全陣紀律逐字(`apps/storefront/src/lib/account-order-copy.ts:16`):
+ * 🔴🔴 **本段 2026-08-18 傍晚由 `#646` 整段重寫;上一版(`#643` B)的論證已不適用,不要照它改。**
+ * 舊字面(更早、`#643` B 之前)~~「請重新整理這張單;在完整載入之前不能編輯採購」~~
+ * 已因下面這條紀律被撤:全陣紀律逐字(`apps/storefront/src/lib/account-order-copy.ts:16`)
  * > **「請重新整理」只准出現在【真的重整就會好】的地方。**
- * 顧客站的舊句已因這條被改掉(`#636`);**後台這句一模一樣的話一直還在**(`#643` B)。
  *
- * ## 🔴 為什麼是【條件句】而不是「請重新整理這張單」(**這是本段的重點,不要改回去**)
+ * ## `#646` 之後,這一區有三種情況(兩個欄位、三種說法)
  *
- * 兩個句型的差別**不是囉唆**:
  * ```
- * 「請重新整理這張單」        ⇒ 宣稱重整【會】好          ← 紀律要防的正是這個
- * 「可以先重新整理看看；      ⇒ 只說值得試一次，
- *   如果還是這樣，那是固定限制」  並且給出【試完之後】的判準與出路
+ * ① item 讀到了但觸及上限   procurements=[…] + procurementTruncated=true
+ *    ⇒ 證據是【品項級】的（mapper 自己算的 length >= 50）⇒ **講死**：固定限制、重整不會改變
+ * ② item 一列都沒讀到       procurements=null
+ *    ⇒ 🔴 **沒有證據說它是哪一種** ⇒ **不宣稱**，用條件句
+ * ③ order 清單沒完整載入    detail.itemsTruncated=true
+ *    ⇒ 這一欄併了兩個來源：mapper 的 length>=200（固定）
+ *      與 mergeDetailItems 的【筆數對帳不符】（暫時）⇒ **不宣稱**，用條件句
  * ```
- * 而它必須是條件句的**機械理由**是:這個警告會被兩種旗標印出來,而兩種的真假相反 ——
+ *
+ * ## 🔴 為什麼 ②③ 是條件句 —— 這是【證據到此為止】,不是偷懶
+ *
+ * 關卡2 codex 連兩輪抓到我在同一件事上犯三次:
  * ```
- * order  detail.itemsTruncated = order_items.length >= ORDER_ITEMS_EMBED_LIMIT
- *        （mappers/order.ts:911，常數 :411 = 200）
- *        ⇒ 【純固定上限】。重整拿到同一個數字 ⇒ 叫他重整就是叫他做白工
- *
- * item   procurementTruncated = missing || safeRows.length >= ORDER_ITEM_PROCUREMENT_EMBED_LIMIT
- *        （mappers/order-procurement.ts:158，常數 :44 = 50）
- *        ⇒ 🔴 **一個旗標，兩個世界**：
- *           missing（rows == null，投影缺鍵）→ 可能是暫時的 ⇒ **重整真的可能會好**
- *           >= 50（固定上限）              → 重整不會好
+ * 第一版  ②③ 都改成講死「固定限制」        ⇒ ③ 的「筆數對帳不符」那條路重整會好 ⇒ 說謊（MF1）
+ * 第二版  ② 的 fixed 吃 detail.itemsTruncated ⇒ 拿【訂單層】事實斷定【品項】 ⇒ 說謊（MF2）
+ * 第三版  ② 的 fixed 吃 item.procurementTruncated
+ *        ⇒ 而那一欄可能是 mergeDetailItems 拿訂單層事實填的 ⇒ 繞一圈同一個病（codex round2）
  * ```
- * ⇒ **把「重新整理」整個拿掉會讓 `missing` 那個【真的重整就會好】的世界失去唯一正確的指示;
- *    照舊寫「請重新整理這張單」則對另外兩個世界說謊。** 條件句是唯一在三個世界都不假的講法。
- * 📎 形狀抄 `cancel-result-panel.tsx:107` / `:127` 的既有先例,不是新創。
+ * ⇒ 現行版本:**② 完全不宣稱**,`mergeDetailItems` 也不再替品項猜(它填 `procurementTruncated: false`,
+ *   意思是「我沒有證據說它固定」)。要讓 ② 也講得死,得先有**品項級**的截斷原因 —— **不在本片**。
  *
- * 🔴 **主視窗 2026-08-18 裁【乙】:一句話、兩個 scope 共用,不分開講。**
- *    我當時做的是分 scope 版(每種都對),它判「下一個人要先搞懂為什麼有兩種」⇒ 收斂成一句。
- * ⚠️ **乙沒有解掉的那一半,已另立 backlog(見下)**:
- *    `order` scope 是**純固定上限**,重整對它**永遠**沒用 —— 這句話仍會讓那個世界的員工
- *    白按一次重整。**它不再說謊,但也還沒精準。**
- * ⚠️ **要讓 item 那半也能講死,得先把 `missing` 從旗標裡拆出來**(動 mapper 回傳形狀、
- *    跨 `packages/adapters`)⇒ 那不是文案片,**本片刻意不做**。
+ * ## 兩句話都保留的那半句
  *
- * 🔴 **「在完整載入之前不能編輯採購」這半句留著,因為它描述的是【真的擋著的行為】**:
- *    `item-procurement-form.tsx:263` `<fieldset disabled={truncated || …}>`,
- *    而該檔 `:49` 自陳 action 端還有第二道(`hidden stale=1`)⇒ **兩道,不是文案自嗨。**
- *    把一句描述真實限制的話當廢話刪掉,會製造一個新的靜默失敗。
+ * 🔴 「在完整載入之前不能編輯採購」描述的是【真的擋著的行為】:
+ *    `item-procurement-form.tsx` 的 `<fieldset disabled={…}>`,而該檔自陳 action 端還有第二道
+ *    (hidden `stale=1`)⇒ **兩道,不是文案自嗨。** 把一句描述真實限制的話當廢話刪掉,
+ *    會製造一個新的靜默失敗。
+ * ⚠️ 而伺服器端那則(`procurement-action-state.ts` 的 `stale`)`#646` 之後**刻意不複述下一步** ——
+ *    hidden `stale` 只帶得上來一個 `1`,分不出是 ①②③ 哪一種,複述必然在另外兩種說謊。
  */
 function TruncationWarning({ scope }: { scope: 'item' | 'order' }) {
   return (
@@ -78,12 +71,46 @@ function TruncationWarning({ scope }: { scope: 'item' | 'order' }) {
       role='alert'
       className='mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
     >
-      {scope === 'order'
-        ? '這張單的品項清單這次沒有完整載入,下面看到的採購紀錄可能不是全部。'
-        : '這個品項的採購紀錄這次沒有完整載入,下面看到的可能不是全部。'}
+      {scope === 'order' ? (
+        <>
+          這張單的品項清單這次沒有完整載入,下面看到的採購紀錄可能不是全部。
+          可以先重新整理看看;
+          <strong>如果還是這樣,那是系統的固定限制、不會自己好</strong>,請找負責人處理。
+        </>
+      ) : (
+        <>
+          這個品項的採購紀錄太多,超過一次能載入的上限,下面看到的不是全部。
+          <strong>這是系統的固定限制,重新整理不會改變</strong>,請找負責人處理。
+        </>
+      )}
+      在完整載入之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。
+    </div>
+  );
+}
+
+/**
+ * 🔴 `#646` 的另一半:**讀不到**(`item.procurements === null`,內嵌鍵整個沒回來/投影退版)。
+ *
+ * 這是**另一個世界**,不是上面那個的變體:
+ * ```
+ * 讀不到（本元件）   → 暫時性 ⇒ **重整真的可能會好** ⇒ 唯一正確的指示就是「請重新整理」
+ * 觸及上限（上面）   → 固定的 ⇒ 重整永遠不會好      ⇒ 說「請重新整理」就是叫他做白工
+ * ```
+ * 舊版兩者共用一顆布林 ⇒ 只能寫成條件句(「可以先重新整理看看;如果還是這樣…」)。
+ * `#646` 把它們拆開之後,**兩邊都可以講死**,而這正是這一片全部的價值。
+ * 📎 全陣紀律(`apps/storefront/src/lib/account-order-copy.ts:16`)逐字:
+ *    **「請重新整理」只准出現在【真的重整就會好】的地方** —— 這裡就是那個地方。
+ */
+function UnreadableWarning() {
+  return (
+    <div
+      role='alert'
+      className='mb-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
+    >
+      這個品項的採購紀錄這次<strong>沒有讀到</strong>(不是「沒有採購」)。
       可以先重新整理看看;
       <strong>如果還是這樣,那是系統的固定限制、不會自己好</strong>,請找負責人處理。
-      在完整載入之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。
+      在讀到之前不能編輯採購(避免用不完整的內容覆蓋既有紀錄)。
     </div>
   );
 }
@@ -160,11 +187,21 @@ function VoidReasonCell({ reason }: { reason: string | null }) {
 
 function ProcurementRows({
   item,
+  rows,
+  unreadable,
   orderId,
   returnTo,
   truncated,
 }: {
   item: AdminOrderDetailItem;
+  /**
+   * 🔴 `#646`:已解過 `null` 的採購列。**呼叫端負責解**(`item.procurements ?? []`),
+   * 因為「讀不到」與「零筆」的**分流發生在呼叫端**(要不要走那個 `<details>` 快樂路徑)。
+   * 本元件只收結果,不重算 —— 重算 = 第二個真相源。
+   */
+  rows: readonly AdminOrderItemProcurement[];
+  /** `true` = 讀不到(`procurements === null`);與「零筆」是兩件事,見下面第一個分支。 */
+  unreadable: boolean;
   orderId: string;
   returnTo: string;
   /**
@@ -177,14 +214,26 @@ function ProcurementRows({
    */
   truncated: boolean;
 }) {
-  if (item.procurements.length === 0) {
-    // 🔴 片1(2026-08-18)之後,**這一行只剩「被截斷」那條路走得到** ——
-    //    零列且沒截斷的品項已經走上面那個 `<details>` 分支了。
-    //    ⇒ 原字面「還沒有採購紀錄」在這條路上**是假的**(沒撈到 ≠ 沒有),照本檔自己的規矩改掉。
-    //    ⚠️ 這是**片1 造成的語意轉移**,不是原作者寫錯:在片1 之前這一行兩種情況都會走到。
+  // 🔴 `#646`:先分「讀不到」再分「零筆」,而兩句話的**下一步動作不同**。
+  //    ⚠️ 順序不可對調:`unreadable` 時 `rows` 也是空的,先判零筆會把它講成「沒有採購」。
+  if (unreadable) {
+    // 🔴 `#646`:上面那張 `UnreadableWarning` 已經按「固定/暫時」講過話了
+    //    ⇒ 這一句**不再重複給指示**(重複而且可能不一致,是比沒講更壞的狀態)。
     return (
       <p className='text-muted-foreground text-sm'>
-        這個品項的採購紀錄這次沒有讀完,先重新整理再看。
+        這個品項的採購紀錄這次沒有讀到(不是「沒有採購」),詳見上方說明。
+      </p>
+    );
+  }
+  if (rows.length === 0) {
+    // 🔴 片1(2026-08-18)之後,**這一行只剩「被截斷」那條路走得到** ——
+    //    零列且沒截斷的品項已經走上面那個 `<details>` 分支了。
+    //    ⚠️ 這是**片1 造成的語意轉移**,不是原作者寫錯:在片1 之前這一行兩種情況都會走到。
+    //    🔴 `#646` 之後**又收窄一次**:「讀不到」已經被上面那個分支接走
+    //    ⇒ 走到這裡只剩【觸及固定上限】,所以這句不再叫他重新整理(那會是白工)。
+    return (
+      <p className='text-muted-foreground text-sm'>
+        這個品項的採購紀錄超過一次能載入的上限,這裡列不出來;請找負責人處理。
       </p>
     );
   }
@@ -205,7 +254,7 @@ function ProcurementRows({
           </tr>
         </thead>
         <tbody>
-          {item.procurements.map((p) => {
+          {rows.map((p) => {
             // 🔴 `#476` 片3:作廢與否**從資料算、不寫死** —— 理由逐字同 `shipment-section.tsx`
             //    那條(「寫死的話它會變成過濾條件的第二個真相源」)。
             //    ⚠️ 用 `!= null` 而非 `!== null`,與 `procurement-view.ts:findActiveProcurement`
@@ -329,7 +378,15 @@ export function ItemProcurementSection({
         {detail.items.map((item) => {
           // 🔴 兩個旗標要一起讀(A9a-2 domain 註解):品項本身被截掉時,per-item 旗標會
           //    連同品項一起消失 ⇒ 外層為 true 時,每個品項都當作不可信。
+          // 🔴 `#646`:三個狀態,而它們的【對員工的指示】不一樣,所以要分開算。
+          //    · unreadable ⇒ 讀不到（暫時的）⇒ 重整真的可能會好
+          //    · truncated  ⇒ 觸及固定上限     ⇒ 重整永遠不會好
+          //    · blocked    ⇒ 兩者皆不得編輯（fail-closed 立場【沒有】變鬆:
+          //      舊版 missing 會翻成 truncated=true 而擋住,拆開之後由 unreadable 接手擋)
+          const unreadable = item.procurements === null;
+          const rows = item.procurements ?? [];
           const truncated = item.procurementTruncated || detail.itemsTruncated;
+          const blocked = unreadable || truncated;
           return (
             <div key={item.id} className='rounded-md border p-3'>
               <div className='mb-2 flex flex-wrap items-baseline gap-2'>
@@ -340,7 +397,17 @@ export function ItemProcurementSection({
                 </span>
               </div>
 
-              {item.procurementTruncated && !detail.itemsTruncated && (
+              {/* 🔴 `#646`:兩個欄位回答兩個不同的問題,四種組合各有各的話要說。
+                  `procurements === null` = 我手上沒有這份清單;`procurementTruncated` = 這是不是固定限制。
+                  ⇒ 「沒讀到 + 固定」(品項落在 200 之外,`merge-detail-items.ts` 那條路)
+                    **不可以叫員工重新整理** —— 重整永遠不會改變。 */}
+              {/* 🔴🔴 `#646` 關卡2 codex 兩輪的結論:**「讀不到」這一種,我們沒有證據說它是哪個世界。**
+                  第一版 `fixed={truncated}`(吃訂單層旗標)⇒ 把暫時的說成固定 —— MF2。
+                  第二版改吃 `item.procurementTruncated` ⇒ 而那一欄可能是 `mergeDetailItems`
+                  拿**訂單層**事實填的 ⇒ 繞一圈同一個病復發 —— codex round2。
+                  ⇒ **不宣稱。** 這裡用條件句,而條件句在這裡是【證據到此為止】,不是偷懶。 */}
+              {unreadable && <UnreadableWarning />}
+              {!unreadable && item.procurementTruncated && !detail.itemsTruncated && (
                 <TruncationWarning scope='item' />
               )}
 
@@ -367,7 +434,11 @@ export function ItemProcurementSection({
                      而**唯一的送出鈕也在收合區內** ⇒ 今天產不出「送不出去又看不到錯在哪」那個死結。
                      **但只要有人照 OD 把 CTA 做成 `<details>` 外面的真 `<button>`(OD 正是那樣畫的),
                      或加任何 `form=` 的外部送出鈕,這條當場活過來。** 動它之前先想這件事。 */}
-              {item.procurements.length === 0 && !truncated ? (
+              {/* 🔴 `#646`:條件用 `blocked` 不是 `truncated` —— 讀不到時**不得**走這條路。
+                  走了的話畫面會說「還沒跟任何供應商訂」,而真相是「我沒讀到」
+                  ⇒ 那正是本片在修的病(「沒撈到」被講成「沒有」)。
+                  舊版靠 missing 會翻成 truncated 才擋住,拆開之後這裡要自己擋。 */}
+              {rows.length === 0 && !blocked ? (
                 <details className='group'>
                   {/* 🔴 `UnsourcedNotice` 在這條路上**刻意不渲染**:它逐字說「請在下面補上要向誰訂」,
                       而「下面」現在是收起來的;件數也已經在卡頭的「訂單數量」那格。
@@ -392,9 +463,9 @@ export function ItemProcurementSection({
                       orderId={detail.id}
                       returnTo={returnTo}
                       orderItemId={item.id}
-                      procurements={item.procurements}
-                      supplierChoices={buildSupplierChoices(suppliers, item.procurements)}
-                      truncated={truncated}
+                      procurements={rows}
+                      supplierChoices={buildSupplierChoices(suppliers, rows)}
+                      truncated={blocked}
                     />
                   </div>
                 </details>
@@ -404,18 +475,20 @@ export function ItemProcurementSection({
 
                   <ProcurementRows
                     item={item}
+                    rows={rows}
+                    unreadable={unreadable}
                     orderId={detail.id}
                     returnTo={returnTo}
-                    truncated={truncated}
+                    truncated={blocked}
                   />
 
                   <ItemProcurementForm
                     orderId={detail.id}
                     returnTo={returnTo}
                     orderItemId={item.id}
-                    procurements={item.procurements}
-                    supplierChoices={buildSupplierChoices(suppliers, item.procurements)}
-                    truncated={truncated}
+                    procurements={rows}
+                    supplierChoices={buildSupplierChoices(suppliers, rows)}
+                    truncated={blocked}
                   />
                 </>
               )}

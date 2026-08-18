@@ -121,8 +121,11 @@ export type OrderCancelBlockReason =
    * 修法之前它在**每一張沒採購過的單**上亮 ⇒ 員工必然學會忽略。修法之後它只在下列兩種**真異常**時亮:
    *   ① 「**有採購活動或取消活動、卻沒有摘要列**」= A4a 應該建列卻沒建
    *      (或 `mappers/order.ts:557` 偵測到 C7 不變式被違反);
-   *   ② **採購內嵌投影讀不全**(`procurementTruncated`;來源含「內嵌鍵整個沒回來 = 投影退版」,
-   *      `types.ts:521-523`)⇒ 推不出「零採購」這個前提。
+   *   ② **採購內嵌投影讀不全** ⇒ 推不出「零採購」這個前提。
+   *      🔴 `#646`(2026-08-18)起這一項有**兩個來源、分別由兩個欄位表示**:
+   *        · `procurements === null` = 一列都沒讀到(原本的「內嵌鍵整個沒回來 = 投影退版」)
+   *        · `procurementTruncated`  = 讀到了但觸及上限
+   *      ~~原文只寫 `procurementTruncated`(來源含投影退版)~~ —— 那個來源已經搬到 `null` 那一半。
    * ⇒ A13a 的文案照這個意思寫:兩種都不是「等一下再試」,是**「請通知系統維護」**。
    *
    * 🔴 **為什麼 ② 不比照 `itemsTruncated` / `ledger.unreadable` 一起抑制**(確認輪 R3 MF-ii 的處置):
@@ -452,7 +455,7 @@ function readCancellationLedger(
  *   - `cancelled = 0` 的依據:取消歷程**可讀且完整**、且該品項的 **Σci 恰為 0**。
  *   - `quantity` 的依據:`AdminOrderDetailItem.quantity` = `order_items.quantity` 真相值。
  *
- * 🔴🔴 **五項前提,第五項是確認輪抓到的**(我原本只寫四項,漏了 `Σci === 0`):
+ * 🔴🔴 **前提清單(`#646` 之後共六項;第五項是確認輪抓到的、第六項是 `#646` 加的)**:
  *   RPC 的摘要在場閘逐字是 `receipts > 0 **OR** Σci > 0` **且**缺摘要列 ⇒ RAISE(`:377-385`)
  *   ⇒ 「零採購但已取消過 2 件、且沒有摘要列」這種單,**RPC 必拒**,而我原本會推出上限放行
  *   = 又做出一個「按鈕亮著、送出必失敗」。⚠️ 更該記的是:**我把那個錯的行為寫成測試釘死了**
@@ -460,8 +463,13 @@ function readCancellationLedger(
  *   (實務上 Σci > 0 會讓 A4a 的 `order_cancellation_items` trigger 建好摘要列
  *    ⇒ 「Σci > 0 卻缺摘要」本來就是真異常,擋掉正確。)
  *
+ * 🔴 **`#646`(2026-08-18)加了第六項:`procurements !== null`(採購清單讀得到)。**
+ *   `null` = 一列都沒讀到 ⇒ **推不出「零採購」**。舊形狀下這一項是靠第二項(採購被截斷)代打的
+ *   (mapper 把缺鍵翻成 `truncated = true`);拆開之後它必須自己列在這裡,
+ *   否則**動這道閘的人讀的是這份清單、而不是實作那一行**(關卡2 code-reviewer 抓到)。
+ *
  * ⚠️ **任一前提不成立就退回 fail-closed**(模糊情況維持原紀律):
- *   有採購列 / 採購被截斷 / 歷程不可讀或被截斷 / 品項清單被截斷 / Σci 非零
+ *   採購讀不到(`null`)/ 有採購列 / 採購被截斷 / 歷程不可讀或被截斷 / 品項清單被截斷 / Σci 非零
  *   ⇒ 仍回 `null`、仍走 `quantity_summary_missing`。
  * ⇒ 修完之後那個碼的意思收窄成:**「有採購或取消活動、卻沒有摘要列」= A4a 應該建列卻沒建 = 真異常**
  *   (F4:訊號的判別力因此恢復)。
@@ -514,6 +522,12 @@ function toItemView(
     // 🔧 **失效條件**:若日後 A4a 的 `instock` 軸也排除作廢列,上面的反例消失,
     //   那時本處要重新評估(可能就該改成只算生效列了)。
     const zeroInferable =
+      // 🔴🔴 `#646` **等價替換,不是放寬**:舊版 `procurements` 缺鍵會被 mapper 翻成
+      //    `procurementTruncated = true`,於是下一行的 `!item.procurementTruncated` 擋住它;
+      //    拆開之後「讀不到」改由 `null` 表示 ⇒ **這一行接手擋**。
+      //    ⚠️ 少了這一行,「讀不到」會被推成「零採購」⇒ 可取消量算大 ⇒ 放行超量取消。
+      //    這是本片唯一碰到取消路徑 fail-closed 閘的地方(plan §6)。
+      item.procurements !== null &&
       item.procurements.length === 0 &&
       !item.procurementTruncated &&
       !ledger.unreadable &&

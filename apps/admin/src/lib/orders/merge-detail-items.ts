@@ -75,6 +75,18 @@ export function mergeDetailItems(
   // 內嵌那份按 id 索引 —— 它帶著採購資料,而撈到盡那份沒有。
   const embedded = new Map(detail.items.map((it) => [it.id, it]));
 
+  // 🔴🔴 `#646` 關卡2 codex(兩輪)：**「不在 embedded 裡」不等於「被 200 切掉」。**
+  //    反例走得到、不需要任何異常：兩次查詢之間新增一個品項 ⇒ 較新的 `fullItems` 有它、
+  //    較舊的 `embedded` 沒有 ⇒ 它**重新整理就會恢復**。
+  //    ⚠️ 我第一版寫死 `true`（＝宣稱固定）；第二版改讀 `detail.itemsTruncated`
+  //      —— 而**那是訂單層的事實，穿在品項身上還是猜的**（codex round2 抓到，同一個病第三次）。
+  //    ⇒ **結論：這裡【沒有】品項級的證據可以斷定是哪一種，所以本函式【不宣稱】。**
+  //      `procurementTruncated: false` 在這裡的意思是「**我沒有證據說它是固定的**」，
+  //      不是「我確定它是暫時的」；而 fail-closed 由 `procurements: null` 自己撐住
+  //      （消費端看到 null 一律停用編輯，見 `item-procurement-section.tsx` 的 `blocked`）。
+  //    📎 畫面因此對這種品項講**條件句**（可以先重整看看／還是這樣就是固定限制），
+  //      那不是偷懶，是**證據到此為止**。要講死得先有品項級的截斷原因（不在本片）。
+
   return {
     ...detail,
     items: fullItems.map((full) => {
@@ -91,12 +103,21 @@ export function mergeDetailItems(
       }
       // 🔴 內嵌那份沒有這一項 ⇒ 它落在 `ORDER_ITEMS_EMBED_LIMIT` 之外
       //    ⇒ 我們**沒有去讀**它的採購紀錄。
-      //    ⚠️ **不可以填 `procurementTruncated: false`** —— 那會讓畫面說
-      //       「這個品項沒有採購紀錄」,而事實是「我們沒看」。**兩者對員工的下一步完全不同。**
+      //    ⚠️ **不可以填 `procurements: []`** —— 那會讓畫面說「這個品項沒有採購紀錄」,
+      //       而事實是「我們沒看」。**兩者對員工的下一步完全不同。**
+      //
+      // 🔴🔴 `#646`:這一格要**兩個欄位一起填**,而它們回答的是**兩個不同的問題**:
+      //    ```
+      //    procurements: null            「我手上有沒有這份清單」 ⇒ 沒有，一列都沒讀
+      //    procurementTruncated: <有證據嗎>「這是不是固定限制」    ⇒ 只有撞過上限才敢說是
+      //    ```
+      //    ⚠️ **不可以寫死 `true`**(第一版就是寫死的,關卡2 codex 抓到):
+      //    寫死 = 對一個「重整就會恢復」的品項說「重整不會改變」,
+      //    **正是 `#646` 這條 backlog 在修的病,在一個新地方復發。**
       return {
         ...full,
-        procurements: [],
-        procurementTruncated: true,
+        procurements: null,
+        procurementTruncated: false,   // 🔴 「沒有證據說它固定」，不是「確定它暫時」（見上）
       };
     }),
     // 🔴 品項清單完整時翻成 false —— 否則畫面會對一份**真的完整**的清單說「沒有列完」,

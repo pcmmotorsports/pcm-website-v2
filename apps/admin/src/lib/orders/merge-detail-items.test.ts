@@ -43,11 +43,13 @@ const embeddedItem = (i: number, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const detailOf = (embeddedCount: number): AdminOrderDetail =>
+const detailOf = (embeddedCount: number, itemsTruncated = true): AdminOrderDetail =>
   ({
     id: 'o1',
     displayId: 'PCM-2026-0201',
-    itemsTruncated: true,
+    // 🔴 `#646`:這一欄進來時的意思是【內嵌那份有沒有撞到 200 上限】,
+    //    它是「缺 embedded 的品項到底是不是被上限切掉」的**唯一證據**(見 mergeDetailItems 內註解)。
+    itemsTruncated,
     items: Array.from({ length: embeddedCount }, (_, k) => embeddedItem(k + 1)),
   }) as unknown as AdminOrderDetail;
 
@@ -77,13 +79,45 @@ describe('🔴🔴 201 項的單:第 201 項不可以消失', () => {
     //    ⇒ 採購那一面【完全靠前半】撐住。前半填錯 = 畫面對員工說謊。
     const merged = mergeDetailItems(detailOf(embeddedCapped), full, full.length);
     const tail = merged.items.find((i) => i.id === 'oi-0201')!;
+    // 🔴🔴 `#646` 之後**承重的欄位換了**:擋住「被當成沒有採購紀錄」與「可以被編輯」的,
+    //    現在是 `procurements === null` 本身(消費端的 `blocked = unreadable || truncated`),
+    //    不再是 `procurementTruncated`。
+    //    ⚠️ 而 `procurementTruncated` 在這條路上**必須是 false** —— 那一欄的意思是
+    //    「有證據說這是固定限制」,而我們**沒有品項級的證據**(codex 關卡2 兩輪的結論)。
+    //    標成 true = 對一個可能重整就會恢復的品項說「重整不會改變」。
     expect(
       tail.procurementTruncated,
-      '標成 false ⇒ 畫面會說「這個品項沒有採購紀錄」，而事實是【我們沒去讀】。' +
-        '兩者對員工的下一步完全不同，而且它會讓那一項的採購【可以被編輯】—— ' +
-        '用不完整的內容覆蓋既有紀錄是真的會弄壞資料。',
-    ).toBe(true);
-    expect(tail.procurements).toEqual([]);
+      '沒有品項級的截斷證據卻標 true ⇒ 畫面會說「重整不會改變」，而那可能是假的',
+    ).toBe(false);
+    // 🔴🔴 `#646`:這一格從 `toEqual([])` 改成 `toBeNull()`,而**這不是把期望值改成現況** ——
+    //    `[]` 的意思是「問過了,答案是零筆」,那正是本測試標題說**不可以**的那句話。
+    //    `null` 才是「我沒去讀」。舊版靠旁邊那顆布林補救,現在型別自己講得出來。
+    expect(
+      tail.procurements,
+      '空陣列 = 「問過了，答案是零筆」⇒ 正是本測試要防的那句話；null 才是「我沒去讀」',
+    ).toBeNull();
+    // 🔴 兩個欄位要**一起**驗,而它們現在的分工是:
+    //    `null` = 我手上沒有這份清單(承重:擋住「沒有採購紀錄」那句話 + 停用編輯)
+    //    `false` = 我**沒有證據**說這是固定的(不是「我確定它是暫時的」)
+  });
+
+  // 🔴🔴 `#646` 關卡2 codex must-fix(2026-08-18):**「不在 embedded 裡」≠「被 200 切掉」。**
+  //    反例走得到、而且不需要任何異常:品項數 < 200 的單,在兩次查詢之間**新增了一個品項**
+  //    ⇒ 較新的 `fullItems` 有它、較舊的 `embedded` 沒有。
+  //    這個品項**重新整理就會恢復** ⇒ 標成「固定限制」= 叫員工別做一件其實有用的事,
+  //    **正是 `#646` 這條 backlog 在修的病,在一個新地方復發。**
+  // ⚠️ 這一格與上一格**成對**:只留上一格的話,一個「寫死 procurementTruncated: true」的實作照樣全綠
+  //    (第一版就是寫死的,而它通過了我自己的全部測試)。
+  it('🔴 內嵌沒撞上限,而某項不在內嵌裡(兩次查詢之間新增)⇒ 不得標成固定限制', () => {
+    const embeddedCount = 3;
+    const fullFour = Array.from({ length: 4 }, (_, k) => fullItem(k + 1));
+    const merged = mergeDetailItems(detailOf(embeddedCount, false), fullFour, fullFour.length);
+    const added = merged.items.find((i) => i.id === 'oi-0004')!;
+    expect(added.procurements, '沒讀到它的採購 ⇒ null(不是空陣列)').toBeNull();
+    expect(
+      added.procurementTruncated,
+      '內嵌那份根本沒撞到上限 ⇒ 沒有任何證據說這是固定的;重整就會恢復',
+    ).toBe(false);
   });
 
   it('🔴 正向對照 — 前 200 項的採購資料【要保留】,不可以一起被清成空的', () => {
