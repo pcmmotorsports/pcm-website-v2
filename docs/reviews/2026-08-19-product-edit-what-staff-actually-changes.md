@@ -1,0 +1,128 @@
+# 乙 · 員工要改一件商品,實際上要動到哪些東西 —— **從 schema 反推,不從設計稿反推**
+
+> 2026-08-19 G2。**現況盤點,不是 plan、不是設計評審。** 零 code 改動;正式庫全程唯讀 GET。
+> 交辦:主視窗裁「丙(乙+甲都做),乙先出」。理由用我自己的:**乙不依賴「我猜他在批哪一份設計稿」。**
+> 🔴 **方向是刻意的**:從 `products` 的欄位往回推,而不是從設計稿往前看 ——
+> **設計稿可能漏了欄位,而 schema 不會。**
+
+---
+
+## §0 三個把整件事翻過來的量測
+
+### ① 🔴🔴 後台今天**沒有任何商品編輯路徑**,一格都沒有
+
+```
+$ git grep -n "<form\|'use server'\|useActionState" -- apps/admin/src/app/products apps/admin/src/components/products
+  (排除 .test.)⇒ 命中 2 行,**兩行都是 2026-08-19 剛加的搜尋框**
+正向對照(證明尺會動):同一把尺對訂單域
+$ git grep -c "<form" -- apps/admin/src/components/orders  ⇒ 12 個檔命中
+```
+⚠️ **我第一發用 `form` 當 pattern,撈到了 `formatOrderDateTime` / `formatTime`** ——
+`format` 含 `form` ⇒ 假命中。**開檔才發現**,已改用 `<form`。
+(同族:`docs/patterns/guard-and-instrument-traps.md`「加了前綴的識別字在 grep 上與本體是同一個命中」。)
+
+**而 code 自己把這件事寫在畫面上**:
+```
+app/products/[id]/page.tsx:12   逐字「後台商品詳情頁(唯讀)」
+app/products/[id]/page.tsx:88   逐字「這一頁只能查看,不能修改。」
+app/products/page.tsx           逐字「目前只能查看,不能修改。」
+```
+
+### ② 🔴🔴 20,341 件商品**全部**是同步管線擁有的,員工手動的是 **0 件**
+
+```
+對正式庫實測(dev server 連正式站,唯讀 GET,2026-08-19):
+  /products                ⇒ 共 20341 件
+  /products?set_by=sync    ⇒ 共 20341 件
+  /products?set_by=staff   ⇒ 共 0 件
+```
+⇒ **這個系統裡,沒有任何一件商品被人碰過。**
+📎 而那不是意外:`app/products/page.tsx` 自己寫著「設定上下架的功能還沒做好,所以現在每一筆都是『自動』」。
+
+### ③ 🔴🔴 而 repo 早就把答案寫在畫面上了 —— **「不能改」是設計,不是缺工**
+
+`apps/admin/src/components/products/product-detail.tsx:191-198` 逐字(這段話今天就印在商品詳情頁上):
+> **這一頁的東西不能在後台改** —— 它由供應商同步管線維護。
+> **多數商品每天會被覆蓋一次**;但**是否每天同步、哪些欄位會被覆蓋,都依供應商而定**
+> (有的供應商是一次性匯入、不排每日;有的供應商的說明與手冊是凍結不動的)。
+> 圖片這一項**沒有「鎖住不給改」的機制** —— 只有「來源那天沒給值就不覆蓋」那一層,擋不住供應商換圖。
+
+---
+
+## §1 ⇒ 所以「編輯商品」這件事的真正形狀,**不是版面問題**
+
+```
+問題不是「編輯表單長得好不好看」
+問題是「**這一欄改完之後,明天早上還在嗎?**」
+```
+🔴 **任何一份商品編輯設計稿,只要沒有回答【每一欄由誰擁有】,它就漏掉了這件事的主體。**
+而**設計稿看不出這一格** —— 它只畫得出輸入框,畫不出「這個輸入框的值會不會被隔天的同步蓋掉」。
+
+**而 repo 裡【已經有】一個正確形狀的前例,只有一欄**:
+```
+supabase/migrations/20260815030000_m4b_20_products_listing_set_by_source_missing.sql:58-64
+  ADD COLUMN listing_set_by text NOT NULL DEFAULT 'sync' CHECK (listing_set_by IN ('sync','staff'))
+  COMMENT 逐字「這一列目前的上下架狀態(delisted_at)是誰決定的。
+              sync=每日同步管線;staff=後台員工手動設定。」
+```
+⇒ **`delisted_at` 是唯一一個「員工改了就不會被蓋掉」的欄位** —— 而且**連它的 UI 都還沒做**。
+⇒ **這就是整個編輯介面該長的樣子的種子**:每一個可編輯欄,都要有它自己的 `*_set_by`。
+
+---
+
+## §2 逐欄盤點:員工可能要改什麼,而今天有沒有地方放
+
+`products` 共 **25 欄**(數法:`database.types.ts` 的 `products.Row` 逐欄數)。
+
+| 欄位 | 員工可能要改? | 今天有地方放嗎 | 改了會不會被同步蓋掉 |
+|---|---|---|---|
+| `title` 商品名 | 會(名字太長/看不懂) | ❌ 無編輯路徑 | 🔴 **會**(依供應商) |
+| `subtitle` 副標 | 會 | ❌ | 🔴 會 |
+| `description` 說明 | 會 | ❌ | 🔴 會(有的供應商凍結) |
+| `price_general` 售價 | **不是他改的** | ❌ | 🔴 會 |
+| `price_store` 經銷價 | **不是他改的** | ❌ | 🔴 會 |
+| **特價** | 🔴 **Sean 明確要** | ❌🔴 **欄位本身不存在** | — |
+| `delisted_at` 上下架 | 會(最常用) | ❌ 無 UI | ✅ **不會**(`listing_set_by='staff'` 保護) |
+| `images` 圖片 | 會(供應商圖爛) | ❌ | 🔴 **會,而且沒有鎖**(`product-detail.tsx:196` 逐字) |
+| `highlights` / `fitments` / `manuals` / `sound_clips` / `video_url` | 可能 | ❌ | 🔴 依供應商 |
+| `brand_id` / `category_id` 分類 | 會(分錯類) | ❌ | 🔴 會 |
+| `external_id` 料號 | 不該改(它是同步的鍵) | ❌ | — |
+| `supplier_slug` / `handle` / `id` / `created_at` / `updated_at` / `availability` / `source_missing_at` / `metadata` / `price_by_tier` | 不該改 | ❌ | — |
+
+**🔴 特價那一格的來源(不是我推的)**:`docs/reviews/2026-08-19-product-admin-template-research.md` §0①
+量到 `sale_price|special_price|compare_at|discount_price|price_sale` 在 migrations 與 `database.types.ts`
+**0 命中**,並附正向對照(`price_general` ⇒ 11 命中)⇒ 尺會動。
+⇒ **員工要編的東西裡,最重要的那一個今天沒有落點。**
+
+---
+
+## §3 ⇒ 給下一步(甲)的判準
+
+甲要讀那兩份 OD 設計稿(`pcm-product-edit-screen` / `pcm-product-admin-4dir`)。
+**判準用這份清單,不用我的品味**:
+
+```
+① 這份設計稿裡,有沒有「特價」?——它是 Sean 明確要的,而欄位還不存在
+② 這份設計稿裡,每一個輸入框旁邊有沒有回答「這一欄改完會不會被明天的同步蓋掉」?
+   ⇒ 沒有 ⇒ 那份稿子畫的是一個【會靜默失效】的介面
+③ 上下架那一格,有沒有反映它是唯一有保護機制的那個?
+④ 圖片那一格,有沒有反映「沒有鎖、供應商換圖會蓋掉」?
+⑤ 它假設員工要改的欄位數量,與上表對得起來嗎?
+   ⇒ 🔴 若它畫了一整頁的輸入框,而實際上只有 1-2 欄改得動,那份稿子的形狀就錯了
+```
+
+---
+
+## §4 誠實揭示
+
+```
+· 20341 / 20341 / 0 這三個數是我 2026-08-19 對正式庫實測的,**會過期**;
+  量法:/products 與 /products?set_by=sync|staff 的「共 N 件」
+· 「哪些欄位會被同步覆蓋」我**沒有讀同步管線的 code** —— 它不在本 repo
+  (本 repo 零呼叫點:`git grep "\.save(" | grep -i product` 排除測試 ⇒ 0)
+  ⇒ 上表「會不會被蓋掉」那一欄的依據是 `product-detail.tsx:191-198` 那段**畫面上的警語**,
+    而那段警語自己就寫著「依供應商而定」⇒ **逐供應商的真實情況我未確認**
+· 我**沒有看過那兩份 OD 設計稿**(那是甲的工作)
+· 我沒有問過員工 —— 上表「員工可能要改?」那一欄是**我從欄位語意推的**,不是訪談來的
+  🔴 這一欄是本檔最弱的一欄,而它正好是甲的判準來源 ⇒ **要 Sean 或員工看過一次**
+```
