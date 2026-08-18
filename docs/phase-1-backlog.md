@@ -991,7 +991,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #33. 🚫【已 Supersede】~~IInventoryRepository 缺位(inventory context port + entity 欄位)~~ —— **Phase 2 觸發,Phase 1 不做**
 
-> # 🔴🔴 2026-08-19 **本查核錯了,我自己撤回** —— 那份 Supersede 註**就在下面第 1039 行**
+> # 🔴🔴 2026-08-19 **本查核錯了,我自己撤回** —— 那份 Supersede 註**就在同條目下面**(錨:`grep -n 'Supersede 註(2026-05-04 / M-1-02):' docs/phase-1-backlog.md` 的**第二筆**,第一筆是這句話自己)
 >
 > **我下面那整段的前提是假的。原句「本條目全文找不到任何 supersede 字樣」——**
 > **我掃的是條目開頭 15 行(`sed -n "${l},$((l+14))p"`),而本條目實際是 53 行(`992..1044`)。**
@@ -1000,13 +1000,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 >   l=$(grep -n '^### #33[ ]\?[.·]' docs/phase-1-backlog.md | head -1 | cut -d: -f1)      ⇒ 992
 >   nx=$(tail -n "+$((l+1))" docs/phase-1-backlog.md | grep -n '^### #' | head -1 | cut -d: -f1)
 >   ⇒ 條目 = 992..1044,**53 行**
-> 而那份 Supersede 註在 **:1039**,逐字「**- **Supersede 註(2026-05-04 / M-1-02):**」
+> 而那份 Supersede 註在**同條目下方**(錨:`grep -n 'Supersede 註(2026-05-04 / M-1-02):' docs/phase-1-backlog.md` 的**第二筆**,第一筆是這句話自己),逐字「**- **Supersede 註(2026-05-04 / M-1-02):**」
 > ```
 > 🔴 **病灶是我把「15 行的視窗」寫成「條目全文」** —— 尺對了、範圍錯了,而**輸出長得一模一樣**。
 > 📌 這正是我這一輪一直在別人身上抓的那個形狀,**這次是我。**
 >
 > ## ✅ 而查完真正的內容之後,**這條的答案是【乙】,不必再裁**
-> `:1039-1043` 逐字已經寫得很完整:
+> 那份 Supersede 註的正文逐字已經寫得很完整(錨同上):
 > ```
 > 業務訊號推翻原推薦處置:Sean 2026-05-04(PCM 訂貨型業務、商品基本無庫存、需訂貨 3-6 週)
 >                         客人只需看「可訂 / 訂不到」、不需要數字
@@ -1054,7 +1054,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **狀態:** 🚫 **已 Supersede**(2026-05-04 / M-1-02;Sean 業務訊號:PCM 訂貨型、需訂貨 3-6 週、客人只需看「可訂 / 訂不到」)
   · **trigger:** Phase 2 真撞高頻 `availability` 變動 / 多倉庫業務(PCM 倉 + 合作店家倉)時再重評
   · ~~⏳ 待執行~~(原值留痕)
-  · 🔴 **2026-08-19 主視窗代裁**【代裁人 MAIN,Sean 可推翻】:**讓標題與狀態欄追上條目自己第 48 行(`:1039`)的 Supersede 註。**
+  · 🔴 **2026-08-19 主視窗代裁**【代裁人 MAIN,Sean 可推翻】:**讓標題與狀態欄追上條目自己下方的 Supersede 註(錨:`grep -n 'Supersede 註(2026-05-04 / M-1-02):' docs/phase-1-backlog.md` 的**第二筆**,第一筆是這句話自己)。**
     理由逐字 = 「那是 **2026-05-04 Sean 自己的業務訊號**,不是我在改他的決定,是**讓標題追上他的決定**。」
 - **分流:** ~~P1-before-launch~~ → **Phase 2 觸發**
 - **優先級:** ~~🔴 高~~ → **🟢 觀察**(Phase 1 不做)
@@ -14065,7 +14065,7 @@ order by n desc, 1;
 - **起因:** OD `overview-desktop.html:612` 只給了一顆 `<button class="fchip">待處理</button>` —— **沒有 data-\*、沒有說明、沒有定義它篩什麼**。
 - ~~**🔴 擋住的是定義不是實作:** 現有白名單是 `payment_status` / `goods_axis`(`#484a` A2 起取代 `fulfillment_status`)/ `order_source` / `payment_channel`,「待處理」對不到其中任何單一值。**要 Sean 說它是什麼**(候選:未收款?未訂貨?兩者聯集?)。~~
   🏁 **已作廢(2026-08-19 G2)—— 這題 2026-08-14 就拍完了,而這一行排在拍板【下面】活到今天。**
-  · 拍板在同條目上方 `:13386-13388` 逐字「**C = 兩者聯集**」;`unpaid ∪ partiallyPaid` 那半是 08-15 補的**左項**定義。
+  · 拍板在**同條目上方**,逐字「**C = 兩者聯集**」(錨:`grep -n '經主視窗轉達' docs/phase-1-backlog.md`);`unpaid ∪ partiallyPaid` 那半是 08-15 補的**左項**定義。
   · **實作也早就照兩軸做完了**:`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:777-779` 逐字
     `query.or('payment_status.eq.unpaid,payment_status.eq.partiallyPaid,goods_axis.eq.none')` + `query.is('cancelled_at', null)`
     ⇒ 左軸右軸都在,`docs/specs/2026-08-15-1-today-view-plan.md:67` 要求的那道取消守門也在同一個 `if` 裡。
