@@ -209,12 +209,19 @@ const DELETE_CODE_SET = new Set<string>(RECEIPT_DELETE_RESULT_CODES);
  *    但那支 migration **已 apply**,`supabase/APPLIED.tsv:169` 記著它的 sha256
  *    ——我改完實測雜湊當場對不上(`54121aba…` → `80ae4f83…`),已 `git checkout` 還原。
  *    ⇒ **已 apply 的 migration 連註解都不能動**;回指改放本檔:
- *    P4A03 的原文在測試裡有兩份**手抄副本**當 fixture
- *    (`receipt-repository.test.ts` / `components/orders/receipt-undo-bar.test.tsx`,兩處都註了來源),
- *    **改那段 SQL 訊息時要回來對這兩份**,否則守門會對著舊字面恆綠。
+ *    P4A03 的原文在測試裡有~~兩份~~**三處**手抄副本當 fixture
+ *    (2026-08-18 `#451` 實查:`grep -rn '刪不掉這筆到貨紀錄' apps/ packages/` ⇒ TS 側 3 命中。
+ *     原本寫「兩份」是第三處還沒加進來時寫的,沒有人回頭改這句):
+ *      · `receipt-repository.test.ts` 的 `P4A03_MESSAGE` —— 完整版
+ *      · `components/orders/receipt-undo-bar.test.tsx` 的 `P4A03_MESSAGE` —— 完整版
+ *      · `receipt-actions.test.ts` 的 `msg` —— **節略版**(頭尾用 `…` 略過,但包裹清單逐字保留)
+ *    **改那段 SQL 訊息時要回來對這三處**,否則守門會對著舊字面恆綠。
  *    ⚠️ 已 apply 的那支動不了,但**新 migration 可以改到這段訊息** —— 那條路要接住:
- *    **若日後有新 migration 改動此訊息,必須同步本檔 fixture 與三層守門格**
- *    (repository / action / UI 各一格,見那三檔的「原文不准壓成一句」註解)。
+ *    🔴 **這條已經不靠這段註解了**(`#451`,2026-08-18):
+ *    `receipt-message-definers.test.ts` 掃 `supabase/migrations/*.sql`,
+ *    **repo 裡一出現第二支重新定義 `admin_delete_item_receipt` 的檔就紅**,紅訊息指回上面那三處。
+ *    ⚠️ 那格**不宣稱**「登記的那支就是正式庫在跑的那支」——它只回答「repo 裡多了一支嗎」;
+ *       也**不自動同步**字面(自動抄會讓「訊息被改壞」一起同步過來、守門變恆真)。
  *
  * ⚠️ **P4A03 有兩個發出點,兩者的訊息長得不一樣**(R1 nit:我原本只描述了主枝):
  *    另一枝 `:407-408` 是「讀不到品項 `<uuid>` 的數量摘要 —— 拒絕刪除」的 fail-closed,
