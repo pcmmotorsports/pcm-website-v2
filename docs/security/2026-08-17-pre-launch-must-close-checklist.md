@@ -509,14 +509,30 @@ Vercel 官方 Drains · Usage and pricing（last_updated 2026-07-22）逐字：
 ✅ 連帶答掉 `#547` 的未答子題:matcher 是**否定式**(everything-except,排除項恰 3 個)
 ⇒ **沒有一份要維護的路徑清單** ⇒ 新頁面出生那天就自動被涵蓋 ⇒ (b) 沒有過期風險。
 
-**怎麼驗它已補齊**:🔴 **本條不因此關掉,還差兩件**:
+✅ **① 突變已實跑,雙向都表演過了(2026-08-18 10:49,拋棄式 worktree `/Users/sean_1/pcm-w6-mutate`)**
 ```
-① 突變未實跑 —— 格1 是精確相等 ⇒「改 matcher 必紅」是【推得出來】不是【量到的】
-   要在【獨立 worktree】跑，不在主樹（主樹多窗並發，突變檔被別人 commit 走有實錘先例）
-   兩個世界：把 matcher 加一項排除 ⇒ 必須紅；不動 ⇒ 必須綠
-② 該檔自己聲明的量具邊界仍成立：它守【字面與清單結構】，
-   不驗「這條 pattern 在 Next runtime 下實際攔截哪些路徑」
+突變 = 排除清單多塞一項 |api（= 全部 /api 路徑的登入閘靜默消失，正是該測試註解點名的情境）
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api).*)']
+  ⇒ Test Files 1 failed / Tests 2 failed   ← 該紅的紅了（兩格都紅，非只有一格）
+還原後同一條命令
+  ⇒ Test Files 1 passed / Tests 2 passed   ← 該綠的綠了
+還原驗證 git diff --exit-code -- apps/admin/src/proxy.ts ⇒ rc=0
+主樹未被觸碰 git status --porcelain | grep -c 'proxy.ts' ⇒ 0
+```
+🔴 **兩發都跑才算數**:只跑紅那發 = 證明它會紅,不證明它平常不是恆紅;
+只跑綠那發 = 證明它現在綠,不證明它擋得住任何東西。
+
+**怎麼驗它已補齊**:🔴 **本條【仍不關掉】,剩下的那件突變也證不了**:
+```
+② 該測試檔【自己聲明的量具邊界】仍成立：它守【字面與清單結構】，
+   逐字「本檔【不】模擬 Next 的路徑比對……本檔守的是【字面與清單結構】這一層」
+   ⇒ 「這條 pattern 在 Next runtime 下實際攔截哪些路徑」無人驗
    ⇒ 讀路徑的【行為】那一層仍無守門
+③ 🔴 而它是【事後警報不是閘】：CI 跑得到它（.github/workflows/ci.yml:51 pnpm test；
+   admin project include 'apps/admin/**/*.{test,spec}.{ts,tsx}' 涵蓋該檔），
+   但我們照 Git 紀律直推 dev ⇒ CI 紅的時候東西已經在 dev 上，而 dev = admin 的 production
+   （正本 STATUS.md Blocker「CI 不是閘、是事後警報,而【沒有人在看】」）
+   ⇒ 「有守門」與「改壞會被擋下來」是兩件事，本條只達成前者
 ```
 📄 `docs/phase-1-backlog.md` `#547`(已加同一段更正)
 
