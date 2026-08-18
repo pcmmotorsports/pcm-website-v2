@@ -18549,6 +18549,34 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
 3. B-4 plan(`docs/specs/2026-07-24-m4a-b4-notification-persist-cardholder-plan.md`)**檔頭已下修**:
    它描述的 `cardholder.ts` **已不存在**(`efe5a9c9`)⇒ 照那份 plan 動手前先讀它的檔頭。
 
+##### ➕ 再補兩件 —— 🔴 這兩件在轉述途中掉了,是 W5 直接寄給 W8 才補回來的
+
+> 📌 **本段的存在本身是一條紀錄**:W5 原信給的是**三件**(paidAt / 兩套 email 驗證 / 第 9 參從沒上過正式站),
+> 經主視窗轉述後到 W8 手上時**掉了後兩件、換進一件別的**(`efe5a9c9` 檔頭下修,那件也成立,見上)。
+> 逐項比對是 W8 做的,而 **W5 自己那一端看不到它變成什麼樣子** ⇒ 收訊端要回報「收到幾件、分別是什麼」,不是回報「收到了」。
+
+4. 🔴 **樹上已經有兩套 email 驗證,而它們不一致**(W5 量、W8 用同一條命令重跑)
+   ```
+   grep -n "z\.email(" packages/schemas/src/index.ts   ⇒ 33(LoginInput)/ 43(RegisterInput)
+   packages/schemas/src/notification-email.ts 另有四道:
+     :3  NOTIFICATION_EMAIL_MAX_OCTETS = 254
+     :15 PRINTABLE_ASCII_PATTERN = /^[!-~]+$/
+     :31 LINE 合成域(含子網域)判定
+     :52 三者合起來才 pass
+   ⇒ 註冊時被接受的信箱,寄信時可能被拒 —— 而那是【靜默】的
+   ```
+   ⚠️ W8 第一次量報 32/41,**是錯的**:當時用 `sed -n '30,45p'` 憑輸出位移用眼睛數,不是 `grep -n`。
+   W5 兩棵樹各量一次都是 33/43、檔長皆 290 行 ⇒ 排除了「分支不同」⇒ **是量法錯,不是版本差**。
+   📎 教訓進了 `#638` 同族:**附了命令只擋得掉「沒有數」,擋不掉「數錯東西」。**
+
+5. 🔴 **沒有人送過第 9 參上正式站,而帳本證不了這件事**(W5 量、W8 重跑第 3 欄佔比)
+   ```
+   supabase/APPLIED.tsv:92  20260719120000  <sha256>  backfill  backfill-P七代
+   第 3 欄佔比(W8 自己跑):backfill 159 / 179 = 89%
+   ⇒ APPLIED.tsv 擋得住【改】,證不了【那件事被觀察過】
+   ```
+   W5 已做 `scripts/verify-create-order-9param.sh`,四個世界實跑過。
+
 ---
 
 > 🔴 **`#632` 與 `#633` 是【同一個病的兩個號】** —— 2026-08-18 10:5x CST W1 收割 `customers` 時撞出的 merge 衝突。
@@ -18905,14 +18933,21 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
   W8 複驗:`git merge-base --is-ancestor 656cb995 HEAD` ⇒ 在 dev。
 - **發現:** T① 2026-08-18 在拋棄式真資料環境撞到的**真 bug**(不是靜態掃出來的)。
 
-- **機轉(W8 逐字開檔核過,不是抄 commit body)**
+- **機轉 —— 🔴 分兩層寫,不要合成一句(2026-08-18 W4 更正 W8 初版)**
   ```
-  PostgREST 回 Content-Range: 0-200/*(沒有總數)
-    ⇒ supabase-js 走 parseInt('*') ⇒ NaN
-    ⇒ 而 typeof NaN === 'number' 是 true
-    ⇒ 守門 typeof count === 'number' 放行 ⇒ reportedTotal = NaN
-  症狀:出貨單印「資料庫說有 NaN 項」
+  ① 庫層【可達】(硬事實,W8 自己開檔核)
+     node_modules/.pnpm/@supabase+postgrest-js@2.105.3/…/src/PostgrestBuilder.ts:486
+       count = parseInt(contentRange[1])        ⇒ parseInt('*') === NaN
+     ⇒ 而 typeof NaN === 'number' 是 true
+     ⇒ 守門 typeof count === 'number' 放行 ⇒ reportedTotal = NaN
+     症狀:出貨單印「資料庫說有 NaN 項」
+
+  ② 觸發條件【未確認】
+     T① 那個 Content-Range: 0-200/* 是【用前綴代理模擬剝掉 count 構造出來的】,不是正式站量到的。
+     656cb995 commit body 逐字:「正式站真實故障時會不會回那種 Content-Range,沒有人證實過。」
   ```
+  🔴 **為什麼一定要分開寫**(W4 原話):寫成「實測」會讓下一個人以為正式站發生過;
+  寫成「純理論」又會讓人想撤掉守門。**W8 初版把 ① 和 ② 寫成同一句「實測」,已更正。**
 - 🔴 **病根一句(現行 code 的註解自己寫著,`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:1034-1039`)**:
   > **這道守門想擋的是「沒有數字」,實際擋的是「不是 number 型別」—— 而 `NaN` 是 number。**
   > **註解說得出「要有數字」,斷言只表達得出「型別對」。**
@@ -18924,10 +18959,25 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
     :60 逐字「用 Number.isFinite 而不是 !== null —— 縱深,不只靠上游修好」
   + apps/admin/src/lib/orders/merge-detail-items.test.ts(+14)
   ```
-  📎 **比派工單範圍大**:派工單只點名 `SupabaseOrderAdapter`,作者連下游 `merge-detail-items.ts` 也修了(縱深)。
-  ⚠️ **W8 未複驗的一格**:主視窗轉述「還修了第三個下游 shipping-doc」——
-  W8 在 `apps/admin/src/components/print/` 與 `apps/admin/src/lib/shipping/` 掃 `Number.isFinite` ⇒ **零命中**,
-  而 `656cb995` 的 `--stat` 只有三支檔 ⇒ **「第三個下游」這句未獲證實,標未確認**(可能指的就是 `merge-detail-items`)。
+  📎 **比派工單範圍大**:派工單只點名 `SupabaseOrderAdapter`,作者連**第二個**下游 `merge-detail-items.ts` 也修了
+  (`x !== NaN` 恆真 ⇒ `itemsTruncated` 恆 true ⇒ 摘要永遠印「未知」)。
+
+- 🔴🔴 **第三個下游 = `apps/admin/src/components/print/shipping-doc.tsx`(面 6-b 的條件式)**
+  ```
+  改動前 if (reportedTotal === null)
+  改動後 … || !Number.isFinite(reportedTotal)      ← W4 樹上已寫完、四綠過、code-reviewer 過,尚未 commit
+  ```
+  🔴 **它在 `656cb995` 自己的註解裡被寫出來了,卻沒有被修。**
+  > **「作者看見了第三面、寫進註解、而沒有修它」比「漏看」更值得記 ——**
+  > **因為下一個人讀那段註解,會以為已經處理了。**(W4 2026-08-18 原話)
+
+  ⚠️ **殘留一處,而它【不屬本條】**:同一支 `shipping-doc.tsx` 的**面 8** 逐字仍含「請重新整理」
+  (W8 當場核:`sed -n '159,163p'` ⇒ 「包裹內容與訂單明細對不上…請重新整理」),
+  而同一支檔在別處重申「文案不准叫他做會失敗的動作」。
+  **既存債,`4c54b404` 有記,本片不改** —— 標在這裡免得被當成 `#634` 沒收乾淨。
+
+  📌 **W8 初版寫「第三個下游未獲證實、標未確認」是因為掃錯了東西**:我掃 `Number.isFinite` 的**現況**,
+  而那一處**當時還沒被修** ⇒ 掃得到才怪。⇒ **掃「修好了沒」答不了「該修的有幾處」。**
 
 - 🔴 **負測的硬規定(立條時 T① 就寫死,補登時原樣保留)**
   ```
@@ -18948,8 +18998,28 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
 > ⚠️ **這條與 `#631` 是同一個 embed 上限家族的不同面,不是同一件事**(`#631` = 後台列表、本條 = 顧客站帳戶頁)。
 > 🔴 **要不要合併由 W4 / W7 裁,W8 不判** —— 寫成兩條是為了讓兩個載體都被看見,不是主張它們獨立。
 
-- **狀態:** ⏳ **客人面未修**(W8 2026-08-18 11:2x CST 在 dev `ccdb9860` 當場開檔核)。
-- **事實(W8 自己開檔,不是抄別人的 STOP)**
+- **狀態:** ✅ **客人面 W4 已做完,尚未 commit**(2026-08-18 W4 回報)。
+  ⚠️ **在 `dev` 上仍是舊字面** —— W8 2026-08-18 11:2x CST @ `ccdb9860` 當場開檔核,兩處舊字面都還在。
+  🔴 **這兩句不衝突,而分不清會出事**:`git grep` 量的是「條目/字面寫了沒」,**答不了「事情做完沒」** ——
+  「做完了但還沒 commit」與「完全沒做」在任何掃 dev 的尺上**印同一個東西**(W4 2026-08-18 給的提醒)。
+
+- **W4 樹上的修法(它回報,W8 未複驗 —— 那棵樹不是我的)**
+  ```
+  兩處改為引用共用常數 ORDER_ITEM_COUNT_TRUNCATED_NOTE
+  常數住 apps/storefront/src/lib/account-order-copy.ts
+  舊字面全樹 0 命中:bash scripts/literal-sweep.sh '請重新整理,或聯絡我們' ⇒ 0 命中 / 掃 2474 檔
+  ```
+  **為什麼抽成常數**(W4 原話):那句話**原本在兩支檔裡逐字重複**
+  ⇒ 改一邊忘另一邊時**畫面不紅、測試不紅**,客人在同一個站的兩頁看到兩種說法。
+
+- 🔴🔴 **天花板 —— 比文案本身重要(W4 2026-08-18 提出,已另立 `#639`)**
+  > 兩半的說明都掛在 **`title=` 屬性上,而 `title` 是 hover-only**
+  > ⇒ **觸控裝置的客人永遠只看得到「? 件」,四段骨架一段都到不了。**
+  > 會員中心訂單列表在手機上是主要使用情境 ⇒ **不是邊角。**
+  ⇒ `#639`(會員中心「? 件」的說明掛在 `title` 上,手機客人看不到)**由 W4 自己寫**,
+  **`#636` 與 `#639` 同族** —— 修 `#636` 的文案而不解 `#639`,等於把好文案放在客人看不到的地方。
+
+- **舊事實(2026-08-18 落條當下的 `dev` 快照,留痕不刪)**
   ```
   apps/storefront/src/components/account/tabs/OverviewTab.tsx:129
     <span title="這張訂單的品項太多,件數這次沒有完整載入。請重新整理,或聯絡我們。">? 件</span>
