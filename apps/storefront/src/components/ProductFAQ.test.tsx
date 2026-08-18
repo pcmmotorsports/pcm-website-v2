@@ -7,6 +7,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 
+import { FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from '@pcm/domain';
+
 import { ProductFAQ } from './ProductFAQ';
 import { RPM_WARRANTY_PARAGRAPHS } from '../data/rpm-policies';
 
@@ -51,5 +53,22 @@ describe('ProductFAQ', () => {
     // 保固題 answer text 含鑑賞期(JSON-LD 與畫面同源、與 ProductTabs 同字面)
     const warrantyQ = data.mainEntity.find((q: { name: string }) => q.name === '保固與退換貨');
     expect(warrantyQ?.acceptedAnswer?.text).toContain('不適用 7 天鑑賞期');
+  });
+
+  // 🔴 2026-08-18 W5:原字面 `宅配 $100。` 只講費用不講免運門檻,而同一個商品頁另有兩處講門檻
+  //   ⇒ 客人在同一畫面讀到互相打架的兩句,而 FAQ_ITEMS **同時餵 JSON-LD** ⇒ Google 也讀得到分歧。
+  //   本格擋的是【有人把數字 hardcode 回去】:字面由常數組出來,hardcode 就對不上 ⇒ 紅。
+  //   ⚠️ 改常數時本格【不該紅】(兩邊一起動 = 正確行為);只有 hardcode 才紅 —— 那才是它的判別力。
+  it('運費字面吃 shipping 常數(hardcode 回去就紅),且畫面與 JSON-LD 同一份', () => {
+    const { container } = render(<ProductFAQ />);
+    const expected = `宅配 NT$ ${HOME_SHIPPING_FEE}（滿 NT$ ${FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運）。`;
+
+    expect(container.textContent).toContain(expected);
+
+    const jsonLd = container.querySelector('script[type="application/ld+json"]')?.textContent ?? '';
+    expect(jsonLd).toContain(expected);
+
+    // 原病的另一半:門檻【完全沒被提到】。上面兩條若改成只比對費用就抓不到它 ⇒ 單獨釘住。
+    expect(jsonLd).toContain(String(FREE_SHIPPING_THRESHOLD.toLocaleString()));
   });
 });
