@@ -82,9 +82,34 @@ Sean 的第一反應不是選項,是反問(逐字):
 
 ### 1.3 報價單端(`~/API大量上架/PCM報價單-V2`)
 
-🔴🔴 **口徑硬約束:以下全部量於【本機 HEAD `3fc905f`】,而它落後 `origin/main` 16 顆。**
+⛔ ~~🔴🔴 **口徑硬約束:以下全部量於【本機 HEAD `3fc905f`】,而它落後 `origin/main` 16 顆。**
 **⇒ 這些不是「報價單的現況」,是「16 顆之前的現況」。B0 第一件事是 pull 後逐條複量。**
-**⇒ 任何人引用本節,必須連這一句一起引。**
+**⇒ 任何人引用本節,必須連這一句一起引。**~~
+
+> ## ✅ 2026-08-18T16:0x · **B0 那件「pull 後逐條複量」做完了**(G5)
+>
+> **Sean 已從 mac mini 推;報價單已 fast-forward pull。**
+> **當場量(不是抄別人的)**:`HEAD = 1149e05`(2026-08-18 15:09)= `origin/main`,
+> **落後 0 / 超前 0 / 工作樹 0 dirty**。(先前的 `3fc905f` 落後的其實是 **22 顆**,不是 16 —— 那期間他又推了。)
+>
+> **⇒ 下表 10 列【逐列複量,全部維持成立,零列需要改】。** 逐列量法與命中:
+> | # | 複量結果(HEAD `1149e05`) |
+> |---|---|
+> | 共用密碼 | `login/route.ts:136` 逐字 `const expected = process.env.ADMIN_PASSWORD;` **字面與行號皆不變** |
+> | body 零 per-user 欄 | `:146-151` 仍是 `password / code / recoveryCode / setupSecret` **四欄** |
+> | 無 `admin_users` / 無密碼雜湊表 | 四種 pattern 各 **0 檔**(正向對照 `sso_codes` ⇒ **7 檔** ⇒ 尺是活的) |
+> | SSO payload 兩欄 | `authorize/route.ts:58-64` 寫入 / `exchange/route.ts:71` 回傳,**皆不變** |
+> | `totp_devices` 13 欄無 `user_id` | 當場數:**13 欄**(排除 CONSTRAINT 行)、`user_id` 命中 **0** |
+> | `recovery_codes` 7 欄無 `user_id` | **7 欄**、`user_id` **0** |
+> | `auth_state` `CHECK(id)` 單列 + `last_consumed_step` 全域單值 | 兩者都在(`CONSTRAINT auth_state_id_check CHECK ((id`…)、`last_consumed_step bigint DEFAULT 0 NOT NULL`) |
+> | 零密碼雜湊函式庫 | `bcrypt/argon2/jose/iron-session/next-auth/jsonwebtoken` 各 **0**;正向對照 `otpauth` ⇒ `package.json:32` |
+> | session 手刻 `crypto.subtle` HMAC | `lib/session.ts:7` 檔頭格式註解、`:46` `crypto.subtle.importKey` **皆在** |
+> | 禁 `supabase db push` | `docs/ops/MULTI_WINDOW_WORKFLOW.md:165` 逐字「**絕不跑 `supabase db push`**:報價單庫的 migration ledger 已知與本地檔失同步」 |
+>
+> 🔴 **而那 22 顆為什麼一列都沒動到**:`git diff --name-only 482bec5..1149e05` ⇒ **9 個檔,全是
+> `fetchers/` `lib/translators/` `scripts/` `tests/`** —— **零個 auth / session / migration 檔**
+> (正向對照:同一條命令對 `tests/` ⇒ 3 檔)。
+> ⚠️ **仍成立的限定**:這是 Sean 08-18 15:09 那一顆;**他再推,本段就過期** ⇒ 引用時帶時點。
 
 | 事實 | 證據(本機 `3fc905f`) |
 |---|---|
