@@ -17034,7 +17034,42 @@ T 線列的兩類假命中(別窗 `grep` 的 pattern 含該字、一支叫 `vite
 - **🔴 我沒驗的(逐條附缺哪一道檢查)**
   - 側欄**展開態**下的 row 寬沒量(我量到的 124/144 都是收合態)⇒ 缺:展開側欄再跑一次同一張表
   - 只量了 `/orders` 一頁 ⇒ 其他掛同一個面板槽的頁面沒量
-  - `container-type` 對彈窗定位的實際影響**沒有實測**,上面那段是讀規範推的 ⇒ 缺:真的加上去點一次建箱彈窗
+  - ~~`container-type` 對彈窗定位的實際影響**沒有實測**,上面那段是讀規範推的~~
+    🏁 **2026-08-18 下午已升級,見下面「修法欄更新」那條** —— 而升級的來源**不是我去實測了**,
+    是 repo 內早有同一件事的紀錄(`globals.css:578-584`)。**留痕不刪:下一個人要看得到「當初我標了未驗」這件事本身。**
+  - 🔴 **而真正還缺的那一道換成了這個**:`shipment-dialog` 的 `fixed` 覆蓋層**在不在 `.workspace-row` 的子孫裡**
+    ⇒ 缺:開著面板跑 `document.querySelector('.workspace-row').contains(<那個覆蓋層>)`(W3 與我都沒跑)
+- 🔴🔴 **修法欄更新(W3 供料 + W7 複驗,2026-08-18 下午):甲案比原本寫的貴 —— 它不是「加一行 CSS」**
+  - 本條原本把 `container-type` 的副作用標成「**讀規範推的、沒有實測**」。**那個限定可以拿掉了**,
+    但**不是因為我去實測了** —— 是 **repo 內早就有人獨立寫下同一件事,而且點名了同一支檔**:
+    ```
+    apps/admin/src/app/globals.css:578-584 逐字(我開檔讀的,不是抄轉述):
+      🔴🔴 `container-type: inline-size` 掛在 `.orders-grid` 自己(主視窗 E-419 核可)。
+         ① 它帶 `contain: layout` ⇒ 這個元素會成為 `position: fixed` 子孫的 containing block
+            —— 誰日後把 `fixed inset-0` 的覆蓋層(例如 `shipment-dialog.tsx` 那種)渲染進訂單列表裡,
+            那個覆蓋層【會被困在表格框內、而不是蓋滿視窗】。解法是 portal,不是改這裡。
+            前例與同款警告見 `app/@panel/orders/page.tsx:132-136`。
+    ```
+    ⇒ 🔴 **證據等級從「讀規範推的」升成「repo 內有前例 + `檔案:行號` + 已指名修法」**,
+      而這比實測更好用:**它同時給了修法**(portal),不只告訴你會壞。
+  - 🔴 **而修法一寫出來,甲案的價碼就變了**(三個數我自己重跑過,不是抄 W3 的):
+    ```
+    grep -rn 'createPortal' apps/admin/src --include='*.tsx' --include='*.ts' | grep -v '\.test\.'  ⇒ 0
+    grep -n 'fixed inset-0' apps/admin/src/components/orders/shipment-dialog.tsx                     ⇒ :277 命中
+    ShipmentDialog 的渲染點 shipment-launcher.tsx(`dialog` 那個 ReactNode)                          ⇒ 直接內嵌,無 portal
+    ```
+    ⇒ **這個 repo 今天一個 portal 都沒有。**
+    ⇒ 甲案 = 「加一行 CSS」+「**在這個 repo 引入第一個 portal**」+「驗它在 SSR / hydration 下不出事」。
+      **那已經不是同一個量級的改動,鐵則 8 的份量也不同。**
+  - ⚠️ **仍然缺的那一道(W3 明說它沒做,我也沒做)**:
+    **`shipment-dialog` 的覆蓋層到底在不在 `.workspace-row` 的子孫裡?**
+    ```
+    開著面板 ⇒ document.querySelector('.workspace-row').contains(<那個 fixed 覆蓋層>)
+    ```
+    🔴 **那一發在兩個世界會印不同的東西**,而它決定甲案到底要不要 portal ——
+    **如果覆蓋層根本不在裡面,上面整段就不適用、甲案回到原本的價碼。**
+    ⇒ **先跑那一發再談甲案要不要做。**
+  - 📌 供料者:W3(`#637` 收割後歸它)。它同時聲明**不動本條目、不實作任一案**(鐵則 8 在 Sean 手上)。
 - **連動:** `#631`(同一頁的截斷態)、`docs/specs/2026-08-10-350-workspace-shell-plan.md` §Q5、
   `docs/specs/2026-08-10-350c-order-panel-wire-plan.md:18` ③(「手機照 Q5 維持整頁」那一列 —— **它成立**)
 
