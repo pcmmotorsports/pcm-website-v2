@@ -11,11 +11,50 @@
 
 ```
 ① apps/admin/src/lib/products/product-repository.ts   listProductsForAdmin 加 keyword 參數
-② apps/admin/src/app/products/page.tsx                 讀 ?q= 傳下去
+② apps/admin/src/app/products/page.tsx                 讀 ?q= 傳下去 + 修 buildHref(見 §0-a)
 ③ apps/admin/src/components/products/(新)product-keyword-search.tsx   搜尋框
-④ apps/admin/src/components/products/product-filter-chips.tsx + 分頁連結   要把 q 帶著走
+④ apps/admin/src/components/products/product-filter-chips.tsx          要把 q 帶著走
+⑤ (新)apps/admin/src/lib/products/product-list-view.ts  buildProductListHref —— 見 §0-a
 ```
-🔴 **④ 是最容易漏、而且漏了不會紅的那一個** —— 見 §3。
+🔴 **④⑤ 是最容易漏、而且漏了不會紅的那一個** —— 見 §3。
+
+### 0-a 🔴🔴 開檔驗證的結果:**這一頁【今天就已經】有那個 bug,而它掉的是 `set_by`**
+
+主視窗要我確認「§0 那幾個檔真的是渲染那一頁的那幾個」。我照做去追渲染樹,
+**而追出來的東西比「檔對不對」重要得多。**
+
+```
+apps/admin/src/app/products/page.tsx:106 逐字
+  buildHref={(p) => (p <= 1 ? '/products' : `/products?page=${p}`)}
+🔴 它【沒有帶 set_by】。
+```
+**⇒ 今天的實際行為(不需要我這一片就存在)**:
+```
+按「手動」chip ⇒ /products?set_by=staff&page=1 ⇒ 看到篩選後的清單
+按「下一頁」   ⇒ /products?page=2              ⇒ set_by 蒸發
+              ⇒ 看到【全部商品】的第 2 頁,而 chip 高亮跳回「全部」
+```
+⇒ **`#661` 的 `q` 只是同一個洞的第二個受害者。我原本要防的東西,它已經在流血了。**
+
+**⇒ 處置:併進本片,不另開條目。** 理由是 Sean 常設偏好**不做一半**
+(memory `project_0818-no-half-done-work`)——
+**我要動的就是那一行 `buildHref`;只加 `q` 而讓 `set_by` 繼續掉,是在同一個函式上做一半。**
+
+**做法(照 orders 那一面的既有形狀,不發明)**:
+```
+新增 lib/products/product-list-view.ts 的 buildProductListHref({ page, setBy, q })
+⇒ 唯一組網址的地方,chip / 分頁 / 搜尋框三個呼叫端全部走它
+⇒ 形狀對照:orders 那面有 buildOrderListHref(本 repo 既有慣例)
+```
+✅ **而共用元件【不用動】**:`components/shared/list-pagination.tsx:48` 收的是
+`buildHref: (page: number) => string` 回呼,網址是**呼叫端**組的
+⇒ **不觸發鐵則 12⑥(共用元件行為改動)**,射程仍在 products 這一面。
+
+**驗收要多一格(它是既有 bug 的守門,不是新功能的)**:
+```
+□ 按「手動」chip ⇒ 翻到第 2 頁 ⇒ set_by 仍在網址上、清單仍是「手動」那批
+  🔴 突變驗過:把 buildProductListHref 裡帶 setBy 的那段拿掉 ⇒ 這一格必須紅
+```
 
 ---
 
@@ -137,7 +176,11 @@ apps/admin/src/components/orders/order-filter-chips.tsx:54-57 逐字記著
 ```
 · 20,341 件 / 1,018 頁 是 G3 量的(本機 localhost:3001 + ADMIN_DEV_BYPASS + 連正式庫),我沒重量
   ⇒ 而【缺口不依賴那個數字】:沒有搜尋就是沒有搜尋,件數只影響它有多痛
-· 我沒有開過後台商品頁(沒有實跑 dev server)—— §0 的四個檔是【讀 code】盤出來的
+· 🏁 ~~我沒有開過後台商品頁(沒有實跑 dev server)—— §0 的四個檔是【讀 code】盤出來的~~
+  **已補(2026-08-19)**:追渲染樹的結果見 §0-a —— **那四個檔漏了一個**
+  (`components/shared/list-pagination.tsx`,而它不用改),**而且追出一個今天就存在的 bug**。
+  ⚠️ **仍未做的那半**:我**沒有用瀏覽器看過畫面**。
+  靜態追 import 追得出「哪些檔參與渲染」,**追不出「畫面長什麼樣」**。
 · ILIKE 對中文的行為我沒有實跑驗證,根據是機制(不經過 pg_trgm),不是量測
 · 「約 250 行 / 約 60-80 行」是看既有兩支的行數推的(100+126 與 118+131),不是寫完後量的
 ```
