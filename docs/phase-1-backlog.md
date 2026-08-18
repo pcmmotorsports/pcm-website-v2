@@ -18680,7 +18680,15 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
 > —— 駭客拿到 session 就有一個合法身分,「這張單屬不屬於你」擋不住他。
 > 真正擋得住的是共用密碼+2FA、session 踢得掉、讀路徑第二道、稽核查得出是誰(清單 ⑯⑰⑱⑲)。
 
-- **狀態:** 待決策(**是否接受 flat-authz**)。**非活洞** —— 現況只有三個可信的人在用。
+- **狀態:** ✅ **已結案(2026-08-18 Sean `Q3=甲`)** —— ~~待決策(**是否接受 flat-authz**)~~。
+  逐字 `03 看得到包不包括動得了 = 甲` ⇒ 他的「不分權」**也包括「動得了」**。
+  **殘餘工作已做完**:兩處誤 defer 的註解已改寫(`payment-reverse-actions.ts:28` 區段 /
+  `payment-actions.ts:53` 區段),commit 見下。
+  🔴 **`payment-actions.ts:44` 刻意未改** —— 那句講的是 `order_payments.actor` 這個
+  **【身分】**不可信,而 `E8-B` 正好解那個 ⇒ **那是正確的 defer**。
+  ⚠️ **交辦字面是「三處都改」,而照字面做會改壞第三處** ——
+  判別器是身分 vs 授權(地圖見 `docs/security/2026-08-17-pre-launch-must-close-checklist.md` §⑮)。
+  **非活洞** —— 內部不分權是刻意設計。
 - **是什麼(C 窗 2026-08-18 實查):**
   ```
   apps/admin/src/lib/session/authorize.ts 的 authorizeAdminMutation()
