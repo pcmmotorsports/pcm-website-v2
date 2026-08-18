@@ -19355,6 +19355,42 @@ mappers/order-procurement.ts:158
      order   → 一律 limit
 ⚠️ 它動的是 mapper 的回傳形狀、跨 `packages/adapters` ⇒ **不是文案片**，要獨立評估。
 📎 `#643` B 刻意不做這一步，理由寫在 `item-procurement-section.tsx` 的 `TruncationWarning` docstring。
+
+### 🔴 第二條路(**已經在同一個資料夾裡落地過**,G6 2026-08-18 18:1x 指出,我開檔複驗)
+
+```
+packages/adapters/src/supabase/mappers/order-cancellations.ts:88
+  if (!rows || rows.length === 0) return { items: null, itemsTruncated: false };
+逐字理由在 :85-87
+  「🔴 R3 M2:改回 `null`(不是 `[]` + truncated)—— 空清單與「讀不到」在畫面上長得一樣,
+    型別給 null 才逼得動消費端先處理。`itemsTruncated` 從此只表示「觸及上限」。」
+```
+⇒ **同一題有兩種解法,而第二種已經有審查來歷、消費端被型別逼著處理過一輪:**
+```
+甲  旗標拆成原因列舉  'missing' | 'limit' | null      ← 本條原本只寫了這個
+乙  第二個通道        items: null（讀不到）+ truncated 只表示「觸及上限」
+```
+**本條不裁定用哪個** —— 但寫 plan 的人要先讀乙那一段,不要重新發明一次。
+⚠️ 差別不只是形狀:乙**把「讀不到」變成型別上的必答題**,甲則是多一個消費端可以忽略的字串。
+
+常數複驗(2026-08-18 18:2x,開檔)—— 🔴 **值寫死、行號不寫死**:
+```
+/usr/bin/grep -n "EMBED_LIMIT = " packages/adapters/src/supabase/mappers/order.ts
+/usr/bin/grep -n "ORDER_ITEM_PROCUREMENT_EMBED_LIMIT" packages/adapters/src/supabase/mappers/order-procurement.ts
+⇒ ORDER_ITEM_PROCUREMENT_EMBED_LIMIT = 50 / ORDER_ITEMS_EMBED_LIMIT = 200
+```
+### 🔴 這一格 18:3x 更正過一次,而更正的內容是【不要寫行號】
+
+我 18:2x 在這裡寫過「那個 200 在 `:411` 不是 `:417`,`:417` 是註解行」,並拿它去更正 G6。
+**兩邊都對,而我們讀的不是同一份檔**:
+```
+od-order-list（我的樹）  411:export const ORDER_ITEMS_EMBED_LIMIT = 200;   檔 922 行
+dev                       417:export const ORDER_ITEMS_EMBED_LIMIT = 200;   檔 928 行
+```
+⇒ **同一顆常數、同一個值,行號差 6,因為那兩棵樹的檔本來就差 6 行。**
+🔴 而這正是 `docs/patterns/guard-and-instrument-traps.md`「會離開 repo 的字面,一律不准寫行號」
+那條在多 worktree 下的版本:**行號在【一棵樹裡】是事實,一離開那棵樹就是猜測** ——
+而它讀起來跟事實一模一樣,還會讓收訊的人拿它去「更正」一個沒有錯的人(我就這樣做了一次)。
 ```
 
 ## 不修未來會痛在哪
@@ -19373,7 +19409,7 @@ mappers/order-procurement.ts:158
 · 沒有主張拆旗標是唯一解法
 ```
 
-### #643 · 後台訂單那一棵樹上,停用控件的理由只掛在 `title` —— **17:5x 再降:剩 1 處【未驗】**;外加一句已修掉的白工文案
+### #643 · 後台訂單那一棵樹上,停用控件的理由只掛在 `title` —— **18:1x 四處全部量完,剩 0 處未驗**;外加一句已修掉的白工文案
 
 > # 🔴🔴 本條 15:5x 整條重寫,原標題與原內容是**錯的**,先讀這段
 > 我 15:3x 立這條時寫的是「**後台【訂單明細頁】的截斷說明也掛在 `title` 上**」。
@@ -19468,8 +19504,8 @@ B  把「請重新整理這張單」換掉。⚠️ 但要**先確認那半句�
 |---|---|---|---|
 | ① | `notes-timeline.tsx:84` | ~~**沒有**~~ ⇒ **有**:同一列的「已更正(由 #N)」badge(`:63`) | ✅ **2026-08-18 17:5x 撤回,不是病**(見表下 G) |
 | ② | `shipping-selection.tsx:139` | **改前**只有 `title`/`aria-label`;**改後**動作列印一行看得見的字 | ✅ **已修 `fbd77933`**(兩次突變各紅 1 格;真瀏覽器可讀性未確認) |
-| ③ | `shipment-dialog.tsx:298` | `aria-label` 有前半(「請等結果出來再關閉」),**後果那半只在 `title`** | ⏸ **仍未驗**(見下;這是本條唯一的殘留) |
-| ④ | `item-amount-form.tsx:128` | **有,而且看得見** —— 原生驗證泡泡把 `title` **畫出來** | ✅ **不是病,從清單刪掉** |
+| ③ | `shipment-dialog.tsx:298` | **真瀏覽器量到**:畫面文字有「送出中…」(狀態),後果那半只在 `title` | 🔶 **已驗,判不是 must-fix**(與 ① 同形狀,見 G-4) |
+| ④ | `item-amount-form.tsx:128` | **有,而且看得見**;G6 另補:那個 input **根本不是停用控件**(`disabled` 在 `:161`,是送出鈕) | ✅ **不是病,從清單刪掉** |
 
 ### 🔴🔴 ④ 那一格是這一輪最值錢的東西,因為**我的第一把尺答錯了**
 
@@ -19541,11 +19577,92 @@ b  class 不得是 sr-only/hidden/…        ⇒ 突變「className 改 sr-only�
 ⚠️ **已知天花板**:b 是**字面比對**,擋得住這幾個 utility,擋不住任意 CSS(父層 `overflow:hidden`、
 自訂類名)。**真瀏覽器可讀性(深底對比/換行/平板寬度)未確認** —— 本輪只有 jsdom 證據、沒有截圖。
 
+### G-4 🔴 2026-08-18 18:1x —— ③ 起鑽機量完了,而**我上一輪那個假說是錯的**
+
+```
+環境  拋棄式 PG 55511 + PostgREST 3989 + 前綴代理 3988 + 真後台 dev 3014
+      http://localhost（不是 127.0.0.1）、390×844 hasTouch+isMobile
+      hydrate 探針  掃到 215 / 被接手 191  ⇒ 頁面是活的
+      種子  兩位客人 × 三張單，instock_quantity 皆 > 0
+```
+
+**③ 的量測(送出中那一瞬間,用 route 攔截把那一發 POST 拖慢 4 秒才量得到)**
+```
+✕ 鈕 disabled        true
+✕ 鈕 aria-label      「送出中,請等結果出來再關閉」        ← 螢幕閱讀器拿得到前半
+✕ 鈕 title           「送出中,關掉會讓同一批貨可能被建成兩箱」← 後果那半,只在這裡
+對話框可見文字        有「送出中…」(狀態) / **沒有**「兩箱」(後果)
+```
+⇒ **與 ① 同一個形狀**:【狀態】進了畫面(「送出中…」)、【後果/規則】沒進。
+   我對 ① 用的判準是「狀態看得見 ⇒ 不值得動手」,對 ③ 就得用同一把尺 ⇒ **③ 判 🔶 不是 must-fix**。
+   (兩者要改就一起改,不要只改一個 —— 那會讓下一個人以為兩處判準不同。)
+
+### G-4a 🔴 被推翻的兩件(**都是我自己上一輪寫下的**)
+
+```
+1 「busy 態要真的開對話框並送出才構造得出來」 ⇒ **假的**
+  shipment-dialog.test.tsx:89 起整個 describe 就在做這件事（用不 resolve 的 Promise 造 busy，
+  斷言 ✕ disabled false→true→false）。G6 2026-08-18 18:0x 指出並實跑 42 passed；我開檔複驗過。
+  🔴 而那支檔 :10 自己就寫著「也證不了送出中那顆 ✕ 在觸控裝置上真的按不下去」
+     ⇒ **我要補的那一半，它早就標好在那裡了。**
+
+2 「對話框開不起來，最可能是種子沒有到貨資料」 ⇒ **假的**
+  負向對照：把 instock_quantity 改成 0 再點一次 ⇒ **對話框照樣打開**，
+  而且畫面逐字寫「這些品項現在都不能出,其中還有在等到貨的。貨到了就按右邊的『貨到了』…」
+  ⇒ 零到貨不是「開不起來」的原因。**當時真正卡住的是什麼，現在不可知**（那個環境已經不在）
+     ⇒ 標【未確認】，不要再拿我那個假說當線索。
+```
+
+### G-5 🔴 把 A 的範圍限定補掉了 —— 整個 admin 掃完,**沒有新的一處**(2026-08-18 18:2x)
+
+A 段自標「只數了 `components/orders/*.tsx` 那一層,別拿本條當『後台一共 4 處』的來源」。現在數完了:
+
+```
+(跑的是 /usr/bin/grep —— 這台機器的 grep 是 shell function、會吃 .gitignore)
+cd apps/admin/src && /usr/bin/grep -rn "title=" --include="*.tsx" . | /usr/bin/grep -v "\.test\."
+⇒ 16 行 / 8 個檔（含 app/** 在內的整棵 admin，不只 components/orders）
+```
+新出現的三個檔,逐檔開檔判定 ⇒ **沒有一個是這條病**:
+```
+components/print/shipping-doc.tsx   :536 :547 :576 :584
+   ⇒ 那是 <Section> / <ItemCells> 的 **React prop 名叫 title**，不是 HTML title 屬性。
+   🔴 本檔 guard-and-instrument-traps「同一個值在不同層的字面」那條的活標本：
+      同一個字面 `title=` 在兩層是兩個東西，而 grep 分不出來。
+components/settings/staff-edit-row.tsx:38
+   ⇒ <span title={staff.id}>代碼不可修改</span>：**不是停用控件**，可見文字已經講了規則，
+     title 放的是員工代碼（額外資訊）。🔶 **nit**：觸控使用者拿不到那個代碼，而客服對話會用到它。
+     沒有列為 must-fix，也沒有動它。
+components/ui/sidebar.tsx:327
+   ⇒ shadcn sidebar rail，title 與 aria-label 成對、且**不是停用控件**。不是病。
+```
+⇒ **`#643 A` 的分母現在是整棵 admin 的 `.tsx`,而答案沒有變。**
+
+⚠️ 這一掃**沒有**主張什麼:
+```
+· 只掃 .tsx 的【字面 title=】 ⇒ 動態展開（{...props}）或別的層傳進去的 title，這把尺看不到
+· 沒有掃 packages/ui（那是共用元件庫，動它是鐵則 12 ⑥）
+· 「觸控裝置上 title 叫不出來」仍然是平台性質，本輪一樣沒有去證它
+```
+
+### G-4b ② 的真瀏覽器量測(補上 G-2 標著未確認的那半)
+
+```
+那句話          310×32 px(390 寬,兩行) / 316×16 px(1440 寬,一行)
+對比            10.94:1（opacity 0.8 混合後計算；WCAG AA 小字門檻 4.5 ⇒ 過）
+同時停用的框     3 張單裡 2 張變灰，它們的 aria-label =「這張訂單是別的客人的…」
+負向對照         把那句話 display:none ⇒ 同一把尺回 0×0、inViewport=false（尺會翻面）
+console error   0
+```
+⚠️ 版面上一個小疵:390 寬時最後一個「動」字單獨落在第二行。**不影響閱讀,沒改** ——
+   任何字串在某個寬度都會孤字,改文案只是把孤字移到別的寬度。要不要動是品味題(Sean)。
+
 ### G-3 這一條現在的殘留
 
 ```
-③  shipment-dialog.tsx:298 的 busy 態 —— **仍未驗**(要真的開出貨對話框並送出才構造得出來)
-    ⇒ 與 G-2 那句「真瀏覽器可讀性未確認」同一支鑽機可以一起看,下一件就是它
+（本節 17:5x 寫的「③ 仍未驗」已於 18:1x 量完 ⇒ 見 G-4。本條四處現在都有量測值。）
+殘留的只剩兩個【選擇】，不是缺口：
+  · ① 與 ③ 的【規則/後果那半】要不要進畫面文字（兩處要一起決定，判準相同）
+  · ② 在 390 寬的孤字（品味題）
 ```
 
 ### #639 · 會員中心「? 件」的說明掛在 `title` 上 —— **手機客人一段都看不到**
