@@ -132,6 +132,17 @@ pg_ctl -D "$D/data" -l "$D/pg.log" restart -o "-p 55501 -c listen_addresses=127.
 ```
 ⚠️ **這是【本機彩排】才會撞的**,正式 Supabase 本來就有 TLS ⇒ **不要誤讀成真 apply 的前置。**
 
+🔴 **① -b 更便宜的那條路:加 `--debug` 就連得上,不必自簽憑證**(2026-08-18 G6 量,CLI `2.98.1`)
+```
+同一台叢集、同一個 --db-url、同一條命令,唯一差別是那個旗標:
+  supabase db push --db-url "$U" --include-all           ⇒ rc=1  tls error (server refused TLS connection)
+  supabase db push --db-url "$U" --include-all --debug    ⇒ rc=0  Applying migration … / Finished
+```
+📌 **而那句錯誤訊息自己就寫著** `Try rerunning the command with --debug to troubleshoot the error.`
+—— **照做之後它不是「幫你診斷」,是【直接成功】。**
+⚠️ **成因我沒查 ⇒ 標未確認**;我只證了「這兩發在同一台叢集上結果不同」。
+⇒ 上面那段自簽憑證的做法**仍然有效、留著**;要快的話先試 `--debug`。
+
 **② push 不是整批原子的 —— 一支一支來,成功一支記一支**
 實測:182 支推空庫、第 55 支炸 ⇒ 帳本 **54** 筆、失敗那支 **0** 筆。
 ⇒ **中途失敗 = 前面的東西已經在庫裡了**,不會因為後面炸而一起退回。
@@ -156,6 +167,28 @@ Remote migration versions not found in local migrations directory.
 **⑥ 從零重放全部歷史【這條路不通】**
 `db push --include-all` 到空庫在第 55 支就炸(缺 `product_fitments_effective`)。
 ⇒ 要彩排「推 N 支上去」,做法是**只把那 N 支放進一個乾淨目錄**,前置表逐字從 repo 的 migration 取(見 §2)。
+
+**⑦ 🔴 時間戳【插隊】的那一支:不加旗標會擋住全隊;加了 `--include-all` 則【執行順序與檔名順序不一致】**
+(2026-08-18 G6 量,CLI `2.98.1`;測資=三支各自把自己的名字寫進一張 `exec_log`,`serial id` 就是真實執行序)
+```
+先推 A(…000000) 與 C(…000002) ⇒ exec_log = 1 A / 2 C
+再放進 B(…000001) —— 時間戳【夾在 A 與 C 之間】
+
+不加 --include-all ⇒ rc=1
+   "Found local migration files to be inserted before the last migration on remote database."
+   ⇒ 它**失敗、指名那支檔、並告訴你要加哪個旗標** —— 不會安靜地跳過它
+
+加 --include-all   ⇒ rc=0,只跑 B 一支(A 與 C **沒有**重跑)
+   🔴 執行順序:1 A → 2 C → **3 B**            ← B 最後才跑
+   🔴 帳本(按 version 排序印出來):000000 / **000001** / 000002   ← B 看起來在中間
+```
+⇒ **帳本順序(按檔名)與實際執行順序【永久不一致】**,而 `schema_migrations` 只有 version、
+**沒有任何欄位記著真實順序** ⇒ **下一個人讀檔名推不出執行順序。**
+🔴 **而危險的不是「它會炸」,是【它不炸】**:`rc=0`、`Finished`、帳本看起來整齊。
+   若那支 SQL 依賴後面某支建的東西 ⇒ 會炸(**那反而是好的**);不依賴 ⇒ 靜靜留下一個永久錯位的帳本。
+📌 對照:草稿檔搬進 `supabase/migrations/` 之前先看**目前最大的版本號**
+   (`ls -1 supabase/migrations/*.sql | sed 's#.*/##; s/_.*//' | sort | tail -1`),
+   命名排在它之後 ⇒ 只有「會被一起推」的問題;排在它之前 ⇒ **會擋住所有人的 `db push`。**
 
 **🔴 兩件本節【沒有】驗到的(不要當成已驗)**
 ```
