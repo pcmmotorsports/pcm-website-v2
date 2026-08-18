@@ -52,7 +52,8 @@ for N in "$@"; do
 
   # 條目點名的檔案路徑(去重)。只認 repo 內四個常見根目錄,避免撈到網址與雜訊。
   PATHS="$(sed -n "${START},${END}p" "$BACKLOG" \
-    | grep -oE '(apps|packages|supabase|scripts)/[A-Za-z0-9._/-]+\.[a-z]{1,4}' \
+    | grep -oE '(apps|packages|supabase|scripts|docs)/[A-Za-z0-9._/-]+\.[a-z]{1,4}' \
+    | grep -v '^docs/phase-1-backlog\.md$' \
     | sort -u)"
 
   if [ -z "$PATHS" ]; then
@@ -77,6 +78,10 @@ for N in "$@"; do
     echo "  ⇒ 條目點名 ${TOTAL} 支,其中 ${HITS} 支現在有未 commit 的改動"
   fi
   echo "     (點名的檔:$(printf '%s\n' "$PATHS" | tr '\n' ' '))"
+  # 🔴 `docs/` 底下的路徑多半是【參考】不是【要改的目標】⇒ 命中與否的判別力比 code 路徑低。
+  if printf '%s\n' "$PATHS" | grep -q '^docs/'; then
+    echo "     ⚠️ 其中含 docs/ 路徑 —— 那些多半是【參考連結】不是【要改的目標】,判別力較低。"
+  fi
 done
 
 cat <<'EOF'
@@ -88,10 +93,9 @@ cat <<'EOF'
 🔴 支援的標題格式:`### #<號>.` 與 `### #<號> ·`(含 `#220b.` `#341(拆檔).` 這種帶後綴的)。
    2026-08-19 實數:全部條目 601 / 用「.」519 / 用「·」78 / 其他 4(其中一條是格式範本 `### #N.`)。
    數法可重跑:grep -c '^### #' / grep -c '^### #[0-9]*\.' / grep -c '^### #[0-9]* ·'
-🔴 **它只看 `apps/ packages/ supabase/ scripts/` 四個根**,**不看 `docs/`** ——
-   ⇒ 一條正在被寫 plan(`docs/specs/…`)的條目,本腳本會回「③ 查不出來」而不是「有人在動」。
-   實例(2026-08-19 當下):`#661` 的 plan `docs/specs/2026-08-19-661-admin-product-search-plan.md`
-   正在被改,而本腳本對 `#661` 回③。**這是已知瞎區,不是它沒事。**
+🔴 它看 `apps/ packages/ supabase/ scripts/ docs/` **五個根**(`docs/` 是 2026-08-19 補的 ——
+   原本不看,而一條正在被寫 plan 的條目因此會被回「③ 查不出來」;活例是 `#661`)。
+   ⚠️ **仍不看的**:repo 根層的檔(`package.json` / `turbo.json` / `.husky/` …)與 repo 外的東西。
 🔴 誤報來源(已知,未修):它抓的是**條目裡出現過的任何路徑** ——
    包含寫在「查核紀錄 / 已修紀錄」裡的路徑,那些**不一定是這條要改的目標**。
    ⇒ 命中之後仍要開條目看那個路徑是以什麼身分出現的。
