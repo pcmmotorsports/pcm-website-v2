@@ -164,3 +164,53 @@ FAQ 的運費字面**吃 `packages/domain/src/order/shipping.ts` 的常數、不
 2. 而 LINE Pay 是「還沒做」還是「不打算做」？
    —— 那決定文案是改成「目前僅信用卡」還是「線上僅信用卡，其他方式請 LINE 洽詢」
 ```
+
+---
+
+# 🔴 ⑦ 補遺之補遺:付款方式那條**不是文案 bug,是【design 跑在實作前面】**
+
+上面 §⑥ 我寫「⚠️ 我不知道他是不是【線下真的收轉帳】」並把它列成要問 Sean 的兩題。
+**查完之後那兩題的形狀變了 —— 而其中一題【不成立】。**
+
+## ① 那句文案**忠實照搬 design**(鐵則 1 沒有被違反)
+```
+OD 專案 `pcm-home-redesign`（本窗以 open-design 親查，非轉述）：
+  content-pages-data.js:50   [{ b: '付款：' }, '目前沒有貨到付款，可用 ', { b: '銀行轉帳、線上刷卡、LINE Pay' }, ' 支付。']
+  source/components/ProductFAQ.tsx:35   同上，逐字
+  product-detail-data.js:338            同一句（markdown 版）
+⇒ **storefront 那句與 OD 逐字相同，連 `{ b: }` 的切法都一樣。**
+⇒ 🔴 **沒有人「寫錯文案」** —— 有人**正確地**照搬了 design。
+```
+
+## ② 而**ATM/轉帳是 Sean 自己拍過的 Phase 2**
+```
+docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md:109 逐字：
+  「**Sean 拍**：… S3=B（**ATM Phase 2**）…」
+docs/specs/2026-06-04-m3-checkout-plan.md:76：ATM（隱藏）列在不做清單裡
+docs/specs/2026-06-12-m3-stage2-4-tappay-fields-plan.md:23 逐字：「ATM 不做(plan §3.2、階段① 已拍)」
+```
+⇒ 🔴 **所以「Sean 是不是線下收轉帳」那一題【不成立】** —— 他已經拍過了,
+   而拍的內容是**這個功能延到 Phase 2**。**我不該把它端上去當決策題。**
+   (照 memory `feedback_look-for-the-path-that-dissolves-the-question`:查了才問,而我這次是先問了才查。)
+
+## ③ ⇒ 真正的形狀:**design 描述三種,實作出一種,而客人讀到的是 design 那一版**
+
+```
+🔴 這正是「逐字搬 design 會把上游的東西一起搬進來」的一個【客人看得到】的實例 ——
+   而這次搬進來的不是 bug，是**一個 design 已經寫好、而實作依 Sean 拍板延後的功能**。
+⇒ 鐵則 1 要求不要重新詮釋 design，**而它沒有要求把 design 的【時間軸】也一起照搬。**
+```
+
+## ④ 而它剩下**一題**要 Sean 拍(不是兩題)
+
+```
+Q：商品頁 FAQ 的付款那句要不要改？（現況：寫三種，結帳只有信用卡）
+   甲：**改 storefront、不動 OD** —— 例如「目前線上結帳僅支援信用卡；
+       其他付款方式（銀行轉帳、LINE Pay）規劃中，需要請先用 LINE 與我們聯絡」
+       ⇒ 偏離 design，要在 commit body 寫明理由（鐵則 1 的正當偏離）
+   乙：**改 OD、storefront 跟著改** ⇒ design 與實作對齊，而要動設計專案
+   （推薦甲：OD 描述的是**完成後的樣子**，而客人現在看的是**今天的站**。）
+```
+⚠️ 而**LINE Pay 我查不到任何拍板** —— 只在 `CheckoutStep2.tsx:23` 的註解裡以
+「未來新增 LINE Pay / 虛擬帳號時」出現(**那是實作者的預留,不是拍板**)。
+⇒ 這一格標**未確認**:LINE Pay 是「延後」還是「從未討論」,**我答不出來**。
