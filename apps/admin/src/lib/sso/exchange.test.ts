@@ -96,3 +96,66 @@ describe('exchangeCode', () => {
     expect(await exchangeCode('c', 's', config, { fetch: failFetch, nowSec: NOW })).toBeNull();
   });
 });
+
+// ── M-4b E8-B B5:身分欄 sub 的收取(規格 docs/specs/2026-08-17-m4b-e8b-b5-spec.md §B5-4)──
+// 🔴 這一批格子驗的是【三態分得開】:缺席 / 合法 / 壞形狀。壓成兩態就是這一片的病。
+describe('exchangeCode:sub(M-4b E8-B B5)', () => {
+  const base = { ok: true, amr: ['pwd'], auth_time: 1_700_000_000 };
+  const call = (body: unknown) =>
+    exchangeCode('c', 's', config, {
+      fetch: (async () => new Response(JSON.stringify(body), { status: 200 })) as typeof fetch,
+      nowSec: 1_700_000_100,
+    });
+
+  it('沒有 sub 欄 ⇒ 照舊成功,而結果【不帶】sub(B3/B4 未上線時的常態)', async () => {
+    const r = await call(base);
+    expect(r).not.toBeNull();
+    expect('sub' in (r as object)).toBe(false);
+  });
+
+  it('sub:null ⇒ 🔴 整包拒 —— 不得靜默降級成「沒有」', async () => {
+    expect(await call({ ...base, sub: null })).toBeNull();
+  });
+
+  it('三個合法變體都收得下,且逐字相同', async () => {
+    expect((await call({ ...base, sub: { kind: 'user', staff_id: 'sean' } }))?.sub).toEqual({
+      kind: 'user',
+      staff_id: 'sean',
+    });
+    expect((await call({ ...base, sub: { kind: 'fallback' } }))?.sub).toEqual({ kind: 'fallback' });
+    expect((await call({ ...base, sub: { kind: 'bootstrap' } }))?.sub).toEqual({ kind: 'bootstrap' });
+  });
+
+  it('🔴 exact shape:fallback / bootstrap 多帶一個鍵 ⇒ 拒(下游可能把備援升格成具名身分)', async () => {
+    expect(await call({ ...base, sub: { kind: 'fallback', staff_id: 'sean' } })).toBeNull();
+    expect(await call({ ...base, sub: { kind: 'fallback', x: 1 } })).toBeNull();
+    expect(await call({ ...base, sub: { kind: 'bootstrap', staff_id: 'sean' } })).toBeNull();
+  });
+
+  it('🔴 exact shape:user 多帶一個鍵也拒(不是只擋 fallback 那一支)', async () => {
+    expect(await call({ ...base, sub: { kind: 'user', staff_id: 'sean', role: 'admin' } })).toBeNull();
+  });
+
+  it('user 的 staff_id 缺 / 空 / 只有空白 ⇒ 拒', async () => {
+    expect(await call({ ...base, sub: { kind: 'user' } })).toBeNull();
+    expect(await call({ ...base, sub: { kind: 'user', staff_id: '' } })).toBeNull();
+    expect(await call({ ...base, sub: { kind: 'user', staff_id: '   ' } })).toBeNull();
+  });
+
+  it('🔴 未知 kind ⇒ 拒,不放行(加變體要先改 sanitizeSub 才收得下)', async () => {
+    expect(await call({ ...base, sub: { kind: 'passkey' } })).toBeNull();
+    expect(await call({ ...base, sub: { kind: 'USER', staff_id: 'sean' } })).toBeNull();
+  });
+
+  // 🔴 codex 關卡2 must-fix:少了這一格，「空物件被誤判成 undefined」那個壞實作【全綠】
+  //   —— 三態防線的縫就在 undefined 與「有欄但沒內容」之間
+  it('🔴 sub:{} ⇒ 拒(不得被當成「沒有這個欄」)', async () => {
+    expect(await call({ ...base, sub: {} })).toBeNull();
+  });
+
+  it('sub 是陣列 / 字串 / 數字 ⇒ 拒', async () => {
+    for (const bad of [[], ['user'], 'user', 7, true]) {
+      expect(await call({ ...base, sub: bad })).toBeNull();
+    }
+  });
+});

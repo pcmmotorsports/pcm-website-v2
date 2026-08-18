@@ -19,6 +19,25 @@ import { b64urlFromBytes, b64urlToBytes } from '../base64url';
 /** 報價單 exchange 回傳並經 admin 端自驗過的 amr 值(對齊報價單 lib/session.ts SessionAmr)。 */
 export type AdminSessionAmr = 'pwd' | 'totp' | 'bootstrap' | 'recovery';
 
+/**
+ * 報價單 exchange 回傳的【身分】(M-4b E8-B B5;規格 docs/specs/2026-08-17-m4b-e8b-b5-spec.md)。
+ *
+ * 🔴 兩軸不要混(B3 spec §3.12):
+ *   sub.kind = 【這是誰】       ⇒ 身分/授權閘唯一的鍵
+ *   amr      = 【他怎麼證明的】 ⇒ 認證強度閘,不得拿來判身分
+ *   —— 而 'bootstrap' 這個【字面】兩邊都有,它們是【不同軸的值】,會不一致且那不是 bug
+ *      (B3 §3.10:2FA 綁定完成後 amr 升級、sub 不動)。
+ *
+ * 🔴 沒有「沒有身分的 session」—— 備援與首次建置都是【一種身分】(plan §7-Q1=A)。
+ *   'fallback'  共用密碼備援登入
+ *   'bootstrap' 首次建置(SETUP_SECRET);🔴 它【沒有】staff_id,而它與 fallback 不同:
+ *               fallback 一律不得寫入;bootstrap 僅限 2FA 綁定端點白名單(B5 §寫入閘)
+ */
+export type AdminSessionSub =
+  | { kind: 'user'; staff_id: string }
+  | { kind: 'fallback' }
+  | { kind: 'bootstrap' };
+
 export interface AdminSessionPayload {
   v: 1;
   sid: string; // 128-bit hex;每次簽發新產 = §3.1「旋轉 session id」(stateless 下為衛生,非撤銷)
