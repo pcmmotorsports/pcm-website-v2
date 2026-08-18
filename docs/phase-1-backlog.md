@@ -1123,9 +1123,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `packages/ports/src/IProductRepository.ts:18`、`docs/audits/2026-05-02-full-audit.md` Audit-F3
 
-### #39. ⏳ Order.fulfillmentMethod 欄位缺(寄家 / 寄店家 / 自取)
+### #39. 🔴 Order.fulfillmentMethod 欄位缺(寄家 / 寄店家 / 自取)—— **Sean 2026-08-18 確認:自取【有在做】**
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🔴 **已確認的真缺口(不再是「待執行」的一般債)**。
+  **Sean 2026-08-18 傍晚逐字**(主視窗轉,選項原文在 memory `project_0818-evening-two-rulings.md` Q9 段,引用要連著引):
+  > `A: 有在做 —— 那它是真缺口,而且【每一筆自取單今天都靠一段自由文字撐著】`
+  > `⇒ 要補一個正式的「自取」模式`
+  ⚠️ **怎麼做仍未拍板**(加 enum 值 / 另立 shipment 端模式 / 兩者)⇒ 本條維持「沒有主張」。
 - **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
@@ -1160,7 +1164,17 @@ domain Order                          仍無 fulfillmentMethod（本條原本說
 建箱彈窗的「客人自取」                 只是 carrierNote 的**自由文字**
                                       （shipment-dialog.tsx 的 placeholder「例:客人自取 / 站到站」）
 ```
-⇒ **「自取」在系統裡沒有任何結構化表示** —— 值域裡沒有它,domain 沒有它,出貨端只有自由文字。
+⇒ **「自取」在系統裡沒有它自己的表示。**
+🔴 **20:4x 再量,把上一句講精確(它原本太強)**:出貨端**有**一格結構化的東西,而它是個**大雜燴**:
+```
+shipments.carrier_code   CHECK IN ('hct','sf','other')      建表檔 :104
+                         ⇒ 自取【被歸在 'other'】，而 'other' 同時裝著自送／站到站／其他任何送法
+                         ⇒ DB 甚至為它開了例外：`shipped_needs_tracking` 讓 other 免填單號（:113 那組）
+carrier_note             CHECK：只有 other 才准非空（:113）⇒ **自由文字是【被制度要求】填的**
+⇒ 所以不是「零結構」，是**一個 catch-all 桶子** —— 而桶子裡是什麼，只有那段自由文字知道。
+```
+⇒ 這對修法有實質影響:**加一個 `'pickup'` 到 `carrier_code` 值域**是比「新增 domain 欄位」更小的一步,
+而且它會**自動接上既有的免填單號例外**。⚠️ **這是觀察不是主張**,拍板前不要當定案。
 
 ### 今天的實害(不是理論)
 
