@@ -294,6 +294,64 @@ memory project_deploy-topology-main-stale-dev-live 記著(2026-06-17 由 build-l
 
 ---
 
+## §5-c ✅ 路 2(Supabase branching)查完了 —— **技術上成立,而流程上今天接不起來**
+
+查法:官方文件(`supabase.com/docs/guides/deployment/branching`、同站 `/integrations`、`supabase.com/pricing`),
+**沒有碰 dashboard**。五格逐條:
+
+| # | 問題 | 答案 | 來源 |
+|---|---|---|---|
+| 1 | preview branch 有沒有**獨立的 DB 與金鑰** | ✅ **有** —— 逐字「Each branch is a separate environment with its own Supabase instance and API credentials」 | branching 文件 |
+| 2 | 一定要接 GitHub 嗎 | ⚠️ **branching 本身不用**(逐字「either automatically via our GitHub integration **or directly through the dashboard**」);**而把憑證送到 Vercel 那條路【要】** | branching + integrations |
+| 3 | 成本 | **$0.01344 / branch / 小時**;Pro **不含**免費 branch 時數 | `supabase.com/pricing` |
+| 4 | 怎麼把 branch 的 DB URL 送進 Vercel preview | ✅ **有官方整合**,逐字「Supabase automatically updates your Vercel project with the correct environment variables for the corresponding preview branches」<br>🔴 **而它在【PR 開啟】那一刻同步**,不是 branch 建立時 | integrations |
+| 5 | 🔴 **會不會把正式資料複製過去** | ✅✅ **不會。** 逐字「**New branches do not start with any data from your main project. This is meant to better protect your sensitive production data.**」要資料得自己給 seed file | branching 文件 |
+
+### ✅ 我原本最擔心的那一格,答案是好的
+我先前寫:「若它會複製正式資料 ⇒ **那不是修好,是把正式資料多放一份在更鬆的地方**」
+(admin `composition.ts` 誠實邊界② 逐字警告過同款)。
+⇒ **Supabase 明文不複製資料**,而且理由就是保護正式資料。**那個危險不存在。**
+
+### 🔴🔴 而真正的阻塞在別的地方:**這個 repo 從來沒有開過 PR**
+```
+gh pr list --state all --limit 10   ⇒ []   ← 空。一個都沒有過
+CLAUDE.md:86 逐字「dev←主開發(slice 都在 dev、線性、暫不開 feature branch)」
+```
+⇒ 而憑證同步**在 PR 開啟時觸發** ⇒ **在現行流程下它【永遠不會觸發】。**
+🔴 **所以路 2 不是「設定一下就好」,是【要先改成 PR 流程】** —— 那是流程改動,不是設定改動。
+
+### 成本(⚠️ 三個數字裡只有第一個是官方的,其餘是我算的)
+```
+官方   $0.01344 / branch / 小時
+我算的 常開一個月(720h) ⇒ 約 $9.68
+我算的 只在要用時開、每天 2 小時 ⇒ 約 $0.81/月
+```
+
+### ⇒ 我的推薦(而它與先前那版**相反,理由變了**)
+```
+⛔ 先前我寫:「路 2 要先有第二個 Supabase 專案,而那自己就是一片工程」
+   ⇒ 那句【前提錯了】—— 不需要新開專案,branching 就是為這件事做的
+✅ 而新的阻塞更硬:【要先有 PR 流程】,而這個 repo 一個 PR 都沒有過
+
+⇒ 推薦順序不變,理由換掉:
+   短期 走【路 1】(已完成:預覽版刷不了卡)—— 洞 1 已堵,而洞 2 是【寫進正式庫】不是【動錢】
+   中期 若要堵洞 2 ⇒ 先問「我們要不要改成 PR 流程」,那是一個【工作方式】的決定,不是技術題
+        ⇒ 🔴 那一題要 Sean 拍,而我【不建議】為了堵洞 2 去改整個工作流程
+   替代 不改流程也堵得住的做法:讓預覽版【連不到資料庫】
+        ⚠️ 而那會讓預覽版打不開(它要讀商品才畫得出頁面)⇒ 等於路 3(關掉預覽版)
+```
+
+### ⚠️ 我沒查到的(不假裝)
+```
+· branch 的生命週期:PR 關掉之後 branch 會不會自動刪、還是要手動 ⇒ 未確認
+  (它直接影響上面那個「常開 vs 用時才開」的成本估)
+· Vercel Hobby 方案對這個整合有沒有限制 ⇒ 文件沒提 ⇒ 未確認
+· 「Supabase 自動更新 Vercel 的環境變數」具體會寫哪幾個變數名 ⇒ 文件沒逐字列 ⇒ 未確認
+  🔴 這一格重要:若它寫的變數名與我們用的不同(我們用 NEXT_PUBLIC_SUPABASE_URL),那接了也沒用
+```
+
+---
+
 ## §7 我答不出來的(不假裝)
 
 ```
