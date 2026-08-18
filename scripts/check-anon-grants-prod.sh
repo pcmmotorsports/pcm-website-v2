@@ -13,10 +13,23 @@
 #   ⚠️ 本腳本【不接受】把連線字串當參數傳 —— 那會讓它出現在 process table(ps)裡。
 #   ⚠️ 它也不會把連線字串交給 psql 的 argv:先拆成 PG* 環境變數再呼叫(見 connect_env)。
 #
-# rc:0=兩格都查到且對照組正常 / 2=用法錯 / 1=工具問題(psql 沒裝、連不上、對照組失效)
-#   🔴 rc=1 不是「查無」—— 不要當成「權限已經收乾淨了」。
+# rc:0=兩格都查到且對照組正常 / 2=用法錯 / 1=工具問題(psql 沒裝、連不上、量具證不出來)
+#     6=這個庫沒有指定的校準表(你可能在跑報價單庫 ⇒ 用 CALIB_YES / CALIB_NO 指定)
+#     7=校準表在,但它的權限現值不符預期 ⇒ 🔴 **這是一個【發現】,不是工具壞掉**
+#   🔴 rc=1 / 6 都不是「查無」—— 不要當成「權限已經收乾淨了」。
 #
-# 兩個庫都要跑:網站庫(pcm-website-v2)與報價單庫(pcm-quote-v2)。E686 §6 實測兩庫結果相同。
+# 🔴 **校準表是【網站庫專用】的,而「兩個庫都要跑」需要你先給那個庫自己的校準表**
+#    (2026-08-18 主視窗抓到:`:19` 的指示與 `:56` 的校準互相矛盾 —— 報價單庫沒有 legal_terms_versions,
+#     對照組在那裡永遠不成立 ⇒ 腳本永遠 rc=1、永遠報不出數。)
+#    ⇒ 報價單庫要跑,先指定它自己的兩張表:
+#         CALIB_YES=public.<那個庫裡 anon【應該】讀得到的表> \
+#         CALIB_NO=public.<那個庫裡 anon【不該】有任何權限的表> bash scripts/check-anon-grants-prod.sh
+#    ⚠️ E686 §6 講的是「兩庫的【結果】相同」,**不代表同一支校準在兩個庫都成立** —— 兩件事。
+#
+# 🔴 **為什麼負向對照【不能單獨用】**(同日實錘,值得留在檔頭):
+#    `admin_audit_log × anon ⇒ 0` 在「表被鎖好了」與「表根本不存在」兩個世界**印同一個東西**。
+#    今天救了這支腳本的是**正向那一格**(表不在時它會掉到 0 而報紅)。
+#    ⇒ 只放負向對照的話,它會在報價單庫上印出一個漂亮的綠。(memory `feedback_absence-read-as-verified`)
 
 set -uo pipefail
 
@@ -52,20 +65,55 @@ PY
 run() { psql -X -A -t -v ON_ERROR_STOP=1 -c "$1" 2>&1; }
 
 # ── 0. 對照組:先證明這把尺量得到東西(該綠的一發綠、該紅的一發紅)────────────
+CALIB_YES="${CALIB_YES:-public.legal_terms_versions}"   # anon【應該】讀得到的表
+CALIB_NO="${CALIB_NO:-public.admin_audit_log}"          # anon【不該】有任何權限的表
+
+# 0-a. 校準表在不在(🔴 表不存在時,權限查詢也回 0 ⇒ 不先問這一句就分不出「鎖好了」與「不在」)
+EXIST=$(run "select coalesce(to_regclass('$CALIB_YES')::text,'-') || '|' ||
+                    coalesce(to_regclass('$CALIB_NO')::text,'-');")
+case "$EXIST" in
+  *'|'*) : ;;
+  *) echo "🔴 工具問題:psql 沒跑起來或連不上 —— 這【不是】查詢結果" >&2
+     echo "$EXIST" | head -3 >&2; exit 1;;
+esac
+YES_T="${EXIST%%|*}"; NO_T="${EXIST##*|}"
+echo "── 對照組(先驗量具,不是結論)──────────────────"
+echo "  校準表:$CALIB_YES ⇒ $YES_T / $CALIB_NO ⇒ $NO_T"
+if [ "$YES_T" = '-' ] || [ "$NO_T" = '-' ]; then
+  echo "🔴 這個庫【沒有】本腳本預設的校準表 ⇒ 你很可能在跑報價單庫,而預設校準是網站庫專用的。" >&2
+  echo "   ⇒ 這【不是】查詢結果,也【不是】權限已收乾淨。" >&2
+  echo "   ⇒ 指定那個庫自己的兩張表再跑:" >&2
+  echo "     CALIB_YES=public.<anon 應該讀得到的表> CALIB_NO=public.<anon 不該有權限的表> \\" >&2
+  echo "       bash scripts/check-anon-grants-prod.sh" >&2
+  exit 6
+fi
+
+# 0-b. 量具自證:這個庫裡 anon 到底有沒有【任何】表權限(與校準表無關,證明查詢看得見 grant)
+ANY=$(run "select count(*) from information_schema.role_table_grants where grantee='anon';")
 POS=$(run "select count(*) from information_schema.role_table_grants
-           where grantee='anon' and table_schema='public' and table_name='legal_terms_versions';")
+           where grantee='anon' and table_schema=split_part('$CALIB_YES','.',1)
+             and table_name=split_part('$CALIB_YES','.',2);")
 NEG=$(run "select count(*) from information_schema.role_table_grants
-           where grantee='anon' and table_schema='public' and table_name='admin_audit_log';")
-case "$POS$NEG" in
+           where grantee='anon' and table_schema=split_part('$CALIB_NO','.',1)
+             and table_name=split_part('$CALIB_NO','.',2);")
+case "$ANY$POS$NEG" in
   *[!0-9]*) echo "🔴 工具問題:psql 沒跑起來或連不上 —— 這【不是】查詢結果" >&2
             echo "$POS" | head -3 >&2; exit 1;;
 esac
-echo "── 對照組(先驗量具,不是結論)──────────────────"
-echo "  該有的:legal_terms_versions × anon 顯式 GRANT SELECT ⇒ 期待 >0,實得 $POS"
-echo "  該沒有的:admin_audit_log × anon 零 client 權限        ⇒ 期待 =0,實得 $NEG"
-if [ "$POS" -eq 0 ] || [ "$NEG" -ne 0 ]; then
-  echo "🔴 對照組不符 ⇒ 這把尺現在量不準,下面的數字一律【不要採信】。先查為什麼。" >&2
+echo "  量具自證:本庫 anon 的表權限總筆數 ⇒ $ANY(=0 表示這把尺沒看到過任何 grant)"
+echo "  該有的:$CALIB_YES × anon ⇒ 期待 >0,實得 $POS"
+echo "  該沒有的:$CALIB_NO × anon ⇒ 期待 =0,實得 $NEG"
+if [ "$ANY" -eq 0 ]; then
+  echo "🔴 這把尺在本庫【一筆 grant 都沒看到】⇒ 量具證不出來(可能連錯庫 / 權限不足)。" >&2
+  echo "   ⇒ 這【不是】「權限已經收乾淨了」。" >&2
   exit 1
+fi
+if [ "$POS" -eq 0 ] || [ "$NEG" -ne 0 ]; then
+  echo "🔴 量具是好的(它看得到 $ANY 筆 grant),而**校準表的權限現值不符預期** ⇒ 這是一個【發現】:" >&2
+  [ "$POS" -eq 0 ] && echo "   · $CALIB_YES 對 anon 沒有任何權限 —— 預期它有 SELECT(前台要讀)⇒ 少了一條 GRANT 或連錯庫" >&2
+  [ "$NEG" -ne 0 ] && echo "   · 🔴🔴 $CALIB_NO 對 anon 有 $NEG 筆權限 —— 那張表應該對 client 全鎖,這是嚴重偏移" >&2
+  echo "   ⇒ 先把這一條查清楚再看下面的數字;本次不繼續報數(rc=7)。" >&2
+  exit 7
 fi
 echo "  ✅ 兩發都表演得出來 ⇒ 下面的數字可以讀。"
 echo
@@ -103,4 +151,4 @@ echo "  🔴 判讀:(a)(b) 任一有 DELETE/TRUNCATE/UPDATE/INSERT ⇒ 【還沒
 echo "         三格全空 ⇒ 已收乾淨。⚠️ 空輸出要配上面的對照組才算數"
 echo "  📄 docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md"
 echo
-echo "🔴 本次結果只代表【這個庫、這一刻】。兩個庫都要跑(網站庫 + 報價單庫)。"
+echo "🔴 本次結果只代表【這個庫、這一刻】。報價單庫要跑 ⇒ 先用 CALIB_YES / CALIB_NO 給它自己的校準表(見檔頭)。"
