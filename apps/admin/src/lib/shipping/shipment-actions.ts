@@ -22,6 +22,7 @@
 import { revalidatePath } from 'next/cache';
 import { authorizeAdminMutation } from '../session/authorize';
 import { toMessage } from './error-message';
+import { RECIPIENT_NAME_REQUIRED, toRecipientSnapshot } from './recipient';
 import { loadShipmentCandidates, type ShipmentCandidates } from './shipment-candidates';
 import {
   addShipmentItems,
@@ -163,6 +164,16 @@ export async function submitShipment(input: SubmitShipmentInput): Promise<Submit
       };
     }
     const customerUserId = [...owners][0]!;
+
+    // 🔴🔴 `#503`(關卡2 codex must-fix):**UI 擋不住這條路。**
+    //    按鈕停用只擋滑鼠;舊分頁、竄改過的請求、以及**將來新增的呼叫端**都直接進到這裡。
+    //    ⇒ 寫入前自己再擋一次,判定走與畫面**同一支** `lib/shipping/recipient.ts`
+    //      (兩邊各寫一份判斷會各自漂,而漂掉時沒有任何東西會紅)。
+    //    ⚠️ 只擋姓名 —— 沒有地址是警告不是擋(理由全文在那支 lib 的檔頭:自取現在只是自由文字)。
+    if (toRecipientSnapshot(input.recipient) === null) {
+      // `code: null` 同上一條:本層自己的拒絕,不是 DB 丟的 ⇒ 沒有 SQLSTATE。
+      return { code: null, ok: false, message: RECIPIENT_NAME_REQUIRED, shipmentReference: null };
+    }
 
     const created = await createShipment({
       idempotencyKey: input.idempotencyKey,

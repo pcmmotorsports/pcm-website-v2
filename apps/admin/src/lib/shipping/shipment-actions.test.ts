@@ -263,6 +263,33 @@ describe('🔴 半成品 — 失敗時要把已建出的箱號帶回去', () => 
   });
 });
 
+// ── `#503`(2026-08-18,關卡2 codex must-fix)────────────────────────────────
+//
+// 🔴 **UI 擋不住這條路**:按鈕停用只擋滑鼠;舊分頁、竄改過的請求、以及將來新增的呼叫端
+//    都直接進到 server action。⇒ 寫入前這一道是**核心那道**,彈窗那道只是體驗層。
+//    判定與畫面共用 `lib/shipping/recipient.ts`(兩邊各寫一份會各自漂,而漂掉時沒有東西會紅)。
+describe('`#503` 收件人姓名:server 端自己擋一次', () => {
+  // ⚠️ 這裡**只餵字串**(`''` / 空白):`SubmitShipmentInput.recipient` 的型別就是三個 string,
+  //    餵 `null` 要 cast,而 cast 出來的世界不是這一層真的會收到的。
+  //    `null` 那一半由 `recipient.test.ts` 直接打純函式驗(那一層的型別本來就允許 null)。
+  //    🔴 而 `''` 正是**舊實作真的會送出來的值**(`recipient.name ?? ''`)⇒ 這格對得上真實威脅。
+  it.each(['', '   '])('姓名是 %p ⇒ 不建箱、回可讀訊息', async (name) => {
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment({ ...base, recipient: { ...base.recipient, name } });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.message).toContain('沒有收件人姓名');
+    expect(createShipment, '🔴 已經建出箱子了 —— 這一格就是要擋在寫入之前').not.toHaveBeenCalled();
+  });
+
+  // 🔴 正向對照(成對,不可只留上面那組):少了它,一個「一律拒絕」的實作也會讓上面全綠。
+  it('🔴 只有電話或地址空 ⇒ 照樣建箱(那兩欄不是擋的理由)', async () => {
+    const { submitShipment } = await import('./shipment-actions');
+    const r = await submitShipment({ ...base, recipient: { name: 'n', phone: '', line: '' } });
+    expect(r.ok, '把合法的空電話/空地址當成拒絕理由 ⇒ 退掉自取單與沒電話的客人').toBe(true);
+    expect(createShipment).toHaveBeenCalled();
+  });
+});
+
 describe('只建箱 / 建箱並出貨', () => {
   it('markShipped=false → 不呼叫 markShipmentShipped', async () => {
     const { submitShipment } = await import('./shipment-actions');
