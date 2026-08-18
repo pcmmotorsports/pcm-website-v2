@@ -6949,9 +6949,27 @@ order by n desc, 1;
 
 ---
 
-### #246. 🧹 退役 usePlaceOrder / placeOrderAction 死碼清理(消「兩條 cart_session_id 來源語意並存」)
+### #246. 🏁【已完成】~~退役 usePlaceOrder / placeOrderAction 死碼清理~~(消「兩條 cart_session_id 來源語意並存」)
 
-- **狀態:** ⏳ 待執行
+> ## 🔴 2026-08-19 G6:**這條也已經做完了,而狀態欄還寫 `⏳ 待執行`**(`#245` 之後同一批的第二條)
+> ```
+> ① 兩個死碼**都不在了**:
+>    find apps/storefront/src -iname '*usePlaceOrder*'   ⇒ **零檔**
+>    app/checkout/ 底下**沒有 actions.ts**(現有:checkout-form-types / charge-actions /
+>      reconcile-actions / callback/page / page)
+> ② 全樹 grep 'usePlaceOrder|placeOrderAction'(排 .next)⇒ **1 行,而那一行是【訃聞】**:
+>    checkout-form-types.ts:3-5 逐字(**過去式**):
+>      「原寄居於 `checkout/actions.ts`(隨退役建單 action `placeOrderAction` 一起),
+>        **`#246` 死碼清理刪除 `actions.ts` 時,抽出**這兩個被 live 刷卡路徑共用的欄位錯誤型別、
+>        獨立成命名檔(`PlaceOrderActionResult` **隨死碼一併移除**)」
+>    ⇒ **這支檔本身就是那次清理的產物。**
+> 負向對照(同尺該命中的)`useChargePayment` ⇒ **27 命中** ✅ 尺會動
+> ```
+> ⇒ **實作做完了,而且做的人在註解裡具名寫了 `#246`** —— **只有狀態欄沒動。**
+> ⚠️ **未量**:沒有實跑測試;「`actions.ts` 不存在」是 `find`/`ls` 的結果,沒有查 git 歷史確認它是被那次清理刪的。
+
+- **狀態:** 🏁 **已完成**(2026-08-19 G6 實查:兩個死碼皆不存在;`checkout-form-types.ts:3-5` 以過去式具名記載那次清理)
+  · ~~⏳ 待執行~~(原值留痕)
 - **優先級:** 🟡 低(死碼、生產零呼叫、非安全;清理 / 降誤用面)
 - **問題:**
   - 唯一 live 結帳鏈 = `CheckoutView` → `useChargePayment` → `chargePaymentAction`(`CheckoutView.tsx:8` 註「usePlaceOrder 退役、本檔不再呼叫」)。
