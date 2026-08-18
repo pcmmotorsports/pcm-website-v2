@@ -243,6 +243,25 @@ export function FilterTop({
                       {r.label}
                     </button>
                   ))}
+                  {/* 🔴🔴 **這一格是死的,而它正在正式站上**(2026-08-19 G1 量到、純標註零行為改動)。
+                        兩個 `<input>` 沒有 `value` / `onChange` / `name` / `ref`;`<button>` 沒有 `onClick`;
+                        同檔沒有 `<form>` / `onSubmit`(唯一的 `addEventListener` 是 `:95` 的 Esc 關閉)。
+                        ⇒ **客人打兩個數字、按「套用」,什麼都不會發生。**
+                        負向對照:同一支檔有 **18 個 `onClick`** ⇒ 這不是「掃不到接線」,是真的沒接。
+
+                        **成因不是有人偷懶**:`design-reference/components/FilterTop.jsx:182` **逐字就是這樣**,
+                        而本檔檔頭寫著「字面直接搬」「className 完全不動」⇒ **鐵則 1 被正確執行了,
+                        而搬進來的是 design 的【靜態原型】。**
+
+                        🔴 **它比一般死鈕毒,因為【它上面那幾列是會動的】**(`ft-price-row` 每一列都有 `onClick`)
+                        ⇒ 客人沒有理由覺得這一格不一樣 ⇒ 他會以為**是自己做錯了**,不是「這功能還沒做」。
+                        而他在按之前**已經打了兩個數字**。
+
+                        ⏳ **處置待 Sean**(三條路都動 design 的畫面 ⇒ 鐵則 1):
+                          甲 拿掉這一格 / 乙 接起來(`extras.price` 機制已在,見上面那幾列) / 丙 維持並寫明理由
+                        📌 **在他答之前,先把「它是死的」寫在這裡** —— 那不需要任何人批准,
+                        而它擋住下一個人白查一次。全文與掃描分母:
+                        `docs/probes/2026-08-19-g1-inert-controls-live.md` */}
                   <div className="ft-price-custom">
                     <input placeholder="最低" /><span>—</span><input placeholder="最高" />
                     <button className="ft-apply">套用</button>
