@@ -8161,6 +8161,46 @@ order by n desc, 1;
 ### #297. ⚠️ 破壞性金錢動作缺二次確認(儲值金扣款為首例;#296 的完整解)
 
 - **狀態:** ⏳ 待執行(Sean 2026-07-26 拍板:**#296 走 C 先收、本條立 backlog**)
+
+> ## 🔴 2026-08-18 22:4x 族清單(G6 量;**它推翻了兩個前提**)
+>
+> ### ① 「儲值金業務不開 ⇒ 這條沒有標的」——**不成立,標的今天員工按得到**
+> ```
+> apps/admin/src/components/customers/customer-detail.tsx:204
+>    {!readOnly && <WalletAdjustForm customerId={customer.id} />}
+> 同檔 :129  readOnly = false        ← **預設值就是 false**
+> ⇒ 客戶明細頁預設就渲染那張表單(`readOnly` 只在面板版被傳 true)
+> ```
+> 🔴 **「儲值金業務不開」與「後台那顆扣款鈕不渲染」是兩件事,而它們被混為一談過。**
+>
+> ### ② 族的活成員(數法與限制在下面,**不要只抄數字**)
+> | 面 | 非測試檔數 | 含【確認機制字面】的檔數 |
+> |---|---|---|
+> | **wallet** | 4 | **0** 🔴 直接寫 `wallet_ledger` 負數,而整面零確認 |
+> | receipt | 7 | 0 ⚠️ **未驗** |
+> | tier | 4 | 0 ⚠️ **未驗** |
+> | amount | 6 | 1 |
+> | payment | 11 | 1 |
+> | cancel | 13 | 2 |
+> | **refund** | 17 | **11** ← 🔴 **已有成熟形狀可抄,不必發明** |
+> ```bash
+> # 數法(可重跑)
+> for k in wallet refund payment cancel amount receipt tier; do
+>   f=$(find apps/admin/src -name "*${k}*" \( -name '*.tsx' -o -name '*.ts' \) -not -name '*.test.*')
+>   printf '%-9s %s %s\n' "$k" "$(printf '%s\n' "$f" | grep -c .)" \
+>     "$(printf '%s\n' "$f" | xargs grep -l '二次確認\|window.confirm\|requireConfirm\|confirmed\|確認後' 2>/dev/null | wc -l)"
+> done
+> ```
+> ⚠️🔴 **限制(一定要跟著這張表走)**:上表數的是**檔案裡有沒有那些字面**,
+> **不是**「那個動作真的有二次確認」。⇒ `receipt` / `tier` 的 **0 可能是用了別的字**,**未驗**。
+> ✅ 而 `wallet` 的 0 有第二層佐證:本條目自己逐字「按下即寫 `wallet_ledger`」+
+> `#296` 當時 opus 對抗審與 codex 關卡2 **獨立雙命中** ⇒ **那個 0 不是尺的問題。**
+>
+> ### ③ 🔴 本條「不修會痛在」那句**今天已經不準**
+> 原文逐字:「退款、取消訂單、部分退款都是同一類…現在一個共[通形狀都沒有]」
+> ⇒ 而 `refund` 面 **17 檔裡 11 檔帶確認字面** ⇒ **族的其他成員多半已被補上。**
+> ⇒ 本條的範圍建議從「儲值金扣款(首例)」改寫成 **「wallet 面 —— 唯一零確認的錢面」**。
+> 📎 這是 2026-08-18 當日第五個「**做完的事沒有回頭關掉指著它的那張紙**」實例。
 - **優先級:** 🟠 中(不影響客人;是員工誤操作直接動到錢,且無自動回復)
 - **問題:**
   - `wallet-adjust-submit.tsx` 的「扣款」**沒有二次確認**,按下即寫 `wallet_ledger`(`wallet-form.ts:74` 負數入帳),且 RPC **無下界、可扣成負餘額**。
