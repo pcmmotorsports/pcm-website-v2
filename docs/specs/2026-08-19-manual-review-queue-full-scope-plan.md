@@ -358,13 +358,80 @@ Q:假設所有人都忘了這件事,這支還 apply 得下去嗎?
 A:不行 —— 因為 **`supabase db push` 掃的是 `supabase/migrations/`,而這個檔不在那裡。**
   X = 檔案的【位置】,不是任何人的記性、不是註解、不是清單。
 ```
-🔴 **而 X 的前提我【沒有驗過】**:
+🔴🔴 ~~**而 X 的前提我【沒有驗過】**~~ ⇒ **2026-08-19 已量到,見 §14-2a。下面這段留痕不刪:**
 ```
 「db push 只讀 supabase/migrations/」= 我從 repo 慣例推出來的,不是量到的。
 本 repo 沒有 supabase/config.toml(量法:ls supabase/ ⇒ APPLIED.tsv / migrations / tests)
 ⇒ 沒有檔案能證明那個路徑是不是可設定的。
 🔴 缺的那一道檢查:**在拋棄式環境跑一次 `supabase migration list`(或 db push --dry-run),
    確認移走之後那支【真的從清單裡消失】。** ⇒ 移檔的那一片要附這一發,否則機制只是宣稱。
+```
+
+### 14-2a ✅ **那個前提【已經量到了】**(2026-08-19,拋棄式環境,雙向表演)
+> 取代 14-2 裡「我從慣例推的、沒量到」那段。**下面每一行都是實跑輸出。**
+
+**環境(拋棄式,零 repo 留痕、不碰 `.env*`、不碰正式庫)**
+```
+PostgreSQL 17.10 (Homebrew) @ 127.0.0.1:55501   ← /tmp/pgprobe,ssl=on(CLI 拒非 TLS 連線)
+supabase CLI 2.98.1
+拋棄式專案 /tmp/g4probe,repo 一個檔都沒動(移檔是在【副本】上做的)
+```
+**世界 A —— 目標檔在 `supabase/migrations/` 裡**
+```
+$ ls /tmp/g4probe/supabase/migrations/
+20260101000000_control.sql
+20260819010000_m4a_close_manual_review_attempt.sql        ← 檔名與正本逐字相同
+$ supabase db push --dry-run --db-url <拋棄式> --workdir /tmp/g4probe
+Would push these migrations:
+ • 20260101000000_control.sql
+ • 20260819010000_m4a_close_manual_review_attempt.sql     ← **在清單裡**
+```
+**世界 B —— 同一支檔【移到 `scripts/`】(檔案還在,只有位置變了)**
+```
+$ mv …/supabase/migrations/20260819010000_….sql  …/scripts/20260819010000-blocked-until-full-scope.sql
+$ supabase db push --dry-run --db-url <拋棄式> --workdir /tmp/g4probe
+Would push these migrations:
+ • 20260101000000_control.sql                              ← 對照檔【還在】⇒ 管線是活的
+                                                            ← 目標檔【不見了】
+$ supabase db push --dry-run --include-all …                (有人可能加這個旗標)
+Would push these migrations:
+ • 20260101000000_control.sql                              ← --include-all 也叫不回它
+```
+🔴 **對照檔在兩個世界都被列出來** ⇒ 世界 B 的「不見了」**不是整條管線壞掉**,
+是**移檔造成的**。(只做後半 ⇒ 量到的是「它不在」,而不是「移走讓它不在」。)
+
+**⇒ §14-2 那句 X 現在是量到的**:
+```
+Q:假設所有人都忘了,這支還 apply 得下去嗎?
+A:不行 —— `supabase db push` 的待推清單裡【沒有它】,因為它不在 supabase/migrations/。
+  X = 檔案的位置。已實測,含負向對照。
+```
+
+### 14-2b 🔴 而射程有邊界 —— **這道閘擋的是「忘記」,不擋「刻意」**
+`db push` 是本 repo 的正典 apply 路徑,**有檔為證**:
+```
+scripts/a7c-preflight.sh:98 逐字:「任何**未 apply** 的 migration 都會在下一次
+                                  `supabase db push` 被套上正式站。」
+```
+**而另外兩條路【不經過那個目錄掃描】**:
+```
+· psql -f <明確路徑>            (scripts/w5-line-verify.sh:489、scripts/347-3a-verify.sh:25 都這樣用)
+· MCP apply_migration           (docs/runbooks/supplier-storefront-onboarding.md:34 提到)
+                                 它吃的是 SQL 內容,不是路徑
+```
+🔴 **這兩條擋不住 —— 而它們也不是「忘記」**:
+兩者都要**當事人重新打出新路徑或貼上內容** ⇒ 那是**選擇**,不是遺忘。
+📌 主視窗的驗收條件問的是「假設所有人都忘了」⇒ **這道閘答得出那一題,而且只答那一題。**
+⇒ 要連「刻意」一起擋,得在檔案本體加 fail-closed 閘(而那要動 .sql,不在本輪邊界內)。
+
+### 14-2c 本次量測的效度限定(不要擴大解讀)
+```
+· 用的是【同檔名、內容為 CREATE TABLE 一行】的替身,不是正本那 488 行
+  ⇒ 證的是【CLI 依路徑挑檔】這件事,與檔案內容無關 —— 而我沒有用正本跑過
+· 拋棄式 PG 無 supabase_migrations schema 歷史 ⇒ 兩個世界都是「全部待推」的起點
+· CLI 版本 2.98.1(本機現值;官方已有 2.115.0)⇒ 換版本要重量
+· 本 repo 無 supabase/config.toml ⇒ 沒有測到「migrations 路徑被改設定」的情況
+  (拋棄式那份 config.toml 只寫了 project_id,沒動路徑)
 ```
 
 ### 14-3 兩個要一起做、否則機制會製造新的洞
