@@ -839,7 +839,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #26. ✅ partiallyRefunded transition 評估
 
-- **狀態:** ✅ **已收(2026-07-25、M-3 RF2a)** — 評估結論 = **擴 enum**。已落地三項:①`payment_status` 加第 5 值(migration `20260725130000`)②domain `PaymentStatus` union + `PAYMENT_TRANSITIONS`(🔴 Sean Q1=A **允許自我轉移**,支援同一單多次部分退,為 5 值中唯一例外)③**ADR-0003 §3.2 對照表已同步**(wire 欄為 `—`:ADR-0005 已 pivot custom Supabase、無 Medusa 對應需求,不憑記憶填字面)。⚠️ **未 apply production、未 push**,待 Sean `db push`;🔴 `ADD VALUE` **不可逆**。adapter mapping 為直接 passthrough、無需額外映射。詳 `docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md`。
+- **狀態:** ✅ **已收(2026-07-25、M-3 RF2a)** — 評估結論 = **擴 enum**。已落地三項:①`payment_status` 加第 5 值(migration `20260725130000`)②domain `PaymentStatus` union + `PAYMENT_TRANSITIONS`(🔴 Sean Q1=A **允許自我轉移**,支援同一單多次部分退,為 5 值中唯一例外)③**ADR-0003 §3.2 對照表已同步**(wire 欄為 `—`:ADR-0005 已 pivot custom Supabase、無 Medusa 對應需求,不憑記憶填字面)。~~⚠️ **未 apply production、未 push**,待 Sean `db push`;~~ 🏁 **apply 那半已作廢(2026-08-19 G2)**:2026-08-19 G2 實查 `supabase/APPLIED.tsv`:該版本號**在帳上**,列屬 2026-08-11 的回填批。🔴 **那批的來源不是自陳** —— 檔頭逐字寫著它來自「正式庫 `supabase_migrations.schema_migrations` 的實查結果」(Supabase MCP `list_migrations`,applied 160 / local 160、差集兩邊皆空)⇒ **正式庫自己的帳說它進去了。**⚠️ **只作廢「apply」那一半** —— git push 的狀態本條沒查,不要一起讀成已推。 🔴 `ADD VALUE` **不可逆**。adapter mapping 為直接 passthrough、無需額外映射。詳 `docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md`。
 - **原狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
@@ -6868,7 +6868,7 @@ order by n desc, 1;
 
 ### #241. ⚠️ 結帳「同意服務條款」未勾選仍可付款、無提醒
 
-- **狀態:** ✅ 已實作(2026-07-01、worktree=dev、待 Sean db push;真權威 `docs/specs/2026-06-30-m3-241-checkout-consent-plan.md`)
+- **狀態:** ✅ 已實作(2026-07-01、worktree=dev、~~待 Sean db push~~ 🏁 **已 apply,2026-08-19 G2 實查**;真權威 `docs/specs/2026-06-30-m3-241-checkout-consent-plan.md`)
   - 實作:charge-actions ②e `raw.agreed !== true` server 驗(不信任 client、置於所有付款/建單/settle 副作用前)+ best-effort IP/UA(headers、截 128/1024)→ create_order 5→8 param 同 transaction 原子寫 `order_legal_consents`(新 1:1 表、RLS 零 policy + REVOKE ALL = IP/UA PII 隔離)+ `legal_terms_versions` 版本登錄表(content_hash provenance、FK)+ `terms-version.ts` 常數。前端鈕已 payDisabled=!agreed(對齊 design、不加 inline 提示)。
   - 審查:Gemini scope/設計 + codex 關卡1(FAIL→9 finding 全修)+ 關卡2(zero-regression 乾淨)+ code-reviewer + adversarial-reviewer(皆 PASS-WITH-NITS)+ L1 安全輕掃 0 finding + migration MCP 零留痕 + 三綠 + vitest 1507。
   - ⚠️ **2026-07-22 更正(Slice U3b)**:上一行「前端鈕已 payDisabled=!agreed」**自 U3b 起不再成立**。
@@ -7182,7 +7182,7 @@ order by n desc, 1;
   - 實作:新 owner-defined SECDEF 聚合 RPC `get_payment_anomaly_alert_summary(p_refunding_stuck_seconds)`(payment_confirmer cron 對 anomaly 兩表零表權 → 經此受控窗讀**零 PII 計數**:open/refunding/refunding_stuck/oldest_open_age/attempt_manual_review〔needs_manual_review+pending+unpaid〕/released_stuck〔released_manual_review_at,Phase1 producer-gated 0〕)+ cron route `app/api/cron/anomaly-alert`(鏡像 settle-sweep:CRON_SECRET Bearer + `ANOMALY_ALERT_ENABLED` gate 預設 false=200 no-op + errors>0→503 不偽 200)+ use-case `checkAnomalyAlerts`(門檻踩 → 對所有已設定管道推播、Promise.allSettled 一管道掛不阻另一、reader/notifier throw→503 fail-closed)+ 兩 notifier adapter(LINE Messaging API push〔Q1=A〕/ Email Resend〔Q1=C〕、原生 fetch 零新依賴、密鑰不入 log/訊息)+ `getAnomalyAlertDeps`(依 env 存在性組管道、enabled 但零管道 throw)+ vercel.json 加 cron(`0 1 * * *` UTC=台灣 09:00、晚 settle-sweep 1h 讓對帳先收斂)。
   - 審查鏈:關卡1 Gemini + codex K1 + adversarial-reviewer(6 findings 全折入:死卡列拆兩計數 / 文案不宣稱已確認雙扣 / Vercel tier 現實 / ACL 5 角色 REVOKE / CRON_SECRET sequencing / 揭示可調營運參數非 SLA)+ 關卡2 codex K2 跨模型 PASS〔2 MED+1 NIT 折入:use-case 零管道 guard / effective-privilege assert / oldest age plumb〕+ code-reviewer PASS + adversarial-reviewer PASS-with-comments + pcm-security-audit L1〔0 CRITICAL/0 HIGH/1 LOW→#254〕。DDL MCP BEGIN..ROLLBACK 零留痕模擬〔ACL 矩陣 + role-hygiene + effective-privilege + 行為 delta open2→3/refunding0→1/stuck@24h=1/stuck@30d=0 + residue=0〕+ 三綠 + vitest 145 檔 1568。
   - 🔴 **誠實邊界**:告警門檻(refunding_stuck 秒數)= route 常數營運參數、**揭示可調、非 PRD SLA**(W1 runbook line150 不杜撰 SLA);open = 雙扣**候選、待查證**(runbook line51、非已確認雙扣);released_stuck Phase1 恆 0(前瞻接線);**無 per-anomaly 去重**→ 未解決前每輪持續提醒(刻意)→ 去重狀態表列 **#255** follow-up。頻率 daily=最壞 24h 延遲 vs 黃金期為盡力非保證、真黃金期需 Vercel Pro 改 hourly(launch 時 Sean 決)。
-  - 🔴 **db push sequencing**:migration `20260701120000` code 已期待、live 未套用 → **Sean db push 在「驗 cron / 部署」之前**(prod 未部署 + gate false=零影響);db push 後 Claude 唯讀 MCP 驗函式簽名/SECDEF/ACL/role-hygiene。
+  - 🔴 **db push sequencing**:migration `20260701120000` code 已期待、live 未套用 → ~~**Sean db push 在「驗 cron / 部署」之前**~~ 🏁 **前置已解(2026-08-19 G2)**:`20260701120000` 已在 APPLIED.tsv(同上回填批,來源=正式庫實查)⇒ **這道 sequencing 不再擋任何人**(prod 未部署 + gate false=零影響);db push 後 Claude 唯讀 MCP 驗函式簽名/SECDEF/ACL/role-hygiene。
 - **優先級:** 🟠 中(上線前必補;prod 開放結帳前 gate)
 - **分流標籤:** `P1-before-launch`
 - **問題:**
@@ -7322,7 +7322,7 @@ order by n desc, 1;
 
 ### #256. 🔴 pending-based 雙扣偵測(GAP2 靜默雙扣盲區治本;#252 二度確認發現)
 
-- **狀態:** 🟢 **已實作(2026-07-01、dev、未 push、未 db push〔migration 20260701130000〕、flag 全 false)**:擴 #250 聚合 RPC 加第 7 計數 `pending_double_charge_candidate_count`(卡住指紋 + 同額 + 12h 窗)+ TS 全鏈 + runbook Report C。真權威 plan `docs/specs/2026-07-01-m3-256-pending-double-charge-detection-plan.md`(codex K1 r1 FAIL→r2 PASS-WITH-CONCERNS)。審查鏈:DDL MCP 零留痕 6 模擬〔S1 卡700s同額=1 / S2 秒扣30s同額=0〔Sean 顧慮解〕/ S3 異額 / S4 超窗 / S5 單筆 =0、殘留0〕+ 三參 overload ACL/effective-priv(含 orders)全 PASS + 三綠 typecheck7/lint10/build1 + vitest 145 檔 1569 + **codex K2 跨模型 PASS-WITH-NITS + adversarial-reviewer PASS / 可 commit + code-reviewer PASS-WITH-NITS**(NIT 全折入:stale 註解三參化 + runbook 多 charged attempt 判讀註)。**下一動 = Sean db push `20260701130000` + 推 dev**。誠實:候選待查證非確認、卡住指紋降誤報非零、退款目標人工查證(GAP2 無 released 錨點)。
+- **狀態:** 🟢 **已實作(2026-07-01、dev、未 push、未 db push〔migration 20260701130000〕、flag 全 false)**:擴 #250 聚合 RPC 加第 7 計數 `pending_double_charge_candidate_count`(卡住指紋 + 同額 + 12h 窗)+ TS 全鏈 + runbook Report C。真權威 plan `docs/specs/2026-07-01-m3-256-pending-double-charge-detection-plan.md`(codex K1 r1 FAIL→r2 PASS-WITH-CONCERNS)。審查鏈:DDL MCP 零留痕 6 模擬〔S1 卡700s同額=1 / S2 秒扣30s同額=0〔Sean 顧慮解〕/ S3 異額 / S4 超窗 / S5 單筆 =0、殘留0〕+ 三參 overload ACL/effective-priv(含 orders)全 PASS + 三綠 typecheck7/lint10/build1 + vitest 145 檔 1569 + **codex K2 跨模型 PASS-WITH-NITS + adversarial-reviewer PASS / 可 commit + code-reviewer PASS-WITH-NITS**(NIT 全折入:stale 註解三參化 + runbook 多 charged attempt 判讀註)。~~**下一動 = Sean db push `20260701130000` + 推 dev**~~ 🏁 **db push 那半已作廢(2026-08-19 G2)**:2026-08-19 G2 實查 `supabase/APPLIED.tsv`:該版本號**在帳上**,列屬 2026-08-11 的回填批。🔴 **那批的來源不是自陳** —— 檔頭逐字寫著它來自「正式庫 `supabase_migrations.schema_migrations` 的實查結果」(Supabase MCP `list_migrations`,applied 160 / local 160、差集兩邊皆空)⇒ **正式庫自己的帳說它進去了。**⚠️ **「推 dev」那半沒查** —— 不要把本則讀成整條下一動都完成了。誠實:候選待查證非確認、卡住指紋降誤報非零、退款目標人工查證(GAP2 無 released 錨點)。
 - **優先級:** 🟠 中(現行 anomaly 偵測的**唯一結構盲區**、對客人最傷〔靜默多扣〕;flag=false 期間不可達但上線前必補)
 - **問題:**
   - #250 anomaly 偵測(open/W1)的**唯一 genesis** = `mark_charge_attempt_charged` 於 `status='released'` 寫主表(`20260624120005:118/128`,全 repo 唯一 `payment_double_charge_anomalies` INSERT)。
