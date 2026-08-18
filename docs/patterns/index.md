@@ -58,6 +58,9 @@
 | 我要找「code 還在指望、而沒人在追」的缺口 | `bash scripts/orphan-code-refs.sh`(檔頭有已知案例測試與**盲區輸出**) |
 | 我要判一棵 worktree 有沒有人 / 要清樹 | memory `reference_worktree-ownership-is-not-readable-from-git-state` |
 | 某個窗靜了,我要判它是不是停了 | memory `feedback_a-finished-turn-is-indistinguishable-from-waiting`(**門檻 5 分鐘,量出來的**) |
+| 我要開一個新窗 / 寫派工單 | `bash scripts/window-standing-actions.sh`(**常設動作 11 條,從 runbook 產出、不要手抄**)<br>為什麼:memory `feedback_a-correct-runbook-cannot-survive-a-dispatch-sheet-that-omits-it` |
+| 我要照一條既有規矩做事,而隊形/環境跟它寫下來時不一樣了 | memory `feedback_a-rule-does-not-know-its-premise-vanished`<br>判別句:**這條規矩成立的【前提】是什麼?那個前提今天還在嗎?** |
+| 我正要把一個題目端給 Sean | memory `feedback_look-for-the-path-that-dissolves-the-question`<br>先查有沒有一條路讓這題不成立(例:有不碰 PII 的做法 ⇒ 那不是拍板題,是還沒查) |
 
 **這一族共用一句話**:
 
