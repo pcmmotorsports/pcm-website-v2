@@ -76,7 +76,7 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     expect(screen.getByText('Member tier')).toBeTruthy();
     expect(screen.getByText('Stored value')).toBeTruthy();
     expect(screen.getByText('Total orders')).toBeTruthy();
-    expect(screen.getByText('2024 年起累計')).toBeTruthy();
+    expect(screen.getByText('2026 年起累計')).toBeTruthy();
   });
 
   it('tier=general:badge 一般會員 + sub「一般會員價(升級需聯絡客服)」', () => {

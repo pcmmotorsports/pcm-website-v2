@@ -92,7 +92,7 @@ export function OverviewTab({
         <div className="acc-stat">
           <div className="ap-mono">Total orders</div>
           <div className="acc-stat-v">{stats.orderCount}</div>
-          <div className="acc-stat-sub">2024 年起累計</div>
+          <div className="acc-stat-sub">2026 年起累計</div>
         </div>
       </div>
 
