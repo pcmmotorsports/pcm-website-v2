@@ -157,7 +157,10 @@ admin_request_manual_settle(p_attempt_id, p_order_id, p_actor, p_reason, p_reque
 ```
 🔴 **而 `20260819010000`(已 commit、未 apply)要【整支撤掉重寫】** ——
 它的 enum 形狀是錯的,不是修一修就好。**撤法:新 migration 不建立在它之上,而它不要 apply。**
-⚠️ **它已經 commit** ⇒ 撤要有動作,不能靠「大家記得不要 apply」。**這一格要主視窗裁怎麼撤。**
+⚠️ **它已經 commit** ⇒ 撤要有動作,不能靠「大家記得不要 apply」。~~**這一格要主視窗裁怎麼撤。**~~
+✅ **2026-08-19 已答:撤除機制見 §14**(主視窗裁驗收條件、G4 出設計)。
+🔴 **而 §14-0 有一個排序約束**:現在擋住 apply 的是【5c 那個 bug】本身 ⇒
+**撤除機制要先立,才准動 5c** —— 否則修好 bug 會靜靜地把它變成可上。
 
 ## 7. 估時(估,非量到)
 ```
@@ -247,7 +250,9 @@ GR 逐字：「不能單獨上 —— 新標準下它照定義就是做一半」
 **gate 的解除條件是【甲+乙+丙 完整範圍就緒】,不是「那支修好了」。**
 ```
 處置：commit 留著（不回退）／【不 apply】／新 migration 不建立在它之上
-⚠️ 「不 apply」需要會被讀到的載體 ⇒ 已在該檔檔頭；另請主視窗在待推清單標記
+⚠️ 「不 apply」需要會被讀到的載體 ⇒ 已在該檔檔頭;~~另請主視窗在待推清單標記~~
+✅ 已完成(2026-08-19):主視窗已列進不得-apply 清單並落檔 `memory/project_0818-main-apply-blocklist.md`(含解除條件)
+🔴 而那**只擋得住「經過主視窗」的 apply** ⇒ 檔案層的撤除機制仍然要做,見 §14
 ```
 🔴🔴 **2026-08-19 更新:上面引號裡第三句【已作廢】,而它留在這裡是刻意的(留痕不刪)。**
 ```
@@ -310,4 +315,73 @@ unknown 存量 manual_review_outcome='unknown' AND o.payment_status='unpaid'    
   「這格斷言在描述的那個字面,C-B 反轉之後還在不在?」
 量法:sed -n '<函式體起,迄>p' <檔> | sed 's/--.*$//' | grep -c '<斷言要找的字面>'
       —— 每一發都要有【負向對照】(同一把尺對該命中的東西回非 0)
+```
+
+---
+
+## 14. 🔴 `20260819010000` 的**撤除機制** —— §6:160「這一格要主視窗裁怎麼撤」的答案
+
+> 由來:主視窗 2026-08-19 轉 G6 must-fix #2 + 就地裁定。
+> 主視窗逐字裁**驗收條件**(不裁設計):
+> **「假設所有人都忘了這件事,這支還 apply 得下去嗎?答得出『不行,因為 X』才算數,X 要是檔案裡的東西。」**
+
+### 14-0 🔴🔴 先講一件反直覺的:**它現在擋得住,而擋住它的是【那個 bug】**
+```
+5c 斷言 vs C-B 反轉互斥 ⇒ 現在誰去 apply 都會 RAISE ⇒ 事實上 apply 不下去。
+🔴 而【意外不是機制】—— 而且這個意外有一個很壞的性質:
+   **§13 要我們修好 5c,而修好 5c 的那一刻,這道意外的閘【自己消失】。**
+⇒ 排序約束(不可換):**撤除機制要先立,才准動 5c。**
+   否則「修一個 bug」會靜靜地把一支不該上的 migration 變成可上。
+```
+📌 這正是 memory `feedback_a-guard-on-a-safe-path-is-net-negative` 的反面:
+**現在守著的那道閘,沒有人是故意裝的,所以也沒有人會在拆它的時候察覺。**
+
+### 14-1 機制(重用既有慣例,不發明新東西)
+```
+把那支檔【移出 supabase/migrations/】
+  supabase/migrations/20260819010000_m4a_close_manual_review_attempt.sql
+  → scripts/20260819010000-blocked-until-full-scope.sql   (路徑待定,見 14-3)
+```
+**為什麼是這個形狀(爬梯子,不是設計)**:
+```
+· 這條慣例【已經在本 repo 裡】,不是新規矩 ——
+  scripts/ 底下現有 20+ 支 .sql(*-down.sql 回退腳本 / *-behavior-probe.sql / *-rollback.sql)
+  它們全是【刻意不放進 migrations】的 SQL。量法:
+    find . -name '*.sql' -not -path './supabase/migrations/*' -not -path './node_modules/*' | wc -l
+· MAIN-052:93 逐字已經寫著同一句:「草稿不進 supabase/migrations/(目錄本身是一道閘)」
+⇒ 零新機制、零新腳本、零新 hook。**一次 git mv。**
+```
+
+### 14-2 對驗收條件的回答(照主視窗要求的句型)
+```
+Q:假設所有人都忘了這件事,這支還 apply 得下去嗎?
+A:不行 —— 因為 **`supabase db push` 掃的是 `supabase/migrations/`,而這個檔不在那裡。**
+  X = 檔案的【位置】,不是任何人的記性、不是註解、不是清單。
+```
+🔴 **而 X 的前提我【沒有驗過】**:
+```
+「db push 只讀 supabase/migrations/」= 我從 repo 慣例推出來的,不是量到的。
+本 repo 沒有 supabase/config.toml(量法:ls supabase/ ⇒ APPLIED.tsv / migrations / tests)
+⇒ 沒有檔案能證明那個路徑是不是可設定的。
+🔴 缺的那一道檢查:**在拋棄式環境跑一次 `supabase migration list`(或 db push --dry-run),
+   確認移走之後那支【真的從清單裡消失】。** ⇒ 移檔的那一片要附這一發,否則機制只是宣稱。
+```
+
+### 14-3 兩個要一起做、否則機制會製造新的洞
+```
+① 移走之後,舊路徑在 repo 裡有【指著它的紙】(plan 本身 / §11 / §13 / STOP / commit body)
+   ⇒ 移的那一發要同時跑:
+     bash scripts/literal-sweep.sh '20260819010000_m4a_close_manual_review_attempt.sql'
+   逐處改成新路徑。**不改 = 下一個人 test -e 得到「查無」,會讀成「這支被刪了」。**
+   (照 `~/.claude/rules/00-work-rules.md` §6-b 第 4 條:寫下「已移走」的同一句必須答出 canonical 在哪。)
+② 新檔頭第一段要寫【它為什麼在這裡】+【怎麼放回去】——
+   放回去的條件 = 甲+乙+丙 完整範圍就緒(§11 的 gate),**不是「5c 修好了」**。
+```
+
+### 14-4 這一片何時做(它不在本輪邊界內)
+```
+本輪主視窗的邊界:只動 plan 一個 .md,不動任何 .sql。**⇒ 移檔【沒有做】,本節只是設計。**
+排序:14-1 移檔  →  §13 修 5c/COMMENT/不變式  →  乙/丙 實作
+      ↑ 不可換(理由見 14-0)
+⚠️ 而移檔動到 supabase/migrations/ ⇒ 命中鐵則 12③ ⇒ 它自己也要走對抗審查,不是「順手 git mv」。
 ```
