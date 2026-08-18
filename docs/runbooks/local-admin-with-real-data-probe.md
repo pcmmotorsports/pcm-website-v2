@@ -66,6 +66,16 @@ CREATE TABLE auth.users (id uuid PRIMARY KEY, email text, raw_user_meta_data jso
 
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA extensions;
+-- 🔴🔴 pgcrypto **也要,而且【一定要在 extensions 這個 schema】**(2026-08-19 G5 實測補上)
+--    少了它 / 或裝進 public ⇒ `extensions.gen_random_bytes(integer) 解析不到`
+--    ⇒ N3a 前置閘失敗 ⇒ N3b / W1 / W2 / W3a / W3b2 / W3c3 / W4 / W7d1 **整串跟著倒**
+--    ⇒ 🔴 **後果是【出貨那條路的四支 RPC 一支都不存在】**
+--         (admin_create_shipment / admin_add_shipment_items /
+--          admin_mark_shipment_shipped / admin_void_shipment)
+--    ⚠️ **而錯誤訊息不會指向這裡** —— 你會看到「W1 前置閘失敗」「W2 前置閘失敗」一串,
+--       逐支追沒有意義。**要追鏈頭:找第一個不是「relation does not exist」的錯。**
+--    📌 實測(2026-08-19):修這一行之後,失敗數 26 → 23,而**出貨四支 RPC 全部出現**。
+CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions;
 
 -- 🔴 RLS policy 直接呼叫這三支；沒有的話 `function auth.uid() does not exist`，
 --    而它會讓【所有帶 policy 的 migration】一起失敗（2026-08-18 實測：74 支）。
