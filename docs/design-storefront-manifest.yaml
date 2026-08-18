@@ -1059,6 +1059,53 @@ components:
         decision_source: "Sean 截圖實錘 cover 切商品本體+拍 Q1=B 一步到位+指定 Fable 審(關卡1 R1 NO-GO→v1.1→R2 GO);plan docs/specs/2026-07-19-product-image-trim-plan.md"
         backlog: "trim 線收尾;白底 vs 漸層框=Sean 肉眼驗可一行改回(F3)"
         reason: "供應商原圖白邊不一、統一 cover 必有切邊;bbox 預算好存 DB=客端零運算零額外下載"
+    technical_overrides:
+      - field: "hiddenHeartMustNotEatTaps"
+        design_value: |
+          `design-reference/styles/product-card.css:78-95` 的 `.pcard-heart`:
+          `opacity: 0` + `.pcard:hover .pcard-heart { opacity: 1 }`,**沒有 `pointer-events`**。
+          🔴 而同一支 design 檔的 `:24 / :109 / :131` **都有** `pointer-events: none`
+          ⇒ **design 自己在這一顆上漏了**,不是它刻意要那樣。
+          📎 另:`design-reference/design-reference/HANDOFF-DETAILS.md:468` 逐字
+          「商品卡 hover translateY(-2px):**僅桌機**,手機 `:hover` 不觸發(用 `@media (hover: hover)` 包)」
+          ⇒ **design 的作者知道手機沒有 hover**,只是那句話講的是別的屬性、沒講到愛心。
+          ⚠️ 本站 `product-card.css` 也**沒有**照那句用 `@media (hover: hover)` 包
+          (`grep -n 'hover: *hover' apps/storefront/src/styles/*.css` ⇒ 只命中 `header.css:153`)
+          —— 那是**另一條沒做的交辦**,本片不處理,記在這裡。
+        storefront_value: |
+          [2026-08-18] `.pcard-heart` 基底加 `pointer-events: none`,並在
+          `.pcard:hover .pcard-heart` 補 `pointer-events: auto`(照同檔 `.pcard-quick` `:195/:197` 的形狀)。
+          病:它 `opacity: 0` 而只有 `.pcard:hover` 才浮出來 ⇒ **觸控裝置沒有 hover ⇒ 它永遠隱形**;
+          `ProductCard.tsx:155` 的 onClick 又會 `preventDefault()`(刻意的,為了收藏不要連帶開商品頁)
+          ⇒ 相乘 = **每張商品圖右上角一個 32×32 看不見的洞,客人點下去商品不會打開**。
+          390×844 真瀏覽器實測(一張 `173×291` 的卡、6px 網格、**1421 取樣點**):
+          ```
+          修前  看不見且落在 button 內的命中 = button.pcard-heart ×22（其餘 0）
+                點它中心 (162,311) ⇒ 網址 /products 一動也沒動
+                負向對照:點旁邊「看不見但不在 button 內」的第二張圖 ⇒ 正常跳到 /products/<商品>
+          修後  陷阱點 0 / 1421；愛心中心改命中 img.pcard-gallery-img（不在 button 內）
+          桌機未回歸  hover 時 opacity 1 / pointer-events auto / 中心命中 .pcard-heart /
+                     點下去 fill none → var(--c-red)（收藏鈕行為不變）
+          ```
+        decided_at: "2026-08-18"
+        decision_source: |
+          **施工端技術判斷(非 Sean 拍板)**。理由=design 在這一顆上與它自己的其他三處不一致,
+          而不一致不是設計決定。⚠️ 這是**申報偏離 design 字面**。
+          📌 與 `ProductsPage.technical_overrides.fdDrawerWidthAutoNot100vw` 同族:
+          **逐字搬 design 會把上游的疏漏一起搬過來,而搬過來的東西沒有症狀。**
+        backlog: |
+          守門 `apps/storefront/src/styles/invisible-tap-targets.test.ts`(4 格):
+          三個 hover-gated 元素(`.pcard-heart` / `.pcard-dots` / `.pcard-quick`)基底都必須
+          同時有 `opacity: 0` 與 `pointer-events: none`;外加 hover 態要把點擊收回去。
+          突變實測(2026-08-18):把本片修法整個拿掉 ⇒ **4 格中 2 紅 2 綠**;還原後逐字元 diff 一致、4 格全綠。
+          ⚠️ **守門的天花板**:它只掃**已知的那三個**,**不會自動發現第四個**
+          —— 新增 hover-gated 元素時要有人把它加進那張表,否則這格對它是瞎的。已寫進測試檔頭。
+        reason: |
+          🔴 這條與收藏功能**無關**,它修的是一個**今天正在傷害客人的東西**:
+          手機客人在商品圖右上角點下去,商品不會打開,而**他看不到任何東西擋在那裡**。
+          ⇒ 因此**不等收藏 plan 批准**,當成獨立一片先做(不新增功能、不動 schema)。
+          ⚠️ 這一片**不解**「手機客人收藏不了」—— 那是視覺決定,在
+          `docs/specs/2026-08-18-g3-favorites-plan.md` §2 的 artifact 裡等 Sean。
 
   ProductGallery:
     storefront:
