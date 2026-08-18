@@ -1,0 +1,655 @@
+# 1660cabf-20260818T173801-83518-RED — 症狀 A(逾時),而【並行 vitest = 0】
+
+搶救人:G1(dev 守門),2026-08-18 17:4x CST。
+搶救理由:這一發跑在拋棄式鑽機 /Users/sean_1/pcm-g1-greens,而 logs/ 在 .gitignore
+        ⇒ 鑽機一拆這份樣本就不存在。#618 ②「每次都存整份 log」照做。
+
+## 這一發是什麼
+```
+樹      /Users/sean_1/pcm-g1-greens (拋棄式,detached at dev tip)
+commit  1660cabf   工作樹 0 行未提交異動
+四項    typecheck rc=0 / lint rc=0 / build rc=0 / vitest rc=1
+vitest  7 failed | 8721 passed | 2 expected fail | 2 skipped | 1 todo (8733)
+```
+
+## 🔴 它對 #618 的價值:打死一個候選假說(單一反例)
+#618 ①列的候選之一逐字:**「是否只在【同時有另一支 vitest 在跑】時發生(本機今天常態如此)」**
+```
+本發實測  並行四綠 vitest 數(跨工作樹,不含自己):開始 0 /【我的 vitest 起跑前 0】/ 結束 0
+          並行四綠 build 數:開始 0 / 起跑前 0
+```
+⇒ **這一發在【零個其他四綠 vitest】之下紅了** ⇒ 那個候選假說**不成立**,可以劃掉。
+⚠️ 射程(不放大):
+  · 它只否定「**必須**有另一支四綠 vitest」;不否定「機器忙」這個更寬的方向。
+  · 那個計數器**只看得到也跑新版腳本的窗**(見 dev-four-greens.sh 檔頭)⇒ 別的窗跑
+    非四綠的 vitest / build / next dev,它一律看不到。**0 是「沒有別的窗跑四綠」,不是「機器閒」。**
+  · 而機器【不閒】:load average 起 [15.44 24.47 21.42] → 我的 vitest 起跑前 [181.49 89.40 48.50]
+    → 結束 [181.21 143.87 82.37];run queue n=314 最大=141 p95=127 中位=104 最小=70。
+    ⇒ **兩欄講的是不同的事,不可互相佐證**(腳本檔頭已寫死這句)。
+
+## 🔴 症狀的機械形狀(這一發看得比較清楚)
+7 格**全部集中在同一個檔** apps/storefront/src/components/ForgotPasswordPage.test.tsx(該檔共 15 格)。
+```
+第 1 格失敗  🔴 倒數歸零 → 鈕重新可按…            5310ms   ← 撞 5000ms 門檻
+其後 6 格    220ms / 40ms / 7ms / 50ms / 5ms / 2ms  ← 全都 <60ms,不是逾時
+其後 6 格的錯全是同一句:Unable to find … your@email.com
+             Ignored nodes: comments, script, style
+             <body><div /></body>                  ← 組件根本沒渲染出東西
+```
+⇒ **只有第一格是逾時;後 6 格是【被第一格帶壞】的**(同檔內狀態沒回復,該檔用假計時器跑倒數)。
+⇒ 對 #618 的意思:**一次逾時的代價不是 1 格,是那個檔剩下的格**
+   ⇒ 統計「紅幾格」會系統性高估症狀 A 的頻率,**要數的是【紅幾個檔】**。
+
+## 對照組(同棵樹、同一顆 sha、緊接著跑)
+```
+npx vitest run apps/storefront/src/components/ForgotPasswordPage.test.tsx
+⇒ Test Files 1 passed (1) / Tests 15 passed (15) / 5.72s   (17:45:31)
+```
+⇒ 同輸入兩種輸出 ⇒ **隨機紅成立,不是回歸。**
+⚠️ 它證的是「這個檔本身沒壞」,**證不出**「全量那一發為什麼壞」——
+   單跑時它獨佔機器,那是**另一個世界**,不是同一個世界的重跑。
+
+---
+以下為原始輸出,未經編輯。
+
+=========== RUN-CONTEXT ===========
+開始 2026-08-18 17:38:01 CST
+結束 2026-08-18 17:44:46 CST
+全樹並行四綠vitest數(不含自己;2026-08-18 起跨工作樹) 開始=0 vitest起跑前=0 結束=0
+全樹並行四綠build數(不含自己;2026-08-18 起跨工作樹) 開始=0 vitest起跑前=0
+rc typecheck=0 lint=0 build=0 vitest=1
+load average(1m 5m 15m) 開始=[15.44 24.47 21.42] vitest起跑前=[181.49 89.40 48.50] 結束=[181.21 143.87 82.37]
+  ⚠️ load 是過去 1/5/15 分鐘的【平均】不是當下 ⇒ 答「這段期間忙不忙」，答不了「逾時那一秒忙不忙」
+  🔴 #608「load 高 ⇒ 撞 5000ms」假說【已被推翻】⇒ 記錄這個值【不等於】復活那個假說
+  🔴 而【並行數那兩欄答的是「有幾個窗在跑四綠」，不是「機器有多忙」】—— 兩者曾被當成同一件事用過
+vitest 期間 run queue(狀態 R 的行程數，0.5 秒取一發，OS=Darwin) n=314 最大=141 p95=127 中位=104 最小=70
+  🔴 這一欄是【瞬時值的分佈】不是平均 ⇒ 它是四個欄位裡最接近「逾時那一秒忙不忙」的
+  ⚠️ 但 0.5 秒是【快照】：比它短的尖峰看不到 ⇒【最大值是下界，不是真最大】
+  ⚠️ 這個數【含本發 vitest 自己的 worker】與取樣器自己 ⇒ 答得出「這台機器多忙」，答不出「別人多忙」
+  ⚠️ macOS 與 Linux 尺規不同(Linux 閒置約 1-3、macOS 動輒數十)⇒【跨機器不可比】
+  ⚠️ n<20 時 p95 恆等於最大 —— 那不是兩個獨立的數，別當成兩個證據
+  ⚠️ 取樣器自己的 ps/grep 每發也被數進去(1-2)⇒ 底噪不是 0
+  🔴🔴 上面那兩欄【並行數】的射程,2026-08-18 修過一次 —— 引用前先看是哪一版產的
+     ~~舊~~ 標記檔落在自己這棵工作樹，而「其他窗」在別棵樹 ⇒ 那兩欄【構造上必然是 0】
+     ✅ 現行 標記檔在 git common dir 的共用點 ⇒ 【真的跨工作樹看得到】(本檔 :570-571)
+     🔴 新射程:只看得到也跑【新版腳本】的窗;跑舊 checkout 的窗仍寫舊路徑、對它隱形
+        ⚠️ 有幾個窗跑新版 = runtime fleet 狀態,腳本讀不到 ⇒【未確認】
+     🔴🔴 本檔【就是新版產的】⇒ 上面那兩欄的 0 是【量到的】,不是構造上必然
+        而 2026-08-18 修正之前產的 RUN-CONTEXT,那兩欄的 0 是構造上必然
+        ⇒ 兩者不可混在同一張表裡數(context-table 已隔離成「舊尺」不進四格)
+     ✅ 本欄(run queue)不同：ps -A 是全機，當場驗過看得到 5 棵不同工作樹的行程
+
+=========== TRIAGE ===========
+分診: 症狀A(逾時)
+marker: not_set=0 service_client=0 timeout=1
+最集中的失敗檔: 7 apps/storefront/src/components/ForgotPasswordPage.test.tsx
+vite 快取 mtime: 2026-08-18T17:44:45
+
+=========== vitest.full.log ===========
+
+> pcm-website-v2@0.0.0 test /Users/sean_1/pcm-g1-greens
+> vitest run
+
+
+ RUN  v4.1.5 /Users/sean_1/pcm-g1-greens
+
+Error: Not implemented: navigation (except hash changes)
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at navigateFetch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:77:3)
+    at exports.navigate (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/window/navigation.js:55:3)
+    at Timeout._onTimeout (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/living/nodes/HTMLHyperlinkElementUtils-impl.js:80:7)
+    at listOnTimeout (node:internal/timers:585:17)
+    at processTimers (node:internal/timers:521:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-g1-greens/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onContinueShopping (/Users/sean_1/pcm-g1-greens/apps/storefront/src/components/CheckoutView.tsx:269:35)
+    at executeDispatch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-g1-greens/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at handleVehicleNavigate (/Users/sean_1/pcm-g1-greens/apps/storefront/src/components/ProductBreadcrumb.tsx:144:5)
+    at executeDispatch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-g1-greens/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-g1-greens/apps/storefront/src/components/VehicleFinder.tsx:136:13)
+    at executeDispatch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-g1-greens/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-g1-greens/apps/storefront/src/components/VehicleFinder.tsx:136:13)
+    at executeDispatch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-g1-greens/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-g1-greens/apps/storefront/src/components/VehicleFinder.tsx:136:13)
+    at executeDispatch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-g1-greens/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at onClick (/Users/sean_1/pcm-g1-greens/apps/storefront/src/components/VehicleFinder.tsx:136:13)
+    at executeDispatch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+ ❯ |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx (15 tests | 7 failed) 11232ms
+     × 🔴 倒數歸零 → 鈕重新可按、文字回復原字面(不含秒數) 5310ms
+     × 冷卻結束後點「再寄一次」→ 再呼叫一次 action、顯示已再寄提示 220ms
+     × 🔴「換一個 Email」是 <button>,不是 <a href="#">(本片存在的理由就是修一個 <a href="#">) 40ms
+     × 點「換一個 Email」→ 回狀態 A、清空欄位 7ms
+     × 🔴 送出時 action throw ⇒ 顯示頂部錯誤、且鈕解鎖(不得永久卡 disabled) 50ms
+     × 🔴 頂部那條 throw 錯改 Email 就清掉(本頁唯一與另外三頁不同的主張,要有可執行字面) 5ms
+     × 🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次 2ms
+Error: Not implemented: window.scrollTo
+    at module.exports (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/jsdom@26.1.0/node_modules/jsdom/lib/jsdom/browser/Window.js:960:7
+    at navigateToCatalog (/Users/sean_1/pcm-g1-greens/apps/storefront/src/lib/catalog-navigation.ts:34:12)
+    at goContinue (/Users/sean_1/pcm-g1-greens/apps/storefront/src/components/CartView.tsx:88:28)
+    at executeDispatch (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/Users/sean_1/pcm-g1-greens/node_modules/.pnpm/react-dom@19.2.6_react@19.2.6/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · 送出成功 → 狀態 B(已寄出) > 🔴 倒數歸零 → 鈕重新可按、文字回復原字面(不含秒數)
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:125:3
+    123|   }
+    124|
+    125|   it('🔴 倒數歸零 → 鈕重新可按、文字回復原字面(不含秒數)', async () => {
+       |   ^
+    126|     vi.useFakeTimers();
+    127|     try {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · 送出成功 → 狀態 B(已寄出) > 冷卻結束後點「再寄一次」→ 再呼叫一次 action、顯示已再寄提示
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ submitValid apps/storefront/src/components/ForgotPasswordPage.test.tsx:94:29
+     92|   async function submitValid() {
+     93|     renderPage();
+     94|     fireEvent.change(screen.getByPlaceholderText('your@email.com'), { …
+       |                             ^
+     95|     await act(async () => {
+     96|       fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' }));
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:146:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · 送出成功 → 狀態 B(已寄出) > 🔴「換一個 Email」是 <button>,不是 <a href="#">(本片存在的理由就是修一個 <a href="#">)
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ submitValid apps/storefront/src/components/ForgotPasswordPage.test.tsx:94:29
+     92|   async function submitValid() {
+     93|     renderPage();
+     94|     fireEvent.change(screen.getByPlaceholderText('your@email.com'), { …
+       |                             ^
+     95|     await act(async () => {
+     96|       fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' }));
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:159:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · 送出成功 → 狀態 B(已寄出) > 點「換一個 Email」→ 回狀態 A、清空欄位
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ submitValid apps/storefront/src/components/ForgotPasswordPage.test.tsx:94:29
+     92|   async function submitValid() {
+     93|     renderPage();
+     94|     fireEvent.change(screen.getByPlaceholderText('your@email.com'), { …
+       |                             ^
+     95|     await act(async () => {
+     96|       fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' }));
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:166:11
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · action throw(站台設定錯誤) > 🔴 送出時 action throw ⇒ 顯示頂部錯誤、且鈕解鎖(不得永久卡 disabled)
+TestingLibraryElementError: Unable to find a label with the text of: /Email/
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ getAllByLabelText node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/queries/label-text.js:111:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:181:29
+    179|     mockAction.mockRejectedValueOnce(new Error('NEXT_PUBLIC_SITE_URL 未…
+    180|     renderPage();
+    181|     fireEvent.change(screen.getByLabelText(/Email/), { target: { value…
+       |                             ^
+    182|     await act(async () => {
+    183|       fireEvent.submit(screen.getByText('寄出重設連結').closest('form') as H…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · action throw(站台設定錯誤) > 🔴 頂部那條 throw 錯改 Email 就清掉(本頁唯一與另外三頁不同的主張,要有可執行字面)
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:196:29
+    194|     mockAction.mockRejectedValueOnce(new Error('NEXT_PUBLIC_SITE_URL 未…
+    195|     renderPage();
+    196|     fireEvent.change(screen.getByPlaceholderText('your@email.com'), { …
+       |                             ^
+    197|     await act(async () => {
+    198|       fireEvent.submit(screen.getByText('寄出重設連結').closest('form') as H…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |storefront| apps/storefront/src/components/ForgotPasswordPage.test.tsx > ForgotPasswordPage · action throw(站台設定錯誤) > 🔴 「再寄一次」throw ⇒ 同樣顯示頂部錯誤、鈕解鎖,且不得謊稱已再寄一次
+TestingLibraryElementError: Unable to find an element with the placeholder text of: your@email.com
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div />[39m
+[36m</body>[39m
+ ❯ Object.getElementError node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ node_modules/.pnpm/@testing-library+dom@10.4.1/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ apps/storefront/src/components/ForgotPasswordPage.test.tsx:211:31
+    209|     try {
+    210|       renderPage();
+    211|       fireEvent.change(screen.getByPlaceholderText('your@email.com'), …
+       |                               ^
+    212|       await act(async () => {
+    213|         fireEvent.click(screen.getByRole('button', { name: '寄出重設連結' })…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed | 526 passed | 1 skipped (528)
+      Tests  7 failed | 8721 passed | 2 expected fail | 2 skipped | 1 todo (8733)
+   Start at  17:41:03
+   Duration  221.92s (transform 224.43s, setup 0ms, import 500.69s, tests 631.68s, environment 438.24s)
+
+ ELIFECYCLE  Test failed. See above for more details.
+
+=========== runq.samples ===========
+93
+92
+99
+105
+101
+95
+102
+114
+110
+104
+111
+104
+108
+111
+116
+118
+110
+110
+99
+103
+107
+110
+102
+124
+90
+92
+82
+86
+94
+78
+91
+96
+131
+101
+99
+99
+100
+114
+124
+115
+116
+123
+132
+119
+141
+108
+112
+99
+93
+88
+83
+99
+102
+90
+102
+107
+105
+93
+115
+114
+115
+108
+118
+107
+125
+130
+117
+113
+117
+117
+117
+117
+94
+101
+88
+88
+93
+107
+106
+104
+100
+109
+94
+94
+97
+104
+89
+102
+112
+106
+114
+107
+99
+97
+105
+84
+86
+104
+98
+98
+107
+101
+100
+121
+129
+126
+127
+103
+114
+111
+107
+103
+114
+120
+124
+121
+97
+100
+89
+113
+108
+102
+104
+115
+105
+83
+90
+89
+100
+92
+100
+119
+108
+100
+117
+111
+102
+95
+93
+79
+112
+109
+108
+100
+124
+106
+111
+122
+115
+126
+128
+124
+110
+118
+133
+137
+126
+116
+108
+116
+128
+121
+133
+140
+111
+116
+116
+111
+113
+101
+98
+107
+101
+89
+95
+110
+107
+102
+105
+99
+96
+101
+88
+105
+96
+95
+99
+101
+93
+94
+91
+95
+106
+85
+93
+109
+89
+98
+96
+95
+91
+100
+119
+106
+121
+114
+119
+129
+120
+114
+111
+127
+123
+119
+117
+113
+114
+117
+117
+121
+110
+99
+99
+95
+94
+96
+98
+107
+104
+98
+101
+100
+98
+112
+104
+104
+111
+93
+125
+108
+120
+127
+116
+132
+126
+135
+112
+100
+109
+115
+111
+109
+114
+102
+104
+103
+107
+106
+106
+95
+94
+109
+91
+75
+88
+88
+118
+84
+80
+90
+88
+80
+79
+95
+70
+81
+82
+74
+73
+72
+78
+74
+79
+84
+86
+88
+93
+94
+104
+84
+86
+86
+95
+102
+95
+75
+82
+87
+90
+87
+86
+95
+97
+103
+115
+131
+127
+101
+105
+104
+102
+108
+103
+118
