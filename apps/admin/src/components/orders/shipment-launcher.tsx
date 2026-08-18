@@ -183,7 +183,14 @@ export function useShipmentLauncher(
 }
 
 /**
- * 訂單詳情頁出貨卡上的「建立包裹」入口(2026-08-09 Sean 實測後追加)。
+ * 訂單詳情頁出貨卡上的「出貨」入口(2026-08-09 Sean 實測後追加;
+ * 🔴 2026-08-18 依 Sean 08-12 驗收指示【改名】—— 原字面是「建立包裹」)。
+ *
+ * 🔴 **改名不是全域取代,是逐處判**(2026-08-18):
+ *   動作名（本鈕 / dialog 標題 / aria-label / 說明文字裡指這顆鈕的地方）⇒ 改「出貨」
+ *   而**實體**仍叫【包裹】—— 成功訊息寫「已出貨,包裹編號 SH-…」
+ *   ⇒ 因為 Sean 要改的是**這個動作的名字**,不是把「包裹」這個東西消滅。
+ *   ⚠️ 全部換成「出貨」會讓成功訊息變成「已出貨 SH-…」,而那讀起來像單號叫「出貨」。
  *
  * 🔴 這等於**單張訂單版的勾單流程**:預選 = 本單全部還能出的品項。
  *    C 版的主要動線仍是總覽勾單(可跨單併箱);這個入口是「我人已經在這張單上了」的捷徑。
@@ -208,7 +215,7 @@ export function OrderShipButton({ orderId }: { orderId: string }) {
         onClick={() => void openDialog()}
         className='rounded-md border px-2 py-1 text-xs disabled:opacity-50'
       >
-        {loading ? '載入中…' : '建立包裹'}
+        {loading ? '載入中…' : '出貨'}
       </button>
       {error !== null && <span className='text-destructive w-full text-right text-xs'>{error}</span>}
       {dialog}
