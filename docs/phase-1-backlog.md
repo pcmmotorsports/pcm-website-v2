@@ -3390,9 +3390,37 @@ order by n desc, 1;
 
 ---
 
-### #117. ⏳ id NaN cast 故障鏈 anchor — string ProductId → number 串接(audit 雙命中)
+### #117. 🏁【已完成】~~id NaN cast 故障鏈 anchor~~ — string ProductId → number 串接(audit 雙命中)
 
-- **狀態:** ⏳ 待執行
+> ## 🔴 2026-08-19 G6:**本條開的藥已經照著做了,而狀態欄沒動**
+> 條目的「預期解法」是「**ProductImage seed 改 hash 函式(string → number 確定性映射、避免 NaN)**」。
+> ```
+> apps/storefront/src/lib/products.ts:82-89 的 docstring **逐字**:
+>   「對齊 **#117 anchor 預期解法**「ProductImage seed 改 hash 函式(string → number 確定性映射、**避免 NaN**)」+
+>     sub 8d findings eng-1 / eng-8 / simp-6 / simp-12 雙 audit 命中 id NaN 故障鏈。
+>     **djb2-like rolling hash + Math.abs 防負**;同 input 永遠回同 output」
+> 而它**真的被接上了**(不是只有函式躺著):
+>   products.ts:157        `id: hashIdToNumber(product.id)`
+>   catalog-page.ts:45,56  **同一個修法也在型錄那條路上**(`hashIdToNumber` + `id: hashIdToNumber(row.id)`)
+> 而原病灶 `as unknown as number` 在 storefront **只剩註解**(`products.ts:74`),**零實際 cast**
+>   (其餘命中在 admin 測試與 `pricing.test.ts`,與本條無關)
+> ```
+>
+> ### 📌 而這一條有一個**值得單獨記的形狀**
+> **過期的描述與真正的修法,住在【同一支檔、相距 21 行】。**
+> ```
+> products.ts:73-77  舊描述:「id:domain string ProductId → UI number…d2 用 `as unknown as number` cast…
+>                    會 runtime NaN…**留 backlog #117 後續 slice trigger**」   ← **這段今天是假的**
+> products.ts:82-89  真修法:hashIdToNumber(djb2-like hash)                     ← **就在它下面**
+> ```
+> 🔴 **讀第一段的人會以為還沒修,而答案在他往下捲 5 行的地方。**
+> ⇒ 那段舊描述**也該劃掉**,而**本窗只動 `.md`,`products.ts` 的註解沒碰** ⇒ 已回報主視窗轉派。
+>
+> ⚠️ **未量**:沒有實跑測試、沒開瀏覽器;`ProductImage.tsx:50-52` 的 `seed % n` 算術**仍在**(那是正常的 ——
+> 修法是讓 `seed` 恆為合法 number,不是拿掉算術)。⚠️ 條目引的 `ProductCard.tsx:L141` **今天是 :145**(座標位移)。
+
+- **狀態:** 🏁 **已完成**(2026-08-19 G6 實查:`products.ts:82-89` 的 `hashIdToNumber` 已實作並接上 `:157`;`catalog-page.ts:45,56` 同款)
+  · ~~⏳ 待執行~~(原值留痕)
 - **分流:** P1-now
 - **優先級:** 🟠 中(NaN 路徑只在 Supabase 0 row → mock fallback 落地時 hit、M-1-16 種子前需修;真資料模式下 mock fallback 路徑廢、視 ProductPage M-1-13 啟動再評)
 - **問題:**
