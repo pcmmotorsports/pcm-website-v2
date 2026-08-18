@@ -131,10 +131,81 @@ export interface AdminProductPage {
  *
  * `count: 'exact'` 取總數供分頁列顯示。
  */
+/**
+ * `#661`:把員工打的搜尋詞組成 PostgREST `.or()` 的條件字串(料號 OR 商品名)。
+ *
+ * **抽成純函式是刻意的** —— 它有兩層跳脫,而兩層都不能靠「看起來對」驗:
+ * 抽出來才測得到(`product-repository.test.ts` 直接對它斷言,不需要 DB)。
+ *
+ * 🔴 **第一層:ILIKE 的萬用字元** `\` `%` `_`
+ *    ILIKE 預設的跳脫字元就是反斜線(寫法取自 Supabase 官方 `pg-meta` 的 `escapeIlikeLiteral`)。
+ *    不跳脫的話,員工搜尋 `50%` 會變成「50 開頭的任何東西」,而**畫面上看起來只是命中很多**。
+ *
+ * 🔴 **第二層:PostgREST 的保留字元** `,` `(` `)` `"` `\`
+ *    官方文件逐字:值含保留字元「必須 **PostgREST 風格雙引號**包起來,否則伺服器會把它讀成
+ *    條件或清單的邊界」(例 `name=eq."Doe, Jane"`)。
+ *    ⇒ **不是**用反斜線跳脫逗號 —— 那是本檔第一版寫的,**錯的**。
+ *    不處理的話,員工搜尋 `A,B` 會被拆成兩個條件,而**畫面上看起來只是「找不到」**。
+ *
+ * ⚠️ **順序不可換**:先做 ILIKE 跳脫(它會產生反斜線),再做雙引號內跳脫
+ *    (把那些反斜線再跳一次)。反過來做,第一層產生的反斜線就不會被第二層保護。
+ *
+ * 🔴🔴 **第三個字元 `*` —— 它【穿透兩層】,而且【本層處理不了】**(`#661` R1 must-verify,GR 抓到)
+ *
+ *    PostgREST 對 like/ilike 的值有「`*` 可代替 `%`」的別名替換,而**它發生在雙引號解掉之後**。
+ *    2026-08-19 對正式庫實測(dev server 連正式站,SQL 跑在 Supabase 的 Linux Postgres):
+ *    ```
+ *    ?q=brembo   ⇒ 共 35 件
+ *    ?q=brembo*  ⇒ 共 35 件
+ *    ?q=bremb*o  ⇒ 共 35 件   ← 🔴 決定性的那一發
+ *    ```
+ *    `bremb*o` 若是字面比對,應該是 0(沒有商品名含「bremb*o」)⇒ **它被當成萬用字元了。**
+ *
+ *    🔴 **而它無法在這一層修掉**:替換發生在引號之後 ⇒
+ *    - 不跳脫 ⇒ 員工打 `M4*` 得到「M4 開頭任何東西」(= `50%` 那個病從第三個門進來)
+ *    - 用反斜線跳脫 ⇒ `\*` 會先被替換成 `\%` ⇒ 員工打 `*` 反而搜到**字面的 `%`**,更錯
+ *    ⇒ **用 PostgREST 的 `.or()` 字串 API,字面的 `*` 是表達不出來的。**
+ *
+ *    **現行處置(刻意,不是遺漏)**:接受 `*` 是萬用字元,並**在輸入框的提示文字寫出來**
+ *    (`product-keyword-search.tsx` 的 placeholder),讓它從「意外」變成「功能」。
+ *    🔴🔴 **下面那格測試釘住的是【我方的處置】,不是 PostgREST 的行為 —— 這兩件不要混**
+ *    (`#661` R2 must-fix;本檔上一版逐字寫「哪天 PostgREST 改掉別名,那一格會紅」,**那是假的**:
+ *     那是單元測試,從頭到尾沒碰 PostgREST ⇒ 它改掉別名時 builder 的輸出不變 ⇒ **那格照樣綠**,
+ *     而員工照 placeholder 打 `M4*` 會突然搜不到,零測試紅。)
+ *    · **它真守得住的方向**:有人把 `*` 加進跳脫字集、或把它 strip 掉 ⇒ 那格紅(R2 兩發突變證過)。
+ *    · **PostgREST 那一側只在 2026-08-19 被量過一次**(上面那三發)⇒
+ *      **要再聽到它的行為變了,必須重跑 probe,不能等測試通知。**
+ *    📎 同一個行為在顧客站也存在且同樣未處理(`product-query-support.ts:44-46`,GR 查)。
+ *    ⚠️ 要不要改成「一律當字面」是產品面的取捨,不是這一片能定的(改法會是換查詢 API 走 RPC,另一片)。
+ *       **落點 = 待主視窗裁(掛 `#110` 或開新條)** —— 🔴 寫「已回報主視窗」不算落點,
+ *       **通道不是載體**(R2 nit)。
+ */
+export function buildProductKeywordOrFilter(keyword: string): string {
+  const ilikeSafe = keyword.replace(/([\\%_])/g, '\\$1');
+  const inner = ilikeSafe.replace(/(["\\])/g, '\\$1');
+  // 前後各一個 `%` = 子字串比對;它們在引號**內**,是 pattern 的一部分。
+  const pattern = `"%${inner}%"`;
+  return `external_id.ilike.${pattern},title.ilike.${pattern}`;
+}
+
 export async function listProductsForAdmin(
   limit: number,
   offset: number,
   setBy?: ProductSetByFilter,
+  /**
+   * `#661`:料號 + 商品名的文字搜尋。已由 `parseProductKeyword` trim 過、不會是空字串。
+   *
+   * 🔴 **用 `ilike` 不用 `pg_trgm` / 全文檢索,而這是【刻意的】**:
+   *    `pg_trgm` 在 macOS 的 libc 下對中文抽出**零 trigram**
+   *    (memory `reference_pg-trgm-cjk-zero-on-macos-libc`)⇒ 本機測中文會**恆假綠**。
+   *    `ilike` 是純子字串比對、不經過 trigram ⇒ **對 CJK 與 ASCII 行為一致**,
+   *    本機測到的就是正式站會發生的。
+   *    ⚠️ 而這一句是**機制推論**:我沒有在 Linux 或正式站實跑過 `ilike` 對中文的行為(未驗)。
+   * 🔴 **前置 `%` ⇒ 走不了 btree index ⇒ 全表掃描。** 現況約 2 萬列(G3 量、我沒重量),
+   *    單次查詢在毫秒級 ⇒ **現在不需要索引**。判別線:**列數到十萬級再回頭看**,
+   *    不是「以後有空再優化」。
+   */
+  keyword?: string,
 ): Promise<AdminProductPage> {
   let q = createSupabaseServiceClient()
     .from('products')
@@ -144,6 +215,10 @@ export async function listProductsForAdmin(
   //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
   //    而分頁列顯示的 `count` 仍是全表數 ⇒ 「共 20,334 件」配上一頁 3 筆,且翻頁翻不完。
   if (setBy) q = q.eq('listing_set_by', setBy);
+
+  // 🔴 `#661` 搜尋同樣走 DB,理由同上那條 —— 而它多一個:
+  //    在客戶端過濾會讓「共 N 件」是**全表數**,員工看到「共 20341 件」配一頁 2 筆。
+  if (keyword) q = q.or(buildProductKeywordOrFilter(keyword));
 
   const { data, error, count } = await q
     .order('created_at', { ascending: false })

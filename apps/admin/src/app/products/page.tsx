@@ -4,12 +4,13 @@
 // ⚠️ #612 更新(2026-08-17):上述 alias 限制已由 #606 修除(vitest projects、admin 自帶 @ alias)⇒ 新 code 可用 @/;既有相對 import 保留、不回改。
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductFilterChips } from '../../components/products/product-filter-chips';
+import { ProductKeywordSearch } from '../../components/products/product-keyword-search';
 import { ListPagination } from '../../components/shared/list-pagination';
+import { listProductsForAdmin, type AdminProductPage } from '../../lib/products/product-repository';
 import {
-  listProductsForAdmin,
-  type AdminProductPage,
-  type ProductSetByFilter,
-} from '../../lib/products/product-repository';
+  buildProductListHref,
+  parseProductListParams,
+} from '../../lib/products/product-list-view';
 
 // M-4b #20 片1a:後台商品列表(唯讀)。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 // force-dynamic:讀 searchParams + DB 查、不靜態預渲染(同 customers/orders 兩頁)。
@@ -20,26 +21,11 @@ export const PRODUCTS_PAGE_SIZE = 20;
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-/**
- * `?page=` 解析。🔴 只收正整數;`?page=a&page=b` 會被 Next 解析成陣列 ⇒ 當作沒給。
- * 本片刻意不建 `product-list-view.ts` —— 沒有篩選就沒有 `buildHref` 要組(plan §1)。
- */
-function parsePage(value: string | string[] | undefined): number {
-  if (typeof value !== 'string') return 1;
-  const n = Number(value);
-  return Number.isInteger(n) && n >= 1 ? n : 1;
-}
-
-/**
- * `?set_by=` 解析(`#20` 片2c)。**白名單,不是直接轉型** ——
- * 🔴 這個值會被送進 `.eq('listing_set_by', …)`;不過白名單等於讓網址決定查詢條件。
- * 認不得的值(含 `?set_by=a&set_by=b` 的陣列)→ `undefined` = 不篩,**不是報錯** ——
- * 網址是使用者可以手改的,亂改的後果應該是「看到全部」而不是一頁錯誤。
- */
-function parseSetBy(value: string | string[] | undefined): ProductSetByFilter | undefined {
-  if (value === 'staff' || value === 'sync') return value;
-  return undefined;
-}
+// 🔴 `?page=` / `?set_by=` / `?q=` 的解析與**連結組裝**都搬去
+//    `lib/products/product-list-view.ts`(`#661`)。搬的理由不是整理:
+//    **本檔 :106 那行 `buildHref` 逐字只帶 `page`,把 `set_by` 丟掉了** ——
+//    員工按「手動」再按「下一頁」就回到全部商品,而 chip 高亮跳回「全部」。
+//    ⇒ 解析與組裝住在一起,才有辦法用往返測試釘住「進去什麼、出來什麼」。
 
 export default async function ProductsPage({
   searchParams,
@@ -47,8 +33,7 @@ export default async function ProductsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const raw = await searchParams;
-  const page = parsePage(raw.page);
-  const setBy = parseSetBy(raw.set_by);
+  const { filter, page } = parseProductListParams(raw);
   const offset = (page - 1) * PRODUCTS_PAGE_SIZE;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯)→ 顯錯誤態、頁面仍 200(不 500);
@@ -56,7 +41,7 @@ export default async function ProductsPage({
   let result: AdminProductPage | null = null;
   let loadFailed = false;
   try {
-    result = await listProductsForAdmin(PRODUCTS_PAGE_SIZE, offset, setBy);
+    result = await listProductsForAdmin(PRODUCTS_PAGE_SIZE, offset, filter.setBy, filter.keyword);
   } catch (error) {
     console.error('[admin/products] 商品列表載入失敗', error);
     loadFailed = true;
@@ -80,10 +65,17 @@ export default async function ProductsPage({
 
       {/* 🔴 上線初期「手動」會是 0 筆 —— 因為把商品設成手動的入口還沒做(plan §5 Q3=乙)。
           這句話存在的理由:不寫的話,Sean 打開來看到 0 筆會以為篩選壞了。 */}
+      {/* 🔴 搜尋框在標題列與篩選列【之間】,位置抄 customers 那一面
+          (`app/customers/page.tsx:80`)⇒ 員工的視線順序是
+          「這一頁是什麼 → 我要找什麼 → 再細分」。
+          ⚠️ 它畫在 `loadFailed` 判斷【外面】:讀取失敗時搜尋框仍要在 ——
+          否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失。 */}
+      <ProductKeywordSearch filter={filter} />
+
       {!loadFailed && (
         <>
-          <ProductFilterChips current={setBy} />
-          {setBy === 'staff' && total === 0 && (
+          <ProductFilterChips filter={filter} />
+          {filter.setBy === 'staff' && filter.keyword === undefined && total === 0 && (
             <p className='text-muted-foreground text-sm'>
               目前沒有手動設定過的商品。設定上下架的功能還沒做好,所以現在每一筆都是「自動」。
             </p>
@@ -97,13 +89,23 @@ export default async function ProductsPage({
         </div>
       ) : (
         <>
-          <ProductsTable rows={items} />
+          {/* 🔴 `#661`:有搜尋詞而零命中 ⇒ 換一句話。
+              「目前沒有商品」與「找不到符合的商品」在畫面上是同一個空框,
+              而前者讀起來像系統壞了或還沒進貨、後者讀起來像「再打一次」。 */}
+          <ProductsTable
+            rows={items}
+            emptyText={
+              filter.keyword === undefined
+                ? '目前沒有商品。'
+                : `找不到符合「${filter.keyword}」的商品。換個料號或商品名再試一次。`
+            }
+          />
           <ListPagination
             page={page}
             total={total}
             pageSize={PRODUCTS_PAGE_SIZE}
             shownCount={items.length}
-            buildHref={(p) => (p <= 1 ? '/products' : `/products?page=${p}`)}
+            buildHref={(p) => buildProductListHref(filter, p)}
             unit='件'
           />
         </>

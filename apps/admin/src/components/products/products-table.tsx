@@ -81,13 +81,23 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductRow>> = [
   },
 ];
 
-export function ProductsTable({ rows }: { rows: readonly AdminProductRow[] }) {
+export function ProductsTable({
+  rows,
+  emptyText = '目前沒有商品。',
+}: {
+  rows: readonly AdminProductRow[];
+  /**
+   * 空狀態文案。**預設是「這一頁真的沒有東西」那一句。**
+   *
+   * 🔴 `#661`:有搜尋詞而零命中時,呼叫端要換成「找不到符合的商品」——
+   *    兩者**在畫面上是同一個空框**,而它們對員工的意思相反:
+   *    「目前沒有商品」讀起來像**系統壞了或還沒進貨**;
+   *    「找不到符合的商品」讀起來像**我打的詞不對,再試一次**。
+   *    ⇒ 用錯那一句,員工會停止嘗試 —— 而那是這個功能唯一的用途。
+   */
+  emptyText?: string;
+}) {
   return (
-    <AdminDataTable
-      rows={rows}
-      columns={COLUMNS}
-      getRowKey={(row) => row.id}
-      emptyText='目前沒有商品。'
-    />
+    <AdminDataTable rows={rows} columns={COLUMNS} getRowKey={(row) => row.id} emptyText={emptyText} />
   );
 }

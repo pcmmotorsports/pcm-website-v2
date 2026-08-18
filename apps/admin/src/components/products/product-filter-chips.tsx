@@ -1,5 +1,9 @@
 import Link from 'next/link';
 import type { ProductSetByFilter } from '../../lib/products/product-repository';
+import {
+  buildProductListHrefResetPage,
+  type AdminProductFilter,
+} from '../../lib/products/product-list-view';
 
 // M-4b `#20` 片2c:商品列表工具列的快速篩選 chip(手動 / 自動)。
 //
@@ -27,18 +31,23 @@ const CHIPS: readonly ChipSpec[] = [
   { key: 'sync', label: '自動', value: 'sync' },
 ];
 
-export function ProductFilterChips({ current }: { current: ProductSetByFilter | undefined }) {
+export function ProductFilterChips({ filter }: { filter: AdminProductFilter }) {
   return (
     <div className='flex items-center gap-2'>
       {CHIPS.map((chip) => {
-        const active = chip.value === current;
+        const active = chip.value === filter.setBy;
         return (
           <Link
             key={chip.key}
             className='fchip'
             aria-current={active ? 'true' : undefined}
             data-active={active ? 'true' : undefined}
-            href={chip.value ? `/products?set_by=${chip.value}&page=1` : '/products?page=1'}
+            /* 🔴 `#661`:網址一律由 `buildProductListHrefResetPage` 組,**不在這裡拼字串**。
+               改的理由:原本這裡自己拼、而分頁那邊也自己拼,兩邊各拼各的 ⇒
+               分頁那份漏了 `set_by`(`app/products/page.tsx:106` 舊字面),
+               員工按「手動」再按「下一頁」就回到全部商品。
+               ⇒ 現在**搜尋詞 `q` 也會被帶著走** —— 按 chip 不會把搜尋洗掉。 */
+            href={buildProductListHrefResetPage({ ...filter, setBy: chip.value })}
           >
             {chip.label}
           </Link>

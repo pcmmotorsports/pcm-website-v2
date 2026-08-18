@@ -96,12 +96,19 @@ describe('/products 列表(#20 片1a)', () => {
   it('🔴 驗收 3:分頁走 server 端 —— ?page=2 送出的 offset 不是第 1 頁的', async () => {
     mocks.list.mockResolvedValue({ items: [], total: 100 });
     await renderPage({ page: '2' });
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, PRODUCTS_PAGE_SIZE, undefined);
+    // 🔴 `#661` 起多了第四個參數 keyword;這裡逐字寫 `undefined`(= 沒搜尋)而不是省略,
+    //    省略會讓「頁面忘了把搜尋詞傳下去」這件事在這一格變成綠的。
+    expect(mocks.list).toHaveBeenCalledWith(
+      PRODUCTS_PAGE_SIZE,
+      PRODUCTS_PAGE_SIZE,
+      undefined,
+      undefined,
+    );
 
     // 負向對照:沒有這格,上面那條對「offset 恆為 20」也會綠。
     mocks.list.mockClear();
     await renderPage();
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, undefined);
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, undefined, undefined);
   });
 
   it('壞的 ?page= 退回第 1 頁,不炸也不送負 offset', async () => {
@@ -131,7 +138,12 @@ describe('/products 列表(#20 片1a)', () => {
     const { container } = await renderPage({ page: '99' });
     expect(container.textContent ?? '').toContain('目前沒有商品');
     // 🔴 offset 照算送出去、**不夾回 0** —— 夾回去等於偷偷把使用者要的那一頁換掉。
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 98 * PRODUCTS_PAGE_SIZE, undefined);
+    expect(mocks.list).toHaveBeenCalledWith(
+      PRODUCTS_PAGE_SIZE,
+      98 * PRODUCTS_PAGE_SIZE,
+      undefined,
+      undefined,
+    );
   });
 
   // 🔴 測試名逐字寫出**這一個輸入**,不寫「超大頁碼都安全」(code-reviewer R1 N-b)。
@@ -225,12 +237,12 @@ describe('/products 列表(#20 片1a)', () => {
     mocks.list.mockResolvedValue({ items: [], total: 0 });
     await renderPage({ set_by: 'staff' });
     // 沒有這格,實作可以在頁面上 `items.filter(...)` ⇒ 分頁 count 仍是全表數、翻頁翻不完。
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, 'staff');
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, 'staff', undefined);
 
     // 負向對照:認不得的值不得被送進查詢(它會直接進 .eq 條件)。
     mocks.list.mockClear();
     await renderPage({ set_by: 'DROP' });
-    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, undefined);
+    expect(mocks.list).toHaveBeenCalledWith(PRODUCTS_PAGE_SIZE, 0, undefined, undefined);
   });
 
   it('片2c:「手動」篩出 0 筆時,空狀態要講清楚是「還沒有人設過」不是壞掉', async () => {

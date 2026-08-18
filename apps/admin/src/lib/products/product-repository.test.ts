@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { stripComments } from '../test-support/strip-comments';
+import { buildProductKeywordOrFilter } from './product-repository';
 
 // 受測檔頂層 `import 'server-only'`(它是 server-only 模組,這是對的)⇒ 測試裡要 stub 掉,
 // 否則整支載入即炸(同 `app/customers/page.test.tsx:10` 紀律)。
@@ -395,5 +396,90 @@ describe('🔴 #20 片2c:chip 篩選必須變成 DB 查詢條件', () => {
   it('🔴 負向對照:不帶 setBy → **不得**出現該條件(否則等於永遠只看得到一種)', async () => {
     await listProductsForAdmin(20, 0);
     expect(q.calls.map((c) => c[1])).not.toContain('listing_set_by');
+  });
+});
+
+// ─────────────── `#661`:搜尋詞 → PostgREST `.or()` 條件字串 ───────────────
+//
+// 🔴 **為什麼這一組直接測純函式而不是透過 mock client**:
+//    它有**兩層跳脫**,而兩層的順序不能靠「看起來對」驗。
+//    透過 mock 測會把「條件字串長什麼樣」藏在一堆呼叫紀錄裡,而那正是要被斷言的東西。
+describe('#661 buildProductKeywordOrFilter', () => {
+  it('一般詞:兩個欄位各一個 ilike,前後包 %', () => {
+    expect(buildProductKeywordOrFilter('brembo')).toBe(
+      'external_id.ilike."%brembo%",title.ilike."%brembo%"',
+    );
+  });
+
+  it('中文詞照樣過(ilike 不經過 pg_trgm)', () => {
+    expect(buildProductKeywordOrFilter('煞車皮')).toBe(
+      'external_id.ilike."%煞車皮%",title.ilike."%煞車皮%"',
+    );
+  });
+
+  /**
+   * 🔴 把 PostgREST 的雙引號那一層【解回來】,拿到伺服器實際會餵給 ILIKE 的 pattern。
+   *
+   * **為什麼要有這支**:只斷言最終字串,等於在斷言「兩層跳脫疊起來長什麼樣」——
+   * 那個字串很難用眼睛判對錯(反斜線數量會讓人數錯),而**數錯的方向通常是「看起來合理」**。
+   * 解回來之後斷言的是**契約本身**:伺服器收到的 ILIKE pattern 是什麼。
+   */
+  function ilikePatternOf(orFilter: string): string {
+    const m = /^external_id\.ilike\."(.*)",title\.ilike\."\1"$/.exec(orFilter);
+    const captured = m?.[1];
+    if (captured === undefined) {
+      throw new Error(`條件字串形狀不符,兩欄不一致或格式變了:${orFilter}`);
+    }
+    // PostgREST 雙引號內:`\X` ⇒ `X`
+    return captured.replace(/\\(.)/g, '$1');
+  }
+
+  it('🔴 ILIKE 萬用字元要跳脫 —— 否則員工搜尋 50% 會比對到「50 開頭的任何東西」', () => {
+    // 解回 PostgREST 那層之後,伺服器餵給 ILIKE 的 pattern 應該是 `%50\%%`:
+    // 頭尾兩個 `%` 是我們加的萬用字元,中間 `\%` 是**被跳脫的字面 %**。
+    expect(ilikePatternOf(buildProductKeywordOrFilter('50%'))).toBe('%50\\%%');
+    expect(ilikePatternOf(buildProductKeywordOrFilter('a_b'))).toBe('%a\\_b%');
+    // 負向對照:沒跳脫的話 pattern 會是 `%50%%`(= 50 開頭的任何東西)。
+    expect(ilikePatternOf(buildProductKeywordOrFilter('50%'))).not.toBe('%50%%');
+  });
+
+  it('🔴🔴 `*` 【刻意不跳脫】—— 它是萬用字元,而這是量到的行為不是疏漏', () => {
+    // 2026-08-19 對正式庫實測(dev server 連正式站,SQL 跑在 Supabase 的 Linux Postgres):
+    //   ?q=brembo ⇒ 35 件 ／ ?q=brembo* ⇒ 35 件 ／ ?q=bremb*o ⇒ 35 件
+    // `bremb*o` 若是字面比對應該是 0 ⇒ PostgREST 把 `*` 當成 `%` 的別名,而且【穿透雙引號】。
+    // 🔴 它在本層【表達不出來】:用反斜線跳脫會先被替換成 `\%` ⇒ 員工打 `*` 反而搜到字面的 `%`,更錯。
+    // ⇒ 現行處置:接受它是萬用字元、寫進輸入框提示。
+    // 🔴🔴 **本格釘住的是【我方的處置】,不是 PostgREST 的行為**(R2 must-fix):
+    //   本格是單元測試,沒有碰 PostgREST ⇒ **它改掉別名時這一格照樣綠**。
+    //   它真守得住的方向:有人把 `*` 加進跳脫字集、或 strip 掉它 ⇒ 紅(R2 兩發突變證過)。
+    //   ⇒ **PostgREST 那一側要重跑 probe 才知道,不能等這一格通知。**
+    expect(ilikePatternOf(buildProductKeywordOrFilter('bremb*o'))).toBe('%bremb*o%');
+    // 對照:`%` 與 `_` 是【有】跳脫的,兩者處置不同不是隨手決定的。
+    expect(ilikePatternOf(buildProductKeywordOrFilter('bremb%o'))).toBe('%bremb\\%o%');
+  });
+
+  it('🔴 一般詞不應該被加上任何跳脫(過度跳脫會讓它一個都找不到)', () => {
+    expect(ilikePatternOf(buildProductKeywordOrFilter('brembo'))).toBe('%brembo%');
+    expect(ilikePatternOf(buildProductKeywordOrFilter('煞車皮'))).toBe('%煞車皮%');
+  });
+
+  it('🔴🔴 PostgREST 保留字元要靠【雙引號】,不是反斜線 —— 否則 A,B 會被拆成兩個條件', () => {
+    // 官方文件逐字:值含 , ( ) " \ 必須 PostgREST 風格雙引號包起來。
+    const out = buildProductKeywordOrFilter('A,B');
+    // 逗號仍在,而它在引號**內** ⇒ 不會被 .or() 當成條件分隔。
+    expect(out).toBe('external_id.ilike."%A,B%",title.ilike."%A,B%"');
+    // 🔴 負向對照:若實作改用反斜線跳脫逗號,上面那條會變成 "%A\,B%" ⇒ 這一格會紅。
+    expect(out).not.toContain('A\\,B');
+  });
+
+  it('🔴 引號本身要在引號內被跳脫,否則它會提早關掉那個引號', () => {
+    const out = buildProductKeywordOrFilter('12"');
+    expect(out).toBe('external_id.ilike."%12\\"%",title.ilike."%12\\"%"');
+  });
+
+  it('🔴 順序:先 ILIKE 跳脫再引號內跳脫 —— 反斜線要被跳兩次', () => {
+    // 使用者打一個反斜線 ⇒ ILIKE 層變成 \\ ⇒ 引號層再各跳一次 ⇒ \\\\
+    const out = buildProductKeywordOrFilter('a\\b');
+    expect(out).toBe('external_id.ilike."%a\\\\\\\\b%",title.ilike."%a\\\\\\\\b%"');
   });
 });
