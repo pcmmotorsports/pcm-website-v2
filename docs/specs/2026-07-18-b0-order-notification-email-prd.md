@@ -10,6 +10,24 @@
 > · **Q3=A：PRD 收案、不開第四輪審查、動工 B-1。**
 > **審查史收斂曲線**：R1 26 條 → R2 13 條 → R3 4 條（皆既有條目補完、**新 BLOCKER＝0**）→ 全數修畢。
 > R3 判定：Fable **PASS**／codex FAIL（4 條部分落地，已全修）。
+>
+> ---
+> 🔴🔴 **2026-08-18 W5:本檔 `D1=A` 與 Sean 當日 `Q4=甲` 【疑似衝突,未確認哪一個為準】—— 引用 `D1` 前先讀 `~/pcm-mailbox/W5-002-*`。**
+> · 本檔 `D1=A`(2026-07-18)=「**結帳頁收件資料區塊內可直接填寫的 email 欄**」,且 **B-3 已把它蓋好上線**
+>   (`apps/storefront/src/components/CheckoutStep1.tsx:159-183`,flag 預設 off)。
+> · Sean 2026-08-18 `Q4=甲` 逐字(主視窗轉)=「**會員註冊的信箱**」。
+> 🔴 **兩句話指向不同的欄位。** 而 **`Q4` 的提問裡沒有出現「B-3 已經蓋好了」這件事**
+>   ⇒ 依 `R3`「新訊息疑似推翻舊拍板 ⇒ 確認、不假設」,**本檔在確認之前【不得】被讀成「`D1=A` 已作廢」,
+>   也不得被讀成「`Q4` 只是複述 `D1`」。**
+> 🔴 **而不論哪一個為準,都有一個【兩案共同】的缺口要先答**:
+>   **用 LINE 登入的客人沒有「會員註冊的信箱」** —— `handle_new_auth_user` trigger 把
+>   `auth.users.email` 原封抄進 `customers.email`(`20260523034911_init_customers_and_subtables.sql:282-288`,
+>   該函式的 `COMMENT` 逐字寫明「LINE OAuth 註冊也走此 trigger」),而 LINE 的 `auth.users.email`
+>   是**合成假信箱** `line_{sub}@line.pcmmotorsports.local`(`apps/storefront/src/lib/auth/line.ts:38,48`)。
+>   ⇒ **`Q4=甲` 照字面實作,LINE 客人一封通知信都收不到**,而本檔 §3.2 的 fallback 會把它記成
+>   `skipped_no_real_email` —— **那是一個【看起來正常運作】的靜默終態。**
+>   ⚠️ **未量**:正式庫有幾位 LINE 登入客人(repo 側量不到;要 production 側查 `customers.email` 命中該網域的筆數)。
+> ---
 
 ## 1. 目標（字面已收斂）
 
