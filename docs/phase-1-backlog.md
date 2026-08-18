@@ -2151,9 +2151,44 @@ order by n desc, 1;
 
 ### #81. ⏳ Product variants schema 設計(規格變體 1-20 種選項 × 雙層 / 三層)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🚫 **不執行 · 這個 spike 已經被實作取代**(2026-08-19 G6 第二層查核)
+  · ~~⏳ 待執行~~(2026-05-20 起的原狀態,留痕供比對)
 - **分流:** P1-now
 - **優先級:** 🟠 中(M-5-03 sync engine 啟動前真撞才 spike、Q1=A 2026-05-20 拍板推延)
+
+> ## 🚫🚫 **不得照原文實作**(2026-08-19 G6 查核)—— **A/B/C 那個 spike 早就有答案了,而且是 B**
+>
+> **① 決定性的一行**
+> ```
+> supabase/migrations/20260531142533_init_product_variants.sql:39   CREATE TABLE product_variants
+>   :43  spec  jsonb NOT NULL DEFAULT '{}'   -- 逐字註解「{weave,finish,special} **可擴 N 層**」
+> ```
+> ⇒ 這就是本條的 **候選 B(PCM 自家 schema、走 jsonb、完全自由)**。
+> 🔴 **建表日期 `2026-05-31`,而本條的「推延」拍板是 `2026-05-20`** —— **11 天後就做了。**
+>
+> **② 而且它不是躺著,是整條線都吃它**
+> ```
+> ProductInfo.tsx:3  逐字「M-1-16c-3:由 mock hardcode(COLOR_MAP/sizeOptions/colorOptions)**改吃真變體**」
+> ProductInfo.tsx:14 逐字「OD-4c:picker 折成 **2 維**(紋路 pattern = weave+special 合併、表面 finish)」
+> apps/storefront/src 內 `selectedVariant` 非測試命中 **37 處**
+> RPC sync_product_variant_group(`20260727084801:19`,參數含 `p_variants jsonb`)
+> ```
+> ⇒ **候選 A(Medusa 內建 product_option/variant)沒有被採用** —— 變體走的是自家表。
+>
+> **③ ⇒ 本條今天真正還開著的是什麼(而條目沒有在講這個)**
+> 已達成:任意 N 層 spec(`jsonb` + `pv_spec_is_object` CHECK)、變體價、變體圖、排序。
+> **未達成 / 未查**:
+> ```
+> · 「員工後台自行新增變體」—— 我**沒查**後台有沒有變體編輯 UI(那是另一條線)
+> · 「1-20 種選項」的上限行為 —— 我**沒查**有沒有任何地方限制數量
+> · 目前 picker 是 **2 維**(OD-4c 刻意折的),而 Sean 原始訊號是「雙層或三層」
+>   ⇒ **三層的顯示面還沒有被驗過**,但那是 UI 題不是 schema 題(schema 已經 N 層)
+> ```
+> ⇒ 🔴 **本條要改寫成「後台變體編輯 + 三層 picker 顯示」,不是「schema 選 A/B/C」。**
+>   照原文開 spike = **重新選一次已經選過的東西**,而正式庫裡已經有一張表在跑。
+>
+> **④ 誠實揭示**:全部是讀 migration + 讀 storefront code,**沒有在任何 DB 上跑過、沒有開過後台**。
+> ③ 的兩個「未查」我標死,**不要當成「已確認沒有」**。
 - **問題:**
   - Sean 2026-05-04 業務訊號:同個商品多規格(顏色 × 材質 × 年式對應)、員工後台自行新增、1-20 種選項、雙層或三層巢狀
   - design ProductPage.jsx 字面只 hardcode `state: color / size / qty`、size options 依 product.category 字串(排氣 / 碳纖 / 避震 / 卡鉗)分支動態算、color options 主色 + 額外 2 色從 pool slice
@@ -6472,7 +6507,39 @@ order by n desc, 1;
 ### #239. 🔁 3DS redirect interstitial 無 fallback「手動繼續」連結
 
 - **狀態:** ⏳ 待執行
-- **優先級:** 🟡 低(Phase I sandbox-only、0 真流量;`TAPPAY_3DS_ENABLED` flag 對外開啟前補)
+  · 🔴🔴 **2026-08-19 G6:本條「什麼時候要做」的那個條件【已經發生了】。見下方查核段。**
+- **優先級:** ~~🟡 低(Phase I sandbox-only、0 真流量;`TAPPAY_3DS_ENABLED` flag 對外開啟前補)~~
+  🔴 **2026-08-19 更正:那個 flag 已經開了,而且已經有真卡刷過。優先級待主視窗重評。**
+
+> ## 🔴🔴 2026-08-19 第二層查核(G6):**「對外開啟前補」—— 而它已經開了**
+>
+> **① 量到的**
+> ```
+> apps/storefront/src/lib/payment/three-ds-flag.ts:17 逐字:
+>   「主視窗轉述 Sean:`TAPPAY_3DS_ENABLED=true`、`CRON_SWEEPER_ENABLED=true` **已開**。」
+> 同檔 :30  return process.env.TAPPAY_3DS_ENABLED === 'true';
+> ```
+> **② 而「0 真流量」那半也不成立了**
+> Sean 2026-08-18 逐字(memory `project_0818-payment-path-verified-by-seans-real-cards`):
+> 「**後台實際訂單都是我測試真實刷卡後結果,只要有退款成功的都是真的刷過的**」
+> ⇒ **真的有卡刷過 3DS 這條路。**
+>
+> **③ ⇒ 本條的觸發器已經扣下,而沒有人回頭改它的優先級**
+> 條目逐字「`TAPPAY_3DS_ENABLED` flag **對外開啟前**補」= 一個**條件式待辦**,
+> 而**條件發生在另一條線上、由另一個人開的** ⇒ **開 flag 的人沒有理由知道自己觸發了誰。**
+> 📌 與 `SupabaseOrderAdapter.ts:564`(「未來加線下付款方式須重審」,`#278`)**同一個形狀**:
+> **註解裡的條件式待辦,是一顆沒有人在監聽的鬧鐘。**
+>
+> **④ 誠實揭示 —— 這一格我特別要講清楚**
+> ```
+> · 我**沒有**讀任何 `.env*`(明文禁止),`three-ds-flag.ts:17` 那句是**檔案裡的轉述**,
+>   ⇒ 🔴 它證明的是「**曾經有人寫下 Sean 說已開**」,**不是**「此刻正式站的環境變數值」
+> · ⇒ **要確認現值,只有 Sean 或有 Vercel 存取權的人做得到。** 本查核不宣稱現值。
+> · 「有真卡刷過」引的是 memory 記的 Sean 逐字,**不是我量到的**
+> · 我**沒有**驗本條描述的 interstitial 今天長什麼樣、有沒有 fallback 連結
+>   ⇒ 本查核只動「**什麼時候該做**」這一格,**沒有**複驗「問題還在不在」
+> ```
+> ⇒ 🔴 **這條屬 TapPay 線(G3 的域)** —— 我只做查核與落檔,**沒有排優先級、沒有動任何 code**。
 - **問題:**
   - `CheckoutRedirecting`(3DS-6b)mount 即 `window.location.assign(payment_url)` 整頁導向 TapPay;若瀏覽器擋導向(彈窗攔截 / JS disabled / assign 失敗),使用者停在「正在前往安全付款頁面」interstitial、無手動出路。
 - **觸發事件(任一觸發即啟動實作):**
