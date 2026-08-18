@@ -82,6 +82,47 @@ function setup(over: Partial<Parameters<typeof ItemProcurementForm>[0]> = {}) {
   );
 }
 
+// ── `#493`(Sean 2026-08-14 拍 `Q-日期預設` = A)────────────────────────────
+//
+// 🔴 起因逐字:「因為我都沒有填寫送出時間,**我以為會預設好要填表的當下日期時間**」
+//    ⇒ 正式庫 `submitted_at` 至今 **0 列** —— 不是沒人需要,是**它不會自己帶值,而他以為會**。
+// ⚠️ 拍板**只**涵蓋「記錄已經發生的事」的欄位;「預計/期限」一律留空(選項 B 已否決)
+//    ⇒ 下面第二格是**負向對照**,它釘住的是那個否決。
+describe('`#493` 日期預設:已發生 ⇒ 帶當下;預計 ⇒ 留空', () => {
+  const submittedInput = (c: HTMLElement) =>
+    c.querySelector<HTMLInputElement>('input[type="datetime-local"]');
+  const expectedInput = (c: HTMLElement) => c.querySelector<HTMLInputElement>('input[type="date"]');
+
+  it('🔴 全新一筆(尚未選供應商)⇒ 送出時間帶著當下,格式是 `datetime-local` 吃得下的', () => {
+    const { container } = setup({ procurements: [] });
+    const v = submittedInput(container)?.value ?? '';
+    expect(v, '空的 ⇒ `#493` 的病原樣還在(員工以為系統會填)').not.toBe('');
+    expect(v, 'datetime-local 只吃 `YYYY-MM-DDTHH:mm`;格式錯的話瀏覽器會靜默不顯示').toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
+    );
+  });
+
+  it('🔴 負向對照:預計到貨**不得**被預設(那是「還沒發生的」,選項 B 已否決)', () => {
+    const { container } = setup({ procurements: [] });
+    expect(
+      expectedInput(container)?.value,
+      '預設成今天 = 系統替員工說了一句他沒說過的話,而那句幾乎一定是錯的',
+    ).toBe('');
+  });
+
+  it('🔴 既有紀錄的送出時間**不得**被今天蓋掉(否則「上週送單」會靜默變成「今天送單」)', async () => {
+    const { container } = setup({
+      procurements: [proc({ submittedAt: '2026-08-01T02:30:00+00:00' })],
+    });
+    // 選到那一筆既有紀錄 ⇒ hydrate 出它自己的值。
+    const select = container.querySelector('select[name="supplier_id"]') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: SUP_A } });
+    await waitFor(() => {
+      expect(submittedInput(container)?.value, '既有值被今天的時間覆蓋').toBe('2026-08-01T10:30');
+    });
+  });
+});
+
 beforeEach(() => {
   actionMock.mockReset();
   actionMock.mockResolvedValue({ status: 'idle' });

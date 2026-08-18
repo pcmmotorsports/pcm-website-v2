@@ -28,6 +28,7 @@ import {
   REPLY_STATUS_LABEL,
   findActiveProcurement,
   hydrateFormValues,
+  toTaipeiInputValue,
   type ProcurementSupplierChoice,
 } from '../../lib/orders/procurement-view';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
@@ -156,6 +157,22 @@ export function ItemProcurementForm({
   // 掛載後才允許送出(見檔頭 Critical)。
   useEffect(() => {
     setHydrated(true);
+    // 🔴🔴 `#493`(Sean 2026-08-14 拍 `Q-日期預設` = A):**「已經發生的」欄位預設當下。**
+    //    起因逐字:「因為我都沒有填寫送出時間,**我以為會預設好要填表的當下日期時間**」
+    //    ⇒ 正式庫 `submitted_at` 至今 **0 列**(條目的實測),而那不是「沒人需要」,
+    //      是**它不會自己帶值,而他以為會**。
+    //
+    // ⚠️ **為什麼在【掛載後】而不是 `useState` 初值裡**:初值會參與 SSR,
+    //    server 與 client 各算一次 `new Date()` ⇒ 兩邊字串不同 ⇒ hydration mismatch。
+    // ⚠️ **只在【空的時候】填** —— 既有紀錄 hydrate 出來的值不得被今天的時間蓋掉
+    //    (那會把「他上週送單」改寫成「今天送單」,而畫面看起來完全正常)。
+    // 🔴 **`expectedArrivalDate` 刻意【不】預設** —— 那是「還沒發生的」(選項 B 已否決):
+    //    預設成今天 = 系統替員工說了一句他沒說過的話,而那句幾乎一定是錯的。
+    setValues((prev) =>
+      prev.submittedAtLocal === ''
+        ? { ...prev, submittedAtLocal: toTaipeiInputValue(new Date().toISOString()) }
+        : prev,
+    );
   }, []);
 
   // 失敗回來的值真的套進畫面(見檔頭 finding 2);只在**本品項**的失敗時套。
@@ -205,7 +222,15 @@ export function ItemProcurementForm({
   function onSupplierChange(nextId: string) {
     setSelectedSupplier(nextId);
     // 切換目標 = 換一筆紀錄 ⇒ 整份重填(含清掉上一筆的值)。
-    setValues(hydrateFormValues(procurements, nextId));
+    // 🔴 `#493`:換供應商 = 可能換成一筆**還不存在**的紀錄 ⇒ 那一筆也要帶今天的送出時間。
+    //    `hydrateFormValues` 對「查無生效列」回的是空字串 ⇒ 這裡補上;
+    //    hydrate 出真值的那條路**原封不動**(見上面掛載那段的第二個 ⚠️)。
+    const next = hydrateFormValues(procurements, nextId);
+    setValues(
+      next.submittedAtLocal === ''
+        ? { ...next, submittedAtLocal: toTaipeiInputValue(new Date().toISOString()) }
+        : next,
+    );
     setOriginalSubmittedAt(findActiveProcurement(procurements, nextId)?.submittedAt ?? null); // #476 片2
   }
 

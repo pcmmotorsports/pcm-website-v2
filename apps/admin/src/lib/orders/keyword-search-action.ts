@@ -6,6 +6,7 @@ import { normalizeOrderKeywordSearch } from '@pcm/domain';
 // #365 片②:單值欄位的唯一讀法。
 import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
+import { appendResultQuery } from './order-return-to';
 import {
   ORDER_KEYWORD_COOKIE,
   ORDER_KEYWORD_COOKIE_PATH,
@@ -60,7 +61,14 @@ export async function applyOrderKeywordSearchAction(formData: FormData): Promise
   //    實害有限(它只寫呼叫者自己的 cookie),但 `lib/session/authorize.ts:12-16` 明文
   //    「安全縱深不只靠 proxy 登入閘」—— 例外會變成慣例,慣例會被下一支真的碰資料的 action 抄走。
   //    未授權 ⇒ 什麼都不做、直接導回列表(不擲錯:proxy 那層本來就會把未登入的人導去 SSO)。
-  if ((await authorizeAdminMutation()) === null) redirect('/orders');
+  // 🔴 `#534`(2026-08-18 G2):**帶上 `r=denied`,不要裸導回。**
+  //    裸 `redirect('/orders')` 的症狀是**畫面完全正常**:搜尋框回到原狀、沒有訊息、沒有 console
+  //    ⇒ 員工以為自己搜過了,而其實什麼都沒發生(`#534` 的形狀)。
+  //    ⚠️ 這一行**不改授權行為**(擋的還是同一件事、仍然 fail-closed),只讓那個失敗**看得見**。
+  //    出口與同資料夾其他 9 個呼叫點一致(`amount-actions.ts:78` 的 `redirectWith(…, 'denied')`),
+  //    而 `/orders` 頁本來就讀 `?r=` 並渲染 `ResultBanner`(`app/orders/page.tsx:92,181`;
+  //    `denied` 的字面在 `result-banner.tsx:46`)⇒ 不是新機制,是接回既有那條。
+  if ((await authorizeAdminMutation()) === null) redirect(appendResultQuery('/orders', 'r=denied'));
 
   // 🔴 #365 片②:兩欄都改走「`getAll()` 恰一筆」讀法。
   //    · 搜尋詞送兩份 ⇒ 讀成 null ⇒ `normalizeOrderKeywordSearch(null)` 回 `empty` ⇒ **刪 cookie**。

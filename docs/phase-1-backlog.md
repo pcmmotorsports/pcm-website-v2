@@ -13091,7 +13091,8 @@ domain Order                          仍無 fulfillmentMethod（本條原本說
 - **相關:** `#490`(`literal-sweep.sh`,同族機制)/ `#481`(`state-gates.sh`,同族)
 ### #493. 📅 日期欄預設值 —— 「已發生」預設當下、「預計/期限」一律留空
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ **採購那一批完成 2026-08-18 20:2x(G2)**;**其他表單的日期欄仍未盤點**(見下方「殘留」)。
+  ~~原狀態~~:⏳ 待執行
 - **分流:** `P2`
 - **優先級:** 🟠 中(不會壞資料,但它是「欄位存在卻沒人填」的直接原因)
 - **🏁 Sean 2026-08-14 拍板 `Q-日期預設` = A**(逐字起因:「因為我都沒有填寫送出時間,**我以為會預設好要填表的當下日期時間**..」)
@@ -13114,6 +13115,40 @@ domain Order                          仍無 fulfillmentMethod（本條原本說
 - **範圍(未逐檔盤,估):** `apps/admin/src/components/orders/item-procurement-form.tsx:321`(送出時間 `datetime-local`)
   與 `:289`(預計到貨 `type='date'`)為第一批;**其他表單的日期欄未盤點**,開工第一動是用判準逐欄過一次。
 - **發現於:** 2026-08-14 · Sean 肉眼驗 `#476` 時提出 · 號由主視窗用 `scripts/next-backlog-number.sh` 取得(三層皆 492 ⇒ 493)
+
+---
+
+## ✅ 落地(2026-08-18 20:2x,G2)
+
+**改的是 `item-procurement-form.tsx`,兩個進入點**:掛載後、以及換供應商換到一筆**還不存在**的紀錄時,
+`submittedAtLocal` 為空 ⇒ 帶當下(`toTaipeiInputValue(new Date().toISOString())`,`YYYY-MM-DDTHH:mm`)。
+
+```
+🔴 為什麼放在【掛載後】而不是 useState 初值:初值會參與 SSR，server 與 client 各算一次
+   new Date() ⇒ 兩邊字串不同 ⇒ hydration mismatch。
+🔴 只在【空的時候】填:既有紀錄 hydrate 出來的值不得被今天蓋掉
+   —— 那會把「上週送單」靜默改寫成「今天送單」，而畫面看起來完全正常。
+🔴 expectedArrivalDate **刻意不動**（拍板的選項 B 已否決）。
+```
+
+**守門三格,兩格配突變**(`item-procurement-form.test.tsx`):
+```
+① 全新一筆 ⇒ 送出時間非空且形狀是 YYYY-MM-DDTHH:mm   突變（拿掉預設）⇒ 恰好 1 格紅
+② 🔴 負向對照:預計到貨不得被預設                      突變（照選項 B 一起預設）⇒ 恰好 1 格紅
+③ 既有紀錄的送出時間不得被今天蓋掉（hydrate 出 2026-08-01T10:30 仍是它）
+```
+📌 ②那一格釘住的是**Sean 否決過的選項**,不是我的偏好 —— 少了它,下一個人「順手把預計到貨也帶上」不會有任何東西紅。
+
+**四綠**:`TURBO_FORCE=1` typecheck 8/8、lint 10/10、build 2/2 rc 全 0;vitest 528 files / 8762 passed。
+
+## 🔴 殘留(刻意,不是漏)
+
+```
+· 條目的「範圍」段自己寫著「**其他表單的日期欄未盤點**，開工第一動是用判準逐欄過一次」
+  ⇒ 我**只做了採購那一批**（條目點名的第一批）。其餘表單（備註聯絡時間、出貨、退款…）**沒有盤**。
+· ⇒ 本條**不得**被讀成「全站日期欄都照拍板做完了」。
+```
+
 
 
 ### #494. 🔴 已退款的單在列表顯示「未收未定」、點取消被擋、而訊息說它「已付款」
@@ -13835,7 +13870,40 @@ domain Order                          仍無 fulfillmentMethod（本條原本說
 
 ### #534. 🔴🔴 沒選具名身分 ⇒ 後台**所有寫入動作靜默失效**,而畫面完全正常
 
-- **狀態:** 🔴 未處理 —— **這是【預設狀態】,不是邊界情況**(見下方「為什麼不是『只影響某個人』」)
+- **狀態:** 🔴 未處理(**訂單域那一份 2026-08-18 已修掉,見下方 G2 那段;客戶域仍未處理**)
+  —— **這是【預設狀態】,不是邊界情況**(見下方「為什麼不是『只影響某個人』」)
+
+> ## 🔴 2026-08-18 20:1x(G2)複驗:**「所有寫入動作」在【訂單域】今天不成立**
+>
+> 條目一句話逐字寫「他按下的**任何**寫入動作…都會什麼都不做」。**逐個呼叫點開檔量**
+> (`apps/admin/src/lib/orders/*.ts`,排除 `*.test.ts`;數法:對每支檔 grep `authorizeAdminMutation()` 後看它的出口):
+> ```
+> 有出口（帶 'denied' 或回 failure state）  9 處
+>   amount-actions:78 redirectWith(…,'denied')      cancel-actions:135 failRedirect(…'denied')
+>   note-actions:108 noteFailure('denied')          order-actions:66 redirectWith(…,'denied')
+>   payment-actions:79 console.warn + failure       payment-reverse-actions:56 reverseFailure('denied')
+>   procurement-actions:105 procurementFailure      receipt-actions:63/:252 receiptFailure ×2
+> 🔴 靜默（裸 redirect，無訊息碼）             1 處
+>   keyword-search-action.ts:63  redirect('/orders')
+> ```
+> ⇒ **訂單域 10 個呼叫點裡,靜默的只有【搜尋】那一個。** 條目的「任何寫入動作」對本域已是過度陳述。
+> ⚠️ **而那不表示條目錯**:它點名的搜尋/儲值金/會員等級裡,**儲值金與會員等級在客戶域**
+> (`lib/customers/*`),**本次沒有複驗** ⇒ 那一半仍當成立。
+>
+> ### 已修(本次,1 行 + 1 格守門)
+> `keyword-search-action.ts` 改成 `redirect(appendResultQuery('/orders', 'r=denied'))`。
+> **不是新機制**:`/orders` 本來就讀 `?r=` 並渲染 `ResultBanner`(`app/orders/page.tsx:92,181`;
+> `denied` 的字面在 `result-banner.tsx:46`「沒有權限或登入狀態已失效,未儲存。」)。
+> 🔴 **這一行不改授權行為**(擋的還是同一件事、仍 fail-closed),只讓那個失敗**看得見**。
+> 守門:`keyword-search-action.test.ts` 新增一格(突變:改回裸導回 ⇒ 恰好 1 格紅);
+> **舊那格只驗「沒寫 cookie」⇒ 裸導回照樣全綠** —— 那正是這個病的形狀。
+>
+> ### 沒有主張
+> ```
+> · 客戶域（儲值金/會員等級/客戶搜尋）**沒有複驗** —— 那是別的窗的域
+> · 沒有動 authorize.ts 本體（那才是根因:actor 為 null 時整條靜默）—— 那要 plan + 拍板
+> ```
+
 - **一句話:** 員工登入後若**沒有先去總覽頁選「具名身分」**,他按下的**任何**寫入動作
   (搜尋、備註、儲值金、會員等級、取消單…)都會**什麼都不做**,
   **沒有訊息、沒有錯誤、沒有 console 警告,畫面看起來完全正常**。

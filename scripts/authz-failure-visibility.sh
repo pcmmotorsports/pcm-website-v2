@@ -20,14 +20,24 @@
 #
 # ── 母體與已知缺口(2026-08-18 G6 量、G1 複量,兩支 grep 都跑過)────────────
 #   呼叫點 28 個 / 18 支檔(apps/admin/src,排除 .test.)
-#   🔴 裸 redirect 2:lib/customers/keyword-search-action.ts ／ lib/orders/keyword-search-action.ts
+#   🔴 裸 redirect **1**:lib/customers/keyword-search-action.ts
+#      (~~orders 那支~~ 已由 G2 `fb1d1f9f` 修掉 —— #534 訂單域最後一個靜默出口)
 #   🔶 未驗 1:lib/orders/receipt-actions.ts(return null,docstring 把責任委託給呼叫端;
 #             **委託不是靜默,而那些呼叫端沒有人驗過**)
-#   刻意例外:customers 那支自陳「只寫呼叫者自己的 cookie,實害有限」
-#            (orders 那支**沒有**同樣的自陳 —— 兩支不要一起當成已知例外)
+#
+#   ⚠️ **待判(不是已豁免)**:customers 那支自陳「只寫呼叫者自己的 cookie,實害有限」。
+#      🔴 那句講的是**資料面**(沒寫壞東西),而 `#534` 的病是**可用性面**:
+#         **擋得對,而失敗看不見** —— 員工搜尋被擋、畫面完全正常,他以為搜過了。
+#      ⇒ 自陳擋不住那半 ⇒ **降級成待判,由 customers 域的窗判。**(G6 2026-08-18 提,採用)
+#      📎 佐證:orders 那支**也有一模一樣的自陳**,而 G2 仍然把它修掉了。
+#
+#   🔴 **一句更正(我自己量到的反例)**:~~orders 那支沒有同樣的自陳~~ —— **有**。
+#      量法 `git show dev:apps/admin/src/lib/orders/keyword-search-action.ts | grep -n 實害` ⇒ `:60` 命中
+#      逐字「實害有限(它只寫呼叫者自己的 cookie)」。
+#      ⇒ 我先前照抄了那句未量的宣稱進本檔頭。**兩支在這一點上是對稱的,不是一有一沒有。**
 set -eu
 CDPATH= cd "$(dirname "$0")/.." || exit 1
-EXPECT_BARE=2
+EXPECT_BARE=1
 
 count_bare() {  # $1=要掃的樹
   grep -rn -A2 "await authorizeAdminMutation()" "$1" --include='*.ts' --include='*.tsx' 2>/dev/null \
@@ -51,11 +61,14 @@ if [ "${1:-}" = "--selftest" ]; then
     done
     printf 'const y = await authorizeAdminMutation();\nif (!y) {\n  return { ok: false, code: 403 };\n}\n' > "$1/good.ts"
   }
-  mk "$T/w2" 2; mk "$T/w3" 3
-  A=$(count_bare "$T/w2"); B=$(count_bare "$T/w3")
-  echo "== 世界一:樹裡恰有 2 個裸 redirect ⇒ 應該綠 =="
+  # 🔴 自檢的樹【跟著 EXPECT_BARE 走】,不可以另外寫死一個數字 ——
+  #    2026-08-18 實錘:期望值 2→1 那次,自檢因為自己寫死 2 而當場壞掉。
+  #    **一支把 production 的魔術數字抄一份的自檢,會在那個數字改動時壞掉(或更糟:安靜地過)。**
+  mk "$T/wok" "$EXPECT_BARE"; mk "$T/wmore" "$((EXPECT_BARE + 1))"
+  A=$(count_bare "$T/wok"); B=$(count_bare "$T/wmore")
+  echo "== 世界一:樹裡恰有 $EXPECT_BARE 個裸 redirect ⇒ 應該綠 =="
   echo "   量到 $A   期望 $EXPECT_BARE"
-  echo "== 世界二:樹裡有 3 個 ⇒ 應該紅(這一格證明它抓得到【新缺口】)=="
+  echo "== 世界二:樹裡有 $((EXPECT_BARE + 1)) 個 ⇒ 應該紅(這一格證明它抓得到【新缺口】)=="
   echo "   量到 $B   期望不等於 $EXPECT_BARE"
   echo "   (跑的是 $(command -v grep))"
   if [ "$A" = "$EXPECT_BARE" ] && [ "$B" != "$EXPECT_BARE" ]; then

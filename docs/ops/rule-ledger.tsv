@@ -69,4 +69,4 @@ R012	四綠腳本把 TURBO_FORCE=1 寫死(不然 turbo 會 replay 舊的綠)	scr
 R013	guard-traps 不得殘留 merge 衝突標記	docs/patterns/guard-and-instrument-traps.md	<<<<<<< HEAD	==0	2026-08-18	G1 與 G2 同日在該檔結尾各 append 一條而撞車
 R014	共用主樹上 git add 與 git commit 之間不該有任何一步	docs/runbooks/multi-window-command-workflow.md	之間不該有任何一步	>=1	2026-08-18	G6 的 add 生效而 commit 被 merge 擋下,東西躺進別人索引
 R015	廢止一條規則必須用 ~~ 劃線形,不可以只用散文寫「本條作廢」	docs/ops/rule-ledger.tsv	廢止一條規則必須用 `~~` 劃線形	>=1	2026-08-18	GR 指出散文式廢止是立法問題不是量具問題;主視窗裁准立為契約
-R016	授權被擋時員工要看得見(不是裸 redirect);覆蓋率檢查器要在、且期望值仍寫死	scripts/authz-failure-visibility.sh	EXPECT_BARE=2	>=1	2026-08-18	G6 量出 28 呼叫點/裸 redirect 2;主視窗指示先只做這一個形狀不推廣
+R016	授權被擋時員工要看得見(不是裸 redirect);覆蓋率檢查器要在、且期望值仍寫死	scripts/authz-failure-visibility.sh	EXPECT_BARE=1	>=1	2026-08-18	G6 量出 28 呼叫點/裸 redirect 2;主視窗指示先只做這一個形狀不推廣
