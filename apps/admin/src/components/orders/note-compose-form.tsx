@@ -20,6 +20,7 @@ import {
   NOTE_CHANNEL_LABEL,
   NOTE_TYPE_LABEL,
 } from '../../lib/orders/note-timeline';
+import { toTaipeiIso } from '../../lib/orders/procurement-view';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 
 // M-4b E10 A10a-3:訂單備註表單 + 更正模式(A9d2-1 plan §8 七條契約債的 UI 側;
@@ -59,11 +60,29 @@ export type CorrectTarget = {
   excerpt: string;
 };
 
+/**
+ * 🔴🔴 `#655`(2026-08-18):**改用固定偏移,不再用 `new Date(local)`。**
+ *
+ * 舊實作是 `new Date(local).toISOString()` —— 而 `new Date('YYYY-MM-DDTHH:mm')`
+ * 把字面當**裝置本地時間**解析。實測同一個輸入三個答案:
+ * ```
+ * '2026-08-18T21:00'  TZ=Asia/Taipei ⇒ 13:00Z ／ TZ=UTC ⇒ 21:00Z ／ TZ=America/New_York ⇒ 隔天 01:00Z
+ * ```
+ * 而這一格的標籤逐字是「聯絡時間(**台北時間**)」⇒ 非台北機器上**靜默存錯**,而畫面完全正常。
+ * 🔴 **這條 repo 早就寫過警語**(`procurement-view.ts:34`/`:49`、`payment-form.ts:205` 逐字
+ *    「**不准**用 `new Date(local)`(那是裝置時區)」)—— 這一支只是沒照做 ⇒ 本修法是**照慣例補**,不是新設計。
+ * ⇒ 直接用那一套的 `toTaipeiIso`(純字串轉換 + 寫死 `+08:00`;台灣不用日光節約)。
+ * ⚠️ 失敗行為**不變**:格式不合回 `''`,讓 server 端解析器 fail-closed 擋掉(它兩種偏移都收:
+ *    `note-form.ts:60` 的 `ISO_WITH_OFFSET_RE` 接受 `Z` 與 `±HH:MM`)。
+ *
+ * 🔴🔴 **界線(這一片的 cutoff,下一個人一定要讀到)**:
+ * **本顆之前建立的 `order_notes.occurred_at` 可能偏移**(取決於當時那台機器的時區);
+ * **本顆之後建立的正確。** 兩者躺在同一欄、同格式、都看起來合理 ⇒ **畫面上分不出來。**
+ * ⇒ 要分辨只能靠該列自己的 `created_at` 與本顆的落地時點比對;
+ *   **既有列要不要回填是另一件事**(動既有資料 = 鐵則 12③,要 Sean,且要先知道分佈)⇒ 見 backlog `#655`。
+ */
 function toOffsetIso(local: string): string {
-  if (local === '') return '';
-  const parsed = new Date(local);
-  // NaN → 送空字串讓解析器擋(invalid),不送半殘字面
-  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+  return toTaipeiIso(local);
 }
 
 /** 非 secure context(真機 LAN http 測試)沒有 crypto.randomUUID(R1 N4);token 是冪等鍵非安全值,Math.random 版可接受。 */
