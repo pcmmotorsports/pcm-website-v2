@@ -1,4 +1,4 @@
-# Plan — 人工待確認佇列:**完整範圍**(甲 + 乙 + 丙 一次做完)
+# Plan — 人工待確認佇列:**完整範圍**(重查 + 補入帳 + 出口 一次做完)
 
 > 🔴 **Sean 2026-08-19 拍板(逐字,主視窗轉)**:
 > **「你安排完整一次做好,不要做一半。這種東西不能做一半然後等到之後忘記再補,寧可花時間做好。
@@ -36,6 +36,10 @@
 > 而**壞掉的是其中【一格】** —— 整體評價天生蓋不住單格的反轉。
 > ⇒ **繼承時要逐格核,不是逐群核。** 逐格清單見 §13。
 >
+> 🔴 **2026-08-19 追加(GR-043 S5):§13 已降成【條件節,預設不做】。**
+> 因為照 §14 那支檔會被移出 `supabase/migrations/` ⇒ **它永遠不會 apply ⇒ 5c 不用修。**
+> 本段留著是為了記錄「免重驗那句錯在哪」,**不是**一張待辦。
+>
 > ## 🔴 主視窗裁定(2026-08-19,已生效、已落主視窗桌面狀態檔)
 > **`20260819010000_m4a_close_manual_review_attempt.sql` 不得被 apply,直到 5c 與 C-B 反轉對齊。**
 > Sean 的 apply 清單由主視窗控 ⇒ **這支不會進去。**
@@ -56,7 +60,7 @@ settleCharge（packages/use-cases/src/settle-charge.ts）逐字：
   「三路（callback / webhook / sweeper）+ retry 共呼同一條冪等結算、
     以 **Record API 為唯一權威**（notify 無簽章不可信）」
 它的四種結果：paid / failed / pending(reason) / no_attempt
-  paid   ⇒ 它自己就把錢收斂完（markCharged → confirm → recordPendingInvoice）= 【甲(補入帳)已經在裡面】
+  paid   ⇒ 它自己就把錢收斂完（markCharged → confirm → recordPendingInvoice）= 【補入帳已經在裡面】
   failed ⇒ 它自己 markFailed = 【釋鎖那條也在裡面】
   pending⇒ Record 查不到 / 查不動 / 驗不過 ⇒ **那才是真正的「還不知道」**
 ```
@@ -76,118 +80,220 @@ settleCharge（packages/use-cases/src/settle-charge.ts）逐字：
 
 ---
 
-## 1. 範圍(甲 / 乙 / 丙,以及為什麼它們是同一片)
+## 1. 範圍 —— **三族單、三條出口**,而現況只有一條
 
-| | 是什麼 | 落在哪 | 新東西還是重用 |
+> 🔴 **代號改掉了(2026-08-19,GR-043 S8)**:~~甲 / 乙 / 丙~~ 不再使用。
+> 理由:同一組字在本線上有**三種互斥的意思**(本 plan 的三元件 / 舊 plan `:78` 的三互斥方案 /
+> `triage-manual-review-alert.sh:70` 的兩資料族),而 **Sean 的逐字裡沒有這三個字**
+> (他說的是「完整一次做好,不要做一半」)。⇒ 一律寫全名:**重查 / 補入帳 / 出口**。
+
+### 1-1 🔴🔴 先看**清單裡到底有幾種單** —— 這是 GR-043 S1,gate 級
+告警自己的述詞(`scripts/triage-manual-review-alert.sh:83-85`,逐字):
+```sql
+ WHERE a.needs_manual_review = true
+   AND o.payment_status = 'unpaid'::public.payment_status
+   AND ( a.status = 'pending'
+         OR (a.superseded_at IS NOT NULL AND a.status IN ('charged','released')) )
+```
+**⇒ 三族,不是一族:**
+
+| 族 | 是什麼 | 現有出口 | 狀態 |
 |---|---|---|---|
-| **乙** 證據 | 按鈕觸發**伺服器端 TapPay Record 查詢** | 新 admin server action + 窄 RPC | **重用 `settleCharge`**,零新狀態機 |
-| **甲** 補入帳 | 查到 `paid` ⇒ 收斂成已付款 | — | **已存在**(`settleCharge` step 5) |
-| **丙** 出口 | `pending` 的單去哪、誰看、怎麼收 | 後台一頁清單 + 兩個計數 | 新 UI + 既有告警函式加一欄 |
+| **P 族** `pending` | 查了 8 次還沒查出結果 | `settleCharge` → `markCharged` / `markFailed` | ✅ 出口存在 |
+| **R 族** `superseded` + `released` | 舊 attempt 被新的取代,已釋鎖 | `close_released_attempt`(**owner-only**) | ⚠️ 後台按不到 |
+| **C 族** `superseded` + `charged` | 舊 attempt 標記已扣款,而訂單仍未付 | **無** | 🔴🔴 **零出口** |
 
-🔴 **它們是同一片的理由**:乙產生的結果直接決定甲或出口;
-**只做乙不做丙** ⇒ 查完仍是 `pending` 的單沒有地方去 ⇒ **佇列還是沒有出口** ⇒ 那就是「做一半」。
+**為什麼 P 族的出口對另外兩族無效(開檔核過,不是轉述)**:
+```
+markCharged / markFailed 的 UPDATE 逐字都是
+  WHERE id = p_attempt_id AND order_id = p_order_id AND status = 'pending'
+  (20260612150000_m3_s2d_charge_attempts.sql:283 與 :334)
+⇒ status 不是 pending ⇒ ROW_COUNT = 0 ⇒ **按了鈕那一列一個字都不會變。**
+```
+**R 族那支為什麼按不到**:`20260624120010:139` COMMENT 逐字
+「REVOKE 5 角色含 payment_confirmer、**無 GRANT = owner/postgres only**(Phase 1 受控人工流程)」;
+且 `:104` 逐字 `status=% 非 released、不可 close` ⇒ **它連 C 族都不收。**
+
+🔴 **這一格是「做一半」的實質形狀**:前一版 plan 的 §10-② 認過這個缺口,
+**而 §3 到 §7 一格都沒有它** ⇒ 認了缺口卻沒排進工作 = 之後再補。
+
+### 1-2 三個元件與它們服務的族
+| 元件 | 是什麼 | 服務哪一族 | 新東西還是重用 |
+|---|---|---|---|
+| **重查** | 按鈕觸發伺服器端 TapPay Record 查詢 | **P 族** | 重用 `settleCharge`,零新狀態機 |
+| **補入帳** | 查到 `paid` ⇒ 收斂成已付款 | **P 族** | 已存在(`settleCharge` step 5) |
+| **出口** | 三族各自怎麼離開清單 + 誰看得到 | **P / R / C 三族** | R 族要開權限;**C 族要新 RPC** |
 
 ---
 
-## 2. 甲:**不做**(它已經在了)—— 而這一格要有人去核,不是我說了算
+## 2. 補入帳:**不做新的,而那一發驗證【要排進本片】**
 
-`settleCharge` step 5 逐字:`markCharged(主軌) → confirm → recordPendingInvoice → paid`。
-⇒ **查到真的收了錢,系統本來就會登記它。**
-⚠️ **我沒有實跑過那條 path**(它要真的 TapPay 回一個 paid 的 Record)
-⇒ **這是【讀 code 得到的結論】,不是量到的。** 審查時請當成待證。
+`settleCharge` step 5 逐字:`markCharged(主軌) → confirm → recordPendingInvoice → paid`
+(`packages/use-cases/src/settle-charge.ts:20-26`)⇒ **查到真的收了錢,系統本來就會登記它。**
+
+🔴 **2026-08-19 更正(GR-043 S7)**:~~「我沒實跑過,審查時當成待證」~~ **不夠。**
+```
+那一發【現在做得出來】：Sean 已授權沙盒刷卡(MAIN-052 §4-b),
+測試卡與流水帳骨架已在 docs/reference/tappay-sandbox-test-cards.md
+⇒ 它【不是】構造不出來的誠實缺口(那類才免驗),是【還沒排】。
+```
+⇒ 在「不准做一半」的判準下,**這一發進 §5 順序與 §7 估時**,不留成一個問句。
 
 ---
 
-## 3. 乙:一支「重查」RPC + 一個 admin action
+## 3. P 族的出口:admin 按鈕 → `settleCharge` —— **而那支「繞過 8 次上限」的 RPC【不該存在】**
 
+### 3-1 🔴🔴 前一版 §3 整段作廢(GR-043 S3),理由是**它兩頭都落空**
 ```
-admin_request_manual_settle(p_attempt_id, p_order_id, p_actor, p_reason, p_request_id)
-  ① 驗那一列真的在告警述詞裡（逐字對齊 attempt_manual_review_count）
-  ② 🔴 把 settle_attempt_count 歸零 + next_settle_at = now()
-     —— 這就是「繞過 8 次上限」的全部：讓既有 sweeper/settle 路徑重新看得到它
-  ③ 同交易寫 admin_audit_log（action='payment.manual_review.request_settle'，reason 必填）
-  ④ 回 {requested: true}
-⇒ 🔴 它【不決定任何結果】。結果由隨後的 settleCharge 決定。
+前一版寫：admin_request_manual_settle 把 settle_attempt_count 歸零 + next_settle_at = now()
+         「這就是繞過 8 次上限的全部：讓既有 sweeper/settle 路徑重新看得到它」
+
+對【sweeper 路】無效 —— sweeper 擋的不是次數,是【旗標】:
+  claim_stuck_unsettled_attempts        AND a.needs_manual_review = false  (20260615120001:131)
+  mark_attempt_settle_retry             AND a.needs_manual_review = false  (:217)
+  會員輪詢那條                            AND a.needs_manual_review = false  (20260621120000:70)
+  而 20260621120000:49 逐字「4a-2 把它當【停止自動 retry】durable 旗標」
+  ⇒ 歸零之後 sweeper **仍然看不到它**,而我們又明說旗標要留著。
+
+對【直呼路】多餘 —— settleCharge 根本不讀那個欄位:
+  grep -c settle_attempt_count packages/use-cases/src/settle-charge.ts ⇒ **0**
 ```
-**然後** admin server action 立刻呼一次 `settleCharge(getSettleChargeDeps(), { orderId })`
-(與 `reconcile-actions.ts:101` 同一條路,**逐字重用、零改語意**),把回傳的四種結果顯示給操作者。
+⇒ **admin 直呼 `settleCharge` 這條路,天生就在 8 次上限之外** —— 不需要繞過任何東西。
+📌 爬梯子第一階:**這支 RPC 不需要存在。** 前一版是為一個不存在的障礙設計了一道門。
 
-🔴 **為什麼要 RPC + action 兩段而不是只做 action**:
-`settle_attempt_count` 歸零是**寫 DB**,而 admin 走 `service_role`;
-既有設計把 attempts 的寫入**全部收在 SECURITY DEFINER 的窄 RPC 後面**(`service_role` 對該表**零寫權**)。
-⇒ **不開表權限**,只多一支窄門。
-
----
-
-## 4. 丙:出口 —— **`pending` 的單去哪**
-
+### 3-2 那還需要 RPC 嗎:**需要,而理由是【留痕】不是【繞過】**
 ```
-① 告警函式加第二個計數 manual_review_unresolved_count
-   = needs_manual_review AND unpaid AND（尚未有人按過重查，或按過而仍 pending）
-   ⇒ 🔴 主告警不動、不移除任何列 —— 新到一筆仍然看得見（差值 0→1）
-② 後台一頁清單「人工待確認」：每列顯示
-   attempt_id / display_id / 卡多久 / last_settle_error / 上次重查是誰按的、什麼時候、結果是什麼
-   ⇒ 那正是 scripts/triage-manual-review-alert.sh 印的東西（既有,不用重新發明欄位）
-③ 出口的定義：那一列離開清單，只有兩種方式
-   · settleCharge 回 paid  ⇒ 訂單變 paid ⇒ 它不再是 unpaid ⇒ 自然離開
-   · settleCharge 回 failed ⇒ attempt 變 failed ⇒ 離開述詞（鎖也釋放，客人可重付）
-   🔴 pending ⇒ **它【不會】離開**。它留在清單上，直到查得出結果為止。
-   ⇒ **那才是誠實的出口:出口不是「有人按過」,是「查出來了」。**
+admin server action：settleCharge(getSettleChargeDeps(), { orderId })
+                     與 reconcile-actions.ts:101 同一條路,逐字重用、零改語意
+窄 RPC(SECURITY DEFINER)：只寫「誰按的 / 什麼時候 / 這一發的結果」+ admin_audit_log
+  🔴 為什麼仍要走 RPC:service_role 對 payment_charge_attempts 只有 SELECT
+     (20260612150000:118-121)⇒ 不開表權限,只多一支窄門。
 ```
-🔴 **這一段是對我前一版最大的修正**:前一版的出口是「有人看過」——
-**而「有人看過」不是一個結果,它是一個動作。** 拿動作當出口,就是那個無聲黑洞。
+🔴 **而那需要一個【表上還不存在】的欄位** —— 見 §4-2(GR-043 S2)。
 
 ---
 
-## 5. 相依順序(不可換)
+## 4. 出口:三族各自怎麼離開,以及**看得見**
+
+### 4-1 三條出口(P 族已有、R 族要開權限、C 族要新造)
 ```
-1. 丙-① 計數（無 UI 也看得到存量）      ← 先做，這樣後面每一步都量得到
-2. 乙 RPC + action（重查）              ← 它會開始改變計數
-3. 丙-② 清單頁                          ← 有東西可看之後才有意義
-4. 甲 只做【核對】不動 code
+P 族  settleCharge 回 paid   ⇒ 訂單變 paid ⇒ 不再 unpaid ⇒ 自然離開
+      settleCharge 回 failed ⇒ attempt 變 failed ⇒ 離開述詞(鎖釋放,客人可重付)
+      settleCharge 回 pending ⇒ 🔴 **它不會離開**。留著,直到查得出結果。
+                                  出口不是「有人按過」,是「查出來了」。
+
+R 族  close_released_attempt 已存在且形狀正確(不讓人宣告、三欄成組 + CHECK)
+      🔴 而它 owner-only、一個角色都不 GRANT ⇒ **後台按不到**
+      ⇒ 決策題(不是我能拍的,見 §10-A):維持 Sean 手動,還是 GRANT 給 admin 路徑?
+        後者動權限 ⇒ 鐵則 12②。
+
+C 族  🔴🔴 **零出口,要新造。** 形狀照 close_released_attempt(§10-① 已認定它是對的形狀):
+      owner-only 或窄 GRANT / 不讓人宣告 / 依據寫成欄組 + CHECK
+      ⚠️ 它是三族裡**風險最高**的一格:「標記已扣款、而訂單仍未付」
+         ⇒ 錢可能真的收了 ⇒ 這一格的設計要單獨過對抗審查。
 ```
 
-## 6. 要不要 migration
+### 4-2 🔴 計數與清單頁需要一個**沒有人要建的欄位**(GR-043 S2)
 ```
-乙 RPC          ⇒ 要（新函式 + GRANT + apply 期斷言）
-丙-① 計數       ⇒ 要（改 get_payment_anomaly_alert_summary）
-丙-② 清單頁     ⇒ 不用（讀既有欄位）
-甲              ⇒ 不用
-⇒ 一支 migration 可以裝完乙與丙-①
+前一版 §4-② 逐字「那正是 triage-manual-review-alert.sh 印的東西(既有,不用重新發明欄位)」
+⇒ **不成立。** 該腳本 :70-78 印的九欄開檔核過:
+   族別 / id / display_id / status / last_settle_error / rec_trade_id /
+   bank_transaction_id / released_manual_review_at / 卡幾小時
+   —— **沒有任何一欄是「誰按的 / 何時 / 結果是什麼」。**
+表上也沒有。payment_charge_attempts 的 ADD COLUMN 全盤點(GR 給的座標)
+   20260615120001:73-75 / 20260624120000:51-53 / 20260621120000:36 /
+   20260809230000:109-111 / 20260613140000:65 / 20260627120000:66 ⇒ 零命中「重查請求」
 ```
-🔴 **而 `20260819010000`(已 commit、未 apply)要【整支撤掉重寫】** ——
-它的 enum 形狀是錯的,不是修一修就好。**撤法:新 migration 不建立在它之上,而它不要 apply。**
-⚠️ **它已經 commit** ⇒ 撤要有動作,不能靠「大家記得不要 apply」。~~**這一格要主視窗裁怎麼撤。**~~
-✅ **2026-08-19 已答:撤除機制見 §14**(主視窗裁驗收條件、G4 出設計)。
-🔴 **而 §14-0 有一個排序約束**:現在擋住 apply 的是【5c 那個 bug】本身 ⇒
-**撤除機制要先立,才准動 5c** —— 否則修好 bug 會靜靜地把它變成可上。
+⇒ **要新增欄位**,形狀爬既有先例:`20260621120000:36` `last_poll_settle_at`
+(「會員輪詢觸發 settleCharge 的時點欄」)—— 同族,直接對照著寫。
+⇒ 連帶:前一版 §6「清單頁 ⇒ 不用 migration(讀既有欄位)」**跟著錯**,已在 §6 改掉。
 
-## 7. 估時(估,非量到)
+### 4-3 計數要分三族,不是一個數
 ```
-乙 RPC + 斷言 + 拋棄式 PG 驗       ~60 分
-乙 admin action + 測試             ~45 分
-丙-① 計數 + 驗                     ~30 分
-丙-② 清單頁 + 測試                 ~90 分
-甲 核對 + 寫下證據等級             ~20 分
-對抗審查（動錢 ⇒ 不降級）+ 折      ~90 分
-⇒ 合計 ~5.5 小時（🔴 估的，不是量到的；而 Sean 說「寧可花時間做好」）
+告警函式加的不是「一個未解決數」,是【三族各自的存量】——
+否則 C 族(零出口)會被 P 族的下降蓋掉,而那正是「安靜的黑洞」。
+🔴 主告警不動、不移除任何列。
+```
+
+---
+
+## 5. 相依順序(不可換;已含 GR-043 S6 指出的漏項)
+```
+0. 🔴 移檔:20260819010000 移出 supabase/migrations/     ← 前一版漏了這一步(S6)
+     它是獨立一片、命中鐵則 12③、要走對抗審查。§14 是它的規格。
+1. 新欄位 migration(重查留痕欄)+ 三族計數改告警函式
+     ⚠️ 這一步扯出一整條 app 層鏈,見 §6-2(S4)
+2. admin server action(直呼 settleCharge)+ 留痕 RPC
+3. C 族出口 RPC(新造,最高風險,單獨對抗審查)
+4. R 族權限決策落地(§10-A 拍板之後才動)
+5. 清單頁(三族分開顯示)
+6. 🔴 補入帳那一發驗證:沙盒刷一筆,走完 settleCharge 回 paid 的整條路(S7)
+```
+
+---
+
+## 6. 要不要 migration(前一版錯了兩格,已改)
+
+### 6-1 清單
+```
+留痕欄位            ⇒ 要   (新欄,~~前一版說不用~~ S2)
+三族計數            ⇒ 要   (改 get_payment_anomaly_alert_summary)
+留痕 RPC            ⇒ 要
+C 族出口 RPC        ⇒ 要   (新造)
+R 族 GRANT          ⇒ 看 §10-A 怎麼拍;要動就是鐵則 12②
+清單頁              ⇒ 不用(讀上面建好的欄位)
+補入帳              ⇒ 不用(已存在)
+移檔                ⇒ 不是 migration,是 git mv(而它自己是一片)
+```
+
+### 6-2 🔴 改告警函式會扯出一整條鏈(GR-043 S4),前一版一個字都沒有
+```
+packages/adapters/src/payment/PgAnomalyAlertReaderAdapter.ts:113   逐欄 parseCount
+packages/use-cases/src/check-anomaly-alerts.ts:94-99 與 :139       告警文案 + shouldAlert
+packages/ports/src/IAnomalyAlertReader.ts
+packages/domain/src/payment/anomaly-alert.ts
+apps/storefront/src/app/api/cron/anomaly-alert/route.ts
+packages/adapters/src/supabase/database.types.ts:3866              ← 產生檔,apply 後要 gen types
+```
+🔴 **另有一道指紋守門會過期**(開檔核過):
+```
+scripts/l5b0-verify.sh:51 逐字
+  PROSRC_S_C3="12a1605c7c9705b1ab1a1c363febbd79"   # get_payment_anomaly_alert_summary
+```
+它是「該片已套用」的身分閘 ⇒ **函式一改就對不上** ⇒ 改的同時要更新那個 hash,
+否則下一個跑 `l5b0-verify.sh` 的人會拿到一個**紅在錯地方**的結果。
+
+---
+
+## 7. 估時(🔴 估的,不是量到的;而 Sean 說「寧可花時間做好」)
+```
+0. 移檔片(含 literal-sweep 改指標 + 對抗審查)          ~60 分
+1. 留痕欄位 + 三族計數 migration + apply 期斷言          ~75 分
+   + app 層鏈六處 + gen types + 更新 l5b0 指紋           ~60 分
+2. admin server action + 留痕 RPC + 測試                 ~60 分
+3. C 族出口 RPC(最高風險,含斷言與拋棄式 PG 驗)          ~90 分
+4. R 族權限決策落地(拍板後)                             ~30 分
+5. 清單頁(三族分開)+ 測試                               ~90 分
+6. 沙盒刷一筆、走完補入帳那條 path                        ~45 分
+對抗審查(動錢 ⇒ 不降級)+ 折,分兩次(1 與 3 各一)      ~150 分
+⇒ 合計 ~11 小時(前一版寫 5.5 小時 —— 那是【只算一族】的數字)
 ```
 
 ## 8. 🔴 需要真 DB 的那一格(Sean 說「如果需要」,我只列真的需要的)
 ```
-甲那條 path（settleCharge 回 paid ⇒ 真的收斂成已付款）
+補入帳那條 path（settleCharge 回 paid ⇒ 真的收斂成已付款）
 ⇒ 它要一個【TapPay 真的回 paid 的 Record】才走得到
 ⇒ 拋棄式 PG 造不出來（那不是 DB 的問題，是 TapPay 那側的回應）
 🔴 而【正式庫的 DB 權限也解不了它】—— 需要的是 TapPay sandbox 的一筆真交易，不是 DB 權限
-⇒ **所以我【不要】DB 權限。** 我要的是「甲那條 path 由誰在什麼環境驗過」的答案。
+⇒ **所以我【不要】DB 權限。** 我要的是「補入帳那條 path 由誰在什麼環境驗過」的答案。
 ```
 📌 **我把這一格寫出來,是因為「他給了權限」很容易變成「那就用吧」** ——
 而**我這一格真正缺的東西,權限給不了。**
 
 ## 9. 誠實揭示
 ```
-· 甲「已經在了」是【讀 code 得到的】，我沒有實跑過那條 path
-· 丙-② 清單頁的欄位沿用 triage 腳本，而我【沒有量過】那些欄位在正式庫的實際內容
+· 補入帳「已經在了」是【讀 code 得到的】;🔴 而那一發驗證【已排進 §5 第 6 步】(GR-043 S7),不再是待證問句
+· ~~清單頁的欄位沿用 triage 腳本~~ 🔴 **已證錯**(GR-043 S2):那九欄裡沒有「誰按的/何時/結果」⇒ 要新增欄位,見 §4-2
 · settleCharge 重查會不會有副作用（它會 markCharged / confirm）—— 它本來就是這樣設計的，
   而【由後台按鈕觸發】是一個新的呼叫路徑 ⇒ 要對抗審查特別打這一格
 · 本 plan 沒有處理「TapPay 永遠查不出來」的極端情況 —— 那種單會永遠留在清單上，
@@ -198,7 +304,7 @@ admin_request_manual_settle(p_attempt_id, p_order_id, p_actor, p_reason, p_reque
 
 ## 10. 🔴 GR 第二意見(`~/pcm-mailbox/GR-040-…`)折進來的五格 —— 其中一格**推翻了我的全稱句**
 
-### ①🔴 既有出口我盤點漏了一支,**而它正是甲/丙該長的形狀 —— 新設計從它開始,不要從零**
+### ①🔴 既有出口我盤點漏了一支,**而它正是 R 族/C 族出口該長的形狀 —— 新設計從它開始,不要從零**
 `supabase/migrations/20260624120010_m3_3ds_r1c3_close_released_attempt.sql`
 ```
 COMMENT 逐字：「owner-only 人工結案(SECDEF、search_path='')。
@@ -239,6 +345,30 @@ COMMENT 逐字：「owner-only 人工結案(SECDEF、search_path='')。
 
 ---
 
+---
+
+## 10-A. 🔴 要 Sean 拍的決策題(**只有一題,其餘我自己判**)
+
+> 依 `~/.claude/rules/00-work-rules.md` R3:動權限 = 必停問。**這一題我不能自己拍。**
+
+```
+Q:R 族(superseded + released)的出口,現在是 owner-only 的 close_released_attempt
+  ——【Sean 手動、後台按不到】。要維持,還是開給後台?
+
+  A. 維持 owner-only,後台清單【只顯示、不給鈕】,那一族由 Sean 手動收
+     · 不動任何權限 ⇒ 不命中鐵則 12②
+     · 代價:那一族的單會一直躺在清單上,直到 Sean 有空
+  B. GRANT 給 admin 的窄路徑,後台按得到
+     · 動權限 ⇒ 鐵則 12② 對抗審查不降級
+     · 而該檔 :139 COMMENT 逐字寫著「Phase 1 受控人工流程」
+       ⇒ 選 B 等於推翻一個【當初刻意的設計】,不是補一個疏漏
+```
+🔴 **我的推薦:A。** 理由不是保守,是 **B 要推翻的那個決定,當初是寫在 COMMENT 裡的刻意選擇**
+(`20260624120010:139`),而我沒有找到任何「情況已經改變」的證據。
+⇒ 若 Sean 選 A,C 族那支新 RPC **也照 owner-only 做**,三族的權限模型才一致。
+
+⚠️ **而這一題不擋開工**:§5 的第 0~3 步與它無關,可以先做。它只擋 §5 第 4 步。
+
 ## 11. `20260819010000` 的處置 —— **GR 裁「不能單獨上」,而【在哪個標準下】要寫清楚**
 ```
 GR 逐字：「不能單獨上 —— 新標準下它照定義就是做一半」
@@ -247,7 +377,7 @@ GR 逐字：「不能單獨上 —— 新標準下它照定義就是做一半」
 ```
 🔴 **那個「新標準」= Sean 2026-08-19 的「不准做一半」** ——
 **不是**「那支自己有問題」。⇒ **三天後有人看到一顆綠的 commit 卡著,不要以為 gate 可以拆** ——
-**gate 的解除條件是【甲+乙+丙 完整範圍就緒】,不是「那支修好了」。**
+**gate 的解除條件是【重查+補入帳+出口 三族完整範圍就緒】,不是「那支修好了」。**
 ```
 處置：commit 留著（不回退）／【不 apply】／新 migration 不建立在它之上
 ⚠️ 「不 apply」需要會被讀到的載體 ⇒ 已在該檔檔頭;~~另請主視窗在待推清單標記~~
@@ -273,15 +403,25 @@ GR 逐字：「不能單獨上 —— 新標準下它照定義就是做一半」
 
 ## 12. 🔴 非真 DB 不可的那一格(Sean 說「如果需要」,下一班拿這段去要)
 ```
-甲那條 path：settleCharge 回 paid ⇒ 真的收斂成已付款
+補入帳那條 path：settleCharge 回 paid ⇒ 真的收斂成已付款
 🔴 而它缺的【不是 DB 權限】，是【TapPay sandbox 的一筆真交易】
 ⇒ 所以：**不要為了這一格去要 DB 權限** —— 權限給不了它
-⇒ 真正要問的是：「甲那條 path 由誰、在什麼環境驗過?」
+⇒ ~~真正要問的是:「由誰、在什麼環境驗過?」~~ 🔴 **已答(GR-043 S7):沒有人驗過,而它現在排得動** ⇒ §5 第 6 步
 ```
 
 ---
 
-## 13. 🔴 繼承 `20260819010000` 時【必改】的三格 —— **逐格,不逐群**
+## 13.(條件節)**萬一決定復用 `20260819010000`** 才適用的三格 —— 逐格,不逐群
+
+> 🔴🔴 **2026-08-19 降級(GR-043 S5 + G4 自核):本節【預設不做】。**
+> `manual_reviewed_at` 與 `reviewed_unknown_unresolved_count` **全樹各只出現在一個檔**
+> —— 就是那支已被本 plan 自己否決、且照 §14 會被移出 `supabase/migrations/` 的 `20260819010000`
+> (負向對照:同一把尺對 `attempt_manual_review_count` 回 5 個檔)。
+> **檔移出去 ⇒ 它永遠不會 apply ⇒ 5c 根本不用修。**
+> ⇒ 本節只在**有人決定復用那支檔**時才成立;新範圍(§3/§4)沒有 enum、沒有 unknown 存量。
+> ⚠️ 前一版 `G4-008 STOP §1` 把「打 §10-④ 不變式」排成動手第一發 —— **那句已作廢**
+>   (照它做,第一個工作單元會花在不存在的東西上)。STOP 檔已就地標作廢。
+
 
 > 由來:主視窗 2026-08-19 三裁之③ ——「斷言群最強 ⇒ 直接繼承免重驗」作廢,**逐字寫明錯在哪一格**。
 > 全部由 G4 唯讀量到(讀檔 + grep),**沒有在 PG 上跑過**。引用要帶這個限定。
@@ -325,7 +465,13 @@ unknown 存量 manual_review_outcome='unknown' AND o.payment_status='unpaid'    
 > 主視窗逐字裁**驗收條件**(不裁設計):
 > **「假設所有人都忘了這件事,這支還 apply 得下去嗎?答得出『不行,因為 X』才算數,X 要是檔案裡的東西。」**
 
-### 14-0 🔴🔴 先講一件反直覺的:**它現在擋得住,而擋住它的是【那個 bug】**
+### 14-0(已失效的排序約束,**文字保留**)先講一件反直覺的:擋住它的是【那個 bug】
+
+> 🔴 **2026-08-19:本節那個「先立機制才准動 5c」的排序約束【不再需要】。**
+> 它的前提是「我們之後要修 5c」,而 §13 已降成條件節 ⇒ **預設根本不會去動 5c。**
+> **留著文字**是因為下面那個洞察仍然有效:**沒有人是故意裝這道閘的,所以也沒有人會在拆它的時候察覺。**
+> ⇒ 下一個人不要把它讀成「還有一個【動 5c】的待辦」。**沒有那個待辦。**
+
 ```
 5c 斷言 vs C-B 反轉互斥 ⇒ 現在誰去 apply 都會 RAISE ⇒ 事實上 apply 不下去。
 🔴 而【意外不是機制】—— 而且這個意外有一個很壞的性質:
@@ -400,7 +546,8 @@ Would push these migrations:
 🔴 **對照檔在兩個世界都被列出來** ⇒ 世界 B 的「不見了」**不是整條管線壞掉**,
 是**移檔造成的**。(只做後半 ⇒ 量到的是「它不在」,而不是「移走讓它不在」。)
 
-**⇒ §14-2 那句 X 現在是量到的**:
+**⇒ §14-2 那句 X 現在是量到的**(🔴 **射程限定與這個數字同段,不要分開引用**:
+這道閘只答「**忘記**」那一題;`psql -f <明確路徑>` 與 MCP `apply_migration` **不經過目錄掃描**,詳 §14-2b):
 ```
 Q:假設所有人都忘了,這支還 apply 得下去嗎?
 A:不行 —— `supabase db push` 的待推清單裡【沒有它】,因為它不在 supabase/migrations/。
@@ -441,14 +588,16 @@ scripts/a7c-preflight.sh:98 逐字:「任何**未 apply** 的 migration 都會�
      bash scripts/literal-sweep.sh '20260819010000_m4a_close_manual_review_attempt.sql'
    逐處改成新路徑。**不改 = 下一個人 test -e 得到「查無」,會讀成「這支被刪了」。**
    (照 `~/.claude/rules/00-work-rules.md` §6-b 第 4 條:寫下「已移走」的同一句必須答出 canonical 在哪。)
-② 新檔頭第一段要寫【它為什麼在這裡】+【怎麼放回去】——
-   放回去的條件 = 甲+乙+丙 完整範圍就緒(§11 的 gate),**不是「5c 修好了」**。
+② 🔴 **`supabase/APPLIED.tsv` 那本帳會不會有殘留列 —— 【沒有人查過】**(GR-043 附註 + G4 複核,兩邊都沒查)
+   ⇒ 這不是「應該沒事」,是**零觀測**。移檔那一片要當場查,否則交出來時它會蒸發。
+③ 新檔頭第一段要寫【它為什麼在這裡】+【怎麼放回去】——
+   放回去的條件 = 三族完整範圍就緒(§11 的 gate),**不是「5c 修好了」**。
 ```
 
 ### 14-4 這一片何時做(它不在本輪邊界內)
 ```
 本輪主視窗的邊界:只動 plan 一個 .md,不動任何 .sql。**⇒ 移檔【沒有做】,本節只是設計。**
-排序:14-1 移檔  →  §13 修 5c/COMMENT/不變式  →  乙/丙 實作
+排序:見 §5(移檔已是第 0 步)。🔴 ~~→ §13 修 5c~~ **§13 已降成條件節,預設不做**
       ↑ 不可換(理由見 14-0)
 ⚠️ 而移檔動到 supabase/migrations/ ⇒ 命中鐵則 12③ ⇒ 它自己也要走對抗審查,不是「順手 git mv」。
 ```
