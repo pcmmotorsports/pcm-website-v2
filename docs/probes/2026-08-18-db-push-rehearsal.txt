@@ -154,3 +154,37 @@ Sean   supabase db push          （沒有旗標）
 ## 📌 還有一行我沒有的
 `Initialising login role...` —— 正式 Supabase 才有的一步,本機拋棄式環境不會出現。
 **它出錯會長什麼樣,我彩排不到。**
+
+---
+
+# 🔴 補上 B 那格(主視窗明令):不加 `--include-all` 時,舊時間戳的 migration 會怎樣?
+
+**擔心的失敗模式**(主視窗提,場景真實 —— G5 手上那份草稿時間戳是 08-16,而正式庫已 apply 到 08-18):
+> 那支較舊的**安靜地不被選中**,而輸出是 `Remote database is up to date.`
+> —— 與「真的沒東西要推」**一模一樣** ⇒ 會讓人以為已經套完。
+
+## ⇒ 實測:**那個失敗模式不存在。** 三個世界,各印不同的東西
+拋棄式 PG,先 apply 一支 `20260101000000`,再放進一支**較舊**的 `20251201000000`(帳本沒有):
+```
+世界一  不加旗標（Sean 跑的形狀）   rc=1
+        Found local migration files to be inserted before the last migration on remote database.
+        Rerun the command with --include-all flag to apply these migrations:
+        supabase/migrations/20251201000000_older.sql
+        🔴 grep -c 'up to date' ⇒ **0**
+
+世界二  加 --include-all            rc=0   Would push these migrations: • 20251201000000_older.sql
+
+世界三  把那支舊的拿掉、不加旗標     rc=0   grep -c 'up to date' ⇒ **1**
+```
+⇒ **`up to date` 那句只在【真的沒東西要推】時出現。**
+⇒ 不加旗標時它**不是安靜跳過** —— 它**失敗(rc=1)、指名那支檔、並告訴你要加哪個旗標**。
+
+## 這一格同時更正我自己先前寫的一句
+~~「不加它 ⇒ 那種在已 apply 之後才被加進來的舊時間戳 migration,**可能不會被推**」~~
+字面上沒錯(它確實沒被推),**而它漏了最重要的那一半:它不會被安靜地漏掉。**
+⇒ 正確講法:**不加旗標時,舊時間戳的 migration 會讓整發【失敗並具名】,不會被無聲跳過。**
+🔴 我原本那句會讓人去防一個**不存在的**失敗模式 —— 而防錯的東西也是成本。
+
+## ⚠️ 射程
+本格量的是 **CLI 的選取行為**,PG 17.10 本機 + supabase CLI v2.98.1。
+CLI 換版可能改行為 ⇒ **這是那個版本的量測值**,不是永久性質。
