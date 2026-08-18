@@ -22,8 +22,18 @@
 #   呼叫點 28 個 / 18 支檔(apps/admin/src,排除 .test.)
 #   🔴 裸 redirect **1**:lib/customers/keyword-search-action.ts
 #      (~~orders 那支~~ 已由 G2 `fb1d1f9f` 修掉 —— #534 訂單域最後一個靜默出口)
-#   🔶 未驗 1:lib/orders/receipt-actions.ts(return null,docstring 把責任委託給呼叫端;
-#             **委託不是靜默,而那些呼叫端沒有人驗過**)
+#   ✅ ~~未驗 1:lib/orders/receipt-actions.ts~~ —— **G2 量完了,不是本病**:
+#      呼叫端 `receipt-panel.tsx:30-32` 接住 null、`:95-98` 顯示 `role='alert'`
+#      (逐字「讀不到這個品項的採購紀錄…這批貨先不要出」)。
+#      ⚠️ 依據是 `29b70490`,而**那顆落筆當下還沒進 dev**(`merge-base --is-ancestor` ⇒ rc≠0)
+#      ⇒ **已量完待收割**,不是已入庫。收割之後這一行的 ⚠️ 可以拿掉。
+#
+#   🔴 **這個數字的語意會在 0 那天改變(G6 提,寫在這裡免得下一個人用錯方式處置)**:
+#      `>=1` 時它在【數缺口】—— 紅 = 有新缺口,或有人補好了
+#      `0`  時它在【守住 0】—— 紅 = **有人新增了一個裸 redirect**
+#      ⇒ 同一個數字、兩種意思。
+#   📌 下一個變化已經在路上:G2 的 `81051b7c` 補掉 customers 那支 ⇒ 進 dev 之後這裡改 **0**。
+#      判別:`git merge-base --is-ancestor 81051b7c dev` ⇒ rc=0 才是真的進去了。**不要提早改。**
 #
 #   ⚠️ **待判(不是已豁免)**:customers 那支自陳「只寫呼叫者自己的 cookie,實害有限」。
 #      🔴 那句講的是**資料面**(沒寫壞東西),而 `#534` 的病是**可用性面**:
@@ -38,6 +48,12 @@
 set -eu
 CDPATH= cd "$(dirname "$0")/.." || exit 1
 EXPECT_BARE=1
+# 🔴 正向對照:同一支 pattern 對這支 fixture 【恆為 1】—— 它不隨 EXPECT_BARE 走。
+#    理由:真實樹數到 0 的那天,「pattern 打錯」與「真的沒缺口」在輸出上不可分辨。
+#    (G6 2026-08-18 提並實測;我今晚才自曝過「自檢抄一份 production 的魔術數字會壞掉」
+#     ⇒ 這個 1 是【它自己的性質】不是那個常數的複本,所以它該寫死,而且要寫明為什麼。)
+FIXTURE_DIR="scripts/fixtures"
+FIXTURE_EXPECT=1
 
 count_bare() {  # $1=要掃的樹
   grep -rn -A2 "await authorizeAdminMutation()" "$1" --include='*.ts' --include='*.tsx' 2>/dev/null \
@@ -71,8 +87,16 @@ if [ "${1:-}" = "--selftest" ]; then
   echo "== 世界二:樹裡有 $((EXPECT_BARE + 1)) 個 ⇒ 應該紅(這一格證明它抓得到【新缺口】)=="
   echo "   量到 $B   期望不等於 $EXPECT_BARE"
   echo "   (跑的是 $(command -v grep))"
-  if [ "$A" = "$EXPECT_BARE" ] && [ "$B" != "$EXPECT_BARE" ]; then
-    echo "✅ 兩個世界都對:數字對 ⇒ 綠;多一個缺口 ⇒ 抓得到"
+  echo "== 世界三(G6 提的正向對照):fixture 用同一支 pattern 必須數到 $FIXTURE_EXPECT =="
+  C=$(count_bare "$FIXTURE_DIR")
+  echo "   量到 $C   期望 $FIXTURE_EXPECT"
+  echo "== 世界四:把 pattern 弄壞 ⇒ fixture 必須【跟著變 0】(這格證明它抓得到尺壞掉)=="
+  D=$(grep -rn -A2 "await authorizeAdminMutation()" "$FIXTURE_DIR" --include='*.ts' 2>/dev/null \
+      | grep -v '\.test\.' | grep -cE "這個字串保證不會出現xyzzy" || true)
+  echo "   量到 $D   期望 0(而世界三是 $FIXTURE_EXPECT ⇒ 兩者不同才代表 fixture 有判別力)"
+  if [ "$A" = "$EXPECT_BARE" ] && [ "$B" != "$EXPECT_BARE" ] \
+     && [ "$C" = "$FIXTURE_EXPECT" ] && [ "$D" = "0" ]; then
+    echo "✅ 四個世界都對:數字對=綠;多一個缺口=抓得到;fixture 校準住尺;pattern 壞掉 fixture 會跟著掉"
     exit 0
   fi
   echo "🔴 這支自己壞了 —— 它的綠不能當證據"
@@ -80,9 +104,16 @@ if [ "${1:-}" = "--selftest" ]; then
 fi
 
 ROOT="${1:-apps/admin/src}"
+# 🔴 先量尺,再量世界 —— 尺壞掉的話,底下那個數字沒有意義
+FIX=$(count_bare "$FIXTURE_DIR")
+if [ "$FIX" != "$FIXTURE_EXPECT" ]; then
+  printf '🔴 正向對照壞了:fixture 量到 %s(恆應為 %s)\n' "$FIX" "$FIXTURE_EXPECT"
+  printf '   ⇒ **pattern 或掃描範圍壞了,不是缺口沒了。** 底下的數字不要採信。\n'
+  exit 1
+fi
 BARE=$(count_bare "$ROOT"); ALL=$(count_all "$ROOT")
-printf '呼叫點總數      %s\n裸 redirect 數  %s(期望 %s)\n(量的是 %s,跑的是 %s)\n' \
-  "$ALL" "$BARE" "$EXPECT_BARE" "$ROOT" "$(command -v grep)"
+printf '正向對照        fixture %s(恆應 %s)✅\n呼叫點總數      %s\n裸 redirect 數  %s(期望 %s)\n(量的是 %s,跑的是 %s)\n' \
+  "$FIX" "$FIXTURE_EXPECT" "$ALL" "$BARE" "$EXPECT_BARE" "$ROOT" "$(command -v grep)"
 if [ "$BARE" = "$EXPECT_BARE" ]; then
   printf '✅ 與已知缺口數相同 —— **這不代表沒問題,代表【沒有變化】。**\n'
   exit 0
