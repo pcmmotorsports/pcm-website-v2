@@ -94,12 +94,17 @@ deploy_status() {  # $1=vercel 專案名
 }
 
 # ── 廣播:抽成函式,因為 --selftest 要在【不真的 push】的情況下驗它 ──
-announce() {  # $1=sha  $2=窗代號  $3=推之前的 origin/dev  $4=顆數
-  _sha="$1"; _who="$2"; _before="$3"; _n="$4"
+announce() {  # $1=sha  $2=窗代號  $3=推之前的 origin/dev  $4=顆數  $5=四綠sha或「無」
+  _sha="$1"; _who="$2"; _before="$3"; _n="$4"; _green="$5"
   _short=$(printf '%s' "$_sha" | cut -c1-8)
+  _mig=$(git diff --name-only "$_before" "$_sha" 2>/dev/null | grep -c '^supabase/migrations/' || true)
   _f=$(printf '%s/PUSH-%s-%s.md' "$BOX" "$(date '+%Y%m%d-%H%M')" "$_short")
   {
     printf '# PUSH · %s 推了 %s 顆到 dev(%s)\n\n' "$_who" "$_n" "$(date '+%F %T')"
+    printf '> 🔴 **本信的讀者是主視窗。不要原封轉給 Sean。**\n'
+    printf '> 他要的是「客人會看到什麼變化、後台會不會壞」,而本信答的是「推了什麼」。\n'
+    printf '> **翻譯是主視窗的工作。**(沒有這一行,總有一天有人整封貼給他 —— '
+    printf '而它讀起來很像一份給老闆的報告。)\n\n'
     printf '```\n'
     printf '執行者        %s\n' "$_who"
     printf '推到          %s\n' "$_sha"
@@ -109,12 +114,28 @@ announce() {  # $1=sha  $2=窗代號  $3=推之前的 origin/dev  $4=顆數
     printf '## 這批動到什麼(給要判「我要不要重驗」的人)\n\n```\n'
     printf 'apps/ 與 packages/ 的檔數   %s\n' \
       "$(git diff --name-only "$_before" "$_sha" 2>/dev/null | grep -c '^apps/\|^packages/' || true)"
-    printf 'supabase/migrations 的檔數  %s\n' \
-      "$(git diff --name-only "$_before" "$_sha" 2>/dev/null | grep -c '^supabase/migrations/' || true)"
+    printf 'supabase/migrations 的檔數  %s\n' "$_mig"
     printf '```\n\n'
-    printf '🔴 **`migrations` 那一格不是 0 ⇒ 有人要問「apply 了沒」** —— '
-    printf '先 apply 再 push 的順序若反過來,正式站會壞(2026-08-07 約 8 小時)。\n\n'
-    printf '⚠️ 本信只說「推了什麼」,**不說「它被驗過」** —— 那是另一件事,問推的人要四綠的 sha。\n\n'
+    # 🔴 這一段【必須由結果決定】,不可無條件印(CLAUDE.md 終端機紀律:
+    #    `cmd; echo "(空 = 零命中)"` 在有命中時照樣印)。
+    #    無條件印的代價:每一封信都有一次假警報 ⇒ 讀信的人三次之後就不看它
+    #    ⇒ **真的不是 0 的那一次,它失效。**(2026-08-18 主視窗在第一封測試信裡抓到)
+    if [ "$_mig" -gt 0 ] 2>/dev/null; then
+      printf '🔴 **本批有 %s 支 migration ⇒ 有人要回答「apply 了沒」** —— ' "$_mig"
+      printf '先 apply 再 push 的順序若反過來,正式站會壞(2026-08-07 約 8 小時)。\n\n'
+    else
+      printf '✅ 本批零 migration ⇒ **沒有 apply 順序問題**(這一格由結果決定,不是固定字)。\n\n'
+    fi
+    # 🔴 四綠那一格【不留白】—— 留白與「沒問題」在這裡是同一種字面
+    if [ "$_green" = "無" ] || [ "$_green" = "none" ] || [ "$_green" = "沒有" ]; then
+      printf '## 🔴🔴 這批【沒有四綠涵蓋】\n\n'
+      printf '推的人明說了沒有。**這不阻止推 —— 推不推是 Sean 的判斷,不是這支腳本的。**\n'
+      printf '而它也不留白:**下一個讀這封信的人不必去猜、也不必去問。**\n\n'
+    else
+      printf '## 這批的四綠\n\n```\n四綠 sha  %s\n```\n' "$_green"
+      printf '⚠️ 四綠答的是「這棵樹編得起來、測試綠」,**不答「這些改動是對的」**。\n'
+      printf '**涵蓋 ≠ 沒有已知缺陷。**(2026-08-18:一發四項 rc=0 的樹裡住著一個會刪客人收藏的缺陷)\n\n'
+    fi
     printf '## 部署(push 之後量的;`dev` = pcm-admin 的 production 分支)\n\n```\n'
     deploy_status pcm-admin
     printf -- '---\n'
@@ -137,14 +158,14 @@ if [ "${1:-}" = "--selftest" ]; then
   PREV=$(git rev-parse HEAD~1)
 
   echo "== 世界一:push【成功】⇒ 信必須出現 =="
-  if true && announce "$HEAD_SHA" "SELFTEST" "$PREV" "1" >/dev/null; then :; fi
+  if true && announce "$HEAD_SHA" "SELFTEST" "$PREV" "1" "$HEAD_SHA" >/dev/null; then :; fi
   A=$(find "$T" -name 'PUSH-*.md' | grep -c . || true)
   echo "  信件數 $A   期望 1"
 
   echo "== 世界二:push【失敗】⇒ 信【不可以】出現 =="
   rm -f "$T"/PUSH-*.md
   # 用 false 模擬 push 失敗;`&&` 讓 announce 不會被執行
-  if false && announce "$HEAD_SHA" "SELFTEST" "$PREV" "1" >/dev/null; then :; fi
+  if false && announce "$HEAD_SHA" "SELFTEST" "$PREV" "1" "$HEAD_SHA" >/dev/null; then :; fi
   B=$(find "$T" -name 'PUSH-*.md' | grep -c . || true)
   echo "  信件數 $B   期望 0"
 
@@ -164,9 +185,38 @@ STUB
   D=$(VERCEL_BIN="$T/definitely-not-installed-$$" deploy_status pcm-admin | grep -c '量不到' || true)
   echo "  「量不到」行數 $D   期望 1"
 
+  # ── 2026-08-18 新增的兩格:它們守的是【由結果決定】而不是固定字 ──
+  echo "== 世界五:本批零 migration ⇒ 【不可以】印那句 apply 警告 =="
+  rm -f "$T"/PUSH-*.md
+  # HEAD~1..HEAD 是本 repo 的真實區間;它動不動到 migrations 由 repo 決定,所以兩邊都判
+  announce "$HEAD_SHA" "SELFTEST" "$PREV" "1" "$HEAD_SHA" >/dev/null
+  _f5=$(find "$T" -name 'PUSH-*.md' | head -1)
+  _migline=$(grep -c 'supabase/migrations 的檔數  0' "$_f5" || true)
+  if [ "$_migline" = "1" ]; then
+    E=$(grep -c '有人要回答「apply 了沒」' "$_f5" || true)
+    E2=$(grep -c '本批零 migration' "$_f5" || true)
+    echo "  這批 migration 數為 0 ⇒ 警告行 $E(期望 0) / 零-migration 行 $E2(期望 1)"
+  else
+    # 這一發的區間真的有 migration ⇒ 反過來驗
+    E2=1; E=0
+    _w=$(grep -c '有人要回答「apply 了沒」' "$_f5" || true)
+    echo "  這批 migration 數不是 0 ⇒ 警告行 $_w(期望 1)"
+    [ "$_w" = "1" ] || { E=1; E2=0; }
+  fi
+
+  echo "== 世界六:四綠填「無」⇒ 信裡要印紅,而且【不阻止推】 =="
+  rm -f "$T"/PUSH-*.md
+  announce "$HEAD_SHA" "SELFTEST" "$PREV" "1" "無" >/dev/null
+  _f6=$(find "$T" -name 'PUSH-*.md' | head -1)
+  F=$(grep -c '沒有四綠涵蓋' "$_f6" || true)
+  F2=$(grep -c '這不阻止推' "$_f6" || true)
+  echo "  沒有四綠那句 $F(期望 1) / 不阻止推那句 $F2(期望 1)"
+
   echo "  (跑的是 $(command -v git) / $(command -v find))"
-  if [ "$A" = "1" ] && [ "$B" = "0" ] && [ "$C" -ge 1 ] && [ "$D" = "1" ]; then
-    echo "✅ 四個世界都對:成功才寫信、失敗不寫信、量得到印狀態、量不到明說量不到"
+  if [ "$A" = "1" ] && [ "$B" = "0" ] && [ "$C" -ge 1 ] && [ "$D" = "1" ] \
+     && [ "$E" = "0" ] && [ "$E2" = "1" ] && [ "$F" = "1" ] && [ "$F2" = "1" ]; then
+    echo "✅ 六個世界都對:成功才寫信、失敗不寫信、量得到印狀態、量不到明說量不到、"
+    echo "   零 migration 不印假警報、沒有四綠也不留白"
     exit 0
   fi
   echo "🔴 壞了 —— 不要用這支腳本推東西"
@@ -204,11 +254,18 @@ fi
 #       —— 那要真推才走得到,仍等 Sean。
 SHA="${1:-}"
 WHO="${2:-}"
-# 🔴 窗代號【必填】—— 這支腳本的全部意義就是「答得出是誰推的」,
-#    給它一個預設值等於把那個意義拿掉。
-[ -n "$SHA" ] && [ -n "$WHO" ] || {
-  echo "用法: bash scripts/push-and-announce.sh <完整sha> <窗代號>"
+GREEN="${3:-}"
+# 🔴 三個都【必填】,而第三個(四綠 sha)是 2026-08-18 主視窗裁的:
+#    信裡有一格叫「它被驗過嗎」而原本沒有人在填 ⇒ 留白會被讀成「沒問題」。
+#    ⚠️ **允許的值包含【明確的沒有】** —— 填「無」就好。
+#    🔴 而它【不阻止推】:值是「無」只會讓信裡印紅,推不推是 Sean 的判斷,不是這支腳本的。
+[ -n "$SHA" ] && [ -n "$WHO" ] && [ -n "$GREEN" ] || {
+  echo "用法: bash scripts/push-and-announce.sh <完整sha> <窗代號> <四綠sha|無>"
   echo "      bash scripts/push-and-announce.sh --selftest"
+  echo ""
+  echo "  第三個參數沒有四綠就填「無」—— 它不會擋你推,只會在信裡印紅。"
+  echo "  🔴 不要為了少打一個參數改用裸 git push:那樣【不會有信】,"
+  echo "     而別的窗看到 origin/dev 動了會查不出是誰推的(git reflog 不記執行者)。"
   exit 2
 }
 
@@ -217,4 +274,4 @@ BEFORE=$(git rev-parse origin/dev)
 N=$(git rev-list --count "${BEFORE}..${SHA}")
 
 echo "推 ${SHA} → origin/dev(目前 ${BEFORE},共 ${N} 顆)"
-git push origin "${SHA}:dev" && announce "$SHA" "$WHO" "$BEFORE" "$N"
+git push origin "${SHA}:dev" && announce "$SHA" "$WHO" "$BEFORE" "$N" "$GREEN"
