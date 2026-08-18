@@ -18935,19 +18935,52 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
 
 - **機轉 —— 🔴 分兩層寫,不要合成一句(2026-08-18 W4 更正 W8 初版)**
   ```
-  ① 庫層【可達】(硬事實,W8 自己開檔核)
-     node_modules/.pnpm/@supabase+postgrest-js@2.105.3/…/src/PostgrestBuilder.ts:486
-       count = parseInt(contentRange[1])        ⇒ parseInt('*') === NaN
-     ⇒ 而 typeof NaN === 'number' 是 true
-     ⇒ 守門 typeof count === 'number' 放行 ⇒ reportedTotal = NaN
+  ① 庫層【一旦拿到非數字分母就會產出 NaN】(硬事實,W8 自己開檔核)
+     postgrest-js@2.105.3 src/PostgrestBuilder.ts:483-486
+       const countHeader = this.headers.get('Prefer')?.match(/count=(exact|planned|estimated)/)
+       const contentRange = res.headers.get('content-range')?.split('/')
+       if (countHeader && contentRange && contentRange.length > 1) {
+         count = parseInt(contentRange[1])          ← 🔴 只在【客戶端有送 Prefer: count=…】時才執行
+       }
+     我方 SupabaseOrderAdapter.ts:1027 `.select(select, page === 0 ? { count: 'exact' } : undefined)`
+       ⇒ 讀 reportedTotal 的那一頁【恆送】count ⇒ (a) 這一半成立
+     ⇒ 而 typeof NaN === 'number' 是 true ⇒ 舊守門 typeof count === 'number' 放行
      症狀:出貨單印「資料庫說有 NaN 項」
 
-  ② 觸發條件【未確認】
-     T① 那個 Content-Range: 0-200/* 是【用前綴代理模擬剝掉 count 構造出來的】,不是正式站量到的。
-     656cb995 commit body 逐字:「正式站真實故障時會不會回那種 Content-Range,沒有人證實過。」
+  ② 觸發條件:🔴 **不是「未確認」那麼模糊,而是【健康路徑已被排除、只剩代理層未查】**
+     NaN 要【兩件同時成立】:(a) 客戶端有送 Prefer: count=…   (b) 回應的分母不是數字
+     W3 拋棄式鑽機實測 PostgREST 14.16(W4 獨立從原始碼走一遍,兩邊收斂同一結論):
+       不帶 Prefer: count      200 OK      Content-Range: 0-72/*    ← 有 `*`,而這條路 parseInt 不執行
+       帶 Prefer: count=exact  206 Partial Content-Range: 0-4/6     ← 🔴 這一發【就是被 max-rows 砍掉的那一發】
+     ⇒ **即使真的截斷,只要有要 count,PostgREST 回的仍然是真數字。**
+     ⇒ 剩下的候選(W3 與 W4 都【沒查】,標未確認):
+        1 PostgREST 前面那一層(gateway / CDN / 反向代理)改寫或截掉 header
+          🔴 T① 當初就是【用前綴代理模擬剝掉 count】造出來的 ⇒ 它模擬的是【代理層】那條路,
+             不是「PostgREST 自己」那條 —— 原本的敘述沒把這兩者分開,而它們是不同的風險
+        2 PostgREST 在某些錯誤/逾時路徑上放棄算 count(沒構造出來、也沒查原始碼)
   ```
   🔴 **為什麼一定要分開寫**(W4 原話):寫成「實測」會讓下一個人以為正式站發生過;
-  寫成「純理論」又會讓人想撤掉守門。**W8 初版把 ① 和 ② 寫成同一句「實測」,已更正。**
+  寫成「純理論」又會讓人想撤掉守門。
+
+  ⚠️ **兩件不要被這段帶歪(W4 原話)**
+  ```
+  1 守門不能撤。Number.isFinite 擋的是「拿不到數字」這個【狀態】,
+    而那個狀態的【成因】未確認,不等於它不會發生。
+    📌 shipping-doc.tsx 的修法理由刻意【不用可達性】,用的是【失敗方向】:
+       reportedTotal 的定義是「一個信得過的總數」,NaN 定義上不是。
+       拿可達性當理由 ⇒ 下一個人一驗會判它不成立、然後撤掉守門。
+  2 #634 那三處 code 一個都不用回頭改。本段只動【證據等級敘述】。
+  ```
+
+  🔴🔴 **本段被改寫過兩次,而兩次都是同一種錯 —— 留著當標本**
+  ```
+  W8 初版      把 ① 和 ② 寫成同一句「實測」                        （W4 打回）
+  主視窗轉述   「不帶 count 回 `*`,那個 * 就是我們 NaN 的來源」    （W4 開檔打回，主視窗自己複驗承認）
+  ```
+  > **「`parseInt('*')` 回 NaN」是對的;「所以那個 `*` 是我們 NaN 的來源」是錯的 ——**
+  > **中間漏掉的是【那一行根本不會執行】。**
+  > **一個成立的因果片段,接到一個沒查的前件上,整句就變成假的,而它讀起來完全合理。**
+  📎 W3 自抽的另一半:**「我量到一個很像答案的東西,就沒有回去開呼叫端確認它走的是哪一條。」**
 - 🔴 **病根一句(現行 code 的註解自己寫著,`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:1034-1039`)**:
   > **這道守門想擋的是「沒有數字」,實際擋的是「不是 number 型別」—— 而 `NaN` 是 number。**
   > **註解說得出「要有數字」,斷言只表達得出「型別對」。**
@@ -19048,6 +19081,19 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
   配方在 `~/pcm-mailbox/probe-501-item-order-recipe.md`。
   ⚠️ 另注意:`grep -rc '請重新整理' apps/admin/src/components/orders/` 全目錄 ⇒ **25 命中散在 10 支別的檔**,
   那些**不屬本條**(W7 量的是單一檔的 0,分母不同,不要混成一句)。
+  🔴 **而那 25 是【待逐處判的候選】,不是待修**(W7 2026-08-18 補;不寫這句下一個人會照著全改):
+  通則是「『請重新整理』只准出現在**真的重整就會好**的地方」⇒ 要逐處判。
+  現成的反例:`apps/admin/src/lib/shipping/shipment-actions.ts:159` 的 `owners.size === 0`
+  配「請重新整理後再試」—— **併發改動的情況下重整確實會好,所以它可能是對的。**
+
+- 🔴🔴 **同族的第三面(W7 2026-08-18 報,歸屬 W8 判 ⇒ 併進 `#639`)**
+  後台那半**也是 hover-only**:`orders-table.tsx:448-456` 截斷態畫面上只有兩個字「**未知**」,
+  **為什麼未知、該找誰,整段解釋都住在 `title` 裡** ⇒ 觸控裝置沒有 hover
+  ⇒ **員工看到的是一顆沒有任何解釋的「未知」膠囊**,與 Sean 的「操作直覺化」直接打架。
+  ⚠️ W7 自標兩個限定,照抄:①**沒量過員工用不用觸控裝置**(Sean 說現在只有他自己在測)
+  ②**沒在真瀏覽器把 tooltip 叫出來看過**。
+  📎 W7 給的判別句(已收進形狀清單):**「解釋放在 hover 裡」= 把一段必要資訊放進一個
+  【在某些裝置上不存在的通道】** —— 與「defer 給一個解決不了它的東西」同族,**出口是假的**。
 
 - **不修未來會痛在哪**
   🔴 客人看到的是「`? 件`」+ 一個**做了也沒用的指示**。
