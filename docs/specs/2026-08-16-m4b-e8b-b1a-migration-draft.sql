@@ -71,6 +71,16 @@
 --       退的時候把那兩行的字串原樣寫回去。
 --       ⚠️ 被覆蓋掉的字面包含「id 是寫入 admin_audit_log.actor 的穩定 slug」。
 --
+--  🔴🔴 2026-08-18 補(codex 關卡1 R3,角度=災難當天可用性):
+--     **上面第 2、3 條都是「把一個【寫死在本檔裡的舊值】寫回去」** ——
+--     codex 逐字:「apply 後若有人更新它們,退場會靜默蓋掉較新的人工狀態」。**屬實。**
+--     第 2 條旁邊已經有那句警語,**第 3 條沒有** ⇒ 同一個坑只補了一半。
+--     ⇒ **退場的第 0 步(不可省)= 先把【現值】撈出來留底,再決定要不要覆蓋:**
+--         SELECT id, label, updated_at FROM public.staff WHERE id IN ('test_01','staff_2');
+--         SELECT obj_description('public.staff'::regclass, 'pg_class') AS table_comment;
+--     ⇒ **現值 ≠ 本檔寫的舊值 ⇒ 停下來問**,不要照抄。
+--     📎 形狀:**rollback 腳本假設「世界從 apply 那一刻起沒有動過」,而那個假設不會自己報錯。**
+--
 --  ⇒ **三條都做完才叫「退乾淨」。** 逐條可逆、**零資料列損失**(沒有任何 DELETE)——
 --     ⚠️ 但**不是「完全還原」**:三條 rollback 都寫 `updated_at = now()`
 --        ⇒ **`updated_at` 不會回到原值**(code-reviewer 2026-08-17 抓)。
@@ -185,6 +195,7 @@ DECLARE
   v_active   boolean;
   v_still    boolean;
   v_others   bigint;
+  v_active_ids text;
 BEGIN
   SELECT is_active INTO v_active FROM public.staff WHERE id = 'test_01';
   IF v_active IS NULL THEN
@@ -203,11 +214,16 @@ BEGIN
   -- 🔴 對照組:本支【只該動一列】。其餘 staff 的 is_active 不得被改到。
   --    2026-08-16 Sean 實查:sean/staff_1/staff_2 啟用、op4_backfill/payment_confirmer 停用。
   --    ⇒ 啟用中的應為 3 列(test_01 停用之後)。
+  -- 🔴🔴 2026-08-18 更正(codex 關卡1 R3,角度=測試假綠):
+  --    ⛔ ~~原本只驗「啟用中的 staff 共 3 列」~~ —— codex 逐字:「一個真人被停用、另一個系統帳號
+  --       被啟用時仍是 3,整支照綠」。**屬實:數量相同的世界有很多個,我只想到其中一個。**
+  --    ⇒ 改成驗【是哪三個】,不是【有幾個】。數量那句留在訊息裡幫忙診斷。
   SELECT count(*) INTO v_others FROM public.staff WHERE is_active;
-  IF v_others <> 3 THEN
-    RAISE EXCEPTION E'B1-a 落地斷言:啟用中的 staff 是 % 列,預期 3(sean/staff_1/staff_2)。\n'
+  SELECT string_agg(id, ',' ORDER BY id) INTO v_active_ids FROM public.staff WHERE is_active;
+  IF v_active_ids IS DISTINCT FROM 'sean,staff_1,staff_2' THEN
+    RAISE EXCEPTION E'B1-a 落地斷言:啟用中的 staff 是 [%](共 % 列),預期恰好 sean,staff_1,staff_2。\n'
       '   ⇒ 要嘛我動到了不該動的列,要嘛這個庫的 staff 現況已經跟 2026-08-16 的實查不同。\n'
-      '   ⇒ 兩種都要停下來看,不要當成通過。', v_others;
+      '   ⇒ 兩種都要停下來看,不要當成通過。', COALESCE(v_active_ids, '(空)'), v_others;
   END IF;
 
   -- 🔴 staff_2 的 label 必須真的改到,而且不得再含「員工 2」那種會被誤讀成真員工的字
