@@ -139,8 +139,17 @@ echo
 # ── 2. E686:net 兩表的表級 + 欄級權限 ──────────────────────────────────────
 echo "── ④ E686:net 兩表對 anon / authenticated 的實際權限 ───────────"
 echo "  (0) 🔴 先問【表在不在】—— 表不存在時,下面每一格都會印空,而空會被讀成「已收乾淨」:"
-run "select 'net.'||t||' ⇒ '||coalesce(to_regclass('net.'||t)::text,'🔴 不存在(下面的空不算數)')
+run "select 'net.'||t||' ⇒ '||coalesce(to_regclass('net.'||t)::text,'🔴 不存在(下面的空不算數)')||
+            coalesce(' / relacl='||(select case when c.relacl is null then 'NULL(零顯式授權)'
+                                              else '有值('||array_length(c.relacl,1)||' 筆)' end
+                                     from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                                    where n.nspname='net' and c.relname=t), '')
        from unnest(array['_http_response','http_request_queue']) t;" | sed 's/^/    /'
+echo "      🔴 relacl=NULL 對【表】而言 = 零顯式授權 ⇒ anon 真的沒有權限(2026-08-18 實測:"
+echo "         relacl NULL 的表 has_table_privilege('anon',…,'TRUNCATE') ⇒ false;"
+echo "         而在 anon 預設授權下出生的表,relacl 會被【寫實】成 anon=arwdDxtm ⇒ 下面 (a) 撈得到)"
+echo "      ⚠️ 這條【只對表成立】。函式的 proacl 是 NULL 時 PUBLIC 反而【有】EXECUTE ——"
+echo "         本腳本不查函式,要查請看 docs/patterns/revoking-function-execute-in-supabase.md" 
 echo "  (a) 🔴 表級 —— 走 pg_class.relacl(pg_catalog,**不受可見性過濾**):"
 run "select c.relname||' × '||a.grantee::regrole||' ⇒ '||string_agg(a.privilege_type,',' order by a.privilege_type)
        from pg_class c join pg_namespace n on n.oid=c.relnamespace,

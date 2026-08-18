@@ -130,7 +130,26 @@ read -rs PGURL && export PGURL && bash scripts/check-anon-grants-prod.sh && unse
   未補齊 ⇒ pg_default_acl 印出 anon=arwdDxtm/postgres
   已補齊 ⇒ 那一行消失（兩個世界印不同的東西）
 ```
-🔴 **仍未關**:那支腳本**一次都沒有對正式庫跑過**(G4 無 prod access)⇒ **需要 Sean 或有 access 的窗跑,兩個庫都要。**
+✅ **2026-08-18 下午已對兩個庫實跑**(Sean 跑、主視窗轉錄:`~/pcm-mailbox/MAIN-028-*` / `MAIN-029-*`;
+⚠️ **那是貼進對話的轉錄、不是機器產生的檔案** ⇒ 要當權威用請重跑並自己讀)。結果:
+```
+grantor=postgres 那一半      網站庫仍有 anon=Dxtm（含 TRUNCATE）與 anon=w   ⇒ 🔴 還沒補齊
+                             報價單庫【已完全清掉 anon】                     ⇒ 已補齊
+grantor=supabase_admin 那半  兩庫一模一樣 anon=arwdDxtm / anon=X / anon=rwU
+```
+🔴 **`supabase_admin` 那一列【不是一個沒補的洞】,不要去查它** —— 兩件事各有依據:
+```
+①【改不動】postgres 在 Supabase 不是 superuser（實測 rolsuper=f，plan :53-62）；
+   REVOKE 只能撤自己授的權 ⇒ 撤 supabase_admin 的 grant 是【靜默 no-op】
+   （memory reference_supabase-postgres-not-superuser-cannot-revoke）
+②【不需要改】那一份只套用在【由 supabase_admin 建的表】（擴充/平台內部）；
+   我們的 migration 以 postgres 身分建表 ⇒ 吃的是 anon=Dxtm 那一份 ⇒ 那一份改得動
+```
+⇒ **所以「補齊」的定義 = `grantor=postgres` 那一半清乾淨**,而**報價單庫現在就是那個樣子**(有現成的目標狀態)。
+🔴 **仍未關**:網站庫的 `postgres` 那一半**還沒清** ⇒ E683 那支 migration 仍要做。
+🔴 **而它現在有一個硬期限**:Sean 2026-08-18 拍板的**登入紀錄新表建在網站庫**
+⇒ 在 E683 落地之前建的新表,**出生就帶 `Dxtm`(含 TRUNCATE,RLS 管不到)**
+⇒ 那支建表 migration 的**兩道 REVOKE + fail-closed 斷言是必要條件,不是保險**。
 
 ---
 
@@ -160,7 +179,15 @@ read -rs PGURL && export PGURL && bash scripts/check-anon-grants-prod.sh && unse
   未補齊 ⇒ 兩表 × 兩角色印出 DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
   已補齊 ⇒ (a)(b) 全空（G4 在拋棄式 PG 17.10 上把兩個世界都造出來跑過）
 ```
-🔴 **仍未關**:未對正式庫跑過,且**兩個庫都要跑**(網站庫 + 報價單庫,§6 實測兩庫相同)。
+🔴 **仍未關,而且要重跑** —— 2026-08-18 的兩發**用的是不同版本的腳本**:
+```
+報價單庫那一發  新版（有 (0) 表存在性 + (a) pg_class.relacl + (a2) 可見性對照）⇒ 三格空【可採信】
+網站庫那一發    舊版（只有 information_schema）                                ⇒ 🔴 三格空【不算數】
+```
+🔴 **為什麼舊版的空不算數**(2026-08-18 G4 實測):`information_schema` **依連線角色過濾** ——
+非 owner 非 grantee 的角色查它得 **0**,而同一時刻 `pg_class.relacl` 看得到 **7 項全開**;
+那個假綠世界已在拋棄式 PG 17.10 **構造出來實跑過**(對照組照樣過、量具自證照樣回 1)。
+⇒ **網站庫要用新版重跑一次才能判。**
 **原本缺的那一句**(留痕):一條對 `net._http_response` 的欄級權限查詢(`has_table_privilege` 看不到欄級,見 ③),
 兩個世界會不同的值 = `anon` 的 DML/TRUNCATE 權限**在**與**不在**。
 📄 `docs/security/2026-08-17-e686-net-table-write-exposure-guard-spec.md`
