@@ -149,7 +149,32 @@
 
 ---
 
-### 🔴 只剩這兩件要你在面板上看一眼
+### ✅✅ 這兩件你已經答了(2026-08-19,五張截圖)—— 下面整段是訃聞,不要照它做
+
+**你答的**:
+```
+Vercel(Hobby)三個專案
+  pcm-website-v2   production = main   shop.pcmmotorsports.com
+  pcm-admin        production = dev    admin.pcmmotorsports.com
+  pcm-quote-v2     production = main   quote.pcmmotorsports.com
+Supabase(Pro)兩個專案
+  pcm-website-v2   bmpnplmnldofgaohnaok   Singapore
+  pcm-quote-v2     dllwkkfanaebrsuyuedy   Singapore
+```
+⇒ **① 後台確實是另一個 Vercel 專案,正式分支就是 `dev`** ⇒ 原本是推論,現在**量到了**。
+   🔴 **所以「推 `dev`」這個動作:對後台是【上線】、對顧客站是【產生一個預覽版】。一個動作兩種後果。**
+⇒ **② Supabase 有兩個,而【兩個都在正式用途上】**(一個給網站、一個給報價單)
+   ⇒ **沒有一個可以拿給預覽版用** ⇒ 🔴 **「路 2:預覽版指到另一個資料庫」用現有的走不通。**
+   📎 而截圖裡有一條線索(Supabase branching)可能是路 2 的另一種走法 —— **還在查,查完另外給你。**
+
+### ✅ 而你做完第 1-3 步之後回報的那句,就是這份教學要的證據
+你逐字:「**我開預覽去刷卡真的失敗沒跳 3d 驗證**」
+⇒ 🔴 **那正是預期行為**(拿掉 `TAPPAY_ENV` ⇒ 刷卡功能起不來)⇒ **洞 1 堵上了,而且是量到的不是宣稱的。**
+⇒ 而你看的是**那個網站的行為**,不是面板上的字 —— 那就是第 3 步存在的理由。
+
+---
+
+### ⛔ 以下是原本的問題(留訃聞,不要照它做)
 
 ```
 1. 後台(admin)是不是【另一個】Vercel 專案?它的正式分支是不是 dev?
