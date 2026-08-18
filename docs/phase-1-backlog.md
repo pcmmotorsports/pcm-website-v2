@@ -13554,6 +13554,54 @@ carrier_note             CHECK：只有 other 才准非空（:113）⇒ **自由
   **這種債會自我複製**,而且複製出來的東西**在 CI 上是綠的**、在 code review 裡**看起來像有測試覆蓋**。
   最貴的情況是它落在承重牆上:本片那格守的正是「這一頁存在的理由(分辨哪些商品下架了)」。
 - **修法:** 逐檔問兩個問題 —— ①這格的意圖宇宙是不是單一欄位?②**這格什麼狀態會紅?**
+
+---
+
+## 🔴 2026-08-18 20:5x(G2)補一個**本條沒有的軸**:正向 vs 反向 —— **它會改變 triage**
+
+本條把「全頁 `textContent` 子字串斷言」整批當成債。**而反向那半不是債,是【更強的尺】**:
+
+```
+正向  expect(container.textContent).toContain('X')
+      ⇒ 意圖宇宙通常是【某一格】，而斷言宇宙是整頁 ⇒ **碰撞會讓它假通過**  ← 這才是本條的病
+反向  expect(container.textContent).not.toContain('經銷')
+      ⇒ 意圖宇宙【本來就是整頁】（「這個字不准出現在畫面任何地方」）
+      ⇒ **scope 到單一欄位反而會把它變弱** —— 經銷價漏在別的格子就抓不到了
+🔴 ⇒ 把反向那半一起「修」成 scoped，是**把一道鐵則 12 的安全網改小**。
+```
+
+**當場量的(量法寫在旁邊,不要當成第五個孤兒數字)**:
+```
+範圍   apps/admin/src + apps/storefront/src 的 *.test.tsx
+量法   python + regex：container.textContent | (textContent ?? '') 後面接 (.not)?.toContain('…')
+       ⇒ 可解析出期望字串的共 327 處（另有 12 處是變數/樣板，解不出字面 ⇒ 未計入）
+正向 toContain      198
+反向 not.toContain  129
+🔴 正向 且 期望字串 ≤3 字元（碰撞風險最高的頭部）  **18 處**
+```
+
+**那 18 處的逐處清單(下一輪要動就從這裡開始,不要從 327 開始)**:
+```
+app/page.test.tsx:52,66 '切換'                    components/settings/staff-table.test.tsx:89 '是' / :90 '否'
+app/products/[id]/page.test.tsx:173 '已下架'       components/dashboard/today-summary.test.tsx:62,99 '2 筆' / :134 '0 筆' / :74 '沒讀到'
+app/orders/[id]/refund-wiring.test.tsx:524 '未訂貨' components/audit/audit-detail.test.tsx:59 '(無)'
+components/orders/result-banner.test.tsx:106 '溢收' components/orders/cancel-order-forms.test.tsx:382 '下導流'
+components/orders/refund-ledger-section.test.tsx:161 '查無'
+components/orders/note-compose-form.test.tsx:244 '新備註'
+components/orders/notes-timeline.test.tsx:67 '電話'
+components/orders/cancel-review-section.test.tsx:456 '缺貨'
+lib/orders/order-keyword-search-wiring.test.tsx:244 '王小明'
+```
+⚠️ **「≤3 字元」是一把粗篩,不是判定** —— 它只挑出「**容易**碰撞」的,
+而本條 §病2(量錯東西:被靜態文案滿足)**與長度無關**,長字串照樣中。**兩把尺要分開跑。**
+
+## 這一段沒有主張什麼
+```
+· 沒有逐處判定那 18 處是不是真的假通過 —— 那要逐格問「這格什麼狀態會紅」，本輪只做分母與排序
+· 沒有動任何一格（本輪零改動）
+· 「另有 12 處解不出字面」是我的 regex 的極限，不是它們沒問題
+```
+
   ②答不出來就是恆綠格。**不要只問①**(本片就是只問①,結果第二種病全數漏掉)。
 - **估時:** 未估(取決於選哪個分母)。
 - **相關:** `#20`(出處)/ `#490` `scripts/literal-sweep.sh`(同族的「宣稱 vs 量過」工具)
