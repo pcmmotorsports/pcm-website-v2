@@ -271,6 +271,39 @@ DROP FUNCTION public.purge_admin_sso_login_events();
 E683 那支 migration（20260817060000_…）apply 到網站庫
    ⇒ 之後建的新表才不會出生自帶 anon=Dxtm
    ⇒ 本片的 REVOKE 仍然要寫（縱深），但先後順序會決定「中間那段時間有沒有裸露的表」
-🔴 而 E683 那支【已批、code 已落地、未 apply】（APPLIED.tsv 查無 20260817060000，分母 179 列）
-   ⇒ 它卡在 apply 不卡在 plan
+✅ **2026-08-18 19:1x G4 當場複查:E683 已 apply,本前置【已滿足】。**
+   ~~🔴 而 E683 那支【已批、code 已落地、未 apply】(APPLIED.tsv 查無 20260817060000,分母 179 列)~~
+   量法(可重跑)`grep -n "20260817060000" supabase/APPLIED.tsv` ⇒ **`:213` 命中**,
+   第 3 欄是**真日期 `2026-08-18`**(不是 `backfill`)、記錄者「主視窗(跑)/G4(記)」,分母 **215** 列。
+   ⇒ 新表不再出生自帶 `anon=Dxtm`。**但 migration 裡那道 REVOKE 仍然照寫**(縱深:
+     default privileges 是一個 dashboard 上改得回去、而改了不會有任何東西紅的設定)。
+
+## 7.9 ✅ 實作與驗證(2026-08-18 19:1x G4)
+
+**migration 已落檔**:`supabase/migrations/20260818190000_m4b_admin_sso_login_events.sql`
+🔴 **寫入端(`security-log.ts` 那一半)尚未做** —— 本次只落 DB 面。
+
+**在拋棄式 PG 17.10 上實跑**(runbook `docs/runbooks/throwaway-postgres-for-migration-verification.md`;
+🔴 **那是本機環境,不是正式庫**;PG 17.10 vs 正式庫 17.6 ⇒ 證的是**機制**不是現值):
+```
+乾淨 apply ⇒ 安靜成功
+🔴 而「apply 成功 ≠ 每條斷言都跑到」⇒ 逐條突變，確認【紅的是預期那一條訊息】：
+  4a  GRANT SELECT TO anon         ⇒ 紅「anon 不應有 SELECT(client 須全鎖)」
+  4c  GRANT DELETE TO service_role ⇒ 紅「service_role 不應有 DELETE(保留政策走 purge 函式)」← 本表重點
+  4e  GRANT SELECT(ip) TO anon     ⇒ 紅「欄級授權異常 — attacl 應全空」
+  4f  CREATE POLICY                ⇒ 紅「應為 zero-policy(實 1 條)」
+  4g  拿掉 REVOKE … FROM PUBLIC     ⇒ 紅「public 不應執行得了刪除函式」
+purge 行為(§7.5 #4):餵 91 天 / 89 天 / 今天三列 ⇒ 刪 1、剩 2、最舊 89 天
+  突變 interval 改 100 days ⇒ 刪 0 列 = 突變生效
+```
+⚠️ **沒跑的**:§7.5 的 #1/#2/#3/#7(全是寫入端那四格)—— **寫入端還沒做**,不是「驗過了」。
+⚠️ **G6 沒有複跑上面這段**,它明說是轉述 ⇒ 引用時要帶這個限定。
+
+## 7.10 🔴 重跑行為與同批其他 migration 不一致(G6 2026-08-18 指出)
+```
+本檔                  用 IF NOT EXISTS / OR REPLACE ⇒ 【重跑不會炸】
+20260818170000（收藏）  建表不帶 IF NOT EXISTS       ⇒ 【重跑會炸】(它刻意的 fail-closed)
+```
+⇒ 那一發 push 若中途失敗要重跑,**兩支行為不同**。已寫進本檔 migration 的**檔頭**
+(理由:**重跑的人會打開的是那支 SQL,不是這份 plan,也不是那封信**)。
 ```
