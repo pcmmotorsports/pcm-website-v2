@@ -983,6 +983,75 @@ describe('L2 — 手機卡片模式的 DOM 契約(卡片化由 CSS 做,本區守
       expect(norm(cardMedias()[0]!.params)).toBe(CARD_QUERY);
     });
 
+    // 🔴🔴 **截斷三件只給 `td`,`th` 不套**(W7 2026-08-18,把 OD 搬對)。
+    //
+    // **症狀**:表頭「數量」被截成「數…」。**根因不是欄太窄,是我們把 `td` 的截斷抄到了 `th` 上。**
+    //   真瀏覽器量到(`localhost:3002` / viewport 1728):`th.col-qty` 可用 **25px**,
+    //   「數量」帶表頭字距 `1.5px` = **27px**、不帶 = **24px** ⇒ **溢出的 2px 全部來自字距**,
+    //   而字距在最後一個字後面還加一次 —— 那 1.5px 是**看不到的尾空**。
+    // **OD 逐字**(兩份檔都一樣,開檔讀的):`table.g th{…white-space:nowrap}` 沒有 overflow / ellipsis;
+    //   三件只在 `table.g td`(`overview-desktop.html:106-107` / `-bmw-m:168-170`)。
+    // 📌 **這一格守的是「範圍」不是「有沒有」** —— 原本的引用(`:107`)是對的,
+    //    錯的是把那條 `td` 規則的**適用對象**擴大成 `th, td`。**引用正確不代表範圍正確。**
+    //
+    // ⚠️ **誠實邊界**:postcss 看不到瀏覽器算出來的樣式,也算不了跨選擇器的特異性競爭
+    //    (與本區塊上方 `lastDecl` 的自報邊界同一條)。這一格能證的是**原始碼裡誰宣告了它**。
+    // 🔴 **兩格成對,缺一就恆綠**:
+    //    ①`td` 那條**還在**(有人整條刪掉 ⇒ 資料格互相壓,而只守 `th` 的話這格照樣綠);
+    //    ②沒有任何帶 `th` 的選擇器宣告 `overflow`(有人改回 `th, td` ⇒ 刪節號回來)。
+    it('🔴 截斷三件只給 `td`:`td` 那條還在,而**沒有任何 `th` 選擇器**宣告 `overflow`', () => {
+      // ① 正向(同時是本格的量具自檢:找得到才代表這支 parser 真的看得見這條規則)
+      // 🔴 **不能用 `lastDecl`** —— 它回「全檔最後一條」,而卡片化區塊裡有一條
+      //    `.orders-grid td { overflow: visible }`(縱向卡片不能截斷)⇒ 全檔最後一條恆為 `visible`。
+      //    **這是實跑告訴我的**:第一版斷言 `toBe('hidden')` 直接紅在 `visible` 上。
+      //    ⇒ 桌機那條要問的是「**卡片化以外**的最後一條」。
+      const tdOverflows: Array<{ value: string; insideCard: boolean }> = [];
+      ROOT.walkRules((rule) => {
+        if (norm(rule.selector) !== '.orders-grid td') return;
+        rule.walkDecls('overflow', (decl) => {
+          let node: postcss.Container | postcss.Document | undefined = rule.parent;
+          let insideCard = false;
+          while (node) {
+            if (node.type === 'atrule' && norm((node as postcss.AtRule).params) === CARD_QUERY) {
+              insideCard = true;
+              break;
+            }
+            node = node.parent;
+          }
+          tdOverflows.push({ value: norm(decl.value), insideCard });
+        });
+      });
+      const desktop = tdOverflows.filter((d) => !d.insideCard);
+      const card = tdOverflows.filter((d) => d.insideCard);
+      expect(
+        desktop.length,
+        '卡片化之外一條 `.orders-grid td` 的 overflow 都沒有 ⇒ fixed 版面下資料格會互相壓',
+      ).toBeGreaterThan(0);
+      expect(desktop[desktop.length - 1]!.value, '桌機那條 `td` 截斷被改掉了').toBe('hidden');
+      // 卡片化那條也一起釘:它被刪掉的話,換行後的第二行會被裁掉(縱向卡片沒有欄寬)
+      expect(card.map((d) => d.value), '卡片化區塊的 `td` overflow 解除被動到了').toEqual(['visible']);
+
+      // ② 反向:任何選擇器只要含 `.orders-grid th` 就不得宣告 overflow
+      const offenders: string[] = [];
+      ROOT.walkRules((rule) => {
+        if (!/\.orders-grid\s+th\b/.test(norm(rule.selector))) return;
+        rule.walkDecls('overflow', (decl) => {
+          offenders.push(`${norm(rule.selector)} { overflow: ${norm(decl.value)} }`);
+        });
+      });
+      expect(
+        offenders,
+        `表頭被套上 overflow ⇒ 「數量」這種剛好差 2px 的表頭會被打成「數…」。命中:${offenders.join(' / ')}`,
+      ).toEqual([]);
+
+      // ③ 分母:上面那個正規式真的掃得到 `th` 選擇器嗎(掃不到的話 ② 是恆綠的)
+      let thRules = 0;
+      ROOT.walkRules((rule) => {
+        if (/\.orders-grid\s+th\b/.test(norm(rule.selector))) thRules += 1;
+      });
+      expect(thRules, '一個 `.orders-grid th` 選擇器都沒掃到 ⇒ ② 那格沒有判別力,不是通過').toBeGreaterThan(0);
+    });
+
     it('🔴 四條承重規則:**最後一條宣告**落在卡片化 media 內、值正確(不是「出現過」)', () => {
       const cases: Array<[string, string, string, string]> = [
         ['.orders-grid thead', 'display', 'none', 'thead 沒收起 ⇒ 卡片頂端出現一排桌機欄名'],
@@ -1884,5 +1953,123 @@ describe('itemsTruncated ⇒ 狀態欄印「未知」', () => {
     const capsule = [...container.querySelectorAll('span')].find((el) => el.textContent === '出貨完成');
     expect(capsule).toBeDefined();
     expect(capsule?.getAttribute('title')).not.toBe(TRUNCATED_TITLE);
+  });
+});
+
+/**
+ * `#631` 甲(Sean 2026-08-18 拍板):列表每張單最多畫前 3 個品項 + 一列「另有 …,點進去看」。
+ *
+ * 🔴🔴 **這一組存在的第一個理由是【本檔原本構造不出 3 列以上的單】** ——
+ *    落地那天實測:整份測試檔 `lines: [ … ]` 出現 45 次,**單筆訂單最多 3 個 `line(...)`**
+ *    (量法:對測試檔跑「抓每個 `lines: [...]` 區塊、數裡面 `line('` 的次數」,取最大值 ⇒ **3**)。
+ *    ⇒ **把渲染改成「只畫前 3 列」的那一刻,既有 89 格【一格都不會紅】** ——
+ *      不是因為改對了,是因為**沒有任何 fixture 走到第 4 列**。
+ *    ⇒ 這正是 `feedback_fixture-value-makes-guard-vacuous` 那一族:**fixture 造不出反例時,斷言是恆真的。**
+ *
+ * ⚠️ **`MAX_VISIBLE_LINES = 3` 這個值本身不是版面算出來的**,是 Sean 挑的
+ *    ⇒ 本組刻意**不重抄那個 3**,改用「4 個品項 ⇒ 看得到 3 列」這種**行為**斷言:
+ *    有人把常數改成 5,這裡會紅(而它**應該**紅 —— 那是要再問他一次的改動)。
+ */
+describe('#631 甲 — 列表每張單最多畫 3 個品項,其餘收成一列連結', () => {
+  const fourLines = [line('l1', 1, 1000), line('l2', 1, 1000), line('l3', 1, 1000), line('l4', 1, 1000)];
+
+  /** 只數「品項列」:含 `col-sku` 那格的 `<tr>`(那一列一定有料號欄)。收摺列沒有它。 */
+  const itemRowCount = (container: HTMLElement) =>
+    [...container.querySelectorAll('tbody.orders-group tr')].filter(
+      (tr) => tr.querySelector('td.col-sku') !== null,
+    ).length;
+
+  const moreRow = (container: HTMLElement) =>
+    [...container.querySelectorAll('tbody.orders-group tr')].find(
+      (tr) => tr.querySelector('td.col-sku') === null,
+    ) ?? null;
+
+  it('🔴 四個品項 ⇒ 只畫 3 列品項,而且多出一列「另有 1 項」', () => {
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: fourLines, total: { amount: toMoneyAmount(4000), currency: 'TWD' } })]}
+      />,
+    );
+    expect(itemRowCount(container), '品項列數不是 3 ⇒ 收摺沒生效或收錯列').toBe(3);
+    const more = moreRow(container);
+    expect(more, '沒有「另有 …」那一列 ⇒ 被收起來的品項在畫面上完全沒有痕跡').not.toBeNull();
+    expect(more!.textContent).toContain('另有 1 項');
+    expect(more!.textContent).toContain('點進去看');
+  });
+
+  it('🔴 邊界:恰好 3 個品項 ⇒ **不得**冒出「另有 0 項」那一列', () => {
+    // 這格擋的是 `hiddenCount >= 0` 這種寫法 —— 它在 3 列時會印「另有 0 項」,
+    // 而「另有 0 項」讀起來像「還有東西」,比不印更糟。
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[
+          order({
+            lines: [line('l1', 1, 1000), line('l2', 1, 1000), line('l3', 1, 1000)],
+            total: { amount: toMoneyAmount(3000), currency: 'TWD' },
+          }),
+        ]}
+      />,
+    );
+    expect(itemRowCount(container)).toBe(3);
+    expect(moreRow(container), '3 個品項卻多出一列 ⇒ 邊界寫成了 >= 0').toBeNull();
+  });
+
+  it('🔴🔴 截斷態 ⇒ 那一列**一個數字都不准出現**(不是「數字會差一點」,是那個數字不存在)', () => {
+    // `itemsTruncated` 時 `order.lines` 本身就是半份的 ⇒ `rows.length - 3` 算的是
+    // 「載進來的那半還剩幾項」,而畫面那句話講的是「這張單還有幾項」。
+    // 501 項的單會印「另有 497 項」而真值是 498 —— 而它讀起來完全正常。
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[
+          order({
+            lines: fourLines,
+            itemsTruncated: true,
+            total: { amount: toMoneyAmount(4000), currency: 'TWD' },
+          }),
+        ]}
+      />,
+    );
+    const more = moreRow(container);
+    expect(more, '截斷態連那一列都沒有 ⇒ 被截掉的品項零痕跡').not.toBeNull();
+    expect(more!.textContent).toContain('另有多項');
+    expect(
+      /\d/.test(more!.textContent ?? ''),
+      `截斷態印出了數字,而那個數字是算出來的假值。實際印的是:${more!.textContent}`,
+    ).toBe(false);
+    // 正向對照:非截斷態的同一個 fixture **必須**印得出數字,否則上一條的 `false` 是恆真的。
+    const { container: c2 } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: fourLines, total: { amount: toMoneyAmount(4000), currency: 'TWD' } })]}
+      />,
+    );
+    expect(
+      /\d/.test(moreRow(c2)!.textContent ?? ''),
+      '非截斷態也印不出數字 ⇒ 上一條的「沒有數字」證明不了任何事',
+    ).toBe(true);
+  });
+
+  it('🔴 那一列要真的點得進去:雙目的地連結 + `data-l`(手機卡片的欄名)', () => {
+    // stretched link 只鋪在第一列 ⇒ 這一列若只有文字,Sean 那句「點進去看」是做不到的。
+    const { container } = render(
+      <OrdersTable
+        buildPanelHref={panelHref}
+        orders={[order({ lines: fourLines, total: { amount: toMoneyAmount(4000), currency: 'TWD' } })]}
+      />,
+    );
+    const more = moreRow(container)!;
+    const panel = more.querySelector("a[data-nav='panel']");
+    const page = more.querySelector("a[data-nav='page']");
+    expect(panel, '沒有桌機面板連結 ⇒ 桌機點不進去').not.toBeNull();
+    expect(page, '沒有手機整頁連結 ⇒ 手機點不進去(卡片模式走整頁)').not.toBeNull();
+    expect(panel!.getAttribute('href')).toBe(panelHref('ord-1'));
+    expect(page!.getAttribute('href')).toBe('/orders/ord-1');
+    expect(
+      more.querySelector('td')!.getAttribute('data-l'),
+      '沒有 data-l ⇒ 手機卡片上這一列是個沒有欄名的孤兒',
+    ).not.toBeNull();
   });
 });

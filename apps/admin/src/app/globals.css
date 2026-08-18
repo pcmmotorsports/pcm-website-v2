@@ -450,7 +450,7 @@
       而 `order-status-axes.ts` 的註解逐字寫著「逐字照 OD」,**那句話對舊版成立、對 BMW M 版是錯的**。
       2026-08-17 Sean 拍 `Q-視覺4` = 甲:換成設計稿的左緣紅槓。
    🔴🔴 **順帶治好一個既有病,而它不是本片的目標**:舊的外環**往外長 3px**,而
-      `.orders-grid th,td` 有 `overflow: hidden` ⇒ **實測 8/15 顆未收款膠囊的紅框被切掉**
+      `.orders-grid td` 有 `overflow: hidden` ⇒ **實測 8/15 顆未收款膠囊的紅框被切掉**
       (本檔 `.col-status` 那段記過)。**`inset` 畫在 padding box 裡面 ⇒ 切不到。**
       ⚠️ **`td.col-status{vertical-align:middle}` 那條【不要順手拿掉】** —— 它現在不再是紅框的
       唯一救命索,但它仍在做「膠囊垂直置中」這件事本身。 */
@@ -692,7 +692,7 @@
       把 `--card` 放第一個 ⇒ 降級值 = 白底 = 與現況相同,只是沒有淡藍。**壞掉的方向要選對。**
    🔴 **綁 `<tbody>` 不綁 `<tr>`** —— 一張單有多個品項列,OD 自己也是整組一起亮
       (`:680` `for (const tr of tb.querySelectorAll('tr')) tr.classList.toggle('sel', on)`)。
-   ⚠️ **`inset` 是承重的**:本檔 `.orders-grid th,td` 有 `overflow: hidden`,**往外長的陰影會被切掉**
+   ⚠️ **`inset` 是承重的**:本檔 `.orders-grid td` 有 `overflow: hidden`,**往外長的陰影會被切掉**
       (未收款紅框那個病就是這樣來的)。`inset` 畫在 padding box 內 ⇒ 切不到。
    ⚠️ **每一格都會畫一條左緣** —— 這是 OD 的形狀,不是 bug(它的選擇器也是 `td`)。 */
 .orders-grid tbody.orders-group[data-selected] td {
@@ -749,14 +749,40 @@
    ⚠️ 卡片模式那段有對應的解除(`white-space: normal` + 本區 `overflow` 不套到 flex 的格),見下方。 */
 .orders-grid th,
 .orders-grid td {
-  overflow: hidden;
-  text-overflow: ellipsis;
   /* 🔴 **左右內距要跟著 OD 走,否則欄寬表整組對不上**(`overview-desktop.html:105-107` 逐字 `padding:0 8px`)。
      元件的格內 utility 是 `px-3`(= 12px 兩側 = 24px),比 OD 多吃 **8px/欄** ——
      在 44px 的發票欄與 62px 的客戶欄上,那 8px 就是「看得到三個字」與「看到『未…』」的差別(我實測撞到)。
-     ⚠️ **上下內距不動**(仍是元件的 `py-2`):列高屬密度那軸,是片4 的事,本片不碰。 */
+     ⚠️ **上下內距不動**(仍是元件的 `py-2`):列高屬密度那軸,是片4 的事,本片不碰。
+     ⚠️ 內距 **`th` 與 `td` 都要**(OD 兩邊都是 `padding:0 8px`);下面那條截斷只給 `td`,兩者不同範圍。 */
   padding-right: 0.5rem;
   padding-left: 0.5rem;
+}
+
+/* 🔴🔴 **截斷三件只給 `td`,`th` 不套 —— 這是把 OD 搬對,不是放寬**(W7 2026-08-18)。
+   **OD 兩份檔都把三件放在 `td` 上、`th` 只有 `white-space:nowrap`**(逐字,我開檔讀的):
+     `overview-desktop.html:104-105`      `table.g th{…white-space:nowrap}`        ← 沒有 overflow / ellipsis
+     `overview-desktop.html:106-107`      `table.g td{…nowrap;overflow:hidden;text-overflow:ellipsis}`
+     `overview-desktop-bmw-m.html:165-167` th 同上(只有 nowrap)/ `:168-170` td 同上(三件齊)
+   ⇒ 🔴 **上面那段引 `:107` 當三件的出處,那個引用是【對的】** —— `:107` 就是 td 那條。
+     壞掉的不是出處,是**適用範圍**:三件被抄成 `th, td`,而 OD 只給了 `td`。
+     📌 判別句(值得留):**引用正確,不代表引用的範圍正確。**
+
+   🔴 **它造成的可見症狀(不是理論)**:表頭「數量」被截成「數…」。
+   **量測(真瀏覽器,`localhost:3002` / 2026-08-18 / viewport 1728)**:
+     `th.col-qty` clientWidth `41` − 左右內距 `8+8` ⇒ **可用 25px**
+     「數量」在表頭字型(`700 12px`)下:**帶 `letter-spacing:1.5px` = 27px** / **不帶 = 24px**
+     ⇒ 🔴 **溢出的 2px 完全來自字距,而字距的最後一個字後面那 1.5px 是不會被看到的尾空。**
+   ⇒ **OD 的行為是讓它溢出 2px(表頭之間有內距,肉眼看不出來);我們的行為是打上刪節號。**
+     兩者差別不在「要不要截斷」,在**截斷的對象該不該包含表頭**。
+
+   ⚠️ **`td` 那三件一個字都不動** —— 它是承重的:`table-layout: fixed` + `nowrap` + `visible`
+      會讓資料格互相壓(見上面那段的第一版截圖記錄),而**表頭是短固定字串、壓不到哪裡去**
+      (實測全表只有「數量」溢出,且只有 2px;量法與分母見 `orders-table.test.tsx` 的守門註解)。
+   ⚠️ **這條不解決「欄太窄」** —— 38px 是 OD 與我們共同的值(`k-qty`),要不要加寬是另一題。
+      本條只把「該不該打刪節號」搬回 OD 的答案。 */
+.orders-grid td {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 🔴 **「勾選欄 15/18 被截」是我(E 窗)自己的量具誤報,2026-08-14 已用三個獨立 oracle 推翻。**

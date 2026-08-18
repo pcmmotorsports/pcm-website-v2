@@ -164,6 +164,16 @@ function shouldMergeAmount(order: AdminOrderSummary): boolean {
  *    沒有 `data-l` 的格(勾選 / 單號 / 品名 / 操作)在卡片上是主標或純控件,不掛標籤;
  *    CSS 用 `td:not([data-l])::before{display:none}` 讓它們不長出標籤欄。
  */
+/**
+ * `#631` 甲:訂單列表每張單**最多畫前 3 個品項**,其餘收成一列「另有 …,點進去看」。
+ *
+ * 🔴 **來源是 Sean 2026-08-18 拍板逐字「訂單列表【最多顯示前 3 項 + 『另有 N 項，點進去看』】」** ——
+ *    而我(W7)**沒有看到他的原始訊息**:W4 與主視窗**兩條獨立轉述路徑字面一致**,我依此動手。
+ *    這個限定寫在這裡,不是寫在信裡 —— 信會被捲走,而下一個想改這個 3 的人會先看到這裡。
+ * ⚠️ 這個數字**不是版面算出來的**(不是「3 列剛好塞得下」),是他挑的 ⇒ **要改它得再問他一次。**
+ */
+const MAX_VISIBLE_LINES = 3;
+
 const CELL = {
   pick: 'col-pick',
   oid: 'col-oid',
@@ -200,6 +210,23 @@ function OrderGroup({
   const cancelled = order.cancelledAt !== null;
   // 品項展開;空陣列(理論不發生,create_order 保證 ≥1 line)→ 兜一列 null 佔位、顯示「—」。
   const rows = order.lines.length > 0 ? order.lines : [null];
+  // `#631` 甲:只畫前 `MAX_VISIBLE_LINES` 列,其餘收成一列連結(見常數 docstring)。
+  const visibleRows = rows.slice(0, MAX_VISIBLE_LINES);
+  const hiddenCount = rows.length - visibleRows.length;
+  /**
+   * 🔴🔴 **截斷態【不印數字】** —— 不是「數字會差一點」,是**那個數字不存在**。
+   *
+   * `itemsTruncated` 的意思是 `order.lines` **本身就是半份的**
+   * (`ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT = 500`)⇒ `rows.length - 3` 算的是
+   * 「**載進來的**那半還剩幾項」,而畫面上那句話講的是「這張單還有幾項」。
+   * 501 項的單會印「另有 497 項」而真值是 498 —— **而它讀起來完全正常。**
+   * ⇒ 與同一支檔既有的那條紀律同源(截斷態狀態欄印「未知」、**不得印 0、不得留空**):
+   *   **「不知道」與「知道是某個值」不可以長得一樣。**
+   */
+  const hasMoreLines = hiddenCount > 0 || order.itemsTruncated;
+  const moreLinesLabel = order.itemsTruncated
+    ? '另有多項，點進去看'
+    : `另有 ${hiddenCount} 項，點進去看`;
   const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
   const status = orderStatusView(order);
@@ -236,7 +263,7 @@ function OrderGroup({
       aria-label={`訂單 ${order.displayId}`}
       data-selected={order.id === selectedOrderId ? '' : undefined}
     >
-      {rows.map((line, i) => {
+      {visibleRows.map((line, i) => {
         const first = i === 0;
         // R2 F5:`formatOrderItemVehicle` 原本在同一列被呼叫兩次(一次判 `data-empty`、一次印值)。
         // 算一次存起來 —— 兩次呼叫之間沒有任何狀態變化,重算純粹是浪費,而且**兩處字面會漂**。
@@ -519,6 +546,36 @@ function OrderGroup({
           </tr>
         );
       })}
+      {/* 🔴 `#631` 甲的那一列。**它需要自己的連結** —— stretched link 只鋪在【第一列】
+          (單號那個 `<Link>` 的 `after:inset-0`,而 `relative` 在 `<tr>` 上)⇒ 第二列之後
+          點下去本來就沒反應。Sean 那句逐字是「**點進去看**」⇒ 不能只是一段文字。
+          🔴🔴 **而它【不需要】`relative z-10`** —— 我第一版加了,是照抄勾選格與操作格的做法,
+             **抄錯了理由**:那兩格需要浮起來,是因為它們與 stretched link 在**同一個 `<tr>`** 裡;
+             而覆蓋層是 `after:inset-0`、`relative` 在 `<tr>` 上 ⇒ **它只蓋得到第一列**,
+             本列是另一個 `<tr>`,根本沒有東西壓在上面。
+             ⇒ 抓到它的是 `shipping-selection.test.tsx` 那格「每個 z-10 容器都真的裝著那兩種東西之一」
+               —— 我多出來的兩個 z-10 讓它從 2 變 4。**守門在替我擋「我以為我需要它」。**
+          🔴 雙目的地(`data-nav='panel' | 'page'`)照本檔既有慣例:桌機開面板、手機走整頁,
+             顯隱由 `globals.css` 與卡片化**同一條容器斷點**決定 —— 不要在這裡自己判斷置。
+          ⚠️ `colSpan` 用 `Object.keys(CELL).length` **算出來**,不寫字面 14:
+             這張表加減欄時,寫死的 14 不會紅、而版面會歪掉。
+          ⚠️ `data-l` 要給 —— 卡片模式靠它印欄名,沒有的話手機上這一列是個沒有標籤的孤兒。 */}
+      {hasMoreLines && (
+        <tr className='hover:bg-muted border-border-soft relative border-t'>
+          <td
+            className={`${TD} text-muted-foreground text-xs`}
+            colSpan={Object.keys(CELL).length}
+            data-l='其餘品項'
+          >
+            <Link href={buildPanelHref(order.id)} data-nav='panel' className='hover:underline'>
+              {moreLinesLabel}
+            </Link>
+            <Link href={`/orders/${order.id}`} data-nav='page' className='hover:underline'>
+              {moreLinesLabel}
+            </Link>
+          </td>
+        </tr>
+      )}
     </tbody>
   );
 }

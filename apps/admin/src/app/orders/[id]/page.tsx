@@ -92,5 +92,8 @@ export default async function OrderDetailPage({
   });
 
   // #350c:`@container` 是 `order-detail.tsx:275` 容器斷點的參照對象,漏了會退回單欄。
+  // 🔴 `max-w-6xl` **刻意留著**:本頁是訂單**詳情**、沒有表格(訂單【列表】那頁才吃滿寬)。
+  //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
+  //    (`#640` 守門在 `app/design-tokens.test.ts`)。
   return <div className='@container mx-auto max-w-6xl space-y-4'>{body}</div>;
 }
