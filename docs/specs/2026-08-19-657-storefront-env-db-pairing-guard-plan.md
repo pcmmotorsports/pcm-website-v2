@@ -6,7 +6,41 @@
 
 ---
 
-## §0 一句話
+## §0 🔴🔴 順序被 Sean 的回答整個換掉了(2026-08-19,他答 Q9 追加)
+
+**他的原話(逐字,主視窗轉貼原文)**:
+```
+Q9 追加：Vercel 上的 TAPPAY_ENV 跟 NEXT_PUBLIC_SUPABASE_URL 這兩個設定，
+        是【按環境分別設定】的，還是【全環境共用一組】？
+
+都是全環境共用，因為之前我設定的...
+```
+
+### ⇒ 本檔原本的順序【作廢】
+```
+⛔ 原本  加守門(storefront 抽共用 + 兩邊接上)
+✅ 現在  ① env scoping ← 🔴 硬前置,而【我們做不動】,只有 Sean 在 Vercel 面板做得到
+        ② 守門變【第二層】,而它的理由要改寫
+```
+
+🔴 **理由為什麼要改寫(這是本節的重點)**:
+```
+守門是攔【錯配對】的。而現在的狀況是【配對本來就是錯的】,只是還沒有人用 preview 刷卡。
+⇒ 先加守門而不做 ① ⇒ 我們會擋住一個【本來就不該存在】的組合,
+   而那個組合【每天都在成立】(preview 一直掛著、連著正式庫)
+⇒ 那不是「守門發揮作用」,那是「守門天天在擋一個沒人修的錯設定」
+   —— 而天天響的警報會被當成背景噪音(memory feedback_an-absent-dimension-cannot-fail 那條的近親)
+```
+
+### 🔴 這不是新風險,是**一直都這樣**
+**不要讀成「最近才壞的」。** `TAPPAY_ENV` 與 `NEXT_PUBLIC_SUPABASE_URL` 全環境共用是**既有設定**,
+而 `#657`(storefront 沒守門)只是**讓它沒有任何東西會叫**。
+📎 **它剛好解釋了今晚另一件事**:本機刷沙盒卡而訂單躺進正式站後台 —— **同一個根源**
+(「TapPay 那一側是沙盒,而帳本那一側是正式站」),不是兩件獨立的事。
+
+---
+
+## §0-b 一句話(技術面)
 
 admin 有一道「TapPay 環境 × 帳本 DB 必須同一側」的 fail-closed 斷言,**storefront 沒有**。
 而 **storefront 那一側不能照抄** —— 它的 fail-closed 會打到「錢已經動了、正在記帳」那條路。
@@ -127,7 +161,15 @@ apps/admin/src/lib/payment/composition.ts:9-12 逐字警告
 
 ---
 
-## §5 格3:preview / staging 用正式 TapPay 配非正式 DB ⇒ **未確認,而缺的那道檢查我點名**
+## §5 格3:preview / staging ⇒ ✅ **已答,是嚴重那一半**(2026-08-19 Sean)
+
+> 🔴🔴 **本節下面整段是【問出去之前】寫的,現在是訃聞 —— 答案在 §0,不要照本節讀。**
+> Sean 逐字「**都是全環境共用,因為之前我設定的...**」
+> ⇒ 本節末那句預測(「若是全環境共用,先要處理的不是加守門,是 env scoping」)**成立**,已提到 §0。
+> ⇒ 他要按的步驟另開一份:`docs/runbooks/vercel-env-scoping-for-preview-safety.md`
+> ⇒ 而**新的未確認三件**(哪些 preview 掛著 / 誰觸發 cron / 兩個 Vercel 專案的正式分支)在 §5-b。
+> 📎 **本節留著不刪的理由**:它記錄了「為什麼會問這一題」與「當時我用哪些尺查」——
+> 而那把尺(`vercel.json` 零命中 + 「查不到設定推不出不存在」)下一個人還會用到。
 
 `#657` 條目自己列了這一格。**我查得到的**:
 ```
@@ -167,6 +209,45 @@ docs/reference/environment-values-and-what-stands-on-them.md  🔴 全檔零一�
                  apps/storefront 的 charge 路徑(依 §3 的裁示決定放哪)
                  + 新測試
               ⇒ 🔴 **≥5 檔,而且動到 admin 既有的已驗守門** ⇒ 回歸風險在 admin 那邊,不在 storefront
+```
+
+---
+
+## §5-b 🔴 爆炸半徑:**量到的與量不到的分開**(主視窗要求「量,不要估」)
+
+### ✅ 從 repo 量得到的
+```
+vercel.json 全文只有五個 key:$schema / framework / installCommand / regions
+  ⇒ 🔴 【零】git 設定、【零】env 設定、【零】crons
+  ⇒ 而 Vercel 在【沒有 git.deploymentEnabled 設定】時的預設行為是
+     「每一個分支的 push 都產生一個 preview deployment」
+  ⇒ ⚠️ 這句是【平台預設行為】,不是我從 repo 量到的 ⇒ 標「未在本環境實測」
+
+部署拓樸(memory,非本次量測)
+  storefront production = main   (project_deploy-topology-main-stale-dev-live)
+  admin      production = dev    (project_pcm-admin-production-tracks-dev)
+  ⇒ 🔴 若兩個 app 是同一個 repo 的兩個 Vercel 專案,那麼【推 dev】對 admin 是 production、
+     對 storefront 就是【preview】⇒ 而那個 preview 現在拿的是【全環境共用的正式組 env】
+  ⇒ ⚠️ 「兩個專案的 production branch 各自是什麼」是 dashboard 事實,memory 是轉述
+
+TAPPAY_ENV 未設 / 空值 會怎樣(量到的)
+  apps/storefront/src/lib/payment/composition.ts:51-55 requireEnv ⇒ 缺則 throw
+    ⛔ 本檔曾寫 :50-52 —— 又是拿 `sed` 視窗相對位置去加(本 session 第三次同款)
+       ⇒ 這一次我停止推算,直接 `grep -n` 拿真值。判別句:這個行號是 grep 印的還是我算的?
+  同檔 :70-72                                        值不是 sandbox|production ⇒ throw
+  ⇒ 🔴 所以「Preview 那格留空」【不是溫和的安全預設】,它會讓金流那條路【直接炸】
+     ——(而對 preview 而言「不能刷卡」正是我們要的,見下方給 Sean 的步驟 甲)
+```
+
+### 🔴 量不到的(要 dashboard 才答得出,已列進要問 Sean 的那批)
+```
+1. storefront 與 admin 是不是兩個 Vercel 專案?各自的 production branch 是哪一個?
+2. 現在實際掛著幾個 preview deployment?哪些分支?
+3. 那些 cron 路徑(settle-sweep / anomaly-alert)是誰在觸發?
+   🔴 這一格最重要:若 preview 也會被觸發 ⇒ preview 的 cron 正在對【正式庫】跑掃補款
+   ⇒ 而 vercel.json 零 crons ⇒ 觸發來源不在 repo 裡 ⇒ 我查不到
+   📎 memory reference_pcm-platform-plans-vercel-hobby-supabase-pro 記著「排程別預設綁 Vercel」
+      ⇒ 可能是外部排程器 ⇒ 那樣 preview 就不會被觸發。而【那是推測,不是查到的】
 ```
 
 ---
