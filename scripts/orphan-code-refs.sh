@@ -73,6 +73,15 @@ grep -E "$EXPECT" "$TMP/comments" > "$TMP/expect" || true
 DEFER_N=$(wc -l < "$TMP/defer" | tr -d ' ')
 grep -ohE "$CODE" "$TMP/defer" | sort -u > "$TMP/codes" || true
 
+# 🔴 形狀六(W7 2026-08-18):條目有號、有內容,而住在一個【沒被收割的分支】上
+#    ⇒ 對只看 checkout 的掃描是隱形的,會被誤報成「無號」。
+#    這裡不自動掃 refs(那會讓上面那兩個歷史負向對照不可重跑),改成【把盲區印出來】。
+AHEAD=$(git -C "$ROOT" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null \
+  | while read -r b; do
+      n=$(git -C "$ROOT" rev-list --count "dev..$b" 2>/dev/null || echo 0)
+      [ "${n:-0}" -gt 0 ] && echo "  $b(+$n)"
+    done)
+
 echo "== 分母(掃描根目錄 $ROOT)=="
 echo "帶延後語的非測試註解行 : $DEFER_N"
 echo "從中抽出的連字號代號   : $(wc -l < "$TMP/codes" | tr -d ' ')  (不排除 Q-*,理由見檔頭)"
@@ -106,3 +115,12 @@ done
 
 echo
 echo "候選數: 無號 $N1 / 錯號 $N2"
+echo
+echo "== ⚠️ 盲區(形狀六):本掃描只看【當前 checkout】 =="
+if [ -n "$AHEAD" ]; then
+  echo "下列分支領先 dev,它們上面的 backlog 條目在本次掃描裡是隱形的:"
+  echo "$AHEAD"
+  echo "要涵蓋:git grep -l '^### #' <branch> -- docs/phase-1-backlog.md"
+else
+  echo "沒有分支領先 dev ⇒ 這一輪沒有這個盲區。"
+fi
