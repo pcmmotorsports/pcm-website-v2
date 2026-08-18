@@ -11797,10 +11797,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #428. 🟥 `refund-wiring.test.tsx:306` 的「帳本讀取失敗」斷言**恆綠** —— 拿整頁字串驗一個區塊專屬的宣稱
 
-- **狀態:** ⏳ 待排(2026-08-12 / D 窗七代 #15-B2-c 片1a 的 code-reviewer R1 實測發現;
+- **狀態:** ✅ **完成 2026-08-18 19:2x(G2)** —— 加 `ledgerSection()` / `ledgerText()`,
+  帳本專屬的 6 個斷言全部鎖進 `<h2>退款紀錄</h2>` 的 `section`(找不到 throw、不回 null)。
+  🔴 **一次跑完的雙向證據(把 `refund-ledger-section.tsx` 那句文案改壞,舊寫法排在新寫法【前面】)**:
+  ```
+  391  expect(container.textContent).toContain('讀取失敗')   ← 舊寫法：**通過**（頁上別的區塊餵得到）
+  392  expect(ledgerText(container)).toContain('讀取失敗')    ← 新寫法：**紅**（refund-wiring.test.tsx:392:35）
+  ```
+  ⇒ **舊斷言的盲點與新斷言的判別力,在同一次執行裡同時證到。** 還原後 41 passed;
+  元件檔 `git diff --stat` ⇒ 零異動(還原用備份 `cp`,不是 `git checkout`)。
+  ~~原狀態~~:⏳ 待排(2026-08-12 / D 窗七代 #15-B2-c 片1a 的 code-reviewer R1 實測發現;
   主視窗 `D-539-A` §立案 配號 #428,**與本片無責、隨片1a 那顆 commit 帶進來**)。
 - **優先級:** 🟡 中(不會壞正式站;壞的是**守門本身**——它承諾守的那件事今天沒人在守)
 - **問題:**
+  - ⚠️ **行號已漂**(2026-08-18 實查:那條斷言在 `:361`,不在 `:306`;`:302` 那條用的是
+    `退款帳本載入失敗`、字面較專屬)。以下保留原文,行號請以當下 `grep` 為準。
   - `apps/admin/src/app/orders/[id]/refund-wiring.test.tsx:306` 逐字
     `expect(container.textContent).toContain('讀取失敗')`,意圖是驗「未登記額讀取失敗 ⇒ 帳本區塊顯錯誤態」。
   - 但 `讀取失敗` 這四個字在**同一頁的多個元件**都會出現。實查(`grep -rn '讀取失敗' apps/admin/src/components/orders/`)
