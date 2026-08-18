@@ -115,6 +115,56 @@ NOTIFY pgrst, 'reload schema';
 **跑到這裡表示你已經 apply 成功了 —— 回去讀 §0。**
 `exit 0` 是「整塊沒炸」,不是「每一條斷言都跑到」。
 
+## 4b. 🔴 要彩排 `supabase db push` 本身(不是只跑 SQL)—— 2026-08-18 實測
+
+> **本節與上面幾節的差別**:上面驗的是「這支 SQL 做了什麼」;本節驗的是「**CLI 那條路長什麼樣**」。
+> 存在理由:真 apply 那一刻 Sean 在場、全隊在等 —— **那是最不該當第一次的時刻。**
+> 全文與逐格輸出:`docs/probes/2026-08-18-db-push-rehearsal.txt`
+
+**① `db push` 強制 TLS,而 `sslmode=disable` 它【不理】**
+拋棄式叢集預設沒有 TLS ⇒ `tls error (server refused TLS connection)`,加 `?sslmode=disable` 得到**一模一樣的錯**。
+```bash
+openssl req -new -x509 -days 1 -nodes -subj "/CN=localhost" \
+  -keyout "$D/data/server.key" -out "$D/data/server.crt"
+chmod 600 "$D/data/server.key"
+printf "ssl = on\nssl_cert_file = 'server.crt'\nssl_key_file = 'server.key'\n" >> "$D/data/postgresql.conf"
+pg_ctl -D "$D/data" -l "$D/pg.log" restart -o "-p 55501 -c listen_addresses=127.0.0.1 -c unix_socket_directories=''"
+```
+⚠️ **這是【本機彩排】才會撞的**,正式 Supabase 本來就有 TLS ⇒ **不要誤讀成真 apply 的前置。**
+
+**② push 不是整批原子的 —— 一支一支來,成功一支記一支**
+實測:182 支推空庫、第 55 支炸 ⇒ 帳本 **54** 筆、失敗那支 **0** 筆。
+⇒ **中途失敗 = 前面的東西已經在庫裡了**,不會因為後面炸而一起退回。
+
+**③ 重跑從失敗那支續跑,已記帳的一支都不重跑**
+原封再推:`Applying migration` 出現 **1** 次、帳本仍 **54**。
+⇒ 🔴 **「不帶 `IF NOT EXISTS` 的 migration 重跑會不會炸」的答案是:不會** —— 它根本不會被再執行到。
+
+**④ 一支跑到一半失敗 ⇒ 整支回滾,不留半成品**
+構造(`CREATE TABLE` → `CREATE INDEX` → `SELECT 1/0`):那張表**不存在**(0),
+而前一支建的表**在**(1,**正向對照** —— 證明這把尺量得到「存在」)。
+⇒ 失敗的 migration 不留殘留 ⇒ 重跑不會撞到自己上一次的半成品。
+
+**⑤ 帳本裡有一支本機目錄沒有的版本 ⇒ 整發拒絕、一支都不推(fail-closed)**
+```
+Remote migration versions not found in local migrations directory.
+修復(已彩排,rc=0):supabase migration repair --status reverted <version> --db-url <本機>
+```
+📎 與 memory `reference_quote-repo-migration-ledger-desync`(報價單 repo 本地 146 檔 vs ledger 160 筆)
+**是同一個機制** —— 那條現在有可重跑的量法了。
+
+**⑥ 從零重放全部歷史【這條路不通】**
+`db push --include-all` 到空庫在第 55 支就炸(缺 `product_fitments_effective`)。
+⇒ 要彩排「推 N 支上去」,做法是**只把那 N 支放進一個乾淨目錄**,前置表逐字從 repo 的 migration 取(見 §2)。
+
+**🔴 兩件本節【沒有】驗到的(不要當成已驗)**
+```
+· #628「記帳被拒」：本機你是 superuser ⇒ 帳本 INSERT 當然過。**對它零判別力。**
+· 你彩排的是【已 commit 的那份】。主樹工作檔可能是別人未 commit 的 WIP
+  —— 2026-08-18 實例：同一支 dev 上 205 行、主樹 287 行，差的那段有一個 trigger 函式。
+  ⇒ **先 `git show dev:<path> | wc -l` 跟工作檔對一次**，否則你會把「那份沒有那段」報成「apply 少建了東西」。
+```
+
 ## 5. ⚠️ 本機效度限制(必讀,否則會下錯結論)
 
 🔴 **`pg_trgm` 在 macOS 對中文抽零 trigram**(memory `reference_pg-trgm-cjk-zero-on-macos-libc`)。
