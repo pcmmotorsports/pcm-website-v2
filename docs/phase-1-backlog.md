@@ -19320,6 +19320,29 @@ mappers/order-procurement.ts:158
      order   → 一律 limit
 ⚠️ 它動的是 mapper 的回傳形狀、跨 `packages/adapters` ⇒ **不是文案片**，要獨立評估。
 📎 `#643` B 刻意不做這一步，理由寫在 `item-procurement-section.tsx` 的 `TruncationWarning` docstring。
+
+### 🔴 第二條路(**已經在同一個資料夾裡落地過**,G6 2026-08-18 18:1x 指出,我開檔複驗)
+
+```
+packages/adapters/src/supabase/mappers/order-cancellations.ts:88
+  if (!rows || rows.length === 0) return { items: null, itemsTruncated: false };
+逐字理由在 :85-87
+  「🔴 R3 M2:改回 `null`(不是 `[]` + truncated)—— 空清單與「讀不到」在畫面上長得一樣,
+    型別給 null 才逼得動消費端先處理。`itemsTruncated` 從此只表示「觸及上限」。」
+```
+⇒ **同一題有兩種解法,而第二種已經有審查來歷、消費端被型別逼著處理過一輪:**
+```
+甲  旗標拆成原因列舉  'missing' | 'limit' | null      ← 本條原本只寫了這個
+乙  第二個通道        items: null（讀不到）+ truncated 只表示「觸及上限」
+```
+**本條不裁定用哪個** —— 但寫 plan 的人要先讀乙那一段,不要重新發明一次。
+⚠️ 差別不只是形狀:乙**把「讀不到」變成型別上的必答題**,甲則是多一個消費端可以忽略的字串。
+
+常數複驗(2026-08-18 18:2x,開檔):
+```
+ORDER_ITEM_PROCUREMENT_EMBED_LIMIT = 50   order-procurement.ts:44
+ORDER_ITEMS_EMBED_LIMIT            = 200  order.ts:411   ← 🔴 不是 :417（那行是註解）
+```
 ```
 
 ## 不修未來會痛在哪
