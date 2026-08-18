@@ -22,7 +22,7 @@
 |---|---|---|
 | 1 | `8fb1efb9` 欄級補丁 V 窗複查 | ✅ 已回 `V-020` FAIL 2 條 → 已折 → `V-023` 再 FAIL 2 條 → **已折,待 V 窗窄確認** |
 | 2 | pg_cron 殘留處置 | ✅ **完成** — 判不建 + 立案 `#554`(`fba62d35`) |
-| 3 | 關卡2 獨立模型背書(codex) | 🔴 **未過** — R1 FAIL(9 must-fix + 2 nit)→ 已折 → R2 FAIL(8)→ 已折;**2026-08-17 04:0x B 窗再跑兩輪,兩輪都【零 findings】**:R1 12 分全花在反覆讀檔被 watchdog 砍、R2(明文禁開檔)連一個 assistant turn 都沒有,兩輪都伴隨 `codex_models_manager::cache: missing field base_instructions`。⇒ **認列缺口,不是 PASS。** 替代=`adversarial-reviewer` + `code-reviewer` 兩條 fresh context |
+| 3 | 關卡2 獨立模型背書(codex) | 🔴 **未過** — R1 FAIL(9 must-fix + 2 nit)→ 已折 → R2 FAIL(8)→ 已折;**2026-08-17 04:0x B 窗再跑兩輪,兩輪都【零 findings】**:R1 12 分全花在反覆讀檔被 watchdog 砍、R2(明文禁開檔)連一個 assistant turn 都沒有,兩輪都伴隨 `codex_models_manager::cache: missing field base_instructions`。⇒ **認列缺口,不是 PASS。** 替代=`adversarial-reviewer` + `code-reviewer` 兩條 fresh context | <br>🔴 **2026-08-18 更新(GR `#6` must-fix:本欄停在 08-17 的『兩輪破跑、認列缺口』,而那之後跑了四輪,單層讀者會以為背書還停在破跑)**:`R3`(15 條)/`R4`(15 條)/`R5`(16 條)**全折**,逐條裁定 `docs/reviews/2026-08-18-b1-k1-r3-findings-triage.md` §1-§10;**第六輪換模型(GR/Fable)** = `~/pcm-mailbox/GR-005-B1三支migration-第六輪換模型審-20260818.md`,總判**三支 SQL 行為層零新 must-fix**
 | 4 | 報價單 **production schema 與 repo 一致性** | 🟡 **部分完成**(~~未關,且做不完~~ 已作廢:repo 側一直都在,原判是 `find -maxdepth 3` 掃不到造成的)— repo 側 ✅ / schema shape ✅ / **migration ledger 讀不到 ⇒ 需 Sean** — 見下方專段 |
 | 5 | `B1-a` 的 `select distinct actor` 重跑 | 可選(已跑過一次:`sean` 48 / `staff_1` 17) |
 | 6 | 🔴 **`MAINTAIN` 補進權限清單** | ✅ **完成** — 見下方專段 |
@@ -422,3 +422,32 @@ sh /Users/sean_1/pcm-website-v2/scripts/run-rc.sh 3 -- bash scripts/b1b-acceptan
 該發突變把 `A19m` 的 **sed 錨點字串本身**拿掉了 ⇒ 錨點自檢先叫「突變沒生效」並記一次 FAIL,
 而 `A19m` 那一格**根本沒跑** ⇒ 少一格。**是 fail-closed 的正確行為,不是掉了一格沒人發現。**
 🔴 **這個數字是 B 窗單方面的量測,無人復現** —— 引用時要帶這個限定。
+
+---
+
+## 🆕 `#9` **apply 之後的人工查詢**(2026-08-18 第六輪 GR 的**放行條件 2**,必做)
+
+> **為什麼是必做而不是可選**:`b1a` 把「啟用名單 ≠ 2026-08-16 實查」從 `RAISE` 降成 `NOTICE`
+> (理由:那是**世界態**,合法新員工會誤紅在最貴的時刻)。
+> 🔴 **而 spec `§7.5-3` 自己寫著:MCP 通道「NOTICE/WARNING 常根本不回傳」**
+> ⇒ **降級所「保留的資訊」在真實 apply 通道上可能根本沒人看得到**
+> ⇒ 「保留資訊、移除阻擋」實際上可能是**兩個都移除**。
+> **⇒ 因此改用一條【不依賴 NOTICE 通道】的人工查詢補回那半資訊。**
+
+**`B1-a` apply 之後,立刻跑這一條(A 庫,唯讀)**:
+```sql
+SELECT id, label, is_active, is_manager
+  FROM public.staff
+ ORDER BY is_active DESC, id;
+```
+**看什麼**:
+```
+· test_01                       ⇒ is_active 必須是 f   （本支剛做的事）
+· op4_backfill / payment_confirmer ⇒ is_active 必須是 f（系統帳號，不該出現在操作者選單）
+· 啟用中的其餘幾列 ⇒ 逐列念一次名字：這些是不是【今天真的還在職】的人？
+  🔴 這一問【不是機器答得了的】—— 它正是被降成 NOTICE 的那一半，而這裡把它交還給人。
+```
+⚠️ **與 `b1a` 內那道封閉不變量的分工**(不要以為有了一個就不必另一個):
+- 檔內那道 `RAISE`:擋的是**系統帳號 / test_01 被啟用**(封閉不變量)。
+- 這條人工查詢:看的是**啟用名單整體對不對**(世界態)——**它沒有機器判準,所以只能是人看**。
+🔴 **兩者都做完,`b1a` 的 NOTICE 降級才算被放行**(GR 2026-08-18 明列的兩個條件)。

@@ -13,6 +13,12 @@
 #    洩漏到後面三個 case ⇒ 那三格照樣印「期望=RED 實得=RED」,而紅的原因根本不是要測的那個。
 #    ⇒ 每一格都要求錯誤訊息含指定字串。
 #
+# 🔴 **覆蓋分工(2026-08-18 第六輪 GR nit:不寫的話「PASS=19」會被讀成三支全覆蓋)**:
+#    · b1a  ：本檔（對照組 + 世界態 + 封閉不變量 + drift）
+#    · B1-c ：本檔（前提/落地/探針/權限，格數最多）
+#    · b1b  ：**本檔只有一格對照組 `b_ctrl`** —— 它的深突變覆蓋住在
+#             `scripts/b1b-acceptance-harness.sh`（43 格），**那支不在本檔的 PASS 數字裡**。
+#
 # ⚠️ 效度限定(照 docs/runbooks/throwaway-postgres-for-migration-verification.md §5):
 #    · 本機的 service_role / anon / authenticated 是這支檔自己造的,ADP 與 role membership 與正式庫不同
 #    · auth.users 是骨架(id + email 兩欄),不是真的 GoTrue 表
@@ -82,7 +88,12 @@ echo "── B1-a(A 庫:停用 test_01)──"
 #    ⇒ 對照組改成要求看到那支檔自己印的成功 NOTICE。
 case1 a_ctrl     atpl "" "$B1A" GREEN "沒有第三種差異"
 case1 a_newhire  atpl "INSERT INTO public.staff (id,label,is_manager,is_active) VALUES ('staff_3','新員工 3',false,true)" "$B1A" GREEN "不擋"
-case1 a_swap     atpl "UPDATE public.staff SET is_active=false WHERE id='staff_1'; UPDATE public.staff SET is_active=true WHERE id='op4_backfill'" "$B1A" GREEN "不擋"
+# 🔴 2026-08-18 第六輪(GR)連動:這一格的突變【啟用了 op4_backfill】，
+#    而 b1a 新增的封閉不變量（系統帳號不得啟用）就是為這種世界蓋的 ⇒ 期望從 GREEN 轉 RED。
+#    ⚠️ GR 明講：cell 期望要與那道斷言【同一顆 commit】改，否則 harness 自己變成過期字面。
+case1 a_swap     atpl "UPDATE public.staff SET is_active=false WHERE id='staff_1'; UPDATE public.staff SET is_active=true WHERE id='op4_backfill'" "$B1A" RED "不該登入的帳號"
+# 🆕 而「只停用一個真人、不啟用任何系統帳號」仍然是世界態 ⇒ 不擋（證降級那一半還活著）
+case1 a_worlddrift atpl "UPDATE public.staff SET is_active=false WHERE id='staff_1'" "$B1A" GREEN "不擋"
 case1 a_gone     atpl "DELETE FROM public.staff WHERE id='test_01'" "$B1A" RED "沒有 test_01"
 # 🔴 這一格的突變【必須發生在 migration 執行的當下】,不能是事先改好 ——
 #    b1a_before 的快照是在 migration 內拍的,事先改掉的東西會被算進「before」⇒ 不是 drift。
@@ -112,7 +123,7 @@ case1 c_email    qtpl "UPDATE auth.users SET email='x@example.com' WHERE id='63f
 case1 c_wl4      qtpl "ALTER TABLE public.admin_user_staff_map DROP CONSTRAINT admin_user_staff_map_staff_whitelist; ALTER TABLE public.admin_user_staff_map ADD CONSTRAINT admin_user_staff_map_staff_whitelist CHECK (staff_id IN ('sean','staff_1','staff_2','x9'))" "$B1C" RED "白名單裡的字面有 4 個"
 case1 c_anon     qtpl "GRANT SELECT ON TABLE public.admin_user_staff_map TO anon" "$B1C" RED "anon:SELECT"
 case1 c_maintain qtpl "GRANT MAINTAIN ON TABLE public.admin_user_staff_map TO anon" "$B1C" RED "anon:MAINTAIN"
-case1 c_col      qtpl "GRANT SELECT (staff_id) ON TABLE public.admin_user_staff_map TO anon" "$B1C" RED "欄級"
+case1 c_col      qtpl "GRANT SELECT (staff_id) ON TABLE public.admin_user_staff_map TO anon" "$B1C" RED "anon:欄級"
 case1 c_policy   qtpl "CREATE POLICY p_all ON public.admin_user_staff_map FOR SELECT USING (true)" "$B1C" RED "出現了 policy"
 case1 c_norls    qtpl "ALTER TABLE public.admin_user_staff_map DISABLE ROW LEVEL SECURITY" "$B1C" RED "RLS 沒有開著"
 case1 c_write    qtpl "GRANT INSERT ON TABLE public.admin_user_staff_map TO service_role" "$B1C" RED "又拿到寫入權"
@@ -145,7 +156,10 @@ for m in del rebind trunc; do
   out="$(psql -h 127.0.0.1 -p "$PORT" -U postgres -d "$n" -f "$B1C" 2>&1)"
   case "$m" in
     del)    want="DELETE(staff_2)" ;;
-    rebind) want="auth_user_id" ;;
+    # 🔴 2026-08-18 第六輪(GR must-fix):舊 want="auth_user_id" 同時出現在【正確診斷】
+    #    （FK 明捕「不是 no_rebind」）與【錯誤診斷】（WHEN OTHERS「非預期錯誤…auth_user_id」）
+    #    ⇒ 這一格分不出「紅得對」與「紅在對的地方、說錯原因」——而它正是為後者蓋的。
+    rebind) want="不是 no_rebind" ;;
     trunc)  want="TRUNCATE 沒有被擋下" ;;
   esac
   if printf '%s' "$out" | grep -q 'ERROR:' && printf '%s' "$out" | grep -q -- "$want"; then

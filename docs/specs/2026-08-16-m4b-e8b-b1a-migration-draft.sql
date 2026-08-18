@@ -207,6 +207,7 @@ DECLARE
   v_others   bigint;
   v_active_ids text;
   v_drift    text;
+  v_sysact   text;
 BEGIN
   SELECT is_active INTO v_active FROM public.staff WHERE id = 'test_01';
   IF v_active IS NULL THEN
@@ -274,9 +275,30 @@ BEGIN
       '   但請看一眼:多出來的人是誰?少掉的人為什麼被停用?', COALESCE(v_active_ids, '(空)'), v_others;
   END IF;
 
+  -- 🔴🔴 2026-08-18 第六輪(GR)**放行 NOTICE 降級的【條件 1】:補一道封閉不變量**
+  --    降級把「啟用名單 ≠ 實查」變成 NOTICE,而那丟掉了 R3-C1 的原始攻擊面:
+  --    **一個真人被停用、同時一個系統帳號被啟用** ⇒ 數量沒變、名單變了,而現在只剩一行 NOTICE。
+  --    ⇒ 補這一道:**系統帳號與 test_01 不得是啟用中** —— 依 b1-spec §2 那張表逐字「會登入嗎 ❌」,
+  --      它們從不經過登入路徑,而 `is_active=true` 會讓它們出現在操作者選單裡。
+  --    ⚠️ **證據等級要講清楚(GR 明確要求)**:規格說的是「**不會登入**」,
+  --      **沒有逐字說「`is_active` 恆為 false」** ⇒ 這一道是我從 §2 推的,不是規格白紙黑字。
+  --      ⇒ 因此**條件 2(preflight 的 apply 後人工查詢)照樣要做,不因為有了這一道就省**;
+  --        而若哪天規格改成「系統帳號可以啟用」,**先改規格,再回來拆這一道**。
+  SELECT string_agg(id, ', ' ORDER BY id) INTO v_sysact
+    FROM public.staff
+   WHERE is_active AND id IN ('op4_backfill', 'payment_confirmer', 'test_01');
+  IF v_sysact IS NOT NULL THEN
+    RAISE EXCEPTION E'B1-a 落地斷言:這些【不該登入的帳號】是啟用中的:%\n'
+      '   ⇒ op4_backfill / payment_confirmer 是系統帳號(b1-spec §2:會登入嗎 ❌),\n'
+      '      test_01 是本支剛停用的那一個 ⇒ 三者都不該出現在操作者選單裡。\n'
+      '   ⇒ 這一道是【封閉不變量】,不是世界態 —— 它紅了代表有人啟用了不該啟用的帳號。', v_sysact;
+  END IF;
+
   IF v_drift IS NOT NULL THEN
     RAISE EXCEPTION E'B1-a 落地斷言:本支動到了不該動的東西:%\n'
       '   ⇒ 允許的差異只有兩種:test_01 的 is_active true→false、staff_2 的 label。\n'
+      '   ⚠️ 比對的欄位是 {存在, is_active, label} 三個(見本檔的 b1a_before 快照定義);\n'
+      '      is_manager 等其他欄【不在比對範圍】—— 這句訊息不宣稱它們沒被動到。\n'
       '   ⇒ 現在啟用中的是 [%](共 % 列)—— 這兩個數字只是幫你診斷,判定不看它們。\n'
       '   ⇒ 停下來看,不要當成通過。', v_drift, COALESCE(v_active_ids, '(空)'), v_others;
   END IF;
@@ -304,10 +326,28 @@ BEGIN
     --    這是【對照組】:它要證「staff_1 沒被動到」。而 staff_1 整列不見時
     --    `v_s1` 是 NULL ⇒ 舊寫法 `NULL <> '…'` ⇒ NULL ⇒ 不叫
     --    ⇒ **「有人把 staff_1 刪掉」與「staff_1 好好的」在舊斷言眼裡一模一樣。**
+    -- 🔴🔴 2026-08-18 第六輪(GR 換模型)`C-B` + `#7`:**同一支檔對「世界態要不要擋 apply」給了相反的答案。**
+    --    `:256-275` 把「啟用名單 ≠ 08-16 實查」降成 NOTICE(理由:世界態、合法變動會誤紅),
+    --    而這一道對「staff_1 的 label ≠ 08-16 實查」照樣 RAISE —— **同樣是世界態、同樣可被合法改動。**
+    --    失敗情境:Sean 哪天把 staff_1 的 label 改成真名(合法)⇒ **apply 當天誤紅**,
+    --    而最順手的修法是放寬 —— 那正是 R5-7 要防的事。**同一次折入只掃了一道、漏了旁邊這道。**
+    --
+    -- 🔴🔴 **本檔從此照這條判準(GR 要求:給下一輪一個判準,不是又一次個案)**:
+    --      【可合法變動的世界態】⇒ NOTICE(印出來給人看,不擋 apply)
+    --      【封閉不變量】        ⇒ RAISE(擋 apply)
+    --    · 「本支只動允許的那兩種差異」= 封閉不變量 ⇒ 由上面的快照比對 RAISE(不變)
+    --    · 「staff_1 的 label 現在是什麼」= 世界態 ⇒ 降 NOTICE
     SELECT label INTO v_s1 FROM public.staff WHERE id = 'staff_1';
     IF v_s1 IS DISTINCT FROM '員工 1(占位)' THEN
-      RAISE EXCEPTION E'B1-a 落地斷言:staff_1 的 label 變成「%」——本支不該碰它。\n'
-        '   ⇒ 要嘛我動錯列,要嘛它已經被別人改過。兩種都停下來看。', v_s1;
+      RAISE NOTICE E'⚠️ B1-a:staff_1 的 label 是「%」,與 2026-08-16 實查的「員工 1(占位)」不同。\n'
+        '   這【不擋】apply —— 「本支沒動到它」由上面的快照比對守著(那道會 RAISE)。\n'
+        '   但請看一眼:是誰改的、改成什麼。', COALESCE(v_s1, '(那一列不見了)');
+    END IF;
+    -- 🔴 而「staff_1 整列不見」不是世界態的合法變動 —— staff 從不物理刪除(建表 migration 的設計)
+    --    ⇒ 它是封閉不變量,照樣 RAISE。
+    IF NOT EXISTS (SELECT 1 FROM public.staff WHERE id = 'staff_1') THEN
+      RAISE EXCEPTION E'B1-a 落地斷言:staff_1 那一列【不見了】。\n'
+        '   ⇒ staff 表的設計是「停用走 is_active=false、不物理刪除」⇒ 整列消失不是合法狀態。';
     END IF;
   END;
 
