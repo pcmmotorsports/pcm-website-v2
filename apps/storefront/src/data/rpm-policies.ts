@@ -10,8 +10,55 @@
 //   未來 site_policies 後台接線;Sean 確認準確性後若需改字面 → 改本檔)。
 // - 渲染:消費端(ProductTabs / ProductFAQ)各自把 PolicyRun[] map 成 JSX(string→文字、{b}→<strong>)。
 
+import { OPENING_HOURS, openDaysLabel } from '@/lib/site-config';
+
 /** 政策段落的最小單位:純文字 或 需加粗的文字({ b }) */
 export type PolicyRun = string | { b: string };
+
+/**
+ * 營業時段字面(`RPM_WARRANTY_NOTES` 第 3 條用)。
+ *
+ * 🔴 **為什麼這一行要從 SSoT 衍生,而檔頭說「改字面只動本檔這一處」**:
+ *    檔頭那句管的是**政策文案**(鑑賞期、瑕疵認定 —— 對客戶的法律主張、鐵則 1 byte-for-byte);
+ *    營業時間**不是政策,是聯絡資訊** —— 它跟頁尾/手機選單/服務條款/schema.org 講的是同一件事,
+ *    而 `legal-content.ts:38` 已經立了規矩「聯絡 / 登記資訊一律從 SSoT 衍生、不在本檔硬寫」。
+ *
+ * 🔴🔴 **這一支是 `#528` 的漏網之魚,而【它為什麼漏掉】比【它漏掉了】更值得記**:
+ *    `site-config-wiring.test.ts` 的註解裡**寫著一條反向量法**,專門抓這種硬寫殘留:
+ *        git grep -nE '週一[-–]週六|10:00[-–]19:00' -- apps/storefront/src
+ *    **那條命令被寫下來了,而它【跑起來也撈不到本行】。**
+ *
+ *    決定性實驗(2026-08-19,兩行測資,`/usr/bin/grep -E`):
+ *        測資 甲 `週一-週六`(半形 hyphen) / 乙 `週一–週六`(en-dash U+2013)
+ *        `週一[-–]週六`  ⇒ **只中甲**
+ *        `週一[-]週六`   ⇒ **只中甲(輸出逐字節相同)**
+ *        `週一[–]週六`   ⇒ 空
+ *    ⇒ 🔴 **`[-–]` 在 BSD grep 與 `git grep` 上就是 `[-]`** ——
+ *      它**安靜地退化成只剩自己的 ASCII 成員**,而 en-dash 那一半被丟掉。
+ *
+ *    ⚠️ **引擎相依,不是「shell 上一律壞」**(2026-08-19 G6 打回我原本「恆零命中」的過寬說法):
+ *      同三發改用 **ugrep**(Bash 工具裡手打的 `grep` 是它)⇒ `[-–]` **甲乙都中**。
+ *      ⇒ **手打驗證會過、`#!/bin/bash` 腳本裡跑同一條會漏**,而兩邊都不報錯。判別 `type grep`。
+ *      (機制推斷:BSD 的 `[…]` 是位元組類別。**這一句是推的;上面那三行是量到的。**)
+ *
+ *    🔴 **毒在哪:寫 `[-–]` 的人是想周全**(半形與 en-dash 都涵蓋),
+ *    而那份周全**正是它退化的入口** —— 它安靜丟掉周全的那一半,只留原本就會抓到的那一半。
+ *    ⇒ **混合型比全多位元組更毒**:後者回 0 還有機會被人問一句;
+ *      混合型**有輸出、非零、看起來完全正常**,而它漏掉的正是你特地加進去的那個字元。
+ *
+ *    ⇒ 對應的機制不是「下次記得跑」,是 `site-config-wiring.test.ts` 的**分母守門**:
+ *      掃全樹的時段字面、不在白名單上就紅,**而且它自帶一道自檢**
+ *      (拿一個已知存在的字面餵它,撈不到 ⇒ 整格作廢),防的就是上面這種壞尺。
+ *
+ * ⚠️ **破折號是 en-dash `U+2013`,不是半形 `-`** —— 與 `openDaysLabel('-')` 的三個顯示點刻意不同。
+ *    🔴 **「刻意」有出處,不是我推的**(2026-08-19 本窗以 open-design 親查 `pcm-home-redesign`,
+ *    非轉述):`content-pages-data.js:44` 逐字
+ *    `['有問題請加 LINE：', { b: '@pcmmoto' }, ' · 週一–週六 10:00–19:00']`
+ *    ——**連結構帶字面都與本行相同**;另 `product-detail-data.js:179` /
+ *    `product-detail-rpm-data.js:187` / 內容包 `:580` 同款,**四處全是 en-dash、零處半形**。
+ *    ⇒ 改這裡等於改畫面(鐵則 1),動前先開 OD 那幾支。
+ */
+const OPEN_HOURS_LINE = ` · ${openDaysLabel('–')} ${OPENING_HOURS.opens}–${OPENING_HOURS.closes}`;
 
 /** 保固 / 退換 / 鑑賞期政策正文 —— 4 段(OD-13 Sean 拆「換貨處理」與「退換貨需維持」為兩段、提升可讀性) */
 export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
@@ -45,5 +92,5 @@ export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
 export const RPM_WARRANTY_NOTES: PolicyRun[][] = [
   ['瑕疵認定：紋路明顯錯位、表面破損、孔位偏差、超過合理公差範圍'],
   ['不在範圍：人為碰撞、摔車、不當安裝、自行加工'],
-  ['有問題請加 LINE：', { b: '@pcmmoto' }, ' · 週一–週六 10:00–19:00'],
+  ['有問題請加 LINE：', { b: '@pcmmoto' }, OPEN_HOURS_LINE],
 ];

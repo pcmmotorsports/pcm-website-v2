@@ -47,9 +47,10 @@
  * ⚠️ 而**這條通則本身沒有守門** —— 它靠讀到的人執行。要做成機制的話,
  *   形狀是「掃本檔的 `readFileSync` 呼叫點」的 meta 測試,**還沒做**。
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { RPM_WARRANTY_NOTES } from '../data/rpm-policies';
 import { STORE_ADDRESS } from './site-config';
 
 const SRC = join(__dirname, '..');
@@ -124,6 +125,11 @@ const CONSUMERS: readonly (readonly [
     'data/legal-content.ts',
     { opens: true, closes: true, days: true },
     '🔴 服務條款正文的營業時間 —— 法律頁;**唯一從 days 推導中文星期的地方**',
+  ],
+  [
+    'data/rpm-policies.ts',
+    { opens: true, closes: true, days: true },
+    '🔴 商品頁保固 pane + FAQ + /info/shipping 三畫面共用的政策文案末行(2026-08-19 接上;見下方分母守門)',
   ],
 ];
 
@@ -235,4 +241,145 @@ describe('`#528` 同族:門市地址(硬寫的字面必須與 `STORE_ADDRESS` �
       ).toBe(FULL);
     });
   }
+});
+
+/**
+ * ═══ 分母守門:**沒有人維護的清單,遲早會漏一支** ═══════════════════════════
+ *
+ * 🔴 **為什麼加這一格(2026-08-19,`#528` 的漏網之魚)**
+ * 上面 `CONSUMERS` 的註解自己寫著:「**分母由人維護,不是機器發現的**」——
+ * 而它在 `#528` 收工後**真的漏了一支**:`data/rpm-policies.ts` 的末行硬寫著
+ * 「週一–週六 10:00–19:00」,三個畫面在渲染它,而沒有任何東西會紅。
+ *
+ * 🔴🔴 **而更值得記的是:當時【已經有一條專門抓它的量法寫在註解裡】,跑起來也撈不到。**
+ * 受控實驗(同一棵樹 `HEAD`、同一個檔、同一支 `git grep`、同一刻):
+ * ```
+ *   git grep -nE '週一–週六'    ⇒ 1 命中（就是那一行）
+ *   git grep -nE '週一[-–]週六' ⇒ 0 命中
+ * ```
+ * 差別只有那個**中括號**。`LANG`/`LC_ALL` 皆空 ⇒ C locale ⇒ `[…]` 是**位元組**類別,
+ * 而 en-dash `–`(U+2013)是 **3 個位元組** ⇒「這裡剛好一個位元組」對它永遠不成立。
+ * ⇒ **寫 `[-–]` 是為了周全(半形與 en-dash 都涵蓋),而那份周全正是零命中的原因。**
+ *
+ * ⇒ 所以本格做兩件事,缺一不可:
+ *   ① **掃全樹**、不掃清單 —— 新長出來的硬寫殘留會被撿到,不必有人記得加進 `CONSUMERS`
+ *   ② **自帶負向自檢** —— 拿一個**已知存在**的字面餵同一支 pattern;撈不到 ⇒ **整格作廢**,
+ *      因為那代表尺壞了,而壞尺的輸出跟「乾淨」長得一模一樣
+ *
+ * ⚠️ **本格是 JS `RegExp`,不是 `git grep`** —— JS 的字元類別是**字元**語意、不是位元組,
+ *    所以 `[-–]` 在這裡是安全的。**那正是為什麼自檢不能省**:能不能用不該靠我記得,要靠它自己表演。
+ */
+describe('分母守門:營業時間字面不得出現在白名單以外的檔', () => {
+  /**
+   * 白名單 = SSoT 本身 + `CONSUMERS` 宣告過的每一支。
+   *
+   * ⚠️ **射程(GR-075 ⑤-b)**:白名單是**整檔豁免**,不是逐行豁免 ——
+   * 一支檔一旦進了 `CONSUMERS`,它**檔內任何位置**再多硬寫幾處時段字面,本格都不會紅。
+   * 擋那一層的是上面的**逐欄接線**格(它驗那支檔有沒有真的取用 SSoT),
+   * 而「接了 SSoT **又同時**在別處硬寫一份」這個組合,**兩格都抓不到**。
+   */
+  const ALLOWED = new Set<string>(['lib/site-config.ts', ...CONSUMERS.map(([rel]) => rel)]);
+
+  /**
+   * 時段字面。中括號在 JS 是**字元**語意 ⇒ 位元組那個病不存在;
+   * **而安不安全由下面的自檢說了算,不由這句註解說了算。**
+   *
+   * 🔴 **字集是三個家族,不是一個**(GR-075 MF-B):
+   *   星期連接詞 = dash 家族 `-–—` **加上「至」** —— 「至」是本站**活著**的字面
+   *   (`legal-content.ts` 走 `openDaysLabel('至')`),而它不在任何 dash 家族裡。
+   *   時段連接詞 = 同 dash 家族;而冒號有**半形與全形**兩種。
+   * ⚠️ **這仍是一個【由人列的字集】** —— 它擋得住今天已知的六種寫法,
+   *   擋不住明天有人寫「週一~週六」或「上午10點到晚上7點」。**射程就到這裡。**
+   */
+  const DASH = '[-–—]';
+  const HOURS = new RegExp(
+    `週[一二三四五六日](?:${DASH}|至)週[一二三四五六日]` +
+      `|\\d{2}[:：]\\d{2}\\s*(?:${DASH}|－|至)\\s*\\d{2}[:：]\\d{2}`,
+  );
+
+  /** 遞迴列出 `apps/storefront/src` 下所有非測試的 .ts/.tsx(相對 SRC 的路徑)。 */
+  function walk(dir: string, prefix = ''): string[] {
+    const out: string[] = [];
+    for (const e of readdirSync(join(SRC, dir === '' ? '.' : dir), { withFileTypes: true })) {
+      const rel = prefix === '' ? e.name : `${prefix}/${e.name}`;
+      if (e.isDirectory()) {
+        out.push(...walk(rel, rel));
+      } else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
+        out.push(rel);
+      }
+    }
+    return out;
+  }
+
+  const FILES = walk('');
+
+  it('🔴 自檢:掃描器與 pattern 兩者都要證明自己會動(不過 ⇒ 下面那格的綠不算數)', () => {
+    // ① 掃得到檔:`walk()` 至少要撈到本檔隔壁那支 SSoT。
+    expect(FILES, 'walk() 沒撈到 lib/site-config.ts —— 掃描器壞了,不是樹乾淨').toContain(
+      'lib/site-config.ts',
+    );
+    // ② pattern 認得出「該紅的那幾種字面」。
+    //    🔴 GR-075 MF-B:原本只有 dash 家族兩種,而**本站活著的星期連接詞是三個**——
+    //       「至」在 `legal-content.ts` 走 `openDaysLabel('至')` **真的 render 出去**,
+    //       而它**不在** dash 家族裡 ⇒ 有人把法律頁退回硬寫「週一至週六」,舊字集**一聲都不吭**。
+    //       時段那半同理漏了**全形冒號**。
+    //    📌 **我把位元組病換成字元語意(JS RegExp)是對的,而【字集窄】是另一個病** ——
+    //       換了層不等於換了名。這一格就是那句話的落點。
+    for (const [s, why] of [
+      ['週一–週六 10:00–19:00', 'en-dash 版 —— 就是 #528 漏掉的那一種'],
+      ['週一-週六', '半形 hyphen 版'],
+      ['週一—週六', 'em-dash 版'],
+      ['週一至週六', '🔴「至」版 —— legal-content.ts 現在就 render 它'],
+      ['10:00－19:00', '全形冒號/破折的時段版'],
+      ['10：00-19：00', '全形冒號的時段版'],
+    ] as const) {
+      expect(HOURS.test(s), `pattern 配不到「${s}」(${why})`).toBe(true);
+    }
+    // ③ 而它**不能**什麼都認 —— 否則每支檔都紅,綠紅一樣沒有判別力。
+    expect(HOURS.test('營業時間請見門市頁'), 'pattern 太寬,連沒有時段的句子都認').toBe(false);
+    // ④ 🔴 GR-075 MF-A:上面兩層各自表演了,而**主判定是三層合成**
+    //    (`walk` → `readFileSync` → `stripComments` → `HOURS`)。
+    //    `stripComments` **從來沒有在自檢裡表演過** —— 它若剝太多(例如把整份 code 吃掉),
+    //    主掃會回空、判定會綠,而上面 ①② 照樣過。
+    //    ⇒ 用 inline fixture 走**同一條管線的後兩段**,證明字面穿得過剝註解那一步。
+    expect(
+      HOURS.test(stripComments('const s = "週一–週六 10:00–19:00";')),
+      '🔴 stripComments 把真實 code 裡的字面吃掉了 —— 主判定會恆綠,整格作廢',
+    ).toBe(true);
+    //    反向:註解裡的字面**必須**被剝掉(否則 `ComingSoon.tsx:217` 那種註解會假紅)。
+    expect(
+      HOURS.test(stripComments('// 這行註解提到 週一–週六 10:00–19:00')),
+      'stripComments 沒剝掉行註解 —— 主判定會假紅在別人的說明文字上',
+    ).toBe(false);
+  });
+
+  it('🔴 白名單以外的檔不得出現營業時間字面(剝掉註解後)', () => {
+    const leaked = FILES.filter(
+      (rel) => !ALLOWED.has(rel) && HOURS.test(stripComments(readFileSync(join(SRC, rel), 'utf8'))),
+    );
+    expect(
+      leaked,
+      `這幾支檔硬寫了營業時間,而 SSoT 改了它們不會跟著改:\n  ${leaked.join('\n  ')}\n` +
+        '⇒ 要嘛改成從 `OPENING_HOURS` / `openDaysLabel()` 衍生,\n' +
+        '   要嘛(確定它該獨立)把它加進上面的 `CONSUMERS` 並寫清楚為什麼。',
+    ).toEqual([]);
+  });
+});
+
+/**
+ * ═══ `rpm-policies.ts` 末行:接上 SSoT 之後,**畫面上必須一個位元組都沒變** ═══
+ *
+ * 🔴 鐵則 1:本檔文案 byte-for-byte 取自 OD-8。接 SSoT 是**重構**,不是改字面。
+ * ⚠️ 破折號是 **en-dash U+2013**,與三個顯示點用的半形 `-` 刻意不同 —— 沿用 OD 原字面。
+ *    這一格就是釘住那個「刻意不同」:有人把它「順手統一」成半形時會紅。
+ */
+describe('rpm-policies 末行的營業時段(接 SSoT 之後不得漂移)', () => {
+  it('🔴 渲染出來的字面必須完整等於 OD 原字面', () => {
+    const last = RPM_WARRANTY_NOTES.at(-1);
+    // 🔴 不是形式上的 non-null:陣列被清空(或末條被搬走)時,這一格要**紅在這裡**、
+    //    而不是安靜地拿一個空字串去比對 —— 那會變成「渲染沒了也照樣紅」的模糊訊息。
+    expect(last, 'RPM_WARRANTY_NOTES 是空的 —— 末條被刪掉或搬走了?').toBeDefined();
+    const rendered = last!.map((r) => (typeof r === 'string' ? r : r.b)).join('');
+    expect(rendered).toBe('有問題請加 LINE：@pcmmoto · 週一–週六 10:00–19:00');
+  });
 });
