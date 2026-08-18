@@ -60,6 +60,9 @@ export default async function ProductDetailPage({
     }
   }
 
+  // 🔴 `max-w-6xl` **刻意留著**:本頁是商品**詳情表單**、沒有表格。
+  //    規則:沒有表格 ⇒ 留 `max-w-`(長文字行過寬更難讀);有表格的列表頁一律吃滿寬
+  //    (`#640` 守門在 `app/design-tokens.test.ts`)。
   return (
     <div className='mx-auto max-w-6xl space-y-4'>
       <Link
