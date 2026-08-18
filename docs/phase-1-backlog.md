@@ -14540,7 +14540,16 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 
 ### #538. 🔴 兩張 tier 標籤表**值逐字相同、各自獨立定義**,而**沒有東西守它們一致**
 
-- **狀態:** 🔴 未處理 —— **跨 `apps/admin` 與 `apps/storefront` 兩包 ⇒ 至少中鐵則 8,要 plan 等 Sean 批**
+- **狀態:** ⏸ **刻意不排(2026-08-18 主視窗裁定);條件寫在下一行,達成才做。**
+  ```
+  🔴 **開工條件：等【第三個地方】要用同一組標籤時再做。**
+  理由（主視窗原文）：#538 是一個【重構】（跨包共用常數，鐵則 8），
+    而 #539 是一個【守門】⇒ **把守門綁在重構上，等於讓一個已經好了的東西等一個還沒開始的東西**。
+    而今晚**沒有第二處在痛** ⇒ **沒有痛就不重構。**
+  ⇒ 在那之前：兩張表各自有自己的守門（`customer-list-view.test.ts` / `TierBadge.test.tsx`），
+     缺的只是「兩張一致」那道 —— 而那道的代價是跨包耦合，今天買不划算。
+  ```
+  ~~原狀態~~:🔴 未處理 —— 跨 `apps/admin` 與 `apps/storefront` 兩包 ⇒ 至少中鐵則 8,要 plan 等 Sean 批
 - **座標:**
   ```
   apps/admin/src/lib/customers/customer-list-view.ts:68   TIER_LABEL         一般會員 / 店家會員 / PREMIUM STORE
