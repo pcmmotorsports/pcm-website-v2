@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AdminOrderFilter } from '@pcm/domain';
 import {
+  MEMBER_TIER_LABEL,
   parseOrderListSearchParams,
   buildOrderListHref,
   ORDER_DENSITY_DEFAULT,
@@ -607,5 +608,37 @@ describe('🔴 FULFILLMENT_STATUS_LABEL 與 GOODS_AXIS_LABEL 的文案必須逐�
     // 上一格只走 `pairs` 那四對:任一張表多出第五個鍵,它一個字都不會說。
     expect(Object.keys(GOODS_AXIS_LABEL)).toHaveLength(Object.keys(FULFILLMENT_STATUS_LABEL).length);
     expect(pairs).toHaveLength(Object.keys(FULFILLMENT_STATUS_LABEL).length);
+  });
+});
+
+// ── `#539`(訂單域那一格,2026-08-18 G2)────────────────────────────────────────
+//
+// 條目說「tier 標籤四個顯示點、零守門」,而**訂單域這一份與客戶域那一份不是同一張表**:
+// ```
+// lib/orders/order-list-view.ts   MEMBER_TIER_LABEL  一般 / 車行 / 車行      ← 本檔守這張
+// lib/customers/customer-list-view.ts TIER_LABEL     一般會員 / 店家會員 / PREMIUM STORE
+// ```
+// ⚠️ 所以條目裡「`order-list-view.test.ts` 對 tier 標籤命中數 0」那個 0,**量的是客戶域那三個字面**
+//    —— 它在這裡本來就不該命中。**真正的缺口是下面這件,而它更重要。**
+//
+// 🔴🔴 **`store` 與 `premiumStore` 【刻意】都對到「車行」** —— 那是 Sean 的需求二分
+//    (該常數的 docstring 逐字:「Sean 需求二分:一般 / 車行 —— store 與 premiumStore 皆歸『車行』」)。
+//    而**一個「兩個 key 對到同一個值」的表,看起來就像有人複製貼上忘了改** ——
+//    下一個人「順手把 premiumStore 改成『進階車行』」是**零訊號**的。
+//    ⇒ 本組釘的是**那個刻意**,不是我的偏好(出處在常數自己的 docstring)。
+describe('`#539` 訂單列表的會員等級標籤:三個值都釘住,包含那個【刻意的合併】', () => {
+  it('🔴 三個 key 各自的字面(改任何一個 ⇒ 這裡紅)', () => {
+    expect(MEMBER_TIER_LABEL).toEqual({ general: '一般', store: '車行', premiumStore: '車行' });
+  });
+
+  it('🔴 `store` 與 `premiumStore` **必須相同** —— 那是需求二分,不是複製貼上的漏改', () => {
+    expect(
+      MEMBER_TIER_LABEL.premiumStore,
+      '把它改成別的字 = 把 Sean 的「一般/車行」二分改成三分,而畫面上沒有任何東西會說它變了',
+    ).toBe(MEMBER_TIER_LABEL.store);
+  });
+
+  it('🔴 而它們與「一般」必須不同(否則二分塌成一分,整欄失去意義)', () => {
+    expect(MEMBER_TIER_LABEL.store).not.toBe(MEMBER_TIER_LABEL.general);
   });
 });
