@@ -70,11 +70,22 @@ import { catalogRowToUIProduct, type CatalogListRow } from '@/lib/catalog-page';
  *     未來 ProductPage / variant slice 真實對應)
  *   - image:M-1-16c-1 起 ← product.images[0](群代表圖、真圖);無圖 null、ProductImage
  *     fallback seed placeholder(imgTone 僅 fallback 漸層底色用、不再決定主圖內容)
- *   - id:domain string ProductId → UI number(MockProduct.id 字面 number)、
- *     d2 用 `as unknown as number` cast 對齊 Sean 指令 Step 6 字面;React key 不依賴
- *     number 行為、ProductImage `seed: number` 算術運算(seed * 7 / seed % n)會
- *     runtime NaN、d2 happy path 不 hit(走 Q-empty 分支)、未來擴 ProductCardProps.p.id
- *     接 string + ProductImage seed 改 hash 函式(留 backlog #117 後續 slice trigger)
+ *   - id:domain string ProductId → UI number。
+ *     🔴 **下面這段是 d2 當時的描述,今天【已經不成立】——修法就在往下數十行的地方**
+ *     (2026-08-19 就地標記;原文不刪,留著看演化):
+ *       ~~d2 用 `as unknown as number` cast 對齊 Sean 指令 Step 6 字面;React key 不依賴~~
+ *       ~~number 行為、ProductImage `seed: number` 算術運算(seed * 7 / seed % n)會~~
+ *       ~~runtime NaN、d2 happy path 不 hit(走 Q-empty 分支)、未來擴 ProductCardProps.p.id~~
+ *       ~~接 string + ProductImage seed 改 hash 函式(留 backlog #117 後續 slice trigger)~~
+ *     ✅ **現況(實查 2026-08-19)**:
+ *       · `hashIdToNumber()` 就在本檔下方(djb2-like rolling hash + `Math.abs` 防負)
+ *       · **它真的被接上了**:本檔 `id: hashIdToNumber(product.id)`;
+ *         `catalog-page.ts` 的型錄那條路也走同一個修法
+ *       · 原病灶 `as unknown as number` 在 `apps/storefront/src` 的**唯一命中就是上面那句註解**
+ *         (`git grep -n 'as unknown as number' -- apps/storefront/src` ⇒ 1 行,而那行是 JSDoc)
+ *         ⇒ **零實際 cast。**
+ *     🔴 **為什麼特別標**:讀到上面那段的人會以為「還沒修」,
+ *     而**答案在往下捲十行的地方** —— 一段【今天是假的】註解,比沒有註解更貴。
  *
  * fits 字面:取第一個 fitment、format `{motoBrand} {modelCode}`、無 fitment → '通用款'。
  * (對齊 design mock fits 字面風格如 'CBR600RR' / 'Panigale V4' / '通用款')
