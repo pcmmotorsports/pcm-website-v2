@@ -58,7 +58,30 @@ L 級 N/A(非內容)。**高風險片**(鐵則 12 ①)。零 migration / 零 db 
 | `packages/adapters/src/supabase/mappers/order.ts:144-146` | `p_notification_email: null` → `input.notificationEmail ?? null` |
 | 新 `packages/use-cases/src/resolve-notification-recipient.ts` | §3 的解析(≈15 行) |
 | `packages/use-cases/src/confirm-payment.ts` `:141` 後 / `settle-charge.ts` `:534` 後 | enqueue,**掛在 `confirmer.confirm` 成功之後**(PRD §3.2:嚴禁掛 `charge-actions`) |
+| 🔴 **新增**:`packages/ports/` + `packages/adapters/` 一支窄查詢 | **`confirm` 的回傳拿不到 enqueue 要的東西**(見 §4.1)⇒ 成交後補讀一次 `orders` 的 `display_id` / `paid_at` / `notification_email` |
 | 測試 | 見 §6 |
+
+### 4.1 🔴 掛點當下【拿不到】enqueue 需要的資料 —— 這是本 plan 第一版漏的一格
+
+當場量到的三件(可重跑:`grep -n "return {" packages/use-cases/src/confirm-payment.ts`):
+```
+enqueue 需要   : orderId + displayId + paidAt + recipientEmail
+                 (buildOrderCreatedPayload 對 displayId / paidAt 都跑 requireNonEmptyString)
+
+confirmer.confirm 回傳 = { confirmed, idempotent }        ← 兩個都沒有
+confirm-payment.ts:164 return { kind:'paid', idempotent } ← displayId 沒有、paidAt 沒有
+settle-charge.ts:535   return { kind:'paid', idempotent, displayId: attempt.orderDisplayId }
+                                                          ← displayId 有、**paidAt 仍然沒有**
+```
+⇒ **兩個掛點都必須在 `confirm` 成功之後補讀一次 orders 列**(`display_id` / `paid_at` / `notification_email`)。
+
+🔴🔴 **而這一格漏掉的後果,正好是 `#633` 在防的那個形狀**:
+`buildOrderCreatedPayload` 對空的 `paidAt` **會 throw**,而 §5 規定 enqueue **全 catch 不上拋**
+⇒ **付款照常回 `paid`、畫面完全正常、沒有任何東西紅,而信一封都不會排進去。**
+⇒ 🔴 §6 必須有**專門一格**:**`paidAt` 讀不到時,系統做了什麼、留下什麼可觀測的痕跡**。
+   「它被 catch 掉了」不是答案 —— 那正是「看起來成功」的定義。
+
+⚠️ **這一格是我自己量出來的,不是審查抓的**(codex 兩輪都沒吐出結論,見 §11)。
 
 🔴 **明確不動**:`cardholder.ts`(08-09 的 fail-closed **保留**;B-4 plan §4 叫人移除 `email_missing` 分支 ⇒ **不照做**)、
 `create_order` RPC、migration、B-3 的 UI/schema、`database.types.ts`(**已是 9 參**,`:3595`)、金額 / tier / RLS。
@@ -148,3 +171,22 @@ B-1/B-2 ✅ → B-3 ✅ → 本片(B-4+B-5)部署但 flag 保持 off
 ## 10. 估時
 
 實作 + 測試 ≈ 50–70 分鐘(掛點 8 個入口的測試是主要耗時);加 codex 關卡1/2 + code-reviewer。
+
+## 11. 🔴 審查缺口(誠實認列,不假裝跑過)
+
+**codex 關卡1 跑了兩輪,兩輪都沒有產出 findings** ⇒ 依 `codex-adversary` 紀律「同一件事 2 輪封頂,
+第 2 輪仍零 findings = 認列缺口回報主視窗,不跑第 3 輪」,**本 plan 目前【沒有】通過任何外部對抗審查。**
+
+```
+R1  2026-08-18 02:16  白名單 5 檔  ⇒ 12 分 watchdog 逾時被殺;輸出 3798 行【全是它自己讀檔的內容】,零 findings 段
+R2  2026-08-18 02:18  零開檔、code 全貼進 prompt ⇒ 輸出 246 行【只有 prompt 回音 + skill 警告】,零 assistant 回合
+兩輪皆 `-s read-only`;跑前後 `git status --porcelain` 逐次比對 ⇒ 零留痕(diff 空)
+```
+🔴 **「零 findings」在這裡不是「沒問題」,是「沒跑出來」** —— 兩者在輸出檔上長得很像
+(都沒有 must-fix 那幾個字),而意義相反。
+
+⇒ **本 plan 送 Sean 批准時必須連這一節一起送。** 補救路徑二選一,由主視窗裁:
+① 換模型(Fable / adversarial-reviewer subagent)審同一份 plan;
+② 等實作後在關卡2 審 diff 時補回來 —— **但那時候 code 已經寫了**,關卡1 要擋的東西擋不到。
+
+📌 **本片命中鐵則 12 ①錢 ⇒ 對抗審查不降級**(CLAUDE.md 明文)⇒ **①、②至少要跑掉一個,不能兩個都不跑。**
