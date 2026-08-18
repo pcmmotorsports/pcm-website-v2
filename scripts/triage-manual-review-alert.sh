@@ -17,6 +17,20 @@
 #           OR (superseded_at 非 NULL AND status IN(charged,released)) )  <- 乙
 #   值班查詢原文 = docs/specs/2026-08-10-l5b-0-supersede-charge-reject-plan.md §4(查詢 A / 查詢 B)
 #
+# 🔴 這個計數【沒有任何時間條件】—— 它是【盤點】不是【事件】:
+#    數的是「現在有幾筆卡著」,不是「上次跑到現在新增幾筆」。
+#    ⇒ ① 不要預設「這是新發生的」,它可以是很久以前卡住的(所以本腳本印 created_at 年齡)
+#      ② cron 每跑一次就重報一次,直到有人處理掉為止 ⇒「今天又收到」≠「今天又出事」
+#    📎 同檔設計者已處理過另一種永久假告警(`20260701120000:23-25` 逐字
+#       「markFailed 不清 needs_manual_review、否則收斂成 failed 後仍永遠假告警」)
+#       ⇒ 這是同一族的第二個坑,不是有人偷懶。
+#
+# 🔴🔴 述詞有兩個版本,用錯會【整類漏掉】:
+#    ~~20260701120000:68-74~~ 舊版 = 只有 `status='pending'` ⇒ **漏掉整個乙類**
+#    ✅ 20260810220000:346-362 改③ = 現行(本腳本用這版),union 兩族
+#    該檔自己的註解逐字:「本計數的述詞要求 status='pending' ⇒ 它是 released、**算不進來**
+#    ⇒ 改①② 做完仍然沒有任何告警會亮。這一改才是讓『轉人工』真的被看見的那一步。」
+#
 # 🔴 唯讀:只有 SELECT。不 refund、不 dismissed、不寫任何東西。
 #    告警自己就寫「皆為候選、待查證,勿直接退款」。
 #
@@ -43,6 +57,7 @@ SELECT CASE WHEN a.status = 'pending' THEN '甲' ELSE '乙' END
        || '|' || COALESCE(a.rec_trade_id, '-')
        || '|' || COALESCE(a.bank_transaction_id, '-')
        || '|' || CASE WHEN a.released_manual_review_at IS NULL THEN 'n' ELSE 'y' END
+       || '|' || (EXTRACT(EPOCH FROM (now() - a.created_at))/3600)::bigint::text
   FROM public.payment_charge_attempts a
   JOIN public.orders o ON o.id = a.order_id
  WHERE a.needs_manual_review = true
@@ -72,14 +87,17 @@ if [ -n "$CLAIMED" ] && [ "$N" != "$CLAIMED" ]; then
 fi
 echo
 
-printf '%s\n' "$OUT" | while IFS='|' read -r kind id disp st err rec bank relmr; do
+printf '%s\n' "$OUT" | while IFS='|' read -r kind id disp st err rec bank relmr agehr; do
+  if [ "$agehr" -ge 24 ] 2>/dev/null; then AGE="$((agehr / 24)) 天"; else AGE="${agehr} 小時"; fi
   if [ "$kind" = "甲" ]; then
     echo "── 甲類:pending 孤兒(sweeper 放棄)"
     echo "   訂單 $disp  attempt $id"
+    echo "   卡了 $AGE(attempt 建立到現在)"
     echo "   ⇒ 處置:走 Record 對帳補結算。這張單的錢還是它自己的。"
   else
     echo "── 乙類:被讓路後轉人工"
     echo "   訂單 $disp  attempt $id  (status=$st)"
+    echo "   卡了 $AGE(attempt 建立到現在)"
     echo "   🔴 處置:錢屬於【舊單】,出口是退款(L5b-2)。**不要**去補結算。"
     [ "$relmr" = "y" ] && echo "   ⚠️ 這一列同時被算進 released 死卡 ⇒ 它在兩個計數裡各出現一次,不是兩起事故。"
   fi
