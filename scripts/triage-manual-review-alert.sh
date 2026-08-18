@@ -34,17 +34,35 @@
 # 🔴 唯讀:只有 SELECT。不 refund、不 dismissed、不寫任何東西。
 #    告警自己就寫「皆為候選、待查證,勿直接退款」。
 #
-# 用法:  bash scripts/triage-manual-review-alert.sh '<postgres 連線字串>' [告警上的筆數]
+
+# 🔴🔴 連線字串【不要當參數傳】(2026-08-18 adversarial-reviewer F16):
+#    argv 會進【process table】(同機器其他程序 `ps` 看得到)與【shell history】(留在檔案裡)。
+#    連線字串含正式庫密碼 ⇒ 那等於把密碼寫進兩個地方,而且都不會有人記得去清。
+#    ✅ 正確用法(密碼不進 argv、不進 history):
+#         read -rs PGURL && export PGURL      <- 輸入時螢幕不顯示
+#         bash scripts/triage-manual-review-alert.sh [告警上的筆數]
+#         unset PGURL                          <- 用完清掉
+#    ⚠️ 仍然支援用參數傳(不擋),但會印警告 —— 擋掉會讓人在急的時候找不到路。
+# 用法:  export PGURL='<postgres 連線字串>' 之後 bash scripts/triage-manual-review-alert.sh [告警上的筆數]
 #        第二個參數給了就會對帳:查到的列數 vs 告警說的筆數,不一致會明講。
 #
 # exit: 0=查到列且已分類 / 3=查無列(與告警不符,要停下查為什麼) / 2=用法錯 / 1=工具自己壞了
 set -uo pipefail
 
-CONN="${1:-${PGURL:-}}"
-CLAIMED="${2:-}"
+# 🔴 參數位置隨 PGURL 有沒有設而不同 —— 不然「export PGURL 之後跑 `… 1`」會把筆數當成連線字串。
+if [ -n "${PGURL:-}" ]; then
+  CONN="$PGURL"; CLAIMED="${1:-}"          # 建議路徑:連線字串走 env,$1 = 告警筆數
+else
+  CONN="${1:-}"; CLAIMED="${2:-}"          # 相容路徑:$1 = 連線字串,$2 = 告警筆數
+fi
 if [ -z "$CONN" ]; then
-  echo "用法: bash scripts/triage-manual-review-alert.sh '<postgres 連線字串>' [告警上的筆數]" >&2
+  echo "用法(建議): read -rs PGURL && export PGURL && bash scripts/triage-manual-review-alert.sh 1 && unset PGURL" >&2
+  echo "  (也可以把連線字串當第一個參數傳,但那會留在 shell history)" >&2
   exit 2
+fi
+if [ -z "${PGURL:-}" ] && [ -n "${1:-}" ]; then
+  echo "⚠️  你把連線字串當參數傳了 —— 它會留在 shell history 與 process table。" >&2
+  echo "    下次請用:read -rs PGURL && export PGURL   然後不帶參數跑;用完 unset PGURL" >&2
 fi
 command -v psql > /dev/null 2>&1 || { echo "🔴 工具問題:找不到 psql,這不是查詢結果" >&2; exit 1; }
 

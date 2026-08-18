@@ -17,7 +17,16 @@
 #   照 M-4a B-4 送第 9 參之後才會爆,而爆點在部署之後、repo 內三綠與 vitest 全看不到。
 #   📎 同形狀 2026-08-07 讓正式站壞了約 8 小時。
 #
-# 用法:  bash scripts/verify-create-order-9param.sh '<postgres 連線字串>'
+
+# 🔴🔴 連線字串【不要當參數傳】(2026-08-18 adversarial-reviewer F16):
+#    argv 會進【process table】(同機器其他程序 `ps` 看得到)與【shell history】(留在檔案裡)。
+#    連線字串含正式庫密碼 ⇒ 那等於把密碼寫進兩個地方,而且都不會有人記得去清。
+#    ✅ 正確用法(密碼不進 argv、不進 history):
+#         read -rs PGURL && export PGURL      <- 輸入時螢幕不顯示
+#         bash scripts/verify-create-order-9param.sh
+#         unset PGURL                          <- 用完清掉
+#    ⚠️ 仍然支援用參數傳(不擋),但會印警告 —— 擋掉會讓人在急的時候找不到路。
+# 用法:  export PGURL='<postgres 連線字串>' 之後 bash scripts/verify-create-order-9param.sh
 #        連線字串由執行者當場提供。🔴 本腳本不讀 .env*、不寫檔、不改任何東西(只有 SELECT)。
 #
 # exit: 0=有第 9 參可以部署 / 3=沒有第 9 參不可部署 / 4=連 create_order 都找不到
@@ -26,8 +35,13 @@ set -uo pipefail
 
 CONN="${1:-${PGURL:-}}"
 if [ -z "$CONN" ]; then
-  echo "用法: bash scripts/verify-create-order-9param.sh '<postgres 連線字串>'" >&2
+  echo "用法(建議): read -rs PGURL && export PGURL && bash scripts/verify-create-order-9param.sh && unset PGURL" >&2
+  echo "  (也可以 bash scripts/verify-create-order-9param.sh '<連線字串>',但那會留在 shell history)" >&2
   exit 2
+fi
+if [ -n "${1:-}" ]; then
+  echo "⚠️  你把連線字串當參數傳了 —— 它會留在 shell history 與 process table。" >&2
+  echo "    下次請用:read -rs PGURL && export PGURL   然後不帶參數跑;用完 unset PGURL" >&2
 fi
 command -v psql > /dev/null 2>&1 || { echo "🔴 工具問題:找不到 psql,這不是檢查結果" >&2; exit 1; }
 
