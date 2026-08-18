@@ -60,11 +60,29 @@ Sean 逐字:「AMEX 這個才有 3D 驗證，之前是很多次了。」
 Q: .env.local 的 TAPPAY_PARTNER_KEY / TAPPAY_MERCHANT_ID 是沙盒那組嗎?
 A: 逐字「沙盒跟正式都用一樣的。」
 ```
-⇒ 憑證不必換。**但若刷下去在憑證那一步失敗,這句是第一嫌疑** ——
-   那時把**錯誤訊息原文**帶回去問他,不要自己判定是不是憑證問題。
+⇒ 憑證不必換。~~但若刷下去在憑證那一步失敗,這句是第一嫌疑~~
+
+### ✅ 已關掉(2026-08-18 23:44:48–23:54:58 CST 之間,G3 實測)——「憑證是第一嫌疑」這句不再成立
+```
+打法(可重跑):POST https://sandbox.tappaysdk.com/tpc/payment/pay-by-prime
+              帶本機 .env.local 的 TAPPAY_PARTNER_KEY + TAPPAY_MERCHANT_ID,
+              故意餵一個假 prime(test_prime_invalid)
+回應:{'status': 121, 'msg': 'Invalid arguments : prime'}
+```
+🔴 **判別力在哪**:121 是「prime 這個參數無效」。它**已經過了認證那一關**才輪得到嫌 prime ——
+   如果 key / merchant_id 不是沙盒認得的那組,回的會是認證類錯誤而不是 121。
+   ⇒ **Sean 那句「沙盒跟正式都用一樣的」在沙盒端【成立】。**
+
+⚠️ **這條關掉的射程只到「沙盒端點收下這組 key/merchant」為止**,它**不**證明:
+   ①刷得過(2026-08-18 第一筆就沒刷過,見流水帳)②正式端也用同一組 ③3DS 會怎麼走。
 
 ## 實測紀錄
-**（尚未實測 —— 卡在下面那道，等 Sean 拍板。）**
+🔴 **~~尚未實測~~ 作廢(2026-08-18 23:45 CST 起已實刷)。** 正本在
+`docs/probes/2026-08-18-tappay-sandbox-charge-log.md` —— **那份是全部,本段只是指標**。
+```
+第 1 筆:AMEX / 訂單 WCYCW5 建出來、款零收、3DS 沒跳、失敗原因看不到(generic catch 刻意不透傳)
+        ⇒ **刷【不】過。不要把本檔讀成「沙盒刷卡驗過了」。**
+```
 
 ## ✅ 開刷已獲授權(2026-08-18 Sean,經 MAIN 轉述) —— 但條件要照做
 
