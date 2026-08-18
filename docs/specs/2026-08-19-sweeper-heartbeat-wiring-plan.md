@@ -78,6 +78,23 @@
 ⇒ 讀取端掛在 **anomaly-alert route**(`0 1 * * *`,與 settle-sweep 是**不同端點**)
 ⇒ settle-sweep 死掉不會讓 anomaly-alert 跟著死 ⇒ 滿足「② 不是同一條路」
 ```
+### 3-b ✅ **怎麼接 —— 查完了,而它避開一個會撞邊界的做法**
+```
+getAnomalyAlertDeps()(composition.ts:214-245)回 { reader, notifiers }
+CheckAnomalyAlertsDeps(check-anomaly-alerts.ts:27-31)= { reader; notifiers: IAlertNotifier[] }
+```
+🔴 **把心跳併進既有告警訊息 ⇒ 會動 `packages/use-cases`**(擴 deps 型別或改訊息組裝)
+   ⇒ 鐵則 12⑥ + 主視窗現行邊界**明文禁止**。
+✅ **而有一條不用碰 `packages/` 的**:
+```
+route 本來就拿得到 deps.notifiers(它自己建的)
+⇒ 心跳過期時,route 直接呼 deps.notifiers[i].notify(<心跳訊息>)
+⇒ **獨立一則推播,不併進既有文案** ⇒ 零 packages/ 改動
+```
+📌 而**分開推反而更對**:那是不同的事件(「它沒說話」vs「有幾筆異常」),併成一則會互相稀釋。
+⚠️ 代價:心跳持續過期 ⇒ 每天一則、不去重;而既有告警**也是這個語意**
+  (`anomaly-alert/route.ts:130` 逐字「無去重、持續提醒」)⇒ **一致,不是新行為。**
+
 🔴 **而這條路的殘餘我不掩蓋**:
 ```
 · anomaly-alert 自己若死了,**沒有人會知道** ⇒ 這是【誰看守看守者】的無限迴歸
@@ -136,8 +153,8 @@
 ```
 ~~· 寫入權限未確認~~ ✅ **已查,見 §2-b**(service_role 有 SELECT/INSERT/UPDATE + 三條 policy;
   而 storefront 已有 `createSupabaseServiceClient`,5 檔 ⇒ 零新 env)
-· anomaly-alert route 的 deps 組裝**能不能多拿一個 reader**,我沒讀它的 composition
-· 告警文案的既有格式(`check-anomaly-alerts.ts:89-112` 那幾行 `lines.push`)我只掃過行號,**沒有逐字讀**
+~~· anomaly-alert deps 組裝沒讀~~ ✅ **已讀,見 §3-b**:併進去會動 `packages/`(禁)⇒ 改由 route 直接呼 `deps.notifiers`
+~~· 告警文案既有格式沒逐字讀~~ ✅ **不再需要** —— §3-b 改成獨立推播,不併進那段文案
 · 🔴 **「sweeper 現在有沒有正在死」我答不出來** —— 證據在正式庫的
   `net._http_response` 與 `cron.job_run_details`,而**repo 內看不到、也沒有程式在讀**
   ⇒ 這決定本片是【急件】還是【背景債】,而**那一格要 Sean 的 DB 存取才答得出來**。
