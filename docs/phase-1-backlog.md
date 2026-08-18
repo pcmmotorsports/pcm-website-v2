@@ -20142,6 +20142,40 @@ design 那句（轉述，見 E）  「商品卡 hover translateY(-2px)：僅桌�
   lib/auth-server.ts:50-67  requireAdmin():沒有新 cookie（或驗不了）⇒ 【接受 legacy】
   ⇒ 這顆 cookie 上面沒有 amr、沒有身分。
   ```
+- **🔴 接受點是【3 個】不是 2 個(2026-08-18 19:0x G6 複量;原條目只列了 2 個)**
+  ```
+  報價單庫（HEAD = 1149e05）
+  ① lib/auth-server.ts:41-47  hasValidLegacy() + :65 requireAdmin 的分支
+     :65 逐字  if (!state.require2fa && (await hasValidLegacy())) return;
+  ② middleware.ts:82-90       🔴 **獨立的第二個接受點** —— 它自己讀 ADMIN_PASSWORD、
+                              自己 safeEqualToken、自己 return NextResponse.next()，
+                              **完全不經過 hasValidLegacy()**
+  簽發端 app/api/admin/login/route.ts:60,65   30 天
+
+  admin 庫（pcm-website-v2，本條原本沒有量過這一半）
+  ③ apps/admin/src/lib/session/actor-actions.ts:18  selectActorAction
+     · 零授權閘：grep -c authorize <該檔> ⇒ 0
+       正向對照（同層有走閘的）：customers/{keyword-search,tier,profile,wallet}-actions.ts、staff-actions.ts
+       ⇒ 這把尺數得到東西，那個 0 是真的 0
+     · cookie 壽命 12 小時(:34)；它寫的 id 就是進 admin_audit_log.actor 的那顆(:20-23 註解)
+     · ⚠️ **不是「任何人」打得到，是「任何【已登入】的人」** —— 2026-08-18 G6 本機兩世界實測：
+       apps/admin/src/proxy.ts（Next 16 把 middleware 改名叫 proxy.ts）的登入閘涵蓋 server action 的 POST
+         無 bypass：GET / ⇒ 303 導 /api/sso/start；POST /（帶 Next-Action）⇒ 303
+         ADMIN_DEV_BYPASS=1：GET / ⇒ 200；POST / ⇒ 404（假 action id 找不到）
+         ⇒ 那個 404 證明【沒有閘時請求真的到得了 action 解析層】⇒ 303 是閘不是巧合
+       ⇒ 今天大家共用一把密碼 ⇒ 稽核 actor 本來就是自報 ⇒ **已知現況，不是新的線上洞。**
+  ```
+- **🔴 這裡【已經漏過兩次】—— 寫下來，因為下一個人會漏第三次**
+  ```
+  第一次  B2 spec 只寫了 hasValidLegacy() 一個接受點
+          ⇒ 2026-08-18 codex 關卡1 抓到，逐字留在 B2 spec :147-148：
+            「規格只要求關閉 hasValidLegacy()，但 middleware 也獨立接受 legacy cookie」
+  第二次  本條目（#645）建議做法 ① 又只寫了 hasValidLegacy / requireAdmin，
+          **同樣漏掉 middleware.ts:82-90** —— 而那時 B2 spec 裡已經寫著這件事了
+  ⇒ 形狀：**一個已經被抓到、已經落檔的遺漏，在下游被原樣複製了一次。**
+    落檔擋不住它，因為下游的人讀的是【自己這一份】。
+  ⇒ 動這條之前：先把三個接受點逐一 grep 出來對，不要照清單抄。
+  ```
 - **🔴 今天沒有天然緩解**
   ```
   auth-server.ts:66 逐字：require_2fa 開著時一律拒 legacy
@@ -20164,9 +20198,15 @@ design 那句（轉述，見 E）  「商品卡 hover translateY(-2px)：僅桌�
   ```
 - **建議做法(一片,B7 之後)**
   ```
-  ① 報價單側：拆 hasValidLegacy() 與 requireAdmin() 裡那條分支；ADMIN_COOKIE 的簽發端一併移除
-  ② admin 側：下架 lib/session/actor-actions.ts 整支 + app/page.tsx 的選身分表單
+  ① 報價單側：拆 hasValidLegacy()(auth-server.ts:41-47) 與 requireAdmin() 裡那條分支(:65)
+     🔴 **加上 middleware.ts:82-90 那個獨立的第二個接受點**（2026-08-18 G6 補；原本漏了，見上方「已經漏過兩次」）
+     ADMIN_COOKIE 的簽發端(login/route.ts:60-66)一併移除
+  ② admin 側：下架 lib/session/actor-actions.ts 整支(37 行) + app/page.tsx:5,78 的選身分表單
   ③ 兩側各留一格「舊 cookie 打進來 ⇒ 擋」的測試（拆完之後那格才是恆真的，拆之前它會紅）
+  🔴 **要留著的兩處（刪了會害還帶著舊 cookie 的人登不出去）**
+     報價單 app/api/admin/login/route.ts:123   清 cookie —— **留**
+     報價單 app/api/admin/logout/route.ts:11   清 cookie —— **留**
+     ⇒ 所以 lib/auth.ts:4 的 ADMIN_COOKIE **最後才能刪**（logout 還引它）
   ⚠️ 動 auth ⇒ 鐵則 12②，要 plan + 對抗審查，不是順手清理
   ⛔ ~~前置：ADMIN_REQUIRE_REAL_IDENTITY（或報價單對應物）已經【永久開】~~
   🔴 前置（2026-08-18 G6 抓，我原本寫「或」，那個連接詞是承重的）：
@@ -20175,6 +20215,25 @@ design 那句（轉述，見 E）  「商品卡 hover translateY(-2px)：僅桌�
      —— 拆早了 = 把 rollback 一起拆掉
   🔴 「或」的具體危害（G6 的原話，我照抄）：做 ① 的人去確認 ADMIN_ 那顆開著 ⇒ 覺得前置滿足
      ⇒ 拆掉報價單那半，而 QUOTE_ 那顆可能還關著 ⇒ rollback 被拆掉，【沒有任何東西會紅】。
+  🔴🔴 **還有一個比開關更硬的前置（2026-08-18 G6 抓；原條目沒有）**
+     apps/admin/src/lib/session/actor.ts:35
+       return await resolveStaff(store.get(ACTOR_COOKIE)?.value);
+     只刪寫入端(actor-actions.ts)而留著讀取端 ⇒ `getSessionActor()` 一律回 null，而它有兩個下游：
+       audit/context.ts:26-32   actor null ⇒ **throw**(檔內註明是 PRD §6.1 的 fail-closed)
+       session/authorize.ts:32-33  actor null ⇒ **return null** ⇒ 授權閘一律拒
+     數法（可重跑）：`grep -rn "getSessionActor" --include='*.ts' --include='*.tsx' apps/admin/src | grep -v '\.test\.'`
+       ⇒ 4 個非測試呼叫端：audit/context.ts:4 / session/authorize.ts:5 /
+         app/page.tsx:6 / components/orders/order-detail-route.tsx:20
+     ⛔ ~~後果是 admin_audit_log.actor 變空，而畫面完全正常、沒有任何東西會紅~~
+     🔴 **2026-08-18 G6 自我更正（我寫了才去讀那兩個下游）**：**那句是錯的。**
+        兩條路都 **fail-closed 且很吵** —— 稽核情境會 throw、授權閘會拒
+        ⇒ 症狀是「**後台的寫入動作整片不能用**」，不是「悄悄壞掉」。
+        📎 而這不會讓依賴變輕：它仍然是硬前置，只是**壞法是吵的、不是靜默的**，
+           風險評估要照這個版本寫（我原本那句會讓下一個人把它當成靜默資料汙染）。
+     ⇒ ⇒ 真前置是「**真登入(E8-B)已經在供應 actor**」，不只是「兩顆開關永久開」。
+  📌 **排程含意：本條依賴 E8-B 完成，不是「隨時可做」的片。**
+     2026-08-18 主視窗裁定**不立片**，理由逐字：「真前置不是開關，是真登入已經在供應 actor
+     ⇒ 它排在 E8-B 之後，現在立片只會立一片做不了的。」
      這正是「只開一顆 ⇒ 報價單端仍收 30 天 legacy cookie」那條已知的坑。
      依據：`docs/specs/2026-08-18-m4b-e8b-b2-spec.md:181` 逐字警告兩個 repo 兩顆、不要混名。
   📌 排程用的一格（G6 量的，2026-08-18，我沒重跑）：報價單庫 `grep QUOTE_REQUIRE_REAL_IDENTITY`

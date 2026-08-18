@@ -402,3 +402,60 @@ const els = [...document.querySelectorAll('input,button')];
 
 📎 同族教訓:memory `feedback_absence-read-as-verified`(什麼都沒有被讀成檢查過了)、
 `feedback_assertion-measures-the-wrong-thing`(我量的不是我以為的那個東西)。
+---
+
+## §10 🔴🔴 要證「某個入口有沒有被閘擋住」⇒ **負向對照是【拿掉閘】,不是【換個輸入】**
+
+> 來源:2026-08-18 G6。題目是「一個**沒有登入**的請求,打不打得到 admin 的 server action
+> `selectActorAction`(它自己零授權閘)」。**差一點就把它報成一個線上資安洞給 Sean。**
+
+### 10-a 做法(四行表,整段可貼的部分在下面)
+同一發請求,跑**兩個世界**,唯一的差別是**閘在不在**:
+
+| | 無 bypass(= 線上的行為) | `ADMIN_DEV_BYPASS=1` |
+|---|---|---|
+| `GET /` | **303** → `/api/sso/start?next=%2F` | `200` |
+| `POST /`(帶 `Next-Action` 標頭) | **303** → `/api/sso/start?next=%2F` | **`404`** |
+
+```bash
+# 世界 A（閘在）：不要設 ADMIN_DEV_BYPASS
+cd apps/admin && npx next dev -p 3051 &
+# 世界 B（閘不在）：ADMIN_DEV_BYPASS=1 npx next dev -p 3051 &
+
+curl -s -o /dev/null -w "%{http_code} → %{redirect_url}\n" http://localhost:3051/
+curl -s -o /dev/null -w "%{http_code} → %{redirect_url}\n" -X POST \
+  -H "Next-Action: 00deadbeef" -H "Content-Type: multipart/form-data; boundary=x" \
+  --data-binary $'--x\r\nContent-Disposition: form-data; name="actorId"\r\n\r\nsomebody\r\n--x--\r\n' \
+  http://localhost:3051/
+```
+🔴 **前置要先驗**:`grep -c '^ADMIN_DEV_BYPASS' .env.local apps/admin/.env.local` ⇒ 兩個都要是 `0`,
+否則「世界 A」是被環境偷偷 bypass 掉的,而它印出來跟真的一模一樣。(只數鍵名、不印值。)
+
+### 10-b 🔴 為什麼那個 `404` 才是這次量測的靈魂
+`303` 單獨看**只證明「有東西回了 303」**。它證不出**「沒有閘的時候,那發 POST 真的到得了 action 解析層」**
+—— 也許它根本被別的東西擋在更前面、根本不是閘的功勞。
+**世界 B 的 `404` 就是那道證明**:假的 `Next-Action` id 找不到 ⇒ 請求**確實**走到了 Next 解析 action 那一層。
+⇒ 兩格合起來才成立:**有閘 ⇒ 連解析都到不了;沒閘 ⇒ 到得了。**
+
+> 📌 **可搬走的判準**:要證「X 擋住了 Y」,負向對照要**拿掉 X**,不是**換一個 Y**。
+> 換輸入只會告訴你「這個輸入也被擋」;**拿掉閘才告訴你「擋它的是這個閘」。**
+
+### 10-c ⚠️ 順帶兩個會讓人誤判的座標
+```
+· Next 16 把 middleware 改名叫 proxy.ts ⇒ apps/admin 底下 find -name 'middleware.*' 是【零命中】
+  🔴 用舊檔名去證明「沒有閘」= 一個框架改名把「查無」變成資安誤報
+  ⇒ 機制的存在性用【行為】證（兩個世界各打一發），不是用檔名
+  座標：apps/admin/src/proxy.ts（檔內第 5 行自己註明「Next 16 約定:proxy.ts(舊 middleware.ts)」）
+· server action 的 POST 落在【頁面路徑】上（此例是 '/'），所以 proxy 的 matcher 蓋得到它
+  ⚠️ 但**頁面/layout 裡的登入檢查蓋不到 server action** —— action 不經過 layout 渲染
+  ⇒ 「layout 有擋」不能當成 action 有擋，兩者要分開量
+```
+
+### 10-d 收攤(兩層都驗,照 §6 同一條規矩)
+```
+拆之前先量它：ps -o rss=,pcpu= -p $(pgrep -f "next dev -p 3051" | head -1)
+pkill -f "next dev -p 3051"
+程序：pgrep -f "next dev -p 3051" | wc -l                      ⇒ 0
+埠　：lsof -nP -iTCP:3051 -sTCP:LISTEN                          ⇒ 無輸出(已釋放)
+🔴 程序死 ≠ 埠釋放，兩層都要驗。
+```
