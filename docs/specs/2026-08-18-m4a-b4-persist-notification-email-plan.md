@@ -61,9 +61,15 @@ apps/storefront/src/lib/payment/cardholder.ts:82(findById) 與 :87(listByCustome
 🔴 **簽章收 `readonly (string | null | undefined)[]`**(R1 `F18`):`charge-actions.ts:192` 傳的 `user.email` 是
 `string | null | undefined`(`cardholder.ts:80`);在呼叫端補 `?? ''` 等於長出第二套正規化 —— `cardholder.ts:46-48` 明文禁止那件事。
 ```
-候選依序:[ session user.email , address.email ] → 各跑 NotificationEmailInput
-        → 回第一個 parse 過的 canonical 值;全不過回 null
+候選依序:[ (flag-on 時)客人自己填的 notificationEmail , session user.email , address.email ]
+        → 各跑 NotificationEmailInput → 回第一個 parse 過的 canonical 值;全不過回 null
 ```
+🔴 **第一個候選是 R3 抓出來的**(`R3-F1`,must-fix):`Q-02` 說那顆 flag 維持 off、**但欄位留著**
+⇒ 將來任何人為了某個新拍板把它翻成 on,`charge-actions.ts:129-131` 會**強制客人填 Email 並做 server 二次驗證**
+(`:129` 註解逐字「on 要求 Email 並做 server canonical 二次驗證」)——
+**而如果 resolver 不看那個值,客人親手填的信箱會被靜默丟掉**:畫面正常、結帳成功、信寄去別的地方,**零測試會紅**。
+⇒ **把它放候選第一位**(客人為了這件事親手填的,語意最強);flag-off 時該鍵根本不存在 ⇒ 自動跳過。
+⇒ **這樣 flag 開不開都不會說謊** —— 而不是靠一句「以後不准開」的規矩擋。**規矩擋不住兩週後的人。**
 驗證**只用既有** `NotificationEmailInput`(`packages/schemas/src/notification-email.ts:42`)——
 本片**不長出第二套 email 規則**,也**不寫任何 `if (是 LINE 客人)`**:
 ```
@@ -106,7 +112,12 @@ apps/storefront/src/lib/payment/cardholder.ts:113-115    pickUsableEmail 全不�
 ⇒ **建得成單 = 至少一個候選通過過 `AddressEmailInput`**(= `NotificationEmailInput` + ≤40,`packages/schemas/src/index.ts:110`)。
 🔴 **而這個保證是掛在 `buildCardholder` 上的,不是掛在型別上** ——
 哪天有人把地址 email 改成非必填、或把 `email_unusable` 從拒單改成放行,**本片會靜默失效而沒有任何測試會紅**。
-⇒ 所以 §6 有一格**專門釘住這個前提**的測試(拆掉 `email_unusable` 拒單 ⇒ 那格必須紅)。
+⇒ 守門其實是**兩半,不是一格**(R3 `R3-F6` 指出我這句寫錯):
+```
+「拒單這件事還在」  ← cardholder.test.ts 既有 8 格（:103,177,218,235,265,298,309 + charge-actions.test.ts:246-252）
+「拒單還在 ⇒ resolver 必非 null」 ← §6 #3 那一格（本片新增的才是這半）
+```
+🔴 原句寫成「§6 有一格專門釘住」⇒ **下一個人去核「那格在哪」會核不到**,然後以為釘子沒裝。
 
 ### 3.4 樹上到底有幾套 email 規則(這是 `F11` 的更正,前一版數錯)
 
@@ -119,6 +130,19 @@ apps/storefront/src/lib/payment/cardholder.ts:113-115    pickUsableEmail 全不�
 另有一套    z.email()  packages/schemas/src/index.ts(Login/Register)← 註冊時的把關,比上面鬆
 ```
 ⇒ **不是四套標準,是一套 + 兩個衍生 + 一個窄化 + 一個註冊用的鬆版。** 本片**一套都不改**。
+
+### 3.5 🔴 LINE 分流的正確性掛在【三份 hardcode 字面相等】上(R3 `R3-F2`)
+```
+量法(可重跑):grep -rn "line.pcmmotorsports.local" --include='*.ts' apps packages | grep -v '\.test\.'
+  packages/schemas/src/notification-email.ts:5        ← resolver 靠這份【擋】
+  apps/storefront/src/lib/auth/line.ts:38             ← 合成信箱由這份【產生】
+  apps/storefront/src/lib/auth/field-validation.ts:57 ← 第三份(R3 說兩份,我實測【三份】)
+```
+⇒ `line.ts:38` 那份一改(或多一個合成域登入來源),**合成假信箱就過得了 resolver ⇒ 假信箱被持久化**,
+B-5 那邊再把它 skip 掉 ⇒ **客人永遠收不到信,而一路全綠。**
+⇒ 🔴 **§6 要有一格:直接 `import` `line.ts` 的產生器造一個真的合成信箱餵 resolver,斷言被拒。**
+   把「不得抄第四份」從**註解**升級成**斷言** —— 註解說的是意圖,斷言說的才是能力。
+⚠️ **本片不去統一那三份**(動 `line.ts` = 動登入路徑,範圍外)。
 🔴 **`F12` 的那道縫(adapter 只認等值、放行子網域)本片不修** —— 理由與唯一入口的論證寫在 B-5 plan **§4.2**(R1 `F22` 修:§5 是失敗語意),
 **不是「不重要」,是它只在 B-5 那一片才有可達路徑。**
 
@@ -135,9 +159,11 @@ apps/storefront/src/lib/payment/cardholder.ts:113-115    pickUsableEmail 全不�
 | 🔴 `apps/storefront/src/app/checkout/charge-actions.test.ts:178-183` | `not.toHaveProperty('notificationEmail')` §4.1 之後必紅(R1 `F3`)。⚠️ **它是唯一在 `PlaceOrderInput` 邊界斷言「client 偷塞的 email 到不了建單」的守門** ⇒ **不可順手刪**,改成「client 塞的值 ≠ 實際送出的值(送的是 server 解出來的)」 |
 | 🔴 `apps/storefront/src/app/checkout/charge-actions.test.ts:200-206` | `expect(...notificationEmail).toBeNull()` 必紅(R1 `F4`);第二行 `not.toContain('Member@example.com')` 的字面**正好是新行為的正確值** ⇒ 反過來斷言 |
 | ⚠️ `apps/storefront/src/app/checkout/charge-actions.test.ts:139` | mock 回 `{ ok: true, cardholder }` **沒有 `addressEmail`**,而 mock 是 `unknown[]` ⇒ **typecheck 不會紅**(R1 `F16`)⇒ 既有格會靜默跑在 `addressEmail === undefined` 上;LINE 那格**必須**自己改這個 mock |
+| 🔴 `apps/storefront/src/app/checkout/charge-actions.ts` 的建單 catch/log | **`PGRST202` 冒出來時,結構化 log 要指名修法**:「`create_order` 在 prod 仍是 8 參 ⇒ 跑 `bash scripts/verify-create-order-9param.sh`」。⇒ 主視窗 2026-08-18 指出:**甲(硬閘)真正的弱點不是壞得太大聲,是壞掉的人不知道為什麼壞**;把那 10 秒的答案放進錯誤訊息,比在金流路徑加一個 fallback 分支便宜一個數量級。⚠️ 改的是 log 字面、不是控制流,但仍在成交 path 檔內 ⇒ 跟 B-4 一起送審 |
 | 📌 註解字面(不是 code) | 本片會讓五處註解變假(R1 `F24`/`F25`):`types.ts:1425-1428`、`mappers/order.ts:43,79`、`SupabaseOrderAdapter.ts:507`、`charge-actions.ts:7,266`、`scripts/verify-create-order-9param.sh:15-16`(逐字「送出去的一直是 8 參呼叫」)⇒ commit 前跑 `literal-sweep.sh` |
 
-**明確不動**:`create_order` RPC 本體 / migration / `cardholder.ts` 的 fail-closed 與候選順位 /
+**明確不動**:`apps/storefront/src/lib/checkout/validate-checkout-payment.ts:90-95`(server-schema 第二個呼叫點;
+3DS 續走**不建單**⇒ 確實不用動,**列出來是因為實作者走到那裡會停下來問**,R3 `R3-F8`)/ `create_order` RPC 本體 / migration / `cardholder.ts` 的 fail-closed 與候選順位 /
 `CheckoutStep1.tsx` 那個關著的欄位(`Q-02`:留著關著不刪)/ `database.types.ts`(**已是 9 參**,`:3595`)/
 outbox / `service_role` / 金額 / tier / RLS。
 
@@ -165,6 +191,9 @@ AddressEmailInput = NotificationEmailInput + ≤40 octets（packages/schemas/src
 ⇒ 新單的 p_notification_email 不可能是 NULL
 ```
 ⇒ **這條 null 分支是防腐,不是活路徑**(舊單、未來有人改動 `cardholder.ts` 的順位或閘時才會走到)。
+🔴 **而上面那句全稱句只對【結帳這條路】成立**(R3 `R3-F3`):
+**員工手動建單**(Sean 點名的後台北極星,memory `project_admin-backend-staff-ready-goal` 把「接非網站商品的訂單」列為難點)
+**不經 `buildCardholder`** ⇒ 那條路建的單**必然是 NULL**。⇒ 見 §10 決策題的代價欄。
 ⇒ **§6 不得用一格「兩者皆不合格」的測試假裝驗過它** —— 那要 mock 掉 `buildCardholder` 才餵得出來,
    而那正是 memory `feedback_green-in-a-world-that-cannot-happen` 講的那種格。改法見 §6 #3。
 ⚠️ **本片不在這裡寫任何 log/告警** —— 通知信的可觀測性(落 `skipped_no_real_email` 一列)是 **B-5** 照 PRD §3.2 做的事。
@@ -233,8 +262,44 @@ rc=0 恰一支且含第 9 參 ⇒ 可部署        rc=3 只有 8 參 ⇒ 不可�
 rc=5 8 參與 9 參 overload 並存 ⇒ 不可部署(會撞 PGRST203)
 rc=4 找不到函式 ⇒ 你可能連錯庫        rc=1 / rc=2 ⇒ 這不是檢查結果,重跑
 ```
-🔴 **落點(R1 `F12`:不然它是提醒不是閘)**:跑完的**時間 + rc + 是哪個庫**要寫進
-①該次 commit 的 body ②`STATUS.md` 的「Sean 待決策 / Blocker」欄,直到部署完成為止。
+### 7.1 🔴🔴 repo 裡【已經有】一道 pre-push 的機制閘 —— 而它擋不住本片(2026-08-18 G4 查)
+
+```
+量法:grep -rn "deploy-order-gate" .husky/ .github/ package.json
+  .husky/pre-push:17  TURBO_FORCE=1 pnpm typecheck && ... && bash .../scripts/deploy-order-gate.sh
+判準（scripts/deploy-order-gate.sh:13-17 逐字）:
+  PENDING = migrations 的版本號 − APPLIED.tsv 已記錄且 sha 相符者
+  ⇒ 若這次要推的 diff 出現 pending migration 裡的【函式名】⇒ 擋
+```
+⇒ **它就是為 2026-08-07 那次事故(app 先上線、migration 未 apply、壞 8 小時)蓋的**,而且**是自動的、不靠人記得**。
+🔴 **但它對本片零判別力**,原因在帳本那一欄:
+```
+supabase/APPLIED.tsv:92   20260719120000  a778c484…  backfill  backfill-P七代
+supabase/APPLIED.tsv:107  20260730120100  b0ccd5ae…  backfill  backfill-P七代
+grep -n "cut -f3\|backfill" scripts/deploy-order-gate.sh  ⇒ 0 命中
+```
+⇒ 兩支關鍵 migration **都在帳上** ⇒ 不是 PENDING ⇒ **閘直接放行**;
+而**閘從來不看第 3 欄** ⇒ 對它來說「當場觀察到 apply 成功」與「事後有人補登」**是同一件事**。
+⇒ 🔴 **這正是本片要防的那個世界**:帳本說已 apply,而那句話沒有人觀察過。
+
+**⇒ 可以做成機制的一小步(便宜、且對所有片都成立)**:
+```
+preflight 跑出 rc=0 之後，把那一列的第 3 欄從 `backfill` 換成【真日期 + 觀察者】
+⇒ 帳本從此分得出「觀察過」與「補登」，而那正是 89% 那個數字在講的事
+（量法:grep -vE '^#|^$' supabase/APPLIED.tsv | cut -f3 | sort | uniq -c | sort -rn）
+```
+⚠️ **要不要再讓 gate 去看第 3 欄(例如:diff 動到某支 backfill-only migration 的識別字就擋)——
+本片不決定**:159/179 都是 backfill ⇒ 直接開會很吵,那是獨立一片的題目,已回報主視窗。
+
+🔴 **落點(R1 `F12`:不然它是提醒不是閘;欄位由 R3 `R3-F5` 修正)**:跑完的**時間 + rc + 是哪個庫**寫進
+①該次 commit 的 body ②`STATUS.md` 的 **「Sean 待決策 / 待動作」欄**(⚠️ **不是 Blocker 敘述段**:
+那段由收割窗高頻重寫,被精簡掉時**零機械訊號**)。
+🔴 **那一行要自帶量法與撤除條件**,否則它自己就是「描述世界的狀態」那種句子:
+```
+待動作:B-4 部署前跑 preflight ⇒ 只有 exit 0 才可推
+量法:read -rs PGURL && export PGURL && bash scripts/verify-create-order-9param.sh; echo rc=$?
+撤除條件:該次 rc=0 的時間與庫名寫進部署那顆 commit 的 body 之後,本行才可刪
+```
 **真正的部署動作是 Sean 手動 `push dev:main`,那條路上沒有任何機制會提到這支腳本** ——
 所以它只能靠「寫在他按下去之前會看到的地方」。
 ⚠️ **那支腳本目前只在 `notify-email` 分支上**(`git show notify-email:scripts/verify-create-order-9param.sh`),
@@ -252,6 +317,10 @@ rc=4 找不到函式 ⇒ 你可能連錯庫        rc=1 / rc=2 ⇒ 這不是檢�
 - ⚠️ **未量**:正式庫 LINE 登入客人的筆數/分母(repo 側量不到)⇒ `Q-W5-3` 的**嚴重度**未知、**機制**確定。
 - ⚠️ **未量**:`CHECKOUT_NOTIFICATION_EMAIL_ENABLED` 在正式站的現值(env,我沒有讀的管道)。
   🔴 **本片的正確性不依賴它**(§4.1 把持久化拿出 flag 之外),但**要確認它仍是 off**,否則結帳頁那個欄會顯示。
+- 🔴 **存了結果、沒存理由**(R3 `R3-F4`):`orders.notification_email` 存的是**解出來的信箱**,
+  **不存「走了哪一個候選」**;而 `address.email` 是客人事後改得掉的活資料、session email 也會變。
+  ⇒ 客人說「我沒收到」那天,值班的人**重建不出「當初為什麼是這個信箱」**。
+  零 migration 前提下本片修不了 ⇒ **登記在此**。⚠️ B-5 的 outbox 落列之後這個縫只剩「B-4 到 B-5 之間建的單」。
 - 🔴 **後台看到的 email 與實際寄信的 email 可能不同,而沒有任何地方會顯示後者**(R1 `F19`):
   後台/客服看的是 `customers.email`(`packages/domain/src/order/types.ts:1197`),本片寫進 `orders.notification_email`
   的是 session 現值。兩者一旦分岔,**客人說「我沒收到」時,後台查不到信到底寄去哪裡**。
@@ -262,7 +331,7 @@ rc=4 找不到函式 ⇒ 你可能連錯庫        rc=1 / rc=2 ⇒ 這不是檢�
   **B-4 plan 檔頭下修段的內文**直接貼進 prompt。**只貼檔頭或檔名,審查者看不到同一批契約**
   —— 上一輪就是這樣漏掉 V1/V2 兩條 must-fix 的。
 
-## 11. 🔴🔴 R1 抓到的一個【死結】:`Q-02` 之後,PRD 的 cutoff 取不到值(要 Sean 拍)
+## 10. 🔴🔴 R1 抓到的一個【死結】:`Q-02` 之後,PRD 的 cutoff 取不到值(要 Sean 拍)
 
 **PRD `:125,136` 把 cutoff 釘死成「flag **實際開啟**時戳」**,而 `Q-02` 裁定**那個 flag 永遠不開**。
 ⇒ **cutoff 這個值永遠不存在** ⇒ 下面三件全部卡住:
@@ -281,14 +350,17 @@ rc=4 找不到函式 ⇒ 你可能連錯庫        rc=1 / rc=2 ⇒ 這不是檢�
 Q-G4-5  PRD 那個「cutoff = flag 開啟時戳」現在取不到值（因為 flag 永遠不開了），要換成什麼？
         甲（推薦）改成【B-4 這一片部署上線的時戳】
                  理由：本片之後建的單就開始有真值，界線正好落在這裡；語意跟原本一樣
-                 代價：要改 PRD 的字面（真權威），而它是被 codex R3 釘過的一條
+                 代價①：要改 PRD 的字面（真權威），而它是被 codex 釘過的一條
+                 🔴 代價②（R3-F3 抓到，兩個選項原本都沒寫）：將來「員工手動建單」那條路
+                     不經現在這道解析 ⇒ 解不出收件信箱 ⇒ 會被 B-6 的必填收緊擋下來
+                     而「員工能手動接非網站商品的訂單」是你自己點名的後台北極星
         乙       等 B-6 那一片再決定
-                 代價：C-1 對帳的下界現在就取不到值 ⇒ 那條兜底繼續是空的
+                 代價：漏寄的單【不會有任何機制發現】（R3-F9 白話化：原本寫「兜底是空的」）
         A: 甲 | 乙
 ```
 ⚠️ **本片不因為這題卡住** —— B-4 自己不需要 cutoff(它是 B-6 與 C-1 要用的)。
 **但這題沒答之前,不得宣稱「通知線可以往 B-6 走」。**
 
-## 10. 估時
+## 11. 估時
 
 實作 ≈ 20 分鐘;測試(7 格 + 7 發突變)≈ 25 分鐘 ⇒ **≈ 45 分鐘**,合鐵則 4。
