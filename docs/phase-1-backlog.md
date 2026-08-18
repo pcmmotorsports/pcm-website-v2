@@ -13839,6 +13839,67 @@ order-keyword-search-wiring:244 '王小明' 意圖=搜尋詞要看得見（fixtu
 ⇒ **訂單域這一批沒有債。** 而它們之所以看起來可疑,是因為我的篩選器只看字串長度與生產者數,
 **沒有看那一格的意圖** —— 而其中三處的意圖**就寫在它們自己的註解裡**。
 
+---
+
+## ✅ 21:5x **storefront 那半也做完了 —— 10/10 瞄準正確,而分母差點是 0**(G3)
+
+### 🔴 先講量法,因為我的第一把尺回「0」而那是假的
+
+```
+我照 G2 的量法（container.textContent … toContain）掃 storefront 頁層 ⇒ 【0 命中】
+🔴 而 0 沒有讓我下結論 —— 我先拿同一把尺去量 admin（G2 已知有東西）:
+   admin 頁層 正向 142 / 反向 89  ⇒ 尺是好的
+⇒ 所以 0 的意思是【storefront 不用那個慣用法】，不是「沒有這種斷言」
+實查 storefront 的慣用法:  expect(html) 9 處 / expect(text) 7 處 / expect(text).not 3 處
+   —— 它的頁層測試多半在斷言【server 渲染出來的 HTML 字串】，不是 container.textContent
+換成涵蓋 expect(html|text|container.textContent) 之後:
+   storefront 全部命中 62 ／ 其中頁層 16 ／ **頁層正向 10**  ← 這才是真分母
+```
+> 🔴 **母題的鏡像**:本條 §病 講的是**斷言宇宙比意圖宇宙寬**;
+> 而**量具的字集比宣稱窄**會讓你以為「這個 repo 沒有這種債」。
+> **兩個方向都會給你一個安心的數字。**
+
+⚠️ 順帶更正一句射程:主視窗派工說「storefront 那半是 `products` 那幾處」——
+**storefront 的頁層正向一處都不在 `products`**(那 10 處在 `app/page` 與 `app/brands/[slug]`);
+前面清單裡的 `app/products/[id]/page.test.tsx` 是 **admin**(storefront 的商品頁是 `[slug]`)。
+
+### 逐格開檔問「這格什麼狀態會紅」(不做自動篩選,照 G2 的結論)
+
+```
+app/page.test.tsx:304 'class="ed-feature"'
+  意圖=打錯 ?focus= slug 不該讓整個 N°05 版位消失；同格配 showsCurrent(...)=true 驗內容  ✅
+brands/[slug]:166 'data-stub="site-header"' / :167 'ed-footer'
+  意圖=品牌頁掛得上站台頁首頁尾；data-stub 只有那個 stub 產得出來                        ✅
+brands/[slug]:201 '<main class="bp-page">'
+  意圖=有 main landmark；同格配 match(/<main[\s>]/g) toHaveLength(1)                     ✅
+brands/[slug]:210 'class="bp-products"' / :211 '/products?pbrand=akrapovic'
+  意圖=有商品時商品區與「查看全部」網址正確；同格配 pcard 計數 5 + not.toContain('bp-slot') ✅
+brands/[slug]:222 'class="bp-page"'   意圖=0 筆時頁面其餘部分照常                         ✅
+brands/[slug]:232 'is-empty'          意圖=零商品品牌渲成泛白磚；同格配 not.toContain(該品牌連結) ✅
+brands/[slug]:235 'href="/brands/bonamici"' 意圖=有商品的仍是連結（對照組）               ✅
+```
+
+### ⚠️ 一處我判「**成立但冗餘**」,寫出來而不是算它過
+
+```
+brands/[slug]:223  expect(html).toContain('RIZOMA')     （0 筆那一格的第二個斷言）
+意圖（註解逐字）=「但頁面其餘部分照常 —— 不能因為沒商品就把整頁弄壞」
+🔴 而品牌頁上有一面【列出全部品牌的磚牆】(BrandDirectoryRoot 直接 map BRAND_CONTENT)
+   ⇒ 'RIZOMA' 在那面牆上【無條件】出現一次
+   ⇒ 這一格實際上只有「整頁沒渲染出來」才會紅 —— 而那正是它上一行 'class="bp-page"' 已經在守的
+⇒ **對它自己宣稱的意圖是成立的**（頁面沒垮），**但它不會告訴你品牌自己那一段有沒有壞**。
+⇒ 判定:**不是本條的病**（它沒有宣稱要驗那段），**而是一格沒有增加資訊的斷言**。留著無害。
+```
+
+### ⚠️ 這一輪的天花板
+
+```
+· 我用的是 G2 最後定的方法（逐格開檔問意圖），**沒有逐格跑突變** —— 與 G2 訂單域那批同標準
+· 只掃【頁層】正向。反向 6 處照本條上面的裁定【不是債】，沒動
+· 元件層（components/**）沒掃 —— G2 已論證它天生風險低，但那是論證不是量測
+```
+⇒ **storefront 這一批沒有債。** 加上 G2 的訂單域 7/7,`#506` 目前**沒有找到任何一處真的假覆蓋**。
+
 📌 **對本條的實質貢獻**:`#506` 的價值在 `app/**` 那一批,而**訂單域已經是乾淨的**
 ⇒ 下一個接手的人**不必從訂單域開始**,直接去 `app/page.test.tsx` / `customers` / `products` 那幾支
 (它們是本條原文點名的地方,而且 `products` 那兩支就是本條的起因)。
