@@ -254,6 +254,72 @@ git grep -n "'action'" -- 'apps/admin/src/*' 濾掉 label/format/type 之後:
 
 ---
 
+## 3-d ✅ **十個中文標籤(要與 migration 同片交付,見 §3-b)**
+
+🔴 **這是「一次把它寫對」最便宜的時刻**:那一頁**還沒上線**(旗標未開)⇒ **沒有任何既有習慣要遷就。**
+
+**既有語氣(從 `AUDIT_ACTION_LABEL` 抄的,不是我發明的)**:
+```
+動詞在前、名詞在後:「登錄收款」「作廢採購」「撤銷到貨」「更新訂單狀態」
+重放的寫法只有一個先例:'payment.record.replay': '收款重送(冪等)'
+⇒ 格式 = 「<原標籤的動作>重送(冪等)」
+```
+
+**⇒ 十個**:
+```
+'shipment.create'          : '建立出貨箱'
+'shipment.create.replay'   : '建立出貨箱重送(冪等)'
+'shipment.items.add'       : '加入出貨品項'
+'shipment.items.add.replay': '加入出貨品項重送(冪等)'
+'shipment.ship'            : '標記已出貨'
+'shipment.ship.replay'     : '標記已出貨重送(冪等)'
+'shipment.void'            : '作廢出貨箱'
+'shipment.void.replay'     : '作廢出貨箱重送(冪等)'
+'shipment.unvoid'          : '復原出貨箱'
+'shipment.unvoid.replay'   : '復原出貨箱重送(冪等)'
+```
+
+### 🔴 而「重放看得出來」不能只靠標籤 —— 那是主視窗指定的那一格
+```
+主視窗:「重放那五個的標籤要讓人看得出它是重放,否則畫面上會出現兩列看起來一樣的東西」
+⇒ 標籤已經帶「重送(冪等)」四個字,而**那還不夠**:
+  🔴 兩列的【時間 / 操作人 / 對象】會一模一樣(重放本來就是同一個人對同一張單再按一次)
+  ⇒ 員工看到的是「同一件事出現兩次,而其中一列多了四個字」
+⇒ 而 #423 是怎麼處理的:它的 before/after 逐字
+  「**重放的資訊量在「這件事又發生一次」,不在內容**」⇒ before 與 after **放同一份識別欄**
+  ⇒ 那讓「改了什麼」那一欄顯示 **0 個欄位有變動** ⇒ **那就是視覺上的差別**
+⇒ ✅ **本片照抄:重放列的 before/after 相同 ⇒ 摘要行自然顯示「0 個欄位有變動」**
+  (`audit-detail.tsx:26` 逐字:`if (changes.length === 0)` 走另一個分支)
+✅ **那個分支我讀了(audit-detail.tsx:26-30),而它顯示的字正好就是我要的**:
+  逐字 `<span …>沒有記錄欄位變動</span>`
+  而它自己的註解逐字:「**不是空白**:…顯示空白會被讀成『這頁壞了』,
+  而事實是『這筆沒有可展開的內容』」
+🔴 ⇒ 所以重放列在畫面上會是:**同一時間、同一人、同一對象、標籤多「重送(冪等)」、
+  而「改了什麼」那欄寫「沒有記錄欄位變動」** ⇒ **兩列的差別是【三處】不是一處。**
+```
+
+### 驗收(照 §3-b 的量法,不是「我加了」)
+```
+十個 action 各跑一發:grep -c "'<action>'" apps/admin/src/lib/audit/audit-list-view.ts ⇒ 各 ≥1
+🔴 而該檔 :36 逐字警告:「重掃時要掃兩個分母:主樹 dev 與各窗分支的聯集」
+```
+
+## 3-e ✅ 補完 §5 兩格
+```
+admin_audit_log 完整欄位(20260712210000_m4a_admin_audit_log.sql):
+  id / actor / action / target / before(jsonb)/ after(jsonb)/ reason /
+  request_id(NOT NULL)/ source_app(DEFAULT 'admin')/ created_at
+  + 三條非空 CHECK(actor / action / request_id)
+🔴 而 before 欄的 COMMENT 逐字:「可含敏感內部狀態 → **全表零 client 權限保護**」
+  ⇒ 這是 §3-b 那格 PII 結論的**第三層依據**:表本身對 client 零權限,只有 server 讀得到
+
+#423 那 683 行的組成(體積估用):
+  註解行 74 / CREATE OR REPLACE FUNCTION 2 支 / INSERT INTO audit 9 處 / RAISE EXCEPTION 54 處
+  ⇒ 🔴 **RAISE 54 處 = 大部分份量在【斷言與錯誤訊息】,不是稽核本體**
+  ⇒ 本片五支 + 冪等層,斷言密度若照抄,**體積會比「加十行 INSERT」大一個量級**
+  ⚠️ 而我沒有逐行分類,這是從計數推的 ⇒ 標估
+```
+
 ## 4. Rollback(鐵則 8 必備)
 ```
 🔴 而這一片的 rollback 有一個特別的性質:**稽核寫入是【加】不是【改】**
@@ -308,5 +374,4 @@ git grep -n "'action'" -- 'apps/admin/src/*' 濾掉 label/format/type 之後:
 ~~· 五支 live 定義是不是等於那三檔~~ ✅ **repo 側查完**(見 §4:三檔是最後一版、且帳本各 1)
   🔴 **而「有沒有人繞過 migration 直改 live」查不到** ⇒ 要正式庫,已併進要問 Sean 的批次
 ~~· ERRCODE 哪些已被占用~~ ✅ **掃完,見 §2-6**(82 個;P2B 段已到 44 + 50 ⇒ 建議 P2B45 起)
-· admin_audit_log 的完整欄位定義(我只從 #423 的 INSERT 反推八欄)
 ```
