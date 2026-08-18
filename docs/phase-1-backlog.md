@@ -14636,7 +14636,16 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 
 ### #538. 🔴 兩張 tier 標籤表**值逐字相同、各自獨立定義**,而**沒有東西守它們一致**
 
-- **狀態:** 🔴 未處理 —— **跨 `apps/admin` 與 `apps/storefront` 兩包 ⇒ 至少中鐵則 8,要 plan 等 Sean 批**
+- **狀態:** ⏸ **刻意不排(2026-08-18 主視窗裁定);條件寫在下一行,達成才做。**
+  ```
+  🔴 **開工條件：等【第三個地方】要用同一組標籤時再做。**
+  理由（主視窗原文）：#538 是一個【重構】（跨包共用常數，鐵則 8），
+    而 #539 是一個【守門】⇒ **把守門綁在重構上，等於讓一個已經好了的東西等一個還沒開始的東西**。
+    而今晚**沒有第二處在痛** ⇒ **沒有痛就不重構。**
+  ⇒ 在那之前：兩張表各自有自己的守門（`customer-list-view.test.ts` / `TierBadge.test.tsx`），
+     缺的只是「兩張一致」那道 —— 而那道的代價是跨包耦合，今天買不划算。
+  ```
+  ~~原狀態~~:🔴 未處理 —— 跨 `apps/admin` 與 `apps/storefront` 兩包 ⇒ 至少中鐵則 8,要 plan 等 Sean 批
 - **座標:**
   ```
   apps/admin/src/lib/customers/customer-list-view.ts:68   TIER_LABEL         一般會員 / 店家會員 / PREMIUM STORE
@@ -14679,7 +14688,23 @@ storefront/src/lib/auth/line.ts:32       export const LINE_OAUTH_COOKIE_PATH = '
 
 ### #539. 🔴 tier 標籤的**四個顯示點,零守門** —— 而我第一次分類時把它們判成「大多是假警報」
 
-- **狀態:** 🔴 未處理(補守門是輕量片,但**先確認 `#538` 要不要一起做** —— 抽共用常數會改動同一批檔)
+- **狀態:** 🟡 **訂單域那一格已補(2026-08-18 21:5x,G2);客戶域三格仍未處理。**
+  🔴 **而補的時候發現本條的座標有一處要更正**:
+  ```
+  本條把「lib/orders/order-list-view.ts 的 MEMBER_TIER_LABEL」與客戶域三處並列，
+  而**那是兩張不同的表**：
+    orders    MEMBER_TIER_LABEL  一般 / 車行 / 車行           ← Sean 的「一般/車行」二分
+    customers TIER_LABEL         一般會員 / 店家會員 / PREMIUM STORE
+  ⇒ 本條寫的「order-list-view.test.ts 對 tier 標籤命中數 0」，量的是**客戶域那三個字面**
+    —— 它在那支檔本來就不該命中。**那個 0 不是缺口的證據。**
+  ```
+  ✅ **而真正的缺口在別的地方,已補**:`store` 與 `premiumStore` **刻意都對到「車行」**
+  (常數 docstring 逐字「Sean 需求二分」)⇒ 一個「兩個 key 對到同一個值」的表
+  **看起來就像複製貼上忘了改** ⇒ 下一個人「順手把 premiumStore 改成進階車行」是**零訊號**的。
+  ⇒ `order-list-view.test.ts` 新增三格(三個字面 / 兩者必須相同 / 與「一般」必須不同);
+  突變(把合併拆開)⇒ **2 格紅**。
+  ⚠️ **客戶域那三格我沒動**(不是我的域);而它們與 `#538`(跨包共用常數)是否一起做,仍待確認。
+  ~~原狀態~~:🔴 未處理(補守門是輕量片,但先確認 `#538` 要不要一起做)
 - **四個顯示點,各自零守門(逐一開檔數過,附命中數):**
   ```
   components/customers/customer-detail.tsx:155,165   TIER_LABEL[customer.tier]
