@@ -1,4 +1,6 @@
-# B1 關卡1 第三輪(換角度)· codex findings 逐條裁定
+# B1 關卡1 第三輪 + 第四輪 · codex findings 逐條裁定
+
+> 🔴 **本檔含兩輪**:R3 在 §1-§4、**R4 在 §5-§7**(2026-08-18 同日稍晚)。檔名只寫 r3 是因為它先存在,**不改檔名以免既有指標斷掉**。
 
 > **跑的是誰**:codex CLI(`-m gpt-5.6-sol`、`-s read-only`,2026-08-18 下午,G5 窗,唯讀零留痕)。
 > **為什麼是第三輪**:`docs/specs/2026-08-16-m4b-e8b-b1-spec.md:21` 逐字「兩輪皆 FAIL、findings 已折;**第三輪換模型待跑**」。
@@ -160,3 +162,110 @@ ERROR: 新物件收權斷言:service_role 的【有效 + 可達權限】不符,�
   **正式庫的 ADP / role membership 與這裡不同** ⇒ `D3`(`SET ROLE` 可達性)這裡量不到,仍待 apply 當天那條查詢。
 - **不是** `apply_migration`:這裡走的是 `psql`,而台帳(`A4`)與連線角色(`D1` 的未查證前提)都只有 MCP 那條路才問得到。
 - `auth.users` 是**骨架**(`id` + `email` 兩欄),不是真的 GoTrue 表。
+
+
+---
+
+# §5 第四輪(再換一次角度)· codex 原文(逐字,未編輯)
+
+> **為什麼跑**:R3 判 FAIL、我折了 14 條 ⇒ 依輪次紀律修完要再一輪確認。
+> **換了什麼**:R4 的四個角度是 **①折入自己製造的新面 ②診斷正確性(紅了之後那個人會去改什麼)
+> ③apply 當天的順序與人 ④斷言之間的相依(誰遮蔽誰、誰恆真)** —— 與 R1/R2/R3 都不同。
+> **結果:`VERDICT: FAIL`,15 條(11 must-fix + 4 nit)。**
+> 🔴🔴 **角度 1 一口氣抓到 5 條,而那 5 條【全部是我 R3 折進去的東西造出來的】** ——
+> 這正是我在 R3 triage §4.2 自己寫下的那句話的第三、四、五個例子:**折 finding 的動作本身會製造新的面。**
+
+### 角度 1 · 折入自己製造的新面
+
+- `docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql:149` 已撤銷 `service_role INSERT`，永久資料表註解卻仍宣稱有 `SELECT/INSERT`，後續維護者可能依註解把寫權補回。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:142` R3 新增的 ACL 陣列只列七項、漏掉 PG17 的 `MAINTAIN`；授給 `anon` 後 B2 仍綠，且公開角色可執行維護／鎖表操作。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:149` 只重驗 `service_role SELECT`，未重驗 B1-b 承重的 `rolbypassrls`；兩支之間若撤掉 BYPASSRLS，B2 仍會 seed，但登入永遠讀不到映射。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:47` R3 新增的退場檢查仍用 `tgenabled <> 'D'`；trigger 若變成 `R`，正常連線下等同停用，檢查卻允許 COMMIT。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:469` 新迴圈把涵蓋列寫成另一份手工陣列；複製本檔新增員工時若忘記同步，新增列的 DELETE／兩種 UPDATE 保護完全沒被探測且全綠。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b1-spec.md:191` 動作表已改成兩個帳號，但硬規則仍要求驗「三個 uuid」；apply 人會再次遇到兩套互斥數字。— nit
+
+### 角度 2 · 診斷正確性
+
+- `docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql:290` 若寫權來自繼承角色，這道較早的有效權限檢查會先 RAISE，使後面能指出「拆 role membership」的診斷永遠到不了；照訊息撤 `service_role` 直授不會修好。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:253` 若 B2 資料已 COMMIT、台帳寫入失敗，重試會在此被告知「要加人請另寫 migration」；真正修法是補登台帳，訊息會把人帶去建立錯誤的新 migration。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:431` 配對紅燈只指向「兩個 uuid 對調」，但同檔已承認漏改第三份硬編碼期望值也會產生同一紅燈；操作者可能去交換其實正確的帳號。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:486` [不確定] 若未來有外鍵參照映射列，DELETE 到達 FK 才被擋代表 `no_delete` 沒先攔住；目前卻只報「探針非預期錯誤」，與已修掉的 UPDATE 誤診同形。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b1b-migration-draft.sql:346` RLS 未開不等於「對所有角色敞開」，ACL 的 REVOKE 仍存在；錯誤訊息把防線失效誇成另一個並未發生的權限狀態。— nit
+
+### 角度 3 · apply 當天的順序與人
+
+- `docs/specs/2026-08-16-m4b-e8b-b1-spec.md:320` B1-b 與 B2 共用「表存在＋台帳」讀回，但 B2 開始前表本來就已存在；B2 中斷後無法靠這兩問判斷兩列究竟有沒有 COMMIT。— must-fix
+
+- `docs/specs/2026-08-16-m4b-e8b-b1-spec.md:325` 「物件有、台帳無就補登」只適用 B1-b；套到 B2 可能替一支其實沒有 seed 成功的 migration 補登台帳，留下台帳綠、映射表空的最難救狀態。— must-fix
+
+### 角度 4 · 斷言之間的相依
+
+- `docs/specs/2026-08-16-m4b-e8b-b2-seed-migration-draft.sql:206` 同一個 DO 內，RLS 未開早已在 :128–132 RAISE，兩者之間沒有任何 RLS 變更；此處第二道 RLS 斷言在所有世界都到不了失敗分支。— nit
+
+- `docs/specs/2026-08-16-m4b-e8b-b1a-migration-draft.sql:209` `is_active` 為 NOT NULL，列不存在已先在 :200–202 RAISE；後面的「該列仍在」斷言不可能獨立叫出來。— nit
+
+VERDICT: FAIL
+
+---
+
+# §6 R4 逐條裁定(G5 當場開檔核實)
+
+| # | 一句話 | 核實 | 裁定 |
+|---|---|---|---|
+| **R4-A1** | 撤了 `service_role INSERT`,而**表註解仍宣稱有 SELECT/INSERT** | ✅ 開檔核實(`b1b:149` 逐字) | **已折** — 註解改成「只有 SELECT、沒有任何寫入權」,並加一句「看到這行不要順手把寫權補回去」。🔴 **永久註解是【比 code 活得久】的那一半**,改權限沒改註解 = 留一張過期的地圖 |
+| **R4-A2** | 我 R3 新增的 ACL 陣列**手寫七項、漏掉 PG17 的 `MAINTAIN`** | ✅ 屬實 | **已折(改做法)** — 改成從 `acldefault()` 推導,與 B1-b 同一套。🔴 **我前一天才在同一支檔讀過「枚舉的集合比世界窄」,然後自己手寫了一份清單** |
+| **R4-A3** | B2 沒重驗 B1-b 承重的 `rolbypassrls` | ✅ 屬實 | **已折** — 加一道;失敗世界是「seed 成功而登入永遠讀不到映射」 |
+| **R4-A4** | 我 R3 寫的退場檢查用 `tgenabled <> 'D'`,漏掉 `'R'` | ✅ 屬實(而**同檔既有的**前提斷言用的是 `IN ('O','A')` —— 對的那個寫法就在同一支檔裡) | **已折** — 改 `= 'O'`。📎 **用「不是壞的那個值」判會漏掉你沒想到的壞值** |
+| **R4-A5** | 我 R3 把探針改成迴圈,而**迴圈的陣列是一份新的手工清單** | ✅ 屬實 | **已折(改做法)** — 改成 `FOR v_who IN SELECT staff_id FROM …` 從表自己撈 ⇒ 涵蓋率永遠等於表的列數,加人不必記得改 |
+| **R4-A6** `nit` | 動作表改兩個帳號了,**底下那句硬規則還寫「三個 uuid」** | ✅ 屬實 | **已折** — 改兩個 + 補上 email 那半 |
+| **R4-B1** | 我 R3 新增的「不得有寫入權」斷言**比既有那道深的先跑**,而訊息只講「REVOKE 直授」 | ✅ 屬實 | **已折** — 訊息改成列三種來源 + 附一條「先查是哪一種」的查詢 |
+| **R4-B2** | 「表非空」的訊息會把「台帳沒登、正在重跑」的人**帶去建一支錯的 migration** | ✅ 屬實 | **已折** — 訊息分成 (a) 台帳沒登 ⇒ **補登、不要另寫** (b) 真的要加人 ⇒ 另寫一支 |
+| **R4-B3** | 配對紅燈只指向「兩個 uuid 對調」,而**漏改第三份硬編碼期望值也會紅成同一句** | ✅ 屬實(本檔自己就寫著有三份硬編碼) | **已折** — 訊息列兩種成因 + 分辨法(拿實際值去對 email) |
+| **R4-B4** `[不確定]` | DELETE 探針沒有明捕 FK,與已修的 UPDATE 誤診同形 | 🟡 **今天走不到**(沒有任何外鍵參照本表) | **已折** — 照樣加。**「今天走不到」不是「以後走不到」**,成本三行、漏寫的代價是一句誤導的診斷 |
+| **R4-B5** `nit` | RLS 訊息把「沒開 RLS」誇成「整張表對所有角色敞開」 | ✅ 屬實(ACL 的兩道 REVOKE 仍在) | **已折** — 改成「失去的是第二層」,並寫明誇大會讓人去查錯的地方 |
+| **R4-C1** | apply 後的「兩問」對 B2 **恆真**(表本來就存在) | ✅ 屬實 —— **這是我 R3 折 A4 時寫的東西** | **已折** — 改成一支一問的表:B1-a 問 `is_active`、B1-b 問 `to_regclass`、**B2 問 `count(*) = 2`** |
+| **R4-C2** | 「物件有、台帳無 ⇒ 補登」套到 B2 會**替一支沒 seed 成功的 migration 補登** | ✅ 屬實 | **已折** — 加「① 不成立 ⇒ 那一支沒有成功,**不可以補登台帳**」 |
+| **R4-D1** `nit` | B2 裡第二道 RLS 斷言**永遠到不了失敗分支** | ✅ 屬實(我 R3 在同一個 DO 更前面加了一道) | **已折(刪掉那行 code、留說明)** — 恆真的斷言比沒有斷言更糟 |
+| **R4-D2** `nit` | b1a「那一列還在」斷言不可能獨立叫出來 | ✅ 屬實(`is_active` 是 NOT NULL ⇒ 列不在時前一道就紅了) | **已折(刪掉 + 移除未用變數)** — 同上一族 |
+
+**⇒ R4:15 條全折(11 must-fix + 4 nit),駁回 0。**
+
+---
+
+# §7 R4 折完後的實跑(拋棄式 PG 17.10,第二座)
+
+**三支全部重跑 + 靜態檢查三道 × 三支全過**(`b1a:265` / `b1b:801` / `b2-seed:610` 結束交易各恰一次且在最後一行)。
+
+| 突變 | 期望 | 實得 |
+|---|---|---|
+| 對照組(不突變) | GREEN | ✅ |
+| `auth.users` 改掉 `staff_2` 的 email | RED | ✅ |
+| 白名單多一個 `'x9'` | RED | ✅ |
+| `GRANT SELECT … TO anon` | RED | ✅ |
+| 🆕 **`GRANT MAINTAIN … TO anon`**(R4-A2 那條的負測) | RED | ✅ `anon:MAINTAIN` —— **手寫七項的舊版在這一格會綠** |
+| 加 permissive policy | RED | ✅ |
+| `DISABLE ROW LEVEL SECURITY` | RED | ✅ |
+| 🆕 **`ALTER ROLE service_role NOBYPASSRLS`**(R4-A3) | RED | ✅ |
+| `no_delete` 只保護 `sean` | RED | ✅ `DELETE(staff_2) 沒有被擋下` |
+| `no_delete` 整支掏空 | RED | ✅ `DELETE(sean) 沒有被擋下` |
+| `no_rebind` 只看 `staff_id` | RED | ✅ `UPDATE(sean.auth_user_id) 是被外鍵擋下的` |
+| b1a:對照組 / 一停一啟 / `test_01` 被刪 | GREEN / RED / RED | ✅✅✅ |
+
+## 🔴🔴 而這一輪的實跑,抓到的是【我的測試工具】自己的洞
+
+`ALTER ROLE … NOBYPASSRLS` 是**叢集層級**的,不是資料庫層級 ——
+我把它當成「一個 case 的突變」下下去,**它洩漏到後面三個 case**。
+那三個 case **照樣印 `[OK] 期望=RED 實得=RED`**,而它們紅的原因**根本不是我要測的那個東西**。
+
+⇒ **修法不是「記得還原」,是把判準從【有沒有紅】換成【紅的是不是那一句】** ——
+第二版 harness 每一格都要求錯誤訊息**含指定字串**(`DELETE(staff_2)` / `auth_user_id` …)。
+📎 母題:**錯的那次和對的那次長得一樣**。這一次「長得一樣」的是我的**測試報表**,不是被測的 SQL。

@@ -44,7 +44,10 @@
 --            SELECT 1 FROM pg_trigger
 --             WHERE tgrelid = to_regclass('public.admin_user_staff_map')
 --               AND tgname  = 'admin_user_staff_map_no_delete_trg'
---               AND tgenabled <> 'D'
+--               AND tgenabled = 'O'
+--          -- 🔴 2026-08-18(codex R4):⛔ ~~`tgenabled <> 'D'`~~ —— `'R'`(replica)在**一般連線下等同停用**,
+--          --    而 `<> 'D'` 會放它過。要的是 `'O'`(origin,預設啟用)。
+--          --    📎 形狀:**用「不是壞的那個值」判,會漏掉你沒想到的壞值;用「就是好的那個值」判才封閉。**
 --          ) THEN
 --            RAISE EXCEPTION '退 seed:no_delete_trg 沒有回到啟用狀態,拒 COMMIT。';
 --          END IF;
@@ -137,10 +140,20 @@ BEGIN
       '   ⇒ 有人在兩支之間開了一條路。先看那條 policy 讓誰讀得到什麼,再決定要不要 seed。';
   END IF;
 
-  SELECT string_agg(format('%s:%s', r, p), ', ') INTO v_acl_bad
+  -- 🔴🔴 2026-08-18 改寫(codex 關卡1 R4,角度=折入自己製造的新面)。codex 逐字:
+  --    「R3 新增的 ACL 陣列只列七項、漏掉 PG17 的 `MAINTAIN`;授給 anon 後 B2 仍綠。」**屬實。**
+  --    ⇒ 我昨天才在 B1-b 那支檔裡讀過「**枚舉的集合比世界窄**」這句話,然後在這裡手寫了一份七項清單。
+  --    ⇒ 改成**從 acldefault() 推導**(與 B1-b 同一個做法)—— 世界有哪些權限型別由 PG 自己說,
+  --      **沒有數字寫在註解裡,就沒有會漂的數字**。
+  SELECT string_agg(format('%s:%s', r, d.privilege_type), ', ') INTO v_acl_bad
     FROM unnest(ARRAY['anon','authenticated']) AS r
-    CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) AS p
-   WHERE has_table_privilege(r, to_regclass('public.admin_user_staff_map'), p);
+    CROSS JOIN LATERAL (
+      SELECT DISTINCT a.privilege_type
+        FROM pg_class oc
+        CROSS JOIN LATERAL aclexplode(acldefault('r', oc.relowner)) a
+       WHERE oc.oid = to_regclass('public.admin_user_staff_map')
+    ) d
+   WHERE has_table_privilege(r, to_regclass('public.admin_user_staff_map'), d.privilege_type);
   IF v_acl_bad IS NOT NULL THEN
     RAISE EXCEPTION E'B2-seed 前提斷言:anon / authenticated 對這張表仍有權限(%)。\n'
       '   ⇒ anon 是 storefront 印在訪客瀏覽器裡的公開角色。拒繼續。', v_acl_bad;
@@ -148,6 +161,15 @@ BEGIN
 
   -- 🔴 對照組:service_role 必須【有 SELECT】。三道全紅的世界(整張表誰都碰不到)
   --    會讓上面三道一起變成恆真 —— 那時 seed 進去也沒有人讀得到,報價單登入照樣壞。
+  -- 🔴 2026-08-18 補(codex R4):B1-b 的設計【承重在 service_role 有 BYPASSRLS】
+  --    (RLS 開 + 零 policy ⇒ 沒有 BYPASSRLS 的 service_role 一列都讀不到)。
+  --    兩支之間若有人撤掉它,**B2 照樣 seed 成功、而登入永遠讀不到映射** —— 那是「事後才發現」的形狀。
+  IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'service_role') THEN
+    RAISE EXCEPTION E'B2-seed 前提斷言:service_role 沒有 BYPASSRLS(B1-b apply 當時是有的)。\n'
+      '   ⇒ 本表是「RLS 開 + 零 policy」,沒有 BYPASSRLS ⇒ 報價單登入查映射會回 0 列,而不是報錯。\n'
+      '   ⇒ 先確認是誰改的,再決定要不要改走明文 policy。拒繼續。';
+  END IF;
+
   IF NOT has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), 'SELECT') THEN
     RAISE EXCEPTION E'B2-seed 前提斷言:service_role 連 SELECT 都沒有 —— 上面三道權限斷言在這種世界裡是恆真的。\n'
       '   ⇒ 先確認 B1-b 的 GRANT SELECT 真的下去了。';
@@ -203,9 +225,11 @@ BEGIN
         '   ⚠️ 「不見了」與「還在但 tgenabled=D」是兩件事,這句話涵蓋兩者 —— 去查 pg_trigger 看是哪一種。', v_trg;
     END IF;
   END;
-  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid = to_regclass('public.admin_user_staff_map')) THEN
-    RAISE EXCEPTION 'B2-seed 前提斷言:RLS 沒開。表被改過,拒繼續。';
-  END IF;
+  -- ⛔ 2026-08-18 移除(codex 關卡1 R4 nit,角度=斷言之間的相依):
+  --    ~~IF NOT (SELECT relrowsecurity …) THEN RAISE '前提斷言:RLS 沒開'~~
+  --    我在 R3 折 D2 的時候,在**同一個 DO 區塊的更前面**已經加了一道 RLS 斷言,
+  --    而兩者之間沒有任何會改變 RLS 的語句 ⇒ **這一道永遠到不了失敗分支 = 恆真。**
+  --    📎 恆真的斷言比沒有斷言更糟:它讓人以為那一面有守。留這段字說明它去哪了,不留那行 code。
 
   -- 0.2 🔴 佔位符沒換就停 —— 這一道的存在就是為了擋「照抄草稿直接跑」
   --     ⚠️ 這道現在【應該不會觸發】(2026-08-16 已填真值),但**不移除** ——
@@ -251,7 +275,13 @@ BEGIN
   SELECT count(*) INTO v_existing FROM public.admin_user_staff_map;
   IF v_existing <> 0 THEN
     RAISE EXCEPTION E'B2-seed:admin_user_staff_map 已經有 % 列,不是空的。\n'
-      '   ⇒ 本支是【只該跑一次】的 seeding。要加人請另寫一支,不要重跑這支。', v_existing;
+      '   ⇒ 本支是【只該跑一次】的 seeding。\n'
+      '   🔴 先分清楚你在哪一種情況(codex R4:原訊息只寫「要加人請另寫一支」,\n'
+      '      而【上一次 apply 成功但台帳沒登、你正在重跑】的人照著它做會建出一支錯的 migration):\n'
+      '      (a) 台帳【沒有】這支、而表已經有這兩列 ⇒ 上次其實成功了,只是沒登記\n'
+      '          ⇒ 正解是【補登台帳】,不是另寫 migration,也不是重跑。\n'
+      '      (b) 台帳【有】這支、你只是想加人 ⇒ 另寫一支新的 seeding + 一支 ALTER 改白名單。\n'
+      '      ⇒ 分辨法:去看台帳裡有沒有這支的版本號。', v_existing;
   END IF;
 
   -- 0.6 🔴🔴 CHECK 白名單要【真的擋得住】,不是【名字還在】
@@ -429,7 +459,12 @@ BEGIN
   IF v_ids IS DISTINCT FROM ('f5fb22ee-29f8-4af9-83b8-7fc9121eb533=sean,'
                            ||'63f0e9c6-d8c1-4f0d-ad8a-d924f0da0e2f=staff_2') THEN
     RAISE EXCEPTION E'B2-seed 落地斷言:配對不符。\n   實際:%\n'
-      '   ⇒ 最可能的原因是兩個 uuid 貼的順序跟人對不起來(對調)。\n'
+      '   🔴 有【兩種】成因,不要只往第一種找(codex R4:原訊息只寫「對調」,\n'
+      '      而照它去把兩個其實正確的帳號交換,會製造出真正的綁錯):\n'
+      '      (a) 兩個 uuid 貼的順序跟人對不起來(對調)\n'
+      '      (b) 本檔有【三份】硬編碼的期望值(§0 DECLARE / INSERT / 本斷言字串),\n'
+      '          換人時只改了其中兩份 ⇒ 表裡是對的,而【這道斷言的期望值是舊的】\n'
+      '      ⇒ 分辨法:先拿實際值去對 auth.users 的 email,再決定要改表還是改本檔。\n'
       '   🔴 這一條驗的是【誰對到誰】,不是【有哪幾個人】—— 後者對調之後仍然會過。', v_ids;
   END IF;
 
@@ -466,9 +501,15 @@ BEGIN
     --     📌 我是在拋棄式 PG 上跑突變才看到這件事的,**讀 SQL 讀不出來** ——
     --        「整句中止」與「每列都被擋」在探針眼裡是同一個結果。
     --  ⇒ 正解:**每一列、每一個識別欄,各打一次**。分母寫在迴圈裡,不寫在註解裡。
-    --  ⚠️ 分母限定:這裡列的是本支 seed 的兩個代號。日後加人 ⇒ 這個陣列要跟著加,
-    --     而**忘了加不會有東西紅**(那是這道探針的射程上限,不是 bug)。
-    FOREACH v_who IN ARRAY ARRAY['sean', 'staff_2'] LOOP
+    --  ⛔ ~~⚠️ 分母限定:這裡列的是本支 seed 的兩個代號。日後加人 ⇒ 這個陣列要跟著加~~
+    --  🔴🔴 2026-08-18 再改(codex 關卡1 R4,角度=折入自己製造的新面):
+    --     我把「只打一列」修成「打兩列」,而修法是**寫死一份兩個名字的陣列** ——
+    --     codex 逐字:「新迴圈把涵蓋列寫成另一份手工陣列;複製本檔新增員工時若忘記同步,
+    --     新增列的 DELETE／兩種 UPDATE 保護完全沒被探測且全綠。」**屬實。**
+    --     ⇒ 我在修「清單比世界窄」的時候,造了一份新的清單。⇒ 改成**從表自己撈**。
+    --     ✅ 這樣「涵蓋率」永遠等於「表裡有幾列」,加人不必記得改這裡。
+    --     ⚠️ 仍然的射程上限:表是空的時候這個迴圈跑 0 次(而 0.5/v_n<>2 已經先擋住空表)。
+    FOR v_who IN SELECT staff_id FROM public.admin_user_staff_map ORDER BY staff_id LOOP
 
       -- ① 這一列刪得掉嗎(no_delete)
       v_del_ok := false;
@@ -482,6 +523,13 @@ BEGIN
             RAISE EXCEPTION E'B2-seed 落地斷言:DELETE(%)被擋下了,但丟例外的不是 no_delete。\n   呼叫堆疊:%\n   ⇒ 拒繼續。',
               v_who, COALESCE(v_ctx, '(無 context)');
           END IF;
+        WHEN foreign_key_violation THEN
+          -- 🔴 2026-08-18 補(codex R4 `[不確定]`,與 UPDATE 那半同形):
+          --    `BEFORE DELETE` 的 trigger 比 FK 檢查早跑 ⇒ 走到 FK 才被擋 = **no_delete 已經放行**。
+          --    今天沒有任何外鍵參照本表 ⇒ 這條走不到;而**「今天走不到」不是「以後走不到」**,
+          --    寫在這裡的成本是三行,漏寫的代價是一句誤導的診斷。
+          RAISE EXCEPTION E'B2-seed 落地斷言:DELETE(%)是被【外鍵】擋下的,不是 no_delete。\n'
+            '   ⇒ BEFORE trigger 比 FK 早跑 ⇒ no_delete 對這一列已經失效,只是剛好有別的東西接住。拒繼續。', v_who;
         WHEN OTHERS THEN
           RAISE EXCEPTION E'B2-seed 落地斷言:DELETE(%)探針出現【非預期】錯誤(% / %)。拒繼續。', v_who, SQLSTATE, SQLERRM;
       END;

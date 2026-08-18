@@ -146,7 +146,9 @@ COMMENT ON TABLE public.admin_user_staff_map IS
   '只描述【會登入的人】;系統帳號不進本表(它們是 admin_audit_log.actor 的字串,不經登入路徑)。'
   'staff_id 為永久識別碼、永不重用(Sean 2026-08-16 拍板)。'
   '🔴 本表【刻意不曝露 Data API】(PostgREST / supabase-js .from()):anon 與 authenticated 兩道 REVOKE 都下了,'
-  '只有 service_role 拿到 SELECT/INSERT,讀取一律走 server 端。'
+  '只有 service_role 拿到 SELECT(⛔ 2026-08-18 起【沒有任何寫入權】,原文寫 SELECT/INSERT 已作廢),讀取一律走 server 端。'
+  '🔴 寫入端唯一入口 = migration 本身(以本表 owner 執行);看到這行不要「順手把寫權補回去」——'
+  '   那會讓任何持 service key 的程序都能新增身分映射,而 admin_audit_log.actor 的可信度就是靠這個。'
   '⇒ 這不是漏了 GRANT。2026-08-17 實測:apps/ 與 packages/ 共 1477 個追蹤檔內,'
   'admin_user_staff_map 零命中(同一把量具在同一範圍找得到 admin_audit_log / customers 等 .from() 呼叫,量具是活的)。'
   '⚠️ Sean 2026-08-17 已把 Supabase 的 Automatically expose new tables 關閉;本表不依賴那個開關,'
@@ -288,7 +290,14 @@ BEGIN
    WHERE has_table_privilege('service_role', to_regclass('public.admin_user_staff_map'), p);
   IF v_bad IS NOT NULL THEN
     RAISE EXCEPTION E'B1-b 落地斷言:service_role 仍持有寫入權(%)。\n'
-      '   ⇒ 「寫入端唯一入口 = migration」在權限層不成立;有 service key 的任何程序都能新增身分映射。', v_bad;
+      '   ⇒ 「寫入端唯一入口 = migration」在權限層不成立;有 service key 的任何程序都能新增身分映射。\n'
+      '   🔴 來源有三種,修法不同 —— 【不要預設是第①種】(codex R4:本道比下面那道「可達權限」早跑,\n'
+      '      照「REVOKE 直授」去做而來源其實是③的話,你會改了一個沒壞的東西然後看它繼續紅):\n'
+      '      ① 直接授權(含 ADP)⇒ REVOKE ALL ON TABLE … FROM service_role; 放在 GRANT 之前\n'
+      '      ② 欄級授權        ⇒ REVOKE … (欄名) ON TABLE … FROM service_role;\n'
+      '      ③ 可 SET ROLE 過去的角色持有 ⇒ REVOKE 收不掉,要拆 role membership\n'
+      '      ⇒ 先查是哪一種:SELECT * FROM information_schema.table_privileges\n'
+      '                       WHERE table_name = ''admin_user_staff_map'';', v_bad;
   END IF;
   -- 🔴 對照組:SELECT 必須【有】。少了它,上面那道會在「什麼權限都沒有」的世界裡也綠,
   --    而那個世界裡報價單登入查不到 staff_id ⇒ 全公司登入失敗。
@@ -343,7 +352,11 @@ BEGIN
       FROM pg_class WHERE oid = to_regclass('public.admin_user_staff_map');
     IF v_rls IS DISTINCT FROM true THEN
       RAISE EXCEPTION E'B1-b 落地斷言:admin_user_staff_map 的 RLS 沒有開起來(relrowsecurity=%)。\n'
-        '   ⇒ 本表的設計是「RLS 開 + 零 policy = default deny」,RLS 沒開等於**整張表對所有角色敞開**。\n'
+        '   ⇒ 本表的設計是「RLS 開 + 零 policy = default deny」。\n'
+        '   ⚠️ 2026-08-18 修辭更正(codex R4 nit):RLS 沒開【不等於】對所有角色敞開 ——\n'
+        '      表級 ACL 的兩道 REVOKE 仍然在,anon/authenticated 照樣碰不到。\n'
+        '      失去的是【第二層】:任何日後被授到權的角色,將不再被 default deny 擋住。\n'
+        '      (把失效誇大成另一個沒發生的狀態,會讓讀的人去查錯的地方。)\n'
         '   ⇒ 檢查本檔的 `ALTER TABLE … ENABLE ROW LEVEL SECURITY;` 那一行是不是被刪掉或改壞了。', v_rls;
     END IF;
   END;

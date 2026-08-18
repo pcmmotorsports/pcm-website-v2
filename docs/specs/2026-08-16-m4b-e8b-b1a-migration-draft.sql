@@ -193,7 +193,6 @@ COMMENT ON TABLE public.staff IS
 DO $verify$
 DECLARE
   v_active   boolean;
-  v_still    boolean;
   v_others   bigint;
   v_active_ids text;
 BEGIN
@@ -205,11 +204,14 @@ BEGIN
     RAISE EXCEPTION 'B1-a 落地斷言:test_01 仍是 is_active=true,停用沒有生效。';
   END IF;
 
-  -- 🔴 那一列還在(不是被刪掉),這是本片與「DELETE 掉」的分水嶺
-  SELECT EXISTS(SELECT 1 FROM public.staff WHERE id = 'test_01') INTO v_still;
-  IF NOT v_still THEN
-    RAISE EXCEPTION 'B1-a 落地斷言:test_01 那一列不見了。';
-  END IF;
+  -- ⛔ 2026-08-18 移除(codex 關卡1 R4 nit,角度=斷言之間的相依):
+  --    ~~SELECT EXISTS(… id='test_01') INTO v_still; IF NOT v_still THEN RAISE '那一列不見了'~~
+  --    `staff.is_active` 是 `NOT NULL` ⇒ 上面 `SELECT is_active INTO v_active` 只有在
+  --    **那一列不存在**時才會得到 NULL,而那個情況已經在前面 RAISE 過了(「test_01 不見了」)。
+  --    ⇒ 這一道**永遠到不了失敗分支 = 恆真**,而它讀起來像「有人在守『不可以被刪掉』」。
+  --    📎 與本輪在 B2-seed 移除的那道 RLS 重複斷言同一族:
+  --      **恆真的斷言比沒有斷言更糟 —— 它讓下一個人以為那一面有守。**
+  --    ✅ 真正守「本支只 UPDATE 不 DELETE」的是前面那道(v_active IS NULL ⇒ 紅)。
 
   -- 🔴 對照組:本支【只該動一列】。其餘 staff 的 is_active 不得被改到。
   --    2026-08-16 Sean 實查:sean/staff_1/staff_2 啟用、op4_backfill/payment_confirmer 停用。
