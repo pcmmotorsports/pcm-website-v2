@@ -358,6 +358,56 @@ codex R1 F2：ci.yml 支援 PR ⇒ 不必推 dev 也驗得到正向結果
 🔴 **⇒ 全 monorepo build 在【沒有任何 `.env.local`】的環境下:build 成功,而且那兩支產物類測試通過。**
 ⇒ **F6(a)「storefront build 會紅」= 量到不成立。**
 
+### 9-a-2 🔴🔴 **而 F6(b) 有答案了,它把上面那段的【安慰】整個抽掉**(W6 2026-08-18 量到)
+
+```
+零 env 環境跑全 build ⇒ rc=0 / Tasks: 2 successful / Time: 17m49.639s
+🔴 而它綠的【方式】：
+   grep -c 'NEXT_PUBLIC_SUPABASE_URL not set' <零 env build log>  ⇒ 81
+   受影響：[fetchCatalogPage] / [fetchCatalogBrandTaxonomy]
+   來源逐字：packages/adapters/src/supabase/client.ts:28
+   正向對照（證明尺沒壞）：同一條 grep 對【有 env 的主樹 log】 ⇒ 0
+⇒ 81 次資料層失敗、零紅。錯誤被接住，build 回 0。
+```
+
+🔴🔴 **而我必須認一件事:那 81 次【也在我自己的 log 裡】,我引用那份 log 的時候沒有看見。**
+```
+逐發重數（可重跑）：
+  grep -c 'NEXT_PUBLIC_SUPABASE_URL not set' \
+    /Users/sean_1/pcm-w1-fg2/logs/four-greens/*/build.full.log
+  afd3e78e-…-79368 ⇒ 81
+  afd3e78e-…-22495 ⇒ 81
+  6dcaf0d1-…-80040 ⇒ 81
+```
+**⇒ 我在 §9-a 拿這三份 log 去證「F6 的疑慮不成立」,而【推翻那個結論的東西就在同一份 log 裡】。**
+我當時只 grep 了 `Environments` 與 `Tasks:`,**我問了我想問的，沒有問它還印了什麼。**
+
+📌 **判別句（今天最貴的一條）：`rc=0` 回答的是「它有沒有失敗」，不是「它做對了嗎」。
+我拿一個【沒有紅】當成【沒有事】。**
+
+### 9-a-3 這條反過來打到本 plan 的立論本身
+
+本 plan §1 的立論是「**恆紅與恆綠一樣沒有判別力**」。
+🔴 **而甲會新增一個【綠、而資料層完全壞掉】的面** —— **用一個沒判別力的綠，換掉一個沒判別力的紅。**
+
+而這個 repo **已經有一道專門擋這件事的閘，甲會繞過它**：
+```
+apps/storefront/scripts/e2e-prod-preflight.mjs:37  REQUIRED_KEYS = 那兩把
+                                              :64  trim().length > 0
+                                              :94  缺 ⇒ process.exit(1)
+它由 playwright.prod.config.ts 的 webServer 在 next build【之前】跑
+⇒ 那道閘【只在 e2e 路徑上】，ci.yml 的 pnpm build 不會經過它
+```
+`e2e-prod.yml` 檔頭自己寫著為什麼要有它，逐字：
+> 「未設定的 secret 會內插成**空字串**（env var 仍建立），等於『**沒設定資料庫也一路綠**』」
+
+**⇒ 甲會做的，正好就是那句話描述的事。**
+
+⚠️ **W6 的誠實邊界，照抄不拿掉**：
+- **它沒量「CI 上會不會也是 81 次」** —— 量的是本機零 env，CI 的 secrets 設定它讀不到。
+- **它沒量「那 81 次會不會讓產出的頁面實際壞掉」** —— 只證明 build 綠而錯誤被接住。
+⇒ 這兩件要有權限的人在 CI 上跑一次。**不替它們寫結論。**
+
 ⚠️ 射程限定:鑽機沒有 `.env.local`,**但它繼承了我 shell 的環境變數**。我沒有在 `env -i` 下跑
 ⇒「完全零環境」**未驗**;「沒有 `.env.local` 檔」**已驗**。CI 更接近後者(它也沒有那個檔)。
 
