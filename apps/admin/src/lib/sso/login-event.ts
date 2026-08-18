@@ -69,13 +69,6 @@ export function extractClientIp(headers: Headers): string | null {
 }
 
 /**
- * 寫一筆登入事件:**先 console log(1 小時軌跡),再 best-effort 進 DB(留得住的那半)**。
- *
- * 呼叫端**只需要叫這一支**。
- * ⚠️ ~~「它保證兩邊不會只做一半」~~ **那句是假的**(codex 關卡2 R2 抓到的第八句):
- *    它保證的只有**依序嘗試兩邊** —— 任一邊仍可能失敗,而 DB 那邊失敗時**設計上就是只剩 console 那半**。
- */
-/**
  * 🔴 **回傳值存在的理由:讓「DB 那半在期限內【確認成功了沒】」可觀測。**
  * ⚠️ **措辭要精準到這個地步**(codex 關卡2 R2):
  * ```
@@ -93,6 +86,13 @@ export function extractClientIp(headers: Headers): string | null {
  */
 export type SsoLoginRecordResult = 'ok' | 'log_only';
 
+/**
+ * 寫一筆登入事件:**先 console log(1 小時軌跡),再 best-effort 進 DB(留得住的那半)**。
+ *
+ * 呼叫端**只需要叫這一支**。
+ * ⚠️ ~~「它保證兩邊不會只做一半」~~ **那句是假的**(codex 關卡2 R2 抓到的第八句):
+ *    它保證的只有**依序嘗試兩邊** —— 任一邊仍可能失敗,而 DB 那邊失敗時**設計上就是只剩 console 那半**。
+ */
 export async function recordSsoLogin(
   outcome: SsoLoginOutcome,
   fields: SsoLoginLogFields,
@@ -108,12 +108,11 @@ export async function recordSsoLogin(
 
   // ② DB 那半。🔴 整段包 try/catch + **硬逾時**:登入結果優先。
   try {
-    const client = createSupabaseServiceClient() as unknown as {
-      from: (table: string) => {
-        insert: (row: Record<string, unknown>) => PromiseLike<{ error: unknown } | unknown>;
-      };
-    };
-    const insert = client.from('admin_sso_login_events').insert({
+    // ✅ **窄 cast 已拆**(2026-08-19,backlog `#652` 兩個條件都成立:表 apply 了、`database.types.ts` 重生成了)。
+    //    ~~在型別回來之前,守門是測試裡逐字比對欄名那一格~~ ⇒ **現在編譯器自己看得到了**:
+    //    把 `.from()` 或任一欄名加 `_TYPO` ⇒ `TURBO_FORCE=1 pnpm typecheck` 當場紅(拆完**當場表演過**)。
+    //    (同一件事 `SupabaseEmailOutboxAdapter` 檔頭在 `#415` 記過:拆掉 cast 之後那個性質**才回來**。)
+    const insert = createSupabaseServiceClient().from('admin_sso_login_events').insert({
       outcome,
       reason: fields.reason ?? null,
       amr: fields.amr ? fields.amr.join('+') : null,

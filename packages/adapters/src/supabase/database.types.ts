@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十一個函式、共二十七處**手動校正
 //   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
 //    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
@@ -37,11 +37,9 @@
 //      因為呼叫端傳的就是 `string | null`。
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
-//   ⑫ `admin_search_customers` **整段**(`#525`,2026-08-16)—— 與 ①–⑩ **形狀不同**:
-//      前十個是「既有函式的參數補 `| null`」,**這一個是整支函式在正式庫還不存在**
-//      (migration `20260816010000_*` 未 apply)⇒ **現在重 gen 不會產生它,而不是產生錯的它。**
-//      🔴 apply 之後重 gen:**先比對生成內容與本段是否一致,再刪本段** ——
-//         不要因為「反正會生成」就先拿掉,那會讓中間任何一次 gen 失敗變成靜默的型別漏洞。
+//   ~~⑫ `admin_search_customers` **整段**~~ **已退場(2026-08-19 G4)**:它自己寫著
+//      「apply 之後先比對再刪本段」。**已比對 ⇒ 生成版簽章與手動段相同** ⇒ 手動段刪除。
+//      🔴 原文不在這裡重貼(在該顆 commit 的 diff 裡)。**本條不再計入上面的計數。**
 // ─────────────────────────────────────────────────────────────────────────────
 // 🔴 `customer_favorites` 那一段【不是】手動校正,**不計入上面那個數** ——
 //    它是 2026-08-18 用 `supabase gen types typescript --linked` **實際生成出來的內容**,
@@ -67,7 +65,15 @@
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
-// 🔴🔴 **上面那行 project ref 的位置約束(2026-08-15 實測撞過一次)**:
+// ✅ **2026-08-19 更正:~~下面那個「前 4000 個字元」的位置約束~~【已經不成立了】。**
+//    那支守門在 2026-08-16 收割時就改成**讀「開頭連續的 `//` 行」**、不再寫死位元組數
+//    (`apps/admin/src/lib/payment/composition.test.ts:86-97` 逐字寫著為什麼改)。
+//    ⇒ **檔頭再長都不會再假紅**;而它**仍然沒有放寬到全檔** —— ref 只出現在中段生成型別裡照樣紅。
+//    🔴 我 2026-08-19 加註記時特地避開那個位置,**而那個閃避是白做的** ——
+//       量到:ref 現在落在第 4,529 個字元,遠超過 4000,**而測試是綠的**。
+//    📌 形狀:**過期的約束會讓下一個人為它讓路,而讓路本身不會有任何東西紅。**
+//    以下原文留痕:
+// 🔴🔴 **~~上面那行 project ref 的位置約束(2026-08-15 實測撞過一次)~~**:
 //   `apps/admin/src/lib/payment/composition.test.ts` 讀本檔的**前 4000 個字元**,斷言裡面含 project ref
 //   —— 它守的是「`PROD_SUPABASE_HOST` 與型別檔來自同一個專案」。
 //   ⇒ **在 gen 指令那行【以上】加文字會把它推出 4000 之外,那一格就紅**,
@@ -268,6 +274,19 @@
 //    「兩邊只差註解與 `| null`」,差到別的東西就中止;直接貼回去會讓「DB 簽章變了」變成看不見的事。
 //    ⚠️ 但它**驗不到**「這 26 處本身還對不對」:那要靠呼叫端 typecheck,而檔頭只點名 ①②③④⑤
 //    漏貼會紅在哪 —— ⑥⑦⑧⑨⑩ 有沒有呼叫端守著,**沒有人驗過**。
+// ── 📌 2026-08-19 重 gen 紀錄(G4;Sean 跑指令)────────────────────────────────
+//   起因:`admin_sso_login_events` apply 之後要拆掉 `login-event.ts` 的窄 cast(backlog `#652`)。
+//   ⚠️ **這次用的是 `--linked`,不是上面那行寫的 `--project-id`** —— 它成功了,
+//      但上面那段警告**照留**:我沒有驗過「`--linked` 現在也安全」,只知道這一次沒踩到。
+//   🔴 **沒有直接覆蓋** —— 生到 `/tmp/dbtypes-new.ts`,再把檔頭與校正**逐條搬回**:
+//     · `| null` 校正 25 條以【函式名 + 字面】雙鍵定位套回(`p_note` 這種字面在新檔有 5 處,
+//       只靠字面會套錯函式);單行 `Args: { p_brand … }` 另補 1 條 = 2 處 ⇒ 合計 27 處
+//     · 內嵌註解 90 行:83 行以同樣雙鍵回貼;其餘 7 行屬 ⑫、隨該段退場
+//   🔴 **自洽檢查(可重跑)**:合併後掃全檔 ⇒ **11 個函式 / 27 處**,與算式相符;
+//      而 `database-types-manual-count.test.ts` 是機械版的同一件事(它抓到過我漏改條目)。
+//   ⚠️ **本次新進來的**:`admin_sso_login_events` / `purge_admin_sso_login_events`(本班的)+
+//      `admin_customer_list_v` / `sweeper_heartbeat` / `graphql`(**不是我 apply 的** ——
+//      它們先前就在正式庫,是本檔落後於它)。
 export type Json =
   | string
   | number
@@ -281,6 +300,31 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -320,6 +364,42 @@ export type Database = {
           request_id?: string
           source_app?: string
           target?: string | null
+        }
+        Relationships: []
+      }
+      admin_sso_login_events: {
+        Row: {
+          amr: string | null
+          id: string
+          ip: unknown
+          occurred_at: string
+          outcome: string
+          reason: string | null
+          request_id: string | null
+          source_app: string
+          user_agent: string | null
+        }
+        Insert: {
+          amr?: string | null
+          id?: string
+          ip?: unknown
+          occurred_at?: string
+          outcome: string
+          reason?: string | null
+          request_id?: string | null
+          source_app?: string
+          user_agent?: string | null
+        }
+        Update: {
+          amr?: string | null
+          id?: string
+          ip?: unknown
+          occurred_at?: string
+          outcome?: string
+          reason?: string | null
+          request_id?: string | null
+          source_app?: string
+          user_agent?: string | null
         }
         Relationships: []
       }
@@ -451,6 +531,13 @@ export type Database = {
             foreignKeyName: "customer_addresses_customer_user_id_fkey"
             columns: ["customer_user_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "customer_addresses_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["user_id"]
           },
@@ -561,6 +648,13 @@ export type Database = {
             foreignKeyName: "customer_vehicles_customer_user_id_fkey"
             columns: ["customer_user_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "customer_vehicles_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["user_id"]
           },
@@ -598,6 +692,13 @@ export type Database = {
           related_order_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
             columns: ["customer_user_id"]
@@ -1855,6 +1956,13 @@ export type Database = {
             foreignKeyName: "orders_customer_user_id_fkey"
             columns: ["customer_user_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "orders_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["user_id"]
           },
@@ -2833,6 +2941,13 @@ export type Database = {
             foreignKeyName: "shipments_customer_user_id_fkey"
             columns: ["customer_user_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "shipments_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["user_id"]
           },
@@ -2889,8 +3004,68 @@ export type Database = {
         }
         Relationships: []
       }
+      sweeper_heartbeat: {
+        Row: {
+          consecutive_failures: number
+          job_name: string
+          last_failure_at: string | null
+          last_success_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          consecutive_failures?: number
+          job_name: string
+          last_failure_at?: string | null
+          last_success_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          consecutive_failures?: number
+          job_name?: string
+          last_failure_at?: string | null
+          last_success_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
+      admin_customer_list_v: {
+        Row: {
+          active_order_count: number | null
+          active_spend_total: number | null
+          created_at: string | null
+          email: string | null
+          last_active_ordered_at: string | null
+          name: string | null
+          phone: string | null
+          tier: Database["public"]["Enums"]["member_tier"] | null
+          user_id: string | null
+        }
+        Insert: {
+          active_order_count?: never
+          active_spend_total?: never
+          created_at?: string | null
+          email?: string | null
+          last_active_ordered_at?: never
+          name?: string | null
+          phone?: string | null
+          tier?: Database["public"]["Enums"]["member_tier"] | null
+          user_id?: string | null
+        }
+        Update: {
+          active_order_count?: never
+          active_spend_total?: never
+          created_at?: string | null
+          email?: string | null
+          last_active_ordered_at?: never
+          name?: string | null
+          phone?: string | null
+          tier?: Database["public"]["Enums"]["member_tier"] | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       admin_order_list_v: {
         Row: {
           address_id: string | null
@@ -3024,6 +3199,13 @@ export type Database = {
             foreignKeyName: "orders_customer_user_id_fkey"
             columns: ["customer_user_id"]
             isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "orders_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["user_id"]
           },
@@ -3037,6 +3219,13 @@ export type Database = {
           last_entry_at: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "admin_customer_list_v"
+            referencedColumns: ["user_id"]
+          },
           {
             foreignKeyName: "customer_wallet_ledger_customer_user_id_fkey"
             columns: ["customer_user_id"]
@@ -3429,6 +3618,13 @@ export type Database = {
         Args: { p_actor: string; p_payment_id: string; p_reason: string }
         Returns: Json
       }
+      admin_search_customers: {
+        // ✅ 2026-08-19 重 gen:原本這裡有一段**手動補的**簽章(檔頭計數的 ⑫),它自己寫著
+        //    「apply 之後重 gen 時先比對再刪本段」。**已比對:生成版與手動段簽章相同** ⇒ 手動段退場。
+        //    (原手動段全文在該顆 commit 的 diff 裡;它不是被順手刪掉的。)
+        Args: { p_limit?: number; p_query: string }
+        Returns: Json
+      }
       admin_search_orders: {
         // 🔴 手動校正(見檔頭計數):p_from / p_to 在 DB 是 `DEFAULT NULL` 的**可省略且可為 null**
         // 參數(正式站實查:`p_query text, p_limit integer DEFAULT 100, p_from timestamptz DEFAULT NULL, p_to timestamptz DEFAULT NULL`)。
@@ -3440,20 +3636,6 @@ export type Database = {
           p_limit?: number
           p_query: string
           p_to?: string | null
-        }
-        Returns: Json
-      }
-      admin_search_customers: {
-        // 🔴 **手動校正(見檔頭計數)** —— `#525` 新建的 RPC,而本檔是**從正式庫 gen 的**
-        // ⇒ 在 Sean apply 那支 migration 之前,重 gen 不會產生這一段。
-        // 簽章逐字對 `supabase/migrations/20260816010000_m4b_525_admin_search_customers.sql`:
-        //   `admin_search_customers(p_query text, p_limit integer DEFAULT 100) RETURNS jsonb`
-        // ⚠️ `p_limit` 不補 `| null`:呼叫端一律帶值(`ADMIN_CUSTOMER_ID_IN_CAP`),沒有送 null 的路徑。
-        // 🔴 **apply 之後重 gen 時,這一段應該會被自動產生** —— 屆時**先比對再刪本段**,
-        //    不要因為「反正會生成」就先拿掉(那會讓中間任何一次 gen 失敗變成靜默的型別漏洞)。
-        Args: {
-          p_limit?: number
-          p_query: string
         }
         Returns: Json
       }
@@ -3794,6 +3976,7 @@ export type Database = {
         }
         Returns: Json
       }
+      purge_admin_sso_login_events: { Args: never; Returns: number }
       record_charge_bank_txn: {
         Args: {
           p_attempt_id: string
@@ -4022,6 +4205,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       fulfillment_status: ["notOrdered", "ordered", "inStock", "shipped"],
