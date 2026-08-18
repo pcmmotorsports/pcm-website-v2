@@ -54,7 +54,7 @@
 | 我要下一個「零命中 / 沒有 / 不存在」的斷言 | `guard-and-instrument-traps.md` §恆綠格 + §「附了量法,而量錯東西」 |
 | 我看到一個紅,而它好像一直都紅 | `guard-and-instrument-traps.md` §恆紅(恆綠的對稱另一半) |
 | 我要派一個掃描 / 盤點 / 找「還沒做的事」 | memory `feedback_would-this-sweep-find-the-known-case`(**十二種形狀**在那裡) |
-| 我要發一個 backlog 號 | `bash scripts/next-backlog-number.sh`(**它每次都印**錨定與別名兩條紀律)<br>+ `python3 scripts/backlog-duplicate-scan.py --search <症狀詞>` |
+| 我要發一個 backlog 號 | `bash scripts/next-backlog-number.sh`(**它每次都印**錨定與別名兩條紀律)<br>+ `python3 scripts/backlog-duplicate-scan.py --search <症狀詞>`(**這件事已經有號了嗎**)<br>🔴 **+ 再跑一發,問【另一個】問題**:`python3 scripts/backlog-duplicate-scan.py --search <你這條要動的檔名或函式名>`<br>**⇒ 「還有誰指著同一支檔?」** 有 ⇒ 兩條可能是同一行 code,**「依賴:無」就不能寫**。<br>為什麼要多這一發:`#278`(2026-07-16 立案,寫「依賴:無」)與 `#659`(2026-08-18 立案)**指的是同一支 `listSummariesByCustomer` 的同一道 `.neq`** —— 而那句「無」**寫的當下是真的**,是世界後來長出了那條依賴。**寫的人再仔細也預測不到三十三天後開的條目** ⇒ 只有**開新條目的那一刻反向掃**攔得住。(`#659` 的作者就是這樣撈到 `#278` 的。) |
 | 我要找「code 還在指望、而沒人在追」的缺口 | `bash scripts/orphan-code-refs.sh`(檔頭有已知案例測試與**盲區輸出**) |
 | 我要判一棵 worktree 有沒有人 / 要清樹 | memory `reference_worktree-ownership-is-not-readable-from-git-state` |
 | 某個窗靜了,我要判它是不是停了 | memory `feedback_a-finished-turn-is-indistinguishable-from-waiting`(**門檻 5 分鐘,量出來的**) |
