@@ -3334,9 +3334,36 @@ order by n desc, 1;
 
 ---
 
-### #116. ⏳ server-client boundary 優化:純展示 sections 改用 next/link
+### #116. 🟡【只剩一支】server-client boundary 優化:純展示 sections 改用 next/link
 
-- **狀態:** ⏳ 待 trigger
+> ## 🔴 2026-08-19 G6:**七支裡六支已經改完了,只剩 `HomeHero`** —— 而狀態欄還是「待 trigger」
+> ```
+> 元件                use client   next/link   onNav
+> HomeHero               **1**        0          0     🔴 **唯一還沒改的**
+> FeatureEditorial        0           1          2     ✅
+> CategoryGrid            0           1          0     ✅
+> HomeSelect              0           0          0     ✅(無 client、亦無連結需求)
+> HomeStatement           0           1          2     ✅
+> BrandIndex              0           1          0     ✅
+> HomeFooter              0           1          3     ✅
+> 負向對照(該是 client 的)FilterTop.tsx ⇒ use client = **1** ✅ 尺會動
+> ```
+> 而那六支的檔頭**都具名寫著本條**,逐字:
+> 「M-1-04 刀 1b1:`'use client'` → server component + onNav stub → `<Link href>`(**對齊 backlog #116**)」
+> ⇒ **這不是「還沒開始」,是【做了六分之五而沒有人回頭改狀態欄】。**
+>
+> ### ⚠️ 兩格未確認,不要當成已查
+> ```
+> · 條目寫「**全 8 sections**」,而它自己的括號只列出 **7 個**名字
+>   (HomeHero / FeatureEditorial / CategoryGrid / HomeSelect / HomeStatement / BrandIndex / HomeFooter)
+>   ⇒ **第 8 個是誰,條目沒寫,我也沒查出來。**
+> · `HomeSelect` 的 `next/link = 0` 我判成「無連結需求」,而**那是我推的,沒有開檔確認**
+> · 沒有開瀏覽器、沒有實跑 —— 只讀 `'use client'` / `next/link` / `onNav` 三個字面
+> ```
+> ⇒ **可行動的一句:剩下的工作 = `HomeHero` 一支(加上那個沒被列名的第 8 個,如果它存在)。**
+
+- **狀態:** 🟡 **大半已完成**(2026-08-19 G6 實查:七支裡六支已轉 server component + `next/link`,**只剩 `HomeHero`**)
+  · ~~⏳ 待 trigger~~(原值留痕)
 - **分流:** P1-before-launch
 - **優先級:** 🟡 中(Phase 1 Polish)
 - **問題:**
