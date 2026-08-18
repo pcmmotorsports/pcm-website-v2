@@ -5749,6 +5749,18 @@ order by n desc, 1;
   (Sean 2026-08-15 拍。⚠️ **這件在 code 裡看不出來**:`create_order:10` 只寫「刻意不做 tier 價格分支」,
   讀起來像「還沒選形狀」,而形狀已經定了。)
 - **狀態:** ⏳ 待執行(2026-06-05 已釘樁:tier.ts JSDoc + inline 註解、未改行為;真正認證化留 M-2-08)
+- 🔴 **連帶(2026-08-19 G6 第二層查核落點):本條上線的那一刻,後台「變更會員等級」會從【標籤】變成【改價】。**
+  ```
+  今天:tier-edit-form.tsx:22 逐字「tier=會員等級標籤、非價格」
+        實查 memberTier|member_tier 在 packages/*/src + apps/storefront/src(分母 410 支 .ts/.tsx,排除測試)
+        命中 29 處,與 price|pricing 同行者 = 0
+        且已下單訂單有 tier_at_checkout 快照 ⇒ 改 tier 動不到既有訂單
+  今天那顆鈕的防護:必填原因 + pending disable + 稽核。**零 modal、零 confirm、零 undo**(#297 §②-b 實查)
+  ```
+  ⇒ **本條 apply 之前,`#297` 的 tier 那一格要一起補確認** —— 否則經銷價生效當天,
+  員工在客戶明細頁選錯一格下拉選單 = 那個客人立刻看到經銷價,而畫面上沒有任何東西攔他。
+  ⚠️ **不修會痛在**:這條連動**只寫在 backlog**,`tier-edit-form.tsx` 那支檔裡沒有任何一行指著 `#215`
+  ⇒ 真正動 `#215` 的人不會經過那支檔。(⇒ 動本條的第一個動作 = 去 `#297` §②-b 對一次。)
 - **優先級:** 🔴 高(**M-2-08〔server-side tier-aware pricing〕開工前硬前置、blocker**)
 - **問題:**
   - `apps/storefront/src/lib/tier.ts:resolveTierFromRequest` 的 tier 來源 = `?tier=`(僅 `PCM_DEV_TIER_OVERRIDE=1` 生效)> cookie `pcm-tier` > `'general'`,只驗字面合法性(general|store|premium_store)、**不向 DB `customers.tier` 查證身分**。全 repo grep 無任何 `cookieStore.set('pcm-tier')` / 從 session 派生 tier → **任何匿名訪客可 `document.cookie='pcm-tier=store'` 把自己當經銷會員**。違反 CLAUDE.md「會員等級驗證必在 server 端重新檢查、不信任 client」。
@@ -8177,8 +8189,8 @@ order by n desc, 1;
 > | 面 | 非測試檔數 | 含【確認機制字面】的檔數 |
 > |---|---|---|
 > | **wallet** | 4 | **0** 🔴 直接寫 `wallet_ledger` 負數,而整面零確認 |
-> | receipt | 7 | 0 ⚠️ **未驗** |
-> | tier | 4 | 0 ⚠️ **未驗** |
+> | receipt | 7 | 0 ✅ **已驗 = 尺的問題**(機制是【撤銷】不是【確認】,見 ②-b) |
+> | tier | 4 | **0 ✅ 已驗 = 真的零機制**(兩把尺都 0,見 ②-b) |
 > | amount | 6 | 1 |
 > | payment | 11 | 1 |
 > | cancel | 13 | 2 |
@@ -8192,9 +8204,60 @@ order by n desc, 1;
 > done
 > ```
 > ⚠️🔴 **限制(一定要跟著這張表走)**:上表數的是**檔案裡有沒有那些字面**,
-> **不是**「那個動作真的有二次確認」。⇒ `receipt` / `tier` 的 **0 可能是用了別的字**,**未驗**。
+> **不是**「那個動作真的有二次確認」。⇒ `receipt` / `tier` 的 0 **2026-08-19 已由 G6 開檔驗過**,見 ②-b。
 > ✅ 而 `wallet` 的 0 有第二層佐證:本條目自己逐字「按下即寫 `wallet_ledger`」+
 > `#296` 當時 opus 對抗審與 codex 關卡2 **獨立雙命中** ⇒ **那個 0 不是尺的問題。**
+>
+> ### ②-b 🔴 `receipt` / `tier` 兩個 0 的第二層查核(2026-08-19 G6;**11 支檔逐一開過**)
+>
+> **結論:兩個 0 的意思相反 —— 一個是尺的問題,一個不是。**
+>
+> #### `receipt` = **尺的問題。機制在,只是它叫【撤銷】不叫【確認】。**
+> ```
+> apps/admin/src/components/orders/receipt-undo-bar.tsx   整支就是撤銷入口
+>   :72  「撤銷剛剛那筆」    :81「已撤銷剛剛那筆到貨。」
+> receipt-record-form.tsx:287-295  登錄成功後才掛出 <ReceiptUndoBar key={undoKey}>
+> ```
+> ⇒ 這一面走的是**事後可逆**(undo)而不是**事前攔一次**(confirm)。
+> 原尺的字集(`二次確認|window.confirm|requireConfirm|confirmed|確認後`)裡**一個撤銷詞都沒有**
+> ⇒ 它問的是「有沒有 confirm」,而這一面的答案是「有 undo」⇒ **0 是真的,而它不代表零防護。**
+>
+> 🔴 **而撤銷的天花板是【檔案自己寫的】,不是我推的 —— 且它有一條路徑完全沒有入口:**
+> ```
+> receipt-panel.tsx:130,136        <ReceiptRecordForm … inline />   ← 彈窗模式:有撤銷列
+> item-procurement-rows.tsx:173-179 <ReceiptRecordForm … />         ← 🔴 **沒有 inline**
+> ```
+> `receipt-record-form.tsx:87-88` 逐字:「**只在彈窗模式會有值 —— 列表模式成功走 redirect、表單整個重新掛載**」
+> `receipt-undo-bar.tsx:23-24` 逐字:「**只在彈窗模式出現**…**那條路沒有撤銷入口**」
+> ⇒ **員工從訂單頁「採購」區塊登錄到貨(列表模式)⇒ 沒有確認、也沒有撤銷,兩者皆無。**
+> 另 `receipt-undo-bar.tsx:15-21` 逐字:它**只撤得掉「這個表單這次登錄的那筆」**,更早的沒有入口。
+>
+> #### `tier` = **不是尺的問題。兩把尺都 0,真的零機制。**
+> 開過 4 支檔全文,現有縱深只有:必填變更原因(`tier-edit-form.tsx:47-56`)、
+> pending disable 防雙擊(`tier-edit-submit.tsx:14`)、RPC `NO_CHANGE` 冪等、稽核入 `admin_audit_log`。
+> **零 modal、零 confirm、零 undo。**
+> ```bash
+> # 擴大字集重跑(可重跑;分母 = 上表同一組 4 支/7 支)
+> for k in receipt tier; do echo "--- $k"; find apps/admin/src -name "*${k}*" \( -name '*.tsx' -o -name '*.ts' \) \
+>   -not -name '*.test.*' -print0 | xargs -0 grep -ln '確認\|confirm\|Confirm\|撤銷\|undo\|Undo\|Modal\|dialog\|Dialog\|你確定\|不可逆'; done
+> # 實得 2026-08-19:receipt 命中 6/7 檔;tier 命中 0/4 檔
+> # 負向對照(證明尺會動):原尺對 refund 面 = 17 檔 / 11 命中 ✅
+> ```
+>
+> #### 🔴 而 `tier` 今天**不是錢面**,它是**明天**才是 —— 這一格決定它排哪個優先級
+> ```
+> tier-edit-form.tsx:22 逐字:「tier=會員等級標籤、非價格;真 pricing 生效=M-2-08(#215 defer)」
+> 實查(分母 410 支 packages/*/src + apps/storefront/src 的 .ts/.tsx,排除測試):
+>   memberTier|member_tier 命中 29 處,其中與 price|pricing 同行者 = **0**
+> 已下單的訂單另有 tier_at_checkout 快照欄(database.types.ts:1875 等)⇒ 改 tier 動不到既有訂單
+> ```
+> ⇒ **今天改錯 tier:可逆(改回去)、不動任何一筆錢、有稽核。**
+> ⇒ **`#215` 上線那天它才變成「按一下就改價」** —— 🔴 **那一刻 tier 要跟著補確認,而現在沒有任何東西指著這件事。**
+>
+> #### 📌 這一格的形狀(判別句,可搬)
+> **「這個面有沒有防護」與「這個面有沒有【我想到的那種】防護」是兩個問題,而 grep 只答得出後面那個。**
+> ⇒ 量「有沒有機制」時,字集要**照機制的種類列**(事前攔 / 事後撤 / 額度閘 / 雙人覆核),
+> 不是照**某一種機制的說法**列。`receipt` 的 0 就是這樣長出來的。
 >
 > ### ③ 🔴 本條「不修會痛在」那句**今天已經不準**
 > 原文逐字:「退款、取消訂單、部分退款都是同一類…現在一個共[通形狀都沒有]」
