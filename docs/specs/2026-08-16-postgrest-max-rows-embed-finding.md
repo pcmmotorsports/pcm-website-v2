@@ -175,21 +175,48 @@ B 主實驗
 ⚠️ **射程限定**:只測了**單層內嵌**(`orders → order_items`)。
 **巢狀兩層**(`orders → order_items → order_item_procurement`)會不會共用額度 —— **未測**。
 
-### 6-b 順手量到的 `Content-Range` 形狀(與 `#634` 的 NaN 同源)
+### 6-b 順手量到的 `Content-Range` 形狀 —— **它是 `#634` 的【正向對照】,不是那個 NaN 的來源**
 
-```
-GET /orders?select=display_id                    （外層被 max-rows 砍）
-  HTTP/1.1 200 OK
-  Content-Range: 0-4/*          ← 🔴 這個 `*` 就是 parseInt('*') ⇒ NaN 的來源
+> 🔴 **這一小節的第一版寫錯,而且錯的方向會讓人撤掉守門,所以留痕不刪。**
+> 原句逐字:~~「這個 `*` 就是 `parseInt('*')` ⇒ NaN 的來源」~~ **不成立。**
+> 我(W3)量到 `*` 就接上了 NaN,**沒有回去開呼叫端與函式庫**確認它走的是哪一條。
+> W4 同日獨立開檔核出同一件事,兩邊結論一致。
 
-同一發加 Prefer: count=exact
-  HTTP/1.1 206 Partial Content
-  Content-Range: 0-4/6
+**量到的兩個世界(PostgREST 14.16,`db-max-rows` 臨時設 5)**
 ```
-🔴 **兩件事值得記住**:
-1. **不帶 `count` 時狀態碼是 `200` 不是 `206`** ⇒ 「拿狀態碼判有沒有截斷」在**沒帶 count 的呼叫上恆判成沒截斷**。
-2. `206` 是一個**不經過 `parseInt`** 的獨立訊號 —— 但**它只有帶 `Prefer: count=exact` 時才出現**
-   ⇒ **不要直接拿去當通用判準**,要先查呼叫端有沒有帶。**那半未查,標未確認。**
+不帶 Prefer: count       HTTP 200 OK        Content-Range: 0-4/*
+帶 Prefer: count=exact   HTTP 206 Partial   Content-Range: 0-4/6   ← 【已被 max-rows 砍】那一發
+```
+🔴 **第二行是關鍵:即使發生截斷,只要有要 count,回的仍是真數字、不是 `*`。**
+
+**為什麼這是正向對照而不是佐證**(函式庫逐字,`postgrest-js@2.105.3`
+`src/PostgrestBuilder.ts:483-486`):
+```js
+const countHeader = this.headers.get('Prefer')?.match(/count=(exact|planned|estimated)/)
+const contentRange = res.headers.get('content-range')?.split('/')
+if (countHeader && contentRange && contentRange.length > 1) {
+  count = parseInt(contentRange[1])
+}
+```
+⇒ **`parseInt` 只在客戶端有送 `Prefer: count=…` 時才跑。**
+```
+不帶 Prefer ⇒ 拿到 `*`，但 parseInt 根本沒被呼叫 ⇒ count = null，【不是 NaN】
+帶 count    ⇒ parseInt('6') ⇒ 6，【也不是 NaN】
+⇒ 🔴 上面量到的兩個世界，沒有一個產得出 NaN；
+   而 `*` 出現的那個世界，正好就是 parseInt 不會執行的那個世界。
+```
+**NaN 要兩件事同時成立**:①客戶端**有送** `Prefer: count`(我方 `SupabaseOrderAdapter`
+`#pageOrderItems` 在 `page === 0` 恆送)②**而回應的分母不是數字**(被代理 / CDN / 錯誤路徑
+換成 `*` 或拿掉)。⇒ `#634` 條目裡的「觸發條件**未確認**」**應該更硬,不是更軟。**
+
+⚠️ **這不動搖要不要留守門** —— `Number.isFinite(count)` 擋的是「拿不到數字」這個**狀態**,
+而理由是**失敗方向**(`reportedTotal` 的定義是「一個信得過的總數」,`NaN` 定義上不是),
+**不是可達性**。🔴 **拿可達性當修法理由的話,下一個人一驗會判它不成立、然後把守門撤掉。**
+
+**另一件仍然成立、而且值得單獨記住的**:
+**不帶 `count` 時狀態碼是 `200` 不是 `206`** ⇒ 「拿狀態碼判有沒有截斷」在**沒帶 count 的呼叫上恆判成沒截斷**
+—— 那是**一格恆真守門的配方**。⚠️ 反過來說 `206` 也**只有**帶 `Prefer: count=exact` 時才出現
+⇒ 要拿它當判準得先查呼叫端有沒有帶。**逐一呼叫端未查,標未確認。**
 
 ### 6-c 不留痕(照 `docs/patterns/mutation-harness-restore.md`)
 
