@@ -51,7 +51,7 @@ export function ProductsMobileControls({
   setExtras: Dispatch<SetStateAction<ProductExtraFilters>>;
   /** V-1e:登入會員愛車(未登入/讀取失敗=[]) */
   garage?: GarageChipItem[];
-  resultCount: number;
+  resultCount: number | null;   // null = 撈不到，不是 0 件
   sort: string;
   setSort: (value: string) => void;
   /** #306:件數解析器,由 ProductsPage 建立、穿透給兩個 scope 的 FilterDrawer。 */

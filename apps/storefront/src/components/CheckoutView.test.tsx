@@ -687,7 +687,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
   });
 
   it('🔴 P3 in-flight 軟提醒取消(confirm false)→ 連 getPrime 都不進、零 chargePaymentAction(不送出)', async () => {
-    confirmInflightMock.mockReturnValue(false); // 客人在「你有一筆付款進行中」確認框點取消
+    confirmInflightMock.mockReturnValue(false); // 客人在「您有一筆付款可能還在進行中」確認框點取消(字面見 lib/payment/inflight-marker.ts:83)
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
     getPrimeMock.mockResolvedValue('prime_test');

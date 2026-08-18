@@ -121,7 +121,7 @@ export function BrandDirectoryRoot({ availableSlugs }: { availableSlugs: Readonl
         <div className="bd-wrap bd-hero-inner">
           <p className="bd-eyebrow">N°01 · BRANDS</p>
           <h1>依品牌找部品</h1>
-          <p className="bd-hero-lede">選擇你熟悉的品牌，直接查看該品牌的全部商品與適用車型。</p>
+          <p className="bd-hero-lede">選擇您熟悉的品牌，直接查看該品牌的全部商品與適用車型。</p>
           {/* 設計稿寫死「20 家」;改由資料求值 —— 家數與這句話不可能再對不上。 */}
           <p className="bd-hero-note">{total} 家合作品牌 · 持續依實際上架狀態更新</p>
         </div>

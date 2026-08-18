@@ -24,11 +24,25 @@
 // 成本:scratch repo 在 beforeAll 建一次;每格跑一次 `lint-staged`(~600ms,全是 node 啟動)。
 //   刻意逐副檔名各一發而非合併成一發 —— 合併會失去歸因(glob 只掉 sql 時要能只紅 sql 那格)。
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync, symlinkSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
+
+// 🔴 **容差,不是斷言**(2026-08-18 W1;主視窗准、Sean FYI)。斷言一個字沒有變。
+//    每一格 spawn 一次 `lint-staged`(node 冷啟動 × 2),而本檔原本吃 vitest 預設 `testTimeout` 5000ms。
+//    ⚠️ **檔頭那句「~600ms」是舊的**:2026-08-18 11:0x 在本機單檔實測逐格
+//       9ms / 7140ms / 1218ms / 1992ms / 1624ms / 1240ms / 1192ms / 518ms / 1ms
+//       ⇒ 常態 1.2–2.0s(不是 0.6s),**而其中一格當場就衝到 7140ms 並且紅了** —— 單檔跑、非全套。
+//    ⇒ 5000ms 的真實餘裕只有 ~2.5x,不是檔頭暗示的 8x。八個窗共用一台機器時它擋不住。
+//    🔴 **假紅的成本不只是重跑:它讓「四綠紅了」這個訊號變得不可信,而那是推之前唯一的閘。**
+//       2026-08-18 同一天兩個窗各為它浪費一發四綠(W1 10:19 load 214、W4 10:42 load 100.62)。
+//    ⚠️ **這一格【仍然必須抓得到真的壞掉】** —— 改完當場驗過:拆掉 `package.json` 的
+//       `*.{sh,yaml,yml,sql}` glob key ⇒ 全套 rc=1(證據貼在 commit body)。
+//    📌 判別法(給下一個看到這裡紅掉的人):錯訊息是 `Test timed out in Nms` ⇒ **負載,不是 code**,
+//       單獨重跑那幾支、綠就放行;是 `AssertionError` / `expected…to…` ⇒ **那才要去讀 diff**。
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const REPO = resolve(process.cwd());
 const LINT_STAGED = join(REPO, 'node_modules/.bin/lint-staged');

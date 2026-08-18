@@ -151,6 +151,12 @@ props: { orderId: string }
   - `PROCESSING_MSG`（泛用態 / no_attempt、未歸屬或必然未扣款）＝**維持現行中性條件句**：`我們正在確認你的付款結果，若已扣款將自動為你成立訂單，請稍候片刻或留意 email 通知。`（不斷言已收款、不謊稱付款確認）
 - 備選：OWNED_PENDING_MSG 用更強/更弱語氣 / Sean 自訂措辭。
 
+> 🔴 **2026-08-18 字面更正(W2)**:Sean 當日拍板「**顧客站用「您」/ 後台用「你」**」⇒ 上面兩句的
+> 「你」已換成「您」(`apps/storefront/src/app/checkout/callback/page.tsx:57 / :63 / :65`)。
+> **舊字面留痕不刪**;要 grep code 請用「您」版本。
+> ⚠️ **只換人稱** —— §5.5 三要點(不斷言已收款 / 不謊稱付款確認 / 勿重複付款)與 codex K1 must-fix 1
+> 要求的 fail-closed 語意**一個字都沒有動**。這是金流路徑上的文案,所以把「動了什麼、沒動什麼」寫在這裡。
+
 **Q5 — no_attempt 變體是否也掛輪詢？**
 - **A（default）**：**不掛**（no_attempt ⟺ failed/never、必然未扣款、payment_status 不會變 paid、輪詢零收益）。
 - 備選：掛（防 webhook-vs-redirect race 下 attempt 稍後才現；但與 settleCharge 契約矛盾、default 不採）。

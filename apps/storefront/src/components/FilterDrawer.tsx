@@ -122,7 +122,7 @@ export function FilterDrawer({
   open: boolean;
   onClose: () => void;
   data: FilterDrawerData;
-  resultCount: number;
+  resultCount: number | null;   // null = 撈不到，不是 0 件
   initialTab?: DrawerTab;
   /** ADR-0007 責任分離:'all'=現行全 tab;'category'=只有分類;'product'=只有商品條件(無選車)。 */
   scope?: DrawerScope;
@@ -348,7 +348,10 @@ export function FilterDrawer({
         <div className="fd-foot">
           <button className="fd-foot-clear" onClick={clearAllFilters}>清除</button>
           <button className="fd-foot-apply" onClick={onClose}>
-            查看 {resultCount} 件商品
+            {/* 🔴 null 態的字面與桌機 `.pp-count` 刻意【不同】(codex 關卡2 nit):
+                桌機那句旁邊就有「載入失敗、請稍後再試」當上下文;而這顆鈕在手機是【覆蓋整個畫面】的抽屜裡,
+                客人看不到那句 ⇒ 只寫「件數未能載入」會讓他以為只有計數壞了、商品還逛得到。 */}
+            {resultCount === null ? '商品載入失敗' : `查看 ${resultCount} 件商品`}
           </button>
         </div>
       </div>

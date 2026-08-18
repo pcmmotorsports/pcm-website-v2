@@ -130,7 +130,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
         <div className="auth-card">
           <div className="ap-mono">N°01 · Sign in</div>
           <h1>歡迎回來</h1>
-          <p className="auth-sub">登入你的 PCM 帳號，查看訂單與收藏。</p>
+          <p className="auth-sub">登入您的 PCM 帳號，查看訂單與收藏。</p>
 
           <form onSubmit={submit}>
             {/* 頂部:帳號層級錯(Email 或密碼錯誤 / OAuth 失敗);逐欄驗證錯顯示在各欄下方(釘死 2 雙通道) */}

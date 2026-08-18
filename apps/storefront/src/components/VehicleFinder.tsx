@@ -1,5 +1,7 @@
 // VehicleFinder.tsx — 佈局字面從 design-reference/components/HomePage.jsx @ 25d3a2a 搬
-// (N°01 · 輸入你的車輛、brand → models → years 三層)
+// (N°01 · ~~`輸入你的車輛`~~ ⇒ 現字面 `輸入您的車輛`、brand → models → years 三層)
+//   🔴 劃掉的那個是 design @ 25d3a2a 的【原字面】,不是筆誤 —— 2026-08-18 Sean 拍板
+//   「顧客站用您」後 storefront 偏離 design;design 側至今仍是「你」(HomePage.jsx:63)。
 //
 // design 用 window.PCM_DATA.motoBrands → S2/#220b 起改 props motoBrands(server 端
 // fetchVehicleTaxonomy 從真 fitment 衍生、與 /products 解析端同一 id 空間)。
@@ -63,7 +65,7 @@ export function VehicleFinder({
             (第一版留了舊字面、還在 `page.test.tsx` 把「N° 只到 02-06」寫進守門 = 把未申報的偏離鎖進測試。) */}
         <h2 className="b-dock-label">
           <span className="ed-mono">N°01</span>
-          <span>輸入你的車輛</span>
+          <span>輸入您的車輛</span>
         </h2>
         {/* A8:舊字面「精準匹配車款、年份、引擎代號」是超賣 —— 選車輸入裡根本沒有引擎代號那一欄
             (A 表條 5)。新字面同時把 Q4=A 的門檻講清楚。逗號沿全形 ，(Sean Q2=A)。

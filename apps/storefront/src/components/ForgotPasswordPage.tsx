@@ -130,7 +130,7 @@ export function ForgotPasswordPage() {
             </Link>
             <div className="ap-mono">N°01 · Reset password</div>
             <h1>忘記密碼</h1>
-            <p className="auth-sub">輸入註冊時用的 Email，我們寄一封重設密碼的信給你。</p>
+            <p className="auth-sub">輸入註冊時用的 Email，我們寄一封重設密碼的信給您。</p>
 
             <form onSubmit={submit} noValidate>
               {formError && <div className="auth-err" role="alert">{formError}</div>}

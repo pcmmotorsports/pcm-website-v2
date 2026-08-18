@@ -108,6 +108,43 @@ cross_cutting_overrides:
     reason: |
       Sean 要文案標點不可半全形混用(全形)+ 各分頁/FAQ 換行寬度一致(用最寬)。全形屬 Sean 業務拍板、覆蓋 OD 字面;
       8 元件(含 #270 B S4/S5 GbRacingShowcase/BonamiciShowcase)無另立 last_modified 條目、改動為跨家族單一決策、故記此 cross_cutting 段(對齊 globalRwdMechanism 前例)。
+  customerSiteHonorificNin:
+    design_value: |
+      design 與 OD 兩側【全部還是「你」】,一個字都沒動(2026-08-18 實查,逐條):
+        design-reference/components/HomePage.jsx:63        輸入你的車輛
+        design-reference/components/AccountPages.jsx:202   登入你的 PCM 帳號
+        OD pcm-home-redesign/product-detail-page.html:292,368,372,373,374,383
+                                                           ProductFitmentCheck 四態 + pickerLabel 逐字
+        OD pcm-home-redesign/cart-page.html:408,419,480    SOURCE_NOTE / cvf-mismatch / CartView hint
+    storefront_value: |
+      [Sean 2026-08-18 拍 Q2=甲] 顧客站(apps/storefront)面對客人的字一律用「您」;
+      後台(apps/admin)面對員工的字維持「你」。本次換掉 34 行 / 23 檔(量法見下)。
+      🔴 **刻意不動的三類,是排除不是漏**:
+        · data/brand-content.ts(22 您 + 4 你)與 7 支含「你」的 *Showcase.tsx —— 品牌行銷文案 = Sean 的地盤,另案端給他
+        · components/account/tabs/OverviewTab.tsx 的「為你推薦」×2 —— 別的窗正在改同一支;且那是 Sean 拍過的元件名稱
+        · 引用 Sean 原話的程式碼註解(BrandPageProducts.tsx:29 / BrandDirectoryRoot.tsx:77)
+      🔴 **同批把三支 docs/specs 的舊字面加了留痕註記**(~~舊~~ ⇒ 現),因為其中一支
+      (2026-08-03-vehicle-picker-unification-wire-plan.md)那一格寫著「🔴 逐字不動(§7 正確性紅線)」——
+      那條紅線管的是【語意】不是敬語,四個狀態各自說的事情一個字沒改;不寫的話下一個人會以為有人動了不能動的東西。
+    decided_at: "2026-08-18"
+    decision_source: "Sean 2026-08-18 逐字「甲=客人用您·後台用你(我建議」;落檔 memory project_0818-sean-six-rulings.md"
+    backlog: |
+      無;守門靠既有的 10 條斷言字面(ProductFitmentCheck.test.tsx 等 5 支已同批更新為「您」),
+      日後對齊 design 時若被無聲改回「你」,那 10 格會紅。
+    reason: |
+      量法(可重跑):`apps/storefront/src` 全部 .ts/.tsx,剝 `.test.*` 與 `dev-preview/`,只算非註解起首行 ⇒ 253 檔。
+        HEAD 02c1f7ac  您 51 / 你 50
+        本片之後    您 85 / 你 16      驗算 51+34=85、50-34=16 ✓
+      🔴 上游的分母是錯的,先更正再做:`E-710 §1` 報「您 8 / 你 28 個檔」= 只量元件層;
+        把 `src/data/` 算進來才是 51/50 ⇒ 法律頁(legal-content 19)與品牌內容(brand-content 22)本來就是「您」,
+        真正要動的只有 UI chrome 那一批。
+      🔴 **未同步回 design / OD = 刻意**,理由同 productPageFullwidthPunctuation 前例(Sean 拍板高於 design 字面)。
+        而**兩側現在講不同的話**,所以記在這裡 —— 下一個照鐵則 1 grep design 的人會想把它改回「你」。
+      ⚠️ **`scripts/literal-sweep.sh` 掃不到那兩處**:該檔 `:191` 的 `SKIP_DIRS` 明列 `design-reference`,
+        OD 專案更在 repo 外。上面 design_value 那份清單是**另外用 grep 逐條開檔查的**,不是 sweep 給的。
+      ⚠️ 三句語氣偏行銷的也一起換了(HomeHero.tsx:52 / HomeStatement.tsx:108 / ProductTabs.tsx:323)——
+        若 Sean 覺得那三句用「您」變生硬,單獨改回來即可,不影響其餘 31 行。
+      跨家族單一決策、23 檔不另立 last_modified 條目,故記此 cross_cutting 段(對齊 productPageFullwidthPunctuation 前例)。
   textContrastLegibility:
     design_value: "OD/design-reference 次要文字灰階 --c-text-3=#a1a1aa(Zinc-400);design-reference 亦逐字使用此值(product-card/home/tweaks)"
     storefront_value: |
@@ -133,8 +170,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductsPage.tsx"
       css: "apps/storefront/src/styles/products-page.css"
-      last_modified_commit: "24276784"  # 記可達祖先=選車卡比例第二輪片的父 commit(#180 案 A)(前錨 459710a9)
-      last_modified_date: "2026-08-08 [選車卡比例第二輪 —— Sean 看過 4-/5-/6- 三張梯度截圖後拍板 `5-`]:三欄位內距 10/8 → **6/5**、`.ed-finder-slot-label` 字級 10 → **9px**、下距 2 → **1px** ⇒ 每格 54px → **45-46px**(390×844 production build 真瀏覽器實測、非估算)。🔴 **刻意停在 45-46px**:觸控目標無障礙底線 44px,梯度 `6-` 量到 44-45px = 已貼底,不再往下。🔴 **`.vsc-input--finder` 的 16px 一字未動** —— Sean 原本要求「欄位內文字也縮小一點點」,實測梯度 `6-`(16→15px)全卡只再矮 **3px**(254→251),代價卻是 iOS Safari 聚焦自動縮放整頁(V-2d④ Sean 真機回報過)⇒ **我建議不做、Sean 採納**。🔴 **順手修好一條恆真守門**:`home.test.ts` 那條「iOS 16px 防縮放」反向守門只掃 `(max-width: 900px)` 區塊的 `.vsc-input` 規則,而 16px 宣告在 `(max-width: 1023px)` ⇒ 實測掃到 **0 條、迴圈零次執行 = 恆真**,把字級改成 15px 它照樣綠。已改成「先證 16px 宣告存在、再逐斷點掃上限」,突變 16→15 現在真的會紅(六發突變全有判別力)。"
+      last_modified_commit: "02c1f7ac"  # 記可達祖先=敬語+件數片的父 commit(#180 案 A)(前錨 24276784)
+      last_modified_date: "2026-08-18 [撈不到資料時不再印「0 件商品」]:`fetchCatalogPage` 失敗回 `total: 0`(lib/products.ts:508),而件數渲染在 error 分支【外面】⇒ 客人同時看到「0 件商品」+「載入失敗、請稍後再試」+ 側欄各分類件數(走另一條沒壞的資料源)照樣印著 9/9/9/9 = 三種互相矛盾的說法。改 `displayCount = error ? null : resultCount`,頂部三個顯示點(SortBar / FilterTop / FilterDrawer)在 null 時不給數字;`resultCount` 本身不動(分頁算式要用,而分頁在 error 時本就不渲染)。🔴 修法照同 repo 既有判斷 `MobileVehicleSheet.tsx:277-280`(刻意不印算不出來的 N)。🔴 `FilterDrawer` 的 null 字面與桌機【刻意不同】(「商品載入失敗」vs「件數未能載入」;codex 關卡2 nit):手機抽屜覆蓋整個畫面、客人看不到「載入失敗」那句。⚠️ **側欄 facet 件數沒有一起關掉**(`useFacetCountResolver`,另一條資料源、沒壞)—— 刻意留:它證明「商品是存在的」。守門 = `ProductsPage.test.tsx` 新增一對格(error=true 不得出現「0 件商品」/ 負對照:真 0 筆仍要印「0 件商品」);**突變實測**:把 `count={displayCount}` 改回 `count={resultCount}` ⇒ 前者紅、後者仍綠 = 兩格各有判別力。行為另用拋棄式 PG + PostgREST + 真 next dev 三世界對照實看過(正常 26 件 / 撤 anon EXECUTE 印「件數未能載入」/ 還原 10 件)。" # 前版 2026-08-08 [選車卡比例第二輪] 見 git history
     design:
       component: "design-reference/components/ProductsPage.jsx"
       css: "design-reference/styles/products-page.css"

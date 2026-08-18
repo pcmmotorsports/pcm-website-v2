@@ -59,7 +59,7 @@ export function CartView({
     isBalancePaymentOnlyCart(items.map((i) => i.productId)) ? 'store' : 'home',
   );
 
-  // V-2h/MF-5(spec §2 車庫預填):登入會員有唯一車或 primary 車 → 首次載入補未填列(標「來自你的車庫」)。
+  // V-2h/MF-5(spec §2 車庫預填):登入會員有唯一車或 primary 車 → 首次載入補未填列(標「來自您的車庫」)。
   // 🔴 只補未填列(!item.vehicle)=不覆蓋 search 帶入(優先序 search>garage);唯一精確解析才補=零猜。
   // run-once ref:清空後不再回填(尊重使用者清除意圖)、避免 setItemVehicle 觸發 cart 變更的回圈。
   const prefilledRef = useRef(false);
@@ -112,7 +112,7 @@ export function CartView({
         <div className="cart-vehicle-top">
           <CartVehicleField
             label="給哪台車用(套用全部商品)"
-            hint="建議填寫車款,方便我們為你確認商品是否適用"
+            hint="建議填寫車款,方便我們為您確認商品是否適用"
             // 以可見(server-resolved)列判一致態:server 濾掉的 stale 列不影響頂欄顯示(code-reviewer minor)
             value={commonVehicle(lines.map((l) => l.item))}
             onChange={setAllItemsVehicle}

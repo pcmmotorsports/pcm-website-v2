@@ -892,6 +892,46 @@ export type AdminOrderPrintItem = Pick<
 >;
 
 /**
+ * **明細頁用**的品項投影(`D2` 的 C 條,2026-08-18)。
+ *
+ * = `AdminOrderPrintItem` 的六欄 **+ `unitPrice` / `lineTotal`**。
+ *
+ * 🔴 **為什麼是「加兩個 scalar」而不是「直接用 `AdminOrderDetailItem`」** ——
+ * 這個區分是本片存在的理由,不是風格選擇:
+ * ```
+ * unitPrice / lineTotal  同列 scalar ⇒ 取它們【不產生任何截斷面】
+ *                        AdminOrderPrintItem 當初排除它們只是 YAGNI（紙上零金額）
+ *                        ⇒ 加回來不會把病帶進來
+ * procurements /         【內嵌陣列】，受 ORDER_ITEM_PROCUREMENT_EMBED_LIMIT = 50 管
+ * procurementTruncated   （mappers/order-procurement.ts:44）
+ *                        ⇒ 🔴 取它進來 ＝ 把我們正在拆的那道牆【換個位置裝回來】
+ *                        ⇒ 而 50 比品項的 200 低【四倍】，且那是【單一品項】的量
+ *                           ⇒ 採購那一層截斷得更早
+ * ```
+ * ⇒ **本型別刻意【沒有】採購那兩欄。** 採購區維持吃內嵌那份,並把自己的射程講白
+ * (`item-procurement-section.tsx`)。**那是「明說不全」,不是「做完了」** ——
+ * 而 🔴 **明說不全是一個合格的終點**,判準同 Sean `Q-C16` 甲:
+ * **「少印沒人會發現,多印客人會打電話」** ⇒ 先讓它會叫。
+ *
+ * ⚠️ **想把 `procurements` 加進來的人**:那不是加一個欄位,那是把 C 條整片的前提推翻
+ * ⇒ 先讀 `docs/specs/2026-08-18-m4b-order-detail-items-exhaustive-plan.md` §3 與 §4 甲案的代價。
+ *
+ * 用 `Pick` 不重打:欄位語意(尤其 `quantitySummary` 的 `null` = 「不知道」不是 0)
+ * 只有一份權威,**兩份會漂**。
+ */
+export type AdminOrderDetailFullItem = Pick<
+  AdminOrderDetailItem,
+  | 'id'
+  | 'variantSku'
+  | 'title'
+  | 'spec'
+  | 'quantity'
+  | 'quantitySummary'
+  | 'unitPrice'
+  | 'lineTotal'
+>;
+
+/**
  * 品項三軸數量摘要(M-4b E10 A9g-1)——**衍生快取** `order_item_quantity_summary`
  * (建表 `supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql:79`;
  * `order_item_id` 為 PRIMARY KEY、值由 A4a trigger 重算並由 CHECK 釘死)。

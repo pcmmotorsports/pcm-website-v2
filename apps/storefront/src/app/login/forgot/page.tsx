@@ -8,7 +8,7 @@ import { ForgotPasswordPage } from '@/components/ForgotPasswordPage';
 
 export const metadata: Metadata = {
   title: '忘記密碼 — PCM Motorsports',
-  description: '輸入註冊時用的 Email，我們寄一封重設密碼的信給你。',
+  description: '輸入註冊時用的 Email，我們寄一封重設密碼的信給您。',
 };
 
 export default function ForgotPasswordRoute() {

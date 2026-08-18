@@ -42,3 +42,30 @@
 `STATUS.md` > `docs/PHASE-1-NORTHSTAR.md` > `CLAUDE.md` > `docs/decisions/` > `patterns/` > 其他 md > 對話歷史。
 
 — END —
+
+---
+
+## 🔴 「量具會騙人」這一族的單一入口(2026-08-18 W8 建;本節只放指標,不放內容)
+
+這一族的東西**散在四個地方**,而它們互相引用。**接手的人從這裡進去,不要各找各的:**
+
+| 你手上的問題 | 去哪 |
+|---|---|
+| 我要下一個「零命中 / 沒有 / 不存在」的斷言 | `guard-and-instrument-traps.md` §恆綠格 + §「附了量法,而量錯東西」 |
+| 我看到一個紅,而它好像一直都紅 | `guard-and-instrument-traps.md` §恆紅(恆綠的對稱另一半) |
+| 我要派一個掃描 / 盤點 / 找「還沒做的事」 | memory `feedback_would-this-sweep-find-the-known-case`(**十二種形狀**在那裡) |
+| 我要發一個 backlog 號 | `bash scripts/next-backlog-number.sh`(**它每次都印**錨定與別名兩條紀律)<br>+ `python3 scripts/backlog-duplicate-scan.py --search <症狀詞>` |
+| 我要找「code 還在指望、而沒人在追」的缺口 | `bash scripts/orphan-code-refs.sh`(檔頭有已知案例測試與**盲區輸出**) |
+| 我要判一棵 worktree 有沒有人 / 要清樹 | memory `reference_worktree-ownership-is-not-readable-from-git-state` |
+| 某個窗靜了,我要判它是不是停了 | memory `feedback_a-finished-turn-is-indistinguishable-from-waiting`(**門檻 5 分鐘,量出來的**) |
+
+**這一族共用一句話**:
+
+> **附量法只擋得掉「沒有數」;要擋「數錯東西」,必須另放一條【它應該要命中】的樣本,
+> 而那個樣本要獨立於你正在數的東西。**
+
+📎 而兩條**跨窗結構**的東西不屬技術族,單獨記在這裡免得被當成量具問題:
+1. **共用資源的清單本身沒有人在維護** —— 已知三條(埠登記 / worktree 認領 / playwright 快取),
+   而第三條**在它咬人之前沒有人知道它是共用的**。
+2. **窗做完一件、回合結束,它就「不在」了** —— 而「不在」跟「在等人」長得一樣。
+   自律只縮短那道縫,**偵測必須是外部的**。

@@ -20,7 +20,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export const metadata: Metadata = {
   title: '設定新密碼 — PCM Motorsports',
-  description: '為你的 PCM 帳號設定一組新密碼。',
+  description: '為您的 PCM 帳號設定一組新密碼。',
 };
 
 export default async function ResetPasswordRoute() {

@@ -105,7 +105,7 @@ export function HomeStatement() {
               <span className="ed-mono ed-statement-col-num">03</span>
               <h3>終身技術諮詢</h3>
             </div>
-            <p>LINE 一對一技師諮詢。不只賣你部品,是陪你騎一輩子的夥伴。</p>
+            <p>LINE 一對一技師諮詢。不只賣您部品,是陪您騎一輩子的夥伴。</p>
           </div>
         </div>
       </div>

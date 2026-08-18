@@ -89,7 +89,7 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-const click = () => fireEvent.click(screen.getByRole('button', { name: /建立包裹|載入中/ }));
+const click = () => fireEvent.click(screen.getByRole('button', { name: /出貨|載入中/ }));
 
 describe('🔴🔴 錯誤訊息 — PostgrestError 是普通物件,不是 Error 實例', () => {
   it('丟出 `PostgrestError` 形狀的物件時,畫面顯示它的 message,**不是** `[object Object]`', async () => {
@@ -346,7 +346,7 @@ describe('OrderShipButton — 23a 登錄到貨後就地重取(整合)', () => {
     });
 
     const { container } = render(<OrderShipButton orderId='ord-uuid-1' />);
-    fireEvent.click(screen.getByRole('button', { name: /建立包裹|出貨|建箱/ }));
+    fireEvent.click(screen.getByRole('button', { name: /出貨|建箱/ }));
     await waitFor(() => expect(fetchShipmentCandidates).toHaveBeenCalledTimes(1));
 
     fireEvent.click(await screen.findByText('貨到了'));
@@ -392,7 +392,7 @@ describe('OrderShipButton — F1 開窗條件', () => {
   it('🔴 整張單只有未到貨品項 → **開得了窗**(入口 2 的主場景)', async () => {
     fetchShipmentCandidates.mockResolvedValue(base([NA]));
     render(<OrderShipButton orderId='ord-uuid-1' />);
-    fireEvent.click(screen.getByRole('button', { name: '建立包裹' }));
+    fireEvent.click(screen.getByRole('button', { name: '出貨' }));
     expect(await screen.findByText('貨到了')).toBeTruthy();
   });
 
@@ -403,7 +403,7 @@ describe('OrderShipButton — F1 開窗條件', () => {
   ])('🔴 %s(沒得出也沒有在等的貨)→ 仍然擋下、不開窗', async (_label, reason) => {
     fetchShipmentCandidates.mockResolvedValue(base([{ ...NA, blockedReason: reason }]));
     render(<OrderShipButton orderId='ord-uuid-1' />);
-    fireEvent.click(screen.getByRole('button', { name: '建立包裹' }));
+    fireEvent.click(screen.getByRole('button', { name: '出貨' }));
     expect(await screen.findByText(/沒有任何一件出得了/)).toBeTruthy();
     expect(screen.queryByText('貨到了')).toBeNull();
   });
@@ -412,7 +412,7 @@ describe('OrderShipButton — F1 開窗條件', () => {
   it('🔴 全未到貨開窗後,建箱那半講的是「先登記到貨」不是「你忘了選」', async () => {
     fetchShipmentCandidates.mockResolvedValue(base([NA]));
     render(<OrderShipButton orderId='ord-uuid-1' />);
-    fireEvent.click(screen.getByRole('button', { name: '建立包裹' }));
+    fireEvent.click(screen.getByRole('button', { name: '出貨' }));
     expect(await screen.findByText(/現在都不能出,其中還有在等到貨的/)).toBeTruthy();
     expect(screen.queryByText(/至少要選一件/)).toBeNull();
   });
@@ -457,7 +457,7 @@ describe('OrderShipButton — 成功只被處理一次(N1 守門)', () => {
     });
 
     const { container } = render(<OrderShipButton orderId='ord-uuid-1' />);
-    fireEvent.click(screen.getByRole('button', { name: '建立包裹' }));
+    fireEvent.click(screen.getByRole('button', { name: '出貨' }));
     fireEvent.click(await screen.findByText('貨到了'));
     const qtyBox = () =>
       container.querySelector('input[name="quantity"]') as HTMLInputElement | null;

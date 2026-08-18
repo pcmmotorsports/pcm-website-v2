@@ -147,7 +147,7 @@ function SortBar({
   sort,
   setSort,
 }: {
-  count: number;
+  count: number | null;   // null = 撈不到，不是 0 件（見 displayCount 的註解）
   gridCols: number;
   setGridCols: (n: number) => void;
   sort: string;
@@ -156,7 +156,7 @@ function SortBar({
   return (
     <div className="pp-sortbar">
       <div className="pp-sortbar-left">
-        <span className="pp-count">{count} 件商品</span>
+        <span className="pp-count">{count === null ? '件數未能載入' : `${count} 件商品`}</span>
       </div>
       <div className="pp-sortbar-right">
         <div className="pp-grid-toggle">
@@ -274,6 +274,18 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // 否則會把 total/page 語意拆成兩套而造成漏項。
   const resultCount = total ?? products.length;
 
+  // 🔴 `error === true` 時 `fetchCatalogPage` 回的是 `total: 0`(lib/products.ts:508)——
+  //    那個 0 是「我沒撈到」不是「真的沒有商品」,而畫面照樣把它印成「0 件商品」。
+  //    實測(拋棄式庫,撤 anon EXECUTE 造錯):同一畫面上面印「0 件商品」、中間印「載入失敗」、
+  //    左側欄的分類件數走另一條資料源沒壞、照樣印著 9/9/9/9 ⇒ 三種互相矛盾的說法。
+  //    ⇒ 【頂部那三個件數顯示點】一律不給數字(SortBar / FilterTop / FilterDrawer)。
+  //    ⚠️ 側欄的 facet 件數走 `useFacetCountResolver`(:268)另一條資料源、本片【沒有】關掉它 ——
+  //       所以 error 時側欄仍會印各分類件數。那是刻意留的:它沒壞,而且它證明「商品是存在的」。
+  //    這條照 `MobileVehicleSheet.tsx:277-280` 的既有判斷:
+  //      那裡刻意不印一個算不出來的 N(註解逐字「本機正式資料實測 19037,而按下去的真實結果是 43」)。
+  //    ⚠️ `resultCount` 本身不動 —— 分頁算式要用它,而分頁在 error 時本來就不渲染。
+  const displayCount: number | null = error ? null : resultCount;
+
   // #6:篩選/排序/每頁變動 → 回第 1 頁(對齊 design ProductsPage.jsx L226;值比較+mount-guard
   // +vehicle 還原跳過一次,詳 products-url-state.tsx usePageResetOnFilterChange 檔內註解)
   usePageResetOnFilterChange(
@@ -319,7 +331,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         extras={extras}
         setExtras={setExtras}
         garage={garage}
-        resultCount={resultCount}
+        resultCount={displayCount}
         sort={sort}
         setSort={setSort}
         openVehicleOnMount={pickVehicle && isMobileUA}
@@ -357,7 +369,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             setExtras={setExtras}
           />
           <SortBar
-            count={resultCount}
+            count={displayCount}
             gridCols={gridCols}
             setGridCols={setGridCols}
             sort={sort}
