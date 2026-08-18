@@ -44,7 +44,7 @@
 #
 # 🔴 `#!rows=N` 是給稽核對帳用的,**改動列數要同步改它** ——
 #   沒有它,一張被清空的表會印「綠 0 / 紅 0」然後 rc=0,**死掉的樣子跟全過的樣子一模一樣**。
-#!rows=18
+#!rows=19
 #
 # 🔴 本表【只驗字面】,不跑任何命令(不引入 eval)。**覆蓋率型的檢查住在自己的腳本裡** ——
 #   現有兩支:`scripts/authz-failure-visibility.sh`(授權被擋時員工看不看得見)
@@ -76,3 +76,4 @@ R015	廢止一條規則必須用 ~~ 劃線形,不可以只用散文寫「本條�
 R016	授權被擋時員工要看得見(不是裸 redirect);覆蓋率檢查器要在、且期望值仍寫死	scripts/authz-failure-visibility.sh	EXPECT_BARE=0	>=1	2026-08-18	G6 量出 28 呼叫點/裸 redirect 2;主視窗指示先只做這一個形狀不推廣
 R017	migration 檔不要用 RESET ROLE(用 SET LOCAL ROLE);守門要在且期望值仍寫死	scripts/migration-reset-role-guard.sh	EXPECT_FILES=1	>=1	2026-08-18	G6 查明 #628 因果鏈:NOINHERIT 登入角色 + RESET ROLE ⇒ SQL 生效而帳本沒記
 R018	改檔不可寫 io.open(p,'w').write(io.open(p).read()...) —— 它先截斷成 0 且 rc=0 不報錯	docs/patterns/guard-and-instrument-traps.md	那一步就把檔案截斷成 0	>=1	2026-08-18	G3 一封信箱 STOP 被清成 0 bytes;信箱不在 git 裡救不回來
+R019	報告寫完的下一個動作是送出去(SendMessage),不是按 enter 給終端機看;判別句=我剛剛那段字收訊者是誰	docs/runbooks/multi-window-command-workflow.md	收訊者是誰	>=1	2026-08-18	G1 靜 23.1 分 / G4 靜 27.8 分,兩個窗都寫了完整報告而沒送出來
