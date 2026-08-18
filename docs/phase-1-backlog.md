@@ -21819,3 +21819,68 @@ bash scripts/which-db-am-i-pointed-at.sh      ← 本條同時交付的一支(�
 機械判別不了(admin composition.ts 檔頭「誠實邊界①」逐字寫著這件)。
 
 - **相關:** `#353`(3DS 態 -1 沙盒構造不出來)、`docs/reference/tappay-sandbox-test-cards.md`(沙盒測試卡與本條的阻擋關係)
+
+---
+
+### #658 · `origin/brand-rollout` 兩顆停了 25 天 —— 而**它為什麼停,沒有人查過**
+
+- **狀態:** ⏳ 待執行(**要做的第一件事是「查它為什麼停」,不是「收它」**)
+- **分流:** P2
+- **優先級:** 🟡 中(**含一支 seed migration** ⇒ 收與不收的處置相反,而現在分不出該走哪邊)
+- **號碼來源:** `claim-backlog-number.sh` ⇒ `#658`(原子佔位 `.backlog-claim-658`,落檔後 release);
+  第二道信箱佔位掃描 `grep -rn 佔位 ~/pcm-mailbox/*.md` ⇒ 只有 `#631` `#636` `#645`,不撞。
+  別名檢查 `--search brand-rollout K-SPEED kspeed` ⇒ 命中 `#275` / `#504` / `#630`,**開檔核過都不是這題**
+  (`#504` 講的是那份 handoff 檔裡的假行號,不是分支本身)。
+
+#### 事實(2026-08-18 23:3x CST 當場量,`/usr/bin/git`)
+```
+git rev-list --count dev..origin/brand-rollout        ⇒ 2
+git log --format='%ci %h %s' dev..origin/brand-rollout
+  2026-07-24 18:06:27 +0800  f6c45e23  fix(storefront): 商品圖改 object-fit contain 避免非方形照被裁切 [brand]
+  2026-07-24 14:21:54 +0800  028a730a  feat(schemas): 新增 K-SPEED 品牌 seed migration [#212]
+git diff --stat dev...origin/brand-rollout            ⇒ 4 檔 / +50 −12
+  apps/storefront/src/components/ProductCard.tsx / ProductCard.test.tsx
+  apps/storefront/src/styles/product-page.css
+  supabase/migrations/20260724140000_seed_kspeed_brand.sql   ← 🔴 一支 migration
+```
+
+#### 🔴 本條真正的內容:**「停因未查」**
+```
+25 天前停著的東西有兩種,而它們在 git 上長得一模一樣:
+  甲 被遺忘  ⇒ 處置 = 收進來(過鐵則 12③ 審查 + apply 流程)
+  乙 被刻意擱著 ⇒ 處置 = 不要收(可能當時就判過不該進;可能 K-SPEED 這條線本身被擱置)
+⇒ 這兩種處置【相反】,而現在沒有任何證據指向哪一邊。
+```
+🔴 **這是「沒有人查過」,不是「查不到」** —— 我(G1)沒查,主視窗 2026-08-18 23:4x 裁定
+「**還沒有人知道它是什麼 ⇒ 不收、記下來、不要碰它**」。本條就是那個「記下來」。
+
+#### 查它的時候該問什麼(下一個人照這個順序)
+```
+1. memory `project_brand-line-kspeed-extreme-lightech-decisions` 講了什麼
+   —— 已知那份 memory 有一句「K-SPEED brands 表沒建」⇒ 這支 seed migration 與那句是什麼關係?
+2. `#212` 那條 backlog 現在的狀態欄是什麼?(⚠️ 狀態欄由人維護,反映最後一個維護者當時的判斷)
+3. docs/handoff/2026-07-24-brand-rollout-handoff.md 有沒有寫「為什麼停」
+   (🔴 而該檔已知有假行號問題,見 `#504` ⇒ 引用它的座標前先開檔核)
+4. 那支 migration 有沒有已經用別的路進過正式庫?(對 APPLIED 帳本查,不要只看 repo)
+```
+
+#### 不修未來會痛在哪(鐵則 10)
+```
+· 擴充性:K-SPEED 這條品牌線之後要上架時,會有人重寫一份 seed —— 而舊的那支還在分支上
+  ⇒ 兩份 seed 同一個品牌,誰先 apply 誰贏,而【沒有任何東西會紅】。
+· 可維護性:每一次收割盤點都會再撞到它一次,而每次都要重新問「這是什麼」
+  —— 今天(2026-08-18)就是第一次,花掉的成本已經發生過一遍了。
+· bug 可追蹤性:它含 migration ⇒ 哪天有人「順手收一下」就會把一支沒審過的 migration 帶進 dev,
+  而 merge commit **不能帶 pathspec** ⇒ 收割的人不會在 diff 上看到它被單獨標出來。
+```
+
+#### ⚠️ 限定(免得本條被讀成已經查過了)
+```
+· 上面「事實」那一段是【git 上量得到的】——分支長什麼樣。
+· 「為什麼停」是【零證據】。本條沒有主張它該收或不該收。
+· 我沒有讀過那支 migration 的內容,只讀了檔名與 --stat 的行數。
+```
+
+- **相關:** `#212`(K-SPEED 品牌上架)、`#504`(那份 handoff 檔的假行號)、
+  memory `project_brand-line-kspeed-extreme-lightech-decisions`
+- **發現於:** 2026-08-18 · G1 收割盤點時撞到(它不在任何一份 STOP 記的收割佇列裡)
