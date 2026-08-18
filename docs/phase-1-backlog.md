@@ -5672,7 +5672,16 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #217. 🧩 order_items 無 product_id → domain OrderItem.productId 無法忠實重建(訂單讀路徑 stage ③ 前必解)
 
-- **狀態:** ⏳ 待決(寫路徑 S2-b2-b 不受影響;讀路徑〔findById/listByCustomer 重建 Order〕延 stage ③ 訂單查詢、開工前必拍解法)
+- **狀態:** ✅ **結案 2026-08-18 19:2x = D(不動 domain,明細頁走唯讀投影)**。
+  裁定者 = 主視窗(**不是 Sean**),理由逐字:「鐵則 8 要批的是【改動】,而 D 是【不改】⇒ 沒有東西要批准。
+  把『不做』包裝成拍板題送上去,等於替他製造一個他不需要答的題目。」
+  plan 全文 `docs/specs/2026-08-18-m4b-217-orderitem-productid-plan.md`。
+  🔴 **這題真正的成本(條目原文沒寫,補在這裡當正本)**:
+  **A(改 optional)等於為了一條【沒有呼叫端】的讀路徑,去弱化 `packages/domain/src/order/order.ts`
+  那道還在用的【寫路徑】`typeof` loud-reject** —— 讀路徑今天零呼叫端,寫路徑有真流量。
+  ⚠️ **若日後真的需要 domain `Order`,對的解是 B(加欄),不是 A。** 這句已寫進
+  `IOrderRepository.findById` 的 docstring(否則下一個人會重新走一次 A)。
+  ~~原狀態~~:⏳ 待決(寫路徑 S2-b2-b 不受影響;讀路徑〔findById/listByCustomer 重建 Order〕延 stage ③ 訂單查詢、開工前必拍解法)
 - **優先級:** 🟠 中(階段③ 訂單查詢〔plan §7〕硬前置;不阻階段①〔建單寫路徑〕)
 - **問題:**
   - domain `OrderItem`(`packages/domain/src/order/types.ts`)`productId: ProductId` **必填**;但 `order_items` 表(migration 20260604120000)**只有 `variant_id`、無 `product_id`**(create_order RPC insert L253-263 親證只寫 variant_id/variant_sku/product_snapshot/qty/unit_price/line_total)。

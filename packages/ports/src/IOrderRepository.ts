@@ -54,19 +54,28 @@ export interface IOrderRepository {
    */
   findTotal(id: OrderId): Promise<Money | null>;
 
-  /** 查單筆(RLS own-only;查無回 null 不 throw)。 */
+  /**
+   * 查單筆(RLS own-only;查無回 null 不 throw)。
+   *
+   * 🔴 **deferred stub,而且是【刻意不提供】,不是「待 #217」**(2026-08-18 `#217` 裁定 D):
+   * 訂單明細一律走**唯讀投影**,同 `listSummariesByCustomer`(清單)與 `AdminOrderDetail`(後台明細)——
+   * 後者**沒有 `productId` 而後台明細頁一直是好的** ⇒ 畫一張明細不需要重建 domain `Order`。
+   * ⚠️ **若日後真的需要 domain `Order`,對的解是【`order_items` 加 `product_id` 欄】(`#217` B),
+   *    不是把 `OrderItem.productId` 改成選填(`#217` A)** —— A 等於為了這條沒有呼叫端的讀路徑,
+   *    去弱化 `domain/order/order.ts` 那道還在用的**寫路徑** `typeof` loud-reject。
+   */
   findById(id: OrderId): Promise<Order | null>;
   /**
    * 列出某會員訂單「摘要」(account OrdersTab / Overview 最近訂單;RLS own-only、created_at desc)。
    *
    * 回 `OrderListItem[]`(摘要投影、不含 items[]):繞過 #217(order_items 無 product_id 無法重建
    * 完整 `Order.items[]`)、列表只需單號 / 日期 / 件數 / 金額 / 狀態。M-3 Sean 拍 Q6=A:與完整
-   * `listByCustomer` 分離,後者維持 deferred(待 #217 + 明細頁 slice、本片不啟用)。
+   * `listByCustomer` 分離,後者維持 deferred(2026-08-18 `#217` 裁定 D ⇒ **刻意不提供**,見 `findById` 的註解)。
    */
   listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]>;
-  /** 列出某會員訂單(完整 Order)。⚠️ deferred:待 #217(order_items 無 product_id);M-3 不啟用、用 listSummariesByCustomer。TODO M-4a-08: 補分頁 + 排序。 */
+  /** 列出某會員訂單(完整 Order)。⚠️ deferred stub、**刻意不提供**(2026-08-18 `#217` 裁定 D,理由見 `findById`);用 `listSummariesByCustomer`。 */
   listByCustomer(customerId: CustomerId): Promise<Order[]>;
-  /** admin 訂單列表(雙軸狀態篩選,完整 Order)。⚠️ deferred stub(撞 #217、同 listByCustomer);後台列表改走 `listOrderSummariesForAdmin` 摘要投影。 */
+  /** admin 訂單列表(雙軸狀態篩選,完整 Order)。⚠️ deferred stub、**刻意不提供**(同 `listByCustomer`,`#217` 裁定 D);後台列表走 `listOrderSummariesForAdmin` 摘要投影。 */
   listByStatus(filter: OrderStatusFilter): Promise<Order[]>;
 
   /**
