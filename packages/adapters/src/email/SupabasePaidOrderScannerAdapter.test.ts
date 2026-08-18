@@ -103,11 +103,12 @@ describe('SupabasePaidOrderScannerAdapter — 掃描述詞', () => {
       expect(argsOf(orders, 'is')).not.toContainEqual(['email_outbox.order_id', null]);
     });
 
-    it('🔴 逐列比對:回的必須【正好是】沒排過通知信的那幾列,不是「非空」也不是「數量對」', async () => {
+    it('DB 回傳的列由 adapter【原樣傳遞】(不自己再過濾、不改順序)', async () => {
+      // 🔴 **這一格【不驗】PostgREST 的過濾語意**(codex 關卡2 R2:名稱也要跟著收斂)——
+      //    O1 是我在 mock 外**人工移除**的,真查詢若錯誤納入 O1,只要 mock 照樣回三列,這格還是綠。
+      //    守毒分支的是上一格的字面斷言;過濾語意只能由部署前的真實測打證明。
       // 測資語意 = 我 2026-08-19 在拋棄式 PostgREST 上量的那一組:
       //   O1 有 order_created / O2 只有 order_shipped / O3,O4 完全沒有列 ⇒ 正確答案 = O2,O3,O4
-      // 🔴 DB 端已經把 O1 濾掉了 ⇒ mock 回的就是 O2,O3,O4。
-      //    這一格守的是「adapter 把它們【原樣】交出去、沒有自己再過濾或改順序」。
       const pending = ['O2', 'O3', 'O4'].map((d, i) => ({
         ...ORDER_ROW,
         id: `order-${d}`,

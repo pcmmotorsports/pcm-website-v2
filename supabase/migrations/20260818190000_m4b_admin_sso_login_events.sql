@@ -12,6 +12,8 @@
 --    ② `IF NOT EXISTS` **只按物件名稱決定跳過** ⇒ 同名但**形狀錯的**表(缺 CHECK / default 不對 /
 --       多一個可竄改資料的 trigger / 索引指向錯欄位)會**靜默存活**,而後面的 ACL 斷言照樣全過。
 --    ⇒ **「重跑不炸」在稽核表上是負資產** —— 它讓「乾淨重跑」與「踩在壞掉的殘留上」長得一樣。
+--    ⚠️ **而 fail-closed 也不等於「偵測得到所有殘留物」**(codex 關卡2 R2 收窄我的措辭):
+--      同名**不同參數**的 overload、**不同名字**的包裝函式,都還是可以共存而不被這支擋下。
 --    ⇒ 現在與同批的 `20260818170000_m4b_g3_customer_favorites.sql` **行為一致**(都是重跑會炸)。
 --    ⇒ 中途失敗要重跑 ⇒ **先手動確認殘留物、清乾淨,再重跑**;不要繞過這個 fail-closed。
 --    (本行寫在這裡,是因為**重跑的人會打開的是這支檔,不是那封信**。)
@@ -30,8 +32,12 @@
 --   ~~「拿到 key 的人不能刪掉自己的登入紀錄」~~ —— 第一版把 purge 函式的 `EXECUTE` **給了 `service_role`**,
 --   而 **`EXECUTE` 就是清理能力** ⇒ 拿到 key 的人可以反覆呼叫它、抹掉所有滿 90 天的列。
 --   當時那句宣稱能成立的只有「**90 天內**不能刪」。
---   ⇒ 現在**把那個 GRANT 拿掉了**(purge 只有 owner 跑得動;排程那一步另外決定要用哪個角色),
---     宣稱才回到「拿到 key 的人刪不掉任何一列」。
+--   ⇒ 現在**把那個 GRANT 拿掉了**(排程那一步另外決定要用哪個角色)。
+--   🔴 **而正確的措辭是「owner【及具 owner 等效能力者】跑得動」,不是「只有 owner」**(codex 關卡2 R2):
+--     `service_role` 若是 owner 角色的(轉遞)成員就能 `SET ROLE` 成 owner ⇒ **前面所有 ACL 斷言一次全繞過**。
+--     ⇒ 斷言 `4k` 專門釘這一格(`pg_has_role(…,'USAGE')`)。
+--   ⚠️ **仍然擋不住的**:另一支「可由 `service_role` 執行的 `SECURITY DEFINER` 包裝函式」——
+--     那種東西不在本表的 ACL 上,**本 migration 看不到也擋不到**。⇒ 那是全庫層級的稽核題,不是這一支。
 --   📌 **教訓寫在這裡而不是 commit body**:**授出去的是「執行那個動作的能力」,不是「那張表的權限」**
 --     —— 我的斷言全在檢查 table ACL,而刪除能力**根本不在 table ACL 上**。
 --
@@ -111,6 +117,12 @@ $trg$;
 CREATE TRIGGER admin_sso_login_events_force_occurred_at_trg
   BEFORE INSERT ON public.admin_sso_login_events
   FOR EACH ROW EXECUTE FUNCTION public.admin_sso_login_events_force_occurred_at();
+
+-- 🔴 `ENABLE ALWAYS`(codex 關卡2 R2):一般 `ENABLE` 的 trigger 在
+--    `session_replication_role = 'replica'` 之下**不會觸發** ⇒ 那是一條繞過 occurred_at 強制的路。
+--    `ALWAYS` 讓它在 replica 模式下照樣跑。斷言 4j 另外驗 `tgenabled = 'A'`(**只驗「存在」擋不住被停用**)。
+ALTER TABLE public.admin_sso_login_events
+  ENABLE ALWAYS TRIGGER admin_sso_login_events_force_occurred_at_trg;
 
 -- ── 2. RLS zero-policy + 表 ACL ────────────────────────────────
 ALTER TABLE public.admin_sso_login_events ENABLE ROW LEVEL SECURITY;
@@ -280,8 +292,27 @@ BEGIN
    WHERE n.nspname = 'public'
      AND c.relname = 'admin_sso_login_events'
      AND t.tgname = 'admin_sso_login_events_force_occurred_at_trg'
-     AND NOT t.tgisinternal;
+     AND NOT t.tgisinternal
+     -- 🔴 `'A'` = ENABLE ALWAYS(codex R2):~~只驗「同名 trigger 存在」~~ 擋不住它被 `DISABLE`,
+     --    也擋不住 `session_replication_role='replica'` 讓一般 ENABLE 的 trigger 靜靜不跑。
+     AND t.tgenabled = 'A';
   IF v_cnt <> 1 THEN
-    RAISE EXCEPTION 'admin_sso_login_events occurred_at 強制 trigger 未裝(實 % 個);拒繼續', v_cnt;
+    RAISE EXCEPTION 'admin_sso_login_events occurred_at 強制 trigger 未裝或未設為 ENABLE ALWAYS(實 % 個);拒繼續', v_cnt;
   END IF;
+
+  -- 4k. 🔴 **角色拓樸**(codex 關卡2 R2 C1 殘留):前面幾格驗的都是【直接 ACL】,
+  --     而 `service_role` 若是 owner 角色的成員(或轉遞成員)⇒ 它可以 `SET ROLE` 成 owner
+  --     ⇒ **owner 能做的它都能做**,包括跑 purge、DISABLE TRIGGER、直接刪列。
+  --     ⇒ `pg_has_role(…, 'USAGE')` 一次涵蓋直接與轉遞成員資格。
+  --     ⚠️ **誠實揭示:這一格在本表上【實測不會先紅】** —— 成員資格本身就帶來 owner 的表權限,
+  --       所以 `4c`(service_role 不應有 UPDATE…)會**更早**RAISE。2026-08-19 實測:
+  --       `GRANT postgres TO service_role` 之後 apply ⇒ 紅的是 `4c` 不是這一格。
+  --       ⇒ **它是縱深,不是「已驗證會抓到」的守門**;它涵蓋的是 `4c` 碰不到的那半
+  --         (SET ROLE 之後跑 purge / DISABLE TRIGGER —— 那些不是表權限)。
+  --       **不要因為它沒紅過就以為它多餘,也不要把它寫成「這格擋住了成員資格」。**
+  FOREACH v_role IN ARRAY ARRAY['service_role', 'anon', 'authenticated'] LOOP
+    IF pg_catalog.pg_has_role(v_role, current_user, 'USAGE') THEN
+      RAISE EXCEPTION '角色拓樸異常 — % 可以 SET ROLE 成 %(= 取得 owner 等效能力,前面所有 ACL 斷言都被繞過);拒繼續', v_role, current_user;
+    END IF;
+  END LOOP;
 END $$;

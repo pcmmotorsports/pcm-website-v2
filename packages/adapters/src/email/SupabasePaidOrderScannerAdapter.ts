@@ -70,7 +70,15 @@
  *      而 `order_created` 的 `dedup_key = orderId`(`SupabaseEmailOutboxAdapter.ts:197`)
  *      ⇒ 第二次寫入撞唯一鍵 ⇒ `enqueue` 回 `duplicate`(不 throw)⇒ use-case 記進 `duplicate` 桶。
  *    ⚠️ **所以這支 adapter【不保證】不重複撈,它保證的是「撈到的都還沒排過(在那個 snapshot 上)」。**
- *      不重複**寄**由唯一鍵保證。**兩件事不要混。**
+ *    🔴 **而唯一鍵保證的是「不重複【排入】」,不是「不重複【寄】」**(codex 關卡2 R2 收窄我上一版的措辭):
+ *    ```
+ *    不重複【撈】  ⇒ 不保證（snapshot 競態）
+ *    不重複【排入】⇒ 唯一鍵保證（撞鍵 ⇒ enqueue 回 duplicate）
+ *    不重複【寄】  ⇒ 🔴 沒有人保證 —— sweeper 檔頭逐字「at-least-once、不宣稱不重複」
+ *                    （sweep-email-outbox.ts:21-23：已送出未 markSent → 回收 → 停擺 >24h
+ *                     ⇒ Resend Idempotency-Key 過期 ⇒ 第二封會真的寄出，Sean S3 已認可這個窄窗）
+ *    ```
+ *    **三件事不要混。** 我上一版把第三件寫成「唯一鍵保證」——那是錯的。
  *
  * ⚠️ **既有的終態列(`skipped_no_real_email` / `failed@max`)也會讓那張單被永久排除** ——
  *    因為這裡只看「有沒有 `order_created` 列」,不看它的狀態。
@@ -202,7 +210,8 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
     //    舊版在這裡自己判了一次「有沒有值」,而 use-case 也判了一次 —— **兩個判準會漂**,
     //    而漂掉那天的症狀是「該收的信永遠不會被排進去」,測試全綠(codex R1 must-fix 2 就是這一格)。
     //    ⇒ 判斷只留一處(use-case 的 `firstNonEmpty`),這裡只負責**把值拿回來**。
-    //    代價:`rows` 都有 `notification_email` 時多一個查詢。`rows` 上限 = `limit`(50)⇒ 代價固定且小,
+    //    代價:`rows` 都有 `notification_email` 時多一個查詢。`rows` 上限 = `limit` ≤ `MAX_LIMIT`(200)
+    //    ⇒ 代價有硬上界(~~上一版寫「50」是過期字面~~,那是 route 端 `ENQUEUE_LIMIT` 的值、不是這裡的上限),
     //    換掉的是一整類「兩處判準不一致」的 bug。
     const customers = await safeQuery('customers', () =>
       this.client
