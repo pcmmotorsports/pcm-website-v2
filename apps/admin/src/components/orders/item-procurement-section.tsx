@@ -128,7 +128,15 @@ function ProcurementRows({
   truncated: boolean;
 }) {
   if (item.procurements.length === 0) {
-    return <p className='text-muted-foreground text-sm'>這個品項還沒有採購紀錄。</p>;
+    // 🔴 片1(2026-08-18)之後,**這一行只剩「被截斷」那條路走得到** ——
+    //    零列且沒截斷的品項已經走上面那個 `<details>` 分支了。
+    //    ⇒ 原字面「還沒有採購紀錄」在這條路上**是假的**(沒撈到 ≠ 沒有),照本檔自己的規矩改掉。
+    //    ⚠️ 這是**片1 造成的語意轉移**,不是原作者寫錯:在片1 之前這一行兩種情況都會走到。
+    return (
+      <p className='text-muted-foreground text-sm'>
+        這個品項的採購紀錄這次沒有讀完,先重新整理再看。
+      </p>
+    );
   }
   return (
     <div className='overflow-x-auto'>
@@ -286,23 +294,81 @@ export function ItemProcurementSection({
                 <TruncationWarning scope='item' />
               )}
 
-              <UnsourcedNotice item={item} />
+              {/* 🔴 片1(Sean 2026-08-18 拍板 `08 訂單頁先批第一刀 = 甲`):
+                  **零採購列的品項不再攤開一整組空白表單**,收進原生 `<details>`。
+                  **為什麼**:一個什麼事都還沒發生的品項,原本佔 **475 px / 17 個表單控制項** ——
+                  那個成本**與它有沒有事要做無關**。量測、環境限定與完整數字:
+                  `docs/specs/2026-08-18-m4b-order-detail-product-card-plan.md` §2-b/§2-c、驗收 #4。
 
-              <ProcurementRows
-                item={item}
-                orderId={detail.id}
-                returnTo={returnTo}
-                truncated={truncated}
-              />
+                  🔴 **條件是「零列【而且】沒被截斷」**:截斷時 `procurements` 也可能是空的,
+                     而那是「**沒撈到**」不是「**沒有**」—— 兩者的下一步相反(下訂 vs 重整)。
+                     ⚠️ **`truncated` 兩半都要**(`item.procurementTruncated || detail.itemsTruncated`):
+                     `procurements: []` + `procurementTruncated: true` + `itemsTruncated: false`
+                     是**真的生產路徑**(`merge-detail-items.ts:97-100`,品項落在 `ORDER_ITEMS_EMBED_LIMIT`
+                     之外時逐字如此)⇒ **只擋訂單層那半會漏掉 Sean 那張 200 品項的單。**
 
-              <ItemProcurementForm
-                orderId={detail.id}
-                returnTo={returnTo}
-                orderItemId={item.id}
-                procurements={item.procurements}
-                supplierChoices={buildSupplierChoices(suppliers, item.procurements)}
-                truncated={truncated}
-              />
+                  🔴 **文案逐字取自 OD 定案稿** `pcm-admin-order-ui` / `overview-desktop.html:1061-1062`。
+                     ⚠️ **形狀是【改過的】,不是照搬**:OD 那塊 tip 住在 `.segbody` 裡、CTA 是真 `<button>`,
+                     開合器是另一顆 `.seghd`。本片**把 tip 本身變成開合器、CTA 變成 `<span>`** ——
+                     因為片 2/3(商品卡外殼與三段接線)**Sean 沒批**,那兩層還不存在。
+                     ⇒ **不要把這裡讀成「OD 就是這樣畫的」。** `▾` 是照 OD `:1042` 補回來的。
+
+                  🔴🔴 **交棒給片 2/3 的一個地雷**:收合區內有 7 個 `required` 與 1 個 `<form>`,
+                     而**唯一的送出鈕也在收合區內** ⇒ 今天產不出「送不出去又看不到錯在哪」那個死結。
+                     **但只要有人照 OD 把 CTA 做成 `<details>` 外面的真 `<button>`(OD 正是那樣畫的),
+                     或加任何 `form=` 的外部送出鈕,這條當場活過來。** 動它之前先想這件事。 */}
+              {item.procurements.length === 0 && !truncated ? (
+                <details className='group'>
+                  {/* 🔴 `UnsourcedNotice` 在這條路上**刻意不渲染**:它逐字說「請在下面補上要向誰訂」,
+                      而「下面」現在是收起來的;件數也已經在卡頭的「訂單數量」那格。
+                      ⇒ 兩塊琥珀框說同一件事 = Sean 這輪「**變少了沒有**」那個判準的反面。
+                      **唯一保留的是它獨有的資訊**(自有庫存要選「店內現貨」),併進下面這一句。
+                      ⚠️ 數量摘要**讀不到**時仍然要渲染它 —— 那句講的是「算不出來」,不是重複。 */}
+                  <summary className='flex cursor-pointer flex-wrap items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'>
+                    <span className='transition-transform group-open:rotate-90'>▸</span>
+                    <span>
+                      還沒跟任何供應商訂,所以也還不能出貨。
+                      <span className='text-muted-foreground ml-1'>(自有庫存選「店內現貨」)</span>
+                    </span>
+                    <span className='border-primary text-primary ml-auto rounded-md border px-2.5 py-1 font-medium'>
+                      ＋ 跟供應商下訂
+                    </span>
+                  </summary>
+                  <div className='mt-3'>
+                    {unsourcedQuantity(item.quantitySummary) === null && (
+                      <UnsourcedNotice item={item} />
+                    )}
+                    <ItemProcurementForm
+                      orderId={detail.id}
+                      returnTo={returnTo}
+                      orderItemId={item.id}
+                      procurements={item.procurements}
+                      supplierChoices={buildSupplierChoices(suppliers, item.procurements)}
+                      truncated={truncated}
+                    />
+                  </div>
+                </details>
+              ) : (
+                <>
+                  <UnsourcedNotice item={item} />
+
+                  <ProcurementRows
+                    item={item}
+                    orderId={detail.id}
+                    returnTo={returnTo}
+                    truncated={truncated}
+                  />
+
+                  <ItemProcurementForm
+                    orderId={detail.id}
+                    returnTo={returnTo}
+                    orderItemId={item.id}
+                    procurements={item.procurements}
+                    supplierChoices={buildSupplierChoices(suppliers, item.procurements)}
+                    truncated={truncated}
+                  />
+                </>
+              )}
             </div>
           );
         })}

@@ -104,13 +104,76 @@ describe('ItemProcurementSection — 採購列顯示', () => {
     expect(cells[2]).toBe('1');
   });
 
-  it('沒有採購紀錄 → 明說「還沒有採購紀錄」,不是空白', () => {
+  // 🔴 片1(2026-08-18):這一格的**字面換了,而它守的那件事沒換**。
+  //    原本逐字「沒有採購紀錄 → 明說『還沒有採購紀錄』,**不是空白**」——
+  //    **「不是空白」那個意圖仍然成立**,只是空狀態現在說的是 OD 定案稿那句
+  //    (`overview-desktop.html:1061-1062`),而且底下那組空白表單收進 `<details>`。
+  //    ⚠️ **我改的是期望值,而那在 PCM 是一個停止訊號** ⇒ 所以把理由寫在這裡:
+  //       改期望值合法的唯一情況是**規格本身變了**(Sean 拍板 `08 = 甲`),不是「測試擋路」。
+  //       原意圖(不得空白)**我留著並且加強了**:下面第一條就在驗它。
+  it('零採購列 → 空狀態說得出「還不能出貨」與下一步,而不是空白', () => {
     const d = detail();
     d.items[0]!.procurements = [];
-    const { getByText } = render(
+    const { getByText, container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
     );
-    expect(getByText(/還沒有採購紀錄/)).toBeTruthy();
+    // ① 原意圖:不是空白,而且說得出「為什麼還不能出貨」
+    expect(getByText(/還沒跟任何供應商訂,所以也還不能出貨。/)).toBeTruthy();
+    // ② 有下一步可以按（OD 逐字的那顆）
+    expect(getByText(/＋ 跟供應商下訂/)).toBeTruthy();
+    // ③ 🔴 結構斷言:表單收在 `<details>` 裡、而且**預設收起**（沒有 `open`）。
+    //    ⚠️ **jsdom 量不到「看不見」**(`audit-detail.tsx:11-13` 逐字)⇒ 只能驗 DOM 結構。
+    //    這一條的判別力:把 `<details>` 拿掉、或加上 `open`，這一格會紅。
+    const det = container.querySelector('details');
+    expect(det).not.toBeNull();
+    expect(det!.hasAttribute('open')).toBe(false);
+    // ④ 🔴 而表單**仍在 DOM 裡**——收起 ≠ 拿走。拿走的話員工就沒有路可以下訂了。
+    expect(det!.querySelector('form')).not.toBeNull();
+    // ⑤ 🔴🔴 **那句話與 CTA 必須在 `<summary>` 裡面,不是只在 `<details>` 裡面**
+    //    (code-reviewer 2026-08-18 實測:把 `<summary>` 換成 `<div>` ⇒ **上面四條全綠**,
+    //     而真瀏覽器下那等於「文案與 CTA 一起掉進收合區、看不見」,
+    //     `<details>` 改印瀏覽器預設的 "Details")。
+    //    同 repo 守著同一件事的先例:`audit-detail.test.tsx`(「收合摘要行不得含任何值」)。
+    const summary = det!.querySelector('summary');
+    expect(summary).not.toBeNull();
+    expect(summary!.textContent).toContain('還沒跟任何供應商訂');
+    expect(summary!.textContent).toContain('＋ 跟供應商下訂');
+    // ⑥ 🔴 不得出現第二塊講同一件事的琥珀框(Sean 這輪判準逐字是「變少了沒有」)。
+    //    `UnsourcedNotice` 那句「請在下面補上要向誰訂」在收合狀態下指著一個看不見的東西。
+    expect(container.textContent).not.toContain('沒有登記來源');
+  });
+
+  // 🔴 反面那一格(**沒有它,上面那格會讓「無條件收合」也全綠**):
+  //    截斷時 `procurements` 看起來也可能是空的,而那是「**沒撈到**」不是「**沒有**」——
+  //    兩者的下一步相反(一個去下訂、一個去重整)⇒ 截斷時**不得**收合成「還沒訂」。
+  it('零採購列【但訂單層被截斷】→ 不收合、不說「還沒跟任何供應商訂」', () => {
+    const d = detail();
+    d.items[0]!.procurements = [];
+    d.itemsTruncated = true;
+    const { container, queryByText } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(queryByText(/還沒跟任何供應商訂/)).toBeNull();
+    expect(container.querySelector('details')).toBeNull();
+  });
+
+  // 🔴🔴 **`truncated` 的另外那一半 —— 沒有這一格,把 `!truncated` 換成 `!detail.itemsTruncated`
+  //    會【全綠】**(code-reviewer 2026-08-18 實測突變,32 格全過)。
+  //    而這不是理論狀態,是**兩條真的生產路徑**:
+  //      `mappers/order-procurement.ts:158`      內嵌鍵整個沒回來 ⇒ missing
+  //      `merge-detail-items.ts:97-100`          品項落在 ORDER_ITEMS_EMBED_LIMIT 之外 ⇒
+  //                                              逐字 `procurements: []` + `procurementTruncated: true`
+  //    🔴 後者就是 Sean 那張 200 品項的單(memory `project_0817-order-line-item-ceiling-is-200`)。
+  it('零採購列【但品項層被截斷,訂單層沒有】→ 一樣不收合(單邊守門會漏掉 200 品項那張單)', () => {
+    const d = detail();
+    d.items[0]!.procurements = [];
+    d.items[0]!.procurementTruncated = true;
+    d.itemsTruncated = false;
+    const { container, queryByText } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(queryByText(/還沒跟任何供應商訂/)).toBeNull();
+    expect(container.querySelector('details')).toBeNull();
   });
 
   // 🔴 A9a-2:label 為 null = 內嵌沒回來,不是「這家沒有名字」⇒ 誠實顯示缺、不得空白
