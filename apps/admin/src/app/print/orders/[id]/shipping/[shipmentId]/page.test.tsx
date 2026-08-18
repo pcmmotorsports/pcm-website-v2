@@ -223,6 +223,21 @@ describe('🔴 #10 片2b — 八種「不該印」的狀態', () => {
     expect(block({})).toBeNull(); // fixture 預設 reportedTotal = items.length
   });
 
+  // 🔴🔴 `#634`:`reportedTotal` 是 `NaN` —— 型別是 `number | null`，而 `NaN` **是** `number`
+  //    ⇒ 它躲得過上面那個 `=== null`，然後 `items.length !== NaN` **恆真**
+  //    ⇒ 掉進下面那句，印出「資料庫說有 **NaN** 項」給值班的人看。
+  //    🔴 **斷言釘在「畫面不准出現 `NaN` 字樣」，不是「有沒有擋印」** ——
+  //      後者在修之前**也是綠的**（`NaN` 本來就會擋，只是擋錯句子）⇒ 那個斷言零判別力。
+  //      這正是「一格測試可以有判別力又測一個不存在的病」的反面:**寫錯斷言 = 一格恆綠的守門。**
+  it('🔴🔴 `#634` `reportedTotal` 為 NaN ⇒ 擋印，且訊息不得出現「NaN」字樣', () => {
+    const msg = block({ reportedTotal: Number.NaN });
+    expect(msg).not.toBeNull();
+    expect(msg, '把一個 JS 內部值原樣印給值班的人看').not.toContain('NaN');
+    // 語意上它與 `null` 同一類:**沒得對**（讀不到總數），不是**對不上**（讀到的與總數不符）。
+    expect(msg).toContain('讀不到');
+    expect(msg).not.toContain('對不上');
+  });
+
   // 🔴 **2026-08-17 補**:舊文案逐字「請重新整理後再列印」,而觸發它的是**固定上限**
   //    (`ORDER_ITEMS_EMBED_LIMIT = 200`,`packages/adapters/src/supabase/mappers/order.ts:406`)
   //    ⇒ 重整一百次拿回同一個數字 ⇒ **那句話叫員工去做一件永遠不會成功的事**,而他會照做、
