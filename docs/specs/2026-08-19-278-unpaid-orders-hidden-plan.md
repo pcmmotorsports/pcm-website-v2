@@ -6,47 +6,89 @@
 
 ---
 
-## 0. 🔴 動機:**不是「現在有客人在痛」,是「現在是最便宜的時刻」**
+## 0. 🔴 動機:**不是「現在有客人在痛」,是「現在是最便宜的時刻」—— 而這句話自己帶著到期日**
 
-**先把我【驗不出來】的那句劃掉**:
-> ~~有客人看不到自己的待付款單~~
-> ⚠️ 我對正式庫實測(`localhost:3001` + `ADMIN_DEV_BYPASS`,唯讀 GET,2026-08-19):
-> ```
-> /orders                              ⇒ 共 10 筆
-> /orders?payment_status=unpaid        ⇒ 共 0 筆   ← 🔴 決定性
-> /orders?payment_status=paid          ⇒ 共 7 筆
-> /orders?payment_status=refunded      ⇒ 共 3 筆
-> partiallyPaid / partiallyRefunded    ⇒ 各 0 筆
-> 7 + 3 = 10 ⇒ 五個桶把全集分完,沒有第六種狀態躲在外面
-> ```
-> ⇒ **今天沒有任何一筆單被那道過濾器藏住。** 講「客人正在受害」會是沒驗過的字面。
-> 📎 另有一組經轉述的數字(某窗回報後台看得到 2 筆而客人看到 0 筆,單號 `WCYCW5` / `Z6QDV9`)
-> —— 🔴 **我重跑不出來**:那兩個單號不在上面那 10 筆裡,而列表基底無條件過濾
-> (`SupabaseOrderAdapter.ts:724` `.from('admin_order_list_v')`,`cancelled_at` 那道只掛在 `pendingOnly` 分支)。
-> ⇒ **本檔不採用那組數字。** 要用它,需要原量測者重跑並貼原始輸出。
+### 🔴🔴 先更正本檔第一版的一個錯,因為它示範了本 plan 要防的那件事
 
-### ✅ 而真正的動機比那句更硬,而且是【可驗證的】
+**本檔第一版寫**:
+> ~~`/orders?payment_status=unpaid` ⇒ 共 0 筆 ⇒ 今天沒有任何一筆單被藏住~~
+
+**那個 0 是【另一道我不知道的預設過濾】造成的,不是世界的狀態。**
+```
+後台訂單列表有一顆勾:「顯示刷卡未付款(預設隱藏)」
+  UI      apps/admin/src/components/orders/order-filter-controls.tsx:239
+  參數    apps/admin/src/lib/orders/order-list-view.ts:73  SHOW_UNPAID_CARD_PARAM = 'show_unpaid_card'
+  生效點  packages/adapters/src/supabase/SupabaseOrderAdapter.ts:830-831
+          if (!filter.includeUnpaidCardOrders)
+            query.or('payment_channel.neq.tappay,payment_status.neq.unpaid')
+關(預設)⇒ 10 筆    開 ⇒ 18 筆    差 8 筆        ← 18 與 8 是 G3 量的,我未重跑
+```
+🔴 **而我當時「證明」列表沒藏東西的那一步,查錯了層**:
+我去讀了基底查詢(`:724` `.from('admin_order_list_v')`),看到它無條件過濾就下了結論 ——
+**而那顆開關不在基底查詢,它在下游的 `if` 裡(`:830`)。**
+⇒ 📎 這正是我當天寫進 `docs/patterns/guard-and-instrument-traps.md` 的那句判別句:
+**「我掃的地方,是這件事會發生的地方嗎?」** —— 我寫下它,然後在同一天的下一件事上踩了它。
+
+### ✅ 更正後的動機(結論不變,理由換掉)
 
 ```
-① 過濾器自己寫著一個【觸發條件】,而那個條件已經發生
-   SupabaseOrderAdapter.ts:564 逐字
-     ⚠️ 前提=絕大多數 unpaid 皆「沒付成的孤兒」(PCM 現僅 TapPay 即時刷卡、**無線下待付款單**);
-        **未來加線下付款方式須重審**
-   而線下付款早就上線且接好了:
-     RPC   supabase/migrations/20260810200000_m4b_e10_op5_record_manual_payment.sql:106
-     apply supabase/APPLIED.tsv:165
-     呼叫端 apps/admin/src/lib/orders/payment-repository.ts:201 / :206
-   ⇒ 那句「PCM 現僅 TapPay 即時刷卡」**今天是假的**。
-
-② 🔴 而 unpaid 這個「等匯款」的狀態,在線下流程裡是【構造上必然存在】的
-   admin_record_manual_payment 的第一個參數是 `p_order_id`(同檔 :106)
-   ⇒ 它是【對一筆已經存在的訂單】登錄收款
-   ⇒ 所以流程一定是「先建單(unpaid)→ 等匯款 → 員工登錄」
-   ⇒ **unpaid 的等待窗口不是可能有,是一定有。** 只是今天還沒有人走過。
-
-③ ⇒ **修它的最便宜時刻就是現在**:unpaid = 0 ⇒ **零存量資料要處理**。
-   有第一筆真的等匯款單之後,同樣的改動就變成「要決定既有那些單怎麼辦」。
+今天那 3 筆 unpaid【全部是自己人的測試單】(G3 量、逐筆具名):
+  Z6QDV9 / WCYCW5  ⇒ 窗的沙盒測試
+  2SQH2P（08/09,客戶「Ha」）⇒ 🔴 也是自己人 ——
+     memory project_0818-2sqh2p-resolved-is-seans-test:Sean 逐字
+    「是我測試的…只是用不同帳號,而且也沒有收錢成功」
+⇒ 沒有真客人被藏住。
+🔴 而這句話的失效條件是【第一個真客人刷卡失敗】—— 那一刻它就過期。
+⇒ 所以「現在改最便宜」仍然成立,**而且它自己帶著到期日**。
 ```
+🔴 **為什麼一定要換掉理由**(這一格比結論重要):
+> 照第一版那個錯理由(「unpaid = 0」),只要出現第一個真客人刷卡失敗,那句話就過期,
+> **而沒有任何人會發現** —— 它讀起來永遠成立。
+> 照這一版,那句話**本身就寫著「今天沒有,而明天會有」**。
+⇒ **一個正確的理由自己帶著失效條件;一個錯的理由看起來永遠成立。**
+
+### ✅ 而真正硬的兩條動機不受影響(它們不依賴任何筆數)
+
+```
+① 過濾器自己寫的觸發條件已經發生
+   SupabaseOrderAdapter.ts:564 逐字「未來加線下付款方式須重審」
+   而線下付款早就上線:20260810200000 已 apply(APPLIED.tsv:165)、
+   呼叫端 payment-repository.ts:201 / :206 接好
+   ⇒ 那句「PCM 現僅 TapPay 即時刷卡」今天是假的
+
+② 🔴 unpaid 的等待窗口在線下流程裡是【構造上必然存在】的
+   admin_record_manual_payment 的第一個參數是 p_order_id(同檔 :106)
+   ⇒ 它是對一筆【已經存在】的訂單登錄收款
+   ⇒ 流程一定是「先建單(unpaid)→ 等匯款 → 員工登錄」
+   ⇒ 不是「可能有」,是【一定有】,只是今天還沒有人走過
+   📎 這關掉了 G6 在 #278 查核 §④ 自標的「未查:是先建單還是同時建單」
+```
+
+---
+
+## 0-a 🔴🔴 兩層都在藏,而**它們不是同一個決定** —— 這一格改變了本 plan 的範圍
+
+主視窗問:「改客人那半的時候,後台那顆開關要不要一起處理?」**答案是不用,而理由是機械的:**
+
+```
+後台那顆開關(L6)  SupabaseOrderAdapter.ts:830-831
+  query.or('payment_channel.neq.tappay,payment_status.neq.unpaid')
+  = 留下「通路≠tappay 或 狀態≠unpaid」的列
+  ⇒ 🔴 它只藏【tappay ∩ unpaid】—— 刷卡按了沒付成的那批
+
+客人那一面(#278)  SupabaseOrderAdapter.ts:582
+  .neq('payment_status', 'unpaid')
+  ⇒ 🔴 它藏【所有 unpaid】,**不看通路**
+```
+⇒ **兩者的射程不同,而差別正好落在本條要救的那個場景上**:
+```
+一筆「等匯款」的線下單(payment_channel ≠ tappay、payment_status = unpaid)
+  後台      ⇒ 開關關著也【看得到】(它只藏 tappay 的)      ✅ 後台這一面本來就對
+  客人自己  ⇒ 【看不到】(那道 .neq 不看通路)              🔴 這才是缺口
+```
+⇒ **本 plan 的範圍收窄成:只改客人那一面那道 `.neq`。後台那顆開關不動、也不需要動。**
+⚠️ **而它仍然要兩邊一起驗** —— 因為那道 `.neq` 所在的函式同時服務兩個呼叫端(見 §1-a),
+**改它會連帶影響後台客戶明細**,而後台客戶明細**本來就該看得到**。
 
 ---
 
@@ -145,9 +187,11 @@
 ## 6. 誠實揭示
 
 ```
-· unpaid = 0 是 2026-08-19 我對正式庫實測的,而它【會過期】——
-  第一筆等匯款的單進來就變了。引用前重量:`/orders?payment_status=unpaid` 的「共 N 筆」
-· 那組經轉述的 WCYCW5 / Z6QDV9 我重跑不出來,已在 §0 寫明不採用
+· 🔴 「unpaid = 0」是我量錯的(量到的是**預設過濾後**的視圖),已在 §0 更正並留錯法。
+  正確的量法要帶開關:`/orders?show_unpaid_card=1`。
+· 🔴 而 18 筆 / 8 筆 / 那三筆 unpaid 的具名清單是 **G3 量的,我未重跑**。
+  我自己重跑過的只有【機制】:那顆開關的 UI / 參數名 / 生效點三處座標(§0 逐條)。
+· 2SQH2P 是自己人這一格有第二個來源(memory `project_0818-2sqh2p-resolved-is-seans-test`,Sean 逐字)
 · 我沒有查「孤兒單今天到底怎麼產生的」(那是 `#249` 的範圍)
 · §3 三案的成本我沒有拆到步驟級(未估)
 · 我沒有看過客人那一頁的實際畫面(只讀 code 與 admin 側)
