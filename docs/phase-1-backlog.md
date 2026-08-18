@@ -18369,6 +18369,115 @@ max-rows 掉到 500 的世界：
 
 ---
 
+### #632 · B-4 未做:`notification_email` 寫入端寫死 null ⇒ **每張新單的通知信都沒有收件人**
+
+> 🔴 **`#632` 與 `#633` 是【同一個病的兩個號】** —— 2026-08-18 10:5x CST W1 收割 `customers` 時撞出的 merge 衝突。
+> 兩個窗在各自的工作樹上同時登記了同一件事(寫入端寫死 `null`、`B-4` 未做),**兩個號都是 `reserve-backlog.sh` 正常發出來的**
+> ⇒ **這不是撞號(號沒重複),是【同一件事拿到兩個號】** —— 而 CAS 發號器擋得住前者、擋不住後者。
+> **兩條都留、零刪除**:各自有對方沒有的東西 —— 本條(`#632`)獨有 `B-4`/`B-5`/`B-6` 三節分列、PRD `:90-95` 指標、
+> cutoff 必須是「flag 實際開啟時戳」的釘死、以及 `#26` 代號對帳警告;`#633` 獨有【驗收條款硬規定】那一塊與「本條不動 code」的理由。
+> 🔴 **哪一個號當 canonical,W1 不裁** —— `MAIN-012 §W5` 逐字把「`#632` / `#633`」一起派給 W5,**由持有者決定並回收另一個**。
+> ⇒ 在那之前,**引用任一號都要連另一號一起帶**,否則下一個人會以為自己看到的是全部。
+
+
+- **優先度**:🔴 **高** —— 它是「出貨通知信」整條線的**前提**,不是那條線的一部分。
+- **發現**:2026-08-18 E 窗(追 V 窗的 `orders_without_notify_email = 13`)。
+
+- 🔴 **這條為什麼要有號(而不是留在 PRD 裡)**
+  ```
+  B-4 【有載體】:docs/specs/2026-07-18-b0-order-notification-email-prd.md:91 的工作表有一列
+  🔴 但它【沒有號】⇒ 不會出現在任何 backlog 盤點裡
+  ⇒ 而 code 註解四處把它當「已排程的下一步」在引用（見下）
+  判別句:一個寫在註解裡的「刻意留給下一步」，如果沒有號，
+         它和「忘了做」在六個月後長得一模一樣。
+  ```
+  ⚠️ **本條不複製 PRD 內容** ——`B-4` 的規格正本仍是那份 PRD `:91`。本條只負責**讓它被看見**。
+
+- **事實(當場開檔,逐字)**
+  ```
+  packages/adapters/src/supabase/mappers/order.ts:144-146
+    ...(Object.prototype.hasOwnProperty.call(input, 'notificationEmail')
+      ? { p_notification_email: null }        ← 寫死 null
+      : {}),
+  apps/storefront/src/app/checkout/charge-actions.ts:266-267
+    // B-3 只切到 9-param RPC 形狀;canonical 真值持久化刻意留 B-4。
+    ...(notificationEmailEnabled ? { notificationEmail: null } : {}),
+  另有兩處註解引用 B-4:
+    packages/adapters/src/supabase/mappers/order.ts:78
+    packages/domain/src/order/types.ts:1387
+  ```
+
+- **實測(V 窗,含正向對照)**
+  ```
+  notification_email IS NULL 13 / IS NOT NULL 0 / orders 總筆數 13
+  正向對照 id IS NOT NULL ⇒ 13（證明查法有效、不是恆 0）
+  ⇒ 13 / 13 = 100%
+  ```
+  🔴 **而重點不是那 13 筆**:**B-4 落地之前,之後每一張新單也都是 null。**
+  ⇒ **「人工補那 13 筆」是錯的下一步 —— 補完了新單照樣是 null。**
+
+- 🔴 **反直覺的一格:旗標不是那個閘**
+  ```
+  CHECKOUT_NOTIFICATION_EMAIL_ENABLED === 'true'（notification-email-gate.ts:7）
+  ⇒ 兩處寫死 null ⇒ 旗標開了寫進去的還是 null
+  ⇒ 「旗標開了沒」這個問題在兩個世界會得到【同一個結果】＝沒有判別力
+  ```
+  ⚠️ 該旗標現值**未確認**(env,E 窗不讀 `.env`)—— **而它不影響結論,不必查。**
+
+- **不修未來會痛在哪**
+  🔴 **出貨通知信做完之後會「成功」寄給一個不存在的收件人,而畫面與測試都不會紅。**
+  ```
+  email_outbox 會有列（recipient_email 是 null 時那一列照樣進得去）
+  ⇒ 「一個都收不到」與「都寄出去了」在驗收面上長得一樣
+  ```
+  ⇒ 🔴 **驗收條款不可以寫「寄出成功」或「email_outbox 有列 = 成功」**,
+  必須包含「**收件人是一個真的信箱**」。(C 窗已把這句寫成它 plan 的硬規定。)
+  📎 PRD `:99-100` 自己也預告過這個 cohort 問題,並釘死 cutoff **必須是「flag 實際開啟時戳」**
+  而不是 B-4 部署時戳 —— **引用時不要弄反。**
+
+- **相關**:PRD `docs/specs/2026-07-18-b0-order-notification-email-prd.md:90-91`(B-3 / B-4 工作列)、
+  `#281`(email_outbox 清理)、C 窗出貨通知信線(主視窗 2026-08-18 裁「照做但把收件人來源標成未接通」)。
+
+- **要 Sean 的一題(修法前置)**:`notification_email` 當初**為什麼要獨立一欄**,而不是用客人帳號的 email?
+  🔴 **那個「為什麼」不在 code 裡** —— 沒有它,任何「改用別的收件人來源」的提案都是猜的。
+
+- **發號:** `sh scripts/reserve-backlog.sh` ⇒ `#632`(git ref CAS)+ 信箱佔位掃描與 `#632` 相關者零命中。
+
+- 🔴🔴 **這條是一條鏈的三節,不是一件事(2026-08-18 併入 B-5 / B-6)**
+  **併號的理由**:三節的「不修會痛在哪」是同一句(**沒有收件人**)⇒ 分開發號會製造三個看起來獨立的待辦。
+  🔴 **但併號不等於併敘述** —— **做完 B-4 還有兩節,下面分行列出,各自附證據**:
+  ```
+  B-4 charge-actions 串接 canonical email 存入 create_order
+      證據:寫死 null 兩處
+        packages/adapters/src/supabase/mappers/order.ts:144-146
+        apps/storefront/src/app/checkout/charge-actions.ts:266-267
+  B-5 enqueue 掛 §3.2 兩個匯聚點;付款優先、全 catch
+      證據:charge-actions.ts 內【零 enqueue 命中】
+      🔴 PRD 原文抄回（七月的人留給我們的話）:
+         「**可部署但不得宣稱功能上線**（gate 見 §6）」
+  B-6 收緊片:notification_email 由 nullable 收成必填
+      證據:20260719120000 之後【沒有任何 migration 動 notification_email】
+      ⚠️ PRD 警告原文:「不可用裸 SET NOT NULL(會驗全部存量列，舊單與過渡窗 NULL 必炸)」
+  ```
+  ⇒ **規格正本三節都在** `docs/specs/2026-07-18-b0-order-notification-email-prd.md:90-95`。
+
+- ⚠️ **代號對帳(2026-08-18 順帶量到,不屬本條但會誤導查本條的人)**
+  同批 code 註解還引用了 `E8-B`(真登入線)與 `#26`,而
+  🔴 **backlog `#26` 實際是「partiallyRefunded transition 評估」且狀態 ✅ 已收** ——
+  **與真認證無關。** 照那個號去查的人會查到一條已關閉的東西,**得到「已經做完了」的錯結論**。
+  ⇒ 真認證這件實際散在 `#215` / `#436` / `#534` / `#536`。**代號修正未做,已回報主視窗。**
+
+
+---
+
+> 🔴 **`#632` 與 `#633` 是【同一個病的兩個號】** —— 2026-08-18 10:5x CST W1 收割 `customers` 時撞出的 merge 衝突。
+> 兩個窗在各自的工作樹上同時登記了同一件事(寫入端寫死 `null`、`B-4` 未做),**兩個號都是 `reserve-backlog.sh` 正常發出來的**
+> ⇒ **這不是撞號(號沒重複),是【同一件事拿到兩個號】** —— 而 CAS 發號器擋得住前者、擋不住後者。
+> **兩條都留、零刪除**:各自有對方沒有的東西 —— `#632` 獨有 `B-4`/`B-5`/`B-6` 三節分列、PRD `:90-95` 指標、
+> cutoff 必須是「flag 實際開啟時戳」的釘死、以及 `#26` 代號對帳警告;本條(`#633`)獨有【驗收條款硬規定】那一塊與「本條不動 code」的理由。
+> 🔴 **哪一個號當 canonical,W1 不裁** —— `MAIN-012 §W5` 逐字把「`#632` / `#633`」一起派給 W5,**由持有者決定並回收另一個**。
+> ⇒ 在那之前,**引用任一號都要連另一號一起帶**,否則下一個人會以為自己看到的是全部。
+
 ### #633 · 出貨通知信的**收件人來源恆為 `null`** —— 寫入端兩處寫死,`B-4` 未做
 
 - **狀態:** ⏳ 待執行。🔴 **本條不是「資料缺漏」,是【寫入端刻意送 `null`】。**
