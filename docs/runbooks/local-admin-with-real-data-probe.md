@@ -284,3 +284,49 @@ GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.jwt() TO authenticated, 
 ```
 🔴 **最後那條要特別記**:替身**不驗密碼**,任何字串都登得進去。
 ⇒ **不要拿這條鏈去驗任何「擋不擋得住」的題目**,它在那些題目上恆綠。
+
+---
+
+## §9 🔴🔴 開瀏覽器一律用 `http://localhost:<port>`,**不要用 `http://127.0.0.1:<port>`**
+
+> **來源:G3 2026-08-18 實測,主視窗裁定落檔(`~/pcm-mailbox/G3-004-解掉W2那個沒有結論的403-20260818.md`)。
+> 🔴 落檔的是 G1,而 G1【沒有自己重量】** —— 下面的數字與限定是 G3 量的、逐字轉載,不是我的量測。
+
+**這不是提醒,是一次已經發生的事故**:前一班有一個窗為此卡了一整輪沒有結論的購物車。
+
+**症狀:同一支 chunk、同一台 server、同一分鐘,只換 `Origin` header**
+
+```
+裸 curl                                    200
+Origin: http://127.0.0.1:3020              403   <- 就是它
+Origin: http://localhost:3020（打 127 那台） 200
+```
+
+🔴 **用 `127.0.0.1` 的話:HTML 正常、CSS 正常,只有 client JS 靜靜地不見。**
+⇒ **那個畫面跟「這功能本來就沒做」長得一模一樣。**
+⇒ 而你會開始讀 code 找那個沒做的功能 —— **在一個沒有壞的東西上找 bug**,那是這個坑最貴的部分。
+
+**限定(G3 自己標的,逐字;不要只抄結論)**
+
+```
+· 我量到的是【行為】（Origin 這個 header 決定 200/403）;
+  機制名稱（是不是 allowedDevOrigins）我沒查官方文件，標【未確認】
+· 只在 apps/storefront 的 Next 16.3.0 dev 上量過，【沒量 admin】
+```
+
+⚠️ **所以本節能給你的是一條【便宜的排除法】,不是一個機制解釋**:
+畫面缺 JS 而 HTML/CSS 正常 ⇒ **先換成 `localhost` 再看一次**,那一步比讀 code 便宜一個量級。
+換了還在 ⇒ 那才輪到懷疑功能本身。
+
+### 9-a 起 Postgres 時 `LC_ALL=C` **要 export,不能只給 `initdb` 加前綴**
+
+> 同一來源(G3 2026-08-18,把 §1 腳本化時撞到)。**G1 未複驗,標【讀來的】。**
+
+只寫 `LC_ALL=C initdb …` 的話,`initdb` 本身會過,而 **postmaster 起來就死**:
+
+```
+FATAL: postmaster became multithreaded during startup
+```
+
+🔴 **那個錯訊息完全不會讓你想到 locale** —— 它讀起來像 Postgres 自己壞了。
+⇒ 改成 `export LC_ALL=C`(讓後續每一個行程都吃到),不要只給單一命令加前綴。
