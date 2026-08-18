@@ -5635,9 +5635,14 @@ order by n desc, 1;
 
 ---
 
-### #200. ⏳ 「我的愛車」車款 → products filter 快速帶入(跨 bounded context 連動、綁 Phase 2 結構化 vehicles)
+### #200. ✅ 「我的愛車」車款 → products filter 快速帶入 —— **已完成並上線**(~~綁 Phase 2 結構化 vehicles~~ ⇒ **那句今天不成立**)
 
-- **狀態:** ⏳ 待實作(Sean 2026-05-31 g-6 規劃時提:在 filter 附近加功能、讓 filter 快速帶入我的愛車車款;拍 ③.5=A 連動綁 Phase 2、g-6 先照 design 自由文字)
+- **狀態:** ✅ **已完成並上線(2026-08-19 G1 判定)**。產物 = `apps/storefront/src/components/GarageChips.tsx`,最後改動 `cc53a72a`(2026-08-07);`git merge-base --is-ancestor <該 commit> origin/main` ⇒ rc=0 **已上線**。掛載 **6 處**:`CascadeFilterTop:145` / `FilterDrawerVehicleTab:107` / `MobileVehicleSheet:187` / `ProductFitmentCheck:269` / `CartVehicleField:147` / `VehicleFinder:79`。判定書 `docs/specs/2026-08-19-g1-200-already-shipped-verdict.md`(commit `4b827382`)。
+  - 🔴 **下面「問題」四條【每一條】都已過期,原文保留當比對**:①`name` 已非純自由文字(表有 `dict_brand_name`/`dict_model_name`;`GarageChips.tsx:7` 逐字「命中恆字典字面、自由輸入明標 free、**零猜**」)②filter 真過濾走 RPC `search_catalog_by_vehicle(p_brand text,p_model text,p_year int,…)`,`GarageChips.tsx:9-11` 逐字「既有 `useVehicleUrlSync` 負責**下推 DB 重查**」③那顆鈕做了(上列 6 處)④跨 context 已架橋(`lib/garage-chip.resolveGarageChip` 共用決策腦)。
+  - 🔴 **而它是用【換解法】解掉的,不是用條目寫的解法**:條目的 Phase 1.5 替代是「free-text → **best-effort prefill**、對映不保證準」;實作是**字典精確命中才套用,多/零命中出建議清單、不猜**⇒ 「YZF-R6 vs R6 對不上就變空」是用**不猜**解掉的 ⇒ 條目 ④「車款名稱正規化」也不再是前置。
+  - 📎 **與 `0be15fa7` 的關係(讓下一個人看得懂為什麼兩份紀錄不一樣)**:那一顆昨晚把本條依賴欄改寫成「可以排」,**那個改寫不是錯的** —— 它問的是「**還有什麼擋著它**」,而沒問「**它是不是已經不需要做了**」。🔴 **依賴欄的檢查只看得到「被擋住」,看不到「已經被做掉」。**
+  - ⚠️ **本判定的射程**:我證的是「**code 在、已上線**」,**不是「客人真的按得到」** ——`GarageChips` 有 `garage.length > 0` 閘(未登入/讀取失敗則整顆不顯示)⇒ **那一格要登入才驗得了,已掛給會登入的那條線。**
+  - ~~原狀態~~:⏳ 待實作(Sean 2026-05-31 g-6 規劃時提:在 filter 附近加功能、讓 filter 快速帶入我的愛車車款;拍 ③.5=A 連動綁 Phase 2、g-6 先照 design 自由文字)
 - **優先級:** 🟠 中(真會員資料接入後的 UX 完整性;Phase 1 不擋 g-6、屬 Phase 1.5 / Phase 2 範圍)
 - **問題:**
   - 會員中心「我的愛車」(`customer_vehicles.name`)是**自由文字**(例「YAMAHA YZF-R6」、design InlineVehicleForm L760 text input);
