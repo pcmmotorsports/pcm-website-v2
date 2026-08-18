@@ -29,8 +29,9 @@
 # 用法:  export PGURL='<postgres 連線字串>' 之後 bash scripts/verify-create-order-9param.sh
 #        連線字串由執行者當場提供。🔴 本腳本不讀 .env*、不寫檔、不改任何東西(只有 SELECT)。
 #
-# exit: 0=有第 9 參可以部署 / 3=沒有第 9 參不可部署 / 4=連 create_order 都找不到
-#       2=用法錯 / 1=工具自己壞了(psql 沒裝或連不上)  —— 四種分得開,不要混成一個「失敗」
+# exit: 0=恰一支且有第 9 參,可以部署 / 3=沒有第 9 參不可部署 / 4=連 create_order 都找不到
+#       5=有多支 overload 並存(PGRST203,另一種病) / 2=用法錯 / 1=工具自己壞了(psql 沒裝或連不上)
+#       —— 🔴 五種分得開,不要混成一個「失敗」(2026-08-18 G4 補 5;原本 grep -q 在 overload 並存時仍回 0)
 set -uo pipefail
 
 CONN="${1:-${PGURL:-}}"
@@ -49,7 +50,9 @@ SQL="SELECT p.pronargs || '|' || pg_get_function_arguments(p.oid)
      FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname = 'public' AND p.proname = 'create_order';"
 
-OUT=$(psql "$CONN" -X -A -t -v ON_ERROR_STOP=1 -c "$SQL" 2>&1)
+. "$(dirname "$0")/lib/pg-connect-env.sh"
+pg_connect_env "$CONN" || exit 1   # 🔴 連線字串不進 psql 的 argv(process table)
+OUT=$(psql -X -A -t -v ON_ERROR_STOP=1 -c "$SQL" 2>&1)
 RC=$?
 if [ $RC -ne 0 ]; then
   echo "🔴 工具問題:psql 沒跑起來或連不上 —— 這【不是】檢查結果,不要當成「沒有第 9 參」" >&2
@@ -69,8 +72,17 @@ printf '%s\n' "$OUT" | while IFS='|' read -r n args; do
 done
 echo
 
+N_FUNCS=$(printf '%s\n' "$OUT" | grep -c .)
+if [ "$N_FUNCS" -ne 1 ]; then
+  echo "🔴 這個資料庫裡有 $N_FUNCS 支 create_order(overload 並存)。"
+  echo "   ⇒ 【不可以部署】:flag-off 的 8 鍵呼叫會撞 PGRST203(函式多義),而它跟「沒有第 9 參」"
+  echo "     是不同的病、要不同的修法 —— 所以這裡不回 3,回 5。"
+  echo "   ⇒ 先確認哪一支才是現行的,把多的那支 DROP 掉再重跑本檢查。"
+  exit 5
+fi
+
 if printf '%s\n' "$OUT" | grep -q 'p_notification_email'; then
-  echo "✅ create_order 已經含有 p_notification_email。"
+  echo "✅ create_order 恰一支,且含有 p_notification_email。"
   echo "   ⇒ M-4a B-4 可以部署。"
   exit 0
 fi

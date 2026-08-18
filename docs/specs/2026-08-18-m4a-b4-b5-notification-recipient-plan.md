@@ -1,5 +1,15 @@
 # Plan — M-4a B-4 + B-5 合併片:通知信收件人接通(2026-08-18 W5)
 
+> 🔴🔴 **2026-08-18 G4:本檔【已被取代】,不要照它施工。**
+> R1 FAIL(must-fix 12 / consider 4 / nit 4)+ W9 補查 V1/V2 ⇒ 判定是**重寫**不是修補,而重寫的結果拆成兩片:
+> · `docs/specs/2026-08-18-m4a-b4-persist-notification-email-plan.md`(B-4 持久化)
+> · `docs/specs/2026-08-18-m4a-b5-enqueue-scan-plan.md`(B-5 enqueue,**掛法有岔路等 Sean 拍**)
+> · `docs/specs/2026-08-18-b4-b5-findings-disposition.md`(24 條逐條折抵表)
+> **拆片理由 = `F4`**(B-5 要把 `service_role` 帶進結帳路徑 = 獨立的鐵則 12 判定)。
+> ⚠️ **本檔留痕不刪** —— 它記錄了 R1 的全部 findings 與當時的判斷,引用時請只當**歷史**。
+> 🔴 **本檔 §4 的範圍表接的是 `Q-02` 已廢掉的結帳表單欄**(`F1`)⇒ **照它做完病一點都沒好。**
+
+
 > ⚠️ **未批准。** 命中 **鐵則 8**(動 3+ 檔 + 跨 storefront/adapters/use-cases 三包)+ **鐵則 12 ①錢**
 > (改 `charge-actions.ts` 成交 path)⇒ **提 plan 等 Sean 批 → codex 關卡1 審 plan → 才實作**,審查不降級。
 > **真權威**:PRD `docs/specs/2026-07-18-b0-order-notification-email-prd.md`(🔴 **先讀它的檔頭衝突段**)

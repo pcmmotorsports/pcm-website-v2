@@ -84,7 +84,9 @@ SELECT CASE WHEN a.status = 'pending' THEN '甲' ELSE '乙' END
          OR (a.superseded_at IS NOT NULL AND a.status IN ('charged','released')) )
  ORDER BY 1;"
 
-OUT=$(psql "$CONN" -X -A -t -v ON_ERROR_STOP=1 -c "$SQL" 2>&1)
+. "$(dirname "$0")/lib/pg-connect-env.sh"
+pg_connect_env "$CONN" || exit 1   # 🔴 連線字串不進 psql 的 argv(process table;codex 2026-08-18 指出)
+OUT=$(psql -X -A -t -v ON_ERROR_STOP=1 -c "$SQL" 2>&1)
 if [ $? -ne 0 ]; then
   echo "🔴 工具問題:psql 沒跑起來或連不上 —— 這【不是】查詢結果,不要當成「查無」" >&2
   echo "$OUT" >&2
