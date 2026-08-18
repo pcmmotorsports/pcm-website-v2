@@ -2,7 +2,7 @@
 //
 // Sean 晨間驗收入口:每家一列(來源規模 + 附件覆蓋 + 連結)。
 // 資料 = 報價單 view 真資料 snapshot(fixtures.ts、kickoff §2-6);versus 版面內容為 showcase 元件本體。
-// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #147)。
+// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #148)。
 
 import Link from 'next/link';
 // pd-page 容器樣式在 ProductPage.tsx 才 import(非全域)→ demo 頁自帶

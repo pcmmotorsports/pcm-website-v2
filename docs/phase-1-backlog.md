@@ -4249,29 +4249,6 @@ order by n desc, 1;
 
 ### #148. ⏳ dev-preview/* 臨時驗證 route 部署前移除
 
-> ## 🔴 2026-08-19 G1:**曝險那一半今天不成立;而 code 裡指著本條的指標【全部指錯】,已修**
->
-> **① 曝險已關(我實測,不是引用)**:`#385` 已加 `app/dev-preview/layout.tsx` 在正式環境 `notFound()`(fail-closed)。
-> 唯讀實測 2026-08-19:
-> ```
-> curl -o /dev/null -w %{http_code} https://shop.pcmmotorsports.com/dev-preview/brands    ⇒ **404**
-> 同上 /dev-preview/filter-top                                                            ⇒ **404**
-> 🔴 正向對照(同一發、證明不是整站掛了):/products                                       ⇒ **200**
-> ```
-> ⇒ **剩下的是【清理】,不是【風險】。** 📎 而 `#385` 條目寫著「仍待 Sean 肉眼驗」—— **這一發把那格補上了。**
->
-> **② 指標錯:7 支 dev-preview 檔全部引到 `#147`(分類來源),而正確的是本條 `#148`。已改。**
-> ```
-> 改前 `git grep -n 'backlog #147' -- apps/storefront/src` ⇒ 8 行
->      逐行分類:7 行在 dev-preview（錯）/ 1 行在 data/mock-categories.ts（**對**，那才是 #147 的題目）
->      `git grep -n 'backlog #148' -- apps/storefront/src` ⇒ **0 行**
-> 改後 #147 ⇒ 1 行（只剩對的那支）/ #148 ⇒ 7 行
-> ```
-> 🔴 **後果不是「引用不精確」**:跟著指標走的人打開 `#147` 看到「分類來源」、找不到任何 dev-preview 的字
-> ⇒ **他會判「這註解過期了」而放掉它**。
-> **而回報這件事的窗自己就是被騙的第一個** —— 它稍早回報「已查 `#147`(dev-preview)」,
-> 那是照著 code 註解寫的,而 **code 註解是錯的** ⇒ **指標錯一次,下游每個人都錯一次。**
-
 
 > ## 🔴🔴 2026-08-19 G6:**七支檔的註解全部引到【錯的號碼】,而正確的這一條零個指標**
 > ```
@@ -4296,6 +4273,20 @@ order by n desc, 1;
 > apps/storefront/src/app/dev-preview/layout.tsx:1 逐字「#385:正式站把整個 `/dev-preview/*` 關成 404」
 > 同檔 :7-14  fail-closed 判準矩陣(Vercel production ⇒ 404;讀不到 env ⇒ **也 404**)
 > ```
+>
+> ### 🔴 附的附:**G1 2026-08-19 唯讀實測正式站,把 `#385` 那句「仍待 Sean 肉眼驗」補掉了**
+> G6 上面那段是**讀 `layout.tsx` 的 code** 得到的;我**直接打正式站**量了一次:
+> ```
+> curl -o /dev/null -w '%{http_code}' https://shop.pcmmotorsports.com/dev-preview/brands     ⇒ **404**
+> 同上 /dev-preview/filter-top                                                               ⇒ **404**
+> 🔴 正向對照(同一發,證明不是整站掛了):/products                                  ⇒ **200**
+> ```
+> ⇒ **兩把不同原理的尺(讀 code / 打真站)結論一致** ⇒ 曝險確實已關,**剩下的是清理不是風險**。
+> 📎 `#385` 條目逐字寫著「**仍待 Sean 肉眼驗**:正式站開 `/dev-preview/brands` 應為 404」
+>    ⇒ **這一發就是那一驗**(唯讀 GET,零寫入)。⚠️ 而它證的是**匿名訪客**看到 404,
+>    **不是**「所有環境都 404」——preview 部署照設計仍應可達。
+>
+> ✅ **那 7 支 `.tsx` 的註解 G1 已改**(`#147` → `#148`,純註解零行為;四綠全跑)。
 > ⇒ **「部署前移除」的觸發器已經扣下(站已上線),而擋住曝險的是【另一條】。**
 > ⇒ 本條剩下的是**清理**(路由還在 repo 裡),不是**風險**。
 > ⚠️ 而 `layout.tsx:33-37` 自己寫著它**擋不住**什麼:「`dev-preview/*/fixtures.ts` 的字面仍在 **git 與 JS bundle** 裡」。

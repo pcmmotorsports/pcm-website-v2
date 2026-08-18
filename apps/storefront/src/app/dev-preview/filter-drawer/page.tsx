@@ -7,7 +7,7 @@
 // 並排兩變體:
 //   桌機 modal — 預設右側 440px 抽屜
 //   手機模擬   — 包 [data-mobile="true"]、套 filter-drawer.css 手機浮動面板樣式
-// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #147)。
+// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #148)。
 //
 // 並排 layout + 標籤用共用骨架 PreviewHarness(WO-4)。
 

@@ -6,7 +6,7 @@
 // 並排兩種模式:design ProductsPage.jsx L291 `hideVehicle={isCascade}` —
 //   side 樣式 → hideVehicle=false → 含「依車輛搜尋」
 //   cascade 樣式 → hideVehicle=true → 無「依車輛搜尋」(車輛改上方 CascadeFilterTop / M-1-10)
-// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #147)。
+// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #148)。
 //
 // WO-4:並排 layout + 標籤用共用骨架 PreviewHarness、不再各自手刻。
 

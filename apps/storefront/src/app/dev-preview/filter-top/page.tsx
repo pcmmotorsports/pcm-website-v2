@@ -6,7 +6,7 @@
 // 模擬宿主。並排:
 //   FilterTop        — top 樣式(chip + dropdown)
 //   CascadeFilterTop — cascade 樣式(品牌 / 車型 / 年份 連動下拉)
-// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #147)。
+// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #148)。
 //
 // 並排 layout + 標籤用共用骨架 PreviewHarness(WO-4)。
 

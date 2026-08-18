@@ -3,7 +3,7 @@
 // 渲染:①來源規模列(報價單 view 真資料 snapshot)②品牌形象版面(showcase 元件、與正式商品頁同一份)
 // ③代表商品條(真商品圖/名/價/分類=接線後商品頁素材)④安裝資源 sample(該家來源真有影片才渲染;
 //   驗混格式 youtube/vimeo facade——mp4 來源今晚全家皆 0、fixture 層由 InstallResources.test 覆蓋)。
-// dev-preview/* 屬開發臨時驗證頁、M-6 前移除(backlog #147)。
+// dev-preview/* 屬開發臨時驗證頁、M-6 前移除(backlog #148)。
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';

@@ -5,7 +5,7 @@
 // M-1-11 FilterModal 等後續 Filter slice 直接複用本骨架、不重造。
 //
 // `_components/` 是 Next.js 私有資料夾(底線前綴)、不會被當成 route。
-// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #147);
+// dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #148);
 // 本骨架同屬 dev-preview/ 子樹、一併移除。
 //
 // mock data 注入:各 dev-preview 頁自行組 mock data、透過 variant.node 傳入
