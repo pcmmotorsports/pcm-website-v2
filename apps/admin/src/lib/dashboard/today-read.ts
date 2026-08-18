@@ -131,8 +131,12 @@ export type TodaySummary = {
  *    **分不出「真的是 0」與「拿不到值」的時候,那格必須是 `null`,不是 0。**
  *
  * 🔴 **與今早 SQL 端 `STRICT` 那條是同一個病、只是換一層**(主視窗 2026-08-15 抓到):
- *      SQL 層:參數 NULL ⇒ 零列 ⇒ `COALESCE` 包成「一列 `total=0`」⇒ 畫面 NT$ 0
- *      應用層:`total` 是 null ⇒ `Number(null)` ⇒ 0            ⇒ 畫面 NT$ 0
+ *      SQL 層(**`STRICT` 之前**):參數 NULL ⇒ 零列 ⇒ `COALESCE` 收成「一列 `total=0`」⇒ 畫面 NT$ 0
+ *      應用層:`total` 是 null ⇒ `Number(null)` ⇒ 0                              ⇒ 畫面 NT$ 0
+ *    ⚠️ **上面第一行講的是【病】,不是現況**(2026-08-19 補清楚:原字面沒寫「之前」,
+ *      而「零列 ⇒ 一列」單獨讀起來自相矛盾)。**現況**是那支 RPC 已經是 `STRICT`
+ *      ⇒ NULL 參數讓**函式本體不執行、回 0 列**,`COALESCE` 根本沒跑
+ *      (`20260815010000_m4b_e10_16_admin_today_payment_total.sql:91`,實測對照在同檔 `:53-54`)。
  *    **我們在 SQL 那層堵死了,而同一個 fail-open 在這一層原封不動。**
  *    ⇒ 教訓:**修好一層之後要去問「同一個形狀在相鄰的層還在不在」。**
  *
@@ -243,8 +247,20 @@ export async function loadTodaySummary(now: Date = new Date()): Promise<TodaySum
 
   // 收款:RPC 回一列 `{ total, row_count }`。
   const paymentRow = payments.error ? null : ((payments.data as { total?: unknown }[] | null)?.[0] ?? null);
-  // 🔴 `data` 是空陣列也算失敗 —— RPC 恆回一列(`COALESCE` 保證),回不出來就是有事,
-  //    而把它當成「今天收 0 元」正是本片最怕的安靜錯數字。
+  // 🔴🔴 **`data` 是空陣列也算失敗** —— 而**理由不是「RPC 恆回一列」**(2026-08-19 更正)。
+  //    ~~原字面:「RPC 恆回一列(`COALESCE` 保證)」~~ ⇒ **不成立**。
+  //    那支 RPC 是 **`STRICT`**(`20260815010000_m4b_e10_16_admin_today_payment_total.sql:91`)
+  //    ⇒ **任一參數是 NULL,函式本體【根本不執行】** ⇒ **回 0 列**,`COALESCE` 沒有機會跑。
+  //    同檔 `:53-54` 有實測對照:無 `STRICT` + `p_from = NULL` ⇒ 回 **1 列 total=0**(災難);
+  //    有 `STRICT` ⇒ 回 **0 列**。⇒ 空陣列**是會發生的**,不是理論邊角。
+  //
+  // 🔴🔴 **所以救這一格的是【上一行 `?.[0] ?? null`】,不是 `COALESCE`。**
+  //    空陣列 → `?.[0]` 得 `undefined` → `?? null` → `paymentRow = null`
+  //    → `receivedAmount = null` → `receivedOk = false` → 畫面顯示「讀取失敗」。
+  //    ⚠️ **不要拿掉那一行,也不要把它改成 `?? { total: 0 }` 之類的「補一個預設」** ——
+  //    那一刻 NULL 參數就變成畫面上一個**安靜的 NT$ 0**,正是下面那句話最怕的東西。
+  //    📌 **這段註解是修給【理由】的,行為一個字沒動** —— 因為下一個人是照理由決定要不要留這道檢查。
+  //    (結論一直是對的,而錯的理由會讓對的檢查被合理地拆掉。)
   // 🔴🔴 **`total` 本身讀不出安全整數,同樣算失敗**(codex MF1/MF2):
   //    `Number(null)`、`Number('')` 都是 `0`,而 `0` 在這一格看起來完全正常。
   //    ⇒ 讀不出來就讓這格變 `null`(顯示「讀取失敗」),**絕不顯示一個安靜的 0**。
