@@ -383,3 +383,79 @@ describe('rpm-policies 末行的營業時段(接 SSoT 之後不得漂移)', () =
     expect(rendered).toBe('有問題請加 LINE：@pcmmoto · 週一–週六 10:00–19:00');
   });
 });
+
+/**
+ * ═══ 分母守門(第二支):**門市地址** ═══════════════════════════════════════
+ *
+ * 🔴 **為什麼補這一支**:上面的地址守門(`STORE_ADDRESS` 完整相等)**只掃兩支點名的檔** ——
+ * 那與時段守門在 `#528` 之前的病**一模一樣**:**分母由人維護,新長出來的那支脫鉤時零訊號。**
+ * 時段那一格已經在 2026-08-19 補上全樹掃描,**而地址這一格當時沒有一起補**
+ * ⇒ 本段把同一個機制套過來。
+ *
+ * ⚠️ **今天掃出來是乾淨的**(全樹只有 SSoT 與下面白名單那兩支帶這個字面)。
+ *    🔴 **而「今天乾淨」正是裝守門的時機,不是不裝的理由** ——
+ *    它把「乾淨」從一個**當下的觀察**變成一個**會被維持的性質**。
+ *
+ * ⚠️ **射程與上面那支相同**:白名單是**整檔豁免**,不是逐行;而它只認**字面**,
+ *    有人用 `'新北' + '市新莊區'` 拼出來就掃不到。
+ */
+describe('分母守門:門市地址字面不得出現在白名單以外的檔', () => {
+  /**
+   * 白名單 = SSoT 本身 + **兩支「刻意硬寫、而由上面那格釘住等值」的顯示點**。
+   * 🔴 那兩支不是漏網 —— 它們硬寫,而上面的地址守門逐字比對它們與 `STORE_ADDRESS` 相等。
+   *    ⇒ **這裡放行、那裡釘死**,兩格分工。
+   */
+  const ADDR_ALLOWED = new Set<string>([
+    'lib/site-config.ts',
+    'components/HomeFooter.tsx',
+    'components/ComingSoon.tsx',
+  ]);
+
+  /** 地址字面。`region` / `locality` 取自 SSoT ⇒ **改常數時本格自動跟著改**,不是第二份硬寫。 */
+  const ADDR = new RegExp(`${STORE_ADDRESS.region}|${STORE_ADDRESS.locality}|化成路`);
+
+  function walkAll(dir: string, prefix = ''): string[] {
+    const out: string[] = [];
+    for (const e of readdirSync(join(SRC, dir === '' ? '.' : dir), { withFileTypes: true })) {
+      const rel = prefix === '' ? e.name : `${prefix}/${e.name}`;
+      if (e.isDirectory()) out.push(...walkAll(rel, rel));
+      else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push(rel);
+    }
+    return out;
+  }
+  const ADDR_FILES = walkAll('');
+
+  it('🔴 自檢:掃描器 / pattern / stripComments 三層都要表演(不過 ⇒ 下面那格的綠不算數)', () => {
+    // ① 掃得到檔
+    expect(ADDR_FILES, 'walkAll() 沒撈到 lib/site-config.ts —— 掃描器壞了,不是樹乾淨').toContain(
+      'lib/site-config.ts',
+    );
+    // ② pattern 認得出該紅的字面(而它是從 SSoT 組的 ⇒ 這一發同時驗了組法沒寫錯)
+    expect(ADDR.test('新北市新莊區化成路736巷18號1樓'), 'pattern 配不到完整地址').toBe(true);
+    expect(ADDR.test('化成路'), 'pattern 配不到街名（只寫街名也算硬寫）').toBe(true);
+    // ③ 不能什麼都認
+    expect(ADDR.test('台北市信義區'), 'pattern 太寬,連別的地址都認').toBe(false);
+    // ④ 🔴 `stripComments` 也要走一次同一條管線（GR-075 MF-A 的形狀，本格照抄）
+    expect(
+      ADDR.test(stripComments(`const s = "${STORE_ADDRESS.region}${STORE_ADDRESS.locality}";`)),
+      '🔴 stripComments 把真實 code 裡的字面吃掉了 —— 主判定會恆綠,整格作廢',
+    ).toBe(true);
+    expect(
+      ADDR.test(stripComments(`// 這行註解提到 ${STORE_ADDRESS.region}${STORE_ADDRESS.locality}`)),
+      'stripComments 沒剝掉行註解 —— 主判定會假紅在別人的說明文字上',
+    ).toBe(false);
+  });
+
+  it('🔴 白名單以外的檔不得出現門市地址字面(剝掉註解後)', () => {
+    const leaked = ADDR_FILES.filter(
+      (rel) =>
+        !ADDR_ALLOWED.has(rel) && ADDR.test(stripComments(readFileSync(join(SRC, rel), 'utf8'))),
+    );
+    expect(
+      leaked,
+      `這幾支檔硬寫了門市地址,而 STORE_ADDRESS 改了它們不會跟著改:\n  ${leaked.join('\n  ')}\n` +
+        '⇒ 要嘛改成從 `STORE_ADDRESS` 衍生,\n' +
+        '   要嘛(確定它該硬寫)把它加進 `ADDR_ALLOWED`,**並在上面那格補一條逐字等值斷言**。',
+    ).toEqual([]);
+  });
+});
