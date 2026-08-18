@@ -123,7 +123,11 @@ for n in $(grep -ohE '#[0-9]{2,3}' "$TMP/expect" | sort -u); do
   [ -z "$h" ] && continue
   case "$h" in *✅*|*已收*) ;; *) continue;; esac
   N2=$((N2+1))
-  echo "--- ${n} ⇒ ${h:0:80}"
+  # 🔴 不要用 ${h:0:80} 截斷:bash 的子字串在非 UTF-8 locale 下是【按位元組】切,
+  #    切在 CJK 字元中間 ⇒ 產出非法 UTF-8 ⇒ file 把整個輸出檔判成 extended-ASCII
+  #    ⇒ grep 當它是二進位而【靜默跳過】(2026-08-18 實測:3 處斷字、51 個 0x85 被讀成 NEL)。
+  #    ⇒ 印全長,不截。報告長一點沒關係,一個 grep 讀不到的報告才是問題。
+  echo "--- ${n} ⇒ ${h}"
   grep -E "(^|[^0-9])${n}([^0-9]|\$)" "$TMP/expect" | cut -d: -f1,2 | sed "s|^${ROOT}/||;s|^|      |" | head -3
 done
 [ "$N2" = 0 ] && echo "(無候選)"
