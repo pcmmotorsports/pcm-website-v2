@@ -11,8 +11,10 @@
 //    唯一抓得到它的是「在真瀏覽器上逐點問 elementFromPoint」,而那不在 CI 裡。
 //
 // ⚠️ **本檔守的是「別再被拿掉」,不是「版面現在是對的」** —— 後者要真瀏覽器量。
-// ⚠️ 射程:只掃 `product-card.css` 裡**已知的三個 hover-gated 隱形元素**。
-//    它**不會**自動發現新增的第四個 —— 那要靠真瀏覽器掃描,或有人記得把新的加進下面這張表。
+// ⚠️ 射程:只掃**下面那張具名表裡的 (檔名, 選擇器) 對**(2026-08-18 起 4 對,跨 2 支 css)。
+//    它**不會**自動發現第 5 個 —— 那要靠真瀏覽器掃描,或有人記得把新的加進那張表。
+//    🔴 **這句話 2026-08-18 當天成真了**:原本寫「只掃 product-card.css 裡已知的三個」,
+//    而第四個(`.pd-hero-arrow`)正好落在射程外、**且不在同一支 css** ⇒ 表的形狀也得跟著改。
 //    (誠實說:這正是這種守門的天花板,寫在這裡免得有人以為它保證了全站。)
 // 📎 `design-reference/styles/product-card.css:78-95` 的 `.pcard-heart` **同樣沒有 pointer-events**
 //    ⇒ 日後照鐵則 1 重搬那支檔的人會把這個洞搬回來,**這一格就是攔他的**。
@@ -48,12 +50,31 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 /** 剝掉註解再比對 —— 否則上面那段說明自己就會命中(偵測字串自命中)。 */
 const read = (f: string) => readFileSync(resolve(HERE, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 
-/** `product-card.css` 裡「平常隱形、只有 hover 才浮出來」的元素。 */
-const HOVER_GATED = ['.pcard-heart', '.pcard-dots', '.pcard-quick'];
+/**
+ * 「平常隱形、只有 hover 才浮出來」的元素 —— **(檔名, 選擇器) 對,不是純選擇器清單**。
+ *
+ * 🔴 **2026-08-18 從單一檔案的清單改成這個形狀,而理由是本檔檔頭自己預告過的天花板成真了:**
+ * `:14-16` 逐字寫著「只掃 `product-card.css` 裡已知的三個…**不會**自動發現新增的第四個」。
+ * 那個第四個當天被量到了 —— `.pd-hero-arrow`,而且**不在同一支 css 裡**
+ * ⇒ 舊的形狀連「加一列」都做不到,必須先帶上檔名。
+ * 📎 **這不是本檔寫壞了,是它預告的事情成真** —— 而預告成真本身就是資訊。
+ *
+ * ⚠️ **刻意【不】改成「掃全部 css」**:2026-08-18 實跑過那把尺 —— 33 支 css、11 條原始命中,
+ *   剔掉 keyframes 與純裝飾之後**真的只有 1 條**(誤報 10/11)。
+ *   做成全掃守門會天天紅在 keyframes 上,**三天內就會被人加 skip** ⇒ 那比沒有守門更糟。
+ *   **具名表 + 誠實聲明射程**才是對的形狀,只是表要長一列。
+ */
+const HOVER_GATED: [file: string, selector: string][] = [
+  ['product-card.css', '.pcard-heart'],
+  ['product-card.css', '.pcard-dots'],
+  ['product-card.css', '.pcard-quick'],
+  // 商品頁主圖的左右箭頭(72×72)。加進來的那一刻它是紅的,而**紅是對的** —— 修法同 `0a7988c9`。
+  ['product-page.css', '.pd-hero-arrow'],
+];
 
-describe('看不見的東西不准吃點擊(product-card.css)', () => {
-  it.each(HOVER_GATED)('🔴 %s 的基底規則必須同時有 opacity: 0 與 pointer-events: none', (sel) => {
-    const css = read('product-card.css');
+describe('看不見的東西不准吃點擊', () => {
+  it.each(HOVER_GATED)('🔴 %s 的 %s 基底規則必須同時有 opacity: 0 與 pointer-events: none', (file, sel) => {
+    const css = read(file);
     // 基底規則 = 選擇器單獨出現(不是 .pcard:hover xxx 那種)
     const rule = new RegExp(`(^|\\n)\\s*\\${sel}\\s*\\{[^}]*\\}`).exec(css)?.[0];
     expect(rule, `找不到 ${sel} 的基底規則 ⇒ 本條前提失效(被改名?)，不是通過`).toBeTruthy();
@@ -63,6 +84,14 @@ describe('看不見的東西不准吃點擊(product-card.css)', () => {
       rule,
       `${sel} 看不見卻沒有 pointer-events: none ⇒ 它會在隱形狀態下吃掉客人的點擊`,
     ).toMatch(/pointer-events:\s*none\s*;/);
+  });
+
+  it('🔴 `.pd-hero-arrow` 浮出來時要把點擊收回去(否則桌機的左右換圖按不到)', () => {
+    const css = read('product-page.css');
+    const hoverRule = /\.pd-hero-img:hover\s+\.pd-hero-arrow\s*\{[^}]*\}/.exec(css)?.[0];
+    expect(hoverRule, '找不到 .pd-hero-img:hover .pd-hero-arrow ⇒ 前提失效').toBeTruthy();
+    expect(hoverRule, 'hover 態沒有 pointer-events: auto ⇒ 桌機的左右換圖會按不到')
+      .toMatch(/pointer-events:\s*auto\s*;/);
   });
 
   it('🔴 Q1:觸控裝置那條裡「看得見」與「可以按」必須成對出現', () => {

@@ -178,8 +178,29 @@
   opacity: 0;
   transition: opacity 180ms, transform 180ms;
   z-index: 3;
+  /* 🔴 2026-08-18 補上這一行。少了它,這兩顆 72×72 的按鈕在【看不見的時候照樣吃點擊】——
+     與 `product-card.css` 的 `.pcard-heart`(`0a7988c9`)**同一個形狀、同一個修法**。
+     它 `opacity: 0` 而只有 `.pd-hero-img:hover` 才浮出來 ⇒ **觸控裝置沒有 hover ⇒ 永遠隱形**。
+
+     390×844 真觸控模擬實測(`hover: none` 為真、三張圖的商品、主圖 358×358):
+     ```
+     點左箭頭中心 (71,300)  ⇒ slide 不動、燈箱不開  ← 【那一下整個消失】
+        （第一張時左箭頭是 disabled，而 disabled 的按鈕【照樣擋在最上層】）
+     點右箭頭中心 (319,300) ⇒ slide 0% → -100%、燈箱不開  ← 【換了圖，而客人是想放大看】
+     負向對照:點主圖正中央 (195,300) ⇒ 燈箱【開了】
+     ```
+     ⇒ 三個世界印三種不同的東西 ⇒ 這把尺有判別力,不是恆真。
+     🔴 **兩道邏輯都在幫它吃掉那一下**:除了這顆按鈕自己,
+     `ProductGallery.tsx:192` 的 hero onClick 還逐字寫著
+     `if (target.closest('.pd-hero-arrow, .pd-hero-counter')) return;`
+     ⇒ 就算按鈕自己不動作,燈箱也不會開。**補這一行之後,那個 `closest` 檢測自然就不會命中了。**
+     ⚠️ 本片**只解「不再吃掉點擊」**,不解「手機要不要看得見箭頭」——
+     後者是視覺取捨(手機本來就能滑動換圖),要問 Sean,已寫進 STOP。
+     📎 來源:G6 讀 code 推出來的(`G6-005 §④`),我用真瀏覽器把它量死並補上 disabled 那半。 */
+  pointer-events: none;
 }
-.pd-hero-img:hover .pd-hero-arrow { opacity: 1; }
+/* 浮出來時才把點擊收回去(照 `.pcard-quick` / `.pcard-heart` 的既有形狀)。 */
+.pd-hero-img:hover .pd-hero-arrow { opacity: 1; pointer-events: auto; }
 .pd-hero-arrow:hover:not(:disabled) { transform: translateY(-50%) scale(1.12); }
 .pd-hero-arrow:active:not(:disabled) { transform: translateY(-50%) scale(0.96); }
 .pd-hero-arrow:disabled { opacity: 0 !important; cursor: not-allowed; }
