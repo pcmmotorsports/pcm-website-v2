@@ -21744,3 +21744,57 @@ R2 那 10 張說明【搬遷已經開始】—— memory 也記著 Lightech 那�
   那個 24 秒只是「圖在外部」的一個後果樣本，不是效能結論
 ```
 - **相關:** `#642`(product-card 的樣式對齊,不同題)
+
+---
+
+### #657 · 🔴 顧客站**沒有** env↔DB 配對守門 —— 而後台**有** ⇒ 本機刷卡會**安靜地**寫進正式站
+
+- **狀態:** ⏳ 未修(2026-08-18 G3 發現;不是這次沙盒測試才存在的,是一直都在)
+- **片型:** 高風險片(鐵則 12②③ —— 動 payment composition + 防止不可逆寫入)。**要另外提 plan。**
+
+#### 這是什麼(三件都是量到的,不是推論)
+```
+① apps/admin      有那道守門  apps/admin/src/lib/payment/composition.ts:71（函式）/ :142（呼叫點）
+② apps/storefront 【沒有】     git grep -c PROD_SUPABASE_HOST -- apps/storefront ⇒ 0 個檔命中
+③ 本機 .env.local 三個檔都指著正式站
+   bash scripts/which-db-am-i-pointed-at.sh ⇒ 三行皆紅（只印行數,不印任何值）
+```
+
+#### 🔴 不修未來會痛在哪(鐵則 10)
+```
+任何人在本機跑 storefront 走一次結帳 ⇒ 訂單列【真的】寫進正式站,而且:
+· 沒有紅可以看 —— storefront 沒有那道守門,它不會擋、不會警告
+· 錢可以是假的（TAPPAY_ENV=sandbox）而【資料是真的】 ⇒ 這兩件最常被混成一件
+· 不可逆:訂單編號會被吃掉、對帳與客服會看到不存在的單
+📌 而 admin 有、storefront 沒有 = **不對稱。不對稱通常不是設計,是遺漏。**
+   (若它其實是刻意的,那個理由現在【沒有寫在任何地方】—— 這件本身就要修)
+```
+
+#### 修法(可以直接變成 plan 的形狀)
+```
+① 搬什麼:tapPayEnvPairingViolation() 是【純函式】(env, supabaseUrl) => string | null
+   —— 不碰 IO、已有完整測試(apps/admin/src/lib/payment/composition.test.ts:80-141,
+   含大小寫/尾點/port/協定/空 host 五種繞法)⇒ 搬動成本低、風險低。
+② 搬去哪:apps 之間不互相 import ⇒ 要落到共用套件(packages/)。
+   🔴 PROD_SUPABASE_HOST 這個常數要跟著搬,而它現在【被 admin 的測試釘死字面】
+   ⇒ 搬完兩邊都要指到同一個定義,不能各留一份（各留一份 = 下次改網域只改到一半）。
+③ 呼叫點:storefront 的 getTapPayAdapter()（apps/storefront/src/lib/payment/composition.ts:69）
+   —— 放在這裡,爆炸半徑只有付款路徑,不會擋到不相干的頁。
+```
+
+#### ⚠️ 會不會擋到正當的路(先想過,寫下來給審查者打)
+```
+正式部署:storefront 本來就是 TAPPAY_ENV=production × 正式 DB ⇒ 回 null ⇒ 不擋。✅
+本機開發不碰付款:守門在 getTapPayAdapter() 裡,不叫它就不會炸。✅
+🔴 要小心的那一格:preview / staging 若【正當地】用正式 TapPay 配非正式 DB,會被擋。
+   ⇒ 提 plan 時要先答「有沒有這種部署」,不能假設沒有。
+```
+
+#### 🔴 在守門做出來之前,下一個人怎麼知道自己指到哪
+```
+bash scripts/which-db-am-i-pointed-at.sh      ← 本條同時交付的一支(唯讀,只印是/不是,不印任何值)
+```
+它**不回答**「裡面的 TapPay 憑證是哪一組」—— TapPay partner key 沒有 sandbox/production 的形狀標記,
+機械判別不了(admin composition.ts 檔頭「誠實邊界①」逐字寫著這件)。
+
+- **相關:** `#353`(3DS 態 -1 沙盒構造不出來)、`docs/reference/tappay-sandbox-test-cards.md`(沙盒測試卡與本條的阻擋關係)
