@@ -201,7 +201,22 @@ ci.yml 的順序：              typecheck → lint → （無 build）→ test
   本機實測 `TURBO_FORCE=1 pnpm build`（兩個 app）：**8.175s / 14.706s / 18.31s / 43.173s**（四發，同一台機器不同負載）。
   📌 這一處是 `scripts/literal-sweep.sh 'TURBO_FORCE=1 pnpm build'` 掃出來的 —— **方案從甲改乙時，這個數字留在另一節沒跟著改。** 正是 `feedback_claimed-sync-but-only-patched-touched-lines` 那個形狀。
   🔴 **GitHub runner 上要多久 = 未量**（`ubuntu-latest` 規格與本機不同，我沒有辦法在批准前量它）。
-  ⇒ 以 CI 現行 201 秒為基數，**估**增加一至兩分鐘；**這個數字是估的，不是量到的。**
+  ⇒ ~~以 CI 現行 201 秒為基數，估增加一至兩分鐘~~
+
+  🔴 **上面那個估【基準選錯了】(W6 2026-08-18 打回，我採用)**：
+  ```
+  TURBO_FORCE=1 只繞過 turbo 的快取，繞不過 Next 自己的 .next/cache
+  ⇒ 我那四發是【熱的 Next 快取】(同一棵鑽機連跑，43.173 → 18.31 → 14.706 → 8.175s，
+     那條下降曲線本身就是快取在生效的證據)
+  ⇒ 而 CI 每次都是全新 checkout ⇒ 【永遠是冷的】
+  W6 在冷環境實量：@pcm/admin ✓ Compiled successfully in 2.4min
+                   @pcm/storefront ✓ Compiled successfully in 2.4min
+  ⚠️ 而那還【只是 compile】—— 後面還有 TypeScript 與靜態產生，它落信時尚未跑完
+  ```
+  ⚠️ **W6 自己標的限定，跟著數字走、不要拿掉**：「我這台是 macOS 筆電、`ubuntu-latest` 規格不同
+  ⇒ **`2.4min` 不能當 CI 的值**。它證的是【那個估的基準選錯了】，不是【CI 要 2.4 分鐘】。」
+  ⇒ **本欄結論改為：CI 增加的時間【未量，且原本的估法無效】。** 乙只 build admin ⇒ 約為上述其中一半，**仍未量**。
+  📌 這條對三案比較有影響：**甲的時間成本被低估**，而丁的賣點之一正是「兩個 job 可並行」⇒ **它把天平往丁推一點**（但丁的兩處清單同步成本未變，見 §4-b）。
 
 ### 5-b 執行面影響（codex R1 F5：「只寫改檔範圍，未分析執行影響」）
 
