@@ -105,6 +105,86 @@ orders.id   52d1f82f-89fc-4785-9c4d-613c1f51c814
 ⚠️ 不要把本檔讀成「未推的 dev 驗過了」——它連基線都還沒有。
 ```
 
+## 🔴🔴 第 2 輪(丁:去看瀏覽器)—— 結論翻了一半:**TapPay 那側是好的,壞的是我們自己**
+
+時間 2026-08-19 00:00:49 → 00:04:01 CST(兩端都是 `date` 實跑值)。
+
+### 量到什麼(三發,每發都可重跑)
+
+**發 1 · 我們自己的結帳,第 2 筆**(00:00:49 按下確認付款)
+```
+UI            仍是「付款失敗,請稍後再試或聯繫客服 LINE」,3DS 沒跳
+dev log       chargePaymentAction 1933ms、無任何 console.error
+🔴 瀏覽器 Network 抓到 getPrime 那一發:
+   POST https://js.tappaysdk.com/payment/tpdirect/sandbox/getprime  ⇒ 200
+   response body 逐字:{"status":0,"msg":"Success", ... "card":{"prime":"77d864…","lastfour":"4563"},
+                        "cardinfo":{"bincode":"345454","type":5,"country":"UNITED STATES"}}
+⇒ **前端 SDK 完全正常、prime 拿到了。** 失敗在 server action 那半。
+```
+
+**發 2 · 拿那把 prime 自己去打 TapPay**(想分辨「server 有沒有用掉它」)
+```
+回應:{'status': 91, 'msg': 'Expired prime'}
+🔴 **這一發【沒有判別力】,不要引用它** —— prime 的壽命約 90 秒,而我隔了兩分多鐘才打。
+   「被 server 用掉」與「單純過期」在這個輸出上長得一樣。我換了打法(發 3)。
+```
+
+**發 3 · 繞過我們的 code,直接拿一把新 prime 打 TapPay 沙盒**(00:03 前後,90 秒內)
+```
+取 prime:在結帳頁的瀏覽器裡直接叫 window.TPDirect.card.getPrime()
+         ⇒ status 0 / prime 29f95f9b… / lastfour 4563
+         🔴 **這條路不會建單** —— 所以這一發【沒有】再產生孤兒訂單。
+打 TapPay:POST https://sandbox.tappaysdk.com/tpc/payment/pay-by-prime
+         帶本機 .env.local 的 partner_key + merchant_id、amount 1500、
+         three_domain_secure:true、result_url 用 NEXT_PUBLIC_SITE_URL 那個 base
+回應逐字:
+   status          0
+   msg             Success
+   rec_trade_id    D202608199JvV9j
+   payment_url     https://sandbox-redirect.tappaysdk.com/redirect/4c05d5b108ee…
+```
+
+### 🔴 所以結論是
+```
+✅ TapPay 那一側【完全正常】:憑證對、AMEX 收、3DS 開得起來(payment_url 回來了)
+✅ 前端 SDK【完全正常】:getPrime status 0
+🔴 ⇒ 壞的是【我們自己的 server 端】,而且是在 TapPay 之【前】那一步
+   剩下最可能的一格:charge attempts 的 begin
+   = PgChargeAttemptAdapter.begin() 走直連 Postgres 打 `SELECT public.begin_charge_attempt($1::uuid)`
+     (`packages/adapters/src/payment/PgChargeAttemptAdapter.ts:64-66`)
+```
+⚠️ **「最可能」不是「量到」** —— 我沒有正式庫的查詢權限,**沒有直接證據指認 begin 這一格**。
+   要坐實它,需要主視窗送 Sean 的那條「正式庫唯讀查詢」(甲)。
+
+### 順帶關掉的一格(Sean 那句得到獨立佐證)
+```
+Sean 逐字「AMEX 這個才有 3D 驗證,之前是很多次了」
+⇒ 發 3 拿 AMEX 打 three_domain_secure:true,TapPay **真的回了 payment_url**(3DS 轉導頁)
+⇒ 官方文件把 3DS 註記掛在 MasterCard 那一列而 AMEX 那列沒寫 —— **那個「沒寫」確實不代表不會觸發**。
+⚠️ 射程限定:這證明「**AMEX 在這個沙盒商戶上叫得出 3DS**」,**不**證明我們的 code 走得到那一步
+   (我們的 code 根本還沒送出去就失敗了)。
+```
+
+### 🔴 這一輪在 TapPay 沙盒留下的東西(不是訂單,但要記)
+```
+rec_trade_id  D202608199JvV9j   NT$ 1,500(沙盒假錢)/ 3DS 待轉導、我沒有去點那個 payment_url
+🔴 它【不對應任何 PCM 訂單】—— 是我為了診斷繞過 code 打的,PCM DB 裡沒有它的對應列。
+   對帳時看到這一筆不要找對應訂單,找不到是正常的。
+```
+
+### 訂單流水帳補記
+```
+第 2 筆結帳(00:00:49)一樣失敗,**而它【真的又建了一張孤兒單】**。
+```
+量法(可重跑):後台 /orders?show_unpaid_card=1&date_from=2026-08-18&date_to=2026-08-19
+              ⇒ 共 2 筆,兩筆都掛在「G3 沙盒測試」名下
+  WCYCW5  08/18  (第 1 筆)
+  Z6QDV9  08/19  (第 2 筆)
+```
+🔴 **一次失敗的刷卡 = 一張客人看不到的孤兒單。** 客人重試 N 次就是 N 張。
+   這正是下面那條 backlog 的「不修未來會痛在哪」。
+```
+
 ## 已知天花板(每次報告都要帶,不因為刷成功而拿掉)
 ```
 · 3DS 態 -1 ERROR 在沙盒【構造不出來】—— 這不是我這一班量的,出處是 backlog #353
