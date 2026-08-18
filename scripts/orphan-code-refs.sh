@@ -72,9 +72,15 @@ CODE='[A-Z]{1,3}[0-9]{0,2}-[0-9A-Za-z]{1,3}[a-z]?'
 TMP=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
-grep -rnE '(//|--|\*|#)' --include='*.ts' --include='*.tsx' --include='*.sql' "${SRC_DIRS[@]}" 2>/dev/null \
+# 🔴 --exclude-dir 是【正確性】不是效能:2026-08-18 實測,不排除的話 node_modules 的註解
+#    會進語料(當時實測 9 行命中),分母比宣稱的寬,而輸出看起來完全正常。
+grep -rnE '(//|--|\*|#)' --include='*.ts' --include='*.tsx' --include='*.sql' \
+  --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=dist --exclude-dir=.turbo \
+  "${SRC_DIRS[@]}" 2>/dev/null \
   | grep -vE '\.(test|spec)\.|__tests__|/test/' > "$TMP/comments" || true
 grep -E "$DEFER" "$TMP/comments" > "$TMP/defer" || true
+# docs/ 全文抓一次(下面每個代號都要對它比一次;逐次 grep -r 會讓整支跑成分鐘級)
+find "$ROOT/docs" -type f -name '*.md' -exec cat {} + > "$TMP/docs-all" 2>/dev/null || true
 grep -E "$EXPECT" "$TMP/comments" > "$TMP/expect" || true
 
 DEFER_N=$(wc -l < "$TMP/defer" | tr -d ' ')
@@ -99,7 +105,9 @@ N1=0
 while read -r code; do
   [ -z "$code" ] && continue
   # 必須是專案真的在用的代號:docs/ 內查得到(濾掉 JSON-LD / OWNER-COMPANY 這類詞片段)
-  grep -rqE "(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$ROOT/docs" 2>/dev/null || continue
+  # ⚡ 用一次抓好的 docs 合併檔,不要每個代號 grep -r 一次整個 docs/
+  #    (2026-08-18 實測:每代號一次 grep -r ⇒ 整支跑不完 2 分鐘;合併後見檔頭時間)
+  grep -qE "(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$TMP/docs-all" || continue
   grep -qE "^### #.*(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$BACKLOG" && continue
   N1=$((N1+1))
   echo "--- ${code}  (backlog 內文提及 $(grep -cE "(^|[^A-Za-z0-9-])${code}([^A-Za-z0-9-]|\$)" "$BACKLOG") 次、無標題認領)"
