@@ -224,6 +224,20 @@ before / after 建議 = {delisted_at, listing_set_by} 兩欄
    ⇒ 落點指名:**在 OD `pcm-product-edit-screen` 的 `brief.md` 該行加訃聞**
      (原句留著標作廢 + 指向本片的 migration 檔名)。
    📎 這正是本檔自己在 §0-a 講的那件事的反面:**一句「因為 X 所以不做」,不會在 X 消失時變色。**
+
+□ 🔴 **apply 的當下,先量一個 legacy 基線數**(GR R1 nit-a,我收)——
+   這是本片對「service key 旁路」那個【擋不掉的代價】唯一擋得住的一半:**擋不掉,但看得見**。
+   ```
+   -- apply 期,唯讀,一行
+   SELECT count(*) FROM public.products
+    WHERE delisted_at IS NOT NULL AND listing_set_by = 'sync';
+   ```
+   🔴 **這個數今天【不會是 0】,而那不是異常** —— `rpm-reconcile` 歷史上寫過 `delisted_at`,
+   那批列的 `set_by` 就是 DDL DEFAULT 的 `'sync'`。⇒ **它是基線,不是缺陷。**
+   ⇒ 把當天量到的數字**連同量測日期寫進 apply 紀錄**(數字要跟著它的量測時點走)。
+   ⇒ 🔴 **之後這個數再增長 = 有人繞過了本 RPC 直接寫表** —— 那是這條旁路唯一的偵測訊號。
+   ⚠️ 而它偵測不到「本來就下架、被旁路改成上架」那一格(那會讓數字**變小**)
+     ⇒ 這道量具的射程要跟著寫,不要讓下一個人以為它蓋住了整條旁路。
 ```
 
 ## 6. 誠實揭示

@@ -180,6 +180,16 @@ BEGIN
     'admin'
   );
 
+  -- 🔴 這個 INSERT **刻意不檢查 `GET DIAGNOSTICS ROW_COUNT`**(GR R1 nit-b,我收):
+  --   它與本片抄的樣板(tier)一致 —— 我對過樣板 249 行,那裡也沒有這道檢查。
+  --   理由:INSERT 沒插到列在 PL/pgSQL 裡不會安靜過去(沒有 ON CONFLICT / WHERE),
+  --   要嘛成功要嘛拋例外,而拋例外 ⇒ 同交易整筆回滾 ⇒ 狀態也不會留下。
+  -- ⚠️ **而艦隊現在有【兩種稽核形狀並存】**,這一點要寫下來,不是漂移:
+  --   ①本片與 tier 樣板這一系:不檢查 ROW_COUNT(靠交易原子性)
+  --   ②`#423` / `#435` 那一系:明寫 ROW_COUNT 檢查
+  --   ⇒ 🔴 **看到差異的人不要當成 bug 去「修齊」** —— 兩系各自內部一致,
+  --     真要收斂是另開一片、對全部稽核 RPC 一起做,不是在這一支上單獨改。
+
   RETURN 'UPDATED';
 END;
 $$;
@@ -202,10 +212,16 @@ DO $$
 DECLARE
   v_bad text := '';
 BEGIN
+  -- ⚠️ **下面這一格在本檔裡是【恆真】的**(GR R1 ④-a,我收):
+  --   整支 migration 包在單一交易內,CREATE FUNCTION 失敗會當場炸、根本走不到這裡。
+  --   ⇒ 留著的用途是**防手動分段執行**(有人只貼 §2/§3 那幾段到 psql),不是防 apply。
+  --   標出來,是因為「一個永遠不會紅的斷言」看起來與「一道有效的守門」一模一樣。
   IF pg_catalog.to_regprocedure(
        'public.admin_set_product_listing(uuid, boolean, text, text, text)') IS NULL THEN
     v_bad := v_bad || '函式沒有建立成功;';
   END IF;
+  -- ⚠️ 而函式真的不在時,下面三條 `has_function_privilege` 會**先炸它自己的原始錯誤**
+  --   (undefined_function),而不是走到 v_bad ⇒ **紅在錯的字上,但仍然是紅的**(fail-closed)。
   -- anon / authenticated 不得有 EXECUTE(縱深:它們本來就打不到 admin server,這是第二道)
   IF pg_catalog.has_function_privilege('anon',
        'public.admin_set_product_listing(uuid, boolean, text, text, text)', 'EXECUTE') THEN
