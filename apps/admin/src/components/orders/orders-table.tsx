@@ -249,6 +249,21 @@ function OrderGroup({
   const moreLinesLabel = order.itemsTruncated
     ? '另有多項(數量未知)，點進去看'
     : `另有 ${hiddenCount} 項，點進去看`;
+  /**
+   * 🔴🔴 **截斷態的【理由】,`#639 甲` 之後的家(2026-08-18)。**
+   *
+   * 這段話原本是狀態欄那顆「未知」膠囊的 `title=`,而 `#639` 立案的就是那個載體
+   * (`title` 是 hover-only)。拆掉 `title` 的第一版,我在 commit body 裡寫「理由由那一列承載」——
+   * 🔴 **codex 判 must-fix,而它是對的:那一列只寫「另有多項(數量未知),點進去看」,
+   *    原本三句「500 筆固定限制 / 這一格不能拿來判斷進度 / 聯絡負責人」一句都沒了。
+   *    那不是搬家,那是刪掉。**
+   * ⇒ 這一行把三句補回**畫面上**。字短是刻意的(表格一格塞不下 112 字的段落),
+   *   但**三件事都在**:是固定限制、狀態這一格不可信、找誰。
+   * ⚠️ 這與顧客站那兩處**放法不同**(那邊是整段 112 字):客人一頁只有幾張卡,員工一頁有幾十列。
+   */
+  const truncatedReason = order.itemsTruncated
+    ? '這張單的品項太多、系統一次載不完(固定限制,不會自己好)。左邊那格的狀態不能拿來判斷這張單的進度,請找負責人。'
+    : null;
   const mergeAmount = shouldMergeAmount(order);
   // L3 片1:整張單算一次(它只在第一列用得到,但算在 map 外面才不會逐列重算同一份)。
   const status = orderStatusView(order);
@@ -495,12 +510,21 @@ function OrderGroup({
             {first ? (
               <td className={`${TD} ${CELL.status}`} data-l='狀態'>
                 {order.itemsTruncated ? (
-                  <span
-                    className={status.capsuleClass}
-                    title='這張單的品項達到 500 筆上限,系統一次載不完。這是系統的固定限制,不是暫時的狀況。這一格現在看不出這張單實際走到哪一步,請不要用它判斷這張單的進度。請聯絡負責人處理。'
-                  >
-                    未知
-                  </span>
+                  /* 🔴 **`#639` 甲的第三處(2026-08-18)。** 這裡原本把整段理由掛在 `title=` 上,
+                     而 `#639` 立案的正是那個載體 —— G1 收割時撈到這一處、主視窗釘死「不能還是 title」。
+                     ⚠️ **放法與顧客站那兩處【不同】,理由寫在這裡**:
+                       · 顧客站是**一張卡**,塞得下 79 字的段落;這裡是**表格的一格**,
+                         塞進去會把整列撐爛,而且**每一張截斷的單都會重複同一段**。
+                       · 而這段話要講的事,**同一列已經有一個看得見的家** ——
+                         下面那一列「另有多項(數量未知),點進去看」。
+                     ⇒ 這一格只留「未知」兩個字(它自己就是訊號),**理由由那一列承載**
+                        (那一列的 `truncatedReason`,見上面那段 docstring)。
+                     🔴 **第一版我只做了半件事** —— 拆掉 `title` 卻沒有把三句理由補到那一列上,
+                        codex 判 must-fix:**那不是搬家,那是刪掉**。現在三句都在畫面上了。
+                     🔴 `hasMoreLines` 在 `itemsTruncated` 為真時**恆為真**(見上面那個 `||`)
+                        ⇒ **只要這一格印「未知」,那一列就一定在。** 兩者不會各自出現。
+                        守門:`orders-table.test.tsx` 釘住「截斷態 ⇒ 那一列在,且三件事都在畫面上」。 */
+                  <span className={status.capsuleClass}>未知</span>
                 ) : (
                   <span className={status.capsuleClass}>{status.label}</span>
                 )}
@@ -595,6 +619,11 @@ function OrderGroup({
             <Link href={`/orders/${order.id}`} data-nav='page' className='hover:underline'>
               {moreLinesLabel}
             </Link>
+            {/* 🔴 理由印在連結**旁邊**、不進連結文字:連結的名字要短(螢幕閱讀器會逐條唸連結),
+                而理由是給看畫面的人讀的。守門在 `orders-table.test.tsx`(截斷時這三件必須在畫面上)。 */}
+            {truncatedReason !== null && (
+              <span className='ml-2 opacity-90'>{truncatedReason}</span>
+            )}
           </td>
         </tr>
       )}

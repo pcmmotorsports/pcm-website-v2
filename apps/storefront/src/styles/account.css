@@ -854,3 +854,22 @@
   [data-mobile] .acc-profile, .acc-profile { grid-template-columns: 1fr 1fr; }
   .acc-profile input, .acc-inline-form-inner input:not([type="checkbox"]) { font-size: 16px; }
 }
+
+/* 🔴 `#639` 甲(Sean 2026-08-18 拍板):件數算不出來時,那段說明**整段印在畫面上**。
+   原本它住在 `<span title={…}>` 裡 —— `title` 是 hover-only,**觸控裝置沒有 hover**
+   ⇒ 手機客人四段一段都拿不到(W4 實測 0/4)。這條就是那段字現在的家。
+   🔴 **掛在 `.acc-order-l`(左欄)裡面,不是 `.acc-order` 的第三個子元素** ——
+      後者要動到既有的 `display:flex; justify-content:space-between`(加 `flex-wrap`),
+      那會改到**每一張訂單卡**的排版;掛在左欄裡只影響有這段字的那一張。
+   ⚠️ 這段字很長(79 字)⇒ 那張卡會明顯變高。**那是拍板時就講明的代價,不是意外。** */
+.acc-order-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  font-size: 13px; /* 🔴 不用 12.5px:本檔有一格守門「全檔零半像素字級」(auth-account.test.ts §4-3),
+                        它抓到了我。與上面 .acc-order-meta 同級,讀起來也一致。 */
+  line-height: 1.7;
+  color: var(--c-text-2);
+  background: var(--c-surface-2);
+  border-left: 2px solid var(--c-border);
+  max-width: 52ch; /* 長段落限寬:寬螢幕上一行 100+ 字會讀不下去 */
+}

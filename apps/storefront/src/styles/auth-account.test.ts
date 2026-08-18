@@ -632,3 +632,47 @@ describe('Q3=A 觸控救援 · 會員中心小連結(Sean 2026-08-09 拍板,最�
     assertHit(block(ACCOUNT, 'account.css', '.acc-link-btn'), 12, '`.acc-link-btn`');
   });
 });
+
+// ── `#639 甲`:那段說明必須【真的看得見】,不是換個方式再藏一次 ─────────────────
+//
+// 🔴🔴 **這一組的存在理由是 codex 抓到的一個洞**:元件測試用 `getByText(...)` 驗那段字在畫面上,
+//    而 **`getByText` 不看 computed visibility** ——
+//    把 `.acc-order-note` 設成 `display:none`、另外用 `[data-tooltip]:hover::after` 顯示,
+//    **畫面上仍然是 hover-only,而所有元件斷言照樣全綠**。
+//    ⇒ 那個洞只有從 **CSS 這一層**堵得住,所以這一組在這裡、不在元件測試裡。
+// ⚠️ 這一組**讀的是 `account.css` 的字面**,不是渲染結果 —— 它擋的是「有人把它藏起來」,
+//    擋不到「有人把元件整個刪掉」(那一半由元件測試的可見文字格擋)。**兩層一起才完整。**
+describe('`#639 甲` — `.acc-order-note` 不得被藏起來', () => {
+  const block = (() => {
+    const i = ACCOUNT.indexOf('.acc-order-note');
+    if (i < 0) return null;
+    const j = ACCOUNT.indexOf('}', i);
+    return j < 0 ? null : ACCOUNT.slice(i, j + 1);
+  })();
+
+  it('🔴 `.acc-order-note` 這條規則存在(不存在 ⇒ 下面每一格都會變成恆真)', () => {
+    expect(block, 'account.css 找不到 .acc-order-note ⇒ 說明沒有家').not.toBeNull();
+  });
+
+  it('🔴 它不得 `display:none` / `visibility:hidden` / `opacity:0`(那是「換個方式再藏一次」)', () => {
+    expect(block).not.toMatch(/display:\s*none/);
+    expect(block).not.toMatch(/visibility:\s*hidden/);
+    expect(block).not.toMatch(/opacity:\s*0(\D|$)/);
+  });
+
+  it('🔴 全檔不得出現「靠 hover 才顯示這段說明」的寫法', () => {
+    // `:hover` 配 `.acc-order-note` 或 `::after` 內容 —— 那是把 tooltip 換一件衣服穿回來。
+    expect(ACCOUNT).not.toMatch(/\.acc-order-note[^{]*:hover/);
+    expect(ACCOUNT).not.toMatch(/:hover[^{]*\.acc-order-note/);
+  });
+
+  it('負向對照:同一支尺對一個**確實存在**的規則要撈得到(⇒ 上面不是因為尺壞了才過)', () => {
+    // 沒有這一格,`indexOf` 打錯字時上面三格會一起變成「找不到 ⇒ 沒東西可測 ⇒ 綠」。
+    const meta = (() => {
+      const i = ACCOUNT.indexOf('.acc-order-meta');
+      const j = ACCOUNT.indexOf('}', i);
+      return ACCOUNT.slice(i, j + 1);
+    })();
+    expect(meta).toContain('font-size');
+  });
+});
