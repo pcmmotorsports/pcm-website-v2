@@ -13800,7 +13800,40 @@ domain Order                          仍無 fulfillmentMethod（本條原本說
 
 ### #534. 🔴🔴 沒選具名身分 ⇒ 後台**所有寫入動作靜默失效**,而畫面完全正常
 
-- **狀態:** 🔴 未處理 —— **這是【預設狀態】,不是邊界情況**(見下方「為什麼不是『只影響某個人』」)
+- **狀態:** 🔴 未處理(**訂單域那一份 2026-08-18 已修掉,見下方 G2 那段;客戶域仍未處理**)
+  —— **這是【預設狀態】,不是邊界情況**(見下方「為什麼不是『只影響某個人』」)
+
+> ## 🔴 2026-08-18 20:1x(G2)複驗:**「所有寫入動作」在【訂單域】今天不成立**
+>
+> 條目一句話逐字寫「他按下的**任何**寫入動作…都會什麼都不做」。**逐個呼叫點開檔量**
+> (`apps/admin/src/lib/orders/*.ts`,排除 `*.test.ts`;數法:對每支檔 grep `authorizeAdminMutation()` 後看它的出口):
+> ```
+> 有出口（帶 'denied' 或回 failure state）  9 處
+>   amount-actions:78 redirectWith(…,'denied')      cancel-actions:135 failRedirect(…'denied')
+>   note-actions:108 noteFailure('denied')          order-actions:66 redirectWith(…,'denied')
+>   payment-actions:79 console.warn + failure       payment-reverse-actions:56 reverseFailure('denied')
+>   procurement-actions:105 procurementFailure      receipt-actions:63/:252 receiptFailure ×2
+> 🔴 靜默（裸 redirect，無訊息碼）             1 處
+>   keyword-search-action.ts:63  redirect('/orders')
+> ```
+> ⇒ **訂單域 10 個呼叫點裡,靜默的只有【搜尋】那一個。** 條目的「任何寫入動作」對本域已是過度陳述。
+> ⚠️ **而那不表示條目錯**:它點名的搜尋/儲值金/會員等級裡,**儲值金與會員等級在客戶域**
+> (`lib/customers/*`),**本次沒有複驗** ⇒ 那一半仍當成立。
+>
+> ### 已修(本次,1 行 + 1 格守門)
+> `keyword-search-action.ts` 改成 `redirect(appendResultQuery('/orders', 'r=denied'))`。
+> **不是新機制**:`/orders` 本來就讀 `?r=` 並渲染 `ResultBanner`(`app/orders/page.tsx:92,181`;
+> `denied` 的字面在 `result-banner.tsx:46`「沒有權限或登入狀態已失效,未儲存。」)。
+> 🔴 **這一行不改授權行為**(擋的還是同一件事、仍 fail-closed),只讓那個失敗**看得見**。
+> 守門:`keyword-search-action.test.ts` 新增一格(突變:改回裸導回 ⇒ 恰好 1 格紅);
+> **舊那格只驗「沒寫 cookie」⇒ 裸導回照樣全綠** —— 那正是這個病的形狀。
+>
+> ### 沒有主張
+> ```
+> · 客戶域（儲值金/會員等級/客戶搜尋）**沒有複驗** —— 那是別的窗的域
+> · 沒有動 authorize.ts 本體（那才是根因:actor 為 null 時整條靜默）—— 那要 plan + 拍板
+> ```
+
 - **一句話:** 員工登入後若**沒有先去總覽頁選「具名身分」**,他按下的**任何**寫入動作
   (搜尋、備註、儲值金、會員等級、取消單…)都會**什麼都不做**,
   **沒有訊息、沒有錯誤、沒有 console 警告,畫面看起來完全正常**。
