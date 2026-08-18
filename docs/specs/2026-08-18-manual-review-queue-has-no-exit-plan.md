@@ -87,7 +87,37 @@ grep -rn "GRANT EXECUTE ON FUNCTION public.admin_" supabase/migrations/*.sql ⇒
      下一個實作的人會覺得「先關再記」也一樣(它在正常路徑上確實一樣;**它們只在出錯那一刻不一樣**,
      而出錯那一刻正是三個月後有人來查的那一刻)
 ```
-⚠️ **仍要 Sean 批**(鐵則 12①錢 + 12③ schema)。**查到有路 ≠ 可以接上去。**
+### 4.0-b ✅ 那一格查掉了:**新 RPC 要【呼叫】它,不是抄它**(2026-08-18 G4 實查,純讀)
+
+我原本標未確認的是:**新 RPC 直接呼 `mark_charge_attempt_failed`,還是複製它的內部邏輯?**
+開檔讀了它的本體(`20260624120006_m3_3ds_r1b2_markfailed_order_paid_guard.sql:59` 起)之後,答案不再是偏好:
+```
+它本身就是 SECURITY DEFINER + SET search_path=''，而且裡面有四道東西：
+  ① 雙鍵驗（attempt_id + order_id）+ FOR UPDATE 序列化
+  ② 冪等：failed→failed no-op
+  🔴 ③ order-paid guard（fail-closed）：同交易鎖 orders，payment_status <> 'unpaid' ⇒ RAISE
+  ④ UPDATE 只打 status='pending'，並用 ROW_COUNT 驗恰好一列
+```
+🔴 **③ 是不能抄的那一道**:它擋的是「**把一張已經付款的單的 attempt 標成失敗**」。
+**抄第二份 = 這道 guard 有兩個版本,而它們會漂**;漂掉的那一天,症狀是**已付款的單被動到**,
+而**那正是本 repo 抓過的病**(同一個判定式的第二份實作)。
+⇒ **所以:新 RPC 是一層【薄殼】** —— 它自己只做「稽核 + 授權邊界」,狀態轉換**整段委給既有那支**。
+
+**為什麼呼得動**(機制,非量測):新 RPC 若是 `SECURITY DEFINER` 且 **owner = postgres**,
+它執行時的身分是 owner;而那支函式的 owner 也是 postgres(migration 以 postgres 身分建)
+⇒ **owner 對自己的函式有隱含 EXECUTE**,不需要額外 GRANT、也不必動既有那道窄權設計。
+⚠️ **未量**:正式庫上那兩支的 owner 我沒查(repo 側量不到)⇒ **實作時第一步就要驗這個前提**。
+
+🔴 **而這條路仍然【擴大了面】,那件要進審查、不要被這段話蓋過去**:
+```
+擴大的是什麼：service_role（＝後台）從此可以【經由這支新 RPC】把 pending attempt 收斂成 failed
+擋著它的是什麼：callee 的 order-paid guard（已付款的單碰不到）＋ 新 RPC 自己的稽核必填
+🔴 沒被回答的是什麼：一個被盜的 service_role 金鑰，能不能靠「把 attempt 標成失敗」做出壞事？
+   （它會釋放那張單的 attempt 鎖 —— 那對重複扣款的防線有沒有影響，我【沒有查】）
+⇒ 這一條是【對抗審查的第一個題目】，不是實作時順手判的事
+```
+
+⚠️ **仍要過審查才可落地**(鐵則 12①錢 + 12②權限 + 12③ schema)。**查到有路 ≠ 可以接上去。**
 
 ```
 ① 誰按那個鈕 ⇒ 見 §4.0：現在沒有路，要新增一支窄 RPC（有前例形狀可抄）
