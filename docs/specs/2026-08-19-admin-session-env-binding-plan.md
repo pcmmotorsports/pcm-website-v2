@@ -451,11 +451,78 @@ admin 側   apps/admin/src/lib/sso/exchange.ts:116   authorization: `Bearer ${co
 
 ```
 🔴 ADMIN_REQUIRE_REAL_IDENTITY 那個橫跨多份 spec 的漸進切換機制，本片【一個字都不動】
-量法（改動前後必須同值，不同值 = 本片越界了）：
-  grep -rIl 'ADMIN_REQUIRE_REAL_IDENTITY' docs/specs | wc -l
-  改動前（2026-08-19 當場量）⇒ 8
-  改動後 ⇒ 必須仍是 8
-⚠️ 而那個 8 裡有一份是本檔自己（見 §0 M2 的附註）⇒ 引用這個數字要帶這句
+
+⛔⛔ 原本寫的量法【是壞的，而且它在【現在】就已經印錯了】（W6 R4-M3，我自量複驗成立）：
+  ~~grep -rIl 'ADMIN_REQUIRE_REAL_IDENTITY' docs/specs | wc -l  ⇒ 前後都 8~~
+  🔴 它測不到「動了 spec」——因為 b5-spec【本來就含那個字面】，改它不會讓計數變。
+  而我本輪【真的動過 b5-spec】。當場量：
+    git show --name-only --format='' <sha> | grep -c '^docs/specs/'
+      14682d88 ⇒ 1   40073186 ⇒ 2   5650aaea ⇒ 2   b9379bb9 ⇒ 2   2c7dce09 ⇒ 1
+    ⇒ 那個 2 的第二支就是 docs/specs/2026-08-17-m4b-e8b-b5-spec.md
+  📌 母題：【尺量的是「這個字在不在」，而我要問的是「這個檔有沒有被改」】——兩件事。
+
+✅ 換成這把（量的是【異動】不是【字面】）：
+  git show --name-only --format='' <本片的 sha> | grep '^docs/specs/'
+  ⇒ 只准出現本 plan 自己一支；出現 b5-spec 或任何其他 spec = 本片越界了
+  🔴 而【本片之前的那幾顆刻意動過 b5-spec】（掛載點、判別句），那是主視窗明文要求的第二落點
+     ⇒ 那些不算越界，而【實作片】不得再動它。兩者要分開講。
+
+📎 而 W6 自陳它第一發也量錯（跑 git diff --name-only origin/dev...HEAD -- docs/specs/ ⇒ 10，
+   那是全窗未推的東西不是我這片）⇒ 同一個坑的另一面：**尺對了、範圍錯了。**
+```
+
+### 3-丁.6 🔴🔴 R4-M1:`getKey()` 的**快取鍵**必須一起改,而**只改它不夠**
+
+```
+session.ts:74-88 現行快取鍵【只認 secret】：if (secret !== cachedSecret || !cachedKey)
+⇒ 我把材料改成 secret+'|'+env，而快取鍵沒跟著把 env 算進去
+⇒ 同一個 process 內 env 變動時 ⇒ secret 沒變 ⇒ 回【舊的 key】
+```
+🔴 **W6 打出來的那半比我設想的毒**(逐字):它**會紅**,而它
+> 「紅在一個**看起來像測試環境問題**的地方,而最順手的修法是 `vi.resetModules()`
+> ⇒ **suite 綠了而 `getKey()` 一行沒改**。」
+
+📌 **那是「動驗證本身」的立即停止訊號**(常載 §R4)—— **修法不是讓它變綠,是讓它紅得對。**
+
+**⇒ 折法(兩件缺一不可)**:
+```
+① 快取鍵改成【完整材料】：material = secret + '|' + env，比對 material 不是比對 secret
+② 加一格【在同一個 process 內】釘住快取的測試：
+   同一把 secret，簽 env=A → 翻成 env=B → 再簽 ⇒ 🔴 兩顆簽章【必須不同】
+   🔴 沒有②，①被改回去時【沒有任何東西會紅】
+```
+
+### 3-丁.7 🔴🔴🔴 R4-M2:驗證端的失敗訊號**不是「合流」,是【根本不存在】** —— 這是丁的必要配套
+
+我問 W6「跨環境失敗會不會被讀成又是環境搞錯」。**它的答案是:不會,因為根本沒有人會讀到。**
+**我自量複驗**:
+```
+grep -c 'return null' apps/admin/src/lib/session/session.ts                ⇒ 11 條失敗分支
+grep -cE 'console\.|logger|record' apps/admin/src/lib/session/session.ts   ⇒ 0
+proxy.ts:41-50 ⇒ 只是導去 /api/sso/start，零記錄
+recordSsoLogin 只掛 callback 那五個點（:52/:62/:68/:75/:84）
+```
+⇒ **`verifySession` 的每一種拒絕都完全靜默。真偽造 / turbo 濾掉 / 自然過期
+—— 三者輸出【完全相同,而且都是空的】。**
+
+🔴🔴 **⇒ 丁上線後若 production 讀不到 env,第一個症狀是【所有人被登出,而零 log】。**
+**⇒ 因此:驗證端加一個【不帶 token 內容】的三態分類訊號(`sig_invalid` / `expired` / `shape`)
+= 丁的【必要配套】,不是 nice-to-have。它同時是丁唯一的早期警報。**
+⚠️ **而它要小心不要變成新的洩漏面** —— 只記分類,不記 token、不記 payload、不記 sid。
+
+### 3-丁.8 ⚠️ R4-M4(nit):代價的下游 —— **我點的三個裡只有一個成立,而真正的風險我沒點到**
+
+```
+✅ 背景 job    不受影響（cron 走 CRON_SECRET，不是 session）
+✅ requestId  不受影響（每請求新產）
+🔴 進行中的表單【會丟】—— order_note.append 那條用 server 渲染時發的一次性 token
+
+🔴🔴 而我完全沒點到的那個（W6 找的）：
+   舊金鑰實例與新金鑰實例【同時存在的那一段】
+   ⇒ 持舊票的人被新實例拒 → 重登 → 拿新票 → 打到舊實例 → 又被拒 ⇒ 【來回彈】
+   · Vercel 別名切換通常原子 ⇒ 視窗很短，但【非零】
+   · ⚠️ 若 Rolling Releases 開著就【不短】—— 🔴 那格【沒有人查過】，本 plan 標【未查】
+     缺的那道檢查：Vercel 專案設定看 Rolling Releases 是否啟用
 ```
 
 ### 3-丁.5 仍然沿用原設計的部分
