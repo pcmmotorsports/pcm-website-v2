@@ -52,9 +52,13 @@ function detailWith(brand: string | null): AdminOrderDetail {
   } as unknown as AdminOrderDetail;
 }
 
+// 🔴 `returnTo` / `suppliers` / `suppliersFailed` 是 ItemsTable 的必填 prop（片7 之後加的），
+//    本片一格都不斷言它們 —— 放在這裡只為了讓型別過。
+//    ⚠️ 它們的行為由 item-procurement-section.test.tsx 守，不要在本檔重複守一份。
+//    （2026-08-19 收割窗補：w1-order-panel 的基底早於片7，merge 乾淨而 typecheck 紅。）
 describe('🔴 片16:商品列的品牌那一行', () => {
   it('有品牌 ⇒ 印在 .ibrand 裡', () => {
-    const { container } = render(<ItemsTable detail={detailWith('BREMBO')} payments={PAYMENTS} />);
+    const { container } = render(<ItemsTable detail={detailWith('BREMBO')} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
     const el = container.querySelector('.ibrand');
     expect(el, '.ibrand 不見了 ⇒ 品牌那一行沒畫').not.toBeNull();
     expect(el?.textContent).toBe('BREMBO');
@@ -64,7 +68,7 @@ describe('🔴 片16:商品列的品牌那一行', () => {
   });
 
   it('🔴 brand 為 null ⇒ 整行不印(不是印「—」)', () => {
-    const { container } = render(<ItemsTable detail={detailWith(null)} payments={PAYMENTS} />);
+    const { container } = render(<ItemsTable detail={detailWith(null)} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
     // 正向錨:表格本身有渲染。少了它,下面兩條在「元件回 null」時會恆綠。
     expect(container.textContent, '品項表沒渲染 ⇒ 下面兩條會恆綠').toContain(
       'BRM-GP4RX-108-DUC-V4S',
@@ -80,7 +84,7 @@ describe('🔴 片16:商品列的品牌那一行', () => {
   });
 
   it('🔴 品牌行在 `.iline` 之外(它是橫跨整列的一行,不是第七軌)', () => {
-    const { container } = render(<ItemsTable detail={detailWith('BREMBO')} payments={PAYMENTS} />);
+    const { container } = render(<ItemsTable detail={detailWith('BREMBO')} payments={PAYMENTS} returnTo='/orders' suppliers={[]} suppliersFailed={false} />);
     const brand = container.querySelector('.ibrand');
     const line = container.querySelector('.iline');
     expect(brand, '錨不見了').not.toBeNull();
