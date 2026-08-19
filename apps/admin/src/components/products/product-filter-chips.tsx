@@ -31,7 +31,14 @@ const CHIPS: readonly ChipSpec[] = [
   { key: 'sync', label: '自動', value: 'sync' },
 ];
 
-export function ProductFilterChips({ filter }: { filter: AdminProductFilter }) {
+export function ProductFilterChips({
+  filter,
+  size,
+}: {
+  filter: AdminProductFilter;
+  /** 目前的每頁筆數 —— 🔴 **必須帶著走**:按 chip 不該把員工選的「每頁 500」洗回預設。 */
+  size: number;
+}) {
   return (
     <div className='flex items-center gap-2'>
       {CHIPS.map((chip) => {
@@ -47,7 +54,7 @@ export function ProductFilterChips({ filter }: { filter: AdminProductFilter }) {
                分頁那份漏了 `set_by`(`app/products/page.tsx:106` 舊字面),
                員工按「手動」再按「下一頁」就回到全部商品。
                ⇒ 現在**搜尋詞 `q` 也會被帶著走** —— 按 chip 不會把搜尋洗掉。 */
-            href={buildProductListHrefResetPage({ ...filter, setBy: chip.value })}
+            href={buildProductListHrefResetPage({ ...filter, setBy: chip.value }, size)}
           >
             {chip.label}
           </Link>

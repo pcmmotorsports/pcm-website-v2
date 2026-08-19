@@ -114,3 +114,77 @@ export function buildListHref(
   const qs = params.toString();
   return qs ? `${path}?${qs}` : path;
 }
+
+// ─────────────── 商品分頁片(2026-08-19,plan = docs/specs/2026-08-19-admin-products-pagination-plan.md)
+
+/**
+ * 這一頁**少給了幾列**(`null` = 這一頁是完整的)。
+ *
+ * 🔴🔴 **本函式存在的理由 = 分頁準則 1 的替代品,而它比準則 1 強。**
+ *
+ * 準則 1(`docs/patterns/pagination-loop-review.md` §1)要求「頁大小嚴格小於 `db-max-rows`」,
+ * 而**那個上限是 Supabase Dashboard 上點一下就能改的專案設定** —— 同段逐字:
+ * 「**餘裕是【設定給的】,不是程式保證的** … 而**不會有任何東西紅**:檔沒改、測試沒紅、`grep` 數不變」。
+ * ⇒ 任何寫死那個數字的守門,都會在它被改小的那天**安靜地失效**。
+ *
+ * **本函式不問上限是多少。** 它問的是:
+ *
+ *     這一頁【應該】有幾列?  expected = min(pageSize, max(0, total - offset))
+ *     它【實際】有幾列?      shownCount
+ *     差多少?               missing = expected - shownCount
+ *
+ * 🔴 **這個減法成立的前提只有一個,而它成立**:`count: 'exact'` 的 `total` 與這一頁的列
+ *    **來自同一次 PostgREST 請求**(`content-range` 與 body 同一個 response)
+ *    ⇒ 兩個數字必定是同一時刻的快照 ⇒ **沒有 TOCTOU**、不受「翻頁期間有人寫」影響。
+ *    (若哪天改成「先查 count、再查列」兩發,本函式立刻失去效力 —— **改的人請一起改這段。**)
+ *
+ * ⇒ 它抓得到的不只是伺服器上限:**任何原因造成的截斷**(上限、proxy、PostgREST 版本差異)
+ *   都會讓 `missing > 0`。
+ *
+ * `missing < 0`(列比可能的還多)也回報 —— 那表示 `total` 與列**互相矛盾**,同樣是異常。
+ *
+ * ⚠️ **它證不了的**:翻頁期間集合被寫(plan §3 病 C)。那是跨請求的問題,單發請求看不到。
+ */
+export type PageTruncation = {
+  /** 正 = 少給了幾列;負 = 列比 `total` 允許的還多(兩者都是異常) */
+  readonly missing: number;
+  readonly expected: number;
+  readonly shownCount: number;
+  readonly offset: number;
+  readonly total: number;
+};
+
+export function detectPageTruncation(
+  total: number,
+  page: number,
+  pageSize: number,
+  shownCount: number,
+): PageTruncation | null {
+  const offset = (page - 1) * pageSize;
+  const expected = Math.min(pageSize, Math.max(0, total - offset));
+  const missing = expected - shownCount;
+  if (missing === 0) return null;
+  return { missing, expected, shownCount, offset, total };
+}
+
+/**
+ * 分頁列要顯示哪幾個頁碼:一段**連續**、**必含 `current`**、長度至多 `size` 的頁碼窗。
+ *
+ * Sean 的規格逐字畫的是 `1.2.3.4.5[]6.7.8.9.10> >>` ⇒ **十個頁碼、輸入框在中間**。
+ * ⇒ 窗會**滑動**(不是「前 5 後 5」):在第 87 頁時給 82–91,而不是給 1–5 再 88–92。
+ *   照「前 5 後 5」寫的話,**第 1 頁只會出現 6 個頁碼** —— 與他畫的形狀不同。
+ *
+ * 邊界:`totalPages <= size` ⇒ 全部列出;`current` 靠近兩端 ⇒ 窗貼邊(長度仍是 size)。
+ */
+export function pageWindow(current: number, totalPages: number, size = 10): readonly number[] {
+  const span = Math.min(size, Math.max(1, totalPages));
+  // 讓 current 盡量落在窗的中間,再把窗推回 [1, totalPages] 之內。
+  // 🔴 **最外層那個 `Math.max(1, …)` 不是多餘的**:`totalPages = 0` 時
+  //    右界 `totalPages - span + 1` 會算成 **0** ⇒ 少了它會回傳 `[0]`,而 `?page=0` 不是合法頁。
+  //    (這一格是被 `pageWindow(1, 0)` 那條測試當場抓出來的,不是預先想到的。)
+  const start = Math.max(
+    1,
+    Math.min(Math.max(1, current - Math.floor((span - 1) / 2)), totalPages - span + 1),
+  );
+  return Array.from({ length: span }, (_, i) => start + i);
+}

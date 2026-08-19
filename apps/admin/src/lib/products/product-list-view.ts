@@ -24,6 +24,32 @@ import type { ProductSetByFilter } from './product-repository';
 export const SET_BY_PARAM = 'set_by';
 export const KEYWORD_PARAM = 'q';
 export const PAGE_PARAM = 'page';
+export const SIZE_PARAM = 'size';
+
+/**
+ * 每頁筆數的**白名單**。🔴 **不收任意整數** —— 這個值會直接變成 `.range()` 的頁大小。
+ *
+ * 🔴🔴 **為什麼封頂 1000 而不是 2000(下一個人一定會問,所以答案寫在這裡)**:
+ *    分頁準則 1(`docs/patterns/pagination-loop-review.md` §1)要求頁大小**嚴格小於**
+ *    伺服器的 `db-max-rows`,而該檔量到的現值是 **2000**
+ *    (V 窗 2026-08-18:`products?select=id&limit=5000` ⇒ 206、`content-range: 0-1999/19777`)。
+ *    ⇒ 放 2000 = **零餘裕**,而該段逐字說那是「現在能動、伺服器一調就死」。
+ *    ⇒ 1000 留了一倍餘裕。
+ * ⚠️ **而那個 2000 是二手的**(該檔自陳「主視窗與 I 窗均未自驗」)⇒ 本片**不靠它**:
+ *    真正的守門是 `detectPageTruncation()`(`lib/shared/list-params.ts`),它不讀任何上限設定。
+ *
+ * 下緣 20 = 改造前的既有值(`PRODUCTS_PAGE_SIZE`),留著讓習慣舊畫面的人回得去。
+ */
+export const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000] as const;
+
+/**
+ * 預設每頁筆數。
+ *
+ * Sean 逐字規格:「**單頁要能看到 200-500 以上**」⇒ 預設踩在他講的範圍**下緣**。
+ * (20,341 件 ÷ 200 = 102 頁;改造前是 20 筆 ⇒ 1,018 頁。)
+ * **不預設 1000** 的理由 = 那個量級的 DOM 成本,見 plan §6;而 1000 仍然選得到。
+ */
+export const DEFAULT_PAGE_SIZE = 200;
 
 /** 網址能表達的商品列表篩選狀態。**加一軸就要同時改 `buildProductListHref`,由型別強制。** */
 export interface AdminProductFilter {
@@ -31,6 +57,24 @@ export interface AdminProductFilter {
   readonly setBy: ProductSetByFilter | undefined;
   /** `?q=`;`undefined` = 沒搜尋(**不是搜尋空字串**)。已 trim,不會是空字串。 */
   readonly keyword: string | undefined;
+}
+
+/**
+ * 網址能表達的**檢視**狀態(「怎麼看」,不是「篩什麼」)。
+ *
+ * 🔴🔴 **為什麼 `size` 不放進 `AdminProductFilter`** —— 這是本片唯一一個設計層的決定:
+ *    `AdminProductFilter` 的每一軸都會變成一個 **DB where 條件**(`.eq` / `.or`);
+ *    `page` 與 `size` 一個都不是,它們決定的是 `.range()`。
+ *    混在一起會有兩個具體後果:
+ *      ① 型別說謊 —— 之後有人照著 `keyof AdminProductFilter` 去組 where,會撈到 `size`。
+ *      ② 🔴 **`buildProductListHrefResetPage` 會被污染** —— 換篩選要重設 `page`,
+ *         **但絕不該重設 `size`**(員工把每頁調成 500,按一下「手動」就跳回 200 = 改動消失)。
+ */
+export interface AdminProductView {
+  /** `?page=`;1-indexed,已下界 1。 */
+  readonly page: number;
+  /** `?size=`;必為 `PAGE_SIZE_OPTIONS` 之一。 */
+  readonly size: number;
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -43,6 +87,18 @@ export function parseProductPage(value: string | string[] | undefined): number {
   if (typeof value !== 'string') return 1;
   const n = Number(value);
   return Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
+/**
+ * `?size=` 解析。**白名單**,認不得的值(含 3000 / `abc` / 陣列 / 缺)→ `DEFAULT_PAGE_SIZE`。
+ *
+ * 🔴 與 `parseProductSetBy` 同一條理由:網址是使用者可以手改的,
+ *    亂改的後果應該是「看到預設的樣子」而不是一頁錯誤 —— **更不是把 `?size=999999` 送進 `.range()`**。
+ */
+export function parseProductPageSize(value: string | string[] | undefined): number {
+  if (typeof value !== 'string') return DEFAULT_PAGE_SIZE;
+  const n = Number(value);
+  return (PAGE_SIZE_OPTIONS as readonly number[]).includes(n) ? n : DEFAULT_PAGE_SIZE;
 }
 
 /**
@@ -81,14 +137,17 @@ export function parseProductKeyword(value: string | string[] | undefined): strin
 /** 一次把三個網址參數解析成型別化的狀態。 */
 export function parseProductListParams(raw: SearchParams): {
   filter: AdminProductFilter;
-  page: number;
+  view: AdminProductView;
 } {
   return {
     filter: {
       setBy: parseProductSetBy(raw[SET_BY_PARAM]),
       keyword: parseProductKeyword(raw[KEYWORD_PARAM]),
     },
-    page: parseProductPage(raw[PAGE_PARAM]),
+    view: {
+      page: parseProductPage(raw[PAGE_PARAM]),
+      size: parseProductPageSize(raw[SIZE_PARAM]),
+    },
   };
 }
 
@@ -105,19 +164,38 @@ type HrefEntry = readonly [param: string, value: string | undefined];
  *    ⚠️ 這道**只保證「每個軸都被做過決定」**,保證不了那個決定是對的:
  *      對到錯的 param 名、或該帶卻寫 `undefined`,型別一樣過。那半靠往返測試。
  */
-export function buildProductListHref(filter: AdminProductFilter, page: number): string {
+export function buildProductListHref(
+  filter: AdminProductFilter,
+  view: AdminProductView,
+): string {
   const byFilterKey: Record<keyof AdminProductFilter, HrefEntry> = {
     setBy: [SET_BY_PARAM, filter.setBy],
     keyword: [KEYWORD_PARAM, filter.keyword],
   };
 
+  // 🔴🔴 **第二道窮舉守門(2026-08-19 新增),而它同時關掉一個既有缺口。**
+  //    在它之前,`page` 是函式尾端一個**裸 `if`** —— 不受任何守門管;
+  //    ⇒ 加 `size` 這一軸時若照抄那個形狀,就會有**兩個沒人看著的軸**,
+  //      而症狀正是本檔頭寫的那一種:「翻頁時那一軸靜默消失,而畫面上的選擇還在」。
+  //    ⇒ 把 `page` 一起收編進來:**`AdminProductView` 加一軸而這裡沒列,`tsc` 直接紅**。
+  //    ⚠️ 同檔頭那條限定照樣適用:這道只保證「每個軸都被做過決定」,
+  //       保證不了那個決定是對的(對到錯的 param 名一樣過)—— 那半靠往返測試。
+  const byViewKey: Record<keyof AdminProductView, HrefEntry> = {
+    // 🔴 第 1 頁不寫 `page=1`:網址短、可讀,而且與既有行為**逐字一致**
+    //    (原 `buildHref` 逐字 `p <= 1 ? '/products' : …`)。
+    page: [PAGE_PARAM, view.page > 1 ? String(view.page) : undefined],
+    // 🔴 預設筆數不寫進網址,理由同上;而它也讓「沒選過」與「選了預設值」產生同一個網址
+    //    ⇒ 書籤與分享出去的連結不會把一個【當時的預設值】凍在裡面。
+    size: [SIZE_PARAM, view.size === DEFAULT_PAGE_SIZE ? undefined : String(view.size)],
+  };
+
   const params = new URLSearchParams();
-  for (const [param, value] of Object.values(byFilterKey)) {
+  for (const [param, value] of [
+    ...Object.values(byFilterKey),
+    ...Object.values(byViewKey),
+  ]) {
     if (value !== undefined) params.set(param, value);
   }
-  // 🔴 第 1 頁不寫 `page=1`:網址短、可讀,而且與既有行為一致
-  //    (原 `buildHref` 逐字 `p <= 1 ? '/products' : …`)。
-  if (page > 1) params.set(PAGE_PARAM, String(page));
 
   const qs = params.toString();
   return qs === '' ? '/products' : `/products?${qs}`;
@@ -129,6 +207,11 @@ export function buildProductListHref(filter: AdminProductFilter, page: number): 
  * 🔴 理由與 `product-filter-chips.tsx:16` 既有那條同源:換條件卻停在第 3 頁,
  *    常常直接看到空白頁 —— 而那看起來像「查無結果」,不像「你還在第 3 頁」。
  */
-export function buildProductListHrefResetPage(filter: AdminProductFilter): string {
-  return buildProductListHref(filter, 1);
+export function buildProductListHrefResetPage(
+  filter: AdminProductFilter,
+  size: number,
+): string {
+  // 🔴 `page` 回 1、而 **`size` 原封不動帶著走**(見 `AdminProductView` 檔頭那條理由 ②):
+  //    員工把每頁調成 500 之後按一下「手動」,不該跳回 200。
+  return buildProductListHref(filter, { page: 1, size });
 }

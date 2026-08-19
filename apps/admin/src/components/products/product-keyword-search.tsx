@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import {
+  DEFAULT_PAGE_SIZE,
   KEYWORD_PARAM,
   SET_BY_PARAM,
+  SIZE_PARAM,
   buildProductListHrefResetPage,
   type AdminProductFilter,
 } from '../../lib/products/product-list-view';
@@ -25,13 +27,27 @@ import {
 //    (`app/customers/page.tsx:80` 的 `<CustomerKeywordSearch>` 就在 `<CustomerFilterBar>` 上面)。
 //    這樣員工的視線順序是「這一頁是什麼 → 我要找什麼 → 再細分」。
 
-export function ProductKeywordSearch({ filter }: { filter: AdminProductFilter }) {
+export function ProductKeywordSearch({
+  filter,
+  size,
+}: {
+  filter: AdminProductFilter;
+  /** 目前的每頁筆數 —— 理由同 `ProductFilterChips`:搜尋不該把它洗回預設。 */
+  size: number;
+}) {
   return (
     <div className='flex flex-col gap-1'>
       {/* 🔴 `method='get'` + `action='/products'` ⇒ 送出後網址就是 `/products?q=…`。
           **不要**加 `page` 的 hidden input:換搜尋詞本來就該回第 1 頁,
           而「沒有那個欄位」就是最省的做法(同 `buildProductListHrefResetPage` 的理由)。 */}
       <form method='get' action='/products' className='flex items-end gap-2'>
+        {/* 🔴 `size` 要有 hidden 欄位,`page` 不要 —— 兩者的理由是**相反**的:
+            · `page` 沒有欄位 ⇒ 送出後回第 1 頁 = **正是我們要的**(換搜尋詞本來就該回第 1 頁)。
+            · `size` 沒有欄位 ⇒ 送出後回預設筆數 = **員工的選擇消失**,而畫面上沒有任何提示。
+            ⇒ 預設值不送(與 `buildProductListHref` 的省略規則對齊,網址才會長一樣)。 */}
+        {size !== DEFAULT_PAGE_SIZE && (
+          <input type='hidden' name={SIZE_PARAM} value={String(size)} />
+        )}
         <div className='flex flex-col gap-1'>
           <label
             htmlFor='product-keyword-search'
@@ -78,7 +94,7 @@ export function ProductKeywordSearch({ filter }: { filter: AdminProductFilter })
         <p className='text-muted-foreground text-xs'>
           目前搜尋:「{filter.keyword}」
           <Link
-            href={buildProductListHrefResetPage({ ...filter, keyword: undefined })}
+            href={buildProductListHrefResetPage({ ...filter, keyword: undefined }, size)}
             className='text-primary ml-2 underline'
           >
             清除搜尋

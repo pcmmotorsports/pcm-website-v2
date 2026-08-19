@@ -8,16 +8,25 @@ import { ProductKeywordSearch } from '../../components/products/product-keyword-
 import { ListPagination } from '../../components/shared/list-pagination';
 import { listProductsForAdmin, type AdminProductPage } from '../../lib/products/product-repository';
 import {
+  DEFAULT_PAGE_SIZE,
+  KEYWORD_PARAM,
+  PAGE_PARAM,
+  PAGE_SIZE_OPTIONS,
+  SET_BY_PARAM,
+  SIZE_PARAM,
   buildProductListHref,
   parseProductListParams,
 } from '../../lib/products/product-list-view';
+import { detectPageTruncation } from '../../lib/shared/list-params';
 
 // M-4b #20 片1a:後台商品列表(唯讀)。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 // force-dynamic:讀 searchParams + DB 查、不靜態預渲染(同 customers/orders 兩頁)。
 export const dynamic = 'force-dynamic';
 
-/** 沿用既有列表慣例的每頁筆數;plan §5-4 已標「未依商品實際筆數調校」。 */
-export const PRODUCTS_PAGE_SIZE = 20;
+// 🔴 **`PRODUCTS_PAGE_SIZE = 20` 已移除**(2026-08-19 分頁片)——
+//    每頁筆數改由網址 `?size=` 決定,合法值與預設在 `lib/products/product-list-view.ts`
+//    (`PAGE_SIZE_OPTIONS` / `DEFAULT_PAGE_SIZE`)。舊常數留著會變成第二個真相來源。
+//    Sean 逐字規格:「單頁要能看到 200-500 以上,下方頁數選擇要可以自填頁數」。
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -33,15 +42,15 @@ export default async function ProductsPage({
   searchParams: Promise<SearchParams>;
 }) {
   const raw = await searchParams;
-  const { filter, page } = parseProductListParams(raw);
-  const offset = (page - 1) * PRODUCTS_PAGE_SIZE;
+  const { filter, view } = parseProductListParams(raw);
+  const offset = (view.page - 1) * view.size;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯)→ 顯錯誤態、頁面仍 200(不 500);
   //    server log 留鑑識、DB error 不外洩到畫面(同 customers/page.tsx:37-48)。
   let result: AdminProductPage | null = null;
   let loadFailed = false;
   try {
-    result = await listProductsForAdmin(PRODUCTS_PAGE_SIZE, offset, filter.setBy, filter.keyword);
+    result = await listProductsForAdmin(view.size, offset, filter.setBy, filter.keyword);
   } catch (error) {
     console.error('[admin/products] 商品列表載入失敗', error);
     loadFailed = true;
@@ -49,6 +58,19 @@ export default async function ProductsPage({
 
   const items = result?.items ?? [];
   const total = result?.total ?? 0;
+
+  // 🔴🔴 **這一頁是不是被砍過** —— 見 `detectPageTruncation` 的檔頭。
+  //    它取代了「頁大小要小於 db-max-rows」那個**靠設定值的假設**:
+  //    那個上限在 Supabase Dashboard 上點一下就能改小,而改小的那天**不會有任何東西紅**。
+  //    ⚠️ 讀取失敗時不判(那時 total/items 都是保底的 0,判了會誤報)。
+  const truncation = loadFailed ? null : detectPageTruncation(total, view.page, view.size, items.length);
+
+  // 兩個 GET 表單(換筆數 / 跳頁)要原封帶過去的篩選軸。
+  // 🔴 **不含 `page` 與 `size`** —— 那兩軸各自由表單自己的欄位提供,見 `ListPaginationJump`。
+  const filterFields = {
+    [SET_BY_PARAM]: filter.setBy,
+    [KEYWORD_PARAM]: filter.keyword,
+  };
 
   return (
     <div className='mx-auto space-y-4'>
@@ -70,11 +92,11 @@ export default async function ProductsPage({
           「這一頁是什麼 → 我要找什麼 → 再細分」。
           ⚠️ 它畫在 `loadFailed` 判斷【外面】:讀取失敗時搜尋框仍要在 ——
           否則員工唯一能做的動作(換個詞再試)會跟著錯誤訊息一起消失。 */}
-      <ProductKeywordSearch filter={filter} />
+      <ProductKeywordSearch filter={filter} size={view.size} />
 
       {!loadFailed && (
         <>
-          <ProductFilterChips filter={filter} />
+          <ProductFilterChips filter={filter} size={view.size} />
           {filter.setBy === 'staff' && filter.keyword === undefined && total === 0 && (
             <p className='text-muted-foreground text-sm'>
               目前沒有手動設定過的商品。設定上下架的功能還沒做好,所以現在每一筆都是「自動」。
@@ -101,12 +123,22 @@ export default async function ProductsPage({
             }
           />
           <ListPagination
-            page={page}
+            page={view.page}
             total={total}
-            pageSize={PRODUCTS_PAGE_SIZE}
+            pageSize={view.size}
             shownCount={items.length}
-            buildHref={(p) => buildProductListHref(filter, p)}
+            buildHref={(p) => buildProductListHref(filter, { page: p, size: view.size })}
             unit='件'
+            truncation={truncation}
+            jump={{
+              action: '/products',
+              filterFields,
+              pageParam: PAGE_PARAM,
+              sizeParam: SIZE_PARAM,
+              sizeOptions: PAGE_SIZE_OPTIONS,
+              currentSize: view.size,
+              defaultSize: DEFAULT_PAGE_SIZE,
+            }}
           />
         </>
       )}

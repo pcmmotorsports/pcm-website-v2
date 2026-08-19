@@ -13,7 +13,13 @@ vi.mock('../../lib/products/product-repository', async (importOriginal) => {
 });
 vi.mock('server-only', () => ({}));
 
-import ProductsPage, { PRODUCTS_PAGE_SIZE } from './page';
+import ProductsPage from './page';
+import { DEFAULT_PAGE_SIZE } from '../../lib/products/product-list-view';
+
+// 🔴 舊常數 `PRODUCTS_PAGE_SIZE`(=20)已移除:每頁筆數改由網址 `?size=` 決定。
+//    這些既有斷言不給 `?size=` ⇒ 走預設 ⇒ 期望值換成 `DEFAULT_PAGE_SIZE`。
+//    **斷言的形狀一個都沒改**,只換了那個常數指向誰。
+const PRODUCTS_PAGE_SIZE = DEFAULT_PAGE_SIZE;
 
 afterEach(() => {
   cleanup();
