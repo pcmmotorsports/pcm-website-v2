@@ -310,6 +310,38 @@ grep -oE '^### #[0-9]+[a-z]*' docs/phase-1-backlog.md | sed 's/^### //' \
 ⚠️ 另一個已知缺陷:**merge 進行到一半(有衝突未解)時它會回 rc=3 並說「去問那個窗」** ——
 而那時候擋住的是**你自己的 merge**。**訊息會指錯人。**
 
+### 🔴🔴 第三種漏法(2026-08-20 實錘):**它是【時點量測】,而跑它與 merge 之間那段空檔沒有人守**
+
+```
+01:13:0x  bash scripts/harvest-preflight.sh w3-customer-sort  ⇒ rc=0（乾淨）
+01:13:2x  git merge --no-ff w3-customer-sort                  ⇒ 被擋，git 逐字：
+            error: Your local changes to the following files would be overwritten by merge:
+              note-compose-form.test.tsx / note-compose-form.tsx / notes-timeline.tsx /
+              order-detail.tsx / note-action-state.ts / local-admin-with-real-data-probe.md
+01:13:50  重跑同一支 preflight                                ⇒ rc=3，**逐字列出同樣那 6 支**
+```
+🔴 **工具沒有壞 —— 它兩次都答對了它被問的那個時點。** 別的窗在那 40 秒之間 `git add` 進來。
+⇒ **這不是「尺不準」,是「尺量的是過去」。** 在共用索引上,**任何 preflight 的結論在它印出來的那一刻就開始過期**。
+
+**判別句**
+> **我這一發 preflight 與我這一顆 merge 之間,隔著幾秒?那幾秒裡別的窗能不能 `git add`?**
+> 能 ⇒ **rc=0 只代表「當時乾淨」,不代表「現在可以 merge」。**
+(這與本檔 §4 那條「我這次寫檔跟我這次讀檔,中間隔著別人嗎?」是**同一句話的第二個化身** ——
+ 那次是寫檔/讀檔,這次是量測/動作。)
+
+**⇒ 現行處置(不改腳本,改用法)**
+```
+· preflight 與 merge **貼在同一條命令上**:
+    bash scripts/harvest-preflight.sh <branch> && git merge --no-ff <branch> -m "…"
+  —— `&&` 把空檔壓到最小。**壓不到零**（git 自己也不是原子的），但這是不改工具就拿得到的最好結果。
+· 🔴 而 merge 【被擋】本身是【好事】,不要想辦法讓它過去:
+  git 這一次是**吵著失敗**的。88804080 那次同族形狀是**安靜成功並帶走別人的檔**。
+  ⇒ 兩者的差別不在誰比較小心，在 git 那一刻剛好需不需要動到那些路徑。
+· 被擋 ⇒ 照紀律**去問那個窗**，不要 stash、不要 reset、不要「先收別支再回頭」繞過去。
+```
+⚠️ **未驗**:把兩者用 `&&` 串起來之後**還會不會再發生一次** —— 本檔落檔時**尚未遇到第二次**,
+⇒ **「`&&` 有效」是推的,不是量到的。** 下一個遇到的人請把結果補在這裡。
+
 ## 5c. 🔴 新開的 worktree 在 `pnpm install` 之前**沒有任何 pre-commit 閘**
 
 ```
