@@ -683,34 +683,62 @@ export type OrderPanelTarget = string | typeof PANEL_CLOSED;
  *    它只列 7 個鍵 ⇒ **改任一篩選就把這四個鍵靜默丟掉**
  *    (面板自己關掉 / 「待收款待訂貨」自己熄掉 / 密度變回預設)。
  *
- * 🔴 **為什麼是「原樣回聲」而不是逐鍵重建**:這四個鍵的**真相不在篩選列手上**
+ * 🔴 **為什麼不逐鍵【重建】語意**:這四個鍵的**真相不在篩選列手上**
  *    (面板開誰是 URL 說了算、密度是工具列說了算)。重建等於在第二個地方複製一份語意,
  *    而本片修的就是「兩份清單各自演化」這個病 —— 再開一份只是把第五次推到以後。
- * ⚠️ **本支只搬運、不驗證**:值的合法性由各自的 reader 負責
- *    (`readOpenPanelOrderId` 對非 UUID 回 `null`、`den` 走白名單)。
- *    搬一個爛值過去的後果 = 那一格自己失效,而不是整條網址壞掉。
+ *
+ * ⚠️ ~~**本支只搬運、不驗證**:值的合法性由各自的 reader 負責~~
+ *    **這句是我寫的,而它錯了(W6 審查抓到,同片更正)**:本支若「只搬運」,就等於
+ *    **自己持有一條規則**(當時是「陣列取第一個」)—— 而那條規則與 reader 的規則**分岔**,
+ *    症狀是「改個篩選,面板自己打開了」。⇒ 現在本支**逐鍵呼叫那些 reader 本人**,
+ *    **沒有自己的規則可言**。錯法留著,因為「搬運不需要驗證」聽起來非常合理。
  */
-const PRESERVED_BY_FILTER_BAR = [
-  ORDER_PANEL_PARAM,
-  CUSTOMER_PANEL_PARAM,
-  ORDER_DENSITY_PARAM,
-  PENDING_ONLY_PARAM,
-] as const;
-
 /**
- * 從當下的 searchParams 抓出上面那四個鍵,回成 `a=1&b=2`(沒有就回空字串)。
+ * 從當下的 searchParams 抓出那四個鍵,回成 `a=1&b=2`(沒有就回空字串)。
  * 給 `order-filter-controls` 的 `href()` 直接接在自己那串後面。
+ *
+ * 🔴🔴 **每一個鍵都走【它自己那支 reader】,本支不自己判一次**(W6 審 `#742` 的 nit)。
+ *    原本這裡是一條**通用規則**(「陣列取第一個」),而那讓本支與 `readOpenPanelOrderId` 分岔:
+ *    ```
+ *    ?panel=a&panel=b（只有手打 / 書籤做得出來）
+ *      readOpenPanelOrderId  陣列 ⇒ typeof !== 'string' ⇒ null ⇒ 這次渲染面板是【關】的
+ *      本支（舊版）           陣列 ⇒ value[0]          ⇒ 回聲出單一的 ?panel=a
+ *      ⇒ 員工改一個篩選 ⇒ **面板自己打開了**
+ *    ```
+ *    ⇒ `#742` 是「改篩選把面板關掉」,這一格是**它的鏡像**:「改篩選把面板打開」。
+ *    ⚠️ 而它**不是理論值**:`readOpenPanelOrderId` 自己的註解記著一次真事故,
+ *      逐字「觸發只要**一條大寫的書籤網址**」⇒ 這個 repo 已經被書籤網址咬過一次。
+ *
+ * 🔴 **W6 那句比 nit 本身值錢,抄在這裡**:舊版**有**測陣列那一格,
+ *    而它測的是「本支的行為」,沒測「**兩支對同一個鍵的規則一不一致**」——
+ *    **一個契約有兩邊,而斷言只釘了一邊;兩邊各自都對,合起來才錯。**
+ *    ⇒ 修法不是在本支補一條 if,是**讓本支沒有自己的規則可言**。
  */
 export function buildPreservedFilterQuery(
   raw: Record<string, string | string[] | undefined>,
 ): string {
   const out = new URLSearchParams();
-  for (const key of PRESERVED_BY_FILTER_BAR) {
-    const value = raw[key];
-    // 這四個鍵**都是純量**(`list-params.ts:110` 走 `params.set`)⇒ 陣列 = 手打的網址,取第一個就好。
-    const one = Array.isArray(value) ? value[0] : value;
-    if (one !== undefined && one !== '') out.set(key, one);
+
+  // `panel` / `customer`:走面板自己那兩支 reader(非 UUID / 重複鍵 ⇒ `null` = 不開 ⇒ 不回聲)。
+  //   順帶拿到它們的正規化(小寫)—— 回聲出去的值與**面板真的會開的那張單**同一個字面。
+  const panelId = readOpenPanelOrderId(raw);
+  if (panelId !== null) out.set(ORDER_PANEL_PARAM, panelId);
+  const customerId = readOpenCustomerPanelId(raw);
+  if (customerId !== null) out.set(CUSTOMER_PANEL_PARAM, customerId);
+
+  // `den`:與 `parseOrderListSearchParams` 逐字同一條運算式(白名單;非法值倒向預設)。
+  //   🔴 **等於預設就不寫進 URL** —— 與 `buildOrderListHref` 對 `den` 的處置一致,
+  //      否則每條連結都掛著 `den=loose` 這個雜訊。
+  const density = pickEnum(raw[ORDER_DENSITY_PARAM], ORDER_DENSITY_VALUES);
+  if (density !== undefined && density !== ORDER_DENSITY_DEFAULT) {
+    out.set(ORDER_DENSITY_PARAM, density);
   }
+
+  // `pending`:同上,唯一開關值 `'1'`,其餘一律不回聲(fail-safe 倒向不篩)。
+  if (firstValue(raw[PENDING_ONLY_PARAM]) === PENDING_ONLY_ON) {
+    out.set(PENDING_ONLY_PARAM, PENDING_ONLY_ON);
+  }
+
   return out.toString();
 }
 

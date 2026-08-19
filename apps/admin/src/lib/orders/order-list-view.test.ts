@@ -31,6 +31,8 @@ import {
   GOODS_AXIS_LABEL,
   PANEL_CLOSED,
   buildPreservedFilterQuery,
+  readOpenPanelOrderId,
+  readOpenCustomerPanelId,
 } from './order-list-view';
 
 /**
@@ -647,19 +649,23 @@ describe('`#539` 訂單列表的會員等級標籤:三個值都釘住,包含那�
   });
 });
 
+const UUID_A = '11111111-1111-4111-8111-111111111111';
+const UUID_B = '22222222-2222-4222-8222-222222222222';
+const UUID_C = '33333333-3333-4333-8333-333333333333';
+
 describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃掉的那四個鍵', () => {
-  it('四個鍵都在時原樣回聲', () => {
+  it('四個鍵都有效時回聲出去', () => {
     const qs = new URLSearchParams(
       buildPreservedFilterQuery({
-        panel: 'ord-1',
-        customer: 'cus-9',
-        den: 'loose',
+        panel: UUID_A,
+        customer: UUID_C,
+        den: 'tight',
         pending: '1',
       }),
     );
-    expect(qs.get('panel')).toBe('ord-1');
-    expect(qs.get('customer')).toBe('cus-9');
-    expect(qs.get('den')).toBe('loose');
+    expect(qs.get('panel')).toBe(UUID_A);
+    expect(qs.get('customer')).toBe(UUID_C);
+    expect(qs.get('den')).toBe('tight');
     expect(qs.get('pending')).toBe('1');
   });
 
@@ -667,11 +673,11 @@ describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃
     expect(buildPreservedFilterQuery({})).toBe('');
   });
 
-  it('🔴 不屬於這四個的鍵【不得】被搬過去 —— 否則篩選列會把自己的軸重複一份', () => {
+  it('🔴 不屬於這四個的鍵【不得】被搬過去', () => {
     const qs = new URLSearchParams(
-      buildPreservedFilterQuery({ panel: 'ord-1', order_source: 'web', r: 'saved' }),
+      buildPreservedFilterQuery({ panel: UUID_A, order_source: 'web', r: 'saved' }),
     );
-    expect(qs.get('panel')).toBe('ord-1');
+    expect(qs.get('panel')).toBe(UUID_A);
     expect(qs.has('order_source')).toBe(false);
     // `r` 是一次性結果碼:搬過去的話,員工改個篩選就會再跳一次「已儲存」。
     expect(qs.has('r')).toBe(false);
@@ -681,8 +687,70 @@ describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃
     expect(buildPreservedFilterQuery({ panel: '' })).toBe('');
   });
 
-  it('陣列(手打網址才做得出來)取第一個,不會產出重複鍵', () => {
-    const qs = new URLSearchParams(buildPreservedFilterQuery({ panel: ['a', 'b'] }));
-    expect(qs.getAll('panel')).toEqual(['a']);
+  it('`den` 等於預設就不寫進 URL(與 buildOrderListHref 對 den 的處置一致)', () => {
+    expect(buildPreservedFilterQuery({ den: ORDER_DENSITY_DEFAULT })).toBe('');
+    // 非法值倒向預設 ⇒ 一樣不回聲(不該把 `?den=xxx` 變成某個沒人選過的密度)
+    expect(buildPreservedFilterQuery({ den: 'xxx' })).toBe('');
+  });
+
+  it('`pending` 只認 `1`,其餘不回聲(fail-safe 倒向不篩)', () => {
+    expect(buildPreservedFilterQuery({ pending: '1' })).toBe('pending=1');
+    expect(buildPreservedFilterQuery({ pending: 'true' })).toBe('');
+  });
+});
+
+describe('🔴 `#742` nit(W6):回聲與 reader 對【同一個鍵】的規則必須一致', () => {
+  /**
+   * 🔴🔴 **一個契約有兩邊,而斷言只釘了一邊 —— 兩邊各自都對,合起來才錯。**
+   *
+   * 舊版的 `buildPreservedFilterQuery` 自己持有一條通用規則(「陣列取第一個」),
+   * 而 `readOpenPanelOrderId` 對陣列是 `null`(面板不開)⇒ 兩邊分岔:
+   * ```
+   * ?panel=a&panel=b（只有手打 / 書籤做得出來）
+   *   這次渲染:面板【關】   → 員工改一個篩選 → 回聲出單一 ?panel=a → 面板【自己打開了】
+   * ```
+   * `#742` 是「改篩選把面板關掉」,這一格是它的**鏡像**。
+   * ⚠️ **不是理論值**:`readOpenPanelOrderId` 的註解記著一次真事故,
+   * 逐字「觸發只要一條大寫的書籤網址」⇒ 這個 repo 已經被書籤網址咬過一次。
+   *
+   * 🔴 **本族釘的不是任一支的行為,是【兩支的答案一致】** ——
+   * 所以斷言寫成「reader 說開不開」對上「回聲有沒有帶」,而不是各自比對一個字面。
+   */
+  const agrees = (raw: Record<string, string | string[] | undefined>) => {
+    const readerSaysOpen = readOpenPanelOrderId(raw) !== null;
+    const echoHasPanel = new URLSearchParams(buildPreservedFilterQuery(raw)).has('panel');
+    return { readerSaysOpen, echoHasPanel };
+  };
+
+  it('重複鍵:reader 說不開 ⇒ 回聲也不得帶(舊版會在這裡把面板打開)', () => {
+    const r = agrees({ panel: [UUID_A, UUID_B] });
+    expect(r.readerSaysOpen).toBe(false);
+    expect(r.echoHasPanel).toBe(false);
+  });
+
+  it('對照組:單一合法 UUID ⇒ 兩邊都說開', () => {
+    const r = agrees({ panel: UUID_A });
+    expect(r.readerSaysOpen).toBe(true);
+    expect(r.echoHasPanel).toBe(true);
+  });
+
+  it('對照組:非 UUID ⇒ 兩邊都說不開', () => {
+    const r = agrees({ panel: 'ord-1' });
+    expect(r.readerSaysOpen).toBe(false);
+    expect(r.echoHasPanel).toBe(false);
+  });
+
+  it('大寫 UUID:reader 折成小寫 ⇒ 回聲出去的字面要與【面板真的會開的那張單】相同', () => {
+    const upper = UUID_A.toUpperCase();
+    expect(readOpenPanelOrderId({ panel: upper })).toBe(UUID_A);
+    expect(new URLSearchParams(buildPreservedFilterQuery({ panel: upper })).get('panel')).toBe(
+      UUID_A,
+    );
+  });
+
+  it('客人卡那一支同樣要一致(同型,不同鍵)', () => {
+    const raw = { customer: [UUID_A, UUID_B] };
+    expect(readOpenCustomerPanelId(raw)).toBeNull();
+    expect(new URLSearchParams(buildPreservedFilterQuery(raw)).has('customer')).toBe(false);
   });
 });
