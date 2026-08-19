@@ -227,14 +227,76 @@ export function ItemProcurementBlock({
                     truncated={blocked}
                   />
 
-                  <ItemProcurementForm
-                    orderId={detail.id}
-                    returnTo={returnTo}
-                    orderItemId={item.id}
-                    procurements={rows}
-                    supplierChoices={buildSupplierChoices(suppliers, rows)}
-                    truncated={blocked}
-                  />
+                  {/* 🔴🔴 **片17(2026-08-19):這份表單改成【預設收起】,而它是量出來的不是版面偏好。**
+                      真瀏覽器實量(720×900 面板、12 品項/其中 8 項有採購):
+                      ```
+                      面板 scrollHeight 6,241 px ⇒ 要捲 6.9 個螢幕；商品區 4,817 px = 全面板 77%
+                      展開的卡 536 px / 收起的卡 90 px ⇒ 打開一張的代價 446 px ≈ 半個螢幕
+                      而那 446 px 裡幾乎全是【這一份空表單】：供應商下拉／訂購數量／預計到貨日／
+                      聯絡管道／供應商單號／送出採購的時間／回覆狀態 5 顆 radio／異常原因 textarea／送出鈕
+                      —— 採購那一列【真資料】只佔約 1 行
+                      ```
+                      ⇒ 螢幕上同時攤著 **8 份一模一樣的空表單**。
+                      🔴 **而 Sean 的原話是「看得完整,但佔高度」——【看】不是【填】。**
+                         我們給他的不是「看得完整」,是 8 份等他填的表單。
+                      ⇒ 主視窗 2026-08-19 裁:表單收起、**卡片自動展開那條加裁不動**
+                         (`stuck || hasProcurementRows` 一個字沒改)。
+
+                      📌 **這不是新設計** —— 上面 `rows.length === 0` 那條分支**本來就是這樣做的**
+                         (同一支 `<details>`、同一種 summary)。本片只是把 A 的做法套到 B。
+
+                      🔴 **字面「再跟一家」是 DB 釘死的,不是文案選擇**(W3 給的證據,比設計稿硬):
+                         `20260729020000_m4b_e10_a2_order_item_procurement.sql:69-70`
+                         `UNIQUE (order_item_id, supplier_canonical_key)`,註解逐字「同一品項同一家供應商只有一列」
+                         ⇒ 有採購列時,員工唯一做得到的動作就是「**再**跟**一家**」。
+                      ⚠️ **已知這個字面略窄**(W3 指出):實際索引是
+                         `UNIQUE (order_item_id, supplier_id) WHERE voided_at IS NULL`(部分索引)
+                         ⇒ **作廢之後可以再向同一家下訂**,那時「再跟一家」讀起來會有點怪。
+                         **判不值得為這個邊界改字面** —— 講清楚要多一個狀態,而那是把成本加回去。 */}
+                  {/* 🔴🔴 **只有「真的有採購列」時才收合** —— 這個條件是被三格既有守門逼出來的,
+                      而它們是對的:
+                      本分支同時服務**三種**狀態,而只有第一種是我量到的那個問題:
+                      ```
+                      rows.length > 0            有採購列        ← 我量到的 8 張卡，446px 全在這裡
+                      rows.length === 0 且 blocked  清單被截斷    ← fail-closed：「沒撈到」不是「沒有」
+                      rows.length === 0 且 unreadable 讀不到      ← 同上
+                      ```
+                      🔴 後兩種**一個字都不動**:它們的畫面是「請重整/找工程師」,
+                         而**在一個講「我讀不到」的區塊裡再收起一個表單,是把兩層不確定疊起來**。
+                      ⚠️ 我第一版無條件收合 ⇒ `item-procurement-section.test.tsx` 三格當場紅
+                         (`零採購列但被截斷` / `讀不到採購` / `剛好在門檻上`)。
+                         🔴 **而我沒有去改那三格的期望值** —— 它們釘的是「截斷時不得收合成『還沒訂』」,
+                            那個意圖是對的,紅的是**我的條件太寬**。**改的是我,不是尺。**
+                      📌 順帶:這個條件也讓字面問題自己消失 —— 「**再**跟一家」只在真的有列時才出現。 */}
+                  {rows.length > 0 ? (
+                    <details className='group mt-3'>
+                      <summary className='flex cursor-pointer flex-wrap items-center gap-2 text-xs'>
+                        <span className='transition-transform group-open:rotate-90'>▸</span>
+                        <span className='border-primary text-primary rounded-md border px-2.5 py-1 font-medium'>
+                          ＋ 再跟一家供應商下訂
+                        </span>
+                      </summary>
+                      <div className='mt-3'>
+                        <ItemProcurementForm
+                          orderId={detail.id}
+                          returnTo={returnTo}
+                          orderItemId={item.id}
+                          procurements={rows}
+                          supplierChoices={buildSupplierChoices(suppliers, rows)}
+                          truncated={blocked}
+                        />
+                      </div>
+                    </details>
+                  ) : (
+                    <ItemProcurementForm
+                      orderId={detail.id}
+                      returnTo={returnTo}
+                      orderItemId={item.id}
+                      procurements={rows}
+                      supplierChoices={buildSupplierChoices(suppliers, rows)}
+                      truncated={blocked}
+                    />
+                  )}
                 </>
               )}
     </div>
