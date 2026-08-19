@@ -157,6 +157,32 @@ W2 為避撞用 `cp` **整檔還原**,把我那列一起蓋掉;我又補了一�
 **哪天有人寫了一支「照 `APPLIED.tsv` 決定要不要 apply」的工具,這張表就從自陳帳本變成【輸入】,那時它就不輕了。**
 ⇒ 寫跳審理由時把「**它不被任何程式讀**」這個前提寫進去,將來前提變了才有人撞得到。
 
+### 🔴 而這支檔一夜撞了 4 次,而第 3、4 次證明傷害**不限於這支檔**
+
+```
+① W2 與我各 append 一列 ⇒ W2 用 cp 整檔還原 ⇒ 蓋掉我那列
+② 我 add 之後被 pre-commit gate 擋下、補標記再 commit 時【沒重新 add】
+   ⇒ 那段空檔別的窗把它的版本 stage 進同一個索引
+   ⇒ 我 commit 了 2 列而 commit body 寫「1」（更正在 035fd668）
+③ 主視窗一筆 staged 的 APPLIED.tsv **擋住我一個完全無關的 merge**
+   （branch 根本沒動那支檔 —— 擋住 merge 的不是衝突，是共用索引裡有未提交改動）
+④ 主視窗用 /tmp/cmsg.txt 寫 commit 訊息，而別的窗也在寫同一個檔名
+   ⇒ `cat > /tmp/cmsg.txt` 成功、零錯誤訊息，而讀回來的內容是別人的
+   ⇒ 它一度誤判成「hook 讀 COMMIT_EDITMSG 快取」；實查 grep 舊字面 ⇒ 檔裡真的還有
+```
+📌 **四次的共同形狀不是「誰不小心」**,是 **【共用命名空間 + 沒有人擁有那個名字】**:
+①②③ 是共用索引,④ 是共用 `/tmp`。
+📌 **判別句(④ 給的,最短)**:**我這次寫檔跟我這次讀檔,中間隔著別人嗎?**
+
+**⇒ 新規矩(主視窗 2026-08-19 立,即刻生效)**
+```
+動 supabase/APPLIED.tsv 的窗，**當場 commit，不留 staged**。
+從 `git add supabase/APPLIED.tsv` 到 `git commit` 之間**不要插入任何其他動作**
+（跑 gate、寫標記、改 commit 訊息都算「其他動作」—— 那正是 ② 的成因）。
+被 hook 擋下 ⇒ 先 `git restore --staged supabase/APPLIED.tsv`，修好再重新 add + commit。
+```
+📌 **而 ④ 的修法是換載體不是加小心**:commit 訊息改寫進 **session scratchpad**,不用 `/tmp` 的共用名字。
+
 ---
 
 ## 5. 收割怎麼做(可直接照抄)
