@@ -1,5 +1,14 @@
 // 片10 證偽用量具 —— container-type 會不會讓子孫的 position:fixed 被困住?
 // 用法: npx playwright ... 見檔尾;引擎由 argv[2] 指定 (webkit|chromium|firefox)
+// 📌 考古用(2026-08-19,W2):下面這段 import 的改動,**實際上是隨 `88804080`
+//    「merge(w1-order-panel): 出貨區收件人…」進入 dev 的** —— 那顆 merge 的訊息一個字
+//    沒提本檔,所以 `git log -- <本檔>` 那條路在此中斷過一次。審查歸屬:**主視窗(非作者)
+//    逐行看過該 diff,PASS + 1 nit**;而**那件事在 git 裡沒有痕跡**,因為 merge 路徑
+//    繞過 reviewer gate。
+//    🔴 成因不是有人不小心:**merge 會帶走【當下共用索引裡的一切】,而做 merge 的窗
+//    看不到那些是誰的**(七個窗共用同一棵工作樹、同一個索引、同一個 git 身分
+//    `probe <probe@local>` ⇒ `%an` 對「誰做的」判別力為零)。⇒ 別寫「以後小心」那種規則。
+//
 // 從 apps/admin 的位置解析 playwright(它是那個 app 的直接依賴)。
 // 🔴 為什麼不寫 `import ... from 'playwright'`:本檔在 scripts/,而 pnpm 是嚴格解析 ——
 //    repo 根的 node_modules **沒有** playwright 頂層連結(實查:`ls -d node_modules/playwright-core` ⇒ 不存在)
