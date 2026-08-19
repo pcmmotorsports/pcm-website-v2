@@ -115,6 +115,55 @@
 改問  ：service_role 的成員集合，與【基線】相比有沒有多出東西  （有答案）
 ```
 
+### 🔴🔴 基線要建在【哪一張表】—— 這一格原本是缺的,現在有量測了
+
+**起因**:Sean 跑 `pg_auth_members` 回 **2 列**(postgres / authenticator),而稍早那發
+`pg_has_role(...,'MEMBER')` 回 **4 列**(supabase_admin / authenticator / supabase_storage_admin / cli_login_postgres)。
+**差兩個。主視窗把「為什麼」丟回給我,而我去量了、沒有推。**
+
+**本機重建一個同形狀的世界**(`svc` = service_role;`pgx` = postgres;
+`storage_like`/`cli_like` 是 **pgx 的成員**、不是 svc 的;`admin_like` = superuser):
+```
+尺 A  pg_auth_members 直查 roleid=svc      ⇒ pgx
+尺 B  pg_has_role(...,'MEMBER')            ⇒ admin_like, cli_like, pgx, storage_like, supabase_admin
+尺 C  遞移閉包(WITH RECURSIVE)+ 排 superuser ⇒ cli_like, pgx, storage_like
+```
+⇒ 🔴 **差額的成因量到了,而且是兩個不同的來源**:
+```
+· supabase_storage_admin / cli_login_postgres ＝ **遞移** —— 它們是 postgres 的成員，
+  而 postgres 是 service_role 的直接成員（Sean 那張表:admin_option=true / inherit_option=true）
+  ⇒ 🔴 尺 A【看不到它們】，因為 A 只問「誰被直接授予 svc」
+· supabase_admin ＝ **superuser 恆真** ⇒ 尺 B 的雜訊，與授權圖無關
+```
+
+**⇒ 基線建在哪一張表:**
+| 尺 | 漏什麼 / 吵什麼 | 判 |
+|---|---|---|
+| A `pg_auth_members` 直查 | 🔴 **遞移加入不會紅** —— 有人 `GRANT postgres TO x` 就繞過了 | ❌ |
+| B `pg_has_role` | superuser 恆真 ⇒ **永遠有雜訊**,而雜訊會訓練人忽略它 | ❌ |
+| **C 自算遞移閉包 + 排 superuser** | 兩者都沒有 | ✅ **選這個** |
+
+🔴 **而 C 的判別力我實測過(該紅有紅)**:在同一個世界新增一個非 superuser 的直接成員 `newcomer`
+⇒ C 的輸出立刻多出 `newcomer`(`cli_like, newcomer, pgx, storage_like`)。
+⚠️ **限定**:我量的是**本機重建的同形狀世界**,不是正式庫的實際圖。
+   **「storage/cli 是經由 postgres 遞移」這件事在正式庫仍未證實** ⇒ 要一句查詢(見下)。
+
+### ⏳ 還缺一句 SQL(請主視窗跟 Sean 要)
+```sql
+-- 正式庫裡，誰是 postgres 的成員？（驗證上面那個「經由 postgres 遞移」的推論）
+SELECT m.rolname AS 成員, m.rolsuper, a.inherit_option, a.set_option
+  FROM pg_auth_members a
+  JOIN pg_roles r ON r.oid = a.roleid
+  JOIN pg_roles m ON m.oid = a.member
+ WHERE r.rolname = 'postgres'
+ ORDER BY 1;
+```
+```
+回【含 supabase_storage_admin / cli_login_postgres】 ⇒ 推論證實，尺 C 的形狀確定
+回【不含】                                          ⇒ 🔴 那它們是【另一條路】進來的，
+                                                       而那條路我還不知道 ⇒ 本節要重寫
+```
+
 ### 🔴 而主視窗要我先答那三題,**答不出來就不要選這個形狀**
 
 | 題 | 我的答案 |
