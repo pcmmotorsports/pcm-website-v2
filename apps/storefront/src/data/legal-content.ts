@@ -252,7 +252,7 @@ export const LEGAL_UI_STRINGS = {
   /** 頁尾「最後更新」列的標籤(後接 LEGAL_LAST_UPDATED)。 */
   lastUpdatedLabel: '最後更新:',
   /** 瀏覽器分頁標題 = `${doc.title}${titleSuffix}`。 */
-  titleSuffix: ' — PCM Motorsports',
+  titleSuffix: ' — PCM MOTOR PARTS LTD',
 } as const;
 
 export const TERMS_DOC: LegalDoc = {
@@ -262,7 +262,7 @@ export const TERMS_DOC: LegalDoc = {
   // 🔴 這裡**不寫**七日解除權相關字眼:第 10 條主張排除(Sean 拍板 B),
   //    SEO 描述若宣告「提供七日解除權」即與條文相反、且是客人與搜尋引擎最先讀到的一句。
   description:
-    'PCM Motorsports(派達有限公司)網路交易服務條款:企業經營者資訊、契約成立、商品交付、付款方式、退貨與契約解除權、瑕疵擔保與消費爭議處理。',
+    'PCM MOTOR PARTS LTD(派達有限公司)網路交易服務條款:企業經營者資訊、契約成立、商品交付、付款方式、退貨與契約解除權、瑕疵擔保與消費爭議處理。',
   sections: TERMS_SECTIONS,
 };
 
@@ -271,7 +271,7 @@ export const PRIVACY_DOC: LegalDoc = {
   title: '隱私政策',
   subtitle: '個人資料蒐集、處理及利用告知',
   description:
-    'PCM Motorsports(派達有限公司)隱私政策:個人資料之蒐集機構、目的、類別、利用期間與對象、您得行使之權利,以及 Cookie 與第三方服務說明。',
+    'PCM MOTOR PARTS LTD(派達有限公司)隱私政策:個人資料之蒐集機構、目的、類別、利用期間與對象、您得行使之權利,以及 Cookie 與第三方服務說明。',
   sections: PRIVACY_SECTIONS,
 };
 

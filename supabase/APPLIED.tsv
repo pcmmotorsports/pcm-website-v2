@@ -222,3 +222,4 @@
 20260818170000	3efc6e5853f2f737ffff735626453706d682f4aa316d425885626de143b6cea1	2026-08-18	主視窗(跑)/G6(記;來源=2026-08-18 20:4x Sean 跑的 db push --dry-run)
 20260818190000	d72abdea4d2589ccb7eb347fc6f4bfd60fd31daaa54482a605a86ed62da8e740	2026-08-18	Sean(跑 db push)/G6(記;來源=2026-08-18 21:0x 實跑 Applying… + 其後 dry-run 回 Remote database is up to date.)
 20260819040000	99fe263b667b3e1c488dff2e92a0c37ce15b2cd0db4b2f5ab64d2936a665004a	2026-08-19	Sean(SQL Editor)/G2(記;來源=2026-08-19 09:4x 對正式庫跑 supabase gen types typescript --project-id,輸出 :3298 含 admin_set_product_listing 五個具名參數;正向對照同輸出 admin_initiate_order_refund 命中)
+20260819120000	0f8f3f2988eca7a951ba3e060cd5495016aa32467f2e904a6e3afb53041034de	2026-08-19	Sean(SQL Editor)/W2(記;來源=2026-08-19 Sean 跑檔頭 LEFT JOIN 回傳三列,version 2026-08-19 已存在且已簽 0 筆、2026-07-24 仍 18 筆;二手經主視窗轉,本窗無正式庫存取。sha 為本 commit 修正 :78 過期註解後的內容,依檔頭定義僅供偵測日後改動)

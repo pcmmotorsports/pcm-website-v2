@@ -57,7 +57,7 @@
  *   法律頁硬閘:`docs/specs/2026-07-20-m3-two-step-checkout-design.md` §10;
  *   結帳勾選 markup 位置:`rg -n '服務條款' apps/storefront/src`。
  */
-export const CURRENT_TERMS_VERSION = '2026-07-24';
+export const CURRENT_TERMS_VERSION = '2026-08-19';
 
 /**
  * `CURRENT_TERMS_VERSION` 對應的對外文字雜湊 = `sha256(canonicalLegalPayload())`。
@@ -65,4 +65,4 @@ export const CURRENT_TERMS_VERSION = '2026-07-24';
  * 取得方式見上方檔頭第 ② 步;請勿手改成「看起來對」的值。
  */
 export const CURRENT_TERMS_CONTENT_HASH =
-  'eca6a2415d0599c16fbea7ed81316584dab6ba6c7856e4c48f9e5c89514cb6ab';
+  '12a1bb0ced95a5d0a9225a38869b371f9629ca90135bfda40492855a716677e4';

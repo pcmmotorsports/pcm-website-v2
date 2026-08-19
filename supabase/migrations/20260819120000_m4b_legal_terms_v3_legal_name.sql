@@ -75,7 +75,12 @@
 --   ✅ 順手多一把尺：'2026-08-19' 那列 **apply 前不存在、apply 後印 0 筆** ⇒ 與下方斷言互為對照。
 --   ⚠️ 那張表 RLS 啟用 + 零 policy + REVOKE ALL（含 service_role）⇒ **只有 SQL Editor 查得到。**
 --
--- ⚠️ **本檔尚未 apply。** 鑰匙在 Sean 手上（G1 不 apply、不 push）。
+-- ✅ **本檔已 apply**(2026-08-19,Sean 本人在 Supabase SQL Editor 跑)。
+--   憑據=檔頭那發 LEFT JOIN 的回傳,'2026-08-19' 那列**存在且為 0 筆**
+--   —— 與本檔上方自己標的對照尺(「apply 前不存在、apply 後印 0 筆」)一致;
+--   同時 '2026-07-24' 的 18 筆同意原封不動,證實「開新鍵不覆寫」那個決定生效。
+--   ⚠️ 該回傳是 Sean 貼回、經主視窗轉給本窗的**二手**;本窗無正式庫存取、未自驗。
+--   已記帳:supabase/APPLIED.tsv。
 -- ══════════════════════════════════════════════════════════════════════════════════
 
 INSERT INTO public.legal_terms_versions (version, content_hash, effective_at)
