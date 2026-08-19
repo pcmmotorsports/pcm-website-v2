@@ -420,7 +420,10 @@ export function OrderDetail({
           位置 = 採購與到貨 → 收款 → **出貨**,收在頁面主流程的最後一步
           (2026-08-18 收款搬位後更新這一行;~~原寫「放在採購之後、備註之前」~~ 兩半都已不成立:
            備註 2026-08-13 搬到發票卡下方、收款 2026-08-18 插進採購與出貨之間)。 */}
-      <ShipmentSection detail={detail} />
+      {/* 🔴 片9:`payments` 傳的是**原始 `PaymentListData`**,不是算好的尾款 ——
+          出貨區內部要吃 `toPaymentSummary()`(與付款卡、頭條同一支),
+          在這裡先算好等於在第三個地方複製一份「尾款」的定義。 */}
+      <ShipmentSection detail={detail} payments={payments} />
 
       {/* 🔴 備註時間軸 + 表單原本在這裡(頁尾、退款帳本之前),2026-08-13 OD 片 1 已搬到發票卡下方。
           搬走的是**同兩個元件**、不是複製一份 —— 這裡不得再渲染第二份(重複的 NoteComposeForm
