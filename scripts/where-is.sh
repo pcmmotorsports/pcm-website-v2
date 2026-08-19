@@ -41,6 +41,16 @@
 #   ⇒ **對任何【設計產物】下「查無」之前,先跑 OD:**
 #       `list_projects` → `search_files`(換兩種以上叫法) → `get_file`
 #     判別句:**我要找的東西,它的家是 git 嗎?** 不是 ⇒ 這支工具的四個 ✗ 什麼都沒證明。
+#
+# ── 🔴🔴 本工具的分母【只有一個 repo】(2026-08-20 W6 發現 + W5 實查加深)──────────
+#   它查的那棵樹是從**腳本自己的位置**推的(`cd "$(dirname "$0")/.."`),
+#   **不是** `git rev-parse --show-toplevel`、**也不是你現在人在哪**。
+#   ⇒ 你在報價單 repo 底下跑 `bash ~/pcm-website-v2/scripts/where-is.sh <path>`,
+#     它會**安靜地**跑去 pcm-website-v2 找,然後回「查無」——**而你以為你在查手上這個 repo**。
+#   實錘:W6 拿五個真實存在、只是住在報價單 repo 的路徑餵它 ⇒ **全數回「不存在」**。
+#   ⇒ 本機是多 repo 的(報價單 / 老闆腦 / design-reference 各自是獨立的 git)
+#     ⇒ **跨 repo 路徑不是邊緣情況,是常態。**
+#   ⇒ 修法:①結論句印出它到底查了哪一棵樹 ②從樹外呼叫時**開頭就警告**(不等你讀到結論)。
 
 set -e
 ORIG_PWD=$(pwd)
@@ -51,6 +61,11 @@ SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 cd "$(dirname "$0")/.."
 REPO=$(pwd)
 MAILBOX="${WHERE_IS_MAILBOX:-$HOME/pcm-mailbox}"
+# 🔴 只給「你人在不在這棵樹裡」的比較用。用 `pwd -P` 解掉 symlink ——
+#    macOS 的 $TMPDIR 就是 /var/folders → /private/var/folders 的 symlink,
+#    純字串比對會在那裡給出一個【假的方向性警告】,而假警告會訓練人忽略真警告。
+ORIG_PWD_P=$(cd "$ORIG_PWD" 2>/dev/null && pwd -P) || ORIG_PWD_P=$ORIG_PWD
+REPO_P=$(cd "$REPO" 2>/dev/null && pwd -P) || REPO_P=$REPO
 
 # 把使用者給的路徑換算成 repo 相對路徑。
 # 🔴 為什麼要這一步:本檔開頭 `cd` 到 repo root,而使用者可能是從 `docs/` 底下呼叫的
@@ -84,6 +99,16 @@ where_is() {
   raw=$1
   target=$(resolve_target "$raw")
   echo "───── where-is: $target ─────"
+  echo "(本 repo:$REPO ← 🔴 本工具【只】查這一棵樹)"
+  # 🔴 方向性警告:它查的樹是從腳本位置推的,與「你人在哪」無關 ⇒ 兩者不同時要【開頭就講】,
+  #    不能等使用者讀到結論 —— 而他跑這支的時機,正好是他要下「這個不存在」那種斷言的時候。
+  case "$ORIG_PWD_P" in
+    "$REPO_P"|"$REPO_P"/*) : ;;
+    *)
+      echo "🔴🔴 方向性警告:你人在 $ORIG_PWD_P,而本工具查的是 $REPO_P —— 這是【兩個不同的 repo】。"
+      echo "   ⇒ 底下所有 ✗ 都只是說「$REPO_P 裡沒有」,對你手上那個 repo 什麼都沒證明。"
+      ;;
+  esac
   [ "$target" = "$raw" ] || echo "(你給的是 \`$raw\`;從 $ORIG_PWD 呼叫 ⇒ 換算成 repo 相對路徑)"
   echo "(掃四處:工作樹 / dev / 所有 ref(分支・remote-tracking・tag) / 信箱;每一處各自報,不合併成一個是非題)"
   exists=0      # ①②③ 任一命中 —— 只有這個算「檔存在」
@@ -152,8 +177,9 @@ where_is() {
 
   echo
   if [ "$exists" = 0 ]; then
-    echo "🔴 ①②③ 皆查無 ⇒ 這個路徑在【工作樹 / dev / 本機掃得到的所有 ref(分支・remote-tracking・tag)】上都不存在。"
+    echo "🔴 ①②③ 皆查無 ⇒ 這個路徑在【本 repo($REPO)的 工作樹 / dev / 本機掃得到的所有 ref(分支・remote-tracking・tag)】上都不存在。"
     echo "   ⚠️ 掃不到的:別台機器上未 push 的分支、未 fetch 的遠端分支、stash、別的 worktree 專屬 ref。"
+    echo "   🔴 也掃不到:【別的 repo】—— 報價單 / 老闆腦 / design-reference 各自是獨立的 git,本工具一格都沒碰。"
     [ "$mentioned" = 1 ] && echo "   ⚠️ 但信箱提過它 ⇒ 可能是【還沒被建出來】或【路徑字面寫錯】,不是「沒人提過這件事」。"
     echo "   掃過的分母就是上面①②③④那四格;它是【字面比對】,不做模糊匹配。"
     return 3
@@ -300,6 +326,28 @@ selftest() {
   case "$out" in *"沒有叫 dev 的分支"*) r=said ;; *) r=silent ;; esac
   ck "格7 無 dev 分支 ⇒ ② 明說沒掃" "$r" "said"
   ( cd "$tmp" && git branch -qm trunk dev ) >/dev/null 2>&1
+
+
+  # 格12 系列 [2026-08-20 W6 發現 + W5 加深] 方向性警告:本工具查的樹是從【腳本位置】推的,
+  #        與「你人在哪」無關 ⇒ 從樹外呼叫時,所有 ✗ 對使用者手上那個 repo 什麼都沒證明。
+  #        🔴 12a 是【對照組】—— 沒有它,一個恆真的警告也會讓 12b 綠。
+  out=$(run ghost.md)
+  case "$out" in *"方向性警告"*) r=printed ;; *) r=not_printed ;; esac
+  ck "格12a 在樹【內】呼叫 ⇒ 不可印方向性警告(對照組)" "$r" "not_printed"
+  case "$out" in *"本 repo:$tmp"*) r=yes ;; *) r=no ;; esac
+  ck "格12b 結論區要印出它查的是哪一棵樹" "$r" "yes"
+
+  outside=$(mktemp -d) || outside=''
+  if [ -z "$outside" ]; then
+    skip=$((skip+1)); echo "SKIP  格12c/d 造不出樹外目錄(mktemp 失敗)"
+  else
+    out=$( cd "$outside" && WHERE_IS_MAILBOX="$tmp/fakebox" bash "$tmp/scripts/where-is.sh" ghost.md 2>&1 || true )
+    case "$out" in *"方向性警告"*) r=printed ;; *) r=not_printed ;; esac
+    ck "格12c 從樹【外】呼叫 ⇒ 必須印方向性警告" "$r" "printed"
+    rcv=0; ( cd "$outside" && WHERE_IS_MAILBOX="$tmp/fakebox" bash "$tmp/scripts/where-is.sh" ghost.md >/dev/null 2>&1 ) || rcv=$?
+    ck "格12d 從樹外呼叫,rc 不變(仍 3;有東西在吃這個碼)" "$rcv" "3"
+    rm -rf "$outside"
+  fi
 
   rm -rf "$tmp"
 
