@@ -9628,11 +9628,32 @@ grep 'app/products/page' ⇒ 🔴 同時撈到 apps/storefront/src/app/products/
 ```
 **換的軸 = 時刻**:`*/5` 落在分鐘 5/15/25/35/45/55,`*/2` 只落偶數分
 ⇒ **分鐘 %10 = 5 的那幾發只可能是 email-sweep**。
-**而自洽重新證了一次(這一步才是重點)**:
+**而自洽重新證了一次(這一步才是重點)**;三個數字**同一發**取得,數法=
+`psql -c "select count(*), count(*) filter (where (extract(minute from created)::int%2)=0), count(*) filter (where (extract(minute from created)::int%10)=5) from net._http_response where created > now() - interval '40 minutes'"`
+(2026-08-19 13:0x 實跑;**這是一個會隨時間變的量,引用要帶時刻**):
 ```
 近 40 分鐘：偶數分 22 筆 ＋ %10=5 的 2 筆 ＝ 24 ＝ 同期間全部筆數 ✅
 （若兩者相加 ≠ 總筆數 ⇒ 新軸有漏或有重疊 ⇒ 結論不能下）
+
+數法（可重跑；每一格都要在同一發裡，分兩次跑會被時間窗差異咬）：
+  select count(*)                                                      -- 總筆數
+       , count(*) filter (where (extract(minute from created)::int % 2)=0)   -- 偶數分
+       , count(*) filter (where (extract(minute from created)::int %10)=5)   -- %10=5
+    from net._http_response where created > now() - interval '40 minutes';
 ```
+### 🔴 而這個新軸只答得出【存在】,答不出【總數】—— 本條作者自己差點含混過去
+```
+*/5 的 6 個時刻裡，有 3 個（分鐘 0/10/20/30/40/50 那半）同時也是 */2 的時刻
+⇒ 「%10=5」識別得出的，是【一定是它】的那個【子集】，不是它的全部
+⇒ 拿這個切片去數「email-sweep 跑了幾次」會【系統性少一半】
+```
+📌 **兩句話要分開**:
+```
+✅ 「這裡有一發一定是 email-sweep，而它回的是 X」  ← 存在斷言，新軸撐得住
+🔴 「email-sweep 一共跑了 N 次」                   ← 計數斷言，新軸撐不住，要回去 JOIN
+```
+**而上面那個 22 + 2 = 24 仍然成立** —— 它證的是**分割沒有漏也沒有重疊**,
+**不是**「22 筆全是 settle」。**自洽 ≠ 標籤正確,那是兩個宣稱。**
 🔴 **而這一發的價值在於它推翻了一個現成的替代品**:`cron.job_run_details` 那邊
 `succeeded` 是綠的,而 body 逐字是 `{"sent":0,"enqueueStatus":"skipped_no_cutoff"}`
 ⇒ **拿 `succeeded` 頂替「信寄出去了」會得到一個完全相反的結論,而且沒有東西會紅。**
