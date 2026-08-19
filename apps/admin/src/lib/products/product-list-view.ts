@@ -313,9 +313,11 @@ function resolveCategoryPath(
 ): string | undefined {
   // 📌 R2 nit-C 留痕:`top === undefined` 時一律回 `undefined`,
   //    ⇒ `?subcategory=X` 單獨出現(不帶 `category`)不再生效。
-  //    這條路**不可達**:表單的大類 `<select>` 恆在、一定會送出 `category`,
-  //    而 `buildProductListHref` 永不產生 `subcategory` ⇒ 沒有任何真實入口走得到。
-  //    寫下來只是不要讓下一個人以為那是漏掉的分支。
+  //    ~~這條路**不可達**~~ ⇒ 🔴 **2026-08-19 起可達**(W6 `W6-046` 順帶抓到):
+  //    篩選改成「選了就自動送出」之後,把大類選回「全部分類」而子分類下拉還停在 A1 的那一瞬間
+  //    就會送出 `?category=&subcategory=A1` ⇒ 空字串被解析成 `undefined` ⇒ 走到這條分支。
+  //    **結果仍然正確**(回 `undefined` = 不套用分類條件),改的只是那句「沒有真實入口」——
+  //    留著它會讓下一個人以為這條分支沒人走,而它現在每天都有人走。
   if (top === undefined || sub === undefined) return top;
   return sub.startsWith(top + CATEGORY_PATH_SEP) ? sub : top;
 }
