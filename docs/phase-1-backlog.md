@@ -24740,10 +24740,32 @@ apps/admin/src/proxy.ts:18  NODE_ENV !== 'production' && ADMIN_DEV_BYPASS === '1
    ⚠️ 其中 d0_display_id_expand 失敗 ⇒ 本機單號約束是【舊格式】PCM-YYYY-NNNN，
      正式站是 6 碼 ⇒ 任何與單號字面有關的結論本機不算數
 
-⚠️ 有 3 個 RSC prefetch requestfailed（?_rsc=…）
+⚠️ ~~有 3 個 RSC prefetch requestfailed（?_rsc=…）~~
+   🔴 **更正:實際是 21 個**（W2 2026-08-20 02:1x 重量;會隨頁面互動變）
+   成因:上一發腳本寫 `failed.slice(0,3)` ⇒ **把「我印出來的前三則」報成了「發生了三則」**
+   📌 形狀 = **輸出的截斷被讀成了母體的大小** —— 而 `slice(0,3)` 在腳本裡看起來完全無害
    —— 我【沒有查】為什麼、也沒查會不會影響使用。
    console error 是 0 ⇒ 它們沒變成使用者看得到的錯誤，**但那不等於沒事**
 ```
+
+##### 🔴 那 21 筆的實測明細(W2 02:1x;**只列量到的,不含判斷**)
+```
+筆數 21 ／ failure text  net::ERR_ABORTED × 21（21/21，零其他值）
+resourceType fetch × 21 ／ URL 21/21 全含 `?_rsc=` ⇒ **全部是 RSC prefetch，沒有一條是一般資源**
+路徑分佈（去 host）:
+  /  ·  /orders  ·  /orders/refund-exceptions  ·  /customers  ·  /products
+  /settings/staff  ·  /settings/suppliers  ·  /settings/audit
+  /orders/<id>  ·  /orders/<id>?correct=<note-id> × 3（備註時間軸的「更正」入口）
+  /print/orders/<id>/picking
+⇒ 形狀:**每一條都對應畫面上一個 `<Link>`**（側邊選單／列表列／更正入口／列印）
+```
+**❌ 沒查的(W2 逐字,不要讀寬)**
+```
+· ERR_ABORTED 是【誰】中止的（瀏覽器自己取消預抓 vs 伺服器斷線 vs 別的）
+· 它會不會影響「點下去畫面有沒有更新」——🔴 **那正是本條要服務的那個題目，而它沒被答**
+```
+⇒ **下一格建議**(W2 提):真的點一個連結,量「點下去之後畫面有沒有換」——
+**那一格才直接答本條的題目**,而 prefetch 失不失敗只是**旁證**。
 ⇒ **①那塊的狀態因此改變**:從「估不出來(可能根本跑不起來)」⇒ **「有一份跑過的配方」**。
 ⚠️ 而**本條的驗收標的(`#741`/`#742` 那兩句限定改寫成「已驗到」)仍未達成** ——
 配方跑通 ≠ 那兩片被驗過。**兩件事不要併成一句。**
