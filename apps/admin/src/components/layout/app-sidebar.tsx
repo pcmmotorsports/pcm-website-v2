@@ -47,6 +47,18 @@ function isNavActive(pathname: string, href: string): boolean {
  * const show = v => (v > 99 ? '99+' : (v > 0 ? String(v) : ''));
  * ```
  * 🔴 `0` 回空字串**不是省略,是規格**(稿 `:287` 逐字:「0 不是資訊,只有非 0 才是」)。
+ *
+ * ⚠️⚠️ **本函式目前【零呼叫端】,而那是預期狀態、不是缺口。**
+ *   軌上還沒有數字(count 的來源盤點見 `~/pcm-mailbox/W1-076-…`:八格裡只有三格算得出來,
+ *   而「要不要放沒算出來的那幾格」還等 Sean)。
+ *   🔴 **而它有測試** ⇒ 下一個人 grep 到它,很容易讀成「這條線已經接好了」——
+ *   **「有測試」不等於「有人在用」**(同族:memory `feedback_apply-is-owned-wiring-is-not`
+ *   「寫了、驗了、apply 了、**沒接線**」)。
+ *   **當場數呼叫端**(別憑這段註解,它會過期):
+ *   ```bash
+ *   git grep -n 'formatNavCount' -- apps packages ':!*.test.*'
+ *   # 只有這一支檔的定義 ⇒ 零呼叫端；出現第二個檔 ⇒ 已接線，本段作廢
+ *   ```
  */
 export function formatNavCount(value: number): string {
   if (value > 99) return '99+';
@@ -150,8 +162,15 @@ function RailCell({ item, pathname }: { item: NavItem; pathname: string }) {
     <>
       <span className='flex items-center justify-center gap-1'>
         <ItemIcon className='size-5' />
-        {/* 數字位固定 22px、靠右(稿 `:143`)⇒ 兩位數不擠壓中文,中文永遠置中在自己那一行。 */}
-        <span aria-hidden className='min-w-[22px] text-right text-xs font-bold' />
+        {/*
+          數字位固定 22px、靠右(稿 `:143` `min-width: 22px; text-align: right`)。
+          🔴 **這個空 `<span>` 是承重的,不是垃圾** —— 稿 `:384` 逐字:
+          「數字位固定 22px 寬、等寬數字,1 到 99 都塞得下且不推擠中文」
+          ⇒ 拿掉它,**有數字的那幾格與沒數字的那幾格,中文會對不齊**。
+          ⚠️ 而它現在是空的(數字還沒接)⇒ 看起來最像可以順手刪掉的東西。守門在
+          `app-sidebar-rail.test.tsx`。
+        */}
+        <span aria-hidden data-testid='rail-count-slot' className='min-w-[22px] text-right text-xs font-bold' />
       </span>
       <span className='mt-1 block text-center text-[11px] leading-tight'>{item.label}</span>
     </>

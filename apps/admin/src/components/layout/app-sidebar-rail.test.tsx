@@ -99,6 +99,38 @@ describe('定案稿:設定不在軌上', () => {
   });
 });
 
+// 🔴 這兩格是【本片自己漏掉的守門】,補於同日 —— 它們守的都是「看起來可以順手刪掉的東西」。
+describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
+  it("🔴 軌底那行是「未接」,**不是一個時間戳** —— 它是留白 vs 未載入的分界", () => {
+    mount(true);
+    const rail = screen.getByTestId('nav-rail');
+    // 🔴 理由寫進**失敗訊息**而不是註解 —— 註解要人主動去讀,而失敗訊息是他【一定會看到】的那一行。
+    expect(
+      rail.textContent,
+      '稿 :288 逐字「留白會跟資料還沒載入長得一樣,所以軌底部常駐一行同步時間」⇒ 數字沒接之前,這裡必須說「未接」',
+    ).toContain('未接');
+    // 🔴 反向:數字還沒接之前,**不准出現時鐘形狀的字面** ——
+    //    印一個時間會讓「留白」變成一句謊話(稿 :288 逐字:看到時間戳,留白就等於真的沒事)。
+    expect(
+      rail.textContent,
+      '印一個時間會讓「留白」變成一句謊話:員工看到時間戳會讀成「這幾格今天沒事」,而事實是我們沒算過它',
+    ).not.toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it('🔴 每一格都有 22px 數字位(空的也要在,否則中文會對不齊)', () => {
+    mount(true);
+    const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
+    const slots = railNav.querySelectorAll('[data-testid="rail-count-slot"]');
+    // 七項(旗標關)⇒ 七個位;少一個 = 那一格的中文會偏
+    expect(
+      slots.length,
+      '稿 :384 逐字「數字位固定 22px 寬…1 到 99 都塞得下且不推擠中文」⇒ 拿掉這個空 span,有數字與沒數字的格子中文會對不齊',
+    ).toBe(7);
+    // 正對照:確實是那個寬度規格,不是隨便一個 span
+    expect(slots[0]?.className).toContain('min-w-[22px]');
+  });
+});
+
 describe('數字規則(逐字搬稿 :414)', () => {
   it.each([
     [0, ''],
