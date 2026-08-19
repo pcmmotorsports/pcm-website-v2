@@ -10,6 +10,14 @@
 //    本 route **不進 vercel.json**、firing 由 E2b 的 pg_cron 是否存在控制 = 天然開關。真寄前的自然閘 = ①ORDER_EMAIL_FROM
 //    必填未設 → requireEnv throw → 503(= Sean 設 env 即 go)②E2b pg_cron 尚未排程 → 無人呼叫 ③E3 未落地 → email_outbox
 //    零列 → sweep 全零 counts。三者疊起 = route 已 deploy 亦零副作用,無需額外 env gate。
+// 🔴 **2026-08-19 更正:上面第 ② 個「天然閘」在 E2b 排程 apply 的那一刻就不成立了。**
+//    新增的 `supabase/migrations/20260819160000_m4a_e2b_email_sweep_pgcron.sql` 就是去排那個 pg_cron
+//    ⇒ apply 之後**每 5 分鐘真的會有人呼叫本 route**。
+//    ⚠️ **而這句話變假的時候,不會有任何東西紅** —— 那支 migration 的 diff 裡沒有本檔,
+//    測試不會動、型別不會動。**它是【另一支檔的動作】讓【這一句】過期。**
+//    ⇒ 剩下的閘只有 ① 與 ③:`ORDER_EMAIL_FROM` 未設 → 503、`B4_DEPLOY_CUTOFF` 未設 → 200
+//      且 `enqueueStatus:'skipped_no_cutoff'`(**不寄任何信**)。
+//      ⇒ 🔴 **真正的「上膛」動作是設 `B4_DEPLOY_CUTOFF`**,不是排程。
 //
 // 🔴 鐵則 12(cron 端點 + 威脅模型;鏡像 settle-sweep / anomaly-alert route):
 //   1. 認證 = CRON_SECRET Bearer 硬驗 + timingSafeEqual:env 未設/弱 → 500 fail-closed(設定錯、拒不執行);
