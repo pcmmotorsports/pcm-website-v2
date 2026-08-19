@@ -24,7 +24,9 @@ const { loadOrderShipments, loadEmptyShipments } = vi.hoisted(() => ({
 vi.mock('server-only', () => ({}));
 vi.mock('../../lib/shipping/order-shipments', () => ({ loadOrderShipments, loadEmptyShipments }));
 // 兩顆 client island 各自有守門檔;這裡換成佔位,讓斷言只針對本卡的結構。
-vi.mock('./shipment-launcher', () => ({ OrderShipButton: () => <button type='button'>建立包裹</button> }));
+// 🔴 字面對齊 `shipment-launcher.tsx:232` 的 `'出貨'` —— 原本寫「建立包裹」是**改名前**的字,
+//    留著會讓同一顆鈕在本片內出現第三種寫法(見該檔 `:184-196` Sean 08-12 改名紀錄)。
+vi.mock('./shipment-launcher', () => ({ OrderShipButton: () => <button type='button'>出貨</button> }));
 vi.mock('./shipment-void-button', () => ({
   ShipmentVoidButton: ({ shipmentReference }: { shipmentReference: string }) => (
     <button type='button'>作廢 {shipmentReference}</button>
@@ -33,7 +35,14 @@ vi.mock('./shipment-void-button', () => ({
 
 import { ShipmentSection } from './shipment-section';
 
-const detail = { id: 'o1', items: [{ id: 'oi-1', title: '鈦合金頭段' }] } as unknown as AdminOrderDetail;
+// 🔴 `total` 補上 —— DB 的 `orders.total` 是 **NOT NULL**(`20260604120000:104`;
+//    `:103` 是 `discount_total`,不是它 —— 原本引錯行,2026-08-19 開檔核過改正),
+//    fixture 少給它才是不真實的那一邊。片9 的尾款要用它。
+const detail = {
+  id: 'o1',
+  items: [{ id: 'oi-1', title: '鈦合金頭段' }],
+  total: { amount: 5000 },
+} as unknown as AdminOrderDetail;
 
 const emptyBox = (reference: string) => ({
   id: `sh-${reference}`,
@@ -55,10 +64,17 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+/**
+ * 🔴 既有那幾格的預設收款態刻意用 **`unreadable`** —— 它們測的是空箱區與包裹卡,
+ *    與尾款無關。給 `unreadable` 的話那一格只會印「尾款未知」,**不會憑空多一個金額**
+ *    去干擾它們的 `queryByText`。(給 `ok` + 空 rows 反而會印一個「尾款 X 未收」的數字。)
+ */
+const PAYMENTS_UNREADABLE = { status: 'unreadable' } as const;
+
 describe('#351④ 空箱區', () => {
   it('🔴 有空箱時:箱號畫出來 + 標「空箱」+ 有作廢鈕', async () => {
     loadEmptyShipments.mockResolvedValue([emptyBox('EMPTY1')]);
-    render(await ShipmentSection({ detail }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(
       screen.queryByText('EMPTY1'),
       '空箱的箱號沒畫出來 ⇒ 員工還是「找不到那個箱子在哪裡」(Sean 08-09 逐字),#351④ 等於沒做。',
@@ -72,7 +88,7 @@ describe('#351④ 空箱區', () => {
 
   it('🔴 文案要講實話:這區是**客人層**、可能來自別張訂單', async () => {
     loadEmptyShipments.mockResolvedValue([emptyBox('EMPTY1')]);
-    render(await ShipmentSection({ detail }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(
       screen.queryByText(/可能來自他的別張訂單/),
       'shipments 沒有 order_id(Sean 08-05 Q1=B 併箱同客人 ⇒ 本來就不該加)⇒ 這區列的箱' +
@@ -81,7 +97,7 @@ describe('#351④ 空箱區', () => {
   });
 
   it('🔴 沒有空箱時整區不出現(常態是沒有,長期掛一句話會讓真的出現時不顯眼)', async () => {
-    render(await ShipmentSection({ detail }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(screen.queryByText(/未收尾的空箱/), '沒有空箱卻掛著空箱區').toBeNull();
   });
 
@@ -91,7 +107,7 @@ describe('#351④ 空箱區', () => {
   //    —— 那正是 #351③ 當初刪掉地點的那個病復發。
   it('🔴 標題字面就是「未收尾的空箱」(彈窗文案指著它,改名要兩邊一起改)', async () => {
     loadEmptyShipments.mockResolvedValue([emptyBox('EMPTY1')]);
-    render(await ShipmentSection({ detail }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     const heading = screen.queryByRole('heading', { name: /未收尾的空箱/ });
     expect(
       heading,
@@ -110,7 +126,7 @@ describe('#351④ 空箱區', () => {
     //    ⚠️ 形狀就在同一支檔的下面(`empties === null` 那族),而我沒抄。
     it('🔴 要講出來,不是畫成「還沒有任何包裹」', async () => {
       loadOrderShipments.mockResolvedValue(null);
-      render(await ShipmentSection({ detail }));
+      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
       expect(
         screen.queryByText(/沒能完整載入/),
         '截斷靜默 ⇒ 與「這張訂單還沒有任何包裹」畫面相同 ⇒ 員工會去建第二個箱。',
@@ -121,7 +137,7 @@ describe('#351④ 空箱區', () => {
 
     it('🔴 不列任何箱 —— 寧可不列,也不要列一份少了東西的清單', async () => {
       loadOrderShipments.mockResolvedValue(null);
-      render(await ShipmentSection({ detail }));
+      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
       // 底下那句「這裡只列這張訂單…」是清單存在時才該出現的
       expect(screen.queryByText(/這裡只列/)).toBeNull();
     });
@@ -130,7 +146,7 @@ describe('#351④ 空箱區', () => {
   describe('算不出來時(null)', () => {
     it('🔴 要講出來,不是靜默消失', async () => {
       loadEmptyShipments.mockResolvedValue(null);
-      render(await ShipmentSection({ detail }));
+      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
       expect(
         screen.queryByText(/沒能算出來/),
         'fail-closed 靜默 ⇒ 與「沒有空箱」畫面相同,員工找不到彈窗叫他來作廢的那個箱。',
@@ -139,13 +155,13 @@ describe('#351④ 空箱區', () => {
 
     it('🔴 要叫他留住箱號(這是他此刻唯一握得住的線索)', async () => {
       loadEmptyShipments.mockResolvedValue(null);
-      render(await ShipmentSection({ detail }));
+      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
       expect(screen.queryByText(/箱號記下來/)).not.toBeNull();
     });
 
     it('🔴 **不得**畫出任何箱子(fail-closed 的行為本身不可放寬)', async () => {
       loadEmptyShipments.mockResolvedValue(null);
-      render(await ShipmentSection({ detail }));
+      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
       expect(
         screen.queryByText('空箱'),
         '算不出來卻照樣列箱 ⇒ 可能指著一個其實裝著貨的箱叫員工作廢,比不列更糟。',
@@ -164,7 +180,7 @@ describe('#351④ 空箱區', () => {
       },
     ]);
     loadEmptyShipments.mockResolvedValue([emptyBox('EMPTY1')]);
-    render(await ShipmentSection({ detail }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(screen.queryByText('FULL1'), '本單的包裹不見了').not.toBeNull();
     expect(
       screen.queryByText('EMPTY1'),
@@ -175,13 +191,13 @@ describe('#351④ 空箱區', () => {
 
   it('多個空箱各自一列、各自一顆作廢鈕(不是只畫第一個)', async () => {
     loadEmptyShipments.mockResolvedValue([emptyBox('EMPTY1'), emptyBox('EMPTY2')]);
-    render(await ShipmentSection({ detail }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(screen.queryByText('作廢 EMPTY1')).not.toBeNull();
     expect(screen.queryByText('作廢 EMPTY2'), '第二個空箱沒畫 ⇒ 實作可能只取了第一筆').not.toBeNull();
   });
 
   it('前提 — 空箱查詢只吃訂單 id(不把帶成交價與 PII 的 detail 交給資料層)', async () => {
-    render(await ShipmentSection({ detail }));
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     expect(loadEmptyShipments).toHaveBeenCalledWith('o1');
   });
 });
@@ -202,8 +218,137 @@ describe('🔴 出貨卡的列印入口鈕名稱', () => {
     loadOrderShipments.mockResolvedValue([
       { shipment: emptyBox('K7X2MP'), lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }] },
     ]);
-    const { container } = render(await ShipmentSection({ detail }));
+    const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
     const link = container.querySelector('a[href*="/shipping/"]');
     expect(link?.textContent?.trim()).toBe('列印出貨明細單');
+  });
+});
+
+// ─────────────── 片9 / 片11(2026-08-19 W3)───────────────
+
+describe('🔴🔴 片9 尾款那一句:三態必須分得開(它就在「出貨」鈕旁邊)', () => {
+  const withTotal = (amount: number) =>
+    ({ ...detail, total: { ...detail.total, amount } }) as typeof detail;
+  const paid = (n: number) =>
+    ({ status: 'ok', rows: [{ amount: n }] }) as unknown as Parameters<
+      typeof ShipmentSection
+    >[0]['payments'];
+
+  it('🔴 讀不到收款明細 ⇒ 【一個數字都不印】,而且要說「不是已收足」', async () => {
+    // 理由逐字在 `payment-list.tsx:114-115`:「讀不到明細時算出來的『已收』必然是假的」。
+    // 🔴 而在這個位置更貴:這句話就在**出貨**那顆鈕旁邊(字面見 `shipment-launcher.tsx:232`),
+    //    印一個假的 0 會讓員工以為已收足而直接出貨。
+    render(await ShipmentSection({ detail: withTotal(5000), payments: { status: 'unreadable' } }));
+    const el = screen.getByText(/尾款/);
+    expect(el.textContent).toContain('未知');
+    expect(el.textContent).toContain('不是');
+    // 🔴 負向:不得出現任何金額數字
+    expect(el.textContent).not.toMatch(/[0-9],?[0-9]{3}/);
+  });
+
+  it('🔴 `order_not_found` 也是 unknown —— 三態裡的第二態,別只測 `unreadable`', async () => {
+    // `:56` 那行只認 `ok`,其餘**兩**態都落到 unknown;原本只有 `unreadable` 有格,
+    // 而「只測到一條路」與「兩條路都對」在全綠的畫面上長得一樣。
+    render(await ShipmentSection({ detail: withTotal(5000), payments: { status: 'order_not_found' } }));
+    const el = screen.getByText(/尾款/);
+    expect(el.textContent).toContain('未知');
+    expect(el.textContent).not.toMatch(/[0-9],?[0-9]{3}/);
+  });
+
+  it('還差錢 ⇒ 「尾款 N 未收」,而 N 是【應收 − 已收】', async () => {
+    render(await ShipmentSection({ detail: withTotal(5000), payments: paid(2000) }));
+    expect(screen.getByText(/尾款 3,000 未收/)).not.toBeNull();
+  });
+
+  it('🔴 收足 ⇒ 【要講「已收足」】,不是留白', async () => {
+    // 留白與「讀不到」在畫面上長得一樣 ⇒ 空白不是一個安全的預設。
+    render(await ShipmentSection({ detail: withTotal(5000), payments: paid(5000) }));
+    expect(screen.getByText(/款項已收足/)).not.toBeNull();
+  });
+
+  it('溢收 ⇒ 標出來(Sean Q-溢收=A:只標不擋)', async () => {
+    render(await ShipmentSection({ detail: withTotal(5000), payments: paid(6000) }));
+    expect(screen.getByText(/已溢收 1,000/)).not.toBeNull();
+  });
+
+  it('🔴🔴 四態互不相同 —— 否則上面四格對「塌成兩態」是瞎的', async () => {
+    const texts: string[] = [];
+    for (const p of [
+      { status: 'unreadable' } as const,
+      paid(2000),
+      paid(5000),
+      paid(6000),
+    ]) {
+      render(await ShipmentSection({ detail: withTotal(5000), payments: p }));
+      texts.push(screen.getByText(/尾款|已收足|已溢收/).textContent ?? '');
+      cleanup();
+    }
+    expect(new Set(texts).size).toBe(4);
+  });
+});
+
+describe('🔴🔴 片11 兩顆 chip:【加上去】不是換掉,而作廢的箱不畫 chip', () => {
+  const activeGroup = () => ({
+    shipment: emptyBox('BOX1'),
+    lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+  });
+
+  const shippedGroup = () => ({
+    shipment: { ...emptyBox('BOX1'), shippedAt: '2026-08-19T00:00:00Z' },
+    lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+  });
+
+  it('未出貨 ⇒ 兩顆都在,而「已交寄」是**未完成**態', async () => {
+    loadOrderShipments.mockResolvedValue([activeGroup()]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(screen.queryByText('已建立')).not.toBeNull();
+    const sent = screen.getByText('已交寄');
+    // 🔴 **原本這一格只斷言「已交寄」在場,而題目寫著「是未完成態」** ⇒ 宣稱了它沒有驗的事。
+    //    未完成 = 灰(`bg-muted`),完成 = 綠(`bg-emerald-100`)。這是員工唯一看得到的差別。
+    expect(sent.className, '未出貨的「已交寄」不是灰的 ⇒ 兩段進度線在畫面上分不開').toContain('bg-muted');
+    expect(sent.className).not.toContain('emerald');
+  });
+
+  it('🔴🔴 已出貨 ⇒ 「已交寄」轉成完成態 —— 這是本片兩顆 chip **唯一會變化**的一格', async () => {
+    // 🔴 為什麼非有不可:`已建立` 對非作廢箱恆為完成態(這一列存在即成立)⇒ 它零判別力。
+    //    整條進度線上會動的只有這一格;沒有這格,把 `shipped ? 綠 : 灰` 改成常數
+    //    (兩顆永遠一樣)**所有測試照樣全綠**,而畫面上「出貨了沒」就再也看不出來。
+    loadOrderShipments.mockResolvedValue([shippedGroup()]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    const sent = screen.getByText('已交寄');
+    expect(sent.className, '已出貨的「已交寄」沒有轉成完成態').toContain('bg-emerald-100');
+    expect(sent.className).not.toContain('bg-muted');
+  });
+
+  it('🔴 而兩個世界必須長得不一樣 —— 否則上面兩格各自恆綠也看不出來', async () => {
+    const seen: string[] = [];
+    for (const g of [activeGroup(), shippedGroup()]) {
+      loadOrderShipments.mockResolvedValue([g]);
+      render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+      seen.push(screen.getByText('已交寄').className);
+      cleanup();
+    }
+    expect(new Set(seen).size, '未出貨與已出貨的「已交寄」樣式相同 ⇒ 這顆 chip 沒有在表達任何東西').toBe(2);
+  });
+
+  it('🔴 只做兩顆 —— 「已送達」不得出現(U7 拍板沒有 delivered,沒有資料可以餵)', async () => {
+    // `20260805170000_…s1a1_shipments.sql:128-131`:有這個值會讓後台顯示一個永遠不會變綠的狀態。
+    loadOrderShipments.mockResolvedValue([activeGroup()]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(screen.queryByText('已送達')).toBeNull();
+  });
+
+  it('🔴🔴 作廢的箱:chip 不出現,而原本那行狀態文字【仍然在】', async () => {
+    // 兩顆 chip 是一條進度線,線上沒有「作廢」的位置 ⇒ 換掉的話作廢箱會長得像「已建立、還沒交寄」。
+    // 而本檔檔頭:「作廢 = 那些品項回到可出貨池,不是消失。過濾掉的話,員工會以為貨憑空不見了。」
+    loadOrderShipments.mockResolvedValue([
+      {
+        shipment: { ...emptyBox('VOIDED1'), voidedAt: '2026-08-19T00:00:00Z', voidReason: '裝錯箱' },
+        lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+      },
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(screen.queryByText('已作廢'), '作廢那行狀態文字不見了 ⇒ 作廢箱與未交寄箱長得一樣').not.toBeNull();
+    expect(screen.queryByText('已建立'), 'chip 畫在作廢箱上 ⇒ 進度線沒有「作廢」這個位置,會誤導').toBeNull();
   });
 });

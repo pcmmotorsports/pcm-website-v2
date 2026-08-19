@@ -19,8 +19,96 @@ import { ShipmentVoidButton } from './shipment-void-button';
 // 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3),與出貨單那張紙、建箱彈窗共用同一份。
 //    **行為零變更**:`carrierLabelOf` 的回退與抽出前的 `CARRIER_LABEL[code] ?? code` 逐字相同。
 import { carrierLabelOf } from '../../lib/shipping/carrier-label';
+// 🔴 **尾款用付款卡【同一支】`toPaymentSummary`,不自己算**(片9)——
+//    自己算 = 第二個「尾款」的定義,而兩份會各自漂;
+//    更重要的是那支函式**已經處理了「讀不到」那一態**,重寫一份等於重新踩一次那個坑。
+import { toPaymentSummary } from '../../lib/orders/payment-list-view';
+import type { PaymentListData } from './payment-list';
+import { formatOrderAmount } from '../../lib/orders/order-list-view';
 
-export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) {
+/**
+ * 「尾款 X 未收」—— **出貨**那顆鈕旁邊的那一句(片9;設計稿 08-17 `:349`)。
+ *
+ * 🔴 **那顆鈕的字面是「出貨」,不是「建立出貨」**(`shipment-launcher.tsx:232` 逐字 `'出貨'`)——
+ *    設計稿 `:349` 畫的是「建立出貨」,而 `shipment-launcher.tsx:184-196` 記著 Sean 08-12
+ *    驗收指示的改名(逐字「**動作**叫『出貨』」)⇒ **拍板壓過設計稿,鈕不改。**
+ *    ⇒ 本檔一律寫實際字面,**不要在註解裡寫設計稿的字** —— 下一個人 grep「建立出貨」
+ *      只會撈到註解、撈不到任何 code,那正是 `guard-and-instrument-traps.md:4041,4048`
+ *      登記過的坑(當時實測 `grep -rn '建立出貨' --include='*.tsx'` ⇒ 0)。
+ *
+ * ⚠️⚠️ **要動這顆鈕的人看這裡 —— 上面那句「設計稿畫的是建立出貨」我【沒有看過原稿】。**
+ *    我核到的是**二手手打落檔** `~/pcm-mailbox/MAIN-057-訂單編輯面板-設計稿逐格落檔-20260819.md:117`,
+ *    不是 OD 上的設計稿本體(本片沒有 OD 工具;`design-reference/` 是 storefront 那份,grep `尾款` ⇒ 0)。
+ *    🔴 **這正是 `guard-and-instrument-traps.md` 那則「尺是對的、而【基準是手打的】」的形狀** ——
+ *       **該則的實例裡,八顆鈕的手打清單錯了四顆,而其中一顆就是「建立出貨」。**
+ *    ⇒ **今天不影響任何一個字**:拍板(出貨)與設計稿(建立出貨)兩邊結論一致都是「鈕不改」,
+ *      回原稿對一次不會改變本檔。**這條限定是在【真的要動主鈕】那一刻才生效的。**
+ *    ⇒ 那一刻請**先找有 OD 工具的人回原稿逐字對一次**,不要拿上面那個 `:349` 當權威。
+ *
+ * 🔴🔴 **三態,不是兩態。** 設計稿只畫了「還差錢」那一種,而系統有四種
+ * (`payment-list-view.ts:161-165`:`unknown` / `settled` / `short` / `over`)。
+ * 逐態的處置與**為什麼**:
+ * ```
+ * unknown  ⇒ 一個數字都不印,並明說「不是還沒收到錢」
+ *            理由逐字抄自 payment-list.tsx:114-115:「讀不到明細時算出來的『已收』必然是假的」
+ *            🔴 而在【這個位置】它更貴:這句話就在**出貨**鈕旁邊,
+ *               印一個假的 0 會讓員工以為已收足而直接出貨。
+ * short    ⇒ 「尾款 N 未收」(設計稿畫的那一種)
+ * settled  ⇒ 「款項已收足」—— 不是不顯示。空白與「讀不到」在畫面上長得一樣。
+ * over     ⇒ 「已溢收 N」—— Sean `Q-溢收=A` 只標不擋,這裡照同一條紀律:看得見就好。
+ * ```
+ * 📌 **走同一支 `toPaymentSummary`,不自己減** —— 那支已經處理了「讀不到」那一態,
+ *    自己算等於重新踩一次那個坑。
+ * ⚠️ **而「共用函式」保證得比它聽起來少 —— 這句話 2026-08-16 已經被 code-reviewer 更正過一次**,
+ *    正解不在這裡重複寫,逐字在 `order-detail-summary-cards.tsx` 搜 `不是它的第一個引數`:
+ *    **共用的是那支函式,不是它的第一個引數。**
+ *    🔴 **而本元件是第 3 個 call site**,`amountDue` 在 `:56` 自己從 `detail.total.amount` 讀
+ *    (與頭條 `order-detail-summary-cards.tsx:243` **逐字同一個運算式**;付款卡那份則由
+ *     `order-detail.tsx` 以 prop 傳入)⇒ **三處靠呼叫端自律對齊,沒有任何一格斷言把它們綁在一起。**
+ *    ⇒ 誰改其中一邊的口徑,另外兩邊不會跟,**而畫面上不會有東西紅**。
+ */
+function ShipmentBalanceNote({
+  detail,
+  payments,
+}: {
+  detail: AdminOrderDetail;
+  payments: PaymentListData;
+}) {
+  // 🔴 只有 `ok` 才交得出 rows;其餘一律 `null` ⇒ 走 `unknown` 那條。
+  //    (逐字照抄 `payment-list.tsx:174-176` 的做法,不另立判斷。)
+  const summary = toPaymentSummary(detail.total.amount, payments.status === 'ok' ? payments.rows : null);
+
+  if (summary.kind === 'unknown') {
+    return (
+      <span className='text-muted-foreground text-xs'>
+        尾款<strong>未知</strong>(收款明細沒載入)—— 不是「已收足」,也不是「還沒收到錢」。
+      </span>
+    );
+  }
+  if (summary.kind === 'short') {
+    return (
+      <span className='text-muted-foreground text-xs tabular-nums'>
+        尾款 {formatOrderAmount(summary.gap)} 未收
+      </span>
+    );
+  }
+  if (summary.kind === 'over') {
+    return (
+      <span className='text-muted-foreground text-xs tabular-nums'>
+        已溢收 {formatOrderAmount(summary.excess)}
+      </span>
+    );
+  }
+  return <span className='text-muted-foreground text-xs'>款項已收足</span>;
+}
+
+export async function ShipmentSection({
+  detail,
+  payments,
+}: {
+  detail: AdminOrderDetail;
+  payments: PaymentListData;
+}) {
   // 🔴 只取 id 與 title 兩欄餵下去 —— 不把整包 detail(帶成交價)交給資料層或 client。
   const titleByItemId = new Map(detail.items.map((it) => [it.id, it.title]));
   // 🔴 兩支併發:空箱區與本單包裹清單沒有依賴關係,序列化只是白等一趟。
@@ -37,7 +125,18 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
           走的是**同一個** `useShipmentLauncher` 與同一個彈窗 —— 不是第二份實作。 */}
       <div className='mb-3 flex flex-wrap items-start justify-between gap-2'>
         <h2 className='font-semibold'>出貨</h2>
-        <OrderShipButton orderId={detail.id} />
+        <span className='flex flex-wrap items-center gap-2'>
+          {/* 🔴🔴 **尾款這一格有【三態】,不是兩態**(片9;設計稿 08-17 `:349` 只畫了「尾款 13,800 未收」那一種)。
+              而 `payment-list.tsx:114-118` 的檔頭逐字寫著為什麼不能只做兩態:
+              「讀不到明細時算出來的『已收』**必然是假的**,而它會被畫成一句員工無法分辨真假的催款訊息」。
+              ⇒ `unknown` 時**一個數字都不印**,並且要講出「不是還沒收到錢」——
+                 否則員工會照著一個假數字去催款,或反過來以為已收足而放行出貨。
+              🔴 而這一格就在**出貨**那顆鈕旁邊(字面見 `shipment-launcher.tsx:232`)
+                 ⇒ **它會直接影響他按不按下去**,
+                 所以三態必須分得開,不能塌成兩態。 */}
+          <ShipmentBalanceNote detail={detail} payments={payments} />
+          <OrderShipButton orderId={detail.id} />
+        </span>
       </div>
 
       {/* 🔴🔴 `null` = 本單的箱品項清單**可能不完整**(截斷),不是「沒有箱」
@@ -120,6 +219,40 @@ export async function ShipmentSection({ detail }: { detail: AdminOrderDetail }) 
                     />
                   </span>
                 </div>
+
+                {/* 🔴🔴 **片11:兩段進度 chip —— 而它是【加上去】的,不是換掉上面那行狀態文字。**
+                    設計稿 08-17 `:360` 畫的是**三顆**(已建立 / 已交寄 / **已送達**),而這裡只做兩顆:
+                    · 🔴 **第三顆沒有資料可以餵** ——
+                      `20260805170000_…s1a1_shipments.sql:128-131` 逐字「**U7 拍板沒有 delivered**
+                      —— 我們拿不到「已送達」的可靠訊號,**有這個值會讓後台顯示一個永遠不會變綠的狀態**」;
+                      值域實查 `CHECK (hct_status IN ('draft','submitted','failed'))`。
+                      ⇒ **設計稿有、拍板說沒有 ⇒ 以拍板為準**(CLAUDE.md 分工段明文)。
+                    · 🔴🔴 **而它不換掉狀態文字,理由是設計稿【沒有畫作廢的箱】**:
+                      兩顆 chip 是一條進度線(已建立 → 已交寄),**線上沒有「作廢」的位置**
+                      ⇒ 換掉的話,作廢的箱會長得跟「已建立、還沒交寄」一模一樣。
+                      而本檔檔頭 `:10-11` 逐字寫著作廢箱**刻意仍然列出**的理由:
+                      「作廢 = 那些品項回到可出貨池,不是消失。過濾掉的話,員工會以為貨憑空不見了。」
+                      ⇒ **把作廢【顯示】弄丟,等於用另一種方式製造同一個誤解。**
+                      ⇒ 所以 chip **只在非作廢時出現**,作廢仍走上面那行(灰 + 刪除線)。
+                    ⚠️ **「已建立」那顆恆為完成態**(這一列存在即成立)—— 它是**起點標記**不是會變化的狀態,
+                       所以兩顆都用同一種「已完成/未完成」的樣式,不做「進行中」那一階,
+                       免得員工在那裡等它「變成」已建立。 */}
+                {!voided && (
+                  <div className='flex items-center gap-1.5 px-3 pt-2'>
+                    <span className='inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800'>
+                      已建立
+                    </span>
+                    <span
+                      className={
+                        shipped
+                          ? 'inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800'
+                          : 'inline-flex rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground'
+                      }
+                    >
+                      已交寄
+                    </span>
+                  </div>
+                )}
 
                 <div className='px-3 py-2 text-sm'>
                   <ul className='mb-2 space-y-1'>
