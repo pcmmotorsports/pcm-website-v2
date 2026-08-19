@@ -183,10 +183,19 @@ describe('🔴🔴 原因欄不得預填(母 plan `:562` 的源碼契約守門)'
     // ⚠️ 行為格(上面那格)擋不住「有人把 defaultValue 改成別的常數但剛好也是空字串」那種漂移,
     //    也擋不住「改成一個常數再在別處清空」;源碼格釘的是**寫法**。兩格互補不是主次。
     expect(ZERO_PRICE_REASON_DEFAULT).toBe('');
+    // 🔴🔴 **剝註解再比 —— 這一步是【表演出來才加的】,不是保險**(W1 2026-08-20):
+    //    構造:把真的 `defaultValue={ZERO_PRICE_REASON_DEFAULT}` 拔掉,
+    //    只在檔頭留一行註解「舊版這裡是 defaultValue={ZERO_PRICE_REASON_DEFAULT}」
+    //    ⇒ **本檔 14 條【全綠】** —— 接線已經沒了,而守門說它在。
+    //    ⇒ 🔴 而那個構造不是刁難:**改接線時留一句歷史註解是最常見的寫法。**
+    //    ⚠️ 方向性:剝過頭 ⇒ 真 code 消失 ⇒ **紅**(誤報);剝不夠 ⇒ 退回原狀。
+    //       兩種失敗都不會產生**假綠**,這是刻意選的方向。
     const src = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), 'item-amount-form.tsx'),
       'utf8',
-    );
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
     expect(src).toContain('defaultValue={ZERO_PRICE_REASON_DEFAULT}');
     // 正向對照:掃的是活的檔(否則檔名打錯時上面那個 toContain 也會以另一種方式紅,但指向錯地方)
     expect(src).toContain('export const ZERO_PRICE_REASON_DEFAULT');
