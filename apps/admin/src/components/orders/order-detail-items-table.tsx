@@ -173,7 +173,7 @@ export function resolveAmountEditBlock(
   }
   if (payments.rows.length > 0) {
     // RPC `:388` 逐字:有**任何一列**收款就拒(不使用任何金額口徑)。
-    return '這張單已經有收款紀錄,不開放改金額。需要調整請走退款流程,或告知系統維護。';
+    return '這張單已經有收款紀錄,不開放改金額。要調整金額請用本頁最下方的「退款」,或告知系統維護。';
   }
   if (detail.discountTotal.amount !== 0) {
     // RPC `:398`:本功能尚未處理折扣單的改價(母 plan 已知限制 L2)。
