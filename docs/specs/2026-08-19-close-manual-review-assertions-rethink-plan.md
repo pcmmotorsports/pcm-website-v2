@@ -136,19 +136,119 @@
 · supabase_admin ＝ **superuser 恆真** ⇒ 尺 B 的雜訊，與授權圖無關
 ```
 
-**⇒ 基線建在哪一張表:**
-| 尺 | 漏什麼 / 吵什麼 | 判 |
-|---|---|---|
-| A `pg_auth_members` 直查 | 🔴 **遞移加入不會紅** —— 有人 `GRANT postgres TO x` 就繞過了 | ❌ |
-| B `pg_has_role` | superuser 恆真 ⇒ **永遠有雜訊**,而雜訊會訓練人忽略它 | ❌ |
-| **C 自算遞移閉包 + 排 superuser** | 兩者都沒有 | ✅ **選這個** |
+### 🔴🔴 **而我上一版選了 C —— 那是錯的。R4 審查者補正,我實測確認它對。**
 
-🔴 **而 C 的判別力我實測過(該紅有紅)**:在同一個世界新增一個非 superuser 的直接成員 `newcomer`
-⇒ C 的輸出立刻多出 `newcomer`(`cli_like, newcomer, pgx, storage_like`)。
+```
+它的論證：:461/:471 是【絕對斷言】「這個集合必須是空的」⇒ superuser 恆真 ⇒ 永遠 RAISE ⇒ 中毒
+          而基線比對是【相對斷言】「這個集合與上次相同」⇒ superuser 恆真是【常數項】
+          ⇒ baseline 與 current 兩邊同時出現 ⇒ **相等比對中互相抵銷**
+⇒ 🔴 **「superuser 恆真」毒得死【空集合斷言】，毒不死【相等斷言】。**
+⇒ ⇒ 所以我在 C 裡把 superuser 濾掉，**不是除噪，是自己挖回一個盲區。**
+```
+
+**我實測了兩種事件、三把尺(同一個世界)**:
+| | 新增一個 superuser | 有人被加進 `postgres` 而遞移取得 svc |
+|---|---|---|
+| A `pg_auth_members` 直查 | 沒反應 | 🔴 **沒反應**(svc 的直接邊沒變) |
+| B `pg_has_role` 導出 | ✅ 變了 | ✅ 變了 |
+| C 閉包 + 排 superuser | 🔴 **沒反應** | ✅ 變了 |
+
+⇒ **B 單獨就抓得到兩種事件。C 的「乾淨」是拿盲區換來的。**
+
+### ⚠️ 而主視窗提「拆成兩個集合、兩道斷言」—— **我打它,結論是【不拆】**
+
+```
+提案：集合① 閉包排 superuser（答「有沒有人繞路」）／集合② superuser 名單（答「有沒有新 superuser」）
+🔴 我的反對：**它加的是【診斷清晰度】，不是【偵測覆蓋】** —— 上表已量到 B 單獨就紅在兩種事件上。
+   而代價是**第二份基線要維護**，⇒ 多一個會漂、會過期、會被忘記更新的東西。
+   （今天審查者自己給過的判準：**替一個不會造成錯誤的關係加守門是淨負的。**）
+⚠️ **而提案想要的東西是對的** —— 一道意思含糊的紅會被當成雜訊（今天「把真紅當假紅修掉」那條）。
+```
+
+### ✅ **第三案(我提的,已實測):一份基線 + 差異列【自己說明它是哪一種】**
+
+把「分類」放在**訊息**這一層,不放在**集合**這一層:
+```
+基線 = 尺 B 的結果（rolname + rolsuper 兩欄，superuser【留著】）
+紅的時候，逐列比對並依 rolsuper 分類輸出
+```
+**實測(同一個世界、依序兩個事件)**:
+```
+基線建立後        ⇒ (無差異)
+事件一 新 superuser ⇒ newsuper 【新的 superuser】新增
+事件二 遞移加入     ⇒ newmember 【繞路取得 svc】新增; newsuper 【新的 superuser】新增
+```
+⇒ 🔴 **三個要求同時滿足**:
+```
+· 無盲區（superuser 留在基線裡）              ← 審查者的硬約束
+· 紅的時候【說得出是哪一種】                   ← 主視窗要的
+· **只有一份基線要維護**                       ← 我加的：少一個會漂的東西
+```
 ⚠️ **限定**:我量的是**本機重建的同形狀世界**,不是正式庫的實際圖。
    **「storage/cli 是經由 postgres 遞移」這件事在正式庫仍未證實** ⇒ 要一句查詢(見下)。
 
-### ⏳ 還缺一句 SQL(請主視窗跟 Sean 要)
+### 🔴🔴 正式庫第三發回來了,而它帶出一個【會動搖丙本身】的問題
+
+**原文(Sean 跑,主視窗轉,零重打)**:
+```
+| rolname                | rolsuper | rolinherit |
+| supabase_admin         | true     | true       |
+| authenticator          | false    | false      |
+| supabase_storage_admin | false    | false      |
+| postgres               | false    | true       |
+```
+
+**✅ 兩格證實了**:
+```
+· `supabase_storage_admin` rolsuper=false ⇒ 它出現在 pg_has_role 裡【只能】是遞移
+  （審查者說它「解釋不掉」，現在解釋得掉了：不是 superuser 恆真，是遞移）
+· `authenticator` rolinherit=false 與 pg_auth_members 的 inherit_option=false 一致
+  ⇒ **兩個獨立欄位互相佐證** ⇒ 那一格是硬的
+```
+
+**✅ 而我回頭確認自己的重建是不是同一個世界(主視窗要我查的)**:
+```
+我建的是 `CREATE ROLE pgx NOLOGIN`（**沒有 SUPERUSER**）⇒ 與正式庫 postgres rolsuper=false **一致**
+⇒ 🔴 那三把尺的比較**是在對的世界做的**。而遞移機制本來就不依賴 superuser。
+```
+
+### 🔴🔴 而【問 5 個名字回來 4 個】—— `cli_login_postgres` 不見了
+
+```
+它在稍早那發 pg_has_role(...,'MEMBER') 裡【出現過】
+而這一發 `WHERE rolname IN (…5 個…)` 只回 4 列 ⇒ **它現在查不到。**
+⇒ `pg_roles` 是 `pg_authid` 的視圖 —— 角色存在就會出現
+⇒ 🔴 **最可能的解釋:那個角色【在兩次查詢之間消失了】。**
+   而它的名字（`cli_login_postgres`）看起來就是 `supabase login` 為一次 CLI 工作階段建的臨時角色。
+   ⚠️ **這是【推的】** —— 我沒有平台側依據，也沒有時序證據。
+```
+
+🔴🔴 **而如果那個推論成立,它【直接動搖丙】,這一格比前面所有分析都重要**:
+```
+丙 = 「這個集合與基線相比有沒有變」
+⇒ 而如果 role 集合本身是【隨 CLI 登入而生滅】的
+⇒ 🔴 那麼 **每次有人剛好在 CLI 登入狀態下 apply，這道斷言就會紅**
+⇒ 而它紅的原因與「有人動了權限」完全無關 ⇒ **它會變成一個週期性的假紅**
+⇒ ⇒ 而週期性假紅的下場，今天我們已經學過名字：**把真紅當假紅修掉。**
+```
+
+**⇒ 這一格要在丙落地前答掉,而它需要的是【時序】不是快照**:
+```sql
+-- 同一天內隔一段時間跑兩次，看這個集合會不會自己變
+SELECT rolname, rolsuper FROM pg_roles
+ WHERE pg_has_role(rolname,'service_role','MEMBER')
+   AND rolname NOT IN ('service_role', current_user)
+   AND rolname NOT LIKE 'pg\_%'
+ ORDER BY 1;
+```
+```
+兩次相同        ⇒ 集合是穩定的，丙可行
+🔴 兩次不同      ⇒ 集合會自己變 ⇒ **丙的相等比對在這個平台上不成立**
+                   ⇒ 那時要改問「【非臨時】的那些有沒有變」，而「哪些是臨時的」又是一個未解的題
+```
+⚠️ **而在這一格答掉之前,丙【不應該落地】** —— 我把它標成硬前置,與 §5 的鐵則 8 同一級。
+
+### ⏳ 還缺的 SQL(請主視窗跟 Sean 要)
 ```sql
 -- 正式庫裡，誰是 postgres 的成員？（驗證上面那個「經由 postgres 遞移」的推論）
 SELECT m.rolname AS 成員, m.rolsuper, a.inherit_option, a.set_option
