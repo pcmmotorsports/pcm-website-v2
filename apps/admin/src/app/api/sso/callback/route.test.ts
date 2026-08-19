@@ -264,4 +264,61 @@ describe('sso/callback route', () => {
       reason: 'sign-failed-config',
     }]);
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // 🔴🔴 **本格是【回歸格】。它今天綠,而那是刻意的。**
+  //
+  // **為什麼它今天綠**:`exchange` 已經收得下 `sub`(身分),而 `callback:72` 呼叫
+  // `buildAdminSession(result.amr, result.auth_time)` —— **`result.sub` 整個被丟掉**。
+  // 那是**刻意的**:`sub` 要等 `B5` 才進 payload(順序是硬的,見母 plan §4)。
+  //
+  // 🔴 **它會在【B5 把 `sub` 接進 payload】那一刻轉紅。那時候【不要刪它,去改它】。**
+  //    ⇒ 而那正是本格存在的全部理由:今天那句「`sub` 要等 B5」寫在**註解裡**,
+  //      而**做 B5 的人不會讀到那句話**。本格把它搬到**他一定會撞到的位置**。
+  //
+  // 📎 紀律來源(逐字):`docs/specs/2026-08-16-m4b-e8b-b3-spec.md` 格 12 ——
+  //    「**一裝就綠的格,要在檔頭寫明它是回歸格、並寫出【它會在什麼改動下轉紅】**
+  //      —— 否則下一個人會把它當成沒用的格刪掉。」**那是那份 spec 自己記過的前科。**
+  //
+  // ⚠️ **而本格【不是】B4-4／B4-15 那三條驗收的替代品**:
+  //    那三條要驗的是「admin 最終發出的身分對不對」,而**今天 payload 裡沒有身分這個東西**
+  //    ⇒ 它們今天【測不了】,規格寫在 `b5-spec` 的驗收表。**本格只釘住「現在是刻意丟棄」。**
+  it('🔴 回歸格:exchange 回了 sub,而 admin 今天【刻意丟棄】它(B5 接上時本格必須轉紅)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            amr: ['pwd', 'totp'],
+            auth_time: AUTH_TIME,
+            // 🔴 形狀照 exchange.ts 的 sanitizeSub 白名單(合法的具名身分)
+            sub: { kind: 'user', staff_id: 'sean' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+
+    const res = await GET(
+      callbackReq({ cookie: encodeStateCookie(STATE, '/orders'), code: 'code-1', state: STATE }),
+    );
+
+    // 先確認這一發【真的走完成功路徑】—— 否則下面那個 undefined 可能來自「根本沒簽出票」
+    expect(res.status, '沒走到成功路徑 ⇒ 下面的斷言什麼都沒證明').toBe(303);
+    const sess = res.cookies.get(ADMIN_SESS_COOKIE);
+    expect(sess?.value, '沒有簽出 session ⇒ 同上').toBeTruthy();
+
+    const payload = await verifySession(sess?.value);
+    expect(payload, '簽出來的票驗不過 ⇒ 同上').not.toBeNull();
+    // ✅ 對照組:合法的東西有帶進去(證明這一發不是「什麼都沒帶」)
+    expect(payload?.amr).toEqual(['pwd', 'totp']);
+    // 🔴 而身分【沒有】被帶進去 —— 這一行就是本格
+    expect(
+      (payload as unknown as Record<string, unknown>).sub,
+      'session 裡出現了 sub ⇒ 🔴 B5 已經把身分接進 payload 了。\n' +
+        '⇒ 【不要刪掉本格】,去改它:把它改成驗「sub 被逐字帶進去且形狀正確」,\n' +
+        '   並同時補上 b5-spec 驗收表那三條(缺 sub 不得轉 fallback / 最終 session 的身分對不對)。',
+    ).toBeUndefined();
+  });
 });
