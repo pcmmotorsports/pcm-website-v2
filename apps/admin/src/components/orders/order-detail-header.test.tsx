@@ -212,3 +212,52 @@ describe('片2 標頭列 · render 層', () => {
     expect(container.textContent).not.toContain('未開立');
   });
 });
+
+// 🔴🔴 片12:面板最底那兩顆鈕(設計稿區塊⑥)。
+//    **對帳異常時,退款那一塊不准收起來** —— codex K2 2026-08-19 finding 3:
+//    警告收在鈕底下 = 員工不點就看不到,而那類警告存在的唯一理由就是要他看到
+//    ⇒ 一個 fail-closed 的安全設計會退化成**沉默的** fail-closed。
+// ⚠️ 射程:這裡量的是 `<details open>` 與鈕上的字,**不是**帳本內容(它被 mock 成 null)。
+describe('片12 危險操作兩顆鈕 · 對帳異常不准收起來', () => {
+  afterEach(cleanup);
+
+  it('🔴 帳本讀不到 ⇒ 退款那一塊預設展開,鈕上寫著異常', () => {
+    const { container } = render(
+      <OrderDetail
+        detail={HEAD_DETAIL}
+        returnTo='/orders'
+        payments={{ status: 'ok', rows: [] }}
+        refundsFailed
+      />,
+    );
+    const open = [...container.querySelectorAll('details')].filter((d) => d.open);
+    expect({ 展開的塊數: open.length }).toEqual({ 展開的塊數: 1 });
+    expect(open[0]!.textContent).toContain('對帳異常');
+  });
+
+  // 🔴 未登記額為**負** = 帳本登記已超過訂單總額,與讀取失敗同一族。
+  it('🔴 未登記額為負 ⇒ 同樣自己展開', () => {
+    const { container } = render(
+      <OrderDetail
+        detail={HEAD_DETAIL}
+        returnTo='/orders'
+        payments={{ status: 'ok', rows: [] }}
+        refundUnregisteredAmount={-100}
+      />,
+    );
+    expect([...container.querySelectorAll('details')].filter((d) => d.open).length).toBe(1);
+  });
+
+  // 🔴 **負對照,沒有它上面兩格在「永遠展開」時照樣綠**:正常單兩塊都收著。
+  it('🔴 正常單 ⇒ 兩顆鈕都收著、沒有異常字樣', () => {
+    const { container } = render(
+      <OrderDetail detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+    );
+    const all = [...container.querySelectorAll('details')];
+    expect({ 危險區塊數: all.length, 展開的: all.filter((d) => d.open).length }).toEqual({
+      危險區塊數: 2,
+      展開的: 0,
+    });
+    expect(container.textContent).not.toContain('對帳異常');
+  });
+});
