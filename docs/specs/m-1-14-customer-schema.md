@@ -971,8 +971,22 @@ design AccountPages.jsx 805 行裡 AccountPage 本身 372 行 + 7 tab 內容。�
 ### 13.2 LINE Developers — 註冊 LINE Login channel(自寫 OAuth)
 
 1. 去 `https://developers.line.biz/console/`
-2. **Create a new provider**(若無)→ 填 PCM Motorsports
-3. **Create a new channel** → 選 **LINE Login** → 填 channel 名(例 `PCM Motorsports v2`)+ 描述
+2. **Create a new provider**(若無)→ 填 `PCM MOTOR PARTS LTD`
+3. **Create a new channel** → 選 **LINE Login** → 填 channel 名 `PCM MOTOR PARTS LTD` + 描述
+
+> 🔴 **現況註記(2026-08-19,Sean 本人在 LINE Console 校正)—— 本段是安裝說明,而那一步早就做完了**
+> · Channel ID `2010190266` **已存在**(痕跡在 `apps/storefront/.env.local`,值不外貼)⇒ 這兩行不是待辦。
+> · Channel 名稱**已校正**為 `PCM MOTOR PARTS LTD`。
+> · ⚠️ **Provider 名稱當時仍是 `PCM MOTO PARTS LTD`(少一個 R),待 Sean 再改一次** ——
+>   錯誤從 Channel 搬到了 Provider。
+> 🔴 **而這一格為什麼不會有東西紅**:Provider / Channel 名稱**只存在於 LINE Console**,
+> repo 內無對應字面 ⇒ **grep 守不到、測試不會紅、三綠全綠**。
+> 唯一的查法是**有人打開 console 看一眼**。
+> 數法(repo 側,證明錯字沒有從 console 漏進 repo;2026-08-19 量,會過期):
+> `grep -rl 'PCM MOTOR PARTS LTD' . --exclude-dir=node_modules --exclude-dir=.git` ⇒ **18 支檔**
+> `grep -rl 'PCM MOTO PARTS LTD'  . --exclude-dir=node_modules --exclude-dir=.git` ⇒ **0 支**
+> ⚠️ 上面兩行原本寫 `PCM Motorsports` —— 那既是 Sean 2026-08-19 裁定要消失的名字,
+> **也已經不是 console 上的值** ⇒ 本次一併改正,而**改的是文件、不是 console**。
 4. Channel 建好後進 **Basic settings**,複製 **Channel ID** + **Channel secret**
 5. 進 **LINE Login** tab → **Callback URL** → 加(本地開發環境 + 線上環境兩條):
    - `http://localhost:3000/api/auth/line/callback`(本地)
