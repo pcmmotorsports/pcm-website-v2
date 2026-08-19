@@ -1,6 +1,7 @@
 import type { AdminOrderFilter } from '@pcm/domain';
 import { taipeiYmdFromDayEndExclusive, taipeiYmdFromInstantIso } from '@pcm/domain';
 import { OrderFilterControls } from './order-filter-controls';
+import type { OrderListCarriedValues } from '../../lib/orders/order-list-view';
 import {
   PAYMENT_STATUS_OPTIONS,
   GOODS_AXIS_OPTIONS,
@@ -26,7 +27,7 @@ export function OrderFilterBar({
   filter,
   datePresetOptions,
   selectedDatePresetKey,
-  preservedQuery,
+  carried,
 }: {
   filter: AdminOrderFilter;
   /** #347-3c-2:日期下拉的選項(server 算好區間;client 不碰時鐘)。 */
@@ -34,12 +35,12 @@ export function OrderFilterBar({
   /** #347-3c-2:選中的那一格 —— 與**真正生效的區間**同源(見 `resolveOrderDateRange`)。 */
   selectedDatePresetKey: string;
   /** `#742`:純透傳給 `OrderFilterControls`(本元件不讀它)—— 理由在那支的 prop docstring。 */
-  preservedQuery: string;
+  carried: OrderListCarriedValues;
 }) {
   return (
     <div className='bg-card text-card-foreground flex flex-wrap items-end gap-3 rounded-lg border p-4'>
       <OrderFilterControls
-        preservedQuery={preservedQuery}
+        carried={carried}
         datePresetOptions={datePresetOptions}
         paymentOptions={PAYMENT_STATUS_OPTIONS}
         goodsAxisOptions={GOODS_AXIS_OPTIONS}

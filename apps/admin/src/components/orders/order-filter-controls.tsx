@@ -16,6 +16,9 @@ import {
   type OrderDatePresetOption,
   SHOW_UNPAID_CARD_ON,
   PAYMENT_CHANNEL_PARAM,
+  orderListHrefEntries,
+  type OrderListUrlValues,
+  type OrderListCarriedValues,
 } from '../../lib/orders/order-list-view';
 import { MultiCheckFilter } from '../shared/multi-check-filter';
 import { AutoApplySelect } from '../shared/auto-apply-select';
@@ -82,29 +85,45 @@ type FilterState = {
   showUnpaidCard: string;
 };
 
-function href(state: FilterState, preserved: string): string {
-  const base = buildListHref(
-    '/orders',
-    [
-      [PAYMENT_STATUS_PARAM, state.pay || undefined],
-      // 🔴 陣列直接送(`buildListHref` 對陣列會逐值展開成同名多鍵)——
-      //    **不要在這裡折成單值**,那就是 R1 must-fix 2 的病。
-      [GOODS_AXIS_PARAM, state.goods],
-      [ORDER_SOURCE_PARAM, state.src],
-      [PAYMENT_CHANNEL_PARAM, state.ch],
-      [SHOW_UNPAID_CARD_PARAM, state.showUnpaidCard || undefined],
-      // 🔴 #347-3c-1:**純透傳、沒有可見控制項**(下拉在 3c-2)。放這裡的理由與上面那幾軸相同:
-      //    漏列 = 改任一篩選就把日期丟掉,而網址是可分享的、URL 已經是可達的 producer。
-      [DATE_FROM_PARAM, state.dateFrom || undefined],
-      [DATE_TO_PARAM, state.dateTo || undefined],
-    ],
-    1,
-  );
-  // 🔴 `#742`:這四個鍵**不是本檔的軸**,但也不該被本檔吃掉 ⇒ 原樣接回去。
-  //    來源與「為什麼是回聲不是重建」的理由:`buildPreservedFilterQuery` 的 docstring。
-  if (preserved === '') return base;
-  return `${base}${base.includes('?') ? '&' : '?'}${preserved}`;
+function href(state: FilterState, carried: OrderListCarriedValues): string {
+  // 🔴🔴 `#742` 殘餘:**本檔不再有自己的鍵清單** —— 填的是 `order-list-view.ts` 那張
+  //    `OrderListUrlValues`(11 格)。少一格 `tsc` 直接紅,而**另一個 producer
+  //    (`buildOrderListHref`)填的是同一張表** ⇒ 兩邊不可能再各自演化。
+  //    ⚠️ 而那正是這一族 bug 的產生機制:同一條 URL 有兩份鍵清單
+  //      (`#347-3c-1` 日期兩軸 / `#484a` `goods_axis` / `#742` 四個鍵 —— 10 天內三次)。
+  //
+  // 🔴 `carried` 那四格**不是本檔的軸**(面板開誰是 URL 說了算、密度是工具列說了算),
+  //    由 server 端 `buildCarriedUrlValues` 逐鍵走各自的 reader 算好傳進來。
+  //    **本檔只負責把它們放回表上的位置** —— 而這一句是**關於本檔行為**的限縮,
+  //    不是關於「誰依賴我」的限縮(兩者的差別見 memory
+  //    `feedback_a-self-limiting-comment-about-the-outside-world-rots-silently`)。
+  // 🔴🔴 **本字面的順序【刻意】與 `ORDER_LIST_URL_KEYS` 不同**(日期兩軸提到最前面)。
+  //    看起來像隨手排,其實是一道守門:網址的順序**只能**由 `orderListHrefEntries` 產生,
+  //    所以只要有人把它換成 `Object.entries(values)` 之類的捷徑,輸出順序就會變
+  //    ⇒ 「兩個 producer 逐字相同」那條測試立刻紅。
+  //    ⚠️ **實測過才這樣寫**:先前本字面與表同序時,那個捷徑突變**四綠全過** ——
+  //      測試當時驗的是「兩邊碰巧一致」,不是「兩邊吃同一張表」。
+  //    ⇒ **不要好心把它排回表的順序**,那會把這道守門關掉而沒有任何東西會紅。
+  const values: OrderListUrlValues = {
+    // #347-3c-1:**純透傳、沒有可見控制項**(下拉在 3c-2)。
+    [DATE_FROM_PARAM]: state.dateFrom || undefined,
+    [DATE_TO_PARAM]: state.dateTo || undefined,
+    // 🔴 陣列直接送(`buildListHref` 對陣列會逐值展開成同名多鍵)——
+    //    **不要在這裡折成單值**,那就是 R1 must-fix 2 的病。
+    [GOODS_AXIS_PARAM]: state.goods,
+    [ORDER_SOURCE_PARAM]: state.src,
+    // 🔴 `payment_status` 刻意排在 `order_source` **之後**(表上是之前)——
+    //    這兩個是「兩個 producer 逐字相同」那條測試**真的會填值**的欄位,
+    //    所以順序差異在那條測試上看得見。排在日期後面沒有用:那一格在該測試裡是空的,
+    //    空值會被 `buildListHref` 略過 ⇒ 順序差異看不出來(第一版就是這樣,捷徑突變沒紅)。
+    [PAYMENT_STATUS_PARAM]: state.pay || undefined,
+    [PAYMENT_CHANNEL_PARAM]: state.ch,
+    [SHOW_UNPAID_CARD_PARAM]: state.showUnpaidCard || undefined,
+    ...carried,
+  };
+  return buildListHref('/orders', orderListHrefEntries(values), 1);
 }
+
 
 /** `/orders?a=1&b=2` → `a=1&b=2`(沒有 query 就回空字串)。 */
 function searchOf(hrefValue: string): string {
@@ -142,7 +161,7 @@ export function OrderFilterControls({
   sourceOptions,
   channelOptions,
   initial,
-  preservedQuery,
+  carried,
 }: {
   /** #347-3c-2:日期下拉的選項(server 已把每格的區間算好;client 不碰時鐘)。 */
   datePresetOptions: OrderDatePresetOption[];
@@ -153,12 +172,16 @@ export function OrderFilterControls({
   channelOptions: FilterOption[];
   initial: FilterState;
   /**
-   * 🔴 `#742`:篩選列**不擁有、但不得吃掉**的那幾個鍵(`panel` / `customer` / `den` / `pending`),
-   * 已經是 `a=1&b=2` 形狀,由 server 端 `buildPreservedFilterQuery` 產。
+   * 🔴 `#742`:篩選列**不擁有、但不得吃掉**的那四個鍵(`pending` / `den` / `panel` / `customer`),
+   * 由 server 端 `buildCarriedUrlValues` 逐鍵走各自的 reader 算好。
    * **必填** —— 原本這裡連這個 prop 都沒有,而「沒有」在型別上長得像「不需要」,
    * 症狀是「改任一篩選,員工正在看的那張單自己關掉」。
+   *
+   * ⚠️ **本片(`#742` 殘餘)把它從 `preservedQuery: string` 換成具名的四格**:
+   *    字串版把「不得吃掉」修好了,而它自己**在型別上不透明** ——
+   *    下一個新鍵要不要進去,沒有東西會叫。現在它是表的一部分,少一格 `tsc` 紅。
    */
-  preservedQuery: string;
+  carried: OrderListCarriedValues;
 }) {
   const router = useRouter();
   /**
@@ -175,7 +198,7 @@ export function OrderFilterControls({
    * `searchParams` 還是第一發之前的舊值(Next 的更新不同步)⇒ 會拿錯的「之前」去比。
    * 本檔整個設計就是繞著這個連點競態長出來的(見開頭那段),所以這裡也不留那個窗。
    *
-   * 🔴 **為什麼第一發要讀 `searchParams` 而不是 `href(state, preservedQuery)`**:兩者**仍然不相等**。
+   * 🔴 **為什麼第一發要讀 `searchParams` 而不是 `href(state, carried)`**:兩者**仍然不相等**。
    * `#742` 把 `panel` / `customer` / `den` / `pending` 接回來了(那四個原本會被本檔吃掉),
    * 但當下網址還可能帶著 `r` / `rt` / `correct`(動作結果那三個一次性參數,清單在
    * `lib/orders/order-list-view.ts` 的 `ONE_SHOT_PARAMS`)與 `page` —— 那幾個本檔**刻意不帶**。
@@ -205,7 +228,7 @@ export function OrderFilterControls({
   const apply = (next: FilterState) => {
     setState(next);
     setLastPushedKey(JSON.stringify(next));
-    const after = href(next, preservedQuery);
+    const after = href(next, carried);
     const before = lastPushedSearch.current ?? searchParams.toString();
     router.replace(after, { scroll: false });
     // 🔴 下一發的「之前」= 這一發的「之後」(見 `lastPushedSearch` 的宣告處)。

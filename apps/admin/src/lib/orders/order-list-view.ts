@@ -668,6 +668,67 @@ const ORDER_KEYWORD_URL_EXCLUDED = '__keyword_lives_in_httponly_cookie__';
  *    於是「決定」變成一個**有名字、有出處、數得出來**的東西,而不是一個省略。
  *    病灶原文與五個呼叫點的實測見 `buildOrderListHref` 第 4 參數的 docstring。
  */
+/**
+ * 🔴🔴 **`/orders` 的 query 鍵 —— 唯一一份【鍵 + 順序】表**(`#742` 殘餘;主視窗 2026-08-20 批)。
+ *
+ * **為什麼要有這張表**:在它之前,同一條 URL 有**兩份鍵清單**——
+ * 本檔的 `buildOrderListHref`,與 `components/orders/order-filter-controls.tsx` 自己那份 `href()`。
+ * 兩份會各自演化,而分岔的症狀是「**某個鍵在某條路上消失**」:
+ * ```
+ * #347-3c-1  日期兩軸      2026-08-10  commit 6bc6545e
+ * #484a A2   goods_axis    2026-08-14  commit 81f5b45c
+ * #742       四個鍵        2026-08-20  Sean 本人撞到（翻頁把面板關掉）
+ * ⇒ 10 天內三次，而第三次是使用者先撞到。它不是架構債，是有復發週期的東西。
+ * ```
+ * ⇒ **修法不是「讓兩份保持一致」(那需要有人持續維護),是「只留一份」。**
+ *
+ * 🔴 **順序是行為,不是風格**:`buildListHref` 的 docstring 逐字「entries 順序決定 query 順序」
+ *    (`lib/shared/list-params.ts:95`)。而 `#741` 的碰撞判定用
+ *    `JSON.stringify(Object.fromEntries(...))` —— 那個字串對鍵順序敏感。
+ *    ⚠️ **本表的順序刻意等於本片之前 `buildOrderListHref` 的既有順序** ⇒ server 側輸出**逐字不變**;
+ *      改變的只有 client 側(它原本把 4 個鍵**接在尾巴**,現在回到表上的位置)。
+ *
+ * ⚠️ `keyword` **不在表上**,而那是**刻意**:搜尋詞是 PII、住在 httpOnly cookie
+ *    (`#347-2b`,Sean `Q-a=B` 紅線)。它由 `ORDER_KEYWORD_URL_EXCLUDED` 這顆具名哨兵在
+ *    `buildOrderListHref` 內部標記「這一軸被做過決定」—— **「刻意不進 URL」不是「還沒決定」。**
+ */
+const ORDER_LIST_URL_KEYS = [
+  PAYMENT_STATUS_PARAM,
+  GOODS_AXIS_PARAM,
+  ORDER_SOURCE_PARAM,
+  PAYMENT_CHANNEL_PARAM,
+  SHOW_UNPAID_CARD_PARAM,
+  PENDING_ONLY_PARAM,
+  DATE_FROM_PARAM,
+  DATE_TO_PARAM,
+  ORDER_DENSITY_PARAM,
+  ORDER_PANEL_PARAM,
+  CUSTOMER_PANEL_PARAM,
+] as const;
+
+/**
+ * 表上每一格的值。**少一格就 `tsc` 紅** —— 那是本片的整個重點:
+ * 新增一個鍵時,**兩個 producer 都會紅**,而不是只有其中一個。
+ * ⚠️ 值一律是**已經是 URL 形狀的字串**(不是 domain 值)——
+ *    理由見 `orderListHrefEntries` 的 docstring。
+ */
+export type OrderListUrlValues = Record<
+  (typeof ORDER_LIST_URL_KEYS)[number],
+  string | readonly string[] | undefined
+>;
+
+/**
+ * 把表上的值排成 `buildListHref` 吃的 entries(**順序由 `ORDER_LIST_URL_KEYS` 一支決定**)。
+ *
+ * 🔴 **為什麼共用層畫在「URL 值」而不是「domain 值」**:兩個 producer 的**輸入型別本來就不同** ——
+ *    server 拿 `AdminOrderFilter`(日期是**絕對時刻** ISO),client 拿 `FilterState`(日期是**曆面日**)。
+ *    共用層若畫在 domain 值,client 就得自己做時區換算 ⇒ **打破「時區換算只有一份」那條既有紀律**,
+ *    比現在這個病更貴。⇒ 換算留在各自的 mapper,本支只收已經換算完的字串。
+ */
+export function orderListHrefEntries(values: OrderListUrlValues): readonly HrefEntry[] {
+  return ORDER_LIST_URL_KEYS.map((key) => [key, values[key]] as HrefEntry);
+}
+
 export const PANEL_CLOSED = Symbol('panel-closed');
 
 /**
@@ -714,32 +775,45 @@ export type OrderPanelTarget = string | typeof PANEL_CLOSED;
  *    **一個契約有兩邊,而斷言只釘了一邊;兩邊各自都對,合起來才錯。**
  *    ⇒ 修法不是在本支補一條 if,是**讓本支沒有自己的規則可言**。
  */
-export function buildPreservedFilterQuery(
+export type OrderListCarriedValues = Pick<
+  OrderListUrlValues,
+  | typeof PENDING_ONLY_PARAM
+  | typeof ORDER_DENSITY_PARAM
+  | typeof ORDER_PANEL_PARAM
+  | typeof CUSTOMER_PANEL_PARAM
+>;
+
+export function buildCarriedUrlValues(
   raw: Record<string, string | string[] | undefined>,
-): string {
-  const out = new URLSearchParams();
+): OrderListCarriedValues {
+  const out: Record<string, string | undefined> = {
+    [PENDING_ONLY_PARAM]: undefined,
+    [ORDER_DENSITY_PARAM]: undefined,
+    [ORDER_PANEL_PARAM]: undefined,
+    [CUSTOMER_PANEL_PARAM]: undefined,
+  };
 
   // `panel` / `customer`:走面板自己那兩支 reader(非 UUID / 重複鍵 ⇒ `null` = 不開 ⇒ 不回聲)。
   //   順帶拿到它們的正規化(小寫)—— 回聲出去的值與**面板真的會開的那張單**同一個字面。
   const panelId = readOpenPanelOrderId(raw);
-  if (panelId !== null) out.set(ORDER_PANEL_PARAM, panelId);
+  if (panelId !== null) out[ORDER_PANEL_PARAM] = panelId;
   const customerId = readOpenCustomerPanelId(raw);
-  if (customerId !== null) out.set(CUSTOMER_PANEL_PARAM, customerId);
+  if (customerId !== null) out[CUSTOMER_PANEL_PARAM] = customerId;
 
   // `den`:與 `parseOrderListSearchParams` 逐字同一條運算式(白名單;非法值倒向預設)。
   //   🔴 **等於預設就不寫進 URL** —— 與 `buildOrderListHref` 對 `den` 的處置一致,
   //      否則每條連結都掛著 `den=loose` 這個雜訊。
   const density = pickEnum(raw[ORDER_DENSITY_PARAM], ORDER_DENSITY_VALUES);
   if (density !== undefined && density !== ORDER_DENSITY_DEFAULT) {
-    out.set(ORDER_DENSITY_PARAM, density);
+    out[ORDER_DENSITY_PARAM] = density;
   }
 
   // `pending`:同上,唯一開關值 `'1'`,其餘一律不回聲(fail-safe 倒向不篩)。
   if (firstValue(raw[PENDING_ONLY_PARAM]) === PENDING_ONLY_ON) {
-    out.set(PENDING_ONLY_PARAM, PENDING_ONLY_ON);
+    out[PENDING_ONLY_PARAM] = PENDING_ONLY_ON;
   }
 
-  return out.toString();
+  return out as OrderListCarriedValues;
 }
 
 export function buildOrderListHref(
@@ -826,20 +900,29 @@ export function buildOrderListHref(
       display.density === ORDER_DENSITY_DEFAULT ? undefined : display.density,
     ],
   };
-  return buildListHref(
-    '/orders',
-    [
-      ...Object.values(byFilterKey),
-      ...Object.values(byDisplayKey),
-      // #350c:面板目標(**不是 filter 的軸**,所以不在上面那個 Record 裡)。
-      //    `undefined` 會被 buildListHref 略過 ⇒ `PANEL_CLOSED` = 網址上不出現 `panel`。
-      [
-        ORDER_PANEL_PARAM,
-        panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
-      ] as HrefEntry,
-    ],
-    page,
-  );
+  // 🔴🔴 **表上 11 格逐格填**(`#742` 殘餘)。少一格 `tsc` 直接紅 —— 而**另一個 producer
+  //    (`order-filter-controls.tsx` 的 `href()`)填的是同一張表**,所以它也會紅。
+  //    ⚠️ 上面兩個 Record 仍然是**值的來源**(它們守的是「domain 的每一軸都被做過決定」);
+  //      本表守的是另一件事:「**URL 上的每一個鍵**都被做過決定」。兩道守的不是同一件事,都要留。
+  const values: OrderListUrlValues = {
+    [PAYMENT_STATUS_PARAM]: byFilterKey.paymentStatus[1],
+    [GOODS_AXIS_PARAM]: byFilterKey.goodsAxes[1],
+    [ORDER_SOURCE_PARAM]: byFilterKey.orderSources[1],
+    [PAYMENT_CHANNEL_PARAM]: byFilterKey.paymentChannels[1],
+    [SHOW_UNPAID_CARD_PARAM]: byFilterKey.includeUnpaidCardOrders[1],
+    [PENDING_ONLY_PARAM]: byFilterKey.pendingOnly[1],
+    [DATE_FROM_PARAM]: byFilterKey.createdFrom[1],
+    [DATE_TO_PARAM]: byFilterKey.createdTo[1],
+    [ORDER_DENSITY_PARAM]: byDisplayKey.density[1],
+    // #350c:面板目標。`PANEL_CLOSED` ⇒ `undefined` ⇒ 網址上不出現 `panel`。
+    [ORDER_PANEL_PARAM]: panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
+    // 🔴 **列表連結刻意不帶客人卡**(本片把這個決定從「沒有人寫過」變成「表上寫著」):
+    //    客人卡是「從這張單跳去看這個人」的視圖,回列表時它就該收掉。
+    //    要「留著客人卡」的那條路在 `buildCustomerPanelHref`(它走 raw 回聲那一家,不走本表)。
+    //    ⚠️ **本片沒有改這個行為** —— 改之前它是【沒有人做過的決定】,現在是【寫下來的決定】。
+    [CUSTOMER_PANEL_PARAM]: undefined,
+  };
+  return buildListHref('/orders', orderListHrefEntries(values), page);
 }
 
 // 🔴 **`formatOrderDate` 已於 A9c(2026-08-06)刪除**(主視窗裁定,`E-116-A`)。
