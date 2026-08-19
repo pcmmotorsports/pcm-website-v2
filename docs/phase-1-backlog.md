@@ -24277,6 +24277,22 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
      producer 都在:order-filter-chips.tsx:109(待收款/待訂貨)、order-density-toggle.tsx、@panel 那條線
   ```
   篩選列是軟導航(同檔 `'use client'` + `router.replace(href(next))`)⇒ **href 沒列 = 那個鍵被丟掉**。
+- 🔴 **而丟掉 `panel` 的不只這一支 —— 實查 `buildOrderListHref(` 在 .tsx 有 5 個呼叫點(見下方數法),
+  加上本檔自己那份 `href()` 共 6 個 producer:4 個丟、1 個帶、1 個丟得有道理**:
+  ```
+  丟  components/orders/order-filter-controls.tsx:85   href()  自己那份 7 鍵清單
+  丟  components/orders/order-filter-chips.tsx:161     buildOrderListHref(filter, display, 1)      ← 無第 4 參數
+  丟  components/orders/order-toolbar.tsx:79           buildOrderListHref(filter, {density}, page) ← 無第 4 參數
+  丟  app/orders/page.tsx:268  分頁            buildOrderListHref(filter, display, p)       ← 無第 4 參數
+  帶  app/orders/page.tsx:259  列的訂單連結    buildOrderListHref(filter, display, page, orderId)
+  ○  app/orders/page.tsx:188  單號搜尋的「回列表」 —— 丟掉面板在這一格說得通(那是刻意回列表),
+     ⚠️ 而它與上面四個在程式碼上**長得一模一樣** ⇒ 光看呼叫端分不出「刻意」與「忘了」
+  數法 grep -rn 'buildOrderListHref(' --include='*.tsx' apps/admin/src | grep -v '\.test\.'
+  ```
+  ⇒ **翻頁、按 chip、換密度、改篩選 —— 四種動作都會把開著的面板關掉。**
+  🔴 `panelOrderId` 是 `buildOrderListHref` 的**選填第 4 參數**(`order-list-view.ts:680` docstring:
+  「不給 = 關閉面板」)⇒ **忘了帶與刻意不帶,在型別上長得一模一樣、`tsc` 不會叫。**
+  ⇒ 這正是本條該用機制修的地方:那道編譯期窮舉守門保護的是 `filter` 的軸,**保護不到這個參數**。
 - **🔴 症狀(三個,都是員工做得出來的)**
   - 面板開著 ⇒ 改任一篩選 ⇒ **面板自己關掉**。
   - 按了「待收款/待訂貨」⇒ 改任一篩選 ⇒ **那個 chip 自己熄掉、清單變回全部**。
