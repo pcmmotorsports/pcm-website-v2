@@ -145,3 +145,164 @@
   ⇒ 🔴 **所以它每天都會寄一封** ⇒ 「精簡」比我原本想的更重要:
     一封每天出現而看不懂的訊息,兩週後會被當成背景噪音,**而那時它就不再是告警了**
 ```
+
+---
+---
+
+# v2 · 定案實作 plan(2026-08-19 · W4 · 🔴 等 Sean 批,鐵則 8)
+
+> **Sean 已答的四題(來源 `~/pcm-mailbox/MAIN-056-…:173-174` 逐字,我沒有重打)**:
+> `告警文案長度 ⇒ 乙:全部印出來,長就長(推翻我推薦的甲)`
+> `告警文案三題 ⇒ 「依照推薦」= Q1甲 Q2甲 Q3甲`
+>
+> 🔴 **而這兩行互相打架,我沒有自己選,我判給【後面那句更明確的】** ——
+> Q1甲 = 「前 3 筆 + 另有 N 筆」(有上界);而「長度=乙:全部印出來」= **沒有上界**,
+> 且 MAIN-056 自己標了「**推翻我推薦的甲**」⇒ **本 plan 照【乙】做:全部單號列出來、不截斷。**
+> ⚠️ 而**沒有上界會帶出一個新風險**,見 §v2-5 那一題 —— **那是本 plan 唯一要他回的字。**
+
+## v2-1 · 五類的現況逐字(檔案:行號;不是摘要)
+
+| # | 類別 | 現況文案在哪 | 拿得到單號嗎 |
+|---|---|---|---|
+| ① | 雙扣候選 open | `packages/use-cases/src/check-anomaly-alerts.ts:89` | ✅ `payment_double_charge_anomalies.old_order_id` → `orders.display_id` |
+| ② | 退款卡逾時 refunding | 同檔 `:92` | ✅ 同上(同一張表) |
+| ③ | 人工待確認(兩類聯集) | 同檔 `:98-100` | ✅ RPC 內**已經 JOIN 了 orders**(`20260701130000:81`) |
+| ④ | released 死卡 | 同檔 `:108` | ✅ 同上(`20260701130000:88`) |
+| ⑤ | 疑似重複扣款(組) | 同檔 `:112-114` | ✅ `o1`/`o2` 兩張單、**要出兩個單號** |
+
+**單號欄 = `orders.display_id`(`PCM-YYYY-NNNN`)**,建表在 `20260604120000_m3_s2a_orders_order_items.sql:94` 逐字 `display_id text NOT NULL UNIQUE`。
+
+## v2-2 · 要改的東西(三處,順序不可換)
+
+```
+一 · migration(新一支,不改舊檔)
+    CREATE OR REPLACE FUNCTION public.get_payment_anomaly_alert_summary(
+      integer, integer, integer) RETURNS jsonb
+    🔴 參數與回傳型別【都不變】⇒ 可以 REPLACE、不必 DROP
+       ⇒ 而那也代表 **ACL 不會掉**(DROP+CREATE 才會)⇒ 但斷言仍照舊跑一次
+    加 5 個 jsonb array 欄(既有 7 個計數欄【一個都不動】):
+      open_display_ids / refunding_stuck_display_ids /
+      attempt_manual_review_display_ids / released_stuck_display_ids /
+      pending_dc_display_id_pairs        ← ⑤ 是「一組兩張」,回 [[a,b],…]
+    每個 array 各自 ORDER BY + LIMIT(見 §v2-5)
+
+二 · domain 型別 packages/domain/src/payment/anomaly-alert.ts
+    AnomalyAlertSummary 加 5 個欄
+    🔴 該檔 :16 逐字寫著「零 PII / 零金額 / 零單號」⇒ **那句要改,不是刪**
+       改成「零 PII / 零金額;🔴 單號自 2026-08-19 起【刻意】帶出來,授權人=Sean,理由見下」
+
+三 · 文案 packages/use-cases/src/check-anomaly-alerts.ts:79-123
+    buildAnomalyAlertMessage 五段全部重寫(見 §v2-3)
+    ⚠️ **LINE 與 Email 是同一個函式出兩邊** ⇒ 兩邊一起變,這是預期不是副作用
+```
+
+🔴 **中間那層 adapter 也要改**:`PgAnomalyAlertReaderAdapter`(snake_case jsonb → camelCase domain 的映射點)。
+⚠️ **我沒有開過那支檔** —— 我是從 `anomaly-alert.ts:5-6` 的檔頭推的(逐字「adapter 邊界把 DB snake_case jsonb 映射成 camelCase domain」)⇒ **這一行是【推的】,實作第一步要先開它確認。**
+
+## v2-3 · 五段新文案(草稿;字面 Sean 可以直接改)
+
+```
+⚠️ PCM 付款要你看 5 筆
+
+【可能被扣了兩次錢】2 筆(最久的已經 2 天)
+  PCM-2026-0104
+  PCM-2026-0098
+
+【退款卡住,超過 24 小時還沒退成】1 筆
+  PCM-2026-0091
+
+【刷卡卡在中間,系統自己處理不了】1 筆
+  PCM-2026-0104
+
+【付款沒完成,但錢可能還被鎖著】1 筆
+  PCM-2026-0104
+  (這一筆和上面那項可能是同一張單,不是兩件事)
+
+【同一位客人、同樣金額買了兩次,其中一次卡很久】1 組
+  PCM-2026-0110 ＋ PCM-2026-0111
+
+請到後台找這幾張單,看過之後再決定要退款還是標記免處理。
+⚠️ 先查清楚再退款 —— 上面每一筆都只是「可能」,不是已經確定。
+```
+
+**判它有沒有做到「白話」的機械尺(驗收用)**:拿原本那 8 個技術詞逐一 grep 訊息輸出 ⇒ 全部 0。
+`sweeper` / `pending` / `孤兒` / `被讓路` / `W1` / `Report C` / `plan §4` / `dismissed`
+🔴 **而這把尺只證「那 8 個沒了」,不證「沒有第 9 個」** —— 第 9 個只有 Sean 念一遍才找得到。
+
+📌 **④ 那句「可能是同一張單」是既有行為的保留**(`check-anomaly-alerts.ts:107` 的 `overlapNote`),
+而**現在可以做得更硬**:帶了單號之後,**比對兩邊的單號一樣就直接講**,不必再寫「可能」。
+
+## v2-4 · 風險面(這一片真正的成本在這裡)
+
+```
+🔴 R1 · 個資閘是【被打開】不是【忘了關】
+   原設計逐字：check-anomaly-alerts.ts:18「零 PII/零金額/零 id」
+   理由：LINE 訊息留在手機、可能被轉發截圖
+   ⇒ 2026-08-19 Sean 本人推翻，理由=沒單號他查不到
+   ⇒ **這段要逐字寫進 commit body 與 domain 檔註解**，否則下一個人會以為有人漏寫
+
+🔴 R2 · 單號【不是】姓名地址，但它是可識別指標
+   拿到單號 + 後台權限 ⇒ 看得到那位客人的全部資料
+   ⇒ 而 LINE 推播對象是 env 設定的單一 userId/groupId（LineAlertNotifierAdapter.ts:28-31）
+   ⇒ **若那個 to 曾經設成群組，等於把單號送進一個多人房間** ⇒ 上線前要確認它現在指向誰
+   ⚠️ **我沒有查那顆 env 的實際值**（那要 Vercel 面板）⇒ 這是【要 Sean 看一眼】的一格
+
+🔴 R3 · 「全部印出來」沒有上界，而 LINE 的訊息有
+   LineAlertNotifierAdapter.ts 全檔 58 行、**零截斷、零長度檢查**（我逐行看過）
+   ⇒ 若某天有 200 筆，訊息會超過 LINE 單則上限 ⇒ **整封送不出去 ⇒ 靜默失去告警**
+   ⚠️ **上限的確切數字我【未確認】** —— 缺的那一道檢查 = 讀 LINE Messaging API
+      官方 text message object 的 `text` 欄長度上限（我抓過一次，那一頁沒有列出來）
+   ⇒ ⇒ **這就是 §v2-5 那一題**
+
+🟡 R4 · 它【每天早上 9 點都會寄一封】
+   20260723120000_m3_s2_settle_sweep_pgcron.sql:12 逐字 `pcm-anomaly-alert(0 1 * * *)`
+   ⇒ 舊帳（例如那筆 2SQH2P）會**天天出現在同一個位置**
+   ⇒ 帶了單號之後至少他看得出「又是同一張」，而不是以為每天都有新事故
+   📌 這不是本片要解的，但它是本片會改變的體感
+
+🟡 R5 · 零筆時不寄 = 現況，本片是【回歸守門】不是新功能
+   check-anomaly-alerts.ts:136-141 的 shouldAlert，五個計數任一 >0 才寄
+```
+
+## v2-5 · 🔴 唯一要你回的一題(其他都已定案)
+
+```
+Q · 「全部印出來」碰到 LINE 的長度上限時要怎麼辦？
+
+甲　加一個保底：超過 N 筆就列前 N 筆 + 一行「另外還有 M 筆，請到後台看」
+    ⇒ 訊息一定送得出去；而**極端狀況下**你會看不到完整清單
+乙　不加保底，真的全部印
+    ⇒ 平常最完整；而**筆數暴增的那一天，整封告警會送不出去 ⇒ 你什麼都收不到**
+    🔴 而那一天正好是最需要收到告警的那一天
+
+👍 我建議【甲】，N 先設 30。理由不是「怕長」，是**乙的失敗方式是靜默的** ——
+   它不會少寄幾行，它會【整封不寄】，而 route 那邊只會看到一個推播失敗。
+   而甲在正常情況（你現在是 1 筆）與乙**逐字相同**。
+```
+
+## v2-6 · 驗收(逐條 yes/no)
+
+```
+□ 五段各自帶出單號（1 筆 / 多筆 / ⑤ 的兩張一組，三種案例各一測試）
+□ RPC 沒回 id 時，訊息**不得憑空編一個**（測試釘死：array 為空 ⇒ 那一段不列單號、只列筆數）
+□ 8 個技術詞 grep 訊息輸出 ⇒ 全部 0
+□ ④⑤ 重疊時單號一樣 ⇒ 直接講「同一張單」（不再寫「可能」）
+□ 零筆時不寄（回歸，check-anomaly-alerts.ts:136-141）
+□ Email 那一邊也看過（同一個函式出兩邊）
+□ ACL 斷言重跑：payment_confirmer=true、anon/authenticated/service_role=false
+  （抄 20260701130000 §3 那個 DO 區塊）
+□ migration 走拋棄式 PG 驗過再遞給 Sean（docs/runbooks/throwaway-postgres-…）
+□ 四綠 TURBO_FORCE=1（動 .ts ⇒ 含 build）
+□ 🔴 codex 對抗審查（鐵則 12②③⑤ 三中）
+□ 🔴 不 apply、不 push —— apply 是 Sean 的動作
+```
+
+## v2-7 · 誠實揭示(照實,不美化)
+
+```
+· 我【沒有跑過】那封告警；現況那段字是 Sean 收到的原文（主視窗轉貼、我沒重打）
+· `PgAnomalyAlertReaderAdapter` 那支檔**我沒開過**（§v2-2 已標）⇒ 那一行是推的
+· LINE 訊息長度上限**未確認**，缺的檢查已寫在 R3
+· LINE 推播對象那顆 env 的實際值**我查不到**（要 Vercel 面板）⇒ R2 是【要 Sean 看】的一格
+· 「長度乙 vs Q1甲」我判給了乙，**而那是我的判讀不是他的原話** ⇒ 若判錯，改回甲只影響 §v2-5
+```
