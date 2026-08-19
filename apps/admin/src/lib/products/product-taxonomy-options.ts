@@ -18,9 +18,9 @@
 //    ⇒ 大類 → 子類連動成立,**不做遞迴**。而本檔的資料形狀對單層也退化得下去
 //    (`children` 空陣列 ⇒ 呼叫端只畫一顆下拉)。
 //
-// ⚠️ 而 storefront `category-taxonomy.ts:10-11` 的註解逐字寫著「目前真分類為**單層**
-//    (16 大類…parentId 全 null、無子類)」—— **那是 2026-07 的字面,現在 78 個子類**。
-//    引用那支檔時不要連它的現況描述一起引。
+// 📌 附記:storefront `category-taxonomy.ts` 的檔頭一度寫著「真分類為單層、無子類」
+//    (2026-07 的字面)—— **已於 2026-08-19 同日改掉並附上可跑的檢查**。
+//    若你讀到的版本還是舊的,代表你在一個較早的 checkout 上。
 
 /** `categories` 表撈下來的一列(欄位名逐字對齊 DB,見 `20260505130758_init_brands_categories.sql:38-47`)。 */
 export interface CategoryOptionRow {

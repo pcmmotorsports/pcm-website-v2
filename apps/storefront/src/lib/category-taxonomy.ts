@@ -7,8 +7,17 @@
 // 選項 A(Sean 2026-07-04 拍):只保留「有商品」的分類(自身 productCount>0 或有非空子類),
 // 不顯示「點了 0 結果」的死分類(與品牌側 #220c 一致);多品牌寫入後空分類自動長出。
 //
-// 🔴 目前真分類為單層(16 大類 + 碳纖維部品、parentId 全 null、無子類);本函式已備 parentId
-//    分組邏輯,子類上架(#212)後自動組進 children。
+// ✅ 真分類**已經是兩層**:大類 29 / 子類 78 / 最深層數 2
+//    (2026-08-19 Sean 本人於**正式庫** Supabase SQL Editor 實查並貼回;同批:分類表共 107 列、
+//     商品 20341 件全部有 category_id、而商品實際用到的分類是 81 個 ⇒ 26 個分類目前沒有商品)
+//    ⇒ 本函式的 parentId 分組邏輯**現在就在生效**,不是備而未用。
+//
+// 🔴 **上面那些數字會隨每日同步變動 —— 不要當常數。**要現值就跑這一發(唯讀):
+//      select count(*) filter (where parent_category_id is not null) as 子類,
+//             count(*) filter (where parent_category_id is null)     as 大類,
+//             max(jsonb_array_length(segments))                      as 最深層數
+//      from categories;
+//    回「子類 = 0」⇒ 真的變回單層,本段要改回去;回數十 ⇒ 本段仍然成立。
 
 import type { CategorySummary } from '@pcm/domain';
 import type { MockCategory } from '@/data/mock-categories';
