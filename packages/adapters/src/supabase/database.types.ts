@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十一個函式、共二十七處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正
 //   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
 //    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
@@ -35,6 +35,9 @@
 //      ✅🔴 **這一處漏貼會自己紅** —— 已實測(2026-08-15,突變複本):拿掉本處的 `| null` ⇒
 //      `tsc` 逐字 `TS2322: Type 'string | null' is not assignable to type 'string'`,
 //      因為呼叫端傳的就是 `string | null`。
+//   ⑫ `admin_set_product_listing.Args` **一處**(p_note 的 `| null`;2026-08-19 #20 起 ——
+//      migration `20260819040000:121-123` 逐字 `IF p_note IS NULL THEN v_note := NULL`
+//      ⇒ NULL 是設計上合法輸入;同檔 :118-120 寫明它是刻意選填。與 ⑦ 同款。)
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
 //   ~~⑫ `admin_search_customers` **整段**~~ **已退場(2026-08-19 G4)**:它自己寫著
@@ -3669,7 +3672,13 @@ export type Database = {
         Args: {
           p_actor: string
           p_delisted: boolean
-          p_note: string
+          // 🔴 手動校正 ⑫(2026-08-19,G3 審出、G2 獨立驗過):生成型別寫 `string`,而
+          //    migration 20260819040000:121-123 逐字 `IF p_note IS NULL THEN v_note := NULL`
+          //    ⇒ **NULL 是設計上合法的輸入**(同檔 :118-120 逐字「上下架是每天會做很多次的操作,
+          //    而 Sean 沒有對它拍過『必填』」)。與前例 ⑦ `admin_cancel_order.p_reason_detail` 同款。
+          //    ⚠️ 不補的話,接線的人想照設計送 null 會型別紅 ⇒ 他很可能改送 '' 繞過去
+          //      (函式把空字串也當 NULL)⇒ 而那會讓這個型別**一直說謊**,且沒有人會再回來看。
+          p_note: string | null
           p_product_id: string
           p_request_id: string
         }

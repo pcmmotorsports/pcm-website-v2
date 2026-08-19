@@ -17,7 +17,8 @@
 
 **先確認那支東西真的在正式庫**(而不是只在 `APPLIED.tsv` 上):
 ```bash
-supabase gen types typescript --project-id bmpnplmnldofgaohnaok > /tmp/gen-live.ts
+supabase gen types typescript --project-id bmpnplmnldofgaohnaok \
+  --schema public --schema graphql_public > /tmp/gen-live.ts   # 🔴 --schema 不能省，見 §1.5
 grep -c '<你要的函式名>' /tmp/gen-live.ts        # 期望 ≥1
 grep -c 'admin_initiate_order_refund' /tmp/gen-live.ts   # 🔴 正向對照，期望 1（證明尺會動）
 ```
@@ -47,7 +48,62 @@ PY
 
 ---
 
-## 2. 🔴 保護那 27 處的方法:**不是「記得貼回去」,是 diff**
+## 🔴🔴 1.5 先讀這段 —— **本檔原本教錯了預設方法**(2026-08-19 G2 實跑後改)
+
+> 本檔第一版教的是「**重生成整檔 + 把 27 處補回去**」。
+> **我照它跑了一次,而跑到一半量出來的東西推翻了它。**
+
+```
+第一發（照本檔原本寫的指令，沒帶 --schema）
+  supabase gen types typescript --project-id bmpnplmnldofgaohnaok
+  ⇒ 3,833 行，而當時 repo 的檔是 4,234 行
+  ⇒ 逐行比對發現它【整段少了 graphql_public schema】（約 28 行）
+  ⇒ 🔴 那不是「正式庫沒有它」，是【指令少了 --schema】—— 而少掉的那段不會有任何東西紅
+
+第二發（補上）
+  supabase gen types typescript --project-id bmpnplmnldofgaohnaok \
+    --schema public --schema graphql_public
+  ⇒ 3,861 行。與 repo 現行檔逐行比（排除註解與空行）：
+       舊有新無 26 行 = 那 27 處手動校正
+       新有舊無 36 行 = 同樣那 27 處的【無 null 版本】+ 新函式那 10 行
+  ⇒ 🔴 **差異【只有】這兩類，其餘完全一致**
+```
+
+### ⇒ **所以預設方法是【只插差異】,不是重生成**
+
+```
+重生成的代價：沖掉 385 行註解 + 27 處手動校正（要逐一補回，而補回是人工）
+重生成換來的：新函式那 10 行
+⇒ 🔴 成本與收益差兩個數量級
+```
+
+**做法(2026-08-19 實跑,`1aecece1`)**:
+```bash
+# 1. 生成一份【只拿來比對】的，不要覆蓋 repo 的檔
+supabase gen types typescript --project-id bmpnplmnldofgaohnaok \
+  --schema public --schema graphql_public > /tmp/types-fresh.ts
+
+# 2. 逐行比（排除註解與空行），看差異是不是【只有】那兩類
+#    ⇒ 是 ⇒ 走「只插差異」
+#    ⇒ 🔴 不是 ⇒ 那表示正式庫有別的東西變了 ⇒ 才考慮 §2 的重生成流程
+
+# 3. 把要新增的那一段【逐字從 /tmp/types-fresh.ts 取】，不要手打
+#    插進 repo 的檔（照字母序放在鄰居之間），其餘一行都不動
+```
+
+**驗收(一發,而它不依賴任何快照)**:
+```bash
+git show --numstat <你的 commit>    # 🔴 期望 **N 增 0 刪**
+```
+⇒ **`0 刪` = 沒有動任何既有行** ⇒ 27 處校正與 385 行註解**不可能**被碰到。
+📌 **這個方法真正的好處:它把驗證變成一個數字**,而不是「我逐一檢查過了」。
+
+⚠️ **什麼時候才需要 §2 的重生成流程**:第 2 步比出來的差異**不只那兩類**時
+(例如某支函式簽名改了、某張表加了欄、某個型別被刪)。**那時候下面整套才值得付。**
+
+---
+
+## 2. (次要路徑)🔴 保護那 27 處的方法:**不是「記得貼回去」,是 diff**
 
 **「逐一貼回 27 處」是提醒,而提醒治不好這種事。** 可執行的形狀:
 ```bash
