@@ -42,15 +42,44 @@ export function invoiceTypeLabel(type: string | null): string | null {
  *    數法:`git grep -n "'store'" -- apps packages | grep -v '\.test\.'` ⇒ 命中裡**多數是 ②**。
  *    ⇒ 對 `'store'` 下 sed 會把經銷價體系一起改掉,而型別不一定會紅。
  *
- * ⚠️ **未知值仍然原樣顯示,那是刻意的** —— 而它現在有一個真實的來源:
- *    後台改單的「出貨方式」是**自由文字輸入**(`components/orders/order-edit-form.tsx:57-64`,
- *    `type='text'` + `maxLength={64}`),**沒有下拉、沒有白名單** ⇒ 這裡拿得到任何字串。
- *    那件事的風險不只是標籤難看,見該檔;**本片不動它**(涉退款白名單 = 鐵則 12①)。
+ * ⚠️ **未知值仍然原樣顯示,那是刻意的**。
+ *    ~~而它現在有一個真實的來源:後台改單的「出貨方式」是自由文字輸入…本片不動它~~
+ *    🔴 **2026-08-19 片15 已經把那個來源關掉**:改單那一欄換成 `<select>`,
+ *    而**白名單擋在 `workflow-form.ts` 的 parser**(畫面只是 UX、一發 POST 就繞過去)。
+ *    ⇒ 今天**寫不進**非白名單值。**但這裡的原樣顯示要留著** ——
+ *      該欄**沒有表 CHECK**(`20260604120000…:105` 逐字「不加表 CHECK」)⇒ 歷史值與
+ *      繞過應用層的寫入(直接 SQL / 未來的新路徑)仍可能塞進別的字串,
+ *      **而那時我們寧可看到那個字串,也不要看到一個假的「宅配」。**
+ *
+ * ═══ 🔴🔴 白名單的**唯一**副本住在這裡(2026-08-19 片15 R2,W5 must-fix 2)═══
+ *    收斂之前它有**三份可執行的副本**:本檔的兩個 `if`、`order-edit-form.tsx` 的兩個 `<option>`、
+ *    `workflow-form.ts` 的 `raw !== 'home' && raw !== 'store'`。
+ *    🔴 **而那正是這一欄一開始出事的形狀** —— 白名單寫在下單 RPC 裡,
+ *       而**改單那條路不知道它的存在**。多一份副本 = 多一個不知道的人。
+ *    📎 判別句:**能消除重複就不要去偵測不一致。**
+ *    ⇒ 要加第三種送法,只改下面這一個物件;畫面與 parser 都跟著走,**不會有人漏改。**
  */
+export const SHIPPING_METHOD_LABELS = {
+  home: '宅配',
+  store: '自取',
+} as const;
+
+/** 白名單值本身(給 parser 用)。順序 = 下拉選單的順序。 */
+export const SHIPPING_METHODS = Object.keys(SHIPPING_METHOD_LABELS) as ReadonlyArray<
+  keyof typeof SHIPPING_METHOD_LABELS
+>;
+
+/** 這個字串是不是白名單值(parser 的守門用這一支,不要各自寫 `!==`)。 */
+export function isShippingMethod(v: string): boolean {
+  // 🔴 用 `Object.hasOwn` 不用 `in` —— `'toString' in obj` 會是 true(原型鏈),
+  //    而那會讓 `toString` / `constructor` 這種字串通過白名單。
+  return Object.hasOwn(SHIPPING_METHOD_LABELS, v);
+}
+
 export function shippingMethodLabel(method: string): string {
-  if (method === 'home') return '宅配';
-  if (method === 'store') return '自取';
-  return method;
+  return isShippingMethod(method)
+    ? SHIPPING_METHOD_LABELS[method as keyof typeof SHIPPING_METHOD_LABELS]
+    : method;
 }
 
 /**

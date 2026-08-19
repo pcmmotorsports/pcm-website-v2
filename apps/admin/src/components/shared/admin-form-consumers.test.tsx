@@ -135,7 +135,9 @@ describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
     const { container } = render(<OrderEditForm detail={ORDER_DETAIL} returnTo='/orders/ord-1' />);
     const shipping = field(container, SHIPPING_METHOD_FIELD) as HTMLSelectElement;
     expect(shipping.tagName, '不是 select ⇒ 又變回自由文字了').toBe('SELECT');
-    expect(shipping.required).toBe(true);
+    // 🔴 ~~expect(shipping.required).toBe(true)~~ —— 片15 R2 拿掉(W5 nit):
+    //    沒有空值 option ⇒ select 永遠有選中值 ⇒ `required` **擋不住任何東西**。
+    //    釘一個永遠成立的屬性,會讓下一個人以為這裡有一道檢查。真正的守門在 `workflow-form.ts`。
     // 白名單兩個都在,而且印的是中文(不是 raw enum)
     const options = [...shipping.options].map((o) => [o.value, o.textContent] as const);
     expect(options).toEqual(

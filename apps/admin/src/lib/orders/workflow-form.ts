@@ -12,6 +12,8 @@ import {
 } from '../forms/single-value';
 // #350d:`return_to` 的守門集中在 order 域共用解析器(五支 action 的 choke point)。
 import { ORDER_RETURN_TO_FIELD, parseOrderReturnTo } from './order-return-to';
+// 🔴 白名單的唯一副本在那支檔(片15 R2,W5 must-fix 2)——**不要在這裡再寫一次 `'home'`/`'store'`**。
+import { isShippingMethod } from './order-detail-view';
 
 // ── 表單欄名(list inline 小 form 與明細頁表單共用)──
 export const ORDER_ID_FIELD = 'order_id';
@@ -171,7 +173,7 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
     //    ⚠️ **這一改收窄了寫入能力**(原本打得出自訂快遞名)。主視窗 2026-08-19 裁「照做、不問 Sean」,
     //       理由:查無任何拍板說自訂是刻意的 / 正式庫 0 筆在用 / 後台尚未對員工開放。
     //       **若日後要支援自訂送法,那要另外設計一個真的欄位,不是借這一欄。**
-    if (raw !== 'home' && raw !== 'store') return { ok: false };
+    if (!isShippingMethod(raw)) return { ok: false };
     patch.shippingMethod = raw;
   }
 

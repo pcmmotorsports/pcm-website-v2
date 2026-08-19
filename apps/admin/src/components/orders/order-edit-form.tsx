@@ -1,6 +1,9 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 import { updateOrderWorkflowAction } from '../../lib/orders/order-actions';
-import { shippingMethodLabel } from '../../lib/orders/order-detail-view';
+import {
+  SHIPPING_METHOD_LABELS,
+  isShippingMethod,
+} from '../../lib/orders/order-detail-view';
 import {
   ORDER_ID_FIELD,
   VERSION_FIELD,
@@ -83,16 +86,37 @@ export function OrderEditForm({
              我查不到任何拍板說那是刻意的(`git grep '黑貓' -- docs/` 只命中架構文件講「未來串黑貓 API」,
              與這一欄無關)。**若 Sean 要保留自訂,那要另外設計成一個真的欄位,不是借這一欄。** */}
       <AdminFormField label='出貨方式'>
+        {/* 🔴 選項由 `SHIPPING_METHOD_LABELS` 產,**不在這裡再寫一次 `home`/`store`**
+            (片15 R2,W5 must-fix 2:收斂前白名單有三份可執行的副本,
+             而「白名單有副本、其中一份不知道」正是這一欄一開始出事的形狀)。
+            ⚠️ `required` 已拿掉 —— 沒有空值 option ⇒ 它永遠有選中值 ⇒ **它擋不住任何東西**,
+               留著只會讓人以為這裡有一道檢查(W5 nit)。真正的守門在 `workflow-form.ts`。 */}
         <select
           name={SHIPPING_METHOD_FIELD}
           defaultValue={detail.shippingMethod}
-          required
           className={ADMIN_INPUT_CLASS}
         >
-          <option value='home'>{shippingMethodLabel('home')}</option>
-          <option value='store'>{shippingMethodLabel('store')}</option>
-          {detail.shippingMethod !== 'home' && detail.shippingMethod !== 'store' && (
-            <option value={detail.shippingMethod}>{detail.shippingMethod}(非白名單,原樣保留)</option>
+          {Object.entries(SHIPPING_METHOD_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+          {/* 🔴🔴 **這個選項不會「保留」任何東西 —— 它會【擋住整張單】**(片15 R2,W5 must-fix 1)。
+              因果鏈是直的,兩段 code 都在:
+                員工開單 → select 停在舊值 → 他改了發票號碼 → 按儲存
+                → parser 拒收非白名單值 → `order-actions.ts:71-73` `redirectWith('/orders','invalid')`
+                ⇒ **那張單的發票三欄也一起存不下去**（同一張表單、同一個 action）
+                ⇒ 而他看到的是一個泛用的 invalid,**畫面上沒有任何東西指向「出貨方式」**
+              ⇒ 所以字面必須把「要做什麼」講出來,不能只說「原樣保留」——
+                 **fail-closed 不變,但沉默的陷阱要變成一句指令。**
+              ⚠️ 本分支**今天在產品裡構造不出來**(正式庫實量 `home 14 / store 5`、第三種 0)
+                 ⇒ 它守的是**未來**(該欄無表 CHECK,直接 SQL 或未來的新寫入路徑仍塞得進來)。
+                 撐住它的是既有 fixture `ORDER_DETAIL.shippingMethod = '新竹物流'`。
+                 **要清死碼的人先讀這一段。** */}
+          {!isShippingMethod(detail.shippingMethod) && (
+            <option value={detail.shippingMethod}>
+              {detail.shippingMethod}(非白名單,必須改成宅配或自取才能存檔)
+            </option>
           )}
         </select>
       </AdminFormField>
