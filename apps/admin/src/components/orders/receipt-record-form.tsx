@@ -1,6 +1,13 @@
 'use client';
 
-import { useActionState, useEffect, useId, useRef, useState } from 'react';
+import {
+  useActionState,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ComponentProps,
+} from 'react';
 import { ORDER_RETURN_TO_FIELD } from '../../lib/orders/order-return-to';
 import { recordItemReceiptAction } from '../../lib/orders/receipt-actions';
 import {
@@ -13,12 +20,43 @@ import {
   RCPT_RECEIVED_AT_LOCAL_FIELD,
   RCPT_REQUEST_ID_FIELD,
   RCPT_SURPLUS_FIELD,
+  RECEIPT_FIELD_OF_CODE,
   type ReceiptActionState,
   type ReceiptFormValues,
 } from '../../lib/orders/receipt-action-state';
 import { toTaipeiInputValue } from '../../lib/orders/procurement-view';
 import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
+import {
+  AdminFormErrorProvider,
+  useAdminFieldErrorProps,
+} from '../shared/admin-form-errors';
 import { ReceiptUndoBar } from './receipt-undo-bar';
+
+/**
+ * 一欄輸入框 = 標籤 + 控制項 + **掛在控制項自己身上的錯誤 aria**。
+ *
+ * 🔴🔴 **為什麼這是一個獨立元件,而不是在 `ReceiptRecordForm` 裡直接算好 props**
+ *    —— 這一格是 hook 規則決定的,不是風格:
+ *    `AdminFormErrorProvider` 是 `ReceiptRecordForm` **自己渲染的**
+ *    ⇒ 在 `ReceiptRecordForm` 的 body 裡呼叫 `useAdminFieldErrorProps` 讀到的是
+ *      **provider 上方**的 context(也就是 `null`)⇒ 永遠沒有錯誤。
+ *    ⇒ 必須有一層在 provider **底下**的元件來讀。順帶把四段幾乎逐字相同的 JSX 收成一個。
+ *
+ * 🔴 `aria-invalid` / `aria-describedby` **掛在 `<input>` 上,不是外面包一層**
+ *    (2026-08-19 codex K2 finding 2:掛在 div 上報讀器讀不到,等於一個假的無障礙宣稱)。
+ */
+function ReceiptInput({
+  label,
+  name,
+  ...inputProps
+}: { label: string; name: string } & ComponentProps<'input'>) {
+  const errorProps = useAdminFieldErrorProps(name);
+  return (
+    <AdminFormField label={label} name={name}>
+      <input className={ADMIN_INPUT_CLASS} name={name} {...errorProps} {...inputProps} />
+    </AdminFormField>
+  );
+}
 
 // M-4b E10 #352-b:單筆採購的「登錄到貨」小視窗。
 // 🔴 中文字面全部暫定、待 Sean 肉眼定稿(結構鎖、字不鎖)。
@@ -121,6 +159,24 @@ export function ReceiptRecordForm({
     state.status === 'failed' &&
     (state.procurementId === procurementId || state.procurementId === null);
 
+  /**
+   * 🔴 片4:規格 §4-3「**頂部 banner 總結 + 每欄 inline error**;只做一種使用者找不到錯在哪」。
+   *
+   * · **上層 banner 一個字沒動** —— 它照舊顯示 `state.message`(那是總結,本片不碰)。
+   * · **下層**由 `RECEIPT_FIELD_OF_CODE` 決定:**只有【可改輸入型】的碼會指到欄位**;
+   *   `denied` / `bug` / `PROCUREMENT_VOIDED` / `DUPLICATE_*` 等**刻意不指**
+   *   —— 員工改哪一格都沒用,硬指等於叫他去改一個改不好的地方(理由全文在那張表旁邊)。
+   * 🔴 **兩層共用同一句話,不另寫一份文案** —— 兩份會各自漂,而畫面上兩句都合理。
+   * 🔴 **一個碼可能指到兩欄**(`INVALID_QUANTITY` 同時管到貨與溢收,RPC 就是這樣判的)
+   *    ⇒ 這裡走清單、不是單一欄位。
+   */
+  const fieldErrors = (() => {
+    if (!failed) return null;
+    const names = RECEIPT_FIELD_OF_CODE[state.code];
+    if (names.length === 0) return null;
+    return Object.fromEntries(names.map((n) => [n, state.message]));
+  })();
+
   // 🔴 彈窗模式成功:①通知呼叫端就地重取 ②**換一把新的冪等鍵**。
   //
   //    ⚠️ **兩把鍵語意相反,別混為一談**(主視窗 E1 要求①的釐清):
@@ -206,6 +262,9 @@ export function ReceiptRecordForm({
         登錄到貨
       </summary>
       <form action={formAction} className='mt-2 space-y-3 rounded-md border p-3' id={panelId}>
+        {/* 🔴 片4:provider 只包住這一張表單 ⇒ 別份表單的失敗進不到這裡
+            (同 `useActionState` 的 state 本來就是每個表單實例各自的,見上面 `failed` 那段)。 */}
+        <AdminFormErrorProvider errors={fieldErrors}>
         <input type='hidden' name={RCPT_ORDER_ID_FIELD} value={orderId} />
         <input type='hidden' name={RCPT_ORDER_ITEM_ID_FIELD} value={orderItemId} />
         <input type='hidden' name={RCPT_PROCUREMENT_ID_FIELD} value={procurementId} />
@@ -222,52 +281,44 @@ export function ReceiptRecordForm({
           </p>
         )}
 
-        <AdminFormField label='到貨幾件'>
-          <input
-            className={ADMIN_INPUT_CLASS}
-            name={RCPT_QUANTITY_FIELD}
-            type='number'
-            /* 🔴 `min=0` 不是筆誤:`到貨 0 件 / 溢收 N 件` 是「這張單已收滿或已取消、但貨還是到了」
-                  的正式登記方式(a1 `20260810230000:82`)。設成 min=1 會讓那條路在畫面上直接死掉。 */
-            min={0}
-            step={1}
-            value={values.quantity}
-            onChange={(e) => set({ quantity: e.target.value })}
-          />
-        </AdminFormField>
+        <ReceiptInput
+          label='到貨幾件'
+          name={RCPT_QUANTITY_FIELD}
+          type='number'
+          /* 🔴 `min=0` 不是筆誤:`到貨 0 件 / 溢收 N 件` 是「這張單已收滿或已取消、但貨還是到了」
+                的正式登記方式(a1 `20260810230000:82`)。設成 min=1 會讓那條路在畫面上直接死掉。 */
+          min={0}
+          step={1}
+          value={values.quantity}
+          onChange={(e) => set({ quantity: e.target.value })}
+        />
 
-        <AdminFormField label='什麼時候到的'>
-          <input
-            className={ADMIN_INPUT_CLASS}
-            name={RCPT_RECEIVED_AT_LOCAL_FIELD}
-            type='datetime-local'
-            value={values.receivedAtLocal}
-            onChange={(e) => set({ receivedAtLocal: e.target.value })}
-          />
-        </AdminFormField>
+        <ReceiptInput
+          label='什麼時候到的'
+          name={RCPT_RECEIVED_AT_LOCAL_FIELD}
+          type='datetime-local'
+          value={values.receivedAtLocal}
+          onChange={(e) => set({ receivedAtLocal: e.target.value })}
+        />
 
-        <AdminFormField label='溢收幾件(供應商多送的,不掛回這張單)'>
-          <input
-            className={ADMIN_INPUT_CLASS}
-            name={RCPT_SURPLUS_FIELD}
-            type='number'
-            min={0}
-            step={1}
-            value={values.surplusQuantity}
-            onChange={(e) => set({ surplusQuantity: e.target.value })}
-          />
-        </AdminFormField>
+        <ReceiptInput
+          label='溢收幾件(供應商多送的,不掛回這張單)'
+          name={RCPT_SURPLUS_FIELD}
+          type='number'
+          min={0}
+          step={1}
+          value={values.surplusQuantity}
+          onChange={(e) => set({ surplusQuantity: e.target.value })}
+        />
 
-        <AdminFormField label='備註(選填)'>
-          <input
-            className={ADMIN_INPUT_CLASS}
-            name={RCPT_NOTE_FIELD}
-            type='text'
-            maxLength={500}
-            value={values.note}
-            onChange={(e) => set({ note: e.target.value })}
-          />
-        </AdminFormField>
+        <ReceiptInput
+          label='備註(選填)'
+          name={RCPT_NOTE_FIELD}
+          type='text'
+          maxLength={500}
+          value={values.note}
+          onChange={(e) => set({ note: e.target.value })}
+        />
 
         <button
           type='submit'
@@ -276,6 +327,7 @@ export function ReceiptRecordForm({
         >
           {requestId === '' ? '載入中…' : '登錄到貨'}
         </button>
+        </AdminFormErrorProvider>
       </form>
 
       {/* 🔴 **在登錄表單之外**:HTML 不准巢狀 `<form>`,塞進去的話撤銷那顆會變成登錄表單的
