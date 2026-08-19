@@ -14,7 +14,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { DangerZoneDetails } from './danger-zone-details';
+import { DangerZoneDetails, DetailsScrollOnOpen } from './danger-zone-details';
 
 afterEach(() => {
   cleanup();
@@ -67,6 +67,35 @@ describe('DangerZoneDetails 展開時把被揭露的那塊捲進視野', () => {
     details.open = true;
     details.dispatchEvent(new Event('toggle'));
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  // 🔴 `#701`:採購表單那兩塊借的是這支殼(它們是 server component、掛不了 onToggle)。
+  //    它與上面那支共用同一份捲動邏輯(`useRevealScroll`)——
+  //    **不共用的話這會是本 repo 第三份同樣的邏輯**,而那正是這一夜盤點出來的形狀。
+  //    ⚠️ 它與 `DangerZoneDetails` 的差別:**呼叫端自己保留 `<summary>`** ⇒ 版面零改動。
+  it('🔴 DetailsScrollOnOpen:展開 ⇒ 捲;收合 ⇒ 不捲', () => {
+    const spy = vi.fn();
+    Element.prototype.scrollIntoView = spy;
+    render(
+      <DetailsScrollOnOpen className='group'>
+        <summary className='自己的樣式'>＋ 再跟一家供應商下訂</summary>
+        <p>採購表單</p>
+      </DetailsScrollOnOpen>,
+    );
+    const el = screen.getByText('採購表單').closest('details') as HTMLDetailsElement;
+    // 呼叫端的 summary class 原封保留 —— 這一條守的是「版面零改動」那個宣稱
+    expect(el.querySelector('summary')?.className).toBe('自己的樣式');
+    expect(el.className).toBe('group');
+
+    el.open = true;
+    el.dispatchEvent(new Event('toggle'));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[0]).toMatchObject({ block: 'nearest' });
+
+    spy.mockClear();
+    el.open = false;
+    el.dispatchEvent(new Event('toggle'));
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('prefers-reduced-motion ⇒ behavior 降成 auto(無障礙基本盤,不是效果)', () => {

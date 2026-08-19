@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail, AdminOrderItemProcurement } from '@pcm/domain';
@@ -956,5 +958,24 @@ describe('ItemProcurementSection — #352-b-2 衍生指標「還有 N 件沒有�
       />,
     );
     expect(getByText(/數量資料還沒就緒/)).toBeTruthy();
+  });
+});
+
+// 🔴 `#701` 守門:那兩塊收合區必須用會捲動的殼,不得退回原生 `<details>`。
+//    **量出來才加的**:2026-08-20 把 `<DetailsScrollOnOpen>` 換回 `<details>` ⇒ **本檔 50 條全綠**
+//    ⇒ 展開後長在畫面外那個病可以被靜默改回來,而沒有任何東西會紅。
+//
+// 🔴🔴 **剝註解不是保險** —— 本檔要掃的那支檔,它自己的註解裡就寫著 `<details>` 與
+//    `DetailsScrollOnOpen`(我為了說明 `#701` 寫的)⇒ **不剝的話這道閘從第一天就是恆真的。**
+//    ⚠️ 方向性:剝過頭 ⇒ 真 JSX 消失 ⇒ 紅(誤報);剝不夠 ⇒ 退回恆真。刻意選前者。
+describe('#701 收合區必須用會捲動的殼', () => {
+  const SRC = readFileSync(join(__dirname, 'item-procurement-section.tsx'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+
+  it('🔴 兩塊都是 DetailsScrollOnOpen,而且沒有裸的 <details 留著', () => {
+    expect([...SRC.matchAll(/<DetailsScrollOnOpen\b/g)]).toHaveLength(2);
+    // 反向:裸 `<details` 一個都不准剩(留一個 = 那一塊悄悄沒有捲動)
+    expect([...SRC.matchAll(/<details\b/g)]).toHaveLength(0);
   });
 });
