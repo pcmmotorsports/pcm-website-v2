@@ -47,12 +47,24 @@ CROSS JOIN LATERAL (SELECT id, name FROM brands ORDER BY name OFFSET ((g - 1) % 
 CROSS JOIN LATERAL (SELECT id FROM categories WHERE parent_category_id IS NOT NULL
                     ORDER BY raw_path OFFSET ((g - 1) % 4) LIMIT 1) c;
 
--- ── 訂單(6 張;付款 × 開票 兩軸都鋪開)────────────────────────────────────────
+-- ── 訂單(7 張;付款 × 開票 × 金流管道 三軸都鋪開)──────────────────────────────
 -- 🔴 開票那一軸刻意鋪三種值:後台改單表單能填發票,而「未開立」是預設
 --    ⇒ 沒有 issued/voided 的種子,那兩個分支【永遠沒有人看過】。
+--
+-- 🔴🔴 **2026-08-19:`payment_channel` 從【沒寫】改成【明寫】,而那是 W6 `W6-043` M2 的本體。**
+--    以前這個欄位不在欄位清單裡 ⇒ 六列全部吃 `NOT NULL DEFAULT 'tappay'`
+--    (`20260712203000_m4a_orders_admin_columns.sql:48`)。
+--    ⇒ 後果不是資料錯,是**量具失去判別力**:產品真正下的述詞是
+--      `payment_channel.neq.tappay,payment_status.neq.unpaid`(`SupabaseOrderAdapter.ts:830-831`),
+--      而在「全部都是 tappay」的種子上,它與「只看 payment_status」**輸出一模一樣**
+--      ⇒ 自檢那格印著「這一格證明篩選【真的在篩】」,而它**分不出那兩把尺**。
+--    ⚠️ 而下面 `payment_method` 那個 `CASE`(g=1 為 NULL)**是另一欄**——
+--      讀種子的人會以為「g=1 沒有金流管道」,**而它其實是 tappay**。兩欄的分界見該欄 COMMENT。
+--    ⇒ 第 7 列 = **`bank_transfer` × `unpaid`**:它是這份種子裡**唯一**能把兩把尺分開的資料
+--      (真述詞下它**該顯示**,退化成只看 payment_status 就會**被藏起來**)。
 INSERT INTO orders (display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
                     payment_status, fulfillment_status, subtotal, shipping_fee, discount_total,
-                    total, shipping_method, invoice, paid_at, payment_method,
+                    total, shipping_method, invoice, paid_at, payment_method, payment_channel,
                     invoice_status, invoice_number, invoice_amount)
 SELECT
   'PCM-2026-' || lpad((1000 + g)::text, 4, '0'),
@@ -65,8 +77,8 @@ SELECT
   --    fulfillment_status = notOrdered / ordered / inStock / shipped
   --    ⚠️ **沒有 `refunding`** —— 我第一版寫了它,炸在這裡。
   --    數法:select enumlabel from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='payment_status';
-  (ARRAY['unpaid','paid','paid','paid','partiallyRefunded','refunded'])[g]::payment_status,
-  (ARRAY['notOrdered','notOrdered','ordered','shipped','inStock','ordered'])[g]::fulfillment_status,
+  (ARRAY['unpaid','paid','paid','paid','partiallyRefunded','refunded','unpaid'])[g]::payment_status,
+  (ARRAY['notOrdered','notOrdered','ordered','shipped','inStock','ordered','notOrdered'])[g]::fulfillment_status,
   s.sub, CASE WHEN s.sub >= 5000 THEN 0 ELSE 100 END, 0,
   s.sub + CASE WHEN s.sub >= 5000 THEN 0 ELSE 100 END,
   -- 🔴🔴 **這裡只能是 'home' / 'store',不能寫中文** —— 而錯誤訊息會指向一個【你沒有設的欄】:
@@ -79,13 +91,17 @@ SELECT
   --    (2026-08-19 建這支腳本時真的踩了兩輪才找到。)
   'home',
   jsonb_build_object('type','personal','carrier','/ABC1234'),
-  CASE WHEN g = 1 THEN NULL ELSE now() - (g || ' days')::interval END,
-  CASE WHEN g = 1 THEN NULL ELSE 'tappay' END,
-  -- 未開立 ×4 / 已開立 ×1 / 已作廢 ×1
-  (ARRAY['not_issued','not_issued','issued','not_issued','not_issued','voided'])[g],
+  CASE WHEN g IN (1, 7) THEN NULL ELSE now() - (g || ' days')::interval END,
+  CASE WHEN g IN (1, 7) THEN NULL ELSE 'tappay' END,
+  -- 🔴 金流管道:前六列 tappay(維持原本的世界),第 7 列 bank_transfer。
+  --    白名單 CHECK 只認 tappay / bank_transfer / cash / none
+  --    (`20260712203000_m4a_orders_admin_columns.sql:51`,寫別的會炸在 CHECK 上)。
+  (ARRAY['tappay','tappay','tappay','tappay','tappay','tappay','bank_transfer'])[g],
+  -- 未開立 ×5 / 已開立 ×1 / 已作廢 ×1
+  (ARRAY['not_issued','not_issued','issued','not_issued','not_issued','voided','not_issued'])[g],
   CASE WHEN g = 3 THEN 'AB-12345678' WHEN g = 6 THEN 'CD-87654321' ELSE NULL END,
   CASE WHEN g = 3 THEN s.sub WHEN g = 6 THEN s.sub ELSE NULL END
-FROM generate_series(1, 6) g
+FROM generate_series(1, 7) g
 CROSS JOIN LATERAL (SELECT (2400 + g * 1300) AS sub) s;
 
 -- ── 訂單品項(每張 2 項 —— 品項表那一片要有多列才看得出版面)──────────────────
