@@ -8336,6 +8336,22 @@ order by n desc, 1;
 
 - **狀態:** ⏳ 待執行
 - **優先級:** 🟠 中
+- 🔴🔴 **2026-08-20 起,有【四件事】卡在本條後面**(主視窗當日裁,W3 提;四件逐條列在下面、可數):
+  而目前沒有第二條路 —— **四件的共同判準都是「呼叫之後畫面有沒有真的更新」,那只有 production build 量得到**:
+  ```
+  ① #287    顧客站品牌篩選（本條原本的來由）
+  ② #741    後台訂單篩選:取消非最後那個值 ⇒ 清單不動（修法已進，而「畫面真的更新了」沒人量得到）
+  ③ MAIN-066 第 5 條 Sean 回報「點另一張單、明細沒更新」
+             ⇒ W3 已排除兩個可能（不是 key 碰撞、不是 panel 帶舊值），剩下的沒有量具
+  ④ W1 那條
+  ```
+  ⚠️ **不寫這一段的話,本條看起來只是「一個沒人做的 E2E 項目」** —— 而實際上有四件事卡在它後面,
+  其中一件是 **Sean 本人回報過、至今答不出原因的** 那一條。
+  🔴 而後台這一半比顧客站更難開:**admin 的免登入旁路只在 dev 生效**
+  (`apps/admin/src/lib/session/authorize.ts:17-18` `const DEV_BYPASS =`
+  `process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1'` —— W3 2026-08-20 親讀)
+  ⇒ **W1 實測**(非本人量):`next build && next start` 之後 `GET /orders` 回 303 導去 `/api/sso/start`
+  ⇒ **後台的 production build E2E 要先解「測試怎麼登入」,那不在本條原本的範圍裡。**
 - **問題:**
   - #287 那個 bug **只在 production build 顯現**(dev 與 production 的 router 快取行為不同),且
     「hook 有正確呼叫 router API、但 App Router 沒重抓」這種**框架層**回歸,單元測試在本質上擋不住
