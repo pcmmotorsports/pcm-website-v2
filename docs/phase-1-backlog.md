@@ -24454,3 +24454,65 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
   🔴 **而主視窗 2026-08-20 明確不做甲(scrollIntoView)**,理由:**它治的是已經被證偽的那條路,在沒事的路上裝機制淨值為負**。
   ⇒ **本條押著,等有人真的回報再動。**
 - ⚠️ **未量**:`viewport` 其他高度(1080 / 1117 / 筆電 800)各自落在哪;**手機 430 完全沒量**。
+
+### #760 🔴🔴 `refunding_stuck` 告警守的是【另一張表】—— 一個叫得出名字的**恆假**告警
+
+**發現**:2026-08-20 W4 追 `8X3N5Q`(partial 退款卡 `processing` 45 分鐘)時讀 code 讀出來的。
+
+#### 事實(全部行號回驗過)
+```
+告警存在、有名字、有門檻:
+  apps/storefront/src/app/api/cron/anomaly-alert/route.ts:61
+    const ALERT_REFUNDING_STUCK_SECONDS = 86400;        ← 24 小時
+
+而它數的是：
+  supabase/migrations/20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:337-341
+    'refunding_stuck_count',
+      (SELECT count(*) FROM public.payment_double_charge_anomalies
+        WHERE status = 'refunding' AND refund_claimed_at < now() - …)
+
+🔴 payment_double_charge_anomalies，**不是 order_refunds**。
+```
+**掃描證據(附分母,零命中不是量法造的)**
+```
+三支 cron 的 route.ts 內 `order_refunds` 命中：
+  anomaly-alert 0 ／ email-sweep 0 ／ settle-sweep 0
+對照組 apps/admin/src/lib/payment/refund-repository.ts 命中 1  ← 尺會動
+⇒ 沒有任何排程 / 告警 / 重試碰得到 order_refunds.status='processing' 這一列。
+```
+
+#### 為什麼這是缺陷而不是「還沒做」
+```
+系統對這件事【有能力顯示】：
+  /orders/refund-exceptions（nav-items.ts:49「退款異常」，註解逐字「RW4 值班入口」）
+  列出條件 refund-read.ts:135 逐字：`processing AND (created_at < now()-30min OR 證據非空)`
+  DB 同門檻 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:714「processing 超 30 分」
+系統對這件事【沒有能力通知】：見上。
+⇒ 30 分鐘之後那一列就在畫面上，而**沒有任何東西會讓人去看那個畫面**。
+```
+🔴 **這是「恆真守門」的鏡像 —— 一個【恆假】的告警。**
+`refunding_stuck` 對 `order_refunds` 這一族**永遠回 0**,而它回 0 的原因不是沒事,是**它根本沒在看那張表**。
+
+#### 不修未來會痛在哪
+> **有一個叫得出名字的告警,而它守的是另一張表 ⇒ 下一個人看到它,就不會再問這件事有沒有人在看。**
+
+**比「沒有告警」危險**:沒有告警時,人會自己想「那誰在看?」;
+有一個名字對得上的告警時,**那個問題不會被問出來**。而它已經真的擋住過一次 ——
+`8X3N5Q` 卡了 45 分鐘,是 Sean 自己抱怨才被發現的,不是任何機制發現的。
+
+#### ⚠️ 不要順手做的事(這條的修法有一個明顯而錯的方向)
+```
+❌ 「讓 unknown-state 自動 finalize」不是修法 —— 那是拆掉一條鐵律。
+   refund-actions.ts:64-65 逐字:「不 finalize」不是漏做 ——
+   unknown-state 在 RPC 端**沒有對應 outcome(刻意不可表達)**。
+   理由:狀況不明時錢可能已經動了，自動改帳會把帳寫成假的。
+⇒ 缺的是【通知】，不是【自動結案】。
+```
+
+#### 未量 / 待確認
+```
+❓ 那個告警是不是「本來就只為 payment_double_charge_anomalies 而設，名字取得太寬」，
+   還是「本來要涵蓋 order_refunds 而漏了」—— 我沒查它的原始設計文件，**兩種都可能**。
+   🔴 這一格會改變修法體積（改名 vs 擴查詢），寫 plan 前要先答。
+❓ 線上此刻有幾列 processing 超過 30 分 —— 本窗權限閘擋下 execute_sql，未量。
+```
