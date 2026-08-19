@@ -1,6 +1,6 @@
-# PCM Motorsports — pcm-website-v2
+# PCM重機零件販售 — pcm-website-v2
 
-> **PCM Motorsports 高階機車零件 B2B/B2C 電商 + 車輛服務生態平台**
+> **PCM重機零件販售 高階機車零件 B2B/B2C 電商 + 車輛服務生態平台**
 >
 > Phase 1 重做專案、新 repo 從零、design-reference 直接搬 + 後台對應重建。
 

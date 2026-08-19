@@ -2,7 +2,7 @@
   "name": "pcm-website-v2",
   "version": "0.0.0",
   "private": true,
-  "description": "PCM Motorsports B2B/B2C 機車零件電商 + 車輛服務生態平台 — Phase 1 重做",
+  "description": "PCM重機零件販售 B2B/B2C 機車零件電商 + 車輛服務生態平台 — Phase 1 重做",
   "packageManager": "pnpm@9.15.0",
   "engines": {
     "node": ">=22.0.0",

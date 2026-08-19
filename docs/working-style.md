@@ -11,7 +11,7 @@
 
 ## 0. 一句話 Sean 是誰
 
-**Sean = PCM Motorsports 創辦人 + 決策者 + 操作驗收者、無程式背景、所有技術規劃透過 Claude.ai、所有實作透過 Claude Code。**
+**Sean = PCM重機零件販售 創辦人 + 決策者 + 操作驗收者、無程式背景、所有技術規劃透過 Claude.ai、所有實作透過 Claude Code。**
 
 Sean 不寫 code、Sean 看不懂 git diff 細節、Sean 不會自己 debug、Sean 用 Vercel / GitHub / Telegram dashboard 操作。Sean 的角色是「拍板 + 驗收 + 用 dashboard 推 commit / deploy」。
 

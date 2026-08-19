@@ -337,7 +337,7 @@ A mode 用既有 `docs/specs/M-1-13H-automode-protocol.md` 模板、Cowork 為�
 > 對齊 Stage 3 終版 v4 簡化方向、含 Cowork 規則 + 啟動 SOP + 五階段 review 鏈引用 + slice 指令六件套格式。
 
 ```markdown
-# PCM Motorsports B2B/B2C 機車零件電商 + 車輛服務生態平台
+# PCM重機零件販售 B2B/B2C 機車零件電商 + 車輛服務生態平台
 
 > Cowork 工作規則檔。每次新對話自動套用。
 > 詳細「為什麼」見 repo `.md` 真權威;本檔只寫「Cowork 怎麼做」。
