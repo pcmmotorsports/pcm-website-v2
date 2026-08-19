@@ -64,7 +64,12 @@ describe('#350b 平行路由槽的接線', () => {
   });
 });
 
-describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 唯一的接點', () => {
+// ⚠️ **標題原本寫「唯一的接點」,2026-08-19 更正為「兩個接點」** —— 那句不實:
+//    第二個接點是 `>` 直接子代關係(`W4-002` F1)。
+//    🔴 **這一處與 `workspace-shell.tsx:124` 是【被抄走的那兩份】** ——
+//    片1 當時只改了我自己新寫的那一句,這兩句原封留著。假宣稱會被下一個人抄走,
+//    ⇒ **修的時候要 grep 那句話本身,不能只修被 finding 指名的那一行。**
+describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 兩個接點之一', () => {
   // 🔴🔴 **這一格是 code-reviewer 抓到的洞**(memory `feedback_assertion-measures-the-wrong-thing`
   //    第四形狀:兩端各有測試、中間透傳一跳無人守):
   //    原本只斷言「CSS 檔裡有那兩條選擇器」+「TSX 裡有 role='separator'」——
@@ -123,15 +128,24 @@ describe('片1 訂單編輯面板固定 720px', () => {
     expect(PANEL_ROUTE.match(/@container panel-width-locked/g)?.length).toBe(2);
   });
 
-  it('🔴 三個寬度值**全部**釘在 720px(少一個就會被 ② 的可拖規則從那一側拉走)', () => {
+  // 🔴🔴 **片1b 起這一格改了語意,不是改了數字**:原本三個值全釘 720(純固定),
+  //    現在是「**想要 720、但讓步線是 ② 那條既有的 480**」(Sean 2026-08-19 `Q2` 拍甲=加下限)。
+  //    ⇒ `min-width` 必須**不存在**於本規則:CSS 規範裡它在 `max-width` 之後套用,
+  //      留著 `min-width:720px` 會把讓步線壓掉 ⇒ **加了等於沒加,而畫面看起來和沒加一樣。**
+  //      這一格就是釘那件事的 —— 它是本片唯一會被靜默還原的東西。
+  it('🔴 `width:720px` + 讓步線 `calc(100% - 480px)`,且**不得**有 `min-width` 覆寫', () => {
     // 🔴 先斷言選擇器真的在,再切 —— 少了這一行,選擇器被改名時 `indexOf` 回 -1、
     //    `slice(-1)` 切出最後一個字元,下面三條**照樣會紅但理由是錯的**
     //    (那種紅在下一次重構時會變成綠而沒有人知道為什麼)。
     expect(GLOBALS).toContain(`${LOCK} > .workspace-panel`);
-    const block = GLOBALS.slice(GLOBALS.indexOf(`${LOCK} > .workspace-panel`));
+    const i = GLOBALS.indexOf(`${LOCK} > .workspace-panel`);
+    const block = GLOBALS.slice(i, GLOBALS.indexOf('}', i));
     expect(block).toMatch(/width:\s*720px/);
-    expect(block).toMatch(/min-width:\s*720px/);
-    expect(block).toMatch(/max-width:\s*720px/);
+    expect(block).toMatch(/max-width:\s*calc\(100% - 480px\)/);
+    // 🔴 負向:`min-width` 一旦出現在**這一條規則裡**,讓步線就失效。
+    //    切到 `}` 為止是必要的 —— 不切的話會掃到後面別條規則的 `min-width` 而假紅。
+    //    ⚠️ 這依賴「CSS 宣告區塊不可巢狀」,今天成立(`W4-003` nit 要求寫下來)。
+    expect({ 本規則裡有min_width: /min-width/.test(block) }).toEqual({ 本規則裡有min_width: false });
   });
 
   it('🔴 鎖寬時把手要一起收掉(只鎖寬度而留著把手 = 一個按得下去、而畫面不動的壞控制項)', () => {
@@ -155,9 +169,23 @@ describe('#350b 寬度夾範圍:CSS 與 TS 常數是同一組規則的兩個落�
   //    同一組數字就有了**兩個落點** ⇒ 改一邊不改另一邊,兩者會靜默分歧:
   //    CSS 說最少 320、TS 說最少 400 的話,拖曳夾出來的值與畫面實際寬度不一致,
   //    而 `aria-valuemin` 報的是 TS 那個 = 對輔具說謊。
-  it('🔴 `min-width` / `max-width` 的數字與 `workspace-panel.ts` 的常數一致', () => {
-    expect(GLOBALS).toContain(`min-width: ${MIN_PANEL_WIDTH}px`);
-    expect(GLOBALS).toContain(`max-width: calc(100% - ${MIN_CONTENT_WIDTH}px)`);
+  // 🔴🔴 **本格必須限定在規則② 的區塊內,不能掃全檔**(2026-08-19 `W4-003` F1)。
+  //    片1b 讓 `calc(100% - 480px)` 在 stripped CSS 裡從 **1 處變成 2 處**
+  //    (規則② `.workspace-panel` 的夾範圍 / 規則③ 鎖寬那條的讓步線)
+  //    ⇒ 原本的 `GLOBALS.toContain(...)` 會**被規則③ 滿足**,而它要守的是規則②。
+  //    **W4 實跑過失敗情境**:只把規則② 改成 `calc(100% - 400px)`、規則③ 原封不動
+  //    ⇒ 常數已經漂移,而本檔 **20 格全綠** —— 那正是本格存在的唯一理由。
+  // 🔴 **根因與我在片1b 自己踩的那個【是同一個】**:同一個字面現在有兩處,
+  //    任何「找第一個 / 找全檔」的工具都會找到錯的那一處。
+  //    ⇒ **修了自己的量具還不夠,要回頭看【還有誰在用同一個字面找東西】。**
+  it('🔴 `min-width` / `max-width` 的數字與 `workspace-panel.ts` 的常數一致(限定規則②)', () => {
+    const i = GLOBALS.indexOf('.workspace-panel {');
+    expect(i).toBeGreaterThan(-1);
+    // ⚠️ 依賴「規則② 的宣告區塊裡沒有 `}`」—— CSS 宣告區塊本來就不能巢狀,今天成立。
+    //    (同樣的依賴在片1 那組也有,兩處都寫下來,不要靠讀的人自己推。)
+    const rule2 = GLOBALS.slice(i, GLOBALS.indexOf('}', i));
+    expect(rule2).toContain(`min-width: ${MIN_PANEL_WIDTH}px`);
+    expect(rule2).toContain(`max-width: calc(100% - ${MIN_CONTENT_WIDTH}px)`);
   });
 
   it('🔴 `:has()` 要排除 `<template>`(React streaming 會插它,否則面板永遠收不起來)', () => {
