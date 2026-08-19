@@ -542,6 +542,13 @@ export type SupabaseAdminOrderDetailRow = Pick<
     line_total: number;
     product_snapshot: unknown; // jsonb;{sku,spec,title} 由 create_order 寫入,防禦解析
     /**
+     * 片16(2026-08-19):品牌 join(`variant → product → brand`,many-to-one 單物件)。
+     * 🔴 **型別與列表側逐字相同**(`SupabaseOrderItemBrandEmbed`)—— 兩條路的 wire 形狀是同一個,
+     *    各自寫一份手型別就是白名單有兩份副本的老病。
+     * 🔴 optional + nullable 的理由同其餘內嵌:投影退版或舊 row 會整個沒有這個鍵。
+     */
+    product_variants?: { products: { brands: { name: string } | null } | null } | null;
+    /**
      * M-4b E10 A9a-2:採購內嵌列(順序不保證、筆數被請求端上限夾住 → 兩者都在 mapper 處理)。
      * 🔴 optional + nullable 的理由同 `order_notes`:投影退版或舊 row 會整個沒有這個鍵。
      */
@@ -899,6 +906,8 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
       return {
         id: item.id,
         variantSku: item.variant_sku,
+        // 片16:取法與列表側 `:345` 逐字相同(任一層缺 → null)。
+        brand: item.product_variants?.products?.brands?.name ?? null,
         title: pickString(item.product_snapshot, 'title'),
         spec: pickSpec(item.product_snapshot),
         quantity: item.quantity,

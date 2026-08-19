@@ -799,6 +799,20 @@ export type AdminOrderItemProcurement = {
 export type AdminOrderDetailItem = {
   /** 品項 id(order_items.id;D-2 起明細頁 per-item 改狀態表單的 target) */
   id: string;
+  /**
+   * 品牌名(片16,2026-08-19)。`order_items.variant_id → product_variants → products → brands.name`。
+   *
+   * 🔴 **`variant_id` 為 null(手 key 單 / 非網站商品)或 join 任一層缺 ⇒ `null`**。
+   *    ⚠️ **顯示端對 null 的處置與其他欄【刻意相反】**:品牌 null ⇒ **整行不印**,不印 `—`。
+   *    理由:「這個品項沒有品牌」不是異常(手 key 單本來就沒有),印一條空的標籤行是多一條沒有意義的留白;
+   *    而收件人資訊那格缺值要印 `—`,因為**那裡缺值是異常、要看得出來**。
+   *    ⇒ **兩種都要寫理由,不能憑感覺** —— 判準是「缺值本身算不算一個需要被看見的事實」。
+   *
+   * 🔴 鐵則 12①:這條 join **穿越** `product_variants` / `products`,而那兩張表帶
+   *    `price_store` / `price_by_tier` / `price_general`。**投影只取 `brands(name)`,不得擴寬。**
+   *    縱深防線 = `SupabaseOrderAdapter.test.ts` 的明細版 forbidden-token(片16 新增)。
+   */
+  brand: string | null;
   variantSku: string;
   /** 品名(product_snapshot.title;缺 → null 防禦) */
   title: string | null;

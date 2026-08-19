@@ -1511,6 +1511,19 @@
   width: var(--pcm-pill-w);
   text-align: center;
 }
+/* 🔴 片16(2026-08-19):品牌那一行。**逐字搬確認稿 `:137`**:
+     `.ibrand{font-size:10px;font-weight:700;letter-spacing:.05em;color:var(--muted)}`
+   ⚠️ **我方對應**:`--muted` 在本 repo 沒有這個名字,對應 token 是 `--muted-foreground`
+      (`git grep -c 'var(--muted)' apps/admin/src/app/globals.css` ⇒ 0 ⇒ 照抄會是一個**不存在的變數**,
+       而 CSS 對不存在的變數是**靜默失效**,顏色會退回繼承值而沒有任何東西會紅)。
+   ⚠️ `letter-spacing:.05em` 與 `font-size:10px` **原樣搬**,不換成 Tailwind 的近似值 ——
+      那兩個數字是設計稿自己訂的,近似會漂。 */
+.ibrand {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+}
 /* 逐字搬 `:116-118`:只有 border-bottom、summary 去掉原生三角形 */
 .icard {
   border: 0;

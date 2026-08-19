@@ -315,6 +315,15 @@ export function ItemsTable({
                🔴 `procurements === null`(讀不到)**歸在「收起」那半** —— 它不是資料。
                   而那不會讓警告消失:`describeItemStuck` 那行字在卡頭底下、**不依賴卡片開不開**。 */
             defaultOpen={stuck.kind === 'stuck' || hasProcurementRows}
+            /* 🔴 片16(2026-08-19):品牌那一行 —— 確認稿 `:291`/`:304`/`:317`
+               `<div class="ibrand">BREMBO</div>`,畫在 `<summary>` 裡、`.iline` grid **上方**、
+               **橫跨整列**(`:137` CSS)。⇒ **不是第七軌,六軌一格沒動。**
+               🔴 **`null` ⇒ 整行不印,不印 `—`**(型別 docstring 有完整理由):
+                 `variant_id` 為 null 的手 key 單本來就沒有品牌 ⇒ **缺值不是異常**,
+                 印一條空標籤行只是多一條沒有意義的留白。
+                 ⚠️ 而這與同一片的「收件人資訊缺值要印 `—`」**刻意相反** —— 那裡缺值是異常、要看得出來。
+                 **判準是「缺值本身算不算一個需要被看見的事實」,不是憑感覺挑一種。** */
+            brandLine={item.brand === null ? null : <div className='ibrand'>{item.brand}</div>}
             before={
               <>
                 {/* 🔴🔴 **codex 關卡2 must-fix 4**:上一版把橫向捲動拿掉(`overflow-x-auto` 隨表格一起沒了)
