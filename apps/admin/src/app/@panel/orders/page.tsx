@@ -133,11 +133,22 @@ export default async function OrderPanelPage({
     //    350b 檔頭記過:給整列高度再加 overflow 會把**全站**的捲動模型換掉,連訂單列表的
     //    非 portal 下拉都會被裁。這裡的 scroll container 只有面板自己。
     //    ⚠️ 誠實界線(兩條,日後往面板裡塞浮動 UI 的人要一起看):
-    //    ① `overflow-y-auto` 定義上就是 scroll container ⇒ 非 portal 的 `absolute` 下拉會被裁;
-    //    ② `@container` 的 `container-type: inline-size` 帶 `contain: layout`
-    //       ⇒ 這個 div 同時成為 `position: fixed` 子孫的 **containing block**
-    //       (code-reviewer 2026-08-10 nit-10)⇒ `shipment-dialog.tsx` 那種 `fixed inset-0`
-    //       覆蓋層若進到面板裡,會被**困在面板內**而不是蓋滿視窗。兩條的解法都是 portal。
+    //    ① `overflow-y-auto` 定義上就是 scroll container ⇒ 非 portal 的 `absolute` 下拉會被裁,
+    //       解法是 portal。**這條沒有被證偽、也沒有被證實** —— 下面 ② 那把尺對它**沒有判別力**
+    //       (它量元素自己的框,而被裁與沒被裁在那個數字上一樣)⇒ **當它仍然成立,不要順手一起劃掉。**
+    //    ② 🔴 **這裡原本寫「`container-type: inline-size` 帶 `contain: layout` ⇒ 本 div 成為
+    //       `position: fixed` 子孫的 containing block」——【假的】,2026-08-19 跨引擎實測證偽。**
+    //       量具 = W2 `scripts/containment-probe.mjs`,可重跑:`node scripts/containment-probe.mjs webkit|chromium`。
+    //       量到:本 div 的**真實 class 完整組合**下,`fixed` 子孫**沒有被困住**;而正對照
+    //       `contain: layout` / `transform` / `filter` **三個都真的困住** ⇒ 「沒困住」不是「我量不到」。
+    //       WebKit(Safari 26.4 引擎)與 Chromium **逐格相同**。
+    //       ⚠️ **射程**:那是 Playwright 的 webkit build、**不是 `Safari.app`** ⇒ 只能寫
+    //          「Safari 引擎上不成立」,**不能寫「在 Sean 的 Safari 上驗過」**;未測 Firefox 與手機瀏覽器。
+    //       ⇒ `shipment-dialog.tsx` 那種 `fixed inset-0` 覆蓋層從面板裡開**會正常蓋滿視窗**,
+    //          **這裡不需要 portal**(② 不需要;① 仍然需要)。
+    //       🔴 **而這句假宣稱當初引用了 `code-reviewer 2026-08-10 nit-10` ⇒ 它是審查通過的產物。**
+    //          推理鏈「container-type ⇒ 帶 contain: layout ⇒ 依 CSS Containment 成為 containing block」
+    //          **每一步都查得到出處,而瀏覽器不這樣做** ⇒ 審查者與作者共用同一條推理鏈,沒有人去按一下。
     // 🔴 `@container`:讓 `order-detail.tsx` 的欄數看**面板寬度**而不是視窗寬度
     //    (主視窗 2026-08-10 裁④);沒有它,1920 螢幕上的 576px 面板會硬排四欄。
     /* 🔴 `panel-width-locked` = **訂單編輯面板固定 720px**(Sean 2026-08-19 拍「甲」)。
