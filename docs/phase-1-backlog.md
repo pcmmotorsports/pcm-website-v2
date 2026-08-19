@@ -24525,10 +24525,40 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
 ⇒ 缺的是【通知】，不是【自動結案】。
 ```
 
+#### ✅ 那格已查(2026-08-20 W4 補;它本來擋著自己的 plan)
+
+### **答案 = 「本來就只為雙扣而設」,不是「該涵蓋 `order_refunds` 而漏了」。**
+```
+原始設計 plan = docs/specs/2026-07-01-m3-250-anomaly-alert-plan.md
+  標題逐字:「M-3 #250 **雙扣 anomaly** 主動告警 — 實作真權威」
+  目標逐字:「把**雙扣偵測** pull → push…anomaly `open`(雙扣候選)/ `refunding` 卡逾…」
+  🔴 全 plan 內 `order_refunds` 命中 = **0**
+     對照組 `anomal` 命中 = **18** ⇒ 尺會動，0 不是量法造的
+migration 檔頭同語(20260701120000_m3_250_anomaly_alert_summary.sql:2/:5-6):
+  「雙扣 anomaly 主動告警」、「必經本 SECDEF 受控窗讀聚合計數」
+2026-08-19 那份白話 plan 也沒有擴範圍:order_refunds 命中 0 / 對照組 anomal 21
+```
+**而 `refunding` 在它自己的領域裡語意是對的**:
+`anomaly_claim_resolve_rpc.sql:61` —— 有人**認領**了一筆雙扣異常 ⇒ `status='refunding'`。
+⇒ `refunding_stuck` = 「有人認領了雙扣、24 小時還沒退完」。**那是一句完全正確的話。**
+
+### ⇒ 修法方向因此收窄(而**與原本猜的兩個都不一樣**)
+```
+❌ 不是「擴查詢」—— 那會把兩個不同領域的東西塞進同一支告警
+❌ 也不必然是「改名」—— 每一層包住它的名字都已經寫著 anomaly:
+     route  = api/cron/anomaly-alert
+     RPC    = get_payment_anomaly_alert_summary
+     plan   = 「雙扣 anomaly 主動告警」
+   ⇒ 誤讀只發生在【識別字單獨旅行】的時候（有人 grep 到 `refunding_stuck`
+     或看到常數 `ALERT_REFUNDING_STUCK_SECONDS`，而沒有看見外面那幾層）
+✅ 真正缺的是【另立一個告警】:order_refunds.status='processing' 逾時無人處理。
+   本條的價值不在改這一支，在**指出那一支不存在**。
+```
+⚠️ **而本條的標題因此要讀窄一點**:它不是「有人做錯了」——
+那支告警**沒有宣稱**過它守 `order_refunds`。**是【讀的人】會以為它守。**
+🔴 這反而更難防:**沒有任何一份文件寫錯,而錯誤仍然會發生。**
+
 #### 未量 / 待確認
 ```
-❓ 那個告警是不是「本來就只為 payment_double_charge_anomalies 而設，名字取得太寬」，
-   還是「本來要涵蓋 order_refunds 而漏了」—— 我沒查它的原始設計文件，**兩種都可能**。
-   🔴 這一格會改變修法體積（改名 vs 擴查詢），寫 plan 前要先答。
 ❓ 線上此刻有幾列 processing 超過 30 分 —— 本窗權限閘擋下 execute_sql，未量。
 ```
