@@ -63,7 +63,27 @@ W6 的判法（斷言差集）：236 行裡有 7 條 dev 沒有的，其中 1 �
 ⇒ 🔴 **下次遇到 add/add 重工:先問【斷言差集】,再問【行數】。**
 ```
 **退役條件(主視窗裁定)**:等 W5 把 Δ1(state 唯一性)+ Δ2(302 pathname)補進 `dev` 且突變驗過,才退役。
-⚠️ **在那之前分支不要刪** —— 現在刪就是把唯一一份記錄那個缺口的東西刪掉。
+
+#### ✅ 條件達成(2026-08-19 22:0x,W4 逐條驗,不是照轉述)
+```
+git merge-base --is-ancestor 03e415fa dev            ⇒ YES
+git log --oneline -1 -- .../api/sso/start/route.test.ts ⇒ 03e415fa
+Δ1 在 :65-79  「兩次 GET 的 state 不得相同」，**且連 cookie 那一側一起驗**
+              （檔內逐字：只驗 URL 的話「cookie 寫死而 URL 每次新」也會綠）
+Δ2 在 :84-87  302 目的地的 pathname = /api/sso/authorize（既有 :45 只驗 origin）
+突變證據在檔內逐字：「提到 module scope ⇒ 本格紅；還原 ⇒ 全綠。**不是紙上突變**」
+```
+⇒ **`vitest-alias` 從收割清單退役** —— 它記錄的那個缺口已經被更好的版本補進 `dev`。
+
+⚠️ **而我【沒有刪那個分支】,兩個理由**
+```
+· 它被 checkout 在別人的工作樹（git worktree list ⇒ /Users/sean_1/pcm-vitest-alias）
+  ⇒ 刪不掉，而硬刪要動別人的工作樹 —— 那不是收割窗的權限
+· 它與 dev 的差集仍有 160 insertions / 369 deletions（`git diff --stat dev vitest-alias -- .../api/sso/`）
+  ⇒ 「Δ1/Δ2 已補」≠「這支分支的所有差異都已被消化」
+  🔴 而那個差集【沒有人逐條看過】——W6 當初比的是斷言差集，不是整支 diff
+⇒ 處置：**從清單退役（不再等它、不再收它），而分支留著給它的工作樹擁有者處理。**
+```
 
 ---
 
