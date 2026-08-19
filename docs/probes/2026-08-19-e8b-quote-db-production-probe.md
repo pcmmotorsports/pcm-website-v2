@@ -129,3 +129,71 @@ select count(*) from auth.users            ⇒ 2
 
 🔴 **而排程上真正的意思只有一句**:
 **B1 的「不知道會不會炸」變成「知道它會過」,而「要不要炸下去」還是 Sean 的動作。**
+
+---
+
+## §4 追加(同一輪,13:4x)—— `G5-005 §二 #6`「等 prod access 才驗得了的四條」
+
+那一列逐字:「`apply_migration` 走哪個角色 / `SET ROLE` 可達性當天重跑 / 正式庫既有 ADP 與欄級授權 /
+台帳與 SQL 同不同交易」。**前三條是唯讀,現在就查得到;第四條不行**(要真的套一次才看得到)。
+
+### 4.1 MCP 這條通道跑在哪個角色底下
+
+```sql
+select current_user, session_user, current_setting('is_superuser'), rolsuper, rolbypassrls, … 
+```
+| 欄 | 值 |
+|---|---|
+| `current_user` / `session_user` | **`postgres`** |
+| `is_superuser` / `rolsuper` | **`off` / `false`** ⇒ 🔴 **不是 superuser** |
+| `rolbypassrls` | **`true`** |
+| `rolcreaterole` / `rolcreatedb` | `true` / `true` |
+| 是哪些角色的成員 | `anon, authenticated, authenticator, dealer_price_reader, pcm_audit_ro, pcm_reparse_owner, pg_create_subscription, pg_monitor, pg_read_all_data, pg_signal_backend, service_role, supabase_privileged_role` |
+
+### 4.2 🔴🔴 **而 `rolbypassrls=true` 這一格,是一個會讓 B1 驗收【全綠而無效】的量具陷阱**
+
+**任何在這條通道上跑的「RLS 有沒有擋住 anon」斷言,若沒有明確 `SET LOCAL ROLE`,
+量的都是 `postgres`,而 `postgres` 繞過 RLS ⇒ 它【看得到所有東西】⇒ 斷言會通過,而它什麼都沒證明。**
+
+📌 母題(`docs/patterns/guard-and-instrument-traps.md`):**錯的那次和對的那次長得一樣。**
+
+✅ **而逃生門在,我量了它會動**(`G5-005 §二 #6` 的「`SET ROLE` 可達性當天重跑」⇒ **今天可達**):
+```sql
+begin; set local role anon;
+  select current_user, (select rolbypassrls from pg_roles where rolname = current_user);
+rollback;
+⇒ current_user = 'anon'   bypassrls = false      ← 換得過去,而且特權真的掉了
+```
+**兩個世界分得開**(不 `SET ROLE` ⇒ `postgres`/`true`;`SET LOCAL ROLE anon` ⇒ `anon`/`false`)
+⇒ 這把尺**有判別力**,不是「怎麼跑都印同一句」。
+
+🔴 **⇒ 寫進 B1 apply 當天的硬規則**:
+**每一道「anon / authenticated 應該被擋」的斷言,都要包在 `begin; set local role <那個角色>; … rollback;` 裡。
+沒有 `SET LOCAL ROLE` 的那種斷言,一律當作【沒跑過】,不是【通過】。**
+⚠️ **射程**:我只驗了 `anon` 這一個角色、一個交易、一個時點。`authenticated` 與 `service_role` 沒單獨驗。
+
+### 4.3 ADP(預設授權)—— **新表出生時拿到什麼,取決於【是誰建的】**
+
+`pg_default_acl` 在 `public` schema 上有**兩個不同的 grantor**,而它們給的東西不一樣:
+
+```
+grantor = postgres         (r 表) ⇒ {postgres, service_role}                    ← anon / authenticated 【沒有】
+grantor = supabase_admin   (r 表) ⇒ {postgres, anon, authenticated, service_role} ← anon / authenticated 【有】
+```
+**而 §4.1 量到 MCP 跑在 `postgres` 底下** ⇒ **經這條通道建的新表,不會自動長出 `anon` / `authenticated` 授權。**
+
+🔴 **這對 B1「ACL deny-all」是好消息,而它【不是可以省掉 REVOKE 的理由】** ——
+```
+① 這是「今天的 ADP 長這樣」,不是「機制保證」。ADP 是資料、可以被改。
+② 換一條管道(dashboard SQL Editor / 別的角色 / 未來某支 migration 用 SECURITY DEFINER 建物件)
+   ⇒ 命中的可能是 supabase_admin 那一列 ⇒ anon 當場長出全權
+③ CLAUDE.md 路由表指的 docs/patterns/revoking-function-execute-in-supabase.md
+   逐字:「新物件出生就自帶 anon 權限、repo 內零 GRANT 字面可掃、三綠不紅」
+⇒ ⇒ **B1 的兩道 REVOKE 照原樣保留。本節只是說明【今天為什麼還沒出事】,不是說可以不做。**
+```
+
+### 4.4 ❌ 第四條查不到:**「台帳與 SQL 同不同交易」**
+
+`supabase_migrations.schema_migrations` 那一列與 DDL 本身**是不是同一個交易**,
+**只有真的套一次才看得到** ⇒ 本輪**沒有查、也不能查**(要查就得寫進去)。
+⇒ 它仍留在 `G5-005 §二 #6`,**不要因為本節關掉了三條就把整列劃掉。**
