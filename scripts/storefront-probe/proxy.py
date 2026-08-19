@@ -1,14 +1,19 @@
 # G3 前綴代理:剝掉 /rest/v1 轉給 PostgREST(3969),並替身 /auth/v1 三條路由。
 # 🔴 效度限定(runbook §8-f):替身【不驗密碼】,任何字串都登得進去。
 #    ⇒ 不要拿這條鏈驗任何「擋不擋得住」的題目,它在那些題目上恆綠。
-import http.server, urllib.request, urllib.error, json
+import http.server, urllib.request, urllib.error, json, os
+# 🔴 2026-08-19:原本這兩個 JWT 路徑寫死成 `/tmp/pcm-g3-probe/...`。
+#    `up.sh` 會把本檔【複製進】那個資料目錄再跑(`cp "$SP/proxy.py" $S/proxy.py`)
+#    ⇒ 用「本檔自己的所在目錄」就永遠對得上,而路徑可覆寫時也不用另外傳參數。
+#    (寫死的話,`STOREFRONT_PROBE_DIR` 一換,這支會 FileNotFoundError 而整條鏈掛在啟動處。)
+S = os.path.dirname(os.path.abspath(__file__))
 UP = "http://127.0.0.1:3969"
 USER = {"id": "11111111-1111-1111-1111-111111111111", "aud": "authenticated",
         "role": "authenticated", "email": "probe@example.com",
         "email_confirmed_at": "2026-01-01T00:00:00Z", "created_at": "2026-01-01T00:00:00Z",
         "updated_at": "2026-01-01T00:00:00Z", "app_metadata": {"provider": "email"},
         "user_metadata": {}}
-AUTH_JWT = open("/tmp/pcm-g3-probe/authjwt.txt").read().strip()
+AUTH_JWT = open(os.path.join(S, "authjwt.txt")).read().strip()
 SESSION = {"access_token": AUTH_JWT, "token_type": "bearer", "expires_in": 3600,
            "expires_at": 4102444800, "refresh_token": "probe-refresh", "user": USER}
 
@@ -18,7 +23,7 @@ SESSION = {"access_token": AUTH_JWT, "token_type": "bearer", "expires_in": 3600,
 #    ⚠️ 仍然【不驗密碼】(見檔頭);它只是讓你【選得到】要當哪一個人:
 #       登入時 email 填 probe2@example.com ⇒ 拿到乙的 session，其餘任何字串 ⇒ 甲。
 USER2 = dict(USER, id="22222222-2222-2222-2222-222222222222", email="probe2@example.com")
-AUTH_JWT2 = open("/tmp/pcm-g3-probe/authjwt2.txt").read().strip()
+AUTH_JWT2 = open(os.path.join(S, "authjwt2.txt")).read().strip()
 SESSION2 = {"access_token": AUTH_JWT2, "token_type": "bearer", "expires_in": 3600,
             "expires_at": 4102444800, "refresh_token": "probe-refresh2", "user": USER2}
 # 這條鏈沒有真的 session store ⇒ 用一個「最後一次登入的是誰」的旗標，

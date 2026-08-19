@@ -22,12 +22,49 @@ set -euo pipefail
 #    否則 FATAL: postmaster became multithreaded during startup（2026-08-18 實際踩到）
 export LC_ALL=C
 REPO=/Users/sean_1/pcm-website-v2
-S=/tmp/pcm-g3-probe
+# 🔴 路徑可覆寫:多窗平行時各自帶一個 `STOREFRONT_PROBE_DIR`(down.sh 讀同一個變數)。
+#    預設值仍是固定路徑 —— 那是為了讓 `up.sh` / `down.sh` 這一對在【不傳任何東西】時仍然配得上;
+#    而固定路徑的代價由下面那道前置閘擋住,不是靠使用者記得。
+S=${STOREFRONT_PROBE_DIR:-/tmp/pcm-g3-probe}
 SEC="pcm-g3-throwaway-jwt-secret-at-least-32-chars-long"
 PG=55533; PREST=3969; PROXY=3968; WEB=3020
 SP="$(cd "$(dirname "$0")" && pwd)"
 
+# 🔴🔴 **前置閘(2026-08-19 新增)—— 本來這裡是無條件 `rm -rf $S`。**
+#    形狀:A 窗正在跑 probe,B 窗跑 `up.sh` ⇒ **B 當場把 A 的 datadir 砍掉**,
+#    而 A **不會收到任何訊息**,它的 postgres 變成一個沒有資料目錄的孤兒。
+#    ⇒ **一個被中途拆掉的量測,長得跟一個完成的量測一模一樣。**
+#    ⇒ 所以:有人在跑就【停下來並指名是誰】,不要自作主張接管。
+busy=""
+if [ -f "$S/pg/postmaster.pid" ]; then
+  _pid=$(head -1 "$S/pg/postmaster.pid" 2>/dev/null || true)
+  if [ -n "${_pid:-}" ] && kill -0 "$_pid" 2>/dev/null; then busy="postgres pid $_pid(datadir $S/pg)"; fi
+fi
+if [ -z "$busy" ]; then
+  for _p in $WEB $PROXY $PREST 3987 $PG; do
+    _o=$(lsof -nP -iTCP:$_p -sTCP:LISTEN 2>/dev/null | grep -v WARNING | awk 'NR==2 {print $2" "$1}')
+    if [ -n "$_o" ]; then busy="埠 $_p 已被佔用 —— pid/command = $_o"; break; fi
+  done
+fi
+if [ -n "$busy" ]; then
+  echo "🔴 已經有一份鑽機在跑,**這支腳本不會接管它**:" >&2
+  echo "   $busy" >&2
+  [ -f "$S/owner.txt" ] && { echo "   來歷:" >&2; sed 's/^/     /' "$S/owner.txt" >&2; }
+  echo "" >&2
+  echo "   要收掉它  ⇒ bash scripts/storefront-probe/down.sh" >&2
+  echo "   要並行跑  ⇒ 換一組路徑與埠,例如:" >&2
+  echo "       STOREFRONT_PROBE_DIR=/tmp/pcm-g3-probe-\$\$ bash scripts/storefront-probe/up.sh" >&2
+  echo "       ⚠️ 埠仍寫死在本檔($WEB/$PROXY/$PREST/3987/$PG)⇒ 並行還要自己改埠,本次未做" >&2
+  exit 1
+fi
+
 rm -rf $S && mkdir -p $S
+# 誰起的、什麼時候起的 —— down.sh 會在拆之前把它印出來。
+{ echo "起於   : $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "shell  : pid $$  tty $(tty 2>/dev/null || echo '?')"
+  echo "datadir: $S"
+  echo "埠     : web $WEB / proxy $PROXY / prest $PREST / cors 3987 / pg $PG"
+} > $S/owner.txt
 initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.log 2>&1
 pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
 sleep 2
