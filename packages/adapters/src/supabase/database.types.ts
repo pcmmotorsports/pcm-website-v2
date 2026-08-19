@@ -3657,6 +3657,24 @@ export type Database = {
         }
         Returns: string
       }
+      // 🔴 `admin_set_product_listing`(M-4b #20 後台上下架;migration 20260819040000,
+      //    2026-08-19 Sean 用 SQL Editor apply、G2 對正式庫實查確認)——
+      //    本段是【逐字從 supabase gen types 的輸出取的】,不是手打。
+      //    🔴 而本次【刻意沒有重生成整個檔】:實測(G2 2026-08-19)以
+      //      `--schema public --schema graphql_public` 生成後與本檔逐行比對,
+      //      差異【只有】上面 27 處手動校正 + 本函式 ⇒ 其餘完全一致
+      //      ⇒ 整檔重生成會沖掉本檔 385 行註解與 27 處校正,而它只換來這 10 行。
+      //      量法與完整流程 = `docs/runbooks/regenerate-database-types.md`。
+      admin_set_product_listing: {
+        Args: {
+          p_actor: string
+          p_delisted: boolean
+          p_note: string
+          p_product_id: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       admin_today_payment_total: {
         Args: { p_from: string; p_to: string }
         Returns: {
