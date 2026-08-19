@@ -245,6 +245,34 @@ before / after 建議 = {delisted_at, listing_set_by} 兩欄
      ⇒ **那是環境缺陷不是產品缺陷**（runbook §0-4 的實例）
    ```
    ✅ 收攤逐項驗死:`pgrep` 零行 / `lsof :55571` 零行 / 資料目錄已刪 / 工作樹零留痕。
+
+   ### 🏁 **第二輪:PostgREST 那一層也起了 —— 上面那條「沒有驗」的限制,補掉了**
+   (2026-08-19 G2,同一支 migration,`postgrest` + 自簽 JWT,`:3979`)
+   ```
+   ① anon 呼叫          ⇒ HTTP 401，body code 42501「permission denied for function」✅ 擋住
+   ② service_role + 不存在的 id ⇒ 🔴 **HTTP 200，body 逐字 `"NOT_FOUND"`**
+      ⇒ **呼叫端【真的】拿得到那個字串** ⇒ §5 那條「零寫入 smoke」的做法成立，不是推的
+   ③ 正常下架          ⇒ HTTP 200 `"UPDATED"`
+   ④ 同狀態再按一次+帶備註 ⇒ HTTP 200 `"NO_CHANGE"`，而稽核仍 1 列、提到那句備註的 = **0**
+      ⇒ 🔴 GR 那條在 **wire 層**也成立，不只是 SQL 層
+   ```
+   🔴 **而這一輪【推翻了本檔自己寫過的一個字面】**(見上方零寫入 smoke 那格):
+   ```
+   本檔原文：「函式不在 ⇒ PostgREST 404 ／ 參數名漂 ⇒ **42883**，都不會是 'NOT_FOUND'」
+   實測    ：兩種世界【都是 HTTP 404 + code **PGRST202**】，不是 42883
+             · 參數名漂（p_note 打成 p_notes）⇒ PGRST202，details 列出它搜過的參數名
+             · 函式名打錯                     ⇒ PGRST202，details 說 without parameters
+   ⇒ ✅ **結論不變**（兩者都不會是 `'NOT_FOUND'` ⇒ 三世界仍分得開，而且 details 字串不同）
+   ⇒ 🔴 **而理由裡的錯誤代碼是錯的** —— 照原文去比對 `42883` 的人，會在一個永遠不出現的字上等。
+   ```
+   ⚠️ **這一輪的效度限制(比第一輪窄,但要寫出來)**:
+   ```
+   · 「authenticated 被擋」那一格我【沒有真的驗到】：回的是 403「permission denied to set role」
+     ⇒ 那是我的 authenticator 角色沒有被 GRANT authenticated 造成的，是【環境】不是【產品 ACL】
+     ⇒ 產品側那一格由第一輪的 has_function_privilege 三問覆蓋（authenticated = f）
+   · JWT 是自簽的、db-anon-role 是我設的 ⇒ Supabase 真實的 JWT/角色對應不在射程內
+   ```
+   ✅ 收攤:`pgrep postgrest` 零行 / `lsof :3979` / `lsof :55571` 皆零行 / 目錄已刪 / 工作樹零留痕。
 □ 🔴🔴 apply 後對正式站跑一次 **零寫入 smoke**(GR R1 MF-A;**原本的寫法會誘導人真按一次**)
    ```
    ❌ 舊寫法「那支函式解析得到、具名參數對得上」——
