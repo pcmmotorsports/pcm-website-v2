@@ -206,6 +206,45 @@ before / after 建議 = {delisted_at, listing_set_by} 兩欄
    ⇒「檢查 1 檔、0 個不過」—— **那只證明它 parse 得動。**
    要驗的三件:①前置閘在缺少依賴時真的 RAISE ②apply 期斷言在權限沒收好時真的 RAISE
    ③NO_CHANGE / NOT_FOUND / UPDATED 三條路各走一次且**寫入筆數符合預期**(NO_CHANGE 要 0 列稽核)
+
+   ### 🏁 **已跑完(2026-08-19 G2,PostgreSQL 17.10 拋棄式叢集 `:55571`)—— 三件全過**
+   ```
+   ① 前置閘：兩條【各自】RAISE，訊息不同 ⇒ 分得出是哪一個前置缺
+      缺 products.listing_set_by ⇒「前置閘失敗 — public.products.listing_set_by 不存在(#20 片2a 未套用)」
+      缺 admin_audit_log        ⇒「前置閘失敗 — public.admin_audit_log 不存在(M-4a M0-S2 未套用)」
+   ② apply 期斷言：兩發突變，各自紅在【對的那一句】
+      拿掉 REVOKE ⇒「anon 仍可 EXECUTE;authenticated 仍可 EXECUTE;」
+      拿掉 GRANT  ⇒「service_role 沒有 EXECUTE;」
+      正向對照：正本 apply ⇒ rc=0，且 has_function_privilege 三問 = anon f / authenticated f / service_role t
+   ③ 三條路（每一步都查了寫入筆數，不是只看回傳值）
+      NOT_FOUND  ⇒ 回 'NOT_FOUND'，稽核 0 列          （零寫入成立）
+      UPDATED    ⇒ delisted_at 有值 + listing_set_by='staff'，稽核 1 列、action=product.listing.change、reason 存進去了
+      NO_CHANGE  ⇒ 回 'NO_CHANGE'，稽核仍 1 列（沒有新增）
+      反向 UPDATED（下架→上架）⇒ delisted_at 回 NULL、set_by 仍 staff、稽核 2 列
+   ```
+   🔴 **而 GR 的 must-fix-lite,這一發把它從【預測】變成【量到的】**:
+   ```
+   在【已下架】的商品上再按一次下架、【而且帶備註】「第二次的備註會不會被吃掉」
+   ⇒ 回 NO_CHANGE，而 admin_audit_log 裡提到那句備註的列數 = **0**
+   ⇒ 那段字【真的】哪裡都沒有。⇒ §5:185 那條 server action 的驗收條件【必須做】，不是保險。
+   ```
+   ✅ 順帶驗了備註輸入守門的**兩側**(不是只驗該擋的那側):
+   ```
+   201 字 ⇒ 擋住（「變更原因非法」）      ← 該紅有紅
+   200 字 ⇒ 通過                          ← 🔴 正向對照：它不是恆炸
+   只打空白 ⇒ UPDATED，而稽核的 reason 存成 NULL（不是空字串）
+   ```
+   ⚠️ **本機效度限制(照 runbook §5,不放寬)**:
+   ```
+   · 這是本機 PG 17.10，不是 Supabase；平台層（RLS 預設、Supabase 的角色屬性）不在射程內
+   · bootstrap 的表是【從 repo 逐字取】的（products / admin_audit_log），
+     而 brands / categories 我建的是【只有 id 的樁】⇒ FK 形狀對，欄位不完整
+   · 沒有起 PostgREST ⇒ 「呼叫端拿不拿得到 NOT_FOUND 這個字串」這一層【沒有驗】
+   · 🔴 initdb 要 `-E UTF8`：第一次用 `--locale=C` 起的叢集是 SQL_ASCII，
+     apply 會炸在 `U&'\0085'` 那行「conversion between UTF8 and SQL_ASCII is not supported」
+     ⇒ **那是環境缺陷不是產品缺陷**（runbook §0-4 的實例）
+   ```
+   ✅ 收攤逐項驗死:`pgrep` 零行 / `lsof :55571` 零行 / 資料目錄已刪 / 工作樹零留痕。
 □ 🔴🔴 apply 後對正式站跑一次 **零寫入 smoke**(GR R1 MF-A;**原本的寫法會誘導人真按一次**)
    ```
    ❌ 舊寫法「那支函式解析得到、具名參數對得上」——
