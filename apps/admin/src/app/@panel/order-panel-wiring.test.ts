@@ -511,11 +511,16 @@ describe('#350c 守門 6:明細的兩個外框都是 @container', () => {
     //    抽到 `order-detail-summary-cards.tsx`(鐵則 6,純結構搬家、零行為改變)。
     //    ⚠️ **本格是被那次抽取【紅出來】的** —— 它盡了它的職責:字面搬家了它就說。
     //    ⇒ 這裡改的是**看哪一支檔**,不是放寬條件;三條斷言一個字沒動。
+    // 🔴 **2026-08-19 片14:欄數由 4 改 3,而本格守的不是欄數是【斷點的種類】。**
+    //    片14 拿掉了「收件與出貨」那張卡(4→3 張)⇒ 留 4 欄會多出一個被髮絲線畫出框的空格。
+    //    ⚠️ 改的是**欄數的字面**,三條斷言的**形狀與用意一個字沒動**:
+    //       容器斷點在(前兩條)、viewport 斷點不在(第三條)。**這不是放寬。**
     const detail = read('components/orders/order-detail-summary-cards.tsx');
-    expect(detail).toContain('@md:grid-cols-2');
-    expect(detail).toContain('@4xl:grid-cols-4');
-    // 突變:改回 md:/xl: ⇒ 紅。(1920 螢幕上的 576px 面板會硬排四欄。)
-    expect(detail).not.toContain('md:grid-cols-2 xl:grid-cols-4');
+    // 🔴 2026-08-19 片14 二修:摘要卡改成 `@md:grid-cols-3`(與頭條同一組)。
+    //    ~~`@md:grid-cols-2 @4xl:grid-cols-3`~~ 那一版在 720px 面板裡排成 2+1,右下角是空格。
+    expect(detail).toContain('@md:grid-cols-3');
+    // 突變:改回 md:/xl: ⇒ 紅。(1920 螢幕上的 576px 面板會硬排三欄。)
+    expect(detail).not.toContain('md:grid-cols-3 xl:grid-cols-3');
   });
 });
 

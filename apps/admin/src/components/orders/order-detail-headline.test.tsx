@@ -65,7 +65,10 @@ const paid = (n: number) => [{ id: 'p1', amount: n }] as never;
  *    [over]    n=7 idx=1 val=溢收 6,200
  *    ```
  *    ⇒ 四態**都抓到同一格、值都正確**,且沒有第二個小標叫「尾款」⇒ 選法不會抓錯。
- *    ⚠️ 而這只證明「**今天這七個 section 之下**成立」——日後有人再加一格小標叫「尾款」就會撞,
+ *    🔴 **2026-08-19 片14:那個 `n=7` 已經過期,現在是 `n=6`** —— 拿掉了「收件與出貨」那張卡。
+ *       `idx` 與四態的值**都沒變**(尾款仍是唯一叫「尾款」的小標)⇒ 選法仍成立。
+ *       ⚠️ 上面那塊量測紀錄**刻意不改數字** —— 它記的是那一天量到什麼,改了就不是紀錄了。
+ *    ⚠️ 而這只證明「**當時那七個 section 之下**成立」——日後有人再加一格小標叫「尾款」就會撞,
  *       那時 `find` 會回第一個。**不是永久保證,是一次量測。**
  */
 function balanceCell(payments: Parameters<typeof OrderSummaryCards>[0]['payments']): string {
@@ -115,5 +118,59 @@ describe('片3 頭條「尾款」四態', () => {
     const v = balanceCell({ status: 'ok', rows: paid(30000) });
     expect(v).toBe('溢收 6,200');
     expect(v).not.toContain('-');
+  });
+});
+
+// ── 🔴 片14(2026-08-19):拿掉「收件與出貨」那張卡之後的【負向對照】──
+//
+// 🔴 **為什麼這一節是 must-fix 補上的**:片14 的 plan 原本把「另外三張卡逐欄仍在」
+//    寫成一條 **yes/no 的自評**,而同一張驗收表裡其他條都有可跑的命令
+//    ⇒ **同一張表兩種證據等級,而讀的人看不出來**(W6 P3)。自評擋不住「我以為我沒刪」。
+//
+// 🔴 **這一節守的是【沒被順手刪掉】,不是【它們應該存在】** —— 後者還沒拍板:
+//    這三張卡有 4 個欄位在三份設計稿上都沒有落點(客人電話 / Email / 來源 / 統編),
+//    要不要留是 Sean 的題。**在他答之前,少一個欄位都要有東西紅。**
+describe('🔴 片14:剩下三張卡的欄位一個都不能少(負向對照)', () => {
+  const render3 = () => render(<OrderSummaryCards detail={base} payments={{ status: 'ok', rows: [] }} />);
+
+  it('「收件與出貨」那張卡已經不在(它 4 個欄位已搬進出貨區)', () => {
+    const { container } = render3();
+    // 正向錨:元件真的渲染了。少了它,下面那條否定式在「整個元件回 null」時會恆綠。
+    expect(container.textContent, '摘要卡整塊沒渲染 ⇒ 下面那條會恆綠').toContain('客戶資訊');
+    expect(container.textContent).not.toContain('收件與出貨');
+  });
+
+  it('🔴 三張卡的標題與 11 個固定欄位逐一還在', () => {
+    const { container } = render3();
+    const text = container.textContent ?? '';
+    // 🔴 逐一斷言、不是數個數 —— 數量對得起來而換掉其中一個,數量法看不見。
+    for (const label of [
+      '客戶資訊', '姓名', '電話', 'Email',
+      '付款', '付款狀態', '出貨狀態', '來源 · 管道', '付款時間',
+      '發票', '需求型式', '開立狀態', '發票號碼', '發票金額',
+    ]) {
+      expect(text, `摘要卡少了「${label}」—— 片14 只該拿掉「收件與出貨」那一張`).toContain(label);
+    }
+  });
+
+  // 🔴 **這一格第一版釘的是 `@4xl:grid-cols-3`,而那一版在【面板】裡是壞的** ——
+  //    3 張卡在 `@md` 的兩欄下排成 2+1,**右下角多一個被 `gap-px bg-border` 畫出來的空灰格**。
+  //    整頁版命中 `@4xl` 排 3 欄、看起來正常 ⇒ **只有面板破,而面板是 Sean 在看的那一面。**
+  //    ⚠️ **測試那時是綠的** —— 它釘的是字面,而字面是對的;壞的是那個字面在另一個容器寬度下的效果。
+  //    ⇒ **這一格永遠擋不住那種病。擋住它的是開瀏覽器。** 留這行是為了不讓下一個人以為它擋得住。
+  it('欄數與頭條同一組斷點(`@md:grid-cols-3`),不是 viewport 斷點', () => {
+    const { container } = render3();
+    // 🔴 **第一版的選法是錯的,而它【看起來對】**:`querySelector('[class*="grid-cols"]')`
+    //    抓到的是**頭條那三格**(`grid gap-px border bg-border @md:grid-cols-3`)——
+    //    它同樣有 `gap-px bg-border`、同樣叫 grid-cols-3,**斷言差一點就綠著通過**。
+    //    ⇒ 錨改成「**裝著三張卡的那個 grid**」:用它的內容(客戶資訊)認,不用它的 class 認
+    //      (用 class 認等於拿要驗的東西當錨,那是循環)。
+    const grid = [...container.querySelectorAll('div[class*="grid-cols"]')].find((el) =>
+      el.textContent?.includes('客戶資訊'),
+    );
+    expect(grid, '找不到裝著三張卡的 grid ⇒ 下面兩條會恆綠').toBeDefined();
+    expect(grid?.className).toContain('@md:grid-cols-3');
+    // 🔴 負向:不得退回兩欄(那正是「多一個空格」那一版)。
+    expect(grid?.className).not.toContain('grid-cols-2');
   });
 });
