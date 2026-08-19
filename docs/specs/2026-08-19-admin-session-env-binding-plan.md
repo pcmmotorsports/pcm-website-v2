@@ -487,8 +487,20 @@ session.ts:74-88 現行快取鍵【只認 secret】：if (secret !== cachedSecre
 **⇒ 折法(兩件缺一不可)**:
 ```
 ① 快取鍵改成【完整材料】：material = secret + '|' + env，比對 material 不是比對 secret
-② 加一格【在同一個 process 內】釘住快取的測試：
-   同一把 secret，簽 env=A → 翻成 env=B → 再簽 ⇒ 🔴 兩顆簽章【必須不同】
+② 加一格【在同一個 process 內】釘住快取的測試
+   ⛔ ~~同一把 secret，簽 env=A → 翻成 env=B → 再簽 ⇒ 兩顆簽章必須不同~~
+   🔴🔴 【R5 撤回:那樣寫是【恆綠】的。W5 自己起疑 → W6 獨立證實 → 我自量複驗】
+     session.ts:99-103 newSid() ⇒ crypto.getRandomValues（每次不同）
+     session.ts:112-113 buildAdminSession() ⇒ sid: newSid()、iat/exp = Date.now()
+     ⇒ 兩次產出的【payload 本身就不同】⇒ 簽章必然不同
+     ⇒ 🔴 那格【不論 env 有沒有進快取鍵都會過】
+   ✅ 正確寫法（兩件缺一不可）：
+     (a) 🔴 不要用 buildAdminSession() —— signSession(payload) 收的就是現成 payload（:116）
+         ⇒ 用【同一顆固定 payload】簽兩次，中間只翻 env
+     (b) 🔴 加正向對照：同一顆 payload + 【同一個 env】簽兩次 ⇒ 簽章必須【逐字相同】
+         （HMAC 是決定性的）
+         ⇒ 沒有 (b)，「不同」可以來自任何東西 —— 那正是這次恆綠的成因
+   ✅ 修完它真的有判別力：快取 bug 在場 ⇒ 第二次拿到舊 key ⇒ 兩顆簽章【相同】⇒ 格②紅
    🔴 沒有②，①被改回去時【沒有任何東西會紅】
 ```
 
@@ -506,9 +518,45 @@ recordSsoLogin 只掛 callback 那五個點（:52/:62/:68/:75/:84）
 —— 三者輸出【完全相同,而且都是空的】。**
 
 🔴🔴 **⇒ 丁上線後若 production 讀不到 env,第一個症狀是【所有人被登出,而零 log】。**
-**⇒ 因此:驗證端加一個【不帶 token 內容】的三態分類訊號(`sig_invalid` / `expired` / `shape`)
-= 丁的【必要配套】,不是 nice-to-have。它同時是丁唯一的早期警報。**
-⚠️ **而它要小心不要變成新的洩漏面** —— 只記分類,不記 token、不記 payload、不記 sid。
+**⇒ 因此:三態分類訊號(`sig_invalid` / `expired` / `shape`)= 丁的【必要配套】,不是 nice-to-have。**
+
+### 🔴 R5-M2:而它**放錯層了** —— 而「刻意靜默還是沒做」的答案是**第三種**
+
+```
+【DB 那半】被既有硬規則明文擋住 —— 不是沒做，是【不准做】
+   session.ts:3-5 ★runtime-neutral 硬規則★ 逐字「絕不 import 'node:crypto' 或 '@supabase/supabase-js'」
+【console 那半】查無任何一份裁過它
+   W6 掃 docs/specs + docs/reviews ⇒ 查無
+   🔴 而 W6 自陳【沒掃 memory 與 lessons-learned】⇒ W5 補掃了，結果要分開講：
+     · 「verifySession 要不要記」⇒ 仍然【查無裁定】
+     · 🔴 而找到一條【相鄰的】裁定，它管的是【記什麼】不是【記不記】：
+       memory project_m4a-admin-phase1-decisions.md:77 逐字「security-log 不記 code/secret/token」
+     ⇒ 兩者不可互相取代：那條約束了內容，沒有授權或禁止這個行為本身
+⇒ 結論：一半被硬規則擋住、一半沒人裁過。【兩者都不是「刻意保持靜默」】。
+```
+
+**✅ 折法(W6 給的形狀,我採納)**:
+```
+verifySession 回傳改成帶原因：{ ok:false, reason:'sig_invalid'|'expired'|'shape' }
+【由呼叫端記錄】—— 而呼叫端只有兩處：proxy.ts:40 / authorize.ts:29（我自量複驗）
+好處：不碰那條硬規則 / session.ts 維持純函式 / 兩端各自決定要不要記、記去哪
+```
+
+### 🔴 R5-nit:這個訊號有**兩個新攻擊面**,而「不記 token/sid」只擋掉其中一個
+
+```
+① 🔴 未認證的人可以【無限觸發它】
+   隨便一顆壞 cookie 打任何 admin 網址就走到 proxy:40
+   ⇒ 寫 DB = 未認證寫入放大
+   ⇒ 寫 console = log 被灌爆、【真訊號被淹掉】
+      📌 那等於：這道警報【在最需要它的那一天】失效
+   ⇒ 規定：console-only + 取樣/聚合，不得逐次寫 DB
+② 🔴 分類【永遠不得影響回應】
+   現在三種都回同一個 303 —— 那是對的，而它要【寫成規定】不是靠現況
+   ⇒ 哪天 sig_invalid 與 expired 回不同狀態碼 / 標頭 / 延遲
+      = 等於告訴偽造者「你的簽章對了，只是過期」
+③ ✅ PII 那格已照 login-event.ts:149 紀律做到（只記分類，不記 token / payload / sid）
+```
 
 ### 3-丁.8 ⚠️ R4-M4(nit):代價的下游 —— **我點的三個裡只有一個成立,而真正的風險我沒點到**
 
@@ -533,6 +581,29 @@ recordSsoLogin 只掛 callback 那五個點（:52/:62/:68/:75/:84）
      ⇒ **Rolling Releases 沒開 ⇒「來回彈」的視窗回到「別名切換」那個量級（通常原子）⇒ 短但非零。**
      ⚠️ **射程**:這是**現在**的設定值,**它是可以被改的** ——
      若有人在片 1 部署前打開 Rolling Releases,這一格要重查。**寫成部署前的一步,不是結論。**
+```
+
+### 3-丁.9 ✅ **丁還有一個 plan 沒寫的【結構性】優勢,而它有本 repo 裡的實錘**(W6 R5-nit)
+
+`docs/specs/2026-08-16-m4b-e8b-b3-spec.md:819` 逐字(那份 spec **自己的 R2 must-fix**):
+> 現行 `2fa/enroll/confirm:89` 是 `buildPayload(...)` **重新造一個 payload**
+> ⇒ **`sub` 會靜默消失,而 3b/3c/4/4b/4c/4d/7/9/10 全綠**。
+
+🔴 **同一個失效模式,對「`env` 欄」一字不差成立** ——
+**未來多一個簽發點,誰忘了帶 `env`,十格照樣全綠。**
+
+**⇒ 而丁把 `env` 放進【金鑰】⇒ 新的簽發點【自動繼承】,沒有人需要記得。**
+📌 **這是丁勝過甲/乙的【結構性】理由,而不是效能或工作量的理由** ——
+**它把「要靠人記得」換成「不記得也不會錯」。**
+
+⚠️ **而它今天是【未來式】的,照實標**:
+```
+signSession( 的真呼叫端（非測試、非定義）分母 = 1
+  量法：grep -rn "signSession(" --include='*.ts' --include='*.tsx' apps/admin/src | grep -v '\.test\.'
+  ⇒ 只有 apps/admin/src/app/api/sso/callback/route.ts:72
+🔴 而 b3-spec:819 指的 app/api/admin/2fa/enroll/confirm/route.ts【本 repo 不存在】
+  （find apps/admin/src -path '*2fa*' -o -path '*enroll*' ⇒ 零命中）—— 那是【報價單 repo】的檔
+⇒ 所以：§3 的分母【今天正確】，這個優勢要等「第二個簽發點出現」那天才兌現。
 ```
 
 ### 3-丁.5 仍然沿用原設計的部分
