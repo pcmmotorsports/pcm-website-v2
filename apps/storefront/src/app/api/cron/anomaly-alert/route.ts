@@ -1,6 +1,6 @@
 // app/api/cron/anomaly-alert/route.ts — 雙扣 anomaly 主動告警 cron route(M-3 #250)
 //
-// Vercel cron(vercel.json crons)週期觸發 → 跑 checkAnomalyAlerts(use-case):讀 anomaly + 死卡列零 PII 計數 →
+// Vercel cron(vercel.json crons)週期觸發 → 跑 checkAnomalyAlerts(use-case):讀 anomaly + 死卡列計數 **與訂單單號** →
 // 任一門檻踩(open 雙扣候選 / refunding 卡逾時 / pending 孤兒 / released 死卡)→ 對所有已設定管道(LINE/Email)
 // 推播固定格式告警。把雙扣偵測從 pull(W1 報表有空才查)→ push(發生即主動通知)、杜絕沉默故障 + 錯過客訴黃金期。
 //
@@ -14,8 +14,9 @@
 //   3. enabled 後 deps/env 缺(factory throw:PAYMENT_CONFIRMER_DB_URL 或「enabled 但零管道」)→ 503;本輪告警管道
 //      推播失敗(result.errors>0)→ 503 + 結構化 counts log(零 PII)、**不可吞成 200 偽裝成功**(壞掉的告警管道
 //      靜默不推 = 沉默故障、#250 最怕的事)。
-//   4. 不採信任何外部輸入:無 client 參數 / 無 query / 無 body;refunding 卡住門檻 = route 端常數。告警訊息零 PII
-//      (只計數;reader 走 payment_confirmer SECDEF 受控窗、對 anomaly 兩表零表權)。
+//   4. 不採信任何外部輸入:無 client 參數 / 無 query / 無 body;refunding 卡住門檻 = route 端常數。告警訊息**含訂單單號**(2026-08-19 Sean 拍板;~~原寫「零 PII」~~ 作廢。⚠️ **route 的回應與 log 仍是 counts-only**,那半沒變)
+//      (reader 走 payment_confirmer SECDEF 受控窗、對 anomaly 兩表零表權;
+//       🔴 ~~原寫「只計數」~~ 作廢 —— 它同時讀計數**與五組訂單單號**,見 check-anomaly-alerts.ts 檔頭)。
 //
 // 🔴 GET handler(Vercel cron 走 GET;寫成 POST 等 → cron 永不觸發 = 靜默不告警)。
 // 🔴 不變式(lazy 跨包契約、鏡像 settle-sweep route 警語):getAnomalyAlertDeps factory **必須維持 lazy**——建構子

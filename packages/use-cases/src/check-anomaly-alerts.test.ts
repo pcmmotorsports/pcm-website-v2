@@ -15,7 +15,16 @@ const ZERO: AnomalyAlertSummary = {
   attemptManualReviewCount: 0,
   releasedStuckCount: 0,
   pendingDoubleChargeCandidateCount: 0,
+  openDisplayIds: [],
+  refundingStuckDisplayIds: [],
+  attemptManualReviewDisplayIds: [],
+  releasedStuckDisplayIds: [],
+  pendingDoubleChargeDisplayIdPairs: [],
 };
+
+/** 產 n 個合法單號(`PCM-2026-0001` …);用來測上限與差額。 */
+const displayIds = (n: number, from = 1): string[] =>
+  Array.from({ length: n }, (_, i) => `PCM-2026-${String(from + i).padStart(4, '0')}`);
 
 function reader(summary: AnomalyAlertSummary): IAnomalyAlertReader {
   return { getAlertSummary: vi.fn().mockResolvedValue(summary) };
@@ -117,67 +126,284 @@ describe('checkAnomalyAlerts — fail-closed + 多管道', () => {
   });
 });
 
-describe('buildAnomalyAlertMessage — 固定格式零 PII', () => {
-  it('🔴 open 文案為「候選/待查證」、非「已確認雙扣」(runbook line51);提醒查 W1 對帳', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 2 }, 86400);
-    expect(msg.subject).toContain('PCM 付款異常');
-    expect(msg.text).toContain('雙扣候選');
-    expect(msg.text).toContain('待查證');
-    expect(msg.text).toContain('W1');
-    expect(msg.text).not.toContain('已確認雙扣');
-  });
+describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板)', () => {
+  // 🔴 這一組取代了舊的「固定格式零 PII」那一組。**舊那組不是壞掉,是規格被改了** ——
+  //    Sean 本人在知道隱私代價的情況下拍板打開「零單號」那道閘(理由見 check-anomaly-alerts.ts 檔頭)。
+  //    ⇒ 動這組之前先讀那段;**不要因為看到「訊息裡有單號」就以為是 bug。**
 
-  it('只列踩門檻的類別(0 的類別不入訊息)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1 }, 86400);
-    expect(msg.text).toContain('雙扣候選');
-    expect(msg.text).not.toContain('退款卡逾時');
-    expect(msg.text).not.toContain('released 死卡');
-  });
+  /** 🔴 收訊者不是工程師。這 8 個詞是 2026-08-19 那封他看不懂的告警裡出現過的。 */
+  const JARGON = ['sweeper', 'pending', '孤兒', '被讓路', 'W1', 'Report C', 'plan §4', 'dismissed'];
 
-  it('🔴 M-4b L5b-0-s:人工待確認文案不得把計數講成單一族(它是 pending 孤兒 + 被讓路轉人工的聯集)', () => {
-    // 病根:migration 改③ 把 superseded 的 charged/released 併進 attempt_manual_review_count,
-    // 而文案若仍寫死「pending 孤兒」= 值班拿到**錯誤的事故分類**(兩者處置不同:對帳 vs 走退款線)。
-    // ⇒ 這一格釘的是「文案與 DB 述詞是同一條不變式」,不是字串美觀。
-    const msg = buildAnomalyAlertMessage({ ...ZERO, attemptManualReviewCount: 3 }, 86400);
-    expect(msg.text).toContain('pending 孤兒');
-    expect(msg.text).toContain('被讓路');
-    // 舊字面(把整個計數等同於 pending 孤兒)不得復活
-    expect(msg.text).not.toContain('人工待確認(pending 孤兒)');
-  });
-
-  it('🔴 M-4b L5b-0-s:人工待確認與 released 死卡可重疊時要講明(同一顆 attempt 兩邊都算)', () => {
-    // 實測依據:被讓路的 released 同時「達 12h」與「達 ceiling 轉人工」時,兩個計數各回 1(本機叢集實跑)。
-    const both = buildAnomalyAlertMessage({ ...ZERO, attemptManualReviewCount: 1, releasedStuckCount: 1 }, 86400);
-    expect(both.text).toContain('可能與上一項重疊');
-    // 只有 released 死卡時不得指向一個沒列出來的「上一項」
-    const only = buildAnomalyAlertMessage({ ...ZERO, releasedStuckCount: 1 }, 86400);
-    expect(only.text).toContain('released 死卡');
-    expect(only.text).not.toContain('可能與上一項重疊');
-  });
-
-  it('refunding 卡逾時顯示小時(86400s → 24h)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 86400);
-    expect(msg.text).toContain('24h');
-  });
-
-  it('open 附最舊年齡(排序訊號;259200s → 3 天)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, oldestOpenAgeSeconds: 259200 }, 86400);
-    expect(msg.text).toContain('最舊 3 天');
-  });
-
-  it('open 但 oldestOpenAgeSeconds=null → 不附年齡(不崩)', () => {
-    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, oldestOpenAgeSeconds: null }, 86400);
-    expect(msg.text).toContain('雙扣候選');
-    expect(msg.text).not.toContain('最舊');
-  });
-
-  it('🔴 零 PII:訊息不含金額/單號/user id 樣式(只含計數與固定字串)', () => {
+  it('🔴 白話尺:五類全開時,那 8 個技術詞一個都不得出現', () => {
     const msg = buildAnomalyAlertMessage(
-      { openCount: 1, refundingCount: 0, refundingStuckCount: 1, oldestOpenAgeSeconds: 999, attemptManualReviewCount: 2, releasedStuckCount: 0, pendingDoubleChargeCandidateCount: 1 },
+      {
+        ...ZERO,
+        openCount: 1, openDisplayIds: displayIds(1, 1),
+        refundingStuckCount: 1, refundingStuckDisplayIds: displayIds(1, 2),
+        attemptManualReviewCount: 1, attemptManualReviewDisplayIds: displayIds(1, 3),
+        releasedStuckCount: 1, releasedStuckDisplayIds: displayIds(1, 4),
+        pendingDoubleChargeCandidateCount: 1,
+        pendingDoubleChargeDisplayIdPairs: [['PCM-2026-0005', 'PCM-2026-0006']],
+        oldestOpenAgeSeconds: 259200,
+      },
       86400,
     );
     const blob = `${msg.subject}\n${msg.text}`;
-    // 不含 UUID / NT$ 金額樣式
+    // 🔴🔴 **正向對照的 needle 要種在【真輸出】裡,不能自己拼一個字串進去**(R3 抓的):
+    //    我原本寫 `JARGON.some(w => \`${blob} sweeper\`.includes(w))` —— needle 種在 `blob` **外面**
+    //    ⇒ `buildAnomalyAlertMessage` 回空字串時,8 格全 false 全過、對照也過 ⇒ **整格綠**,
+    //      而「訊息整個壞掉」正是這一格要排除的世界。
+    //    ⇒ 形狀抄本檔下面那格(`expect(blob).toContain('PCM-2026-0104')`):needle 在真輸出裡。
+    expect(blob).toContain('可能被扣了兩次錢');
+    for (const w of JARGON) expect({ [w]: blob.includes(w) }).toEqual({ [w]: false });
+  });
+
+  it('🔴 open 仍是「可能」不是「已確認雙扣」(runbook line51);防動錯錢那句要留著', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, openDisplayIds: displayIds(2) }, 86400);
+    expect(msg.text).toContain('可能被扣了兩次錢');
+    expect(msg.text).toContain('先查清楚再退款');
+    expect(msg.text).not.toContain('已確認雙扣');
+  });
+
+  it('🔴🔴「本訊息零個資、僅計數」那句不得復活 —— 帶了單號之後它是假的', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400);
+    expect(msg.text).not.toContain('零個資');
+    expect(msg.text).not.toContain('僅計數');
+  });
+
+  it('只列踩門檻的類別(0 的類別不入訊息)', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400);
+    expect(msg.text).toContain('可能被扣了兩次錢');
+    expect(msg.text).not.toContain('退款卡住');
+    expect(msg.text).not.toContain('錢可能還被鎖著');
+  });
+
+  it('🔴 單號真的印出來(1 筆 / 多筆)', () => {
+    const one = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0104'] }, 86400);
+    expect(one.text).toContain('PCM-2026-0104');
+    const many = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 3, openDisplayIds: ['PCM-2026-0104', 'PCM-2026-0098', 'PCM-2026-0091'] },
+      86400,
+    );
+    for (const id of ['PCM-2026-0104', 'PCM-2026-0098', 'PCM-2026-0091']) expect(many.text).toContain(id);
+  });
+
+  it('🔴🔴 RPC 沒回單號(舊版 / 部署錯序)⇒ 只講筆數,**不得憑空編一個單號**', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 4, openDisplayIds: [] }, 86400);
+    expect(msg.text).toContain('4 筆');
+    expect(msg.text).not.toMatch(/PCM-\d{4}-\d{4}/);
+    // 拿不到單號 ⇒ 標題不寫張數(不要退回去用各類計數相加,那個數字會因重疊而偏大)
+    expect(msg.subject).toBe('⚠️ PCM 付款有事要你看');
+  });
+
+  it('🔴 超過 30 筆 ⇒ 列前 30 + 「另外還有 N 筆」(甲=乙的失效保護,30 筆以下兩者逐字相同)', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 45, openDisplayIds: displayIds(45) }, 86400);
+    expect(msg.text).toContain('PCM-2026-0030');
+    expect(msg.text).not.toContain('PCM-2026-0031');
+    expect(msg.text).toContain('另外還有 15 筆');
+    // 30 筆整 ⇒ 不得出現「另外還有」
+    const exact = buildAnomalyAlertMessage({ ...ZERO, openCount: 30, openDisplayIds: displayIds(30) }, 86400);
+    expect(exact.text).not.toContain('另外還有');
+  });
+
+  it('🔴 差額用【實際列出的數量】算,不是寫死 30 —— SQL 端 LIMIT 100 會讓陣列比計數短', () => {
+    // 🔴 **陣列必須比 30【短】,這一格才有判別力**(關卡2 nit 抓的):
+    //    我原本用 `count=200 / ids=100` ⇒ 列 30、差額 170 —— 而寫死成 `count - 30` **也是 170**
+    //    ⇒ 兩種實作在那個輸入下**印一樣的東西**,那格證明不了它宣稱的事。
+    //    改成 `ids=10` ⇒ 正確實作 190、寫死 30 的實作 170 ⇒ **兩個世界印不同的東西。**
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 200, openDisplayIds: displayIds(10) }, 86400);
+    expect(msg.text).toContain('另外還有 190 筆');
+    expect(msg.text).not.toContain('另外還有 170 筆');
+  });
+
+  // 🔴🔴 R3(W6)抓的:skew 的**另一個方向** —— 我原本只分析了「單號比計數少」那一半。
+  it('🔴 `ids` 比 `count` **多**(兩次查詢之間新出現的列)⇒ 只列到 count 為止,信不得自相矛盾', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0001', 'PCM-2026-0002', 'PCM-2026-0003'] },
+      86400,
+    );
+    expect(msg.text).toContain('1 筆');
+    expect(msg.text).toContain('PCM-2026-0001');
+    expect(msg.text).not.toContain('PCM-2026-0002'); // 舊寫法會把三個都列出來,標題卻寫 1 筆
+    expect(msg.text).not.toContain('另外還有'); // hidden 為負 ⇒ 不得冒出一行假的差額
+    // 🔴 標題也要跟著夾,否則它會報出一個比各類計數之和還大的張數
+    expect(msg.subject).toBe('⚠️ PCM 付款有 1 張單要你看');
+  });
+
+  // ── 關卡2(codex)折回來的四格 ──────────────────────────────────────────
+  it('🔴 重疊註記**不得指名一個信上沒印出來的單號**(交集要算在【真的印出去的】上)', () => {
+    // attempt 1 筆 / ids [A,B]、released 1 筆 / ids [D,B] ⇒ 兩段各只列 A 與 D。
+    // 拿原始陣列算交集會得到 B ⇒ 註記會洩出一個沒被列出的單號,還說它是「上面那一項」。
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-000A', 'PCM-2026-000B'],
+        releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-000D', 'PCM-2026-000B'],
+      },
+      86400,
+    );
+    expect(msg.text).toContain('PCM-2026-000A'); // 正向對照:段落真的印出來了
+    expect(msg.text).not.toContain('PCM-2026-000B');
+  });
+
+  it('🔴 別的類別被截斷,**不得**讓 ③④ 誤報「可能是同一張單」(截斷要看自己那兩類)', () => {
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        openCount: 200, openDisplayIds: displayIds(100), // open 被截斷,與 ③④ 無關
+        attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-0101'],
+        releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0202'],
+      },
+      86400,
+    );
+    expect(msg.text).not.toContain('可能和上面那一項是同一張單');
+  });
+
+  it('🔴 訊息超過 LINE 上限 ⇒ 從尾端整行丟掉並明說(不得整封被拒收)', () => {
+    // 構造:五類各 30 筆、單號刻意很長(display_id 的 CHECK 末段是 `{4,}`,沒有上界)
+    const long = (n: number, p: string) =>
+      Array.from({ length: n }, (_, i) => `PCM-2026-${p}${String(i).padStart(60, '0')}`);
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        openCount: 30, openDisplayIds: long(30, '1'),
+        refundingStuckCount: 30, refundingStuckDisplayIds: long(30, '2'),
+        attemptManualReviewCount: 30, attemptManualReviewDisplayIds: long(30, '3'),
+        releasedStuckCount: 30, releasedStuckDisplayIds: long(30, '4'),
+      },
+      86400,
+    );
+    expect(msg.subject.length + msg.text.length).toBeLessThan(5000);
+    expect(msg.text).toContain('上面只列出一部分');
+    // 🔴🔴 **這三格是 R3 抓出來補的,而它們才是這一格真正要守的東西。**
+    //    原本只斷言「截斷發生了」⇒ 那格會通過,而它產出的是一封
+    //    **沒有警語、沒有網址、只剩一長串單號**的信 —— 因為舊寫法從尾端 pop,而尾端就是它們。
+    //    ⇒ 🔴 那正是「每一格都在守實作細節,而沒有一格在守【這封信作為一封信還完不完整】」。
+    expect(msg.text).toContain('先查清楚再退款');
+    expect(msg.text).toContain('https://admin.pcmmotorsports.com');
+    expect(msg.text).toContain('需登入後台');
+    // 🔴 正向對照:同樣五類全開但單號是正常長度 ⇒ **不得**被截(否則這格對什麼都回 true)
+    const normal = buildAnomalyAlertMessage(
+      { ...ZERO, openCount: 30, openDisplayIds: displayIds(30) },
+      86400,
+    );
+    expect(normal.text).not.toContain('上面只列出一部分');
+  });
+
+  it('🔴 信裡帶後台網址,而且要講「需登入」(沒帳號的人點下去會看到登入頁)', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400);
+    expect(msg.text).toContain('https://admin.pcmmotorsports.com');
+    expect(msg.text).toContain('需登入後台');
+    // 🔴 不得出現深連結 —— 那條路徑沒有人驗過
+    expect(msg.text).not.toMatch(/admin\.pcmmotorsports\.com\/\w/);
+  });
+
+  it('🔴 第五類是【一組兩張單】,兩個單號都要出現', () => {
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        pendingDoubleChargeCandidateCount: 1,
+        pendingDoubleChargeDisplayIdPairs: [['PCM-2026-0110', 'PCM-2026-0111']],
+      },
+      86400,
+    );
+    expect(msg.text).toContain('PCM-2026-0110 ＋ PCM-2026-0111');
+    expect(msg.text).toContain('1 組');
+  });
+
+  it('🔴 ③④ 是同一張單時【指名】,不再只說「可能重疊」;沒有交集就不要提', () => {
+    const same = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-0104'],
+        releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0104'],
+      },
+      86400,
+    );
+    expect(same.text).toContain('PCM-2026-0104 和上面那一項是同一張單');
+    const diff = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-0104'],
+        releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0999'],
+      },
+      86400,
+    );
+    expect(diff.text).not.toContain('是同一張單');
+    // 只有 ④ 時不得指向一個沒列出來的「上面那一項」
+    const only = buildAnomalyAlertMessage(
+      { ...ZERO, releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0999'] },
+      86400,
+    );
+    expect(only.text).not.toContain('上面那一項');
+  });
+
+  it('🔴 標題數字 = 不重複的張數,不是各類計數相加(③④ 同一張單只算一張)', () => {
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-0104'],
+        releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0104'],
+      },
+      86400,
+    );
+    expect(msg.subject).toBe('⚠️ PCM 付款有 1 張單要你看'); // 相加會是 2
+  });
+
+  // ── codex R2 折回來的三格 ────────────────────────────────────────────────
+  it('🔴🔴 單號被截斷時,標題**不寫張數** —— 否則「100 張單」會和內文的「200 筆」自相矛盾', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 200, openDisplayIds: displayIds(100) }, 86400);
+    expect(msg.subject).toBe('⚠️ PCM 付款有事要你看');
+    expect(msg.text).toContain('200 筆'); // 內文的筆數仍然是真的
+    // 正向對照:同一組數字但沒有截斷 ⇒ 標題就要寫得出張數(否則這一格是恆真的)
+    const full = buildAnomalyAlertMessage({ ...ZERO, openCount: 3, openDisplayIds: displayIds(3) }, 86400);
+    expect(full.subject).toBe('⚠️ PCM 付款有 3 張單要你看');
+  });
+
+  it('🔴🔴 ③④ 都被截斷時,重疊提示要**退回「可能」而不是整句消失**(101 筆那天正是最需要它的時候)', () => {
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        attemptManualReviewCount: 101, attemptManualReviewDisplayIds: displayIds(100, 1),
+        releasedStuckCount: 101, releasedStuckDisplayIds: displayIds(100, 201),
+      },
+      86400,
+    );
+    // 兩個前 100 陣列無交集 ⇒ 舊寫法會把這句整個刪掉
+    expect(msg.text).toContain('可能和上面那一項是同一張單');
+  });
+
+  it('🔴 門檻不是整點小時時不得四捨五入成小時(5400s = 90 分,不是「2 小時」)', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 5400);
+    expect(msg.text).toContain('超過 90 分鐘');
+    expect(msg.text).not.toContain('2 小時');
+  });
+
+  it('退款卡逾時說「超過 24 小時」而不是「24h」(86400s)', () => {
+    const msg = buildAnomalyAlertMessage({ ...ZERO, refundingStuckCount: 1 }, 86400);
+    expect(msg.text).toContain('超過 24 小時');
+  });
+
+  it('open 附最舊年齡(排序訊號;259200s → 3 天);null → 不附且不崩', () => {
+    const withAge = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, oldestOpenAgeSeconds: 259200 }, 86400);
+    expect(withAge.text).toContain('最久的已經 3 天');
+    const noAge = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, oldestOpenAgeSeconds: null }, 86400);
+    expect(noAge.text).toContain('可能被扣了兩次錢');
+    expect(noAge.text).not.toContain('最久的');
+  });
+
+  it('🔴 單號可以出,而 UUID 與金額仍然不可以', () => {
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ZERO,
+        openCount: 1, openDisplayIds: ['PCM-2026-0104'],
+        refundingStuckCount: 1, refundingStuckDisplayIds: ['PCM-2026-0091'],
+        oldestOpenAgeSeconds: 999,
+      },
+      86400,
+    );
+    const blob = `${msg.subject}\n${msg.text}`;
+    expect(blob).toContain('PCM-2026-0104'); // 正向對照:這把尺看得到內容
     expect(blob).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i);
     expect(blob).not.toMatch(/NT\$|\bTWD\b/);
   });
@@ -186,6 +412,7 @@ describe('buildAnomalyAlertMessage — 固定格式零 PII', () => {
 describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
   it('result 帶各計數(供 route log、零 PII)', async () => {
     const summary: AnomalyAlertSummary = {
+      ...ZERO,
       openCount: 1,
       refundingCount: 2,
       refundingStuckCount: 1,

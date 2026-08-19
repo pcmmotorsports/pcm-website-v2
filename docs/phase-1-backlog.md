@@ -23439,3 +23439,38 @@ F2 別用動詞白名單猜函式名(updateProduct|create… 換個名字就逃�
   ⇒ 那是決策題不是順手活 ⇒ **標了就不追**，等排到它時單獨提 plan（鐵則 8+12②）
   ```
 - **相關:** `#291`(legal terms 版本表)/ `docs/runbooks/data-rights-sop.md`(三格待 Sean 拍板:保存期限 / 硬刪 vs 匿名化 / 窗口是誰)
+
+### #665. 🔑 SECDEF 受控窗的 ACL 斷言【看不到角色成員閉包】(全樹,不是單一片)
+
+- **狀態:** 未修(2026-08-19 主視窗裁「不在單號陣列片解、立本條」)
+- **是什麼:**
+  ```
+  那幾支 SECURITY DEFINER 受控窗的 ACL 斷言（不論是「點名檢查三個角色」還是我這片改的
+  「列舉 proacl 的實際 grantee」）都只看【直接授權】。
+  🔴 而 `GRANT payment_confirmer TO ops_reader` 之後：
+     · `proacl` **一個字都不會變**
+     · 所有既有斷言 **全綠**
+     · 而 `ops_reader` 只要 `SET ROLE payment_confirmer` 就讀得出受控窗的全部回傳
+  ⇒ 那是【授權的遞移閉包】，而我們一支都沒有在驗它。
+  ```
+- **不修未來會痛在哪:**
+  ```
+  🔴 受控窗的存在理由是「只有這一個身分讀得到」。成員閉包沒驗 ⇒ 那句話**現在就不成立**，
+     只是今天沒有人建那種角色。
+  🔴 而它壞掉的方式特別安靜：新增一個分析用 / 維運用角色是**一句 GRANT**，
+     不會動任何 migration、不會讓任何斷言變紅、repo 裡零字面可掃。
+     ⇒ 下一次資安盤查若照「ACL 斷言全綠」下結論，會得到一個**錯的**結論。
+  ⚠️ 而 2026-08-19 單號陣列片之後，這些受控窗回的東西**包含訂單單號**（不再只有計數）
+     ⇒ 同一個缺口的曝露面比以前大。
+  ```
+- **量法(當場跑,不要引用舊數):**
+  ```bash
+  grep -rln "SECURITY DEFINER" supabase/migrations/*.sql | wc -l          # 有幾支受控窗
+  grep -rln "has_function_privilege" supabase/migrations/*.sql | wc -l    # 有幾支寫了 ACL 斷言
+  ```
+  🔴 兩個數字都**不是**「有幾支驗了成員閉包」——那個數字目前是 **0**,而它沒有一條指令可以直接量,
+     因為**沒有任何一支在做這件事** ⇒ 要靠讀。**這一格是「查無」不是「量到 0」。**
+- **修法方向(未定案,排到它時提 plan):** 斷言改查 `pg_auth_members` 的遞移閉包
+  (`WITH RECURSIVE`),而不是只看 `proacl` 的直接 grantee。
+- **相關:** `supabase/migrations/20260819130000_m3_250_anomaly_alert_display_ids.sql` §3
+  (該處註解已明寫「本斷言看不到角色成員閉包」,指回本條)/ codex 對抗審查 R2(2026-08-19)。

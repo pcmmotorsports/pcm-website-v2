@@ -2,7 +2,12 @@
  * @module @pcm/adapters/payment/LineAlertNotifierAdapter — LINE 告警推播(M-3 #250、Q1=A)
  *
  * **🔴 server-only**:持 LINE Messaging API channel access token(敏感、絕不進 client bundle)。
- * 送固定格式**零 PII** 告警訊息到 Sean 的 LINE(userId / groupId)。
+ * 送固定格式告警訊息到 Sean 的 LINE(userId / groupId)。
+ *
+ * 🔴 **訊息【含訂單單號】,不再是零 PII** —— ~~原句「固定格式**零 PII** 告警訊息」~~ 2026-08-19 作廢。
+ *    打開那道閘的是 Sean 本人(理由與代價見 `packages/use-cases/src/check-anomaly-alerts.ts` 檔頭)。
+ * ⚠️ **而這件事對【本檔】特別重要**:`cfg.to` 若指向一個**群組**,單號就進了一個多人房間。
+ *    那顆 env 的實際值 repo 內查不到 ⇒ **上線前要有人去看一眼它指向誰。**
  *
  * 用原生 fetch POST `https://api.line.me/v2/bot/message/push`(零新依賴);非 2xx / transport 失敗 → throw
  * **通用訊息 + status(不含 token)**。use-case 計入 error → cron route 503(壞掉的管道必須可見)。
@@ -46,7 +51,7 @@ export class LineAlertNotifierAdapter implements IAlertNotifier {
       },
       body: JSON.stringify({
         to: this.cfg.to,
-        // 純文字訊息(零 PII、只含計數);subject 併首行。
+        // 純文字訊息(**含訂單單號**,見檔頭);subject 併首行。
         messages: [{ type: 'text', text: `${message.subject}\n\n${message.text}` }],
       }),
     });
