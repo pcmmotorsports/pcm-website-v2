@@ -146,10 +146,34 @@ grep -rIl 'must_change_password' apps/admin/src packages --include='*.ts' --incl
     ⇒ 洞一修掉 —— 🔴 而它【有界，而那個界原本沒寫】（折 R2 nit；W5 與 W6 各自算到同一格）：
      「洞一修掉」只對【片 1 之後簽的票】成立。片 1 之前簽出的 v:1 票沒有 env 欄
      ⇒ 環境檢查對它無效 ⇒ 它在 production 上照樣有效，直到自己過期
-     ✅ 而那個「直到」可量且很短：session.ts:58 逐字 ADMIN_SESSION_MAX_AGE_SEC = 60*60*12
-        ⇒ 殘留窗【最長 12 小時，而且會自己關】，不需要任何人做任何事
-        ⇒ 且片 1 之後 preview 再也簽不出 v:1
-     📌 補這一段會讓【甲】更站得住，而不是更弱 —— 裁的人原本看不到這個界
+     ⛔⛔ ~~而那個「直到」可量且很短：ADMIN_SESSION_MAX_AGE_SEC = 60*60*12~~
+     ⛔ ~~殘留窗【最長 12 小時，而且會自己關】，不需要任何人做任何事~~
+     ⛔ ~~且片 1 之後 preview 再也簽不出 v:1~~
+     ⛔ ~~📌 補這一段會讓【甲】更站得住~~
+
+     🔴🔴 【2026-08-19 R3 撤回:上面整段是錯的。它不是殘留窗,它是【可續杯的】。】
+     發現者 W6(它同時更正了自己 R2 給的同一句);**下列數字 W5 自量,不是轉述**:
+     ```
+     git rev-list --count origin/main..origin/dev            ⇒ 220
+     origin/main tip 84f57eda / origin/dev tip 1aecece1
+     git show origin/main:apps/admin/src/lib/session/session.ts | grep -n "return { v:"
+       ⇒ :112  return { v: 1, … }      ← preview 那顆【現在就在簽 v:1，而且沒有 env 欄】
+     ```
+     **pcm-admin 的 production 分支是 `dev`、preview 來自 `main`**
+     ⇒ preview 跑的是**落後 production 220 顆**的 code
+     ⇒ 片 1 併進 `dev` 之後，**preview 仍持續簽出 v:1、沒有 env 欄**
+     ⇒ 甲之下 v:1 不做環境檢查 ⇒ **收**
+     ⇒ 🔴 **「跨環境的票」不但沒失效，它還在被【持續生產】** ⇒ **甲【沒有做到】Sean 那句話。**
+
+     🔴 **邊界線的診斷(W6 逐字,比我寫得準)**:
+     > 「『在他批准的範圍內選最小實作』這條**邊界線本身沒問題** —— 問題是**甲落在那個範圍外面**。」
+
+     📌 **這一格的教訓(W5 與 W6 各自犯了同一個)**:
+     我們都寫了「**片 1 之後 preview 就…**」而**沒有量 preview 會不會拿到片 1**。
+     🔴 **判別句:我這個算式裡,有哪一個「之後就會…」是我沒量過的?**
+     **上界 / TTL /「會自己過期」這類句子,全部靠一個【未來狀態】,而未來狀態最容易被假設掉。**
+     ⚠️ **射程**:220 是當下值會變;**沒有人去打那顆 preview 證明它真的還在簽 v:1**
+     —— 這是**讀 code + 讀部署 sha 推出來的**,不是量到的。
   🔴 而洞二的前置【沒有達成】（既有票還在）
     ⇒ 漸進切換機制原封不動，8 份 spec 不必改
 乙  照原設計：v:1 無條件拒
@@ -157,7 +181,13 @@ grep -rIl 'must_change_password' apps/admin/src packages --include='*.ts' --incl
     ⇒ 🔴 代價：拆掉那個漸進切換機制，8 份 spec 要重新對齊
 丙  兩段做：先甲（現在），等 B5 時把 v:1 的拒併進開關打開那一刻
     ⇒ 🔴 代價：所有人被登出兩次（正是 §7 一開始要避免的）
-🔴🔴 丁【W6 於 R2 找到，而我原本漏了 —— 而它讓 M2 整條消失】：
+🔴🔴🔴 丁【R3 之後升級:它從「另一個選項」變成【唯一同時滿足兩邊的】】
+    （W6 於 R2 找到、我原本漏了；R3 證實甲做不到之後，它的地位改變）
+    舊 code 的 preview 用 importKey(secret)、新 code 的 production 用 importKey(secret+'|production')
+    ⇒ 簽章對不上 ⇒ 🔴 不論 v:1 還是 v:2 一律死 ⇒ 真的做到「跨環境的票直接失效」
+    ⇒ 而它零 payload 改動 ⇒ B5 的開關機制一個字都不必動 ⇒ 8 份 spec 零改
+    ⇒ **乙做得到但要拆 8 份 spec；丁兩件都做到。**
+    原始描述如下：
     把環境綁進【金鑰推導】，不是綁進 payload。
     session.ts:76-81 getKey() 現行 importKey('raw', encode(secret), …)
     ⇒ 改成 importKey('raw', encode(secret + '|' + env), …)
