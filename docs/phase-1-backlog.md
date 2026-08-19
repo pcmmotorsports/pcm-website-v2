@@ -23465,11 +23465,37 @@ F2 別用動詞白名單猜函式名(updateProduct|create… 換個名字就逃�
   ```
 - **量法(當場跑,不要引用舊數):**
   ```bash
-  grep -rln "SECURITY DEFINER" supabase/migrations/*.sql | wc -l          # 有幾支受控窗
-  grep -rln "has_function_privilege" supabase/migrations/*.sql | wc -l    # 有幾支寫了 ACL 斷言
+  grep -rln "SECURITY DEFINER" supabase/migrations/*.sql | wc -l   # 有幾支受控窗
+  grep -rln "has_function_privilege" supabase/migrations/*.sql | wc -l  # 有幾支寫了直接 ACL 斷言
+  grep -rln "pg_has_role" supabase/migrations/*.sql | wc -l        # 🔴 有幾支【驗了成員閉包】
   ```
-  🔴 兩個數字都**不是**「有幾支驗了成員閉包」——那個數字目前是 **0**,而它沒有一條指令可以直接量,
-     因為**沒有任何一支在做這件事** ⇒ 要靠讀。**這一格是「查無」不是「量到 0」。**
+
+- 🔴🔴 **更正(2026-08-19 當天,由本條作者自己抓到):本條原本寫的那個數字是【錯的】。**
+  ```
+  ~~「有幾支驗了成員閉包 ⇒ 那個數字目前是 0，而它沒有一條指令可以直接量，
+      因為沒有任何一支在做這件事 ⇒ 要靠讀。這一格是【查無】不是【量到 0】。」~~
+  🔴 全部錯：實查 `grep -rln "pg_has_role" supabase/migrations/*.sql` ⇒ **7 支**，
+     其中 `20260819010000_m4a_close_manual_review_attempt.sql:451-461` 就是一道
+     **完整的成員閉包斷言**（遍歷 pg_roles、`pg_has_role(r,'service_role','USAGE')`、不點名）。
+  🔴 而它**有**一條指令可以直接量 —— 就是上面那第三行。
+  ```
+  📌 **這個錯的形狀值得記,因為它偽裝成謹慎**:我沒有量就寫下一個數字,
+     然後用「這一格是**查無**不是**量到 0**」把它包起來 ——
+     **那句話本來是用來降級一個未驗宣稱的,而我拿它替一個【我根本沒查】的宣稱背書。**
+     ⇒ 🔴 **一個誠實用語被用在錯的地方,會讓假的東西看起來比裸寫更可信。**
+  ⇒ **本條【縮小但仍成立】**:缺成員閉包驗證的是**我這一片新增的那一支**
+     (`20260819130000` §3,它只列 `proacl` 直接 grantee),**不是全樹**。
+     ⇒ 真正的工作 = 把那 7 支已有的做法**推廣到沒有的那些**,而不是「從零開始建一套」。
+     ⇒ 🔴 **而那 7 支現成的寫法要先被檢查一次** —— 見下面那條新發現。
+
+- 🔴 **而那個現成寫法自己有一個坑(2026-08-19 實測)**:`pg_has_role` 對**任何 superuser 回 true**
+  (superuser 天生是所有角色的傳遞成員)⇒ 正式庫的 `supabase_admin` 會讓那道斷言**誤紅**。
+  ```
+  實測：本機 CREATE ROLE supabase_admin SUPERUSER NOLOGIN ⇒ 再 apply ⇒ 炸在角色拓樸那道
+  機制：pg_has_role('supabase_admin','service_role','MEMBER') ⇒ true
+  對照組：沒有該角色的庫 ⇒ rc=0
+  ```
+  ⇒ **推廣之前要先解掉這個** —— 否則等於把一個會誤紅的斷言複製到更多支上。
 - **修法方向(未定案,排到它時提 plan):** 斷言改查 `pg_auth_members` 的遞移閉包
   (`WITH RECURSIVE`),而不是只看 `proacl` 的直接 grantee。
 - **相關:** `supabase/migrations/20260819130000_m3_250_anomaly_alert_display_ids.sql` §3
