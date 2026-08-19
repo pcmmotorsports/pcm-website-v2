@@ -194,9 +194,18 @@ describe('#350a 側欄寬度(Sean:窄到跟文字對齊、放大訂單空間)', 
 //    ③那顆鈕在收合狀態下有沒有被別的東西蓋住 ⇒ **這三條只有 Sean 的肉眼驗算數**
 //    (本檔檔頭記過同一個坑:vitest 的 `@` alias 指向 storefront,渲染 `<AppSidebar />` 進不去)。
 describe('#380 側欄收合模式', () => {
-  it('🔴 收合模式 = offcanvas(整條滑走),不是 icon(留一條圖示列)', () => {
-    expect(SOURCE).toContain("<Sidebar collapsible='offcanvas'>");
-    // 負向對照:沒有這一條,把 `icon` 那個字面留在檔案別處(例如註解外的死碼)也不會被發現。
+  // 🔴🔴 **2026-08-20 改寫:守的【行為】沒變,而載體變了。**
+  //    原本這一格釘 `<Sidebar collapsible='offcanvas'>` 這個字面。
+  //    84px 軌那一片之後,本檔已經**不再渲染 shadcn 的 `<Sidebar>`** ⇒ 那個字面消失了。
+  //    ⚠️ **我沒有把期望值改成新字面就算了** —— 這一格守的是 Sean `#380`
+  //    (2026-08-10 正式站肉眼驗,逐字要「整條滑走」不要「收成窄圖示列」),
+  //    而**字面守不到行為**。⇒ 真正的守門搬到 `app-sidebar-rail.test.tsx`,
+  //    那支**用渲染**驗「收合時軌整條不存在(`null`,不是 `w-0` 也不是透明)、而且開得回來」
+  //    —— 那正好補上本檔 `:193-195` 自陳擋不住的那幾格。
+  //    ⇒ 這裡只留一格**便宜的字面哨兵**:別讓那個機制被靜默拿掉。
+  it('🔴 收合 = 整條不渲染(行為守門在 app-sidebar-rail.test.tsx,這裡只是哨兵)', () => {
+    expect(SOURCE).toContain("if (state === 'collapsed') return null;");
+    // 負向對照:舊模式的字面不得復活(復活 = 有人把 shadcn 那條路接回來而沒動這裡)。
     expect(SOURCE).not.toContain("collapsible='icon'");
   });
 

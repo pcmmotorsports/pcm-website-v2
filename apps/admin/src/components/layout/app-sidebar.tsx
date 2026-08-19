@@ -3,18 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icons } from '@/components/icons';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarRail,
-} from '@/components/ui/sidebar';
-import { buildNavItems } from './nav-items';
+import { useSidebar } from '@/components/ui/sidebar';
+import { buildNavItems, PARKED_NAV_ITEM, type NavItem } from './nav-items';
 
 // 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md):砍 Clerk / nav-config 動態導覽 / user dropdown。
 //
@@ -51,88 +41,161 @@ function isNavActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/**
+ * 數字規則 —— **逐字搬定案稿 `admin-sidebar-rail-final.html:414`**:
+ * ```js
+ * const show = v => (v > 99 ? '99+' : (v > 0 ? String(v) : ''));
+ * ```
+ * 🔴 `0` 回空字串**不是省略,是規格**(稿 `:287` 逐字:「0 不是資訊,只有非 0 才是」)。
+ */
+export function formatNavCount(value: number): string {
+  if (value > 99) return '99+';
+  return value > 0 ? String(value) : '';
+}
+
+/**
+ * 84px 圖示軌 —— **定案稿 `admin-sidebar-rail-final.html`(Aug-19 11:20,`<title>` 逐字「定案:圖示軌 + 狀態驅動」)**。
+ * 過程稿 `admin-sidebar-four-directions.html` **不是權威**,只用來理解為什麼選這個。
+ *
+ * ── 🔴 為什麼不再用 shadcn 的 `<Sidebar>`(而 `ui/sidebar.tsx` 一個字沒動)──────────
+ * 稿要的三件(84px 固定軌 / hover ⇒ 236px **覆蓋不推開** / 軌底常駐同步時間)**全部是 CSS**,
+ * 沒有一項需要 shadcn 的 context 或 state ⇒ 本檔只是它的**消費者**,不是它的一部分。
+ * **量到的**(2026-08-20,真 Chromium,獨立 28 行 HTML 模擬 `SidebarProvider` 的 `flex min-h-svh w-full`):
+ * ```
+ * railW 84 / flyoutW 236 / z-index 30
+ * mainLeft   展開前 84、展開後 84   ⇒ 內容沒有被推開
+ * col1Left   展開前 109、展開後 109 ⇒ 表格欄寬不動（稿 :298 的要求）
+ * railIsHovered true（真 :hover，不是 JS 切狀態）；未 hover 時 flyout 不可見（雙向）
+ * ```
+ * ⚠️ **射程**:那是**模擬外殼**,不是真的 `SidebarProvider`。真殼裡的驗證見本片 commit body。
+ *
+ * ── 🔴🔴 `SidebarTrigger` 這一格會【靜默壞掉】,所以它在這裡被處理 ────────────────
+ * 不再渲染 `<Sidebar>` ⇒ header 那顆 `SidebarTrigger` 會變成**按了沒反應的按鈕**,
+ * 而**不會有任何測試紅**(它住在 `layout/header.tsx`,不在本檔)。
+ * ⇒ 本元件讀 `useSidebar()` 的 `state`,`collapsed` 時**整條軌不渲染** ——
+ *   這樣 **Sean `#380`(2026-08-10 正式站肉眼驗,逐字要「整條滑走」不要「收成窄圖示列」)仍然成立**。
+ * 📌 **稿沒有講那顆鈕,而沒講不等於取消**:稿講的是**預設狀態**,`#380` 講的是**按下去之後**。
+ *   兩者是不同狀態 ⇒ 都成立。
+ * ⚠️ `useSidebar` **只 import,不改 `ui/sidebar.tsx`** ⇒ 鐵則 12⑥ 不觸發。
+ */
 export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
   const pathname = usePathname();
+  const { state } = useSidebar();
   const navItems = buildNavItems(auditEnabled);
 
+  // #380:整條滑走。`collapsed` 時連 DOM 都不留 —— 半透明或 `w-0` 都還是「收成一條」。
+  if (state === 'collapsed') return null;
+
   return (
-    // 🔴 #380(Sean 2026-08-10 深夜正式站肉眼驗):收合模式 `icon` → `offcanvas`。
-    //    **那顆鈕從來沒有消失過**(S-010 唯讀診斷:`SidebarTrigger` 在整個 repo 歷史裡只出現於
-    //    後台骨架那一顆 commit、從沒被動過)—— Sean 按得到,只是按下去**收成一條窄圖示列**
-    //    而不是整條收起,所以他讀成「隱藏鈕不見了」。要的是後者 ⇒ 換模式,不是補鈕。
-    //    · `icon`:收合後留 `SIDEBAR_WIDTH_ICON`(3rem)圖示列,內容區只多拿到 6rem;
-    //    · `offcanvas`:gap 收成 `w-0`、面板整條滑出畫面左側(`ui/sidebar.tsx` 的
-    //      `group-data-[collapsible=offcanvas]:w-0` 與 `left-[calc(var(--sidebar-width)*-1)]`)
-    //      ⇒ 內容區拿回整整 9rem。
-    //    ✅ **收起後開得回來**:`SidebarTrigger` 住在 `layout/header.tsx`,而 header 在
-    //      `<SidebarInset>` 內 = 側欄的**兄弟節點**、不在被收起的那棵子樹裡(見 `app/layout.tsx`)
-    //      ⇒ 側欄整條滑走後那顆鈕照樣在。這是本片唯一「改壞了會把員工鎖在收合狀態」的地方,
-    //      守門在 `app-sidebar.test.ts`。
-    <Sidebar collapsible='offcanvas'>
-      <SidebarHeader>
-        <div className='flex items-center gap-2 px-2 py-1.5'>
-          <Icons.logo className='size-5 shrink-0' />
-          {/* `group-data-[collapsible=icon]:hidden` 在 offcanvas 下**永遠不會命中**(整條都滑走了);
-              留著是 icon 模式的回頭路 —— 要拿掉請連同上面那段一起改,別只刪這一個 class。 */}
-          <span className='text-sm font-semibold group-data-[collapsible=icon]:hidden'>
-            PCM 後台
-          </span>
+    <aside
+      data-testid='nav-rail'
+      aria-label='主導覽'
+      className='group bg-sidebar relative w-[84px] shrink-0 border-r'
+    >
+      <div className='flex h-full flex-col'>
+        <div className='flex flex-col items-center gap-1 px-1 py-3'>
+          <Icons.logo className='size-5' />
+          {/* M 三色條:全系統唯一的裝飾元素(OD `overview-desktop-bmw-m.html:83-88`)。 */}
+          <div aria-hidden className='m-stripe mt-2 h-1 w-full' />
         </div>
-        {/* 🔴 **M 三色條**(片2)—— OD `overview-desktop-bmw-m.html:83-88` 把它定為
-            「全系統唯一的裝飾元素,只當分隔與品牌標記」。漸層本體在 `globals.css` 的 `.m-stripe`,
-            那裡寫了為什麼三個色停是硬寫的 hex 而不是 token。
-            ⚠️ **【改】:寬度不照 OD 的 32px。** OD 的 `.rail .mstripe` 是 32 寬,因為它對齊的是
-               一個 32×32 的**純圖示 mark**;我方的品牌列是「圖示 + PCM 後台」一整行
-               ⇒ 條跟著那一行走(`mx-2`),否則會變成一截對不到任何東西的短線。
-               **這是尺寸隨版面走,不是改設計** —— OD 自己也給了兩種尺寸(`:89` 的 4px 高
-               通欄 `hr` 與 `:133` 的 32×4),形狀是同一個。
-            ⚠️ 高度 4px 照抄(`:89` `hr.m-stripe{height:4px}`)。
-            📎 `aria-hidden`:它是裝飾,不該被螢幕閱讀器唸成一個東西。 */}
-        <div aria-hidden className='m-stripe mx-2 h-1' />
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>管理</SidebarGroupLabel>
-          <SidebarMenu>
-            {navItems.map((item) => {
-              // `nav-items.ts` 存的是**字串鍵**不是元件(該檔檔頭:存元件就得 runtime import
-              // `../icons`,那支會把整條 `@tabler/icons-react` 依賴帶進測試 ⇒ resolve 不到)。
-              const ItemIcon = Icons[item.icon];
-              return (
-                <SidebarMenuItem key={item.key}>
-                  {item.href ? (
-                    <SidebarMenuButton
-                      isActive={isNavActive(pathname, item.href)}
-                      tooltip={item.label}
-                      /* 🔴 **選中態改吃 M 藍 + 左側 2px 藍邊**(片2)——
-                         逐字搬 OD `overview-desktop-bmw-m.html:138`
-                         `.rail a[aria-current]{color:var(--accent);border-left-color:var(--accent);
-                          background:var(--surface-warm)}`,以及 `:136` 的
-                         `border-left:2px solid transparent`(未選中時佔位,選中才上色)。
-                         ⚠️ **`border-l-2 border-transparent` 那半是承重的**:少了它,選中時才長出
-                            2px 邊框 ⇒ **整行文字會往右跳 2px**,而那只有在點的當下看得到。
-                         ⚠️ 底色不另外寫 —— shadcn 的 `data-[active=true]:bg-sidebar-accent` 已經是
-                            暖填 `#eef3f8`(片1 對映),與 OD 的 `var(--surface-warm)` 同值。
-                            **重複寫一次不會更對,只會多一個日後會對不上的地方。** */
-                      className='border-l-2 border-transparent data-[active=true]:border-l-primary data-[active=true]:text-primary'
-                      render={<Link href={item.href} />}
-                    >
-                      <ItemIcon />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  ) : (
-                    <SidebarMenuButton isActive={false} tooltip={item.label} aria-disabled>
-                      <ItemIcon />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  )}
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarGroup>
-      </SidebarContent>
-      <SidebarRail />
-    </Sidebar>
+        <nav className='flex-1 overflow-y-auto'>
+          {navItems.map((item) => (
+            <RailCell key={item.key} item={item} pathname={pathname} />
+          ))}
+        </nav>
+        {/*
+          🔴 軌底常駐同步時間 —— **它是量具,不是裝飾**(稿 `:288` 逐字):
+          「留白會跟『資料還沒載入』長得一樣,所以軌底部常駐一行同步時間。
+            看到時間戳,留白就等於『真的沒事』,不是『還沒算完』。」
+          ⚠️ **而現在數字還沒接** ⇒ 這裡**不能印一個時間**(那會讓留白變成一句謊話)。
+             印「未接」是稿留給我們的那個解的**誠實版本**:留白現在**不代表沒事**。
+             接上真資料是另一片(count 查得到查不到由別人盤)。
+        */}
+        <div className='text-muted-foreground border-t px-1 py-2 text-center text-[10px]'>
+          同步
+          <br />
+          未接
+        </div>
+      </div>
+      {/*
+        hover ⇒ 236px 清單**滑出覆蓋內容區,不推開**(稿 `:298`/`:164`)。
+        🔴 `.flyout` 是軌的**子代** ⇒ 滑到清單上仍算 hover 著軌 ⇒ 不會閃爍關掉(量過)。
+      */}
+      <div className='bg-sidebar invisible absolute inset-y-0 left-0 z-30 w-[236px] border-r group-hover:visible'>
+        <div className='flex h-full flex-col'>
+          <div className='flex items-center gap-2 px-4 py-3'>
+            <Icons.logo className='size-5 shrink-0' />
+            <span className='text-sm font-semibold'>PCM 後台</span>
+          </div>
+          <nav className='flex-1 overflow-y-auto px-2'>
+            {navItems.map((item) => (
+              <FlyoutRow key={item.key} item={item} pathname={pathname} />
+            ))}
+          </nav>
+          {/* 「設定」**只在這裡**、灰字＋未啟用(稿 `:357` 逐字「不在軌上出現」)。 */}
+          <div className='border-t px-2 py-2'>
+            <FlyoutRow item={PARKED_NAV_ITEM} pathname={pathname} />
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/** 軌上一格:上排圖示＋數字、下排完整中文(稿 `:283` 標題逐字「84px 的軌,同時放得下…」)。 */
+function RailCell({ item, pathname }: { item: NavItem; pathname: string }) {
+  const ItemIcon = Icons[item.icon];
+  const active = item.href !== undefined && isNavActive(pathname, item.href);
+  const inner = (
+    <>
+      <span className='flex items-center justify-center gap-1'>
+        <ItemIcon className='size-5' />
+        {/* 數字位固定 22px、靠右(稿 `:143`)⇒ 兩位數不擠壓中文,中文永遠置中在自己那一行。 */}
+        <span aria-hidden className='min-w-[22px] text-right text-xs font-bold' />
+      </span>
+      <span className='mt-1 block text-center text-[11px] leading-tight'>{item.label}</span>
+    </>
+  );
+  const cls = `block w-full border-l-2 px-1 py-2 ${
+    active ? 'border-l-primary text-primary bg-sidebar-accent' : 'border-transparent'
+  }`;
+  return item.href === undefined ? (
+    <span className={cls} aria-disabled>
+      {inner}
+    </span>
+  ) : (
+    <Link href={item.href} className={cls} aria-current={active ? 'page' : undefined}>
+      {inner}
+    </Link>
+  );
+}
+
+/** 滑出清單裡的一列:圖示＋完整中文;無 href = 未啟用。 */
+function FlyoutRow({ item, pathname }: { item: NavItem; pathname: string }) {
+  const ItemIcon = Icons[item.icon];
+  const active = item.href !== undefined && isNavActive(pathname, item.href);
+  if (item.href === undefined) {
+    return (
+      <span
+        aria-disabled
+        className='text-muted-foreground flex items-center gap-2 rounded-md px-2 py-2 text-sm'
+      >
+        <ItemIcon className='size-4 shrink-0' />
+        <span>{item.label}</span>
+        <span className='ml-auto text-[10px]'>未啟用</span>
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={item.href}
+      aria-current={active ? 'page' : undefined}
+      className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm ${
+        active ? 'text-primary bg-sidebar-accent' : ''
+      }`}
+    >
+      <ItemIcon className='size-4 shrink-0' />
+      <span>{item.label}</span>
+    </Link>
   );
 }
