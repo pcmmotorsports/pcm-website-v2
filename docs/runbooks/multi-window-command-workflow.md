@@ -484,6 +484,55 @@ context 快滿=先寫 checkpoint 信再停,不硬做「可能驗不完」的東�
 【第一個任務】<填入>
 ```
 
+## §C-2 🔴 **「這個 PID 是哪一個窗?」—— 一發對得出來,而它有一個會騙人的陷阱**(2026-08-19 G2 量)
+
+多窗共機時常見的題:**看到一個孤兒進程 / 一個佔著埠的 server / 一個瀏覽器 profile,想知道是哪個窗的。**
+
+### 規則(量到的,不是推的)
+
+```
+🔴 /tmp/cc-socks/<PID>.sock 的【檔名數字】= 那個窗的 claude 進程 PID
+```
+**怎麼驗出來的**:本窗在同一小時內收到 7 個 peer 的 `SendMessage`,每一封都帶
+`from="uds:/tmp/cc-socks/<N>.sock"` 與 `from-name="<窗名>"`。把那 7 個 `N` 與
+`pgrep -f 'anthropic.claude-code.*/claude'` 的輸出比對 ⇒ **7/7 完全對上**;
+再加本窗自己(從自己 shell 的父鏈量到 `7201`,而 `7201.sock` 也在)⇒ **8/8**。
+
+### 用法(從一個可疑進程,反查它屬於哪個窗)
+
+```bash
+# 1. 從那個進程往上爬 PPID，直到撞到一個 anthropic.claude-code 的進程
+P=<可疑PID>; for i in $(seq 1 8); do ps -o pid,ppid,command -p "$P" | tail -1 | cut -c1-100
+  P=$(ps -o ppid= -p "$P" | tr -d ' '); [ -z "$P" ] || [ "$P" = "1" ] && break; done
+# 2. 那個 claude 進程的 PID，就是 /tmp/cc-socks/<PID>.sock
+# 3. 而【窗名】要靠對方自報 —— socket 檔名只給得出 PID，給不出 `pcm-website-v2-xx`
+#    ⇒ ListAgents 列名字、SendMessage 問一句，兩發就對得出來
+```
+
+### 🔴🔴 而陷阱在這裡:**`/tmp/cc-socks/` 裡的 socket【大部分是死的】**
+
+```
+2026-08-19 09:2x 實測：該目錄 20 個 .sock
+  活著（PID 存在）  8 個   ← 7 個 peer + 我自己
+  🔴 殘留（PID 不存在）12 個
+⇒ **殘留 socket 與活的 socket 在 `ls` 上長得一模一樣**（同權限、同大小 0、只有 mtime 不同）
+```
+⇒ 🔴 **「socket 檔在 ⇒ 那個窗還活著」是【假的】。** 檔案不會隨進程消失。
+> **判別句:我是在問【檔案在不在】,還是【進程在不在】?**
+> ⇒ 要後者就 `ps -p <PID>`,不要 `ls`。
+
+**逐個判活的一行**:
+```bash
+for f in /tmp/cc-socks/*.sock; do p=$(basename "$f" .sock)
+  ps -p "$p" >/dev/null 2>&1 && echo "$p 活著" || echo "$p 殘留"; done
+```
+
+📌 **而【直接問】仍然比反查便宜**:2026-08-19 那次,我對 6 個窗各發一句三行的問話,
+**六個全回,而其中一個直接自報「兩樣都是我的」** —— 總成本遠低於我自己爬進程樹。
+⇒ **反查用在「問了沒人認」或「要獨立驗證某個窗的自報」時。**(那次我兩件都做了:先問,再獨立驗。)
+
+---
+
 ## §D 用到的工具/技能清單
 
 | 工具 | 用途 | 備註 |
