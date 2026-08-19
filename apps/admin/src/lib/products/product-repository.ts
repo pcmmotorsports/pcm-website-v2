@@ -416,7 +416,12 @@ export async function getProductTaxonomyNames(
  * ⚠️ **天花板(R1 nit-6,刻意不修)**:這兩發都**沒有分頁,也沒有截斷偵測** ——
  *    而同一頁為了 `db-max-rows`(Dashboard 點一下就變小、變小當天不會有東西紅)
  *    特地做了 `detectPageTruncation`(`lib/shared/list-params.ts`)。
- *    今天的量:分類 107 列、品牌 16 列(正式庫;本機量到 107 / 23)—— 離預設上限 1000 很遠
+ *    今天的量:分類 107 列、品牌 **24** 列(正式庫 / 2026-08-19 / 角色 postgres,W2 量;本機量到 107 / 23)
+ *      ~~品牌 16 列~~ ⇒ 🔴 **那個 16 從一開始就不是這一發回的數字**:它是拿 `products` 數出來的
+ *      「有商品的品牌數」,而 `from('brands').select(...)` 回的是**整張表**。
+ *      ⇒ 這不是「數字過期了」,是**推導方式錯了** —— 改數字不會修好它,要改的是「數哪一張表」。
+ *      (而那個 16 正好是本片之後下拉會剩的數量級,所以它讀起來一直很合理。)
+ *      —— 離預設上限 1000 很遠
  *    ⇒ **潛在、非現行**,而它壞掉時是**下拉少了幾個選項,完全安靜**。
  *    判別線:**這兩張表任一逼近數百列時回來加一發 `count` 對照**,不是「以後有空再說」。
  */
@@ -424,6 +429,8 @@ export interface ProductFilterOptions {
   readonly brands: readonly BrandOptionRow[];
   readonly categories: readonly CategoryOptionRow[];
   readonly categoryIdsWithProducts: ReadonlySet<string>;
+  /** 同 `categoryIdsWithProducts`,但對品牌(`MAIN-063` D)。 */
+  readonly brandIdsWithProducts: ReadonlySet<string>;
 }
 
 /** 內嵌聚合的 wire shape —— **`products` 是陣列包一個 `{count}`**(2026-08-19 實跑量到,見上)。 */
@@ -431,10 +438,37 @@ type CategoryOptionWireRow = CategoryOptionRow & {
   readonly products: readonly { readonly count: number }[] | null;
 };
 
+/**
+ * 品牌側的同一個形狀。
+ *
+ * 🔴 **量到的是它的【鄰居】,不是它本身。** 兩個證據,關係不同、方向一致:
+ *      · `categories` → `products`         既有實測(本檔上方那段,2026-08-19)
+ *      · `brands`     → `products_public`   2026-08-19 W2 於正式庫 PostgREST 實打,逐字回:
+ *          有商品 `[{"count": 1146}]` / **零商品 `[{"count": 0}]`** ← 不是 `[]`、不是 `null`
+ *    ⇒ 一對多內嵌聚合在**本專案的正式 PostgREST** 上,零子列回的是 `[{"count":0}]`
+ *      —— ⚠️ **(兩個鄰居皆如此;本條未量)**。這句是從兩個鄰居**推廣**出來的一般命題,
+ *      而上一版把它寫成了斷言語氣(W6 `W6-051` F3 nit)。
+ * ⚠️ **而 `brands` → `products` 這一條【本身】沒有人量過。** W2 打的是 `products_public`,
+ *    因為 `products` 表 anon 讀不到(他實打回 `401 / 42501 permission denied`;
+ *    🔴 那個 `GRANT SELECT ON public.products TO anon` **不要去做**,它現在擋著是對的)。
+ *    這條路要 `service_role` ⇒ 只有 admin 這條路徑打得到。
+ * 📌 要把它升級成「量到」,最便宜的做法是在**這一發**把原始回應 log 出來看一次。
+ * ✅ 而 `countOf()` 對三種回法(`[{count:N}]` / `[]` / `null`)**落到同一個結論**
+ *    ⇒ 就算鄰居推錯了,行為仍是「這個品牌不進下拉」,不會靜默放行。
+ */
+type BrandOptionWireRow = BrandOptionRow & {
+  readonly products: readonly { readonly count: number }[] | null;
+};
+
+/** 內嵌聚合那一格 → 件數。三種回法(`[{count:N}]` / `[]` / `null`)收到同一個結論。 */
+function countOf(row: { readonly products: readonly { readonly count: number }[] | null }): number {
+  return row.products?.[0]?.count ?? 0;
+}
+
 export async function listProductFilterOptions(): Promise<ProductFilterOptions> {
   const supabase = createSupabaseServiceClient();
   const [brands, categories] = await Promise.all([
-    supabase.from('brands').select('id, name'),
+    supabase.from('brands').select('id, name, products(count)'),
     supabase
       .from('categories')
       .select('id, name, raw_path, parent_category_id, sort_order, products(count)'),
@@ -448,13 +482,20 @@ export async function listProductFilterOptions(): Promise<ProductFilterOptions> 
   for (const row of rows) {
     // 🔴 `?? 0` 不是防禦性寫法:實跑量到沒商品時回的是 `[{count: 0}]`,
     //    而「查無列」與「count 為 0」在這裡要落到**同一個結論**(這個分類不進下拉)。
-    if ((row.products?.[0]?.count ?? 0) > 0) idsWithProducts.add(row.id);
+    if (countOf(row) > 0) idsWithProducts.add(row.id);
+  }
+
+  const brandRows = (brands.data ?? []) as unknown as BrandOptionWireRow[];
+  const brandIdsWithProducts = new Set<string>();
+  for (const row of brandRows) {
+    if (countOf(row) > 0) brandIdsWithProducts.add(row.id);
   }
 
   return {
-    brands: (brands.data ?? []) as BrandOptionRow[],
+    brands: brandRows,
     categories: rows,
     categoryIdsWithProducts: idsWithProducts,
+    brandIdsWithProducts,
   };
 }
 

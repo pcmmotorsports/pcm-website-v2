@@ -115,14 +115,34 @@ describe('resolveCategoryIds', () => {
 });
 
 describe('buildBrandOptions', () => {
+  const ROWS = [
+    { id: '2', name: 'Rizoma' },
+    { id: '1', name: 'Akrapovic' },
+    { id: '3', name: 'Brembo' },
+  ];
+  /** 只有 Rizoma 與 Akrapovic 有商品;Brembo 是零商品的那一個。 */
+  const WITH_PRODUCTS = new Set(['1', '2']);
+
   it('依名稱排,且不動到傳進來的陣列', () => {
-    const rows = [
-      { id: '2', name: 'Rizoma' },
-      { id: '1', name: 'Akrapovic' },
-    ];
-    const sorted = buildBrandOptions(rows);
+    const sorted = buildBrandOptions(ROWS, WITH_PRODUCTS);
 
     expect(sorted.map((b) => b.name)).toEqual(['Akrapovic', 'Rizoma']);
-    expect(rows[0]?.name).toBe('Rizoma');
+    expect(ROWS[0]?.name).toBe('Rizoma');
+  });
+
+  it('🔴 零商品的品牌不進下拉(MAIN-063 D:「多了很多沒有的品牌」)', () => {
+    expect(buildBrandOptions(ROWS, WITH_PRODUCTS).map((b) => b.id)).not.toContain('3');
+    // 負對照:同一份 rows、把它算成有商品 ⇒ 它就該出現。
+    // 沒有這一格,「永遠濾掉第三個」也會綠。
+    expect(buildBrandOptions(ROWS, new Set(['1', '2', '3'])).map((b) => b.id)).toContain('3');
+  });
+
+  it('🔴🔴 但【選中的那個】一律留著,即使它零商品 —— 否則畫面說「全部品牌」而查詢在篩它', () => {
+    const withSelected = buildBrandOptions(ROWS, WITH_PRODUCTS, '3');
+    expect(withSelected.map((b) => b.name)).toEqual(['Akrapovic', 'Brembo', 'Rizoma']);
+
+    // 🔴 選中一個**有**商品的品牌時,不得把零商品那個一起放進來
+    //    (`||` 若寫成 `&&` 或條件寫反,上面那格仍會綠 —— 這格才分得出來)。
+    expect(buildBrandOptions(ROWS, WITH_PRODUCTS, '1').map((b) => b.id)).not.toContain('3');
   });
 });
