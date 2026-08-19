@@ -1,7 +1,7 @@
 import 'server-only';
 import { cookies, headers } from 'next/headers';
 // 相對 import(非 @/):#606 前的歷史遺留,見 session/actor.ts 註解(#612 更新:#606 起可用 @/,既有不回改)。
-import { ADMIN_SESS_COOKIE, verifySession } from './session';
+import { ADMIN_SESS_COOKIE, consumeAlarmSlot, verifySessionDetailed } from './session';
 import { getSessionActor } from './actor';
 import { isAllowedOrigin } from '../orders/workflow-form';
 
@@ -26,8 +26,16 @@ export async function authorizeAdminMutation(): Promise<{
   actorId: string;
 } | null> {
   const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
-  const session = await verifySession(cookieStore.get(ADMIN_SESS_COOKIE)?.value);
-  if (!session) return null;
+  const verified = await verifySessionDetailed(cookieStore.get(ADMIN_SESS_COOKIE)?.value);
+  if (!verified.ok) {
+    // 🔴 同 proxy.ts:只記分類、不記內容、不影響回傳(照舊 null),而【只記 no_key】。
+    //    規則與 proxy 一致比較不會有人只改一邊。
+    if (consumeAlarmSlot(verified.reason)) {
+      console.warn(JSON.stringify({ evt: 'admin.session.reject', at: 'authorize', reason: verified.reason }));
+    }
+    return null;
+  }
+  const session = verified.payload;
   if (!isAllowedOrigin(headerStore.get('origin'), { devBypass: DEV_BYPASS })) return null;
   const actor = await getSessionActor();
   if (!actor) return null;

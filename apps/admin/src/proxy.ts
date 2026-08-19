@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { generateRequestId, REQUEST_ID_HEADER } from '@/lib/request-id';
-import { ADMIN_SESS_COOKIE, resolveEnvTag, verifySession } from '@/lib/session/session';
+import { ADMIN_SESS_COOKIE, consumeAlarmSlot, verifySessionDetailed } from '@/lib/session/session';
 
 // M-4a M0-S2 correlation id 貫穿(PRD §6.7)+ M0-S3 SSO 登入閘。Next 16 約定:proxy.ts(舊 middleware.ts)。
 // 每個 admin 請求 server 端**一律新產** x-request-id,讓 handler→audit→DB→外部服務 log 跨層追蹤。
@@ -37,20 +37,28 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   // 登入閘:預設擋(未登入導 /start);只有顯式 dev bypass 才放行。SSO 入口放行、matcher 已排除靜態資源。
   if (!DEV_AUTH_BYPASS && !SSO_OPEN_PATHS.has(pathname)) {
-    const session = await verifySession(request.cookies.get(ADMIN_SESS_COOKIE)?.value);
-    if (!session) {
+    const verified = await verifySessionDetailed(request.cookies.get(ADMIN_SESS_COOKIE)?.value);
+    if (!verified.ok) {
+      // 🔴 **綁環境之後,這裡是唯一的早期警報。**
+      //    若 production 讀不到 VERCEL_ENV ⇒ 金鑰簽不出來 ⇒ 每個人都被導去 /start,
+      //    而在此之前 verifySession 的【每一種】拒絕都完全靜默 ⇒ 症狀 = 全員登不進去 + 零 log。
+      // 🔴 **只記 `no_key`**(codex 關卡2 M3):未認證的人送一顆壞 cookie 就能無限觸發這一行
+      //    ⇒ 逐次記會放大 log 量,而**真警報會被自己的噪音淹掉** = 這道警報在最需要它的那天失效。
+      //    · `absent` 是【每個未登入請求的正常狀態】,一律不記
+      // 🔴 而【只挑 no_* 還不夠】(codex 關卡2 M2):那一類發生時整站都在失敗,
+      //    ⇒ 每個匿名請求都會走到這裡 ⇒ 逐次記會把真訊號淹掉。`consumeAlarmSlot` 做有界去重。
+      //    · `sig_invalid` 有一個結構性的永久噪音底(preview 用舊 code 簽的票),見 session.ts 該 reason 的註解
+      // 🔴 分類【只進 log,不進回應】—— 下面那段對五種 reason 完全一樣。
+      //    分開回應 = 告訴偽造者「你的簽章對了,只是過期」。
+      if (consumeAlarmSlot(verified.reason)) {
+        console.warn(JSON.stringify({ evt: 'admin.session.reject', reason: verified.reason }));
+      }
       // 帶原 pathname 進 next,登入後回原頁(start 端 safeReturnTo 會再驗)。
       const startUrl = new URL('/api/sso/start', request.url);
       startUrl.searchParams.set('next', pathname);
       const redirect = NextResponse.redirect(startUrl, 303);
       redirect.headers.set(REQUEST_ID_HEADER, requestId);
       redirect.headers.set('Cache-Control', 'no-store');
-      // 🔴🔴 【片 0b · 臨時量測,下一片刪掉】——「票綁環境」要跑在【這個 runtime】,
-      //    而【沒有人量過這個 runtime 讀不讀得到 VERCEL_ENV】(session.ts:4 自陳未證實)。
-      //    量錯的代價是全員鎖死 + 無限迴圈 ⇒ 先量再接。
-      //    ⇒ 放在【未登入就看得到】的 303 上是刻意的:量測的人不必有後台帳號。
-      //    ⚠️ 它只吐環境名(production/preview/local/absent),不含任何 secret 或使用者資料。
-      redirect.headers.set('x-pcm-env-tag', resolveEnvTag() ?? 'absent');
       return redirect;
     }
   }
@@ -62,8 +70,6 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   // 也回在 response,方便前端 / 值班回報時對照同一 id。
   response.headers.set(REQUEST_ID_HEADER, requestId);
-  // 片 0b 臨時量測(同上,下一片刪掉)。已登入那條路也放,兩條路都要量得到。
-  response.headers.set('x-pcm-env-tag', resolveEnvTag() ?? 'absent');
   return response;
 }
 

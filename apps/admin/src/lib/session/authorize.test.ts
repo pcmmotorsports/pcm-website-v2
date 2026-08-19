@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // mock next/headers cookies()+headers():就地 vi.mock + vi.hoisted(對齊 actor.test.ts 慣例)。
-const { cookieGet, headerGet, verifySession, getSessionActor, isAllowedOrigin } = vi.hoisted(() => ({
+const { cookieGet, headerGet, verifySessionDetailed, getSessionActor, isAllowedOrigin } = vi.hoisted(() => ({
   cookieGet: vi.fn(),
   headerGet: vi.fn(),
-  verifySession: vi.fn(),
+  verifySessionDetailed: vi.fn(),
   getSessionActor: vi.fn(),
   isAllowedOrigin: vi.fn(),
 }));
@@ -14,7 +14,14 @@ vi.mock('next/headers', () => ({
   cookies: async () => ({ get: cookieGet }),
   headers: async () => ({ get: headerGet }),
 }));
-vi.mock('./session', () => ({ ADMIN_SESS_COOKIE: 'sess', verifySession }));
+// 🔴 `consumeAlarmSlot` 也要 mock:它是【有副作用】的(記下時間),真的跑進來會讓
+//    這幾格互相污染 —— 而症狀是「單獨跑綠、整批跑紅」。回 false = 本檔不驗告警,
+//    告警由 env-binding.test.ts 那一組專門釘。
+vi.mock('./session', () => ({
+  ADMIN_SESS_COOKIE: 'sess',
+  verifySessionDetailed,
+  consumeAlarmSlot: () => false,
+}));
 vi.mock('./actor', () => ({ getSessionActor }));
 vi.mock('../orders/workflow-form', () => ({ isAllowedOrigin }));
 
@@ -31,7 +38,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   cookieGet.mockReturnValue({ value: 'token' });
   headerGet.mockReturnValue('https://admin.example');
-  verifySession.mockResolvedValue(okSession);
+  // 🔴 2026-08-19 片 1:呼叫端改用 verifySessionDetailed ⇒ 回傳形狀從 payload|null
+  //    變成 { ok, payload } | { ok:false, reason }。**斷言的意圖一字未改**,只跟著改形狀。
+  verifySessionDetailed.mockResolvedValue({ ok: true, payload: okSession });
   isAllowedOrigin.mockReturnValue(true);
   getSessionActor.mockResolvedValue({ id: 'sean', label: 'Sean' });
 });
@@ -45,10 +54,10 @@ describe('authorizeAdminMutation — 三層閘任一失敗都必須 fail-closed'
   //    **不驗閘去讀的是哪一顆 cookie、哪一個 header**。
   //    ⇒ 有人把 `cookies().get('sess')` 改成讀別的名字、或把 Origin 檢查餵成 Referer,
   //      這裡與 action 那邊會**各自全綠,而中間那段契約沒有人在守**。
-  it('🔴 要讀的是 admin session cookie,而且把它的值交給 verifySession', async () => {
+  it('🔴 要讀的是 admin session cookie,而且把它的值交給驗證函式', async () => {
     await authorizeAdminMutation();
     expect(cookieGet, '沒去讀 cookie').toHaveBeenCalledWith('sess');
-    expect(verifySession, '讀到的 cookie 值沒交給 verifySession ⇒ 中間掉了一段').toHaveBeenCalledWith('token');
+    expect(verifySessionDetailed, '讀到的 cookie 值沒交給驗證函式 ⇒ 中間掉了一段').toHaveBeenCalledWith('token');
   });
 
   it('🔴 Origin 檢查吃的是 origin header,而且真的把它交給 isAllowedOrigin', async () => {
@@ -62,16 +71,16 @@ describe('authorizeAdminMutation — 三層閘任一失敗都必須 fail-closed'
     );
   });
 
-  it('🔴 cookie 完全不存在時,交給 verifySession 的是 undefined(不是空字串或別的東西)', async () => {
-    // ⚠️ 這格**不能**斷言「回 null」—— `verifySession` 在本檔是 mock,它無條件回成功,
+  it('🔴 cookie 完全不存在時,交給驗證函式的是 undefined(不是空字串或別的東西)', async () => {
+    // ⚠️ 這格**不能**斷言「回 null」—— `verifySessionDetailed` 在本檔是 mock,它無條件回成功,
     //    所以那樣寫等於在測 mock。本格守的是**契約**:沒有 cookie 時傳下去的值長什麼樣。
     cookieGet.mockReturnValue(undefined);
     await authorizeAdminMutation();
-    expect(verifySession, '沒 cookie 時傳了別的東西下去 ⇒ 真的 verifySession 可能誤判成有票').toHaveBeenCalledWith(undefined);
+    expect(verifySessionDetailed, '沒 cookie 時傳了別的東西下去 ⇒ 真的驗證函式可能誤判成有票').toHaveBeenCalledWith(undefined);
   });
 
   it('should return null when the admin session cookie fails verification', async () => {
-    verifySession.mockResolvedValue(null);
+    verifySessionDetailed.mockResolvedValue({ ok: false, reason: 'sig_invalid' });
     await expect(authorizeAdminMutation()).resolves.toBeNull();
   });
 
@@ -89,7 +98,7 @@ describe('authorizeAdminMutation — 三層閘任一失敗都必須 fail-closed'
 
   it('should not consult the actor gate when the session gate already failed', async () => {
     // 順序守門:session 無效時不該再去打 DB 查 actor(省一次查詢,也避免無謂的 server log)。
-    verifySession.mockResolvedValue(null);
+    verifySessionDetailed.mockResolvedValue({ ok: false, reason: 'sig_invalid' });
     await authorizeAdminMutation();
     expect(getSessionActor).not.toHaveBeenCalled();
   });

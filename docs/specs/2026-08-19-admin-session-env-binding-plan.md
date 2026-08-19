@@ -133,6 +133,65 @@ grep -rIl 'must_change_password' apps/admin/src packages --include='*.ts' --incl
        ⇒ 它順手填掉我目前唯一那格「未量到」：**沒有人打過那顆 preview 證明它真的還在簽 v:1**
           （現在那句是讀 code + 讀部署 sha 推的，不是量到的）
   · 片型：不改 session / payload / validator ⇒ 🔴 不中鐵則 12②，標準片即可
+
+  ### ✅ 2026-08-19 片 0 已寫完(未部署)—— 而它比原設計【小很多】
+
+  ```
+  檔案  apps/admin/src/app/diag/env/page.tsx（+ page.test.tsx）
+  形狀  production 單頁、gated（走 proxy.ts:39 的登入閘）⇒ 零 auth 改動
+  內容  大字白話三格：這台機器讀到的 VERCEL_ENV / 它實際簽出的 v / NODE_ENV（正向對照欄）
+  🔴 讀不到時印顯式哨兵 `__讀不到__`，不是空白 —— 「空白」與「頁面沒渲染」要分得開
+  🔴 v 那格呼叫 buildAdminSession() 讀回傳值 ⇒ 是【這份 code 實際會簽的】，不是我寫死的常數
+  ```
+
+  ### 🔴 preview 那半【不做】,而理由寫在這裡(不要只是消失)
+
+  ```
+  ① 「preview 還在簽 v:1」⇒ 已用【零部署】的方式量到，不需要探針：
+     vercel api /v6/deployments ⇒ 活著的 preview（branch=main, target=None）
+       = dpl_2WKZwj6qCH2vnb17vbyV, sha = 84f57eda
+     而 git rev-parse --short origin/main ⇒ 84f57eda（逐字相同）
+     git show 84f57eda:apps/admin/src/lib/session/session.ts | grep "return { v:" ⇒ :112 v: 1
+     🔴 對照 1（弱）：production 那顆 sha 也是 v:1 ⇒ 它證的是「尺會讀到不同 sha」，
+        不是「會印不同答案」—— 因為今天兩邊本來就都是 v:1。【弱的這一發也留著】，
+        留著並標明它弱在哪，下一個人才知道這一格還有一個沒被覆蓋的方向
+     🔴 對照 2（強）：git show deadbeef:… ⇒ fatal ⇒ 「讀不到」與「讀到 v:1」分得開
+     殘餘假設：build 忠實編譯了那份源碼 —— 而那是【每一次部署都在依賴】的同一個假設，
+       不是這一格特有的弱點
+  ② 「preview 讀到什麼」⇒ 不承重：只要 production 讀到一個【非空】值，
+     金鑰材料就已經不同 ⇒ 閘有效。閘失效唯一的世界是【兩邊讀到完全相同的字串】
+     ⚠️ 而那句仍是「我想不出它怎麼發生」，不是「我證明它不會」—— 照實標，不升級
+     ✅ 而丁的 fail-closed 方向已覆蓋那個殘餘（讀不到 ⇒ 不簽）⇒ 它不成立時也不會變成放行
+  ③ 要在 preview 上做，唯一的路是【放寬登入閘】(SSO_OPEN_PATHS 或 matcher)
+     🔴 主視窗否掉，理由兩條：
+       · 用一個 12② 改動去省一個 12② 改動的風險，帳不一定划算
+       · 🔴 那條免閘路徑會【活得比探針久】—— 片 1 刪掉診斷頁時，那一行在【別的檔、別的 diff】裡，
+         很容易被留下 ⇒ 一個為了探針而開的洞，會在探針消失之後繼續存在，而沒有東西會紅
+  ```
+
+  ### ✅ 而片 0 剩下要回答的,現在【只有一件】
+
+  ```
+  🔴 production 的 runtime 到底讀不讀得到 VERCEL_ENV（以及讀到什麼字）
+  而連這一件都已經有兩個獨立旁證指向「讀得到」：
+    ① 這支探針【自己的編譯產物】：grep "process\.env\.VERCEL_ENV" apps/admin/.next/server
+       ⇒ 4 個檔仍是 runtime 讀（沒有被烤成字面）
+       🔴 負向對照：grep 一個我沒寫過的變數名 ⇒ 0 檔 ⇒ 尺不是對什麼都命中
+       📌 這比先前那一發強：先前是拿 ADMIN_SESSION_SECRET 推「server 端一般是 runtime 讀」，
+          這一發是【要部署的那份 code 本身】
+    ② vercel api /v9/projects/<pcm-admin> ⇒ autoExposeSystemEnvs = true
+  ⚠️ 兩者都【沒有碰到一個正在跑的部署】⇒ 仍是推論。片 0 就是把它變成觀察。
+  ```
+
+  ### 🔴 退場的【機制】(不靠註解)
+
+  ```
+  ① 片 1（丁）那一顆 commit 必須同時刪掉 page.tsx 與 page.test.tsx
+  ② 機械訊號（一半）：test 檔 import 了 page ⇒ 只刪 page 不刪 test ⇒ 【測試紅】
+  ③ 另一半靠驗收格：片 1 收工前跑
+       test -e apps/admin/src/app/diag/env/page.tsx   ⇒ 必須為【假】
+     ⚠️ 誠實界線：② 擋不住反方向（只刪 test 留著 page 不會紅）⇒ ③ 要有人跑
+  ```
     ⚠️ 而它仍要 Sean 點頭才部署（部署是他的動作）
 片 1 · 綁定（本 plan 其餘部分）
   · 🔴 前置：片 0 的答案。在它回來之前【不落 fail-closed】
@@ -882,6 +941,45 @@ R6 結構層               整張驗收表是為【被取代的設計】寫的
 ---
 
 ## §8 Rollback
+
+> # 🔴🔴 **第一行:rollback 這一片,【不只是 revert 那一行 code】。**
+>
+> **revert `getKey()` 的金鑰材料 ⇒ 那把鑰匙變回 `encode(secret)`**
+> ⇒ **preview 簽的票對 production 又驗得過了** —— 而不只是「保護消失」:
+> **那些【在丁上線之前於 preview 簽出、還沒過期的票】會【復活】。**
+>
+> ```
+> 復活的窗口有上界，而它可量：
+>   ADMIN_SESSION_MAX_AGE_SEC = 60 * 60 * 12   （session.ts:58，我當場讀的）
+>   ⇒ 最長 12 小時，之後那些票自己過期
+> ```
+> **⇒ 硬約束:rollback 的同一個動作裡,必須【同時換 `ADMIN_SESSION_SECRET`】** ——
+> 換掉它,**所有票(新的舊的、production 的 preview 的)一次全死**,復活這件事就不存在。
+>
+> ### 🔴 而「什麼東西在執行這條約束」—— **誠實答案:目前【只有紙上約束】**
+> ```
+> 有的：· 本行（plan §8 第一行）
+>       · 🔴 而更好的落點是 session.ts 的 getKey() 檔頭 —— 因為【要 rollback 的人會打開那支檔】
+>         ⇒ 片 1 落地時，那句話要寫在【被 revert 的那幾行的正上方】
+> 沒有的：任何機制。git revert 不會問你有沒有換 secret，而換 secret 是 Vercel 上的動作
+>        ⇒ 🔴 兩件事在【不同的系統】上，沒有東西能把它們綁在一起
+> ⚠️ 而半夜出事、有人急著 rollback 的那一刻，正是最不會去讀 plan 的時刻
+>    ⇒ 這一格【我沒有解】。寫成「目前只有紙上約束」，不假裝它被守住了
+> ```
+>
+> ### 🔴 而「沒有機制」這句要修準一格 —— **它其實有【半個】**(W6 2026-08-19,片 1 落地後成立)
+> ```
+> 🔴 沒有機制的是【換 secret】—— 那是 Vercel 上的操作，repo 管不到
+> ✅ 而【悄悄 revert】是有的：env-binding.test.ts 有 3 格直接釘住「金鑰材料含 env」
+>    ⇒ 有人 revert getKey ⇒ 測試紅 ⇒ 他【必須動測試才過得去】
+>    ⇒ 而那一刻，正是他會打開 session.ts、讀到 getKey 檔頭那句話的時刻
+> ⇒ ⇒ 精確講法：**「換 secret」沒有機制；「悄悄 revert」有。**
+> ```
+> 📌 **這個修正讓這一段從「我們沒辦法」變成「我們擋得住其中一半,另一半靠紙」**
+> —— **而那兩件事的優先序完全不同。**
+>
+> 📌 **而這條的形狀值得記住**:**一個保護在它最需要的那一刻自己消失。**
+> 今天這批 finding 裡,這是最壞的一種。
 
 ```
 · 本片零 migration、零 DB 改動 ⇒ 可以 git revert
