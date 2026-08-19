@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import {
+  BRAND_PARAM,
+  CATEGORY_PARAM,
   DEFAULT_PAGE_SIZE,
   KEYWORD_PARAM,
   SET_BY_PARAM,
@@ -76,6 +78,17 @@ export function ProductKeywordSearch({
             (改版前是分頁連結漏帶 `set_by`,見 `lib/products/product-list-view.ts` 檔頭)。 */}
         {filter.setBy !== undefined && (
           <input type='hidden' name={SET_BY_PARAM} value={filter.setBy} />
+        )}
+
+        {/* 🔴 2026-08-19 篩選片新增的兩軸,同一條理由:少了它們,員工選好品牌再搜尋,
+            品牌篩選會消失 —— 而搜尋結果真的變了,所以看起來像「搜尋生效了」。
+            📌 分類只送 `CATEGORY_PARAM`:`filter.categoryPath` 是解析後的單一真相
+            (大類或子類的 `raw_path` 都寫在這個 param,見 `SUBCATEGORY_PARAM` 檔頭)。 */}
+        {filter.brandId !== undefined && (
+          <input type='hidden' name={BRAND_PARAM} value={filter.brandId} />
+        )}
+        {filter.categoryPath !== undefined && (
+          <input type='hidden' name={CATEGORY_PARAM} value={filter.categoryPath} />
         )}
 
         <button

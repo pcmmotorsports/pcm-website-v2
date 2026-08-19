@@ -211,9 +211,25 @@ apps/admin/src/components/products/product-filter-chips.tsx:11-19 檔頭逐字�
 ✅ ① 填充率 —— 已量(§0),100% 零 NULL
 ✅ ② 分類層數 —— 已量(§0),2 層
 ✅ ③ 品牌基數 —— 已量(§0),16 個 ⇒ 下拉即可
-⏳ ④ G3 分頁片的收工 HEAD —— **仍在等**,本片從那裡起手
-⏳ ⑤ 🔴 **「有商品的分類」怎麼查、以及它多慢** —— 未量。
-   候選:PostgREST 嵌入式聚合 `categories?select=…,products(count)` 一發解決,
-   **而 repo 內零先例**(`git grep '(count)'` 只撈到 `count: 'exact', head: true` 那種)
-   ⇒ 🔴 **那是「我以為它支援」,不是量到的** ⇒ 接線前要實跑一次才算數
+✅ ④ G3 分頁片的收工 HEAD —— **已收**:`e085d71b`(分頁本體)+ `cc7e4316`(R1 findings 折完),
+   兩顆皆 `git merge-base --is-ancestor … dev` 可達。本片從 `dev` 起手。
+✅ ⑤ 🔴 **「有商品的分類」怎麼查** —— **2026-08-19 實跑量到了,不再是「我以為它支援」**。
+   ~~未量。而 repo 內零先例 ⇒ 接線前要實跑一次才算數~~
+   量法(照 `docs/runbooks/local-admin-with-real-data-probe.md`,可重跑):
+   拋棄式 PG + **真 PostgREST 14.16**,套 repo 全部 migration(`ok=174 / fail=13`,
+   而 `products` / `brands` / `categories` 三張表全在;**分類是 migration 自己種的真資料,
+   107 個、29 大類 / 78 子類 / 最深 2 層 —— 與正式庫同數**),自種 503 件商品。
+   ```
+   GET /categories?select=id,products(count)          ⇒ HTTP 200
+   回傳形狀  {"id":"…","products":[{"count":12}]}      ← 陣列包一個物件
+   沒商品的  {"id":"…","products":[{"count":0}]}       ← 是 0,不是缺欄位、不是 null
+   正向對照  REST 算出「有商品的分類」 = 41
+   真值對照  SQL count(distinct category_id)    = 41   ✅ 相等
+   ```
+   ⇒ 落地 = `product-repository.ts` 的 `listProductFilterOptions()`(**兩發查詢,不是三發**)。
+   ⚠️ **效度限定(照 runbook §5 不放寬)**:量的是**本機**的 PostgREST 版本與**本機**種的資料,
+      **不是正式站**。它證得了「這個查詢寫法回什麼形狀」,**證不了正式站的效能**。
+⏳ ⑤-b 🔴 **它多慢 —— 仍然未量**(原 ⑤ 的後半,不隨前半一起關掉)。
+   本機是空庫、單機、無網路延遲 ⇒ 這條鏈天生量不到效能(runbook §0 逐字)。
+   ⇒ 判準照 §0-d 原文不變:**若量出來慢 ⇒ 回報,不自己加快取**(快取是另一片、另一個失效面)。
 ```

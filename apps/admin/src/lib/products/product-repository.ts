@@ -1,6 +1,7 @@
 import 'server-only';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import type { ProductMediaRow } from './product-media';
+import type { BrandOptionRow, CategoryOptionRow } from './product-taxonomy-options';
 
 // M-4b #20 片1a:後台商品列表讀模型。plan = docs/specs/2026-08-14-products-admin-slice1a-plan.md。
 //
@@ -48,12 +49,51 @@ export interface AdminProductRow {
   readonly source_missing_at: string | null;
 }
 
+
+
+/**
+ * 列表一列 = 基底欄位 **+ 兩個內嵌 to-one 關聯**。
+ *
+ * 🔴 **為什麼另立一個型別而不是加進 `AdminProductRow`**:`AdminProductDetailRow extends
+ *    AdminProductRow` —— 加進基底型別會**連帶要求詳情頁也撈這兩欄**,而詳情頁走的是
+ *    `getProductTaxonomyNames` 那條(兩發獨立查詢,理由見檔頭,一個字沒改)。
+ *    ⇒ `tsc` 當場把這件事指出來了(`product-repository.ts` 的 `getProductForAdmin` 回傳型別不合)
+ *      —— 那不是型別噪音,是它在說「你把列表的形狀強加給詳情頁了」。
+ */
+export interface AdminProductListRow extends AdminProductRow {
+  /**
+   * PostgREST **內嵌 to-one 關聯**的品牌名(`brands(name)`)。
+   *
+   * 🔴 **檔頭那條「品牌/分類用另外兩支查詢、不用內嵌關聯」的理由已經【失效】,而它失效得有憑據**:
+   *    那條逐字寫著「內嵌關聯的實際回傳形狀**我沒有正式庫可實跑**(plan §4 R2)」——
+   *    ⇒ 它擋的是**未知**,不是內嵌本身。2026-08-19 已對**真 PostgREST 14.16 + 真 migration
+   *    種下的 107 個分類**實跑,形狀量到了:**to-one 回的是物件不是陣列**
+   *    (`"brands": {"name": "BREMBO"}`),查無回 `null`。
+   *    ⇒ 那個未知數消失 ⇒ 這裡用內嵌,而**檔頭那條仍然適用於詳情頁**
+   *      (`getProductTaxonomyNames` 一個字沒改 —— 單筆頁面多兩趟往返本來就可接受)。
+   *    ⚠️ **效度限定**:量的是本機 PostgREST 14.16,不是正式站的版本。
+   *      這是「to-one 內嵌回物件」這個 PostgREST 的**基本語意**,不是邊角行為
+   *      ⇒ 版本差異的風險低,但**它就是低不是零**,寫出來。
+   *    🔴 **而它壞掉的症狀寫在這裡(R1 nit-5)**:下面那個 `as unknown as` 把 wire 形狀的
+   *      型別檢查整個關掉 ⇒ 正式站若把 to-one 回成**陣列**,`row.brands?.name` 會恆為
+   *      `undefined` ⇒ **品牌與分類兩欄每一列都印「—」,而不會有任何一格紅**
+   *      (typecheck 綠、測試綠 —— 測試餵的是我量到的那個形狀)。
+   *      ⇒ **看到滿欄「—」的人,第一個要查的是回傳形狀,不是資料。**
+   *
+   * 🔴 **為什麼不做第二發查詢**:列表一頁最多 1000 列,逐列查品牌 = N+1。
+   *    內嵌是**同一發 SQL**(單一 HTTP 請求)⇒ 查詢發數不隨列數增加。
+   */
+  readonly brands: { readonly name: string } | null;
+  /** 內嵌 to-one 的分類完整路徑(`categories(raw_path)`),例 `'引擎部品 · 排氣管'`。理由同 `brands`。 */
+  readonly categories: { readonly raw_path: string } | null;
+}
+
 /**
  * 🔴 逐欄指名。**不得改成 `*`**,也不得加入 `price_store` / `price_by_tier` / `cost` 任一欄。
  * 這串字面被 product-repository.test.ts 釘住。
  */
 const PRODUCT_LIST_COLUMNS =
-  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at' as const;
+  'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path)' as const;
 
 /** 上下架狀態的 domain 形狀(頁面與表格只認這個,不認 DB 欄)。 */
 export type ProductListingState = 'listed' | 'delisted';
@@ -108,7 +148,7 @@ export function isSourceMissing(row: AdminProductRow): boolean {
 export type ProductSetByFilter = 'sync' | 'staff';
 
 export interface AdminProductPage {
-  readonly items: readonly AdminProductRow[];
+  readonly items: readonly AdminProductListRow[];
   readonly total: number;
 }
 
@@ -188,24 +228,50 @@ export function buildProductKeywordOrFilter(keyword: string): string {
   return `external_id.ilike.${pattern},title.ilike.${pattern}`;
 }
 
-export async function listProductsForAdmin(
-  limit: number,
-  offset: number,
-  setBy?: ProductSetByFilter,
+/**
+ * `listProductsForAdmin` 吃的篩選軸。**一個物件而不是四個位置參數,這是刻意的。**
+ *
+ * 🔴 **理由**:加上 `brandId` 之後,`setBy` / `keyword` / `brandId` / `categoryIds` 之中有三個
+ *    是 `string | undefined` ⇒ 位置參數排錯順序**型別完全過得去**,而症狀是
+ *    「篩選軸悄悄對到別的欄位」—— 那正是 `product-list-view.ts` 檔頭整段在講的那個病
+ *    (「翻頁時那一軸靜默消失,而畫面上的選擇還在」)的近親。
+ *    ⇒ 具名欄位讓那個錯不可能寫出來。
+ */
+export interface AdminProductQuery {
+  readonly setBy?: ProductSetByFilter;
   /**
    * `#661`:料號 + 商品名的文字搜尋。已由 `parseProductKeyword` trim 過、不會是空字串。
    *
    * 🔴 **用 `ilike` 不用 `pg_trgm` / 全文檢索,而這是【刻意的】**:
    *    `pg_trgm` 在 macOS 的 libc 下對中文抽出**零 trigram**
    *    (memory `reference_pg-trgm-cjk-zero-on-macos-libc`)⇒ 本機測中文會**恆假綠**。
-   *    `ilike` 是純子字串比對、不經過 trigram ⇒ **對 CJK 與 ASCII 行為一致**,
-   *    本機測到的就是正式站會發生的。
+   *    `ilike` 是純子字串比對、不經過 trigram ⇒ **對 CJK 與 ASCII 行為一致**。
    *    ⚠️ 而這一句是**機制推論**:我沒有在 Linux 或正式站實跑過 `ilike` 對中文的行為(未驗)。
    * 🔴 **前置 `%` ⇒ 走不了 btree index ⇒ 全表掃描。** 現況約 2 萬列(G3 量、我沒重量),
-   *    單次查詢在毫秒級 ⇒ **現在不需要索引**。判別線:**列數到十萬級再回頭看**,
-   *    不是「以後有空再優化」。
+   *    單次查詢在毫秒級 ⇒ **現在不需要索引**。判別線:**列數到十萬級再回頭看**。
    */
-  keyword?: string,
+  readonly keyword?: string;
+  /**
+   * 品牌 uuid。**必為合法 uuid**(由 `parseProductBrandId` 把關)——
+   * 非 uuid 會讓 PostgREST 回 400,而那在畫面上是「商品列表載入失敗」。
+   */
+  readonly brandId?: string;
+  /**
+   * 要命中的分類 id 集合(選了大類 ⇒ 含它自己 + 它的子類),由
+   * `resolveCategoryIds`(`product-taxonomy-options.ts`)解出。
+   *
+   * 🔴 **空陣列與 `undefined` 是兩件事,而這裡只收得到後者**:`resolveCategoryIds` 認不得
+   *    `raw_path` 時回 `null`,呼叫端要傳 `undefined`(= 不套用分類條件)。
+   *    傳空陣列會變成 `.in('category_id', [])` ⇒ **0 件**,而網址被亂改時
+   *    「看到全部」比「看到空的」更不會誤導員工(理由逐字在 `resolveCategoryIds` 檔頭)。
+   */
+  readonly categoryIds?: readonly string[];
+}
+
+export async function listProductsForAdmin(
+  limit: number,
+  offset: number,
+  query: AdminProductQuery = {},
 ): Promise<AdminProductPage> {
   let q = createSupabaseServiceClient()
     .from('products')
@@ -214,11 +280,24 @@ export async function listProductsForAdmin(
   // 🔴 **篩選一定要走 DB,不能在頁面上過濾陣列。**
   //    `.range()` 是先分頁再回列 ⇒ 客戶端過濾只會過濾「這一頁」,
   //    而分頁列顯示的 `count` 仍是全表數 ⇒ 「共 20,334 件」配上一頁 3 筆,且翻頁翻不完。
-  if (setBy) q = q.eq('listing_set_by', setBy);
+  if (query.setBy) q = q.eq('listing_set_by', query.setBy);
 
   // 🔴 `#661` 搜尋同樣走 DB,理由同上那條 —— 而它多一個:
   //    在客戶端過濾會讓「共 N 件」是**全表數**,員工看到「共 20341 件」配一頁 2 筆。
-  if (keyword) q = q.or(buildProductKeywordOrFilter(keyword));
+  if (query.keyword) q = q.or(buildProductKeywordOrFilter(query.keyword));
+
+  // 🔴 品牌與分類同理走 DB。兩欄都有索引
+  //    (`20260507004826_init_products.sql:59-60` idx_products_brand_id / idx_products_category_id)。
+  if (query.brandId) q = q.eq('brand_id', query.brandId);
+
+  // 🔴 **用 `.in(id)` 不用 `raw_path` 的 `LIKE` 前綴** —— 前綴比對在 DB 端吃不到
+  //    `idx_products_category_id`,而 id 集合已經在呼叫端從**撈下來的分類清單**解好了
+  //    ⇒ 零額外查詢、走得到索引。
+  //    ⚠️ `length > 0` 這個判斷不是防禦性寫法:見 `AdminProductQuery.categoryIds` 檔頭 ——
+  //       空陣列會查出 0 件,而那不是任何呼叫端想要的意思。
+  if (query.categoryIds && query.categoryIds.length > 0) {
+    q = q.in('category_id', [...query.categoryIds]);
+  }
 
   const { data, error, count } = await q
     .order('created_at', { ascending: false })
@@ -226,8 +305,9 @@ export async function listProductsForAdmin(
     .range(offset, offset + limit - 1);
 
   if (error) throw error;
-  return { items: data ?? [], total: count ?? 0 };
+  return { items: (data ?? []) as unknown as AdminProductListRow[], total: count ?? 0 };
 }
+
 
 // ─────────────────────────── 片1b-1:單筆詳情 ───────────────────────────
 
@@ -301,6 +381,80 @@ export async function getProductTaxonomyNames(
   return {
     brandName: brand.data?.name ?? null,
     categoryName: category.data?.name ?? null,
+  };
+}
+
+// ── 篩選下拉的選項來源(2026-08-19 品牌/分類篩選片)────────────────────────
+
+/**
+ * 品牌與分類的下拉選項。**兩發查詢,不是三發** —— 而「有商品的分類」那一格是靠
+ * PostgREST 的**內嵌聚合**在同一發裡拿到的,不另外掃 `products`。
+ *
+ * 🔴🔴 **plan §7 ⑤ 把這件事列為「未確認」,而它現在【量到了】:**
+ *    plan 逐字寫著「PostgREST 嵌入式聚合 `categories?select=…,products(count)` 一發解決,
+ *    **而 repo 內零先例** … 那是【我以為它支援】,不是量到的 ⇒ 接線前要實跑一次才算數」。
+ *    ⇒ 2026-08-19 依 `docs/runbooks/local-admin-with-real-data-probe.md` 起拋棄式 PG +
+ *      **真 PostgREST 14.16**,套 repo 全部 migration(ok=174 / fail=13,而 `products` /
+ *      `brands` / `categories` 三張表全在)、用 migration 自己種的**真分類資料**(107 個,
+ *      與正式庫同數)實跑:
+ *
+ *        GET /categories?select=id,products(count)   ⇒ HTTP 200
+ *        回傳形狀:{"id": "...", "products": [{"count": 12}]}   ← **陣列包一個物件**
+ *        正向對照:REST 算出「有商品的分類」= 41
+ *        真值對照:SQL `select count(distinct category_id) from products` = 41   ✅ 相等
+ *
+ *    ⇒ 🔴 **兩個世界都表演過**:有商品的回正數、沒商品的回 `0`(不是缺欄位、不是 `null`)。
+ *    ⚠️ **效度限定(照 runbook §5 不放寬)**:量的是**本機**的 PostgREST 14.16 與**本機**種的
+ *      503 件商品,**不是正式站**。它證得了「這個查詢寫法回什麼形狀」,
+ *      證不了正式站的效能(plan §0-d 逐字:「效能未量 … 若量出來慢 ⇒ **回報,不自己加快取**」)。
+ *
+ * 🔴 **`idsWithProducts` 是從資料算的,不得寫死**(plan §0-d 逐字)——
+ *    今天 41(本機)/ 81(正式庫),明天同步跑完就變了。
+ *
+ * 讀取失敗照樣 throw,由呼叫端決定怎麼降級(見 `app/products/page.tsx`)。
+ *
+ * ⚠️ **天花板(R1 nit-6,刻意不修)**:這兩發都**沒有分頁,也沒有截斷偵測** ——
+ *    而同一頁為了 `db-max-rows`(Dashboard 點一下就變小、變小當天不會有東西紅)
+ *    特地做了 `detectPageTruncation`(`lib/shared/list-params.ts`)。
+ *    今天的量:分類 107 列、品牌 16 列(正式庫;本機量到 107 / 23)—— 離預設上限 1000 很遠
+ *    ⇒ **潛在、非現行**,而它壞掉時是**下拉少了幾個選項,完全安靜**。
+ *    判別線:**這兩張表任一逼近數百列時回來加一發 `count` 對照**,不是「以後有空再說」。
+ */
+export interface ProductFilterOptions {
+  readonly brands: readonly BrandOptionRow[];
+  readonly categories: readonly CategoryOptionRow[];
+  readonly categoryIdsWithProducts: ReadonlySet<string>;
+}
+
+/** 內嵌聚合的 wire shape —— **`products` 是陣列包一個 `{count}`**(2026-08-19 實跑量到,見上)。 */
+type CategoryOptionWireRow = CategoryOptionRow & {
+  readonly products: readonly { readonly count: number }[] | null;
+};
+
+export async function listProductFilterOptions(): Promise<ProductFilterOptions> {
+  const supabase = createSupabaseServiceClient();
+  const [brands, categories] = await Promise.all([
+    supabase.from('brands').select('id, name'),
+    supabase
+      .from('categories')
+      .select('id, name, raw_path, parent_category_id, sort_order, products(count)'),
+  ]);
+
+  if (brands.error) throw brands.error;
+  if (categories.error) throw categories.error;
+
+  const rows = (categories.data ?? []) as unknown as CategoryOptionWireRow[];
+  const idsWithProducts = new Set<string>();
+  for (const row of rows) {
+    // 🔴 `?? 0` 不是防禦性寫法:實跑量到沒商品時回的是 `[{count: 0}]`,
+    //    而「查無列」與「count 為 0」在這裡要落到**同一個結論**(這個分類不進下拉)。
+    if ((row.products?.[0]?.count ?? 0) > 0) idsWithProducts.add(row.id);
+  }
+
+  return {
+    brands: (brands.data ?? []) as BrandOptionRow[],
+    categories: rows,
+    categoryIdsWithProducts: idsWithProducts,
   };
 }
 

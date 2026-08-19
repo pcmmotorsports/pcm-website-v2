@@ -1,3 +1,4 @@
+import Link from 'next/link';
 // 相對 import(非 `@/`):根 `vitest.config.ts` 的 `@` alias 指向 **storefront** 的 src
 // ⇒ admin 檔案用 `@/` 在測試裡 resolve 不到、這頁就測不起來(先例逐字見
 // `app/settings/suppliers/page.tsx:14-19`、`app/customers/page.tsx:2-4`)。
@@ -5,8 +6,19 @@
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductFilterChips } from '../../components/products/product-filter-chips';
 import { ProductKeywordSearch } from '../../components/products/product-keyword-search';
+import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
 import { ListPagination } from '../../components/shared/list-pagination';
-import { listProductsForAdmin, type AdminProductPage } from '../../lib/products/product-repository';
+import {
+  listProductFilterOptions,
+  listProductsForAdmin,
+  type AdminProductPage,
+  type ProductFilterOptions,
+} from '../../lib/products/product-repository';
+import {
+  buildCategoryOptions,
+  buildBrandOptions,
+  resolveCategoryIds,
+} from '../../lib/products/product-taxonomy-options';
 import {
   DEFAULT_PAGE_SIZE,
   KEYWORD_PARAM,
@@ -14,7 +26,10 @@ import {
   PAGE_SIZE_OPTIONS,
   SET_BY_PARAM,
   SIZE_PARAM,
+  BRAND_PARAM,
+  CATEGORY_PARAM,
   buildProductListHref,
+  buildProductListHrefResetPage,
   parseProductListParams,
 } from '../../lib/products/product-list-view';
 import { detectPageTruncation } from '../../lib/shared/list-params';
@@ -45,12 +60,52 @@ export default async function ProductsPage({
   const { filter, view } = parseProductListParams(raw);
   const offset = (view.page - 1) * view.size;
 
+  // 🔴🔴 **下拉選項先撈,而且它【失敗不算列表失敗】** —— 兩個 try 是刻意分開的:
+  //    選項撈不到 ⇒ 少兩顆下拉,商品列表照樣看得到(降級,不是壞掉);
+  //    列表撈不到 ⇒ 才是「這一頁壞了」。
+  //    合成一個 try 的話,`brands` 那張小表出問題會讓**整頁商品消失**,
+  //    而員工看到的是「商品列表載入失敗」—— 一個完全指錯方向的訊息。
+  let options: ProductFilterOptions | null = null;
+  try {
+    options = await listProductFilterOptions();
+  } catch (error) {
+    console.error('[admin/products] 篩選選項載入失敗(列表不受影響)', error);
+  }
+
+  const categoryOptions =
+    options === null
+      ? []
+      : buildCategoryOptions(options.categories, options.categoryIdsWithProducts);
+  const brandOptions = options === null ? [] : buildBrandOptions(options.brands);
+
+  // 🔴 選了大類 ⇒ 要含它自己 + 它的子類;認不得的 `raw_path` ⇒ `null` ⇒ **不套用分類條件**
+  //    (看到全部,不是看到空的 —— 理由逐字在 `resolveCategoryIds` 檔頭)。
+  //    ⚠️ 選項撈失敗時 `categoryOptions` 是空陣列 ⇒ 這裡一律回 `null` ⇒ 分類條件不套用。
+  //       **那是對的**:此時畫面上根本沒有分類下拉,再拿一個解不出來的路徑去砍列表
+  //       只會讓員工看到一個他無法解釋、也無法清除的空清單。
+  const categoryIds = resolveCategoryIds(categoryOptions, filter.categoryPath) ?? undefined;
+
+  // 🔴🔴 **R1 審查 important-4:網址上有分類篩選,而查詢沒套上它 —— 這件事畫面上看不出來。**
+  //    兩條可達路徑,而兩條的畫面都是「一份看起來正常的清單」:
+  //      ① 選項撈失敗 ⇒ `categoryOptions` 空 ⇒ `?category=` 被丟掉,
+  //         **而 `?brand=` 照樣生效** ⇒ 員工看到一份「品牌篩過、分類沒篩」的清單,
+  //         且此時兩顆下拉整塊不畫 ⇒ **他沒有任何控制項可以解釋或清掉它**。
+  //      ② 選項撈成功,但那個分類今天同步後變成 0 件 ⇒ 被 `buildCategoryOptions` 濾掉
+  //         ⇒ 舊書籤 `?category=X` 從「0 件」變成 **整本兩萬多件**。
+  //    ⇒ 講出來 + 給一條清得掉的路。**不自動改寫網址** —— 那會讓「我明明選了」變成無聲的消失。
+  const categoryFilterDropped = filter.categoryPath !== undefined && categoryIds === undefined;
+
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯)→ 顯錯誤態、頁面仍 200(不 500);
   //    server log 留鑑識、DB error 不外洩到畫面(同 customers/page.tsx:37-48)。
   let result: AdminProductPage | null = null;
   let loadFailed = false;
   try {
-    result = await listProductsForAdmin(view.size, offset, filter.setBy, filter.keyword);
+    result = await listProductsForAdmin(view.size, offset, {
+      setBy: filter.setBy,
+      keyword: filter.keyword,
+      brandId: filter.brandId,
+      categoryIds,
+    });
   } catch (error) {
     console.error('[admin/products] 商品列表載入失敗', error);
     loadFailed = true;
@@ -67,9 +122,15 @@ export default async function ProductsPage({
 
   // 兩個 GET 表單(換筆數 / 跳頁)要原封帶過去的篩選軸。
   // 🔴 **不含 `page` 與 `size`** —— 那兩軸各自由表單自己的欄位提供,見 `ListPaginationJump`。
+  //    🔴 新增的兩軸也要在這裡 —— 少了它們,員工篩了品牌再「跳到第 5 頁」,
+  //       品牌篩選會消失而畫面上的下拉仍顯示著那個品牌(本頁檔頭記的那個病的第三個觸發點)。
+  //    📌 分類只帶 `CATEGORY_PARAM`(不帶 `subcategory`):`filter.categoryPath` 已經是
+  //       解析後的**單一真相**,而 `buildProductListHref` 也只寫這個 param ⇒ 兩邊一致。
   const filterFields = {
     [SET_BY_PARAM]: filter.setBy,
     [KEYWORD_PARAM]: filter.keyword,
+    [BRAND_PARAM]: filter.brandId,
+    [CATEGORY_PARAM]: filter.categoryPath,
   };
 
   return (
@@ -103,6 +164,28 @@ export default async function ProductsPage({
       {!loadFailed && (
         <>
           <ProductFilterChips filter={filter} size={view.size} />
+          {categoryFilterDropped && (
+            <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
+              網址帶著分類「{filter.categoryPath}」,但目前套用不上(選項載入失敗,或這個分類已經沒有商品)
+              —— <strong>下面的清單沒有依分類篩選</strong>。
+              <Link
+                href={buildProductListHrefResetPage({ ...filter, categoryPath: undefined }, view.size)}
+                className='text-primary ml-2 underline'
+              >
+                清除分類條件
+              </Link>
+            </p>
+          )}
+          {/* 🔴 選項撈失敗 ⇒ 整塊不畫(不是畫一組空下拉)。
+              空下拉點得下去、送得出去、然後什麼都不會變 —— 那是一個會騙人的控制項。 */}
+          {(brandOptions.length > 0 || categoryOptions.length > 0) && (
+            <ProductTaxonomyFilter
+              filter={filter}
+              size={view.size}
+              brands={brandOptions}
+              categories={categoryOptions}
+            />
+          )}
           {filter.setBy === 'staff' && filter.keyword === undefined && total === 0 && (
             <p className='text-muted-foreground text-sm'>
               目前沒有手動設定過的商品。設定上下架的功能還沒做好,所以現在每一筆都是「自動」。
