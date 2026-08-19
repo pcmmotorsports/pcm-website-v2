@@ -96,6 +96,17 @@ export type ItemAmountRowProps = {
    * 🔴 2026-08-19 片5 更新(原字面「品項 / SKU / 數量」已過期):現在是**六格**
    * `商品名稱 / 料號 / 訂 / 到 / 出 / 數量`。**三軸在這裡,不在 `after`。**
    */
+  /**
+   * 片16(2026-08-19):品牌那一行,畫在 `<summary>` 裡、`.iline` 那個 grid **上方**。
+   *
+   * 🔴 **它不是第七軌**:確認稿 `:291`/`:304`/`:317` 是 `<div class="ibrand">BREMBO</div>`,
+   *    **橫跨整列**、`:137` CSS `font-size:10px;font-weight:700;letter-spacing:.05em;color:muted`。
+   *    ⇒ **六軌一格不動。** 判成「加一欄」會做出完全不同的東西,而**四綠與測試都不會發現那是錯的**。
+   * ⚠️ **只有 `card-line` 殼畫它** —— `table-row` 是整頁版的舊殼,設計稿沒畫過它的品牌行。
+   *    給了 `brandLine` 而 variant 是 `table-row` ⇒ **靜默不畫**(不是報錯):那個組合今天沒有呼叫端,
+   *    而為一個不存在的呼叫端加一道 throw 是在沒有事的路上裝機制。
+   */
+  brandLine?: ReactNode;
   before: ReactNode;
   /** 單價格要顯示的字(已格式化)—— server 算好傳進來 */
   priceText: ReactNode;
@@ -161,6 +172,7 @@ export type ItemAmountRowProps = {
 } & ItemAmountFormProps;
 
 export function ItemAmountRow({
+  brandLine,
   before,
   priceText,
   after,
@@ -290,6 +302,7 @@ export function ItemAmountRow({
             而設計稿 `:119-120` 記著:兩個獨立 grid 的 `auto` 欄各自依內容算寬
             ⇒ **實測整排錯開 8px**。少了這層包裹,六格就不在同一個 grid 裡。 */}
         <summary>
+          {brandLine}
           <div className='iline'>
             {before}
             <div className='text-right'>
