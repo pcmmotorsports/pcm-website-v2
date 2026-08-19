@@ -33,9 +33,36 @@ export type AdminColumn<T> = {
    *    ⇒ **渲染端一行都沒改**,其餘 4 個呼叫端傳字串仍然合法(字串是 `ReactNode`)。
    * ⚠️ **手機版仍然只用得到文字**:窄版是「標題 / 副標 / 尾欄 / meta」的卡片形,
    *    沒有表頭列 ⇒ 放進來的連結**在手機上不會出現**。
-   *    ⇒ 要讓手機也能排序是另一片(而 Sean `A2` 拍板「員工用電腦」⇒ 現在不做)。
+   *    ⇒ 要讓手機也能排序是另一片(backlog `#740`;而 Sean `A2` 拍板「員工用電腦」⇒ 現在不做)。
+   *
+   * 🔴🔴 **允許放什麼進來(W6 `W6-06x` 要求寫死在這裡)**:
+   * ```
+   * ✅ 文字、`<Link>`（排序 / 篩選那類導航）
+   * ❌ <button> / <input> / <select> 等【表單控制項】—— 理由是 `<th>` 的語意：
+   *    它是【欄的標題】，不是一個放操作的地方；螢幕閱讀器會把它當成每一格的名稱唸出來
+   * ```
+   * 📌 **為什麼要寫**:`header: string` 的時候,**沒有人塞得進互動元件** ——
+   *    放寬成 `ReactNode` **拿掉了一個沒有人會發現自己失去的編譯期保證**
+   *    ⇒ 從現在起攔它的只有這段字。**它不是註解,它是那道被拿掉的門的替代品。**
    */
   header: ReactNode;
+  /**
+   * 🔴🔴 **`aria-sort` —— 這一欄現在是不是排序中、哪個方向**(2026-08-19;主視窗裁「本片補完再交」)。
+   *
+   * **為什麼是一個 pass-through 的 prop,而不是讓本元件認識「排序」這個概念**:
+   * 值只有 `ascending | descending | none` 三種,而**知道現在排哪一欄的是呼叫端**。
+   * 讓共用元件去理解排序狀態 = 它得吃 sort 物件、吃欄位對照、吃方向 ——
+   * **那是把一個呼叫端的知識搬進五個呼叫端共用的地方**,而其餘四個永遠用不到。
+   * ⇒ 這裡只做一件事:**把它放到 `<th>` 上**。`<th>` 是它唯一正確的位置
+   *   (`aria-sort` 描述的是**欄**,不是欄頭裡那個連結)。
+   *
+   * ⚠️ **省略 = 不輸出這個屬性**,不是輸出 `none`:
+   *    `aria-sort="none"` 對讀屏的意思是「**這一欄可以排序,只是現在沒排**」——
+   *    而其餘四個表根本不能排序,對它們說 `none` 是**一句假話**。
+   * 📌 可排序的表:**每一個可排序的欄都要給**(排序中的給方向、沒排的給 `'none'`),
+   *    不可排序的欄一律省略。
+   */
+  ariaSort?: 'ascending' | 'descending' | 'none';
   /** 儲存格內容;回 null/undefined/空字串 = 沒值(桌機顯「—」、手機該欄整格不出現)。 */
   cell: (row: T) => ReactNode;
   /** 追加到桌機 <td> 的 class(對齊既有各表的逐欄樣式)。 */
@@ -115,7 +142,13 @@ export function AdminDataTable<T>({
           <thead>
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className={col.alignRight ? `${TH} text-right` : TH}>
+                <th
+                  key={col.key}
+                  className={col.alignRight ? `${TH} text-right` : TH}
+                  // 🔴 `undefined` ⇒ React 不輸出這個屬性(見 `ariaSort` 的檔頭:
+                  //    對不能排序的表說 `none` 是一句假話)。
+                  aria-sort={col.ariaSort}
+                >
                   {col.header}
                 </th>
               ))}
