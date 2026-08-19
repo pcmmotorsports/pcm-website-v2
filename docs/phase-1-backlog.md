@@ -21198,8 +21198,30 @@ W5 從 `dev` 開檔讀完兩條才裁(不是照摘要)。**決定性理由**:
             那個覆蓋層【會被困在表格框內、而不是蓋滿視窗】。解法是 portal,不是改這裡。
             前例與同款警告見 `app/@panel/orders/page.tsx:132-136`。
     ```
-    ⇒ 🔴 **證據等級從「讀規範推的」升成「repo 內有前例 + `檔案:行號` + 已指名修法」**,
-      而這比實測更好用:**它同時給了修法**(portal),不只告訴你會壞。
+    ⇒ ~~🔴 **證據等級從「讀規範推的」升成「repo 內有前例 + `檔案:行號` + 已指名修法」**,
+      而這比實測更好用:**它同時給了修法**(portal),不只告訴你會壞。~~
+
+    🔴🔴 **2026-08-19 W1 更正:上面那段【整個倒過來】——被引用的那句話本身是【假的】。**
+      · **量到的**(W2,`~/pcm-mailbox/W2-715-…`;量具 `scripts/containment-probe.mjs` 自帶
+        `selfCheck`,正對照不紅就 exit 1)⇒ **真 Chrome 151 / Chromium 148 / WebKit 三次一致**:
+        `container-type: inline-size`(與 `container-type: size`)**不會**讓元素成為
+        `position:fixed` 子孫的 containing block;正對照 `contain:layout` / `transform` / `filter`
+        **三個都困住** ⇒ **那個「未被困」不是量不到。**
+      · ⇒ **`globals.css` 那句已就地劃掉並附量測表**(W1 2026-08-19;**行號會漂,用
+        `grep -n '真瀏覽器跨引擎證偽' apps/admin/src/app/globals.css` 找**)。
+      · ⚠️ **射程不放寬**:WebKit 那發是 **Playwright 的 webkit build**,**不是 `Safari.app`**
+        ⇒ 可寫「Safari **引擎**上不成立」,不可寫「在 Sean 的 Safari 上驗過」。
+
+    🔴🔴 **而這一條真正的教訓,不是「有人寫錯了」——是【證據等級被升級的那個動作本身是錯的】**:
+      上面那段把「repo 內有前例」當成比實測更好的證據。**而那個前例與本條原本的推論,
+      走的是【同一條推理鏈】**(`container-type` ⇒ `contain:layout` ⇒ 依 CSS Containment 成為
+      containing block)—— **兩份文件一致,而它們不是兩個獨立來源,是同一條推論的兩份抄本。**
+      ⇒ **「repo 內有人獨立寫過同一件事」在這裡是假的獨立性** ——
+        它讀起來像交叉驗證,而它只是同一個作者群在不同檔案裡各寫了一次。
+      ⇒ 📌 **判別句**:**兩份東西一致的時候,先問「它們的證據是不是同一個」,而不是把一致當成加權。**
+      📎 **同一天同族實例**:設計稿原檔「四個人四種理由、同一個錯結論」;
+        本條的行號本身也是 —— 派工單與 `W2-715 §6` 都寫 `:624`,而**那是同一次 grep 的兩份影本**
+        (實際位置與那兩個都不同,`grep` 當場找才算數)。
   - 🔴 **而修法一寫出來,甲案的價碼就變了**(三個數我自己重跑過,不是抄 W3 的):
     ```
     grep -rn 'createPortal' apps/admin/src --include='*.tsx' --include='*.ts' | grep -v '\.test\.'  ⇒ 0

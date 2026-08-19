@@ -623,10 +623,25 @@
 
    🔴🔴 **`container-type: inline-size` 掛在 `.orders-grid` 自己**(主視窗 E-419 核可)。
       **兩條副作用是給未來的人的警告,不是現況描述**(現況描述會過期、警告不會):
-      ① 它帶 `contain: layout` ⇒ **這個元素會成為 `position: fixed` 子孫的 containing block**
-         —— 誰日後把 `fixed inset-0` 的覆蓋層(例如 `shipment-dialog.tsx` 那種)渲染進訂單列表裡,
-         那個覆蓋層**會被困在表格框內、而不是蓋滿視窗**。解法是 portal,不是改這裡。
-         前例與同款警告見 `app/@panel/orders/page.tsx:132-136`。
+      ~~① 它帶 `contain: layout` ⇒ 這個元素會成為 `position: fixed` 子孫的 containing block
+         —— 覆蓋層會被困在表格框內、而不是蓋滿視窗。解法是 portal。~~
+      🔴🔴 **① 已於 2026-08-19 被【真瀏覽器跨引擎證偽】。上面那句是假的,不要照它繞路。**
+         **量到的**(W2,`~/pcm-mailbox/W2-715-…`;量具 `scripts/containment-probe.mjs` 自帶
+         `selfCheck`,不過就 exit 1 ⇒ 把「沒被困」與「我量不到」分開):
+         ```
+         未被困  container-type: inline-size          （真 Chrome 151 / Chromium 148 / WebKit 三次一致）
+         未被困  container-type: size
+         被困住  contain:layout / transform / filter   ← 正對照 3/3
+         未被困  無 containment                        ← 負對照
+         ```
+         ⇒ **`container-type` 不會讓元素成為 `position:fixed` 子孫的 containing block。**
+         ⚠️ **射程照抄不放寬**:WebKit 那發是 **Playwright 的 webkit build(引擎版本字串 Safari 26.4)**,
+            **不是 `Safari.app`** ⇒ 可以寫「**Safari 引擎上不成立**」,**不可以**寫「在 Sean 的 Safari 上驗過」。
+         🔴 **而這句假宣稱為什麼活了這麼久,值得留**:它的推理鏈**每一步都查得到出處**
+            (`container-type` ⇒ `contain: layout` ⇒ 依 CSS Containment 成為 containing block),
+            **而瀏覽器不這樣做** ⇒ **沒有人在讀它的時候會起疑**,於是它被原樣抄進了四個地方。
+            它甚至**通過了一次 code review**(原註解自己引用 `code-reviewer 2026-08-10 nit-10`)——
+            **因為審查者與作者用的是同一條推理鏈,而沒有人去按一下。**
       ② `container-type: inline-size` 讓本元素的 inline 尺寸**不再由內容決定** ——
          本框本來就是 `overflow-x-auto` 的固定寬容器,故今天無差別;但誰把 `overflow` 拿掉時要一起想。 */
 .orders-grid {
@@ -1519,11 +1534,27 @@
      C 兩條都沒有(正向對照)        ⇒ 標記佔位 **12px** ⇒ **尺會動,上面那兩個 0 是真的**
    ⚠️ **射程**:只量過 Chromium,**沒有量 Safari** —— 而 Sean 用 Mac。
       那條 WebKit 專用規則在較舊的 WebKit 上曾經是必要的兜底
-      ⇒ **若哪天在 Safari 上看到小三角形跑出來,回來的第一站是這一段,不要重新發明。** */
+      ⇒ **若哪天在 Safari 上看到小三角形跑出來,回來的第一站是這一段,不要重新發明。**
+
+   🔴🔴 **2026-08-19 更正:上一版我【拿掉了】那條 WebKit 規則,而那個處置被主視窗推翻了。**
+   我當時的理由是「不放寬別人的守門 ⇒ 改我自己的結構」。**前半對,後半錯**,而裁定的理由更硬:
+     · 那格守門的檔頭自己寫著用意 ——「有人加任何那類規則 ⇒ 這格紅,**強迫他來想一次**」
+     · ⇒ **它不是禁令,是一道【叫人來想】的絆線,而它成功了(把我和 W3 都叫來了)。**
+     · ⇒ **而我繞開它,等於為了讓絆線安靜而扭曲一個沒問題的結構。**
+   ⇒ **正解是第三條路:守門保留全部廣度 + 一筆【逐字具名豁免】,豁免旁邊寫上為什麼安全。**
+     豁免在 `components/audit/audit-detail-css.test.ts` 的 `ALLOWED_DETAILS_RULES`,
+     **而動手加豁免的是 W3 不是我** —— **我是這條規則的作者,讓作者去豁免自己的規則,
+     那才是真的自我背書**(主視窗裁:**判與做要分開,而我漏掉了那一層**)。
+   ⚠️ **兩件必須在同一片**:豁免指向的選擇器若不存在,那道豁免就是
+      **一道看起來在守、實際上守空氣的門。** */
 .icard > summary {
   list-style: none;
   cursor: pointer;
   padding: 9px 0;
+}
+/* 🔴 這一條就是被逐字具名豁免的那一條(見上)。較舊的 WebKit 需要它當兜底。 */
+.icard > summary::-webkit-details-marker {
+  display: none;
 }
 /* 三軸膠囊橫排。🔴 `border-radius` 見上方偏離①:**方角**,不是設計稿的 999px。 */
 .pcm-step {
