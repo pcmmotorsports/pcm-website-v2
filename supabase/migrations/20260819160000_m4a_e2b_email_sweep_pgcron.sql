@@ -64,7 +64,16 @@
 --   ② **`ORDER_EMAIL_FROM` 的值是否為 Resend 已驗證的寄件網域** —— `requireEnv` 只擋空值。
 --      🔴 填一個**非空但未驗證**的位址 ⇒ 上膛後會 claim、寄送失敗、**消耗 attempts**,
 --      退避到上限後成為**永久死信** ⇒ 那幾封信再也不會寄出。⇒ 上膛前必須先確認寄件網域。
---   ③ **route 是否已部署且可達** —— DB 這一側看不到。
+--   ③ **route 是否已部署且可達** —— ~~DB 這一側看不到~~ 🔴 **這句是假的,2026-08-19 W5 證偽。**
+--      **DB 這一側看得到,而且是最直接的證據**(它在正式庫實量):
+--        `select status_code, count(*) from net._http_response where created > now() - interval '1 hour' group by 1;`
+--        `select count(*), count(*) filter (where status = 'succeeded') from cron.job_run_details where start_time > now() - interval '1 hour';`
+--      ⇒ W5 當天量得 `net._http_response` 30 筆全 `200`、`cron.job_run_details` 31 runs / 31 succeeded。
+--   🔴 **而這句話關掉的,正好是本檔自己列為【最易失敗】的那一格** ——
+--      「vault 的 `cron_secret` 是否等於 Vercel 的 `CRON_SECRET`」:不相等 ⇒ **每一輪都 401**,
+--      而 `net._http_response` 的 `status_code` **一眼就看得出來**。
+--   📌 **教訓(本檔作者自己犯的)**:一句「看不到」的成本**不是它自己錯,是它讓別人不再試**。
+--      寫否定句時,同一句要帶上「**那要怎麼才看得到**」——沒有下半句的否定句會被當成句點。
 --
 -- ══ 誠實界線 ══
 --   · 本檔**未在任何資料庫上實跑過**(本窗無正式庫存取、未起拋棄式 PG)⇒ 斷言區的行為**未確認**。
@@ -166,10 +175,19 @@ END $$;
 -- 1a. 🔴 codex 關卡2 R1 must-fix 2:先把既有兩 job 的**完整形狀**拍下來。
 --     原本 2d 只數「有沒有 2 筆 active」⇒ 它們的 schedule/command/database 被改壞照樣過。
 --     而「我沒有動到它們」這個宣稱,只有 before/after 比對證得出來 —— 數量相同不等於沒被改。
+-- 🔴🔴 **快照【所有既有 job】,不是一份寫死的名單**(W5 2026-08-19 審查抓到,而它【已經漏了一支】):
+--   原本寫 `IN ('pcm-settle-sweep','pcm-anomaly-alert')` ——
+--   而 W5 在正式庫實量 `cron.job` 有**三支**,第三支 `pcm-expire-unpaid-orders`
+--   (由 `20260809170000_m4b_lifecycle_l3b_expire_unpaid_orders_schedule.sql:77` 排,**且已 apply**:
+--    `grep -c '^20260809170000' supabase/APPLIED.tsv` ⇒ 1)**不在我的名單裡**
+--   ⇒ 本檔對它**零保護**,而它管「過期未付款訂單自動取消」
+--   ⇒ 🔴 **它靜靜停掉的症狀要幾天後才有人發現。**
+--   📌 **一份寫死的白名單,正確性取決於【有沒有人記得維護它】** —— 而我寫它的當天就已經漏了。
+--   ⇒ 改成「**除了我要加的那一支,其餘全部快照**」⇒ **不需要任何人維護,新增 job 自動納入保護。**
 CREATE TEMP TABLE _e2b_jobs_before ON COMMIT DROP AS
 SELECT jobid, jobname, schedule, command, database, username, active, nodename, nodeport
   FROM cron.job
- WHERE jobname IN ('pcm-settle-sweep','pcm-anomaly-alert');
+ WHERE jobname <> 'pcm-email-sweep';
 
 -- 🔴 codex R2:快照本身要先證明【它拍到了東西】。
 --   少了這一格,若套用前那兩支本來就不在,before/after 會「兩邊都空 ⇒ 相等 ⇒ 全綠」——
@@ -179,9 +197,13 @@ DO $$
 DECLARE v_cnt int;
 BEGIN
   SELECT count(*) INTO v_cnt FROM _e2b_jobs_before;
-  IF v_cnt <> 2 THEN
-    RAISE EXCEPTION 'E2b:套用前 settle-sweep/anomaly-alert 應各恰一筆(實 % 筆)— 請先確認 20260723120000 已 apply;拒繼續', v_cnt;
+  -- 🔴 不再斷言「恰 2 筆」(那是寫死名單的殘留);改為斷言【快照拍到了東西】——
+  --   少了這一格,若 cron.job 是空的,before/after 會「兩邊都空 ⇒ 相等 ⇒ 全綠」,
+  --   而**一個【什麼都沒有】的比對,和一個【什麼都沒變】的比對,在輸出上是同一句話**。
+  IF v_cnt < 1 THEN
+    RAISE EXCEPTION 'E2b:套用前 cron.job 一支既有 job 都沒有 ⇒ 下面的 before/after 比對沒有對象、結論不成立;拒繼續';
   END IF;
+  RAISE NOTICE 'E2b:已快照 % 支既有 cron job(全部納入 2e 的逐欄比對保護)', v_cnt;
 END $$;
 
 -- 1b. 排程單一 job(command 只呼 wrapper、零 secret;by-name upsert 冪等 + 顯式 active)。
@@ -269,7 +291,7 @@ BEGIN
     FROM _e2b_jobs_before b
     FULL OUTER JOIN (
       SELECT jobname, schedule, command, database, username, active, nodename, nodeport
-        FROM cron.job WHERE jobname IN ('pcm-settle-sweep','pcm-anomaly-alert')
+        FROM cron.job WHERE jobname <> 'pcm-email-sweep'
     ) a ON a.jobname = b.jobname
    WHERE (a.jobname, a.schedule, a.command, a.database, a.username, a.active, a.nodename, a.nodeport)
          IS DISTINCT FROM
