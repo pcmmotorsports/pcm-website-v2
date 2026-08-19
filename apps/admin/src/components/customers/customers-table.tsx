@@ -26,11 +26,27 @@ import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
  *    而欄頭連結**沒有那顆鈕**。主視窗原本的邊界是從篩選那片繼承來的,而它自己認了
  *    「**我把一個解法搬到一個沒有那個病的地方**」。
  * 🔴 **`aria-sort` 掛在 `<th>` 上、不是掛在連結上** —— 它描述的是**這一欄**的狀態,不是那個連結。
- *    ⚠️ 而本表的 `<th>` 由 `AdminDataTable` 產 ⇒ 我沒有辦法在這裡掛它
- *       ⇒ **目前沒有 `aria-sort`**,那是這一片誠實的缺口(要補得動共用元件的 `<th>`)。
+ *    ⚠️ 而本表的 `<th>` 由 `AdminDataTable` 產 ⇒ 我沒有辦法在這裡掛它 ⇒ **目前沒有 `aria-sort`**。
+ *    🔴🔴 **而它【不是一行】,這半我原本漏了**(W6 `W6-06x` 補正):
+ *       `aria-sort` 的值是 `ascending | descending | none`,**它要知道「現在是哪一欄、哪個方向」**
+ *       —— 那是 `AdminDataTable` **今天完全不知道的概念**。
+ *       ⇒ 補它 = **共用元件要開始認識「排序狀態」這件事**,不是加一個屬性。
+ *       ⇒ 這句寫在這裡是為了**不讓下一個人以為順手就能補** —— 估錯之後就又不做了。
  * 📌 箭頭用文字(`↑`/`↓`)不是圖示:**只有圖示的排序狀態,螢幕閱讀器讀不出來**,
  *    而在補上 `aria-sort` 之前,那個字元是唯一講得出方向的東西。
  */
+/**
+ * 這一欄的 `aria-sort`。**三個可排序的欄都要給** —— 沒排的那兩欄給 `'none'`,
+ * 那對讀屏的意思正是「這一欄可以排序,只是現在沒排」,而那是真的。
+ */
+function ariaSortFor(
+  sort: AdminCustomerSort | undefined,
+  key: AdminCustomerSortKey,
+): 'ascending' | 'descending' | 'none' {
+  if (sort?.key !== key) return 'none';
+  return sort.ascending ? 'ascending' : 'descending';
+}
+
 function SortableHeader({
   label,
   sortKey,
@@ -103,6 +119,9 @@ const columns = (
   //       口徑寫在 view 的 `COMMENT` 與 `AdminCustomerSummary` 的 docstring 裡。
   {
     key: 'activeOrderCount',
+    // 🔴 排序中的欄給方向，沒排的給 'none'（= 可排序但現在沒排）；
+    //    不可排序的那五欄一律【省略】—— 見 AdminColumn.ariaSort 的檔頭。
+    ariaSort: ariaSortFor(sort, 'orders'),
     header: (
       <SortableHeader label='訂單數' sortKey='orders' filter={filter} sort={sort} />
     ),
@@ -112,6 +131,9 @@ const columns = (
   },
   {
     key: 'activeSpendTotal',
+    // 🔴 排序中的欄給方向，沒排的給 'none'（= 可排序但現在沒排）；
+    //    不可排序的那五欄一律【省略】—— 見 AdminColumn.ariaSort 的檔頭。
+    ariaSort: ariaSortFor(sort, 'spend'),
     header: (
       <SortableHeader label='消費金額' sortKey='spend' filter={filter} sort={sort} />
     ),
@@ -122,6 +144,9 @@ const columns = (
   },
   {
     key: 'lastActiveOrderedAt',
+    // 🔴 排序中的欄給方向，沒排的給 'none'（= 可排序但現在沒排）；
+    //    不可排序的那五欄一律【省略】—— 見 AdminColumn.ariaSort 的檔頭。
+    ariaSort: ariaSortFor(sort, 'lastOrder'),
     header: (
       <SortableHeader label='最後下單' sortKey='lastOrder' filter={filter} sort={sort} />
     ),
