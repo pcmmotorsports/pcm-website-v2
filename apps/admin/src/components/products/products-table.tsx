@@ -8,7 +8,7 @@ import {
   resolveListingSetBy,
   resolveListingState,
   resolvePrice,
-  type AdminProductRow,
+  type AdminProductListRow,
 } from '../../lib/products/product-repository';
 
 // M-4b #20 片1a:商品列表表格。相對 import(非 `@/`)—— 根 vitest.config 的 `@` alias 指向 storefront,
@@ -33,12 +33,12 @@ import {
 const SET_BY_LABEL = { staff: '手動', sync: '自動', unknown: '⚠ 資料異常' } as const;
 
 /** 售價顯示:`null` 回 null ⇒ AdminDataTable 自己渲染「—」,不在這裡編一個假的 0。 */
-function priceCell(row: AdminProductRow) {
+function priceCell(row: AdminProductListRow) {
   const price = resolvePrice(row);
   return price === null ? null : `NT$ ${price.toLocaleString('zh-TW')}`;
 }
 
-const COLUMNS: ReadonlyArray<AdminColumn<AdminProductRow>> = [
+const COLUMNS: ReadonlyArray<AdminColumn<AdminProductListRow>> = [
   {
     key: 'title',
     header: '商品名稱',
@@ -52,6 +52,24 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminProductRow>> = [
     mobile: 'title',
   },
   { key: 'external_id', header: '料號', cell: (row) => row.external_id, mobile: 'sub' },
+  {
+    key: 'brand',
+    header: '品牌',
+    // 🔴 `null` 回 `null` ⇒ `AdminDataTable` 自己渲染「—」(同 `priceCell` 的紀律)。
+    //    **不在這裡編一個空字串** —— 空白格與「這一欄還沒載入」在畫面上分不開。
+    //    (`brand_id` 在 DB 上是 NOT NULL,而**正式庫量到填充率 100%**
+    //     ⇒ 這條路今天走不到;留著是因為 wire 型別允許 `null`,而型別是下一個人的依據。)
+    cell: (row) => row.brands?.name ?? null,
+    mobile: 'meta',
+  },
+  {
+    key: 'category',
+    header: '分類',
+    // 顯示完整路徑(`'引擎部品 · 排氣管'`)而不是只顯示子類名 ——
+    // 子類名單獨看常常認不出是哪一塊(例「卡鉗」屬煞車還是屬避震)。
+    cell: (row) => row.categories?.raw_path ?? null,
+    mobile: 'meta',
+  },
   {
     key: 'price',
     header: '售價',
@@ -85,7 +103,7 @@ export function ProductsTable({
   rows,
   emptyText = '目前沒有商品。',
 }: {
-  rows: readonly AdminProductRow[];
+  rows: readonly AdminProductListRow[];
   /**
    * 空狀態文案。**預設是「這一頁真的沒有東西」那一句。**
    *

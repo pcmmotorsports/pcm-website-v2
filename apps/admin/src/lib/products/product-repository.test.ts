@@ -14,21 +14,32 @@ vi.mock('server-only', () => ({}));
  * **把 repository 裡的 `.eq('listing_set_by', …)` 整行刪掉,那些測試全部照樣綠。**
  * ⇒ 「有沒有把參數傳下去」與「參數有沒有變成查詢條件」是兩件事,只驗前者等於沒驗。
  */
-const q = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+const q = vi.hoisted(() => ({
+  calls: [] as unknown[][],
+  /**
+   * 讓個別測試指定「這一發 PostgREST 回什麼」。`null` = 沿用預設的空結果。
+   *
+   * 🔴 加這格的理由與上面那段同源:`listProductFilterOptions` 的**全部價值**在於
+   *    把內嵌聚合 `products(count)` 翻譯成「哪些分類有商品」——
+   *    而餵不進資料就只驗得到「它有沒有呼叫 `.select()`」,那等於沒驗。
+   */
+  rows: null as unknown[] | null,
+}));
 vi.mock('@pcm/adapters/server', () => {
   const builder: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'order', 'range', 'is', 'not', 'in', 'maybeSingle']) {
+  for (const m of ['select', 'eq', 'or', 'order', 'range', 'is', 'not', 'in', 'maybeSingle']) {
     builder[m] = (...args: unknown[]) => {
       q.calls.push([m, ...args]);
       return builder;
     };
   }
   (builder as { then: unknown }).then = (f: (v: unknown) => unknown) =>
-    Promise.resolve({ data: [], error: null, count: 0 }).then(f);
+    Promise.resolve({ data: q.rows ?? [], error: null, count: 0 }).then(f);
   return { createSupabaseServiceClient: () => ({ from: () => builder }) };
 });
 
 import {
+  listProductFilterOptions,
   listProductsForAdmin,
   resolveListingState,
   resolvePrice,
@@ -186,8 +197,23 @@ describe('#20 片1a — 讀取層守門', () => {
     //    實測:reviewer 把該常數改成 `'*' as const` 後,舊版五條斷言全過。
     // 🔴 片2c 加兩欄。**逐字釘住整串**(不是只檢查「有沒有 price_store」)——
     //    釘整串的價值是:任何人加欄都會撞紅,被迫回來想一次「這欄該不該給後台看」。
+    // 🔴🔴 **2026-08-19 篩選片:這一格【當場撞紅了,而那就是它的用途】。**
+    //    加的是兩個內嵌 to-one 關聯 `brands(name)` / `categories(raw_path)`。
+    //    逐條想過「這欄該不該給後台看」:
+    //      · `brands.name` / `categories.raw_path` —— 兩張表對**任何人**都是可讀的:
+    //        `20260505130758_init_brands_categories.sql:57-60` `brands_select_public`
+    //        與 `:89-92` `categories_select_public`,兩條皆 `FOR SELECT USING (true)`。
+    //        ⇒ 後台多讀這兩欄,**不擴大任何暴露面**。
+    //      ⚠️ **我第一版寫的理由是錯的,已更正(R1 important-3)**:原句說
+    //        「公開 view `products_list_public` 本來就投射它」——
+    //        實查 `20260516072210_products_views_pricing_split.sql:10-21`,該 view 投射的是
+    //        `brand_id` / `category_id`(uuid),**沒有 `name`、沒有 `raw_path`**。
+    //        結論(非敏感)不變,但理由換掉 —— 下一個人會照理由決定要不要重看。
+    //      · **兩者都不是價格欄** ⇒ 下方 LEAK_TOKENS 那圈仍然乾淨(price_store 等)。
+    //    ⇒ 通過。而**內嵌關聯不會夾帶未指名的欄位**:PostgREST 只回 `select` 裡點名的,
+    //      2026-08-19 本機實跑回的正是 `{"brands":{"name":"BREMBO"}}` 單欄。
     expect(code).toContain(
-      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at'",
+      "'id, title, external_id, price_general, delisted_at, listing_set_by, source_missing_at, brands(name), categories(raw_path)'",
     );
     // 片1b-1 新增的詳情欄位清單,同樣釘值不釘呼叫字面。
     expect(code).toContain('supplier_slug, handle, brand_id, category_id');
@@ -389,7 +415,7 @@ describe('🔴 #20 片2c:chip 篩選必須變成 DB 查詢條件', () => {
   });
 
   it('setBy=staff → 送出 .eq("listing_set_by", "staff")', async () => {
-    await listProductsForAdmin(20, 0, 'staff');
+    await listProductsForAdmin(20, 0, { setBy: 'staff' });
     expect(q.calls).toContainEqual(['eq', 'listing_set_by', 'staff']);
   });
 
@@ -481,5 +507,102 @@ describe('#661 buildProductKeywordOrFilter', () => {
     // 使用者打一個反斜線 ⇒ ILIKE 層變成 \\ ⇒ 引號層再各跳一次 ⇒ \\\\
     const out = buildProductKeywordOrFilter('a\\b');
     expect(out).toBe('external_id.ilike."%a\\\\\\\\b%",title.ilike."%a\\\\\\\\b%"');
+  });
+});
+
+// ─────────────── 2026-08-19 品牌 / 分類篩選片 ───────────────
+
+describe('🔴 品牌 / 分類篩選必須變成 DB 查詢條件(不是在頁面上過濾陣列)', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+    q.rows = null;
+  });
+
+  it('brandId → 送出 .eq("brand_id", …)', async () => {
+    await listProductsForAdmin(20, 0, { brandId: 'b-1' });
+    expect(q.calls).toContainEqual(['eq', 'brand_id', 'b-1']);
+  });
+
+  it('categoryIds → 送出 .in("category_id", […]) —— 大類要含它自己 + 子類', async () => {
+    await listProductsForAdmin(20, 0, { categoryIds: ['c-top', 'c-a', 'c-b'] });
+    expect(q.calls).toContainEqual(['in', 'category_id', ['c-top', 'c-a', 'c-b']]);
+  });
+
+  it('🔴 負向對照:不帶這兩軸 ⇒ **不得**出現該條件(否則等於永遠只看得到一種)', async () => {
+    await listProductsForAdmin(20, 0);
+    expect(q.calls.map((c) => c[1])).not.toContain('brand_id');
+    expect(q.calls.map((c) => c[1])).not.toContain('category_id');
+  });
+
+  it('🔴🔴 空的 categoryIds ⇒ **不得**送出 .in(…, []) —— 那會查出 0 件', async () => {
+    // `resolveCategoryIds` 認不得 raw_path 時回 null,呼叫端要傳 undefined。
+    // 而若哪天有人改成傳空陣列,`.in('category_id', [])` 會讓畫面變成 0 件 ——
+    // 網址被亂改時「看到全部」比「看到空的」更不會誤導員工。
+    await listProductsForAdmin(20, 0, { categoryIds: [] });
+    expect(q.calls.map((c) => c[1])).not.toContain('category_id');
+  });
+
+  it('四軸同時 ⇒ 四個條件都要送出(不是只送最後一個)', async () => {
+    await listProductsForAdmin(20, 0, {
+      setBy: 'staff',
+      keyword: 'brembo',
+      brandId: 'b-1',
+      categoryIds: ['c-1'],
+    });
+    const fields = q.calls.map((c) => c[1]);
+    expect(fields).toContain('listing_set_by');
+    expect(fields).toContain('brand_id');
+    expect(fields).toContain('category_id');
+    // 搜尋走的是 `.or(...)`(料號 OR 商品名),不是 `.eq` ⇒ 單獨驗它真的送出去了。
+    expect(q.calls.some((c) => c[0] === 'or')).toBe(true);
+  });
+});
+
+describe('🔴🔴 listProductFilterOptions:內嵌聚合 → 「有商品的分類」', () => {
+  beforeEach(() => {
+    q.calls.length = 0;
+    q.rows = null;
+  });
+
+  /**
+   * 🔴 這個 wire 形狀**是量到的,不是猜的**(2026-08-19,本機真 PostgREST 14.16 +
+   * repo 全部 migration 種下的真分類資料):
+   *     GET /categories?select=id,products(count)
+   *     ⇒ {"id": "...", "products": [{"count": 12}]}      ← 陣列包一個物件
+   * 沒商品的回 `[{"count": 0}]`,**不是缺欄位、不是 null**。
+   * ⚠️ 效度限定:量的是本機的 PostgREST 版本,不是正式站的。
+   */
+  const row = (id: string, count: number) => ({
+    id,
+    name: id,
+    raw_path: id,
+    parent_category_id: null,
+    sort_order: 0,
+    products: [{ count }],
+  });
+
+  it('count > 0 的進集合,count = 0 的不進 —— 兩個世界都要表演', async () => {
+    q.rows = [row('has', 12), row('empty', 0), row('also-has', 1)];
+    const out = await listProductFilterOptions();
+    expect([...out.categoryIdsWithProducts].sort()).toEqual(['also-has', 'has']);
+    // 🔴 正向對照:分類清單本身【不濾】—— 濾的是下拉選項那一層(buildCategoryOptions)。
+    //    兩層分開,才有辦法在管理頁重用同一支查詢而不必改它。
+    expect(out.categories).toHaveLength(3);
+  });
+
+  it('✅ 負向對照:products 缺欄位 / 為 null ⇒ 當成沒商品(不是當成有)', async () => {
+    q.rows = [
+      { id: 'a', name: 'a', raw_path: 'a', parent_category_id: null, sort_order: 0, products: null },
+      { id: 'b', name: 'b', raw_path: 'b', parent_category_id: null, sort_order: 0, products: [] },
+    ];
+    const out = await listProductFilterOptions();
+    expect(out.categoryIdsWithProducts.size).toBe(0);
+  });
+
+  it('🔴 內嵌聚合要真的出現在 select 字串裡 —— 否則 count 永遠是 undefined 而集合恆空', async () => {
+    q.rows = [];
+    await listProductFilterOptions();
+    const selects = q.calls.filter((c) => c[0] === 'select').map((c) => String(c[1]));
+    expect(selects.some((sel) => sel.includes('products(count)'))).toBe(true);
   });
 });

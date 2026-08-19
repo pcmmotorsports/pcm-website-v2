@@ -6,6 +6,8 @@ import {
   parseProductListParams,
   parseProductPage,
   parseProductSetBy,
+  parseProductBrandId,
+  parseProductCategoryPath,
   type AdminProductFilter,
   DEFAULT_PAGE_SIZE,
   MAX_PAGE,
@@ -25,7 +27,12 @@ const V = (page: number): AdminProductView => ({ page, size: DEFAULT_PAGE_SIZE }
 //    ⇒ 按「手動」再按「下一頁」⇒ `set_by` 蒸發、回到全部商品。
 //    ⇒ 下面「每一軸都要活過翻頁」那一組,守的是那個 bug,不是新功能。
 
-const NONE: AdminProductFilter = { setBy: undefined, keyword: undefined };
+const NONE: AdminProductFilter = {
+  setBy: undefined,
+  keyword: undefined,
+  brandId: undefined,
+  categoryPath: undefined,
+};
 
 describe('parseProductPage', () => {
   it('只收正整數;其餘一律回 1', () => {
@@ -94,28 +101,28 @@ describe('buildProductListHref', () => {
   });
 
   it('第 1 頁不寫 page=1', () => {
-    expect(buildProductListHref({ setBy: 'staff', keyword: undefined }, V(1))).toBe(
+    expect(buildProductListHref({ ...NONE, setBy: 'staff', keyword: undefined }, V(1))).toBe(
       '/products?set_by=staff',
     );
   });
 
   it('🔴🔴 每一軸都要活過翻頁 —— 這一格守的是改版前那個真 bug', () => {
     // 改版前:分頁連結只帶 page ⇒ set_by 蒸發。
-    expect(buildProductListHref({ setBy: 'staff', keyword: undefined }, V(2))).toBe(
+    expect(buildProductListHref({ ...NONE, setBy: 'staff', keyword: undefined }, V(2))).toBe(
       '/products?set_by=staff&page=2',
     );
     // `#661` 新增的那一軸,同樣要活過翻頁。
-    expect(buildProductListHref({ setBy: undefined, keyword: 'brembo' }, V(3))).toBe(
+    expect(buildProductListHref({ ...NONE, setBy: undefined, keyword: 'brembo' }, V(3))).toBe(
       '/products?q=brembo&page=3',
     );
     // 兩軸同時。
-    expect(buildProductListHref({ setBy: 'sync', keyword: 'brembo' }, V(2))).toBe(
+    expect(buildProductListHref({ ...NONE, setBy: 'sync', keyword: 'brembo' }, V(2))).toBe(
       '/products?set_by=sync&q=brembo&page=2',
     );
   });
 
   it('搜尋詞含特殊字元 ⇒ 網址要編碼(不是原樣塞進去)', () => {
-    const href = buildProductListHref({ setBy: undefined, keyword: 'a b&c' }, V(1));
+    const href = buildProductListHref({ ...NONE, setBy: undefined, keyword: 'a b&c' }, V(1));
     expect(href).toBe('/products?q=a+b%26c');
     // 🔴 反向:解回來要拿到原字串,否則「編碼對了但解不回來」也是壞的。
     const back = new URL(href, 'https://x.invalid').searchParams.get('q');
@@ -123,7 +130,7 @@ describe('buildProductListHref', () => {
   });
 
   it('中文搜尋詞可往返', () => {
-    const href = buildProductListHref({ setBy: undefined, keyword: '煞車皮' }, V(1));
+    const href = buildProductListHref({ ...NONE, setBy: undefined, keyword: '煞車皮' }, V(1));
     const back = new URL(href, 'https://x.invalid').searchParams.get('q');
     expect(back).toBe('煞車皮');
   });
@@ -131,7 +138,7 @@ describe('buildProductListHref', () => {
 
 describe('buildProductListHrefResetPage', () => {
   it('🔴 換條件一律回第 1 頁 —— 停在第 3 頁常常直接看到空白,而那看起來像「查無結果」', () => {
-    expect(buildProductListHrefResetPage({ setBy: 'staff', keyword: 'brembo' }, DEFAULT_PAGE_SIZE)).toBe(
+    expect(buildProductListHrefResetPage({ ...NONE, setBy: 'staff', keyword: 'brembo' }, DEFAULT_PAGE_SIZE)).toBe(
       '/products?set_by=staff&q=brembo',
     );
   });
@@ -141,9 +148,9 @@ describe('往返(parse ↔ build)', () => {
   it('build 出來的網址,parse 回去要拿到同一組狀態', () => {
     const cases: readonly AdminProductFilter[] = [
       NONE,
-      { setBy: 'staff', keyword: undefined },
-      { setBy: undefined, keyword: 'brembo' },
-      { setBy: 'sync', keyword: '煞車皮' },
+      { ...NONE, setBy: 'staff', keyword: undefined },
+      { ...NONE, setBy: undefined, keyword: 'brembo' },
+      { ...NONE, setBy: 'sync', keyword: '煞車皮' },
     ];
     for (const filter of cases) {
       for (const page of [1, 2, 7]) for (const size of PAGE_SIZE_OPTIONS) {
@@ -204,7 +211,7 @@ describe('size 這一軸要活過每一種換頁 / 換條件', () => {
   });
 
   it('🔴 翻頁要帶著 size —— 否則第 2 頁就跳回預設筆數', () => {
-    expect(buildProductListHref({ setBy: 'staff', keyword: 'brembo' }, { page: 87, size: 500 })).toBe(
+    expect(buildProductListHref({ ...NONE, setBy: 'staff', keyword: 'brembo' }, { page: 87, size: 500 })).toBe(
       '/products?set_by=staff&q=brembo&page=87&size=500',
     );
   });
@@ -212,13 +219,13 @@ describe('size 這一軸要活過每一種換頁 / 換條件', () => {
   it('🔴🔴 換篩選 ⇒ page 回 1、而 size 原封不動', () => {
     // 這一條守的是 AdminProductView 檔頭理由 ②:
     // 員工把每頁調成 500,按一下「手動」不該跳回 200。
-    expect(buildProductListHrefResetPage({ setBy: 'staff', keyword: undefined }, 500)).toBe(
+    expect(buildProductListHrefResetPage({ ...NONE, setBy: 'staff', keyword: undefined }, 500)).toBe(
       '/products?set_by=staff&size=500',
     );
   });
 
   it('換篩選時 size 是預設 ⇒ 網址仍然乾淨', () => {
-    expect(buildProductListHrefResetPage({ setBy: 'sync', keyword: undefined }, DEFAULT_PAGE_SIZE)).toBe(
+    expect(buildProductListHrefResetPage({ ...NONE, setBy: 'sync', keyword: undefined }, DEFAULT_PAGE_SIZE)).toBe(
       '/products?set_by=sync',
     );
   });
@@ -257,5 +264,152 @@ describe('🔴 parseProductPage 的上界 —— 審查 must-fix', () => {
     expect(parseProductPage(undefined)).toBe(1);
     expect(parseProductPage(['1', '2'])).toBe(1);
     expect(parseProductPage('3')).toBe(3);
+  });
+});
+
+// ─────────────── 2026-08-19 品牌 / 分類篩選片 ───────────────
+
+const BRAND_UUID = '61b119af-c0ea-462f-a389-094ba4e31110';
+
+describe('parseProductBrandId', () => {
+  it('🔴🔴 這一格守的是【一個量到的 400】,不是防禦性寫法', () => {
+    // 2026-08-19 對本機真 PostgREST 14.16 實測:
+    //   GET /products?brand_id=eq.notauuid
+    //   ⇒ {"code":"22P02", … invalid input syntax for type uuid: "notauuid"} / HTTP 400
+    // ⇒ 沒擋的話,員工把網址的品牌 id 改壞 = 整頁「商品列表載入失敗」。
+    // ⇒ 與分頁片那個 must-fix(`?page=1e21` 變錯誤頁)是同一個病的第二個入口。
+    expect(parseProductBrandId('notauuid')).toBeUndefined();
+    expect(parseProductBrandId("' or 1=1--")).toBeUndefined();
+    expect(parseProductBrandId('')).toBeUndefined();
+  });
+
+  it('合法 uuid 原樣通過(大小寫都收)', () => {
+    expect(parseProductBrandId(BRAND_UUID)).toBe(BRAND_UUID);
+    expect(parseProductBrandId(BRAND_UUID.toUpperCase())).toBe(BRAND_UUID.toUpperCase());
+  });
+
+  it('✅ 負向對照:陣列 / 缺 ⇒ undefined(= 不篩,不是報錯)', () => {
+    expect(parseProductBrandId(undefined)).toBeUndefined();
+    expect(parseProductBrandId([BRAND_UUID, BRAND_UUID])).toBeUndefined();
+  });
+
+  it('🔴 形狀像 uuid 但不是真 uuid 的,這一層【放行】—— 而那是刻意的', () => {
+    // 格式對、DB 裡不存在 ⇒ 查到 0 件。查無結果與錯誤頁是兩件事,
+    // 而「這個品牌沒有商品」本來就是一個合法的答案。
+    expect(parseProductBrandId('00000000-0000-0000-0000-000000000000')).toBe(
+      '00000000-0000-0000-0000-000000000000',
+    );
+  });
+});
+
+describe('parseProductCategoryPath', () => {
+  it('trim;空 / 陣列 / 缺 ⇒ undefined', () => {
+    expect(parseProductCategoryPath('  引擎部品 · 排氣管  ')).toBe('引擎部品 · 排氣管');
+    expect(parseProductCategoryPath('   ')).toBeUndefined();
+    expect(parseProductCategoryPath(undefined)).toBeUndefined();
+    expect(parseProductCategoryPath(['a', 'b'])).toBeUndefined();
+  });
+
+  it('🔴 超長截斷而不報錯;而切法要切得斷 code point、不是 code unit', () => {
+    expect(parseProductCategoryPath('字'.repeat(300))).toHaveLength(200);
+    // 🔴 200 的邊界剛好落在一個 surrogate pair 上:`slice` 會產出孤兒 surrogate,
+    //    而 `encodeURIComponent` 對孤兒 surrogate 會 throw ⇒ 整頁 500。
+    //    (同 `parseProductKeyword` 的 `#661` R1 nit-1。)
+    const withEmoji = 'a'.repeat(199) + '😀' + 'b'.repeat(50);
+    const out = parseProductCategoryPath(withEmoji);
+    expect(out).toBeDefined();
+    expect(() => encodeURIComponent(out as string)).not.toThrow();
+    expect(Array.from(out as string)).toHaveLength(200);
+  });
+});
+
+describe('🔴🔴 子分類優先 —— 零 JS 表單會【同時送出】大類與子分類兩個欄位', () => {
+  it('兩個都送 ⇒ 以子分類為準', () => {
+    const { filter } = parseProductListParams({
+      category: '引擎部品',
+      subcategory: '引擎部品 · 排氣管',
+    });
+    expect(filter.categoryPath).toBe('引擎部品 · 排氣管');
+  });
+
+  it('子分類選「全部子分類」(送空字串)⇒ 落回大類', () => {
+    const { filter } = parseProductListParams({ category: '引擎部品', subcategory: '' });
+    expect(filter.categoryPath).toBe('引擎部品');
+  });
+
+  it('🔴🔴 R1 must-fix:【換大類】時,還留在表單裡的舊子類不得蓋過去', () => {
+    // 失敗情境(零 JS 下真的會發生):網址是 ?category=引擎部品 · 排氣管(選中子類)
+    // ⇒ 子分類下拉的值就是它。員工把「分類」改成別的大類按套用 ——
+    // 子分類欄位【原封送出】⇒ ?category=服務與其他&subcategory=引擎部品 · 排氣管
+    // ⇒ 舊的 `??` 讓子類勝 ⇒ 清單一筆沒變,而大類下拉又跳回引擎部品。
+    // 那正是本檔檔頭反覆宣稱要防的病,只是方向相反:不是「被洗掉」,是「蓋過去」。
+    const { filter } = parseProductListParams({
+      category: '服務與其他',
+      subcategory: '引擎部品 · 排氣管',
+    });
+    expect(filter.categoryPath).toBe('服務與其他');
+  });
+
+  it('🔴🔴 R1 must-fix:選中子類時,「分類→全部分類」要清得掉', () => {
+    // 同一個病的第二個症狀:清不掉的篩選。
+    const { filter } = parseProductListParams({
+      category: '',
+      subcategory: '引擎部品 · 排氣管',
+    });
+    expect(filter.categoryPath).toBeUndefined();
+  });
+
+  it('✅ 負向對照:只有大類 ⇒ 就是大類;兩個都沒有 ⇒ undefined', () => {
+    expect(parseProductListParams({ category: '引擎部品' }).filter.categoryPath).toBe('引擎部品');
+    expect(parseProductListParams({}).filter.categoryPath).toBeUndefined();
+  });
+
+  it('🔴 而【產生】連結時永遠只寫 category —— 網址只有一種正規寫法', () => {
+    const href = buildProductListHref(
+      { ...NONE, categoryPath: '引擎部品 · 排氣管' },
+      V(1),
+    );
+    expect(href).not.toContain('subcategory');
+    const back = new URL(href, 'https://x.invalid').searchParams;
+    expect(back.get('category')).toBe('引擎部品 · 排氣管');
+  });
+});
+
+describe('🔴 新增的兩軸也要活過翻頁(與 set_by 那個真 bug 同一條守則)', () => {
+  it('品牌 + 分類 + 翻頁 ⇒ 三軸都還在', () => {
+    const href = buildProductListHref(
+      { ...NONE, brandId: BRAND_UUID, categoryPath: '引擎部品 · 排氣管' },
+      V(4),
+    );
+    const p = new URL(href, 'https://x.invalid').searchParams;
+    expect(p.get('brand')).toBe(BRAND_UUID);
+    expect(p.get('category')).toBe('引擎部品 · 排氣管');
+    expect(p.get('page')).toBe('4');
+  });
+
+  it('🔴 換 chip(reset page)不得把品牌/分類洗掉,而 page 要回 1', () => {
+    const href = buildProductListHrefResetPage(
+      { ...NONE, setBy: 'staff', brandId: BRAND_UUID, categoryPath: '引擎部品' },
+      DEFAULT_PAGE_SIZE,
+    );
+    const p = new URL(href, 'https://x.invalid').searchParams;
+    expect(p.get('brand')).toBe(BRAND_UUID);
+    expect(p.get('category')).toBe('引擎部品');
+    expect(p.get('page')).toBeNull();
+  });
+
+  it('🔴🔴 往返:build 出來的網址 parse 回去,四軸逐一相等', () => {
+    const cases: readonly AdminProductFilter[] = [
+      { ...NONE, brandId: BRAND_UUID },
+      { ...NONE, categoryPath: '引擎部品 · 排氣管' },
+      { ...NONE, setBy: 'staff', keyword: '煞車皮', brandId: BRAND_UUID, categoryPath: '引擎部品' },
+    ];
+    for (const filter of cases) {
+      for (const page of [1, 3]) {
+        const href = buildProductListHref(filter, { page, size: DEFAULT_PAGE_SIZE });
+        const raw = Object.fromEntries(new URL(href, 'https://x.invalid').searchParams);
+        expect(parseProductListParams(raw).filter).toEqual(filter);
+      }
+    }
   });
 });
