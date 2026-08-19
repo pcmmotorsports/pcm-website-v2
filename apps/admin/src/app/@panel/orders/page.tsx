@@ -75,7 +75,7 @@ export default async function OrderPanelPage({
   const customerId = readOpenCustomerPanelId(raw);
   if (customerId) {
     return (
-      <div className='@container sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
+      <div className='@container panel-width-locked sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
         <CustomerPanel
           data={await loadCustomerDetail(customerId)}
           backHref={buildPanelSelfHref(raw, panelId)}
@@ -135,7 +135,26 @@ export default async function OrderPanelPage({
     //       覆蓋層若進到面板裡,會被**困在面板內**而不是蓋滿視窗。兩條的解法都是 portal。
     // 🔴 `@container`:讓 `order-detail.tsx` 的欄數看**面板寬度**而不是視窗寬度
     //    (主視窗 2026-08-10 裁④);沒有它,1920 螢幕上的 576px 面板會硬排四欄。
-    <div className='@container sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
+    /* 🔴 `panel-width-locked` = **訂單編輯面板固定 720px**(Sean 2026-08-19 拍「甲」)。
+        🔴 **順序不可換:`@container` 必須是第一個 token** —— `order-panel-wiring.test.ts`
+           的「守門 6」斷言的是 `className='@container` 這個**字面前綴**,把標記寫在它前面
+           會讓那格當場紅(本片第一版就是這樣被它抓到的)。**那道守門沒有錯,不要去改它。**
+        規則本體在 `globals.css`(`:has()`,零 JS)。
+        🔴🔴 **接點有【兩個】,不是一個**(2026-08-19 W4 審查 F1;我上一版寫「唯一的接點」**不實**):
+           ① class 名本身 ② `.workspace-panel > .panel-width-locked` 的**直接子代關係**。
+           ⇒ 有人在 `workspace-shell.tsx:154` 把 `{panel}` 多包一層(error boundary / 捲動容器 /
+             `<Suspense>`),class 名一個字沒動、**規則卻不再匹配** ⇒ 面板安靜退回可拖的 cookie 寬度。
+           ⇒ **兩個接點都要釘**,
+        `workspace-shell.test.ts` 兩邊對照釘死 —— 同 `workspace-panel` 三兄弟的既有慣例。
+        🔴 **為什麼標記在這裡、而不是去改殼或 `workspace-panel.ts`**:
+           Sean 被問的、他答的都是**訂單編輯面板**的寬度。殼是共用基礎設施
+           (`workspace-shell.tsx:16-17` 逐字「面板是共用基礎設施,不是訂單專屬」),
+           改殼 = 替他決定一件他沒有被問過的事(主視窗 2026-08-19 裁甲,邊界寫在
+           `~/pcm-mailbox/MAIN-057…md` §5①)。
+        ⚠️ **客人卡那條路(上面那個 return)也帶同一個標記,而那是刻意的**:
+           客人卡是「蓋在某張訂單的面板上」(本檔 `:63-66` 逐字),不是獨立視圖
+           ⇒ 少了它,點「客人明細」面板會從 720 跳回 cookie 寬度、關掉再跳回來。 */
+    <div className='@container panel-width-locked sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
       {body}
     </div>
   );

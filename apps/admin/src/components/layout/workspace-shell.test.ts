@@ -89,6 +89,67 @@ describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 唯一的
   });
 });
 
+// ── 片1:訂單編輯面板固定 720px(Sean 2026-08-19 拍「甲」)────────────────────
+//
+// 🔴 **為什麼這一組也需要守門,理由與上面那組逐字同型**:接點是一個 class 名,
+//    而它壞掉時**沒有執行期訊號** —— 面板只是安靜地回到可拖曳的 cookie 寬度,
+//    看起來像「Sean 自己拖過」,不像故障。三綠不紅、CSS 不紅、畫面不報錯。
+// ⚠️ **擋得住 / 擋不住(不要讀成「720 已驗證」)**:
+//    擋得住 —— 標記 class 在任一邊被改名或刪掉、三個寬度值被改、把手那條規則被拿掉。
+//    **擋不住** —— `:has()` 在真瀏覽器到底有沒有匹配、720 在 Sean 的螢幕上好不好看、
+//    以及窄視窗下內容區被壓扁。那三樣要**真瀏覽器 + Sean 的眼睛**。
+const LOCK = '.workspace-row:has(.workspace-panel > .panel-width-locked)';
+const PANEL_ROUTE = stripComments(read('../../app/@panel/orders/page.tsx'));
+
+describe('片1 訂單編輯面板固定 720px', () => {
+  // ⚠️ **射程**:本組只讀 `app/@panel/orders/page.tsx` 這一支 route。
+  //    `@panel` 槽底下其餘兩支(`default.tsx` / `[...catchAll]/page.tsx`)**一律回 `null`、不渲染面板**
+  //    ⇒ 今天不會有第二個產生點。日後若有人新增會渲染內容的槽路由,**本組看不到它**。
+  it('🔴 標記 class `panel-width-locked` 在**面板路由**與 **CSS** 兩邊都在(對不上 = 安靜地退回可拖寬度)', () => {
+    expect({ tsx: /\bpanel-width-locked\b/.test(PANEL_ROUTE) }).toEqual({ tsx: true });
+    expect({ css: GLOBALS.includes('.panel-width-locked') }).toEqual({ css: true });
+  });
+
+  // 🔴 客人卡那條 return 少了標記的話,點「客人明細」面板會從 720 跳回 cookie 寬度、
+  //    關掉再跳回來 —— 一個只在**點下去那一刻**才看得到的抖動。
+  // 🔴 **不要只數出現次數** —— 那把尺會被「有人在註解裡提到這個 class」推歪
+  //    (本片自己就差點踩到:原始碼裡連註解共 3 次、剝註解後才是 2 次)。
+  //    改成**釘在它該出現的位置**:標記必須緊貼在 `@container` 之後,那是兩個 return 的 div 各一。
+  // ⚠️ **本格的已知脆弱**:它比對的是**相鄰字面**`@container panel-width-locked`
+  //    ⇒ 有人在兩者之間插入第三個 class 會**假紅**(規則其實沒壞)。
+  //    留著是刻意的:假紅會被下一個人當場看到並讀懂,而**漏掉客人卡那半是靜默的**。
+  //    (同 `order-panel-wiring.test.ts` 守門 6 釘 `className='@container` 前綴的取捨。)
+  it('🔴 面板路由的**兩個** return 都帶標記(客人卡是蓋在同一塊面板上,不是獨立視圖)', () => {
+    expect(PANEL_ROUTE.match(/@container panel-width-locked/g)?.length).toBe(2);
+  });
+
+  it('🔴 三個寬度值**全部**釘在 720px(少一個就會被 ② 的可拖規則從那一側拉走)', () => {
+    // 🔴 先斷言選擇器真的在,再切 —— 少了這一行,選擇器被改名時 `indexOf` 回 -1、
+    //    `slice(-1)` 切出最後一個字元,下面三條**照樣會紅但理由是錯的**
+    //    (那種紅在下一次重構時會變成綠而沒有人知道為什麼)。
+    expect(GLOBALS).toContain(`${LOCK} > .workspace-panel`);
+    const block = GLOBALS.slice(GLOBALS.indexOf(`${LOCK} > .workspace-panel`));
+    expect(block).toMatch(/width:\s*720px/);
+    expect(block).toMatch(/min-width:\s*720px/);
+    expect(block).toMatch(/max-width:\s*720px/);
+  });
+
+  it('🔴 鎖寬時把手要一起收掉(只鎖寬度而留著把手 = 一個按得下去、而畫面不動的壞控制項)', () => {
+    expect(GLOBALS).toContain(`${LOCK} > .workspace-handle`);
+  });
+
+  // 🔴🔴 **W4 審查 F1:接點有兩個,而第二個原本零守門。**
+  //    上面那些格全部在問「class 名還在不在」;而 `>` 是**直接子代**選擇器 ——
+  //    在 `workspace-shell.tsx:154` 把 `{panel}` 多包一層(error boundary / 捲動容器 /
+  //    `<Suspense>`)就會讓規則不再匹配,**class 名一個字沒動、上面每一格照樣全綠**,
+  //    而畫面上只是「面板又可以拖了」= 看起來像有人調過,不像故障。
+  // 🔴 **同一個曝險【規則 ① 也有】**(空槽收合那條也用 `> *`)⇒ 一起釘,不要只修被指名的這一處。
+  //    (「折 finding 的預設動作是只處理被指名那一格」—— 本 repo 記過的形狀。)
+  it('🔴 `{panel}` 必須是 `.workspace-panel` 的**直接子代**(多包一層 ⇒ 兩條 `:has()` 規則同時失效而全綠)', () => {
+    expect(SHELL).toMatch(/className='workspace-panel shrink-0'>\{panel\}/);
+  });
+});
+
 describe('#350b 寬度夾範圍:CSS 與 TS 常數是同一組規則的兩個落點', () => {
   // 🔴 夾範圍改在 CSS 做之後(第一幀就正確、不會因縮視窗把偏好永久改小),
   //    同一組數字就有了**兩個落點** ⇒ 改一邊不改另一邊,兩者會靜默分歧:
