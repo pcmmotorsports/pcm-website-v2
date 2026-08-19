@@ -24215,3 +24215,61 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
   ⚠️ **不要**為了手機把桌機的欄頭連結改掉 —— 桌機那條是正確的做法。
 - **歸屬**:未定。⚠️ **而本條的前提是「後台要支援手機」,那件事本身沒有被拍板過**
   ⇒ 動它之前先確認那個前提,不要直接開工。
+
+### #780 · 物件的【鍵】同時是表單欄位名 —— 而改名的人只看得到人的那一面
+
+- **狀態:** 待處理(2026-08-19 W6 在審 W5 貼料號片時掃出第二個實例;W5 補量嚴重度後立案)
+- **在哪:**
+  ```
+  已修  apps/admin/src/components/shared/list-pagination.tsx:102   <Hidden> —— 商品頁貼料號片已收斂
+  🔴 未修 apps/admin/src/components/shared/admin-form.tsx:100-103   逐字同款:
+        {hidden && Object.entries(hidden).map(([name, value]) => (
+           <input key={name} type='hidden' name={name} value={value} />))}
+  呼叫端 5 支(全部走 server action 的 FormData,不是 GET query):
+    customers/profile-edit-form.tsx:38 · customers/tier-edit-form.tsx:30
+    customers/wallet-adjust-form.tsx:28（🔴 動錢）
+    orders/order-edit-form.tsx:46 · products/product-listing-form.tsx:40
+  ```
+- **病(判別句,W6 給的,比「鍵不要當協定」準):**
+  > **這個鍵有兩個讀者嗎 —— 一個是人(程式碼),一個是機器(表單/網址/DB)?**
+  > **有 ⇒ 它就不是一個名字,是一份協定,而改名的人只會看到人的那一面。**
+
+  🔴 **而這不是假設:W5 在修 `<Hidden>` 那一處時【真的寫出了那個錯】** ——
+  第一版把鍵從 param 名改成 TS 欄位名(為了套上 `Record<keyof …>` 窮舉守門),
+  結果會讓 `set_by` 渲染成 `name='setBy'`。**typecheck 綠、eslint 綠、既有測試綠。**
+  是去讀 `<Hidden>` 的實作才發現的,不是被工具擋下來的。
+
+## 🔴 嚴重度:**會吵,不會靜默** —— 這格 W5 補量了(W6 明說他答不出)
+
+  W6 原本的擔心是「拿 null/預設值覆蓋真資料」。**實查五支 parser,全部 fail-closed**:
+  ```
+  wallet-form.ts:63-64          customer_id 拿不到 / 非 UUID ⇒ return { ok: false }
+  profile-form.ts:93            同上
+  tier-form.ts:59               同上
+  orders/workflow-form.ts:128   order_id 同上
+  products/product-listing-form.ts:78  product_id 同上
+  數法:grep -nE "UUID_RE.test|return \{ ok: false \}" <那五支>
+  ```
+  ⇒ 鍵被改名 ⇒ id 讀不到 ⇒ **action 直接拒收**,不會拿 null 寫進去。
+  ⇒ **症狀是「這張表單按了沒反應」,不是「錢被改錯」。** 嚴重度從「可能動到錢」降為「功能靜靜壞掉」。
+  ⚠️ **而這個結論的射程只到【那五支現有的呼叫端】** —— 新增一支而忘了驗 id,這道保護就不在了。
+
+## 不修未來會痛在哪(鐵則 10)
+
+  ```
+  ① 那五張表單裡有 wallet / tier / order-workflow —— 都是員工每天在按的
+     「按了沒反應」對員工而言與「系統壞了」無法區分，而他會重按、會以為自己填錯
+  ② 🔴 而它【沒有守門】：改名的人看到的是一個 TS 物件的鍵，
+     那一刻沒有任何東西告訴他「這個鍵會變成 HTML 的 name=」
+  ③ 觸發時機不是「有人手癢改名」，是**任何一次為了型別安全而收斂**
+     —— 而那種改動看起來完全正確（W5 就是這樣寫出來的）
+  ```
+
+- **修法(未定,列給裁的人):**
+  ```
+  甲 讓 hidden 的鍵有【型別上的來源】：像 filterHrefEntries() 那樣，
+     把「欄位名常數 → 值」收成一支共用函式，呼叫端不再手寫物件字面
+  乙 在 <AdminForm> 的 props 型別上把鍵限成那些 *_FIELD 常數的聯集
+  丙 只加註解（成本最低、而它防不住「為了型別安全而收斂」那條路 —— 那正是最會發生的一條）
+  ```
+- **連動:** `docs/patterns/guard-and-instrument-traps.md`(同族:守門看得到的與協定實際用的不是同一面)
