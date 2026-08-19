@@ -24356,3 +24356,46 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
   ```
   ⚠️ 三者**不衝突**:前兩條問的是【正確性】,本條問的是【時間】—— **URL 對、key 對、最後也會顯示對的那張單。**
 - 全文與時點:`~/pcm-mailbox/W1-075-第5條三條路走到底-機制在而現在不痛-20260820.md`
+
+### #703 · ⏱️ 結帳路徑上的 TapPay 呼叫**沒有給中止訊號**,而契約說那等於**無逾時**
+
+> 🔴 **標題刻意不寫「結帳會吊住」** —— 那是**未驗的**。本條只宣稱兩件量到的事實。
+
+- **量到的**(2026-08-20,**寫這條的當下跑的**,值貼在下面)
+  ```bash
+  grep -c 'AbortSignal\|signal' packages/use-cases/src/settle-charge.ts       ⇒ 0
+  # 正對照（必須非 0，否則是我的 grep 寫錯）：
+  grep -c 'AbortSignal.timeout' apps/admin/src/lib/payment/refund-actions.ts          ⇒ 1
+  grep -c 'AbortSignal.timeout' apps/admin/src/lib/payment/refund-recovery-actions.ts ⇒ 1
+  ```
+  而**契約** `packages/ports/src/ITapPayAdapter.ts:98-99` 逐字:
+  ```ts
+  /** 中止訊號;未給 = 沿用既有行為(無逾時)。 */
+  signal?: AbortSignal;
+  ```
+- **三個 `recordQuery` 呼叫點,而只有兩個給了逾時**
+  ```
+  packages/use-cases/src/settle-charge.ts:79                    🔴 沒給
+  apps/admin/src/lib/payment/refund-actions.ts:213/:215            給了 REFUND_RECORD_QUERY_TIMEOUT_MS
+  apps/admin/src/lib/payment/refund-recovery-actions.ts:124/:126   給了同一個常數
+  ```
+- **🔴 不修未來會痛在哪 —— 而這一格要誠實:我們【不知道】它會不會痛**
+  ```
+  另外兩個呼叫點都給了逾時 —— 那是【兩個人各自獨立判斷這件事有風險】
+  而這一處沒有，🔴 **我們不知道是刻意還是漏掉**
+  ```
+  ⇒ 📌 **那句「不知道是刻意還是漏掉」不是含糊,它把下一個人的第一個動作定成【去問 / 去查】**,
+  而不是「照我的推測去改」。
+- ⚠️ **本條【不擴大】的兩個限定(引用時要帶著走)**
+  ```
+  ① 量到的是【呼叫點沒給 signal】+【契約說那等於無逾時】
+  ② 它實際會不會吊住，取決於 runtime fetch 的預設 —— **沒有人量過**
+  ⇒ 所以本條答不出「結帳會不會卡住」，只答得出「這一處沒有那道保護，而另外兩處有」
+  ```
+- **為什麼它現在才被看到**:這一格是**查別的事情時撞到的**
+  (`W1-071` 在核「開面板那條路拿不拿得到 `is_captured`」時,順手數了三個呼叫點)。
+  🔴 而**沒有任何守門會發現它** —— 少給一個可選參數,`typecheck` 不紅、測試不紅。
+- **不進 Sean 早上那份決策清單**(主視窗裁定):那份四題全部是**他回一個字就完**的,
+  而本條**他答不了** —— 它要先有人去量 runtime 預設,**那是我們的工作,不是他的決定**。
+
+— 立條:W1,2026-08-20(來源 `~/pcm-mailbox/W1-071-…` 第三修那一節)
