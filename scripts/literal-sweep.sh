@@ -15,6 +15,17 @@
 #         bash scripts/literal-sweep.sh 'refund-read\.ts:1[0-9][0-9]' --regex
 #
 # 收工檢查表用法(一行):改了任何對外字面/守門述詞後,拿**舊字面**跑一次,逐類看完再 commit。
+#
+# 🔴🔴 **這把尺比對的是【單一字面、大小寫敏感】,不是「一個名字」**(2026-08-19 W2 實錘,本檔零行為改動、只加說明):
+#    當天用 `literal-sweep.sh 'PCM Motorsports'` 掃 `docs/marketing/` ⇒ 回 **6**;
+#    而 `grep -rn "PCM Motorsports\|PCM MOTORSPORTS" docs/marketing/` ⇒ **7**
+#    —— 差的那一處是全大寫的 `PCM MOTORSPORTS`(`demo-board-brief.md:46`)。
+#    ⇒ 🔴 **病灶不在工具,在【報告的句子】**:我報的是「有 6 處」,而我量的是
+#      「**有 6 處符合這一種拼法**」。**名字有大小寫/空白/縮寫變體,字面沒有。**
+#    ⇒ **要掃一個【名字】**:每一種變體各跑一次,或改用 `grep -i` / `--regex` 自己組變體。
+#      **只跑一次的結果,只能寫「有 N 處符合這一種拼法」,不能寫「有 N 處」。**
+#    ⚠️ **本工具的比對邏輯刻意不改**(主視窗 2026-08-19 裁):改行為會讓所有既有呼叫端的
+#      歷史數字失去可比性。**這裡只加說明。**
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
