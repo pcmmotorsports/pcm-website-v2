@@ -11,7 +11,11 @@ import { SupabaseCustomerAdapter, ADMIN_CUSTOMER_LIST_SELECT } from './SupabaseC
 // eq 可鏈(回自身 builder);order 回 {range};range 為終端、await 回 {data, error, count}。
 function makeAdminListClient(result: { data: unknown; error: unknown; count: number | null }) {
   const range = vi.fn().mockResolvedValue(result);
-  const order = vi.fn().mockReturnValue({ range });
+  // 🔴 **2026-08-19:`order` 改成可鏈** —— 排序片之後這條鏈是 `.order().order().range()`
+  //    (第二個是 `user_id`,排序的唯一鍵)。原本 `order` 回 `{ range }` ⇒ 第二次 `.order()` 會炸。
+  //    ⚠️ 改 harness 不是為了讓測試變綠:**產品的鏈真的多了一節**,harness 不跟著就模擬不到它。
+  const order: ReturnType<typeof vi.fn> = vi.fn();
+  order.mockReturnValue({ order, range });
   const eq = vi.fn();
   const builder = { eq, order };
   eq.mockReturnValue(builder);
@@ -173,5 +177,86 @@ describe('🔴 客戶頁三欄的 null / 零值語意', () => {
     expect(res.items[0]!.activeOrderCount).toBe(0);
     expect(res.items[0]!.activeSpendTotal).toBe(0);
     expect(res.items[0]!.lastActiveOrderedAt).toBeNull();
+  });
+});
+
+describe('listCustomerSummariesForAdmin · 排序軸(2026-08-19)', () => {
+  const rows = [
+    {
+      user_id: '11111111-1111-1111-1111-111111111111',
+      name: '甲', email: 'a@example.com', phone: null, tier: 'general',
+      created_at: '2026-08-01T00:00:00Z',
+      active_order_count: 0, active_spend_total: 0, last_active_ordered_at: null,
+    },
+  ];
+  const ok = { data: rows, error: null, count: 1 };
+
+  it('🔴🔴 「最後下單」降冪必須 `nullsFirst: false` —— 否則第一頁全是【從來沒下過單的人】', async () => {
+    // 那一欄零訂單時是 NULL（建 view 的 migration 20260816030000 檔頭逐字「刻意不 coalesce」），
+    // 而 Postgres 的 DESC 預設是 **NULLS FIRST**。
+    // 🔴 而這種錯【畫面看起來完全正常】—— 員工只會覺得這個排序沒用，不會回報。
+    const { client, order } = makeAdminListClient(ok);
+    await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+      {}, { limit: 20 }, { key: 'lastOrder', ascending: false },
+    );
+    expect(order).toHaveBeenNthCalledWith(1, 'last_active_ordered_at', {
+      ascending: false,
+      nullsFirst: false,
+    });
+  });
+
+  it('🔴 升冪也要 `nullsFirst: false` —— 兩個方向都把「沒有值」排最後,不是換一邊錯', async () => {
+    const { client, order } = makeAdminListClient(ok);
+    await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+      {}, { limit: 20 }, { key: 'lastOrder', ascending: true },
+    );
+    expect(order).toHaveBeenNthCalledWith(1, 'last_active_ordered_at', {
+      ascending: true,
+      nullsFirst: false,
+    });
+  });
+
+  it('🔴🔴 每一種排序都要帶 `user_id` 當第二鍵 —— 否則同分的那一群翻頁會漂', async () => {
+    // active_order_count = 0 的客人可能有幾百個，它們之間完全沒有定序
+    // ⇒ 翻頁時同一個人出現兩次、另一個永遠看不到。
+    // ⚠️ 這個病【現在就存在】(預設排序也只有一把 created_at)，不是排序片引入的。
+    // 🔴 而 user_id 撐得起唯一性，依賴的是那支 view **不 GROUP BY / 不 DISTINCT / 不 join orders**
+    //    (20260816030000:37 逐字「三個新欄一律純量子查詢」)——
+    //    **那條規則是為了別的理由寫的，而我們搭它的便車。它被改掉，這個第二鍵就不再唯一。**
+    for (const sort of [
+      { key: 'spend', ascending: false },
+      { key: 'orders', ascending: true },
+      { key: 'lastOrder', ascending: false },
+    ] as const) {
+      const { client, order } = makeAdminListClient(ok);
+      await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin({}, { limit: 20 }, sort);
+      expect(order).toHaveBeenNthCalledWith(2, 'user_id', { ascending: true });
+    }
+  });
+
+  it('🔴 沒帶 sort ⇒ 預設那條【逐字沒有變】,而第二鍵仍然要在', async () => {
+    const { client, order } = makeAdminListClient(ok);
+    await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin({}, { limit: 20 });
+    // 負對照:預設路徑不得長出 nullsFirst（created_at 是 NOT NULL，加了是零行為差異的雜訊）
+    expect(order).toHaveBeenNthCalledWith(1, 'created_at', { ascending: false });
+    expect(order).toHaveBeenNthCalledWith(2, 'user_id', { ascending: true });
+  });
+
+  it('🔴 三個鍵各自對應到【已經存在的 view 欄】,而不是別的欄', async () => {
+    // 這一格擋的是「改了 domain 的鍵名而對照表沒跟著改」——那時它會靜靜地排錯一欄。
+    const expected = {
+      spend: 'active_spend_total',
+      orders: 'active_order_count',
+      lastOrder: 'last_active_ordered_at',
+    } as const;
+    for (const [key, column] of Object.entries(expected)) {
+      const { client, order } = makeAdminListClient(ok);
+      await new SupabaseCustomerAdapter(client).listCustomerSummariesForAdmin(
+        {}, { limit: 20 }, { key: key as keyof typeof expected, ascending: false },
+      );
+      expect(order).toHaveBeenNthCalledWith(1, column, { ascending: false, nullsFirst: false });
+      // 🔴 而那三欄必須真的在白名單投影裡 —— 排一個沒 select 的欄，PostgREST 不一定會抱怨
+      expect(ADMIN_CUSTOMER_LIST_SELECT).toContain(column);
+    }
   });
 });

@@ -32,7 +32,7 @@ export default async function CustomersPage({
   searchParams: Promise<SearchParams>;
 }) {
   const rawSearch = await searchParams;
-  const { filter, page } = parseCustomerListSearchParams(rawSearch);
+  const { filter, page, sort } = parseCustomerListSearchParams(rawSearch);
   // 🔴 #365:儲值金 / 會員等級兩支 action 的失敗出口是**寫死**的 `redirect('/customers?r=…')`
   //    (`lib/customers/wallet-actions.ts:33`/`:39`、`tier-actions.ts:35`/`:41`)——
   //    也就是**所有** `denied` / `invalid` 都落在這一頁。這頁先前沒有橫幅 ⇒ 員工按下去之後
@@ -59,6 +59,9 @@ export default async function CustomersPage({
       //    (`undefined` = 不打 RPC;`''` 會打一次必然全空的 RPC)。
       keyword === null ? filter : { ...filter, keyword },
       { limit: CUSTOMERS_PAGE_SIZE, offset },
+      // 🔴 `undefined` = 沒指定 ⇒ adapter 走既有的 `created_at DESC`。
+      //    **換預設排序是行為改動**(那是 Sean 每天打開先看到誰)⇒ 不在這一片。
+      sort,
     );
   } catch (error) {
     console.error('[admin/customers] 客戶列表載入失敗', error);
@@ -94,13 +97,19 @@ export default async function CustomersPage({
         </div>
       ) : (
         <>
-          <CustomersTable customers={customers} />
+          {/* 🔴 `filter` 與 `sort` 傳進去是為了**建欄頭的排序連結**,不是為了顯示。
+              欄頭連結一律 `page=1`(排序換了還停在第 3 頁 ⇒ 看到的是新排序的第 3 頁)。 */}
+          <CustomersTable customers={customers} filter={filter} sort={sort} />
           <ListPagination
             page={page}
             total={total}
             pageSize={CUSTOMERS_PAGE_SIZE}
             shownCount={customers.length}
-            buildHref={(p) => buildCustomerListHref(filter, p)}
+            buildHref={(p) =>
+              // 🔴 翻頁要**帶著排序走** —— 少了它,翻到第 2 頁會回到預設排序,
+              //    而畫面上的箭頭還指在原來那一欄。
+              buildCustomerListHref(filter, p, sort)
+            }
             unit='位'
           />
         </>

@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseCustomerListSearchParams,
   buildCustomerListHref,
+  buildCustomerSortHref,
   formatCustomerDate,
   CUSTOMERS_PAGE_SIZE,
   TIER_LABEL,
@@ -110,4 +111,100 @@ describe('customerEmailDisplay', () => {
 //    這一格是第一版寫死 `string` 時炸掉 21 格頁級測試的那個洞。
 it('null 原樣回傳,不轉成替代字面', () => {
   expect(customerEmailDisplay(null)).toBeNull();
+});
+
+// ───────────── 排序(2026-08-19;plan 已批)─────────────
+
+describe('客戶列表排序 · 網址參數', () => {
+  it('三個軸各自解析得出來,而網址值是 snake、domain 鍵是 camel', () => {
+    expect(parseCustomerListSearchParams({ sort: 'spend', dir: 'asc' }).sort).toEqual({
+      key: 'spend',
+      ascending: true,
+    });
+    expect(parseCustomerListSearchParams({ sort: 'orders', dir: 'desc' }).sort).toEqual({
+      key: 'orders',
+      ascending: false,
+    });
+    expect(parseCustomerListSearchParams({ sort: 'last_order' }).sort).toEqual({
+      key: 'lastOrder',
+      ascending: false, // 沒給 dir ⇒ 該軸的預設方向（降冪）
+    });
+  });
+
+  /**
+   * 🔴🔴 **W6 `W6-06x` 指名要補的那一格。**
+   *
+   * `sort` 是這一片裡**唯一一個會變成 `.order(<欄名>)` 的 URL 參數** ——
+   * **它是從網址流進查詢語句的那一條路。**
+   * 白名單在型別層擋得住編譯期的錯,**擋不住執行期一個沒有人餵過的字串**。
+   * 📌 而它與下面那格(關鍵字不得進 URL)是**同一個母題的兩半**:
+   *    那格守「不該進 URL 的東西別進去」,本格守「**從 URL 進來的東西別直接出去**」。
+   */
+  it('🔴🔴 白名單外的 sort / dir 一律落回預設,而那個字串【不會到達查詢層】', () => {
+    for (const bad of ['created_at', 'wallet_balance', 'name; drop', '', 'SPEND', 'lastOrder']) {
+      expect(parseCustomerListSearchParams({ sort: bad }).sort).toBeUndefined();
+    }
+    // dir 亂寫 ⇒ 軸仍成立、方向落回該軸預設(不是整個排序失效)
+    expect(parseCustomerListSearchParams({ sort: 'spend', dir: '亂寫' }).sort).toEqual({
+      key: 'spend',
+      ascending: false,
+    });
+    // 🔴 正對照:白名單內的值要真的認得出來 —— 沒有這一格,「永遠回 undefined」也會綠
+    expect(parseCustomerListSearchParams({ sort: 'spend' }).sort).toBeDefined();
+  });
+
+  it('🔴 同名參數送兩份 ⇒ 當沒指定(不取第一個 —— 那會讓網址說了兩件事而只套一件)', () => {
+    expect(parseCustomerListSearchParams({ sort: ['spend', 'orders'] }).sort).toBeUndefined();
+  });
+
+  it('欄頭連結:已經在這一軸 ⇒ 反向;不在 ⇒ 該軸預設方向;而【一律回 page 1】', () => {
+    const none = buildCustomerSortHref({}, undefined, 'spend');
+    expect(none).toContain('sort=spend');
+    expect(none).toContain('dir=desc');
+    expect(none).not.toContain('page=');
+
+    const toggled = buildCustomerSortHref({}, { key: 'spend', ascending: false }, 'spend');
+    expect(toggled).toContain('dir=asc');
+
+    // 換一軸 ⇒ 不是反向，是新軸的預設方向
+    const other = buildCustomerSortHref({}, { key: 'spend', ascending: true }, 'orders');
+    expect(other).toContain('sort=orders');
+    expect(other).toContain('dir=desc');
+  });
+
+  it('排序與 tier 並存 —— 改排序不洗掉 tier', () => {
+    const href = buildCustomerSortHref({ tier: 'store' }, undefined, 'orders');
+    expect(href).toContain('tier=store');
+    expect(href).toContain('sort=orders');
+  });
+
+  it('翻頁帶著排序走 —— 少了它，第 2 頁會回到預設排序而箭頭還指在原欄', () => {
+    const href = buildCustomerListHref({}, 3, { key: 'lastOrder', ascending: true });
+    expect(href).toContain('sort=last_order');
+    expect(href).toContain('dir=asc');
+    expect(href).toContain('page=3');
+  });
+
+  /**
+   * 🔴🔴 **`#525`:客戶搜尋詞是姓名 / Email / 電話 ⇒ 走 httpOnly cookie,刻意不進 URL。**
+   *
+   * 而排序參數進 URL **會誘使下一個人順手把搜尋詞也帶上** —— 訂單頁那些 builder 正是那樣寫的
+   * ⇒ **他不是會不小心,他是會照既有做法做。**
+   * ⇒ 所以這不是一句警語,是一道**會紅**的門。
+   */
+  it('🔴🔴 buildCustomerListHref 的輸出【永遠】不含關鍵字', () => {
+    const cases = [
+      buildCustomerListHref({}, 1),
+      buildCustomerListHref({ tier: 'store' }, 2, { key: 'spend', ascending: true }),
+      buildCustomerSortHref({ tier: 'premiumStore' }, { key: 'orders', ascending: false }, 'lastOrder'),
+      // 🔴 硬塞:就算有人把 keyword 放進 filter（型別上它是合法的 AdminCustomerFilter 欄位），
+      //    這支 builder 也不得把它寫進網址。**這一格就是那個負對照。**
+      buildCustomerListHref({ tier: 'general', keyword: '王小明' }, 1, { key: 'spend', ascending: false }),
+    ];
+    for (const href of cases) {
+      expect(href).not.toContain('keyword');
+      expect(href).not.toContain('王小明');
+      expect(href).not.toContain('q=');
+    }
+  });
 });

@@ -48,6 +48,34 @@ export type Customer = {
  *    刪掉會讓後人以為這是漏做。**要改的是它的狀態,不是它的存在。**
  * 🔴 **`keyword` 已加進型別,但【後端尚未實作】** —— 見該欄位自己的 docstring。
  */
+/**
+ * 後台客戶列表的**排序軸**(2026-08-19 W3;主視窗裁「這不是決策題」——
+ * 一個列表顯示了三個數字欄而不能按它們排序,換任何一個後台都會有)。
+ *
+ * 🔴 **與 `AdminCustomerFilter` 分開,是刻意的**:篩選決定**哪些列進來**,
+ *    排序決定**它們怎麼排** —— 兩者混在一個型別裡,下一個人會把排序值也拿去做 where 下推。
+ *
+ * 🔴 **三個鍵各自對應 `admin_customer_list_v` 已經存在的欄**,零 migration:
+ * ```
+ * spend      active_spend_total      零訂單 ⇒ 0（view 已 coalesce）
+ * orders     active_order_count      零訂單 ⇒ 0（count 不會 NULL）
+ * lastOrder  last_active_ordered_at  零訂單 ⇒ **NULL**（view 檔頭逐字「刻意不 coalesce」）
+ * ```
+ * ⚠️ **`lastOrder` 那顆的 NULL 是這一軸最大的坑** —— 見 `SupabaseCustomerAdapter` 那段
+ *    `nullsFirst` 的註解:Postgres `DESC` 預設 **NULLS FIRST**
+ *    ⇒ 不處理的話,「最後下單由新到舊」的第一頁**全是從來沒下過單的人**,而畫面看起來完全正常。
+ *
+ * 📌 **不含預設排序** —— 預設維持 `created_at DESC`,而**換預設是行為改動**
+ *    (那是 Sean 每天打開先看到誰),不歸這一片。`undefined` = 用預設。
+ */
+export const ADMIN_CUSTOMER_SORT_KEYS = ['spend', 'orders', 'lastOrder'] as const;
+export type AdminCustomerSortKey = (typeof ADMIN_CUSTOMER_SORT_KEYS)[number];
+export type AdminCustomerSort = {
+  readonly key: AdminCustomerSortKey;
+  /** `true` = 由小到大 / 由舊到新。 */
+  readonly ascending: boolean;
+};
+
 export type AdminCustomerFilter = {
   tier?: MemberTier;
   /**

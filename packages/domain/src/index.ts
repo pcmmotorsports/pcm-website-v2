@@ -24,6 +24,8 @@ export { toMoneyAmount } from './shared/types';
 // #484a:貨品軸四值的**唯一 runtime 來源**(`OrderGoodsAxis` 由它推導)。
 // 🔴 沒有這一行它是不可達死碼 —— `export type *` 只帶型別、帶不出 const(code-reviewer 抓到)。
 export { ORDER_GOODS_AXIS_VALUES } from './order/types';
+// 2026-08-19 客戶頁排序:同上,`export type *` 帶不出 const ⇒ 少這一行它是不可達死碼。
+export { ADMIN_CUSTOMER_SORT_KEYS } from './identity/types';
 export { resolveEnd, matchFitmentYear, isYearUnrestricted } from './catalog/year-range';
 export { computeEffectivePrice } from './catalog/pricing';
 export { designTierToSchema, schemaTierToDesign } from './shared/utils';

@@ -2,6 +2,7 @@ import type {
   Customer,
   CustomerId,
   AdminCustomerFilter,
+  AdminCustomerSort,
   AdminCustomerSummary,
   AdminCustomerListResult,
   Paginated,
@@ -41,5 +42,14 @@ export interface ICustomerRepository {
   listCustomerSummariesForAdmin(
     filter: AdminCustomerFilter,
     pagination: PaginationParams,
+    /**
+     * 排序軸(2026-08-19)。**選填 —— 省略 = 維持 `created_at DESC` 的既有行為**,
+     * 所以既有呼叫端與測試一行都不必改。
+     * 🔴 **不放進 `PaginationParams`**:那是 `packages/domain/src/shared/types.ts` 的共用型別,
+     *    幾乎每個 repository 都吃它 ⇒ 為了客戶頁一片而動它,會把爆炸半徑放到全 repo。
+     * 🔴 **也不放進 `AdminCustomerFilter`**:篩選決定**哪些列進來**、排序決定**它們怎麼排**,
+     *    混在一起下一個人會把排序值拿去做 where 下推。
+     */
+    sort?: AdminCustomerSort,
   ): Promise<AdminCustomerListResult>;
 }
