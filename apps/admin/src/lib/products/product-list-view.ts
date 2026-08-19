@@ -412,11 +412,25 @@ type HrefEntry = readonly [param: string, value: string | undefined];
  *    ⚠️ 這道**只保證「每個軸都被做過決定」**,保證不了那個決定是對的:
  *      對到錯的 param 名、或該帶卻寫 `undefined`,型別一樣過。那半靠往返測試。
  */
-export function buildProductListHref(
+/**
+ * 每一個篩選軸 → `[param 名, 值]`。**這是那份對應關係的唯一副本。**
+ *
+ * 🔴🔴 **為什麼要抽出來(2026-08-19 貼料號片,W6 must-fix)**:
+ *    `buildProductListHref` 早就有這道 `Record<keyof AdminProductFilter, …>` 窮舉守門,
+ *    而 `app/products/page.tsx` 的 `filterFields`(換筆數 / 跳頁那兩張 GET form 用的
+ *    hidden 欄位 map)是**另一份手寫的對應**,**沒有守門**。
+ *    ⇒ 我加 `skus` 那一軸時:builder 這邊 `tsc` 當場紅、而那邊**靜靜地通過**
+ *      ⇒ 貼了料號再跳頁,料號整個消失(該頁檔頭記的那個病的**第四個觸發點**)。
+ *    ⇒ 抽成一支、兩邊都用它 ⇒ **加一軸而沒列,兩邊一起紅。**
+ *    📎 判別句:**能消除重複就不要去偵測不一致。**
+ *
+ * ⚠️ 這道只保證「每個軸都被做過決定」,保證不了那個決定是對的
+ *    (對到錯的 param 名、或該帶卻寫 `undefined`,型別一樣過)—— 那半靠往返測試。
+ */
+export function filterHrefEntries(
   filter: AdminProductFilter,
-  view: AdminProductView,
-): string {
-  const byFilterKey: Record<keyof AdminProductFilter, HrefEntry> = {
+): Record<keyof AdminProductFilter, HrefEntry> {
+  return {
     setBy: [SET_BY_PARAM, filter.setBy],
     keyword: [KEYWORD_PARAM, filter.keyword],
     brandId: [BRAND_PARAM, filter.brandId],
@@ -432,6 +446,28 @@ export function buildProductListHref(
     //    📌 我原本在這裡寫「網址用逗號、人看得懂」—— **那句對【連結】為真,對【表單送出】為假。**
     skus: [SKU_PARAM, filter.skus === undefined ? undefined : filter.skus.join(',')],
   };
+}
+
+/**
+ * 篩選軸 → `Record<param 名, 值>`。給**手寫 hidden 欄位**的呼叫端用
+ * (`app/products/page.tsx` 的兩張 GET form)。
+ *
+ * 🔴 **鍵一定要是 param 名,不是 filter 的欄位名** —— `<Hidden>`(`list-pagination.tsx:99-107`)
+ *    拿**鍵**去當 `<input name=…>`。寫成欄位名的話會渲染出 `name='setBy'` 而不是 `name='set_by'`
+ *    ⇒ **每一軸都靜靜地失效**,而畫面上完全看不出來。
+ *    📌 這不是假設:我第一版就是那樣寫的,而 `tsc` 與 `eslint` 都不會紅。
+ */
+export function filterHiddenFields(
+  filter: AdminProductFilter,
+): Readonly<Record<string, string | undefined>> {
+  return Object.fromEntries(Object.values(filterHrefEntries(filter)));
+}
+
+export function buildProductListHref(
+  filter: AdminProductFilter,
+  view: AdminProductView,
+): string {
+  const byFilterKey = filterHrefEntries(filter);
 
   // 🔴🔴 **第二道窮舉守門(2026-08-19 新增),而它同時關掉一個既有缺口。**
   //    在它之前,`page` 是函式尾端一個**裸 `if`** —— 不受任何守門管;

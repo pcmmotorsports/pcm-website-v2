@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  filterHiddenFields,
   MAX_SKU_CHARS,
   MAX_SKU_COUNT,
   SKU_PARAM,
@@ -100,5 +101,38 @@ describe('料號那一軸的來回(網址 → filter → 網址)', () => {
   it('沒貼料號 ⇒ 網址裡不出現這個 param(網址要短、要可讀)', () => {
     const href = buildProductListHref(F(), { page: 1, size: DEFAULT_PAGE_SIZE });
     expect(href).not.toContain(SKU_PARAM);
+  });
+});
+
+describe('🔴 跳頁 / 換筆數那兩張 form 的 hidden 欄位(W6 must-fix:第四個觸發點)', () => {
+  // 病灶:那兩張 GET form 不走 `buildProductListHref`,走一個【手寫的】hidden map,
+  //      而那份 map 沒有窮舉守門 ⇒ 我加 skus 那一軸時它靜靜地通過。
+  //      症狀:員工貼了 100 個料號 → 跳到第 5 頁 → **料號篩選整個消失**,
+  //           而畫面上的貼料號框也跟著變空(它是從網址回填的)。
+  it('料號那一軸要出現在 hidden 欄位裡,而且【鍵是 param 名】', () => {
+    const fields = filterHiddenFields(F({ skus: ['A-1', 'B 2'] }));
+    // 🔴 鍵一定是 `sku` 不是 `skus` —— <Hidden> 拿鍵當 <input name=…>
+    //    寫成欄位名會渲染出 name='skus',而網址那一端讀的是 `sku` ⇒ 每一軸靜靜失效。
+    expect(fields[SKU_PARAM]).toBe('A-1,B 2');
+    expect(Object.keys(fields)).toContain(SKU_PARAM);
+  });
+
+  it('🔴 其餘每一軸的鍵也都要是 param 名(這格擋的是「改成欄位名」那個改動)', () => {
+    const fields = filterHiddenFields(
+      F({ setBy: 'staff', keyword: 'brembo', brandId: 'x', categoryPath: '煞車 · 拉桿' }),
+    );
+    // 對照組:用【欄位名】去拿一定要拿不到 —— 沒有這半,把鍵改成欄位名的世界照樣綠
+    expect(Object.keys(fields)).not.toContain('setBy');
+    expect(Object.keys(fields)).not.toContain('categoryPath');
+    expect(fields['set_by']).toBe('staff');
+    expect(fields['q']).toBe('brembo');
+    expect(fields['brand']).toBe('x');
+    expect(fields['category']).toBe('煞車 · 拉桿');
+  });
+
+  it('沒選的軸 ⇒ 值是 undefined(<Hidden> 會跳過它,網址不會多出空 param)', () => {
+    const fields = filterHiddenFields(F());
+    expect(fields[SKU_PARAM]).toBeUndefined();
+    expect(fields['set_by']).toBeUndefined();
   });
 });
