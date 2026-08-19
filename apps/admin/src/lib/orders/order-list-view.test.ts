@@ -55,6 +55,13 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
       paymentStatus: 'paid',
       goodsAxes: ['shipped'],
       orderSources: ['manual_line'],
+      // 🔴🔴 **`payment_channel` 與 `show_unpaid_card` 在本格必須是【不同的值】**
+      //    (W6 審 `7e76007f` 指出的沒寫下來的前提):`buildOrderListHref` 那張表把這兩格
+      //    對到各自的來源,而**兩者型別相同** ⇒ 對調時 `tsc` 一個字都不會說。
+      //    抓得到那次對調的**唯一原因**是這裡一個有值、一個是 `false`。
+      //    ⚠️ 兩格都空、或都給同樣的值 ⇒ **對調看不出來,而這條測試會靜靜地變成恆綠。**
+      //    ⇒ 不要「順手」把它們調成一致。**實例**:2026-08-20 本片實作時真的寫錯過一次,
+      //      是這條測試當場抓到的(單獨把 `payment_channel` 對錯也有 1 格紅)。
       paymentChannels: ['bank_transfer'],
       // L6:filter 是整包比對 ⇒ 新增鍵一定要在這裡出現(這正是它的價值:
       // 有人新增 filter 欄卻忘了想「預設值該是什麼」時,這三條會紅)。
