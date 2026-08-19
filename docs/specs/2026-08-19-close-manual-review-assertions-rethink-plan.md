@@ -187,6 +187,22 @@
 ⚠️ **限定**:我量的是**本機重建的同形狀世界**,不是正式庫的實際圖。
    **「storage/cli 是經由 postgres 遞移」這件事在正式庫仍未證實** ⇒ 要一句查詢(見下)。
 
+### ✅ 平台版本已量到(而它把一個推測關掉了)
+
+```
+正式庫             PostgreSQL **17.6**（Sean 跑 current_setting，原文轉錄）
+我的拋棄式驗證環境  PostgreSQL **17.10**（我當場 `SHOW server_version`）
+⇒ **同 major** ⇒ 本節那三把尺的比較在版本上成立。
+⇒ 🔴 而它同時關掉「PG 16+ ⇒ INHERIT FALSE/SET TRUE 語法可用」那個【推測】：
+   17.6 ≫ 16，語法確定可用；而 authenticator 就是那個形狀
+   （pg_auth_members.inherit_option=false + pg_roles.rolinherit=false，兩個獨立欄位互相佐證）
+   ⇒ **那個場景不是「可達」，是【現在就是】。**
+```
+📌 **而「把版本寫進引用它的那份檔」那個動作,已經有人做了 —— 我沒有重做**:
+`docs/security/2026-08-16-payment-confirmer-zero-grant-assertion-spec.md` 檔內已逐字寫著
+「正式庫 **17.6**、拋棄式驗證環境 17.10 —— **同 major,行為一致**」,並自陳「本規格先前沒有指名任何 PG 版本,那本身是缺陷」。
+⇒ **那一格已關,不需要我再寫一次。**(我開檔確認過,不是聽轉述。)
+
 ### 🔴🔴 正式庫第三發回來了,而它帶出一個【會動搖丙本身】的問題
 
 **原文(Sean 跑,主視窗轉,零重打)**:
