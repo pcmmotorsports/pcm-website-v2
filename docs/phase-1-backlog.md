@@ -4471,7 +4471,25 @@ order by n desc, 1;
 
 ### #152. ⏳ ProductsPage 篩選未依車款 / 分類過濾商品
 
-- **狀態:** 🟡 vehicle 部分 ✅ 完成(2026-07-03、S1 車輛篩選 slice:`matchesVehicle` 依真 fitment 逐層過濾〔品牌/車型/年份〕、清單由 `buildVehicleTaxonomy` 動態衍生、FilterSide hideVehicle 解除;缺年 fitment 語意 Sean 同日拍 **Q1=A** = 「該車型全年份適用、選了年份亦命中」、與 domain matchFitmentYear 統一、分歧解除〔資料查證:缺年非通用件、係車型專用 body work、546/3484 fitment 缺年〕);**category 部分仍 ⏳**(單一分類「碳纖維部品」、分類樹無意義、多分類上架 #212 後再議)
+- **狀態:** 🟡 vehicle 部分 ✅ 完成(2026-07-03、S1 車輛篩選 slice:`matchesVehicle` 依真 fitment 逐層過濾〔品牌/車型/年份〕、清單由 `buildVehicleTaxonomy` 動態衍生、FilterSide hideVehicle 解除;缺年 fitment 語意 Sean 同日拍 **Q1=A** = 「該車型全年份適用、選了年份亦命中」、與 domain matchFitmentYear 統一、分歧解除〔資料查證:缺年非通用件、係車型專用 body work、546/3484 fitment 缺年〕);~~**category 部分仍 ⏳**(單一分類「碳纖維部品」、分類樹無意義、多分類上架 #212 後再議)~~
+  🔴🔴 **2026-08-19 正式庫實查:上面那句【整句過期】,不要照它判斷。**
+  ```
+  Sean 本人在 pcm-website-v2 正式庫跑，貼回四個數字：
+    products  總數 20341 ／ 有分類 20341（🔴 100%，零 NULL）／ distinct category_id = **81**
+    categories 總數 107 ／ 大類 29 ／ 子類 78 ／ max(jsonb_array_length(segments)) = **2**
+  ⇒ 「單一分類」不成立（81 種）、「分類樹無意義」不成立（29→78 兩層樹、100% 填充）
+  成因：那句寫於【只有一家供應商上架】時（RPM Carbon，categoryStrategy=fixed '碳纖維部品'）；
+       現在 scripts/supplier-config.ts 有 17 家，其中 16 家是 per-group 對應 16 大類（:32 逐字）
+  ```
+  🔴 **而下一個人不必信上面這段** —— 當場跑這一發就知道它還算不算數:
+  ```sql
+  select count(distinct category_id) from products;
+  -- 回 1-2  ⇒ 原句復活，分類篩選確實無意義
+  -- 回 數十 ⇒ 原句仍是過期的（2026-08-19 量到 81）
+  ```
+  📌 **這一行為什麼要掛一個可跑的檢查**:原句沒有任何機制會讓人知道它何時失效 ——
+  它安靜地活了下來,而**照它字面讀會直接放棄一整片工作**。
+  ⇒ 後台商品篩選片(品牌/分類/子分類)因此得以開工:`docs/specs/2026-08-19-admin-products-filter-plan.md`
 - **優先級:** 🟠 中
 - **問題:**
   - ProductsPage 的 `filterProducts` 只依 brands / 現貨 / 新品 / 特價 / 顏色 / 價格過濾,**不依 cascade.vehicle / cascade.category**;使用者選車款或分類後,頁首標題、麵包屑、ActiveChips 標籤會變,但商品數與商品列表不變
