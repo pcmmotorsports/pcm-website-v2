@@ -59,13 +59,20 @@ describe('AutoApplySubmit', () => {
     vi.restoreAllMocks();
   });
 
-  it('🔴 server 端輸出的鈕【沒有】hidden —— 關掉 JS 時它是唯一的出口', () => {
+  it('🔴 server 端輸出的鈕【沒有】hidden、而且字面照傳 —— 關掉 JS 時它是唯一的出口', () => {
     const html = renderToStaticMarkup(
       <form>
         <AutoApplySubmit label='篩選' />
       </form>,
     );
     expect(html).toContain('type="submit"');
-    expect(html).not.toContain('hidden');
+    // 🔴 字面要斷(W6 `W6-046` M2):**會撞名的是「沒有 JS」那個世界**——有 JS 時鈕是 `hidden`、
+    //    已經從無障礙樹上消失,螢幕閱讀器根本聽不到它。守門若只留在 jsdom 那份,
+    //    等於**守在不需要它的世界,而需要它的世界沒有人守**。
+    expect(html).toContain('篩選');
+    // 🔴 不能用 `not.toContain('hidden')`(W6 nit):那是對整份 HTML 找子字串,
+    //    誰在 className 加個 `overflow-hidden` 就會紅在錯的地方 —— 一個**指著別處**的紅
+    //    比綠更貴。只針對 `<button>` 標籤上的 `hidden` 屬性。
+    expect(html).not.toMatch(/<button[^>]*\shidden/);
   });
 });

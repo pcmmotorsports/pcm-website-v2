@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ProductTaxonomyFilter } from './product-taxonomy-filter';
 import {
@@ -164,9 +165,21 @@ describe('ProductTaxonomyFilter', () => {
     //       那一題 jsdom 答不出來(effect 一定會跑完)。
     // 🔴 而**不能**用 `getByRole('button', { name })` 抓它(我試過,紅的):`hidden` 屬性
     //    在 jsdom 的預設樣式表下是 `display:none` ⇒ 無障礙名稱計算回空字串,連 `hidden: true`
-    //    也救不了。⇒ 改抓元素本身、斷言字面 —— **要守的字面一個字沒變**。
-    const { container } = setup(NONE);
-    expect(container.querySelector('button[type="submit"]')?.textContent).toBe('套用篩選');
+    //    也救不了。
+    // 🔴🔴 **而更重要的是這一格量錯了世界**(W6 `W6-046` M2):有 JS 時鈕是 `hidden`、
+    //    **已經不在無障礙樹上** ⇒ 「兩顆同名」在 jsdom 這個世界**根本不會發生**。
+    //    真正會撞名的是**關掉 JS** 的那個世界 ⇒ 改用 server 端輸出量,那才是它會撞的地方。
+    const html = renderToStaticMarkup(
+      <ProductTaxonomyFilter
+        filter={NONE}
+        size={DEFAULT_PAGE_SIZE}
+        brands={BRANDS}
+        categories={CATEGORIES}
+      />,
+    );
+    expect(html).toContain('套用篩選');
+    // 負對照:光是「有字」不夠 —— 那顆鈕得是 submit 鈕,不是別的東西上的字。
+    expect(html).toMatch(/<button[^>]*type="submit"/);
   });
 
   it('表單是 GET、action 指向 /products —— 沒有 JS 時整條路照樣走得通', () => {
