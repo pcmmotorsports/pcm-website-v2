@@ -1,5 +1,9 @@
 import type { AdminOrderFilter } from '@pcm/domain';
-import { buildOrderListHref, type OrderListDisplayState } from '../../lib/orders/order-list-view';
+import {
+  buildOrderListHref,
+  type OrderListDisplayState,
+  type OrderPanelTarget,
+} from '../../lib/orders/order-list-view';
 import { OrderDensityToggle } from './order-density-toggle';
 import { OrderFilterChips } from './order-filter-chips';
 
@@ -22,9 +26,22 @@ export type OrderToolbarProps = {
   page: number;
   total: number;
   loadFailed: boolean;
+  /**
+   * 開著的面板(`#742`):**密度鈕與 chip 的連結都要原樣帶著它**,
+   * 否則換密度 / 按 chip 會把員工正在看的那張單關掉。
+   * 🔴 必填 —— 原本這裡連這個 prop 都沒有,而「沒有」在型別上長得像「不需要」。
+   */
+  panelTarget: OrderPanelTarget;
 };
 
-export function OrderToolbar({ filter, display, page, total, loadFailed }: OrderToolbarProps) {
+export function OrderToolbar({
+  filter,
+  display,
+  page,
+  total,
+  loadFailed,
+  panelTarget,
+}: OrderToolbarProps) {
     /* 🔴 `#484` 片 B-1:chip 排照 OD `.bar` 的**位置**
         (`overview-desktop.html:609-614`:`<h2>訂單</h2>` 之後緊接四顆 `.fchip`)。
         ⚠️ **只有位置照搬,不是逐字**(R1 nit 7):我方沒搬 `.bar` 本身
@@ -69,14 +86,14 @@ export function OrderToolbar({ filter, display, page, total, loadFailed }: Order
     <div className='flex flex-wrap items-center gap-x-3 gap-y-1'>
       <h1 className='text-2xl font-semibold'>訂單</h1>
       <div className='order-last basis-full md:order-none md:basis-auto'>
-        <OrderFilterChips filter={filter} display={display} />
+        <OrderFilterChips filter={filter} display={display} panelTarget={panelTarget} />
       </div>
       <div className='ml-auto flex items-center gap-4'>
         {/* L3 片4:密度切換。🔴 `page` 帶**當下這一頁**、不是固定 1 ——
             切密度不是換篩選條件,不該把人踢回第一頁(對照上面搜尋框那條刻意給 1 的理由)。 */}
         <OrderDensityToggle
           current={display.density}
-          buildHref={(density) => buildOrderListHref(filter, { density }, page)}
+          buildHref={(density) => buildOrderListHref(filter, { density }, page, panelTarget)}
         />
         {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
       </div>

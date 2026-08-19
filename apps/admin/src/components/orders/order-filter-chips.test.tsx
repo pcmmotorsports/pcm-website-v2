@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AdminOrderFilter } from '@pcm/domain';
 import { OrderFilterChips } from './order-filter-chips';
 import { OrderToolbar } from './order-toolbar';
-import { ORDER_DENSITY_DEFAULT } from '../../lib/orders/order-list-view';
+import { ORDER_DENSITY_DEFAULT, PANEL_CLOSED } from '../../lib/orders/order-list-view';
 
 // order-filter-chips.test.tsx — `#484` 片 B-1。
 // 🔴 本檔守三件:①chip 的 href 帶對軸值且不洗掉其他篩選 ②選中態(含**兩個方向**)
@@ -29,7 +29,7 @@ const byLabel = (c: HTMLElement, label: string) =>
   chips(c).find((a) => a.textContent === label) ?? null;
 
 const renderChips = (filter: AdminOrderFilter) =>
-  render(<OrderFilterChips filter={filter} display={DEN} />);
+  render(<OrderFilterChips filter={filter} display={DEN} panelTarget={PANEL_CLOSED} />);
 
 describe('#484 B-1 — 快速篩選 chip', () => {
   it('恰三顆,且**順序照 OD**(第二顆字面片6 改名、位置不變;退貨中另有去處 `#500`)', () => {
@@ -356,6 +356,7 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
         page={1}
         total={13}
         loadFailed={false}
+        panelTarget={PANEL_CLOSED}
       />,
     );
     expect(html).toContain('class="order-last basis-full md:order-none md:basis-auto"');
@@ -440,5 +441,50 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
     const labels = chips(container).map((a) => a.textContent ?? '');
     const w = groupWidth(labels);
     expect(w, `三顆總寬 ${w} 超過 390 窄版預算 ${BUDGET}(標籤:${labels.join('/')})`).toBeLessThanOrEqual(BUDGET);
+  });
+});
+
+describe('`#742` — chip 與密度鈕都要把開著的面板帶著走', () => {
+  /**
+   * 🔴 病灶不是「忘了寫」,是**寫不寫得出來在型別上沒有差別**:
+   *    `buildOrderListHref` 的第 4 參數原本是選填 ⇒ 少給一個參數,`tsc` 不會叫。
+   *    實測後果 = 五個 production 呼叫點裡有三個少給 ⇒ 翻頁 / 按 chip / 換密度
+   *    都會把員工正在看的那張單關掉。修法把它改成必填 + `PANEL_CLOSED`(見 `#742`)。
+   * ⚠️ 本族驗的是**連結上帶著 `panel`**,不是「面板在瀏覽器裡真的還開著」——
+   *    後者要 production build E2E(`#288`)。
+   */
+  it('每一顆 chip 的連結都帶著 panel', () => {
+    const c = render(
+      <OrderFilterChips filter={{}} display={DEN} panelTarget='ord-1' />,
+    ).container;
+    const hrefs = chips(c).map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.length).toBeGreaterThan(0); // 空陣列會讓下面那條 every 恆真
+    for (const h of hrefs) expect(h).toContain('panel=ord-1');
+  });
+
+  it('刻意關閉時,chip 的連結上【沒有】panel(對照組)', () => {
+    const c = render(
+      <OrderFilterChips filter={{}} display={DEN} panelTarget={PANEL_CLOSED} />,
+    ).container;
+    const hrefs = chips(c).map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const h of hrefs) expect(h).not.toContain('panel=');
+  });
+
+  it('密度鈕的連結也帶著 panel', () => {
+    const html = renderToStaticMarkup(
+      <OrderToolbar
+        filter={{}}
+        display={DEN}
+        page={3}
+        total={13}
+        loadFailed={false}
+        panelTarget='ord-1'
+      />,
+    );
+    // 密度鈕有數顆(鬆/標準/緊)⇒ 每一顆都要帶,不是「至少一顆」。
+    const densityHrefs = [...html.matchAll(/href="([^"]*den=[^"]*)"/g)].map((m) => m[1] ?? '');
+    expect(densityHrefs.length).toBeGreaterThan(0);
+    for (const h of densityHrefs) expect(h).toContain('panel=ord-1');
   });
 });

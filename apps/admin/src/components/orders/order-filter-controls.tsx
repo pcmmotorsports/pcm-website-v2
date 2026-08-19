@@ -82,8 +82,8 @@ type FilterState = {
   showUnpaidCard: string;
 };
 
-function href(state: FilterState): string {
-  return buildListHref(
+function href(state: FilterState, preserved: string): string {
+  const base = buildListHref(
     '/orders',
     [
       [PAYMENT_STATUS_PARAM, state.pay || undefined],
@@ -100,6 +100,10 @@ function href(state: FilterState): string {
     ],
     1,
   );
+  // 🔴 `#742`:這四個鍵**不是本檔的軸**,但也不該被本檔吃掉 ⇒ 原樣接回去。
+  //    來源與「為什麼是回聲不是重建」的理由:`buildPreservedFilterQuery` 的 docstring。
+  if (preserved === '') return base;
+  return `${base}${base.includes('?') ? '&' : '?'}${preserved}`;
 }
 
 /** `/orders?a=1&b=2` → `a=1&b=2`(沒有 query 就回空字串)。 */
@@ -138,6 +142,7 @@ export function OrderFilterControls({
   sourceOptions,
   channelOptions,
   initial,
+  preservedQuery,
 }: {
   /** #347-3c-2:日期下拉的選項(server 已把每格的區間算好;client 不碰時鐘)。 */
   datePresetOptions: OrderDatePresetOption[];
@@ -147,6 +152,13 @@ export function OrderFilterControls({
   sourceOptions: FilterOption[];
   channelOptions: FilterOption[];
   initial: FilterState;
+  /**
+   * 🔴 `#742`:篩選列**不擁有、但不得吃掉**的那幾個鍵(`panel` / `customer` / `den` / `pending`),
+   * 已經是 `a=1&b=2` 形狀,由 server 端 `buildPreservedFilterQuery` 產。
+   * **必填** —— 原本這裡連這個 prop 都沒有,而「沒有」在型別上長得像「不需要」,
+   * 症狀是「改任一篩選,員工正在看的那張單自己關掉」。
+   */
+  preservedQuery: string;
 }) {
   const router = useRouter();
   /**
@@ -163,11 +175,13 @@ export function OrderFilterControls({
    * `searchParams` 還是第一發之前的舊值(Next 的更新不同步)⇒ 會拿錯的「之前」去比。
    * 本檔整個設計就是繞著這個連點競態長出來的(見開頭那段),所以這裡也不留那個窗。
    *
-   * 🔴 **為什麼第一發要讀 `searchParams` 而不是 `href(state)`**:兩者**不相等**。
-   * `href()` 只列 7 個鍵,而 `/orders` 實際上還有 `pending` / `den` / `panel` / `customer`
-   * (數法:`grep -c ORDER_PANEL_PARAM` 本檔 ⇒ 0,而 `lib/orders/order-list-view.ts` 有)。
-   * ⇒ 拿 `href(state)` 當「之前」會在面板開著時**多補一次沒必要的 refresh**。
-   * ⚠️ 而那個不相等本身是**另一隻蟲**(改任一篩選會把那四個鍵靜默丟掉),不在本片修 —— `#742`。
+   * 🔴 **為什麼第一發要讀 `searchParams` 而不是 `href(state, preservedQuery)`**:兩者**仍然不相等**。
+   * `#742` 把 `panel` / `customer` / `den` / `pending` 接回來了(那四個原本會被本檔吃掉),
+   * 但當下網址還可能帶著 `r` / `rt` / `correct`(動作結果那三個一次性參數,清單在
+   * `lib/orders/order-list-view.ts` 的 `ONE_SHOT_PARAMS`)與 `page` —— 那幾個本檔**刻意不帶**。
+   * ⇒ 拿 `href()` 的產物當「之前」會在「剛做完一個動作」的網址上**判錯**。
+   * ⚠️ **這一段是會過期的**:哪天本檔帶的鍵真的追平了當下網址,這個理由就不成立了 ——
+   *    而**判準不是這段散文,是下面那條測試**(「之前」取自真實網址那一格)。散文過期它照樣紅。
    */
   const lastPushedSearch = useRef<string | null>(null);
   const [state, setState] = useState(initial);
@@ -191,7 +205,7 @@ export function OrderFilterControls({
   const apply = (next: FilterState) => {
     setState(next);
     setLastPushedKey(JSON.stringify(next));
-    const after = href(next);
+    const after = href(next, preservedQuery);
     const before = lastPushedSearch.current ?? searchParams.toString();
     router.replace(after, { scroll: false });
     // 🔴 下一發的「之前」= 這一發的「之後」(見 `lastPushedSearch` 的宣告處)。

@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import { OrderFilterControls } from './order-filter-controls';
+import { buildOrderListHref, PANEL_CLOSED, ORDER_DENSITY_DEFAULT } from '../../lib/orders/order-list-view';
 
 const replace = vi.fn();
 const refresh = vi.fn();
@@ -38,6 +39,8 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
+  /** `#742`:預設空字串 = 當下網址沒有那四個鍵;要驗「不得吃掉」的那一格自己覆寫。 */
+  preservedQuery: '',
   initial: { pay: '', goods: [], src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
@@ -383,5 +386,61 @@ describe('OrderFilterControls — `#741` segment cache key 碰撞才補 refresh'
       scroll: false,
     });
     expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrderFilterControls — `#742` 篩選列不得吃掉不屬於它的鍵', () => {
+  it('`panel` / `den` / `pending` 原樣帶著走(改任一篩選之後仍在網址上)', () => {
+    const r = render(
+      <OrderFilterControls {...PROPS} preservedQuery='panel=ord-1&den=loose&pending=1' />,
+    );
+    fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
+    const url = replace.mock.calls.at(-1)?.[0] as string;
+    const qs = new URLSearchParams(url.split('?')[1] ?? '');
+    expect(qs.get('payment_status')).toBe('paid'); // 本來就會做的事,先確認沒被我改壞
+    expect(qs.get('panel')).toBe('ord-1');
+    expect(qs.get('den')).toBe('loose');
+    expect(qs.get('pending')).toBe('1');
+  });
+
+  it('沒有那些鍵時網址不多一個 `?` 或 `&`(空字串走的是另一條路)', () => {
+    const r = render(<OrderFilterControls {...PROPS} preservedQuery='' />);
+    fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
+    expect(replace).toHaveBeenLastCalledWith('/orders?payment_status=paid', { scroll: false });
+  });
+});
+
+describe('`#741` × `#742` — 兩個 producer 的鍵順序必須一致(W6 審查 nit)', () => {
+  /**
+   * 🔴🔴 **這一格守的不是行為,是兩支函式之間的一個【沒有名字的約定】。**
+   *
+   * 碰撞判定用 `JSON.stringify(Object.fromEntries(...))`,而那個字串**對鍵順序敏感**:
+   * 「之前」那條網址由 `buildOrderListHref` 產、「之後」由本檔的 `href()` 產
+   * ⇒ 兩邊的 entries 順序一旦分岔,**去重後鍵值全同也會判成「不碰撞」**
+   * ⇒ 不補 refresh ⇒ `#741` 那隻蟲原封不動地回來,而**四格測試全綠**
+   *   (它們的 `currentSearch` 起始都是 `''`、「之前」全部由 `href()` 自己產
+   *    ⇒ 從來沒有離開過 `href()` 的鍵順序)。
+   *
+   * ⚠️ **未確認的那一半**:Next 到底怎麼**比較**兩個 cache key —— 那份 memory 只記了 key 怎麼**產**。
+   *    若它比的不是字串而是結構,本格就是多餘的保險。要答只能 production build 實測(`#288`)。
+   *    ⇒ **在那之前保留本格**:多一條保險的代價是一格測試,少一條的代價是那隻蟲靜默回來。
+   */
+  it('「之前」用 buildOrderListHref 產、「之後」用 href() 產 ⇒ 仍判得出碰撞', () => {
+    currentSearch =
+      buildOrderListHref(
+        { paymentStatus: 'paid', orderSources: ['web', 'manual_line'] },
+        { density: ORDER_DENSITY_DEFAULT },
+        1,
+        PANEL_CLOSED,
+      ).split('?')[1] ?? '';
+    const r = render(
+      <OrderFilterControls
+        {...PROPS}
+        initial={{ ...PROPS.initial, pay: 'paid', src: ['web', 'manual_line'] }}
+      />,
+    );
+    openPanel(r.getAllByRole, 0);
+    fireEvent.click(r.getByLabelText('網站')); // 取消非最後那個 ⇒ 應判成碰撞
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });
