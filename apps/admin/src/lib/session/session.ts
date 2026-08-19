@@ -69,6 +69,44 @@ export function adminSessionCookieOptions(maxAgeSec: number = ADMIN_SESSION_MAX_
   };
 }
 
+/**
+ * 這個部署認為自己在哪個環境 —— **「票綁環境」那一片的金鑰材料的一半。**
+ *
+ * 🔴🔴 **本片(片 0b)【只把它算出來、放進一個 response header】,【還沒有】接進金鑰。**
+ *    理由是 W6 審查抓到的一格,而它會全員鎖死:
+ *    ```
+ *    片 0 那支探針宣告 runtime='nodejs' 且是 page ⇒ 它量到的是【route / Node runtime】
+ *    而綁定會跑在 getKey() ← verifySession ← proxy.ts:40 ⇒ 那是【proxy runtime】
+ *    而本檔 :4 逐字：「proxy.ts 的 runtime 只是註解宣稱、未證實」；proxy.ts 也沒有 export const runtime
+ *    ⇒ 若 proxy 讀不到 VERCEL_ENV：每個請求被導去 /start，而 callback(Node runtime)簽得出來
+ *      ⇒ 發了 cookie ⇒ 下一發又被 proxy 拒 ⇒ 🔴 無限迴圈，全員(含 Sean)進不去
+ *    🔴 而 callback 的 REQ4 防線【防不到這一種】：它防的是「簽不出」，
+ *       而這裡簽得出來，壞的是【驗】。
+ *    ```
+ *    ⇒ **⇒ 先量那個 runtime,量到了再接。** 這正是片 0 自己立的理由 ——
+ *    **承重的未知只是換了一個 runtime,它還在。**
+ *
+ * 🔴 **白名單不是黑名單**(codex 關卡2 M1/M2):認得出來才用,認不出來回 `null`。
+ *    用「不是壞的那個值」判會漏掉沒想到的壞值;用「就是好的那個值」判才封閉。
+ */
+export function resolveEnvTag(): string | null {
+  const fromVercel = process.env.VERCEL_ENV;
+  // 🔴 有值而【不在白名單】⇒ 立刻 null,不得往下掉進 NODE_ENV 啟發式(W6 nit②):
+  //    Vercel 的 Custom Environments 是真實功能 ⇒ 'staging' 這種值真的可能出現,
+  //    而掉下去之後它會被判成 'local'。**今天不可觸發,靠的是外部平台的性質,不是我們的守門。**
+  if (fromVercel !== undefined) {
+    return KNOWN_VERCEL_ENVS.has(fromVercel) ? fromVercel : null;
+  }
+  const nodeEnv = process.env.NODE_ENV;
+  if (nodeEnv !== undefined && KNOWN_LOCAL_NODE_ENVS.has(nodeEnv)) return 'local';
+  return null; // 認不出這是哪個環境 ⇒ fail-closed
+}
+
+/** Vercel 系統變數的已知值白名單。 */
+const KNOWN_VERCEL_ENVS = new Set(['production', 'preview', 'development']);
+/** 只有這兩個 `NODE_ENV` 算「明確的非正式環境」。 */
+const KNOWN_LOCAL_NODE_ENVS = new Set(['development', 'test']);
+
 // ── HMAC key:依 secret 值快取(secret 變則重載 → 單測可換 env;prod secret 穩定即長快取)。缺 secret → null,fail-closed 絕不 throw。──
 let cachedSecret: string | null | undefined;
 let cachedKey: Promise<CryptoKey | null> | null = null;

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { generateRequestId, REQUEST_ID_HEADER } from '@/lib/request-id';
-import { ADMIN_SESS_COOKIE, verifySession } from '@/lib/session/session';
+import { ADMIN_SESS_COOKIE, resolveEnvTag, verifySession } from '@/lib/session/session';
 
 // M-4a M0-S2 correlation id 貫穿(PRD §6.7)+ M0-S3 SSO 登入閘。Next 16 約定:proxy.ts(舊 middleware.ts)。
 // 每個 admin 請求 server 端**一律新產** x-request-id,讓 handler→audit→DB→外部服務 log 跨層追蹤。
@@ -45,6 +45,12 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
       const redirect = NextResponse.redirect(startUrl, 303);
       redirect.headers.set(REQUEST_ID_HEADER, requestId);
       redirect.headers.set('Cache-Control', 'no-store');
+      // 🔴🔴 【片 0b · 臨時量測,下一片刪掉】——「票綁環境」要跑在【這個 runtime】,
+      //    而【沒有人量過這個 runtime 讀不讀得到 VERCEL_ENV】(session.ts:4 自陳未證實)。
+      //    量錯的代價是全員鎖死 + 無限迴圈 ⇒ 先量再接。
+      //    ⇒ 放在【未登入就看得到】的 303 上是刻意的:量測的人不必有後台帳號。
+      //    ⚠️ 它只吐環境名(production/preview/local/absent),不含任何 secret 或使用者資料。
+      redirect.headers.set('x-pcm-env-tag', resolveEnvTag() ?? 'absent');
       return redirect;
     }
   }
@@ -56,6 +62,8 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   // 也回在 response,方便前端 / 值班回報時對照同一 id。
   response.headers.set(REQUEST_ID_HEADER, requestId);
+  // 片 0b 臨時量測(同上,下一片刪掉)。已登入那條路也放,兩條路都要量得到。
+  response.headers.set('x-pcm-env-tag', resolveEnvTag() ?? 'absent');
   return response;
 }
 

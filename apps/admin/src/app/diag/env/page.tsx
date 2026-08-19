@@ -1,7 +1,17 @@
 // 🔴🔴 這是【探針】,不是功能。M-4b E8-B「票綁環境」片 0。
 //
-// ★退場條件(寫在這裡,而【真正的機制在別處】)★
-//   片 1(丁:getKey() 金鑰材料加 env)的【同一顆 commit】必須刪掉本檔與 page.test.tsx。
+// ★退場條件★ ⛔ ~~片 1(丁)的同一顆 commit 必須刪掉本檔~~
+//   🔴🔴 **2026-08-19 W6 審查後更正:舊條件是【錯的】,而它會讓下一個人【提早刪】。**
+//   本檔宣告 `runtime = 'nodejs'` 且是 page ⇒ **它量到的是【route / Node runtime】那一格**。
+//   而「票綁環境」真正跑的地方是 `getKey()` ← `verifySession` ← **`proxy.ts:40`**
+//   ⇒ 那是**另一個 runtime**,而 `session.ts:4` 逐字「proxy.ts 的 runtime 只是註解宣稱、未證實」。
+//   ⇒ **⇒ 本檔只回答了【一半】。**
+//
+//   ✅ **新的退場條件:【兩條 runtime 都拿到值之後】才刪**
+//      · Node runtime  ⇒ ✅ 已量到:`production`(2026-08-19,Sean 開本頁截圖)
+//      · proxy runtime ⇒ ⏳ 片 0b 用 `proxy.ts` 的 `x-pcm-env-tag` response header 量,**尚未部署**
+//   📌 **而這一格的教訓值得留**:我原本要在丁那一顆同時刪掉本檔 ——
+//      **那等於【量測工具在只回答完一半問題時退場】。**
 //   🔴 而註解攔不住任何人 ⇒ 機制 = `docs/specs/2026-08-19-admin-session-env-binding-plan.md`
 //      §6 驗收表那一格:片 1 收工前跑 `test -e apps/admin/src/app/diag/env/page.tsx` **必須為假**。
 //   ⚠️ 誠實界線:那一格要有人去跑。它比註解硬,而它不是編譯器等級的保證。
