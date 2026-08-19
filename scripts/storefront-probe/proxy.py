@@ -13,9 +13,19 @@ S = os.path.dirname(os.path.abspath(__file__))
 #    🔴 而 `up.sh` 的自檢那時印的是 `web: 200` —— **頁面確實回 200,只是資料路徑是斷的**
 #      ⇒ 「200」在這裡分不出兩個世界。(同族:`admin-probe` 的 proxy.py 早就吃 argv,所以它沒事。)
 #    ⚠️ 沒帶參數時仍用舊值,讓舊的呼叫方式不會當場壞掉。
+#    🔴🔴 **沒帶參數 ⇒ 直接報錯,不落回預設**(W6 `W6-06x` Q1 裁,主視窗同向)。
+#    理由不是偏好,是**兩種失敗的形狀**:
+#      預設值錯   ⇒ 代理轉去空的上游 ⇒ 頁面回 200 ⇒ **靜默,而且看起來是綠的**(上面 A 那格)
+#      沒帶就報錯 ⇒ 起不來、當場說原因 ⇒ **吵,而且在第一秒**
+#    ⇒ **沉默的預設值正是這一格的病因本身。**
+#    (量過:`git grep 'proxy\.py'` 的呼叫端全部都帶參數,那個預設值不服務任何人。)
 import sys
-UP_PORT = sys.argv[1] if len(sys.argv) > 1 else "3969"
-LISTEN_PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 3968
+if len(sys.argv) < 3:
+    sys.exit("proxy.py 需要兩個參數:<上游 PostgREST 埠> <本身監聽埠>。"
+             "不帶參數【不會】落回預設 —— 靜靜落回預設會讓代理轉去一個空的上游,"
+             "而頁面照樣回 200。用法見 scripts/storefront-probe/env.sh。")
+UP_PORT = sys.argv[1]
+LISTEN_PORT = int(sys.argv[2])
 UP = "http://127.0.0.1:" + str(UP_PORT)
 USER = {"id": "11111111-1111-1111-1111-111111111111", "aud": "authenticated",
         "role": "authenticated", "email": "probe@example.com",

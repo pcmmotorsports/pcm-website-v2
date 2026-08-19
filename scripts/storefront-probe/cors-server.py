@@ -17,6 +17,11 @@ D = os.path.dirname(os.path.abspath(__file__))
 #    ⇒ **會連別的視窗起的那一支一起殺掉**(同一台機器上,那支的 cmdline 一模一樣)。
 #    帶了埠之後,cmdline 是 `… cors-server.py 3987` ⇒ 收攤才殺得到【自己那一個】。
 #    ⚠️ 沒帶參數時仍回 3987,讓舊的呼叫方式不會當場壞掉。
+#    🔴 **沒帶參數 ⇒ 報錯,不落回預設**(同 proxy.py 那段的理由:沉默的預設值正是病因)。
 import sys
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 3987
+if len(sys.argv) < 2:
+    sys.exit("cors-server.py 需要一個參數:<監聽埠>。不帶參數【不會】落回 3987 —— "
+             "落回預設會讓 down.sh 的 pkill 抓不到自己那一支,"
+             "而它只能用不帶埠的字面去殺,那會殺到別的視窗。用法見 env.sh。")
+PORT = int(sys.argv[1])
 http.server.ThreadingHTTPServer(("127.0.0.1", PORT), functools.partial(H, directory=D)).serve_forever()
