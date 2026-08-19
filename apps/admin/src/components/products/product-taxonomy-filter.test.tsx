@@ -25,7 +25,7 @@ afterEach(cleanup);
 const NONE: AdminProductFilter = {
   setBy: undefined,
   keyword: undefined,
-  brandId: undefined,
+  brandIds: undefined,
   categoryPath: undefined,
       skus: undefined,
 };
@@ -76,7 +76,7 @@ describe('ProductTaxonomyFilter', () => {
   });
 
   it('🔴 選中態靠網址 —— 傳進來的 filter 要變成下拉的預設選取', () => {
-    const { container } = setup({ ...NONE, brandId: 'b-2', categoryPath: '引擎部品' });
+    const { container } = setup({ ...NONE, brandIds: ['b-2'], categoryPath: '引擎部品' });
     expect(container.querySelector<HTMLSelectElement>('#product-brand-filter')?.value).toBe('b-2');
     expect(container.querySelector<HTMLSelectElement>('#product-category-filter')?.value).toBe(
       '引擎部品',

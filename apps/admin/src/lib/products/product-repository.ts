@@ -255,7 +255,8 @@ export interface AdminProductQuery {
    * 品牌 uuid。**必為合法 uuid**(由 `parseProductBrandId` 把關)——
    * 非 uuid 會讓 PostgREST 回 400,而那在畫面上是「商品列表載入失敗」。
    */
-  readonly brandId?: string;
+  /** 🔴 2026-08-20 多值。**空陣列不得傳進來** —— `.in([])` 是 0 件，與「不篩」相反。 */
+  readonly brandIds?: readonly string[];
   /**
    * 要命中的分類 id 集合(選了大類 ⇒ 含它自己 + 它的子類),由
    * `resolveCategoryIds`(`product-taxonomy-options.ts`)解出。
@@ -325,7 +326,12 @@ export async function listProductsForAdmin(
 
   // 🔴 品牌與分類同理走 DB。兩欄都有索引
   //    (`20260507004826_init_products.sql:59-60` idx_products_brand_id / idx_products_category_id)。
-  if (query.brandId) q = q.eq('brand_id', query.brandId);
+  // 🔴🔴 **2026-08-20 單值 → 多值**:`.eq` → `.in`。
+  //    ⚠️ **空陣列不得走到這裡** —— `.in('brand_id', [])` 是 **0 件**,而那與「不篩」相反。
+  //       解析端(`parseProductBrandIds`)已經把「沒有任何合法值」折成 `undefined`,
+  //       而 `page.tsx` 把「認不得的品牌」逐個濾掉之後也折成 `undefined` ⇒ 這裡只會拿到非空陣列。
+  //       (同 `categoryIds` 那一行的理由,見它上面那段。)
+  if (query.brandIds && query.brandIds.length > 0) q = q.in('brand_id', [...query.brandIds]);
 
   // 🔴 **用 `.in(id)` 不用 `raw_path` 的 `LIKE` 前綴** —— 前綴比對在 DB 端吃不到
   //    `idx_products_category_id`,而 id 集合已經在呼叫端從**撈下來的分類清單**解好了

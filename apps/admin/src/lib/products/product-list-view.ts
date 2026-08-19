@@ -10,11 +10,16 @@ import type { ProductSetByFilter } from './product-repository';
 //      (值被切成兩半 ⇒ 兩半都查無 ⇒ 使用者以為那個東西不存在,而**零訊號**)。
 //    ⇒ 這張表存在的目的不是記錄,是讓他第一眼看到:**這件事要去量,不要抄。**
 //
-// | 軸 | 分隔符 | 依據(量測日期・範圍・數字) |
-// |---|---|---|
-// | `skus`(`?sku=`) | 逗號 `,`(解析端另收換行) | 2026-08-19 正式庫 `product_variants` 全表 51,645 筆 / 16 個供應商:半形逗號 **0**、全形逗號 **0**;兩向對照見 `parseProductSkus` 檔頭。🔴 **這一欄由供應商餵、當天仍在被寫** ⇒ 前提最脆 |
-// | (未來)`brandId` 多值 | 待定 | 品牌是 **uuid**(字集封閉)⇒ 逗號必然安全,**不必量** |
-// | (未來)`categoryPath` 多值 | 待定 | 分類是**人寫的中文**(`raw_path` 含 ` · `)⇒ **必須量**;W3 2026-08-19 已量:本機與正式庫各 107 筆,半形/全形逗號皆 **0**、含空白 **79**(74%) |
+// 🔴🔴 **【送出】與【接受】是兩欄,不是一欄**(2026-08-20 W5 指出,W3 落地)——
+//    原本只有「分隔符」一欄,而它**答不出「收得下什麼」** ⇒ 下一個人照它寫 parser,
+//    就會漏掉表單那條路。**那正是 W3 2026-08-20 撞到的那件事。**
+// 📌 一般形式:**一個欄位有幾個【產生者】,就有幾種形狀要收;而產生者不一定是我們。**
+//
+// | 軸 | 我們【送出】 | 必須【接受】 | 依據(量測日期・範圍・數字) |
+// |---|---|---|---|
+// | `skus`(`?sku=`) | 逗號 `,` | 逗號 + **換行**(`<textarea>` 原值,`%0A`) | 2026-08-19 正式庫 `product_variants` 全表 51,645 筆 / 16 個供應商:半形逗號 **0**、全形逗號 **0**;兩向對照見 `parseProductSkus` 檔頭。🔴 **這一欄由供應商餵、當天仍在被寫** ⇒ 前提最脆 |
+// | `brandIds`(`?brand=`) | 逗號 `,` | 逗號 + **同名多鍵**(`?brand=a&brand=b`) | 品牌是 **uuid**(字集封閉)⇒ 逗號必然安全,**不必量**。而同名多鍵**不是我們選的,是 HTML 的行為**:2026-08-20 chromium 實測 `URLSearchParams(new FormData(form))` ⇒ 一個都沒選=param 不出現、**選一個=字串**、選兩個=同名多鍵 |
+// | (未來)`categoryPath` 多值 | 逗號 `,`(暫定) | 逗號 + 同名多鍵 | 分類是**人寫的中文**(`raw_path` 含 ` · `)⇒ **必須量**;W3 2026-08-19 已量:本機與正式庫各 107 筆,半形/全形逗號皆 **0**、含空白 **79**(74%)。🔴 **而逗號的安全性【是量出來的、會過期】**(後台若開放自訂分類名就可能破);**同名多鍵不依賴字元集 ⇒ 它是這一軸唯一不會過期的編碼**(W5 2026-08-20)。⚠️ **編碼待版面拍板後定案** —— 分類的子選單只在選了一個大類時才出現,大類可複選之後那個概念就不存在了 ⇒ 那是版面改動,不是最小改動 |
 //
 // ⚠️ **加一軸時要做的兩件**:①量那一欄的字元集(不要抄上面任何一列)②把結果補進這張表。
 // 🔴 **而「量到 0」不算數,要兩向都表演** —— 同一發要有一個保證命中的正對照
@@ -107,7 +112,23 @@ export interface AdminProductFilter {
    *    ⇒ 沒擋的話,員工把網址的品牌 id 改壞 = **整頁「商品列表載入失敗」**。
    *    這與 `#661` 分頁片那個 must-fix(`?page=1e21` 變錯誤頁)是**同一個病**。
    */
-  readonly brandId: string | undefined;
+  /**
+   * 🔴🔴 **2026-08-20:單值 `brandId` → 多值 `brandIds`(廠牌可複選)。**
+   *
+   * `undefined` = 不篩(**不是空陣列**)。空陣列會變成 `.in('brand_id', [])` ⇒ **0 件**,
+   * 而那與「不篩」是相反的意思 ⇒ 解析端一律把「沒有任何合法值」折成 `undefined`。
+   *
+   * 🔴 **每一個元素仍然必須是合法 uuid** —— 上面那段 400 的理由**一個字都沒鬆**:
+   *    多值只是讓它變成「逐個檢查、過不了的丟掉」,不是「不檢查」。
+   *
+   * ⚠️ **而這一軸有【兩個合法來源】,兩者都必須收**(2026-08-20 實測,見 `parseProductBrandIds`):
+   * ```
+   * ① 我們自己組的連結        ?brand=u1,u2        （逗號串）
+   * ② <form method=get> 的原生序列化  ?brand=u1&brand=u2  （同名多鍵，**瀏覽器決定的**）
+   * ```
+   * 🔴 少收任何一種 ⇒ 該軸**靜默失效**,而畫面上選取狀態還亮著。
+   */
+  readonly brandIds: readonly string[] | undefined;
   /**
    * `?category=`;分類的 `raw_path`(例 `'引擎部品 · 排氣管'`)。`undefined` = 不篩。
    *
@@ -319,9 +340,50 @@ export function parseProductSkus(
   return seen.size === 0 ? undefined : [...seen];
 }
 
-export function parseProductBrandId(value: string | string[] | undefined): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  return UUID_RE.test(value) ? value : undefined;
+/**
+ * `?brand=` 解析(2026-08-20 起**多值**)。
+ *
+ * 🔴🔴 **這一軸有兩個【合法來源】,而它們的形狀不同 —— 兩種都必須收。**
+ * ```
+ * ① 我們自己組的連結（chip / 翻頁）:  ?brand=u1,u2       ⇒ 一個字串，逗號分隔
+ * ② <form method='get'> 的原生序列化: ?brand=u1&brand=u2 ⇒ 同名多鍵 ⇒ Next 給 string[]
+ * ```
+ * **② 不是我們的選擇,是 HTML 的行為。** 2026-08-20 chromium 實測
+ * (直接讀 `URLSearchParams(new FormData(form))`,那正是表單送出用的那一套):
+ * ```
+ * 一個都沒選 ⇒ 那個 param **整個不出現**（select multiple 與 checkbox 皆然）
+ * 選【一個】 ⇒ brand=u1              ← 🔴 **是字串，不是長度 1 的陣列**
+ * 選【兩個】 ⇒ brand=u1&brand=u3
+ * ```
+ * 🔴🔴 **而「選一個是字串」正是這個 bug 最毒的地方**:舊 parser 寫
+ * `if (typeof value !== 'string') return undefined`
+ * ⇒ **選一個【通過】、選兩個【靜靜丟掉】** ⇒ 清單變成全部,而選取狀態還亮著。
+ * ⇒ **不是「複選壞掉」,是【複選這個新動作】壞掉而舊動作完好** ——
+ *   員工會以為自己按錯了,而測試若只測「選一個」**會恆綠**。
+ *
+ * 🔴 **先攤平、再逐段切逗號**(W5 2026-08-20 指出):
+ *    不可以寫成「是陣列就不切逗號」—— 那會讓 `?brand=u1,u2&brand=u3` 裡的 `'u1,u2'`
+ *    **整串當成一個 id** ⇒ uuid 檢查擋掉 ⇒ **那兩個品牌靜靜消失**。
+ *    (混合形狀瀏覽器不會產出,而**我們自己組的連結 + 使用者再勾一個**就合得出來。)
+ *
+ * 📌 **這不是放寬那條「認不得的形狀就丟掉」的紀律**(它由 `54d4f148` / `91405817` 立,
+ *    理由是**非 uuid 進 `.eq` 會讓 PostgREST 回 400 ⇒ 整頁錯誤**)——
+ *    `string[]` 是一個**認得的**形狀,而展開後**每一段仍逐個過 uuid 檢查**
+ *    ⇒ **fail-safe 一個字都沒鬆**:亂改網址的後果仍然是「看到全部」,不是一頁錯誤。
+ *
+ * 回 `undefined` = 不篩。**不回空陣列** —— `.in('brand_id', [])` 是 0 件,那與「不篩」相反。
+ */
+export function parseProductBrandIds(
+  value: string | string[] | undefined,
+): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  const ids = (Array.isArray(value) ? value : [value])
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())
+    .filter((v) => UUID_RE.test(v));
+  // 🔴 去重:`?brand=u1,u1` 與勾兩次同一個都到得了這裡,而重複值進 `.in()` 是噪音。
+  const unique = [...new Set(ids)];
+  return unique.length === 0 ? undefined : unique;
 }
 
 /**
@@ -433,7 +495,7 @@ export function parseProductListParams(raw: SearchParams): {
     filter: {
       setBy: parseProductSetBy(raw[SET_BY_PARAM]),
       keyword: parseProductKeyword(raw[KEYWORD_PARAM]),
-      brandId: parseProductBrandId(raw[BRAND_PARAM]),
+      brandIds: parseProductBrandIds(raw[BRAND_PARAM]),
       categoryPath: resolveCategoryPath(
         parseProductCategoryPath(raw[CATEGORY_PARAM]),
         parseProductCategoryPath(raw[SUBCATEGORY_PARAM]),
@@ -481,7 +543,10 @@ export function filterHrefEntries(
   return {
     setBy: [SET_BY_PARAM, filter.setBy],
     keyword: [KEYWORD_PARAM, filter.keyword],
-    brandId: [BRAND_PARAM, filter.brandId],
+    // 🔴 我們自己組的連結一律【逗號串】(uuid 字集封閉 ⇒ 逗號必然安全,不必量)。
+    //    ⚠️ 而**網址裡不一定是逗號** —— 表單送出時瀏覽器送同名多鍵,兩種都對、兩種都收。
+    //    (同 `skus` 那一軸的形狀;差別是它的第二種是 `%0A`,這裡是同名多鍵。)
+    brandIds: [BRAND_PARAM, filter.brandIds === undefined ? undefined : filter.brandIds.join(',')],
     categoryPath: [CATEGORY_PARAM, filter.categoryPath],
     // 🔴 用逗號接回去 —— 全表 0 筆料號含逗號(量法見 `parseProductSkus`)⇒ 來回不會走樣。
     //

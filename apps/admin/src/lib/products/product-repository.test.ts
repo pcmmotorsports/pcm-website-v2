@@ -518,9 +518,22 @@ describe('🔴 品牌 / 分類篩選必須變成 DB 查詢條件(不是在頁面
     q.rows = null;
   });
 
-  it('brandId → 送出 .eq("brand_id", …)', async () => {
-    await listProductsForAdmin(20, 0, { brandId: 'b-1' });
-    expect(q.calls).toContainEqual(['eq', 'brand_id', 'b-1']);
+  it('🔴 brandIds → 送出 .in("brand_id", […]) —— 2026-08-20 由 .eq 改成 .in(廠牌可複選)', async () => {
+    await listProductsForAdmin(20, 0, { brandIds: ['b-1', 'b-2'] });
+    expect(q.calls).toContainEqual(['in', 'brand_id', ['b-1', 'b-2']]);
+  });
+
+  it('🔴 只有一個也走 .in —— 不因為長度 1 就退回 .eq(兩條路會各自漂)', async () => {
+    await listProductsForAdmin(20, 0, { brandIds: ['b-1'] });
+    expect(q.calls).toContainEqual(['in', 'brand_id', ['b-1']]);
+    expect(q.calls.map((c) => c[0])).not.toContain('eq');
+  });
+
+  it('🔴🔴 空的 brandIds ⇒ **不得**送出 .in(…, []) —— 那會查出 0 件,而那與「不篩」相反', async () => {
+    // 與下面 categoryIds 那格同一個病:解析端已把「沒有任何合法值」折成 undefined，
+    // 而這一格擋的是【哪天有人改成傳空陣列】。
+    await listProductsForAdmin(20, 0, { brandIds: [] });
+    expect(q.calls.map((c) => c[1])).not.toContain('brand_id');
   });
 
   it('categoryIds → 送出 .in("category_id", […]) —— 大類要含它自己 + 子類', async () => {
@@ -546,7 +559,7 @@ describe('🔴 品牌 / 分類篩選必須變成 DB 查詢條件(不是在頁面
     await listProductsForAdmin(20, 0, {
       setBy: 'staff',
       keyword: 'brembo',
-      brandId: 'b-1',
+      brandIds: ['b-1'],
       categoryIds: ['c-1'],
     });
     const fields = q.calls.map((c) => c[1]);

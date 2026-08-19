@@ -54,8 +54,9 @@ export function ProductSkuFilter({
       {filter.keyword !== undefined && (
         <input type='hidden' name={KEYWORD_PARAM} value={filter.keyword} />
       )}
-      {filter.brandId !== undefined && (
-        <input type='hidden' name={BRAND_PARAM} value={filter.brandId} />
+      {/* 🔴 多值:一個 input、逗號串(理由同 `product-keyword-search.tsx` 那段)。 */}
+      {filter.brandIds !== undefined && (
+        <input type='hidden' name={BRAND_PARAM} value={filter.brandIds.join(',')} />
       )}
       {filter.categoryPath !== undefined && (
         <input type='hidden' name={CATEGORY_PARAM} value={filter.categoryPath} />

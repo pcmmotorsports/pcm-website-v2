@@ -18,7 +18,7 @@ import {
 const F = (over: Partial<AdminProductFilter> = {}): AdminProductFilter => ({
   setBy: undefined,
   keyword: undefined,
-  brandId: undefined,
+  brandIds: undefined,
   categoryPath: undefined,
   skus: undefined,
   ...over,
@@ -119,7 +119,7 @@ describe('🔴 跳頁 / 換筆數那兩張 form 的 hidden 欄位(W6 must-fix:�
 
   it('🔴 其餘每一軸的鍵也都要是 param 名(這格擋的是「改成欄位名」那個改動)', () => {
     const fields = filterHiddenFields(
-      F({ setBy: 'staff', keyword: 'brembo', brandId: 'x', categoryPath: '煞車 · 拉桿' }),
+      F({ setBy: 'staff', keyword: 'brembo', brandIds: ['x'], categoryPath: '煞車 · 拉桿' }),
     );
     // 對照組:用【欄位名】去拿一定要拿不到 —— 沒有這半,把鍵改成欄位名的世界照樣綠
     expect(Object.keys(fields)).not.toContain('setBy');

@@ -90,13 +90,21 @@ export function ProductTaxonomyFilter({
         <label htmlFor='product-brand-filter' className='text-muted-foreground text-xs font-medium'>
           品牌
         </label>
+        {/* 🔴🔴 **2026-08-20 廠牌可複選** —— UI 是【最小改動】:`<select>` 加 `multiple`。
+            版面(chips / 樹狀)是四版稿真正打架的地方 ⇒ **押著等 Sean**,這一片不碰。
+            ⚠️ **`multiple` 之後沒有「全部品牌」那一格** —— 多選清單的「全部」就是**一個都不選**,
+               留著一個 value 為空的 option 會變成「可以選『全部』又同時選 Brembo」那種矛盾狀態。
+            🔴 而送出的形狀**不是逗號** —— 瀏覽器把多選序列化成**同名多鍵**
+               (`?brand=u1&brand=u2`;2026-08-20 chromium 實測)。
+               `parseProductBrandIds` 兩種都收,理由見它的檔頭。 */}
         <select
           id='product-brand-filter'
           name={BRAND_PARAM}
-          defaultValue={filter.brandId ?? ALL}
-          className='border-input bg-background h-9 w-48 rounded-md border px-2 text-sm'
+          multiple
+          size={4}
+          defaultValue={filter.brandIds === undefined ? [] : [...filter.brandIds]}
+          className='border-input bg-background rounded-md border px-2 py-1 text-sm w-48'
         >
-          <option value={ALL}>全部品牌</option>
           {brands.map((brand) => (
             <option key={brand.id} value={brand.id}>
               {brand.name}
