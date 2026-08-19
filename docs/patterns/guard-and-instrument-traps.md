@@ -9654,6 +9654,27 @@ grep 'app/products/page' ⇒ 🔴 同時撈到 apps/storefront/src/app/products/
 ```
 **而上面那個 22 + 2 = 24 仍然成立** —— 它證的是**分割沒有漏也沒有重疊**,
 **不是**「22 筆全是 settle」。**自洽 ≠ 標籤正確,那是兩個宣稱。**
+
+### 🔴🔴 而這一格有數字:**自洽通過了,而那把尺【差了兩倍】**
+2026-08-19 13:21 同一發裡把三把尺並排,拿 JOIN 當獨立真值校準
+(數法=`psql -c "select count(*) filter (where content like '%enqueueStatus%'), count(*) filter (where (extract(minute from created)::int%10)=5), count(*) from net._http_response where created > now() - interval '30 minutes'"` 外加 `join cron.job using (jobid) where jobname='pcm-email-sweep'` 那一格;**這是會隨時間變的量,引用帶時刻**):
+```
+新軸  content like '%enqueueStatus%'  近 30 分 ⇒ 6
+真值  JOIN cron.job（jobname 精確比對）近 30 分 ⇒ 6   ✅ 完全吻合
+舊軸  分鐘 %10 = 5                    近 30 分 ⇒ 3   🔴 剛好一半
+對照  同期間不含 enqueueStatus         ⇒ 15，而 6 + 15 = 21 = 同期間總筆數 ✅
+```
+⇒ **舊軸在「自洽」那一關是過的(它的算式一直對得起來),而它系統性少了一半。**
+⇒ 🔴 **所以「重證自洽」不夠,還要再一步:拿一個【獨立的真值】去校準新軸。**
+自洽只證明你的分割沒有漏或重疊;**它證不出你貼在每一片上的標籤是對的。**
+
+### 📌 而更好的那把尺一直都在資料裡 —— 我沒挑它,是因為它「看起來比較軟」
+```
+時刻軸：結構性的、看起來硬  ⇒ 我第一個想到它
+內容軸：字串比對、看起來軟  ⇒ 我沒考慮 —— 而它才是對的那一把（6 = 6）
+```
+**判別句**:**選軸的時候,不要用「哪一把看起來比較嚴謹」,用「哪一把跟真值對得起來」。**
+沒有真值可對 ⇒ 那就明寫「本軸未校準」,不要拿自洽頂替。
 🔴 **而這一發的價值在於它推翻了一個現成的替代品**:`cron.job_run_details` 那邊
 `succeeded` 是綠的,而 body 逐字是 `{"sent":0,"enqueueStatus":"skipped_no_cutoff"}`
 ⇒ **拿 `succeeded` 頂替「信寄出去了」會得到一個完全相反的結論,而且沒有東西會紅。**
