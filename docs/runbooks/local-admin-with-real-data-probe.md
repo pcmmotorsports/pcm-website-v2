@@ -121,6 +121,33 @@ select tablename from pg_tables where schemaname='public'
 🔴 追失敗要**追鏈頭**:一支 `CREATE TABLE` 失敗會讓後面十幾支跟著失敗,
 逐支看沒有意義,要找**第一個非「relation does not exist」的錯**。
 
+### 🔴🔴 §3-a 失敗的那幾支會讓**本機的約束比正式站舊** —— 而它不會紅,只會靜靜地說謊
+
+2026-08-19(W2)實測 `ok=175 fail=13`,而其中一支是
+`20260729010000_m4b_e10_d0_display_id_expand.sql`。**後果**:
+```
+本機 orders_display_id_format = CHECK (display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$')   ← 舊格式
+正式站實際單號                = RCPVVJ / 5HGMC5 / 8X3N5Q（6 碼）  ＋ PCM-2026-0102（舊的也還在）
+⇒ 🔴 任何與【單號字面 / 長度 / 格式】有關的結論，本機不算數
+⇒ 而你會先撞到它：種測試資料時 INSERT 被 CHECK 擋下（那是好的，它至少會紅）
+   🔴 危險的是【反過來】——你若寫了一個「單號長度 ≤ N」之類的判斷，
+      本機測得過，而正式站的 6 碼單號走的是另一條路。**那一格不會紅。**
+```
+
+**通則(比 display_id 大)**:
+> **失敗的那幾支 migration = 你本機這份 schema【停在哪個時間點】。**
+> 而後面每一支成功的 migration,都是在那個舊地基上跑的。
+> ⇒ 🔴 **下結論前先看一眼 FAIL 清單裡有沒有你這次要碰的那張表 / 那個約束。**
+> 「我要的表都在」只證明**表在**,不證明**它是最新的形狀**。
+
+📌 查本機某條約束的真實現況(不要憑 migration 檔推):
+```sql
+select conname, pg_get_constraintdef(oid) from pg_constraint
+ where conrelid = 'public.<表名>'::regclass and contype = 'c';
+```
+
+---
+
 ## §4 PostgREST + 前綴代理 + 真後台
 
 ```bash

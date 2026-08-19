@@ -11011,3 +11011,47 @@ packages/adapters/src/tappay/TapPayChargeAdapter.ts:52-59  config 型別【恰�
 
 `unknown` 事後填得回來;而一筆被錯標成 `authorized` 的資料,**不會有人回頭懷疑它** ——
 它看起來已經是一個答案了。⇒ 這才是預設值該選最保守那一個的理由,而不是空泛的「安全」。
+
+## 🔴🔴 三把「這個元素看得到嗎」的尺,兩把說錯 —— **而那兩把都通過了負對照**(2026-08-20 W2 實測)
+
+要答的是:訂單明細頁的 `h2「取消訂單」`,**畫面上看不到,而它在不在 DOM 裡、被什麼藏起來?**
+
+```
+                              ★受測              (正對照)         (負對照)
+                          收合<details>內的 h2   畫面上真的看得到   我自己塞的 display:none
+A getBoundingClientRect 有面積   true 🔴錯         true            false
+B el.checkVisibility()           false ✅對        true            false
+C offsetParent !== null          true 🔴錯         true            false
+```
+
+### 🔴 這一格的價值:**A 與 C 通過了正負對照,而它們仍然答錯**
+```
+負對照（display:none）⇒ A、C 都正確地回 false  ⇒ 「尺會動、也會回 0」都成立
+正對照（真的看得到）  ⇒ A、B、C 都回 true      ⇒ 三把看起來一樣好
+⇒ 而受測案例一送進去，A 與 C 就散了。
+```
+**成因**:收合的 `<details>` 內容用的是 **`content-visibility: hidden`**,不是 `display:none`。
+`getBoundingClientRect()` 與 `offsetParent` **都不看 `content-visibility`** ——
+那個元素**有版面盒、有 offsetParent,而人眼看不到它**。
+
+📌 **所以本檔那條「選尺兩問要在正負對照【之前】」,這裡拿到了最乾淨的實證**:
+> **正負對照驗的是「尺會不會動」,驗不到「它量的是不是我要的東西」。**
+> 而**兩個對照都過**這件事,會讓人以為第二問已經被回答了。**它沒有。**
+
+### ⇒ 可執行的三條
+```
+① 問「使用者看不看得到」⇒ 用 el.checkVisibility({ contentVisibilityAuto:true,
+   opacityProperty:true, visibilityProperty:true })。它是唯一為這個問題設計的 API。
+② 🔴 對照組要挑【與受測同一種藏法】的 —— 我的負對照用 display:none，
+   而受測是 content-visibility ⇒ **對照組和受測不同構，所以它證不了受測那一格**。
+   （同族見本檔「對照組要有預先寫下的期望值」與「換對象安全，換寫法危險」。）
+③ 而最便宜的那把尺仍然值得留:**截圖**。
+   🔴 本例是【截圖先說沒有、程式後說有】⇒ 是那張圖讓我回頭去疑心量法的。
+   ⇒ 版面題上,人眼與程式互為對照組;只有程式的那一發,錯了不會有人知道。
+```
+
+### ⚠️ 而「藏起來」與「沒做」仍是兩件事
+本例的結論只到:**那個 h2 在 DOM 裡、被一個 `open=false` 的 `<details>`(summary 逐字
+「申請取消整張單」)藏著**,而 `id='cancel'` 這個跨檔錨仍在(掛在 `div.space-y-4`)。
+🔴 **「它被收起來」推不出「點開之後它會動」** —— 那要按下去才知道,不在本次量測範圍。
+(同族:本檔「元素在」不等於「它活著」。)
