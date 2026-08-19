@@ -89,7 +89,7 @@ export default async function CustomersPage({
         truncated={result?.keywordTruncated ?? false}
       />
 
-      <CustomerFilterBar filter={filter} />
+      <CustomerFilterBar filter={filter} sort={sort} />
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
