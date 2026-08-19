@@ -5,6 +5,7 @@ import {
   KEYWORD_PARAM,
   SET_BY_PARAM,
   SIZE_PARAM,
+  SKU_PARAM,
   SUBCATEGORY_PARAM,
   type AdminProductFilter,
 } from '../../lib/products/product-list-view';
@@ -78,6 +79,11 @@ export function ProductTaxonomyFilter({
       )}
       {filter.keyword !== undefined && (
         <input type='hidden' name={KEYWORD_PARAM} value={filter.keyword} />
+      )}
+      {/* 🔴 料號那一軸也要帶著走。少這一格,員工貼完料號再換品牌,料號就被洗掉了 ——
+          而畫面看起來完全正常(清單真的變了、貼料號的框變空)。 */}
+      {filter.skus !== undefined && (
+        <input type='hidden' name={SKU_PARAM} value={filter.skus.join(',')} />
       )}
 
       <div className='flex flex-col gap-1'>

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductFilterChips } from '../../components/products/product-filter-chips';
 import { ProductKeywordSearch } from '../../components/products/product-keyword-search';
+import { ProductSkuFilter } from '../../components/products/product-sku-filter';
 import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
 import { ListPagination } from '../../components/shared/list-pagination';
 import {
@@ -132,6 +133,7 @@ export default async function ProductsPage({
       // 🔴 這裡用 `brandId` 不是 `filter.brandId` —— 認不得的品牌不套用(見上面 `brandKnown`)。
       brandId,
       categoryIds,
+      skus: filter.skus,
     });
   } catch (error) {
     console.error('[admin/products] 商品列表載入失敗', error);
@@ -226,6 +228,9 @@ export default async function ProductsPage({
               categories={categoryOptions}
             />
           )}
+          {/* 🔴 貼料號【不】跟品牌/分類綁在同一個條件下 —— 它不依賴任何選項清單撈不撈得到,
+              就算分類撈失敗,員工手上那份 Excel 仍然貼得進來。 */}
+          <ProductSkuFilter filter={filter} size={view.size} />
           {filter.setBy === 'staff' && filter.keyword === undefined && total === 0 && (
             <p className='text-muted-foreground text-sm'>
               目前沒有手動設定過的商品。設定上下架的功能還沒做好,所以現在每一筆都是「自動」。
