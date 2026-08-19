@@ -9139,6 +9139,26 @@ grep 'app/products/page' ⇒ 🔴 同時撈到 apps/storefront/src/app/products/
 > ✅ **救我的是正對照**:我改跑「**把全部名稱列出來**」⇒ **也是空的**
 > ⇒ 才看到 `Error: Your codebase isn't linked to a project on Vercel.`
 > ⇒ 換到主樹(有 `.vercel/`)重跑 ⇒ **30 個名稱**,而真答案是 **`ORDER_EMAIL_FROM` 與 `B4_DEPLOY_CUTOFF` 確實未設**。
+>
+> 🔴 **【2026-08-19 更新:上面那個「真答案」已經過期一半 —— 而本條的教訓不受影響】**
+> `ORDER_EMAIL_FROM` **現在是設好的**(`RESEND_API_KEY` 亦然)。推導鏈,每一步可重跑:
+> ```
+> 觀察  net._http_response body 逐字 12:25:00Z 與 12:35:00Z 皆 200
+>       {"ok":true,…,"sent":0,…,"enqueueStatus":"skipped_no_cutoff"}
+> code  apps/storefront/src/app/api/cron/email-sweep/route.ts:307
+>         getSweepEmailOutboxDeps() 在 cutoff 那個 if(:284)的【外面】,無條件跑
+>       同檔 :337-338  該 factory throw ⇒ catch ⇒ 503(不偽 200)
+> code  apps/storefront/src/lib/email/composition.ts  getSweepEmailOutboxDeps() 內逐字
+>         apiKey: requireEnv('RESEND_API_KEY')
+>         from:   requireEnv('ORDER_EMAIL_FROM')
+> ⇒ 拿到 200 ⇒ 那兩顆 requireEnv 都沒 throw ⇒ **兩顆都設好了**
+> ```
+> ⇒ **仍未設的只有 `B4_DEPLOY_CUTOFF` 一顆**(那正是 `skipped_no_cutoff` 的來源)。
+> ⚠️ 限定:這推的是**服務那兩發請求的那個 production deployment**;`vercel env ls` 答不出值改了沒
+>    (最後一欄是 created 不是 updated)⇒ 要看**當下**仍需 dashboard。
+> 📌 **為什麼更新寫在這裡而不是只寫在別處**:引用「那兩顆未設」的人會來讀這一行,不會去讀我的信。
+>    而 `composition.ts` 裡那段「**那正是今天的狀態**(那兩顆 env 在正式站的現值我量不到)」的註解
+>    **同樣已過期**,只是它換了個地方繼續為真:分開 deps 的設計理由仍成立(排信不該綁死寄信)。
 > 🔴 **結論一樣,而我原本那一發是蒙的** —— 與 W5 逐格同形。
 >
 > ### 🔴 判別句(便宜、兩人都實跑過)
@@ -9587,3 +9607,55 @@ grep 'app/products/page' ⇒ 🔴 同時撈到 apps/storefront/src/app/products/
 > **而「還要不要再做一件」這個動作,今天全隊沒有任何一條規則在管它。**
 > ⇒ 而它的失效方向是**單向的**:**只會讓收尾一直延後,不會讓人漏掉該做的** ——
 > **所以它不會有人抱怨,也不會有任何東西紅。**
+
+---
+
+## 量具少一個欄位時,要換的是【判別軸】不是【結論】 —— 而換完軸,切片自洽要重新證一次
+
+**母題**:你想量 A,而量具沒有能認出 A 的那一欄。這時有兩條路,而**它們在輸出上長得一樣**:
+```
+✅ 換判別軸：找另一個【在 A 成立與不成立兩個世界會印不同東西】的欄位，重新證明切片自洽
+🔴 換結論  ：把「我量得到的那個東西」直接當成 A —— 而報告上不會有任何痕跡
+```
+🔴 **換軸本身就是一次放寬**:新軸的覆蓋範圍幾乎不會剛好等於舊軸。
+**不重新證自洽,就等於偷偷把結論的邊界移動了,而沒有人看得見。**
+
+### 實例一(2026-08-19 W2):`net._http_response` **沒有 url 欄** ⇒ 認不出是哪一支 cron 打的
+```
+欄位實查：id, status_code, content_type, headers, content, timed_out, error_msg, created
+         （net.http_request_queue 有 url，但它是佇列、處理完就清）
+⇒ 想問「pcm-email-sweep 那幾發回什麼」而量具答不出「哪一發是它的」
+```
+**換的軸 = 時刻**:`*/5` 落在分鐘 5/15/25/35/45/55,`*/2` 只落偶數分
+⇒ **分鐘 %10 = 5 的那幾發只可能是 email-sweep**。
+**而自洽重新證了一次(這一步才是重點)**:
+```
+近 40 分鐘：偶數分 22 筆 ＋ %10=5 的 2 筆 ＝ 24 ＝ 同期間全部筆數 ✅
+（若兩者相加 ≠ 總筆數 ⇒ 新軸有漏或有重疊 ⇒ 結論不能下）
+```
+🔴 **而這一發的價值在於它推翻了一個現成的替代品**:`cron.job_run_details` 那邊
+`succeeded` 是綠的,而 body 逐字是 `{"sent":0,"enqueueStatus":"skipped_no_cutoff"}`
+⇒ **拿 `succeeded` 頂替「信寄出去了」會得到一個完全相反的結論,而且沒有東西會紅。**
+
+### 實例二(同日同窗):`products` 這張表 **anon 讀不到** ⇒ 打不到要量的那條關係
+```
+實打 GET /rest/v1/brands?select=id,name,products(count)
+  ⇒ HTTP 401 / 42501 permission denied for table products
+  （hint 逐字建議 GRANT SELECT ON public.products TO anon —— 🔴 那個 GRANT 不要做，它擋著是對的）
+```
+**換的軸 = 打它的兄弟** `products_public`(anon 讀得到的 view),兩個世界都表演:
+```
+有商品 ⇒ "products_public":[{"count": 1146}]
+零商品 ⇒ "products_public":[{"count": 0}]      ← 不是 [] 也不是 null
+```
+🔴 **而結論【沒有】跟著搬過去**:回報時明寫「量到的是**鄰居**(brands→products_public),
+**brands→products 這一條本身沒有人量過**」,並要求下游把檔頭寫成「量到鄰居、本條未量」。
+📌 **判別句**:換軸之後問自己 —— **我量到的那個關係,和我要下結論的那個關係,是同一條嗎?**
+
+### ⇒ 落筆前的兩問(照順序)
+```
+1. 我的新軸，在【成立】與【不成立】兩個世界會印不同的東西嗎？
+2. 新軸切出來的那幾片，加起來等於舊軸的全體嗎？（不等 ⇒ 只能報更窄的那一句）
+```
+📎 同族:memory `feedback_measured-A-answered-B`(量了 A 卻拿去答 B)與本檔既有的「掃描字集比宣稱窄」;
+差別在**本條的病灶發生在【量具先擋住你】之後**,而那一刻人最想直接拿手邊有的東西頂替。
