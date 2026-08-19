@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { FilterOption } from '../../lib/shared/list-params';
 import { buildListHref } from '../../lib/shared/list-params';
 import {
@@ -102,6 +102,31 @@ function href(state: FilterState): string {
   );
 }
 
+/** `/orders?a=1&b=2` → `a=1&b=2`(沒有 query 就回空字串)。 */
+function searchOf(hrefValue: string): string {
+  return hrefValue.split('?')[1] ?? '';
+}
+
+/**
+ * 🔴🔴 **Next 的 segment cache key 會不會把這兩條網址當成同一條**(`#741`)。
+ *
+ * 判準逐字取自 memory `reference_nextjs-duplicate-query-key-segment-collision`
+ * (Next 16.2.6 `client/route-params.js` `getCacheKeyForDynamicParam`):
+ * key = `Object.fromEntries(new URLSearchParams(search))` ⇒ **重複鍵只留最後一個**。
+ * ⇒ `?order_source=x&order_source=y` 與 `?order_source=y` 的 key **相同**
+ *   ⇒ `router.replace` 判定同一 segment ⇒ **零 RSC 請求** ⇒ 勾勾變了、清單停在舊資料。
+ *
+ * 🔴 **不可無條件 `router.refresh()`**(那份 memory 明文):單值軸天然不碰撞,
+ *    無條件會讓每一次操作都多查一次全表。本支就是那個「條件」。
+ * ⚠️ 網址真的一樣時回 `false` —— 那是 no-op 導航,沒有東西要重抓。
+ * ⚠️ **依賴 Next 內部實作** ⇒ 升 Next 必須重跑實測(那份 memory 自己記著這句)。
+ */
+function collidesOnSegmentKey(beforeSearch: string, afterSearch: string): boolean {
+  if (beforeSearch === afterSearch) return false;
+  const key = (s: string) => JSON.stringify(Object.fromEntries(new URLSearchParams(s)));
+  return key(beforeSearch) === key(afterSearch);
+}
+
 function toggled(list: readonly string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
@@ -124,6 +149,27 @@ export function OrderFilterControls({
   initial: FilterState;
 }) {
   const router = useRouter();
+  /**
+   * 🔴 **只給 `apply()` 的碰撞判定用,不當 state 的基底** —— 本檔開頭那條競態紀律
+   * (「不讀 `useSearchParams`/`window.location` 當基底」)一個字沒鬆:各軸的值仍然只從
+   * `state` 導出。這裡讀網址是因為**碰撞判定問的就是「瀏覽器現在那條網址」**,
+   * 而 `href(state)` 答不出它(理由見 `lastPushedSearch`)。
+   */
+  const searchParams = useSearchParams();
+  /**
+   * 上一發 `router.replace` 送出去的 query 字串;`null` = 本次掛載還沒推過。
+   *
+   * 🔴 **為什麼不是每次都讀 `searchParams`**:同一個 tick 內連點兩下,第二發讀到的
+   * `searchParams` 還是第一發之前的舊值(Next 的更新不同步)⇒ 會拿錯的「之前」去比。
+   * 本檔整個設計就是繞著這個連點競態長出來的(見開頭那段),所以這裡也不留那個窗。
+   *
+   * 🔴 **為什麼第一發要讀 `searchParams` 而不是 `href(state)`**:兩者**不相等**。
+   * `href()` 只列 7 個鍵,而 `/orders` 實際上還有 `pending` / `den` / `panel` / `customer`
+   * (數法:`grep -c ORDER_PANEL_PARAM` 本檔 ⇒ 0,而 `lib/orders/order-list-view.ts` 有)。
+   * ⇒ 拿 `href(state)` 當「之前」會在面板開著時**多補一次沒必要的 refresh**。
+   * ⚠️ 而那個不相等本身是**另一隻蟲**(改任一篩選會把那四個鍵靜默丟掉),不在本片修 —— `#742`。
+   */
+  const lastPushedSearch = useRef<string | null>(null);
   const [state, setState] = useState(initial);
   // server prop 變動時的採用規則(值班台 R2 nit-1):只採用「非我方推送期的外部值」
   // (lastPushedKey===null)或「我方最終推送的收斂回音」(initialKey===lastPushedKey、=no-op);
@@ -145,7 +191,12 @@ export function OrderFilterControls({
   const apply = (next: FilterState) => {
     setState(next);
     setLastPushedKey(JSON.stringify(next));
-    router.replace(href(next), { scroll: false });
+    const after = href(next);
+    const before = lastPushedSearch.current ?? searchParams.toString();
+    router.replace(after, { scroll: false });
+    // 🔴 下一發的「之前」= 這一發的「之後」(見 `lastPushedSearch` 的宣告處)。
+    lastPushedSearch.current = searchOf(after);
+    if (collidesOnSegmentKey(before, searchOf(after))) router.refresh();
   };
 
   /**

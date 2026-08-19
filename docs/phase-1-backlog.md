@@ -24216,6 +24216,105 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
 - **歸屬**:未定。⚠️ **而本條的前提是「後台要支援手機」,那件事本身沒有被拍板過**
   ⇒ 動它之前先確認那個前提,不要直接開工。
 
+### #741 · 🔴 訂單篩選:取消勾選【非字母序最後】的那個值 ⇒ 勾勾變了、清單不變
+
+- **狀態:** 2026-08-20 W3 立案並同片修掉呼叫層;**殘餘那半見文末**。
+- **來源**:W3,2026-08-20。查 MAIN-066 第 5 條(面板不更新)時,**主視窗的假設被算掉**,
+  而同一趟撿到這一隻 —— **它不是第 5 條**,是第 5 條的鄰居。
+- **機制(不是猜的,是那份 memory 記的 Next 16.2.6 實作)**:
+  `reference_nextjs-duplicate-query-key-segment-collision` ——
+  segment cache key = `Object.fromEntries(new URLSearchParams(search))`,**重複鍵只留最後一個**。
+  ```
+  ?order_source=x&order_source=y   與   ?order_source=y      key 相同
+  ⇒ router.replace 判定同一 segment ⇒ 零 RSC 請求 ⇒ 網址與勾勾都更新了、清單停在舊資料
+  ⇒ 不對稱:取消【最後】那個 ⇒ key 變 ⇒ 正常;取消【非最後】那個 ⇒ key 不變 ⇒ 卡住
+  ```
+- **座標與數法**:
+  ```
+  可重複的參數 = 恰好 3 個:goods_axis / order_source / payment_channel
+    數法 apps/admin/src/lib/shared/list-params.ts:107-110(陣列 append、純量 set)
+    其餘 8 個(payment_status/show_unpaid_card/pending/den/date_from/date_to/panel/customer)皆純量
+  軟導航唯一呼叫點 apps/admin/src/components/orders/order-filter-controls.tsx:148 router.replace
+    數法 grep -rl 'router\.replace\|router\.push' apps/admin/src ⇒ 實查只有這一支真的呼叫
+  ```
+- **🔴 不修未來會痛在哪**
+  - 不是「篩選會失效」。是 **做了一個動作,畫面回應了一半 —— 而員工會以為是自己按錯。**
+  - 一次兩次他重按,第三次他開始**不信任這個後台**:接下來每一格對的數字他也要再確認一遍。
+    **那個成本收不回來** —— 後台的價值就是「看到的就是真的」,這隻蟲打的正是那一條。
+  - 而它**只在多勾選時發作、且只在取消非最後那個時發作** ⇒ 回報出來會長成「偶爾怪怪的」,
+    查的人重現不了 ⇒ 會被歸成「他記錯了」。
+- **修法**:照那份 memory 的字面 —— **只在新舊 segment key 真碰撞時補一次 `router.refresh()`**;
+  🔴 **不可無條件 refresh**(單值軸天然不碰撞,無條件會讓每次操作都多查一次全表)。
+- **🔴 殘餘(本條不因呼叫層修好而關閉)**:
+  ```
+  單元測試驗得到「有沒有呼叫 router.refresh」，驗不到「呼叫後畫面真的更新了」
+  ⇒ 那要 production build E2E（那份 memory 自己記著 #288）
+  ⇒ 而 admin 的免登入旁路只在 dev 生效（apps/admin/src/lib/session/authorize.ts:18）
+     ⇒ 本機鑽機跑不了 production build ⇒ 這一格【現在沒有人量得到】
+  ```
+  **可跑的檢查(答「呼叫層那半還在不在」)**:
+  ```
+  grep -c 'collidesOnSegmentKey' apps/admin/src/components/orders/order-filter-controls.tsx
+  ```
+  修法在 = 2;0 = 被改掉了,回來重看。
+  ⚠️ 這條命令的錨我**一開始寫錯**(寫成小寫 `segmentKey`)⇒ 修法還在的當下就回 `0`
+  ⇒ **一條從第一天起就說謊的檢查,而說的是「壞了」那個方向**。當場跑過才發現。
+- 🔴 **而 `#288` 現在有三個東西在等它**(主視窗 2026-08-20 裁):本條 / MAIN-066 第 5 條 / W1 那條
+  ⇒ 它從「有比較好」變成**三隻蟲共用的唯一出口**。
+- **升級 Next 必須重跑實測** —— 本條整條依賴 Next 內部實作。
+
+### #742 · 🔴 改任一訂單篩選 ⇒ `panel` / `customer` / `pending` / `den` **靜默消失**
+
+- **狀態:** 待處理(2026-08-20 W3 在做 `#741` 時撞到 —— **它就是本檔自己警告過兩次的那個坑,第三次**)
+- **在哪**:
+  ```
+  apps/admin/src/components/orders/order-filter-controls.tsx:85 href()
+     只列 7 個鍵:payment_status / goods_axis / order_source / payment_channel
+                 show_unpaid_card / date_from / date_to
+  而 /orders 實際上還有 4 個:pending / den / panel / customer
+     數法(本檔內)  grep -c 'PENDING_ONLY_PARAM\|ORDER_DENSITY_PARAM\|ORDER_PANEL_PARAM\|CUSTOMER_PANEL_PARAM' ⇒ 全部 0
+     數法(真的有)  同名常數在 lib/orders/order-list-view.ts:85/93 與 order-return-to.ts:47/60
+     producer 都在:order-filter-chips.tsx:109(待收款/待訂貨)、order-density-toggle.tsx、@panel 那條線
+  ```
+  篩選列是軟導航(同檔 `'use client'` + `router.replace(href(next))`)⇒ **href 沒列 = 那個鍵被丟掉**。
+- 🔴 **而丟掉 `panel` 的不只這一支 —— 實查 `buildOrderListHref(` 在 .tsx 有 5 個呼叫點(見下方數法),
+  加上本檔自己那份 `href()` 共 6 個 producer:4 個丟、1 個帶、1 個丟得有道理**:
+  ```
+  丟  components/orders/order-filter-controls.tsx:85   href()  自己那份 7 鍵清單
+  丟  components/orders/order-filter-chips.tsx:161     buildOrderListHref(filter, display, 1)      ← 無第 4 參數
+  丟  components/orders/order-toolbar.tsx:79           buildOrderListHref(filter, {density}, page) ← 無第 4 參數
+  丟  app/orders/page.tsx:268  分頁            buildOrderListHref(filter, display, p)       ← 無第 4 參數
+  帶  app/orders/page.tsx:259  列的訂單連結    buildOrderListHref(filter, display, page, orderId)
+  ○  app/orders/page.tsx:188  單號搜尋的「回列表」 —— 丟掉面板在這一格說得通(那是刻意回列表),
+     ⚠️ 而它與上面四個在程式碼上**長得一模一樣** ⇒ 光看呼叫端分不出「刻意」與「忘了」
+  數法 grep -rn 'buildOrderListHref(' --include='*.tsx' apps/admin/src | grep -v '\.test\.'
+  ```
+  ⇒ **翻頁、按 chip、換密度、改篩選 —— 四種動作都會把開著的面板關掉。**
+  🔴 `panelOrderId` 是 `buildOrderListHref` 的**選填第 4 參數**(`order-list-view.ts:680` docstring:
+  「不給 = 關閉面板」)⇒ **忘了帶與刻意不帶,在型別上長得一模一樣、`tsc` 不會叫。**
+  ⇒ 這正是本條該用機制修的地方:那道編譯期窮舉守門保護的是 `filter` 的軸,**保護不到這個參數**。
+- **🔴 症狀(三個,都是員工做得出來的)**
+  - 面板開著 ⇒ 改任一篩選 ⇒ **面板自己關掉**。
+  - 按了「待收款/待訂貨」⇒ 改任一篩選 ⇒ **那個 chip 自己熄掉、清單變回全部**。
+  - 密度調成寬鬆 ⇒ 改任一篩選 ⇒ **變回預設**。
+- **🔴 不修未來會痛在哪**:與 `#741` 同一個成本 —— **員工開始不信任這個後台**。
+  而這一隻更難講:**東西不是「沒反應」,是「反應了、順便把別的關掉」** ⇒ 他不會把兩件事連在一起,
+  只會覺得「這後台會自己亂跳」。
+- **🔴 而本檔【已經為同一個病記過兩次】**(檔頭 `:27-34` 逐字):
+  `#347-3c-1` 的日期兩軸、`#484a` A2 的 `goods_axis` 鍵名。**這是第三次。**
+  ⇒ 修法不該是「再補四個鍵」——那只是把第四次推到以後。
+  `buildOrderListHref` 有**編譯期窮舉守門**(`Record<keyof AdminOrderFilter, …>`,漏一軸 `tsc` 就紅);
+  本檔的 `href()` 是**第二個 URL builder、不受那道守門保護**(檔頭 `:31` 自己寫著)。
+  ⇒ **方向 = 讓這一支也被同一道守門蓋住,或乾脆讓它復用 `buildOrderListHref`。**
+  ⚠️ 而那是**跨檔的行為改動**(面板從「會關掉」變成「留著」)⇒ 鐵則 8,要先提 plan。
+- **可跑的檢查(答「這條還在不在」)**:
+  ```
+  grep -c 'ORDER_PANEL_PARAM' apps/admin/src/components/orders/order-filter-controls.tsx
+  ```
+  0 = 本條仍成立。
+- 📌 `#741` 的修法**已經踩在這個不相等上面**(它拿真實網址而不是 `href(state)` 當「之前」),
+  該檔有一條測試釘著。修本條時**那條測試的前提會改變** ⇒ 一起看。
+
 ### #780 · 物件的【鍵】同時是表單欄位名 —— 而改名的人只看得到人的那一面
 
 - **狀態:** 待處理(2026-08-19 W6 在審 W5 貼料號片時掃出第二個實例;W5 補量嚴重度後立案)
