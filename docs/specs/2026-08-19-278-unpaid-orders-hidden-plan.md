@@ -23,6 +23,35 @@
             query.or('payment_channel.neq.tappay,payment_status.neq.unpaid')
 關(預設)⇒ 10 筆    開 ⇒ 18 筆    差 8 筆        ← 18 與 8 是 G3 量的,我未重跑
 ```
+> ### 🔴🔴 2026-08-19 G2 自查:**這個 8 與本檔下面那個 3,算術上不可能同時成立**
+> 那顆開關的語意(`SupabaseOrderAdapter.ts:830-831`,我開檔逐字核過):
+> ```
+> query.or('payment_channel.neq.tappay,payment_status.neq.unpaid')
+> ⇒ .or() = OR ⇒ 留下 channel≠tappay 或 status≠unpaid
+> ⇒ 【藏起來】的 = channel=tappay 且 status=unpaid
+> ⇒ 🔴 被藏的筆數 **必然 ≤ unpaid 的筆數**
+> ```
+> ⇒ **被藏 8 筆,而下面寫 unpaid 只有 3 筆 —— 不可能。**
+>
+> 🔴 **而它為什麼要緊**:下面那句「那 3 筆全是自己人的測試單」是
+> 「**今天沒有真客人被藏住**」的**全部依據**,而 Sean 會照它決定這題要不要現在處理。
+> ```
+> 若真值是 3  ⇒ 三筆都具名 ⇒ 那句成立
+> 🔴 若真值是 8 ⇒ 有 5 筆沒有人看過是誰的 ⇒ 那句【沒有被證明】
+> ```
+> ⚠️ **兩個數字都不是我量的**(3 與 18/10/8 都是 G3 量的),而我**沒有 DB access,重跑不了**。
+> 📌 **我的錯在哪**:我把「我未重跑」這個限定寫下來了,**卻沒有把兩個數字放在一起對過** ——
+>   限定寫了不等於對過帳。
+> ⇒ **在對帳回來之前,本檔的「3」與「8」都當【未對帳】,不要單獨引用任一個。**
+> ⇒ 對帳用(唯讀,一發):
+> ```sql
+> SELECT id, display_id, payment_channel, payment_status, created_at, customer_name
+>   FROM public.admin_order_list_v
+>  WHERE payment_channel = 'tappay' AND payment_status = 'unpaid'
+>  ORDER BY created_at DESC;
+> ```
+```
+```
 🔴 **而我當時「證明」列表沒藏東西的那一步,查錯了層**:
 我去讀了基底查詢(`:724` `.from('admin_order_list_v')`),看到它無條件過濾就下了結論 ——
 **而那顆開關不在基底查詢,它在下游的 `if` 裡(`:830`)。**
