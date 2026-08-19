@@ -27,8 +27,15 @@ set -uo pipefail
 
 # 🔴 路徑可覆寫:多窗平行時各自帶一個 `STOREFRONT_PROBE_DIR`,否則兩邊會互相拆台
 #    (up.sh 有同名變數與一道前置閘;預設值兩邊必須一致)。
-S=${STOREFRONT_PROBE_DIR:-/tmp/pcm-g3-probe}
-PG=55533; PREST=3969; PROXY=3968; WEB=3020; CORS=3987
+SP_DOWN="$(cd "$(dirname "$0")" && pwd)"
+# 🔴 路徑**與埠**住在 `env.sh`,**up 與 down 讀同一份**(2026-08-19 W3)。
+#    ⚠️ 落檔前這兩支**各自寫了一份常數,而它們已經不一樣了**:`CORS=3987` 只在本檔那一行,
+#       `up.sh` 那一行沒有它(它把 3987 當字面散在三處)⇒ **分歧已經存在,而沒有東西會紅。**
+# shellcheck source=./env.sh
+. "$SP_DOWN/env.sh"
+# 🔴 把這次要收的埠印出來 —— 與 `owner.txt` 那行對不上,就是你收的時候帶錯組合了。
+echo "── 這一發要收的埠(來自 env.sh / 你的環境變數)──"
+echo "   web $WEB / proxy $PROXY / prest $PREST / cors $CORS / pg $PG   datadir $S"
 
 echo "── 收攤目標:$S ──"
 if [ -f "$S/owner.txt" ]; then
@@ -41,7 +48,9 @@ fi
 pkill -f "next dev -p $WEB" || true
 pkill -f "$S/proxy.py" || true
 pkill -f "$S/prest.conf" || true
-pkill -f "cors-server.py" || true
+# 🔴 **帶埠**:不帶的話這一行會殺掉**別的視窗**起的 cors-server(同一台機器上 cmdline 一模一樣)。
+#    2026-08-19 起 `up.sh` 用 argv 把埠傳給它 ⇒ cmdline 含得到這個數字。
+pkill -f "cors-server.py $CORS" || true
 pg_ctl -D "$S/pg" stop -m immediate > /dev/null 2>&1 || true
 sleep 2
 
@@ -62,7 +71,19 @@ pg_state() {
 }
 
 echo "── 第一層:程序(pattern 對不對得上,見檔頭那條實錘)──"
-for pat in "next dev -p $WEB" "$S/proxy.py" "$S/prest.conf" "cors-server.py"; do
+# 🔴🔴 **`next dev` 與 `cors` 兩格改成【讀埠佔用者】**(2026-08-19 W3;`admin-probe` 同款修法):
+#    本檔檔頭 :8-11 自己記著 `next dev` 會把自己改名成 `next-server (vX.Y.Z)`
+#    ⇒ 拿啟動指令的字面去 `pgrep -f`,**父程序被帶走而 worker 還活著時會印「已停」**。
+#    ⇒ 與 postgres 同一個處置:**問【誰在聽那個埠】,那把尺與程序叫什麼名字無關。**
+#    ⚠️ 與下面第二層不重複:第二層問「埠釋放了沒」(任何人佔著都紅),
+#       這一層問「**還在聽的那個是誰**」—— 兩格的紅指向不同的下一步。
+for spec in "next:$WEB" "cors:$CORS"; do
+  _nm=${spec%%:*}; _pt=${spec##*:}
+  printf "  %-34s " "$_nm(讀埠 $_pt 的佔用者)"
+  _own=$(lsof -nP -iTCP:$_pt -sTCP:LISTEN 2>/dev/null | grep -v WARNING | awk 'NR==2 {print $2" "$1}')
+  if [ -n "$_own" ]; then echo "🔴 還活著 —— pid/command = $_own"; rc=1; else echo "已停"; fi
+done
+for pat in "$S/proxy.py" "$S/prest.conf"; do
   printf "  %-34s " "$pat"
   if pgrep -f "$pat" >/dev/null; then echo "🔴 還活著"; rc=1; else echo "已停"; fi
 done
@@ -88,9 +109,15 @@ done
 #    本來這行是無條件的 ⇒ 判「還活著」的時候它仍然刪,然後印「已刪」
 #    ⇒ 下一次 up.sh 會撞上一個**沒有 datadir 的活 server**,而畫面上看不出來。
 printf "  %-36s " "資料目錄 $S"
+# 🔴 **「本來就不存在」與「我刪掉了」不可以印同一句話**(2026-08-19 W3 於 admin-probe 實測):
+#    `rm -rf` 對一個不存在的路徑**回 0** ⇒ 舊寫法照樣印「已刪」,而它一個 byte 都沒動過。
+#    那個情境不是假想的:**收的時候忘了帶同一組埠/路徑**,這一整支就會對著一個空路徑報全綠。
+_existed=0; [ -e "$S" ] && _existed=1
 if [ "$rc" = "0" ]; then
   rm -rf "$S"
-  if [ -e "$S" ]; then echo "🔴 刪不掉"; rc=1; else echo "已刪"; fi
+  if [ -e "$S" ]; then echo "🔴 刪不掉"; rc=1
+  elif [ "$_existed" = "1" ]; then echo "已刪"
+  else echo "⚠️ 本來就不存在(不是我刪的)—— 你可能收錯了一組,見上面那行埠"; fi
 else
   echo "⏸ 保留供你查(上面有紅,現在刪掉會把證據一起刪了)"
 fi
