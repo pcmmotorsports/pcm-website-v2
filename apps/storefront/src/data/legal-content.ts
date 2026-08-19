@@ -52,7 +52,27 @@ export type LegalSection = {
   items?: string[];
 };
 
-/** 頁面顯示的最後更新日(非 CURRENT_TERMS_VERSION;後者是同意紀錄用的版本鍵)。 */
+/** 頁面顯示的最後更新日(非 CURRENT_TERMS_VERSION;後者是同意紀錄用的版本鍵)。
+ *
+ * 🔴 **2026-08-19 Sean 拍板:這個日期【不動】。** 那天法律頁改了站名
+ * (`PCM Motorsports` → `PCM MOTOR PARTS LTD`,條款版本 bump 到 `2026-08-19`),
+ * 而**本值刻意留在 `2026-07-24`**。
+ * 理由(量得到的):那次改動的三句**沒有一句是條文本體** ——
+ * `titleSuffix` 只進 `metadata.title`(`app/terms/page.tsx` / `app/privacy/page.tsx`)、
+ * 兩句 `description` 只進 SEO meta;`TERMS_SECTIONS` 與 `PRIVACY_SECTIONS` 一字未動
+ * ⇒ **客人在頁面上讀到的條款內容沒有變**,所以「最後更新」不該動。
+ *
+ * 🔴 **這段是 2026-08-19 對帳時補的,而補它的理由值得留**:
+ * 這條拍板先前**沒有任何地方記著**,而**反方向的字面還活著** ——
+ * 當時的 codex findings 與回報都寫著「**待 Sean 裁**」。
+ * ⇒ 下一個人會【照著再問他一次】,而他已經答過了(前科:`#485` 那次舊的「他沒被問過」
+ * 殘留著,害他在錯的前提下推翻自己)。
+ * 📌 **拍板落檔是兩個動作:①寫下新裁定 ②把「等他裁」那句劃掉。**
+ *
+ * ⚠️ **要改它的人先知道**:本值進 `canonicalLegalPayload()`(見本檔 `META\t0\tU\t…` 那行)
+ * ⇒ **動它 hash 就變** ⇒ 需要**新開一支 migration**、先 apply 再 bump 常數(順序不可顛倒,
+ * 顛倒 = 每筆結帳 FK 違反)。**不是改一個字串而已。**
+ */
 export const LEGAL_LAST_UPDATED = '2026-07-24';
 
 export const TERMS_SECTIONS: LegalSection[] = [
