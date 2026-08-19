@@ -42,21 +42,25 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # 🔴 路徑可覆寫:多窗平行時各自帶一個 `ADMIN_PROBE_DIR`(down.sh 讀同一個變數)。
 #    預設值仍是固定路徑 —— 讓 up/down 這一對在【不傳任何東西】時仍配得上;
 #    代價由下面那道前置閘擋住,不是靠使用者記得。
-S=${ADMIN_PROBE_DIR:-/tmp/pcm-admin-probe}
-SEC="pcm-admin-probe-throwaway-jwt-secret-at-least-32-chars"
-PG=55534; PREST=3979; PROXY=3978; WEB=3011
 SP="$(cd "$(dirname "$0")" && pwd)"
+# 🔴 埠與路徑住在 `env.sh`,**up 與 down 讀同一份**(W6 `W6-043` n2;為什麼不能兩邊各寫一份,
+#    見那支檔的檔頭 —— 簡短版:各寫一份 ⇒ 收的時候拿預設埠去查 ⇒ 兩層都印「已釋放」而它還活著)。
+# shellcheck source=./env.sh
+. "$SP/env.sh"
+SEC="pcm-admin-probe-throwaway-jwt-secret-at-least-32-chars"
 
 # ── 前置:要用的東西在不在(缺了就明確報錯,不要跑到一半才炸)────────────────
 for c in initdb pg_ctl psql postgrest python3 curl; do
   command -v "$c" >/dev/null || { echo "🔴 缺 $c —— 這條鏈起不來。postgrest 用 brew install postgrest"; exit 1; }
 done
-for p in $PG $PREST $PROXY $WEB; do
-  if lsof -nP -iTCP:$p -sTCP:LISTEN 2>/dev/null | grep -v WARNING | grep -q .; then
-    echo "🔴 埠 $p 已經有人在聽 —— 先跑 bash scripts/admin-probe/down.sh,或那是別人的鑽機"; exit 1
-  fi
-done
-
+# 🔴🔴 **這裡原本還有一個【一模一樣的】埠迴圈,已於 2026-08-19 刪掉(W6 `W6-043` M1)。**
+#    它先跑、命中就 `exit 1` ⇒ **下面那道帶來歷、帶指引的 busy 閘,在它為之而寫的情境下【到不了】**
+#    ⇒ `owner.txt` 的來歷、並行跑法、「要收掉它 ⇒ down.sh」那三行**一次都沒印出來過**。
+#    🔴 而它的形狀正是本 repo 記過的那個:**保護確實還在,但擋下它的是【更早那道閘】**
+#      ⇒「我驗過前置閘」與「前置閘生效」在這裡印出同一個結果。
+#    ⚠️ 刪掉之後**沒有損失 fail-fast**(W6 替我核過順序,我複驗):
+#      工具檢查 → **busy 閘** → `$S` 存在閘 → `rm -rf "$S"`
+#      ⇒ busy 閘仍然排在任何破壞性動作之前,只是換成會講話的那一道。
 # 🔴🔴 **前置閘(2026-08-19 新增)—— 本來這裡是無條件 `rm -rf $S`。**
 #    A 窗正在跑,B 窗跑 `up.sh` ⇒ **B 當場砍掉 A 的 datadir,而 A 收不到任何訊息**,
 #    它的 postgres 變成一個沒有資料目錄的孤兒。
@@ -87,9 +91,12 @@ if [ -n "$busy" ]; then
   [ -f "$S/owner.txt" ] && { echo "   來歷:" >&2; sed 's/^/     /' "$S/owner.txt" >&2; }
   echo "" >&2
   echo "   要收掉它  ⇒ bash scripts/admin-probe/down.sh" >&2
-  echo "   要並行跑  ⇒ 換一組路徑與埠,例如:" >&2
-  echo "       ADMIN_PROBE_DIR=/tmp/pcm-admin-probe-\$\$ bash scripts/admin-probe/up.sh" >&2
-  echo "       ⚠️ 埠仍寫死在本檔($WEB/$PROXY/$PREST/$PG)⇒ 並行還要自己改埠,本次未做" >&2
+  echo "   要並行跑  ⇒ 換一組路徑與埠(2026-08-19 起埠也可覆寫,見 env.sh):" >&2
+  echo "       ADMIN_PROBE_DIR=/tmp/pcm-admin-probe-b \\" >&2
+  echo "       ADMIN_PROBE_PG=55544 ADMIN_PROBE_PREST=3989 ADMIN_PROBE_PROXY=3988 ADMIN_PROBE_WEB=3021 \\" >&2
+  echo "         bash scripts/admin-probe/up.sh" >&2
+  echo "       🔴 收的時候要帶【同一組】—— 不帶的話 down.sh 會拿預設埠去查," >&2
+  echo "          兩層都印「已釋放」而你的鑽機還活著。owner.txt 有記你當初用的那四個埠。" >&2
   exit 1
 fi
 
@@ -108,7 +115,7 @@ if [ -e "$S" ]; then
   echo "   (FORCE=1 ⇒ 照你的意思刪掉重來)" >&2
 fi
 
-rm -rf $S && mkdir -p $S
+rm -rf "$S" && mkdir -p "$S"   # 🔴 引號:`${ADMIN_PROBE_DIR:-…}` 只擋空字串,擋不了空白/glob(W6 n3)
 { echo "起於   : $(date '+%Y-%m-%d %H:%M:%S')"
   echo "shell  : pid $$  tty $(tty 2>/dev/null || echo '?')"
   echo "datadir: $S"
@@ -222,10 +229,27 @@ HTTP_ORDERS=$(curl -s -o $S/orders.html -w '%{http_code}' --max-time 60 "http://
 # 🔴 **數【不同的單號】,不要 `grep -c`** —— `grep -c` 數的是**行**,而整頁 HTML 常常是一行
 #    ⇒ 六張單會被數成 1。(建這支腳本時真的先寫錯了:印出 1 而實際有 5 張。)
 SHOWN=$(grep -o 'PCM-[0-9]\{4\}-[0-9]\{4,\}' $S/orders.html 2>/dev/null | sort -u | wc -l | tr -d ' ')
-# 預設清單**刻意隱藏未付款**(Sean 要的行為;`order-list-view.ts:67-73` SHOW_UNPAID_CARD_PARAM,
-# 預設關)⇒ 應該出現的張數 = 非 unpaid 的那些。
-SQL_VISIBLE=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select count(*) from orders where payment_status <> 'unpaid'")
-UNPAID_ID=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select display_id from orders where payment_status = 'unpaid' order by display_id limit 1")
+# 🔴🔴 **這把尺 2026-08-19 換過(W6 `W6-043` M2)—— 舊的量的是【比產品窄的】那個集合。**
+#    產品真正下的述詞(`SupabaseOrderAdapter.ts:830-831`):
+#        query.or('payment_channel.neq.tappay,payment_status.neq.unpaid')
+#    ⇒ 真正被藏起來的是 **`payment_channel = 'tappay'` 且 `payment_status = 'unpaid'`**,
+#      **不是所有未付款**。
+#    ~~舊寫法 `where payment_status <> 'unpaid'`~~ 在舊種子上答案相同 ——
+#    而相同的原因是**一個沒有人寫下來的預設值**:種子沒寫 `payment_channel` ⇒ 全部吃 `DEFAULT 'tappay'`。
+#    ⇒ 兩個後果,方向相反:
+#      · **假紅**:種子哪天加一列 `bank_transfer` 的未付款單(= 後台要支援的電話單/匯款單),
+#        畫面**會顯示它**(對的),而舊尺把它算成不該顯示 ⇒ 自檢紅、訊息卻叫你去查種子。
+#      · **假綠(更貴)**:舊尺**分不出**「真述詞」與「退化成只看 payment_status」——
+#        兩者在舊種子上輸出一模一樣,而這一格印的是「證明篩選【真的在篩】」。
+#    ⇒ 現在種子第 7 列是 `bank_transfer` × `unpaid`(見 `seed.sql`),**它是唯一分得開的那一列**。
+SQL_VISIBLE=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select count(*) from orders where not (payment_channel = 'tappay' and payment_status = 'unpaid')")
+# 🔴 這一格要抓的是**刷卡未付款**那張(= 真的會被藏起來的那一種),不是「隨便一張未付款」。
+#    改完之後它與 `bank_transfer × unpaid` 那張**不是同一列** —— 訊息文字也跟著改,見下方。
+UNPAID_ID=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select display_id from orders where payment_channel = 'tappay' and payment_status = 'unpaid' order by display_id limit 1")
+# 🔴🔴 **新增的一格:`bank_transfer × unpaid` 那張【必須出現】。**
+#    沒有它,「退化成只看 payment_status」仍然會通過 —— 因為那條退化只會【多藏】、不會少藏,
+#    而上面的張數比對在種子剛好對稱時抓不到。**這一格才是把兩把尺分開的那一發。**
+BANK_UNPAID_ID=$(psql -h 127.0.0.1 -p $PG -U postgres -tAc "select display_id from orders where payment_channel <> 'tappay' and payment_status = 'unpaid' order by display_id limit 1")
 
 printf "  DB   products=%s  orders=%s(其中非未付款 %s)\n" "$SQL_PRODUCTS" "$SQL_ORDERS" "$SQL_VISIBLE"
 printf "  REST products=%s   <- 與上面那個 DB 數字一致才算通\n" "$REST_PRODUCTS"
@@ -240,10 +264,22 @@ FAILED=0
 #    ⇒ 只驗①的話,「篩選整個壞掉、全部都印出來」也會通過;只驗②的話,空白頁也會通過。
 [ "$SHOWN" = "$SQL_VISIBLE" ] || { echo "  🔴 畫面上的單號數($SHOWN)與應顯示數($SQL_VISIBLE)不符 ⇒ 種子沒進去,或查詢層壞了"; FAILED=1; }
 if grep -q "$UNPAID_ID" $S/orders.html 2>/dev/null; then
-  echo "  🔴 未付款那張($UNPAID_ID)出現在預設清單上 ⇒ 「預設隱藏未付款」那道篩選沒生效"
+  echo "  🔴 刷卡未付款那張($UNPAID_ID)出現在預設清單上 ⇒ 「預設隱藏刷卡未付款」那道篩選沒生效"
   FAILED=1
 else
-  printf "  ✅ 未付款那張(%s)正確地不在預設清單上 <- 這一格證明篩選【真的在篩】\n" "$UNPAID_ID"
+  printf "  ✅ 刷卡未付款那張(%s)正確地不在預設清單上\n" "$UNPAID_ID"
+fi
+# 🔴🔴 **這一格與上一格【方向相反】,兩格都在才有判別力**(W6 `W6-043` M2):
+#    上一格問「該藏的藏了沒」,這一格問「**不該藏的有沒有被誤藏**」。
+#    只有它會在「述詞退化成只看 payment_status」時變紅 —— 那條退化只會多藏、不會少藏。
+if [ -z "$BANK_UNPAID_ID" ]; then
+  echo "  🔴 種子裡沒有『非刷卡 × 未付款』那一列 ⇒ **這一格沒有判別力**,不要當它通過了"
+  FAILED=1
+elif grep -q "$BANK_UNPAID_ID" $S/orders.html 2>/dev/null; then
+  printf "  ✅ 匯款未付款那張(%s)有出現 <- 這一格證明篩的是【刷卡且未付款】,不是【所有未付款】\n" "$BANK_UNPAID_ID"
+else
+  echo "  🔴 匯款未付款那張($BANK_UNPAID_ID)被藏起來了 ⇒ 述詞多半退化成只看 payment_status"
+  FAILED=1
 fi
 
 echo
