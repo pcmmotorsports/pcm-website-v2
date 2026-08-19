@@ -521,8 +521,18 @@ recordSsoLogin 只掛 callback 那五個點（:52/:62/:68/:75/:84）
    舊金鑰實例與新金鑰實例【同時存在的那一段】
    ⇒ 持舊票的人被新實例拒 → 重登 → 拿新票 → 打到舊實例 → 又被拒 ⇒ 【來回彈】
    · Vercel 別名切換通常原子 ⇒ 視窗很短，但【非零】
-   · ⚠️ 若 Rolling Releases 開著就【不短】—— 🔴 那格【沒有人查過】，本 plan 標【未查】
-     缺的那道檢查：Vercel 專案設定看 Rolling Releases 是否啟用
+   · ⛔ ~~若 Rolling Releases 開著就【不短】—— 那格沒有人查過，標【未查】~~
+     ✅🔴 **2026-08-19 W5 當場查掉了（唯讀，附負向對照）**：
+     ```
+     vercel api "/v1/projects/prj_vzKNmbKryBdp4mAenFbyD6gehJjF/rolling-release/config?teamId=…"
+       ⇒ {"rollingRelease": null}          ← pcm-admin【未設定】
+     🔴 負向對照（證明這把尺不是對什麼都回 null）：
+     同一支端點換一個不存在的 project id ⇒ Error: Project not found. (404)
+       ⇒ 尺分得出「查到了而它是 null」與「根本沒這個東西」兩個世界
+     ```
+     ⇒ **Rolling Releases 沒開 ⇒「來回彈」的視窗回到「別名切換」那個量級（通常原子）⇒ 短但非零。**
+     ⚠️ **射程**:這是**現在**的設定值,**它是可以被改的** ——
+     若有人在片 1 部署前打開 Rolling Releases,這一格要重查。**寫成部署前的一步,不是結論。**
 ```
 
 ### 3-丁.5 仍然沿用原設計的部分
