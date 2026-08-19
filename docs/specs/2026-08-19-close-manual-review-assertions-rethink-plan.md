@@ -280,6 +280,33 @@
 ⚠️ 而若它們**不帶**到期日 ⇒ 這條路死掉，那時才回頭談名單，**並且那份名單要自己有過期告警**。
 ```
 
+### ✅ 2026-08-19 20:1x —— **這一格量到了,假說成立,`rolvaliduntil IS NULL` 這條路活著**
+
+> **來源:W2(`pcm-website-v2-0e`)以正式庫唯讀通道實跑,轉述進本檔;我沒有正式庫、覆核不了。**
+> 全文與對照組寫在 `~/pcm-mailbox/W4-E2b前置與cron歸屬-20260819.md` §17-b。
+
+```
+rolname              rolsuper  canlogin  rolvaliduntil                   判讀
+cli_login_postgres   false     true      2026-08-18 13:03:04.349464+00   🔴 帶到期日，且已過期
+postgres             false     true      NULL
+supabase_admin       true      true      NULL
+authenticator        false     true      NULL
+service_role         false     false     NULL
+```
+🔴 **對照組帶在同一發**:W2 另撈 `rolvaliduntil is not null`
+⇒ **全庫只有 `cli_login_postgres` 這一個角色有期限** ⇒ 「它是短命的」**是量到的,不是從名字推的**。
+
+**⇒ 對本 plan 的三個實際後果**
+```
+✅ ①「短命假說」成立 ⇒ 上面那段的 ⚠️「這是待驗,不是結論」**可以撤掉限定**
+✅ ②「不靠名單、用結構屬性」那條路**活著** ⇒ 基線收 rolvaliduntil IS NULL 是可行的
+🔴 ③ **而這【不是】風險解除** —— 假說成立正好代表【角色集合真的會生滅】
+      ⇒ 若基線述詞不濾掉帶到期日的成員,守門就**會**週期性假紅
+      ⇒ 這條過濾從「一個提案」升級成「**必要條件**」,不是可選的優化
+```
+⚠️ **仍未量的那一格**:上面第 3 順位「隔一段時間再跑一次,答集合會不會自己變」——
+量到「有一個角色帶到期日」**推不出**「集合真的會在兩次量測之間變動」。**兩者不是同一件事。**
+
 **⇒ 驗它【不需要新的一發】** —— 把它併進上面那個重跑:
 ```sql
 -- 與 R4 排的那發是同一個 statement，只是多兩欄（Supabase SQL Editor 一次只顯示最後一段，

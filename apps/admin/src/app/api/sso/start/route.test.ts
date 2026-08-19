@@ -58,6 +58,34 @@ describe('sso/start route', () => {
     expect(res.headers.get('Referrer-Policy')).toBe('no-referrer');
   });
 
+  // Δ1 · 🔴 route 【每一次】都要重新產 state —— 這是 login CSRF 綁定的那一根。
+  //   既有兩格看的是「函式產得出隨機值」(state.test.ts)與「形狀是 32 hex」(:47),
+  //   而【route 有沒有再叫它一次】沒有人在看:把 route.ts 的 `const state = newState()`
+  //   提到 module scope,那兩格【全綠】,而全站共用同一個 state。
+  //   (實測:提到 module scope ⇒ 本格紅;還原 ⇒ 全綠。不是紙上突變。)
+  it('🔴 兩次 GET 的 state 不得相同(state 每次現產,不得提到 module scope)', () => {
+    const stateOf = (res: ReturnType<typeof GET>): string | null =>
+      new URL(res.headers.get('location') ?? '').searchParams.get('state');
+    const a = GET(new NextRequest('http://localhost:3001/api/sso/start'));
+    const b = GET(new NextRequest('http://localhost:3001/api/sso/start'));
+    const sa = stateOf(a);
+    const sb = stateOf(b);
+    expect(sa).toBeTruthy();
+    expect(sb).not.toBe(sa);
+    // cookie 那一側也要跟著換 —— 只驗 URL 的話,「cookie 寫死而 URL 每次新」也會綠。
+    const ca = decodeStateCookie(a.cookies.get(SSO_STATE_COOKIE)?.value)?.s;
+    const cb = decodeStateCookie(b.cookies.get(SSO_STATE_COOKIE)?.value)?.s;
+    expect(ca).toBe(sa);
+    expect(cb).toBe(sb);
+  });
+
+  // Δ2 · 302 的目的地要驗到 pathname。既有 :45 只驗 origin ⇒ route 改組 URL 而 origin 不變
+  //   (例如打到 /api/sso/exchange 或別的路徑)照樣綠。config.test.ts 驗的是 builder,不是 route。
+  it('🔴 302 目的地的 pathname = /api/sso/authorize(只驗 origin 擋不住改錯路徑)', () => {
+    const res = GET(new NextRequest('http://localhost:3001/api/sso/start'));
+    expect(new URL(res.headers.get('location') ?? '').pathname).toBe('/api/sso/authorize');
+  });
+
   it('?next=合法相對路徑 ⇒ 進 state cookie 的 returnTo(讀原始值)', () => {
     const res = GET(new NextRequest('http://localhost:3001/api/sso/start?next=/orders'));
     expect(rawCookieReturnTo(res.cookies.get(SSO_STATE_COOKIE)?.value)).toBe('/orders');
