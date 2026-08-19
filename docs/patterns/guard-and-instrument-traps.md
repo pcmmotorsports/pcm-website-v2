@@ -11149,3 +11149,46 @@ webhook_events.sql:16「成交權威 = record_status=1 + is_captured」
 📎 同族:`#676`(撞號 = 一個指標指得到兩個)、
    memory `feedback_carrier-credibility-inverts-with-recency`(載體可信度與新舊恰好倒序)、
    memory `feedback_a-fact-cannot-overturn-a-decision`(把事實當成決定)。
+
+## 🔴🔴 exit code 是被壓成一個數字的東西,而壓縮會把兩種世界壓成同一個值(2026-08-20,同族第三例)
+
+**判別句**
+> **`rc≠0` 之前先問「它到底【做了幾件事】?」** ——
+> `Tests 0`(尺沒跑起來)與 `Tests 1 failed`(真的紅了)**是兩件事,而 rc 一模一樣。**
+
+### 本次兩發(同一輪,同一個人,10 分鐘內)
+```
+① npx vitest run --reporter=basic …   ⇒ vitest 4 載不起那個 reporter
+                                        rc=1，而輸出裡一個測試都沒有
+② 在 apps/admin/ 底下用【相對於該目錄】的路徑跑
+                                      ⇒ 「No test files found, exiting with code 1」
+                                        rc=1，Test Files = 0
+🔴 兩次都不是「測試失敗」，是【尺沒跑起來】。
+   而那一輪的全樹 test 【真的有一格紅】（別人未提交的 WIP）
+   ⇒ 我差一點把「零個檔跑起來」讀成「我的 merge 壞了」，並據此去改我沒動過的東西。
+```
+
+### 🔴 而這是同一族的第三個 —— 通則寫在這裡
+```
+① `bash x.sh | head` 之後的 `$?` 是 **head** 的（永遠 0）
+② `grep … | cut …` 的 exit code 是 **cut** 的（恆 0）
+③ vitest 尺沒跑起來 = rc 1 = 與「測試失敗」同一個值
+⇒ **共同形狀:exit code 把「發生了什麼」壓縮成一個整數，
+   而壓縮必然把【至少兩種世界】映到同一個值。**
+```
+### ⇒ 通則(比上面三條各自有用)
+> **別問「它成功了嗎」,問「它做了幾件事」。**
+> **數量分得開的地方,`rc` 分不開。**
+
+**可直接照抄的做法**
+```bash
+# ❌ 只看 rc
+pnpm test; echo "rc=$?"
+
+# ✅ 同時把【數量】撈出來 —— 它在兩個世界會印不同的東西
+pnpm test > /tmp/t.log 2>&1; echo "rc=$?"
+grep -E 'Test Files +[0-9]|Tests +[0-9]' /tmp/t.log | tail -2
+#   Tests 0 / 查無這兩行   ⇒ 尺沒跑起來，**不是**測試紅
+#   Tests N failed         ⇒ 真的紅了
+```
+📎 同族:本檔「pipeline 後面的 `$?`」那條、以及「錯的那次和對的那次長得一樣」母題。
