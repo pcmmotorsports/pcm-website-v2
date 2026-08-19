@@ -31,6 +31,9 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import type { PaymentListData } from './payment-list';
 import { ItemAmountRow, ItemAmountRowGroup } from './item-amount-row';
+// 🔴 片6a-2:「卡住」的**唯一定義**在 `item-stuck.ts` —— **本檔不得自己再判一次**。
+//    兩邊各判各的,症狀是**畫面自洽而互相矛盾**(卡是開的、旁邊卻沒有異常字),而不會有東西紅。
+import { describeItemStuck, resolveItemStuck } from '../../lib/orders/item-stuck';
 
 /* ─────────────────────────────────────────────────────────────────────────
  * 🔴🔴 **片 A-1(2026-08-17)那段檔頭的【承接】—— 片5 拆欄時我一度把它整段刪掉了。**
@@ -252,11 +255,24 @@ export function ItemsTable({
       </div>
 
       <ItemAmountRowGroup>
-        {detail.items.map((item) => (
+        {detail.items.map((item) => {
+          // 🔴 **三個世界,不是兩個**(`item-stuck.ts` 檔頭逐字):`unknown` **不是「不卡」的一種**。
+          //    靜靜當成 `not-stuck` ⇒ 卡住的那一項不會自己打開,**而畫面看起來完全正常**。
+          //    ⇒ 所以下面兩件都要做:①只有 `stuck` 才自動展開 ②`unknown` 的話**把話講出來**。
+          const stuck = resolveItemStuck(item.procurements, item.procurementTruncated);
+          const stuckNote = describeItemStuck(stuck);
+          return (
           <ItemAmountRow
             key={item.id}
             variant='card-line'
             colSpan={ITEMS_TABLE_COLSPAN}
+            /* 🔴🔴 片6a-2:**缺料那一項自己打開**(設計稿 `MAIN-057 §1` 區塊② 逐字
+               「這一項【展開】了(卡住的那一項會自己打開)」)。
+               判斷來自 `item-stuck.ts` 的**唯一定義**,本檔零判斷邏輯。
+               ⚠️ **依據標弱,不得寫成「Sean 已批」**:他選的是「卡片 vs 表格展開列」,
+                  而**自動展開在兩張原型裡是常數、不是變數** ⇒ 他**看過而沒有反對**,不是選了它。
+                  ⇒ 已列成肉眼題,等他在真環境看。 */
+            defaultOpen={stuck.kind === 'stuck'}
             before={
               <>
                 {/* 🔴🔴 **codex 關卡2 must-fix 4**:上一版把橫向捲動拿掉(`overflow-x-auto` 隨表格一起沒了)
@@ -264,8 +280,12 @@ export function ItemsTable({
                     長料號 / 長規格會變成**畫面上讀不出來的資訊**。**那是行為退化,不只是版面改動。**
                     ⇒ 修法三件:
                       ① 品名與料號補 `title`(游標停住看得到完整值)——
-                         **這不是我發明的**:Aug-13 設計稿 `:1027` 逐字 `<span class="nm" title="${l[3]}">`;
-                         08-17 那版沒有它(`grep title=` ⇒ 零命中)⇒ **我取較安全的那一版做法。**
+                         **這不是我發明的**:Aug-13 設計稿 `:1027` 逐字 `<span class="nm" title="${l[3]}">`。
+                         🔴🔴 **而本片其餘每一格都搬 08-17 那版,只有這一格【刻意用舊版】** ——
+                            08-17 那版 `grep title=` ⇒ **零命中**,也就是**它沒有逃生門**。
+                            ⇒ **不要以為我搬錯版本**;是新版在這一格比舊版差,我取較安全的那一份。
+                            (成因值得記:**兩個各自合理的改動 —— 拿掉橫捲 + 加截斷 ——
+                             合起來把一條資訊路徑關掉了,而單看任一個 diff 都不會發現。**)
                       ② **規格那一行不截斷,讓它換行** —— 它是次要行,換行零資訊損失。
                       ③ 品名 `title` 用 `?? undefined`:`title=""` 會讓某些瀏覽器顯示一個空 tooltip。
                     ⚠️ **`title` 只在游標停住時看得到** —— 觸控與純鍵盤看不到。
@@ -283,6 +303,20 @@ export function ItemsTable({
                   )}
                   {/* 三軸缺值時,原因講在這裡(只講一次)—— 見 `ItemAxisMissingNote` 檔頭。 */}
                   <ItemAxisMissingNote summary={item.quantitySummary} />
+                  {/* 🔴 片6a-2:卡住的原因、以及**判不出來**的兩種原因,都畫在這裡。
+                      `describeItemStuck` 對 `not-stuck` 回 `null` ⇒ **只有那一種可以沉默**
+                      (我們確定它沒卡住);其餘兩種都必須出聲。 */}
+                  {stuckNote !== null && (
+                    <div
+                      className={
+                        stuck.kind === 'stuck'
+                          ? 'text-destructive mt-0.5 text-xs'
+                          : 'text-muted-foreground mt-0.5 text-xs'
+                      }
+                    >
+                      {stuckNote}
+                    </div>
+                  )}
                 </div>
                 <div
                   className='text-muted-foreground truncate font-mono text-xs font-semibold'
@@ -330,7 +364,8 @@ export function ItemsTable({
             //    **一道閘在殼被重寫的過程中被漏掉,不會有東西紅。**
             blockedReason={amountEditBlock}
           />
-        ))}
+          );
+        })}
       </ItemAmountRowGroup>
 
       {/* 🔴 總計區:**設計稿沒有這一塊**(`grep '運費|總計'` ⇒ 零命中),而我方有。

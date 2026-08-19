@@ -35,12 +35,31 @@ import { ItemAmountForm, type ItemAmountFormProps } from './item-amount-form';
 const OpenRowContext = createContext<{
   openId: string | null;
   setOpenId: (id: string | null) => void;
+  /**
+   * 🔴🔴 **使用者有沒有動過任何一列** —— 而它與 `openId === null` **不是同一件事**。
+   *
+   * `W6-030` M1:上一版用 `openId == null` 當「還沒有人動過」的判準,而**那個值正是「收起來」的結果**
+   * ⇒ 兩個失敗都在預設路徑上:
+   *   ① 員工收起缺料那張 ⇒ `openId=null` ⇒ `defaultOpen` 又說話 ⇒ **立刻又開**
+   *   ② 打開品項 B(A 收起)⇒ **關掉 B** ⇒ `openId=null` ⇒ **A 自己彈開**
+   * ⇒ 所以要**三個狀態**,不是兩個:沒動過 / 動過而開著某一列 / 動過而全部收起。
+   */
+  touched: boolean;
 } | null>(null);
 
 export function ItemAmountRowGroup({ children }: { children: ReactNode }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
+  // 🔴 每一次**使用者發起**的變更都要標記 touched —— 包含「收起來」(傳 null)。
+  //    這一行就是 M1 的修法本體:**收起來之後,`defaultOpen` 再也不說話。**
+  const set = (id: string | null) => {
+    setTouched(true);
+    setOpenId(id);
+  };
   return (
-    <OpenRowContext.Provider value={{ openId, setOpenId }}>{children}</OpenRowContext.Provider>
+    <OpenRowContext.Provider value={{ openId, setOpenId: set, touched }}>
+      {children}
+    </OpenRowContext.Provider>
   );
 }
 
@@ -74,6 +93,23 @@ export type ItemAmountRowProps = {
    *      (已收款 ⇒ 擋住、未收款 ⇒ 放行)。**只驗放行那半不算過。**
    */
   variant?: 'table-row' | 'card-line';
+  /**
+   * 片6a-2:**這一張卡預設要不要是打開的**(= `item-stuck.ts` 判它卡住了)。
+   *
+   * 🔴🔴 **它與「改金額展開」是【兩個不同的理由】,而它們共用同一個 `open`** ——
+   *    這是本 prop 最需要被讀懂的一格:
+   *      · `defaultOpen` 只影響**第一次渲染時的初值**(卡住的那一項一打開頁面就是開的)
+   *      · 之後任何一次點擊(卡片本身或那顆「改金額」)都會寫進 `OpenRowContext`,由它接管
+   *    ⇒ **不是「卡住的卡永遠打不開/關不掉」** —— 員工照樣收得起來。
+   * 🔴 **而它必然帶一個代價,寫出來不要假裝沒有**:`OpenRowContext` 只有一個 `openId`
+   *    ⇒ **同時只能有一張卡是開的**。若一張單有**兩項**都卡住,**只有第一項會自己打開**。
+   *    ⚠️ 那是既有約束(「只展開正在編輯的那一項」,codex 版面片 R1 must-fix 1)與本片需求的**真衝突**。
+   *    ⇒ **本片選擇不動那個約束**(動它會讓改金額可以同時開兩張,那是錢的面)
+   *      ⇒ **列成肉眼題送 Sean**:「兩項都缺料時,要不要兩張卡都自己打開?」
+   *    ⇒ 而**沒有自己打開的那幾項,原因仍然看得見** —— `describeItemStuck` 那行字在卡頭底下,
+   *      不依賴卡片開不開。**功能不是靜默失效,只是少了一個便利。**
+   */
+  defaultOpen?: boolean;
   /** 展開列要跨幾欄(= 表格欄數)。`card-line` 用不到它(卡片沒有欄)。 */
   colSpan: number;
   /** 單價格的 class(沿用表格既有的對齊與字體) */
@@ -98,13 +134,30 @@ export function ItemAmountRow({
   rowClassName,
   blockedReason = null,
   variant = 'table-row',
+  defaultOpen = false,
   ...formProps
 }: ItemAmountRowProps) {
   const ctx = useContext(OpenRowContext);
   // 🔴 沒有 provider 就 fail-closed 成「永遠收合」——**不要退回各自為政的 local state**,
   //    那正是這條 must-fix 要修掉的行為。少包 provider 的症狀是「按了沒反應」,查得出來;
   //    退回 local state 的症狀是「兩列同時開」,而那**看起來像正常運作**。
-  const open = ctx?.openId === formProps.orderItemId;
+  /**
+   * 🔴🔴 判準是 **`touched`**,不是 `openId == null`(`W6-030` M1)。
+   *
+   * ⚠️ **上一版的意圖是對的、條件是錯的**:註解寫著要防「收起來之後又自己彈開」,
+   *    而它用 `openId == null` 當「還沒有人動過」—— **那個值正是【收起來】的結果**
+   *    ⇒ 它防的那件事,由它自己造成。
+   * 🔴 **而當時那格測試釘的是【原始碼字面】`openId == null ? defaultOpen`**
+   *    ⇒ **它確認了 bug 在場,不是抓到它。**
+   *    ⇒ 現在那一格改成**行為測試**(開 → 收 → 那張卡必須仍是收的),見 shape test。
+   */
+  // 🔴 **`?? false` 少不得(`W6-031` N2)**:沒有 provider 時 `ctx?.touched` 是 `undefined`,
+  //    而 `undefined === false` 為 **false** ⇒ 會落到「已經動過」那半 ⇒ **`defaultOpen` 靜靜失效、卡片永遠不開**。
+  //    ⚠️ 今天不可觸發(唯一渲染點包在 `<ItemAmountRowGroup>` 裡,W6 grep 過全樹)——
+  //    **但 `ctx?.` 這個寫法本身就在宣告「provider 是可選的」** ⇒ 日後有人單獨渲染它,
+  //    **失效的方向是靜默的**(卡片不開,而沒有東西會紅)。
+  const touched = ctx?.touched ?? false;
+  const open = touched ? ctx?.openId === formProps.orderItemId : defaultOpen;
 
   /**
    * 🔴 **入口與表單抽成兩個區域變數,兩個殼吃【同一份】** ——

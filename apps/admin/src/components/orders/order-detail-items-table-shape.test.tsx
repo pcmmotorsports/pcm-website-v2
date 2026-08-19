@@ -278,3 +278,56 @@ describe('codex 關卡2 must-fix 的守門', () => {
     expect(block).toMatch(/title=\{item\.variantSku\}/);
   });
 });
+
+
+// ── 片6a-2:缺料那一項自己打開 ──────────────────────────────────────────────
+//
+// 🔴 本組動手前跑過一次:接完線之後 `components/orders` + `lib/orders` **2011 格全綠**
+//    ⇒ **沒有任何一格在看這件事**。「改了沒東西紅」在這裡不代表沒破壞,代表沒有人在看。
+describe('片6a-2 缺料自動展開', () => {
+  it('🔴 「卡住」的判斷來自 `item-stuck.ts`,**本檔零判斷邏輯**', () => {
+    expect(TABLE).toContain('resolveItemStuck');
+    expect(TABLE).toContain('describeItemStuck');
+    // 🔴 負向:本檔不得自己再判一次 —— 兩邊各判各的,症狀是畫面自洽而互相矛盾,且不會有東西紅。
+    // 🔴 **字集要蓋住那支 predicate 真正用到的每一個欄位**(`W6-030` N1)——
+    //    上一版只有 `out_of_stock|replyStatus`,**漏了 `voidedAt`**,
+    //    而 `voidedAt` 正是 W3 R3 抓到那個「功能長期說謊」的真 bug 的欄位
+    //    (作廢的採購列會讓品項永遠回 stuck)⇒ **守門漏掉的剛好是最該守的那一個。**
+    //
+    // ⚠️ **而我第一版把字集開太寬,當場自打**:`procurementTruncated` 命中了 `:262`
+    //    `resolveItemStuck(item.procurements, item.procurementTruncated)` ——
+    //    那是**把參數交給 predicate**,正是本片要的做法,**不是自己判**。
+    //    ⇒ 🔴 **寬掉的尺會回一個看起來很負責的紅**,而它指著一行沒有問題的 code。
+    //    ⇒ 收窄成「**這些欄位被拿來做判斷**」的形狀:比較 / 邏輯運算,而不是出現即算。
+    const 自己判 = [
+      /replyStatus\s*[=!]==?/, // 比對回覆狀態
+      /'out_of_stock'/, // 硬寫那個值
+      /voidedAt\s*[=!]=/, // 自己過濾作廢列
+      /procurements\.(find|some|filter|length)/, // 自己走那個陣列
+    ].some((re) => re.test(TABLE));
+    expect({ 自己判 }).toEqual({ 自己判: false });
+  });
+
+  it('🔴🔴 **只有 `stuck` 才自動展開** —— `unknown` 不是「不卡」的一種', () => {
+    // `item-stuck.ts` 檔頭逐字:靜靜把 unknown 當成 not-stuck ⇒ 卡住的那一項不會自己打開,
+    // 而畫面看起來完全正常。
+    expect(TABLE).toMatch(/defaultOpen=\{stuck\.kind === 'stuck'\}/);
+  });
+
+  it('🔴 `unknown` 那兩種**必須把話講出來**(只有 not-stuck 可以沉默)', () => {
+    // describeItemStuck 對 not-stuck 回 null ⇒ 呼叫端要畫 non-null 的那幾種。
+    expect(TABLE).toMatch(/stuckNote !== null/);
+  });
+
+  // 🔴🔴 **上一版這一格釘的是原始碼字面 `openId == null ? defaultOpen`,而【那一行就是 bug 本體】**
+  //    (`W6-030` M1)⇒ **它確認了 bug 在場,不是抓到它。它綠,而功能是壞的。**
+  //    ⇒ 已改成**行為測試**,在 `item-amount-open-behavior.test.tsx`(開→收→必須維持關著)。
+  //    📌 **字面守門只能證明「code 裡有這段字」,證不了「這段字做對了事」。**
+  //    這裡只留一格**負向**:那個錯的判準不得復活。
+  it('🔴 `defaultOpen` 的判準**不得**是 `openId == null`(那個值正是「收起來」的結果)', () => {
+    expect({ 用了錯的判準: /openId == null \? defaultOpen/.test(ROW) }).toEqual({
+      用了錯的判準: false,
+    });
+    expect(ROW).toMatch(/touched/);
+  });
+});
