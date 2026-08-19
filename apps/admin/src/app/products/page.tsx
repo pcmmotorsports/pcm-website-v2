@@ -84,7 +84,7 @@ export default async function ProductsPage({
   const brandOptions =
     options === null
       ? []
-      : buildBrandOptions(options.brands, options.brandIdsWithProducts, filter.brandId);
+      : buildBrandOptions(options.brands, options.brandIdsWithProducts, filter.brandIds);
 
   // 🔴🔴 **上面那格救得了「零商品的品牌」,救不了「已經不在 `brands` 表裡的品牌」**
   //    (W6 `W6-051` F1)。可達路徑**不是**手改網址,是**品牌被刪 + 舊書籤** ——
@@ -97,14 +97,20 @@ export default async function ProductsPage({
   //    🔴 而我原本寫「品牌沒有路徑可以解析、id 認不認得無從判斷」—— **那句是錯的**,已撤:
   //       同一個請求裡就有整張 `brands` 表,一行 `some()` 就判得出來。
   //       **一個錯的理由會關掉下一個人的動作**,那比缺這個修法本身更貴。
-  const brandKnown =
-    filter.brandId !== undefined &&
-    options !== null &&
-    options.brands.some((brand) => brand.id === filter.brandId);
   //    處置照分類那條(`resolveCategoryIds` 回 `null` ⇒ 不套用):認不得就**不套用品牌條件**,
   //    畫面與查詢一致。**不自動改寫網址** —— 那會讓「我明明選了」變成無聲的消失。
-  const brandId = brandKnown ? filter.brandId : undefined;
-  const brandFilterDropped = filter.brandId !== undefined && !brandKnown;
+  // 🔴🔴 **2026-08-20 多值之後,這一格從「認不認得」變成【逐個認】**:
+  //    網址可能帶三個品牌而其中一個被刪掉了 ⇒ **留下認得的兩個、丟掉那一個**,
+  //    而不是整軸放棄。整軸放棄會讓「兩個還在的品牌」也一起消失,那比原本的病更糟。
+  //    ⇒ 而**全部都認不得**時才等同舊行為(不套用 + 橫幅)。
+  const knownBrandIds =
+    filter.brandIds === undefined || options === null
+      ? undefined
+      : filter.brandIds.filter((id) => options.brands.some((brand) => brand.id === id));
+  const brandIds = knownBrandIds !== undefined && knownBrandIds.length > 0 ? knownBrandIds : undefined;
+  // 🔴 「有丟掉東西」才提示 —— 而它現在包含「丟掉了一部分」,不只「整軸丟掉」。
+  const brandFilterDropped =
+    filter.brandIds !== undefined && (knownBrandIds === undefined || knownBrandIds.length < filter.brandIds.length);
 
   // 🔴 選了大類 ⇒ 要含它自己 + 它的子類;認不得的 `raw_path` ⇒ `null` ⇒ **不套用分類條件**
   //    (看到全部,不是看到空的 —— 理由逐字在 `resolveCategoryIds` 檔頭)。
@@ -131,8 +137,8 @@ export default async function ProductsPage({
     result = await listProductsForAdmin(view.size, offset, {
       setBy: filter.setBy,
       keyword: filter.keyword,
-      // 🔴 這裡用 `brandId` 不是 `filter.brandId` —— 認不得的品牌不套用(見上面 `brandKnown`)。
-      brandId,
+      // 🔴 這裡用 `brandIds` 不是 `filter.brandIds` —— 認不得的那幾個已經被濾掉(見上面 `knownBrandIds`)。
+      brandIds,
       categoryIds,
       skus: filter.skus,
     });
@@ -206,7 +212,7 @@ export default async function ProductsPage({
               網址帶著一個找不到的品牌(選項載入失敗,或這個品牌已經被刪掉)——{' '}
               <strong>下面的清單沒有依品牌篩選</strong>。
               <Link
-                href={buildProductListHrefResetPage({ ...filter, brandId: undefined }, view.size)}
+                href={buildProductListHrefResetPage({ ...filter, brandIds: undefined }, view.size)}
                 className='text-primary ml-2 underline'
               >
                 清除品牌條件

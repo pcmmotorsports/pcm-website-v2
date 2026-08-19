@@ -6,7 +6,7 @@ import {
   parseProductListParams,
   parseProductPage,
   parseProductSetBy,
-  parseProductBrandId,
+  parseProductBrandIds,
   parseProductCategoryPath,
   type AdminProductFilter,
   DEFAULT_PAGE_SIZE,
@@ -30,7 +30,7 @@ const V = (page: number): AdminProductView => ({ page, size: DEFAULT_PAGE_SIZE }
 const NONE: AdminProductFilter = {
   setBy: undefined,
   keyword: undefined,
-  brandId: undefined,
+  brandIds: undefined,
   categoryPath: undefined,
       skus: undefined,
 };
@@ -272,34 +272,70 @@ describe('🔴 parseProductPage 的上界 —— 審查 must-fix', () => {
 
 const BRAND_UUID = '61b119af-c0ea-462f-a389-094ba4e31110';
 
-describe('parseProductBrandId', () => {
+describe('parseProductBrandIds', () => {
   it('🔴🔴 這一格守的是【一個量到的 400】,不是防禦性寫法', () => {
     // 2026-08-19 對本機真 PostgREST 14.16 實測:
     //   GET /products?brand_id=eq.notauuid
     //   ⇒ {"code":"22P02", … invalid input syntax for type uuid: "notauuid"} / HTTP 400
     // ⇒ 沒擋的話,員工把網址的品牌 id 改壞 = 整頁「商品列表載入失敗」。
     // ⇒ 與分頁片那個 must-fix(`?page=1e21` 變錯誤頁)是同一個病的第二個入口。
-    expect(parseProductBrandId('notauuid')).toBeUndefined();
-    expect(parseProductBrandId("' or 1=1--")).toBeUndefined();
-    expect(parseProductBrandId('')).toBeUndefined();
+    expect(parseProductBrandIds('notauuid')).toBeUndefined();
+    expect(parseProductBrandIds("' or 1=1--")).toBeUndefined();
+    expect(parseProductBrandIds('')).toBeUndefined();
   });
 
   it('合法 uuid 原樣通過(大小寫都收)', () => {
-    expect(parseProductBrandId(BRAND_UUID)).toBe(BRAND_UUID);
-    expect(parseProductBrandId(BRAND_UUID.toUpperCase())).toBe(BRAND_UUID.toUpperCase());
+    expect(parseProductBrandIds(BRAND_UUID)).toEqual([BRAND_UUID]);
+    expect(parseProductBrandIds(BRAND_UUID.toUpperCase())).toEqual([BRAND_UUID.toUpperCase()]);
   });
 
-  it('✅ 負向對照:陣列 / 缺 ⇒ undefined(= 不篩,不是報錯)', () => {
-    expect(parseProductBrandId(undefined)).toBeUndefined();
-    expect(parseProductBrandId([BRAND_UUID, BRAND_UUID])).toBeUndefined();
+  it('缺 ⇒ undefined(= 不篩,不是報錯)', () => {
+    expect(parseProductBrandIds(undefined)).toBeUndefined();
+  });
+
+  /**
+   * 🔴🔴 **2026-08-20:陣列從「丟掉」變成「收下」—— 而那不是放寬。**
+   *
+   * ~~原本這一格斷 `parseProductBrandIds([a, a]) ⇒ undefined`(陣列一律丟掉)~~ 作廢。
+   * 這一軸有**兩個合法來源**,而第二個**不是我們選的**:
+   * ```
+   * ① 我們自己組的連結:            ?brand=u1,u2       ⇒ string
+   * ② <form method=get> 的原生序列化: ?brand=u1&brand=u2 ⇒ string[]（瀏覽器決定的）
+   * ```
+   * 2026-08-20 chromium 實測(讀 `URLSearchParams(new FormData(form))`):
+   * **選一個 ⇒ 字串;選兩個 ⇒ 同名多鍵;一個都沒選 ⇒ 那個 param 整個不出現。**
+   * 🔴 而舊寫法 `typeof v !== 'string' ⇒ undefined` 的後果是
+   * **選一個【通過】、選兩個【靜靜丟掉】** ⇒ 清單變全部而選取狀態還亮著。
+   * 📌 fail-safe 一個字沒鬆:每一段仍逐個過 uuid 檢查。
+   */
+  it('🔴🔴 兩種來源都收:逗號串 與 同名多鍵', () => {
+    const A = BRAND_UUID;
+    const B = '11111111-2222-4333-8444-555555555555';
+    // ① 我們自己組的連結
+    expect(parseProductBrandIds(`${A},${B}`)).toEqual([A, B]);
+    // ② 瀏覽器序列化(同名多鍵 ⇒ Next 給陣列)
+    expect(parseProductBrandIds([A, B])).toEqual([A, B]);
+    // 🔴 混合形狀:我們的連結 + 使用者再勾一個 ⇒ **先攤平再逐段切**
+    //    寫成「是陣列就不切逗號」的話，`${A},${B}` 會整串當一個 id ⇒ uuid 檢查擋掉 ⇒ 靜靜消失
+    expect(parseProductBrandIds([`${A},${B}`, A])).toEqual([A, B]);
+  });
+
+  it('🔴 去重 + 壞值逐個丟掉,而不是整軸放棄', () => {
+    const A = BRAND_UUID;
+    // 一好一壞 ⇒ 留下好的那個（整軸放棄的話，使用者選的另一家也一起消失）
+    expect(parseProductBrandIds([A, 'notauuid'])).toEqual([A]);
+    // 全壞 ⇒ undefined（= 不篩，不是 0 件）
+    expect(parseProductBrandIds(['notauuid', 'x'])).toBeUndefined();
+    // 重複 ⇒ 去重
+    expect(parseProductBrandIds([A, A])).toEqual([A]);
   });
 
   it('🔴 形狀像 uuid 但不是真 uuid 的,這一層【放行】—— 而那是刻意的', () => {
     // 格式對、DB 裡不存在 ⇒ 查到 0 件。查無結果與錯誤頁是兩件事,
     // 而「這個品牌沒有商品」本來就是一個合法的答案。
-    expect(parseProductBrandId('00000000-0000-0000-0000-000000000000')).toBe(
+    expect(parseProductBrandIds('00000000-0000-0000-0000-000000000000')).toEqual([
       '00000000-0000-0000-0000-000000000000',
-    );
+    ]);
   });
 });
 
@@ -379,7 +415,7 @@ describe('🔴🔴 子分類優先 —— 零 JS 表單會【同時送出】大�
 describe('🔴 新增的兩軸也要活過翻頁(與 set_by 那個真 bug 同一條守則)', () => {
   it('品牌 + 分類 + 翻頁 ⇒ 三軸都還在', () => {
     const href = buildProductListHref(
-      { ...NONE, brandId: BRAND_UUID, categoryPath: '引擎部品 · 排氣管' },
+      { ...NONE, brandIds: [BRAND_UUID], categoryPath: '引擎部品 · 排氣管' },
       V(4),
     );
     const p = new URL(href, 'https://x.invalid').searchParams;
@@ -390,7 +426,7 @@ describe('🔴 新增的兩軸也要活過翻頁(與 set_by 那個真 bug 同一
 
   it('🔴 換 chip(reset page)不得把品牌/分類洗掉,而 page 要回 1', () => {
     const href = buildProductListHrefResetPage(
-      { ...NONE, setBy: 'staff', brandId: BRAND_UUID, categoryPath: '引擎部品' },
+      { ...NONE, setBy: 'staff', brandIds: [BRAND_UUID], categoryPath: '引擎部品' },
       DEFAULT_PAGE_SIZE,
     );
     const p = new URL(href, 'https://x.invalid').searchParams;
@@ -401,9 +437,9 @@ describe('🔴 新增的兩軸也要活過翻頁(與 set_by 那個真 bug 同一
 
   it('🔴🔴 往返:build 出來的網址 parse 回去,四軸逐一相等', () => {
     const cases: readonly AdminProductFilter[] = [
-      { ...NONE, brandId: BRAND_UUID },
+      { ...NONE, brandIds: [BRAND_UUID] },
       { ...NONE, categoryPath: '引擎部品 · 排氣管' },
-      { ...NONE, setBy: 'staff', keyword: '煞車皮', brandId: BRAND_UUID, categoryPath: '引擎部品' },
+      { ...NONE, setBy: 'staff', keyword: '煞車皮', brandIds: [BRAND_UUID], categoryPath: '引擎部品' },
     ];
     for (const filter of cases) {
       for (const page of [1, 3]) {

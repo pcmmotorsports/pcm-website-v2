@@ -85,8 +85,11 @@ export function ProductKeywordSearch({
             品牌篩選會消失 —— 而搜尋結果真的變了,所以看起來像「搜尋生效了」。
             📌 分類只送 `CATEGORY_PARAM`:`filter.categoryPath` 是解析後的單一真相
             (大類或子類的 `raw_path` 都寫在這個 param,見 `SUBCATEGORY_PARAM` 檔頭)。 */}
-        {filter.brandId !== undefined && (
-          <input type='hidden' name={BRAND_PARAM} value={filter.brandId} />
+        {/* 🔴 多值:**一個 input、值是逗號串**(與我們自己組的連結同一種編碼)。
+            ⚠️ 不要改成 N 個同名 input —— 那會變成同名多鍵,而 `<Hidden>` 那支共用元件
+               拿【鍵】當 `name`,動它會踩到 `#780`。 */}
+        {filter.brandIds !== undefined && (
+          <input type='hidden' name={BRAND_PARAM} value={filter.brandIds.join(',')} />
         )}
         {filter.categoryPath !== undefined && (
           <input type='hidden' name={CATEGORY_PARAM} value={filter.categoryPath} />

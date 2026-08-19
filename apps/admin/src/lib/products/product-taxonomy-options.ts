@@ -140,10 +140,14 @@ function compareRows(a: CategoryOptionRow, b: CategoryOptionRow): number {
 export function buildBrandOptions(
   rows: readonly BrandOptionRow[],
   idsWithProducts: ReadonlySet<string>,
-  selectedId?: string,
+  /**
+   * 🔴 2026-08-20 單值 → **多值**(廠牌可複選)。**選中的那幾個一律留著**,理由與單值時逐字相同:
+   * 下拉畫不出對應的 `<option>` ⇒ 那一格從畫面上消失,而查詢照樣在篩它。
+   */
+  selectedIds?: readonly string[],
 ): BrandOptionRow[] {
   return rows
-    .filter((row) => idsWithProducts.has(row.id) || row.id === selectedId)
+    .filter((row) => idsWithProducts.has(row.id) || selectedIds?.includes(row.id) === true)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

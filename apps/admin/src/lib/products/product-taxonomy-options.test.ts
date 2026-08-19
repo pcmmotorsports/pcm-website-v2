@@ -138,11 +138,19 @@ describe('buildBrandOptions', () => {
   });
 
   it('🔴🔴 但【選中的那個】一律留著,即使它零商品 —— 否則畫面說「全部品牌」而查詢在篩它', () => {
-    const withSelected = buildBrandOptions(ROWS, WITH_PRODUCTS, '3');
+    const withSelected = buildBrandOptions(ROWS, WITH_PRODUCTS, ['3']);
     expect(withSelected.map((b) => b.name)).toEqual(['Akrapovic', 'Brembo', 'Rizoma']);
 
     // 🔴 選中一個**有**商品的品牌時,不得把零商品那個一起放進來
     //    (`||` 若寫成 `&&` 或條件寫反,上面那格仍會綠 —— 這格才分得出來)。
-    expect(buildBrandOptions(ROWS, WITH_PRODUCTS, '1').map((b) => b.id)).not.toContain('3');
+    expect(buildBrandOptions(ROWS, WITH_PRODUCTS, ['1']).map((b) => b.id)).not.toContain('3');
+  });
+
+  it('🔴 2026-08-20 多值:選中【兩個】零商品的品牌 ⇒ 兩個都要留著', () => {
+    // 單值時代這一格不存在;而多值之後「留一個」與「留全部選中的」是兩個不同的實作,
+    // 只驗一個的話,`selectedIds[0] === row.id` 那種寫法會通過。
+    const rows = [...ROWS, { id: '4', name: 'Zeta' }];
+    const opts = buildBrandOptions(rows, WITH_PRODUCTS, ['3', '4']);
+    expect(opts.map((b) => b.id).sort()).toEqual(['1', '2', '3', '4']);
   });
 });
