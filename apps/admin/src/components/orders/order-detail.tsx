@@ -23,6 +23,7 @@ import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline'
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
+import { DangerZoneDetails } from './danger-zone-details';
 import { ItemProcurementSection } from './item-procurement-section';
 import { ItemsTable } from './order-detail-items-table';
 import { OrderSummaryCards } from './order-detail-summary-cards';
@@ -189,6 +190,20 @@ export function OrderDetail({
 }) {
   const cancelled = detail.cancelledAt !== null;
   const correctTarget = resolveCorrectTarget(detail, correctNoteId);
+
+  /**
+   * 片12:退款帳本處於**對帳異常**態 ⇒ 那一塊不准收起來(codex K2 finding 3)。
+   *
+   * 🔴 判準用的是**與 `shouldShowRefundEntry` 那道 fail-closed 閘同一組輸入**
+   *    (帳本讀不到 / 未登記額讀不到 / 未登記額為負),**不另立第二套語意** ——
+   *    兩套會各自漂,而畫面上「入口消失」與「有沒有警告」就會對不起來。
+   * 🔴 **刻意不含 `refundEnabled`**:旗標關著只是「這功能還沒開放」,不是「對帳出事」;
+   *    把它算進來會讓每一張單都掛上紅字異常。
+   */
+  const refundLedgerAbnormal =
+    refundsFailed ||
+    refundUnregisteredFailed ||
+    (refundUnregisteredAmount !== null && refundUnregisteredAmount < 0);
 
   return (
     <div className='space-y-4'>
@@ -446,43 +461,101 @@ export function OrderDetail({
           🔴 **這片可能會被之後的版面重排吸收掉**(`~/pcm-mailbox/A-218-demo-brief.md`
              那一輪若改掉整個面板編排)—— **那不是白做**:它**現在**就是缺陷,
              而 demo 那一輪還要好幾天。 */}
-      {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。 */}
-      <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
-
-      {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
-          nowMs 在 server render 期取 —— 列級「滯留逾閾」判定的現在時刻。 */}
-      <RefundLedgerSection
-        rows={refunds}
-        unregisteredAmount={refundUnregisteredAmount}
-        unregisteredFailed={refundUnregisteredFailed}
-        rowsTruncated={refundsTruncated}
-        loadFailed={refundsFailed}
-        nowMs={Date.now()}
-      />
-
-      {/* M-3 RW2d:退款入口(危險操作沉底)。旗標 && 顯示層狀態閘 && tappay 管道才渲染;
-          token 同備註片慣例 = server component 渲染期產(頁層 force-dynamic、零快取層)。
-          channel 閘(R1 N5)=顯示層:轉帳/現金單不該看到「線上退款(TapPay)」紅框;
-          已知代價 = 若歷史資料 channel 記錯而 rec_trade_id 其實存在,入口會隱藏(fail-closed,
-          修資料即恢復)—— 真權威仍是 action 步 ④ 的 rec_trade_id 檢查與 RPC。
-          🔴 帳本健康閘(codex MF2 + R2/opus R2b 負值補格):帳本列或未登記額讀不到、
-          或未登記額為**負**(帳本登記已超過訂單總額=對帳異常,區塊明寫「勿再發起」)
-          ⇒ 入口 fail-closed —— 同一頁「文字叫你別按、按鈕還亮著」就是自打嘴巴。
-          負值下錢仍安全(S5 single-flight 擋下一發),關的是矛盾畫面。 */}
-      {shouldShowRefundEntry({
-        refundEnabled,
-        refundsFailed,
-        refundUnregisteredFailed,
-        refundUnregisteredAmount,
-        paymentChannel: detail.paymentChannel,
-        paymentStatus: detail.paymentStatus,
-      }) && (
-          <RefundSection
-            orderId={detail.id}
-            returnTo={returnTo}
-            serverToken={generateRefundRequestToken()}
+      {/* 🔴 片12(2026-08-19):設計稿區塊⑥ 逐字 —— 面板最底是**一列兩顆鈕**:
+             `[退貨 / 退款]                    [申請取消整張單(紅)]`
+          ⇒ 三大塊(複核 / 退款帳本 / 退款入口)收進兩顆鈕底下。
+          🔴 **DOM 順序 = 設計稿的左右順序(退款在前、取消在後),沒有 `order-*`**。
+             ⚠️ **我第一版用 `order-1/2` 把視覺左右對調、DOM 維持「取消在前」,理由寫「朗讀順序跟 DOM」**
+                —— 那個理由本身沒錯,**但它換來的是【視覺順序與鍵盤焦點順序打架】**
+                (codex K2 2026-08-19 抓到:畫面左邊是退款,而 Tab 先跳到右邊的取消)。
+             ⇒ 兩害相權:設計稿自己就把退款排左邊 ⇒ **照它排 DOM,三個順序(視覺/Tab/朗讀)一致。**
+                (先前那句「與 OD `more` 同序」講的是**舊的直排版**,那個版面已經不存在了。)
+          ⚠️ **零 props / 零查詢 / 零閘改動**:`shouldShowRefundEntry(…)` 那道顯示閘、
+             `cancelFormsAllowed`、各元件自己的判斷,一個字沒動 —— 它們只是換了位置。
+          🔴 **而「換位置」本身就是行為**(codex R2 在收款搬位那次抓過同款):
+             Tab 與朗讀順序會變,且**收起來的內容報讀器預設讀不到**
+             ⇒ 這不是純視覺,不要寫成零風險。 */}
+      <div className='flex flex-wrap items-start justify-between gap-3'>
+        {/* 🔴🔴 **對帳異常時這一塊【自己打開】,而且鈕上就寫著異常**(codex K2 2026-08-19 finding 3)。
+            我第一版把帳本無條件收進鈕底下,而帳本裡有「帳本讀不到 / 未登記額為負 ⇒ 勿再發起退款」
+            這種**警告** —— 那類警告存在的唯一理由就是要員工看到它。
+            收起來 ⇒ 員工看到的是一顆平平無奇的「退貨 / 退款」鈕,退款入口消失了他也**不知道為什麼**
+            ⇒ **那是把一個 fail-closed 的安全設計,退化成一個沉默的安全設計。**
+            ⇒ 判準用的是**與那道閘同一組輸入**(讀取失敗 / 未登記額為負),不另立第二套語意。 */}
+        <DangerZoneDetails
+          className='min-w-0 flex-1'
+          defaultOpen={refundLedgerAbnormal}
+          summary={
+            <span
+              className={`inline-flex rounded-md border px-3 py-1.5 text-sm ${
+                refundLedgerAbnormal
+                  ? 'border-destructive/40 text-destructive bg-destructive/5'
+                  : 'hover:bg-muted'
+              }`}
+            >
+              {refundLedgerAbnormal ? '退貨 / 退款(對帳異常)' : '退貨 / 退款'}
+            </span>
+          }
+        >
+          {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
+              nowMs 在 server render 期取 —— 列級「滯留逾閾」判定的現在時刻。 */}
+          <RefundLedgerSection
+            rows={refunds}
+            unregisteredAmount={refundUnregisteredAmount}
+            unregisteredFailed={refundUnregisteredFailed}
+            rowsTruncated={refundsTruncated}
+            loadFailed={refundsFailed}
+            nowMs={Date.now()}
           />
-        )}
+
+          {/* M-3 RW2d:退款入口(危險操作沉底)。旗標 && 顯示層狀態閘 && tappay 管道才渲染;
+              token 同備註片慣例 = server component 渲染期產(頁層 force-dynamic、零快取層)。
+              channel 閘(R1 N5)=顯示層:轉帳/現金單不該看到「線上退款(TapPay)」紅框;
+              已知代價 = 若歷史資料 channel 記錯而 rec_trade_id 其實存在,入口會隱藏(fail-closed,
+              修資料即恢復)—— 真權威仍是 action 步 ④ 的 rec_trade_id 檢查與 RPC。
+              🔴 帳本健康閘(codex MF2 + R2/opus R2b 負值補格):帳本列或未登記額讀不到、
+              或未登記額為**負**(帳本登記已超過訂單總額=對帳異常,區塊明寫「勿再發起」)
+              ⇒ 入口 fail-closed —— 同一頁「文字叫你別按、按鈕還亮著」就是自打嘴巴。
+              負值下錢仍安全(S5 single-flight 擋下一發),關的是矛盾畫面。
+              🔴 **片12 沒有動這道閘**:它照舊決定「渲不渲染」,片12 只決定「渲出來的東西收在哪」。 */}
+          {shouldShowRefundEntry({
+            refundEnabled,
+            refundsFailed,
+            refundUnregisteredFailed,
+            refundUnregisteredAmount,
+            paymentChannel: detail.paymentChannel,
+            paymentStatus: detail.paymentStatus,
+          }) && (
+              <RefundSection
+                orderId={detail.id}
+                returnTo={returnTo}
+                serverToken={generateRefundRequestToken()}
+              />
+            )}
+        </DangerZoneDetails>
+
+        {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。
+            🔴 `anchorId='cancel'` 是**承重的**:列表那兩條 `#cancel` 深連結的目的地
+               (`id='cancel'`)住在這一塊裡面 ⇒ 收起來就等於連過去看到空白。
+               為什麼不能只靠瀏覽器自動展開,量測與射程見 `danger-zone-details.tsx` 檔頭。 */}
+        {/* 🔴🔴 `key={detail.id}` 是**承重的**(codex K2 2026-08-19 finding 2):
+            面板已經開著、員工再點**另一張單**的 `#cancel` 連結時,那是 Next 的 client-side 導航
+            ⇒ 網址換了但**不一定發出 `hashchange`**,而 `anchorId` 一直是 `'cancel'` 沒變
+            ⇒ effect 不會重跑 ⇒ **連過去是收起來的**。
+            換單就換 key ⇒ 強制重新掛載 ⇒ effect 一定重跑一次讀 hash。 */}
+        <DangerZoneDetails
+          key={detail.id}
+          anchorId='cancel'
+          className='min-w-0 flex-1'
+          summary={
+            <span className='border-destructive/40 text-destructive hover:bg-destructive/5 inline-flex rounded-md border px-3 py-1.5 text-sm'>
+              申請取消整張單
+            </span>
+          }
+        >
+          <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
+        </DangerZoneDetails>
+      </div>
     </div>
   );
 }
