@@ -10793,3 +10793,60 @@ git init; commit 一個檔; echo new > b.txt; git add -N b.txt
 **後面那一格空著的每一條,都是一件可能【早就做完而還掛在你清單上】的事。**
 (反方向同族見本檔「先查它還在不在,再查它卡在什麼」與 memory
  `feedback_check-if-it-still-needs-doing-not-just-what-blocks-it`。)
+
+## 🔴🔴 選擇器命中了、值是真的、而它講的是**另一個元件**(2026-08-20 W3,驗廠牌複選當場)
+
+我要驗「auto-apply 有沒有接上」,量法是**送出鈕有沒有被隱藏**(接上 ⇒ `hidden=true`)。
+量到 `false`,我當下差點寫「auto-apply 沒生效」——**而它生效了,同一份 log 上面就印著篩選成功換頁**。
+
+```
+querySelector('form button[type=submit]')   ← 取【第一個】
+實際上這一頁有 5 個 submit 鈕:
+  「用料號篩選」 hidden=false     ← 我量到的是這個
+  「套用篩選」   hidden=true      ← 我要的是這個(在含 #product-brand-filter 的那個 form 裡)
+  「套用」「前往」…
+```
+
+🔴 **這個坑沒有任何錯誤訊號**:選擇器命中了(不是 `null`)、回傳的 `hidden` 是真的布林值、
+型別對、程式不會炸。**壞的只有一件事:它是別人的屬性。**
+⇒ 與「量了 A 卻拿去答 B」同族,但更難察覺 —— 那一族通常量的是**另一種東西**,
+   這裡量的是**同一種東西的另一個實例**,連形狀都一樣。
+
+**判別句**:`querySelector` 沒有加「哪一個」的時候,我憑什麼相信頁面上只有一個?
+**修法**:量單一元件的屬性,選擇器要從**那個元件自己的識別字**往外走,不要從 document 往內第一個:
+```js
+document.querySelector('#product-brand-filter').closest('form').querySelector('button[type=submit]').hidden
+```
+**負對照(這次真的救了我)**:把**全部** submit 鈕連同「它在不在那個 form 裡」一起印出來
+⇒ 一眼看到 5 個。**只印一個值的量具,答不出「我是不是選錯了」。**
+
+## ⚠️ 唯一撈到東西的那一發,正好是撈不回來的那一發(同日同一次量測)
+
+console listener 只收了 `m.text()` ⇒ 拿到 `Failed to load resource: 404`,**沒有 URL**。
+換成 `page.on('response')` 重跑兩輪完整流程 ⇒ **零 4xx**,追不回來了。
+⇒ 誠實寫法 = 「**首次載入後見過一次、無 URL、兩輪未復現**」,不是「沒事」也不是「有 bug」。
+🔴 **量具設計時要問的不是「會不會抓到」,是「抓到之後我查得下去嗎」** ——
+   只回一句人話的 listener,在**它唯一一次有用**的時候把線索丟掉了。
+
+## 🔴🔴 `cat > 訊息檔` 與 `git commit -F 訊息檔` 寫在**同一條命令**裡 ⇒ 守門讀到的是**上一版**(2026-08-20 W3 實測)
+
+`~/.claude/hooks/quantifier-assertion.js` 的全稱句守門是 **PreToolUse** ⇒ **在命令執行【之前】**跑,
+它 `fs.readFileSync` 那個 `-F` 檔(見該檔 `commitMessage()`)。
+而 `cat > /tmp/x <<EOF … EOF && git commit -F /tmp/x` 這個寫法裡,**heredoc 還沒跑**。
+
+```
+⇒ 守門讀到的是【我上一顆 commit 留在同一路徑的舊訊息】
+   實測:它擋下我,理由引用的段落「為什麼不照抄訂單頁那一套:」
+        grep 全 repo ⇒ 只在 apps/admin/src/components/shared/auto-apply-submit.tsx:14
+        那是我【前一顆】commit 的訊息內容,不在這一顆裡
+```
+
+🔴 **兩個方向都壞,而危險的是第二個**:
+- 被擋下 ⇒ 吵,但看得見(我這次)。
+- **放行** ⇒ 舊訊息乾淨、新訊息有問題 ⇒ **守門靜靜地放過了它,而畫面與「真的通過」一模一樣**。
+  ⇒ 這條守門**對所有 `cat > … && git commit -F …` 的窗都在驗錯的東西**,而沒有人會發現。
+
+**修法(給用的人)**:訊息檔**寫在前一個 Bash call**,commit 自己一個 call。
+**修法(給守門的人)**:`-F` 讀不到內容時不該當「放行」;或改掛 PostToolUse / `commit-msg` hook——
+`commit-msg` 是 git 自己在**訊息定稿之後**呼叫的,天生沒有這個時序問題。
+⚠️ **本條只量到 `-F` 這一半**;`-m` 那半是行內字串、不經檔案,不受影響。
