@@ -49,13 +49,32 @@ const DETAIL = read('./order-detail.tsx');
 const PANEL = read('../../app/@panel/orders/page.tsx');
 
 describe('片2 標頭列', () => {
-  it.each(['客戶', '下單 ', '發票 '])('🔴 第二行帶「%s」這一格', (label) => {
-    expect({ [label]: DETAIL.includes(label) }).toEqual({ [label]: true });
+  // 🔴🔴 **本組由「第二行三格」改成「單列」**(2026-08-19 片2b):
+  //    上一版斷言標頭有「客戶/下單/發票」三個**字面標籤**,那是我照 `MAIN-057` 的 ASCII 轉錄做的,
+  //    而**設計稿標頭是單列、沒有那三個標籤字、也沒有發票那一格**。
+  //    ⇒ 那三格斷言曾經全綠,而它們守的是一個**錯的形狀** —— **測試綠不保證形狀對。**
+  // ⚠️ **nit(W6-019 ①):下面那條原本比對【連在一起的四個 class】,等於把順序也鎖住了** ——
+  //    它是守門不是絆線,而假紅是成本。改成逐個查存在,順序不管。
+  //    (排序器在不在我**沒查** —— 所以不倚賴「反正它會排好」。)
+  it('🔴 標頭是**單列**:`flex-nowrap` + 逐字搬的 `h-[38px]` / `gap-[9px]`(設計稿 `:219`)', () => {
+    for (const cls of ['flex-nowrap', 'h-[38px]', 'gap-[9px]', 'items-center']) {
+      expect({ [cls]: DETAIL.includes(cls) }).toEqual({ [cls]: true });
+    }
+    // 負向:上一版那個會換行的容器不得復活。
+    expect({ 有flexwrap: /flex-wrap items-center gap-3'>\s*<h1/.test(DETAIL) }).toEqual({ 有flexwrap: false });
+  });
+
+  it('🔴 金額那一格在(設計稿 `:1113` `<span class="amt">NT$ …`;上一版【漏做也沒揭露】)', () => {
+    expect(DETAIL).toContain('formatOrderAmount(detail.total.amount)');
+  });
+
+  it('🔴 發票那一格**已拿掉**(設計稿標頭沒有它;它與兩列標頭同一個根因)', () => {
+    expect({ 標頭仍有發票: DETAIL.includes('INVOICE_STATUS_LABEL') }).toEqual({ 標頭仍有發票: false });
   });
 
   it('🔴 客人明細入口**還在**(OD 要求它做在名字上;搬行可以,拿掉不行)', () => {
     expect(DETAIL).toContain('customerHref !== null');
-    expect(DETAIL).toMatch(/<Link href=\{customerHref\}/);
+    expect(DETAIL).toMatch(/<Link\s+href=\{customerHref\}/);
   });
 
   // 🔴🔴 這一格守的是**拍板**,不是程式:Sean 2026-08-18 `Q3` 把 `partiallyPaid` 的字面
@@ -66,8 +85,42 @@ describe('片2 標頭列', () => {
     expect({ 硬寫未收齊: DETAIL.includes('未收齊') }).toEqual({ 硬寫未收齊: false });
   });
 
-  it('🔴 發票那一格與發票卡共用同一支標籤表(兩處各寫一份 ⇒ 改詞只會改到一邊)', () => {
-    expect(DETAIL).toContain('INVOICE_STATUS_LABEL[detail.invoiceStatus]');
+  // ⚠️ **nit(W6-019 ②)**:`flex-1` 是裸字面 —— 今天全檔只有 1 處(實量),所以不是恆綠;
+  //    但日後檔內多一個 `flex-1`,**就算 spacer 被刪掉這一格也會綠**。
+  //    ⇒ 改成連著它前後的結構一起比,讓它綁在【標頭那一列裡】而不是「這個檔裡有這個字」。
+  it('🔴 彈性空白那一格在**標頭列裡**(設計稿 `:1115` `<span class="sp">`)', () => {
+    const i = DETAIL.indexOf("flex h-[38px] flex-nowrap");
+    expect(i).toBeGreaterThan(-1);
+    const row = DETAIL.slice(i, DETAIL.indexOf('</div>', i));
+    expect(row).toContain("className='flex-1'");
+  });
+
+  // 🔴🔴 **W6-019 M1**:標頭列裡該固定寬的東西都要 `shrink-0` ——
+  //    沒有它的會被**安靜壓扁而不是溢出**;而 spacer 到 0 之後飽和 ⇒ 我那把尺失去判別力。
+  //    **壓扁不像壞掉、像設計** ⇒ 連「拿去真瀏覽器給人看」那道驗證都騙得過去。
+  //
+  // ⚠️⚠️ **本格的射程,寫準(`W6-020` nit;而它正是產生 M1 的【同一個母題】)**:
+  //    下面那條 regex **只蓋 `h1` 與 `Link`** ⇒ **抓不到 `<OrderHeadChip/>`(M1 的一半就是它)**,
+  //    也抓不到日後任何新加的元件或 `span`。
+  //    🔴 **我上一版的註解寫「這一列【每一顆】都要 shrink-0」—— 那句【比它實際跑的寬】。**
+  //    ⇒ 具體後果:把 `OrderHeadChip` 根元素的 `shrink-0` 拿掉,**這一格照樣綠**。
+  //    ⇒ 所以下面補了第二格,專門釘那個元件。**兩格加起來仍不是「每一顆」,不要再那樣寫。**
+  it('🔴 標頭列裡的 `h1` 與每一顆 `Link` 都帶 `shrink`(否則會被安靜壓扁,而不是看得見地溢出)', () => {
+    const i = DETAIL.indexOf('flex h-[38px] flex-nowrap');
+    const row = DETAIL.slice(i, DETAIL.indexOf('</div>', i));
+    const 缺 = [...row.matchAll(/<(h1|Link)\b[^>]*/g)]
+      .map((m) => m[0])
+      .filter((t) => !t.includes('shrink'));
+    expect({ 缺shrink的數量: 缺.length }).toEqual({ 缺shrink的數量: 0 });
+  });
+
+  // 🔴 M1 的另一半:`OrderHeadChip` 不是 `h1` 也不是 `Link` ⇒ 上一格看不到它。
+  //    它的 `shrink-0` 掛在**元件自己的根元素**上(正確的位置),所以這裡讀它的函式體。
+  it('🔴 `OrderHeadChip` 自己的根元素帶 `shrink-0`(它是 M1 的另一半,上一格抓不到它)', () => {
+    const i = DETAIL.indexOf('function OrderHeadChip');
+    expect(i).toBeGreaterThan(-1);
+    const body = DETAIL.slice(i, DETAIL.indexOf('\n}', i));
+    expect({ chip帶shrink: body.includes('shrink-0') }).toEqual({ chip帶shrink: true });
   });
 });
 
@@ -123,15 +176,22 @@ const HEAD_DETAIL = {
 describe('片2 標頭列 · render 層', () => {
   afterEach(cleanup);
 
-  it('🔴 三格【真的畫出來】+ 正向對照(沒有對照的話「都在」可能是恆真)', () => {
+  it('🔴 單列那幾格【真的畫出來】+ 正向對照(沒有對照的話「都在」可能是恆真)', () => {
     const { container } = render(
-      <OrderDetail detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
+      // 🔴 `customerHref` 必須傳 —— 它預設 `null` = **不渲染入口**(fail-closed),
+      //    不傳的話下面那條「客人入口有畫出來」會**因為入口根本不該出現而紅**,
+      //    而那個紅講的是我漏傳,不是產品壞了。
+      <OrderDetail
+        detail={HEAD_DETAIL}
+        returnTo='/orders'
+        payments={{ status: 'ok', rows: [] }}
+        customerHref='/customers/abc'
+      />,
     );
-    // 正向對照:證明元件真的渲染了(否則下面三條在「什麼都沒畫」時也會失敗得莫名其妙)。
+    // 正向對照:證明元件真的渲染了(否則下面幾條在「什麼都沒畫」時也會失敗得莫名其妙)。
     expect(container.textContent).toContain('ABC123');
-    expect(container.textContent).toContain('客戶');
-    expect(container.textContent).toContain('下單');
-    expect(container.textContent).toContain('發票');
+    expect(container.textContent).toContain('沈佑霖');        // 客人入口
+    expect(container.textContent).toContain('NT$ 23,800');    // 金額(設計稿 :1113)
   });
 
   it('🔴 chip 畫出來的是【既有標籤表的字】,不是設計稿那個「未收齊」', () => {
@@ -143,10 +203,12 @@ describe('片2 標頭列 · render 層', () => {
     expect(container.textContent).not.toContain('未收齊');
   });
 
-  it('🔴 發票那一格畫的是狀態字,不是發票號碼(同 orders-table 那次踩過的坑)', () => {
+  it('🔴 標頭**不再**畫發票狀態(拿掉那一格之後,`未開立` 不該再出現在標頭)', () => {
     const { container } = render(
       <OrderDetail detail={HEAD_DETAIL} returnTo='/orders' payments={{ status: 'ok', rows: [] }} />,
     );
-    expect(container.textContent).toContain('未開立');
+    // ⚠️ 射程:子元件全被 mock 成 null ⇒ 這一格量的確實只有標頭那一列,
+    //    不會因為下方發票卡也印「未開立」而假綠。
+    expect(container.textContent).not.toContain('未開立');
   });
 });
