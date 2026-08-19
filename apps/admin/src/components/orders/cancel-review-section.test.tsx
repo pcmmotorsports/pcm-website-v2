@@ -154,6 +154,33 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
     }
   });
 
+  // 🔴🔴 2026-08-20:上面那條只禁了**已退款那兩碼**說「請走人工退款流程」——
+  //    而 Sean 讀到那句的地方是 `payment_not_unpaid`,**它不在上面那個迴圈的分母裡**。
+  //    📌 這正是「修了被點名的那一格,沒修那一類」:守門的分母比病的分母窄,而它一直全綠。
+  //    ⇒ 本條把分母擴成**全部拒因**,並且改成問「員工讀完知不知道要點哪裡」。
+  it('🔴 沒有一句拒因把員工推向一個【畫面上不存在的流程名】', () => {
+    // 這三個詞都不是畫面上任何東西的名字 ⇒ 讀到它的人不知道下一步點哪裡。
+    const NOT_A_PLACE = ['人工退款流程', '人工流程', '退款流程'] as const;
+    for (const code of Object.keys(BLOCK_REASON_TEXT) as (keyof typeof BLOCK_REASON_TEXT)[]) {
+      const { title, hint } = BLOCK_REASON_TEXT[code];
+      for (const word of NOT_A_PLACE) {
+        expect(`${title}${hint}`, `${code} 不得出現「${word}」`).not.toContain(word);
+      }
+    }
+  });
+
+  // 🔴 而上一條只擋得住【不要講什麼】—— 一句被刪光的 hint 也會全綠。
+  //    這一條是它的正對照:錢的那三碼**必須指出一個畫面上真的有的地方**。
+  //    字面來源(當場核過,非憑記憶):
+  //      「收款」`payment-list.tsx:182` <h2>收款</h2>
+  //      「退款」`order-detail.tsx:511`(對帳異常時作「退款(對帳異常)」,仍含「退款」)
+  it('🔴 錢卡住的三碼要指出畫面上真的有的區塊名,不能只說「不能取消」', () => {
+    for (const code of ['payment_not_unpaid', 'payment_partially_refunded', 'payment_partially_paid'] as const) {
+      const { hint } = BLOCK_REASON_TEXT[code];
+      expect(hint.includes('「收款」') || hint.includes('「退款」'), `${code} 要指路`).toBe(true);
+    }
+  });
+
   it('帳本異常與零品項不得只叫他重新整理(重整不會好)', () => {
     for (const code of ['ledger_unhealthy', 'no_items', 'items_truncated'] as const) {
       expect(BLOCK_REASON_TEXT[code].hint, code).not.toContain('請重新整理');
