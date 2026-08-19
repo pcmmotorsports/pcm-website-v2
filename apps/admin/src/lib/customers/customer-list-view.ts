@@ -183,6 +183,35 @@ export function buildCustomerSortHref(
  *    ⇒ 一格測試斷言本函式的輸出**永遠不含**那個欄位名;負對照 = 硬塞進去要紅。
  * 📌 而它不必帶也不會掉:cookie 是瀏覽器自己送的,換頁 / 換排序都還在。
  */
+/**
+ * 🔴🔴 **篩選表單(GET)要原封帶過去的鍵** —— `#743`。
+ *
+ * **病灶**:`customer-filter-bar.tsx` 是 `<form method='get'>`,而 **GET 表單只送出自己的欄位**。
+ * 那張表單原本**只有一個** `tier` ⇒ 員工照「花費」排好序、再改一次會員等級
+ * ⇒ **`sort` / `dir` 從網址上消失**。
+ *
+ * 🔴 **而它不會被回報成 bug**:排序沒了,而欄頭箭頭**也跟著沒了**(箭頭是從網址推的)
+ * ⇒ 畫面**自洽** —— 看起來就像「我本來就沒有排序」。
+ * ⇒ 員工不會說「排序壞了」,他會**重排一次**。然後下次再重排一次。
+ * **沒有人會抱怨,而每個人每天多做一個動作。**
+ *
+ * 🔴 **為什麼放在本檔而不是在表單裡自己拼**:`SORT_KEY_TO_URL` / `DIR_ASC` / `DIR_DESC`
+ *    是 `buildCustomerListHref` 用的**同一份**對照。在表單裡重拼一次 = 這一頁上出現
+ *    **第三份鍵清單**,而那正是這個病的產生機制(訂單頁那條 10 天內復發三次:
+ *    `#347-3c-1` 08-10 / `#484a` 08-14 / `#742` 08-20)。
+ * ⚠️ **本支只解「值怎麼算」那一半**;「表單有沒有把它們渲染出來」那一半靠
+ *    `customer-list-view.test.ts` 的鍵集合對照(表單欄位 ∪ 本支的鍵 = builder 的鍵 − `page`)。
+ */
+export function customerSortHiddenFields(
+  sort: AdminCustomerSort | undefined,
+): Readonly<Record<string, string>> {
+  if (sort === undefined) return {};
+  return {
+    [SORT_PARAM]: SORT_KEY_TO_URL[sort.key],
+    [DIR_PARAM]: sort.ascending ? DIR_ASC : DIR_DESC,
+  };
+}
+
 export function buildCustomerListHref(
   filter: AdminCustomerFilter,
   page: number,
