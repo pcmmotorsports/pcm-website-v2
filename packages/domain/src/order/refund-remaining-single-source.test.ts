@@ -56,6 +56,27 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
   // ⚠️ 下面每個數字都是**剝掉註解之後實測**的(2026-08-14),不是拿 `grep -c` 的粗數 ——
   //    粗數含註解,兩者不同(例:20260801120000 粗數 18、實測 12;20260810140000 粗數 1、
   //    實測 **0** ⇒ 那一處只出現在註解裡,整個檔不列入 allowlist)。
+  // 🔴 2026-08-20 W5 補(主視窗批、W6 審)。**why 要答的不是「這一筆無害」,是「gate 為什麼對正確的東西報紅」**:
+  //   gate 是**文字比對啟發式、不是 SQL parser**(本檔檔頭第④點)⇒ 它分不出
+  //   `order_refunds.refund_amount` 與 `order_manual_refunds.refund_amount`(新表自己的金額欄)。
+  //   ⇒ 報紅的原因是【分母裡出現了一種它出生時不存在的來源】,不是【有人繞過那支函式】。
+  // ✅ **反面證據(這才是關鍵)**:本檔沒有在任何地方自己算「已退 / 還能退」——
+  //   它對那個數字的唯一改動,就是把第三段 SUM 加進 `pcm_order_refundable_remaining` 本身,
+  //   而那正是本 gate 要保護的機制。
+  // 🔴 **可證偽的那一半**:本 gate 原本對這支檔紅【兩格】——
+  //   ②「最新定義 remaining 的檔裡函式本體沒有 join order_refund_effective」。
+  //   修完之後 ②【消失】⇒「函式確實少了東西」這個可能性是**量到的不存在**,不是宣稱的。
+  // ⚠️ 本 gate 對本檔的先天上限(檔頭第①點):它擋的是「冒出新的檔」,不是「同一支改了幾版」
+  //   ⇒ 擋住「我下次又改一次那支函式」的**不是**本 gate,是該 migration §0 的前置斷言
+  //     (要求現行 `prosrc` 必須含 `order_refund_effective_verdict`,否則 apply 當場炸)。
+  // 📌 count 6 → 9(2026-08-20,同日稍後):codex 對抗審查 must-fix ② 之後,§5e 從
+  //   「有沒有提到那兩個表名」改成【比對正規化後的整段字面】⇒ 斷言字串本身含 3 個 refund_amount。
+  //   🔴 而 count 從 6 變 9 是**本 gate 自己抓到的**(它比對次數,不只比對檔名)——
+  //     那正是它該做的事:同一支檔多冒出幾處,不會靜默溜過去。
+  '20260820010000_m4b_manual_refunds.sql': {
+    count: 9,
+    why: '非卡退款登記表(現金/匯款)自己的金額欄 + 在 pcm_order_refundable_remaining 內加第三段 SUM。零自算路徑;詳見上方三段。',
+  },
   '20260725130100_m3_rf2a2_order_refunds_ledger.sql': {
     count: 5,
     why: '建表本身:refund_amount 欄定義 + RF1 公式 CHECK',
