@@ -733,7 +733,8 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-2 在途扣款閘 fail-
   });
 
   // 🔴 關卡2 codex MF4:上面那條「觸及上限」用同一個常數造資料 ⇒ 把常數改成 1001 也全綠,
-  //    但伺服器 max-rows(production 實測 1000)會先截斷、我們永遠判不出來。
+  //    但伺服器 max-rows(~~production 實測 1000~~ ⇒ **2026-08-18 起是 2000**;
+  //    值以 `packages/adapters/src/supabase/mappers/order.ts:406` 為準,這裡不重寫數字)會先截斷、我們永遠判不出來。
   //    單元測試看不見伺服器設定,能釘住的只有常數本身落在合理區間(對齊
   //    `ORDER_NOTES_EMBED_LIMIT` / `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 的既有守門形狀)。
   it('🔴 上限常數必須嚴格小於伺服器 max-rows、且大於 0', () => {

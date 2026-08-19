@@ -2289,7 +2289,9 @@ describe('Q-EMBED-1 前台列表內嵌上限與 itemCountTruncated', () => {
   });
 
   /**
-   * 🔴 **上限值釘範圍**:嚴格低於伺服器 `max-rows`(repo 記載 production 實測 1000)。
+   * 🔴 **上限值釘範圍**:嚴格低於伺服器 `max-rows`
+   *    (~~repo 記載 production 實測 1000~~ ⇒ **2026-08-18 起是 `2000`**;
+   *     🔴 值以 `packages/adapters/src/supabase/mappers/order.ts:406` 為準,**這裡不重寫數字** —— 下次再變不必回頭改這行)。
    * ⚠️ 它與後台那個**目前同值,而那是巧合不是耦合** —— 兩者各自可調。
    *    這一格**不斷言兩者相等**,斷言相等會把「巧合」變成「契約」。
    */
@@ -2301,7 +2303,8 @@ describe('Q-EMBED-1 前台列表內嵌上限與 itemCountTruncated', () => {
 describe('Q-EMBED-1 列表內嵌上限與 itemsTruncated', () => {
   /**
    * 🔴 **上限值本身要有一格釘住,而且要釘【範圍】不只釘值。**
-   * 它必須嚴格低於伺服器的 `max-rows`(repo 記載 production 實測 1000),
+   * 它必須嚴格低於伺服器的 `max-rows`
+   * (~~repo 記載 production 實測 1000~~ ⇒ **2026-08-18 起是 `2000`**;值以 `packages/adapters/src/supabase/mappers/order.ts:406` 為準),
    * 否則截斷會發生在那個更低的數字上而本判定看不見 —— 那是這整族的殘餘風險。
    */
   it('🔴 上限嚴格低於伺服器 max-rows(1000),且高於明細那條(200)', () => {
