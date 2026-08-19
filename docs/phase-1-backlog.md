@@ -23739,3 +23739,29 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
 - **⚠️ 未查**:本條**沒有**去量「片1c 現有守門具體有幾格、各自掃什麼字面」——
   那要開 W1 的樹讀那支測試檔,而**它尚未 commit**(`w1-order-panel`,HEAD `c2cc1594`)。
   ⇒ **估工前要先量那一格。**
+
+### #672 · ⚛️ 訂單明細商品列有 React key 警告 —— 而它的症狀出現時,沒有人會聯想到 key
+
+- **發現方式**:2026-08-19 片14 收尾,W1 在**真瀏覽器**打開後台(拋棄式 PG + PostgREST + `next dev`)。
+  🔴 **四綠與 551 個測試檔全綠、畫面看起來完全正常** —— 它只出現在 console。
+- **逐字**(Chrome console,`/orders/<id>` 與 `/orders?panel=<id>` 兩個路由都有):
+  ```
+  Each child in a list should have a unique "key" prop.
+  Check the render method of `ItemAmountRow`.  It was passed a child from ItemsTable.
+  ```
+- **🔴 不修未來會痛在哪**
+  - key 不穩 ⇒ **列表重新排序 / 篩選之後渲染錯行**:React 會把舊列的 DOM 與**狀態**接到新列上。
+  - 這一列上**有互動狀態**:`defaultOpen`(缺料那一項自己打開)、`OpenRowContext` 的 `openId`
+    (改金額一次只開一項)⇒ **最可能的症狀是「我點 A 的改金額,B 那一列打開了」或「打開的那一項在重排後跳到別項」**。
+  - 🔴 **而症狀出現時沒有人會聯想到 key** —— 它看起來像 UI bug、像 context bug、像資料錯,
+    而**現場沒有任何錯誤訊息**(警告只在第一次渲染時印一次、且只在 dev)。
+  - ⚠️ **測試通常也是綠的**(W6 2026-08-19 補):jsdom 裡不做真實重排,而斷言看的是渲染結果不是 reconciliation。
+- **⚠️ 未查(標明缺哪一道檢查,不假裝查過)**
+  - **我沒有定位到是哪一個 array child 缺 key。** `order-detail-items-table.tsx:258` 那層
+    `detail.items.map(...)` **有** `key={item.id}`(當場開檔核過);
+    傳給 `ItemAmountRow` 的 `before` / `priceText` / `after` 三個 `ReactNode` 我沒有逐一驗。
+  - ⇒ **估工前要先定位**。定位法:React DevTools,或把 `before` 那個 fragment 拆成具名變數逐一試。
+- **重現(可重跑)**:照 `docs/runbooks/local-admin-with-real-data-probe.md` 起本機後台,
+  種一張**至少 2 個品項**的單(單一品項可能不觸發),開 `/orders?panel=<id>`,看 console。
+- **修法方向(未設計、未估)**:定位之後補 key;**key 用 `item.id` 這種穩定值,不用陣列 index**
+  (index 在重排時本身就會造成同一個病)。
