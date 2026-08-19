@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 
 // danger-zone-details.tsx — 片12:面板最底那兩顆鈕的殼(設計稿區塊⑥)。
 //
@@ -34,6 +34,21 @@ import { useEffect, useRef, type ReactNode } from 'react';
 //       它會不會觸發瀏覽器那個自動展開 —— **未量**。
 //    ⇒ 所以這裡**不靠**那個行為:掛載時與 `hashchange` 時自己讀 hash,命中就打開。
 //      兩條路都蓋到,而且不必先知道 Next 的內部行為。
+//
+// 🔴🔴 **第二個理由(2026-08-20 加,而它是 Sean 回報的 bug 本身)**:
+//    Sean 逐字「取消整張訂單功能尚未建立…點下去沒反應」。
+//    **而功能在。** W2 從 DOM 側獨立量到:`h2「取消訂單」` 在、`id='cancel'` 在,
+//    被 `<details open=false>` 收著(2026-08-20 01:1x,真 Chromium,附負對照)。
+//    ⇒ 病不是「沒做」,是**展開之後新內容長在畫面外** ——
+//      這兩顆鈕在面板**最底**,`<details>` 往下長,而面板高度有限
+//      ⇒ 使用者按下去,**視野裡的東西一格都沒變** = 他讀成「沒反應」。
+//    📌 同形狀已量過一次:`docs/phase-1-backlog.md` `#701`
+//      (採購表單展開後 `revealedTopInViewport 896 / clientHeight 900`)
+//      ⇒ **不是巧合,是這個面板底部的通病** —— 收合式 UI 放在長容器底部就會這樣。
+//    ⇒ 修法:展開時把**被揭露的那塊**捲進視野(`block:'nearest'`,原生、會自己找對捲動容器)。
+//    ⚠️ **這一發沒有真瀏覽器證據** —— jsdom 不做版面也不做捲動,
+//      下面那支測試守的是「有沒有叫 scrollIntoView」,**不是「使用者看得到了」**。
+//      要證後者得開真瀏覽器量 `getBoundingClientRect().top < clientHeight`。
 
 export function DangerZoneDetails({
   summary,
@@ -56,6 +71,21 @@ export function DangerZoneDetails({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
+  const revealedRef = useRef<HTMLDivElement>(null);
+
+  const onToggle = useCallback(() => {
+    if (ref.current?.open !== true) return;
+    // hash 命中時交給下面那段 effect 與瀏覽器自己的錨點捲動處理,不要兩邊搶。
+    if (anchorId !== undefined && window.location.hash === `#${anchorId}`) return;
+    revealedRef.current?.scrollIntoView({
+      block: 'nearest',
+      // 🔴 `?.` 不是防禦性程式:jsdom **沒有** `matchMedia`,不加它任何渲染這支元件
+      //    又觸發 toggle 的測試都會 throw —— 而那看起來會像「捲動邏輯壞了」。
+      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+        ? 'auto'
+        : 'smooth',
+    });
+  }, [anchorId]);
 
   useEffect(() => {
     if (!anchorId) return;
@@ -69,9 +99,11 @@ export function DangerZoneDetails({
   }, [anchorId]);
 
   return (
-    <details ref={ref} className={className} open={defaultOpen || undefined}>
+    <details ref={ref} className={className} open={defaultOpen || undefined} onToggle={onToggle}>
       <summary className='cursor-pointer list-none select-none'>{summary}</summary>
-      <div className='mt-3 space-y-4'>{children}</div>
+      <div ref={revealedRef} className='mt-3 space-y-4'>
+        {children}
+      </div>
     </details>
   );
 }
