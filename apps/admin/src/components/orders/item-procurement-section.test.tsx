@@ -19,7 +19,56 @@ import {
   EMPTY_PROCUREMENT_VALUES,
   procurementFailure,
 } from '../../lib/orders/procurement-action-state';
-import { ItemProcurementSection } from './item-procurement-section';
+import {
+  ItemProcurementBlock,
+  ItemProcurementOrderNotices,
+} from './item-procurement-section';
+
+/**
+ * 🔴🔴 **片7:`ItemProcurementSection` 這個匯出沒有了** —— 採購搬進每張商品卡的展開區,
+ * 檔案拆成「對整張單說的」與「對某一項說的」兩個匯出。
+ *
+ * 本檔 39 格守的是**那些話對不對**(截斷 / 讀不到 / 作廢列 / 未登記件數 / 供應商清單…),
+ * **不是**「它包在哪個外殼裡」⇒ 這裡用一個本地組合把兩個匯出接回原本的形狀,
+ * **45 個呼叫點一個字都不用改**,39 格繼續守同一件事。
+ *
+ * ⚠️ **誠實代價,不要讀寬**:這個本地組合**不是**正式的組法(正式的在 `ItemsTable` 裡,
+ * 而且每一項是包在一張 `<details>` 卡裡的)⇒ **本檔證不到「接線接對了」**。
+ *
+ * 🔴🔴 **接線由誰守,寫死在這裡(W6 `W6-056` 要求)**:
+ *    `app/orders/[id]/procurement-wiring.test.tsx` 的
+ *    **「採購區塊有渲染出來(標題 + 每個品項一份表單)」**那一格 —— 它跑的是**真的頁面**,
+ *    而且**帶負對照**(展開前 `select[name="supplier_id"]` 是 **0** 個 → 展開後 **1** 個)。
+ * ⚠️ **沒有這一行,下一個人刪掉那一格時,本檔這 39 格【不會說話】** ——
+ *    它們會繼續全綠,而接線已經斷了。「話對不對」與「線接上沒」是兩支檔在守,
+ *    而只有這一行讓第二支檔的存在被知道。
+ */
+function ItemProcurementSection({
+  detail: d,
+  returnTo,
+  suppliers,
+  suppliersFailed,
+}: {
+  detail: AdminOrderDetail;
+  returnTo: string;
+  suppliers: Parameters<typeof ItemProcurementBlock>[0]['suppliers'];
+  suppliersFailed: boolean;
+}) {
+  return (
+    <>
+      <ItemProcurementOrderNotices detail={d} suppliersFailed={suppliersFailed} />
+      {d.items.map((item) => (
+        <ItemProcurementBlock
+          key={item.id}
+          detail={d}
+          item={item}
+          returnTo={returnTo}
+          suppliers={suppliers}
+        />
+      ))}
+    </>
+  );
+}
 
 const SUP_A = '33333333-3333-4333-8333-333333333333';
 const SUP_B = '44444444-4444-4444-8444-444444444444';

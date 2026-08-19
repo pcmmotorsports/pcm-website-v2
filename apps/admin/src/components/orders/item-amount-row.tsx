@@ -45,19 +45,46 @@ const OpenRowContext = createContext<{
    * ⇒ 所以要**三個狀態**,不是兩個:沒動過 / 動過而開著某一列 / 動過而全部收起。
    */
   touched: boolean;
+  /**
+   * 🔴🔴 **片7:哪一列正在【改金額】—— 與「哪一張卡是開的」是兩個狀態,不是一個。**
+   *
+   * 片6a 時兩者可以共用一個 `openId`,因為卡片展開區裡**只有**改金額表單
+   * ⇒ 「卡開著」與「正在改金額」在畫面上是同一件事。
+   * 片7 把採購那一整層放進展開區之後,**那個等式不再成立**:
+   *   員工打開卡片是為了**看採購 / 登錄到貨**,而那時不該有一張改金額表單跟著冒出來
+   *   —— 那是一道「已收款 ⇒ 不得改金額」的閘所守的表單,不該在員工沒要求時出現。
+   * ⚠️ `item-amount-row.tsx` 片6a 的檔頭自己預告過這一格,逐字:
+   *    「片6b 把採購那層放進 `.icardbody` 之後,卡片要能【獨立於改金額】開合
+   *      ⇒ 那時這裡的受控條件要一起重想,**不要照抄**。」
+   * ⇒ 這裡就是那次重想。
+   *
+   * 🔴 **仍然只有一列**(不是 Set):改金額是錢的面,「同時開兩張」是**行為改動**,
+   *    不在本片範圍。與 `openId` 各自獨立、但受同一條約束。
+   */
+  amountEditId: string | null;
+  setAmountEditId: (id: string | null) => void;
 } | null>(null);
 
 export function ItemAmountRowGroup({ children }: { children: ReactNode }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
+  const [amountEditId, setAmountEditId] = useState<string | null>(null);
   // 🔴 每一次**使用者發起**的變更都要標記 touched —— 包含「收起來」(傳 null)。
   //    這一行就是 M1 的修法本體:**收起來之後,`defaultOpen` 再也不說話。**
   const set = (id: string | null) => {
     setTouched(true);
     setOpenId(id);
+    // 🔴🔴 **片7:卡片收起來時,把「正在改金額」一起關掉。**
+    //    不關的話會留下一個**看不見而仍然為真**的狀態:員工收起 A、再打開 A,
+    //    改金額表單**自己又在那裡**,而他沒有再點過那顆入口。
+    //    ⚠️ 而換開別張卡(`id !== null`)也要關 —— `amountEditId` 指的是**另一列**,
+    //       留著它等於「B 的卡開著、而 A 的改金額狀態還亮著」,那是兩個真相。
+    setAmountEditId(null);
   };
   return (
-    <OpenRowContext.Provider value={{ openId, setOpenId: set, touched }}>
+    <OpenRowContext.Provider
+      value={{ openId, setOpenId: set, touched, amountEditId, setAmountEditId }}
+    >
       {children}
     </OpenRowContext.Provider>
   );
@@ -123,6 +150,14 @@ export type ItemAmountRowProps = {
    *    改成選填是為了讓**型別自己說出「這是舊殼專用」**,而不是留一個在卡片殼裡被默默忽略的 prop。
    */
   rowClassName?: string;
+  /**
+   * 🔴 **片7:卡片展開區裡、改金額表單【之上】的內容**(= 那一項的採購與到貨)。
+   *
+   * server 算好傳進來 —— 本檔是 client 島,**不要在這裡長出任何取資料的邏輯**。
+   * ⚠️ **只有 `card-line` 殼吃它**:`table-row` 那個舊殼的展開列只放改金額表單。
+   *    選填是為了讓型別自己說出這件事(同 `priceCellClassName` / `rowClassName` 的理由)。
+   */
+  body?: ReactNode;
 } & ItemAmountFormProps;
 
 export function ItemAmountRow({
@@ -135,6 +170,7 @@ export function ItemAmountRow({
   blockedReason = null,
   variant = 'table-row',
   defaultOpen = false,
+  body,
   ...formProps
 }: ItemAmountRowProps) {
   const ctx = useContext(OpenRowContext);
@@ -158,6 +194,15 @@ export function ItemAmountRow({
   //    **失效的方向是靜默的**(卡片不開,而沒有東西會紅)。
   const touched = ctx?.touched ?? false;
   const open = touched ? ctx?.openId === formProps.orderItemId : defaultOpen;
+  /**
+   * 🔴 **片7:改金額表單自己的開關。**
+   * `table-row` 那個舊殼沒有 `body`、展開區只有表單 ⇒ 它照舊吃 `open`(行為一個字沒變)。
+   * `card-line` 吃 `amountEditId` ⇒ **打開卡片不會順便把改金額表單掀開來。**
+   * ⚠️ 沒有 provider 時 `ctx` 是 `null` ⇒ `amountOpen` 恆 false ⇒ **fail-closed**
+   *    (與 `open` 那條同一個立場:少包 provider 的症狀是「按了沒反應」,查得出來)。
+   */
+  const amountOpen =
+    variant === 'card-line' ? ctx?.amountEditId === formProps.orderItemId : open;
 
   /**
    * 🔴 **入口與表單抽成兩個區域變數,兩個殼吃【同一份】** ——
@@ -170,11 +215,49 @@ export function ItemAmountRow({
     //    ⇒ 折衷:**入口先說「無法改金額」,點開才看原因**。
     <button
       type='button'
-      onClick={() => ctx?.setOpenId(open ? null : formProps.orderItemId)}
+      /**
+       * 🔴🔴 **片7:這顆鈕現在只管「改金額表單」,不再等同於「卡片開合」。**
+       * 打開時**順便把卡片撐開**(否則表單被 `<details>` 藏起來,按鈕看起來沒反應);
+       * 關閉時**只收表單、卡片留著** —— 員工是為了看採購才打開那張卡的,
+       * 收個表單把整張卡一起關掉會把他趕回起點。
+       * ⚠️ `setOpenId` 會清掉 `amountEditId`(見 provider)⇒ **順序不可換**:
+       *    先 `setOpenId` 再 `setAmountEditId`,反過來會被自己清掉。
+       */
+      onClick={(e) => {
+        /**
+         * 🔴🔴 **`e.preventDefault()` 不是修 bug,是把一個【沒有寫在任何地方的依賴】拿掉**
+         *    (W6 `W6-056` 開了 must-fix、被我的真瀏覽器量測推翻成 nit,而殘留是結構性的)。
+         *
+         * 這顆鈕住在 `<summary>` 裡 ⇒ **點它,瀏覽器一定會原生切換一次 `<details>`**。
+         * 片7 之前那無害(舊的 onClick 與原生想做同一件事);片7 之後**兩者不同意** ——
+         * 而不同意的正好是本片的兩個賣點(打開卡片不掀表單 / 收表單不關卡片)。
+         * ⚠️ 我在 chromium 1.60 上量到**它今天沒有壞**:③ 展開的卡 1→1、④ 表單收掉而卡仍是 1。
+         *    但那份正確依賴「React 把 `open` 還原」早於「非同步 `toggle` 讀 `e.currentTarget.open`」,
+         *    而**那個順序沒有寫在任何規格裡** ⇒ 一個瀏覽器、一次量測撐不起它。
+         * ⇒ 擋掉原生行為,讓這顆鈕**只做 onClick 說的那件事**。
+         */
+        e.preventDefault();
+        if (variant !== 'card-line') {
+          ctx?.setOpenId(open ? null : formProps.orderItemId);
+          return;
+        }
+        if (amountOpen) {
+          ctx?.setAmountEditId(null);
+          return;
+        }
+        ctx?.setOpenId(formProps.orderItemId);
+        ctx?.setAmountEditId(formProps.orderItemId);
+      }}
       className='mt-0.5 text-xs underline'
-      aria-expanded={open}
+      aria-expanded={amountOpen}
     >
-      {blockedReason ? (open ? '收起' : '無法改金額(看原因)') : open ? '收起' : '改金額'}
+      {blockedReason
+        ? amountOpen
+          ? '收起'
+          : '無法改金額(看原因)'
+        : amountOpen
+          ? '收起'
+          : '改金額'}
     </button>
   );
   const form = <ItemAmountForm {...formProps} blockedReason={blockedReason} />;
@@ -196,6 +279,8 @@ export function ItemAmountRow({
         //      同步回 context ⇒ **兩邊不可能分岔**(點卡片 = 展開改金額,與點那顆入口同一件事)。
         // ⚠️ **片6b 的交棒**:那時 `.icardbody` 會多出採購那層,**卡片就需要能【獨立於改金額】開合**
         //    ⇒ 到那時要拆成兩個狀態,**不要照抄這裡**。
+        // 🔴 片7:這裡管的是**卡片**。使用者手動收合 ⇒ `setOpenId(null)`,
+        //    而 provider 會順手把 `amountEditId` 清掉(見那段檔頭)。
         onToggle={(e) => {
           const next = e.currentTarget.open;
           if (next !== open) ctx?.setOpenId(next ? formProps.orderItemId : null);
@@ -214,7 +299,14 @@ export function ItemAmountRow({
             {after}
           </div>
         </summary>
-        {open ? <div className='icardbody'>{form}</div> : null}
+        {/* 🔴 片7:展開區 = 採購那一層(`body`)+ 改金額表單(只有點過那顆鈕才出現)。
+            兩者的開關不同,理由在 `amountEditId` 的檔頭。 */}
+        {open ? (
+          <div className='icardbody'>
+            {body}
+            {amountOpen ? form : null}
+          </div>
+        ) : null}
       </details>
     );
   }

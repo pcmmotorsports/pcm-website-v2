@@ -308,10 +308,20 @@ describe('片6a-2 缺料自動展開', () => {
     expect({ 自己判 }).toEqual({ 自己判: false });
   });
 
-  it('🔴🔴 **只有 `stuck` 才自動展開** —— `unknown` 不是「不卡」的一種', () => {
+  it('🔴🔴 **`stuck` 一定自動展開** —— `unknown` 不是「不卡」的一種', () => {
     // `item-stuck.ts` 檔頭逐字:靜靜把 unknown 當成 not-stuck ⇒ 卡住的那一項不會自己打開,
     // 而畫面看起來完全正常。
-    expect(TABLE).toMatch(/defaultOpen=\{stuck\.kind === 'stuck'\}/);
+    //
+    // 🔴🔴 **2026-08-19 片7:條件【放寬】了,而這一格要守的東西沒有變。**
+    //    ~~原本斷 `defaultOpen={stuck.kind === 'stuck'}`(恰好等於)~~ ⇒ 現在是
+    //    `stuck.kind === 'stuck' || hasProcurementRows` —— 主視窗裁「有採購資料的也預設展開」,
+    //    依據是 Sean 自己的字「看得完整,但佔高度」(他接受的是高度,不是多點一下)。
+    //    ⇒ **本格改成斷「`stuck` 仍是其中一個成立條件」**:放寬是往「更常打開」的方向,
+    //      而這一格從頭到尾防的是**往【更少打開】的方向**漂(卡住的那項不打開)。
+    //    ⚠️ 誠實代價:斷「包含」比斷「恰好等於」**弱** —— 有人把它改成
+    //      `stuck.kind === 'stuck' && 別的條件` 時,這一格**不會紅**。
+    //      那一格由 `item-amount-open-behavior.test.tsx` 的行為測試守(缺料那張初始必須是開的)。
+    expect(TABLE).toMatch(/defaultOpen=\{stuck\.kind === 'stuck'/);
   });
 
   it('🔴 `unknown` 那兩種**必須把話講出來**(只有 not-stuck 可以沉默)', () => {

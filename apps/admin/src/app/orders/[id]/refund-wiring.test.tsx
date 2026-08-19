@@ -1031,14 +1031,29 @@ describe('危險操作沉底:取消排在出貨之後', () => {
    *       **由「採購 → 出貨 → 取消」這個既定順序推出「取消在出貨之後」**。
    *       出貨卡本身在本檔測不到(async server component 的工具限制,見檔頭 mock 的理由)。
    */
-  it('🔴 取消區塊排在採購之後(⇒ 由既定順序推得在出貨之後)', async () => {
+  it('🔴 取消區塊排在品項卡之後(⇒ 由既定順序推得在出貨之後)', async () => {
     const { container } = await renderPage();
     const text = container.textContent ?? '';
-    const procurement = text.indexOf('採購(向供應商訂貨)');
+    /**
+     * 🔴🔴 **2026-08-19 片7 換錨:上游錨從「採購(向供應商訂貨)」改成「商品名稱」。**
+     *
+     * 原因**不是**這格失效了要繞過去 —— 是**採購搬進了商品卡的展開區,而卡片預設收起來**
+     * ⇒ 那六個字在預設畫面上**不在 DOM 裡** ⇒ 舊錨變成 `-1`
+     * ⇒ 它會讓這一格用「錨不見了」的訊息紅掉,而**真正的順序其實沒有問題**。
+     * ⇒ 這正是本檔上面那段自己寫的紀律:**錨要選【一定會渲染】的字**。
+     * 「商品名稱」是品項卡表頭列的欄名(`order-detail-items-table.tsx` 的 `.ihead`),
+     * **它不依賴任何展開狀態**;而採購現在就住在那張卡裡 ⇒ **位置關係一個字沒變**。
+     *
+     * 🔴 **而換錨是有代價的,寫出來(W6 `W6-056` nit)**:新錨在卡片**表頭**、舊錨在採購區
+     *    (更下面)⇒ **這一格涵蓋的區間變短了**。短掉的那一段(品項卡表頭 → 採購區)
+     *    由 `procurement-wiring.test.tsx` 的「採購區塊有渲染出來」那一格守
+     *    —— 它證的是採購真的在卡片展開區裡。**兩格加起來才等於原本那一格。**
+     */
+    const itemsCard = text.indexOf('商品名稱');
     const cancel = text.indexOf('取消訂單');
-    expect(procurement, '採購區塊沒渲染 ⇒ 這格的上游錨不見了,不是順序對了').toBeGreaterThan(-1);
+    expect(itemsCard, '品項卡沒渲染 ⇒ 這格的上游錨不見了,不是順序對了').toBeGreaterThan(-1);
     expect(cancel, '取消區塊沒渲染 ⇒ 錨不見了').toBeGreaterThan(-1);
-    expect(cancel).toBeGreaterThan(procurement);
+    expect(cancel).toBeGreaterThan(itemsCard);
   });
 
   /**

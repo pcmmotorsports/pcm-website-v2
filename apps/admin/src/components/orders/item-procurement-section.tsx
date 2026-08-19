@@ -46,28 +46,36 @@ function UnsourcedNotice({ item }: { item: AdminOrderDetailItem }) {
   );
 }
 
-/** 一列大約放得下的原因長度;超過就收進 `<details>`(數字是估的,見 `VoidReasonCell`)。 */
-export function ItemProcurementSection({
+/**
+ * 🔴🔴 **片7(2026-08-19):採購從「獨立一張卡」搬進【每個商品自己的卡片展開區】。**
+ *
+ * **依據**:Sean 2026-08-19 看兩張真畫面後逐字選「**甲 = 卡片版(看得完整,但佔高度)**」;
+ * 而那一裁的邊界(不要讀寬)已經寫在下方 `#646` 那段註解裡 —— ✅ 涵蓋「採購資訊收在卡片裡」
+ * 這個**形狀**;❌ 不涵蓋卡片長什麼樣。
+ *
+ * ⇒ 本檔因此拆成**兩個**匯出,而拆法是照「這句話是對誰說的」分的:
+ *   · `ItemProcurementOrderNotices` —— **對整張單說的**(品項被截斷 / 供應商清單載入失敗)
+ *   · `ItemProcurementBlock`        —— **對某一個品項說的**(採購列 + 登錄表單)
+ * 🔴 **訂單層那兩則不可以跟著搬進卡片裡** —— 它們一旦被複製到每一張卡,同一句警告會出現 N 次,
+ *    而「供應商清單載入失敗」講的是**整個選單**壞了,不是這一項的事。
+ * ⚠️ **也不可以就這樣丟掉**:`suppliersFailed` 那則是 `#476` 片3 兩關審查改過字面的東西,
+ *    沒有它,員工會以為「這家供應商不存在」而去新增一筆重複資料。
+ *
+ * 🔴 **品項標題那一列(品名 / 料號 / 訂單數量)在本檔【刪掉了】** —— 不是漏搬:
+ *    卡片本身的那一行已經有品名、料號與數量(`order-detail-items-table.tsx` 的六格),
+ *    留著會變成同一張卡裡上下兩行講同一件事。
+ */
+export function ItemProcurementOrderNotices({
   detail,
-  returnTo,
-  suppliers,
   suppliersFailed,
 }: {
   detail: AdminOrderDetail;
-  /**
-   * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**。值不可信任:action 端一律再過
-   * `parseOrderReturnTo`(站內白名單 + 剝一次性參數 + §6-1 同單比對)。
-   */
-  returnTo: string;
-  /** S3a 讀模型(啟用中、zh-TW 排序);載入失敗時傳空陣列 + suppliersFailed */
-  suppliers: readonly SupplierOption[];
   /** 供應商清單載入失敗 —— 🔴 不可靜默:選單空掉會讓員工以為「這家不存在」 */
   suppliersFailed: boolean;
 }) {
+  if (!detail.itemsTruncated && !suppliersFailed) return null;
   return (
-    <section className={CARD}>
-      <h2 className='text-muted-foreground mb-3 text-xs font-medium'>採購(向供應商訂貨)</h2>
-
+    <>
       {detail.itemsTruncated && <TruncationWarning scope='order' />}
 
       {suppliersFailed && (
@@ -82,30 +90,46 @@ export function ItemProcurementSection({
           在清單載入成功之前不要新增供應商,避免建立重複的資料。
         </div>
       )}
+    </>
+  );
+}
 
-      <div className='space-y-4'>
-        {detail.items.map((item) => {
-          // 🔴 兩個旗標要一起讀(A9a-2 domain 註解):品項本身被截掉時,per-item 旗標會
+/** 一列大約放得下的原因長度;超過就收進 `<details>`(數字是估的,見 `VoidReasonCell`)。 */
+export function ItemProcurementBlock({
+  detail,
+  item,
+  returnTo,
+  suppliers,
+}: {
+  detail: AdminOrderDetail;
+  /** 🔴 這一張卡對應的那個品項 —— 由 `ItemsTable` 在 `map` 裡傳進來。 */
+  item: AdminOrderDetailItem;
+  /**
+   * #350d-3 C1:動作做完回哪裡 = **這個視圖自己的網址**。值不可信任:action 端一律再過
+   * `parseOrderReturnTo`(站內白名單 + 剝一次性參數 + §6-1 同單比對)。
+   */
+  returnTo: string;
+  /** S3a 讀模型(啟用中、zh-TW 排序);載入失敗時傳空陣列 + suppliersFailed */
+  suppliers: readonly SupplierOption[];
+}) {
+  // 🔴 兩個旗標要一起讀(A9a-2 domain 註解):品項本身被截掉時,per-item 旗標會
           //    連同品項一起消失 ⇒ 外層為 true 時,每個品項都當作不可信。
           // 🔴 `#646`:三個狀態,而它們的【對員工的指示】不一樣,所以要分開算。
           //    · unreadable ⇒ 讀不到（暫時的）⇒ 重整真的可能會好
           //    · truncated  ⇒ 觸及固定上限     ⇒ 重整永遠不會好
-          //    · blocked    ⇒ 兩者皆不得編輯（fail-closed 立場【沒有】變鬆:
-          //      舊版 missing 會翻成 truncated=true 而擋住,拆開之後由 unreadable 接手擋)
-          const unreadable = item.procurements === null;
-          const rows = item.procurements ?? [];
-          const truncated = item.procurementTruncated || detail.itemsTruncated;
-          const blocked = unreadable || truncated;
-          return (
-            <div key={item.id} className='rounded-md border p-3'>
-              <div className='mb-2 flex flex-wrap items-baseline gap-2'>
-                <span className='text-sm font-medium'>{item.title ?? item.variantSku}</span>
-                <span className='text-muted-foreground text-xs'>{item.variantSku}</span>
-                <span className='text-muted-foreground ml-auto text-xs'>
-                  訂單數量 {item.quantity}
-                </span>
-              </div>
-
+  //    · blocked    ⇒ 兩者皆不得編輯（fail-closed 立場【沒有】變鬆:
+  //      舊版 missing 會翻成 truncated=true 而擋住,拆開之後由 unreadable 接手擋)
+  const unreadable = item.procurements === null;
+  const rows = item.procurements ?? [];
+  const truncated = item.procurementTruncated || detail.itemsTruncated;
+  const blocked = unreadable || truncated;
+  return (
+    <div className='mt-1'>
+      {/* 🔴 標題字面**逐字沿用**搬家前那張卡的 h2(「採購(向供應商訂貨)」)——
+          不是為了讓既有守門繼續綠,是因為**員工看到的字不該因為版面搬家而換掉**。
+          ⚠️ 而它從 `<h2>`(一張卡的標題)降成 `<h3>`:它現在住在商品卡裡面,
+             不再是頁面層級的一個區塊 ⇒ 標題層級要跟著,否則螢幕閱讀器的大綱會多出 N 個同級標題。 */}
+      <h3 className='text-muted-foreground mb-2 text-xs font-medium'>採購(向供應商訂貨)</h3>
               {/* 🔴 `#646`:兩個欄位回答兩個不同的問題,四種組合各有各的話要說。
                   `procurements === null` = 我手上沒有這份清單;`procurementTruncated` = 這是不是固定限制。
                   ⇒ 「沒讀到 + 固定」(品項落在 200 之外,`merge-detail-items.ts` 那條路)
@@ -213,10 +237,6 @@ export function ItemProcurementSection({
                   />
                 </>
               )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
+    </div>
   );
 }
