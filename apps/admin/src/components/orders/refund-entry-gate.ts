@@ -20,6 +20,28 @@ import type { AdminOrderDetail } from '@pcm/domain';
 //    那是在測試裡替生產模組換掉一個依賴。純判斷不該需要那種手術,故獨立成檔。
 //
 // 🔴 **邏輯逐字照搬自 `order-detail.tsx` 原本的 JSX 條件,一個條件都沒有改。**
+//
+// ══════════════════════════════════════════════════════════════════════════
+// 🔴🔴 **反向指標:migration 那邊寫了一句【字面為真、而會誤導你】的話**(2026-08-20 W3)
+// ══════════════════════════════════════════════════════════════════════════
+//   `supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:48` 與 `:430` 逐字:
+//     「`pcm_order_refundable_remaining()` 是**顯示用函式**,沒有任何 trigger 讀它。」
+//     「🔴🔴 **這不是守門**(拍板⑤)。沒有任何 trigger 呼叫它。」
+//
+//   **那兩句沒有說錯** —— DB 層確實沒有 trigger 讀它,拍板⑤「不做防止超退的守門」也仍然成立。
+//   🔴 **而它答的是「有沒有 trigger」,讀的人問的是「有沒有東西依賴它」** ——
+//      本檔上面那段(`:5-8`)就是答案:**每一張訂單**都對它的可用性有一條 **fail-closed 依賴**。
+//   ⇒ 打算改動 / 刪除 / 換簽章那支函式的人:**先讀本檔,不要只讀那支 migration。**
+//     目前已知的消費者(**會過期,發現不對就當場改這份清單**):
+//       · `apps/admin/src/lib/payment/refund-read.ts:106`            實際 `.rpc()` 呼叫點
+//       · `apps/admin/src/components/orders/refund-entry-gate.ts`    本檔(fail-closed 閘)
+//       · `apps/admin/src/components/orders/order-detail-route.tsx:202`
+//       · `packages/domain/src/order/refund-remaining-single-source.test.ts` 單一真相守門
+//
+//   ⚠️ **為什麼不去改那支 migration 的註解**:它**已 apply 且不可變** ——
+//      `supabase/APPLIED.tsv` 記著它的 sha256(`9f222ea0…`,2026-08-20 實測與現檔相符),
+//      而 `scripts/b2s2a-verify.sh:475` 逐字寫著「改 migration 裡的 COMMENT 會先撞上 sha256 閘」。
+//      ⇒ **已 apply 的 migration 連註解都不能動;更正只能寫在會被一起 grep 到的地方,也就是這裡。**
 
 // 這裡只決定「入口值不值得渲染」,判錯的後果 = 員工按了拿到 action 的具名失敗訊息,不是繞過。
 // 型別釘 enum(R1 N4):日後 payment status 改名時這裡編譯紅,而不是入口靜默消失。
