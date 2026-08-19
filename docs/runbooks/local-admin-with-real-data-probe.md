@@ -239,13 +239,28 @@ cd apps/admin && ADMIN_DEV_BYPASS=1 \
 > 📎 這與 §9-c「元素在 ≠ 它活著」是同一個母題的另一半:**零命中 ≠ 不存在。**
 
 ```bash
-pkill -f "next dev -p 3011"; pkill -f "proxy.py"; pkill -f "postgrest"
+# 🔴🔴 **2026-08-19 W6 抓到:這一段【原本】會殺掉別的視窗的程序,已改。**
+#    ~~舊版:`pkill -f "proxy.py"`、`pkill -f "postgrest"`(兩個都【不帶埠、不帶路徑】)~~
+#    ⇒ 同一台機器上別窗起的 `proxy.py` / `postgrest` **cmdline 一模一樣** ⇒ **一起被殺,而它收不到任何訊息。**
+#    📌 這不是理論:2026-08-19 當晚 W3 與 W1 真的撞過埠(3012),而**腳本那邊同款的坑已經修掉了**
+#       (`scripts/*-probe/down.sh` 改成帶埠 / 讀埠佔用者)—— **而這份 runbook 還在教人做那件事。**
+#       🔴 **腳本安全了,照文件手動收攤的人仍然會誤殺。**
+# ⇒ 一律「**只殺自己的**」:pattern 帶自己的**資料目錄**或自己的**埠**。
+pkill -f "next dev -p 3011"
+pkill -f "/tmp/pcm-probe/proxy.py"          # 帶【自己的資料目錄】—— up.sh 把它複製進去再跑
+pkill -f "/tmp/pcm-probe/prest.conf"        # 帶【自己的設定檔】，不要用裸 "postgrest"
 pg_ctl -D /tmp/pcm-probe/pg stop -m immediate; rm -rf /tmp/pcm-probe
-for pat in "next dev -p 3011" "proxy.py" "postgrest" "postgres -p 555"; do
-  printf "%-22s " "$pat"; pgrep -f "$pat" >/dev/null && echo "🔴 還活著" || echo "已停"
+# 🔴 而 `next` 那一格【不要用 pgrep】(理由見上面那段:它會改名)⇒ 問誰在聽那個埠。
+printf "%-26s " "next(讀埠 3011 的佔用者)"
+_own=$(lsof -nP -iTCP:3011 -sTCP:LISTEN 2>/dev/null | grep -v WARNING | awk 'NR==2 {print $2" "$1}')
+if [ -n "$_own" ]; then echo "🔴 還活著 —— $_own"; else echo "已停"; fi
+for pat in "/tmp/pcm-probe/proxy.py" "/tmp/pcm-probe/prest.conf"; do
+  printf "%-26s " "$pat"; pgrep -f "$pat" >/dev/null && echo "🔴 還活著" || echo "已停"
 done
 git status --porcelain    # 應為空
 ```
+⚠️ **而「已停」只說得了【我這幾把尺沒看到它】** —— 埠那一層才是真的判準,見 `scripts/admin-probe/down.sh`
+(它把兩層都跑一次,而且**只收自己那一組**)。**能用腳本就用腳本,這一段是給沒有腳本的人的。**
 🔴 **`pkill` 的回傳值不是「它死了」** —— 要 `pgrep` 逐項問一次(CLAUDE.md 那條
 「輸出的標籤要由結果決定」的同族)。
 
