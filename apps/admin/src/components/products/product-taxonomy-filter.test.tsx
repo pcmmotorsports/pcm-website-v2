@@ -157,11 +157,23 @@ describe('ProductTaxonomyFilter', () => {
   it('🔴 按鈕文案是「套用篩選」不是「套用」—— 同頁的每頁筆數表單已經有一顆叫「套用」', () => {
     // 這一格是在真瀏覽器上撞出來的(playwright strict-mode 撞名),不是想出來的:
     // 兩顆同名的鈕,螢幕閱讀器的使用者聽到的是一模一樣的兩個名字。
-    setup(NONE);
-    expect(screen.getByRole('button', { name: '套用篩選' })).toBeTruthy();
+    // 🔴 **2026-08-19 起加了 `hidden: true`,而那不是為了讓這格繼續綠**:
+    //    `AutoApplySubmit` 掛上監聽後會把鈕收起來(有 JS 時它多餘)⇒ jsdom 這份一定是 hidden 的。
+    //    **而這格要守的東西沒有變**:關掉 JS 時兩顆鈕都看得見、名字仍不能撞。
+    //    ⇒ 「沒有 JS 時它看得見」由 `shared/auto-apply-submit.test.tsx` 用 server 端輸出守著,
+    //       那一題 jsdom 答不出來(effect 一定會跑完)。
+    // 🔴 而**不能**用 `getByRole('button', { name })` 抓它(我試過,紅的):`hidden` 屬性
+    //    在 jsdom 的預設樣式表下是 `display:none` ⇒ 無障礙名稱計算回空字串,連 `hidden: true`
+    //    也救不了。⇒ 改抓元素本身、斷言字面 —— **要守的字面一個字沒變**。
+    const { container } = setup(NONE);
+    expect(container.querySelector('button[type="submit"]')?.textContent).toBe('套用篩選');
   });
 
-  it('零 JS:表單是 GET、action 指向 /products(不靠任何 onChange)', () => {
+  it('表單是 GET、action 指向 /products —— 沒有 JS 時整條路照樣走得通', () => {
+    // ⚠️ 標題原本寫「不靠任何 onChange」,2026-08-19 起**不再為真**:
+    //    `AutoApplySubmit` 會在 form 上掛 `change` 監聽(Sean 要「點選後自動跳」)。
+    //    改掉那半句而不是留著 —— 一個當下為假的斷言標題,下一個人會照它推論。
+    //    **本格斷言的東西一個字沒變**:表單本身仍是零 JS 的 GET,JS 只加快、不是前提。
     const { container } = setup(NONE);
     const form = container.querySelector('form');
     expect(form?.getAttribute('method')).toBe('get');

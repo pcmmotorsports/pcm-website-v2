@@ -12,6 +12,7 @@ import type {
   BrandOptionRow,
   CategoryOption,
 } from '../../lib/products/product-taxonomy-options';
+import { AutoApplySubmit } from '../shared/auto-apply-submit';
 
 // product-taxonomy-filter.tsx — 後台商品列表的「品牌 / 分類 / 子分類」篩選。
 //
@@ -20,6 +21,9 @@ import type {
 // 🔴 **零 JS 的 `<form method="get">`,不是 client component** —— 抄同一頁既有的
 //    `product-keyword-search.tsx`(該檔頭寫了為什麼)。`<select>` 的 onChange 需要 JS,
 //    所以配一顆「套用」鈕:**不用 JS 也能操作**(plan §3 ⑤ 驗收條件逐字)。
+//    🔴 **2026-08-19 更新**:那顆鈕改由 `shared/auto-apply-submit.tsx` 畫 —— 有 JS 時「選了就生效」、
+//       沒 JS 時就是原本那顆鈕。表單的結構、欄位名、hidden 欄位一個字沒改。
+//       來由:Sean 肉眼驗收逐字「點選後下方列表沒自動跳」(`MAIN-063` D;客戶頁 C 是同一句話)。
 //
 // 🔴 **選中態靠網址不靠 state** —— `product-filter-chips.tsx:11-19` 檔頭那三件紀律的第三件。
 //    ⇒ 重新整理後選中態還在、可加書籤、上一頁能用。
@@ -160,12 +164,10 @@ export function ProductTaxonomyFilter({
           playwright 用無障礙名稱點它時直接 strict-mode 撞名 ——
           🔴 **而讀螢幕閱讀器的員工聽到的就是那兩個一模一樣的名字。**
           ⇒ 這顆講清楚自己套用的是什麼。(另一顆屬 G3 的檔,不在本片範圍,已列進回報。) */}
-      <button
-        type='submit'
+      <AutoApplySubmit
+        label='套用篩選'
         className='bg-primary text-primary-foreground h-9 rounded-md px-3 text-sm'
-      >
-        套用篩選
-      </button>
+      />
     </form>
   );
 }
