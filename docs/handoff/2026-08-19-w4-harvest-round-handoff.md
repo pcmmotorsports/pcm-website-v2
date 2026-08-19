@@ -198,7 +198,25 @@ mb=$(git merge-base dev $b); git diff --name-only $mb..$b
 
 # 3. 🔴 去重要用 patch-id，不要看訊息
 git show $c | git patch-id --stable
+
+# 4. 🔴🔴 **merge 之前先跑這一支** —— 它答「共用索引裡有沒有別人的東西」
+bash scripts/harvest-preflight.sh <要收的分支>
+#    rc=0 乾淨可以 merge ／ rc=3 有別人的 staged 檔（會被你一起帶走）⇒ 停下來問那個窗
 ```
+
+#### 🔴 第 4 條是 2026-08-19 賠出來的,不是想出來的
+
+```
+88804080 那顆 merge 把 W2 還沒 commit 的 scripts/containment-probe.mjs 一起帶走了
+  對做 merge 的我   merge 成功、四綠過、**完全正常**
+  對 W2             它的 code 進了 dev，而 git log 那條路是斷的（訊息一個字沒提它）
+                    且整個繞過了 reviewer gate —— 有人實際審過那 6 行，而那件事在 git 裡零痕跡
+  對追查的人        全隊共用 `probe <probe@local>` ⇒ **`%an` 對「誰做的」判別力為零**
+```
+🔴 **`git merge` 帶走的是【當下共用索引裡的一切】,而做 merge 的窗看不到那些是誰的。**
+⇒ **這不是注意力問題,加再多小心都擋不住** —— 那些檔在你的視野裡根本不存在。
+⇒ 所以修法是**一支在動作那一行跑的腳本**,不是一條「以後注意」。
+**它自己雙向表演過**(檔頭有寫):乾淨索引 ⇒ 無輸出 rc=0;`git add` 一支不相干的檔 ⇒ 印出檔名 rc=3。
 **紀律**
 ```
 · 真衝突 ⇒ 退回作者。**唯一的例外形狀**：兩側是【同一件事的兩半】而不是兩個作者對同一行有分歧
