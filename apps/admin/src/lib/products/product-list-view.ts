@@ -95,6 +95,19 @@ export interface AdminProductFilter {
    *    差別在 `raw_path` 是 text 欄、亂值只會查無,`brand_id` 是 uuid 欄、亂值會 400。
    */
   readonly categoryPath: string | undefined;
+  /**
+   * `?sku=`;貼進來的料號清單(已正規化、去重、有上限)。`undefined` = 不篩。
+   *
+   * 🔴 **是【陣列】不是字串** —— 它是「多選一組」不是「一個關鍵字」。寫成字串的話,
+   *    下游每一處都得自己再切一次,而**切法不一致的那一天不會有東西紅**。
+   *
+   * ⚠️ **上限是【字元數】不只【筆數】,而那是量出來的**(2026-08-19 正式庫 51,645 個 variant):
+   *    100 個【典型】料號 = 1,216 字元;100 個【最長】料號 = 5,472 字元
+   *    ⇒ 只限筆數的話,某些人的貼上會把網址撐爆,而**他不會知道為什麼**。
+   *    數法:`SELECT length(string_agg(sku, chr(10))) FROM (SELECT sku FROM product_variants
+   *          ORDER BY length(sku) DESC LIMIT 100) x`
+   */
+  readonly skus: readonly string[] | undefined;
 }
 
 /**
@@ -217,6 +230,47 @@ export function parseProductKeyword(value: string | string[] | undefined): strin
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** `?sku=` 的參數名。 */
+export const SKU_PARAM = 'sku';
+
+/**
+ * 料號清單的兩道上限。**兩道都要,而且是量出來的**(2026-08-19 正式庫,全表 51,645 筆):
+ *   筆數 ⇒ 送進 `.in()` 的集合大小;字元 ⇒ 網址塞不塞得下
+ * 🔴 超過就【截斷】不報錯,而**截斷必須看得見** —— 畫面顯示實際套用了幾個
+ *    (`ProductSkuFilter` 的 chip)。看不見的截斷正是本 repo 反覆寫教訓的那一種。
+ */
+export const MAX_SKU_COUNT = 100;
+export const MAX_SKU_CHARS = 2000;
+
+/**
+ * `?sku=` 解析。逗號或換行分隔。
+ *
+ * 🔴🔴 **分隔符與 trim 的規則是量出來的,不是挑的**(2026-08-19 正式庫,全表 51,645 筆):
+ * ```
+ * 含逗號 0 ・ 含換行 0 ・ 含 | 0 ・ 前後有空白 0 ・ 非 ASCII 0
+ * 🔴 含【空白】347 ⇒ **不得用 /\s+/ 切,也不得壓縮內部空白** —— 那會把這 347 個切碎,
+ *    而症狀是「這個料號查不到」,員工只會以為是資料沒進來。
+ * ```
+ * ⇒ 切 `[\n,]`;每段只 trim **前後**(全表 0 筆前後帶空白 ⇒ trim 不會改到任何真料號)。
+ * ⇒ 大小寫**不動**:`.in()` 是精確比對,自作主張轉大寫會查不到。
+ */
+export function parseProductSkus(
+  value: string | string[] | undefined,
+): readonly string[] | undefined {
+  if (typeof value !== 'string') return undefined;
+  const seen = new Set<string>();
+  let chars = 0;
+  for (const part of value.split(/[\n,]/)) {
+    const sku = part.trim();
+    if (sku === '' || seen.has(sku)) continue;
+    if (seen.size >= MAX_SKU_COUNT) break;
+    if (chars + sku.length > MAX_SKU_CHARS) break;
+    chars += sku.length;
+    seen.add(sku);
+  }
+  return seen.size === 0 ? undefined : [...seen];
+}
+
 export function parseProductBrandId(value: string | string[] | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;
   return UUID_RE.test(value) ? value : undefined;
@@ -336,6 +390,7 @@ export function parseProductListParams(raw: SearchParams): {
         parseProductCategoryPath(raw[CATEGORY_PARAM]),
         parseProductCategoryPath(raw[SUBCATEGORY_PARAM]),
       ),
+      skus: parseProductSkus(raw[SKU_PARAM]),
     },
     view: {
       page: parseProductPage(raw[PAGE_PARAM]),
@@ -357,16 +412,62 @@ type HrefEntry = readonly [param: string, value: string | undefined];
  *    ⚠️ 這道**只保證「每個軸都被做過決定」**,保證不了那個決定是對的:
  *      對到錯的 param 名、或該帶卻寫 `undefined`,型別一樣過。那半靠往返測試。
  */
-export function buildProductListHref(
+/**
+ * 每一個篩選軸 → `[param 名, 值]`。**這是那份對應關係的唯一副本。**
+ *
+ * 🔴🔴 **為什麼要抽出來(2026-08-19 貼料號片,W6 must-fix)**:
+ *    `buildProductListHref` 早就有這道 `Record<keyof AdminProductFilter, …>` 窮舉守門,
+ *    而 `app/products/page.tsx` 的 `filterFields`(換筆數 / 跳頁那兩張 GET form 用的
+ *    hidden 欄位 map)是**另一份手寫的對應**,**沒有守門**。
+ *    ⇒ 我加 `skus` 那一軸時:builder 這邊 `tsc` 當場紅、而那邊**靜靜地通過**
+ *      ⇒ 貼了料號再跳頁,料號整個消失(該頁檔頭記的那個病的**第四個觸發點**)。
+ *    ⇒ 抽成一支、兩邊都用它 ⇒ **加一軸而沒列,兩邊一起紅。**
+ *    📎 判別句:**能消除重複就不要去偵測不一致。**
+ *
+ * ⚠️ 這道只保證「每個軸都被做過決定」,保證不了那個決定是對的
+ *    (對到錯的 param 名、或該帶卻寫 `undefined`,型別一樣過)—— 那半靠往返測試。
+ */
+export function filterHrefEntries(
   filter: AdminProductFilter,
-  view: AdminProductView,
-): string {
-  const byFilterKey: Record<keyof AdminProductFilter, HrefEntry> = {
+): Record<keyof AdminProductFilter, HrefEntry> {
+  return {
     setBy: [SET_BY_PARAM, filter.setBy],
     keyword: [KEYWORD_PARAM, filter.keyword],
     brandId: [BRAND_PARAM, filter.brandId],
     categoryPath: [CATEGORY_PARAM, filter.categoryPath],
+    // 🔴 用逗號接回去 —— 全表 0 筆料號含逗號(量法見 `parseProductSkus`)⇒ 來回不會走樣。
+    //
+    // ⚠️🔴 **而網址裡【不一定】是逗號 —— 這一行只管【我們自己組的連結】**(翻頁、chip)。
+    //    使用者按下「用料號篩選」時走的是瀏覽器序列化那張 `<form method='get'>`,
+    //    它送的是 `<textarea>` 的**原值**(換行 ⇒ `%0A`)。
+    //    🔴 **兩條路徑產出兩種網址,而兩種都對** —— 因為 `parseProductSkus` 兩種分隔符都收。
+    //    ⇒ 真瀏覽器實測(2026-08-19,admin-probe :3011):貼 `AKR S Y10R12\nBRM-19RCS-CL`
+    //      ⇒ 網址是 `?sku=AKR+S+Y10R12%0ABRM-19RCS-CL`(**不是逗號**),而回填與結果都正確。
+    //    📌 我原本在這裡寫「網址用逗號、人看得懂」—— **那句對【連結】為真,對【表單送出】為假。**
+    skus: [SKU_PARAM, filter.skus === undefined ? undefined : filter.skus.join(',')],
   };
+}
+
+/**
+ * 篩選軸 → `Record<param 名, 值>`。給**手寫 hidden 欄位**的呼叫端用
+ * (`app/products/page.tsx` 的兩張 GET form)。
+ *
+ * 🔴 **鍵一定要是 param 名,不是 filter 的欄位名** —— `<Hidden>`(`list-pagination.tsx:99-107`)
+ *    拿**鍵**去當 `<input name=…>`。寫成欄位名的話會渲染出 `name='setBy'` 而不是 `name='set_by'`
+ *    ⇒ **每一軸都靜靜地失效**,而畫面上完全看不出來。
+ *    📌 這不是假設:我第一版就是那樣寫的,而 `tsc` 與 `eslint` 都不會紅。
+ */
+export function filterHiddenFields(
+  filter: AdminProductFilter,
+): Readonly<Record<string, string | undefined>> {
+  return Object.fromEntries(Object.values(filterHrefEntries(filter)));
+}
+
+export function buildProductListHref(
+  filter: AdminProductFilter,
+  view: AdminProductView,
+): string {
+  const byFilterKey = filterHrefEntries(filter);
 
   // 🔴🔴 **第二道窮舉守門(2026-08-19 新增),而它同時關掉一個既有缺口。**
   //    在它之前,`page` 是函式尾端一個**裸 `if`** —— 不受任何守門管;

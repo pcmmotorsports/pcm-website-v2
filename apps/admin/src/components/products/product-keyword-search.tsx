@@ -6,6 +6,7 @@ import {
   KEYWORD_PARAM,
   SET_BY_PARAM,
   SIZE_PARAM,
+  SKU_PARAM,
   buildProductListHrefResetPage,
   type AdminProductFilter,
 } from '../../lib/products/product-list-view';
@@ -89,6 +90,10 @@ export function ProductKeywordSearch({
         )}
         {filter.categoryPath !== undefined && (
           <input type='hidden' name={CATEGORY_PARAM} value={filter.categoryPath} />
+        )}
+        {/* 🔴 料號那一軸同理帶著走 —— 少這一格,員工貼完料號再搜尋,料號就被洗掉了。 */}
+        {filter.skus !== undefined && (
+          <input type='hidden' name={SKU_PARAM} value={filter.skus.join(',')} />
         )}
 
         <button

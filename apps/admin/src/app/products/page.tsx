@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ProductsTable } from '../../components/products/products-table';
 import { ProductFilterChips } from '../../components/products/product-filter-chips';
 import { ProductKeywordSearch } from '../../components/products/product-keyword-search';
+import { ProductSkuFilter } from '../../components/products/product-sku-filter';
 import { ProductTaxonomyFilter } from '../../components/products/product-taxonomy-filter';
 import { ListPagination } from '../../components/shared/list-pagination';
 import {
@@ -21,6 +22,7 @@ import {
 } from '../../lib/products/product-taxonomy-options';
 import {
   DEFAULT_PAGE_SIZE,
+  filterHiddenFields,
   KEYWORD_PARAM,
   PAGE_PARAM,
   PAGE_SIZE_OPTIONS,
@@ -132,6 +134,7 @@ export default async function ProductsPage({
       // 🔴 這裡用 `brandId` 不是 `filter.brandId` —— 認不得的品牌不套用(見上面 `brandKnown`)。
       brandId,
       categoryIds,
+      skus: filter.skus,
     });
   } catch (error) {
     console.error('[admin/products] 商品列表載入失敗', error);
@@ -153,12 +156,18 @@ export default async function ProductsPage({
   //       品牌篩選會消失而畫面上的下拉仍顯示著那個品牌(本頁檔頭記的那個病的第三個觸發點)。
   //    📌 分類只帶 `CATEGORY_PARAM`(不帶 `subcategory`):`filter.categoryPath` 已經是
   //       解析後的**單一真相**,而 `buildProductListHref` 也只寫這個 param ⇒ 兩邊一致。
-  const filterFields = {
-    [SET_BY_PARAM]: filter.setBy,
-    [KEYWORD_PARAM]: filter.keyword,
-    [BRAND_PARAM]: filter.brandId,
-    [CATEGORY_PARAM]: filter.categoryPath,
-  };
+  //    🔴🔴 **2026-08-19(貼料號片,W6 must-fix):這個 map 現在有【編譯期窮舉守門】。**
+  //       在它之前,這裡是一個手寫的物件字面 —— 而同一頁的 `buildProductListHref`
+  //       **早就有窮舉守門**(`product-list-view.ts` 的 `Record<keyof AdminProductFilter, …>`)
+  //       ⇒ **同一頁上兩套保留機制,而只有一套被守著**;chips 與翻頁連結走 builder(有守門),
+  //         換筆數與跳頁那兩張 form 走這個 map(沒守門)。
+  //       ⇒ 我加 `skus` 那一軸時,builder 那邊 `tsc` 當場紅、而這裡**靜靜地通過** ——
+  //         症狀正是上面那句寫的:貼了料號再跳頁,料號整個消失。**那會是第四個觸發點。**
+  //       ⇒ 型別改成 `Record<keyof AdminProductFilter, string | undefined>`:
+  //         **`AdminProductFilter` 加一軸而這裡沒列,`tsc` 直接紅。**
+  //       ⚠️ 同 builder 那道的限定:它只保證「每個軸都被做過決定」,
+  //          保證不了那個決定是對的(對到錯的 param 名一樣過)—— 那半靠往返測試。
+  const filterFields = filterHiddenFields(filter);
 
   return (
     <div className='mx-auto space-y-4'>
@@ -226,6 +235,9 @@ export default async function ProductsPage({
               categories={categoryOptions}
             />
           )}
+          {/* 🔴 貼料號【不】跟品牌/分類綁在同一個條件下 —— 它不依賴任何選項清單撈不撈得到,
+              就算分類撈失敗,員工手上那份 Excel 仍然貼得進來。 */}
+          <ProductSkuFilter filter={filter} size={view.size} />
           {filter.setBy === 'staff' && filter.keyword === undefined && total === 0 && (
             <p className='text-muted-foreground text-sm'>
               目前沒有手動設定過的商品。設定上下架的功能還沒做好,所以現在每一筆都是「自動」。

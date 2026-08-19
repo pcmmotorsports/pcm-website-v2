@@ -266,6 +266,43 @@ export interface AdminProductQuery {
    *    「看到全部」比「看到空的」更不會誤導員工(理由逐字在 `resolveCategoryIds` 檔頭)。
    */
   readonly categoryIds?: readonly string[];
+  /**
+   * 貼進來的料號清單(由 `parseProductSkus` 正規化、去重、上限過)。
+   *
+   * 🔴🔴 **空集合的意思與 `categoryIds` 【方向相反】,不要照抄上面那一段。**
+   * ```
+   * categoryIds 空 ⇒「網址被亂改、我認不得」⇒ 看到全部(不套用條件)
+   * skus        空 ⇒「你貼的這些料號一個都不存在」⇒ **看到 0 件才是對的答案**
+   * ```
+   * ⇒ 差別在**誰造成的**:分類是我們解析失敗,料號是使用者輸入的事實。
+   *   把「查無此料號」顯示成「全部商品」,員工會以為貼上沒生效而重貼一次。
+   * ⇒ 本欄 `undefined` = 不篩;而**解析出的 id 集合是空的時候要真的查 0 件**,
+   *   那一段在 `listProductsForAdmin` 裡,不在這裡。
+   */
+  readonly skus?: readonly string[];
+}
+
+/**
+ * 料號清單 → 商品 id 集合。**回空陣列是一個合法答案**(= 這些料號一個都不存在)。
+ *
+ * 🔴 一個 SKU 對到一個 variant、多個 variant 可能對到同一個商品 ⇒ 這裡要去重。
+ * 🔴 `.in()` 的上限由呼叫端保證(`MAX_SKU_COUNT`),本函式**不再設第二道** ——
+ *    兩個地方各設一個上限,改一邊的那天不會有東西紅。
+ */
+async function resolveProductIdsBySkus(skus: readonly string[]): Promise<string[]> {
+  const { data, error } = await createSupabaseServiceClient()
+    .from('product_variants')
+    .select('product_id')
+    .in('sku', [...skus]);
+  // 🔴 出錯【不得】回空陣列 —— 那會把「查詢失敗」顯示成「查無此料號」,而兩者要分得開。
+  //    往上丟,由 `app/products/page.tsx` 既有的 try/catch 顯示「商品列表載入失敗」。
+  if (error) throw new Error(`resolveProductIdsBySkus 失敗: ${error.message}`);
+  const ids = new Set<string>();
+  for (const row of data ?? []) {
+    const id = (row as { product_id: string | null }).product_id;
+    if (id) ids.add(id);
+  }
+  return [...ids];
 }
 
 export async function listProductsForAdmin(
@@ -297,6 +334,21 @@ export async function listProductsForAdmin(
   //       空陣列會查出 0 件,而那不是任何呼叫端想要的意思。
   if (query.categoryIds && query.categoryIds.length > 0) {
     q = q.in('category_id', [...query.categoryIds]);
+  }
+
+  // 🔴 料號清單。SKU 住在 `product_variants`(子表)⇒ 先解成 product_id 集合再 `.in('id', …)`。
+  //    形狀照 categoryIds 那條(呼叫端解好 id 再進來),而**空集合的處置相反** ——
+  //    見 `AdminProductQuery.skus` 檔頭:貼了不存在的料號,正確答案是【0 件】不是【全部】。
+  //
+  //    ⚠️ **多一次往返 DB**,代價我量過(正式庫 `EXPLAIN ANALYZE`):
+  //      5 個料號 ⇒ 16ms / 500 個真料號 ⇒ 92ms,走
+  //      `Index Scan using product_variants_supplier_sku_key`(Index Cond: `sku = ANY …`)。
+  //    🔴 **而我原本預測它吃不到那個索引**(唯一的 sku 索引是 `(supplier_slug, sku)`、sku 排第二)
+  //      —— **執行計畫推翻了我的預測**。寫在這裡是因為下一個人也會這樣預測。
+  if (query.skus) {
+    const productIds = await resolveProductIdsBySkus(query.skus);
+    // 空集合 ⇒ 真的查 0 件。`.in('id', [])` 就是這個意思,不要改成「不套用」。
+    q = q.in('id', productIds);
   }
 
   const { data, error, count } = await q
