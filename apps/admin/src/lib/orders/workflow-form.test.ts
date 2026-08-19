@@ -86,7 +86,8 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
       form({
         [ORDER_ID_FIELD]: UUID,
         [VERSION_FIELD]: '5',
-        [SHIPPING_METHOD_FIELD]: ' 宅配 ',
+        // 🔴 片15:白名單值(`' 宅配 '` 已不合法)。**前後空白仍要被 trim** ⇒ 這裡刻意保留空白。
+        [SHIPPING_METHOD_FIELD]: ' home ',
         [INVOICE_NUMBER_FIELD]: '',
         [INVOICE_AMOUNT_FIELD]: '',
         [INVOICE_STATUS_FIELD]: 'issued',
@@ -94,7 +95,7 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
     );
     expect(r).toMatchObject({
       ok: true,
-      patch: { shippingMethod: '宅配', invoiceNumber: null, invoiceAmount: null, invoiceStatus: 'issued' },
+      patch: { shippingMethod: 'home', invoiceNumber: null, invoiceAmount: null, invoiceStatus: 'issued' },
     });
 
     expect(
@@ -102,6 +103,32 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
         form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [SHIPPING_METHOD_FIELD]: '   ' }),
       ).ok,
     ).toBe(false); // shipping NOT NULL
+  });
+
+  /**
+   * 🔴🔴 **片15(2026-08-19):白名單擋在 parser,不是只擋在畫面上。**
+   *
+   * 畫面那顆 `<select>` 只是 UX —— **一發 POST 就繞過去了**。而下游沒有第二道:
+   *   · `orders.shipping_method` **沒有表 CHECK**(建表 migration `20260604120000…:105` 逐字
+   *     「白名單在 RPC…不加表 CHECK」)
+   *   · 而那道 RPC 白名單(`20260630120000…:144-145`)**只在【下單】那條路上**,改單不經過它
+   * ⇒ 在這道守門之前,後台改單可以把**任何 64 字以內的字串**寫進正式欄位,而沒有東西會紅。
+   * 🔴 下游真的在讀它:退款運費重算 `mode === 'store' ? 0 : fee` ⇒ 非 `store` 的雜訊值一律當宅配算運費。
+   *
+   * ⚠️ **正向對照少不得**:只留否定式的話,parser 整支壞掉(什麼都回 ok:false)時這一格照樣綠。
+   */
+  it('🔴 shipping_method 白名單:home / store 收;其餘一律 ok:false', () => {
+    const withMethod = (m: string) =>
+      parseWorkflowPatchForm(
+        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [SHIPPING_METHOD_FIELD]: m }),
+      );
+    // 正向對照:白名單兩個都要收得下,否則下面那串否定式沒有判別力
+    expect(withMethod('home')).toMatchObject({ ok: true, patch: { shippingMethod: 'home' } });
+    expect(withMethod('store')).toMatchObject({ ok: true, patch: { shippingMethod: 'store' } });
+    // 🔴 非白名單:快遞名 / 中文 / 大小寫變體 / 前後綴 —— 都不准進去
+    for (const bad of ['黑貓', '新竹物流', '宅配', 'Home', 'HOME', 'home x', 'homestore', 'delivery']) {
+      expect(withMethod(bad).ok, `非白名單值「${bad}」被放進去了`).toBe(false);
+    }
   });
 
   it('invoice_amount 十進位整數 → 設定;小數/負/非數字 → ok:false', () => {
@@ -193,7 +220,10 @@ describe('parseWorkflowPatchForm — #365 單值欄位恰一筆', () => {
   const GOOD: Record<string, string> = {
     order_id: UUID,
     version: '5',
-    shipping_method: '黑貓',
+    // 🔴 片15:`'黑貓'` 已不是合法值(白名單 home/store 從畫面移進 parser)。
+    //    ⚠️ 這個 fixture 的用途是「**各自合法**的值 ⇒ 被拒只可能因為送了兩份」——
+    //       留著非白名單值會讓那格失去它要證的東西(被拒的原因會變成兩個)。
+    shipping_method: 'home',
     invoice_number: 'AB-12345678',
     invoice_amount: '1200',
     invoice_status: 'issued',
