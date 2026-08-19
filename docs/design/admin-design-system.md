@@ -3,9 +3,26 @@
 > ## 👁 **要用瀏覽器看後台畫面?一行就夠,不需要任何 `.env` 檔**
 >
 > ```
-> cd /Users/sean_1/pcm-website-v2/apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001
+> cd /Users/sean_1/pcm-website-v2/apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001 -H 127.0.0.1
 > ```
 > 然後開 `http://localhost:3001/orders`。
+>
+> 🔴🔴 **`-H 127.0.0.1` 是 2026-08-19 加的,不要拿掉**(G2 加;原本這行沒有它):
+> ```
+> next dev 的預設是綁【所有網路介面】，不是 localhost
+> 而 ADMIN_DEV_BYPASS=1 = 免登入
+> 而這棵工作樹的 .env.local 指著【正式站】
+> ⇒ 三個各自合理的東西疊起來 = 一個免登入的正式站後台，對整個區網開著
+> ```
+> **實測(2026-08-19,對一支照舊寫法起了 5 小時的 dev server)**:
+> `lsof -nP -iTCP:3001 -sTCP:LISTEN` ⇒ `TCP *:3001`(星號=所有介面);
+> 從區網 IP `curl http://192.168.0.248:3001/orders` ⇒ **200**;
+> **負向對照**同一個 IP 打一個綁 `127.0.0.1` 的埠 ⇒ **000** ⇒ 那個 200 是真的;
+> macOS 應用層防火牆 ⇒ **disabled**。
+> ⚠️ **未驗的那半**:我的 curl 是**從這台機器本身**打區網 IP 的,**沒有從另一台裝置試過**
+> ⇒ 「同網段的別台機器打得到」是**推的**,不是量的。
+> ✅ **而加上 `-H 127.0.0.1` 之後,你自己看畫面完全不受影響** —— 你本來就是開 `localhost`。
+> 📎 形狀與可複製的量法:`docs/patterns/guard-and-instrument-traps.md`「兩個各自合理的預設疊起來」。
 >
 > **為什麼寫在這裡**:這份檔是**每一片後台 UI 都會引用**的檔,而「我想看看畫面長怎樣」
 > **正好發生在讀它的那一刻**。
