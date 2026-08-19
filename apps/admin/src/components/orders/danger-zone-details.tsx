@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from 'react';
 
 // danger-zone-details.tsx — 片12:面板最底那兩顆鈕的殼(設計稿區塊⑥)。
 //
@@ -49,6 +49,79 @@ import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 //    ⚠️ **這一發沒有真瀏覽器證據** —— jsdom 不做版面也不做捲動,
 //      下面那支測試守的是「有沒有叫 scrollIntoView」,**不是「使用者看得到了」**。
 //      要證後者得開真瀏覽器量 `getBoundingClientRect().top < clientHeight`。
+//
+//    🔴🔴 **證據降級(2026-08-20,W2 自己回來撤的)**:`85dca93f` 的 commit body 引了
+//    「展開後 `revealed.top` 1615 / 容器 900-1000 ⇒ 落在畫面外」那組數字。
+//    **那組數字沒有判別力** —— W2 後來在 prod build 上跑了三格對照:
+//    ```
+//    A 真的 click ＋ 等 1.2s      ⇒ top = 730  （在畫面內）
+//    B 程式設 open ＋【不等】      ⇒ top = 1833（畫面外）  ← 原本那一發用的就是 B
+//    C 程式設 open ＋ 等 1.2s     ⇒ top = 730  （在畫面內）
+//    ⇒ B 與 C 只差【有沒有等】⇒ 決定結果的是「等」，不是「怎麼展開」
+//    ```
+//    ⇒ 「沒有修法 ⇒ 落在畫面外」與「有修法但量太早 ⇒ 還沒捲完」**印同一個數字**。
+//    ⚠️ **所以要分兩句講,不可合成一句**:
+//      **修法有效 = 量到的**(A 與 C 都到 730、console error 0);
+//      **修法必要 = 沒有人量到** —— 要量得在【不含這顆修正的版本】上量,而沒有人做過。
+//    📌 可搬走的(W2 的話):**一發量測上有對照組,不代表【每一個結論】都被對照過。**
+
+/**
+ * 展開時把**被揭露的那塊**捲進視野。`DangerZoneDetails` 與 `DetailsScrollOnOpen` 共用這一支
+ * —— 🔴 **不共用的話這會是本 repo 第三份同樣的捲動邏輯**,而「同一個技術被反覆重新發明」
+ * 正是 2026-08-20 這一夜盤點出來的形狀(剝註解那件事在一夜之內被三個地方各自需要一次)。
+ */
+function useRevealScroll(anchorId: string | undefined, revealed: RefObject<HTMLElement | null>) {
+  return useCallback(() => {
+    // hash 命中時交給錨點那條路處理,不要兩邊搶(會跳兩次)。
+    if (anchorId !== undefined && window.location.hash === `#${anchorId}`) return;
+    revealed.current?.scrollIntoView({
+      block: 'nearest',
+      // 🔴 `?.` 不是防禦性程式:jsdom **沒有** `matchMedia`,不加它任何渲染這支元件
+      //    又觸發 toggle 的測試都會 throw —— 而那看起來會像「捲動邏輯壞了」。
+      behavior:
+        window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+          ? 'auto'
+          : 'smooth',
+    });
+  }, [anchorId, revealed]);
+}
+
+/**
+ * 只加「展開時捲進視野」,其餘原封不動的 `<details>`。
+ * 🔴 存在理由 = `#701`:採購表單那兩塊也會在展開後長到畫面外,而
+ *    `item-procurement-section.tsx` 是 **server component**、掛不了 `onToggle`。
+ * ⚠️ 呼叫端**自己保留 `<summary>`** ⇒ 版面零改動(這是刻意的:改 JSX 結構的風險大於收益)。
+ */
+export function DetailsScrollOnOpen({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  // 🔴 **被揭露的那一塊 = `<summary>` 的下一個兄弟**,不是 `<details>` 自己。
+  //    第一版我開了一個 ref 卻**沒有掛到任何節點上** ⇒ `current` 恆為 null ⇒ 永遠不捲,
+  //    而**畫面上看起來與「沒有這個功能」完全一樣**。抓到它的是下面那支測試的正對照。
+  //    ⚠️ 不能改捲 `<details>` 自己:它展開後比視窗高,而 `block:'nearest'` 對
+  //       「頂端已經看得到」的元素**什麼都不做** —— 那會是一個更安靜的假修好。
+  const revealed = useRef<HTMLElement | null>(null);
+  const scroll = useRevealScroll(undefined, revealed);
+  return (
+    <details
+      ref={ref}
+      className={className}
+      onToggle={() => {
+        if (ref.current?.open !== true) return;
+        const summary = ref.current.querySelector('summary');
+        revealed.current = summary?.nextElementSibling as HTMLElement | null;
+        scroll();
+      }}
+    >
+      {children}
+    </details>
+  );
+}
 
 export function DangerZoneDetails({
   summary,
@@ -73,19 +146,10 @@ export function DangerZoneDetails({
   const ref = useRef<HTMLDetailsElement>(null);
   const revealedRef = useRef<HTMLDivElement>(null);
 
+  const scroll = useRevealScroll(anchorId, revealedRef);
   const onToggle = useCallback(() => {
-    if (ref.current?.open !== true) return;
-    // hash 命中時交給下面那段 effect 與瀏覽器自己的錨點捲動處理,不要兩邊搶。
-    if (anchorId !== undefined && window.location.hash === `#${anchorId}`) return;
-    revealedRef.current?.scrollIntoView({
-      block: 'nearest',
-      // 🔴 `?.` 不是防禦性程式:jsdom **沒有** `matchMedia`,不加它任何渲染這支元件
-      //    又觸發 toggle 的測試都會 throw —— 而那看起來會像「捲動邏輯壞了」。
-      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-        ? 'auto'
-        : 'smooth',
-    });
-  }, [anchorId]);
+    if (ref.current?.open === true) scroll();
+  }, [scroll]);
 
   useEffect(() => {
     if (!anchorId) return;

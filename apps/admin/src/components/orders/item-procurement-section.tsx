@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { DetailsScrollOnOpen } from './danger-zone-details';
 import type { AdminOrderDetail, AdminOrderDetailItem, AdminOrderItemProcurement } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import {
@@ -184,7 +185,12 @@ export function ItemProcurementBlock({
                   ⇒ 那正是本片在修的病(「沒撈到」被講成「沒有」)。
                   舊版靠 missing 會翻成 truncated 才擋住,拆開之後這裡要自己擋。 */}
               {rows.length === 0 && !blocked ? (
-                <details className='group'>
+                <DetailsScrollOnOpen className='group'>
+                  {/* 🔴 `#701`:換掉原生 `<details>` 的唯一理由是**展開之後那塊會長在畫面外**
+                      —— 使用者按下去,視野裡一格都沒變 ⇒ 讀成「沒反應」。
+                      本檔是 **server component**、掛不了 `onToggle` ⇒ 借那支 client 殼,
+                      而 `<summary>` 與所有 class **原封不動**(改 JSX 結構的風險大於收益)。
+                      ⚠️ **這一發沒有真瀏覽器證據** —— 見 `danger-zone-details.tsx` 檔頭那段證據降級。 */}
                   {/* 🔴 `UnsourcedNotice` 在這條路上**刻意不渲染**:它逐字說「請在下面補上要向誰訂」,
                       而「下面」現在是收起來的;件數也已經在卡頭的「訂單數量」那格。
                       ⇒ 兩塊琥珀框說同一件事 = Sean 這輪「**變少了沒有**」那個判準的反面。
@@ -213,7 +219,7 @@ export function ItemProcurementBlock({
                       truncated={blocked}
                     />
                   </div>
-                </details>
+                </DetailsScrollOnOpen>
               ) : (
                 <>
                   <UnsourcedNotice item={item} />
@@ -269,7 +275,7 @@ export function ItemProcurementBlock({
                             那個意圖是對的,紅的是**我的條件太寬**。**改的是我,不是尺。**
                       📌 順帶:這個條件也讓字面問題自己消失 —— 「**再**跟一家」只在真的有列時才出現。 */}
                   {rows.length > 0 ? (
-                    <details className='group mt-3'>
+                    <DetailsScrollOnOpen className='group mt-3'>
                       <summary className='flex cursor-pointer flex-wrap items-center gap-2 text-xs'>
                         <span className='transition-transform group-open:rotate-90'>▸</span>
                         <span className='border-primary text-primary rounded-md border px-2.5 py-1 font-medium'>
@@ -286,7 +292,7 @@ export function ItemProcurementBlock({
                           truncated={blocked}
                         />
                       </div>
-                    </details>
+                    </DetailsScrollOnOpen>
                   ) : (
                     <ItemProcurementForm
                       orderId={detail.id}
