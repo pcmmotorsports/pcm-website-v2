@@ -23,7 +23,24 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const SOURCE = readFileSync(join(__dirname, 'order-detail-summary-cards.tsx'), 'utf8');
+/**
+ * 🔴🔴 **量之前先剝註解 —— 而這一步不是保險,是【上一版靠運氣】**(W6 2026-08-20 指出)。
+ * 上一版直接對整份原始碼斷言,而它之所以沒有恆真,只是因為那支檔 `:9` 的註解**恰好**
+ * 寫成裸欄名(`客人電話/Email…`)而不是 `label='電話'` 這個形狀。
+ * ⇒ **哪天有人在註解裡寫 `// 例:label='電話'`,這把尺就恢復恆真** ——
+ *   而它的安全性取決於**別人怎麼寫註解**,那不是機制。
+ * 📌 同一個 repo 早就有這個技術,只是散在各處(`packages/domain/.../sql-scan.ts` 的 `scanSql`
+ *   對 SQL 做同一件事)。這裡是 TS 版的最小實作。
+ * ⚠️ **方向性**:剝過頭會讓真 code 消失 ⇒ **紅**(誤報);剝不夠只會退回上一版。
+ *   ⇒ 兩種失敗都不會產生**假綠**,這是刻意選的方向。
+ */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+
+const SOURCE = stripComments(
+  readFileSync(join(__dirname, 'order-detail-summary-cards.tsx'), 'utf8'),
+);
 
 /** 三張卡上每一個欄位的**渲染字面**。改動這張表 = 改動 Sean 看得到的欄位,要有拍板。 */
 const FIELD_LABELS = [
