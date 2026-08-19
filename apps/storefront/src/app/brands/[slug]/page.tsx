@@ -65,10 +65,10 @@ function findBrand(slug: string) {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const brand = findBrand(slug);
-  if (!brand) return { title: '品牌不存在 — PCM Motorsports' };
+  if (!brand) return { title: '品牌不存在 — PCM重機零件販售' };
 
   // 標題字面 = 設計稿 `brand-page.html:1615` 的 `document.title` 逐字(全形直豎線、非半形 |)。
-  // ⚠️ 站名寫法與既有頁面(`— PCM Motorsports`)不同 —— 那是設計稿自己的字面,
+  // ⚠️ 站名寫法與既有頁面(`— PCM重機零件販售`)不同 —— 那是設計稿自己的字面,
   //    全站統一**仍未做**:D5/D7 已於 2026-08-05 落地、但兩者都只動版面與配色、沒碰站名寫法
   //    ⇒ 這件事現在歸全站重設計線(`docs/handoff/2026-08-05-site-redesign-line.md`),
   //    這裡照舊不擅自翻譯(鐵則 1)。

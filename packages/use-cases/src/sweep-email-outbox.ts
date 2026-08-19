@@ -138,7 +138,7 @@ function buildOrderCreatedText(job: ClaimedEmailJob): string {
     orderLine,
     '我們將盡快為您安排出貨;訂單明細與最新狀態請至 PCM 會員中心查看。',
     '',
-    'PCM Motorsports',
+    'PCM重機零件販售',
   ].join('\n');
 }
 

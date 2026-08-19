@@ -20,7 +20,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 
 export const metadata: Metadata = {
-  title: '找不到這個頁面 — PCM Motorsports',
+  title: '找不到這個頁面 — PCM重機零件販售',
 };
 
 export default function NotFound() {

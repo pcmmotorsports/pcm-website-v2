@@ -37,7 +37,7 @@ import type { CustomerAddress, MemberTier } from '@pcm/domain';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: '結帳 — PCM Motorsports',
+  title: '結帳 — PCM重機零件販售',
   description: '填寫收件與付款資料,完成您的 PCM 訂單。',
 };
 

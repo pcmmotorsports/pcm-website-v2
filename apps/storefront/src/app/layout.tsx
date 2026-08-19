@@ -75,10 +75,10 @@ const siteUrl = resolveSiteUrl();
 
 export const metadata: Metadata = {
   ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
-  title: 'PCM Motorsports — Made for those who ride differently.',
+  title: 'PCM重機零件販售 — Made for those who ride differently.',
   description: '高端機車零件編輯選品 · 原廠授權 · 合作店家安裝',
   openGraph: {
-    siteName: 'PCM Motorsports',
+    siteName: 'PCM重機零件販售',
     locale: 'zh_TW',
     type: 'website',
   },

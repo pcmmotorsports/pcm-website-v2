@@ -43,10 +43,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const product = await fetchProductByHandle(slug);
   if (!product) {
-    return { title: '商品不存在 — PCM Motorsports' };
+    return { title: '商品不存在 — PCM重機零件販售' };
   }
 
-  const title = `${product.name} — PCM Motorsports`;
+  const title = `${product.name} — PCM重機零件販售`;
   // description ← 真 subtitle(M-1-16c-4a plumb);空則 fallback 既有風格字面。
   const description = product.subtitle?.trim() || `${product.brand} · 適用 ${product.fits}`;
 
@@ -62,7 +62,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     openGraph: {
       title,
       description,
-      siteName: 'PCM Motorsports',
+      siteName: 'PCM重機零件販售',
       type: 'website', // Next 型別 union 不含 'product'(Q2=A);商品語意交 JSON-LD @type:Product
       ...(canonicalUrl ? { url: canonicalUrl } : {}),
       ...(ogImage ? { images: [ogImage] } : {}),

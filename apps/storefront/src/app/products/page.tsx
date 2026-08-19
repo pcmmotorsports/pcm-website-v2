@@ -35,7 +35,7 @@ import { getVehicleRepo } from '@/lib/auth/composition';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: '商品目錄 — PCM Motorsports',
+  title: '商品目錄 — PCM重機零件販售',
   description: '高端機車零件選品 · 依車款 / 分類 / 品牌篩選',
 };
 

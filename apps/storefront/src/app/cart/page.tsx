@@ -14,7 +14,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
 export const metadata: Metadata = {
-  title: '購物車 — PCM Motorsports',
+  title: '購物車 — PCM重機零件販售',
   description: '查看您選購的部品、數量與金額，前往結帳。',
 };
 

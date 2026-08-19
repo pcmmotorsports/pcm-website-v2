@@ -19,7 +19,7 @@ import { ResetPasswordPage } from '@/components/ResetPasswordPage';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export const metadata: Metadata = {
-  title: '設定新密碼 — PCM Motorsports',
+  title: '設定新密碼 — PCM重機零件販售',
   description: '為您的 PCM 帳號設定一組新密碼。',
 };
 

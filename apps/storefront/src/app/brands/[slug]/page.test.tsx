@@ -149,7 +149,7 @@ describe('/brands/[slug] · metadata', () => {
 
   it('未知 slug 的 metadata 不 throw、回可辨識的標題(Next 會先呼 generateMetadata 再 render)', async () => {
     expect((await generateMetadata({ params: params('does-not-exist') })).title).toBe(
-      '品牌不存在 — PCM Motorsports',
+      '品牌不存在 — PCM重機零件販售',
     );
   });
 });

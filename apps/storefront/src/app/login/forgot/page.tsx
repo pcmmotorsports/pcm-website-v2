@@ -7,7 +7,7 @@ import type { Metadata } from 'next';
 import { ForgotPasswordPage } from '@/components/ForgotPasswordPage';
 
 export const metadata: Metadata = {
-  title: '忘記密碼 — PCM Motorsports',
+  title: '忘記密碼 — PCM重機零件販售',
   description: '輸入註冊時用的 Email，我們寄一封重設密碼的信給您。',
 };
 

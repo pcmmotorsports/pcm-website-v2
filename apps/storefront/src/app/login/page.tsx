@@ -9,7 +9,7 @@ import type { Metadata } from 'next';
 import { LoginPage } from '@/components/LoginPage';
 
 export const metadata: Metadata = {
-  title: '登入 — PCM Motorsports',
+  title: '登入 — PCM重機零件販售',
   description: '登入您的 PCM 帳號，查看訂單與收藏。',
 };
 

@@ -37,7 +37,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 
 export const metadata: Metadata = {
-  title: '已登出 — PCM Motorsports',
+  title: '已登出 — PCM重機零件販售',
   // 登出確認頁沒有可索引的內容,而且被搜尋引擎收錄只會讓人從搜尋結果直接掉進來。
   robots: { index: false, follow: true },
 };

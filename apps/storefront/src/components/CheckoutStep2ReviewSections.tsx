@@ -178,7 +178,7 @@ export function CheckoutOrderReview({
           aria-describedby={termsError ? 'checkout-agree-error' : undefined}
         />
         <span>
-          我已閱讀並同意 PCM Motorsports 的{' '}
+          我已閱讀並同意 PCM重機零件販售 的{' '}
           <a href="/terms" target="_blank" rel="noopener noreferrer">
             服務條款
           </a>{' '}

@@ -41,7 +41,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: '訂單結果 — PCM Motorsports',
+  title: '訂單結果 — PCM重機零件販售',
   robots: { index: false, follow: false }, // 個別訂單結果頁、不索引
 };
 

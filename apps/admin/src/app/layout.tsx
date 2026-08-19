@@ -11,7 +11,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'PCM 後台',
-  description: 'PCM Motorsports 後台管理(M-4a)',
+  description: 'PCM重機零件販售 後台管理(M-4a)',
 };
 
 export const viewport: Viewport = {

@@ -42,7 +42,7 @@ describe('buildOrganizationJsonLd', () => {
     const o = buildOrganizationJsonLd();
     expect(o['@context']).toBe('https://schema.org');
     expect(o['@type']).toBe('Store');
-    expect(o.name).toBe('PCM Motorsports');
+    expect(o.name).toBe('PCM重機零件販售');
     expect(o.legalName).toBe('派達有限公司');
     expect(o.alternateName).toBe('PCM MOTOR PARTS LTD');
     expect(o.taxID).toBe('90003020');
@@ -94,7 +94,7 @@ describe('buildOrganizationJsonLd', () => {
     const o = buildOrganizationJsonLd();
     URL_KEYS.forEach((k) => expect(o[k]).toBeUndefined());
     // 核心欄位仍在(身分證不依賴網域)。
-    expect(o.name).toBe('PCM Motorsports');
+    expect(o.name).toBe('PCM重機零件販售');
   });
 
   it('逐欄白名單:所有 key ⊆ 允許集(無 ...spread 髒值混入)', () => {
@@ -110,6 +110,6 @@ describe('serializeOrganizationJsonLd', () => {
     const s = serializeOrganizationJsonLd();
     expect(s).not.toContain('</script>');
     expect(() => JSON.parse(s)).not.toThrow();
-    expect(JSON.parse(s).name).toBe('PCM Motorsports');
+    expect(JSON.parse(s).name).toBe('PCM重機零件販售');
   });
 });

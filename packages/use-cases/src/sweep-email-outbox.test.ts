@@ -164,7 +164,7 @@ describe('sweepEmailOutbox — ③ 寄送與標記', () => {
       '您的訂單 PCM-2026-0001 已付款成功。',
       '我們將盡快為您安排出貨;訂單明細與最新狀態請至 PCM 會員中心查看。',
       '',
-      'PCM Motorsports',
+      'PCM重機零件販售',
     ].join('\n');
     expect(sentText).toBe(EXPECTED_ORDER_CREATED_BODY);
     expect(outbox.markSent).toHaveBeenCalledExactlyOnceWith('outbox-1', 3);

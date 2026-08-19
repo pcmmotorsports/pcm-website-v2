@@ -9,7 +9,7 @@
 import { LINE_ADD_URL } from '@/lib/line-cta';
 
 /** 品牌 / 商號顯示名。 */
-export const SITE_NAME = 'PCM Motorsports';
+export const SITE_NAME = 'PCM重機零件販售';
 /** 法定登記名稱(中文公司登記;對應統編 90003020)。 */
 export const LEGAL_NAME = '派達有限公司';
 /** 法定登記名稱(英文;Sean 2026-06-22 確認為正確登記名,亦為 footer 顯示名)。 */

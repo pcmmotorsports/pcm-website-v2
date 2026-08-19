@@ -7,7 +7,7 @@ import type { Metadata } from 'next';
 import { RegisterPage } from '@/components/RegisterPage';
 
 export const metadata: Metadata = {
-  title: '註冊 — PCM Motorsports',
+  title: '註冊 — PCM重機零件販售',
   description: '建立帳號，享會員價與專屬優惠。',
 };
 
