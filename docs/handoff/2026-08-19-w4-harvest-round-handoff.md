@@ -1,0 +1,191 @@
+# W4 收割輪交接(2026-08-19 夜)
+
+> **寫給:下一任收割窗。** 你需要的是「哪些已經送出去了、哪些押著、押著的解鎖條件是什麼」。
+> 🔴 **本檔不抄 E2b 那條線的正本** —— 正本 `~/pcm-mailbox/W4-E2b前置與cron歸屬-20260819.md`(§17/§18)。
+> 抄第二份就會有兩份各自過期。這裡只寫**收割這個動作**的狀態。
+
+---
+
+## 0. 為什麼有「收割窗」這個角色
+
+2026-08-19 的實錘:訂單面板那條線**做完七八片、全部過審,而一片都沒進 `dev`**
+(⚠️ 「七八片」**未數** —— 轉自 `~/pcm-mailbox/W4-RESTART-20260819.md`,本檔未覆核)
+⇒ Sean 等了一整天,螢幕上什麼都沒變。**沒有人在收割,而沒有人知道那是誰的事。**
+
+📌 **判準(新規矩④)**:排片第一問=**會不會讓 Sean 打開後台看到不一樣的東西**;
+而**收割永遠排最前面** —— **做完的東西沒送出去,等於沒做。**
+
+---
+
+## 1. 本輪收了什麼(進 `dev`,**未 push**)
+
+數法(當場可重跑):`git log --oneline --merges c0d156a9..dev` ⇒ 8 顆 merge;
+未收割用 §5 那段 `for` 迴圈 ⇒ 落檔時剩 1 支(`vitest-alias`)。
+
+| merge commit | 分支 | 顆 | Sean 看得見? |
+|---|---|---|---|
+| `6820b99f` | `w1-order-panel` | 2 | ✅ 危險操作收成兩顆鈕 + `#637` 錨點 |
+| `ef5a4a7f` | `w3-containing-block` | 1 | ✅ 面板 `page.tsx` + 撤回一句假宣稱 |
+| `5728f72c` | `w2-shipment-dialog` | 1 | ❌ containment 量具 |
+| `c820a466` | `w3-traps-0819` | 1 | ❌ traps 八條 |
+| `5da9b727` | `w3-storefront-probe-teardown` | 2 | ❌ probe 腳本 |
+| `1fff1eb9` | `w3-admin-probe` | 4 | ❌ probe 腳本 |
+| `d65caf90` | `claude/practical-shannon-525b68` | 1 | ❌ 一個 JSDoc 字 |
+| `8551a485` | `w2-email-cron` | 2 | ❌ E2b migration + cron route |
+
+另外兩顆非 merge:`b3e32d67`(`APPLIED.tsv` 去重)、`e1eb1d53`(角色基線 plan 補量測)。
+
+**四綠(每一批收完各跑一次;最後一次四項的 `Cached:` 欄皆為 `0 cached`)**
+```
+TURBO_FORCE=1 pnpm typecheck ⇒ 8/8      TURBO_FORCE=1 pnpm lint  ⇒ 10/10
+TURBO_FORCE=1 pnpm build     ⇒ 2/2      TURBO_FORCE=1 pnpm test  ⇒ 550 檔 passed | 1 skipped(551)
+                                            9220 passed | 2 expected fail | 2 skipped | 1 todo
+```
+🔴 **`TURBO_FORCE=1` 不可省** —— 少了它 turbo 命中快取會 replay 舊的綠(鐵則 11)。
+
+---
+
+## 2. 押著沒收的:**一支,而它有明確的解鎖條件**
+
+```
+vitest-alias  1 顆  88845f35  test(admin): sso start/callback 兩支 route 行為測試
+```
+**症狀**:merge ⇒ `CONFLICT (add/add)`,兩支檔
+`apps/admin/src/app/api/sso/{start,callback}/route.test.ts` —— `dev` 上已有 `d9f8894e` 的同名測試。
+
+🔴 **而這一格教了一條判準,請帶走**:
+```
+我最初的判法（行數）：dev 279 行 > vitest-alias 236 行 ⇒ 判「被取代的重工」
+W6 的判法（斷言差集）：236 行裡有 7 條 dev 沒有的，其中 1 條守的是登入 CSRF
+   （start/route.ts:31 的 const state = newState() 被提到 module scope
+     ⇒ dev 現有兩格【全綠】，而全站共用同一個 state）
+⇒ **「哪版比較完整」答不出「哪版守得比較嚴」。**
+⇒ 🔴 **下次遇到 add/add 重工:先問【斷言差集】,再問【行數】。**
+```
+**退役條件(主視窗裁定)**:等 W5 把 Δ1(state 唯一性)+ Δ2(302 pathname)補進 `dev` 且突變驗過,才退役。
+⚠️ **在那之前分支不要刪** —— 現在刪就是把唯一一份記錄那個缺口的東西刪掉。
+
+---
+
+## 3. 🔴🔴 E2b:三層,**誰都不准壓成一句**
+
+正本在 dossier §18-b。**這裡原封抄三行,因為它今晚被壓縮過一次:**
+```
+① 排程有在跑          ✅ 量到  cron.job_run_details 近 30 分：pcm-email-sweep succeeded 4 次
+② 打得出 HTTP 且 200   ✅ 量到  net._http_response 近 15 分 n=10 全 200
+③ 真的寄出信          ❌ 量不到 —— 而且更窄：email_outbox **零列**
+```
+🔴 **正確的宣稱**:**管子接通了、抽水機在轉,而【從來沒有東西進過那根管子】。**
+**不要寫「E2b 已驗證」或「排程寄信成功」** —— 那兩句都會被讀成 ③。
+
+### 🔴 而 ③ 的原因量到了(W2,2026-08-19 12:35Z 之後補的一發)—— **不是壞掉,是沒上膛**
+
+W2 拿 `net._http_response` 的 **body 逐字**(那張表沒有 `url` 欄,它改用時刻判別:
+`*/5` 落在分鐘 5/15/25/35/45/55、`*/2` 只落偶數分 ⇒ 分鐘 %10=5 的那幾發只可能是 email-sweep;
+對照組:近 40 分鐘偶數分 22 筆 + %10=5 的 2 筆 = 24 = 同期間全部筆數 ⇒ 切片自洽):
+```
+2026-08-19 12:25:00Z │ 200 │ {"ok":true,"reclaimed":0,"claimed":0,"sent":0,"failed":0,
+                              "deferred":0,"staleMarks":0,"errors":0,
+                              "enqueueStatus":"skipped_no_cutoff"}
+2026-08-19 12:35:00Z │ 200 │ （逐字相同）
+```
+⇒ **它自己說它沒寄。** `apps/storefront/src/app/api/cron/email-sweep/route.ts:18-20` 逐字寫著這條路:
+`B4_DEPLOY_CUTOFF` 未設 → 200 且 `enqueueStatus:'skipped_no_cutoff'`(不寄任何信);
+env 名字在 `route.ts:101`,而 `docs/patterns/guard-and-instrument-traps.md:9141` 記著實查 **Vercel production 未設它**。
+
+🔴 **⇒ 真正的「上膛」動作是設 `B4_DEPLOY_CUTOFF`,不是排程。** 而那是 **Sean 的動作**(設下去信就真的會寄給真客人),已端給他。
+
+**兩格分清楚,別讓下游併掉**
+```
+✅ 量到：cutoff 未設 ⇒ enqueue 整段跳過 ⇒ sent=0。**這是【設定】不是【壞掉】。**
+⚠️ 推出（不是量到）：拿到 200 而不是 503 ⇒ ORDER_EMAIL_FROM / RESEND_API_KEY 應該是設好的。
+   🔴 沒有人直接量過那兩個 env。
+```
+
+#### 🔴 而我追這條推論時撞到一個**現成的矛盾**,兩邊都留著(W4 讀 code 驗的)
+
+```
+route.ts:307 `getSweepEmailOutboxDeps()` 是**無條件**跑的 —— 它在 cutoff 分支【外面】，
+              而 cutoff 未設只跳過 enqueue 那半（route.ts:284 的 if (cutoffRead.kind === 'ok')）
+route.ts:338 requireEnv throw ⇒ 503；而我們拿到的是 **200**
+⇒ **在服務那兩發請求的那個 deployment 上，那兩顆 env 是設好的。**（比「應該」硬一階）
+
+而 docs/patterns/guard-and-instrument-traps.md:9141 逐字記著實查結果：
+   「**ORDER_EMAIL_FROM 與 B4_DEPLOY_CUTOFF 確實未設**」
+⇒ 🔴 **兩份證據對 ORDER_EMAIL_FROM 給相反答案。**
+```
+**不要挑一個消滅。** 兩個都可能是真的(env 在那次實查之後被設上去了),
+而**分歧本身就是證據**:它說明**沒有人知道現在那顆 env 是什麼狀態**。
+⇒ 要收掉這格只有一種動作:**當場對 production 量一次那兩顆 env**(而那需要 Sean 或有 Vercel 通道的人)。
+⚠️ **這一層錯了,客人收不到信,而後台什麼都不會紅。**
+
+---
+
+## 4. 帳本 `supabase/APPLIED.tsv`:一次撞車,與它留下的規則
+
+**事件**:W2 與我在幾分鐘內**各 append 了 `20260819160000` 一列**;
+W2 為避撞用 `cp` **整檔還原**,把我那列一起蓋掉;我又補了一次 ⇒ 同版本號兩列。
+**處置**:保留 W2 那列(第一手 —— 它自己跑 `job_run_details JOIN cron.job`),刪掉我那列(`b3e32d67`)。
+
+📌 **兩條可搬走的**
+```
+· 判準用【誰的證據是第一手】，不是【誰先寫】
+· 🔴 病灶不是手滑，是拿【整檔還原】去解一個【只該動一行】的問題
+  ⇒ 共用工作樹裡，**檔案層級的還原等於對別人的未 commit 改動下手**
+  ⇒ 判別句：我要撤回的是【我的一個動作】，還是【這個檔案的一段時間】？
+     後者在共用工作樹裡永遠是錯的答案 —— 而它讀起來像比較保守的做法
+```
+⚠️ **pre-commit 的 reviewer gate 會擋 `APPLIED.tsv`**。我寫跳審標記過關,理由=
+「只動一支自陳帳本 TSV,零 SQL、零 code、零平台設定」。
+🔴 **而主視窗加了一條邊界,寫下來免得它變通行證**:
+`APPLIED.tsv` 之所以輕,是因為**它自己不會執行任何東西**。
+**哪天有人寫了一支「照 `APPLIED.tsv` 決定要不要 apply」的工具,這張表就從自陳帳本變成【輸入】,那時它就不輕了。**
+⇒ 寫跳審理由時把「**它不被任何程式讀**」這個前提寫進去,將來前提變了才有人撞得到。
+
+---
+
+## 5. 收割怎麼做(可直接照抄)
+
+```bash
+# 1. 自己量，不要照抄別人給的分支清單
+for b in $(git for-each-ref --format='%(refname:short)' refs/heads/); do
+  n=$(git rev-list --count dev..$b); [ "$n" != "0" ] && printf "%-32s %s\n" "$b" "$n"; done
+
+# 2. 🔴 量「會不會撞到工作樹髒檔」要用 merge-base，不要用 dev..branch
+#    （dev..branch 是【樹差異】，會把 dev 後來新增的檔算成分支的改動 ⇒ 假警報）
+mb=$(git merge-base dev $b); git diff --name-only $mb..$b
+
+# 3. 🔴 去重要用 patch-id，不要看訊息
+git show $c | git patch-id --stable
+```
+**紀律**
+```
+· 真衝突 ⇒ 退回作者。**唯一的例外形狀**：兩側是【同一件事的兩半】而不是兩個作者對同一行有分歧
+  （本輪兩次都是這種：backlog 那段 W1 說「升級被推翻」/ W3 說「原限定恢復」；
+    traps 那段兩側各自 append 在同一個插入點）⇒ 這種我自己解，並在 commit body 寫明形狀
+· 別人的教訓正文我不改。traps 有一段疑似掛錯節（W3 的 audit-css 註記接在
+  「我量有沒有人在做」那節底下），我照原樣合進去、另外通知 W3
+· 每批 merge 完跑四綠 `TURBO_FORCE=1`
+· 🔴 **收割窗永遠不 push** —— 那道關的價值是「一雙沒寫過這段 code 的眼睛」，
+  而收割窗與寫的窗都是 AI ⇒ 少了 Sean 那一下，關卡只是換一個 AI 蓋章
+· 🔴 **不碰 `STATUS.md`** —— 收帳權在主視窗
+```
+
+---
+
+## 6. 現況與下一步
+
+```
+git rev-list --count origin/dev..dev  ⇒ 39（本檔落檔時；會變，當場重量）
+未收割：vitest-alias 1 支（押著，見 §2）
+下一批來源：W1 正在改的訂單面板（收款區移到第 1 塊 + 拆掉四張摘要卡）
+            —— 那是這一輪唯一會讓 Sean 打開後台看到不一樣東西的東西
+推的時機：主視窗押著，等 W1 那片進來一次推
+            理由=現在 39 顆裡看得見的只有兩顆鈕 + 面板 CSS，
+            而 Sean 的四條回饋（MAIN-063 A/B/C/D）一條都還沒修完
+```
+
+⚠️ **Sean 的四條回饋不是收割窗的工**(`~/pcm-mailbox/MAIN-063-Sean肉眼驗收回饋-20260819.md`)。
+收割窗對它的貢獻方式只有一個:**別人一交件就馬上送進 `dev`。**
+
+— END —
