@@ -23769,15 +23769,33 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
 ### #673 · 🕳️ 守門的掃描範圍比它宣稱的窄 —— 而這支 adapter 有 5 份投影白名單,只盤點過 2 份
 
 - **發現方式**:2026-08-19 片16(明細補品牌)動 `ADMIN_ORDER_DETAIL_SELECT` 時,順手查它有沒有經銷價守門。
-- **量到的**(可重跑)
+- **量到的**(🔴 **數法附在旁邊,而我第一版的數字是錯的 —— 更正見下**)
+  ```bash
+  # 分母：投影常數幾份
+  grep -c "_SELECT =" packages/adapters/src/supabase/SupabaseOrderAdapter.ts        # ⇒ 5
+  grep -n "_SELECT =" packages/adapters/src/supabase/SupabaseOrderAdapter.ts        # ⇒ 逐行看是哪五份
+    :62  export const ORDER_LIST_SELECT           （storefront 客人端）
+    :101 export const ADMIN_ORDER_LIST_SELECT
+    :378 export const ADMIN_ORDER_DETAIL_SELECT
+    :404 const ORDER_ITEMS_PRINT_SELECT           🔴 未 export
+    :422 const ORDER_ITEMS_DETAIL_SELECT          🔴 未 export
+
+  # 分子：forbidden-token 迴圈幾個、各自守誰
+  grep -n "for (const token of forbidden)" packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts
+  grep -n "not.toContain(token)" packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts
+    :362  expect(projection)                  ← ADMIN_ORDER_LIST_SELECT 的剝除版（it 在 :341）
+    :1062 expect(ADMIN_ORDER_DETAIL_SELECT)   ← 金流識別欄那一組（在另一格測試裡面）
+    :1266 expect(ADMIN_ORDER_DETAIL_SELECT)   ← 價格/成本那一組（it 在 :1251）
   ```
-  grep -n "_SELECT =" packages/adapters/src/supabase/SupabaseOrderAdapter.ts   ⇒ 5 份投影常數
-    ADMIN_ORDER_LIST_SELECT        有 forbidden-token 守門（:342）
-    ADMIN_ORDER_DETAIL_SELECT      有 forbidden-token 守門（:1241）
-    ORDER_ITEMS_PRINT_SELECT       🔴 零守門（未 export ⇒ 測不到）
-    ORDER_ITEMS_DETAIL_SELECT      🔴 零守門（未 export ⇒ 測不到）
-    （第 5 份見該檔）
-  ```
+  ⇒ **5 份投影,而只有 2 份【常數】被 forbidden-token 點過名**(`ADMIN_ORDER_LIST_SELECT` / `ADMIN_ORDER_DETAIL_SELECT`);
+  另 3 份(含 storefront 的 `ORDER_LIST_SELECT`)在這一族守門裡**零命中**。
+
+  > 🔴 **本條第一版的兩個數字都不精確,而錯法本身要留著**:
+  > · 我寫「守門在 `:342` / `:1241`」—— 那是 `const forbidden = [` 與 `it(` 的行號,**不是斷言的行號**,
+  >   而我當時**沒有去數斷言**(`not.toContain(token)`)⇒ 因此**漏掉第三個迴圈**(`:1062`,守金流識別欄)。
+  > · 🔴 **漏掉它的原因是我 grep 的是 `const forbidden = [`** —— 而那一組**是內聯陣列、沒有那個變數名**
+  >   ⇒ **我的尺只看得到「長成我預期那個樣子」的守門。**
+  > ⇒ 判別句:**數守門要數【斷言】,不要數【它的原料變數】** —— 原料的寫法可以有很多種,斷言只有一種。
 - 🔴 **而兩份有守門的,清單各自漂了**:`price_general` 只在列表那份、`tier_at_checkout` / `wallet` 只在明細那份。
   片16 補了明細那份漏的 `price_general`(因為品牌 join 穿越帶那一欄的表),**但沒有做系統性對帳**。
 - **🔴 不修未來會痛在哪**
@@ -23796,3 +23814,15 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
 - **修法方向(未設計、未估)**:一格「每一份投影常數都必須被至少一格 forbidden-token 覆蓋」的元測試
   (分母用 `grep "_SELECT ="` 自己算,**不要手寫清單** —— 手寫清單會漏掉下一份新增的)。
   ⚠️ 那需要先把兩份未 export 的變成可測,**而那個決定本身要有人拍板**。
+- **📎 而清單漂移要分開修(W6 2026-08-19 提,通則不是本片的事)**
+  片16 只補了**這一次**的漂移(`price_general` 只在列表那份)⇒ **漂移機制沒動。**
+  形狀:**把「價格/成本」那一半抽成共用 `BASE`,兩份各自 `[...BASE, 自己的額外]`**
+  ⇒ **必須相同的那一半不可能再漂,而刻意不同的那一半仍然分開**(明細有 `tier_at_checkout`/`wallet`、
+  列表有 `invoice`/`shipping_address_snapshot`,合併會弄丟「明細刻意帶 PII」那個決定)。
+- **🔴 而本條所屬的那一族有【三種】失敗形狀,湊齊了才防得住**(2026-08-19 全隊當天各中一次)
+  ```
+  ① 尺的分母太窄   grep 只看得到「長成我預期那個樣子」的東西 ⇒ 回一個乾淨的少數
+  ② 結論太寬       找到一個實例，答了一個全稱句（「有一格不覆蓋」⇒「沒有任何一格覆蓋」）
+  ③ 量級沒量過     尺沒壞、分母也對，而給出的【數量級】從來沒有被量過
+  🔴 三種都會產出一個【乾淨、看起來完整】的答案 —— 這是它們共同的偽裝。
+  ```
