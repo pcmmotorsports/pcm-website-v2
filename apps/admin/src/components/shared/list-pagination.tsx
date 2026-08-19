@@ -148,6 +148,17 @@ export function ListPagination({
   const pages = jump ? pageWindow(view.currentPage, view.totalPages) : [];
   const half = Math.ceil(pages.length / 2);
 
+  // 🔴 **超界頁的「往回」要落在最後一個【真實】的頁**(2026-08-19 審查 nit-2)。
+  //    原本用未 clamp 的 `page - 1`:`?page=999`(共 102 頁)的「上一頁」連到 **998**,
+  //    仍然是空頁 —— 要按 897 次才回得去。
+  //    而 `list-params.ts` 的 `computePagination` 檔頭逐字寫著「超界頁 hasPrev=true **可退回**」
+  //    ⇒ 那句承諾在原本的寫法下,只有「«(第一頁)」兌現得了。
+  const prevPage = Math.min(page - 1, view.totalPages);
+  // 🔴 **超界時不得把最後一頁高亮成「你在這裡」**(審查 nit-3)。
+  //    同一個區塊裡,footer 的文字沒有謊報(`rangeEnd === 0` ⇒ 不寫「第 X–Y 筆」),
+  //    而按鈕謊報了 —— **兩個標準**。以 footer 那個為準。
+  const onRealPage = page <= view.totalPages;
+
   return (
     <div className='flex flex-col gap-3'>
       {/* 🔴🔴 截斷警示帶。**這個病的本體就是【安靜】** —— 少了幾列的頁,
@@ -156,17 +167,29 @@ export function ListPagination({
       {truncation != null && (
         <div className='border-destructive/40 bg-destructive/10 text-destructive rounded-lg border p-3 text-sm'>
           <p className='font-medium'>
-            ⚠️ 這一頁的資料不完整:
-            {truncation.missing > 0
-              ? `少了 ${truncation.missing} 筆`
-              : `多了 ${-truncation.missing} 筆`}
+            {truncation.kind === 'short'
+              ? `⚠️ 這一頁的資料不完整:少了 ${truncation.missing} 筆`
+              : '⚠️ 這一頁的「總共幾件」和實際列出來的筆數對不上'}
           </p>
           <p className='mt-1 text-xs'>
             這一頁應該有 {truncation.expected} 筆,實際收到 {truncation.shownCount} 筆
             (從第 {truncation.offset + 1} 筆起算,總共 {truncation.total} 筆)。
             <br />
-            🔴 <strong>請把這段數字回報給工程</strong>,並先把「每頁筆數」調小再看一次 ——
-            調小之後若恢復正常,就是伺服器單次回傳的上限被踩到了。
+            {/* 🔴 兩種病的【下一步不一樣】,所以不共用一句話(2026-08-19 審查 nit-4):
+                調小筆數對 short 有用、對 inconsistent 沒有用。
+                寫一句沒用的建議,員工照做、沒好轉,下一次就不會再理這條紅帶了。 */}
+            {truncation.kind === 'short' ? (
+              <>
+                🔴 <strong>請把這段數字回報給工程</strong>,並先把「每頁筆數」調小再看一次 ——
+                調小之後若恢復正常,就是伺服器單次回傳的上限被踩到了。
+              </>
+            ) : (
+              <>
+                🔴 <strong>請把這段數字回報給工程</strong>。
+                這一種<strong>調小「每頁筆數」沒有幫助</strong> —— 列出來的資料本身可能是對的,
+                是「總共幾件」那個數字沒有正確取得。
+              </>
+            )}
           </p>
         </div>
       )}
@@ -178,7 +201,7 @@ export function ListPagination({
             : `第 ${view.rangeStart}–${view.rangeEnd} ${unit} / 共 ${total} ${unit}(第 ${view.currentPage}／${view.totalPages} 頁)`}
         </p>
         <div className='flex items-center gap-2'>
-          <PageLink href={buildHref(page - 1)} enabled={view.hasPrev}>
+          <PageLink href={buildHref(prevPage)} enabled={view.hasPrev}>
             上一頁
           </PageLink>
           <PageLink href={buildHref(page + 1)} enabled={view.hasNext}>
@@ -219,12 +242,12 @@ export function ListPagination({
             <PageLink href={buildHref(1)} enabled={view.hasPrev} label='第一頁'>
               «
             </PageLink>
-            <PageLink href={buildHref(page - 1)} enabled={view.hasPrev} label='上一頁'>
+            <PageLink href={buildHref(prevPage)} enabled={view.hasPrev} label='上一頁'>
               ‹
             </PageLink>
 
             {pages.slice(0, half).map((n) => (
-              <PageNumber key={n} n={n} current={n === view.currentPage} href={buildHref(n)} />
+              <PageNumber key={n} n={n} current={onRealPage && n === view.currentPage} href={buildHref(n)} />
             ))}
 
             {/* 自填頁碼。`page` 這一軸由這個 input 提供,所以 hidden 只帶篩選 + 筆數。 */}
@@ -251,7 +274,7 @@ export function ListPagination({
             </form>
 
             {pages.slice(half).map((n) => (
-              <PageNumber key={n} n={n} current={n === view.currentPage} href={buildHref(n)} />
+              <PageNumber key={n} n={n} current={onRealPage && n === view.currentPage} href={buildHref(n)} />
             ))}
 
             <PageLink href={buildHref(page + 1)} enabled={view.hasNext} label='下一頁'>

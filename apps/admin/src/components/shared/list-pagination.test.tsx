@@ -127,25 +127,95 @@ describe('🔴🔴 截斷警示帶 —— 這個病的本體就是【安靜】',
         page={1}
         pageSize={1000}
         shownCount={500}
-        truncation={{ missing: 500, expected: 1000, shownCount: 500, offset: 0, total: 20341 }}
+        truncation={{
+          kind: 'short',
+          missing: 500,
+          expected: 1000,
+          shownCount: 500,
+          offset: 0,
+          total: 20341,
+        }}
       />,
     );
     expect(screen.getByText(/少了 500 筆/)).toBeTruthy();
     expect(screen.getByText(/應該有 1000 筆,實際收到 500 筆/)).toBeTruthy();
   });
 
-  it('列比 total 允許的還多 ⇒ 換一句話,不是硬講成「少了 -15 筆」', () => {
+  // 🔴 **這一條原本斷言的是「多了 15 筆」,而 2026-08-19 的審查判那句是誤導。**
+  //    這裡留著這段註解,是因為它是本片唯一一條「測試把錯的行為釘住了」的紀錄:
+  //    那個 bug **有測試蓋到**,而測試**站在 bug 那一邊** ⇒ 覆蓋率沒有救到它。
+  it('🔴 列比 total 允許的還多 ⇒ 這是【另一種病】,不得講成「這一頁少了東西」', () => {
     render(
       <ListPagination
         {...BASE}
-        truncation={{ missing: -15, expected: 5, shownCount: 20, offset: 200, total: 205 }}
+        truncation={{
+          kind: 'inconsistent',
+          missing: -15,
+          expected: 5,
+          shownCount: 20,
+          offset: 200,
+          total: 205,
+        }}
       />,
     );
-    expect(screen.getByText(/多了 15 筆/)).toBeTruthy();
+    expect(screen.getByText(/對不上/)).toBeTruthy();
+    // 🔴 而「調小每頁筆數」對這一種【沒有幫助】⇒ 不得給出那個建議
+    expect(screen.getByText(/調小「每頁筆數」沒有幫助/)).toBeTruthy();
+    expect(screen.queryByText(/少了/)).toBeNull();
+  });
+
+  it('short 那一種【才】給「調小每頁筆數」的建議', () => {
+    render(
+      <ListPagination
+        {...BASE}
+        truncation={{
+          kind: 'short',
+          missing: 500,
+          expected: 1000,
+          shownCount: 500,
+          offset: 0,
+          total: 20341,
+        }}
+      />,
+    );
+    expect(screen.getByText(/調小再看一次/)).toBeTruthy();
   });
 
   it('truncation = null ⇒ 完全不渲染那一帶', () => {
     render(<ListPagination {...BASE} truncation={null} />);
     expect(screen.queryByText(/這一頁的資料不完整/)).toBeNull();
+  });
+});
+
+
+// ─────────────── 2026-08-19 審查(R1)折入的四條
+
+describe('🔴 超界頁(?page=999,總共 102 頁)—— 審查 nit-2 / nit-3', () => {
+  const OVER = { ...BASE, page: 999, shownCount: 0 };
+
+  it('nit-2:「上一頁」要落在最後一個【真實】的頁,不是另一個空頁', () => {
+    render(<ListPagination {...OVER} jump={JUMP} />);
+    // 未修前:連到 998(仍是空的)⇒ 要按 897 次才回得去
+    expect(screen.getByLabelText('上一頁').getAttribute('href')).toBe('/x?page=102');
+  });
+
+  it('nit-2:文字版的「上一頁」同樣要落在 102', () => {
+    render(<ListPagination {...OVER} />);
+    expect(screen.getByText('上一頁').getAttribute('href')).toBe('/x?page=102');
+  });
+
+  it('nit-3:超界時不得把第 102 頁高亮成「你在這裡」', () => {
+    render(<ListPagination {...OVER} jump={JUMP} />);
+    // footer 沒謊報(rangeEnd=0 ⇒ 只寫「共 N 件」)⇒ 按鈕也要跟它同一個標準
+    // JSX 內插會把這行拆成多個 text node ⇒ 用 textContent 比對,不用 getByText 的完全比對
+    expect(document.body.textContent).toContain('共 20341 筆');
+    expect(document.body.textContent).not.toContain('第 401–600');
+    expect(screen.queryByRole('link', { name: '第 102 頁' })).toBeTruthy();
+    expect(document.querySelector('[aria-current="page"]')).toBeNull();
+  });
+
+  it('✅ 正向對照:在真實頁上,current 仍然要高亮(否則上一條可能只是把功能拿掉)', () => {
+    render(<ListPagination {...BASE} jump={JUMP} />);
+    expect(document.querySelector('[aria-current="page"]')?.textContent).toBe('3');
   });
 });

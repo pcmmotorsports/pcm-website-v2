@@ -14,7 +14,7 @@ vi.mock('../../lib/products/product-repository', async (importOriginal) => {
 vi.mock('server-only', () => ({}));
 
 import ProductsPage from './page';
-import { DEFAULT_PAGE_SIZE } from '../../lib/products/product-list-view';
+import { DEFAULT_PAGE_SIZE, MAX_PAGE } from '../../lib/products/product-list-view';
 
 // 🔴 舊常數 `PRODUCTS_PAGE_SIZE`(=20)已移除:每頁筆數改由網址 `?size=` 決定。
 //    這些既有斷言不給 `?size=` ⇒ 走預設 ⇒ 期望值換成 `DEFAULT_PAGE_SIZE`。
@@ -164,17 +164,24 @@ describe('/products 列表(#20 片1a)', () => {
     expect(offset).toBe(999999998 * PRODUCTS_PAGE_SIZE);
   });
 
-  it('N-b 反面對照:更大的輸入會算出不安全整數 —— 上界確實不存在,不是我沒測到', async () => {
+  // 🔴🔴 **這一格紅了,而它是【設計成會紅】的。**
+  //    原文逐字:「哪天有人加了上界,這格會紅,那時再把它改掉(**紅了才會有人想起這件事**)」
+  //    ⇒ 2026-08-19 分頁片的審查抓到同一個缺口(`?page=1e21` ⇒ 畫面變成「載入失敗」),
+  //      `parseProductPage` 補上了 `MAX_PAGE` 上界 ⇒ **那一天到了**。
+  //    ⇒ 本格從「釘住缺口存在」翻面成「釘住缺口已關」。**留著原本那句話當紀錄。**
+  it('N-b 反面對照(已翻面):超大輸入現在會被 clamp,offset 仍是安全整數', async () => {
     mocks.list.mockResolvedValue({ items: [], total: 0 });
     await renderPage({ page: '99999999999999999' });
-    // 🔴 前提斷言(R2 nit-b):沒有這條,`mocks.list` 沒被呼叫時 `offset === undefined`,
+    // 🔴 前提斷言(R2 nit-b)照留:沒有這條,`mocks.list` 沒被呼叫時 `offset === undefined`,
     //    而 `Number.isSafeInteger(undefined) === false` **照樣過** ⇒ 整格恆綠。
     expect(mocks.list).toHaveBeenCalled();
     const offset = mocks.list.mock.calls[0]?.[1];
     expect(typeof offset).toBe('number');
-    // 🔴 這格**故意斷言「不安全」** —— 把已知缺口釘成事實,而不是留一句樂觀的測試名。
-    //    哪天有人加了上界,這格會紅,那時再把它改掉(紅了才會有人想起這件事)。
-    expect(Number.isSafeInteger(offset)).toBe(false);
+    expect(Number.isSafeInteger(offset)).toBe(true);
+    // 而 clamp 到 MAX_PAGE ⇒ offset = (MAX_PAGE - 1) * 每頁筆數
+    expect(offset).toBe((MAX_PAGE - 1) * PRODUCTS_PAGE_SIZE);
+    // 🔴 而字串化不得是指數形 —— 那才是原本會炸的真正原因
+    expect(String(offset)).not.toMatch(/e\+/);
   });
 
   it('🔴 列表每一列的名稱是連到詳情頁的連結(片1b-1)', async () => {
@@ -192,7 +199,16 @@ describe('/products 列表(#20 片1a)', () => {
     for (const promise of ['即將推出', '敬請期待', '可以編輯', '點擊修改']) {
       expect({ [promise]: text.includes(promise) }).toEqual({ [promise]: false });
     }
-    expect(text).toContain('只能查看');
+    // 🔴🔴 **兩個方向都要釘,而原本只釘了一個方向**(2026-08-19 G2 通報):
+    //    ↑ 上面那圈守的是「不得宣稱**尚未存在**的功能」;
+    //    而 `4f54a851` 讓明細頁有了上下架表單之後,舊字面「只能查看」變成
+    //    「**否認一個已經存在的功能**」—— 同一條教訓的另一半,原本沒有人守。
+    // 能改什麼、在哪改:
+    expect(text).toContain('點進商品明細頁');
+    // 不能改什麼:
+    expect(text).toContain('其餘欄位目前不能修改');
+    // 🔴 反向:舊字面不准回來。擋的是「有人順手把文案改簡潔」——而那一刻它就是假的。
+    expect({ 只能查看: text.includes('只能查看') }).toEqual({ 只能查看: false });
   });
 
   // ── #20 片2c:手動/自動標記 + 篩選 chip ──

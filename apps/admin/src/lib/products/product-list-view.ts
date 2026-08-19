@@ -83,10 +83,41 @@ type SearchParams = Record<string, string | string[] | undefined>;
  * `?page=` 解析。🔴 只收正整數;`?page=a&page=b` 會被 Next 解析成**陣列** ⇒ 當作沒給。
  * (原本住在 `app/products/page.tsx`,搬過來是為了與 `buildProductListHref` 一起被往返測試釘住。)
  */
+/**
+ * `?page=` 的**上界**。
+ *
+ * 🔴🔴 **為什麼需要它(2026-08-19 審查 must-fix)**:本函式原本只有下界。
+ *    而 `Number.isInteger(1e21) === true` ⇒ **`?page=1e21` 整個過關**,
+ *    然後 `offset = (1e21 - 1) * 200`,而 postgrest-js 送出時用的是樣板字串
+ *    (`PostgrestTransformBuilder.ts:526` 逐字 `searchParams.set(keyOffset, \`${from}\`)`)
+ *    ⇒ JS 對 ≥1e21 的數字轉字串會給 **`"2e+23"`** 這種指數形 ⇒ 伺服器不收
+ *    ⇒ `app/products/page.tsx` 的 try/catch 接住 ⇒ **畫面變成「商品列表載入失敗」**。
+ *
+ * 🔴 **而判準是這支檔自己寫的**(下方 `parseProductSetBy` 與 `parseProductPageSize` 的檔頭逐字):
+ *    「網址是使用者可以手改的,亂改的後果應該是【看到全部/預設的樣子】而不是一頁錯誤」、
+ *    「更不是把 `?size=999999` 送進 `.range()`」。
+ *    ⇒ **`size` 有白名單擋著,`page` 沒有 —— 同一支檔、同一個原則,只守了一半。**
+ *
+ * 🔴 **上界取 1e12,而那個數字是【被既有測試逼出來的】,不是我挑的**:
+ *    `app/products/page.test.tsx` 的 `N5` 已經釘住「`?page=999999999` 算出的 offset 是**安全整數**」,
+ *    而真正的約束有兩條,兩條都要滿足:
+ *      ① `String(offset)` 不得是指數形(JS 在 ≥1e21 轉指數)⇒ offset < 1e21
+ *      ② `offset` 必須是 **safe integer**(既有 N5 斷言的就是這個)⇒ offset ≤ 9.007e15
+ *    最大每頁 1000 ⇒ `offset_max = (MAX_PAGE - 1) × 1000`
+ *    ⇒ 1e12 ⇒ offset_max ≈ **1e15**,同時滿足①②,而且**離 1e9 那個既有測試還有三個數量級**
+ *    ⇒ **`?page=999999999` 的行為一個字都沒變**(它 < 1e12 ⇒ 不被 clamp)。
+ *    ⚠️ 我原本寫 1e7 —— 那會把 `N5` 那格弄紅,而**那格紅掉不是進步,是我改掉了一個刻意的行為**。
+ * ⚠️ 超過上界是 **clamp 不是歸 1**:`?page=999`(總共 102 頁)這種「超界但合理」的網址,
+ *    既有行為就是顯示空頁 + 可以退回(`lib/shared/list-params.ts` 的 `computePagination` 檔頭),
+ *    歸 1 會把那個刻意的行為一起改掉。
+ */
+export const MAX_PAGE = 1_000_000_000_000;
+
 export function parseProductPage(value: string | string[] | undefined): number {
   if (typeof value !== 'string') return 1;
   const n = Number(value);
-  return Number.isInteger(n) && n >= 1 ? n : 1;
+  if (!Number.isInteger(n) || n < 1) return 1;
+  return Math.min(n, MAX_PAGE);
 }
 
 /**

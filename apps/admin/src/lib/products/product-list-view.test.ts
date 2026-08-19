@@ -8,6 +8,7 @@ import {
   parseProductSetBy,
   type AdminProductFilter,
   DEFAULT_PAGE_SIZE,
+  MAX_PAGE,
   PAGE_SIZE_OPTIONS,
   parseProductPageSize,
   type AdminProductView,
@@ -220,5 +221,41 @@ describe('size 這一軸要活過每一種換頁 / 換條件', () => {
     expect(buildProductListHrefResetPage({ setBy: 'sync', keyword: undefined }, DEFAULT_PAGE_SIZE)).toBe(
       '/products?set_by=sync',
     );
+  });
+});
+
+
+// ─────────────── 2026-08-19 審查(R1)must-fix:`?page=` 的上界
+
+describe('🔴 parseProductPage 的上界 —— 審查 must-fix', () => {
+  it('🔴 ?page=1e21 不得原樣通過(Number.isInteger(1e21) 是 true)', () => {
+    // 未修前:1e21 過關 ⇒ offset = (1e21-1)*200 ⇒ postgrest 用樣板字串送出 ⇒ "2e+23"
+    // ⇒ 伺服器不收 ⇒ 畫面變成「商品列表載入失敗」,而員工只是把頁碼多打了幾個 0
+    expect(Number.isInteger(1e21)).toBe(true); // ← 這就是原本那個判斷放它過的原因
+    expect(parseProductPage('1e21')).toBe(MAX_PAGE);
+  });
+
+  it('🔴 clamp 之後的 offset 不得進入 JS 的指數形字串範圍', () => {
+    // 這一條才是真正要守的東西:上界多少不重要,重要的是 String(offset) 長什麼樣
+    const worstOffset = (MAX_PAGE - 1) * Math.max(...PAGE_SIZE_OPTIONS);
+    expect(String(worstOffset)).not.toMatch(/e\+/);
+    expect(worstOffset).toBeLessThan(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('超界但合理的頁碼是 clamp、不是歸 1(既有的空頁行為要留著)', () => {
+    // ?page=999 而總共 102 頁 ⇒ 既有行為 = 顯示空頁 + 可退回,不是跳回第 1 頁
+    expect(parseProductPage('999')).toBe(999);
+    expect(parseProductPage(String(MAX_PAGE))).toBe(MAX_PAGE);
+    expect(parseProductPage(String(MAX_PAGE + 1))).toBe(MAX_PAGE);
+  });
+
+  it('✅ 負向對照:既有的下界與非法值行為一個都沒被改動', () => {
+    expect(parseProductPage('0')).toBe(1);
+    expect(parseProductPage('-2')).toBe(1);
+    expect(parseProductPage('2.5')).toBe(1);
+    expect(parseProductPage('abc')).toBe(1);
+    expect(parseProductPage(undefined)).toBe(1);
+    expect(parseProductPage(['1', '2'])).toBe(1);
+    expect(parseProductPage('3')).toBe(3);
   });
 });

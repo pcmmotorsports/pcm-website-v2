@@ -141,12 +141,21 @@ export function buildListHref(
  * ⇒ 它抓得到的不只是伺服器上限:**任何原因造成的截斷**(上限、proxy、PostgREST 版本差異)
  *   都會讓 `missing > 0`。
  *
- * `missing < 0`(列比可能的還多)也回報 —— 那表示 `total` 與列**互相矛盾**,同樣是異常。
+ * 🔴 **兩個方向是【兩種病】,所以帶 `kind` 分開**(2026-08-19 審查 nit-4):
+ *    · `kind: 'short'`(`missing > 0`)= 這一頁少給了列 ⇒ **調小每頁筆數會好轉**。
+ *    · `kind: 'inconsistent'`(`missing < 0`)= 列比 `total` 允許的還多 ⇒ **總數本身不可信**,
+ *      調小筆數**沒有幫助**。已知一條路徑會走到這裡:`product-repository.ts` 的
+ *      `total: count ?? 0` —— `count` 若為 `null` 會被寫成 0,而列還在
+ *      ⇒ 舊版會印「多了 200 筆」,那是**誤報**(不是多了,是總數沒回來)。
+ *    ⚠️ 審的人**構造不出** `count:'exact'` 回 `null` 的實際情境 ⇒ 那條路徑**未證實可達**。
+ *      仍然分開,理由是:**這道守門的價值就是「它會叫」,而一個會誤叫的警報沒有人會理它。**
  *
  * ⚠️ **它證不了的**:翻頁期間集合被寫(plan §3 病 C)。那是跨請求的問題,單發請求看不到。
  */
 export type PageTruncation = {
-  /** 正 = 少給了幾列;負 = 列比 `total` 允許的還多(兩者都是異常) */
+  /** `short` = 這一頁少給了列;`inconsistent` = 總數與列數互相矛盾(見上方說明) */
+  readonly kind: 'short' | 'inconsistent';
+  /** 正 = 少給了幾列;負 = 列比 `total` 允許的還多 */
   readonly missing: number;
   readonly expected: number;
   readonly shownCount: number;
@@ -164,7 +173,14 @@ export function detectPageTruncation(
   const expected = Math.min(pageSize, Math.max(0, total - offset));
   const missing = expected - shownCount;
   if (missing === 0) return null;
-  return { missing, expected, shownCount, offset, total };
+  return {
+    kind: missing > 0 ? 'short' : 'inconsistent',
+    missing,
+    expected,
+    shownCount,
+    offset,
+    total,
+  };
 }
 
 /**

@@ -190,9 +190,21 @@ describe('detectPageTruncation', () => {
       expect(detectPageTruncation(1000, 1, 200, 199)?.missing).toBe(1);
     });
 
-    it('列比 total 允許的還多 ⇒ 也是異常(missing 為負)', () => {
+    it('列比 total 允許的還多 ⇒ 也是異常,而它是【另一種】病', () => {
       // total 說只剩 5 列,卻回了 20 列 ⇒ 兩個數字互相矛盾
-      expect(detectPageTruncation(205, 2, 200, 20)?.missing).toBe(-15);
+      const hit = detectPageTruncation(205, 2, 200, 20);
+      expect(hit?.missing).toBe(-15);
+      // 🔴 2026-08-19 審查 nit-4:兩個方向不共用同一條訊息 ⇒ 型別上就要分得開
+      expect(hit?.kind).toBe('inconsistent');
+    });
+
+    it('🔴 少列 = short;而已知會走到 inconsistent 的那條路徑(count 為 null ⇒ total 被寫成 0)', () => {
+      expect(detectPageTruncation(20341, 1, 1000, 500)?.kind).toBe('short');
+      // product-repository.ts 的 `total: count ?? 0`:count 為 null 時 total 變 0、而列還在
+      // ⇒ 舊版會印「多了 200 筆」= 誤報(不是多了,是總數沒回來)
+      // ⚠️ 這條路徑**未證實可達**(審的人構造不出 count:'exact' 回 null);分開仍然做,
+      //    理由 = 一個會誤叫的警報,兩週後沒有人會理它。
+      expect(detectPageTruncation(0, 1, 200, 200)?.kind).toBe('inconsistent');
     });
   });
 
