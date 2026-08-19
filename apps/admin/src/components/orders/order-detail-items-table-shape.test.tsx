@@ -5,8 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// 受測檔的相依鏈上有 `import 'server-only'`(它是 server component)⇒ 測試裡要 stub 掉,
-// 否則整支載入即炸。同 `order-detail-items-table.test.ts:9` 的既有做法。
 vi.mock('server-only', () => ({}));
 import { stripComments } from '../../lib/test-support/strip-comments';
 import type { AdminOrderItemQuantitySummary } from '@pcm/domain';
@@ -16,39 +14,32 @@ import {
   ItemCancelledNote,
 } from './order-detail-items-table';
 
-// order-detail-items-table-shape.test.tsx — 片5(三軸拆三欄)的守門。
+// order-detail-items-table-shape.test.tsx — 品項區的結構守門。
 //
-// 🔴 **本檔守的是三件會【安靜壞掉】的事**,不是「有沒有畫出來」:
-//   ① `<tfoot>` 的欄跨度跟不跟得上欄數 —— 跟不上時**版面靜默畫歪**,零紅
-//   ② 三軸缺值時印「—」而不是 `0/0` —— 印 `0/0` 等於系統宣稱「確定是零」
-//   ③ 「已取消」只在 >0 時出現,而且**沒有被拆欄弄丟**
+// 🔴🔴 **2026-08-19 片6a 重寫:結構從 `<table>` 換成 `.ihead` + 每列一個 `<details class="icard">`。**
+//    本檔原本有 7 格守著表格的不變量。**重寫的原則是「不變量還在不在」,不是「測試紅不紅」** ——
+//    所以下面每一格都標了它是【原樣保留 / 換了定位方式 / 這個不變量真的消失了】三者之一。
+//    ⚠️ **消失的那兩格我明寫理由,不靜靜刪掉** —— 「守門被弄丟」與「不變量不存在了」
+//    在 diff 上長得一模一樣,而只有寫下來才分得開。(線主 W1 明確要求這一點。)
 //
-// 📌 為什麼另開一支檔而不是併進 `order-detail-items-table.test.ts`:
-//    那支是 `.ts`(純函式、測 `resolveAmountEditBlock` 那道錢閘),渲染要 `.tsx` + jsdom。
-//    **不去改它** —— 那 5 格全在守錢,混進版面斷言只會讓兩件事互相稀釋。
+// 📌 分工:結構長什麼樣是 W1 的決定;**這一份只回答「新結構下那些不變量還守不守得住」**。
+//    我不在這裡替它決定結構。
 
 afterEach(cleanup);
 
-const RAW = readFileSync(
-  resolve(dirname(fileURLToPath(import.meta.url)), 'order-detail-items-table.tsx'),
-  'utf8',
-);
+const DIR = dirname(fileURLToPath(import.meta.url));
+const RAW_TABLE = readFileSync(resolve(DIR, 'order-detail-items-table.tsx'), 'utf8');
+const RAW_ROW = readFileSync(resolve(DIR, 'item-amount-row.tsx'), 'utf8');
+const RAW_CSS = readFileSync(resolve(DIR, '../../app/globals.css'), 'utf8');
 
 /**
- * 🔴🔴 **所有原始碼層的斷言都對【剝掉註解之後】的碼跑,而這一行是被自己踩出來的。**
- *
- * 我第一版直接對 `RAW` 跑 `/<tfoot[\s\S]*?<\/tfoot>/` —— 而**第一個 `<tfoot>` 出現在
- * `ITEMS_FOOTER_LABEL_COLSPAN` 的【文件註解】裡** ⇒ 比對範圍從註解一路吃到真的 `</tfoot>`,
- * 把註解裡提到的 `<td />` 當成真的殘骸 ⇒ **假紅**。
- *
- * ⇒ 這與 `item-amount-row.test.tsx` 那把尺的病**是同一個**:
- *   **尺量的是字元,而宣稱量的是結構** —— 註解裡的字看起來跟 code 一模一樣。
- *   那邊是**多報一欄**(假紅),更危險的方向是**一句註解補回一個被刪掉的結構**(假綠)。
- * ⇒ 用 repo 既有的 `stripComments`(`lib/test-support/strip-comments.ts`),不自己再寫一個。
- *   ⚠️ 它剝 `/* *​/` 與 `//`;JSX 的 `{\/* … *\/}` 剝掉內容後會留下一對空的 `{}`,
- *   對這裡的結構比對無害(我們比對的是 `<th>` / `<td>` / `colSpan`)。
+ * 🔴 原始碼層的斷言一律對【剝掉註解之後】的碼跑。
+ * 理由是被自己踩出來的:註解裡的 `<tfoot>` / `<th>` 與 code 裡的長得一模一樣,
+ * 而尺量的是**字元**、宣稱量的是**結構**。用 repo 既有的剝除器,不各寫各的。
  */
-const SRC = stripComments(RAW);
+const TABLE = stripComments(RAW_TABLE);
+const ROW = stripComments(RAW_ROW);
+const CSS = stripComments(RAW_CSS);
 
 const summary = (over: Partial<AdminOrderItemQuantitySummary> = {}): AdminOrderItemQuantitySummary =>
   ({
@@ -60,91 +51,161 @@ const summary = (over: Partial<AdminOrderItemQuantitySummary> = {}): AdminOrderI
     ...over,
   }) as AdminOrderItemQuantitySummary;
 
-describe('🔴🔴 `<tfoot>` 的欄跨度必須跟著欄數走(片5 之前是四個寫死的 4)', () => {
-  it('footer 標籤一律用 `ITEMS_FOOTER_LABEL_COLSPAN`,檔內零寫死數字 colSpan', () => {
-    // 🔴 這一格的價值:欄數 6→8 時,寫死的 `colSpan={4}` **不會有任何東西紅**,
-    //    金額只是默默對不到「小計」那一欄底下。片5 就是會踩爆它的那種改動。
-    expect(SRC).toContain('const ITEMS_FOOTER_LABEL_COLSPAN = ITEMS_TABLE_COLSPAN - 1;');
-    // 正向對照:真的抓到了 footer 那幾列(不是掃到空字串然後恆綠)
-    expect(SRC.split('ITEMS_FOOTER_LABEL_COLSPAN').length - 1).toBeGreaterThanOrEqual(5);
-    // 🔴 負向:任何 `colSpan={<純數字>}` 都不該再出現(含 tfoot 與展開列)
-    expect(SRC.match(/colSpan=\{\d+\}/g)).toBeNull();
+/** 六軌:品名 | 料號 | 訂到出 | 數量 | 單價 | 小計(CSS `grid-template-columns` 那一行)。 */
+const TRACKS = 6;
+
+describe('🔴🔴 【換了定位方式】欄頭與每一列必須共用同一組 grid 軌道', () => {
+  // 舊版對應格:「`ITEMS_TABLE_COLSPAN` 與 `<th>` 數逐字相同」。
+  // 舊的不變量是「展開列跨的欄數 == 表頭欄數」;新結構沒有 colSpan,而**同一個病換了形狀**:
+  // 🔴 設計稿 `:119-120` 自己記著:兩個【各自宣告】的 grid,`auto` 欄會各自依內容算寬
+  //    ⇒ 欄頭與資料列**整排錯開 8px**,而那是會靜默錯開、沒有東西會紅的東西。
+  // 🔴 **逐條解析 CSS 規則,不用「找 `.iline {`」那種字面比對** ——
+  //    共用那條規則長成 `.ihead,\n.iline {`,而它**自己就含有字面 `.iline {`**
+  //    ⇒ 拿字面去找「`.iline` 自己的區塊」會抓到共用那條,然後這一格就恆綠。
+  //    (寫這份守門時當場踩到:負向斷言對著共用規則跑,而它當然含 grid-template-columns。)
+  const rules = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    sel: m[1]!.trim(),
+    body: m[2]!,
+  }));
+  /** 選擇器裡點名了 `.ihead` 或 `.iline`(不含後代選擇器如 `.ihead .three`)的規則。 */
+  const trackRules = rules.filter((r) =>
+    r.sel.split(',').some((one) => ['.ihead', '.iline'].includes(one.trim())),
+  );
+
+  it('軌道只被宣告【一次】,而且是被兩個選擇器共用的那一次', () => {
+    expect(rules.length).toBeGreaterThan(10); // 正向對照:真的解析到規則
+    expect(trackRules.length).toBeGreaterThan(0); // 正向對照:真的找到那一族
+
+    const withTracks = trackRules.filter((r) => r.body.includes('grid-template-columns'));
+    // 🔴 恰好一條 —— 兩條就是「各自宣告」那個 8px 坑回來了;零條就是軌道不見了。
+    expect(withTracks).toHaveLength(1);
+    // 而那一條必須【同時】管到兩個選擇器
+    const sels = withTracks[0]!.sel.split(',').map((x) => x.trim());
+    expect(sels).toContain('.ihead');
+    expect(sels).toContain('.iline');
   });
 
-  it('🔴🔴 footer 每一列**恰好兩個 `<td>`**(標籤 + 金額)—— 這才是真正的不變量', () => {
-    // ⚠️ 我第一版寫的是 `not.toContain('<td />')` —— 那量的是**一種拼法**,不是不變量(R1 nit A):
-    //    有人補一格寫成 `<td></td>` 或 `<td className='' />`,該列變 3 個 td、版面歪掉,
-    //    而那一格與其他所有格**全綠**。⇒ 直接數。
-    const tfoot = /<tfoot[\s\S]*?<\/tfoot>/.exec(SRC)?.[0] ?? '';
-    expect(tfoot.length).toBeGreaterThan(0); // 正向對照:真的抓到 tfoot
-    const rows = [...tfoot.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1] ?? '');
-    expect(rows.length).toBeGreaterThan(0); // 正向對照:真的抓到列
-    for (const row of rows) {
-      expect((row.match(/<td\b/g) ?? []).length).toBe(2);
+  it('那一行的軌道數 = 六(品名/料號/訂到出/數量/單價/小計)', () => {
+    const rule = trackRules.find((r) => r.body.includes('grid-template-columns'))!;
+    const decl = /grid-template-columns:\s*([^;]+);/.exec(rule.body)![1]!;
+    // `minmax(0, 1fr)` 裡面有逗號與空白 ⇒ 先折疊成一個標記再數,否則會數成 7。
+    const tracks = decl.replace(/minmax\([^)]*\)/g, 'X').trim().split(/\s+/);
+    expect(tracks).toHaveLength(TRACKS);
+  });
+
+  it('🔴 膠囊寬度與欄頭那三格共用同一個變數(不得各自寫死)', () => {
+    // 設計稿 `:143` 逐字:`128 = 3×40 + 2×4 gap` ⇒ 兩邊寫死就會在改寬度那天錯開。
+    const shared = /\.ihead \.three span,\s*\.pcm-pill\s*\{([\s\S]*?)\}/.exec(CSS);
+    expect(shared).toBeTruthy();
+    expect(shared![1]).toContain('var(--pcm-pill-w)');
+  });
+});
+
+describe('🔴 【換了定位方式】一列的格數必須等於軌道數,而它跨兩支檔', () => {
+  // 舊版對應格:「`<tbody>` 內 `<td>` 數 = 總欄數 − 1」。
+  // 同一個不變量,只是 `<td>` 變成 `.iline` 的直接子元素。
+  it('`before` 四格 + 單價一格 + `after` 一格 = 六格', () => {
+    // before 的四個直接子元素在本檔;單價那格與 after 的殼在 item-amount-row.tsx
+    // ⇒ 🔴 **一列的格數跨兩支檔**,單看任一支都數不出來(舊版就是這樣被我釘住的,保留)。
+    const before = /before=\{[\s\S]*?<>([\s\S]*?)<\/>/.exec(TABLE)?.[1] ?? '';
+    expect(before.length).toBeGreaterThan(0); // 正向對照:真的抓到 before
+    const beforeCells = (before.match(/^\s{16}<div/gm) ?? []).length;
+    expect(beforeCells).toBe(4);
+
+    // 對面那支:card-line 殼裡 `.iline` 底下,除了 `{before}` 之外還有幾個直接子元素
+    const iline = /<div className='iline'>([\s\S]*?)<\/div>\s*<\/summary>/.exec(ROW)?.[1] ?? '';
+    expect(iline.length).toBeGreaterThan(0); // 正向對照:真的抓到 .iline
+    expect(iline).toContain('{before}');
+    expect(iline).toContain('{after}');
+  });
+});
+
+describe('🔴 【原樣保留】欄名與順序 = 設計稿 08-17 那一行', () => {
+  it('六格逐字、依序', () => {
+    const ihead = /<div className='ihead'>([\s\S]*?)<\/div>\s*<ItemAmountRowGroup>/.exec(TABLE)?.[1] ?? '';
+    expect(ihead.length).toBeGreaterThan(0); // 正向對照
+    // `.three` 那一格內含三個 span ⇒ 先把整塊換成一個標記再數,否則會數成八。
+    const flat = ihead.replace(/<span className='three'>[\s\S]*?<\/span>\s*<\/span>/, '<span>三軸</span>');
+    const headers = [...flat.matchAll(/<span[^>]*>([^<]+)<\/span>/g)].map((m) => (m[1] ?? '').trim());
+    expect(headers).toEqual(['商品名稱', '料號', '三軸', '數量', '單價', '小計']);
+  });
+
+  it('🔴 三軸欄頭逐字依序 訂 / 到 / 出', () => {
+    // 🔴 不用非貪婪配對到 `</span></span>` —— 內層有三個 `</span>`,
+    //    非貪婪會停在第一組,只抓到「訂/到」。(寫這格時當場踩到。)
+    //    ⇒ 改成:從 `three` 那一格起算,取到「數量」那個欄頭之前為止。
+    const start = TABLE.indexOf("className='three'>");
+    const end = TABLE.indexOf('數量', start);
+    expect(start).toBeGreaterThan(-1); // 正向對照
+    expect(end).toBeGreaterThan(start);
+    const three = TABLE.slice(start, end);
+    expect([...three.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])).toEqual(['訂', '到', '出']);
+  });
+
+  it('🔴 舊的四合一欄名不得再存在(片5 把那三個字搬到欄頭,搬乾淨了沒)', () => {
+    expect(TABLE).not.toContain('訂貨 · 到貨 · 出貨');
+  });
+});
+
+describe('🔴 【新增】總計那一區每一列恰好兩格(標籤 + 金額)', () => {
+  // 舊版對應格:「`<tfoot>` 每一列恰好兩個 `<td>`」。
+  // 🔴 **`<tfoot>` 這個不變量【消失了】** —— 沒有表格就沒有 colSpan,也沒有裸 `<td />` 的殘骸。
+  //    ⚠️ 但它守的**那件事**還在:金額欄要對齊,而一列多一格就會歪。
+  //    ⇒ 換成數 flex 列的 span 數。**這不是把舊格刪掉,是同一個不變量換了載體。**
+  it('小計 / 運費 / 折扣 / 總計 每一列都是 label + 金額 兩個 span', () => {
+    const totals = /border-t pt-3 text-sm'>([\s\S]*?)<\/div>\s*<\/div>\s*\);/.exec(TABLE)?.[1] ?? '';
+    expect(totals.length).toBeGreaterThan(0); // 正向對照:真的抓到總計區
+    // 🔴 用「切段」而不是「配對整塊」—— 巢狀 `</div>` 讓非貪婪的邊界抓不準
+    //    (第一版抓到 4 個 span,因為它吃進了下一列)。
+    //    ⇒ 以 `flex justify-between` 為分隔切開,每一段就是一列的內容。
+    const rows = totals.split(/<div className='[^']*flex justify-between[^']*'>/).slice(1);
+    expect(rows.length).toBeGreaterThanOrEqual(3); // 小計/運費/總計 至少三列
+    for (const r of rows) {
+      // 每一段取到它自己的第一個 `</div>` 為止 = 這一列的內容
+      const own = r.slice(0, r.indexOf('</div>') + 6);
+      expect((own.match(/<span/g) ?? []).length).toBe(2);
     }
   });
-});
 
-describe('🔴🔴 body 一列的欄數也要釘 —— 它跨兩支檔,而原本沒有任何東西看著它', () => {
-  it('本檔 `<tbody>` 內的 `<td>` 數 = 總欄數 − 1(少的那一格是 `item-amount-row.tsx` 的單價格)', () => {
-    // R1 nit H:thead 有兩道釘子、tfoot 有算式,而 **body 只有 nine-code-retire 的位置比對
-    // 間接覆蓋到「數量」欄為止** ⇒ 在「單價 / 小計」之後增刪一個 `<td>`,三支測試檔全綠。
-    // 🔴 一列的八格【跨兩支檔】:本檔 before 6 格 + after 1 格 = 7,
-    //    另一格是 `item-amount-row.tsx` 自己畫的單價格 ⇒ 7 + 1 = ITEMS_TABLE_COLSPAN。
-    const declared = Number(/ITEMS_TABLE_COLSPAN = (\d+);/.exec(SRC)?.[1]);
-    expect(declared).toBeGreaterThan(0); // 正向對照:真的抓到常數
-    const tbody = /<tbody>([\s\S]*?)<\/tbody>/.exec(SRC)?.[1] ?? '';
-    expect(tbody.length).toBeGreaterThan(0); // 正向對照:真的抓到 tbody
-    expect((tbody.match(/<td\b/g) ?? []).length).toBe(declared - 1);
-    // 🔴 而那「1」不是猜的 —— 釘住它真的在對面那支檔裡。
-    const rowSrc = readFileSync(
-      resolve(dirname(fileURLToPath(import.meta.url)), 'item-amount-row.tsx'),
-      'utf8',
-    );
-    expect((stripComments(rowSrc).match(/<td\b/g) ?? []).length).toBe(2); // 單價格 + 展開列那一格
+  it('🔴 總計區【刻意保留】—— 設計稿沒有它,而拿掉會刪掉真的資訊', () => {
+    // 這一格守的是「別人看到設計稿沒畫就順手刪掉」。
+    for (const label of ['小計', '運費', '總計']) expect(TABLE).toContain(label);
   });
 });
 
-describe('🔴 表頭欄名與順序 = 設計稿那一行(MAIN-057 §1 區塊②)', () => {
-  it('八欄逐字、依序', () => {
-    // `SRC` 已經剝過註解(見上方 `SRC` 的檔頭)⇒ 這裡直接數。
-    const thead = /<thead>([\s\S]*?)<\/thead>/.exec(SRC)?.[1] ?? '';
-    expect(thead.length).toBeGreaterThan(0); // 正向對照:真的抓到 thead
-    const headers = [...thead.matchAll(/<th[^>]*>([^<]+)<\/th>/g)].map((m) => (m[1] ?? '').trim());
-    expect(headers).toEqual(['商品名稱', '料號', '訂', '到', '出', '數量', '單價', '小計']);
-  });
-
-  it('🔴 「訂貨 · 到貨 · 出貨 · 取消」那個舊欄名不得再存在於表頭', () => {
-    // 片5 把那三個字從【值】搬到【欄頭】;舊的四合一欄名留著代表沒搬乾淨。
-    const thead = /<thead>([\s\S]*?)<\/thead>/.exec(SRC)?.[1] ?? '';
-    expect(thead.length).toBeGreaterThan(0); // 正向對照:真的抓到 thead
-    expect(thead).not.toContain('訂貨 · 到貨 · 出貨');
+describe('🗑 【這兩個不變量真的消失了】—— 寫下來,不要靜靜刪掉', () => {
+  it('沒有 `<table>` / `<tfoot>` / `colSpan` 寫死數字這一族了', () => {
+    // 🔴 **消失的理由**:結構換成 `.ihead` + `<details class="icard">`,
+    //    而 `colSpan` 這個概念在 grid 版面裡不存在 ⇒ 「footer 跨幾欄」沒有對象可守。
+    //    ⇒ 它守的那件事(金額對不對得齊)由上面那個「每列兩格」接手。
+    // ⚠️ 而 `ITEMS_TABLE_COLSPAN` **仍然存在**(`table-row` 殼還吃它),所以這裡不斷言它消失 ——
+    //    斷言它消失會在 W1 哪天刪掉那個殼之前就先紅,而那不是我要守的東西。
+    expect(TABLE).not.toContain('<tfoot');
+    expect(TABLE).not.toContain('<thead');
+    expect(TABLE.match(/colSpan=\{\d+\}/g)).toBeNull();
   });
 });
 
-describe('🔴 `ItemAxisValue`:缺值印「—」,不是 `0/0`', () => {
+describe('🔴 【原樣保留】`ItemAxisValue`:缺值印「—」,不是 `0/0`', () => {
   it('有 summary ⇒ 印「本軸/總數」', () => {
-    const { container } = render(
-      <ItemAxisValue summary={summary()} pick={(q) => q.instockQuantity} />,
-    );
+    const { container } = render(<ItemAxisValue summary={summary()} pick={(q) => q.instockQuantity} />);
     expect(container.textContent).toBe('1/2');
   });
 
   it('🔴🔴 summary 為 null ⇒ 印「—」——「不知道」與「確定是零」必須分得開', () => {
     const { container } = render(<ItemAxisValue summary={null} pick={(q) => q.instockQuantity} />);
     expect(container.textContent).toBe('—');
-    // 負向對照:絕不能長成 0/0(那會讓員工以為系統說「確定沒有」)
     expect(container.textContent).not.toContain('0/0');
   });
 
-  it('✅ 真的是 0 的時候才印 0 —— 正向對照,證明上一格不是把 0 也吃掉了', () => {
+  it('✅ 真的是 0 才印 0 —— 正向對照,證明上一格不是把 0 也吃掉了', () => {
     const { container } = render(
       <ItemAxisValue summary={summary({ shippedQuantity: 0 })} pick={(q) => q.shippedQuantity} />,
     );
     expect(container.textContent).toBe('0/2');
   });
 
-  it('🔴 三軸共用同一個分母 —— 分母永遠是 `summary.quantity`,不會各自漂', () => {
+  it('🔴 三軸共用同一個分母', () => {
     const s = summary({ quantity: 7, orderedQuantity: 5, instockQuantity: 3, shippedQuantity: 1 });
     for (const [pick, expected] of [
       [(q: AdminOrderItemQuantitySummary) => q.orderedQuantity, '5/7'],
@@ -158,32 +219,62 @@ describe('🔴 `ItemAxisValue`:缺值印「—」,不是 `0/0`', () => {
   });
 });
 
-describe('🔴 缺值那句話只講一次,而且沒有消失', () => {
-  it('summary 為 null ⇒ 商品名稱格底下出現「數量資料尚未就緒」', () => {
+describe('🔴 【原樣保留】缺值那句話只講一次;「已取消」是例外不是第四軸', () => {
+  it('summary 為 null ⇒ 出現「數量資料尚未就緒」', () => {
     const { container } = render(<ItemAxisMissingNote summary={null} />);
     expect(container.textContent).toContain('數量資料尚未就緒');
   });
 
-  it('✅ 負向對照:有 summary ⇒ 什麼都不畫(不是印一個空框)', () => {
+  it('✅ 負向對照:有 summary ⇒ 什麼都不畫', () => {
     const { container } = render(<ItemAxisMissingNote summary={summary()} />);
     expect(container.innerHTML).toBe('');
   });
-});
 
-describe('🔴 「已取消」是例外不是第四軸 —— 拆欄時最容易掉的就是它', () => {
-  it('cancelledQuantity > 0 ⇒ 出現,且帶得走數字', () => {
+  it('cancelledQuantity > 0 ⇒ 出現並帶得走數字', () => {
     const { container } = render(<ItemCancelledNote summary={summary({ cancelledQuantity: 3 })} />);
     expect(container.textContent).toContain('已取消');
     expect(container.textContent).toContain('3');
   });
 
-  it('✅ 負向對照:0 件取消 ⇒ 不畫(0 是常態,每列印一個 0 是噪音)', () => {
-    const { container } = render(<ItemCancelledNote summary={summary({ cancelledQuantity: 0 })} />);
-    expect(container.innerHTML).toBe('');
+  it('✅ 負向對照:0 件取消 / summary 缺值 ⇒ 都不畫', () => {
+    const { container: a } = render(<ItemCancelledNote summary={summary({ cancelledQuantity: 0 })} />);
+    expect(a.innerHTML).toBe('');
+    cleanup();
+    const { container: b } = render(<ItemCancelledNote summary={null} />);
+    expect(b.innerHTML).toBe('');
+  });
+});
+
+
+// ── codex 關卡2(2026-08-19)兩條 must-fix 的守門 ────────────────────────────
+//
+// 🔴 它們**不是版面問題**,而兩條都會**靜默**:
+//   · 受控 details 分岔 ⇒ 表單被藏住、按鈕仍寫「收起」,而沒有東西會紅
+//   · 截斷沒有逃生門 ⇒ 長料號變成畫面上讀不出來的值,而沒有東西會紅
+describe('codex 關卡2 must-fix 的守門', () => {
+  // 🔴 用的是【剝過註解】的 `ROW`/`TABLE` —— 那是必要的:
+  //    我在原始碼裡寫的解釋文字裡就含 `open || undefined` 這個字面,
+  //    不剝的話**負向那條會被我自己的註解打紅**(今天已經有人踩過同款)。
+  it('🔴 `<details>` 是**單一狀態模型**:`open={open}` + `onToggle` 同步回 context', () => {
+    // 負向:`open || undefined` 那個寫法會讓 DOM 與 context 分岔(使用者手動收合時)。
+    expect({ 有半受控寫法: /open=\{open \|\| undefined\}/.test(ROW) }).toEqual({
+      有半受控寫法: false,
+    });
+    expect(ROW).toMatch(/open=\{open\}/);
+    expect(ROW).toMatch(/onToggle=\{/);
+    // 🔴 `onToggle` 必須真的寫回 context —— 只掛一個空 handler 也會讓上面兩條綠。
+    expect(ROW).toMatch(/setOpenId\(next \? /);
   });
 
-  it('✅ 負向對照:summary 缺值 ⇒ 不畫(不知道有沒有取消,不得編一個 0)', () => {
-    const { container } = render(<ItemCancelledNote summary={null} />);
-    expect(container.innerHTML).toBe('');
+  it('🔴 被 `truncate` 的兩格都要有 `title`(否則長值在畫面上讀不出來,而那是行為退化)', () => {
+    // 只看品項列那一段,不掃全檔。
+    const i = TABLE.indexOf('variant=\'card-line\'');
+    expect(i).toBeGreaterThan(-1);
+    const block = TABLE.slice(i, TABLE.indexOf('blockedReason=', i));
+    const truncs = [...block.matchAll(/className='[^']*truncate[^']*'/g)];
+    // 正向對照:真的有截斷的格子(沒有的話下面那條是恆真)
+    expect(truncs.length).toBeGreaterThan(0);
+    expect(block).toMatch(/title=\{item\.title \?\? undefined\}/);
+    expect(block).toMatch(/title=\{item\.variantSku\}/);
   });
 });

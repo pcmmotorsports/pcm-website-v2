@@ -174,8 +174,15 @@ export function resolveAmountEditBlock(
 }
 
 /**
- * 🔴 品項表的欄數。**展開列的 `colSpan` 與表頭欄數必須一致** ——
- * 不一致時瀏覽器會靜默把版面畫歪(不會有任何東西紅)⇒ 抽成常數,並由測試釘住它等於表頭 `<th>` 數。
+ * 🔴 **這個常數現在【只剩舊的表格殼在吃】,而那個殼在本檔零呼叫端**(片6a-1 起)。
+ *
+ * ⚠️ **上一版這段 JSDoc 已過期,W3 標出來的**:它寫「展開列的 `colSpan` 與**表頭欄數**必須一致…
+ *    由測試釘住它等於表頭 `<th>` 數」—— 而**片6a-1 之後本檔沒有 `<table>` 也沒有 `<th>`**。
+ *    ⇒ **那句在新結構下沒有對象了。**
+ * 🔴 **而常數本身【不刪】**:`ItemAmountRow` 的 `table-row` 殼仍然吃它,而那個殼還在
+ *    (整頁版與日後任何表格情境用得到)。**刪掉它會在刪掉那個殼之前就先紅**,
+ *    而「這個殼還要不要」不是本片要回答的問題。
+ *    ⇒ W3 刻意**沒有**加一格斷言它消失 —— 那會守到一個還沒被決定的東西。
  */
 export const ITEMS_TABLE_COLSPAN = 8;
 
@@ -186,9 +193,14 @@ export const ITEMS_TABLE_COLSPAN = 8;
  *    而它們**不受 `ITEMS_TABLE_COLSPAN` 那道測試管**(那道只釘表頭 `<th>` 數與展開列)。
  *    ⇒ 欄數一變,footer 就**靜默畫歪**:金額對不到「小計」那一欄底下,
  *      而**沒有任何東西會紅**(typecheck 綠、測試綠、grep 數不變)。
- *    ⇒ 這一片把欄數 6 → 8,正是會踩爆它的那種改動。
+ *    ⇒ 片5 把欄數 6 → 8,正是會踩爆它的那種改動。
  *
- * 版面約定:footer 每一列 = 【標籤跨滿左邊所有欄】+【金額落在最後一欄】
+ * ⚠️ **片6a-1 之後這個常數在本檔【沒有消費端】** —— 總計那一區已改成 flex,不再跨欄。
+ *    **不刪的理由同上面那個常數**:它屬於還在的那個表格殼,而那個殼的去留不是本片的題目。
+ *    🔴 **而「不變量消失了」與「守門被弄丟了」在 diff 上長得一樣** ⇒ 所以在這裡明寫它消失了,
+ *       而不是靜靜把測試刪掉(W3 重寫那七格時照同一條紀律,逐格標了原樣／換定位／真的消失)。
+ *
+ * 版面約定(**舊表格殼專用**):footer 每一列 = 【標籤跨滿左邊所有欄】+【金額落在最後一欄】
  * ⇒ 標籤跨 `ITEMS_TABLE_COLSPAN - 1`,金額 1 欄,**尾巴不再需要裸 `<td />`**。
  */
 const ITEMS_FOOTER_LABEL_COLSPAN = ITEMS_TABLE_COLSPAN - 1;
@@ -203,155 +215,155 @@ export function ItemsTable({
   const amountEditBlock = resolveAmountEditBlock(detail, payments);
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
   const TD = 'px-3 py-2 text-sm align-top';
+  /**
+   * 🔴 片6a-1:**表格 → 表頭列 + 每個商品一張可展開的卡**。
+   *
+   * **依據**:Sean 2026-08-19 看兩張真畫面後逐字選「**甲 = 一個商品一張卡片,沒有表格**」;
+   * 而設計稿 08-17「720 側邊欄確認稿」`:280-299` 畫的正是 `.ihead` 表頭列 + 每列一個
+   * `<details class="icard">`(**零 `<table>`**)⇒ 他的答案與設計稿同一個東西。
+   *
+   * **搬的是哪一份**:`~/.claude/projects/…/tool-results/artifact-c3c6cc94-1786959567-bf41.html`
+   * (669 行 / **mtime 2026-08-17 18:39**)。⚠️ **不是 Aug-13 那份**(那份 class 叫 `.pcard`,已過期)。
+   *
+   * 🔴 **三處刻意偏離,都不是漏搬**(逐條理由在 `globals.css` 片6a-1 那段):
+   *   ① 膠囊**方角**(設計稿是 `999px` 圓角;Sean 08-16 拍「方角、全站統一沒有例外」)
+   *   ② **六軌**(設計稿五軌無單價;Sean 08-19 逐字「要顯示」)
+   *   ③ **總計那一區留著** —— 設計稿 `grep '運費|總計'` ⇒ **零命中**,而我方有小計/運費/折扣/總計。
+   *      **「設計稿沒畫」不等於「該刪掉」** ——拿掉會刪掉真的資訊。
+   */
   return (
-    <div className='overflow-x-auto rounded-lg border bg-card'>
-      <table className='w-full border-collapse'>
-        <thead>
-          <tr>
-            {/* 🔴 片5:欄名改用設計稿的字面(MAIN-057 §1 區塊②表頭逐字)——
-                「品項」→「商品名稱」、「SKU」→「料號」。
-                ⚠️ **料號不是新欄位**(MAIN-057 §2-2 逐字「設計稿那一行本來就有」),
-                   這裡只是把欄名換成員工講的那個詞。 */}
-            <th className={TH}>商品名稱</th>
-            <th className={TH}>料號</th>
-            {/* 🔴🔴 片5 的核心:三軸各自成欄,而「訂 / 到 / 出」三個字**住在這裡**、
-                不再跟著每一列重複三次(Sean 選的丙案;MAIN-057 §2-2)。
-                ⚠️ 既有註解那句「欄名與 `ItemAxisCell` 印的段數必須對得上」**現在由結構保證**:
-                   一個欄頭對一個 `<td>`,對不上會被下面的 `<th>` 數測試抓到。 */}
-            <th className={`${TH} text-right`}>訂</th>
-            <th className={`${TH} text-right`}>到</th>
-            <th className={`${TH} text-right`}>出</th>
-            <th className={`${TH} text-right`}>數量</th>
-            {/* 🔴🔴 **「單價」欄【留著】,而這一格的來歷值得留** ——
-                片5 的派工單原本寫著「拿掉單價欄」,而 W1(線主)去核原始權威之後**自己撤回了**:
-                `grep -n "單價" MAIN-057-…-20260819.md` ⇒ **查無**
-                ⇒ **設計稿從頭到尾沒有說要拿掉單價**;那是派工單作者從那張七欄表**推**出來的,
-                  然後被寫進驗收條件,於是在下游讀起來像規格。
-                ⇒ 而這一格是「改金額」的**唯一入口**(`item-amount-row.tsx:79-94` 的 `priceText` slot;
-                  數法 `grep -rn "改金額" apps/admin/src --include='*.tsx' | grep -v '\.test\.'`)
-                  ⇒ 照那句字面刪 = 刪掉全後台唯一改品項金額的路(鐵則 12① 錢)。
-                📌 **裁定(W1)**:單價原地不動、`ItemAmountRow` 一個字不碰 ⇒ 本表 **8 欄**。
-                  7 欄 vs 8 欄改成**肉眼題**,等 Sean 在真環境看;他要拿掉再開一片,
-                  **那時才需要動錢的對抗審查** —— 不為一個沒有人要求過的目標先付那筆風險。 */}
-            <th className={`${TH} text-right`}>單價</th>
-            <th className={`${TH} text-right`}>小計</th>
-          </tr>
-        </thead>
-        <ItemAmountRowGroup>
-        <tbody>
-          {detail.items.map((item) => (
-            // 🔴 #13 片1c-2 版面片:改金額的表單**移出單價格、展開成跨欄的一列**。
-            //    那幾格的內容仍在**這裡(server)**算好、當 ReactNode 傳進去;
-            //    (原字面「六格」是片5 之前的欄數;現值 8 —— before 6 格 + 單價 1 + after 1。)
-            //    `ItemAmountRow` 只握「展開誰」那個 client state ⇒ **本檔仍是 server component**。
-            <ItemAmountRow
-              key={item.id}
-              rowClassName='border-t'
-              colSpan={ITEMS_TABLE_COLSPAN}
-              priceCellClassName={`${TD} text-right tabular-nums whitespace-nowrap`}
-              before={
-                <>
-                  <td className={TD}>
-                    {/* ⏳ **Sean `Q3 = 丙`(品名太長顯示「…」)【不在本片】** —— 這是刻意不做,不是漏掉:
-                        · `truncate` 要有一個寬度上限才生效,而**那個數字我今天量不到**:
-                          面板 720 固定那條規則在 W1 的 `w1-order-panel`(`50020c4f`),**沒進 dev**,
-                          且 W1 片1b 還在加「窄視窗下讓步」⇒ **720 不是一個可以寫死的假設**。
-                        · 我一度寫了 `max-w-[22rem]` —— **那是我編的數字,沒有任何出處**,已撤。
-                        · `docs/design/admin-design-system.md` §0-D 那組寬度(`col-title` 宣告寬 154px)
-                          **是【訂單列表】那張 14 欄表的**(`orders-table.tsx` / `.col-*`),
-                          **不是本表**;本表用的是 Tailwind 的 `TH`/`TD`,零 `.col-*`
-                          ⇒ **拿它來當本表的依據會是一次跨表誤引。**
-                        ⇒ 截斷屬「面板實寬定案之後的版面片」,等 W1 片1b 進 dev 再開。 */}
-                    <div>{item.title ?? '—'}</div>
-                    {item.spec && (
-                      <div className='text-muted-foreground mt-0.5 text-xs'>
-                        {Object.entries(item.spec)
-                          .map(([k, v]) => `${k}: ${v}`)
-                          .join(' · ')}
-                      </div>
-                    )}
-                    {/* 三軸缺值時,原因講在這裡(只講一次)—— 見 `ItemAxisMissingNote` 檔頭。 */}
-                    <ItemAxisMissingNote summary={item.quantitySummary} />
-                  </td>
-                  <td className={`${TD} text-muted-foreground whitespace-nowrap text-xs`}>
-                    {item.variantSku}
-                  </td>
-                  {/* 🔴 三軸:一格一軸。`pick` 決定這一格取哪一個數,
-                      而**分母永遠是 `summary.quantity`**(在 `ItemAxisValue` 裡),
-                      ⇒ 三格的分母不可能各自漂掉。 */}
-                  <td className={`${TD} text-right whitespace-nowrap`}>
+    <div className='rounded-lg border bg-card p-4'>
+      {/* 🔴 表頭列與每一列**必須共用同一組軌道**(`.ihead` / `.iline` 在 CSS 裡是同一條規則)。
+          設計稿 `:119-120` 自己記著:兩個獨立 grid 的 `auto` 欄各自依內容算寬
+          (「數量」2 字 vs 「×2」)⇒ **實測整排錯開 8px**。**那是會靜默錯開、沒有東西會紅的東西。** */}
+      <div className='ihead'>
+        <span>商品名稱</span>
+        <span>料號</span>
+        {/* 🔴 丙案:「訂 / 到 / 出」三個字**住在欄頭**,不再跟著每一列重複三次
+            (Sean 選的;設計稿 `:280` 註解逐字「② 商品:五欄 + 丙案三軸」)。 */}
+        <span className='three'>
+          <span>訂</span>
+          <span>到</span>
+          <span>出</span>
+        </span>
+        <span className='text-right'>數量</span>
+        <span className='text-right'>單價</span>
+        <span className='text-right'>小計</span>
+      </div>
+
+      <ItemAmountRowGroup>
+        {detail.items.map((item) => (
+          <ItemAmountRow
+            key={item.id}
+            variant='card-line'
+            colSpan={ITEMS_TABLE_COLSPAN}
+            before={
+              <>
+                {/* 🔴🔴 **codex 關卡2 must-fix 4**:上一版把橫向捲動拿掉(`overflow-x-auto` 隨表格一起沒了)
+                    **同時**加了三處 `truncate`,而**沒有給任何看到完整值的路** ——
+                    長料號 / 長規格會變成**畫面上讀不出來的資訊**。**那是行為退化,不只是版面改動。**
+                    ⇒ 修法三件:
+                      ① 品名與料號補 `title`(游標停住看得到完整值)——
+                         **這不是我發明的**:Aug-13 設計稿 `:1027` 逐字 `<span class="nm" title="${l[3]}">`;
+                         08-17 那版沒有它(`grep title=` ⇒ 零命中)⇒ **我取較安全的那一版做法。**
+                      ② **規格那一行不截斷,讓它換行** —— 它是次要行,換行零資訊損失。
+                      ③ 品名 `title` 用 `?? undefined`:`title=""` 會讓某些瀏覽器顯示一個空 tooltip。
+                    ⚠️ **`title` 只在游標停住時看得到** —— 觸控與純鍵盤看不到。
+                       Sean `A2` 拍板「員工用電腦」⇒ 這條路成立;**若日後要支援平板,這一格要重做。** */}
+                <div className='min-w-0'>
+                  <div className='truncate text-[13px]' title={item.title ?? undefined}>
+                    {item.title ?? '—'}
+                  </div>
+                  {item.spec && (
+                    <div className='text-muted-foreground mt-0.5 text-xs'>
+                      {Object.entries(item.spec)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(' · ')}
+                    </div>
+                  )}
+                  {/* 三軸缺值時,原因講在這裡(只講一次)—— 見 `ItemAxisMissingNote` 檔頭。 */}
+                  <ItemAxisMissingNote summary={item.quantitySummary} />
+                </div>
+                <div
+                  className='text-muted-foreground truncate font-mono text-xs font-semibold'
+                  title={item.variantSku}
+                >
+                  {item.variantSku}
+                </div>
+                {/* 🔴 三軸:一格一軸,分母永遠是 `summary.quantity`(在 `ItemAxisValue` 裡)
+                    ⇒ 三格的分母不可能各自漂掉。
+                    🔴 `pcm-pill` 的寬度來自 `--pcm-pill-w`,**與欄頭那三格同一個變數** ——
+                       那是設計稿記的 8px 坑的修法本體,不要改成寫死的數字。 */}
+                <div className='pcm-step'>
+                  <span className='pcm-pill'>
                     <ItemAxisValue summary={item.quantitySummary} pick={(q) => q.orderedQuantity} />
-                  </td>
-                  <td className={`${TD} text-right whitespace-nowrap`}>
+                  </span>
+                  <span className='pcm-pill'>
                     <ItemAxisValue summary={item.quantitySummary} pick={(q) => q.instockQuantity} />
-                  </td>
-                  <td className={`${TD} text-right whitespace-nowrap`}>
+                  </span>
+                  <span className='pcm-pill'>
                     <ItemAxisValue summary={item.quantitySummary} pick={(q) => q.shippedQuantity} />
-                  </td>
-                  <td className={`${TD} text-right tabular-nums`}>
-                    {item.quantity}
-                    {/* 「已取消」掛在數量底下 —— 它是例外不是第四軸,見 `ItemCancelledNote` 檔頭。 */}
-                    <ItemCancelledNote summary={item.quantitySummary} />
-                  </td>
-                </>
-              }
-              priceText={<>NT$ {formatOrderAmount(item.unitPrice.amount)}</>}
-              after={
-                <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
-                  NT$ {formatOrderAmount(item.lineTotal.amount)}
-                </td>
-              }
-              // 🔴 版本用**訂單層**的 `detail.version`,不是品項的 —— RPC 的樂觀鎖比 `v_ord.version`,
-              //    而 `AdminOrderDetailItem` 自 A9w3 起就沒有 version 欄。
-              orderId={detail.id}
-              expectedVersion={detail.version}
-              orderItemId={item.id}
-              currentUnitPrice={item.unitPrice.amount}
-              returnTo={`/orders/${detail.id}`}
-              // 🔴 **重構時最容易掉的就是這一行** —— 它是 `unreadable` 的 fail-closed 出口。
-              blockedReason={amountEditBlock}
-            />
-          ))}
-        </tbody>
-        </ItemAmountRowGroup>
-        <tfoot className='border-t text-sm'>
-          <tr>
-            <td colSpan={ITEMS_FOOTER_LABEL_COLSPAN} className='text-muted-foreground px-3 py-1.5 pt-3 text-right'>
-              小計
-            </td>
-            <td className='px-3 py-1.5 pt-3 text-right tabular-nums whitespace-nowrap'>
-              NT$ {formatOrderAmount(detail.subtotal.amount)}
-            </td>
-          </tr>
-          <tr>
-            <td colSpan={ITEMS_FOOTER_LABEL_COLSPAN} className='text-muted-foreground px-3 py-1.5 text-right'>
-              運費
-            </td>
-            <td className='px-3 py-1.5 text-right tabular-nums whitespace-nowrap'>
-              NT$ {formatOrderAmount(detail.shippingFee.amount)}
-            </td>
-          </tr>
-          {detail.discountTotal.amount > 0 && (
-            <tr>
-              <td colSpan={ITEMS_FOOTER_LABEL_COLSPAN} className='text-muted-foreground px-3 py-1.5 text-right'>
-                折扣
-              </td>
-              <td className='px-3 py-1.5 text-right tabular-nums whitespace-nowrap'>
-                −NT$ {formatOrderAmount(detail.discountTotal.amount)}
-              </td>
-            </tr>
-          )}
-          <tr className='border-t font-medium'>
-            <td colSpan={ITEMS_FOOTER_LABEL_COLSPAN} className='px-3 py-2 text-right'>
-              總計
-            </td>
-            <td className='px-3 py-2 text-right tabular-nums whitespace-nowrap'>
-              NT$ {formatOrderAmount(detail.total.amount)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+                  </span>
+                </div>
+                <div className='text-right text-xs tabular-nums'>
+                  {item.quantity}
+                  {/* 「已取消」掛在數量底下 —— 它是例外不是第四軸,見 `ItemCancelledNote` 檔頭。 */}
+                  <ItemCancelledNote summary={item.quantitySummary} />
+                </div>
+              </>
+            }
+            priceText={<>NT$ {formatOrderAmount(item.unitPrice.amount)}</>}
+            after={
+              <div className='text-right text-[13px] font-bold tabular-nums whitespace-nowrap'>
+                NT$ {formatOrderAmount(item.lineTotal.amount)}
+              </div>
+            }
+            // 🔴 版本用**訂單層**的 `detail.version`,不是品項的 —— RPC 的樂觀鎖比 `v_ord.version`。
+            orderId={detail.id}
+            expectedVersion={detail.version}
+            orderItemId={item.id}
+            currentUnitPrice={item.unitPrice.amount}
+            returnTo={`/orders/${detail.id}`}
+            // 🔴🔴 **重構時最容易掉的就是這一行** —— 它是 `unreadable` 的 fail-closed 出口,
+            //    也是「已收款 ⇒ 不得改金額」那道全站唯一的閘走到畫面上的最後一段。
+            //    主視窗 2026-08-19 裁本片中鐵則 12①,用的就是這個理由:
+            //    **一道閘在殼被重寫的過程中被漏掉,不會有東西紅。**
+            blockedReason={amountEditBlock}
+          />
+        ))}
+      </ItemAmountRowGroup>
+
+      {/* 🔴 總計區:**設計稿沒有這一塊**(`grep '運費|總計'` ⇒ 零命中),而我方有。
+          **「設計稿沒畫」不等於「該刪掉」** —— 拿掉會刪掉真的資訊(小計/運費/折扣/總計)。
+          ⚠️ 這是**刻意保留**、不是漏改成卡片。 */}
+      <div className='mt-3 border-t pt-3 text-sm'>
+        <div className='flex justify-between py-1'>
+          <span className='text-muted-foreground'>小計</span>
+          <span className='tabular-nums whitespace-nowrap'>
+            NT$ {formatOrderAmount(detail.subtotal.amount)}
+          </span>
+        </div>
+        <div className='flex justify-between py-1'>
+          <span className='text-muted-foreground'>運費</span>
+          <span className='tabular-nums whitespace-nowrap'>
+            NT$ {formatOrderAmount(detail.shippingFee.amount)}
+          </span>
+        </div>
+        {detail.discountTotal.amount > 0 && (
+          <div className='flex justify-between py-1'>
+            <span className='text-muted-foreground'>折扣</span>
+            <span className='tabular-nums whitespace-nowrap'>
+              −NT$ {formatOrderAmount(detail.discountTotal.amount)}
+            </span>
+          </div>
+        )}
+        <div className='mt-1 flex justify-between border-t pt-2 font-medium'>
+          <span>總計</span>
+          <span className='tabular-nums whitespace-nowrap'>
+            NT$ {formatOrderAmount(detail.total.amount)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
-
