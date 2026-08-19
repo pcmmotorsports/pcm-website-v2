@@ -55,10 +55,24 @@ const BASE_NAV_ITEMS: readonly NavItem[] = [
   { key: 'products', label: '商品', icon: 'product', href: '/products' },
   { key: 'staff', label: '員工管理', icon: 'teams', href: '/settings/staff' },
   { key: 'suppliers', label: '供應商', icon: 'post', href: '/settings/suppliers' },
-  // M-4b E10 A9w2:唯一去處 `/settings/order-statuses`(九碼狀態詞彙 CRUD)已隨九碼退場下架。
-  // 照既有慣例拿掉 href,保留這一格等日後真的有「設定」頁再接;整項刪掉是另一個決定。
-  { key: 'settings', label: '設定', icon: 'settings' },
 ];
+
+/**
+ * 「設定」—— 🔴 **它不在軌上,而這是設計拍板,不是我省略了。**
+ *
+ * 定案稿 `admin-sidebar-rail-final.html:357` 逐字:
+ *   「『設定』**不在軌上出現** —— 它連預設狀態都沒有,只在滑出清單底部以灰字＋『未啟用』存在。」
+ * ⚠️ **這一格我差點做錯**:轉述給我的版本是「停在最底下、未啟用」——
+ *    照那句我會**在軌上留一格灰的**,而稿上沒有那一格。
+ *    📌 加出來的東西最難被發現,因為讀的人不會去稿上找一個不存在的東西的反證。
+ *
+ * 而它**沒有 href** 的理由不變(M-4b E10 A9w2:唯一去處已隨九碼退場下架)——
+ * 兩件事剛好一致:**沒有頁面可去** ⇒ **畫成未啟用**。
+ * 🔴 而它從 `BASE_NAV_ITEMS` 搬出來**不影響既有字面守門** ——
+ *    `app-sidebar.test.ts:74` 那條 regex 要求 `href: '…'`,而本項從來就沒有 href
+ *    ⇒ 它本來就不在那條守門的分母裡(**這是查過的,不是推的**)。
+ */
+export const PARKED_NAV_ITEM: NavItem = { key: 'settings', label: '設定', icon: 'settings' };
 
 /**
  * `#27` 稽核紀錄檢視的入口。**只在旗標開啟時出現。**
