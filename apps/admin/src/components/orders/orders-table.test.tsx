@@ -1637,7 +1637,18 @@ describe('L3 片4 — 密度掛勾(`data-den`)', () => {
   //      本專案給這個形狀的名字是「知道規則不等於執行規則」。
   //    ⇒ 改成**從 `globals.css` 抽出當下的值**再去掃,值改了守門跟著改。
   it('🔴 CSS 三檔選擇器都在,而且密度值只住 globals.css(不得有第二份)', () => {
-    const css = readFileSync(join(__dirname, '../../app/globals.css'), 'utf8');
+    // 🔴🔴 **剝掉 CSS 註解再掃 —— 表演出來才加的**(W1 2026-08-20):
+    //    構造 = 把真的 `.orders-grid[data-den='std']` 改名,只在檔頭留一行
+    //    `/* 舊版這個規則的選擇器是 .orders-grid[data-den='std'] */`
+    //    ⇒ **本檔 99 條全綠。** 而那正是本格自己那句錯誤訊息在講的災難
+    //    (「切過去不會有任何變化」)—— 選擇器沒了、密度切換靜靜失效,而沒有任何東西紅。
+    //    🔴 **而這一格是【唯一守門】**:CSS 不進 typecheck、選擇器消失不會讓任何 import 壞掉
+    //       ⇒ 與 `:1585` 那種「export 沒了整支測試會 import 失敗」的情況**不同,那種不必修**。
+    //    ⚠️ 方向性:剝過頭 ⇒ 真規則消失 ⇒ **紅**;剝不夠 ⇒ 退回原狀。兩者都不產生假綠。
+    const css = readFileSync(join(__dirname, '../../app/globals.css'), 'utf8').replace(
+      /\/\*[\s\S]*?\*\//g,
+      '',
+    );
     for (const den of ['std', 'tight']) {
       expect(css, `${den} 那檔的選擇器不在 ⇒ 切過去不會有任何變化`).toContain(
         `.orders-grid[data-den='${den}']`,
