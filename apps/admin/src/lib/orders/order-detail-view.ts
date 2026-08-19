@@ -64,11 +64,6 @@ export const SHIPPING_METHOD_LABELS = {
   store: '自取',
 } as const;
 
-/** 白名單值本身(給 parser 用)。順序 = 下拉選單的順序。 */
-export const SHIPPING_METHODS = Object.keys(SHIPPING_METHOD_LABELS) as ReadonlyArray<
-  keyof typeof SHIPPING_METHOD_LABELS
->;
-
 /** 這個字串是不是白名單值(parser 的守門用這一支,不要各自寫 `!==`)。 */
 export function isShippingMethod(v: string): boolean {
   // 🔴 用 `Object.hasOwn` 不用 `in` —— `'toString' in obj` 會是 true(原型鏈),
