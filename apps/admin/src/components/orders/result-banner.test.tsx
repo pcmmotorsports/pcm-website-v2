@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
@@ -318,6 +319,8 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       //    —— 那就是它有判別力的證據,不是推的。
       ORDER_AMOUNT_ERROR_RESULT_CODE,
       ORDER_AMOUNT_REJECTED_RESULT_CODE,
+      // 🔴 M-4b #20 上下架線只登錄這一顆(saved/noop/not_found/invalid/denied/error 走裸碼)。
+      LISTING_NOOP_NOTE_DROPPED_RESULT_CODE,
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)

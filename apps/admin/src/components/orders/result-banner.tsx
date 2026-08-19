@@ -1,5 +1,6 @@
 // 相對 import(非 @/):#606 前的歷史遺留(見 `lib/session/actor.ts` 註解;#612 更新:#606 起可用 @/,既有不回改)
 // ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
+import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
 import {
   PAYMENT_DUPLICATE_RESULT_CODE,
@@ -50,6 +51,13 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    (Sean 拍板 Q1=A:保留員工打的內容)⇒ 這裡**不該**出現 note 的任何失敗碼。
   //    `APPENDED` 與 `DUPLICATE_REQUEST` **共用這一則**:後者意謂「這個請求已寫入過且經查驗」,
   //    對員工就是同一件事(母 plan v4 §5 F3:顯示成別的會誘發他換一把 token 重送 = 製造重複備註)。
+  // 🔴 M-4b #20 上下架線:同狀態再按一次【而且打了備註】—— RPC 走 NO_CHANGE 零寫入
+  //    ⇒ **那段字哪裡都沒有**(2026-08-19 拋棄式 PG 實測:稽核表提到那句備註的列數 = 0)。
+  //    ⚠️ **刻意不與裸 `noop` 共用一則** —— 共用的話員工會以為他留了紀錄,而世界上沒有。
+  [LISTING_NOOP_NOTE_DROPPED_RESULT_CODE]: {
+    text: '這件商品本來就是這個狀態,沒有變更。⚠️ 你打的變更原因【沒有被記錄】——原因只會跟著真正的變更一起存。',
+    tone: 'warn',
+  },
   [NOTE_ADDED_RESULT_CODE]: { text: '備註已新增。', tone: 'ok' },
   // 🔴 M-3 RW2c:退款也只有成功走 redirect(失敗全回 action state,同備註片 Q1=A 慣例)。
   //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。

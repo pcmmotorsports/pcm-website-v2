@@ -2,6 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '../../../lib/orders/note-action-state';
 import { ProductDetail } from '../../../components/products/product-detail';
+import { ProductListingForm } from '../../../components/products/product-listing-form';
+import { ResultBanner } from '../../../components/orders/result-banner';
+import { resolveListingState } from '../../../lib/products/product-repository';
 import {
   getProductForAdmin,
   getProductTaxonomyNames,
@@ -22,10 +25,15 @@ export const dynamic = 'force-dynamic';
 
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  // PRG 結果碼(上下架 action 導回時帶 `?r=`;鏡像 customers/[id])。
+  const rawSearch = await searchParams;
+  const resultCode = typeof rawSearch.r === 'string' ? rawSearch.r : undefined;
 
   // 🔴 形狀不對 → 直接 404,**不打 DB**(路由參數不透傳進查詢;鏡像 app/customers/[id]/page.tsx:22-25)。
   if (!isUuid(id)) {
@@ -72,6 +80,8 @@ export default async function ProductDetailPage({
         ← 返回商品列表
       </Link>
 
+      <ResultBanner code={resultCode} />
+
       {product === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
           商品資料載入失敗,請稍後再試或聯絡系統維護。
@@ -84,8 +94,21 @@ export default async function ProductDetailPage({
             categoryName={taxonomy.categoryName}
             taxonomyFailed={taxonomyFailed}
           />
-          {/* 本頁唯讀。不寫「即將可編輯」——同 app/products/page.tsx:60-64 的教訓。 */}
-          <p className='text-muted-foreground text-sm'>這一頁只能查看,不能修改。</p>
+          {/* 🔴 M-4b `#20`:上下架是這一頁**唯一**的寫入動作。
+              位置=詳情頁(plan §3 裁定);理由與「不放列表」的取捨寫在
+              `components/products/product-listing-form.tsx` 檔頭。 */}
+          <section className='rounded-lg border p-4'>
+            <h2 className='mb-3 text-sm font-medium'>上架 / 下架</h2>
+            <ProductListingForm
+              productId={product.id}
+              listed={resolveListingState(product) === 'listed'}
+            />
+          </section>
+          {/* 🔴 這一句原本是「這一頁只能查看,不能修改」—— **本片之後那是假的**。
+              (同 `app/products/page.tsx:60-64` 的教訓:不要留一句已經不成立的自述。) */}
+          <p className='text-muted-foreground text-sm'>
+            這一頁目前只能改上架狀態,其餘欄位仍不能修改。
+          </p>
         </>
       )}
     </div>

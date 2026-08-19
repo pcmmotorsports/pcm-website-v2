@@ -303,3 +303,44 @@ export async function getProductTaxonomyNames(
     categoryName: category.data?.name ?? null,
   };
 }
+
+// ── 寫入路徑(M-4b `#20`;**商品域的第一條**)────────────────────────────────
+// 🔴 本檔在這一行之前是**純唯讀**的 —— 加這一支之前,`apps/admin/src/{lib,components,app}/products`
+//    全樹零 `.update(` / `.upsert(` / `.insert(` / `.rpc(`(migration `20260819040000` 檔頭逐字記了這個量測)。
+//    ⇒ 之後任何人在本檔加第二支寫入,請照同一條路:**走 RPC,不要在 app 層直接 `.update()` 表**
+//      (直接寫表的那條路**不寫稽核、也不寫 `listing_set_by`**;那個代價 migration 檔頭逐字寫了)。
+
+export type AdminListingSetResult = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
+
+/**
+ * 後台上下架(M-4b `#20`)—— 走 `admin_set_product_listing` owner RPC。
+ *
+ * `delisted=true` ⇒ 下架(`delisted_at = now()`);`false` ⇒ 上架(`delisted_at = NULL`)。
+ * 兩種都會把 `listing_set_by` 寫成 `'staff'` —— 那是 Sean 2026-08-15 拍板的載體,不是附帶。
+ *
+ * 🔴 `note` 可為 `null`(RPC 設計上選填,見 `product-listing-form.ts` 檔頭)。
+ * 🔴 稽核由 RPC **同交易**寫 `admin_audit_log`(`action='product.listing.change'`),本層不另接。
+ */
+export async function setProductListing(args: {
+  productId: string;
+  delisted: boolean;
+  note: string | null;
+  actor: string;
+  requestId: string;
+}): Promise<AdminListingSetResult> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_set_product_listing', {
+    p_product_id: args.productId,
+    p_delisted: args.delisted,
+    p_note: args.note,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) {
+    throw error;
+  }
+  // RPC RETURNS text scalar → data 即固定碼;防腐壞收斂(鏡像 `setCustomerTier`)。
+  if (data === 'UPDATED' || data === 'NO_CHANGE' || data === 'NOT_FOUND') {
+    return data;
+  }
+  throw new Error('admin_set_product_listing RPC 回傳非預期碼');
+}

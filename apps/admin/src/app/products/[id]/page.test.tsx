@@ -81,9 +81,12 @@ function fieldValue(container: HTMLElement, label: string): string | null {
   return dd instanceof HTMLElement ? dd.textContent : null;
 }
 
-async function renderPage(id = ID) {
+async function renderPage(id = ID, search: Record<string, string> = {}) {
   const { default: Page } = await import('./page');
-  return render(await Page({ params: Promise.resolve({ id }) }));
+  // 🔴 `searchParams` 是 #20 上下架片加的(PRG 結果碼);預設空物件 = 沒有 `?r=`。
+  return render(
+    await Page({ params: Promise.resolve({ id }), searchParams: Promise.resolve(search) }),
+  );
 }
 
 describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
@@ -228,7 +231,15 @@ describe('/products/[id] 詳情頁(#20 片1b-1)', () => {
     for (const promise of ['即將推出', '敬請期待', '可以編輯', '點擊修改', '編輯商品']) {
       expect({ [promise]: text.includes(promise) }).toEqual({ [promise]: false });
     }
-    expect(text).toContain('只能查看');
+    // 🔴 **`#20` 上下架片改了這一句,而【改的是事實不是期望值】**:
+    //    本頁在那一片之前是純唯讀,那句「只能查看」是真的;
+    //    上下架接上之後**它變成假的** —— 而留著假的自述,正是本格要防的那件事的反面。
+    //    ⇒ 現行字面必須同時說出【能改什麼】與【不能改什麼】,兩半都釘住:
+    expect(text, '沒說出「現在能改上架狀態」= 本頁在說謊的另一半').toContain('只能改上架狀態');
+    expect(text, '沒說出「其餘不能改」= 員工會以為每一欄都能編').toContain('其餘欄位仍不能修改');
+    // 🔴 而反向釘住:那句已經作廢的自述不得回來
+    //    (它會在有人「順手把文案改簡潔」時悄悄回來,而那一刻它就是假的)。
+    expect({ 只能查看: text.includes('只能查看') }).toEqual({ 只能查看: false });
     expect(text).toContain('返回商品列表');
   });
 
