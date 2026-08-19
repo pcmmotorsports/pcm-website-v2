@@ -103,6 +103,10 @@ SET LOCAL search_path = pg_catalog, public, auth;
 DO $seed_precheck$
 DECLARE
   -- ✅ 2026-08-16 已填入真值(Sean 貼回 auth.users 的 id)。
+  -- ✅✅ 2026-08-19T13:30 W5 **對正式庫唯讀複驗過,下面那道 0.3 斷言會過**:
+  --      兩顆 uuid ↔ email 成對命中各 1;負向對照(兩顆對調 / 佔位符 uuid)各 0 ⇒ 尺印得出壞消息。
+  --      🔴 **這不表示可以 apply** —— 它把「apply 當下才知道會不會炸」變成「知道它會過」,
+  --         而【要不要炸下去】仍是鐵則 12 + Sean 的動作。全文 docs/probes/2026-08-19-e8b-quote-db-production-probe.md §1.3
   --    🔴 **兩列不是三列** —— 現實只有兩個帳號,而它們都是 Sean 本人:
   --       sean@pcmmotorsports.com  → 'sean'    (管理者身分)
   --       shopee1@partscheaper.net → 'staff_2' (一般員工權限測試,label 已在 B1-a 更正)

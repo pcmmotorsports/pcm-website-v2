@@ -267,10 +267,14 @@ admin 端  一個環境開關 ADMIN_REQUIRE_REAL_IDENTITY，預設關
 
 1. 🔴🔴 **§1.3 全表量於落後 16 顆的本機 HEAD `3fc905f`** ⇒ **不是報價單的現況**。B0 未複量前不得引用成現況。
 2. 🔴 **D0-a 甲案沒有查證** —— 我沒確認那個 Supabase 專案有開 Auth。**「推薦」不等於「可行」。**
+   ✅ **2026-08-19 W5 關掉**:報價單正式庫唯讀實查 `auth.users` ⇒ **2 列**(Auth 有開)。證據與射程 ⇒ `docs/probes/2026-08-19-e8b-quote-db-production-probe.md` §1.2。
 3. 🔴 **2FA 是條件式缺口,不是沒問題**:第一期不碰 TOTP(Q5=A),而 TOTP 裝置池是**全公司共用**
    (`totp_devices` 無 `user_id`)⇒ **一旦有了個人帳號,任何人的 TOTP 可以搭配另一人的密碼**。
    **判別句:這個洞可不可觸發,取決於 `require_2fa` 的現值與 `totp_devices` 的列數。**
    STATUS.md 記著「已部署但休眠」(`require_2fa=false`、兩表 0 列),**而本輪沒有複查現值** ⇒ B0 第 2 項。
+   ✅ **2026-08-19T13:30 W5 複查完畢(production 側,非 repo 側轉述)**:`require_2fa=false` / 兩表皆 **0 列**
+   ⇒ 🔴 **本節那句「若複查非零 ⇒ 範圍必須擴張」的條件【不成立】⇒ 本線範圍不擴張。**
+   ⚠️ **值會過期**(有人綁一次 TOTP 就變假,而檔不會改)⇒ 量法與時點 ⇒ `docs/probes/2026-08-19-e8b-quote-db-production-probe.md` §1.1。
    **若複查非零 ⇒ 本線範圍必須當場擴張,不得照本 plan 往下做。**
 4. 🔴 **`auth_state` 是 `CHECK(id)` 鎖死的單列表** ⇒ 未來 E8-C 要 per-user 時,那個 CHECK 要拆。
    **本線不動它,但寫進來免得下一個人以為那是可以直接加欄的表。**
