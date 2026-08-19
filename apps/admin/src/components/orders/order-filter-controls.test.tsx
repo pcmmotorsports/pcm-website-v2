@@ -8,8 +8,12 @@ import { render, cleanup, fireEvent } from '@testing-library/react';
 import { OrderFilterControls } from './order-filter-controls';
 
 const replace = vi.fn();
+const refresh = vi.fn();
+/** 掛載當下瀏覽器網址上的 query(`#741` 的碰撞判定要拿它當「之前」)。逐測可改。 */
+let currentSearch = '';
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace }),
+  useRouter: () => ({ replace, refresh }),
+  useSearchParams: () => new URLSearchParams(currentSearch),
 }));
 
 /** #347-3c-2:server 算好的日期選項(client 不碰時鐘 ⇒ 測試裡就是一組固定值)。 */
@@ -37,7 +41,11 @@ const PROPS = {
   initial: { pay: '', goods: [], src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
-beforeEach(() => replace.mockClear());
+beforeEach(() => {
+  replace.mockClear();
+  refresh.mockClear();
+  currentSearch = '';
+});
 afterEach(cleanup);
 
 function nthButton(getAllByRole: ReturnType<typeof render>['getAllByRole'], index: number) {
@@ -315,5 +323,65 @@ describe('#484 B-1 — 多值貨品軸不得被其他篩選洗掉', () => {
   it('多值時下拉顯示「全部」那一格(畫不出兩個值,選中態由 chip 負責)', () => {
     const { getByLabelText } = render(<OrderFilterControls {...PROPS} initial={multi} />);
     expect((getByLabelText('出貨狀態') as HTMLSelectElement).value).toBe('');
+  });
+});
+
+describe('OrderFilterControls — `#741` segment cache key 碰撞才補 refresh', () => {
+  // 🔴🔴 **這一組的三格是【一組】,不能只留會紅的那一格**:
+  //    實驗組證明「該補的補了」,而**兩個對照組證明「不該補的沒補」**。
+  //    只留實驗組的話,`if (…) router.refresh()` 改成無條件 `router.refresh()` **會全綠通過** ——
+  //    而那正是 memory `reference_nextjs-duplicate-query-key-segment-collision` 明文禁止的做法
+  //    (單值軸天然不碰撞,無條件 refresh = 每次操作都多查一次全表)。
+  //
+  // 🔴 **「最後一個」指的是 query string 上的出現順序**,不是選項在畫面上的順序:
+  //    勾選是 `[...list, value]` 追加 ⇒ 先勾「網站」再勾「LINE」⇒ URL 上 LINE 在後。
+
+  it('實驗組:取消【非最後】那個(網站)⇒ key 相同 ⇒ 補一次 refresh', () => {
+    const r = render(<OrderFilterControls {...PROPS} />);
+    openPanel(r.getAllByRole, 0);
+    fireEvent.click(r.getByLabelText('網站'));
+    fireEvent.click(r.getByLabelText('LINE'));
+    expect(refresh).not.toHaveBeenCalled(); // 前兩發都不該補
+    fireEvent.click(r.getByLabelText('網站')); // 取消非最後那個
+    expect(replace).toHaveBeenLastCalledWith('/orders?order_source=manual_line', {
+      scroll: false,
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('對照組一:取消【最後】那個(LINE)⇒ key 不同 ⇒ 不補 refresh', () => {
+    const r = render(<OrderFilterControls {...PROPS} />);
+    openPanel(r.getAllByRole, 0);
+    fireEvent.click(r.getByLabelText('網站'));
+    fireEvent.click(r.getByLabelText('LINE'));
+    fireEvent.click(r.getByLabelText('LINE')); // 取消最後那個
+    expect(replace).toHaveBeenLastCalledWith('/orders?order_source=web', { scroll: false });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('對照組二:單值軸(付款狀態)天然不碰撞 ⇒ 不補 refresh', () => {
+    const r = render(<OrderFilterControls {...PROPS} />);
+    fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
+    expect(replace).toHaveBeenLastCalledWith('/orders?payment_status=paid', { scroll: false });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  // 🔴🔴 **這一格釘的是「之前」那一側取自哪裡** —— 主視窗 2026-08-20 指定要有。
+  //    本檔 `href()` 只列 7 個鍵,而 `/orders` 實際上還有 `panel` / `customer` / `pending` / `den`
+  //    ⇒ **`href(state)` 不等於當下網址**(那個不相等本身是另一隻蟲,`#742`)。
+  //    若有人把「之前」改回 `href(state)`,下面這一格會紅:那時 before/after 都不含 `panel`
+  //    ⇒ 判成碰撞 ⇒ 多補一次沒必要的 refresh。
+  //    ⚠️ 它守的不是「多查一次」這件小事,守的是**判定的輸入是不是瀏覽器真的那條網址**。
+  it('「之前」取自真實網址:面板開著時取消非最後那個 ⇒ 不補 refresh', () => {
+    currentSearch = 'order_source=web&order_source=manual_line&panel=abc';
+    const r = render(
+      <OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, src: ['web', 'manual_line'] }} />,
+    );
+    openPanel(r.getAllByRole, 0);
+    fireEvent.click(r.getByLabelText('網站')); // 取消非最後那個
+    expect(replace).toHaveBeenLastCalledWith('/orders?order_source=manual_line', {
+      scroll: false,
+    });
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
