@@ -894,7 +894,7 @@ function assertNoCustomerIdLeak(select: string): void {
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取;🔴 OD 片 2 加 customer_user_id(客人明細入口需求 §0-J J-4,orders 自己的欄、非成本欄);🔴 #476 片1 採購內嵌加 voided_at+void_reason(⚠️ 名稱只到「**帶得到**」為止 —— 本片**不含**任何分流,下游 find/some/length 全部仍未認作廢,那是片2/3/4;成對取 = DB void_pair 同進同出))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -1238,12 +1238,23 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     }
   });
 
+  /**
+   * 🔴 片16(2026-08-19)加 `price_general`,理由要寫出來,因為**清單少一個不會有任何東西紅**:
+   *    本片把 `product_variants(products(brands(name)))` 加進明細投影 ⇒ 它**穿越**
+   *    `product_variants` / `products` 兩張表,而那兩張帶 `price_store` / `price_by_tier` / **`price_general`**。
+   *    ⇒ 前兩個原本就在,而 `price_general` 只在**列表**那格的清單裡(同檔 `:342` 那格)。
+   *    ⇒ **兩份清單各自漂了** —— 而它們守的是同一件事(經銷價不得外洩,Server 端鐵則第二條)。
+   * ⚠️ **我沒有把兩份合成一份**:明細與列表的 forbidden 清單**刻意不同**
+   *    (明細有 `tier_at_checkout`/`wallet`、列表有 `invoice`/`shipping_address_snapshot`)——
+   *    合併會把「明細刻意帶 PII」那個決定弄丟。**這裡只補漏的那一個 token,不動結構。**
+   */
   it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {
     const forbidden = [
       '*',
       'price_store',
       'price_by_tier',
       'priceByTier',
+      'price_general',
       'cost',
       'tappay_rec_trade_id',
       'tier_at_checkout',
@@ -1359,6 +1370,11 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       items: [
         {
           id: 'oi-1',
+          // 🔴 片16:這一格是 `null` 而**那正是要被釘住的東西** —— 本檔的 wire fixture
+          //    沒有給 `product_variants` 這個鍵(投影退版 / 舊 row 的情形),
+          //    而 mapper 的 `?.` 鏈必須把它翻成 `null` 而不是 `undefined` 或炸掉。
+          //    ⚠️ `toEqual` 是精確比對 ⇒ 這一鍵若從 domain 型別消失,本條會立刻紅。
+          brand: null,
           variantSku: 'BMS-13OEM-G-F',
           title: '下導流',
           spec: { finish: 'Glossy' },

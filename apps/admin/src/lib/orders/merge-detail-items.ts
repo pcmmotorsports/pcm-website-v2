@@ -99,6 +99,13 @@ export function mergeDetailItems(
           ...full,
           procurements: withProcurement.procurements,
           procurementTruncated: withProcurement.procurementTruncated,
+          // 🔴 片16(2026-08-19):**品牌也只有內嵌那份有**(撈到盡那份是刻意更窄的白名單:
+          //    「零 PII、零價格」,而品牌 join 會穿越帶價格欄的兩張表 ⇒ 不往那份加)。
+          //    ⇒ 取法與採購同一條:**從內嵌那份取**。
+          //    ⚠️ 而理由與採購**不同**,寫出來免得下一個人以為是同一個:
+          //      採購從內嵌取 = 那份**才有**;品牌從內嵌取 = 那份才有,**而且它幾乎不會在兩次查詢之間變**
+          //      (品牌是商品屬性,不是這張單的狀態)⇒ 拿舊那份的值沒有時序風險。
+          brand: withProcurement.brand,
         };
       }
       // 🔴 內嵌那份沒有這一項 ⇒ 它落在 `ORDER_ITEMS_EMBED_LIMIT` 之外
@@ -118,6 +125,12 @@ export function mergeDetailItems(
         ...full,
         procurements: null,
         procurementTruncated: false,   // 🔴 「沒有證據說它固定」，不是「確定它暫時」（見上）
+        // 🔴 片16:同一個道理 —— 這一項不在內嵌那份裡 ⇒ **我們沒有讀到它的品牌**。
+        //    `null` 在顯示端 = 那一行不印。⚠️ 而這裡的 null 與「這個品項真的沒有品牌」
+        //    (手 key 單)**在畫面上長得一樣** —— 那是本片接受的代價,理由:
+        //    品牌是**標示**不是**判斷依據**,員工不會因為少一行品牌而做錯事;
+        //    真正會讓他做錯事的那兩個(procurements / itemsTruncated)上面已經各自誠實了。
+        brand: null,
       };
     }),
     // 🔴 品項清單完整時翻成 false —— 否則畫面會對一份**真的完整**的清單說「沒有列完」,
