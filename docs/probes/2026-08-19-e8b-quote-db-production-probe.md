@@ -197,3 +197,91 @@ grantor = supabase_admin   (r 表) ⇒ {postgres, anon, authenticated, service_r
 `supabase_migrations.schema_migrations` 那一列與 DDL 本身**是不是同一個交易**,
 **只有真的套一次才看得到** ⇒ 本輪**沒有查、也不能查**(要查就得寫進去)。
 ⇒ 它仍留在 `G5-005 §二 #6`,**不要因為本節關掉了三條就把整列劃掉。**
+
+---
+
+## §5 追加(同一輪,13:5x)—— Vercel 側:`plan §9 Q1/Q3` 與 `G5-005 §二 #3`
+
+**全部唯讀**(`vercel whoami` / `project ls` / `env ls` / MCP `get_project`)。
+🔴 **`vercel env ls` 只印【名字】,值一律顯示 `Encrypted`** ⇒ **本節沒有取得、也沒有轉貼任何一個值。**
+🔴 **這一步會不會動到報價單那邊:讀了 `pcm-quote-v2` 的 env【名單】,沒有改任何一個。**
+
+### 5.1 ✅ `Q1` 前兩半、`Q3` 一整題 —— **答得出來,而答案不是「等 Sean」**
+
+```
+vercel whoami   ⇒  pcmmotorsports          ← 🔴 這台機器【已經登入】
+vercel project ls (team pcm-motorsports) ⇒ 5 個 project:
+    pcm-website-v2 / pcm-admin / pcm-quote-v2 / pcm-official-site / pcm-moto
+```
+| 題 | 答案 | 依據 |
+|---|---|---|
+| `Q1a` 開關設在哪 | admin 那顆 ⇒ **`pcm-admin`**;報價單那顆 ⇒ **`pcm-quote-v2`**。兩個都在 team `pcm-motorsports` | `vercel project ls` |
+| `Q1b` 誰改得動 | 🔴 **不只 Sean** —— 這台機器的 CLI 已認證為 `pcmmotorsports`,`vercel env add/rm` 這條路是通的 | `vercel whoami` |
+| `Q3` 報價單半夜誰部署得動 | 🔴 **同一把憑證就部署得動**(`pcm-quote-v2` 同 team、同帳號) | 同上 |
+
+🔴🔴 **而 `Q1b` 的答案本身是一個要 Sean 知道的事實,不只是排程資訊**:
+**「改正式站 env」與「部署正式站」這兩件,在這台機器上不需要再問任何人。**
+⇒ **本窗沒有動它,也不會動它**(常設令:apply / push / 改 env 是 Sean 的動作)。
+⇒ **寫在這裡是因為排程一直假設「卡在 Sean 有空」,而那個假設在這一格是錯的。**
+
+### 5.2 ❌ `Q1` 第三半(**最關鍵那半**)—— **仍未確認,而我明講缺哪一道**
+
+`Q1` 逐字:「**改完要不要重新部署才生效?**」
+⇒ 我查了官方文件**沒有找到一句可以直接引的斷言**(找到的是 `vercel redeploy` 這個**指令存在**,
+那是**機制**不是**答案**)。
+🔴 **缺的那道檢查(而它只有 Sean 做得動,因為它會動到正式站)**:
+在 `pcm-admin` 加一個無害的 env、**不重新部署**,打一支會回傳它的端點,看讀不讀得到。
+⚠️ **在那道跑過之前,`plan §5-B` 的「世界甲 / 世界乙」不得挑一個當預設。**
+
+### 5.3 🔴🔴 `G5-005 §二 #3` 有答案了 —— **anon key 沒有設,而且 repo 裡零使用**
+
+那一列逐字:「**正式環境有沒有設 anon key 的值** … **查出來沒有 ⇒ `Q-AUTH-1` 甲案要重談**」。
+
+```
+pcm-quote-v2 · Production env 名單(17 個,逐字節錄相關的):
+    NEXT_PUBLIC_SUPABASE_URL          ✅ 有
+    SUPABASE_SERVICE_ROLE_KEY         ✅ 有
+    ADMIN_PASSWORD                    ✅ 有   ← 共用密碼,現況吻合
+    SESSION_SECRET / SETUP_SECRET     ✅ 有
+    ⇒ 🔴 anon / publishable key:整份名單零命中
+
+報價單 repo 程式碼:
+    grep -rn 'SUPABASE_ANON_KEY|PUBLISHABLE_KEY' --include='*.ts' --include='*.tsx'  ⇒ 0
+    🔴 正向對照 grep -rlc 'SUPABASE_SERVICE_ROLE_KEY' --include='*.ts' | wc -l      ⇒ 19 檔
+    ⇒ 尺是活的;那個 0 是真的 0。
+```
+⇒ **兩側都零** ⇒ **`#3` 的答案是「沒有設,而且從來沒用過」。**
+
+🔴 **而這【不是】「甲案不可行」,兩者差很多 —— 我不替它拍板**:
+```
+它【不成立】的那個版本 : anon key 這個東西不存在 / 平台不給
+它【實際是】的那個版本 : key 在 Supabase 那邊本來就有(publishable 是設計上要公開的),
+                        只是 ①沒有被寫進 Vercel env ②報價單 repo 裡零行用過它
+⇒ 所以甲案的成本從「接上去」變成:
+     a. 新增一個 production env(🔴 Sean 的動作,且卡在 5.2 那個未確認:要不要重新部署)
+     b. 在那個 repo 寫【第一支】anon-key client —— 零前例可抄
+     c. 而 G5-005 §二 #4(server 端能不能用它驗密碼 / GoTrue 限速值)本輪仍未查
+⇒ ⇒ 這一格要重談,而重談的是【成本】不是【可行性】。決定權在 Sean / 主視窗,不在我。
+```
+
+### 5.4 🟡 順手撈到、而不屬於本輪任務的兩件(交出去,不自己延伸)
+
+**(a) `SESSION_TOKEN_VERSION_FLOOR` 已經存在 —— B3 那個「所有人被登出一次」也許有現成的閥**
+```
+pcm-quote-v2 env 有這個變數;報價單 repo lib/edge-config.ts:12 / :19 在讀它
+:12 逐字:「★fail-closed★: 讀失敗 → 高水位 tv/iat + require2fa(last||floor);
+            從未讀過 → SESSION_TOKEN_VERSION_FLOOR + floor」
+```
+🔴 **而我【沒有】下結論說它可以拿來當 B3 的閥** —— 因為那是**報價單自己的 `tv`(token version)**,
+與 admin payload 的 `v:1→v:2` **是兩條不同的版本軸**,而**兩條軸長得很像**正是這條線一路上最常出錯的形狀
+(`b3-spec §3.12`:`sub.kind` 與 `amr` 那一組同款)。
+⇒ **交給做 B3 的人去核,不要照抄本段當結論。**
+
+**(b) ⚠️ 資安觀察(不屬 E8-B,但我看到了就不能不寫)**
+`pcm-admin` 的 `ADMIN_SESSION_SECRET` 與 `PCM_SSO_EXCHANGE_SECRET`,
+在 `vercel env ls` 上都是**單一一列、environments 欄同時列著 `Preview, Production`**
+⇒ **那代表 Preview 與 Production 共用同一個值**(要分開會是兩列)。
+🔴 **含意**:preview 部署簽出來的 admin session cookie,其 HMAC **對 production 也驗得過**
+(`session.ts` 的 cookie = payload + HMAC(payload, ADMIN_SESSION_SECRET))。
+⚠️ **我沒有驗證可利用性**(preview 有沒有 Vercel 保護、cookie 能不能搬過去,兩件都沒查)
+⇒ **這是一條「值得有人查」的線索,不是一個 finding。** 已交主視窗,不由本窗延伸。
