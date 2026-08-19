@@ -428,10 +428,32 @@ docs/patterns/guard-and-instrument-traps.md
   規則寫在 handoff 裡，而我寫 commit body 時【不會打開 handoff】。
 ⇒ 所以執行率不是紀律問題，是【規則不在我做事的那條路上】。
 ✅ 可行的修法方向（未做，寫在這裡當候選）:
-  · commit 訊息範本（讓那兩層變成填空，而不是要記得）
+  · ~~commit 訊息範本（讓那兩層變成填空，而不是要記得）~~
+    🔴 **已實測:這條路對收割窗【無效】,不要再花時間查**（2026-08-20 W4 實測）
   · 或一個 commit-msg hook:merge commit 的 body 沒有「第二層」⇒ 擋下
     🔴 而後者要先想清楚它會不會擋到別的窗——**這一格沒想清楚之前不要做。**
 ```
+
+#### 🔴 `commit.template` 那條路已實測 —— **無效,而失效的原因不是設定問題**
+```
+① 作用域:可以只設本棵樹
+   `git config --get extensions.worktreeConfig` ⇒ **true**
+   ⇒ 用 `--worktree` 設定不會影響另外 28 棵（`git worktree list | wc -l` ⇒ **29**）
+   ⇒ 這一格【不是】阻礙。
+🔴 ② 而真正的阻礙:**`git commit -F <檔>` 完全不吃 template。**
+   實測（拋棄式 repo，2026-08-20）:
+     commit.template = 含 `TEMPLATE-MARKER` 的檔
+     git commit -F msg.txt ⇒ 產出的 message 裡 **零 TEMPLATE-MARKER**
+   ⇒ template 只在【git 幫你開編輯器】那條路上生效，
+     而收割窗一律用 `-F`（那是本檔另一條紀律:訊息寫在前一個 Bash call，避開共用 /tmp 與 hook 時序）
+⇒ ⇒ **兩條紀律互斥:要 template 就得放棄 `-F`，而 `-F` 是為了防一個真的踩過的坑。**
+```
+📌 **而這一格本身是那條通則的實例**:
+「把規則放進他本來就會打開的東西裡」——**而我打開的那個東西(`-F` 的訊息檔)是我自己寫的**,
+**沒有任何機制會在那一刻提醒我。**
+⇒ **可行的剩餘方向(未做)**:寫 commit 訊息的那個 heredoc **自己帶骨架** ——
+即我每次 `cat > $S/cmsg.txt <<'EOF'` 時,**骨架就在我要打的第一行**。
+🔴 而那仍然依賴我記得用骨架 ⇒ **它是範本,不是機制。誠實標成範本。**
 ⚠️ **而本節的分母只算【收割窗自己的 merge】** —— 不含我落的 docs commit,
 也不含別的窗的 commit。**它量的是「我對自己的規矩的執行率」,不是全隊的。**
 
