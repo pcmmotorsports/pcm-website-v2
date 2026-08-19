@@ -114,9 +114,24 @@ route.ts:338 requireEnv throw ⇒ 503；而我們拿到的是 **200**
    「**ORDER_EMAIL_FROM 與 B4_DEPLOY_CUTOFF 確實未設**」
 ⇒ 🔴 **兩份證據對 ORDER_EMAIL_FROM 給相反答案。**
 ```
-**不要挑一個消滅。** 兩個都可能是真的(env 在那次實查之後被設上去了),
-而**分歧本身就是證據**:它說明**沒有人知道現在那顆 env 是什麼狀態**。
-⇒ 要收掉這格只有一種動作:**當場對 production 量一次那兩顆 env**(而那需要 Sean 或有 Vercel 通道的人)。
+**不要挑一個消滅。** 兩個都可能是真的(env 在那次實查之後被設上去了)。
+
+#### ✅ 而它 20 分鐘後就被收掉了 —— **答案是「時間」,不是「誰量錯」**
+W2 有 Vercel 通道(主樹有 `.vercel/`),當場跑 `vercel env ls production`(唯讀、**只列名稱不含值**):
+```
+ORDER_EMAIL_FROM   Encrypted  Preview, Production  created **3h ago**   ← ✅ 設了
+RESEND_API_KEY     Encrypted  Production, Preview  created 49d ago      ← ✅ 設了
+B4_DEPLOY_CUTOFF   🔴 整份清單裡【沒有這個名字】                          ← 未設
+分母：production 共 30 個名稱（與 traps:9141 當時數到的 30 一致）
+```
+⇒ **`created 3h ago` ⇒ 今天才設上去的** ⇒ **traps:9141 那次實查在它被設之前。兩份證據都是真的,中間世界變了。**
+📌 **可搬走的**:memory 那條「`vercel env ls` 最後一欄是 **created** 不是 updated ⇒ 答不出值改了沒」——
+**反向用法**:它答不出「值改了沒」,**卻答得出「這個名字第一次出現是什麼時候」**,而這一格要的恰好是後者。
+⚠️ **限定跟著走**:`3h ago` 是**名字被建立**的時間,不是「值現在是對的」;
+也不保證服務那兩發請求的 deployment 已經帶上它(**env 要 redeploy 才生效**)。
+
+🔴 **⇒ 給 Sean 的那句因此收窄成一件事**:
+~~兩顆 env 要查~~ ⇒ **只剩 `B4_DEPLOY_CUTOFF` 未設 = 唯一擋著信寄出去的東西,而設它 = 上膛。**
 ⚠️ **這一層錯了,客人收不到信,而後台什麼都不會紅。**
 
 ---
