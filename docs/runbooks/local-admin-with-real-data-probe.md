@@ -489,3 +489,58 @@ pkill -f "next dev -p 3051"
 埠　：lsof -nP -iTCP:3051 -sTCP:LISTEN                          ⇒ 無輸出(已釋放)
 🔴 程序死 ≠ 埠釋放，兩層都要驗。
 ```
+
+---
+
+## §11 🔴 種子資料會撞上的三道**寫在 schema 裡、而錯誤訊息不會告訴你**的東西
+
+> **來源**:W3 2026-08-19 建 `scripts/admin-probe/seed.sql` 時逐一踩過;
+> **本節由未踩過的人(W2)重寫措辭並逐條對 migration 覆核** ——
+> 踩到的人寫出來的坑,措辭會偏向「我當時卡在哪」,而下一個人需要的是「**我會怎麼撞上**」。
+> **每一條都附 `檔案:行號`,你可以自己開來打我。**
+
+### ⑪-1 🔴 你設的那個欄會被 trigger 無條件蓋掉,**而錯誤訊息指向一個你根本沒設的欄**
+
+```
+supabase/migrations/20260725120000_rf2a0_orders_freeze_shipping_rule.sql:79
+  NEW.shipping_method_at_checkout := NEW.shipping_method;      ← BEFORE INSERT，無條件
+:104  CREATE TRIGGER orders_freeze_shipping_snapshot_bi
+```
+⇒ 你在種子裡**自己填** `shipping_method_at_checkout`,**它會被丟掉**,改成 `shipping_method` 的值。
+⇒ 而 `shipping_method` 本身有**白名單**(`20260630120000:144` ⇒ `'home'` / `'store'` …)。
+🔴 **所以你會看到一個關於 `shipping_method_at_checkout` 的錯誤,而你根本沒設錯它** ——
+**你設錯的是 `shipping_method`,trigger 把錯的值搬過去了。**
+📌 **形狀**:**錯誤訊息會把你指到錯的地方。** 看到這類訊息時,先問「**這個欄是誰寫進去的**」。
+⚠️ 該檔 `:77` 自己記著這道 trigger 的已知限制(匯入歷史訂單時會覆蓋真實快照)。
+
+### ⑪-2 種子必須**整包在一個交易裡**
+
+repo 內有 `DEFERRABLE INITIALLY DEFERRED` 的跨表約束
+(`20260725130100:268`、`:273`、`20260730140000:217`)——
+它們**到 COMMIT 才檢查**,而 `psql` **預設每一句自己 autocommit**
+⇒ 一句一句餵會**在中途就被打回**,即使整包餵完是一致的。
+⇒ **做法**:`psql -1 -f seed.sql`(或檔內自己 `BEGIN; … COMMIT;`),不要逐句貼。
+
+### ⑪-3 `order_items` **沒有 `product_id`**,而 `product_snapshot` 是 **exact key set**
+
+```
+order_items 實際欄位(20260604120000_m3_s2a_orders_order_items.sql)：
+  id / order_id / variant_id / variant_sku / product_snapshot / quantity / unit_price / line_total
+```
+⚠️ **有 `variant_id`、沒有 `product_id`** —— 憑印象寫 `product_id` 會直接炸。
+而 `product_snapshot` 的 CHECK(`:158-166`)是**逐字這樣**:
+```
+?& array['title','sku','spec']                          必備三鍵
+(product_snapshot - array['title','sku','spec']) = '{}'  🔴 移除三鍵後必須是空物件 ⇒ 多一個鍵就違反
+title/sku 須 string、spec 須 object 且每個值皆 string
+NOT ((product_snapshot->'spec') ?| array['price_store','price_by_tier','cost'])
+```
+🔴 **它是白名單不是黑名單** —— **多帶任何一個鍵都會被拒**,不是「只要不帶價格就好」。
+📌 **為什麼這麼嚴**:那是鐵則 12 的縱深(經銷價零滲入)。
+⚠️ 而該檔自己標了射程:blacklist **只擋已知那 3 個欄名**,**改名的鍵靠 RPC 主路徑擋**
+(`backlog #213` 誠實揭示)⇒ **不要把這道 CHECK 讀成「價格絕對進不來」。**
+
+### 📌 這三條的共同形狀
+**它們都寫在 schema 裡,而你是在【種資料】的時候撞上的** ——
+你手上那份 `INSERT` 看起來完全合理,**而合不合理是別的檔決定的**。
+⇒ **種子寫不進去的時候,先讀建表 migration 的 CHECK 與 trigger,不要先改 INSERT。**
