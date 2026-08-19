@@ -24615,3 +24615,112 @@ migration 檔頭同語(20260701120000_m3_250_anomaly_alert_summary.sql:2/:5-6):
 ```
 ❓ 線上此刻有幾列 processing 超過 30 分 —— 本窗權限閘擋下 execute_sql，未量。
 ```
+
+### #761. 🧪 **後台** production build E2E —— 先解「測試怎麼登進去」,而它拆成三塊
+
+> 🔴🔴 **判別句(W6,`W6-080`;放在最前面是刻意的)**
+> **解掉「第一道牆」與解掉「這件事做得到」是兩回事,而前者讀起來很像後者。**
+
+- **狀態:** ⏳ 待執行(本條只做**後台**;顧客站那半是 `#288`)
+- **優先級:** 🟠 中(而**①那塊擋著現在掛在 `#288` 底下的那幾件**)
+- **來由:** 2026-08-20。`#288` 底下累積了數件「呼叫之後畫面有沒有真的更新」的驗證需求,
+  而 W3 發現後台的 prod build **連登入都進不去**(`GET /orders` ⇒ 303 → `/api/sso/start`)
+  ⇒ **那個前置不在 `#288` 的範圍裡,所以那幾件的估時全部是假的。** 盤點見 `~/pcm-mailbox/W4-071-…-20260820.md`。
+
+---
+
+#### 🔴🔴 開工前先讀這一段 —— **失敗的長相會把你騙去改錯的東西**
+
+```
+你會先撞到的【不是】303，是【票根本簽不出來】。
+   實測（2026-08-20 W4，對 session.ts 真函式跑，四發互相釘住）:
+   ┌──────────┬───────────────────────────────┬───────────────┬──────────────┬────────┐
+   │ 世界      │ 環境                            │ resolveEnvTag │ signSession  │ verify │
+   ├──────────┼───────────────────────────────┼───────────────┼──────────────┼────────┤
+   │ 正對照    │ NODE_ENV=development           │ local         │ 簽出 203 字元 │ ok     │
+   │ 🔴 第一發 │ NODE_ENV=production、VERCEL_ENV 未設 │ **null**  │ **null**     │ 沒票可驗│
+   │ ✅ 第二發 │ production + VERCEL_ENV=development │ development │ 簽出 203 字元 │ ok     │
+   │ 負對照    │ 同上但 ADMIN_SESSION_SECRET='short' │ development │ **null**    │ 沒票可驗│
+   └──────────┴───────────────────────────────┴───────────────┴──────────────┴────────┘
+🔴 症狀不是「被導走 / 401」，是【你的測試連票都造不出來】
+   ⇒ 而那會長得像「我的簽票工具寫錯了」，**不像「環境沒設對」**
+   ⇒ 沒有這一段，下一個人會去改簽章邏輯，而那裡沒有錯。
+```
+**成因**(`apps/admin/src/lib/session/session.ts:92-104` `resolveEnvTag()`):
+`VERCEL_ENV` 有值只認 `{production, preview, development}`;未設則看 `NODE_ENV` 而只認 `{development, test}`(`:108`)。
+**production build 兩者皆不中 ⇒ `null` ⇒ `getKey()`(`:128`)回 `null` ⇒ 什麼票都簽不出、驗不過。**
+⇒ **解法是設 `VERCEL_ENV`,那是【設定】不是【繞過】** —— 它正是機制要的輸入。
+📌 負對照那格證明 **secret 長度(`:53`,<32 視為未設)與 envTag 是【兩道獨立的閘】** ⇒ 設了 `VERCEL_ENV` 不代表萬事 OK。
+
+---
+
+#### 三塊(**分開估、分開做,②③ 不擋 ①**)
+
+##### **①【看畫面】的 E2E —— 那幾件多半只需要這塊**
+```
+要備齊三樣:
+  ADMIN_SESSION_SECRET（≥32 字元，測試專用、當場自己生，不從任何地方讀）  session.ts:53
+  VERCEL_ENV ∈ {production, preview, development}                        session.ts:92-104
+  用 session.ts:7 那條公式自簽的 session cookie                            → 過 proxy.ts:36-60 登入閘
+🔴 這是【給閘一把測試用鑰匙】，不是拆閘:verifySessionDetailed 一行都不改，而且它是真的在驗。
+✅ 不碰 server action、不需要 actor cookie、**不需要報價單 repo**。
+
+🔴🔴 **第四樣:資料源 —— 上面三樣只解「進得去」,不解「有東西可看」**(W6 `W6-080` must-fix)
+```
+apps/admin/src/app/orders/page.tsx:8 → order-repository.ts:2-3
+  → SupabaseOrderAdapter / createSupabaseServiceClient
+⇒ 這一頁【沒有資料來源就渲染不出來】
+⇒ 過了登入閘之後看到的不是訂單頁，是一個【取不到資料的錯誤】——
+  而那個畫面同樣會被讀成「功能壞了」。
+✅ 而缺的那一半已經有 runbook:`docs/runbooks/local-admin-with-real-data-probe.md`
+   （拋棄式 PG + PostgREST + 自簽 JWT，零 secret、不碰 .env*）
+```
+⚠️ **而兩份還沒有人合起來跑過**(W6 逐字):
+> **「prod build + 拋棄式資料源 + 自簽 cookie」目前是【推的】,沒有人量過。**
+
+成因:那份 runbook 走 `next dev` + `ADMIN_DEV_BYPASS=1`,**而本塊要的正是 prod build**
+—— 而 dev bypass 在 prod **不生效**(`proxy.ts:18` / `authorize.ts:18` 皆掛 `NODE_ENV !== 'production'`),
+**那正是撞牆的原因**。⇒ **開工第一件事是把這兩份合起來跑一次,不是直接寫測試。**
+```
+**估:半天～一天(信心中)** —— 簽票公式已存在,不用發明。
+⚠️ **這個估【不含】把資料源合起來那一格**(它沒有人量過 ⇒ 估不出來)。
+
+##### **②【做操作】的 E2E**
+①之外再加(`authorize.ts:18-45` 三道:session / Origin / actor):
+`Origin` 標頭(**精確等值**比對,測試 base URL 要對得上)+ `pcm_admin_actor` cookie(`actor.ts:11`)。
+**估:再一天(信心低)** —— 每個 action 還各有自己的前置資料。
+
+##### **③【真實 SSO 登入】的 E2E ⇒ 另立條、不掛在本條底下**
+```
+🔴 拆出去的理由【不是它不重要，是它太重要，不該卡在別人後面】。
+它的價值:memory `project_0819-admin-login-is-coupled-to-quote` 記著
+  「動 admin session/cookie/SSO 任何一段，對面那個 repo 會一起壞，而【沒有東西會紅】」
+⇒ 這條 E2E 正好蓋住那個零訊號的縫 ⇒ **它是三塊裡唯一擋得住跨 repo 事故的**。
+成本:要報價單 repo 一起起來（proxy → /api/sso/start → sso/start/route.ts:35 導 config.quoteBase）
+     + 兩邊 env 對齊。**不估。**
+```
+
+---
+
+#### 🔴 現在掛在 `#288` 底下那幾件,逐條需要哪一塊
+```
+① #287     顧客站品牌篩選          ⇒ 與本條無關（那是 #288 前台那半）
+② #741     後台訂單篩選畫面沒更新   ⇒ **①**
+③ MAIN-066 第 5 條 點另一張單明細沒更新 ⇒ **①**
+④ 其餘後台「呼叫後畫面有沒有更新」類 ⇒ **①**
+⇒ 🔴 **重新分類本身就是產出**:它們不是「卡在一件大事」，是【卡在一件小事】——
+   ①那塊估半天～一天，而它們原本掛在一個【沒有人量過範圍】的條目下面。
+```
+
+#### ⚠️ 未量 / 誠實邊界
+```
+❌ 沒有實際起過 prod server ⇒ 「GET /orders 回 303」我沒有親眼量到
+   ✅ 但量到了那條路上【必經的第一環】不成立（上表第一發）
+❌ 沒量 Origin / actor 那兩道（②那塊全部未量）
+❌ 🔴 起 prod server 有一個【與本題無關的風險】要先處理:
+   apps/admin/.env.local **存在**，而 next build/start 會自動讀它，那份指著**正式站**
+   （`docs/design/admin-design-system.md` 檔頭）⇒ **做 ① 之前要先決定怎麼隔離它。**
+   （這也是上表為什麼是對函式跑、不是對 server 跑 —— 更小的量法答得出同一題。）
+```
+- **不修未來會痛在哪:** 那幾件會一直掛在一個「沒有人量過範圍」的條目下面,**而每次重估都會得到一個假的數字** —— 因為真正的第一道牆不在任何人的清單上。
+- **相關:** `#288`(顧客站那半、共用 `e2e-prod` 骨架)/ `#741` / `MAIN-066` / 鐵則 12②(不得為了測試繞過安全機制)
