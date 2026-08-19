@@ -1,7 +1,9 @@
 /**
  * @module @pcm/adapters/payment/EmailAlertNotifierAdapter — Email 告警推播(M-3 #250、Q1=C)
  *
- * **🔴 server-only**:持 Resend API key(敏感、絕不進 client bundle)。送固定格式**零 PII** 告警 email 給 Sean。
+ * **🔴 server-only**:持 Resend API key(敏感、絕不進 client bundle)。送固定格式告警 email 給 Sean。
+ * 🔴 **內容【含訂單單號】,不再是零 PII**(~~原句「零 PII」~~ 2026-08-19 作廢;
+ *    誰在什麼時候為什麼打開那道閘,見 `packages/use-cases/src/check-anomaly-alerts.ts` 檔頭)。
  *
  * 用原生 fetch POST `https://api.resend.com/emails`(零新依賴、不裝 resend package);非 2xx / transport
  * 失敗 → throw **通用訊息 + status(不含 API key)**。use-case 計入 error → cron route 503(管道壞必須可見)。
@@ -42,7 +44,7 @@ export class EmailAlertNotifierAdapter implements IAlertNotifier {
         from: this.cfg.from,
         to: this.cfg.to,
         subject: message.subject,
-        text: message.text, // 純文字內文、零 PII 只含計數
+        text: message.text, // 純文字內文、**含訂單單號**(見檔頭)
       }),
     });
     if (!res.ok) {

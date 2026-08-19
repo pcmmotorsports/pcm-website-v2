@@ -207,7 +207,7 @@ export function getPollSettleThrottle(): IPollSettleThrottle {
  * ANOMALY_ALERT_ENABLED disabled 路徑「零 DB env 依賴」仰賴此:gate 在建 deps 前 return,不觸發本 factory)。
  *
  * - reader = PgAnomalyAlertReaderAdapter(payment_confirmer 窄權鑰 `PAYMENT_CONFIRMER_DB_URL`、零新密鑰;
- *   呼 SECDEF 聚合 RPC 受控窗讀零 PII 計數)。
+ *   呼 SECDEF 聚合 RPC 受控窗讀計數 **與訂單單號**;~~原寫「零 PII 計數」~~ 2026-08-19 作廢)。
  * - notifiers = 依「主密鑰存在性」逐管道組(Q1=A+C LINE+Email;primary 密鑰在 → requireEnv 其餘部件、
  *   **部分設定 = fail-fast throw** 防漏設);🔴 enabled 但零管道 → throw(沉默告警 = 最糟、fail-closed)。
  */
