@@ -480,6 +480,21 @@ describe('🔴🔴 `#742` 殘餘 — 兩個 producer 現在吃同一張表,輸�
       'ord-1',
     );
 
+    // 🔴🔴 **本格的【前提】斷言 —— W6 審 `7e76007f` 的 nit,而它守的是這支測試自己。**
+    //
+    //   下面那條「逐字相同」之所以抓得到「有人繞過共用表」,靠的是:
+    //   `order-filter-controls.tsx` 的物件字面**刻意與 `ORDER_LIST_URL_KEYS` 不同序**,
+    //   而**錯位的那兩軸在本格【真的有值】** —— `payment_status`('paid')與
+    //   `order_source`(['web','manual_line'])在兩份順序裡的相對位置相反。
+    //   ⚠️ **位移最大的日期兩軸在本格刻意不帶** ⇒ 它們對這道守門**零貢獻**
+    //     (空值會被 `buildListHref` 略過 ⇒ 順序差異看不出來 —— 實測過:第二版就是這樣沒紅)。
+    //
+    //   🔴 **所以「這一格為什麼要同時設兩個篩選?拿掉一個吧」= 把這道守門靜靜關掉。**
+    //     會做那件事的人打開的是**本檔**,而說明原本只寫在 `.tsx` 的字面旁邊
+    //     ⇒ **一道守門的前提若沒寫在會動到它的那個檔裡,那個前提就沒有守護者。**
+    expect(fromClient).toContain('payment_status=');
+    expect(fromClient).toContain('order_source=');
+
     // 🔴 server 側刻意不帶 `customer`（列表連結收掉客人卡，那是表上寫著的決定）
     //    ⇒ 拿掉它之後兩邊必須逐字相同。**這一格同時釘住那個決定還在。**
     const clientNoCustomer = fromClient.replace('&customer=cus-9', '');
