@@ -25,6 +25,19 @@ import { carrierLabelOf } from '../../lib/shipping/carrier-label';
 import { toPaymentSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import { shippingMethodLabel } from '../../lib/orders/order-detail-view';
+
+/**
+ * 片14:收件人一行 —— 確認稿 `:543` 逐字「姓名、電話、地址用**逗號連著排,中間不留空白**」。
+ *
+ * 🔴 **缺值印 `—` 而不是跳過那一格**:跳過會讓 `王小明,台中市…`(缺電話)
+ *    讀起來像一筆完整資料 —— **少了的那格沒有任何訊號**。印 `—` 才看得出來缺哪一個。
+ *    (與頁首那張卡原本的 `value ?? '—'` 同一個約定,搬過來時一併帶著。)
+ */
+function recipientLine(detail: AdminOrderDetail): string {
+  const a = detail.shippingAddress;
+  return [a.name, a.phone, a.line].map((v) => (v === null || v === '' ? '—' : v)).join(',');
+}
 
 /**
  * 「尾款 X 未收」—— **出貨**那顆鈕旁邊的那一句(片9;設計稿 08-17 `:349`)。
@@ -131,7 +144,19 @@ export async function ShipmentSection({
           等於單張訂單版的勾單流程(預選 = 本單全部還能出的品項),
           走的是**同一個** `useShipmentLauncher` 與同一個彈窗 —— 不是第二份實作。 */}
       <div className='mb-3 flex flex-wrap items-start justify-between gap-2'>
-        <h2 className='font-semibold'>出貨</h2>
+        {/* 🔴🔴 **rebase 時這裡撞了,而兩邊都要留 —— 記下來因為【只留一邊】不會有東西紅**
+            (2026-08-19 片14 併 dev `057ffe4c`;W4 退回,理由:照原樣併會讓一個已上線的警示從畫面上消失):
+              dev 那半 = `ShipmentBalanceNote`(尾款三態,就在出貨鈕旁邊)
+              片14 那半 = 標題旁的出貨方式
+            **它們在版面上是左右兩端,語意上互不相干** ⇒ 合起來,不是二選一。 */}
+        <h2 className='font-semibold'>
+          出貨
+          {/* 🔴 出貨方式緊貼標題 —— 確認稿 `:343` 逐字 `出貨 … 宅配到府`。
+              它原本住在頁首「收件與出貨」那張卡裡(片14 把那張卡拿掉,先給家再搬走)。 */}
+          <span className='text-muted-foreground ml-2 text-sm font-normal'>
+            {shippingMethodLabel(detail.shippingMethod)}
+          </span>
+        </h2>
         <span className='flex flex-wrap items-center gap-2'>
           {/* 🔴🔴 **尾款這一格有【三態】,不是兩態**(片9;設計稿 08-17 `:349` 只畫了「尾款 13,800 未收」那一種)。
               而 `payment-list.tsx:114-118` 的檔頭逐字寫著為什麼不能只做兩態:
@@ -144,6 +169,16 @@ export async function ShipmentSection({
           <ShipmentBalanceNote detail={detail} payments={payments} />
           <OrderShipButton orderId={detail.id} />
         </span>
+      </div>
+
+      {/* 🔴 片14:收件人資訊 —— 確認稿 `:345` 標題逐字「收件人資訊」、`:543` 逐字
+          「姓名、電話、地址用**逗號連著排,中間不留空白**」。
+          ⚠️ **三個欄位缺任何一個都印 `—`、整行照樣在**:
+             整行藏起來會讓「客人沒填」與「這次讀不到」在畫面上長得一模一樣,
+             而出貨前看不到收件人=員工會憑印象寄。(同檔 `groups === null` 那段是同一條 fail-closed 精神。) */}
+      <div className='mb-3 text-sm'>
+        <span className='text-muted-foreground mr-2'>收件人資訊</span>
+        <span className='break-all'>{recipientLine(detail)}</span>
       </div>
 
       {/* 🔴🔴 `null` = 本單的箱品項清單**可能不完整**(截斷),不是「沒有箱」
@@ -161,7 +196,16 @@ export async function ShipmentSection({
           請到<b>訂單列表</b>勾選那幾張單、按「出貨」。
         </p>
       ) : (
-        <ul className='space-y-3'>
+        <>
+          {/* 🔴 片14:確認稿 `:354` 逐字「已出貨包裹」+ 箱數。
+              ~~原本這張清單沒有標題~~ —— 沒有標題時它緊貼在收件人資訊底下,讀起來像同一塊。
+              字級沿用同層既有的 `text-sm font-semibold`(與下方「未收尾的空箱」同款)
+              ⇒ **不對「包裹卡字級 13 或 15」那題表態,那題 Sean 還沒答**(`MAIN-057 §5`)。 */}
+          <h3 className='mb-2 text-sm font-semibold'>
+            已出貨包裹
+            <span className='text-muted-foreground ml-2 font-normal'>{groups.length} 箱</span>
+          </h3>
+          <ul className='space-y-3'>
           {groups.map(({ shipment, lines }) => {
             const voided = shipment.voidedAt !== null;
             const shipped = shipment.shippedAt !== null;
@@ -283,7 +327,8 @@ export async function ShipmentSection({
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </>
       )}
 
       {/* 🔴 這句話是必要的,不是贅字:同一箱可能還裝著別單的東西,而本卡只列本單的。 */}

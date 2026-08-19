@@ -38,10 +38,20 @@ import { ShipmentSection } from './shipment-section';
 // 🔴 `total` 補上 —— DB 的 `orders.total` 是 **NOT NULL**(`20260604120000:104`;
 //    `:103` 是 `discount_total`,不是它 —— 原本引錯行,2026-08-19 開檔核過改正),
 //    fixture 少給它才是不真實的那一邊。片9 的尾款要用它。
+// 🔴 片14:再補上 `shippingAddress` / `shippingMethod`。
+//    ~~原本只有 `id` 與 `items`~~ —— 它靠 `as unknown as` 把型別的話壓下去,
+//    而元件本來就沒讀那兩欄,所以**一直沒事**。片14 開始讀了,13 格當場全紅。
+//    📌 **那不是片14 弄壞的,是這個 cast 一直在賒帳** ——
+//       `as unknown as` 讓 fixture 可以少給欄位而 typecheck 不紅,
+//       **少的那些欄位在有人讀到它之前都是隱形的。**
+//    📌 而片9 與片14 **各自補了一次同一個 fixture**(rebase 時撞在一起)——
+//       兩次都是「元件開始讀一個新欄位」。**這個 cast 會一直收租,直到有人把它拆掉。**
 const detail = {
   id: 'o1',
   items: [{ id: 'oi-1', title: '鈦合金頭段' }],
   total: { amount: 5000 },
+  shippingAddress: { name: '沈佑霖', phone: '0912345678', line: '台中市西屯區文心路二段 201 號' },
+  shippingMethod: 'home',
 } as unknown as AdminOrderDetail;
 
 const emptyBox = (reference: string) => ({
@@ -351,4 +361,56 @@ describe('🔴🔴 片11 兩顆 chip:【加上去】不是換掉,而作廢的箱
     expect(screen.queryByText('已作廢'), '作廢那行狀態文字不見了 ⇒ 作廢箱與未交寄箱長得一樣').not.toBeNull();
     expect(screen.queryByText('已建立'), 'chip 畫在作廢箱上 ⇒ 進度線沒有「作廢」這個位置,會誤導').toBeNull();
   });
+});
+
+// ── 🔴 片14:出貨區照「720 側邊欄確認稿」補齊(2026-08-19)──
+//
+// 權威 = Aug-17 18:39「720 側邊欄確認稿」(`<title>` 逐字)。**出貨區是九塊裡唯一畫滿的一區(4/4)**
+// ⇒ 這一節守的是「稿真的畫了、而我方原本沒有」的那幾格,不是我自己的版面偏好。
+//   `:345`/`:543` 收件人資訊(姓名、電話、地址逗號連排,中間不留空白)
+//   `:354`      已出貨包裹 + 箱數
+//   `:378`      作廢這一箱
+//
+// 🔴 **這幾個字面同時是「頁首那張卡可以拿掉」的前提** —— 先給家、再搬走。
+//    ⇒ 它們紅了不只是文案錯,是**資訊沒有家了**(頁首那張卡已經在同一片裡拿掉)。
+describe('🔴 片14:出貨區的收件人資訊與包裹標題', () => {
+  it('收件人資訊:姓名,電話,地址 逗號連排、中間不留空白', async () => {
+    const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(container.textContent).toContain('收件人資訊');
+    // 🔴 比對**整串**,不是分開找三個值 —— 分開找的話「中間不留空白」那條約定完全沒被守到。
+    expect(container.textContent).toContain('沈佑霖,0912345678,台中市西屯區文心路二段 201 號');
+  });
+
+  it('🔴 缺值印「—」而且整行還在(不是把行藏起來)', async () => {
+    const noPhone = {
+      ...(detail as unknown as Record<string, unknown>),
+      shippingAddress: { name: '沈佑霖', phone: null, line: '台中市西屯區文心路二段 201 號' },
+    } as unknown as AdminOrderDetail;
+    const { container } = render(await ShipmentSection({ detail: noPhone, payments: PAYMENTS_UNREADABLE }));
+    // 正向錨:整行仍在。少了這條,下面那條在「整區沒渲染」時會恆綠。
+    expect(container.textContent, '收件人資訊整行不見了 ⇒ 下面那條斷言會恆綠').toContain('收件人資訊');
+    expect(container.textContent).toContain('沈佑霖,—,台中市西屯區文心路二段 201 號');
+  });
+
+  it('包裹清單有標題「已出貨包裹」+ 箱數', async () => {
+    loadOrderShipments.mockResolvedValue([
+      { shipment: emptyBox('K7X2MP'), lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }] },
+    ]);
+    const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(container.textContent).toContain('已出貨包裹');
+    expect(container.textContent).toContain('1 箱');
+  });
+
+  it('🔴 沒有任何包裹時【不得】出現「已出貨包裹」標題(負向對照,防我把標題掛在區塊上)', async () => {
+    loadOrderShipments.mockResolvedValue([]);
+    const { container } = render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    expect(container.textContent, '出貨區沒渲染 ⇒ 下面那條會恆綠').toContain('收件人資訊');
+    expect(container.textContent).not.toContain('已出貨包裹');
+  });
+
+  // 📌 **「作廢這一箱」那個字面不在這一檔守** —— 本檔把 `ShipmentVoidButton` 整支 mock 成佔位
+  //    (檔頭 `vi.mock('./shipment-void-button')`,印的是「作廢 <箱號>」)。
+  //    ⚠️ **我第一版把斷言掛在這裡,它讀到的是【我自己的佔位】** —— 兩顆鈕都含「作廢」二字,
+  //       用關鍵字找會找到錯的那一顆,而它會回綠。
+  //    ⇒ 那個字面改守在 `shipment-void-button.test.tsx`(片14 新建,原本零測試)。
 });

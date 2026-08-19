@@ -118,12 +118,38 @@ describe('OrderEditForm — E11-2 重構後的錢面欄位契約', () => {
     }
   });
 
-  it('should keep the shipping method required with its length cap and prefill current values', () => {
+  /**
+   * 🔴 **片15(2026-08-19)改了這一格的契約,而【改測試】這件事要交代清楚**:
+   *    出貨方式由 `<input type='text' maxLength={64}>` 換成 `<select>`(白名單 `home` / `store`)。
+   *    ⇒ `maxLength` 這條**不是放寬,是它所屬的元件不存在了**;新的斷言釘的是更強的東西:
+   *      **員工只選得到白名單裡的值。**
+   *    理由與四條逐字證據見 `order-edit-form.tsx` 那段註解與 `workflow-form.ts` 的白名單那段。
+   *
+   * 🔴🔴 **而這個 fixture 本身是一份證據,我不改它**:`ORDER_DETAIL.shippingMethod = '新竹物流'`
+   *    —— **一個非白名單值**。它證明**寫這份 fixture 的人當時預期這一欄放得下快遞名。**
+   *    ⇒ 它剛好把「非白名單舊值原樣保留」那個分支撐起來,讓那個分支**在測試裡可達**。
+   *    ⚠️ 而**正式庫今天沒有這種值**(2026-08-19 兩把獨立的尺實量:`home 14 / store 5`、第三種 0)
+   *       ⇒ **那個分支守的是【未來】,不是【現在】**。誰要清死碼,先讀這一段。
+   */
+  it('出貨方式是白名單 select;非白名單的舊值原樣保留成一個選項(不靜默改成 home)', () => {
     const { container } = render(<OrderEditForm detail={ORDER_DETAIL} returnTo='/orders/ord-1' />);
-    const shipping = field(container, SHIPPING_METHOD_FIELD) as HTMLInputElement;
+    const shipping = field(container, SHIPPING_METHOD_FIELD) as HTMLSelectElement;
+    expect(shipping.tagName, '不是 select ⇒ 又變回自由文字了').toBe('SELECT');
     expect(shipping.required).toBe(true);
-    expect(shipping.maxLength).toBe(64);
-    expect(shipping.value).toBe('新竹物流');
+    // 白名單兩個都在,而且印的是中文(不是 raw enum)
+    const options = [...shipping.options].map((o) => [o.value, o.textContent] as const);
+    expect(options).toEqual(
+      expect.arrayContaining([
+        ['home', '宅配'],
+        ['store', '自取'],
+      ]),
+    );
+    // 🔴 舊值原樣保留 —— 這一條是「不准悄悄改資料」的守門
+    expect(shipping.value, '舊值被靜默改掉了 ⇒ 那是【改資料】,比顯示錯嚴重').toBe('新竹物流');
+    expect(
+      options.find(([v]) => v === '新竹物流')?.[1],
+      '保留的那個選項要讓員工看得出來它不合法',
+    ).toContain('非白名單');
     expect((field(container, INVOICE_AMOUNT_FIELD) as HTMLInputElement).value).toBe('4000');
     expect((field(container, INVOICE_STATUS_FIELD) as HTMLSelectElement).value).toBe('issued');
   });

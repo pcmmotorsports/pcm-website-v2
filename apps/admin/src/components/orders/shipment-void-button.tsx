@@ -76,7 +76,7 @@ export function ShipmentVoidButton({
         onClick={() => setOpen(true)}
         className='text-destructive border-destructive/40 rounded-md border-input border px-2 py-1 text-xs'
       >
-        作廢這箱
+        作廢這一箱
       </button>
     );
   }

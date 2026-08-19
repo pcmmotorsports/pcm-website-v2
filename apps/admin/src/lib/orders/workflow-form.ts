@@ -110,7 +110,8 @@ export const WORKFLOW_SINGLE_FIELDS = [
  * - order_id 須 UUID、version 須 1..2147483646 整數,否則 ok:false;
  * - patch 欄「未提供(表單無此欄)」= 不放進 patch(RPC 不動該欄);「提供」則按下列規則:
  *   · workflow_status:**D-2 起一律忽略**(orders 層停寫;A9w4a 後 item 層 parser 亦已移除);
- *   · shipping_method:非空 → 設定(RPC 再驗長度);空 → ok:false(NOT NULL、UI 不該送空);
+ *   · shipping_method:**必須是 `home` / `store`**,否則 ok:false(片15;~~原「非空 → 設定(RPC 再驗長度)」~~
+ *     —— 那一版只驗長度,而這一欄無表 CHECK、改單也不經過 create_order 的白名單);空 → ok:false(NOT NULL);
  *   · invoice_number:空 → null(清空);非空 → 設定;
  *   · invoice_amount:空 → null(清空);非空且為十進位整數 → 設定;非整數 → ok:false;
  *   · invoice_status:三值之一 → 設定;否則 ok:false。
@@ -148,6 +149,29 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
   if (shippingRead.kind === 'value') {
     const raw = shippingRead.value.trim();
     if (raw === '') return { ok: false }; // NOT NULL
+    // 🔴🔴 **片15(2026-08-19):白名單擋在這裡,不是只擋在畫面上。**
+    //    畫面那顆 `<select>`(`order-edit-form.tsx`)只是 UX —— **一發 POST 就繞過去了**,
+    //    ⇒ 真正的守門必須在這一層。**這一層之前只驗長度**(本檔 docstring 原句逐字
+    //       「shipping_method:非空 → 設定(RPC 再驗長度)」)。
+    //    🔴 **而下游沒有第二道**:
+    //      · `orders.shipping_method` **沒有表 CHECK** —— 建表 migration
+    //        `20260604120000_m3_s2a_orders_order_items.sql:105` 逐字「白名單在 RPC…**不加表 CHECK**」、
+    //        `:135` COLUMN COMMENT 逐字「白名單 home/store…驗證在 create_order RPC、本欄 text 無表 CHECK」
+    //      · 而那道 RPC 驗證(`20260630120000_m3_241_checkout_consent.sql:144-145`)**只在【下單】那條路上**,
+    //        **改單這條路根本不經過它**。
+    //    ⇒ 在這一行之前,後台改單可以把**任何 64 字以內的字串**寫進正式欄位,而沒有東西會紅。
+    //    🔴 **下游真的在讀它**:退款運費重算走 `mode === 'store' ? 0 : fee`
+    //       ⇒ 任何非 `store` 的雜訊值都會被當成宅配算運費。
+    //    📎 而凍結運費快照那套設計的 apply 前置斷言逐字要求
+    //       「`admin_audit_log` 內真的改過 `shipping_method` 的筆數 = 0」
+    //       (`docs/archive/2026-07-25-docs-cleanup/handoff/2026-07-25-rf2a0-freeze-shipping-handoff.md:57`)
+    //       ⇒ **那套設計是踩在「沒有人從後台改過它」上面的,而後台一直改得動。**
+    //    ✅ **收窄不影響任何既有資料**:正式庫實量(2026-08-19,W5 與主視窗**兩把獨立的尺**)
+    //       `select shipping_method, count(*) from orders group by 1` ⇒ `home 14 / store 5`,**零第三種值**。
+    //    ⚠️ **這一改收窄了寫入能力**(原本打得出自訂快遞名)。主視窗 2026-08-19 裁「照做、不問 Sean」,
+    //       理由:查無任何拍板說自訂是刻意的 / 正式庫 0 筆在用 / 後台尚未對員工開放。
+    //       **若日後要支援自訂送法,那要另外設計一個真的欄位,不是借這一欄。**
+    if (raw !== 'home' && raw !== 'store') return { ok: false };
     patch.shippingMethod = raw;
   }
 

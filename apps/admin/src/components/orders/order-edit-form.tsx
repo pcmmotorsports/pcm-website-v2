@@ -1,5 +1,6 @@
 import type { AdminOrderDetail } from '@pcm/domain';
 import { updateOrderWorkflowAction } from '../../lib/orders/order-actions';
+import { shippingMethodLabel } from '../../lib/orders/order-detail-view';
 import {
   ORDER_ID_FIELD,
   VERSION_FIELD,
@@ -53,15 +54,47 @@ export function OrderEditForm({
         </button>
       }
     >
+      {/* 🔴🔴 **這一格原本是 `<input type='text'>`,而它做了兩件壞事**(2026-08-19 片15,W1
+          在真瀏覽器打開後台才看到的 —— 讀 code 時它長得像一個正常的欄位):
+
+          ① **員工看到的是 raw enum `home`**,不是中文。全站每一處都印「宅配 / 自取」
+             (`order-detail-view.ts:50-54` 的 `shippingMethodLabel`),**只有這一格在對人講程式的話**。
+
+          ② 🔴 **更嚴重:它是自由文字,而這一欄有白名單而【沒有表 CHECK】。**
+             · 白名單逐字在 COLUMN COMMENT:`20260604120000_m3_s2a_orders_order_items.sql:135`
+               「白名單 home/store…**驗證在 create_order RPC**、本欄 text **無表 CHECK**」
+               同檔 `:105` 逐字「白名單在 RPC…**不加表 CHECK**」
+             · 而 **create_order 那道驗證只擋【下單】那條路**(`20260630120000…:144-145`
+               `NOT IN ('home','store') ⇒ RAISE`),**改單這條路不經過它**:
+               `workflow-form.ts:113` 逐字「shipping_method:非空 → 設定(**RPC 再驗長度**)」
+               —— **只驗長度,不驗白名單。**
+             ⇒ 員工打錯字或打「黑貓」都會寫進 `orders.shipping_method`,而**沒有任何東西會紅**。
+             🔴 **下游真的在讀它**:退款運費重算走 `mode === 'store' ? 0 : fee`
+                ⇒ **任何非 `store` 的雜訊值都會被當成宅配算運費。**
+             📎 旁證:`docs/archive/…/2026-07-25-rf2a0-freeze-shipping-handoff.md:57` 那支 migration
+                的 apply 前置斷言逐字要求「`admin_audit_log` 內**真的改過 `shipping_method` 筆數 = 0**」
+                ⇒ **凍結快照那套設計是踩在「沒有人從後台改過它」上面的。**
+
+          ⇒ 改成 `<select>`(與下面「開票狀態」同一個做法),值仍是 `home` / `store`、顯示走同一支 label 函式。
+          🔴 **不白名單外的舊值一律【原樣保留成一個選項】,不靜默改掉** ——
+             這一欄無表 CHECK ⇒ 歷史上可能已經有雜訊值;把它悄悄變成 `home` 是**改資料**,
+             而那比顯示錯更嚴重。它會帶著「非白名單」四個字,讓員工看得出來。
+          ⚠️ **這一改【收窄了寫入能力】**:原本打得出自訂字串(例:某家快遞名),現在打不出來。
+             我查不到任何拍板說那是刻意的(`git grep '黑貓' -- docs/` 只命中架構文件講「未來串黑貓 API」,
+             與這一欄無關)。**若 Sean 要保留自訂,那要另外設計成一個真的欄位,不是借這一欄。** */}
       <AdminFormField label='出貨方式'>
-        <input
-          type='text'
+        <select
           name={SHIPPING_METHOD_FIELD}
           defaultValue={detail.shippingMethod}
-          maxLength={64}
           required
           className={ADMIN_INPUT_CLASS}
-        />
+        >
+          <option value='home'>{shippingMethodLabel('home')}</option>
+          <option value='store'>{shippingMethodLabel('store')}</option>
+          {detail.shippingMethod !== 'home' && detail.shippingMethod !== 'store' && (
+            <option value={detail.shippingMethod}>{detail.shippingMethod}(非白名單,原樣保留)</option>
+          )}
+        </select>
       </AdminFormField>
 
       <AdminFormField label='開票狀態'>

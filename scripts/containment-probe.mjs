@@ -1,8 +1,19 @@
 // 片10 證偽用量具 —— container-type 會不會讓子孫的 position:fixed 被困住?
 // 用法: npx playwright ... 見檔尾;引擎由 argv[2] 指定 (webkit|chromium|firefox)
-// 由絕對路徑載入:本 worktree 沒有自己的 node_modules(worktree 不共用),
-// 而主樹的 pnpm store 有 playwright-core。要換機器跑就改這一行。
-import { webkit, chromium, firefox } from '/Users/sean_1/pcm-website-v2/node_modules/.pnpm/playwright-core@1.60.0/node_modules/playwright-core/index.mjs';
+// 從 apps/admin 的位置解析 playwright(它是那個 app 的直接依賴)。
+// 🔴 為什麼不寫 `import ... from 'playwright'`:本檔在 scripts/,而 pnpm 是嚴格解析 ——
+//    repo 根的 node_modules **沒有** playwright 頂層連結(實查:`ls -d node_modules/playwright-core` ⇒ 不存在)
+//    ⇒ 裸 specifier 從這裡解不到。用 createRequire 指到 apps/admin 才解得到。
+// 🔴 為什麼不再寫絕對路徑:原本那行釘死了機器路徑與 `playwright-core@1.60.0` 這個版本目錄
+//    ⇒ 換機器、換人、或 playwright 升版都會壞。改成這樣之後三者都不影響。
+// ⚠️ 前提:`apps/admin` 跑過 `pnpm install`。沒跑過會 MODULE_NOT_FOUND —— **會大聲,不會假綠**。
+import { createRequire } from 'node:module';
+const requireFromAdmin = createRequire(new URL('../apps/admin/package.json', import.meta.url));
+// ⚠️ 這裡吃的是【檔案系統路徑】,POSIX 可以;搬到非 POSIX 平台(Windows/CI)要用
+//    `pathToFileURL()` 包成 file:// URL 才穩。本 repo 只跑在 macOS ⇒ 現在不加。
+const playwright = await import(requireFromAdmin.resolve('playwright'));
+// playwright 是 CJS ⇒ 具名匯出掛在 default 上(實測:直接取 m.webkit 是 undefined)
+const { webkit, chromium, firefox } = playwright.default ?? playwright;
 
 const ENGINES = { webkit, chromium, firefox };
 const name = process.argv[2] || 'webkit';

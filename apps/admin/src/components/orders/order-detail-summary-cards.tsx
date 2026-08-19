@@ -1,4 +1,15 @@
-// order-detail-summary-cards.tsx — 訂單明細頁上方的四張摘要卡(客戶 / 收件出貨 / 付款 / 發票)。
+// order-detail-summary-cards.tsx — 訂單明細頁上方的三張摘要卡(客戶 / 付款 / 發票)。
+//
+// 🔴 **片14(2026-08-19)拿掉了「收件與出貨」那一張**,~~原本是四張~~。
+//    拿掉的**條件**是它 4 個欄位全部先有了家,不是因為設計稿沒畫它:
+//      收件人 / 電話 / 地址 → `shipment-section.tsx` 的「收件人資訊」一行(確認稿 `:345`/`:543`)
+//      出貨方式             → 同檔「出貨」標題旁(確認稿 `:343`)
+//    ⇒ **先給家、再搬走**;順序反過來會有一個「資訊已消失、新家還沒蓋好」的中間狀態。
+// 🔴 **另外三張卡刻意留著**:它們有 8 個欄位在確認稿上**沒有落點**
+//    (客人電話/Email、出貨狀態、來源·管道、付款時間、發票需求型式/統編/載具)。
+//    而那份稿 `:78` 自己標了覆蓋率「repo 有幾個 / 這張稿畫了幾個」⇒ 九塊合計 **24 / 8**,
+//    `:490` 逐字「稿上沒畫,不代表後台比較陽春」。
+//    ⇒ **稿答得出【它畫了什麼】,答不出【該不該有】。** 要不要拿掉那三張=待 Sean 拍板,不自決。
 //
 // 🔴 **為什麼抽出來**(鐵則 6):`order-detail.tsx` 卡在 404 行、距 400 只有 4 行。
 //    我在 `#13 片1c-2` 的檔頭立過一條**有期限的**約定:
@@ -39,7 +50,6 @@ import type { PaymentListData } from './payment-list';
 import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
 import {
   invoiceTypeLabel,
-  shippingMethodLabel,
   formatOrderDateTime,
 } from '../../lib/orders/order-detail-view';
 
@@ -341,20 +351,22 @@ export function OrderSummaryCards({
           完全沒有分隔線;只有 `bg-border` 而 gap 是 0 則底色永遠被格子蓋住、看不到。
        ⚠️ **容器斷點(`@md` / `@4xl`)一個字沒動** —— 那條的理由(同一份明細有整頁與面板兩個容器)
           與本片無關,不要順手一起改。 */}
-      <div className='grid gap-px border bg-border @md:grid-cols-2 @4xl:grid-cols-4'>
+      {/* 🔴🔴 片14:欄數改成 **`@md:grid-cols-3`,與上面頭條那一排(`:264`)同一個斷點與欄數**。
+          ⚠️ **我第一版寫的是 `@md:grid-cols-2 @4xl:grid-cols-3`,而它在【面板】裡是壞的** ——
+             那一版我推理過「4 欄少一張卡會多一個空格」,卻沒想到**同一件事在兩欄下一樣會發生**:
+             3 張卡排兩欄 = 2 + 1 ⇒ **第二列右邊那格是空的,而 `gap-px bg-border` 照樣把它畫成一個灰方塊。**
+          🔴 **這一格是【開瀏覽器】抓到的,讀 code 抓不到**(2026-08-19,真 Chrome、1440×900、
+             `/orders?panel=<id>` 那個 720px 面板)——
+             整頁版是 `@4xl` 命中、排 3 欄、看起來完全正常;**只有面板那一面破**,
+             而面板正是 Sean 每天在看的那一面。
+          ⇒ 改成跟頭條同一組:**兩面都排 3 欄,沒有空格**,而且兩排上下對齊。
+          📌 `@4xl` 那一段一併拿掉 —— 3 欄在整頁版也夠寬,留著只是多一個會漂的斷點。 */}
+      <div className='grid gap-px border bg-border @md:grid-cols-3'>
         <section className={CARD}>
           <h2 className={CARD_TITLE}>客戶資訊</h2>
           <Field label='姓名' value={detail.customer.name} />
           <Field label='電話' value={detail.customer.phone} />
           <Field label='Email' value={customerEmailDisplay(detail.customer.email)} />
-        </section>
-
-        <section className={CARD}>
-          <h2 className={CARD_TITLE}>收件與出貨</h2>
-          <Field label='收件人' value={detail.shippingAddress.name} />
-          <Field label='電話' value={detail.shippingAddress.phone} />
-          <Field label='地址' value={detail.shippingAddress.line} />
-          <Field label='出貨方式' value={shippingMethodLabel(detail.shippingMethod)} />
         </section>
 
         <section className={CARD}>
