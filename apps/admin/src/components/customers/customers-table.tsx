@@ -1,6 +1,16 @@
 import Link from 'next/link';
-import type { AdminCustomerSummary } from '@pcm/domain';
-import { TIER_LABEL, formatCustomerDate, customerEmailDisplay } from '../../lib/customers/customer-list-view';
+import type {
+  AdminCustomerSummary,
+  AdminCustomerFilter,
+  AdminCustomerSort,
+  AdminCustomerSortKey,
+} from '@pcm/domain';
+import {
+  TIER_LABEL,
+  formatCustomerDate,
+  customerEmailDisplay,
+  buildCustomerSortHref,
+} from '../../lib/customers/customer-list-view';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
 
@@ -9,7 +19,47 @@ import { AdminDataTable, type AdminColumn } from '../shared/admin-data-table';
 // E11-1:改用共用 <AdminDataTable>(積木第一片的驗證對象)。桌機欄位/樣式/連結行為與改前逐欄等價;
 //   新增的是手機版卡片(§4-1 規範,改前手機只能橫捲 5 欄表格)。
 
-const COLUMNS: ReadonlyArray<AdminColumn<AdminCustomerSummary>> = [
+/**
+ * 可排序欄頭 —— **一個 `<Link>`,零 JS、零 client component**(2026-08-19;主視窗裁「甲」)。
+ *
+ * 🔴 **為什麼不是「下拉 + `auto-apply-submit`」**:那顆元件解的是「**有一顆送出鈕要按**」,
+ *    而欄頭連結**沒有那顆鈕**。主視窗原本的邊界是從篩選那片繼承來的,而它自己認了
+ *    「**我把一個解法搬到一個沒有那個病的地方**」。
+ * 🔴 **`aria-sort` 掛在 `<th>` 上、不是掛在連結上** —— 它描述的是**這一欄**的狀態,不是那個連結。
+ *    ⚠️ 而本表的 `<th>` 由 `AdminDataTable` 產 ⇒ 我沒有辦法在這裡掛它
+ *       ⇒ **目前沒有 `aria-sort`**,那是這一片誠實的缺口(要補得動共用元件的 `<th>`)。
+ * 📌 箭頭用文字(`↑`/`↓`)不是圖示:**只有圖示的排序狀態,螢幕閱讀器讀不出來**,
+ *    而在補上 `aria-sort` 之前,那個字元是唯一講得出方向的東西。
+ */
+function SortableHeader({
+  label,
+  sortKey,
+  filter,
+  sort,
+}: {
+  label: string;
+  sortKey: AdminCustomerSortKey;
+  filter: AdminCustomerFilter;
+  sort: AdminCustomerSort | undefined;
+}) {
+  const active = sort?.key === sortKey;
+  return (
+    <Link
+      href={buildCustomerSortHref(filter, sort, sortKey)}
+      className={active ? 'underline' : 'hover:underline'}
+    >
+      {label}
+      {/* 🔴 只有**正在排這一欄**時才有箭頭 —— 每一欄都掛一個灰箭頭的話,
+          「目前照哪一欄排」就從畫面上消失了(而那正是員工要看的那一件事)。 */}
+      {active ? (sort.ascending ? ' ↑' : ' ↓') : ''}
+    </Link>
+  );
+}
+
+const columns = (
+  filter: AdminCustomerFilter,
+  sort: AdminCustomerSort | undefined,
+): ReadonlyArray<AdminColumn<AdminCustomerSummary>> => [
   {
     key: 'name',
     header: '姓名',
@@ -53,14 +103,18 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminCustomerSummary>> = [
   //       口徑寫在 view 的 `COMMENT` 與 `AdminCustomerSummary` 的 docstring 裡。
   {
     key: 'activeOrderCount',
-    header: '訂單數',
+    header: (
+      <SortableHeader label='訂單數' sortKey='orders' filter={filter} sort={sort} />
+    ),
     className: 'text-right tabular-nums',
     mobile: 'meta',
     cell: (c) => c.activeOrderCount,
   },
   {
     key: 'activeSpendTotal',
-    header: '消費金額',
+    header: (
+      <SortableHeader label='消費金額' sortKey='spend' filter={filter} sort={sort} />
+    ),
     className: 'text-right tabular-nums',
     mobile: 'meta',
     // 整數元位(禁浮點)—— 沿用訂單線既有的格式化,不自己拼字串。
@@ -68,7 +122,9 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminCustomerSummary>> = [
   },
   {
     key: 'lastActiveOrderedAt',
-    header: '最後下單',
+    header: (
+      <SortableHeader label='最後下單' sortKey='lastOrder' filter={filter} sort={sort} />
+    ),
     className: 'text-muted-foreground',
     mobile: 'meta',
     // 🔴 **零訂單是 `null`,必須顯示成「從未下單」,不得留白** ——
@@ -85,11 +141,19 @@ const COLUMNS: ReadonlyArray<AdminColumn<AdminCustomerSummary>> = [
   },
 ];
 
-export function CustomersTable({ customers }: { customers: AdminCustomerSummary[] }) {
+export function CustomersTable({
+  customers,
+  filter,
+  sort,
+}: {
+  customers: AdminCustomerSummary[];
+  filter: AdminCustomerFilter;
+  sort: AdminCustomerSort | undefined;
+}) {
   return (
     <AdminDataTable
       rows={customers}
-      columns={COLUMNS}
+      columns={columns(filter, sort)}
       getRowKey={(c) => c.id}
       emptyText='目前沒有符合條件的客戶。'
     />

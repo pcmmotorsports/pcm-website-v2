@@ -4,6 +4,7 @@ import type {
   Customer,
   CustomerId,
   AdminCustomerFilter,
+  AdminCustomerSort,
   AdminCustomerSummary,
   AdminCustomerListResult,
   Paginated,
@@ -231,6 +232,7 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
   async listCustomerSummariesForAdmin(
     filter: AdminCustomerFilter,
     pagination: PaginationParams,
+    sort?: AdminCustomerSort,
   ): Promise<AdminCustomerListResult> {
     // 🔴🔴 **搜尋詞走 RPC(POST + JSON body),絕不走 `.or()`**(`#525`)。
     //    `.or()` 是**把值內插進 GET query string** ⇒ 值裡的字元會**改變 filter 的結構**;
@@ -290,8 +292,46 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
     // 🔴 搜尋與 tier 是 **AND**:員工先選「經銷商」再搜名字,不該把 tier 洗掉。
     if (keywordIds !== null) query = query.in('user_id', keywordIds);
 
-    const { data, error, count } = await query
-      .order('created_at', { ascending: false })
+    /**
+     * 🔴🔴 **排序軸(2026-08-19)—— 兩個坑,而它們都【不會讓畫面看起來壞掉】。**
+     *
+     * **坑 1 · `last_active_ordered_at` 是 NULL,而 Postgres `DESC` 預設 NULLS FIRST**
+     *   那一欄零訂單時是 `NULL`(建 view 的 migration `20260816030000` 檔頭逐字
+     *   「**刻意不 coalesce**:沒有一個合理的『零日期』」)。
+     *   ⇒ 員工按「最後下單、由新到舊」,**第一頁全是從來沒下過單的人**,
+     *     而畫面看起來完全正常 —— 他只會覺得這個排序沒用,不會回報。
+     *   ⇒ **`nullsFirst: false` 兩個方向都要給**:升冪也要,否則反過來從最前面變最後面
+     *     只是換一邊錯。**「沒有值」在兩個方向都排最後。**
+     *
+     * **坑 2 · 排序要帶唯一鍵**(`docs/patterns/pagination-loop-review.md` 第五條)
+     *   ⚠️ **這個病現在就存在,不是本片引入的**:原本只有 `.order('created_at')` 一把,
+     *     同一秒建立的客人在翻頁時就會漂。
+     *   🔴 **而聚合欄會讓它嚴重一個量級**:`active_order_count = 0` 的客人可能有幾百個,
+     *     **它們之間完全沒有定序** ⇒ 翻頁時同一個人出現兩次、另一個永遠看不到。
+     *   ⇒ 一律追加 `user_id` 當第二鍵(view 的主鍵,唯一)。
+     *
+     * 📌 `sort` 省略 ⇒ 走既有的 `created_at DESC`。**換預設是行為改動**
+     *    (那是 Sean 每天打開先看到誰)⇒ 不歸這一片。
+     */
+    const SORT_COLUMN: Record<AdminCustomerSort['key'], string> = {
+      spend: 'active_spend_total',
+      orders: 'active_order_count',
+      lastOrder: 'last_active_ordered_at',
+    };
+    const sorted =
+      sort === undefined
+        // 🔴 預設那條**逐字維持原樣**(沒有 `nullsFirst`):`created_at` 是 NOT NULL
+        //    ⇒ 加上去零行為差異,而它會逼既有那格守門改斷言。
+        //    **不為了對稱去動一個沒有問題的分支** —— 那會讓「本片沒改預設行為」變成一句要解釋的話。
+        ? query.order('created_at', { ascending: false })
+        : query.order(SORT_COLUMN[sort.key], {
+            ascending: sort.ascending,
+            nullsFirst: false,
+          });
+
+    const { data, error, count } = await sorted
+      // 🔴 第二鍵:見上面坑 2。**拿掉它,列表在聚合欄相同的那一群裡會翻頁漂。**
+      .order('user_id', { ascending: true })
       .range(offset, offset + pagination.limit - 1);
     if (error) {
       throw error;

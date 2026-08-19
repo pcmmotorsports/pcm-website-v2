@@ -25,8 +25,17 @@ import type { ReactNode } from 'react';
 export type AdminColumn<T> = {
   /** React key 與除錯用;不顯示。 */
   key: string;
-  /** 桌機表頭文字。 */
-  header: string;
+  /**
+   * 桌機表頭。
+   *
+   * 🔴 **2026-08-19 由 `string` 放寬成 `ReactNode`**,而那是為了讓表頭可以是一個
+   *    **排序連結**(客戶頁三個數字欄)。`{col.header}` 本來就是這樣渲染的
+   *    ⇒ **渲染端一行都沒改**,其餘 4 個呼叫端傳字串仍然合法(字串是 `ReactNode`)。
+   * ⚠️ **手機版仍然只用得到文字**:窄版是「標題 / 副標 / 尾欄 / meta」的卡片形,
+   *    沒有表頭列 ⇒ 放進來的連結**在手機上不會出現**。
+   *    ⇒ 要讓手機也能排序是另一片(而 Sean `A2` 拍板「員工用電腦」⇒ 現在不做)。
+   */
+  header: ReactNode;
   /** 儲存格內容;回 null/undefined/空字串 = 沒值(桌機顯「—」、手機該欄整格不出現)。 */
   cell: (row: T) => ReactNode;
   /** 追加到桌機 <td> 的 class(對齊既有各表的逐欄樣式)。 */

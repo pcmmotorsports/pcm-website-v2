@@ -3,7 +3,12 @@
 // 客戶專屬:tier 白名單守門 / tier 標籤 / 註冊日期格式化。通用分頁 / param 解析 / 連結建構走 ../shared/list-params。
 // 無 server-only / DB / @/;型別 import 自 @pcm/domain(抹除)→ 可單測。
 
-import type { AdminCustomerFilter, MemberTier } from '@pcm/domain';
+import type {
+  AdminCustomerFilter,
+  AdminCustomerSort,
+  AdminCustomerSortKey,
+  MemberTier,
+} from '@pcm/domain';
 import { isSyntheticEmailDomain } from '@pcm/schemas';
 import { pickEnum, parsePage, buildListHref, type FilterOption } from '../shared/list-params';
 
@@ -76,6 +81,44 @@ export const TIER_OPTIONS: FilterOption[] = TIER_VALUES.map((v) => ({
   label: TIER_LABEL[v],
 }));
 
+// ─────────────── 排序(2026-08-19;plan 已批,主視窗裁「這不是決策題」)───────────────
+
+/** 網址上的排序參數名。**值走白名單,不是裸字串**(同 `tier` 那一軸的紀律)。 */
+export const SORT_PARAM = 'sort';
+export const DIR_PARAM = 'dir';
+
+/**
+ * 網址值 → domain 的排序鍵。
+ *
+ * 🔴 **網址用 snake、domain 用 camel,而這裡是唯一的對照表** ——
+ *    兩邊各自定義一份的話,改一邊就會出現「網址寫著 last_order 而它照 created_at 排」,
+ *    **而畫面看起來完全正常**。
+ */
+const SORT_URL_TO_KEY: Record<string, AdminCustomerSortKey> = {
+  spend: 'spend',
+  orders: 'orders',
+  last_order: 'lastOrder',
+};
+const SORT_KEY_TO_URL: Record<AdminCustomerSortKey, string> = {
+  spend: 'spend',
+  orders: 'orders',
+  lastOrder: 'last_order',
+};
+
+/** `asc` / `desc` 以外一律當沒指定 ⇒ 落到該軸的預設方向。 */
+const DIR_ASC = 'asc';
+const DIR_DESC = 'desc';
+
+/**
+ * 各軸**點下去第一次**的方向。
+ *
+ * 🔴 三軸都預設**降冪**,而那不是偷懶:員工點「消費金額」想看的是**最會買的那幾位**,
+ *    點「最後下單」想看的是**最近有動靜的**。**升冪是第二次點才要的東西。**
+ * ⚠️ 而「最後下單」降冪正是 NULL 那個坑會發作的方向 ——
+ *    處理在 `SupabaseCustomerAdapter`(`nullsFirst: false`),不在這裡。
+ */
+const DEFAULT_ASCENDING = false;
+
 type RawSearchParams = Record<string, string | string[] | undefined>;
 
 /**
@@ -85,16 +128,77 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
 export function parseCustomerListSearchParams(raw: RawSearchParams): {
   filter: AdminCustomerFilter;
   page: number;
+  /** `undefined` = 沒指定 ⇒ 用預設排序(`created_at DESC`),**不是**某個軸的預設方向。 */
+  sort: AdminCustomerSort | undefined;
 } {
   return {
     filter: { tier: pickEnum(raw[TIER_PARAM], TIER_VALUES) },
     page: parsePage(raw.page),
+    sort: parseCustomerSort(raw[SORT_PARAM], raw[DIR_PARAM]),
   };
 }
 
-/** 建 `/customers?...` 連結(分頁 / 篩選保留;page=1 省略);走共用 buildListHref。 */
-export function buildCustomerListHref(filter: AdminCustomerFilter, page: number): string {
-  return buildListHref('/customers', [[TIER_PARAM, filter.tier]], page);
+/**
+ * 排序參數解析。**認不得的值一律回 `undefined`(= 用預設排序),不擲錯**
+ * —— 對齊同檔 `tier` 那一軸的立場:網址被亂改時「看到預設」比「看到錯誤頁」好。
+ */
+export function parseCustomerSort(
+  rawSort: string | string[] | undefined,
+  rawDir: string | string[] | undefined,
+): AdminCustomerSort | undefined {
+  // 🔴 `string[]` = 同名參數送了兩份 ⇒ 一律當沒指定。
+  //    (不取第一個:那會讓 `?sort=spend&sort=orders` 靜靜地只套一個,而網址說了兩件事。)
+  if (typeof rawSort !== 'string') return undefined;
+  const key = SORT_URL_TO_KEY[rawSort];
+  if (key === undefined) return undefined;
+  const dir = typeof rawDir === 'string' ? rawDir : undefined;
+  return {
+    key,
+    ascending: dir === DIR_ASC ? true : dir === DIR_DESC ? false : DEFAULT_ASCENDING,
+  };
+}
+
+/**
+ * 某一欄的欄頭連結要指去哪:**已經在這一軸 ⇒ 反向;不在 ⇒ 用該軸的預設方向。**
+ * 🔴 回傳的 href **一律 page=1**(邊界⑤):排序換了而還停在第 3 頁,
+ *    看到的是「新排序的第 3 頁」,而員工以為那是前段。
+ */
+export function buildCustomerSortHref(
+  filter: AdminCustomerFilter,
+  current: AdminCustomerSort | undefined,
+  key: AdminCustomerSortKey,
+): string {
+  const ascending = current?.key === key ? !current.ascending : DEFAULT_ASCENDING;
+  return buildCustomerListHref(filter, 1, { key, ascending });
+}
+
+/**
+ * 建 `/customers?...` 連結(分頁 / 篩選 / 排序保留;page=1 省略);走共用 `buildListHref`。
+ *
+ * 🔴🔴 **這支永遠不得帶上關鍵字,而那不是「小心」是【守門】**(`#525`):
+ *    客戶搜尋詞是**姓名 / Email / 電話** ⇒ 它走 httpOnly cookie、**刻意不進 URL**
+ *    (`keyword-search-action.ts`、`customer-keyword-cookie.ts`)。
+ *    而排序參數進 URL **會誘使下一個人順手把搜尋詞也帶上** ——
+ *    訂單頁那些 builder 正是那樣寫的 ⇒ **他不是會不小心,他是會照既有做法做。**
+ *    ⇒ 一格測試斷言本函式的輸出**永遠不含**那個欄位名;負對照 = 硬塞進去要紅。
+ * 📌 而它不必帶也不會掉:cookie 是瀏覽器自己送的,換頁 / 換排序都還在。
+ */
+export function buildCustomerListHref(
+  filter: AdminCustomerFilter,
+  page: number,
+  sort?: AdminCustomerSort,
+): string {
+  return buildListHref(
+    '/customers',
+    [
+      [TIER_PARAM, filter.tier],
+      [SORT_PARAM, sort === undefined ? undefined : SORT_KEY_TO_URL[sort.key]],
+      // 🔴 方向**明寫**、不省略 —— 省略的話「降冪」與「沒指定」在網址上長得一樣,
+      //    而它們今天恰好同義。哪天預設方向改了,那條網址會靜靜地變成另一個意思。
+      [DIR_PARAM, sort === undefined ? undefined : sort.ascending ? DIR_ASC : DIR_DESC],
+    ],
+    page,
+  );
 }
 
 /**
