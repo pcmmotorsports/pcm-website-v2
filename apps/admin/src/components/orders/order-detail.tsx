@@ -16,6 +16,8 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
    🔴🔴 **而我第一版【只清了被指名的那 2 個】** —— 同一批、同一次搬家、同一種傷害的另外 9 個
       原封不動,是下一輪 code-reviewer 抓的。**finding 是症狀的位置,不是病的邊界。** */
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+// 片2 標頭列:兩個標籤表都是**既有的**,本片零新增詞彙(理由見 `OrderHeadChip` 那段)。
+import { INVOICE_STATUS_LABEL, PAYMENT_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { OrderEditForm } from './order-edit-form';
@@ -90,6 +92,37 @@ function resolveCorrectTarget(
   };
 }
 
+/**
+ * 片2:標頭的付款狀態 chip(設計稿 §1 那顆紅色 `[未收齊]`)。
+ *
+ * 🔴🔴 **字面用既有的 `PAYMENT_STATUS_LABEL`,【不是】設計稿的「未收齊」—— 這是刻意的偏離。**
+ *    設計稿寫「未收齊」,而 `partiallyPaid` 這一格的字面 **Sean 2026-08-18 才剛拍板過**
+ *    (`Q3` = 「已收訂金」,`order-list-view.ts:170-176` 逐字記著理由:
+ *     ~~付款確認中~~ 讀起來像「錢在路上」⇒ 員工不會去催尾款)。
+ *    ⇒ 在**同一張畫面**上,標頭寫「未收齊」而下方付款卡寫「已收訂金」= 兩個詞指同一件事,
+ *      那正是他抱怨過的「同一張單畫面講三句相反的話」。
+ *    ⇒ **本片不引入第六個詞。** 要不要改成「未收齊」是 Sean 的題(已回報主視窗),
+ *      改的話是**一行**的事,而且要**兩處一起改**。
+ *
+ * 🔴 **顏色的判準是「還欠不欠錢」,不是 enum 名字**:`unpaid` 與 `partiallyPaid` 都還欠錢 ⇒ 紅;
+ *    其餘(含 `refunded` / `partiallyRefunded`)不紅 —— 退款單不該掛一顆催款色的 chip。
+ *    ⚠️ 這個判準與 `order-edit-pay-axis.ts` 的三值軸**同語意但不共用**:那支服務改單矩陣、
+ *       本處只決定一個顏色。**不要把顏色接到那支上去**,它的 `refunded ⇒ paid` 是為了
+ *       「別讓改單以為這張單沒收過錢」,拿來決定顏色會是巧合對、不是同一個問題。
+ */
+function OrderHeadChip({ detail }: { detail: AdminOrderDetail }) {
+  const owing = detail.paymentStatus === 'unpaid' || detail.paymentStatus === 'partiallyPaid';
+  return (
+    <span
+      className={`inline-flex rounded-md px-2.5 py-0.5 text-xs font-medium ${
+        owing ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      {PAYMENT_STATUS_LABEL[detail.paymentStatus]}
+    </span>
+  );
+}
+
 export function OrderDetail({
   detail,
   returnTo,
@@ -157,28 +190,43 @@ export function OrderDetail({
 
   return (
     <div className='space-y-4'>
+      {/* ═══ 片2 標頭列(設計稿 §1「標頭」)═════════════════════════════════════
+          設計稿要的是兩行:
+            第一行  單號 + 狀態 chip                        (右側 ✕ 在路由層,見下)
+            第二行  客戶 X ， 下單 08/10   發票 未開
+          🔴 **`✕` 不在本元件** —— 關閉是**面板才有**的動作,而本元件同時被整頁版渲染
+             (`customerHref` 那段 docstring 逐字「它同時被兩邊渲染」)。
+             關閉連結由 `order-detail-route.tsx` 的 `BackLink` 畫、文案由各呼叫端傳
+             ⇒ 只改面板那一邊的 `back.label` 就好,整頁版不受影響。
+          🔴🔴 **本片改的是【兩個視圖共用】的標頭 ⇒ 整頁版 `/orders/[id]` 的標頭外觀也跟著變了,
+             而【沒有人看過整頁版的畫面】。**(`W4-004` F2:這件事原本只活在我給審查者的一封訊息裡,
+             而**訊息會消失,它不是載體**。)
+             · 功能面 W4 已核**無回歸**:`ml-auto` 只掛在被刪掉的那個 span 上、`列印揀貨單` 本來就靠左;
+               既有測試零格斷言標頭字面。
+             · **仍未驗的是【長相】** —— 已列進交件檔的「需肉眼驗」清單,不要當成已驗。
+          ⚠️ **已知偏離,待 Sean 肉眼裁**:設計稿把 `✕` 畫在單號**同一行的最右邊**,
+             而 `BackLink` 是**單號上方自成一行**。要做到同一行得讓本元件收一個
+             `closeSlot` prop、兩個呼叫端各傳一份 —— 那是跨元件手術,不屬本片體積。
+             **先照現有結構做,他看了不滿意再開一片。** */}
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>{detail.displayId}</h1>
+        <OrderHeadChip detail={detail} />
         {/* 🔴 入口位置照 OD `overview-desktop.html:1109-1112` 逐字:「客人明細的入口。
             **做在標題列的名字上**,因為那是『這張單是誰的』唯一會被讀的位置,
             員工要查電話/地址時眼睛本來就落在這裡。一下就開,不用先跳到客戶頁再搜尋。」
             ⚠️ 名字可能是 null(join 缺)⇒ 那時仍要給入口(id 在就開得了),文案退成「客人明細」。
                這一句退場文案是**我自己決定的**,OD 沒有畫這個狀態。 */}
-        {customerHref !== null && (
-          <Link
-            href={customerHref}
-            className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-sm'
-          >
-            {detail.customer.name ?? '客人明細'}
-            <span aria-hidden='true' className='text-muted-foreground'>
-              ›
-            </span>
-          </Link>
-        )}
         {/* A9w1:整單九碼彙總 badge 退場。付款軸(三軸的訂單層)在下方「付款」卡的付款狀態,
             訂貨/到貨在品項列 —— 不另補一顆彙總 badge,那正是九碼被退場的東西。 */}
+        {/* 🔴 `rounded-md` 不是 `rounded-full`:Sean 2026-08-16 拍板「狀態膠囊改方角,
+            全站統一、沒有例外要記」(memory `project_0816-sean-morning-13-rulings.md:22` Q5、
+            `project_0816-evening-five-rulings.md:33` 再確認)。
+            ⚠️ **這一顆是漏網的** —— 列表那邊 08-16 已改(`orders-table.tsx` 的 `rounded-full` 現為 0),
+               而本檔這顆沒跟上,且 `design-tokens.test.ts` **沒有任何一條在管 `rounded-full`**
+               (STATUS.md Blocker 欄逐字記著這件事)⇒ 它不是被放行,是**根本沒有那道門**。
+               本片只改我正在動的這一顆,**不順手掃全樹的 18 處**(那是另一片、要自己的分母)。 */}
         {cancelled && (
-          <span className='bg-destructive/10 text-destructive inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'>
+          <span className='bg-destructive/10 text-destructive inline-flex rounded-md px-2.5 py-0.5 text-xs font-medium'>
             已取消
           </span>
         )}
@@ -203,10 +251,29 @@ export function OrderDetail({
             列印揀貨單
           </Link>
         )}
-        <span className='text-muted-foreground ml-auto text-sm'>
-          下單 {formatOrderDateTime(detail.createdAt)}
-        </span>
       </div>
+
+      {/* 第二行:客戶 ， 下單   發票 —— 設計稿 §1 逐字「客戶 沈佑霖 ， 下單 08/10   發票 未開」。
+          🔴 **客人明細的入口跟著名字走到這一行,入口本身沒有消失**:OD `overview-desktop.html:1109-1112`
+             逐字要求「做在標題列的**名字**上,因為那是『這張單是誰的』唯一會被讀的位置」
+             ⇒ 綁的是**名字**不是**第一行** ⇒ 搬行不違反那條,拿掉入口才會。
+          ⚠️ 名字可能是 null(join 缺)⇒ 文案退成「客人明細」,退場文案沿用原本那句、一字未改。
+          🔴 **發票這一格與下方發票卡是同一支 `INVOICE_STATUS_LABEL`**,不另寫字面 ——
+             兩處各寫一份的話,哪天改詞會只改到一邊,而畫面上兩個詞都合理、沒有人會發現。 */}
+      <p className='text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-sm'>
+        <span>
+          客戶{' '}
+          {customerHref !== null ? (
+            <Link href={customerHref} className='text-foreground underline underline-offset-2'>
+              {detail.customer.name ?? '客人明細'}
+            </Link>
+          ) : (
+            (detail.customer.name ?? '—')
+          )}
+        </span>
+        <span>下單 {formatOrderDateTime(detail.createdAt)}</span>
+        <span>發票 {INVOICE_STATUS_LABEL[detail.invoiceStatus]}</span>
+      </p>
 
       {/* 🔴 片4b:`payments` 是頭條「已收」的來源 —— 傳的是**原始 `PaymentListData`**,
           不是算好的金額。理由:元件內部要吃 `toPaymentSummary()`(與付款卡同一支函式),

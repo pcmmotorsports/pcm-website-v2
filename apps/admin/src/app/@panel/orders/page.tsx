@@ -114,7 +114,12 @@ export default async function OrderPanelPage({
     resultCode,
     requestToken,
     correctNoteId,
-    back: { href: buildPanelCloseHref(raw), label: '← 關閉,回訂單列表' },
+    // 🔴 片2:設計稿 §1 標頭右上角是一顆 `✕`。**只改面板這一邊的文案** ——
+    //    整頁版走 `app/orders/[id]/page.tsx`,它傳自己的 label、不受本行影響。
+    //    ⚠️ **`✕` 後面留著「關閉」兩個字是刻意的**:純符號連結對螢幕閱讀器只會唸出
+    //       一個標點,而這是員工離開這張單的唯一出口。要做成純圖示得補 `aria-label`,
+    //       那要動 `BackLink` 的介面(它現在只收 `{href,label}`)⇒ 不屬本片體積。
+    back: { href: buildPanelCloseHref(raw), label: '✕ 關閉' },
     // 🔴 #350d:`return_to` = **面板自己這個視圖**,不是 `back.href`(那是「關閉」連結,
     //    拿它當 return_to 等於動作做完把面板關掉;契約字面更正見 `D-420-NOTE` §1)。
     returnTo: buildPanelSelfHref(raw, panelId),
@@ -155,6 +160,13 @@ export default async function OrderPanelPage({
            客人卡是「蓋在某張訂單的面板上」(本檔 `:63-66` 逐字),不是獨立視圖
            ⇒ 少了它,點「客人明細」面板會從 720 跳回 cookie 寬度、關掉再跳回來。 */
     <div className='@container panel-width-locked sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
+      {/* 🔴 片2:BMW M 三色條,設計稿 §1 逐字「頂端有 BMW M 三色條(藍→紫→紅)橫貫整個面板寬」。
+          漸層本體是既有的 `.m-stripe`(`globals.css`),那裡寫了為什麼三個色停是硬寫 hex 不是 token。
+          · `-mx-4 -mt-4` 把它推出容器的 `p-4` ⇒ 才真的「橫貫整個面板寬」;沒有它會左右各短 16px。
+          · `h-1` = 4px,照 OD `hr.m-stripe{height:4px}`,與側欄那條同高。
+          · `aria-hidden`:它是裝飾,OD 逐字「全系統唯一的裝飾元素」⇒ 不該被唸成一個東西。
+          ⚠️ **只加在面板版** —— 設計稿講的是面板的頂端;整頁版沒有這條,本片不動它。 */}
+      <div aria-hidden className='m-stripe -mx-4 -mt-4 h-1' />
       {body}
     </div>
   );
