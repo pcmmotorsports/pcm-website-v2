@@ -76,7 +76,33 @@ export default async function ProductsPage({
     options === null
       ? []
       : buildCategoryOptions(options.categories, options.categoryIdsWithProducts);
-  const brandOptions = options === null ? [] : buildBrandOptions(options.brands);
+  // 🔴 第三個參數 = 目前選中的品牌:**零商品的品牌不進下拉,但選中的那個一律留著** ——
+  //    沒有它,網址上帶著零商品品牌時下拉會顯示「全部品牌」而查詢照樣在篩它
+  //    (畫面說全部、實際 0 筆,而員工清不掉)。理由全文在 `buildBrandOptions` 檔頭。
+  const brandOptions =
+    options === null
+      ? []
+      : buildBrandOptions(options.brands, options.brandIdsWithProducts, filter.brandId);
+
+  // 🔴🔴 **上面那格救得了「零商品的品牌」,救不了「已經不在 `brands` 表裡的品牌」**
+  //    (W6 `W6-051` F1)。可達路徑**不是**手改網址,是**品牌被刪 + 舊書籤** ——
+  //    而「選中態靠網址不靠 state ⇒ 可加書籤」正是這一族的明文設計原則
+  //    (`product-filter-chips.tsx:11-19`)⇒ **加書籤是被鼓勵的用法,不是誤用。**
+  //    那時下拉畫不出對應的 `<option>` ⇒ 顯示「全部品牌」,而查詢照樣 `.eq('brand_id', …)`
+  //    ⇒ 員工看到「全部品牌 + 0 筆」,**既解釋不了也清不掉**。
+  //    ⚠️ 這條**本片之前就在**、不是本片引入的;在這裡一起修是因為本片正好把
+  //       「下拉裡有沒有這個選項」變成一件會動的事。
+  //    🔴 而我原本寫「品牌沒有路徑可以解析、id 認不認得無從判斷」—— **那句是錯的**,已撤:
+  //       同一個請求裡就有整張 `brands` 表,一行 `some()` 就判得出來。
+  //       **一個錯的理由會關掉下一個人的動作**,那比缺這個修法本身更貴。
+  const brandKnown =
+    filter.brandId !== undefined &&
+    options !== null &&
+    options.brands.some((brand) => brand.id === filter.brandId);
+  //    處置照分類那條(`resolveCategoryIds` 回 `null` ⇒ 不套用):認不得就**不套用品牌條件**,
+  //    畫面與查詢一致。**不自動改寫網址** —— 那會讓「我明明選了」變成無聲的消失。
+  const brandId = brandKnown ? filter.brandId : undefined;
+  const brandFilterDropped = filter.brandId !== undefined && !brandKnown;
 
   // 🔴 選了大類 ⇒ 要含它自己 + 它的子類;認不得的 `raw_path` ⇒ `null` ⇒ **不套用分類條件**
   //    (看到全部,不是看到空的 —— 理由逐字在 `resolveCategoryIds` 檔頭)。
@@ -103,7 +129,8 @@ export default async function ProductsPage({
     result = await listProductsForAdmin(view.size, offset, {
       setBy: filter.setBy,
       keyword: filter.keyword,
-      brandId: filter.brandId,
+      // 🔴 這裡用 `brandId` 不是 `filter.brandId` —— 認不得的品牌不套用(見上面 `brandKnown`)。
+      brandId,
       categoryIds,
     });
   } catch (error) {
@@ -164,6 +191,19 @@ export default async function ProductsPage({
       {!loadFailed && (
         <>
           <ProductFilterChips filter={filter} size={view.size} />
+          {/* 🔴 與下面那則分類的形狀逐字相同(W6 `W6-051` F1)—— 兩軸的員工看到的要是同一種東西。 */}
+          {brandFilterDropped && (
+            <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
+              網址帶著一個找不到的品牌(選項載入失敗,或這個品牌已經被刪掉)——{' '}
+              <strong>下面的清單沒有依品牌篩選</strong>。
+              <Link
+                href={buildProductListHrefResetPage({ ...filter, brandId: undefined }, view.size)}
+                className='text-primary ml-2 underline'
+              >
+                清除品牌條件
+              </Link>
+            </p>
+          )}
           {categoryFilterDropped && (
             <p className='border-input text-muted-foreground rounded-md border border-dashed p-3 text-sm'>
               網址帶著分類「{filter.categoryPath}」,但目前套用不上(選項載入失敗,或這個分類已經沒有商品)

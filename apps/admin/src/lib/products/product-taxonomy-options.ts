@@ -107,9 +107,44 @@ function compareRows(a: CategoryOptionRow, b: CategoryOptionRow): number {
   return a.sort_order - b.sort_order || a.name.localeCompare(b.name);
 }
 
-/** 品牌下拉選項:依名稱排(`brands` 表沒有 `sort_order`)。 */
-export function buildBrandOptions(rows: readonly BrandOptionRow[]): BrandOptionRow[] {
-  return rows.slice().sort((a, b) => a.name.localeCompare(b.name));
+/**
+ * 品牌下拉選項:依名稱排(`brands` 表沒有 `sort_order`),**只留有商品的**。
+ *
+ * 🔴 **濾掉零商品品牌的理由與 `buildCategoryOptions` 同一條**(主視窗 2026-08-19 裁定):
+ * 篩選器的每個選項都是一個承諾,一個點下去必然 0 筆的選項比沒有那個選項更糟。
+ * 來由 = Sean 肉眼驗收逐字「多了很多沒有的品牌,有說要先不顯示」(`MAIN-063` D)。
+ *
+ * ⚠️ **而「他說有拍過板」那條拍板【查無】**(W2 2026-08-19 掃過 4,905 個 .md + `git log --all --grep`
+ * 三種變體 + 11 種語意變體)。最接近的兩條(07-31 `Q2=A` / 08-04)講的是**客人站的品牌牆**、
+ * 而且說的是**保留顯示、泛白、不可點**,與這裡的做法**相反** —— 兩條都已落實在客人站。
+ * ⇒ 🔴 **本函式的做法不是「照 Sean 拍板」,是後台篩選器的通則**(換一個後台也會這樣做)。
+ * 誰要把它改成泛白,先讀這段:那是刻意的分岔,不是漏抄。
+ *
+ * 🔴 **`selectedId` 那格不是便利功能,是在堵一個「畫面說 A、查詢做 B」**:
+ * 沒有它,網址上帶著一個零商品品牌時 —— 下拉找不到對應的 `<option>` ⇒ 瀏覽器顯示第一個
+ * 「全部品牌」,而查詢**照樣**在篩那個品牌 ⇒ 員工看到「全部品牌 + 0 筆」,
+ * **既解釋不了、也清不掉**(他已經在「全部」那一格了,沒有東西可以改回去)。
+ * ⇒ 選中的那個一律留在清單裡,不論它有沒有商品。它是那個狀態的唯一出口。
+ * 📌 這與分類那邊 `resolveCategoryIds` 回 `null` 是**同一個病的兩種解**,而**兩種都要**:
+ *    · 品牌**在表裡、只是零商品** ⇒ 把選項留著(本函式這一格)
+ *    · 品牌**根本不在表裡**(被刪掉 + 舊書籤)⇒ **不套用品牌條件**(在 `app/products/page.tsx`,
+ *      `brandKnown` 那一段;形狀照分類那條)
+ * 🔴 ~~「品牌沒有路徑解析、id 認不認得無從判斷」~~ **作廢**(W6 `W6-051` F1):
+ *    同一個請求裡就有整張 `brands` 表,`brands.some(b => b.id === filter.brandId)` 一行就判得出來,
+ *    根本不需要路徑解析。**我寫的那個理由是錯的,而錯的理由會關掉下一個人的動作** ——
+ *    它比「少做這個修法」更貴,因為讀到的人會以為做不到。
+ *
+ * 🔴 `idsWithProducts` **必須從資料算,不得寫死**(同 `buildCategoryOptions`)——
+ * 那個集合每日同步跑完就會變。
+ */
+export function buildBrandOptions(
+  rows: readonly BrandOptionRow[],
+  idsWithProducts: ReadonlySet<string>,
+  selectedId?: string,
+): BrandOptionRow[] {
+  return rows
+    .filter((row) => idsWithProducts.has(row.id) || row.id === selectedId)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
