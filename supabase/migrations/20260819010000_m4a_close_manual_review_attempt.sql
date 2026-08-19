@@ -93,14 +93,17 @@ ALTER TABLE public.payment_charge_attempts
     CHECK ((manual_reviewed_at IS NULL) = (manual_review_outcome IS NULL));
 
 COMMENT ON COLUMN public.payment_charge_attempts.manual_reviewed_at IS
-  'M-4a 人工待確認佇列的【出口】:有人看過了。🔴 它【只讓那一列離開主告警述詞】,不動 status、不動 needs_manual_review(後者同時是「停止自動 retry」的旗標,清它會把重試打開)。⚠️ **「鎖仍在」只對 status IN (pending, charged) 那一族成立** —— per-order 佔鎖是 `ON CONFLICT (order_id) WHERE status IN (pending, charged)`(20260612150000:101),而告警述詞也涵蓋 superseded 的 released 列,**那一族本來就不在那個 partial index 的保護裡**,本 RPC 沒有再釋一次鎖、但也不得宣稱它鎖著。寫入唯一入口 = admin_close_manual_review_attempt();unknown 的存量另見 get_payment_anomaly_alert_summary 的 reviewed_unknown_unresolved_count。';
+  'M-4a 人工待確認佇列的【出口】:有人看過了。🔴 它【只把那一列標記成有人看過】—— 🔴 **它【不】讓那一列離開主告警述詞**(2026-08-19 R2 反轉:退出主告警這件事本身就是那個洞,因為 unknown 不要求任何對帳證據)。🔴 **「有多少還沒被看過」【不能】用兩個計數相減得到** —— 兩者的述詞不是包含關係:reviewed_unknown_unresolved_count **不綁 attempt.status**(刻意的,見本檔 R2 Critical),而 attempt_manual_review_count 綁。⇒ 一列可以【離開 A 而仍留在 B】(例:關成 unknown 之後被 mark_charge_attempt_charged 轉成非 superseded 的 charged)⇒ **相減可以是負數**。要那個數字必須另外查,不要在這裡做算術。不動 status、不動 needs_manual_review(後者同時是「停止自動 retry」的旗標,清它會把重試打開)。⚠️ **「鎖仍在」只對 status IN (pending, charged) 那一族成立** —— per-order 佔鎖是 `ON CONFLICT (order_id) WHERE status IN (pending, charged)`(20260612150000:101),而告警述詞也涵蓋 superseded 的 released 列,**那一族本來就不在那個 partial index 的保護裡**,本 RPC 沒有再釋一次鎖、但也不得宣稱它鎖著。寫入唯一入口 = admin_close_manual_review_attempt();unknown 的存量另見 get_payment_anomaly_alert_summary 的 reviewed_unknown_unresolved_count。';
 COMMENT ON COLUMN public.payment_charge_attempts.manual_review_outcome IS
   'M-4a 人工對帳的結果:unknown(真不確定,鎖留著)/ not_charged(確定沒扣到,已釋鎖)/ charged(確定扣到了 —— 尚未實作,RPC 會 RAISE)。🔴 必填的意義是【強迫按鈕的人講出他查到了什麼】—— 「標成失敗」那條路沒有任何一步強制先對帳,那道強制只能立在契約上。';
 
 -- ── 2. 告警述詞排除已檢視的列 ─────────────────────────────
 -- 🔴 整支重貼自 `20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:316`,
---    **唯一的差異是 attempt_manual_review_count 多一行 `AND a.manual_reviewed_at IS NULL`**。
---    (其餘六個計數逐字未動 —— 重貼是因為 PG 沒有「只改一個 CTE」的語法,不是因為它們要改。)
+--    ~~原句「唯一的差異是 attempt_manual_review_count 多一行 AND a.manual_reviewed_at IS NULL」~~
+--    🔴 **已作廢**(2026-08-19 R2 反轉,見下方那一大段):那一行**沒有被加進去**。
+--    **真正的差異 = 多了第八個鍵 `reviewed_unknown_unresolved_count`**;
+--    七個既有計數(含 attempt_manual_review_count)**逐字未動**。
+--    (重貼是因為 PG 沒有「只加一個鍵」的語法,不是因為既有那些要改。)
 CREATE OR REPLACE FUNCTION public.get_payment_anomaly_alert_summary(
   p_refunding_stuck_seconds  integer,
   p_pending_dc_window_seconds integer,
@@ -207,7 +210,7 @@ AS $fn$
 $fn$;
 
 COMMENT ON FUNCTION public.get_payment_anomaly_alert_summary(integer, integer, integer) IS
-  'M-3 #250 + #256 + M-4b L5b-0-s(甲)改③ + 🔴 M-4a 出口:attempt_manual_review_count 多一條 `manual_reviewed_at IS NULL` —— 有人看過的那一列離開計數,而 status 與 needs_manual_review 一個字都沒動(後者同時是「停止自動 retry」的旗標)。其餘六個計數逐字未動;整支重貼只因為 PG 沒有「只改一個子查詢」的語法。前一版本體與完整說明見 20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:316。';
+  'M-3 #250 + #256 + M-4b L5b-0-s(甲)改③ + 🔴 M-4a 出口:**新增第八鍵 reviewed_unknown_unresolved_count**(被判為 unknown 且訂單仍未付款的存量)。⚠️ **attempt_manual_review_count 一個字都沒改** —— 有人看過的那一列**仍然留在主告警計數裡**(2026-08-19 R2 反轉:讓它退出主告警 = 沿阻力最小的路把真扣款的單送出視線)。🔴 **「有多少還沒被看過」【不能】用兩者相減得到** —— 兩個計數的述詞不是包含關係(reviewed_unknown_unresolved_count 刻意不綁 attempt.status,見那支 migration 的 R2 Critical)⇒ 一列可以離開主告警計數而仍留在存量 ⇒ **相減可以是負數**。那個數字要另外查。七個既有計數逐字未動;整支重貼只因為 PG 沒有「只加一個鍵」的語法。前一版本體與完整說明見 20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:316。';
 
 -- ── 3. 出口 RPC ────────────────────────────────────────────
 -- 🔴 **本片【只實作 `unknown`】。`not_charged` 與 `charged` 一律 RAISE。**
@@ -392,20 +395,31 @@ BEGIN
     RAISE EXCEPTION '出口 CHECK 異常 — 兩條 CHECK 應存在【且定義相符】(實 % 條相符);拒繼續', v_cnt;
   END IF;
 
-  -- 5c. 🔴 告警述詞【真的】排除了已檢視的列 —— 只驗「函式重建成功」等於沒驗。
-  --     量法:函式原始碼裡必須出現那一行。**這是字面檢查,不是行為檢查**(行為要有資料才測得到)。
-  -- 🔴 **鎖定精確 overload、且【去掉註解之後】再找**(codex 關卡2 High:
-  --    ~~`proname` + 整份 functiondef 含某段字串~~ ⇒ 把那段字串放進**註解**、放進無效分支、
-  --    或改成 `OR a.manual_reviewed_at IS NULL`,都可能全綠;`proname` 還可能命中錯的 overload)。
-  --    ⚠️ **而它仍然是【字面檢查】** —— 它證不了那一行落在正確的 CTE、與正確的 `AND` 關係。
-  --      **行為要有資料才測得到**,那道在拋棄式 PG 上跑過(計數 1→0),不在 apply 期。
+  -- 5c. 🔴🔴 **本斷言的方向在 2026-08-19 被【反轉】了 —— 讀之前先讀這一段。**
+  --
+  --     ~~原本:斷言函式體【含】 `AND a.manual_reviewed_at IS NULL`(= 已檢視的列退出主告警)~~
+  --     而同一支檔的 R2 反轉把那一行拿掉了(理由在 :143-152 逐字:讓 unknown 退出主告警
+  --     = 沿阻力最小的路,把「真扣款但本地仍 pending/unpaid」的單送出視線)。
+  --     ⇒ 🔴 **兩處互斥 ⇒ 這支 migration 在 apply 當下必炸,而它從來沒有被跑過。**
+  --       實測(2026-08-19,拋棄式 PG 17,鏈上 apply 到本支之前的全部再單獨跑它):
+  --         ERROR: 告警述詞異常 — …沒有排除已檢視的列(去註解後找不到);拒繼續
+  --       ⇒ **那是這一次修改的正向對照:改之前它真的炸過一次,而且炸在這一句。**
+  --
+  --     ⇒ **現在的方向:斷言那一行【不存在】。** 它守的是「有人把退出主告警偷偷加回來」——
+  --       而那件事**必須**先滿足「unknown 附帶伺服器端 TapPay 查詢結果」那個前置(:150-152)。
+  -- 🔴 **不要改成把 5c 刪掉** —— 刪掉等於這一格從此沒有守門,而它守的是一條會讓單子
+  --    安靜消失的路。方向反轉保留了守門,刪除沒有。
+  -- 🔴 **仍然鎖定精確 overload、且【去掉註解之後】再找**(codex 關卡2 High 的原始理由不變:
+  --    `proname` 可能命中錯的 overload;而註解裡的字面會餵出假結果 —— 本檔上面那段
+  --    劃掉的說明就含有那個字面,不剝註解的話它會自己把自己餵紅)。
+  --    ⚠️ **而它仍然是【字面檢查】** —— 它證不了行為。行為要有資料才測得到。
   SELECT count(*) INTO v_cnt
     FROM pg_catalog.pg_proc p
    WHERE p.oid = 'public.get_payment_anomaly_alert_summary(integer,integer,integer)'::regprocedure
      AND pg_catalog.regexp_replace(pg_catalog.pg_get_functiondef(p.oid), '--[^\n]*', '', 'g')
          LIKE '%AND a.manual_reviewed_at IS NULL%';
-  IF v_cnt <> 1 THEN
-    RAISE EXCEPTION '告警述詞異常 — get_payment_anomaly_alert_summary(int,int,int) 沒有排除已檢視的列(去註解後找不到);拒繼續';
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION '告警述詞異常 — get_payment_anomaly_alert_summary(int,int,int) 又把已檢視的列排除掉了(去註解後找得到那一行);2026-08-19 R2 已反轉此設計,要恢復請先讀本檔 :143-152;拒繼續';
   END IF;
   -- 🔴 而 unknown 的可見性也要在同一支裡(它與出口是同一交付,見檔頭 Critical 1)
   SELECT count(*) INTO v_cnt
