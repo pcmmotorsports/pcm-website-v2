@@ -39,8 +39,8 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  /** `#742`:預設空字串 = 當下網址沒有那四個鍵;要驗「不得吃掉」的那一格自己覆寫。 */
-  preservedQuery: '',
+  /** `#742`:預設四格皆 undefined = 當下網址沒有那四個鍵;要驗「不得吃掉」的那一格自己覆寫。 */
+  carried: { pending: undefined, den: undefined, panel: undefined, customer: undefined },
   initial: { pay: '', goods: [], src: [], ch: [], showUnpaidCard: '', dateFrom: '', dateTo: '', datePreset: 'm6' },
 };
 
@@ -392,19 +392,19 @@ describe('OrderFilterControls — `#741` segment cache key 碰撞才補 refresh'
 describe('OrderFilterControls — `#742` 篩選列不得吃掉不屬於它的鍵', () => {
   it('`panel` / `den` / `pending` 原樣帶著走(改任一篩選之後仍在網址上)', () => {
     const r = render(
-      <OrderFilterControls {...PROPS} preservedQuery='panel=ord-1&den=loose&pending=1' />,
+      <OrderFilterControls {...PROPS} carried={{ pending: '1', den: 'tight', panel: 'ord-1', customer: undefined }} />,
     );
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
     const url = replace.mock.calls.at(-1)?.[0] as string;
     const qs = new URLSearchParams(url.split('?')[1] ?? '');
     expect(qs.get('payment_status')).toBe('paid'); // 本來就會做的事,先確認沒被我改壞
     expect(qs.get('panel')).toBe('ord-1');
-    expect(qs.get('den')).toBe('loose');
+    expect(qs.get('den')).toBe('tight');
     expect(qs.get('pending')).toBe('1');
   });
 
   it('沒有那些鍵時網址不多一個 `?` 或 `&`(空字串走的是另一條路)', () => {
-    const r = render(<OrderFilterControls {...PROPS} preservedQuery='' />);
+    const r = render(<OrderFilterControls {...PROPS} carried={{ pending: undefined, den: undefined, panel: undefined, customer: undefined }} />);
     fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
     expect(replace).toHaveBeenLastCalledWith('/orders?payment_status=paid', { scroll: false });
   });
@@ -442,5 +442,48 @@ describe('`#741` × `#742` — 兩個 producer 的鍵順序必須一致(W6 審�
     openPanel(r.getAllByRole, 0);
     fireEvent.click(r.getByLabelText('網站')); // 取消非最後那個 ⇒ 應判成碰撞
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('🔴🔴 `#742` 殘餘 — 兩個 producer 現在吃同一張表,輸出必須【逐字相同】', () => {
+  /**
+   * 本片的**主張本身**,所以要正面斷言,不能只靠「兩邊都沒紅」。
+   *
+   * 在這之前:`buildOrderListHref` 與本檔的 `href()` 各持一份鍵清單,而
+   * `buildListHref` 的 docstring 逐字「**entries 順序決定 query 順序**」
+   * ⇒ 兩份清單一分岔,同一組值會產出**不同的 query 字串**。
+   * 現在兩支都填 `OrderListUrlValues`、都走 `orderListHrefEntries`
+   * ⇒ 同一組值 **必須** 產出同一條網址。
+   *
+   * ⚠️ 本格刻意**不帶日期**:兩邊的日期輸入型別不同(server 絕對時刻 / client 曆面日),
+   *    那一層的換算不在本片的共用範圍內(理由見 `orderListHrefEntries` 的 docstring)。
+   */
+  it('同一組值 ⇒ buildOrderListHref 與 href() 的 query 逐字相同', () => {
+    const r = render(
+      <OrderFilterControls
+        {...PROPS}
+        initial={{ ...PROPS.initial, src: ['web', 'manual_line'] }}
+        carried={{ pending: '1', den: 'tight', panel: 'ord-1', customer: 'cus-9' }}
+      />,
+    );
+    fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
+    const fromClient = replace.mock.calls.at(-1)?.[0] as string;
+
+    const fromServer = buildOrderListHref(
+      {
+        paymentStatus: 'paid',
+        orderSources: ['web', 'manual_line'],
+        pendingOnly: true,
+      },
+      { density: 'tight' },
+      1,
+      'ord-1',
+    );
+
+    // 🔴 server 側刻意不帶 `customer`（列表連結收掉客人卡，那是表上寫著的決定）
+    //    ⇒ 拿掉它之後兩邊必須逐字相同。**這一格同時釘住那個決定還在。**
+    const clientNoCustomer = fromClient.replace('&customer=cus-9', '');
+    expect(clientNoCustomer).toBe(fromServer);
+    expect(fromClient).toContain('customer=cus-9');
   });
 });

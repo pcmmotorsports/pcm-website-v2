@@ -12,7 +12,7 @@ import {
   readOpenPanelOrderId,
   ORDERS_PAGE_SIZE,
   PANEL_CLOSED,
-  buildPreservedFilterQuery,
+  buildCarriedUrlValues,
 } from '../../lib/orders/order-list-view';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
@@ -244,8 +244,8 @@ export default async function OrdersPage({
       )}
       <OrderFilterBar
         /* 🔴 `#742`:篩選列不擁有、但不得吃掉的那四個鍵(`panel`/`customer`/`den`/`pending`)。
-           原樣從當下網址回聲過去 —— 理由見 `buildPreservedFilterQuery` 的 docstring。 */
-        preservedQuery={buildPreservedFilterQuery(rawSearchParams)}
+           逐鍵走各自的 reader 算出來 —— 理由見 `buildCarriedUrlValues` 的 docstring。 */
+        carried={buildCarriedUrlValues(rawSearchParams)}
         filter={filter}
         datePresetOptions={datePresetOptions}
         selectedDatePresetKey={selectedDatePresetKey}

@@ -24348,7 +24348,29 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
   修法在 = 7;0 = 被改掉了,回來重看。(⚠️ 這條命令寫完當場跑過,現值 7 —— 我第一次寫成 6,
   當場跑才改對;`#741` 吃過一次
   「錨寫錯、從第一天起就回 0」的虧。)
-- **🔴 殘餘(本條不關閉)**:**`order-filter-controls.tsx` 仍然是第二個 URL builder**,
+- **✅ 殘餘已修(2026-08-20,主視窗批;同片)**:兩份鍵清單收成**一張 `ORDER_LIST_URL_KEYS`(11 格)**,
+  兩個 producer 都填 `OrderListUrlValues`、都走 `orderListHrefEntries`
+  ⇒ 新增一個鍵時**兩支都 `tsc` 紅**(本片之前只有一支會紅)。
+  `customer` 收進表(主視窗裁:「明寫不在表上」需要有人維護一句沒有東西在守的話);
+  `preservedQuery: string` 換成具名的 `OrderListCarriedValues` 四格。
+  **可跑的檢查**:
+  ```
+  grep -c 'orderListHrefEntries' apps/admin/src/components/orders/order-filter-controls.tsx
+  ```
+  修法在 = 3(import 1 + 呼叫 1 + 註解裡提到 1);0 = 有人繞過了共用表,回來重看。
+  ⚠️ 我先寫「= 2」,當場跑才知道是 **3**(註解自己也命中)。**今晚第三次寫錯這種期望值** ——
+  三次都是【跑】救的,不是【想】救的;而註解命中自己這一型,`#741` 那條也踩過。
+  🔴 **而那道守門差點是假的,兩次**:
+  ```
+  第一版 client 的物件字面與表【同序】⇒ 把 orderListHrefEntries 換成 Object.entries 的捷徑突變
+         ⇒ 四綠全過。測試當時驗的是「兩邊碰巧一致」，不是「兩邊吃同一張表」
+  第二版 把日期兩軸提到最前面 ⇒ 仍然沒紅:那條測試裡日期是【空值】，
+         而空值會被 buildListHref 略過 ⇒ 順序差異看不出來
+  第三版 把 payment_status 排到 order_source 之後（兩個在該測試裡【真的會填值】的欄位）
+         ⇒ 捷徑突變 3 格紅 ✅
+  ⇒ 教訓:**排列順序當守門時，被重排的那兩格必須在測試裡有值** —— 空值不參與排序。
+  ```
+- ~~**🔴 殘餘(本條不關閉)**~~:~~`order-filter-controls.tsx` 仍然是第二個 URL builder~~,
   有自己那份 7 鍵清單,不受 `buildOrderListHref` 的編譯期窮舉守門保護。
   ```
   🔴 而它危險的不是「多一支函式」，是:兩個 builder 對【同一條 URL】各持一份鍵清單

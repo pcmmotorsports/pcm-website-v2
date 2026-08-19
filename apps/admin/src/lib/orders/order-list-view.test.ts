@@ -30,7 +30,7 @@ import {
   PENDING_ONLY_PARAM,
   GOODS_AXIS_LABEL,
   PANEL_CLOSED,
-  buildPreservedFilterQuery,
+  buildCarriedUrlValues,
   readOpenPanelOrderId,
   readOpenCustomerPanelId,
 } from './order-list-view';
@@ -655,47 +655,45 @@ const UUID_C = '33333333-3333-4333-8333-333333333333';
 
 describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃掉的那四個鍵', () => {
   it('四個鍵都有效時回聲出去', () => {
-    const qs = new URLSearchParams(
-      buildPreservedFilterQuery({
-        panel: UUID_A,
-        customer: UUID_C,
-        den: 'tight',
-        pending: '1',
-      }),
-    );
-    expect(qs.get('panel')).toBe(UUID_A);
-    expect(qs.get('customer')).toBe(UUID_C);
-    expect(qs.get('den')).toBe('tight');
-    expect(qs.get('pending')).toBe('1');
+    expect(
+      buildCarriedUrlValues({ panel: UUID_A, customer: UUID_C, den: 'tight', pending: '1' }),
+    ).toEqual({ panel: UUID_A, customer: UUID_C, den: 'tight', pending: '1' });
   });
 
   it('一個都沒有 ⇒ 空字串(呼叫端據此決定要不要接 `&`)', () => {
-    expect(buildPreservedFilterQuery({})).toBe('');
+    expect(buildCarriedUrlValues({})).toEqual({
+      pending: undefined,
+      den: undefined,
+      panel: undefined,
+      customer: undefined,
+    });
   });
 
   it('🔴 不屬於這四個的鍵【不得】被搬過去', () => {
-    const qs = new URLSearchParams(
-      buildPreservedFilterQuery({ panel: UUID_A, order_source: 'web', r: 'saved' }),
-    );
-    expect(qs.get('panel')).toBe(UUID_A);
-    expect(qs.has('order_source')).toBe(false);
-    // `r` 是一次性結果碼:搬過去的話,員工改個篩選就會再跳一次「已儲存」。
-    expect(qs.has('r')).toBe(false);
+    const v = buildCarriedUrlValues({ panel: UUID_A, order_source: 'web', r: 'saved' }) as Record<
+      string,
+      unknown
+    >;
+    expect(v.panel).toBe(UUID_A);
+    // 🔴 型別上就進不來,而這一格守的是【執行期也沒有多帶】——
+    //    `r` 是一次性結果碼:搬過去的話,員工改個篩選就會再跳一次「已儲存」。
+    expect('order_source' in v).toBe(false);
+    expect('r' in v).toBe(false);
   });
 
   it('空字串值視同沒有(`?panel=` 這種網址不該產出一個空的 panel)', () => {
-    expect(buildPreservedFilterQuery({ panel: '' })).toBe('');
+    expect(buildCarriedUrlValues({ panel: '' }).panel).toBeUndefined();
   });
 
   it('`den` 等於預設就不寫進 URL(與 buildOrderListHref 對 den 的處置一致)', () => {
-    expect(buildPreservedFilterQuery({ den: ORDER_DENSITY_DEFAULT })).toBe('');
-    // 非法值倒向預設 ⇒ 一樣不回聲(不該把 `?den=xxx` 變成某個沒人選過的密度)
-    expect(buildPreservedFilterQuery({ den: 'xxx' })).toBe('');
+    expect(buildCarriedUrlValues({ den: ORDER_DENSITY_DEFAULT }).den).toBeUndefined();
+    // 非法值倒向預設 ⇒ 一樣不帶(不該把 `?den=xxx` 變成某個沒人選過的密度)
+    expect(buildCarriedUrlValues({ den: 'xxx' }).den).toBeUndefined();
   });
 
   it('`pending` 只認 `1`,其餘不回聲(fail-safe 倒向不篩)', () => {
-    expect(buildPreservedFilterQuery({ pending: '1' })).toBe('pending=1');
-    expect(buildPreservedFilterQuery({ pending: 'true' })).toBe('');
+    expect(buildCarriedUrlValues({ pending: '1' }).pending).toBe('1');
+    expect(buildCarriedUrlValues({ pending: 'true' }).pending).toBeUndefined();
   });
 });
 
@@ -718,7 +716,7 @@ describe('🔴 `#742` nit(W6):回聲與 reader 對【同一個鍵】的規則必
    */
   const agrees = (raw: Record<string, string | string[] | undefined>) => {
     const readerSaysOpen = readOpenPanelOrderId(raw) !== null;
-    const echoHasPanel = new URLSearchParams(buildPreservedFilterQuery(raw)).has('panel');
+    const echoHasPanel = buildCarriedUrlValues(raw).panel !== undefined;
     return { readerSaysOpen, echoHasPanel };
   };
 
@@ -743,14 +741,12 @@ describe('🔴 `#742` nit(W6):回聲與 reader 對【同一個鍵】的規則必
   it('大寫 UUID:reader 折成小寫 ⇒ 回聲出去的字面要與【面板真的會開的那張單】相同', () => {
     const upper = UUID_A.toUpperCase();
     expect(readOpenPanelOrderId({ panel: upper })).toBe(UUID_A);
-    expect(new URLSearchParams(buildPreservedFilterQuery({ panel: upper })).get('panel')).toBe(
-      UUID_A,
-    );
+    expect(buildCarriedUrlValues({ panel: upper }).panel).toBe(UUID_A);
   });
 
   it('客人卡那一支同樣要一致(同型,不同鍵)', () => {
     const raw = { customer: [UUID_A, UUID_B] };
     expect(readOpenCustomerPanelId(raw)).toBeNull();
-    expect(new URLSearchParams(buildPreservedFilterQuery(raw)).has('customer')).toBe(false);
+    expect(buildCarriedUrlValues(raw).customer).toBeUndefined();
   });
 });
