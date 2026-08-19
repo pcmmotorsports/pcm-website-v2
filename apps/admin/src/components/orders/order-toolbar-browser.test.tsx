@@ -9,7 +9,7 @@ import postcss from 'postcss';
 import tailwindcss from '@tailwindcss/postcss';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { OrderToolbar } from './order-toolbar';
-import { ORDER_DENSITY_DEFAULT } from '../../lib/orders/order-list-view';
+import { ORDER_DENSITY_DEFAULT, PANEL_CLOSED } from '../../lib/orders/order-list-view';
 
 // order-toolbar-browser.test.tsx — `#485` 片5b:工具列的**真瀏覽器**量測。
 //
@@ -84,7 +84,14 @@ type Measured = {
  */
 async function measure(viewport: number, extraCss = ''): Promise<Measured> {
   const markup = renderToStaticMarkup(
-    <OrderToolbar filter={{}} display={DEN} page={1} total={13} loadFailed={false} />,
+    <OrderToolbar
+      filter={{}}
+      display={DEN}
+      page={1}
+      total={13}
+      loadFailed={false}
+      panelTarget={PANEL_CLOSED}
+    />,
   );
   const shellWidth = viewport - sidebarAt(viewport);
   const html = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">

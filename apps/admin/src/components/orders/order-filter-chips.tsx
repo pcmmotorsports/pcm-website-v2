@@ -1,6 +1,10 @@
 import Link from 'next/link';
 import type { AdminOrderFilter, OrderGoodsAxis } from '@pcm/domain';
-import { buildOrderListHref, type OrderListDisplayState } from '../../lib/orders/order-list-view';
+import {
+  buildOrderListHref,
+  type OrderListDisplayState,
+  type OrderPanelTarget,
+} from '../../lib/orders/order-list-view';
 
 // order-filter-chips.tsx — 工具列的快速篩選 chip 排(`#484` 片 B-1)。
 //
@@ -140,10 +144,17 @@ function isActive(chip: ChipSpec, filter: AdminOrderFilter): boolean {
 export function OrderFilterChips({
   filter,
   display,
+  panelTarget,
 }: {
   filter: AdminOrderFilter;
   /** 顯示設定要**原樣帶著走**:按 chip 不該把使用者的密度選擇洗掉。 */
   display: OrderListDisplayState;
+  /**
+   * 開著的面板也要**原樣帶著走**(`#742`)—— 理由與上面那行逐字相同:
+   * 按 chip 不該把員工正在看的那張單關掉。
+   * 🔴 這個 prop 是**必填**的:原本這裡根本沒有它,而「沒有」在型別上長得像「不需要」。
+   */
+  panelTarget: OrderPanelTarget;
 }) {
   return (
     <div className='flex items-center gap-2'>
@@ -162,6 +173,7 @@ export function OrderFilterChips({
               { ...filter, ...CLEARED_CHIP_FILTER, ...chip.filter },
               display,
               1,
+              panelTarget,
             )}
             /* 🔴 **`aria-current` 不是 OD 的 `aria-pressed`**:`aria-pressed` 的 "Used in roles"
                只有 `button` 一項(MDN 2026-08-14 親讀)⇒ 掛在 `<a>` 上是無效 ARIA,

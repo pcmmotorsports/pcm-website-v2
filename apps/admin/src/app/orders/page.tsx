@@ -11,6 +11,8 @@ import {
   buildOrderListHref,
   readOpenPanelOrderId,
   ORDERS_PAGE_SIZE,
+  PANEL_CLOSED,
+  buildPreservedFilterQuery,
 } from '../../lib/orders/order-list-view';
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
@@ -171,6 +173,7 @@ export default async function OrdersPage({
           ⇒ 抽成純元件才接得上 `cancel-forms-browser.test.tsx` 那條現成 harness(`#485` 片5)。
           版面決策與量測數字全部隨 markup 一起搬過去,**本檔不留第二份**(留了就會漂移)。 */}
       <OrderToolbar
+        panelTarget={panelOrderId ?? PANEL_CLOSED}
         filter={filter}
         display={display}
         page={page}
@@ -185,7 +188,10 @@ export default async function OrdersPage({
           其餘篩選軸照 `filter` 原樣帶回 ⇒ 搜尋不會把使用者的篩選洗掉。 */}
       <OrderKeywordSearch
         keyword={keyword}
-        listHref={buildOrderListHref(filter, display, 1)}
+        /* 🔴 `#742`:**這一格是【刻意】關掉面板** —— 「用單號重查」是回到列表這個動作本身,
+           帶著上一張單的面板反而奇怪。寫成 `PANEL_CLOSED` 而不是省略,是為了讓「刻意」
+           與「忘了」在程式碼上分得開(那個分不開正是 `#742` 的病灶)。 */
+        listHref={buildOrderListHref(filter, display, 1, PANEL_CLOSED)}
         matchCount={result?.keywordMatchCount ?? null}
         truncated={result?.keywordTruncated ?? false}
       />
@@ -237,6 +243,9 @@ export default async function OrdersPage({
         </>
       )}
       <OrderFilterBar
+        /* 🔴 `#742`:篩選列不擁有、但不得吃掉的那四個鍵(`panel`/`customer`/`den`/`pending`)。
+           原樣從當下網址回聲過去 —— 理由見 `buildPreservedFilterQuery` 的 docstring。 */
+        preservedQuery={buildPreservedFilterQuery(rawSearchParams)}
         filter={filter}
         datePresetOptions={datePresetOptions}
         selectedDatePresetKey={selectedDatePresetKey}
@@ -265,7 +274,7 @@ export default async function OrdersPage({
             total={total}
             pageSize={ORDERS_PAGE_SIZE}
             shownCount={orders.length}
-            buildHref={(p) => buildOrderListHref(filter, display, p)}
+            buildHref={(p) => buildOrderListHref(filter, display, p, panelOrderId ?? PANEL_CLOSED)}
             unit='筆'
           />
         </>

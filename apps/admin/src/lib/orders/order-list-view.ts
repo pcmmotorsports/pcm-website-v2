@@ -661,6 +661,59 @@ type HrefEntry = readonly [string, string | readonly string[] | undefined];
  */
 const ORDER_KEYWORD_URL_EXCLUDED = '__keyword_lives_in_httponly_cookie__';
 
+/**
+ * 「這條連結**刻意**不開面板」(`#742`)。
+ *
+ * 🔴 用 `Symbol` 是為了**寫不出字面量** —— 呼叫端要表達「刻意」就得 import 這顆,
+ *    於是「決定」變成一個**有名字、有出處、數得出來**的東西,而不是一個省略。
+ *    病灶原文與五個呼叫點的實測見 `buildOrderListHref` 第 4 參數的 docstring。
+ */
+export const PANEL_CLOSED = Symbol('panel-closed');
+
+/**
+ * 「這條列表連結要開哪張單的面板」的型別;**元件之間傳這個值時一律用這顆別名**,
+ * 免得中途有人把它放寬回 `string | undefined`(那就退回 `#742` 的病)。
+ */
+export type OrderPanelTarget = string | typeof PANEL_CLOSED;
+
+/**
+ * 篩選列**不擁有、但不得吃掉**的那幾個鍵(`#742` 的另一半)。
+ *
+ * 🔴 病灶:`order-filter-controls.tsx` 有**自己那份 `href()`**(本檔之外的第二個 URL builder),
+ *    它只列 7 個鍵 ⇒ **改任一篩選就把這四個鍵靜默丟掉**
+ *    (面板自己關掉 / 「待收款待訂貨」自己熄掉 / 密度變回預設)。
+ *
+ * 🔴 **為什麼是「原樣回聲」而不是逐鍵重建**:這四個鍵的**真相不在篩選列手上**
+ *    (面板開誰是 URL 說了算、密度是工具列說了算)。重建等於在第二個地方複製一份語意,
+ *    而本片修的就是「兩份清單各自演化」這個病 —— 再開一份只是把第五次推到以後。
+ * ⚠️ **本支只搬運、不驗證**:值的合法性由各自的 reader 負責
+ *    (`readOpenPanelOrderId` 對非 UUID 回 `null`、`den` 走白名單)。
+ *    搬一個爛值過去的後果 = 那一格自己失效,而不是整條網址壞掉。
+ */
+const PRESERVED_BY_FILTER_BAR = [
+  ORDER_PANEL_PARAM,
+  CUSTOMER_PANEL_PARAM,
+  ORDER_DENSITY_PARAM,
+  PENDING_ONLY_PARAM,
+] as const;
+
+/**
+ * 從當下的 searchParams 抓出上面那四個鍵,回成 `a=1&b=2`(沒有就回空字串)。
+ * 給 `order-filter-controls` 的 `href()` 直接接在自己那串後面。
+ */
+export function buildPreservedFilterQuery(
+  raw: Record<string, string | string[] | undefined>,
+): string {
+  const out = new URLSearchParams();
+  for (const key of PRESERVED_BY_FILTER_BAR) {
+    const value = raw[key];
+    // 這四個鍵**都是純量**(`list-params.ts:110` 走 `params.set`)⇒ 陣列 = 手打的網址,取第一個就好。
+    const one = Array.isArray(value) ? value[0] : value;
+    if (one !== undefined && one !== '') out.set(key, one);
+  }
+  return out.toString();
+}
+
 export function buildOrderListHref(
   filter: AdminOrderFilter,
   /**
@@ -677,8 +730,21 @@ export function buildOrderListHref(
    */
   display: OrderListDisplayState,
   page: number,
-  /** 有值 = 這條連結把該訂單開進右側面板;不給 = 關閉面板(列表狀態照舊保留)。 */
-  panelOrderId?: string,
+  /**
+   * 這條連結要把哪張單開進右側面板;`PANEL_CLOSED` = **刻意**不開(列表狀態照舊保留)。
+   *
+   * 🔴🔴 **`#742`:本參數原本是選填 `panelOrderId?: string`,而那讓「忘了帶」與「刻意不帶」
+   *    在型別上長得一模一樣、`tsc` 不會叫。** 實測後果 = 五個 production 呼叫點裡有三個忘了帶
+   *    ⇒ **翻頁 / 按 chip / 換密度都會把員工正在看的那張單關掉**,而沒有任何東西會紅。
+   *
+   * 🔴 **為什麼是 `Symbol` 而不是 `string | null`**:必填的 `null` 只擋得住「忘了帶」那一半,
+   *    「刻意」仍然寫成一個裸 `null` ⇒ 讀的人分不出那是決定還是隨手。
+   *    `Symbol` **沒有字面量** ⇒ 要用它就**必須 import `PANEL_CLOSED`**
+   *    ⇒ 刻意關閉在程式碼上跟「帶著面板」一樣顯眼,而且**數得出來**:
+   *    `grep -rn 'PANEL_CLOSED' apps/admin/src` 的每一筆都是一個有出處的決定。
+   *    ⇒ **兩半都是機制**:忘了帶 = 編譯不過;刻意 = 有名字、要 import、grep 得到。
+   */
+  panelOrderId: OrderPanelTarget,
 ): string {
   // 🔴🔴 **編譯期窮舉守門(#347-3c-1;機制優先律 —— 不是再寫一條「記得列進來」的規則)**:
   //    型別是 `Record<keyof AdminOrderFilter, …>` ⇒ **filter 加一軸而這裡沒列,`tsc` 直接紅**。
@@ -738,8 +804,11 @@ export function buildOrderListHref(
       ...Object.values(byFilterKey),
       ...Object.values(byDisplayKey),
       // #350c:面板目標(**不是 filter 的軸**,所以不在上面那個 Record 裡)。
-      //    `undefined` 會被 buildListHref 略過 ⇒ 不給 = 關閉面板。
-      [ORDER_PANEL_PARAM, panelOrderId] as HrefEntry,
+      //    `undefined` 會被 buildListHref 略過 ⇒ `PANEL_CLOSED` = 網址上不出現 `panel`。
+      [
+        ORDER_PANEL_PARAM,
+        panelOrderId === PANEL_CLOSED ? undefined : panelOrderId,
+      ] as HrefEntry,
     ],
     page,
   );

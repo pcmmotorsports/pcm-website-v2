@@ -12,6 +12,7 @@ import {
   ORDER_PANEL_PARAM,
   CUSTOMER_PANEL_PARAM,
   ORDER_DENSITY_DEFAULT,
+  PANEL_CLOSED,
 } from '../../lib/orders/order-list-view';
 
 // order-panel-wiring.test.ts — #350c 訂單面板接線的守門。
@@ -232,9 +233,13 @@ describe('#350c 守門 2:panel 連結帶著篩選與頁碼一起走', () => {
     expect(qs.get(ORDER_PANEL_PARAM)).toBe('ord-1');
   });
 
-  it('不給 panelOrderId = 關閉面板(其餘狀態原封不動)', () => {
+  it('給 PANEL_CLOSED = 關閉面板(其餘狀態原封不動)', () => {
     const open = new URLSearchParams(buildOrderListHref(filter, DEN, 3, 'ord-1').split('?')[1]);
-    const closed = new URLSearchParams(buildOrderListHref(filter, DEN, 3).split('?')[1]);
+    // 🔴 `#742`:原本這一行寫的是「不給第 4 參數」,而那正是病灶 ——
+    //    省略與刻意在型別上長得一樣。現在刻意要寫得出來:`PANEL_CLOSED`。
+    const closed = new URLSearchParams(
+      buildOrderListHref(filter, DEN, 3, PANEL_CLOSED).split('?')[1],
+    );
     expect(closed.has(ORDER_PANEL_PARAM)).toBe(false);
     open.delete(ORDER_PANEL_PARAM);
     // 關閉前後除了 panel 以外**逐字相同** —— 這條才擋得住「關閉時順手弄丟篩選」。

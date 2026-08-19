@@ -8344,7 +8344,13 @@ order by n desc, 1;
   ③ MAIN-066 第 5 條 Sean 回報「點另一張單、明細沒更新」
              ⇒ W3 已排除兩個可能（不是 key 碰撞、不是 panel 帶舊值），剩下的沒有量具
   ④ W1 那條
+  ⑤ 🔴 **Next 到底怎麼【比較】兩個 cache key** —— memory `reference_nextjs-duplicate-…-collision`
+     只記了 key 怎麼【產】(`Object.fromEntries`)，沒記怎麼【比】。
+     ⇒ 這一格決定 W6 對 `#741` 提的鍵順序 nit 是 nit 還是 must-fix（2026-08-20 已先補守門測試）
   ```
+  🔴 **而第 ⑤ 件把本條的性質改了**:它不只是「四件事在等一個測試」,
+  **本條自己有一個沒人量過的前置**(見下一段的登入問題)⇒ **那四件的估時全部是假的** ——
+  把還沒有的東西當成已經有的,是今晚反覆抓到的同一個形狀。
   ⚠️ **不寫這一段的話,本條看起來只是「一個沒人做的 E2E 項目」** —— 而實際上有四件事卡在它後面,
   其中一件是 **Sean 本人回報過、至今答不出原因的** 那一條。
   🔴 而後台這一半比顧客站更難開:**admin 的免登入旁路只在 dev 生效**
@@ -24281,7 +24287,9 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
 
 ### #742 · 🔴 改任一訂單篩選 ⇒ `panel` / `customer` / `pending` / `den` **靜默消失**
 
-- **狀態:** 待處理(2026-08-20 W3 在做 `#741` 時撞到 —— **它就是本檔自己警告過兩次的那個坑,第三次**)
+- **狀態:** ✅ **2026-08-20 W3 修掉**(主視窗當日批;`Q1=甲` 裁定「帶著」= **修 bug,不是產品變更**
+  —— 依據 Sean 08-16「任何後台都會有的功能不要拿去問我」:**翻頁之後你正在看的東西不消失,任何後台都這樣**)。
+  **殘餘一格見文末,本條不因此關閉。**
 - **在哪**:
   ```
   apps/admin/src/components/orders/order-filter-controls.tsx:85 href()
@@ -24323,13 +24331,41 @@ b2-spec §3.4⑥：改密碼端點若沒禁「新舊密碼相同」
   本檔的 `href()` 是**第二個 URL builder、不受那道守門保護**(檔頭 `:31` 自己寫著)。
   ⇒ **方向 = 讓這一支也被同一道守門蓋住,或乾脆讓它復用 `buildOrderListHref`。**
   ⚠️ 而那是**跨檔的行為改動**(面板從「會關掉」變成「留著」)⇒ 鐵則 8,要先提 plan。
-- **可跑的檢查(答「這條還在不在」)**:
+- **✅ 修法(2026-08-20)**:
   ```
-  grep -c 'ORDER_PANEL_PARAM' apps/admin/src/components/orders/order-filter-controls.tsx
+  ① buildOrderListHref 第 4 參數 選填 → 必填，型別 OrderPanelTarget = string | typeof PANEL_CLOSED
+     PANEL_CLOSED 是 Symbol ⇒ 【沒有字面量】⇒ 要表達「刻意關閉」就必須 import 它
+     ⇒ 兩半都是機制:忘了帶 = tsc 紅（實測 21 處紅）；刻意 = 有名字、要 import、grep 得到
+       數法 grep -rn 'PANEL_CLOSED' apps/admin/src ⇒ 每一筆都是一個有出處的決定
+  ② chips / 密度鈕 / 分頁 三處改成帶著 panelTarget；page.tsx:188「用單號重查」寫成 PANEL_CLOSED（刻意）
+  ③ 篩選列那一支不合併 builder，改由 server 端 buildPreservedFilterQuery 把
+     panel / customer / den / pending 四個鍵【原樣回聲】給它的 href()
   ```
-  0 = 本條仍成立。
-- 📌 `#741` 的修法**已經踩在這個不相等上面**(它拿真實網址而不是 `href(state)` 當「之前」),
-  該檔有一條測試釘著。修本條時**那條測試的前提會改變** ⇒ 一起看。
+  **可跑的檢查(答「修法還在不在」)**:
+  ```
+  grep -c 'PANEL_CLOSED' apps/admin/src/lib/orders/order-list-view.ts
+  ```
+  修法在 = 7;0 = 被改掉了,回來重看。(⚠️ 這條命令寫完當場跑過,現值 7 —— 我第一次寫成 6,
+  當場跑才改對;`#741` 吃過一次
+  「錨寫錯、從第一天起就回 0」的虧。)
+- **🔴 殘餘(本條不關閉)**:**`order-filter-controls.tsx` 仍然是第二個 URL builder**,
+  有自己那份 7 鍵清單,不受 `buildOrderListHref` 的編譯期窮舉守門保護。
+  ```
+  🔴 而它危險的不是「多一支函式」，是:兩個 builder 對【同一條 URL】各持一份鍵清單
+     ⇒ 它們會各自演化 ⇒ 分岔的症狀是「某個鍵在某條路上消失」
+     ⇒ 那正是【這一整條 bug 家族的產生機制本身】——
+        #347-3c-1 的日期兩軸、#484a 的 goods_axis、本條的四個鍵，三次都是它生出來的。
+  ⇒ 本片的 ③ 讓那四個鍵【現在】不會掉，但【下一個新鍵】仍然要有人記得去改兩個地方。
+  ```
+  **方向**:讓篩選列復用 `buildOrderListHref`(要動它的 client state 形狀 ⇒ 跨檔 ⇒ 鐵則 8)。
+- 📌 **與 `#741` 的連動**:`#741` 的碰撞判定拿**真實網址**當「之前」,而本片改變了
+  `href()` 帶的鍵 ⇒ 那個「不相等」的**理由變了、結論沒變**(仍不相等,現在差的是 `r`/`rt`/`correct`/`page`)。
+  該檔的 docstring 已同步更正,而**判準不是散文是測試**(「之前取自真實網址」那一格)。
+- 📌 **W6 審 `#741` 的 nit 一併補在本片**:碰撞判定用 `JSON.stringify(Object.fromEntries(...))`
+  ⇒ **對鍵順序敏感**;而原本四格測試的「之前」全部由 `href()` 自己產、從未離開它的鍵順序
+  ⇒ 任何人重排任一邊的 entries,判定會**靜默失效而四格全綠**。
+  已加一格「之前用 `buildOrderListHref` 產、之後用 `href()` 產」,**突變實測**(把 `href()` 的
+  `order_source` 搬到 `payment_status` 之前)⇒ 該格紅。
 
 ### #780 · 物件的【鍵】同時是表單欄位名 —— 而改名的人只看得到人的那一面
 

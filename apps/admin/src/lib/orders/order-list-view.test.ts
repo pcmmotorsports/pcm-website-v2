@@ -29,6 +29,8 @@ import {
   SHOW_UNPAID_CARD_PARAM,
   PENDING_ONLY_PARAM,
   GOODS_AXIS_LABEL,
+  PANEL_CLOSED,
+  buildPreservedFilterQuery,
 } from './order-list-view';
 
 /**
@@ -153,7 +155,7 @@ describe('parseOrderListSearchParams — A9w2 九碼篩選下架', () => {
 
 describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', () => {
   it('無篩選 + page 1 → /orders(乾淨)', () => {
-    expect(buildOrderListHref({}, DEN, 1)).toBe('/orders');
+    expect(buildOrderListHref({}, DEN, 1, PANEL_CLOSED)).toBe('/orders');
   });
 
   it('帶篩選 + page>1 → 保留篩選 + page;多勾選=同鍵重複 param', () => {
@@ -161,6 +163,7 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
       { paymentStatus: 'paid', orderSources: ['web', 'manual_line'] },
       DEN,
       2,
+      PANEL_CLOSED,
     );
     expect(href).toContain('/orders?');
     expect(href).toContain('payment_status=paid');
@@ -169,7 +172,7 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
   });
 
   it('page 1 省略 page 參數(但保留篩選)', () => {
-    const href = buildOrderListHref({ goodsAxes: ['shipped'] }, DEN, 1);
+    const href = buildOrderListHref({ goodsAxes: ['shipped'] }, DEN, 1, PANEL_CLOSED);
     expect(href).toContain('goods_axis=shipped');
     // 🔴 `#484a` A2:舊鍵不得再出現 —— 它的值篩不到任何東西(正式站實測 `notOrdered` = 0 筆)。
     expect(href).not.toContain('fulfillment_status=');
@@ -184,6 +187,7 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
       { workflowStatuses: ['shipped_done', null], paymentStatus: 'paid' } as AdminOrderFilter,
       DEN,
       2,
+      PANEL_CLOSED,
     );
     expect(href).not.toContain('workflow_status');
     expect(href).toContain('payment_status=paid');
@@ -343,7 +347,7 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
   });
 
   it('🔴 L6-5 buildOrderListHref 會把開關帶著走(翻頁不掉)', () => {
-    const href = buildOrderListHref({ includeUnpaidCardOrders: true }, DEN, 3);
+    const href = buildOrderListHref({ includeUnpaidCardOrders: true }, DEN, 3, PANEL_CLOSED);
     expect(href).toContain(`${SHOW_UNPAID_CARD_PARAM}=1`);
     expect(href).toContain('page=3');
   });
@@ -356,13 +360,13 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
   // ⚠️ **第二條最容易被抄漏**:只寫第一條的話,「永遠把 `den=loose` 寫進 URL」也會全綠,
   //    而那會讓每一條連結都掛著雜訊參數。三條缺一都不行。
   it('🔴 片4-1 非預設密度會被帶著走(翻頁不掉)', () => {
-    const href = buildOrderListHref({}, { density: 'tight' }, 3);
+    const href = buildOrderListHref({}, { density: 'tight' }, 3, PANEL_CLOSED);
     expect(href).toContain(`${ORDER_DENSITY_PARAM}=tight`);
     expect(href).toContain('page=3');
   });
 
   it('🔴 片4-2 等於預設值時**不寫進 URL**(否則每條連結都掛著 den=loose 的雜訊)', () => {
-    const href = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT }, 1);
+    const href = buildOrderListHref({}, { density: ORDER_DENSITY_DEFAULT }, 1, PANEL_CLOSED);
     expect(href).not.toContain(ORDER_DENSITY_PARAM);
     // 前提:這個 fixture 真的走得出一條 href(不然 `not.toContain` 在空字串上恆真)
     expect(href).toBe('/orders');
@@ -372,7 +376,7 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
     for (const den of ORDER_DENSITY_VALUES) {
       const { filter, display } = parseOrderListSearchParams({ [ORDER_DENSITY_PARAM]: den });
       expect(display.density, `${den} 應被解析回自己`).toBe(den);
-      const qs = new URLSearchParams(buildOrderListHref(filter, display, 1).split('?')[1] ?? '');
+      const qs = new URLSearchParams(buildOrderListHref(filter, display, 1, PANEL_CLOSED).split('?')[1] ?? '');
       // 預設那一檔刻意不寫進 URL(片4-2)⇒ 往返的期望值要跟著分流,不是一律 `toBe(den)`。
       expect(qs.get(ORDER_DENSITY_PARAM)).toBe(den === ORDER_DENSITY_DEFAULT ? null : den);
     }
@@ -387,7 +391,7 @@ describe('🔴 M-4b 生命週期 L6 — 預設隱藏刷卡未付款單的開關�
   });
 
   it('L6-6 關著的時候不留空參數在 URL 上', () => {
-    expect(buildOrderListHref({ includeUnpaidCardOrders: false }, DEN, 1)).not.toContain(
+    expect(buildOrderListHref({ includeUnpaidCardOrders: false }, DEN, 1, PANEL_CLOSED)).not.toContain(
       SHOW_UNPAID_CARD_PARAM,
     );
   });
@@ -433,7 +437,7 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
     //    而症狀是員工每翻一頁結束日就往後跑一天。
     const raw = { date_from: '2026-02-10', date_to: '2026-08-10', payment_status: 'paid' };
     const { filter } = parseOrderListSearchParams(raw);
-    const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 1).split('?')[1] ?? '');
+    const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 1, PANEL_CLOSED).split('?')[1] ?? '');
     expect(qs.get('date_from')).toBe('2026-02-10');
     expect(qs.get('date_to')).toBe('2026-08-10');
     expect(qs.get('payment_status')).toBe('paid');
@@ -441,7 +445,7 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
 
   it('🔴 只給一邊也要往返得回來', () => {
     const { filter } = parseOrderListSearchParams({ date_to: '2026-08-10' });
-    const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 1).split('?')[1] ?? '');
+    const qs = new URLSearchParams(buildOrderListHref(filter, DEN, 1, PANEL_CLOSED).split('?')[1] ?? '');
     expect(qs.get('date_to')).toBe('2026-08-10');
     expect(qs.has('date_from')).toBe(false);
   });
@@ -450,7 +454,7 @@ describe('#347-3c-1 日期範圍 URL 軸', () => {
     // 窮舉 Record 逼每個軸都要有一格,而 keyword 那格的值恆 undefined。
     // 突變:把 keyword 那格改成 `['keyword', filter.keyword]` ⇒ 這條紅,而症狀是
     // 客人姓名/電話跟著網址進 access log、CDN log、瀏覽器歷史。
-    const href = buildOrderListHref({ keyword: '王小明' }, DEN, 1);
+    const href = buildOrderListHref({ keyword: '王小明' }, DEN, 1, PANEL_CLOSED);
     expect(href).not.toContain('王小明');
     expect(href).not.toContain(encodeURIComponent('王小明'));
     expect(href).toBe('/orders');
@@ -526,7 +530,7 @@ describe('#347-3c-2 預設近半年 + 選中的選項', () => {
     //    首次載入的可見性完全由下拉那格承擔;這一格量的是 `buildOrderListHref` 的產出,
     //    也就是「按下去之後」那些連結。別把它讀成「網址列會顯示日期」。
     const r = parseOrderListSearchParams({}, { now: NOW });
-    const qs = new URLSearchParams(buildOrderListHref(r.filter, DEN, 1).split('?')[1] ?? '');
+    const qs = new URLSearchParams(buildOrderListHref(r.filter, DEN, 1, PANEL_CLOSED).split('?')[1] ?? '');
     expect(qs.get('date_from')).toBe('2026-02-10');
     expect(qs.get('date_to')).toBe('2026-08-10');
   });
@@ -556,20 +560,20 @@ describe('#1 片1 「待收款/待訂貨」chip 的 URL 往返', () => {
   );
 
   it('🔴 開著 ⇒ href 帶 pending=1(漏帶的症狀:一翻頁就被打回全部,而 chip 還亮著)', () => {
-    const href = buildOrderListHref({ pendingOnly: true }, DEN, 2);
+    const href = buildOrderListHref({ pendingOnly: true }, DEN, 2, PANEL_CLOSED);
     expect(href).toContain(`${PENDING_ONLY_PARAM}=1`);
   });
 
   it('🔴 關著 ⇒ href **不留空參數**(正向對照:證明上一格不是「永遠都帶」)', () => {
     // 少了這格,把 href 那行寫成無條件帶參數也會全綠,而網址會多一顆永遠都在的 pending=。
-    const href = buildOrderListHref({ pendingOnly: false }, DEN, 2);
+    const href = buildOrderListHref({ pendingOnly: false }, DEN, 2, PANEL_CLOSED);
     expect(href).not.toContain(PENDING_ONLY_PARAM);
   });
 
   it('🔴 往返:href → parse 回來仍是 true(兩端用同一個 param 名)', () => {
     // 這格擋的是「寫入用 pending、讀取用 pending_only」這種兩端不一致 ——
     // 上面四格各自都會綠,而實際行為是「按了就掉」。
-    const href = buildOrderListHref({ pendingOnly: true }, DEN, 1);
+    const href = buildOrderListHref({ pendingOnly: true }, DEN, 1, PANEL_CLOSED);
     const qs = href.slice(href.indexOf('?') + 1);
     const raw = Object.fromEntries(new URLSearchParams(qs).entries());
     expect(parseOrderListSearchParams(raw).filter.pendingOnly).toBe(true);
@@ -640,5 +644,45 @@ describe('`#539` 訂單列表的會員等級標籤:三個值都釘住,包含那�
 
   it('🔴 而它們與「一般」必須不同(否則二分塌成一分,整欄失去意義)', () => {
     expect(MEMBER_TIER_LABEL.store).not.toBe(MEMBER_TIER_LABEL.general);
+  });
+});
+
+describe('`#742` buildPreservedFilterQuery — 篩選列不擁有、但不得吃掉的那四個鍵', () => {
+  it('四個鍵都在時原樣回聲', () => {
+    const qs = new URLSearchParams(
+      buildPreservedFilterQuery({
+        panel: 'ord-1',
+        customer: 'cus-9',
+        den: 'loose',
+        pending: '1',
+      }),
+    );
+    expect(qs.get('panel')).toBe('ord-1');
+    expect(qs.get('customer')).toBe('cus-9');
+    expect(qs.get('den')).toBe('loose');
+    expect(qs.get('pending')).toBe('1');
+  });
+
+  it('一個都沒有 ⇒ 空字串(呼叫端據此決定要不要接 `&`)', () => {
+    expect(buildPreservedFilterQuery({})).toBe('');
+  });
+
+  it('🔴 不屬於這四個的鍵【不得】被搬過去 —— 否則篩選列會把自己的軸重複一份', () => {
+    const qs = new URLSearchParams(
+      buildPreservedFilterQuery({ panel: 'ord-1', order_source: 'web', r: 'saved' }),
+    );
+    expect(qs.get('panel')).toBe('ord-1');
+    expect(qs.has('order_source')).toBe(false);
+    // `r` 是一次性結果碼:搬過去的話,員工改個篩選就會再跳一次「已儲存」。
+    expect(qs.has('r')).toBe(false);
+  });
+
+  it('空字串值視同沒有(`?panel=` 這種網址不該產出一個空的 panel)', () => {
+    expect(buildPreservedFilterQuery({ panel: '' })).toBe('');
+  });
+
+  it('陣列(手打網址才做得出來)取第一個,不會產出重複鍵', () => {
+    const qs = new URLSearchParams(buildPreservedFilterQuery({ panel: ['a', 'b'] }));
+    expect(qs.getAll('panel')).toEqual(['a']);
   });
 });
