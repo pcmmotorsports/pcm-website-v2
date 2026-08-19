@@ -38,11 +38,20 @@ SP="$(cd "$(dirname "$0")" && pwd)"
 busy=""
 if [ -f "$S/pg/postmaster.pid" ]; then
   _pid=$(head -1 "$S/pg/postmaster.pid" 2>/dev/null || true)
-  if [ -n "${_pid:-}" ] && kill -0 "$_pid" 2>/dev/null; then busy="postgres pid $_pid(datadir $S/pg)"; fi
+  # 🟡 PID 重用會誤判 busy(fail-closed,煩但不危險)——
+  #    `postmaster.pid` **第 2 行就是 datadir 路徑**,比對它就去掉這個誤紅。
+  _dd=$(sed -n '2p' "$S/pg/postmaster.pid" 2>/dev/null || true)
+  if [ -n "${_pid:-}" ] && kill -0 "$_pid" 2>/dev/null && [ "${_dd:-}" = "$S/pg" ]; then
+    busy="postgres pid $_pid(datadir $S/pg)"
+  fi
 fi
 if [ -z "$busy" ]; then
   for _p in $WEB $PROXY $PREST 3987 $PG; do
-    _o=$(lsof -nP -iTCP:$_p -sTCP:LISTEN 2>/dev/null | grep -v WARNING | awk 'NR==2 {print $2" "$1}')
+    # 🔴 `|| true` 少不得:本檔是 `set -euo pipefail`,而**埠是空的時候 `lsof` 回 1**
+    #    ⇒ 沒有它,這一行會在「第一個空著的埠」就把整支腳本【靜默】殺掉(exit 1、零輸出)。
+    #    📌 2026-08-19 實測踩到:M1 那一格看起來通過(證據沒被刪),
+    #       **而它是因為腳本死在這裡、根本沒走到下面那道閘** —— 對的結果、錯的原因。
+    _o=$(lsof -nP -iTCP:$_p -sTCP:LISTEN 2>/dev/null | grep -v WARNING | awk 'NR==2 {print $2" "$1}' || true)
     if [ -n "$_o" ]; then busy="埠 $_p 已被佔用 —— pid/command = $_o"; break; fi
   done
 fi
@@ -56,6 +65,21 @@ if [ -n "$busy" ]; then
   echo "       STOREFRONT_PROBE_DIR=/tmp/pcm-g3-probe-\$\$ bash scripts/storefront-probe/up.sh" >&2
   echo "       ⚠️ 埠仍寫死在本檔($WEB/$PROXY/$PREST/3987/$PG)⇒ 並行還要自己改埠,本次未做" >&2
   exit 1
+fi
+
+# 🔴🔴 **M1(W6 抓,2026-08-19):前置閘只擋「還活著」,而 `$S` 存在【不等於】有東西活著。**
+#    `down.sh` 判紅時會「⏸ 保留供你查」——**而那份證據會被下一次 `up.sh` 靜默刪掉,一個字都不提**
+#    ⇒ **「保留供你查」的保存期,只到下一次有人跑 `up.sh` 為止。**
+#    ⇒ 兩個各自正確的改動互相抵銷 ⇒ 這裡也要問一次。
+#    📌 `down.sh` 已經在做一模一樣的事(拆之前先印 `owner.txt`),而**刪得更徹底的是這一支**。
+if [ -e "$S" ]; then
+  echo "🔴 $S 已經存在 —— **這支腳本不會靜默刪掉它**。" >&2
+  [ -f "$S/owner.txt" ] && { echo "   來歷:" >&2; sed 's/^/     /' "$S/owner.txt" >&2; }
+  echo "   它可能是:① 上一次 down.sh 判紅、**刻意保留下來給你查**的證據" >&2
+  echo "             ② 有人跑完沒收攤" >&2
+  echo "   看過、確定不要了 ⇒ FORCE=1 bash scripts/storefront-probe/up.sh" >&2
+  [ "${FORCE:-0}" = "1" ] || exit 1
+  echo "   (FORCE=1 ⇒ 照你的意思刪掉重來)" >&2
 fi
 
 rm -rf $S && mkdir -p $S
