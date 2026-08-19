@@ -24706,8 +24706,47 @@ apps/admin/src/app/orders/page.tsx:8 → order-repository.ts:2-3
 ✅ 而缺的那一半已經有 runbook:`docs/runbooks/local-admin-with-real-data-probe.md`
    （拋棄式 PG + PostgREST + 自簽 JWT，零 secret、不碰 .env*）
 ```
-⚠️ **而兩份還沒有人合起來跑過**(W6 逐字):
-> **「prod build + 拋棄式資料源 + 自簽 cookie」目前是【推的】,沒有人量過。**
+~~⚠️ 而兩份還沒有人合起來跑過:「prod build + 拋棄式資料源 + 自簽 cookie」目前是【推的】~~
+### ✅✅ **已跑通(2026-08-20 W2,約 45 分鐘)** —— 配方 `~/pcm-mailbox/W2-015-prod-build-拋棄式資料源-自簽cookie-可行-20260820.md`
+```
+① HTTP  帶自簽 cookie ⇒ **200**（55,876 bytes）／不帶 ⇒ 303 → /api/sso/start
+② 幾列  tbody tr（checkVisibility 濾過）= 1 列
+   🔴 **面板打得開**:點單號 ⇒ ?panel=<id>，出現 10 個標題
+      訂單 / 單號 / 客戶資訊 / 付款 / 發票 / 備註與聯絡紀錄 / 新增備註 / 編輯訂單 / 收款 / 出貨宅配
+③ console error  列表 0、面板 0
+```
+🔴 **面板打得開這一格特別重要** —— 本條要服務的那幾件裡**至少三件是面板的事**
+(`MAIN-066` 第 5 條面板顯示舊的 / `#742` 面板被關掉 / W1 的收合區)⇒ **沒有那一格,那三件仍然掛著。**
+
+**為什麼它一直沒人跑通**(配方檔頭第一段):
+```
+apps/admin/src/proxy.ts:18  NODE_ENV !== 'production' && ADMIN_DEV_BYPASS === '1'
+同檔 :16 註解逐字「prod（NODE_ENV=production）永遠擋」
+⇒ prod build 之下免登入捷徑【無效】，而且是刻意設計
+⇒ 「自簽 cookie」不是可選項，是【必要條件】
+🔴 而撞牆的樣子長得像「設定沒設好」⇒ 撞牆的人會回去檢查自己的設定，而那裡沒有問題
+```
+
+#### 🔴🔴 W2 的限定 —— **原封抄,不摘要**(主視窗指名這一點)
+```
+🔴 我是把 cookie【直接注入】的（curl -H / playwright addCookies），
+   **沒有測 Set-Cookie 那條路** —— __Host- 前綴要求 Secure，
+   而真實瀏覽器在 http:// 下收不收，**我沒有量**
+   ⇒ 本配方證明的是【伺服器認這張票】，不是【使用者登得進去】
+   ⇒ **不得引用它去說「登入驗過了」**（自動化測試用注入是正常的；驗真人登入要另一條路）
+
+🔴 資料是拋棄式庫（1 張自種的單、188 支 migration 有 13 支失敗）
+   ⇒ 版面與渲染算數；效能、真實資料量、RLS 一律不算數
+   ⚠️ 其中 d0_display_id_expand 失敗 ⇒ 本機單號約束是【舊格式】PCM-YYYY-NNNN，
+     正式站是 6 碼 ⇒ 任何與單號字面有關的結論本機不算數
+
+⚠️ 有 3 個 RSC prefetch requestfailed（?_rsc=…）
+   —— 我【沒有查】為什麼、也沒查會不會影響使用。
+   console error 是 0 ⇒ 它們沒變成使用者看得到的錯誤，**但那不等於沒事**
+```
+⇒ **①那塊的狀態因此改變**:從「估不出來(可能根本跑不起來)」⇒ **「有一份跑過的配方」**。
+⚠️ 而**本條的驗收標的(`#741`/`#742` 那兩句限定改寫成「已驗到」)仍未達成** ——
+配方跑通 ≠ 那兩片被驗過。**兩件事不要併成一句。**
 
 成因:那份 runbook 走 `next dev` + `ADMIN_DEV_BYPASS=1`,**而本塊要的正是 prod build**
 —— 而 dev bypass 在 prod **不生效**(`proxy.ts:18` / `authorize.ts:18` 皆掛 `NODE_ENV !== 'production'`),
