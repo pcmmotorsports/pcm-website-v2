@@ -36,14 +36,21 @@ import { formatOrderAmount } from '../../lib/orders/order-list-view';
  *      只會撈到註解、撈不到任何 code,那正是 `guard-and-instrument-traps.md:4041,4048`
  *      登記過的坑(當時實測 `grep -rn '建立出貨' --include='*.tsx'` ⇒ 0)。
  *
- * ⚠️⚠️ **要動這顆鈕的人看這裡 —— 上面那句「設計稿畫的是建立出貨」我【沒有看過原稿】。**
- *    我核到的是**二手手打落檔** `~/pcm-mailbox/MAIN-057-訂單編輯面板-設計稿逐格落檔-20260819.md:117`,
- *    不是 OD 上的設計稿本體(本片沒有 OD 工具;`design-reference/` 是 storefront 那份,grep `尾款` ⇒ 0)。
- *    🔴 **這正是 `guard-and-instrument-traps.md` 那則「尺是對的、而【基準是手打的】」的形狀** ——
- *       **該則的實例裡,八顆鈕的手打清單錯了四顆,而其中一顆就是「建立出貨」。**
- *    ⇒ **今天不影響任何一個字**:拍板(出貨)與設計稿(建立出貨)兩邊結論一致都是「鈕不改」,
- *      回原稿對一次不會改變本檔。**這條限定是在【真的要動主鈕】那一刻才生效的。**
- *    ⇒ 那一刻請**先找有 OD 工具的人回原稿逐字對一次**,不要拿上面那個 `:349` 當權威。
+ * ✅ **已回原稿實查(2026-08-19,我自己開檔,不是轉述)—— 兩個版本都寫「建立出貨」:**
+ *    ```
+ *    ~/Library/Application Support/Open Design/namespaces/release-stable/data/projects/pcm-admin-order-ui/
+ *      overview-desktop.html:1222         (Aug-13 版,1983 行,全檔唯一命中)
+ *        <button class="b b-primary">建立出貨</button>
+ *      overview-desktop-bmw-m.html:653    (Aug-17 BMW M 版,778 行)
+ *        <button class="btn btn-primary"…>建立出貨</button>
+ *        └─ 同檔 :363 逐字「整頁只有一顆實心 M 藍主按鈕(建立出貨)」
+ *    ```
+ *    ⇒ **設計稿(新舊兩版)與 Sean 08-12 拍板【真的不一樣】,而拍板壓過設計稿 ⇒ 鈕不改。**
+ *    ⇒ 🔴 **原本這裡掛著「我沒看過原稿、真要動主鈕前先回原稿對一次」那條限定 —— 已經對過了,撤掉。**
+ *       附帶結論:`MAIN-057` 那份二手手打轉錄**這一顆沒有打錯**
+ *       (traps 那則說手打清單八顆錯四顆,而這顆與原稿逐字相同)。
+ *    ⚠️ **仍未確認的一格**:我比的是**上面那兩支檔**;OD 專案裡另有 `index.html` 等 7 支我沒逐支掃,
+ *       且不確定 Sean 手上有沒有更新而未存檔的版本。⇒ 寫「這兩版都是建立出貨」,不要讀成「設計稿從來沒改過」。
  *
  * 🔴🔴 **三態,不是兩態。** 設計稿只畫了「還差錢」那一種,而系統有四種
  * (`payment-list-view.ts:161-165`:`unknown` / `settled` / `short` / `over`)。
