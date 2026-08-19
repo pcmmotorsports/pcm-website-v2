@@ -23,6 +23,24 @@ git merge-base --is-ancestor 5e63de69 HEAD ⇒ **是**(短期修法那顆在 dev
 ```
 而客戶頁那一欄:`grep -c "fulfillmentStatus\|出貨狀態" customer-detail-sections.tsx` ⇒ **0**(整欄拿掉了)。
 
+> ### ⚠️ 2026-08-19 G2 自查:**上面那把尺比它下的結論窄,而結論僥倖是對的**
+> 那個 pattern 只認 **camelCase 的 `fulfillmentStatus`** 與**中文「出貨狀態」**四個字 ——
+> 🔴 **它抓不到 snake_case 的 `fulfillment_status`,而那個字面就在同一支檔的 `:64`。**
+> ⇒ 換成不分大小寫、放寬到 `fulfillment|出貨` 重量:**3 處命中,不是 0。**
+> ```
+> :63  {/* 🔴🔴 `#514`:「出貨」那一欄 2026-08-15 **拿掉**,不是忘了畫。
+> :64      它讀的是 `orders.fulfillment_status` —— …
+> :90  {/* `#514`:出貨欄已移除,理由見表頭註解。 */}
+> ```
+> ✅ **而結論仍然成立**:那 3 處**全部是【解釋這一欄為什麼被拿掉】的註解**,
+> 不是還活著的渲染 ⇒ **那一欄確實不在了。**
+> 🔴 **但這個「對」不是那把尺掙來的** —— 它回 0 的理由裡有一半是它瞎(漏 snake_case),
+> 只是這一次瞎掉的那一半剛好也不是活的渲染。
+> ⇒ 📌 **記在這裡的用途:不要把這一行當成「這種量法可以」的先例。**
+>   同族母條 `docs/patterns/guard-and-instrument-traps.md`「掃描字集比宣稱窄」。
+> ✅ 順帶重量 `:104` 那一發(`…435-shipping-rpc-audit-plan.md`):
+>   區分大小寫 / 不分大小寫 / 加中文 **三種尺都是 0** ⇒ 那一格的 0 是真的。
+
 ### ⚠️ 資料面:**我量不到,而我要說清楚為什麼**
 ```
 原症狀是 `select fulfillment_status, count(*) from orders group by 1` ⇒ notOrdered 13
