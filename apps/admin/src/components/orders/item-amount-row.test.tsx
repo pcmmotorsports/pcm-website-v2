@@ -101,6 +101,19 @@ describe('ItemAmountRow — 收合/展開', () => {
   });
 });
 
+/**
+ * 剝掉 JSX 註解(`{/* … *\/}`)。**原始碼層的結構斷言一律先過它。**
+ *
+ * 🔴 存在理由是一個實錘:這把尺原本直接數 `<th\b`,而**註解裡提到的 `<th>` 也被算成欄**
+ *    ⇒ 2026-08-19 片5 在 thead 寫了一句含 `<th>` 的註解,8 欄被數成 9(假紅)。
+ * 🔴 **而危險的是另一個方向**:刪掉一個真欄位 + 一句提到它的註解 ⇒ 一加一減 ⇒ **恆綠而版面已歪**。
+ * ⚠️ 抽成模組級常數是 R1 nit E:兩個使用點必須吃**同一支**,
+ *    否則「驗剝除邏輯」那一格驗的是它自己的複製品。
+ */
+function stripJsxComments(source: string): string {
+  return source.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+}
+
 describe('🔴 展開列的 colSpan 必須等於表頭欄數', () => {
   // 不一致時瀏覽器會**靜默把版面畫歪**,不會有任何東西紅 ⇒ 只能靠這一格。
   it('`ITEMS_TABLE_COLSPAN` 與 `<th>` 數逐字相同', () => {
@@ -114,10 +127,34 @@ describe('🔴 展開列的 colSpan 必須等於表頭欄數', () => {
     expect(src).toContain('colSpan={ITEMS_TABLE_COLSPAN}');
     // 只數品項表那段 thead 的 <th>(以 `<thead>` 起、`</thead>` 止的第一塊)
     const thead = /<thead>([\s\S]*?)<\/thead>/.exec(src)?.[1] ?? '';
-    const thCount = (thead.match(/<th\b/g) ?? []).length;
+    // 🔴🔴 **先把 JSX 註解剝掉再數(2026-08-19 片5 加)** —— 這把尺原本會**把註解裡的字當成欄**。
+    //    它是雙向壞的,而【第二個方向才是危險的那個】:
+    //      · 多報:在 thead 寫一句提到 `<th>` 的註解 ⇒ 憑空多一欄 ⇒ 紅(吵,但看得見)
+    //      · 🔴 少報遮蔽:**刪掉一個真欄位、同時有一句註解提到它** ⇒ 一加一減 ⇒ **恆綠而版面已歪**
+    //    ⇒ 這是「量錯東西」那一族:尺量的是**字元**,而宣稱量的是**欄**。
+    //    ⚠️ 這一格是被片5 當場撞出來的(我在 thead 寫了一句含 `<th>` 的註解 ⇒ 8 欄被數成 9)。
+    const thCount = (stripJsxComments(thead).match(/<th\b/g) ?? []).length;
     expect(declared).toBeGreaterThan(0); // 正向對照:真的抓到那個常數
     expect(thCount).toBeGreaterThan(0); // 正向對照:真的抓到那段 thead
     expect(declared).toBe(thCount);
+  });
+
+  it('🔴 這把尺要分得出【註解裡的 th】與【真的 th】—— 兩個世界要給不同答案', () => {
+    // 上面那格若沒有剝註解就是**恆綠風險**:一句註解可以補回一個被刪掉的欄。
+    // 這一格直接對**同一段剝除邏輯**餵兩個世界,不必動受測檔。
+    // 🔴 用**上一格真正用的那支** `stripJsxComments`,不是把正則再打一次(R1 nit E):
+    //    複製品驗不到本尊 —— 有人改壞本尊,這一格照樣綠。
+    const strip = (src: string) => {
+      const thead = /<thead>([\s\S]*?)<\/thead>/.exec(src)?.[1] ?? '';
+      return (stripJsxComments(thead).match(/<th\b/g) ?? []).length;
+    };
+    const twoRealColumns = '<thead><tr><th>A</th><th>B</th></tr></thead>';
+    // 世界一:兩個真欄位 + 一句提到 `<th>` 的註解 ⇒ 仍然是 2
+    expect(strip('<thead><tr><th>A</th>{/* 這裡提到 <th> 但它不是欄 */}<th>B</th></tr></thead>')).toBe(2);
+    // 世界二:真的兩個欄位 ⇒ 2(正向對照:剝除沒有把真欄位一起吃掉)
+    expect(strip(twoRealColumns)).toBe(2);
+    // 世界三:真的少一欄 ⇒ 1(負向對照:尺仍然抓得到「欄數變了」)
+    expect(strip('<thead><tr><th>A</th>{/* <th> <th> <th> */}</tr></thead>')).toBe(1);
   });
 });
 

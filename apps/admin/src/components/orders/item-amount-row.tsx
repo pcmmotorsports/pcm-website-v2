@@ -8,12 +8,15 @@ import { ItemAmountForm, type ItemAmountFormProps } from './item-amount-form';
 // 🔴 **為什麼要這一支**:1c-2 第一版把表單塞進「單價」那格,而那格是
 //    `text-right tabular-nums whitespace-nowrap`、實測寬 **155px**(主視窗 2026-08-16 量;
 //    品項表是該頁第 [1] 張、6 欄、表寬 1150)。
+//    ⚠️ **口徑:那個「6 欄」是 2026-08-19 片5【之前】量的,現值 8 欄**(片5 三軸拆三欄)。
+//       155px 那個結論(表單塞不進單價格)在 8 欄下只會更成立 ⇒ **不必重量,補上時點即可。**
 //    表單裡有 label、輸入框、checkbox 與「我確認這個品項要改成 0 元」——
 //    `nowrap` 會讓它一行到底,**要嘛擠爆別欄、要嘛整張表出現橫向捲軸**。
 //
 // 🔴🔴 **本檔是【唯一】的 client 島 —— `ItemsTable` 與 `order-detail.tsx` 仍是 server component。**
 //    (`grep -c "use client" order-detail.tsx` ⇒ **0**,那個 0 要維持。)
-//    ⚠️ 作法:**那六格的內容仍由 server 算好、當 `ReactNode` 傳進來**(`before` / `priceText` / `after`),
+//    ⚠️ 作法:**那幾格的內容仍由 server 算好、當 `ReactNode` 傳進來**(`before` / `priceText` / `after`),
+//       (原字面「六格」= 片5 之前的欄數;現值 8,見上方口徑註記。)
 //    本檔只負責「**展開誰**」這個狀態與那一列的殼。
 //    ⇒ 不要為了方便把 `ItemsTable` 標成 `'use client'` —— 那會把整張表(含金額格式化、三軸彙總)
 //    整包送進 client bundle。
@@ -42,11 +45,19 @@ export function ItemAmountRowGroup({ children }: { children: ReactNode }) {
 }
 
 export type ItemAmountRowProps = {
-  /** 單價格之前的那幾格(品項 / SKU / 數量)—— server 算好傳進來 */
+  /**
+   * 單價格**之前**的那幾格 —— server 算好傳進來。
+   * 🔴 2026-08-19 片5 更新(原字面「品項 / SKU / 數量」已過期):現在是**六格**
+   * `商品名稱 / 料號 / 訂 / 到 / 出 / 數量`。**三軸在這裡,不在 `after`。**
+   */
   before: ReactNode;
   /** 單價格要顯示的字(已格式化)—— server 算好傳進來 */
   priceText: ReactNode;
-  /** 單價格之後的那幾格(小計 / 三軸)—— server 算好傳進來 */
+  /**
+   * 單價格**之後**的那幾格 —— server 算好傳進來。
+   * 🔴 2026-08-19 片5 更新(原字面「小計 / 三軸」已過期):現在**只剩小計一格**,
+   * 三軸已搬到 `before`。⚠️ 照舊字面接線會把三軸放到單價的**右邊**,而版面不會報錯。
+   */
   after: ReactNode;
   /** 展開列要跨幾欄(= 表格欄數) */
   colSpan: number;

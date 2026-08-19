@@ -197,13 +197,66 @@ describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
   });
 
   it('🔴 三軸數字真的接到 A9g-1 投影(任一欄接錯線就紅)', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(detail(SUMMARY));
+    // 🔴🔴 **本格用【自己的】fixture,而理由是共用那個 fixture 量不出這件事:**
+    //    `SUMMARY` 的 `instockQuantity` 與 `shippedQuantity` **都是 1**
+    //    ⇒ 「到」與「出」對調的話,畫面**一個字都不會變** ⇒ 這把尺對那個方向是瞎的。
+    //    ⚠️ 而**片5 之前的版本更寬**:它只斷言了 `訂貨 3/4` 與 `到貨 1/4`,
+    //       **從頭到尾沒有斷言過「出貨」那一軸** ⇒ shipped 這條線一直沒有守門。
+    //    ⇒ 三個軸給三個互不相同的值,任一組對調都至少讓一行紅。
+    const DISTINCT_SUMMARY: AdminOrderItemQuantitySummary = {
+      ...SUMMARY,
+      // 🔴 `quantity` 必須對齊那一列的 `item.quantity`(fixture 寫死 4,見 `detail()`)——
+      //    不對齊的話畫面會渲染成「訂 5/9 · 到 3/9 · 出 1/9 · 數量 4」,
+      //    而**拆欄之後三軸與「數量」是相鄰欄** ⇒ 分母不一致會直接被員工看到。
+      //    (拆欄前三軸擠在最右邊,這個矛盾看不太出來 —— 版面改動讓一個舊的 fixture 問題浮上來。)
+      quantity: 4,
+      orderedQuantity: 4,
+      instockQuantity: 2,
+      shippedQuantity: 1,
+    };
+    mocks.findAdminOrderDetail.mockResolvedValue(detail(DISTINCT_SUMMARY));
     const { container } = await renderPage();
 
-    // 連標籤一起比,才擋得住「兩個軸的數字對調」這種改法(單看 `3/4` 在不在場擋不住)。
-    expect(container.textContent).toContain('訂貨 3/4');
-    expect(container.textContent).toContain('到貨 1/4');
-    expect(container.textContent).toContain('已取消 2');
+    // 🔴🔴 **這一格的比法在 2026-08-19 片5 之後【必須改,而且不能改鬆】。**
+    //
+    // 原本比的是 `'訂貨 3/4'` 這種**標籤+數字連在一起**的字串,理由(原註解逐字)是
+    // 「連標籤一起比,才擋得住『兩個軸的數字對調』這種改法(單看 `3/4` 在不在場擋不住)」。
+    // 而片5 把「訂/到/出」三個字**從值搬到欄頭**(Sean 選的丙案)⇒ 值那一格只剩 `3/4`
+    // ⇒ **那個比法的機制被結構改動整個拿掉了**,不是我把它放寬。
+    //
+    // ⇒ 換成**按欄位位置**比,而它比舊的更強:
+    //    舊的只保證「這兩個字串在同一段文字裡」;新的直接問
+    //    **「『訂』那一欄底下那一格,裝的是不是 orderedQuantity」** —— 那正是「接錯線」的定義。
+    //    ⚠️ 兩軸對調時,欄頭順序不變而值互換 ⇒ 位置比對照樣紅。
+    const table = [...container.querySelectorAll('table')].find((t) =>
+      [...t.querySelectorAll('thead th')].some((th) => th.textContent?.trim() === '訂'),
+    );
+    expect(table).toBeTruthy(); // 正向對照:真的找到品項表(找不到就不是「通過」)
+    const headers = [...table!.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+    const bodyCells = [...table!.querySelectorAll('tbody tr')][0]!.querySelectorAll('td');
+    const cellUnder = (name: string) => bodyCells[headers.indexOf(name)]?.textContent?.trim();
+
+    // A9g-1 投影:ordered=4 / instock=2 / shipped=1,總數 4
+    expect(cellUnder('訂')).toBe('4/4');
+    expect(cellUnder('到')).toBe('2/4');
+    expect(cellUnder('出')).toBe('1/4');
+    // 🔴🔴 **這一格的前提:三軸的值必須互不相同,否則上面三行對「對調」是瞎的。**
+    //    ⚠️ 我第一版寫成 `new Set(['5/9','3/9','1/9']).size === 3` —— 那是**恆真**的:
+    //       它只比三個【字面常數】,與 fixture、與受測元件都無關 ⇒ 任何世界都綠。
+    //       失敗情境:有人把 shipped 改回等於 instock、順手把上面的期望值一起改,
+    //       **這行照樣綠**,而「到↔出 對調零症狀」那個缺口就無聲地回來了。
+    //    ⇒ 改成從 **fixture 本身**導出,它才真的在守那個前提。(R1 must-fix 1)
+    expect(
+      new Set([
+        DISTINCT_SUMMARY.orderedQuantity,
+        DISTINCT_SUMMARY.instockQuantity,
+        DISTINCT_SUMMARY.shippedQuantity,
+      ]).size,
+    ).toBe(3);
+    // 「已取消」是例外不是第四軸,片5 之後掛在「數量」那一格底下。
+    // 🔴 連著比,不拆兩個 `toContain` —— 該格文字是 `4已取消 2`,
+    //    單獨找 `'2'` 可能命中的是 `item.quantity` 而不是 cancelled(今天剛好有判別力=巧合)。
+    expect(cellUnder('數量')).toContain(`已取消 ${DISTINCT_SUMMARY.cancelledQuantity}`);
     expect(container.textContent).not.toContain('數量資料尚未就緒');
   });
 
@@ -212,7 +265,14 @@ describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
     const { getByText, container } = await renderPage();
 
     expect(getByText('數量資料尚未就緒')).toBeTruthy();
-    // 這一行是「有人寫 `?? 0`」的突變證:補 0 會畫出「訂貨 0/4」。
-    expect(container.textContent).not.toContain('0/4');
+    // 🔴 這一行是「有人寫 `?? 0`」的突變證。
+    //    ⚠️ **2026-08-19 片5 更新 —— 原本的 `not.toContain('0/4')` 已經恆綠**:
+    //       ①值那格已無「訂貨」二字(三個字搬去欄頭)
+    //       ②`?? 0` 型的突變在 `summary` 為 null 時**分母也會被補 0** ⇒ 渲染成 `0/0`,
+    //         **永遠不會是 `0/4`** ⇒ 那個字面再也構造不出來。
+    //    ⇒ 改成 `0/0`,它才是這個突變真正會畫出來的字面。
+    //    📎 更完整的覆蓋(逐格斷言印「—」)已由
+    //       `components/orders/order-detail-items-table-shape.test.tsx` 接手。
+    expect(container.textContent).not.toContain('0/0');
   });
 });
