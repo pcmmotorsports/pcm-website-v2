@@ -34,6 +34,12 @@ import { ItemAmountRow, ItemAmountRowGroup } from './item-amount-row';
 // 🔴 片6a-2:「卡住」的**唯一定義**在 `item-stuck.ts` —— **本檔不得自己再判一次**。
 //    兩邊各判各的,症狀是**畫面自洽而互相矛盾**(卡是開的、旁邊卻沒有異常字),而不會有東西紅。
 import { describeItemStuck, resolveItemStuck } from '../../lib/orders/item-stuck';
+// 🔴 片7:採購從獨立一張卡搬進每張商品卡的展開區(理由與邊界在該檔檔頭)。
+import {
+  ItemProcurementBlock,
+  ItemProcurementOrderNotices,
+} from './item-procurement-section';
+import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 /* ─────────────────────────────────────────────────────────────────────────
  * 🔴🔴 **片 A-1(2026-08-17)那段檔頭的【承接】—— 片5 拆欄時我一度把它整段刪掉了。**
@@ -211,9 +217,20 @@ const ITEMS_FOOTER_LABEL_COLSPAN = ITEMS_TABLE_COLSPAN - 1;
 export function ItemsTable({
   detail,
   payments,
+  returnTo,
+  suppliers,
+  suppliersFailed,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
+  /**
+   * 🔴 片7:採購那一層搬進每張卡的展開區之後,這三個 prop 是**跟著它一起搬過來的**,
+   *    不是本表格自己要用的東西。
+   *    `returnTo` 的不可信任性質與白名單檢查一個字沒變(action 端一律再過 `parseOrderReturnTo`)。
+   */
+  returnTo: string;
+  suppliers: readonly SupplierOption[];
+  suppliersFailed: boolean;
 }) {
   const amountEditBlock = resolveAmountEditBlock(detail, payments);
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
@@ -236,6 +253,11 @@ export function ItemsTable({
    */
   return (
     <div className='rounded-lg border bg-card p-4'>
+      {/* 🔴 片7:**對整張單說的**那兩則(品項被截斷 / 供應商清單載入失敗)留在這裡、只出現一次。
+          搬進卡片裡會變成同一句話出現 N 次,而「供應商清單載入失敗」講的是整個選單壞了,
+          不是某一項的事。理由全文在 `ItemProcurementOrderNotices` 檔頭。 */}
+      <ItemProcurementOrderNotices detail={detail} suppliersFailed={suppliersFailed} />
+
       {/* 🔴 表頭列與每一列**必須共用同一組軌道**(`.ihead` / `.iline` 在 CSS 裡是同一條規則)。
           設計稿 `:119-120` 自己記著:兩個獨立 grid 的 `auto` 欄各自依內容算寬
           (「數量」2 字 vs 「×2」)⇒ **實測整排錯開 8px**。**那是會靜默錯開、沒有東西會紅的東西。** */}
@@ -261,6 +283,18 @@ export function ItemsTable({
           //    ⇒ 所以下面兩件都要做:①只有 `stuck` 才自動展開 ②`unknown` 的話**把話講出來**。
           const stuck = resolveItemStuck(item.procurements, item.procurementTruncated);
           const stuckNote = describeItemStuck(stuck);
+          /**
+           * 🔴 片7:**這一項有沒有採購資料** —— 給「預設要不要展開」用,**不是**在判「卡住了沒」。
+           *
+           * ⚠️ 本檔有一格守門明文禁止**自己判卡住**(`order-detail-items-table-shape.test.tsx`
+           *    的「自己判」那格,禁 `procurements.find|some|filter|length`)。
+           *    **這一行不是那件事** —— 它問的是「有沒有列」,而「卡住」的定義仍然**只有**
+           *    `item-stuck.ts` 一處。取個名字寫在這裡,是為了讓下一個人一眼看出這兩件事不同,
+           *    **而不是靠我的寫法剛好躲過那個 regex**。
+           * 🔴 `procurements === null`(讀不到)⇒ `?? []` ⇒ **false** ⇒ 歸「收起」那半。
+           *    那是刻意的:讀不到**不是資料**。
+           */
+          const hasProcurementRows = (item.procurements ?? []).length > 0;
           return (
           <ItemAmountRow
             key={item.id}
@@ -272,7 +306,15 @@ export function ItemsTable({
                ⚠️ **依據標弱,不得寫成「Sean 已批」**:他選的是「卡片 vs 表格展開列」,
                   而**自動展開在兩張原型裡是常數、不是變數** ⇒ 他**看過而沒有反對**,不是選了它。
                   ⇒ 已列成肉眼題,等他在真環境看。 */
-            defaultOpen={stuck.kind === 'stuck'}
+            /* 🔴🔴 **片7:預設展開的條件從「只有缺料」放寬成「缺料【或】已經有採購資料」**
+               —— 主視窗 2026-08-19 裁,而**依據是 Sean 自己的字**:
+               他選卡片版時逐字說「**看得完整**,但佔高度」⇒ **他接受的是【高度】,不是【多點一下】**。
+               ⇒ 全部收起來等於把他接受的代價換成一個他沒被問過的代價,而換完之後畫面**反而不完整**
+                 —— 那正是他選甲要避開的東西。
+               ⚠️ **沒有採購資料的維持收起**:那格展開是空的,展開它不叫「看得完整」。
+               🔴 `procurements === null`(讀不到)**歸在「收起」那半** —— 它不是資料。
+                  而那不會讓警告消失:`describeItemStuck` 那行字在卡頭底下、**不依賴卡片開不開**。 */
+            defaultOpen={stuck.kind === 'stuck' || hasProcurementRows}
             before={
               <>
                 {/* 🔴🔴 **codex 關卡2 must-fix 4**:上一版把橫向捲動拿掉(`overflow-x-auto` 隨表格一起沒了)
@@ -363,6 +405,17 @@ export function ItemsTable({
             //    主視窗 2026-08-19 裁本片中鐵則 12①,用的就是這個理由:
             //    **一道閘在殼被重寫的過程中被漏掉,不會有東西紅。**
             blockedReason={amountEditBlock}
+            /* 🔴 片7:展開區裡、改金額表單【之上】的那一層 = 這一項的採購與到貨。
+               ⚠️ 它**永遠**渲染(只要卡片是開的),與「有沒有點改金額」無關 ——
+                  兩個狀態的分家在 `item-amount-row.tsx` 的 `amountEditId` 那段。 */
+            body={
+              <ItemProcurementBlock
+                detail={detail}
+                item={item}
+                returnTo={returnTo}
+                suppliers={suppliers}
+              />
+            }
           />
           );
         })}

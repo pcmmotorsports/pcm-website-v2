@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
 // M-4b E10 A10b:**頁層接線**測試(關卡2 codex MF10)。
@@ -164,9 +164,31 @@ async function renderPage() {
   return render(ui);
 }
 
+/**
+ * 🔴🔴 **片7:採購現在住在商品卡的【展開區】裡,而卡片預設是收起來的。**
+ *
+ * ⇒ 沒有展開的話,`select[name="supplier_id"]` 在 DOM 裡**根本不存在** ——
+ *   而那長得跟「接線斷了」一模一樣。這幾格要先把卡打開,量的才是接線。
+ * ⚠️ **這是真的行為改動,不是測試的權宜**:本 fixture 那一項沒有缺料
+ *   ⇒ 它不會自己打開 ⇒ **員工要點一下才看得到採購**。
+ *   已寫進 commit body 當成本片的代價,不藏在測試裡。
+ *
+ * 🔴 `<details>` 的 `toggle` 事件是**非同步**的(排進 task queue)⇒ 要真的過一個 tick,
+ *    只 await 一個空 promise 沖不掉它。
+ */
+async function expandFirstItemCard(container: HTMLElement) {
+  const summary = container.querySelector('details.icard > summary');
+  if (summary === null) throw new Error('找不到商品卡的 summary —— 卡片殼本身壞了,不是採購接線');
+  fireEvent.click(summary);
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+  });
+}
+
 describe('/orders/[id] — A10b 採購區塊接線', () => {
   it('🔴 S3a 的供應商真的傳到採購選單(改成回空陣列這條要紅)', async () => {
     const { container } = await renderPage();
+    await expandFirstItemCard(container);
     const options = [...container.querySelectorAll('select[name="supplier_id"] option')].map(
       (o) => o.getAttribute('value'),
     );
@@ -176,6 +198,10 @@ describe('/orders/[id] — A10b 採購區塊接線', () => {
 
   it('採購區塊有渲染出來(標題 + 每個品項一份表單)', async () => {
     const { container } = await renderPage();
+    // 🔴 負對照:**展開之前**它不該在 —— 沒有這一格,「永遠都在」也會通過,
+    //    而那正好是我搬家前的行為 ⇒ 這格才分得出「搬了」與「沒搬」。
+    expect(container.querySelectorAll('select[name="supplier_id"]')).toHaveLength(0);
+    await expandFirstItemCard(container);
     expect(container.textContent).toContain('採購(向供應商訂貨)');
     expect(container.querySelectorAll('select[name="supplier_id"]')).toHaveLength(1);
   });
@@ -184,8 +210,11 @@ describe('/orders/[id] — A10b 採購區塊接線', () => {
   it('listSuppliers 失敗 → 頁面照樣渲染、且顯示載入失敗警告', async () => {
     mocks.listSuppliers.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
-    expect(container.textContent).toContain('採購(向供應商訂貨)');
+    // 🔴 「供應商清單載入失敗」是**對整張單說的** ⇒ 它不在卡片裡,
+    //    展開之前就要看得到(片7 把訂單層那兩則留在商品卡外面的理由本體)。
     expect(container.textContent).toContain('供應商清單載入失敗');
+    await expandFirstItemCard(container);
+    expect(container.textContent).toContain('採購(向供應商訂貨)');
   });
 
   it('訂單明細失敗 → 錯誤態,不因為供應商成功就誤render', async () => {

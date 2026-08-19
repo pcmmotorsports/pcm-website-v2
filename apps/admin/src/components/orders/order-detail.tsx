@@ -24,7 +24,6 @@ import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { DangerZoneDetails } from './danger-zone-details';
-import { ItemProcurementSection } from './item-procurement-section';
 import { ItemsTable } from './order-detail-items-table';
 import { OrderSummaryCards } from './order-detail-summary-cards';
 import { OrderCancelBlock } from './order-cancel-block';
@@ -393,11 +392,12 @@ export function OrderDetail({
              **在畫面上、在程式碼裡都長得一模一樣** —— 而現在它是後者。 */}
       <OrderEditForm detail={detail} returnTo={returnTo} />
 
-      <ItemsTable detail={detail} payments={payments} />
-
-      {/* A10b:採購區塊(逐品項清單 + upsert 表單)。🔴 內部資料、admin-only。 */}
-      <ItemProcurementSection
+      {/* 🔴 片7:採購那張獨立的卡不見了 —— 它現在住在**每個商品自己的卡片展開區**裡
+          (Sean 2026-08-19 看真畫面後選「甲 = 卡片版」)。
+          ⇒ 這三個 prop 是**跟著採購一起搬過來的**,不是表格自己要用的。 */}
+      <ItemsTable
         detail={detail}
+        payments={payments}
         returnTo={returnTo}
         suppliers={suppliers}
         suppliersFailed={suppliersFailed}
