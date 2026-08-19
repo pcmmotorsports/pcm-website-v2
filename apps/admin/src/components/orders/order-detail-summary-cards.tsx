@@ -247,7 +247,11 @@ function HeadlineNumbers({
   const qty = detail.itemsTruncated ? null : goodsQuantityHeadline(detail.items);
 
   return (
-    <div className='grid gap-px border bg-border @md:grid-cols-2'>
+    /* 🔴 片3:三格(設計稿 §1 區塊① 逐字)——「總額/已收」「尾款」「到貨件數」。
+       ⚠️ **只【新增】中間那格,左右兩格的字面與語意一個字沒動** ——
+          它們是 Sean 2026-08-16 拍過的(`Q-A216-F2b` 甲:「件數」不是「品項數」;
+          金額不帶 `NT$`;「已訂 / 到貨」放小標)。**在這一片順手統一它們 = 撤銷拍板。** */
+    <div className='grid gap-px border bg-border @md:grid-cols-3'>
       <section className={SPEC}>
         {/* 🔴 **金額不帶 `NT$`**(Sean 2026-08-16 於真路由肉眼驗後逐字:「不用NT」)。
             ⚠️ **這是【呼叫端字面】不是格式化函式** —— `formatOrderAmount` 本身只回數字
@@ -268,6 +272,32 @@ function HeadlineNumbers({
           {payment.kind === 'unknown' ? '未知' : formatOrderAmount(payment.received)}
         </p>
         <p className={SPEC_L}>總額 / 已收</p>
+      </section>
+      {/* 🔴 片3 新增:尾款。**四態各講各的話,不共用一個數字** ——
+          `toPaymentSummary` 回四種 kind(`apps/admin/src/lib/orders/payment-list-view.ts:161-165`
+          —— 🔴 **寫全路徑不寫裸檔名**:讀的人在 `components/orders/` 底下找不到它,
+          而**行號對得上會讓他以為是自己找錯**;W6 nit),而它們的下一步不同:
+            unknown  收款列讀不到 ⇒ **不能答一個數字**(答 0 = 對員工說「收齊了」)
+            short    還欠 gap     ⇒ 這是設計稿畫的那一格(23,800 / 10,000 ⇒ 13,800)
+            settled  剛好收齊     ⇒ `0`,而**要真的印 0**,不是留白(留白讀起來像「還沒算」)
+            over     溢收         ⇒ 🔴 **不印負數**。負的尾款沒有意義,而它會被讀成「還要收 -N」;
+                                     用「溢收 N」——那是本 repo 既有詞(`payment-list.tsx:145`)。
+          🔴 **輸入是三態不是兩態**(W6 nit):`PaymentListData` = `ok` / `order_not_found` / `unreadable`
+          (`payment-list.tsx:24-29`)。本格只在 `ok` 時交出 rows、**其餘一律 `null` ⇒ 收斂成 `unknown`**
+          ⇒ **構造上 fail-closed**:日後多一個 status,它也自動落進「未知」而不是某個假數字。
+          ⚠️ 而**那兩個非-ok 態的下一步其實不同**(`order-detail-items-table.tsx:119-124` 各給不同訊息)
+          —— 本格刻意不分,因為頭條只有一格、講不了兩句話;要分要去那張卡看。
+          ⚠️ **本格與左邊那格吃【同一支】`toPaymentSummary`** ⇒ 兩格結構上不可能互相矛盾。
+             各自算一次的話,哪天有人改了其中一邊的規則,畫面會同時顯示兩個都合理而互相打架的數。 */}
+      <section className={SPEC}>
+        <p className={SPEC_V}>
+          {payment.kind === 'unknown'
+            ? '未知'
+            : payment.kind === 'over'
+              ? `溢收 ${formatOrderAmount(payment.excess)}`
+              : formatOrderAmount(payment.kind === 'short' ? payment.gap : 0)}
+        </p>
+        <p className={SPEC_L}>尾款</p>
       </section>
       <section className={SPEC}>
         <p className={SPEC_V}>{qty === null ? '未知' : `${qty.ordered} / ${qty.instock}`}</p>
