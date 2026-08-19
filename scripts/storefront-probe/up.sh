@@ -25,10 +25,13 @@ REPO=/Users/sean_1/pcm-website-v2
 # 🔴 路徑可覆寫:多窗平行時各自帶一個 `STOREFRONT_PROBE_DIR`(down.sh 讀同一個變數)。
 #    預設值仍是固定路徑 —— 那是為了讓 `up.sh` / `down.sh` 這一對在【不傳任何東西】時仍然配得上;
 #    而固定路徑的代價由下面那道前置閘擋住,不是靠使用者記得。
-S=${STOREFRONT_PROBE_DIR:-/tmp/pcm-g3-probe}
-SEC="pcm-g3-throwaway-jwt-secret-at-least-32-chars-long"
-PG=55533; PREST=3969; PROXY=3968; WEB=3020
 SP="$(cd "$(dirname "$0")" && pwd)"
+# 🔴 路徑**與埠**住在 `env.sh`,**up 與 down 讀同一份**(2026-08-19 W3;做法照 `admin-probe`)。
+#    為什麼不能兩邊各寫一份:見那支檔的檔頭 —— 而**本專案就是活生生的例子**,
+#    落檔前 `up.sh` 與 `down.sh` 的常數行**已經不一樣了**(CORS 只在 down 那行)。
+# shellcheck source=./env.sh
+. "$SP/env.sh"
+SEC="pcm-g3-throwaway-jwt-secret-at-least-32-chars-long"
 
 # 🔴🔴 **前置閘(2026-08-19 新增)—— 本來這裡是無條件 `rm -rf $S`。**
 #    形狀:A 窗正在跑 probe,B 窗跑 `up.sh` ⇒ **B 當場把 A 的 datadir 砍掉**,
@@ -46,7 +49,7 @@ if [ -f "$S/pg/postmaster.pid" ]; then
   fi
 fi
 if [ -z "$busy" ]; then
-  for _p in $WEB $PROXY $PREST 3987 $PG; do
+  for _p in $WEB $PROXY $PREST $CORS $PG; do
     # 🔴 `|| true` 少不得:本檔是 `set -euo pipefail`,而**埠是空的時候 `lsof` 回 1**
     #    ⇒ 沒有它,這一行會在「第一個空著的埠」就把整支腳本【靜默】殺掉(exit 1、零輸出)。
     #    📌 2026-08-19 實測踩到:M1 那一格看起來通過(證據沒被刪),
@@ -61,9 +64,13 @@ if [ -n "$busy" ]; then
   [ -f "$S/owner.txt" ] && { echo "   來歷:" >&2; sed 's/^/     /' "$S/owner.txt" >&2; }
   echo "" >&2
   echo "   要收掉它  ⇒ bash scripts/storefront-probe/down.sh" >&2
-  echo "   要並行跑  ⇒ 換一組路徑與埠,例如:" >&2
-  echo "       STOREFRONT_PROBE_DIR=/tmp/pcm-g3-probe-\$\$ bash scripts/storefront-probe/up.sh" >&2
-  echo "       ⚠️ 埠仍寫死在本檔($WEB/$PROXY/$PREST/3987/$PG)⇒ 並行還要自己改埠,本次未做" >&2
+  echo "   要並行跑  ⇒ 換一組路徑與埠(2026-08-19 起埠也可覆寫,見 env.sh):" >&2
+  echo "       STOREFRONT_PROBE_DIR=/tmp/pcm-g3-probe-b \\" >&2
+  echo "       STOREFRONT_PROBE_PG=55543 STOREFRONT_PROBE_PREST=3979 STOREFRONT_PROBE_PROXY=3978 \\" >&2
+  echo "       STOREFRONT_PROBE_WEB=3030 STOREFRONT_PROBE_CORS=3997 \\" >&2
+  echo "         bash scripts/storefront-probe/up.sh" >&2
+  echo "       🔴 收的時候要帶【同一組】—— 不帶的話 down.sh 會拿預設埠去查," >&2
+  echo "          每一格都印綠而你的鑽機還活著。owner.txt 有記你當初用的那幾個埠。" >&2
   exit 1
 fi
 
@@ -82,12 +89,12 @@ if [ -e "$S" ]; then
   echo "   (FORCE=1 ⇒ 照你的意思刪掉重來)" >&2
 fi
 
-rm -rf $S && mkdir -p $S
+rm -rf "$S" && mkdir -p "$S"   # 🔴 引號:`${STOREFRONT_PROBE_DIR:-…}` 只擋空字串,擋不了空白/glob
 # 誰起的、什麼時候起的 —— down.sh 會在拆之前把它印出來。
 { echo "起於   : $(date '+%Y-%m-%d %H:%M:%S')"
   echo "shell  : pid $$  tty $(tty 2>/dev/null || echo '?')"
   echo "datadir: $S"
-  echo "埠     : web $WEB / proxy $PROXY / prest $PREST / cors 3987 / pg $PG"
+  echo "埠     : web $WEB / proxy $PROXY / prest $PREST / cors $CORS / pg $PG"
 } > $S/owner.txt
 initdb -D $S/pg -U postgres --auth=trust --encoding=UTF8 --locale=C > $S/initdb.log 2>&1
 pg_ctl -D $S/pg -o "-p $PG -k /tmp" -l $S/pg.log start > $S/pgctl.log 2>&1
@@ -161,9 +168,12 @@ PY
 grep '^AUTH=' $S/jwts.txt | cut -d= -f2- > $S/authjwt.txt
 grep '^AUTH2=' $S/jwts.txt | cut -d= -f2- > $S/authjwt2.txt
 
-cp "$SP/proxy.py" $S/proxy.py
-nohup python3 $S/proxy.py > $S/proxy.log 2>&1 &
-nohup python3 "$SP/cors-server.py" > $S/cors.log 2>&1 &
+cp "$SP/proxy.py" "$S/proxy.py"
+# 🔴 上游埠與監聽埠用 argv 傳進去 —— 那兩個原本寫死在 proxy.py 裡(見該檔那段註解)。
+nohup python3 "$S/proxy.py" "$PREST" "$PROXY" > "$S/proxy.log" 2>&1 &
+# 🔴 埠用 argv 傳進去 —— 它原本**寫死在那支 py 裡面**,覆寫環境變數對它沒有用
+#    (而 `down.sh` 的 `pkill -f "cors-server.py"` 也因此**抓不到自己那一個**,見下)。
+nohup python3 "$SP/cors-server.py" "$CORS" > $S/cors.log 2>&1 &
 sleep 2
 
 A=$(grep ANON= $S/jwts.txt | cut -d= -f2-); SR=$(grep SERVICE= $S/jwts.txt | cut -d= -f2-)

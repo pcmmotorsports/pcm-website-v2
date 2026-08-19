@@ -7,7 +7,16 @@ import http.server, urllib.request, urllib.error, json, os
 #    ⇒ 用「本檔自己的所在目錄」就永遠對得上,而路徑可覆寫時也不用另外傳參數。
 #    (寫死的話,`STOREFRONT_PROBE_DIR` 一換,這支會 FileNotFoundError 而整條鏈掛在啟動處。)
 S = os.path.dirname(os.path.abspath(__file__))
-UP = "http://127.0.0.1:3969"
+# 🔴🔴 **2026-08-19:上游埠與監聽埠改成 argv,原本兩個都寫死。**
+#    埠參數化那一片實測撞到:`STOREFRONT_PROBE_PROXY=3978 STOREFRONT_PROBE_PREST=3979` 起了鑽機之後,
+#    這支仍然**聽在 3968、轉給 3969** ⇒ 覆寫的那組裡代理根本不在,而它轉去的是一個空的埠。
+#    🔴 而 `up.sh` 的自檢那時印的是 `web: 200` —— **頁面確實回 200,只是資料路徑是斷的**
+#      ⇒ 「200」在這裡分不出兩個世界。(同族:`admin-probe` 的 proxy.py 早就吃 argv,所以它沒事。)
+#    ⚠️ 沒帶參數時仍用舊值,讓舊的呼叫方式不會當場壞掉。
+import sys
+UP_PORT = sys.argv[1] if len(sys.argv) > 1 else "3969"
+LISTEN_PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 3968
+UP = "http://127.0.0.1:" + str(UP_PORT)
 USER = {"id": "11111111-1111-1111-1111-111111111111", "aud": "authenticated",
         "role": "authenticated", "email": "probe@example.com",
         "email_confirmed_at": "2026-01-01T00:00:00Z", "created_at": "2026-01-01T00:00:00Z",
@@ -82,4 +91,4 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_DELETE(self): self._go("DELETE")
     def do_HEAD(self): self._go("HEAD")
 
-http.server.ThreadingHTTPServer(("127.0.0.1", 3968), H).serve_forever()
+http.server.ThreadingHTTPServer(("127.0.0.1", LISTEN_PORT), H).serve_forever()
