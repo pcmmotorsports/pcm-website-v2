@@ -985,6 +985,18 @@ design AccountPages.jsx 805 行裡 AccountPage 本身 372 行 + 7 tab 內容。�
 > 數法(repo 側,證明錯字沒有從 console 漏進 repo;2026-08-19 量,會過期):
 > `grep -rl 'PCM MOTOR PARTS LTD' . --exclude-dir=node_modules --exclude-dir=.git` ⇒ **18 支檔**
 > `grep -rl 'PCM MOTO PARTS LTD'  . --exclude-dir=node_modules --exclude-dir=.git` ⇒ **0 支**
+>
+> ⚠️ **主視窗同時量得 184 支,而差距的成因【不是】行數 vs 檔數(那是我先前的推測,已證偽)**:
+> 它的 184 裡有 **166 支在 `.next/` 底下** —— 那是**同一份原始碼編譯出來的副本**,
+> 不是 166 個地方寫了那個名字。扣掉之後兩邊一致。
+> 🔴 **而真正該記的是【為什麼我們跑同一條命令會掃到不同的疆域】**:
+> 本機的裸 `grep` 是 **ugrep 7.8.4**,它**從目錄遞迴時會套用 `.gitignore`**、
+> 而**把被忽略的目錄當參數明指時照掃**。同一支工具、同一個字面,當天實測:
+> ```
+> grep -rl 'PCM MOTOR PARTS LTD' . --exclude-dir=node_modules --exclude-dir=.git | grep -c '\.next/'  ⇒ 0
+> grep -rl 'PCM MOTOR PARTS LTD' apps/storefront/.next | wc -l                                        ⇒ 160
+> ```
+> ⇒ **兩個數字都對,而它們回答的是不同的問題**(「人寫了幾處」vs「這個字串實體存在幾處」)。
 > ⚠️ 上面兩行原本寫 `PCM Motorsports` —— 那既是 Sean 2026-08-19 裁定要消失的名字,
 > **也已經不是 console 上的值** ⇒ 本次一併改正,而**改的是文件、不是 console**。
 4. Channel 建好後進 **Basic settings**,複製 **Channel ID** + **Channel secret**
