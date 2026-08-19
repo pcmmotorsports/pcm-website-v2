@@ -9659,3 +9659,46 @@ grep 'app/products/page' ⇒ 🔴 同時撈到 apps/storefront/src/app/products/
 ```
 📎 同族:memory `feedback_measured-A-answered-B`(量了 A 卻拿去答 B)與本檔既有的「掃描字集比宣稱窄」;
 差別在**本條的病灶發生在【量具先擋住你】之後**,而那一刻人最想直接拿手邊有的東西頂替。
+
+---
+
+## 同一個檔名有【四個不同的對象】,而 `grep -c` 對它們印出來的東西長得一模一樣
+
+```
+cat <檔>                    ⇒ 工作樹（我剛編輯的那份）
+git show :<檔>              ⇒ 索引（我 add 進去的那份 —— 而別人也 add 得進來）
+git show HEAD:<檔>          ⇒ 目前分支頂端那顆 commit
+git show <sha>:<檔>         ⇒ 某一顆特定 commit
+```
+🔴 **這四個是四個不同的宣稱。** 在**共用工作樹**(本 repo 多窗同時開工)裡,它們**幾乎不會相等** ——
+而 `grep -c` / `wc -l` 對四者印出來的是同一種數字,**沒有任何欄位告訴你剛才數的是哪一個**。
+
+### 實例(2026-08-19,`supabase/APPLIED.tsv`;兩個窗同時補記同一支 migration)
+```
+git show b3e32d67:supabase/APPLIED.tsv | grep -c '^20260819160000'  ⇒ 2   ← 那顆 commit 帶進去的
+git show HEAD:...        （修之前）                                  ⇒ 2
+grep -c '...' supabase/APPLIED.tsv（作者的工作樹）                    ⇒ 1   ← 🔴 作者量的是這個
+```
+⇒ **`b3e32d67` 的 commit body 逐字寫著「⇒ 1」,而那顆 commit 自己帶進去的內容是 2。**
+**不是誤差,是宣稱與事實不符**;修在 `035fd668`(現值我自己重量:HEAD ⇒ 1、`b3e32d67` ⇒ 2)。
+
+### 🔴 成因不是「忘了重新 add」—— 那個解釋會讓你防錯地方
+```
+git add（1 列）→ pre-commit gate 擋下 → 補標記後再 commit
+                ↑ **這段空檔是別人的窗口**：另一個窗把它那版 stage 進【同一個索引】
+⇒ commit 出去的是索引裡的版本，而那已經不是剛才驗過的那一份
+```
+⇒ **被 gate 擋下之後重新 `add`,不是禮貌,是必要條件。**
+📎 既有 memory `reference_commit-pathspec-does-not-touch-shared-index` 蓋住的是**另一半**
+(commit 帶 pathspec 不會帶走別人 staged 的檔)—— **它沒有蓋到「我自己那支檔在索引裡被換掉了」。**
+
+### ⇒ 兩條可機械化的動作
+```
+1. 宣稱一個檔的內容時，把【量的對象】寫在數字旁邊：
+   「工作樹 1 列」「HEAD 1 列」是兩句話，不可互相頂替
+2. add 之後、commit 之前，當場驗索引：
+   git add <檔> && git show :<檔> | <你的數法>  && git commit -- <檔>
+   （驗的是索引，不是工作樹 —— 這一步就是在防上面那段空檔）
+```
+📌 母題:**錯的那次和對的那次長得一樣。** 這一條是它在 **git 物件層**的版本 ——
+而它比多數同族更毒,因為**四個對象共用同一個檔名**,連「我可能量錯對象」這個念頭都不會被觸發。
