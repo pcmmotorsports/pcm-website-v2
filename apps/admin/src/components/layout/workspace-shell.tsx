@@ -121,7 +121,11 @@ export function WorkspaceShell({
           舊版就有這個問題,本片動到這一行、順手改對(code-reviewer R2 nit)。 */}
       <div className='workspace-content min-w-0 flex-1 p-6'>{children}</div>
       {/* 🔴 把手與面板欄在**沒有面板內容時整組隱藏** —— 規則在 `globals.css`(`:has()`,零 JS)。
-          class 名是 TSX 與那條 CSS 之間**唯一的接點** ⇒ 測試把三個 class 在兩邊對照釘死。 */}
+          🔴 **接點有兩個,不是一個**(2026-08-19 `W4-002` F1 更正;原句寫「唯一的接點」不實):
+          ① 三個 class 名 ② **`{panel}` 必須是 `.workspace-panel` 的直接子代** ——
+          在下面 `:154` 把它多包一層(error boundary / 捲動容器 / `<Suspense>`),
+          class 名一個字沒動、兩條 `:has()` 規則就同時失配,**而測試會全綠**。
+          ⇒ 測試把三個 class 在兩邊對照釘死,**並另有一格釘那個直接子代關係**。 */}
       {/* 🔴🔴 **`/40` `/60` 兩個透明度是【片1 換色時被迫重算的】,不是順手美化。**
           舊值是**黑色**疊出來的:hover 2.82、**focus 5.65(達標)**。
           片1 把 `--primary` 從純黑換成 BMW 藍 `#0066b1` ⇒ **同樣的透明度、亮很多的底色**

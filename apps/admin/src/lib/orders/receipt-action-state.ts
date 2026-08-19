@@ -146,6 +146,50 @@ export const EMPTY_RECEIPT_VALUES: ReceiptFormValues = {
   note: '',
 };
 
+/**
+ * 🔴 片4:**哪一個失敗碼該指到哪一個欄位** —— 規格 §4-3 的下半(每欄 inline error)。
+ *
+ * **為什麼這張表住在這裡,而不是在表單元件裡**:失敗碼是**這一層**定義的
+ * (上面那個 `ReceiptFailureCode` 已經把它們分成「可改輸入型 / bug 型 / 狀態型」),
+ * 而**只有可改輸入型才有對應的欄位** ——「員工改哪一格可以救回來」是**碼的性質**,不是畫面的性質。
+ * ⇒ 表放在碼旁邊,新增一個碼時**看得到自己漏了什麼**。
+ *
+ * 🔴🔴 **沒有列在這裡的碼,【刻意】不指向任何欄位**,而那不是漏做:
+ *   · `denied` / `bug` / `error` / `PROCUREMENT_NOT_FOUND` ⇒ 員工改哪一格都沒用
+ *   · `PROCUREMENT_VOIDED` ⇒ 同事把這筆採購作廢了 —— **問題不在他打的字裡**
+ *   · `DUPLICATE_*` ⇒ 冪等重放,與輸入無關
+ *   ⇒ 那幾種**只走上層 banner**。**把它們硬指到某一欄,等於叫員工去改一個改不好的地方。**
+ *
+ * 🔴🔴 **值是【一串欄位】而不是一個欄位,因為 RPC 真的有跨欄位的碼**
+ *    (2026-08-19 codex K2 finding 4 抓到;初版把 `INVALID_QUANTITY` 單指「到貨幾件」):
+ *    `20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql` 的步 4 逐字 ——
+ *    `p_quantity` 或 `p_surplus_quantity` 為 null/負數、**或兩者之和**不在 1..100000,
+ *    **三種情況回同一個 `INVALID_QUANTITY`**。
+ *    ⇒ 單指到貨欄 = **員工溢收欄打錯時,畫面叫他去改沒錯的那一格**。
+ *    ⚠️ 要拆成兩個碼得改 RPC(schema 動作)⇒ 不在本片;本片誠實地**兩欄都標**。
+ *
+ * 🔴 **型別是 exhaustive `Record`,不是 `Partial`** —— 新增一個失敗碼而忘了決定它指哪裡,
+ *    **typecheck 當場紅**。刻意不指的碼寫 `[]`(那是一個決定,不是一個空白)。
+ */
+export const RECEIPT_FIELD_OF_CODE: Record<ReceiptFailureCode, readonly string[]> = {
+  EXCEEDS_ROOM_AFTER_CANCELLATION: [RCPT_QUANTITY_FIELD],
+  QUANTITY_EXCEEDS_ALLOCATED: [RCPT_QUANTITY_FIELD],
+  INVALID_QUANTITY: [RCPT_QUANTITY_FIELD, RCPT_SURPLUS_FIELD],
+  RECEIVED_AT_REQUIRED: [RCPT_RECEIVED_AT_LOCAL_FIELD],
+  RECEIVED_AT_OUT_OF_RANGE: [RCPT_RECEIVED_AT_LOCAL_FIELD],
+  RECEIVED_AT_IN_FUTURE: [RCPT_RECEIVED_AT_LOCAL_FIELD],
+  NOTE_TOO_LONG: [RCPT_NOTE_FIELD],
+  // ── 以下刻意不指向任何欄位(理由見上面那段)
+  PROCUREMENT_NOT_FOUND: [],
+  PROCUREMENT_VOIDED: [],
+  DUPLICATE_DELETED: [],
+  DUPLICATE_UNKNOWN: [],
+  denied: [],
+  invalid: [],
+  bug: [],
+  error: [],
+};
+
 export type ReceiptActionState =
   | { status: 'idle' }
   /**

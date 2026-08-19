@@ -16,6 +16,8 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
    🔴🔴 **而我第一版【只清了被指名的那 2 個】** —— 同一批、同一次搬家、同一種傷害的另外 9 個
       原封不動,是下一輪 code-reviewer 抓的。**finding 是症狀的位置,不是病的邊界。** */
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+// 片2 標頭列:兩個標籤表都是**既有的**,本片零新增詞彙(理由見 `OrderHeadChip` 那段)。
+import { PAYMENT_STATUS_LABEL, formatOrderAmount } from '../../lib/orders/order-list-view';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { OrderEditForm } from './order-edit-form';
@@ -90,6 +92,39 @@ function resolveCorrectTarget(
   };
 }
 
+/**
+ * 片2:標頭的付款狀態 chip(設計稿 §1 那顆紅色 `[未收齊]`)。
+ *
+ * 🔴🔴 **字面用既有的 `PAYMENT_STATUS_LABEL`,【不是】設計稿的「未收齊」—— 這是刻意的偏離。**
+ *    設計稿寫「未收齊」,而 `partiallyPaid` 這一格的字面 **Sean 2026-08-18 才剛拍板過**
+ *    (`Q3` = 「已收訂金」,`order-list-view.ts:170-176` 逐字記著理由:
+ *     ~~付款確認中~~ 讀起來像「錢在路上」⇒ 員工不會去催尾款)。
+ *    ⇒ 在**同一張畫面**上,標頭寫「未收齊」而下方付款卡寫「已收訂金」= 兩個詞指同一件事,
+ *      那正是他抱怨過的「同一張單畫面講三句相反的話」。
+ *    ⇒ **本片不引入第六個詞。** 要不要改成「未收齊」是 Sean 的題(已回報主視窗),
+ *      改的話是**一行**的事,而且要**兩處一起改**。
+ *
+ * 🔴 **顏色的判準是「還欠不欠錢」,不是 enum 名字**:`unpaid` 與 `partiallyPaid` 都還欠錢 ⇒ 紅;
+ *    其餘(含 `refunded` / `partiallyRefunded`)不紅 —— 退款單不該掛一顆催款色的 chip。
+ *    ⚠️ 這個判準與 `order-edit-pay-axis.ts` 的三值軸**同語意但不共用**:那支服務改單矩陣、
+ *       本處只決定一個顏色。**不要把顏色接到那支上去**,它的 `refunded ⇒ paid` 是為了
+ *       「別讓改單以為這張單沒收過錢」,拿來決定顏色會是巧合對、不是同一個問題。
+ */
+function OrderHeadChip({ detail }: { detail: AdminOrderDetail }) {
+  const owing = detail.paymentStatus === 'unpaid' || detail.paymentStatus === 'partiallyPaid';
+  return (
+    <span
+      // 🔴 `shrink-0`(`W6-019` M1):它在標頭那一列裡,而**沒有它的東西會被【安靜壓扁】而不是溢出**。
+      //    壓扁不像壞掉、像設計 ⇒ 連「拿去真瀏覽器給人看」那道驗證都騙得過去。
+      className={`inline-flex shrink-0 rounded-md px-2.5 py-0.5 text-xs font-medium ${
+        owing ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      {PAYMENT_STATUS_LABEL[detail.paymentStatus]}
+    </span>
+  );
+}
+
 export function OrderDetail({
   detail,
   returnTo,
@@ -157,28 +192,114 @@ export function OrderDetail({
 
   return (
     <div className='space-y-4'>
-      <div className='flex flex-wrap items-center gap-3'>
-        <h1 className='text-2xl font-semibold'>{detail.displayId}</h1>
+      {/* ═══ 片2 標頭列 —— **單列**(逐字搬設計稿 `.hdr`)═══════════════════════
+          **來源**:OD 專案 `pcm-admin-order-ui` / `overview-desktop.html`
+          (`/Users/sean_1/Library/Application Support/Open Design/namespaces/release-stable/
+            data/projects/pcm-admin-order-ui/overview-desktop.html`,**mtime 2026-08-13 16:16**)。
+          ⚠️ **可能存在更新的一版而我們沒找到** —— Sean 提過有一份「昨天改過」的 artifact,
+             主視窗已去問他;**在他回答之前照這一份做**。搬的是哪一份、哪一天,寫在這裡不寫在別處。
+
+          **設計稿逐字(`:1105-1118`)**,由左到右:
+            單號 · 付款 chip · 客人入口 · **金額** · 下單時間 · (彈性空白) · 狀態 chip · ⋯ · ✕
+          **版面(`:219`)**:`height:38px; flex:0 0 38px; display:flex; align-items:center; gap:9px; padding:0 12px`
+
+          🔴🔴 **上一版我把它做成【兩列】,那是錯的,而根因值得留**:
+             我照的是 `MAIN-057 §1` 的 **ASCII 轉錄**,那張圖長兩行 ⇒ 我把它讀成設計。
+             **而 ASCII 轉錄天生表達不了「這是換行」還是「這只是排不下才折」。**
+             設計稿真正有 `flex-wrap:wrap` 的那一版在 `:553` 的 `@container (max-width:520px)`,
+             而那個 media query 上方註解逐字「**手機 ≤520:標題列合併**」
+             ⇒ **我把手機版的形狀套到桌機了**;面板固定 720 ⇒ **永遠不會命中 ≤520**。
+             (Sean `A2` 拍板「員工用電腦」⇒ 桌機那一列才算數。)
+
+          ✅ **裝得下,是量到的不是推的**:直接把設計稿當成能跑的 HTML 起 server 渲染,
+             量它自己的 `.hdr` ⇒ **設計稿自己的面板是 674px(比我們鎖的 720 還窄)**、
+             `flex-wrap: nowrap`、實測高 36px、**不換行**;
+             餵最壞資料(長客名 + 七位數金額 + 長狀態)⇒ **彈性空白仍剩 120px**。
+             ⚠️ 量具自檢:我第一把尺 `scrollWidth - clientWidth` 是**瞎的** ——
+                flex 子元素預設 `flex-shrink:1` ⇒ 它們互相壓縮、不產生溢出 ⇒ 兩個世界印同一個 0。
+                改量**彈性空白**才會動(荒謬長字 ⇒ 0 / 正常 ⇒ 119)。
+
+          🔴 **`✕` 不在本元件**:關閉是**面板才有**的動作,而本元件同時被整頁版渲染。
+             關閉連結由 `order-detail-route.tsx` 的 `BackLink` 畫、文案由各呼叫端傳。
+             ⚠️ 已知偏離:設計稿的 `✕` 在**同一列最右**,而 `BackLink` 是**上方自成一行**。
+             要同列得讓本元件收 `closeSlot` prop、兩個呼叫端各傳一份 ⇒ 跨元件手術,不屬本片。
+
+          🔴 **設計稿有、本片【刻意不做】的一顆**:`:1116` 的 `⋯ 更多操作`。
+             理由:**它是一個沒有行為的入口,做了會是死按鈕。**
+             (與 Sean 2026-08-19 對包裹卡那四顆鈕拍「甲 = 不做」同一個理由。)
+             ⚠️ **不寫成 TODO** —— TODO 讀起來像「快做了」,而它其實在等一個功能決定。
+
+          🔴 **本片【拿掉】了上一版自己加的「發票」那一格**:設計稿標頭沒有它,
+             而它與兩列標頭**同一個根因**(從 ASCII 推的)。鐵則 1:不反向遷就。
+             ⚠️ 「標頭要不要顯示發票狀態」已列進 Sean 的肉眼題清單,**不是消失**。
+             📎 而背景要一起帶:正式庫 19 張單**零張有發票**、三個欄位全空、零流程在填
+                ⇒ **發票是【流程的缺口】,不是【標頭少一格】。不要用一個欄位替一個不存在的流程作代表。**
+
+          🔴🔴 **本片改的是【兩個視圖共用】的標頭 ⇒ 整頁版 `/orders/[id]` 也跟著變,
+             而【沒有人看過整頁版的畫面】** —— 已列進交件檔「需肉眼驗」清單,不要當成已驗。 */}
+      {/* 逐字搬 `:219`:`gap:9px` / `height:38px` / `align-items:center` / **`nowrap`**。
+          **不換算成 Tailwind 級距**(鐵則 1 禁翻譯)⇒ 用 `gap-[9px]` / `h-[38px]`。
+          `min-w-0` 給下面的客人入口截字用:沒有它,長名字會把整列撐開而不是自己截。
+
+          🔴🔴 **這一列每一顆都要 `shrink-0`,唯一的例外是客人名(`W6-019` M1)**:
+             flex 子元素**預設 `flex-shrink:1`** ⇒ 空間不足時它們**安靜地互相壓扁,而不是溢出**。
+             · 而 spacer 的 `flex-basis` 是 0 ⇒ **它本來就沒東西可縮** ⇒ 壓力全落到別人身上。
+             · 更糟的是 **spacer 量到 0 之後【飽和】** ⇒ 分不出「剛好到邊」與「chip 和按鈕已經被壓爛」
+               ⇒ **我用來判斷『裝不裝得下』的那把尺,在最需要它的時候失去判別力。**
+             🔴 **而它會連下一道驗證一起騙過去**:我把長相交給「真瀏覽器 + Sean 的眼睛」,
+                而**一列安靜壓縮的版面,在瀏覽器裡看起來就是「裝得下」——壓扁不像壞掉,像設計。**
+             ⇒ 修完之後唯一可縮的只剩客人名(它 `truncate` 是設計好的),再不夠就**看得見地溢出**。 */}
+      <div className='flex h-[38px] flex-nowrap items-center gap-[9px]'>
+        <h1 className='shrink-0 text-2xl font-semibold'>{detail.displayId}</h1>
+        <OrderHeadChip detail={detail} />
         {/* 🔴 入口位置照 OD `overview-desktop.html:1109-1112` 逐字:「客人明細的入口。
             **做在標題列的名字上**,因為那是『這張單是誰的』唯一會被讀的位置,
             員工要查電話/地址時眼睛本來就落在這裡。一下就開,不用先跳到客戶頁再搜尋。」
             ⚠️ 名字可能是 null(join 缺)⇒ 那時仍要給入口(id 在就開得了),文案退成「客人明細」。
                這一句退場文案是**我自己決定的**,OD 沒有畫這個狀態。 */}
+        {/* A9w1:整單九碼彙總 badge 退場。付款軸(三軸的訂單層)在下方「付款」卡的付款狀態,
+            訂貨/到貨在品項列 —— 不另補一顆彙總 badge,那正是九碼被退場的東西。 */}
+        {/* 🔴 `rounded-md` 不是 `rounded-full`:Sean 2026-08-16 拍板「狀態膠囊改方角,
+            全站統一、沒有例外要記」(memory `project_0816-sean-morning-13-rulings.md:22` Q5、
+            `project_0816-evening-five-rulings.md:33` 再確認)。
+            ⚠️ **這一顆是漏網的** —— 列表那邊 08-16 已改(`orders-table.tsx` 的 `rounded-full` 現為 0),
+               而本檔這顆沒跟上,且 `design-tokens.test.ts` **沒有任何一條在管 `rounded-full`**
+               (STATUS.md Blocker 欄逐字記著這件事)⇒ 它不是被放行,是**根本沒有那道門**。
+               本片只改我正在動的這一顆,**不順手掃全樹的 18 處**(那是另一片、要自己的分母)。 */}
+        {/* 🔴 客人入口 —— OD `:1110-1111` 逐字:「客人明細的入口。**做在標題列的名字上**,
+            因為那是『這張單是誰的』唯一會被讀的位置,員工要查電話/地址時眼睛本來就落在這裡。」
+            設計稿的形狀是 `<button class="cus cuslink">${o.cus}<span class="ci">›</span></button>`(`:1112`)。
+            ⚠️ 名字可能是 null(join 缺)⇒ 那時仍要給入口(id 在就開得了),文案退成「客人明細」。
+               **這句退場文案是我自己決定的,OD 沒有畫這個狀態。**
+            🔴 `truncate` + `min-w-0`:長名字自己截,不要把整列撐開(`.cuslink` 在設計稿裡也不吃固定寬)。 */}
         {customerHref !== null && (
           <Link
             href={customerHref}
-            className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-sm'
+            className='text-primary hover:bg-muted inline-flex min-w-0 shrink items-center gap-0.5 truncate rounded-md px-1.5 py-0.5 text-[13px]'
           >
-            {detail.customer.name ?? '客人明細'}
-            <span aria-hidden='true' className='text-muted-foreground'>
+            <span className='truncate'>{detail.customer.name ?? '客人明細'}</span>
+            <span aria-hidden='true' className='text-muted-foreground shrink-0'>
               ›
             </span>
           </Link>
         )}
-        {/* A9w1:整單九碼彙總 badge 退場。付款軸(三軸的訂單層)在下方「付款」卡的付款狀態,
-            訂貨/到貨在品項列 —— 不另補一顆彙總 badge,那正是九碼被退場的東西。 */}
+        {/* 🔴 金額 —— 設計稿 `:1113` 逐字 `<span class="amt">NT$ ${money(tot)}</span>`。
+            **上一版沒做也沒揭露**(`W4-004` 判「這是漏,不是偏離」)。
+            ⚠️ **這裡帶 `NT$`,而頭條那三格不帶** —— 那**不是不一致**:
+               Sean 2026-08-16 拍過「頭條速覽不用 NT」而「明細表底部的總計是正式金額、帶 NT$」
+               (`Q-A216-F4` 拍乙「留著」);**而設計稿這一格自己就寫著 `NT$`** ⇒ 兩個來源同向。 */}
+        <span className='shrink-0 text-[13px] tabular-nums'>
+          NT$ {formatOrderAmount(detail.total.amount)}
+        </span>
+        {/* 下單時間 —— 設計稿 `:1114` `<span class="dt">${o.d} 14:05</span>`。 */}
+        <span className='text-muted-foreground shrink-0 text-[13px]'>
+          {formatOrderDateTime(detail.createdAt)}
+        </span>
+        {/* 🔴 彈性空白 —— 設計稿 `:1115` `<span class="sp"></span>`,它把右邊那組推到最右。
+            **它就是我用來量「裝不裝得下」的那一格**:它的寬度 >0 代表還有餘裕、=0 代表擠到底了。 */}
+        <span className='flex-1' />
         {cancelled && (
-          <span className='bg-destructive/10 text-destructive inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'>
+          <span className='bg-destructive/10 text-destructive inline-flex shrink-0 rounded-md px-2.5 py-0.5 text-xs font-medium'>
             已取消
           </span>
         )}
@@ -198,15 +319,13 @@ export function OrderDetail({
             href={`/print/orders/${detail.id}/picking`}
             target='_blank'
             rel='noopener'
-            className='border-border bg-card hover:bg-muted text-foreground inline-flex items-center rounded-md border px-2.5 py-1 text-sm'
+            className='border-border bg-card hover:bg-muted text-foreground inline-flex shrink-0 items-center rounded-md border px-2.5 py-1 text-sm'
           >
             列印揀貨單
           </Link>
         )}
-        <span className='text-muted-foreground ml-auto text-sm'>
-          下單 {formatOrderDateTime(detail.createdAt)}
-        </span>
       </div>
+
 
       {/* 🔴 片4b:`payments` 是頭條「已收」的來源 —— 傳的是**原始 `PaymentListData`**,
           不是算好的金額。理由:元件內部要吃 `toPaymentSummary()`(與付款卡同一支函式),

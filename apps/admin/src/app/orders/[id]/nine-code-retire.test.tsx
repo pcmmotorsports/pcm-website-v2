@@ -197,13 +197,69 @@ describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
   });
 
   it('🔴 三軸數字真的接到 A9g-1 投影(任一欄接錯線就紅)', async () => {
-    mocks.findAdminOrderDetail.mockResolvedValue(detail(SUMMARY));
+    // 🔴🔴 **本格用【自己的】fixture,而理由是共用那個 fixture 量不出這件事:**
+    //    `SUMMARY` 的 `instockQuantity` 與 `shippedQuantity` **都是 1**
+    //    ⇒ 「到」與「出」對調的話,畫面**一個字都不會變** ⇒ 這把尺對那個方向是瞎的。
+    //    ⚠️ 而**片5 之前的版本更寬**:它只斷言了 `訂貨 3/4` 與 `到貨 1/4`,
+    //       **從頭到尾沒有斷言過「出貨」那一軸** ⇒ shipped 這條線一直沒有守門。
+    //    ⇒ 三個軸給三個互不相同的值,任一組對調都至少讓一行紅。
+    const DISTINCT_SUMMARY: AdminOrderItemQuantitySummary = {
+      ...SUMMARY,
+      // 🔴 `quantity` 必須對齊那一列的 `item.quantity`(fixture 寫死 4,見 `detail()`)——
+      //    不對齊的話畫面會渲染成「訂 5/9 · 到 3/9 · 出 1/9 · 數量 4」,
+      //    而**拆欄之後三軸與「數量」是相鄰欄** ⇒ 分母不一致會直接被員工看到。
+      //    (拆欄前三軸擠在最右邊,這個矛盾看不太出來 —— 版面改動讓一個舊的 fixture 問題浮上來。)
+      quantity: 4,
+      orderedQuantity: 4,
+      instockQuantity: 2,
+      shippedQuantity: 1,
+    };
+    mocks.findAdminOrderDetail.mockResolvedValue(detail(DISTINCT_SUMMARY));
     const { container } = await renderPage();
 
-    // 連標籤一起比,才擋得住「兩個軸的數字對調」這種改法(單看 `3/4` 在不在場擋不住)。
-    expect(container.textContent).toContain('訂貨 3/4');
-    expect(container.textContent).toContain('到貨 1/4');
-    expect(container.textContent).toContain('已取消 2');
+    // 🔴🔴 **這一格的比法在 2026-08-19 片5 之後【必須改,而且不能改鬆】。**
+    //
+    // 原本比的是 `'訂貨 3/4'` 這種**標籤+數字連在一起**的字串,理由(原註解逐字)是
+    // 「連標籤一起比,才擋得住『兩個軸的數字對調』這種改法(單看 `3/4` 在不在場擋不住)」。
+    // 而片5 把「訂/到/出」三個字**從值搬到欄頭**(Sean 選的丙案)⇒ 值那一格只剩 `3/4`
+    // ⇒ **那個比法的機制被結構改動整個拿掉了**,不是我把它放寬。
+    //
+    // ⇒ 換成**按欄位位置**比,而它比舊的更強:
+    //    舊的只保證「這兩個字串在同一段文字裡」;新的直接問
+    //    **「『訂』那一欄底下那一格,裝的是不是 orderedQuantity」** —— 那正是「接錯線」的定義。
+    //    ⚠️ 兩軸對調時,欄頭順序不變而值互換 ⇒ 位置比對照樣紅。
+    // 🔴🔴 **2026-08-19 片6a:定位方式換了,不變量沒換。**
+    //    舊版靠 `<table>` 的 `<th>` index 找欄;新結構是 `.ihead` + 每列一個 `<details class="icard">`
+    //    ⇒ **找不到 `<table>` ⇒ 舊版紅在【正向對照】那一行,不是紅在斷言** —— 那不是它抓到 bug。
+    //    ⇒ 換成:欄頭 `.ihead .three` 底下三個字的順序,對應那一列 `.pcm-step` 底下三顆膠囊的順序。
+    //    ⚠️ **這一格守的是「三軸有沒有接錯線」= 行為**,而不是版面 —— 所以它必須跟著結構搬,
+    //       不能因為表格沒了就刪掉。(線主 W1 明確要求保住這個判別力。)
+    const head = container.querySelector('.ihead .three');
+    expect(head).toBeTruthy(); // 正向對照:真的找到欄頭那三格(找不到就不是「通過」)
+    const axisOrder = [...head!.querySelectorAll('span')].map((el) => el.textContent?.trim());
+    expect(axisOrder).toEqual(['訂', '到', '出']);
+
+    const step = container.querySelector('.pcm-step');
+    expect(step).toBeTruthy(); // 正向對照:真的找到那一列的三顆膠囊
+    const pills = [...step!.querySelectorAll('.pcm-pill')].map((el) => el.textContent?.trim());
+    expect(pills).toHaveLength(3);
+
+    // A9g-1 投影:ordered=4 / instock=2 / shipped=1,總數 4
+    // 🔴 **順序即接線** —— 膠囊的第 n 顆必須對應欄頭第 n 個字。
+    expect(pills[0]).toBe('4/4'); // 訂
+    expect(pills[1]).toBe('2/4'); // 到
+    expect(pills[2]).toBe('1/4'); // 出
+    // 🔴 前提:三軸的值互不相同,否則上面三行對「對調」是瞎的(見 fixture 那段註解)。
+    expect(
+      new Set([
+        DISTINCT_SUMMARY.orderedQuantity,
+        DISTINCT_SUMMARY.instockQuantity,
+        DISTINCT_SUMMARY.shippedQuantity,
+      ]).size,
+    ).toBe(3);
+    // 「已取消」是例外不是第四軸 —— 它不在 `.pcm-step` 裡。
+    expect(step!.textContent).not.toContain('已取消');
+    expect(container.textContent).toContain(`已取消 ${DISTINCT_SUMMARY.cancelledQuantity}`);
     expect(container.textContent).not.toContain('數量資料尚未就緒');
   });
 
@@ -212,7 +268,14 @@ describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
     const { getByText, container } = await renderPage();
 
     expect(getByText('數量資料尚未就緒')).toBeTruthy();
-    // 這一行是「有人寫 `?? 0`」的突變證:補 0 會畫出「訂貨 0/4」。
-    expect(container.textContent).not.toContain('0/4');
+    // 🔴 這一行是「有人寫 `?? 0`」的突變證。
+    //    ⚠️ **2026-08-19 片5 更新 —— 原本的 `not.toContain('0/4')` 已經恆綠**:
+    //       ①值那格已無「訂貨」二字(三個字搬去欄頭)
+    //       ②`?? 0` 型的突變在 `summary` 為 null 時**分母也會被補 0** ⇒ 渲染成 `0/0`,
+    //         **永遠不會是 `0/4`** ⇒ 那個字面再也構造不出來。
+    //    ⇒ 改成 `0/0`,它才是這個突變真正會畫出來的字面。
+    //    📎 更完整的覆蓋(逐格斷言印「—」)已由
+    //       `components/orders/order-detail-items-table-shape.test.tsx` 接手。
+    expect(container.textContent).not.toContain('0/0');
   });
 });

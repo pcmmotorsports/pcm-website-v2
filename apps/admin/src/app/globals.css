@@ -524,6 +524,52 @@
   max-width: calc(100% - 480px);
 }
 
+/* ③ **訂單編輯面板固定 720px**(Sean 2026-08-19 拍「甲」;選項原文
+      `甲 = 720px 固定` / `乙 = 預設 360px、可以拖寬、會記住` ⇒ **他是在兩者之間選了固定**,
+      拖曳與記住寬度是**一起**被裁掉的,不是只裁了一個數字)。
+
+   🔴 **為什麼是 `:has()` 標記,而不是把 ② 的三行改掉 / 不是刪 `workspace-panel.ts`**:
+      殼是**共用基礎設施**(`workspace-shell.tsx:16-17` 逐字),同一個殼日後還要裝別的面板。
+      Sean 被問的、他答的都是**訂單編輯面板**;把整個殼的拖曳能力拿掉 = 替他決定一件
+      **他沒有被問過**的事。⇒ 主視窗 2026-08-19 裁**甲:只鎖訂單面板、不動殼**。
+      ⇒ 本規則只在槽裡那塊掛著 `.panel-width-locked` 時生效;其餘面板照舊吃 ② 的可拖寬度。
+
+   🔴 **把手要一起收掉,這不是順手美化** —— 只鎖寬度而留著把手,拖曳會「看得到、按得下、
+      而畫面不動」= 一個**壞掉的控制項**;主視窗那一裁的第二半逐字寫著
+      「若實作出來變成殼可以拖、而拖完訂單面板看起來壞掉,那就不是甲」。
+      ⚠️ 它同時也把 `role='separator'` 那顆從**鍵盤 Tab 序**裡拿掉了(`display:none` 不可聚焦)
+      —— 那是**行為改動不只是外觀**,而在這裡是要的效果:一個調不動的 splitter
+      不該還佔著鍵盤使用者的一次 Tab。
+
+   🔴 **`max-width` 保留 ② 那條 480 下限(片1b;Sean 2026-08-19 `Q2` 拍「甲 = 加下限」)**:
+      `width: 720px` 是**想要的**寬度,`max-width: calc(100% - 480px)` 是**讓步線**。
+      · 視窗夠寬 ⇒ `max-width` 不咬 ⇒ 面板就是 720。**720 那一裁沒有被鬆開。**
+      · 視窗變窄 ⇒ 面板讓步,內容區的**外框**守在 480。
+        ⚠️ **480 是外框不是可用寬**(`W4-003` nit):`.workspace-content` 帶 `p-6`
+           ⇒ 實際可用約 **432**。非本片引入,但上一版把 480 寫成給人讀的保證句了。
+      🔴 **480 是【既有】那條線,不是新發明的數字** —— 它就是 ② 的 `MIN_CONTENT_WIDTH`
+         (`lib/layout/workspace-panel.ts:42`);主視窗裁定明文要求沿用、不得自定新值。
+      🔴 **`min-width` 不再覆寫成 720,而這一行是整片的關鍵**:CSS 規範裡 `min-width` 在
+         `max-width` **之後**套用 ⇒ 留著 `min-width:720px` 會把上面那條讓步線直接壓掉,
+         **加了等於沒加,而畫面上看起來和沒加一模一樣。** 去掉之後吃基底 ② 的 `min-width:320px`。
+      ⚠️ **視窗 < 800px 時 ② 的 `min-width:320px` 會贏、內容區仍會低於 480** ——
+         **那是既有行為、不是本片引入的**,本片不動它。**不要把這句美化成「已解決」。**
+
+   ⚠️ **門檻是 1344px,不是 1200px**(2026-08-19 W4 審查更正;我原本少算了側欄):
+      側欄 `SIDEBAR_WIDTH = 9rem` = 144px(`components/ui/sidebar.tsx:60`)且**預設展開**
+      (`app/layout.tsx:67` 的 `<SidebarProvider>` 沒傳 `defaultOpen`,全樹零呼叫端傳它)
+      ⇒ 內容區 = 視窗 − 144 − 720 ⇒ 要 ≥480 得**視窗 ≥1344**。**1280×800 筆電上只剩 416px。**
+      量法(**三檔,才看得到門檻**;只量 1024 看得到症狀但看不到門檻):
+        1440 ⇒ 內容區 576(還好)   1280 ⇒ **416(已破)**   1024 ⇒ 160
+      ⚠️ **以上是算出來的、不是量到的**(W4 自陳同樣未量)⇒ 真瀏覽器那一發併進「骨架成形」那次。 */
+.workspace-row:has(.workspace-panel > .panel-width-locked) > .workspace-panel {
+  width: 720px;
+  max-width: calc(100% - 480px);
+}
+.workspace-row:has(.workspace-panel > .panel-width-locked) > .workspace-handle {
+  display: none;
+}
+
 /* ═══ 訂單列表 L3 片3:14 欄欄寬 + 容器斷點 ═══════════════════════════════════
    真權威 = OD project `pcm-admin-order-ui` 的 `overview-desktop.html:121-124` 的 CSS 宣告。
    🔴 **不要抄同檔 `:1585` 的 `const R5`** —— 那是第十一輪之前的量測殘留,單號與品名兩顆是舊值。
@@ -577,10 +623,25 @@
 
    🔴🔴 **`container-type: inline-size` 掛在 `.orders-grid` 自己**(主視窗 E-419 核可)。
       **兩條副作用是給未來的人的警告,不是現況描述**(現況描述會過期、警告不會):
-      ① 它帶 `contain: layout` ⇒ **這個元素會成為 `position: fixed` 子孫的 containing block**
-         —— 誰日後把 `fixed inset-0` 的覆蓋層(例如 `shipment-dialog.tsx` 那種)渲染進訂單列表裡,
-         那個覆蓋層**會被困在表格框內、而不是蓋滿視窗**。解法是 portal,不是改這裡。
-         前例與同款警告見 `app/@panel/orders/page.tsx:132-136`。
+      ~~① 它帶 `contain: layout` ⇒ 這個元素會成為 `position: fixed` 子孫的 containing block
+         —— 覆蓋層會被困在表格框內、而不是蓋滿視窗。解法是 portal。~~
+      🔴🔴 **① 已於 2026-08-19 被【真瀏覽器跨引擎證偽】。上面那句是假的,不要照它繞路。**
+         **量到的**(W2,`~/pcm-mailbox/W2-715-…`;量具 `scripts/containment-probe.mjs` 自帶
+         `selfCheck`,不過就 exit 1 ⇒ 把「沒被困」與「我量不到」分開):
+         ```
+         未被困  container-type: inline-size          （真 Chrome 151 / Chromium 148 / WebKit 三次一致）
+         未被困  container-type: size
+         被困住  contain:layout / transform / filter   ← 正對照 3/3
+         未被困  無 containment                        ← 負對照
+         ```
+         ⇒ **`container-type` 不會讓元素成為 `position:fixed` 子孫的 containing block。**
+         ⚠️ **射程照抄不放寬**:WebKit 那發是 **Playwright 的 webkit build(引擎版本字串 Safari 26.4)**,
+            **不是 `Safari.app`** ⇒ 可以寫「**Safari 引擎上不成立**」,**不可以**寫「在 Sean 的 Safari 上驗過」。
+         🔴 **而這句假宣稱為什麼活了這麼久,值得留**:它的推理鏈**每一步都查得到出處**
+            (`container-type` ⇒ `contain: layout` ⇒ 依 CSS Containment 成為 containing block),
+            **而瀏覽器不這樣做** ⇒ **沒有人在讀它的時候會起疑**,於是它被原樣抄進了四個地方。
+            它甚至**通過了一次 code review**(原註解自己引用 `code-reviewer 2026-08-10 nit-10`)——
+            **因為審查者與作者用的是同一條推理鏈,而沒有人去按一下。**
       ② `container-type: inline-size` 讓本元素的 inline 尺寸**不再由內容決定** ——
          本框本來就是 `overflow-x-auto` 的固定寬容器,故今天無差別;但誰把 `overflow` 拿掉時要一起想。 */
 .orders-grid {
@@ -1393,4 +1454,121 @@
   .orders-grid .col-amount[data-l='小計'] {
     order: 15;
   }
+}
+
+/* ═══ 片6a-1 · 訂單面板商品卡(逐字搬 08-17「720 側邊欄確認稿」`:115-150`)═══════
+   **來源**:`~/.claude/projects/…/tool-results/artifact-c3c6cc94-1786959567-bf41.html`
+   669 行 / **mtime 2026-08-17 18:39** / `<title>720 側邊欄確認稿</title>`
+   —— 就是 `MAIN-057` 轉錄的那一份、Sean 確認過的那一份。
+   ⚠️ **不是 Aug-13 那份**(那份的 class 叫 `.pcard`/`.pcstep`,**已過期**;
+      判別依據:Aug-13 稿 `grep '欄頭|移到欄|只留數字'` ⇒ **零命中**,而 Sean 選的是丙案)。
+
+   🔴🔴 **設計稿自己記了一個它踩過的坑,本片照抄它的【修法】不只抄結果**(`:119-120` 逐字):
+     「欄頭與每一列必須用【同一組明確軌道】—— 它們是兩個獨立 grid,**auto 欄各自依內容算寬**
+      (「數量」2 字 vs 「×2」)⇒ **實測整排錯開 8px**。」
+   ⇒ 所以寬度收進變數,**改一個值兩邊一起動**;而「欄頭與列用同一組軌道」有測試釘著 ——
+     那是一個**會靜默錯開、沒有東西會紅**的東西。
+
+   🔴 **刻意偏離設計稿兩處,都不是漏搬**:
+   ① **膠囊方角,不是圓角**。設計稿 `:141` 是 `border-radius:999px`,
+      而 **Sean 2026-08-16 拍「狀態膠囊方角,全站統一,沒有例外要記」**
+      ⇒ CLAUDE.md 分工段明文「與 Sean 拍板衝突以後者為準」⇒ 方角贏。
+      📌 **逐字搬會把設計稿的【舊決定】一起搬進來,而圓角正是他推翻過的那一個。**
+   ② **六軌,不是設計稿的五軌**。設計稿 `ihead`/`iline` 沒有單價;
+      而 **Sean 2026-08-19 逐字「要顯示」** ⇒ 加一軌。**寫成「依他的裁定」,不是「設計稿漏了」。** */
+:root {
+  /* 逐字搬 `:143`:`128 = 3×40 + 2×4 gap` —— 欄頭三格與膠囊共用,不可各自寫死 */
+  --pcm-pill-w: 40px;
+  --pcm-three-w: 128px;
+  /* 本片新增:單價那一軌(設計稿沒有,依 Sean 2026-08-19 裁定) */
+  --pcm-unit-w: 76px;
+}
+
+/* 🔴 六軌:品名 | 料號 | 訂到出 | 數量 | 單價 | 小計
+   前五軌逐字搬 `:121`(`minmax(0,1fr) 158px var(--three-w) 44px 64px`),第六軌是新增的那一軌。
+   ⚠️ **`.ihead` 與 `.iline` 必須共用這一行** —— 那正是設計稿記的那個 8px 坑。 */
+.ihead,
+.iline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 158px var(--pcm-three-w) 44px var(--pcm-unit-w) 64px;
+  gap: 10px;
+  align-items: center;
+}
+.ihead {
+  padding: 0 0 5px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+}
+.ihead .three {
+  display: flex;
+  gap: 4px;
+}
+.ihead .three span,
+.pcm-pill {
+  width: var(--pcm-pill-w);
+  text-align: center;
+}
+/* 逐字搬 `:116-118`:只有 border-bottom、summary 去掉原生三角形 */
+.icard {
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  margin-top: 0;
+}
+/* 🔴 設計稿 `:117-118` 對 `<summary>` 有**兩條**規則:`list-style:none`,以及一條 WebKit 專用的
+   標記隱藏規則。**本片只搬前一條,而那是刻意的偏離 —— 理由是【量到的】不是省事**:
+
+   `audit-detail-css.test.ts` 有一格守著「這支檔不得出現那個 HTML 元素名的字面」,
+   用意是**強迫任何要在這裡加那類規則的人來想一次**(它的檔頭自己這樣寫)⇒ **它成功地把我叫來了。**
+   ⇒ 🔴 **我不放寬別人的守門**:那是「動驗證本身」那條停止訊號的正中央,
+      而我恰好是**唯一有動機讓它變綠的人**(它擋著我的四綠)。**那正是我不該自己判的組合。**
+   ⇒ 所以改我自己的結構,不改它的判準。
+   ⚠️ **而那格是【逐行掃、不剝註解】的** —— 我第一版的說明文字裡寫了那個字面,**它照樣紅**。
+      ⇒ **這段刻意繞開那個字**。要查它的全名,去看設計稿 `:118` 或 `audit-detail-css.test.ts`。
+
+   **「拿掉之後那個小三角形還在不在」是量的**,真瀏覽器三格對照(Chromium):
+     A 兩條都有                    ⇒ 標記佔位 **0**
+     B **只有** `list-style:none`  ⇒ 標記佔位 **0**   ← 本片用這個
+     C 兩條都沒有(正向對照)        ⇒ 標記佔位 **12px** ⇒ **尺會動,上面那兩個 0 是真的**
+   ⚠️ **射程**:只量過 Chromium,**沒有量 Safari** —— 而 Sean 用 Mac。
+      那條 WebKit 專用規則在較舊的 WebKit 上曾經是必要的兜底
+      ⇒ **若哪天在 Safari 上看到小三角形跑出來,回來的第一站是這一段,不要重新發明。**
+
+   🔴🔴 **2026-08-19 更正:上一版我【拿掉了】那條 WebKit 規則,而那個處置被主視窗推翻了。**
+   我當時的理由是「不放寬別人的守門 ⇒ 改我自己的結構」。**前半對,後半錯**,而裁定的理由更硬:
+     · 那格守門的檔頭自己寫著用意 ——「有人加任何那類規則 ⇒ 這格紅,**強迫他來想一次**」
+     · ⇒ **它不是禁令,是一道【叫人來想】的絆線,而它成功了(把我和 W3 都叫來了)。**
+     · ⇒ **而我繞開它,等於為了讓絆線安靜而扭曲一個沒問題的結構。**
+   ⇒ **正解是第三條路:守門保留全部廣度 + 一筆【逐字具名豁免】,豁免旁邊寫上為什麼安全。**
+     豁免在 `components/audit/audit-detail-css.test.ts` 的 `ALLOWED_DETAILS_RULES`,
+     **而動手加豁免的是 W3 不是我** —— **我是這條規則的作者,讓作者去豁免自己的規則,
+     那才是真的自我背書**(主視窗裁:**判與做要分開,而我漏掉了那一層**)。
+   ⚠️ **兩件必須在同一片**:豁免指向的選擇器若不存在,那道豁免就是
+      **一道看起來在守、實際上守空氣的門。** */
+.icard > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 9px 0;
+}
+/* 🔴 這一條就是被逐字具名豁免的那一條(見上)。較舊的 WebKit 需要它當兜底。 */
+.icard > summary::-webkit-details-marker {
+  display: none;
+}
+/* 三軸膠囊橫排。🔴 `border-radius` 見上方偏離①:**方角**,不是設計稿的 999px。 */
+.pcm-step {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.pcm-step .pcm-pill {
+  border-radius: var(--radius-sm);
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.icardbody {
+  padding: 0 0 10px;
 }

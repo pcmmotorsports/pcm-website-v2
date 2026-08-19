@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ReceiptActionState } from '../../lib/orders/receipt-action-state';
+import {
+  RECEIPT_FIELD_OF_CODE,
+  type ReceiptActionState,
+} from '../../lib/orders/receipt-action-state';
 
 vi.mock('server-only', () => ({}));
 
@@ -170,14 +173,147 @@ describe('ReceiptRecordForm — 失敗回來要真的看得到', () => {
 
   it('失敗訊息顯示在畫面上(role=alert)', async () => {
     action.mockResolvedValue(FAILED);
-    const { container, findByRole } = renderForm();
+    const { container, findAllByRole } = renderForm();
     await waitFor(() =>
       expect(
         container.querySelector<HTMLInputElement>('input[name="request_id"]')!.value,
       ).not.toBe(''),
     );
     fireEvent.submit(container.querySelector('form')!);
-    expect((await findByRole('alert')).textContent).toContain('改成 0');
+    // 🔴🔴 片4 起**這裡有兩個 `alert`,而那正是規格 §4-3 要的「雙層」**:
+    //    ①上層 banner 總結 ②那一欄的 inline error。
+    //    ⚠️ 上一版用 `findByRole('alert')` 單數 ⇒ 片4 之後它會因為「找到多個」而紅 ——
+    //    **那個紅是【功能到位】的證據,不是回歸。** 改成兩層各自斷言。
+    const alerts = await findAllByRole('alert');
+    expect({ 幾層: alerts.length }).toEqual({ 幾層: 2 });
+    expect(alerts.map((a) => a.textContent).join(' ')).toContain('改成 0');
+  });
+
+  // 🔴 片4:**下層要指到【對的那一欄】** —— 只驗「有兩個 alert」不算過,
+  //    那樣把錯誤掛到任何一欄都會綠,而「指錯欄」比「沒有欄位級」更糟(叫員工改錯地方)。
+  it('🔴 欄位級錯誤指到【數量】那一欄,且該欄標成 aria-invalid', async () => {
+    action.mockResolvedValue(FAILED);
+    const { container } = renderForm();
+    await waitFor(() =>
+      expect(
+        container.querySelector<HTMLInputElement>('input[name="request_id"]')!.value,
+      ).not.toBe(''),
+    );
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(container.querySelector('[aria-invalid]')).not.toBeNull());
+    const invalid = container.querySelector('[aria-invalid]')!;
+    // 正向對照:真的只有一格被標(否則「有 aria-invalid」在全部都標時也會過)
+    expect({ 被標的格數: container.querySelectorAll('[aria-invalid]').length }).toEqual({
+      被標的格數: 1,
+    });
+    // 🔴🔴 **被標的必須是 `<input>` 本身,不是包住它的某一層**
+    //    (2026-08-19 codex K2 finding 2:掛在 div 上,報讀器讀輸入框時根本讀不到
+    //     ⇒ 那是一個**假的**無障礙宣稱。上一版斷言寫 `invalid.querySelector('input')`,
+    //     它在「aria 掛在外層 div」時照樣綠 ⇒ **量的是錯的東西**。)
+    expect({ 標在什麼上: invalid.tagName, 欄位: invalid.getAttribute('name') }).toEqual({
+      標在什麼上: 'INPUT',
+      欄位: 'quantity',
+    });
+  });
+
+  // 🔴 `aria-invalid` 只說「這格錯了」,**沒說錯在哪** —— 報讀器要念得出那句話,
+  //    靠的是 `aria-describedby` 指到一個**真的存在**的節點。
+  // ⚠️ **這一格抓得到什麼、抓不到什麼(實測,不是推測)**:
+  //    · 抓得到:輸入框那端與 `<span>` 那端**各自算 id、算出不一樣的**(突變實測紅)。
+  //    · **抓不到**:兩端共用同一個算式而算式整個改掉(突變實測仍綠)——
+  //      那種改動不會弄壞連結,所以它本來就不該紅。**不要把這格說成「id 正確性守門」。**
+  it('🔴 aria-describedby 指得到那句錯誤本文(兩端沒有各自漂掉)', async () => {
+    action.mockResolvedValue(FAILED);
+    const { container } = renderForm();
+    await waitFor(() =>
+      expect(
+        container.querySelector<HTMLInputElement>('input[name="request_id"]')!.value,
+      ).not.toBe(''),
+    );
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(container.querySelector('[aria-describedby]')).not.toBeNull());
+    const described = container.querySelector('[aria-describedby]')!;
+    const target = container.querySelector(
+      `[id="${described.getAttribute('aria-describedby')}"]`,
+    );
+    expect(target?.textContent).toContain('改成 0');
+  });
+
+  // 🔴🔴 RPC 的 `INVALID_QUANTITY` 是**跨欄位**的:到貨、溢收、以及兩者之和,任一不合都回它
+  //    (`20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql` 步 4)。
+  //    ⇒ 只標到貨欄 = 員工溢收欄打錯時,畫面叫他去改**沒錯的那一格**(codex K2 finding 4)。
+  it('🔴 INVALID_QUANTITY 兩欄都標(到貨 + 溢收)', async () => {
+    action.mockResolvedValue({ ...FAILED, code: 'INVALID_QUANTITY', message: '件數不對。' });
+    const { container } = renderForm();
+    await waitFor(() =>
+      expect(
+        container.querySelector<HTMLInputElement>('input[name="request_id"]')!.value,
+      ).not.toBe(''),
+    );
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() =>
+      expect(container.querySelectorAll('[aria-invalid]').length).toBeGreaterThan(0),
+    );
+    const names = [...container.querySelectorAll('[aria-invalid]')]
+      .map((e) => e.getAttribute('name'))
+      .sort();
+    expect(names).toEqual(['quantity', 'surplus_quantity']);
+  });
+
+  // 🔴🔴 **同一頁真的會有兩張登錄到貨表單**(`receipt-action-state.ts` 逐字:
+  //    「一個品項可能有多筆採購、各有一顆按鈕」)⇒ 兩張都有 `name='quantity'`。
+  //    錯誤那一句話的 DOM id 若用固定字面 `quantity-error`,兩張會**撞同一個 id**,
+  //    而 `aria-describedby` 指向重複 id 時,報讀器讀到的可能是**別張表單的錯誤**
+  //    (codex K2 finding 3)。⇒ id 前綴由 provider 的 `useId()` 生,這一格守住它。
+  it('🔴 兩張表單同時在畫面上時,錯誤的 DOM id 不重複', async () => {
+    action.mockResolvedValue(FAILED);
+    const { container } = render(
+      <>
+        <ReceiptRecordForm
+          orderId='o-1'
+          orderItemId='i-1'
+          procurementId='p-1'
+          returnTo='/orders/o-1'
+          remaining={3}
+        />
+        <ReceiptRecordForm
+          orderId='o-1'
+          orderItemId='i-1'
+          procurementId='p-1'
+          returnTo='/orders/o-1'
+          remaining={3}
+        />
+      </>,
+    );
+    const forms = [...container.querySelectorAll('form')];
+    expect({ 表單數: forms.length }).toEqual({ 表單數: 2 });
+    forms.forEach((f) => fireEvent.submit(f));
+    await waitFor(() =>
+      expect(container.querySelectorAll('[aria-describedby]').length).toBe(2),
+    );
+    const ids = [...container.querySelectorAll('[aria-describedby]')].map((e) =>
+      e.getAttribute('aria-describedby'),
+    );
+    expect({ 幾個: ids.length, 相異: new Set(ids).size }).toEqual({ 幾個: 2, 相異: 2 });
+  });
+
+  // 🔴🔴 **接線守門**:`name` 是選填 ⇒ 忘了給的症狀是「錯誤訊息不出現」,而畫面完全正常
+  //    (codex K2 finding 5)。這一格把那個沉默變成紅色:表裡指名的每一欄,
+  //    畫面上都必須真的有一個同名控制項,否則那個碼的錯誤永遠沒有地方顯示。
+  it('🔴 RECEIPT_FIELD_OF_CODE 指名的每一欄,畫面上都真的有那個控制項', async () => {
+    const { container } = renderForm();
+    await waitFor(() =>
+      expect(
+        container.querySelector<HTMLInputElement>('input[name="request_id"]')!.value,
+      ).not.toBe(''),
+    );
+    const wanted = [...new Set(Object.values(RECEIPT_FIELD_OF_CODE).flat())].sort();
+    const missing = wanted.filter((n) => container.querySelector(`[name="${n}"]`) === null);
+    // 正向對照:清單本身不能是空的(空清單會讓 missing 恆為 [] ⇒ 這格恆綠)
+    expect({ 有指名的欄: wanted.length > 0, 畫面上缺的: missing }).toEqual({
+      有指名的欄: true,
+      畫面上缺的: [],
+    });
   });
 
   // 🔴 帶回值進 state 之後**還要能繼續打字** —— 用三元把 value 綁在 `state.values` 上的話,

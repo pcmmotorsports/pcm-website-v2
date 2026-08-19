@@ -13,44 +13,73 @@ vi.mock('../../lib/orders/amount-actions', () => ({
 }));
 
 import { ItemAmountRow, ItemAmountRowGroup } from './item-amount-row';
+import { stripComments } from '../../lib/test-support/strip-comments';
 import { AMOUNT_UNIT_PRICE_FIELD } from '../../lib/orders/amount-form';
 
 const ORDER = '11111111-2222-3333-4444-555555555555';
 const ITEM = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 
-function setup(blockedReason: string | null = null) {
+/**
+ * 🔴 **兩個殼各自要有正確的外框**:`table-row` 必須包在 `<table><tbody>` 裡
+ *    (`<tr>` 不能裸放,jsdom 會把它丟掉 ⇒ 那會讓斷言對著一個空容器跑而恆綠);
+ *    `card-line` 不能包在 table 裡(它渲染的是 `<details>`/`<div>`)。
+ * ⚠️ 兩個殼**共用同一份 `formProps`** —— 那是刻意的:
+ *    只要有一邊少傳一個 prop,兩邊的比較就不成立了。
+ */
+function setup(
+  blockedReason: string | null | undefined = null,
+  variant: 'table-row' | 'card-line' = 'table-row',
+) {
+  const row = (
+    <ItemAmountRow
+      variant={variant}
+      rowClassName='border-t'
+      colSpan={6}
+      priceCellClassName='cell'
+      before={
+        variant === 'table-row' ? (
+          <>
+            <td>品名</td>
+            <td>SKU-1</td>
+            <td>2</td>
+          </>
+        ) : (
+          <>
+            <div>品名</div>
+            <div>SKU-1</div>
+            <div>2</div>
+          </>
+        )
+      }
+      priceText={<>NT$ 1,200</>}
+      after={
+        variant === 'table-row' ? (
+          <>
+            <td>NT$ 2,400</td>
+            <td>軸</td>
+          </>
+        ) : (
+          <div>NT$ 2,400</div>
+        )
+      }
+      orderId={ORDER}
+      expectedVersion={3}
+      orderItemId={ITEM}
+      currentUnitPrice={1200}
+      returnTo={`/orders/${ORDER}`}
+      blockedReason={blockedReason}
+    />
+  );
   return render(
-    <table>
-      <ItemAmountRowGroup>
-      <tbody>
-        <ItemAmountRow
-          rowClassName='border-t'
-          colSpan={6}
-          priceCellClassName='cell'
-          before={
-            <>
-              <td>品名</td>
-              <td>SKU-1</td>
-              <td>2</td>
-            </>
-          }
-          priceText={<>NT$ 1,200</>}
-          after={
-            <>
-              <td>NT$ 2,400</td>
-              <td>軸</td>
-            </>
-          }
-          orderId={ORDER}
-          expectedVersion={3}
-          orderItemId={ITEM}
-          currentUnitPrice={1200}
-          returnTo={`/orders/${ORDER}`}
-          blockedReason={blockedReason}
-        />
-      </tbody>
-      </ItemAmountRowGroup>
-    </table>,
+    variant === 'table-row' ? (
+      <table>
+        <ItemAmountRowGroup>
+          <tbody>{row}</tbody>
+        </ItemAmountRowGroup>
+      </table>
+    ) : (
+      <ItemAmountRowGroup>{row}</ItemAmountRowGroup>
+    ),
   );
 }
 
@@ -101,24 +130,72 @@ describe('ItemAmountRow — 收合/展開', () => {
   });
 });
 
-describe('🔴 展開列的 colSpan 必須等於表頭欄數', () => {
-  // 不一致時瀏覽器會**靜默把版面畫歪**,不會有任何東西紅 ⇒ 只能靠這一格。
-  it('`ITEMS_TABLE_COLSPAN` 與 `<th>` 數逐字相同', () => {
+
+/**
+ * 剝掉 JSX 註解(`{/* … *\/}`)。原始碼層的結構斷言一律先過它。
+ * 🔴 存在理由是實錘:尺原本直接數 `<th\b`,而**註解裡提到的 `<th>` 也被算成欄**。
+ *    危險的方向是反的:刪掉一個真欄位 + 一句提到它的註解 ⇒ 一加一減 ⇒ 恆綠而版面已歪。
+ */
+function stripJsxComments(source: string): string {
+  return source.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+}
+
+describe('🗑 【不變量遷移】「展開列 colSpan == 表頭欄數」那一格已經移走,不是刪掉', () => {
+  it('本檔不再數 `<th>` —— 而它守的那件事由 shape test 接手', () => {
+    // 🔴 2026-08-19 片6a:結構從 `<table>` 換成 `.ihead` + `<details class="icard">`
+    //    ⇒ 沒有 `<th>` 也沒有 colSpan ⇒ **「跨幾欄」這個不變量在新結構下沒有對象**。
+    //    ⇒ 它守的那件事(欄頭與資料列必須對齊)換成了
+    //      `order-detail-items-table-shape.test.tsx` 的
+    //      「`.ihead` 與 `.iline` 由同一條 CSS 規則宣告軌道」。
+    //    ⚠️ **寫在這裡是為了讓下一個人分得出「守門被弄丟」與「不變量不存在了」** ——
+    //       兩者在 diff 上長得一模一樣。
     const src = readFileSync(
       resolve(dirname(fileURLToPath(import.meta.url)), 'order-detail-items-table.tsx'),
       'utf8',
     );
-    const declared = Number(/ITEMS_TABLE_COLSPAN = (\d+);/.exec(src)?.[1]);
-    // 🔴 nit6:也釘住 **call site 真的用那顆常數** —— 只釘「常數 == th 數」的話,
-    //    有人把 call site 改成 `colSpan={5}` 兩格照樣綠。
-    expect(src).toContain('colSpan={ITEMS_TABLE_COLSPAN}');
-    // 只數品項表那段 thead 的 <th>(以 `<thead>` 起、`</thead>` 止的第一塊)
-    const thead = /<thead>([\s\S]*?)<\/thead>/.exec(src)?.[1] ?? '';
-    const thCount = (thead.match(/<th\b/g) ?? []).length;
-    expect(declared).toBeGreaterThan(0); // 正向對照:真的抓到那個常數
-    expect(thCount).toBeGreaterThan(0); // 正向對照:真的抓到那段 thead
-    expect(declared).toBe(thCount);
+    // 🔴 用 repo 既有的 `stripComments`(剝 `/* */` 與 `//`),不是只剝 JSX 註解的那一支 ——
+    //    受測檔裡還有兩處 **JSDoc 區塊註解**提到 `<th>`(`:178` / `:186`,片5 留下的舊敘述)。
+    //    ⚠️ 那兩句現在是**過期字面**(它們描述的 `ITEMS_TABLE_COLSPAN`/表頭 `<th>` 數已不存在)
+    //       —— 但**那是受測檔的散文,屬線主**,我只在這裡標記,不代改。
+    expect(stripComments(src)).not.toContain('<th');
   });
+
+  it('🔴 這把剝除器要分得出【註解裡的 th】與【真的 th】—— 兩個世界要給不同答案', () => {
+    // 保留:它守的是「原始碼層斷言不得把註解當成結構」,與結構換不換無關。
+    const strip = (src: string) => (stripJsxComments(src).match(/<th\b/g) ?? []).length;
+    expect(strip("<tr><th>A</th>{/* 這裡提到 <th> 但它不是欄 */}<th>B</th></tr>")).toBe(2);
+    expect(strip("<tr><th>A</th><th>B</th></tr>")).toBe(2);
+    expect(strip("<tr><th>A</th>{/* <th> <th> <th> */}</tr>")).toBe(1);
+  });
+});
+
+describe('🔴🔴 錢閘:「已收款 ⇒ 不得改金額」在【兩個殼】上都要成立', () => {
+  // 🔴 線主 W1 明確要求這一族,理由逐字:**「一道閘在殼被重寫的過程中被漏掉,不會有東西紅。」**
+  //    而它命中鐵則 12①(錢)⇒ 只驗「放行那半」不算過,**兩個世界都要釘**。
+  // 🔴 而 `variant` 兩個值各驗一次的理由:兩個殼**宣稱**共用同一份 trigger/form,
+  //    而那是宣稱 —— 要有東西釘著,否則哪天有人在卡片殼裡複製一份,兩份會各自漂。
+  for (const variant of ['table-row', 'card-line'] as const) {
+    describe(`variant=${variant}`, () => {
+      it('🔴 已收款(blockedReason 有值)⇒ 展開後【不畫表單】、而且講得出原因', () => {
+        const { container } = setup('這張單已經有收款紀錄,不開放改金額。', variant);
+        fireEvent.click(container.querySelector('button')!);
+        expect(container.querySelector('form')).toBeNull();
+        expect(container.textContent).toContain('已經有收款紀錄');
+      });
+
+      it('✅ 未收款(blockedReason 為 undefined)⇒ 展開後【真的有表單】', () => {
+        // 正向對照:沒有這一格,「永遠不畫表單」也會讓上一格通過。
+        const { container } = setup(undefined, variant);
+        fireEvent.click(container.querySelector('button')!);
+        expect(container.querySelector('form')).not.toBeNull();
+      });
+
+      it('🔴 不能改時,入口的字先講出來(不是等點開才知道)', () => {
+        const { container } = setup('這張單已經有收款紀錄,不開放改金額。', variant);
+        expect(container.querySelector('button')!.textContent).toContain('無法改金額');
+      });
+    });
+  }
 });
 
 describe('🔴🔴 只展開「正在編輯的那一項」(codex 版面片 R1 must-fix 1)', () => {
