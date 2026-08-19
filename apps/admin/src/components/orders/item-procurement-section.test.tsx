@@ -680,8 +680,76 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     const { container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={atLimit} suppliers={[]} suppliersFailed={false} />,
     );
-    expect(container.querySelector('details')).toBeNull();
+    // 🔴 **錨收窄到 `tbody`(2026-08-19 片17)**,而這【不是放寬】:
+    //    本格釘的是「**作廢原因**恰好在門檻上時不收合」,而原因就住在 `tbody` 那一列裡
+    //    (下一行 `tbody.textContent` 已經釘死它在那裡)。
+    //    ⚠️ 原本寫 `container.querySelector('details')` 是一個**代理**——
+    //       它成立的前提是「這個元件裡唯一的 `<details>` 就是原因那個」。
+    //    🔴 片17 讓那個前提不再成立:新增採購表單也收進了一個 `<details>`(在 `tbody` 外面)
+    //       ⇒ 代理開始量到別人的東西。**改的是錨的範圍,判準一個字沒動。**
+    //    📌 判別句:**一個用「全場只有一個」當前提的選擇器,在有人加第二個的那天會靜默量錯對象。**
+    expect(container.querySelector('tbody details')).toBeNull();
     expect(container.querySelector('tbody')!.textContent).toContain(exact);
+  });
+
+  /**
+   * 🔴🔴 **片17(2026-08-19):有採購列時,「新增採購」表單要【收起】。**
+   *
+   * 為什麼有這一格:實量(真瀏覽器、720×900 面板、12 品項/8 項有採購)——
+   * ```
+   * 面板 scrollHeight 6,241 px ⇒ 6.9 個螢幕；展開的卡 536 px、收起的卡 90 px
+   * 而 446 px 的差幾乎全是【這一份空表單】，採購真資料只佔約 1 行
+   * ⇒ 螢幕上同時攤著 8 份一模一樣的空表單
+   * ```
+   * 🔴 而 Sean 的原話是「**看**得完整,但佔高度」——【看】不是【填】。
+   *
+   * ⚠️ **釘三件,而第三件是這一片最容易被下一個人弄丟的**:
+   *   ① 有列時,表單在一個 `<details>` 裡
+   *   ② 那個 `<details>` **預設是收起的**(沒有 `open`)
+   *   ③ 🔴 **收起之後那顆入口仍然看得懂** —— 不是一個只有三角形的圖示
+   *      (鐵則 9 / `project_admin-ux-operation-intuitiveness`:不用人教也能做對)
+   */
+  it('🔴 片17:有採購列時,新增採購表單收在一顆看得懂的鈕底下', () => {
+    const d = detail();
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={d} suppliers={[]} suppliersFailed={false} />,
+    );
+    // 正向錨:採購那張表真的渲染了。少了它,下面幾條在「整區沒出來」時會恆綠。
+    expect(container.querySelector('tbody'), '採購表沒渲染 ⇒ 下面幾條會恆綠').not.toBeNull();
+    const forms = [...container.querySelectorAll('details')].filter((el) =>
+      el.querySelector('summary')?.textContent?.includes('供應商下訂'),
+    );
+    expect(forms.length, '新增採購表單沒有被收進 <details>').toBe(1);
+    expect(forms[0]!.hasAttribute('open'), '收是收了,但它預設是打開的 ⇒ 高度沒省到').toBe(false);
+    // ③ 入口要看得懂 —— 釘字面,不是釘「有一個 summary」
+    expect(forms[0]!.querySelector('summary')!.textContent).toContain('再跟一家供應商下訂');
+  });
+
+  /**
+   * 🔴 **正向對照(片17 補;本檔在此之前【沒有】這一格)。**
+   *
+   * 上面那格釘的是「恰 60 字 ⇒ **不**收合」,而它是一條否定式。
+   * ⚠️ **只有它的話,把整個『長原因收合』的機制刪掉,那一格照樣綠** ——
+   *    因為「沒有收合」正是它要的結果。**一個否定式證不了機制還活著。**
+   * ⇒ 這一格餵 61 字(門檻 `VOID_REASON_INLINE_MAX = 60`,`item-procurement-rows.tsx:17`),
+   *   要求它**真的收合**。兩格合起來才釘得住「邊界在 60、而且機制在」。
+   * 📌 而它同時是我把上面那格的錨從 `container` 收窄到 `tbody` 之後的**判別力證明**:
+   *    收窄之後那個選擇器仍然抓得到原因那個 `<details>`(這一格會證明)。
+   */
+  it('🔴 超過門檻一個字的原因【要】收合(正向對照:證明機制還在)', () => {
+    const d = detail();
+    const over = '缺'.repeat(61); // 61 字 = 門檻 + 1
+    const one = {
+      ...d,
+      items: [{ ...d.items[0]!, procurements: [proc({ ...VOIDED, voidReason: over })] }],
+    } as typeof d;
+    const { container } = render(
+      <ItemProcurementSection returnTo={RETURN_TO} detail={one} suppliers={[]} suppliersFailed={false} />,
+    );
+    expect(
+      container.querySelector('tbody details'),
+      '超過門檻仍然沒有收合 ⇒ 長原因收合這個機制不見了(而恰-60 那格不會發現)',
+    ).not.toBeNull();
   });
 
   it('🔴 生效列**不得**冒出作廢原因那一列(否則整張表多出一堆空列)', () => {
