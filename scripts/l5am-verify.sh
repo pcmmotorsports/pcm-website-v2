@@ -367,10 +367,28 @@ RLS_STATE="$(Q "SELECT c.relrowsecurity::text || ':' || (SELECT count(*) FROM pg
 [ "$RLS_STATE" = "true:0" ] \
   && ok "RLS-ENABLED" "RLS 已啟用且 policy 數=0(檔頭那半句防線有證人了)" \
   || bad "RLS-ENABLED" "relrowsecurity:policy數=[$RLS_STATE],期望 [true:0]"
-COLACL="$(Q "SELECT count(*)::text FROM pg_attribute WHERE attrelid='public.payment_charge_attempts'::regclass AND attname IN ('superseded_at','superseded_reason','superseded_by_order_id') AND attacl IS NOT NULL")"
-[ "$COLACL" = "0" ] \
-  && ok "ACL-NO-COLUMN-GRANT" "三欄 pg_attribute.attacl 全 NULL(無欄級 GRANT 後門)" \
-  || bad "ACL-NO-COLUMN-GRANT" "有 $COLACL 欄被種了欄級 ACL"
+# 🔴 W4-B(2026-08-20):原本這格是**三個欄名的手寫枚舉** —— 與 :334-337 那段註解講的是同一個病,
+#    而那段註解就寫在隔壁那一格上面。同一支腳本,ACL-UNIVERSAL 已經走 aclexplode 全稱、這一格還在枚舉。
+#    ⇒ 後果不是理論的:`payment_charge_attempts` 加任何新欄(例:capture_state),對欄級 GRANT
+#      就是隱形的,而表層終態是 anon/authenticated **連 SELECT 都沒有**(20260612150000:118-121)
+#      ⇒ 一個欄級 `GRANT SELECT (新欄) TO anon` 會是**真的權限擴張**,而這格照樣綠。
+#    🔴 為什麼隔壁那格擋不住它:ACL-UNIVERSAL 兩個子查詢都帶 `AND a.privilege_type <> 'SELECT'`
+#      ⇒ 欄級 **SELECT** 後門只有這一格看得見。**這格不是補完整性,是唯一的證人。**
+#
+# 分母改成「本表**全部**現存欄位」(attnum>0 且未 dropped)⇒ 加欄自動進分母,不需要有人記得改清單。
+# 🔴 而回傳形狀刻意做成 `n=<數>:<欄名>` 而不是純字串,理由要寫準(我第一版寫錯過,更正保留):
+#    ~~「Q 查詢失敗會回空字串,改判 -z 會變 fail-open」~~ ⇒ **不成立**:`Q()`(:103-106)rc≠0 直接 `die`,
+#    今天的失敗根本到不了這個比較。
+#    ✅ 哨兵真正擋的是**另一個**世界:查詢**成功但回不出東西**(未來有人把它改寫成可能零列的形狀,
+#    或 string_agg 那層被動過)⇒ `[ -z ]` 會把它讀成「乾淨」。`n=0:` 讓「查到了而且是零」與
+#    「沒查到東西」印出不同的字串。⇒ 這是防未來改寫,不是防今天的連線失敗。
+COLACL="$(Q "SELECT 'n=' || count(*)::text || ':' || COALESCE(string_agg(attname, ',' ORDER BY attnum), '')
+               FROM pg_attribute
+              WHERE attrelid = 'public.payment_charge_attempts'::regclass
+                AND attnum > 0 AND NOT attisdropped AND attacl IS NOT NULL")"
+[ "$COLACL" = "n=0:" ] \
+  && ok "ACL-NO-COLUMN-GRANT" "本表【全部】現存欄位 attacl 全 NULL(分母隨加欄自動長大、零手寫清單)" \
+  || bad "ACL-NO-COLUMN-GRANT" "欄級 ACL 異常或查詢未成功:[$COLACL](期望 n=0:)"
 
 # ── 突變 A:DROP 一條約束 ⇒ 恰好對應的那些格翻掉 ────────────────────────────
 echo "-- 5 發 DROP 突變 --"
