@@ -75,6 +75,7 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     // 3DS-5b initiate 寫入 port 方法;settleCharge 不呼用(initiate use-case〔3DS-5b〕才呼)、stub 滿足介面。
     recordInitiationBankTxn: vi.fn(async () => {}),
     recordInitiationRec: vi.fn(async () => {}),
+    recordCaptureState: vi.fn(async () => true),
     // R2a released failure observation port 方法(settleCharge released branch 在 R2b 才呼;本片 stub 滿足介面)。
     recordReleasedFailureObservation: vi.fn(async () => {}),
     claimExpiredPendingAttempts: vi.fn(async () => []),
@@ -1122,5 +1123,166 @@ describe('settleCharge — 並發邏輯分支一致(F:DB 行級序列化非此�
     ]);
     expect(a.kind).toBe('paid');
     expect(b.kind).toBe('paid');
+  });
+});
+
+// ── M-4b capture_state:把 Record 的 is_captured 存下來(best-effort、不是裁決輸入)────────────
+//
+// 🔴 這一組的第一格是**本片存在的理由**:乙案(不動雙扣 RPC)之所以成立,
+//    全靠「capture 寫入失敗不影響 paid 收斂」這件事**有人在守**。
+//    ⇒ 拿掉 settle-charge.ts 的 bestEffortRecordCaptureState catch ⇒ 第一格必須紅。
+//    形狀照抄同檔「paid 尾呼 recordPendingInvoice;其 throw 不翻 paid」那一格,不發明新慣例。
+describe('settleCharge — M-4b capture_state 登記(best-effort)', () => {
+  it('🔴 capture 寫入 throw ⇒ 仍回 paid(拿掉那個 catch 這一格必須紅)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const attempts = makeAttempts({
+      recordCaptureState: vi.fn(async () => {
+        throw new Error('capture rpc down');
+      }),
+    });
+    const res = await settleCharge(deps({ attempts }), { orderId: ORDER_ID });
+    expect(res).toEqual({ kind: 'paid', idempotent: false, displayId: DISPLAY_ID });
+    expect(errSpy).toHaveBeenCalled();
+  });
+
+  it('🔴 capture 寫入回 false(雙鍵不符/查無)⇒ 仍回 paid,而 log 與 throw 那格分開', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const attempts = makeAttempts({ recordCaptureState: vi.fn(async () => false) });
+    const res = await settleCharge(deps({ attempts }), { orderId: ORDER_ID });
+    expect(res.kind).toBe('paid');
+    // 回 false 走 warn、throw 走 error —— 兩者的下一步不同,訊息不得合流
+    expect(warnSpy).toHaveBeenCalled();
+    expect(errSpy).not.toHaveBeenCalled();
+  });
+
+  it('is_captured=true ⇒ 登記 captured', async () => {
+    const attempts = makeAttempts();
+    const d = deps({
+      attempts,
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 1, isCaptured: true })),
+    });
+    await settleCharge(d, { orderId: ORDER_ID });
+    expect(attempts.recordCaptureState).toHaveBeenCalledWith(
+      ACTIVE_PENDING.attemptId,
+      ORDER_ID,
+      'captured',
+    );
+  });
+
+  it('is_captured=false ⇒ 登記 authorized(≠ unknown)', async () => {
+    const attempts = makeAttempts();
+    const d = deps({
+      attempts,
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false })),
+    });
+    await settleCharge(d, { orderId: ORDER_ID });
+    expect(attempts.recordCaptureState).toHaveBeenCalledWith(
+      ACTIVE_PENDING.attemptId,
+      ORDER_ID,
+      'authorized',
+    );
+  });
+
+  // 🔴 unknown 那格**必須是預設走到的那一條**,不是刻意寫 'unknown' 進去。
+  //    這裡的斷言是「根本沒呼」—— 沒有走到 settlePaid 的路徑,DB 那一列就留在 DEFAULT 'unknown'。
+  //    (RPC 值域只收兩值、拒絕 'unknown';所以「不呼」是它唯一合法的產生方式。)
+  it('🔴 沒收斂成 paid ⇒ 根本不呼 recordCaptureState(unknown 由 DB DEFAULT 產生)', async () => {
+    const attempts = makeAttempts();
+    const d = deps({
+      attempts,
+      // record_status=4 PENDING(尚未授權)⇒ pending,不走 settlePaid
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 4, isCaptured: false })),
+    });
+    const res = await settleCharge(d, { orderId: ORDER_ID });
+    expect(res.kind).toBe('pending');
+    expect(attempts.recordCaptureState).not.toHaveBeenCalled();
+  });
+
+  it('🔴 呼叫順序:在 confirm 之後 —— capture 不得擋在錢的路徑前面', async () => {
+    const order: string[] = [];
+    const attempts = makeAttempts({
+      recordCaptureState: vi.fn(async () => {
+        order.push('capture');
+        return true;
+      }),
+    });
+    const confirmer = makeConfirmer({
+      confirm: vi.fn(async () => {
+        order.push('confirm');
+        return { confirmed: true, idempotent: false };
+      }),
+    });
+    await settleCharge(deps({ attempts, confirmer }), { orderId: ORDER_ID });
+    expect(order).toEqual(['confirm', 'capture']);
+  });
+});
+
+// ── 🔴 W5 R1 MF-2 的實跑驗證(它自標「是讀控制流推的、沒實跑」;我跑了)────────────────
+//    問題:capture 寫入失敗之後,下一次 settleCharge 重入會不會補寫?
+//    我原本的 catch 註解寫「留下次 settle 重入自癒」—— 這一格證明那句是**假的**。
+describe('settleCharge — M-4b capture_state:寫入失敗【不會】被重入補寫(已知限制,釘住)', () => {
+  it('🔴 首次 capture 寫入 throw → 訂單已 paid → 重入在 :70 短路 ⇒ 永遠不再嘗試', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const recordCapture = vi
+      .fn<(a: string, o: string, s: 'authorized' | 'captured') => Promise<boolean>>()
+      .mockRejectedValueOnce(new Error('capture rpc down'));
+
+    // 首次:unpaid → 走到 settlePaid → capture 寫入 throw(只 log)
+    const first = await settleCharge(deps({ attempts: makeAttempts({ recordCaptureState: recordCapture }) }), {
+      orderId: ORDER_ID,
+    });
+    expect(first.kind).toBe('paid');
+    expect(recordCapture).toHaveBeenCalledTimes(1);
+
+    // 重入:order 已 paid → :70 短路(在 Record 查詢之前 return)
+    const reentryAttempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({
+        ...ACTIVE_PENDING,
+        status: 'charged' as const,
+        orderPaymentStatus: 'paid' as const,
+      })),
+      recordCaptureState: recordCapture,
+    });
+    const second = await settleCharge(deps({ attempts: reentryAttempts }), { orderId: ORDER_ID });
+    expect(second).toEqual({ kind: 'paid', idempotent: true, displayId: DISPLAY_ID });
+
+    // 🔴 這就是 MF-2:重入【沒有】再呼一次 ⇒ 那一列永久 unknown,而它其實【被查過了】
+    expect(recordCapture).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── 🔴 W5 R1 MF-1 的實跑驗證(主視窗令:先跑那一發,不要只信它)────────────────────────
+//    問題:授權當下寫了 'authorized',21 小時後銀行請款了 —— 我們會不會重讀?
+describe('settleCharge — M-4b capture_state:訂單已 paid 之後【不會】重讀請款狀態(MF-1)', () => {
+  it('🔴 已 paid 重入,即使 TapPay 現在說 is_captured=true,也完全不呼 recordCaptureState', async () => {
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({
+        ...ACTIVE_PENDING,
+        status: 'charged' as const,
+        orderPaymentStatus: 'paid' as const,
+      })),
+    });
+    // TapPay 這一刻的真相 = 已請款;而下面會證明我們根本沒去問
+    const tappay = makeTapPay(async () => recordResult({ recordStatus: 1, isCaptured: true }));
+    const res = await settleCharge(deps({ attempts, tappay }), { orderId: ORDER_ID });
+
+    expect(res).toEqual({ kind: 'paid', idempotent: true, displayId: DISPLAY_ID });
+    // 🔴 :70 的 paid 短路在 Record 查詢【之前】 ⇒ 連問都沒問
+    expect(tappay.recordQuery).not.toHaveBeenCalled();
+    expect(attempts.recordCaptureState).not.toHaveBeenCalled();
+  });
+
+  it('✅ 對照組:同一發流程走【尚未 paid】⇒ 查得到、也寫得進去(量具是活的)', async () => {
+    const attempts = makeAttempts(); // 預設 orderPaymentStatus = unpaid
+    const tappay = makeTapPay(async () => recordResult({ recordStatus: 1, isCaptured: true }));
+    await settleCharge(deps({ attempts, tappay }), { orderId: ORDER_ID });
+
+    expect(tappay.recordQuery).toHaveBeenCalled();
+    expect(attempts.recordCaptureState).toHaveBeenCalledWith(
+      ACTIVE_PENDING.attemptId,
+      ORDER_ID,
+      'captured',
+    );
   });
 });

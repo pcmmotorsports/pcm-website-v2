@@ -253,7 +253,7 @@ export async function settleCharge(
   }
 
   // 5. paid 收斂(Record 證實 record_status ∈ {0 AUTH, 1 OK} + 識別/金額/幣別符;授權即成立)。rec 用 Record 權威值。
-  return settlePaid(deps, attempt, tr.recTradeId, orderId);
+  return settlePaid(deps, attempt, tr.recTradeId, orderId, tr.isCaptured);
 }
 
 /**
@@ -501,6 +501,11 @@ async function settlePaid(
   attempt: ActiveChargeAttempt,
   recTradeId: string,
   orderId: string,
+  /**
+   * 🔴 M-4b:Record API 的 `is_captured`(必填 boolean、缺欄即 throw:`wire.ts:200`)。
+   * **不是裁決輸入** —— 「授權即成立」不讀它(見 classifyRecordStatus JSDoc);純 audit/顯示值。
+   */
+  isCaptured: boolean,
 ): Promise<SettleChargeOutcome> {
   const { attempts, confirmer } = deps;
 
@@ -532,7 +537,60 @@ async function settlePaid(
 
   // 🔴 缺陷A:成交點記待開票(best-effort、throw 只 log 不翻 paid;S1=B、master plan §5)。
   await bestEffortRecordInvoice(confirmer, orderId);
+
+  // 🔴 M-4b:把請款狀態登記下來(best-effort、形狀對齊上一行)。
+  await bestEffortRecordCaptureState(attempts, attempt.attemptId, orderId, isCaptured);
+
   return { kind: 'paid', idempotent, displayId: attempt.orderDisplayId };
+}
+
+/**
+ * best-effort 記請款狀態:throw / 回 false **皆只 log**,絕不影響 paid 結果。
+ *
+ * 🔴 **這個 catch 是本片存在的理由**:capture_state 不是任何裁決的輸入
+ * (「授權即成立」不讀 `is_captured`)⇒ 它的寫入必須是 best-effort;
+ * 而 `markCharged` 的寫入是 fail-closed。把 best-effort 的值塞進 fail-closed 的函式,
+ * 會把兩種失敗語意綁在一起 —— 那正是本片刻意**不動** `mark_charge_attempt_charged` 的原因。
+ * ⇒ 拿掉這個 catch,`settle-charge.test.ts` 的「capture 寫入 throw ⇒ 仍回 paid」那一格必須紅。
+ *
+ * 🔴 回 `false`(雙鍵不符/查無)與 throw **都只 log**,但**訊息分開** —— 兩者的下一步不同:
+ * false ⇒ 去看那筆 attempt 為什麼對不上;throw ⇒ 去看 DB/RPC。
+ *
+ * ## 🔴 已知限制:**寫失敗不會被重入補寫**(W5 對抗審查 R1 MF-2;2026-08-20 實跑證實)
+ * ~~原註解寫「留下次 settle 重入自癒」~~ ⇒ **那句是假的,更正保留**:
+ * 這一刻訂單已經 `paid`,而下一次 `settleCharge` 會在 `:70` 的 paid 短路 return —— 那個短路在
+ * Record 查詢**之前**,所以重入既拿不到 `isCaptured`、也到不了這裡。
+ * ⇒ 寫失敗的那一列**永久停在 `unknown`**,而它與「從來沒查過」在表上**不可分辨**。
+ * 🔴 **而不能照抄 `recordPendingInvoice` 的修法**(`:70-71` 短路路也補呼一次)—— 那一招成立是因為
+ * 補記待開票**只需要 orderId**;capture 需要 `isCaptured`,而短路路上沒有它。
+ * ⇒ 要補這一格必須有「重讀 Record」的路徑,那是另一片(見 migration 檔頭「誰來重讀」)。
+ * 📌 這個限制由 `settle-charge.test.ts` 的「寫入失敗【不會】被重入補寫」那一格釘住,不是靠這段註解。
+ */
+async function bestEffortRecordCaptureState(
+  attempts: IChargeAttemptStore,
+  attemptId: string,
+  orderId: string,
+  isCaptured: boolean,
+): Promise<void> {
+  try {
+    const persisted = await attempts.recordCaptureState(
+      attemptId,
+      orderId,
+      isCaptured ? 'captured' : 'authorized',
+    );
+    if (!persisted) {
+      console.warn('[settleCharge] capture_state 未落地(雙鍵不符/查無;不影響 paid)', {
+        orderId,
+        attemptId,
+      });
+    }
+  } catch {
+    // 🔴 訊息不得寫「重入自癒」—— 重入會在 paid 短路 return,永遠不會再試(MF-2 實跑證實)。
+    console.error('[settleCharge] capture_state 寫入失敗(不影響 paid;🔴 **不會**被重入補寫、該列永久 unknown)', {
+      orderId,
+      attemptId,
+    });
+  }
 }
 
 /** best-effort 記待開票:throw 只 log、不影響 paid 結果(訂單已 paid + ON CONFLICT 冪等)。 */

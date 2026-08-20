@@ -130,6 +130,23 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
     });
   }
 
+  // ── M-4b capture_state(主軌-only、RETURNS boolean;false = 雙鍵不符/查無,不 throw)──
+
+  /** 🔴 best-effort:值域非 authorized|captured → RPC RAISE;雙鍵不符 → 回 false。呼叫端只 log。 */
+  async recordCaptureState(
+    attemptId: string,
+    orderId: OrderId,
+    captureState: 'authorized' | 'captured',
+  ): Promise<boolean> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.record_charge_capture_state($1::uuid, $2::uuid, $3::text) AS result',
+        [attemptId, orderId, captureState],
+      );
+      return parseBooleanResult(res.rows, 'record_charge_capture_state');
+    });
+  }
+
   // ── M-3 3DS 乙路 R2a:released failure observation(record_released_failure_observation RPC;主軌-only)──
 
   /**

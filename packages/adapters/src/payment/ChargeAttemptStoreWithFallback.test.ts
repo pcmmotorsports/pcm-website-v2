@@ -60,6 +60,8 @@ function makeStore(opts: {
   const primaryRecordRec = vi.fn(async () => {});
   // R2a released failure observation 主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
   const primaryRecordReleasedObs = vi.fn(async () => {});
+  // M-4b capture_state 主軌-only port 方法(複合直通 primary);具名 mock 供委派測。
+  const primaryRecordCaptureState = vi.fn(async () => true);
   const primary: IChargeAttemptStore = {
     begin,
     markCharged: primaryMarkCharged,
@@ -72,6 +74,7 @@ function makeStore(opts: {
     flagNonUnpaidActive: primaryFlagNonUnpaid,
     recordInitiationBankTxn: primaryRecordBankTxn,
     recordInitiationRec: primaryRecordRec,
+    recordCaptureState: primaryRecordCaptureState,
     recordReleasedFailureObservation: primaryRecordReleasedObs,
     claimExpiredPendingAttempts: primaryClaimExpired,
   };

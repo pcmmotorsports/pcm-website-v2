@@ -60,6 +60,7 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     flagNonUnpaidActive: vi.fn(async () => 0),
     recordInitiationBankTxn: vi.fn(async () => {}),
     recordInitiationRec: vi.fn(async () => {}),
+    recordCaptureState: vi.fn(async () => true),
     // R2a released failure observation port 方法;initiatePayment 不呼用、stub 滿足介面。
     recordReleasedFailureObservation: vi.fn(async () => {}),
     claimExpiredPendingAttempts: vi.fn(async () => []),

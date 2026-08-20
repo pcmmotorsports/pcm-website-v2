@@ -64,6 +64,15 @@ export class ChargeAttemptStoreWithFallback implements IChargeAttemptStore {
     return this.primary.recordInitiationRec(attemptId, orderId, recTradeId);
   }
 
+  // 🔴 M-4b capture_state 主軌-only(對齊上方):備軌需 auth.uid(),而 settleCharge 那條路沒有 JWT。
+  recordCaptureState(
+    attemptId: string,
+    orderId: OrderId,
+    captureState: 'authorized' | 'captured',
+  ): Promise<boolean> {
+    return this.primary.recordCaptureState(attemptId, orderId, captureState);
+  }
+
   // 🔴 M-3 3DS 乙路 R2a:released failure observation 主軌-only(對齊上方對帳路徑;備軌需 JWT、無法呼)。
   recordReleasedFailureObservation(
     attemptId: string,

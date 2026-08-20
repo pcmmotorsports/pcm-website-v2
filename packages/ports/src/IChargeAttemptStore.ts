@@ -56,6 +56,28 @@ export interface IChargeAttemptStore {
    */
   recordInitiationRec(attemptId: string, orderId: OrderId, recTradeId: string): Promise<void>;
 
+  // ── M-4b capture_state:把 TapPay Record 的 is_captured 存下來(RPC `record_charge_capture_state`)──
+  // 🔴 主軌-only(對齊上方對帳路徑):settleCharge 走 payment_confirmer,備軌需 auth.uid()。
+
+  /**
+   * 🔴 把 Record API 讀到的請款狀態登記進 attempt。**best-effort、不是裁決輸入。**
+   *
+   * 值域**恰兩值** —— `'unknown'` 是 DB DEFAULT 寫進去的,RPC 會 RAISE 拒絕它
+   * (收三值 + 無條件寫 `read_at` 會撞 pair CHECK,而那個 throw 會被呼叫端的 best-effort catch
+   *  吞掉、只留一行 log ⇒ 契約說三個值合法、實際只有兩個寫得進去,而不會有任何東西紅)。
+   *
+   * 回傳 `false` = 雙鍵(attemptId+orderId)不符 / 查無 ⇒ **不 throw**(同族慣例
+   * `record_charge_bank_txn` 的「非 pending / 查無 ⇒ 回 false」)。這讓 `P0001` 恰好只由值域守衛
+   * 產生 —— 是**結構事實**,不是測試紀律。
+   *
+   * 🔴 呼叫端一律 best-effort:回 `false` 或 throw 皆只 log,**絕不影響 paid 收斂**。
+   */
+  recordCaptureState(
+    attemptId: string,
+    orderId: OrderId,
+    captureState: 'authorized' | 'captured',
+  ): Promise<boolean>;
+
   // ── M-3 3DS 乙路 R2a:released failure observation(canonical §3/§5 + §4 R1b3;三參數雙鍵)──
   // 🔴 主軌-only(對齊 findActiveByOrderId / 5b initiate):對帳路徑無 user JWT〔備軌需 auth.uid()〕。
 
