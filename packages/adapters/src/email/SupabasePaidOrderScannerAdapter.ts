@@ -192,6 +192,10 @@ export class SupabasePaidOrderScannerAdapter implements IPaidOrderScanner {
         //    **不要寫成 `email_outbox.order_id=is.null`** —— 那會回全部的列而且回 200(見檔頭)。
         .select('id, display_id, paid_at, notification_email, customer_user_id, email_outbox!left(order_id)')
         .eq('payment_status', 'paid')
+        // 🔴 W3-G(2026-08-20,W5 掃出):payment_status='paid' 不代表沒被取消 ——
+        //    現金已付款單信還沒寄、單被取消 ⇒ 沒有這一行,系統仍會寄出「訂單成立」給一個
+        //    訂單剛被取消的客人。取消不會改 payment_status,只會補 cancelled_at。
+        .is('cancelled_at', null)
         .gte('paid_at', input.cutoff)
         .gte('created_at', input.cutoff) // 🔴 PRD §5 R3:少了這一半,晚翻 paid 的舊單會被誤寄
         .eq('email_outbox.event_type', 'order_created')

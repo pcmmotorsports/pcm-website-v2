@@ -60,6 +60,22 @@ const ORDER_ROW = {
 const CUSTOMERS_EMPTY = () => makeBuilder({ data: [], error: null });
 
 describe('SupabasePaidOrderScannerAdapter — 掃描述詞', () => {
+  it('🔴 W3-G:掃描查詢帶 cancelled_at is null(payment_status=paid 原本沒有排除取消單)', async () => {
+    // 這格只證明【掃描時的查詢字面】排除了已取消單,不證明「不會寄信」——
+    // codex 關卡2(2026-08-20)FAIL:掃描後、真正寄送前才被取消的單,這條擋不住,
+    // sweep-email-outbox.ts 寄送前沒有重查訂單狀態,是更大的洞,本片範圍外、另案處理。
+    // W5 2026-08-20 掃出原始缺口:.eq('payment_status','paid') 全程零 cancelled 過濾。
+    // mock 不執行 PostgREST 過濾,真過濾語意只能由部署前的真實測打證明。
+    const orders = makeBuilder({ data: [], error: null });
+    const { client } = makeClient(orders);
+    await new SupabasePaidOrderScannerAdapter(client).listPaidWithoutOrderCreatedEmail({
+      cutoff: CUTOFF,
+      limit: 50,
+    });
+
+    expect(argsOf(orders, 'is')).toContainEqual(['cancelled_at', null]);
+  });
+
   it('🔴 #5 cutoff 同時卡 paid_at 與 created_at(PRD §5 R3)—— 少一半就會寄舊單', async () => {
     // 失敗情境不是「壞掉」,是【客人收到一封關於幾個月前那張單的通知信】,
     // 而那件事在 repo 內沒有任何症狀。突變:拿掉 created_at 那一行 ⇒ 這格必紅。
@@ -98,7 +114,12 @@ describe('SupabasePaidOrderScannerAdapter — 掃描述詞', () => {
       // ② 子表篩 event_type:少了它,只有 order_shipped 的單會被當成「排過了」而永久跳過
       expect(argsOf(orders, 'eq')).toContainEqual(['email_outbox.event_type', 'order_created']);
       // ③ 父列條件必須是【不帶欄名】的 `email_outbox`
-      expect(argsOf(orders, 'is')).toEqual([['email_outbox', null]]);
+      //    🔴 codex 關卡2(W3-G)must-fix 2:改回 toEqual 釘死完整形狀 —— toContainEqual
+      //    會放行未來任何人再偷加或拿掉別的 .is() 過濾條件而測試仍綠,那正是本族測試要擋的病。
+      expect(argsOf(orders, 'is')).toEqual([
+        ['cancelled_at', null],
+        ['email_outbox', null],
+      ]);
       // 🔴 反向:不得出現帶欄名的毒分支
       expect(argsOf(orders, 'is')).not.toContainEqual(['email_outbox.order_id', null]);
     });
