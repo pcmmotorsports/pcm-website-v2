@@ -9,11 +9,18 @@
 #   ⇒ 抄指令這件事會一直重演,做成機制擋新增,不再靠人記得。
 #
 # 判準(刻意窄,只咬危險組合,不咬所有 next dev):
-#   同一行【同時】含 ADMIN_DEV_BYPASS=1 與 next dev,且不含 -H 127.0.0.1 ⇒ 擋。
+#   這次 commit【新增的一行】同時含 ADMIN_DEV_BYPASS=1 與 next dev,且不含 -H 127.0.0.1 ⇒ 擋。
 #   ⚠️ 不擋單獨出現 next dev(docs 裡大量在講別的事,例如拋棄式 PG 版本、pgrep 找程序名)。
 #   ⚠️ 不擋「拋棄式 PG」那個安全變體(接本機拋棄式庫,不指正式站)—— 這道閘只看單行字面,
 #      分不出後面接的是正式站還是拋棄式庫;若要收窄到那個粒度,拋棄式 PG 那幾處請保留
 #      現有寫法(不要加 -H 也不算錯,那條路本來就低風險一級)。
+#
+# 🔴 分母只看【新增行】,不看整支檔(2026-08-20 修;第一版掃整支 staged 檔案內容,
+#   結果 W4 只在 docs/phase-1-backlog.md 檔尾新增 52 行、零碰 :24879,卻被那行【既有的散文】
+#   (「那份 runbook 走 next dev + ADMIN_DEV_BYPASS=1…」,一句解釋、不是可執行指令)擋下 ——
+#   本檔自己的註解就寫著「做成機制擋新增」,而實作掃了全檔,分母比意圖寬。
+#   改法:只掃 `git diff --cached -U0` 的 `+` 行,用 @@ hunk header 換算出真實行號
+#   (不是 diff 位移),回報命中時印的行號要對得上檔案裡的行。
 #
 # 逃生門:PCM_ALLOW_ADMIN_BYPASS_LINE=1 git commit ...(commit body 寫明理由)
 
@@ -30,7 +37,12 @@ for f in $(git diff --cached --name-only --diff-filter=ACM); do
   [ "$f" = ".husky/admin-dev-bypass-gate.sh" ] && continue
   # 只看仍存在於 index 的文字檔;二進位/已刪檔跳過
   git cat-file -e ":$f" 2>/dev/null || continue
-  LINES=$(git show ":$f" 2>/dev/null | grep -n 'ADMIN_DEV_BYPASS=1' | grep 'next dev' | grep -v -- '-H 127\.0\.0\.1' || true)
+  ADDED=$(git diff --cached -U0 --no-ext-diff --no-textconv -- "$f" | awk '
+    /^@@/  { match($0, /\+[0-9]+/); line = substr($0, RSTART+1, RLENGTH-1) + 0; next }
+    /^\+\+\+/ { next }
+    /^\+/  { print line ":" substr($0, 2); line++; next }
+  ')
+  LINES=$(printf '%s\n' "$ADDED" | grep 'ADMIN_DEV_BYPASS=1' | grep 'next dev' | grep -v -- '-H 127\.0\.0\.1' || true)
   [ -n "$LINES" ] && HITS="$HITS
 $f:
 $LINES"
