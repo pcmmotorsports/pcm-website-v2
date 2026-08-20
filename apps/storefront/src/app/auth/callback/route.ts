@@ -34,5 +34,12 @@ export async function GET(request: Request) {
     }
   }
   // 無 code 或交換失敗 → 回登入頁顯示錯誤(net-new 技術字面、不上洩 Supabase 原始 error)。
-  redirect('/login?error=oauth');
+  // 🔴 #190 codex 關卡2 MF-1:**失敗路徑也要把 next 帶回去**。原本這裡丟掉已經讀到的 next
+  //    ⇒ 客人從結帳改走 Google、中途取消授權或交換失敗 ⇒ 再登入一次仍然落首頁
+  //    ⇒ **就是 W11 回報的那個症狀,換一條路走到。**
+  // 威脅模型(不照 checkout 的形狀套):next 是 query 參數、無 cookie 生命週期,
+  //    :26 讀進來的原值可能是外部可控 ⇒ **進 URL 前先過 sanitizeNextParam**(與 :33 成功路徑同一把白名單);
+  //    產出是站內相對路徑,不從 request host 組絕對 URL(維持 :9-12 那道 open-redirect 防線)。
+  const safeNext = sanitizeNextParam(next);
+  redirect(next ? `/login?error=oauth&next=${encodeURIComponent(safeNext)}` : '/login?error=oauth');
 }

@@ -1,6 +1,9 @@
 // lib/auth/safe-redirect.ts — 登入後導回 next 同源白名單(#190、🔴 鐵則 12 open-redirect 防護)
 //
-// 受保護頁(account)未登入 → /login?next=<path>;登入 / 註冊 / Google / LINE 成功後優先回 next。
+// 受保護頁未登入 → /login?next=<path>;登入 / 註冊 / Google / LINE 成功後優先回 next。
+// 🔴 呼叫點不只 account:/checkout(page.tsx)與 /checkout/callback(3DS 導回頁)也帶 next ——
+//    2026-08-21 W11 在正式站實測到那兩處【漏了 next】,客人登入完落在首頁、整條結帳要重走。
+//    ⇒ 本註解原本只寫 account,而「只寫了一半」正是當初漏掉另一半的原因。新增受保護頁時一併補這裡。
 // next 進來自 URL query(login/register form)或 cookie(LINE)、皆「外部可控輸入」→ redirect 前必過本白名單。
 //
 // 🔴 別重開 M-1-14e-f1-c(Google)+ f2(LINE callback)修過的 open-redirect 傷口(兩處 codex 關卡2 must-fix

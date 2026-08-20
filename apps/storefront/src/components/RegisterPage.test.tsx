@@ -40,9 +40,28 @@ beforeAll(() => {
 beforeEach(() => mockRegister.mockReset());
 afterEach(cleanup);
 
-function renderPage() {
-  render(<CartProvider><RegisterPage /></CartProvider>);
+function renderPage(next?: string) {
+  render(<CartProvider><RegisterPage next={next} /></CartProvider>);
 }
+
+// 🔴 codex 關卡2 N5:原本永遠以「無 next」渲染 ⇒ 沒釘住編碼 / 惡意值收斂 / 原路徑保存。
+describe('RegisterPage · #190 next 往下游傳遞', () => {
+  it('有 next → 「登入」連結帶著它(且經過編碼)', () => {
+    renderPage('/checkout');
+    expect(screen.getByText('登入').getAttribute('href')).toBe(`/login?next=${encodeURIComponent('/checkout')}`);
+  });
+
+  it('🔴 惡意 next 被收斂成 /,不是原樣塞進連結', () => {
+    renderPage('//evil.example.com');
+    expect(screen.getByText('登入').getAttribute('href')).toBe(`/login?next=${encodeURIComponent('/')}`);
+    expect(screen.getByText('登入').getAttribute('href')).not.toContain('evil');
+  });
+
+  it('無 next → 裸連結,不掛空參數', () => {
+    renderPage();
+    expect(screen.getByText('登入').getAttribute('href')).toBe('/login');
+  });
+});
 
 /** 填妥所有必填欄 + 勾同意,使 client 逐欄驗證通過、會呼叫 registerAction。 */
 function fillValid() {

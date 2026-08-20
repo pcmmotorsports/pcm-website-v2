@@ -174,7 +174,9 @@ export function Header({
     // 會員圖示條件路由(g-1b、#179 D-f 收尾):已登入→/account、未登入→/login。
     // 純 cosmetic;真守門在 /account server 端 getUser()(g-1a)、此處指錯 server 也擋得住。
     if (id === 'account') {
-      router.push(isAuthed ? '/account' : '/login');
+      // 🔴 #190:未登入點會員圖示 ⇒ 帶 next 回 /account,否則登入完落首頁、他要再點一次。
+      //    對齊 contexts/FavoritesContext.tsx:237 的既有寫法(同一件事不要兩種)。
+      router.push(isAuthed ? '/account' : `/login?next=${encodeURIComponent('/account')}`);
       return;
     }
     router.push(NAV_ROUTE_MAP[id] ?? `/${id}`);

@@ -2,7 +2,7 @@
 //
 // /checkout/callback page test(M-3 3DS-3、🔴 鐵則 12 callback)。
 // 以「呼叫 Server Component 預設 export → 檢視回傳 React 元素樹」驗分支(不渲染 DOM、免 Header provider):
-//   ① 未登入 → redirect('/login')、不呼 settleCharge
+//   ① 未登入 → redirect('/login?next=/checkout/callback?order=<uuid>')(#190)、不呼 settleCharge
 //   ② getUser throw → 泛用處理中(fail-closed)、不呼 settleCharge、不 redirect
 //   ③ order 缺 / 非 UUID → 泛用處理中、不呼 settleCharge
 //   ④ 🔴 N1 歸屬閘:非本人單(歸屬讀無 row / throw)→ 泛用處理中、**不呼 settleCharge**、**不洩 displayId**
@@ -143,8 +143,26 @@ afterEach(() => {
 });
 
 describe('/checkout/callback page', () => {
-  it('① 未登入 → redirect(/login)、不呼 settleCharge', async () => {
-    await expect(run(ORDER_ID, { user: null })).rejects.toThrow('NEXT_REDIRECT:/login');
+  it('① 未登入 → redirect(/login?next=本頁)、不呼 settleCharge', async () => {
+    // 🔴 #190:next 必須指回【本頁 + 這筆 order】—— 少了它,客人登入完落在首頁、看不到剛刷的那筆。
+    //    用逐字全等(不是 toContain('/login')):那樣寫在 next 掉光時照樣綠 = 恆真。
+    const expected = `/login?next=${encodeURIComponent(`/checkout/callback?order=${ORDER_ID}`)}`;
+    await expect(run(ORDER_ID, { user: null })).rejects.toThrow(`NEXT_REDIRECT:${expected}`);
+    expect(redirectMock).toHaveBeenCalledWith(expected);
+    expect(settleChargeMock).not.toHaveBeenCalled();
+  });
+
+  it('①-c 未登入且【完全沒有 order 參數】→ 只 redirect(/login)', async () => {
+    // 🔴 W3 R1 nit-2:這條分支原本只被「髒值」路徑覆蓋,而 undefined 走的是另一個判斷
+    //    (`rawOrder && UUID_RE.test(rawOrder)` 的左半)—— 兩半各自會壞,要各自有一發。
+    await expect(run(undefined, { user: null })).rejects.toThrow('NEXT_REDIRECT:/login');
+    expect(redirectMock).toHaveBeenCalledWith('/login');
+    expect(settleChargeMock).not.toHaveBeenCalled();
+  });
+
+  it('①-b 未登入且 order 形狀不合法 → 只 redirect(/login)、不把髒值塞進 next', async () => {
+    // 🔴 負對照:next 只收過得了 UUID_RE 的值。這一格在「未過濾就塞進 next」時會紅。
+    await expect(run('../../evil', { user: null })).rejects.toThrow('NEXT_REDIRECT:/login');
     expect(redirectMock).toHaveBeenCalledWith('/login');
     expect(settleChargeMock).not.toHaveBeenCalled();
   });

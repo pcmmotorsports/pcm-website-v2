@@ -165,7 +165,13 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
                 />
                 <span>記住我</span>
               </label>
-              <Link href="/login/forgot" className="auth-forgot">忘記密碼？</Link>
+              {/* 🔴 #190:去程也要帶 —— 少了它,忘記密碼頁根本拿不到 next 可以帶回來。 */}
+              <Link
+                href={next ? `/login/forgot?next=${encodeURIComponent(safeNext)}` : '/login/forgot'}
+                className="auth-forgot"
+              >
+                忘記密碼？
+              </Link>
             </div>
             <button type="submit" className="auth-submit" disabled={pending}>登入</button>
           </form>
@@ -187,7 +193,13 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
           </button>
 
           <div className="auth-foot">
-            第一次來？<Link href="/register">建立帳號</Link>
+            {/* 🔴 #190:next 要跟著跳過去 —— 結帳被攔的人在這裡點「建立帳號」,next 掉光
+                ⇒ 註冊完落首頁、整條結帳重走(= W11 回報的症狀換一條路走到)。
+                safeNext 已過 sanitizeNextParam(:54);無 next 時它是 '/' ⇒ 不掛空參數。 */}
+            第一次來？
+            <Link href={next ? `/register?next=${encodeURIComponent(safeNext)}` : '/register'}>
+              建立帳號
+            </Link>
           </div>
         </div>
       </main>

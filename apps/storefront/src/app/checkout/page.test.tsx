@@ -2,10 +2,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-const { getUserMock, customerSingleMock, listByCustomerMock } = vi.hoisted(() => ({
+const { getUserMock, customerSingleMock, listByCustomerMock, redirectMock } = vi.hoisted(() => ({
   getUserMock: vi.fn(),
   customerSingleMock: vi.fn(),
   listByCustomerMock: vi.fn(),
+  // 真 redirect() 會 throw NEXT_REDIRECT;mock 也必須 throw,否則後面的 user.email 會先炸、測到的是別的東西。
+  redirectMock: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT:${url}`);
+  }),
+}));
+
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => redirectMock(url),
 }));
 
 vi.mock('@/lib/supabase/server', () => ({
@@ -41,6 +49,17 @@ async function renderRoute(email: string) {
   listByCustomerMock.mockResolvedValue([]);
   return CheckoutRoute();
 }
+
+describe('/checkout server route 登入守門', () => {
+  it('未登入 → redirect(/login?next=/checkout),不是裸 /login', async () => {
+    // 🔴 #190:少了 next,客人登入完落在首頁、整條結帳要重走一次(2026-08-21 W11 正式站實測)。
+    //    逐字全等 —— 寫成 toContain('/login') 的話,next 掉光時照樣綠 = 恆真。
+    getUserMock.mockResolvedValue({ data: { user: null } });
+    const expected = `/login?next=${encodeURIComponent('/checkout')}`;
+    await expect(CheckoutRoute()).rejects.toThrow(`NEXT_REDIRECT:${expected}`);
+    expect(redirectMock).toHaveBeenCalledWith(expected);
+  });
+});
 
 describe('/checkout server route Email gate', () => {
   it('flag off 時不預填，也明確把 false 傳給 client', async () => {

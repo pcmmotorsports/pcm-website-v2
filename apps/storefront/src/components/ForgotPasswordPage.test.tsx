@@ -45,9 +45,30 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-function renderPage() {
-  render(<CartProvider><ForgotPasswordPage /></CartProvider>);
+function renderPage(next?: string) {
+  render(<CartProvider><ForgotPasswordPage next={next} /></CartProvider>);
 }
+
+// 🔴 codex 關卡2 N6:原本永遠以「無 next」渲染 ⇒ **兩個「回登入」改成 / 現有測試仍會過**。
+describe('ForgotPasswordPage · #190 next 往下游傳遞', () => {
+  it('有 next → 兩個回登入連結都帶著它(且經過編碼)', () => {
+    renderPage('/checkout');
+    const href = `/login?next=${encodeURIComponent('/checkout')}`;
+    expect(screen.getByText('回登入').closest('a')?.getAttribute('href')).toBe(href);
+    expect(screen.getByText('回去登入').getAttribute('href')).toBe(href);
+  });
+
+  it('🔴 惡意 next 被收斂成 /,不是原樣塞進連結', () => {
+    renderPage('//evil.example.com');
+    expect(screen.getByText('回去登入').getAttribute('href')).toBe(`/login?next=${encodeURIComponent('/')}`);
+    expect(screen.getByText('回去登入').getAttribute('href')).not.toContain('evil');
+  });
+
+  it('無 next → 裸連結,不掛空參數', () => {
+    renderPage();
+    expect(screen.getByText('回去登入').getAttribute('href')).toBe('/login');
+  });
+});
 
 describe('ForgotPasswordPage · 狀態 A(填 Email)', () => {
   it('renders design 字面 without crashing', () => {

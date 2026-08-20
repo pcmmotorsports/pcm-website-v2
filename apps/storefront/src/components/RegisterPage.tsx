@@ -23,6 +23,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import Link from 'next/link';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { registerAction } from '@/app/register/actions';
@@ -156,7 +157,11 @@ export function RegisterPage({ next }: { next?: string } = {}) {
           </form>
 
           <div className="auth-foot">
-            已有帳號？<Link href="/login">登入</Link>
+            {/* 🔴 #190:反方向同款 —— 這裡掉了 next,登入完一樣落首頁。 */}
+            已有帳號？
+            <Link href={next ? `/login?next=${encodeURIComponent(sanitizeNextParam(next))}` : '/login'}>
+              登入
+            </Link>
           </div>
         </div>
       </main>

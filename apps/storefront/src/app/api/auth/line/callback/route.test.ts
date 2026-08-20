@@ -100,6 +100,24 @@ describe('/api/auth/line/callback GET', () => {
     await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/');
   });
 
+  it('🔴 #190 MF-2:失敗 + 有 next cookie → error redirect【帶著 next】', async () => {
+    // 🔴 next cookie 在 :108-110 被刪掉(單次有效、那是對的)⇒ 不把值搬進 URL 的話,
+    //    客人重試登入時已經沒有東西可以帶他回去,而那可能是【已經扣款完成的】結帳回呼頁。
+    cookieStore('DIFFERENT', NONCE, '/checkout/callback?order=abc');
+    const enc = encodeURIComponent('/checkout/callback?order=abc');
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow(
+      `NEXT_REDIRECT:/login?error=line&next=${enc}`,
+    );
+    expect(deleteSpy).toHaveBeenCalledTimes(3); // cookie 仍然照刪,單次有效那道防線沒被拆
+  });
+
+  it('🔴 #190 MF-2:失敗 + 惡意 next cookie → 白名單擋成 /,不原樣回填', async () => {
+    cookieStore('DIFFERENT', NONCE, '//evil.example.com');
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow(
+      `NEXT_REDIRECT:/login?error=line&next=${encodeURIComponent('/')}`,
+    );
+  });
+
   it('缺 code(LINE 取消授權)→ error redirect', async () => {
     cookieStore(STATE, NONCE);
     await expect(GET(req(`?state=${STATE}&error=access_denied`))).rejects.toThrow(

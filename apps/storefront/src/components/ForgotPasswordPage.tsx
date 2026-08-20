@@ -20,6 +20,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import Link from 'next/link';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { requestPasswordResetAction } from '@/app/login/forgot/actions';
@@ -30,7 +31,9 @@ const RESEND_COOLDOWN_SECONDS = 60;
 // 再試一百次都一樣。稿沒有這句(稿沒有這個情境),屬本片新增、已在 plan §8-2 申報。
 const SERVER_ERROR_COPY = '系統暫時無法寄出重設信，請稍後聯絡客服';
 
-export function ForgotPasswordPage() {
+export function ForgotPasswordPage({ next }: { next?: string } = {}) {
+  // 🔴 #190:回登入的兩個連結要把 next 帶回去(W3 R2 MF-A)。無 next ⇒ 裸 /login,不掛空參數。
+  const loginHref = next ? `/login?next=${encodeURIComponent(sanitizeNextParam(next))}` : '/login';
   const [stage, setStage] = useState<'ask' | 'sent'>('ask');
   const [email, setEmail] = useState('');
   const [sentEmail, setSentEmail] = useState('');
@@ -124,7 +127,7 @@ export function ForgotPasswordPage() {
       <main className="auth-main">
         {stage === 'ask' && (
           <div className="auth-card">
-            <Link className="auth-back" href="/login">
+            <Link className="auth-back" href={loginHref}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
               <span>回登入</span>
             </Link>
@@ -154,7 +157,7 @@ export function ForgotPasswordPage() {
             </div>
 
             <div className="auth-foot">
-              想起來了？<Link href="/login">回去登入</Link>
+              想起來了？<Link href={loginHref}>回去登入</Link>
             </div>
           </div>
         )}

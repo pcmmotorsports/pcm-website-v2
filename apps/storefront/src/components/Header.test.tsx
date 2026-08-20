@@ -223,10 +223,12 @@ describe('Header', () => {
   });
 
   describe('會員圖示條件路由 (g-1b、#179 D-f 收尾)', () => {
-    it('desktop 未登入 → 會員圖示點擊 → router.push(/login)', () => {
+    it('desktop 未登入 → 會員圖示點擊 → router.push(/login?next=/account)', () => {
+      // 🔴 #190:帶 next 回 /account,否則登入完落首頁、客人要再點一次會員圖示。
+      //    逐字全等 —— toContain('/login') 在 next 掉光時照樣綠 = 恆真。
       renderWithCart(<Header isMobile={false} />);
       fireEvent.click(screen.getByLabelText('會員'));
-      expect(pushMock).toHaveBeenCalledWith('/login');
+      expect(pushMock).toHaveBeenCalledWith(`/login?next=${encodeURIComponent('/account')}`);
     });
 
     it('desktop 已登入 → 會員圖示點擊 → router.push(/account)', () => {

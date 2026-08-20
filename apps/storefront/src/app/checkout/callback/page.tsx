@@ -5,7 +5,8 @@
 // 為 label、以本實作為準;理由 plan §5.0)。server→server 的 backend_notify_url = webhook(3DS-2、另檔)。
 //
 // 🔴 處理序(plan §5.1、零信任 + IDOR 歸屬閘 + Record 唯一權威):
-//   1. getUser()(向 auth server 驗 JWT、對齊 checkout/page.tsx)→ throw → 泛用處理中(fail-closed)/ 無 → /login。
+//   1. getUser()(向 auth server 驗 JWT、對齊 checkout/page.tsx)→ throw → 泛用處理中(fail-closed)/
+//      無 → /login?next=/checkout/callback?order=<uuid>(#190;order 過 UUID_RE 才帶,故形狀過濾提到本步之前)。
 //   2. 零信任:searchParams.order = 我方 orderId(orders.id UUID);URL 其他欄(status/rec)一律不採信
 //      (成交權威 100% 在 settleCharge 內 Record API)。非 UUID → 泛用處理中(不打 Record、不洩)。
 //   3. 🔴 IDOR 歸屬閘(**唯一歸屬防線**、N1):settleCharge 為 cookieless 無 ownership 檢查 → 必先以使用者 cookie
@@ -91,12 +92,25 @@ export default async function CheckoutCallbackRoute({
   } catch {
     return renderProcessingGeneric();
   }
-  if (!userId) redirect('/login');
-
   // 2. 零信任:order = 我方 orderId(UUID);非 UUID → 泛用(不打 Record、不查歸屬)。
+  //    🔴 這一步提到「未登入 → /login」【之前】:next 要指回本頁,而本頁沒有 order 就沒有意義
+  //       ⇒ 必須先把 order 過完形狀白名單,才有東西可以帶。純 await/形狀過濾、無副作用。
   const sp = await searchParams;
-  const orderId = firstParam(sp.order);
-  if (!orderId || !UUID_RE.test(orderId)) {
+  const rawOrder = firstParam(sp.order);
+  const orderId = rawOrder && UUID_RE.test(rawOrder) ? rawOrder : null;
+
+  // 🔴 #190 登入後導回:客人剛從銀行 OTP 頁回來、可能【已經被扣款】,把他丟去首頁 = 他看不到這筆的結果。
+  //    只有過了 UUID_RE 的 order 才進 next(站內相對路徑;/login 端另有 sanitizeNextParam 白名單)。
+  //    🔴 帶 next 不放寬任何權限:回來之後步驟 3 的 IDOR 歸屬閘照跑,非本人單一樣只看到泛用處理中。
+  //    🔴 導航寫成【單行】是刻意的(W3 R2 MF-B):第一版是多行三元 —— `redirect(` 一行、`: '/login',`
+  //       另一行 ⇒ login-next-guard 逐行判定時兩行各缺一半,**這個呼叫點在守門眼裡不存在**。
+  //       W3 實測:拿掉 next,掃描守門命中 0(世界壞了而守門全綠)。別為了排版把它拆回多行。
+  const back = orderId ? `/checkout/callback?order=${orderId}` : null;
+  if (!userId) {
+    redirect(back ? `/login?next=${encodeURIComponent(back)}` : '/login');
+  }
+
+  if (!orderId) {
     return renderProcessingGeneric();
   }
 

@@ -51,9 +51,33 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-function renderPage(oauthError?: string) {
-  render(<CartProvider><LoginPage oauthError={oauthError} /></CartProvider>);
+function renderPage(oauthError?: string, next?: string) {
+  render(<CartProvider><LoginPage oauthError={oauthError} next={next} /></CartProvider>);
 }
+
+// 🔴 codex 關卡2 N4:helper 原本傳不了 next ⇒ 新增的兩個傳遞【只驗得到 fallback 那一半】。
+//    fixture 永遠落在「沒有 next」那一邊 = 兩個公式在那一區相等 ⇒ 守門沒有判別力(同 W11 今天量到的形狀)。
+describe('LoginPage · #190 next 往下游傳遞', () => {
+  it('有 next → 建立帳號 / 忘記密碼兩個連結都帶著它(且經過編碼)', () => {
+    renderPage(undefined, '/checkout');
+    const enc = encodeURIComponent('/checkout');
+    expect(screen.getByText('建立帳號').getAttribute('href')).toBe(`/register?next=${enc}`);
+    expect(screen.getByText('忘記密碼？').getAttribute('href')).toBe(`/login/forgot?next=${enc}`);
+  });
+
+  it('🔴 惡意 next 被 sanitizeNextParam 收斂成 /,不是原樣塞進連結', () => {
+    renderPage(undefined, '//evil.example.com');
+    const enc = encodeURIComponent('/');
+    expect(screen.getByText('建立帳號').getAttribute('href')).toBe(`/register?next=${enc}`);
+    expect(screen.getByText('建立帳號').getAttribute('href')).not.toContain('evil');
+  });
+
+  it('無 next → 裸連結,不掛空參數', () => {
+    renderPage();
+    expect(screen.getByText('建立帳號').getAttribute('href')).toBe('/register');
+    expect(screen.getByText('忘記密碼？').getAttribute('href')).toBe('/login/forgot');
+  });
+});
 
 /** 填妥 Email/密碼,使 client 逐欄驗證通過、會呼叫 loginAction。 */
 function fillValid() {

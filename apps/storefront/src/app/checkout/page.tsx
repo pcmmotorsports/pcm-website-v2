@@ -46,7 +46,9 @@ export default async function CheckoutRoute() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  // #190 登入後導回:未登入被攔在這裡的人,登入完要回到【結帳】而不是首頁(否則整條結帳要重走一次)。
+  //   next 進 /login 後由 login/actions.ts:71 的 sanitizeNextParam 同源白名單收斂 —— 本處只負責帶。
+  if (!user) redirect(`/login?next=${encodeURIComponent('/checkout')}`);
 
   // 單一 server flag 讀一次後往 UI 傳；session Email 仍須共用 canonical schema 驗過才可預填。
   const notificationEmailEnabled = isCheckoutNotificationEmailEnabled();

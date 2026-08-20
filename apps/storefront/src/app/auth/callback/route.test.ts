@@ -66,6 +66,25 @@ describe('/auth/callback GET', () => {
     expect(redirectSpy).toHaveBeenCalledWith('/login?error=oauth');
   });
 
+  it('🔴 #190 MF-1:交換失敗 + 有 next → error redirect【帶著 next】', async () => {
+    // 少了這一格,客人從結帳改走 Google、中途取消授權 ⇒ 再登入一次仍然落首頁
+    // (= W11 回報的症狀換一條路走到)。逐字全等,不用 toContain('error=oauth')。
+    exchangeSpy.mockResolvedValue({ error: { message: 'bad' } });
+    const enc = encodeURIComponent('/checkout');
+    await expect(
+      GET(new Request(`http://localhost:3000/auth/callback?code=abc&next=%2Fcheckout`)),
+    ).rejects.toThrow(`NEXT_REDIRECT:/login?error=oauth&next=${enc}`);
+    expect(redirectSpy).toHaveBeenCalledWith(`/login?error=oauth&next=${enc}`);
+  });
+
+  it('🔴 #190 MF-1:交換失敗 + 惡意 next → 白名單擋成 /,不原樣回填', async () => {
+    exchangeSpy.mockResolvedValue({ error: { message: 'bad' } });
+    await expect(
+      GET(new Request('http://localhost:3000/auth/callback?code=abc&next=%2F%2Fevil.example.com')),
+    ).rejects.toThrow(`NEXT_REDIRECT:/login?error=oauth&next=${encodeURIComponent('/')}`);
+    expect(redirectSpy).not.toHaveBeenCalledWith(expect.stringContaining('evil'));
+  });
+
   it('無 code → 不呼叫 exchange、redirect /login?error=oauth', async () => {
     await expect(
       GET(new Request('http://localhost:3000/auth/callback')),
