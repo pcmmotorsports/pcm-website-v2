@@ -108,6 +108,7 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     recordInitiationBankTxn: vi.fn(async () => {}),
     recordInitiationRec: vi.fn(async () => {}),
     recordCaptureState: vi.fn(async () => true),
+    listForCaptureRecheck: vi.fn(async () => []),
     // R2a released failure observation port 方法;sweepSettlements 不直接呼(settleCharge released branch 在 R2b)、stub 滿足介面。
     recordReleasedFailureObservation: vi.fn(async () => {}),
     claimExpiredPendingAttempts: vi.fn(async () => []),

@@ -62,6 +62,7 @@ function makeStore(opts: {
   const primaryRecordReleasedObs = vi.fn(async () => {});
   // M-4b capture_state 主軌-only port 方法(複合直通 primary);具名 mock 供委派測。
   const primaryRecordCaptureState = vi.fn(async () => true);
+  const primaryListForRecheck = vi.fn(async () => []);
   const primary: IChargeAttemptStore = {
     begin,
     markCharged: primaryMarkCharged,
@@ -75,6 +76,7 @@ function makeStore(opts: {
     recordInitiationBankTxn: primaryRecordBankTxn,
     recordInitiationRec: primaryRecordRec,
     recordCaptureState: primaryRecordCaptureState,
+    listForCaptureRecheck: primaryListForRecheck,
     recordReleasedFailureObservation: primaryRecordReleasedObs,
     claimExpiredPendingAttempts: primaryClaimExpired,
   };

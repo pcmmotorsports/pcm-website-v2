@@ -16,7 +16,7 @@
  */
 import 'server-only';
 
-import type { IChargeAttemptStore } from '@pcm/ports';
+import type { IChargeAttemptStore, CaptureRecheckCandidate } from '@pcm/ports';
 import type {
   ActiveChargeAttempt,
   BeginChargeAttemptResult,
@@ -71,6 +71,11 @@ export class ChargeAttemptStoreWithFallback implements IChargeAttemptStore {
     captureState: 'authorized' | 'captured',
   ): Promise<boolean> {
     return this.primary.recordCaptureState(attemptId, orderId, captureState);
+  }
+
+  // 🔴 M-4b 重讀掃描主軌-only(唯讀 SECDEF RPC;備軌無此權限)。
+  listForCaptureRecheck(cutoffDays: number, limit: number): Promise<CaptureRecheckCandidate[]> {
+    return this.primary.listForCaptureRecheck(cutoffDays, limit);
   }
 
   // 🔴 M-3 3DS 乙路 R2a:released failure observation 主軌-only(對齊上方對帳路徑;備軌需 JWT、無法呼)。

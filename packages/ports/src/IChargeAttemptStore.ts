@@ -20,6 +20,13 @@ import type {
  * 信任模型:`orderId` 為 server action 內 placeOrder 自產(永不收 client orderId);
  * begin RPC 內再驗 order 存在/unpaid + 歸屬從 orders 讀(②-③a 頭註解 ⑦)。
  */
+/** M-4b 請款狀態重讀的候選列(`#785`)。`recTradeId` 必非空 —— 沒有它就問不到 Record。 */
+export type CaptureRecheckCandidate = {
+  attemptId: string;
+  orderId: OrderId;
+  recTradeId: string;
+};
+
 export interface IChargeAttemptStore {
   /** 佔 per-order 鎖 + per-user 10min 閘;`acquired:false` 為預期業務路徑(回 reason、非 throw)。 */
   begin(orderId: OrderId): Promise<BeginChargeAttemptResult>;
@@ -77,6 +84,19 @@ export interface IChargeAttemptStore {
     orderId: OrderId,
     captureState: 'authorized' | 'captured',
   ): Promise<boolean>;
+
+  /**
+   * 🔴 M-4b 請款狀態重讀的**掃描端**(backlog `#785`;RPC `list_charge_attempts_for_capture_recheck`)。
+   *
+   * 述詞 = `capture_state = 'authorized'`(天然待辦集合:成功一列翻 `captured` ⇒ **集合自己排空**)
+   * + `rec_trade_id IS NOT NULL` + `created_at >= now() - cutoffDays`。
+   * 排序 `capture_state_read_at ASC NULLS FIRST` = **重試策略**(最久沒問的先問)⇒ 不需要 attempt 計數欄。
+   *
+   * 🔴 **唯讀、零鎖**(RPC 是 `STABLE`、無 `FOR UPDATE`)⇒ 不與 `claimStuckUnsettled` 爭鎖;
+   * 而那支用 `FOR UPDATE OF a SKIP LOCKED`,即使相交也是跳過不是等。
+   * 🔴 參數不合法(<=0)⇒ RPC **回空集合,不回全部**(fail-closed)。
+   */
+  listForCaptureRecheck(cutoffDays: number, limit: number): Promise<CaptureRecheckCandidate[]>;
 
   // ── M-3 3DS 乙路 R2a:released failure observation(canonical §3/§5 + §4 R1b3;三參數雙鍵)──
   // 🔴 主軌-only(對齊 findActiveByOrderId / 5b initiate):對帳路徑無 user JWT〔備軌需 auth.uid()〕。

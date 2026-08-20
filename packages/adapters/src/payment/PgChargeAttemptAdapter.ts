@@ -20,7 +20,7 @@
 import 'server-only';
 
 import { Client } from 'pg';
-import type { IChargeAttemptStore } from '@pcm/ports';
+import type { IChargeAttemptStore, CaptureRecheckCandidate } from '@pcm/ports';
 import type {
   ActiveChargeAttempt,
   BeginChargeAttemptResult,
@@ -144,6 +144,29 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
         [attemptId, orderId, captureState],
       );
       return parseBooleanResult(res.rows, 'record_charge_capture_state');
+    });
+  }
+
+  /** 🔴 重讀掃描(唯讀 SECDEF RPC、零鎖);參數不合法時 RPC 回空集合(fail-closed)。 */
+  async listForCaptureRecheck(cutoffDays: number, limit: number): Promise<CaptureRecheckCandidate[]> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT attempt_id, order_id, rec_trade_id FROM public.list_charge_attempts_for_capture_recheck($1::int, $2::int)',
+        [cutoffDays, limit],
+      );
+      return res.rows.map((r) => {
+        const row = r as { attempt_id: unknown; order_id: unknown; rec_trade_id: unknown };
+        if (
+          typeof row.attempt_id !== 'string' ||
+          typeof row.order_id !== 'string' ||
+          typeof row.rec_trade_id !== 'string'
+        ) {
+          // 🔴 fail-closed:形狀不對就 throw,不回一個「看起來像空集合」的結果 ——
+          //    那會讓「掃不到」與「掃壞了」在呼叫端長得一樣。
+          throw new Error('list_charge_attempts_for_capture_recheck 回應形狀異常');
+        }
+        return { attemptId: row.attempt_id, orderId: row.order_id, recTradeId: row.rec_trade_id };
+      });
     });
   }
 
