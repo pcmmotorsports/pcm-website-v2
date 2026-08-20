@@ -207,8 +207,25 @@ function warnMissingIcon(missing: MockCategory[]): void {
  *   沒有排除時它會上榜、而它沒有 icon ⇒ 每次渲染都叫一次假警報)。
  * ⚠️ **刻意用具名清單、不用規則**(例如「名字含『服務』就排除」):規則會誤傷未來真的要上榜的
  *   分類,而誤傷這件事寫不出會紅的測試(plan §2-2 的 B-3 落選理由)。
+ *
+ * ── 第二顆:「維修零件」(2026-08-20 加;plan = 信箱 `W1-104`,migration =
+ *   `20260820140000_repair_parts_top_category.sql`)────────────────────────────
+ * 🔴 **它就是上面那 800+ 件本身,只是換了一個大類名。** 報價單側把 `major_category_v2_zh`
+ *   從「服務與其他」改成「維修零件」(子類欄不動)⇒ 那批商品會從 `服務與其他 · 維修零件`
+ *   搬到新的頂層 `維修零件` 底下 ⇒ **它會帶著件數一起換名字上榜**。
+ *   ⇒ 只留「服務與其他」在清單上,等於這道排除**在改名的那一刻自己失效**,而畫面看起來完全正常。
+ * 🔴 **落筆當日實測**(2026-08-20 21:3x,唯讀查正式庫的 rollup 上架件數):搬完後「維修零件」= 697,
+ *   落在第 10 名排氣系統 738 與第 11 名燈具與電子 562 之間 ⇒ **上榜第 11 名、把燈具與電子擠掉**
+ *   —— 與 #412 當初擔心的是**同一顆分類、同一個位置**。
+ * ⚠️ **不畫 icon**:照上方 `CATEGORY_CHIPS` 的規矩(icon 要有人畫、色碼要有人指定),
+ *   本片沿用排除、不套公式;icon 走 backlog,不在這裡補。
+ * ⚠️ 字面必須與 `categories.name` 的頂層名逐字相同。而那個值**不是手打的** —— migration 由既有
+ *   `服務與其他 · 維修零件` 的 raw_path 右半 derive(UTF-8 hex `e7b6ade4bfaee99bb6e4bbb6`,同日唯讀實測)。
+ * 🔴 **舊的那顆不能拿掉**:加法之下舊子類仍在,而 `extreme` 那 123 群**不在每日同步 matrix 裡**
+ *   (`.github/workflows/rpm-sync.yml:73`)⇒ 它們會留在「服務與其他」底下 ⇒ **兩顆都要繼續排除**。
+ *   處置 = backlog `#799`。
  */
-export const HOME_WALL_EXCLUDED: readonly string[] = ['服務與其他'];
+export const HOME_WALL_EXCLUDED: readonly string[] = ['服務與其他', '維修零件'];
 
 export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
   // 依件數遞減取前 11(`buildCategoryTree` 已按群數排序,這裡保守再排一次);排除清單先濾掉。

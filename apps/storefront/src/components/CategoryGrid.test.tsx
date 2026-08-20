@@ -214,6 +214,86 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
     }
   });
 
+  // ── #799 / W1-104:第二顆排除「維修零件」──────────────────────────────────────
+  // 🔴 為什麼要第二格而不是把上面兩格改一改:上面兩格**寫死「服務與其他」** ——
+  //    只把新名字加進 `HOME_WALL_EXCLUDED`,那兩格照樣全綠 ⇒ **新的那顆等於零守門**。
+  // 🔴 本組的 fixture **不是隨便挑的數字,是 2026-08-20 21:3x 唯讀查正式庫量到的
+  //    rollup 上架件數**(已扣 delisted)。用真數字的理由:它同時證明「排除有效」與
+  //    「這個情境真的會發生」——用一個不會上榜的件數當樣本,這格就恆真、什麼都沒守到。
+  const REAL_ROLLUP_2026_08_20: readonly (readonly [string, number])[] = [
+    ['外觀與後視鏡', 2824], ['騎士用品與配件', 2425], ['碳纖維部品', 2110],
+    ['車身防護與防摔', 1936], ['拉桿與把手', 1819], ['精品螺絲與螺帽', 1708],
+    ['引擎與冷卻', 1706], ['止滑貼與保護膜', 1662], ['腳踏後移與傳動', 954],
+    ['排氣系統', 738], ['燈具與電子', 562],
+  ];
+  /** 報價單側改完大類、同步搬完之後的預測值 = bonamici 691 + evotech 5 + lightech 1。 */
+  const REPAIR_PARTS_COUNT = 697;
+  const realWall = (): MockCategory[] =>
+    REAL_ROLLUP_2026_08_20.map(([name, count], i) => ({ id: `real-${i}`, name, count, children: [] }));
+
+  it('🔴 #799:「維修零件」搬完後件數會上榜,而它不上磚牆(fixture = 正式庫實測值)', () => {
+    // 前提斷言:若這一行紅了,代表 fixture 已經不具判別力(697 進不了前 11 ⇒ 下面全部恆真)。
+    const eleventh = REAL_ROLLUP_2026_08_20[REAL_ROLLUP_2026_08_20.length - 1]!;
+    expect(REPAIR_PARTS_COUNT, `697 已經擠不進前 11(第 11 名 = ${eleventh[0]} ${eleventh[1]})⇒ 本格恆真`)
+      .toBeGreaterThan(eleventh[1]);
+
+    const { container } = render(
+      <CategoryGrid categories={[...realWall(), { id: 'rp', name: '維修零件', count: REPAIR_PARTS_COUNT, children: [] }]} />,
+    );
+    // 🔴 **取【分類名】不取整段 textContent**(codex 關卡2 nit-1,而修法與它建議的不同,理由見下)。
+    //    DOM 是 `<span class="b-cat-label">{name}<span class="b-cat-count">{count}</span></span>`
+    //    ⇒ `textContent` = 「維修零件697」(名字黏著件數),`firstChild` 才是名字那個純文字節點。
+    //    · codex 指出的病是對的:`labels.join('|').not.toContain('維修零件')` 是**子字串比對**,
+    //      未來若有一顆合法分類叫「原廠維修零件包」上榜,這格會**誤紅**,而正式邏輯是 name 逐字比對。
+    //    · 🔴 而它建議的修法(對整段 textContent 做 exact `not.toContain`)在**本 DOM 下會恆真** ——
+    //      陣列裡是「維修零件697」,永遠不等於「維修零件」⇒ 就算它真的上榜也不會紅。
+    //    ⇒ 取名字節點 + 陣列 exact 比對,才同時滿足「與正式合約一致」與「還有判別力」。
+    const names = [...container.querySelectorAll('.b-cat-label')].map(
+      (el) => el.firstChild?.textContent ?? '',
+    );
+
+    expect(names, '排除清單沒有跟著改名 ⇒ 首頁磚面被「維修零件」佔一格')
+      .not.toContain('維修零件');
+    expect(container.querySelectorAll('.b-cat-chip')).toHaveLength(11);
+    // 🔴 正向對照:被它擠掉的那一顆(燈具與電子 562)必須還在 —— 排除的是那一顆、不是把整排砍短
+    expect(names, '第 11 名被擠掉了 ⇒ 排除沒生效').toContain('燈具與電子');
+    // 🔴 前提斷言:names 真的抽到名字(不是空陣列/整段文字)—— 否則上面兩發都恆真
+    expect(names, 'names 沒有 11 個 ⇒ 選擇器抽錯了,上面兩發失去判別力').toHaveLength(11);
+    expect(names[0], 'names[0] 帶著件數 ⇒ 抽的是整段 textContent,exact 比對會恆真')
+      .toBe('外觀與後視鏡');
+    // 「全站共 N 類」講的是全站分類數,不因磚牆排除而變小
+    expect(container.querySelector('.b-cats-note')?.textContent)
+      .toBe('依件數排序取前 11 名 · 全站共 12 類');
+  });
+
+  it('🔴 #799:「維修零件」沒有 icon,而被排除的分類不得觸發告警', () => {
+    // 它**刻意不畫 icon**(CategoryGrid.tsx 上方:icon 要有人畫、色碼要有人指定)
+    // ⇒ 若排除失效,它會上榜 + 每次渲染叫一次假警報。這格守的是後半。
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      render(
+        <CategoryGrid categories={[...realWall(), { id: 'rp', name: '維修零件', count: REPAIR_PARTS_COUNT, children: [] }]} />,
+      );
+      expect(warn, '「維修零件」上了磚牆且查無 icon ⇒ 每次首頁渲染都吐一行假警報').not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('🔴 #799:兩顆都要在排除清單上 —— extreme 那 123 群不會被搬走,舊名字不能拿掉', () => {
+    // 🔴 這格守的是「改名式思考」:有人會以為新名字取代舊名字 ⇒ 把「服務與其他」刪掉。
+    //    而 .github/workflows/rpm-sync.yml:73 的 matrix **沒有 extreme** ⇒ 那 123 群留在舊分類。
+    // 🔴 **用 toContain 兩發、不用 toEqual**(W3 2026-08-20 MF-2):
+    //    本格自陳守的是「**少了一顆**」,而 `toEqual` 在【多一顆】與【換順序】時也會紅
+    //    ⇒ 未來合法新增第三顆排除會**誤紅**。而誤報的代價已量過:它會把人趕出守門的視野
+    //    (memory `feedback_a-false-positive-reroutes-people-out-of-the-guards-view`)。
+    //    ⇒ 尺要與它宣稱守的東西一樣寬,不多不少。
+    expect(HOME_WALL_EXCLUDED, '舊名字被拿掉了 ⇒ extreme 那 123 群會讓它爬上首頁磚牆')
+      .toContain('服務與其他');
+    expect(HOME_WALL_EXCLUDED, '新名字不在清單上 ⇒ 同步搬完那一刻它會佔一格')
+      .toContain('維修零件');
+  });
+
   it('表頭是 N°03 標題 + 排序說明(OD 表頭右側放的是說明,不是連結)', () => {
     const { container } = render(<CategoryGrid categories={LIVE_15} />);
     expect(screen.getByText('Categories · 部品分類')).toBeDefined();
