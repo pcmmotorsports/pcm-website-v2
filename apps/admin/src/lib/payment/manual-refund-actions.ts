@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { getRequestId } from '../audit/context';
 import { readSingleString } from '../forms/single-value';
 import { authorizeAdminMutation } from '../session/authorize';
+import { MANUAL_REFUND_ENTRY_BLOCKED_BY_787 } from '../../components/orders/manual-refund-entry-gate';
 import { parseManualRefundForm } from './manual-refund-form';
 import {
   EMPTY_MANUAL_REFUND_INPUT,
@@ -50,6 +51,12 @@ export async function recordManualRefundAction(
   // ① 授權閘。絕對第一,連讀一個欄位都在它之後。
   const authorization = await authorizeAdminMutation();
   if (!authorization) {
+    return manualRefundFailure('denied', EMPTY_MANUAL_REFUND_INPUT, generateManualRefundRequestToken());
+  }
+
+  // 🔴 #787 硬閘(同 manual-refund-entry-gate.ts 的封印,server 端補一份——
+  // 畫面按鈕不渲染擋不住直接送這支 server action 的請求)。
+  if (MANUAL_REFUND_ENTRY_BLOCKED_BY_787) {
     return manualRefundFailure('denied', EMPTY_MANUAL_REFUND_INPUT, generateManualRefundRequestToken());
   }
 
