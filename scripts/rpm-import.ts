@@ -36,6 +36,7 @@ if (existsSync('.env.local')) loadEnvFile('.env.local');
 
 import { createClient } from '@supabase/supabase-js';
 import { getSupplierConfig } from './supplier-config';
+import { applyTitleGateSkip, runTitleShapeGate } from './title-shape-gate';
 import { fetchAllSupplierProducts, type SourceProductRow } from './rpm-fetch';
 import {
   transformGroup,
@@ -374,6 +375,23 @@ async function main(): Promise<void> {
         `category_id=null ${nullCategoryProducts.length} 群、abort 不寫(products.category_id NOT NULL;看上方未對上分類彙整、補 categories seed 後重跑)`,
       );
     }
+  }
+
+  // ── 硬 gate:品名形狀(2026-08-21 W1;起因 = 客人站上真的出現一件品名 `#N/A` 的商品)──
+  //   判別式、「擋 vs 只報」的分界、abort 訊息、以及本段接線本身,全在 ./title-shape-gate.ts
+  //   (那裡有雙向表演的測試 + 一格會在【這一行被刪掉時變紅】的接線斷言;codex 關卡2 MF-6)。
+  //   🔴 **本段的位置是有意義的,不要往上搬。**
+  //      `sourceExternalIds`(:306)與 `sourceVariantSkus`(:307)必須在本段【之前】就建好 ——
+  //      它們是 S4 來源消失對賬 / V1 孤兒變體對賬的分母。若把本段搬到它們之前,
+  //      被跳過的商品會從那兩個集合裡消失 ⇒ **被當成「來源已無此品」而軟下架、變體被硬刪**。
+  //      那是「跳過」變成「悄悄下架客人看得到的商品」,而畫面上不會有任何異常。
+  //      (title-shape-gate.test.ts 有一發讀本檔原始碼釘住這個順序。)
+  const titleGate = runTitleShapeGate(productRows, { dryRun: DRY_RUN });
+  if (titleGate.skipExternalIds.length) {
+    // 丙:跳過那幾筆、其餘照匯。移除邏輯在模組裡(那裡有直接測它的斷言)。
+    applyTitleGateSkip(productRows, variantsByExternalId, variantRows, titleGate.skipExternalIds);
+    // 非零退出(cron 警報);**不影響本次寫入** —— exitCode 在行程結束才生效。
+    process.exitCode = 1;
   }
 
   // ── 硬 gate 0:handle preflight(F4、charset + 全域唯一;不變式 6)──
