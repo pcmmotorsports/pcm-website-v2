@@ -25876,3 +25876,58 @@ done
   掃描 = git grep（版控內、當前 checkout);正向對照 寫 'paid' ⇒ migrations 66 行;負向對照 一個不存在的值 ⇒ 0
   🔴 未查:DB 端 trigger / rule、動態 SQL、未收割分支 ⇒ **「零命中」的射程止於 repo 內的字面**
   ```
+
+### #795 · 🔴 兩把「migration 套了沒」的尺會分岔,而分岔時零訊號
+
+- **狀態:** 待處理(2026-08-20 W3 立,主視窗升級成今晚執行單第一段;編號暫定,若與其他窗撞號請主視窗改)
+- **觸發條件(這一條的用途就是這一句):** 任何要判斷「某支 migration 到底套了沒」的時刻。
+- **實例(今晚當場撈到的,不是推的):**
+  ```
+  20260820090000_m4b_e10_d3a_manual_refund_void_columns.sql 的 DDL 已在正式庫生效
+  ——`order_manual_refunds_void_trio` 這條 CHECK 約束已存在,三個作廢欄也都在(2026-08-20 W3 對
+  bmpnplmnldofgaohnaok 實查)。
+  但它的版本號【不在】supabase_migrations.schema_migrations 帳本裡:
+  `select version from supabase_migrations.schema_migrations where version like '20260820%'`
+  8/20 只查到一列 `20260820032430`,查無 `20260820090000`。
+  ```
+- **🔴 為什麼是條目、不是當場修掉:** 本 repo 今晚同時在用兩把尺,而它們給出相反答案:
+  ```
+  尺 A  supabase/APPLIED.tsv                         ← 團隊自己記的帳本,人工維護
+  尺 B  supabase_migrations.schema_migrations          ← Supabase 自己記的帳本,`supabase db push`
+                                                          之類的官方工具讀這把
+  ```
+  兩把尺對同一支 migration 給出「套了」與「沒套」兩個相反答案,而**分岔當下沒有任何機制會紅**
+  ——不是掃描沒掃到,是根本沒有東西在比對這兩把尺。今晚已知的個案(090000)靠人工實查抓到,
+  不代表其他支沒有同樣的落差,也不代表下次還會有人剛好去查。
+- **不修未來會痛在哪:**
+  ```
+  ① 依賴尺 B 的官方工具(`supabase db push` 等)會誤判「還缺哪幾支」,可能重套已經生效的
+     DDL——輕則被該支自己的前置檢查擋下(紅字、不會半套,是這條目前唯一的安全網),
+     重則(若某支沒有自我防重複套用的檢查)靜靜地二次套用、產生非預期狀態
+  ② 「今晚查過沒有落差」的保鮮期等於「有沒有人剛好去比對兩把尺」的保鮮期,不是機制保證的
+  ```
+- **🔴 成因已查到(2026-08-20 W3 補,對照 `supabase/APPLIED.tsv` 同日兩列):不是隨機落差,
+  是【套用管道】決定的**:
+  ```
+  20260820090000 那列(APPLIED.tsv 行內文字):「Sean(SQL Editor 本人貼)/主視窗(記)。
+    Sean 自己開檔全選複製貼上執行。」
+  20260820040000 那列:同樣「Sean(SQL Editor 本人貼)」
+  20260820010000 那列:「主視窗(MCP apply_migration…)」,而 supabase_migrations 帳本裡
+    確實有一列對應它(名稱是 m4b_manual_refunds,不是 20260820010000——用 MCP 走的路徑
+    不吃檔名,這件事 APPLIED.tsv 該列自己也標了⚠️)
+  ⇒ 040000 與 090000 都是【Sean 直接貼 Supabase SQL Editor 執行】,010000 是【走 MCP
+    apply_migration】——而 schema_migrations 帳本裡 8/20 只有 010000 那一列(名稱不同),
+    040000 與 090000 兩支都不在。
+  ⇒ **推論(尚未逐支覆核,只驗證了這三支):SQL Editor 直接貼執行的 DDL 不會寫進
+    schema_migrations 帳本,只有走 CLI/MCP 的 apply_migration 路徑才會寫進去。**
+  ```
+- **可能的修法(未評估成本,不是結論):**
+  ```
+  甲 收工時例行跑一次「兩把尺差集」比對(APPLIED.tsv 有記錄但 schema_migrations 沒有的版本號,
+     反之亦然),異常就停下人工核
+  乙 若上面「推論」成立,SQL Editor 貼執行本來就是目前 Sean 高風險/大量寫入片的既有做法之一
+     (見同族 20260820010000 的教訓、090000 本列),⇒ 這把尺分岔會是**常態、不是偶發**——
+     那麼「靠 schema_migrations 判斷缺哪幾支」這件事本身就不該再做,不是等下次落差再處理
+  丙 今晚先用行為守則擋:apply 前先讀這條、套用工具一律不讀帳本判斷缺哪幾支(見
+     `~/pcm-mailbox/W3-U-今晚六支migration執行單-20260820.md` 前言)
+  ```
