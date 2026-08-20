@@ -115,11 +115,24 @@ def self_check(directory, total, unreadable, found):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="掃共用暫存目錄裡還躺著的 commit 訊息檔(唯讀)")
+    ap = argparse.ArgumentParser(
+        description="掃共用暫存目錄裡還躺著的 commit 訊息檔(唯讀)",
+        # 🔴 關掉縮寫(2026-08-20 codex R2 must-fix:預設 --di 會被當成 --dir,不進 ignored ⇒ 打錯照樣綠)
+        allow_abbrev=False,
+    )
     ap.add_argument("--dir", default="/private/tmp", help="要掃的目錄(預設 /private/tmp)")
     ap.add_argument("--mine", default=None, help="只列檔名以此字串開頭的(自清用,例:w5)")
     ap.add_argument("--min-age", type=float, default=0.0, help="只列超過幾小時的")
-    args = ap.parse_args()
+    # 🔴 lint-staged 會把 staged 的檔名【附加在命令後面】,而本工具沒有位置參數
+    #    ⇒ 用 parse_known_args 收下並**印出來**,不要靜靜吃掉(靜靜吃掉 = 打錯字也不會有人知道)。
+    args, ignored = ap.parse_known_args()
+    # 🔴 只放行【位置參數】(lint-staged 附加的檔名);打錯的 option 仍要炸
+    #    (2026-08-20 codex must-fix:原版連 --dri 這種拼錯也吞掉,錯設定照樣綠)。
+    bad_opts = [a for a in ignored if a.startswith("-")]
+    if bad_opts:
+        sys.exit(f"✗ 不認得的參數:{' '.join(bad_opts)} —— 打錯的 option 不會被當成檔名放行")
+    if ignored:
+        print(f"(忽略 {len(ignored)} 個位置參數:{' '.join(ignored)} —— 本工具不吃檔名,掃的是 --dir)")
 
     # 🔴 /tmp 在 macOS 是 symlink ⇒ 直接用它會讓某些工具量到空氣。這裡明說改用哪一個。
     directory = os.path.realpath(args.dir)

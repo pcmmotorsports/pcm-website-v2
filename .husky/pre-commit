@@ -18,4 +18,14 @@ if [ -f .husky/migration-ts-gate.sh ]; then
 else
   echo '⚠ .husky/migration-ts-gate.sh 不見了、migration 時間戳撞號守門未執行(照樣放行、留此痕跡)' >&2
 fi
+if [ -f .husky/scripts-whitelist-gate.sh ]; then
+  sh .husky/scripts-whitelist-gate.sh || exit 1
+else
+  printf '%s\n' '🔴 .husky/scripts-whitelist-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   本閘刻意與上面四道不同:上面四道「檔不見了留痕跡但放行」,而這一道 fail-closed。' >&2
+  printf '%s\n' '   理由(2026-08-20 codex 對抗審查 must-fix):同一顆 commit 刪掉本閘、再加一支未列管的' >&2
+  printf '%s\n' '   script,fail-open 會讓這一片的守門【被它自己要防的那個動作關掉】。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/scripts-whitelist-gate.sh' >&2
+  exit 1
+fi
 pnpm exec lint-staged
