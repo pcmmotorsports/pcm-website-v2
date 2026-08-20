@@ -14,6 +14,29 @@ import { ReceiptRecordForm } from './receipt-record-form';
 const TH = 'px-2 py-1.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-2 py-1.5 text-sm align-top';
 
+/**
+ * 表頭欄位(2026-08-21 W4:從九行 JSX 收成陣列)。
+ *
+ * 🔴 **為什麼要收成陣列**:`colSpan` 以前是**寫死的 `9`**,而欄數哪天變了它不會跟著變
+ *    ⇒ 表格會裂開,而**不一定有東西紅**。收成陣列之後 `colSpan={PROCUREMENT_COLS.length}`
+ *    自己跟著走(主視窗 2026-08-21 明文要求:「不要寫死一個數字後靠肉眼對齊」)。
+ *
+ * 🔴🔴 **~~第九欄「到貨登錄」~~ 已拿掉(Sean 2026-08-21 拍板選 B)** ——
+ *    到貨登錄表單改成**跨整張表寬的第二列**(見下方 `data-row='receipt'` 那一段)。
+ *    他選 B 的時候知道「其餘八欄會變寬」,**那是他選項的一部分,不是副作用。**
+ *    ⚠️ 選項原文:A 留著(標題寫著卻永遠空白)/ B 拿掉(其餘八欄會變寬)⇒ 他答 B。
+ */
+const PROCUREMENT_COLS = [
+  { label: '供應商', className: TH },
+  { label: '訂購', className: `${TH} text-right` },
+  { label: '到貨', className: `${TH} text-right` },
+  { label: '回覆狀態', className: TH },
+  { label: '供應商單號', className: TH },
+  { label: '預計到貨', className: TH },
+  { label: '異常原因', className: TH },
+  { label: '送出時間', className: TH },
+] as const;
+
 const VOID_REASON_INLINE_MAX = 60;
 
 /**
@@ -105,15 +128,11 @@ export function ProcurementRows({
       <table className='w-full border-collapse'>
         <thead>
           <tr>
-            <th className={TH}>供應商</th>
-            <th className={`${TH} text-right`}>訂購</th>
-            <th className={`${TH} text-right`}>到貨</th>
-            <th className={TH}>回覆狀態</th>
-            <th className={TH}>供應商單號</th>
-            <th className={TH}>預計到貨</th>
-            <th className={TH}>異常原因</th>
-            <th className={TH}>送出時間</th>
-            <th className={TH}>到貨登錄</th>
+            {PROCUREMENT_COLS.map((c) => (
+              <th key={c.label} className={c.className}>
+                {c.label}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -128,7 +147,7 @@ export function ProcurementRows({
             // 🔴 `key` 必須掛在 Fragment 上(一列採購現在可能渲染兩個 `<tr>`)⇒ 用具名 Fragment,
             //    `<>` 短語法吃不了 key。
             <Fragment key={p.id}>
-            <tr className={voided ? 'border-t opacity-60' : 'border-t'}>
+            <tr className={voided ? 'border-t opacity-60' : 'border-t'} data-row='procurement'>
               <td className={TD}>
                 {/* 🔴 label 為 null = 內嵌沒回來(A9a-2),不是「這家沒有名字」⇒ 誠實顯示缺 */}
                 <span className={voided ? 'line-through' : undefined}>
@@ -155,18 +174,40 @@ export function ProcurementRows({
               <td className={`${TD} text-xs whitespace-nowrap`}>
                 {p.submittedAt ? formatOrderDateTime(p.submittedAt) : '—'}
               </td>
-              {/* #352-b 入口 1:每列尾端一顆「登錄到貨」(plan §5.2) */}
-              <td className={TD}>
-                {/* 🔴🔴 `#476` 片3:作廢的列不給到貨入口。**這是目前唯一的守門,不是 UX 便利。**
-                    ~~原註解寫「RPC 那端已經擋了 ⇒ 這裡不擋也不會寫壞資料」~~ **對現況為假**
-                    (兩關審查各自抓到):那道 RPC 守門在 `20260814100000` 步 6b,而
-                    `grep -c 20260814100000 supabase/APPLIED.tsv` = **0** ⇒ **甲片還沒 apply**。
-                    該 migration 自己逐字寫著少了直接斷言會怎樣:「那筆到貨就靜默掛在一筆
-                    已作廢的採購上,**沒有任何人擋**」(C5 只比品項層聚合,兄弟採購列撐著就撞不到)。
-                    ⇒ 甲片 apply 之前,拿掉這個 `voided` 條件 = 真的寫得進去。
-                    ✅ apply 之後它才降級成「不讓員工填完整張表才被拒」的 UX 前置(Sean「操作直覺化」),
-                    **在那之前不要照那個理由把它拿掉。**
-                    ⚠️ 顯示「—」而不是把整欄拿掉:欄位消失會讓表格對不齊,員工要數欄才知道少了哪個。 */}
+            </tr>
+            {/* 🔴🔴 #352-b 入口 1:「登錄到貨」**2026-08-21 從第九欄搬到這一列**(Sean 拍板選 B)。
+                為什麼搬:那個表單住在最後一欄的格子裡,而**那個格子實測只有 128.4px 寬**
+                (W4 2026-08-21 真瀏覽器量;form 112.4 → 內容 86.4)⇒ 表單怎麼排都是壞的:
+                寫死兩欄 ⇒ 每欄 37.2px;給 180px 下限 ⇒ 仍是一欄,卻把整張表撐寬 91px。
+                ⇒ **問題不在表單,在它住的地方。** 跨欄之後它拿到的是整張表寬。
+                ⚠️ **這一列在 `truncated || voided` 時仍然要渲染**(內容換成「—」)——
+                   整列消失會讓員工分不出「這筆不給登錄」與「這筆我漏看了」。
+                🔴 **已知取捨(2026-08-21 W1 nit-2,明寫不隱藏)**:一筆【已作廢】的採購現在佔 **3 個 `<tr>`**
+                   —— 採購列 + 只放一個「—」的到貨列 + 作廢原因列。
+                   ⇒ 一張單如果有很多筆作廢採購,表格會明顯變長。
+                   **接受它的理由**:上面那句(整列消失會讓員工分不出兩種情況)在作廢這一格同樣成立,
+                   而「作廢很多筆」是少數情況。⚠️ **若日後有人回報表格太長,先看這裡,不要當成新問題。** */}
+            <tr className={voided ? 'opacity-60' : undefined} data-row='receipt'>
+              <td className={TD} colSpan={PROCUREMENT_COLS.length}>
+                {/* `#476` 片3:作廢的採購不給到貨入口。**現在有【兩道】守門,而它們守的不是同一件事。**
+                    ┌ 權威(擋得住寫入)  DB:`admin_record_item_receipt` 的「已作廢不得登錄到貨」,
+                    │                    在 `20260814100000` 步 6b(該 migration `:34` 逐字),
+                    │                    回新碼 `PROCUREMENT_VOIDED`;呼叫端認得它(`receipt-repository.ts:36`)
+                    └ 本行(UX 前置)     不讓員工填完整張表才被 RPC 拒掉(Sean「操作直覺化」)+ 縱深
+
+                    🔴🔴 **~~「這是目前唯一的守門」~~ 2026-08-21 更正 —— 而它【曾經】是對的:**
+                    原句附的量法是 `grep -c 20260814100000 supabase/APPLIED.tsv` ⇒ **0**(還沒 apply)。
+                    **當場重跑 ⇒ 1**(`supabase/APPLIED.tsv:230`,apply 於 **2026-08-14**;
+                    負對照 `grep -c 29991231235959` ⇒ 0 ⇒ 量具分得開)。
+                    ⇒ 三個下游宣稱跟著翻面:①「唯一的守門」為假 ②「拿掉它 = 真的寫得進去」為假
+                      ③ ~~「在那之前不要照那個理由把它拿掉」~~ 的前提已經不存在。
+                    🔴 **留著劃線不刪的理由**:一個過期的理由比沒有理由更貴 ——
+                       它會讓下一個人為了「唯一的守門」而不敢動一個其實有 DB 兜底的東西。
+
+                    ⇒ **拿掉本行今天會發生什麼(這才是要看的那一格)**:寫入仍然擋得住,
+                      但員工要**填完整張表、按下送出、才被拒**。
+                      ⚠️ 那不是資料安全問題,是**可用性退化** ⇒ 仍然不要拿掉,而**理由換了**。
+                    ⚠️ 顯示「—」而不是整列不渲染:整列消失會讓員工分不出「這筆不給登錄」與「我漏看了」。 */}
                 {truncated || voided ? (
                   <span className='text-muted-foreground text-xs'>—</span>
                 ) : (
@@ -187,7 +228,7 @@ export function ProcurementRows({
                 塞進一欄會把整張表擠爛,而它只在少數列出現。 */}
             {voided && (
               <tr className='border-t-0 opacity-60'>
-                <td className={`${TD} text-muted-foreground text-xs`} colSpan={9}>
+                <td className={`${TD} text-muted-foreground text-xs`} colSpan={PROCUREMENT_COLS.length}>
                   <VoidReasonCell reason={p.voidReason} />
                 </td>
               </tr>

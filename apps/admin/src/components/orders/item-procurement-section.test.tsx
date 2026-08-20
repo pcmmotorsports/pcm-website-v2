@@ -560,9 +560,10 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     );
     // 🔴 **按語意選列,不按位置索引**(片4 在作廢列下面插了一列「作廢原因」⇒ `rows[1]`
     //    不再是生效列)。位置索引在「同一區塊日後多一列」時會靜默指到別人身上。
-    const dataRows = [...container.querySelectorAll('tbody tr')].filter(
-      (r) => r.querySelectorAll('td').length > 1, // 原因列是單一 colSpan 格
-    );
+    // 🔴🔴 **2026-08-21 換了定位方式(W4)**:~~`td` 數 > 1~~ 已作廢 ——
+    //    到貨登錄搬到跨欄列之後,它也是「單一 colSpan 格」⇒ 舊寫法照樣把它濾掉,
+    //    但那是**碰巧仍然對**,不是仍然在守。改用元件自己標的 `data-row='procurement'`。
+    const dataRows = [...container.querySelectorAll("tbody tr[data-row='procurement']")];
     expect(dataRows.length).toBe(2);
     const voidedRow = dataRows[0]!;
     const activeRow = dataRows[1]!;
@@ -578,14 +579,38 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
   });
 
   it('🔴 作廢列不給「登錄到貨」;同一張表的生效列照給(正負成對,免得整欄消失也綠)', () => {
+    // 🔴🔴 **2026-08-21 重寫(W4);而重寫的是【定位方式】,不是【不變式】。**
+    //    不變式一個字沒變:`item-procurement-rows.tsx` 裡那個 `voided` 條件。
+    //
+    //    🔴 **這一格紅了代表什麼 —— 2026-08-21 更正,而原句【曾經】是對的:**
+    //    ~~「它是目前唯一擋住『到貨登錄掛上已作廢採購』的東西 ⇒ 這一格紅 = 真的寫得進去」~~
+    //    原句附的量法是 `grep -c 20260814100000 supabase/APPLIED.tsv` ⇒ **0**(還沒 apply)。
+    //    **當場重跑 ⇒ 1**(`supabase/APPLIED.tsv:230`,apply 於 2026-08-14;
+    //    負對照 `grep -c 29991231235959` ⇒ 0)⇒ **DB 那道守門已經上線一週。**
+    //    ⇒ 現在是兩道:DB 的 `PROCUREMENT_VOIDED`(權威,擋得住寫入)+ 本行守的 UI 前置。
+    //    ⇒ **所以這一格紅 = 員工會【填完整張表送出才被拒】,不是「寫得進去」。**
+    //       那是可用性退化,不是資料安全事故 —— 嚴重度低一級,而它仍然要紅。
+    //    📌 為什麼把錯的那句劃線留著:一個過期的理由比沒有理由更貴
+    //       (它會讓下一個人為了「唯一的守門」而不敢動一個其實有 DB 兜底的東西)。
+    //
+    //    🔴 舊定位方式 ~~`(r) => r.querySelectorAll('td').length > 1`~~ **不能再用**:
+    //    到貨登錄現在住在自己的跨欄列裡,而跨欄列只有一個 `td`
+    //    ⇒ 舊寫法會把「該檢查的那一列」整個濾掉,而**斷言會因為兩邊都沒有而變綠**。
+    //    ⇒ 新定位:採購列與到貨列各自帶 `data-row`,而且**成對配**(第 n 個採購列 ↔ 第 n 個到貨列)。
     const { container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={withVoided()} suppliers={[]} suppliersFailed={false} />,
     );
-    const dataRows = [...container.querySelectorAll('tbody tr')].filter(
-      (r) => r.querySelectorAll('td').length > 1,
-    );
-    expect(dataRows[0]!.textContent).not.toContain('登錄到貨');
-    expect(dataRows[1]!.textContent).toContain('登錄到貨');
+    const dataRows = [...container.querySelectorAll("tbody tr[data-row='procurement']")];
+    const receiptRows = [...container.querySelectorAll("tbody tr[data-row='receipt']")];
+    // 正向對照:兩種列都真的存在、而且一一對應 —— 少了這兩行,下面兩條會因為「都是空的」而假綠。
+    expect(dataRows.length).toBe(2);
+    expect(receiptRows.length).toBe(dataRows.length);
+    // 作廢那一筆:它的採購列標「(已作廢)」,而它的到貨列不得有入口
+    expect(dataRows[0]!.textContent).toContain('(已作廢)');
+    expect(receiptRows[0]!.textContent).not.toContain('登錄到貨');
+    // 生效那一筆:照給
+    expect(dataRows[1]!.textContent).not.toContain('(已作廢)');
+    expect(receiptRows[1]!.textContent).toContain('登錄到貨');
   });
 
   // 🔴 codex 關卡2:全部 fixture 只有 `null` / `string` ⇒ `!= null` 與 `!== null` 兩種寫法在
@@ -606,10 +631,16 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     const { container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={missingCol} suppliers={[]} suppliersFailed={false} />,
     );
-    const row = container.querySelector('tbody tr')!;
+    // 🔴 2026-08-21(W4):到貨入口搬到自己的跨欄列 ⇒ 兩件事要分開在兩列上查。
+    //    ~~`container.querySelector('tbody tr')` 一列查兩件~~ 已作廢:那樣寫在搬家之後
+    //    會因為「入口不在這一列」而紅,而紅的理由與這格要守的東西無關。
+    const row = container.querySelector("tbody tr[data-row='procurement']")!;
+    const receiptRow = container.querySelector("tbody tr[data-row='receipt']")!;
+    expect(row).not.toBeNull();
+    expect(receiptRow).not.toBeNull();
     expect(row.textContent).not.toContain('(已作廢)');
     expect(row.querySelector('.line-through')).toBeNull();
-    expect(row.textContent).toContain('登錄到貨'); // 到貨入口不得被誤收
+    expect(receiptRow.textContent).toContain('登錄到貨'); // 到貨入口不得被誤收
   });
 
   // 🔴🔴 `#476` 片4:**作廢原因**。片3 只說了「它撤了」,而條目的病灶逐字是
@@ -647,15 +678,29 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
     const { container } = render(
       <ItemProcurementSection returnTo={RETURN_TO} detail={two} suppliers={[]} suppliersFailed={false} />,
     );
-    const rows = [...container.querySelectorAll('tbody tr')];
-    // 順序 = 資料列、原因列、資料列、原因列
-    expect(rows.length).toBe(4);
-    expect(rows[0]!.textContent).toContain('甲供應商');
-    expect(rows[1]!.textContent).toContain('甲的原因');
-    expect(rows[2]!.textContent).toContain('乙供應商');
-    expect(rows[3]!.textContent).toContain('乙的原因');
-    // 反向:乙的原因不得出現在甲那一列後面
-    expect(rows[1]!.textContent).not.toContain('乙的原因');
+    // 🔴 2026-08-21(W4):~~按總列數與位置索引取~~ 已作廢 —— 每筆採購現在多渲染一個
+    //    到貨列(`data-row='receipt'`)⇒ 總列數 4 → 6,而位置索引會靜默指到別人身上。
+    //    改成:採購列按 `data-row` 取,原因列取「緊接在該採購列之後、帶『作廢原因』的那一列」。
+    const dataRows = [...container.querySelectorAll("tbody tr[data-row='procurement']")];
+    const reasonOf = (row: Element): string => {
+      let cur: Element | null = row.nextElementSibling;
+      while (cur !== null && !(cur.textContent ?? '').includes('作廢原因')) {
+        if (cur.getAttribute('data-row') === 'procurement') return ''; // 撞到下一筆 ⇒ 這筆沒有原因列
+        cur = cur.nextElementSibling;
+      }
+      return cur?.textContent ?? '';
+    };
+    // 正向對照:兩筆採購列都在(少了這行,下面幾條會因為都是空字串而假綠)
+    expect(dataRows.length).toBe(2);
+    expect(dataRows[0]!.textContent).toContain('甲供應商');
+    expect(reasonOf(dataRows[0]!)).toContain('甲的原因');
+    expect(dataRows[1]!.textContent).toContain('乙供應商');
+    expect(reasonOf(dataRows[1]!)).toContain('乙的原因');
+    // 🔴 反向(2026-08-21 W1 nit-3 修):~~`reasonOf(dataRows[0])` 不含『乙的原因』~~
+    //    那條**結構上不可能紅** —— `reasonOf` 一撞到下一筆採購列就停,所以它永遠拿不到乙那格。
+    //    ⇒ 改成斷言【兩筆各自拿到的是不同的節點】:同一個節點 = 「全部用第一筆的」那個病復活。
+    expect(reasonOf(dataRows[0]!)).not.toBe(reasonOf(dataRows[1]!));
+    expect(reasonOf(dataRows[1]!)).not.toContain('甲的原因');
   });
 
   it('原因列跨滿整張表(colSpan 等於表頭欄數,否則欄位會靜默錯位)', () => {
@@ -665,11 +710,23 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
       <ItemProcurementSection returnTo={RETURN_TO} detail={one} suppliers={[]} suppliersFailed={false} />,
     );
     const headCount = container.querySelectorAll('thead th').length;
-    const reasonCell = container.querySelectorAll('tbody tr')[1]!.querySelector('td')!;
-    // 🔴 不寫死 9:表頭加欄時這格要跟著紅,寫死的話它會變成第二個真相源
+    // 🔴🔴 2026-08-21(W4):~~`tbody tr[1]`~~ 不能再用 —— 位置 1 現在是**到貨列**,
+    //    而它的 `td` 也帶著同一個 colSpan、也在作廢時帶 opacity-60
+    //    ⇒ 舊寫法**會繼續全綠,而它量的已經不是原因列了**(碰巧對 ≠ 還在守)。
+    //    改成按內容找那一列。
+    const reasonRow = [...container.querySelectorAll('tbody tr')].find((r) =>
+      (r.textContent ?? '').includes('作廢原因'),
+    )!;
+    expect(reasonRow).toBeDefined();
+    const reasonCell = reasonRow.querySelector('td')!;
+    // 🔴 不寫死 9:寫死的話它會變成第二個真相源。
+    // ⚠️ **2026-08-21(W1 nit-1)誠實邊界**:自從表頭改由 `PROCUREMENT_COLS` 陣列渲染之後,
+    //    `thead th` 的數量與這格的 colSpan **同源於那個陣列** ⇒ 「往陣列加一欄」**不會**讓這格紅。
+    //    它今天仍守得住的是**另一種形狀**:有人改成寫死、或讓某一欄變成條件渲染
+    //    (那時 `thead th` 的實際數量會與 colSpan 脫鉤)。⇒ 不是恆真,但也不是原本宣稱的那個作用。
     expect(Number(reasonCell.getAttribute('colspan'))).toBe(headCount);
     // 原因列也要跟著淡化(片3 為資料列補過同一課,新列漏補 = codex nit)
-    expect(container.querySelectorAll('tbody tr')[1]!.className).toContain('opacity-60');
+    expect(reasonRow.className).toContain('opacity-60');
   });
 
   it('剛好在門檻上的原因**不**收合(邊界 <= 那一側)', () => {
@@ -759,8 +816,12 @@ describe('🔴 #476 片3:作廢的採購列要看得出來,而且不給到貨入
       <ItemProcurementSection returnTo={RETURN_TO} detail={detail()} suppliers={[]} suppliersFailed={false} />,
     );
     expect(container.querySelector('tbody')!.textContent).not.toContain('作廢原因');
-    // 生效列只該有一個 <tr>
-    expect(container.querySelectorAll('tbody tr').length).toBe(1);
+    // 🔴 2026-08-21(W4):生效列現在是【採購列 + 到貨列】兩個 `<tr>`,而**不得有原因列**。
+    //    ~~原本斷言總數 = 1~~ ⇒ 改成分開數,這樣「多冒出一個原因列」仍然會紅,
+    //    而「到貨列存在」不會被誤判成缺陷。
+    expect(container.querySelectorAll("tbody tr[data-row='procurement']").length).toBe(1);
+    expect(container.querySelectorAll("tbody tr[data-row='receipt']").length).toBe(1);
+    expect(container.querySelectorAll('tbody tr').length).toBe(2);
   });
 
   it('🔴 原因為 null(投影沒帶回來)⇒ 誠實說缺,不留白', () => {

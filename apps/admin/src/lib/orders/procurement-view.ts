@@ -100,15 +100,17 @@ export function toTaipeiInputValue(iso: string | null): string {
  * ⇒ 表單 hydrate 出作廢列的舊值 → 員工按儲存 → **舊資料落到生效列上。
  * 零錯誤、零固定碼、稽核看起來完全正常。**
  *
- * 🔴 **「A5a 會跳過作廢列」是【尚未 apply】的字面,不是現況**(關卡 code-reviewer R1 must-fix3):
- * 帶 `AND voided_at IS NULL` 的那版 A5a 在 `20260814100000`(甲片),而
- * `supabase/APPLIED.tsv` 最後一筆是 `20260813120000` ⇒ **甲片不在台帳裡**
- * (數法:`grep -c 20260814100000 supabase/APPLIED.tsv` = 0)。
- * 正式庫此刻跑的仍是 `20260806200000` 那版,存在性查詢**不濾作廢列**
- * (數法:`grep -c "voided_at" supabase/migrations/20260806200000*.sql` = 0)。
- * ⇒ **順序契約**:作廢 RPC(乙)上線前,必須先 apply 甲片 **與** 本片。
- * 今天之所以無害,唯一理由是**正式庫零 voided 列**(甲片 apply preflight P5 釘住的那件事)
- * —— 那是安全網、不是設計。命中 memory `feedback_app-layer-must-not-ship-before-migration-apply`。
+ * 🔴🔴 **~~「A5a 會跳過作廢列」是【尚未 apply】的字面,不是現況~~ —— 2026-08-21 更正,而它曾經是對的:**
+ * 原句的量法逐字是 `grep -c 20260814100000 supabase/APPLIED.tsv` = **0**(甲片不在台帳裡)。
+ * **當場重跑 ⇒ 1**(`supabase/APPLIED.tsv:230`,apply 於 **2026-08-14**;
+ * 負對照 `grep -c 29991231235959` ⇒ 0 ⇒ 量具分得開)。
+ * ⇒ **甲片已上線,帶 `AND voided_at IS NULL` 的那版 A5a 就是正式庫此刻在跑的那一版。**
+ * ⇒ ~~「順序契約:作廢 RPC(乙)上線前必須先 apply 甲片」~~ 的前置**已經滿足**,不再是待辦。
+ * ⚠️ **本段留著劃線不刪**:它是「app 層搶在 migration 前面上線」那個教訓的現場紀錄
+ * (memory `feedback_app-layer-must-not-ship-before-migration-apply`),而**紀錄與指令是兩回事** ——
+ * 上面那句**曾經在下指令**,現在只是紀錄。
+ * 🔴 而原句還有一半仍然要注意:那時「今天之所以無害的唯一理由是正式庫零 voided 列」——
+ * 那是**安全網不是設計**;甲片 apply 之後才輪到設計本身接手。
  *
  * 🔴 **回傳最多一列是 DB 保證的**,不是本函式的假設:partial unique index 讓
  * 「同一 `(item, supplier)` 的生效列」至多一筆(同上 `:379-381`)。

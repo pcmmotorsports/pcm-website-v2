@@ -281,44 +281,68 @@ export function ReceiptRecordForm({
           </p>
         )}
 
-        <ReceiptInput
-          label='到貨幾件'
-          name={RCPT_QUANTITY_FIELD}
-          type='number'
-          /* 🔴 `min=0` 不是筆誤:`到貨 0 件 / 溢收 N 件` 是「這張單已收滿或已取消、但貨還是到了」
-                的正式登記方式(a1 `20260810230000:82`)。設成 min=1 會讓那條路在畫面上直接死掉。 */
-          min={0}
-          step={1}
-          value={values.quantity}
-          onChange={(e) => set({ quantity: e.target.value })}
-        />
+        {/* 🔴 四個欄位排成【兩欄】,不是由上而下堆一直排(Sean 2026-08-21 直接指示,逐字:
+              「順便看到登入到貨這種直列的欄位,有這種欄位都改成橫的」)。
+            🔴🔴 **順序沒有動** —— 上面 `:65-66` 那個順序邏輯(先「到貨幾件」、再「什麼時候到的」,
+               溢收與備註是少數情況才碰的、收在後面)在兩欄下由**左到右、上到下**讀,一字未改:
+                 ┌ 到貨幾件  │ 什麼時候到的 ┐
+                 └ 溢收幾件  │ 備註(選填) ┘
+               ⇒ **換版面不等於換順序。** 改這裡之前先把 `:65-66` 讀完。
+            🔴🔴 **為什麼這次 `grid-cols-2` 是安全的,而 2026-08-21 稍早那次不是** ——
+               這一格是實作撞出來、退回一次才學到的:
+               ```
+               第一次嘗試:本表單當時住在採購表最後一欄的 <td> 裡,實測寬 **128.4px**
+                 ⇒ 寫死兩欄 ⇒ 每欄 37.2px(不是兩欄,是壞掉)
+                 ⇒ 改 auto-fit minmax(180px,1fr) ⇒ 仍是一欄,卻把整張表撐寬 91px
+                 ⇒ **退回,結論是「問題不在表單,在它住的地方」**
+               現在:`item-procurement-rows.tsx` 已把它搬到跨整張表寬的第二列(Sean 拍板選 B)
+                 ⇒ 兩個落點都夠寬:採購表跨欄列 ≈ 整張表寬 / 出貨彈窗 `receipt-panel.tsx:130` ≈ 612px
+                 ⇒ 兩欄各需 ≥186px ⇒ 成立。
+               ```
+               ⚠️ **若日後有人把本表單塞回一個窄容器,`grid-cols-2` 會再變成 37px 那種樣子**
+                  —— 而它不會報錯、不會有測試紅。**搬它之前先量那個容器。**
+            ⚠️ **包一層 `div` 而不是把 `form` 自己變 grid**:`AdminFormErrorProvider` 渲染的是
+               Fragment,把 `form` 變 grid 會讓錯誤訊息 `<p>` 與送出鈕一起變成格子成員。 */}
+        <div className='grid grid-cols-2 gap-3'>
+          <ReceiptInput
+            label='到貨幾件'
+            name={RCPT_QUANTITY_FIELD}
+            type='number'
+            /* 🔴 `min=0` 不是筆誤:`到貨 0 件 / 溢收 N 件` 是「這張單已收滿或已取消、但貨還是到了」
+                  的正式登記方式(a1 `20260810230000:82`)。設成 min=1 會讓那條路在畫面上直接死掉。 */
+            min={0}
+            step={1}
+            value={values.quantity}
+            onChange={(e) => set({ quantity: e.target.value })}
+          />
 
-        <ReceiptInput
-          label='什麼時候到的'
-          name={RCPT_RECEIVED_AT_LOCAL_FIELD}
-          type='datetime-local'
-          value={values.receivedAtLocal}
-          onChange={(e) => set({ receivedAtLocal: e.target.value })}
-        />
+          <ReceiptInput
+            label='什麼時候到的'
+            name={RCPT_RECEIVED_AT_LOCAL_FIELD}
+            type='datetime-local'
+            value={values.receivedAtLocal}
+            onChange={(e) => set({ receivedAtLocal: e.target.value })}
+          />
 
-        <ReceiptInput
-          label='溢收幾件(供應商多送的,不掛回這張單)'
-          name={RCPT_SURPLUS_FIELD}
-          type='number'
-          min={0}
-          step={1}
-          value={values.surplusQuantity}
-          onChange={(e) => set({ surplusQuantity: e.target.value })}
-        />
+          <ReceiptInput
+            label='溢收幾件(供應商多送的,不掛回這張單)'
+            name={RCPT_SURPLUS_FIELD}
+            type='number'
+            min={0}
+            step={1}
+            value={values.surplusQuantity}
+            onChange={(e) => set({ surplusQuantity: e.target.value })}
+          />
 
-        <ReceiptInput
-          label='備註(選填)'
-          name={RCPT_NOTE_FIELD}
-          type='text'
-          maxLength={500}
-          value={values.note}
-          onChange={(e) => set({ note: e.target.value })}
-        />
+          <ReceiptInput
+            label='備註(選填)'
+            name={RCPT_NOTE_FIELD}
+            type='text'
+            maxLength={500}
+            value={values.note}
+            onChange={(e) => set({ note: e.target.value })}
+          />
+        </div>
 
         <button
           type='submit'
