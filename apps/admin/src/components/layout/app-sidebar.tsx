@@ -108,7 +108,19 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
     <aside
       data-testid='nav-rail'
       aria-label='主導覽'
-      className='group bg-sidebar relative w-[84px] shrink-0 border-r'
+      /*
+        🔴🔴 **`print:hidden` —— 而它是我這一片弄丟的,2026-08-20 補回。**
+        原本它掛在 shdcn 的 `ui/sidebar.tsx:249`;而本檔 `:72` 那段就寫著
+        「**為什麼不再用 shadcn 的 `<Sidebar>`(而 `ui/sidebar.tsx` 一個字沒動)**」
+        ⇒ **元件被換掉,規則留在被淘汰的那一支** ⇒ 列印出貨單時紙上會多一整條 84px 的欄。
+        🔴 **而守門是恆綠的**:`print/orders/[id]/picking/page.test.tsx` 原本釘的是
+           「`ui/sidebar.tsx` 這支檔裡有那個字面」—— 那支檔還在、字面還在、**而它已經不在渲染樹上**
+           ⇒ 元件被換掉它不紅,紙上多一條黑邊它也不紅。**同一片已把那格改成跟著渲染樹走。**
+        📌 而那支測試 `:372` 的註解逐字寫著它在防什麼:
+           「刪掉之後三綠全綠、畫面完全看不出來,紙上卻多一整條 144px 空白欄」
+           ⇒ **它防的正是這件事,而它沒防到 —— 因為它釘的是【檔案】不是【渲染的那一支】。**
+      */
+      className='group bg-sidebar relative w-[84px] shrink-0 border-r print:hidden'
     >
       <div className='flex h-full flex-col'>
         <div className='flex flex-col items-center gap-1 px-1 py-3'>
