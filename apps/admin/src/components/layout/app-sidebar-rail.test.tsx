@@ -17,9 +17,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { SidebarProvider } from '@/components/ui/sidebar';
+import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
 import { AppSidebar, formatNavCount } from './app-sidebar';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/orders' }));
+
+// W1-077:三格數字接線之後,`mount()` 一律要帶 `counts`——**預設用「全部成功、無待辦」的樣本**,
+// 因為那正是「留白 vs 讀取失敗」最容易混淆的一格(稿 `:288` 的量具論證,見下面「三態」那組測試)。
+const SYNCED_COUNTS: SidebarCounts = {
+  unorderedOrderCount: 0,
+  refundExceptionCount: 0,
+  refundExceptionTruncated: false,
+  outOfStockProductCount: 0,
+  syncedAt: '2026-08-20T04:00:00.000Z', // 台北 12:00
+};
+
+const FAILED_COUNTS: SidebarCounts = {
+  unorderedOrderCount: null,
+  refundExceptionCount: null,
+  refundExceptionTruncated: false,
+  outOfStockProductCount: null,
+  syncedAt: null,
+};
 
 // 🔴 jsdom **沒有** `matchMedia`,而 `SidebarProvider` 內部的 `useIsMobile` 會呼叫它
 //    ⇒ 不塞這個,五格全部 throw,而**錯誤訊息長得像「元件壞了」**(今晚第二次撞到同一格:
@@ -43,10 +62,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount(open: boolean) {
+function mount(open: boolean, counts: SidebarCounts = SYNCED_COUNTS) {
   return render(
     <SidebarProvider open={open} onOpenChange={() => {}}>
-      <AppSidebar auditEnabled={false} />
+      <AppSidebar auditEnabled={false} counts={counts} />
     </SidebarProvider>,
   );
 }
@@ -110,20 +129,26 @@ describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
 
 // 🔴 這兩格是【本片自己漏掉的守門】,補於同日 —— 它們守的都是「看起來可以順手刪掉的東西」。
 describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
-  it("🔴 軌底那行是「未接」,**不是一個時間戳** —— 它是留白 vs 未載入的分界", () => {
-    mount(true);
+  // 🔴 W1-077(2026-08-20)改寫:數字接線之後,「未接」那個佔位態不存在了 ——
+  //    軌底同步行現在是**兩態**(成功=時間戳 / 失敗=「讀取失敗」),不是靜態文案。
+  //    這一組守的仍是同一件事(稿 :288 的量具論證:留白不能跟「還沒算完」長得一樣),
+  //    只是誠實邊界換了:現在的風險不是「印了假時間」,是「三格全掛時印出一個舊時間戳」。
+  it('🔴 三格全部成功 ⇒ 軌底顯示「同步 HH:MM」(台北時間),不是「讀取失敗」', () => {
+    mount(true, SYNCED_COUNTS);
     const rail = screen.getByTestId('nav-rail');
-    // 🔴 理由寫進**失敗訊息**而不是註解 —— 註解要人主動去讀,而失敗訊息是他【一定會看到】的那一行。
-    expect(
-      rail.textContent,
-      '稿 :288 逐字「留白會跟資料還沒載入長得一樣,所以軌底部常駐一行同步時間」⇒ 數字沒接之前,這裡必須說「未接」',
-    ).toContain('未接');
-    // 🔴 反向:數字還沒接之前,**不准出現時鐘形狀的字面** ——
-    //    印一個時間會讓「留白」變成一句謊話(稿 :288 逐字:看到時間戳,留白就等於真的沒事)。
+    expect(rail.textContent, 'syncedAt 有值時要印時間戳(稿 :288)').toContain('同步');
+    expect(rail.textContent).toContain('12:00'); // SYNCED_COUNTS.syncedAt = 台北 12:00
+    expect(rail.textContent).not.toContain('讀取失敗');
+  });
+
+  it('🔴 任一格讀取失敗(syncedAt=null)⇒ 軌底顯示「讀取失敗」,**不印時間戳**', () => {
+    mount(true, FAILED_COUNTS);
+    const rail = screen.getByTestId('nav-rail');
     expect(
       rail.textContent,
       '印一個時間會讓「留白」變成一句謊話:員工看到時間戳會讀成「這幾格今天沒事」,而事實是我們沒算過它',
-    ).not.toMatch(/\d{1,2}:\d{2}/);
+    ).toContain('讀取失敗');
+    expect(rail.textContent).not.toMatch(/\d{1,2}:\d{2}/);
   });
 
   it('🔴 每一格都有 22px 數字位(空的也要在,否則中文會對不齊)', () => {
@@ -154,5 +179,100 @@ describe('數字規則(逐字搬稿 :414)', () => {
     [128, '99+'],
   ])('formatNavCount(%i) = "%s"', (input, expected) => {
     expect(formatNavCount(input)).toBe(expected);
+  });
+});
+
+// W1-077 plan §5:「光驗有數字不夠,要驗數字錯的時候會紅」—— 逐格找到對應的 rail cell、
+// 斷言它 textContent 恰好是餵進去的值,並附一發突變(改成別的值,同一格必須跟著變/紅)。
+describe('W1-077:三格數字接線(正對照 + 突變)', () => {
+  function railCellFor(label: string): HTMLElement {
+    const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
+    const labelEl = within(railNav).getByText(label);
+    // label 與 count slot 是兄弟 span,共同父層是 <a>/<span> 那個 RailCell 容器。
+    // 🔴 不能用 `.closest('span.block')`:label 自己的 className 也帶 `block`
+    //    (`mt-1 block text-center …`),`closest()` 連起點元素自己都算 ⇒ 會抓到 label 本身。
+    //    改用 `aria-disabled` 挑出不可點那個 `<span>` 容器,可點的用 `<a>` 標籤本身。
+    const cell = labelEl.closest('a, span[aria-disabled]') as HTMLElement;
+    if (!cell) throw new Error(`找不到「${label}」對應的 RailCell 容器`);
+    return cell;
+  }
+
+  it('正對照:{orders:12, refunds:3, products:0} ⇒ 畫面上恰好出現 "12" 與 "3",商品那格空白', () => {
+    mount(true, {
+      unorderedOrderCount: 12,
+      refundExceptionCount: 3,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 0,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    const ordersSlot = railCellFor('訂單').querySelector('[data-testid="rail-count-slot"]');
+    const refundsSlot = railCellFor('退款異常').querySelector('[data-testid="rail-count-slot"]');
+    const productsSlot = railCellFor('商品').querySelector('[data-testid="rail-count-slot"]');
+    expect(ordersSlot?.textContent).toBe('12');
+    expect(refundsSlot?.textContent).toBe('3');
+    // 🔴 0 ⇒ 空白,不是 "0"(稿 :287 的既有規格,formatNavCount 早已守;這裡驗的是接線沒有繞過它)。
+    expect(productsSlot?.textContent).toBe('');
+  });
+
+  it('🔴 突變:把訂單改成 13 ⇒ 那一格必須跟著變(否則這組測試只是在驗「有數字」)', () => {
+    mount(true, {
+      unorderedOrderCount: 13,
+      refundExceptionCount: 3,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 0,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    const ordersSlot = railCellFor('訂單').querySelector('[data-testid="rail-count-slot"]');
+    expect(ordersSlot?.textContent).toBe('13');
+    expect(ordersSlot?.textContent).not.toBe('12');
+  });
+
+  it('🔴🔴 truncated=true ⇒ 退款異常強制顯示 "99+",不看 count 本身多小(W1-077 plan §8 M3)', () => {
+    // 構造 W6 指名的失敗情境本身的一個代表值:count 落在 1-99 區間、但 truncated=true
+    // (真實成因是 actionable/stuck 兩支各自的上限相加後仍 ≤99,例如 actionable=5、stuck=51=55)。
+    mount(true, {
+      unorderedOrderCount: 0,
+      refundExceptionCount: 55,
+      refundExceptionTruncated: true,
+      outOfStockProductCount: 0,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    const refundsSlot = railCellFor('退款異常').querySelector('[data-testid="rail-count-slot"]');
+    expect(
+      refundsSlot?.textContent,
+      'truncated=true 時 55 是一個看起來精確的假數字(真相 ≥56)⇒ 必須降級成 99+',
+    ).toBe('99+');
+  });
+
+  it('✅ 正向對照:同樣 count=55 但 truncated=false ⇒ 顯示 "55"(否則上一格是恆真的)', () => {
+    mount(true, {
+      unorderedOrderCount: 0,
+      refundExceptionCount: 55,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 0,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    const refundsSlot = railCellFor('退款異常').querySelector('[data-testid="rail-count-slot"]');
+    expect(refundsSlot?.textContent).toBe('55');
+  });
+
+  it('讀取失敗(count=null)⇒ 那一格空白,與「0」畫面上一樣,差別在軌底同步行', () => {
+    mount(true, FAILED_COUNTS);
+    const ordersSlot = railCellFor('訂單').querySelector('[data-testid="rail-count-slot"]');
+    expect(ordersSlot?.textContent).toBe('');
+  });
+
+  it('不放數字的五格(總覽/客戶/員工管理/供應商/設定)永遠空白,不受 counts 影響', () => {
+    mount(true, {
+      unorderedOrderCount: 99,
+      refundExceptionCount: 99,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 99,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    for (const label of ['總覽', '客戶', '員工管理', '供應商', '設定']) {
+      const slot = railCellFor(label).querySelector('[data-testid="rail-count-slot"]');
+      expect(slot?.textContent, label).toBe('');
+    }
   });
 });

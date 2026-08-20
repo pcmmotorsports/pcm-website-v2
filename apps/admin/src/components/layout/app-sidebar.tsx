@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { useSidebar } from '@/components/ui/sidebar';
+import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
 import { buildNavItems, PARKED_NAV_ITEM, type NavItem } from './nav-items';
 
 // 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md):砍 Clerk / nav-config 動態導覽 / user dropdown。
@@ -48,21 +49,62 @@ function isNavActive(pathname: string, href: string): boolean {
  * ```
  * 🔴 `0` 回空字串**不是省略,是規格**(稿 `:287` 逐字:「0 不是資訊,只有非 0 才是」)。
  *
- * ⚠️⚠️ **本函式目前【零呼叫端】,而那是預期狀態、不是缺口。**
- *   軌上還沒有數字(count 的來源盤點見 `~/pcm-mailbox/W1-076-…`:八格裡只有三格算得出來,
- *   而「要不要放沒算出來的那幾格」還等 Sean)。
- *   🔴 **而它有測試** ⇒ 下一個人 grep 到它,很容易讀成「這條線已經接好了」——
- *   **「有測試」不等於「有人在用」**(同族:memory `feedback_apply-is-owned-wiring-is-not`
- *   「寫了、驗了、apply 了、**沒接線**」)。
- *   **當場數呼叫端**(別憑這段註解,它會過期):
- *   ```bash
- *   git grep -n 'formatNavCount' -- apps packages ':!*.test.*'
- *   # 只有這一支檔的定義 ⇒ 零呼叫端；出現第二個檔 ⇒ 已接線，本段作廢
- *   ```
+ * ✅ **W1-077(2026-08-20)接線**:呼叫端是本檔的 `railCountText()`。
+ *   曾經有一段時間本函式零呼叫端(見 commit 歷史),那個「有測試≠有人用」的提醒仍然有效
+ *   (同族:memory `feedback_apply-is-owned-wiring-is-not`),但已經不適用本函式本身 ——
+ *   當場數呼叫端:`git grep -n 'formatNavCount' -- apps packages ':!*.test.*'`。
  */
 export function formatNavCount(value: number): string {
   if (value > 99) return '99+';
   return value > 0 ? String(value) : '';
+}
+
+/**
+ * 軌上一格要顯示的數字文字。W1-077:三格接上真數字之後 `formatNavCount` 有了第一個呼叫端。
+ *
+ * 🔴 `truncated=true` 時**強制 `'99+'`**、不看 `count` 本身多少 —— `count` 是兩支各自
+ * 上限(200/50)相加後的 `rows.length`,截斷時可能落在 1-99 這個「看起來精確」的區間
+ * (`refund-read.ts` §M3:actionable=5、stuck=51 ⇒ 顯示會是「55」,而真相 ≥56)。
+ * `null` = 讀取失敗,同樣顯示空白(與「0」在畫面上刻意長得一樣,差別在軌底同步行,見 `AppSidebar`)。
+ */
+function railCountText(count: number | null, truncated: boolean): string {
+  if (count === null) return '';
+  if (truncated) return '99+';
+  return formatNavCount(count);
+}
+
+/** 台北曆面 HH:MM(軌底同步行用)。`syncedAt` 由 server 端算好的 ISO 字串,client 端只負責格式化。 */
+function formatSyncedAtTaipei(iso: string): string {
+  return new Intl.DateTimeFormat('zh-Hant-TW', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Taipei',
+  }).format(new Date(iso));
+}
+
+/**
+ * nav item key → 這一格要顯示哪個 count(哪三格由 Sean 拍板 Q14 決定,見 `sidebar-counts.ts` 檔頭)。
+ * 其餘 key(總覽/客戶/員工管理/供應商/操作紀錄)落 default 分支、回 `{ count: null }` ⇒ 空白。
+ * ⚠️ **「設定」不會經過這支函式**:它不在 `nav-items.ts` 的 `buildNavItems()` 清單裡,
+ * 而是在 `AppSidebar` 的 `navItems.map()` 迴圈之外、用單獨的 `<RailCell item={PARKED_NAV_ITEM} … />`
+ * 呼叫渲染(沒有傳 `count`/`truncated`,靠 props 預設值 `null`/`false` 產生空白)。
+ * 想改「設定」的顯示邏輯要去改那一行呼叫,不是這支函式。
+ */
+function countForItem(
+  item: NavItem,
+  counts: SidebarCounts,
+): { count: number | null; truncated: boolean } {
+  switch (item.key) {
+    case 'orders':
+      return { count: counts.unorderedOrderCount, truncated: false };
+    case 'refund-exceptions':
+      return { count: counts.refundExceptionCount, truncated: counts.refundExceptionTruncated };
+    case 'products':
+      return { count: counts.outOfStockProductCount, truncated: false };
+    default:
+      return { count: null, truncated: false };
+  }
 }
 
 /**
@@ -96,7 +138,13 @@ export function formatNavCount(value: number): string {
  *   兩者是不同狀態 ⇒ 都成立。
  * ⚠️ `useSidebar` **只 import,不改 `ui/sidebar.tsx`** ⇒ 鐵則 12⑥ 不觸發。
  */
-export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
+export function AppSidebar({
+  auditEnabled,
+  counts,
+}: {
+  auditEnabled: boolean;
+  counts: SidebarCounts;
+}) {
   const pathname = usePathname();
   const { state } = useSidebar();
   const navItems = buildNavItems(auditEnabled);
@@ -129,9 +177,12 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
           <div aria-hidden className='m-stripe mt-2 h-1 w-full' />
         </div>
         <nav className='flex-1 overflow-y-auto'>
-          {navItems.map((item) => (
-            <RailCell key={item.key} item={item} pathname={pathname} />
-          ))}
+          {navItems.map((item) => {
+            const { count, truncated } = countForItem(item, counts);
+            return (
+              <RailCell key={item.key} item={item} pathname={pathname} count={count} truncated={truncated} />
+            );
+          })}
           {/*
             🔴 **「設定」排在軌上最下面、灰字、點不動 —— Sean 2026-08-20 拍板(甲)。**
             ⚠️ **這是【第二次推翻同一份定案稿】**:稿 `:357` 逐字
@@ -147,14 +198,20 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
           🔴 軌底常駐同步時間 —— **它是量具,不是裝飾**(稿 `:288` 逐字):
           「留白會跟『資料還沒載入』長得一樣,所以軌底部常駐一行同步時間。
             看到時間戳,留白就等於『真的沒事』,不是『還沒算完』。」
-          ⚠️ **而現在數字還沒接** ⇒ 這裡**不能印一個時間**(那會讓留白變成一句謊話)。
-             印「未接」是稿留給我們的那個解的**誠實版本**:留白現在**不代表沒事**。
-             接上真資料是另一片(count 查得到查不到由別人盤)。
+          W1-077 接上真數字:三格全部成功 ⇒ 顯示「同步 HH:MM」(台北時間);
+          任一格讀取失敗(`sidebar-counts.ts` 的 `syncedAt` 為 `null`)⇒ 顯示「讀取失敗」,
+          **不印時間戳**——印一個時間會讓留白變成一句謊話(員工會讀成「這幾格今天沒事」)。
         */}
         <div className='text-muted-foreground border-t px-1 py-2 text-center text-[10px]'>
-          同步
-          <br />
-          未接
+          {counts.syncedAt ? (
+            <>
+              同步
+              <br />
+              {formatSyncedAtTaipei(counts.syncedAt)}
+            </>
+          ) : (
+            '讀取失敗'
+          )}
         </div>
       </div>
       {/*
@@ -182,11 +239,17 @@ function RailCell({
   item,
   pathname,
   disabled = false,
+  count = null,
+  truncated = false,
 }: {
   item: NavItem;
   pathname: string;
   /** 灰字、點不動(目前唯一用途 = 「設定」,它沒有頁面可去)。 */
   disabled?: boolean;
+  /** 這一格要顯示的數字;`null` = 這一項不放數字(五格)或讀取失敗。 */
+  count?: number | null;
+  /** `count` 是否被上游截斷(目前只有退款異常那格會是 true)。 */
+  truncated?: boolean;
 }) {
   const ItemIcon = Icons[item.icon];
   const active = item.href !== undefined && isNavActive(pathname, item.href);
@@ -199,10 +262,13 @@ function RailCell({
           🔴 **這個空 `<span>` 是承重的,不是垃圾** —— 稿 `:384` 逐字:
           「數字位固定 22px 寬、等寬數字,1 到 99 都塞得下且不推擠中文」
           ⇒ 拿掉它,**有數字的那幾格與沒數字的那幾格,中文會對不齊**。
-          ⚠️ 而它現在是空的(數字還沒接)⇒ 看起來最像可以順手刪掉的東西。守門在
-          `app-sidebar-rail.test.tsx`。
+          ⚠️ 五格(總覽/客戶/員工管理/供應商/設定)仍然是空的 ——
+          前四項落 `countForItem` 的 default 分支;「設定」不經過那支函式,見它自己的
+          `<RailCell … />` 呼叫。⇒ 那五格看起來最像可以順手刪掉的東西。守門在 `app-sidebar-rail.test.tsx`。
         */}
-        <span aria-hidden data-testid='rail-count-slot' className='min-w-[22px] text-right text-xs font-bold' />
+        <span aria-hidden data-testid='rail-count-slot' className='min-w-[22px] text-right text-xs font-bold'>
+          {railCountText(count, truncated)}
+        </span>
       </span>
       <span className='mt-1 block text-center text-[11px] leading-tight'>{item.label}</span>
     </>

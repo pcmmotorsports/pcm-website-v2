@@ -116,10 +116,19 @@ export type TodaySummary = {
 //    完整理由與重做方向搬到 `today-view.ts` 的墓碑段(單一載體,不兩處全文)。
 //    ⚠️ 留這行是因為:**下一個人可能是從本檔開始讀的**,而墓碑在隔壁。
 
-// 🔴 **成本註記**(reviewer R2 nit3):`listRefundExceptions()` 只被用來取 `.length`,
-//    但它內部會撈最多 251+51 列**全欄位**再 `map`(`../payment/refund-read.ts:157-184`),
-//    而這是**每次進站都跑**的首頁。現在量體小(每月 100-300 筆)不痛,
-//    但要換成 `count: 'exact', head: true` 就得在那支開一個新述詞 ⇒ 不在本片範圍,**記著**。
+// 🔴 **成本註記**(reviewer R2 nit3;2026-08-20 W1-077 更新,原句已過期)。
+//    `listRefundExceptions()` 只被用來取 `.length`,但它內部會撈最多 251+51 列**全欄位**再 `map`
+//    (`../payment/refund-read.ts:157-184`)。
+//    ⚠️ **分母已經變了**:原句寫「每次進站都跑的首頁」,而 W1-077 把同一支查詢接進
+//    `apps/admin/src/lib/layout/sidebar-counts.ts`(側欄、根 `app/layout.tsx`)之後,
+//    分母從「首頁」變成「**每一個整頁載入,含列印頁**」(`print:hidden` 只藏像素、
+//    伺服器端照樣渲染側欄、照樣打這支查詢 —— 2026-08-20 curl 校驗過,server HTML 有 nav-rail)。
+//    **已重新量過(不是沿用舊結論)**:拋棄式 PG 17.10、2000 列 orders、單發、EXPLAIN ANALYZE,
+//    這支查詢(11 欄 + LEFT JOIN orders 取 display_id)實測 **0.11ms(actionable)/ 0.08ms(stuck)**,
+//    次毫秒級,遠低於門檻 ⇒ **换成 count exact head 目前不必要**,原本「不在本片範圍」的判斷仍然成立,
+//    只是理由要換成「量過了、還快」,不是「量體小、沒空管」。分母變大這件事本身記在 backlog #782。
+//    `listRefundExceptions()` 本身已用 React `cache()` 包住(refund-read.ts),
+//    同一次 render pass 內首頁與側欄共用一發,不是各打一份。
 
 /**
  * RPC 回來的整數純量 → `number`;**任何不是安全整數的東西一律 `null`**(codex 關卡2 MF1/MF2)。

@@ -25308,3 +25308,56 @@ done
      (否則就是把兩種空白又併回同一格,只是換了文案)
   ```
 - **相關:** `capture_state` 片(未批)/ `#703`(同族:契約寫了而沒有東西會紅)
+
+---
+
+### #782 · 側欄「訂單」數字的 `goods_axis` 查詢成本隨單量線性長,不是常數
+
+- **狀態:** 待處理(2026-08-20 主視窗配號,W1-077 側欄三格數字片立條目)
+- **在哪:** `apps/admin/src/lib/layout/sidebar-counts.ts` 的訂單查詢
+  (`admin_order_list_v` 上 `goods_axis=eq.none` + `cancelled_at=is.null`,`count exact head`)。
+  它跑在根 `app/layout.tsx` ⇒ **每一個整頁載入都會跑,含列印頁**(`print:hidden` 只藏像素,
+  server 端照樣渲染側欄、照樣打這支查詢 —— 2026-08-20 curl 校驗過)。
+- **量到的(不是推的,拋棄式 PG 17.10,2000 列 orders / 6000 order_items,單發,EXPLAIN ANALYZE):**
+  ```
+  17.3-18.9ms(5 次重跑:17.95/17.71/18.95/17.34/17.53)
+  ```
+  🔴 2000 這個列數是交辦給定值,**不是成長推算**(正式站 2026-08-20 實測只有 19 張單)。
+- **病:** `goods_axis`(`supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql`)
+  是逐列相關子查詢 —— 每張 `orders` 列都要展開 3 個 InitPlan 去算
+  shipped/instock/ordered 三個進度,**走不了索引**。EXPLAIN 顯示 Seq Scan on orders
+  + 每列都跑一次巢狀 nested loop。成本結構是 O(orders × items),不是 O(1)。
+- **不修未來會痛在哪:**
+  ```
+  🔴 它不會突然壞,它會慢慢變慢,而慢慢變慢沒有人會回報。
+  現在(19 張單)無感 ⇒ 沒有人會覺得側欄慢 ⇒ 沒有人會想到去查它 ⇒ 它會一路長到
+  某個量級才被感覺到,而那時已經是「後台一直卡」的等級,而不是一個好抓的小問題。
+  ⇒ 分母是「每一個整頁載入」——出貨當下會一直開著的列印頁也算,不是只有訂單列表頁。
+  ```
+- **做什麼(規格,不是願望;現在不修,不代表沒有解法):**
+  ```
+  ① 監測門檻:單量成長時(例如破 5000-10000 張單)重跑本片附的量測方法
+     (docs/runbooks/throwaway-postgres-for-migration-verification.md 起拋棄式庫、種子、EXPLAIN ANALYZE),
+     若超過 50ms 就要處理,不要等到員工回報「側欄變慢了」。
+  ② 修法方向(尚未評估優劣,列出不代表推薦):
+     - 在 order_item_quantity_summary 或 orders 加一個去正規化的 goods_axis 欄位,
+       由寫入路徑(procurement/shipment 動作)維護,查詢時直接讀欄位而非即時算。
+     - 或針對這一格單獨走 `count` 專用的 materialized view / 定期刷新的彙總表。
+  ③ 兩者都動到寫入路徑或新增 DB 物件 ⇒ 屬鐵則 12①③,啟動時要走對抗審查。
+  ```
+- **✅ 開放項已解(2026-08-20 主視窗轉 W5 追加、W5 同日量掉):**
+  ```
+  原疑慮:prod build 下整頁載入會自動 prefetch 4 條路由(含 /),
+  若 prefetch 觸發 server 端資料抓取 ⇒ app/page.tsx:36 的 loadTodaySummary()
+  會從【任何一頁】被打出來,分母比本條目原估的還寬。
+  ⇒ W5 量法:把資料源換成只記帳的 http server,看 server 端有沒有真的動
+    (不是看 payload 大小,那答不了這題)。結果:prefetch 視窗內零伺服器端請求,
+    54ms 後的真點擊才觸發 ⇒ prod 的 <Link> prefetch 不觸發 dynamic 目標頁的
+    server 端渲染/資料抓取。
+  ⇒ 側欄成本 = 每次整頁載入 1 份(含列印頁)／ client 導覽 0 份 ／ prefetch 0 份。
+  ⚠️ 限定:最小 app(scratchpad)量的,已核對 loading.tsx(改變 prefetch 行為的變因)
+  在 admin 全樹與最小 app 同為 0 個、next 16.3.0 同版、四條路由皆 force-dynamic
+  (= admin 全站形狀)⇒ 兩邊同構,不是巧合。升 Next 版本要重量。
+  ```
+- **相關:** W1-077(側欄三格數字,本條目由該片量測產生)/
+  `admin_order_list_v` migration 本體(`20260814140000`,goods_axis 定義與寫法契約在那裡)

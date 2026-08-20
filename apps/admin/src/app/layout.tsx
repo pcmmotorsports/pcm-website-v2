@@ -7,6 +7,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { WorkspaceShell } from '@/components/layout/workspace-shell';
 import { WORKSPACE_PANEL_COOKIE, parsePanelWidthCookie } from '@/lib/layout/workspace-panel';
 import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
+import { getSidebarCounts } from '@/lib/layout/sidebar-counts';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -48,6 +49,8 @@ export default async function RootLayout({
   const initialPanelWidth = parsePanelWidthCookie(
     (await cookies()).get(WORKSPACE_PANEL_COOKIE)?.value,
   );
+  // W1-077:側欄軌上三格數字,每一頁都要算(含列印頁,print:hidden 只藏像素、不減查詢)。
+  const sidebarCounts = await getSidebarCounts();
   return (
     <html lang='zh-Hant' suppressHydrationWarning>
       <body className='bg-background text-foreground font-sans antialiased'>
@@ -69,7 +72,7 @@ export default async function RootLayout({
                 側欄是 `'use client'`,而 `AUDIT_UI_ENABLED` 不是 `NEXT_PUBLIC_*`
                 ⇒ 在那邊呼叫會靜默拿到 `undefined`(理由與實測見 `app-sidebar.tsx` 檔頭)。
                 形狀照抄 `components/orders/order-detail-route.tsx:250` 的既有前例。 */}
-            <AppSidebar auditEnabled={isAuditUiEnabled()} />
+            <AppSidebar auditEnabled={isAuditUiEnabled()} counts={sidebarCounts} />
             <SidebarInset>
               <Header />
               <WorkspaceShell panel={panel} initialPanelWidth={initialPanelWidth}>

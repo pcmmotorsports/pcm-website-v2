@@ -1,4 +1,5 @@
 import 'server-only';
+import { cache } from 'react';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import {
   REFUND_EXCEPTION_STALL_MS,
@@ -150,8 +151,17 @@ function toExceptionRow(row: RawException): RefundExceptionRow {
  * ⚠️ cutoff 用 app 時鐘(DB 打不了 app、`.or()` 塞不進 `now()`):與 DB now() 的秒級漂移
  *    對 30 分保守閾無害;列級 isRefundException 同用 app 時鐘,兩處同源。
  * ⚠️ 回傳順序 = ①類在前、②類在後(①類才有動作可做);兩類內部各自舊的排前。
+ *
+ * 🔴 W1-077:用 React `cache()` 包住 —— 這支現在有三個呼叫端(本頁 / `today-read.ts` 首頁對帳 /
+ *    `sidebar-counts.ts` 側欄),而側欄在根 layout、每一頁都跑。首頁 `/` 原本同一次 render 內
+ *    會打兩份完全相同的查詢(page.tsx 經 `loadTodaySummary()`、layout 經 `getSidebarCounts()`)
+ *    ⇒ 包 `cache()` 讓它們在同一次 render pass 內共用同一發。
+ *    ⚠️ **測試安全性已查證**(node -e 直接呼叫,無 React render/cache scope):`cache()` 在沒有
+ *    作用中的 render 時**靜默不記憶**、每次呼叫都真的重跑 ——不會讓本檔既有的
+ *    `describe('listRefundExceptions', …)` 那組測試(逐格換 mock 期待不同結果)互相污染。
+ *    只有 Next.js RSC 真渲染才會建立 cache scope、記憶才會生效。
  */
-export async function listRefundExceptions(): Promise<{
+async function listRefundExceptionsUncached(): Promise<{
   rows: RefundExceptionRow[];
   truncated: boolean;
 }> {
@@ -190,3 +200,5 @@ export async function listRefundExceptions(): Promise<{
       actionableRaw.length > REFUND_EXCEPTIONS_LIMIT || stuckRaw.length > REFUND_STUCK_LIMIT,
   };
 }
+
+export const listRefundExceptions = cache(listRefundExceptionsUncached);
