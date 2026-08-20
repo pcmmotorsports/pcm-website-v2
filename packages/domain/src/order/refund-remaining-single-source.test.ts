@@ -52,7 +52,47 @@ const REFUND_AMOUNT_COL = /"?\brefund_amount\b"?/g;
  * 🔴 **期望值寫死、不由掃描結果推導**(防同源假綠 —— 沿用 `shipping-rpc-drift.test.ts` 的紀律)。
  * 每一筆都要能回答「這個檔為什麼可以碰這個欄位」。
  */
+// 🔴🔴 **這道守門【不驗行為】** —— 它比對的是「最新定義 remaining 的那支 migration 的函式本體字面」。
+//   「那支 RPC 做對事了沒」(冪等 / 換人必拒 / 作廢後可退餘額差額正好等於那一筆)
+//   住在 **`scripts/d3b-void-probe.sh`**(拋棄式 PG,零參數,跑完自己收攤)。
+//   ⇒ **本檔紅的時候你正好在現場** ⇒ 若你正在動那支函式或 admin_void_manual_refund,順手跑一下它。
+//   ⚠️ 它**不在 CI**,不會自己紅。這一行就是它的兩個落點之一(另一個在該 RPC 的 COMMENT ON FUNCTION)。
+
 const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
+  // ── 2026-08-20 W1 補(片 D3-b 沖銷;主視窗批,W4 唯讀對抗審查) ─────────────────
+  '20260820100000_m4b_e10_d3b_void_manual_refund.sql': {
+    count: 9,
+    why:
+      // 🔴 why 要答的是「gate 為什麼對【正確的東西】報紅」,不是「這一筆無害」。
+      // 本 gate 是文字比對啟發式(檔頭第④點)⇒ 它掃的是 `refund_amount` 這個欄位字面,
+      // 而它分不出「有人自己再算一次可退餘額」與「有人在維護那支唯一該算它的函式」。
+      // ⇒ **報紅的原因是分母裡出現了一支新的 migration 提到那個欄,不是有人繞過那支函式。**
+      '片 D3-b：把 `AND m.voided_at IS NULL` 加進 pcm_order_refundable_remaining 的第三段。' +
+      // ✅ 反面證據(這才是關鍵):本檔【沒有】在任何地方自己算「已退 / 還能退」。
+      //    七處逐一交代,而它們分成三種、沒有一種是「另一份算式」:
+      //      143/148/167 = 那支函式本體的三段 SUM —— 而本檔對它的唯一改動是【第三段加一個 WHERE】，
+      //                    ①②兩段是程式抽取自 20260820010000 的原文，diff 只有一行變兩行。
+      //      294/297/301 = §4 後置斷言，比對那支函式的 prosrc 三段字面 —— 那是【保護】它，不是重算。
+      //      340        = 後置負測在交易模擬裡借一列 order_manual_refunds（refund_amount=1），全程回滾。
+      // 📌 count 7 → 10（codex R1 之後）：P4/P5/P6b 從「片段存在性」改成「**整段字面**」比對
+      //    ⇒ §0 前置閘也各多引用一次三段的字面。三處新增全部是【比對那支函式】,不是新算式。
+      // ⚠️ **這裡刻意不寫行號** —— 上一版寫了(143/148/167…),而改了兩輪之後全部漂掉(現行 200/205/224…)。
+      //   行號是會過期的座標,而「分三種」這個**形狀**不會。
+      '九處分三種：三段 SUM（函式本體）／六道字面斷言（§0 前置三道 + §4 後置三道，都在保護它）。'
+      + '⚠️ 原本還有一列負測 fixture，隨 A3 交易模擬整段移出 migration（改住 scripts/d3b-void-probe.sh）而消失 ⇒ 10 → 9。' +
+      // 🔴 可證偽的那一半:若本檔真的另立了一份算式,那份算式不會出現在
+      //    `pcm_order_refundable_remaining` 的 prosrc 裡 —— 而 §4 A1 三道斷言【逐字比對那支函式】,
+      //    任何「本檔自己算一份」的版本都無法讓那三道同時通過。⇒ 這個 allowlist 不是靠宣稱撐著。
+      // 🔴 **原本這裡寫「另立算式無法讓 §4 A1 三道同時通過」—— 那句話是【錯的】,codex R2 構造了反例並實跑三個 regex 得 true。**
+      //   成因:A1 是三個**各自獨立**的 NOT LIKE ⇒ 一個「三段都在 + 另外多算一份」的版本三道全過。
+      //   ⇒ 🔴 而那句話的形狀值得記:**我寫「這個 allowlist 不是靠宣稱撐著」的那一句,本身就是一句宣稱。**
+      //   ⇒ 修法不是刪掉那句,是**把它變成可執行的**:見同檔下方那格
+      //     「函式本體的**正規化全形狀**」比對 —— 多算一份會讓全形狀對不上,三個獨立子字串不會。
+      '可證偽：由同檔「正規化全形狀」那一格承擔（另立算式會讓全形狀對不上）。原本寫「三道獨立斷言擋得住」是錯的，已改。' +
+      // ⚠️ 本 gate 對本檔的先天上限(檔頭第①點):它擋的是「冒出新的檔」,不是「同一支改了幾版」
+      //    ⇒ 擋住「下次又有人改那支函式」的是該 migration §0 的指紋三道(P4/P5/P6),不是本 gate。
+      '上限：本 gate 擋新檔、不擋同檔改版；擋改版的是 D3-b §0 的 P4/P5/P6 指紋。',
+  },
   // ⚠️ 下面每個數字都是**剝掉註解之後實測**的(2026-08-14),不是拿 `grep -c` 的粗數 ——
   //    粗數含註解,兩者不同(例:20260801120000 粗數 18、實測 12;20260810140000 粗數 1、
   //    實測 **0** ⇒ 那一處只出現在註解裡,整個檔不列入 allowlist)。
@@ -300,6 +340,92 @@ describe('「還能退多少」單一算式 gate(#473b-1 機制 2️⃣)', () =>
       body!,
       '第一段(processing + confirmed)必須是「減」',
     ).toMatch(/-\s*COALESCE\(\s*\(\s*SELECT[\s\S]{0,300}?processing/i);
+  });
+
+  // 🔴🔴 這一格是 codex R1 must-fix 補的:**補 allowlist 讓那道守門不紅,而沒有補上「誰來守新的東西」。**
+  //   allowlist 的作用是「別對這支新檔報紅」—— 而它不會替代「第三段真的有作廢分流」這件事的守門。
+  //   ⇒ 沒有本格的話,片 D3-b 落地之後,**任何人把 `AND m.voided_at IS NULL` 從那支函式刪掉,
+  //     repo 裡零測試會紅**(migration 的 §4 A1 只在 apply 當下跑一次,不會在 CI 重跑)。
+  it('🔴 現行生效的 remaining 真的排除已作廢的非卡退款(把 voided_at 分流刪掉,本格必須紅)', () => {
+    const file = latestRemainingFile();
+    expect(file, 'supabase/migrations 內找不到任何定義 public.pcm_order_refundable_remaining 的 migration').not.toBeNull();
+    const body = latestRemainingBody();
+    expect(body, `切不出 ${file} 內 remaining 的函式本體 ⇒ 本 gate 失去判別力,先紅`).not.toBeNull();
+
+    // ⚠️ 本格的**前提**:最新定義它的那支檔必須已經是 D3-b(或之後)。
+    //   若 D3-b 還沒落地,`file` 會是 20260820010000 而本格會紅 —— **那個紅是對的**:
+    //   它在說「這個 repo 現在沒有作廢分流」,而不是「有人弄壞了」。
+    expect(
+      body!,
+      `最新定義 remaining 的檔「${file}」裡,**函式本體**的第三段沒有排除已作廢的列。` +
+        `\n🔴 一筆已經被作廢(登記錯了)的非卡退款會繼續被當成「已經退掉的錢」扣掉` +
+        `\n⇒ 可退餘額變小 ⇒ **客人少拿到錢,而畫面上一切正常**。` +
+        `\n若這是刻意的(例如 D3-b 被回退),請同步改本 gate,**不要**只把這格刪掉。`,
+    ).toContain('m.voided_at IS NULL');
+
+    // 🔴 只驗字面存在會讓「寫在別段」或「寫成註解」也綠 ⇒ 連**位置**一起釘:
+    //   那個條件必須落在第三段(order_manual_refunds 那個 SUM)裡面。
+    expect(
+      body!,
+      '作廢分流必須綁在**第三段(order_manual_refunds)**上 —— 寫在別段等於沒寫',
+    ).toMatch(/order_manual_refunds\s+m[\s\S]{0,200}?m\.voided_at\s+IS\s+NULL/i);
+    // 第三段同樣必須是「減」(方向與前兩段同一條紀律)。
+    expect(
+      body!,
+      '第三段(非卡退款)必須是「減」',
+    ).toMatch(/-\s*COALESCE\(\s*\(\s*SELECT[\s\S]{0,300}?order_manual_refunds/i);
+  });
+
+  // 🔴🔴 **這一格取代了一句我寫錯的話。**
+  //   allowlist 的 why 原本寫「另立算式無法讓 §4 A1 三道同時通過」—— codex R2 構造反例證偽了它:
+  //   A1 是三個**各自獨立**的子字串比對 ⇒ 一個「三段都在 + 另外多算一份」的版本三道全過。
+  //   ⇒ 而**修法不是再加一道子字串,是換一種比對**:把整個函式本體正規化之後比對**全形狀**。
+  //     多出來的任何一段、少掉的任何一段、改了方向的任何一段 —— 全形狀都會對不上。
+  //   ⚠️ **而它的代價要講明**:任何**刻意**的改動也會讓它紅。那是特性不是缺陷 ——
+  //     它要求改的人**回來把新的形狀貼進來**,而那一刻正是該有人看一眼的時刻。
+  it('🔴 remaining 的函式本體【全形狀】沒有被動過(多算一份/少算一段/改方向,都會讓本格紅)', () => {
+    const body = latestRemainingBody();
+    expect(body, '切不出函式本體 ⇒ 本 gate 失去判別力,先紅').not.toBeNull();
+
+    // 正規化:剝行註解 + 收斂空白。與 migration 的 §0/§4 用同一套規則,兩邊才比得起來。
+    // ⚠️ 結尾分號也要吃掉:切出來的本體帶著它,而 EXPECTED 寫在 TS 樣板字串裡不會有。
+    //   第一版沒吃 ⇒ 兩邊只差那一個字元而整格紅 —— **而那個紅是對的**(形狀真的不同),
+    //   只是它指的是我的正規化不完整,不是函式被動過。
+    const norm = (t: string) =>
+      t.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ').trim().replace(/;$/, '').trim();
+    const actual = norm(body!);
+
+    const EXPECTED = norm(`
+      SELECT o.total::bigint
+           - COALESCE(
+               (SELECT SUM(r.refund_amount)
+                  FROM public.order_refunds r
+                 WHERE r.order_id = o.id
+                   AND r.status IN ('processing', 'confirmed')), 0)
+           - COALESCE(
+               (SELECT SUM(r.refund_amount)
+                  FROM public.order_refunds r
+                  JOIN public.order_refund_effective_verdict v ON v.refund_id = r.id
+                 WHERE r.order_id = o.id
+                   AND r.status = 'failed'
+                   AND r.failed_reason = 'manual_failed'
+                   AND v.corrected_to = 'money_moved'), 0)
+           - COALESCE(
+               (SELECT SUM(m.refund_amount)
+                  FROM public.order_manual_refunds m
+                 WHERE m.order_id = o.id
+                   AND m.voided_at IS NULL), 0)
+        FROM public.orders o
+       WHERE o.id = p_order_id
+    `);
+
+    expect(
+      actual,
+      '可退餘額函式的本體形狀變了。**本格不判斷那個改動是對是錯 —— 它只要求有人看一眼。**' +
+        '\n🔴 若那是刻意的改動:把新的形狀貼進本格的 EXPECTED,並在 commit body 說明改了哪一段、為什麼。' +
+        '\n🔴 若你不知道為什麼會紅:**先不要改本格** —— 去 git log 看最近誰動了那支函式。' +
+        '\n⚠️ 而行為(這支算式接上 admin_void_manual_refund 之後對不對)在 scripts/d3b-void-probe.sh,本格不驗。',
+    ).toBe(EXPECTED);
   });
 
   it('🔴 view 的「最新一筆說了算」語意有被釘住(排序改 ASC 會讓舊更正生效)', () => {
