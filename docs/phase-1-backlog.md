@@ -25508,3 +25508,54 @@ done
 - **相關:** `#286`(月額度用盡無人工重送工具,同款缺口的另一個觸發源)/
   W3-G(2026-08-20,寄送前 ineligible gate,同一個 E2a-2 編號拆出的另一半,已獨立做)/
   `docs/specs/2026-07-16-m4a-email-notify-plan.md` §3.5b(對帳補寄原始設計)
+
+---
+
+### #785 · 🔴 請款狀態只在【授權當下】被寫一次 —— 而請款是 21 小時後才發生的
+
+- **狀態:** 待處理(2026-08-20 W4 立;主視窗配號。來源=W5 對抗審查 R1 MF-1,W4 實跑證實)
+- **前置:** 🔴 **動工前要 Sean 先答一題**(見文末),那題不是技術題
+- **病(實跑證實,不是讀出來的):**
+  ```
+  唯一寫入點 = settlePaid 內,而 settlePaid 只在訂單【尚未 paid】時到得了:
+    settle-charge.ts:70  if (attempt.orderPaymentStatus === 'paid') { …; return }
+    🔴 那個短路在 Record 查詢【之前】 ⇒ 連 recordQuery 都不會被呼叫
+  ⇒ capture_state 只在授權當下寫一次,而那一刻 is_captured 幾乎必然 false ⇒ 寫下 'authorized'
+  ⇒ 銀行 21 小時後請款 ⇒ **沒有任何路徑會再寫它**
+  實跑(packages/use-cases/src/settle-charge.test.ts 檔尾三格,npx vitest run --project node settle-charge):
+    ① 尚未 paid ⇒ 查得到、寫得進去(對照組:量具活著)
+    ② 已 paid 重入 ⇒ 即使讓 TapPay 這一刻回 is_captured=true,recordQuery **零呼叫**
+    ③ 寫入失敗後重入 ⇒ recordCaptureState 總共只被呼一次
+  ```
+- **不修未來會痛在哪:**
+  ```
+  ① 🔴 後台的「請款狀態」會**永遠停在已授權**,而錢其實已經收到了
+     —— 那正是 Sean 2026-08-19 撞到 946 的那一格。他退款時看到的畫面會繼續騙他。
+  ② 而它壞得**很安靜**:欄位有值、畫面有字、沒有錯誤 ⇒ 沒有任何東西會紅。
+     值班會學會「這一格不用看」,而那個習慣一旦養成,**哪天它是對的也不會有人看**。
+  ```
+- **🔴 解法的三格已經查好了(2026-08-20 W4;下一個人不用重查):**
+  ```
+  ① 述詞形狀   照 packages/adapters/src/email/SupabasePaidOrderScannerAdapter.ts:190-200 的掃描式
+               （.eq('payment_status','paid') + LEFT JOIN 找「還沒被處理過」的）
+               ⇒ 本片的述詞更簡單:payment_charge_attempts WHERE capture_state = 'authorized'
+               🔴 天然的待辦集合,而**每成功一列就翻成 captured ⇒ 集合會自己排空**
+               ⇒ 這同時答掉那個短路存在的理由(settle-charge.ts:66 逐字「省 §7 rate-limit」):
+                 不是「每次 reconcile 都打」,是「每輪 N 筆未定的」,而 N 自己變小
+  ② 排程載體   🔴 **不用建** —— pg_cron 已經在跑兩支,且都已 apply:
+               pcm-settle-sweep */2 (20260723120000:128) / pcm-email-sweep */5 (20260819160000:213)
+  ③ 寫入路徑   🔴 **不用建** —— 就是 record_charge_capture_state(20260820040000)
+               它的值域守衛、單調性(captured 不被 authorized 蓋回)、雙鍵驗都已就位
+  ⇒ 真正要新做的只有:一支窄查詢 port + 一個小 use-case + 一條 cron 述詞 + 一個 route
+  ```
+- **🔴 動工前 Sean 要答的那一題:**
+  ```
+  多久重讀一次 / 重讀多久以內的單(cutoff)?
+  ⇒ 那題等於「**錢什麼時候算收到**」—— 不是技術題,不要替他決定。
+  ```
+- **⚠️ 明確不要做的:**
+  ```
+  ❌ 不要動 settle-charge.ts:70 那個短路。它存在的理由是 TapPay rate limit(:66 逐字),
+     而掃描式完全不需要動它 ⇒ 動它是拿一個已驗過的東西去換一個不必要的東西。
+  ```
+- **相關:** `20260820040000_m4b_capture_state.sql`(地基,本條的前一片)/ `#781`(顯示層)/ `#703`(同族:契約寫了而沒有東西會紅)
