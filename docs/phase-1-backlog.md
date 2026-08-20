@@ -25361,3 +25361,61 @@ done
   ```
 - **相關:** W1-077(側欄三格數字,本條目由該片量測產生)/
   `admin_order_list_v` migration 本體(`20260814140000`,goods_axis 定義與寫法契約在那裡)
+
+---
+
+### #783 · `ACL-UNIVERSAL` 的 `<> 'SELECT'` 讓它看不見欄級 SELECT —— **而我們沒查那是刻意還是遺漏**
+
+- **狀態:** 待處理(2026-08-20 W4 立;來源=修 `ACL-NO-COLUMN-GRANT` 枚舉閘時的順手量測,
+  commit `132dbe83`)。🔴 **本條是一個【待答的問題】,不是一份 bug 報告** —— 見下方「我們量到什麼 / 沒量到什麼」。
+- **在哪:**
+  ```
+  scripts/l5am-verify.sh:338-363  ACL-UNIVERSAL(aclexplode 全稱斷言)
+    :344  AND a.privilege_type <> 'SELECT'      ← 表級子查詢
+    :354  AND a.privilege_type <> 'SELECT'      ← 欄級子查詢
+  scripts/l5am-verify.sh:370-394  ACL-NO-COLUMN-GRANT(2026-08-20 已改成全表欄位全稱)
+  ```
+- **量到什麼(實測,不是讀 SQL 推的):**
+  ```
+  在修枚舉閘時跑的四發表演裡,兩發【該紅】的世界:
+    GRANT SELECT (rec_trade_id)  TO anon  ⇒ ACL-UNIVERSAL **PASS**
+    GRANT SELECT (superseded_at) TO anon  ⇒ ACL-UNIVERSAL **PASS**
+  ⇒ 欄級 SELECT 後門,ACL-UNIVERSAL 這一格看不見。
+  ⇒ 而表層終態是 anon/authenticated **連 SELECT 都沒有**(20260612150000:118-121)
+     ⇒ 一個欄級 GRANT SELECT 會是真的權限擴張。
+  重跑法:`bash scripts/l5am-verify.sh`(約 5 秒,自建拋棄式 cluster 自收);
+          注入法見 ~/pcm-mailbox/W4-005-ACL枚舉閘改全稱-diff與四發表演-20260820.md §二
+  ```
+- **🔴 沒量到什麼(這一格決定本條要不要動手):**
+  ```
+  那兩個 `<> 'SELECT'` 是【刻意】還是【遺漏】—— **未查**。
+  兩個都說得通:
+    刻意 ⇒ 該表終態允許 service_role SELECT ⇒ 排除 SELECT 才不會恆紅(:118-121 支持這個讀法)
+    遺漏 ⇒ 排除的理由只對【表級】成立;複製到【欄級】子查詢時沒有人重新想過
+  ⇒ 🔴 **這兩個世界要做的事完全相反**:刻意 ⇒ 什麼都不用改,只要 ACL-NO-COLUMN-GRANT 補住;
+     遺漏 ⇒ 欄級那個子查詢的排除條件要拿掉或收窄。
+  ```
+- **怎麼答(不需要 DB,讀檔就行):**
+  ```
+  ① 翻 ACL-UNIVERSAL 的來源:`grep -n 'R3 C-1' scripts/l5am-verify.sh` ⇒ :334-337 那段自述,
+     看它寫的動機有沒有提到欄級 SELECT
+  ② 翻該格所屬片的 plan / STOP(L5a-M 族,20260809230000 那片)找「為什麼排除 SELECT」
+  ③ 兩處都查無 ⇒ 就是**沒有人想過**,那答案是「遺漏」,而且要在條目裡寫「查無的分母是哪兩處」
+  ```
+- **不修未來會痛在哪:**
+  ```
+  ① 現在擋得住,只因為 ACL-NO-COLUMN-GRANT 那一格在;而那一格的判準是
+     「**任何**欄級 ACL 都算」——它比 ACL-UNIVERSAL 粗。
+     🔴 哪天有人為了讓某個合法的欄級 GRANT 通過而把它放寬成「排除 SELECT」,
+        **兩格會同時瞎掉,而且看起來很一致** ⇒ 那時沒有任何斷言看得見欄級 SELECT 後門。
+  ② 這個洞的形狀是「守門在,而且是綠的」⇒ 讀報告的人會得到「ACL 面有兩道全稱斷言」的印象,
+     而其中一道對這一族**從來沒有機會紅**。
+  ③ 🔴 而它不是理論的:`payment_charge_attempts` 正要加 `capture_state`
+     (plan 未批,~/pcm-mailbox/W4-003-…)⇒ 新欄一出生就落在這個盲區裡。
+  ```
+- **限定(不得放寬):**
+  ```
+  · n=1 —— 只量了這一支斷言檔。**不得讀成「我們的斷言檔普遍在排除 SELECT」**,其他檔未量。
+  · 「刻意 vs 遺漏」未查 ⇒ **本條不得被引用成「ACL-UNIVERSAL 有 bug」**。
+  ```
+- **相關:** commit `132dbe83`(把 ACL-NO-COLUMN-GRANT 從三欄枚舉改成全表欄位)/ `#781`(同一片的顯示層落點)
