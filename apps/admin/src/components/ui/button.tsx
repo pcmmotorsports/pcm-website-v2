@@ -18,9 +18,18 @@ const buttonVariants = cva(
            ⚠️ `outline` variant **本來就有 `border`** ⇒ 拿掉陰影後它仍有 1px 邊界,不是變成沒有邊界。
               實心的三個(default/destructive/secondary)**靠底色與周圍分開** —— 那正是 OD 的做法
               (`.btn-primary{background:var(--accent);border-color:var(--accent)}`,邊框與底同色)。
-           ⬜ **OD `.btn` 的另外三件本片【沒有】做**:44px 高、大寫、1.5px 字距。
-              前者會改動全站每一顆按鈕的高度(排版影響面遠大於顏色);
-              **大寫對中文是 no-op**(同表頭與摘要卡那兩次的判斷)。⇒ 另片,不是漏看。 */
+           ⬜ **OD `.btn` 的另外三件**(2026-08-21 更正:~~原本三件並列寫成「本片沒有做」~~,
+              而它們今天已經是**三種不同的狀態**,並列會讓下一個人以為都還等著做):
+              · **44px 高** ⇒ 🔴 **真的還沒做**。會改動全站每一顆按鈕的高度
+                (排版影響面遠大於顏色)⇒ 另片,不是漏看。
+              · **大寫(`text-transform:uppercase`)** ⇒ ✅ **已裁【永不採用】,不要再判一次**
+                (`docs/design/admin-design-system.md:65` 逐字)。對 CJK 是 no-op:
+                寫上去畫面一個像素都不會變,卻會留下一行「已照 OD 做大寫」的**假字面**。
+              · **1.5px 字距(`letter-spacing`)** ⇒ ⏳ **品味題,待 Sean 看實體版本**。
+                🔴 它**不在**上面那條 uppercase 裁定之內 —— 對 CJK **不是** no-op
+                (會把中文字一個個撐開)。同處逐字:摘要卡小標的 `tracking-[1.5px]` 已在線上、
+                Sean 2026-08-16 於真路由看過答「目前這樣OK」⇒ **未定的是按鈕要不要也套**
+                (那才是全站影響)。 */
         default: 'bg-primary text-primary-foreground hover:bg-primary/90',
         destructive:
           'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60',

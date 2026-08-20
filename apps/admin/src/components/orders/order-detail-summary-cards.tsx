@@ -48,6 +48,7 @@ import {
 import { toPaymentSummary } from '../../lib/orders/payment-list-view';
 import type { PaymentListData } from './payment-list';
 import { customerEmailDisplay } from '../../lib/customers/customer-list-view';
+import { AtomicFieldValue } from './atomic-field-value';
 import {
   invoiceTypeLabel,
   formatOrderDateTime,
@@ -104,11 +105,39 @@ const SPEC = 'bg-card px-4 py-3 text-card-foreground';
 const SPEC_V = 'text-foreground text-2xl leading-[1.15] font-light tracking-[-0.025em] tabular-nums';
 const SPEC_L = 'text-muted-foreground mt-2 text-xs font-bold tracking-[1.5px]';
 
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
+/**
+ * 🔴 `atomic` = 這個值**斷開之後會變成一個「讀得通而錯」的東西**(email / 電話 / 時間戳 /
+ *    發票號碼 / 載具 / 金額)⇒ 走不換行 + 截斷 + tooltip,理由與量到的數字見
+ *    `atomic-field-value.tsx` 檔頭。
+ * ⚠️ **預設是 false,而預設那條路仍然是 `break-all`** —— 不要順手把全部改成 atomic:
+ *    出貨狀態那種**本來就帶換行**的多行值套上去會被吃掉換行。
+ */
+function Field({
+  label,
+  value,
+  atomic = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  atomic?: boolean;
+}) {
   return (
     <div className={ROW}>
       <span className={ROW_LABEL}>{label}</span>
-      <span className='text-right break-all'>{value ?? '—'}</span>
+      {atomic && typeof value === 'string' && value !== '' ? (
+        <AtomicFieldValue text={value} />
+      ) : (
+        /* 🔴 `break-all` → `break-keep break-words`(2026-08-21,量到的):
+           ~~`break-all`~~ = `word-break: break-all` **允許在任何字元中間斷**,實測把
+           「網站 · 線上刷卡」斷成「網站 · 線上刷」/「卡」—— 斷在一個詞的中間。
+           · `break-keep`(`word-break: keep-all`)= **不在詞內斷**,CJK 連續字串也當一個詞
+             ⇒ 實測該格「斷在 token 中間」1 → 0,而**格高不變(40px)、零溢出**。
+           · `break-words`(`overflow-wrap: break-word`)= 保險絲:**單一 token 真的塞不下時**
+             才斷它,免得 `keep-all` 讓超長值直接溢出格子。
+           ⚠️ 這條路是給**斷開也不會被讀錯**的值走的(人名/狀態標籤)。
+              email / 時間戳那種斷開會變成「讀得通而錯」的,走上面的 `atomic`。 */
+        <span className='text-right break-keep break-words'>{value ?? '—'}</span>
+      )}
     </div>
   );
 }
@@ -365,8 +394,8 @@ export function OrderSummaryCards({
         <section className={CARD}>
           <h2 className={CARD_TITLE}>客戶資訊</h2>
           <Field label='姓名' value={detail.customer.name} />
-          <Field label='電話' value={detail.customer.phone} />
-          <Field label='Email' value={customerEmailDisplay(detail.customer.email)} />
+          <Field label='電話' value={detail.customer.phone} atomic />
+          <Field label='Email' value={customerEmailDisplay(detail.customer.email)} atomic />
         </section>
 
         <section className={CARD}>
@@ -389,6 +418,7 @@ export function OrderSummaryCards({
           <Field
             label='付款時間'
             value={detail.paidAt ? formatOrderDateTime(detail.paidAt) : null}
+            atomic
           />
         </section>
 
@@ -399,15 +429,16 @@ export function OrderSummaryCards({
             <Field label='統編 / 抬頭' value={`${detail.invoiceRequest.taxId} ${detail.invoiceRequest.title ?? ''}`} />
           )}
           {detail.invoiceRequest.carrier && (
-            <Field label='載具' value={detail.invoiceRequest.carrier} />
+            <Field label='載具' value={detail.invoiceRequest.carrier} atomic />
           )}
           <Field label='開立狀態' value={INVOICE_STATUS_LABEL[detail.invoiceStatus]} />
-          <Field label='發票號碼' value={detail.invoiceNumber} />
+          <Field label='發票號碼' value={detail.invoiceNumber} atomic />
           <Field
             label='發票金額'
             value={
               detail.invoiceAmount ? `NT$ ${formatOrderAmount(detail.invoiceAmount.amount)}` : null
             }
+            atomic
           />
           </section>
       </div>
