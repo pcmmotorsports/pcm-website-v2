@@ -146,6 +146,63 @@ select conname, pg_get_constraintdef(oid) from pg_constraint
  where conrelid = 'public.<表名>'::regclass and contype = 'c';
 ```
 
+### 🔴🔴 §3-b 有一族 migration **在空庫上永遠套不起來** —— 而**那不是環境壞掉**(2026-08-20 W4)
+
+本 runbook 的順序是 **「先套 migration → 再種資料」**(§3 在 §4 之前,而種子資料要等 PostgREST 起來)。
+而有一族 migration 的驗證段**需要庫裡先有一張真訂單**才跑得動 ——
+🔴 **順序天生相反。照本檔跑的每一個人都會看到它們 FAIL。**
+
+2026-08-20 實跑(`ok=181 fail=20`)裡,這四支是同一個原因:
+```
+20260820020000  m4b_e10_a8a3g_cancel_guard_sibling_dedup   ← 鏈頭
+20260820021000  m4b_e10_d1_record_manual_refund
+20260820022000  m4b_e10_d2_grant_manual_refund
+20260820030000  m4b_e10_a8a3_cancel_gate_noncard           ← 前置閘擋在 020000 上
+```
+
+**它們自己就說了為什麼**(apply log 逐字):
+```
+20260820020000 ⇒ ERROR: A8a3-G 世界一:本片的「兩個世界」驗證需要至少一張既有訂單來借
+   (暫時改三欄、子交易回滾;不寫 auth.users、不碰金額欄)。現在 public.orders 零列 ⇒ probe 跑不了。
+   🔴 **這不是 bug,是刻意 fail-closed**:probe 跑不了就等於一格恆綠,而恆綠長得像成功,
+   而本片動的是【客人結帳路徑】。解法:在有訂單資料的環境 apply。**不要把這道斷言拿掉。**
+
+20260820021000 ⇒ ERROR: D1 負測:需要至少一張既有訂單與一位啟用中的 staff 來借。現在借不到 ⇒ 負測跑不了。
+   🔴 **刻意 fail-closed** —— 跑不了就是一格恆綠,而本 RPC 是那些守門唯一的位置。
+
+20260820030000 ⇒ ERROR: A8a3 前置閘一:守門片(20260820020000)尚未 apply…先套守門片再回來。
+```
+
+**⇒ 三件事要記住:**
+
+**1. 看到這四支 FAIL,不要去追、不要去改 migration。** 它們正在照設計拒絕。
+   🔴 **「不要把這道斷言拿掉」是那些檔自己寫的** —— 而拋棄式環境是最容易讓人手癢拿掉它的地方
+   (反正是丟掉的庫)。**拿掉一次,那個習慣會跟著你回到正式庫。**
+
+**2. 🔴 它會讓你的結論相容於兩個世界,而你可能沒發現。**
+   例:量「非卡退款登記入口按下去會不會寫進一筆」⇒ 沒寫進去。
+   **那個「沒寫進去」同時相容於「閘擋住了」與「RPC 根本不存在」。**
+   ⇒ 下結論前先問:**我這次要驗的東西,它的 RPC / 表 / 約束在【我這顆庫裡】真的存在嗎?**
+```sql
+-- 存在性(函式)：不存在會回空，不會報錯 —— 所以【正向對照少不得】
+select proname, pg_get_function_arguments(oid) from pg_proc where proname = '<你要驗的函式>';
+select proname from pg_proc where proname = '<一支你確定在的函式>';   -- 正向對照：尺是活的
+```
+
+**3. 要讓它們套起來,順序要倒過來**(本檔沒有把這步寫進主流程,因為多數量測不需要):
+```
+①先跑 §1-§3（那四支會 FAIL，照舊）
+②種一張訂單 + 一位 staff。🔴 **會依序擋你四次**（2026-08-20 實際撞到的順序，逐個修才過）：
+     orders.invoice            CHECK orders_invoice_whitelist    type ∈ personal|company|donate，且只准 5 個鍵
+     orders.shipping_address…  CHECK orders_ship_addr_whitelist  必須【剛好】有 name+phone+line 三個鍵
+     order_items.product_snap… CHECK order_items_snapshot_whitelist  必須有 title+sku+spec，spec 是 object
+     order_payments.actor      **FK → staff(id)**（不是 CHECK）⇒ 要先 INSERT 一列 staff
+   ⚠️ 另外：`display_id` 的格式 CHECK 可能停在舊版（見 §3-a），舊格式是 `PCM-2026-0001` 這種
+③再單獨 psql -f 那四支（依序 020000 → 021000 → 022000 → 030000）
+```
+⚠️ **我(W4)沒有跑第 ③ 步** —— 2026-08-20 那次的三個量測不需要它。
+**所以「倒過來就會成功」是【推的】,不是量到的。** 誰跑通了回來把這行改掉。
+
 ---
 
 ## §4 PostgREST + 前綴代理 + 真後台
