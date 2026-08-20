@@ -25798,3 +25798,74 @@ done
 - **做什麼:** CSS 層(`.bd-hero-wall`、`.bd-grid` 的最後一排置中),屬於設計/CSS 工作、
   不是 DNA 這片的範圍。落地後可以視情況補一條「最後一排置中」的視覺回歸測試(非強制)。
 - **相關:** `BrandDirectoryRoot.test.tsx`(舊整除斷言拿掉處有留註解指回本條)
+
+### #793
+
+**`scripts/d3b-void-probe.sh` 不在 CI —— 沖銷 RPC 的行為驗證只有「有人記得跑」在守**
+
+- **🔴 觸發條件(不是「有空再做」,是這個時刻到了就要看本條):**
+  **有人要動 `admin_void_manual_refund`,或動 `pcm_order_refundable_remaining` 的三段 SUM 時。**
+- **現況(2026-08-20 片 D3-b `0e9c9b76` 落地時量到的):**
+  那支 RPC 的**行為**(冪等 / 換人必拒 / 作廢後可退餘額差額正好等於那一筆)
+  **只有 `scripts/d3b-void-probe.sh` 驗得到**,而它**不在 CI、不會自己紅**。
+  - migration 的 apply 期斷言**一輩子只跑一次**,而且只回答「我剛才那一發 DDL 做出我要的東西嗎」。
+  - `refund-remaining-single-source.test.ts` 每次 CI 都跑,而它比對的是**函式本體的字面**,不是行為。
+- **現有的兩個落點(而它們都要【有人打開那個檔】才會看到):**
+  ① `admin_void_manual_refund` 的 `COMMENT ON FUNCTION` 裡寫了腳本路徑
+  ② `refund-remaining-single-source.test.ts` 的檔頭寫了腳本路徑
+- **🔴 不修未來會痛在哪:**
+  有人改了那支 RPC 或那三段 SUM、四綠全綠、CI 全綠 —— 而**行為已經壞了而沒有任何東西會紅**。
+  最貴的方向是「作廢分流被拿掉」:已作廢的列重新被扣 ⇒ 可退餘額變小 ⇒ **客人少拿到錢,而畫面正常**。
+- **做什麼(兩條路,沒有裁定):**
+  甲 包成 vitest + 拋棄式 PG ⇒ 進 CI。代價:CI 要起 Postgres,而本 repo 目前沒有那個形狀。
+  乙 掛進某條既有的 CI 步驟或 pre-push。代價:跑起來要 ~20 秒,而它只在動那兩樣東西時有意義。
+- **⚠️ 這一條是我(W1)在 D3-b 收工時**自己標出來的已知缺口**,不是別人挑出來的** ——
+  而它現在有編號,所以它不會跟著那一夜一起消失。
+
+
+### #794 · 🔴 七支 `scripts/*-verify.sh` 會把訂單改回「未付款且未取消」—— 而沒有東西擋住它們被指到正式庫
+
+- **狀態:** 待處理(2026-08-20 W5 立;主視窗指定編號。來源=查「誰會把 `payment_status` 改回 `unpaid`」時撈到的例外,全文 `~/pcm-mailbox/W5-056-誰會把payment-status改回unpaid-20260820.md`)
+- **🔴 觸發條件(這一條的用途就是這一句):**
+  ```
+  **任何人要對一個【有真資料】的庫跑 scripts/*-verify.sh 之前,先讀這條。**
+  ```
+- **哪七支(逐字列出,不寫「幾支」):**
+  ```
+  scripts/352a2-verify.sh      scripts/a7c-rw1b-verify.sh   scripts/a7c-verify.sh
+  scripts/l3-verify.sh         scripts/l5b2-2e-verify.sh    scripts/op5-verify.sh
+  scripts/opa12-verify.sh
+  數法:git grep -lE "SET payment_status[[:space:]]*=?[[:space:]]*'unpaid'|payment_status='unpaid'" -- scripts
+  ```
+- **🔴 它們做什麼(逐字,不是摘要):**
+  ```
+  l3-verify.sh:297  UPDATE public.orders SET payment_status='unpaid', cancelled_at=NULL WHERE id = $PICK;
+  ⇒ 它**同時**把 payment_status 寫回 unpaid **並把 cancelled_at 清成 NULL**
+  ```
+- **🔴 不修未來會痛在哪:**
+  ```
+  ① 這條線的核心不變式是「**cancelled ⇒ 無 active attempt**」(20260809160000:192 COMMENT 逐字,
+     後果逐字寫著「**雙扣**」)
+  ⇒ 而上面那一行**可以把一張已取消的單變回「沒取消過」** —— 那正是雙扣防線守的東西
+  ② 而「已付款 → 未付款」這個轉移**沒有任何 CHECK / trigger 擋著**
+  ⇒ ⇒ 🔴 **「窗口不存在」這個結論的保鮮期,等於「沒有人寫那一行」的保鮮期。而那是慣例,不是機制。**
+  ③ 它們是 harness、預期跑在拋棄式庫 —— **而沒有任何東西擋住它們被指到正式庫**
+     (它們吃連線字串;指錯了不會報錯,會**成功**)
+  ```
+- **同族(指過去,不重寫):** `docs/patterns/mutation-harness-restore.md`
+  ```
+  那一條的病 = **用一個會殺掉還原的方式跑它**（來源:一份被突變的 migration 被 commit 進正式分支)
+  本條的病   = **用一個會指到正式庫的方式跑它**
+  ⇒ **同族不同格。** 兩者的共同形狀:harness 的破壞力與它的使用門檻不成比例。
+  ```
+- **可能的修法(未評估成本,不是結論):**
+  ```
+  甲 那七支開頭加一道「這個庫是不是拋棄式」的自檢(例:拒絕連到非 localhost / 檢查一個只有拋棄式庫才有的標記)
+  乙 把「寫回 unpaid」那幾行改成只在明確帶旗標時才跑
+  丙 DB 端加一道擋 paid → unpaid 的 trigger ⇒ 🔴 **代價最大**,而它會同時擋住那七支的正當用途
+  ```
+- **⚠️ 分母與射程(立條目時的量測):**
+  ```
+  掃描 = git grep（版控內、當前 checkout);正向對照 寫 'paid' ⇒ migrations 66 行;負向對照 一個不存在的值 ⇒ 0
+  🔴 未查:DB 端 trigger / rule、動態 SQL、未收割分支 ⇒ **「零命中」的射程止於 repo 內的字面**
+  ```
