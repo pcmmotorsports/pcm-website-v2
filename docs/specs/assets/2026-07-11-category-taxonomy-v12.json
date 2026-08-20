@@ -1514,6 +1514,102 @@
        "example": "正時檢查孔護蓋 貼紙版"
       }
      ]
+    },
+    {
+     "name": "機油與濾芯",
+     "cnt": 34,
+     "est": false,
+     "sources": [
+      {
+       "supplier": "dna",
+       "raw": "oil filter",
+       "raw_zh": "",
+       "old_major": "",
+       "cnt": 34,
+       "example": "報價單庫 2026-08-20 實查。🔴 掛在【引擎與冷卻】不是進氣系統 —— 機油濾芯跟進氣無關"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "進氣系統",
+   "cnt": 746,
+   "subs": [
+    {
+     "name": "空氣濾芯",
+     "cnt": 637,
+     "est": false,
+     "sources": [
+      {
+       "supplier": "dna",
+       "raw": "air filter / universal filter",
+       "raw_zh": "",
+       "old_major": "",
+       "cnt": 637,
+       "example": "報價單庫 2026-08-20 實查:air filter 545 + universal filter 92。🔴 universal filter 那 92 筆在 DNA 原文常叫 clamp(夾扣式安裝);判別=名字裡有 air filter 的就是濾筒"
+      }
+     ]
+    },
+    {
+     "name": "進氣上蓋",
+     "cnt": 65,
+     "est": false,
+     "sources": [
+      {
+       "supplier": "dna",
+       "raw": "stage 2 air box cover",
+       "raw_zh": "",
+       "old_major": "",
+       "cnt": 65,
+       "example": "報價單庫 2026-08-20 實查"
+      }
+     ]
+    },
+    {
+     "name": "進氣套件",
+     "cnt": 28,
+     "est": false,
+     "sources": [
+      {
+       "supplier": "dna",
+       "raw": "stage 3 air box kit",
+       "raw_zh": "",
+       "old_major": "",
+       "cnt": 28,
+       "example": "報價單庫 2026-08-20 實查"
+      }
+     ]
+    },
+    {
+     "name": "濾芯保養品",
+     "cnt": 7,
+     "est": false,
+     "sources": [
+      {
+       "supplier": "dna",
+       "raw": "service kit",
+       "raw_zh": "",
+       "old_major": "",
+       "cnt": 7,
+       "example": "報價單庫 2026-08-20 實查"
+      }
+     ]
+    },
+    {
+     "name": "管束配件",
+     "cnt": 9,
+     "est": false,
+     "sources": [
+      {
+       "supplier": "dna",
+       "raw": "clamp",
+       "raw_zh": "",
+       "old_major": "",
+       "cnt": 9,
+       "example": "報價單庫 2026-08-20 實查:**真管束只有 9 筆**。原本 79 筆被判成管束,其餘是夾扣式安裝的通用濾筒"
+      }
+     ]
     }
    ]
   },
@@ -3234,5 +3330,9 @@
  ],
  "total": 49843,
  "unmapped": 0,
- "version": "v1.2"
+ "version": "v1.2",
+ "provenance_notes": {
+  "2026-08-20_dna_intake": "新增大類「進氣系統」(5 子類)與子類「引擎與冷卻 · 機油與濾芯」。出處=報價單 repo 的 supabase/migrations/20260819230000_dna_taxonomy_v2.sql 與 20260820120000_consumable_flag_and_dna_subcats.sql(兩支皆已 push)。🔴 `total` **刻意沒有加上這 780 筆** —— 原本 total=49843 是 2026-07-11 那次分析的母體,而這 780 筆是 2026-08-20 在【報價單庫】量到的 DNA 商品數;兩者來自不同時點與母體,**相加會得到一個沒有意義的數**。⚠️ 而這些 cnt 是【報價單庫】的筆數,不是【網站庫】的 —— 網站這邊那批商品還沒匯入。",
+  "2026-08-20_not_included": "🔴 本次【沒有】跟進 is_consumable(來源匯出逐字把它標成「你們要不要跟進自行判斷」)—— 那是產品決策(要不要做耗材篩選頁),不在本次範圍,也沒有預留欄位。"
+ }
 }
