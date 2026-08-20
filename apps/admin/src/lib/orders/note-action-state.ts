@@ -104,8 +104,11 @@ export type NoteFailureCode =
 const FAILURE_MESSAGES: Record<NoteFailureCode, string> = {
   INVALID_TYPE: '備註類型不正確,請重新選擇。',
   INVALID_CHANNEL: '聯絡管道不正確,請重新選擇。',
-  CONTACT_FIELDS_REQUIRED: '聯絡紀錄與「已告知客人」必須填聯絡管道與聯絡時間。',
-  INTERNAL_FIELDS_FORBIDDEN: '內部備註不能填聯絡管道與聯絡時間(那兩欄留給聯絡類紀錄)。',
+  // 🔴 2026-08-19:表單的型別選項已改成「內部備註 / 客人聯繫 + 一個『這次有正式告知客人』勾選」
+  //    ⇒ 這句原本寫「聯絡紀錄與『已告知客人』」,而**畫面上已經沒有那兩個詞了**
+  //    ⇒ 錯誤訊息要用員工**看得到**的字,不是用 DB 的型別名(那是 `literal-sweep` 掃出來的)。
+  CONTACT_FIELDS_REQUIRED: '「客人聯繫」必須填聯絡管道與聯絡時間。',
+  INTERNAL_FIELDS_FORBIDDEN: '內部備註不能填聯絡管道與聯絡時間(那兩欄留給「客人聯繫」)。',
   OCCURRED_AT_OUT_OF_RANGE: '聯絡時間超出合理範圍,請確認年份。',
   OCCURRED_AT_IN_FUTURE: '聯絡時間不能填未來的時間。',
   INVALID_BODY: '備註內容不能空白,請填寫實際內容。',

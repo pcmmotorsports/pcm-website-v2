@@ -79,7 +79,7 @@ describe('NoteComposeForm — A10a-3', () => {
     const { container, getByLabelText } = render(
       <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
-    fireEvent.click(getByLabelText('聯絡紀錄'));
+    fireEvent.click(getByLabelText('客人聯繫'));
     const channel = container.querySelector<HTMLSelectElement>('select[name="channel"]');
     expect(channel?.required).toBe(true);
     expect(container.querySelector<HTMLInputElement>('input[type="datetime-local"]')?.required).toBe(true);
@@ -93,7 +93,7 @@ describe('NoteComposeForm — A10a-3', () => {
     const { container, getByLabelText } = render(
       <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
     );
-    fireEvent.click(getByLabelText('聯絡紀錄'));
+    fireEvent.click(getByLabelText('客人聯繫'));
     fireEvent.change(getByLabelText('聯絡時間(台北時間)'), {
       target: { value: '2026-08-02T14:30' },
     });
@@ -243,11 +243,40 @@ describe('NoteComposeForm — A10a-3', () => {
       <NoteComposeForm returnTo={RETURN_TO}
         orderId={ORDER_ID}
         serverToken={TOKEN}
-        correctTarget={{ ...TARGET, noteType: 'customer_notified', typeLabel: '已告知客人' }}
+        correctTarget={{ ...TARGET, noteType: 'customer_notified', typeLabel: '客人聯繫 · 已告知' }}
       />,
     );
-    expect((getByLabelText('已告知客人') as HTMLInputElement).checked).toBe(true);
+    // 🔴 二選一+勾選之後,「型別初值正確」要三格一起看 —— 少任一格都可能綠而錯:
+    //    只看 radio ⇒ 勾選漏掉時仍綠(而送出的會是 contact_log = 把告知證據降級成一般聯絡)
+    //    只看勾選   ⇒ radio 停在內部備註時仍綠(而管道/時間欄不會出現)
+    //    只看 hidden⇒ 畫面沒反映初值時仍綠(員工看到的是「內部備註」而送出的是告知)
+    expect((getByLabelText('客人聯繫') as HTMLInputElement).checked).toBe(true);
+    expect((getByLabelText('這次有正式告知客人') as HTMLInputElement).checked).toBe(true);
+    expect(container.querySelector<HTMLInputElement>('input[name="note_type"]')?.value).toBe(
+      'customer_notified',
+    );
     expect(container.querySelector('select[name="channel"]')).not.toBeNull();
+  });
+
+  it('[9b] 🔴 型別映射雙向:客人聯繫 ⇄ 勾選 ⇄ 內部備註,送出的 note_type 每一步都要對', () => {
+    const { container, getByLabelText } = render(
+      <NoteComposeForm returnTo={RETURN_TO} orderId={ORDER_ID} serverToken={TOKEN} correctTarget={null} />,
+    );
+    const sent = () => container.querySelector<HTMLInputElement>('input[name="note_type"]')?.value;
+    // 🔴 值域三值一個都沒動(DB CHECK 的鏡像)——合的是畫面,不是資料。
+    expect(sent()).toBe('internal');
+    fireEvent.click(getByLabelText('客人聯繫'));
+    expect(sent()).toBe('contact_log');
+    fireEvent.click(getByLabelText('這次有正式告知客人'));
+    expect(sent()).toBe('customer_notified');
+    // 🔴 回頭路(負向):取消勾選必須降回 contact_log,不能卡在 customer_notified ——
+    //    卡住的話員工以為只是聯絡一下,而寫進 append-only 的是一筆假的告知義務證據。
+    fireEvent.click(getByLabelText('這次有正式告知客人'));
+    expect(sent()).toBe('contact_log');
+    fireEvent.click(getByLabelText('內部備註'));
+    expect(sent()).toBe('internal');
+    // 內部備註不得出現告知勾選(它不可能是告知)
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
   });
 
   it('[10] MF2:correctionMissing → 警告顯示「會是新備註」、不進更正模式', () => {

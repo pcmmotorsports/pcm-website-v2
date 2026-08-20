@@ -356,15 +356,18 @@ export function OrderDetail({
           token 在本 server component 渲染期產(Q2=C;頁層 force-dynamic、此處零快取層 ——
           契約債①的「不得落快取層」就是指這一行)。
           key 綁更正目標:進出更正模式必 remount ⇒ noteType 初值恆新鮮(MF1)。 */}
-      <NotesTimeline detail={detail} orderId={detail.id} />
-      <NoteComposeForm
-        key={correctTarget?.id ?? 'compose-new'}
-        orderId={detail.id}
-        returnTo={returnTo}
-        serverToken={generateNoteRequestToken()}
-        correctTarget={correctTarget}
-        correctionMissing={correctNoteId !== null && correctTarget === null}
-      />
+      {/* 🔴 Sean 2026-08-19:兩塊合成**一張卡片**(原本是兩個平行的兄弟 = 他說的「拆成兩段」)。
+          合的是**外殼**:表單以 children 進到時間軸那張卡裡,兩支元件本身不合併(鐵則 6)。 */}
+      <NotesTimeline detail={detail} orderId={detail.id}>
+        <NoteComposeForm
+          key={correctTarget?.id ?? 'compose-new'}
+          orderId={detail.id}
+          returnTo={returnTo}
+          serverToken={generateNoteRequestToken()}
+          correctTarget={correctTarget}
+          correctionMissing={correctNoteId !== null && correctTarget === null}
+        />
+      </NotesTimeline>
 
       {cancelled && (
         <div className='border-destructive/30 bg-destructive/5 rounded-lg border p-4 text-sm'>

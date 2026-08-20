@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import type { AdminOrderDetail, AdminOrderNoteType } from '@pcm/domain';
 import {
@@ -97,10 +98,13 @@ function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: strin
 export function NotesTimeline({
   detail,
   orderId,
+  children,
 }: {
   detail: Pick<AdminOrderDetail, 'notes' | 'notesTruncated' | 'customerNotified'>;
   /** 更正入口 Link 用(`?correct=<id>`;A10a-3) */
   orderId: string;
+  /** 同卡下方的發文表單(A10a-3)。合的是外殼、不是元件 —— 見下方 children 處的註解。 */
+  children?: ReactNode;
 }) {
   const view = buildNoteTimeline(detail);
   // #328:整段沒讀到 ⇒ 徽章與下方橫幅都要說「讀取失敗」,不能畫成一條「尚無備註」的空時間軸。
@@ -127,6 +131,17 @@ export function NotesTimeline({
    *     等於用收合把 #328 修好的 bug 重新製造一次(換個位置犯)
    *   ③`truncated` —— 同理,「筆數超過載入上限、告知狀態無法判定」的警語必須露出
    */
+  /**
+   * 🔴 2026-08-19 W2:我一度在這裡加了第四個理由「有備註就展開」(讀 Sean 的
+   *    「如果有備註,會直接顯示在欄位下方」),而**那會讓 Q3=C 退化成「永遠展開」** ——
+   *    `notes-timeline.test.tsx:238` 那條**正向對照**寫得很清楚,它就是為了擋這件事而存在的。
+   *    ⇒ **不動。** 「有備註直接顯示 / 編輯要點擊」的對比,落在【列表 vs 表單】那一層,
+   *      由表單自己收合來滿足(見 `note-compose-form.tsx` 的 `<details>`),
+   *      不需要動這張卡的展開條件。此格若要改,是推翻 Q3=C,要 Sean 拍板。
+   * 🔴 主視窗 2026-08-19 裁 Q1=甲 的配套判準:
+   *    **任何「這裡的資料可能不完整」的警語,不得住在預設收合的容器裡**
+   *    ⇒ `unreadable` / `truncated` 兩條永不可拿掉。
+   */
   const defaultOpen = uncorrectedNotifiedCount > 0 || unreadable || view.truncated;
 
   return (
@@ -139,7 +154,10 @@ export function NotesTimeline({
         <span className='text-muted-foreground text-[10px] transition-transform group-open:rotate-90'>
           ▶
         </span>
-        <h2 className='text-muted-foreground text-xs font-medium'>備註與聯絡紀錄</h2>
+        {/* 🔴 「聯絡紀錄」→「客人聯繫」:Sean 要那個舊詞消失,而它原本還留在標題裡。
+            ⇒ 標題**不叫**「客人聯繫」(Q2=甲:這張卡還裝著內部備註,那不是客人聯繫),
+              但標題裡的那個詞要跟著全站統一,否則畫面上仍有兩種說法。 */}
+        <h2 className='text-muted-foreground text-xs font-medium'>備註與客人聯繫</h2>
         <span
           className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${NOTIFIED_BADGE[notified.state]}`}
         >
@@ -156,7 +174,7 @@ export function NotesTimeline({
             ? '筆數未知'
             : view.truncated
               ? `僅最新 ${view.entries.length} 筆`
-              : `${view.entries.length} 筆 · 已告知客人 ${uncorrectedNotifiedCount} 筆`}
+              : `${view.entries.length} 筆 · 已告知 ${uncorrectedNotifiedCount} 筆`}
           {!unreadable && newestFirst[0] && ` · 最後 ${newestFirst[0].createdAtDisplay}`}
         </span>
       </summary>
@@ -185,6 +203,12 @@ export function NotesTimeline({
           ))}
         </ul>
       )}
+
+      {/* 🔴 Sean 2026-08-19 逐字:「備註與聯絡紀錄 跟 新增備註 應該和再一起變一個功能卡片,
+          不應該拆成兩段」⇒ 表單以 children 進到**同一張卡**裡,而**元件不合併**
+          (兩支各 191 / 281 行,合起來 >400 = 鐵則 6 的拆檔線)。
+          ⇒ 這裡只合外殼,兩支各自的職責與測試都不動。 */}
+      {children}
       </div>
     </details>
   );

@@ -141,10 +141,20 @@ export function NoteComposeForm({
   const isContact = noteType !== 'internal';
 
   return (
-    <section id='note-compose' className='bg-card text-card-foreground rounded-lg border p-4'>
-      <h2 className='text-muted-foreground mb-3 text-xs font-medium'>
+    /* 🔴 Sean 2026-08-19 逐字:「我要編輯備註時候在點擊,就可以展開」⇒ 表單預設收起。
+       🔴 而**更正模式例外,必須展開** —— 更正是從時間軸點「更正」連過來的,
+          使用者已經表達了要編輯的意圖;收起來會讓他看到一片空白、以為連結壞了。
+          (`correctionMissing` 同理:那是一段警語,收起來等於沒寫。) */
+    <details
+      id='note-compose'
+      open={correctTarget !== null && correctTarget !== undefined ? true : correctionMissing}
+      className='group mt-3 rounded-lg border p-3'
+    >
+      <summary className='text-muted-foreground flex cursor-pointer items-center gap-2 text-xs font-medium'>
+        <span className='text-[10px] transition-transform group-open:rotate-90'>▶</span>
         {correctTarget ? '更正備註' : '新增備註'}
-      </h2>
+      </summary>
+      <div className='mt-3'>
 
       {correctionMissing && (
         <div
@@ -206,19 +216,51 @@ export function NoteComposeForm({
           <input type='hidden' name={NOTE_CORRECTS_FIELD} value={correctTarget.id} />
         )}
 
-        <div className='flex flex-wrap gap-4'>
-          {NOTE_TYPES.map((type) => (
-            <label key={type} className={RADIO_LABEL}>
+        {/* 🔴 Sean 2026-08-19 逐字:「聯絡紀錄 與 已告知客人 這兩個功能不是一樣的嗎?
+            應該留一個就好,寫 客人聯繫」⇒ **輸入端**收成二選一 + 一個勾選。
+            🔴🔴 而 `note_type` 的**值域一個字都沒動**(仍是三值,DB CHECK 的鏡像)——
+               主視窗 2026-08-19 裁「乙 不可合併」:`customer_notified` 是 U6 告知義務的
+               稽核證據,有專屬 partial index 與稽核合約(建表檔 `:154-179`),
+               合併會掉一本帳而**沒有東西會紅**。
+            ⇒ 這裡合的是**畫面**,不是資料。顯示端(時間軸膠囊)仍分得出兩型別。
+            📌 `NOTE_TYPES` 刻意不再被這裡消費,但**不得刪** —— 它是型別窮盡的守門
+               (`note-timeline.ts` 的 `Record<AdminOrderNoteType, string>`:
+                CHECK 加第四值 → 那裡立刻紅)。 */}
+        <input type='hidden' name={NOTE_TYPE_FIELD} value={noteType} />
+        <div className='flex flex-wrap items-center gap-4'>
+          <label className={RADIO_LABEL}>
+            <input
+              type='radio'
+              name='note_type_ui'
+              value='internal'
+              checked={noteType === 'internal'}
+              onChange={() => setNoteType('internal')}
+            />
+            {NOTE_TYPE_LABEL.internal}
+          </label>
+          <label className={RADIO_LABEL}>
+            <input
+              type='radio'
+              name='note_type_ui'
+              value='contact'
+              checked={isContact}
+              onChange={() => setNoteType('contact_log')}
+            />
+            客人聯繫
+          </label>
+          {/* 勾了才升級成告知義務的證據。只在「客人聯繫」下出現 —— 內部備註不可能是告知。 */}
+          {isContact && (
+            <label className={RADIO_LABEL}>
               <input
-                type='radio'
-                name={NOTE_TYPE_FIELD}
-                value={type}
-                checked={noteType === type}
-                onChange={() => setNoteType(type)}
+                type='checkbox'
+                checked={noteType === 'customer_notified'}
+                onChange={(event) =>
+                  setNoteType(event.target.checked ? 'customer_notified' : 'contact_log')
+                }
               />
-              {NOTE_TYPE_LABEL[type]}
+              這次有正式告知客人
             </label>
-          ))}
+          )}
         </div>
 
         {isContact && (
@@ -276,6 +318,7 @@ export function NoteComposeForm({
           </button>
         </div>
       </form>
-    </section>
+      </div>
+    </details>
   );
 }

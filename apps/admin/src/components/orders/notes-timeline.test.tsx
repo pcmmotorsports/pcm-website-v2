@@ -63,7 +63,7 @@ describe('NotesTimeline — A10a-2', () => {
     );
     expect(container.textContent).toContain('已更正(由 #2)');
     expect(container.textContent).toContain('更正 → #1');
-    expect(container.textContent).toContain('已告知客人');
+    expect(container.textContent).toContain('客人聯繫 · 已告知');
     expect(container.textContent).toContain('電話');
   });
 
@@ -183,8 +183,8 @@ describe('OD 片 1 — note_type 分色', () => {
       />,
     );
     const internal = badgeOf(container, '內部備註');
-    const contact = badgeOf(container, '聯絡紀錄');
-    const notified = badgeOf(container, '已告知客人');
+    const contact = badgeOf(container, '客人聯繫');
+    const notified = badgeOf(container, '客人聯繫 · 已告知');
     expect(new Set([internal, contact, notified]).size).toBe(3);
     // customer_notified = 告知義務稽核證據 ⇒ OD 逐字要求「最強的視覺份量」,不得是灰的。
     expect(notified).toContain('emerald');
@@ -208,10 +208,12 @@ describe('OD 片 1 — note_type 分色', () => {
       />,
     );
     const badges = [...container.querySelectorAll('span')].filter(
-      (el) => el.textContent === '已告知客人' && el.className.includes('rounded-full'),
+      (el) => el.textContent === '客人聯繫 · 已告知' && el.className.includes('rounded-full'),
     );
-    // 兩筆的類型膠囊 + 整單彙總徽章都叫「已告知客人」⇒ 至少 2 顆類型膠囊
-    expect(badges.length).toBeGreaterThanOrEqual(2);
+    // 🔴 2026-08-19 起,類型膠囊叫「客人聯繫 · 已告知」而**整單彙總徽章仍叫「已告知客人」**
+    //    (兩者答的是不同的問題:單筆型別 vs 整張單的狀態,見 note-timeline.ts 的註解)
+    //    ⇒ 這裡撈到的**恰好就是兩顆類型膠囊**,彙總徽章不再混進來 ⇒ 判準可以收緊成等於 2。
+    expect(badges.length).toBe(2);
     expect(new Set(badges.map((el) => el.className)).size).toBeLessThanOrEqual(2);
   });
 });
@@ -233,7 +235,7 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
       />,
     );
     expect(details(container).open).toBe(true);
-    expect(container.textContent).toContain('已告知客人 1 筆');
+    expect(container.textContent).toContain('已告知 1 筆');
   });
 
   it('🔴 正向對照:沒有告知紀錄時**要收起來**(否則 Q3=C 退化成「永遠展開」、精簡的目的沒達成)', () => {
@@ -248,7 +250,7 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
       />,
     );
     expect(details(container).open).toBe(false);
-    expect(container.textContent).toContain('1 筆 · 已告知客人 0 筆');
+    expect(container.textContent).toContain('1 筆 · 已告知 0 筆');
   });
 
   it('🔴 被更正掉的「已告知客人」不算數:誤選更正後不得再撐開、也不得計入筆數', () => {
@@ -268,7 +270,7 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
       />,
     );
     expect(details(container).open).toBe(false);
-    expect(container.textContent).toContain('已告知客人 0 筆');
+    expect(container.textContent).toContain('已告知 0 筆');
   });
 
   it('🔴 讀取失敗:必須展開(收起來 = 把「讀取失敗」紅字藏起來,等於換位置重犯 #328)+ 不顯示 0 筆', () => {
@@ -313,6 +315,6 @@ describe('OD 片 1 — 收合(Q3=C)', () => {
       />,
     );
     expect(container.textContent).toContain('僅最新 1 筆');
-    expect(container.textContent).not.toContain('已告知客人 1 筆');
+    expect(container.textContent).not.toContain('已告知 1 筆');
   });
 });

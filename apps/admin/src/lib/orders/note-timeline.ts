@@ -21,8 +21,14 @@ import { formatOrderDateTime } from './order-detail-view';
  */
 export const NOTE_TYPE_LABEL: Record<AdminOrderNoteType, string> = {
   internal: '內部備註',
-  contact_log: '聯絡紀錄',
-  customer_notified: '已告知客人',
+  // 🔴 Sean 2026-08-19 逐字:「聯絡紀錄 與 已告知客人 這兩個功能不是一樣的嗎?應該留一個就好,
+  //    寫 客人聯繫」。他要的是**不要有兩個看起來一樣的東西**,不是刪掉一種紀錄
+  //    (刪掉會掉 U6 告知義務那本帳 —— 主視窗 2026-08-19 裁「乙 不可合併」)。
+  //    ⇒ 兩顆膠囊改成**同一族的兩個層級**:一個是聯繫、一個是聯繫且正式告知。
+  //      看起來就是同一件事的兩種強度,而不是兩個功能。
+  // 🔴 用他的字(客人聯繫)= 鐵則 1 的字面紀律:他命名了,就用他的名字。
+  contact_log: '客人聯繫',
+  customer_notified: '客人聯繫 · 已告知',
 };
 
 /** channel 標籤(值域 = CHECK 五值;internal 恆 null、由配對規則 CHECK 保證,顯示層不重驗)。 */
@@ -178,6 +184,11 @@ export function describeCustomerNotified(
         : '無法判定(備註筆數超過載入上限,告知紀錄可能不在已載入範圍)',
     };
   }
+  // 🔴 2026-08-19:這三個字面**刻意沒有**跟著 `NOTE_TYPE_LABEL` 改成「客人聯繫 · …」。
+  //    它答的是**整張單**的問題(「這一單告知過客人了嗎」),不是「這一筆是什麼型別」——
+  //    Sean 說「留一個」時指名的是**那兩個型別**,不是這顆狀態徽章。
+  //    ⇒ 把它一起改,等於把【單層狀態】與【單筆型別】混成同一個詞,
+  //      而那正是本次要避免的那種混淆(只是換個方向犯)。
   return value
     ? { state: 'notified', label: '已告知客人' }
     : { state: 'not_notified', label: '尚未告知客人' };
