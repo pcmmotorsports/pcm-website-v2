@@ -18,11 +18,12 @@ vi.mock('server-only', () => ({}));
 const COMPOSITION_SOURCE = readFileSync(new URL('./composition.ts', import.meta.url), 'utf8');
 
 // 🔴 vi.mock 工廠會被 hoist 到檔頂 → 其引用的常數必須走 vi.hoisted(否則 ReferenceError:早於初始化)。
-const { outboxCtor, senderCtor, scannerCtor, serviceClientSpy, SERVICE_CLIENT, SYNTHETIC_DOMAIN } =
+const { outboxCtor, senderCtor, scannerCtor, ineligibleScannerCtor, serviceClientSpy, SERVICE_CLIENT, SYNTHETIC_DOMAIN } =
   vi.hoisted(() => ({
     outboxCtor: vi.fn(),
     senderCtor: vi.fn(),
     scannerCtor: vi.fn(), // 🔴 B-5:掃描式 enqueue 的 adapter
+    ineligibleScannerCtor: vi.fn(), // 🔴 E2a-2(W3-G):寄送前 ineligible gate 的 adapter
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
     SYNTHETIC_DOMAIN: 'line.pcmmotorsports.local',
@@ -32,16 +33,18 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabaseEmailOutboxAdapter: outboxCtor,
   ResendEmailSenderAdapter: senderCtor,
   SupabasePaidOrderScannerAdapter: scannerCtor,
+  SupabaseIneligibleOrderEmailScannerAdapter: ineligibleScannerCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 vi.mock('@/lib/auth/line', () => ({ LINE_SYNTHETIC_EMAIL_DOMAIN: SYNTHETIC_DOMAIN }));
 
-import { getEnqueueOrderCreatedDeps, getSweepEmailOutboxDeps } from './composition';
+import { getApplyOrderIneligibleGateDeps, getEnqueueOrderCreatedDeps, getSweepEmailOutboxDeps } from './composition';
 
 beforeEach(() => {
   outboxCtor.mockReset();
   senderCtor.mockReset();
   scannerCtor.mockReset();
+  ineligibleScannerCtor.mockReset();
   serviceClientSpy.mockReset().mockReturnValue(SERVICE_CLIENT);
   process.env.RESEND_API_KEY = 'test-resend-key';
   process.env.ORDER_EMAIL_FROM = 'orders@test.example';
@@ -143,6 +146,27 @@ describe('getEnqueueOrderCreatedDeps — 不吃 Resend env(這是它存在的全
 
   it('🔴 lazy 契約:本 factory 一顆 env 都不讀(source-contract)', () => {
     const fn = COMPOSITION_SOURCE.slice(COMPOSITION_SOURCE.indexOf('export function getEnqueueOrderCreatedDeps'));
+    expect(fn).not.toContain('requireEnv');
+    expect(fn).not.toContain('process.env');
+  });
+});
+
+// ── 🔴 M-4a E2a-2(W3-G 拆出):gate 的 deps 也刻意不共用 sweeper 的 ──
+describe('getApplyOrderIneligibleGateDeps — 不吃 Resend env(同 enqueue 的理由:本片不寄信)', () => {
+  it('🔴 `RESEND_API_KEY` / `ORDER_EMAIL_FROM` 都不存在 ⇒ 仍然建得出 deps、不 throw', () => {
+    delete process.env.RESEND_API_KEY;
+    delete process.env.ORDER_EMAIL_FROM;
+
+    const deps = getApplyOrderIneligibleGateDeps();
+
+    expect(Object.keys(deps).sort()).toEqual(['outbox', 'scanner']); // 🔴 沒有 sender
+    expect(senderCtor).not.toHaveBeenCalled();
+    expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { syntheticEmailDomain: SYNTHETIC_DOMAIN });
+    expect(ineligibleScannerCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
+  });
+
+  it('🔴 lazy 契約:本 factory 一顆 env 都不讀(source-contract)', () => {
+    const fn = COMPOSITION_SOURCE.slice(COMPOSITION_SOURCE.indexOf('export function getApplyOrderIneligibleGateDeps'));
     expect(fn).not.toContain('requireEnv');
     expect(fn).not.toContain('process.env');
   });

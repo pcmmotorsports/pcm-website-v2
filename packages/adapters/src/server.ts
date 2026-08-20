@@ -103,6 +103,12 @@ export {
   type PaidOrderScannerClient,
   type ScanStage,
 } from './email/SupabasePaidOrderScannerAdapter';
+// 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate 的窄讀 adapter。
+// 零 PII(只回 id/orderId),client 注入 service_role,鏡像 SupabasePaidOrderScannerAdapter 的邊界。
+export {
+  SupabaseIneligibleOrderEmailScannerAdapter,
+  type IneligibleOrderEmailScannerClient,
+} from './email/SupabaseIneligibleOrderEmailScannerAdapter';
 export {
   ResendEmailSenderAdapter,
   type ResendEmailSenderConfig,

@@ -48,6 +48,13 @@ export { initiatePayment, type InitiatePaymentDeps } from './initiate-payment';
 // M-3 3DS-1b:對帳脊椎 use-case(settleCharge、三路 callback/webhook/sweeper + retry 共呼冪等、
 // Record API 唯一權威;master plan v5 §1)。
 export { settleCharge, type SettleChargeDeps } from './settle-charge';
+// M-4b 請款狀態重讀(backlog #785;新造一條路、不動 settleCharge 的 paid 短路)
+export {
+  recheckCaptureState,
+  type RecheckCaptureStateDeps,
+  type RecheckCaptureStateInput,
+  type RecheckCaptureStateResult,
+} from './recheck-capture-state';
 
 // M-3 3DS-4b-2:sweeper 兜底 use-case(sweepSettlements、週期 cron〔3DS-4c〕掃 inbox+stuck 兩來源 →
 // settleCharge 共呼、每輪前置守衛 expire×2+flag、per-order 去重、有界並發、單筆 fail-closed;plan §5.2)。
@@ -112,3 +119,13 @@ export {
   type EnqueueOrderCreatedEmailsOptions,
   type EnqueueOrderCreatedEmailsResult,
 } from './enqueue-order-created-emails';
+
+// 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate,擋「排進佇列後、真正寄出前
+// 才被取消」的窗口。獨立 cron route,跑在 sweepEmailOutbox 之前但**不掛進**它的 route ——
+// 歸屬邊界見 sweep-email-outbox.test.ts:53 的預設 mock(reject,證明 E2a-b 不呼叫此路徑)。
+export {
+  applyOrderIneligibleGate,
+  type ApplyOrderIneligibleGateDeps,
+  type ApplyOrderIneligibleGateOptions,
+  type ApplyOrderIneligibleGateResult,
+} from './apply-order-ineligible-gate';

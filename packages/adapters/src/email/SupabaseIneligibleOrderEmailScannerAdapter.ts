@@ -1,0 +1,103 @@
+/**
+ * @module @pcm/adapters/email/SupabaseIneligibleOrderEmailScannerAdapter — 寄送前 ineligible gate 的窄讀 adapter
+ * (M-4a E2a-2、W3-G 拆出)
+ *
+ * 實作 `IIneligibleOrderEmailScanner`。client 注入 **service_role**;本 class 不持金鑰、不做
+ * authorization,只能由 server-side 受控模組組裝(export 走 `@pcm/adapters/server`)。
+ *
+ * 🔴 **兩查詢、不做 anti-join**(對照 `SupabasePaidOrderScannerAdapter` 的單查詢 anti-join):
+ * `attempts < max_attempts` 是欄對欄比較、PostgREST 不支援,due 掃描本來就得先取大窗、app 層
+ * 過濾(鏡像 `SupabaseEmailOutboxAdapter.claimDue` 的 `DUE_SCAN_CAP` 手法)。第二查詢(orders
+ * 合格性)沒有理由再疊進同一次 PostgREST 呼叫換取不確定的 embed-filter 語意。
+ *
+ * 🔴 述詞照 plan 拍板原文(`docs/specs/2026-07-16-m4a-email-notify-plan.md:362`),不自己判:
+ * `payment_status='refunded' OR cancelled_at IS NOT NULL`。**不含 `partiallyRefunded`**。
+ *
+ * ⚠️ **效度限定(引用本段請一起帶走)**:單元測試只驗**查詢字面**(mock 不執行 PostgREST 過濾
+ * 語意,見 `SupabasePaidOrderScannerAdapter.ts` 檔頭同款限定)。`.or('payment_status.eq.refunded,
+ * cancelled_at.not.is.null')` 的實際過濾結果**未在正式站或拋棄式 PostgREST 上實測過** ——
+ * 上線前應比照 `docs/specs/2026-08-15-1-p0-postgrest-or-semantics.md` 的方法,造幾張不同狀態的
+ * 訂單逐筆核對它們各自落在哪一邊。
+ *
+ * @see docs/specs/2026-07-16-m4a-email-notify-plan.md §4.1(:329)/ E2a-2 表列(:362)
+ * @see packages/adapters/src/email/SupabaseEmailOutboxAdapter.ts(DUE_SCAN_CAP 手法出處)
+ */
+import 'server-only';
+
+import type { IIneligibleOrderEmailScanner, DueIneligibleEmailJob } from '@pcm/ports';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import type { Database } from '../supabase/database.types';
+
+export type IneligibleOrderEmailScannerClient = SupabaseClient<Database>;
+
+/** 可被認領的狀態(鏡像 `SupabaseEmailOutboxAdapter` 的 `CLAIMABLE_STATUSES`,同一張表、同一個合約)。 */
+const CLAIMABLE_STATUSES = ['pending', 'failed'] as const;
+
+/**
+ * due 掃描單次取列上限(理由與 `SupabaseEmailOutboxAdapter.DUE_SCAN_CAP` 相同:
+ * `attempts < max_attempts` 欄對欄比較 PostgREST 做不到、需大窗 + app 層過濾)。
+ *
+ * 🔴 **已知殘餘風險(codex 關卡2 must-fix,已知悉未收斂,鏡像 `SupabaseEmailOutboxAdapter` 對同一
+ * 天花板的既有立場)**:若死列(`attempts>=max_attempts`)佔滿整個 200 列窗口,窗口外的
+ * 活躍不合格候選那一輪掃不到。取 `.order('next_retry_at', { ascending: true })`
+ * 讓最舊(=最可能死透)的列先進窗口,理由與 `claimDue` 相同。
+ * **PCM 現行量級**(每日數十封)下死列數遠低於 200,且死列早已被 dead-man 訊號 2 告警
+ * (`status IN (pending,failed) AND attempts >= max_attempts`);正解是清理 job(backlog #281),
+ * 不是放大窗口。若量級成長使天花板不再安全,要重新評估的是這裡,不是靜默接受。
+ */
+const DUE_SCAN_CAP = 200;
+
+/** orders 合格性查詢的 `.or()` 述詞(PostgREST filter 語法;不含使用者輸入,靜態字面安全)。 */
+const INELIGIBLE_ORDER_FILTER = 'payment_status.eq.refunded,cancelled_at.not.is.null';
+
+type DueOutboxRow = {
+  id: string;
+  order_id: string;
+  attempts: number;
+  max_attempts: number;
+};
+
+export class SupabaseIneligibleOrderEmailScannerAdapter implements IIneligibleOrderEmailScanner {
+  constructor(private readonly client: IneligibleOrderEmailScannerClient) {}
+
+  async listDueIneligible(limit: number): Promise<DueIneligibleEmailJob[]> {
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error(`listDueIneligible limit 必須是 ≥1 的整數(收到 ${String(limit)})`);
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: dueRows, error: dueError } = await this.client
+      .from('email_outbox')
+      .select('id, order_id, attempts, max_attempts')
+      .in('status', CLAIMABLE_STATUSES)
+      .lte('next_retry_at', nowIso)
+      .order('next_retry_at', { ascending: true }) // 🔴 最舊(最可能死透)的列先進窗口,見 DUE_SCAN_CAP 檔頭
+      .limit(Math.max(limit, DUE_SCAN_CAP));
+    if (dueError) {
+      throw new Error(`ineligible gate:email_outbox due 掃描失敗(${dueError.code ?? 'unknown'})`);
+    }
+
+    const candidates = ((dueRows ?? []) as DueOutboxRow[]).filter((row) => row.attempts < row.max_attempts);
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    const orderIds = [...new Set(candidates.map((row) => row.order_id))];
+    const { data: ineligibleOrders, error: orderError } = await this.client
+      .from('orders')
+      .select('id')
+      .in('id', orderIds)
+      .or(INELIGIBLE_ORDER_FILTER);
+    if (orderError) {
+      throw new Error(`ineligible gate:orders 合格性查詢失敗(${orderError.code ?? 'unknown'})`);
+    }
+
+    const ineligibleOrderIds = new Set((ineligibleOrders ?? []).map((row) => (row as { id: string }).id));
+    const result = candidates
+      .filter((row) => ineligibleOrderIds.has(row.order_id))
+      .slice(0, limit)
+      .map((row) => ({ id: row.id, orderId: row.order_id }));
+    return result;
+  }
+}

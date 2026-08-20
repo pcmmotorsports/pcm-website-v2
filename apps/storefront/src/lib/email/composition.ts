@@ -14,11 +14,12 @@
 //    故由本 composition 注入(SupabaseEmailOutboxAdapter 建構參數必填無預設)。
 
 import 'server-only';
-import type { EnqueueOrderCreatedEmailsDeps, SweepEmailOutboxDeps } from '@pcm/use-cases';
+import type { ApplyOrderIneligibleGateDeps, EnqueueOrderCreatedEmailsDeps, SweepEmailOutboxDeps } from '@pcm/use-cases';
 // eslint-disable-next-line no-restricted-imports -- 受控例外(鏡像 payment/composition.ts):composition root 注入 email server-only adapter;SupabaseEmailOutboxAdapter 持 service_role client(email_outbox 含 recipient_email PII)、ResendEmailSenderAdapter 持 RESEND_API_KEY、皆 server-only 不進 client bundle。
 import {
   SupabaseEmailOutboxAdapter,
   SupabasePaidOrderScannerAdapter,
+  SupabaseIneligibleOrderEmailScannerAdapter,
   ResendEmailSenderAdapter,
   createSupabaseServiceClient,
 } from '@pcm/adapters/server';
@@ -76,5 +77,25 @@ export function getEnqueueOrderCreatedDeps(): EnqueueOrderCreatedEmailsDeps {
       syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN,
     }),
     scanner: new SupabasePaidOrderScannerAdapter(createSupabaseServiceClient()),
+  };
+}
+
+/**
+ * 建 `ApplyOrderIneligibleGateDeps`(M-4a E2a-2、W3-G 拆出:寄送前 ineligible gate;
+ * **獨立 cron route,不掛 email-sweep**——歸屬邊界見 sweep-email-outbox.test.ts:53)。
+ *
+ * 🔴🔴 **刻意【不共用】`getSweepEmailOutboxDeps()`**(同 `getEnqueueOrderCreatedDeps` 的理由):
+ *    那支會強制檢查 Resend 兩顆 env、缺就 throw。本片只需要 claimById/markSkippedOrderIneligible,
+ *    不寄任何信,不該被 Resend env 卡住。
+ * 🔴 lazy 契約同檔頭:本 factory 零 env 讀取。
+ * 🔴 outbox 與 scanner 共用 service_role(scanner 讀 email_outbox + orders,零 PII 回傳——只回
+ *    id/orderId,見 port 檔頭)。
+ */
+export function getApplyOrderIneligibleGateDeps(): ApplyOrderIneligibleGateDeps {
+  return {
+    outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
+      syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN,
+    }),
+    scanner: new SupabaseIneligibleOrderEmailScannerAdapter(createSupabaseServiceClient()),
   };
 }
