@@ -51,12 +51,13 @@ describe('BrandDirectoryRoot · 結構', () => {
     expect(odd.map((b) => b.slug).sort()).toEqual(['gilles', 'motogadget', 'samco']);
   });
 
-  it('🔴 家數與版面欄數綁在一起:20 能被牆的 10 / 5 / 4 整除(設計稿 :66-67 逐字的理由)', () => {
-    // 整除不成立時最後一排會缺一角,設計稿說那看起來像「沒做完」而不是「排不下」。
-    for (const cols of [10, 5, 4]) {
-      expect(SLUGS.length % cols, `${SLUGS.length} 家不能被 ${cols} 欄整除 ⇒ 牆會缺角`).toBe(0);
-    }
-  });
+  // 🔴 舊斷言(20 能被 10/5/4 整除)已於 2026-08-20 拿掉,不是改家數也不是等 CSS:
+  //    前提是「家數固定在 20」,而 20–39 之間任何家數都缺角(下一個整除值 LCM(10,5,4)=40)
+  //    ⇒ 那條斷言等於「禁止新增品牌」,前提已死。Sean 2026-08-20 裁乙:最後一排改置中,
+  //    整除從此不是需求(CSS 落地 = backlog #792,不在本測試範圍)。
+  //    改守「牆上渲染的品牌數 = BRAND_CONTENT 的家數」——這條在任何家數下都活著,
+  //    本檔已有兩處在守(line 41 的 `.bd-hero-wall`、下面「格子」那組的 `.bd-grid`),
+  //    不重複開一條。
 
   it('🔴 家數字面由資料求值,不是寫死的 20(兩處:hero 註腳與格子標頭)', () => {
     const { container } = render(<BrandDirectoryRoot availableSlugs={ALL} />);

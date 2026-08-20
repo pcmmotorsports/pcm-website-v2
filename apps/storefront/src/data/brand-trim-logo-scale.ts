@@ -33,6 +33,10 @@ export const BRAND_TRIM_LOGO_SCALE: Readonly<Record<string, number>> = {
   bonamici: 0.96,
   'cnc-racing': 1.1,
   dbk: 0.84,
+  // 🔴 dna 是預設值 1,不是校過的值 —— OD `brand-directory.html` 的 BRANDS 陣列沒有 DNA
+  // 這一行(2026-08-20 查證,查無)。`1` 與「校出來剛好是 1」在這裡長得一模一樣,寫這句
+  // 就是為了不讓下一個人誤讀。拿到 DNA 原廠素材包時一併目視重校(backlog #788)。
+  dna: 1,
   'eazi-grip': 0.9,
   ebc: 1.04,
   evotech: 1.22,

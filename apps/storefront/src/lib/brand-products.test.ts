@@ -41,9 +41,9 @@ const DISTINCT_CATEGORY_NAMES = [...new Set(ALL_CATEGORY_REFS.map(([name]) => na
 const SLUGS = BRAND_CONTENT.map((b) => b.slug).sort();
 
 describe('#315 設計側契約 · 品牌 slug(pbrand 軸)', () => {
-  it('🔴 20 個 slug 的清單被釘住 —— 改動時必須重新比對真目錄', () => {
+  it('🔴 21 個 slug 的清單被釘住 —— 改動時必須重新比對真目錄', () => {
     expect(SLUGS).toEqual([
-      'akrapovic', 'bonamici', 'cnc-racing', 'dbk', 'eazi-grip', 'ebc', 'evotech',
+      'akrapovic', 'bonamici', 'cnc-racing', 'dbk', 'dna', 'eazi-grip', 'ebc', 'evotech',
       'extreme', 'front3d', 'gb-racing', 'gilles', 'k-speed', 'kineo', 'lightech',
       'materya', 'motogadget', 'rizoma', 'rpm-carbon', 'samco', 'wrs',
     ]);

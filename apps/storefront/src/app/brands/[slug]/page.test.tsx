@@ -88,8 +88,8 @@ const markupFor = async (slug: string) => {
 };
 
 describe('/brands/[slug] · 前提', () => {
-  it('🔴 20 家真資料;`slogan` 每家都非空(頁尾標語的資料來源,空的話下面那條會恆真)', () => {
-    expect(BRAND_CONTENT).toHaveLength(20);
+  it('🔴 21 家真資料;`slogan` 每家都非空(頁尾標語的資料來源,空的話下面那條會恆真)', () => {
+    expect(BRAND_CONTENT).toHaveLength(21);
     for (const brand of BRAND_CONTENT) {
       expect(brandRichTextToPlain(brand.slogan).trim(), brand.slug).not.toBe('');
       expect(brandRichTextToPlain(brand.lede).trim(), brand.slug).not.toBe('');

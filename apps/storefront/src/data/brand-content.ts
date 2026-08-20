@@ -1,4 +1,4 @@
-// brand-content.ts — 品牌介紹頁內容資料(20 家)【機器產生,不要手改】
+// brand-content.ts — 品牌介紹頁內容資料(21 家)【機器產生,不要手改】
 //
 // 🔴 本檔由設計側唯一資料來源**求值產生**,不是手抄的:
 //    來源 = Open Design `pcm-home-redesign/brand-content-data.js`(1202 行、window.PCM_BRANDS;2026-08-04 materya video 回寫後行數)
@@ -37,22 +37,23 @@
 //    · 🔴 Kineo 的齒盤說法**與官網相反是刻意的**:官網 FAQ 寫「原廠齒盤可沿用」,
 //      Sean 2026-08-03 更正為「Kineo 隨輪組供應專用齒盤」。不要照官網改回去。
 //
-// 🔴🔴 **手改一處、OD 來源尚未回寫(D3c-4,2026-08-05)**:KINEO 的 `categories` 由
-//    `輪框與傳動` 改成 **`懸吊與車架 · 輪圈`**,依 **Sean 2026-08-05 拍板 Q3=A / Q4=A**。
-//    ⚠️ **照上面那條指令重新產生會把它改回去** —— OD `brand-content-data.js` 那一格仍是舊字面。
-//    為什麼要改:`輪框與傳動` 在正式商品目錄的兩層 taxonomy **都查無**,而
+// ✅ **KINEO `categories` 的 OD 回寫債已還清(2026-08-20;⚠️ 這裡舊註解曾誤植 backlog
+//    #322——查證後 #322 範圍是 CSS selector/token 對 OD 的偏離、不含這個欄位,且 #322
+//    本身仍待執行、不因這次同步而結案;這格沒有專屬 backlog 編號,根因追 #315)**:欄位是
+//    `[["懸吊與車架 · 輪圈",0]]`,依 **Sean 2026-08-05 拍板 Q3=A / Q4=A**。
+//    背景:`輪框與傳動`(舊字面)在正式商品目錄的兩層 taxonomy **都查無**,而
 //    `parseCategoryFromUrl` 比對不到時是**靜默退回不篩選**(客人按了看到該品牌全部商品、
 //    零錯誤訊息;backlog #315)。新字面是「大類 · 子類」兩層形式,分隔符逐字是
 //    ` · `(空格 + U+00B7 + 空格),與 `products-url-state.tsx` 的 `CATEGORY_URL_SEPARATOR` 同。
 //    2026-08-05 真瀏覽器實測:該值篩到 **8 件**(= 輪圈子分類),對照只填大類是 202 件。
-//    守門 = `lib/brand-products.test.ts` 有一條會紅(它同時釘新字面與「舊字面必須消失」),
-//    所以重新產生**不會靜默**;但仍請**先回寫 OD** 再重新產生。回寫債 = backlog **#322**。
-//    ⚠️ **2026-08-06 標點遷移片實際踩到了**:重產出來的 KINEO 又是 `輪框與傳動`(OD 仍未回寫),
-//    重產時已**重新套回** `懸吊與車架 · 輪圈`。
-//    ⚠️ 前一版這裡寫「並斷言 OD 端仍是舊值,#322 回寫後那句斷言會紅」——**那條斷言不存在**
-//    (R1 抓到;測試讀不到 repo 外的 OD 檔,結構上也做不到)。實情是:重產腳本是一次性的,
-//    #322 回寫之後請**人工**比對一次,再決定是否拿掉這段覆寫。
-//    repo 內真正守得住的是 `brand-content.test.ts` 那條「KINEO 是拍板字面、舊字面必須消失」。
+//    🔴 **舊狀態(2026-08-05~2026-08-20)**:OD 來源那一格仍是舊字面,每次重產都要手動把
+//    這一格覆寫回拍板值,2026-08-06 標點遷移片就實際踩過一次(重產出來又變回 `輪框與傳動`,
+//    重產時重新套回)。**2026-08-20 直接把 OD 來源那一格改成拍板值**(取代第三次手動覆寫),
+//    node --check + 家數/slug 相異數核對過、與重產後的 diff 只剩 DNA 新增那一段(零第三處差異)
+//    ⇒ **本片起,重產不再需要手動覆寫這一格**——若哪天重產又出現 `輪框與傳動`,代表 OD
+//    來源被改回舊值了,不是這裡的機制退化,回頭查 OD 端發生了什麼。
+//    守門仍在:`lib/brand-products.test.ts` 有一條釘住新字面、斷言舊字面必須消失,
+//    這條測試不會因為本次回寫而失效,是這件事真正的保護,不是這段註解。
 //
 // ✅ **materya `video` 區塊已回寫 OD 來源、兩邊一致**(2026-08-04 主視窗執行,Sean 拍 #319 Q2=A):
 //    D2f 當天這裡曾是「手改、與來源不同步」——重新產生會把 Sean 指定的影片(IG reel DVeM7gWDB3F)
@@ -61,6 +62,20 @@
 //      OD 預覽該格播不動是正常的;資料契約以 `brand-content-data.js` 為準。
 //    守門 = `brand-content.test.ts` 的「materya 的 About 右欄影片還在」那條**保留當回歸**
 //      (它擋的是「有人改 OD 來源把這筆刪了再重新產生」的路)。
+//
+// 🆕 **DNA(第 21 家,2026-08-20)**:先寫進 OD 來源(第 21 家、插在 dbk 與 eazi-grip 之間),
+//    再照上面那條指令重產貼回本檔,不是手改。`categories` 欄位刻意留空陣列——品牌頁既有的
+//    12 個分類 chip 裡沒有一個對得上「空氣濾清器/進氣」,不能猜(KINEO 前例已經證明猜錯的
+//    後果是靜默不篩選),留給另一片決定要加第 13 個 chip 還是用別的做法。`stats`/`timeline`/
+//    `video`/`aside.title`/`aside.note` 亦刻意不填,理由見 `~/pcm-mailbox/W3-O-DNA品牌頁內容-
+//    可貼版-20260820.md`(交件檔,含逐項「查無」清單與分母)。
+//    🔴 `focus.enabled: false`(主視窗 2026-08-20 裁定):`brand-focus.ts`(首頁「本月聚焦」
+//    輪播)沒有 DNA 的 overlay 條目、OD `brand-focus-data.js` 也查無 ⇒ 進輪播池會讓 title
+//    退化成裸品牌名、photo 是 null 整欄不渲染,是客人看得到的首頁。既有 20 家 `enabled` 全是
+//    true,本欄第一次出現 false——用的是既有機制(`pool = filter(b => b.focus?.enabled)`,
+//    OD 自己的邏輯逐字搬),不是新發明。等有人把真的 focus 內容寫進 OD 來源、真權威補齊,
+//    才能翻回 true(屆時記得同時把 `BrandPageRoot`/`BrandPageAbout` 那幾條「三分流」測試
+//    的 `neither` 分母重算——DNA 翻回 true 不影響那幾條,那是 About 右欄不是首頁輪播)。
 //
 // L2 內容分級(鐵則 9、backlog #271):四則事實與兩段介紹目前 hardcode、無後台 CRUD。
 
@@ -675,6 +690,95 @@ export const BRAND_CONTENT: BrandContent[] = [
     "focus": {
       "enabled": true,
       "order": 3
+    }
+  },
+  {
+    "slug": "dna",
+    "name": "DNA",
+    "country": "希臘",
+    "origin": "希臘 · Mandra Attika",
+    "lede": "希臘的高性能空氣濾清器製造商，以多層棉紗浸油濾材與自有氣流實驗室，供應機車、汽車與賽事用進氣濾清。",
+    "wallTagline": "空氣濾清器、進氣系統",
+    "slogan": "擋得住沙，<br>也讓得開空氣。",
+    "band": {
+      "src": "assets/brands-hero/dna.jpg",
+      "alt": "十幾顆 DNA 濾芯平鋪俯拍",
+      "focus": "center 55%"
+    },
+    "bandLogo": "assets/brands-dark/dna.png",
+    "logoScale": 1,
+    "facts": [
+      [
+        "Made in",
+        "希臘 Mandra Attika",
+        "Papakosta 工業區自有廠房"
+      ],
+      [
+        "Plant",
+        "1,300 m²",
+        "含 R&D、模具、三條產線與品管"
+      ],
+      [
+        "Export",
+        "逾 42 國",
+        "約 95% 外銷、5% 內銷希臘"
+      ],
+      [
+        "Design",
+        "Red Dot 2012 · 2017",
+        "Product Design Award 兩度獲獎"
+      ]
+    ],
+    "about": {
+      "lead": "<strong>濾材的做法，抄自人的呼吸道。</strong>DNA 用的是多層棉紗浸油濾材——上了專用油的棉紗微纖維，功能等同鼻腔裡那些沾著黏液的纖毛：空氣穿過時產生短距離靜電，把灰塵吸附在纖維上。<br><br>官方給的數字是：<strong>微纖維之間的間隙可達 150 微米，而 5 微米的微塵仍會改變路徑黏上去</strong>。而第一層附著的灰塵會吸走一點油、自己也帶上靜電，於是它也成為濾材的一部分。",
+      "pull": "擋得住的不是網目，是靜電。",
+      "tail": "<strong>廠在雅典西北的 Mandra Attika,1,300 平方米。</strong>裡面有 R&D、模具與工具部門、三條濾清器產線、品管與複合材料部門。約 95% 的產出外銷、賣到 42 個以上的國家。<br><br><strong>官方稱在 Rally Dakar 實測過</strong>——橫越阿根廷、翻過安地斯山、進 Atacama 沙漠，對付當地細如粉塵的 fesh-fesh,官方說法是表現優於泡棉濾網。"
+    },
+    "highlights": {
+      "title": "為什麼是 DNA",
+      "lead": "進氣的難處在於：要讓空氣多進來，又不能讓沙一起進來。DNA 的路線是靠上油棉紗的靜電吸附，而不是把網目做細。",
+      "cards": [
+        {
+          "t": "靜電吸附，不是靠細網目",
+          "d": "官方數字：纖維間隙可達 150 微米，而 5 微米的微塵仍會被吸附。孔隙大 ⇒ 阻力小，而髒東西照樣留在外層。"
+        },
+        {
+          "t": "自有工廠與產線",
+          "d": "1,300 平方米的專用廠房，含 R&D、模具工具部門與三條濾清器產線，品管與複合材料在同一棟。"
+        },
+        {
+          "t": "兩度 Red Dot 設計獎",
+          "d": "Red Dot Product Design Award 2012 與 2017。"
+        },
+        {
+          "t": "沙漠實測",
+          "d": "官方稱於 Rally Dakar 橫越阿根廷、安地斯與 Atacama 沙漠測試，對付 fesh-fesh 細沙。"
+        }
+      ]
+    },
+    "craft": {
+      "title": "空氣怎麼被濾乾淨",
+      "rows": [
+        {
+          "step": "01 — Media",
+          "t": "多層棉紗浸油濾材",
+          "img": "assets/brands-prod/dna/factory-machining.jpg",
+          "alt": "DNA 彩色濾芯整排",
+          "d": "棉紗織法與紗線是研發部門反覆測試的結果，再以專用油浸潤，形成 DNA 稱為「毛細混成」的濾材。"
+        },
+        {
+          "step": "02 — Static",
+          "t": "靜電把灰塵留在外層",
+          "img": "assets/brands-prod/dna/filter-in-action.jpg",
+          "alt": "DNA XV-series 濾芯裝在機車上",
+          "d": "空氣通過上油棉紗的折層時產生正靜電，微塵改變路徑黏附於纖維；<strong>灰塵停在外層</strong>，通過的是乾淨而平順的氣流。"
+        }
+      ]
+    },
+    "categories": [],
+    "focus": {
+      "enabled": false,
+      "order": 20
     }
   },
   {

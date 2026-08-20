@@ -116,19 +116,23 @@ function firstOutlineBreak(levels: number[]): string | null {
 describe('BrandPageRoot · 前提(這支測試有沒有判別力)', () => {
   // 🔴 沒有這一段,下面「20 家全綠」可能只是因為資料剛好走不到某條分流
   //    (memory `feedback_fixture-value-makes-guard-vacuous`)。
-  it('🔴 20 家真資料,且 About 右欄的兩條分流都真的被走到', () => {
-    expect(BRAND_CONTENT).toHaveLength(20);
-    // About 右欄:有影片走 BrandPageMedia、無影片有 aside 走產品照卡。
-    // 關卡2 R2 的洞就是「只驗了 aside 那 8 家、另 12 家走 Media 的零守門」⇒ 兩邊都要非空。
+  it('🔴 21 家真資料,且 About 右欄的三條分流都真的被走到', () => {
+    expect(BRAND_CONTENT).toHaveLength(21);
+    // About 右欄:有影片走 BrandPageMedia、無影片有 aside 走產品照卡、兩者皆無退化成兩欄
+    // (`BrandPageAbout.tsx` 設計稿 :1958 逐字,舊資料下這條路不可達,DNA 2026-08-20 是
+    // 第一個真的走到的樣本)。關卡2 R2 的洞就是「只驗了 aside 那 8 家、另 12 家走 Media 的
+    // 零守門」⇒ 三邊都要非空。
     const withVideo = BRAND_CONTENT.filter((b) => b.video);
     const withAside = BRAND_CONTENT.filter((b) => !b.video && b.aside);
+    const withNeither = BRAND_CONTENT.filter((b) => !b.video && !b.aside);
     expect(withVideo.length, 'Media 分流零樣本 ⇒ 大綱守門對它全盲').toBeGreaterThan(0);
     expect(withAside.length, '產品照卡分流零樣本 ⇒ 大綱守門對它全盲').toBeGreaterThan(0);
-    expect(withVideo.length + withAside.length).toBe(20);
+    expect(withNeither.length, '兩欄退化分流零樣本 ⇒ 大綱守門對它全盲').toBeGreaterThan(0);
+    expect(withVideo.length + withAside.length + withNeither.length).toBe(21);
     // 年表是選填(實查 2 家)⇒ 有無兩種組裝順序都要被 render 到。
     const withTimeline = BRAND_CONTENT.filter((b) => b.timeline);
     expect(withTimeline.length).toBeGreaterThan(0);
-    expect(withTimeline.length).toBeLessThan(20);
+    expect(withTimeline.length).toBeLessThan(21);
     // D3b:fixture 筆數與 `BRAND_PRODUCT_SLOTS` 綁死 —— 常數改成 4 而 fixture 還是 5 的話,
     // 下面「渲染出 N 張卡」那條會量到一個與正式站不同的數字卻照樣綠。
     expect(PRODUCTS).toHaveLength(BRAND_PRODUCT_SLOTS);

@@ -28,8 +28,8 @@ const allStrings = (value: unknown, out: string[] = []): string[] => {
 const stripTags = (s: string) => s.replace(/<[^>]+>/g, '');
 
 describe('品牌內容 · 身分與查表', () => {
-  it('20 家', () => {
-    expect(BRAND_CONTENT).toHaveLength(20);
+  it('21 家', () => {
+    expect(BRAND_CONTENT).toHaveLength(21);
   });
 
   it('slug 唯一、且是 ?pbrand= 用得上的形狀', () => {
@@ -77,8 +77,9 @@ describe('品牌內容 · 版面會被打壞的那些數字', () => {
   });
 
   it('categories 的色碼是整數、且在首頁 --cat-N 的值域內', () => {
+    // 🔴 不再要求「每家至少一個」——DNA(2026-08-20)刻意 categories:[](既有 12 個
+    // chip 沒有一個對得上空濾/進氣,見 backlog #791)。改在下面用總筆數擋空迴圈恆真。
     for (const brand of BRAND_CONTENT) {
-      expect(brand.categories.length, `${brand.slug} 至少一個分類`).toBeGreaterThan(0);
       for (const [name, colorIndex] of brand.categories) {
         expect(name).not.toBe('');
         expect(Number.isInteger(colorIndex), `${brand.slug} 的 ${name}`).toBe(true);
@@ -86,6 +87,7 @@ describe('品牌內容 · 版面會被打壞的那些數字', () => {
         expect(colorIndex).toBeLessThanOrEqual(11);
       }
     }
+    expect(BRAND_CONTENT.flatMap((b) => b.categories).length).toBeGreaterThan(0);
   });
 
   it('🔴 materya 的 About 右欄影片還在(手改處、重新產生會被靜默刪掉)', () => {

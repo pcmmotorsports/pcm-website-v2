@@ -175,7 +175,7 @@ describe('BrandPageAbout · 20 家實資料', () => {
     }
   });
 
-  it('產品照卡與影片恰好互補、兩者相加剛好 20 家', () => {
+  it('產品照卡與影片恰好互補、加上兩者皆無的退化態剛好蓋滿 21 家', () => {
     let card = 0;
     let media = 0;
     for (const brand of BRAND_CONTENT) {
@@ -190,12 +190,15 @@ describe('BrandPageAbout · 20 家實資料', () => {
       if (hasMedia) media++;
       cleanup();
     }
-    // 前提斷言:兩邊都不是 0 也不是 20 —— 任一極端都代表分流沒生效而上面那些會空過
+    // 前提斷言:三段都不是 0 —— 任一極端都代表分流沒生效而上面那些會空過
     expect(card).toBe(BRAND_CONTENT.filter((b) => !b.video && b.aside).length);
     expect(media).toBe(BRAND_CONTENT.filter((b) => b.video).length);
     expect(card).toBeGreaterThan(0);
     expect(media).toBeGreaterThan(0);
-    // 20 家全部有 aside(D1a 實測)⇒ 兩條路加起來必須剛好蓋滿,不能有人兩邊都落空
-    expect(card + media).toBe(BRAND_CONTENT.length);
+    // 兩者皆無 ⇒ 退化成兩欄(設計稿 :1958 逐字,DNA 2026-08-20 起第一個真樣本、舊資料下不可達)。
+    const neither = BRAND_CONTENT.filter((b) => !b.video && !b.aside).length;
+    expect(neither).toBeGreaterThan(0);
+    // 三條路加起來必須剛好蓋滿全部品牌,不能有人三邊都落空
+    expect(card + media + neither).toBe(BRAND_CONTENT.length);
   });
 });

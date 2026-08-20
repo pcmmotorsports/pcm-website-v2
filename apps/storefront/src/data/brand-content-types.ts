@@ -139,7 +139,9 @@ export type BrandVideo = {
   sourceLabel?: string;
 };
 
-/** 首頁 N°05 本月聚焦的輪播設定。實測 20 家 enabled 全 true、order 恰為 0-19 無重複。 */
+/** 首頁 N°05 本月聚焦的輪播設定。21 家中 20 家 enabled=true、order 恰為 0-20 無重複;
+ * DNA(2026-08-20)是唯一的 enabled=false 例外——沒有 `BRAND_FOCUS` overlay 內容,
+ * 不進輪播池,見 `brand-content.ts` 檔頭。 */
 export type BrandFocus = { enabled: boolean; order: number };
 
 /** 一家品牌一列。欄位對照版型見 `brand-content-data.js` 檔頭的「欄位對照版型」表。 */

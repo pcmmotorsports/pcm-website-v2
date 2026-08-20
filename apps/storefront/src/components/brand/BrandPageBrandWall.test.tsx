@@ -34,9 +34,9 @@ const EXTREMES = ['materya', 'motogadget', 'extreme', 'k-speed', 'kineo'];
 const ALL_SLUGS: ReadonlySet<string> = new Set(BRAND_CONTENT.map((b) => b.slug));
 
 describe('BrandPageBrandWall · 前提(資料形狀)', () => {
-  it('🔴 20 家、slug 不重複、logoScale 恰 7 家非 1(範圍 0.88-1.08)', () => {
-    expect(SLUGS).toHaveLength(20);
-    expect(new Set(SLUGS).size, 'slug 重複會讓 React key 撞號').toBe(20);
+  it('🔴 21 家、slug 不重複、logoScale 恰 7 家非 1(範圍 0.88-1.08)', () => {
+    expect(SLUGS).toHaveLength(21);
+    expect(new Set(SLUGS).size, 'slug 重複會讓 React key 撞號').toBe(21);
     const scaled = BRAND_CONTENT.filter((b) => b.logoScale !== 1);
     expect(scaled.map((b) => b.slug).sort())
       .toEqual(['eazi-grip', 'evotech', 'extreme', 'gilles', 'kineo', 'materya', 'wrs']);
@@ -57,10 +57,10 @@ describe('BrandPageBrandWall · 版型', () => {
     expect(container.querySelector('.bp-others-inner > div > .bp-others-list')).not.toBeNull();
   });
 
-  it('🔴 每一家當作當前品牌時,磚都還是 20 塊(不把自己濾掉)', () => {
+  it('🔴 每一家當作當前品牌時,磚都還是 21 塊(不把自己濾掉)', () => {
     for (const slug of SLUGS) {
       const { container } = render(<BrandPageBrandWall currentSlug={slug} availableSlugs={ALL_SLUGS} />);
-      expect(container.querySelectorAll('.bp-others-list > a'), slug).toHaveLength(20);
+      expect(container.querySelectorAll('.bp-others-list > a'), slug).toHaveLength(21);
       cleanup();
     }
   });
@@ -72,16 +72,16 @@ describe('BrandPageBrandWall · 版型', () => {
       expect(cur, slug).toHaveLength(1);
       expect(cur[0]!.getAttribute('aria-current'), slug).toBe('page');
       expect(cur[0]!.getAttribute('href'), slug).toBe(`/brands/${slug}`);
-      // 反面:其他 19 塊都不得掛 aria-current
+      // 反面:其他 20 塊都不得掛 aria-current
       expect(container.querySelectorAll('[aria-current]'), slug).toHaveLength(1);
       cleanup();
     }
   });
 
-  it('slug 不在名單裡時,20 塊全部不標記(不是丟錯或標到第一家)', () => {
+  it('slug 不在名單裡時,21 塊全部不標記(不是丟錯或標到第一家)', () => {
     // D3 的路由會先 notFound,所以這條路在正式站走不到 —— 但元件自己不該假設呼叫端擋過。
     const { container } = render(<BrandPageBrandWall currentSlug="不存在的品牌" availableSlugs={ALL_SLUGS} />);
-    expect(container.querySelectorAll('.bp-others-list > a')).toHaveLength(20);
+    expect(container.querySelectorAll('.bp-others-list > a')).toHaveLength(21);
     expect(container.querySelectorAll('.is-cur')).toHaveLength(0);
     expect(container.querySelectorAll('[aria-current]')).toHaveLength(0);
   });
@@ -100,7 +100,7 @@ describe('BrandPageBrandWall · logo', () => {
   it('🔴 路徑是 brands-trim/(不是 brands-dark/ 也不是 brands/),alt = 品牌名,lazy', () => {
     const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={ALL_SLUGS} />);
     const imgs = [...container.querySelectorAll('img')];
-    expect(imgs).toHaveLength(20);
+    expect(imgs).toHaveLength(21);
     imgs.forEach((img, i) => {
       const b = BRAND_CONTENT[i]!;
       expect(img.getAttribute('src')).toBe(`/brand-assets/assets/brands-trim/${b.slug}.png`);

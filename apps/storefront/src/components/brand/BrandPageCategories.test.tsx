@@ -25,7 +25,11 @@ describe('BrandPageCategories · 前提(資料形狀)', () => {
     expect(all).toHaveLength(52);
     expect(new Set(all.map(([name]) => name)).size).toBe(12);
     const counts = BRAND_CONTENT.map((b) => b.categories.length);
-    expect(Math.min(...counts), '有品牌一個分類都沒有 ⇒ 會渲染出一個空的 .bp-chips').toBe(1);
+    // 🔴 min 不再釘死 1 —— DNA(2026-08-20)刻意 categories:[],空陣列不是缺陷,見下方
+    // 「空 ⇒ 不渲染」測試(主視窗裁定 C:讓「渲染空殼」這件事本身不可能發生,取代
+    // 舊版「每家至少 1 個」這條間接防線)。有資料的品牌仍要落在 1-7 之間。
+    const nonEmptyCounts = counts.filter((n) => n > 0);
+    expect(Math.min(...nonEmptyCounts)).toBe(1);
     expect(Math.max(...counts)).toBe(7);
     expect([...new Set(all.map(([, i]) => i))].sort((a, b) => a - b))
       .toEqual([0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
@@ -44,6 +48,32 @@ describe('BrandPageCategories · 前提(資料形狀)', () => {
     const byName = new Map<string, Set<number>>();
     for (const [name, i] of all) (byName.get(name) ?? byName.set(name, new Set()).get(name)!).add(i);
     for (const [name, set] of byName) expect([...set], `${name} 在不同品牌配到不同色碼`).toHaveLength(1);
+  });
+});
+
+describe('BrandPageCategories · categories 為空 ⇒ 整區不渲染(2026-08-20,取代 min-count 不變量)', () => {
+  const emptyBrands = BRAND_CONTENT.filter((b) => b.categories.length === 0);
+  const nonEmptyBrand = BRAND_CONTENT.find((b) => b.categories.length > 0)!;
+
+  it('前提:至少有一家 categories 為空(否則下面兩條是空迴圈、恆真)', () => {
+    expect(emptyBrands.map((b) => b.slug)).toContain('dna');
+    expect(emptyBrands.length).toBeGreaterThan(0);
+  });
+
+  it('空 ⇒ .bp-cats 整區不存在於 DOM(不是渲染一個空的 .bp-chips)', () => {
+    for (const b of emptyBrands) {
+      const { container } = render(<BrandPageCategories brand={b} />);
+      expect(container.querySelector('.bp-cats'), b.slug).toBeNull();
+      expect(container.querySelector('.bp-chips'), b.slug).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('非空 ⇒ .bp-cats 與 .bp-chips 都存在、且有至少一個 chip', () => {
+    const { container } = render(<BrandPageCategories brand={nonEmptyBrand} />);
+    expect(container.querySelector('.bp-cats')).not.toBeNull();
+    const chips = container.querySelectorAll('.bp-chip');
+    expect(chips.length).toBeGreaterThan(0);
   });
 });
 

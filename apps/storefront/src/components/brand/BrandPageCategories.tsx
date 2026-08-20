@@ -18,6 +18,9 @@ import type { BrandContent } from '@/data/brand-content-types';
 import { brandCatalogueUrl } from '@/lib/brand-url';
 
 export function BrandPageCategories({ brand }: { brand: BrandContent }) {
+  // 🔴 空陣列(如 DNA,2026-08-20)不渲染整個區塊 —— 渲染一個沒有 chip 的 .bp-chips
+  // 本身就是視覺缺陷(空殼),不是「資料還沒填」的正常態。主視窗 2026-08-20 裁定 C。
+  if (brand.categories.length === 0) return null;
   return (
     <section className="bp-cats">
       <div className="bp-cats-inner">
