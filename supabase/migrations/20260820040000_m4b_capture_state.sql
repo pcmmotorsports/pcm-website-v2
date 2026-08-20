@@ -34,8 +34,16 @@
 --     capture_state 不是任何裁決的輸入 ⇒ 它的寫入是 best-effort;而 markCharged 的寫入是 fail-closed。
 --     把 best-effort 的值塞進 fail-closed 的函式 = 把兩種失敗語意綁在一起。主視窗 2026-08-20 裁「乙」。
 --   · 不碰 `status` 欄:那是**授權**的生命週期,請款是正交的另一軸。塞進去會改變
---     `payment_charge_attempts_order_lock_idx`(`20260612150000:101-102` `WHERE status IN ('pending','charged')`)
---     的語意 ⇒ **動到防雙扣鎖**。
+--     `payment_charge_attempts_order_lock_idx` 的語意 ⇒ **動到防雙扣鎖**。
+--     🔴 **更正(2026-08-20 W4 自查,原句引的是【過期的】定義)**:本檔原本寫
+--     「`20260612150000:101-102` `WHERE status IN ('pending','charged')`」——
+--     那是**建表當天**的樣子,而它在 12 天後被加寬了:
+--       `20260624120000:61-64` DROP 再 CREATE ⇒ 現行述詞是
+--       `WHERE status IN ('pending', 'charged', 'released')`
+--     (量法:掃過**所有**提到這個索引名的 migration 共 4 支,逐支開檔看它長什麼樣;
+--      負向對照 `payment_charge_attempts_zzz_idx` ⇒ 零命中)
+--     ⇒ 結論不變(仍然不碰 `status`),而**引錯的字面會讓下一個人以為 released 不在鎖裡**。
+--     📌 這正是本 repo 反覆記過的那一格:**引一個【建表當天】的行號,答的是那一天的事實。**
 --
 -- ── 🔴 三態,而第三態刻意不是 NULL ──────────────────────────────────────────
 --   authorized = Record 讀到 is_captured = false
