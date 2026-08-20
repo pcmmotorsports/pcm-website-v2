@@ -648,8 +648,14 @@ describe('#10 片1 本次應揀合計', () => {
 });
 
 describe('#10 片1 列印時必須藏起來的三顆', () => {
+  // 🔴🔴 **2026-08-20:第一格從 `ui/sidebar.tsx` 改成 `layout/app-sidebar.tsx`,而那不是改期望值。**
+  //    側欄那一片(84px 圖示軌)**不再渲染 shadcn 的 `<Sidebar>`** ⇒ `ui/sidebar.tsx` 還在、
+  //    那個字面還在、**而它已經不在渲染樹上** ⇒ 這一格【在紙上多一條 84px 黑邊的那段時間裡，
+  //    一直是綠的】。而本檔 `:372` 的註解正好寫著它要防的就是這件事。
+  //    ⇒ 📌 **教訓:守門釘【檔案路徑】時，它守的是「那支檔還在」，不是「畫面上那個東西還在」。**
+  //       而元件被換掉，是「畫面變了而檔案沒變」的最常見走法。
   const cases: readonly (readonly [string, string])[] = [
-    ['components/ui/sidebar.tsx', "'group peer text-sidebar-foreground hidden md:block print:hidden'"],
+    ['components/layout/app-sidebar.tsx', 'shrink-0 border-r print:hidden'],
     ['components/layout/header.tsx', 'border-b px-4 print:hidden'],
     ['components/print/print-button.tsx', 'text-sm print:hidden'],
   ];
@@ -658,6 +664,17 @@ describe('#10 片1 列印時必須藏起來的三顆', () => {
       expect(readFileSync(join(SRC, rel), 'utf8')).toContain(literal);
     });
   }
+
+  // 🔴 而上面那三格仍然是【釘檔案路徑】—— 換一支元件它們照樣可能全綠。
+  //    這一格把守門**接回渲染樹**:根 layout 現在畫的是哪一支側欄?
+  //    ⇒ 有人把 layout 改成畫另一支元件 ⇒ 這裡紅 ⇒ 他會被迫回來看上面那張表。
+  it('🔴 根 layout 畫的側欄,就是上面那張表釘的那一支(否則整組守門會靜默失效)', () => {
+    const layout = readFileSync(join(SRC, 'app/layout.tsx'), 'utf8');
+    expect(layout, '根 layout 必須從 layout/app-sidebar 取側欄').toContain(
+      "from '@/components/layout/app-sidebar'",
+    );
+    expect(layout, '而它必須真的被畫出來').toContain('<AppSidebar');
+  });
 
   it('sidebar 的 print:hidden 必須在 **root**、不是在 sidebar-container', () => {
     // 🔴 這格守的是 `D-002` §2 那個差點犯的錯:`Sidebar` 的 `className` prop 只會落在
