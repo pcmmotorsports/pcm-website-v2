@@ -187,6 +187,6 @@ cd $REPO/apps/storefront
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:$PROXY NEXT_PUBLIC_SUPABASE_ANON_KEY="$A" \
 SUPABASE_SERVICE_ROLE_KEY="$SR" NEXT_PUBLIC_SITE_URL=http://localhost:$WEB \
 NEXT_PUBLIC_TAPPAY_APP_ID=00000 NEXT_PUBLIC_TAPPAY_APP_KEY=probe_app_key NEXT_PUBLIC_TAPPAY_ENV=sandbox \
-nohup npx next dev -p $WEB > $S/next.log 2>&1 &
+nohup npx next dev -p $WEB -H 127.0.0.1 > $S/next.log 2>&1 &
 sleep 15
 echo "web: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:$WEB/)  <- 開這個,不要開 127.0.0.1"
