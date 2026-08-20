@@ -26503,3 +26503,32 @@ done
   `~/pcm-mailbox/W3-U-今晚六支migration執行單-20260820.md`(開工前那一段:今晚全程禁用讀帳本的工具);
   `docs/patterns/guard-and-instrument-traps.md`(量具坑全集)。
 - **估時:** 評估三條修法 + 端決策題 ⇒ **約 40 分**;實作視選哪一條而定,**未估**。
+
+
+### #801 · 🔴 金額寫入者 allowlist 的粒度是【檔案】不是【語句】—— 登記一次之後,那支檔裡後來加的任何寫法都不再被檢查
+
+- **狀態:** 待評估(2026-08-21 主視窗立;**號的來源** = `grep -oE '^### #[0-9]+' docs/phase-1-backlog.md | grep -oE '[0-9]+' | sort -n | tail -1` ⇒ **800**、`grep -c '^### #801' docs/phase-1-backlog.md` ⇒ **0**、正對照 `grep -c '^### #800'` ⇒ **1**,三發當場重跑)
+- **分流:** `P2`(它不是活的缺陷,是守門的結構性上限;而它守的是**錢**)
+- **來源:** 2026-08-21 codex 對抗審查 `apps/admin/src/lib/orders/subtotal-writers-allowlist.test.ts:74`,列為 must-fix。主視窗裁定**不在該片修**、改立本條。
+- **縫的形狀:**
+  ```
+  ALLOWLIST 的 key 是【檔名】。一支 migration 被登記之後,
+  之後在它裡面新增 UPDATE、INSERT…SELECT、動態 SQL 或任何非現行正規式形狀的金額寫入,
+  都不會被新增斷言檢查 ⇒ 守門對它整支失明。
+  🔴 而 migration 是 forward-only、commit 後不再編輯 ⇒ 真正的窗口是【登記到 commit 之間】,
+     那段時間是真實存在的,不是已消除的風險。
+  ```
+- **🔴 誰先講的:寫那道守門的人自己**(2026-08-20 W2,逐字寫在 `subtotal-writers-allowlist.test.ts` 的登記註解裡):
+  > 「已知限制(W3 指出):allowlist 粒度是檔案不是語句——若這支 migration 在 commit 前被再編輯、
+  > 加入與 fixture 無關的 orders 寫入,本守門看不到。migration forward-only 慣例下 commit 後不會再被編輯,
+  > **但 commit 前(現在到 commit 之間)這個窗口是真實存在的,不是已消除的風險。**」
+  ⇒ **它是已知債、已誠實揭露,不是隱瞞。** codex 把它從「已知限制」升成 must-fix,而主視窗維持它是債。
+- **🔴 為什麼不在那一片修(裁定理由,可反駁):**
+  ```
+  修它要改 allowlist 的【粒度設計】(檔案級 → 語句級),會動到所有既有登記項;
+  而那一片(20260820020000 修法)已經走完 R1/R2/R3 + codex 一輪,再擴範圍會失焦。
+  ⇒ 分成兩片,不是不修。
+  ```
+- **不修未來會痛在哪(鐵則 10):** 下一次有人在一支**已登記**的 migration 裡加一筆金額寫入,守門全綠而沒有人看過那一筆。**而那是錢。** 痛的形狀不是「守門壞了」,是「守門在,而它的分母不含這一筆」。
+- **修法方向(未定,列給下一個人):** ① key 改成 `檔名::語句指紋`,登記的是語句不是檔 ② 或維持檔案級,但對已登記檔**額外**跑一次「金額欄的值必須是寫死字面」的全檔掃描(現行只對一支檔做) ③ 兩者都要先答:**既有登記項要不要一次全部重登**。
+- **相關:** `apps/admin/src/lib/orders/subtotal-writers-allowlist.test.ts`;`docs/patterns/guard-and-instrument-traps.md`(「閘的分母比病窄」那一族);`#798`(全稱句守門的覆蓋面比它看起來窄)。
