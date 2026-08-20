@@ -146,23 +146,65 @@
 
 ## 1. 起叢集(整段可貼)
 
+> ## 🔴 先改一件事:**路徑與埠是【共用變數】,不要照抄一組寫死的**
+> **2026-08-20 W1 實錘**:照本檔原本寫死的 `/tmp/pgprobe` + 埠 `55501` 跑,**第一發就撞**
+> (`could not bind IPv4 address "127.0.0.1": Address already in use`),
+> 而同一台機器當時另有 W2 的叢集在 `/tmp/pcm-probe-w2` 埠 `55521`。
+> 🔴 **更壞的是上面那行 `rm -rf "$D"`** —— 我在撞到之前已經跑掉了。
+> 那一次事後查證沒有刪到別人**正在跑**的叢集(唯一在跑的是 W2、路徑不同),
+> **而「有沒有刪到別人【停著】的叢集」我證不到。**
+> ⇒ ⇒ 修法**不是**加一句「rm 之前先確認」(提醒改不了行為),
+> 是**讓路徑與埠天生不撞** —— 那樣那句提醒就不需要。
+> (母題:memory `feedback_shared-names-across-windows` —— 多窗共用一台機器,**任何名字都是共用變數**。)
+
 ```bash
 export LC_ALL=C LANG=C                        # 🔴 少這行會 multithreaded 啟動失敗
-D=/tmp/pgprobe && rm -rf "$D" && mkdir -p "$D"  # 🔴 短路徑;scratchpad 全路徑會超過 socket 103 bytes 上限
+
+# 🔴 窗別自己填(W1/W2/G3/…);沒有窗別就用一個只有你會用的字。**不要沿用別人的。**
+WIN=w1                                        # ← 改這一個字,下面全部跟著走
+D=/tmp/pcm-probe-$WIN                         # 🔴 短路徑;scratchpad 全路徑會超過 socket 103 bytes 上限
+PORT=555$(printf '%02d' $(( $(echo -n "$WIN" | cksum | cut -d' ' -f1) % 90 + 10 )))
+RPORT=$(( PORT + 3000 ))                      # PostgREST 那一層的埠,同樣跟著 WIN 走
+
+# 🔴 出生就檢查:埠被佔 / 目錄已存在 ⇒ 停,不要 rm 別人的東西
+lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 已被佔用,換 WIN 再來"; return 2>/dev/null || exit 1; }
+[ -e "$D" ] && { echo "🔴 $D 已存在 —— 可能是【別人的】或【你上次沒收攤的】。自己看過再決定,本檔不替你 rm"; return 2>/dev/null || exit 1; }
+
+mkdir -p "$D"
 initdb -U postgres -A trust "$D/data" > "$D/initdb.log" 2>&1
 pg_ctl -D "$D/data" \
-  -o "-p 55501 -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" \
+  -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" \
   -l "$D/pg.log" start
 sleep 3
-psql -h 127.0.0.1 -p 55501 -U postgres -tAc "select version()"
+psql -h 127.0.0.1 -p $PORT -U postgres -tAc "select version()"
 ```
 **起不來就看 `$D/pg.log` 最後 6 行,不要猜。**
+⚠️ 上面那兩道檢查**會在該紅的時候紅**(埠被佔 / 目錄已存在),而它們**擋不到**
+「別人待會才要用這個名字」。⇒ 收攤時把 `$D` 刪乾淨,別留給下一個人去猜。
 
 🔴 **zsh 陷阱**:不要寫 `PQ="psql -h 127.0.0.1 …"` 然後 `$PQ -c …` —— zsh 不做詞分割,整串會被當成命令名。
 **用 shell function**:
 ```bash
-pq () { psql -h 127.0.0.1 -p 55501 -U postgres -v ON_ERROR_STOP=1 "$@"; }
+pq () { psql -h 127.0.0.1 -p $PORT -U postgres -v ON_ERROR_STOP=1 "$@"; }
 ```
+
+> ### 🔴🔴 而上面那句警告**已經在本檔裡,而 2026-08-20 W1 照樣打了出來**
+> ```
+> 我寫了 PSQL="psql -h …" 然後 $PSQL,每一發都是 command not found、一發都沒跑。
+> 而我的判定是 [ "$A1" = "$B1" ] —— 兩邊都是空字串 ⇒ **印出兩個 ✅**。
+> ⇒ 那不是「rollback 驗過了」,是「量具沒接上,而它印了我想看的答案」。
+> ```
+> **⇒ 提醒改不了行為,機制可以。凡是拿指紋/計數當判準的比對,配一道 guard:**
+> ```bash
+> guard () { case "$1" in ''|*'|EMPTY') echo "🔴 指紋空/EMPTY ⇒ 量具沒接上,本輪作廢"; exit 1;; esac; }
+> # 指紋一律帶 count 前綴 + coalesce(...,'EMPTY'),讓「查無」與「沒跑」在字面上分得開:
+> #   SELECT count(*)||'|'||coalesce(md5(string_agg(...)),'EMPTY') FROM ...
+> B=$(fp); guard "$B"      # 取基準就驗一次
+> A=$(fp); guard "$A"      # 取終值再驗一次
+> [ "$A" = "$B" ] && echo "回到基準" || echo "與基準不同"
+> ```
+> 🔴 **並且加一道【前提斷言】**:動作做完之後指紋**必須先變過**,否則那把尺是死的 ——
+> 「套了卻沒變」與「回到基準」在最後那一步長得一樣。
 
 ## 2. 🔴 PCM 專屬 bootstrap(這段是本檔真正新的部分)
 
@@ -199,14 +241,14 @@ CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');
 ## 3. 要 PostgREST 那一層時(驗錯誤欄位 / RPC 介面才需要)
 
 ```bash
-cat > /tmp/pgprobe/prest.conf <<'CONF'
-db-uri = "postgres://authenticator@127.0.0.1:55501/postgres"
+cat > "$D/prest.conf" <<CONF
+db-uri = "postgres://authenticator@127.0.0.1:$PORT/postgres"
 db-schemas = "public"
 db-anon-role = "anon"
-server-port = 3999
+server-port = $RPORT
 CONF
 # 需要先 CREATE ROLE authenticator LOGIN NOINHERIT; GRANT anon TO authenticator;
-postgrest /tmp/pgprobe/prest.conf > /tmp/pgprobe/prest.log 2>&1 &
+postgrest "$D/prest.conf" > "$D/prest.log" 2>&1 &
 ```
 🔴 **改完 schema 一定要重載 cache**,否則回 `PGRST202`(「找不到那個函式」)而不是你要測的東西:
 ```sql
@@ -231,7 +273,7 @@ openssl req -new -x509 -days 1 -nodes -subj "/CN=localhost" \
   -keyout "$D/data/server.key" -out "$D/data/server.crt"
 chmod 600 "$D/data/server.key"
 printf "ssl = on\nssl_cert_file = 'server.crt'\nssl_key_file = 'server.key'\n" >> "$D/data/postgresql.conf"
-pg_ctl -D "$D/data" -l "$D/pg.log" restart -o "-p 55501 -c listen_addresses=127.0.0.1 -c unix_socket_directories=''"
+pg_ctl -D "$D/data" -l "$D/pg.log" restart -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories=''"
 ```
 ⚠️ **這是【本機彩排】才會撞的**,正式 Supabase 本來就有 TLS ⇒ **不要誤讀成真 apply 的前置。**
 
@@ -322,13 +364,14 @@ extensions.show_trgm('王小明')  ⇒ 0      ← 抽零,實錘成立
 ## 6. 收攤(逐 PID 驗,不看指令回傳)
 
 ```bash
-pgrep -f "postgrest .*prest.conf" | while read p; do kill "$p"; done
-pg_ctl -D /tmp/pgprobe/data stop -m fast
+pgrep -f "postgrest $D/prest.conf" | while read p; do kill "$p"; done   # 🔴 帶 $D:別殺到別的窗的
+pg_ctl -D "$D/data" stop -m fast
 # 🔴 驗【世界的狀態】不是【動作的回傳值】
-pgrep -f "postgrest .*prest.conf" | wc -l     # 期望 0
-pgrep -f "postgres.*55501"        | wc -l     # 期望 0
-curl -s -m 2 -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3999/ # 期望 000(連不上)
-rm -rf /tmp/pgprobe && test -d /tmp/pgprobe && echo "🔴 沒刪掉" || echo "✅ 已刪"
+pgrep -f "postgrest $D/prest.conf" | wc -l     # 期望 0
+pgrep -f "postgres.*$PORT"        | wc -l     # 期望 0
+curl -s -m 2 -o /dev/null -w "%{http_code}\n" http://127.0.0.1:$RPORT/ # 期望 000(連不上)
+rm -rf "$D" && { test -d "$D" && echo "🔴 沒刪掉" || echo "✅ 已刪"; }
+# 🔴 收攤【一定要做】:$D 留著,下一個用同一個 WIN 的人會被 §1 那道「目錄已存在」擋下來
 git -C <你的 worktree> status --porcelain --untracked-files=all   # 期望零行
 ```
 
