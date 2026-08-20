@@ -25419,3 +25419,43 @@ done
   · 「刻意 vs 遺漏」未查 ⇒ **本條不得被引用成「ACL-UNIVERSAL 有 bug」**。
   ```
 - **相關:** commit `132dbe83`(把 ACL-NO-COLUMN-GRANT 從三欄枚舉改成全表欄位)/ `#781`(同一片的顯示層落點)
+
+---
+
+### #784 · 雙扣候選告警會把「已取消的現金單」誤配成候選 pair 的一腿
+
+- **狀態:** 待處理(2026-08-20 W2 立,triage `cancelled_at 非空 + payment_status=paid` 消費者時發現)。
+- **在哪(兩支,述詞逐字相同,修的時候要一起改、漏一支等於沒修):**
+  ```
+  supabase/migrations/20260810220000_m4b_lifecycle_l5b0s_supersede_sweeper_ceiling.sql:379-380
+    get_payment_anomaly_alert_summary() 的 pending_double_charge_candidate_count
+  supabase/migrations/20260819130000_m3_250_anomaly_alert_display_ids.sql:150-200
+    get_payment_anomaly_alert_display_ids() 的 pending_double_charge_display_id_pairs
+    （檔內自己的註解寫著「述詞同 pending_double_charge_candidate_count」）
+  ```
+- **量到的(讀檔確認,不是推的):** 兩支的核心判斷都是
+  ```sql
+  o1.payment_status = 'paid' AND o2.payment_status = 'paid'
+    AND o1.customer_user_id = o2.customer_user_id AND o1.total = o2.total
+    AND |o1.paid_at - o2.paid_at| < 窗口
+    AND EXISTS (SELECT 1 FROM payment_charge_attempts a
+                 WHERE a.order_id IN (o1.id, o2.id) AND a.status='charged' AND 卡住指紋)
+  ```
+  🔴 **`EXISTS` 只要求 o1、o2 兩張單「其中一張」有卡住的 charge attempt,不要求兩張都有。**
+  ⇒ 一張「已取消 + 已付款 + 零 `payment_charge_attempts` 列」的現金單(A8a3 讓這種單存在),
+  只要能配到同客戶、同金額、時間窗內的**另一張真的卡片單**且那張卡單卡住,就會被算進候選 pair
+  ——它自己不需要有任何 charge attempt,靠對方那一腿的指紋就能入列。
+- **病:** `get_payment_anomaly_alert_display_ids` 更具體 —— 它不只計數 +1,是把這一對的兩個
+  **單號直接列給值班看**(`pending_double_charge_display_id_pairs` 回 `[[單號A,單號B],…]`)。
+  值班會看到一組「疑似重複扣款」的單號,查下去發現其中一張是合法取消的現金單,不是真的雙扣。
+- **不修未來會痛在哪:**
+  ```
+  值班對這個告警的信任會被稀釋 —— 反覆看到「查了發現是誤報(一張是已取消的現金單)」之後,
+  下次真的雙扣事故混在裡面,會被當成又一個誤報跳過。
+  🔴 而觸發條件現在很窄(同客同金額同窗口 + 另一張卡單剛好卡住),但片A上線後現金取消單
+  只會越來越多,窗口只會越開越大 —— 這不是「現在很少見所以不用管」,是「我們正在讓它變多」。
+  ```
+- **限定:** 影響面是**內部告警噪音**(值班看到誤導性的候選配對),不擋客人、不動錢、不改變
+  任何客人可見的行為 —— 這是本條與 W1-077/W2-002 那兩件「假成功」的差別,嚴重度較低,
+  故本次 triage 判定「先記錄,不現在修」。
+- **相關:** cancelled_at/payment_status triage 全表(`~/pcm-mailbox/W2-003-cancelled-paid-triage-粗表-20260820.md`)
