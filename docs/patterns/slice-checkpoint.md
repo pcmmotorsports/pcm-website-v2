@@ -276,6 +276,9 @@ git ls-files --others --exclude-standard    # 🔴 未追蹤的新檔——前�
 
 4. 三項全綠 → 才允許 commit
 
+4.5 🔴 **commit 哪些檔** —— 四步,兩個都要做(見 §3.1b)
+    `git add <精確路徑…>` → `git diff --cached --name-only` 核 → `git commit -F <msg> -- <同一組路徑>` → `git show --name-only` 再核
+
 5. commit 訊息對應 commit 實際內容、不超過實際做的事
 ```
 
@@ -291,6 +294,54 @@ git ls-files --others --exclude-standard    # 🔴 未追蹤的新檔——前�
   (`Error: 找不到建置產物目錄 .../.next/static/chunks`,錯誤訊息本身就寫著「這不是版面出問題,
   是還沒 build」)。跑完 `build` 再跑 `test` 就全綠——**test 依賴 build 產物,build 要排在
   test 前面**,不是各自獨立的四個步驟。
+
+### 3.1b 🔴 **commit 哪些檔** —— `add` 與 `pathspec` 是**兩個問題的兩個解法**,不能互相取代
+
+> 2026-08-20 W4 兩世界實測 + 當晚兩起真實事故。**共用工作樹底下這一步不是形式。**
+
+#### 四步(逐字,四步都要)
+```bash
+git add <精確路徑…>                              # ① 讓【新檔】被 git 認得
+git diff --cached --name-only                    # ② 人的檢查:index 裡確實只有我要的
+git commit -F <訊息檔> -- <同一組精確路徑>        # ③ 🔴 命令【自己】限定範圍
+git show --name-only <hash>                      # ④ 事後再核一次
+```
+
+#### 🔴 為什麼 ① 與 ③ 都要 —— 它們解的是**不同的兩個問題**
+
+| 少了哪一步 | 會發生什麼 | 實例 |
+|---|---|---|
+| 少 `git add` | **新檔**還不被 git 認得 ⇒ pathspec 撈不到它<br>`error: pathspec '<path>' did not match any file(s) known to git` | 2026-08-20 W2。⚠️ 而它一度被診斷成「**新檔 + pathspec 的固定行為**」⇒ 差點推出「避開 pathspec」這個**錯的**修法 |
+| 少 `pathspec` | commit **整個 index**(一個 repo 一個 index)<br>⇒ 共用工作樹底下**會帶走別的窗 staged 的檔** | 2026-08-20 同夜:W3 的 index 一度含著 W2 的 17 支檔 |
+
+**兩世界實測(W4,在拋棄式乾淨 worktree 上跑、做完 `git reset --hard` 還原):**
+```
+A  先 git add,再 pathspec commit  ⇒ **成功**(1 file changed, create mode ...)
+B  沒 add,直接 pathspec commit    ⇒ 與 W2 貼的那行**逐字相同**的錯誤
+正向對照:當晚 W4 七顆 commit 全走 pathspec、含大量新檔 ⇒ **七顆全成功**
+⇒ 缺的是 `git add`,**不是「pathspec 不能處理新檔」**
+```
+⚠️ **這份實測的射程要講準**:它證明的是「**那個錯誤【可以】由沒 add 造成**」,
+**不是**「W2 當時就是沒 add」——**兩件事分得開**。
+若你確實跑了 `git add` 而仍報這個錯 ⇒ **那是另一件事,更值得查**
+(例如 add 的路徑與 pathspec 不完全一致、或 add 之後被別的窗的操作清掉)⇒ 貼**完整的兩行命令**,不要只貼錯誤訊息。
+
+#### 🔴 而 ② 不能取代 ③ —— 判別句
+> **這個保證是「命令做到的」,還是「我剛才看到的」?**
+
+```
+③ pathspec       commit 那一刻【由命令本身】限定範圍          ⇒ **機制**
+② 先核對再 commit  靠【先前那一次觀察】,而中間有一段窗口       ⇒ **一個時間點的觀察**
+                  ⇒ 核對完 → commit 之間,別的窗可以 git add 東西進來
+                  ⚠️ 那不是理論:2026-08-20 夜同時有 6+ 個窗在同一個 repo 跑 git
+⇒ **兩個都對過一次,而只有前者在下一次也對。**
+```
+📌 所以 ② 要留(它抓得到「我 add 錯了」),而**它不是 ③ 的替代品**。
+
+#### 連帶
+- CLAUDE.md 的 Git 紀律段現在只寫「**禁 `git add .` / `git add -A`**」——
+  那擋的是 ① 的濫用,**沒有講到 ③**。(2026-08-20 已寫成建議送 Sean 裁;**本檔不代改 CLAUDE.md 本體**。)
+- memory `reference_commit-pathspec-does-not-touch-shared-index`:帶 pathspec 完全不碰別人的 index,不帶就會。
 
 ### 3.2 任一紅 → 修紅、不繞道
 
