@@ -1087,3 +1087,26 @@ describe('危險操作沉底:取消排在出貨之後', () => {
     expect(text, '鈕上仍寫著「退貨」—— 那條流程不存在').not.toContain('退貨 / 退款');
   });
 });
+
+// 🔴 M-4b E10 D3:非卡退款登記入口的 #787 硬閘(主視窗 2026-08-20 裁定要求「兩個世界」驗證)。
+// 世界①(本檔測):即使輸入健康(現金收款、帳本未登記額為正)入口仍不渲染 ——
+//   因為 `MANUAL_REFUND_ENTRY_BLOCKED_BY_787` 恆 true,不是因為輸入不滿足其他 gating 條件。
+// 世界②(手動驗證,不在自動化測試裡):把該常數改成 false、重跑本測試、斷言改為
+//   toBe(true)、確認真的翻紅,再還原並用 sha256 核對逐位元相同——記錄見 W2-014 commit body。
+describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)', () => {
+  it('現金收款 + 帳本未登記額為正(健康輸入)⇒ 入口仍然不出現', async () => {
+    mocks.listOrderPayments.mockResolvedValue([
+      { id: 'p-cash-1', rail: 'cash', amount: 1000, receivedAt: '2026-08-20T02:00:00+00:00', createdAt: '2026-08-20T02:00:00+00:00', actor: 'tester' },
+    ]);
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(1000);
+    const { container } = await renderPage();
+    const text = container.textContent ?? '';
+    // 正向對照:頁面真的渲染出來,不是整頁空白讓下面的否定式恆真。
+    expect(text).toContain('退款');
+    // 🔴 不用 `input[name="rail"][value="cash"]` 當錨——`payment-record-form.tsx` 的收款表單
+    //   也有一顆同名同值的 radio(`PAY_RAIL_FIELD`),兩者會撞(2026-08-20 實測:改用這個選擇器
+    //   時測試「找到」了元素,但那顆其實是收款表單的,不是本片的登記入口——假陽性)。
+    //   本片表單的標題「登記退款(現金/匯款)」是本檔獨有字面,用它當唯一錨。
+    expect(text).not.toContain('登記退款');
+  });
+});

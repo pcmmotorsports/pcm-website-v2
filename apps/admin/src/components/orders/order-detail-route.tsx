@@ -12,6 +12,7 @@ import {
   listOrderRefunds,
   type OrderRefundRow,
 } from '../../lib/payment/refund-read';
+import { listOrderManualRefunds, type ManualRefundRow } from '../../lib/payment/manual-refund-read';
 import { listOrderPayments } from '../../lib/orders/payment-repository';
 import { listSuppliers } from '../../lib/supplier';
 import { OrderDetail } from './order-detail';
@@ -124,12 +125,22 @@ export async function OrderDetailRoute({
   let refundsTruncated = false;
   let refundUnregisteredAmount: number | null = null;
   let refundUnregisteredFailed = false;
+  // M-4b E10 D3:非卡退款登記列表(獨立容錯,同 refunds 的立場——藏掉登記紀錄比整頁掛掉更糟)。
+  let manualRefunds: ManualRefundRow[] = [];
+  let manualRefundsFailed = false;
+  let manualRefundsTruncated = false;
   // 🔴 A13b D6-a:取消面板要拿它比對「這筆是不是你送的」。
   //    ⚠️ **不是授權邊界**(`session/actor.ts:6-7` 自陳:cookie 承載、使用者自選、未驗證)——
   //    只做顯示層比對;`null`(尚未選人)時 D3 會 fail-closed 走 `match_other_actor`。
   const actor = await getSessionActor();
-  const [detailSettled, suppliersSettled, refundsSettled, paymentsSettled, unregisteredSettled] =
-    await Promise.allSettled([
+  const [
+    detailSettled,
+    suppliersSettled,
+    refundsSettled,
+    paymentsSettled,
+    unregisteredSettled,
+    manualRefundsSettled,
+  ] = await Promise.allSettled([
       (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
       (async () => listSuppliers())(),
       (async () => listOrderRefunds(id))(),
@@ -141,6 +152,8 @@ export async function OrderDetailRoute({
       //    那是**串行**的第二趟,而且位置在 `detail === null → notFound()` 之前
       //    ⇒ **連「找不到訂單」的 404 頁都要先等這支 RPC**。關卡2 codex 抓到。
       (async () => getLedgerUnregisteredAmount(id))(),
+      // M-4b E10 D3:非卡退款登記列表,同 refunds 併進平行查(不依賴 detail)。
+      (async () => listOrderManualRefunds(id))(),
     ]);
   if (detailSettled.status === 'fulfilled') {
     detail = detailSettled.value;
@@ -213,6 +226,17 @@ export async function OrderDetailRoute({
     refundUnregisteredFailed = true;
   }
 
+  if (manualRefundsSettled.status === 'fulfilled') {
+    manualRefunds = manualRefundsSettled.value.rows;
+    manualRefundsTruncated = manualRefundsSettled.value.truncated;
+  } else {
+    console.error(
+      '[admin/order-detail] 非卡退款登記載入失敗(區塊顯示警告)',
+      manualRefundsSettled.reason,
+    );
+    manualRefundsFailed = true;
+  }
+
   // 🔴🔴 #15-B2-c 片1a:**三態不可收斂成兩態**(`payment-repository.ts:93-96` 逐字)——
   //    `[]` = 訂單在、還沒收過款;`null` = **訂單不存在**;`throw` = **沒讀到**。
   //    把 `throw` 或 `null` 畫成「尚未登錄任何收款」= 員工照著再登一次 ⇒ **重複入帳**。
@@ -280,6 +304,9 @@ export async function OrderDetailRoute({
           refundsTruncated={refundsTruncated}
           refundUnregisteredAmount={refundUnregisteredAmount}
           refundUnregisteredFailed={refundUnregisteredFailed}
+          manualRefunds={manualRefunds}
+          manualRefundsFailed={manualRefundsFailed}
+          manualRefundsTruncated={manualRefundsTruncated}
           cancelFormsAllowed={cancelFormsAllowedOnResultPage(resultCode)}
           customerHref={
             // 🔴 **形狀閘、不是只有 falsy**:型別是 `string | null`,但實際可能是

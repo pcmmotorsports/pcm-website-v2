@@ -296,6 +296,42 @@ describe('D6-a 驗收④ 表單由結果頁閘住(整條 URL → 頁層 → 表�
   });
 });
 
+// 🔴 2026-08-20:Sean 親自開後台看畫面裁定,退款/取消兩塊改成【上下堆疊、各自摺疊】
+// (原字:「不要左右,改成上下然後欄位可以點開.跟上面其他功能意思一樣」)。
+// plan 見 `~/pcm-mailbox/W2-014-退款取消版面上下堆疊-plan-20260820.md`。
+// 本組釘住的是**外層排列方式**,不是 `DangerZoneDetails` 的既有行為(那些已有自己的守門)。
+describe('片14(2026-08-20):退款/取消版面改上下堆疊,不再左右並排', () => {
+  it('退款、取消各自是一個可摺疊的 <details>,不是共用同一個 flex-row 容器', async () => {
+    const { container } = await renderPage();
+    expectPageRendered(container);
+    // 🔴 舊版面的識別字面(flex-row 容器)不得再出現——這是本格的負向斷言。
+    expect(container.querySelector('.justify-between.gap-3')).toBeNull();
+    // 兩塊各自是獨立的 <details>,且都套上新的卡片樣式(group + bg-card + rounded-lg border)。
+    const cards = Array.from(container.querySelectorAll('details.group.bg-card'));
+    expect(cards.length).toBeGreaterThanOrEqual(2);
+    // 正向對照:每個都是真的 <details>(可摺疊),不是隨便一個 div 恰好帶了這些 class。
+    for (const card of cards) {
+      expect(card.tagName).toBe('DETAILS');
+      expect(card.querySelector('summary')).not.toBeNull();
+    }
+  });
+
+  it('DOM 順序:退款卡在前、取消卡在後(視覺/Tab/朗讀三序一致,2026-08-19 codex K2 定案未變)', async () => {
+    const { container } = await renderPage();
+    const cards = Array.from(container.querySelectorAll('details.group.bg-card'));
+    const refundIdx = cards.findIndex((el) => el.textContent?.includes('退款'));
+    const cancelIdx = cards.findIndex((el) => el.textContent?.includes('申請取消整張單'));
+    expect(refundIdx).toBeGreaterThanOrEqual(0);
+    expect(cancelIdx).toBeGreaterThan(refundIdx);
+  });
+
+  it('文字未變:退款/申請取消整張單原字仍在(這片只動排版,不動文案)', async () => {
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('退款');
+    expect(container.textContent).toContain('申請取消整張單');
+  });
+});
+
 describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   // 🔴 **這一格是突變抓出來補的**:W2(把預設值改成 `true`)原本**全綠存活** ——
   //    因為頁層每一條測試都會經由 route 明確傳值,那個預設值**沒有任何測試走得到**。

@@ -18,6 +18,7 @@ import {
   RECEIPT_RECORDED_RESULT_CODE,
 } from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
+import { MANUAL_REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/manual-refund-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
   REFUND_RECOVERED_RESULT_CODE,
@@ -305,6 +306,7 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       'error',
       NOTE_ADDED_RESULT_CODE,
       REFUND_SUBMITTED_RESULT_CODE,
+      MANUAL_REFUND_SUBMITTED_RESULT_CODE,
       REFUND_MARKED_FAILED_RESULT_CODE,
       REFUND_RECOVERED_RESULT_CODE,
       PROCUREMENT_CREATED_RESULT_CODE,

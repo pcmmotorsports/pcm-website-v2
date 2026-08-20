@@ -31,10 +31,15 @@ import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
 import { shouldShowRefundEntry } from './refund-entry-gate';
+import { ManualRefundEntrySection } from './manual-refund-entry-section';
+import { ManualRefundLedgerSection } from './manual-refund-ledger-section';
+import { shouldShowManualRefundEntry } from './manual-refund-entry-gate';
 import type { PaymentListData } from './payment-list';
 import { PaymentSection } from './payment-section';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
+import { generateManualRefundRequestToken } from '../../lib/payment/manual-refund-action-state';
 import type { OrderRefundRow } from '../../lib/payment/refund-read';
+import type { ManualRefundRow } from '../../lib/payment/manual-refund-read';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
@@ -137,6 +142,9 @@ export function OrderDetail({
   refundsTruncated = false,
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
+  manualRefunds = [],
+  manualRefundsFailed = false,
+  manualRefundsTruncated = false,
   cancelFormsAllowed = false,
   customerHref = null,
   payments,
@@ -166,6 +174,12 @@ export function OrderDetail({
   refundUnregisteredAmount?: number | null;
   /** M-3 RW3:未登記額讀取失敗(顯錯誤態≠查無 + 發起入口 fail-closed,codex MF2)。 */
   refundUnregisteredFailed?: boolean;
+  /** M-4b E10 D3:非卡退款登記列(頁層讀;顯示不吃旗標,同 `refunds` 的立場)。 */
+  manualRefunds?: readonly ManualRefundRow[];
+  /** M-4b E10 D3:登記載入失敗(區塊顯示警告)。 */
+  manualRefundsFailed?: boolean;
+  /** M-4b E10 D3:登記列被上限截斷。 */
+  manualRefundsTruncated?: boolean;
   /** A13b D6-a:這一次渲染准不准出現取消表單。**預設 fail-closed**,逐條理由見 `OrderCancelBlock`。 */
   cancelFormsAllowed?: boolean;
   /**
@@ -202,6 +216,7 @@ export function OrderDetail({
   const refundLedgerAbnormal =
     refundsFailed ||
     refundUnregisteredFailed ||
+    manualRefundsFailed ||
     (refundUnregisteredAmount !== null && refundUnregisteredAmount < 0);
 
   return (
@@ -497,7 +512,19 @@ export function OrderDetail({
           🔴 **而「換位置」本身就是行為**(codex R2 在收款搬位那次抓過同款):
              Tab 與朗讀順序會變,且**收起來的內容報讀器預設讀不到**
              ⇒ 這不是純視覺,不要寫成零風險。 */}
-      <div className='flex flex-wrap items-start justify-between gap-3'>
+      {/* 🔴 2026-08-20:Sean 親自開後台看畫面後裁定,兩塊改成【上下堆疊、各自摺疊】,
+          與上面收款/出貨/備註等卡片統一(原字:「不要左右,改成上下然後欄位可以點開.
+          跟上面其他功能意思一樣．讓介面統一性」)。
+          🔴 判準去畫面上找,不是自己設計:比對既有卡片(`payment-list.tsx`/`notes-timeline.tsx`)
+          的收合寫法——外層 `<details className='group bg-card ... rounded-lg border p-4'>`、
+          `<summary>` 內自己畫一顆 `▶` 三角(`group-open:rotate-90`,`display:flex` 會蓋掉原生
+          marker)、標題用 `<h2 className='font-semibold'>`。plan 見
+          `~/pcm-mailbox/W2-014-退款取消版面上下堆疊-plan-20260820.md`。
+          ⚠️ **只換外層樣式與排列方式,`DangerZoneDetails` 本體(hash 深連結/對帳異常強制展開/
+          捲進視野三個行為邏輯)一行未動**,`OrderCancelBlock`/`RefundLedgerSection`/
+          `ManualRefundLedgerSection` 等內容元件也未動。文字(「退款」「申請取消整張單」)
+          不改——文案是另一題(main window 2026-08-20 交代:等自動退刷那題答完再動)。 */}
+      <div className='space-y-4'>
         {/* 🔴🔴 **對帳異常時這一塊【自己打開】,而且鈕上就寫著異常**(codex K2 2026-08-19 finding 3)。
             我第一版把帳本無條件收進鈕底下,而帳本裡有「帳本讀不到 / 未登記額為負 ⇒ 勿再發起退款」
             這種**警告** —— 那類警告存在的唯一理由就是要員工看到它。
@@ -505,17 +532,20 @@ export function OrderDetail({
             ⇒ **那是把一個 fail-closed 的安全設計,退化成一個沉默的安全設計。**
             ⇒ 判準用的是**與那道閘同一組輸入**(讀取失敗 / 未登記額為負),不另立第二套語意。 */}
         <DangerZoneDetails
-          className='min-w-0 flex-1'
+          className='group bg-card text-card-foreground rounded-lg border p-4'
           defaultOpen={refundLedgerAbnormal}
           summary={
-            <span
-              className={`inline-flex rounded-md border px-3 py-1.5 text-sm ${
-                refundLedgerAbnormal
-                  ? 'border-destructive/40 text-destructive bg-destructive/5'
-                  : 'hover:bg-muted'
-              }`}
-            >
-              {refundLedgerAbnormal ? '退款(對帳異常)' : '退款'}
+            <span className='flex flex-wrap items-center gap-2'>
+              <span className='text-muted-foreground text-[10px] transition-transform group-open:rotate-90'>
+                ▶
+              </span>
+              <h2
+                className={
+                  refundLedgerAbnormal ? 'text-destructive font-semibold' : 'font-semibold'
+                }
+              >
+                {refundLedgerAbnormal ? '退款(對帳異常)' : '退款'}
+              </h2>
             </span>
           }
         >
@@ -528,6 +558,14 @@ export function OrderDetail({
             rowsTruncated={refundsTruncated}
             loadFailed={refundsFailed}
             nowMs={Date.now()}
+          />
+
+          {/* M-4b E10 D3:非卡退款登記列表(唯讀、不吃旗標,同上一塊的立場)。
+              並列於 RefundLedgerSection、不合併型別,理由見該元件檔頭。 */}
+          <ManualRefundLedgerSection
+            rows={manualRefunds}
+            rowsTruncated={manualRefundsTruncated}
+            loadFailed={manualRefundsFailed}
           />
 
           {/* M-3 RW2d:退款入口(危險操作沉底)。旗標 && 顯示層狀態閘 && tappay 管道才渲染;
@@ -554,6 +592,20 @@ export function OrderDetail({
                 serverToken={generateRefundRequestToken()}
               />
             )}
+
+          {/* M-4b E10 D3:非卡退款登記入口。與上面的 TapPay 入口互斥並列——gating 用
+              order_payments.rail(非 paymentChannel),理由見 manual-refund-entry-gate.ts 檔頭。 */}
+          {shouldShowManualRefundEntry({
+            payments,
+            refundUnregisteredFailed,
+            refundUnregisteredAmount,
+          }) && (
+              <ManualRefundEntrySection
+                orderId={detail.id}
+                returnTo={returnTo}
+                serverToken={generateManualRefundRequestToken()}
+              />
+            )}
         </DangerZoneDetails>
 
         {/* A13b D6-a:取消區塊(複核 + 兩支表單)。判斷全部收在該檔內,見鐵則 6 的抽檔理由。
@@ -568,10 +620,13 @@ export function OrderDetail({
         <DangerZoneDetails
           key={detail.id}
           anchorId='cancel'
-          className='min-w-0 flex-1'
+          className='group bg-card text-card-foreground rounded-lg border p-4'
           summary={
-            <span className='border-destructive/40 text-destructive hover:bg-destructive/5 inline-flex rounded-md border px-3 py-1.5 text-sm'>
-              申請取消整張單
+            <span className='flex flex-wrap items-center gap-2'>
+              <span className='text-muted-foreground text-[10px] transition-transform group-open:rotate-90'>
+                ▶
+              </span>
+              <h2 className='text-destructive font-semibold'>申請取消整張單</h2>
             </span>
           }
         >

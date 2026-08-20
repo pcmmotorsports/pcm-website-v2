@@ -16,6 +16,7 @@ import {
   RECEIPT_RECORDED_RESULT_CODE,
 } from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
+import { MANUAL_REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/manual-refund-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
   REFUND_RECOVERED_RESULT_CODE,
@@ -85,6 +86,13 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   //    把不確定的講成確定的,那比原本這個 bug 嚴重。
   [REFUND_SUBMITTED_RESULT_CODE]: {
     text: '退款完成。客人入帳時間依照各家銀行而定。',
+    tone: 'ok',
+  },
+  // M-4b E10 D3:非卡退款登記(現金/匯款)——**只有成功走 redirect**(失敗回 action state、
+  // 保留輸入)。文案刻意不說「退款完成」:錢是人交回去的,系統只是記一筆帳,同族措辭鐵律
+  // 見 manual-refund-ledger-section.tsx 檔頭。
+  [MANUAL_REFUND_SUBMITTED_RESULT_CODE]: {
+    text: '已登記這筆退款。',
     tone: 'ok',
   },
   // 🔴 M-3 RW4:人工結案兩碼(同樣只有成功走 redirect;失敗全回 action state)。

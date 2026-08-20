@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十三個函式、共二十九處**手動校正
 //   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
 //    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
@@ -40,6 +40,17 @@
 //      ⇒ NULL 是設計上合法輸入;同檔 :118-120 寫明它是刻意選填。與 ⑦ 同款。)
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
+//   ⑬ `admin_record_manual_refund` **整段**(`#787`,2026-08-20)—— 與 ①–⑫ 形狀不同(同 ⑪ 舊例):
+//      整支函式在正式庫還不存在(migration `20260820021000` 未 apply)⇒ 現在重 gen 不會產生它。
+//      簽章逐字對該檔:`admin_record_manual_refund(p_order_id uuid, p_request_id uuid,
+//      p_actor text, p_rail text, p_refund_amount integer, p_reason text,
+//      p_occurred_at timestamptz) RETURNS jsonb`,全部參數必填、無 DEFAULT。
+//      🔴 apply 之後重 gen:先比對生成內容與本段是否一致,再刪本段——
+//         不要因為「反正會生成」就先拿掉,那會讓中間任何一次 gen 失敗變成靜默的型別漏洞。
+//      ⚠️ **本項只涵蓋函式那半**——本行計數的機制本身只認「函式」(見
+//      `database-types-manual-count.test.ts` 的正規式)。同一片手補的 `order_manual_refunds`
+//      表(Tables 區塊、退場條件相同)**不計入這個數字**,那是既有機制對「表」沒有涵蓋的
+//      既知邊界,已在該表定義旁另外留一段說明,不是漏算。
 //   ~~⑫ `admin_search_customers` **整段**~~ **已退場(2026-08-19 G4)**:它自己寫著
 //      「apply 之後先比對再刪本段」。**已比對 ⇒ 生成版簽章與手動段相同** ⇒ 手動段刪除。
 //      🔴 原文不在這裡重貼(在該顆 commit 的 diff 裡)。**本條不再計入上面的計數。**
@@ -1285,6 +1296,65 @@ export type Database = {
           },
         ]
       }
+      order_manual_refunds: {
+        // 🔴 手動校正,`#787` 2026-08-20 —— 這張表在正式庫還不存在
+        //    (migration `20260820010000` 未 apply)⇒ 現在重 gen 不會產生它。
+        //    簽章逐字對該檔:id/order_id/rail/refund_amount/reason/actor/occurred_at/
+        //    created_at + D1(`20260820021000`)後補的 request_id,共 9 欄,全部 NOT NULL。
+        //    apply 之後重 gen:先比對生成內容與本段是否一致,再刪本段。
+        //    ⚠️ **這是表,不是函式**——不計入檔頭那行「N個函式、共M處」的數字
+        //    (該計數機制的正規式只認函式條目,見 `database-types-manual-count.test.ts`);
+        //    對應的函式那半(`admin_record_manual_refund`)記在檔頭條目 ⑬。
+        Row: {
+          actor: string
+          created_at: string
+          id: string
+          occurred_at: string
+          order_id: string
+          rail: string
+          reason: string
+          refund_amount: number
+          request_id: string
+        }
+        Insert: {
+          actor: string
+          created_at?: string
+          id?: string
+          occurred_at: string
+          order_id: string
+          rail: string
+          reason: string
+          refund_amount: number
+          request_id: string
+        }
+        Update: {
+          actor?: string
+          created_at?: string
+          id?: string
+          occurred_at?: string
+          order_id?: string
+          rail?: string
+          reason?: string
+          refund_amount?: number
+          request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "admin_order_list_v"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_manual_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_notes: {
         Row: {
           author: string
@@ -1980,8 +2050,21 @@ export type Database = {
         ]
       }
       payment_charge_attempts: {
+        // 🔴 手動校正,W4 委託、2026-08-20 —— capture_state / capture_state_read_at 兩欄在
+        //    正式庫還不存在(migration `20260820040000` 未 apply)⇒ 現在重 gen 不會產生它們。
+        //    逐字對該檔 :75-77:
+        //      capture_state         text NOT NULL DEFAULT 'unknown'
+        //      capture_state_read_at timestamptz
+        //    capture_state 有值域 CHECK('authorized'|'captured'|'unknown',:80)——同 order_refunds.status
+        //    等既有 CHECK 值域欄的既定慣例,生成器不會產生聯集,型別給 `string`(呼叫端自己在
+        //    apps/admin/src/lib/orders/capture-state-view.ts 宣告 CaptureState 聯集把關)。
+        //    apply 之後重 gen:先比對生成內容與本段是否一致,再刪本段。
+        //    ⚠️ **這是既有表的兩個新欄,不是新表也不是新函式**——同 order_manual_refunds 表的
+        //    既知邊界,不計入檔頭那行「N個函式、共M處」的數字(見下方 W4-2 對此的討論)。
         Row: {
           bank_transaction_id: string | null
+          capture_state: string
+          capture_state_read_at: string | null
           created_at: string
           customer_user_id: string
           failure_observed_at: string | null
@@ -2009,6 +2092,8 @@ export type Database = {
         }
         Insert: {
           bank_transaction_id?: string | null
+          capture_state?: string
+          capture_state_read_at?: string | null
           created_at?: string
           customer_user_id: string
           failure_observed_at?: string | null
@@ -2036,6 +2121,8 @@ export type Database = {
         }
         Update: {
           bank_transaction_id?: string | null
+          capture_state?: string
+          capture_state_read_at?: string | null
           created_at?: string
           customer_user_id?: string
           failure_observed_at?: string | null
@@ -3621,6 +3708,18 @@ export type Database = {
           p_payer_note?: string
           p_rail: string
           p_received_at: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      admin_record_manual_refund: {
+        Args: {
+          p_actor: string
+          p_occurred_at: string
+          p_order_id: string
+          p_rail: string
+          p_reason: string
+          p_refund_amount: number
           p_request_id: string
         }
         Returns: Json
