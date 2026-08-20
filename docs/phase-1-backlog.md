@@ -25931,3 +25931,39 @@ done
   丙 今晚先用行為守則擋:apply 前先讀這條、套用工具一律不讀帳本判斷缺哪幾支(見
      `~/pcm-mailbox/W3-U-今晚六支migration執行單-20260820.md` 前言)
   ```
+
+### #796 · 🔴 一句活在正式庫物件上的 COMMENT,描述的授權方式已被 Sean 明文作廢
+
+- **狀態:** 待處理(2026-08-20 W1 立,主視窗指派「開條目、不要現在改」;**編號暫定 — 立時實查 `#796` 全 repo + mailbox 命中 0,若與其他窗撞號請主視窗改**)
+- **觸發條件(這一條的用途就是這一句):** 有人要判斷「誰可以寫 `order_refund_jobs`」的時刻 —— 包含 A7b-T、第 3 批 worker、以及任何讀表 COMMENT 當合約的人。
+- **實例(逐字,兩邊都是開檔量的):**
+  ```
+  正式庫上的表 COMMENT（20260731120000_m4b_e10_a7b_m_refund_jobs.sql:510 逐字):
+    🔴 **寫入路徑的事實**:service_role **可以直接 INSERT / UPDATE 本表**(見本檔 GRANT 段)
+       —— 直寫並非不可達。… ⇒ 讀到這句的人不得假設「不走 RPC 就寫不進來」。
+
+  而 a7b plan v7（docs/specs/2026-07-31-e10-a7b-refund-jobs-plan.md:37)Sean 拍板 Q1(T2 後)逐字:
+    **D**:退款工作表的寫入**一律走 owner 的 SECURITY DEFINER RPC**;「service_role 直寫」**明文作廢**
+    …**收回 service_role 對 `order_refund_jobs` 的 INSERT/UPDATE GRANT = 第 3 批前置**(本片不動)
+  ```
+- **🔴 為什麼危險 —— 不是「有一句話過期了」那麼輕:**
+  ```
+  1 COMMENT 不會被 CREATE OR REPLACE 洗掉（D3-a 那片的教訓)
+    ⇒ 它會活得比【推翻它的那個拍板】還久,而拍板住在一份 1502 行的 plan 的第 37 行
+  2 它是【寫在物件上】的,而寫在物件上的東西讀起來比文件權威
+    ⇒ 下一個人用 \d+ 或查 pg_description 看到它,會當成當下事實
+  3 🔴 而它自己的語氣是「**寫入路徑的事實**」「讀到這句的人**不得假設**…」
+    ⇒ 那個語氣本來是為了防止有人低估風險(誠實地寫「直寫並非不可達」),
+      而拍板 D 之後,同一句話變成【高估了 service_role 現在該有的權限】
+    ⇒ ⇒ **一句為了誠實而寫的警告,在前提改變之後,變成一句誤導。**
+  4 **沒有任何東西會紅** —— 三綠不 parse COMMENT,而 plan 與 DB 物件之間零守門
+  ```
+- **不修未來會痛在哪(鐵則 10):** 第 3 批 worker 的作者若照 COMMENT 走,會設計成「service_role 直寫工作表」;
+  而拍板 D 要求收回那兩個 GRANT ⇒ **worker 寫好、GRANT 收回的那一刻整條退款線靜默失效**,
+  而失效的形狀是「排程有跑、工單寫不進去」—— 與 `CHECK (false)` 封印期一模一樣,**兩者在 log 上分不出來**。
+- **處置(不在本條做):** A7b-T 或第 3 批同一支 migration 內,`COMMENT ON TABLE` 重寫成拍板 D 的字面,
+  並照「更正本身會過期」保留舊字面 + 標明何時被誰推翻。**不得只改 plan 不改 COMMENT。**
+- **相關:** `20260731120000`(表 + 封印 `order_refund_jobs_dormant_until_triggers CHECK (false)`,已 apply)、
+  `docs/specs/2026-07-31-e10-a7b-refund-jobs-plan.md` §4.5 / :37、
+  `docs/specs/2026-07-24-refund-automation-line-prd.md`(整線 PRD、§2 現況已於 2026-08-20 校正)、
+  [[#795]](同族:兩把尺分岔而零訊號)

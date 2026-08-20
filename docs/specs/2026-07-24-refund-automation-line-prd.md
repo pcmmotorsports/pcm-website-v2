@@ -52,6 +52,25 @@
 
 ## 2. 現況(2026-07-24 recon 實查)
 
+> 🔴🔴 **2026-08-20 校正:本節【四格已過期】,而過期的方向是「比本節以為的更完整」。**
+> **原六條逐字保留在下方,一個字沒改** —— 要看 2026-07-24 當時的判斷仍照原文;
+> 本框只說「哪一格、現在量到什麼、誰量的、怎麼量的」。
+>
+> ⚠️ **這種過期沒有人會來糾正**:它讀起來像「還很多沒做」,而**保守的錯不會有人抗議**。
+>
+> | 原文那一條 | 2026-08-20 實查 | 量法(可重跑) |
+> |---|---|---|
+> | `refund()` = **stub throw**(`:211-214`) | ❌ **已實作** —— 方法本體在 `TapPayChargeAdapter.ts:241` 起,含 preflight(違反即 `TapPayRefundNotSentError`、**fetch 零呼叫**)、`await fetch(this.config.refundUrl, …)` 在 **`:334`**。🔴 原文那個行號 `:211-214` 現在指到**別的東西**(3DS charge 回應解析),不是退款。 | `grep -n "await fetch(this.config.refundUrl"` / `sed -n '241,260p'` |
+> | 後台**無「取消訂單」按鈕** | ❌ **已存在,而且比本節設想的多一層** —— 渲染字面 `<h2>取消訂單</h2>` 在 `cancel-review-section.tsx:369`;**且已有兩支獨立表單「整單 / 部分」**(`cancel-order-forms.tsx:17`,A13b D4,Sean 08-10 拍 Q2=B)。🔴 **部分取消的 UI 已經蓋好了** —— 這格直接關係到 §0b `D1=B` 與 2026-08-20 新拍板的範圍問題。 | `grep -rn "取消訂單" --include='*.tsx' apps/admin/src`(負對照:捏造字串 ⇒ 0) |
+> | **admin app 目前零 TapPay wiring** | ❌ **已接** —— `apps/admin/src/lib/payment/composition.ts:134` `export function getTapPayAdapter()`;呼叫端 `refund-actions.ts`(23,035 bytes)。 | `grep -rn "export function getTapPayAdapter" apps/admin/src/lib/payment/composition.ts` |
+> | (本節未列)退款帳本 `order_refunds` = RF2a | ✅ **已 apply** —— `grep -c "^20260725130100" supabase/APPLIED.tsv` ⇒ **1**(負對照 `29990101000000` ⇒ **0**,尺是活的)。 | 同左 |
+>
+> **⇒ 其餘各條(改單 RPC 白名單 / `payment_status` enum / `rec_trade_id` 在 `payment_charge_attempts`)= 本次【未核】。**
+> 🔴 **我沒有逐片核對 RF1-RF8 的落地狀態** —— 上表四格是逐格量的,**其餘一律不得引用本次校正當依據**。
+>
+> 量測者:W1(`pcm-website-v2-e2`)· 2026-08-20T11:0x-11:2xZ · 工作樹 `dev`,當時 `local dev` 在 `4a6d1187`→`d0549e68` 之間。
+> 觸發:2026-08-20 深夜「自動退刷」線重新開工時,發現本 PRD 已存在而未進入當晚任何一份 plan 的視野。
+
 - `TapPayChargeAdapter.refund()` = **stub throw**(`TapPayChargeAdapter.ts:211-214`);port 簽章/型別已備(`ITapPayAdapter.ts:33`、`domain/payment/types.ts:116-129`)。
 - 後台**無「取消訂單」按鈕**;`cancelled_at/cancelled_reason` 欄已存在、明細頁只顯示不寫入(`order-detail.tsx:157,172`)。
 - 改單 RPC `admin_update_order_workflow` 白名單**只 5 欄、明文排除 `payment_status`**(金流紅線)→ **退款必須另開新 RPC**。
