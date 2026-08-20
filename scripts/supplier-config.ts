@@ -309,6 +309,29 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //    (v2 分類齊、零未分類)、handle 撞鍵 0、pv_spec 撞鍵 0、價格離群 0、圖已正規化為 URL 陣列。
     writeAllowed: true,
   },
+  // 上架 DNA(希臘空氣濾清器製造商)。brandSlug='dna'(與 supplierSlug 相同、不像 k-speed 那樣拼法分岔)。
+  //   🔴 brands seed 20260820110000 已寫(見同片 migration),尚未 apply——本片只做 code,
+  //   兩者(seed apply + 本登記)之後仍要 dry-run resolveId 才會命中,現在寫死不代表可以匯入。
+  //   值皆 2026-08-20 pcm-v2-c8(報價單庫)MCP 實查、單一 SQL 同一時點:780 列/780 群(★DNA 無變體軸,
+  //   一料號一商品,群數=變體數是這家的正常狀態,不是異常★)、description_zh/summary_zh 780/780 全有、
+  //   v2 分類 780/780(不落未分類)、圖 https、pv_spec 撞鍵 0。780 這個數字會長大(母體不設限,
+  //   Sean 2026-08-20 拍板 C)——匯入前務必重新查一次,不要沿用這裡的快照。
+  // 🔴🔴 命名坑(這次盤點才發現,不是憑空提醒):來源 product_name(英文)帶車款,
+  //   product_name_zh(中文)刻意不帶——Sean 2026-08-20 拍板「料號+商品名,不加車種」。
+  //   匯入端要讀 product_name_zh,不是 product_name;兩個欄位都叫「名字」,讀錯不會報錯、只會
+  //   靜靜把車款帶進標題。
+  dna: {
+    supplierSlug: 'dna',
+    brandSlug: 'dna',
+    handlePrefix: 'dna',
+    syncDescription: true, // 780/780 繁中描述已備(summary_zh/description_zh)
+    syncInstallResources: false, // ⚠️ 未查來源 pdf_urls/video_urls 是否有值,保守先關、確認後再開
+    appendManualFilename: false, // 同類多份用編號(新供應商預設值,DNA 無附件時本旗標無作用)
+    categoryStrategy: { kind: 'per-group' },
+    variantImages: 'per-variant', // 無變體軸的單變體家用此值天然安全(見型別註解)
+    // 🔴 過夜零寫入;dry-run 全綠 + Sean 批首灌後才開(照 runbook 慣例,不要在這片順手翻 true)
+    writeAllowed: false,
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。

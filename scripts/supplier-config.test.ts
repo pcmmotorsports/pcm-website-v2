@@ -103,15 +103,17 @@ describe('getSupplierConfig', () => {
     expect(() => getSupplierConfig('__proto__')).toThrow(/未知供應商/);
   });
 
-  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)', () => {
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
     // 2026-07-24 品牌上架第三批補 extreme(第 15 家、commit 9a2f62a/d756651)+ kspeed(第 16 家、
     //   commit 2b5cba1;supplierSlug='kspeed'、brandSlug='k-speed' 拼法分岔)並開寫首灌。
+    // 2026-08-20 補 dna(第 17 家;supplierSlug=brandSlug='dna',拼法未分岔),writeAllowed=false
+    //   起手(過夜零寫入,乾跑全綠 + Sean 批首灌後才開,見同片 supplier-config.ts 該筆註解)。
     // __gated_canary__ = 永久 guard 測試靶(非真供應商、writeAllowed 恆 false);底線排序在字母前。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
-      'akrapovic', 'bonamici', 'cncracing', 'eazigrip', 'ebc', 'evotech', 'extreme', 'front3d',
-      'gbracing', 'kspeed', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
+      'akrapovic', 'bonamici', 'cncracing', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
+      'front3d', 'gbracing', 'kspeed', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
     ]);
   });
 });
