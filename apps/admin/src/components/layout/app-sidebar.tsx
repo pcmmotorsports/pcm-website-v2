@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { useSidebar } from '@/components/ui/sidebar';
-import { buildNavItems, type NavItem } from './nav-items';
+import { buildNavItems, PARKED_NAV_ITEM, type NavItem } from './nav-items';
 
 // 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md):砍 Clerk / nav-config 動態導覽 / user dropdown。
 //
@@ -120,6 +120,16 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
           {navItems.map((item) => (
             <RailCell key={item.key} item={item} pathname={pathname} />
           ))}
+          {/*
+            🔴 **「設定」排在軌上最下面、灰字、點不動 —— Sean 2026-08-20 拍板(甲)。**
+            ⚠️ **這是【第二次推翻同一份定案稿】**:稿 `:357` 逐字
+               「『設定』**不在軌上出現** —— 它連預設狀態都沒有,只在滑出清單底部…存在」
+               ⇒ **作廢**。而它是第一處推翻的**連帶**:設定原本住在滑出清單裡,
+                  清單被拿掉之後它必須換地方,而他選了軌上。
+            📌 寫在這裡的理由與上一處相同:**下一個開那份稿的人會照著做回來,而稿不會自己知道它被推翻了。**
+            ⚠️ 而**我與主視窗都推薦乙(先整個拿掉),他選了甲** —— 照拍板做,不打折。
+          */}
+          <RailCell item={PARKED_NAV_ITEM} pathname={pathname} disabled />
         </nav>
         {/*
           🔴 軌底常駐同步時間 —— **它是量具,不是裝飾**(稿 `:288` 逐字):
@@ -146,16 +156,26 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
            那正是稿 `:283` 的 `<h1>` 逐字主張:「84px 的軌,同時放得下圖示、完整中文、待辦數字」。
            📌 而「窄軌 = 只有圖示」是一般人對窄側欄的既有印象,**它強到讓讀過反例的人仍然套上去**
            (2026-08-20 主視窗與我各犯一次)⇒ 留這句給下一個想「補 tooltip」的人。
-        ⏳ **而「設定」那一格暫時不在任何地方** —— 它原本只住在這塊清單裡(稿 `:357`
-           「不在軌上出現」,而那句的前提是【有這塊清單】)。**甲(軌上加一格灰的)/乙(先拿掉)
-           等 Sean 答**;我不替他選。
+        ✅ **而「設定」那一格已經有去處了**:Sean 同日拍板**甲 = 軌上最下面、灰字、點不動**
+           (~~原本這裡寫「暫時不在任何地方,等 Sean 答」~~ —— 他答了,見上方 `<RailCell … disabled />` 那段)。
+           📌 **這一行是我加完設定那格之後,回頭在同一支檔 grep「設定」才發現的** ——
+              **同檔矛盾,而這是兩片之內的第二次**(上一次是「稿要的三件」)。
       */}
     </aside>
   );
 }
 
 /** 軌上一格:上排圖示＋數字、下排完整中文(稿 `:283` 標題逐字「84px 的軌,同時放得下…」)。 */
-function RailCell({ item, pathname }: { item: NavItem; pathname: string }) {
+function RailCell({
+  item,
+  pathname,
+  disabled = false,
+}: {
+  item: NavItem;
+  pathname: string;
+  /** 灰字、點不動(目前唯一用途 = 「設定」,它沒有頁面可去)。 */
+  disabled?: boolean;
+}) {
   const ItemIcon = Icons[item.icon];
   const active = item.href !== undefined && isNavActive(pathname, item.href);
   const inner = (
@@ -177,7 +197,7 @@ function RailCell({ item, pathname }: { item: NavItem; pathname: string }) {
   );
   const cls = `block w-full border-l-2 px-1 py-2 ${
     active ? 'border-l-primary text-primary bg-sidebar-accent' : 'border-transparent'
-  }`;
+  }${disabled ? ' text-muted-foreground' : ''}`;
   return item.href === undefined ? (
     <span className={cls} aria-disabled>
       {inner}
