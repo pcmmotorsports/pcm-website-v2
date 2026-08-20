@@ -26217,3 +26217,132 @@ done
   - **相關:** `~/pcm-mailbox/W5-067-工具進版控的代價-20260820.md` §0(完整量測與判準)、
     `docs/patterns/mutation-harness-restore.md`(`a7bt` 那一格的母題)、
     `docs/patterns/guard-and-instrument-traps.md`(恆綠格 / 掃描字集比宣稱窄)。
+
+
+### #799 · 🔴 extreme 那 123 群的分類搬移要一次人工授權的寫入 —— 而它不做,客人會同時看到兩個「維修零件」
+
+- **狀態:** 待授權(2026-08-20 W1 立,主視窗發號;**號的來源** = `grep -oE '^### #[0-9]+' docs/phase-1-backlog.md | grep -oE '[0-9]+' | sort -n | tail -1` ⇒ **798**、`grep -cE '^### #799'` ⇒ **0**,兩發我自己重跑過、不吃轉述)
+- **分流:** `P1`(它是件二「完成」的硬條件,不是收尾雜項)
+- **前情:** 件二 plan = `~/pcm-mailbox/W1-104-plan-件二-維修零件大類-加法-20260820.md`。
+  報價單側把 `products.major_category_v2_zh` 從「服務與其他」改成「維修零件」之後,我方 820 群要跟著搬到新分類。
+- **🔴 為什麼它需要一個獨立編號(而不是 plan 裡的一句待辦):**
+  ```
+  820 群裡有 123 群是 extreme,而 .github/workflows/rpm-sync.yml:73 的 matrix 【沒有 extreme】
+  ⇒ 每日排程會搬走 697 群(bonamici 691 / evotech 5 / lightech 1)
+  ⇒ extreme 那 123 群【沒有任何自動動作會搬它們】
+  ⇒ 要搬 = 有人手動跑一次 `pnpm exec tsx scripts/rpm-import.ts --confirm-write --supplier=extreme`
+  ⇒ ⇒ 而那是**寫入正式庫**,與 apply 同級 ⇒ 要 Sean 本人授權 ⇒ 它會停在某個人的待辦裡
+  🔴 **沒有編號 = 沒有機制會把它翻出來。** 押著等別人的事,解除時不會有訊號
+     (memory `feedback_a-blocked-item-unblocks-without-a-signal`)。
+  ```
+- **觸發條件:** 件二 apply 完成、且報價單側寫入完成之後。**在那之前這條是「還不能做」,不是「忘了做」。**
+- **🔴 不修未來會痛在哪(鐵則 10;來源 = W9e 對 W1-104 的 must-fix 2):**
+  ```
+  授權若拖延,會落進 W1-104 §0 自己警告的那個失敗態,而**沒有東西會紅**:
+  · 側欄同時出現兩個「維修零件」——
+      維修零件            697 件   ← 新大類
+      服務與其他 > 維修零件 123 件  ← 舊的,extreme 的腳踏零件全在這
+    兩個都點得進去、都有商品、都不報錯。三綠不紅、測試不紅、migration 斷言不紅。
+  · 首頁磚牆看得到新分類,客人點進去**少了那 123 件腳踏零件**
+  🔴 而 Sean 拍這個板的理由逐字是「客人要找腳踏替換螺絲包不會去點『服務與其他』」
+    ⇒ ⇒ **最該被搬到新名字底下的那批,正好是不會被搬的那批。**
+  · 連帶:舊子類「服務與其他 · 維修零件」的引用數會停在 123 而**永遠不歸零**
+    ⇒ 「刪舊子類」那一片的前置條件跟著永遠不成立(W1-104 §6-b)
+  ```
+- **🔴 前置(不是跑完再補,是跑之前就要有):**
+  ```
+  ① dry-run 先跑:pnpm exec tsx scripts/rpm-import.ts --dry-run --supplier=extreme
+     期望「已對上 667 群 / 未對上 0 群」且「商品層變價 0 / 新商品 0 / 孤兒 0 / 待標記 0」
+     (2026-08-20 21:25 我實跑過一次,上述六個計數器全部是 0 ⇒ 當時是 no-op)
+  ② 🔴 而 ① 全綠【不涵蓋描述欄】:dry-run 的 delta 不比對 title / description / highlights,
+     而 extreme `syncDescription: true`(scripts/supplier-config.ts:285)
+     ⇒ 跑寫入之前必須先把 (external_id, title, description, highlights) 存一份,跑完 diff
+     ⇒ **那份存檔是前置,不是事後補的**(W1-104 §3-c ①-b)
+  ③ 跑完立刻驗 W1-104 §8-A10:moved_n = 123 且 still_old_n = 0
+  ```
+- **若最後裁定「就不搬」:** 那是**一次裁定,要寫進 W1-104**,不是默默把 A10 劃掉。
+  🔴 **把 A10 劃掉與 A10 通過,在收帳表上長得一模一樣。**
+- **相關:** `~/pcm-mailbox/W1-104-plan-件二-維修零件大類-加法-20260820.md` §0 / §3-c / §6-b / §8-A10 / §8-完;
+  `.github/workflows/rpm-sync.yml:73`;`scripts/supplier-config.ts:274-286`;
+  `docs/patterns/guard-and-instrument-traps.md`(「沒有東西會紅」那一族)。
+- **估時:** dry-run 3 分 / 存檔 + 寫入 10 分 / A10 驗收 5 分 ⇒ **約 20 分**,而**卡的是授權不是工時**。
+
+### #800 · 🔴 併 main 之後,在 main 上跑 `db push` 會【重跑已經套過的 migration】—— 而它讀的帳本認不得走 SQL Editor 套的那些
+
+- **狀態:** 待評估(2026-08-20 W4 立,主視窗發號;**號的來源** = `grep -oE '^### #[0-9]+' docs/phase-1-backlog.md | grep -oE '[0-9]+' | sort -n | tail -1` ⇒ **799**、`grep -c '^### #800' docs/phase-1-backlog.md` ⇒ **0**、正對照 `grep -c '^### #799'` ⇒ **1**,三發我自己重跑過、不吃轉述)
+- **分流:** `P1`(它不是收尾雜項:踩到的那一刻是在正式庫上重跑 DDL)
+- **🔴 觸發條件(這條的用途就是這一句):** **任何人要在 `main` 上跑 `supabase db push`(或任何會讀 `supabase_migrations.schema_migrations` 判斷「還缺哪幾支」的工具)的那一刻。**
+  在那之前這條是「還沒到」,不是「忘了做」。
+
+- **兩把尺為什麼分岔:** 全文在 **`#795`**(本條不重寫,一處全文、他處指標)。一句話:`supabase/APPLIED.tsv`(我們自己記的)與 `supabase_migrations.schema_migrations`(DB 自己記的)對同一支會給出相反答案。
+
+- **🔴 今晚的實例(2026-08-20,W4 對正式庫 `bmpnplmnldofgaohnaok` 實查):**
+  ```
+  四支走 SQL Editor 套的（021000 / 022000 / 100000 / 050000）
+    select count(*) from supabase_migrations.schema_migrations where version='<版本號>'
+    ⇒ 四支命中【全部是 0】
+  對照組 20260820130021（EBC，走 MCP apply_migration）⇒ 命中 1
+    ⇒ 🔴 那四個 0 不是查詢壞掉，帳本查詢本身會回東西
+  ⇒ 帳本看不見它們 ⇒ 任何讀帳本的工具都會判它們「沒套過」
+  ```
+
+- **🔴 不修未來會痛在哪(鐵則 10):**
+  ```
+  db push 推的是「remote history table 裡沒有的每一支」
+  ⇒ 它會把上面那四支（以及 040000 / 090000 這些同樣走 SQL Editor 的）當成沒套過，重跑一次
+  ⇒ 而【其中有幾支不冪等】。實錘:2026-08-20 Sean 在 SQL Editor 對 20260820040000 按了第二次
+     ⇒ `ERROR: 42701: column "capture_state" of relation "payment_charge_attempts" already exists`
+     那一次因為 SQL Editor 整段是一個交易 ⇒ 整段回滾、零副作用
+     🔴 **而 db push 不保證有那個保護** —— 它逐支送，某一支中途失敗時前面已成功的不會跟著回滾
+  ⇒ 後果不是「多跑一次沒事」，是「在正式庫上重跑一批 DDL，而其中有些會炸、有些會部分生效」
+  🔴 而這一格【沒有任何東西會提醒你】:db push 的輸出長得像正常工作，它不知道自己在重跑
+  ```
+
+- **🔴 併 main 那一刻的兩個附帶情境(最容易被讀錯的兩格):**
+  ```
+  ① 併進去會【多】6 支未 apply 的 migration 檔（W4-050 §2 逐支列了）:
+       20260820020000 / 20260820030000 / 20260820060000 / 20260820070000 /
+       20260820080000 / 20260820110000
+     ⚠️ 它們【不會自己 apply】。併 main 只是讓檔案出現在目錄裡。
+        真正的風險是它們從此進入 db push 的射程 —— 與上面那批「已套但帳本看不見」的混在同一個目錄。
+  ② 🔴 併進去會【拿掉】main 上現有的一支:
+       supabase/migrations/20260819010000_m4a_close_manual_review_attempt.sql
+     它在 dev 上被【刻意】搬到 docs/specs/2026-08-19-m4a-close-manual-review-attempt-migration-draft.sql
+     （commit `98a7ed69`,理由逐字「它 apply 必 rollback,而留在目錄裡就在 db push 射程內」）
+     ⚠️ **那是這次併案的一個效果,不是檔案不見了。** 看到它從 migrations/ 消失的人，
+        很容易讀成遺失而想把它加回去 —— 加回去正好撤銷了那個刻意的處置。
+  ```
+
+- **可能的修法(⚠️ **未評估,不是拍板**,列出來是為了讓下一個人不用從零想):**
+  ```
+  甲 把走 SQL Editor 套過的那些【補記進 schema_migrations】，讓兩把尺對齊
+     ⚠️ 那是對 supabase_migrations 這張系統表寫入 ⇒ 本身就是高風險動作
+  乙 永久禁用 db push，改成「只認 APPLIED.tsv + 逐支手動貼」
+     ⚠️ 那是把一個機制換成一條規則 —— 而規則沒有東西在守（機制優先律）
+  丙 做一道守門:比對 APPLIED.tsv 與 schema_migrations，分岔就擋
+     ⚠️ 它得先回答「分岔了要怎麼辦」，否則只是把問題從執行時搬到 commit 時
+  ⇒ 三條都有各自的代價，沒有一條是明顯正確的 ⇒ 這一格需要有人真的坐下來評估，不是順手修掉。
+  ```
+
+- **🔴 同族的兩個坑(2026-08-20 W4 自己在數這批 migration 時踩到,寫在這裡因為病根同一個:**
+  **拿一把尺去問帳,而尺本身有偏見):**
+  ```
+  ① `git log --diff-filter=A` 拿到的是【改名前的舊檔名】
+     ⇒ 我第一發數到「7 支未 apply」，其中 20260820060000_m4b_capture_recheck_pgcron.sql
+       在現在的樹上【根本不存在】（它已改名為 20260820070000_…）
+     ✅ 正確做法 = 比對兩個 ref 的 ls-tree 差集，並用總數對帳:
+        main 185 支 + dev獨有 18 − main獨有 1 = dev 202 支 ✅ 對得起來
+     ⇒ 正確答案是 6 支不是 7 支。
+  ② 我用底線 `manual_review` 掃 dev 的檔案樹 ⇒ 回【查無】
+     而真檔名用的是連字號 `close-manual-review` ⇒ 換掉當場命中三支
+     ⇒ 那個「查無」是【我的字集比實物窄】，不是「不存在」
+  📌 這兩個與本條 #800 是同一件事的兩個面:
+     ①②是「我的尺看不到實物」，#800 是「工具的尺看不到已經發生的事」。
+     判別句都一樣:**這把尺在【成立】與【不成立】兩個世界，會印不同的東西嗎?**
+  ```
+
+- **相關:** `#795`(兩把尺分岔,全文);`~/pcm-mailbox/W4-050-694顆分類-20260820.md` §2/§4;
+  `supabase/APPLIED.tsv`(`20260820040000` 那一列有「Sean 按了兩次」的原字面);
+  `~/pcm-mailbox/W3-U-今晚六支migration執行單-20260820.md`(開工前那一段:今晚全程禁用讀帳本的工具);
+  `docs/patterns/guard-and-instrument-traps.md`(量具坑全集)。
+- **估時:** 評估三條修法 + 端決策題 ⇒ **約 40 分**;實作視選哪一條而定,**未估**。
