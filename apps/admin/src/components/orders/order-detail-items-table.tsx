@@ -25,12 +25,14 @@
 //    ⇒ commit body 分兩段講(版面改動 / 抽檔),讓 reviewer 分得出哪些行是哪一件。
 //
 // 🔴 **本檔仍是 server component**(無 `'use client'`)——
-//    唯一的 client 島是 `item-amount-row.tsx`,它只握「展開誰」那個狀態。
+//    client 島有兩個:`item-amount-row.tsx`(握「展開誰」那個狀態)、
+//    `item-name-cell.tsx`(2026-08-21 新增,品名 hover 完整字,base-ui Tooltip 需要 client)。
 
 import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import type { PaymentListData } from './payment-list';
 import { ItemAmountRow, ItemAmountRowGroup } from './item-amount-row';
+import { ItemNameCell } from './item-name-cell';
 // 🔴 片C(取消介面搬家):品項的取消 checkbox 現在畫在這裡,判準仍是 `buildOrderCancelView`
 //    這唯一一份真相 —— 呼叫它是**再算一次同一個純函式**,不是重寫判準
 //    (`buildOrderCancelView` 只讀 `detail`、零 I/O,`OrderCancelBlock` 也各自呼叫它一次,
@@ -398,21 +400,24 @@ export function ItemsTable({
                     **同時**加了三處 `truncate`,而**沒有給任何看到完整值的路** ——
                     長料號 / 長規格會變成**畫面上讀不出來的資訊**。**那是行為退化,不只是版面改動。**
                     ⇒ 修法三件:
-                      ① 品名與料號補 `title`(游標停住看得到完整值)——
+                      ① 品名與料號補完整值的逃生門——
                          **這不是我發明的**:Aug-13 設計稿 `:1027` 逐字 `<span class="nm" title="${l[3]}">`。
-                         🔴🔴 **而本片其餘每一格都搬 08-17 那版,只有這一格【刻意用舊版】** ——
-                            08-17 那版 `grep title=` ⇒ **零命中**,也就是**它沒有逃生門**。
-                            ⇒ **不要以為我搬錯版本**;是新版在這一格比舊版差,我取較安全的那一份。
-                            (成因值得記:**兩個各自合理的改動 —— 拿掉橫捲 + 加截斷 ——
-                             合起來把一條資訊路徑關掉了,而單看任一個 diff 都不會發現。**)
                       ② **規格那一行不截斷,讓它換行** —— 它是次要行,換行零資訊損失。
-                      ③ 品名 `title` 用 `?? undefined`:`title=""` 會讓某些瀏覽器顯示一個空 tooltip。
-                    ⚠️ **`title` 只在游標停住時看得到** —— 觸控與純鍵盤看不到。
-                       Sean `A2` 拍板「員工用電腦」⇒ 這條路成立;**若日後要支援平板,這一格要重做。** */}
+                      ③(料號欄仍用原生 `title`,見下方 :variantSku 那格)。
+                    🔴🔴 **2026-08-21 更新(Sean 逐字拍板「維持切字,hover 要看得到完整的字」)**:
+                       **品名這一格換掉原生 `title`**,改用 `ItemNameCell`(app 內 Tooltip 元件)——
+                       原生 title 由 OS 畫、不進 DOM,寫不出「拿掉會紅」的守門(見該檔檔頭)。
+                       🔴 **料號欄刻意不動**(W4 nit N1 審過同意):正式庫 `product_variants`
+                       最長 sku 65 字、超過 20 字的有 1170 件(分母 51647),而料號欄實測寬
+                       158px 會截斷——同一列會變成「hover 品名有反應、hover 料號沒反應」,
+                       比兩個都沒有更困惑。**這不是漏改**,是 Sean 這次只要求品名、擴大範圍
+                       要他拍板(主視窗開 backlog 追蹤)。 */}
                 <div className='min-w-0'>
-                  <div className='truncate text-[13px]' title={item.title ?? undefined}>
-                    {item.title ?? '—'}
-                  </div>
+                  {item.title ? (
+                    <ItemNameCell title={item.title} />
+                  ) : (
+                    <div className='truncate text-[13px]'>—</div>
+                  )}
                   {item.spec && (
                     <div className='text-muted-foreground mt-0.5 text-xs'>
                       {Object.entries(item.spec)

@@ -266,7 +266,7 @@ describe('codex 關卡2 must-fix 的守門', () => {
     expect(ROW).toMatch(/setOpenId\(next \? /);
   });
 
-  it('🔴 被 `truncate` 的兩格都要有 `title`(否則長值在畫面上讀不出來,而那是行為退化)', () => {
+  it('🔴 被 `truncate` 的兩格都要有看完整值的逃生門(否則長值在畫面上讀不出來,而那是行為退化)', () => {
     // 只看品項列那一段,不掃全檔。
     const i = TABLE.indexOf('variant=\'card-line\'');
     expect(i).toBeGreaterThan(-1);
@@ -274,7 +274,10 @@ describe('codex 關卡2 must-fix 的守門', () => {
     const truncs = [...block.matchAll(/className='[^']*truncate[^']*'/g)];
     // 正向對照:真的有截斷的格子(沒有的話下面那條是恆真)
     expect(truncs.length).toBeGreaterThan(0);
-    expect(block).toMatch(/title=\{item\.title \?\? undefined\}/);
+    // 🔴 2026-08-21 更新(Sean 拍板「hover 要看得到完整的字」):品名這一格從原生 `title`
+    // 換成 `ItemNameCell`(app 內 Tooltip,見 item-name-cell.tsx 檔頭與 item-name-cell.test.tsx
+    // 的雙向斷言);料號欄未收到同款要求,維持原生 `title` 不動。
+    expect(block).toMatch(/<ItemNameCell title=\{item\.title\}/);
     expect(block).toMatch(/title=\{item\.variantSku\}/);
   });
 });

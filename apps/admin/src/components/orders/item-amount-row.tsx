@@ -13,8 +13,10 @@ import { ItemAmountForm, type ItemAmountFormProps } from './item-amount-form';
 //    表單裡有 label、輸入框、checkbox 與「我確認這個品項要改成 0 元」——
 //    `nowrap` 會讓它一行到底,**要嘛擠爆別欄、要嘛整張表出現橫向捲軸**。
 //
-// 🔴🔴 **本檔是【唯一】的 client 島 —— `ItemsTable` 與 `order-detail.tsx` 仍是 server component。**
+// 🔴🔴 **本檔是 client 島之一 —— `ItemsTable` 與 `order-detail.tsx` 仍是 server component。**
 //    (`grep -c "use client" order-detail.tsx` ⇒ **0**,那個 0 要維持。)
+//    ⚠️ 2026-08-21 更新:`item-name-cell.tsx` 是第二個 client 島(品名 hover 完整字,
+//    base-ui Tooltip 需要 client);上面「唯一」那句已不成立,改成「之一」。
 //    ⚠️ 作法:**那幾格的內容仍由 server 算好、當 `ReactNode` 傳進來**(`before` / `priceText` / `after`),
 //       (原字面「六格」= 片5 之前的欄數;現值 8,見上方口徑註記。)
 //    本檔只負責「**展開誰**」這個狀態與那一列的殼。
