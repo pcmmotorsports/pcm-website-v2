@@ -65,7 +65,13 @@
 --   每處替換在產生時 assert「恰命中 1 次」⇒ 沒有手抄面。加的只有一條 `AND o.cancelled_at IS NULL`。
 --
 -- Rollback:用兩支原檔的函式段各跑一次 `CREATE OR REPLACE`(簽名相同、ACL 保留),
---   並把本片改過的兩則 COMMENT 一併還原。本檔零 DDL、零資料寫入(probe 的 fixture 會被回滾)。
+--   並把本片改過的兩則 COMMENT 一併還原。
+-- 🔴 codex 對抗審查 nit(2026-08-21 折入,字面 vs 事實):上一版這裡寫「本檔零 DDL」——
+--   **不對,本檔確實有 DDL**:兩支 `CREATE OR REPLACE FUNCTION`(:270 起)+ 兩則
+--   `COMMENT ON FUNCTION`(:642 起)都是 DDL,而它們**不會**隨 probe 的 fixture 一起回滾
+--   (probe 用的是 plpgsql savepoint,只包住 probe 自己的區塊;函式定義與 COMMENT 是本檔
+--   最外層交易的一部分,COMMIT 後永久生效)。「零 DDL」這句低估了本片真正的變更面與
+--   風險 —— **零資料寫入**(probe 的 fixture 造完就回滾,不留列)才是真的,DDL 不是零。
 -- ============================================================
 
 BEGIN;
@@ -82,6 +88,12 @@ BEGIN
   SELECT prosrc INTO v_src2 FROM pg_proc WHERE oid = 'public.begin_charge_attempt(uuid)'::regprocedure;
 
   -- 指紋①:本片已經套過了嗎(先判這個 —— 它與②互斥,合成一句會讓人查錯方向)
+  -- 🔴 codex 對抗審查 nit(2026-08-21 折入):**不冪等是設計選擇,不是缺陷**——但這道閘
+  --   判的是「函式定義長怎樣」,不是「migration ledger 記了什麼」。若 apply 時 DB 真的
+  --   commit 了而 ledger(`supabase_migrations.schema_migrations`)漏記(例如透過 SQL Editor
+  --   貼、不是 CLI apply——backlog #795/#800 記過這個裂口),**重跑不會自己痊癒**:
+  --   這道閘會正確擋下重跑,但擋下的原因(「已套過」)跟 ledger 沒記到的事實,兩者要人工
+  --   對齊,不能假設「閘擋下了 = ledger 沒問題」。
   IF position('o.cancelled_at IS NULL' in v_src1) > 0
      OR position('o.cancelled_at IS NULL' in v_src2) > 0 THEN
     RAISE EXCEPTION 'A8a3-G 前置閘:現行定義已含 o.cancelled_at IS NULL ⇒ **本片已套過**(forward-only,拒重跑)。這不是「有人改壞了」';
@@ -107,6 +119,7 @@ DECLARE
   v_order_id uuid;
   v_cart     uuid := pg_catalog.gen_random_uuid();
   v_kind     text;
+  v_rows     integer;
 BEGIN
   -- 🔴🔴 **借一張【既有訂單】,把它暫時改成目標形狀,而不是造一張新的**(2026-08-20 改)。
   --   原本的做法是【新增一列訂單】當 fixture。三個理由讓它換掉:
@@ -144,6 +157,11 @@ BEGIN
   -- fixture 放在內層 block:結束時 RAISE 把它回滾掉(plpgsql 的 BEGIN…EXCEPTION 自帶 savepoint)。
   -- 🔴 v_kind 是 plpgsql 變數,**不隨子交易回滾** ⇒ 結果帶得出來,而假資料留不下。
   BEGIN
+    -- 🔴🔴 codex 對抗審查 MF-2(2026-08-21 折入):probe1 借的是既有正式訂單,若那一列正被
+    --   付款/取消/後台流程持鎖,下面的 UPDATE 會卡住(indefinite block),而不是明確失敗。
+    --   加 `lock_timeout` 把「卡住」變成「有限時間內明確拒絕」——SET LOCAL 只影響本子交易,
+    --   savepoint 結束(下面的 RAISE)後自動失效,不影響檔案其他區塊。
+    SET LOCAL lock_timeout = '3s';
     -- 把借來的那一列**暫時**改成目標形狀:同一個 cart、已付款、已取消。
     -- 🔴 只動這三欄 —— 金額欄一個字都不碰(所以本片不是金額寫入者)。
     UPDATE public.orders
@@ -151,6 +169,15 @@ BEGIN
            payment_status  = 'paid'::public.payment_status,
            cancelled_at    = pg_catalog.now()
      WHERE id = v_order_id;
+    -- 🔴🔴 codex 對抗審查 MF-3(2026-08-21 折入):沒斷言 UPDATE 恰好影響一列。若這一列在
+    --   SELECT 之後、UPDATE 之前被同時刪除,UPDATE 影響 0 列 ⇒ find_active_sibling_own 對
+    --   一個從未真的改成目標形狀的 cart 回 none ⇒ 「fixture 根本沒造出來」會被誤判成
+    --   「修法成功」(這裡是世界一,誤判方向相反:會被誤判成「缺陷不可重現」)。
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows <> 1 THEN
+      RAISE EXCEPTION 'A8a3-G 世界一:UPDATE 影響 % 列(預期恰 1)⇒ 借來的那張單可能同時被刪除/'
+                      '未命中,fixture 沒有真的造出目標形狀,下面的驗證測的不是我以為的東西', v_rows;
+    END IF;
     SELECT (public.find_active_sibling_own(v_cart)->>'kind') INTO v_kind;
     RAISE EXCEPTION 'A8A3G_PROBE_ROLLBACK';
   EXCEPTION WHEN OTHERS THEN
@@ -173,50 +200,95 @@ $probe$;
 
 DO $probe2$
 DECLARE
-  v_a      uuid;   -- 要結帳的那張(unpaid、未取消、無取消紀錄)
-  v_b      uuid;   -- sibling:同客人同 cart、已付款、已取消
+  v_a      uuid := pg_catalog.gen_random_uuid();   -- 要結帳的那張(全新造,不借)
+  v_b      uuid := pg_catalog.gen_random_uuid();   -- sibling:同客人同 cart、已付款、已取消(全新造,不借)
   v_uid    uuid;
   v_cart   uuid := pg_catalog.gen_random_uuid();
   v_reason text;
   v_res    jsonb;
   v_acquired boolean;
+  v_ship    jsonb := pg_catalog.jsonb_build_object('name', 'probe', 'phone', '0900000000', 'line', 'test');
+  v_invoice jsonb := pg_catalog.jsonb_build_object('type', 'personal');
+  n_before          integer;
+  n_mid             integer;
+  n_after           integer;
+  n_attempts_before integer;
+  n_attempts_after  integer;
 BEGIN
   -- 🔴 這一發測的是 **begin_charge_attempt 的 sibling dedup**,不是 find_active_sibling_own。
   --   codex 關卡2 逐字打中的就是這一格:「兩個 probe 都只呼叫 find;begin dedup 從未執行,
   --   條件移到死碼而碼錨仍恰一次即可假綠」。**碼錨守的是那行字在檔裡,不是它在會被執行的位置。**
-  SELECT o.id, o.customer_user_id INTO v_a, v_uid
-    FROM public.orders o
-   WHERE o.cancelled_at IS NULL
-     AND NOT EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = o.id)
-   ORDER BY o.created_at LIMIT 1;
-  -- 🔴 v_b 也要過濾(W5 盲審 n-1):借來的那張會被 UPDATE ⇒ **整個 apply 期間持有它的列鎖**,
-  --   而 begin 內的 pg_advisory_xact_lock 是**交易級** ⇒ 借到一張正在被人用的單會擋住那個人。
-  --   ⇒ 挑一張沒有在途扣款的(零成本,而它把「借誰」從隨機變成有條件)。
-  SELECT o.id INTO v_b FROM public.orders o
-   WHERE o.id <> v_a
-     AND NOT EXISTS (SELECT 1 FROM public.payment_charge_attempts a
-                      WHERE a.order_id = o.id AND a.status IN ('pending', 'charged'))
-   ORDER BY o.created_at LIMIT 1;
-  IF v_a IS NULL OR v_b IS NULL THEN
-    RAISE EXCEPTION 'A8a3-G 世界一(begin dedup):需要兩張既有訂單來借(其中一張未取消且無取消紀錄)。'
-                    '現在借不到 ⇒ probe 跑不了。🔴 **刻意 fail-closed** —— 跑不了就是一格恆綠,'
-                    '而恆綠長得像成功。解法:在有訂單資料的環境 apply。**不要把這道斷言拿掉。**';
+  -- 🔴🔴 **W3/W4 2026-08-21 診斷 + 主視窗裁定(不借現有單,自己造 fixture、跑完回滾)**:
+  --   原本借兩張既有訂單各自 UPDATE 的做法,過濾「有沒有在途扣款」裝在了沒用到它的
+  --   那一張(sibling v_b)上,要結帳的那張(v_a)沒過濾 ⇒ 借到的 v_a 若自己已經有一筆
+  --   在途 attempt,begin_charge_attempt 會在佔鎖那一段就先回 order_locked,probe 根本
+  --   沒走到 dedup ⇒ 假綠。**不借就沒有這個問題**:v_a/v_b 是這一發才生的新 uuid,
+  --   不可能與任何既有 payment_charge_attempts 列衝突、也不會持有任何既有列的鎖。
+  SELECT o.customer_user_id INTO v_uid FROM public.orders o ORDER BY o.created_at LIMIT 1;
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'A8a3-G 世界一(begin dedup):造 fixture 需要借一個既有 customer_user_id(唯讀,只讀不寫)滿足'
+                    'orders_customer_user_id_fkey。現在 public.orders 零列 ⇒ probe 跑不了。'
+                    '🔴 **刻意 fail-closed** —— 跑不了就是一格恆綠,而恆綠長得像成功。'
+                    '解法:在有訂單資料的環境 apply。**不要把這道斷言拿掉。**';
   END IF;
 
+  SELECT count(*) INTO n_before FROM public.orders WHERE id IN (v_a, v_b);
+  -- 🔴🔴 codex 對抗審查 nit(2026-08-21 折入):上一版取了 n_before 的值卻從未斷言它——
+  --   宣稱「三段式 0→2→0」實際只驗了 2→0,第一段是空話。v_a/v_b 是這一發才生的新 uuid,
+  --   INSERT 之前理論上不可能已存在,這裡補上,讓「0」是驗過的而不是假設的。
+  IF n_before <> 0 THEN
+    RAISE EXCEPTION 'A8a3-G probe2 fixture(世界一): id 衝突,n_before=%(預期 0)⇒ gen_random_uuid() '
+                    '撞到既有列,理論上不可能,停下人工查', n_before;
+  END IF;
+  SELECT count(*) INTO n_attempts_before FROM public.payment_charge_attempts WHERE order_id IN (v_a, v_b);
+
   BEGIN
-    -- 把兩張借來的單暫時改成目標形狀(只動歸屬/cart/狀態三類欄,**金額欄一個字不碰**)
-    UPDATE public.orders SET customer_user_id = v_uid, cart_session_id = v_cart,
-           payment_status = 'paid'::public.payment_status, cancelled_at = pg_catalog.now()
-     WHERE id = v_b;
-    UPDATE public.orders SET cart_session_id = v_cart,
-           payment_status = 'unpaid'::public.payment_status, cancelled_at = NULL
-     WHERE id = v_a;
+    -- 全新造兩張單(不借、不改既有列)。只填 NOT NULL/CHECK 要求的最小合法值;
+    -- 🔴 金額四欄(subtotal/shipping_fee/discount_total/total)寫死整數字面,不用變數
+    --   ——subtotal-writers-allowlist.test.ts 新增的第三個 it 會逐字核對這一點。
+    INSERT INTO public.orders (
+      id, display_id, customer_user_id, cart_session_id, payment_status, cancelled_at,
+      shipping_address_snapshot, tier_at_checkout, subtotal, shipping_fee, discount_total, total,
+      shipping_method, invoice
+    ) VALUES (
+      v_a, 'PCM-9999-90001', v_uid, v_cart, 'unpaid'::public.payment_status, NULL,
+      v_ship, 'general'::public.member_tier, 1000, 100, 0, 1100, 'home', v_invoice
+    );
+    INSERT INTO public.orders (
+      id, display_id, customer_user_id, cart_session_id, payment_status, cancelled_at,
+      shipping_address_snapshot, tier_at_checkout, subtotal, shipping_fee, discount_total, total,
+      shipping_method, invoice
+    ) VALUES (
+      v_b, 'PCM-9999-90002', v_uid, v_cart, 'paid'::public.payment_status, pg_catalog.now(),
+      v_ship, 'general'::public.member_tier, 1000, 100, 0, 1100, 'home', v_invoice
+    );
+
+    SELECT count(*) INTO n_mid FROM public.orders WHERE id IN (v_a, v_b);
+    IF n_mid <> 2 THEN
+      RAISE EXCEPTION 'A8a3-G probe2 fixture(世界一): INSERT 沒有真的造出兩列(得到 % 列),'
+                      '後面的驗證測的不是我以為的東西', n_mid;
+    END IF;
+
     SELECT (public.begin_charge_attempt(v_a)->>'reason') INTO v_reason;
     RAISE EXCEPTION 'A8A3G_PROBE_ROLLBACK';
   EXCEPTION WHEN OTHERS THEN
-    -- 這一發 RAISE 的唯一用途是回滾上面兩個 UPDATE(以及 begin 內部可能寫下的 attempt 列)。
+    -- 這一發 RAISE 的唯一用途是回滾上面兩個 INSERT(以及 begin 內部可能寫下的 attempt 列)。
     IF SQLERRM <> 'A8A3G_PROBE_ROLLBACK' THEN RAISE; END IF;
   END;
+
+  -- 🔴 三段式證人(0→2→0):只查跑完那一發的話,0 同時相容於「造了又回滾乾淨」與
+  --   「INSERT 那步本身就失敗、後面根本沒發生任何事」——上面 n_mid=2 那道先證明「造出來過」,
+  --   這裡再證明「現在真的沒有了」,兩者合起來才分得開。
+  SELECT count(*) INTO n_after FROM public.orders WHERE id IN (v_a, v_b);
+  IF n_after <> 0 THEN
+    RAISE EXCEPTION 'A8a3-G probe2 fixture(世界一)沒有真的回滾:v_a/v_b 兩列在回滾後還查得到 % 列'
+                    '(預期 0),有殘留', n_after;
+  END IF;
+  SELECT count(*) INTO n_attempts_after FROM public.payment_charge_attempts WHERE order_id IN (v_a, v_b);
+  IF n_attempts_after <> n_attempts_before THEN
+    RAISE EXCEPTION 'A8a3-G probe2 fixture(世界一): payment_charge_attempts 殘留(現 % 列,預期 %)',
+                    n_attempts_after, n_attempts_before;
+  END IF;
 
   IF v_reason IS DISTINCT FROM 'duplicate' THEN
     RAISE EXCEPTION 'A8a3-G 世界一(begin dedup)【沒有紅】:修法前 begin_charge_attempt 對一張'
@@ -441,6 +513,7 @@ DECLARE
   v_order_id uuid;
   v_cart     uuid := pg_catalog.gen_random_uuid();
   v_kind     text;
+  v_rows     integer;
 BEGIN
   -- 🔴🔴 **借一張【既有訂單】,把它暫時改成目標形狀,而不是造一張新的**(2026-08-20 改)。
   --   原本的做法是【新增一列訂單】當 fixture。三個理由讓它換掉:
@@ -478,6 +551,8 @@ BEGIN
   -- fixture 放在內層 block:結束時 RAISE 把它回滾掉(plpgsql 的 BEGIN…EXCEPTION 自帶 savepoint)。
   -- 🔴 v_kind 是 plpgsql 變數,**不隨子交易回滾** ⇒ 結果帶得出來,而假資料留不下。
   BEGIN
+    -- 🔴🔴 codex 對抗審查 MF-2(2026-08-21 折入,理由同世界一那份,不重複貼一次)。
+    SET LOCAL lock_timeout = '3s';
     -- 把借來的那一列**暫時**改成目標形狀:同一個 cart、已付款、已取消。
     -- 🔴 只動這三欄 —— 金額欄一個字都不碰(所以本片不是金額寫入者)。
     UPDATE public.orders
@@ -485,6 +560,13 @@ BEGIN
            payment_status  = 'paid'::public.payment_status,
            cancelled_at    = pg_catalog.now()
      WHERE id = v_order_id;
+    -- 🔴🔴 codex 對抗審查 MF-3(2026-08-21 折入):這裡是世界二,誤判方向是「fixture 沒造出來」
+    --   卻被誤判成「修法成功(回 none)」——兩者外觀相同,必須靠 ROW_COUNT 分開。
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows <> 1 THEN
+      RAISE EXCEPTION 'A8a3-G 世界二:UPDATE 影響 % 列(預期恰 1)⇒ 借來的那張單可能同時被刪除/'
+                      '未命中,fixture 沒有真的造出目標形狀,下面的驗證測的不是我以為的東西', v_rows;
+    END IF;
     SELECT (public.find_active_sibling_own(v_cart)->>'kind') INTO v_kind;
     RAISE EXCEPTION 'A8A3G_PROBE_ROLLBACK';
   EXCEPTION WHEN OTHERS THEN
@@ -504,52 +586,86 @@ $probe$;
 
 DO $probe2$
 DECLARE
-  v_a      uuid;   -- 要結帳的那張(unpaid、未取消、無取消紀錄)
-  v_b      uuid;   -- sibling:同客人同 cart、已付款、已取消
+  v_a      uuid := pg_catalog.gen_random_uuid();   -- 要結帳的那張(全新造,不借)
+  v_b      uuid := pg_catalog.gen_random_uuid();   -- sibling:同客人同 cart、已付款、已取消(全新造,不借)
   v_uid    uuid;
   v_cart   uuid := pg_catalog.gen_random_uuid();
   v_reason text;
   v_res    jsonb;
   v_acquired boolean;
+  v_ship    jsonb := pg_catalog.jsonb_build_object('name', 'probe', 'phone', '0900000000', 'line', 'test');
+  v_invoice jsonb := pg_catalog.jsonb_build_object('type', 'personal');
+  n_before          integer;
+  n_mid             integer;
+  n_after           integer;
+  n_attempts_before integer;
+  n_attempts_after  integer;
 BEGIN
   -- 🔴 這一發測的是 **begin_charge_attempt 的 sibling dedup**,不是 find_active_sibling_own。
   --   codex 關卡2 逐字打中的就是這一格:「兩個 probe 都只呼叫 find;begin dedup 從未執行,
   --   條件移到死碼而碼錨仍恰一次即可假綠」。**碼錨守的是那行字在檔裡,不是它在會被執行的位置。**
-  SELECT o.id, o.customer_user_id INTO v_a, v_uid
-    FROM public.orders o
-   WHERE o.cancelled_at IS NULL
-     AND NOT EXISTS (SELECT 1 FROM public.order_cancellations c WHERE c.order_id = o.id)
-   ORDER BY o.created_at LIMIT 1;
-  -- 🔴 v_b 也要過濾(W5 盲審 n-1):借來的那張會被 UPDATE ⇒ **整個 apply 期間持有它的列鎖**,
-  --   而 begin 內的 pg_advisory_xact_lock 是**交易級** ⇒ 借到一張正在被人用的單會擋住那個人。
-  --   ⇒ 挑一張沒有在途扣款的(零成本,而它把「借誰」從隨機變成有條件)。
-  SELECT o.id INTO v_b FROM public.orders o
-   WHERE o.id <> v_a
-     AND NOT EXISTS (SELECT 1 FROM public.payment_charge_attempts a
-                      WHERE a.order_id = o.id AND a.status IN ('pending', 'charged'))
-   ORDER BY o.created_at LIMIT 1;
-  IF v_a IS NULL OR v_b IS NULL THEN
-    RAISE EXCEPTION 'A8a3-G 世界二(begin dedup):需要兩張既有訂單來借(其中一張未取消且無取消紀錄)。'
-                    '現在借不到 ⇒ probe 跑不了。🔴 **刻意 fail-closed** —— 跑不了就是一格恆綠,'
-                    '而恆綠長得像成功。解法:在有訂單資料的環境 apply。**不要把這道斷言拿掉。**';
+  -- 🔴🔴 **不借現有單、自己造 fixture、跑完回滾**(理由同世界一那份,不重複貼一次)。
+  SELECT o.customer_user_id INTO v_uid FROM public.orders o ORDER BY o.created_at LIMIT 1;
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'A8a3-G 世界二(begin dedup):造 fixture 需要借一個既有 customer_user_id(唯讀,只讀不寫)滿足'
+                    'orders_customer_user_id_fkey。現在 public.orders 零列 ⇒ probe 跑不了。'
+                    '🔴 **刻意 fail-closed** —— 跑不了就是一格恆綠,而恆綠長得像成功。'
+                    '解法:在有訂單資料的環境 apply。**不要把這道斷言拿掉。**';
   END IF;
 
+  SELECT count(*) INTO n_before FROM public.orders WHERE id IN (v_a, v_b);
+  -- 🔴🔴 codex 對抗審查 nit(2026-08-21 折入,理由同世界一那份,不重複貼一次)。
+  IF n_before <> 0 THEN
+    RAISE EXCEPTION 'A8a3-G probe2 fixture(世界二): id 衝突,n_before=%(預期 0)⇒ gen_random_uuid() '
+                    '撞到既有列,理論上不可能,停下人工查', n_before;
+  END IF;
+  SELECT count(*) INTO n_attempts_before FROM public.payment_charge_attempts WHERE order_id IN (v_a, v_b);
+
   BEGIN
-    -- 把兩張借來的單暫時改成目標形狀(只動歸屬/cart/狀態三類欄,**金額欄一個字不碰**)
-    UPDATE public.orders SET customer_user_id = v_uid, cart_session_id = v_cart,
-           payment_status = 'paid'::public.payment_status, cancelled_at = pg_catalog.now()
-     WHERE id = v_b;
-    UPDATE public.orders SET cart_session_id = v_cart,
-           payment_status = 'unpaid'::public.payment_status, cancelled_at = NULL
-     WHERE id = v_a;
+    -- 全新造兩張單(不借、不改既有列)。金額四欄寫死整數字面,理由同世界一那份。
+    INSERT INTO public.orders (
+      id, display_id, customer_user_id, cart_session_id, payment_status, cancelled_at,
+      shipping_address_snapshot, tier_at_checkout, subtotal, shipping_fee, discount_total, total,
+      shipping_method, invoice
+    ) VALUES (
+      v_a, 'PCM-9999-90001', v_uid, v_cart, 'unpaid'::public.payment_status, NULL,
+      v_ship, 'general'::public.member_tier, 1000, 100, 0, 1100, 'home', v_invoice
+    );
+    INSERT INTO public.orders (
+      id, display_id, customer_user_id, cart_session_id, payment_status, cancelled_at,
+      shipping_address_snapshot, tier_at_checkout, subtotal, shipping_fee, discount_total, total,
+      shipping_method, invoice
+    ) VALUES (
+      v_b, 'PCM-9999-90002', v_uid, v_cart, 'paid'::public.payment_status, pg_catalog.now(),
+      v_ship, 'general'::public.member_tier, 1000, 100, 0, 1100, 'home', v_invoice
+    );
+
+    SELECT count(*) INTO n_mid FROM public.orders WHERE id IN (v_a, v_b);
+    IF n_mid <> 2 THEN
+      RAISE EXCEPTION 'A8a3-G probe2 fixture(世界二): INSERT 沒有真的造出兩列(得到 % 列),'
+                      '後面的驗證測的不是我以為的東西', n_mid;
+    END IF;
+
     SELECT public.begin_charge_attempt(v_a) INTO v_res;
     v_reason := v_res->>'reason';
     v_acquired := coalesce((v_res->>'acquired')::boolean, false);
     RAISE EXCEPTION 'A8A3G_PROBE_ROLLBACK';
   EXCEPTION WHEN OTHERS THEN
-    -- 這一發 RAISE 的唯一用途是回滾上面兩個 UPDATE(以及 begin 內部可能寫下的 attempt 列)。
+    -- 這一發 RAISE 的唯一用途是回滾上面兩個 INSERT(以及 begin 內部可能寫下的 attempt 列)。
     IF SQLERRM <> 'A8A3G_PROBE_ROLLBACK' THEN RAISE; END IF;
   END;
+
+  -- 三段式證人(0→2→0),理由同世界一那份,不重複貼一次。
+  SELECT count(*) INTO n_after FROM public.orders WHERE id IN (v_a, v_b);
+  IF n_after <> 0 THEN
+    RAISE EXCEPTION 'A8a3-G probe2 fixture(世界二)沒有真的回滾:v_a/v_b 兩列在回滾後還查得到 % 列'
+                    '(預期 0),有殘留', n_after;
+  END IF;
+  SELECT count(*) INTO n_attempts_after FROM public.payment_charge_attempts WHERE order_id IN (v_a, v_b);
+  IF n_attempts_after <> n_attempts_before THEN
+    RAISE EXCEPTION 'A8a3-G probe2 fixture(世界二): payment_charge_attempts 殘留(現 % 列,預期 %)',
+                    n_attempts_after, n_attempts_before;
+  END IF;
 
   -- 🔴🔴 **正向斷言,不是「不等於 duplicate」**(W5 盲審 MF-1;而那個假綠我實測重現過)。
   --   原本寫 `IF v_reason = 'duplicate' THEN 紅` ⇒ **begin 回任何其他值都算綠**,
@@ -560,7 +676,11 @@ BEGIN
   --   **我為世界一寫下了那個理由,卻沒有把它套用到世界二。**
   --   ⇒ 而 begin 的 dedup 前面有五道閘(隔離/取消守門/cart null/not_unpaid/advisory lock),
   --     find 幾乎沒有 ⇒ **「到不了」在 begin 最可能發生,而它原本拿到最弱的斷言。**
-  IF NOT v_acquired THEN
+  -- 🔴🔴 codex 對抗審查 MF-1(2026-08-21 折入):純量比較全用 IS DISTINCT FROM,這一格漏了。
+  --   `v_acquired` 雖然已用 coalesce 保證非 NULL(:602),但 `IF NOT v_acquired` 本身在
+  --   v_acquired 一旦是 NULL 時會**靜靜跳過失敗分支、印成綠**(NULL 讓 IF 不進去,外觀是通過)
+  --   ——這正是本檔其他斷言都在防的那個形狀,這一格不該是唯一的例外。改成顯式跟 true 比較。
+  IF v_acquired IS DISTINCT FROM true THEN
     RAISE EXCEPTION 'A8a3-G 世界二(begin dedup)【沒有綠】:預期 acquired=true(dedup 放行後應該取得鎖),'
                     '實得 acquired=% / reason=%。'
                     '🔴 若 reason 是 duplicate ⇒ **修法沒生效**;'
@@ -581,7 +701,9 @@ COMMENT ON FUNCTION public.find_active_sibling_own(uuid) IS
   '🔴 **A8a3-G(2026-08-20)加 `o.cancelled_at IS NULL`**:已取消的單不是「進行中的單」。'
   '在 A8a3 之前這條是多餘的(能被取消的單必定 unpaid ⇒ 永不滿足 paid 分支);'
   'A8a3 讓現金已付款可取消而**不改 payment_status** ⇒ 出現 cancelled+paid 的新形狀 ⇒ '
-  '少了這條,**客人會被自己那張已被取消的單擋住重新結帳**(過度阻擋,不是雙扣;且不產生客訴以外的訊號)。'
+  '少了這條,**客人會被自己那張已被取消的單擋住重新結帳**——'
+  '🔴 而實測形狀是**假成功**、不是「擋住」:畫面顯示「訂單已成立」,單號指向舊單,'
+  'DB 沒有新單、沒打過 TapPay(重現見 ~/pcm-mailbox/W2-002-結帳BLOCKER重現-假成功-20260820.md)。'
   '⚠️ 本 repo 的測試層碰不到 DB ⇒ **這條沒有常設守門**;下一個改本函式的人請保留它。';
 
 -- ⚠️ begin_charge_attempt 的 COMMENT 由 20260809210000 設定,本片**只加一句**、不重寫全文
