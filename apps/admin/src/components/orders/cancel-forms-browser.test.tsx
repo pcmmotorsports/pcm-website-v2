@@ -118,22 +118,27 @@ function withPostMethod(html: string): string {
  * 🔴 **本檔量的是「JS 不在場」那一側** —— `renderToStaticMarkup` 沒有 React runtime
  *    (檔頭 `:35-42`),所以這裡看到的行為就是員工把 JS 關掉 / 還沒 hydrate 時的行為。
  *    E1 的三格全部退化成原行為,而**挑數量仍然可用**(覆寫欄是原生控制項、沒有任何值由 JS 組)。
+ *
+ * 🔴🔴 **片C(取消介面搬家):照 production 的新形狀組**——`PartialCancelForm`(shell)與
+ * `PartialCancelItemControl`(checkbox/數量欄)並排,靠原生 `form` 屬性跨 DOM 樹關聯
+ * (HTML 表單不能巢狀,唯一原生做法)。零 JS 這一側**尤其吃緊**:`form` 屬性關聯本身是
+ * 瀏覽器原生行為,不靠任何 script,所以這條路徑理論上原封退化 —— 底下每一格既有斷言
+ * 不改就是最直接的驗證。
  */
 async function renderPartial(): Promise<string> {
-  const { PartialCancelForm } = await import('./cancel-order-forms');
+  const { PartialCancelForm, PartialCancelItemControl } = await import('./cancel-order-forms');
+  const item = {
+    orderItemId: ITEM,
+    quantity: 5,
+    instockQuantity: 0,
+    cancelledQuantity: 0,
+    maxCancellable: 2,
+  };
   return renderToStaticMarkup(
-    <PartialCancelForm returnTo={RETURN_TO}
-      orderId={ORDER}
-      items={[
-        {
-          orderItemId: ITEM,
-          quantity: 5,
-          instockQuantity: 0,
-          cancelledQuantity: 0,
-          maxCancellable: 2,
-        },
-      ]}
-    />,
+    <>
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER} items={[item]} />
+      <PartialCancelItemControl orderId={ORDER} item={item} />
+    </>,
   );
 }
 

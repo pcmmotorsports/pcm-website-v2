@@ -209,6 +209,11 @@ function cancelFormCount(container: HTMLElement): number {
   return container.querySelectorAll('[name="cancel_mode"]').length;
 }
 
+/** 片C(取消介面搬家):商品卡上的取消 checkbox 數。 */
+function cancelItemCheckboxCount(container: HTMLElement): number {
+  return container.querySelectorAll('[name="cancel_item"]').length;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.findAdminOrderDetail.mockResolvedValue(detail());
@@ -384,5 +389,81 @@ describe('D6-a 驗收① 關單之後面板仍在(掛在資格閘之外)', () =>
     expectPageRendered(container);
     expect(container.textContent).not.toContain('查不到取消紀錄');
     expect(container.textContent).not.toContain('取消已完成');
+  });
+});
+
+// 🔴🔴 片C(取消介面搬家):商品卡上的取消 checkbox 現在跟危險區的表單吃**同一顆**
+//    `cancelFormsAllowed`(`order-detail.tsx` 往下傳給 `ItemsTable` 與 `OrderCancelBlock` 兩邊)。
+//    本組驗的正是「兩邊真的接的是同一顆值,不是各自算出剛好一樣的兩份」——
+//    只測 `cancel_mode`(表單本身)測不到這件事,商品卡上的 checkbox 要單獨量。
+describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同一道 cancelFormsAllowed 閘', () => {
+  it('canonical 網址 ⇒ 商品卡上也出現取消 checkbox(不只是危險區的表單)', async () => {
+    const { container } = await renderPage();
+    expectPageRendered(container);
+    expect(cancelFormCount(container)).toBeGreaterThan(0);
+    expect(cancelItemCheckboxCount(container)).toBeGreaterThan(0);
+  });
+
+  it('🔴 B 類失敗結果頁(表單被閘住)⇒ 商品卡上的 checkbox 也一起消失', async () => {
+    const { container } = await renderPage({ r: toOrderCancelResultCode('retry'), rt: TOKEN });
+    expectPageRendered(container);
+    expect(cancelFormCount(container)).toBe(0);
+    expect(cancelItemCheckboxCount(container)).toBe(0);
+  });
+
+  it('🔴 判定說不能取消(已付款)⇒ 商品卡上也不給 checkbox', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ paymentStatus: 'paid' }));
+    const { container } = await renderPage();
+    expectPageRendered(container);
+    expect(cancelItemCheckboxCount(container)).toBe(0);
+  });
+
+  it('🔴 直接渲染 OrderDetail 不傳 cancelFormsAllowed ⇒ 商品卡零 checkbox(fail-closed)', () => {
+    const { container } = render(
+      <OrderDetail detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+    );
+    expect(container.textContent).toContain('ABC123');
+    expect(cancelItemCheckboxCount(container)).toBe(0);
+  });
+
+  it('🔴🔴 品項 id 剛好叫 `constructor` 時,checkbox 仍然正確渲染(Map 查表不中原型鏈)', () => {
+    // memory `reference_js-index-lookup-hits-prototype-chain`:`obj['constructor']` 是 truthy,
+    // 物件索引版**不會**判定「查無」而是把原型鏈上的東西當資料。`order-detail-items-table.tsx`
+    // 的 `cancelItemById` 用 `Map`(規格上沒有原型鏈這回事),這條把它釘成事實,不只是相信規格。
+    const withOddId = detail({
+      items: [
+        {
+          id: 'constructor',
+          variantSku: 'SKU-1',
+          title: '下導流',
+          spec: null,
+          quantity: 5,
+          unitPrice: { amount: 100, currency: 'TWD' },
+          lineTotal: { amount: 500, currency: 'TWD' },
+          procurements: [],
+          procurementTruncated: false,
+          quantitySummary: {
+            quantity: 5,
+            orderedQuantity: 4,
+            instockQuantity: 0,
+            cancelledQuantity: 0,
+            cancellableQuantity: 5,
+          },
+        },
+      ] as never,
+    });
+    const { container } = render(
+      <OrderDetail
+        detail={withOddId}
+        returnTo='/orders/ord-1'
+        cancelFormsAllowed
+        payments={{ status: 'ok', rows: [] }}
+      />,
+    );
+    const box = container.querySelector<HTMLInputElement>('input[name="cancel_item"]');
+    expect(box).not.toBeNull();
+    // 值 = `<id>:<maxCancellable>`——用 `Map.get('constructor')` 真的取到那個品項(不是 undefined
+    // 落到某個原型鏈殘留),否則這裡要嘛整支 checkbox 不見,要嘛值裡的 id 段不會是 constructor。
+    expect(box!.getAttribute('value')).toMatch(/^constructor:/);
   });
 });

@@ -5,6 +5,7 @@ import {
   CANCEL_ORDER_ID_FIELD,
   CANCEL_REQUEST_TOKEN_FIELD,
   cancelItemQtyField,
+  partialCancelFormId,
 } from '../../lib/orders/cancel-action-state';
 // 🔴 #363:產生器改從**獨立的 server-only 模組**取(client 檔 import 它 = build 期紅)。
 //    這一行的 import 來源本身就是守門的一部分,別為了「少一個 import」搬回上面那支。
@@ -110,6 +111,7 @@ function CancelFormShell({
   returnTo,
   mode,
   submitLabel,
+  formId,
   children,
 }: {
   orderId: string;
@@ -121,11 +123,16 @@ function CancelFormShell({
   returnTo: string;
   mode: 'full' | 'partial';
   submitLabel: string;
+  /**
+   * 片C(取消介面搬家):給 `<form>` 一個 id,讓商品卡上的 checkbox/數量欄
+   * 用原生 `form` 屬性從外面關聯回來。只有 partial 需要(整單那支零外部控制項)。
+   */
+  formId?: string;
   children?: React.ReactNode;
 }) {
   const requestToken = generateCancelRequestToken();
   return (
-    <form action={cancelOrderAction} className='space-y-3'>
+    <form id={formId} action={cancelOrderAction} className='space-y-3'>
       <input type='hidden' name={CANCEL_ORDER_ID_FIELD} value={orderId} />
       <input type='hidden' name={CANCEL_REQUEST_TOKEN_FIELD} value={requestToken} />
       {/* 🔴 `cancel_mode` **只有這一顆、且是 hidden**:表單裡沒有任何可編輯控制項叫這個名字。 */}
@@ -190,35 +197,27 @@ export function PartialCancelForm({
   orderId,
   returnTo,
   items,
-  itemNames,
 }: {
   orderId: string;
   returnTo: string;
   items: readonly CancelItemView[];
-  /**
-   * `orderItemId` → 給員工看的品名。缺這顆時退回顯示 id 尾八碼。
-   *
-   * 🔴 **用 `Map` 不用物件字面**:這裡的鍵是**資料來的 uuid**,而 `obj[使用者輸入]` 會取到
-   *    原型鏈屬性(`constructor` / `toString` 都是 truthy)⇒ 畫出鬼名字或 `undefined`。
-   *    PCM 曾因這個形狀中過 6 頁(memory `reference_js-index-lookup-hits-prototype-chain`);
-   *    `Map.get()` 沒有原型鏈這回事。
-   * ⚠️ **本片刻意選 optional**:`CancelItemView`(plan 定的形狀)不帶品名,
-   *    真正有品名的是 D6 接線時手上的 `AdminOrderDetailItem`。
-   */
-  itemNames?: ReadonlyMap<string, string>;
 }) {
   // 🔴 **「勾得動」的判定共用 `cancel-view.ts` 的 `isItemSelectable`**(R1 must-fix 5):
   //    原本這裡自己寫了一份逐字相同的條件,而本檔同時宣稱「判定不在這裡」——
   //    那正是兩份會漂移的規格。型別述詞也順帶把 `maxCancellable` 收窄成 `number`。
   const selectable = items.filter(isItemSelectable);
 
-  // 🔴 **一顆都勾不動就不要給表單**(R1 must-fix 6):空 fieldset 配一顆按得下去的送出鈕,
+  // 🔴 **一顆都勾不動就不要給表單**(R1 must-fix 6):空表單配一顆按得下去的送出鈕,
   //    按下去必然 `{ok:false}`(部分取消要求至少一筆,`cancel-form.ts:257`)
   //    ⇒ 導頁 `order_cancel_invalid`,而 `E-014-A` Q2=A 之下**原因欄不保留**、要整份重填。
   //    ⚠️ 上游 `canCancel` 本來就會擋掉這張單,但本元件只吃 `items`、不吃 view
   //    ⇒ 不能把這道守門押在「D6 接線的人記得判」。**自己擋住自己**。
   if (selectable.length === 0) return null;
 
+  // 🔴🔴 **片C(取消介面搬家):品項的 checkbox/數量欄不再是這裡的 children。**
+  //    它們現在住在 `ItemsTable`(商品卡上),用 `PartialCancelItemControl`
+  //    + 原生 `form` 屬性關聯回下面這顆 `<form>`(HTML 表單不能巢狀)。
+  //    本元件的職責縮成:①判斷要不要出現這個區塊(上面那道守門)②渲染 shell(原因欄+送出鈕)。
   return (
     <section className={CARD}>
       <h2 className={CARD_TITLE}>取消部分品項</h2>
@@ -227,61 +226,92 @@ export function PartialCancelForm({
         returnTo={returnTo}
         mode='partial'
         submitLabel='取消勾選的品項'
-      >
-        <fieldset className='space-y-2'>
-          <legend className='mb-1 text-sm font-medium'>要取消的品項</legend>
-          {selectable.map((item) => {
-            const name = itemNames?.get(item.orderItemId) ?? `品項 …${item.orderItemId.slice(-8)}`;
-            return (
-              <div key={item.orderItemId} className='flex items-center gap-2 text-sm'>
-                {/*
-                  🔴 數量欄放在 `<label>` **外面**。
-                  ⚠️ 理由不是「點它會 toggle checkbox」(code-reviewer F3 實測打掉我第一版的說法:
-                     label activation 規格上**本來就跳過 interactive content**,放裡面點它也不會 toggle)。
-                     真正的理由是**點擊區與無障礙語意**:放在 label 內時,label 的空白區、以及
-                     `<label>` 對輔助技術宣告的「這段文字描述那顆 checkbox」會把數量欄一起吞進去。
-                     ⇒ 測試因此改成直接斷言 DOM 結構(`closest('label') === null`),不是量 toggle 行為 ——
-                       量 toggle 是**恆真格**,搬回 label 內也照樣綠。
-                */}
-                <label className='flex items-center gap-2'>
-                  <input
-                    type='checkbox'
-                    name={CANCEL_ITEM_FIELD}
-                    value={`${item.orderItemId}:${item.maxCancellable}`}
-                  />
-                  <span>
-                    {name}(買 {item.quantity} 件,這次可取消 {item.maxCancellable} 件)
-                  </span>
-                </label>
-                {/*
-                  🔴 **只有可取消量 > 1 才給數量欄**(A13b E1):`=== 1` 的品項多一個永遠只能填 1 的欄位
-                     是純噪音,而且解析器對「欄位不存在」與「欄位是空字串」是**不同處置**
-                     (`cancel-action-state.ts` 的 `cancelItemQtyField` docstring)。
-                  🔴 **`type='text'` 不是 `type='number'`,而且刻意不掛 `min`/`max`/`step`**
-                     (關卡1 R2 #1/#2 各打一次):
-                     ① `type=number` 遇到非法輸入會把 value 正規化成**空字串**。
-                        ⚠️ 這條在**現行**解析器下只是假設:空字串現在一律 `{ok:false}`,不會變成
-                        「沿用 max」。留著是因為它記錄了「若哪天有人把空字串改成沿用 max」的引信,
-                        **真正站得住的是理由②**。
-                     ② 原生 constraint 會作用在**沒被勾選**的品項上 ⇒ 員工在某個沒要取消的品項裡
-                        留下一個壞值,會擋住整張表單送出,而錯誤訊息指向他根本沒選的那一行。
-                     ⇒ 驗證**單一判官 = 解析器**;這裡只負責讓員工打得出數字。
-                */}
-                {item.maxCancellable > 1 && (
-                  <input
-                    type='text'
-                    inputMode='numeric'
-                    name={cancelItemQtyField(item.orderItemId)}
-                    defaultValue={String(item.maxCancellable)}
-                    aria-label={`${name} 要取消幾件`}
-                    className='border-input bg-background h-8 w-16 rounded-md border px-2 text-sm'
-                  />
-                )}
-              </div>
-            );
-          })}
-        </fieldset>
-      </CancelFormShell>
+        formId={partialCancelFormId(orderId)}
+      />
     </section>
+  );
+}
+
+/**
+ * 片C(取消介面搬家):單一品項的取消 checkbox + 數量覆寫欄。
+ *
+ * 🔴🔴 **這段 JSX 是從 `PartialCancelForm` 原封搬過來的,邏輯一個字沒改**——
+ *    差別只有兩處:①每顆控制項多帶 `form={partialCancelFormId(orderId)}`(跨 DOM 樹關聯回
+ *    部分取消表單,HTML 表單不能巢狀,這是唯一原生做法)②呼叫端(`ItemsTable`)一次只給一個 item,
+ *    不再自己 `.map()`。**「勾得動」的判定仍然只有 `isItemSelectable` 這一份**,本元件自己擋一次
+ *    (呼叫端若忘記先過濾,這裡仍會 fail-closed 不渲染),不是重算一份新判準。
+ *
+ * 🔴 **一顆 checkbox = 取消該品項「還能取消」的全部數量**(值 = `<order_item_id>:<數量>`,
+ *    形狀逐字對齊 `cancel-form.ts` 的 `parseItemEntry`)。
+ * 🏁 **A13b E1 之後,checkbox 不再等於「取消到底」**(Sean 08-10 晨拍 Q2=B「同品項買 3 退 2 會發生」):
+ *    checkbox 仍帶 `<id>:<maxCancellable>`(值一個字都沒改),但 `maxCancellable > 1` 的品項
+ *    旁邊多一個**數量覆寫欄** `cancel_item_qty__<id>`,解析器以它為準
+ *    (規則與兩種空值的分野見 `cancel-action-state.ts` 的 `cancelItemQtyField` docstring)。
+ *    ⚠️ **零 JS 也能挑** —— 覆寫欄是原生控制項,沒有任何值由 client 端組出來。
+ */
+export function PartialCancelItemControl({
+  orderId,
+  item,
+  itemName,
+}: {
+  orderId: string;
+  item: CancelItemView;
+  /** 給員工看的品名。缺這顆時退回顯示 id 尾八碼。 */
+  itemName?: string;
+}) {
+  // 🔴 只列**勾得動**的品項(`maxCancellable` 非 null 且 > 0):`null` = 上限算不出來
+  //    (`cancel-view.ts` 的 `SUMMARY_FAIL_CLOSED`)⇒ 一律不給勾,不是畫成 0。
+  if (!isItemSelectable(item)) return null;
+
+  const name = itemName ?? `品項 …${item.orderItemId.slice(-8)}`;
+  const formId = partialCancelFormId(orderId);
+  return (
+    <div className='flex items-center gap-2 text-sm'>
+      {/*
+        🔴 數量欄放在 `<label>` **外面**。
+        ⚠️ 理由不是「點它會 toggle checkbox」(code-reviewer F3 實測打掉我第一版的說法:
+           label activation 規格上**本來就跳過 interactive content**,放裡面點它也不會 toggle)。
+           真正的理由是**點擊區與無障礙語意**:放在 label 內時,label 的空白區、以及
+           `<label>` 對輔助技術宣告的「這段文字描述那顆 checkbox」會把數量欄一起吞進去。
+           ⇒ 測試因此改成直接斷言 DOM 結構(`closest('label') === null`),不是量 toggle 行為 ——
+             量 toggle 是**恆真格**,搬回 label 內也照樣綠。
+      */}
+      <label className='flex items-center gap-2'>
+        <input
+          type='checkbox'
+          name={CANCEL_ITEM_FIELD}
+          value={`${item.orderItemId}:${item.maxCancellable}`}
+          form={formId}
+        />
+        <span>
+          {name}(買 {item.quantity} 件,這次可取消 {item.maxCancellable} 件)
+        </span>
+      </label>
+      {/*
+        🔴 **只有可取消量 > 1 才給數量欄**(A13b E1):`=== 1` 的品項多一個永遠只能填 1 的欄位
+           是純噪音,而且解析器對「欄位不存在」與「欄位是空字串」是**不同處置**
+           (`cancel-action-state.ts` 的 `cancelItemQtyField` docstring)。
+        🔴 **`type='text'` 不是 `type='number'`,而且刻意不掛 `min`/`max`/`step`**
+           (關卡1 R2 #1/#2 各打一次):
+           ① `type=number` 遇到非法輸入會把 value 正規化成**空字串**。
+              ⚠️ 這條在**現行**解析器下只是假設:空字串現在一律 `{ok:false}`,不會變成
+              「沿用 max」。留著是因為它記錄了「若哪天有人把空字串改成沿用 max」的引信,
+              **真正站得住的是理由②**。
+           ② 原生 constraint 會作用在**沒被勾選**的品項上 ⇒ 員工在某個沒要取消的品項裡
+              留下一個壞值,會擋住整張表單送出,而錯誤訊息指向他根本沒選的那一行。
+           ⇒ 驗證**單一判官 = 解析器**;這裡只負責讓員工打得出數字。
+      */}
+      {item.maxCancellable > 1 && (
+        <input
+          type='text'
+          inputMode='numeric'
+          name={cancelItemQtyField(item.orderItemId)}
+          defaultValue={String(item.maxCancellable)}
+          aria-label={`${name} 要取消幾件`}
+          className='border-input bg-background h-8 w-16 rounded-md border px-2 text-sm'
+          form={formId}
+        />
+      )}
+    </div>
   );
 }

@@ -398,12 +398,16 @@ export function OrderDetail({
       {/* 🔴 片7:採購那張獨立的卡不見了 —— 它現在住在**每個商品自己的卡片展開區**裡
           (Sean 2026-08-19 看真畫面後選「甲 = 卡片版」)。
           ⇒ 這三個 prop 是**跟著採購一起搬過來的**,不是表格自己要用的。 */}
+      {/* 🔴🔴 片C(取消介面搬家):`order-detail.tsx`(579 行)本次僅新增一個 prop 傳遞(1 行)。
+          『下一次動這支檔先抽再改』那條裁定,主視窗 2026-08-20 對【本次這一行】豁免;
+          對這支檔的【下一次非一行改動】仍然生效,不因本次豁免而作廢。 */}
       <ItemsTable
         detail={detail}
         payments={payments}
         returnTo={returnTo}
         suppliers={suppliers}
         suppliersFailed={suppliersFailed}
+        cancelFormsAllowed={cancelFormsAllowed}
       />
 
       {/* #15-B2-c:已登錄的收款明細 + 登錄表單(片2a 起同一張卡,Sean 拍板 Q-D2=A)。

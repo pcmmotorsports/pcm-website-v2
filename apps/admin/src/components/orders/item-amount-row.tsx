@@ -169,6 +169,15 @@ export type ItemAmountRowProps = {
    *    選填是為了讓型別自己說出這件事(同 `priceCellClassName` / `rowClassName` 的理由)。
    */
   body?: ReactNode;
+  /**
+   * 片C(取消介面搬家):這一列的取消 checkbox(`PartialCancelItemControl`)。
+   *
+   * 🔴 **只有 `card-line` 殼吃它,且畫在 `.iline` 這個 6 欄 grid 外面**(同 `brandLine` 的位置模式)
+   *    —— `.iline`/`.ihead` 是寫死欄數的共用 grid(globals.css),repo 自己的檔頭警告過
+   *    「欄數一變,footer 靜默畫歪,沒有東西會紅」(片5 三軸拆欄真的撞過)。不進 grid、
+   *    仿 `brandLine` 放在 `<summary>` 裡、`.iline` 之上,零風險地多一行。
+   */
+  cancelControl?: ReactNode;
 } & ItemAmountFormProps;
 
 export function ItemAmountRow({
@@ -183,6 +192,7 @@ export function ItemAmountRow({
   variant = 'table-row',
   defaultOpen = false,
   body,
+  cancelControl,
   ...formProps
 }: ItemAmountRowProps) {
   const ctx = useContext(OpenRowContext);
@@ -325,6 +335,7 @@ export function ItemAmountRow({
             ⇒ **實測整排錯開 8px**。少了這層包裹,六格就不在同一個 grid 裡。 */}
         <summary>
           {brandLine}
+          {cancelControl}
           <div className='iline'>
             {before}
             <div className='text-right'>

@@ -202,7 +202,7 @@ async function bundleFor(elementExpression: string): Promise<string> {
   const entry = `
     import { hydrateRoot } from 'react-dom/client';
     import { renderToString } from 'react-dom/server';
-    import { PartialCancelForm } from '${ROOT}/apps/admin/src/components/orders/cancel-order-forms';
+    import { PartialCancelForm, PartialCancelItemControl } from '${ROOT}/apps/admin/src/components/orders/cancel-order-forms';
     async function submitStub(formData) {
       await fetch('/submit', { method: 'POST', body: new URLSearchParams(formData) });
     }
@@ -239,11 +239,20 @@ async function bundleFor(elementExpression: string): Promise<string> {
   return built.outputFiles![0]!.text;
 }
 
-const REAL_PARTIAL = `<PartialCancelForm
-  returnTo='${RETURN_TO}'
-  orderId='${ORDER}'
-  items={[{ orderItemId: '${ITEM}', quantity: 5, instockQuantity: 0, cancelledQuantity: 0, maxCancellable: 2 }]}
-/>`;
+/**
+ * 🔴🔴 **片C(取消介面搬家):照 production 的新形狀組**——`PartialCancelForm`(shell)與
+ * `PartialCancelItemControl`(checkbox/數量欄)現在是**並排的兩個元件**,靠原生 `form` 屬性
+ * 跨 DOM 樹關聯,不再是父子(HTML 表單不能巢狀,是唯一原生做法)。
+ * 同一顆 item 餵給兩邊。這份 fixture 一改,底下**所有既有斷言原封不動**就同時驗到了
+ * `syncFromDom` 的跨邊界修法(main window §7.4)—— 這批本來就在測 hasItem/reset 那條邏輯的
+ * 地雷測試,現在剛好是最好的一種負測:它們不是為了這次改動而寫的,不會不小心把修法的形狀
+ * 寫進期望值裡。
+ */
+const ITEM_VIEW = `{ orderItemId: '${ITEM}', quantity: 5, instockQuantity: 0, cancelledQuantity: 0, maxCancellable: 2 }`;
+const REAL_PARTIAL = `<>
+  <PartialCancelForm returnTo='${RETURN_TO}' orderId='${ORDER}' items={[${ITEM_VIEW}]} />
+  <PartialCancelItemControl orderId='${ORDER}' item={${ITEM_VIEW}} />
+</>`;
 
 let browser: Browser;
 beforeAll(async () => {

@@ -80,12 +80,7 @@ export function OrderCancelBlock({
           {view.fullCancelAllowed && (
             <FullCancelForm orderId={detail.id} returnTo={returnTo} />
           )}
-          <PartialCancelForm
-            orderId={detail.id}
-            returnTo={returnTo}
-            items={view.items}
-            itemNames={new Map(detail.items.map((item) => [item.id, item.title ?? item.variantSku]))}
-          />
+          <PartialCancelForm orderId={detail.id} returnTo={returnTo} items={view.items} />
         </div>
       )}
     </div>

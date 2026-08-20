@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { FullCancelForm, PartialCancelForm } from './cancel-order-forms';
+import { FullCancelForm, PartialCancelForm, PartialCancelItemControl } from './cancel-order-forms';
 import type { CancelItemView } from '../../lib/orders/cancel-view';
 import {
   cancelItemQtyField,
@@ -204,7 +204,9 @@ describe('D4 驗收② 部分那支沒有任何能變成 full 的控制項', () 
     // 🔴 選擇器要含 `button`(R1 nit 1):`<button name='cancel_mode' value='full'>` 送得出
     //    `cancel_mode=full`,而第一版的選擇器漏了它 —— 那時擋到它的是上面那條長度斷言,
     //    不是這條。兩條各自守不同的面,別讓這條看起來比實際能耐大。
-    const { container } = render(<PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView()]} />);
+    // 🔴 片C:加上 sibling(`PartialCancelItemControl`)—— 拿掉的話這條的射程會**靜默縮小**成
+    //    「只掃 shell,不掃商品卡上搬出去的 checkbox/數量欄」,而那正是這條原本要顧的範圍。
+    const { container } = renderPartialWithItem(itemView());
     const values = Array.from(
       container.querySelectorAll('input, select, option, textarea, button'),
     ).map((el) => el.getAttribute('value'));
@@ -326,21 +328,38 @@ describe('D4 驗收⑥ token 每次 render 都是新鑄的一顆合法 uuid', ()
   });
 });
 
-describe('D4 品項欄的形狀與過濾', () => {
+// 🔴🔴 **片C(取消介面搬家):本 describe 塊的邏輯搬到 `PartialCancelItemControl`,測試跟著搬**
+//    ——checkbox/數量欄/品名 fallback 的判定不再住在 `PartialCancelForm` 裡,retarget 到真正
+//    持有這段邏輯的元件比繼續打在 `PartialCancelForm` 上更精準(它現在只剩 shell)。
+describe('D4 品項欄的形狀與過濾(片C:邏輯搬到 PartialCancelItemControl,測試跟著搬)', () => {
   it('checkbox 的值 = `<order_item_id>:<可取消量>`(對齊解析器)', () => {
     const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
+      <PartialCancelItemControl orderId={ORDER_ID} item={itemView({ maxCancellable: 2 })} />,
     );
     const box = container.querySelector('input[name="cancel_item"]');
     // 🔴 值取的是「可取消量 2」而不是「買的量 5」—— 兩者刻意不同,壞實作分得出來。
     expect(box).toHaveProperty('value', `${ITEM_A}:2`);
   });
 
-  it('勾不動的品項不列出來,而且一顆都勾不動時整支表單不渲染', () => {
-    // 🔴 後半是 R1 must-fix 6:空 fieldset 配一顆按得下去的送出鈕 ⇒ 按下去必然 `{ok:false}`
+  it('勾不動的品項:PartialCancelItemControl 自己不渲染任何東西', () => {
+    for (const item of [
+      itemView({ orderItemId: ITEM_A, maxCancellable: null }),
+      itemView({ orderItemId: ITEM_B, maxCancellable: 0 }),
+    ]) {
+      const { container } = render(<PartialCancelItemControl orderId={ORDER_ID} item={item} />);
+      expect(container.querySelectorAll('input[name="cancel_item"]')).toHaveLength(0);
+      cleanup();
+    }
+  });
+
+  it('一顆都勾不動時,PartialCancelForm 整支表單(shell)不渲染', () => {
+    // 🔴 R1 must-fix 6:空表單配一顆按得下去的送出鈕 ⇒ 按下去必然 `{ok:false}`
     //    (部分取消要求至少一筆,`cancel-form.ts:208`)⇒ `order_cancel_invalid` + 原因欄不保留。
+    //    這一格現在只測 `PartialCancelForm` 自己的 shell 守門(上一格已經測過
+    //    `PartialCancelItemControl` 逐項的判定),兩者是不同的守門、不是同一件事的重複。
     const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO}
+      <PartialCancelForm
+        returnTo={RETURN_TO}
         orderId={ORDER_ID}
         items={[
           itemView({ orderItemId: ITEM_A, maxCancellable: null }),
@@ -348,7 +367,6 @@ describe('D4 品項欄的形狀與過濾', () => {
         ]}
       />,
     );
-    expect(container.querySelectorAll('input[name="cancel_item"]')).toHaveLength(0);
     expect(container.querySelector('form')).toBeNull();
     expect(container.querySelector('button[type="submit"]')).toBeNull();
   });
@@ -359,47 +377,40 @@ describe('D4 品項欄的形狀與過濾', () => {
     //    加了守門沒加測試 = 守門沒有被證明過(同族 memory `feedback_guard-checks-existence-not-effect`)。
     // 失敗情境:`1.5` 通得過 `> 0` ⇒ 表單組出 `<uuid>:1.5` ⇒ 解析器的 `/^[0-9]+$/` 必拒
     //    ⇒ 整份 `{ok:false}`、原因欄不保留要重填。
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO}
-        orderId={ORDER_ID}
-        items={[
-          itemView({ orderItemId: ITEM_A, maxCancellable: 1.5 }),
-          itemView({ orderItemId: ITEM_B, maxCancellable: Number.POSITIVE_INFINITY }),
-        ]}
-      />,
-    );
-    expect(container.querySelectorAll('input[name="cancel_item"]')).toHaveLength(0);
+    for (const item of [
+      itemView({ orderItemId: ITEM_A, maxCancellable: 1.5 }),
+      itemView({ orderItemId: ITEM_B, maxCancellable: Number.POSITIVE_INFINITY }),
+    ]) {
+      const { container } = render(<PartialCancelItemControl orderId={ORDER_ID} item={item} />);
+      expect(container.querySelectorAll('input[name="cancel_item"]')).toHaveLength(0);
+      cleanup();
+    }
   });
 
   it('有品名就顯示品名,沒有就退回 id 尾八碼', () => {
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO}
-        orderId={ORDER_ID}
-        items={[itemView({ orderItemId: ITEM_A }), itemView({ orderItemId: ITEM_B })]}
-        itemNames={new Map([[ITEM_A, '下導流']])}
-      />,
+    // 🔴 片C 之後 `itemName` 是呼叫端已經解出來的字串,不再是這裡查表 ——
+    //    見下一格的訃聞:Map 查表那個原型鏈風險已經隨這次改動結構性消失。
+    const { container: withName } = render(
+      <PartialCancelItemControl orderId={ORDER_ID} item={itemView({ orderItemId: ITEM_A })} itemName='下導流' />,
     );
-    expect(container.textContent).toContain('下導流');
-    expect(container.textContent).toContain(`…${ITEM_B.slice(-8)}`);
+    expect(withName.textContent).toContain('下導流');
+    cleanup();
+    const { container: withoutName } = render(
+      <PartialCancelItemControl orderId={ORDER_ID} item={itemView({ orderItemId: ITEM_B })} />,
+    );
+    expect(withoutName.textContent).toContain(`…${ITEM_B.slice(-8)}`);
   });
 
-  it('🔴 品名查表不得取到原型鏈屬性(id 剛好叫 constructor 時仍走 fallback)', () => {
-    // memory `reference_js-index-lookup-hits-prototype-chain`:`obj['constructor']` 是 truthy
-    // ⇒ 物件索引版**不會**走 `??` 的 fallback,會把原型鏈上的東西當品名畫出去。用 `Map` 沒有這回事。
-    //
-    // 🔴 **這條的第一版是恆真的**(N8 突變實測零紅):原本斷言「畫面不含 function / Object」——
-    //    而 React 對函式 child 本來就不會印出那些字 ⇒ 壞實作照樣綠。
-    //    改成**正面斷言 fallback 真的發生了**,壞實作才紅得起來
-    //    (同族 memory `feedback_negative-test-observation-supplied-by-another-mechanism`)。
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO}
-        orderId={ORDER_ID}
-        items={[itemView({ orderItemId: 'constructor' })]}
-        itemNames={new Map()}
-      />,
-    );
-    expect(container.textContent).toContain(`…${'constructor'.slice(-8)}`);
-  });
+  // 🔴🔴 **訃聞,不是靜默刪除**:原本這裡有一格「品名查表不得取到原型鏈屬性」
+  //    (memory `reference_js-index-lookup-hits-prototype-chain`)。它守的是
+  //    `itemNames?.get(item.orderItemId) ?? fallback` 這個 **Map 查表** 動作本身的安全性。
+  //    片C 把 `itemNames` prop 整個拿掉了 —— 呼叫端(`order-detail-items-table.tsx`)現在直接讀
+  //    `item.title`(當下迭代中的物件欄位),**沒有任何以 orderItemId 為鍵的查表動作**
+  //    ⇒ 這條測試守的那個攻擊面在 `PartialCancelItemControl` 裡已經結構性不存在,不是我們不在乎了。
+  //    ⚠️ **同一類風險換了個地方**:`order-detail-items-table.tsx` 的 `cancelItemById` 是新的
+  //    以 orderItemId 為鍵的 `Map` 查表(片C 新增,見該檔的 cancelView.items 對齊邏輯)——
+  //    它用的是 `Map.get()`(規格上沒有原型鏈這回事),但既然這個 repo 對這個形狀有前科,
+  //    對應的回歸測試搬到了 `order-detail-items-table.test.ts`,不留在這裡。
 });
 
 describe('D4 驗收⑤ URL 只准經三支建構器組', () => {
@@ -453,11 +464,24 @@ function formDataOf(container: HTMLElement): FormData {
   return new FormData(form);
 }
 
+/**
+ * 🔴🔴 **片C(取消介面搬家):照 production 的新形狀渲染** —— `PartialCancelForm`(shell)
+ * 與 `PartialCancelItemControl`(checkbox/數量欄)現在是**並排的兩個元件**,靠 `form=` 屬性
+ * 跨 DOM 樹關聯,不再是父子。同一顆 `item` 餵給兩邊(與 `ItemsTable`/`OrderCancelBlock`
+ * 各自呼叫 `buildOrderCancelView(detail)` 同一個道理:輸入相同,不是兩份會漂移的規格)。
+ */
+function renderPartialWithItem(item: ReturnType<typeof itemView>) {
+  return render(
+    <>
+      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[item]} />
+      <PartialCancelItemControl orderId={ORDER_ID} item={item} />
+    </>,
+  );
+}
+
 describe('A13b E1 ①挑數量', () => {
   it('🔴 可取消量 > 1 ⇒ 有數量欄、預設 = 可取消量', () => {
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 3 })]} />,
-    );
+    const { container } = renderPartialWithItem(itemView({ maxCancellable: 3 }));
     const qty = container.querySelector<HTMLInputElement>(
       `input[name="${cancelItemQtyField(itemView().orderItemId)}"]`,
     );
@@ -469,22 +493,26 @@ describe('A13b E1 ①挑數量', () => {
     expect(qty!.hasAttribute('min')).toBe(false);
     expect(qty!.hasAttribute('max')).toBe(false);
     expect(qty!.hasAttribute('step')).toBe(false);
+    // 🔴 片C 新增:數量欄要 form= 關聯回部分取消表單,才送得出去(見下一格 FormData 那條)。
+    const form = container.querySelector('form');
+    expect(qty!.getAttribute('form')).toBe(form!.id);
   });
 
   it('🔴 可取消量 === 1 ⇒ **沒有**數量欄(不是渲染一個永遠填 1 的欄位)', () => {
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 1 })]} />,
-    );
+    const { container } = renderPartialWithItem(itemView({ maxCancellable: 1 }));
     expect(
       container.querySelector(`input[name="${cancelItemQtyField(itemView().orderItemId)}"]`),
     ).toBeNull();
   });
 
   it('🔴 送出去的 FormData:checkbox 帶 `<id>:<max>`、數量欄另外一格', () => {
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 5 })]} />,
-    );
-    const id = itemView().orderItemId;
+    // 🔴🔴 **這條同時是片C 的判別力驗證**:checkbox/數量欄現在渲染在 `<form>` 外面、
+    //    靠 `form=` 屬性關聯 —— `new FormData(form)` 讀不讀得到外部關聯元素的值,
+    //    是規格行為不是我猜的(HTMLFormElement 規格明文包含 form 屬性關聯進來的控制項)。
+    //    這條紅了就代表那個關聯斷了,不是「理論上應該通」。
+    const item = itemView({ maxCancellable: 5 });
+    const { container } = renderPartialWithItem(item);
+    const id = item.orderItemId;
     fireEvent.click(container.querySelector('input[name="cancel_item"]')!);
     fireEvent.change(container.querySelector<HTMLInputElement>(
       `input[name="${cancelItemQtyField(id)}"]`,
@@ -501,9 +529,7 @@ describe('A13b E1 ①挑數量', () => {
     //    我原本點數量欄、斷言 checkbox 沒被勾起來 —— 但 label activation 規格上**本來就跳過
     //    interactive content**,所以把數量欄搬回 `<label>` 內,那條斷言照樣綠 ⇒ 突變存活。
     //    現在改成直接量結構:數量欄的最近 `<label>` 祖先必須是 null。搬回去就會紅。
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 5 })]} />,
-    );
+    const { container } = renderPartialWithItem(itemView({ maxCancellable: 5 }));
     const qty = container.querySelector<HTMLInputElement>(
       `input[name="${cancelItemQtyField(itemView().orderItemId)}"]`,
     )!;
@@ -556,16 +582,19 @@ describe('A13b E1 ②說明欄只有選「其他」才在畫面上', () => {
 
 describe('A13b E1 ③零勾選前置擋', () => {
   it('🔴 部分取消:零勾選 ⇒ 送出鈕停用', () => {
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
-    );
+    // 🔴 片C:配一顆**真的存在、未勾選**的 checkbox(sibling),不是「反正沒有 checkbox 所以
+    //    鈕理所當然是 disabled」——後者與「勾了會不會變 enabled」是同一件事的兩半,
+    //    只測沒 checkbox 那半的話,下一格的「勾一個」不成立正向對照。
+    const { container } = renderPartialWithItem(itemView({ maxCancellable: 2 }));
     expect(submitOf(container).disabled).toBe(true);
   });
 
   it('🔴 勾一個 ⇒ 立刻可按(正向對照:上一條不是「鈕永遠停用」)', () => {
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
-    );
+    // 🔴🔴 這條同時是片C syncFromDom 跨 form 邊界修法的驗收:checkbox 現在渲染在
+    //    `<form>` 外面、靠 `form=` 關聯;鈕要正確反應,`syncFromDom` 必須掃得到它
+    //    (main window §7.4 折入的方案:`form.elements` + `document` change 監聽)。
+    //    這格紅 ⇒ 那個修法沒生效,不是巧合式地綠。
+    const { container } = renderPartialWithItem(itemView({ maxCancellable: 2 }));
     fireEvent.click(container.querySelector('input[name="cancel_item"]')!);
     expect(submitOf(container).disabled).toBe(false);
   });
@@ -592,9 +621,10 @@ describe('A13b E1 ③零勾選前置擋', () => {
 describe('A13b E1 不變式(iii):state 是 DOM 的單向投影', () => {
   it('🔴 瀏覽器還原了欄位值但沒發 change(返回鍵 / bfcache)⇒ `pageshow` 要把 state 追回來', () => {
     // 🔴 只靠 onChange 累積的話,這裡會留下「select 顯示『其他』、但說明欄沒渲染」的窗口。
-    const { container } = render(
-      <PartialCancelForm returnTo={RETURN_TO} orderId={ORDER_ID} items={[itemView({ maxCancellable: 2 })]} />,
-    );
+    // 🔴 片C:checkbox 是 sibling(form= 關聯),也同時驗收 syncFromDom 的 pageshow 分支
+    //    是不是也跨 form 邊界(mount 與 pageshow 呼叫的是同一支函式,理論上自動涵蓋 ——
+    //    這格紅就代表理論沒兌現)。
+    const { container } = renderPartialWithItem(itemView({ maxCancellable: 2 }));
     const select = container.querySelector<HTMLSelectElement>('select[name="reason_code"]')!;
     const box = container.querySelector<HTMLInputElement>('input[name="cancel_item"]')!;
     // 直接改 DOM,**不派發 change** —— 這正是瀏覽器表單狀態復原的樣子。

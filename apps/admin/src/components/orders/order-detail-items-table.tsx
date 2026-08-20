@@ -31,6 +31,12 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import type { PaymentListData } from './payment-list';
 import { ItemAmountRow, ItemAmountRowGroup } from './item-amount-row';
+// 🔴 片C(取消介面搬家):品項的取消 checkbox 現在畫在這裡,判準仍是 `buildOrderCancelView`
+//    這唯一一份真相 —— 呼叫它是**再算一次同一個純函式**,不是重寫判準
+//    (`buildOrderCancelView` 只讀 `detail`、零 I/O,`OrderCancelBlock` 也各自呼叫它一次,
+//    輸入相同、輸出必然相同,見 plan `W2-005` §1)。
+import { buildOrderCancelView } from '../../lib/orders/cancel-view';
+import { PartialCancelItemControl } from './cancel-order-forms';
 // 🔴 片6a-2:「卡住」的**唯一定義**在 `item-stuck.ts` —— **本檔不得自己再判一次**。
 //    兩邊各判各的,症狀是**畫面自洽而互相矛盾**(卡是開的、旁邊卻沒有異常字),而不會有東西紅。
 import { describeItemStuck, resolveItemStuck } from '../../lib/orders/item-stuck';
@@ -220,6 +226,7 @@ export function ItemsTable({
   returnTo,
   suppliers,
   suppliersFailed,
+  cancelFormsAllowed,
 }: {
   detail: AdminOrderDetail;
   payments: PaymentListData;
@@ -231,8 +238,23 @@ export function ItemsTable({
   returnTo: string;
   suppliers: readonly SupplierOption[];
   suppliersFailed: boolean;
+  /**
+   * 片C(取消介面搬家):這一次渲染准不准出現取消控制項 —— 與 `OrderCancelBlock` 吃的
+   * `formsAllowed` 是同一顆值(`order-detail.tsx` 往下傳),語意與 fail-closed 立場一併沿用:
+   * 缺省 `undefined` ⇒ `=== true` 為 false ⇒ **不給**,不是「照常給」(理由見 `order-cancel-block.tsx`
+   * 同名 prop 的檔頭:忘記接的症狀不能是「靜默把控制項開回去」)。
+   */
+  cancelFormsAllowed?: boolean;
 }) {
   const amountEditBlock = resolveAmountEditBlock(detail, payments);
+  // 🔴 兩道都要成立才給取消控制項(與 `OrderCancelBlock:63` 的 `showForms` 同一組判準,
+  //    這裡是逐品項那一半,不重算不同的規則):①判定說這張單可以取消
+  //    ②這次渲染准不准出現表單(結果頁不給,見 `cancelFormsAllowedOnResultPage`)。
+  const cancelView = buildOrderCancelView(detail);
+  const showCancelControls = cancelView.canCancel && cancelFormsAllowed === true;
+  // orderItemId → CancelItemView(帶 maxCancellable),給下面逐列查 —— `detail.items` 與
+  // `cancelView.items` 是同一份 order 算出來的兩份陣列,用 id 對齊。
+  const cancelItemById = new Map(cancelView.items.map((item) => [item.orderItemId, item]));
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
   const TD = 'px-3 py-2 text-sm align-top';
   /**
@@ -326,11 +348,24 @@ export function ItemsTable({
            *    那是刻意的:讀不到**不是資料**。
            */
           const hasProcurementRows = (item.procurements ?? []).length > 0;
+          // 🔴 片C:`cancelItemById` 沒有這個 id 或這張單根本不給取消 ⇒ 不畫 —— 交給
+          //    `PartialCancelItemControl` 自己再判一次 `isItemSelectable`(fail-closed,
+          //    呼叫端算錯也不會漏放行)。undefined 時不渲染,不是渲染一個 disabled 的假控制項。
+          const cancelItem = showCancelControls ? cancelItemById.get(item.id) : undefined;
           return (
           <ItemAmountRow
             key={item.id}
             variant='card-line'
             colSpan={ITEMS_TABLE_COLSPAN}
+            cancelControl={
+              cancelItem === undefined ? null : (
+                <PartialCancelItemControl
+                  orderId={detail.id}
+                  item={cancelItem}
+                  itemName={item.title ?? undefined}
+                />
+              )
+            }
             /* 🔴🔴 片6a-2:**缺料那一項自己打開**(設計稿 `MAIN-057 §1` 區塊② 逐字
                「這一項【展開】了(卡住的那一項會自己打開)」)。
                判斷來自 `item-stuck.ts` 的**唯一定義**,本檔零判斷邏輯。

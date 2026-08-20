@@ -108,9 +108,22 @@ export function CancelFormBody({
   const rootRef = useRef<HTMLDivElement>(null);
   const [enhanced, setEnhanced] = useState(false);
   const [reasonCode, setReasonCode] = useState('');
-  const [hasItem, setHasItem] = useState(false);
+  // 🔴🔴 **片C(取消介面搬家):`hasItem` 換成 `checkedCount`。**
+  //    checkbox 搬到商品卡之後,`hasItem` 的布林已經不夠 —— §2-3(main window 派工)要求
+  //    「已勾選 N 項」即時回饋,而 `count > 0` 本來就是同一份計算,不是新邏輯。
+  const [checkedCount, setCheckedCount] = useState(0);
+  const hasItem = checkedCount > 0;
 
-  /** 🔴 不變式(iii):一律**整份從 DOM 重讀**,不從事件參數累積。 */
+  /**
+   * 🔴 不變式(iii):一律**整份從 DOM 重讀**,不從事件參數累積。
+   *
+   * 🔴🔴 **片C 機械修法(main window §7.4 折入的方案)**:checkbox 搬到商品卡之後不再是
+   *    `rootRef` 的子節點,原本 `root.querySelectorAll(...)` 掃不到它們 ⇒ `hasItem` 恆 false
+   *    ⇒ partial 的送出鈕 hydration 之後**永遠按不下去**。
+   *    修法:改掃**整張表單**(`HTMLFormElement.elements`),規格明文它包含用 `form` 屬性
+   *    關聯進來的控制項,不限自己的子樹。原因下拉沒有搬家,`root.querySelector` 仍然找得到,
+   *    不必跟著改。
+   */
   const syncFromDom = useCallback(() => {
     const root = rootRef.current;
     if (root === null) return;
@@ -118,7 +131,18 @@ export function CancelFormBody({
       `select[name="${CANCEL_REASON_CODE_FIELD}"]`,
     );
     setReasonCode(select?.value ?? '');
-    setHasItem(root.querySelectorAll(`input[name="${CANCEL_ITEM_FIELD}"]:checked`).length > 0);
+    const form = root.closest('form');
+    if (form === null) {
+      setCheckedCount(0);
+      return;
+    }
+    let count = 0;
+    for (const el of form.elements) {
+      if (el instanceof HTMLInputElement && el.name === CANCEL_ITEM_FIELD && el.checked) {
+        count += 1;
+      }
+    }
+    setCheckedCount(count);
   }, []);
 
   useEffect(() => {
@@ -126,13 +150,24 @@ export function CancelFormBody({
     syncFromDom();
     // bfcache / 返回鍵還原後 DOM 會帶回舊值,但不會發 change ⇒ 這裡補一次。
     window.addEventListener('pageshow', syncFromDom);
-    return () => window.removeEventListener('pageshow', syncFromDom);
+    // 🔴🔴 **片C:監聽從「自己的 div」改掛 `document`**——表單外的控制項(商品卡上的
+    //    checkbox)change 事件只沿 DOM 樹冒泡,不沿 form 關聯關係冒泡,掛在 rootRef 的
+    //    div 上收不到。掛 document 才收得到任何地方的變動。
+    //    ⚠️ 副作用(main window R2 已確認、不是新風險):別的表單的 change 也會觸發一次
+    //    多餘的 syncFromDom 重讀,但值仍然只從**自己的 form.elements** 取,只是多一次無害重讀。
+    document.addEventListener('change', syncFromDom);
+    return () => {
+      window.removeEventListener('pageshow', syncFromDom);
+      document.removeEventListener('change', syncFromDom);
+    };
   }, [syncFromDom]);
 
   const showDetail = !enhanced || reasonCode === 'other';
 
   return (
-    <div ref={rootRef} onChange={syncFromDom} className='space-y-3'>
+    // 🔴 片C:`onChange` 委派拿掉了 —— document 監聽(上面的 effect)已經涵蓋同一件事,
+    //    留著兩份會是「同一次變動觸發 syncFromDom 兩次」的無謂重讀。
+    <div ref={rootRef} className='space-y-3'>
       {children}
       <div className='grid gap-3 sm:grid-cols-2'>
         <AdminFormField label='取消原因'>
@@ -177,7 +212,17 @@ export function CancelFormBody({
           </AdminFormField>
         )}
       </div>
-      <div className='flex justify-end'>
+      <div className='flex items-center justify-between'>
+        {/*
+          🔴 §2-3(main window 派工):「已勾選 N 項」即時回饋 —— main window 明確要求
+          「流程優化」要有東西回應,不能只算搬位置。只算勾了幾項,**不算金額**
+          (金額歸片D的 OP7,今天還不存在;硬算會提前重算一份會漂移的規格)。
+          `requireItemSelection` 只有 partial 是 true,天生就是「這是不是那支需要品項的表單」
+          的既有信號,借用它決定要不要顯示計數,不必另開一個 prop。
+        */}
+        <span className='text-muted-foreground text-xs'>
+          {requireItemSelection && checkedCount > 0 ? `已勾選 ${checkedCount} 項` : null}
+        </span>
         <button
           type='submit'
           disabled={enhanced && requireItemSelection && !hasItem}

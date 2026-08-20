@@ -61,6 +61,17 @@ export function cancelItemQtyField(orderItemId: string): string {
   return `${CANCEL_ITEM_QTY_PREFIX}${orderItemId}`;
 }
 
+/**
+ * 片C(取消介面搬家):部分取消 `<form>` 的 id。
+ *
+ * 🔴 checkbox/數量覆寫欄搬到商品卡之後,用原生 `form` 屬性從外面關聯回這顆 id
+ * (HTML 表單不能巢狀,這是唯一繞得過去的原生做法)。兩邊(`CancelFormShell` 鑄 id、
+ * `PartialCancelItemControl` 讀 id)共用同一支,避免各打一次字串會漂移。
+ */
+export function partialCancelFormId(orderId: string): string {
+  return `cancel-partial-${orderId}`;
+}
+
 // 🔴🔴 **`generateCancelRequestToken` 已於 #363 搬走** → `./cancel-request-token.ts`
 //    (該檔 `import 'server-only'` ⇒ client 檔 import 它會在 **build 期**紅,逐字錯誤訊息與
 //     實測方法寫在那支檔頭)。
