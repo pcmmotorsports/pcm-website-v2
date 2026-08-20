@@ -84,6 +84,9 @@ graphify-out/
 .husky/post-commit
 .husky/post-checkout
 
+# 守門擋案簿(2026-08-20 立;每次真的擋下 append 一行,只記發生了、不判是不是誤擋,本機用)
+.husky/.gate-blocks.log
+
 # impeccable design-hook 本機快取(session 工具產物、不入 git)
 .impeccable/
 .vercel

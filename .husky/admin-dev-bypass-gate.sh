@@ -50,6 +50,29 @@ done
 
 [ -z "$HITS" ] && exit 0
 
+# 擋案簿(2026-08-20 立):每次真的擋下時,append 一行到 .husky/.gate-blocks.log
+#   (.gitignore、不進 repo)。只記【發生了】,不判【是不是誤擋】——閘判不出這件事,
+#   自評欄位沒有意義;分母機器記,分子留給後來的人查。寫失敗不得讓 commit 失敗。
+LOG_HEAD=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+LOG_TS=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
+{
+  for f in $(git diff --cached --name-only --diff-filter=ACM); do
+    [ "$f" = ".husky/admin-dev-bypass-gate.sh" ] && continue
+    git cat-file -e ":$f" 2>/dev/null || continue
+    git diff --cached -U0 --no-ext-diff --no-textconv -- "$f" | awk -v ts="$LOG_TS" -v gate="admin-dev-bypass-gate" -v file="$f" -v head="$LOG_HEAD" '
+      /^@@/  { match($0, /\+[0-9]+/); line = substr($0, RSTART+1, RLENGTH-1) + 0; next }
+      /^\+\+\+/ { next }
+      /^\+/  {
+        content = substr($0, 2)
+        if (content ~ /ADMIN_DEV_BYPASS=1/ && content ~ /next dev/ && content !~ /-H 127\.0\.0\.1/)
+          print ts "\t" gate "\t" file ":" line "\t" head
+        line++
+        next
+      }
+    '
+  done
+} >> .husky/.gate-blocks.log 2>/dev/null || true
+
 cat >&2 <<MSG
 
 🔴 擋下:免登入後台指令缺 -H 127.0.0.1
