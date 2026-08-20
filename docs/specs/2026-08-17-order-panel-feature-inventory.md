@@ -45,7 +45,8 @@ repo docs/    grep -rlE '忘記畫|漏畫的.*項|逐項表' docs/           ⇒
 🔴 **§9 §10 是補的,而補之前本表對片 1 / 片 3 的「零命中」是【射程造成的】** ——
 那時的零**不是掃過沒事**。這段留著,免得下一個人把兩個時期的「零」讀成同一句話。
 🔴 **本表全部來自【讀元件檔】,不是看畫面。** 本機 `apps/admin` 跑得起來
-(`cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001`)但**我沒有跑、也沒有資料**
+(`cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001 -H 127.0.0.1`,**`-H` 不可省**——
+理由見 `docs/design/admin-design-system.md:6-20`)但**我沒有跑、也沒有資料**
 ⇒ **「畫面上長什麼樣」未確認**,本表宣稱的是「code 裡寫了什麼」。
 
 **型別欄的意思**

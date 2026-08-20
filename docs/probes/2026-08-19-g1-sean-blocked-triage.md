@@ -33,7 +33,9 @@
 ```
 ⇒ 兩條都是**後台 UI 的目視確認**,不需要他的權限也不需要他的判斷。
 ✅ **可行路徑已存在**:`docs/design/admin-design-system.md` 檔頭一行
-`cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001`(**不需要任何 `.env` 檔**)。
+`cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001 -H 127.0.0.1`(**不需要任何 `.env` 檔**)。
+🔴 **`-H 127.0.0.1` 不可省** —— `next dev` 預設綁所有網路介面,疊上免登入閘 + 指向正式站的
+`.env.local` 會讓整個區網打得到免登入的正式後台(2026-08-19 admin-design-system.md:6-20 實測)。
 ⚠️ 而 `#387` 需要**一張已付款的單**才看得到那一區 ⇒ 拋棄式資料或本機 probe(`local-admin-with-real-data-probe.md`)。
 🔴 **我沒有做這兩條** —— 它們落在後台域,**要主視窗指派給有在動 admin 的窗**,我不自己插隊。
 
