@@ -4,6 +4,9 @@ import {
   SHIPPING_METHOD_LABELS,
   isShippingMethod,
 } from '../../lib/orders/order-detail-view';
+// 🔴 開立狀態三態中文**只有這一份來源**。該檔 `:285-286` 逐字寫著「**不要在任何一邊另抄一份
+//    三態中文**」,而本檔在 2026-08-21 之前正是那個「另一邊」——三個 <option> 的中文是硬寫的。
+import { INVOICE_STATUS_LABEL } from '../../lib/orders/order-list-view';
 import {
   ORDER_ID_FIELD,
   VERSION_FIELD,
@@ -78,7 +81,7 @@ export function OrderEditForm({
                 的 apply 前置斷言逐字要求「`admin_audit_log` 內**真的改過 `shipping_method` 筆數 = 0**」
                 ⇒ **凍結快照那套設計是踩在「沒有人從後台改過它」上面的。**
 
-          ⇒ 改成 `<select>`(與下面「開票狀態」同一個做法),值仍是 `home` / `store`、顯示走同一支 label 函式。
+          ⇒ 改成 `<select>`(與下面「開立狀態」同一個做法;~~開票狀態~~ 2026-08-21 改名),值仍是 `home` / `store`、顯示走同一支 label 函式。
           🔴 **不白名單外的舊值一律【原樣保留成一個選項】,不靜默改掉** ——
              這一欄無表 CHECK ⇒ 歷史上可能已經有雜訊值;把它悄悄變成 `home` 是**改資料**,
              而那比顯示錯更嚴重。它會帶著「非白名單」四個字,讓員工看得出來。
@@ -121,15 +124,29 @@ export function OrderEditForm({
         </select>
       </AdminFormField>
 
-      <AdminFormField label='開票狀態'>
+      {/* 🔴 label 用 `開立狀態`,不是 ~~`開票狀態`~~(2026-08-21 改)。
+          **這不是兩個詞挑一個好聽的,是其中一個對不上自己的選項**:
+          下面三個選項是「未開立 / 已開立 / 已作廢」,三個都含「開立」、沒有一個含「開票」。
+          而上方資訊卡(`order-detail-summary-cards.tsx:404`)同一個 `detail.invoiceStatus`
+          用的就是「開立狀態」—— 兩者在同一個面板上相距 236px(2026-08-21 真瀏覽器實量),
+          同時看得到。⇒ 改的是少數那一邊。 */}
+      <AdminFormField label='開立狀態'>
+        {/* 🔴 選項由 `INVOICE_STATUS_LABEL` 產,**不在這裡再寫一次三態中文** ——
+            形狀刻意對齊上面「出貨方式」那格的 `Object.entries(SHIPPING_METHOD_LABELS)`,
+            **不發明第二種寫法**。
+            📌 而這一格為什麼值得改:硬寫的那三個字面**沒有任何東西把它與資訊卡綁在一起**
+               ⇒ 它可以自由漂開,而漂開時三綠不紅、測試不紅。上面那個 `開票/開立` 就是
+               漂開之後的樣子。**接上共用來源之後,那個病在結構上不會再發生。** */}
         <select
           name={INVOICE_STATUS_FIELD}
           defaultValue={detail.invoiceStatus}
           className={ADMIN_INPUT_CLASS}
         >
-          <option value='not_issued'>未開立</option>
-          <option value='issued'>已開立</option>
-          <option value='voided'>已作廢</option>
+          {Object.entries(INVOICE_STATUS_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
         </select>
       </AdminFormField>
 
