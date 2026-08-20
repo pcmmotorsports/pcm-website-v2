@@ -30,6 +30,9 @@
 --   `20260820010000:75` 那個**具名缺口**(逐字「一筆現金退款登記錯了怎麼辦?本表現在答不出來」)
 --   ⇒ **本片刻意不解決它。** 要解決它得付的代價寫在上面(動 `pcm_order_refundable_remaining`)。
 --   ⇒ 追蹤:backlog `#787`。
+--   🔴 **而「在沖銷片落地之前」這個說法不是一個承諾**(W5 R1 打到:它會被讀成「沖銷片一定會做」)
+--     ⇒ 換成一個**可驗的分岔**:**若沖銷片最後決定不做 ⇒ 這張表的【登記入口】就不該上線。**
+--     二者擇一,沒有第三條路 —— 因為「可以登記、而登記錯了改不掉」是那個入口自己造出來的狀態。
 --
 --   🔴 **而這個「可接受」的判斷有一個依據,它會過期**(W1 裁定,W4 獨立重跑):
 --     `grep -rn --include='*.ts' --include='*.tsx' 'admin_record_manual_refund' packages apps | wc -l` ⇒ **0**
@@ -45,6 +48,14 @@
 --   ⇒ 本片:**① 降成【一支】**(沖銷 RPC 不存在,見上)、**②③ 照舊,一件都沒省**。
 --   🔴 而 ③ 對片 A 特別重要:片 A 的前置閘二(`20260820030000:241`)吃的就是 `has_function_privilege`
 --     的結果 ⇒ **本片是那道閘由假轉真的唯一原因**。
+--
+-- ── ⚠️ 驗證的效度限定(W5 R1 打穿的那一格,寫在這裡不要靠人記得)──────────────
+--   六發表演的 D1 是**逐字同簽章的 stub**(含它的兩道 REVOKE),因為 D1 的自測需要既有訂單與 staff、
+--   空庫套不進去。對 `has_function_privilege` 與 `proacl` 而言函式體不影響判斷 —— 而 W5 打穿一格:
+--   🔴 **stub 換得掉 `proowner`**,而下面 §2② 的斷言逐字就是 `a.grantee <> p.proowner`。
+--     我的 stub 由**我的 session** 建、正式庫的 D1 由 **apply 的那個身分**建
+--     ⇒ 兩者 owner 不同時,**我在本機驗過的那一格,不等於正式庫的行為**。
+--   ⇒ **「owner 相同」是我沒驗的前提。** 不擴張成「已驗」。
 --
 -- ⛔ apply 停點:本檔 commit 後**不 apply**。apply 要 Sean 在場,且**必須在 D1 之後**(§0 斷言會擋)。
 -- ============================================================
@@ -66,21 +77,40 @@ BEGIN
                     '本片只做開權,沒有那支函式就沒有東西可開。先套 20260820021000 再回來';
   END IF;
 
-  -- ② 🔴 極性必須還是【零】—— 這一格同時是「開之前呼不到」的證據,而它跟著 migration 走。
-  --    若 service_role 已經有 EXECUTE,代表:本片已套過(forward-only)、或有人手動開過。
-  --    兩種都不該靜默繼續 —— 後者是鐵則 12② 的事件,不是重跑。
-  IF has_function_privilege('service_role', v_fn, 'EXECUTE') THEN
-    RAISE EXCEPTION 'D2 前置閘:service_role **已經**呼得到登記 RPC ⇒ 本片已套過(forward-only,拒重跑),'
-                    '或有人在 D1 與本片之間手動 GRANT 過。**這不是「有人改壞了」的通用訊息** —— '
-                    '後者請當成權限事件查,不要直接重跑本片';
+  -- ①-b 🔴 **role 也要先判存在**(W5 R1 nit-2):`has_function_privilege` 對**不存在的 role**
+  --    吐 `42704` PG 原文 ⇒ 與 ① 的症狀逐字相同,而下面那些精心寫的訊息一句都不會出現。
+  --    我為**函式**做了這件事,同一條理由對 **role** 一樣成立 —— 而我原本漏了。
+  --    repo 前例:`20260811060000:81` 逐字 `IF pg_catalog.to_regrole('payment_confirmer') IS NULL THEN`。
+  --    ⚠️ 誠實邊界:`42704` 這個碼是 **W5 讀出來的、兩人都沒實跑**;而「先判存在」本身不依賴那個碼對不對。
+  IF pg_catalog.to_regrole('service_role') IS NULL
+     OR pg_catalog.to_regrole('anon') IS NULL
+     OR pg_catalog.to_regrole('authenticated') IS NULL
+     OR pg_catalog.to_regrole('authenticator') IS NULL THEN
+    RAISE EXCEPTION 'D2 前置閘:service_role / anon / authenticated / authenticator 至少一個不存在 ⇒ '
+                    '這不是 Supabase 的標準佈局,本片的權限斷言在這個環境沒有意義;拒繼續';
   END IF;
 
-  -- ③ 而 anon/authenticated 在 D1 之後就該是零(D1 自己 REVOKE 過)。這裡再驗一次:
-  --    若它們是 true,代表 D1 的兩道 REVOKE 沒生效 —— 那時開權會把一支動錢的 RPC 疊在一個已破的底上。
+  -- ② 🔴 **先驗「底破了沒」,再驗「開過了沒」**(W5 R1 nit-4:順序讓最危險那格被蓋掉)。
+  --    兩者同時為真時,若先報「已套過」,值班就**不會知道底是破的** —— 而那是比較嚴重的那一件。
+  --    anon/authenticated 在 D1 之後就該是零(D1 自己 REVOKE 過)。
   IF has_function_privilege('anon', v_fn, 'EXECUTE')
      OR has_function_privilege('authenticated', v_fn, 'EXECUTE') THEN
     RAISE EXCEPTION 'D2 前置閘:anon/authenticated 對登記 RPC 有 EXECUTE ⇒ D1 的兩道 REVOKE 沒生效;'
                     '拒繼續(不要在一個已破的底上開權)';
+  END IF;
+
+  -- ③ 極性必須還是【零】—— 這一格同時是「開之前呼不到」的證據,而它跟著 migration 走。
+  -- 🔴 而訊息**給得出判別命令**(W5 R1 MF-2):原版把「已套過」與「有人手動 GRANT」並列,
+  --    而值班會挑成本低的那個解釋 ⇒ 一個真正的權限事件會被當成「重跑而已」略過。
+  --    ⚠️ 那條命令的表名/欄位 **W5 與我都沒有在正式庫實跑過**(repo 內 12 支檔提到那張表)
+  --       ⇒ 訊息裡標成「查法」而不是「事實」,而**第二條查法(APPLIED.tsv)是我們自己的可查帳、一定在**。
+  IF has_function_privilege('service_role', v_fn, 'EXECUTE') THEN
+    RAISE EXCEPTION 'D2 前置閘:service_role **已經**呼得到登記 RPC。兩種可能,而處置完全不同 —— '
+                    '請先分辨,不要直接重跑:'
+                    '① 本片已套過(forward-only)⇒ 查 `supabase/APPLIED.tsv` 有沒有 20260820022000 那一列;'
+                    '或查 `supabase_migrations.schema_migrations` 有沒有 version = 20260820022000。'
+                    '② **兩處都查無、而 EXECUTE 卻已經在** ⇒ 有人在 D1 與本片之間手動 GRANT 過 '
+                    '⇒ **那是鐵則 12② 的權限事件,不是重跑**,請當成事件查';
   END IF;
 
   RAISE NOTICE 'D2 前置:登記 RPC 存在、service_role=false、anon/authenticated=false(開權【前】的極性已記錄)';
@@ -109,7 +139,12 @@ BEGIN
     RAISE EXCEPTION 'D2:開權之後 anon/authenticated/authenticator 也拿到了 EXECUTE;拒繼續';
   END IF;
 
-  -- ② 🔴 **全稱**:把 proacl 攤平,任何非 owner、非 service_role 的 grantee 一律紅。
+  -- ② 🔴 **對【直接 grantee】全稱**(W5 R1 nit-3 收窄了我原本的「全稱」二字):
+  --    把 proacl 攤平,任何非 owner、非 service_role 的**直接** grantee 一律紅。
+  --    ⚠️ **它看不到 role 繼承**:`GRANT service_role TO some_role` 之後,`some_role` 呼得到,
+  --       而 proacl 裡只有 service_role ⇒ **本格仍綠**。
+  --       anon/authenticated/authenticator 有上面 `has_*` 那格蓋到,**第四個角色沒有**。
+  --    ⇒ 不是新曝險(D1 的底 + 本格 + `has_*` 三層仍在),而是**這一格的射程要寫準**。
   --    形狀取自 `scripts/l5am-verify.sh:338-363`(同日 W4 把那支的枚舉閘改成全稱)。
   --    這一格擋的是「REVOKE 清單只列舉 role 名」那個已知的洞 —— `20260810210000:431-432` 自陳過。
   --    ⚠️ 而它擋得住的是**現在有誰**,擋不住**之後有人再 GRANT**(那要靠常設 harness,本片不宣稱)。
@@ -125,10 +160,10 @@ BEGIN
     RAISE EXCEPTION 'D2:登記 RPC 的 proacl 出現非 service_role 的 grantee:[%];拒繼續', v_bad;
   END IF;
 
-  -- ③ proacl 非 NULL(NULL ⇒ 所有 GRANT/REVOKE 都沒生效 ⇒ PG 預設 EXECUTE TO PUBLIC)
-  IF (SELECT proacl FROM pg_catalog.pg_proc WHERE oid = v_fn) IS NULL THEN
-    RAISE EXCEPTION 'D2:登記 RPC 的 proacl 是 NULL ⇒ 對 PUBLIC 開著;拒繼續';
-  END IF;
+  -- ③ ~~proacl 非 NULL~~ 🔴 **拿掉了**(W5 R1 nit-1):它跑在 `GRANT` **之後**,
+  --    而上面 §0 的閘已保證這一發 GRANT 真的改了 ACL ⇒ 執行到這裡時 **proacl 不可能是 NULL**
+  --    ⇒ 那是一格**恆真守門**:它在任何世界都綠,而看起來像有人在守。
+  --    📌 它的用途只在 GRANT **之前**成立,而 §0 的 ②③ 已經覆蓋了那個時點(兩者都會因 REVOKE 沒生效而紅)。
 
   RAISE NOTICE 'D2 後置:service_role=true、anon/authenticated/authenticator=false、proacl 全稱乾淨(極性已翻轉)';
 END $$;
