@@ -214,7 +214,20 @@ while :; do
   fi
 done
 
-printf '取得 pnpm 鎖(%s) ⇒ pnpm %s\n' "$WHO" "$*" >&2
+# 🔴 TURBO_FORCE 預設開(2026-08-20 W4 實測抓到假綠):
+#    照 `bash scripts/pnpm-serial.sh build` 直覺地跑 ⇒ 第一次得到 rc=0 而 **Cached: 2 cached, 2 total**
+#    ⇒ 那是 turbo **replay 的舊綠**,不是這一版真的跑過(重跑帶 TURBO_FORCE=1 ⇒ 0 cached, 2 total)。
+#    ⇒ 🔴 鐵則 11 那條「三綠一律加 TURBO_FORCE=1」與本鎖**原本沒有接起來** ——
+#       而漏掉它的樣態是【綠】,不是紅 ⇒ 沒有任何東西會提醒你。
+#    ⇒ ⇒ 所以預設由本腳本補上,讓【直覺的用法】就是正確的用法。
+#    要刻意吃快取(例如只想確認 exit code、不在乎新鮮度)⇒ PNPM_SERIAL_NO_FORCE=1
+if [ "${PNPM_SERIAL_NO_FORCE:-0}" = "1" ]; then
+  printf '⚠️ PNPM_SERIAL_NO_FORCE=1 ⇒ 不帶 TURBO_FORCE,可能拿到 replay 的舊綠\n' >&2
+else
+  export TURBO_FORCE=1
+fi
+
+printf '取得 pnpm 鎖(%s) ⇒ pnpm %s (TURBO_FORCE=%s)\n' "$WHO" "$*" "${TURBO_FORCE:-unset}" >&2
 pnpm "$@"
 rc=$?
 printf '釋放 pnpm 鎖(%s) ⇒ pnpm rc=%s\n' "$WHO" "$rc" >&2
