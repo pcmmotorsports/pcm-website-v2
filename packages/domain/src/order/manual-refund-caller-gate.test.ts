@@ -42,7 +42,22 @@ const CONTROL_NEEDLE = 'admin_record_manual_payment';
  * 🔴 **加一行之前請先讀 `#787`**;`why` 要寫「封印在哪一片、驗的是什麼」,不要寫「已確認」。
  */
 const CALLER_ALLOWLIST: Record<string, string> = {
-  // 目前為空 —— 2026-08-20 實測 0 個呼叫端(正向對照 admin_record_manual_payment ⇒ 16)。
+  'apps/admin/src/lib/payment/manual-refund-repository.ts':
+    '唯一真呼叫端(.rpc() 呼叫點)。封印本體在同片 manual-refund-entry-gate.ts 的 ' +
+    'MANUAL_REFUND_ENTRY_BLOCKED_BY_787,目前仍為 true——沖銷 RPC(admin_void_manual_refund, ' +
+    '乙片 commit 0e9c9b76)已進 dev,但尚未 apply 到正式庫(has_function_privilege 這一步驗不到), ' +
+    '故本檔的 RPC 呼叫路徑在 UI 層目前不可達。',
+  'apps/admin/src/components/orders/manual-refund-entry-gate.ts':
+    '封印本體所在檔——MANUAL_REFUND_ENTRY_BLOCKED_BY_787 常數,驗的是「沖銷 RPC 是否已 apply」, ' +
+    '恆 true 直到那支 RPC 真的可被 service_role 呼叫(不是只進 dev)。',
+  'apps/admin/src/lib/payment/manual-refund-action-state.ts':
+    '僅在 docstring 提及 admin_record_manual_refund 這個名字(與 D1 RPC 的行為比較用途), ' +
+    '沒有任何 .rpc() 呼叫,不是真呼叫端,不受本閘約束。',
+  'apps/admin/src/lib/payment/manual-refund-form.ts':
+    '僅在 docstring 提及 RPC 名稱,純表單解析器,不呼叫任何 RPC,不是真呼叫端。',
+  'packages/adapters/src/supabase/database.types.ts':
+    '手補型別宣告(檔頭條目⑬)含 RPC 名稱字面供 typecheck 使用,不含任何 .rpc() 呼叫, ' +
+    '不是真呼叫端。',
 };
 
 function grepCallers(needle: string): string[] {
