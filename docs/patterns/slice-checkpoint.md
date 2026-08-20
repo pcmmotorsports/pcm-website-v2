@@ -279,6 +279,19 @@ git ls-files --others --exclude-standard    # 🔴 未追蹤的新檔——前�
 5. commit 訊息對應 commit 實際內容、不超過實際做的事
 ```
 
+### 3.1a 🔴 在乾淨 worktree(非主樹)跑四綠(`bash scripts/pnpm-serial.sh` 四項)時的兩個坑
+
+> 2026-08-20 W3 在 `git worktree add` 出來的乾淨樹上驗一批 commit 綠不綠時實測。
+> **只在乾淨環境出現,主樹上不會發生**——也就是只在最需要相信結果的那一次出現。
+
+- **worktree 沒有帶執行位元**:`scripts/pnpm-serial.sh` 會 `spawn ... EACCES`。先
+  `chmod +x scripts/pnpm-serial.sh` 再跑。
+- 🔴 **四綠的順序是 typecheck → lint → build → test,不是 typecheck → lint → test → build**:
+  乾淨環境沒有既有的 `.next` 建置產物,**先跑 test 會讓 2 個檔案假紅**
+  (`Error: 找不到建置產物目錄 .../.next/static/chunks`,錯誤訊息本身就寫著「這不是版面出問題,
+  是還沒 build」)。跑完 `build` 再跑 `test` 就全綠——**test 依賴 build 產物,build 要排在
+  test 前面**,不是各自獨立的四個步驟。
+
 ### 3.2 任一紅 → 修紅、不繞道
 
 修紅原則:
