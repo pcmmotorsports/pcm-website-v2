@@ -7,7 +7,7 @@
 //    ⇒ 測試端要 `vi.mock('server-only', () => ({}))`(既有頁層測試本來就這樣做)。
 import 'server-only';
 import type { AdminOrderDetail } from '@pcm/domain';
-import { buildOrderCancelView } from '../../lib/orders/cancel-view';
+import { buildOrderCancelView, type CancelViewPayments } from '../../lib/orders/cancel-view';
 import { CancelReviewSection } from './cancel-review-section';
 import { FullCancelForm, PartialCancelForm } from './cancel-order-forms';
 
@@ -25,10 +25,17 @@ import { FullCancelForm, PartialCancelForm } from './cancel-order-forms';
 
 export function OrderCancelBlock({
   detail,
+  payments,
   returnTo,
   formsAllowed,
 }: {
   detail: AdminOrderDetail;
+  /**
+   * 這張單的收款明細(三態)。**片 B 新增、必填無預設。**
+   * 🔴 判斷「現金/匯款可取消、刷卡不行」需要 rail,而 rail 只在這裡。
+   *    給預設值會說謊(`ok/[]` ⇒ 當成零收款列;`unreadable` ⇒ 每張單都掛警告)⇒ **忘了接必須編不過。**
+   */
+  payments: CancelViewPayments;
   /**
    * #350d C1:兩支取消表單的 `return_to` 值 = 當下這個視圖自己的網址。
    * 🔴 **必填、無預設**:給預設值等於「忘了接就靜默把面板關掉」,而那個症狀在測試裡
@@ -49,7 +56,7 @@ export function OrderCancelBlock({
    */
   formsAllowed?: boolean;
 }) {
-  const view = buildOrderCancelView(detail);
+  const view = buildOrderCancelView({ ...detail, payments });
   // 🔴 兩道都要成立才給表單:①判定說可以(`buildOrderCancelView` 是唯一真相)②不是結果頁。
   //
   // ⚠️ **原本還有第三道 `detail.cancelledAt === null`,已移除**(R2 突變實測):
@@ -73,7 +80,7 @@ export function OrderCancelBlock({
     <div id='cancel' className='space-y-4'>
       {/* 🔴 **複核區塊永遠掛著**(即使已取消 / 不能取消)—— 關單之後員工仍要看得到
           「取消了什麼」,那是義務 5 的比對面。 */}
-      <CancelReviewSection detail={detail} />
+      <CancelReviewSection detail={detail} payments={payments} />
       {showForms && (
         <div className='space-y-4'>
           {/* 🔴 整單那支還要多過 `fullCancelAllowed`(有到貨就只能逐品項取消,RPC 會拒)。 */}

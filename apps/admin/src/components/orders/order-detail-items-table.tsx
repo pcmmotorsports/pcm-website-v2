@@ -250,7 +250,9 @@ export function ItemsTable({
   // 🔴 兩道都要成立才給取消控制項(與 `OrderCancelBlock:63` 的 `showForms` 同一組判準,
   //    這裡是逐品項那一半,不重算不同的規則):①判定說這張單可以取消
   //    ②這次渲染准不准出現表單(結果頁不給,見 `cancelFormsAllowedOnResultPage`)。
-  const cancelView = buildOrderCancelView(detail);
+  // 🔴 片 B:判定要吃收款三態(現金/匯款可取消、刷卡不行)。`payments` 本表本來就收著
+  //    (它同時是金額編輯那一塊的輸入)⇒ 這裡零新增 prop,只是把它接進判定。
+  const cancelView = buildOrderCancelView({ ...detail, payments });
   const showCancelControls = cancelView.canCancel && cancelFormsAllowed === true;
   // orderItemId → CancelItemView(帶 maxCancellable),給下面逐列查 —— `detail.items` 與
   // `cancelView.items` 是同一份 order 算出來的兩份陣列,用 id 對齊。

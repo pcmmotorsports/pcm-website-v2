@@ -101,6 +101,11 @@ function order(over: Partial<CancelViewOrder> = {}): CancelViewOrder {
     items: [{ id: ITEM_A, quantity: 5, procurements: [], procurementTruncated: false, quantitySummary: summary() }],
     // 🔴 `[]` 不是 `null`:`null` 會讓 cancellations_unreadable 恆真、把其餘拒因全蓋掉。
     cancellations: [],
+    // 🔴 **片 B:沒有「中性」的預設值** —— 這正是生產端把 `payments` 設成必填無預設的理由。
+    //    這裡選 `unreadable`(fail-closed 那一態),而它有一個代價要講明:
+    //    ⚠️ **任何關於 `paymentStatus: 'paid'` 的測試都必須自己指定 `payments`** ——
+    //       忘了指定的話,你測到的是「看不出怎麼收的」那條路,而**不是你以為在測的那條**。
+    payments: { status: 'unreadable' },
     ...over,
   };
 }
@@ -280,14 +285,34 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     //    ~~原本四態同期望 `payment_not_unpaid`~~ 是「三病共用一碼」的形狀
     //    (同族於 `ledger_unhealthy` 被 R1 F5 抓過的那次),而它讓 Sean 對著一張已退款的單
     //    讀到「已付款…請走人工退款流程」。
+    // 🔴 **片 B(2026-08-20):`paid` 不再是「一態一碼」,它依收款管道分成三條路。**
+    //    其餘三態原封不動(它們與收款管道無關)。
     const CASES = [
-      ['paid', 'payment_not_unpaid'],
       ['partiallyPaid', 'payment_partially_paid'],
       ['refunded', 'payment_refunded'],
       ['partiallyRefunded', 'payment_partially_refunded'],
     ] as const;
     for (const [status, code] of CASES) {
       expect(buildOrderCancelView(order({ paymentStatus: status })).blockReasons).toEqual([code]);
+    }
+    // 🔴 paid 的三條路 —— 而**第三條(讀不到)是本片最容易做錯的那一格**:
+    //    把「不知道」當成「沒有卡」會放行 ⇒ 與後端 RPC 反向 ⇒ 畫面說可以、RPC 拒絕。
+    const PAID_RAIL_CASES = [
+      [{ status: 'ok', rows: [{ rail: 'cash' }] }, []],
+      [{ status: 'ok', rows: [{ rail: 'bank_transfer' }] }, []],
+      [{ status: 'ok', rows: [{ rail: 'card' }] }, ['payment_card_rail']],
+      // 混合單:有一列 card 就擋(鏡像 RPC 的 NOT EXISTS(rail='card'))
+      [{ status: 'ok', rows: [{ rail: 'cash' }, { rail: 'card' }] }, ['payment_card_rail']],
+      // 🔴 三態的另外兩態 + 零收款列 ⇒ **全部 fail-closed**
+      [{ status: 'unreadable' }, ['payment_rail_unverifiable']],
+      [{ status: 'order_not_found' }, ['payment_rail_unverifiable']],
+      [{ status: 'ok', rows: [] }, ['payment_rail_unverifiable']],
+    ] as const;
+    for (const [payments, expected] of PAID_RAIL_CASES) {
+      expect(
+        buildOrderCancelView(order({ paymentStatus: 'paid', payments })).blockReasons,
+        JSON.stringify(payments),
+      ).toEqual(expected);
     }
     expect(buildOrderCancelView(order({ paymentStatus: 'unpaid' })).blockReasons).toEqual([]);
   });
@@ -311,12 +336,15 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     // 🔴 值域掃全:比照上一格的紀律,不只測 paid ——「只抑制 paid」的突變要紅。
     // 🔴 `#494`:期望碼改成**逐態各自的碼**(抑制的範圍一個字都沒變,變的是被留下那一碼的名字)。
     for (const [status, code] of [
-      ['paid', 'payment_not_unpaid'],
+      // 🔴 片 B:paid 現在要指定收款管道才構造得出「已付款且被擋」——這裡用刷卡態
+      ['paid', 'payment_card_rail'],
       ['partiallyPaid', 'payment_partially_paid'],
       ['refunded', 'payment_refunded'],
       ['partiallyRefunded', 'payment_partially_refunded'],
     ] as const) {
-      const view = buildOrderCancelView(order({ paymentStatus: status, chargeAttemptGate: 'blocked' }));
+      const view = buildOrderCancelView(
+        order({ paymentStatus: status, chargeAttemptGate: 'blocked', payments: { status: 'ok', rows: [{ rail: 'card' }] } as const }),
+      );
       // 突變:拿掉 `&& paymentStatus === 'unpaid'` ⇒ 這行紅(陣列會多一碼「還在進行中」)。
       expect(view.blockReasons).toEqual([code]);
       // 🔴 抑制的是碼、不是實質:單子照樣擋得住。
@@ -327,9 +355,10 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
 
     // `unknown` 不在本次收窄範圍內:讀不完整時「可能有在途」對已付款單仍然為真。
     expect(
-      buildOrderCancelView(order({ paymentStatus: 'paid', chargeAttemptGate: 'unknown' }))
-        .blockReasons,
-    ).toEqual(['payment_not_unpaid', 'charge_attempt_unknown']);
+      buildOrderCancelView(
+        order({ paymentStatus: 'paid', chargeAttemptGate: 'unknown', payments: { status: 'ok', rows: [{ rail: 'card' }] } as const }),
+      ).blockReasons,
+    ).toEqual(['payment_card_rail', 'charge_attempt_unknown']);
   });
 
   it('品項清單被截斷', () => {
@@ -904,11 +933,13 @@ describe('buildOrderCancelView 多條拒因的順序是穩定宣告序', () => {
         chargeAttemptGate: 'unknown',
         itemsTruncated: true,
         cancellations: null,
+        payments: { status: 'ok', rows: [{ rail: 'card' }] },
       }),
     );
     expect(view.blockReasons).toEqual([
       'already_cancelled',
-      'payment_not_unpaid',
+      // 🔴 片 B:paid 依收款管道分岔 ⇒ 這裡用刷卡態,碼跟著換(宣告序不變)
+      'payment_card_rail',
       'charge_attempt_unknown',
       'items_truncated',
       'cancellations_unreadable',
@@ -957,9 +988,11 @@ describe('buildOrderCancelView 多條拒因的順序是穩定宣告序', () => {
           },
         ],
         cancellations: [cancellation([{ orderItemId: ITEM_A, cancelledQuantity: 5 }])],
+        payments: { status: 'ok', rows: [{ rail: 'card' }] },
       }),
     );
-    expect(view.blockReasons).toEqual(['payment_not_unpaid', 'nothing_cancellable']);
+    // 🔴 片 B:paid 用刷卡態(現金已付款不再被擋 ⇒ 那樣就只剩一碼、測不出排序)
+    expect(view.blockReasons).toEqual(['payment_card_rail', 'nothing_cancellable']);
   });
 });
 

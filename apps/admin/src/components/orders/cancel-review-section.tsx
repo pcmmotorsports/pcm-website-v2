@@ -3,6 +3,7 @@ import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { CANCEL_REASON_LABEL } from '../../lib/orders/cancel-form';
 import {
   buildOrderCancelView,
+  type CancelViewPayments,
   type OrderCancelBlockReason,
   type OrderCancelView,
 } from '../../lib/orders/cancel-view';
@@ -82,9 +83,34 @@ export const BLOCK_REASON_TEXT: Record<
   //       這一刀只把「指錯地方 / 指不到地方」修掉,不預先替那份 plan 表態。
   // ⚠️ hint 要比 title 長是**守門要求的**(`cancel-review-section.test.tsx` 搜 `hint 不得等於 title`)——
   //    它守的是「hint 必須比 title 多給東西」。⇒ 這裡補的是【下一步的細節】,不是湊字數。
+  // 🔴 **片 B(2026-08-20):這個碼現在【不再給 paid 用】** —— `paid` 依收款管道分岔成
+  //    `payment_card_rail` / `payment_rail_unverifiable`(見下兩則),或**不擋**(現金/匯款)。
+  //    ⚠️ 碼名與這句文案都是歷史的、比現況寬,**刻意不改名**(改名要動 RPC 對照、測試與本表,
+  //       而本片的病是**分流**不是命名)。它現在的唯一去處是 `PAYMENT_BLOCK_REASON` 之外的舊路徑。
   payment_not_unpaid: {
     title: '已付款的單目前還不能在這裡取消',
     hint: '這張單的錢要先處理完。退款在本頁最下方的「退款」裡:先確認要退多少、用什麼方式退,錢處理完再回來取消。',
+  },
+  // 🔴 **片 B:刷卡收款的單。** 判準照你自己在 W1-082 §4 寫的:
+  //    **看完這句話,你知道下一步該做什麼嗎?** ⇒ 所以它要**指路**,不只是拒絕。
+  //    ⚠️ 位置字面當場核過(同本檔上面那條紀律:**指位置,不指流程名**):
+  //       「退款」= `order-detail.tsx` 那一塊的標題(對帳異常時作「退款(對帳異常)」,仍含「退款」二字)。
+  // 🔴 **這張表自己的守門抓到我一次**(片 B,2026-08-20):我原本把 title 寫成
+  //    「取消要走**退款流程**」—— 而 `cancel-review-section.test.ts` 那條「不得出現流程名」的
+  //    表格驅動測試當場紅:**畫面上沒有一個叫「退款流程」的東西**。
+  //    ⇒ 照本檔上面那條紀律改成**指位置**:「本頁最下方的『退款』」(字面在 order-detail.tsx 那一塊)。
+  //    📌 值得記:**我整晚在別處講「訊息不得指向不存在的動作」,而寫這一句時自己又犯了** ——
+  //       而這次抓到我的不是人,是這張表的守門。
+  payment_card_rail: {
+    title: '這張單是刷卡付款的,要先把錢退回原卡片才能取消',
+    hint: '刷卡的錢不能只把訂單取消掉就算數,要退回原本那張卡。請到本頁最下方的「退款」裡處理;錢退完之後這張單才能取消。現金或匯款收的單則可以直接在這裡取消。',
+  },
+  // 🔴 **片 B:看不出這張單是怎麼收的 ⇒ fail-closed。** 兩個來源共用一句,因為下一步相同。
+  //    ⚠️ 這句**不可以**寫成「這張單沒有收款紀錄」—— 那是把「不知道」講成「沒有」,
+  //       而那正是本碼存在要防的事(方向會與後端相反)。
+  payment_rail_unverifiable: {
+    title: '看不出這張單是用什麼方式收款的,先不開放取消',
+    hint: '要判斷能不能在這裡取消,得先知道這筆錢是刷卡收的還是現金/匯款收的,而現在讀不到這張單的收款明細(可能是讀取失敗,也可能是這張單根本沒有收款紀錄)。請重新整理一次;若還是一樣,請通知系統維護 —— 這不是你操作錯誤。',
   },
   // 🔴 `#494` 的三條:**下一步各不相同**,所以不共用上面那句(Sean 2026-08-14 拍板 B)。
   //    起因是 Sean 對著一張**已經退過款**的單,看到上面那句「已付款…請走人工退款流程」。
@@ -324,8 +350,19 @@ function CancellationHistory({ detail }: { detail: AdminOrderDetail }) {
  * 🔴 `<details>` 預設收合、可取消時才預設展開:能取消的單員工要先看影響範圍;
  * 不能取消的單只要看到「為什麼不能」就夠了,展開一整張表是噪音。
  */
-export function CancelReviewSection({ detail }: { detail: AdminOrderDetail }) {
-  const view = buildOrderCancelView(detail);
+export function CancelReviewSection({
+  detail,
+  payments,
+}: {
+  detail: AdminOrderDetail;
+  /**
+   * 這張單的收款明細(三態)。**片 B 新增、必填無預設。**
+   * 🔴 判斷「現金/匯款可取消、刷卡不行」需要 rail,而 rail 只在這裡。
+   *    給預設值會說謊(`ok/[]` ⇒ 當成零收款列;`unreadable` ⇒ 每張單都掛警告)⇒ **忘了接必須編不過。**
+   */
+  payments: CancelViewPayments;
+}) {
+  const view = buildOrderCancelView({ ...detail, payments });
 
   return (
     <section className={CARD}>

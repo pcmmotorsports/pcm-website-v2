@@ -107,6 +107,17 @@ vi.mock('../../../components/orders/shipment-section', () => ({
 import OrderDetailPage from './page';
 import { OrderDetail } from '../../../components/orders/order-detail';
 import { OrderCancelBlock } from '../../../components/orders/order-cancel-block';
+
+/**
+ * 🔴 片 B:`payments` 必填無預設 ⇒ 每個渲染點都要給。
+ * 這裡統一給 **`unreadable`(fail-closed 那一態)**,而它有一個代價要講明:
+ * ⚠️ **任何在測「已付款」行為的案例都必須自己覆寫它** —— 否則你測到的是
+ *    「看不出這張單怎麼收的」那條路,而不是你以為在測的那條(刷卡 / 現金)。
+ */
+const PAY_UNREADABLE = { status: 'unreadable' } as const;
+const PAY_CARD = { status: 'ok', rows: [{ rail: 'card' }] } as const;
+const PAY_CASH = { status: 'ok', rows: [{ rail: 'cash' }] } as const;
+
 import {
   ORDER_CANCELLED_RESULT_CODE,
   toOrderCancelResultCode,
@@ -305,14 +316,14 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
     //    原本**全綠存活** —— 因為 `OrderDetail` 自己的預設值是 `false`,
     //    區塊**永遠收不到 `undefined`** ⇒ 它自己那道嚴格比對從來沒被走到。
     //    兩層各自 fail-closed 是縱深,但**沒被測到的縱深等於不存在**;直接渲染區塊才量得到。
-    const { container } = render(<OrderCancelBlock returnTo='/orders?panel=x' detail={detail()} />);
+    const { container } = render(<OrderCancelBlock payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} />);
     // 正向對照:複核區塊有畫出來(否則「零表單」是恆真)。
     expect(container.textContent).toContain('取消訂單');
     expect(cancelFormCount(container)).toBe(0);
   });
 
   it('OrderCancelBlock 明確傳 true ⇒ 表單出現(對照組)', () => {
-    const { container } = render(<OrderCancelBlock returnTo='/orders?panel=x' detail={detail()} formsAllowed />);
+    const { container } = render(<OrderCancelBlock payments={PAY_UNREADABLE} returnTo='/orders?panel=x' detail={detail()} formsAllowed />);
     expect(cancelFormCount(container)).toBeGreaterThan(0);
   });
 

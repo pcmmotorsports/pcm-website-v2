@@ -575,7 +575,14 @@ export function OrderDetail({
             </span>
           }
         >
-          <OrderCancelBlock detail={detail} returnTo={returnTo} formsAllowed={cancelFormsAllowed} />
+          {/* 🔴 片 B:`payments` 是「現金/匯款可取消、刷卡不行」的唯一輸入 ——
+              必填無預設,忘了傳會編不過(理由見 cancel-view.ts 的 payments 欄)。 */}
+          <OrderCancelBlock
+            detail={detail}
+            payments={payments}
+            returnTo={returnTo}
+            formsAllowed={cancelFormsAllowed}
+          />
         </DangerZoneDetails>
       </div>
     </div>

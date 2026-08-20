@@ -147,7 +147,26 @@ export type OrderCancelBlockReason =
   /** 取消歷程沒讀到或被截斷 ⇒ 病理②③ 可能藏在沒看到的那批裡,見 `LEDGER_FROM_TRUTH` */
   | 'cancellations_unreadable'
   /** 每個品項的尚可取消量都是 0 ⇒ 整單模式與部分模式都送不出去 */
-  | 'nothing_cancellable';
+  | 'nothing_cancellable'
+  /**
+   * 🔴 **片 B(2026-08-20)**:這張單**有刷卡收款**(`order_payments` 至少一列 `rail='card'`)。
+   * 片 A(`20260820030000`)把 RPC 的允許集合放寬成「unpaid **或** 非卡已付款」,而**卡片那半仍擋**
+   * —— 卡片退款有自己的帳本與狀態機(`order_refunds`),不走人工登記那條路。
+   * ⚠️ 與 `payment_not_unpaid` 的差別:那個碼現在**只給 partiallyPaid 之外的舊語意**用;
+   *    這個碼要說得出**為什麼「刷卡」就不行**,而不是「已付款就不行」——
+   *    後者對一張現金已付款的單是**假話**(它現在取消得了)。
+   */
+  | 'payment_card_rail'
+  /**
+   * 🔴 **片 B**:**看不出這張單是怎麼收的** ⇒ fail-closed。兩個來源共用一碼,
+   * 因為員工的下一步相同(自己查不到,要找系統維護):
+   *   ① `payments.status !== 'ok'`(讀取失敗 / 訂單查無)—— **不知道有沒有卡**,不是「沒有卡」
+   *   ② `status === 'ok'` 而**零收款列**,卻是 `paid` —— 態 C:正式庫真的有一張這種舊單
+   * 🔴 **方向必須與後端一致**:RPC 的述詞是「有列 **且** 無 card」⇒ 零列也擋。
+   *    把「讀不到」當成「沒有 card」會讓**刷卡單被誤判成可取消** ⇒ 畫面說可以、RPC 拒絕
+   *    ⇒ 員工看到一個沒有理由的失敗。**本碼存在的全部理由就是不讓那件事發生。**
+   */
+  | 'payment_rail_unverifiable';
 
 /**
  * 非 `unpaid` 的四態 → 各自的拒因碼(`#494`;Sean 2026-08-14 拍板 B)。
@@ -160,12 +179,52 @@ export type OrderCancelBlockReason =
  * ⚠️ 只有 `paid` 這一態在正式庫有實例;另外三態**零筆**(`refunded` 有實例但
  *    「主視窗提供、V 窗未複驗」)⇒ 分流本身由測試釘,不宣稱實地驗過。
  */
-const PAYMENT_BLOCK_REASON: Record<Exclude<PaymentStatus, 'unpaid'>, OrderCancelBlockReason> = {
-  paid: 'payment_not_unpaid',
+// 🔴 **片 B:`paid` 從本表移出**,改由 `classifyPaidRail` 依收款管道分岔(見下)。
+//    型別跟著收窄成 `Exclude<PaymentStatus, 'unpaid' | 'paid'>` —— **守門沒有變弱**:
+//    日後 `PaymentStatus` 加值,本表仍會少一鍵而轉紅;而 `paid` 走哪條路現在是**顯式**的。
+const PAYMENT_BLOCK_REASON: Record<
+  Exclude<PaymentStatus, 'unpaid' | 'paid'>,
+  OrderCancelBlockReason
+> = {
   partiallyPaid: 'payment_partially_paid',
   refunded: 'payment_refunded',
   partiallyRefunded: 'payment_partially_refunded',
 };
+
+/**
+ * 已付款的單:**依收款管道分岔**。鏡像 RPC 的述詞
+ * (`20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql` 步7)逐字:
+ * ```
+ * payment_status = 'paid'
+ *   AND EXISTS (SELECT 1 FROM order_payments WHERE order_id = …)
+ *   AND NOT EXISTS (SELECT 1 FROM order_payments WHERE order_id = … AND rail = 'card')
+ * ```
+ * ⇒ 本函式回 `null` = 那三個條件都成立 = **不擋**;其餘各回一個拒因碼。
+ *
+ * 🔴 **三態不可壓成兩態**(片 B 最容易做錯的一格):`PaymentListData` 是
+ * `ok` / `order_not_found` / `unreadable`,而**只有 `ok` 才知道有沒有卡**。
+ * 把非 `ok` 當成「沒有卡」⇒ 放行 ⇒ 與後端反向 ⇒ 畫面說可以、RPC 拒絕。
+ */
+function classifyPaidRail(payments: CancelViewPayments): OrderCancelBlockReason | null {
+  if (payments.status !== 'ok') return 'payment_rail_unverifiable';
+  if (payments.rows.length === 0) return 'payment_rail_unverifiable';
+  if (payments.rows.some((row) => row.rail === 'card')) return 'payment_card_rail';
+  return null;
+}
+
+/**
+ * 收款明細三態 —— **片 B 判斷「這張單是刷卡還是現金收的」的唯一輸入。**
+ *
+ * 🔴 **結構型別、不從元件層 import**:`PaymentListData` 住在 `components/orders/payment-list.tsx`,
+ *    而本檔是 `lib/` —— 反向 import 會把元件模組圖拉進純函式層(同 `cancel-form.ts` 對
+ *    `CANCEL_REASON_LABEL` 的處置)。這裡只宣告**本檔需要的最小形狀**,結構相容即可餵進來。
+ * 🔴 **三態不是兩態**:`order_not_found` / `unreadable` 都是「**不知道**」,不是「沒有卡」。
+ *    壓成兩態就是本片最容易犯、而且**與後端反向**的錯(見 `classifyPaidRail`)。
+ */
+export type CancelViewPayments =
+  | { status: 'ok'; rows: readonly { rail: string }[] }
+  | { status: 'order_not_found' }
+  | { status: 'unreadable' };
 
 /** 判定所需的最小訂單形狀。用 `Pick` 綁住真型別 ⇒ 上游欄位改名會在型別層轉紅,不是靜默失效。 */
 export type CancelViewOrder = Pick<
@@ -201,6 +260,16 @@ export type CancelViewOrder = Pick<
    * 而截斷過的那列只回子集 ⇒ 少算 Σci = fail-open。`types.ts:725-726` 逐字講的「前提關係」。
    */
   cancellations: readonly Pick<AdminOrderCancellation, 'items' | 'itemsTruncated'>[] | null;
+  /**
+   * 這張單的收款明細(三態)。**片 B 新增。**
+   *
+   * 🔴 **必填、無預設,而那是刻意的**(同本檔對 `procurementTruncated` 的立場):
+   *    給預設值 = 「呼叫端忘了接就靜默當成某一態」,而**任何一個預設都會說謊** ——
+   *    預設 `ok/[]` ⇒ 已付款單被當成「零收款列」⇒ 擋(方向安全但理由是錯的);
+   *    預設 `unreadable` ⇒ 每張單都掛上「看不出怎麼收的」⇒ 判別力歸零。
+   *    ⇒ **忘了傳必須編不過。**
+   */
+  payments: CancelViewPayments;
 };
 
 /** 單一品項的取消視圖。`null` 一律是「不知道」,**不是 0**。 */
@@ -600,7 +669,19 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   //    四種非 unpaid 的下一步互不相同,共用一句「已付款…請走人工退款流程」對已退款的單是謊話。
   // 🔴 用 `Record` 而不是 `if/else` 串:**新增 `PaymentStatus` 值時 `tsc` 會紅**
   //    (`Exclude<…,'unpaid'>` 少一鍵不是合法的 Record),而 if 串會靜默走 fallback。
-  if (order.paymentStatus !== 'unpaid') reasons.push(PAYMENT_BLOCK_REASON[order.paymentStatus]);
+  // 🔴 **片 B(2026-08-20):`paid` 依收款管道分岔,其餘非 unpaid 照舊全擋。**
+  //    片 A(`20260820030000`)把 RPC 的允許集合放寬成「unpaid **或** 非卡已付款」——
+  //    而在片 B 之前,**本檔仍對所有非 unpaid 一律擋** ⇒ 那正是本檔檔頭警告的「兩份規格漂移」,
+  //    而它的症狀是 **W2 2026-08-20 實測到的**:現金已付款與刷卡已付款兩張單,
+  //    在畫面上顯示**同一句**「已付款的單目前還不能在這裡取消」——
+  //    而同一批單直接呼叫 RPC 時,現金放行、刷卡正確擋下。
+  //    🔴 **後端對、前端對(各自對它自己的規格),而合起來使用者拿不到新行為 —— 兩邊都是綠的。**
+  if (order.paymentStatus === 'paid') {
+    const railReason = classifyPaidRail(order.payments);
+    if (railReason !== null) reasons.push(railReason);
+  } else if (order.paymentStatus !== 'unpaid') {
+    reasons.push(PAYMENT_BLOCK_REASON[order.paymentStatus]);
+  }
   // 🔴 **已付款的單不報這條**(#387;Sean 2026-08-11 實測撞到)。
   //    `mapChargeAttemptGate` 用否定式 `!== CHARGE_ATTEMPT_TERMINAL_FAILED` 判定
   //    (`packages/adapters/src/supabase/mappers/order.ts:619` 與 `:622`)

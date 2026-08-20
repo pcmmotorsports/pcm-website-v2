@@ -19,6 +19,17 @@ vi.mock('server-only', () => ({}));
 
 import { OrderCancelBlock } from './order-cancel-block';
 
+/**
+ * 🔴 片 B:`payments` 必填無預設 ⇒ 每個渲染點都要給。
+ * 這裡統一給 **`unreadable`(fail-closed 那一態)**,而它有一個代價要講明:
+ * ⚠️ **任何在測「已付款」行為的案例都必須自己覆寫它** —— 否則你測到的是
+ *    「看不出這張單怎麼收的」那條路,而不是你以為在測的那條(刷卡 / 現金)。
+ */
+const PAY_UNREADABLE = { status: 'unreadable' } as const;
+const PAY_CARD = { status: 'ok', rows: [{ rail: 'card' }] } as const;
+const PAY_CASH = { status: 'ok', rows: [{ rail: 'cash' }] } as const;
+
+
 function summary(over: Partial<AdminOrderDetailItem['quantitySummary']> = {}) {
   return {
     quantity: 5,
@@ -69,7 +80,7 @@ afterEach(cleanup);
 describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
   it('🔴 可取消的單:錨點恰一個,而且**表單真的出得來**(正向對照)', () => {
     const { container } = render(
-      <OrderCancelBlock detail={detail()} returnTo='/orders' formsAllowed={true} />,
+      <OrderCancelBlock payments={PAY_UNREADABLE} detail={detail()} returnTo='/orders' formsAllowed={true} />,
     );
     expect(anchors(container).length, '錨點不見了 ⇒ 列表那些 #cancel 連結全部落空').toBe(1);
     // 🔴 R2 F2:沒有這條正向對照,「表單出不來」會變成**四格共同的靜默前提** ——
@@ -85,7 +96,7 @@ describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
     // 已付款 ⇒ `buildOrderCancelView` 推拒因、`showForms` 為 false。
     // 🔴 這正是 codex R1 點名的那個突變:把 `id` 移進 `{showForms && …}` 就只有這一格會紅。
     const { container } = render(
-      <OrderCancelBlock detail={detail({ paymentStatus: 'paid' })} returnTo='/orders' formsAllowed={true} />,
+      <OrderCancelBlock payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'paid' })} returnTo='/orders' formsAllowed={true} />,
     );
     // 前提:這一格真的走到「不可取消」那條路(不然它只是第一格的複本)。
     expect(
@@ -97,7 +108,7 @@ describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
 
   it('🔴 `formsAllowed=false`(fail-closed 那條路)錨點也要在', () => {
     const { container } = render(
-      <OrderCancelBlock detail={detail()} returnTo='/orders' formsAllowed={false} />,
+      <OrderCancelBlock payments={PAY_UNREADABLE} detail={detail()} returnTo='/orders' formsAllowed={false} />,
     );
     expect(container.querySelector('form')).toBeNull();
     expect(anchors(container).length).toBe(1);
@@ -105,7 +116,7 @@ describe('A13 錨點 — `id="cancel"` 是列表操作欄的目的地', () => {
 
   it('🔴 已取消的單:錨點照樣在(複核區塊本來就永遠掛著)', () => {
     const { container } = render(
-      <OrderCancelBlock
+      <OrderCancelBlock payments={PAY_UNREADABLE}
         detail={detail({ cancelledAt: '2026-08-10T00:00:00.000Z' })}
         returnTo='/orders'
         formsAllowed={true}
