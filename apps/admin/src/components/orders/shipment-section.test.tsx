@@ -414,3 +414,24 @@ describe('🔴 片14:出貨區的收件人資訊與包裹標題', () => {
   //       用關鍵字找會找到錯的那一顆,而它會回綠。
   //    ⇒ 那個字面改守在 `shipment-void-button.test.tsx`(片14 新建,原本零測試)。
 });
+
+// ── 🔴 包裹卡單號字級(2026-08-21,Sean 三選一實體版本比對後拍板選 15px)──
+//
+// 🔴 這一格要能在【字級被改回去】時紅,不是只斷言 class 存在(class 存在時 12px 也會過)——
+//    正向驗現值 = 15px,負向驗**不是**改回去前的 12px(`text-xs`)。
+describe('🔴 包裹卡單號那一行的字級', () => {
+  it('是 text-[15px],不是舊值 text-xs(改回去要當場紅)', async () => {
+    loadOrderShipments.mockResolvedValue([
+      {
+        // 🔴 shippedAt 給值:未出貨時同卡還有「填單號並標記出貨」那顆鈕,
+        //    它的文字也含「單號」二字,會讓 /單號/ 撞成多個命中(已實測撞過)。
+        shipment: { ...emptyBox('K7X2MP'), trackingNumber: '223456789012', shippedAt: '2026-08-21T00:00:00Z' },
+        lines: [{ orderItemId: 'oi-1', title: '鈦合金頭段', quantity: 1 }],
+      },
+    ]);
+    render(await ShipmentSection({ detail, payments: PAYMENTS_UNREADABLE }));
+    const line = screen.getByText(/單號/);
+    expect(line.className, '單號那行沒有 15px ⇒ 字級被改掉了').toContain('text-[15px]');
+    expect(line.className, '單號那行還是舊的 12px(text-xs)⇒ 字級沒有真的改').not.toContain('text-xs');
+  });
+});

@@ -314,7 +314,12 @@ export async function ShipmentSection({
                       </li>
                     ))}
                   </ul>
-                  <p className='text-muted-foreground text-xs'>
+                  {/* 🔴 字級 15px(2026-08-21 Sean 拍板,MAIN-057 §5 三選一,選了丙):
+                      實體版本比對(甲12/乙13/丙15,見 ~/pcm-mailbox/W9e-008-*)Sean 直接選丙。
+                      只動這一行的字級,顏色(`text-muted-foreground`)未變——那是另一題,
+                      沒問過就不動(見 W9e-008 交件)。沿用同層既有的 arbitrary-value 慣例
+                      (`order-detail-items-table.tsx:415` 的 `text-[13px]`),不是發明新寫法。 */}
+                  <p className='text-muted-foreground text-[15px]'>
                     {carrierLabelOf(shipment.carrierCode)}
                     {shipment.carrierNote !== null && `(${shipment.carrierNote})`}
                     {' · '}
