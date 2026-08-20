@@ -70,14 +70,20 @@ export function formatNavCount(value: number): string {
  * 過程稿 `admin-sidebar-four-directions.html` **不是權威**,只用來理解為什麼選這個。
  *
  * ── 🔴 為什麼不再用 shadcn 的 `<Sidebar>`(而 `ui/sidebar.tsx` 一個字沒動)──────────
- * 稿要的三件(84px 固定軌 / hover ⇒ 236px **覆蓋不推開** / 軌底常駐同步時間)**全部是 CSS**,
+ * 稿要的兩件(84px 固定軌 / 軌底常駐同步時間)**全部是 CSS**,
  * 沒有一項需要 shadcn 的 context 或 state ⇒ 本檔只是它的**消費者**,不是它的一部分。
+ * 🔴 ~~原本是「三件」,第三件是 hover ⇒ 236px 覆蓋不推開~~ ——
+ *    **2026-08-20 Sean 拿掉了那個互動**(見下方那塊註解)。**論證不受影響**:
+ *    剩下兩件仍然全是 CSS ⇒ 「不需要 shadcn」這個結論照樣成立。
+ *    📌 而**這一行是我改完 flyout 之後回頭 grep `236px` 才發現的** ——
+ *    同一支檔、相隔 60 行、對「稿要幾件」講不同的話。
+ *    那正是 `docs/patterns/guard-and-instrument-traps.md`「情況 A」的**作者側**動作:
+ *    **改完一句話之後,拿它的關鍵詞在【同一支檔】再 grep 一次。**
  * **量到的**(2026-08-20,真 Chromium,獨立 28 行 HTML 模擬 `SidebarProvider` 的 `flex min-h-svh w-full`):
  * ```
- * railW 84 / flyoutW 236 / z-index 30
- * mainLeft   展開前 84、展開後 84   ⇒ 內容沒有被推開
- * col1Left   展開前 109、展開後 109 ⇒ 表格欄寬不動（稿 :298 的要求）
- * railIsHovered true（真 :hover，不是 JS 切狀態）；未 hover 時 flyout 不可見（雙向）
+ * railW 84（← 這一格仍然是現況）
+ * 🪦 flyoutW 236 / z-index 30 / mainLeft 展開前後皆 84 / col1Left 109 不變 / railIsHovered true
+ *    —— 這幾格量的是【已經拿掉的那塊】，保留為「它當時真的做到了」的紀錄
  * ```
  * ⚠️ **射程**:那是**模擬外殼**,不是真的 `SidebarProvider`。真殼裡的驗證見本片 commit body。
  *
@@ -114,6 +120,16 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
           {navItems.map((item) => (
             <RailCell key={item.key} item={item} pathname={pathname} />
           ))}
+          {/*
+            🔴 **「設定」排在軌上最下面、灰字、點不動 —— Sean 2026-08-20 拍板(甲)。**
+            ⚠️ **這是【第二次推翻同一份定案稿】**:稿 `:357` 逐字
+               「『設定』**不在軌上出現** —— 它連預設狀態都沒有,只在滑出清單底部…存在」
+               ⇒ **作廢**。而它是第一處推翻的**連帶**:設定原本住在滑出清單裡,
+                  清單被拿掉之後它必須換地方,而他選了軌上。
+            📌 寫在這裡的理由與上一處相同:**下一個開那份稿的人會照著做回來,而稿不會自己知道它被推翻了。**
+            ⚠️ 而**我與主視窗都推薦乙(先整個拿掉),他選了甲** —— 照拍板做,不打折。
+          */}
+          <RailCell item={PARKED_NAV_ITEM} pathname={pathname} disabled />
         </nav>
         {/*
           🔴 軌底常駐同步時間 —— **它是量具,不是裝飾**(稿 `:288` 逐字):
@@ -130,32 +146,36 @@ export function AppSidebar({ auditEnabled }: { auditEnabled: boolean }) {
         </div>
       </div>
       {/*
-        hover ⇒ 236px 清單**滑出覆蓋內容區,不推開**(稿 `:298`/`:164`)。
-        🔴 `.flyout` 是軌的**子代** ⇒ 滑到清單上仍算 hover 著軌 ⇒ 不會閃爍關掉(量過)。
+        🔴🔴 **這裡原本有一塊 236px 的滑出清單(hover ⇒ 覆蓋內容區),2026-08-20 拿掉。**
+        **Sean 看過線上版後逐字**:「滑鼠移過去 ⇒ 清單蓋在畫面上面…**這個我忘記跟你說,
+        就維持小的窄窄的就好,不用做這個蓋在畫面上的方式。但是功能成功沒錯**。」
+        ⇒ 他確認**實作是對的**,要拿掉的是**那個互動本身**。
+        🔴 **定案稿 `admin-sidebar-rail-final.html:164` 的 `.sheet`(236px / z-index:3)自此作廢** ——
+           寫在這裡是因為**下一個開那份稿的人會照著做回來**,而稿不會知道自己被推翻了。
+        ⚠️ **而拿掉它導航一格都沒少**:軌上本來就有完整中文(`RailCell` 那一行 `{item.label}`),
+           那正是稿 `:283` 的 `<h1>` 逐字主張:「84px 的軌,同時放得下圖示、完整中文、待辦數字」。
+           📌 而「窄軌 = 只有圖示」是一般人對窄側欄的既有印象,**它強到讓讀過反例的人仍然套上去**
+           (2026-08-20 主視窗與我各犯一次)⇒ 留這句給下一個想「補 tooltip」的人。
+        ✅ **而「設定」那一格已經有去處了**:Sean 同日拍板**甲 = 軌上最下面、灰字、點不動**
+           (~~原本這裡寫「暫時不在任何地方,等 Sean 答」~~ —— 他答了,見上方 `<RailCell … disabled />` 那段)。
+           📌 **這一行是我加完設定那格之後,回頭在同一支檔 grep「設定」才發現的** ——
+              **同檔矛盾,而這是兩片之內的第二次**(上一次是「稿要的三件」)。
       */}
-      <div className='bg-sidebar invisible absolute inset-y-0 left-0 z-30 w-[236px] border-r group-hover:visible'>
-        <div className='flex h-full flex-col'>
-          <div className='flex items-center gap-2 px-4 py-3'>
-            <Icons.logo className='size-5 shrink-0' />
-            <span className='text-sm font-semibold'>PCM 後台</span>
-          </div>
-          <nav className='flex-1 overflow-y-auto px-2'>
-            {navItems.map((item) => (
-              <FlyoutRow key={item.key} item={item} pathname={pathname} />
-            ))}
-          </nav>
-          {/* 「設定」**只在這裡**、灰字＋未啟用(稿 `:357` 逐字「不在軌上出現」)。 */}
-          <div className='border-t px-2 py-2'>
-            <FlyoutRow item={PARKED_NAV_ITEM} pathname={pathname} />
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }
 
 /** 軌上一格:上排圖示＋數字、下排完整中文(稿 `:283` 標題逐字「84px 的軌,同時放得下…」)。 */
-function RailCell({ item, pathname }: { item: NavItem; pathname: string }) {
+function RailCell({
+  item,
+  pathname,
+  disabled = false,
+}: {
+  item: NavItem;
+  pathname: string;
+  /** 灰字、點不動(目前唯一用途 = 「設定」,它沒有頁面可去)。 */
+  disabled?: boolean;
+}) {
   const ItemIcon = Icons[item.icon];
   const active = item.href !== undefined && isNavActive(pathname, item.href);
   const inner = (
@@ -177,7 +197,7 @@ function RailCell({ item, pathname }: { item: NavItem; pathname: string }) {
   );
   const cls = `block w-full border-l-2 px-1 py-2 ${
     active ? 'border-l-primary text-primary bg-sidebar-accent' : 'border-transparent'
-  }`;
+  }${disabled ? ' text-muted-foreground' : ''}`;
   return item.href === undefined ? (
     <span className={cls} aria-disabled>
       {inner}
@@ -189,32 +209,3 @@ function RailCell({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-/** 滑出清單裡的一列:圖示＋完整中文;無 href = 未啟用。 */
-function FlyoutRow({ item, pathname }: { item: NavItem; pathname: string }) {
-  const ItemIcon = Icons[item.icon];
-  const active = item.href !== undefined && isNavActive(pathname, item.href);
-  if (item.href === undefined) {
-    return (
-      <span
-        aria-disabled
-        className='text-muted-foreground flex items-center gap-2 rounded-md px-2 py-2 text-sm'
-      >
-        <ItemIcon className='size-4 shrink-0' />
-        <span>{item.label}</span>
-        <span className='ml-auto text-[10px]'>未啟用</span>
-      </span>
-    );
-  }
-  return (
-    <Link
-      href={item.href}
-      aria-current={active ? 'page' : undefined}
-      className={`flex items-center gap-2 rounded-md px-2 py-2 text-sm ${
-        active ? 'text-primary bg-sidebar-accent' : ''
-      }`}
-    >
-      <ItemIcon className='size-4 shrink-0' />
-      <span>{item.label}</span>
-    </Link>
-  );
-}

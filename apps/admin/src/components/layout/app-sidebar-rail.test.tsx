@@ -9,7 +9,8 @@
 //    ⇒ 本檔改用**真的渲染**去守 `#380` 的行為,而不是守某一個字面。
 //
 // ⚠️ **本檔擋得住 / 擋不住**:
-//    擋得住 —— 收合時軌整條不見、展開時回來、「設定」不在軌上而在滑出清單裡、數字規則。
+//    擋得住 —— 收合時軌整條不見、展開時回來、「設定」在軌上最下面且點不動、七項字面、數字規則。
+//    🪦 ~~以及「設定在滑出清單裡」~~ —— 那塊清單 2026-08-20 已由 Sean 拍板拿掉。
 //    **擋不住** —— 版面(84/236 的實際像素、覆蓋不推開)。jsdom 不做版面。
 //      那三格要真瀏覽器,量測與期望值見本片 commit body。
 
@@ -70,23 +71,31 @@ describe('#380 收合 = 整條滑走(而這一次是【渲染】驗的,不是字
   });
 });
 
-describe('定案稿:設定不在軌上', () => {
-  it('🔴 軌上【沒有】「設定」(稿 :357 逐字「不在軌上出現」)', () => {
+// 🔴🔴 **2026-08-20:本節原本有一格在斷言「設定在滑出清單裡,灰字＋未啟用」。**
+//    **那一格刪掉了,而它【不是改期望值】—— 是它守的東西不存在了。**
+//    Sean 看過線上版後拿掉整塊滑出清單 ⇒ 那一格斷言的容器沒有了。
+//    📌 而這個分辨正是「**動驗證本身**」(R4 的停止訊號) 與「**移除已消失的斷言**」的差別:
+//    前者是我改期望值去遷就壞掉的 code;後者是那個行為被拍板取消了。
+//    ⏳ 而「設定」現在**不在任何地方** —— 甲(軌上加一格灰的)/乙(先拿掉) 等 Sean 答。
+describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
+  // 🔴🔴 **本格的斷言方向被【翻過來】了,而它不是「改期望值去遷就 code」。**
+  //    原本:「軌上【沒有】設定」(依定案稿 :357「不在軌上出現」)
+  //    現在:「軌上【有】設定,而且點不動」—— **Sean 同日拍板甲,稿 :357 自此作廢。**
+  //    📌 分辨:**行為被拍板改了 ⇒ 斷言跟著翻**;而 R4 的停止訊號是
+  //       **code 壞了、我去改期望值遷就它** —— 兩者在 diff 上都是綠的。
+  it('🔴 「設定」在軌上【最下面】,而且【點不動】(沒有 <a>)', () => {
     mount(true);
-    const rail = screen.getByTestId('nav-rail');
-    // 軌本身那一段 = <nav>;滑出清單是另一個容器,不能混在一起數
-    const railNav = rail.querySelector('nav') as HTMLElement;
-    expect(within(railNav).queryByText('設定')).toBeNull();
-    // 正對照:軌上該有的那幾項在 ⇒ 證明我不是掃了一個空容器
-    expect(within(railNav).queryByText('訂單')).not.toBeNull();
-    expect(within(railNav).queryByText('退款異常')).not.toBeNull();
-  });
-
-  it('🔴 而「設定」在滑出清單裡,灰字＋「未啟用」', () => {
-    mount(true);
-    const rail = screen.getByTestId('nav-rail');
-    expect(within(rail).queryByText('設定')).not.toBeNull();
-    expect(within(rail).queryByText('未啟用')).not.toBeNull();
+    const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
+    const settings = within(railNav).queryByText('設定');
+    expect(settings, '稿 :357 已被 Sean 2026-08-20 拍板作廢 ⇒ 設定要在軌上').not.toBeNull();
+    // 🔴 點不動 = 它不是連結。少了這一條，把它做成能點的也會全綠
+    expect(
+      settings?.closest('a'),
+      '設定沒有任何頁面可去（nav-items:唯一去處已隨九碼退場下架）⇒ 不得是連結',
+    ).toBeNull();
+    // 位置：它必須是最後一格（在供應商之後）
+    const labels = [...railNav.children].map((el) => el.textContent?.replace(/\s+/g, '').trim());
+    expect(labels[labels.length - 1], '設定要排在軌上最下面').toContain('設定');
   });
 
   it('旗標關 ⇒ 軌上七項,且「操作紀錄」不出現(它預設關是機制,不是配置)', () => {
@@ -121,11 +130,15 @@ describe('稿指名的兩個承重細節(它們看起來都像垃圾)', () => {
     mount(true);
     const railNav = screen.getByTestId('nav-rail').querySelector('nav') as HTMLElement;
     const slots = railNav.querySelectorAll('[data-testid="rail-count-slot"]');
-    // 七項(旗標關)⇒ 七個位;少一個 = 那一格的中文會偏
+    // 🔴 **8 = 七項(旗標關) + 設定那一格**。
+    //    ~~原本是 7~~ —— 2026-08-20 Sean 拍板把設定放上軌 ⇒ 它也需要那個位。
+    //    ⚠️ **這次改期望值是合法的,而理由要說得出來**:
+    //       設定那一格【沒有數字】,但它的中文一樣要置中 ⇒ 22px 位對它同樣承重。
+    //       (若哪天有人主張「設定不必要那個位」,那是設計題,不是把 8 改回 7。)
     expect(
       slots.length,
       '稿 :384 逐字「數字位固定 22px 寬…1 到 99 都塞得下且不推擠中文」⇒ 拿掉這個空 span,有數字與沒數字的格子中文會對不齊',
-    ).toBe(7);
+    ).toBe(8);
     // 正對照:確實是那個寬度規格,不是隨便一個 span
     expect(slots[0]?.className).toContain('min-w-[22px]');
   });
