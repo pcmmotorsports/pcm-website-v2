@@ -13,4 +13,9 @@ if [ -f .husky/admin-dev-bypass-gate.sh ]; then
 else
   echo '⚠ .husky/admin-dev-bypass-gate.sh 不見了、免登入後台指令守門未執行(照樣放行、留此痕跡)' >&2
 fi
+if [ -f .husky/migration-ts-gate.sh ]; then
+  sh .husky/migration-ts-gate.sh || exit 1
+else
+  echo '⚠ .husky/migration-ts-gate.sh 不見了、migration 時間戳撞號守門未執行(照樣放行、留此痕跡)' >&2
+fi
 pnpm exec lint-staged
