@@ -60,6 +60,15 @@ export default defineConfig({
     //    下亦然)。誰在這裡設 isolate:false 或 threads singleThread ⇒ #618「23 支 async-factory
     //    測試檔關窗」結論作廢、要重分 —— 見 docs/probes/2026-08-17-chain5-2x2-acceptance/README.md。
     environment: 'node',
+    // 🔴 **逾時 15s(2026-08-20 Sean Q17=甲)**:vitest 預設 5000ms,而本專案【從未覆寫過】。
+    //    量到的成因:這台開發機的**底噪** load15 常態落在 3.3–3.9(七個時點,吃 CPU 前五名
+    //    是 Open Design / WindowServer / VS Code,**沒有一個是我們的測試**)⇒ 5s 對它太緊。
+    //    ⚠️ 而 `scripts/pnpm-serial.sh` 那把鎖只消掉「我們自己互相搶」那一份,**管不到底噪**
+    //    ⇒ 裝了鎖 5s 仍然太緊(2026-08-19 實測連五次:1/0/6/5/1 個 Test timed out)。
+    //    🔴 **代價寫在這裡,不要讓它消失**:某支測試真的變慢也要慢到 15s 才會被抓到。
+    //    Sean 拍板理由:**隨機紅燈已經在發生,而「測試變慢」目前是假想的**;
+    //    而隨機紅燈真正的傷害是**它教人「再跑一次就過了」**。
+    testTimeout: 15_000,
     // 🔴 **釘死測試時區 = Asia/Taipei**(#352-b-1 R3):
     //    本專案所有牆鐘語意都是台北(A5a `submitted_at` 由 server 補 +08:00、到貨時間同款),
     //    而 CI 跑在 **UTC** 的 ubuntu ⇒ 任何「算錯時區」的 bug 在 CI 上**恰好可能等價於正確**。
