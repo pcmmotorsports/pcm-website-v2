@@ -25256,3 +25256,55 @@ done
 
 - **相關:** `#703`(同族:契約寫了而沒有東西會紅) / OP7 退款額函式(至今不存在,
   `supabase/migrations/20260810100000_m4b_e10_op1_order_payments_m.sql:26` 逐字「本片不落地」)
+
+---
+
+### #781 · 直刷單的「請款狀態」永遠是 `unknown` —— 而它與「還在查」在畫面上是同一格
+
+- **狀態:** 待處理(2026-08-20 W4 立;主視窗配號。來源=W5 審 `capture_state` plan R2 的 MF-1,
+  以及同 plan §4 n-4 刻意不加的那條耦合約束 —— **兩邊本來都沒有落點**)
+- **前置:** `capture_state` 那片(plan `~/pcm-mailbox/W4-003-capture-state-plan-R2-折完R1-20260820.md`)
+  **尚未批、未實作** ⇒ 本條在它落地後才有東西可顯示。**先立條目是為了讓「推給顯示層」這句話有地址。**
+- **在哪(兩格,不是一格):**
+  ```
+  ① 直刷單的 capture_state 恆為 'unknown',而那是【永久】的,不是「查詢中」
+     成因(量到的):is_captured 只在 Record API 回(wire.ts:200/215),
+                  payByPrime 回應恰 7 欄、零 is_captured(wire.ts:15-37)
+                  而直刷路 confirm-payment.ts:112/151 不打 Record ⇒ 沒有任何路會寫它
+  ② status 與 capture_state 零耦合(該 plan §4 n-4 刻意不加 CHECK):
+     status='released'/'failed'(已放行重刷)的 attempt 可合法帶 capture_state='captured'
+  ```
+- **病:** 這兩格的共同形狀是 **「壞掉的畫面與正常的畫面長得一樣」**。
+  ①「永久沒有值」與「暫時還沒查到」在 UI 上是同一格空白;②「已放行重刷卻顯示已請款」讀起來像資料錯,
+  而它其實是真的(錢真的被請款、鎖真的被放掉)。
+- **判別欄是有的(2026-08-20 W4 實查,不是推的)** —— 這決定 ① 做不做得出來:
+  ```
+  payment_charge_attempts.bank_transaction_id 的【唯一】寫入者:
+    SQL   record_charge_bank_txn(20260619120000:140,該檔 COMMENT :158 逐字「3DS charge 啟動【前】」)
+          grep -rn 'SET bank_transaction_id' supabase/migrations/*.sql ⇒ 恰 1 處;負對照 'SET bank_zzz_id' ⇒ 0
+    port  recordInitiationBankTxn(IChargeAttemptStore.ts:49、主軌-only)
+    唯一 use-case 呼叫端  initiate-payment.ts:93(3DS 路)—— confirm-payment.ts 零呼叫
+          grep -rn 'recordInitiationBankTxn' packages apps --include='*.ts' | grep -v '\.test\.' ⇒ 6 行,
+          其中 use-case 層恰 1 處(:93);負對照 'recordInitiationZzz' ⇒ 0
+  ⇒ **charge 成功之後沒有任何路徑補寫它** ⇒ `bank_transaction_id IS NULL` = 直刷,可當判別欄
+  ⚠️ 限定:這是【現在】的分母。哪天有人加第二個寫入者,這個判別就失效而**不會有東西紅**。
+  ```
+- **不修未來會痛在哪:**
+  ```
+  ① 值班打開一張直刷單,看到「請款狀態:—」⇒ 他會【等】。而那個值不會來。
+     🔴 而他等不到之後不會回報,他會學會「這一格不用看」——
+        那個習慣一旦養成,**甲路(3DS)真的卡在未請款時他也不會看** ⇒ 我們用一個永久空白
+        關掉了自己唯一的請款可見性。
+  ② status='released' 卻顯示「已請款」⇒ 值班會當成資料錯誤去查 DB,查完發現是真的。
+     這種「看起來壞掉其實是對的」會消耗掉他對整個面板的信任,而信任沒有回饋路徑可以修回來。
+  ```
+- **做什麼(規格,不是願望):**
+  ```
+  ① 直刷單(bank_transaction_id IS NULL)顯示「此付款方式無請款狀態」,
+     **不得**顯示「查詢中/處理中/—」
+  ② status ∈ {released,failed} 且 capture_state='captured' ⇒ 顯示為【需人工結案】並附一句
+     「錢已請款、而這次嘗試已被放行重刷」——不要顯示成錯誤
+  ③ 驗收:①②各一格測試;而 ① 的負對照 = 3DS 未 settle 的單**必須**仍顯示「查詢中」
+     (否則就是把兩種空白又併回同一格,只是換了文案)
+  ```
+- **相關:** `capture_state` 片(未批)/ `#703`(同族:契約寫了而沒有東西會紅)
