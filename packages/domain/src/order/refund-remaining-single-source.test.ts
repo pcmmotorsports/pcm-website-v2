@@ -77,6 +77,20 @@ const SQL_ALLOWLIST: Record<string, { count: number; why: string }> = {
     count: 9,
     why: '非卡退款登記表(現金/匯款)自己的金額欄 + 在 pcm_order_refundable_remaining 內加第三段 SUM。零自算路徑;詳見上方三段。',
   },
+  // 🔴 2026-08-20 W1 補(主視窗批)。**why 要答的是「gate 為什麼對正確的東西報紅」**,不是「這一筆無害」:
+  //   與上面那則同因 —— gate 是文字比對啟發式(檔頭第④點)⇒ 它分不出
+  //   `order_refunds.refund_amount` 與 `order_manual_refunds.refund_amount`。
+  // ✅ **反面證據(可驗,而且是那道 gate 真正在問的那一格)**:本檔對「還能退多少」的唯一動作是
+  //   **呼叫** `pcm_order_refundable_remaining`(3 次);**自己對退款表 `SUM(` 的次數 = 0**。
+  //   ⇒ 它沒有第二個算式,也沒有碰 `order_refunds` —— 那個表名只出現在兩句
+  //     「card 軌走它」的散文裡(RAISE 訊息與 COMMENT 各一)。
+  // 📌 四處命中逐處歸屬:三處是 `order_manual_refunds` 自己的欄(冪等比對樹的 SELECT、比對條件、
+  //   INSERT 欄位清單),一處在 `COMMENT ON FUNCTION` 的**字串常值**裡(散文,而對掃描器是 code)。
+  //   ⚠️ 那一處**刻意不改寫** —— 改寫是為了讓掃描器好看,而那正是檔頭警告的「換個寫法」的形狀。
+  '20260820021000_m4b_e10_d1_record_manual_refund.sql': {
+    count: 4,
+    why: '非卡退款【登記】RPC:三處是 order_manual_refunds 自己的 refund_amount 欄(冪等比對樹 SELECT/條件、INSERT 欄位清單),一處在 COMMENT 字串常值裡。零自算路徑:呼叫 pcm_order_refundable_remaining 3 次、自己 SUM( 0 次。',
+  },
   '20260725130100_m3_rf2a2_order_refunds_ledger.sql': {
     count: 5,
     why: '建表本身:refund_amount 欄定義 + RF1 公式 CHECK',
