@@ -61,6 +61,14 @@ MAIN_MAX=${MAIN_MAX:-0}; WT_MAX=${WT_MAX:-0}; BR_MAX=${BR_MAX:-0}
 MAX=$(printf '%s\n%s\n%s\n' "$MAIN_MAX" "$WT_MAX" "$BR_MAX" | maxof)
 NEXT=$((MAX + 1))
 
+# ── --floor:只印三層掃描的最大號(機器可讀,給別的守門用)────────────────────
+# 🔴 為什麼加這個出口:2026-08-21 `reserve-backlog.sh` 的落後守門要拿這個數字,
+#    而唯一的替代是【去 parse 本檔給人看的那段中文】。那種相依會在有人改一個字時
+#    安靜地壞掉 —— 而它壞掉的樣子是「抓不到數字」,不是紅字。
+#    ⇒ 給它一個不會因為排版而變的出口。**本旗標只印一個數字,不印限度那一段**;
+#      呼叫端有義務自己把限度講出來(掃不到 remote-only 與只活在信裡的號)。
+if [ "${1:-}" = "--floor" ]; then printf '%s\n' "$MAX"; exit 0; fi
+
 echo "── 三層各自的最大號(不一致 = 有號還沒回到主樹)──────────────"
 SKIP_NOTE="$([ -n "${NEXT_BACKLOG_SKIP_LIVE:-}" ] && echo '  ⚠️ 測試模式:本層已跳過' || echo '')"
 printf '  主樹工作區檔      = %s%s\n' "$MAIN_MAX" "$SKIP_NOTE"
