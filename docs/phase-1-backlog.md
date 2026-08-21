@@ -27005,7 +27005,62 @@ admin_cancel_order                 TRUE          false          {postgres, servi
                 `EXISTS(attempt status<>'failed')` ⇒ RAISE(拋出例外,擋住取消)
 ```
 
+🔴🔴 **2026-08-21 更新(窗 C2):本條【兩問都壞】,而原文只寫了第二問**
+
+`-04` 給的兩問(兩個實例缺的不是同一樣東西,所以要分開量):
+```
+① 這個記錄/狀態,【誰看得到】?(有沒有一條後台路徑通到它)
+② 看到之後,【他能做什麼】?(那個動作今天做得到嗎)
+```
+**② 原文已答:四條路四條不通。而 ① 從來沒有人量過 —— 現在量了,答案是【沒有人看得到】。**
+
+```
+grep -rn 'needs_manual_review\|needsManualReview' apps/admin/src --include='*.ts' --include='*.tsx'
+    | grep -v '\.test\.'                                    ⇒ **零命中**
+```
+🔴 而後台**寫好了**要顯示它的東西,只是**沒有任何人 import**:
+```
+apps/admin/src/lib/orders/capture-state-view.ts:116 逐字:
+  export const CAPTURE_NEEDS_MANUAL_TEXT = '需人工結案:錢已請款、而這次嘗試已被放行重刷';
+
+誰 import capture-state-*(排除它們自己與測試)                        ⇒ **0**
+deriveCaptureDisplay / CAPTURE_NEEDS_MANUAL_TEXT /
+CAPTURE_STATE_LABEL / readCaptureState 在非測試 app code 的命中          ⇒ **全部 0**
+正對照 shouldShowRefundEntry ⇒ 4 / buildOrderCancelView ⇒ 15           ⇒ 尺是活的
+負對照 zzzNotARealSymbolC2 ⇒ 0
+⇒ capture-state-view.ts(156 行)+ capture-state-repository.ts(161 行)= **317 行寫好、零消費者。**
+```
+📌 **這是「apply 有人負責、接線沒有」那一族的又一個實例**(memory `feedback_apply-is-owned-wiring-is-not`)——
+**寫了、驗了、而沒有接線**,而三綠不會紅。
+
+### 🔴🔴 而 ① 壞掉的後果,比「少一個標籤」大得多
+```
+員工在訂單頁**看得到的**:「這張單有一筆刷卡還在進行中」(cancel-review-section 的 hint)
+員工**看不到的**:這張單已經被系統標成【要人工處理】(= 自動重試已經放棄)
+⇒ ⇒ **他分不出「還在跑」與「系統已經放棄了」** —— 而那正是 `needs_manual_review` 記錄的東西。
+⇒ 而畫面同時叫他「請重新整理看看最新狀態」⇒ 他會一直重整,等一個永遠不會來的變化。
+```
+🔴 **這三件是同一個缺口的三面**:本條(沒有手)/ `#387`(gate 三態分不出在途與卡住)/
+   取消區文案(叫人做做不到的事,Sean 2026-08-21 已答「甲=改」)。**修任一面都不會讓另外兩面消失。**
+
+---
+
 🔴🔴 **上面四格【沒有人看過畫面】—— 這個限定 2026-08-21 才補進來,補的人是 G 窗(`c0`→`9b`)**
+
+> ✅ **2026-08-21 晚間,這個限定由窗 C2 關掉一半**(頁層渲染實測,非 grep):
+> ```
+> 探針抄 apps/admin/src/app/orders/[id]/refund-wiring.test.tsx 的 mocks + fixture,
+> 餵卡單真實形狀(unpaid / tappay / paymentMethod=null / chargeAttemptGate='blocked'),
+> **列舉整頁【全部】的 button / a[href] / input[type=submit]**:
+>   'blocked'(真實)⇒ **6 顆**:返回列表 / 列印揀貨單 / 新增備註 / 儲存 / 改金額 / 登錄收款(DISABLED)
+>   'clear' (對照)⇒ **8 顆**:多出「整單取消」+「取消勾選的品項」
+> ⇒ 兩個世界印不同的東西 ⇒ 尺是活的。探針跑完已 rm。
+> ```
+> 🔴 **這一發正好補掉本條 ③ 自陳的那個殘餘風險**(「寬網也只寬到我們想得到的那些字」)——
+> **列舉不需要猜命名**:整頁 6 顆全部列出來逐顆看,**沒有一顆碰得到那筆刷卡**。
+> ⚠️ **仍未關的那一半**:這是 jsdom 渲染**真元件 + 真頁面組裝**,repository 是 mock、**不是瀏覽器**。
+> ⇒ 能證「這種資料下畫面畫出什麼」,**不能證正式站**;而「那兩張單在正式庫真的是 unpaid+pending」
+>   是向正式庫量過的(G 窗 + C 窗 + C2 三次)。
 
 ```
 兩個窗（C 窗、G 窗）各自獨立查過，而兩窗【同一個限制】：
