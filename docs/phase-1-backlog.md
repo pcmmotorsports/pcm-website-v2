@@ -28118,3 +28118,41 @@ mm-scripts-whitelist-gate.harness.sh 突變套上=False  ⇒ rc=0  🔴 突變 p
 
 - **相關檔:** `today-summary.tsx`(三格 UI 與判準句)/ `today-read.ts`(時間軸的唯一真相 `:36` `:41`)/ `order-list-view.ts:510` / `refund-exceptions/page.tsx`
 - **相關:** `A-dc-013` 九格盤點(前身,已加註更正)
+
+---
+
+#### `#832` 📮 員工離職的正確做法,只活在一句 `RAISE EXCEPTION` 的文字裡
+
+- **狀態:** 未做(2026-08-22 開,線 A `-86`)
+- **一句話:** 系統**有**「員工離職怎麼辦」的答案,而它寫在一個**只有已經踩到錯誤的人才讀得到**的地方。
+
+- **原文(報價單那棵樹,不在本 repo):**
+  `/Users/sean_1/API大量上架/PCM報價單-V2/docs/migrations-out-of-tree/2026-08-19-b1b-admin-user-staff-map.sql:71`
+  ```
+  '   ⇒ 員工離職請走 Supabase Auth 側 disable,不要動這張表。', OLD.staff_id;
+  ```
+  它是一支 `RAISE EXCEPTION` 的訊息文字 —— **也就是說,只有【已經試著刪掉那一列】的人才看得到它。**
+
+- **為什麼它是個洞(這一段就是全部理由):**
+  會需要這個答案的時刻是「**員工離職了,有人想把他的帳號清掉**」。
+  🔴 **那是一個沒有人會先去讀 migration 註解的時刻。** 而同一張表另外兩道約束會讓那個人先撞牆:
+  ```
+  auth_user_id ... REFERENCES auth.users(id) ON DELETE RESTRICT   ⇒ 刪 auth 使用者會被擋
+  admin_user_staff_map_no_delete_trg                              ⇒ 刪這張表的列也會被擋
+  staff_id 為永久識別碼、永不重用（Sean 2026-08-16 拍板)          ⇒ 也不能改掉重用
+  ```
+  ⇒ 三道牆都是**對的**,而**沒有一份文件告訴他該往哪走**。
+
+- **不修未來會痛在哪:**
+  第一個離職的員工發生時,處理的人會依序:試著刪帳號(被擋)→ 試著刪映射列(被擋)→
+  **開始找繞路** ⇒ 而繞路的方向是「把寫入權補回去」,
+  而那張表的註解逐字寫著:「看到這行不要『順手把寫權補回去』—— 那會讓任何持 service key 的程序都能新增身分映射,
+  **而 `admin_audit_log.actor` 的可信度就是靠這個**。」
+  ⇒ **一個沒有文件的正確答案,會把人推向那個明文禁止的錯誤答案。**
+
+- **怎麼修(小):** 寫進一份 runbook(或 `docs/runbooks/` 既有的帳號相關檔),內容三行:
+  停用走 Supabase Auth 側 disable / 不要動 `admin_user_staff_map` / `staff.is_active=false`(A 庫這側)。
+  ⚠️ **A 庫那側要不要一起關,本條沒有查證** —— `staff.is_active` 是既有機制,但兩側要不要同步沒有人寫過。
+
+- **相關:** `A-86-plan-B5-admin吃身分-20260822.md` §1-g(發現處)/ B5「admin 吃身分」那一片
+- **不擋 B5**:B5 是「進來的人是誰」,本條是「離開的人怎麼清」。兩件獨立。
