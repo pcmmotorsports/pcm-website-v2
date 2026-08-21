@@ -48,6 +48,20 @@ export type FilterTopData = {
   brands: MockBrand[];
 };
 
+
+/**
+ * 價格輸入框 → 非負整數,或 `null`(空白 / 非數字 / 負數 / 小數)。
+ *
+ * 判準刻意與網址回程那支對齊(`lib/catalog-query.ts:130` `parseNonNegativeInteger`):
+ * 只認非負整數。兩邊不一致的話,會出現「打得進去、重整就不見」。
+ */
+function parsePriceInput(raw: string): number | null {
+  const t = raw.trim();
+  if (t === '') return null;
+  const n = Number(t);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 type DropdownKey = 'vehicle' | 'category' | 'brand' | 'price';
 
 const PRICE_RANGES = [
@@ -85,6 +99,9 @@ export function FilterTop({
   const [open, setOpen] = useState<DropdownKey | null>(null);
   const [vehBrand, setVehBrand] = useState<MockMotoBrand | null>(null);
   const [vehModel, setVehModel] = useState<MockMotoModel | null>(null);
+  // 自訂價格區間的兩個輸入框:UI 特異、不入 reducer(同本檔檔頭 dropdown 導覽 state 的處置)。
+  const [priceMin, setPriceMin] = useState('');
+  const [priceMax, setPriceMax] = useState('');
 
   const close = () => setOpen(null);
   const toggle = (k: DropdownKey) => setOpen(open === k ? null : k);
@@ -110,6 +127,43 @@ export function FilterTop({
   const clearEverything = () => {
     dispatch(clearAll());
     setExtras(makeInitialExtraFilters());
+    setPriceMin('');
+    setPriceMax('');
+  };
+
+  /**
+   * 自訂價格區間「套用」。
+   *
+   * 🔴 **寫進 `priceRange` 而不是 `price`**:`price` 是**字串標籤**,只有
+   * `PRICE_RANGE_TABLE`(`products-filter-logic.ts:21`)那五個 key 認得
+   * (`'NT$ 0 – 3,000'` 那種)。自由輸入生不出合法 key ⇒ 會落進 `?? [0, Infinity]`
+   * = **靜靜地不篩**,而畫面上看起來像篩過了。
+   *
+   * 🔴 **同時把 `price` 清成 null**:`products-filter-logic.ts:102` 與 `:106` 是
+   * **兩條獨立的 if**,兩個都設會 AND 疊加;而 UI 上預設列與自訂區間看起來是
+   * 同一個「價格」篩選器 ⇒ 疊加的結果是「篩不到東西」,客人只會以為沒貨。
+   * ⇒ 自訂區間**取代**預設列,同預設列彼此互相取代的行為。
+   *
+   * 🔴 **上限用 `Number.MAX_SAFE_INTEGER` 而不是 `Infinity`**:網址同步會寫
+   * `pmax=String(...)`(`use-catalog-filter-url-sync.tsx:182`),而回程的
+   * `parseNonNegativeInteger`(`lib/catalog-query.ts:130-139`)要求 `Number.isInteger`
+   * —— `Infinity` 不是整數 ⇒ **重整之後上限會安靜消失**。`MAX_SAFE_INTEGER` 過得了那道檢查。
+   */
+  const applyCustomPrice = () => {
+    const lo = parsePriceInput(priceMin);
+    const hi = parsePriceInput(priceMax);
+    if (lo === null && hi === null) {
+      // 兩格都空 = 取消自訂區間,不是「篩 0 元以上」。
+      setExtras((e) => ({ ...e, priceRange: undefined }));
+      close();
+      return;
+    }
+    // 打反了就對調,不要讓他得到一個必然為空的結果。
+    const a = lo ?? 0;
+    const b = hi ?? Number.MAX_SAFE_INTEGER;
+    const range: [number, number] = a <= b ? [a, b] : [b, a];
+    setExtras((e) => ({ ...e, price: null, priceRange: range }));
+    close();
   };
 
   const hasAnyFilter =
@@ -257,14 +311,31 @@ export function FilterTop({
                         ⇒ 客人沒有理由覺得這一格不一樣 ⇒ 他會以為**是自己做錯了**,不是「這功能還沒做」。
                         而他在按之前**已經打了兩個數字**。
 
-                        ⏳ **處置待 Sean**(三條路都動 design 的畫面 ⇒ 鐵則 1):
-                          甲 拿掉這一格 / 乙 接起來(`extras.price` 機制已在,見上面那幾列) / 丙 維持並寫明理由
-                        📌 **在他答之前,先把「它是死的」寫在這裡** —— 那不需要任何人批准,
-                        而它擋住下一個人白查一次。全文與掃描分母:
-                        `docs/probes/2026-08-19-g1-inert-controls-live.md` */}
+                        ~~⏳ **處置待 Sean**(三條路:甲 拿掉 / 乙 接起來 / 丙 維持)~~
+                        ✅ **2026-08-22 已接起來(乙),而且它【不是】決策題。**
+                        判準(memory `feedback_standard-admin-features-are-not-decisions`):
+                        **這個功能換一個購物網站也會有嗎?會 ⇒ 自己補,不要拿去問他。**
+                        價格區間篩選任何購物網站都有 ⇒ 拿去問等於問「要不要有價格篩選」。
+                        🔴 而它**看起來**像決策題,是因為那三條路都動 design 的畫面(鐵則 1)——
+                        **「動到 design」與「要 Sean 拍板」是兩件事**,前者只要求逐字對稿,
+                        不要求他重新選一次他早就選過的東西(這一格 className 一字未動)。
+                        📌 溯源與規格全文:`~/pcm-mailbox/E-011-FilterTop死鈕溯源與規格-20260822.md`
+                        原始掃描分母:`docs/probes/2026-08-19-g1-inert-controls-live.md` */}
                   <div className="ft-price-custom">
-                    <input placeholder="最低" /><span>—</span><input placeholder="最高" />
-                    <button className="ft-apply">套用</button>
+                    <input
+                      placeholder="最低"
+                      inputMode="numeric"
+                      value={priceMin}
+                      onChange={(e) => setPriceMin(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') applyCustomPrice(); }}
+                    /><span>—</span><input
+                      placeholder="最高"
+                      inputMode="numeric"
+                      value={priceMax}
+                      onChange={(e) => setPriceMax(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') applyCustomPrice(); }}
+                    />
+                    <button className="ft-apply" type="button" onClick={applyCustomPrice}>套用</button>
                   </div>
                 </div>
               )}
