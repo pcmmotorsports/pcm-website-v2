@@ -23,10 +23,22 @@
 #   ⇒ 已表演過的只有 exit 0(現況)與 exit 1(憑空多一支未列管檔,W4 與 W5 各獨立跑過)。
 #   ⇒ **「它壞掉會回 2」目前是【讀 code 得到的】,不是量到的。** 誰要依賴那個 2,先去餵它一發。
 #
+#   ✅ **2026-08-21 已補餵,上面那段留著不改寫**(它還在證明「宣稱曾經只是註解」)。
+#      證人 = `scripts/scripts-whitelist-gate.harness.sh`(拋棄式 git repo,不碰本 repo)。
+#      **10 格全 PASS**:0×2 / 1×2 / 2×6(分母0、檔名含換行、無 lint-staged 區塊、兩個區塊、
+#      豁免理由空白〔用閘的突變副本〕、不在 git repo;另兩格走 staged-index 那條讀取路徑)。
+#      🔴 格數釘死在 harness 的 `EXPECT`,改格數要同時改這一行 —— 這句字面 2026-08-21
+#      被 codex R2 抓到過一次(寫「八格」而實際已是 10)。
+#      ⇒ 那支 harness 已掛進 package.json 的 lint-staged ⇒ 它被 staged 時會自己跑一次。
+#
 # 🔴 三個【已知擋不住】的缺口,同樣先寫出來(2026-08-20 codex 對抗審查 R2 指出):
 #   ① 白名單只驗「這一行存在」,不驗那行命令有沒有判別力 —— 寫 "true" 一樣過得了。
 #   ② 豁免清單住在本檔裡,而本檔由工作樹執行 ⇒ 未 staged 的改動也會生效(package.json 已改讀 staged)。
 #   ③ scan 用的枚舉若整個子目錄不可讀,可能被直接略過而不計入「讀不到」⇒ 子樹消失而自檢仍綠。
+#   ④ 🔴 **它只認【逐字的路徑 key】,不懂 lint-staged 的 brace glob**(2026-08-21 W5 自己撞到):
+#      在 package.json 寫 `"{a.py,b.sh}": "…"` 時,`grep -qF '"a.py":'` 找不到 ⇒ 判成「沒歸屬」而擋下。
+#      ⇒ 想用 glob 去掉重複執行的人會被它擋,而**擋的理由訊息不會提到 glob** ⇒ 看起來像漏加。
+#      現況處置:**進得了本閘分母的檔(.py/.js/.mjs/…)一律寫逐字 key**;glob 只用在它看不到的副檔名。
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # exit 0 = 每支都有歸屬   1 = 有漏列   2 = 本閘自己壞了(輸出作廢)
@@ -64,8 +76,6 @@ fi
 cat > "$TMP/exempt.tsv" <<'XEOF'
 scripts/scan-unbounded-queries.py	本 repo 恆 1(2026-08-20 實測 79 筆命中)⇒ 恆紅與恆綠一樣沒判別力;要進白名單得先有基線
 scripts/quantifier-hook.harness.js	被驗物 ~/.claude/hooks/ 在 repo 外 ⇒ 掛上去會在別人機器/CI/重灌後誤擋,而每次都不是在講這次 commit 的事
-scripts/b2s2b-truth-sync.py	🔴 正確性關鍵(#798 洞⑤);較大,排 2026-08-21 後
-scripts/lib/a7bt-barrier-migration.py	🔴🔴 正確性關鍵:它產出【被改過的 migration】(#798 洞⑤);排 2026-08-21 後
 scripts/backlog-duplicate-scan.py	🔴 正確性關鍵:零命中被讀成「沒有重號」;未接自檢
 scripts/guard-coverage-map.py	🔴 正確性關鍵:「哪支檔被哪些守門看著」的答案來源;未接自檢
 scripts/n3b-verbatim-check.py	🔴 正確性關鍵:逐字核對層;未接自檢
@@ -146,33 +156,37 @@ if [ "$bad" != "0" ]; then
   exit 2
 fi
 
-printf '%s\n' "── scripts/ 白名單涵蓋:共 $n_total 支(白名單 $n_white / 豁免 $n_exempt);package.json 讀自 $PKG_SRC"
-printf '%s\n' "   🔴 豁免 =【沒有守門】,不是【檢查過沒問題】:"
-while IFS="$(printf '\t')" read -r f why; do
-  if [ -n "$f" ]; then
-    printf '%s\n' "      · $f — $why"
-  fi
-done < "$TMP/exempt.tsv"
-
+# ── 輸出(2026-08-21 W5 重寫;成因:它擋住全隊 commit 那次,主視窗花三發還不知道是哪一支)──
+# 🔴 病不是「沒印出是哪一支」——**它有印** `✗ <檔名>`,而它被埋在【16 行豁免清單】後面,
+#    而且豁免清單走 stdout、`✗` 走 stderr ⇒ 在 hook 裡兩個串流混在一起。
+# 🔴 修法三條,判準是「**收到紅的人下一步做什麼**」:
+#    ① 綠的時候【不印】那份逐條豁免清單 —— 它是給人定期審視的,不是給每次 commit 看的
+#    ② 紅的時候把 `✗` 清單印在【最後】,緊貼擋下訊息 —— 終端機是往下捲的,最後一行最顯眼
+#    ③ 擋下訊息原本寫「上列檔」,而讀的人上面看到的是豁免清單 ⇒ 改成指名道姓
 if [ -s "$TMP/missing.txt" ]; then
-  while IFS= read -r f; do
-    printf '%s\n' "   ✗ $f" >&2
-  done < "$TMP/missing.txt"
-  cat >&2 <<'MEOF'
-
-🔴 scripts-whitelist-gate 擋下:上列檔在 package.json 的 lint-staged 與豁免清單裡【都沒有】
-
-⚠️ 這支檔【不一定是你加的】—— 七窗共用同一棵工作樹,先跑 `git status` 看它是誰的。
-   本閘掃的是【工作樹】不是【你這次 staged 的東西】(那是刻意的:未追蹤檔一樣沒守門)。
-
-⚠️ 本閘今天擋的是【再多一支沒歸屬的】,**不是**「scripts/ 有守門」——
-   現況 19 支裡有 18 支沒有任何守門,它們只是被明文豁免了。
-
-   兩條路(本閘不裁定該走哪一條):
-   ① 接上自檢:在 package.json 的 lint-staged 加一行逐檔白名單,命令要能在它壞掉時回非 0
-      🔴 本閘【驗不出】那行命令有沒有判別力 —— 寫 "true" 一樣過得了。那一格靠人。
-   ② 先不接:加進本檔的豁免清單,並寫理由(理由欄空白,本閘會直接判自己壞掉)
-MEOF
+  n_missing=$(wc -l < "$TMP/missing.txt" | tr -d ' ')
+  {
+    printf '%s\n' ""
+    printf '%s\n' "🔴 scripts-whitelist-gate 擋下:$n_total 支裡有 $n_missing 支【沒有歸屬】"
+    printf '%s\n' "   (白名單 $n_white / 豁免 $n_exempt / 沒歸屬 $n_missing;package.json 讀自 $PKG_SRC)"
+    printf '%s\n' ""
+    printf '%s\n' "⚠️ 這支檔【不一定是你加的】—— 七窗共用同一棵工作樹,先跑 \`git status\` 看它是誰的。"
+    printf '%s\n' "   本閘掃的是【工作樹】不是【你這次 staged 的東西】(那是刻意的:未追蹤檔一樣沒守門)。"
+    printf '%s\n' "⚠️ 而白名單那一半讀的是【staged 的 package.json】——"
+    printf '%s\n' "   條目只寫進工作樹而還沒 stage 時,本閘看不到它(2026-08-21 就是這樣擋住全隊的)。"
+    printf '%s\n' ""
+    printf '%s\n' "   兩條路(本閘不裁定該走哪一條):"
+    printf '%s\n' "   ① 接上自檢:在 package.json 的 lint-staged 加一行【逐字路徑】白名單,命令要能在它壞掉時回非 0"
+    printf '%s\n' "      🔴 本閘【驗不出】那行命令有沒有判別力 —— 寫 \"true\" 一樣過得了。那一格靠人。"
+    printf '%s\n' "      🔴 而它**不懂 brace glob** —— 寫 \"{a.py,b.sh}\" 會被判成沒歸屬(見檔頭已知缺口 ④)。"
+    printf '%s\n' "   ② 先不接:加進本檔的豁免清單,並寫理由(理由欄空白,本閘會直接判自己壞掉)"
+    printf '%s\n' ""
+    printf '%s\n' "🔴 沒有歸屬的是這幾支(這是你要處理的東西,印在最後一行是刻意的):"
+    sed 's/^/      ✗ /' "$TMP/missing.txt"
+  } >&2
   exit 1
 fi
+
+printf '%s\n' "── scripts/ 白名單涵蓋:共 $n_total 支(白名單 $n_white / 豁免 $n_exempt)—— 全部有歸屬;package.json 讀自 $PKG_SRC"
+printf '%s\n' "   🔴 豁免 =【沒有守門】不是【檢查過沒問題】。要看那 $n_exempt 支是誰:sed -n '/^scripts\\//p' .husky/scripts-whitelist-gate.sh"
 exit 0

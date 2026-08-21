@@ -105,25 +105,53 @@ BLOCKS = {
     'av-oracle':    embed('WHERE si.order_item_id = s.order_item_id'),
 }
 COMMON = [l for l in EMBED if l is not None]          # 全等半(5 行)
-# 🔴 2026-08-13(#452)修法:原式用**寫死的 key 名字** `k != 'helper'` 判「參不參與全等半」,
-#    而那個語意的真正載體是 SITES 的 `in_common` 旗標 ⇒ 一加第二個整塊比對的位置就會誤判。
-#    改成讀旗標本身。**這是把判準對齊它自己的定義,不是放寬。**
-IN_COMMON = {k: c for k, _f, _i, c in SITES}
-PERSITE = {k: ([v[3]] if IN_COMMON[k] else list(v)) for k, v in BLOCKS.items()}
 
 reds = []
 def red(key, why):
     reds.append(key)
     sys.stderr.write('     [%s] %s\n' % (key, why))
 
+
+def check_sites_keys():
+    """🔴 位置 key 集合的自我一致性 —— **必須在 IN_COMMON / PERSITE 建起來之前跑**。
+
+    2026-08-21(W5)回歸修復:`#452`(commit `c5c191ec`)把 `PERSITE` 的判準從寫死的
+    `k != 'helper'` 改成讀 `IN_COMMON[k]`(那個改法本身是對的,對齊了它自己的定義)。
+    副作用是 `PERSITE` 從此**依賴 SITES 的 key 集合**——
+    ⇒ 有人把 SITES 「刪一格 + 重複另一格」時,`IN_COMMON[k]` 在 **module 層** 就 KeyError,
+      而 `check_frozen_table()` 根本還沒被呼叫 ⇒ **那個 `SITES` 紅點再也印不出來**。
+    ⇒ 它 fail-closed(rc≠0,不會誤放行),但**這道守門存在的理由就是「指認有人動了 SITES」**
+      —— 只會拒絕、不會指認的閘,等於把核心訊號弄丟了。
+    🔴 而這個回歸七天沒有人看到,因為唯一會報告它的證人(`b2s2b-verify.sh` 的靶 T8)
+      埋在一支要起 DB 的 3032 行腳本裡,沒有人跑。**沒有人跑的證人不是證人。**
+      (`c5c191ec` 當時**確實做了雙向突變實測**,只是打在「內容位置」那條軸上,沒打 SITES 這條。)
+    ⇒ 修法 = 把這一格提前並**當場離場**:SITES 壞掉時,後面每一條比對都失去意義。
+    """
+    if sorted(k for k, *_ in SITES) != SITES_KEYS_FROZEN:
+        red('SITES', '位置 key 集合不符:實得 %r,凍結 %r —— 有位置被刪/改/重複'
+                     % (sorted(k for k, *_ in SITES), SITES_KEYS_FROZEN))
+        for k in sorted(set(reds)):
+            print(k)
+        sys.exit(1)
+
+
+check_sites_keys()
+
+# 🔴 2026-08-13(#452)修法:原式用**寫死的 key 名字** `k != 'helper'` 判「參不參與全等半」,
+#    而那個語意的真正載體是 SITES 的 `in_common` 旗標 ⇒ 一加第二個整塊比對的位置就會誤判。
+#    改成讀旗標本身。**這是把判準對齊它自己的定義,不是放寬。**
+# ⚠️ 它依賴 SITES 的 key 集合 ⇒ 上面那道 `check_sites_keys()` **不能往後移**(見它的 docstring)。
+IN_COMMON = {k: c for k, _f, _i, c in SITES}
+PERSITE = {k: ([v[3]] if IN_COMMON[k] else list(v)) for k, v in BLOCKS.items()}
+
 def check_frozen_table():
     """🔴 對**凍結表自己**做 v3.1 分半原則的自我一致性斷言(位置集合 / idx 覆蓋 / 分半結構)。
     🔴 誠實邊界(R2 F3):`COMMON`/`PERSITE` 是由 `EMBED`/`BLOCKS` **推導**的 ⇒ 分半那三條在現行
     `embed()` 形狀下按構造近乎恆真;真正可達的紅點是「有人把 embed() 換成手寫字面清單」
     或「翻 in_common 旗標」。承重的比對是**檔案 vs 寫死常數**,不是這裡。"""
-    if sorted(k for k, *_ in SITES) != SITES_KEYS_FROZEN:
-        red('SITES', '位置 key 集合不符:實得 %r,凍結 %r —— 有位置被刪/改/重複'
-                     % (sorted(k for k, *_ in SITES), SITES_KEYS_FROZEN))
+    # 🔴 key 集合那一條**已提前到 `check_sites_keys()`**(2026-08-21 W5)——
+    #    它必須在 `IN_COMMON` / `PERSITE` 建起來之前跑,否則 SITES 被動手腳時會先 KeyError。
+    #    這裡不再重複一份(重複 = 會漂)。
     # 🔴 **idx 軸也要守**(R2 F2):key 集合擋不住「把 `('rb-step5', RB, 3)` 改成 `RB, 2`」——
     #    key 不變、而 RB 三塊的凍結內容**碰巧逐字相同**(都是 `embed('… u.order_item_id')`)
     #    ⇒ 比到第 2 塊照樣綠、塊數 3 也綠,**RB 第 3 塊從此無人比對且零紅點**。

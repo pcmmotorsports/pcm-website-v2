@@ -14,4 +14,26 @@
 #      TURBO_FORCE=1 pnpm typecheck ⇒ `Cached: 0 cached, 8 total`    (真跑)
 #    ⇒ 沒有前綴時,這道閘的前兩項會在 117 毫秒內「通過」。正本 `docs/phase-1-backlog.md` `#524`/`#621`。
 #    ⚠️ 第三段 `deploy-order-gate.sh` 不吃 turbo 快取、本來就真跑 ⇒ 不需要也不能加這個前綴。
-TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$(git rev-parse --show-toplevel)/scripts/deploy-order-gate.sh"
+# 🔴 第四段 migration 帳本分岔 gate(2026-08-21 W5;backlog #795/#800):
+#    supabase db push 讀的是【平台帳本】supabase_migrations.schema_migrations,
+#    而 SQL Editor 貼上去的那條路**完全不寫它** ⇒ 已套過的在它眼裡是沒套過 ⇒ 重跑。
+#    2026-08-21 實測:13 支處於這個狀態,其中含不冪等的 20260820040000(重跑會 ERROR 42701)。
+# 🔴 **兩支 gate 都吃 stdin,而 stdin 只能讀一次** ⇒ 先落成暫存檔再各餵一次。
+#    直接串接會讓第二支拿到空的 stdin ⇒ 它會印「未檢查任何 ref」而**放行**,
+#    也就是我會用新增一道閘的動作,把既有那道關掉。
+# 🔴 **形狀不能改**(2026-08-21 codex R1 must-fix,實測抓到):既有 harness
+#    `scripts/deploy-order-gate-verify.sh` 的格⑱ grep 的是「非註解行」裡的
+#    `TURBO_FORCE=1 pnpm typecheck &&` / `TURBO_FORCE=1 pnpm lint &&` / `&& bash` 三串字面。
+#    我第一版把它拆成 `lint || { …; exit 1; }` 換行再 `bash …` ⇒ **當場把那一格弄紅了**
+#    (實跑:PASS=34 FAIL=2,其中一條就是⑱)⇒ 這裡改回單一 `&&` 鏈,語意相同、字面也相容。
+# 🔴 `cat` 失敗要當場停:空的暫存檔會讓兩支 gate 都印「未檢查任何 ref」然後**放行** ——
+#    也就是用「多加一道閘」的動作把既有那道一起關掉。
+_R="$(git rev-parse --show-toplevel)"
+_T="$(mktemp)" || exit 1
+# 🔴 INT/TERM 的 handler 要自己 `exit`(2026-08-21 codex R2 must-fix):
+#    只清暫存檔而不離場的話,收到訊號後**執行流會繼續往下跑**,後面全綠就 rc=0
+#    ⇒ 被中斷的推變成「檢查過而通過」。EXIT 那條只負責清檔,不改離場碼。
+trap 'rm -f "$_T"' EXIT
+trap 'rm -f "$_T"; exit 1' INT TERM
+cat > "$_T" || { echo '🔴 pre-push:讀不進 git 餵的 ref(stdin)⇒ 擋下,不放行' >&2; exit 1; }
+TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T"

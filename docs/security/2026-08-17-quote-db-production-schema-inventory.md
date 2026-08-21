@@ -6,9 +6,26 @@
 
 ## 🔴🔴 更正(2026-08-17 下午):下面那句「repo 那一半不在這台機器上」是【量錯】,repo 一直都在本機
 
-**正確事實**:報價單 repo 在本機 `~/API大量上架/PCM報價單-V2`(主視窗當日實查:`test -d` ⇒ EXISTS、`git fetch` rc=0、`origin/main` = `482bec5`、`ls-tree origin/main -- supabase/migrations | wc -l` ⇒ **16**;mac mini 上同一個 repo 的 `origin/main` **也是 `482bec5`** ⇒ 兩邊同版、零漂移)。用前必 `git fetch`、**只讀 `origin/main`**(工作樹落後 16 顆)、**絕不 `db push`**(memory `reference_quote-repo-migration-ledger-desync`)。
+**正確事實**:報價單 repo 在本機 `~/API大量上架/PCM報價單-V2`(主視窗當日實查:`test -d` ⇒ EXISTS、`git fetch` rc=0、`origin/main` = `482bec5`、`ls-tree **-r** origin/main -- supabase/migrations | wc -l` ⇒ **16**(🔴 2026-08-21 補 `-r`;**答案沒變**,改的是尺 —— 理由見下方同族第二條);mac mini 上同一個 repo 的 `origin/main` **也是 `482bec5`** ⇒ 兩邊同版、零漂移)。用前必 `git fetch`、**只讀 `origin/main`**(工作樹落後 16 顆)、**絕不 `db push`**(memory `reference_quote-repo-migration-ledger-desync`)。
 
 🔴 **錯的成因值得記**:下面那支 `find` 用 `-maxdepth 3`,而真實路徑 `~/API大量上架/PCM報價單-V2/supabase/migrations` 在**第 4 層** ⇒ 掃不到。**那次還配了正向對照,而對照目標(`pcm-website-v2/supabase/migrations`)剛好在深度 3 之內 ⇒ 對照過了、結論還是錯的。** 📎 **正向對照只證「工具會動」,不證「掃描範圍涵蓋目標」** —— 對照組要選在【被懷疑的那一維＝深度】上有差異的東西。
+
+🔴 **同族第二例(2026-08-21 補;它是【一層】而不是【三層】,病一樣)**:上面那條 `ls-tree` 原本**沒帶 `-r`**。
+`git ls-tree` / `ls` / `find -maxdepth 1` 這類「一層」的尺,答的是**「這個目錄有什麼」**,
+不是**「這個名字底下有什麼」**。拿它盤【一整族】時,漏掉的那支**不會有任何訊號**。
+**實例**:commit `4adbd53a` 要刪 `scripts/a7bt-*` 孤兒族,commit body 把數法釘得很好(釘在刪除前的樹):
+`git ls-tree -l 3704b756 scripts/ | grep a7bt | awk '{s+=$4} END {print NR, s}'` ⇒ **7 / 311275**。
+2026-08-21 照那條重跑 ⇒ **逐字得到同一個答案**;而**只加一個 `-r`** ⇒ **8 支**,
+多的那支是 `scripts/lib/a7bt-barrier-migration.py`(3,288 bytes)。
+🔴 **不是誰判斷錯,是那把尺的分母比它宣稱的「整族」窄一層 —— 而它沒被懷疑,
+正是因為它給出的是一個乾淨、精確、還帶 bytes 數的答案。因為「7」這個數字本身是對的。**
+📎 **配套動作**:盤族的計數命令**一律同時印遞迴版對照**,兩個數字不同就停下來看差在哪:
+```
+git ls-tree -l  <sha> <dir>/ | grep <pat> | wc -l      # 一層
+git ls-tree -lr <sha> <dir>/ | grep <pat> | wc -l      # 遞迴 ← 兩個都要印
+```
+⚠️ 而本檔 `:9` 那條 `-r` **答案沒變(仍是 16)**,因為那個目錄現在沒有子目錄 ——
+**改的是尺,不是那一次的結論**;不寫這句的話,下一個人會以為那次盤點被推翻了。
 
 ⇒ `#4` 的現況與剩餘缺口見 `docs/specs/2026-08-17-b1-apply-preflight.md` §`#4`(repo 側 ✅ 已解 / schema shape ✅ / **migration ledger 讀不到 ⇒ 仍需 Sean**)。
 📎 **下修寫在這裡而不是只寫在 preflight**:引用這份盤點的人不會去讀 preflight。

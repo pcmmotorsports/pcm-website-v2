@@ -342,7 +342,13 @@ HP="$(cd "$HK_DIR" && git config core.hooksPath 2>/dev/null || true)"
 # 🔴 第一版這格用 `grep -q 'husky' .husky/_/pre-push` 當判準,而那支 shim 全文只有兩行、
 #    根本沒有 `husky` 這個字 ⇒ 它紅的是**我的判準寫錯**,不是 wiring 壞掉(實跑當場抓到)。
 #    真正的鏈是:core.hooksPath=.husky/_ → `_/pre-push` source `_/h` → `h` 算出上一層的同名檔並執行。
-if [ "$HP" = ".husky/_" ] \
+# 🔴 2026-08-21 修(W5;codex R2 順手抓到本格是紅的):`git config core.hooksPath` 回的是
+#    **相對或絕對,取決於 husky 是哪一版寫進去的** —— 當下實測回的是
+#    `/Users/sean_1/pcm-website-v2/.husky/_`,而本格寫死相對字面 `.husky/_` ⇒ 恆紅。
+#    ⇒ 那是**判準字面過期,不是 wiring 壞掉**(同一個病的第二次:第一版是 grep 錯字面)。
+#    修法**兩種都吃**,不是改成寫死絕對 —— 那只是把過期換一個方向。
+HP_REL="${HP#"$HK_DIR"/}"
+if { [ "$HP_REL" = ".husky/_" ] || [ "$HP" = ".husky/_" ]; } \
    && [ -f "$HK_DIR/.husky/_/pre-push" ] \
    && grep -q 'dirname "\$0"' "$HK_DIR/.husky/_/pre-push" \
    && grep -q 'dirname "\$(dirname "\$0")"' "$HK_DIR/.husky/_/h"; then
