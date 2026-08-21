@@ -313,6 +313,50 @@ payment.record             1      ← 連【登錄匯款收款】都記
 ```
 📌 完整版見 `docs/patterns/traps-inbox/A-20260822.md` 與 `C-20260822.md`(併入 canonical 後那兩檔可刪)。
 
+### 🔴🔴 §1-A-8 **四個「備好了、沒人接」的標本 —— 而它們停在不同深度**(2026-08-22 線 A `-86`)
+
+> **為什麼要單獨列一張表**:這四個現在散在四個條目裡,而**它們合起來才看得出一件事**。
+> 分開讀 ⇒ 四個各自的 ❌ / 🟡;合起來讀 ⇒ **「做到一半」不是一個深度,是一條光譜。**
+> 🔴 **而越深的那幾個,越像做完了。**
+
+| 標本 | 停在哪一層 | 已經有的 | 缺的那一段 | 剩下的是**寫 code** 嗎 |
+|---|---|---|---|---|
+| `#22` 改價格 | **有引擎、沒入口** | adapter 的 `updatePrice` 路徑 | 一個呼叫端 | ✅ 是,而且小 —— **它自己的 JSDoc 招了「今天沒有正式呼叫點…是死路」** |
+| `capture-state`(請款狀態) | **有函式、沒消費端** | `deriveCaptureDisplay` 四態 + 40 行判斷順序 | 一支 `.tsx` 去讀它 | ⚠️ 是,**而接了也沒東西可看** —— 正式站 cron 每 10 分鐘掃 `capture_state='authorized'`,而現存 17 列全是 `unknown` ⇒ **它每 10 分鐘認真地掃一次空集合** |
+| `#12` 代購訂單 | **有 CHECK、沒 writer** | `orders.order_source` CHECK 含 `manual_phone` / `manual_line` / `manual_other` | **一支新的 writer** | 🔴 **是,而且大** —— `create_order` 走不通(要 `auth.uid()` 是客人、要既有 `product_variants`、要客人自己的地址)⇒ 且**與 `#20 新增商品` 鏈在一起** |
+| `#9` 單號追蹤 | 🔴 **有欄位、有守門、沒整合** | `shipments` 三欄(`hct_status` / `hct_request_id` / `hct_raw_response`)+ **三道 CHECK**(含 `submitted` 必須帶非空 request_id) | **一條外部整合** | ❌ **不只是寫 code** —— 是接新竹物流的 API(憑證、批次上限、同日編號不可重複) |
+
+**四格的量法與正對照(2026-08-22,鑽機 + 全樹)**
+```
+#22            adapter 自陳（該檔 JSDoc）
+capture-state  deriveCaptureDisplay / getOrderCaptureState 對外消費端 ⇒ 0
+               正對照 order-detail-summary-cards ⇒ 3 檔 ⇒ 尺是活的
+               四張真訂單頁上「請款」兩字 raw + \uXXXX 皆 0（正對照 付款狀態=2）
+#12            order_source 26 張單全是 'web';admin_create_order\|create_manual_order\|manual_order ⇒ 0 檔
+               正對照 admin_record_manual_refund ⇒ 8 檔
+#9             6 張包裹全部 hct_status='draft'、request_id 全空
+               hct.com.tw\|HCT_API\|hctApi ⇒ 0 檔（正對照 tappay ⇒ 44 檔）
+               把 hct_status 寫成 'submitted' 的程式碼 ⇒ 一行都沒有
+```
+
+### 🔴 這張表要改變的是**估工的方式**
+
+```
+❌ 這個標記把【整條沒做】與【備好了沒人接】混在一起, 而兩者的成本差一個數量級。
+   #27 稽核 UI 被記成 ❌「連讀取 API 都沒有」—— 而實際上【整頁都在, 只差一個環境變數】
+   #9  被記成 ❌ —— 而它其實已經走到「連 fail-closed 都寫好了」那麼深
+```
+⇒ **看到 ❌ 的人要先問的不是「要做多久」,是「它停在哪一層」。**
+   而那一題**只有開檔才答得出來** —— schema 有欄位、有 CHECK、有三態的東西,**讀起來像它在跑**。
+
+📌 **可複用的判別句**:
+> **這個功能「沒做」,是【沒有人想過】,還是【想過、寫了一半、而剩下的那一段沒有人接】?**
+> 後者 ⇒ 去看它停在哪一層:**沒入口 / 沒消費端 / 沒 writer / 沒整合**,四層的成本完全不同。
+
+⚠️ **這張表本身也會過期** —— 它列的是 2026-08-22 的四個。**任何一個被接上之後要從表上移走**,
+   而移走的時候要問一句:**有沒有第五個?**(找法:資料層有值域/欄位/守門,而 `grep` 那個識別字的消費端回 0。)
+
+
 ## 1. 驗收標準:員工的一天
 
 每一片實作都要能回答「這片讓員工多做完哪一件事」。答不出來 → 延後。
