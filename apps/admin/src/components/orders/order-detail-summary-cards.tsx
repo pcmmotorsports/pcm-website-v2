@@ -294,8 +294,16 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
  *
  * 🔴 **字面是提案,等 Sean 過目** —— 三句都照取消區那格的三段式(原因 / 下一步 / 不是你的錯)。
  * ⚠️ `truncated` 那句**逐字對齊既有兄弟**(`GoodsAxisValue` 的截斷態),兩處講同一件事不該兩種說法。
+ *
+ * 🔴 **`export` 的理由(照 `orders-table.tsx` 的 `CELL` 前例)**:`refund-wiring.test.tsx` 的
+ *    四格錨要接上這幾句才撈得到那一格,而**在測試檔裡硬寫一份**會與本表各自漂 ——
+ *    **而漂掉的時候不會紅,只會讓那四格靜靜地失去判別力。**
+ *    ⚠️ 只有測試在用這個 export;元件內用法一行沒變。
+ * 🔴 **它守不到的那一格,明講**:測試從本常數組出期望字串 ⇒ **若這裡有一句被改成空字串,
+ *    那四格仍然綠**(兩邊一起變)。「這三句話真的有內容、而且互不相同」由
+ *    `order-detail-headline-qty-note.test.tsx` 釘(它斷言的是**寫死的片語**,不是本常數)。
  */
-const QTY_MISSING_NOTE = {
+export const QTY_MISSING_NOTE = {
   truncated: '這張單的品項清單這次沒有完整載入,算不出件數。請重新整理。',
   noItems: '這張單沒有任何品項,所以沒有件數可以算。',
   notReady:
@@ -396,9 +404,6 @@ function HeadlineNumbers({
       </section>
       <section className={SPEC}>
         <p className={SPEC_V}>{qty === null ? '未知' : `${qty.ordered} / ${qty.instock}`}</p>
-        {qtyMissingReason !== null && (
-          <p className='text-muted-foreground mt-1 text-xs'>{QTY_MISSING_NOTE[qtyMissingReason]}</p>
-        )}
         {/* 🔴🔴 **小標是「件數」不是「品項數」——【這是正確性修正,不是文案調整】。**
             (`Q-A216-F2b` Sean 2026-08-16 拍甲)
             `goodsQuantityHeadline` 加總的是**件數**(每個 line 的 `quantity` 面),
@@ -408,6 +413,9 @@ function HeadlineNumbers({
             🔴 **不要改回去** —— 這不是「哪個詞好聽」,是那個詞指錯了對象。
             ⚠️ 而「已訂 / 到貨」放小標的理由不變:兩個裸數字掛在一個詞底下分不出誰是誰,
             而後台 UI 常設驗收條款是「不用人教能做對嗎」(2026-08-11 Sean 拍板)。 */}
+        {qtyMissingReason !== null && (
+          <p className='text-muted-foreground mt-1 text-xs'>{QTY_MISSING_NOTE[qtyMissingReason]}</p>
+        )}
         <p className={SPEC_L}>件數 已訂 / 到貨</p>
       </section>
     </div>

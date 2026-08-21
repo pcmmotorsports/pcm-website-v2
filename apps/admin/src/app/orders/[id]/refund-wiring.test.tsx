@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
+import { QTY_MISSING_NOTE } from '@/components/orders/order-detail-summary-cards';
+
 // M-3 A7c RW2d:**頁層接線**測試(procurement-wiring.test.tsx 同型)。
 //
 // 🔴 為什麼需要它:元件層測試把 `refundEnabled` 當 prop 餵 ⇒ 把 page.tsx 裡的
@@ -857,7 +859,7 @@ describe('訂單明細頭條數字', () => {
     const text = await render({
       items: [line(2, 1), { ...line(3, 2), quantitySummary: null }],
     } as unknown as Partial<AdminOrderDetail>);
-    expect(text).toContain('未知件數 已訂 / 到貨');
+    expect(text).toContain(`未知${QTY_MISSING_NOTE.notReady}件數 已訂 / 到貨`);
     // 🔴 `1 / 0` = 把那列當 0 加進去會印出來的值。
     expect(text).not.toContain('1 / 0件數');
   });
@@ -872,7 +874,7 @@ describe('訂單明細頭條數字', () => {
       items: [{ ...line(3, 2, 1), quantitySummary: null }],
     } as unknown as Partial<AdminOrderDetail>);
     // 🔴 錨含「未知」二字(R2 抓到):只釘小標的話,格名宣稱「印未知」而沒有任何一格斷言得到它。
-    expect(text).toContain('未知件數 已訂 / 到貨');
+    expect(text).toContain(`未知${QTY_MISSING_NOTE.notReady}件數 已訂 / 到貨`);
     // 🔴 反向釘死:那格若退回 `?? 0`,畫面會出現 `0 / 0`;若沒接上 null 閘,會出現 `2 / 1`。
     // 🔴🔴 **反向錨必須帶小標** —— 拿掉 `NT$` 之後(Sean 2026-08-16「不用NT」),
     //    金額那格印的是 `100 / 0`,而 **`'100 / 0'` 字面上包含 `'0 / 0'`**
@@ -904,10 +906,19 @@ describe('訂單明細頭條數字', () => {
     //       有正向錨 ⇒ 六格全紅;拿掉正向錨 ⇒ **只紅五格,這一格綠著**。
     // 🔴🔴 **錨要含「未知」二字**(R2 抓到,第二層):只釘小標的話,這格名字宣稱「印未知」
     //    而**全檔沒有一格斷言得到它** —— 把 `'未知'` 改成 `''` 兩格都還是綠。
-    //    ⚠️ 上面那句「拿『未知』當錨會撞」對**裸兩字**成立,對**接合字串**不成立:
-    //    `.v` 與 `.l` 兩個 `<p>` 相鄰 ⇒ `textContent` 直接相連成「未知件數 已訂 / 到貨」,
-    //    而那串全樹唯一。**⇒ 錨要選得夠窄,不是選得夠短。**
-    expect(text).toContain('未知件數 已訂 / 到貨');
+    //    ⚠️ 上面那句「拿『未知』當錨會撞」對**裸兩字**成立,對**接合字串**不成立。
+    //    🔴🔴 **2026-08-21 更正:`.v` 與 `.l` 【不再相鄰】。**
+    //    ~~`.v` 與 `.l` 兩個 `<p>` 相鄰 ⇒ textContent 直接相連成「未知件數 已訂 / 到貨」~~
+    //    線 E 在兩者之間插了一行**說明為什麼算不出來**(`QTY_MISSING_NOTE`,commit `8fb8ec72`)
+    //    ⇒ 那個連續字串**不存在了**,本檔四格當場全紅。**留痕不刪:下一個人會想知道錨為什麼變長。**
+    //    ⇒ 錨改成從 `QTY_MISSING_NOTE` **組出來**(不是在這裡硬寫一份 —— 硬寫的那份會與元件各自漂,
+    //      而漂掉時不會紅,只會靜靜失去判別力)。
+    //    ✅ **原本要守的兩個性質都還在**:①錨含「未知」二字 ⇒ 值真的被斷言到
+    //      ②錨全樹唯一 ⇒ 撈得到的是【件數】那一格,不會撞到金額。**而它現在多守一件:理由對不對。**
+    //    ⚠️ **它守不到**:若 `QTY_MISSING_NOTE` 某一句被改成空字串,兩邊一起變 ⇒ 這四格仍綠。
+    //      「三句真的有內容且互不相同」由 `order-detail-headline-qty-note.test.tsx` 釘(那裡斷言寫死的片語)。
+    //    **⇒ 錨要選得夠窄,不是選得夠短。**
+    expect(text).toContain(`未知${QTY_MISSING_NOTE.truncated}件數 已訂 / 到貨`);
     expect(text).not.toContain('4 / 2件數');
   });
 
@@ -942,7 +953,7 @@ describe('訂單明細頭條數字', () => {
       itemsTruncated: true,
     } as unknown as Partial<AdminOrderDetail>);
     expect(text).toContain('1,200 / 未知總額 / 已收');
-    expect(text).toContain('未知件數 已訂 / 到貨');
+    expect(text).toContain(`未知${QTY_MISSING_NOTE.truncated}件數 已訂 / 到貨`);
     expect(text).not.toContain('4 / 2件數');
     // 🔴 **「已收那半永遠不是一個金額」要釘得【夠窄】** ——
     //    我第一版寫 `not.toContain('NT$ 0')`,結果**假紅**:那串命中的是頁面別處的「運費 NT$ 0」。
