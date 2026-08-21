@@ -25,6 +25,18 @@
 // 🔴 措辭紀律(`Q9=甲`):寫進 `after` 的東西**只描述我們觀察到什麼**,不描述對方怎麼了。
 //    分類碼的完整理由見 `refund-error-class.ts` 檔頭。
 //
+// 🔴 **這一列給誰看**(審查線 `-04` R3;不要讓下一個人再問一次 —— 答案不在 repo 裡):
+//   · 後台 `/settings/audit` 是它的檢視器(`app/settings/audit/page.tsx`)。
+//   · DB 這一格**是量到的**:正式站 `service_role` 對 `admin_audit_log` **有 SELECT**
+//     (2026-08-21 走 `pg_catalog` 的 `has_table_privilege` 實測;對照組 anon/authenticated 皆 false)。
+//     ⚠️ 建表 migration `20260712210000:88` 寫的是「不給 SELECT」——**那是建表當下**,
+//        後來 `20260815020000` 補上了。**引那句舊註解會得到相反的結論。**
+//   · 🟡 而檢視頁由 `AUDIT_UI_ENABLED === '1'` 控制,**那個值我們沒有讀到** ——
+//     2026-08-21 Sean 口述「是」。`vercel env ls` 最後一欄是 created 不是 updated,
+//     答不出「值現在是什麼」。⇒ **這一格標未確認,缺的是「打開 dashboard 看」那一道。**
+//   · ⚠️ 那個 SELECT GRANT **有到期日**(`20260815020000` 檔頭「外部前提 1」)
+//     ⇒ 收回的那天,這一列就再也沒有人讀得到,**而不會有任何訊號。**
+//
 // 零金額、零 PII:`after` 只放識別碼與分類碼,`reason` 恆 NULL
 // (對齊建表 `20260803150000:577` 逐字「audit.reason 一律 NULL(零自由文字/零 PII)」)。
 
