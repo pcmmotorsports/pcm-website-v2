@@ -135,8 +135,15 @@ function Field({
            · `break-words`(`overflow-wrap: break-word`)= 保險絲:**單一 token 真的塞不下時**
              才斷它,免得 `keep-all` 讓超長值直接溢出格子。
            ⚠️ 這條路是給**斷開也不會被讀錯**的值走的(人名/狀態標籤)。
-              email / 時間戳那種斷開會變成「讀得通而錯」的,走上面的 `atomic`。 */
-        <span className='text-right break-keep break-words'>{value ?? '—'}</span>
+              email / 時間戳那種斷開會變成「讀得通而錯」的,走上面的 `atomic`。
+           🔴🔴 `min-w-0`(#805,2026-08-21 A窗量到、B窗補根因+修):這個 span 是 `ROW`
+              (`flex justify-between`)裡的 flex child,沒有它時瀏覽器預設 `min-width:auto`,
+              長字串會把 span 撐到自己內容的完整寬度、直接溢出卡片右邊界、被隔壁那張卡的
+              不透明底色蓋住(不是 CSS 裁切,是視覺遮蔽——`overflow` 量出來是 `visible`)。
+              `min-w-0` 讓這個 flex child 真的能縮到比內容窄,`break-words` 才有機會接手換行。
+              實測(37字姓名,本機 `localhost:3021` 真瀏覽器,DOM 注入長字串,非單元測試):
+              修前 overflow 195px,只看得到約 23 字;修後零溢出、換行顯示。 */
+        <span className='min-w-0 text-right break-keep break-words'>{value ?? '—'}</span>
       )}
     </div>
   );
