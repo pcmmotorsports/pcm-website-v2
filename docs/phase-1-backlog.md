@@ -1855,9 +1855,28 @@ order by n desc, 1;
   - 可維護性:漏開 / 開錯統編 / 跳號成本高
   - bug 可追蹤性:發票號碼跳號 / 漏號、國稅局查時無法解
 - **估時:** Sean 拍板 + 若選 A:綠界接入 1 週 dev / 若選 B / C:Phase 1 不做
-- **依賴:** M-3 啟動前 Sean 拍板
+- **依賴:** ~~M-3 啟動前 Sean 拍板~~ / ~~前置=Sean 去問會計師~~
+  🔴 **2026-08-21 更正(窗 C 實測,C-eb-C5)——【前置寫錯了】**:
+  Sean 2026-08-20 拍「甲 先不開」時,前置記的是**他去問會計師「退款了發票怎麼補」**。
+  而實測顯示真正的前置在更前面:**我們根本還不能開發票。**
+  - 掃描分母 **1,477** 支 `.ts/.tsx/.sql`(apps + packages + supabase):
+    `ecpay` 0 / `藍新` 0 / `newebpay` 0 / `財政部` 0 / `turnkey` 0 / `加值中心` 0 /
+    **`折讓` 0**;`einvoice` 5 / `電子發票` 5 / `綠界` 2 —— 🔴 **那 10 支逐支開過,全是文字提及**
+    (結帳頁一句文案 + 兩支測它的測試 + 兩處註解)。
+    正對照 `tappay` 226 / `invoice_status` 23;負對照(編造字串)0 ⇒ 尺是活的。
+  - `supabase/migrations/20260714120000_m4a_order_workflow_status.sql:120` 逐字:
+    「開票紀錄:發票號碼(**Sean 手填**;v1 **不串**電子發票 API)。」
+  - 正式庫實測(唯讀,2026-08-21T05:17:11Z):19 張訂單 `invoice_status` **全部 `not_issued`**
+    (唯一值)、`invoice_number` 0 張、`invoice_amount` 0 張;正對照 `count(id)`=19、負對照 0。
+  ⇒ **會計師要答的問題,要等我們有開票能力之後才會出現。現在問他也用不上。**
+  ⚠️ **仍待 Sean 本人回答**:那 **7 張已付款**的單,有沒有在**系統外**開過發票給客人?
+    系統裡零紀錄,而**零紀錄不等於沒開過** ⇒ 這格會改變本條的急迫性。
+- **法規面已查(不必重查,而【不是專業意見】):** `~/pcm-mailbox/C-eb-C5-台灣會計法規查證-20260821.md`
+  - 退款後**不是作廢發票**,是開「**銷貨退回/進貨退出或折讓證明單**」,電子方式開立+傳輸至平台存證
+    (統一發票使用辦法 §20-1;三檔=存根/收執/存證)
+  - 🔴 其**存根檔**條文逐字寫「**作為記帳憑證**」⇒ 它是會計憑證 ⇒ 商業會計法 §38 I **至少 5 年**
 - **發現於:** 2026-05-02 / 全專案 audit
-- **相關:** STATUS Sean 待決策 #1、`docs/PHASE-1-MILESTONES.md` §11、`docs/audits/2026-05-02-full-audit.md` Audit-F15
+- **相關:** STATUS Sean 待決策 #1、`docs/PHASE-1-MILESTONES.md` §11、`docs/audits/2026-05-02-full-audit.md` Audit-F15、`docs/runbooks/data-rights-sop.md` §0-a
 
 ### #65. ⏳ Vercel / Railway / Supabase 部署 region 規劃
 
@@ -26175,8 +26194,11 @@ done
   | `scripts/backlog-duplicate-scan.py` | 找「一事兩號」;零命中被讀成沒有重號 | 撞號放行(2026-08-20 當晚真的撞過一次) |
   | `scripts/guard-coverage-map.py` | 「哪支檔被哪些守門看著」的答案來源 | 覆蓋率被高估,而高估**沒有畫面** |
   | `scripts/n3b-verbatim-check.py` | 逐字核對(字面 vs 事實那一層) | 逐字宣稱失去依據 |
-  | `scripts/lib/a7bt-barrier-migration.py` | 🔴🔴 **它產出的是一支【被改過的 migration】**(`:41` 讀原檔、`:47-53` 把改寫後內容印到 stdout,由呼叫端導向檔案) | 正是 `02dd510e` 那次「被突變的 migration 被 commit 進正式分支」的形狀(修在 `e37fbea5`) |
+  | `scripts/lib/a7bt-barrier-migration.py`(🔴 **已刪,見下方更正**) | ~~它產出的是一支【被改過的 migration】~~ | ~~正是 `02dd510e` 那次形狀~~ |
   | `scripts/tappay-sandbox-3ds-prime-page.py`<br>`scripts/tappay-sandbox-3ds-stale-url-probe.py`<br>`scripts/tappay-sandbox-refund-probe.py`<br>`scripts/tappay-sandbox-refund-probe2.py` | 金流探針。**它們不放行任何東西**,而**吐出來的數字會進拍板**(例:2026-08-20 那筆 946 與請款規則) | 🔴 主視窗裁定一起算,理由逐字:**「數字會進拍板,那比放行更難回頭」** |
+
+  - **🔴🔴 更正(2026-08-21 W5 實查,D 窗收進正式檔):`b2s2b-truth-sync.py` 那格原寫「未接自檢」,那個詞不準。** 它有一套做得很好的對抗 harness,住在 `scripts/b2s2b-verify.sh:1988-2140`(1 格零突變對照 `:2006`、9 發突變靶 T1-T9 其中 T8 直接突變 `SITES`、`run_tmut` 純文字複製受守檔到暫存樹比對紅點集合、焊了「突變檔與原檔逐字相同⇒判紅」+「突變錨命中次數必須恰 1」兩道)。**真正的缺口是【掛點】不是【自檢】**:那 10 格埋在一支 3032 行、要起 DB 的腳本裡,沒有人在 commit 時跑它;而且照現在的結構沒辦法只跑那 10 格(`:1988` 之前有 87 行 DB 前置,數法 `awk 'NR<1988' scripts/b2s2b-verify.sh | grep -cE 'psql|createdb|dropdb|PGHOST|PGPORT|pg_ctl|initdb|TEMPLATE'` ⇒ 87)。修法建議:把那 10 格抽成一支被 source 的共用檔(兩邊用同一份、不會漂移),`b2s2b-verify.sh` 那邊的 diff 只有兩行,新檔掛 lint-staged 綁 `scripts/b2s2b-truth-sync.py`。⚠️ 驗這個 refactor 要跑那支 3032 行的 DB harness(它會自己起一座 cluster),成本要先認、不當小改。
+  - **🔴🔴 更正(2026-08-21 W5 實查,D 窗收進正式檔):`lib/a7bt-barrier-migration.py` 那格不需要 harness,它需要一個處置——而處置已經做完。** 它是 `#402`(commit `4adbd53a`「刪 a7bt 孤兒整族七支」,主視窗裁 B-443-A=整族刪)**掃漏的第 8 支**(全 repo 全檔型搜尋零個可執行呼叫端、同批兄弟 `a7bt-acl-rollback-lock.sh`/`a7bt-rollback.sql` 都已被 `4adbd53a` 刪除、三支同在 `07b8e58f` 加入之後這支零改動)。**它比那七支更該刪**:它產出的是一支被改過的 migration,正是 `02dd510e` 那次「被突變的 migration 被 commit 進正式分支」的形狀(修在 `e37fbea5`)。主視窗已裁「補刪」,**已於 2026-08-21 執行完成**(`test -f scripts/lib/a7bt-barrier-migration.py` ⇒ 不存在);上表該列保留當歷史紀錄、標記已刪。
 
   - **🔴 為什麼這條不能只寫成「補測試」:** 這 10 支目前一支都沒進 lint-staged ⇒ **它們壞掉的那一次,三綠全綠**。
     而「全綠」是這個 repo 裡**唯一**會被當成放行證據的訊號 ⇒ 缺的不是測試,是**這些檔根本不在守門的分母裡**這件事沒有任何地方寫著。
@@ -26773,3 +26795,147 @@ A 窗第一輪把 .fchip 也改成 13px,code-reviewer 抓到兩個真的會紅�
 - **要不要改的判斷不是本條目能自己下的:** 待 Sean 拍板的問題是「要不要為了『所有最小字都 ≥13px』這個原則,去改一顆設計稿逐字值 + 改測試斷言」——這是「設計保真度」vs.「一致性原則」的取捨,A 窗與 D 窗都沒有推薦立場。
 - **相關:** `apps/admin/src/app/globals.css`(`.fchip` 定義處);`apps/admin/src/components/orders/order-filter-chips.test.tsx:157`;`apps/admin/src/components/orders/order-toolbar-browser.test.tsx`;`~/pcm-mailbox/A-dc-002-A2字級13px已驗-20260821.md`。
 - **估時:** 不適用(記錄性條目,等 Sean 拍板後才有實作估時)。
+
+
+### #808 · 🔴🔴 系統把刷卡卡住的單標成「要人工處理」,而【人工】在後台沒有手可以處理它 —— 四條路四條不通
+
+- **狀態:** 待評估(2026-08-21 G 窗正式庫實查 + C 窗查證兩窗獨立、D 窗開號;開號前 `grep -c '^### #808' docs/phase-1-backlog.md` ⇒ 0,不撞號)
+- **分流:** `P0`(鐵則 12①錢②權限;系統持續產生一個自己無法收尾的狀態,已卡 12 天)
+
+**證據(正式庫實查,不是讀 code)**
+
+```
+proname                           service_role  authenticated  proacl
+mark_charge_attempt_failed         false         false          {postgres, payment_confirmer}
+expire_stuck_attempts_at_ceiling   false         false          {postgres, payment_confirmer}
+admin_cancel_order                 TRUE          false          {postgres, service_role}   ← 對照組
+```
+⇒ 對照組回 true,證明這把尺分得開,上面兩個 false 是真的:**後台跑 service_role,而它叫不動這兩支函式**。
+`expire_stuck_attempts_at_ceiling` 只做 `SET needs_manual_review = true`(舉手),**沒有任何路徑放下那隻手**。
+
+**四條可能的路,四條都查過,四條都不通(C 窗查 + G 窗複驗,兩窗獨立交叉)**
+
+```
+① 退款(TapPay)  入口不渲染 —— REFUND_ENTRY_STATUSES 只認 paid/partiallyRefunded,
+                这批卡住的單是 unpaid/pending 狀態,連退款入口都看不到
+② 退款(人工)    UI 與 server 兩層都擋:manual-refund-entry-gate.ts:42=true(擋)/ :49;
+                manual-refund-actions.ts:59 也擋
+③ 標記免處理     不存在。G 窗用放寬的 pattern 重掃過(免處理|標記忽略|dismiss|ignore-attempt|
+                markIgnored|no-action-needed)⇒ 2 命中且兩個都無關;正對照 payment_status 62 筆
+                / refund 115 筆、分母 502 ⇒ 掃描字集夠寬仍然零命中,才能說它真的不存在
+④ 取消訂單       `a8a1:200-203` 步驟 7 逐字擋:`payment_status<>'unpaid'` 或
+                `EXISTS(attempt status<>'failed')` ⇒ RAISE(拋出例外,擋住取消)
+```
+
+**不修未來會痛在哪(鐵則 10):** 最舊那張單從 8/9 卡到現在**已 12 天**,而系統的告警信**每天寄一次**,每次都叫 Sean 做兩個他做不到的動作(四條路都不通)。痛點不是這兩張單本身,是**系統在持續產生一個它自己無法收尾的狀態** —— 每天一封信,每天都是同一個死路,而收件人不會知道那是死路,只會覺得自己漏做了什麼。
+
+**修法的體積(不是能順手做的):** 要嘛開 `EXECUTE` 給 `service_role`(直接動權限,命中鐵則 12②),要嘛另做一支後台叫得動的函式(新的錢路徑,命中鐵則 12①)。**兩條路都要提 plan、要 Sean 在場**,不是本條目能自己拍板的範圍。
+
+🔴 **止血 ≠ 修復,條目要把這件事寫死避免下一個人誤判**:G 窗今天已經先把告警信的文案改成不再叫人按不存在的按鈕。**文案改了不代表這條路通了** —— 那只是讓每天的告警信不再叫 Sean 做白工,四條路依然全部不通,卡住的單依然卡在那裡出不去。下一個人看到「文案已改」不能當成本條目已結案的訊號。
+
+- **相關:** `mark_charge_attempt_failed` / `expire_stuck_attempts_at_ceiling`(DB 函式,ACL 見上);`REFUND_ENTRY_STATUSES`;`manual-refund-entry-gate.ts:42/:49`;`manual-refund-actions.ts:59`;`a8a1` migration :200-203。
+
+### #641 · 記過的教訓為什麼沒擋住 —— SSO codes CHECK 約束 NULL-is-not-false 重演
+
+- **狀態:** 待處理(2026-08-21 立,H 窗;主視窗指派給 D 窗 `pcm-website-v2-62` 查)
+- **分流:** 制度/教訓落地檢討,非功能缺陷
+- **優先級:** 🟡 中(這次被 codex/E 窗擋下,沒有造成事故;但同一種寫法可能還躲在其他草稿裡)
+- **問題:**
+  ```
+  docs/specs/2026-08-19-m4b-e8b-b4-sso-codes-columns-migration-draft.sql 的 CHECK 約束
+  原本寫成 OR 串「sub_kind = 'fallback'」這種等值比較。sub_kind 為 NULL 時,
+  `(NULL = 'fallback')` 算出來是 NULL 不是 false,四個分支全部落在 NULL/false ⇒
+  整條 OR 結果是 NULL,而 CHECK 只有算出 false 才擋 ⇒ (NULL,'sean') 這種壞形狀
+  會靜靜寫得進去。E 窗與本窗(H)各自用拋棄式 PG 獨立重現過:原版 INSERTED_NO_ERROR、
+  改成 CASE(逐支明確分支 + ELSE false)後同一發 REJECTED、SQLSTATE 23514。已修正
+  (本窗改的是 repo 這份正本;E 窗那邊的複本已先改過)。
+  🔴 而這正是 `memory feedback_sql_guard_null_is_not_false` 記過的形狀 —— 教訓寫在
+  memory 裡,而寫這支草稿的人(2026-08-19)沒有被它擋下來。
+  ```
+- **觸發事件:** 2026-08-21,主視窗交辦查核一支被引用的 migration 草稿時,E 窗先實測抓到
+- **要問的問題(這條目的用途就是這句,不是叫人重寫規則)：**
+  ```
+  ① 寫這支草稿的當下,有沒有查過 memory 裡這條教訓?
+     —— 查過但沒認出「這是同一個形狀」,還是根本沒查?兩種處置不同。
+  ② 如果是「沒查」:當時的交辦/SOP 有沒有要求動 CHECK 約束前先查 memory 同類教訓?
+     沒有的話,是不是該補一條(機制優先律:能做成檢查就不要只寫規則)。
+  ③ 如果是「查過但沒認出」:這條教訓的措辭/例句夠不夠讓人在寫【不同語法】的
+     等值比較時也認得出同一個病(這次是 OR 串,教訓原文可能舉的是別的形狀)?
+  ④ repo 裡還有沒有其他 CHECK 約束是同一種寫法(OR 串等值比較、沒有 ELSE)?
+     這條目不要求現在全部掃完,但要記下有沒有掃過、掃了幾支、命中幾支。
+  ```
+- **不修會痛在哪(鐵則 10):**
+  - 擴充性:同一個坑會在下一支新草稿裡再出現一次,而且下次可能沒有 E 窗/H 窗剛好去覆核
+  - 可維護性:如果答案是③(教訓寫得不夠讓人認出來),那條 memory 本身需要補例句,
+    不補的話它會繼續攔不住同款變體
+  - bug 可追蹤性:這條不查清楚,下次同款事故發生時,回頭看 memory 會發現「教訓明明寫著」,
+    卻答不出「為什麼那次沒擋住」——這條目就是為了先把那個答案存起來
+- **相關:** `docs/specs/2026-08-19-m4b-e8b-b4-sso-codes-columns-migration-draft.sql`;
+  memory `feedback_sql_guard_null_is_not_false`;E 窗實測記錄(`pcm-v2-5e`,規矩三可直接問)。
+- **估時:** 未估(這是一題查證,不是一片改動;查完視答案決定要不要開後續條目)。
+- **估時:** 未估(方向未定,需 plan)。
+
+
+### #809 · 「自檢的自檢」meta-harness 可行性報告 —— 10/29 支帶 `--selftest` 的腳本可低成本補上「比較器被拔掉會不會紅」的守門
+
+- **狀態:** 待評估(2026-08-21 W5 唯讀盤點 + PoC 已跑、D 窗開號登記;開號前 `grep -c '^### #809' docs/phase-1-backlog.md` ⇒ 0,不撞號)
+- **分流:** `P2`(不是活的缺陷,是守門的守門有缺口;而缺口已經被 `dev-four-greens.sh:728` 獨立記過一次,這條把它變成可執行的方案)
+
+**問題本身(無限迴歸,先承認再談停在哪一層可辯護)**
+
+repo 裡有 29 支腳本帶 `--selftest`(自我驗證用),而「誰檢查這些自檢本身有沒有被靜默拔掉牙齒」
+沒有答案——如果自檢裡的比較器被改成恆真(或整段判定被刪),自檢仍然全過,而**沒有人會看到**。
+W5 給的判準:停在「它失效時,人在正常流程裡會不會看到」變成「不會」的那一層——閘失效當事人當場看到、
+自檢被刪或格數不符 commit 當場紅,**但自檢退化成恆真沒有任何機械訊號**,這就是要補的那一層。
+
+**已量到的體積(當場數,可重跑)**
+
+```
+帶 --selftest 的腳本                                29 支
+其中定義了 ck() 這種可機械突變的比較器助手的          10 支
+比較器形狀:9 支是 [ "$2" = "$3" ],1 支是 [ "$2" != "$3" ]
+  (scripts-whitelist-gate.harness.sh 先算 _why 再判,方向相反)
+⇒ 兩個 pattern 就覆蓋 10/10
+```
+
+**PoC(已跑,不是紙上談兵)**:複製到 scratchpad、把 `ck()` 的比較翻掉、跑該腳本自己的 `--selftest`——
+
+```
+mm-husky-hook-wiring-check.sh        突變套上=True   ⇒ rc=1  ✅ 該紅有紅
+mm-migration-ledger-divergence.sh    突變套上=True   ⇒ rc=1  ✅ 該紅有紅
+mm-scripts-whitelist-gate.harness.sh 突變套上=False  ⇒ rc=0  🔴 突變 pattern 沒套上這支反向比較器,
+                                                          檔案原封不動、自檢照樣全過
+```
+🔴 第三發示範了這個設計最重要的一條規則:**「突變沒套上」必須判紅,不能判過**——否則 meta-harness
+自己會在「沒測到東西」的情況下看起來是綠的,那正是它要防的失效模式的鏡像。
+
+**這個缺口不是第一次被看到**:`scripts/dev-four-greens.sh:728` 已經明寫「`ck()` 是全套斷言的底座,
+改成 true 會讓五格恆 PASS,而本版不做、明寫在這裡不假裝已守」——理由是需要一個假 pnpm harness。
+🔴 W5 的 PoC 證明**那個理由只對它自己那一支成立**:另外 9 支不需要假 harness,複製+一個字串取代+
+跑它自己的 selftest 就夠,兩發實測都紅。
+
+**成本與覆蓋(誠實版,不誇大)**
+
+```
+✅ 覆蓋得到  10/29 支(有 ck() 助手的那些)
+❌ 覆蓋不到  19/29 支 —— 沒有統一的判定助手,要逐支寫突變,不是這個方案一次能解決的
+⏱ 成本      每支 = 複製 + 一個字串取代 + 跑一次它的 selftest,10 支估 <30 秒
+📍 建議落點  🔴 不該掛 pre-commit(每次 commit 都要跑 10 支腳本的完整 selftest,太慢)——
+             建議進 CI,或一支手動的 scripts/selftest-meta-harness.sh,milestone 收尾時跑
+```
+
+它擋得住的:`ck` 退化成恆真、比較器被拔掉。
+它擋不住的:①那 19 支沒有統一助手的 ②突變清單本身過期(有人加了第三種比較器形狀)——
+🔴 ②就是「無限迴歸」的實體形式,處置與上面同一條:**突變沒套上要判紅**,那樣「有人換了形狀」
+至少會變成一個紅,不會變成一個安靜的綠。
+
+**不修未來會痛在哪(鐵則 10):** 這 10 支腳本現在是「看起來被自檢守著」,而實際上沒有人驗證過
+它們的自檢本身有沒有判別力。哪天有人在修這些腳本時不小心把比較器改壞(或刻意繞過而留下一個
+恆真的判定),自檢會照樣全綠,而所有依賴這些腳本的守門(白名單閘、ledger 分岔閘等)會在使用者
+不知情的狀況下失去判別力——症狀是「一切正常」,而正是這種症狀最貴,因為沒有人會去查。
+
+**W5 的建議(D 窗照抄,未加碼):** 做,但只做這 10 支,而且**必須帶著「覆蓋 10/29」這個數字一起交**——
+不寫清楚覆蓋率,下一個人會把它讀成「自檢已經被守著了」,那正好是它要防的那種誤讀。
+
+- **相關:** `scripts/dev-four-greens.sh:728`(獨立記過同一缺口);`~/pcm-mailbox/W5-070-帳本分岔守門-20260821.md` §16(全文含 PoC 逐字輸出)。
+- **估時:** 未估(W5 估「每支 <30 秒」是跑一次選測試的時間,不含寫 meta-harness 腳本本身+接 CI 的時間)。

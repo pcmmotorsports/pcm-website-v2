@@ -372,6 +372,45 @@ git checkout <檔>  的語意是「拿掉這個檔的所有未暫存改動」
 
 ---
 
+## 4e 🔴 在 pre-commit hook 之下跑的自檢,如果自己 `git init`/`git add` 造 fixture,會弄壞叫它的那次 commit(2026-08-21 W5 實錘)
+
+**成因**:`lint-staged` 是被 `git commit` 的 `pre-commit` hook 叫起來的,而它繼承了外層那次
+commit 的 `GIT_INDEX_FILE`(環境變數,指向那次 commit 暫存用的 index 檔)。如果 lint-staged
+掛的某支自檢腳本,在 `--selftest` 裡自己起一個拋棄式目錄 `git init` / `git add` 造 fixture ——
+那些 `git add` **不是寫進拋棄式目錄自己的 index,是寫進了繼承來的、外層那次 commit 的 index**。
+
+```
+症狀:git commit 失敗,錯誤訊息類似
+  error: invalid object 100644 e69de29… for 'supabase/migrations/20260101000000_x.sql'
+  error: Error building trees
+那個路徑在這個 repo 裡根本不存在 —— 它是 selftest 的 fixture 檔名。
+🔴 沒有任何一行訊息指向真正的成因(自檢腳本),表面上看起來是「commit 壞了」,
+   而真正犯案的是被 lint-staged 呼叫的那支自檢腳本自己 git init 時沒有隔離環境變數。
+```
+
+**修法**:任何會在 `--selftest`(或任何被 lint-staged/pre-commit 掛住的路徑)裡 `git init` /
+`git add` 造 fixture 的腳本,開頭一律先 `unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE …`,
+把環境變數繼承徹底切乾淨,再進拋棄式目錄動作。
+
+```
+驗收(拋棄式 repo、真 .husky/pre-commit、真 lint-staged、pathspec commit):
+  修前 ⇒ error: Error building trees,外層 commit 沒進去
+  修後 ⇒ [main 5e843b5] …這批在 lint-staged 之下 commit 得過,N files changed
+```
+
+**同一機制,一次是坑一次是工具**:同一天另一個場景裡,`GIT_INDEX_FILE` 被**刻意**拿來當工具用——
+要在共用工作樹上模擬「stage 了某個檔案」而不動到共用 index,用
+`GIT_INDEX_FILE=$T/idx git add package.json` 複製一份 index 到暫存路徑操作,事後
+`git show :package.json` 確認共用 index 沒被動。**環境變數的作用域一旦被別人繼承,
+既可能是坑(不自覺被別人的執行環境吃進去)也可能是工具(刻意複製一份給自己用)——
+差別只在於你有沒有意識到它現在的作用域是誰的。**
+
+判別句:
+> **我這支腳本如果被【別人的執行環境】呼叫,它假設自己擁有的那些環境狀態(cwd、環境變數、
+> 暫存目錄)還是原本那份嗎?** 答不出來 ⇒ 開頭先 `unset` 掉會被繼承而你沒預期到的那些。
+
+---
+
 ## 5. 判別句
 
 > **我現在要跑的這支腳本,如果在中間被殺掉,會留下什麼?**
