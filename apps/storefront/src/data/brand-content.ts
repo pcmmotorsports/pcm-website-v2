@@ -775,7 +775,12 @@ export const BRAND_CONTENT: BrandContent[] = [
         }
       ]
     },
-    "categories": [],
+    "categories": [
+      [
+        "進氣系統",
+        0
+      ]
+    ],
     "focus": {
       "enabled": false,
       "order": 20
