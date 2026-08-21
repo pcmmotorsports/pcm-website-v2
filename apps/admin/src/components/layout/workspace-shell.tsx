@@ -57,7 +57,17 @@ export function WorkspaceShell({
   React.useEffect(() => {
     const sync = () => setViewport(window.innerWidth);
     sync();
-    if (initialPanelWidth === null) setWidth(defaultPanelWidth(window.innerWidth));
+    if (initialPanelWidth === null) {
+      // 🔴 沒有 cookie 偏好時的預設值。殼不認業務概念,只認「槽裡有沒有掛
+      //    `.panel-width-locked` 這個 marker」——訂單面板在 `@panel/orders/page.tsx`
+      //    的 JSX 裡帶著它。以前這個判斷在 CSS(`:has()`)做、直接鎖死寬度;
+      //    現在改成在這裡(JS)做、只決定「預設值」,寬度本身仍走下面 commit()
+      //    那條可拖曳、會記住的路徑(2026-08-21 Sean 拍板「留著拖曳、預設值改720」,
+      //    推翻 08-19「固定720、拿掉拖曳」那次拍板)。
+      //    marker 不在 ⇒ 退回原本的「視窗一半」,跟其他面板一樣。
+      const hasOrderPanelMarker = document.querySelector('.panel-width-locked') !== null;
+      setWidth(hasOrderPanelMarker ? 720 : defaultPanelWidth(window.innerWidth));
+    }
     window.addEventListener('resize', sync);
     return () => window.removeEventListener('resize', sync);
   }, [initialPanelWidth]);

@@ -94,72 +94,81 @@ describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 兩個接
   });
 });
 
-// ── 片1:訂單編輯面板固定 720px(Sean 2026-08-19 拍「甲」)────────────────────
+// ── 片1:訂單編輯面板預設 720px、可拖寬(2026-08-21 F-81;推翻 08-19「甲=固定+拿掉拖曳」)──
 //
-// 🔴 **為什麼這一組也需要守門,理由與上面那組逐字同型**:接點是一個 class 名,
-//    而它壞掉時**沒有執行期訊號** —— 面板只是安靜地回到可拖曳的 cookie 寬度,
-//    看起來像「Sean 自己拖過」,不像故障。三綠不紅、CSS 不紅、畫面不報錯。
-// ⚠️ **擋得住 / 擋不住(不要讀成「720 已驗證」)**:
-//    擋得住 —— 標記 class 在任一邊被改名或刪掉、三個寬度值被改、把手那條規則被拿掉。
-//    **擋不住** —— `:has()` 在真瀏覽器到底有沒有匹配、720 在 Sean 的螢幕上好不好看、
-//    以及窄視窗下內容區被壓扁。那三樣要**真瀏覽器 + Sean 的眼睛**。
-const LOCK = '.workspace-row:has(.workspace-panel > .panel-width-locked)';
+// 🔴 **這組測試 2026-08-21 改寫,不是新增**:原本釘的是「CSS `:has()` 鎖死寬度 + 藏把手」,
+//    而 Sean 在端過三張實體版本後**改拍「乙=留著拖曳、預設值改720」**,推翻了 08-19 那次的「甲」
+//    (逐字見 `~/pcm-mailbox/F-81-W1-001-Q0Q1整理-20260821.md` Q0)。
+//    ⇒ 舊測試釘的正是【Sean 明確反轉掉的那個行為】,不是釘正確性 —— 改測試在這裡不是
+//    「為了讓測試綠而改測試」,是舊斷言的前提本身已經不成立。原本 6 個 it 區塊(標記兩邊都在
+//    含CSS / 兩個return帶標記 / width:720px+不得有min-width / 把手要收掉 / {panel}直接子代)
+//    改寫成下面 4 個:標記只留 TSX 側(CSS 不再有這條規則)、shell 用 JS 讀 marker 決定預設值、
+//    CSS 不得再出現舊的鎖寬/藏把手規則(防止被靜默抄回來)。
+//
+// 🔴 **為什麼還需要守門,理由與上面那組同型**:接點換成「JS 讀 DOM 找 marker」,
+//    壞掉時一樣**沒有執行期訊號** —— marker 被改名或拿掉 ⇒ 訂單面板安靜地變成「視窗一半」,
+//    看起來像正常的殼行為,不像故障。
+// ⚠️ **擋得住 / 擋不住**:擋得住 —— marker class 被改名/刪掉、CSS 舊鎖寬規則被抄回來、
+//    shell 的預設值邏輯被改掉。**擋不住** —— 720 在 Sean 螢幕上好不好看、真的拖曳手感、
+//    窄視窗下內容區被壓扁。那些要真瀏覽器 + Sean 的眼睛(2026-08-21 F-81 已用真瀏覽器
+//    〔`http://localhost:3021`〕驗過兩個世界:清 cookie 後開訂單面板 ⇒
+//    `--workspace-panel-width` 算出 720px;清 cookie 後開一個沒有 marker 的槽〔`/orders` 無
+//    `panel` 參數〕⇒ 算出 600px = 1200 視窗的一半,兩個世界印不同的值,量法有判別力)。
 const PANEL_ROUTE = stripComments(read('../../app/@panel/orders/page.tsx'));
 
-describe('片1 訂單編輯面板固定 720px', () => {
+describe('片1 訂單編輯面板預設 720px、可拖寬', () => {
   // ⚠️ **射程**:本組只讀 `app/@panel/orders/page.tsx` 這一支 route。
   //    `@panel` 槽底下其餘兩支(`default.tsx` / `[...catchAll]/page.tsx`)**一律回 `null`、不渲染面板**
   //    ⇒ 今天不會有第二個產生點。日後若有人新增會渲染內容的槽路由,**本組看不到它**。
-  it('🔴 標記 class `panel-width-locked` 在**面板路由**與 **CSS** 兩邊都在(對不上 = 安靜地退回可拖寬度)', () => {
+  it('🔴 標記 class `panel-width-locked` 在**面板路由**與 `workspace-shell.tsx` 兩邊都在(對不上 = 安靜地退回視窗一半)', () => {
     expect({ tsx: /\bpanel-width-locked\b/.test(PANEL_ROUTE) }).toEqual({ tsx: true });
-    expect({ css: GLOBALS.includes('.panel-width-locked') }).toEqual({ css: true });
+    expect({ shell: SHELL.includes('panel-width-locked') }).toEqual({ shell: true });
   });
 
-  // 🔴 客人卡那條 return 少了標記的話,點「客人明細」面板會從 720 跳回 cookie 寬度、
+  // 🔴 客人卡那條 return 少了標記的話,點「客人明細」面板會從 720 跳回視窗一半、
   //    關掉再跳回來 —— 一個只在**點下去那一刻**才看得到的抖動。
   // 🔴 **不要只數出現次數** —— 那把尺會被「有人在註解裡提到這個 class」推歪
   //    (本片自己就差點踩到:原始碼裡連註解共 3 次、剝註解後才是 2 次)。
   //    改成**釘在它該出現的位置**:標記必須緊貼在 `@container` 之後,那是兩個 return 的 div 各一。
-  // ⚠️ **本格的已知脆弱**:它比對的是**相鄰字面**`@container panel-width-locked`
-  //    ⇒ 有人在兩者之間插入第三個 class 會**假紅**(規則其實沒壞)。
-  //    留著是刻意的:假紅會被下一個人當場看到並讀懂,而**漏掉客人卡那半是靜默的**。
-  //    (同 `order-panel-wiring.test.ts` 守門 6 釘 `className='@container` 前綴的取捨。)
   it('🔴 面板路由的**兩個** return 都帶標記(客人卡是蓋在同一塊面板上,不是獨立視圖)', () => {
     expect(PANEL_ROUTE.match(/@container panel-width-locked/g)?.length).toBe(2);
   });
 
-  // 🔴🔴 **片1b 起這一格改了語意,不是改了數字**:原本三個值全釘 720(純固定),
-  //    現在是「**想要 720、但讓步線是 ② 那條既有的 480**」(Sean 2026-08-19 `Q2` 拍甲=加下限)。
-  //    ⇒ `min-width` 必須**不存在**於本規則:CSS 規範裡它在 `max-width` 之後套用,
-  //      留著 `min-width:720px` 會把讓步線壓掉 ⇒ **加了等於沒加,而畫面看起來和沒加一樣。**
-  //      這一格就是釘那件事的 —— 它是本片唯一會被靜默還原的東西。
-  it('🔴 `width:720px` + 讓步線 `calc(100% - 480px)`,且**不得**有 `min-width` 覆寫', () => {
-    // 🔴 先斷言選擇器真的在,再切 —— 少了這一行,選擇器被改名時 `indexOf` 回 -1、
-    //    `slice(-1)` 切出最後一個字元,下面三條**照樣會紅但理由是錯的**
-    //    (那種紅在下一次重構時會變成綠而沒有人知道為什麼)。
-    expect(GLOBALS).toContain(`${LOCK} > .workspace-panel`);
-    const i = GLOBALS.indexOf(`${LOCK} > .workspace-panel`);
-    const block = GLOBALS.slice(i, GLOBALS.indexOf('}', i));
-    expect(block).toMatch(/width:\s*720px/);
-    expect(block).toMatch(/max-width:\s*calc\(100% - 480px\)/);
-    // 🔴 負向:`min-width` 一旦出現在**這一條規則裡**,讓步線就失效。
-    //    切到 `}` 為止是必要的 —— 不切的話會掃到後面別條規則的 `min-width` 而假紅。
-    //    ⚠️ 這依賴「CSS 宣告區塊不可巢狀」,今天成立(`W4-003` nit 要求寫下來)。
-    expect({ 本規則裡有min_width: /min-width/.test(block) }).toEqual({ 本規則裡有min_width: false });
+  // 🔴🔴 **這一格是本片核心**:沒有 cookie 偏好時,shell 要用 JS 查 DOM 有沒有 marker,
+  //    有 ⇒ 預設 720、沒有 ⇒ 退回視窗一半(defaultPanelWidth)。
+  //    這是原本「CSS `:has()` 鎖死寬度」的替代品 —— 差別是這裡只決定**預設值**,
+  //    寬度仍然可拖(下面「可拖」那格另外釘)。
+  it('🔴 shell 沒有 cookie 偏好時:查 `.panel-width-locked` marker,有 ⇒ 預設 720,沒有 ⇒ `defaultPanelWidth`', () => {
+    expect(SHELL).toMatch(/querySelector\(['"]\.panel-width-locked['"]\)/);
+    expect(SHELL).toMatch(/hasOrderPanelMarker\s*\?\s*720\s*:\s*defaultPanelWidth/);
   });
 
-  it('🔴 鎖寬時把手要一起收掉(只鎖寬度而留著把手 = 一個按得下去、而畫面不動的壞控制項)', () => {
-    expect(GLOBALS).toContain(`${LOCK} > .workspace-handle`);
+  // 🔴🔴 **防止舊機制被靜默抄回來**:若有人複製前一版的 CSS 區塊貼回 globals.css,
+  //    寬度會被重新鎖死、把手會被重新藏起來,而上面那格(讀 SHELL)完全看不到這件事
+  //    ——兩個檔案分開守,任一邊被改都要紅。
+  it('🔴 `globals.css` 不得再出現舊的「鎖寬 + 藏把手」`:has()` 規則(防止被抄回來)', () => {
+    expect(GLOBALS).not.toContain('.workspace-row:has(.workspace-panel > .panel-width-locked)');
   });
 
-  // 🔴🔴 **W4 審查 F1:接點有兩個,而第二個原本零守門。**
-  //    上面那些格全部在問「class 名還在不在」;而 `>` 是**直接子代**選擇器 ——
-  //    在 `workspace-shell.tsx:154` 把 `{panel}` 多包一層(error boundary / 捲動容器 /
-  //    `<Suspense>`)就會讓規則不再匹配,**class 名一個字沒動、上面每一格照樣全綠**,
-  //    而畫面上只是「面板又可以拖了」= 看起來像有人調過,不像故障。
-  // 🔴 **同一個曝險【規則 ① 也有】**(空槽收合那條也用 `> *`)⇒ 一起釘,不要只修被指名的這一處。
-  //    (「折 finding 的預設動作是只處理被指名那一格」—— 本 repo 記過的形狀。)
-  it('🔴 `{panel}` 必須是 `.workspace-panel` 的**直接子代**(多包一層 ⇒ 兩條 `:has()` 規則同時失效而全綠)', () => {
+  it('🔴 拖曳把手不得被任何規則藏起來(handle 必須在 TSX 裡無條件渲染,不能包在條件式後面)', () => {
+    // 🔴 用詞邊界找 `panel-width-locked`/`workspace-handle` 之間**不得**同時出現在一個
+    //    條件渲染表達式裡 —— 具體檢法:handle 那個 <div> 前面不能緊跟著依 marker 決定
+    //    要不要渲染的三元/邏輯運算子。簡化為:SHELL 裡只有一處 `workspace-handle`
+    //    className 字面,且它前面沒有 `panel-width-locked` 相關的條件包裹。
+    expect(SHELL.match(/workspace-handle/g)?.length).toBeGreaterThanOrEqual(1);
+    expect(SHELL).not.toMatch(/panel-width-locked[^]*?workspace-handle.*?\?/);
+  });
+
+  // 🔴🔴 **2026-08-21 B 窗(pcm-website-v2-15)審查抓到的 must-fix,修回**:
+  //    上面刪掉寬度鎖那組舊 it 時,把這一格也一起刪了——理由「CSS `:has()` 整個拿掉了」
+  //    只對**寬度鎖那條** `:has()` 成立。`globals.css` 裡**還有另一條沒動的** `:has()`
+  //    (①「空槽收合」,`.workspace-row:not(:has(.workspace-panel > *:not(template)))`)
+  //    同樣依賴「`{panel}` 是 `.workspace-panel` 的直接子代」這件事 ——
+  //    在 `workspace-shell.tsx:154` 多包一層(error boundary / 捲動容器 / `<Suspense>`)
+  //    一樣會讓它安靜失配,class 名一個字沒動、其餘測試照樣全綠,而**每一頁都吃掉半個畫面**。
+  //    ⇒ 這格守的從來是【共用的曝險】,不是寬度鎖專屬;寬度鎖那條規則沒了,
+  //      空槽收合那條**還活著**,守它的斷言不能跟著消失。
+  it('🔴 `{panel}` 必須是 `.workspace-panel` 的**直接子代**(多包一層 ⇒ 空槽收合那條 `:has()` 安靜失配)', () => {
     expect(SHELL).toMatch(/className='workspace-panel shrink-0'>\{panel\}/);
   });
 });

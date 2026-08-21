@@ -88,6 +88,11 @@ export function OrderEditForm({
           ⚠️ **這一改【收窄了寫入能力】**:原本打得出自訂字串(例:某家快遞名),現在打不出來。
              我查不到任何拍板說那是刻意的(`git grep '黑貓' -- docs/` 只命中架構文件講「未來串黑貓 API」,
              與這一欄無關)。**若 Sean 要保留自訂,那要另外設計成一個真的欄位,不是借這一欄。** */}
+      {/* 🔴 A3(2026-08-21 Sean 拍板乙 = 1加3,`W9e-016` §2-A 推薦一致):出貨方式獨佔一行,
+          發票三欄填滿第二行(4 個欄位塞 3 欄格線,第 4 格原本會掉行,現在直接對上語意:
+          1 個出貨 + 3 個發票)。只在這個消費端加一層 `col-span` wrapper,**不動共用
+          `<AdminForm>`/`GRID` 本體** —— 那支被 14 個消費端共用,動它的欄數行為要走鐵則12⑥。 */}
+      <div className='sm:col-span-2 lg:col-span-3'>
       <AdminFormField label='出貨方式'>
         {/* 🔴 選項由 `SHIPPING_METHOD_LABELS` 產,**不在這裡再寫一次 `home`/`store`**
             (片15 R2,W5 must-fix 2:收斂前白名單有三份可執行的副本,
@@ -123,6 +128,7 @@ export function OrderEditForm({
           )}
         </select>
       </AdminFormField>
+      </div>
 
       {/* 🔴 label 用 `開立狀態`,不是 ~~`開票狀態`~~(2026-08-21 改)。
           **這不是兩個詞挑一個好聽的,是其中一個對不上自己的選項**:

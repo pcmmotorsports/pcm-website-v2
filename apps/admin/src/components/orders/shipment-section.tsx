@@ -19,6 +19,7 @@ import { ShipmentVoidButton } from './shipment-void-button';
 // 🔴 標籤表已抽到 `lib/shipping/carrier-label.ts`(#10 片3),與出貨單那張紙、建箱彈窗共用同一份。
 //    **行為零變更**:`carrierLabelOf` 的回退與抽出前的 `CARRIER_LABEL[code] ?? code` 逐字相同。
 import { carrierLabelOf } from '../../lib/shipping/carrier-label';
+import { AtomicFieldValue } from './atomic-field-value';
 // 🔴 **尾款用付款卡【同一支】`toPaymentSummary`,不自己算**(片9)——
 //    自己算 = 第二個「尾款」的定義,而兩份會各自漂;
 //    更重要的是那支函式**已經處理了「讀不到」那一態**,重寫一份等於重新踩一次那個坑。
@@ -28,15 +29,37 @@ import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { shippingMethodLabel } from '../../lib/orders/order-detail-view';
 
 /**
- * 片14:收件人一行 —— 確認稿 `:543` 逐字「姓名、電話、地址用**逗號連著排,中間不留空白**」。
+ * 片14 + A1(2026-08-21 Sean 拍板乙 = 維持單行):收件人一行 ——
+ * 確認稿 `:543` 逐字「姓名、電話、地址用**逗號連著排,中間不留空白**」。
  *
  * 🔴 **缺值印 `—` 而不是跳過那一格**:跳過會讓 `王小明,台中市…`(缺電話)
  *    讀起來像一筆完整資料 —— **少了的那格沒有任何訊號**。印 `—` 才看得出來缺哪一個。
  *    (與頁首那張卡原本的 `value ?? '—'` 同一個約定,搬過來時一併帶著。)
- */
-function recipientLine(detail: AdminOrderDetail): string {
-  const a = detail.shippingAddress;
-  return [a.name, a.phone, a.line].map((v) => (v === null || v === '' ? '—' : v)).join(',');
+ *
+ * 🔴 **`break-all` → `break-keep break-words`**(2026-08-21,跟摘要卡 `Field` 同一天的新預設同款):
+ *    CJK 不斷字中間,非 CJK 長 token 放不下才整段換行。
+ *
+ * 🔴🔴 **電話走 `AtomicFieldValue`,但這裡用不到它的截斷+滑鼠提示那一半**——
+ *    `atomic-field-value.tsx` 的 `truncate` 要靠外層 flex 容器的 `min-w-0` 才擠得出截斷效果
+ *    (它原本是為 `order-detail-summary-cards.tsx` 的 flex-row 設計的);這裡是單行**文字流**
+ *    (inline),不是 flex 容器 ⇒ 那顆元件在這裡渲染成一個普通 `display:inline` span,
+ *    `truncate`/`text-overflow:ellipsis` **不會生效**(2026-08-21 真瀏覽器實測:塞一組 40 字
+ *    的電話號碼,原樣印出、不截斷、沒有 tooltip,只是像一般文字一樣換到下一行)。
+ *    ⇒ **它仍然保留 `white-space:nowrap`**,所以電話本身不會斷在數字中間;只是拿不到
+ *    截斷+滑鼠提示那層保護。**這是已知且 Sean 已看過代價後選定的版本,不要順手補上保護**——
+ *    要補要嘛把這一行拆成 flex row(即 A1-甲那個方向),要嘛另立一個非 flex 版的截斷元件,
+ *    兩者都是另一次改動,不是這裡的「順手」。 */
+function RecipientLine({ detail }: { detail: AdminOrderDetail }) {
+  const { name, phone, line } = detail.shippingAddress;
+  return (
+    <span className='break-keep break-words'>
+      {name === null || name === '' ? '—' : name}
+      {','}
+      {phone === null || phone === '' ? '—' : <AtomicFieldValue text={phone} />}
+      {','}
+      {line === null || line === '' ? '—' : line}
+    </span>
+  );
 }
 
 /**
@@ -178,7 +201,7 @@ export async function ShipmentSection({
              而出貨前看不到收件人=員工會憑印象寄。(同檔 `groups === null` 那段是同一條 fail-closed 精神。) */}
       <div className='mb-3 text-sm'>
         <span className='text-muted-foreground mr-2'>收件人資訊</span>
-        <span className='break-all'>{recipientLine(detail)}</span>
+        <RecipientLine detail={detail} />
       </div>
 
       {/* 🔴🔴 `null` = 本單的箱品項清單**可能不完整**(截斷),不是「沒有箱」

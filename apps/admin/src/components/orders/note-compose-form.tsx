@@ -151,7 +151,8 @@ export function NoteComposeForm({
       className='group mt-3 rounded-lg border p-3'
     >
       <summary className='text-muted-foreground flex cursor-pointer items-center gap-2 text-xs font-medium'>
-        <span className='text-[10px] transition-transform group-open:rotate-90'>▶</span>
+        {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px。 */}
+        <span className='text-[13px] transition-transform group-open:rotate-90'>▶</span>
         {correctTarget ? '更正備註' : '新增備註'}
       </summary>
       <div className='mt-3'>

@@ -287,6 +287,16 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+  /* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px,W4-063 分母:訂單頁+訂單面板 text-xs 167 節點最大宗)。
+     蓋掉 Tailwind 內建 `--text-xs`(0.75rem/12px)⇒ 全站 `.text-xs` 一律變 13px。
+     ⚠️ **不影響 `.orders-grid` 表格內文字**:那邊字級走 `var(--od-fs)` / `var(--od-fs-sm)`,
+     是密度系統(寬鬆/標準/緊湊)自己的獨立變數,`.orders-grid td.text-xs` 選擇器特異性
+     (0,2,1)本來就蓋過這裡 ⇒ 表格字級不受本行牽動。
+     🔴 **緊湊密度的 12px/11px 未動**(`--od-fs`/`--od-fs-sm`,:684-697 附近)——
+     那是密度系統的獨立三階,牽動列高與其他已拍板的像素值,不在這次「訂單列表+訂單面板」
+     的量測範圍內。緊湊模式切換後小字仍會是 11px,是已知缺口、非本片修復對象。
+     🔴 訂單列表「狀態」欄切字的已知連動(Sean 已知情、要另做一片調欄寬)—— 見交件說明。 */
+  --text-xs: 0.8125rem;
   /* 🔴🔴 **四階改成【各自寫死 0】,不再由 `--radius` 推導** —— 這是刻意的,不是重複。
      **原本**:sm = `calc(--radius - 4px)` / md = `-2px` / xl = `+4px`。
      ⚠️ **`--radius` 一旦設 0,那組推導就壞了**:sm 得 **−4px**、md 得 **−2px**(負圓角,
@@ -524,51 +534,19 @@
   max-width: calc(100% - 480px);
 }
 
-/* ③ **訂單編輯面板固定 720px**(Sean 2026-08-19 拍「甲」;選項原文
-      `甲 = 720px 固定` / `乙 = 預設 360px、可以拖寬、會記住` ⇒ **他是在兩者之間選了固定**,
-      拖曳與記住寬度是**一起**被裁掉的,不是只裁了一個數字)。
+/* ③ **訂單編輯面板預設 720px,可拖寬**(Sean 2026-08-19 拍「甲=720固定」,
+      2026-08-21 F-81 端三張實體版本後 Sean **改拍「乙=留著拖曳、預設值改720」**,
+      推翻 08-19 那次的「甲」;逐字見 `~/pcm-mailbox/F-81-W1-001-Q0Q1整理-20260821.md` Q0)。
 
-   🔴 **為什麼是 `:has()` 標記,而不是把 ② 的三行改掉 / 不是刪 `workspace-panel.ts`**:
-      殼是**共用基礎設施**(`workspace-shell.tsx:16-17` 逐字),同一個殼日後還要裝別的面板。
-      Sean 被問的、他答的都是**訂單編輯面板**;把整個殼的拖曳能力拿掉 = 替他決定一件
-      **他沒有被問過**的事。⇒ 主視窗 2026-08-19 裁**甲:只鎖訂單面板、不動殼**。
-      ⇒ 本規則只在槽裡那塊掛著 `.panel-width-locked` 時生效;其餘面板照舊吃 ② 的可拖寬度。
-
-   🔴 **把手要一起收掉,這不是順手美化** —— 只鎖寬度而留著把手,拖曳會「看得到、按得下、
-      而畫面不動」= 一個**壞掉的控制項**;主視窗那一裁的第二半逐字寫著
-      「若實作出來變成殼可以拖、而拖完訂單面板看起來壞掉,那就不是甲」。
-      ⚠️ 它同時也把 `role='separator'` 那顆從**鍵盤 Tab 序**裡拿掉了(`display:none` 不可聚焦)
-      —— 那是**行為改動不只是外觀**,而在這裡是要的效果:一個調不動的 splitter
-      不該還佔著鍵盤使用者的一次 Tab。
-
-   🔴 **`max-width` 保留 ② 那條 480 下限(片1b;Sean 2026-08-19 `Q2` 拍「甲 = 加下限」)**:
-      `width: 720px` 是**想要的**寬度,`max-width: calc(100% - 480px)` 是**讓步線**。
-      · 視窗夠寬 ⇒ `max-width` 不咬 ⇒ 面板就是 720。**720 那一裁沒有被鬆開。**
-      · 視窗變窄 ⇒ 面板讓步,內容區的**外框**守在 480。
-        ⚠️ **480 是外框不是可用寬**(`W4-003` nit):`.workspace-content` 帶 `p-6`
-           ⇒ 實際可用約 **432**。非本片引入,但上一版把 480 寫成給人讀的保證句了。
-      🔴 **480 是【既有】那條線,不是新發明的數字** —— 它就是 ② 的 `MIN_CONTENT_WIDTH`
-         (`lib/layout/workspace-panel.ts:42`);主視窗裁定明文要求沿用、不得自定新值。
-      🔴 **`min-width` 不再覆寫成 720,而這一行是整片的關鍵**:CSS 規範裡 `min-width` 在
-         `max-width` **之後**套用 ⇒ 留著 `min-width:720px` 會把上面那條讓步線直接壓掉,
-         **加了等於沒加,而畫面上看起來和沒加一模一樣。** 去掉之後吃基底 ② 的 `min-width:320px`。
-      ⚠️ **視窗 < 800px 時 ② 的 `min-width:320px` 會贏、內容區仍會低於 480** ——
-         **那是既有行為、不是本片引入的**,本片不動它。**不要把這句美化成「已解決」。**
-
-   ⚠️ **門檻是 1344px,不是 1200px**(2026-08-19 W4 審查更正;我原本少算了側欄):
-      側欄 `SIDEBAR_WIDTH = 9rem` = 144px(`components/ui/sidebar.tsx:60`)且**預設展開**
-      (`app/layout.tsx:67` 的 `<SidebarProvider>` 沒傳 `defaultOpen`,全樹零呼叫端傳它)
-      ⇒ 內容區 = 視窗 − 144 − 720 ⇒ 要 ≥480 得**視窗 ≥1344**。**1280×800 筆電上只剩 416px。**
-      量法(**三檔,才看得到門檻**;只量 1024 看得到症狀但看不到門檻):
-        1440 ⇒ 內容區 576(還好)   1280 ⇒ **416(已破)**   1024 ⇒ 160
-      ⚠️ **以上是算出來的、不是量到的**(W4 自陳同樣未量)⇒ 真瀏覽器那一發併進「骨架成形」那次。 */
-.workspace-row:has(.workspace-panel > .panel-width-locked) > .workspace-panel {
-  width: 720px;
-  max-width: calc(100% - 480px);
-}
-.workspace-row:has(.workspace-panel > .panel-width-locked) > .workspace-handle {
-  display: none;
-}
+   🔴 **CSS 這裡不再鎖寬度、不再藏把手** —— 那兩件事現在都是【殼的一般行為】,
+      不是訂單面板專屬的例外。本規則已刪除,`.panel-width-locked` marker
+      class 還留在 `@panel/orders/page.tsx` 的 JSX 裡,但現在只被
+      `workspace-shell.tsx` 用 JS 讀 DOM 判斷「沒有 cookie 偏好時預設值該是多少」,
+      不再被 CSS `:has()` 用來覆寫寬度或藏把手 —— 「殼不認業務概念、只認 marker」
+      這個既有原則沒有變,只是判斷 marker 的地方從 CSS 換成 JS(理由見
+      `workspace-shell.tsx` 該處註解)。
+   ⇒ 訂單面板現在跟其他面板走同一套拖曳 + cookie 記憶機制(② 那三行),
+      差別只在「沒有 cookie 時的預設值」。 */
 
 /* ═══ 訂單列表 L3 片3:14 欄欄寬 + 容器斷點 ═══════════════════════════════════
    真權威 = OD project `pcm-admin-order-ui` 的 `overview-desktop.html:121-124` 的 CSS 宣告。
@@ -932,8 +910,13 @@
   width: 62px;
 }
 
+/* 🔴 A2 連帶片(2026-08-21):88 → 98。Sean 選字級乙(13px)時已知情接受的代價
+   ——狀態膠囊(如「已收未定」,4 字、13px 下實測 70px 寬)在 88px 這格只剩 2px/2.8% 餘裕,
+   真瀏覽器量到視窗窄於 ~865px(container 同理)時**真的會被 `overflow:hidden` 切掉**
+   (量法:`td.scrollWidth > td.clientWidth`,不是量 badge 自己的 scrollWidth ——
+   那個常見錯法會一直印「沒事」,因為問錯了元素)。98px 給 70px 的字留 12px/17% 餘裕。 */
 .orders-grid .col-status {
-  width: 88px;
+  width: 98px;
 }
 
 /* 片5:44 → 56。實測需求 = 55px。三態字面(未開立 / 已開立 / 已作廢)**都是 3 個中文字**
@@ -959,6 +942,11 @@
       `12px` / `600`)才是逐字相同。
    ⚠️ **OD 的 `.fchip` 還吃 `:482` 的 `flex-shrink:0` 與 `white-space:nowrap`,我方沒搬**
       —— 兩顆 chip 在 420px 目測不換行(真瀏覽器看過),但**四顆之後會回來咬**(B-1 plan §5 列過)。 */
+/* 🔴 A2(2026-08-21):**沒有跟著 13px 一起改,原地保留 12px** —— 我第一版跟 `.ibrand` 走同一個
+   「照『所有』做」的預設,code review 抓到:這格有 `order-filter-chips.test.tsx:157` 一顆硬釘住
+   12px 的「逐字對 OD」測試(還有兩顆算 chip 寬度的幾何測試釘在 12px 衍生的像素上),
+   跑了會紅(3 個 fail)。跟 `.ibrand` 不同 —— **這格有測試守著,不是我可以直接預設帶過的**,
+   已在交件裡列成待 Sean 裁的題目,不擅自二選一。 */
 .fchip {
   border: 1px solid var(--border);
   /* 🔴 **從寫死的 `999px` 改成吃 `--radius`**(設計參照 §6.5.4 的裁決)。
@@ -1121,8 +1109,10 @@
     width: 72px;
   }
 
+  /* 🔴 A2 連帶片(2026-08-21):84 → 98,同上面 :913 附近那條理由,窄容器下餘裕更少
+     (實測 84px 這格只剩 0px、字真的被切掉),數字統一成同一個值不留兩套。 */
   .orders-grid .col-status {
-    width: 84px;
+    width: 98px;
   }
 }
 
@@ -1516,10 +1506,11 @@
   gap: 10px;
   align-items: center;
 }
+/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):11px → 13px。 */
 .ihead {
   padding: 0 0 5px;
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--muted-foreground);
@@ -1540,8 +1531,9 @@
        而 CSS 對不存在的變數是**靜默失效**,顏色會退回繼承值而沒有任何東西會紅)。
    ⚠️ `letter-spacing:.05em` 與 `font-size:10px` **原樣搬**,不換成 Tailwind 的近似值 ——
       那兩個數字是設計稿自己訂的,近似會漂。 */
+/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px、原句「所有最小字」)：10px → 13px。 */
 .ibrand {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--muted-foreground);

@@ -536,7 +536,8 @@ export function OrderDetail({
           defaultOpen={refundLedgerAbnormal}
           summary={
             <span className='flex flex-wrap items-center gap-2'>
-              <span className='text-muted-foreground text-[10px] transition-transform group-open:rotate-90'>
+              {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px。 */}
+              <span className='text-muted-foreground text-[13px] transition-transform group-open:rotate-90'>
                 ▶
               </span>
               <h2
@@ -623,7 +624,8 @@ export function OrderDetail({
           className='group bg-card text-card-foreground rounded-lg border p-4'
           summary={
             <span className='flex flex-wrap items-center gap-2'>
-              <span className='text-muted-foreground text-[10px] transition-transform group-open:rotate-90'>
+              {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px。 */}
+              <span className='text-muted-foreground text-[13px] transition-transform group-open:rotate-90'>
                 ▶
               </span>
               <h2 className='text-destructive font-semibold'>申請取消整張單</h2>

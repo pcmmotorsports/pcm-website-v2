@@ -202,7 +202,8 @@ export function AppSidebar({
           任一格讀取失敗(`sidebar-counts.ts` 的 `syncedAt` 為 `null`)⇒ 顯示「讀取失敗」,
           **不印時間戳**——印一個時間會讓留白變成一句謊話(員工會讀成「這幾格今天沒事」)。
         */}
-        <div className='text-muted-foreground border-t px-1 py-2 text-center text-[10px]'>
+        {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px,見 STATUS Q26 決策。 */}
+        <div className='text-muted-foreground border-t px-1 py-2 text-center text-[13px]'>
           {counts.syncedAt ? (
             <>
               同步
@@ -270,7 +271,8 @@ function RailCell({
           {railCountText(count, truncated)}
         </span>
       </span>
-      <span className='mt-1 block text-center text-[11px] leading-tight'>{item.label}</span>
+      {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):11px → 13px。 */}
+      <span className='mt-1 block text-center text-[13px] leading-tight'>{item.label}</span>
     </>
   );
   const cls = `block w-full border-l-2 px-1 py-2 ${

@@ -151,7 +151,8 @@ export function NotesTimeline({
     >
       <summary className='flex cursor-pointer flex-wrap items-center gap-2'>
         {/* display:flex 會蓋掉 <summary> 原生的 list-item marker ⇒ 自己補一顆指示三角 */}
-        <span className='text-muted-foreground text-[10px] transition-transform group-open:rotate-90'>
+        {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):10px → 13px。 */}
+        <span className='text-muted-foreground text-[13px] transition-transform group-open:rotate-90'>
           ▶
         </span>
         {/* 🔴 「聯絡紀錄」→「客人聯繫」:Sean 要那個舊詞消失,而它原本還留在標題裡。
