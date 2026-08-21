@@ -15222,7 +15222,7 @@ jobid  jobname                     status      n
 2. 對「中間人寫的綠」,去找【被觀測者自己寫的東西】當第二把尺。
    本例找到兩把,而它們的射程不一樣:
      net._http_response  ⇒ 路由真的回幾號(保留約 6 小時)
-     postgres_logs       ⇒ 函式自己 RAISE LOG 的業務數字(至少 24 小時)
+     postgres_logs       ⇒ 函式自己 RAISE LOG 的業務數字(~~至少 24 小時~~ 🔴 **實測至少 60 天**,見下)
    ⚠️ 兩把都不涵蓋 GitHub Actions 那支排程 ⇒ 換尺不等於換到全覆蓋。
 
 3. 🔴 最省事而最有效的一步:**讓它紅一次。**
