@@ -84,7 +84,8 @@ E0 搜尋 / E1 客戶累計消費 / E2 內容發布合約 / E3 圖片上傳 / E4
 > 真資料鑽機上走一天 + 線 E `-5b` 唯讀重盤那 18 個 ❌)。
 > ~~盤點結果:✅ 10 / 🟡 5 / ❌ 18(共 33 項)~~ ⇒ **2026-08-22 現值:**
 > ```
-> ✅ 11   🟡 7   🔌 2(新標記)  ❌ 13     共 33
+> ✅ 11   🟡 7   🔌 2   🧩 5   ❌ 7   🚧 1     共 33
+> （🔌 寫好了被旗標關著 / 🧩 備好了沒人接 / 🚧 刻意做了反向的;後兩種 2026-08-22 新增, 見 §1-A-8 §1-A-9）
 > 對照 2026-08-14:✅ 10 / 🟡 5 / ❌ 18
 > ⇒ 八天之內【六格】換了狀態,而六格全部是同一個方向:往「做得到」那邊。
 > ⚠️ 而其中兩格不是「做出來了」,是【一直都在,只是被旗標關著】(#17 / #27)。
@@ -197,26 +198,29 @@ E0 搜尋 / E1 客戶累計消費 / E2 內容發布合約 / E3 圖片上傳 / E4
 | 17 | 退款操作 | `REFUND_UI_ENABLED` | 2026-08-22 **量了** | ~~✅~~ **標記錯了**:入口吃旗標(`lib/payment/refund-ui-flag.ts:21-23`、`order-detail-route.tsx:301`、server 端 `refund-actions.ts:124`)。旗標關著時該區**只剩帳本**,四張真單上「全額退款 / 部分退款 / 發起退款」字面皆 **0**。<br>⚠️ **正式站應該是開的**,而**這句是推的不是量的**(依據:`MAIN-113 §3` Sean 照操作單走完 ①②③、第④步才在 TapPay 失敗)。<br>🔴 **我永久標「沒走」不去按** —— 就算鑽機沒接外網,「打不出去」與「沒有發生」是兩件事<br>**錨點**(下次重驗從這裡開始;皆 `apps/admin/src/` 底下除非另註):`lib/payment/refund-ui-flag.ts:21-23` · `components/orders/order-detail-route.tsx:301` · `lib/payment/refund-actions.ts:124` · `components/orders/refund-section.tsx` |
 | 27 | 稽核 UI | `AUDIT_UI_ENABLED` | 2026-08-22 **做了** | ~~「有寫入介面、**連讀取 API 都沒有**」⇒ **本表錯得最遠的一格**~~。不設 ⇒ `/settings/audit` **404**、側欄連那項都不長;設 `=1` 重開 ⇒ **200 · 156,221 B**,頁面逐字「後台每一筆異動的紀錄:誰、什麼時候、對哪張單、做了什麼」,而且是**欄位級的原本→改成**。<br>🔴 **這是整張表裡唯一一個「點頭當天就能用」的功能。**<br>**錨點**(下次重驗從這裡開始;皆 `apps/admin/src/` 底下除非另註):`lib/audit/audit-ui-flag.ts:29-31` · `app/settings/audit/page.tsx:73` · `components/audit/audit-log-table.tsx` |
 
-### §1-A-4 ❌ 做不到(**今天量過,仍是 ❌**)
+### §1-A-4 ❌ 做不到(**今天量過,仍是做不到**)
+
+> 🔴 **2026-08-22 追加:這 13 格【不是同一件事】** —— 逐格分類見 **§1-A-9**。
+> 標記:🧩 = 備好了沒人接(**5 個**)/ ❌ = 真的整條沒做(**7 個**)/ 🚧 = 刻意做了反向的(**1 個**)。
 
 > 量法一律 `git grep -ln`(不接管線、直接讀 rc);負向對照 `orderDigest|order-detail` ⇒ rc=0 / 78 檔 ⇒ 尺是活的。
 > 判 ❌ 而依據是 **route 清單**的那幾項,已在該格註明 —— **grep pattern 太鬆的命中不構成證據**。
 
 | # | 事 | 最後量測 | 量法 / rc |
 |---|---|---|---|
-| 4 | 批次標商品進度 | 2026-08-22 **做了**(更正同日的 grep 判定) | 🔴 **「畫面上仍沒有批次入口」這句不精確 —— 有批次畫面,只是它做的是【另一個步驟】。**<br>實走:訂單列表勾一張單 ⇒ **13 張立刻變灰**(只留同一位客人的),出現「出貨(N 單)」。按下去是一個**跨單、逐品項**的「建立包裹」對話框,每一項旁邊有 **「貨到了」**。<br>⇒ ✅ **批次出貨**有、✅ **批次登錄到貨**有(4 個品項 3 顆鈕);❌ **批次向供應商下訂沒有**。<br>🔴 而它 fail-closed 得很漂亮:沒有採購列的那一項**沒有那顆鈕**;按下去的表單逐字「**這個品項目前沒有可以登錄到貨的採購(可能還沒下單,或原本那筆已經作廢)。請先到訂單頁的「採購」區塊補上要向誰訂(或選「店內現貨」),再回來登錄。**」;而兩顆送出鈕 `disabled=true`,畫面另有一句「這些品項現在都不能出…登記完這裡就會亮起來」。<br>⇒ **仍判 ❌**,因為「標商品進度」的第一步(訂貨)沒有批次;但**下一個人不要再去找「批次入口在哪」——它在,只是在出貨那條路上**。<br>📌 `lib/orders/procurement-batch-policy.ts` 零呼叫端**仍然成立**(那是 A9h-2 的決策層,與上面這個畫面不是同一條)<br>**錨點**(下次重驗從這裡開始;皆 `apps/admin/src/` 底下除非另註):`lib/orders/procurement-batch-policy.ts`(零呼叫端那支)· `components/orders/shipment-dialog.tsx`(批次那個畫面) |
-| 11 | 出貨 Email 通知 | 2026-08-22 **做了+量了** | 🔴 **我真的出了一張貨**,然後量 `email_outbox` 的 `n_tup_ins` ⇒ **0**(用 lifetime insert 數不是 live 數 ⇒ 分得出「從沒寫過」與「寫了又刪」)。<br>碰 `email_outbox` 的 11 支檔**全在 storefront + packages**,`apps/admin` **零**;`shipment-actions.ts` 對 `outbox\|enqueue\|notify\|通知` 零命中。⚠️ **射程**:🔴 **這個字集裡沒有 `email` / `mail`,而這一格的主題就是 email** —— 今天回 0 是對的(審查線把字集加寬重打,兩處命中逐筆開過都是「包裹已寄出」語意),**但下次重驗一定要用加寬過的字集**。<br>🔴 **`packages/ports/src/IShippedEmailContext.ts` 存在而零實作、零呼叫端** ⇒ 比 `#22` **更早一階**:那邊有引擎沒入口,這邊**只有插座**<br>**錨點**(下次重驗從這裡開始;皆 `apps/admin/src/` 底下除非另註):`packages/ports/src/IShippedEmailContext.ts`(**只有插座**)· `lib/shipping/shipment-actions.ts`(**不碰 outbox**)· `apps/storefront/src/app/api/cron/email-sweep/route.ts` |
-| 12 | 手動建單 | 2026-08-22 **量了** | `orders/new\|createOrder\b\|建立訂單` rc=**1**;無 `/orders/new` route;訂單頁 `新增訂單`/`建立訂單`/`手動建單`/`手動新增` 皆 **0**(正對照同頁 `訂單`=**151**)<br>🔴🔴 **2026-08-22 補:那條掛了一個月的「動前必驗」已經驗出來了。**memory `project_admin-backend-staff-ready-goal`(2026-07-25)逐字掛著:「`create_order` RPC **是否允許自由輸入品項未查證**,動前必驗」⇒ **今天實讀,答案是【不允許】。**<br>`20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:296-320` 逐字:每一列必須以 `variant_id` **或** `(supplier_slug, sku)` 對到一列**已存在的** `product_variants`,否則 `RAISE EXCEPTION 'create_order: line 缺 variant_id 或 (supplier_slug,sku)'` / `'找不到 variant'`;單價只能取 `price_general`(必須 >0)、已下架直接擋。<br>⇒ **而它還有另外兩道讓 admin 走不通的閘**:`:243` 要 `auth.uid()`(**登入中的客人**,不是員工)、`:255` 要 `address_id` **屬於那位客人**。<br>⇒ 🔴 **結論:代購訂單【不能靠包一層 UI 在 create_order 上】,要一個新的 writer。**而它與 `#20 新增商品` **是鏈在一起的** —— 不新增商品,就沒有 variant 可以對。<br>📌 **資料層其實已經備好了**:`orders.order_source` 是 `text` + CHECK `ANY(ARRAY['web','manual_phone','manual_line','manual_other'])`(實查),而**鑽機上 26 張單全部是 `web`** ⇒ 那三個手動值**從來沒有被用過**。<br>**量法與正對照**:`admin_create_order\|create_manual_order\|manual_order` 全樹命中 **0 檔**;同一把尺量 `admin_record_manual_refund` ⇒ **8 檔** ⇒ 尺是活的。 |
-| 18 | 退貨收回 | 2026-08-22 **量了** | 無 route;訂單頁 `退貨` **0** |
-| 21 | 上傳商品圖片 | 2026-08-22 **量了** | `supabase.storage\|.storage.from(\|createSignedUploadUrl` rc=**1**(對照 `createClient` ⇒ rc=0 / 3 檔)。商品明細頁**自陳**逐字「圖片與影音 —— 這一頁的東西不能在後台改,它由供應商同步管線維護」 |
-| 23 | 匯入供應商 Excel | 2026-08-22 **量了** | `xlsx\|XLSX\|SheetJS\|exceljs`(`apps/**` `packages/**` `scripts/**`)rc=**1** ⇒ **零程式解析 Excel**。⚠️ 08-14 那條更正仍成立:`scripts/rpm-*.ts` 做的是**跨專案 DB→DB 同步**,不是解析 Excel ⇒ **不能靠把既有 CLI 包一層 UI 解決** |
-| 24 | 匯出訂單商品 | 2026-08-22 **量了** | `text/csv\|application/vnd.ms-excel\|Blob(\|createObjectURL` rc=**1**;訂單頁 `匯出` **0** |
-| 28 | 會員密碼重設 | 2026-08-22 **量了** | `resetPasswordForEmail\|generateLink\|密碼重設` rc=**1**(機制在 `SupabaseAuthAdapter.ts:87-90`,admin 端仍零觸發入口) |
-| 29 | 後台對客發信 | 2026-08-22 **量了** | `sendEmail\|mailer\|resend\|寄送.*客人` rc=**1**。⚠️ **射程**:這個字集**沒有 `email` / `mail`** ⇒ 有人往那支檔加 `sendEmail(...)` 以外的寫法時抓不到。**下次重驗把字集加寬再打。** |
-| 30 | 月報表 | 2026-08-22 **量了(route)** | admin 無任何對應 page.tsx |
-| 31 | 成本 | 2026-08-22 **量了(route)** | admin 無 route。⚠️ DB 層 CHECK 硬擋(`20260602135934:90,93`)**未複驗** |
-| 32 | 會計收支帳 | 2026-08-22 **量了(route)** | admin 無 route |
-| 33 | 成本精算報表 | 2026-08-22 **量了(route)** | admin 無 route |
+| 4 | 🧩 批次標商品進度 | 2026-08-22 **做了**(更正同日的 grep 判定) | 🔴 **「畫面上仍沒有批次入口」這句不精確 —— 有批次畫面,只是它做的是【另一個步驟】。**<br>實走:訂單列表勾一張單 ⇒ **13 張立刻變灰**(只留同一位客人的),出現「出貨(N 單)」。按下去是一個**跨單、逐品項**的「建立包裹」對話框,每一項旁邊有 **「貨到了」**。<br>⇒ ✅ **批次出貨**有、✅ **批次登錄到貨**有(4 個品項 3 顆鈕);❌ **批次向供應商下訂沒有**。<br>🔴 而它 fail-closed 得很漂亮:沒有採購列的那一項**沒有那顆鈕**;按下去的表單逐字「**這個品項目前沒有可以登錄到貨的採購(可能還沒下單,或原本那筆已經作廢)。請先到訂單頁的「採購」區塊補上要向誰訂(或選「店內現貨」),再回來登錄。**」;而兩顆送出鈕 `disabled=true`,畫面另有一句「這些品項現在都不能出…登記完這裡就會亮起來」。<br>⇒ **仍判 ❌**,因為「標商品進度」的第一步(訂貨)沒有批次;但**下一個人不要再去找「批次入口在哪」——它在,只是在出貨那條路上**。<br>📌 `lib/orders/procurement-batch-policy.ts` 零呼叫端**仍然成立**(那是 A9h-2 的決策層,與上面這個畫面不是同一條)<br>**錨點**(下次重驗從這裡開始;皆 `apps/admin/src/` 底下除非另註):`lib/orders/procurement-batch-policy.ts`(零呼叫端那支)· `components/orders/shipment-dialog.tsx`(批次那個畫面) |
+| 11 | 🧩 出貨 Email 通知 | 2026-08-22 **做了+量了** | 🔴 **我真的出了一張貨**,然後量 `email_outbox` 的 `n_tup_ins` ⇒ **0**(用 lifetime insert 數不是 live 數 ⇒ 分得出「從沒寫過」與「寫了又刪」)。<br>碰 `email_outbox` 的 11 支檔**全在 storefront + packages**,`apps/admin` **零**;`shipment-actions.ts` 對 `outbox\|enqueue\|notify\|通知` 零命中。⚠️ **射程**:🔴 **這個字集裡沒有 `email` / `mail`,而這一格的主題就是 email** —— 今天回 0 是對的(審查線把字集加寬重打,兩處命中逐筆開過都是「包裹已寄出」語意),**但下次重驗一定要用加寬過的字集**。<br>🔴 **`packages/ports/src/IShippedEmailContext.ts` 存在而零實作、零呼叫端** ⇒ 比 `#22` **更早一階**:那邊有引擎沒入口,這邊**只有插座**<br>**錨點**(下次重驗從這裡開始;皆 `apps/admin/src/` 底下除非另註):`packages/ports/src/IShippedEmailContext.ts`(**只有插座**)· `lib/shipping/shipment-actions.ts`(**不碰 outbox**)· `apps/storefront/src/app/api/cron/email-sweep/route.ts` |
+| 12 | 🧩 手動建單 | 2026-08-22 **量了** | `orders/new\|createOrder\b\|建立訂單` rc=**1**;無 `/orders/new` route;訂單頁 `新增訂單`/`建立訂單`/`手動建單`/`手動新增` 皆 **0**(正對照同頁 `訂單`=**151**)<br>🔴🔴 **2026-08-22 補:那條掛了一個月的「動前必驗」已經驗出來了。**memory `project_admin-backend-staff-ready-goal`(2026-07-25)逐字掛著:「`create_order` RPC **是否允許自由輸入品項未查證**,動前必驗」⇒ **今天實讀,答案是【不允許】。**<br>`20260730120100_m4b_e10_n3b_create_order_new_display_id.sql:296-320` 逐字:每一列必須以 `variant_id` **或** `(supplier_slug, sku)` 對到一列**已存在的** `product_variants`,否則 `RAISE EXCEPTION 'create_order: line 缺 variant_id 或 (supplier_slug,sku)'` / `'找不到 variant'`;單價只能取 `price_general`(必須 >0)、已下架直接擋。<br>⇒ **而它還有另外兩道讓 admin 走不通的閘**:`:243` 要 `auth.uid()`(**登入中的客人**,不是員工)、`:255` 要 `address_id` **屬於那位客人**。<br>⇒ 🔴 **結論:代購訂單【不能靠包一層 UI 在 create_order 上】,要一個新的 writer。**而它與 `#20 新增商品` **是鏈在一起的** —— 不新增商品,就沒有 variant 可以對。<br>📌 **資料層其實已經備好了**:`orders.order_source` 是 `text` + CHECK `ANY(ARRAY['web','manual_phone','manual_line','manual_other'])`(實查),而**鑽機上 26 張單全部是 `web`** ⇒ 那三個手動值**從來沒有被用過**。<br>**量法與正對照**:`admin_create_order\|create_manual_order\|manual_order` 全樹命中 **0 檔**;同一把尺量 `admin_record_manual_refund` ⇒ **8 檔** ⇒ 尺是活的。 |
+| 18 | ❌ 退貨收回 | 2026-08-22 **量了** | 無 route;訂單頁 `退貨` **0** |
+| 21 | ❌ 上傳商品圖片 | 2026-08-22 **量了** | `supabase.storage\|.storage.from(\|createSignedUploadUrl` rc=**1**(對照 `createClient` ⇒ rc=0 / 3 檔)。商品明細頁**自陳**逐字「圖片與影音 —— 這一頁的東西不能在後台改,它由供應商同步管線維護」 |
+| 23 | ❌ 匯入供應商 Excel | 2026-08-22 **量了** | `xlsx\|XLSX\|SheetJS\|exceljs`(`apps/**` `packages/**` `scripts/**`)rc=**1** ⇒ **零程式解析 Excel**。⚠️ 08-14 那條更正仍成立:`scripts/rpm-*.ts` 做的是**跨專案 DB→DB 同步**,不是解析 Excel ⇒ **不能靠把既有 CLI 包一層 UI 解決** |
+| 24 | ❌ 匯出訂單商品 | 2026-08-22 **量了** | `text/csv\|application/vnd.ms-excel\|Blob(\|createObjectURL` rc=**1**;訂單頁 `匯出` **0** |
+| 28 | 🧩 會員密碼重設 | 2026-08-22 **量了** | `resetPasswordForEmail\|generateLink\|密碼重設` rc=**1**(機制在 `SupabaseAuthAdapter.ts:87-90`,admin 端仍零觸發入口) |
+| 29 | 🧩 後台對客發信 | 2026-08-22 **量了** | `sendEmail\|mailer\|resend\|寄送.*客人` rc=**1**。⚠️ **射程**:這個字集**沒有 `email` / `mail`** ⇒ 有人往那支檔加 `sendEmail(...)` 以外的寫法時抓不到。**下次重驗把字集加寬再打。** |
+| 30 | ❌ 月報表 | 2026-08-22 **量了(route)** | admin 無任何對應 page.tsx |
+| 31 | 🚧 成本 | 2026-08-22 **量了(route)** | admin 無 route。⚠️ DB 層 CHECK 硬擋(`20260602135934:90,93`)**未複驗** |
+| 32 | ❌ 會計收支帳 | 2026-08-22 **量了(route)** | admin 無 route |
+| 33 | ❌ 成本精算報表 | 2026-08-22 **量了(route)** | admin 無 route |
 
 🔴 **上表有 11 格沒有「錨點」欄,那不是漏寫** —— `#12` `#18` `#21` `#23` `#24` `#28` `#29` `#30` `#31` `#32` `#33`
 判 ❌ 的依據**就是「沒有那個檔」**,錨點是**下面這張 route 清單本身**。
@@ -355,6 +359,45 @@ capture-state  deriveCaptureDisplay / getOrderCaptureState 對外消費端 ⇒ 0
 
 ⚠️ **這張表本身也會過期** —— 它列的是 2026-08-22 的四個。**任何一個被接上之後要從表上移走**,
    而移走的時候要問一句:**有沒有第五個?**(找法:資料層有值域/欄位/守門,而 `grep` 那個識別字的消費端回 0。)
+
+
+### 🔴 §1-A-9 **13 個 ❌ 逐格分類:哪幾個是「整條沒做」,哪幾個是「備好了沒人接」**(2026-08-22 線 A `-86`)
+
+> **為什麼要分**:`❌` 把兩件事混在一起,而**兩者的成本差一個數量級**。
+> 判別三問:**有欄位 ⇒ 問誰在寫 / 有函式 ⇒ 問誰在呼叫 / 有守門 ⇒ 問它擋過誰。**
+> 每一格帶正對照(同一把尺量 `tappay` ⇒ **70 檔**;量 `order_payments` 在 `apps/admin` ⇒ **13 檔**)。
+
+| # | 事 | 新標記 | 停在哪一層 / 量到什麼 |
+|---|---|---|---|
+| 4 | 批次標商品進度 | 🧩 | **有函式、沒消費端**:`lib/orders/procurement-batch-policy.ts`(A9h-2 純決策層)對 `components/` 與 `app/` **零呼叫端**。<br>⚠️ 而**批次畫面本身是有的**(出貨對話框跨單逐品項、含「貨到了」)—— 缺的是**批次下訂**那一步 |
+| 11 | 出貨 Email 通知 | 🧩 | **只有插座、沒有引擎**:`packages/ports/src/IShippedEmailContext.ts` 存在而**零實作、零呼叫端**;`apps/admin` 對 `email_outbox` **0 檔**(正對照:同一把尺量 `order_payments` ⇒ **13 檔**)。<br>🔴 **比 `#22` 更早一階** —— 那邊有引擎沒入口,這邊**連引擎都還沒有** |
+| 12 | 手動建單(代購) | 🧩 | **有 CHECK、沒 writer** —— 見 §1-A-8 |
+| 28 | 會員密碼重設 | 🧩 | **有引擎、沒入口**:`packages/adapters/src/supabase/SupabaseAuthAdapter.ts` 有機制,而 `apps/admin` **零觸發入口**(`resetPasswordForEmail\|generateLink` 全樹 **2 檔**,兩檔都不在 admin) |
+| 29 | 後台對客發信 | 🧩 | **有管線、沒入口**:信件管線在 `packages/adapters/src/email` + `apps/storefront` 的 cron(共 **9 檔**),而 **`apps/admin` 對 `email_outbox` 0 檔** ⇒ 員工沒有任何地方可以主動寄信 |
+| 18 | 退貨收回 | ❌ **真的整條沒做** | 全樹 `return_request\|order_return\|退貨收回\|restock` ⇒ **1 檔**,而那一檔是 `cancel-review-section.tsx` **在說它不存在**(`:213` 逐字「退貨線在本 repo 零落點」;`:221` 畫面文案「**而退貨功能目前還沒有**」)。<br>✅ **而這一格做對了一件事:畫面沒有假裝有那條路** |
+| 21 | 上傳商品圖片 | ❌ 真的整條沒做 | `supabase.storage\|storage.from(\|createSignedUploadUrl` ⇒ **0 檔**(連底層都沒接);商品明細頁自陳「這一頁的東西不能在後台改」 |
+| 23 | 匯入供應商 Excel | ❌ 真的整條沒做 | `xlsx\|XLSX\|SheetJS\|exceljs` ⇒ **0 檔**。⚠️ 08-14 那條更正仍成立:`scripts/rpm-*.ts` 做的是**跨專案 DB→DB 同步**,**不能包一層 UI 解決** |
+| 24 | 匯出訂單商品 | ❌ 真的整條沒做 | `text/csv\|application/vnd.ms-excel\|createObjectURL\|toCsv` ⇒ **0 檔** |
+| 30 | 月報表 | ❌ 真的整條沒做 | `monthly_report\|月報表\|report_period` ⇒ **0 檔**;admin 無 route |
+| 32 | 會計收支帳 | ❌ 真的整條沒做 | `ledger_entry\|accounting\|收支帳` ⇒ **0 檔**;admin 無 route |
+| 33 | 成本精算報表 | ❌ 真的整條沒做 | `cost_analysis\|成本精算` ⇒ **0 檔**;admin 無 route |
+| 31 | 成本 | 🚧 **第四種:不是沒做,是【刻意做了反向的】** | `products` / `product_variants` 的 cost 欄 ⇒ **0 個**;而 `20260602135934` **加了 CHECK 硬擋 `cost` 寫進 metadata**,同一支 migration 還 **把既有的 cost 值從 metadata 裡刪掉**(`:81-85`)。<br>🔴 ⇒ 要做 `#31` 的第一步**不是寫功能,是推翻一個已經落地的安全決定**(Sean `N1`:員工看得到經銷價、**看不到成本**)⇒ **它與權限設計綁在一起,不是一片 UI** |
+
+### 結論:**13 個 ❌ 裡,只有 7 個是真的「整條沒做」**
+```
+🧩 備好了沒人接   5 個（#4 #11 #12 #28 #29）
+❌ 真的整條沒做   7 個（#18 #21 #23 #24 #30 #32 #33）
+🚧 刻意反向        1 個（#31）
+```
+🔴 **而那 5 個 🧩 原本與那 7 個混在同一個 ❌ 裡** —— 讀表的人看到 12 個 ❌,
+會以為「還有 12 條要從零蓋」,而**其中 5 條缺的只是一段接線**。
+
+📌 **而 `#31` 那格最值得單獨看**:它讀起來像「還沒做」,而 DB 正在**主動拒絕**它。
+⇒ **一個「沒做」的功能,可能是有人做了功夫讓它不能做。** 估工之前要分得出這兩種。
+
+⚠️ **這一節的效度限定**:上面每一格都是**字面掃描 + route 清單**,不是「按下去」。
+🔴 **今晚的教訓是字面掃描會低估**(`#27` 被記成「連讀取 API 都沒有」而整頁都在)⇒
+**要動任何一格之前,先照它那一欄的量法自己重跑一次,並且【真的去點一次那條路】。**
 
 
 ## 1. 驗收標準:員工的一天
