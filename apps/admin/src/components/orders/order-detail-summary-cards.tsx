@@ -289,6 +289,19 @@ function GoodsAxisValue({ detail }: { detail: AdminOrderDetail }) {
  *    🔴 `~/pcm-mailbox/A-215-STOP.md` 約束表第 ④ 條仍寫著「不扣」= **同一個過期來源的迴音**,
  *       不要拿它來推翻本檔(2026-08-16 A 窗實查 `lineNeed` 字面確認)。
  */
+/**
+ * 頭條「件數」答不出來時,旁邊那一行。
+ *
+ * 🔴 **字面是提案,等 Sean 過目** —— 三句都照取消區那格的三段式(原因 / 下一步 / 不是你的錯)。
+ * ⚠️ `truncated` 那句**逐字對齊既有兄弟**(`GoodsAxisValue` 的截斷態),兩處講同一件事不該兩種說法。
+ */
+const QTY_MISSING_NOTE = {
+  truncated: '這張單的品項清單這次沒有完整載入,算不出件數。請重新整理。',
+  noItems: '這張單沒有任何品項,所以沒有件數可以算。',
+  notReady:
+    '有品項的數量資料還沒建立,算不出件數。先看下面商品清單裡標「數量資料尚未就緒」的那幾項;若整張單都標、或你認為這張單應該有數量資料,請通知系統維護 —— 這不是你操作錯誤。',
+} as const;
+
 function HeadlineNumbers({
   detail,
   payments,
@@ -303,6 +316,30 @@ function HeadlineNumbers({
   );
   // ③ 截斷閘與 ① 的 null 閘在這裡合流 —— 兩者都只能答「未知」,不能答一個數字。
   const qty = detail.itemsTruncated ? null : goodsQuantityHeadline(detail.items);
+  /**
+   * 🔴 **「未知」有三條路,而它們的【下一步】不同**(2026-08-21 線 E)。
+   *    在此之前三條路共用一個裸「未知」:24px、整個面板最大的字、**而它沒說原因也沒說怎麼辦**。
+   *    同一個面板裡的取消區已經有正確形狀(原因 + 下一步 + 「這不是你操作錯誤」)
+   *    ⇒ 這一片是**把那個形狀複製過來**,不是發明新文案。
+   *    (anchor:grep `這不是你操作錯誤`)
+   *
+   * 🔴 **「未知」那兩個字本身不動** —— 本檔自己寫著理由
+   *    (anchor:grep `「不知道」與「是 0」不是同一件事`)。**缺的是它旁邊那一行。**
+   *
+   * ⚠️ **`notReady` 那句刻意【不提】重新整理**:`quantitySummary === null` 的來由是
+   *    `SupabaseOrderAdapter.ts`(anchor:grep `還沒建那一列`)—— 那讀起來像持久狀態、
+   *    不是暫時載入失敗 ⇒ 「請重新整理」很可能是**叫員工做一件不會有用的事**。
+   *    🔴 **而「重整到底有沒有用」我沒有驗過** ⇒ 所以那句話**兩個方向都不承諾**,
+   *    只講「去哪裡看」與「找誰」。**驗出來之前不要幫它補上「請重新整理」。**
+   */
+  const qtyMissingReason: 'truncated' | 'noItems' | 'notReady' | null =
+    qty !== null
+      ? null
+      : detail.itemsTruncated
+        ? 'truncated'
+        : detail.items.length === 0
+          ? 'noItems'
+          : 'notReady';
 
   return (
     /* 🔴 片3:三格(設計稿 §1 區塊① 逐字)——「總額/已收」「尾款」「到貨件數」。
@@ -359,6 +396,9 @@ function HeadlineNumbers({
       </section>
       <section className={SPEC}>
         <p className={SPEC_V}>{qty === null ? '未知' : `${qty.ordered} / ${qty.instock}`}</p>
+        {qtyMissingReason !== null && (
+          <p className='text-muted-foreground mt-1 text-xs'>{QTY_MISSING_NOTE[qtyMissingReason]}</p>
+        )}
         {/* 🔴🔴 **小標是「件數」不是「品項數」——【這是正確性修正,不是文案調整】。**
             (`Q-A216-F2b` Sean 2026-08-16 拍甲)
             `goodsQuantityHeadline` 加總的是**件數**(每個 line 的 `quantity` 面),
