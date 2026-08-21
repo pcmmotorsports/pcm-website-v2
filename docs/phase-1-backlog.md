@@ -28740,3 +28740,88 @@ python3 scripts/brand-degenerate-samples.py
 
 - **相關:** `apps/storefront/src/components/ProductPage.tsx`(那段註解 + 同日那一片)/
   `~/pcm-mailbox/B-證實-螢幕說2購物車是0-20260822.md`(四步實走證據)
+
+### #843 · 🔴 告警管道壞掉時,系統說得出「壞了幾條」,說不出【哪一條】—— 而兩條都掛的那一天,沒有人會知道
+
+- **狀態:** 待評估(2026-08-22 線 C 唯讀讀 code 開號;主視窗裁定**與「兩條都掛沒人知道」併為同一條、不分兩片**,理由=兩者的修法都要動 `packages/ports`〔鐵則 12⑥〕或落點〔12③〕,分開會變成兩次鐵則 12 的來回。**號的來源** = `grep -oE '^### #[0-9]+' docs/phase-1-backlog.md | grep -oE '[0-9]+' | sort -n | tail -1` ⇒ **842**、`grep -c '^### #843' docs/phase-1-backlog.md` ⇒ **0**,當場重跑不撞號)
+- **分流:** `P2`(告警可觀測性;不是金流正確性,而它是**發現金流出事的那條路**)
+
+**面一 · 分不出是哪一條管道(機制成因,逐字可核)**
+
+```
+packages/use-cases/src/check-anomaly-alerts.ts:
+  const results = await Promise.allSettled(deps.notifiers.map((n) => n.notify(message)));
+  notifiersFailed = results.filter((r) => r.status === 'rejected').length;
+                    ↑ 🔴 只留下一個【數量】。「哪一個 rejected」的資訊在這一行被丟掉。
+
+回傳型別 CheckAnomalyAlertsResult 與管道有關的只有兩欄:
+  notifiersTotal   本輪嘗試推播的管道數
+  notifiersFailed  推播失敗的管道數
+⇒ 兩個都是數字 ⇒ **route 回的 body 裡不可能有「哪一條」。**
+```
+
+🔴 **而「用陣列順序推」這條路不成立**:
+```
+packages/ports/src/IAlertNotifier.ts 全文只有一個方法:notify(message): Promise<void>
+⇒ **沒有 name / kind / channel** ⇒ use-case 拿不到可以標記的東西。
+
+而 apps/storefront/src/lib/payment/composition.ts 的 notifiers 是
+【依主密鑰存在性逐管道 push】的:
+  只設 Email  ⇒ index 0 是 Email
+  兩個都設    ⇒ index 0 是 LINE
+⇒ 🔴 index 的意思**隨設定而變**,而 **index 本身也沒有被回傳出來。**
+```
+
+**⇒ 為什麼這一格重要:兩種壞法的處置完全不同**
+```
+壞的是 LINE  ⇒ 值班的人收不到即時通知,而【信箱裡看起來一切正常】
+壞的是 Email ⇒ 即時通知照收,而【沒有留底】,事後查不到告警過什麼
+🔴 現在的訊號分不出來 ⇒ 值班只能兩條都去查,而其中一條是好的。
+```
+
+**面二 · 兩個管道【都】掛的那一天,沒有人會知道(那支 code 的作者自己標的)**
+
+同檔逐字:
+> 「🔴🔴 **已知缺口:兩個管道【都】掛掉的那一天,沒有人會知道。**
+>  現況:失敗只變成 `notifiersFailed` → route 回 503 → 進 `net._http_response`,
+>  而那張表**只保留約 6 小時** ⇒ 本 job 一天只跑一次(`0 1 * * *`)⇒ **隔天再查就沒有證據了。**」
+
+🔴 **而作者刻意沒有在那裡補落點,理由也寫了(逐字,值得保留)**:
+> 「任何『記下來』的做法都需要能寫東西 —— 而 2026-08-21 正式庫實查:
+>  `payment_confirmer` 在 `public` 底下【可寫入 0 張表】(分母 50)
+>  對照組:postgres 50/50、service_role 20/50、anon 0/50 ⇒ 這把尺分得開
+>  ⇒ 要落點就要 GRANT 或新表 = 鐵則 12③ = **另一片,不是這一片**。
+>  🔴 而在這裡塞一個半成品**會更糟,因為它看起來像機制** ——
+>     下一個人會以為這一格被守住了。」
+
+⇒ ✅ **那個判斷是對的,本條目不推翻它** —— 本條目只是把那一格**從註解搬到一個會被排程的地方**。
+
+**🔴 而面二是 `#803` 條件 1 的【第三個獨立實例】—— 三個人在三個不同的地方各自撞到同一件事**
+
+```
+判準(`#803` 條件 1):**偵測的頻率必須【短於】證據的壽命。**
+判別句:我下次醒來的時候,上一次醒來之後發生的事還在嗎?
+
+實例 ①  settle-sweep 的 503        證據 net._http_response 6 小時 / 而告警片一天跑一次
+        ⇒ 涵蓋率 25%,而它抓不到 2026-08-21 14:14 那一顆(`#803` 補充段)
+實例 ②  cron route 的 console.*     證據 Vercel runtime logs 🔴 只有 60 分鐘
+        ⇒ 而 anomaly-alert 一天跑一次 ⇒ **它的 console 事實上永遠查不到**
+實例 ③  本條目面二                  證據 net._http_response 6 小時 / 而本 job 一天跑一次
+        ⇒ 🔴 **這一格是那支 code 的作者【獨立發現】的,不是從 `#803` 抄的**
+```
+⇒ 🔴 **三個獨立來源撞到同一條判準 ⇒ 它的普遍性不是推的。**
+⇒ 修任何一格之前,先拿那句判別句對一次;**過不了就是還沒解掉。**
+
+- **不修未來會痛在哪(鐵則 10):** 告警是「發現錢出事」的**唯一一條主動路徑**。它壞掉時的樣子與「今天沒有異常」**在畫面上是同一句話**(零封信)。而現在:①壞了一條 ⇒ 值班會誤以為只是自己沒注意 ②兩條都壞 ⇒ 隔天連證據都沒了。⇒ 真的有金流異常的那一天,**我們會在客人打電話來的時候才知道**,而那時 `net._http_response` 早已清空,連「告警是什麼時候開始不叫的」都查不出來。
+- **修法方向(未定,兩面一起評估、不要分兩片):**
+```
+面一  IAlertNotifier 加一個唯讀識別(name / kind),use-case 把 rejected 的那幾個標出來
+      ⇒ 動 packages/ports = 共用元件 = 鐵則 12⑥ ⇒ 要 plan + 對抗審查
+面二  需要一個「告警自己跑過/失敗過」的持久落點
+      ⇒ 而 payment_confirmer 可寫入 0 張表 ⇒ 要 GRANT 或新表 = 鐵則 12③
+🔴 兩面共用同一個前置(要嘛動 ports、要嘛動權限)⇒ **一起評估成本才算得準。**
+⚠️ 而面二的落點若做成「每天寫一列」,要先過 `#803` 條件 1:
+   **那個落點自己的保留期,有沒有比檢查它的頻率長?**
+```
+- **相關:** `#803`(同一條判準的實例 ①②;三個實例並排在本條目上方)/ `docs/specs/2026-08-19-sweeper-heartbeat-wiring-plan.md`(心跳片的讀取端掛在同一支 anomaly-alert 上 ⇒ **`ANOMALY_ALERT_ENABLED` 一關,兩者一起靜默**)/ `~/pcm-mailbox/C-備妥-0905那一發-anomaly-alert-20260822.md` §④-d(本條目的逐字量法與 E 型讀數的處置)
+- **估時:** 未估(方向未定;而**面一與面二的前置不同,不可合併估**)
