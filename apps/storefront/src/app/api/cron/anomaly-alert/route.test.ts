@@ -8,6 +8,8 @@
 //     ④ enabled+errors=0→200 計數、errors>0→503 不偽 200、deps/factory throw→503 ⑤ options 注入
 //     (refundingStuckSeconds=86400)⑥ 零 PII(log counts only)。
 
+import { readFileSync } from 'node:fs';
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -251,4 +253,197 @@ describe('GET anomaly-alert — 應用層限流(#254 縱深 hardening)', () => {
     expect((await GET(makeReq(bearer()))).status).toBe(429); // 限流在 gate 前 → 超限優先於 disabled no-op
     expect(getDepsSpy).not.toHaveBeenCalled();
   });
+});
+
+describe('catch 的 errorName — 讓「程式錯誤 ≠ 設定錯誤」抵達觀察者(J-003 MF-1)', () => {
+  // 🔴 J-003 MF-1:composition-alert-failclosed.test.ts 斷言那個分辨【分得開】,
+  //    而在裸的 catch{} + 只記固定碼之下,它在 route 這一層就消失了 ⇒ 那格守門沒有消費者。
+  //    下面兩格就是它的消費者:兩個世界必須印不同的字。
+  //    ⚠️ 射程:只證明分辨抵達 console.error。**沒有人驗過那行在 Vercel log 出得來**(J-003 MF-3)。
+  // ✅ 兩發突變都表演過該紅的那一發(2026-08-21 實跑,shasum 比對還原):
+  //    D 把 `errorName` 從 payload 拿掉(= J 報的那個世界)⇒ 3 failed
+  //    E `err.name` 改成 `err.message`(= 把洩漏面打開)  ⇒ 2 failed
+  const CONFIG_MSG = 'ANOMALY_ALERT_ENABLED=true 但未設定任何告警管道(LINE/Email)';
+  const BUG_MSG = 'someFn is not a function';
+
+  // 🔴 codex F:手動 `errSpy.mockRestore()` 寫在斷言【之後】⇒ 任一前置斷言失敗就跳過清理,
+  //    而全域 afterEach 只 clear、不還原 console 實作 ⇒ 一發紅會讓後面的測試吃到被 mock 掉的 console。
+  //    ⇒ 清理放這裡,不放 happy path 上。
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    ['設定錯誤(env 缺 / 零管道)', new Error(CONFIG_MSG), 'Error', CONFIG_MSG],
+    ['程式錯誤(有人把 code 改壞)', new TypeError(BUG_MSG), 'TypeError', BUG_MSG],
+  ])('%s ⇒ errorName=%s,而 message 不進 log', async (_label, thrown, expectedName, secretMsg) => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    getDepsSpy.mockImplementation(() => {
+      throw thrown;
+    });
+    expect((await GET(makeReq(bearer()))).status).toBe(503);
+    const logged = JSON.stringify(errSpy.mock.calls);
+    expect(logged).toContain(`"errorName":"${expectedName}"`);
+    expect(logged).toContain('deps_or_unexpected_throw'); // 固定碼沒有被換掉
+    expect(logged).not.toContain(secretMsg); // 🔴 補的是類別名,不是 message
+    errSpy.mockRestore();
+  });
+
+  it.each([
+    ['實例自帶 name', () => Object.assign(new Error('boom'), { name: SECRET })],
+    ['自訂子類的 name', () => { class E extends Error { override name = SECRET; } return new E('boom'); }],
+    // 🔴 codex R2:這兩格的 Proxy trap **要自己帶著 SECRET** —— 前一版 trap 丟的是 'proxy trap',
+    //    那底下的 `not.toContain(SECRET)` 在那一列是【恆綠】的(密鑰根本沒進過那條路)。
+    //    ⇒ 恆綠的斷言不是保護,是裝飾。讓它帶著密鑰,那格才有牙齒。
+    ['讀 name 就爆的 Proxy', () => new Proxy(new Error('boom'), { get(t, k, r) {
+      if (k === 'name') throw new Error(`trap ${SECRET}`); return Reflect.get(t, k, r); } })],
+    // 🔴🔴 codex R2 要我補「`instanceof` 就爆的 Proxy」(getPrototypeOf trap,與讀 `.name` 是不同的 trap)。
+    //    **我構造不出來,而這一格寫的是【構造不出來】,不是【驗過了】。**
+    //    量到的:
+    //      · 純 node 裡它成立 —— `throw p` 之後 `e === p` 為 true、`e instanceof Error` 丟 TRAP-FIRED。
+    //      · 但**穿過 `vi.fn()` 的 mock 之後就不成立**:route 的 catch 收到的是一個【普通 Error】。
+    //        探針(暫時塞進 safeErrorName、跑完已還原)實印:
+    //          typeof=object / Object.prototype.toString=[object Error] / (err instanceof Error)="true"
+    //        ⇒ trap 在抵達 catch **之前**就被觸發過一次,而它丟出的那個普通 Error 取代了 Proxy。
+    //    ⇒ 所以下面這一列斷言的是**真的會發生的那件事**,不是我希望發生的那件事:
+    //      trap 丟出的 Error 抵達 catch ⇒ errorName='Error'、**而 trap 訊息裡的 SECRET 不得進 log**
+    //      (那一格有牙齒:實作若改成記 err.message,這一列就會紅)。
+    //    🔴 未覆蓋:「`instanceof` 在 safeErrorName 裡面爆」那個世界,**從 route 邊界構造不出來**
+    //      ⇒ 實作那邊的 try 仍然包著它(便宜且正確),而**它沒有回歸守門**。這是缺口,不是已驗。
+    [
+      'getPrototypeOf trap(而 trap 的 Error 會先取代它)',
+      () => new Proxy(new Error('boom'), { getPrototypeOf() { throw new Error(`trap ${SECRET}`); } }),
+      'Error',
+    ],
+    ['根本不是 Error', () => SECRET],
+  ])(
+    '🔴 %s ⇒ 密鑰進不了 log、而且照樣 503(codex A-1/A-2/G-2)',
+    async (_label, make, expectedName = 'other') => {
+      // 🔴 這四格是 codex 對抗審查逼出來的,而第一格他【當場表演給我看】:
+      //    `name` 是可寫欄位 ⇒ 我原本「類別名是封閉集合、永遠不含密鑰」那句話是假的。
+      //    修法不是相信它,是**由 safeErrorName 自己造出那個封閉集合**。
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      getDepsSpy.mockImplementation(() => {
+        throw make();
+      });
+      // 🔴 Proxy 那格同時釘住:catch 自己不得 throw —— 它 throw ⇒ 變 500 且零 log,比修之前更糟。
+      expect((await GET(makeReq(bearer()))).status).toBe(503);
+      const logged = JSON.stringify(errSpy.mock.calls);
+      expect(logged).toContain(`"errorName":"${expectedName}"`);
+      expect(logged).not.toContain(SECRET);
+      expect(logged).toContain('deps_or_unexpected_throw');
+    },
+  );
+
+  it('🔴 兩個世界【真的印不同的字】—— 不然上面兩格可以同時綠而分辨仍然是死的', async () => {
+    const names: string[] = [];
+    for (const thrown of [new Error(CONFIG_MSG), new TypeError(BUG_MSG)]) {
+      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      getDepsSpy.mockImplementation(() => {
+        throw thrown;
+      });
+      await GET(makeReq(bearer()));
+      names.push(JSON.stringify(errSpy.mock.calls));
+      errSpy.mockRestore();
+    }
+    expect(names[0]).not.toEqual(names[1]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// J-001 MF-1/MF-2 修法的守門(2026-08-21,告警信線)
+//
+// 🔴 J-001 量到的形狀:route.ts 檔頭裡【被本片改到的檔】的 檔案:行號 引用 4/4 全壞,
+//    【沒被改到的】1/1 全對。⇒ 病不是「數字寫錯」,是【拿行號當錨】。
+//    而修法若只是更新數字,下一輪折完它會再壞一次,**而壞掉時沒有任何東西會紅**。
+// ⇒ 所以錨改成【字面】(那行 code 本身),並由下面兩格讓「錨斷掉」變成一發紅。
+//
+// 🔴 本守門的射程(不要讀成「所有失效引用都擋得住」):
+//    擋得住 ① 檔案:行號 形式的新引用 ② 反引號包住的裸行號 `:123`
+//           ③ 註解宣稱的四個錨,任何一個從目標檔消失
+//    擋不住 ① 裸寫的「與 :234」這種形式(J-001 自己的 regex 也漏掉它,方向是少報)
+//           ② 🔴 **把目標檔那行 code【註解掉】** —— 字面還在,五格照樣綠(codex B-2)。
+//              ⇒ 這道守門管的是【引用指得到東西】,**不管行為還在不在**。行為由目標檔自己的
+//                測試守(`LineAlertNotifierAdapter.test.ts` / `EmailAlertNotifierAdapter.test.ts`
+//                斷言非 2xx 會 throw)。兩件事分開,不要把這裡讀成「行為有人守」。
+//           ③ 反過來的誤報:反引號包住的**連接埠**(例如 `:3000`)會被第二格判成行號(codex C-2)。
+//              現況全檔零命中;哪天真要寫,那一發是**大聲的紅**、不是安靜的漏 ⇒ 不為它加聰明。
+//    ⇒ 這三格靠人,不靠這支測試。寫在這裡是為了讓下一個人知道分母到哪為止。
+//
+// ✅ 三發突變都表演過【該紅的那一發】(2026-08-21 實跑,改完 shasum 比對還原):
+//    A 在 route.ts 補一行 `composition.ts:999`            ⇒ 1 failed
+//    B composition.ts 的 `to: requireEnv('LINE_ALERT_TO'),` 改名 ⇒ 1 failed
+//    C LineAlertNotifierAdapter 的 `if (!res.ok) {` 改寫法 ⇒ 1 failed
+//    D(意外的一發)反引號裸行號那格,在我自己寫說明時就當場紅了一次。
+//    🔴 而 B 的第一版【沒紅】—— 錨當時只寫 `requireEnv('LINE_ALERT_TO')`,
+//       它在 composition.ts 的**註解裡**也命中 ⇒ 突變改到註解、code 沒動,守門照樣綠。
+//       ⇒ 錨要落在【只有 code 會長成的形狀】上,這就是為什麼上面帶著 `to:` 前綴。
+// ─────────────────────────────────────────────────────────────────────────────
+const ROUTE_SOURCE = readFileSync(new URL('./route.ts', import.meta.url), 'utf8');
+const REPO_ROOT = new URL('../../../../../../../', import.meta.url); // → repo 根(路徑錯會 ENOENT 大聲死,不會安靜過)
+
+/** route.ts 註解宣稱的跨檔錨:[目標檔, 那段 code 的字面]。字面同時要在 route.ts 與目標檔裡。 */
+const CROSS_FILE_ANCHORS: ReadonlyArray<readonly [string, string, string]> = [
+  // [目標檔, 目標檔裡那行 code 的字面, route.ts 裡指向它的【那一格獨有】的字串]
+  // 🔴 第三欄是 codex B-1 逼出來的:LINE 與 Email 的 code 錨【是同一個字串】
+  //    ⇒ route.ts 那半只用 code 錨的話,刪掉 Email 那句引用、留著 LINE 的,Email 那格照樣綠。
+  //    ⇒ 兩格共用一個字面 = 那兩格其實只有一格。
+  [
+    'packages/adapters/src/payment/LineAlertNotifierAdapter.ts',
+    'if (!res.ok) {',
+    'LineAlertNotifierAdapter.ts',
+  ],
+  [
+    'packages/adapters/src/payment/EmailAlertNotifierAdapter.ts',
+    'if (!res.ok) {',
+    'EmailAlertNotifierAdapter.ts',
+  ],
+  // 🔴 錨帶著 `to:` 前綴 —— 光是 `requireEnv('LINE_ALERT_TO')` 在 composition.ts 的【註解裡】也命中
+  //    (實測:突變只改註解那處,守門照樣綠)⇒ 錨必須落在【只有 code 會長成的形狀】上。
+  [
+    'apps/storefront/src/lib/payment/composition.ts',
+    "to: requireEnv('LINE_ALERT_TO'),",
+    "to: requireEnv('LINE_ALERT_TO'),",
+  ],
+  [
+    'apps/storefront/src/lib/payment/composition.ts',
+    "to: requireEnv('ALERT_EMAIL_TO'),",
+    "to: requireEnv('ALERT_EMAIL_TO'),",
+  ],
+  [
+    'supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql',
+    "cron.schedule('pcm-anomaly-alert', '0 1 * * *'",
+    "cron.schedule('pcm-anomaly-alert', '0 1 * * *'",
+  ],
+];
+
+describe('route.ts 檔頭的跨檔引用 — 錨在字面、不在行號(J-001 MF-1/MF-2)', () => {
+  it('全檔零「檔案:行號」引用 —— 行號會漂,而漂掉時沒有訊號', () => {
+    // 🔴 這個 pattern 換過三次,而**前兩次都是同一個錯法:我在猜副檔名的字集。**
+    //    v1 `ts|tsx|json|sql|md`         ⇒ codex C-1:js / mjs / css / sh / yaml / 大寫全漏
+    //    v2 `[A-Za-z][A-Za-z0-9]{0,4}`   ⇒ codex R2:`.svelte` / `.prisma` / `.graphql` 仍漏
+    //    ⇒ **相同錯法第二次 = 換路,不是再猜一次。**(`00-work-rules` R4)
+    //    v3 不列舉副檔名了 —— 判準改成【那個 token 裡有沒有一個點】,
+    //       因為「檔名.任何副檔名」共同的形狀是**點**,而點不會過期。
+    //    ⚠️ 已知誤報:帶埠號的網域(`admin.example.com:3000`)會中。現況全檔零命中;
+    //       真要寫的那天它是**大聲的紅**,不是安靜的漏 ⇒ 方向是對的,不為它加聰明。
+    const hits = ROUTE_SOURCE.match(/[\w./-]*\.[\w-]+:L?\d+/g) ?? [];
+    expect(hits).toEqual([]);
+  });
+
+  it('全檔零反引號裸行號(`:123` / `:123-125`)—— 同一個病,換一種寫法', () => {
+    // 🔴 只認【反引號包住】的形式 —— 我試過把裸寫的「與 :234」也一起抓,
+    //    而那個 pattern 與時刻(`21:20`)、JSON(`"errors":0`)反覆互撞,三版都沒收斂。
+    //    ⇒ 停手:裸寫那一種**明寫在上面的射程裡、交給人**,不硬做一個會誤報的量具。
+    //      (誤報會把人趕出守門的視野,而那個代價比這一格漏掉更貴。)
+    const hits = ROUTE_SOURCE.match(/`:L?\d+(?:-\d+)?`/g) ?? [];
+    expect(hits).toEqual([]);
+  });
+
+  it.each(CROSS_FILE_ANCHORS)(
+    '錨「%s / %s」在 route.ts 與目標檔裡都還在',
+    (file, anchor, routeMention) => {
+      // 兩邊都要:目標檔沒了 ⇒ 引用死掉;route.ts 沒了 ⇒ 這格守門失去消費者。
+      expect(readFileSync(new URL(file, REPO_ROOT), 'utf8')).toContain(anchor);
+      expect(ROUTE_SOURCE).toContain(routeMention);
+    },
+  );
 });

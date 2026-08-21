@@ -24,8 +24,8 @@
 //    在「建 deps 前」return)之「零 DB env 依賴」保證仰賴此;改 @/lib/payment/composition 前必守此 lazy 契約。
 // ⛔ 下面兩段【都是對的,只是各自為真於不同的時刻】。兩段都留著,各自帶著自己的時刻標籤。
 //    🔴 不用刪除線 —— `//` 註解裡的 `~~` **不會真的劃除**,只會變成兩套並排的互斥事實
-//       (codex R2 `:25` A/C 指出;而舊句**沒有錯,它只是過期了** —— 那是兩件事)。
-//       📌 本檔另有兩處**既有的** `~~`(`:17` / `:19`),緊接「作廢」二字、**做事的是那兩個字不是符號**
+//       (codex R2 對本段 A/C 指出;而舊句**沒有錯,它只是過期了** —— 那是兩件事)。
+//       📌 本檔另有兩處**既有的** `~~`(都在檔頭「不採信任何外部輸入」那條底下),緊接「作廢」二字、**做事的是那兩個字不是符號**
 //          ⇒ 危險性較低,**本片刻意不動**(不是漏掉;動它會讓本片的範圍從「payment 端點註解」
 //          擴成「全檔 `~~` 清理」,下一個審的人要重新判斷範圍)。
 //
@@ -44,7 +44,10 @@
 //            回應 JSON 逐字 {"ok":true,"enabled":true,"alerted":true,"attemptManualReviewCount":2,
 //            "notifiersTotal":2,"notifiersFailed":0,"errors":0}(其餘計數欄皆 0,已省略)
 //            🔴 notifiersFailed:0 這次可信 —— 兩支 adapter 都真的檢查回應並 throw:
-//               LineAlertNotifierAdapter.ts:58-60 / EmailAlertNotifierAdapter.ts:50-52 皆 `if (!res.ok) throw`
+//               LineAlertNotifierAdapter.ts / EmailAlertNotifierAdapter.ts 皆 `if (!res.ok) {` → `throw`
+//               (🔴 錨在【字面】不在行號 —— 這兩支還會再動。跳過去的方法:
+//                grep -n 'if (!res.ok)' packages/adapters/src/payment/{Line,Email}AlertNotifierAdapter.ts
+//                錨若消失,`route.test.ts` 的『註解引用的錨還在』那格會紅。)
 //               ⇒ 非 2xx 會冒成 use-case error → route 503。
 //    客人端:Sean 本人 2026-08-21 上午回報【收到】,並貼回內文逐字。
 //    🔴 **下面這段是【那天實際寄出去的那一封】的逐字紀錄,不是現行文案 —— 不要更新它。**
@@ -87,8 +90,10 @@
 //    印的是 anomaly_alert_disabled ⇒ 兩個分支印不同的字 ⇒ 這個判別有效)。
 //    🔴 **射程(codex R1 MF-3 收窄)**:那是【那一刻走了哪個分支】,
 //       **推不出「目前 env 的原始值仍然等於 true」** —— env 可能在那之後被改。
-//    ⚠️ 仍未查:env 的【原始值】(含收件對象 LINE_ALERT_TO / ALERT_EMAIL_TO,取值處
-//       @/lib/payment/composition.ts:223 與 :234)與【它何時被設成這樣】。
+//    ⚠️ 仍未查:env 的【原始值】(含收件對象 LINE_ALERT_TO / ALERT_EMAIL_TO,取值處在
+//       @/lib/payment/composition.ts 的 `to: requireEnv('LINE_ALERT_TO'),` 與
+//       `to: requireEnv('ALERT_EMAIL_TO'),`)
+//       與【它何時被設成這樣】。
 //    📎 同族正本在 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段
 //       (那段講的是 `CRON_SWEEPER_ENABLED`;本檔的閘是 `ANOMALY_ALERT_ENABLED`,**是兩個不同的 env**)。
 // ⚠️ [2026-07 前為真;兩個前置今日皆已不成立,逐格說明如下]
@@ -96,8 +101,11 @@
 //    【兩個前置今日皆已不成立,逐格說明】:
 //    ① **過期** —— 排程已搬 Supabase pg_cron(commit `a5d76192`,2026-07-24);vercel.json 與
 //       apps/admin/vercel.json **皆無 crons 段**(不是漏掉)。job 定義在
-//       supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql:131
+//       supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql 的
 //       cron.schedule('pcm-anomaly-alert', '0 1 * * *') = UTC 01:00 = 台北 09:00。
+//       (🔴 這一處原本在檔名後面接了一個行號,而那個行號【是對的】—— 不是因為寫得比較小心,是因為
+//        已 apply 的 migration 不可改 ⇒ 檔案凍結,行號才不會漂。上面兩處指向【活的】檔,所以漂了。
+//        ⇒ 判別句:我指的那支檔,還會不會有人動它?會 ⇒ 不准用行號。)
 //    ② **當時已滿足** —— 2026-08-21 01:00 那一發走了 enabled 分支,且 `notifiersTotal:2`
 //       ⇒ 兩組管道 env 在**那一刻**都存在(缺任一 `requireEnv` 會 throw)。
 //       🔴 那是**那一刻的狀態**,不是「現在仍然如此」—— env 的原始值仍未查(同上 MF-3)。
@@ -157,6 +165,46 @@ function requireCronSecret(): string {
   return s;
 }
 
+/**
+ * 例外 → 一個【由白名單決定】的識別字。J-003 MF-1 的修法,而它的形狀是 codex 對抗審查逼出來的。
+ *
+ * 🔴 我第一版寫的是 `err instanceof Error ? err.name : typeof err`,並在註解裡宣稱
+ *    「類別名是一個封閉集合的識別字,永遠不含密鑰」。**那句話是假的,而 codex 當場表演給我看:**
+ *      const e = new Error('safe'); e.name = 'SECRET_IN_NAME';   ⇒ e.name === 'SECRET_IN_NAME'
+ *    `name` 是一般可寫欄位(實例自帶、子類自訂、`Error.prototype.name` 被覆寫都算)
+ *    ⇒ 只要哪天有人寫一個 name 帶動態內容的 Error 子類,密鑰就從這條路進 log,
+ *      **而那正是這個 catch 當初刻意只記固定碼要擋的那件事**(訊息面 drift)。
+ * ⇒ 所以封閉集合要【由這裡造出來】,不能假設它本來就是:
+ *   認得的就照實印,不認得的一律 'other'。'other' 本身也有訊息(= 出現了不尋常的東西)。
+ *
+ * 🔴 而它一步都不可以自己 throw —— 這是 fail-closed 路徑上的最後一段:
+ *    這裡 throw ⇒ console.error 那行不會跑、503 也不會回,**變成 500 而且零 log**
+ *    ⇒ 比修之前更糟。`instanceof` 與讀 `.name` 對 Proxy 都可能 throw(codex A-2),故整段包 try。
+ */
+function safeErrorName(err: unknown): string {
+  /** ECMAScript 規格定義的錯誤建構子名稱 —— 這是一個【真的】封閉集合,不是假設出來的。 */
+  const KNOWN = [
+    'Error',
+    'EvalError',
+    'RangeError',
+    'ReferenceError',
+    'SyntaxError',
+    'TypeError',
+    'URIError',
+    'AggregateError',
+  ] as const;
+  try {
+    if (err instanceof Error) {
+      const name: unknown = err.name;
+      return typeof name === 'string' && (KNOWN as readonly string[]).includes(name) ? name : 'other';
+    }
+    return 'other';
+  } catch {
+    // 讀 err 本身就會爆(Proxy / getter throw)⇒ 仍然要有一個字給觀察者。
+    return 'other';
+  }
+}
+
 export async function GET(request: Request): Promise<Response> {
   // 1. 認證:CRON_SECRET Bearer 硬驗。env 未設/弱 → 500(設定錯、拒不執行);Bearer 缺/不符 → 401(不揭內部)。
   let expected: string;
@@ -208,11 +256,22 @@ export async function GET(request: Request): Promise<Response> {
 
     // 5. 認證過 + enabled + 無錯 → 200 + 計數摘要(零 PII counts)。
     return Response.json({ ok: true, enabled: true, ...result }, { status: 200 });
-  } catch {
+  } catch (err) {
     // deps/env 缺(factory requireEnv throw / enabled 但零管道)或非預期 throw(reader throw)→ 503 fail-closed(不偽 200)。
     // 🔴 固定 reason code(零 PII、零洩漏面;不把任意 err.message 入 log 縱深、杜絕連線字串/密鑰 drift 帶進 log)。
+    // 🔴 errorName = 例外的【類別名】,不是 message(J-003 MF-1)。
+    //    composition-alert-failclosed.test.ts 釘住「程式錯誤(TypeError)≠ 設定錯誤(Error),分得開」,
+    //    而在【裸的 catch{} + 只記固定碼】之下,那個分辨在這裡就死了 ⇒ 那格守門沒有消費者。
+    //    ⚠️ 這不是說固定碼寫錯 —— 固定碼是刻意的(不讓連線字串/密鑰漏進 log)。
+    //       補的是【最小可辨識量】:設定漏填 ⇒ 'Error';有人把 code 改壞 ⇒ 'TypeError'。
+    //    ⚠️ 它**不是**「例外的類別名」(codex R2 nit,我原本這樣寫而那與行為矛盾)——
+    //       它是**白名單過濾後的值**:名單外的一律 `'other'`,自訂錯誤類別也會被壓成 `'other'`。
+    //    🔴 射程:它只讓那個分辨【抵達 log】。**沒有人驗過這行 console.error 在 Vercel log 裡出得來**
+    //       (J-003 MF-3,窗 G 自報)⇒ 「分得開」到此為止,不等於「有人會看到」。
+    const errorName = safeErrorName(err);
     console.error('[anomaly-alert] 🔴 告警無法執行(deps/env 缺、零管道或 reader throw、回 503;不吞 200 偽裝成功)', {
       reason: 'deps_or_unexpected_throw',
+      errorName,
     });
     return new Response(null, { status: 503 });
   }

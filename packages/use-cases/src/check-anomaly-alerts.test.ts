@@ -188,7 +188,26 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
     const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 1, openDisplayIds: displayIds(1) }, 86400);
     expect(msg.text).toContain('可能被扣了兩次錢');
     expect(msg.text).not.toContain('退款卡住');
-    expect(msg.text).not.toContain('錢可能還被鎖著');
+    // ⚠️ 這一行**對「那句文案對不對」沒有判別力** —— 別把它讀成「字面的守門」。
+    //   fixture 是 {...ZERO, openCount: 1} ⇒ releasedStuckCount = 0 ⇒ 那一段不會被渲染。
+    // ✅ **而它對【它自己宣稱守的那件事】是有判別力的**,這一格我一度寫反、被更正過兩次:
+    //   突變:`section()` 的 `if (count <= 0)`(check-anomaly-alerts.ts:194)改成 `< 0`
+    //   ⇒ 0 的類別會渲染出【訂單付款未成功】0 筆 ⇒ **本格紅**(2026-08-21 窗 `-91` 實跑,6 紅之一)。
+    //   ⇒ 🔴 我原本在這裡寫「沒有判別力」,那是**假話** —— 我把「對某一個 mutation 沒判別力」
+    //     寫成了「沒判別力」。少了那五個字,句子就變成假的,而它附著行號讀起來很像查證過。
+    // 🔴 **而這一行是【冗餘】的,這句不可省**:同一發突變,上面的 `not.toContain('退款卡住')`
+    //   自己就會紅(refundingStuckCount 也是 0)⇒ **刪掉本行,「0 的類別不入訊息」仍然有人守。**
+    //   🔴 這一句我**量過才寫**,不是推的(2026-08-21,改完 shasum 比對還原):
+    //     Q  早退改 `< 0`                  ⇒ 6 failed(與窗 `-91` 獨立跑出的 6 相同)
+    //     R  Q 之上【再刪掉本行】           ⇒ **仍然 6 failed,本格仍在紅名單裡**
+    //     ⇒ 兩發同數 ⇒ 本行對這一發突變**沒有增加任何判別力** = 冗餘,實測不是推測。
+    //   我一度寫成「換探針是【唯一】讓它活下來的動作」—— 也是假的,而我在同一封信裡引用過反例。
+    //   ⇒ 本行的真實價值收窄成兩點:①跟著分類名字走 ⇒ 改名時會被一起維護(命名的錨)
+    //     ②縱深:萬一哪天只有 released 那一類被特例掉,上面兩行接不到。
+    // ⇒ 探針必須用【現行】名字:舊字面在 repo 裡已不存在 ⇒ 斷言它不存在是永遠綠的。
+    //   🔴 換句話說,**改分類名字這個動作會殺掉本行**,而它死的時候不會紅。
+    // 🔴 真正守「舊字面不得復活」的在下面那個 describe(fixture 的 count ≥ 1)。
+    expect(msg.text).not.toContain('訂單付款未成功');
   });
 
   it('🔴 單號真的印出來(1 筆 / 多筆)', () => {
@@ -327,8 +346,24 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
     // ⚠️ 2026-08-21 codex R3 MF-4:「還沒做」會被讀成【整套功能不存在】,
     //    而真相是混合的(有的功能在而這類單不符、有的被旗標擋、「標記免處理」真的不存在)
     //    ⇒ 文案改成只講他需要知道的:**這幾筆在後台動不了,而後台沒有壞**。
-    expect(msg.text).toContain('這幾筆單目前在後台【不能操作】');
-    expect(msg.text).toContain('後台沒有壞');
+    // 🔴🔴 2026-08-21 角度①(告警信線)+ **Sean 拍板「甲」**:上一行的字面被換掉了,而理由要寫滿 ——
+    //    上一版斷言的是「這幾筆單目前在後台【不能操作】」,而那句話**對五分之三的分類是假的**:
+    //      「同一位客人、同樣金額買了兩次」那一組 `o1/o2 payment_status` 皆 `'paid'`
+    //      (`20260819130000_m3_s2…display_ids.sql:189`/`:190`),而
+    //      `REFUND_ENTRY_STATUSES = ['paid','partiallyRefunded']`(`refund-entry-gate.ts`)
+    //      ⇒ 那一類的退款入口【會渲染】,而信叫他不要去找按鈕。
+    //    ⇒ 🔴 **這一次改斷言字面,判準與上面那幾條同一把尺:字面為什麼變 —— 有人要求 vs 我想改。**
+    //      這次是【有人要求】:Sean 2026-08-21 對這條 must-fix 逐字答「甲」。
+    //      (負對照仍然成立:同日我把警語改成「再動錢」導致兩格紅,那次的正確處置是改回文案。)
+    // 🔴 而新的兩格**不是換一句話釘住**,是釘住那個【性質】:
+    //    ① 新句在場 ② 那句被證偽的全稱句**不得再出現** —— 沒有②,下一個人把它加回來不會紅。
+    // 🔴 「後台沒有壞」**不再在這一格斷言** —— 它已經搬進 ③④ 那兩類自己的註腳裡,
+    //    而這個 fixture 是【只有 ①】的截斷案例 ⇒ 那句話在這裡本來就不該出現。
+    //    ⇒ 它的守門在下面那個逐類 describe;硬留在這裡只會逼人把它寫回成全稱句。
+    // 🔴 這兩格擋的是【那兩版被證偽的全稱句】復活。射程:只擋逐字復活,擋不住換句同義的全稱句
+    //    (codex R2 nit,我不加聰明 —— 真正有判別力的是下面那個 describe 的逐類斷言)。
+    expect(msg.text).not.toContain('這幾筆單目前在後台【不能操作】');
+    expect(msg.text).not.toContain('不要在後台找按鈕');
     // 🔴 2026-08-21 窗 C 複驗:上一版信裡「不能退款」與「先查清楚再退款」隔兩行互相矛盾,
     //    而「在 TapPay 後台可以退」那個解答只寫在 code 註解裡 —— 而 Sean 讀的是信。
     //    ⇒ 這一格釘住那個解答【在信裡】,而且與警語同屬 footer ⇒ 同樣不可被截掉。
@@ -505,3 +540,143 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
 // 型別完整性:AnomalyAlertMessage 供 notifier 用(編譯期即驗)。
 const _typecheck: AnomalyAlertMessage = { subject: 's', text: 't' };
 void _typecheck;
+
+describe('「後台沒有手可以處理」只掛在它為真的那幾類上(2026-08-21 角度① / Sean「甲」/ codex R2)', () => {
+  // 🔴🔴 這個 describe 是 codex R2 逼出來的,而它抓到的是**我第二版仍然在說謊**:
+  //    v1 全稱句 → v2 換一句全稱句。**兩版的測試都只驗 footer 那句字面在不在**,
+  //    而那種測試對「它對哪幾類為真」**一個字都沒問** ⇒ 兩版都全綠。
+  //    ⇒ 現在釘的是【逐類】:該有的類要有、不該有的類**必須沒有**。
+  const NOTE = '這一類後台沒有手可以處理';
+
+  const only = (over: Partial<Parameters<typeof buildAnomalyAlertMessage>[0]>) =>
+    buildAnomalyAlertMessage({ ...ZERO, ...over }, 86400).text;
+
+  it('③ 刷卡卡在中間(SQL 寫死 unpaid、窗 C 實測 0 顆可動按鈕)⇒ 要有', () => {
+    const text = only({ attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-0003'] });
+    expect(text).toContain(NOTE);
+    // 🔴 「後台沒有壞」那句保證**必須跟它保證的那件事在同一句裡** ——
+    //    它曾經是 footer 上一句獨立的話,而那時它是對五類講的(= 其中三類是假的)。
+    expect(text).toContain('後台沒有壞');
+  });
+
+  it('④ 訂單付款未成功(同樣 SQL 寫死 unpaid)⇒ 要有', () => {
+    expect(
+      only({ releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0004'] }),
+    ).toContain(NOTE);
+  });
+
+  it('🔴🔴 ⑤ 同一位客人被扣兩次(SQL 寫死 paid ⇒ 退款入口【會渲染】)⇒ **絕對不可以有**', () => {
+    // 🔴 這一格就是 v1 那個最貴的錯誤的回歸守門:客人真的被扣了兩次錢,而信叫他不要去找按鈕。
+    expect(
+      only({
+        pendingDoubleChargeCandidateCount: 1,
+        pendingDoubleChargeDisplayIdPairs: [['PCM-2026-0005', 'PCM-2026-0006']],
+      }),
+    ).not.toContain(NOTE);
+  });
+
+  it.each([
+    ['① 可能被扣了兩次錢', { openCount: 1, openDisplayIds: ['PCM-2026-0001'] }],
+    ['② 退款卡住', { refundingStuckCount: 1, refundingStuckDisplayIds: ['PCM-2026-0002'] }],
+  ])('%s —— SQL 對它的 payment_status 沒有述詞 ⇒ 不知道 ⇒ 不宣稱', (_l, over) => {
+    expect(only(over)).not.toContain(NOTE);
+  });
+
+  it('🔴 混合(③ + ⑤)⇒ 那句話只跟著 ③ 走,而且【就在它那一段底下】', () => {
+    // 🔴 這格擋的是「反正整封信有講到就好」——
+    //    那句話貼在錯的分類底下,跟貼在 footer 上一樣會讓他對 ⑤ 不去找按鈕。
+    const text = only({
+      attemptManualReviewCount: 1,
+      attemptManualReviewDisplayIds: ['PCM-2026-0003'],
+      pendingDoubleChargeCandidateCount: 1,
+      pendingDoubleChargeDisplayIdPairs: [['PCM-2026-0005', 'PCM-2026-0006']],
+    });
+    const lines = text.split('\n');
+    const noteAt = lines.findIndex((l) => l.includes(NOTE));
+    const attemptAt = lines.findIndex((l) => l.includes('刷卡卡在中間'));
+    const pairAt = lines.findIndex((l) => l.includes('同一位客人'));
+    // 🔴 **收緊成「就在標題的下一行」**(2026-08-21 `-91` 複核 MF-2)——
+    //   前一版寫 `toBeGreaterThan(attemptAt)`,而那在「貼在 30 個單號之後」的世界**照樣綠**
+    //   ⇒ 它擋不住這一片真正的失敗情境(他讀到第一個單號就去開後台,而那句還在 31 行之下)。
+    // 🔴 `+2` 而不是 `+1` —— 2026-08-21 Sean 那句進來之後,③ 的標題下方變成【兩行】:
+    //   +1 = Sean 逐字那句(去查什麼) / +2 = NO_HAND_NOTE(系統沒壞)。順序見 SEAN_3DS_NOTE 檔頭。
+    //   ⚠️ 這一格改期望值是**跟著一個新需求走**(他給了新文案),不是為了讓紅的變綠 ——
+    //     判準同本檔其他幾處:**字面為什麼變,有人要求 vs 我想改。**
+    expect(noteAt).toBe(attemptAt + 2);
+    expect(noteAt).toBeLessThan(pairAt); // 仍在 ⑤ 的標題【之前】⇒ 不會被讀成在講 ⑤
+    expect(lines.filter((l) => l.includes(NOTE))).toHaveLength(1); // 只出現一次
+  });
+
+  it('零異常時整封信不得出現那句話(不然它會在沒有分類的世界裡自己成立)', () => {
+    expect(buildAnomalyAlertMessage(ZERO, 86400).text).not.toContain(NOTE);
+  });
+});
+
+describe('④ 的分類名 —— 舊字面不得復活(2026-08-21 Sean 逐字定稿 `訂單付款未成功`)', () => {
+  // 🔴 這個 describe 存在的理由是 `-91` 複核抓到的那一格:
+  //   舊的 `not.toContain('錢可能還被鎖著')` 住在 releasedStuckCount = 0 的 fixture 裡
+  //   ⇒ `section()` 的 `if (count <= 0) return []` 讓那一段根本不會渲染 ⇒ **它永遠綠**。
+  //   而 releasedStuckCount ≥ 1 的測試有 11 格,**當時沒有任何一格斷言那句字面不在。**
+  //   ⇒ 這裡的 fixture **count = 1**,所以兩個世界真的印不同的東西。
+  const withReleased = () =>
+    buildAnomalyAlertMessage(
+      { ...ZERO, releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0004'] },
+      86400,
+    ).text;
+
+  it('新字面在(Sean 逐字,不得潤飾)', () => {
+    expect(withReleased()).toContain('【訂單付款未成功】1 筆');
+  });
+
+  it('🔴 舊字面不得出現 —— 而這一格的 fixture count=1,它是真的會紅的', () => {
+    // 這句話是事實錯誤:那一類的 attempt 從來沒有被授權過 ⇒ 卡上沒有額度被鎖。
+    // 依據(逐類)寫在 check-anomaly-alerts.ts 的 `訂單付款未成功` 那一行上方。
+    expect(withReleased()).not.toContain('錢可能還被鎖著');
+    // ⚠️ **這一發刻意比 Sean 推翻的整句【寬】** —— 他推翻的是「付款沒完成,但錢可能還被鎖著」,
+    //   而這裡只攔前四個字。⇒ **紅了先看是不是誤傷**:哪天有人合法寫出「付款沒完成」四個字
+    //   (別的分類、別的說明),這一格會為了錯的理由紅,而修的人看不出它在守什麼。
+    //   留著是因為方向安全(寧可誤傷也不要讓舊名字整句回來),**不是因為它精準**。
+    expect(withReleased()).not.toContain('付款沒完成');
+  });
+});
+
+describe('Sean 逐字那句 —— 只掛 ③,而 ④【不得】沾上它(2026-08-21 主視窗裁定,可逆)', () => {
+  // 🔴 這個 describe 守的不是排版,是一個【裁定】:
+  //   Sean 那句寫的是「3D 驗證問題」,而 ④ 進得了 `released` 的兩條路**都要求未授權**
+  //   ⇒ 根本沒走到 3D ⇒ 套上去 = 替他造一句他沒說過、而且是假的話。
+  // 🔴 而裁定最容易被下一個人「**順手統一**」掉 —— 統一看起來像整理,不像改變決定。
+  //   ⇒ 所以要有一發能表演「誤套到 ④」那個世界。
+  const SEAN = '訂單刷卡失敗未收款，請檢查是否是網站3D驗證問題。'; // 全形逗號,逐字
+
+  const only3 = () =>
+    buildAnomalyAlertMessage(
+      { ...ZERO, attemptManualReviewCount: 1, attemptManualReviewDisplayIds: ['PCM-2026-0003'] },
+      86400,
+    ).text;
+  // 🔴 fixture 要讓 ④ **真的渲染**(count ≥ 1)—— 不能用 count=0 那種世界,
+  //   否則 not.toContain 又變成「斷言一個不會被渲染的東西不在」= 沒有判別力(本檔上面那一課)。
+  const only4 = () =>
+    buildAnomalyAlertMessage(
+      { ...ZERO, releasedStuckCount: 1, releasedStuckDisplayIds: ['PCM-2026-0004'] },
+      86400,
+    ).text;
+
+  it('③ 必須含 Sean 那句【逐字】—— 改掉任何一個字都要紅', () => {
+    expect(only3()).toContain(SEAN);
+  });
+
+  it('③ Sean 那句在【標題正下方第一行】,「沒有按鈕」緊接在後', () => {
+    const lines = only3().split('\n');
+    const head = lines.findIndex((l) => l.includes('刷卡卡在中間'));
+    expect(lines[head + 1]).toContain(SEAN); // 他讀第一行就知道要去查什麼
+    expect(lines[head + 2]).toContain('這一類後台沒有手可以處理');
+  });
+
+  it('🔴🔴 ④ 的訊息【不得】含「3D驗證」—— 這一格守的是那個裁定,不是文案', () => {
+    const text = only4();
+    expect(text).toContain('【訂單付款未成功】1 筆'); // 先證明 ④ 真的被渲染了(不然下一行沒有判別力)
+    expect(text).not.toContain('3D驗證');
+    expect(text).not.toContain(SEAN);
+    expect(text).toContain('這一類後台沒有手可以處理'); // 而 NO_HAND_NOTE 仍在
+  });
+});

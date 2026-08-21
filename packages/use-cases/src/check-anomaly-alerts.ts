@@ -267,33 +267,137 @@ export function buildAnomalyAlertMessage(
     summary.pendingDoubleChargeCandidateCount,
   );
 
-  const blocks: string[][] = [
-    section(`可能被扣了兩次錢${agePart}`, summary.openCount, summary.openDisplayIds),
-    section(
-      `退款卡住,超過 ${stuckLabel}還沒退成`,
-      summary.refundingStuckCount,
-      summary.refundingStuckDisplayIds,
-    ),
-    section(
-      '刷卡卡在中間,系統自己處理不了',
-      summary.attemptManualReviewCount,
-      summary.attemptManualReviewDisplayIds,
-    ),
-    [
-      ...section('付款沒完成,但錢可能還被鎖著', summary.releasedStuckCount, summary.releasedStuckDisplayIds),
-      ...(summary.releasedStuckCount > 0 ? overlapNote : []),
-    ],
-    [
-      ...(summary.pendingDoubleChargeCandidateCount > 0
-        ? [`【同一位客人、同樣金額買了兩次,其中一次卡很久】${summary.pendingDoubleChargeCandidateCount} 組`]
-        : []),
-      // 🔴 走同一支 `shownIds` ⇒ 第五類也受「不得多於計數」那道夾(R3 的 M1 對五類都成立)。
-      ...shownPairs.map(([a, b]) => `  ${a} ＋ ${b}`),
-      ...(summary.pendingDoubleChargeCandidateCount > shownPairs.length
-        ? [`  …另外還有 ${summary.pendingDoubleChargeCandidateCount - shownPairs.length} 組,請到後台看`]
-        : []),
-    ],
+  /**
+   * 🔴🔴 **「後台有沒有手可以處理」是【每一類各自】的事實,不是整封信的事實。**
+   *
+   * 2026-08-21 角度①(告警信線)抓到、Sean 拍板「甲」、codex R2 再打回一次之後的形狀。
+   * 病史值得留著,因為我連續兩版都犯了同一個病的兩種形態:
+   *   v1  「這幾筆單目前在後台【不能操作】(退款、標記免處理、取消都做不了)…不要在後台找按鈕」
+   *       ⇒ 對 ③④ 驗過,而**印在五類上面**。
+   *   v2  我把它改成一句「有些卡住的單,後台現在沒有手…沒有按鈕就是還沒開放處理」
+   *       ⇒ 🔴 **codex R2 打回**:換一句一樣是全稱的話,而且「沒按鈕 ⇒ 還沒開放」是個
+   *          **歸因** —— 按鈕消失也可能是 feature flag / 讀取失敗 / 非 TapPay / 對帳異常 / 權限,
+   *          ⇒ 那句話會把**真的故障**說成「正常,還沒開放」。**用一個全稱句換掉另一個全稱句不是修好。**
+   *   v3(本版)把那句話**搬進它為真的那幾個 block 裡**,並讓「哪幾類為真」跟著 block 一起走。
+   *
+   * 逐類依據(全部是量到的,不是推的):
+   *   ① open / ② refundingStuck  —— SQL 對這兩類的 `payment_status` **沒有述詞**
+   *      (`20260819130000_m3_s2…display_ids.sql:112` / `:124`,兩處都只 JOIN `old_order_id`)
+   *      ⇒ **不知道** ⇒ 不宣稱。(codex R2:「沒有足夠 gate 資料保證」)
+   *   ③ attemptManualReview / ④ releasedStuck —— SQL 寫死 `o.payment_status = 'unpaid'`
+   *      (同檔 `:148` / `:162`)⇒ 而窗 C(法規客服線)頁層渲染實測:`chargeAttemptGate='blocked'`
+   *      時整頁 6 顆控制項,**退款 0 · 人工退款 0 · 標記免處理 0 · 取消 0**
+   *      (對照組 `'clear'` ⇒ 8 顆 ⇒ 尺分得開)⇒ **這兩類「沒有手」是真的。**
+   *   ⑤ pendingDoubleCharge —— SQL 寫死 `o1/o2 payment_status = 'paid'`(同檔 `:189` / `:190`),
+   *      而 `REFUND_ENTRY_STATUSES = ['paid','partiallyRefunded']`
+   *      (`apps/admin/src/components/orders/refund-entry-gate.ts`,grep `REFUND_ENTRY_STATUSES`)
+   *      ⇒ 🔴 **退款入口會渲染** ⇒ **絕對不可以對這一類說「沒有手」** ——
+   *        而那正是 v1 最貴的那一格:客人**真的被扣了兩次錢**,而信叫他不要去找按鈕。
+   *
+   * 🔴 `noHand` 掛在 block 上、不掛在一張平行的表上 —— 平行表會與 block 陣列漂移,
+   *    而漂移時兩邊各自都還讀得通。新增一類 ⇒ 這裡**寫不出物件字面就編譯紅**,不會靜靜地漏。
+   */
+  // 🔴 「後台沒有壞」四個字收在這一句裡面 —— 它原本是 footer 上一句獨立的話,
+  //    而**組出成品逐句讀**之後那句變成孤兒:它在講這封信自己的結構(「那一類自己會講」),
+  //    那是寫的人的語言,不是收信人的語言。⇒ 保證要跟它所保證的那件事**貼在一起**。
+  // ⚠️ 刻意**不寫**「還沒開放處理」這類歸因(codex R2):按鈕消失也可能是讀取失敗 / 權限 / 對帳異常,
+  //    替他歸因會把真故障說成正常。這裡只講**觀察得到的事實**:沒有那顆按鈕、而後台沒有壞。
+  const NO_HAND_NOTE =
+    '  ↳ 這一類後台沒有手可以處理 —— 打開那張單,不會有可以動這筆刷卡的按鈕。後台沒有壞。';
+  /**
+   * 🔴🔴 **Sean 2026-08-21 逐字。一個字都不要動**(含那個全形逗號)。
+   * 原文:`訂單刷卡失敗未收款，請檢查是否是網站3D驗證問題。`
+   *
+   * 🔴 **它與 `NO_HAND_NOTE` 不是同一句的兩個版本,是兩件事:**
+   *   NO_HAND_NOTE  = 告訴他【系統沒壞】⇒ 防的是誤判
+   *   本句          = 告訴他【去查什麼】⇒ 那是一個動作
+   *   ⇒ 兩句都要,而且本句放前面(他讀第一行就知道要去查什麼)。
+   *
+   * 🔴🔴 **只掛 ③,不掛 ④ —— 而這是一個【裁定】,不是排版**(主視窗 2026-08-21,可逆):
+   *   本句寫的是「**3D 驗證問題**」,而 ④ 那一類進得了 `released` 的兩條路**都要求未授權**
+   *   (`preflight-release-sibling.ts:128` 只在 record_status=4;`20260810010000_…l5a1:295`
+   *    只收「查無 / 恆 4 PENDING」)⇒ **根本沒走到 3D。**
+   *   ⇒ 把它套上 ④ = **我們自己造一句他沒說過的話,而且內容是假的。**
+   *   ⚠️ 守門在 `check-anomaly-alerts.test.ts`:**④ 的訊息不得含 `3D驗證`**。
+   *      那一格守的正是這個裁定 —— 而**裁定最容易被下一個人「順手統一」掉**,
+   *      因為統一看起來像整理,不像改變決定。
+   */
+  const SEAN_3DS_NOTE = '  ↳ 訂單刷卡失敗未收款，請檢查是否是網站3D驗證問題。';
+  const blockSpecs: readonly {
+    readonly lines: readonly string[];
+    /** 貼在【標題正下方】的註腳,依序。空陣列 = 這一類不加。 */
+    readonly notes: readonly string[];
+  }[] = [
+    { lines: section(`可能被扣了兩次錢${agePart}`, summary.openCount, summary.openDisplayIds), notes: [] },
+    {
+      lines: section(
+        `退款卡住,超過 ${stuckLabel}還沒退成`,
+        summary.refundingStuckCount,
+        summary.refundingStuckDisplayIds,
+      ),
+      notes: [],
+    },
+    {
+      lines: section(
+        '刷卡卡在中間,系統自己處理不了',
+        summary.attemptManualReviewCount,
+        summary.attemptManualReviewDisplayIds,
+      ),
+      // 🔴 順序不可調:Sean 那句在前(去查什麼),NO_HAND_NOTE 在後(系統沒壞)。
+      notes: [SEAN_3DS_NOTE, NO_HAND_NOTE],
+    },
+    {
+      lines: [
+        // 🔴🔴 2026-08-21 **Sean 逐字定稿**:`訂單付款未成功`。**照抄,不要潤飾、不要加字。**
+        //   舊字面「付款沒完成,但錢可能還被鎖著」是**事實錯誤**,而他自己抓到的,原話:
+        //     「付款沒完成 錢不會被鎖吧,因為根本沒有跳過去 3d 驗證,也不會授權,所以不會卡著額度」
+        //   查證(甲:選的東西對、名字錯):進得了 `status='released'` 的路只有兩條,兩條都要求【沒有授權】——
+        //     ① preflight release CAS 只在 record_status=4(`preflight-release-sibling.ts:128`)
+        //     ② supersede 只收「查無 / 恆 4 PENDING」(`20260810010000_…l5a1:295` COMMENT 逐字;
+        //        同行另寫「🔴 charged 絕不讓路=錢可能已動」⇒ 已動錢那類被明文擋在門外)
+        //   而 record_status=4 = **PENDING 待付款(尚未授權)**(`settle-charge.test.ts:181` 逐字);
+        //   對照這格是尺:`settle-charge.ts:255`「record_status ∈ {0 AUTH, 1 OK} … 授權即成立」⇒ 走 paid,到不了 released。
+        //   ⇒ 沒有授權 ⇒ 沒有預授權額度被佔 ⇒ **「錢可能還被鎖著」不會發生。**
+        // 🔴 錯誤是從一個【變數名字】繼承來的:那個常數叫 `auth_or_pending`,讀起來像「已授權 or 待付款」,
+        //   而它只有 4 = 尚未授權。**寫這個分類名的人讀了變數名,沒讀它旁邊那行註解。**(backlog `#387`)
+        ...section('訂單付款未成功', summary.releasedStuckCount, summary.releasedStuckDisplayIds),
+        ...(summary.releasedStuckCount > 0 ? overlapNote : []),
+      ],
+      // 🔴 **只有 NO_HAND_NOTE,沒有 SEAN_3DS_NOTE** —— 理由見 SEAN_3DS_NOTE 檔頭:
+      //    這一類沒走到 3D,套上去就是替他造一句假話。守門會擋(不得含 `3D驗證`)。
+      notes: [NO_HAND_NOTE],
+    },
+    {
+      lines: [
+        ...(summary.pendingDoubleChargeCandidateCount > 0
+          ? [`【同一位客人、同樣金額買了兩次,其中一次卡很久】${summary.pendingDoubleChargeCandidateCount} 組`]
+          : []),
+        // 🔴 走同一支 `shownIds` ⇒ 第五類也受「不得多於計數」那道夾(R3 的 M1 對五類都成立)。
+        ...shownPairs.map(([a, b]) => `  ${a} ＋ ${b}`),
+        ...(summary.pendingDoubleChargeCandidateCount > shownPairs.length
+          ? [`  …另外還有 ${summary.pendingDoubleChargeCandidateCount - shownPairs.length} 組,請到後台看`]
+          : []),
+      ],
+      // 🔴 空的 —— 見上方 ⑤:這一類的退款入口【會渲染】。加 NO_HAND_NOTE 會把 v1 那個最貴的錯誤裝回來。
+      notes: [],
+    },
   ];
+  // 🔴🔴 註腳插在【標題的下一行】,不是整段結尾(2026-08-21 `-91` 複核 MF-2)。
+  //   前一版 `[...b.lines, NO_HAND_NOTE]` 把它貼在單號之後,而 `MAX_ORDERS_PER_CATEGORY = 30`(`:102`)
+  //   ⇒ 那句話最遠落在標題【之下 31 行】。
+  //   失敗情境:③ 有 30 筆時,他讀到第一個單號就去開後台、找不到按鈕 ⇒ 以為系統壞了,
+  //   而「後台沒有壞」那句就寫在他還沒捲到的地方。
+  // 🔴 而這一片自己在下面 footer 那段寫過同一句話的道理(逐字):
+  //   「這一句放最前面,不是結尾 —— 它是唯一擋得住誤動作的東西,而放結尾等於沒有。」
+  //   ⇒ **我寫了那條規則,然後在同一支檔的另一段違反它。** 規則知道 ≠ 規則執行。
+  // ⚠️ 解構取頭 —— **不是風格,是型別**:`noUncheckedIndexedAccess` 之下 `b.lines[0]` 是
+  //   `string | undefined`,而 `b.lines.length > 0` 不會讓 TS 收窄它(實測 TS2322)。
+  //   🔴 而那一發是【typecheck 紅、45 格測試全綠】抓到的 ⇒ 測試不是型別的替代品。
+  //   `head !== undefined` 同時涵蓋了原本的「非空才貼」那道判斷。
+  const blocks: string[][] = blockSpecs.map((b) => {
+    const [head, ...rest] = b.lines; // head = 【標題】N 筆
+    return head !== undefined && b.notes.length > 0 ? [head, ...b.notes, ...rest] : [...b.lines];
+  });
 
   /**
    * 標題的數字 = **不重複的單號張數**,不是各類筆數相加 ——
@@ -390,8 +494,33 @@ export function buildAnomalyAlertMessage(
     //       「標記免處理」是真的不存在 / 取消的 RPC 對有非 failed 扣款嘗試的單 RAISE
     //    ⇒ 🔴 所以文案**不能替他歸因**(四條路四個理由),只能講他需要知道的那一件:
     //       **這幾筆在後台動不了,而後台沒有壞。**「還沒有開放處理」同時涵蓋②③而不撒謊。
-    '⚠️ 這幾筆單目前在後台【不能操作】(退款、標記免處理、取消都做不了)——',
-    '   後台沒有壞,是這類卡住的單還沒有開放處理。不要在後台找按鈕,那會浪費你的時間。',
+    // 🔴🔴 2026-08-21 角度①(告警信線)+ Sean 拍板「甲」:**上一版這兩行在說謊,而只對五分之三說謊。**
+    //   上一版逐字:「這幾筆單目前在後台【不能操作】(退款、標記免處理、取消都做不了)——
+    //                 …不要在後台找按鈕,那會浪費你的時間。」
+    //   它是對【刷卡卡在中間 / 訂單付款未成功】那兩類驗過的,而它**印在五類上面**:
+    //     · 那兩類 `o.payment_status = 'unpaid'`
+    //       (`20260819130000_m3_s2…display_ids.sql:148` / `:162`)
+    //       ⇒ 窗 C 頁層渲染實測:`chargeAttemptGate='blocked'` 時整頁 6 顆控制項,
+    //         **退款 0 · 人工退款 0 · 標記免處理 0 · 取消 0** ⇒ 這兩類「沒有按鈕」是真的。
+    //     · 而「同一位客人、同樣金額買了兩次」那一組 `o1/o2 payment_status` 皆 `'paid'`(同檔 `:189`/`:190`),
+    //       而 `REFUND_ENTRY_STATUSES = ['paid','partiallyRefunded']`
+    //       (`apps/admin/src/components/orders/refund-entry-gate.ts`,grep `REFUND_ENTRY_STATUSES`)
+    //       ⇒ 🔴 **那一類的退款入口【會渲染】。**
+    //   ⇒ 錯的方向是最壞的那個:在**客人真的被扣兩次錢**的那一類上,這封信同時關掉了兩條路
+    //     (別在後台找按鈕 + 別自己去 TapPay 退)⇒ 錢出去了,而他被說服不要動。
+    //
+    // 🔴 **為什麼不是寫成一個條件式**(主視窗要的形狀,而我做不到,理由是量到的不是推的):
+    //   本 use-case 拿得到的**只有每一類的計數與單號**(`AnomalyAlertSummary`)——
+    //   `payment_status` / `chargeAttemptGate` **一個都不在裡面**,reader 走的 SECDEF 聚合 RPC 不回這些。
+    //   ⇒ 「那張單此刻退款入口渲不渲染得出來」在這一層**問不到**;要問就要動那支 RPC = 鐵則 12③。
+    //   ⇒ 所以改法不是「把謊話加上條件」,是**改成一句在五個世界裡都成立的話**,
+    //     並且**把判斷交還給他眼前那一頁**(他本來就要打開那張單才知道是哪一張)。
+    //     這同時滿足窗 C 那半的原則:給他一個**當場做得到的測試**,不要給他一個我們替他做的歸因。
+    // ⚠️ 文案**待 Sean 逐字定稿**(主視窗 2026-08-21:他會想自己下筆);此版是草稿的落地版本。
+    // 🔴 v1/v2 這裡曾經有兩行講「後台不能操作」的話,**兩版都是全稱句、都被證偽**(病史寫在
+    //    上面 `blockSpecs` 的檔頭)。v3 我在這裡留了一句「後台沒有壞 —— 上面哪幾類動不了,
+    //    那一類自己會講」,而**把成品組出來逐句讀之後把它也刪了**:那句在講這封信自己的結構,
+    //    是寫的人的語言;而只有一類異常時它還會變成廢話。⇒ 保證搬進 `NO_HAND_NOTE`,這裡不留。
     // 🔴 這一句**逐字不動**(`先查清楚再退款`):我一度改成「再動錢」,而那會動到守門的期望值。
     //    而它本來就仍然正確 —— 他**在我們後台**退不了,**在 TapPay 自己的後台可以** ⇒ 危險沒有消失。
     // 🔴🔴 2026-08-21 窗 C(`C-eb`)複驗抓到:上一版這裡與上面那句【隔兩行互相矛盾】——
