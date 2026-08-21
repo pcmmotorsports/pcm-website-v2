@@ -96,6 +96,30 @@ BEGIN
       '這通常代表 apply 到了【錯的資料庫】(本支只屬報價單庫 dllwkkfanaebrsuyuedy),'
       '或 B3 之前的 schema 與預期不符。已中止,未做任何改動。', n_cols;
   END IF;
+
+  -- (c) 🔴 2026-08-21 補上的冪等閘(E 窗提的 nit,本窗判斷值得補):
+  --     沒有這一段的話,重跑本檔時 ADD COLUMN 會撞裸的 Postgres
+  --     「column "sub_kind" of relation "sso_codes" already exists」——
+  --     那句話**分不出**「本檔已經套過一次」跟「別人湊巧加了同名欄」兩種情況。
+  --     這裡先查兩個新欄跟約束是不是都已經在,若是 ⇒ 具名 RAISE 講清楚,不要讓它撞裸錯誤。
+  SELECT count(*) INTO n_cols
+  FROM information_schema.columns
+  WHERE table_schema = 'public' AND table_name = 'sso_codes'
+    AND column_name IN ('sub_kind', 'sub_staff_id');
+
+  IF n_cols = 2 AND EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'sso_codes_sub_shape'
+  ) THEN
+    RAISE EXCEPTION
+      'B4 冪等閘:sub_kind / sub_staff_id 兩欄與 sso_codes_sub_shape 約束都已經在 —— '
+      '本檔應該已經套過一次了。已中止,未做任何改動。若要確認,查 '
+      '(SELECT sub_kind,sub_staff_id FROM public.sso_codes LIMIT 5) 或直接跑檔尾的驗收語句。';
+  ELSIF n_cols > 0 THEN
+    RAISE EXCEPTION
+      'B4 冪等閘:sub_kind / sub_staff_id 只找到 % 個(不是 0 也不是 2),'
+      '半套狀態 —— 這在本檔設計下不該發生(見檔頭「不可能停在半套」的實測)。'
+      '已中止,走 docs/runbooks/2026-08-19-b4-sso-codes-recovery.md,不要自己補跑。', n_cols;
+  END IF;
 END $$;
 
 -- ── 🔴 既有列為什麼不會讓 ADD CONSTRAINT 失敗(2026-08-19 W6 關卡1:原本沒說出口)──
@@ -121,11 +145,26 @@ ALTER TABLE public.sso_codes
   ADD COLUMN sub_kind     text,   -- 'user' | 'fallback' | 'bootstrap' | NULL(NULL = B3 之前簽的碼)
   ADD COLUMN sub_staff_id text,   -- 只有 kind='user' 才有值
   ADD CONSTRAINT sso_codes_sub_shape CHECK (
-       (sub_kind IS NULL       AND sub_staff_id IS NULL)
-    OR (sub_kind = 'fallback'  AND sub_staff_id IS NULL)
-    OR (sub_kind = 'bootstrap' AND sub_staff_id IS NULL)
-    OR (sub_kind = 'user'      AND sub_staff_id IS NOT NULL AND btrim(sub_staff_id) <> '')
-    --  🔴 btrim 不可改回 `<> ''` —— 那擋不掉【單一空白】(spec 2026-08-18 nit,今日實測確認)
+    -- 🔴 2026-08-21 更正(E 窗實測 + 本窗獨立重現,雙方各自用拋棄式 PG 對照組驗過):
+    --    原本寫成 OR 串 `sub_kind = 'fallback'` 這種等值比較 —— sub_kind 為 NULL 時,
+    --    `(NULL = 'fallback')` 算出來是 **NULL,不是 false**,而 CHECK 只有算出 false 才擋。
+    --    四個分支全落 NULL/false 時,整條 OR 的結果是 NULL,NULL **不會被 CHECK 擋下**
+    --    ⇒ (sub_kind=NULL, sub_staff_id='sean') 這種壞形狀會【靜靜寫得進去】。
+    --    本窗獨立重現(拋棄式 temp table,同一個壞形狀):原版 INSERTED_NO_ERROR,
+    --    改成 CASE 版本後同一發 ⇒ REJECTED、SQLSTATE 23514。
+    --    改法 = 用 CASE 逐支落在明確分支 + ELSE false ——
+    --    CASE 的 WHEN 用 `IS NULL` 判斷分支(恆為 true/false、不會是 NULL),
+    --    THEN 裡的值也恆為 true/false,整個表達式因此不可能算出 NULL。
+    --    同族教訓見 memory `reference_pg-check-passes-on-null-use-coalesce-false`
+    --    (2026-08-21 D 窗核對:我原引的檔名不存在,已更正為這支真正存在的檔,建於 08-11)。
+    CASE
+      WHEN sub_kind IS NULL       THEN sub_staff_id IS NULL
+      WHEN sub_kind = 'fallback'  THEN sub_staff_id IS NULL
+      WHEN sub_kind = 'bootstrap' THEN sub_staff_id IS NULL
+      WHEN sub_kind = 'user'      THEN sub_staff_id IS NOT NULL AND btrim(sub_staff_id) <> ''
+      --  🔴 btrim 不可改回 `<> ''` —— 那擋不掉【單一空白】(spec 2026-08-18 nit,今日實測確認)
+      ELSE false  -- 未知的 sub_kind 值(非 NULL/fallback/bootstrap/user)一律拒絕
+    END
   );
 
 COMMIT;
