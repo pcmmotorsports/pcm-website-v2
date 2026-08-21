@@ -176,7 +176,7 @@ grep '^AUTH2=' $S/jwts.txt | cut -d= -f2- > $S/authjwt2.txt
 
 cp "$SP/proxy.py" "$S/proxy.py"
 # 🔴 上游埠與監聽埠用 argv 傳進去 —— 那兩個原本寫死在 proxy.py 裡(見該檔那段註解)。
-nohup python3 "$S/proxy.py" "$PREST" "$PROXY" > "$S/proxy.log" 2>&1 &
+nohup python3 "$S/proxy.py" "$PREST" "$PROXY" "$SEC" "$PG" > "$S/proxy.log" 2>&1 &
 # 🔴 埠用 argv 傳進去 —— 它原本**寫死在那支 py 裡面**,覆寫環境變數對它沒有用
 #    (而 `down.sh` 的 `pkill -f "cors-server.py"` 也因此**抓不到自己那一個**,見下)。
 nohup python3 "$SP/cors-server.py" "$CORS" > $S/cors.log 2>&1 &
@@ -184,9 +184,71 @@ sleep 2
 
 A=$(grep ANON= $S/jwts.txt | cut -d= -f2-); SR=$(grep SERVICE= $S/jwts.txt | cut -d= -f2-)
 cd $REPO/apps/storefront
+# 🔴🔴 **不走 `npx`**(2026-08-21 `-04` SP-1 第二輪;本機實測,不是推的)。
+#   `npx` 就是 `npm exec`,而 **`npm exec` 型的行程會把【整包環境變數】印進 `pgrep -fl` 的那一行** ——
+#   一般行程只印 argv、乾淨;只有這一種會連環境一起印。
+#   實測(macOS 14.6.1,用假 canary 值起一輪探針):
+#     pgrep -fl 'npm exec' | grep -c '[H]OME='                    ⇒ 55   ← 尺有力(正對照)
+#     pgrep -fl 'npm exec' | grep -c '[T]APPAY_APP_KEY='          ⇒ 1    🔴 在漏
+#     pgrep -fl 'npm exec' | grep -c '[S]ERVICE_ROLE_KEY='        ⇒ 1    🔴 在漏
+#     pgrep -fl 'npm exec' | grep -c '[C]ANARY…(那個假值本身)'     ⇒ 1    🔴 明文
+#     負對照(編造字串)                                            ⇒ 0
+#   ⇒ 改成**直接呼叫解析後的 next binary**,繞開 npm exec 那層包裝。
+#   ⚠️ **前一版的修法(把 set -a 換成單行前綴)沒有關掉這條路** —— 縮小了爆炸半徑,而管道是同一條。
+#      **那一版我也「驗過」,只是驗錯了面**(我量的是 `ps -Eww` 與 `ps -ww -o command=`,
+#      而洩漏發生在 `pgrep -fl` 對 `npm exec` 那一行)⇒ **量了 A、答了 B。**
+#   🔴 沒有就報錯,不落回 npx —— 落回去等於把「有沒有在漏」變成一件安靜的事。
+NEXT_BIN="$REPO/apps/storefront/node_modules/.bin/next"
+if [ ! -x "$NEXT_BIN" ]; then
+  echo "找不到可執行的 $NEXT_BIN ——【不會】落回 npx(那條路會把環境變數印進 pgrep)。先跑 pnpm install。" >&2
+  exit 1
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+# 🔴 TapPay 金鑰:從【repo 外的一個檔】讀,不從參數、不從訊息、不從 .env*
+#
+# 為什麼是檔不是參數:參數會進 shell history、進 ps 的命令列、進交接訊息、進 transcript。
+# 檔案路徑可以在任何地方被講出來而不洩漏任何東西 —— **講路徑是安全的,講值不是。**
+#
+# 這支腳本對這個檔只做三件事:讀它、用它、印出「讀到沒 + 長度」。
+# 🔴 **永遠不印值、不印前綴後綴** —— 前四碼也是值的一部分。
+# ⚠️ 這個檔在 repo 之外 ⇒ 不會被 git 追蹤、不會進 commit、不會被我們的 grep 掃到。
+# ─────────────────────────────────────────────────────────────────────────────
+TAPPAY_ENV_FILE="${TAPPAY_ENV_FILE:-$HOME/pcm-secrets/tappay-sandbox.env}"
+# 🔴 `-04` SP-1(2026-08-21):原本這裡是 `set -a; . "$TAPPAY_ENV_FILE"; set +a`
+#    ⇒ 匯出到【整個 up.sh 的 shell】,之後每一個子行程都繼承它,而它只有一個消費者。
+#    改成:讀進**普通 shell 變數**(不 export),只在 `next dev` 那一行以前綴帶進【那一個行程】。
+#
+# ⚠️ 這【不是】把它藏起來,而射程要講清楚(本機當場量的,2026-08-21 macOS 14.6.1):
+#    · 環境變數:`ps -Eww -p <pid>` 在本機**讀不到任何一個** —— 連自己剛起的行程也讀不到
+#      (正對照:同一發抓得到 `sleep` / `next` 字樣 ⇒ 在看對的 pid;負對照:編造字串 0)。
+#    · 命令列:`ps -ww -A -o command=` **讀得到**。而 `VAR=val cmd` 這種前綴**不會**進 cmd 的 argv
+#      —— 實測:up.sh 用這個形式傳 `SUPABASE_SERVICE_ROLE_KEY`,而
+#        `ps -ww -A -o command= | grep -c '[S]UPABASE_SERVICE_ROLE_KEY='` ⇒ **0**
+#        (正對照 `[n]ext dev` ⇒ 5;🔴 負對照沒用 `[]` 時回 2 —— **grep 會抓到自己**,那一版的數字全是假的)。
+#    🔴 **不同 shell 看得到的範圍不同** ⇒ 下一個人在別的 shell 裡跑同一發 canary,可能得到不一樣的答案。
+#       **要斷言「沒有在漏」,先讓你的 ps 對一個【你自己種的 canary】表演一次命中**;
+#       表演不出來 ⇒ 你的結論只能寫「我看不到」,不能寫「沒有在漏」。
+if [ -f "$TAPPAY_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$TAPPAY_ENV_FILE"
+  TP_APP_ID="${NEXT_PUBLIC_TAPPAY_APP_ID:-}"; TP_APP_KEY="${NEXT_PUBLIC_TAPPAY_APP_KEY:-}"; TP_ENV="${NEXT_PUBLIC_TAPPAY_ENV:-sandbox}"
+  unset NEXT_PUBLIC_TAPPAY_APP_ID NEXT_PUBLIC_TAPPAY_APP_KEY NEXT_PUBLIC_TAPPAY_ENV
+  # 🔴 `-04` SP-3:原本這行印 APP_ID 的【全值】,而上面那句寫著「永遠不印值」⇒ 那句話是假的。
+  #    改成只印「有沒有」與長度 —— 兩個世界仍然分得開,而一個字元的值都沒有離開這台機器。
+  echo "tappay: 讀到 $TAPPAY_ENV_FILE  APP_ID 長度=${#TP_APP_ID}  APP_KEY 長度=${#TP_APP_KEY}  ENV 長度=${#TP_ENV}"
+else
+  TP_APP_ID=""; TP_APP_KEY=""; TP_ENV=""
+  echo "tappay: 找不到 $TAPPAY_ENV_FILE ⇒ 用假金鑰,結帳第④步會顯示「付款模組暫時無法使用」(那是預期的,不是壞掉)"
+fi
+
+# TapPay:預設 00000 = 【故意無效】(Number('00000')=0 ⇒ readClientEnv 回 null ⇒ ready='error'
+#   ⇒ 卡欄不掛、SDK 一次都不載,結帳第④步顯示「付款模組暫時無法使用」。這是探針的設計不是產品缺陷。
+#   要驗第④⑤步:先 export 真的 sandbox 金鑰再跑本腳本(下面三個都吃外部值)。
 NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:$PROXY NEXT_PUBLIC_SUPABASE_ANON_KEY="$A" \
 SUPABASE_SERVICE_ROLE_KEY="$SR" NEXT_PUBLIC_SITE_URL=http://localhost:$WEB \
-NEXT_PUBLIC_TAPPAY_APP_ID=00000 NEXT_PUBLIC_TAPPAY_APP_KEY=probe_app_key NEXT_PUBLIC_TAPPAY_ENV=sandbox \
-nohup npx next dev -p $WEB -H 127.0.0.1 > $S/next.log 2>&1 &
+NEXT_PUBLIC_TAPPAY_APP_ID="${TP_APP_ID:-00000}" \
+NEXT_PUBLIC_TAPPAY_APP_KEY="${TP_APP_KEY:-probe_app_key}" \
+NEXT_PUBLIC_TAPPAY_ENV="${TP_ENV:-sandbox}" \
+nohup "$NEXT_BIN" dev -p $WEB -H 127.0.0.1 > $S/next.log 2>&1 &
 sleep 15
 echo "web: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:$WEB/)  <- 開這個,不要開 127.0.0.1"
