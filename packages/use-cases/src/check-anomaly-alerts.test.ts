@@ -161,7 +161,20 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
   it('🔴 open 仍是「可能」不是「已確認雙扣」(runbook line51);防動錯錢那句要留著', () => {
     const msg = buildAnomalyAlertMessage({ ...ZERO, openCount: 2, openDisplayIds: displayIds(2) }, 86400);
     expect(msg.text).toContain('可能被扣了兩次錢');
-    expect(msg.text).toContain('先查清楚再退款');
+    // 🔴 2026-08-21 codex R3 MF-5:字面由「先查清楚再【退款】」改成「再【動錢】」,
+    //    而**承重的那一句換人了** —— 現在擋著誤動錢的是下面那句「請不要自己去 TapPay 後台退款」。
+    //    ⇒ 所以兩句都釘,而不是只把舊字面換成新字面。
+    expect(msg.text).toContain('先查清楚再動錢');
+    expect(msg.text).toContain('請【不要】自己去 TapPay 後台退款');
+    // 🔴🔴 **順序也要釘**(2026-08-21 主視窗裁):「只是可能」那句必須出現在
+    //    「不要自己去 TapPay 退款」【之前】—— 放結尾等於沒有,收信人讀到那行時還沒讀到它。
+    //    而當天查出那封信舉的兩筆(2SQH2P/GVRDMH)payment_status=unpaid、從來沒刷成功
+    //    ⇒ **那封信是在叫人去退一筆從來沒收到過的錢**,而唯一擋住它的就是這一句。
+    //    ⚠️ 只用 toContain 釘不住位置 —— 有人把它移回結尾,那格照樣綠。
+    expect(msg.text.indexOf('只是「可能」')).toBeGreaterThanOrEqual(0);
+    expect(msg.text.indexOf('只是「可能」')).toBeLessThan(
+      msg.text.indexOf('請【不要】自己去 TapPay 後台退款'),
+    );
     expect(msg.text).not.toContain('已確認雙扣');
   });
 
@@ -274,12 +287,57 @@ describe('buildAnomalyAlertMessage — 白話 + 帶單號(2026-08-19 Sean 拍板
       86400,
     );
     expect(msg.subject.length + msg.text.length).toBeLessThan(5000);
+    // 🔴 2026-08-21 codex R2 nit4:上面那格算的是 `subject + text`,而 **LINE 實際收到的不是這個**。
+    //    `LineAlertNotifierAdapter` 送的是 `${subject}\n\n${text}\n\n${CHANNEL_MARK}`
+    //    ⇒ 少算了兩組分隔符與那行管道標記。
+    //    ⚠️ 而那個缺口是【本片自己造出來的】—— 標記是 2026-08-21 才加的,
+    //       而長度守門停在標記出現之前的形狀。**加東西進 payload 的人要順手看一眼量它的那把尺。**
+    //    ⚠️ 這裡複製了 adapter 的組裝形狀(耦合):adapter 若改組裝方式,這一格要跟著改。
+    //       沒有更好的位置 —— 真正的組裝在 adapter,而【產生最大訊息的是這裡】。
+    const LINE_MARK = '(這封是從 LINE 送出的)';
+    const linePayload = `${msg.subject}\n\n${msg.text}\n\n${LINE_MARK}`;
+    expect(linePayload.length).toBeLessThanOrEqual(5000);
     expect(msg.text).toContain('上面只列出一部分');
     // 🔴🔴 **這三格是 R3 抓出來補的,而它們才是這一格真正要守的東西。**
     //    原本只斷言「截斷發生了」⇒ 那格會通過,而它產出的是一封
     //    **沒有警語、沒有網址、只剩一長串單號**的信 —— 因為舊寫法從尾端 pop,而尾端就是它們。
     //    ⇒ 🔴 那正是「每一格都在守實作細節,而沒有一格在守【這封信作為一封信還完不完整】」。
-    expect(msg.text).toContain('先查清楚再退款');
+    // 🔴 2026-08-21 codex R3 MF-5:字面由「先查清楚再【退款】」改成「再【動錢】」,
+    //    而**承重的那一句換人了** —— 現在擋著誤動錢的是下面那句「請不要自己去 TapPay 後台退款」。
+    //    ⇒ 所以兩句都釘,而不是只把舊字面換成新字面。
+    expect(msg.text).toContain('先查清楚再動錢');
+    expect(msg.text).toContain('請【不要】自己去 TapPay 後台退款');
+    // 🔴🔴 **順序也要釘**(2026-08-21 主視窗裁):「只是可能」那句必須出現在
+    //    「不要自己去 TapPay 退款」【之前】—— 放結尾等於沒有,收信人讀到那行時還沒讀到它。
+    //    而當天查出那封信舉的兩筆(2SQH2P/GVRDMH)payment_status=unpaid、從來沒刷成功
+    //    ⇒ **那封信是在叫人去退一筆從來沒收到過的錢**,而唯一擋住它的就是這一句。
+    //    ⚠️ 只用 toContain 釘不住位置 —— 有人把它移回結尾,那格照樣綠。
+    expect(msg.text.indexOf('只是「可能」')).toBeGreaterThanOrEqual(0);
+    expect(msg.text.indexOf('只是「可能」')).toBeLessThan(
+      msg.text.indexOf('請【不要】自己去 TapPay 後台退款'),
+    );
+    // 🔴 2026-08-21 新增:上一版文案叫人「決定要退款還是標記免處理」,而**後台那兩個動作都做不到**
+    //    ⇒ 改成明說沒有按鈕。而那句與警語同屬 footer,**同樣不可被截掉** ——
+    //    少了它,收信人會回去後台找一顆不存在的按鈕,而那正是這次要修掉的事。
+    // ⚠️ 2026-08-21 codex R2 MF-2:字面由「沒有…按鈕(不能退款)」改成「還沒有…功能(還沒做)」——
+    //    理由是「做不到」會被讀成【系統故障】,而事實是【功能還沒做】。**那是兩件事。**
+    // 🔴 這次改斷言字面是【跟著一個 must-fix 走】,不是為了讓紅的變綠 ——
+    //    對照:同日稍早我把警語從『再退款』改成『再動錢』導致兩格紅,那次的正確處置是
+    //    **把文案改回去**,不是改斷言。**判準是:字面為什麼變 —— 有人要求 vs 我想改。**
+    // ⚠️ 2026-08-21 codex R3 MF-4:「還沒做」會被讀成【整套功能不存在】,
+    //    而真相是混合的(有的功能在而這類單不符、有的被旗標擋、「標記免處理」真的不存在)
+    //    ⇒ 文案改成只講他需要知道的:**這幾筆在後台動不了,而後台沒有壞**。
+    expect(msg.text).toContain('這幾筆單目前在後台【不能操作】');
+    expect(msg.text).toContain('後台沒有壞');
+    // 🔴 2026-08-21 窗 C 複驗:上一版信裡「不能退款」與「先查清楚再退款」隔兩行互相矛盾,
+    //    而「在 TapPay 後台可以退」那個解答只寫在 code 註解裡 —— 而 Sean 讀的是信。
+    //    ⇒ 這一格釘住那個解答【在信裡】,而且與警語同屬 footer ⇒ 同樣不可被截掉。
+    // 🔴 codex R3 MF-5 之後,這裡釘的不再是「去哪裡退」,而是**先回報再處理的順序**——
+    //    前一版那句是一條【他可以自己走完的捷徑】,而走完會讓錢出去而系統不知道。
+    // 🔴 codex R4 MF-3:「先回報」那句被拿掉了 —— **它承諾了一個不存在的接收端**
+    //    (告警收件人、唯一操作者、客服三管道 = 同一個人;站上零工單 API)。
+    //    ⇒ 承重的那一句換成【他一個人做得完、不需要任何人回應】的動作。
+    expect(msg.text).toContain('把單號記下來,等這筆的處理方式確認過再動');
     expect(msg.text).toContain('https://admin.pcmmotorsports.com');
     expect(msg.text).toContain('需登入後台');
     // 🔴 正向對照:同樣五類全開但單號是正常長度 ⇒ **不得**被截(否則這格對什麼都回 true)

@@ -46,7 +46,12 @@
 //            🔴 notifiersFailed:0 這次可信 —— 兩支 adapter 都真的檢查回應並 throw:
 //               LineAlertNotifierAdapter.ts:58-60 / EmailAlertNotifierAdapter.ts:50-52 皆 `if (!res.ok) throw`
 //               ⇒ 非 2xx 會冒成 use-case error → route 503。
-//    客人端:Sean 本人 2026-08-21 上午回報【收到】,並貼回內文逐字:
+//    客人端:Sean 本人 2026-08-21 上午回報【收到】,並貼回內文逐字。
+//    🔴 **下面這段是【那天實際寄出去的那一封】的逐字紀錄,不是現行文案 —— 不要更新它。**
+//       它證明的是「那封信長這樣、而且送到了」;把它改成新文案會讓這個證據失效。
+//       ⚠️ 而其中末兩行的文案**已於 2026-08-21 改掉**:那版叫人「決定要退款還是標記免處理」,
+//          而**後台那兩個動作都做不到**(C 窗查證、窗 G 複驗)⇒ 現行文案見
+//          `packages/use-cases/src/check-anomaly-alerts.ts` 的 `footer`。
 //              ⚠️ PCM 付款有 2 張單要你看
 //              【刷卡卡在中間,系統自己處理不了】2 筆
 //                2SQH2P

@@ -215,30 +215,98 @@ export function getAnomalyAlertDeps(): CheckAnomalyAlertsDeps {
   const reader = new PgAnomalyAlertReaderAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
   const notifiers: IAlertNotifier[] = [];
 
-  // LINE(Q1=A):primary = LINE_CHANNEL_ACCESS_TOKEN;存在即視為「要 LINE」→ requireEnv 對象 id(漏設 fail-fast)。
-  if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-    notifiers.push(
+  // 🔴🔴 **兩個管道的【建構】必須是並聯,不是串聯**(2026-08-21 codex R3 MF-2)。
+  //
+  //   前一版:LINE 那段直接 `requireEnv('LINE_ALERT_TO')` ⇒ 少填一個 env 就 throw
+  //           ⇒ **下面建構 Email 的 code 根本跑不到** ⇒ 一個管道的設定失誤拖垮另一個。
+  //   🔴 而 `check-anomaly-alerts.ts` 的註解逐字寫著「各管道各自送(一管道掛掉不影響另一管道)」——
+  //      **那句沒有錯,它只涵蓋【送】那個階段**;而它讓人以為【建構】那一段也被想過了。
+  //   ⚠️ **這片的目的就是「兩個管道互為備援」,而串聯讓它在最需要的那一天退化成一個。**
+  //      ⇒ 而那一天你不會收到任何東西 —— **包括「告警系統壞了」這件事本身**。
+  //
+  // 🔴🔴 **而【並聯不能用 try/catch 做】**(codex R4 MF-1):
+  //   我第一版把建構包進 `try { … } catch { 記下來,繼續 }` —— 那個 catch **吞掉所有例外**
+  //   ⇒ constructor 裡的程式錯誤(TypeError 之類)也會被誤報成 `missing_env`
+  //      並且**降級成單管道繼續跑** ⇒ **非設定錯誤的 fail-closed 就這樣被弄丟了**。
+  //   ⇒ 改成【事前檢查 env、完全不 catch】:
+  //      · 設定不全 ⇒ 事前就判得出來,記錄並跳過這一個管道
+  //      · 而 constructor 真的丟例外 ⇒ **原樣往外拋**,route 回 503(fail-closed 回來了)
+  //   📌 這也讓「為什麼跳過」變成一個**算出來的理由**,而不是一個**猜出來的理由**。
+  //
+  // 🔴 而【完全沒設】也要記(codex R4 MF-2):
+  //   前一版漏設 primary key 時直接被外層 `if` 跳過,**不進 unconfigured**
+  //   ⇒ 另一管道成功時,安靜回傳半套 deps。
+  //   ⇒ 📌 **沒有記錄的退場,與沒有退場,在輸出上是同一個畫面。**
+  //   ⇒ 所以三種狀態要分得開:`configured` / `partial`(設一半=誤設)/ `absent`(完全沒設)。
+  //
+  // ⚠️ log 只含【管道名 + 固定 reason code + 缺哪幾個 env 的「名字」】—— 零 env 值、零密鑰、零收件人。
+  const CHANNEL_ENVS = {
+    line: ['LINE_CHANNEL_ACCESS_TOKEN', 'LINE_ALERT_TO'],
+    email: ['RESEND_API_KEY', 'ALERT_EMAIL_FROM', 'ALERT_EMAIL_TO'],
+  } as const;
+
+  /** 退場的管道與理由(只有名字與 reason code,不含任何值)。 */
+  const unconfigured: { channel: string; reason: 'partial' | 'absent'; missing: string[] }[] = [];
+
+  const envState = (channel: keyof typeof CHANNEL_ENVS) => {
+    const names = CHANNEL_ENVS[channel];
+    // 受控例外(與同檔 `requireEnv` 同理由):本檔 server-only(檔首 import 'server-only')、
+    // 動態查 env 不進 client bundle、無 env inlining 風險(backlog #182 規則)。
+    // 這裡要的正是「逐個 env 名字查在不在」,而那必須是動態存取 ——
+    // 靜態寫法無法列舉「一個管道需要哪幾個 env」。
+    // ⚠️ 說明要寫在 disable 的【上面】:`eslint-disable-next-line` 只蓋【緊接的下一行】,
+    //    夾在中間會讓它蓋到註解上,而 lint 照樣紅(我第一版就是這樣)。
+    // eslint-disable-next-line no-restricted-syntax -- 見上方受控例外說明
+    const missing = names.filter((n) => !process.env[n]);
+    if (missing.length === 0) return { ok: true as const, missing };
+    // 全缺 = 沒有要用這個管道;缺一部分 = 誤設(而它比全缺危險,因為有人以為設好了)
+    return { ok: false as const, reason: missing.length === names.length ? ('absent' as const) : ('partial' as const), missing };
+  };
+
+  const consider = (channel: keyof typeof CHANNEL_ENVS, make: () => IAlertNotifier): void => {
+    const state = envState(channel);
+    if (state.ok) {
+      // 🔴 這裡【不 catch】:constructor 若丟例外,原樣往外拋 ⇒ fail-closed。
+      notifiers.push(make());
+      return;
+    }
+    unconfigured.push({ channel, reason: state.reason, missing: [...state.missing] });
+    console.error(
+      JSON.stringify({
+        event: 'anomaly_alert_channel_unconfigured',
+        channel,
+        reason: state.reason,
+        missingEnvNames: state.missing,
+      }),
+    );
+  };
+
+  consider(
+    'line',
+    () =>
       new LineAlertNotifierAdapter({
         accessToken: requireEnv('LINE_CHANNEL_ACCESS_TOKEN'),
         to: requireEnv('LINE_ALERT_TO'),
       }),
-    );
-  }
-
-  // Email(Q1=C):primary = RESEND_API_KEY;存在即視為「要 Email」→ requireEnv 寄件/收件(漏設 fail-fast)。
-  if (process.env.RESEND_API_KEY) {
-    notifiers.push(
+  );
+  consider(
+    'email',
+    () =>
       new EmailAlertNotifierAdapter({
         apiKey: requireEnv('RESEND_API_KEY'),
         from: requireEnv('ALERT_EMAIL_FROM'),
         to: requireEnv('ALERT_EMAIL_TO'),
       }),
-    );
-  }
+  );
 
   if (notifiers.length === 0) {
-    // enabled 但一個管道都沒設 = 誤設(告警永遠送不出去)→ fail-closed(route 503、可見),不靜默。
-    throw new Error('ANOMALY_ALERT_ENABLED=true 但未設定任何告警管道(LINE/Email)');
+    // enabled 而【一個都建不起來】= 誤設(告警永遠送不出去)→ fail-closed(route 503、可見),不靜默。
+    // ⚠️ 訊息帶上是哪幾個管道退場、以及理由,不帶任何 env 值。
+    throw new Error(
+      `ANOMALY_ALERT_ENABLED=true 但沒有任何告警管道建構成功(${
+        unconfigured.map((u) => `${u.channel}:${u.reason}`).join(' / ') || '未偵測到任何管道設定'
+      })`,
+    );
   }
 
   return { reader, notifiers };

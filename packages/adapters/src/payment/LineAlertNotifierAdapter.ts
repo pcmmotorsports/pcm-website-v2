@@ -36,6 +36,23 @@ export type LineAlertNotifierConfig = {
   to: string;
 };
 
+/**
+ * 🔴 管道標記(2026-08-21,窗 G;`G-c0-線G留下的洞…` §1②)。
+ *
+ * **它要解的不是「Sean 分不出這封在哪個 App」** —— 那他看得出來。
+ * 要解的是:**那段文字被【複製出來】之後,來源就掉了。**
+ * 2026-08-21 早上他把收到的內文貼回來當證據,而那段文字不會說明它從哪個管道來
+ * ⇒ 我們量到「兩個管道都回 2xx」,卻**推不出「兩個收件對象都正確」**(codex R1 MF-1 打的就是這句)。
+ * ⇒ 下一次他說「我沒收到」,我們仍然分不出是 LINE 沒到還是 Email 沒到。
+ *
+ * 🔴 **所以標記必須跟著【文字】走,不是跟著通道走** —— 它要在被複製貼上之後仍然存在。
+ * 🔴 而它是給**收件人**看的,不是給程式看的 ⇒ 用白話,不用技術字串。
+ * ⚠️ 長度:`fitToLineBudget` 留了 `LINE_BUDGET_HEADROOM = 400` 字元餘裕
+ *    (`packages/use-cases/src/check-anomaly-alerts.ts:123`),本行 < 20 字元 ⇒ 不會撐破 LINE 5000 上限。
+ * ⚠️ 它加在【截斷之後】⇒ 不受 `fitToLineBudget` 管,也不會擠掉 footer 那三行。
+ */
+const CHANNEL_MARK = '(這封是從 LINE 送出的)';
+
 export class LineAlertNotifierAdapter implements IAlertNotifier {
   constructor(
     private readonly cfg: LineAlertNotifierConfig,
@@ -52,7 +69,7 @@ export class LineAlertNotifierAdapter implements IAlertNotifier {
       body: JSON.stringify({
         to: this.cfg.to,
         // 純文字訊息(**含訂單單號**,見檔頭);subject 併首行。
-        messages: [{ type: 'text', text: `${message.subject}\n\n${message.text}` }],
+        messages: [{ type: 'text', text: `${message.subject}\n\n${message.text}\n\n${CHANNEL_MARK}` }],
       }),
     });
     if (!res.ok) {

@@ -50,4 +50,18 @@ describe('LineAlertNotifierAdapter.notify(LINE Messaging API push)', () => {
     }) as unknown as FetchLike;
     await expect(new LineAlertNotifierAdapter({ accessToken: TOKEN, to: TO }, f).notify(MSG)).rejects.toThrow();
   });
+
+  // 🔴 管道標記(2026-08-21,窗 G)。它要解的不是「Sean 分不出這封在哪個 App」——
+  //    是**那段文字被複製出來之後,來源就掉了**(他 08-21 早上貼回內文當證據,而那段文字
+  //    不會說明它從哪個管道來 ⇒ 我們量到「兩管道都回 2xx」卻推不出「兩個收件對象都正確」)。
+  // ⇒ 所以標記必須跟著【文字】走。這一格守的就是「它有沒有跟著文字出去」。
+  it('🔴 訊息文字裡帶【LINE】的管道標記,而且不是 Email 那一個', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as FetchLike;
+    await new LineAlertNotifierAdapter({ accessToken: TOKEN, to: TO }, f).notify(MSG);
+    const [, init] = (f as unknown as { mock: { calls: [string, { body: string }][] } }).mock.calls[0]!;
+    const text = JSON.parse(init.body).messages[0].text as string;
+    expect(text).toContain('這封是從 LINE 送出的');
+    // 🔴 負向那一半:兩個標記必須【互斥】—— 否則收件人拿到兩句話一樣分不出來
+    expect(text).not.toContain('這封是從 Email 送出的');
+  });
 });

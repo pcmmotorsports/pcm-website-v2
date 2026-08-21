@@ -48,4 +48,16 @@ describe('EmailAlertNotifierAdapter.notify(Resend emails)', () => {
       new EmailAlertNotifierAdapter({ apiKey: KEY, from: FROM, to: TO }, f).notify(MSG),
     ).rejects.toThrow();
   });
+
+  // 🔴 管道標記(2026-08-21,窗 G)。理由與 LineAlertNotifierAdapter.test.ts 同一格:
+  //    要解的是**文字被複製出來之後來源就掉了**,不是「收件人分不出這在哪個 App」。
+  it('🔴 內文帶【Email】的管道標記,而且不是 LINE 那一個', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as FetchLike;
+    await new EmailAlertNotifierAdapter({ apiKey: KEY, from: FROM, to: TO }, f).notify(MSG);
+    const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    const text = JSON.parse(init.body).text as string;
+    expect(text).toContain('這封是從 Email 送出的');
+    // 🔴 兩個標記必須互斥
+    expect(text).not.toContain('這封是從 LINE 送出的');
+  });
 });
