@@ -35,6 +35,34 @@
   .pcm-header-left { gap: 4px; }
 }
 
+/* 🔴 **手機 UA 但 viewport ≥1080px(Android 平板橫放)的兜底**(2026-08-22 線 B `-3c`,正式站實量)。
+   為什麼需要這一條:`Header.tsx:188` 是 `{isMobile ? 手機版頁首 : 桌機版頁首}` ——
+   **React 依 SSR 的 UA 判斷換掉整個頁首**,而這顆漢堡鈕的顯示**只掛在 `@media` 上**。
+   ⇒ 平板橫放時:React 給了手機版頁首(桌機導覽 `.pcm-nav` 不存在),
+     而 `@media (max-width:1079px)` 在 1440 不命中 ⇒ **漢堡鈕留在 `display:none`**
+     ⇒ **客人拿到一個【沒有導覽也沒有選單鈕】的頁首。**
+
+   **正式站實量(`/products/front3d-f3d-oth-007`,viewport 1440,只切 `data-mobile`、來回五次):**
+     頁首可見的連結/按鈕數  `false` ⇒ **9 / 9 / 9**   `true` ⇒ **2 / 2**
+     修完應為 **3**(= 漢堡 + LOGO + 購物車)—— 那是**真手機(375)量到的基準**,不是猜的。
+     ⚠️ **不要拿 9 當目標**:9 是【桌機頁首】的數量。平板橫放拿到的是手機版頁首,
+        它本來就該是 3 —— **驗收要對齊【真手機】那個基準,不是對齊桌機。**
+
+   🔴 **這條通過了三問**(而同一輪我有一條沒通過、已撤回):
+     ① 那情境在真實頁面上出現嗎? ⇒ 會。`layout.tsx:92` regex `/iPhone|Android|Mobile/i`,
+        curl 實打 Android 平板 UA ⇒ 伺服器真的送 `data-mobile="true"`。
+     ② 我動了什麼? ⇒ **只有 `data-mobile` 本身** —— 那是【被測條件】,
+        **不是我拿掉的遮罩**(撤回的那一條就是拿掉了真實頁面一直帶著的 class)。
+     ③ 可重複嗎? ⇒ 五次來回,兩個世界各自穩定。
+
+   ⚠️ **效度邊界**:只驗過**商品頁**與 **viewport 1440**;其他頁面/寬度沒驗。
+      而「平板橫放的客人有多少」**沒有人查過** —— 那決定它排多前面。
+   📌 `.pcm-header-left { gap: 4px }` **刻意不兜底**:那是間距(螢幕寬度的函數),
+      而平板橫放時左區只有一顆鈕,gap 無作用。 */
+html[data-mobile='true'] .pcm-menu-btn {
+  display: flex;
+}
+
 .pcm-menu-panel {
   position: fixed;
   inset: 0;
