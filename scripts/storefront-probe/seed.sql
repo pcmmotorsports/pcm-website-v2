@@ -40,3 +40,19 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO customers (user_id, email, name, phone, tier)
 VALUES ('22222222-2222-2222-2222-222222222222','probe2@example.com','探針測試客人乙','0987654321','general')
 ON CONFLICT (user_id) DO NOTHING;
+
+-- ── 規格(變體)：只給【一支】商品，讓「換規格」那條路走得下去 ──────────────
+-- 🔴 為什麼加這個(2026-08-22 線 B `-3c`)：D 窗推出一條客人面的 FINDING ——
+--    「手機加購後換規格 ⇒ 面板仍說『已加入』、按 + 靜默 no-op ⇒ 螢幕說 2 而購物車是 0」。
+--    那條**至今只有讀 code 的推論**，因為這份種子**零規格** ⇒ 第 2 步「換規格」走不下去。
+--    ⇒ 本段就是為了讓那四步走得完。**只動鑽機種子，不動 app code、不碰正式資料。**
+-- ⚠️ 只掛在 g3-probe-0002 一支上：其餘 11 支維持無規格，
+--    這樣「有規格」與「無規格」兩條路在同一個鑽機裡都測得到（無規格那條是既有行為的對照組）。
+INSERT INTO product_variants (product_id, sku, spec, price_general, price_store, availability, sort_order)
+SELECT p.id, v.sku, v.spec, v.pg, v.ps, 'in-stock', v.so
+FROM products p
+CROSS JOIN (VALUES
+  ('G3-0002-BLK', '{"顏色":"黑"}'::jsonb, 4140, 3400, 0),
+  ('G3-0002-SLV', '{"顏色":"銀"}'::jsonb, 4400, 3600, 1)
+) AS v(sku, spec, pg, ps, so)
+WHERE p.handle = 'g3-probe-0002';
