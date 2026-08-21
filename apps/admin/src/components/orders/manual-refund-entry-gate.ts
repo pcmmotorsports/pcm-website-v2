@@ -28,12 +28,31 @@ import type { PaymentListData } from './payment-list';
  * catalog 函式,做一支包裝 RPC 只為了回答一個 grep 就答得出來的問題不成比例(主視窗裁定
  * 原文)。這裡改用**最簡單、對稱的手段**:入口先不接線可用,直到乙片落地。
  *
- * **解除條件(誰都可以做,不必是我)**:
- *   ① `admin_void_manual_refund` 的 migration 已 apply(`grep -rn 'admin_void_manual_refund'
- *      supabase/migrations` 不再是 0)
+ * **解除條件(誰都可以做,不必是我)—— 🔴 三條,不是兩條**:
+ *   ① `admin_void_manual_refund` 的 migration 已 apply
+ *      ⚠️ **注意 `grep` 只量得到「檔案在磁碟上」** —— 分不出未追蹤 / 已 commit / 已上 dev / 已 apply。
+ *      要真的確認,跑 `grep -c '20260820100000' supabase/APPLIED.tsv`。
+ *      📌 2026-08-22 現況:**已 apply**(APPLIED.tsv 命中)⇒ **這一條【已經成立了】。**
  *   ② `manual-refund-caller-gate.test.ts` 的 `CALLER_ALLOWLIST` 已登記本檔路徑 + why
  *      (why 要寫「封印在哪一片、驗的是什麼」,不要寫「已確認」——該測試檔頭原話)
- * 兩者都成立後,把下面這行 `return false` 連同本段註解一起刪掉。
+ *   ③ 🔴🔴 **`service_role` 對 `admin_void_manual_refund` 有 EXECUTE**(2026-08-22 線 C 補進本檔)
+ *      量法(唯讀,對正式庫):
+ *        select has_function_privilege('service_role', p.oid, 'EXECUTE'), p.proacl
+ *          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ *         where n.nspname = 'public' and p.proname = 'admin_void_manual_refund';
+ *      📌 2026-08-22 實測:**false**;`proacl = postgres=X/postgres`(只有 owner)
+ *      ⇒ **這一條【還沒成立】,而那是【刻意的】** —— 那支 migration 自己寫了四次「零 GRANT」:
+ *        「本檔只建函式,EXECUTE 由『登記畫面那一片』開」(分期開權)。
+ *
+ * 🔴🔴 **本段第一版只寫了 ①②,而第三條【只住在測試的紅字訊息裡】** ——
+ *   `manual-refund-787-trigger.test.ts` 的失敗訊息逐字有「確認『service_role 已 EXECUTE 到』之後才動手」。
+ *   ⇒ 而**要改這道閘的人會讀【本檔】,不會去跑那支測試** ⇒ 照 ①② 做就會解除它,
+ *      而入口渲染出來之後 **RPC 會在執行期被權限擋掉,同時 typecheck / lint / 測試【全綠】。**
+ *   ⇒ ⇒ 🔴 **這正是本檔開頭第 5-9 行在警告的那個病(片A/片B 兩份規格漂移)——**
+ *      **一份在警告規格漂移的檔,自己漂移了。** 保留這句,因為下一個人需要知道它會發生在誰身上。
+ *   📌 可搬走的那一句:**規矩要放在那個人【會經過的地方】。**
+ *
+ * 三條都成立後,把下面這行 `return false` 連同本段註解一起刪掉。
  */
 /** 見上方函式註解:#787 解除前這裡恆 true。寫成具名常數(不是行內 `true` 字面),
  *  是為了不讓下面保留的真實判斷邏輯被 lint 的 no-unreachable 當死碼砍掉。
