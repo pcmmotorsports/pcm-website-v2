@@ -225,7 +225,7 @@ describe('BrandPageMedia · 圖說與外開連結', () => {
   });
 
   it('🔴 三種來源都沒有 → 連結整個不建(不是印一個 ?v=undefined 的死連結)', () => {
-    // 設計稿 :1890 的 else 分支無條件組 youtube watch 網址;真資料 12 家都有來源
+    // 設計稿 :1890 的 else 分支無條件組 youtube watch 網址;真資料 13 家都有來源
     // ⇒ 不可達,判別力同樣由 fixture 提供。圖說本身仍要在(space-between 的左格)。
     const video: BrandVideo = {
       poster: fileVideo.poster, title: '無來源', caption: '無來源',
@@ -257,9 +257,13 @@ describe('BrandPageMedia · 直式影片', () => {
   });
 });
 
-describe('BrandPageMedia · 12 家實資料', () => {
+describe('BrandPageMedia · 13 家實資料', () => {
   it('每家都渲染得出封面 + 圖說,且封面圖路徑指得到資產', () => {
-    expect(videos.length, '前提:實測 12 家有影片').toBe(12);
+    // 🔴 12 → 13(2026-08-22):`ff96b1e7`「品牌頁影片上下置中 + DNA 掛上影片」給 DNA 掛了影片。
+    //    **這個數字會隨品牌上影片而變 —— 它釘的是「有人清點過」,不是「必須是 13」。**
+    //    ⚠️ 連帶:DNA 原本是「無 video 無 aside」兩欄退化分流的唯一真樣本,掛上影片之後
+    //    那條分流真實樣本歸零 ⇒ 見 `BrandPageAbout.test.tsx` 的合成樣本 describe。
+    expect(videos.length, '前提:實測 13 家有影片').toBe(13);
     for (const video of videos) {
       const { container } = render(<BrandPageMedia video={video} />);
       expect(container.querySelector('.bp-film-poster img')?.getAttribute('src'), video.title)
@@ -271,7 +275,7 @@ describe('BrandPageMedia · 12 家實資料', () => {
 });
 
 // ── #311 標題階層(關卡2 R2 補):本區在 About 右欄裡,**不得帶任何標題元素** ──────
-// 12 家走這條分流。整頁大綱的不變式清單見 `BrandPageHeader.test.tsx` 檔尾那段。
+// 13 家走這條分流(2026-08-22 重數;原 12)。整頁大綱的不變式清單見 `BrandPageHeader.test.tsx` 檔尾那段。
 // 🔴 D3a 起另有 `BrandPageRoot.test.tsx` 直接 render 整頁驗大綱(它的前提斷言明確要求
 //    Media 與產品照卡兩條分流都有樣本 —— 關卡2 R2 的洞就是本檔這條分流當時零守門)。
 describe('BrandPageMedia · 標題階層(#311)', () => {

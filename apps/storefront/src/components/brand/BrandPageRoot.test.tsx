@@ -127,7 +127,14 @@ describe('BrandPageRoot · 前提(這支測試有沒有判別力)', () => {
     const withNeither = BRAND_CONTENT.filter((b) => !b.video && !b.aside);
     expect(withVideo.length, 'Media 分流零樣本 ⇒ 大綱守門對它全盲').toBeGreaterThan(0);
     expect(withAside.length, '產品照卡分流零樣本 ⇒ 大綱守門對它全盲').toBeGreaterThan(0);
-    expect(withNeither.length, '兩欄退化分流零樣本 ⇒ 大綱守門對它全盲').toBeGreaterThan(0);
+    // 🔴🔴 **兩欄退化分流:真實資料目前 0 家。**
+    //    `dna` 2026-08-20 上架時是唯一樣本(video / aside 兩處刻意留白),
+    //    2026-08-21 `ff96b1e7` 給它掛上影片 ⇒ 樣本歸零。
+    //    ⚠️ **不改成 `>= 0`** —— 那是把最後一個知道這件事的東西關掉。
+    //    改為釘死 0 + 指到合成樣本:`BrandPageAbout.test.tsx` 的
+    //    「BrandPageAbout · 兩欄退化(合成樣本;真實資料 0 家)」那個 describe 有實際渲染覆蓋。
+    // 📌 **有真的第 22 家留白時,這條會紅** ⇒ 那時把兩邊的合成樣本都換回真資料。
+    expect(withNeither.length, '有真的樣本了 ⇒ 把合成樣本換回真資料(見 BrandPageAbout.test.tsx)').toBe(0);
     expect(withVideo.length + withAside.length + withNeither.length).toBe(21);
     // 年表是選填(實查 2 家)⇒ 有無兩種組裝順序都要被 render 到。
     const withTimeline = BRAND_CONTENT.filter((b) => b.timeline);

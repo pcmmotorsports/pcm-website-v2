@@ -195,10 +195,53 @@ describe('BrandPageAbout · 20 家實資料', () => {
     expect(media).toBe(BRAND_CONTENT.filter((b) => b.video).length);
     expect(card).toBeGreaterThan(0);
     expect(media).toBeGreaterThan(0);
-    // 兩者皆無 ⇒ 退化成兩欄(設計稿 :1958 逐字,DNA 2026-08-20 起第一個真樣本、舊資料下不可達)。
+    // 兩者皆無 ⇒ 退化成兩欄(設計稿 :1958 逐字)。
     const neither = BRAND_CONTENT.filter((b) => !b.video && !b.aside).length;
-    expect(neither).toBeGreaterThan(0);
+    // 🔴🔴 **真實資料目前 0 家走這條 —— 見下方 describe,改由合成樣本覆蓋。**
+    expect(neither, '有真的樣本了 ⇒ 把下方合成樣本換回真資料').toBe(0);
     // 三條路加起來必須剛好蓋滿全部品牌,不能有人三邊都落空
     expect(card + media + neither).toBe(BRAND_CONTENT.length);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴🔴 兩欄退化分流(無 video 且無 aside)—— **真實資料零樣本,靠合成樣本覆蓋**
+//
+// 來由(2026-08-22):`dna` 2026-08-20 上架時 video 與 aside 兩處刻意留白
+// (`ffbd4102` subject 逐字「categories/focus 兩處刻意留白」),它是這條分流**唯一**的真實樣本
+// —— 本檔 `:198` 原本就寫著「DNA 2026-08-20 起第一個真樣本、舊資料下不可達」。
+// 2026-08-21 `ff96b1e7`「品牌頁影片上下置中 + DNA 掛上影片」給 DNA 掛了 video
+// ⇒ **樣本歸零,`neither > 0` 那道守門瞎掉。**
+//
+// 🔴 **留白是刻意的,補完也是刻意的,兩邊都對 ——**
+//    **中間沒有人知道那個留白正被兩道守門當成量具在用。**
+//
+// ⚠️ **不補一筆真的留白資料**:`data/brand-content.ts` 檔頭逐字「**機器產生,不要手改**」。
+// 📌 **哪天有真的第 22 家留白 ⇒ 上面那條 `toBe(0)` 會紅** ⇒ 那時把合成樣本換回真資料。
+//    那條紅是**功能**不是故障。
+// ─────────────────────────────────────────────────────────────────────────────
+describe('BrandPageAbout · 兩欄退化(合成樣本;真實資料 0 家)', () => {
+  const base = BRAND_CONTENT.find((b) => b.video && b.aside)!;
+  const SYNTHETIC_NEITHER: BrandContent = {
+    ...base,
+    slug: 'synthetic-neither',
+    video: undefined,
+    aside: undefined,
+  };
+
+  it('無 video 且無 aside ⇒ 退化成兩欄(掛 no-aside),且右欄兩塊都不渲染', () => {
+    const { container } = render(<BrandPageAbout brand={SYNTHETIC_NEITHER} />);
+    // 🔴 這一條就是「兩欄」的可觀測形狀(`BrandPageAbout.tsx:34` 的 `no-aside`)。
+    //    突變:把那個 `no-aside` 拿掉 ⇒ 本條紅 ⇒ 證明這個合成樣本有判別力,不是恆綠。
+    expect(container.querySelector('.bp-about-inner.no-aside')).not.toBeNull();
+    expect(container.querySelector('.bp-aside')).toBeNull();
+    expect(container.querySelector('.bp-media')).toBeNull();
+  });
+
+  it('對照:同一筆資料補回 aside ⇒ 就【不是】兩欄了(證明上一條不是恆真)', () => {
+    const withAside: BrandContent = { ...SYNTHETIC_NEITHER, aside: base.aside };
+    const { container } = render(<BrandPageAbout brand={withAside} />);
+    expect(container.querySelector('.bp-about-inner.no-aside')).toBeNull();
+    expect(container.querySelector('.bp-aside')).not.toBeNull();
   });
 });

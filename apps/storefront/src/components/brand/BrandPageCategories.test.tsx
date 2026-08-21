@@ -5,7 +5,7 @@
 // 這一區最容易靜默壞掉的三件事(全部三綠 + 肉眼都看不出來):
 //   ① `colorIndex === 0` 的 chip 掛了 `data-cat="0"` —— 畫面**現在**一模一樣
 //      (`[data-cat="0"]` 這條規則不存在 ⇒ 仍吃基礎規則的 --cat-8),
-//      直到哪天有人補了那條規則才會突然變色。實測 52 筆中 2 筆。
+//      直到哪天有人補了那條規則才會突然變色。實測 53 筆中 2 筆(2026-08-22 重數;原 52)。
 //   ② 分類名被當成 rich text 過 parser ⇒ 帶標記的名稱會變成元素(現有 12 種零標記 ⇒ 真資料不可達)。
 //   ③ 網址少帶 `&category=` 或沒 encode ⇒ 中文分類名直接進 URL。
 
@@ -20,10 +20,15 @@ afterEach(cleanup);
 const all = BRAND_CONTENT.flatMap((b) => b.categories);
 
 describe('BrandPageCategories · 前提(資料形狀)', () => {
-  it('🔴 52 筆 / 12 種名稱 / 每家 1-7 個 / colorIndex 值域 0-11 缺 2', () => {
+  it('🔴 53 筆 / 13 種名稱 / 每家 1-7 個 / colorIndex 值域 0-11 缺 2', () => {
     // 下面每一條斷言都靠這個形狀 —— 形狀變了(新增品牌、改分類表)要先看這裡再改測試。
-    expect(all).toHaveLength(52);
-    expect(new Set(all.map(([name]) => name)).size).toBe(12);
+    // 🔴 **這個數字會隨品牌上架而變 —— 它釘的是「有人清點過」,不是「必須是 53」。**
+    //    52 → 53:`6c937647`(2026-08-21)給 DNA 補上分類 chip「進氣系統」,那是刻意的。
+    //    ⇒ 改這個數字之前先確認**資料的變動是刻意的**;是的話更新它,不是的話去查資料。
+    expect(all).toHaveLength(53);
+    // 12 → 13:DNA 的「進氣系統」是**新的分類名**,不是既有名字的第二筆(2026-08-22 重數)。
+    // 同上一句 —— 這個數字釘的是「有人清點過」,不是「必須是 13」。
+    expect(new Set(all.map(([name]) => name)).size).toBe(13);
     const counts = BRAND_CONTENT.map((b) => b.categories.length);
     // 🔴 min 不再釘死 1 —— DNA(2026-08-20)刻意 categories:[],空陣列不是缺陷,見下方
     // 「空 ⇒ 不渲染」測試(主視窗裁定 C:讓「渲染空殼」這件事本身不可能發生,取代
@@ -33,9 +38,15 @@ describe('BrandPageCategories · 前提(資料形狀)', () => {
     expect(Math.max(...counts)).toBe(7);
     expect([...new Set(all.map(([, i]) => i))].sort((a, b) => a - b))
       .toEqual([0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    // 🔴 0 這個值**真的存在於正式資料**(2 筆)—— 沒有它,下面「不掛 data-cat」那條
+    // 🔴 0 這個值**真的存在於正式資料**(3 筆)—— 沒有它,下面「不掛 data-cat」那條
     //    就是在守一條走不到的路。
-    expect(all.filter(([, i]) => i === 0)).toHaveLength(2);
+    //    2 → 3(2026-08-22):DNA 的「進氣系統」也配到 0。同上 —— 這個數字釘的是
+    //    「有人清點過」,不是「必須是 3」;它真正要守的是**不可以變成 0**。
+    // 📌 順帶記一件本測試**沒有**在守的事(2026-08-22 重數時發現,不在本次修復範圍):
+    //    `colorIndex 0` 現在同時給了三個**不同**的分類名(進氣系統 / 煞車系統 / 懸吊與車架 · 輪圈)
+    //    ⇒ 這三種 chip 在畫面上同色。下面那條 `byName` 守的是「同名必同色」(仍成立),
+    //    **沒有**守「同色必同名」。這在 DNA 之前就已經是 2 個共用 0,不是這次才出現的。
+    expect(all.filter(([, i]) => i === 0)).toHaveLength(3);
     // 🔴 `key={name}` 依賴「同一家內部名稱不重複」——型別保證不了,只能靠這條。
     //    重複時 React key 撞號,而下面「chip 數 = 分類筆數」那條**不會紅**
     //    (React 仍會渲染兩個節點,只是 reconcile 行為未定義)。磚牆對 slug 有做同款,
@@ -55,13 +66,30 @@ describe('BrandPageCategories · categories 為空 ⇒ 整區不渲染(2026-08-2
   const emptyBrands = BRAND_CONTENT.filter((b) => b.categories.length === 0);
   const nonEmptyBrand = BRAND_CONTENT.find((b) => b.categories.length > 0)!;
 
-  it('前提:至少有一家 categories 為空(否則下面兩條是空迴圈、恆真)', () => {
-    expect(emptyBrands.map((b) => b.slug)).toContain('dna');
-    expect(emptyBrands.length).toBeGreaterThan(0);
+  // 🔴🔴 **真實資料目前 0 家 categories 為空 —— 這一段靠合成樣本覆蓋。**
+  //
+  // 來由(2026-08-22):`dna` 2026-08-20 上架時 `categories` 刻意留白(`ffbd4102` subject 逐字
+  // 「categories/focus 兩處刻意留白」),它是這道守門**唯一**的真實樣本。
+  // 2026-08-21 `6c937647` 把 DNA 補上分類 chip「進氣系統」⇒ **樣本歸零、這道守門瞎掉。**
+  // 留白是刻意的,補完也是刻意的,兩邊都對 ——
+  // **中間沒有人知道那個留白正被一道守門當成量具在用。**
+  //
+  // ⚠️ **不補一筆真的留白資料**:`data/brand-content.ts` 檔頭逐字「**機器產生,不要手改**」
+  //    (真權威在 Open Design `pcm-home-redesign/brand-content-data.js`)。
+  // 📌 **哪天有真的第 22 家留白 ⇒ 下面那條 `toHaveLength(0)` 會紅,那時把合成樣本換回真資料。**
+  //    (那條紅是**功能**不是故障:它是這段註解唯一會主動找上下一個人的方式。)
+  const SYNTHETIC_EMPTY: BrandContent = { ...nonEmptyBrand, slug: 'synthetic-empty', categories: [] };
+
+  it('前提:真實資料目前【零家】categories 為空 ⇒ 本段改由合成樣本覆蓋', () => {
+    expect(
+      emptyBrands,
+      '有真的留白樣本了 ⇒ 把下面的合成樣本換回真資料(見上方註解)',
+    ).toHaveLength(0);
   });
 
   it('空 ⇒ .bp-cats 整區不存在於 DOM(不是渲染一個空的 .bp-chips)', () => {
-    for (const b of emptyBrands) {
+    // 合成樣本 + 任何未來的真實留白樣本,兩邊都要走一遍。
+    for (const b of [SYNTHETIC_EMPTY, ...emptyBrands]) {
       const { container } = render(<BrandPageCategories brand={b} />);
       expect(container.querySelector('.bp-cats'), b.slug).toBeNull();
       expect(container.querySelector('.bp-chips'), b.slug).toBeNull();
