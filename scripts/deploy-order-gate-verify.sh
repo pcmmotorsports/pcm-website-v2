@@ -19,7 +19,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=36
+EXPECT_TOTAL=45
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -189,10 +189,12 @@ expect_pass "⑩**刻意漏擋**:pending migration 只加欄位(零 CREATE FUNCT
 R8="$WORK/r8"; setup_repo "$R8"; add_pending_migration "$R8"
 mkdir -p "$R8/apps/admin/src/__tests__"
 cat > "$R8/apps/admin/src/consumer.test.ts" <<'TS'
-it('calls pcm_a9h_probe', () => {});
+const FN = 'pcm_a9h_probe';   // 🔴 整串字面 —— 新判準看得見的形狀(見上方 A-bc 說明)
+it('calls it', () => {});
 TS
 ( cd "$R8" && git add -A && git commit -qm "test: 只有測試檔提到那個函式名" )
 B8="$(cd "$R8" && git rev-parse HEAD~1)"; T8="$(cd "$R8" && git rev-parse HEAD)"
+# 🔴 M3 的「有保護那一側」由本格承擔;動本格前先看 M3(關聯住在這一行,不住在 code 裡)。
 expect_pass "⑪測試檔不算 app 面:只有 *.test.ts 提到函式名 ⇒ 放行" \
   "$(run_gate "$R8" "refs/heads/dev $T8 refs/heads/dev $B8")"
 
@@ -202,6 +204,7 @@ export const x = 'pcm_a9h_probe_v2';
 TS
 ( cd "$R9" && git add -A && git commit -qm "feat: app 用的是更長的相似名字" )
 B9="$(cd "$R9" && git rev-parse HEAD~1)"; T9="$(cd "$R9" && git rev-parse HEAD)"
+# 🔴 M2 的「有保護那一側」由本格承擔;動本格前先看 M2。
 expect_pass "⑫識別字邊界:pcm_a9h_probe_v2 不是 pcm_a9h_probe ⇒ 不誤擋" \
   "$(run_gate "$R9" "refs/heads/dev $T9 refs/heads/dev $B9")"
 
@@ -381,10 +384,36 @@ PYMUT
   fi
 }
 
+# ══════════════════════════════════════════════════════════════════════════
+# 🔴🔴 2026-08-21 A-bc:**下面 M2 / M3 / M5 三格的 fixture 被作者本人改過。**
+#     主視窗 `-72` 拍板批准,並主動向 Sean 報備「今晚有一次【動到驗證本身】由它拍板」。
+#
+# **為什麼會需要改**:同一批把閘的判準從「新增行裡出現函式名」收緊成
+#   「在 `.rpc(` 呼叫窗口裡」+「整串等於函式名的字串字面」。
+#   那三格原本餵的是**裸提及**的形狀(`it('calls fn', …)` / `runbook: 記得跑 fn`),
+#   新判準看不見它們 ⇒ **拿掉保護也不會紅** ⇒ 三格失去判別力。
+#   ⇒ 保護本身(測試檔過濾 / 路徑限定 / 識別字邊界)**一段都沒動**。
+#
+# **改了什麼、沒改什麼**:
+#   改了 fixture 的【形狀】與 M2 的【突變錨點】;**期望值一個字都沒改**(仍是 block / pass)。
+#
+# 🔴 **殘餘風險(作者逐字自陳,刻意留在檔案裡而不是只留在訊息裡)**:
+#   「改完之後,那三格證明的是【新形狀下】保護有效,不再證明【舊形狀下】保護有效 ——
+#     而舊形狀(裸提及)現在本來就不該擋。**這個轉變是刻意的,不是被我藏掉的。**」
+#
+# 📌 主視窗拍板時給的判準,寫在這裡當下次的參照:
+#   **不是「有沒有動測試」,是「動完之後它還分不分得開兩個世界」。**
+#   三格改完各自實測:有保護 ⇒ rc=0 / 拿掉保護 ⇒ rc=1(輸出見交件 `A-bc-007`)。
+# ══════════════════════════════════════════════════════════════════════════
 mutate_and_check "M1 sha 比對改成「帳上有這一行就算數」" \
   '[ "$rec" = "$sha" ]@@@[ -n "$rec" ]' pass "$R5" "refs/heads/dev $T5 refs/heads/dev $B5"
+# 🔴 A-bc:突變錨點從 4a(呼叫窗口的識別字邊界)改指 **4b 的引號邊界** ——
+#    R9 的 fixture(`export const x = 'pcm_a9h_probe_v2';`)沒有 `.rpc(`,它走的是 4b 那條路。
+#    錨在 4a 的話,拿掉它對這個 fixture 沒有任何可觀察的差別 ⇒ 那一發什麼都證明不了。
+# 🔴 本發的「有保護那一側」是 ⑫;動 ⑫ 會讓本發失去對照(它就不再是一對兩個世界)。
 mutate_and_check "M2 識別字邊界改成裸子字串比對" \
-  'grep -qE "(^|[^A-Za-z0-9_])$fn([^A-Za-z0-9_]|\$)"@@@grep -qF "$fn"' block "$R9" "refs/heads/dev $T9 refs/heads/dev $B9"
+  $'grep -qE "[\'\\"]$fn[\'\\"]"@@@grep -qF "$fn"' block "$R9" "refs/heads/dev $T9 refs/heads/dev $B9"
+# 🔴 本發的「有保護那一側」是 ⑪;動 ⑪ 會讓本發失去對照。
 mutate_and_check "M3 拿掉 app 面的測試檔過濾" \
   "| grep -vE '\\.(test|spec)\\.[jt]sx?\$|/__tests__/'@@@" block "$R8" "refs/heads/dev $T8 refs/heads/dev $B8"
 # 🔴 code-reviewer nit:抽函式名與 app 面路徑範圍兩段承重邏輯原本零突變 ⇒ 補兩發。
@@ -392,13 +421,125 @@ mutate_and_check "M4 抽取器退回第一版(只認全大寫、同一行)" \
   "| tr '\\n' ' ' \\@@@| grep -v @@NEVER@@ \\" pass "$R14" "refs/heads/dev $T14 refs/heads/dev $B14"
 R17="$WORK/r17"; setup_repo "$R17"; add_pending_migration "$R17"
 mkdir -p "$R17/docs"
-printf 'runbook: 記得跑 pcm_a9h_probe\n' > "$R17/docs/note.md"
+# 🔴 帶引號的整串字面 —— 新判準看得見的形狀(見上方 A-bc 說明);㉔ 仍靠「docs 不在掃描路徑裡」放行
+printf "runbook: 呼叫 'pcm_a9h_probe'\n" > "$R17/docs/note.md"
 ( cd "$R17" && git add -A && git commit -qm "docs: 只有文件提到那個函式名" )
 B17="$(cd "$R17" && git rev-parse HEAD~1)"; T17="$(cd "$R17" && git rev-parse HEAD)"
+# 🔴 M5 的「有保護那一側」由本格承擔;動本格前先看 M5。
 expect_pass "㉔只有 docs 提到函式名(零 app 變更)⇒ 放行" \
   "$(run_gate "$R17" "refs/heads/dev $T17 refs/heads/dev $B17")"
+# 🔴 本發的「有保護那一側」是 ㉔;動 ㉔ 會讓本發失去對照。
 mutate_and_check "M5 拿掉 app 面路徑限定(-- apps packages)" \
   '-- apps packages@@@--' block "$R17" "refs/heads/dev $T17 refs/heads/dev $B17"
+echo
+echo "── 呼叫上下文(2026-08-21 A-bc;審查線 -04 量的兩個方向)────────────────"
+# 🔴 這一組的來源:原本的比對是「新增行裡出現函式名的完整識別字」⇒ **不管那一行是不是在呼叫**。
+#    -04 量到兩個方向都壞:
+#      誤擋 817 個提及裡只有 30 個真的是呼叫 ⇒ 每 27 次命中只對 1 次
+#      漏擋 7/35 的既有呼叫是識別字風格(`.rpc(SOME_FN, …)`)⇒ 20% 對這道閘隱形
+#    ⇒ 判準改成「**在 `.rpc(` 的呼叫窗口裡**」,而識別字要回頭解析。
+
+# ①a/①b/①c 誤擋面:三種「提到但不是呼叫」的形狀,都必須放行
+R30="$WORK/r30"; setup_repo "$R30"; add_pending_migration "$R30"
+cat > "$R30/apps/admin/src/consumer.ts" <<'TS'
+// 見 pcm_a9h_probe 的說明
+export const a = 1;
+TS
+( cd "$R30" && git add -A && git commit -qm "docs: 行註解提到函式名" )
+B30="$(cd "$R30" && git rev-parse HEAD~1)"; T30="$(cd "$R30" && git rev-parse HEAD)"
+expect_pass "①a 誤擋面·行註解提到函式名 ⇒ 放行" \
+  "$(run_gate "$R30" "refs/heads/dev $T30 refs/heads/dev $B30")"
+
+R31="$WORK/r31"; setup_repo "$R31"; add_pending_migration "$R31"
+cat > "$R31/apps/admin/src/consumer.ts" <<'TS'
+/**
+ *    pcm_a9h_probe: 品項數量超出範圍
+ */
+export const b = 1;
+TS
+( cd "$R31" && git add -A && git commit -qm "docs: JSDoc 提到函式名" )
+B31="$(cd "$R31" && git rev-parse HEAD~1)"; T31="$(cd "$R31" && git rev-parse HEAD)"
+expect_pass "①b 誤擋面·JSDoc 星號行提到函式名 ⇒ 放行" \
+  "$(run_gate "$R31" "refs/heads/dev $T31 refs/heads/dev $B31")"
+
+# 🔴 ①c 是三發裡最不能漏的:**剝註解救不了它,它在字串裡。**
+R32="$WORK/r32"; setup_repo "$R32"; add_pending_migration "$R32"
+cat > "$R32/apps/admin/src/consumer.ts" <<'TS'
+export const err = { msg: '請洽管理員 pcm_a9h_probe' };
+TS
+( cd "$R32" && git add -A && git commit -qm "feat: 錯誤訊息字串裡有函式名" )
+B32="$(cd "$R32" && git rev-parse HEAD~1)"; T32="$(cd "$R32" && git rev-parse HEAD)"
+expect_pass "①c 誤擋面·**字串字面**裡有函式名(剝註解救不了)⇒ 放行" \
+  "$(run_gate "$R32" "refs/heads/dev $T32 refs/heads/dev $B32")"
+
+# ② 漏擋面:識別字風格的呼叫。常數住在【這次沒被改動的檔】⇒ 新增行只有呼叫那一行
+R33="$WORK/r33"; setup_repo "$R33"
+cat > "$R33/apps/admin/src/fn-names.ts" <<'TS'
+export const PROBE_FN = 'pcm_a9h_probe';
+TS
+( cd "$R33" && git add -A && git commit -qm "base: 常數表(這次不會被改)" )
+add_pending_migration "$R33"
+cat > "$R33/apps/admin/src/consumer.ts" <<'TS'
+import { PROBE_FN } from './fn-names';
+export async function callIt(sb: any) {
+  return await sb.rpc(PROBE_FN, { p_order_id: 'x', p_note: 'y' });
+}
+TS
+( cd "$R33" && git add -A && git commit -qm "feat: 識別字風格呼叫" )
+B33="$(cd "$R33" && git rev-parse HEAD~1)"; T33="$(cd "$R33" && git rev-parse HEAD)"
+expect_block "②漏擋面·`.rpc(IDENT, …)` 識別字風格 ⇒ 必須擋(常數定義在未改動的檔)" \
+  "$(run_gate "$R33" "refs/heads/dev $T33 refs/heads/dev $B33")" "pcm_a9h_probe"
+
+# ③ 回歸:最普通的字串字面呼叫,改完必須維持擋
+R34="$WORK/r34"; setup_repo "$R34"; add_pending_migration "$R34"
+cat > "$R34/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return await sb.rpc('pcm_a9h_probe', { p_order_id: 'x' });
+}
+TS
+( cd "$R34" && git add -A && git commit -qm "feat: 字面呼叫" )
+B34="$(cd "$R34" && git rev-parse HEAD~1)"; T34="$(cd "$R34" && git rev-parse HEAD)"
+expect_block "③回歸·`.rpc('fn', …)` 字面呼叫 ⇒ 維持擋" \
+  "$(run_gate "$R34" "refs/heads/dev $T34 refs/heads/dev $B34")" "pcm_a9h_probe"
+
+# ⑤ 跨行呼叫:函式名在 `.rpc(` 的【下一行】
+R35="$WORK/r35"; setup_repo "$R35"; add_pending_migration "$R35"
+cat > "$R35/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  const { data, error } = await sb.rpc(
+    'pcm_a9h_probe',
+    { p_order_id: 'x' }
+  );
+  return { data, error };
+}
+TS
+( cd "$R35" && git add -A && git commit -qm "feat: 跨行呼叫" )
+B35="$(cd "$R35" && git rev-parse HEAD~1)"; T35="$(cd "$R35" && git rev-parse HEAD)"
+expect_block "⑤跨行呼叫·函式名在 `.rpc(` 的下一行 ⇒ 維持擋" \
+  "$(run_gate "$R35" "refs/heads/dev $T35 refs/heads/dev $B35")" "pcm_a9h_probe"
+
+# 🔴🔴 ④ 不可省的負對照:餵一個【不在 FN_LIST 裡】的函式名,上面三種形狀都必須放行。
+#    **為什麼修的人會想砍掉它**:它看起來像在測一個不會發生的情況。
+#    而它擋的是最貴的失敗:比對整條壞掉 ⇒ 全部變綠 ⇒ **這道閘從此不存在,而沒有人會發現**,
+#    因為它的正常狀態本來就是綠的。
+for shape in literal ident multiline; do
+  RN="$WORK/r36-$shape"; setup_repo "$RN"
+  cat > "$RN/apps/admin/src/fn-names.ts" <<'TS'
+export const OTHER_FN = 'some_other_function';
+TS
+  ( cd "$RN" && git add -A && git commit -qm "base" )
+  add_pending_migration "$RN"
+  case "$shape" in
+    literal)   printf 'export async function c(sb: any) {\n  return await sb.rpc("some_other_function", {});\n}\n' > "$RN/apps/admin/src/consumer.ts" ;;
+    ident)     printf "import { OTHER_FN } from './fn-names';\nexport async function c(sb: any) {\n  return await sb.rpc(OTHER_FN, {});\n}\n" > "$RN/apps/admin/src/consumer.ts" ;;
+    multiline) printf 'export async function c(sb: any) {\n  return await sb.rpc(\n    "some_other_function",\n    {}\n  );\n}\n' > "$RN/apps/admin/src/consumer.ts" ;;
+  esac
+  ( cd "$RN" && git add -A && git commit -qm "feat: 呼叫一支不在 pending 清單裡的函式" )
+  BN="$(cd "$RN" && git rev-parse HEAD~1)"; TN="$(cd "$RN" && git rev-parse HEAD)"
+  expect_pass "④不在 FN_LIST 的名字·$shape ⇒ 放行(比對整條壞掉時這格會紅)" \
+    "$(run_gate "$RN" "refs/heads/dev $TN refs/heads/dev $BN")"
+done
+
 # ── 摘要行三世界(2026-08-18;V 窗提、主視窗立案)──────────────────────────
 # 🔴 為什麼要【三個】世界而不是一個:只驗「通過時有印一行」的話,
 #    一支**恆印同一句**的實作也會過 —— 那就是一道零判別力的守門。

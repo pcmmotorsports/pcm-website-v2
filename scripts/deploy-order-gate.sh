@@ -30,7 +30,31 @@
 #   · 反向事故(migration 先上、舊 app 撞 `PGRST201`)不在射程。
 #   · `--no-verify` / `HUSKY=0` 可繞(與 `.husky/reviewer-gate.sh` 同一個天花板)。
 #   · **只比 RPC 函式名**(Sean Q2=B):純加欄位 / 建表 / 改 RLS 的 migration **零覆蓋** —— 刻意的。
-#   · 呼叫端若**不是逐字寫函式名**(字串拼接、常數表、動態 key),抓不到;這是文字比對的天花板。
+#   · 呼叫端若**不是逐字寫函式名**(字串拼接、樣板字串、動態 key),抓不到;這是文字比對的天花板。
+#     ⚠️ **「常數表」已不在這一行的射程裡了**(2026-08-21 A-bc):`.rpc(SOME_FN, …)` 現在會回頭
+#        解析 `SOME_FN = 'fn'`,而**解析不到就擋**。詳見下方比對段的行內註解。
+#   · 窗口只開到 `.rpc(` 之後**兩行** —— 函式名在第三行以後的呼叫,抓不到。
+#   · `supabase/functions/**` 不在分母裡(本閘只掃 `apps/**` 與 `packages/**`)。
+#   · 「整串字面」那條只認**單引號 / 雙引號**;反引號樣板字串 `` `fn` `` 不算。
+#
+# ── 🔴 寫這道閘(或任何用 grep 當量具的閘)之前必讀的一個坑 ─────────────
+#   **`git grep -E` 不支援 `\b`,而且它【靜默不匹配】而不是報語法錯。**
+#   實測(2026-08-21 A-bc,拋棄式 repo):
+#     git grep -hoE "\bPROBE_FN[[:space:]]*=[^;]*" <sha> -- apps  ⇒ **零行**
+#     git grep -hoE   "PROBE_FN[[:space:]]*=[^;]*" <sha> -- apps  ⇒ 命中
+#   ⇒ **一個不支援的語法回的是「沒找到」** ⇒ 一道閘會安靜地變成恆綠,而它的正常狀態
+#     本來就是綠的 ⇒ **沒有人會發現。**
+#   ⇒ 本檔一律用 `(^|[^A-Za-z0-9_])…([^A-Za-z0-9_]|$)` 字元類邊界,不用 `\b`。
+#
+# ── 🔴🔴 改本檔的人先讀這一格:**它的生效時刻是【存檔】,不是【commit】** ──────
+#   `.husky/pre-push:39` 執行的是 `"$_R/scripts/deploy-order-gate.sh"` ——
+#   **`$_R` 是工作樹根,不是 HEAD** ⇒ 你一存檔,全隊每一次 push 就開始跑你這一版。
+#   2026-08-21 實錘:A-bc 改完本檔、以為自己在「等審查、還沒上線」,而
+#   **Sean 當晚推的兩發(`5c660c98..67816357` 24 顆、`67816357..ca4a7085` 5 顆)都經過這一版**。
+#   ⇒ 好消息:那不是紙上驗證,它在正式流程裡跑過兩次而沒有誤擋。
+#   ⇒ 壞消息:**「等審完再上線」在技術上不成立** —— 主視窗與施工窗兩邊都以為它還沒生效。
+#   ⚠️ **同一件事對 `.husky` 指到的每一支腳本都成立**,不只本檔。
+#   ⇒ 改到一半就離開座位 ⇒ 全隊在跑你的半成品。要真的「還沒上線」,只能不存檔或先搬走。
 #
 # 用法(pre-push 之外可單獨跑,方便測):
 #   printf '%s\n' "refs/heads/dev <local-sha> refs/heads/dev <remote-sha>" | bash scripts/deploy-order-gate.sh
@@ -181,10 +205,77 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 $(git show "$local_sha:$af" 2>/dev/null || true)"      # rename 進來的檔:整檔都算「這次新上線的」
     fi
     [ -n "$ADDED" ] || continue
+
+    # ── 呼叫上下文(2026-08-21 A-bc;審查線 -04 量出兩個方向都壞)──────────────
+    # 🔴 舊判準 = 「新增行裡出現函式名的完整識別字」⇒ **不管那一行是不是在呼叫**。實量:
+    #      誤擋  817 個提及裡只有 30 個真的是呼叫 ⇒ **每 27 次命中只對 1 次**
+    #      漏擋  7/35 的既有呼叫是識別字風格(`.rpc(SOME_FN, …)`)⇒ **20% 對這道閘隱形**
+    #    後者是真的洞:常數若定義在【這次不需要改的檔】,新增行就只剩呼叫那一行 ⇒ 完全放行
+    #    ⇒ 正式站呼叫資料庫裡還不存在的函式 ⇒ PGRST202(2026-08-07 壞約 8 小時)。
+    #
+    # 🔴 **窗口為什麼是「`.rpc(` 那行 + 後兩行」而不是「只看含 `.rpc(` 的行」**:
+    #    主視窗原本裁「只看含 rpc( 的行」,而 `-04` 擋下了 —— 本 repo 實測有 **6 處跨行呼叫**
+    #    (`grep -cE '\.rpc\($'` ⇒ 6),只看單行會讓它們變隱形 ⇒ **把錯誤從安全那邊搬到危險那邊**。
+    #
+    # ⚠️ **本段的限度(寫出來,不假裝覆蓋)**:
+    #      · 樣板字串 / 字串拼接 / 動態 key 的呼叫,抓不到(文字比對的天花板)
+    #      · 窗口只開到後兩行 —— 函式名在第三行以後的呼叫抓不到
+    #      · `supabase/functions/**` 不在分母裡(本閘只掃 `apps/**` 與 `packages/**`)
+    #      · 剝的是**註解行**;函式名寫在**字串字面**裡而不是呼叫的話,靠的是「那行沒有 `.rpc(`」
+
+    # 1. 剝 `+` 前綴 → 丟掉純註解行(`//` / `*` / `/*` 開頭)
+    CODE="$(printf '%s\n' "$ADDED" | sed 's/^+//' | grep -vE '^[[:space:]]*(//|\*|/\*)' || true)"
+    # 2. 行尾以 `.rpc(` 結束的,把下一行接上來(跨行呼叫壓成一行)
+    CODE="$(printf '%s\n' "$CODE" | sed -e ':a' -e '/\.rpc([[:space:]]*$/{N;s/\n[[:space:]]*/ /;ta' -e '}')"
+    # 3. 呼叫窗口 = 含 `.rpc(` 的行 + 其後兩行
+    CALLS="$(printf '%s\n' "$CODE" | grep -A2 -E '\.rpc\(' || true)"
+
+    # 4. 識別字風格的第一參數(`.rpc(SOME_FN, …`)⇒ 回頭解析它的字面值
+    #    🔴 解析對象是**要推的那顆 sha**,不是工作樹 —— 常數可能就在這次的 commit 裡。
+    IDENT_FNS=""
+    UNRESOLVED=""
+    IDENTS="$(printf '%s\n' "$CALLS" | grep -oE '\.rpc\([[:space:]]*[A-Za-z_][A-Za-z0-9_]*' \
+              | sed 's/.*\.rpc([[:space:]]*//' | sort -u || true)"
+    while IFS= read -r id; do
+      [ -n "$id" ] || continue
+      # 🔴 **不能用 `\b`** —— git grep 的 `-E` 不吃它,而且是**靜默不匹配**(實測:帶 \b ⇒ 零行,
+      #    不帶 ⇒ 命中)。用本檔他處同一套的字元類邊界。`-o` 會把前綴字元一起印出來,
+      #    下一行的 sed 取兩個單引號之間的內容,不受影響。
+      VALS="$(git grep -hoE "(^|[^A-Za-z0-9_])$id[[:space:]]*=[[:space:]]*'[^']*'" "$local_sha" -- apps packages 2>/dev/null \
+              | sed "s/.*'\(.*\)'/\1/" | sort -u || true)"
+      if [ -n "$VALS" ]; then
+        IDENT_FNS="$IDENT_FNS
+$VALS"
+      else
+        # 🔴 **解析不到 ⇒ 擋,不是放行。**
+        #    誤擋成本 = 一次 push 重來;漏擋成本 = 正式站壞 8 小時。往安全那邊倒。
+        UNRESOLVED="$UNRESOLVED $id"
+      fi
+    done <<< "$IDENTS"
+
+    if [ -n "$UNRESOLVED" ]; then
+      BLOCKED="$BLOCKED\n  · 🔴 `.rpc()` 的函式名是識別字而我認不出它:$UNRESOLVED(在 $af)  [ref $remote_ref]\n    └ 這次有未 apply 的 migration,而我無法確定這支呼叫指到哪裡 ⇒ fail-closed。"
+    fi
+
     while IFS= read -r fn; do
       [ -n "$fn" ] || continue
-      printf '%s\n' "$ADDED" | grep -qE "(^|[^A-Za-z0-9_])$fn([^A-Za-z0-9_]|\$)" \
-        && BLOCKED="$BLOCKED\n  · 函式 [$fn](在未 apply 的 migration 裡)出現在新增行:$af  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')"
+      HIT=""
+      # 4a. 函式名逐字出現在呼叫窗口裡
+      printf '%s\n' "$CALLS" | grep -qE "(^|[^A-Za-z0-9_])$fn([^A-Za-z0-9_]|\$)" && HIT="呼叫窗口"
+      # 4b. 或者:一個**整串等於函式名**的字串字面(`'fn'` / `"fn"`)。
+      #     🔴 **這一條是我加的,超出主視窗原本的裁法,理由是量出來的**:
+      #     只看 `.rpc(` 窗口會讓 `export const CALL = 'pcm_a9h_probe';` 這種**常數表**變隱形,
+      #     而那正是識別字風格呼叫的【定義那一半】—— 擋掉呼叫卻放行定義,等於只擋了一半。
+      #     既有 harness 的 ⑲ / ㉒ / M2 / M3 / M5 五格用的都是這個形狀,我第一版把它們全打紅了。
+      #     🔴 **它與「誤擋面」分得開,而判準是量出來的不是感覺**:
+      #       `export const call = 'pcm_a9h_probe';`      整串 == 函式名  ⇒ 擋
+      #       `msg: '請洽管理員 pcm_a9h_probe'`            函式名嵌在句子裡 ⇒ 放行
+      #       差別就是**函式名前後緊鄰的是不是引號**,不是「看起來像不像呼叫」。
+      [ -z "$HIT" ] && printf '%s\n' "$CODE" | grep -qE "['\"]$fn['\"]" && HIT="整串字面"
+      # 4b. 或者:呼叫用的識別字解析出來就是它
+      [ -z "$HIT" ] && printf '%s\n' "$IDENT_FNS" | grep -qxF "$fn" && HIT="識別字解析"
+      [ -n "$HIT" ] \
+        && BLOCKED="$BLOCKED\n  · 函式 [$fn](在未 apply 的 migration 裡)出現在新增的 .rpc() 呼叫:$af($HIT)  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')"
     done <<< "$FN_LIST"
   done <<< "$APP_FILES"
 done
