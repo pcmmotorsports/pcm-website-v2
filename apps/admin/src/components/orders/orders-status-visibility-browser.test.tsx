@@ -243,3 +243,70 @@ describe('驗收 13 — 截斷時「未知」那顆膠囊在真瀏覽器裡看�
     expect(m?.width).toBeGreaterThan(0);
   }, 60_000);
 });
+
+/**
+ * 🔴🔴 **量具坑復盤(2026-08-21,寫在這裡因為下一次改字級的人不會看到 mailbox 交件)**:
+ * 我第一版量這件事時檢查的是 `span.scrollWidth > span.clientWidth`(badge 自己有沒有截自己
+ * 的字)—— 那格在【會切】與【不會切】兩個世界都印同一個答案,因為它問錯了元素。
+ * 真正會切字的是外層 `td` 的 `overflow:hidden`(`globals.css` `.orders-grid td,th` 那條),
+ * 判準必須是 `td.scrollWidth > td.clientWidth`。下面兩顆測試釘住這個判準,不要再犯一次。
+ */
+describe('驗收 14 — 狀態欄寬度跟得上字級(A2 連帶片,2026-08-21:88px → 98px)', () => {
+  /** 量 `td.col-status` 有沒有被自己的 `overflow:hidden` 切到 —— 量的是 td,不是裡面的 span。 */
+  async function measureStatusColumnClip(
+    extraCss = '',
+  ): Promise<{ text: string; clipped: boolean; tdScrollWidth: number; tdClientWidth: number } | null> {
+    const html = renderToStaticMarkup(
+      <ShippingSelectionProvider>
+        <OrdersTable buildPanelHref={(id) => `/orders?panel=${id}`} orders={[order(false)]} />
+      </ShippingSelectionProvider>,
+    );
+    const server: Server = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(`<html><head><style>${compiledCss}\n${extraCss}</style></head><body>${html}</body></html>`);
+    });
+    await new Promise<void>((r) => server.listen(0, r));
+    const port = (server.address() as AddressInfo).port;
+    const page = await browser.newPage();
+    try {
+      await page.goto(`http://localhost:${port}/`);
+      return await page.evaluate(() => {
+        const td = document.querySelector('td.col-status');
+        if (!td) return null;
+        return {
+          text: td.querySelector('span')?.textContent ?? '',
+          clipped: td.scrollWidth > td.clientWidth,
+          tdScrollWidth: td.scrollWidth,
+          tdClientWidth: td.clientWidth,
+        };
+      });
+    } finally {
+      await page.close();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  }
+
+  it('🔴 14a:現況(--text-xs 13px、欄寬 98px)—— 最長狀態字不會被 td 切掉', async () => {
+    const m = await measureStatusColumnClip();
+    expect(m).not.toBeNull();
+    expect(m?.clipped).toBe(false);
+  }, 60_000);
+
+  /**
+   * 🔴🔴 **突變證據 —— 沒有這格,14a 可能是恆綠格(欄從來沒被真的量過)。**
+   * 硬把狀態欄的字級灌到 20px(不動欄寬),模擬「下一次改字級卻忘了看這裡」。
+   * 這顆測試存在的意義就是**必須紅**——紅了才證明 14a 真的在看寬度,不是巧合過關。
+   * 🔴 **15px 試過會不夠**(2026-08-21 實測:98px 的欄在 15px 字級下剛好 98=98、卡在邊界不切),
+   *    17% 餘裕買的正是這種小跳動吃得下 ⇒ 突變要選一個【穩定超過邊界】的值,20px 才夠明確。
+   * 🔴 失敗時印出實際數字,不要只說「不符預期」——下一個人要看得出寬度差多少、該加幾 px。
+   */
+  it('🔴🔴 14b 突變證據:字級硬灌 20px(欄寬不變)⇒ 必須切到,證明 14a 真的在量寬度', async () => {
+    const m = await measureStatusColumnClip('td.col-status .text-xs{font-size:20px !important}');
+    expect(
+      m?.clipped,
+      `字級改 15px 後 td.scrollWidth=${m?.tdScrollWidth} / td.clientWidth=${m?.tdClientWidth}` +
+        `(文字「${m?.text}」)—— 這裡預期要切(scrollWidth > clientWidth),` +
+        `如果沒切代表 14a 那顆測試量錯了對象,不是真的在守寬度。`,
+    ).toBe(true);
+  }, 60_000);
+});
