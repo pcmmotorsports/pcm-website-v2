@@ -26532,3 +26532,244 @@ done
 - **不修未來會痛在哪(鐵則 10):** 下一次有人在一支**已登記**的 migration 裡加一筆金額寫入,守門全綠而沒有人看過那一筆。**而那是錢。** 痛的形狀不是「守門壞了」,是「守門在,而它的分母不含這一筆」。
 - **修法方向(未定,列給下一個人):** ① key 改成 `檔名::語句指紋`,登記的是語句不是檔 ② 或維持檔案級,但對已登記檔**額外**跑一次「金額欄的值必須是寫死字面」的全檔掃描(現行只對一支檔做) ③ 兩者都要先答:**既有登記項要不要一次全部重登**。
 - **相關:** `apps/admin/src/lib/orders/subtotal-writers-allowlist.test.ts`;`docs/patterns/guard-and-instrument-traps.md`(「閘的分母比病窄」那一族);`#798`(全稱句守門的覆蓋面比它看起來窄)。
+
+
+### #802 · E2b 信件鏈沒有任何東西在盯它 —— 而「壞掉」與「還沒有訂單」在畫面上是同一句話
+
+- **狀態:** ⏳ 待評估(2026-08-21 W9e 立、D 窗開號;**號的來源** = `grep -oE '^### #[0-9]+' docs/phase-1-backlog.md | grep -oE '[0-9]+' | sort -n | tail -1` ⇒ **801**、`grep -c '^### #802' docs/phase-1-backlog.md` ⇒ **0**,當場重跑)
+- **分流:** `P2`(不是活的缺陷,是告警缺口;而它守的是客人會不會收到訂單成立通知)
+
+**它是什麼**
+
+E2b 的排程鏈(`pg_cron` → `pcm_cron.invoke_cron_route` → `/api/cron/email-sweep`)
+**目前是活的**,而**沒有任何告警在看它**。要知道它還活著,只能有人手動去跑一段 SQL。
+
+**這條鏈的四個世界【分得開】**(這是好消息,而它正是這個條目做得起來的原因)——
+量法可重跑(唯讀,A 庫 `bmpnplmnldofgaohnaok`):
+```sql
+select status_code, count(*), max(created)
+from net._http_response
+where created > now() - interval '15 minutes'
+group by status_code;
+```
+```
+零列       ⇒ job 沒觸發 / pg_net 沒送出      ← 排程死了
+401        ⇒ vault 的 cron_secret ≠ Vercel 的 CRON_SECRET
+503        ⇒ ORDER_EMAIL_FROM 之類的 env 沒設好
+200        ⇒ 通了;再看 content 裡的 enqueueStatus / counts 判斷有沒有信要寄
+```
+⇒ **缺的不是「查得到」,是「沒有人固定去查」。**
+
+**為什麼現在沒有落點**
+
+它不屬於任何一片正在跑的工作:E2b 本身**四輪審查都跑完、已 apply、正在運轉**
+(2026-08-21 實查:`cron.job` 有 `pcm-email-sweep` `*/5` active;過去 2 小時
+`cron.job_run_details` 24/24 succeeded、`net._http_response` 83/84 回 200)。
+⇒ **它不是一個沒做完的功能,所以它不會出現在任何待辦清單上** —— 而那正是它會消失的原因。
+
+- **不修未來會痛在哪(鐵則 10):**
+
+**現在「健康」與「完全壞掉」的可觀測結果【一模一樣】:零封信。**
+
+因為 `B4_DEPLOY_CUTOFF` 已設定,而現有 7 張已付款單全部建立於 cutoff 之前
+(最晚 2026-08-18 17:32 UTC,數法:`select count(*), max(created_at) from orders where status='paid'`,
+出處 W9e-011,**本 D 窗未重跑,引用未驗**)⇒ 依設計排除 ⇒ **今天本來就不該寄出任何信。**
+
+⇒ 所以在**第一張真實客人訂單進來之前**,這條鏈無論是活的還是死的,
+   我們看到的都是 `email_outbox` 零列、零封信寄出。
+⇒ 🔴 **而那第一張真實訂單,同時是這條鏈【第一次真的被走完】的時刻** ——
+   送出層與到達層(sweeper 真的呼叫 Resend、信真的寄達)**至今從未執行過一次**
+   (憑證存在,而沒有任何一封信通過它;W9e-011:標的強度是「憑證存在但沒被驗證過」,
+   不是「那兩層是壞的」,也不是「它一定會成功」)。
+
+**⇒ 痛的形狀**:某次 redeploy 換掉 `CRON_SECRET`、或 vault secret 輪替、或有人停掉那個 job
+—— 這些都會讓鏈路從 200 掉成 401 / 零列,**而在沒有訂單的期間,那個變化零訊號**。
+等到第一個真客人下單,他不會收到訂單成立通知,
+而**我們發現的方式是他打電話來問**(或更糟:他沒問,只是不再回來)。
+
+📌 而這與 `#534` 那條「靜默失效」是同一族,差別是那條有員工會撞到,**這條的受害者在系統外面**。
+
+- **與 `scripts/unreported-work-scan.sh` 【不是同一件事】(這格決定它為什麼要獨立存在):**
+
+```
+unreported-work-scan  問「有東西【做完了】而沒人知道」⇒ 判別力來自【檔案系統的物理痕跡】
+本條目                問「有東西【停掉了】而沒人發現」⇒ 判別力來自【runtime / DB 的狀態】
+```
+⇒ 兩個都是「沉默看起來像健康」,而**沉默的來源不同**。
+🔴 **把 DB 探針裝進一支掃 worktree 的工具,它的分母就不再說得清楚了** ——
+而分母說不清楚,正是那支工具本身一直在防的東西。
+⚠️ **`--with-ledger` 看起來像反證,而它不是**:那個旗標仍在問「有沒有東西做了而沒登記」
+(同一個問題、換一本帳),而本條目問的是「**它還活著嗎**」。**不同題。**
+
+- **修法方向(未定,列給下一個人,未評估成本):**
+```
+· 把上面那段 SQL 排成一個 pg_cron job,異常時走既有的告警線(`pcm-anomaly-alert` 已存在)
+· 或掛進既有的 sweep route,讓它自己回報「我上一輪是什麼時候跑的」
+⚠️ 兩條都會動到排程或金流鄰近的東西 ⇒ 鐵則 12,要 plan + 對抗審查,不是順手加。
+```
+- **相關:** `#534`(靜默失效同族);`~/pcm-mailbox/W9e-017-E2b健康檢查-backlog條目草稿-20260821.md`(原始草稿,含量測時刻限定);`~/pcm-mailbox/W9e-011-E2b四層診斷-20260821.md`(「憑證存在但沒被驗證過」出處)。
+- **估時:** 未估(方向未定)。
+
+
+### #803 · 🔴 `pcm-settle-sweep` 昨晚連續兩發 503,而系統裡沒有任何東西通報過 —— cron route 的非 200 回應目前完全靜音
+
+- **狀態:** 待評估(2026-08-21 D 窗開號,證據來源 = G 窗 `~/pcm-mailbox/G-c0-告警片實測-它今天真的寄出去了-20260821.md` §B/§C;**號的來源** = `grep -oE '^### #[0-9]+' docs/phase-1-backlog.md | grep -oE '[0-9]+' | sort -n | tail -1` ⇒ **802**、`grep -c '^### #803' docs/phase-1-backlog.md` ⇒ **0**,D 窗當場重跑不撞號)
+- **分流:** `P1`(結帳對帳掃描器,鐵則 12①錢;而且證據住在只留 6 小時的表,**今天不記,明天就沒了**)
+- **時效警告:** 原始證據在 `net._http_response`,官方未給保留期、實測約 6 小時就清空(G 窗量:最早 `2026-08-20 21:16`,最近 `2026-08-21 03:15`,共 253 列)。**下面這段是逐字抄錄,不是連結,因為連結的東西會消失。**
+
+**逐字證據(G 窗 2026-08-21 03:2x 唯讀 SELECT,未改任何 job/env)**
+
+```
+2026-08-20 21:20:00.026133+00 UTC(台北 05:20)
+  net._http_response  id=19546  status_code=503  ok:false  errors:1
+  cron.job_run_details runid=19823  status="succeeded"          ← 同一發,兩把尺相反答案
+  content 逐字:
+  {"ok":false,"enabled":true,"inboxClaimed":0,...,"errors":1,
+   "reconfirm":{"skipped":"sweep_errors","claimed":0,"settled":0,"noAttempt":0,"pending":0,"errors":0}}
+
+2026-08-20 21:24:00.033463+00 UTC(台北 05:24)
+  net._http_response  id=19549  status_code=503  ok:false  errors:1
+  cron.job_run_details runid=19825  status="succeeded"          ← 同一發
+
+對照(中間那發,真的成功,同一 job):
+  2026-08-20 21:22:00  runid=19824  status="succeeded"
+```
+⇒ **成功那發與失敗那兩發,在 `job_run_details` 裡印出完全相同的字** —— 這不是不夠精確,是**零判別力**。
+⇒ `reconfirm` 因為 `sweep_errors` **整段被跳過**(claimed/settled/noAttempt/pending/errors 全 0,不是「沒事做」是「沒做」)。
+⇒ **分母:過去 6 小時窗內 `pcm-settle-sweep` 共 178 發、2 發 503**(G 窗數法:直接列出所有非 200 的列逐列讀 content;⚠️ 第一版用 `content LIKE '%expire%'` 分類器有 bug,撞到 `settle-sweep` 自己的 `expiredInboxAtCeiling` 欄位造成重複計數,**上面這兩發的逐字證據不依賴那個壞掉的分類器**,已改列所有非 200 直接讀)。
+
+**為什麼沒有人發現(結構性,不是誰偷懶)**
+
+```
+① cron.job_run_details → 恆綠,見上方逐字對照            ⇒ 查了也看不到
+   成因:cron.job 的 command 只是 SELECT pcm_cron.invoke_cron_route(...),
+   內部是 net.http_get(...) ← pg_net 非同步,只證明「請求被排進佇列了」,
+   route 真的回 401/500/503,job_run_details 一樣印 succeeded
+② net._http_response  → 看得到,但只留約 6 小時            ⇒ 過了就沒了(本條目就是在搶救這個窗口)
+③ 告警片本身(#802 那條鏈的姊妹功能)只看 anomaly 那五個計數,
+   不看 cron route 自己回幾號                            ⇒ 不在它的分母裡
+```
+⇒ 🔴 **一支 cron route 回 503,在這套系統裡目前是【完全靜音】的** —— 這句話不只對 settle-sweep 成立,對所有掛在 `pcm_cron.invoke_cron_route` 底下的 route 都成立,本條目只是恰好撞到了 settle-sweep 這一支。
+
+- **不修未來會痛在哪(鐵則 10):** 結帳對帳掃描器是在錢的路徑上跑的(對帳、reconcile),它連續失敗兩發、`reconfirm` 整段被跳過,而**沒有任何東西會變紅**。下一次它連續失敗的時間拉長(不是 4 分鐘兩發,而是幾小時或幾天),同樣不會有人知道,直到有客人的訂單狀態對不上、或有人手動去查才會發現——而到那時 `net._http_response` 早就清空,連「它從什麼時候開始壞的」都查不出來。
+- **這裡有一格對不起來,要有人決定怎麼辦(同 #802 的姊妹格局,由 G 窗量到):** `apps/storefront/src/app/api/cron/anomaly-alert/route.ts:29-33` 那句「沒有人收到過任何一封告警」現在已證實是過期的(告警片今早 01:00 UTC 確實成功推播,`net._http_response` id=19701,`notifiersTotal:2 / notifiersFailed:0`);但**這個「成功推播」的告警片本身不會看 settle-sweep 的 503**,兩件事是分開的坑,不要混著改。
+- **修法方向(未定,列給下一個人,未評估成本,鐵則 8 plan 題不是順手做的):**
+```
+· 讓告警片(或新開一支)額外檢查 net._http_response 裡各 cron route 自己的 status_code,
+  而不是只看 route 回傳 body 裡的業務計數
+· 或把 net._http_response 的保留期延長 / 定期抽樣寫進一張自己的表,不靠 pg_net 內建的短保留
+· 兩條都會動到排程或金流鄰近的東西 ⇒ 鐵則 12,要 plan + 對抗審查
+```
+- **相關:** `#802`(同一批證據的姊妹條目,anomaly-alert 鏈);`docs/patterns/guard-and-instrument-traps.md` 檔尾(G 窗 2026-08-21 追加「一把尺可以通過負對照而仍對本題恆真」條,含本條同一批逐字對照,**該檔目前 dirty、未 commit**);`~/pcm-mailbox/G-c0-告警片實測-它今天真的寄出去了-20260821.md` §B/§C/§8(可重跑 SQL 在 §8)。
+- **估時:** 未估(方向未定)。
+
+
+### #804 · `legal-content-hash.test.ts` 與 `terms-version.ts` 檔頭各講一個世界,而兩處都沒標自己的適用範圍
+
+- **狀態:** 待評估(2026-08-21 C 窗初量、主視窗轉發時誤診為「矛盾」、codex 關卡2 十分鐘後推翻誤診並給出正確版本,D 窗照 codex 版本開號;來源 `~/pcm-mailbox/C-eb-C1-隱私政策兩項-20260821.md` §6 + codex 關卡2 實查結論;開號前 `grep -c '^### #804' docs/phase-1-backlog.md` ⇒ 0,不撞號)
+- **分流:** `P3`(文案/訊息範圍標註不清,不是功能缺陷,不是兩處矛盾)
+
+**⚠️ 本條目自己的來源鏈是一次活體示範,見下方「這一手本身」——先讀那段再讀結論,不要只讀結論**
+
+**兩份說法逐字對照(兩處【都對】,只是各自預設了不同的前置狀態)**
+
+```
+apps/storefront/src/lib/legal/terms-version.ts 檔頭:
+  「顛倒的風險不是『結帳全斷』(版本列已存在、不會 FK 失敗),而是成功建單但把同意掛到
+    hash 錯誤的版本列上 = 靜默舉證錯配,比斷線更難發現。」
+  ⇒ 這句的前提是【世界二:版本列已經存在於 DB,只有 hash 對不上】
+
+apps/storefront/src/data/legal-content-hash.test.ts:33(守門自己的失敗訊息):
+  「顛倒順序 = 每筆結帳 FK 違反、全站結帳斷線。」
+  ⇒ 這句的前提是【世界一:兩個常數先部署,而 DB 還沒有對應的版本列】
+```
+⇒ **真正的缺陷不是「兩處矛盾」**(codex 關卡2 實查後推翻了這個診斷)**,是兩處都沒有標明自己在講哪個世界。**
+⇒ 讀的人拿到其中一句,會拿去推斷另一個世界的行為——例如用「沒有斷線」(世界一沒發生)推論「我沒有顛倒版本」,而實際上可能正處在世界二(靜默舉證錯配,不會斷線、不會有紅字)。
+
+- **不修未來會痛在哪(鐵則 10):** 兩處文字各自看都成立,但沒人會同時去讀兩處。讀到測試失敗訊息的人會預期「沒斷線=沒問題」,而世界二的失效模式恰好符合「沒斷線」卻是真的出錯了。**危險不在兩句話本身,在沒人告訴讀者這兩句各自的適用範圍。**
+- **修法方向:** 在 `legal-content-hash.test.ts:33` 失敗訊息與 `terms-version.ts` 檔頭都加一句「本敘述的前提是:世界一(常數先部署、DB 無對應列)/世界二(版本列已存在、hash 不符)」,讓兩處各自標明自己在講哪個世界,而不是二選一改成單一版本。單純文案改動,不命中鐵則 12。
+- **這一手本身(照實寫,不要刪):**
+```
+C 窗量到兩份原文逐字有出入 → 主視窗讀了 C 窗的結論,覺得合理,轉給 D 窗要求開號,
+診斷寫成「兩處說法相反,以 terms-version.ts 為準」→ 十分鐘後 codex 關卡2 實查推翻:
+兩處都對,只是各講一個世界,而都沒標範圍。
+判別句(主視窗事後自己寫的):我要寫進工單的這句話,是我量到的,還是我讀來覺得有道理的?
+⇒ D 窗第一版 #804 也是照那個未驗過的診斷寫的,本次是照 codex 版本整條重寫,不是補充。
+```
+- **相關:** `apps/storefront/src/lib/legal/terms-version.ts`;`apps/storefront/src/data/legal-content-hash.test.ts:33`;`~/pcm-mailbox/C-eb-C1-隱私政策兩項-20260821.md` §6。
+- **估時:** 未估(小改,預期 <10 分鐘,但未實測)。
+
+
+### #805 · `order-detail-summary-cards.tsx` 的共用 `Field` 元件缺 `min-w-0` —— 同款「長字串撐爆容器」的坑理論上也在,只是還沒被同款輸入測過
+
+- **狀態:** 待評估(2026-08-21 A 窗量到、D 窗開號,來源 `~/pcm-mailbox/A-dc-001-A1客戶資料區兩版-20260821.md` :39/:51;開號前 `grep -c '^### #805' docs/phase-1-backlog.md` ⇒ 0,不撞號)
+- **分流:** `P3`(未被證實的缺陷,是「未測過的風險」不是「已知的 bug」——這個區分本條目刻意保留,見下)
+
+**A 窗在同一輪工作裡量到的兩件事**
+
+```
+① 姊妹卡(A1 客戶資料區,shipment-section.tsx)有同款「長 token 撐爆容器」的坑:
+   長地址(21 字連續英文)在 flex 容器裡的值格預設不會自動縮,把整個文件寬度撐寬 118px。
+   加 min-w-0 修好,已驗證(注入同一段測資,文件寬度不再超出)。這件在 A1 那片已修,不是本條目要修的。
+
+② order-detail-summary-cards.tsx 的共用 Field 元件(label-value,W2 08-21 當天寫的)
+   用同款 break-keep break-words,但沒有加 min-w-0。
+   A 窗量到的那個坑理論上這裡也有,只是這三張卡(客戶/付款/發票)目前顯示的都是短值
+   (人名、狀態文字)⇒ 還沒被長字串輸入測過。
+```
+
+🔴 **這條要寫清楚的區分**:這不是「有 bug」,是「有一個已知會撐爆容器的模式(缺 min-w-0),還沒被會觸發它的輸入測過」。長客戶名、長 email、長發票抬頭都可能是那個「長字串」。
+
+- **不修未來會痛在哪(鐵則 10):** 一旦有一筆訂單的客戶名或 email 夠長(現實會發生,不是假設性輸入),這三張摘要卡會被撐開,而修法（加 `min-w-0`）在姊妹卡那邊已經驗證過是對的、成本很低。現在不記錄,下次是有人肉眼看到版面跑掉才會被發現。
+- **修法方向:** `order-detail-summary-cards.tsx` 的 `Field` 元件加 `min-w-0`(與 A1 片 `shipment-section.tsx` 同款修法),動手前先用一筆長客戶名/長 email 實測目前是否真的會撐爆(A 窗只推論「理論上也有」,未在這支檔實測)。
+- **相關:** `apps/admin/src/components/orders/order-detail-summary-cards.tsx`;`apps/storefront` 的 `shipment-section.tsx`(A1 片已修的姊妹坑,同款修法可抄);`~/pcm-mailbox/A-dc-001-A1客戶資料區兩版-20260821.md` :39/:51。
+- **估時:** 未估(需先實測是否重現,再估修法時間)。
+
+
+### #806 · `manual-refund-787-trigger.test.ts` 在 dev 上長期紅著,沒人管 —— 一顆長紅的測試會訓練人略過整個測試輸出
+
+- **狀態:** 待評估(2026-08-21 A 窗量到、D 窗開號,來源:主視窗轉發 A 窗實測 + `~/pcm-mailbox/A-dc-002-A2字級13px已驗-20260821.md` §「三綠」段;開號前 `grep -c '^### #806' docs/phase-1-backlog.md` ⇒ 0,不撞號)
+- **分流:** `P2`(不是功能缺陷,是守門盲點——它會讓其他真的紅變得看不見)
+
+**驗法(A 窗,`apps/admin/src/components/orders/manual-refund-787-trigger.test.ts`)**
+
+```
+npx vitest run --project=admin ⇒ 227 passed, 1 failed, 1 skipped(工具自印統計,非手算)
+唯一失敗:manual-refund-787-trigger.test.ts
+先排除「是本次改動造成的」:grep -n 'globals.css\|app-sidebar\|order-detail.tsx\|
+  notes-timeline\|note-compose-form\|text-xs\|font-size' manual-refund-787-trigger.test.ts
+  ⇒ 零命中(那顆測試不引用 A 窗這次改的任何一支檔)
+再用 git stash 排除「是同一輪其他改動造成的」:
+  git stash push -- <本次改動的 6 支檔> → 單獨跑該測試 → 一樣紅、同一句 assertion 訊息
+  → git stash pop 復原
+⇒ 動手前它就已經紅,不是任何一批當天的改動造成的
+```
+🔴 **紅了多久不知道**(未查,A 窗與 D 窗都沒有往回追):可能是別窗同時在動 migration 造成的(A 窗推測,未證實),也可能更早。
+
+- **不修未來會痛在哪(鐵則 10):** 痛點不是這一顆測試本身,是**一顆長期紅著的測試會訓練人略過整個測試輸出**——下一個人看到「227 passed, 1 failed」會習慣性認定「反正就是那顆」,而如果哪天真的有新的一顆紅了、混在同一份輸出裡,人已經養成不細看的習慣,容易漏掉。
+- **修法方向:** 先查清楚它紅多久了、成因是什麼(未查);再決定是修好、還是暫時 skip 並標明原因(不能放著不管,長紅本身就是問題)。
+- **相關:** `apps/admin/src/components/orders/manual-refund-787-trigger.test.ts`;`apps/admin/src/lib/payment/manual-refund-787-server-gate.test.ts`(同族命名,未確認是否同一批問題);`~/pcm-mailbox/A-dc-002-A2字級13px已驗-20260821.md` §「三綠」段。
+- **估時:** 未估(要先查成因)。
+
+
+### #807 · `.fchip` 維持 12px、未跟其他最小字一起拉到 13px —— 這是刻意的已知不一致,不是待統一的缺口
+
+- **狀態:** 已知決定,不是待辦(2026-08-21 A 窗量到、D 窗開號登記,避免下一個人誤以為是遺漏;來源 `~/pcm-mailbox/A-dc-002-A2字級13px已驗-20260821.md` §「code review 抓到的」+ §「待 Sean 拍板」;開號前 `grep -c '^### #807' docs/phase-1-backlog.md` ⇒ 0,不撞號)
+- **分流:** `P3`(記錄用,🔴 **標成「要改需 design 那邊的依據」,不要標成「待統一」**——後者會讓下一個人以為順手改掉是對的)
+
+**為什麼 `.fchip` 沒跟著全站最小字(乙=13px)一起改**
+
+```
+Sean 2026-08-21 拍板後台最小字最小值 = 13px(乙案),A 窗依此改了 7 個明確編輯點 + .ibrand + 全站 --text-xs token。
+.fchip(篩選 chip)目前 12px,是 design-reference 逐字值,且有硬測試守著:
+  order-filter-chips.test.tsx:157(斷言的是設計稿逐字值,不是任意可調的數字)
+A 窗第一輪把 .fchip 也改成 13px,code-reviewer 抓到兩個真的會紅的東西:
+  ① 撞上 order-filter-chips.test.tsx:157 那顆逐字對設計稿的測試
+  ② 連帶讓 order-toolbar-browser.test.tsx 5/11 紅(chip 變高撞到寫死的像素值)
+處置:.fchip 改回 12px,兩份測試重跑後全線 PASS(43/43 + 全綠)。
+```
+🔴 **12→13px 的落差本身很小,A 窗量到「截圖比對才看得出來」**,與 Sean 08-21 打槍掉的另一個選項(甲,最小 12px)是同量級的視覺差異,不是明顯可見的不一致。
+
+- **要不要改的判斷不是本條目能自己下的:** 待 Sean 拍板的問題是「要不要為了『所有最小字都 ≥13px』這個原則,去改一顆設計稿逐字值 + 改測試斷言」——這是「設計保真度」vs.「一致性原則」的取捨,A 窗與 D 窗都沒有推薦立場。
+- **相關:** `apps/admin/src/app/globals.css`(`.fchip` 定義處);`apps/admin/src/components/orders/order-filter-chips.test.tsx:157`;`apps/admin/src/components/orders/order-toolbar-browser.test.tsx`;`~/pcm-mailbox/A-dc-002-A2字級13px已驗-20260821.md`。
+- **估時:** 不適用(記錄性條目,等 Sean 拍板後才有實作估時)。
