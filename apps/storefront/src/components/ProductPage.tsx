@@ -141,6 +141,16 @@ export function ProductPage({
     });
   };
 
+  // 2026-08-21 F-81 修:手機 sticky buybar 的「立即購買」原本掛的是 addToCart(同一個
+  // handler、零導頁),跟旁邊「加入購物車」按下去是同一件事——客人沒有任何回饋。
+  // 桌機 ProductInfo.tsx 的 buyNow 是「加入購物車 + router.push('/cart')」
+  // (Sean 2026-07-11 拍板逐字:「差別 = 多一步導頁」),這裡不能直接 import 那支(不同元件、
+  // 閉包各自抓自己的 addItem/selectedVariant),照同一個行為手寫一份,兩邊維持同一條路徑。
+  const buyNow = () => {
+    addToCart();
+    router.push('/cart');
+  };
+
   // M-1-13e-b:hasDiscount derived(對齊 design L140 字面)— Mobile sticky bar mbb-orig 三元判斷用
   const hasDiscount = product.origPrice != null && product.origPrice > product.price;
 
@@ -261,7 +271,7 @@ export function ProductPage({
           </svg>
           <span>加入購物車</span>
         </button>
-        <button type="button" className="pd-mbb-buynow" onClick={addToCart}>
+        <button type="button" className="pd-mbb-buynow" onClick={buyNow}>
           立即購買
         </button>
       </div>

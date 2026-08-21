@@ -414,4 +414,21 @@ describe('ProductPage', () => {
     const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
     expect(items[0].vehicle).toBeUndefined();
   });
+
+  // 2026-08-21 F-81:手機 sticky buybar「立即購買」原本掛的是 addToCart(同一個 handler、
+  // 零導頁)—— 跟旁邊「加入購物車」按下去是同一件事,客人沒有任何回饋。桌機 ProductInfo.tsx
+  // 的 buyNow 是「加入購物車 + router.push('/cart')」(Sean 2026-07-11 拍板逐字:
+  // 「差別 = 多一步導頁」),這支釘住手機那顆也要走同一條路。
+  it('F-81:手機 sticky buybar「立即購買」加入購物車後要導去 /cart(不是只加購)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    const buybarBuyNow = container.querySelector('.pd-mbb-buynow') as HTMLButtonElement;
+    expect(buybarBuyNow).toBeTruthy();
+    fireEvent.click(buybarBuyNow);
+    // 先驗有真的加進購物車(不是導頁蓋掉了加購那一半)
+    const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
+    expect(items).toHaveLength(1);
+    // 再驗導頁,跟桌機 buyNow 同一個目的地
+    expect(mockPush).toHaveBeenCalledWith('/cart');
+  });
 });
