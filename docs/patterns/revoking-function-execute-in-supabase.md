@@ -484,6 +484,70 @@ handoff 全檔 `REVOKE` 只出現 **1 次**（量法 `grep -c -i REVOKE <該檔>
 
 1. **四臂實測跑在原廠 PG 17.10,不是 Supabase。** `ALTER DEFAULT PRIVILEGES` 是**模擬**的,
    沒有讀到 Supabase 真實的預設權限設定。
+
+   > ### ✅ **2026-08-21 補:那份「真實的預設權限設定」讀到了(窗 H2,唯讀實查 A 庫 production)**
+   > 🔴 **上面那兩行【一個字沒改】** —— 它是那次實測的誠實紀錄,要留著。本段是加註,不是更正。
+   >
+   > **量測命令(逐字,可重跑;正式庫唯讀 `SELECT`,零寫入):**
+   > ```sql
+   > SELECT n.nspname AS schema, pg_get_userbyid(d.defaclrole) AS granting_role,
+   >        d.defaclobjtype AS objtype, d.defaclacl::text AS default_acl
+   > FROM pg_catalog.pg_default_acl d
+   > LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace
+   > ORDER BY 1,2,3;
+   > ```
+   > **輸出(`public` schema、`objtype='r'`= 表與 view,兩列並排看):**
+   > ```
+   > granting_role = supabase_admin
+   >   {postgres=arwdDxtm/supabase_admin, anon=arwdDxtm/supabase_admin,
+   >    authenticated=arwdDxtm/supabase_admin, service_role=arwdDxtm/supabase_admin}
+   >        ↑ arwdDxtm = INSERT,SELECT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN = 全部八種
+   >
+   > granting_role = postgres
+   >   {postgres=arwdDxtm/postgres, service_role=Dxtm/postgres}
+   >        ↑ 只有 D,x,t,m —— **沒有 a/r/w/d**
+   > ```
+   > 🔴🔴 **歸納(這一句才是重點,不是那兩串字母)**:
+   > **同一句 `CREATE TABLE`,由 `supabase_admin` 建 ⇒ `anon` 拿到全部八種權限;
+   > 由 `postgres` 建 ⇒ `anon` 什麼都沒有。權限由【誰建的】決定,
+   > 而那件事在 migration 檔面上一個字都看不到。**
+   >
+   > ⇒ 這同時是「**為什麼正式庫有的授權,repo 一個字都不記得**」的機械答案:
+   > **不是有人忘了寫,是它本來就不經過 repo。**
+   > (來源事件:2026-08-21 正式站登入無限迴圈,根因是一句只活在正式庫、repo 零字面的 `GRANT`。)
+   >
+   > **量測時點**:2026-08-21(A 庫 `pcm-website-v2` production,project `bmpnplmnldofgaohnaok`)。
+   > ⚠️ **這是【當時】的平台設定** —— Supabase 改預設、或有人跑 `ALTER DEFAULT PRIVILEGES`,它就變了。
+   > 引用前重跑上面那條命令,不要引用這裡的字母。
+
+   > ### 📌 **同一次掃描的第二個發現:寫入權在兩張 `_public` view 上,而它今天是空的**
+   > ```
+   > products_list_public / vehicle_taxonomy_public
+   >   anon + authenticated 皆有 DELETE / INSERT / TRUNCATE / UPDATE
+   >
+   > 命令: SELECT relname, reloptions, pg_relation_is_updatable(oid,true) AS bits,
+   >              (SELECT count(*) FROM pg_trigger WHERE tgrelid=oid AND NOT tgisinternal),
+   >              (SELECT count(*) FROM pg_rewrite WHERE ev_class=oid AND rulename<>'_RETURN')
+   > 輸出: 兩張皆 bits=0、trigger=0、rule=0 ⇒ **不可寫 ⇒ 那些權限今天執行不出來**
+   > ```
+   > 🔴 **而「今天」是限定詞,不是結論**:誰替那兩張 view
+   > ①加一個 `INSTEAD OF` trigger,或 ②把它簡化成可自動更新的形狀
+   > ⇒ **寫入權早就在那裡,`anon` 的寫入當場變活** —— **而那次改動看起來只是改一張 view。**
+   >
+   > **repo 記得什麼:**
+   > ```
+   > 命令: grep -rn "GRANT" supabase/migrations/*.sql | grep -i <view 名>
+   > 輸出: products_list_public ⇒ 5 處    vehicle_taxonomy_public ⇒ 2 處
+   > 正對照: 同一把 grep 抓 payment_charge_attempts ⇒ 1 處(尺是活的)
+   > 🔴 那 7 處【全部是 `GRANT SELECT`】,一個字都沒提寫入權
+   >    ⇒ 差額來自上面那段的平台預設,不來自任何一支 migration
+   > ```
+   > ⚠️ **未查**:`vehicle_taxonomy_public` 是 `security_invoker=false`、
+   > `products_list_public` 是 `security_invoker=true` —— **兩張並列的 `_public` view 設定相反**,
+   > 本輪**沒有查哪一個是刻意的**。(`security_invoker=false` 的 view 讀取時用 view 擁有者
+   > `postgres` 的身分 ⇒ 繞過底層表 RLS;是不是本意,要問寫它的人。)
+   >
+   > 全文與其餘四節:`~/pcm-mailbox/H2-GRANT授權面read-back掃描-20260821.md`
 2. ~~正式庫的 `anon.rolinherit` 未確認 —— 而整個「方向乙」靠它。~~
    **✅ 2026-08-16 關掉,而且是【因為前提本身寫錯】才關掉的**:方向乙**與 `rolinherit` 無關**
    (見 §2 的更正段與實測 SQL)。`rolinherit` 的真值現在對本檔的結論**不再有影響**。
