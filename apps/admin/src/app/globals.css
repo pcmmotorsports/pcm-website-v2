@@ -1029,6 +1029,26 @@
   padding-left: 0.125rem;
 }
 
+/* 🔴 操作欄 sticky 釘右(2026-08-21):1440px 筆電寬,表格要 1422px、容器只給 1306px
+   ⇒ 「操作」欄(每一筆訂單都要用到的入口)原本要橫捲才看得到。
+   釘右不用縮任何一欄的寬度(那是內容決策,見交件另立的決策題),也不影響其餘兩欄
+   (狀態/發票)仍需橫捲——這裡只解「操作」這個功能性入口的可見度。
+   🔴 **`background` 是必要的,不是裝飾**:sticky 元素要蓋住底下捲過去的內容,
+   沒有背景色會被滾動的儲存格穿透(真瀏覽器實測過)。
+   ⚠️ **這個 background 會蓋掉「選中的那張單」那條規則(`:737`)給這一格上的淡藍色調**
+   (兩者都改 `background`,誰特異性高誰贏)——下面 `[data-selected]` 那條專門把它補回來,
+   不要以為那格「本來就沒有」而刪掉。 */
+.orders-grid td.col-ops,
+.orders-grid th.col-ops {
+  position: sticky;
+  right: 0;
+  background: var(--card);
+}
+
+.orders-grid tbody.orders-group[data-selected] td.col-ops {
+  background: color-mix(in oklab, var(--card) 92%, var(--primary));
+}
+
 /* `#486` 乙案(2026-08-14 Sean 拍板):操作欄的「取消」改成 OD 的 ⋯ 方鈕。
    🔴 **搬 OD `.kb`(`overview-desktop.html:214-215`)** —— 那條規則**跨兩行**,共 **10 個宣告**;
       只讀 `:214` 會抄到 6 個,而且看起來完全正常(同 `.fchip` 那個坑)。
