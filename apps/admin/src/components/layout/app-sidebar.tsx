@@ -91,6 +91,27 @@ function formatSyncedAtTaipei(iso: string): string {
  * 呼叫渲染(沒有傳 `count`/`truncated`,靠 props 預設值 `null`/`false` 產生空白)。
  * 想改「設定」的顯示邏輯要去改那一行呼叫,不是這支函式。
  */
+/**
+ * 每一格那顆數字**在數什麼** —— 顯示在中文標籤下面那一列。
+ *
+ * 🔴 **為什麼需要它**(2026-08-22,`-86` 扮員工走一天時撞到):
+ * 側欄寫「訂單 **23**」,點進去清單寫「共 **16** 筆」,而**畫面上沒有任何字說它們各自在數什麼**。
+ * 那 10 筆沒有不見(勾「顯示刷卡未付款」⇒ 兩邊都 23,他量了兩次)——
+ * **23 數的是 `unorderedOrderCount`(未訂貨),16 是清單當下篩選的結果。**
+ * **兩個數字合法地在數不同的東西,而員工沒有辦法知道。**
+ *
+ * ⚠️ **所以修法不是「讓兩個數字一樣」** —— 那會把「還有幾張沒跟供應商下單」這個資訊消滅掉。
+ *    修的是**那顆數字沒有名字**這件事。
+ *
+ * 🔴 **綁 `item.key` 不綁中文標籤**:標籤是文案、會被改;key 是識別字。
+ *    用標籤當 key 的話,哪天有人把「訂單」改成「訂單管理」,這一列會**安靜地消失**(查表落空)。
+ */
+const COUNT_QUALIFIER: Partial<Record<NavItem['key'], string>> = {
+  orders: '未訂貨',
+  'refund-exceptions': '待處理',
+  products: '缺貨',
+};
+
 function countForItem(
   item: NavItem,
   counts: SidebarCounts,
@@ -254,6 +275,7 @@ function RailCell({
 }) {
   const ItemIcon = Icons[item.icon];
   const active = item.href !== undefined && isNavActive(pathname, item.href);
+  const qualifier = COUNT_QUALIFIER[item.key];
   const inner = (
     <>
       <span className='flex items-center justify-center gap-1'>
@@ -273,6 +295,37 @@ function RailCell({
       </span>
       {/* 🔴 A2(2026-08-21 Sean 拍板乙=最小13px):11px → 13px。 */}
       <span className='mt-1 block text-center text-[13px] leading-tight'>{item.label}</span>
+      {/*
+        🔴 那顆數字在數什麼(2026-08-22)。**只在真的有數字時才出現** ——
+        沒有數字的五格不長高,九格不會為了三格一起變胖。
+        ⚠️ **數字本身刻意留在上面那個 22px 槽裡沒有搬下來**:
+           `app-sidebar-rail.test.tsx:211-214` 逐字釘住 `ordersSlot?.textContent` 的值,
+           把數字搬走會讓那四條斷言紅 —— 而**改測試期望值不屬於本片可以拍的板**。
+           ⇒ 本列是**純新增**,不動任何既有被釘住的行為。
+        📐 寬度實量(13px、軌內可用 73px):未訂貨 39 / 待處理 50.3 / 缺貨 35.5 ⇒ 三個都不會被切。
+           (同列塞不下 —— icon 20 + gap 4 + 數字槽 22 = 46,同列只剩 29px,連 10px 字都差 1px。
+            而 Sean 2026-08-21 拍板最小字 13px ⇒ 縮字那條路本來就不能走。)
+      */}
+      {qualifier !== undefined && count !== null && (
+        <span className='text-muted-foreground block text-center text-[13px] leading-tight'>
+          {qualifier}
+        </span>
+      )}
+      {/*
+        🔴 **讀螢幕的人原本聽不到那顆數字**(2026-08-22 `-86` 查到):
+        數字那個 `<span>` 是 `aria-hidden`、沒有 `title`、旁邊也沒有旁白文字
+        ⇒ **那顆數字對輔助工具而言不存在**。
+        ⚠️ **不是把 `aria-hidden` 拿掉就好** —— 拿掉的話輔助工具會唸出一個裸數字「23」,
+           它接在「訂單」後面唸出來是「訂單 23」,**跟看得到的人遇到的是同一個問題**
+           (23 在數什麼?)。
+        ⇒ 補一句**完整的話**,而視覺那兩塊維持 `aria-hidden`(它們是同一份資訊的視覺版)。
+           `railCountText` 會把 >99 變成 `99+`,這裡用同一支 ⇒ 唸出來與看到的一致。
+      */}
+      {qualifier !== undefined && count !== null && (
+        <span className='sr-only'>
+          {`${qualifier} ${railCountText(count, truncated)} 筆`}
+        </span>
+      )}
     </>
   );
   const cls = `block w-full border-l-2 px-1 py-2 ${

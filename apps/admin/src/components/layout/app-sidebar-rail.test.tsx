@@ -214,6 +214,101 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     expect(productsSlot?.textContent).toBe('');
   });
 
+  // ── 那顆數字在數什麼(2026-08-22 新增)────────────────────────────────
+  // 成因:側欄寫「訂單 23」、清單寫「共 16 筆」,而畫面上沒有任何字說它們各自在數什麼。
+  // 兩個數字**合法地在數不同的東西**(23=未訂貨 / 16=清單當下的篩選結果)⇒ 修的是「數字沒有名字」。
+  // 🔴🔴 **只看【看得見】的那一列** —— `.sr-only` 那份要排除掉。
+  //    第一版沒排除,而我後來加了一個 `.sr-only`「未訂貨 12 筆」給讀螢幕的人 ⇒
+  //    **把看得見那一列整個拿掉,65 條全綠**。
+  //    ⇒ 我加的無障礙文字,把我自己的視覺守門變成了恆真的。
+  //    (今晚同款第二次:不是「我改了什麼」,是「我這一改還順便關掉了什麼」。)
+  const visibleTextOf = (label: string) => {
+    const cell = railCellFor(label).cloneNode(true) as HTMLElement;
+    cell.querySelectorAll('.sr-only').forEach((n) => n.remove());
+    return cell.textContent ?? '';
+  };
+
+  it('有數字的三格,中文標籤下面要【看得見】它在數什麼', () => {
+    mount(true, {
+      unorderedOrderCount: 12,
+      refundExceptionCount: 3,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 5,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    expect(visibleTextOf('訂單')).toContain('未訂貨');
+    expect(visibleTextOf('退款異常')).toContain('待處理');
+    expect(visibleTextOf('商品')).toContain('缺貨');
+  });
+
+  // 🔴 讀螢幕的人:原本那顆數字是 `aria-hidden`、沒 title、旁邊沒旁白 ⇒ **它對輔助工具不存在**。
+  //    這條驗的是「聽得到,而且聽到的是一句完整的話」,不是一個裸數字。
+  it('讀螢幕的人聽得到那顆數字,而且聽到的是【完整的一句】不是裸數字', () => {
+    mount(true, {
+      unorderedOrderCount: 12,
+      refundExceptionCount: 3,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 5,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    const sr = railCellFor('訂單').querySelector('.sr-only');
+    expect(sr?.textContent?.trim()).toBe('未訂貨 12 筆');
+    // 負向對照:那個數字槽本身仍然是 aria-hidden(視覺版不該被唸第二次)
+    const slot = railCellFor('訂單').querySelector('[data-testid="rail-count-slot"]');
+    expect(slot?.getAttribute('aria-hidden')).not.toBeNull();
+  });
+
+  // 🔴 truncated 時唸出來要與看到的一致(都是 99+),不可以唸出那個看起來精確的假數字。
+  it('truncated=true ⇒ 旁白也唸 99+,不唸底層那個數字', () => {
+    mount(true, {
+      unorderedOrderCount: 12,
+      refundExceptionCount: 55,
+      refundExceptionTruncated: true,
+      outOfStockProductCount: 5,
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    const sr = railCellFor('退款異常').querySelector('.sr-only');
+    expect(sr?.textContent?.trim()).toBe('待處理 99+ 筆');
+    expect(sr?.textContent).not.toContain('55');
+  });
+
+  // 🔴 負向對照:沒有這一條的話,上面那條在「每一格都無條件印限定詞」時照樣綠。
+  it('沒有數字的格【不】印限定詞(否則九格會為了三格一起長高)', () => {
+    mount(true, {
+      unorderedOrderCount: 12,
+      refundExceptionCount: 3,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: 0, // ⇒ 商品那格數字是空白
+      syncedAt: SYNCED_COUNTS.syncedAt,
+    });
+    // 商品:count=0 ⇒ 槽是空白, 但 count 不是 null ⇒ 限定詞【仍該在】(0 是一個答案, 不是沒答案)
+    expect(visibleTextOf('商品')).toContain('缺貨');
+    // 客戶 / 供應商 / 總覽:count 本身是 null ⇒ 不該有任何限定詞
+    for (const label of ['客戶', '供應商', '總覽']) {
+      const t = railCellFor(label).textContent ?? '';
+      expect(t, `${label} 不該有限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
+    }
+  });
+
+  // 🔴🔴 讀取失敗(count=null)⇒ 限定詞也要收起來。
+  //    **這一條是突變測試逼出來的**:第一版只驗了「沒有限定詞表的格不印」,
+  //    而那件事光靠 `qualifier !== undefined` 就成立 ⇒ 把 `count !== null` 那半拿掉
+  //    **64 條全綠**。⇒ 那半當時是恆真的裝飾。
+  //    語意:讀取失敗時印一個沒有數字的「未訂貨」,讀起來像「未訂貨(空)」= 一個假的答案。
+  it('讀取失敗(count=null)⇒ 限定詞跟著收起來,不留一個沒有數字的名字', () => {
+    mount(true, {
+      unorderedOrderCount: null,
+      refundExceptionCount: null,
+      refundExceptionTruncated: false,
+      outOfStockProductCount: null,
+      syncedAt: null,
+    });
+    for (const label of ['訂單', '退款異常', '商品']) {
+      const t = railCellFor(label).textContent ?? '';
+      expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
+    }
+  });
+
   it('🔴 突變:把訂單改成 13 ⇒ 那一格必須跟著變(否則這組測試只是在驗「有數字」)', () => {
     mount(true, {
       unorderedOrderCount: 13,
