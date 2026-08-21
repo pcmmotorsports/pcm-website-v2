@@ -284,6 +284,8 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   };
 
   // 立即購買(Sean 2026-07-11):加入購物車後直接前往購物車頁(非結帳);與「加入購物車」的差別=多一步導頁。
+  // 🔴 手機版同款邏輯在 ProductPage.tsx 的 buyNow(2026-08-21 F-81 補)——兩份各自的元件、
+  //    各自的 addToCart 閉包,沒辦法共用同一支函式;改這裡的行為時記得那邊也要一起改。
   const buyNow = () => {
     addToCart();
     router.push('/cart');
