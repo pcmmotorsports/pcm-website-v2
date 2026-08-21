@@ -60,6 +60,14 @@ export const PAYMENT_EXPIRED_CANCEL_REASON = 'payment_expired';
  * 因為它們對員工的處置不同。⇒ **A13a 的文案表要照這個聯集寫滿 11 條**,照 plan 的「八條」會漏。
  * 型別層有保險:`Record<OrderCancelBlockReason, string>` 少寫一條就轉紅。
  */
+/**
+ * 🔴 **給日後加第五個 `chargeAttemptGate` 態的人(對抗審查 R1 F5,2026-08-21)**:
+ * 本 union 的**碼名與 gate 的態名從此永久不同名** —— `'in_flight'` 推的是 `charge_attempt_blocked`
+ * (那格文案是 Sean 逐字定稿的、改字面要先問他 ⇒ 碼名跟著不動)。
+ * ⇒ 加新態時**最可能的錯是再推一次 `charge_attempt_blocked`**,而那不會紅:
+ *   型別上合法、既有測試也不會動、三綠也不會動。
+ * ⇒ **新態要配:新碼 + 新的 `BLOCK_REASON_TEXT` 格 + 一發打得中的突變。**
+ */
 export type OrderCancelBlockReason =
   /** `orders.cancelled_at IS NOT NULL`(RPC 步5 第一道,`20260805100000:339-341`) */
   | 'already_cancelled'
@@ -104,6 +112,16 @@ export type OrderCancelBlockReason =
    * 掛本碼等於告訴員工「還在進行中」。**RPC 那一側沒有跟著收窄**(它照樣擋),收窄的只有文案面。
    */
   | 'charge_attempt_blocked'
+  /**
+   * 扣款嘗試被系統標成「要人工處理」(`needs_manual_review = true`)⇒ **系統已經放棄自動重試**
+   * (`#808`/`#387`,Sean 2026-08-21 答甲)。與 `charge_attempt_blocked` 的差別是**下一步相反**:
+   * 那一碼說「等它跑完」,本碼說「它不會自己跑完了」。
+   * 🔴 本碼與 `charge_attempt_blocked` 同樣**只在 `paymentStatus === 'unpaid'` 時出現**,
+   * 理由完全相同(見上一碼):已付款單上那筆非 failed 的嘗試是付款成功的那一筆。
+   * 🔴🔴 **本碼交付的是「他知道自己在等什麼」,不是「他可以處理它了」** ——
+   * `#808` 面一(後台沒有手可以收尾這些單)未修,文案不得叫員工做做不到的事。
+   */
+  | 'charge_attempt_stuck'
   /**
    * 扣款嘗試**沒讀到或只讀到子集** ⇒ 沒看到的那些可能就有一筆在途(`types.ts:844` 三態的 `'unknown'`)。
    * 🔴 文案要求同 `cancellations_unreadable`(R3 N1):成因之一是**投影退版 / 內嵌鍵沒回來**,
@@ -663,8 +681,10 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   }
 
   // 步7:允許集合 = unpaid 且 attempts 全終態 failed(或零筆)。
-  // 🔴 `'blocked'` 與 `'unknown'` 分開兩碼:員工要看到的話不同(「有在途扣款」vs「讀取不完整,請重新整理」),
-  //    這正是 `chargeAttemptGate` 收成三態的理由(`types.ts:831-836`)——合成一碼就把它退回兩 boolean 的洞。
+  // 🔴 `'in_flight'` / `'stuck'` / `'unknown'` 分開三碼:員工要看到的話**各不相同**
+  //    (「刷卡還在跑」vs「系統已經停止自動重試」vs「讀取不完整」),
+  //    這正是 `chargeAttemptGate` 不收成 boolean 的理由 —— 合成一碼就把它退回兩 boolean 的洞。
+  //    (~~原「`'blocked'` 與 `'unknown'` 分開兩碼…收成三態」~~:`#808` 2026-08-21 起是四態。)
   // 🔴 `#494`:擋不擋**沒有變**(仍是「非 unpaid 就擋」),變的是**掛哪一碼** ——
   //    四種非 unpaid 的下一步互不相同,共用一句「已付款…請走人工退款流程」對已退款的單是謊話。
   // 🔴 用 `Record` 而不是 `if/else` 串:**新增 `PaymentStatus` 值時 `tsc` 會紅**
@@ -696,8 +716,20 @@ export function buildOrderCancelView(order: CancelViewOrder): OrderCancelView {
   //    這裡會把那筆**真在途**一起藏掉。那時要走根治 = #387 修法 A(gate 拆四態、`charged`
   //    與 `pending` 分碼),那動的是 `packages/adapters` 的共用 mapper ⇒ 另一片、另一層審查。
   //    在那之前處置不變:`payment_not_unpaid` 照樣擋住,員工該做的事(走退款線)也一樣。
-  if (order.chargeAttemptGate === 'blocked' && order.paymentStatus === 'unpaid') {
+  // 🔴🔴 **`#808` 2026-08-21 起 gate 確實在 `packages/adapters` 變成四態了,而【拆的不是這個軸】**
+  //    (關卡2 R2 nit-3)——本片拆的是 `needs_manual_review`(還在跑 vs 系統已放棄);
+  //    **`charged` 與 `pending` 仍然共用 `'in_flight'`**(`mappers/order.ts` 的 filter 逐字
+  //    `status !== CHARGE_ATTEMPT_TERMINAL_FAILED`,沒有按 status 分)。
+  //    ⇒ **上面那個「修法 A」仍然沒有做**,L5b 那個洞照舊開著。
+  //    查「修法 A 做了沒」的人:**看到四態不等於它做了**,要去看 filter 有沒有按 status 分岔。
+  // 🔴 `#808`/`#387`(2026-08-21):原本一條 `=== 'blocked'` 拆成兩條,**條件的其餘部分逐字不動**
+  //    (`paymentStatus === 'unpaid'` 的理由與失效條件見上面那整段註解,對兩碼同時成立)。
+  //    拆的是文案分得出「還在跑」與「系統已經放棄」;擋不擋、`canCancel` 皆與拆分前相同。
+  if (order.chargeAttemptGate === 'in_flight' && order.paymentStatus === 'unpaid') {
     reasons.push('charge_attempt_blocked');
+  }
+  if (order.chargeAttemptGate === 'stuck' && order.paymentStatus === 'unpaid') {
+    reasons.push('charge_attempt_stuck');
   }
   if (order.chargeAttemptGate === 'unknown') reasons.push('charge_attempt_unknown');
 

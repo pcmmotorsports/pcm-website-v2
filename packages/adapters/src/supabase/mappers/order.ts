@@ -501,6 +501,33 @@ export type SupabaseOrderItemQuantitySummaryRow = Pick<
   | 'shipped_quantity'
 >;
 
+/**
+ * 內嵌回來的一筆扣款嘗試(`#808`/`#387` gate 拆四態,2026-08-21)。
+ *
+ * 🔴 **兩欄都綁生成型別**(R1 F3 + R2 nit-2):手寫欄名在 DB 改名時不會紅,而 PostgREST 會回 400
+ * ⇒ **整頁明細掛掉**,不是只掉這個閘。`needs_manual_review` 用 indexed access 綁,
+ * 因為它要保住 `?`(投影退版時整欄缺席)—— 理由見它自己的註解。
+ * `mapChargeAttemptGate` 只認 `=== true`,缺欄時落回拆分前 `'blocked'` 的同一個世界(`'in_flight'`),
+ * 不會憑空宣稱「系統放棄了」。
+ */
+export type SupabaseChargeAttemptRow = Pick<
+  Database['public']['Tables']['payment_charge_attempts']['Row'],
+  'status'
+> & {
+  /**
+   * 🔴 **optional + nullable 是刻意的,而它與 DB 的形狀不同**(DB 端是 `boolean NOT NULL DEFAULT false`):
+   * 投影退版時這一欄會整個不見,而**「沒讀到」不可以被靜默讀成 `false`(= 系統沒舉手)**。
+   *
+   * 🔴 ~~第一版這裡寫「**不能**直接 `Pick` 那一欄,`Pick` 會把缺席這個世界從型別上抹掉」~~
+   * —— **那句話是假的**(關卡2 R2 nit-2 抓到)。用 indexed access 就同時做得到兩件事:
+   * 綁住欄名(DB 改名 ⇒ `tsc` 紅)、又保住 `?` 與 `| null`。下面就是那個寫法。
+   * ⚠️ 留著這段刪節號是因為那句假話**會誤導下一個人**把手寫欄名複製到下一個投影型別。
+   */
+  needs_manual_review?:
+    | Database['public']['Tables']['payment_charge_attempts']['Row']['needs_manual_review']
+    | null;
+};
+
 export type SupabaseAdminOrderDetailRow = Pick<
   Database['public']['Tables']['orders']['Row'],
   | 'id'
@@ -575,12 +602,14 @@ export type SupabaseAdminOrderDetailRow = Pick<
    */
   order_notes?: SupabaseOrderNoteRow[] | null;
   /**
-   * M-4b E10 A9g-2:扣款嘗試內嵌。🔴 **只取 `status` 一欄** —— 本表帶大量金流敏感欄
+   * M-4b E10 A9g-2:扣款嘗試內嵌。🔴 **只取 `status` 與 `needs_manual_review` 兩欄** —— 本表帶大量金流敏感欄
    * (`rec_trade_id` / `bank_transaction_id` / `fallback_token_hash`),取消 UI 只需要
-   * 「有沒有非 failed 的」這個布林事實,多取一個欄都是白給的洩漏面。
+   * 「有沒有非 failed 的」與「系統有沒有對它舉手」這兩個布林事實,多取一個欄都是白給的洩漏面。
+   * 🔴 `needs_manual_review`(`#808`,2026-08-21)**是布林、不是金流值** —— 它只說
+   * 「`expire_stuck_attempts_at_ceiling` 有沒有把這筆標成要人工處理」,不含任何金額或卡號面。
    * 🔴 optional + nullable 理由同 `order_notes`:投影退版會整個沒有這個鍵。
    */
-  payment_charge_attempts?: { status: string }[] | { status: string } | null;
+  payment_charge_attempts?: SupabaseChargeAttemptRow[] | SupabaseChargeAttemptRow | null;
   /**
    * M-4b E10 A9g-3:取消歷程內嵌(含兩層 `order_cancellation_items`)。
    * 🔴 optional + nullable 理由同 `order_notes`:投影退版會整個沒有這個鍵,
@@ -664,7 +693,8 @@ function mapQuantitySummary(
 }
 
 /**
- * 扣款嘗試內嵌 → 取消 UI 的在途扣款閘三態(M-4b E10 A9g-2)。
+ * 扣款嘗試內嵌 → 取消 UI 的在途扣款閘**四態**(M-4b E10 A9g-2;`#808` 2026-08-21 起,
+ * ~~原三態~~ `'blocked'` 拆成 `'in_flight'` / `'stuck'`,拆的軸是 `needs_manual_review`)。
  *
  * 🔴🔴 **「沒讀到」必須翻成 `'unknown'`,不能翻成「沒有在途扣款」** —— 本函式存在的唯一理由。
  * 缺鍵(投影退版)與 null 都代表「不知道」;把它當成零筆 = 畫面放行取消、送出必被 A8a2 拒,
@@ -707,19 +737,63 @@ function mapQuantitySummary(
  * 換成 limit+1 要讓本檔的邊界語意與 `ORDER_ITEMS_EMBED_LIMIT` 等兄弟常數分家,不划算。
  */
 function mapChargeAttemptGate(
-  attempts?: { status: string }[] | { status: string } | null,
-): 'clear' | 'blocked' | 'unknown' {
+  attempts?: SupabaseChargeAttemptRow[] | SupabaseChargeAttemptRow | null,
+): 'clear' | 'in_flight' | 'stuck' | 'unknown' {
   // 缺鍵(投影退版)/ null = 不知道 ⇒ fail-closed。
   if (!attempts) return 'unknown';
   // 🔴 單物件 = **我們沒預期的形狀**(規則上必為陣列,見上)⇒ 它證明不了「沒有其他在途筆」。
-  //    看到非 failed 就 `'blocked'`;是 failed 也只能回 `'unknown'`,**絕不回 `'clear'`**
-  //    (關卡2 R2 codex MF1:原本把它當成「長度 1 的完整清單」⇒ 只有一筆 failed 時會誤放行)。
+  //    看到非 failed 就走 `liveGate`(拆分前是 `'blocked'`);是 failed 也只能回 `'unknown'`,
+  //    **絕不回 `'clear'`**(關卡2 R2 codex MF1:原本把它當成「長度 1 的完整清單」⇒
+  //    只有一筆 failed 時會誤放行)。
   if (!Array.isArray(attempts)) {
-    return attempts.status !== CHARGE_ATTEMPT_TERMINAL_FAILED ? 'blocked' : 'unknown';
+    // 🔴 單物件是**沒預期的形狀** ⇒ `complete: false`(關卡2 codex C2):它證明不了
+    //    「沒有其他被舉手的 sibling」,所以只能說「有在途的」,說不出是哪一種在途。
+    return attempts.status !== CHARGE_ATTEMPT_TERMINAL_FAILED
+      ? liveGate([attempts], false)
+      : 'unknown';
   }
   // 看到在途的就結案:清單完不完整都改不了「必被 A8a2 拒」。
-  if (attempts.some((a) => a.status !== CHARGE_ATTEMPT_TERMINAL_FAILED)) return 'blocked';
-  return attempts.length >= PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT ? 'unknown' : 'clear';
+  const live = attempts.filter((a) => a.status !== CHARGE_ATTEMPT_TERMINAL_FAILED);
+  // 🔴 觸及上限 = 看到的是子集(關卡2 codex C1)⇒ 沒看到的那幾筆可能就帶著舉手旗標。
+  //    **擋不擋**不受影響(有在途的就是擋),受影響的是**說得出哪一種在途**。
+  const complete = attempts.length < PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT;
+  if (live.length > 0) return liveGate(live, complete);
+  return complete ? 'clear' : 'unknown';
+}
+
+/**
+ * 非 failed 的那幾筆,再分「還在跑」與「系統已經放棄」(`#808`/`#387`,Sean 2026-08-21 答甲)。
+ *
+ * 🔴 **`=== true` 而非 truthy,而且缺欄時回 `'in_flight'` 不是 `'stuck'`** —— 兩件事都是刻意的:
+ *   · `needs_manual_review` 讀不到(投影退版 / 舊 client)⇒ `undefined` ⇒ 回 `'in_flight'`
+ *     = **與拆分前的 `'blocked'` 逐字同一個世界**。四態對三態是純增量,不改任何既有行為。
+ *   · 反過來把缺欄當 `'stuck'` 會讓「我沒讀到」長成「系統已經放棄自動重試」這句**斷言**,
+ *     而那句話是要叫員工去 TapPay 後台跑一趟的 ⇒ 沒量到的東西不許長成祈使句。
+ * ⚠️ 兩態的**擋不擋**完全相同(都不給取消)⇒ 判錯的代價封頂在文案,動不到錢;
+ *   權威永遠是 A8a2 在交易內的重查(同 `AdminOrderDetail.chargeAttemptGate` 的立場)。
+ * 🔴 只要**任一筆**在途的被舉手就算 `'stuck'`:那張單已經需要人介入,而「另外還有一筆在跑」
+ *   不會讓被舉手的那筆自己好起來。
+ */
+function liveGate(
+  live: SupabaseChargeAttemptRow[],
+  complete: boolean,
+): 'in_flight' | 'stuck' | 'unknown' {
+  // ① 看到旗標就結案 —— **看到的事實不會被沒看到的東西推翻**,清單完不完整都一樣。
+  if (live.some((a) => a.needs_manual_review === true)) return 'stuck';
+  // ② 值不是布林也不是缺席 = wire shape 壞了(關卡2 codex C3:`'true'` 字串 / `1`)
+  //    ⇒ 我們讀不懂它 ⇒ **不可以說成「還在跑」**。DB 端是 `boolean NOT NULL`,
+  //    規則上到不了這裡;留著的理由與單物件那條同源:賭錯的代價是對員工說一句假話。
+  const unreadable = live.some(
+    (a) =>
+      a.needs_manual_review !== undefined &&
+      a.needs_manual_review !== null &&
+      typeof a.needs_manual_review !== 'boolean',
+  );
+  if (unreadable) return 'unknown';
+  // ③ 沒看到旗標,而清單只是子集 ⇒ **「沒看到」不等於「沒有」**(關卡2 codex C1/C2)。
+  //    這是本片唯一一處會回 `'unknown'` 的新路徑,方向是 fail-closed:
+  //    寧可說「讀不完整」,不說一句會叫員工坐著等的「還在跑」。
+  return complete ? 'in_flight' : 'unknown';
 }
 
 /** jsonb 防禦取 string 欄:非物件/非字串/空字串 → null(DB 腐壞不炸頁、誠實顯示缺)。 */

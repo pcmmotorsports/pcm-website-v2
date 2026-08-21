@@ -302,12 +302,16 @@ function describeType(v: unknown): string {
  * 用途 = 取消 UI 的**單層**閘:A8a2 只在 `payment_status='unpaid'` **且**該單扣款嘗試全為終態
  * `failed`(或零筆)時才放行(`20260805100000:360-364`,判定字面逐字 `status <> 'failed'`)。
  * 只看 `payment_status` 會漏掉「已扣款但尚未回填」的單 ⇒ 畫面給按、送出必拒。
- * 🔴 **只取 `status` 一欄**:本表帶 `rec_trade_id` / `bank_transaction_id` / `fallback_token_hash`
- * 等金流識別碼,而本投影的既有紅線就寫著「零 tappay_rec_trade_id」——
- * 取消 UI 只需要「有沒有非 failed 的」這一個事實,多取任何一欄都是白給的洩漏面。
+ * 🔴 **只取 `status` 與 `needs_manual_review` 兩欄**(~~原「只取 `status` 一欄」~~,`#808` 2026-08-21 起):
+ * 本表帶 `rec_trade_id` / `bank_transaction_id` / `fallback_token_hash` 等金流識別碼,
+ * 而本投影的既有紅線就寫著「零 tappay_rec_trade_id」—— 取消 UI 只需要
+ * 「有沒有非 failed 的」與「系統有沒有對它舉手」這兩個事實,多取任何第三欄都是白給的洩漏面。
+ * ⚠️ `needs_manual_review` 是 `boolean NOT NULL` 的內部營運旗標,零金額零卡號。
+ * 🔴 **這一段是稽核這個投影時的權威**(byte-equal 測試把人指到這裡)⇒ 欄集改了必須同時改這句。
  * 🔴 截斷語意與其他內嵌**不同、更嚴**:看到的是子集時不能說「沒有在途扣款」
  * ⇒ 缺鍵或觸及上限一律翻成 `'unknown'`,呼叫端 fail-closed
- * (三態契約詳 `AdminOrderDetail.chargeAttemptGate`)。
+ * (**四態**契約詳 `AdminOrderDetail.chargeAttemptGate`;~~原「三態」~~,`#808` 起 `'blocked'`
+ * 拆成 `'in_flight'` / `'stuck'`)。
  *
  * 🔴 M-4b E10 A9g-3 再加 `order_cancellations(… order_cancellation_items(…))` 取消歷程(兩層內嵌)。
  * 🔴 **A9d2-2b 起加取 `idempotency_key`**(`20260730130000:86`)—— 片 3(A9g-3)當時判定它是
@@ -376,7 +380,7 @@ function describeType(v: unknown): string {
  * admin 是員工專用 app、**不構成對外洩漏**,但「本片不改任何行為」在這一面**不是零**,記在這裡。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customer_user_id, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))), order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, voided_at, void_reason, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts!payment_charge_attempts_order_id_fkey(status, needs_manual_review), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。

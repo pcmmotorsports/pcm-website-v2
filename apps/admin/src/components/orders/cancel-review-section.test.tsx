@@ -124,6 +124,12 @@ describe('CancelReviewSection — 文案紀律(表格驅動)', () => {
     // ⚠️ 而 `payment_rail_unverifiable` **刻意不豁免**:它就是「系統讀不到」那一族,
     //    員工自己查不出這張單怎麼收的 ⇒ 它的 hint 本來就帶「通知系統維護」。
     'charge_attempt_blocked',
+    // 🔴 `#808`(2026-08-21)新碼,而這道守門**當場又抓了一次**(繼 `payment_card_rail` 之後第三次)。
+    //    它不該在嚴格桶,理由與上面幾條同族:卡住的單,員工下一步是**他自己做得到的**
+    //    (去 TapPay 後台查那一筆)⇒ 叫他「通知系統維護」是把他擋在原地,而且**沒有收訊者** ——
+    //    後台沒有任何叫做「系統維護」的窗口,那句話送不到任何人手上(`#818` 實查:
+    //    連「標記免處理」這顆按鈕都不存在)。
+    'charge_attempt_stuck',
     'nothing_cancellable',
   ];
   const NEEDS_MAINTENANCE = (
@@ -313,17 +319,29 @@ describe('CancelReviewSection — 不可取消時逐條文案', () => {
   it('🔴 #387 已付款的單:畫面上不得出現「刷卡還在進行中」', () => {
     // Sean 2026-08-11 實測撞到的那句。員工看到它會去等一個永遠不會發生的變化。
     const paid = render(
-      <CancelReviewSection payments={PAY_CARD} detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'blocked' })} />,
+      <CancelReviewSection payments={PAY_CARD} detail={detail({ paymentStatus: 'paid', chargeAttemptGate: 'in_flight' })} />,
     );
     expect(paid.container.textContent).not.toContain('還在進行中');
     // 擋人是對的,錯的只有理由 ⇒ 該說的那句仍要在(片 B:那句現在是刷卡那一句)。
     expect(paid.container.textContent).toContain('要先把錢退回原卡片才能取消');
 
     // 🔴 正向對照:未付款 + 在途,那句是真的,不可以連它一起消失。
+    //
+    // 🔴🔴 **這一行的期望值 2026-08-21 換過字面,而【換的理由不是這支測試錯了】**:
+    //   Sean 當天親自逐字定稿了 `charge_attempt_blocked` 那格文案(他自己寫的第三版),
+    //   舊字面「這張單有一筆刷卡**還在進行中**」被他換成「**還沒有結束**」。
+    //   落地的那顆是 `e112f0f9`,而**它只動了元件與 `cancel-review-copy.test.ts`、沒有動這支**
+    //   ⇒ 這一行從那一刻起就紅著(數法:`git show --stat e112f0f9`;
+    //     `git log -S'還在進行中' -- <本檔>` ⇒ `9c83143b` 是它進來的那顆)。
+    //   ⚠️ **它一直沒被發現,是因為三綠(typecheck / lint / build)不 parse 測試斷言**
+    //   ⇒ 一顆紅可以一路跟著上線。這一格的價值有一半在這句話裡。
+    //   ⇒ 所以這裡是**把期望值對齊 Sean 的定稿**,不是「修正測試讓它變綠」——
+    //     守的東西一個字沒變(未付款 + 在途時,那句話必須真的出現在畫面上)。
+    //   📌 上面那條反向斷言(已付款 `.not.toContain('還在進行中')`)**一個字都沒動**。
     const unpaid = render(
-      <CancelReviewSection payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'unpaid', chargeAttemptGate: 'blocked' })} />,
+      <CancelReviewSection payments={PAY_UNREADABLE} detail={detail({ paymentStatus: 'unpaid', chargeAttemptGate: 'in_flight' })} />,
     );
-    expect(unpaid.container.textContent).toContain('還在進行中');
+    expect(unpaid.container.textContent).toContain('這張單有一筆刷卡還沒有結束');
   });
 });
 

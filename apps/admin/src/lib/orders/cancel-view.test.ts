@@ -317,19 +317,53 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
     expect(buildOrderCancelView(order({ paymentStatus: 'unpaid' })).blockReasons).toEqual([]);
   });
 
-  it('在途扣款 blocked 與 unknown 是兩條不同的碼', () => {
-    expect(buildOrderCancelView(order({ chargeAttemptGate: 'blocked' })).blockReasons).toEqual([
+  it('在途扣款 in_flight / stuck / unknown 是三條不同的碼', () => {
+    // 🔴 `#808`/`#387`(2026-08-21 Sean 答甲):原本的 `'blocked'` 拆成 `'in_flight'` 與 `'stuck'`。
+    //    `'in_flight'` 沿用原碼 `charge_attempt_blocked`(Sean 已逐字定稿的那格文案掛在它身上,
+    //    見 `cancel-review-copy.test.ts`)⇒ **這一格的期望值一個字都沒改**,改的只有輸入態的名字。
+    expect(buildOrderCancelView(order({ chargeAttemptGate: 'in_flight' })).blockReasons).toEqual([
       'charge_attempt_blocked',
+    ]);
+    // 🔴 新態:被 `expire_stuck_attempts_at_ceiling` 舉手過 ⇒ 系統已經放棄,下一步與上一碼相反。
+    //    把 `:699` 的三分支改回兩分支(`'stuck'` 併回 `'in_flight'`)⇒ 本行紅。
+    expect(buildOrderCancelView(order({ chargeAttemptGate: 'stuck' })).blockReasons).toEqual([
+      'charge_attempt_stuck',
     ]);
     expect(buildOrderCancelView(order({ chargeAttemptGate: 'unknown' })).blockReasons).toEqual([
       'charge_attempt_unknown',
     ]);
   });
 
+  it("🔴 `'stuck'` 與 `'in_flight'` 的擋不擋完全相同 —— 拆的是文案,不是閘", () => {
+    for (const gate of ['in_flight', 'stuck'] as const) {
+      const view = buildOrderCancelView(order({ chargeAttemptGate: gate }));
+      expect(view.canCancel).toBe(false);
+      expect(view.fullCancelAllowed).toBe(false);
+    }
+  });
+
+  it("🔴 `'stuck'` 同樣只在 unpaid 時報 —— 已付款單上那筆非 failed 是成功的那一筆", () => {
+    // 正向對照放在同一格:少了它,「把整條 push 刪掉」的突變會讓下面全綠。
+    expect(
+      buildOrderCancelView(order({ paymentStatus: 'unpaid', chargeAttemptGate: 'stuck' }))
+        .blockReasons,
+    ).toEqual(['charge_attempt_stuck']);
+    // 突變:拿掉 `&& paymentStatus === 'unpaid'` ⇒ 這行紅(陣列會多一碼)。
+    expect(
+      buildOrderCancelView(
+        order({
+          paymentStatus: 'paid',
+          chargeAttemptGate: 'stuck',
+          payments: { status: 'ok', rows: [{ rail: 'card' }] } as const,
+        }),
+      ).blockReasons,
+    ).toEqual(['payment_card_rail']);
+  });
+
   it('🔴 #387 已付款的單不報「刷卡進行中」——那筆非 failed 的嘗試就是成功的那一筆', () => {
     // 🔴 正向對照放在同一格:少了它,「把整條 push 刪掉」的突變會讓下面全綠。
     expect(
-      buildOrderCancelView(order({ paymentStatus: 'unpaid', chargeAttemptGate: 'blocked' }))
+      buildOrderCancelView(order({ paymentStatus: 'unpaid', chargeAttemptGate: 'in_flight' }))
         .blockReasons,
     ).toEqual(['charge_attempt_blocked']);
 
@@ -343,7 +377,7 @@ describe('buildOrderCancelView 單層拒因(每條只紅自己那一條)', () =>
       ['partiallyRefunded', 'payment_partially_refunded'],
     ] as const) {
       const view = buildOrderCancelView(
-        order({ paymentStatus: status, chargeAttemptGate: 'blocked', payments: { status: 'ok', rows: [{ rail: 'card' }] } as const }),
+        order({ paymentStatus: status, chargeAttemptGate: 'in_flight', payments: { status: 'ok', rows: [{ rail: 'card' }] } as const }),
       );
       // 突變:拿掉 `&& paymentStatus === 'unpaid'` ⇒ 這行紅(陣列會多一碼「還在進行中」)。
       expect(view.blockReasons).toEqual([code]);
@@ -918,7 +952,7 @@ describe('buildOrderCancelView 可取消量與模式', () => {
   });
 
   it('整張單被擋時,整單取消一律關(即使數量上還勾得動)', () => {
-    const view = buildOrderCancelView(order({ chargeAttemptGate: 'blocked' }));
+    const view = buildOrderCancelView(order({ chargeAttemptGate: 'in_flight' }));
     expect(view.items[0]!.maxCancellable).toBe(5);
     expect(view.fullCancelAllowed).toBe(false);
   });
@@ -953,7 +987,7 @@ describe('buildOrderCancelView 多條拒因的順序是穩定宣告序', () => {
       order({
         cancelledAt: '2026-08-09T00:00:00Z',
         cancelledReason: PAYMENT_EXPIRED_CANCEL_REASON,
-        chargeAttemptGate: 'blocked',
+        chargeAttemptGate: 'in_flight',
         items: [
           { id: ITEM_A, quantity: 5, procurements: [], procurementTruncated: false, quantitySummary: summary() },
           {

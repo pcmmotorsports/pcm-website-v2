@@ -656,7 +656,7 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
 //    而「沒讀到」時那一半恰好長得跟「沒有在途」一樣 ⇒ 型別層面就不該給出那個誤用機會。
 
 function detailRowWithAttempts(
-  attempts?: { status: string }[] | null,
+  attempts?: { status: string; needs_manual_review?: boolean | null }[] | null,
 ): SupabaseAdminOrderDetailRow {
   const base = detailRow([
     { quantity: 5, ordered_quantity: 0, instock_quantity: 0, cancelled_quantity: 0, shipped_quantity: 0 },
@@ -694,22 +694,22 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-2 在途扣款閘 fail-
   //    「只擋這兩個值」的白名單也全綠。DB `status` CHECK 現為四值
   //    pending/charged/failed/released(`20260624120000:46`)⇒ 三個非 failed 值逐一測。
   for (const status of ['pending', 'charged', 'released']) {
-    it(`🔴 DB 現有狀態 '${status}' → 'blocked'(即使同單其他筆都 failed)`, () => {
+    it(`🔴 DB 現有狀態 '${status}' → 'in_flight'(即使同單其他筆都 failed)`, () => {
       expect(
         mapSupabaseAdminOrderDetailRowToDetail(
           detailRowWithAttempts([{ status: 'failed' }, { status }, { status: 'failed' }]),
         ).chargeAttemptGate,
-      ).toBe('blocked');
+      ).toBe('in_flight');
     });
   }
 
-  it("🔴 未知/新增的狀態值 → 一律 'blocked'(否定式判定,不是列舉白名單)", () => {
+  it("🔴 未知/新增的狀態值 → 一律 'in_flight'(否定式判定,不是列舉白名單)", () => {
     // DB 端日後新增狀態值時,呼叫端要自動偏保守;列舉白名單的寫法會漏判成「可取消」。
     expect(
       mapSupabaseAdminOrderDetailRowToDetail(
         detailRowWithAttempts([{ status: 'some_future_status_nobody_wrote_yet' }]),
       ).chargeAttemptGate,
-    ).toBe('blocked');
+    ).toBe('in_flight');
   });
 
   it("🔴 觸及上限 → 'unknown'(看到的是子集,不能宣稱沒有在途)", () => {
@@ -723,13 +723,46 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-2 在途扣款閘 fail-
     ).toBe('unknown');
   });
 
-  it("🔴 截斷 + 看到在途 → 'blocked' 壓過 'unknown'(兩種文案不能互相吃掉)", () => {
-    const rows = Array.from({ length: PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT }, () => ({
-      status: 'failed',
-    }));
-    rows[0] = { status: 'pending' };
+  it("🔴 截斷 + 看到在途而【沒看到旗標】→ 'unknown'(拆四態之後這一格的答案變了)", () => {
+    // 🔴🔴 **拆分前這一格是 `'blocked'`,而拆分後【不能】是 `'in_flight'`**(關卡2 codex C1):
+    //   拆分前那一碼只回答「擋不擋」⇒ 看到一筆在途就結案,清單完不完整不影響。
+    //   拆分後多回答了「是哪一種在途」⇒ **沒看到的那幾筆可能就帶著舉手旗標**
+    //   ⇒ 說 `'in_flight'` 是「不知道卻說知道」,而那句話會叫員工坐著等。
+    //   ⚠️ 擋不擋**沒有變**:`'unknown'` 一樣不給取消。變的只有他讀到哪一句話。
+    const rows: { status: string; needs_manual_review?: boolean | null }[] = Array.from(
+      { length: PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT },
+      () => ({ status: 'failed' }),
+    );
+    rows[0] = { status: 'pending', needs_manual_review: false };
     expect(mapSupabaseAdminOrderDetailRowToDetail(detailRowWithAttempts(rows)).chargeAttemptGate)
-      .toBe('blocked');
+      .toBe('unknown');
+  });
+
+  it("🔴 截斷 + 看到旗標 → 'stuck'(看到的事實不會被沒看到的東西推翻)", () => {
+    // 負對照上一格:少了這一格,「截斷一律回 unknown」的懶惰修法會全綠,
+    // 而那會把一個**已經量到**的 stuck 降級成「讀不完整」。
+    const rows: { status: string; needs_manual_review?: boolean | null }[] = Array.from(
+      { length: PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT },
+      () => ({ status: 'failed' }),
+    );
+    rows[0] = { status: 'pending', needs_manual_review: true };
+    expect(mapSupabaseAdminOrderDetailRowToDetail(detailRowWithAttempts(rows)).chargeAttemptGate)
+      .toBe('stuck');
+  });
+
+  it("🔴 `needs_manual_review` 不是布林(wire shape 壞了)→ 'unknown',不得說成「還在跑」", () => {
+    // 關卡2 codex C3:`'true'` 字串或 `1` 都不是 `=== true` ⇒ 第一版會落 `'in_flight'`。
+    // 突變:把 `unreadable` 那段整個拿掉 ⇒ 本格紅。
+    for (const bad of ['true', 1, {}] as unknown[]) {
+      expect(
+        mapSupabaseAdminOrderDetailRowToDetail(
+          detailRowWithAttempts([
+            { status: 'pending', needs_manual_review: bad as boolean | null | undefined },
+          ]),
+        ).chargeAttemptGate,
+        `needs_manual_review=${JSON.stringify(bad)}`,
+      ).toBe('unknown');
+    }
   });
 
   // 🔴 關卡2 codex MF4:上面那條「觸及上限」用同一個常數造資料 ⇒ 把常數改成 1001 也全綠,
@@ -748,18 +781,102 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-2 在途扣款閘 fail-
   //    ⚠️ 這是**防禦**測試:生成型別 `isOneToOne: false`(數法=`grep -n -A 2
   //    "payment_charge_attempts_order_id_fkey" …/database.types.ts`,落筆當下 `:1684-1686`)
   //    ⇒ 規則上不會發生;留著只因賭錯的代價是整頁炸掉(關卡2 codex nit1 更正原本的錯誤理由)。
-  it('🔴 內嵌回單物件(to-one 形狀)且是在途 → blocked、不炸', () => {
+  it('🔴 內嵌回單物件(to-one 形狀)且是在途 → unknown、不炸', () => {
     expect(
       mapSupabaseAdminOrderDetailRowToDetail({
         ...detailRowWithAttempts([]),
         payment_charge_attempts: { status: 'pending' },
       } as SupabaseAdminOrderDetailRow).chargeAttemptGate,
-    ).toBe('blocked');
+      // 🔴 關卡2 codex C2:單物件是沒預期的形狀 ⇒ 它證明不了「沒有其他被舉手的 sibling」
+      //    ⇒ 說得出「有在途的」,說不出「是哪一種在途」⇒ `'unknown'`,不是 `'in_flight'`。
+      //    ⚠️ 與同檔「單物件只有 failed → unknown」是同一個防禦原則,方向一致。
+    ).toBe('unknown');
   });
 
   // 🔴 關卡2 R2 codex MF1:單物件**只有一筆 failed** 時,原本走「長度 1 的完整清單」那條
   //    ⇒ 回 `'clear'` = 誤放行。這個形狀我們根本沒預期會發生,它證明不了「沒有其他在途筆」
   //    ⇒ 只能 `'unknown'`。把單物件退回當成完整清單,本條就紅。
+  // ─────────────────────────────────────────────────────────────────────────
+  // 🔴 `#808`/`#387`(2026-08-21 Sean 答甲):`'blocked'` 拆成 `'in_flight'` 與 `'stuck'`。
+  //    拆的理由是**下一步相反**:一個要員工等,一個要員工別等了。
+  //    上面每一條既有斷言的 fixture 都**沒有** `needs_manual_review` ⇒ 全部落 `'in_flight'`
+  //    = 拆分前 `'blocked'` 的同一個世界 ⇒ **四態對三態是純增量,既有行為零改動。**
+  // ─────────────────────────────────────────────────────────────────────────
+  it("🔴 needs_manual_review=true 的在途筆 → 'stuck'(系統已經放棄自動重試)", () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([{ status: 'pending', needs_manual_review: true }]),
+      ).chargeAttemptGate,
+    ).toBe('stuck');
+  });
+
+  it("🔴 needs_manual_review=false → 'in_flight'(真的還在跑,不可說成放棄了)", () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([{ status: 'pending', needs_manual_review: false }]),
+      ).chargeAttemptGate,
+    ).toBe('in_flight');
+  });
+
+  it("🔴 欄位缺席(投影退版)→ 'in_flight',**不得**憑空長成 'stuck'", () => {
+    // 「我沒讀到」不可以被寫成「系統已經停止自動重試」—— 那句話會叫員工去 TapPay 後台跑一趟。
+    // 突變:把 `liveGate` 的 `=== true` 改成 `!== false` ⇒ 本行紅。
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(detailRowWithAttempts([{ status: 'pending' }]))
+        .chargeAttemptGate,
+    ).toBe('in_flight');
+    // null(欄位回來了但值是 null)同理。
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([{ status: 'pending', needs_manual_review: null }]),
+      ).chargeAttemptGate,
+    ).toBe('in_flight');
+  });
+
+  it("🔴 一筆被舉手 + 一筆還在跑 → 'stuck'(另一筆在跑不會讓被舉手那筆自己好)", () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([
+          { status: 'pending', needs_manual_review: false },
+          { status: 'pending', needs_manual_review: true },
+        ]),
+      ).chargeAttemptGate,
+    ).toBe('stuck');
+  });
+
+  it("🔴 已 failed 的那筆被舉手【不算】—— 只看在途的那幾筆", () => {
+    // 🔴 **這一格的第一版是假綠,實測抓到的**(突變 `liveGate(live)` → `liveGate(attempts)`
+    //    跑出 69 passed)。原因:當時的 fixture 只有一筆 failed ⇒ `live.length === 0`
+    //    ⇒ **根本走不到 `liveGate`** ⇒ 那發突變在這條路上零可觀察差別。
+    //    ⇒ 要打得中,fixture 必須**同時**有「被舉手的 failed」與「沒被舉手的在途」。
+    //    (母題:`docs/patterns/guard-and-instrument-traps.md` —— 綠了要先問是閘沒力還是突變沒打中。)
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([
+          { status: 'failed', needs_manual_review: true },
+          { status: 'pending', needs_manual_review: false },
+        ]),
+      ).chargeAttemptGate,
+    ).toBe('in_flight');
+
+    // 全 failed(即使被舉手過)⇒ 沒有在途筆 ⇒ 仍是 'clear'。
+    // failed 是終態,它身上的舊旗標不代表「現在還卡著」。
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([{ status: 'failed', needs_manual_review: true }]),
+      ).chargeAttemptGate,
+    ).toBe('clear');
+  });
+
+  it("🔴 內嵌回單物件且被舉手 → 'stuck'(看到旗標就結案,形狀怪不影響【看到】這件事)", () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail({
+        ...detailRowWithAttempts([]),
+        payment_charge_attempts: { status: 'pending', needs_manual_review: true },
+      } as SupabaseAdminOrderDetailRow).chargeAttemptGate,
+    ).toBe('stuck');
+  });
+
   it("🔴 內嵌回單物件且只有 failed → 'unknown'(非預期形狀證明不了完整,絕不 clear)", () => {
     expect(
       mapSupabaseAdminOrderDetailRowToDetail({

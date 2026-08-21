@@ -514,3 +514,73 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
     expect(box!.getAttribute('value')).toMatch(/^constructor:/);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔴🔴 `#808` / `#387` gate 拆四態 —— **頁層渲染**驗收(plan §4 的 ☐3 / ☐4 / ☐5)
+//
+// 為什麼一定要在頁層量、而不是元件層:
+//   `cancel-view.test.ts` 守 `buildOrderCancelView` 的回傳、`cancel-review-copy.test.ts`
+//   守文案表的字面 —— **兩支都綠,而那句話仍然可以完全沒有被 render 出來**
+//   (只要 page.tsx → OrderDetail → CancelReviewSection 中間任何一跳掉了 detail,
+//    兩支照樣全綠)。這裡量的是「員工打開那張單,螢幕上真的印得出那句話」。
+//
+// 🔴 兩個會讓人重跑時踩到的假象(`#810` 已量過,抄過來免得下一個人再撞一次):
+//   ①`items: []` 會被 `cancel-view.ts` 推 `no_items` 拒因 ⇒ 表單消失**不是**本閘造成的
+//     ⇒ 本區一律用預設 fixture(有一個品項)。
+//   ②本檔的 repository 是 mock ⇒ 能證「這種資料下畫面畫出什麼」,**不能證正式站**。
+//     「那兩張單在正式庫真的是 unpaid + pending + needs_manual_review」是 `#808` 向正式庫量過的。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe("#808 gate='stuck' 的單,員工在畫面上讀得到「系統已經停止自動重試」", () => {
+  /** Sean 看到並選甲的那一句的可觀察形式:重整不會有變化。 */
+  const STUCK_LINE = '停止自動重試';
+  /** `charge_attempt_blocked`(= `'in_flight'`)那格的 title 逐字,Sean 2026-08-21 定稿。 */
+  const IN_FLIGHT_LINE = '這張單有一筆刷卡還沒有結束';
+
+  it("☐3 gate='stuck' ⇒ 整頁文字含那句新文案(被 render 出來,不是被 import)", async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ chargeAttemptGate: 'stuck' }));
+    const { container } = await renderPage();
+    // 🔴 正向對照先跑:沒有它,下面那條 `toContain` 若因整頁沒渲染而空,會長得像另一種紅。
+    expectPageRendered(container);
+    expect(container.textContent).toContain(STUCK_LINE);
+    // 而它要說出員工今天唯一做得到的那件事。
+    expect(container.textContent).toContain('TapPay');
+  });
+
+  it("☐5 負對照:gate='in_flight' ⇒ 整頁【不得】出現那句新文案", async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ chargeAttemptGate: 'in_flight' }));
+    const { container } = await renderPage();
+    expectPageRendered(container);
+    expect(container.textContent).not.toContain(STUCK_LINE);
+    // 🔴 而【該在的那句仍要在】—— 少了這一格,「把兩碼一起刪掉」的突變會讓上一行全綠。
+    expect(container.textContent).toContain(IN_FLIGHT_LINE);
+  });
+
+  it("🔴 兩個世界印不同的東西 —— 尺是活的(clear 那一態兩句都不該出現)", async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ chargeAttemptGate: 'clear' }));
+    const { container } = await renderPage();
+    expectPageRendered(container);
+    expect(container.textContent).not.toContain(STUCK_LINE);
+    expect(container.textContent).not.toContain(IN_FLIGHT_LINE);
+  });
+
+  it('🔴 第二問「看到之後他能做什麼」= 今天什麼都不能做,而那不可以是靜悄悄的', async () => {
+    // `#808` 面一未修:後台對這些單一顆可動的按鈕都沒有。
+    // 本片交付的是「他知道自己在等什麼」,不是「他可以處理它了」——
+    // ⇒ 取消表單與逐品項 checkbox 都必須是 0,而畫面上有一句話在解釋為什麼。
+    mocks.findAdminOrderDetail.mockResolvedValue(detail({ chargeAttemptGate: 'stuck' }));
+    const { container } = await renderPage();
+    expectPageRendered(container);
+    expect(cancelFormCount(container)).toBe(0);
+    expect(cancelItemCheckboxCount(container)).toBe(0);
+    expect(container.textContent).toContain(STUCK_LINE);
+  });
+
+  it("🔴 已付款的單不報 stuck —— 那筆非 failed 的嘗試是付款成功的那一筆", async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue(
+      detail({ paymentStatus: 'paid', chargeAttemptGate: 'stuck' }),
+    );
+    const { container } = await renderPage();
+    expectPageRendered(container);
+    expect(container.textContent).not.toContain(STUCK_LINE);
+  });
+});

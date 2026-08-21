@@ -1285,10 +1285,15 @@ export type AdminOrderDetail = {
    */
   itemsTruncated: boolean;
   /**
-   * 取消 UI 的**在途扣款閘**(M-4b E10 A9g-2)。三態、不是兩個 boolean —— 理由見下。
+   * 取消 UI 的**在途扣款閘**(M-4b E10 A9g-2)。**四態**、不是兩個 boolean —— 理由見下。
+   * (~~原「三態」~~:`#808`/`#387` 2026-08-21 起 `'blocked'` 拆成 `'in_flight'` / `'stuck'`。)
    *
    * - `'clear'`:**觀察完整**且該單扣款嘗試全為終態 `failed`(或零筆)⇒ 落在 A8a2 允許集合。
-   * - `'blocked'`:**明確觀察到**至少一筆非 `failed` 的扣款嘗試 ⇒ RPC 必拒。
+   * - `'in_flight'`:**明確觀察到**至少一筆非 `failed` 的扣款嘗試,而**沒有一筆被舉手** ⇒ RPC 必拒,
+   *   而它還在跑。⚠️ 觀察必須完整才給得出這個值(見 `'unknown'`)。
+   * - `'stuck'`:**明確觀察到**至少一筆非 `failed` 且 `needs_manual_review = true` 的扣款嘗試
+   *   ⇒ RPC 必拒,而系統已經停止一般的自動重試(`claim_stuck_unsettled_attempts` 濾 `= false`)。
+   *   🔴 **看到旗標就結案**:清單完不完整都不影響 —— 看到的事實不會被沒看到的東西推翻。
    * - `'unknown'`:**沒讀到或只讀到子集**(內嵌鍵沒回來 / 觸及 `PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT`)
    *   ⇒ 沒看到的那些**可能就有一筆在途**,不得當成 `'clear'`。
    *
@@ -1303,8 +1308,22 @@ export type AdminOrderDetail = {
    *   隨時可能新增一筆扣款嘗試。**權威永遠是 A8a2 在交易內的重查**(`20260805100000:362`)——
    *   所以 RPC 回拒是**正常路徑**、要當一般結果顯示,不是「不該發生」的例外。
    *   反過來說也成立:本欄判錯的代價封頂在 UX(按鈕誤亮 → 送出被拒),動不到錢。
-   *   `'blocked'` 與 `'unknown'` 都不給按,但**該給員工的文案不同**
-   *   (「有在途扣款」vs「付款狀態讀取不完整,請重新整理」)⇒ 兩者必須分得出來。
+   *   `'in_flight'` / `'stuck'` / `'unknown'` 三者都不給按,但**該給員工的文案各不相同**
+   *   (「刷卡還在跑」vs「系統已經放棄自動重試」vs「付款狀態讀取不完整」)⇒ 三者必須分得出來。
+   *
+   * 🔴🔴 **`#808`/`#387`(2026-08-21,Sean 答甲):原本的 `'blocked'` 拆成 `'in_flight'` 與 `'stuck'`。**
+   *   拆的理由不是命名潔癖,是**那一碼底下藏著兩個下一步完全相反的世界**:
+   *     `'in_flight'` 那筆還在跑 ⇒ 等它結束、重整會有變化
+   *     `'stuck'`     那筆已被 `expire_stuck_attempts_at_ceiling` 舉手
+   *                   (`needs_manual_review = true`)⇒ **系統已經放棄,重整永遠不會變**
+   *   壓成一碼的代價是實物:正式庫 5 張單卡在這裡 12 天,而畫面一直叫員工「重新整理看看」。
+   *   ⚠️ **拆的是【看得到】那一面,不是【處理得了】那一面** —— 拆完之後員工仍然沒有手可以
+   *   收尾這些單(`#808` 面一未修:`mark_charge_attempt_failed` 對 service_role EXECUTE = false)。
+   *   本欄交付的是「他知道自己在等什麼」,**不是**「他可以處理它了」。
+   *
+   * 🔴 **`needs_manual_review` 讀不到時偏向 `'in_flight'`(不是 `'stuck'`)—— 這是刻意的,理由在 mapper**:
+   *   四態之於三態是**純增量**:欄位缺席時的行為與拆分前的 `'blocked'` **逐字相同**,
+   *   `'stuck'` 只在真的讀到 `true` 時才出生 ⇒ 投影退版不會憑空長出一個「系統放棄了」的宣稱。
    *
    * 🔴🔴 **為什麼是三態而不是 `blocking` + `truncated` 兩個 boolean**(關卡2 codex MF1):
    *   兩個 boolean 的形狀讓呼叫端可以**只讀一半** —— 只讀 `blocking===false` 就放行,
@@ -1319,7 +1338,7 @@ export type AdminOrderDetail = {
    *   RLS enable 零 policy(`:115`)會讓那個角色讀到空陣列、不報錯 ⇒ 本欄變成 `'clear'`
    *   = 假裝「沒有在途扣款」。該情境由 `scripts/a9g2-charge-attempts-grant-guard.test.ts` 守。
    */
-  chargeAttemptGate: 'clear' | 'blocked' | 'unknown';
+  chargeAttemptGate: 'clear' | 'in_flight' | 'stuck' | 'unknown';
   /**
    * 取消歷程(M-4b E10 A9g-3)。排序 = `createdAt` ASC 三層全序,與 `notes` 共用
    * `mappers/created-at-order.ts` 的 `compareByCreatedAtThenId`。
