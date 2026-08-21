@@ -128,6 +128,38 @@ export function ProductPage({
   // 才跳出來)」——平常不掛載(false),按下「加入購物車」之後才顯示;商品那一刻已經真的加進去了
   // (qty=1),這一列只負責讓客人事後調整,不改數量的人零額外動作。
   const [showMobileQtyPanel, setShowMobileQtyPanel] = useState(false);
+  // 🔴 **面板的壽命綁在【它在講的那一列】上**(2026-08-22 線 B `-3c`,真瀏覽器實走證實)。
+  //
+  //    原病(375 實走、每一步都記了畫面的字與購物車徽章):
+  //      ① 選「黑」加入購物車 ⇒ 面板「已加入・數量 1」、徽章 8→9
+  //      ② 換規格到「銀」(從沒被加入過)⇒ 面板**沒關**、還是說「已加入・數量 1」、徽章 9
+  //      ③ 按 + ⇒ 框變 **2**、徽章 **9 沒動** ⇒ **螢幕說 2,而購物車裡「銀」一列都沒有**
+  //      ④ 再按 + ⇒ 框**卡在 2**(`CartQtyInput` 的 `qtyText` 只在 `qty` prop 變動時重同步,
+  //         而 qty 從頭到尾都是 1)⇒ 客人覺得不對而多按幾下,畫面**更不會動**
+  //      全程**零錯誤訊息**。分母:正式庫 5,758 支商品有兩種以上規格 = **27%**。
+  //
+  // 🔴 **為什麼綁 line key、而不是在 `onSelectVariant` 裡多呼叫一次**:
+  //    換掉那一列有**兩條路**,只堵前者會漏掉後者 ——
+  //      路徑一 使用者自己換規格(`ProductInfo` 的 picker → 下面的 `onSelectVariant`)
+  //      路徑二 `product` 變更 ⇒ 上面那個 effect `setSelectedVariant(product.variants?.[0] ?? null)`
+  //             (同一個元件若在商品之間不 unmount,面板一樣會留著)
+  //    ⚠️ **路徑二沒有人在瀏覽器裡走過** —— 它是讀 code 找到的,要驗得構造
+  //       「相關商品切換而元件不 unmount」。**不要把它讀成已驗證。**
+  //
+  // ✅ 這不是新行為,是**回到拍板**:上面 F-81 那段記著 Sean 逐字「乙的時機(按加入購物車才跳出來)」
+  //    ⇒ 「按加入購物車才跳出來」本來就蘊含「**沒按過的那一列不該看到它**」。
+  // ⚠️ 加入購物車**不會**改變 `selectedVariant?.id` / `product.slug` ⇒ 本 effect 不重跑
+  //    ⇒ `addToCart` 裡設的 `true` 活得下來,兩者不衝突。
+  useEffect(() => {
+    setShowMobileQtyPanel(false);
+  }, [selectedVariant?.id, product.slug]);
+  // 🔴🔴 **本片【沒有】修掉底下那個洞,只是讓「換規格」這條路到不了它**:
+  //    `updateQty` 對【不存在的列】仍然是**靜默 no-op**(`.map()` 找不到就什麼都不做)。
+  //    **洞還在,只是門關了。** 其他還到得了的路(未實走、只是想得到):
+  //    另一個分頁把那一列刪掉 / 購物車過期被清掉 / SSR-hydration 不一致。
+  //    ⇒ 要不要讓 `updateQty` 找不到列時**出聲**(丟錯 / 回 false 讓呼叫端處理),
+  //      是一個**獨立的決策題**(會動到所有呼叫端),**不該夾在這片裡順手改**。
+  //    📌 backlog 有一條在追這件事;**看到這段的人請不要以為那件事已經解決了。**
   const mobileLineKey = { productId: product.slug, variantId: selectedVariant?.id };
   const mobileCartQty =
     items.find((it) => it.productId === mobileLineKey.productId && it.variantId === mobileLineKey.variantId)
