@@ -14,13 +14,13 @@
 //   (階段① general-only)、運費統一 5000/未滿 100(Sean 拍 B + #161)、checkout 守門移 /checkout server、
 //   變體識別顯 spec 值(variant 粒度 b2-c)、cart-loading net-new。
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
-import { useCart } from '@/contexts/CartContext';
+import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { isBalancePaymentOnlyCart } from '@/lib/balance-payment';
 import { CartVehicleField } from '@/components/CartVehicleField';
@@ -151,19 +151,7 @@ export function CartView({
                       fitments={line.fitments}
                     />
                     <div className="cart-item-actions">
-                      <div className="cart-qty">
-                        <button
-                          aria-label="減少數量"
-                          onClick={() => updateQty(item, item.qty - 1)}
-                          disabled={item.qty <= 1}
-                        >
-                          −
-                        </button>
-                        <span>{item.qty}</span>
-                        <button aria-label="增加數量" onClick={() => updateQty(item, item.qty + 1)}>
-                          +
-                        </button>
-                      </div>
+                      <CartQtyInput qty={item.qty} onCommit={(n) => updateQty(item, n)} />
                       <button className="cart-item-remove" onClick={() => removeItem(item)}>
                         移除
                       </button>
@@ -212,6 +200,64 @@ export function CartView({
         </div>
       </main>
       <HomeFooter />
+    </div>
+  );
+}
+
+/**
+ * W11-019 B1/B2:購物車列數量控制,span 換 input(可鍵盤輸入)+ +/− 仍留(§6)。
+ * qtyText 是本列自己的編輯態文字,失焦才收斂成整數送 updateQty(context 端 clampQty 仍是最終防線,
+ * 但這裡先夾一次是為了 §5 row1/row3 的畫面回饋 ——「回復成 1」「夾到 99 並明說」使用者要看得到)。
+ * 🔴 絕不把 0 交給 onCommit:updateQty(key, 0) 在 CartContext 裡是「移除該列」的語意(qty<1 → filter
+ *   掉),那是 +/− 按鈕 disabled 在防的事,輸入框打 0 不能繞過去變成整列消失。
+ */
+function CartQtyInput({ qty, onCommit }: { qty: number; onCommit: (qty: number) => void }) {
+  const [qtyText, setQtyText] = useState(String(qty));
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setQtyText(String(qty));
+  }, [qty]);
+  useEffect(() => () => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+  }, []);
+  const commit = (raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_QTY) : 1;
+    if (Number.isFinite(parsed) && parsed > MAX_QTY) {
+      setNotice(`已達購買上限 ${MAX_QTY}`);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      noticeTimer.current = setTimeout(() => setNotice(null), 2500);
+    }
+    setQtyText(String(clamped));
+    onCommit(clamped);
+  };
+  return (
+    <div className="cart-qty">
+      <button aria-label="減少數量" onClick={() => commit(String(qty - 1))} disabled={qty <= 1}>
+        −
+      </button>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        aria-label="數量"
+        className="cart-qty-input"
+        value={qtyText}
+        onChange={(e) => setQtyText(e.target.value.replace(/[^0-9]/g, ''))}
+        onBlur={() => commit(qtyText)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+      />
+      <button aria-label="增加數量" onClick={() => commit(String(qty + 1))}>
+        +
+      </button>
+      {notice && (
+        <div className="cart-qty-notice" role="status">
+          {notice}
+        </div>
+      )}
     </div>
   );
 }

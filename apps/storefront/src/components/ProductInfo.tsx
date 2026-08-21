@@ -31,11 +31,11 @@
 
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
-import { useCart } from '@/contexts/CartContext';
+import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { ProductSwatchPreview } from './ProductSwatchPreview';
@@ -196,6 +196,29 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   //   (~~liked~~ 2026-08-18 起在 FavoritesContext,不再是本元件的 state)。
   //   product 變更時 selectedVariant reset 由 ProductPage 統一處理(gallery 同步換圖);本處只 reset qty。
   const [qty, setQty] = useState<number>(1);
+  // W11-019 B1:數量改可鍵盤輸入。qtyText 是輸入框顯示用的自由文字(打到一半允許空/半形數字),
+  //   qty 才是算價/加購真正吃的值 —— 兩者分開,失焦才把 qtyText 收斂寫回 qty(§5 表 row 5)。
+  const [qtyText, setQtyText] = useState('1');
+  // 夾到上限時的一次性提示(§5 表 row 3:夾值要「明說」、不能像既有 bug 那樣靜默夾)。
+  const [qtyNotice, setQtyNotice] = useState<string | null>(null);
+  const qtyNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setQtyText(String(qty));
+  }, [qty]);
+  useEffect(() => () => {
+    if (qtyNoticeTimer.current) clearTimeout(qtyNoticeTimer.current);
+  }, []);
+  const commitQty = (raw: string) => {
+    const parsed = Number.parseInt(raw, 10);
+    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_QTY) : 1;
+    if (Number.isFinite(parsed) && parsed > MAX_QTY) {
+      setQtyNotice(`已達購買上限 ${MAX_QTY}`);
+      if (qtyNoticeTimer.current) clearTimeout(qtyNoticeTimer.current);
+      qtyNoticeTimer.current = setTimeout(() => setQtyNotice(null), 2500);
+    }
+    setQty(clamped);
+    setQtyText(String(clamped));
+  };
   // M-4b #191:收藏改吃 FavoritesContext(與商品卡那顆同一個資料源)。
   const { isFavorite, toggleFavorite } = useFavorites();
   const liked = isFavorite(product.slug);
@@ -349,19 +372,38 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
         <div className="pd-qty">
           <button
             type="button"
-            onClick={() => setQty(Math.max(1, qty - 1))}
+            onClick={() => commitQty(String(qty - 1))}
             aria-label="減少數量"
           >
             −
           </button>
-          <span>{qty}</span>
+          {/* W11-019 B1:span 換 input —— 支援鍵盤直接輸入,+/− 仍保留(手機點/桌機打字各取所需,§6)。
+              inputMode=numeric 叫數字鍵盤;不用 type="number"(§5:各瀏覽器行為不一、滾輪會改值)。 */}
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            aria-label="數量"
+            className="pd-qty-input"
+            value={qtyText}
+            onChange={(e) => setQtyText(e.target.value.replace(/[^0-9]/g, ''))}
+            onBlur={() => commitQty(qtyText)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+          />
           <button
             type="button"
-            onClick={() => setQty(qty + 1)}
+            onClick={() => commitQty(String(qty + 1))}
             aria-label="增加數量"
           >
             +
           </button>
+          {qtyNotice && (
+            <div className="pd-qty-notice" role="status">
+              {qtyNotice}
+            </div>
+          )}
         </div>
         <button type="button" className="pd-add-btn" onClick={addToCart}>
           加入購物車

@@ -56,7 +56,8 @@ const SESSION_KEY = 'pcm-cart-session-v1'; // 3DS-7 cart-instance idempotency ke
 // #245:cart_session_id 讀回格式守門(inline 重複、對齊 charge-actions / callback 同層 UUID_RE 慣例;
 //   storefront 無 zod 直接依賴,不引 z.uuid 避脆弱 transitive import)。
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_QTY = 99;
+// 匯出給 W11-019 B1 數量輸入框共用(ProductInfo/CartView 前端夾值上限要對齊這裡,不得各自硬寫 99)。
+export const MAX_QTY = 99;
 
 /** 產生 cart-instance 去重子(3DS-7 cart_session_id)。
  *

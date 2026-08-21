@@ -348,3 +348,49 @@ describe('ProductInfo — V-2a 路徑1(搜尋情境自動帶入車款)', () => {
     expect(items[0].vehicle).toBeUndefined();
   });
 });
+
+// W11-019 B1/B2:數量改可鍵盤輸入 + 修既有無上限 bug(+ 按到 107、加購後靜默變 99)。
+describe('ProductInfo — 數量輸入框(W11-019 B1/B2)', () => {
+  it('打 0 失焦 → 回復成 1(§5 row1)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    const input = screen.getByRole('textbox', { name: '數量' });
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
+    expect((input as HTMLInputElement).value).toBe('1');
+  });
+
+  it('輸入非數字字元 → 被過濾掉、不會進到輸入框(§5 row2)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    const input = screen.getByRole('textbox', { name: '數量' });
+    fireEvent.change(input, { target: { value: '1a2.5-3' } });
+    expect((input as HTMLInputElement).value).toBe('1253'); // 非數字字元(a/./-)被濾掉,數字字元原序保留
+  });
+
+  it('打 >99 失焦 → 夾到 99 並顯示提示(§5 row3,對照 B2 既有 bug:不再靜默夾)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    const input = screen.getByRole('textbox', { name: '數量' });
+    fireEvent.change(input, { target: { value: '500' } });
+    fireEvent.blur(input);
+    expect((input as HTMLInputElement).value).toBe('99');
+    expect(screen.getByText('已達購買上限 99')).toBeDefined();
+  });
+
+  it('B2 修復:連按「+」超過 99 次也夾在 99,不再無上限累加(對照舊值可到 107)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    const plus = screen.getByRole('button', { name: '增加數量' });
+    for (let i = 0; i < 105; i += 1) fireEvent.click(plus);
+    const input = screen.getByRole('textbox', { name: '數量' }) as HTMLInputElement;
+    expect(input.value).toBe('99');
+  });
+
+  it('加入購物車帶的 qty 就是輸入框確定後的值(不是打到一半的暫存文字)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    const input = screen.getByRole('textbox', { name: '數量' });
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    const CART_KEY = 'pcm-cart-mock-v2';
+    const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
+    expect(items[0].qty).toBe(5);
+  });
+});

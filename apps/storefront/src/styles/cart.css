@@ -125,19 +125,34 @@
   display: flex;
   align-items: center;
   border: 1px solid var(--c-border);
+  position: relative; /* W11-019 B1:.cart-qty-notice 貼著這裡浮出 */
 }
 .cart-qty button {
-  width: 32px; height: 32px;
+  /* W11-019 B3:32×32 < WCAG 2.5.5 44×44 觸控下限(docs/lessons-learned.md:812、backlog #138)→ 44×44 */
+  width: 44px; height: 44px;
   color: var(--c-text);
   background: transparent;
   transition: background 0.15s;
 }
 .cart-qty button:hover:not(:disabled) { background: var(--c-surface-2); }
 .cart-qty button:disabled { color: var(--c-text-3); cursor: not-allowed; }
-.cart-qty span {
-  min-width: 32px;
+.cart-qty-input {
+  /* 🔴 `<input>` 沒有明確 `width` 時吃瀏覽器預設 size(≈20 字元寬),`min-width` 只設下限、
+     擋不住它 —— 375 寬實量抓到 `.cart-qty` 整個被撐到 271.5px、「移除」鈕被推出視窗外。
+     要用 `width` 定死,不能只給 `min-width`(W11-019 B3 補測踩到的坑)。 */
+  width: 32px; height: 44px; padding: 0;
   text-align: center;
-  font-size: 14px;
+  font-size: 14px; font-variant-numeric: tabular-nums;
+  color: var(--c-text);
+  border: none; background: transparent;
+}
+.cart-qty-input:focus { outline: 2px solid var(--c-text); outline-offset: -2px; }
+/* W11-019 B1 §5 row3:夾到 99 上限要「明說」,不能像 B2 那個既有 bug 一樣靜默夾。 */
+.cart-qty-notice {
+  position: absolute; top: 100%; left: 0; margin-top: 6px;
+  font-size: 12px; color: var(--c-text-2); white-space: nowrap;
+  background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 4px;
+  padding: 3px 8px; z-index: 1;
 }
 
 .cart-item-remove {

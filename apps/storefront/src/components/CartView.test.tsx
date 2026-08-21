@@ -38,6 +38,7 @@ const { cartRef, resolveMock, pushMock } = vi.hoisted(() => ({
 
 vi.mock('@/contexts/CartContext', () => ({
   useCart: () => cartRef.current,
+  MAX_QTY: 99, // W11-019 B1:CartView 直接 import 這個常數夾輸入框上限,mock 整支模組要一併給
 }));
 vi.mock('@/app/cart/actions', () => ({
   resolveCartLines: resolveMock,
@@ -232,5 +233,33 @@ describe('CartView(M-3-S2-b2-d)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'gone', found: false })]);
     render(<CartView />);
     await waitFor(() => expect(screen.getByText('購物車是空的')).toBeTruthy());
+  });
+
+  // W11-019 B1:數量改可鍵盤輸入(span → input),+/− 仍留。
+  it('數量輸入框:打 0 失焦 → updateQty 收到 1,不是 0(context updateQty(key,0) 語意是移除該列)', async () => {
+    const item: CartItem = { productId: 'rpm-1', variantId: 'v1', qty: 3 };
+    const { updateQty } = setCart([item]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    render(<CartView />);
+    await screen.findByText('碳纖維車台護蓋');
+
+    const input = screen.getByRole('textbox', { name: '數量' });
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.blur(input);
+    expect(updateQty).toHaveBeenCalledWith(item, 1);
+  });
+
+  it('數量輸入框:打 >99 失焦 → 夾到 99 並顯示提示,updateQty 收到 99', async () => {
+    const item: CartItem = { productId: 'rpm-1', variantId: 'v1', qty: 1 };
+    const { updateQty } = setCart([item]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    render(<CartView />);
+    await screen.findByText('碳纖維車台護蓋');
+
+    const input = screen.getByRole('textbox', { name: '數量' });
+    fireEvent.change(input, { target: { value: '150' } });
+    fireEvent.blur(input);
+    expect(updateQty).toHaveBeenCalledWith(item, 99);
+    expect(screen.getByText('已達購買上限 99')).toBeTruthy();
   });
 });
