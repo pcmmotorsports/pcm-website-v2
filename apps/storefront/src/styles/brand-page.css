@@ -295,7 +295,20 @@
  * 2026-08-02 Sean:官方 Company Film 取代原本的「鈦合金排氣尾段」產品照卡。
  * 有 video 就放影片、沒有才退回上面的 .bp-aside 產品照(實測 12 家有片 / 8 家走產品照;D2f 加入 materya 後重數)。
  */
-.bp-media { align-self: start; }
+/* 2026-08-21 Sean 看三張實體版本(現況/A sticky/B置中,EBC 前後對照)後逐字選「B:影片上下置中」
+   —— 影片高度是欄寬算出來的固定值(305.5px,跟品牌無關),留白隨正文長度變動(gilles 38.5px
+   → ebc 251.3px),align-self:start 讓留白全部堆在底部;改 center 讓留白上下對稱,一眼就是
+   刻意設計而非排版跑掉。誠實邊界:長文案品牌(如 ebc)置中後上下仍各留約 125px,不是消除
+   留白,Sean 已在看過這句限制的前提下選的。決策+9家量測見
+   ~/pcm-mailbox/B-b6-品牌介紹頁影片留白計畫-20260821.md。
+   🔴 沒驗到的邊界(下一個人重跑就知道還壞不壞,不是待補而是待驗):
+   · 4 家 portrait 影片(cnc-racing/front3d/lightech/materya)走 has-portrait-media
+     分支、不同的 grid-template-columns,class 相同所以理論上一樣吃 align-self:center,
+     但沒有真瀏覽器量過。驗法:開 /brands/cnc-racing 等 4 頁,量 .bp-media 上下留白
+     px 是否對稱(同本次 9 家用的量法)。
+   · ≤960 單欄手機寬度沒重驗——理論上單欄 flex/grid 下 align-self 無視覺影響,
+     但沒有實測。驗法:同 4 頁 + 原本 9 家,resize 到 375/768,肉眼看有沒有跑版。 */
+.bp-media { align-self: center; }
 /* 封面 7:3 而不是 16:9 —— 16:9 在這個欄寬比正文高 75px、2:1 還高 43px;
    7:3 把差距收到 10px 內(Sean 2026-08-02 要求影片高度貼齊正文欄)。
    封面 object-fit:cover 裁掉上下、不變形;iframe 會有極輕微的上下黑邊。

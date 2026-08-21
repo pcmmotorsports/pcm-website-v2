@@ -734,6 +734,12 @@ export const BRAND_CONTENT: BrandContent[] = [
       "pull": "擋得住的不是網目，是靜電。",
       "tail": "<strong>廠在雅典西北的 Mandra Attika,1,300 平方米。</strong>裡面有 R&D、模具與工具部門、三條濾清器產線、品管與複合材料部門。約 95% 的產出外銷、賣到 42 個以上的國家。<br><br><strong>官方稱在 Rally Dakar 實測過</strong>——橫越阿根廷、翻過安地斯山、進 Atacama 沙漠，對付當地細如粉塵的 fesh-fesh,官方說法是表現優於泡棉濾網。"
     },
+    "video": {
+      "youtube": "9MgtoQPcFow",
+      "poster": "assets/brands-video/dna-dcr017-poster.jpg",
+      "title": "DNA Filters × DCR-017",
+      "caption": "官方特別企劃 · The Brain Eraser"
+    },
     "highlights": {
       "title": "為什麼是 DNA",
       "lead": "進氣的難處在於：要讓空氣多進來，又不能讓沙一起進來。DNA 的路線是靠上油棉紗的靜電吸附，而不是把網目做細。",
