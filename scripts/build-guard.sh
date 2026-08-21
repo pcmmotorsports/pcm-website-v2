@@ -20,6 +20,18 @@
 
 set -euo pipefail
 
+# 🔴 Vercel 逃生門(2026-08-21):這支腳本本來只為了解決本機多窗互撞,而 prebuild 這條路
+#    (見提案v2)會讓它坐在【正式部署的必經路徑】上——Vercel 建置容器裡本來就不會有 next dev
+#    在跑,但為了不依賴「巧合沒撞到」,遇到 CI 環境就直接放行,不跑 pgrep。
+#    CI=1:Vercel 官方文件(build time 提供,無需額外開關)
+#      https://vercel.com/docs/environment-variables/system-environment-variables
+#    VERCEL=1:同頁,但**需要專案設定裡打開「Enable access to System Environment Variables」**
+#      才會有,不保證一定存在,所以以 CI 為主、VERCEL 當備援,兩個任一命中就放行。
+if [ "${CI:-}" = "1" ] || [ "${VERCEL:-}" = "1" ]; then
+  echo "✅ 偵測到 CI/Vercel 環境(CI=${CI:-未設定} VERCEL=${VERCEL:-未設定}),跳過本機 dev server 檢查。"
+  exit 0
+fi
+
 APP="${1:-}"
 if [ -z "$APP" ]; then
   echo "用法: bash scripts/build-guard.sh <app-name>(例如 storefront / admin)" >&2

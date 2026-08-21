@@ -5,6 +5,7 @@
   "description": "PCM 後台 admin(Next.js 16 + shadcn/base-ui 殼)— M-4a M0-S1 骨架 fork,見 src/FORK-PROVENANCE.md",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "[ -n \"$CI\" ] || bash ../../scripts/build-guard.sh admin",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0 --no-error-on-unmatched-pattern",
