@@ -19,7 +19,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=45
+EXPECT_TOTAL=47
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -207,6 +207,25 @@ B9="$(cd "$R9" && git rev-parse HEAD~1)"; T9="$(cd "$R9" && git rev-parse HEAD)"
 # 🔴 M2 的「有保護那一側」由本格承擔;動本格前先看 M2。
 expect_pass "⑫識別字邊界:pcm_a9h_probe_v2 不是 pcm_a9h_probe ⇒ 不誤擋" \
   "$(run_gate "$R9" "refs/heads/dev $T9 refs/heads/dev $B9")"
+
+# 🔴 ⑫b(2026-08-21 線D `-4a` 補):**⑫ 走的是 4b(引號邊界),4a(`.rpc(` 呼叫窗口的識別字邊界)零覆蓋。**
+#    實測證據(補格子之前先構造一發它現在漏得掉的):
+#      原始閘 + 本 fixture ⇒ rc=0    4a 邊界拿掉 + 本 fixture ⇒ rc=1(開始誤擋)
+#      原始閘 + ⑫ fixture ⇒ rc=0    4a 邊界拿掉 + ⑫ fixture ⇒ rc=0(**沒變**)
+#    ⇒ 🔴 最後那一格才是本格存在的理由:**⑫ 對 4a 的突變是啞的** ——
+#      少了本格,4a 那條邊界在整份 harness 裡沒有任何一發證明過它有判別力。
+#    差別在哪:⑫ 的 fixture 沒有 `.rpc(`,它走 4b;本 fixture 有 `.rpc(`,它走 4a。
+R9B="$WORK/r9b"; setup_repo "$R9B"; add_pending_migration "$R9B"
+cat > "$R9B/apps/admin/src/consumer.ts" <<'TS'
+export async function callIt(sb: any) {
+  return await sb.rpc('pcm_a9h_probe_v2', { p_order_id: 'x' });
+}
+TS
+( cd "$R9B" && git add -A && git commit -qm "feat: 呼叫的是更長的相似名字(走 .rpc 窗口)" )
+B9B="$(cd "$R9B" && git rev-parse HEAD~1)"; T9B="$(cd "$R9B" && git rev-parse HEAD)"
+# 🔴 M2b 的「有保護那一側」由本格承擔;動本格前先看 M2b。
+expect_pass "⑫b 4a 呼叫窗口的識別字邊界:.rpc('pcm_a9h_probe_v2') 不是 pcm_a9h_probe ⇒ 不誤擋" \
+  "$(run_gate "$R9B" "refs/heads/dev $T9B refs/heads/dev $B9B")"
 
 echo
 echo "── 關卡2 折面:新增行 / fail-closed / ledger 合法性 / hook 真的被 git 叫到 ──"
@@ -413,6 +432,12 @@ mutate_and_check "M1 sha 比對改成「帳上有這一行就算數」" \
 # 🔴 本發的「有保護那一側」是 ⑫;動 ⑫ 會讓本發失去對照(它就不再是一對兩個世界)。
 mutate_and_check "M2 識別字邊界改成裸子字串比對" \
   $'grep -qE "[\'\\"]$fn[\'\\"]"@@@grep -qF "$fn"' block "$R9" "refs/heads/dev $T9 refs/heads/dev $B9"
+# 🔴 M2b(2026-08-21 線D `-4a` 補):M2 打的是 **4b 的引號邊界**,4a 那條零突變。
+#    ⚠️ 兩發**不是重複**:同一發突變對兩個 fixture 的結果不同(⑫ rc 不變 / ⑫b rc 0→1),
+#      而那個「不同」就是它們各自量到不同東西的機械證據。
+# 🔴 本發的「有保護那一側」是 ⑫b;動 ⑫b 會讓本發失去對照。
+mutate_and_check "M2b 4a 呼叫窗口的識別字邊界改成裸子字串比對" \
+  'grep -qE "(^|[^A-Za-z0-9_])$fn([^A-Za-z0-9_]|\$)"@@@grep -qF "$fn"' block "$R9B" "refs/heads/dev $T9B refs/heads/dev $B9B"
 # 🔴 本發的「有保護那一側」是 ⑪;動 ⑪ 會讓本發失去對照。
 mutate_and_check "M3 拿掉 app 面的測試檔過濾" \
   "| grep -vE '\\.(test|spec)\\.[jt]sx?\$|/__tests__/'@@@" block "$R8" "refs/heads/dev $T8 refs/heads/dev $B8"
@@ -433,6 +458,11 @@ mutate_and_check "M5 拿掉 app 面路徑限定(-- apps packages)" \
   '-- apps packages@@@--' block "$R17" "refs/heads/dev $T17 refs/heads/dev $B17"
 echo
 echo "── 呼叫上下文(2026-08-21 A-bc;審查線 -04 量的兩個方向)────────────────"
+# 🔴 2026-08-21 線D `-4a`:下面三格的標籤原本帶反引號(`` .rpc(IDENT, …) `` 等)。
+#    **雙引號內的反引號會被 shell 當命令替換執行** ⇒ 實跑時噴 `syntax error`,
+#    而印出來的標籤**掉了那一段、句子還讀得通**(「②漏擋面· 識別字風格 ⇒ 必須擋」)。
+#    ⇒ 那是 CLAUDE.md 明文的 zsh/bash 禁忌,而它在這裡讓**守門自己的標籤說謊**。
+#    ⇒ 改成不帶反引號的寫法。**期望值與 fixture 一個字都沒動,只動標籤字面。**
 # 🔴 這一組的來源:原本的比對是「新增行裡出現函式名的完整識別字」⇒ **不管那一行是不是在呼叫**。
 #    -04 量到兩個方向都壞:
 #      誤擋 817 個提及裡只有 30 個真的是呼叫 ⇒ 每 27 次命中只對 1 次
@@ -487,7 +517,7 @@ export async function callIt(sb: any) {
 TS
 ( cd "$R33" && git add -A && git commit -qm "feat: 識別字風格呼叫" )
 B33="$(cd "$R33" && git rev-parse HEAD~1)"; T33="$(cd "$R33" && git rev-parse HEAD)"
-expect_block "②漏擋面·`.rpc(IDENT, …)` 識別字風格 ⇒ 必須擋(常數定義在未改動的檔)" \
+expect_block "②漏擋面·rpc(IDENT, …) 識別字風格 ⇒ 必須擋(常數定義在未改動的檔)" \
   "$(run_gate "$R33" "refs/heads/dev $T33 refs/heads/dev $B33")" "pcm_a9h_probe"
 
 # ③ 回歸:最普通的字串字面呼叫,改完必須維持擋
@@ -499,7 +529,7 @@ export async function callIt(sb: any) {
 TS
 ( cd "$R34" && git add -A && git commit -qm "feat: 字面呼叫" )
 B34="$(cd "$R34" && git rev-parse HEAD~1)"; T34="$(cd "$R34" && git rev-parse HEAD)"
-expect_block "③回歸·`.rpc('fn', …)` 字面呼叫 ⇒ 維持擋" \
+expect_block "③回歸·rpc(fn, …) 字面呼叫 ⇒ 維持擋" \
   "$(run_gate "$R34" "refs/heads/dev $T34 refs/heads/dev $B34")" "pcm_a9h_probe"
 
 # ⑤ 跨行呼叫:函式名在 `.rpc(` 的【下一行】
@@ -515,7 +545,7 @@ export async function callIt(sb: any) {
 TS
 ( cd "$R35" && git add -A && git commit -qm "feat: 跨行呼叫" )
 B35="$(cd "$R35" && git rev-parse HEAD~1)"; T35="$(cd "$R35" && git rev-parse HEAD)"
-expect_block "⑤跨行呼叫·函式名在 `.rpc(` 的下一行 ⇒ 維持擋" \
+expect_block "⑤跨行呼叫·函式名在 rpc( 的下一行 ⇒ 維持擋" \
   "$(run_gate "$R35" "refs/heads/dev $T35 refs/heads/dev $B35")" "pcm_a9h_probe"
 
 # 🔴🔴 ④ 不可省的負對照:餵一個【不在 FN_LIST 裡】的函式名,上面三種形狀都必須放行。
