@@ -27005,6 +27005,39 @@ admin_cancel_order                 TRUE          false          {postgres, servi
                 `EXISTS(attempt status<>'failed')` ⇒ RAISE(拋出例外,擋住取消)
 ```
 
+## 🔴🔴 給 Sean 的一題(2026-08-21,窗 C2;主視窗裁:**寫決策題,不寫 plan**)
+
+> **為什麼是決策題不是 plan**:「要不要跟 `#387` 併成一片」不是工程判斷,是**排程與風險胃納**。
+> 🔴 **刻意不給第三個選項「只做 `#808`」** —— 實測那是**同一段 code**,分開做等於改兩次同一個地方。
+
+```
+Q 有 5 張單被系統標成「要人工處理」,而打開後台那 5 張單,畫面上印的是「尚未查詢」——
+  一個字都沒提到它被標了。其中兩張就是你今天貼給我的 2SQH2P 和 GVRDMH。
+  要讓後台看得到這件事,要動的地方,跟另一個已知問題(員工分不出「還在刷」還是
+  「系統已經放棄了」)是同一段程式。要現在一起做嗎?
+
+A: 甲 = 一起做
+     你會拿到:打開那張單就看得到「系統已經放棄自動重試、在等人處理」,
+              而不是像現在只看到「還在進行中」、然後被叫去重新整理。
+     你要付的:動到讀訂單資料的共用程式 ⇒ 會影響所有訂單頁面。
+              要另外提一次施工計畫給你批,而且要排一次比較完整的驗證。
+
+   乙 = 都先不做,只把它記成已知缺口
+     你會拿到:今天不用動任何東西,零風險。
+     你要付的:那 5 張單(以及以後每一張)在後台看起來都跟正常的單一樣,
+              而畫面會繼續叫人「重新整理看看最新狀態」—— 而重整永遠不會有變化。
+```
+
+**這一題的實測(唯讀,2026-08-21)**:
+```
+needs_manual_review = true 的全部 5 列,capture_state 一律 'unknown'、從沒讀過
+⇒ 後台若把現有的顯示層接上去,那 5 張印的是「尚未查詢」(逐列數據見下方更正框)
+⇒ 而「這張單被標成要人工處理」這件事,**後台 app code 對它零命中**
+```
+📌 **這題的重量在最後半句**:`2SQH2P` 與 `GVRDMH` **是 Sean 自己拿出來問的那兩張。**
+
+---
+
 🔴🔴 **2026-08-21 更新(窗 C2):本條【兩問都壞】,而原文只寫了第二問**
 
 `-04` 給的兩問(兩個實例缺的不是同一樣東西,所以要分開量):
@@ -27018,7 +27051,45 @@ admin_cancel_order                 TRUE          false          {postgres, servi
 grep -rn 'needs_manual_review\|needsManualReview' apps/admin/src --include='*.ts' --include='*.tsx'
     | grep -v '\.test\.'                                    ⇒ **零命中**
 ```
-🔴 而後台**寫好了**要顯示它的東西,只是**沒有任何人 import**:
+> # 🔴🔴 **更正(2026-08-21 稍晚,同一個窗 C2 自己抓到)—— 下面那句「寫好了要顯示它」是【錯的】**
+>
+> **`capture-state-view.ts` 與 `needs_manual_review` 沒有關係。** 量法:
+> ```
+> grep -c 'needs_manual_review\|needsManualReview' \
+>   apps/admin/src/lib/orders/capture-state-view.ts apps/admin/src/lib/orders/capture-state-repository.ts
+> ⇒ 兩支皆 **0**
+> CaptureInput 的欄位(:56-68)= captureState / readAt / status / hasBankTxn ⇒ **沒有 needs_manual_review**
+> ```
+> 🔴 **我是被一個字面騙的**:`CAPTURE_NEEDS_MANUAL_TEXT` 這個名字裡有「需人工」,
+> 而它實際的觸發條件是 `capture-state-view.ts:137` 逐字
+> `captureState === 'captured' && (status === 'released' || status === 'failed')` —— **那是 `#781` ②,不是本條。**
+> ⇒ ⇒ **這正是 `docs/patterns/guard-and-instrument-traps.md` 那條
+>   「守門與它宣稱守的字面之間,關聯是【假設】不是【機制】」的同款** ——
+>   我 grep 到一個字面、它讀起來正好是我在找的東西,**於是我沒有開檔看它的觸發條件**。
+>   而那條 traps 是我三小時前自己寫的。**知道規則 ≠ 在對的一刻套用它。**
+>
+> ✅ **仍然成立的兩件(不受本更正影響)**:
+> ```
+> ① needs_manual_review 在 apps/admin 的 app code ⇒ 零命中 ⇒ **第一問「誰看得到」仍然答:沒有人**
+> ② capture-state-view.ts(156)+ capture-state-repository.ts(161)= 317 行,零消費者
+>    ⇒ 那是**另一個**「寫好沒接線」的實例,與本條**同族但不同件**。
+> ```
+> 🔴 **而更正之後多出一個【更硬的】結論:把 capture-state 接上畫面,也解不了本條。**
+> ```
+> 正式庫實測(2026-08-21,唯讀;needs_manual_review = true 的全部 5 列):
+>   單號            attempt   已舉手  hasBankTxn  capture_state  讀過capture
+>   PCM-2026-0102   charged   true    true        unknown        false
+>   2SQH2P          pending   true    true        unknown        false
+>   RCPVVJ          charged   true    true        unknown        false
+>   5HGMC5          charged   true    true        unknown        false
+>   GVRDMH          pending   true    true        unknown        false
+> ⇒ 走 deriveCaptureDisplay 的分支 ③(`capture_state === 'unknown'`)
+>   ⇒ 畫面會印 **「尚未查詢」**,而不是任何與「這張單被標成要人工處理」有關的字。
+> ⇒ ⇒ **第一問要靠【把 needs_manual_review 本身接到 domain type 與畫面】才解得掉**,
+>   而那與 `#387` A 案(gate 拆四態)**是同一段 code**(`packages/adapters` 的 mapper)。
+> ```
+
+~~🔴 而後台**寫好了**要顯示它的東西,只是**沒有任何人 import**:~~
 ```
 apps/admin/src/lib/orders/capture-state-view.ts:116 逐字:
   export const CAPTURE_NEEDS_MANUAL_TEXT = '需人工結案:錢已請款、而這次嘗試已被放行重刷';
