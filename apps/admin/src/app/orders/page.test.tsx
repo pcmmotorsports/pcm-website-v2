@@ -195,6 +195,50 @@ describe('OrdersPage — #347-B 刷卡未付款被藏起來的提示', () => {
     expect(container.textContent ?? '').not.toContain('找不到單');
   });
 
+  /**
+   * 🔴 `#841` 乙-2(2026-08-22,線 A `-86`):**瀏覽 + 0 筆時,畫面上要有一句解釋。**
+   *
+   * **與上面「負向③」的關係(讀之前先看這段,否則會以為兩者打架)**:
+   * 負向③ 釘的是「瀏覽 + 0 筆 ⇒ **不得出現【找不到單】那句**」——**那條一個字都沒動,而且仍然綠**。
+   * 本族講的是**另一句話**(`BROWSE_EMPTY_HINT`),它刻意不含那四個字。
+   * 🔴 誰日後要改那句文案,**先確認沒有把「找不到單」帶進來** —— 帶進來會讓負向③ 紅,
+   *    而**那不是它壞了,是你撞到它**。
+   *
+   * 🔴 三格,而第三格是這一族存在的理由:
+   *   ① 瀏覽 + 0 筆        ⇒ 要講
+   *   ② 瀏覽 + 有結果      ⇒ 不講（否則變成常駐噪音,那正是原作者當初排除瀏覽態的理由）
+   *   ③ 那句話裡【必須】有「其他篩選條件」那一段
+   *      —— 因為 0 筆的真正原因可能是別的篩選軸, 而我們證明不了是隱藏造成的。
+   *      少了它, 這句話會讓員工以為「勾了就一定找得到」。
+   */
+  function browseHint(container: HTMLElement): string | null {
+    const t = container.textContent ?? '';
+    return t.includes('有些訂單預設不會列出來') ? t : null;
+  }
+
+  it('🔴 乙-2 ①:沒有在搜尋 + 0 筆 ⇒ 要講(0 筆時它不是噪音,是畫面上唯一的解釋)', async () => {
+    const { container } = await renderPage({});
+    expect(browseHint(container), '瀏覽而 0 筆時必須有一句解釋').not.toBeNull();
+  });
+
+  it('🔴 乙-2 ②:沒有在搜尋 + 有結果 ⇒ 不講', async () => {
+    mocks.list.mockResolvedValue(ONE_ORDER);
+    const { container } = await renderPage({});
+    expect(browseHint(container)).toBeNull();
+    // 正對照:這一發真的渲染了列表 ⇒ 上面那個 null 不是「整頁沒出來」造成的。
+    expect(container.textContent ?? '').toContain('共');
+  });
+
+  it('🔴 乙-2 ③:那句話必須帶「其他篩選條件」—— 少了它會讓人以為勾了就一定找得到', async () => {
+    const { container } = await renderPage({});
+    expect(container.textContent ?? '').toContain('其他篩選條件');
+  });
+
+  it('🔴 乙-2 ④:勾已經打開 ⇒ 不講(沒有東西被藏,講了是說謊)', async () => {
+    const { container } = await renderPage({ show_unpaid_card: '1' });
+    expect(browseHint(container)).toBeNull();
+  });
+
   it('🔴 讀取失敗時不提示 —— 0 筆的原因是壞掉,不是被藏起來', async () => {
     cookieState.keyword = '王小明';
     mocks.list.mockRejectedValue(new Error('boom'));

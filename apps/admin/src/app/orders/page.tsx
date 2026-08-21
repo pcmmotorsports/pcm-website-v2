@@ -57,6 +57,31 @@ export const maxDuration = 60;
 const UNPAID_CARD_HIDDEN_HINT =
   '找不到單?列表預設不顯示「刷卡未付款」的訂單。勾選下方的「顯示刷卡未付款(預設隱藏)」再查一次。';
 
+/**
+ * 🔴 `#841` 乙-2(2026-08-22,線 A `-86`;主視窗裁 Q=乙-2)。
+ *
+ * **為什麼要有第二句,而不是把上面那句放寬**:
+ * 上面那句的三個條件裡有一個是 `keyword`,逐字理由是「瀏覽列表時它是噪音」。
+ * 🔴 **而那個理由只在【有結果】時成立 —— 0 筆的時候它不是噪音,它是畫面上唯一的解釋。**
+ * 當天的病:員工照唯一一條人工出路走完(客人刷卡失敗 → 改匯款 → 他登錄收款),
+ * 那張單仍然符合隱藏規則(`#841`)⇒ 他之後用任何篩選都可能撈到 0 筆,而沒有一個字告訴他為什麼。
+ *
+ * 🔴🔴 **而它【不可以】說「因為被隱藏了」** —— 那是一句我們證明不了的話:
+ * 0 筆的真正原因可能是別的篩選軸(本檔下面那段「已知的不精確 ①」就是這件事)。
+ * ⇒ 所以第三句**必須在**:「勾了還是沒有 ⇒ 那就是其他篩選條件」。
+ *    **它擋住的是「以為勾了就一定找得到」,而那正是這句話最容易造成的誤解。**
+ *
+ * ⚠️ **刻意不重複「沒有符合的訂單」** —— `orders-table.tsx` 已經印了「目前沒有符合條件的訂單。」
+ *    同一個畫面講兩次會讓人以為是兩件事。
+ * 🔴 **這句話裡刻意【沒有】「找不到單」四個字** —— 那是上面那句的字面,而
+ *    `page.test.tsx` 的「負向③」釘著「瀏覽 + 0 筆 ⇒ 不得出現【找不到單】」。
+ *    **那條守門一個字都沒動,而它釘的東西仍然成立。**
+ *    ⇒ 誰日後要改這句話,**先確認沒有把那四個字帶進來** —— 帶進來會讓負向③ 紅,
+ *      而**那不是它壞了,是你撞到它**。
+ */
+const BROWSE_EMPTY_HINT =
+  '有些訂單預設不會列出來 —— 刷卡未付款的那些。要看它們,請勾下方的「顯示刷卡未付款(預設隱藏)」。若勾了還是沒有,那就是其他篩選條件把它濾掉了。';
+
 type SearchParams = Record<string, string | string[] | undefined>;
 
 export default async function OrdersPage({
@@ -158,6 +183,14 @@ export default async function OrdersPage({
     !loadFailed && filter.keyword && !filter.includeUnpaidCardOrders && orders.length === 0
       ? UNPAID_CARD_HIDDEN_HINT
       : null;
+  /**
+   * 乙-2:**沒有在搜尋**、而清單是空的 ⇒ 講另一句(理由與限定見 `BROWSE_EMPTY_HINT` 的 docstring)。
+   * 🔴 與上面那句**互斥**(一個要 `keyword`、一個要 `!keyword`)⇒ 兩條琥珀框不會同時出現。
+   */
+  const browseEmptyNotice: string | null =
+    !loadFailed && !filter.keyword && !filter.includeUnpaidCardOrders && orders.length === 0
+      ? BROWSE_EMPTY_HINT
+      : null;
   // #338:命中的供應商 → 三態提示(語意在 lib,本檔只排版)。
   const supplierMatch = describeSupplierMatch(
     result?.supplierOrderNoMatchedSuppliers ?? null,
@@ -210,6 +243,11 @@ export default async function OrdersPage({
       {searchNotice && (
         <div className='rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
           {searchNotice}
+        </div>
+      )}
+      {browseEmptyNotice && (
+        <div className='rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900'>
+          {browseEmptyNotice}
         </div>
       )}
       {/* 🔴 #338(2026-08-11 修):本搜尋原本**只有一句常駐警語**「請先點進訂單核對供應商」——
