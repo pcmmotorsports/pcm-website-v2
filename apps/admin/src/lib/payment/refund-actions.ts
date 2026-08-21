@@ -17,6 +17,8 @@ import {
 } from '../orders/order-return-to';
 import { revalidateOrderViews } from '../orders/order-revalidate';
 import { isRefundUiEnabled } from './refund-ui-flag';
+import { describeUnknownValue } from './refund-error-class';
+import { recordRefundUnknownStateAudit } from './refund-unknown-state-audit';
 import {
   EMPTY_REFUND_INPUT,
   REFUND_AMOUNT_FIELD,
@@ -376,7 +378,19 @@ export async function initiateRefundAction(
       }
       // 🔴 unknown-state:**不 finalize**、列留 processing、不自動重發(§2 丙鐵律)。
       logError('refund unknown-state', error, { bank_refund_id: initiated.bankRefundId });
-      return refundFailure('unknown_state', input, parsed.requestToken);
+      // 🔴 帳本那一列不動(刻意),但在稽核表旁邊留一筆 —— 否則原因只活在這一次 console。
+      const auditOutcome = await recordRefundUnknownStateAudit({
+        site: 'adapter_threw',
+        orderId: parsed.orderId,
+        refundId: initiated.refundId,
+        bankRefundId: initiated.bankRefundId,
+        error,
+        actor: authorization.actorId,
+        requestId: parsed.requestToken,
+      });
+      return refundFailure('unknown_state', input, parsed.requestToken, {
+        auditUnconfirmed: auditOutcome !== 'written',
+      });
     }
 
     if (refundResult.status === 'accepted') {
@@ -399,7 +413,20 @@ export async function initiateRefundAction(
           bank_refund_id: initiated.bankRefundId,
           tappay_refund_id: refundResult.refundId,
         });
-        return refundFailure('unknown_state', input, parsed.requestToken);
+        // 🔴 這一格最貴:TapPay 已受理 ⇒ 錢很可能動了,而帳本沒結成。稽核必須帶對帳碼。
+        const auditOutcome = await recordRefundUnknownStateAudit({
+          site: 'finalize_threw_after_accepted',
+          orderId: parsed.orderId,
+          refundId: initiated.refundId,
+          bankRefundId: initiated.bankRefundId,
+          tappayRefundId: refundResult.refundId,
+          error,
+          actor: authorization.actorId,
+          requestId: parsed.requestToken,
+        });
+        return refundFailure('unknown_state', input, parsed.requestToken, {
+          auditUnconfirmed: auditOutcome !== 'written',
+        });
       }
       if (outcome.result === 'FINALIZED') {
         succeeded = true;
@@ -454,11 +481,27 @@ export async function initiateRefundAction(
       //    畸形值(domain JSDoc 明寫未實證碼日後可能補結果態)。誤標成 rejected 會 finalize
       //    →failed、釋放 S5 額度、換新 token —— 若錢其實已動 = 打開雙退窗。
       //    「不明就是不動」:不 finalize、列留 processing 走 RW4。
+      // 🔴 **不要 `String(...)` 這個值**(codex R1 F2):它會執行外部物件的 toString /
+      //    Symbol.toPrimitive ⇒ **可以 throw**,而這裡一 throw,稽核沒寫、`refundFailure`
+      //    也沒回,整條失敗路徑就斷在這一行。改成整個值往下傳,由 `describeUnknownValue`
+      //    只用 `typeof` 取封閉形狀。
+      const resolvedStatusValue: unknown = (refundResult as { status?: unknown }).status;
       logError('refund 回傳非三態(合約漂移)', null, {
-        resolved_status: String((refundResult as { status?: unknown }).status),
+        resolved_status_shape: describeUnknownValue(resolvedStatusValue),
         bank_refund_id: initiated.bankRefundId,
       });
-      return refundFailure('unknown_state', input, parsed.requestToken);
+      const auditOutcome = await recordRefundUnknownStateAudit({
+        site: 'resolved_status_unrecognized',
+        orderId: parsed.orderId,
+        refundId: initiated.refundId,
+        bankRefundId: initiated.bankRefundId,
+        resolvedStatusValue,
+        actor: authorization.actorId,
+        requestId: parsed.requestToken,
+      });
+      return refundFailure('unknown_state', input, parsed.requestToken, {
+        auditUnconfirmed: auditOutcome !== 'written',
+      });
     }
   }
 

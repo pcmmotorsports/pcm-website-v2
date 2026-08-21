@@ -198,15 +198,36 @@ export type RefundActionState =
  * 組失敗 state。token 去向在**這裡集中決定**,呼叫端不必(也不准)自己判斷 ——
  * 分散判斷正是「某條路忘了換鍵/忘了保留」這類洞的來源。
  */
+/**
+ * 🔴 稽核連寫都沒寫成時,接在訊息後面的那一句(主視窗 2026-08-21 條件④)。
+ *
+ * 為什麼要有它:unknown-state 的稽核是 best-effort。**寫失敗如果只進 console,
+ * 就複製了這條線本來的病** —— 我們做一個東西來解決「留不下痕跡」,而它自己也可能留不下痕跡,
+ * 而畫面上看起來一切正常。這一句把那個失敗**從無聲變成有聲**。
+ *
+ * ⚠️ 純文字,**不准用 Markdown** —— `refund-section.tsx` 是 `<p role='alert'>{state.message}</p>`,
+ *    沒有任何 renderer(同檔 `exceeds_unknown` 上方那條註解已經記過一次)。
+ */
+/**
+ * 🔴 **原本這句寫「連內部紀錄都沒有寫成,系統事後查不到它」——那是一句可能為假的話。**
+ * (codex R2 F2)逾時只代表我們不等了,那個寫入**可能第 3.1 秒才成功**;
+ * 連 reject 都不保證沒寫進去(insert 已 commit、回應才斷線)。
+ * ⇒ 只能說「**無法確認**」。字面必須等於事實 —— 而它會被員工照著做事。
+ */
+export const REFUND_AUDIT_UNCONFIRMED_SUFFIX =
+  '另外:這筆的內部紀錄有沒有寫成,系統無法確認。請立刻截圖這個畫面,並通知系統維護。';
+
 export function refundFailure(
   code: RefundFailureCode,
   input: RefundFormInput,
   submittedToken: string,
+  options?: { readonly auditUnconfirmed?: boolean },
 ): RefundActionState {
+  const base = FAILURE_MESSAGES[code];
   return {
     status: 'failed',
     code,
-    message: FAILURE_MESSAGES[code],
+    message: options?.auditUnconfirmed ? `${base}${REFUND_AUDIT_UNCONFIRMED_SUFFIX}` : base,
     input,
     requestToken: FRESH_TOKEN_CODES.has(code) ? generateRefundRequestToken() : submittedToken,
   };
