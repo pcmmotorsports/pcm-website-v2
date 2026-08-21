@@ -325,12 +325,12 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     brandSlug: 'dna',
     handlePrefix: 'dna',
     syncDescription: true, // 780/780 繁中描述已備(summary_zh/description_zh)
-    syncInstallResources: false, // ⚠️ 未查來源 pdf_urls/video_urls 是否有值,保守先關、確認後再開
+    syncInstallResources: false, // ✅ 2026-08-21 已查實(非保守猜):pdf_docs/pdf_urls/video_urls/sound_clips 四欄 787 筆全 0,現在沒有附件可同步,false 是對的
     appendManualFilename: false, // 同類多份用編號(新供應商預設值,DNA 無附件時本旗標無作用)
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 無變體軸的單變體家用此值天然安全(見型別註解)
-    // 🔴 過夜零寫入;dry-run 全綠 + Sean 批首灌後才開(照 runbook 慣例,不要在這片順手翻 true)
-    writeAllowed: false,
+    // ✅ 2026-08-21 Sean 逐字「套」+「那DNA尚未完成地方要緊接著處理好」批首灌;dry-run 全綠(787群已對上0未對上)
+    writeAllowed: true,
   },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
