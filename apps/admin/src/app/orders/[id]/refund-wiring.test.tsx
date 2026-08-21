@@ -221,6 +221,46 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
     expect(hasRefundEntry(container)).toBe(false);
   });
 
+  /**
+   * 🔴 旗標關著時那一句「這個環境沒有開放…」(2026-08-22 線 A `-86`)。
+   *
+   * **病**:旗標關著時整個「退款」區塊會渲染成**一個只有標題、底下一片空白的盒子**,
+   * 而**同一張畫面上的取消區正在叫員工來這裡**(逐字「請到本頁最下方的「退款」裡處理」)
+   * ⇒ 他照做,到了什麼都沒有,而沒有任何東西告訴他為什麼。
+   * 📌 與 `order-detail.tsx:528-534` 那段治「對帳異常」的病同一個判準:
+   *    **fail-closed 不可以是沉默的。**
+   *
+   * 🔴 **錨用 `role="status"` + 專屬字串,不用 `container.textContent`** ——
+   *    理由與本檔 `ledgerSection()` 檔頭同一條:整頁 textContent 吃得到第三方餵的字。
+   *    找不到就回 `null`,由呼叫端決定要斷言在或不在(兩個世界都要驗)。
+   */
+  function flagOffNotice(container: HTMLElement): Element | null {
+    return (
+      Array.from(container.querySelectorAll('[role="status"]')).find((el) =>
+        (el.textContent ?? '').includes('這個環境沒有開放'),
+      ) ?? null
+    );
+  }
+
+  it('🔴 旗標未設 → 那一區【不是空白】,要印出「這個環境沒有開放」並講下一步找誰', async () => {
+    delete process.env.REFUND_UI_ENABLED;
+    const { container } = await renderPage();
+    const notice = flagOffNotice(container);
+    expect(notice, '旗標關著時必須有那一句,否則員工看到的是一個空盒子').not.toBeNull();
+    // 🔴 兩件都要:不可以只說「沒開放」而不說去找誰 —— 那還是一個死路,只是有字。
+    expect(notice?.textContent).toContain('系統維護');
+    // 🔴 刻意不可以寫成「你不能退款」—— 那不是真的(換一個有開旗標的環境就能退)。
+    expect(notice?.textContent).not.toContain('你不能退款');
+  });
+
+  it('🔴 旗標=1 → 那一句【不出現】(它只該在關著時講話,否則變成永遠掛著的雜訊)', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    const { container } = await renderPage();
+    expect(flagOffNotice(container), '旗標開著時不該再講「沒有開放」').toBeNull();
+    // 正對照:同一發裡入口真的渲染了 ⇒ 上面那個 null 不是「整頁沒渲染」造成的。
+    expect(hasRefundEntry(container)).toBe(true);
+  });
+
   it('🔴 旗標非恰 \'1\'(true/1 加空白/0)→ 入口不渲染(恰 \'1\' 才開,不寬收)', async () => {
     for (const value of ['true', '1 ', '0', 'yes']) {
       process.env.REFUND_UI_ENABLED = value;
