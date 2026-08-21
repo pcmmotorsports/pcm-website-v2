@@ -9,7 +9,13 @@
 > 匯入寫顧客站在**網站庫 `bmpnplmnldofgaohnaok` + pcm-website-v2 repo**。一次任務要講清楚誰跑最後匯入那步。
 > 報價單側 19 個註冊點另見報價單 `docs/NEW_SUPPLIER_ONBOARDING.md`;本份專講「灌上顧客站」。
 >
-> **維護**:每次上架新供應商、或發現新坑,回頭更新這份 + 底部「本批實例」。最近實查:2026-07-24。
+> 🔴 **本份不管品牌內容**:`/brands/[slug]` 品牌介紹頁本體(band/facts/about/highlights/craft 等)
+> 是另一條線,見 `~/.claude/skills/pcm-brand-page/SKILL.md`。**兩份文件加起來也不保證涵蓋全部**——
+> 商品頁「品牌形象區」(N°01/N°02,§6-b)2026-08-21 之前就同時掉在兩份文件的縫裡,兩邊都以為
+> 是對方在管。新增品牌時,兩份都讀完仍建議對照一個做完整的品牌(如 AKRAPOVIČ)實際跑一次商品頁,
+> 反查每一塊畫面是誰產出的,不要只信任文件把範圍講清楚(見 `~/pcm-mailbox/D-88-跨兩份文件總表-20260821.md`)。
+>
+> **維護**:每次上架新供應商、或發現新坑,回頭更新這份 + 底部「本批實例」。最近實查:2026-08-21。
 
 ---
 
@@ -17,10 +23,17 @@
 
 ```
 源頭資料就緒(§1 preflight 全綠)→ 網站 supplier-config 登記(§2)→ 乾跑五關全綠(§3)
-→ Sean 批 → writeAllowed=true + 監控式首灌(§4)→ 寫後驗證(§5)→ 部署 main(§6)
+→ Sean 批 → writeAllowed=true + 監控式首灌(§4)→ 寫後驗證(§5)
+→ 商品頁品牌形象區(§6-b,🔴 這步不是填欄位,是新建一支檔案)→ 部署 main(§6)
 ```
 
 **任一 preflight 沒過就別登記別乾跑** —— 乾跑會在該關 abort,白跑。先把源頭修好。
+
+🔴 **這份清單的每一步都是「填某個欄位 / 跑某支腳本」的形狀 —— 唯一的例外是 §6-b。**
+一個需要「新建一支檔案」的步驟,放進一份「填格子」的清單裡是隱形的:2026-08-21 DNA 空濾
+首灌 787 件商品、以上每一步都做完了,商品頁卻缺「為什麼選 DNA」整段,因為 §6-b 當時根本
+不存在於這份清單裡(見該節開頭的因果說明)。**下次盤點這份 runbook 還有沒有別的隱形缺格,
+先問:哪一步的產出是「一支新檔案」,不是「一個填好的欄位」?那種步驟最容易被漏。**
 
 ---
 
@@ -104,6 +117,71 @@ WHERE b.slug='<brandSlug>' GROUP BY b.slug;
 ```
 
 期望:products/variants = 指紋、**uncategorized = 0**。
+
+---
+
+## 6-b. 🔴 商品頁品牌形象區(這步不是填欄位,是新建一支檔案 —— 最容易被漏的一步)
+
+**為什麼會漏(2026-08-21 DNA 空濾首灌後 Sean 親自發現、I 窗盤點因果)**:
+
+```
+apps/storefront/src/components/BrandShowcase.tsx 是商品頁「品牌形象區」dispatcher,
+掛在規格分頁(Tabs)之下、相關商品之上。switch (product.brandSlug) 依品牌分派到
+各家專屬的 <Brand>Showcase.tsx 元件;沒有對應 case 的品牌 → default: return null
+→ 那整段(N°01「為什麼選 XX」+ N°02)完全不渲染,不是空白區塊、是整段不存在。
+
+🔴 這塊【不是資料驅動的】:每家是一支獨立 .tsx 檔,文案寫死在元件裡,
+   不吃 props、不讀 brand-content.ts(那是 /brands/[slug] 品牌介紹頁用的,完全是另一套系統)。
+⇒ 它不是「一個要填的欄位」,是「一支要新建的檔案」,而本 runbook 之前每一步都是
+  「填格子 / 跑腳本」的形狀 —— 一個需要新建檔案的步驟,在這種清單裡是隱形的。
+```
+
+**要填的欄位清單(給下一個上架的人,依 `EbcShowcase.tsx` 骨架的精簡版模板)**:
+
+```
+檔案:新建 apps/storefront/src/components/<Brand>Showcase.tsx,
+     並在 BrandShowcase.tsx 的 switch 裡加一個 case(15 支既有元件可抄骨架)。
+資料契約:純 presentational,不吃任何 props、不讀 brand-content.ts。
+
+N°01 區塊(固定,15/15 現有品牌無例外,`grep -c 'pd-feature-card"' <檔>` 全部恰為 3):
+  · eyebrow:編號 "01" + 品牌 logo 圖(需要 /brands/<slug>/logo.png|svg,深色場版本)
+  · h2 標題:固定句式「為什麼選 <品牌名>」
+  · lead:一句話,35–50 字
+  · 三張卡(固定 3 張,不可多不可少):每張 title(10–15 字)+ desc(40–70 字)
+
+N°02 區塊(精簡版最低配置,依品牌規模可加重,見既有 15 支分「重量版/精簡版」兩級):
+  · eyebrow:編號 "02" + 短標籤(4 字內)
+  · h2 自訂標題:15–20 字 / lead:一句話,35–50 字
+  · 信任狀 4 格:各 n(短碼)/ l(4–6 字)/ s(8–12 字)
+  · 1–2 段故事交錯:各配一張 16:9 圖 + step 標籤(英文·中文)+ h3(~8 字)+ p(40–70 字)
+  · 可選:品牌影片 facade(YouTube ID,無則不做)
+  · 產品線橫捲:2–4 卡,各配圖 + en 標題 + zh 標題 + desc(20–40 字)
+
+圖片需求(最低配置):logo 1 + 故事段 1–2 張(16:9)+ 產品線卡 2–4 張 = 至少 4–7 張新圖。
+🔴 不能沿用 /brands/[slug] 品牌介紹頁用的圖 —— 那些多半不是 16:9,直接裁會裁壞版面,
+   要實際跑一次裁切預覽比對,不要用算的判斷夠不夠用。
+```
+
+**機制(不只是文字提醒;測試 `apps/storefront/src/components/brand-showcase-coverage.test.ts`,2026-08-21 D 窗建)**:
+
+```
+斷言:SUPPLIER_CONFIGS 裡每一家 writeAllowed=true(= 已開放寫入 prod、商品頁客人點得到)
+     的 brandSlug,BrandShowcase.tsx 都要有對應的 case。缺一家就紅,訊息附品牌名 + 修法。
+
+🔴 分母刻意不是「brand-content.ts 有這家品牌」——21 家裡有 6 家沒有 case,
+   但其中 5 家(dbk/gilles/kineo/rizoma/wrs)從未在 supplier-config.ts 登記過、
+   網站庫商品數 = 0,沒有商品頁可看,現在就要求它們有 showcase 是「一裝就紅」的假警報。
+   閘綁在 writeAllowed(= 上架流程自己已有的開關)上,紅格數與「客人看得到的缺口」一一對應。
+
+⇒ 這道閘同時解決兩件事:①下次任何一家 writeAllowed 翻 true 而沒補 showcase,
+  三綠會直接紅、不必等 Sean 自己點開商品頁才發現;②它把「有沒有商品頁品牌形象區」
+  這件事跟「有沒有開放寫入」綁在同一個訊號上,不再是兩條互相看不見對方的線。
+```
+
+⚠️ **當這份 runbook 寫下這句話時,這道閘本身還是紅的**:DNA 已 `writeAllowed: true`
+但還沒有 `DnaShowcase.tsx`,測試會正確地報 `missing: ['dna']`。**這是預期行為,不是閘壞了**——
+補上 DNA 的 showcase 元件(內容需要 Sean 拍板 eyebrow 短標題、產品線圖等,見
+`~/pcm-mailbox/I-b9-DNA商品頁品牌形象區-盤點-20260821.md`)之後,這道閘會自己轉綠。
 
 ---
 
