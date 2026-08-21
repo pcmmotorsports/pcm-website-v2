@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
 
@@ -28,8 +29,43 @@ const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
  * 🔴 **絕不把讀取失敗渲染成數字** —— 一個安靜的 `NT$ 0` 看起來就像「今天還沒收到錢」,
  *    而員工正拿它對帳。寧可讓他看到「這格壞了」。
  */
-function Stat({ label, value, hint }: { label: string; value: string | null; hint?: string }) {
-  return (
+/**
+ * 🔴 **`#831` ①(2026-08-21):只有這一格可以點,而「只有這一格」是量出來的、不是保守。**
+ *
+ * 三格裡**只有「目前待處理退款異常」**兩側是**同一支函式**:
+ * ```
+ * 卡片  lib/dashboard/today-read.ts:3            import { listRefundExceptions } from '../payment/refund-read'
+ * 頁面  app/orders/refund-exceptions/page.tsx:8  import { listRefundExceptions } from '…/lib/payment/refund-read'
+ * ⇒ 述詞只有一份 ⇒ **結構上不可能漂移**。不是「今天剛好一致」，是「沒有第二份可以不一致」。
+ * ```
+ * 另外兩格**各自有兩份述詞**,而實測都對不上 ⇒ **不給 `href`**:
+ * ```
+ * ② 今日新單    卡片 today-read.ts:239-241 零付款面 filter
+ *              清單 SupabaseOrderAdapter.ts:834-836 預設多一條
+ *                   `or('payment_channel.neq.tappay,payment_status.neq.unpaid')`
+ *              ⇒ 2026-08-21 實測 **7 vs 6**（拋棄式鑽機）⇒ 點過去數字對不上 ⇒ 等 Sean 拍板
+ * ③ 今日實收    卡片走 order_payments.received_at（DB 實查 `admin_today_payment_total`）
+ *              清單走 orders.created_at ⇒ **兩條不相干的時間軸** ⇒ 沒有誠實的目的地
+ * ```
+ * 🔴 **判準句(給下一個想把另外兩格也變成連結的人)**:
+ * **問「兩側是同一支函式,還是兩份各自寫的述詞?」** 同一支 ⇒ 可以連;
+ * 兩份 ⇒ **一定要實跑比對筆數,不論它們讀起來多像**。
+ * ⚠️ 而本卡自己的註解已經寫著判準:**「一個可能不準的對帳數字比沒有更糟」**
+ *    —— **一個連到「差不多相關」清單的連結,是同一個病換一個載體。**
+ */
+function Stat({
+  label,
+  value,
+  hint,
+  href,
+}: {
+  label: string;
+  value: string | null;
+  hint?: string;
+  /** 有值才可點。**沒有 `href` 的格子維持原樣**(不是 disabled 的連結,是根本不是連結)。 */
+  href?: string;
+}) {
+  const card = (
     <div className={CARD}>
       <p className='text-muted-foreground text-xs'>{label}</p>
       {value === null ? (
@@ -39,6 +75,18 @@ function Stat({ label, value, hint }: { label: string; value: string | null; hin
       )}
       {hint !== undefined && <p className='text-muted-foreground mt-1 text-xs'>{hint}</p>}
     </div>
+  );
+  if (href === undefined) return card;
+  return (
+    <Link
+      href={href}
+      // 🔴 整張卡可點（不是只有數字）：點擊目標大、而員工的手勢是「戳那一格」不是「戳那個數字」。
+      // 🔴 `aria-label` 明講會去哪裡 —— 螢幕閱讀器唸出來的連結名若只有數字，聽起來像一串數目。
+      aria-label={`${label} ${value ?? '讀取失敗'},點這裡看清單`}
+      className='hover:border-foreground/30 focus-visible:ring-ring block rounded-lg focus-visible:ring-2 focus-visible:outline-none'
+    >
+      {card}
+    </Link>
   );
 }
 
@@ -99,6 +147,7 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
               : `${summary.refundExceptionCount}${summary.refundExceptionTruncated ? '+' : ''} 筆`
           }
           hint={summary.refundExceptionTruncated ? '已達顯示上限,實際可能更多' : '累計未結案,非今日新增'}
+          href='/orders/refund-exceptions'
         />
       </div>
     </section>

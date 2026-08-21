@@ -136,3 +136,45 @@ describe('TodaySummaryCards', () => {
     expect(container.textContent).not.toContain('undefined');
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔴 `#831` ① —— **只有「目前待處理退款異常」可以點,而「只有」是本區的重點。**
+//
+// 為什麼另外兩格不給連結（2026-08-21 實測，不是保守）:
+//   ② 今日新單 —— 卡片零付款面 filter、清單預設多一條
+//      `or('payment_channel.neq.tappay,payment_status.neq.unpaid')` ⇒ **實測 7 vs 6**
+//   ③ 今日實收 —— 卡片走 `order_payments.received_at`、清單走 `orders.created_at`
+//      ⇒ **兩條不相干的時間軸**，沒有誠實的目的地
+// ⇒ 本卡自己的註解逐字:**「一個可能不準的對帳數字比沒有更糟」**
+//   —— 一個連到「差不多相關」清單的連結，是同一個病換一個載體。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('#831 ① 只有退款異常那格可以點', () => {
+  const link = (name: RegExp) => screen.queryByRole('link', { name });
+
+  it('退款異常那格是連結,而且指到退款異常頁', () => {
+    render(<TodaySummaryCards summary={summary()} />);
+    const a = link(/目前待處理退款異常/);
+    expect(a).not.toBeNull();
+    // 突變:把 `href='/orders/refund-exceptions'` 那行拿掉 ⇒ 這兩行紅。
+    expect(a!.getAttribute('href')).toBe('/orders/refund-exceptions');
+    // 🔴 無障礙名要講得出「去哪裡」——只唸數字的連結，聽起來像一串數目。
+    expect(a!.getAttribute('aria-label')).toContain('點這裡看清單');
+  });
+
+  it('🔴 另外兩格【不得】是連結 —— 它們的數字與目的地對不起來', () => {
+    render(<TodaySummaryCards summary={summary()} />);
+    // 突變:給 `今日新單` 或 `今日實收` 加上 href ⇒ 這兩行紅。
+    expect(link(/今日新單/)).toBeNull();
+    expect(link(/今日實收/)).toBeNull();
+    // 🔴 正向對照:證明 queryByRole('link') 這把尺在這一頁上真的抓得到連結，
+    //    否則上面兩個 null 可能只是「這支尺什麼都抓不到」。
+    expect(link(/目前待處理退款異常/)).not.toBeNull();
+  });
+
+  it('讀取失敗時仍然可以點(那正是他最需要去看清單的時候)', () => {
+    render(<TodaySummaryCards summary={summary({ refundExceptionCount: null })} />);
+    const a = link(/目前待處理退款異常/);
+    expect(a).not.toBeNull();
+    expect(a!.getAttribute('aria-label')).toContain('讀取失敗');
+  });
+});
