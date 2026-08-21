@@ -143,6 +143,53 @@ Sean「就是公司」= 誰承擔責任。
 
 ---
 
+## §0-x 🔴🔴 **今天實際會發生什麼** —— 一封信寄進來,從頭到尾走一遍(2026-08-21 實查)
+
+> 這一節不是「應該怎麼做」,是**今天真的會發生的事**。做不到的那幾步寫「**做不到**」,不寫「待補」。
+
+**情境**:客人寄信到 `sean@pcmmotorsports.com`,說「請刪掉我的資料」。
+
+| # | 這一步 | 誰做 | 用什麼工具 | 今天成不成立 |
+|---|---|---|---|---|
+| 1 | 有人看到那封信 | **Sean** | 他自己的信箱 | ✅ 成立 —— 而**只有他一個人看得到** |
+| 2 | 當天登記(來源、原話逐字、收到日) | — | **無** | 🔴 **做不到** —— 沒有工單系統、沒有登記載體(實查:`contact-form`/`api/contact`/`support-request` 全 0;`ContactForm`/`ticket` 命中 3 支**全是誤命中**) |
+| 3 | 起算期限並寫下到期日 | Sean | 手記 | 🟡 可做,而**沒有東西會提醒他** —— 15 日 / 30 日兩個鐘都只靠他記得 |
+| 4 | 回一句「已收到」 | Sean | 信箱 | ✅ 範本在 §6-A |
+| 5 | 驗證身分 | Sean | 後台查客人資料 | ✅ 可做(§2) |
+| 6 | 查出他有哪些資料、各在哪 | Sean | 🔴 **只能用 Supabase SQL Editor** | 🟡 可做,而**後台沒有這個畫面**(admin 沒有「這位客人的全部個資」那一頁) |
+| 7 | 判斷哪些能刪 | — | — | 🟡 **法律那一半可以**(5 年 / 10 年,§0-a);**資料那一半不行**(哪些欄位算會計憑證要會計師) |
+| 8 | **實際刪除 / 匿名化** | — | **無** | 🔴🔴 **做不到** —— 後台掃 502 支檔:`匿名化`/`delete_customer`/`erase_customer`/`刪除帳號`/`delete_account`/`purge` **全 0**(正對照 `訂單` 198、`refund` 115、負對照 0 ⇒ 尺是活的)。**唯一路徑是 Sean 本人在 SQL Editor 手打 UPDATE** |
+| 9 | 回覆客人結果 | Sean | 信箱 + §6 範本 | ✅ 可做(而 §6-B-2 那五句要小心三個地雷) |
+| 10 | 留下處理紀錄 | — | **無** | 🔴 **做不到** —— 同 #2 |
+
+### 🔴 走完之後看得出來的三件
+
+```
+① **這條流程今天從頭到尾只有一個人**:Sean。
+   實查:`site-config.ts:22-26` 客服電話與信箱都是他;`legal-content.ts:46` 三管道 = LINE/電話/信箱
+   ⇒ **告警的收件人、唯一的操作者、與「客服」,是同一個人。**
+   ⚠️ 所以「窗口先不指定」與「結構上沒有第二方」**是同一件事的兩個說法**,不是兩個問題。
+
+② **兩個「做不到」都不是功能缺口,是【沒有載體】**:
+   · #2/#10 登記與紀錄 ⇒ 沒有工單系統
+   · #8 實際刪除     ⇒ 沒有任何後台動作,只有手打 SQL
+   ⇒ 🔴 而 #8 手打 SQL 對【正式庫】做刪除 = 鐵則 12③(不可逆寫入)⇒ **每一次都要他在場、要對抗審查。**
+
+③ **而 #3 是最會出事的那一步**:期限在跑,而**沒有任何東西會提醒**。
+   ⇒ 漏掉的時候不會有訊號(§0-b 那條的實例)。
+```
+
+### ⚠️ 而 Sean 兩個拍板已經改變了上面幾格,不要讀舊版
+
+```
+· 「到期後多久刪」= 丙,**不主動刪** ⇒ 🔴 **#8 現在【不需要主動發生】**
+  它只在【客人來要求】時才觸發 ⇒ 那讓「沒有刪除工具」的痛感從「每天」降成「每次有人要求」
+  ⚠️ **而痛感降低不等於缺口變小** —— 客人一要求,#8 仍然做不到。
+· 「窗口是誰」= 丙,**先不指定** ⇒ #1/#2 沒有第二個人 ⇒ 上表 #2/#10 的「做不到」不是暫時的
+```
+
+---
+
 ## §1 收件:第 1 天要做的事
 
 **觸發**:客人從**任一**管道說出「刪除我的資料 / 給我一份我的資料 / 停止使用我的資料 / 更正我的資料」。
@@ -219,8 +266,34 @@ Sean「就是公司」= 誰承擔責任。
 | 表 | 欄位 |
 |---|---|
 | `customers` | `name` `email` `phone` `birthday` |
-| `customer_addresses` | `name` `phone` `email` `invoice_tax_id` |
-| `customer_vehicles` | 車輛與暱稱 |
+| `customer_addresses` | `name` `phone` `email` `invoice_carrier` `invoice_tax_id` |
+| `customer_vehicles` | 車輛與暱稱(`name`) |
+| `customer_favorites` | `customer_user_id` ← 🔴 **2026-08-21 補**(原表漏列;「他收藏過什麼」是行為紀錄) |
+| `payment_charge_attempts` | `customer_user_id` ← 🔴 **2026-08-21 補**(原表漏列) |
+| `admin_sso_login_events` | `user_agent` ← 🔴🔴 **2026-08-21 新出現**,見下方紅字 |
+
+> 🔴🔴 **這張表【一寫完就開始過期】,而 2026-08-21 已經證明了一次**
+> ```
+> 本節原本列 3 張。當天實查 public schema 的欄位名(pg_catalog,非 information_schema)
+> ⇒ 撈到 18 張帶疑似個資欄的表/view,其中 **3 張本節沒有**:
+>   customer_favorites / payment_charge_attempts / admin_sso_login_events
+> 🔴 而 `admin_sso_login_events` 是【當天才建立的】(SSO 那條線)
+>   ⇒ **不是有人漏寫,是這份檔沒有辦法跟上 schema。**
+> ```
+> **⇒ 每次要用本節之前,先當場重跑這一發**(而不是相信這張表):
+> ```sql
+> select c.relname, string_agg(a.attname,'、' order by a.attnum)
+>   from pg_catalog.pg_class c
+>   join pg_catalog.pg_namespace n on n.oid=c.relnamespace
+>   join pg_catalog.pg_attribute a on a.attrelid=c.oid
+>  where n.nspname='public' and c.relkind in ('r','v','m')
+>    and a.attnum>0 and not a.attisdropped
+>    and a.attname ~* 'email|phone|address|name|user_id|recipient|ip_|user_agent|carrier|tax_id|birth'
+>  group by c.relname order by c.relname;
+> ```
+> ⚠️ **那一發會撈到誤命中**(`brands.name` / `categories.name` / `sweeper_heartbeat.job_name`
+> / `shipments.carrier_code` / `customer_vehicles.dict_model_name`)⇒ **逐張判,不要全收。**
+> 🔴 而**寧可撈到再判掉,也不要把字集縮窄** —— 窄字集會回一個乾淨的零,而那個零長得像「沒有」。
 
 ### 4-b 🔴 **「刪除」這個字在這裡不成立的三格**
 > 📢 **要對客人講這三格 ⇒ 不要唸本節,唸 §6 的 `B-2`。** 本節是依據,那節才是講給客人聽的字。
