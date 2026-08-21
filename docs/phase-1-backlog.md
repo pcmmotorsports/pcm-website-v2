@@ -1871,6 +1871,12 @@ order by n desc, 1;
   ⇒ **會計師要答的問題,要等我們有開票能力之後才會出現。現在問他也用不上。**
   ⚠️ **仍待 Sean 本人回答**:那 **7 張已付款**的單,有沒有在**系統外**開過發票給客人?
     系統裡零紀錄,而**零紀錄不等於沒開過** ⇒ 這格會改變本條的急迫性。
+- 🔴 **重開本條之前一定會經過的地方,警告已經放在那裡了(不是放在這裡)**:
+  `apps/storefront/src/lib/invoice-visibility.ts` 的 `INVOICE_FIELDS_HIDDEN` 常數正上方。
+  理由:**本條是 park 狀態,綁在它底下的東西會跟著被跳過**;而那顆常數是「開始開發票」的
+  **唯一咽喉** —— 不論從本條、從別的片、或哪一天有人順手做,都一定要改那一行。
+  內容:**換貨(掉換貨物)在發票上要【另開一張新發票】,不是走退回**(統一發票使用辦法 §20 前言),
+  而我們的換貨流程**完全沒碰發票** ⇒ 那顆一改成 `false`,換貨那條路會**沉默地做錯**。
 - **法規面已查(不必重查,而【不是專業意見】):** `~/pcm-mailbox/C-eb-C5-台灣會計法規查證-20260821.md`
   - 退款後**不是作廢發票**,是開「**銷貨退回/進貨退出或折讓證明單**」,電子方式開立+傳輸至平台存證
     (統一發票使用辦法 §20-1;三檔=存根/收執/存證)
@@ -26885,6 +26891,59 @@ admin_cancel_order                 TRUE          false          {postgres, servi
 - **相關:** `docs/specs/2026-08-19-m4b-e8b-b4-sso-codes-columns-migration-draft.sql`;
   memory `feedback_sql_guard_null_is_not_false`;E 窗實測記錄(`pcm-v2-5e`,規矩三可直接問)。
 - **估時:** 未估(這是一題查證,不是一片改動;查完視答案決定要不要開後續條目)。
+
+---
+
+- **D 窗查證結果(2026-08-21,四題逐一回答):**
+
+**🔴 先更正條目本身的字面**:「相關」欄引用的 `memory feedback_sql_guard_null_is_not_false` **這個檔名不存在**(`find` 全 memory 目錄零命中)。真正的檔是 `reference_pg-check-passes-on-null-use-coalesce-false.md`(type: reference,不是 feedback,建立於 **2026-08-11**,比 B4 草稿早 8 天)。這件事本身就是問題③的部分答案——連這條目自己都把記憶檔名寫錯了,而沒有人在寫下這句引用時去打開確認過那個檔真的存在。
+
+```
+① 寫這支草稿的當下,有沒有查過 memory?
+   沒查過。git log 顯示 B4 草稿只有一次原始 commit(1ef78a7c,2026-08-19 19:43),
+   git diff 現在的正本 vs 那顆 commit,原始版本的 OR 串旁邊只有一句 btrim 的註解,
+   完全沒有提到 NULL、CHECK、或任何 memory 引用——不是「查過沒認出」,是壓根沒有查證動作的痕跡。
+   🔴 而且能查到:同一個 SSO/B 系列規格,前一天(2026-08-18)的 B5 草稿
+   (docs/specs/2026-08-18-m4b-e8b-b5-audit-columns-migration-draft.sql:68-74)
+   已經用同款 OR 串試過一次、自己發現「安靜放行」、改成 CASE + ELSE 並寫了完整說明——
+   B4 的作者不只沒查 memory,連【前一天自己專案裡的姊妹檔】都沒有對照過。
+
+② 沒查:當時的交辦/SOP 有沒有要求動 CHECK 前先查 memory?
+   沒有。全 repo（CLAUDE.md、docs/runbooks/、docs/patterns/）沒有任何一條規則要求
+   「寫 CHECK 約束前先查 NULL-safety 相關教訓」。這是機制優先律該補的地方：
+   建議方向——slice-checkpoint 或 pre-commit 對新增/修改 CHECK 約束的 migration 檔案加一道
+   grep 提示（偵測 CHECK(...OR...=...)這種形狀時列印一句「先讀
+   reference_pg-check-passes-on-null-use-coalesce-false.md」），比在 SOP 裡加一句文字更可靠——
+   文字提醒 B5 已經示範過會被同一個人在隔天忘記。
+
+③ 教訓措辭夠不夠讓人認出同一個病用不同語法出現？
+   原教訓(2026-08-11)的實例是 jsonb `?`/`->` 運算與 `string_agg`，本次(2026-08-19)是純
+   等值比較 OR 串——兩者的具體語法完全不同，但教訓標題「CHECK 只擋 FALSE、NULL 放行」與
+   How to apply 第 1 條「寫任何 CHECK 之前先問這條求值成 NULL 時會怎樣」已經是語法無關的
+   判別句，措辭本身沒有問題。真正的缺口不在「寫得不夠清楚」，在①②：根本沒有查證動作、
+   也沒有機制逼人查。
+
+④ repo 裡還有沒有其他 CHECK 是同一種寫法？
+   掃過，沒有全部驗完，誠實列出：用結構化 parser(python 抓 CHECK(...) 括號配對)在
+   supabase/migrations/*.sql + docs/specs/*.sql 找「CHECK 主體含 OR、含等值比較、不含
+   COALESCE、不含 CASE」的形狀 —— 命中 13 處。逐一初判：
+     · docs/specs/2026-08-18-m4b-e8b-b5-audit-columns-migration-draft.sql —— 誤中,
+       那段 OR 串在【註解裡】(是被拒絕的舊寫法的說明文字),實際約束已經是 CASE+ELSE,不是活的漏洞。
+     · 其餘 12 處(供下一個人接手核每一支的欄位是否真的可為 NULL、CHECK 的意圖是否真的會被
+       NULL 短路放行 —— 我沒有逐支驗證業務意圖,只做了結構篩選):
+       20260716180000(vehicle_snapshot,該檔自己已有 NULL 相關註解,可能已知)、
+       20260719150000(catalog_product_image_trim,status='ok' 分支)、
+       20260624120000(released_closed_at/status='failed')、
+       20260712203000(payment_channel='tappay')、
+       20260729030000(note_type='internal')、
+       20260809230000(superseded_at/status='released')、
+       20260523034911(invoice_type,兩處)、
+       20260805170000(hct_status/carrier_code,三處)、
+       20260803150000(failed_detail/status='failed')。
+   ⇒ **13 處掃到、1 處確認誤中(已修好的舊註解)、12 處未逐支驗證,列出檔名交下一個人或
+   排一個 plan 逐支核。這不是「已經全部驗完沒事」,是「掃描完成、驗證尚未開始」。**
+
+- **相關(補):** `docs/specs/2026-08-18-m4b-e8b-b5-audit-columns-migration-draft.sql:68-84`(前一天已示範過同款修法,可當範本);`reference_pg-check-passes-on-null-use-coalesce-false.md`(真正的記憶檔名,原條目引用有誤)。
 - **估時:** 未估(方向未定,需 plan)。
 
 
