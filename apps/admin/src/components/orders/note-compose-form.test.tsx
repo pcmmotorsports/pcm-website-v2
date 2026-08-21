@@ -4,7 +4,7 @@
 process.env.TZ = 'Asia/Taipei';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { noteFailure, type NoteActionState } from '../../lib/orders/note-action-state';
 
 // M-4b E10 A10a-3 smoke test(plan §4;測試矩陣編號對照)。
@@ -203,6 +203,21 @@ describe('NoteComposeForm — A10a-3', () => {
     const alert = await findByRole('alert');
     expect(alert.textContent).toContain('備註內容不能空白');
     expect(tokenInput(container).value).toBe('ffffffff-0000-4000-8000-000000000009');
+
+    // 🔴🔴 **2026-08-21 線 A 在真瀏覽器裡量到的(終點 ☐2 走查):上面兩行【全綠,而員工看不到那句話】。**
+    //   病:`role='alert'` 住在 `<details>` 裡面，而它預設收合、PRG 之外的 re-render 又會讓它回到收合態
+    //       ⇒ 在 3021 那台後台按「新增備註」而 action 回 `denied`，**畫面完全沒有變化**。
+    //   🔴 而這支測試綠著，是因為 **jsdom 的 `textContent` 讀得到收合 `<details>` 裡的字**
+    //      —— 同 `#824`「jsdom 對容器類版面恆綠」那一族:**量得到 ≠ 看得到。**
+    //   對稱破在哪:成功 → `note-actions.ts:185` `redirect()` PRG → 頂層 ResultBanner ⇒ 看得到
+    //               失敗 → 回 state → alert 在收合的 details 裡      ⇒ 看不到
+    //               ⇒ **成功看得見、失敗看不見，剛好相反。**
+    //   突變:把 `note-compose-form.tsx` 的 `open={… || failed}` 那個 `|| failed` 拿掉 ⇒ 下面兩行紅。
+    const box = container.querySelector<HTMLDetailsElement>('details#note-compose');
+    expect(box).not.toBeNull();
+    expect(box!.hasAttribute('open')).toBe(true);
+    // 只驗 open 的話，把 alert 搬到 details 外面也全綠 ⇒ 要釘住「那句話在展開的那個容器裡」。
+    expect(box!.contains(alert)).toBe(true);
   });
 
   it('[7] pending:送出中按鈕 disabled(disabled 按鈕吃不到後續 click;真雙擊窗口 jsdom 測不到,真保證=A6 token 冪等)', async () => {
@@ -291,5 +306,41 @@ describe('NoteComposeForm — A10a-3', () => {
     expect(container.textContent).toContain('找不到指定要更正的備註');
     expect(container.textContent).toContain('新備註');
     expect(container.querySelector('input[name="corrects_note_id"]')).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🔴🔴 失敗訊息要**看得到** —— 2026-08-21 線 A 在真瀏覽器裡量到的(終點 ☐2 走查)。
+//
+// 病:成功 → `note-actions.ts:185` `redirect()` PRG → `?r=` → **頂層** ResultBanner ⇒ 看得到
+//     失敗 → 回 state → `role='alert'` 在 `<details>` **裡面**,而它預設收合 ⇒ **看不到**
+//     ⇒ **成功看得見、失敗看不見,剛好相反。**
+//     實測:在 3021 那台後台按「新增備註」而 action 回 `denied`,畫面**完全沒有變化**;
+//     要把所有 `<details>` 強制 `open = true` 才撈得到那句「沒有權限或登入狀態已失效,備註沒有寫入。」
+//
+// ⚠️ 這一格守的**不是**「訊息字串存在」——那個 `note-action-state.ts` 已經有守門,而它全綠,
+//    **病就是在它全綠的情況下發生的**。這一格守的是「那句話所在的容器是展開的」。
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('🔴 失敗時 <details> 必須是展開的(否則員工看到一片沒有變化的畫面)', () => {
+  // 🔴 **正向對照放在這裡，而「失敗要展開」那一格併進了上面的 `[6]`** —— 併過去的理由有兩層:
+  //   ① `[6]` 本來就構造得出 failed state，不必再造一份平行的機關;
+  //   ② 🔴 **`[7]` 懸置了一個永不 resolve 的 action**(`mockImplementation(() => new Promise(() => {}))`)
+  //      ⇒ 排在它**後面**的測試再也推不動 `useActionState` 的狀態更新。
+  //      我第一版把失敗那格寫在檔尾，於是它單獨跑會過、全檔跑會紅 ——
+  //      **而紅的樣子(details 沒有 open)與「修法根本沒生效」一模一樣。**
+  //      這一段留著，是因為下一個想在本檔尾端加非同步測試的人會踩同一個坑。
+  it('idle(還沒送出)⇒ 收合 —— Sean 2026-08-19「點擊才展開」不變', () => {
+    const { container } = render(
+      <NoteComposeForm
+        returnTo={RETURN_TO}
+        orderId={ORDER_ID}
+        serverToken={TOKEN}
+        correctTarget={null}
+      />,
+    );
+    const box = container.querySelector<HTMLDetailsElement>('details#note-compose');
+    expect(box).not.toBeNull();
+    // 🔴 少了這一格，「一律 open」的懶惰修法會通過 `[6]` 那兩行而**推翻 Sean 的拍板**。
+    expect(box!.hasAttribute('open')).toBe(false);
   });
 });

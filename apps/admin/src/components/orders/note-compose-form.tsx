@@ -145,9 +145,25 @@ export function NoteComposeForm({
        🔴 而**更正模式例外,必須展開** —— 更正是從時間軸點「更正」連過來的,
           使用者已經表達了要編輯的意圖;收起來會讓他看到一片空白、以為連結壞了。
           (`correctionMissing` 同理:那是一段警語,收起來等於沒寫。) */
+    /* 🔴🔴 `|| failed` 是 2026-08-21 線 A 在**真瀏覽器**裡量到的(終點 ☐2 走查),不是讀 code 推的:
+          在 3021 那台後台按「新增備註」而 server action 回 `denied` ⇒ **畫面完全沒有變化**。
+          原因是這個對稱破掉了 ——
+            成功 → `note-actions.ts:185` `redirect()` PRG → `?r=` → **頂層** ResultBanner ⇒ 看得到
+            失敗 → 回 state → 下面 `:{failed && …}` 的 role='alert' ⇒ **在這個 `<details>` 裡面**
+                   ⇒ 而 PRG 之外的 re-render 會讓它回到收合態 ⇒ **員工看到的是一片沒有變化的畫面**
+          ⇒ **成功看得見、失敗看不見,剛好相反。**
+          🔴 這**不是**推翻 Sean 2026-08-19 那條「預設收起」——
+             預設仍然收起,只有「有話要對他說」的時候才展開。他的規矩是「點擊才展開」,
+             而一則他沒看到就會消失的錯誤訊息,不在那條規矩要省的東西裡。
+          ⚠️ 同形狀的另外兩支**還沒修、也還沒在瀏覽器裡量過**:
+             `item-procurement-section.tsx`(details=5 / alert=1)、`receipt-record-form.tsx`(details=1 / alert=1)。
+             數法:對 `apps/admin/src/components/orders/*.tsx` 逐支數 `<details` 與 `role='alert'`,兩者皆 >0。
+             **不要因為這支修好了就以為那兩支也好了。** */
     <details
       id='note-compose'
-      open={correctTarget !== null && correctTarget !== undefined ? true : correctionMissing}
+      open={
+        correctTarget !== null && correctTarget !== undefined ? true : correctionMissing || failed
+      }
       className='group mt-3 rounded-lg border p-3'
     >
       <summary className='text-muted-foreground flex cursor-pointer items-center gap-2 text-xs font-medium'>
