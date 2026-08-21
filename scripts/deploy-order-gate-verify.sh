@@ -19,7 +19,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=49
+EXPECT_TOTAL=52
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -282,6 +282,41 @@ case "${RES14%%|*}" in
   *) bad "⑭算不出 diff 卻 rc=${RES14%%|*} ⇒ 靜默放行(這正是關卡2 #9 講的洞)" ;;
 esac
 
+# 🔴 ⑭b / ⑭c(2026-08-21 線D `-4a` 補):**第三條 fail-closed 路 —— 識別字解析不出來**。
+#    ⑭ 守的是「算不出 diff」、㉑ 守的是「local_sha 讀不到」,而
+#    `.rpc(SOME_IDENT, …)` 而常數解析不出來時的「**擋,不放行**」那一格**整份 harness 零覆蓋**。
+#    🔴 為什麼它值得一格:把「認不出的識別字」改成靜靜跳過,**讀起來像在降噪**
+#      (「解析不到就別亂報」),而它會讓整道閘對識別字風格的呼叫**安靜地失效**。
+#      那個改動不會讓任何一格紅 —— 除非有這一格。
+#    ⑭c 是 ⑭b 的對照:**同一份 code、只差有沒有 pending migration** ⇒ 證明它不是無條件擋。
+R19="$WORK/r19"; setup_repo "$R19"
+cat > "$R19/apps/admin/src/fn-names.ts" <<'TS'
+export const FN_FROM_CONFIG = process.env.PCM_FN ?? 'pcm_fallback_name';
+TS
+( cd "$R19" && git add -A && git commit -qm "base: 常數不是單純的字串字面(解析器認不出)" )
+add_pending_migration "$R19"
+cat > "$R19/apps/admin/src/consumer.ts" <<'TS'
+import { FN_FROM_CONFIG } from './fn-names';
+export async function callIt(sb: any) {
+  return await sb.rpc(FN_FROM_CONFIG, { p_order_id: 'x' });
+}
+TS
+( cd "$R19" && git add -A && git commit -qm "feat: 識別字風格呼叫,而常數解析不出來" )
+B19="$(cd "$R19" && git rev-parse HEAD~1)"; T19="$(cd "$R19" && git rev-parse HEAD)"
+# 🔴 M6 的「有保護那一側」由本格承擔;動本格前先看 M6。
+expect_block "⑭b fail-closed:.rpc(識別字) 而常數解析不出來 + 有 pending ⇒ 擋,不靜默放行" \
+  "$(run_gate "$R19" "refs/heads/dev $T19 refs/heads/dev $B19")" "FN_FROM_CONFIG"
+
+# ⑭c 對照世界:一模一樣的 code,只差【沒有 pending migration】⇒ 必須放行
+R19C="$WORK/r19c"; setup_repo "$R19C"
+cp "$R19/apps/admin/src/fn-names.ts" "$R19C/apps/admin/src/fn-names.ts"
+( cd "$R19C" && git add -A && git commit -qm "base: 同一份常數" )
+cp "$R19/apps/admin/src/consumer.ts" "$R19C/apps/admin/src/consumer.ts"
+( cd "$R19C" && git add -A && git commit -qm "feat: 同一份呼叫,但這次沒有 pending migration" )
+B19C="$(cd "$R19C" && git rev-parse HEAD~1)"; T19C="$(cd "$R19C" && git rev-parse HEAD)"
+expect_pass "⑭c 對照:同一份 code、無 pending migration ⇒ 放行(證明 ⑭b 不是無條件擋)" \
+  "$(run_gate "$R19C" "refs/heads/dev $T19C refs/heads/dev $B19C")"
+
 # ⑮ ledger 重複版本號(關卡2 #10):取第一列會讓結果取決於順序 ⇒ 拒絕猜
 R11="$WORK/r11"; setup_repo "$R11"; add_pending_migration "$R11"
 cp "$R/apps/admin/src/consumer.ts" "$R11/apps/admin/src/consumer.ts"
@@ -503,6 +538,11 @@ expect_pass "㉔只有 docs 提到函式名(零 app 變更)⇒ 放行" \
 # 🔴 本發的「有保護那一側」是 ㉔;動 ㉔ 會讓本發失去對照。
 mutate_and_check "M5 拿掉 app 面路徑限定(-- apps packages)" \
   '-- apps packages@@@--' block "$R17" "refs/heads/dev $T17 refs/heads/dev $B17"
+# 🔴 M6(2026-08-21 線D `-4a` 補):把「認不出的識別字」改成**靜靜跳過**——
+#    也就是那個「看起來像降噪」的改法。期望 pass = 拿掉之後**不再擋** ⇒ 證明那一格是承重的。
+# 🔴 本發的「有保護那一側」是 ⑭b;動 ⑭b 會讓本發失去對照。
+mutate_and_check "M6 解析不到的識別字改成靜靜跳過(拿掉 fail-closed)" \
+  'UNRESOLVED="$UNRESOLVED $id"@@@:' pass "$R19" "refs/heads/dev $T19 refs/heads/dev $B19"
 echo
 echo "── 呼叫上下文(2026-08-21 A-bc;審查線 -04 量的兩個方向)────────────────"
 # 🔴 2026-08-21 線D `-4a`:下面三格的標籤原本帶反引號(`` .rpc(IDENT, …) `` 等)。
