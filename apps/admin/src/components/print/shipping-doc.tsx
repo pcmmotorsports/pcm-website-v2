@@ -630,7 +630,26 @@ export function ShippingDoc({
               都要在註解裡寫明「用哪些權威欄、做了什麼運算」。⇒ **排下一片單獨做,不夾帶進這片。**
               落地時的硬條款(不變):**紙上零金額計算的意思是「不自己發明算法」,不是「不能算」** ——
               `Q-D-7` 已放行 `unitPrice × 本區數量` 後加總,但**禁止**從 `subtotal`/`total` 反推、
-              **禁止**浮點,且格式化一律走既有 `formatOrderAmount`(`order-list-view.ts:746`)。 */}
+              **禁止**浮點,且格式化一律走既有 `formatOrderAmount`(`order-list-view.ts:746`)。
+
+              ── 🔴 落地前先讀這一段(`#827` 2026-08-21 量測,主視窗裁「甲=先寫成約束」)──
+              **列印表格零欄寬控制** ⇒ 金額落地時溢出會**推寬**不是**壓字**,
+              `-46` 那片的 `--pcm-money-w` 對它無效;
+              驗收必須含**真瀏覽器列印預覽 + 七位數**(例 `NT$ 1,280,000`)。
+
+              🔴 **同一個病在兩張紙上長成兩個不同的症狀:**
+                 後台面板  固定軌 `var(--pcm-money-w)` ⇒ 溢出時**壓字**(還看得出有東西)
+                 這張紙    無固定寬、內容自己撐         ⇒ 溢出時**推寬**(撐破 A4)
+              ⇒ **不要因為後台那片修好了就以為這裡也修好了。**
+
+              量法(2026-08-21,可重跑):
+                `grep -rn "pcm-money-w" apps/admin/src` ⇒ 只在 `globals.css` 與其測試,
+                本檔與 `print-a4.css` **零命中**;
+                `grep -nE "table-layout|colgroup|<col|w-\[|min-w|max-w|width:"` 打本檔 +
+                `picking-doc.tsx` + `print-a4.css` ⇒ 3 命中,**三個都是外層容器的 `max-w-3xl`**,
+                表格本身零欄寬(負對照:同一組 pattern 打 `globals.css` ⇒ 51 命中,尺撈得到東西)。
+              ⚠️ **誠實邊界**:以上是**字面**。「七位數會不會真的撐破 A4」**沒有量過** ——
+                 jsdom 對容器寬度類破版恆綠(`#824`),那把尺對這一題沒有判別力。 */}
 
           <div className='text-muted-foreground flex gap-8 pt-6 text-sm'>
             {/* 🔴 **`Q-C7` = 丙(Sean 2026-08-16 逐字「丙,拿掉頁尾手寫日期」)**:
