@@ -5404,6 +5404,11 @@ order by n desc, 1;
 - **依賴:** 搜尋路徑落地(#35 searchByKeyword / M-1-03)
 - **發現於:** 2026-05-26 / ChatGPT 平台藍圖對照評估
 - **相關:** #35(search engine plan、明指「無 search query log」)、#184(GA4 事件)、#185(keyword 正規化、依賴本條語料)
+- 🔗 **本條做完的那一天,要一起處理 `#823`**(2026-08-21 加,窗 C2):
+  隱私政策**已經**對客人宣告蒐集「站內搜尋紀錄」(`legal-content.ts:203`),而在本條落地之前
+  那句話沒有對應的實體 ⇒ 目前由 `docs/runbooks/data-rights-sop.md` §4-d 頂著。
+  🔴 **本條完成 = `#823` 的觸發條件,而 `#823` 不會自己來找你** —— 做本條的人只會讀本條,
+  所以那句提醒必須住在**這裡**。落地那天回頭撤掉 §4-d 那一格。
 
 ### #184. ⏳ GA4 基礎行為事件埋設(【時間敏感】上線起埋、不可回填)
 
@@ -11800,6 +11805,30 @@ order by n desc, 1;
   B 案就會把那筆真在途一起藏掉** ⇒ 屆時要走 A 案(gate 拆四態,動 `packages/adapters` 共用 mapper、另片另審)。
   失效條件同字面寫在 `cancel-view.ts` 該行的註解裡,不只留在本條目。
 - **不修會痛在哪**:員工看到「進行中」會去等/重新整理/懷疑系統,永遠等不到變化;第一次遇到的人會當成故障回報。
+- 🔴🔴 **2026-08-21 補:A 案的觸發點【不是未來式,今天就有第二個】**(窗 C2 實查,正式庫唯讀 SELECT)
+  ```
+  分母 = 全部 payment_status='unpaid' 且 payment_channel='tappay' 的單 ⇒ 9 張
+    卡住     2 張  attempt=pending  settle_attempt_count=8(撞上限)  needs_manual_review=true
+    正常失敗 5 張  attempt=failed   settle_attempt_count=0
+    零 attempt 2 張(2026-08-18;未判定是棄單還是那一列沒建起來)
+  ⇒ 尺是活的:同一發印出三種形狀,不是恆回同一個答案。
+  ```
+  ⇒ **gate 併掉的不只是 `charged` 與 `pending`,還有「真的在途的 pending」與「卡住的 pending」。**
+  後者已經存在 **2 張**(`2SQH2P` 2026-08-09 / `GVRDMH` 2026-08-19),**不需要 L5b 才可達。**
+- 🔴 **而它已經在說謊了,同一句、另一個世界**:`cancel-review-section.tsx` 的
+  `charge_attempt_blocked` 逐字「**請重新整理看看最新狀態**」——
+  attempt 撞到 8 次上限後,`expire_stuck_attempts_at_ceiling()` 只把 `needs_manual_review`
+  改成 true、**不會把 `status` 改成 `failed`**(2026-08-21 讀正式庫 prosrc 原文)
+  ⇒ `chargeAttemptGate` 永遠是 `blocked`,重整幾次都是同一句。
+  **失敗之後,觸發這一步的那個條件沒有被改變 ⇒ 那不是錯誤,是迴圈**,已跑 12 天。
+  ⚠️ **B 案收窄成 `unpaid` 擋不到這一格** —— 卡住的那兩張**本來就是 `unpaid`**。
+- ✅ **文案這一半 Sean 2026-08-21 已答「甲 = 改掉」**(經主視窗),另片處理、待他逐字定稿。
+  🔴 **但文案只能寫成「在途」與「卡住」兩個世界都成立的句子** —— 因為 gate 分不出來。
+  ⇒ **那正是 A 案要修的東西**:能分辨之前,這句話的精確度有一個天花板,再怎麼改都撞得到。
+- 📌 **後台對卡住的那兩張單【一顆按鈕都沒有】**(2026-08-21 窗 C2 頁層渲染實測,非讀 code 推):
+  `chargeAttemptGate='blocked'` ⇒ 整頁 **6 顆**控制項(返回/列印揀貨單/新增備註/儲存/改金額/
+  登錄收款-DISABLED);對照組 `'clear'` ⇒ **8 顆**(多出「整單取消」)。
+  ⇒ 退款 0 · 人工退款 0 · 標記免處理 0 · 取消 0。詳 `~/pcm-mailbox/C2-C17…` 與 `C2-C18…`。
 
 ### #388. 🍪 actor cookie 欄名為裸字面(兩處)— 打錯字=靜默不寫 cookie、typecheck 與測試全盲
 - **來源**:#365 片③ 審查 nit-7(2026-08-11);E 刻意不順手修(動第三檔、離題)。
@@ -27044,6 +27073,25 @@ mm-scripts-whitelist-gate.harness.sh 突變套上=False  ⇒ rc=0  🔴 突變 p
 - **來源:** J 窗(9b)§2-G,`~/pcm-mailbox/G-c0-9b-15份交件的無落點結論-20260821.md:97-106`
 - **擋住:** `#808` 卡單四路不通的結論可信度(目前是讀 code+DB 推的,未經真瀏覽器驗證)
 - **誰能關:** 任一窗,10 分鐘起跳(`cd apps/admin && ADMIN_DEV_BYPASS=1 npx next dev -p 3001 -H 127.0.0.1`,注意用 `localhost` 不要用 `127.0.0.1`)
+- ✅ **2026-08-21 關(窗 C2,頁層渲染實測)** —— 與 `#817` 同一件,兩號都由本條證據關。
+  ```
+  探針:抄 apps/admin/src/app/orders/[id]/refund-wiring.test.tsx 的 mocks+fixture,
+        餵卡單真實形狀 paymentStatus='unpaid' / paymentChannel='tappay' / paymentMethod=null,
+        只換 chargeAttemptGate 一個值 ⇒ 雙向表演:
+    'blocked'(真實)⇒ 整頁 6 顆:返回列表/列印揀貨單/新增備註/儲存/改金額/登錄收款(DISABLED)
+    'clear' (對照)⇒ 整頁 8 顆:多出「整單取消」+「取消勾選的品項」
+  ⇒ 兩個世界印不同的東西 ⇒ 尺是活的。探針跑完已 rm,樹上不留。
+  ⇒ 退款 0 · 人工退款 0 · 標記免處理 0 · 取消 0 ⇒ **C4b §2「一件事都做不了」成立。**
+  ```
+  🔴 **兩個我排掉的假象(誰要重跑都會踩)**:①餵 `items:[]` 會被 `cancel-view.ts:706` 推
+  `no_items` 拒因 ⇒ 取消表單消失【不是真的閘】,要餵至少一個品項;②「登錄這筆收款」DISABLED 是
+  `payment-record-form.tsx:198` 的 `!confirmed`(員工要自己勾的確認格)⇒ **初始渲染正常,不是缺陷。**
+  ⚠️ **效度**:jsdom 渲染真元件+真頁面組裝,repository 是 mock ⇒ 能證「這種資料下畫面畫出什麼」,
+  **不能證正式站**;而「那兩張單在正式庫真的是 unpaid+pending」是向正式庫量過的(C4b + C2 複驗)。
+  詳 `~/pcm-mailbox/C2-C17-卡單畫面實測與第二處誤導文案-20260821.md`。
+- 🔴 **順手撞到的東西比本條大**:`cancel-review-section.tsx:136` 逐字「**請重新整理看看最新狀態**」
+  —— 那筆 attempt 撞 8 次上限後只會被舉手、**不會變 failed** ⇒ 重整永遠同一句 ⇒ **不是錯誤,是迴圈**,
+  已跑 12 天。Sean 2026-08-21 已答「甲 = 改掉」(經主視窗),證據併入 `#387`。
 
 ### #811 · `admin-orders.png` 躺在 repo 根第 5 天,無人認領
 - **來源:** J 窗 §2-A,同檔 :36-42
@@ -27079,16 +27127,40 @@ mm-scripts-whitelist-gate.harness.sh 突變套上=False  ⇒ rc=0  🔴 突變 p
 - **來源:** C 窗 §6-1,`~/pcm-mailbox/C-eb-C15-60條分堆與主人-20260821.md:85-88`
 - **擋住:** 與 `#810`/`#808` 同源(C 窗與 J 窗各自獨立量到同一個「沒人看畫面」缺口)——**建議與 `#810` 合併處理,不要重複派工**
 - **誰能關:** 同 `#810`
+- ✅ **2026-08-21 關 —— 與 `#810` 是同一件**(同一份渲染實測同時關掉兩號)。證據全文見 `#810`。
+  🔴 **這兩號同時存在本身值得記**:同一個洞用兩個名字登記了兩次,而發號當下沒撞到
+  (memory `feedback_index-by-file-not-by-name`:查「有沒有人做過」要錨在功能點,不要錨在名稱)。
 
 ### #818 · 後台「標記免處理」按鈕實際行為未知,且未被實際讀過(只被要求不要按)
 - **來源:** C 窗 §6-2,同檔 :89-90
 - **擋住:** `#808`/`#818` 系列結論裡「該按鈕不存在」是靠 502 支檔零命中推論,未直接讀該按鈕的實作(若真的存在,行為未知)
 - **誰能關:** 任一窗,唯讀讀取 code 即可(不需要按下去)
+- ✅ **2026-08-21 關(窗 C2)——「按鈕實際行為未知」這個提法本身有前提錯誤:那顆按鈕不存在。**
+  ```
+  grep -rn '免處理\|needs_manual_review\|needsManualReview' apps/admin/src \
+      --include='*.ts' --include='*.tsx' | grep -v '\.test\.' | wc -l   ⇒ 0
+  正對照 grep -rn '退款' apps/admin/src --include='*.tsx' | wc -l          ⇒ 298
+  負對照(編造字串)                                                        ⇒ 0
+  ```
+  ⇒ 尺是活的,那個 0 是真的。**C4b §1-③ 早就量過(502 支檔的分母),本條是它的重複登記。**
+  🔴 而告警信仍逐字叫收件人去「標記免處理」⇒ **那個動作在後台沒有對應的東西**(併入告警信線)。
 
 ### #819 · 兩張卡住單的 3DS 段落實際發生了什麼(`payment_method` 為 NULL)
 - **來源:** C 窗 §6-3,同檔 :92-93
 - **擋住:** `#808`/`#802` 系列卡單問題的完整診斷;`payment_channel='tappay'` 而 `payment_method` NULL 代表有欄位沒填
 - **誰能關:** 需 DB 查詢權限的窗,或併入 Sean 去 TapPay 後台查那兩張單時一起問(C 窗 §2-①)
+- ✅ **2026-08-21 關(窗 C2,正式庫唯讀 SELECT)—— 不是異常。對照組與主查詢同一發送出:**
+  | tappay 單 | `payment_method` | 筆數 |
+  |---|---|---|
+  | `unpaid` | **`<NULL>`** | 7(不含目標 2 張) |
+  | `paid` | `<NOT NULL>` | 7 |
+  | `refunded` | `<NOT NULL>` | 3 |
+
+  ⇒ NULL 與 NOT NULL **完全順著「刷成功了沒」分開,零交叉** ⇒ `payment_method` 是刷卡成功後才填的欄位
+  ⇒ 目標那 2 張是 `unpaid`,NULL **正確**。
+  ⚠️ **仍未答的一半**:那兩張的 `orders.updated_at` **等於** `created_at`(2SQH2P 停在
+  2026-08-09 11:28:28)⇒ 訂單那一列自建立起從沒被改過;**真實金流狀態只有 TapPay 後台答得出來**
+  ⇒ C4b Q1 甲(Sean 去看一眼)仍是唯一能產生新資訊的動作,本條沒有取代它。
 
 ### #820 · 兩位卡單客人是否為同一真人的兩個帳號,只比對過 user_id 雜湊(不同,但雜湊本身不能排除同一人開兩號)
 - **來源:** C 窗 §6-4,同檔 :95-96
@@ -27099,8 +27171,103 @@ mm-scripts-whitelist-gate.harness.sh 突變套上=False  ⇒ rc=0  🔴 突變 p
 - **來源:** C 窗 §6-5,同檔 :98-99
 - **擋住:** 隱私政策已發布上線的一句話,若用詞不合慣例需要再修一次(鐵則 12⑤ 對外不可回收)
 - **誰能關:** 律師或熟悉個資法慣用語的人力(C 窗自陳查不到,屬 §3 外部專業人士類但沒被歸進去)
+- 🔴 **2026-08-21 補(窗 C2 實查):在問「用詞合不合慣例」之前,先知道【那個東西還不存在】**
+  ```
+  grep -n 'SEARCH_ENTRY_ENABLED = ' apps/storefront/src/components/Header.tsx  ⇒ 79: false
+  grep -rniE 'create table.*search' supabase/migrations/ | wc -l               ⇒ 0
+  grep -rn 'search_log\|searchLog\|log_search\|logSearch' apps/ packages/
+      --include='*.ts' --include='*.tsx' | wc -l                               ⇒ 0
+      ⚠️ 加寬字集重掃(search.{0,3}(log|record|history|term|keyword|query) 等)⇒ 21 命中,
+         逐條開檔判過:全部是 searchByKeyword(讀取)或 Header 的 UI state,**零寫入**。
+  正對照 payment_charge_attempts ⇒ 72 / 負對照(編造字串)⇒ 0   ⇒ 尺是活的
+  #183(搜尋日誌)狀態逐字「⏳ 待評估」
+  ```
+  ⇒ **政策宣告了一個我們既沒有功能、也沒有資料表的個資類別。** 不是有人寫錯 ——
+  `20260821113000` 檔頭自己寫著來源是 `#183` ⇒ **刻意先宣告、等功能上線就不必再改政策。**
+- 🔴 **因此本條被拆成兩半,而只有一半需要律師**:
+  ①「用詞合不合台灣個資實務慣例」⇒ **仍待外部專業人士**,本條原本的問題不變。
+  ②「今天客人來要他的站內搜尋紀錄怎麼辦」⇒ **不需要律師,已處理**:
+     `docs/runbooks/data-rights-sop.md` §4-d(2026-08-21 窗 C2 新增)含可直接唸的回覆稿。
+     🔴 該節逐字:**不要回「查無資料」** ——「查無」聽起來像找過了沒找到,
+        而事實是那個功能還沒開始;兩者在客人耳朵裡是不同的意思,**只有後者是真的**。
+- ⏳ **功能上線那天要回頭做的事(沒有人會來通知)**:SOP §4-d 那一格屆時會從「正確」變成「說謊」。
+  觸發命令(哪一個先翻面都算):
+  ```bash
+  grep -n 'SEARCH_ENTRY_ENABLED = ' apps/storefront/src/components/Header.tsx
+  grep -rniE 'create table.*search' supabase/migrations/ | wc -l
+  ```
 
 ### #822 · 「將來這種卡住的單會有多少」——沒有人有這個數字,而它是 Sean 要不要蓋處理路徑的決策依據
 - **來源:** C 窗 §6-6,同檔 :101-102
 - **擋住:** Sean 判斷值不值得專門開發一條處理路徑,取決於這個量級,而現在無法估
 - **誰能關:** 需要歷史資料的統計查詢(卡單/失敗刷卡的歷史頻率),任一有 DB 權限的窗可查
+- ✅ **2026-08-21 答:基期量到了**(窗 C2,正式庫唯讀 SELECT,零寫入零 PII 欄)
+  ```
+  分母 = 全部 payment_status='unpaid' 且 payment_channel='tappay' 的單 ⇒ 9 張
+    🔴 卡住     2 張  2SQH2P(08-09) GVRDMH(08-19)
+                     attempt=pending / settle_attempt_count=8(撞上限)/ needs_manual_review=true
+    ✅ 正常失敗 5 張  7F4TF8 F9Q4DQ F5SP3R HR92W9 9G5Y6V
+                     attempt=failed / settle_attempt_count=0
+    ⚪ 零 attempt 2 張 WCYCW5 Z6QDV9(皆 08-18;未判定是棄單還是那一列沒建起來)
+  ⇒ 尺是活的:同一發印出三種形狀,不是恆回同一個答案。
+  ⇒ 9 張裡 2 張 = 22%,期間 2026-08-09 ~ 08-19(11 天)。
+  ```
+- 🔴 **「卡住」與「正常失敗」的差別在【重試次數】,不在「失敗」**:
+  正常失敗第一次就拿到明確答案(count=0)、系統正確收尾;卡住的是**重試到上限仍拿不到答案**。
+  ⇒ 把兩者寫成同一句的文案,會讓員工對 5 張根本沒問題的單也去做人工處理。
+- 🔴🔴 **往後推的部分是【推的】不是【量的】,不要把 22% 當成未來的比率**:
+  我沒量過現在的訂單量、也沒量過開賣後的預估量,而**這個基期產生於測試期、實際只有 Sean 在用**
+  (memory `project_admin-preprod-planning-posture`)⇒ 產生條件與開賣後不同。
+- 📌 **對 C4b Q2 的影響**:乙(不做、個案處理)原句「目前只有 2 張」✅ 成立,補上基期=11 天 2 張;
+  甲(補一條處理的路)原句「將來會變多少沒有人算過」⇒ 基期有了,**開賣後的量仍未知**。
+  ⇒ **不改 C4b 的推薦(Q2 丙 = 先改文案)** —— 丙不受張數影響,誤導是每天發生的。
+---
+
+### #823 · 隱私政策已對客人宣告蒐集「站內搜尋紀錄」,而那個功能不存在
+
+> ⚠️ **不屬 `#810-#822` 那批批次登記** —— 2026-08-21 由 `-fe`(backlog 制度線)原子佔號,
+> 三層核號 822/822/822(主樹 · 31 worktree · 68 branch ref)。條目由窗 C2 寫。
+
+- **狀態:** 🟡 **客人面的洞今天已頂住,本條記的是【功能上線那天要回頭做的事】**
+- **分流:** P1-before-launch(觸發點綁在 `#183`,不是綁在日期)
+- **優先級:** 🟠 中(今天不痛;`#183` 落地那天**立刻**變成錯誤資訊,且零訊號)
+- **現象**(2026-08-21 窗 C2 實查):
+  ```
+  線上政策(客人現在讀得到,隨 20260821113000 上線):
+    apps/storefront/src/data/legal-content.ts:197  蒐集目的 「站內搜尋功能之提供與改善」
+    apps/storefront/src/data/legal-content.ts:203  個資類別 「站內搜尋紀錄」
+  而實際上:
+    grep -n 'SEARCH_ENTRY_ENABLED = ' apps/storefront/src/components/Header.tsx   ⇒ 79: false
+    grep -rniE 'create table.*search' supabase/migrations/ | wc -l                ⇒ 0
+    grep -rn 'search_log\|searchLog\|log_search\|logSearch' apps/ packages/
+        --include='*.ts' --include='*.tsx' | wc -l                                ⇒ 0
+    #183 狀態逐字「⏳ 待評估」
+  正對照 payment_charge_attempts ⇒ 72 / 負對照(編造字串)⇒ 0   ⇒ 尺是活的
+  ```
+  ⚠️ 上面第三發字集很窄、**窄字集會回一個乾淨的零**⇒ 已加寬重掃
+  (`search.{0,3}(log|record|history|term|keyword|query)` 等)⇒ 21 命中,
+  **逐條開檔判過:全部是 `searchByKeyword`(讀取)或 `Header.tsx` 的 UI state,零寫入。**
+- **不是有人寫錯**:`20260821113000_m4b_legal_terms_v4_search_logging.sql` 檔頭自己寫著
+  內容來源是 `#183` ⇒ **刻意先宣告、等功能上線就不必再改政策**(Sean 2026-08-21 答「乙 = 直接發」)。
+- **今天由什麼頂著**:`docs/runbooks/data-rights-sop.md` **§4-d**(2026-08-21 窗 C2 新增),
+  含可直接唸給客人的回覆稿。🔴 該節逐字:**不要回「查無資料」** ——「查無」聽起來像
+  找過了沒找到,而事實是那個功能還沒開始;兩者在客人耳朵裡是不同的意思,**只有後者是真的**。
+- 🔴🔴 **觸發條件 = `#183` 被做完**,不是某個日期。到那天 SOP §4-d 那一格會**從「正確」變成「說謊」**。
+  可跑的判別(哪一個先翻面都算):
+  ```bash
+  grep -n 'SEARCH_ENTRY_ENABLED = ' apps/storefront/src/components/Header.tsx
+  grep -rniE 'create table.*search' supabase/migrations/ | wc -l
+  ```
+- **那天要做的三件**(逐條可 yes/no):
+  1. 撤掉 `docs/runbooks/data-rights-sop.md` §4-d 整節,改寫成「搜尋紀錄在哪張表、怎麼取、怎麼刪」。
+  2. 把新表加進 §4-a 的 PII 落點表(⚠️ 該節自己寫著「這張表一寫完就開始過期」,**先重跑那發 `pg_catalog` 查詢**)。
+  3. 回頭判 `#821`(用詞合不合台灣個資實務慣例)—— **那半仍待外部專業人士,本條不涵蓋。**
+- **不修會痛在哪**:
+  - **可追蹤性**:客人依個資法第 3 條要「我的站內搜尋紀錄」,政策說有、系統拿不出來。
+    功能上線後若 §4-d 還在,員工會照它回「本公司未持有」,**而那時我們真的持有了** ⇒ 對客人說了假話。
+  - **擴充性**:`#183` 的實作者不會知道有一份 SOP 在等他;**這條就是那個通知機制**。
+- **誰能關:** 做 `#183` 的那個窗(順手);或任一窗在 `#183` 落地後回頭走上面三件。
+- **相關:** `#183`(搜尋日誌,**觸發點**;該條已加一行指回本條)、`#821`(同一句話的**用詞**問題,
+  未涵蓋)、`#35`(search engine plan)、`docs/runbooks/data-rights-sop.md` §4-d(**現行頂住的載體**)
+- **發現於:** 2026-08-21 / 窗 C2(法規客服線)查「站內搜尋紀錄的慣用寫法」時,先問了
+  「我們到底有沒有存這個東西」⇒ 撞到功能不存在。

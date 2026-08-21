@@ -321,6 +321,57 @@ Sean「就是公司」= 誰承擔責任。
 `payment_double_charge_anomalies.resolution_note`
 🔴 **這些是員工自己打的字** ⇒ 可能寫著「客人說他住在 X、電話 Y」。**機械刪不掉,要人讀過。**
 
+### 4-d 🔴 **政策宣告了、而東西不存在的一格:「站內搜尋紀錄」**
+
+> **為什麼這一格單獨列**:§4 其餘各節回答「他的資料在哪」,本節回答的是
+> **「線上政策說我們有,而我們沒有」** —— 那是另一種問題,而它會由**客人**先發現。
+
+```
+線上隱私政策(客人現在讀得到的字)兩處宣告:
+  apps/storefront/src/data/legal-content.ts:197  蒐集目的  「站內搜尋功能之提供與改善」
+  apps/storefront/src/data/legal-content.ts:203  個資類別  「站內搜尋紀錄」
+  ⇒ 那是 2026-08-21 隨 `20260821113000` 一起上線的(Sean 答「乙 = 直接發」)
+
+而實際上(2026-08-21 窗 C2 實查):
+  ① 搜尋入口是關的   apps/storefront/src/components/Header.tsx:79 逐字
+                     `const SEARCH_ENTRY_ENABLED = false;`
+                     (Sean 2026-08-16 拍 `Q-SEARCH-0` = 乙「藏起來」)
+  ② 搜尋日誌沒做     docs/phase-1-backlog.md 的 `### #183.` 那條,狀態逐字「⏳ 待評估」
+                     🔴 查法錨在編號、不要錨在「⏳ 待評估」五個字 —— 那五個字全檔 3 處命中,
+                        其中兩處是別的條目:`grep -n '^### #183\.' docs/phase-1-backlog.md`
+  ③ 沒有那張表       `grep -rniE "create table.*search" supabase/migrations/` ⇒ **0**
+  ④ 沒有任何寫入     `grep -rn "search_log|searchLog|log_search|logSearch" apps/ packages/
+                       --include='*.ts' --include='*.tsx'` ⇒ **0**
+     ⚠️ 加寬字集重掃(`search.{0,3}(log|record|history|term|keyword|query)` 等)⇒ 21 命中,
+        **逐條開檔判過:全部是 `searchByKeyword`(讀取)或 Header 的 UI state,零寫入。**
+  尺是活的:正對照 `payment_charge_attempts` ⇒ **72**;負對照(編造字串)⇒ **0**。
+```
+
+**⇒ 這不是有人寫錯**:那份 migration 檔頭自己寫著內容來源是 `#183`(搜尋日誌)——
+**是刻意先宣告、等功能上線後不必再改政策。** 但**今天**它讓政策與事實對不起來。
+
+#### 客人要「我的站內搜尋紀錄」時怎麼回(直接唸)
+
+> 感謝您的來信。關於您詢問的站內搜尋紀錄:本公司的站內搜尋功能**目前尚未開放使用**,
+> 因此我們**並未持有任何您的搜尋紀錄**。隱私政策中列出該項,是為了在該功能日後開放時
+> 事先向您說明,並非表示目前已在蒐集。其餘您要求的資料,我們會依前述期限處理。
+
+🔴 **不要**回「查無資料」——「查無」聽起來像「找過了沒找到」,
+而事實是**那個功能還沒開始**。兩者在客人耳朵裡是不同的意思,而只有後者是真的。
+
+🔴 **這一格什麼時候要撤掉**:`SEARCH_ENTRY_ENABLED` 變成 `true` 或 `#183` 落地的那一天。
+判別命令(哪一個先動都會翻面):
+```bash
+grep -n 'SEARCH_ENTRY_ENABLED = ' apps/storefront/src/components/Header.tsx
+grep -rniE 'create table.*search' supabase/migrations/ | wc -l
+```
+⚠️ **而那一天不會有人來通知本檔** —— 同 §4-a 那段紅字,這份檔追不上 schema。
+
+📌 **本格於 `#183`(搜尋日誌)落地時失效,依據見 backlog `#821`**(2026-08-21 建鏈)——
+撤的時候去 `#821` 看「那天要做的三件」,不要憑本節重新推導一次。
+🔴 **三個落點缺一個,鏈就斷**:①`#183`(做的人只讀這裡,已加一行指回來)②`#821`(記著要做什麼)
+③本節(現在頂住客人的那個載體)。改任一處要想一下另外兩處。
+
 ---
 
 ## §5 執行
