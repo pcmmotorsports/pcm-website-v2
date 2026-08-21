@@ -28851,3 +28851,82 @@ packages/ports/src/IAlertNotifier.ts 全文只有一個方法:notify(message): P
 ```
 - **相關:** `#803`(同一條判準的實例 ①②;三個實例並排在本條目上方)/ `docs/specs/2026-08-19-sweeper-heartbeat-wiring-plan.md`(心跳片的讀取端掛在同一支 anomaly-alert 上 ⇒ **`ANOMALY_ALERT_ENABLED` 一關,兩者一起靜默**)/ `~/pcm-mailbox/C-備妥-0905那一發-anomaly-alert-20260822.md` §④-d(本條目的逐字量法與 E 型讀數的處置)
 - **估時:** 未估(方向未定;而**面一與面二的前置不同,不可合併估**)
+
+### #844 · 🔑 08-19 那 18 分鐘,**所有** Supabase 呼叫都被拒絕 —— 而沒有人知道是誰按的
+
+- **狀態:** 未做(2026-08-22 開;發現者=線 C 撈到錯誤表、線 B `-3c` 實查分組)
+- **一句話:** 2026-08-19 10:48–11:06 之間,正式站**所有**打 Supabase 的路徑同時回
+  `Invalid API key`,**18 分鐘後自己好了**,而**沒有任何紀錄說明那 18 分鐘發生了什麼**。
+
+- **實查(Vercel 錯誤表,保留 7 天 ⇒ 🔴 這份紀錄 2026-08-26 前後會過期):**
+  ```
+  Invalid API key            count=158 users=**9**  routes=/products/[slug]
+                             first 08-19T10:48:31   last 08-19T11:06:30
+  而【同一個時間窗】還有四組一起倒（10:47 → 11:01）：
+     category-tree-v1          count=5 users=4
+     catalog-brand-taxonomy    count=5 users=4
+     featured-ui-products      count=4 users=3
+     vehicle-taxonomy(Invalid API key 版)  count=4 users=4
+  ```
+  ⇒ **不是某一支壞掉,是那 18 分鐘裡【所有 Supabase 呼叫】都被拒絕。**
+
+- **客人看到什麼:** `/products/[slug]` 整頁掛掉。**9 個真客人**在那 18 分鐘內踩到。
+
+- **🔴 疑似成因(而這是【時間吻合】,不是證據):**
+  ```
+  memory `project_0821-supabase-anon-key-already-set-unblocks-b2a` 記著
+  「SUPABASE_ANON_KEY 已設（**兩天前**）」，而 08-21 往前兩天 = **08-19**。
+  ⇒ 疑似金鑰輪替的那一刻。
+  ⚠️ 我【沒有】去查那顆環境變數的變更紀錄 —— 要確認得問改它的人。
+  ```
+
+- **🔴 而這一條真正要解的不是那 18 分鐘,是【沒有人知道】:**
+  ```
+  · 它自己好了 ⇒ 沒有人需要處理 ⇒ 沒有人去看
+  · 它進了 Vercel 錯誤表 ⇒ 而那張表【沒有任何東西在盯】
+  · 🔴 它是【三天後別人查別的事情時順手撈到的】
+  ⇒ 換個情境（金鑰改壞而沒改回來），一樣沒有人會知道，而客人會一直看到壞頁面。
+  ```
+
+- **不修未來會痛在哪:**
+  改環境變數是**一個人幾秒鐘的動作**,而它會讓**整站對客人失效**。
+  現在沒有任何機制讓那個動作留下痕跡、也沒有任何機制在失效時叫人。
+  ⇒ **下一次不會比這次好,只會看運氣。**
+
+- **要決定的(而只有 Sean 查得到):**
+  ```
+  Q：08-19 早上 10:48 前後，你（或任何人）有沒有改過 Supabase 的金鑰／環境變數？
+     A: 有 | 沒有 | 不記得
+  ```
+  · 答「有」⇒ 這條收斂成「改金鑰要有流程」,不是 bug
+  · 答「沒有／不記得」⇒ 🔴 **那 18 分鐘是【原因不明的全站失效】**,嚴重度要重估
+
+- **⚠️ 時效:** Vercel 錯誤表**只留 7 天** ⇒ **這筆的原始證據約 2026-08-26 就查不到了**。
+  要保存細節請先抄出來(本條已抄了計數與時間窗)。
+
+- **🔴 原始字面全抄(因為那張表會在 2026-08-26 前後把它拿走):**
+  ```
+  來源：Vercel runtime errors，project prj_4yNDP3XOt202tQIlYwF9auf5fLN7
+        team team_uMPmFCKRDUhoixK6p3JC0Tis，2026-08-22 06:0x 由線 B -3c 讀出
+  保留期限：**7 天** ⇒ 這些字面約 2026-08-26 之後就查不到了
+
+  ── 主群 ──
+  Error: {"message":"Invalid API key","hint":"Double check the provided API key for typos.
+          This API key might also be owned by another Supabase project."}
+  count=158  users=9  routes=/products/[slug]
+  first=2026-08-19T10:48:31.000Z   last=2026-08-19T11:06:30.000Z
+  lastDeployment=dpl_7czMyJbVmCkDRusk6E6ac85kQP8V
+
+  ── 同一時間窗一起倒的四組（全部 lastDeployment 同一顆）──
+  category-tree-v1          count=5 users=4 routes=/, /products
+                            first=2026-08-19T10:47:01Z last=2026-08-19T11:01:38Z
+  catalog-brand-taxonomy-v1 count=5 users=4 routes=/, /products
+                            first=2026-08-19T10:47:01Z last=2026-08-19T11:01:38Z
+  featured-ui-products-v3   count=4 users=3 routes=/
+                            first=2026-08-19T10:47:01Z last=2026-08-19T11:01:38Z
+  vehicle-taxonomy-v3（Invalid API key 版，非逾時版）
+                            count=4 users=4 routes=/, /products
+                            first=2026-08-19T10:51:29Z last=2026-08-19T11:01:38Z
+  ```
+  ⚠️ **`users` 是 Vercel 自己算的「受影響使用者數」** —— 我沒有查它怎麼定義的
+  (是否去重、是否含 bot)⇒ **引用時帶著這個未確認。**
