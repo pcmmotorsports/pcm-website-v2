@@ -1849,6 +1849,21 @@ order by n desc, 1;
 - **預期解法:**
   - 候選 A:M-3 啟動前 Sean 拍板選綠界(產業標)、自動串接、估 1 週 dev【推薦】
   - 候選 B:Phase 1 階段 1 純手動、Phase 2 補(累積成本高)
+- 🔴🔴 **2026-08-21 補(窗 C2):發票模板上【必須】有買受人名稱及地址,這是法定必要記載、不是選配**
+  ```
+  統一發票使用辦法 §9 第二款 原文短引(law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=G0340082&flno=9,
+  截止日 民國 115-08-14):「製造業或經營進口貿易之營業人,銷售貨物或勞務與非營業人開立之
+  統一發票,應載明買受人名稱及地址,或身分證統一編號。」
+  第三款(不適用我們):「…除前款規定外,得免填買受人名稱及地址。」
+  ⇒ Sean 2026-08-21 答「甲 = 有」(公司登記營業項目有國際貿易/進口)⇒ **我們走第二款。**
+  ```
+  🔴 **二選一要選對**:條文是「名稱及地址,**或**身分證統一編號」。
+  ✅ 用【姓名 + 地址】(我們本來就有,出貨要用)❌ **不要改成蒐集身分證統一編號**
+  —— 那是新增一類敏感個資,而條文不要求兩者都要;**做錯的方向是多蒐集,而多蒐集不會有東西轉紅。**
+  ⚠️ **連動個資**:開票之後,客人的姓名與地址成為憑證必要記載 ⇒ 隨憑證至少保存五年
+  ⇒ **客人要求刪除時刪不掉** ⇒ `docs/runbooks/data-rights-sop.md` §4-b 要多一格(該節已寫好待搬)。
+  📎 依據全文 `~/pcm-mailbox/C2-C20-會計憑證逐欄與保存年限-20260821.md`;
+     ⚠️ 上面是【原文短引】不是整條逐字(該頁有引述字數上限)⇒ **據以實作前自己開網址核一次。**
   - 候選 C:外包(成本中)
 - **不修會痛在:**
   - 擴充性:Phase 2 訂單量上升、手動成本指數上升
@@ -5385,6 +5400,11 @@ order by n desc, 1;
 ### #183. ⏳ 搜尋日誌蒐集 search query log(【時間敏感】上線起記錄、不可回填)
 
 - **狀態:** ⏳ 待評估(建議 M-6 上線前落地)
+- 🔗 **本條做完的那一天,要一起撤掉一份 SOP 的一節(依據見 `#821`)**(2026-08-21 加,窗 C2):
+  隱私政策**已經**對客人宣告蒐集「站內搜尋紀錄」(`legal-content.ts:203`),而在本條落地之前
+  那句話沒有對應的實體 ⇒ 目前由 `docs/runbooks/data-rights-sop.md` §4-d 頂著。
+  🔴 **本條完成 = 撤掉 §4-d 的觸發條件,而那份 SOP 不會自己來找你** —— 做本條的人只會讀本條,
+  所以那句提醒必須住在**這裡**。落地那天回頭撤掉 §4-d 那一格。
 - **分流:** P1-before-launch
 - **優先級:** 🔴 高(行為資料不可回填、不從上線起記錄即永久缺歷史語料)
 - **問題:**
@@ -5404,11 +5424,6 @@ order by n desc, 1;
 - **依賴:** 搜尋路徑落地(#35 searchByKeyword / M-1-03)
 - **發現於:** 2026-05-26 / ChatGPT 平台藍圖對照評估
 - **相關:** #35(search engine plan、明指「無 search query log」)、#184(GA4 事件)、#185(keyword 正規化、依賴本條語料)
-- 🔗 **本條做完的那一天,要一起撤掉一份 SOP 的一節(依據見 `#821`)**(2026-08-21 加,窗 C2):
-  隱私政策**已經**對客人宣告蒐集「站內搜尋紀錄」(`legal-content.ts:203`),而在本條落地之前
-  那句話沒有對應的實體 ⇒ 目前由 `docs/runbooks/data-rights-sop.md` §4-d 頂著。
-  🔴 **本條完成 = 撤掉 §4-d 的觸發條件,而那份 SOP 不會自己來找你** —— 做本條的人只會讀本條,
-  所以那句提醒必須住在**這裡**。落地那天回頭撤掉 §4-d 那一格。
 
 ### #184. ⏳ GA4 基礎行為事件埋設(【時間敏感】上線起埋、不可回填)
 
@@ -6732,6 +6747,30 @@ order by n desc, 1;
     員工會看到一堆**已經沒事**的列 ⇒ **清單一開始就沒人想看,那等於沒做。**
     🔴 **而「做了而沒人用」與「沒做」的成本一樣,前者還多花了工時。**
     ⇒ 驗收條件要含**一句可以 yes/no 的**:**員工第一次打開這個清單,上面每一列都是他真的要處理的嗎?**
+    - 🔴🔴 **2026-08-21 補(窗 C2,正式庫唯讀 SELECT):⑤ 寫的條件是 `paid`,而【實際存在的那一族是 `refunded`】**
+      ```
+      payment_charge_attempts 全表 17 列,needs_manual_review = true 的有 5 列,逐列拉出來:
+        2SQH2P        pending / 訂單 unpaid    重試 8   ← 真的還要處理(告警信會列它)
+        GVRDMH        pending / 訂單 unpaid    重試 8   ← 同上
+        PCM-2026-0102 charged / 訂單 refunded  重試 0   ← 🔴 錢已退完,而手還舉著
+        RCPVVJ        charged / 訂單 refunded  重試 0   ← 🔴 同上
+        5HGMC5        charged / 訂單 refunded  重試 0   ← 🔴 同上
+      🔴 **`paid` 且 needs_manual_review=true 的列 ⇒ 目前 0 筆。**
+      ⇒ 照 ⑤ 的字面(`paid`)去寫清理,**今天會撈到零筆,而那三列會原封留下**,
+        而清單看起來「乾淨了」——**恆綠**。
+      ⇒ 條件要放寬成「attempt 已終態(charged/failed)且訂單已終態(paid/refunded/cancelled)」,
+        或直接以「這張單的付款已經結束」為準,不要枚舉單一 payment_status。
+      ```
+      ⚠️ **而這三列今天不吵人**(告警信的述詞含 `o.payment_status = 'unpaid'`,窗 C2 開檔核過
+      `20260810220000_…l5b0s:358-362` 與 `20260819130000_…anomaly_alert_display_ids:144-148`,兩處逐字相同)
+      ⇒ **它們被擋在告警外面** ⇒ 好的那半是不吵人,**壞的那半是永遠不會有人被告知它們還舉著**。
+      🔴 判別句(窗 `-03` 給的):**這個過濾是在「降噪」,還是在「把一筆永遠沒人處理的債藏起來」?這一格兩個都是。**
+      🔴 **真正的危險在別處**:任何**沒有**帶那三條述詞、直接讀 `needs_manual_review` 的東西
+      (未來的後台清單 / 儀表板 / 別人臨時寫的查詢)**都會撈到 5**,而它們不會知道其中 3 筆是死的。
+      ⇒ ④ 那個清單頁**正是**這種東西 ⇒ 這一格不是 ⑤ 的附註,是 ④ 的驗收條件。
+      📌 `PCM-2026-0102` 單號格式與其餘不同,**已量過:不是測試資料** ——
+      `PCM-YYYY-nnnn` 是舊版單號格式(3 張,2026-06-23~07-25),6 碼格式是新版(16 張,07-30 起),
+      **兩批都有真實會員**(`customer_user_id is null` ⇒ 0)。⇒ 「3」這個數字**不打折**。
   - ⑤ 🆕 4a-2 殘餘窄 TOCTOU 清理(**Sean 2026-06-15 拍 A=留現狀、Phase II 後台 UI 順手清、非 4b**):expirer/mark 語句快照讀到 unpaid 後、並發 callback/confirm 才 commit order→paid → 可留 `paid + needs_manual_review=true` cosmetic 假告警(無雙扣/無金錢/無安全影響、人工複查即清)。歸入本條 ④ 後台轉人工流程一併處理(成交路徑或後台批次清同單 active attempt 的 needs_manual_review);4a-2 migration 檔頭已誠實揭示、不阻 bundle。
   - ⑥ 🆕 (對抗複驗 wbpvvr5b7 nit、benign 前瞻防禦)4a-1/4a-2 的 ALTER ADD COLUMN 後**未重 assert 表層 SELECT ACL**(s2d L124-146 有完整 table-ACL fail-closed assert、4a-1/4a-2 僅 assert RPC EXECUTE 矩陣 + payment_confirmer 全域 grants=0)。現況零實害:新欄皆 sweeper 簿記 / `last_settle_error` allowlist 錯誤碼集(零 PII)、service_role 本就唯讀;4a-2 與已簽核 4a-1 對稱(同省此 assert)。可選統一 polish=4a-1/4a-2 ALTER 後補 `has_table_privilege` anon/authenticated SELECT=false + service_role 唯 SELECT assert(對齊 s2d 防漂風格);非阻擋、非缺陷、forward-only migration 不會再編輯故價值邊際。
 - **不修會痛在:**
@@ -11822,6 +11861,28 @@ order by n desc, 1;
   ⇒ `chargeAttemptGate` 永遠是 `blocked`,重整幾次都是同一句。
   **失敗之後,觸發這一步的那個條件沒有被改變 ⇒ 那不是錯誤,是迴圈**,已跑 12 天。
   ⚠️ **B 案收窄成 `unpaid` 擋不到這一格** —— 卡住的那兩張**本來就是 `unpaid`**。
+- 🔴🔴 **拆四態時【不要沿用 `auth_or_pending` 這個名字】—— 它已經騙過一個人了**(2026-08-21,窗 `-03` 提供、窗 C2 轉錄)
+  ```
+  那個常數讀起來像「已授權 or 待付款」,而它實際只有 record_status=4 = **尚未授權**。
+  settle-charge.ts:251      逐字「auth_or_pending(record_status=4 PENDING 待付款)」
+  settle-charge.test.ts:181 逐字「PENDING 待付款(尚未授權)」
+  對照(這格是尺):settle-charge.ts:255「record_status ∈ {0 AUTH, 1 OK} … 授權即成立」⇒ 走 paid
+  ⇒ 實際後果:有人照這個【變數名】寫出一個告警信的分類名稱,
+     宣稱客人的錢「可能還被鎖著」，而 Sean 逐字推翻:「根本沒有跳過去 3d 驗證,也不會授權,
+     所以不會卡著額度」。⇒ **他讀了變數名,沒讀它旁邊那行註解。**
+  ```
+  ⇒ 判別句:**一個名字裡有 `or` 的常數,通常是兩個狀態被併成一碼的化石。** 那正是本條要拆的東西。
+- 📊 **2026-08-21 補:`released` 這一態目前【零筆】**(窗 C2 正式庫唯讀 SELECT)
+  ```
+  payment_charge_attempts 全表 status × orders.payment_status 的組合(對照組同一發送出):
+    charged / paid      7      charged / refunded  3
+    failed  / unpaid    5      pending / unpaid    2      ⇒ 合計 17 筆
+    released / (任何)   **0**
+  尺是活的:①欄位存在性同一發查過(released_at / released_manual_review_at /
+  released_closed_at / released_close_resolution / released_closed_by / needs_manual_review 皆在)
+  ⇒ 那個 0 不是欄名打錯 ②對照組回四種非零組合 ⇒ 不是恆回空
+  ```
+  ⇒ **意思是:那一態的處置與文案,目前寫給一個從未發生過的狀況。** 拆四態時它是最沒有實例可對照的一格。
 - ✅ **文案這一半 Sean 2026-08-21 已答「甲 = 改掉」**(經主視窗),另片處理、待他逐字定稿。
   🔴 **但文案只能寫成「在途」與「卡住」兩個世界都成立的句子** —— 因為 gate 分不出來。
   ⇒ **那正是 A 案要修的東西**:能分辨之前,這句話的精確度有一個天花板,再怎麼改都撞得到。
