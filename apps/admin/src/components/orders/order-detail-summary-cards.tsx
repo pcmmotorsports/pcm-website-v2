@@ -143,7 +143,19 @@ function Field({
               `min-w-0` 讓這個 flex child 真的能縮到比內容窄,`break-words` 才有機會接手換行。
               實測(37字姓名,本機 `localhost:3021` 真瀏覽器,DOM 注入長字串,非單元測試):
               修前 overflow 195px,只看得到約 23 字;修後零溢出、換行顯示。 */
-        <span className='min-w-0 text-right break-keep break-words'>{value ?? '—'}</span>
+        /* 🔴 `??` 接不住空字串(2026-08-21 線 E 真瀏覽器實量)。
+           `customer.phone` 進來的是 `''` 不是 `null` ⇒ `'' ?? '—'` 仍然是 `''`
+           ⇒ 那一格渲染成一個空 `<span>`,畫面上什麼都沒有。
+           實量(同一張單、`localhost:3021`):電話 span 內容 `""`;
+           對照發票號碼 `—`(它是 `null` ⇒ 舊的 `??` 接得住)⇒ **同一個元件兩種結果**。
+           🔴 **空白同時相容於【客人沒留電話】與【電話沒載到】** ——
+              而本檔自己寫著這條(anchor:grep `「不知道」與「是 0」不是同一件事`)。
+           🔴 **`'—'` 只解掉一半,不要以為這格做完了**:它讓「這格是空的」看得見,
+              **仍然分不出「客人沒留」與「沒載到」** —— 要分得出來得由呼叫端傳兩種不同的空
+              (那是資料層的事,不在本片)。 */
+        <span className='min-w-0 text-right break-keep break-words'>
+          {value == null || value === '' ? '—' : value}
+        </span>
       )}
     </div>
   );
