@@ -17,7 +17,12 @@ import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domai
       原封不動,是下一輪 code-reviewer 抓的。**finding 是症狀的位置,不是病的邊界。** */
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 // 片2 標頭列:兩個標籤表都是**既有的**,本片零新增詞彙(理由見 `OrderHeadChip` 那段)。
-import { PAYMENT_STATUS_LABEL, formatOrderAmount } from '../../lib/orders/order-list-view';
+import {
+  PAYMENT_STATUS_LABEL,
+  SHOW_UNPAID_CARD_ON,
+  SHOW_UNPAID_CARD_PARAM,
+  formatOrderAmount,
+} from '../../lib/orders/order-list-view';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { OrderEditForm } from './order-edit-form';
@@ -452,6 +457,46 @@ export function OrderDetail({
         payments={payments}
         amountDue={detail.total.amount}
       />
+
+      {/* 🔴 `#841` 甲案(2026-08-22,線 A `-86` 扮員工走一天時撞到;主視窗批准施工)。
+          **員工照著唯一一條人工出路走完 —— 客人刷卡失敗 → 改用匯款 → 他登錄收款 ——
+          而那張單【從預設的訂單列表消失】,因為預設隱藏規則問的是「那張卡刷過了沒」。**
+          我在真訂單 `2SQH2P` 上實測:登錄 1,500 元匯款之後,總覽說「今日實收 1,500」、
+          這張卡說「1,500 / 1,500 · 尾款 0」,而訂單列表**找不到它**(0 命中,正對照同頁其他單 6 命中)。
+
+          🔴 **這裡刻意【只講、不改行為】** —— 隱藏規則一個字都沒動。
+             治本要改 `admin_order_list_v`(加一欄「已收多少」)= 鐵則 12③,押著等 Sean。
+          🔴 **而說話的時機是這一片的重點**:他剛做完那個動作、人就在這張卡上。
+             `fail-closed 不可以是沉默的;而最有效的說話時機,是他剛做完那個動作的那一秒。`
+
+          **三個條件缺一不可,理由各自不同:**
+          · `paymentChannel === 'tappay'` + `paymentStatus === 'unpaid'` —— 這兩個【就是】隱藏規則的字面
+            (`SupabaseOrderAdapter.ts` 的 `payment_channel.neq.tappay,payment_status.neq.unpaid`)。
+          · **而且真的收到過錢**(`payments.status === 'ok' && rows.length > 0`)——
+            🔴 沒有收款紀錄時,這張單被藏起來**是 Sean 要的行為**,講出來只是噪音。
+            ⚠️ `status !== 'ok'` 時**不講** —— 讀不到明細時我們不知道有沒有收過錢,
+               而「不知道」不可以被畫成「有」。(同本檔一路的立場:空白與讀不到不得長得一樣。)
+
+          ⚠️ **文案暫定,待 Sean 肉眼定稿**(結構鎖、字不鎖)。 */}
+      {detail.paymentChannel === 'tappay' &&
+        detail.paymentStatus === 'unpaid' &&
+        payments.status === 'ok' &&
+        payments.rows.length > 0 && (
+          <p
+            role='status'
+            className='rounded-md border border-amber-500/30 bg-amber-500/5 p-2.5 text-xs text-amber-700'
+          >
+            這張單的刷卡紀錄還是「未付款」,所以它<strong>預設不會出現在訂單列表</strong>——
+            即使錢已經收到了。要再找到它,請在列表勾「顯示刷卡未付款(預設隱藏)」,或{' '}
+            <a
+              className='underline underline-offset-2'
+              href={`/orders?${SHOW_UNPAID_CARD_PARAM}=${SHOW_UNPAID_CARD_ON}`}
+            >
+              直接開一份含這類訂單的列表
+            </a>
+            。
+          </p>
+        )}
 
       {/* 2c:出貨卡。**查看與補救用,不是主要建箱動線**(建箱走訂單總覽勾單、Sean 拍 S1=A)。
           位置 = 採購與到貨 → 收款 → **出貨**,收在頁面主流程的最後一步

@@ -197,6 +197,65 @@ function paymentText(container: HTMLElement): string {
   return paymentSection(container).textContent ?? '';
 }
 
+/**
+ * 🔴 `#841` 甲案(2026-08-22,線 A `-86`):**收到錢了、而那張單仍然被預設隱藏 ⇒ 畫面要講。**
+ *
+ * **病**:員工照著唯一一條人工出路走完(客人刷卡失敗 → 改用匯款 → 他登錄收款),
+ * 而那張單的 `payment_channel='tappay'` / `payment_status='unpaid'` **兩欄一個字都沒動**
+ * ⇒ 它仍然符合列表的預設隱藏規則 ⇒ **從他眼前消失,而沒有任何字告訴他為什麼。**
+ * 真訂單 `2SQH2P` 實測:登錄 1,500 之後,總覽說「今日實收 1,500」、面板說「尾款 0」,
+ * 而預設清單 **0 命中**(正對照同頁其他單 6 命中)。
+ *
+ * 🔴 **三格,而三格守的是三件不同的事**:
+ *   ① 該講的時候講      —— 否則員工以為單子不見了
+ *   ② 沒收過錢時不講    —— 那種單被藏起來【是 Sean 要的行為】,講出來只是噪音
+ *   ③ 讀不到明細時不講  —— 「不知道有沒有收過錢」不可以被畫成「有」
+ *
+ * ⚠️ **本族只驗「有沒有講」,不驗隱藏規則本身** —— 甲案一個字都沒改行為。
+ */
+function hiddenNotice(container: HTMLElement): Element | null {
+  return (
+    Array.from(container.querySelectorAll('[role="status"]')).find((el) =>
+      (el.textContent ?? '').includes('預設不會出現在訂單列表'),
+    ) ?? null
+  );
+}
+
+describe('#841 甲:收到錢了而那張單仍被預設隱藏 ⇒ 面板要講', () => {
+  it('🔴 tappay + unpaid + 有收款 ⇒ 講,而且給得出一條點得過去的路', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
+    mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
+    const { container } = await renderPage();
+    const notice = hiddenNotice(container);
+    expect(notice, '收到錢了而單子被藏起來時必須講').not.toBeNull();
+    // 🔴 只講不給路 = 還是死路。連結要真的帶著那個開關。
+    const href = notice?.querySelector('a')?.getAttribute('href') ?? '';
+    expect(href).toContain('show_unpaid_card=1');
+  });
+
+  it('🔴 tappay + unpaid + 【零收款】⇒ 不講(那種單被藏是刻意的,講了是噪音)', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
+    mocks.listOrderPayments.mockResolvedValue([]);
+    const { container } = await renderPage();
+    expect(hiddenNotice(container)).toBeNull();
+  });
+
+  it('🔴 收款明細【讀不到】⇒ 不講 ——「不知道有沒有收過錢」不可以被畫成「有」', async () => {
+    mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
+    mocks.listOrderPayments.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(hiddenNotice(container)).toBeNull();
+  });
+
+  it('已付款(不符隱藏規則)+ 有收款 ⇒ 不講', async () => {
+    mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
+    const { container } = await renderPage();
+    expect(hiddenNotice(container)).toBeNull();
+    // 正對照:這一發真的渲染了付款卡 ⇒ 上面那個 null 不是「整頁沒出來」造成的。
+    expect(container.textContent ?? '').toContain('收款');
+  });
+});
+
 describe('#15-B2-c 片1a:listOrderPayments 的三種回法 → 畫面三句不同的話', () => {
   it('有收款列 ⇒ 列出來,且筆數與金額都在畫面上', async () => {
     mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
