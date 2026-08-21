@@ -8,8 +8,9 @@
 # 會在「admin 開著、你要 build storefront」時誤擋——本檔綁的是 app 目錄,不是進程名。
 #
 # 用法:bash scripts/build-guard.sh <app-name>(例如 storefront / admin)
-#      通常接著 build:
+#      直接這樣呼叫 = 當閘用,擋到會 exit 1:
 #        bash scripts/build-guard.sh storefront && TURBO_FORCE=1 pnpm --filter storefront build
+#      package.json 的 prebuild 呼叫時帶 PREBUILD_WARN_ONLY=1 = 只警告不擋(見下方 turbo 那段)
 #
 # 驗證(2026-08-21 F-81,手動跑過,不是內建在每次呼叫裡——每次呼叫都真的起一次 dev server
 # 驗證太重):
@@ -40,15 +41,23 @@ fi
 
 MATCH=$(pgrep -fl "apps/${APP}/.*next.*dev" || true)
 if [ -n "$MATCH" ]; then
-  echo "🔴 build 會假紅:apps/${APP} 底下有 next dev 開著,跟 build 共用同一個 .next 目錄。" >&2
+  echo "BUILD-GUARD-WARN 🔴 build 可能會假紅:apps/${APP} 底下有 next dev 開著,跟 build 共用同一個 .next 目錄。" >&2
+  echo "如果下面出現 ENOENT / 找不到 .next 底下某個檔,先回頭看這一行,那多半不是你的 code 壞了。" >&2
   echo "" >&2
   echo "偵測到的行程:" >&2
   echo "$MATCH" >&2
   echo "" >&2
   echo "這不是你的 code 壞了 —— build 讀寫 .next 的同時 dev server 也在寫,兩邊互相破壞產物," >&2
   echo "常見症狀是 ENOENT / 找不到某個 .next/static/<hash>/ 檔案。" >&2
-  echo "  · 那台 dev server 是你的 ⇒ 先收掉(down.sh 或對應的收攤腳本),再重跑這支腳本" >&2
+  echo "  · 那台 dev server 是你的 ⇒ 先收掉(down.sh 或對應的收攤腳本),再重跑build" >&2
   echo "  · 不是你的 ⇒ 去問上面那個 pid 是誰的,協調收掉的時間,不要自己 kill 別人的" >&2
+  # 🔴 2026-08-21 急件修:turbo 是整批跑的,一支 app 的 dev server 擋下去會讓整個 monorepo
+  #    的 build 全紅(admin 幾乎永遠有窗開著)——prebuild 這條路只警告、不擋,阻擋權留給
+  #    「直接呼叫本腳本」那條路(要當閘用的人還是有閘可用)。
+  #    PREBUILD_WARN_ONLY 只在 package.json 的 prebuild 那一行設,直接跑本腳本不會有它。
+  if [ "${PREBUILD_WARN_ONLY:-}" = "1" ]; then
+    exit 0
+  fi
   exit 1
 fi
 
