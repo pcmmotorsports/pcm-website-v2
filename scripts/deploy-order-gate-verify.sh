@@ -19,7 +19,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=47
+EXPECT_TOTAL=49
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -226,6 +226,35 @@ B9B="$(cd "$R9B" && git rev-parse HEAD~1)"; T9B="$(cd "$R9B" && git rev-parse HE
 # 🔴 M2b 的「有保護那一側」由本格承擔;動本格前先看 M2b。
 expect_pass "⑫b 4a 呼叫窗口的識別字邊界:.rpc('pcm_a9h_probe_v2') 不是 pcm_a9h_probe ⇒ 不誤擋" \
   "$(run_gate "$R9B" "refs/heads/dev $T9B refs/heads/dev $B9B")"
+
+# 🔴 ⑫c(2026-08-21 線D `-4a` 補):第三條路 **4b-ii(識別字解析出來的名字)** 的整行邊界(`grep -qxF` 的 `-x`)零覆蓋。
+#    實測(補格子之前先構造一發它現在漏得掉的):
+#      原始閘 + 本 fixture ⇒ rc=0    拿掉 `-x` + 本 fixture ⇒ rc=1(開始誤擋)
+#      原始閘 + ⑫ fixture ⇒ rc=0    拿掉 `-x` + ⑫ fixture ⇒ rc=0(**沒變**)
+#    🔴 三條路各走各的,而它們的邊界寫法**都不一樣**:
+#      4a  字元類邊界 `(^|[^A-Za-z0-9_])…`   ⇒ ⑫b / M2b
+#      4b-i 引號邊界  `['\"]…['\"]`           ⇒ ⑫  / M2
+#      4b-ii 整行相等 `grep -qxF`             ⇒ 本格 / M2c
+#    ⇒ **一條路的突變證不到另外兩條** —— 這正是 M2 當初被從 4a 改錨到 4b 時漏掉的那件事。
+#    本 fixture 走 4b-ii 的機械理由:常數定義在【這次沒被改動的檔】⇒ 新增行裡沒有任何函式名字面
+#    ⇒ 4a(呼叫窗口無字面)與 4b-i(無引號包住的整串)都不會命中,只剩識別字解析那條。
+R9C="$WORK/r9c"; setup_repo "$R9C"
+cat > "$R9C/apps/admin/src/fn-names.ts" <<'TS'
+export const PROBE_FN = 'pcm_a9h_probe_v2';
+TS
+( cd "$R9C" && git add -A && git commit -qm "base: 常數表(這次不會被改)" )
+add_pending_migration "$R9C"
+cat > "$R9C/apps/admin/src/consumer.ts" <<'TS'
+import { PROBE_FN } from './fn-names';
+export async function callIt(sb: any) {
+  return await sb.rpc(PROBE_FN, { p_order_id: 'x' });
+}
+TS
+( cd "$R9C" && git add -A && git commit -qm "feat: 識別字風格呼叫,解析出的是更長的相似名字" )
+B9C="$(cd "$R9C" && git rev-parse HEAD~1)"; T9C="$(cd "$R9C" && git rev-parse HEAD)"
+# 🔴 M2c 的「有保護那一側」由本格承擔;動本格前先看 M2c。
+expect_pass "⑫c 4b-ii 識別字解析的整行邊界:解析出 pcm_a9h_probe_v2 不是 pcm_a9h_probe ⇒ 不誤擋" \
+  "$(run_gate "$R9C" "refs/heads/dev $T9C refs/heads/dev $B9C")"
 
 echo
 echo "── 關卡2 折面:新增行 / fail-closed / ledger 合法性 / hook 真的被 git 叫到 ──"
@@ -438,6 +467,24 @@ mutate_and_check "M2 識別字邊界改成裸子字串比對" \
 # 🔴 本發的「有保護那一側」是 ⑫b;動 ⑫b 會讓本發失去對照。
 mutate_and_check "M2b 4a 呼叫窗口的識別字邊界改成裸子字串比對" \
   'grep -qE "(^|[^A-Za-z0-9_])$fn([^A-Za-z0-9_]|\$)"@@@grep -qF "$fn"' block "$R9B" "refs/heads/dev $T9B refs/heads/dev $B9B"
+# 🔴 M2c(2026-08-21 線D `-4a` 補):打 4b-ii 的整行邊界(`-x`)。
+#    ⚠️ **3x3 實測矩陣(2026-08-21,列=fixture、欄=突變;rc)**:
+#             原始  M2   M2b  M2c
+#      ⑫       0    1    0    0
+#      ⑫b      0    1    1    0        ← 🔴 M2 **也**翻得動 ⑫b
+#      ⑫c      0    0    0    1
+#    🔴 **所以「三發互不重複」是假的,不要那樣寫**(我第一版就是那樣寫的,量完才發現):
+#       M2 同時翻 ⑫ 與 ⑫b —— 因為拿掉引號邊界之後它退化成裸子字串,對兩個 fixture 都命中。
+#    ✅ **而真正成立、也真正是加這兩格的理由的,是【欄】方向**:
+#       M2b 那一欄只有 ⑫b 是 1、M2c 那一欄只有 ⑫c 是 1
+#       ⇒ **這兩發突變,除了它們自己那一格以外沒有任何格抓得到** ⇒ 少了它們就是零覆蓋。
+#    📌 判別句:證明一格「有必要」要看**它是不是某個突變的唯一捕手**,不是看「它跟別人不重複」。
+# 🔴 本發的「有保護那一側」是 ⑫c;動 ⑫c 會讓本發失去對照。
+#    📌 錨點刻意縮短成不含單引號的那一段(`grep -qxF "$fn"`)——
+#       第一版把整條 printf 抄進來,而它含單引號 ⇒ **整支 harness 當場 syntax error**(實跑抓到)。
+#       縮短是安全的,理由是量過的:`grep -cF 'grep -qxF "$fn"' scripts/deploy-order-gate.sh` ⇒ 1(唯一)。
+mutate_and_check "M2c 4b-ii 識別字解析改成裸子字串比對(拿掉整行相等)" \
+  'grep -qxF "$fn"@@@grep -qF "$fn"' block "$R9C" "refs/heads/dev $T9C refs/heads/dev $B9C"
 # 🔴 本發的「有保護那一側」是 ⑪;動 ⑪ 會讓本發失去對照。
 mutate_and_check "M3 拿掉 app 面的測試檔過濾" \
   "| grep -vE '\\.(test|spec)\\.[jt]sx?\$|/__tests__/'@@@" block "$R8" "refs/heads/dev $T8 refs/heads/dev $B8"
