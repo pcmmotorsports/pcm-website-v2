@@ -318,3 +318,92 @@ export function printCategoryResolutionReport(s: CategoryResolutionSummary): voi
     console.log('✅ 全部 per-group 分類皆對上 categories.raw_path');
   }
 }
+
+// ── #789 分類語意 gate(名字 vs 分類麵包屑)────────────────────────────────
+/**
+ * #789:匯入端既有的只有「category_id=null」硬 gate,而 v2 解析恆有未分類 fallback
+ * ⇒ 那道 gate 對「掛錯分類」零判別力(rpm-import.ts 該段註解逐字:「categoryId 恆非 null」)。
+ * 掛錯的商品在前後台都【正常顯示】:有名字、有價格、有圖、買得下去;唯一的錯是客人在正確
+ * 分類底下找不到它 —— 而那個失敗發生在客人的瀏覽器裡,沒有任何一格會紅。
+ *
+ * 本 gate 斷言的是【語意】不是【接線】:名字已經明說是哪一種濾芯的商品,不得落進相剋的分類。
+ * 規則出處 = 來源匯出自己寫過的警告逐字:「機油濾芯跟進氣無關,客人點進氣系統看到機油濾芯是錯的」。
+ *
+ * 🔴 中英雙語是必要的,不是保險:ProductRow.title = product_name_zh || product_name(中文優先)。
+ *    2026-08-21 實測 dna 787 筆【全部】有中文名 ⇒ 只寫英文 pattern 的話這道 gate 掃到 0 列、恆綠。
+ *    反過來只寫中文也不行:同日實測「英文有 air filter 而中文沒有『空氣濾』」有 165 筆。
+ *
+ * ⚠️ 規則刻意窄:只認名字裡明說的那兩種。名字沒明說的一律不管
+ *    ⇒ 它會【少報】不會【誤報】,而少報是可接受的失敗方向。要擴就加進 CATEGORY_SEMANTIC_RULES。
+ *
+ * 📌 上線當天不會紅(2026-08-21 對 dna 787 筆實測):違規 0 筆。
+ *    而【那個 0 本身沒有判別力】—— 同一次量測裡規則一掃到 34 列、規則二掃到 548 列,
+ *    ⇒ 0 是「掃到了而沒有違規」,不是「什麼都沒掃到」。判別力在 rpm-preflight.test.ts 的負對照。
+ *
+ * 🔴 射程(2026-08-21 R1 審查標,不是缺陷、是那兩個數字證不到的那一半):
+ *    「規則一掃到 34 / 規則二掃到 548」是 **namePattern** 的命中數 —— 它證明的是 AND 的【一半】。
+ *    「掃到了」被證明了;「掃到了 **而且 rawPath 比對到了正確的分類字面**」**沒有**。
+ *    forbiddenPathPrefix 的分隔符若與 categories.raw_path 實際值不一致(全形/半形/空格數),
+ *    startsWith 會永遠不成立 ⇒ 該規則恆綠,而 namePattern 的命中數【看起來一模一樣】。
+ *    ⚠️ 審查側已查:兩個 prefix 字面在 migration 裡逐字存在(含那個 `·`)⇒ 這一發沒被打破。
+ *       但那證的是「字面在 migration 裡存在」,不是「真實 categories.raw_path 欄位的值長那樣」。
+ *    ⇒ 要收掉這個射程只有一條路:**第一次真的跑匯入時,核對下方報告印出的兩個數字**(見 print 函式)。
+ */
+export const CATEGORY_SEMANTIC_RULES = [
+  {
+    rule: 'oil-filter-must-not-be-intake',
+    namePattern: /oil ?filters?|機油濾/i,
+    forbiddenPathPrefix: '進氣系統',
+    why: '機油濾芯跟進氣無關,客人點進氣系統看到機油濾芯是錯的',
+  },
+  {
+    rule: 'air-filter-must-not-be-oil-category',
+    namePattern: /air ?filters?|空氣濾/i,
+    forbiddenPathPrefix: '引擎與冷卻 · 機油與濾芯',
+    why: '空氣濾芯掛進機油分類,客人在空氣濾芯底下找不到它',
+  },
+] as const;
+
+export type CategorySemanticRow = { external_id: string; title: string; rawPath: string };
+export type CategorySemanticMismatch = CategorySemanticRow & { rule: string; why: string };
+
+/**
+ * 回傳違反語意規則的列。空陣列 = 沒有違規(呼叫端寫入模式 abort、乾跑僅列報告)。
+ * rawPath 空字串(未對上 v2 pair)一律略過 —— 那一格由 #261 的未分類 fallback 與彙整報告負責,
+ * 本 gate 不重複管,也不要因為「沒有麵包屑」就報一個沒有依據的違規。
+ */
+export function findCategorySemanticMismatches(rows: CategorySemanticRow[]): CategorySemanticMismatch[] {
+  const out: CategorySemanticMismatch[] = [];
+  for (const r of rows) {
+    if (!r.rawPath) continue;
+    for (const rule of CATEGORY_SEMANTIC_RULES) {
+      if (rule.namePattern.test(r.title) && r.rawPath.startsWith(rule.forbiddenPathPrefix)) {
+        out.push({ ...r, rule: rule.rule, why: rule.why });
+        break; // 一列只報第一條命中的規則,避免同一筆重複洗版
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 🔴 收【列陣列】而不是收一個 number:R1 審查的 DN-1 是呼叫端把「全部的列數」當成「實際掃描列數」傳進來,
+ *    而括號裡那句「rawPath 為空者不列入」是對的 ⇒ **話對、數字錯,而畫面上分不出來**。
+ *    修法不是把那個數字算對,是**讓呼叫端沒有機會傳錯** —— 兩個數都由本函式從同一份 rows 算出來。
+ * 🔴 兩個數都印,差距本身就是資訊:總數 == 實掃 ⇒ 每一列都被看過;
+ *    實掃遠小於總數 ⇒ 大部分列連進判別式都沒進去,那個「0 違規」不代表什麼。
+ */
+export function printCategorySemanticReport(rows: CategorySemanticRow[], mismatches: CategorySemanticMismatch[]): void {
+  const totalRows = rows.length;
+  const scannedRows = rows.filter((r) => r.rawPath).length; // 與 findCategorySemanticMismatches 的 `if (!r.rawPath) continue` 同一個條件
+  const denom = `總 ${totalRows} 列 / 實際掃描 ${scannedRows} 列(rawPath 為空的 ${totalRows - scannedRows} 列未進判別式)`;
+  console.log('\n=== #789 分類語意 gate(名字 vs 分類麵包屑)===');
+  if (!mismatches.length) {
+    // 🔴 把分母印出來:沒有分母的「0 違規」與「gate 根本沒跑」在畫面上長得一樣。
+    console.log(`✅ 語意違規 0 筆(${denom})`);
+    return;
+  }
+  console.warn(`⚠️ 語意違規 ${mismatches.length} 筆(${denom})—— 寫入模式將 abort:`);
+  console.table(mismatches.slice(0, 30).map((m) => ({ external_id: m.external_id, title: m.title, rawPath: m.rawPath, rule: m.rule })));
+  if (mismatches.length > 30) console.log(`(另有 ${mismatches.length - 30} 筆未列)`);
+}

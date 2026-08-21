@@ -88,6 +88,8 @@ import {
   summarizeCategoryResolution,
   printCategoryResolutionReport,
   findNullCategoryProducts,
+  findCategorySemanticMismatches,
+  printCategorySemanticReport,
 } from './rpm-preflight';
 
 // ── constants ──
@@ -229,7 +231,8 @@ async function main(): Promise<void> {
   // 轉換
   const productRows: ProductRow[] = [];
   const variantsByExternalId = new Map<string, VariantRow[]>();
-  const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = []; // 乾跑彙整(fallback 傳 null=真實反映未對上、避免假綠 Codex must-fix 1)
+  const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = [];
+  const categorySemanticRows: { external_id: string; title: string; rawPath: string }[] = []; // #789 分類語意 gate 的輸入(title 中文優先、rawPath 麵包屑) // 乾跑彙整(fallback 傳 null=真實反映未對上、避免假綠 Codex must-fix 1)
   let nullV2Groups = 0; // 整群無完整 (major,sub) pair(大面積 null)→ 未分類
   let unseededSubGroups = 0; // 有完整 pair 卻 resolve 不到 seed 子類(seed 漂移、異常)
   const conflictGroups: { mainSku: string; pairs: string[] }[] = []; // 群內「跨大類」衝突(Codex must-fix 2 的危險情境:錯置到別大類)
@@ -290,6 +293,7 @@ async function main(): Promise<void> {
     // 對抗審查實例:停產款 $1,000 / 在售款 $2,000,卡片仍顯示 $1,000)。
     const pr = transformGroup(mainSku, liveVariants, vehicleLabel, ctx, now);
     productRows.push(pr);
+    categorySemanticRows.push({ external_id: pr.external_id, title: pr.title, rawPath }); // #789
     sourceGroupPrice.set(pr.external_id, independentGroupPrice(liveVariants)); // M1:獨立重算、不共用 transform 實作
     for (const v of liveVariants) sourceVariantPrice.set(v.sku, independentPrice(v.price_retail));
     if (liveVariants.length < variants.length) {
@@ -375,6 +379,23 @@ async function main(): Promise<void> {
         `category_id=null ${nullCategoryProducts.length} 群、abort 不寫(products.category_id NOT NULL;看上方未對上分類彙整、補 categories seed 後重跑)`,
       );
     }
+  }
+
+  // ── 硬 gate:分類語意(#789;名字已明說種類的商品不得落進相剋分類)──
+  //   既有的 #261 null gate 對「掛錯分類」零判別力(categoryId 恆非 null)。掛錯的商品前後台
+  //   都正常顯示,唯一的錯是客人在正確分類底下找不到它 —— 沒有任何一格會紅。
+  //   判別式、中英雙語 pattern、與雙向表演測試在 ./rpm-preflight.ts + rpm-preflight.test.ts。
+  //   🔴 本 gate 至 2026-08-21 為止【沒有跑過一次真的匯入】—— 行為由單元測試 + 接線斷言證明,不是由實跑證明。
+  //   ⇒ 第一次真的跑匯入時,要核對報告印出的那兩個數字:總列數 與 實際掃描列數。
+  //      兩者差距 = rawPath 為空、連判別式都沒進去的列;差距大 ⇒ 那個「0 違規」不代表什麼,
+  //      要先去看 #261 的未對上分類彙整,不是收下這個綠燈。
+  const categorySemanticMismatches = findCategorySemanticMismatches(categorySemanticRows);
+  printCategorySemanticReport(categorySemanticRows, categorySemanticMismatches); // 收列陣列、兩個分母由它自己算(R1 DN-1)
+  if (categorySemanticMismatches.length && !DRY_RUN) {
+    throw new Error(
+      `#789 分類語意違規 ${categorySemanticMismatches.length} 筆、abort 不寫(看上方表:名字明說的種類與掛進去的分類相剋;` +
+        `真的是合法的組合品 ⇒ 把規則加進 rpm-preflight.ts 的 CATEGORY_SEMANTIC_RULES,不要繞過本 gate)`,
+    );
   }
 
   // ── 硬 gate:品名形狀(2026-08-21 W1;起因 = 客人站上真的出現一件品名 `#N/A` 的商品)──
