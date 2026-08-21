@@ -10,6 +10,19 @@
 #    而畫面上 HTML/CSS 正常、**只有 client JS 靜靜地不見**(那跟「功能沒做」長得一樣)。
 #    量測與限定見 runbook §9。
 #
+# 🔴🔴 **本鏈【不是】零 secret 的,而 runbook 檔頭那句「不需要任何 secret」對它不成立。**
+#    ⚠️ **而「換去施工窗工作樹」對這一支【沒有用】** —— `REPO` 在下面是**寫死的**
+#       (`REPO=/Users/sean_1/pcm-website-v2`),`next dev` 一律從**主樹**的 `apps/storefront` 起
+#       ⇒ 不管你人在哪一棵樹呼叫它,**載入的都是主樹那份 `.env.local`**。
+#    ⇒ 本腳本只把 Supabase 與 TapPay 那幾個變數用 inline 值蓋掉(指向拋棄式鑽機);
+#      **`.env.local` 裡的其他東西,在那個 dev server 行程裡是活的。**
+#    ⇒ 🔴 **所以不要對這條鏈打任何「會用到外部金鑰」的路徑** ——
+#      例如 `/api/cron/*` 那幾條會建 notifier 的,打通了會**真的寄信出去(鐵則 12⑤,收不回來)**。
+#    ✅ 起完之後本腳本會印一行 `next 載入的 env 檔:…` —— **那一行就是量到的答案,不要憑印象。**
+#    📌 2026-08-21 實錘:一個窗照 runbook 檔頭那句「不需要任何 secret」在主樹起了 server
+#       (已收掉、零請求),而**五分鐘後第二個窗正要跑本腳本**,被攔下。
+#       ⇒ **一個帶條件的許可,要把條件寫在許可【裡面】,不是寫在它上面。**
+#
 # 🔴 效度限制照 runbook §5 / §8-f,一條都不放寬。最容易忘的兩條:
 #    · GRANT 與 BYPASSRLS 是這支腳本自己下的 ⇒ **證不了正式站的權限設定**
 #    · `/auth/v1` 是替身、**不驗密碼**,任何字串都登得進去 ⇒ 不要拿它驗「擋不擋得住」
@@ -251,4 +264,9 @@ NEXT_PUBLIC_TAPPAY_APP_KEY="${TP_APP_KEY:-probe_app_key}" \
 NEXT_PUBLIC_TAPPAY_ENV="${TP_ENV:-sandbox}" \
 nohup "$NEXT_BIN" dev -p $WEB -H 127.0.0.1 > $S/next.log 2>&1 &
 sleep 15
+# 🔴 把「Next 載入了哪些 env 檔」印出來 —— **這是機制,不是提醒。**
+#    Next 自己會在啟動第一段印 `- Environments: .env.local`,而那行埋在 next.log 裡沒有人會去開。
+#    ⇒ 撈上來放在使用者一定看得到的位置。查無時明說查無,不要靜靜地不印(那與「沒載入」長得一樣)。
+echo "next 載入的 env 檔:$(grep -m1 'Environments:' $S/next.log 2>/dev/null || echo '(next.log 裡沒有 Environments 這一行 —— 未確認,不等於沒載入)')"
+echo "  ⚠️ 上面若出現 .env.local ⇒ 真金鑰在這個 dev server 的環境裡 ⇒ **不要打任何 /api/cron/* 之類會建 notifier 的路徑**"
 echo "web: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:$WEB/)  <- 開這個,不要開 127.0.0.1"
