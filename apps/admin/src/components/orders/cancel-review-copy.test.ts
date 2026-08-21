@@ -55,6 +55,23 @@ describe('charge_attempt_stuck 文案(🟡 待 Sean 逐字定稿)', () => {
     expect(all).not.toContain('免處理');
   });
 
+  it('②-b 🔴 不得斷言「它不會自己變」—— 2026-08-22 實查 CRON_SWEEPER_ENABLED=true', () => {
+    // 🔴 上一版 hint 逐字寫「**不要坐著等它自己變**」，而那句話被證偽了:
+    //   `20260627120000_..._b1a_claim_expired_pending_attempts.sql:16` 逐字「不濾 needs_manual_review、
+    //   繞 sweeper 的 ceiling」，接在 `settle-sweep/route.ts:226` 的 `reconfirmExpiredOrphans`，
+    //   而唯一的閘 `route.ts:156` `CRON_SWEEPER_ENABLED !== 'true'`
+    //   ⇒ **Sean 2026-08-22 親自去 Vercel 看，逐字回報 `CRON_SWEEPER_ENABLED : true`。**
+    //   ⇒ 被舉手的單**仍會**每隔幾小時被低頻再確認 ⇒ TapPay 一回 paid，它就會自己變。
+    // 🔴 這一格守的是**方向**:上一版防「叫他等一件不會來的事」，
+    //   而它自己犯了反面 ——「叫他別等一件可能會來的事」。**兩個方向都不許斷言。**
+    const all = `${entry.title}${entry.hint}`;
+    for (const 斷言句 of ['不會自己變', '不要坐著等', '永遠不會']) {
+      expect(all, `這句話在 sweeper 開著時是假的:${斷言句}`).not.toContain(斷言句);
+    }
+    // 🔴 正向對照:證明它有把「可能會好」這件事講出來，而不是靠【什麼都不說】通過上面那圈。
+    expect(all).toContain('不保證');
+  });
+
   it('② 🔴 要說出他今天【唯一做得到】的那件事', () => {
     // 少了這一格,①那三條禁語可以靠「把話全部刪光」通過 —— 空字串滿足所有 not.toContain。
     expect(entry.hint).toContain('TapPay');
