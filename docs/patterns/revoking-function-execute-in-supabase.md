@@ -520,6 +520,53 @@ handoff 全檔 `REVOKE` 只出現 **1 次**（量法 `grep -c -i REVOKE <該檔>
    > ⚠️ **這是【當時】的平台設定** —— Supabase 改預設、或有人跑 `ALTER DEFAULT PRIVILEGES`,它就變了。
    > 引用前重跑上面那條命令,不要引用這裡的字母。
 
+   > ### 🔴 **同一條命令的【第三列】:`objtype='f'`(函式)—— 而本檔講的正是函式**
+   > (2026-08-21 夜,線 D `-4a` 補;上面那一段量的是 `objtype='r'`,**函式那一列它沒印出來**。)
+   >
+   > **量測命令**(把上面那條的 `ORDER BY` 之前加一個條件即可;正式庫唯讀 `SELECT`):
+   > ```sql
+   > SELECT d.defaclrole::regrole::text, array_to_string(d.defaclacl,' | ')
+   > FROM pg_catalog.pg_default_acl d
+   > WHERE d.defaclobjtype = 'f' AND d.defaclnamespace = 'public'::regnamespace;
+   > ```
+   > **輸出逐字**:
+   > ```
+   > postgres        postgres=X/postgres
+   > supabase_admin  postgres=X/supabase_admin | anon=X/supabase_admin
+   >                 | authenticated=X/supabase_admin | service_role=X/supabase_admin
+   > ```
+   > 🔴 **同一個不對稱,在函式上也成立,而它的後果不一樣**:
+   > 表被 `anon` 讀到 ⇒ 資料外洩;**函式被 `anon` EXECUTE 到 ⇒ 那支函式的整段行為變成公開端點**
+   > (而 `SECURITY DEFINER` 的函式繞過 RLS ⇒ 它比表那一格更貴)。
+   >
+   > ⇒ 兩道 REVOKE 收的是**兩個不同來源**的預設:
+   > 一道收 `PUBLIC`(Postgres 內建預設,`acldefault('f',…)` 那一半),
+   > 一道收 `anon, authenticated, service_role`(**Supabase 的 `pg_default_acl` 這一半,
+   > 只在 `supabase_admin` 建的時候才存在**)。
+   >
+   > 🔴 **而「PUBLIC 那一道今天還收得到東西嗎」我【沒有量到】,不要把上一段讀成量測。**
+   > 依 Postgres 語意,`pg_default_acl` 有該 role+schema+objtype 的列時會**取代**內建預設
+   > ⇒ `postgres` 建的函式**可能根本沒有 PUBLIC EXECUTE**,那道 REVOKE 就是今天的空砲。
+   > **這是推的。** 我試著用實物驗:
+   > ```sql
+   > SELECT proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+   >  WHERE n.nspname='public' AND p.proacl IS NULL;      ⇒ **0 列**
+   > ```
+   > ⇒ `public` 底下**沒有任何一支函式停在「套用預設」的狀態**(全部都有明確 ACL)
+   > ⇒ **這個庫上量不到「一支新函式出生時長什麼樣」。**
+   > **分得出來的方法**:拋棄式 PG 抄一份同樣的 `pg_default_acl`,建一支函式看它的 `proacl`。
+   > **我沒做**(不在正式庫上建東西)。
+   > ⇒ ⚠️ **在有人真的量過之前,兩道都留著** —— 空砲的成本是一行,猜錯的成本是一個公開端點。
+   >
+   > 📌 **活體佐證(同夜同一發量的)**:`admin_void_manual_refund` 的 owner 是 `postgres`
+   > ⇒ 它的 `proacl` 是 `postgres=X/postgres`,`anon`/`authenticated`/`service_role` 三個
+   > `has_function_privilege` 全 `false`。**乾淨的底來自 owner 是 postgres,不是來自那兩道 REVOKE 有多用力。**
+   > 🔴 ⇒ **反過來讀才是要記的那一句**:同一支 migration,若哪天由 `supabase_admin` 跑,
+   > **同一份 SQL 會產生不同的權限結果,而 diff 一個字都不會變。**
+   >
+   > ⚠️ **限定**:本列與上面那列是**同一個時點**的照片(2026-08-21 夜,同一個 project)。
+   > 我**沒有**查過這兩列是誰、什麼時候設成這樣的,也沒有查其他 schema。
+
    > ### 📌 **同一次掃描的第二個發現:寫入權在兩張 `_public` view 上,而它今天是空的**
    > ```
    > products_list_public / vehicle_taxonomy_public
