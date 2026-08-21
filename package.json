@@ -31,7 +31,8 @@
     "scripts/stale-commit-msgs.py": "python3 scripts/stale-commit-msgs.py --selftest",
     "scripts/traps-neighbours.py": "python3 scripts/traps-neighbours.py --selftest",
     "scripts/brand-degenerate-samples.py": "python3 scripts/brand-degenerate-samples.py --selftest",
-    "scripts/mobile-dual-write-inventory.py": "python3 scripts/mobile-dual-write-inventory.py --selftest"
+    "scripts/mobile-dual-write-inventory.py": "python3 scripts/mobile-dual-write-inventory.py --selftest",
+    "scripts/spec-1a-recheck.sh": "bash scripts/spec-1a-recheck.sh --selftest"
   },
   "devDependencies": {
     "@pcm/domain": "workspace:^",
