@@ -112,6 +112,25 @@ const OPS_LINK_LABEL = '訂單操作';
    舊值 `--muted-foreground`(#606e85)比 OD 淡;`--fg-2`(#334155)對卡片 10.35、對 hover 底 9.28。
    ⚠️ **是「拿掉」不是「換成 `text-fg-2`」** —— 理由寫在 `globals.css` 的 `.orders-grid` 那段:
       同特異性的 utility 對撞由編譯順序決定,而繼承沒有這個問題。 */
+/* 🔴🔴 **下面這兩串裡有幾個 utility 是【死的】—— `.orders-grid` 的 CSS 蓋過它們。**
+   一個要算欄寬 / 算列高 / 算字級的人,最可能就是從這兩行讀值,然後算出一張對不上的表。
+   **我(線 E)2026-08-22 就是這樣算錯的**:我從 `px-3` 讀到 24px,真值是 16。
+
+   | 這裡寫的 | 實際生效 | 誰蓋的(全在 `apps/admin/src/app/globals.css`) |
+   |---|---|---|
+   | `px-3`(24) | **16**(左右各 8) | `.orders-grid th,td { padding-left/right: .5rem }` |
+   | `py-2`(8) | **0**(列高改吃 `--od-row-h`) | `.orders-grid th,td { padding-top/bottom: 0 }` |
+   | `text-sm`(TD) | **`--od-fs`**(密度三檔) | `.orders-grid th,td { font-size: var(--od-fs) }` |
+   | `text-xs`(TH) | **`--od-fs-sm`** | `.orders-grid th.text-xs`(這條是**刻意接手**,不是被蓋掉) |
+   | `align-top` | top,**但 `col-status` 是 middle** | `.orders-grid td.col-status { vertical-align: middle }` |
+   | `px-3` 在 `col-ops` | **2px**,不是 8 | `.orders-grid td.col-ops,th.col-ops { padding: .125rem }` |
+
+   ✅ **仍然生效的**:`text-left`、`font-bold`、`tracking-[1.5px]`、`whitespace-nowrap`
+      (desktop 那幾條 CSS 沒有設這些屬性;卡片模式 `@container (max-width:520px)` 才另外設)。
+
+   ⚠️ **上表是【讀 CSS + 特異性規則推出來的】,不是在真瀏覽器量到的 computed style。**
+      (量測用的測試機當時「共 0 筆」,連 `<th>` 都沒渲染。)⇒ 真 DOM 一有資料就要對帳一次。
+   ⚠️ 判別句:**要拿這裡的值去算東西之前,先去 `globals.css` grep `.orders-grid th`。** */
 const TH = 'px-3 py-2 text-left text-xs font-bold tracking-[1.5px] whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
 
