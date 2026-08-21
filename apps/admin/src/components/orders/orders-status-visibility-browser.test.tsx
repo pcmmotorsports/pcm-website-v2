@@ -223,12 +223,14 @@ describe('驗收 13 — 截斷時「未知」那顆膠囊在真瀏覽器裡看�
    * **無樣式的 `<span>` 本來就是可見的**。那正是「量錯東西」最典型的形狀。
    *
    * 兩個判準都取自真 CSS,無樣式時**兩個都不會是這個值**:
-   *   `td.col-status` 寬度 = `88px`(`globals.css` 唯三命中 col-status 的規則之一)
+   *   `td.col-status` 寬度 = `98px`(2026-08-21 A2 連帶片,原 88px → 98px,
+   *     見 `globals.css` `.orders-grid .col-status` 檔頭那條「17% 餘裕」的理由;
+   *     這裡只是拿它當「真的套用了」的指紋,不是斷言 98 這個數字本身是規格)
    *   膠囊 `display`   = `inline-flex`(無樣式的 `<span>` 是 `inline`)
    */
-  it('🔴 13d 量具自檢:編譯後的真 CSS 有生效(td 寬 88px + 膠囊 inline-flex)', async () => {
+  it('🔴 13d 量具自檢:編譯後的真 CSS 有生效(td 寬 98px + 膠囊 inline-flex)', async () => {
     const m = await measureStatusCapsule(true);
-    expect(m?.tdWidth).toBe('88px');
+    expect(m?.tdWidth).toBe('98px');
     expect(m?.display).toBe('inline-flex');
   }, 60_000);
 
