@@ -46,10 +46,12 @@ function okExchangeResponse(): Response {
   );
 }
 
-function callbackReq(opts: { cookie?: string; code?: string; state?: string; extraCookie?: string }): NextRequest {
+function callbackReq(opts: { cookie?: string; code?: string; state?: string; extraCookie?: string; next?: string }): NextRequest {
   const url = new URL('http://localhost:3001/api/sso/callback');
   if (opts.code !== undefined) url.searchParams.set('code', opts.code);
   if (opts.state !== undefined) url.searchParams.set('state', opts.state);
+  // 只有【本檔的 ?next 那一格】會用到:route 不該讀它,而不讀就必須構造得出來才驗得到。
+  if (opts.next !== undefined) url.searchParams.set('next', opts.next);
   const cookies: string[] = [];
   if (opts.cookie !== undefined) cookies.push(`${SSO_STATE_COOKIE}=${opts.cookie}`);
   if (opts.extraCookie !== undefined) cookies.push(opts.extraCookie);
@@ -82,6 +84,28 @@ describe('sso/callback route', () => {
 
   it('前置:測試跑在 non-prod(cookie 名/http base 整族掛在 IS_PROD)', () => {
     expect(process.env.NODE_ENV).not.toBe('production');
+  });
+
+  // 🔴 從 worktree `pcm-vitest-alias`(commit 88845f35)搬過來的唯一一格 —— dev 上原本沒有。
+  //    原本【構造不出】:舊的 callbackReq() 參數裡沒有 next ⇒ 這個行為結構上驗不到。
+  //    route 現況(已讀 dev:callback/route.ts:56,79):導向目的地取自 state cookie 的 decoded.r
+  //    再過 safeReturnTo();searchParams 只被用來拿 code 與 state。⇒ 本格守的是【它不准變】。
+  it('🔴 query 的 ?next 不影響導向(returnTo 只認 cookie)—— open-redirect 防線', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => okExchangeResponse()));
+    const res = await GET(
+      callbackReq({
+        cookie: encodeStateCookie(STATE, '/orders'),
+        code: 'code-1',
+        state: STATE,
+        next: '/evil-page',
+      }),
+    );
+    expect(res.status).toBe(303);
+    const loc = new URL(res.headers.get('location') ?? '');
+    // 只驗 pathname 不夠(同 codex MF1):跨站的 /evil-page 也會讓 pathname 對不上,但 origin 才擋得住整族。
+    expect(loc.origin).toBe('http://localhost:3001');
+    expect(loc.pathname).toBe('/orders');
+    expect(loc.pathname).not.toBe('/evil-page');
   });
 
   it('成功:state 相符+兌換成功 ⇒ 303 到【同源】returnTo、設可驗的 session cookie、清 state cookie', async () => {
