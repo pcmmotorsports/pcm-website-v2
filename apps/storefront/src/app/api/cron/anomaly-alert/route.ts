@@ -22,17 +22,83 @@
 // 🔴 不變式(lazy 跨包契約、鏡像 settle-sweep route 警語):getAnomalyAlertDeps factory **必須維持 lazy**——建構子
 //    只存連線字串/密鑰、零 module-top env 讀取 / 零連線建立。下方 GET 的 disabled 路徑(ANOMALY_ALERT_ENABLED gate
 //    在「建 deps 前」return)之「零 DB env 依賴」保證仰賴此;改 @/lib/payment/composition 前必守此 lazy 契約。
-// ⛔ 2026-08-17:下面那句「prod 不推播」**很可能已經是假的,而我沒有親自量**。
-//    依據:`~/pcm-mailbox/B-580-STOP-20260817.md` §6-5/§6-6 記載 `ANOMALY_ALERT_ENABLED=true`、
-//    LINE/Email 密鑰皆存在、pg_cron `pcm-anomaly-alert` active。**那是別人量的,我沒看 Vercel 設定畫面。**
+// ⛔ 下面兩段【都是對的,只是各自為真於不同的時刻】。兩段都留著,各自帶著自己的時刻標籤。
+//    🔴 不用刪除線 —— `//` 註解裡的 `~~` **不會真的劃除**,只會變成兩套並排的互斥事實
+//       (codex R2 `:25` A/C 指出;而舊句**沒有錯,它只是過期了** —— 那是兩件事)。
+//       📌 本檔另有兩處**既有的** `~~`(`:17` / `:19`),緊接「作廢」二字、**做事的是那兩個字不是符號**
+//          ⇒ 危險性較低,**本片刻意不動**(不是漏掉;動它會讓本片的範圍從「payment 端點註解」
+//          擴成「全檔 `~~` 清理」,下一個審的人要重新判斷範圍)。
+//
+//    ── [2026-08-17 當時為真;已被 2026-08-21 的量測取代,見下] ─────────────────────
+//    2026-08-17:下面那句「prod 不推播」很可能已經是假的,而我沒有親自量。
+//    依據:`~/pcm-mailbox/B-580-STOP-20260817.md` §6-5/§6-6 記載 ANOMALY_ALERT_ENABLED=true、
+//    LINE/Email 密鑰皆存在、pg_cron pcm-anomaly-alert active。那是別人量的,我沒看 Vercel 設定畫面。
 //    ⇒ 寫作「未確認」而不是「已解除」—— 缺的那道檢查 = 當場讀一次 Production env。
-//    🔴 而同一份 B-580 §6-6 另記一件更重要的:**沒有人收到過任何一封告警**
-//       ⇒「真的沒異常」與「它其實發不出來」**印同一句話**。⇒ 不得把本 route 存在讀成「告警會叫」。
+//    🔴 而同一份 B-580 §6-6 另記一件更重要的:**截至 2026-08-17,沒有人收到過任何一封告警**
+//    ⇒「真的沒異常」與「它其實發不出來」印同一句話。⇒ 不得把本 route 存在讀成「告警會叫」。
+//    ── [2026-08-21 起為真] ────────────────────────────────────────────────────
+//
+// ✅ 2026-08-21 實測:它真的寄出去了,而且【兩端各量到一次,而它們對得上】
+//    (窗 G,正本 `~/pcm-mailbox/G-c0-告警片實測-它今天真的寄出去了-20260821.md`)
+//    系統端:net._http_response id=19701 / created 2026-08-21 01:00:00.908699+00 / status_code 200
+//            回應 JSON 逐字 {"ok":true,"enabled":true,"alerted":true,"attemptManualReviewCount":2,
+//            "notifiersTotal":2,"notifiersFailed":0,"errors":0}(其餘計數欄皆 0,已省略)
+//            🔴 notifiersFailed:0 這次可信 —— 兩支 adapter 都真的檢查回應並 throw:
+//               LineAlertNotifierAdapter.ts:58-60 / EmailAlertNotifierAdapter.ts:50-52 皆 `if (!res.ok) throw`
+//               ⇒ 非 2xx 會冒成 use-case error → route 503。
+//    客人端:Sean 本人 2026-08-21 上午回報【收到】,並貼回內文逐字:
+//              ⚠️ PCM 付款有 2 張單要你看
+//              【刷卡卡在中間,系統自己處理不了】2 筆
+//                2SQH2P
+//                GVRDMH
+//              https://admin.pcmmotorsports.com (需登入後台)
+//              請到後台查這幾筆,看過之後再決定要退款還是標記免處理。
+//              ⚠️ 先查清楚再退款 —— 上面每一筆都只是「可能」,不是已經確定。
+//    ⇒ 兩個不同的量具、兩端各一次,而它們對得上。
+//    ✅ **量到的(這兩件是事實,不要因為下一段的保留而一起抹掉)**:
+//       ① **兩個 notifier 各自都收到 2xx**(`notifiersTotal:2` / `notifiersFailed:0`,而兩支 adapter
+//          都 `if (!res.ok) throw`)⇒ LINE Messaging API 與 Resend **兩邊都收下了那則訊息**。
+//       ② **至少一條**通知抵達 Sean 手上(他貼回內文為證)。
+//    🔴 **推不出的(codex R1 MF-1 / R2 nit,射程收在【推論】不收在【量測】)**:
+//       「所以兩個收件【對象】都正確」—— 平台收下 ≠ 送到對的人;而他貼回來的是一段文字,
+//       那段文字**不會說明它從哪個管道來** ⇒ 兩個收件對象各自是否正確,**未分別驗證**。
+//       要分開驗,得讓兩邊帶可區分的標記。
+// 🔴 而 n 仍然是 1 —— 不要把上面讀成「天天都成功」:
+//    job 自 2026-07-26 起共跑 27 次,而 net._http_response 只保留約 6 小時
+//    (當日實測 253 列,窗 = 2026-08-20 21:16 → 2026-08-21 03:15 UTC)
+//    ⇒ 前 26 次的回應**已超過保存窗、現在查不到**。
+//    🔴 **射程(codex R1 MF-2 收窄)**:它們當時**有沒有被人看到,無法從這裡判斷** ——
+//       我量的是【那張表】,而「沒有人看過」是關於【人】的宣稱。要留證據只能當場抄逐字。
+// 🔴🔴 查本 route 健康時【不要查 cron.job_run_details】—— 那把尺對這一題恆真:
+//    job 的 command = SELECT pcm_cron.invoke_cron_route(...),而它內部的 net.http_get 是【非同步】
+//    ⇒ 它記的是「請求排進佇列了」,route 回 401/500/503 它一樣印 succeeded(每次耗時約 15ms、
+//      return_message 逐字 "1 row")。
+//    實錘(同一發、兩份紀錄,2026-08-20):21:20 與 21:24 兩發 net._http_response status_code=503 / errors:1,
+//    而 cron.job_run_details runid 19823 / 19825 都寫 "succeeded";中間 21:22 真的成功那發也寫 "succeeded"
+//    ⇒ 成功的那一發與失敗的那兩發印出完全相同的字。**唯一有判別力的是 net._http_response.status_code。**
+//    (那兩發 503 屬於 pcm-settle-sweep、不是本 route;已另行開單。)
+// ✅ 2026-08-21 01:00 那一發【走了 enabled 分支】—— 從行為量到的,不是讀 Vercel 面板:
+//    量到的是:**該次請求走的是 enabled 分支**(disabled 路徑在建 deps 之前就 return、
+//    印的是 anomaly_alert_disabled ⇒ 兩個分支印不同的字 ⇒ 這個判別有效)。
+//    🔴 **射程(codex R1 MF-3 收窄)**:那是【那一刻走了哪個分支】,
+//       **推不出「目前 env 的原始值仍然等於 true」** —— env 可能在那之後被改。
+//    ⚠️ 仍未查:env 的【原始值】(含收件對象 LINE_ALERT_TO / ALERT_EMAIL_TO,取值處
+//       @/lib/payment/composition.ts:223 與 :234)與【它何時被設成這樣】。
 //    📎 同族正本在 `docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md` 檔頭那一段
 //       (那段講的是 `CRON_SWEEPER_ENABLED`;本檔的閘是 `ANOMALY_ALERT_ENABLED`,**是兩個不同的 env**)。
-// ⚠️ 誠實中間態:route commit 到 dev 即可,但 prod 不推播直到 ① vercel.json crons 段 ② Sean 於 Vercel Production env
-//    設 ANOMALY_ALERT_ENABLED='true' + 管道密鑰(LINE_CHANNEL_ACCESS_TOKEN/LINE_ALERT_TO 或 RESEND_API_KEY/
-//    ALERT_EMAIL_FROM/ALERT_EMAIL_TO);route 預設 disabled + fail-closed → commit 零部署風險。
+// ⚠️ [2026-07 前為真;兩個前置今日皆已不成立,逐格說明如下]
+//    誠實中間態:route commit 到 dev 即可,但 prod 不推播直到 ① vercel.json crons 段 ② Sean 設 env
+//    【兩個前置今日皆已不成立,逐格說明】:
+//    ① **過期** —— 排程已搬 Supabase pg_cron(commit `a5d76192`,2026-07-24);vercel.json 與
+//       apps/admin/vercel.json **皆無 crons 段**(不是漏掉)。job 定義在
+//       supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql:131
+//       cron.schedule('pcm-anomaly-alert', '0 1 * * *') = UTC 01:00 = 台北 09:00。
+//    ② **當時已滿足** —— 2026-08-21 01:00 那一發走了 enabled 分支,且 `notifiersTotal:2`
+//       ⇒ 兩組管道 env 在**那一刻**都存在(缺任一 `requireEnv` 會 throw)。
+//       🔴 那是**那一刻的狀態**,不是「現在仍然如此」—— env 的原始值仍未查(同上 MF-3)。
+//    ⇒ **2026-08-21 01:00 那一發實際送達了**(見上方兩端量測);
+//       🔴 **之後 env 或設定若被改動,本結論即失真** —— 這裡沒有任何東西在監看那個改動。
+//       ⚠️ 改本檔之前先想清楚:**這條路在那一刻是通的,而收信的是 Sean 本人的手機。**
 //
 // @see docs/specs/2026-06-23-m3-3ds-abandoned-complete-plan.md §7
 // @see docs/phase-1-backlog.md #250
