@@ -28723,6 +28723,29 @@ python3 scripts/brand-degenerate-samples.py
     而它只回答「那張卡刷過了沒」。🔴 **改述詞之前,先在那一欄的 COMMENT 上把語意寫死**,否則下一個人照名字用它。
   - bug 可追蹤性:今天沒有任何測試會紅 —— 因為每一層自己都是對的,**錯的是它們接在一起之後的意思**。
 
+- 🔴 **可搜尋字面(2026-08-22 線 C 加;本條目原本【搜不到】)**:
+```
+本條目講的收款方式,在 code 裡的字面是 `bank_transfer`(與 `cash`),
+而本條目原文一次都沒出現那個字 ⇒ `grep -c 'bank_transfer' docs/phase-1-backlog.md` ⇒ **0**
+⇒ 有人拿 code 裡的字面來 backlog 找「這件事有沒有人記過」⇒ **找不到 ⇒ 會開第二條。**
+🔴 而這正是本檔今晚一直在講的那族:**東西存在 ≠ 東西會被取用。**
+
+⇒ 本行的存在理由就是讓它被 grep 到。相關字面一次列齊:
+   bank_transfer / cash / order_payments.rail / payment_channel='tappay' /
+   payment_status='unpaid' / 匯款 / 現金 / 非卡退款 / 人工收款
+
+📌 而**不要為此另開一條 backlog** —— 那會變成兩份講同一個缺陷的紀錄,
+   而它們會各自長大、各自過期。**一處全文、他處指標**(`00-work-rules` §4)。
+```
+- **量到的血量(2026-08-22,線 C 複驗過主視窗的數字,唯讀):**
+```
+orders 全表 payment_channel 相異值 ⇒ **1**(只有 'tappay';19 張單)
+payment_channel = 'bank_transfer' 的單 ⇒ **0**
+⇒ 🔴 **今天一張都沒受害** —— 因為「匯款」那條路【從來沒有被人走過】。
+⇒ ⇒ 所以它不是「現在正在流血」,是**一個還沒被踩到的洞**;
+   而它會在**有人第一次按下「叫客人改用匯款」的那一刻**變成真的 ——
+   🔴 **而那正是處理那兩張卡住的刷卡單(`2SQH2P` / `GVRDMH`)最可能被想到的辦法。**
+```
 - **錨點:** `apps/admin/src/lib/orders/order-list-view.ts`(預設隱藏那條述詞)·
   `apps/admin/src/components/orders/payment-record-form.tsx:44-60`(登錄入口)·
   `supabase/migrations/20260810100000_m4b_e10_op1_order_payments_m.sql`(帳本表 + 它的語意)·
