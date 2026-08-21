@@ -1,4 +1,5 @@
 import { applyOrderKeywordSearchAction } from '../../lib/orders/keyword-search-action';
+import { ORDER_SEARCH_CAVEAT, ORDER_SEARCH_LABELS } from './order-search-dimensions';
 // 🔴 欄位名住在 cookie 模組:`'use server'` 檔只能 export async function(見該檔註)。
 import {
   ORDER_KEYWORD_FIELD,
@@ -51,15 +52,28 @@ export function OrderKeywordSearch({
           </label>
           {/* 🔴 這一格與旁邊兩軸(單號 / 供應商單號)**故意不同**:那兩軸是 client + URL query,
               本軸是 POST + cookie。原因不是風格不統一,是本軸的搜尋詞會是**客人姓名 / 電話 /
-              收件地址片段**(八維度子字串搜尋)⇒ 不得進 URL。 */}
+              收件地址片段**(~~八維度~~ **12 維度**子字串搜尋)⇒ 不得進 URL。
+              ⚠️ 「八維度」是 `20260810150000` 那版的數字,`20260812130000` 已擴成 12 條 UNION
+                 —— 過期的數字留著劃線不刪:它解釋了為什麼下面那行文案曾經只說四個。 */}
+          {/* 🔴 placeholder **刻意只寫四個概括詞**,不列細目:框只有 224px,塞 12 個詞會被
+              **無聲裁切**(placeholder 溢出不會有任何訊號)。細目走下面那行 hint,永遠可見。
+              🔴 **`w-56` → `w-64` 的理由是量出來的**:`供應商單號` 那版在 224px 框裡實測
+                 189.1px / 可用 198px ⇒ **只剩 8.9px 餘裕**。那不是「沒裁切」,那是
+                 **換一台機器的中文字型就會裁**,而裁了沒有任何訊號。256px 框 ⇒ 可用 230px。
+              🔴🔴 **第四個詞是「供應商單號」不是「供應商」**(2026-08-21 審查線 MF-2):
+                 RPC #11 只比對 `order_item_procurement.supplier_order_no`,
+                 供應商【名字】搜不到(片 B-2 才重建,migration `:365-367`)。
+                 ⇒ 寫「供應商」會讓員工打廠商名字、得到零筆、學到「這框不準」——
+                    **多報比少報更快摧毀信任,而方向跟本片要修的缺陷相反。** */}
           <input
             id='order-keyword-search'
             type='text'
             name={ORDER_KEYWORD_FIELD}
             autoComplete='off'
             defaultValue={keyword ?? ''}
-            placeholder='單號 / 客人 / 料號 / 品名'
-            className='border-input bg-background h-9 w-56 rounded-md border px-3 text-sm'
+            placeholder='單號 / 客人 / 商品 / 供應商單號'
+            aria-describedby='order-keyword-search-hint'
+            className='border-input bg-background h-9 w-64 rounded-md border px-3 text-sm'
           />
         </div>
         <input type='hidden' name={ORDER_KEYWORD_RETURN_TO_FIELD} value={listHref} />
@@ -70,6 +84,18 @@ export function OrderKeywordSearch({
           搜尋
         </button>
       </form>
+
+      {/* 🔴 **這一行是本片的產出,不是裝飾。** 能力有 12 維,而畫面上原本只說四個
+          ⇒ 員工拿著供應商單號 / 品牌 / 舊單號站在框前面,不會去試。
+          **永遠可見,不做成 tooltip / details**:折起來的說明對「不知道自己能問什麼」的人
+          等於不存在 —— 而那正好是這格要救的那個人。
+          🔴 文案**由 `ORDER_SEARCH_LABELS` 渲染出來,不是手打**:手打就會有第二份會過期的清單。 */}
+      <p id='order-keyword-search-hint' className='text-muted-foreground text-xs'>
+        可以搜:{ORDER_SEARCH_LABELS.join(' · ')}
+        {/* 🔴 這句是權威 COMMENT 逐字要求的(`20260812130000_*.sql:501`「畫面須標明」),
+            不是貼心話 —— 少了它,員工拿舊品牌搜歷史訂單會得到「查無此單」而不知道為什麼。 */}
+        <span className='mt-0.5 block'>{ORDER_SEARCH_CAVEAT}</span>
+      </p>
 
       {keyword !== null && (
         <div className='flex items-center gap-2 text-xs'>

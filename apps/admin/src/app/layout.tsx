@@ -73,7 +73,20 @@ export default async function RootLayout({
                 ⇒ 在那邊呼叫會靜默拿到 `undefined`(理由與實測見 `app-sidebar.tsx` 檔頭)。
                 形狀照抄 `components/orders/order-detail-route.tsx:250` 的既有前例。 */}
             <AppSidebar auditEnabled={isAuditUiEnabled()} counts={sidebarCounts} />
-            <SidebarInset>
+            {/* 🔴🔴 `min-w-0` 不是排版微調,它是「訂單面板被往右推」那個 bug 的修法本體
+                (2026-08-21 Sean 在正式站肉眼抓到;診斷全文 `~/pcm-mailbox/A-bc-004-*.md`)。
+                `SidebarInset` 是 flex item 且帶 `w-full flex-1`,而 flex item 預設
+                `min-width: auto` ⇒ **撐不下時它不縮,整條 row 連同訂單面板一起被推出視窗右緣**,
+                推出去的量**恰好等於左側欄軌道寬**(實測:軌道 84 ⇒ 溢出 84;124 ⇒ 124;1 ⇒ 1)。
+                🔴 **面板【有】自己的橫向捲軸,救不了它** —— 溢出不在面板裡面,
+                   是面板這個盒子本身被放到螢幕外面。**盒子在螢幕外,盒子裡的捲軸沒有意義。**
+                🔴 **負對照**:同樣給 `.workspace-row` 加 `min-width:0` **完全沒效**
+                   (溢出仍 84)⇒ 病灶確定在這一層,不是在下面那層。
+                ⚠️ **改在這裡而不是 `components/ui/sidebar.tsx`**:那支是 vendored shadcn,
+                   改它下次同步上游會被蓋掉;而 `<SidebarInset>` 全 repo 只有這一個使用點。
+                ⚠️ 發作條件:視窗越窄越嚴重(實測 1024 ⇒ 溢出 84 · 1100 ⇒ 28 ·
+                   1200/1280/1440 ⇒ 0)。⇒ **寬螢幕看不到它,不代表它不在。** */}
+            <SidebarInset className='min-w-0'>
               <Header />
               <WorkspaceShell panel={panel} initialPanelWidth={initialPanelWidth}>
                 {children}
