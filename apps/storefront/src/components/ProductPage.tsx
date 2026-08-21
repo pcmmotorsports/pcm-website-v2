@@ -23,6 +23,7 @@ import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { useCart } from '@/contexts/CartContext';
+import { CartQtyInput } from './CartQtyInput';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductBreadcrumb } from './ProductBreadcrumb';
@@ -109,7 +110,7 @@ export function ProductPage({
   // M-1-13e-b:接 CartContext;Mobile sticky bar 用(對齊 design L127-130 addToCart 行為)
   // (Phase 1 mock:localStorage 暫存、無後端;M-3 swap 真結帳時介面不變)
   // Mobile sticky 無 qty / color / size 選擇 UI、預設 qty=1 + product 預設色(對齊 design Mobile 簡化邏輯)
-  const { addItem } = useCart();
+  const { addItem, items, updateQty } = useCart();
 
   // OD-4a:selectedVariant 狀態提升至此(受控源頭)— ProductInfo picker 改它、ProductGallery 隨它換圖、
   //   mobile buybar 用它(修 16c-3 buybar 只能用預設變體的限制)。product 變更 reset 回第一個變體
@@ -122,6 +123,15 @@ export function ProductPage({
   }, [product.variants]);
   // 顯示價:選中變體價(general)優先、否則 product.price(無變體 mock fallback)
   const displayPrice = selectedVariant?.price ?? product.price;
+
+  // 2026-08-21 F-81:手機數量滑出列。Sean 逐字「丙的樣子(橫的一條列)、乙的時機(按加入購物車
+  // 才跳出來)」——平常不掛載(false),按下「加入購物車」之後才顯示;商品那一刻已經真的加進去了
+  // (qty=1),這一列只負責讓客人事後調整,不改數量的人零額外動作。
+  const [showMobileQtyPanel, setShowMobileQtyPanel] = useState(false);
+  const mobileLineKey = { productId: product.slug, variantId: selectedVariant?.id };
+  const mobileCartQty =
+    items.find((it) => it.productId === mobileLineKey.productId && it.variantId === mobileLineKey.variantId)
+      ?.qty ?? 1;
 
   const addToCart = () => {
     // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
@@ -139,6 +149,9 @@ export function ProductPage({
       variantId: selectedVariant?.id,
       ...(vehicle ? { vehicle } : {}),
     });
+    // F-81:加購那一刻就已經真的加進去了(qty=1),滑出這一列只是讓客人事後調整,
+    // 不是「打開才算數」——不改數量的人不用再多按一下。
+    setShowMobileQtyPanel(true);
   };
 
   // 2026-08-21 F-81 修:手機 sticky buybar 的「立即購買」原本掛的是 addToCart(同一個
@@ -237,43 +250,51 @@ export function ProductPage({
           Mock 路徑 product.price 仍 retail、tier='store' / 'premiumStore' 顯「· 經銷」字面
           tag 對齊 design、但價格未真經銷化(對齊 ProductInfo pd-price-block 同樣偏離、
           backlog #161 追、M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分)。 */}
-      <div className="pd-mobile-buybar" role="region" aria-label="購買列">
-        <button
-          type="button"
-          className="pd-mbb-back"
-          onClick={() => router.back()}
-          aria-label="返回上一頁"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </button>
-        <div className="pd-mbb-price-col">
-          <div className="pd-mbb-price">NT$ {displayPrice.toLocaleString()}</div>
-          {tier === 'store' || tier === 'premiumStore' ? (
-            <div className="pd-mbb-orig">
-              原價 NT$ {(hasDiscount ? product.origPrice! : product.price).toLocaleString()} · 經銷
-            </div>
-          ) : hasDiscount ? (
-            <div className="pd-mbb-orig">NT$ {product.origPrice!.toLocaleString()}</div>
-          ) : null}
+      <div className="pd-mbb-wrap">
+        {showMobileQtyPanel && (
+          <div className="pd-mbb-qty-panel" role="region" aria-label="已加入購物車,調整數量">
+            <span className="pd-mbb-qty-label">已加入・數量</span>
+            <CartQtyInput qty={mobileCartQty} onCommit={(n) => updateQty(mobileLineKey, n)} />
+          </div>
+        )}
+        <div className="pd-mobile-buybar" role="region" aria-label="購買列">
+          <button
+            type="button"
+            className="pd-mbb-back"
+            onClick={() => router.back()}
+            aria-label="返回上一頁"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+          </button>
+          <div className="pd-mbb-price-col">
+            <div className="pd-mbb-price">NT$ {displayPrice.toLocaleString()}</div>
+            {tier === 'store' || tier === 'premiumStore' ? (
+              <div className="pd-mbb-orig">
+                原價 NT$ {(hasDiscount ? product.origPrice! : product.price).toLocaleString()} · 經銷
+              </div>
+            ) : hasDiscount ? (
+              <div className="pd-mbb-orig">NT$ {product.origPrice!.toLocaleString()}</div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="pd-mbb-cart"
+            onClick={addToCart}
+            aria-label="加入購物車"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+              <path d="M3 6h18" />
+              <path d="M16 10a4 4 0 0 1-8 0" />
+            </svg>
+            <span>加入購物車</span>
+          </button>
+          <button type="button" className="pd-mbb-buynow" onClick={buyNow}>
+            立即購買
+          </button>
         </div>
-        <button
-          type="button"
-          className="pd-mbb-cart"
-          onClick={addToCart}
-          aria-label="加入購物車"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-            <path d="M3 6h18" />
-            <path d="M16 10a4 4 0 0 1-8 0" />
-          </svg>
-          <span>加入購物車</span>
-        </button>
-        <button type="button" className="pd-mbb-buynow" onClick={buyNow}>
-          立即購買
-        </button>
       </div>
 
       {/* LINE 詢價懸浮 CTA(接通現況唯一成交管道、每商品頁顯;手機 deep link 預填 / 桌機 QRCODE) */}

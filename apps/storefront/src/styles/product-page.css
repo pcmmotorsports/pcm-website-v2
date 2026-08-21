@@ -5,7 +5,10 @@
 /* product-page.css — editorial product detail */
 
 /* Bridge design-token aliases so this file uses the same var names as rest of site */
-.pd-page, .pd-page *, .pd-mobile-buybar, .pd-mobile-buybar * {
+/* 🔴 2026-08-21 F-81:加 .pd-mbb-wrap(B窗審查nit)——.pd-mbb-qty-panel 現在跟
+   .pd-mobile-buybar 是同一個 wrap 底下的手足,不是它的子孫,舊選擇器蓋不到。
+   今天沒事(qty-panel 沒用到 legacy 別名),先補上避免以後悄悄拿不到值。 */
+.pd-page, .pd-page *, .pd-mbb-wrap, .pd-mbb-wrap * {
   --ink: var(--c-text);
   --ink-tert: var(--c-text-2);
   --ink-mute: var(--c-text-3);
@@ -1925,12 +1928,21 @@
 /* ========= Mobile sticky buy bar(OD §12、OD-11 reskin)=========
    OD-11:舊 M-1-13e-a 版用已不存在的 --border/--ink/--paper-2 legacy token(mobile 渲染壞)、
    改 OD §12 字面 + --c-* token + 單色(buynow 深底白字、非舊紅 #c41e3a);保留 storefront 既有
-   .pd-mbb-orig(原價刪除線)+ disabled 視覺;trigger 由 ≤900 改 OD ≤1079(與全頁 mobile 門檻一致、見下)。 */
-.pd-mobile-buybar {
+   .pd-mbb-orig(原價刪除線)+ disabled 視覺;trigger 由 ≤900 改 OD ≤1079(與全頁 mobile 門檻一致、見下)。
+
+   🔴 2026-08-21 F-81:外面多包一層 `.pd-mbb-wrap`,把 `position:fixed` 搬上去,不再讓
+   `.pd-mobile-buybar` 自己固定。理由:數量滑出列(`.pd-mbb-qty-panel`)要疊在購買列【上方】,
+   兩者用同一個 fixed 容器的 flex column 疊出來,不用去量購買列實際渲染高度硬寫死一個 bottom 值
+   (那種數字會在下次改 padding/字級時悄悄跟畫面對不上,而不會有東西紅)。 */
+.pd-mbb-wrap {
   display: none;
   position: fixed;
   left: 0; right: 0; bottom: 0;
   z-index: 50;
+  flex-direction: column;
+}
+.pd-mobile-buybar {
+  display: flex;
   padding: 10px 12px;
   background: var(--c-surface);
   border-top: 1px solid var(--c-border);
@@ -1976,6 +1988,20 @@
 @supports (padding: max(0px)) {
   .pd-mobile-buybar { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 }
+
+/* 🔴 2026-08-21 F-81:數量滑出列 —— Sean 逐字「丙的樣子(橫的一條列)、乙的時機(按加入購物車
+   才跳出來)」。平常不佔位(unmounted,不是 display:none——沒有東西可以在螢幕外先躺著等),
+   出現時疊在購買列正上方(見上面 .pd-mbb-wrap 的 flex column)。加入購物車那一刻商品已經真的
+   加進去了(qty=1),這一列只負責讓客人事後調整——不改數量的人零額外動作,不用另外按確定。 */
+.pd-mbb-qty-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+}
+.pd-mbb-qty-label { font-size: 13px; font-weight: 600; color: var(--c-text); }
 
 /* ===================================================================
    FAQ accordion(OD §10、N°04 ProductFAQ)— 原生 <details> 純 CSS 手風琴、+→× 旋轉
@@ -2028,7 +2054,7 @@
   .pd-buy-row .pd-add-btn { display: none; }
   .pd-like { width: 100%; height: 46px; gap: 8px; }
   .pd-like-label { display: inline; font-size: 13px; font-weight: 600; }
-  .pd-mobile-buybar { display: flex; }
+  .pd-mbb-wrap { display: flex; }
   .pd-spotlight { grid-template-columns: 1fr; }
   .pd-spot-text { padding: 32px; }
   .pd-related-grid .pcard { flex-basis: 40%; } /* 平板露 ~2.5 張(半露暗示可滑) */

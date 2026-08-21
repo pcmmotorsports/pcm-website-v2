@@ -431,4 +431,36 @@ describe('ProductPage', () => {
     // 再驗導頁,跟桌機 buyNow 同一個目的地
     expect(mockPush).toHaveBeenCalledWith('/cart');
   });
+
+  // 2026-08-21 F-81:手機數量滑出列(Sean 逐字「丙的樣子(橫的一條列)、乙的時機(按加入購物車
+  // 才跳出來)」)。三格分開驗:①平常不掛載 ②按加入購物車後才出現,而且那一刻商品已經真的
+  // 加進去了(不改數量的人零額外動作)③滑出列的+/-真的會改到購物車裡那一列的數量。
+  describe('F-81:手機數量滑出列', () => {
+    it('平常不掛載(沒點過加入購物車之前,畫面上沒有這個區塊)', () => {
+      mockSearchParams = new URLSearchParams('from=catalog');
+      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+      expect(container.querySelector('.pd-mbb-qty-panel')).toBeNull();
+    });
+
+    it('按下加入購物車:①商品立刻真的加進去(qty=1)②滑出列跟著出現(零額外動作)', () => {
+      mockSearchParams = new URLSearchParams('from=catalog');
+      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+      fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+      const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
+      expect(items).toHaveLength(1);
+      expect(items[0].qty).toBe(1);
+      expect(container.querySelector('.pd-mbb-qty-panel')).not.toBeNull();
+    });
+
+    it('滑出列的 + 真的會改到購物車裡那一列的數量(不是一個獨立的假數字)', () => {
+      mockSearchParams = new URLSearchParams('from=catalog');
+      const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+      fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+      const panel = container.querySelector('.pd-mbb-qty-panel') as HTMLElement;
+      fireEvent.click(panel.querySelector('[aria-label="增加數量"]') as HTMLButtonElement);
+      const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
+      expect(items).toHaveLength(1);
+      expect(items[0].qty).toBe(2);
+    });
+  });
 });
