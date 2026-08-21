@@ -991,7 +991,10 @@
 
 @media (max-width: 960px) {
   .bp-band-inner { grid-template-columns: 1fr; gap: 36px; align-items: start; }
-  .bp-band-logo { justify-content: flex-start; }
+  /* 🔴 Sean 2026-08-21 逐字回報「LOGO 都偏左，希望置中」——單欄堆疊後 logo 獨佔一整行，
+     沿用桌機的 flex-end(靠右對齊隔壁欄位)在這裡等於靠左貼齊內容欄，不是設計稿本來的意圖。
+     業務明確要求置中，覆寫成 center(design-reference 沒有這個斷點下的字面可搬，此為授權偏離)。 */
+  .bp-band-logo { justify-content: center; }
   /* 照片回來之後 logo 不必獨自扛識別,收回 190px(250px 是「不放照片」那版的設定,
      兩個都大會互相搶)。🔴 下限別低於 180px:細線描邊的 mark 會糊成一團。 */
   .bp-band-logo img { max-width: 190px; }
