@@ -39,6 +39,40 @@ row_of() {  # $1 = 項次;只取【資料列】(以「| N |」開頭),不含表�
   section | grep -E "^\| $1 \| " || true
 }
 
+# ── 錨點欄的三種狀態,而它們【必須印不同的話】────────────────────────────────
+# 🔴 `-4a` 2026-08-22 實際使用後回報:這支把錨點欄【從一段長文字裡拉出來】,
+#    而它就是這樣一眼看到 `#14` 寫著「本次未複查、無新錨點」——
+#    **11 格 ✅ 裡唯一一個沒有錨點的, 而它是涉及錢最直接的那一格。**
+#    ⚠️ 而當時它【印出來了而沒有出聲】⇒「印出來」與「被看見」是兩件事。
+#
+# 🔴 三種狀態(照本檔一貫立場:查無 / 查不了 / 查到了而是空的, 不得長得一樣):
+#    ① 有錨點（剝掉 ~~刪節線~~ 之後仍有反引號路徑) ⇒ 不出聲
+#    ② 有錨點欄, 而剝完是空的                       ⇒ 🔴 沒有人量過
+#    ③ 根本沒有錨點欄                               ⇒ ⚠️ 那是【刻意的】, 但要指去讀原因
+#       （§1-A-4 底下寫明:那 11 格判 ❌ 的依據是 route 清單, 錨點就是那張清單本身)
+# ⚠️ **rc 不因此改變** —— 這是【資料的狀態】不是【工具的狀態】:
+#    工具查到了、也印出來了。把它算成失敗會讓「表沒量過」與「工具壞了」混在同一個出口。
+anchor_notice() {
+  local rows="$1" has_field=0 real=0 line stripped
+  while IFS= read -r line; do
+    case "$line" in *'**錨點**'*) has_field=1 ;; *) continue ;; esac
+    # 取 `**錨點**…:` 之後那一段, 剝掉 ~~刪節線~~, 看還有沒有反引號路徑
+    stripped="$(printf '%s' "$line" | sed -e 's/.*\*\*錨點\*\*[^:]*://' -e 's/~~[^~]*~~//g')"
+    case "$stripped" in *'`'*) real=1 ;; esac
+  done <<EOF
+$rows
+EOF
+  if [ "$has_field" -eq 1 ] && [ "$real" -eq 0 ]; then
+    printf '\n🔴🔴 這一格【沒有錨點】—— 錨點欄在, 而內容被劃掉了、沒有新值。\n'
+    printf '     ⇒ 意思是【沒有人量過它】, 不是「它沒有東西可以量」。\n'
+    printf '     ⇒ 開工前先把它量出來, 而【量完把錨點補進表裡】—— 否則下一個人會再問一次。\n'
+  elif [ "$has_field" -eq 0 ]; then
+    printf '\n⚠️  這一格【沒有錨點欄】—— 而那是刻意的, 不是漏寫。\n'
+    printf '     判 ❌ 的依據是【admin 的 route 清單】, 錨點就是那張清單本身(見 §1-A-4 表尾)。\n'
+    printf '     ⇒ 重驗做法是【重跑那條 find, 看清單有沒有多出東西】, 不是去開某一支檔。\n'
+  fi
+}
+
 print_item() {
   local n="$1" rows
   rows="$(row_of "$n")"
@@ -52,6 +86,7 @@ print_item() {
   printf '═══ §1-A 第 %s 項(在 %s 張表裡出現)═══\n' "$n" "$cnt"
   [ "$cnt" -gt 1 ] && printf '⚠️  它出現在多張表(現況表 / 分類表 / 第一步表)—— 下面【每一段都要讀】。\n\n'
   printf '%s\n' "$rows" | sed 's/<br>/\n    /g'
+  anchor_notice "$rows"
   printf '\n🔴 開工前:把上面「量法 / 錨點」那幾欄自己跑一次, 輸出貼進你的第一則回報。\n'
   printf '   跑不動、或結果與表上不同 ⇒ 先回報, 不要照舊值開工。\n'
   printf '   （常設動作第 17 條:docs/runbooks/multi-window-command-workflow.md）\n'
@@ -77,6 +112,18 @@ selftest() {
   # ③ 🔴 工具自己壞掉（找不到 spec)⇒ 要 rc=2, 與「查無」的 rc=3 分得開
   ( SPEC=/nonexistent/xxx.md; [ -f "$SPEC" ] || exit 2 ) ; rc=$?
   if [ "$rc" -eq 2 ]; then printf '✅ ③工具自己壞掉 rc=2（與查無的 rc=3 分得開）\n'; else printf '🔴 ③工具壞掉的 rc 應為 2, 實得 %s\n' "$rc"; fail=1; fi
+
+  # ⑤ 🔴 空錨點要出聲:#14 的錨點被劃掉且無新值 ⇒ 必須印那句話
+  out="$(print_item 14 2>&1)"
+  if printf '%s' "$out" | grep -q '這一格【沒有錨點】'; then
+    printf '✅ ⑤空錨點(14) 有出聲\n'
+  else printf '🔴 ⑤空錨點(14) 沒出聲 ⇒ 它會安靜地混在一般輸出裡\n'; fail=1; fi
+
+  # ⑥ 🔴 反向:有錨點的【必須不印】——「無條件印警告」在上一格看起來完全正確
+  out="$(print_item 27 2>&1)"
+  if printf '%s' "$out" | grep -q '這一格【沒有錨點】'; then
+    printf '🔴 ⑥有錨點(27) 竟然也印了 ⇒ 那句話是【無條件印的】, 沒有判別力\n'; fail=1
+  else printf '✅ ⑥有錨點(27) 沒印(反向對照)\n'; fi
 
   # ④ 正對照:33 項應該全部撈得到
   local miss=""
