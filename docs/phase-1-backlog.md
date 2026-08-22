@@ -29049,6 +29049,18 @@ pending    2          2              8           0     ← 🔴 兜底碰過的�
 ⚠️ **量法限定**:`settle_attempt_count > 0` 當「被碰過」的代理,而那一欄只在 claim 時遞增 ——
 **若有別的路徑會清掉它,那個 2 會偏低。線 C 未查有無此路徑。**
 
+🔴 **而【不要】改用 `updated_at` 當那個代理 —— 它不追蹤 sweeper**(2026-08-22 線 C 實測):
+```
+             updated_at − created_at    next_settle_at − created_at   settle_attempt_count
+2SQH2P            0.95 秒               🔴 7 天 20 小時 49 分                8
+GVRDMH            0.045 秒              🔴 1 小時 43 分                      8
+⇒ next_settle_at 跑到 updated_at 之後好幾天 ⇒ **認領/退避路徑不寫 updated_at**
+⇒ 那兩列各被工作過 8 輪,而 updated_at 一動也沒動
+```
+⇒ ⇒ **`settle_attempt_count` 是對的代理;`updated_at` 會給你一個「它從來沒被碰過」的假象。**
+📌 而線 C 一度就是這樣誤讀的:算出 `now() - updated_at = 12 天 10 小時`,
+   把它標成「沒被碰過」⇒ **數字對,而標籤講的是另一件事。**
+
 **🔴 要做什麼**
 ```
 在拋棄式 PG 上構造一張【符合 settled 條件】的單,讓那一段真的跑一次,並且兩個方向都表演:
