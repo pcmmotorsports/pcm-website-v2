@@ -19,6 +19,24 @@
 # ══ 用法 ═══════════════════════════════════════════════════════════════════
 #    bash scripts/claim-backlog-number.sh            # 佔住「下一個可用號」
 #    bash scripts/claim-backlog-number.sh --release 646   # 條目落檔之後，把 claim 清掉
+#    bash scripts/claim-backlog-number.sh --dry-run  # 只印①②(下一號 + 信箱佔位),【不佔號】(#830)
+#    bash scripts/claim-backlog-number.sh --audit    # 掃 backlog:重號 / 格式變體 / 跳號(掛 lint-staged 在 backlog 檔上)
+#    bash scripts/claim-backlog-number.sh --selftest # 本檔的證人(掛 lint-staged)
+#
+# ══ 2026-08-23 b8(#829 / #830)
+#    #829 ② 信箱佔位掃描兩個寫死的 `6`(選行 'RESERVED #6' + 抽號 '#6[0-9][0-9]')⇒ 對現行 8xx 號段
+#         【結構上不可能命中】而照樣印一行「信裡出現過的號:(無)」。修:號段通用 + **掃描器自檢** ——
+#         每次跑先驗信箱目錄在、有 *.md,再餵一行合成的「RESERVED #<NEXT> 佔位」給同一條管線,
+#         任一不成立 ⇒ exit 2「量具壞/缺席」,不是「乾淨」。
+#         🔴 而「通用化」第一版把選行放寬到「同一行有佔位+數字」⇒ 連本工具自己交件裡的引號都被當宣告,
+#            真 --dry-run rc=1 被自己擋住(code-reviewer R1 must-fix 3)—— 假零換成假命中,一樣不能用。
+#         ⇒ 定案:只有【契約形狀】行首 `RESERVED #NNN` 會擋;散文命中只印「參考、不擋」。這條契約寫在這裡就是規矩:
+#            **要用號碼佔位,請在信裡獨立一行寫 `RESERVED #NNN`;其他寫法工具只會提醒,不會替你擋。**
+#    #830 想看它印什麼得付一個號 ⇒ --dry-run。
+#    --audit 同日實錘:58 與 b8 各自 grep 到最大號 857、各自 append ⇒ 檔裡兩顆 ### #857,**沒有任何機制抓到**,
+#         是 58 事後回頭數才發現 ⇒ --audit 掛在 backlog 檔的 lint-staged 上,commit 前掃重號。
+#         🔴 誠實:它抓的是【事後】檔裡有重複(commit 前),**抓不到【同時】兩個人 append** ——
+#            防寫壞的只有 mkdir 那道,而那道要【兩個人都用這支腳本】才成立;58 那次兩邊都沒用。
 #
 # ══ 🔴 天花板(它擋得住什麼、擋不住什麼)═══════════════════════════════════════
 #    ✅ 擋得住  兩個窗【同時】發號 —— 慢的那個會拿不到，rc≠0
@@ -38,6 +56,103 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 CLAIM_ROOT="${BACKLOG_CLAIM_ROOT:-$HOME/pcm-mailbox}"
+BACKLOG_FILE="${BACKLOG_FILE:-docs/phase-1-backlog.md}"
+
+# ── 共用:信箱佔位掃描 ────────────────────────────────────────────────
+# 🔴 信箱裡「真的宣告」沒有一致的機器形狀(實查 25 行:`#489` 佔位 / `#498` 是佔位號 / 三個號都標佔位 /
+#    也有大量純散文)⇒ 散文掃描天生沒辦法同時【靈敏】又【精確】(code-reviewer R1 must-fix 3:
+#    選行寬到「同一行有佔位+數字」⇒ 連本工具自己的交件引號都被當宣告,真 --dry-run rc=1 被自己擋住)。
+# ⇒ 兩層分開:
+#    【契約形狀】行首 `RESERVED #NNN`(可前綴空白/`-`/`·`)⇒ 這是唯一會【擋下發號】的宣告,寫在這裡就是規矩;
+#    【散文命中】同一行有「佔位|RESERVED」+ #3~4 位數 ⇒ 只印「參考,不擋」,讓人去看。
+#    (假零讓你看不見;假命中讓你不能用 —— 兩者都壞。契約形狀是唯一能同時避開兩者的路。)
+SCAN_IMPL="${SCAN_IMPL:-real}"   # selftest 用來做自檢的負對照(=dead 時掃描器回空)
+scan_declared() { # $1=信箱目錄 → 行首契約形狀宣告的號(空白分隔)
+  [ "$SCAN_IMPL" = "real" ] || return 0
+  grep -rhoE '^[[:space:]]*[-·•]?[[:space:]]*RESERVED[[:space:]]+#[0-9]{3,4}' "$1"/*.md 2>/dev/null | grep -oE '#[0-9]{3,4}' | sort -u | tr '\n' ' '
+}
+scan_prose() { # $1=信箱目錄 → 散文命中的號(參考)
+  grep -rhE '(佔位|RESERVED)' "$1"/*.md 2>/dev/null | grep -oE '#[0-9]{3,4}' | sort -u | tr '\n' ' '
+}
+# 🔴 掃描器自檢(code-reviewer R1 must-fix 1 補強):①信箱目錄要在、要有 *.md —— 不在 = 量具缺席,不是「乾淨」;
+#    ②餵一行契約形狀的合成句給同一條管線,撈不到 ⇒ 量具壞了。回 0=活著、2=壞/缺席。
+scan_selfcheck() { # $1=自檢用的號  $2=信箱目錄
+  local _t _h _n
+  [ -d "$2" ] || { echo "🔴 信箱目錄不存在:$2 ⇒ 量具缺席,不是乾淨" >&2; return 2; }
+  _n=$(ls "$2"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  [ "$_n" -gt 0 ] || { echo "🔴 $2 裡零支 *.md ⇒ 分母是空的,不是乾淨" >&2; return 2; }
+  _t=$(mktemp -d) || return 2
+  printf 'RESERVED #%s 佔位(自檢合成句,不是真宣告)\n' "$1" > "$_t/probe.md"
+  _h=$(scan_declared "$_t"); rm -rf "$_t"
+  case " $_h " in *" #$1 "*) return 0;; *) echo "🔴 掃描器自檢失敗:餵一行『RESERVED #$1 佔位』它撈不到 ⇒ 量具壞了" >&2; return 2;; esac
+}
+
+# ── 共用:backlog 稽核(重號 / 格式變體 / 跳號)。回 0 乾淨、1 有新重號、2 量具壞 ──────
+# 已認列的歷史重號以【號:顆數】為鍵(code-reviewer nit 5:只記號碼 ⇒ 第三顆 641 也綠):
+#   #835 逐條開檔核過:641/672/676 各 2 顆真重號;220 是 #220./#220b/#220c 三顆(變體被 ^### #N 數成同號)。
+# ⇒ 顆數【超過】認列值才紅 ⇒ 一裝就綠、新撞號才紅(一道長期紅著的閘訓練人略過整張清單)。
+AUDIT_KNOWN_DUPES="${AUDIT_KNOWN_DUPES:-220:3 641:2 672:2 676:2}"
+audit_backlog() { # $1=backlog 檔
+  local _nums _total _counts _new _shapes _gaps _lead _n _c _known
+  [ -f "$1" ] || { echo "🔴 找不到 $1 ⇒ 量具缺席" >&2; return 2; }
+  # 🔴 行首帶空白的 `  ### #N` 也算一條(nit 9:縮排的撞號原版不紅)
+  _nums=$(grep -oE '^[[:space:]]*### #[0-9]+' "$1" | grep -oE '[0-9]+')
+  _total=$(printf '%s\n' "$_nums" | grep -c . || true)
+  [ "$_total" -gt 0 ] || { echo "🔴 $1 裡一條 '### #N' 都沒有 ⇒ 尺對不上檔,不是乾淨" >&2; return 2; }
+  _counts=$(printf '%s\n' "$_nums" | sort -n | uniq -c | awk '$1>1 {printf "%s:%s ", $2, $1}')
+  _new=""
+  for _c in $_counts; do
+    _n=${_c%%:*}; _known=""
+    for k in $AUDIT_KNOWN_DUPES; do [ "${k%%:*}" = "$_n" ] && _known=${k#*:}; done
+    if [ -z "$_known" ] || [ "${_c#*:}" -gt "$_known" ]; then _new="$_new $_c"; fi
+  done
+  # 標題形狀:數字後第一個字元(行尾另成一桶;nit 7)+ 行首縮排另計
+  _shapes=$(grep -oE '^[[:space:]]*### #[0-9]+.?' "$1" | sed -E 's/^[[:space:]]+/IND:/; s/[0-9]+//' | awk '{ if ($0 ~ /#$/) print $0 "<EOL>"; else print }' | sort | uniq -c | tr -s ' ' | tr '\n' ';')
+  _lead=$(grep -cE '^[[:space:]]+### #[0-9]+' "$1" || true)
+  _gaps=$(printf '%s\n' "$_nums" | sort -n | uniq | awk 'NR>1 && $1>p+1 {g++} {p=$1} END{print g+0}')
+  if [ -z "$_new" ]; then
+    echo "── backlog 稽核:$1 ── 條目 $_total / 重號 ${_counts:-（無）}⇒ 全部已認列(AUDIT_KNOWN_DUPES)/ 縮排標題 $_lead / 跳號段 $_gaps(只報不判)/ 標題形狀 $_shapes"
+    return 0
+  fi
+  echo "── backlog 稽核:$1 ── 條目 $_total / 重號 ${_counts} / 縮排標題 $_lead / 跳號段 $_gaps / 標題形狀 $_shapes"
+  echo "🔴 新的重號(號:顆數):$_new —— 兩個窗各自 grep 到同一個最大號、各自 append(2026-08-23 #857 實錘)。" >&2
+  echo "   處置:後落地的那顆改號(讓號給先的),不要動對方的條目;已認列的歷史重號在 AUDIT_KNOWN_DUPES(號:顆數)。" >&2
+  return 1
+}
+
+# ── --audit / --selftest / --dry-run ──────────────────────────────────
+if [ "${1:-}" = "--audit" ]; then
+  audit_backlog "$BACKLOG_FILE"; exit $?
+fi
+if [ "${1:-}" = "--selftest" ]; then
+  fail=0; n=0
+  ck() { n=$((n+1)); if [ "$2" = "$3" ]; then echo "  PASS $1"; else echo "  🔴 FAIL $1 —— 得 $2 該 $3"; fail=1; fi; }
+  T=$(mktemp -d) || exit 2; trap 'rm -rf "$T"' EXIT
+  mkdir -p "$T/mb" && printf 'RESERVED #857 佔位\n' > "$T/mb/a.md" && printf '交件引號裡提到「RESERVED #859 佔位」這個形狀,不是宣告\n' > "$T/mb/b.md"
+  ck "契約掃描:行首 RESERVED #857 ⇒ 撈到 #857(原版對 8xx 結構上不可能命中)" "$(scan_declared "$T/mb" | tr -d ' ')" "#857"
+  ck "契約掃描:散文/引號裡的同形狀 ⇒ 不算宣告(must-fix 3 那格:工具被自己的交件擋住)" "$(printf 'x\n' > "$T/mb/a.md"; scan_declared "$T/mb" | tr -d ' ')" ""
+  ck "散文掃描:同一行仍撈得到 #859 當參考(印、不擋)" "$(scan_prose "$T/mb" | tr -d ' ')" "#859"
+  scan_selfcheck 999 "$T/mb" >/dev/null 2>&1; ck "掃描器自檢:活著 ⇒ 0" "$?" "0"
+  scan_selfcheck 999 "$T/nope" >/dev/null 2>&1; ck "掃描器自檢:信箱目錄不存在 ⇒ 2(量具缺席≠乾淨;must-fix 1)" "$?" "2"
+  mkdir -p "$T/mb0"; scan_selfcheck 999 "$T/mb0" >/dev/null 2>&1; ck "掃描器自檢:目錄在但零 *.md ⇒ 2" "$?" "2"
+  SCAN_IMPL=dead scan_selfcheck 999 "$T/mb" >/dev/null 2>&1; ck "掃描器自檢負對照:掃描器死掉 ⇒ 2(nit 6:自檢不能恆真)" "$?" "2"
+  printf '### #856. a\n\n### #857. b\n' > "$T/clean.md"
+  audit_backlog "$T/clean.md" >/dev/null 2>&1; ck "稽核:乾淨 ⇒ 0" "$?" "0"
+  printf '### #856. a\n\n### #857. 窗一\n\n### #857. 窗二\n' > "$T/dup.md"
+  audit_backlog "$T/dup.md" >/dev/null 2>&1; ck "稽核:兩顆 ### #857 ⇒ 1(今晚那次撞號的形狀)" "$?" "1"
+  printf '### #856. a\n\n  ### #857. 縮排的撞號\n\n### #857. b\n' > "$T/lead.md"
+  audit_backlog "$T/lead.md" >/dev/null 2>&1; ck "稽核:行首帶空白的撞號 ⇒ 1(nit 9)" "$?" "1"
+  printf '### #641. a\n\n### #641. b\n' > "$T/known.md"
+  audit_backlog "$T/known.md" >/dev/null 2>&1; ck "稽核:已認列 641 兩顆 ⇒ 0(一裝就綠)" "$?" "0"
+  printf '### #641. a\n\n### #641. b\n\n### #641. c\n' > "$T/third.md"
+  audit_backlog "$T/third.md" >/dev/null 2>&1; ck "稽核:641 第三顆 ⇒ 1(nit 5:白名單以顆數為鍵)" "$?" "1"
+  printf 'no headings here\n' > "$T/empty.md"
+  audit_backlog "$T/empty.md" >/dev/null 2>&1; ck "稽核:零條目 ⇒ 2(尺對不上檔≠乾淨)" "$?" "2"
+  echo "  ── claim-backlog-number --selftest: $n 格, fail=$fail"
+  [ "$n" = "13" ] || { echo "  🔴 格數 $n ≠ 13 ⇒ 有格沒跑到"; exit 1; }
+  exit "$fail"
+fi
+DRY=0; if [ "${1:-}" = "--dry-run" ]; then DRY=1; fi
 
 # ── --release：條目落檔之後清掉 ────────────────────────────────────────────
 if [ "${1:-}" = "--release" ]; then
@@ -70,11 +185,25 @@ fi
 
 echo
 echo "── ② 信箱佔位掃描(既有那道)──────────────────────────────────────"
-HITS="$(grep -rn '佔位\|RESERVED #6' "$CLAIM_ROOT"/*.md 2>/dev/null | grep -oE '#6[0-9][0-9]' | sort -u | tr '\n' ' ')"
-echo "  信裡出現過的號:${HITS:-（無）}"
-case " $HITS " in *" #$NEXT "*)
-  echo "  🔴 #$NEXT 出現在信箱佔位宣告裡 ⇒ 停下，先去看那封信。" >&2; exit 1;;
+# 🔴 先讓掃描器表演一次該紅的(目錄在、有檔、餵合成句撈得到);任一不成立 ⇒ 2,印什麼都不算數
+#    (#829 那格的病:死尺印健康行;must-fix 1:目錄不存在也曾印「自檢 ✅」)。
+scan_selfcheck "$NEXT" "$CLAIM_ROOT" || exit 2
+DECL="$(scan_declared "$CLAIM_ROOT")"
+PROSE="$(scan_prose "$CLAIM_ROOT")"
+echo "  契約宣告(行首 RESERVED #NNN,會擋):${DECL:-（無）}"
+echo "  散文提到(同一行含「佔位|RESERVED」+ #號,只供參考、不擋):${PROSE:-（無）}"
+echo "  (掃描器自檢 ✅;分母=$CLAIM_ROOT/*.md 共 $(ls "$CLAIM_ROOT"/*.md 2>/dev/null | wc -l | tr -d ' ') 支)"
+case " $DECL " in *" #$NEXT "*)
+  echo "  🔴 #$NEXT 有人用契約形狀宣告了 ⇒ 停下，先去看那封信(grep -rn 'RESERVED #$NEXT' $CLAIM_ROOT)。" >&2; exit 1;;
 esac
+case " $PROSE " in *" #$NEXT "*)
+  echo "  ⚠️ #$NEXT 在某封信的散文裡出現過 —— 不擋,但發之前開一眼:grep -rn '#$NEXT' $CLAIM_ROOT/*.md";;
+esac
+if [ "$DRY" = "1" ]; then
+  echo
+  echo "── (--dry-run)未佔號。要佔:去掉 --dry-run 再跑 ──"
+  exit 0
+fi
 
 echo
 echo "── ③ 🔴 原子性佔住(mkdir。這一道才擋得住併發)──────────────────"
