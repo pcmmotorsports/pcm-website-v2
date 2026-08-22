@@ -29370,3 +29370,38 @@ GVRDMH            0.045 秒              🔴 1 小時 43 分                   
 - **修法方向**:比照 peer gate 寫 `scripts/state-gates-freshness.harness.sh`(拋棄式 repo 內
   重演矩陣關鍵格:加一代 ⇒ 1 / --write 後 ⇒ 0 / 量具突變 ⇒ 2 / 檔案缺席 ⇒ pre-commit 擋),
   掛進 lint-staged。⚠️ 獨立一片,不擠進其他線(共用閘,改壞影響全隊)。
+
+### #855. 🔴 `20260820100000_d3b_void_manual_refund.sql:292` 用 `CREATE OR REPLACE` 建了一個沒有前世代的新函式 —— 已 apply 上線的真違規
+
+- **怎麼發現的**(2026-08-23,修 `scripts/migration-static-checks.sh` 規則①時):原規則無條件禁 OR REPLACE,
+  對這支檔印出兩條一模一樣的紅(:224 / :292)。修成「更早 migration 查無同身分定義才算違規」之後,
+  :224 `pcm_order_refundable_remaining` 轉綠(誤報:5 代重定義),**:292 `admin_void_manual_refund` 仍紅**。
+- **為什麼它是真的**:`grep -l 'admin_void_manual_refund' supabase/migrations/*.sql` ⇒ 2 支,
+  另一支 `20260822120000_d3c_grant_void_manual_refund.sql` 只 GRANT 不定義 ⇒ **全 migrations 只此一處定義**
+  ⇒ 它是新物件,照規則該裸 CREATE。
+- **為什麼不在修閘那片修**:已 apply 的 migration 不回頭改(比照規則④「歷史檔會紅=規則變準了」);
+  本工具只在新檔手跑,這支不會擋到任何人。
+- **不修未來會痛在哪**:危害只在「當時若已有同名物件會被靜靜蓋掉」—— 事後看名字是新的、零實害;
+  但它是一條會被拿來當「前例」的寫法(「上一支也這樣寫」),下一個照抄的人撞名時就靜默蓋掉。
+- **修法方向**:①記錄即可(本條)②若日後有人要補一支 no-op 的 migration「宣告」這件事 —— 不值得,
+  migration 不是留言板;③真正的防線是規則①從此會紅,新檔不會再這樣寫。**建議:記錄,不動。**
+- **原規則真正壞在哪(主視窗一句)**:不是它太嚴,是**它的紅沒有分辨力** —— 一個誤報 + 一個真違規
+  印成兩條一樣的紅,人會整批略過。修閘的價值不是「少報一條」,是「紅開始有意義」。
+- **附:規則①裁【甲】(不分 overload 簽章)的分母與重量法**(2026-08-23 主視窗裁,b8 量):
+  ```
+  awk '/^CREATE (OR REPLACE )?FUNCTION public\.[a-z_0-9]+[ \t]*\(/ { capturing=1; sig=""; match($0,/public\.[a-z_0-9]+/); name=substr($0,RSTART+7,RLENGTH-7); depth=0 }
+       capturing { line=$0; sub(/--.*$/,"",line); sig=sig " " line; n=gsub(/\(/,"(",line); m=gsub(/\)/,")",line); depth+=n-m
+         if (depth<=0 && index(sig,")")>0) { s=sig; sub(/^[^(]*\(/,"",s); sub(/\)[^)]*$/,"",s); gsub(/[ \t]+/," ",s); gsub(/ DEFAULT [^,]*/,"",s); k=name SUBSEP s; if(!(k in seen)){seen[k]=1; cnt[name]++}; capturing=0 } }
+       END { for (nm in cnt) if (cnt[nm]>1) print nm, cnt[nm] }' supabase/migrations/*.sql
+  ```
+  現值 7 個名字多簽章;逐個 `grep -ciE '^[[:space:]]*DROP FUNCTION.*<name>\(' supabase/migrations/*.sql`:
+  6 個有 DROP 配對(演化)、`admin_record_item_receipt` 是 `timestamptz` vs `timestamp with time zone` 別名
+  ⇒ **真並存 overload = 0**。🔴 這把尺**不認型別別名**(會多報),要人工核第二層;它變非 0 那天,甲要重估。
+- **附:閘自己的可攜性(兩道閘各撞一次 awk 方言,記給下一個寫閘的人)**:`IGNORECASE` 是 gawk 專屬,
+  BSD awk 靜默忽略 ⇒ 小寫 DDL 全誤紅(本片已改全行 tolower);`for (k in seen)` 未排序 ⇒ 換 awk 實作段落順序
+  可能對調(state-gates.sh:106,#854)。**本機 gawk/mawk 雙缺,別家 awk 上的行為未驗。**
+- **附(2026-08-23 code-reviewer must-fix 2,全量數)**:標題那筆**不是孤例** —— 對 207 支全量跑修後的規則① ⇒
+  **48 檔 / 71 筆「新物件用 OR REPLACE」+ 3 檔 IF NOT EXISTS**(量法在 `scripts/migration-static-checks.sh` 規則①註解)。
+  歷史上「新函式直接 OR REPLACE」是常態寫法;規則①從此只對【新檔手跑】紅,舊檔一律照規則④的處置不回頭改。
+  ⚠️ 修閘第一版曾量到 52 檔 / 79 筆,其中 ≥3 筆是**剝殼順序 bug 造成的假紅**(`--` 註解裡的 `/*` 或 `$tag$`
+  開了永不關閉的區塊、吃掉下面的真定義;4 支檔整檔被吃光)—— 已改成一趟掃描照出現順序處理,假紅歸零。
