@@ -1420,3 +1420,47 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     });
   });
 });
+
+// 🔴 2026-08-22 分類區三件(Sean 看真 iPhone 提的,三件都是他挑過圖的)。
+//    這一族守的都是「壞掉的時候畫面看起來仍然正常」那種:
+//      · 反白格退回白底 ⇒ 只是「跟其他格一樣」，沒有任何報錯
+//      · 標題列退回橫排 ⇒ 只是「又折行了」
+//      · 佔位被寫死寬度 ⇒ 只在**另一個斷點**沒對齊，而那個斷點沒人在看
+describe('分類區三件(2026-08-22)', () => {
+  it('🔴 第 12 格是反白:墨底紙字,而且是【全斷點】不是只有手機', () => {
+    const top = topLevelCss();
+    const i = top.indexOf('.b-cat-more {');
+    expect(i, '找不到 .b-cat-more 的全斷點規則').toBeGreaterThan(-1);
+    // 取「最後一條」.b-cat-more 基礎規則(反白那條寫在既有規則之後、靠 source order 覆寫)
+    const last = top.lastIndexOf('.b-cat-more {');
+    const block = top.slice(top.indexOf('{', last), top.indexOf('}', last));
+    expect(block, '第 12 格沒有墨底 ⇒ 退回白底 = 跟分類格長一樣(Sean 挑的就是要它不一樣)')
+      .toMatch(/background:\s*var\(--ed-c-ink\)/);
+    expect(block, '墨底上沒有把字翻成紙色 ⇒ 深底深字、讀不到').toMatch(/color:\s*var\(--ed-c-paper\)/);
+  });
+
+  it('🔴 標題列在 640 以下改直排(真因是版面並排、不是字級)', () => {
+    const m = mediaBlock('(max-width: 640px)');
+    expect(m, '找不到 640 斷點').not.toBe('');
+    expect(m, '標題列沒有改直排 ⇒ 375 寬時標題與註解對分 155px、兩個都折行')
+      .toMatch(/\.ed-section-head\s*\{[^}]*flex-direction:\s*column/);
+  });
+
+  it('🔴 沒有 icon 的佔位只關底色、**不自己宣告寬度**(寬度要跟著 .b-cat-icon 走)', () => {
+    const top = topLevelCss();
+    const i = top.indexOf('.b-cat-icon--none');
+    expect(i, '找不到 .b-cat-icon--none').toBeGreaterThan(-1);
+    const block = top.slice(top.indexOf('{', i), top.indexOf('}', i));
+    expect(block, '佔位沒有把灰底關掉 ⇒ 長得像「有 icon 但沒載到」').toMatch(/background:\s*transparent/);
+    // 🔴 這一格是本組最重要的:34px 這個差距在兩個斷點是**不同的數字**
+    //    (桌機 14+28+10=52、手機 12+24+10=46)⇒ 一旦有人在這裡寫死 width，
+    //    另一個斷點就會悄悄對不齊，而畫面上只是「有點怪」、沒有訊號。
+    expect(block, '佔位自己宣告了 width ⇒ 兩個斷點的 icon 尺寸不同(28 vs 24)，另一邊會對不齊')
+      .not.toMatch(/(^|[;{])\s*width:/);
+  });
+
+  it('負向對照:同一把尺對【確實不存在】的東西要撈不到(⇒ 上面三格不是恆真)', () => {
+    expect(topLevelCss()).not.toContain('.b-cat-icon--nonee');
+    expect(mediaBlock('(max-width: 640px)')).not.toMatch(/\.ed-section-headd/);
+  });
+});

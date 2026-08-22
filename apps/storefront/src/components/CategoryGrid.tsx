@@ -264,10 +264,18 @@ export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
               data-cat={chip ? chip.cat : undefined}
               href={`/products?category=${encodeURIComponent(c.name)}`}
             >
-              {chip && (
+              {chip ? (
                 <span className="b-cat-icon" aria-hidden="true">
                   {chip.icon}
                 </span>
+              ) : (
+                /* 🔴 沒有 icon 的分類:仍然佔一格等寬的位置,讓文字左緣與同列其他格對齊
+                   (Sean 2026-08-22:「少了一個圖示還有邊線,要對齊其他欄位」;實量差 34px)。
+                   ⚠️ 這**不是**把缺 icon 解掉 —— 見本檔檔頭那段:磚牆放誰由**即時件數排名**決定、
+                      icon 是**畫死的 11 顆** ⇒ 件數再變,還是會有別的分類上榜卻沒 icon。
+                      這一格只是讓那個暫態**不再破壞版面**。
+                   底色由 `.b-cat-icon--none` 關掉 —— 空的灰方塊會被讀成「icon 沒載到」。 */
+                <span className="b-cat-icon b-cat-icon--none" aria-hidden="true" />
               )}
               <span className="b-cat-label">
                 {c.name}

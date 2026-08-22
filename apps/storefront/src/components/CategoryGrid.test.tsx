@@ -138,7 +138,22 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
       .toHaveLength(NO_ICON_ON_WALL.length);
     for (const a of chips) {
       expect(a.classList.contains('b-cat-chip--noicon'), '沒有標記 ⇒ 真瀏覽器 / E2E 掃不出來').toBe(true);
-      expect(a.querySelector('.b-cat-icon'), '不該畫一個空的 icon 方塊(看起來像圖沒載出來)').toBeNull();
+      // 🔴 2026-08-22 這一格**改了斷言,不是放寬**。原本是
+      //    `expect(a.querySelector('.b-cat-icon')).toBeNull()`,理由欄逐字寫著
+      //    「不該畫一個空的 icon 方塊(看起來像圖沒載出來)」——**那個顧慮仍然成立**,
+      //    但它其實是在防 `.b-cat-icon` 自帶的 `background: var(--ed-c-sunken)` 灰底方塊,
+      //    不是在防「佔位」本身。
+      //    Sean 2026-08-22 逐字:「少了一個圖示還有邊線,**要對齊其他欄位**」
+      //    ⇒ 完全不畫那一格 = 文字左緣往左 **34px**(真瀏覽器 375 寬實量),那正是他抱怨的東西。
+      //    ⇒ 現在畫一個**等寬但透明**的佔位:對齊回來,而灰底由 `--none` 關掉
+      //      ⇒ 原顧慮由下面那條 `--none` 斷言接手守著,**沒有變成沒人守**。
+      const ph = a.querySelector('.b-cat-icon');
+      expect(ph, '沒有佔位 ⇒ 文字左緣會往左 34px、與同列其他格對不齊').not.toBeNull();
+      expect(
+        ph!.classList.contains('b-cat-icon--none'),
+        '佔位少了 --none ⇒ 會吃到 .b-cat-icon 的灰底 ⇒ 長得像「有 icon 但沒載到」(原斷言要防的就是這個)',
+      ).toBe(true);
+      expect(ph!.querySelector('svg'), '佔位裡不該有圖形 —— 缺 icon 就是缺,不借別人的').toBeNull();
       expect(a.getAttribute('data-cat'), '沒有色碼時不該輸出 data-cat').toBeNull();
       // 入口本身照舊
       expect(a.getAttribute('href')).toMatch(/^\/products\?category=/);
