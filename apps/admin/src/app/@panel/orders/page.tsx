@@ -75,7 +75,7 @@ export default async function OrderPanelPage({
   const customerId = readOpenCustomerPanelId(raw);
   if (customerId) {
     return (
-      <div className='@container panel-width-locked sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
+      <div className='@container panel-width-locked sticky top-0 max-h-[calc(100svh-3.5rem)] space-y-4 overflow-y-auto border-l p-4'>
         <CustomerPanel
           data={await loadCustomerDetail(customerId)}
           backHref={buildPanelSelfHref(raw, panelId)}
@@ -129,6 +129,19 @@ export default async function OrderPanelPage({
   });
 
   return (
+    // 🔴🔴 **2026-08-22:`max-h-svh` → `calc(100svh-3.5rem)`。Sean 回報「捲到最下方會卡一次,
+    //    看不到申請取消訂單」—— 而那不是捲動卡住,是【面板的底部本來就在畫面外】。**
+    //    量到的(真瀏覽器,948px 高視窗,`/orders?panel=…`,整頁未捲時):
+    //      面板容器 top = **56**、height = **948**(= `svh` 全高)⇒ bottom = **1004**
+    //      而視窗只到 948 ⇒ 🔴 **底部 56px 永遠在畫面外**,而「申請取消整張單」就住在那 56px 裡。
+    //    ⇒ 面板內部捲到底(scrollTop 747 = 它的極限)之後,取消區 bottom 仍在 **988**,
+    //      **還差 40px** ⇒ 員工必須再推一次讓【整頁】捲動才看得到 —— 那一次推,就是他說的「卡一次」。
+    //    🔴 **`3.5rem` 不是估的**:上方那條是 `components/layout/header.tsx:20` 的 `h-14`。
+    //      它 **`shrink-0` 且不是 sticky** ⇒ 面板在 `scrollY=0` 時被它往下推 56px。
+    //    ⚠️ **代價,寫出來**:整頁捲過 56px 之後表頭已離場,那時面板底下會空著 56px 沒用到。
+    //      **拿「一小塊沒用到的空白」換「內容永遠看得到」** —— 而反過來那種是**沉默的**:
+    //      員工不會知道自己少看了一段,他只覺得「捲不下去」。
+    //    📎 守門在 `apps/admin/src/app/@panel/order-panel-scroll.test.ts`。
     // 🔴 `sticky` + `max-h-svh` + `overflow-y-auto` = **面板自己捲**,document 捲動不動。
     //    350b 檔頭記過:給整列高度再加 overflow 會把**全站**的捲動模型換掉,連訂單列表的
     //    非 portal 下拉都會被裁。這裡的 scroll container 只有面板自己。
@@ -170,7 +183,7 @@ export default async function OrderPanelPage({
         ⚠️ **客人卡那條路(上面那個 return)也帶同一個標記,而那是刻意的**:
            客人卡是「蓋在某張訂單的面板上」(本檔 `:63-66` 逐字),不是獨立視圖
            ⇒ 少了它,點「客人明細」面板會從 720 跳回 cookie 寬度、關掉再跳回來。 */
-    <div className='@container panel-width-locked sticky top-0 max-h-svh space-y-4 overflow-y-auto border-l p-4'>
+    <div className='@container panel-width-locked sticky top-0 max-h-[calc(100svh-3.5rem)] space-y-4 overflow-y-auto border-l p-4'>
       {/* 🔴 片2:BMW M 三色條,設計稿 §1 逐字「頂端有 BMW M 三色條(藍→紫→紅)橫貫整個面板寬」。
           漸層本體是既有的 `.m-stripe`(`globals.css`),那裡寫了為什麼三個色停是硬寫 hex 不是 token。
           · `-mx-4 -mt-4` 把它推出容器的 `p-4` ⇒ 才真的「橫貫整個面板寬」;沒有它會左右各短 16px。

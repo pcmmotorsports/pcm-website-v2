@@ -1,3 +1,26 @@
+// button.tsx — shadcn Button。
+//
+// ── 🔴 2026-08-22:動效接上 BMW M token(`--motion-fast` / `--ease-standard`)──────
+//   **接線前它們是「宣告在、消費端 0」** —— `docs/design/admin-design-system.md` 檔頭那張
+//   落地狀態表逐字寫著「值存在但沒有任何元件吃它;寫『已套用動效規範』是假的」。
+//   ⇒ 本檔是它們的**第一個消費端**。
+//
+//   **設計權威**:OD `pcm-admin-order-ui/overview-desktop-bmw-m.html` 的 `.btn` 逐字
+//   `transition:background var(--motion-fast) var(--ease-standard)`。
+//   🔴 **那是整份設計稿【唯一】一處 transition**(三份稿實查:總覽 1 處、列表 0、明細 0)
+//   ⇒ 這個後台本來就該幾乎不動,**不要因為「動效 token 有三顆」就去找地方用滿它們**。
+//
+//   ── 為什麼從 `transition-all` 改成 `transition-colors` ──────────────────────
+//   ① 設計稿寫的是 `transition:background`,不是 all。
+//   🔴 ② `globals.css:186-187` 那段警告逐字:「**用它們時只准動 `transform` / `opacity`**
+//      —— 動 `top/left/width/height` 會逐幀觸發版面重算,在 1,000 列的訂單表上是可見的卡頓」。
+//      `transition-all` **正好會去動那些**。⇒ 收窄成 colors 同時修掉這個風險。
+//
+//   ⚠️ **量到的差**(接線前 → 後):`150ms cubic-bezier(.4,0,.2,1)` → `130ms cubic-bezier(.16,1,.3,1)`。
+//      前者是 Tailwind 預設(對稱緩動),後者是 OD 指定的**急停**曲線。守門在 `button-motion.test.tsx`。
+//   ⚠️ **`--motion-base`(220ms)仍然沒有消費端** —— 設計稿沒有用到它。
+//      **不要為了「讓它有人用」去發明一個消費端**;它該不該留是設計系統的決定,不是本檔的。
+
 import * as React from 'react';
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
@@ -6,7 +29,7 @@ import { cn } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors duration-[var(--motion-fast)] ease-[var(--ease-standard)] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
   {
     variants: {
       variant: {

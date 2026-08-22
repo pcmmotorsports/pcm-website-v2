@@ -2202,3 +2202,39 @@ describe('V-07 補 — 收合不得碰到算式;欄數推法不得漂', () => {
     expect(note.querySelector('[title]')).toBeNull();
   });
 });
+
+describe('🔴 空狀態必須回答三件事(設計規範 §6.5.5)', () => {
+  // 🔴 這格擋的是**退化回一句話**。原本只有「目前沒有符合條件的訂單。」——
+  //    而規範逐字要求 ①為什麼空 ②可以做什麼 ③做不了找誰。
+  //    ⚠️ 同節警告:「『篩選篩掉了』寫成『目前沒有資料』會讓員工以為系統壞了」。
+  const emptyText = () => {
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[]} />);
+    return (container.textContent ?? '').replace(/\s+/g, '');
+  };
+
+  it('① 講出「為什麼是空的」,而且要明說不是系統壞了', () => {
+    const t = emptyText();
+    expect(t).toContain('被上面的篩選條件濾掉了');
+    expect(t, '要明說不是系統出問題 —— 這是本節警告的那一句').toContain('不是系統出問題');
+  });
+
+  it('② 給一個明確動作(不是「請稍後再試」)', () => {
+    expect(emptyText()).toContain('放寬日期範圍');
+  });
+
+  it('🔴 ③ 給「還是找不到就這樣做」,而**不得**寫成「通知系統維護」', () => {
+    const t = emptyText();
+    expect(t).toContain('清除');
+    // 🔴 這條是**反向**的:照抄「找誰」的格式在這裡是錯的 —— 沒有東西壞掉,
+    //    寫「通知系統維護」會把員工推去騷擾維護。**格式要看情境,不是照套。**
+    expect(t, '這一格沒有東西壞掉,不該叫人去找維護').not.toContain('通知系統維護');
+  });
+
+  it('🔴 對照組:有訂單時這三句一句都不准出現', () => {
+    // 少了這格,把那三句無條件印在表格上方也會讓上面全綠。
+    const { container } = render(<OrdersTable buildPanelHref={panelHref} orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const t = (container.textContent ?? '').replace(/\s+/g, '');
+    expect(t).not.toContain('被上面的篩選條件濾掉了');
+    expect(t).not.toContain('放寬日期範圍');
+  });
+});
