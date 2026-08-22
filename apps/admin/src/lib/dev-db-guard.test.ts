@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from 'next/constants';
 import nextConfig from '../../next.config';
 import {
+  DB_KEY_PATTERN,
   PCM_PROD_PROJECT_REF,
   PROD_DB_BYPASS_ENV,
   checkProdDbInDev,
@@ -53,6 +54,57 @@ describe('checkProdDbInDev', () => {
     expect(checkProdDbInDev({ NEXT_PUBLIC_SITE_URL: 'https://shop.pcmmotorsports.com' })).toEqual({
       kind: 'ok',
     });
+  });
+
+  // 🔴 R2 nit:原版 hostOf 對方括號 IPv6 與無 scheme 的 libpq DSN 回 null = fail-open;
+  //    LOCAL_HOSTS 的 '::1' 曾是永遠到不了的死項。下面四案是那個洞的正反對照。
+  it('該紅:URL 裡的方括號 IPv6 遠端 ⇒ blocked(原版對它 fail-open)', () => {
+    const v = checkProdDbInDev({ DATABASE_URL: 'postgresql://user@[2001:db8::1]:5432/x' });
+    expect(v).toEqual({
+      kind: 'blocked',
+      bypassRefused: false,
+      matches: [{ key: 'DATABASE_URL', reason: 'remote-db' }],
+    });
+  });
+
+  it('該綠:方括號 [::1] ⇒ ok(LOCAL_HOSTS 那一項現在到得了)', () => {
+    expect(checkProdDbInDev({ DATABASE_URL: 'postgresql://[::1]:5432/x' })).toEqual({ kind: 'ok' });
+  });
+
+  it('該紅:libpq DSN(無 scheme)host= 遠端 ⇒ blocked', () => {
+    const v = checkProdDbInDev({ DATABASE_URL: 'host=db.remote.example port=5432 dbname=x' });
+    expect(v.kind).toBe('blocked');
+  });
+
+  it('該綠:libpq DSN host=localhost / host=unix socket 路徑 ⇒ ok', () => {
+    expect(checkProdDbInDev({ DATABASE_URL: 'host=localhost port=5432' })).toEqual({ kind: 'ok' });
+    expect(checkProdDbInDev({ DATABASE_URL: 'host=/tmp/pg-sockets port=5432' })).toEqual({
+      kind: 'ok',
+    });
+  });
+
+  // 🔴 codex R1 must-fix-2:三種合法寫法原本都 fail-open。
+  it('該紅:authority 留空、host 塞 query 的合法 URI ⇒ blocked', () => {
+    expect(checkProdDbInDev({ DATABASE_URL: 'postgresql:///db?host=db.remote.example' }).kind).toBe(
+      'blocked',
+    );
+  });
+
+  it('該紅:hostaddr= 遠端 IP ⇒ blocked;host=localhost 同時給 hostaddr ⇒ hostaddr 優先、仍 blocked', () => {
+    expect(checkProdDbInDev({ DATABASE_URL: 'hostaddr=203.0.113.1 port=5432' }).kind).toBe(
+      'blocked',
+    );
+    expect(
+      checkProdDbInDev({ DATABASE_URL: 'host=localhost hostaddr=203.0.113.1 port=5432' }).kind,
+    ).toBe('blocked');
+  });
+
+  // 🔴 R2 nit:key 清單會漂 —— 加寬後的名字要真的在分母裡(該紅),兜底仍是 ref 規則。
+  it('該紅:PG_URL / CONNECTION_STRING 這類名字也在第二道分母裡', () => {
+    expect(checkProdDbInDev({ PG_URL: 'https://db.example.com' }).kind).toBe('blocked');
+    expect(checkProdDbInDev({ CONNECTION_STRING: 'postgres://db.example.com/x' }).kind).toBe(
+      'blocked',
+    );
   });
 
   it('空 env / 空字串 ⇒ ok', () => {
@@ -132,12 +184,24 @@ describe('next.config 真的呼叫了那道閘', () => {
     Object.assign(process.env, saved);
   });
 
+  // R2 C-4:shell 若全域 export 逃生門或 DB 變數,「該 throw」案會假紅 ⇒ 先清(同 storefront 版)。
+  function scrubDbEnv(): void {
+    delete process.env[PROD_DB_BYPASS_ENV];
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined && (DB_KEY_PATTERN.test(k) || v.includes(PROD_REF_LITERAL))) {
+        delete process.env[k];
+      }
+    }
+  }
+
   it('dev server phase + 正式庫 ref ⇒ next.config 本身要 throw', () => {
+    scrubDbEnv();
     process.env.NEXT_PUBLIC_SUPABASE_URL = PROD_URL;
     expect(() => nextConfig(PHASE_DEVELOPMENT_SERVER)).toThrowError(/next dev 已停止/);
   });
 
   it('🔴 build phase + 同一組 env ⇒ 不得 throw(Vercel / next build 不能被擋掉)', () => {
+    scrubDbEnv();
     process.env.NEXT_PUBLIC_SUPABASE_URL = PROD_URL;
     expect(() => nextConfig(PHASE_PRODUCTION_BUILD)).not.toThrow();
   });
