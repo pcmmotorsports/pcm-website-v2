@@ -39,4 +39,14 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/scripts-whitelist-gate.sh' >&2
   exit 1
 fi
+if [ -f .husky/state-gates-freshness-gate.sh ]; then
+  sh .husky/state-gates-freshness-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/state-gates-freshness-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   本閘與 scripts-whitelist-gate 同款 fail-closed:它防「動 migration 不重產狀態閘表」,' >&2
+  printf '%s\n' '   而刪掉這支 .sh 正是關掉它最省事的方法 —— fail-open 會讓這道閘被它自己要防的' >&2
+  printf '%s\n' '   那類疏忽關掉,且「裝了而綠」與「沒裝而綠」在畫面上長得一樣。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/state-gates-freshness-gate.sh' >&2
+  exit 1
+fi
 pnpm exec lint-staged

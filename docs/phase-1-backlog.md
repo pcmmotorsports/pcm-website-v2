@@ -29357,3 +29357,16 @@ GVRDMH            0.045 秒              🔴 1 小時 43 分                   
 - **相關**:`docs/runbooks/local-admin-with-real-data-probe.md` §12(全文)/ §10(同一母題的另一面)/
   `docs/specs/2026-08-19-g1-240-order-detail-plan.md` §⑤-b 限定 ④ /
   `up.sh:27` 檔頭那句自陳「證不了正式站的權限設定」——**寫對了,而它沒說「所以哪幾種問題會拿到假答案」**。
+
+### #854. state-gates 新鮮度閘沒有可重跑的證人(harness)—— 驗收矩陣隨拋棄式 clone 消失
+
+- **現況**(2026-08-23,b8 窗裝閘當日):`.husky/state-gates-freshness-gate.sh` 的九格驗收矩陣
+  (該紅/該綠/隔離性/量具壞/fail-closed/MF2 突變雙世界)全部在拋棄式 local clone 跑,
+  跑完 clone 即刪 ⇒ **證據只活在當晚的交件檔裡**。
+- **不修未來會痛在哪**:日後有人改壞這道閘(改 pathspec、改回 --stdout、改回 fail-open),
+  **零訊號** —— 對照組 `scripts/scripts-whitelist-gate.harness.sh` 有 harness 且掛進
+  package.json lint-staged,改壞它當場紅;本閘沒有。與 code-reviewer 抓到的 MF2 同母題:
+  **這道閘沒有東西在看它自己**。
+- **修法方向**:比照 peer gate 寫 `scripts/state-gates-freshness.harness.sh`(拋棄式 repo 內
+  重演矩陣關鍵格:加一代 ⇒ 1 / --write 後 ⇒ 0 / 量具突變 ⇒ 2 / 檔案缺席 ⇒ pre-commit 擋),
+  掛進 lint-staged。⚠️ 獨立一片,不擠進其他線(共用閘,改壞影響全隊)。
