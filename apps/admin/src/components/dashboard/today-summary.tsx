@@ -1,5 +1,11 @@
 import Link from 'next/link';
-import { formatOrderAmount } from '../../lib/orders/order-list-view';
+import {
+  formatOrderAmount,
+  DATE_FROM_PARAM,
+  DATE_TO_PARAM,
+  SHOW_UNPAID_CARD_PARAM,
+  SHOW_UNPAID_CARD_ON,
+} from '../../lib/orders/order-list-view';
 import type { TodaySummary } from '../../lib/dashboard/today-read';
 
 // today-summary.tsx — `#16` 今日對帳:首頁**三格**的純顯示元件。
@@ -50,6 +56,22 @@ const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
  * 🔴 **判準句(給下一個想把另外兩格也變成連結的人)**:
  * **問「兩側是同一支函式,還是兩份各自寫的述詞?」** 同一支 ⇒ 可以連;
  * 兩份 ⇒ **一定要實跑比對筆數,不論它們讀起來多像**。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 **2026-08-22 更新:② 今日新單【現在是連結了】。上面那段原句一個字都沒改。**
+ *    Sean 逐字答「當然要」。而**「要」不等於「加個 href」** —— 上面寫的 `7 vs 6` 是真的,
+ *    所以這一片做的是**把那個差消掉**,不是無視它。
+ *
+ *    消法:**兩邊的述詞都不動**,由連結帶 `show_unpaid_card=1` 過去
+ *    ⇒ 目的地把那批 tappay×unpaid 放回來 ⇒ **與卡片同一個母體**。詳見 `newOrdersHref()`。
+ *    ⇒ **上面那條判準句仍然成立,而它的答案在這一格變了**:
+ *      兩份述詞的差**被指名、被量出來、而且有一個第一級的開關可以抵銷** ⇒ 才可以連。
+ *      **沒有那個開關的話,答案仍然是不連。**
+ *
+ * 🔴 **③ 今日實收【仍然】不給連結,而理由沒有變** —— 它是**兩條不相干的時間軸**
+ *    (`order_payments.received_at` vs `orders.created_at`),**沒有任何參數抵銷得了**
+ *    ⇒ 那不是「差一個 filter」,是「沒有誠實的目的地」。**不要順手也給它一個。**
+ * ══════════════════════════════════════════════════════════════════════════
  * ⚠️ 而本卡自己的註解已經寫著判準:**「一個可能不準的對帳數字比沒有更糟」**
  *    —— **一個連到「差不多相關」清單的連結,是同一個病換一個載體。**
  */
@@ -88,6 +110,44 @@ function Stat({
       {card}
     </Link>
   );
+}
+
+/**
+ * 「今日新單」的目的地(2026-08-22,Sean 答「當然要」)。
+ *
+ * 🔴🔴 **這不是「加個 href」—— 那格本來被擋的理由是【兩個數字對不起來】,
+ *    而這支的存在意義就是把那個差消掉。** 消法**不動任何一邊的述詞**:
+ * ```
+ * 卡片   today-read.ts:221,236-241  orders where created_at ∈ [台北今日 00:00, 明日 00:00)
+ *                                   零付款面 filter、零 cancelled 過濾
+ * 清單   SupabaseOrderAdapter.ts:833  預設多一條
+ *        if (!filter.includeUnpaidCardOrders)
+ *          query.or('payment_channel.neq.tappay,payment_status.neq.unpaid')
+ * ⇒ 唯一的差就是那一條, 而它【是 Sean 逐字要求藏起來的那批】(同檔 :832 註解)
+ *   ⇒ **不能改清單預設**(推翻他的拍板)、**不能改卡片**(它才是誠實的總數)
+ *   ⇒ **改連結**:帶 show_unpaid_card=1 過去, 讓目的地把那批放回來。
+ * ```
+ * ✅ **另外三個會造成差的東西, 逐一查過都不成立**:
+ *   · `cancelled_at` 過濾 **只掛在 `pendingOnly` 那個 `if` 裡**(同檔 :780-784)
+ *     ⇒ 本連結不帶 `pending` ⇒ 已取消的單照樣出現 ⇒ 與卡片「含當天取消的」一致
+ *   · 日期預設(近半年)被本連結明帶的 `date_from`/`date_to` 蓋掉
+ *   · 清單顯示的「共 N 筆」走 `count: 'exact'` 總數, **不受分頁影響**
+ *
+ * 🔴 **`ymd` 一定要由呼叫端從 `summary` 帶進來, 不在這裡算** ——
+ *    `today-view.ts:41` 逐字:「`ymd` 一定要從這裡出去(R2 nit2):呼叫端若自己再
+ *    `isoBackToTaipeiYmd(now)` 算一次…」⇒ 卡片與連結必須是**同一個 ymd**,
+ *    否則跨日那一刻兩者會指到不同的一天, 而**畫面上看不出來**。
+ *
+ * 🔴 **綁匯出的參數常數、不綁字面** —— 有人改 `date_from` 的字面時, 這裡要跟著紅,
+ *    不是安靜地產出一個沒有人認得的網址(同 `app-sidebar.tsx` 的 `COUNT_QUALIFIER` 那條理由)。
+ */
+function newOrdersHref(ymd: string): string {
+  const qs = new URLSearchParams({
+    [DATE_FROM_PARAM]: ymd,
+    [DATE_TO_PARAM]: ymd,
+    [SHOW_UNPAID_CARD_PARAM]: SHOW_UNPAID_CARD_ON,
+  });
+  return `/orders?${qs.toString()}`;
 }
 
 export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
@@ -136,6 +196,7 @@ export function TodaySummaryCards({ summary }: { summary: TodaySummary }) {
           label='今日新單'
           value={summary.newOrderCount === null ? null : `${summary.newOrderCount} 筆`}
           hint='含未付款與當天取消的'
+          href={newOrdersHref(summary.ymd)}
         />
         {/* 🔴 這一格**不是今日**,是當下累積的待辦量(型別註解有記)——文案刻意寫「目前」不寫「今日」。
             truncated 時數字是**下限**,要講出來,不然員工會以為就這麼多。 */}

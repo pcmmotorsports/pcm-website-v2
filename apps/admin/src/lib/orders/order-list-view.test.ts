@@ -550,6 +550,18 @@ describe('#347-3c-2 預設近半年 + 選中的選項', () => {
     expect(r.selectedDatePresetKey).toBe('d0');
   });
 
+  it('🔴 起迄同一天 ⇒ 查詢窗口是【那一整天】,不是空的', () => {
+    // 🔴 **這一條補的是 `4e923888`(「今天」那格)當時的洞** ——
+    //    那片只測了 preset 算出來的 `fromYmd`/`toYmd`,**沒測它變成查詢窗口之後對不對**。
+    //    而 `from === to` 這個形狀在本檔之前**沒有任何預設走過**(其餘四格都跨月)。
+    //    若 `createdTo` 沒有加一天 ⇒ 窗口 `[今天00:00, 今天00:00)` = **空集合**
+    //    ⇒ 員工選「今天」永遠看到 0 筆,而**畫面上沒有任何東西會紅**。
+    //    突變:把 `date-range.ts` 的 `taipeiDayEndExclusiveIso` 那行 `+ 1` 拿掉 ⇒ 這兩行紅。
+    const r = parseOrderListSearchParams({ date_from: '2026-08-10', date_to: '2026-08-10' }, { now: NOW });
+    expect(r.filter.createdFrom).toBe('2026-08-10T00:00:00+08:00');
+    expect(r.filter.createdTo).toBe('2026-08-11T00:00:00+08:00');
+  });
+
   it('🔴 預設套用之後,**連結**會帶著日期走(翻頁/分享不會掉回不限期間)', () => {
     // ⚠️ 名稱精確化(R1 important 4):打開裸 `/orders` 時**沒有東西改寫網址列** ——
     //    首次載入的可見性完全由下拉那格承擔;這一格量的是 `buildOrderListHref` 的產出,

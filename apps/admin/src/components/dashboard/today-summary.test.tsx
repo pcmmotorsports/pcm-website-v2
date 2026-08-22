@@ -161,14 +161,39 @@ describe('#831 ① 只有退款異常那格可以點', () => {
     expect(a!.getAttribute('aria-label')).toContain('點這裡看清單');
   });
 
-  it('🔴 另外兩格【不得】是連結 —— 它們的數字與目的地對不起來', () => {
+  // 🔴 2026-08-22:`今日新單` 由「不得是連結」改成「是連結,而且必須帶抵銷那個差的參數」。
+  //    `今日實收` 那半**沒有變** —— 它是兩條不相干的時間軸,沒有參數抵銷得了。
+  it('🔴 今日實收【仍然不得】是連結 —— 兩條不相干的時間軸,沒有誠實的目的地', () => {
     render(<TodaySummaryCards summary={summary()} />);
-    // 突變:給 `今日新單` 或 `今日實收` 加上 href ⇒ 這兩行紅。
-    expect(link(/今日新單/)).toBeNull();
+    // 突變:給 `今日實收` 加上 href ⇒ 這行紅。
     expect(link(/今日實收/)).toBeNull();
     // 🔴 正向對照:證明 queryByRole('link') 這把尺在這一頁上真的抓得到連結，
-    //    否則上面兩個 null 可能只是「這支尺什麼都抓不到」。
+    //    否則上面那個 null 可能只是「這支尺什麼都抓不到」。
     expect(link(/目前待處理退款異常/)).not.toBeNull();
+  });
+
+  it('🔴 今日新單是連結,而且【三個參數一個都不能少】', () => {
+    render(<TodaySummaryCards summary={summary({ ymd: '2026-08-22' })} />);
+    const a = link(/今日新單/);
+    expect(a).not.toBeNull();
+    const url = new URL(a!.getAttribute('href')!, 'http://x');
+    expect(url.pathname).toBe('/orders');
+    // 日期兩端都必須是卡片自己那個 ymd —— 少一端,目的地會退回「近半年」的預設區間。
+    expect(url.searchParams.get('date_from')).toBe('2026-08-22');
+    expect(url.searchParams.get('date_to')).toBe('2026-08-22');
+    // 🔴🔴 這一顆是整片的重點:少了它,目的地會把 tappay×unpaid 那批藏起來
+    //    ⇒ 卡片寫 7、點進去看到 6 ⇒ 我們把一個沒人發現的不一致變成每天早上都看得到的。
+    //    突變:把 SHOW_UNPAID_CARD_PARAM 那一行從 newOrdersHref() 拿掉 ⇒ 這行紅。
+    expect(url.searchParams.get('show_unpaid_card')).toBe('1');
+  });
+
+  it('🔴 連結用的日期 = 卡片自己的 ymd,不是各算各的', () => {
+    // 跨日那一刻若兩邊各算一次,卡片與目的地會指到不同的一天,而**畫面上看不出來**。
+    // 突變:把 newOrdersHref(summary.ymd) 改成寫死某一天 ⇒ 這行紅。
+    render(<TodaySummaryCards summary={summary({ ymd: '2026-01-01' })} />);
+    const href = link(/今日新單/)!.getAttribute('href')!;
+    expect(href).toContain('date_from=2026-01-01');
+    expect(href).toContain('date_to=2026-01-01');
   });
 
   it('讀取失敗時仍然可以點(那正是他最需要去看清單的時候)', () => {
