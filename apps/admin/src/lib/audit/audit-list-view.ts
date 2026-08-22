@@ -39,6 +39,16 @@ export const AUDIT_ACTION_LABEL: Record<string, string> = {
   'customer.tier.change': '調整會員等級',
   'customer.wallet.adjust': '調整儲值金',
   'order.cancel': '取消訂單',
+  // 🔴 這三個是 2026-08-22 補的,而**它們一直都在寫入端** —— Sean 在畫面上看到
+  //    `order_refund.unknown_state` 整串英文才被發現。分母當場重量:
+  //    **migrations 21 種 + app 層 5 種(staff 四個 + unknown_state)= 26 種**,而字典只有 23。
+  //    量法:掃 41 段 `INSERT INTO public.admin_audit_log` 的 dotted 字面(跨行切段),
+  //    再加 `staff-actions.ts` 與 `refund-unknown-state-audit.ts:73` 的 app 層字面。
+  //    ⚠️ **只掃 migrations 會漏掉 5 個** —— 上面那條「分母要含 `apps/admin/src`」的提醒
+  //    早就寫在檔頭了,而漏的還是這三個。**寫下來不等於下次會照做。**
+  'order.item.amount.update': '修改品項金額',
+  'product.listing.change': '上架或下架商品',
+  'order_refund.unknown_state': '退款結果不明(需人工確認)',
   'order.workflow.update': '更新訂單狀態',
   'order_item.workflow.update': '更新品項狀態',
   'order_note.append': '新增訂單備註',

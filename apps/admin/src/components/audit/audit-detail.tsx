@@ -1,4 +1,8 @@
 import type { AuditFieldChange } from '../../lib/audit/audit-diff';
+import {
+  formatAuditFieldKey,
+  formatAuditFieldValue,
+} from '../../lib/audit/audit-field-label';
 
 // audit-detail.tsx — `#27` D1c-2b:一筆操作紀錄的「改了哪幾欄」展開檢視。
 //
@@ -21,6 +25,46 @@ import type { AuditFieldChange } from '../../lib/audit/audit-diff';
 
 /** 沒有值的那一側顯示成這個,而不是空白 —— 空白會讀成「這一格壞了」。 */
 const NO_VALUE = '(無)';
+
+/** 字典裡沒有這個欄位時,附在原代碼旁邊的可見標記。 */
+const UNMAPPED_MARK = '(還沒對照成中文)';
+
+/**
+ * 一列「欄位 / 原本 / 改成」。
+ *
+ * ── 🔴 兩欄的**值**原樣走,只有登記過封閉字集的欄位才換中文 ─────────────────
+ *   識別碼(`JtI9i1rusy9SQaCCBXVj` / uuid / `D20260819P8ZewM`)要拿去跟銀行與 TapPay 對帳,
+ *   **改一個字就對不起來**。⇒ 保護它的是 `formatAuditFieldValue()` 的 **per-欄位**查找,
+ *   不是「看起來像不像識別碼」的猜測(理由全文在 `audit-field-label.ts` 檔頭)。
+ *
+ * ── 🔴 未對照的欄位**要在畫面上看得出來**,不得靜靜印原文 ────────────────────
+ *   字典一定會過期(新寫入端隨時多一個欄位,沒有東西會提醒我們)。
+ *   靜靜印原文的話,員工分不出「這欄本來就沒中文」和「我們漏了」——
+ *   **而那兩件事的下一步不同**:一個是照樣讀,一個是回報給系統維護。
+ *   ⚠️ 標記寫成**可見文字**不是 `title`:`title` 由 OS 畫、不進 paint tree ⇒ 零守門可能
+ *   (同一個判斷 `app/settings/audit/page.tsx` 的警語那格也用過)。
+ */
+function AuditChangeRow({ change }: { change: AuditFieldChange }) {
+  const field = formatAuditFieldKey(change.key);
+  return (
+    <tr className='align-top'>
+      <td className='py-1 pr-3 font-medium break-all'>
+        {field.label}
+        {/* 🔴 未對照時**同時**保留原代碼(就是 `field.label` 本身)與這個標記 ——
+            只留中文會把追查用的代碼吃掉,只留代碼則講不出「我們漏了」。 */}
+        {!field.known && (
+          <span className='text-muted-foreground ml-1 font-normal'>{UNMAPPED_MARK}</span>
+        )}
+      </td>
+      <td className='text-muted-foreground py-1 pr-3 break-all'>
+        {change.from === null ? NO_VALUE : formatAuditFieldValue(change.key, change.from)}
+      </td>
+      <td className='py-1 break-all'>
+        {change.to === null ? NO_VALUE : formatAuditFieldValue(change.key, change.to)}
+      </td>
+    </tr>
+  );
+}
 
 export function AuditDetail({ changes }: { changes: readonly AuditFieldChange[] }) {
   if (changes.length === 0) {
@@ -45,11 +89,7 @@ export function AuditDetail({ changes }: { changes: readonly AuditFieldChange[] 
         </thead>
         <tbody>
           {changes.map((change) => (
-            <tr key={change.key} className='align-top'>
-              <td className='py-1 pr-3 font-medium break-all'>{change.key}</td>
-              <td className='text-muted-foreground py-1 pr-3 break-all'>{change.from ?? NO_VALUE}</td>
-              <td className='py-1 break-all'>{change.to ?? NO_VALUE}</td>
-            </tr>
+            <AuditChangeRow key={change.key} change={change} />
           ))}
         </tbody>
       </table>

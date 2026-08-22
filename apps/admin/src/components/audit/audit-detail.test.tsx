@@ -72,3 +72,60 @@ describe('AuditDetail — 三欄與沒有值的那一側', () => {
     expect(container.querySelector('details')).toBeNull();
   });
 });
+
+describe('🔴🔴 中文化:未對照要看得見、識別碼不准被翻(2026-08-22 Sean 提)', () => {
+  it('已登記的欄位與列舉值都變成中文,而且英文原文不再出現', () => {
+    const { container } = render(
+      <AuditDetail changes={[{ key: 'kind', from: 'full', to: 'partial' }]} />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).toContain('退款範圍');
+    expect(text).toContain('全額退款');
+    expect(text).toContain('部分退款');
+    // 🔴 負向對照:英文**不得同時出現**。少了這三條,把中文「附加」在英文旁邊
+    //    (而不是取代它)照樣讓上面全綠,而 Sean 螢幕上仍然是一堆英文。
+    expect(text).not.toContain('kind');
+    expect(text).not.toContain('full');
+    expect(text).not.toContain('partial');
+  });
+
+  it('🔴 未登記的欄位:原代碼仍在,而且旁邊有【可見的】未對照標記', () => {
+    // 🔴 這格擋的是「靜靜印原文」—— 那正是今天的行為,而它看起來完全正常。
+    //    ⚠️ 標記必須在**文字內容**裡,不能是 `title` / `aria-label`
+    //    (`title` 由 OS 畫、不進 paint tree ⇒ 截圖與 DOM 都抓不到)。
+    const { container } = render(
+      <AuditDetail changes={[{ key: 'brand_new_column', from: null, to: '1' }]} />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).toContain('brand_new_column');
+    expect(text).toContain('還沒對照成中文');
+  });
+
+  it('🔴 對照組:已登記的欄位【不得】出現那個標記(否則上一格是恆真的)', () => {
+    // 少了這格,把標記寫成無條件渲染(每一列都印)也會讓上一格全綠 ——
+    // 而那會讓整張表都寫著「還沒對照成中文」,標記等於沒有。
+    const { container } = render(
+      <AuditDetail changes={[{ key: 'refund_amount', from: '100', to: '200' }]} />,
+    );
+    expect(container.textContent).not.toContain('還沒對照成中文');
+  });
+
+  it('🔴🔴 識別碼原樣輸出 —— 一個字都不准變(要拿去跟銀行/TapPay 對帳)', () => {
+    const RAW = 'D20260819P8ZewM';
+    const { container } = render(
+      <AuditDetail changes={[{ key: 'bank_refund_id', from: null, to: RAW }]} />,
+    );
+    expect(container.textContent).toContain(RAW);
+  });
+
+  it('🔴🔴 識別碼剛好長得像列舉值時,仍原樣輸出', () => {
+    // 值字典是 per-欄位的,所以 `bank_refund_id` 底下的 `partial` 不會被查到。
+    // 若有人改成全域字典,這格會紅、而上一格不會。
+    const { container } = render(
+      <AuditDetail changes={[{ key: 'bank_refund_id', from: null, to: 'partial' }]} />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).toContain('partial');
+    expect(text).not.toContain('部分退款');
+  });
+});

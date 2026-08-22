@@ -179,3 +179,22 @@ describe('toAuditListRow — 四欄與邊界', () => {
     expect(serialised).toContain('洪先生');
   });
 });
+
+describe('🔴 2026-08-22 補的三個動作代碼(nit:原本沒有任何測試直接命中)', () => {
+  // 🔴 沒有這一格,**key 拼錯或中文寫錯,現有測試全綠** ——
+  //    `formatAuditAction()` 查不到就原樣回代碼,而那正是它的正常行為
+  //    ⇒ 「漏補」與「補錯」在畫面上長得一樣(都是英文)。
+  it.each([
+    ['order.item.amount.update', '修改品項金額'],
+    ['product.listing.change', '上架或下架商品'],
+    ['order_refund.unknown_state', '退款結果不明(需人工確認)'],
+  ])('%s ⇒ %s', (code, label) => {
+    expect(formatAuditAction(code)).toBe(label);
+    // 負向對照:原代碼不得殘留(擋「中文附加在英文旁邊」那種寫法)。
+    expect(formatAuditAction(code)).not.toContain(code);
+  });
+
+  it('🔴 對照組:一個沒登記的代碼仍原樣回傳(證明上面不是恆真)', () => {
+    expect(formatAuditAction('nobody.registered.this')).toBe('nobody.registered.this');
+  });
+});
