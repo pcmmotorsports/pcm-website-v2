@@ -89,14 +89,26 @@ describe('ProductCard', () => {
     render(<ProductCard p={{ ...product, image: realUrl }} />);
     const imgs = screen.getAllByAltText(product.brand);
     expect(imgs.some((el) => el.getAttribute('src') === realUrl)).toBe(true);
-    // 真圖分支只渲染單張、不走 unsplash placeholder
-    expect(imgs.some((el) => el.getAttribute('src')?.includes('images.unsplash.com'))).toBe(false);
+    // 🔴 2026-08-22:原本這一行斷言的是「不走 unsplash placeholder」。
+    //    unsplash 那條路【整支被刪掉了】(Sean 答「甲」:無真圖改用站內佔位圖)
+    //    ⇒ 舊斷言會變成【恆真】—— 沒有人在渲染 unsplash 了, 它永遠不會出現。
+    //    ⚠️ **這格原本在擋什麼?擋「真圖分支跑去渲染 placeholder」。那件事沒有變**
+    //       ⇒ 判準不變、只是 placeholder 換了身分 ⇒ 改斷言那張新的佔位圖不該出現。
+    expect(imgs.some((el) => el.getAttribute('src') === '/placeholder-product.png')).toBe(false);
   });
 
-  it('should fall back to placeholder gallery when p.image is absent', () => {
+  // 🔴🔴 2026-08-22:這一格【翻面了】—— 而翻的是規格不是實作。
+  //    ~~原本斷言:無真圖 ⇒ src 含 `images.unsplash.com`(那是【期望】它去外部圖庫拿圖)~~
+  //    **商品沒有圖的時候, 顧客站在向 `images.unsplash.com` 熱連** —— 對方掛掉或擋流量
+  //    ⇒ 客人看到破圖, 而我們沒有任何控制權。Sean 2026-08-22 答「甲」⇒ 改用站內佔位圖。
+  //    ⚠️ **這格原本在擋什麼?擋「無真圖時什麼都不渲染」。那件事沒有變** ——
+  //       它仍然在守「一定要有一張圖」, 只是那張圖從別人家的變成我們自己的。
+  it('should fall back to the local placeholder image when p.image is absent', () => {
     render(<ProductCard p={product} />);
     const imgs = screen.getAllByAltText(product.brand);
-    expect(imgs.some((el) => el.getAttribute('src')?.includes('images.unsplash.com'))).toBe(true);
+    expect(imgs.some((el) => el.getAttribute('src') === '/placeholder-product.png')).toBe(true);
+    // 🔴 負向那半:不准再有任何東西打向外部圖庫(這條在 unsplash 整支刪掉前是紅的)
+    expect(imgs.some((el) => el.getAttribute('src')?.includes('unsplash'))).toBe(false);
   });
 
   // 🔴 2026-08-07(R1 MF3):以下幾條(trim/contain/漸層)量的是 jsdom 產出的 React inline style
@@ -143,7 +155,9 @@ describe('ProductCard', () => {
   // 圖框白底(2026-08-06 拍 A)· 漸層 placeholder 分支釘住不變(本片刻意不動、見 ProductCard.tsx 元件註解)
   it('should keep the colored gradient background for the no-real-image placeholder path (untouched by 08-06 white-card change)', () => {
     render(<ProductCard p={{ ...product, image: null }} />);
-    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src')?.includes('images.unsplash.com'))!;
+    // 🔴 2026-08-22:取法從「找 unsplash 那張」改成「找佔位圖那張」——
+    //    同一個目的(拿到 placeholder 分支渲染出來的那張圖), 只是它的 src 換了。
+    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src') === '/placeholder-product.png')!;
     const gallery = img.closest('.pcard-gallery') as HTMLElement;
     expect(gallery.style.background, '前提(非獨立防線,被下面的 toContain 嚴格蘊含):gallery 有算出 background(非空字串)').not.toBe('');
     expect(gallery.style.background, 'placeholder 分支應仍是 linear-gradient、不是純白').toContain('linear-gradient');

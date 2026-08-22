@@ -27,41 +27,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
 
-// PRODUCT_IMG_POOL + productGallery 字面 inline 自 ProductCard.tsx 既有(M-1-04-mini-slice 搬入)、第 2 處撞;
-// 第 3 處撞抽共用、backlog #155 追蹤(對齊 #130 Defer 模式)
-const PRODUCT_IMG_POOL = [
-  'photo-1558981285-6f0c94958bb6',
-  'photo-1568772585407-9361f9bf3a87',
-  'photo-1449426468159-d96dbf08f19f',
-  'photo-1558980664-10e7170b5df9',
-  'photo-1611241443322-b5ba0b9c4f83',
-  'photo-1580310614729-ccd69652491d',
-  'photo-1517649763962-0c623066013b',
-  'photo-1609630875171-b1321377ee65',
-  'photo-1558981806-ec527fa84c39',
-  'photo-1558981852-426c6c22a060',
-  'photo-1558981403-c5f9899a28bc',
-  'photo-1591637333472-3e9e137b87d2',
-  'photo-1547996160-81dfa63595aa',
-  'photo-1449426468159-d96dbf08f19f',
-  'photo-1527136006912-44ea5baac0c6',
-];
+// 🔴 2026-08-22:這裡原本有 `PRODUCT_IMG_POOL`(15 個 Unsplash photo id)+ `productGallery(seed)`
+//   + `resolveSrc(item, usingReal, …)` —— **商品沒有圖的時候, 詳情頁會去跟 `images.unsplash.com`
+//   要三張示意圖**, 而那是從 design-reference 的示意稿逐字搬過來的(本檔檔頭第 11 行寫著)。
+//
+//   ⚠️ **這個分支影響幾件商品, 是量過的:【1 件】**(21,220 件裡, 群層與變體層都沒有圖的只有 1 件)。
+//   ⇒ 換掉它幾乎不改變任何人看到的畫面 —— 它修的是「我們對外部服務的依賴」, 不是視覺。
+//
+//   `resolveSrc` 也一起拿掉了:它唯一在做的事是**替 Unsplash 那條路拼尺寸參數**
+//   (`?w=&q=&auto=format&fit=`), 真圖那條路本來就是原封直送。
+//   ⇒ 現在 gallery 裡的每一個字串都已經是「可以直接放進 src 的東西」, 不需要再解析一次。
+//   📌 連帶:backlog `#155`(抽共用 PRODUCT_IMG_POOL + productGallery)自己說了
+//      「M-1-16 真資料種子上線、PRODUCT_IMG_POOL + productGallery 整支廢、本條順手收」——
+//      **那一天到了。** 兩支檔的定義都已刪除。
 
-function productGallery(seed: number): string[] {
-  const n = PRODUCT_IMG_POOL.length;
-  return [
-    PRODUCT_IMG_POOL[seed % n] ?? '',
-    PRODUCT_IMG_POOL[(seed * 7 + 3) % n] ?? '',
-    PRODUCT_IMG_POOL[(seed * 13 + 5) % n] ?? '',
-  ];
-}
-
-// M-1-16c-3:圖片 src 解析。真圖(usingReal)= 完整 URL(shopify CDN、已含尺寸/版本參數)直送;
-//   fallback(無真圖)= 既有 unsplash seed-id template(帶尺寸參數)。
-function resolveSrc(item: string, usingReal: boolean, w: number, q: number, fit: string): string {
-  if (usingReal) return item;
-  return `https://images.unsplash.com/${item}?w=${w}&q=${q}&auto=format&fit=${fit}`;
-}
+/** 站內自己的佔位圖(`apps/storefront/public/`)。與後台 `product-media.ts` 用的是同一張。 */
+const PLACEHOLDER_IMAGE = '/placeholder-product.png';
 
 export type ProductGalleryProps = { product: MockProduct; selectedVariant?: UIVariant | null };
 
@@ -71,7 +52,7 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
   //   Set 去重保序(RPM 各變體圖無跨變體重複;群代表圖通常已是某變體的圖、去重不重出)。
   //   取代 OD-4a「只顯示該變體那幾張」— 現在點某紋路會看到該紋路照片在前、剩下的接著看(全 ~22 張)。
   //   皆無真圖則 fallback seed placeholder gallery;gallery 來源變更時下方 activeImg reset effect 歸 0。
-  const { gallery, usingReal } = useMemo(() => {
+  const { gallery } = useMemo(() => {
     const seen = new Set<string>();
     const pool: string[] = [];
     const push = (arr?: readonly string[]) => {
@@ -87,11 +68,19 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
     push(product.images); // 群代表圖(通常已含於變體圖、去重)
     if (product.image) push([product.image]);
     return pool.length > 0
-      ? { gallery: pool, usingReal: true }
-      : { gallery: productGallery(product.id), usingReal: false };
-  }, [selectedVariant?.images, product.variants, product.images, product.image, product.id]);
+      ? { gallery: pool }
+      // 一張圖都沒有 ⇒ 站內佔位圖一張(原本是 Unsplash 三張, 見本檔上方那段)
+      : { gallery: [PLACEHOLDER_IMAGE] };
+  // 🔴 2026-08-22:相依陣列拿掉了 product.id —— 它唯一的用途是餵 productGallery(product.id)
+  //   去挑 Unsplash 示意圖, 而那整段已經刪掉。留著會被 react-hooks/exhaustive-deps 判為多餘。
+  }, [selectedVariant?.images, product.variants, product.images, product.image]);
   const [activeImg, setActiveImg] = useState(0);
   const [lightbox, setLightbox] = useState(false);
+  // 載不到的圖片網址。key 用【解析後的 src】而不是 gallery 的索引 ——
+  // 同一張圖在 hero / 縮圖 / lightbox 是三個不同尺寸的 URL, 壞掉的可能只有其中一個。
+  const [brokenSrc, setBrokenSrc] = useState<Record<string, true>>({});
+  const srcOrPlaceholder = (src: string) => (brokenSrc[src] ? PLACEHOLDER_IMAGE : src);
+  const markBroken = (src: string) => setBrokenSrc((prev) => (prev[src] ? prev : { ...prev, [src]: true }));
 
   // M-1-16c-3:gallery 來源變更(換商品 / 16c-4 變體換圖)時 reset activeImg 到 0、
   //   防 gallery[activeImg] 越界空圖(codex 關卡2 consider;route 重掛載已 0、此為 in-place 換源防線)。
@@ -197,7 +186,11 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
           <div className="pd-hero-track" style={{ transform: `translateX(-${activeImg * 100}%)` }}>
             {gallery.map((id, i) => (
               <div key={i} className="pd-hero-slide">
-                <img src={resolveSrc(id, usingReal, 1200, 85, 'crop')} alt={product.name} />
+                <img
+                  src={srcOrPlaceholder(id)}
+                  onError={() => markBroken(id)}
+                  alt={product.name}
+                />
               </div>
             ))}
           </div>
@@ -244,7 +237,12 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
                 onClick={() => setActiveImg(i)}
                 aria-label={`圖片 ${i + 1}`}
               >
-                <img src={resolveSrc(id, usingReal, 200, 75, 'crop')} alt="" loading="lazy" />
+                <img
+                  src={srcOrPlaceholder(id)}
+                  onError={() => markBroken(id)}
+                  alt=""
+                  loading="lazy"
+                />
               </button>
             ))}
           </div>
@@ -275,7 +273,8 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
             {/* V-2g:雙指縮放/平移套 imageRef;放大態單擊不關閉(pinch 縮回或 X/滑下/ESC/背景) */}
             <img
               ref={lbSwipe.imageRef}
-              src={resolveSrc(gallery[activeImg]!, usingReal, 2000, 90, 'contain')}
+              src={srcOrPlaceholder(gallery[activeImg]!)}
+              onError={() => markBroken(gallery[activeImg]!)}
               alt={product.name}
               onClick={() => { if (!lbSwipe.isZoomed()) setLightbox(false); }}
               style={{ cursor: 'zoom-out' }}

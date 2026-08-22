@@ -142,7 +142,10 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       style={{ cursor: 'pointer' }}
     >
       <div className="pcard-img-wrap">
-        <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} hover={hover} image={p.image} trim={p.imageTrim} />
+        {/* 🔴 2026-08-22:拿掉了 seed={p.id} —— 它唯一的用途是餵 productGallery(seed) 去挑
+            三張 Unsplash 示意圖, 而那整段已經換成站內佔位圖。留著一個沒有人讀的 prop,
+            下一個人會以為圖片還跟商品 id 有關。 */}
+        <ProductImage tone={p.imgTone} label={p.brand} hover={hover} image={p.image} trim={p.imageTrim} />
         {badge && <div className="pcard-badge">{badge}</div>}
         {/* 沒貨徽章移除(M-1-13e-pre-3、Sean 2026-05-21 業務拍板「不顯示有無庫存」、
             storefront 偏離 design 字面 L101-103、backlog #161 追蹤 Claude Design 補對齊) */}

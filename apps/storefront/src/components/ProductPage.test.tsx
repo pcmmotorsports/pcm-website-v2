@@ -141,9 +141,19 @@ describe('ProductPage', () => {
   // ProductGallery / ProductInfo 獨立單元測試移至 ProductGallery.test.tsx / ProductInfo.test.tsx
   // 本檔留 2 個整合 case、證明 ProductPage 正確 mount 兩個子元件、不重複測 internal state
 
+  // 🔴 2026-08-22:這一格原本餵 `MOCK_PRODUCTS[0]`(它【一張圖都沒有】),
+  //    而在那之前「沒有圖」會自動生出【三張 Unsplash 示意圖】⇒ 計數器剛好是 01 / 03。
+  //    Sean 2026-08-22 答「甲」:無真圖改成【站內佔位圖一張】⇒ 那個巧合消失。
+  //    ⚠️ 它要驗的是「ProductPage 有沒有把 ProductGallery 接上去」, 不是「圖有幾張」
+  //    ⇒ 餵一個真的有三張圖的樣本, 這一格回到它本來在守的事情上。
   it('should integrate ProductGallery (render counter 01 / 03)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    const 三張圖商品 = {
+      ...MOCK_PRODUCTS[0]!,
+      images: ['https://cdn.example.com/g1.jpg', 'https://cdn.example.com/g2.jpg', 'https://cdn.example.com/g3.jpg'],
+      variants: [],
+    };
+    render(<ProductPage product={三張圖商品} tier="general" related={[]} />);
     expect(screen.getByText('01 / 03')).toBeDefined();
   });
 

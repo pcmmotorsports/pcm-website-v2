@@ -21,37 +21,31 @@
 
 'use client';
 
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { UIImageTrim } from '@/data/mock-products';
 import { computeTrimStyle } from '@/lib/image-trim-style';
 
-const PRODUCT_IMG_POOL = [
-  'photo-1558981285-6f0c94958bb6', // brake caliper
-  'photo-1568772585407-9361f9bf3a87', // motorcycle closeup
-  'photo-1449426468159-d96dbf08f19f', // moto parts
-  'photo-1558980664-10e7170b5df9', // exhaust pipe
-  'photo-1611241443322-b5ba0b9c4f83', // carbon fiber
-  'photo-1580310614729-ccd69652491d', // handlebars
-  'photo-1517649763962-0c623066013b', // racing bike
-  'photo-1609630875171-b1321377ee65', // moto accessories
-  'photo-1558981806-ec527fa84c39', // moto riding
-  'photo-1558981852-426c6c22a060', // helmet
-  'photo-1558981403-c5f9899a28bc', // track day
-  'photo-1591637333472-3e9e137b87d2', // brake disc
-  'photo-1547996160-81dfa63595aa', // motorcycle wheel
-  'photo-1449426468159-d96dbf08f19f', // parts detail
-  'photo-1527136006912-44ea5baac0c6', // track racing
-];
-
-function productGallery(seed: number): string[] {
-  // Stable deterministic selection of 3 images per product
-  const n = PRODUCT_IMG_POOL.length;
-  return [
-    PRODUCT_IMG_POOL[seed % n] ?? '',
-    PRODUCT_IMG_POOL[(seed * 7 + 3) % n] ?? '',
-    PRODUCT_IMG_POOL[(seed * 13 + 5) % n] ?? '',
-  ];
-}
+// 🔴 2026-08-22:這裡原本是 15 個 Unsplash photo id + `productGallery(seed)` ——
+//   **商品沒有圖的時候, 顧客站會去跟 `images.unsplash.com` 要三張示意圖。**
+//   出處是 design-reference/components/ProductCard.jsx:22 逐字搬進來的(本檔檔頭 :18 寫著)
+//   ⇒ **設計稿的示意圖被當成正式站的 fallback 用了。**
+//
+//   為什麼要拿掉(不是視覺問題):
+//   ① 對方掛掉或擋流量 ⇒ 客人看到破圖, 而我們沒有任何控制權
+//   ② 每一個沒有圖的商品卡都在對外部網域發三個請求, 順便把瀏覽紀錄送出去
+//
+//   ⚠️ **而這個分支影響幾件商品, 是量過的:【1 件】。**
+//   ```
+//   select ... from products p left join (每個商品的變體圖數) v
+//   商品總數 21,220 / 群層與變體層【都】沒有圖 = 1 / 至少有一張 = 21,219
+//   ```
+//   ⇒ 換掉它**幾乎不會改變任何人看到的畫面** —— 它修的是「我們對外部服務的依賴」,
+//     不是「畫面比較好看」。(先前流傳的「933 件」是 product-jsonld.ts:15 註解裡
+//     **別的年代、別的分母**的數字, 不是這一題的。)
+//
+// 🔴 `ProductImage.tsx:101-103` 原本掛著「無真圖漸層分支刻意不動…留給 Sean 裁」(D-149-A)。
+//   **Sean 2026-08-22 答「甲 = 可以動」** ⇒ 本片依那道令改。
+const PLACEHOLDER_IMAGE = '/placeholder-product.png';
 
 type Tone = 'cool' | 'neutral' | 'warm' | 'dark' | 'red' | 'gold';
 
@@ -69,11 +63,11 @@ const PALETTES: Record<Tone, [string, string]> = {
 type ProductImageProps = {
   tone?: Tone | string;
   label?: string;
-  seed?: number;
   hover?: boolean;
   /**
    * M-1-16c-1:商品真圖 URL(toUIProduct ← domain product.images[0])。
-   * 有值 → 渲染真圖(hover 微縮放、無 cross-fade);`null` / 缺 → fallback seed placeholder gallery。
+   * 有值 → 渲染真圖(hover 微縮放、無 cross-fade);`null` / 缺 → 站內佔位圖 PLACEHOLDER_IMAGE。
+   * 🔴 2026-08-22 前這裡是【Unsplash 三張示意圖】, 見本檔上方 PLACEHOLDER_IMAGE 那段。
    */
   image?: string | null;
   /**
@@ -98,15 +92,15 @@ type ProductImageProps = {
 // `.pcard:hover` 給它 `rgba(0,0,0,0.04)` ⇒ hover 時圖區實際可見底色約 `#f5f5f5`、不是純白。
 // 這是既有的 hover 遮罩行為(OD 稿查無、依 D-149-A 本片不處理,見 product-card.css 該規則旁說明),
 // 本片沒有動它,只是這裡先前的講法忽略了它、寫成「真正決定可見底色的」沒有例外。
-// 🔴 漸層分支(showReal===false、無真圖 placeholder)刻意不動:主視窗 D-149-A 要求照 OD 稿判、
-// 但主對話已實查 OD 稿完全沒有「無真圖」狀態(grep pcard-gallery / 卡片 linear-gradient 皆零命中)。
-// 依 D-149-A「查無=STOP 問我,不猜」⇒ 該分支留給 Sean 裁,本片不碰。
+// 🔴 ~~漸層分支(showReal===false、無真圖 placeholder)刻意不動…該分支留給 Sean 裁,本片不碰。~~
+// **2026-08-22 Sean 答「甲 = 可以動」** ⇒ 該分支已改:Unsplash 三張 → 站內佔位圖一張。
+// 原句保留,因為它記著「OD 稿完全沒有【無真圖】狀態」這個仍然成立的事實 ——
+// **底下那層漸層的顏色仍然沒有設計權威**,本片沒有動它,只換了疊在它上面的那張圖。
 
-export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, hover = false, image = null, trim }: ProductImageProps) {
+export function ProductImage({ tone = 'neutral', label = 'PRODUCT', hover = false, image = null, trim }: ProductImageProps) {
   // hooks 一律置頂、不可條件呼叫(react-hooks/rules-of-hooks error);real-image 分支與 fallback
-  // 共用同一組 hook、僅 render 內 branch(imgs/failedIdx 在 real 分支不用、開銷可忽略)。
-  const imgs = useMemo(() => productGallery(seed), [seed]);
-  const [failedIdx, setFailedIdx] = useState<Record<number, boolean>>({});
+  // 共用同一組 hook、僅 render 內 branch。
+  const [placeholderFailed, setPlaceholderFailed] = useState(false);
   const [realFailed, setRealFailed] = useState(false);
   const [c1, c2] = PALETTES[tone as Tone] ?? PALETTES.neutral;
   const showReal = !!image && !realFailed;
@@ -170,24 +164,25 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, ho
         />
         )
       ) : (
-        imgs.map((id, i) => failedIdx[i] ? null : (
+        // 🔴 2026-08-22:這裡原本是三張 Unsplash 圖疊著做 hover cross-fade。
+        //   換成站內佔位圖之後【只有一張】—— 三張之間的淡入淡出對同一張圖沒有意義。
+        //   佔位圖自己也載不到(它是 public/ 底下的站內檔, 不該發生)⇒ 只剩底下那層漸層,
+        //   而那正是這個分支原本就有的最後一層。
+        placeholderFailed ? null : (
           <img
-            key={i}
-            src={`https://images.unsplash.com/${id}?w=600&q=80&auto=format&fit=crop`}
+            src={PLACEHOLDER_IMAGE}
             alt={label}
             loading="lazy"
-            onError={() => setFailedIdx(prev => ({ ...prev, [i]: true }))}
+            onError={() => setPlaceholderFailed(true)}
             className="pcard-gallery-img"
             style={{
               position: 'absolute', inset: 0,
-              width: '100%', height: '100%', objectFit: 'cover',
-              mixBlendMode: tone === 'dark' ? 'normal' : 'multiply',
-              opacity: (hover ? (i === 1 ? 1 : 0) : (i === 0 ? 0.92 : 0)),
-              transform: hover && i === 1 ? 'scale(1.04)' : 'scale(1)',
-              transition: 'opacity 0.55s ease, transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
+              width: '100%', height: '100%', objectFit: 'contain',
+              transform: hover ? 'scale(1.04)' : 'scale(1)',
+              transition: 'transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
             } as CSSProperties}
           />
-        ))
+        )
       )}
     </div>
   );

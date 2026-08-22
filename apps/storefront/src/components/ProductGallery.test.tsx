@@ -16,9 +16,27 @@ afterEach(() => {
   cleanup();
 });
 
+// 🔴🔴 2026-08-22:本檔原本大量用 `MOCK_PRODUCTS[0]`(它【一張圖都沒有】)當樣本,
+//    而在那之前「沒有圖」會自動生出【三張 Unsplash 示意圖】⇒ 計數器剛好是 01 / 03。
+//    ⇒ 那些驗【輪播 / 計數器 / 鍵盤切圖】的格子, 其實是踩在「假圖有三張」這個巧合上。
+//    Sean 2026-08-22 答「甲」:無真圖改成【站內佔位圖一張】⇒ 那個巧合消失, 那幾格全紅。
+//
+//    ⚠️ **修法不是把期望值從 03 改成 01** —— 那會讓「輪播能不能翻頁」變成量不到的東西
+//    (只有一張圖就沒有頁可翻)。**它們要驗的一直是輪播, 不是圖有幾張。**
+//    ⇒ 改成餵一個【真的有三張圖】的樣本, 那幾格回到它們本來在守的事情上。
+const 三張圖商品 = () => ({
+  ...MOCK_PRODUCTS[0]!,
+  images: [
+    'https://cdn.example.com/g1.jpg',
+    'https://cdn.example.com/g2.jpg',
+    'https://cdn.example.com/g3.jpg',
+  ],
+  variants: [],
+});
+
 describe('ProductGallery', () => {
   it('should render 3 thumbnails + counter 01 / 03', () => {
-    render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+    render(<ProductGallery product={三張圖商品()} />);
     expect(screen.getByLabelText('圖片 1')).toBeDefined();
     expect(screen.getByLabelText('圖片 2')).toBeDefined();
     expect(screen.getByLabelText('圖片 3')).toBeDefined();
@@ -26,7 +44,7 @@ describe('ProductGallery', () => {
   });
 
   it('should advance activeImg when right arrow clicked', () => {
-    render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+    render(<ProductGallery product={三張圖商品()} />);
     fireEvent.click(screen.getByLabelText('下一張'));
     expect(screen.getByText('02 / 03')).toBeDefined();
   });
@@ -132,7 +150,7 @@ describe('ProductGallery', () => {
   it('should clamp counter at 03 / 03 when right arrow reaches last image', () => {
     // ProductGallery.tsx line 150-151:setActiveImg(Math.min(gallery.length - 1, ...)) + disabled
     // 不 wraparound、clamped at last index
-    render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+    render(<ProductGallery product={三張圖商品()} />);
     fireEvent.click(screen.getByLabelText('下一張'));
     fireEvent.click(screen.getByLabelText('下一張'));
     expect(screen.getByText('03 / 03')).toBeDefined();
@@ -149,7 +167,7 @@ describe('ProductGallery', () => {
     const lbCounter = () => document.querySelector('.pd-lb-counter')!.textContent;
 
     function openLightbox() {
-      render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+      render(<ProductGallery product={三張圖商品()} />);
       fireEvent.click(document.querySelector('.pd-hero-img') as HTMLElement);
       expect(screen.getByRole('dialog')).toBeDefined();
     }
@@ -171,7 +189,7 @@ describe('ProductGallery', () => {
     });
 
     it('lightbox 未開時 ←/→ 仍為 clamp(Q-2=C hero 行為不變)', () => {
-      render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+      render(<ProductGallery product={三張圖商品()} />);
       expect(screen.queryByRole('dialog')).toBeNull();
       fireEvent.keyDown(window, { key: 'ArrowLeft' });
       expect(screen.getByText('01 / 03')).toBeDefined(); // 停在第一張、不繞到最後
@@ -179,6 +197,104 @@ describe('ProductGallery', () => {
       fireEvent.keyDown(window, { key: 'ArrowRight' });
       fireEvent.keyDown(window, { key: 'ArrowRight' });
       expect(screen.getByText('03 / 03')).toBeDefined(); // 停在最後一張、不繞回第一張
+    });
+  });
+
+  // ── 一張圖都沒有的時候(2026-08-22)──────────────────────────────────────
+  //
+  // 🔴 這條路以前會去跟 `images.unsplash.com` 要【三張示意圖】—— 那是從 design 示意稿
+  //   逐字搬進來的,而它被當成正式站的 fallback 用了。對方掛掉或擋流量 ⇒ 客人看到破圖。
+  //   ⚠️ 影響幾件商品是量過的:**1 件**(正式庫 21,220 件裡, 群層與變體層都沒有圖的只有 1 件)。
+  describe('一張圖都沒有 ⇒ 用站內佔位圖, 不向外部圖庫要圖', () => {
+    const 沒有圖的商品 = () => ({ ...MOCK_PRODUCTS[0]!, images: [], variants: [] });
+
+    it('🔴 無真圖 ⇒ 顯示 /placeholder-product.png(改回 Unsplash 這格會紅)', () => {
+      const { container } = render(<ProductGallery product={沒有圖的商品()} />);
+      const hero = container.querySelector('.pd-hero-slide img') as HTMLImageElement;
+      expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
+    });
+
+    it('🔴 而【任何一個】圖片網址都不准指向站外', () => {
+      const { container } = render(<ProductGallery product={沒有圖的商品()} />);
+      const srcs = [...container.querySelectorAll('img')].map((el) => el.getAttribute('src') ?? '');
+      expect(srcs.length).toBeGreaterThan(0);            // 正向對照:真的有圖在渲染
+      expect(srcs.every((src) => src.startsWith('/'))).toBe(true);
+      expect(srcs.some((src) => src.includes('unsplash'))).toBe(false);
+    });
+
+    it('🔴 反向那半:有真圖的時候【不准】被佔位圖蓋掉', () => {
+      const { container } = render(<ProductGallery product={三張圖商品()} />);
+      const hero = container.querySelector('.pd-hero-slide img') as HTMLImageElement;
+      expect(hero.getAttribute('src')).toBe('https://cdn.example.com/g1.jpg');
+      expect(hero.getAttribute('src')).not.toBe('/placeholder-product.png');
+    });
+  });
+
+  // ── 圖片載不到時的備援(2026-08-22)────────────────────────────────────────
+  //
+  // 🔴 這一組之前【一格都沒有】—— 本元件三個 `<img>` 的 `onError` 命中數是 0。
+  //   商品圖是【外部網址】(Shopify CDN),載不到的時候詳情頁上就是瀏覽器那個「?」方塊。
+  //   正式庫今天 21,220 件商品裡, 21,219 件的圖住在別人家的網域上。
+  //
+  // ⚠️ **jsdom 不會真的去載圖** ⇒ 這裡用 `fireEvent.error()` 手動觸發那個事件。
+  //   ⇒ 這幾格證明的是「**收到 error 事件之後會換成佔位圖**」,
+  //     **不是**「那張圖在真瀏覽器裡真的載不到會怎樣」。兩者的差別要帶著引用。
+  //
+  // 🔴🔴 **本組的第一版是【量錯東西】的,而突變當場抓到 —— 這件事值得留在這裡:**
+  //   我用 `getByLabelText('圖片 1')` 當「hero 圖」,而那個 aria-label 掛在**縮圖按鈕**上。
+  //   ⇒ 我把 hero 的 `onError` 整行拿掉當突變 ⇒ **17 格全綠**(因為我量的一直是縮圖)。
+  //   ⇒ 現在 hero 走 `.pd-hero-slide img`、縮圖走 `getByLabelText`、lightbox 走 role=dialog,
+  //     **三個位置各有自己的取法, 而每一個都有自己的突變證明。**
+  describe('圖片載不到 ⇒ 退回站內佔位圖', () => {
+    const 壞圖商品 = () => ({
+      ...MOCK_PRODUCTS[0]!,
+      images: ['https://cdn.example.com/broken.jpg', 'https://cdn.example.com/ok.jpg'],
+      variants: [],
+    });
+    const heroImgs = (c: HTMLElement) => [...c.querySelectorAll('.pd-hero-slide img')] as HTMLImageElement[];
+
+    it('🔴 hero 圖載不到 ⇒ 換成 /placeholder-product.png(拿掉 hero 的 onError 這格會紅)', () => {
+      const { container } = render(<ProductGallery product={壞圖商品()} />);
+      const hero = heroImgs(container)[0]!;
+      // 正向對照:一開始它是真的那張 —— 沒有這一行, 下面那條在「一開始就是佔位圖」時也會過
+      expect(hero.getAttribute('src')).toBe('https://cdn.example.com/broken.jpg');
+      fireEvent.error(hero);
+      expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
+    });
+
+    it('🔴 縮圖載不到 ⇒ 也要換(它是另一個 URL, hero 的 onError 救不到它)', () => {
+      render(<ProductGallery product={壞圖商品()} />);
+      const thumb = screen.getByLabelText('圖片 1').querySelector('img')!;
+      expect(thumb.getAttribute('src')).toBe('https://cdn.example.com/broken.jpg');
+      fireEvent.error(thumb);
+      expect(thumb.getAttribute('src')).toBe('/placeholder-product.png');
+    });
+
+    it('🔴 lightbox 裡那張載不到 ⇒ 也要換(放大看的時候最不能是問號)', () => {
+      const { container } = render(<ProductGallery product={壞圖商品()} />);
+      fireEvent.click(container.querySelector('.pd-hero-img')!);
+      const lb = screen.getByRole('dialog').querySelector('.pd-lb-stage img') as HTMLImageElement;
+      expect(lb.getAttribute('src')).toBe('https://cdn.example.com/broken.jpg');
+      fireEvent.error(lb);
+      expect(lb.getAttribute('src')).toBe('/placeholder-product.png');
+    });
+
+    it('🔴 反向那半:圖【載得到】就不准被佔位圖蓋掉', () => {
+      const { container } = render(<ProductGallery product={壞圖商品()} />);
+      const [第一張, 第二張] = heroImgs(container);
+      const 原本 = 第二張!.getAttribute('src');
+      fireEvent.error(第一張!);                       // 只讓第一張壞掉
+      expect(第二張!.getAttribute('src')).toBe(原本);
+      expect(第二張!.getAttribute('src')).not.toBe('/placeholder-product.png');
+    });
+
+    it('佔位圖自己再壞一次也不會無限迴圈(同一個 src 只會被標記一次)', () => {
+      const { container } = render(<ProductGallery product={壞圖商品()} />);
+      const hero = heroImgs(container)[0]!;
+      fireEvent.error(hero);
+      expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
+      fireEvent.error(hero);                          // 佔位圖也壞
+      expect(hero.getAttribute('src')).toBe('/placeholder-product.png');
     });
   });
 });
