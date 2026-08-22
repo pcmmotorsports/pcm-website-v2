@@ -47,12 +47,19 @@ import type {
   ClaimedEmailJob,
   EmailOutboxEventType,
   EmailSendErrorCode,
+  OrderCreatedEmailPayload,
+  OrderShippedEmailPayload,
 } from '@pcm/ports';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { Database } from '../supabase/database.types';
 
-import { buildOrderCreatedPayload, orderCreatedSubject } from './order-email-assembly';
+import {
+  buildOrderCreatedPayload,
+  buildOrderShippedPayload,
+  orderCreatedSubject,
+  orderShippedSubject,
+} from './order-email-assembly';
 
 /** PostgREST unique_violation(需再查核同事件才可回 duplicate,見 enqueue)。 */
 const PG_UNIQUE_VIOLATION = '23505';
@@ -184,6 +191,53 @@ function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
   };
 }
 
+/**
+ * 依事件型別組出落表的三樣東西:`payload` / `subject` / `dedup_key`。
+ *
+ * 🔴 **這支是「事件⇔形狀」的單一分派點。** 拆出來的理由不是好看:
+ * `enqueue` 與 `resolveUniqueViolation` **都要算 dedup_key**,而兩邊各寫一份的話,
+ * 漂掉的症狀是「撞鍵之後回查查不到 ⇒ 每輪 throw ⇒ 那封信永遠排不進去」,**而型別不會紅**。
+ *
+ * 🔴 `order_shipped` 的 dedup_key = `{shipment_id}:{order_id}`。
+ *    唯一鍵是 `(event_type, dedup_key)` 且**不含 order_id**(`20260717020000:377`),
+ *    `:350` 明文要求同 event_type 內**全域唯一** ⇒ 只用 order_id 會讓
+ *    **同一張單的第二箱被當成 duplicate 吞掉 = 漏一封信**。
+ *    ⚠️ **SQL 側有第二份實作**:`public.pcm_shipped_email_dedup_key(uuid, uuid)`
+ *    (`supabase/migrations/20260822010000_m4b_e4a_shipped_email_scan_view.sql` §4),
+ *    掃描 view 的 anti-join 用的是那一支。**兩份漂掉 ⇒ 同一封信重複排入、重複寄出。**
+ *    ⇒ `order-email-assembly.test.ts` 有一格釘住這裡的字面形狀;改任一邊之前先看另一邊。
+ *
+ * ⚠️ 沒有 `default` 分支是刻意的:`satisfies never` 讓「將來新增事件卻忘了在這裡分派」
+ *    在 **typecheck 當場紅**,而不是等到執行時把新事件寄成舊模板。
+ */
+function composeEvent(input: EnqueueEmailInput): {
+  payload: OrderCreatedEmailPayload | OrderShippedEmailPayload;
+  subject: string;
+  dedupKey: string;
+} {
+  switch (input.eventType) {
+    case 'order_created': {
+      const payload = buildOrderCreatedPayload({ displayId: input.displayId, paidAt: input.paidAt });
+      // migration §①:order_created 一單一封 ⇒ dedup_key = orderId。
+      return { payload, subject: orderCreatedSubject(payload.display_id), dedupKey: input.orderId };
+    }
+    case 'order_shipped': {
+      const payload = buildOrderShippedPayload({
+        displayId: input.displayId,
+        shipmentReference: input.shipmentReference,
+        shippedAt: input.shippedAt,
+      });
+      return {
+        payload,
+        subject: orderShippedSubject(payload.display_id, payload.shipment_reference),
+        dedupKey: `${input.shipmentId}:${input.orderId}`,
+      };
+    }
+    default:
+      return input satisfies never;
+  }
+}
+
 export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   constructor(
     private readonly client: EmailOutboxClient,
@@ -192,9 +246,9 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
 
   async enqueue(input: EnqueueEmailInput): Promise<EnqueueEmailResult> {
     // 🔴 落表三欄全在本邊界內部重組(REQUIRED-E1b):payload 過 runtime allowlist、subject 走
-    // 固定模板、dedup_key = orderId(migration §①:order_created 一單一封)。呼叫端無寫入口。
-    const payload = buildOrderCreatedPayload({ displayId: input.displayId, paidAt: input.paidAt });
-    const dedupKey = input.orderId;
+    // 固定模板、dedup_key 依事件分派。呼叫端無寫入口。
+    const composed = composeEvent(input);
+    const dedupKey = composed.dedupKey;
     const skipped = isSyntheticEmail(input.recipientEmail, this.cfg.syntheticEmailDomain);
     const { data, error } = await this.client
       .from('email_outbox')
@@ -203,8 +257,8 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
         order_id: input.orderId,
         dedup_key: dedupKey,
         recipient_email: input.recipientEmail,
-        subject: orderCreatedSubject(payload.display_id),
-        payload,
+        subject: composed.subject,
+        payload: composed.payload,
         status: skipped ? 'skipped_no_real_email' : 'pending',
         request_id: input.requestId ?? null,
       })
@@ -228,11 +282,17 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
    * **存在且 order_id 相同**才是同事件 → duplicate;否則 throw(訊息零 PII)。
    */
   private async resolveUniqueViolation(input: EnqueueEmailInput): Promise<EnqueueEmailResult> {
+    // 🔴 **2026-08-22 E4-a 修**:原本寫死 `.eq('dedup_key', input.orderId)`。
+    //    那在「dedup_key === orderId」的世界裡是對的,而 `order_shipped` 的鍵是
+    //    `{shipment_id}:{order_id}` ⇒ 撞鍵之後回查會**查不到那一列**
+    //    ⇒ 走進下面那個 `throw`(「撞唯一鍵但查無同事件列」)
+    //    ⇒ 呼叫端記成 `errors`、下一輪再撈到、再撞、再 throw —— **一封信永遠排不進去,而且每輪都吵**。
+    //    ⚠️ 這條**不是型別擋得住的**:兩邊都是 string。要靠這裡與 `composeEvent` 用同一支算式。
     const { data, error } = await this.client
       .from('email_outbox')
       .select('id, order_id')
       .eq('event_type', input.eventType)
-      .eq('dedup_key', input.orderId)
+      .eq('dedup_key', composeEvent(input).dedupKey)
       .limit(1);
     if (error) {
       throw new Error(`email_outbox 唯一鍵查核失敗(${error.code ?? 'unknown'})`);

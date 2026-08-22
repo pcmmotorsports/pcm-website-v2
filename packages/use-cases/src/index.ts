@@ -120,6 +120,17 @@ export {
   type EnqueueOrderCreatedEmailsResult,
 } from './enqueue-order-created-emails';
 
+// 🔴 M-4b E4-a(2026-08-22):出貨線的同款掃描式 enqueue。**一列 = 一個 (箱, 單) 配對 = 一封信**
+// (Sean 2026-08-17「一箱兩單就兩封」)。
+// ⚠️ **片1 刻意【不】把它掛上任何 route** —— sweeper 對 order_shipped 目前仍 fail-closed throw,
+// 掛上去會讓列排進佇列、每輪 throw、燒 attempts 進死信、然後每天告警。**模板與掛 route 是同一片(片3)。**
+export {
+  enqueueOrderShippedEmails,
+  type EnqueueOrderShippedEmailsDeps,
+  type EnqueueOrderShippedEmailsOptions,
+  type EnqueueOrderShippedEmailsResult,
+} from './enqueue-order-shipped-emails';
+
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate,擋「排進佇列後、真正寄出前
 // 才被取消」的窗口。獨立 cron route,跑在 sweepEmailOutbox 之前但**不掛進**它的 route ——
 // 歸屬邊界見 sweep-email-outbox.test.ts:53 的預設 mock(reject,證明 E2a-b 不呼叫此路徑)。

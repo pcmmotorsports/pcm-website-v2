@@ -191,6 +191,97 @@ describe('SupabaseEmailOutboxAdapter.enqueue(落表邊界內部重組)', () => {
   });
 });
 
+const SHIPPED_INPUT: EnqueueEmailInput = {
+  eventType: 'order_shipped',
+  orderId: 'ord-uuid-1',
+  displayId: 'PCM-2026-0001',
+  shipmentId: 'shp-uuid-9',
+  shipmentReference: 'BCDF23',
+  shippedAt: '2026-08-22T02:00:00Z',
+  recipientEmail: 'customer@example.com',
+  requestId: null,
+};
+
+describe('SupabaseEmailOutboxAdapter.enqueue(order_shipped;M-4b E4-a)', () => {
+  it('🔴 dedup_key = `{shipment_id}:{order_id}`(TS 側的字面;SQL 側由 contract test 對帳)', async () => {
+    // 為什麼是「唯一」:唯一鍵是 (event_type, dedup_key) 且**不含 order_id**
+    // (`20260717020000:377`),`:350` 要求同 event_type 內全域唯一。
+    // 只用 order_id ⇒ **同一張單的第二箱被當成 duplicate 吞掉 = 漏一封信,而且不報錯**。
+    // ⚠️ 2026-08-22 唯讀量測:正式庫「裝超過一張單的箱」= 0
+    //    ⇒ 真實流量走不到這條路 ⇒ 它壞掉時沒有人會發現。**這一格就是那個會叫的東西。**
+    // ⚠️ **SQL 側有第二份實作**:`public.pcm_shipped_email_dedup_key(uuid, uuid)`
+    //    (`supabase/migrations/20260822010000_m4b_e4a_shipped_email_scan_view.sql` §4)。
+    //    兩份漂掉的症狀是**同一封信重複排入、重複寄出**。改任一邊之前先看另一邊。
+    const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
+    await adapter(makeClient(b)).enqueue(SHIPPED_INPUT);
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+
+    // 🔴 精確等值就夠了 —— codex R2 nit:後面再加一句 `not.toBe(orderId)` **沒有額外判別力**
+    //    (等值成立時它必然成立)。想擋「退化成 order_id」那個形狀,靠的是這一行本身。
+    expect(row.dedup_key).toBe('shp-uuid-9:ord-uuid-1');
+    expect(row.event_type).toBe('order_shipped');
+    expect(row.order_id).toBe('ord-uuid-1');
+  });
+
+  it('🔴 同一箱、兩張訂單 ⇒ 兩把【不同】的 dedup_key(這才是「一箱兩單寄兩封」的落點)', async () => {
+    // ⚠️ use-case 那邊的「一箱兩單」測試碰不到這裡(它只呼叫 mocked outbox,codex R1)。
+    //    **這一格才是 TS 側真的算出鍵的地方。**
+    const bA = makeBuilder({ data: [{ id: 'outbox-A' }], error: null });
+    const bB = makeBuilder({ data: [{ id: 'outbox-B' }], error: null });
+    await adapter(makeClient(bA)).enqueue({ ...SHIPPED_INPUT, orderId: 'ord-A' });
+    await adapter(makeClient(bB)).enqueue({ ...SHIPPED_INPUT, orderId: 'ord-B' });
+
+    const keyA = (argsOf(bA, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
+    const keyB = (argsOf(bB, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
+    expect(keyA).toBe('shp-uuid-9:ord-A');
+    expect(keyB).toBe('shp-uuid-9:ord-B');
+    // 🔴 這一行是重點:兩把鍵**必須不同**,相同 = 第二封被唯一鍵擋掉 = 漏一封信。
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it('🔴 payload 裡【沒有】追蹤碼、沒有品項 —— 存了會過期,而信寄出去收不回來', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
+    await adapter(makeClient(b)).enqueue(SHIPPED_INPUT);
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+
+    expect(row.payload).toEqual({
+      event_version: 1,
+      display_id: 'PCM-2026-0001',
+      shipment_reference: 'BCDF23',
+      shipped_at: '2026-08-22T02:00:00Z',
+    });
+    // 逐一釘死:這幾個鍵**不得**出現(它們都是「可後台改」的欄)。
+    const payload = row.payload as Record<string, unknown>;
+    for (const forbidden of ['tracking_number', 'trackingNumber', 'lines', 'items', 'carrier_name']) {
+      expect(payload).not.toHaveProperty(forbidden);
+    }
+  });
+
+  it('subject 帶箱號 —— 少了它,同一張單的兩封信主旨一模一樣', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-9' }], error: null });
+    await adapter(makeClient(b)).enqueue(SHIPPED_INPUT);
+    const row = argsOf(b, 'insert')[0]![0] as Record<string, unknown>;
+
+    expect(row.subject).toContain('PCM-2026-0001');
+    expect(row.subject).toContain('BCDF23'); // ← 這一格是「分得出哪一箱」的唯一保證
+  });
+
+  it('🔴 撞唯一鍵時,回查用的是**算出來的 dedup_key**、不是 orderId', async () => {
+    // 原版寫死 `.eq('dedup_key', input.orderId)` ⇒ order_shipped 撞鍵後回查查不到
+    // ⇒ throw「撞唯一鍵但查無同事件列」⇒ 呼叫端記 errors ⇒ 下輪再撈再撞
+    // ⇒ **那封信永遠排不進去,而且每一輪都吵**。型別擋不住(兩邊都是 string)。
+    const insertB = makeBuilder({ data: null, error: { code: '23505', message: 'dup' } });
+    const verifyB = makeBuilder({ data: [{ id: 'outbox-9', order_id: 'ord-uuid-1' }], error: null });
+    await expect(adapter(makeClient(insertB, verifyB)).enqueue(SHIPPED_INPUT)).resolves.toEqual({
+      kind: 'duplicate',
+    });
+
+    const eqArgs = argsOf(verifyB, 'eq');
+    expect(eqArgs).toContainEqual(['dedup_key', 'shp-uuid-9:ord-uuid-1']);
+    expect(eqArgs).not.toContainEqual(['dedup_key', 'ord-uuid-1']);
+  });
+});
+
 describe('SupabaseEmailOutboxAdapter.claimDue / claimById(CAS 認領)', () => {
   it('due 掃描後逐列 CAS:寫 sending+claimed_at+attempts+1,述詞含樂觀鎖與上限 guard', async () => {
     const dueB = makeBuilder({ data: [JOB_ROW], error: null });

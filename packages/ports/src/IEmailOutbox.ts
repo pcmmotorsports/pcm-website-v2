@@ -143,22 +143,69 @@ export type OrderCreatedEmailPayload = {
 };
 
 /**
- * enqueue 入參 = 事件專屬**來源欄位**(非落表形狀)。
- * 🔴 目前只開放 `order_created`(codex 關卡2 R1:過早開放 order_shipped 會讓「出貨事件+付款
- * payload」在型別上合法、且錯占唯一鍵 → E4 正確事件被當 duplicate 吞掉)。E4 定案 payload 與
- * dedup_key 算法後,以 discriminated union 增員(事件⇔payload 綁定、不共用自由欄)。
+ * 出貨通知信的 payload(M-4b E4-a)。
+ *
+ * 🔴 **這裡【沒有】追蹤碼,也【沒有】品項 —— 那是刻意的,不是漏掉。**
+ * `order-email-assembly.ts:12` 的設計意圖逐字:「品項/金額/地址等渲染資料**寄信時即時查主表**,
+ * 不進 payload(**可後台改的欄存了會過期**)」。追蹤碼正是「可後台改」的那種:
+ * 員工改過之後,payload 裡凍住的是舊碼 ⇒ 客人拿舊碼去查 ⇒ 查無 ⇒ **而信已經寄出去、收不回來**。
+ * ⇒ 寄送當下的讀取走 `IShippedEmailContext`(那支 port 就是為這件事存在的)。
+ *
+ * ⚠️ 這裡放的兩個欄都是**事件時點就凍住、之後不會變**的:
+ *   `shipment_reference` = 產號(`shipments_reference_unique`,一經產生不改)
+ *   `shipped_at`         = 出貨那一刻的時戳
  */
-export type EnqueueEmailInput = {
-  eventType: 'order_created';
+export type OrderShippedEmailPayload = {
+  event_version: 1;
+  display_id: string;
+  /** 箱號。🔴 同一張訂單分批出貨會寄多封,這是收信人分辨「哪一箱」的唯一依據。 */
+  shipment_reference: string;
+  /** 標記出貨的時點(ISO 8601;事件時點快照、非寄送時點)。 */
+  shipped_at: string;
+};
+
+/** 兩個事件共用的來源欄位。**不含任何事件專屬欄** —— 那是 union 各分支的事。 */
+type EnqueueEmailInputBase = {
   orderId: string;
   /** 訂單顯示編號(subject 模板唯一動態欄 + payload.display_id 來源)。 */
   displayId: string;
-  /** 付款完成時間(ISO 8601)。 */
-  paidAt: string;
   recipientEmail: string;
   /** correlation id(repo 既有 request_id 基建);sweeper 補寄路徑無來源 → null。 */
   requestId?: string | null;
 };
+
+export type EnqueueOrderCreatedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_created';
+  /** 付款完成時間(ISO 8601)。 */
+  paidAt: string;
+};
+
+/**
+ * 🔴 `shipmentId` 是**本分支存在的理由**:`dedup_key` 是 `{shipment_id}:{order_id}`,
+ * 而唯一鍵 `(event_type, dedup_key)` **不含 order_id**(`20260717020000:377`)
+ * ⇒ `:350` 明文要求 dedup_key 在同一 event_type 內**全域唯一**。
+ * 只用 order_id 的話,**同一張單的第二箱會被當成 duplicate 吞掉 = 漏一封信**,而且不報錯。
+ */
+export type EnqueueOrderShippedEmailInput = EnqueueEmailInputBase & {
+  eventType: 'order_shipped';
+  /** 箱 uuid(dedup_key 的前半;**不進 payload**)。 */
+  shipmentId: string;
+  /** 箱號(進 payload,收信人用它分辨哪一箱)。 */
+  shipmentReference: string;
+  /** 標記出貨的時點(ISO 8601)。 */
+  shippedAt: string;
+};
+
+/**
+ * enqueue 入參 = 事件專屬**來源欄位**(非落表形狀)。
+ *
+ * 🔴 **2026-08-22 E4-a:改成 discriminated union,`order_shipped` 開放。**
+ * ~~「目前只開放 `order_created`」~~ 已作廢 —— 原句的理由逐字是「過早開放 order_shipped 會讓
+ * 『出貨事件+付款 payload』在型別上合法、且錯占唯一鍵 → E4 正確事件被當 duplicate 吞掉」。
+ * 那個顧慮**由 union 本身解掉**:事件⇔payload 綁定在型別上,兩個分支不共用自由欄,
+ * 而 dedup_key 由落表邊界依 `eventType` 分派(呼叫端碰不到)。
+ */
+export type EnqueueEmailInput = EnqueueOrderCreatedEmailInput | EnqueueOrderShippedEmailInput;
 
 export type EnqueueEmailResult =
   /** 已入列(status=pending、寫入即到期,可被立即認領)。 */

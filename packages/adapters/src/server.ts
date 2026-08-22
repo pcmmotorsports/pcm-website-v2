@@ -103,6 +103,14 @@ export {
   type PaidOrderScannerClient,
   type ScanStage,
 } from './email/SupabasePaidOrderScannerAdapter';
+// 🔴 M-4b E4-a(2026-08-22):出貨線的同款窄讀 adapter。**一列 = 一個 (箱, 單) 配對 = 一封信。**
+// 同樣回兩個 email 欄(PII)⇒ server-only + service_role。差集在 SQL view 裡(見該檔檔頭)。
+export {
+  SupabaseShippedOrderScannerAdapter,
+  ShippedScanQueryError,
+  SHIPPED_EMAIL_PENDING_VIEW,
+  type ShippedOrderScannerClient,
+} from './email/SupabaseShippedOrderScannerAdapter';
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate 的窄讀 adapter。
 // 零 PII(只回 id/orderId),client 注入 service_role,鏡像 SupabasePaidOrderScannerAdapter 的邊界。
 export {

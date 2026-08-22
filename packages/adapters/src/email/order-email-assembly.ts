@@ -11,7 +11,7 @@
  *
  * 品項/金額/地址等渲染資料**寄信時即時查主表**(E2a/E3),不進 payload(可後台改的欄存了會過期)。
  */
-import type { OrderCreatedEmailPayload } from '@pcm/ports';
+import type { OrderCreatedEmailPayload, OrderShippedEmailPayload } from '@pcm/ports';
 
 /**
  * subject 固定模板(唯一允許的動態欄 = display_id)。
@@ -24,11 +24,18 @@ export function orderCreatedSubject(displayId: string): string {
 /** order_created 事件版本(payload 消費端依此收斂形狀;改欄位 = bump 版本)。 */
 export const ORDER_CREATED_EVENT_VERSION = 1 as const;
 
-/** runtime 欄位檢查(REQUIRED-E1b:型別層擋不住 `as` 硬轉,落表前再驗一次)。 */
-function requireNonEmptyString(value: unknown, field: string): string {
+/**
+ * runtime 欄位檢查(REQUIRED-E1b:型別層擋不住 `as` 硬轉,落表前再驗一次)。
+ *
+ * 🔴 **`event` 這個參數是 2026-08-22 E4-a 加的,而它修的是一個真的缺陷**:
+ * 原版把事件名寫死成 `order_created`。出貨組裝也共用本支之後,
+ * **一封出貨信組裝失敗會回報「order_created 組裝失敗」** —— 而錯誤訊息是這條路上
+ * 唯一會被讀到的東西(零 PII 政策讓它不能帶值)⇒ 讀的人會去查錯的那條線。
+ */
+function requireNonEmptyString(value: unknown, field: string, event: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
-    // 🔴 錯誤訊息只含欄位名、不含值(值可能是誤傳的 PII)。
-    throw new Error(`order_created 組裝失敗:${field} 必須是非空字串`);
+    // 🔴 錯誤訊息只含事件名與欄位名、不含值(值可能是誤傳的 PII)。
+    throw new Error(`${event} 組裝失敗:${field} 必須是非空字串`);
   }
   return value;
 }
@@ -42,7 +49,44 @@ export function buildOrderCreatedPayload(src: {
 }): OrderCreatedEmailPayload {
   return {
     event_version: ORDER_CREATED_EVENT_VERSION,
-    display_id: requireNonEmptyString(src.displayId, 'displayId'),
-    paid_at: requireNonEmptyString(src.paidAt, 'paidAt'),
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_created'),
+    paid_at: requireNonEmptyString(src.paidAt, 'paidAt', 'order_created'),
+  };
+}
+
+/**
+ * 出貨通知信的 subject 固定模板(M-4b E4-a)。
+ *
+ * 🔴 **動態欄有兩個,而第二個非有不可**:同一張訂單分批出貨會寄多封,
+ * 只帶 display_id 的話**兩封信的主旨一模一樣** —— 客人的信箱裡會看到兩封長得相同的通知,
+ * 分不出哪一封講哪一箱(而信裡的品項是不同的)。
+ * ⚠️ 文案 L2(同 `orderCreatedSubject` 那條):字面**寄出前給 Sean 過目**;本片先立模板與佔位字面。
+ * 🔴 主旨仍然**只由固定模板 + 這兩個非 PII 欄**組成,不夾任何客戶欄。
+ */
+export function orderShippedSubject(displayId: string, shipmentReference: string): string {
+  return `PCM 訂單 ${displayId} 出貨通知(包裹 ${shipmentReference})`;
+}
+
+/** order_shipped 事件版本(payload 消費端依此收斂形狀;改欄位 = bump 版本)。 */
+export const ORDER_SHIPPED_EVENT_VERSION = 1 as const;
+
+/**
+ * 組裝 order_shipped 的 payload(顯式四欄 allowlist + runtime 驗證;來源多餘欄位到不了這裡)。
+ *
+ * 🔴 **參數裡沒有追蹤碼,也沒有品項 —— 那是刻意的。** 兩者都是「可後台改」的欄,
+ * 存進 payload 會凍住入列當下的值;員工事後改過,信裡帶的就是舊的,而**信寄出去收不回來**。
+ * ⇒ 它們在寄送當下經 `IShippedEmailContext` 即時查主表(見該 port 檔頭)。
+ * ⚠️ 想在這裡「順手把追蹤碼一起存起來」的人:那正是這一層要擋的事。
+ */
+export function buildOrderShippedPayload(src: {
+  displayId: string;
+  shipmentReference: string;
+  shippedAt: string;
+}): OrderShippedEmailPayload {
+  return {
+    event_version: ORDER_SHIPPED_EVENT_VERSION,
+    display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_shipped'),
+    shipment_reference: requireNonEmptyString(src.shipmentReference, 'shipmentReference', 'order_shipped'),
+    shipped_at: requireNonEmptyString(src.shippedAt, 'shippedAt', 'order_shipped'),
   };
 }
