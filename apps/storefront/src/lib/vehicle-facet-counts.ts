@@ -25,13 +25,13 @@
 //
 // 併發與快取:
 //   - `FACET_CONCURRENCY` 分批,避免 108 條同時開佔滿 PostgREST 連線、與真實商品查詢互搶。
-//   - 包 `unstable_cache`(同 `getCatalogPageCached` 慣例、900s、tag 'catalog')。
+//   - 包 `unstable_cache`(同 `getCatalogPageCached` 慣例、60s、tag 'catalog')。
 //     🔴 **`unstable_cache` 不是 single-flight**(codex 關卡2 C3):同一個冷 key 同時來三個 request
 //     會三個都 miss、三個都進 callback ⇒ 瞬間 324 次 RPC。原本檔頭寫的「同一台車全站共用一份、
 //     不是每位訪客各打 108 次」**只在第一次跑完之後才成立**,已補 `inFlight` map 做 process 內
 //     single-flight;跨 process/instance 仍各一份(誠實邊界,不宣稱全站唯一)。
 //   - 任一支查詢失敗 → throw ⇒ **不進快取**(對齊 products.ts 既有紀律:一次瞬時 DB 錯誤
-//     不該把壞結果鎖 15 分鐘);外層 `fetchVehicleFacetCounts` catch 回 `null`,
+//     不該把壞結果鎖 1 分鐘);外層 `fetchVehicleFacetCounts` catch 回 `null`,
 //     UI 退回「不顯示件數」= #306 之前的現況,不會顯示錯的數字。
 
 import 'server-only';
@@ -46,7 +46,7 @@ import { CATALOG_REVALIDATE_SECONDS } from '@/lib/products';
  *
  * 值的來源是量的、不是猜的(2026-07-31、production build、本機打正式 Supabase、108 條查詢):
  *   併發 6  → 冷 2.83 / 3.85 / 3.57 / 3.47 s
- *   併發 16 → 冷 2.57 / 1.62 / 1.57 / 2.27 s(命中 900s 快取後一律 ~0.19 s)
+ *   併發 16 → 冷 2.57 / 1.62 / 1.57 / 2.27 s(命中 60s 快取後一律 ~0.19 s)
  * 🔴 這組數字含本機(住家網路)到 Supabase 的往返,每條約 150ms。正式站的延遲**完全沒量過**
  *   —— 連 Vercel(`vercel.json` 釘 `sin1`)與本專案 Supabase 叢集是否同區域,repo 內都查不到出處。
  *   不得把「上線後會更快」當成已驗證結論。要再快的下一步 = 上面說的兩段式,不是繼續調高這個數。

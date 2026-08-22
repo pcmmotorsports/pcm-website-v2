@@ -31,7 +31,7 @@ import { fetchVehicleFacetCounts } from '@/lib/vehicle-facet-counts';
 import { CATEGORY_PATH_SEP } from '@/components/products-filter-logic';
 import type { MockCategory } from '@/data/mock-categories';
 
-// 件數隨每日目錄同步變動;server 端已有 900s 的 unstable_cache,瀏覽器不再另外存一份
+// 件數隨每日目錄同步變動;server 端已有 60s 的 unstable_cache,瀏覽器不再另外存一份
 // (否則同一台車在 CDN / browser 各留一份過期值、與商品頁對不起來)。
 export const dynamic = 'force-dynamic';
 
@@ -102,7 +102,7 @@ export async function GET(request: Request) {
     }
   }
 
-  // 車輛確定合法之後,才讀分類與品牌(兩者都是全站聚合、都已包 900s + catalog tag)
+  // 車輛確定合法之後,才讀分類與品牌(兩者都是全站聚合、都已包 60s + catalog tag)
   let categories, brands;
   try {
     [categories, brands] = await Promise.all([fetchCategories(), fetchCatalogBrandTaxonomy()]);

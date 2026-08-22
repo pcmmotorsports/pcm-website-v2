@@ -18,7 +18,7 @@
 //   涵蓋、authenticated role),不繞 SupabaseWalletAdapter(後者強制 service_role writeClient
 //   ctor、storefront 不允許注入 service_role)。
 // - featured 走既有 fetchFeaturedProducts()(server-only;perf/P3 起函式本身釘 general +
-//   unstable_cache 900s,內層 listAllProducts({limit:4, orderBy:'created_desc'}) 全目錄最新前 4)。
+//   unstable_cache 60s,內層 listAllProducts({limit:4, orderBy:'created_desc'}) 全目錄最新前 4)。
 //   前菜 D 起與首頁共用同一「最新商品」資料源(created_at 遞減)、非舊 id 升冪。
 // - row missing(PGRST116、極罕、trigger handle_new_auth_user 應已建)或 RLS 失敗 → 退化
 //   tier='general' + walletBalance=0、console.error 警示、頁面不 500。
@@ -96,7 +96,7 @@ export default async function AccountPage() {
   //   M-1-16 接 server-side tier-aware price endpoint 後才能真按 tier 顯示。
   //   g-2 階段先固定走 'general' 公開價(視覺對齊 design + 不顯 NT$ 0 + 不洩經銷價),
   //   manifest 已揭示 business override「推薦固定 general、tier-aware 待 M-1-16」。
-  //   perf/P3 起 fetchFeaturedProducts 本身釘 'general'(unstable_cache 900s、不再收 tier 參數
+  //   perf/P3 起 fetchFeaturedProducts 本身釘 'general'(unstable_cache 60s、不再收 tier 參數
   //   ——本頁原本就固定 general、語意不變)。
   const featured = await fetchFeaturedProducts();
 
@@ -147,7 +147,7 @@ export default async function AccountPage() {
   }
 
   // V-1c++(Sean 07-16 實測回饋二輪):車型欄改品牌/車型雙下拉(與首頁同 combobox 原型),
-  // 結構化 taxonomy 直傳(unstable_cache 900s、失敗回 []=表單退回純自由輸入);
+  // 結構化 taxonomy 直傳(unstable_cache 60s、失敗回 []=表單退回純自由輸入);
   // 點選組出的名稱=字典標準字面「品牌 車型」→ 首頁愛車 chips 一鍵套用可精確命中。
   const vehicleBrands = await fetchVehicleTaxonomy();
 

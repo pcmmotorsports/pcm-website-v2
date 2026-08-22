@@ -104,7 +104,15 @@ function hashIdToNumber(s: string): number {
 }
 
 /**
- * 型錄資料跨請求快取秒數(perf/P3、Sean 2026-07-08 拍 Q2=15 分)。
+ * 型錄資料跨請求快取秒數。
+ *
+ * 🔴 **2026-08-22 由 900(15 分)降為 60(1 分)** —— Sean 當場回報的症狀:首頁「最新商品」顯示新品、
+ * 點進 `/products` 卻是舊的,而商品**詳情頁**(`fetchProductByHandle`,無 unstable_cache)已經是新資料。
+ * 成因不是資料庫沒同步,是本秒數:每個 cached 函式是**一份獨立的便條紙、各自倒數**(見本檔 :138-139
+ * 那段既有註解,它早就寫下這個窗),窗越長、兩頁不一致的機率越高。60 秒把該窗上限壓到 1 分鐘。
+ * ⚠️ **這是止血不是治本**:治本是接 `revalidateTag('catalog')`(下方 tag 說明),那才會讓所有便條紙
+ * **同時**失效、窗歸零。降秒數只是把窗變短,**不會讓兩份快取對齊**。
+ * ⚠️ 原拍板 Sean 2026-07-08 `Q2=15 分`,本次由 Sean 2026-08-22 當場改判。
  *
  * 商品目錄由 GitHub Actions rpm-sync.yml 每日同步(2026-07-22 由表訂台灣 03:00 改為 12:30;vercel.json
  * 兩條 cron 為金流用途、與商品無關)。
@@ -113,8 +121,8 @@ function hashIdToNumber(s: string): number {
  * 🔴 **「每日僅一次寫入」不成立**(2026-07-22 codex 審查更正):報價單側另有台灣 11:30 的
  * `sync_storefront_fitments` 每日寫網站庫 `product_fitments_effective`(車款搜尋用),與本快取的
  * 目錄資料不同表但同屬「每日變動的商品資料」。
- * ⚠️ 15 分 staleness 的**代價已隨排程改動而改變**:同步從 03:00(無人瀏覽)移到 12:30(營業時間
- * 10:00-19:00 內)→ 同步完成後最多 15 分鐘,客人仍可能看到同步前的價格/庫存,且 `revalidateTag('catalog')`
+ * ⚠️ 1 分 staleness 的**代價已隨排程改動而改變**:同步從 03:00(無人瀏覽)移到 12:30(營業時間
+ * 10:00-19:00 內)→ 同步完成後最多 1 分鐘,客人仍可能看到同步前的價格/庫存,且 `revalidateTag('catalog')`
  * **尚未接上**(見下方 tag 說明)。這比改動前**不會更差**(改動前整天都是前一天的資料),但
  * 「零業務風險」是**未經實測的推論**,不是已驗證結論。要消除此窗需接 tag 主動失效。
  *
@@ -123,13 +131,13 @@ function hashIdToNumber(s: string): number {
  *   - force-dynamic 頁面內照樣生效(force-dynamic 只管 fetch()/segment config、兩機制獨立)
  *   - 回傳值走 JSON 序列化來回 → 只快取 JSON-safe 的 UI shape(MockProduct 等、無 Date)
  *   - 失敗 throw 傳播、**不進快取**(在快取外 catch 回 fallback;否則一次瞬時 DB 錯誤會把
- *     空目錄快取 15 分鐘)
+ *     空目錄快取 1 分鐘)
  *   - 同掛 'catalog' tag:日後同步完可 revalidateTag('catalog') 主動失效(本批未接)
  */
 // #306:vehicle-facet-counts.ts 共用同一個秒數 ⇒ export、不各自寫死一份。
 //   🔴 共用秒數**不等於**兩份快取同時新鮮(兩個獨立時鐘、起算點不同 ⇒ 面板說 3 件、
 //   點進去 5 件的窗仍存在,上限 = 本秒數)。真正能讓兩者一起失效的是共用的 tag 'catalog'。
-export const CATALOG_REVALIDATE_SECONDS = 900;
+export const CATALOG_REVALIDATE_SECONDS = 60;
 
 export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
   // 急件2 止血(2026-07-15):domain fitments=jsonb 直透、motoBrand/modelCode 實際可為 null
@@ -258,9 +266,9 @@ export type FeaturedResult = {
  *    `styles/home.css` 的 `05 · SELECT (N°02 …)` 段標、`app/page.test.tsx` 的順序斷言註解)。
  *
  * 行為(M-4a 前菜 D:改「最新商品」——created_at 遞減前 4;取代舊「id 升冪前 4」placeholder):
- *   - getFeaturedUIProductsCached()(perf/P3:unstable_cache 900s;內層
+ *   - getFeaturedUIProductsCached()(perf/P3:unstable_cache 60s;內層
  *     listAllProducts({limit:4, orderBy:'created_desc'})、perf/P2 limit + 排序皆下推 DB、免撈全表)
- *   - 快取 key bump v1→v2:排序語意變更、避免舊「id 升冪」結果殘留 900s
+ *   - 快取 key bump v1→v2:排序語意變更、避免舊「id 升冪」結果殘留 60s
  *   - adapter 回 [](空目錄)→ 回 `{ products: [], error: false }`、UI 走 empty 分支
  *   - adapter throw error → **不進快取**、外層 console.error + 回 `{ products: [], error: true }`
  *
@@ -294,7 +302,7 @@ const getFeaturedUIProductsCached = unstable_cache(
     const products = await adapter.listAllProducts({ limit: FEATURED_LIMIT, orderBy: 'created_desc' });
     return products.map((p) => toUIProduct(p, 'general'));
   },
-  // 🔴 cache key 換版:上一版快取的是 4 筆,不換 key 的話舊快取會讓提高後的筆數**在 15 分鐘內看不到**。
+  // 🔴 cache key 換版:上一版快取的是 4 筆,不換 key 的話舊快取會讓提高後的筆數**在 1 分鐘內看不到**。
   ['featured-ui-products-v3'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
@@ -531,8 +539,8 @@ type CatalogBrandCountClient = {
  * P4:品牌側欄獨立使用全站聚合，避免從當頁 25 筆商品誤算 count。
  *
  * 🔴 #306 補快取(codex 關卡2 C5):本函式原本**沒有** `unstable_cache`,而 `/api/catalog/facet-counts`
- *   每次請求都會呼叫它 ⇒ 即使 facet 件數命中 900s 快取,每位訪客仍會打一次全站品牌聚合
- *   ⇒ 「熱請求零 DB」不成立。改與 `getCategoryTreeCached` 同慣例(900s + `catalog` tag)。
+ *   每次請求都會呼叫它 ⇒ 即使 facet 件數命中 60s 快取,每位訪客仍會打一次全站品牌聚合
+ *   ⇒ 「熱請求零 DB」不成立。改與 `getCategoryTreeCached` 同慣例(60s + `catalog` tag)。
  *   失敗 throw 不進快取(在快取外 catch 回 `[]`,維持既有 fail-safe 行為)。
  */
 const getCatalogBrandTaxonomyCached = unstable_cache(
@@ -614,7 +622,7 @@ export async function fetchProductsByVehicle(vehicle: {
  * 失敗回 `[]`(側欄分類區空、不 crash;**不** fallback MOCK_CATEGORIES —— 假分類配真過濾器
  * 會產生「點了 0 結果」的死分類,比空更糟)。anon RLS 只計上架、零敏感欄。
  *
- * perf/P3:包 unstable_cache 900s(全訪客恆等、JSON-safe 樹;順帶消 1+16 分類 count N+1 的
+ * perf/P3:包 unstable_cache 60s(全訪客恆等、JSON-safe 樹;順帶消 1+16 分類 count N+1 的
  *   每請求成本;失敗 throw 不進快取、外層 catch 回 [])。
  */
 const getCategoryTreeCached = unstable_cache(
@@ -686,7 +694,7 @@ export async function fetchCategories(): Promise<MockCategory[]> {
  *   舊路(products_public 全 fitments)是 20 頁 × 約 0.85s ≈ 17s ⇒ **這是改善、不是新問題**,
  *   但絕對值仍難看:正解是「寫入路徑不該撈整份 taxonomy」(驗一組只需一次 limit 1 查詢)。
  * ⚠️ 跨頁無快照的第二個後果:每日 16:10 effective 整表 swap 若發生在翻頁之間,
- *   OFFSET 會位移 ⇒ 某車型可能被跳過並進 900s 快取(無告警、無測試會紅)。正解 = #389。
+ *   OFFSET 會位移 ⇒ 某車型可能被跳過並進 60s 快取(無告警、無測試會紅)。正解 = #389。
  *
  * 失敗回 [](VehicleFinder 顯空品牌下拉、不 crash;console.error 留 log)。
  * view 只有四欄車款字面,零 product_id / 零價格 / 零供應商(migration §2 明列不得加欄)。
@@ -764,7 +772,7 @@ const getVehicleTaxonomyCached = unstable_cache(
     return buildVehicleTaxonomy([{ fitments }]);
   },
   // v2 → v3:C 案(`20260811100000`)換了 view 的資料形狀(年份改由 direct 出)。
-  // app 層與 migration 是兩次分開的上線動作 ⇒ 若沿用 v2,apply 前填進去的快取最長 900s
+  // app 層與 migration 是兩次分開的上線動作 ⇒ 若沿用 v2,apply 前填進去的快取最長 60s
   // 仍以舊形狀供應。換鍵的代價只是一次冷快取,便宜。
   ['vehicle-taxonomy-v3'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },

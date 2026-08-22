@@ -71,7 +71,7 @@ export default async function HomePage({
   // 三段互不依賴 → Promise.all 並行(perf/P2:原逐一 await 串行、跨區延遲三段相加是首頁
   // TTFB 主因之一;三函式的 adapter 查詢錯誤各自 catch 回 fallback → Promise.all 收到的是
   // resolved fallback 非 rejection。client 建構(env 缺)在 try 外會 throw——舊串行版同炸、非本片新增語意)。
-  // - featured(perf/P3 釘 general、unstable_cache 900s):不再收 tier——public view 的
+  // - featured(perf/P3 釘 general、unstable_cache 60s):不再收 tier——public view 的
   //   store/premiumStore 價是 dummy 0、傳真 tier 會顯 NT$0 錯價,且 tier 變體不得進共用快取
   //   (plan §P3 明示語意變更;真 tier 定價待 #215)。tier 仍寫進 data-tier 供 dev DOM inspector debug。
   // - motoBrands(S2/#220b):VehicleFinder 接真 fitment 衍生車輛清單(輕量 fitments-only 查詢、
@@ -85,9 +85,9 @@ export default async function HomePage({
   //   🔴 撈取失敗回**空集合**=全部當成沒商品(fail-closed,`brand-products.ts` 那支自己保證)
   //   ⇒ 本頁不需要另包 try/catch;反過來(失敗全放行)會在 DB 一抖時把空入口全放出去。
   //   ⚠️ 資料源 `fetchCatalogBrandTaxonomy` 與 `/products` 側欄**共用** `unstable_cache`
-  //   鍵(`catalog-brand-taxonomy-v1`,900s + tag `catalog`)⇒ 熱路徑零額外 DB round-trip、
-  //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 15 分鐘
-  //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:115`)。
+  //   鍵(`catalog-brand-taxonomy-v1`,60s + tag `catalog`)⇒ 熱路徑零額外 DB round-trip、
+  //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 1 分鐘
+  //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:135`)。
   const [featured, motoBrands, categories, garage, brandsWithProducts] = await Promise.all([
     // H6 連動(Sean 2026-08-06 拍板、`D-132-A` 更正):取數提高到 `FEATURED_LIMIT`,
     // 讓 OD 的 5 格橫捲真的捲得動;**會員中心「為你推薦」共用同一個數字、一起變多**。

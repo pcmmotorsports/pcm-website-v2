@@ -7713,6 +7713,9 @@ order by n desc, 1;
       🔴 **T+20 分鐘要再跑一次格②**(F4):`CATALOG_REVALIDATE_SECONDS = 900`(products.ts:120)
       ⇒ apply 後最長 15 分鐘流量才全部換到新函式。**T+2 分鐘全綠不等於滿載下存活**,
       早期樣本大多還打在舊快取上。
+      📌 **2026-08-22 更新(原句不改、只加註)**:該常數已由 Sean 當場改判 **900 → 60**
+      (現址 `apps/storefront/src/lib/products.ts:140`;原句寫的 `products.ts:120` 也已因行位移過期)。
+      ⇒ **上面那個「最長 15 分鐘」今天是「最長 1 分鐘」**;本段其餘的 apply 程序敘述是 08-11 的歷史紀錄,不動。
       🔴 **apply 一律走 `supabase db push`,不要貼 Supabase SQL Editor**(F5):
       貼 Editor 會讓 migration ledger 與正式庫失同步(DDL 生效但沒登記),
       之後任何人重跑都會撞到 040000 檔內那段「已生效但未登記」的診斷訊息。

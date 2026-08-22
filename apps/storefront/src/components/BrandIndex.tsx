@@ -53,7 +53,7 @@
 //    「加 aria-disabled」—— 沒有 href 的 `<a>` 仍會被部分報讀器唸成連結。
 // ⚠️ 空集合 = 全部泛白(`fetchBrandsWithProducts` 失敗時的 fail-closed,見該函式 doc);
 //    撈取失敗**不會**被快取住(try/catch 包在 `getCatalogBrandTaxonomyCached` 外面),
-//    但「某家一上架商品後多久變回可點」有 15 分鐘上限(`lib/products.ts` 的
+//    但「某家一上架商品後多久變回可點」有 1 分鐘上限(`lib/products.ts` 的
 //    `CATALOG_REVALIDATE_SECONDS` + 未接的 `revalidateTag('catalog')`)。
 // 🔴 磚上**看不到品牌名**(只有 logo 圖 + 品類描述)⇒ 泛白磚的那句只給報讀器的話要**帶品牌名**,
 //    否則報讀器使用者聽到的是一句沒有主詞的「(暫無商品)」。字面與 `/brands` 卡片一致

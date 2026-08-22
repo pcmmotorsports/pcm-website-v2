@@ -82,7 +82,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   ① 讀 ?vehicle → 用 cached vehicle taxonomy 把 slug 解回原始車廠/車型名(codex #2 linchpin:
   //      URL 存 taxonomy 去重後 slug id〔含碰撞序號〕、product_fitments 存原始名、禁裸 slugify 現算;
   //      複用 /products 列表端同一 parseVehicleFromUrl + 同一 buildVehicleTaxonomy 衍生源=id 空間一致)。
-  //      taxonomy 由 fetchVehicleTaxonomy(unstable_cache 900s)供給 → 詳情頁免每請求重建(plan §5 決策點解)。
+  //      taxonomy 由 fetchVehicleTaxonomy(unstable_cache 60s)供給 → 詳情頁免每請求重建(plan §5 決策點解)。
   //   ② 有車且解出車型 → Case A 反查選定車相容池;否則 Case B 同品牌。引擎輸出經銷價已 strip、失敗降級空。
   const sp = await searchParams;
   const spGet = (name: string): string | null => {
@@ -98,7 +98,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
     spGet('vehicle') != null || (spGet('brand') != null && spGet('model') != null);
   // V-2b:§7「是否適用我的車」需車款字典(現選入口 VehicleSelect)+ 車庫(愛車快選);商品有 fitments
   //   才渲染比對(ProductFitmentCheck 無 fitments 返 null)→ 只在需要時撈。taxonomy(unstable_cache
-  //   900s)兼供推薦引擎 slug 解析;garage=per-user RLS own、容錯 []、序列化收窄(鏡像 cart/products page)。
+  //   60s)兼供推薦引擎 slug 解析;garage=per-user RLS own、容錯 []、序列化收窄(鏡像 cart/products page)。
   const hasFitments = (product.fitments?.length ?? 0) > 0;
   const [taxonomy, garage] = await Promise.all([
     hasVehicleParam || hasFitments ? fetchVehicleTaxonomy() : Promise.resolve([]),

@@ -49,7 +49,7 @@ describe('首頁 N°02 取數 vs 軌道格數', () => {
   });
 
   it('🔴 兩頁共用同一個取數(Sean `D-132-A` 更正:一起變多),而且常數真的被讀到', () => {
-    // 🔴 提高筆數而不換 cache key ⇒ 舊的 4 筆快取會讓新筆數 15 分鐘內看不到(那會被當成「沒生效」)
+    // 🔴 提高筆數而不換 cache key ⇒ 舊的 4 筆快取會讓新筆數 1 分鐘內看不到(那會被當成「沒生效」)
     expect(SRC, 'cache key 沒換版 ⇒ 舊的 4 筆快取還在供應').toMatch(/'featured-ui-products-v3'/);
     expect(SRC, '取數沒有被 adapter 真的讀到 ⇒ 常數只是擺著好看').toMatch(/limit:\s*FEATURED_LIMIT/);
     // 兩個消費端都走同一支(首頁 + 會員中心)

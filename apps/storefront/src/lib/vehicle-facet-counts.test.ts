@@ -247,8 +247,8 @@ describe('fetchVehicleFacetCounts(快取包裝 + fan-out 閘)', () => {
     cachedCallArgs.length = 0;
     await fetchVehicleFacetCounts({ brand: 'YAMAHA' }, ['a', 'z'], ['b']);
     expect(cachedCallArgs[0]?.[1]).toBe('["a","z"]');
-    // 快取宣告本身:15 分鐘 + catalog tag(與目錄頁同一個失效開關)
-    expect(cacheDeclarations.at(-1)?.options).toMatchObject({ revalidate: 900, tags: ['catalog'] });
+    // 快取宣告本身:1 分鐘 + catalog tag(與目錄頁同一個失效開關)
+    expect(cacheDeclarations.at(-1)?.options).toMatchObject({ revalidate: 60, tags: ['catalog'] });
   });
 
   it('🔴 同一台車同時來多個請求 → 只跑一次 fan-out(unstable_cache 不是 single-flight)', async () => {
