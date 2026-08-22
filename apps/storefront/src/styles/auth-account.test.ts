@@ -676,3 +676,34 @@ describe('`#639 甲` — `.acc-order-note` 不得被藏起來', () => {
     expect(meta).toContain('font-size');
   });
 });
+
+// 🔴 地址全文回顯的**桌機零改動**守門(Sean 2026-08-22 挑「③」)。
+//    這一族要擋的不是「有沒有寫」,是三個各自無聲的失效:
+//      ① base 不是 `none` ⇒ 桌機也長出一行灰字（= 驗收「桌機真的沒變」直接破功，而桌機沒人在看）
+//      ② 只寫了 `@media` 那一路 ⇒ 手機 UA + viewport ≥1080（Android 平板橫放）拿不到，
+//         **而那台機器上畫面完全正常、地址照樣切**（`#839` 那一族的定義形狀）
+//      ③ 只寫了 `[data-mobile]` 那一路 ⇒ 桌機瀏覽器縮到手機寬度時拿不到
+//    ⚠️ 本檔擋不住的:cascade 實際勝負與真實渲染。桌機那一格我另外在 1440 真瀏覽器量過
+//       （`.acc-addr-full` 的 computed display = none），量測值寫在交件信,不在這裡假裝測到。
+describe('地址全文回顯 .acc-addr-full(桌機關、手機雙寫開)', () => {
+  it('base 規則是 display:none ⇒ 桌機不顯示', () => {
+    expect(block(ACCOUNT, 'account.css', '.acc-addr-full')).toContain('display: none');
+  });
+
+  it('雙寫第 1 路:@media (max-width: 1079px) 區塊【內】把它打開', () => {
+    const mob = mediaBlockAt(ACCOUNT, '@media (max-width: 1079px)');
+    expect(mob, '找不到 @media (max-width: 1079px) 區塊').not.toBe('');
+    expect(mob).toContain('.acc-addr-full { display: block; }');
+  });
+
+  it('雙寫第 2 路:[data-mobile="true"] 那一條存在(手機 UA 但 viewport ≥1080 走這裡)', () => {
+    expect(ACCOUNT).toContain('[data-mobile="true"] .acc-addr-full { display: block; }');
+  });
+
+  it('負向對照:把「開」的字面改一個字元,上面兩格必須撈不到(⇒ 它們不是恆真)', () => {
+    // 沒有這一格,`toContain` 的字面打錯時會靜靜地變成「找不到 ⇒ 紅」還是「找到 ⇒ 綠」分不清楚。
+    const mob = mediaBlockAt(ACCOUNT, '@media (max-width: 1079px)');
+    expect(mob).not.toContain('.acc-addr-fulll { display: block; }');
+    expect(ACCOUNT).not.toContain('[data-mobile="true"] .acc-addr-fulll { display: block; }');
+  });
+});

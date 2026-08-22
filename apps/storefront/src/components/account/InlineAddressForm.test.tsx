@@ -58,6 +58,43 @@ function fillRequired() {
   fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
 }
 
+// 🔴 地址全文回顯(Sean 2026-08-22 挑「③」)。這三格是**衝著兩發突變寫的**,不是為了覆蓋率:
+//    突變 A:拿掉元件裡那個 <div>            ⇒ 第 1 格紅(找不到節點)
+//    突變 B:灰字寫死一個字串、不跟著 input   ⇒ 第 2 格紅(打第二筆地址時值不會變)
+//    ⚠️ 只寫「有沒有這個節點」擋不住 B —— **一個永遠顯示同一句話的灰字,畫面上完全正常**。
+//       所以第 2 格**換過一次值再斷言**;只斷言一次的話,寫死的那版照樣綠。
+//    第 3 格守空字串:沒輸入時不該掛一行空灰字(那會在表單裡留一道莫名其妙的間距)。
+describe('InlineAddressForm 地址全文回顯(手機欄寬吃不下 ⇒ 下方補完整字串)', () => {
+  const ADDR_A = '新北市新莊區化成路736巷18號1樓';
+  const ADDR_B = '台中市西屯區台灣大道三段99號18樓之3';
+  const addrInput = () => screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓');
+  const echo = () => document.querySelector('.acc-addr-full');
+
+  it('打了地址 → 下方灰字出現,且內容逐字等於輸入值', () => {
+    renderForm();
+    fireEvent.change(addrInput(), { target: { value: ADDR_A } });
+    expect(echo()).toBeTruthy();
+    expect(echo()!.textContent).toBe(ADDR_A);
+  });
+
+  it('🔴 換一筆地址 → 灰字**跟著變**(寫死字串的版本會在這格紅)', () => {
+    renderForm();
+    fireEvent.change(addrInput(), { target: { value: ADDR_A } });
+    expect(echo()!.textContent).toBe(ADDR_A);
+    fireEvent.change(addrInput(), { target: { value: ADDR_B } });
+    expect(echo()!.textContent).toBe(ADDR_B);
+    // 負對照:換過之後不該還留著舊值(同一顆節點被更新,不是又長出第二顆)
+    expect(document.querySelectorAll('.acc-addr-full')).toHaveLength(1);
+  });
+
+  it('地址空白 / 只有空格 → 不掛空灰字', () => {
+    renderForm();
+    expect(echo()).toBeNull();
+    fireEvent.change(addrInput(), { target: { value: '   ' } });
+    expect(echo()).toBeNull();
+  });
+});
+
 describe('InlineAddressForm(g-5b 新增表單)', () => {
   it('render 基本欄 + 設預設 + 發票三 tab + heading「新增地址」', () => {
     renderForm();

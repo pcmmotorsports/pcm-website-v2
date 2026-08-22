@@ -199,6 +199,22 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
           required
           placeholder="縣市 / 區 / 路 / 號 / 樓"
         />
+        {/* 🔴 手機地址全文回顯(Sean 2026-08-22 從三張實拍圖裡挑「③」)。
+            病:結帳頁四層外框 padding 吃掉 176px/375(47%)⇒ 欄位內寬只剩 193px,
+            而「新北市新莊區化成路736巷18號1樓」要 270px ⇒ **切掉 77px、且沒有任何提示**。
+            實量(375 寬真瀏覽器、iPhone UA):/checkout 193 需 270 切;/account 291 需 291 不切。
+            ⚠️ 兩頁共用本元件 ⇒ 會員中心也會多這一行。**判斷:照顯,不做「切了才顯示」。**
+            理由不是省事 —— 「切了才顯示」要在每次輸入/resize/**字體載入完成**後量
+            `scrollWidth > clientWidth`;字體晚到就會量錯,而量錯的那一版**畫面看起來完全正常**
+            (該出現時沒出現)。那是把一具會靜靜失準的量具放進產品裡,換來省一行灰字。
+            桌機不顯示 —— **靠 CSS 兩路關掉,不靠這裡的條件**(見 account.css `.acc-addr-full`)。
+            aria-hidden:讀屏本來就會唸出 input 的 value,再唸一次是重複噪音;
+            這一行解的是「看不到」,不是「聽不到」。 */}
+        {line.trim() !== '' && (
+          <div className="acc-addr-full" aria-hidden="true">
+            {line}
+          </div>
+        )}
         {fieldErrors.line && <span className="auth-field-err">{fieldErrors.line}</span>}
       </label>
       {/* 🔴 M-4b:收件地址自帶 Email(design 原本沒有這欄;plan §2.2)。

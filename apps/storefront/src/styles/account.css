@@ -584,6 +584,21 @@
 .acc-inline-form-inner input:focus { border-color: var(--c-text, #0a0a0a); }
 .acc-inline-form-inner input:disabled { background: var(--c-surface-2, #f4f4f5); color: var(--c-text-3, #aaa); }
 
+/* 地址全文回顯(Sean 2026-08-22 挑「③」)—— 元件端在 `InlineAddressForm.tsx` 的地址 <label> 內。
+   🔴 **base 是 `none`,手機才打開** ⇒ 桌機一個像素都沒變(桌機欄寬夠、本來就不會切)。
+   ⚠️ 這是**新增的字面**、不是改既有規則 ⇒ 回滾 = 刪掉本段 + 元件那個 <div>,不必還原任何舊值。
+   🔴 手機兩路要**雙寫**(`#839` 那一族、慣例出處本檔 :747/:820):只寫 `@media` 的話,
+      手機 UA 但 viewport ≥1080 的人(Android 平板橫放)拿到桌機版 ⇒ 地址照樣切、
+      **而畫面完全正常、沒有任何訊號**。 */
+.acc-addr-full {
+  display: none;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--c-text-3, #71717a);
+  word-break: break-all; /* 地址沒有空格可斷 ⇒ break-word 在 CJK+數字混排時仍會撐破欄寬 */
+}
+
 /* V-1c++:車庫車型欄「字典雙下拉 ↔ 自行輸入」切換連結鈕 */
 .acc-veh-mode-toggle {
   align-self: flex-start;
@@ -815,6 +830,10 @@
   /* profile tab mobile(g-4b、對齊 design L915-916)*/
   .acc-profile { grid-template-columns: 1fr; }
   .acc-profile .auth-submit { grid-column: 1; }
+  /* 地址全文回顯:手機打開(雙寫第 1 路;第 2 路在下方 [data-mobile] 區)。
+     🔴 **必須寫在這個既有區塊裡** —— `auth-account.test.ts` M4 有一格盯著
+     「平板段之後不得再出現涵蓋整個平板區間的手機段」,自己另開一個同斷點 @media 會被它擋下。 */
+  .acc-addr-full { display: block; }
 }
 
 /* [既有] [data-mobile="true"] 兜底(dev-preview 強制模式 / SSR UA hint) */
@@ -824,6 +843,8 @@
 [data-mobile="true"] .acc-head h1 { font-size: 22px; word-break: break-word; }
 [data-mobile="true"] .acc-head-actions { grid-column: 1 / -1; }
 [data-mobile="true"] .acc-layout { grid-template-columns: 1fr; gap: 20px; }
+/* 地址全文回顯:雙寫第 2 路(手機 UA 但 viewport ≥1080 —— Android 平板橫放走這裡)。 */
+[data-mobile="true"] .acc-addr-full { display: block; }
 /* [data-mobile] 兜底那一路,逐條鏡像上面 @media (max-width: 1079px) 的分頁列改版
    (原因見上方那段長註解;這裡不重複)——兩路不同步是這個檔歷史上出過事的地方(見 MF1/MF7)。 */
 [data-mobile="true"] .acc-nav {
