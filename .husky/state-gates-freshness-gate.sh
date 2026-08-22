@@ -60,6 +60,10 @@ regen_from_index() {
 
 if [ "${1:-}" = "--write" ]; then
   regen_from_index || exit 2
+  # 目錄不在 ⇒ cp 回 2 而訊息是 cp 的。本 repo 裡 docs/reference/ 早就在 ⇒ 這行在這裡是 no-op,
+  # 只服務拋棄式世界(harness 的 seed 第一版經 --write 時撞到)。證人 = harness 格3c(先 rm 目錄再 --write)。
+  # ~~「harness 第一格抓到的」~~ 2026-08-23 更正:那句描述的是改掉前的 fixture,出貨版本上它為假。
+  mkdir -p "$(dirname "$DOC")" || exit 2
   cp "$EXPECTED" "$DOC" || exit 2
   echo "✅ 已用 index 視圖重產 $DOC —— 接著 git add $DOC 再 commit" >&2
   echo "⚠️ 這一步【覆寫了工作樹的表】—— 七窗共用一棵樹,若剛才 git status 顯示它是 M,那可能是別窗" >&2
