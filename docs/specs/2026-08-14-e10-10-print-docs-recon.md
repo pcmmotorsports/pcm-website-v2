@@ -11,7 +11,18 @@
 數法(範圍 `apps` + `packages`,排除 `.next`):
 `grep -rn "window.print\|@media print\|react-to-print\|pdfkit\|jspdf\|puppeteer\|@react-pdf" --include="*.ts" --include="*.tsx" --include="*.css"` ⇒ **0**。
 **正向對照**(同範圍同寫法換一個一定在的字):`grep -rn "shipment" apps/admin/src` ⇒ **424 行** ⇒ 掃描範圍不是空的。
-⇒ §1-A 的「整個能力不存在」**成立**,而且連 CSS 層的列印樣式都沒有。
+⇒ ~~§1-A 的「整個能力不存在」**成立**,而且連 CSS 層的列印樣式都沒有。~~
+
+🔴 **2026-08-23 已過期 —— 不要再引用上面那個結論。**
+`#10` 在 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1-A 的現值是 **✅**:
+兩條列印路都在(本次 `test -f` 實查,負對照編造路徑 ⇒ 不存在):
+`apps/admin/src/app/print/orders/[id]/picking/page.tsx` ·
+`apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page.tsx`
+
+⚠️ **上面那兩發量測本身沒有錯**(數法與正向對照都原樣留著,可重跑)——
+**過期的是「所以整個能力不存在」這個結論**,不是它下面的證據。
+📌 **本檔檔頭那句「舊版不要再引用」射程只到 §2/§3**(它逐字只點那兩節)⇒ **擋不到這一行**,
+   所以要在這裡自己標。**原文一個字沒刪,只加註。**
 
 ## §2 出貨流程現在走到哪
 
