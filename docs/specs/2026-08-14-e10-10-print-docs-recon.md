@@ -13,7 +13,7 @@
 **正向對照**(同範圍同寫法換一個一定在的字):`grep -rn "shipment" apps/admin/src` ⇒ **424 行** ⇒ 掃描範圍不是空的。
 ⇒ ~~§1-A 的「整個能力不存在」**成立**,而且連 CSS 層的列印樣式都沒有。~~
 
-🔴 **2026-08-23 已過期 —— 不要再引用上面那個結論。**
+🔴 **2026-08-22 夜已過期 —— 不要再引用上面那個結論。**
 `#10` 在 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1-A 的現值是 **✅**:
 兩條列印路都在(本次 `test -f` 實查,負對照編造路徑 ⇒ 不存在):
 `apps/admin/src/app/print/orders/[id]/picking/page.tsx` ·
