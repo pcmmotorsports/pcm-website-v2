@@ -46,7 +46,10 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const REPO = resolve(process.cwd());
 const LINT_STAGED = join(REPO, 'node_modules/.bin/lint-staged');
-const GLOB_KEY = '*.{sh,yaml,yml,sql}';
+// 🔴 大小寫用 [xX] 字元類展開,不是 `sh` —— picomatch 預設 case-sensitive,
+//    `BROKEN.PY` / `x.SH` 不匹配 `*.{...,py}` ⇒ lint-staged 根本不呼叫 checker、commit 回綠。
+//    `GUARDED_EXT` 的 /i 救不到「沒進 gate」的檔(codex R1 must-fix 3;這個洞比 .py 這片老)。
+const GLOB_KEY = '*.{[sS][hH],[yY][aA][mM][lL],[yY][mM][lL],[sS][qQ][lL],[pP][yY]}';
 
 let scratch: string;
 
@@ -129,6 +132,41 @@ describe('lint-staged → check-syntax-nonts 真效果測(backlog #340)', () => 
     expect(r.stderr).toMatch(/檢查 1 檔、1 個不過/);
   });
 
+  it('🔴 壞 .py staged → gate 擋下(exit=1,且失敗來自本守門)', () => {
+    const r = stageAndRunGate('bad.py', 'def f(:\n    pass\n');
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/檢查 1 檔、1 個不過/);
+  });
+
+  // 🔴 巢狀路徑必須也被 glob 吃到 —— repo 裡有 scripts/storefront-probe/*.py 這種。
+  //    lint-staged 的無斜線 pattern 比對 basename;這格證明它,不用去讀 lint-staged 的文件。
+  it('🔴 巢狀目錄下的壞 .py 也要被擋(量 glob 的深度,不是量退出碼)', () => {
+    mkdirSync(join(scratch, 'sub'), { recursive: true });
+    const r = stageAndRunGate('sub/bad.py', 'x = (1\n');
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/檢查 1 檔、1 個不過/);
+  });
+
+  // 🔴 codex R1 must-fix 3 的那一發。這格【在修 glob 之前是紅的】—— 突變實測見交件。
+  //    形狀 = 「守門存在但那個檔根本沒進分母」,GUARDED_EXT 的 /i 完全救不到:
+  //    lint-staged 沒把檔名餵進來,腳本連跑都沒跑,commit 一路綠。
+  it('🔴 大寫副檔名 BROKEN.PY 的壞檔也要被擋(量 glob 的大小寫,不是量退出碼)', () => {
+    const r = stageAndRunGate('BROKEN.PY', 'def f(:\n    pass\n');
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/檢查 1 檔、1 個不過/);
+  });
+
+  // 同一個洞的**既有**受害者(比 .py 這片老):`.SH` / `.SQL` / `.YML` 一直都繞得過去。
+  it('🔴 大寫 .SH 的壞檔也要被擋(這個洞在 .py 進來之前就存在)', () => {
+    const r = stageAndRunGate('BAD.SH', '#!/bin/bash\nif true; then\n  echo hi\n');
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/檢查 1 檔、1 個不過/);
+  });
+
+  it('好 .py staged → 放行(exit=0)', () => {
+    expect(stageAndRunGate('ok.py', 'import sys\nprint(sys.argv)\n').status).toBe(0);
+  });
+
   it('🔴 壞 .yaml staged → gate 擋下(exit=1,且失敗來自本守門)', () => {
     const r = stageAndRunGate('bad.yaml', 'title: "他說 "這樣" 不行"\n');
     expect(r.status).toBe(1);
@@ -159,8 +197,21 @@ describe('lint-staged → check-syntax-nonts 真效果測(backlog #340)', () => 
 
   // 最後一哩的存在性釘:gate 要生效,pre-commit 得真的呼叫 lint-staged。
   // ⚠️ 這是**存在性釘不是效果證明**(husky 有沒有被安裝、hook 有沒有執行權限,這格都看不到)。
-  it('.husky/pre-commit 仍然有呼叫 lint-staged(存在性釘,非效果證明)', () => {
+  // 🔴 要排掉註解行(codex R2 nit):原本 `expect(hook).toMatch(/lint-staged/)` 的分母是**整支檔**,
+  //    有人把呼叫改成 `# pnpm exec lint-staged` 之後這格照樣綠 —— 而 gate 已經不跑了。
+  //    形狀 = memory `feedback_greps-denominator-is-the-whole-file`(那一行是它存在的原因,還是只是提到它)。
+  it('.husky/pre-commit 有一行【非註解】在呼叫 lint-staged(存在性釘,非效果證明)', () => {
     const hook = readFileSync(join(REPO, '.husky/pre-commit'), 'utf8');
-    expect(hook).toMatch(/lint-staged/);
+    const liveLines = (text: string) =>
+      text
+        .split('\n')
+        .filter((l) => !/^\s*#/.test(l))
+        .filter((l) => /lint-staged/.test(l));
+    expect(liveLines(hook).length).toBeGreaterThan(0);
+    // 🔴 反向對照:同一把濾網餵「被註解掉的呼叫」必須回 0。
+    //    ⚠️ 刻意**不**去突變真的 `.husky/pre-commit` —— 六個窗正在用它 commit,
+    //    弄壞它的代價落在別人身上。⇒ 這格證明的是**濾網對不對**,
+    //    不是「真的把呼叫註解掉之後這支測試會紅」。那半沒有實跑過,寫在這裡免得被讀成有。
+    expect(liveLines('# pnpm exec lint-staged\necho hi\n')).toHaveLength(0);
   });
 });

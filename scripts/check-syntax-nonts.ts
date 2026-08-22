@@ -14,6 +14,9 @@
 // 🔴 刻意不做的事(誠實邊界,不要事後被誤讀成「已覆蓋」):
 //   - **不是** SQL / shell / YAML 的語意檢查,只抓「這個檔在語法層根本讀不進去」。
 //   - `.sql` 沒有真正的語法檢查(見 checkSql 檔內說明),只做**配對平衡**這一格。
+//   - `.py` 只有 `ast.parse`:**它量的是「這個檔讀不讀得進去」,不是「這支腳本對不對」**。
+//     import 錯的模組、名稱打錯、邏輯錯、跑起來就炸 —— 這格全部是綠的。
+//     ⇒ 不得因為這格綠就宣稱「那 N 支 .py 都沒問題」(2026-08-22 D 線加入 .py 時明寫)。
 
 import { readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -28,7 +31,7 @@ type Failure = { file: string; line: number | null; reason: string };
  * 🔴 `checkOne` 的分流與 CLI 的計數器必須讀同一份:兩邊各寫一份時,
  *   分歧會讓「檢查 N 檔」這個防假綠計數器**自己說謊**(算進沒檢查的檔 / 漏算檢查過的檔)。
  */
-const GUARDED_EXT = /\.(sh|ya?ml|sql)$/i;
+const GUARDED_EXT = /\.(sh|ya?ml|sql|py)$/i;
 
 /**
  * .sh → `bash -n`(POSIX shell 內建的 noexec 語法檢查,零依賴)。
@@ -204,16 +207,89 @@ function checkSql(file: string): Failure | null {
   return null;
 }
 
+/**
+ * .py → `python3` 的 `ast.parse`(標準庫,零新依賴、零副作用)。
+ *
+ * 🔴 **不用 `python3 -m py_compile`**:那會在旁邊寫出 `__pycache__/*.pyc`
+ *   —— 一道守門在被守的目錄裡留下產物,下一個人 `git status` 會看到不是他改的東西。
+ * 🔴 **不用 `python3 -c ... a.py b.py` 批次**:與 checkShell 同一個坑(逐檔呼叫才不會恆真)。
+ * 🔴 **射程**:只抓「parse 不過」。import 不存在的模組、名稱打錯、跑起來就炸 —— 這格**全綠**。
+ *
+ * 🔴 **餵 bytes,不是 str**(2026-08-22 codex R1 must-fix 1,實測後改):
+ *   原版 `open(p, encoding='utf-8').read()` 有**雙向**錯:
+ *   ① `# coding: ascii` + UTF-8 中文 —— 真 Python 紅、這裡綠(**cookie 被繞過**);
+ *   ② 合法的 Latin-1 檔 —— 真 Python 綠、這裡 `UnicodeDecodeError` 紅(**誤擋合法檔**)。
+ *   餵 bytes 之後 PEP 263 的 coding cookie 由 Python 自己處理,兩個方向都跟真 Python 一致。
+ *   (實測四格全部復現過;`ValueError` 那條 except 就是為 ① 的 codec 錯而在。)
+ *
+ * 🔴 **版本地板 `PY_MIN`(codex R1 must-fix 2 / R2 #1-#3;R2 後改成機制,不再靠判斷)**:
+ *   `ast.parse` 用的是**跑它的那個 python3 的 grammar**。具體形狀:`t"hi"`(PEP 750 t-string)
+ *   在 3.14 綠、拿 3.13 解析則紅 ⇒ **同一份 diff 有人 commit 得了、有人 commit 不了**,
+ *   而那正是「一道紅著而做不完的閘會訓練人略過它」。
+ *   ⚠️ **R1 我寫的是「今天不咬人」+ 三個理由(CI 沒有它 / 只餵自己 staged 的檔 / 同一台機器)。**
+ *     那三個理由當時是真的,但它們**過期時沒有任何訊號** —— 換機器、開 CI 都不會有人回來讀這段。
+ *   ⇒ 改成**低於地板就明確報錯**:把「你那邊綠我這邊紅」換成「它當場說出自己幾版、要幾版」。
+ *   ⚠️ **這道地板不會讓不同版本解析出同一個結果** —— 它只保證**不一致時你會知道**。
+ *     真要一致,得釘 python 版本(需要 Sean 拍板,不在本片範圍)。
+ *   📌 失敗訊息一律帶 `[python <版本>]`,所以版本造成的紅自己說得出原因。
+ *
+ * 📌 **要數「這道閘守得到幾支 .py」,一律在 repo root 跑 `git ls-files '*.py'`**(codex R2 #4 nit):
+ *   `git ls-files` 的分母是**你當下所在的目錄以下**——在 `scripts/storefront-probe/` 跑只會得到 2。
+ *   而 lint-staged 的射程是整個 repo ⇒ **量法不固定 root,數出來的就不是這道閘的分母。**
+ */
+
+/** 本閘要求的 python3 最低版本。低於它 ⇒ 明確報錯,不靜靜用不同 grammar 解析。 */
+const PY_MIN: readonly [number, number] = [3, 14];
+function checkPython(file: string, minVersion: readonly [number, number] = PY_MIN): Failure | null {
+  const prog = [
+    'import ast,sys',
+    'p=sys.argv[1]',
+    'need=(int(sys.argv[2]),int(sys.argv[3]))',
+    'v=sys.version.split()[0]',
+    'if sys.version_info[:2] < need:',
+    "    sys.stderr.write('python 版本地板未達:本閘需要 >= %d.%d,實得 %s —— 不同版本的 grammar 會給出不同判定(例:t-string 3.14 綠 3.13 紅)' % (need[0],need[1],v)); sys.exit(2)",
+    'try:',
+    "    src=open(p,'rb').read()",
+    'except Exception as e:',
+    "    sys.stderr.write('讀不到檔:'+str(e)); sys.exit(1)",
+    'try:',
+    '    ast.parse(src,p)',
+    'except SyntaxError as e:',
+    "    sys.stderr.write('line '+str(e.lineno or 0)+': '+(e.msg or 'syntax error')+' [python '+v+']'); sys.exit(1)",
+    'except ValueError as e:',
+    "    sys.stderr.write('line 0: '+str(e)+' [python '+v+']'); sys.exit(1)",
+  ].join('\n');
+  const r = spawnSync(
+    'python3',
+    ['-c', prog, file, String(minVersion[0]), String(minVersion[1])],
+    { encoding: 'utf8' },
+  );
+  if (r.error) return { file, line: null, reason: `python3 無法執行:${r.error.message}` };
+  if (r.status === 0) return null;
+  const stderr = (r.stderr || '').trim();
+  // exit 2 = 版本地板未達。它不是這個檔的問題 ⇒ 訊息不帶行號,免得有人跑去看第 0 行。
+  if (r.status === 2) return { file, line: null, reason: stderr || 'python 版本地板未達' };
+  const m = stderr.match(/^line (\d+): /);
+  // 🔴 行號 0 = Python 給不出行號(編碼 cookie 那類錯就是),落成 null 免得印出 `檔:0` 誤導人去看第 0 行
+  const lineNo = m && Number(m[1]) > 0 ? Number(m[1]) : null;
+  return {
+    file,
+    line: lineNo,
+    reason: (m ? stderr.slice(m[0].length) : stderr) || `python3 ast.parse exit ${r.status}`,
+  };
+}
+
 function checkOne(file: string): Failure | null {
   if (!GUARDED_EXT.test(file)) return null;
   const lower = file.toLowerCase();
   if (lower.endsWith('.sh')) return checkShell(file);
   if (lower.endsWith('.yaml') || lower.endsWith('.yml')) return checkYaml(file);
   if (lower.endsWith('.sql')) return checkSql(file);
+  if (lower.endsWith('.py')) return checkPython(file);
   return null;
 }
 
-export { checkShell, checkYaml, checkSql, checkOne, GUARDED_EXT };
+export { checkShell, checkYaml, checkSql, checkPython, checkOne, GUARDED_EXT, PY_MIN };
 export type { Failure };
 
 /**

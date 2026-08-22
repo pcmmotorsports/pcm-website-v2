@@ -11,7 +11,7 @@ import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'n
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { checkShell, checkYaml, checkSql, checkOne } from './check-syntax-nonts';
+import { checkShell, checkYaml, checkSql, checkPython, checkOne, PY_MIN } from './check-syntax-nonts';
 
 let dir: string;
 const w = (name: string, content: string): string => {
@@ -149,6 +149,96 @@ describe('.sql — 配對平衡(刻意不是語法檢查)', () => {
   });
 });
 
+describe('.py — python3 ast.parse', () => {
+  it('合法 python → 綠(正向對照,防守門恆假)', () => {
+    const f = w('ok.py', 'import sys\n\n\ndef main():\n    print(sys.argv)\n');
+    expect(checkPython(f)).toBeNull();
+  });
+
+  // 🔴 斷**確切行號**與**確切檔名**,不是「非 null」(codex R2 nit):
+  //    `not.toBeNull()` 在行號被突變成 999、或 Failure.file 指到別的檔時,照樣全綠。
+  it('未閉合括號 → 紅,且行號=1、檔名=這個檔(不是「非 null」)', () => {
+    const f = w('bad-paren.py', 'x = foo(1, 2\ny = 3\n');
+    const r = checkPython(f);
+    expect(r).not.toBeNull();
+    // 🔴 行號是**量到的 1**,不是我以為的 2:Python 把 `(` 沒收尾算在**開括號那一行**。
+    //    我第一版寫 2、測試當場紅 —— 留這句是因為斷言確切行號的價值就在這裡:
+    //    寫「非 null」的話,我那個錯的心智模型會一路綠著活下去。
+    expect(r?.line).toBe(1);
+    expect(r?.file).toBe(f);
+  });
+
+  it('縮排錯誤 → 紅', () => {
+    const f = w('bad-indent.py', 'def f():\nreturn 1\n');
+    expect(checkPython(f)).not.toBeNull();
+  });
+
+  it('未閉合三引號 → 紅(插入未跳脫引號的 python 版)', () => {
+    const f = w('bad-quote.py', 'DOC = """沒有收尾\nprint(1)\n');
+    expect(checkPython(f)).not.toBeNull();
+  });
+
+  // 這格是**誠實邊界**,不是缺陷:寫下來免得下一個人把「.py 全綠」讀成「那些腳本沒問題」。
+  it('⚠️ 已知盲區:import 不存在的模組 / 名稱打錯 → 照樣綠(本守門只 parse,不執行)', () => {
+    const f = w('runtime-boom.py', 'import 這個模組不存在\nprint(undefined_name)\n');
+    expect(checkPython(f)).toBeNull();
+  });
+
+  // 與 .sh 同一個坑:批次帶入只驗第一個 = 恆真守門。
+  it('🔴 兩個檔、只有第二個壞 → 第二個必須被抓到(且分流表也要對)', () => {
+    const good = w('first-ok.py', 'print("ok")\n');
+    const bad = w('second-bad.py', 'def f(:\n    pass\n');
+    expect(checkPython(good)).toBeNull();
+    expect(checkPython(bad)).not.toBeNull();
+    expect(checkOne(bad)).not.toBeNull();
+  });
+
+  // ── codex R1 must-fix 1:編碼要交給 Python 自己判,兩個方向都要對 ──
+  it("🔴 `# coding: ascii` 檔頭 + UTF-8 中文 → 紅(真 Python 也紅;餵 str 的舊版會綠)", () => {
+    const f = w('cookie-ascii.py', '# coding: ascii\nx = "中文"\n');
+    const r = checkPython(f);
+    expect(r).not.toBeNull();
+    // 這類錯 Python 給不出行號 ⇒ 不可印成 `檔:0` 叫人去看第 0 行
+    expect(r?.line).toBeNull();
+  });
+
+  it('🔴 合法的 Latin-1 檔(帶 coding 宣告)→ 綠(舊版會 UnicodeDecodeError 誤擋合法檔)', () => {
+    const p = join(dir, 'cookie-latin1.py');
+    writeFileSync(p, Buffer.from('# coding: latin-1\ns = "caf\xe9"\n', 'latin1'));
+    expect(checkPython(p)).toBeNull();
+  });
+
+  // ── codex R2 #1-#3:版本歧異改用**機制**(會自己出聲的地板),不用判斷 ──
+  // ⚠️ 舊版這格只拿「普通壞語法」驗訊息裡有沒有版本字串 —— 3.13 / 3.14 都會過,
+  //    **對「同一份檔兩個版本判定不同」這個核心缺陷恆綠**(codex R2 must-fix 5)。
+  //    現在改成直接驗地板本身,而且兩個方向都跑。
+  it('🔴 python3 低於地板 → 紅,且訊息說得出「要幾版、實得幾版」', () => {
+    const f = w('floor-ok.py', 'x = 1\n');
+    const r = checkPython(f, [3, 99]); // 拿一個一定達不到的地板 = 模擬「跑在舊 python 上」
+    expect(r).not.toBeNull();
+    expect(r?.reason).toMatch(/版本地板未達/);
+    expect(r?.reason).toMatch(/>= 3\.99/); // 要幾版
+    expect(r?.reason).toMatch(/實得 \d+\.\d+/); // 實得幾版
+    expect(r?.line).toBeNull(); // 這不是檔案的問題 ⇒ 不可給行號
+    expect(r?.file).toBe(f);
+  });
+
+  it('🔴 python3 達到地板 → 綠(反向對照;少了這格,上面那格在「永遠紅」時也會過)', () => {
+    const f = w('floor-ok2.py', 'x = 1\n');
+    expect(checkPython(f, PY_MIN)).toBeNull();
+    expect(checkPython(f)).toBeNull(); // 預設參數也要走同一條路
+  });
+
+  it('一般語法錯的訊息仍帶得出 python 版本(版本造成的紅要能自我診斷)', () => {
+    const f = w('ver.py', 'x = (1\n');
+    expect(checkPython(f)?.reason).toMatch(/\[python \d+\.\d+/);
+  });
+
+  it('讀不到的 .py → 紅而不是靜默綠(fail-closed)', () => {
+    expect(checkPython(join(dir, '根本不存在.py'))).not.toBeNull();
+  });
+});
+
 describe('分流與邊界', () => {
   it('非守備範圍副檔名 → null(不誤擋 .ts/.md)', () => {
     const f = w('x.md', '# 標題\n');
@@ -234,7 +324,7 @@ describe('CLI 端到端(commit gate 實際走的路徑)', () => {
     const pkg = JSON.parse(
       readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
     ) as { 'lint-staged'?: Record<string, string> };
-    expect(pkg['lint-staged']?.['*.{sh,yaml,yml,sql}']).toBe(
+    expect(pkg['lint-staged']?.['*.{[sS][hH],[yY][aA][mM][lL],[yY][mM][lL],[sS][qQ][lL],[pP][yY]}']).toBe(
       'tsx scripts/check-syntax-nonts.ts',
     );
   });
