@@ -1,6 +1,7 @@
 import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import type { ManualRefundRow } from '../../lib/payment/manual-refund-read';
+import { ManualRefundVoidButton } from './manual-refund-void-button';
 
 // manual-refund-ledger-section.tsx — M-4b E10 D3:非卡退款登記列表(server-render、唯讀)。
 //
@@ -12,13 +13,24 @@ import type { ManualRefundRow } from '../../lib/payment/manual-refund-read';
 // 🔴 這個區塊存在的理由:員工今天對現金/匯款訂單「按了退款登記」之後,**沒有任何地方能
 // 確認他按成功了**(主視窗 2026-08-20 裁示原文)——他會再按一次,冪等閘會擋住,但他不知道
 // 被擋了還是成功了。這裡就是那個「看得到」的地方。
+//
+// 🔴🔴 **D3-c:這裡多了「作廢」** —— 而它是 `#787` 的解除鍵。
+//    #787 封印登記入口的理由逐字是「登記錯了改不掉」;這一欄就是「改得掉」的那條路。
+//    ⇒ 作廢**不動錢**,它說的是「這筆登記本身記錯了」(D3-b 的 COMMENT 原話)。
+//    ⚠️ 已作廢的列**不移除、不隱藏** —— 它是帳本,而帳本記的是發生過的事。
+//       整列改成淡出 + 刪除線 + 一行「已作廢」,理由與金額原樣留著給對帳的人看。
 
 export function ManualRefundLedgerSection({
   rows,
+  orderId,
+  returnTo,
   rowsTruncated = false,
   loadFailed = false,
 }: {
   rows: readonly ManualRefundRow[];
+  /** 只給作廢後重新驗證那張訂單頁用,**不進 RPC**(見 manual-refund-void-actions.ts)。 */
+  orderId: string;
+  returnTo: string;
   rowsTruncated?: boolean;
   loadFailed?: boolean;
 }) {
@@ -66,27 +78,51 @@ export function ManualRefundLedgerSection({
               <th className={TH}>原因</th>
               <th className={TH}>經手人</th>
               <th className={TH}>登記時間</th>
+              <th className={TH}>作廢</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id} className='border-t'>
-                <td className={`${TD} whitespace-nowrap`}>{formatOrderDateTime(row.occurredAt)}</td>
-                <td className={`${TD} whitespace-nowrap`}>
-                  {row.rail === 'cash' ? '現金' : '匯款'}
-                </td>
-                <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
-                  NT$ {formatOrderAmount(row.refundAmount)}
-                </td>
-                <td className={TD}>{row.reason}</td>
-                <td className={`${TD} text-muted-foreground whitespace-nowrap text-xs`}>
-                  {row.actor}
-                </td>
-                <td className={`${TD} text-muted-foreground whitespace-nowrap text-xs`}>
-                  {formatOrderDateTime(row.createdAt)}
-                </td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const voided = row.voidedAt !== null;
+              return (
+                <tr key={row.id} className={`border-t ${voided ? 'text-muted-foreground' : ''}`}>
+                  <td className={`${TD} whitespace-nowrap`}>
+                    {formatOrderDateTime(row.occurredAt)}
+                  </td>
+                  <td className={`${TD} whitespace-nowrap`}>
+                    {row.rail === 'cash' ? '現金' : '匯款'}
+                  </td>
+                  {/* 🔴 金額打刪除線是**唯一**一眼看得出「這筆不算數了」的地方 ——
+                      對帳的人掃的是金額欄,不是最右邊那一欄。 */}
+                  <td
+                    className={`${TD} text-right tabular-nums whitespace-nowrap ${voided ? 'line-through' : ''}`}
+                  >
+                    NT$ {formatOrderAmount(row.refundAmount)}
+                  </td>
+                  <td className={TD}>{row.reason}</td>
+                  <td className={`${TD} whitespace-nowrap text-xs`}>{row.actor}</td>
+                  <td className={`${TD} whitespace-nowrap text-xs`}>
+                    {formatOrderDateTime(row.createdAt)}
+                  </td>
+                  <td className={TD}>
+                    {voided ? (
+                      <div className='text-xs'>
+                        <p className='font-medium'>已作廢</p>
+                        <p>{formatOrderDateTime(row.voidedAt as string)}</p>
+                        <p>由 {row.voidedBy ?? '(未記錄)'}</p>
+                        <p className='max-w-[16rem]'>理由:{row.voidReason ?? '(未記錄)'}</p>
+                      </div>
+                    ) : (
+                      <ManualRefundVoidButton
+                        refundId={row.id}
+                        orderId={orderId}
+                        returnTo={returnTo}
+                      />
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

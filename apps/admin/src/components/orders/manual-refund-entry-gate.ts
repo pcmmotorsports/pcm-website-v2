@@ -43,6 +43,15 @@ import type { PaymentListData } from './payment-list';
  *      📌 2026-08-22 實測:**false**;`proacl = postgres=X/postgres`(只有 owner)
  *      ⇒ **這一條【還沒成立】,而那是【刻意的】** —— 那支 migration 自己寫了四次「零 GRANT」:
  *        「本檔只建函式,EXECUTE 由『登記畫面那一片』開」(分期開權)。
+ *      ✅ **2026-08-22 片 D3-c 已把那支 GRANT migration 寫好**:
+ *        `supabase/migrations/20260822120000_m4b_e10_d3c_grant_void_manual_refund.sql`
+ *        (四道後置斷言 A1-A4;`scripts/d3c-grant-probe.sh` 在拋棄式 PG 實跑過五個世界、
+ *         含四發該紅的突變 ⇒ 那四道斷言有判別力,不是裝飾)。
+ *      🔴 **而它還沒被 apply** —— apply 要 Sean 在 SQL Editor 貼(施工窗只有唯讀)。
+ *        ⇒ 這一條在 apply 之前**必然是 false**,而**那不是缺陷,是這道閘還沒到可以拆的時候**。
+ *        ⇒ 觸發器已換靶到那件事上:`manual-refund-787-trigger.test.ts` 現在盯的是
+ *          `supabase/APPLIED.tsv` 有沒有 `20260822120000` —— 它**今天是綠的**,
+ *          而它會在該紅的那一刻紅。(舊靶盯「檔在磁碟上」⇒ 從 08-20 起永遠紅了兩天。)
  *
  * 🔴🔴 **本段第一版只寫了 ①②,而第三條【只住在測試的紅字訊息裡】** ——
  *   `manual-refund-787-trigger.test.ts` 的失敗訊息逐字有「確認『service_role 已 EXECUTE 到』之後才動手」。
@@ -53,6 +62,15 @@ import type { PaymentListData } from './payment-list';
  *   📌 可搬走的那一句:**規矩要放在那個人【會經過的地方】。**
  *
  * 三條都成立後,把下面這行 `return false` 連同本段註解一起刪掉。
+ *
+ * 🔴🔴 **「改得掉」那條路在 2026-08-22 片 D3-c 已經做好了**(這是本段最重要的更新):
+ *   `#787` 封印這道入口的理由逐字是「登記錯了改不掉」。而現在:
+ *     · UI     `manual-refund-void-button.tsx`(帳本每一列的作廢入口,兩段式)
+ *     · action `manual-refund-void-actions.ts`(actor 取自 session,**絕不讀表單**)
+ *     · repo   `manual-refund-void-repository.ts`(`admin_void_manual_refund` 的唯一呼叫端)
+ *     · 顯示   `manual-refund-read.ts` 已投影 `voided_at/void_reason/voided_by`,
+ *              帳本會把已作廢的列打刪除線(不移除 —— 帳本記的是發生過的事)
+ *   ⇒ **只差 GRANT 被 apply。** 那一刻到了,上面三條就全成立。
  */
 /** 見上方函式註解:#787 解除前這裡恆 true。寫成具名常數(不是行內 `true` 字面),
  *  是為了不讓下面保留的真實判斷邏輯被 lint 的 no-unreachable 當死碼砍掉。

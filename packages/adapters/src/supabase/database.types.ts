@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十三個函式、共二十九處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十四個函式、共三十處**手動校正
 //   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
 //    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
@@ -51,6 +51,15 @@
 //      `database-types-manual-count.test.ts` 的正規式)。同一片手補的 `order_manual_refunds`
 //      表(Tables 區塊、退場條件相同)**不計入這個數字**,那是既有機制對「表」沒有涵蓋的
 //      既知邊界,已在該表定義旁另外留一段說明,不是漏算。
+//   ⑭ `admin_void_manual_refund` **整段**(`#787` 解除鏈、片 D3-c,2026-08-22)—— 形狀同 ⑬:
+//      該函式雖然**已 apply**(`20260820100000`,APPLIED.tsv 命中),但本檔目前的內容是
+//      2026-08-18 那一次 gen 的產物 ⇒ **它不在裡面**,而 `.rpc('admin_void_manual_refund')`
+//      沒有它就過不了 typecheck。簽章逐字對 `20260820100000`:
+//      `admin_void_manual_refund(p_refund_id uuid, p_void_reason text, p_actor text)
+//      RETURNS jsonb`,三個參數全部必填、無 DEFAULT。
+//      🔴 下次重 gen:先比對生成內容與本段是否一致,再刪本段(理由同 ⑬)。
+//      ⚠️ 同一片手補的 `order_manual_refunds` **三個作廢欄**(voided_at/void_reason/voided_by,
+//      D3-a `20260820090000` 加的)**不計入這個數字** —— 那是表,不是函式,同 ⑬ 的既知邊界。
 //   ~~⑫ `admin_search_customers` **整段**~~ **已退場(2026-08-19 G4)**:它自己寫著
 //      「apply 之後先比對再刪本段」。**已比對 ⇒ 生成版簽章與手動段相同** ⇒ 手動段刪除。
 //      🔴 原文不在這裡重貼(在該顆 commit 的 diff 裡)。**本條不再計入上面的計數。**
@@ -1297,14 +1306,24 @@ export type Database = {
         ]
       }
       order_manual_refunds: {
-        // 🔴 手動校正,`#787` 2026-08-20 —— 這張表在正式庫還不存在
-        //    (migration `20260820010000` 未 apply)⇒ 現在重 gen 不會產生它。
-        //    簽章逐字對該檔:id/order_id/rail/refund_amount/reason/actor/occurred_at/
-        //    created_at + D1(`20260820021000`)後補的 request_id,共 9 欄,全部 NOT NULL。
+        // 🔴 手動校正,`#787` 2026-08-20 起。
+        //    ⚠️ **原註解已經過期,2026-08-22 片 D3-c 更正**(codex R1 nit;留痕不改寫歷史):
+        //      ~~「這張表在正式庫還不存在(migration 20260820010000 未 apply)」~~
+        //      ~~「共 9 欄,全部 NOT NULL」~~
+        //      ⇒ **兩句今天都是錯的**:`20260820010000` 與 `20260820090000` 都已 apply
+        //        (`grep -c '202608200[19]0000' supabase/APPLIED.tsv` 各命中),
+        //        而 D3-a 又加了 `voided_at / void_reason / voided_by` 三欄、**三欄皆 nullable**
+        //        ⇒ 現在是 **12 欄、其中 3 欄可為 NULL**。
+        //    🔴 **本段之所以還留著,理由換了**:不是「表不存在」,是**本檔的內容停在
+        //      2026-08-18 那一次 gen**,那次還沒有這張表。⇒ 下次重 gen 就會產生它。
+        //    ⚠️ **而那個計數測試不會抓到這種錯** —— 它只數條目、不與 live schema 對帳
+        //      (`database-types-manual-count.test.ts` 檔頭自陳)。**這一段是人在維護的。**
         //    apply 之後重 gen:先比對生成內容與本段是否一致,再刪本段。
         //    ⚠️ **這是表,不是函式**——不計入檔頭那行「N個函式、共M處」的數字
         //    (該計數機制的正規式只認函式條目,見 `database-types-manual-count.test.ts`);
         //    對應的函式那半(`admin_record_manual_refund`)記在檔頭條目 ⑬。
+        // 🔴 三個作廢欄由 D3-a(`20260820090000`)加,**三欄皆 nullable**
+        //    (該檔 apply 後複驗逐字「三欄皆 nullable=3」)。片 D3-c 2026-08-22 手補。
         Row: {
           actor: string
           created_at: string
@@ -1315,6 +1334,9 @@ export type Database = {
           reason: string
           refund_amount: number
           request_id: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
         }
         Insert: {
           actor: string
@@ -1326,6 +1348,9 @@ export type Database = {
           reason: string
           refund_amount: number
           request_id: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Update: {
           actor?: string
@@ -1337,6 +1362,9 @@ export type Database = {
           reason?: string
           refund_amount?: number
           request_id?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Relationships: [
           {
@@ -3896,6 +3924,16 @@ export type Database = {
           p_void_reason: string
         }
         Returns: string
+      }
+      admin_void_manual_refund: {
+        // 🔴 手動校正,片 D3-c 2026-08-22 —— 見檔頭條目 ⑭(含退場條件)。
+        //    簽章逐字對 `20260820100000`:三個參數全部必填、無 DEFAULT。
+        Args: {
+          p_actor: string
+          p_refund_id: string
+          p_void_reason: string
+        }
+        Returns: Json
       }
       admin_void_shipment: {
         Args: {

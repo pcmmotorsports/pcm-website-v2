@@ -17,6 +17,7 @@ import {
 } from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 import { MANUAL_REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/manual-refund-action-state';
+import { MANUAL_REFUND_VOIDED_RESULT_CODE } from '../../lib/payment/manual-refund-void-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
   REFUND_RECOVERED_RESULT_CODE,
@@ -93,6 +94,16 @@ export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'war
   // 見 manual-refund-ledger-section.tsx 檔頭。
   [MANUAL_REFUND_SUBMITTED_RESULT_CODE]: {
     text: '已登記這筆退款。',
+    tone: 'ok',
+  },
+  // 🔴 M-4b E10 D3-c:非卡退款【作廢】(Fable R2 F3 —— 第一版漏了這顆碼)。
+  //    漏掉的後果不是「少一句話」:returnTo 落在 /orders 列表時橫幅回 null,而帳本列不在那一頁
+  //    ⇒ **成功之後零回饋**,而那正是 manual-refund-ledger-section.tsx 檔頭自陳要治的病
+  //    (「員工按了之後沒有任何地方能確認他按成功了」)。登記那半有碼、作廢這半沒有 = 兄弟片漂移。
+  // 🔴 文案要把【後果】講出來,不是只講「成功了」——理由同 manual-refund-void-button.tsx 的
+  //    那段 F1 註解:作廢會把金額加回可退餘額,而按的人的心智模型預設是反的。
+  [MANUAL_REFUND_VOIDED_RESULT_CODE]: {
+    text: '已作廢這筆退款登記。這筆金額已回到這張單的可退餘額 —— 系統會當作它從來沒退過。',
     tone: 'ok',
   },
   // 🔴 M-3 RW4:人工結案兩碼(同樣只有成功走 redirect;失敗全回 action state)。

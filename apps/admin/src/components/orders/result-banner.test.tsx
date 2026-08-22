@@ -19,6 +19,7 @@ import {
 } from '../../lib/orders/receipt-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 import { MANUAL_REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/manual-refund-action-state';
+import { MANUAL_REFUND_VOIDED_RESULT_CODE } from '../../lib/payment/manual-refund-void-action-state';
 import {
   REFUND_MARKED_FAILED_RESULT_CODE,
   REFUND_RECOVERED_RESULT_CODE,
@@ -307,6 +308,9 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       NOTE_ADDED_RESULT_CODE,
       REFUND_SUBMITTED_RESULT_CODE,
       MANUAL_REFUND_SUBMITTED_RESULT_CODE,
+      // 🔴 M-4b E10 D3-c 作廢碼(Fable R2 F3)。**本格在我把它加進 MESSAGES 的當下真的紅過**
+      //    (2026-08-22 實跑,1 failed / 30 passed)—— 那是它有判別力的證據,不是推的。
+      MANUAL_REFUND_VOIDED_RESULT_CODE,
       REFUND_MARKED_FAILED_RESULT_CODE,
       REFUND_RECOVERED_RESULT_CODE,
       PROCUREMENT_CREATED_RESULT_CODE,
@@ -336,5 +340,20 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
 
     expect(allCancelCodes).toHaveLength(7);
     expect(allCancelCodes.filter((c) => otherLines.includes(c))).toEqual([]);
+  });
+});
+
+describe('ResultBanner — D3-c 作廢碼(Fable R2 F3)', () => {
+  it('🔴 作廢成功的橫幅要講出【後果】,不是只說「成功了」', () => {
+    const { container } = render(
+      <ResultBanner code={MANUAL_REFUND_VOIDED_RESULT_CODE} />,
+    );
+    const text = container.textContent ?? '';
+    expect(text).toContain('已作廢');
+    // 🔴 這三格是 F1 那條 must-fix 的同一件事:按的人的預設心智模型是反的。
+    expect(text).toContain('可退餘額');
+    expect(text).toContain('沒退過');
+    // 反向對照:不得出現「退款完成」那種會被讀成「錢動了」的措辭。
+    expect(text).not.toContain('退款完成');
   });
 });

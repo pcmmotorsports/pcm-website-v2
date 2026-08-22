@@ -610,6 +610,8 @@ export function OrderDetail({
               並列於 RefundLedgerSection、不合併型別,理由見該元件檔頭。 */}
           <ManualRefundLedgerSection
             rows={manualRefunds}
+            orderId={detail.id}
+            returnTo={returnTo}
             rowsTruncated={manualRefundsTruncated}
             loadFailed={manualRefundsFailed}
           />

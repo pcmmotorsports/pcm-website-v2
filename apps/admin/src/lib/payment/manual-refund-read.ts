@@ -9,7 +9,10 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
 // 🔴 本表刻意沒有 status(D1 header 段:「記的是一件已經發生的事」)⇒ 投影裡沒有狀態欄,
 //    也沒有 isRefundException 那類異常判定 —— 這張表沒有那個語意。
 
-const ROW_COLUMNS = 'id, rail, refund_amount, reason, actor, occurred_at, created_at';
+// 🔴 D3-c 加了三個作廢欄。**不加的話,作廢完畫面看起來一模一樣** ——
+//    而 D3-b 的 UPDATE 只動這三欄,那一列的金額/理由/經手人全部原樣留著。
+const ROW_COLUMNS =
+  'id, rail, refund_amount, reason, actor, occurred_at, created_at, voided_at, void_reason, voided_by';
 
 export type ManualRefundRow = {
   id: string;
@@ -21,6 +24,10 @@ export type ManualRefundRow = {
   occurredAt: string;
   /** 登記時刻(系統記)。 */
   createdAt: string;
+  /** 🔴 非 null = 這筆登記已被作廢(D3-c)。作廢**不動錢**,它說的是「這筆登記本身記錯了」。 */
+  voidedAt: string | null;
+  voidReason: string | null;
+  voidedBy: string | null;
 };
 
 type RawRow = {
@@ -31,6 +38,9 @@ type RawRow = {
   actor: string;
   occurred_at: string;
   created_at: string;
+  voided_at: string | null;
+  void_reason: string | null;
+  voided_by: string | null;
 };
 
 function toRow(raw: RawRow): ManualRefundRow {
@@ -42,6 +52,9 @@ function toRow(raw: RawRow): ManualRefundRow {
     actor: raw.actor,
     occurredAt: raw.occurred_at,
     createdAt: raw.created_at,
+    voidedAt: raw.voided_at,
+    voidReason: raw.void_reason,
+    voidedBy: raw.voided_by,
   };
 }
 

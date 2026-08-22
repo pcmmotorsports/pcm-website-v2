@@ -44,12 +44,17 @@ const CONTROL_NEEDLE = 'admin_record_manual_payment';
 const CALLER_ALLOWLIST: Record<string, string> = {
   'apps/admin/src/lib/payment/manual-refund-repository.ts':
     '唯一真呼叫端(.rpc() 呼叫點)。封印本體在同片 manual-refund-entry-gate.ts 的 ' +
-    'MANUAL_REFUND_ENTRY_BLOCKED_BY_787,目前仍為 true——沖銷 RPC(admin_void_manual_refund, ' +
-    '乙片 commit 0e9c9b76)已進 dev,但尚未 apply 到正式庫(has_function_privilege 這一步驗不到), ' +
-    '故本檔的 RPC 呼叫路徑在 UI 層目前不可達。',
+    'MANUAL_REFUND_ENTRY_BLOCKED_BY_787,目前仍為 true。' +
+    '🔴 2026-08-22 片 D3-c 更新:沖銷 RPC(admin_void_manual_refund)本身【已 apply】 ' +
+    '(APPLIED.tsv 命中 20260820100000),缺的改成【EXECUTE 還沒開給 service_role】—— ' +
+    '2026-08-22 唯讀實測 has_function_privilege = false、proacl = {postgres=X/postgres}。' +
+    'D3-c 已寫好那支 GRANT migration(20260822120000)但尚未 apply(施工窗只有唯讀)。' +
+    '故本檔的 RPC 呼叫路徑在 UI 層目前仍不可達。',
   'apps/admin/src/components/orders/manual-refund-entry-gate.ts':
-    '封印本體所在檔——MANUAL_REFUND_ENTRY_BLOCKED_BY_787 常數,驗的是「沖銷 RPC 是否已 apply」, ' +
-    '恆 true 直到那支 RPC 真的可被 service_role 呼叫(不是只進 dev)。',
+    '封印本體所在檔——MANUAL_REFUND_ENTRY_BLOCKED_BY_787 常數。' +
+    '🔴 2026-08-22 片 D3-c 更新:它驗的不是「沖銷 RPC 是否已 apply」(那一條已經成立了), ' +
+    '而是「service_role 對它有沒有 EXECUTE」。恆 true 直到 20260822120000 被 apply。' +
+    '解除觸發器 = 同片 manual-refund-787-trigger.test.ts(靶已換成 APPLIED.tsv)。',
   'apps/admin/src/lib/payment/manual-refund-action-state.ts':
     '僅在 docstring 提及 admin_record_manual_refund 這個名字(與 D1 RPC 的行為比較用途), ' +
     '沒有任何 .rpc() 呼叫,不是真呼叫端,不受本閘約束。',
