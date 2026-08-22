@@ -266,7 +266,12 @@ describe('codex 關卡2 must-fix 的守門', () => {
     expect(ROW).toMatch(/setOpenId\(next \? /);
   });
 
-  it('🔴 被 `truncate` 的兩格都要有看完整值的逃生門(否則長值在畫面上讀不出來,而那是行為退化)', () => {
+  // 🔴 2026-08-22 更新:**品名那一格已經不再 truncate 了**(Sean 看圖挑「② 原地換行」)——
+  //    它現在整段換行顯示, 不需要逃生門, 因為根本沒有東西被藏起來。
+  //    ⚠️ 本格【標題仍寫「兩格」而實際只剩料號一格】會誤導, 所以標題一起改。
+  //    ⇒ 現在守的是:料號那一格仍然 truncate ⇒ 它仍然需要 `title` 逃生門;
+  //      而品名那一格仍然走 `ItemNameCell`(Tooltip 是否留下由 Sean 決定, 見該檔檔頭)。
+  it('🔴 仍然被 `truncate` 的格子要有看完整值的逃生門(否則長值在畫面上讀不出來,而那是行為退化)', () => {
     // 只看品項列那一段,不掃全檔。
     const i = TABLE.indexOf('variant=\'card-line\'');
     expect(i).toBeGreaterThan(-1);
@@ -274,9 +279,11 @@ describe('codex 關卡2 must-fix 的守門', () => {
     const truncs = [...block.matchAll(/className='[^']*truncate[^']*'/g)];
     // 正向對照:真的有截斷的格子(沒有的話下面那條是恆真)
     expect(truncs.length).toBeGreaterThan(0);
-    // 🔴 2026-08-21 更新(Sean 拍板「hover 要看得到完整的字」):品名這一格從原生 `title`
-    // 換成 `ItemNameCell`(app 內 Tooltip,見 item-name-cell.tsx 檔頭與 item-name-cell.test.tsx
-    // 的雙向斷言);料號欄未收到同款要求,維持原生 `title` 不動。
+    // 🔴 2026-08-21:品名從原生 `title` 換成 `ItemNameCell`(app 內 Tooltip)。
+    // 🔴 2026-08-22:品名【不再 truncate】⇒ 上面那個 `truncs.length > 0` 現在是【料號那一格】
+    //    在撐著。**這不是巧合而是要講清楚的事**:若哪天料號也改成不切字,
+    //    那條正向對照會變成恆假而本格會紅 —— 那時候要改的是本格,不是把 truncate 加回去。
+    //    料號欄未收到「不要切字」的要求,維持原生 `title` 不動。
     expect(block).toMatch(/<ItemNameCell title=\{item\.title\}/);
     expect(block).toMatch(/title=\{item\.variantSku\}/);
   });
