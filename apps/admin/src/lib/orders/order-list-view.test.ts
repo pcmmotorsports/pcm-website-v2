@@ -526,12 +526,28 @@ describe('#347-3c-2 預設近半年 + 選中的選項', () => {
 
   it('每個預設選項都算得出區間,而且 `m6` 就是預設那一格', () => {
     const options = buildOrderDatePresetOptions(NOW);
-    expect(options.map((o) => o.key)).toEqual(['m1', 'm3', 'm6', 'y1']);
+    expect(options.map((o) => o.key)).toEqual(['d0', 'm1', 'm3', 'm6', 'y1']);
     for (const o of options) {
       expect(o.fromYmd, `${o.key} 的起日`).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(o.toYmd).toBe('2026-08-10');
     }
     expect(options.some((o) => o.key === ORDER_DATE_DEFAULT_KEY)).toBe(true);
+  });
+
+  it('🔴 「今天」那一格 ⇒ 起日與迄日都是台北曆面今天(不是近一個月的變形)', () => {
+    // 為什麼要這一條:`d0` 走的是 `months: 0`,而那條路**沒有人走過**。
+    // 突變:把 `months: 0` 改成 `1` ⇒ `fromYmd` 變 2026-07-10 ⇒ 這條紅。
+    const today = buildOrderDatePresetOptions(NOW).find((o) => o.key === 'd0');
+    expect(today?.label).toBe('今天');
+    expect(today?.fromYmd).toBe('2026-08-10');
+    expect(today?.toYmd).toBe('2026-08-10');
+  });
+
+  it('🔴 日期兩端都是今天 ⇒ 下拉顯示「今天」,不是「自訂」', () => {
+    // 這一條量的是 `matchOrderDatePreset` 真的認得新那一格 ——
+    // 只加選項而比對認不出來,員工選了「今天」之後畫面會跳回「自訂」。
+    const r = parseOrderListSearchParams({ date_from: '2026-08-10', date_to: '2026-08-10' }, { now: NOW });
+    expect(r.selectedDatePresetKey).toBe('d0');
   });
 
   it('🔴 預設套用之後,**連結**會帶著日期走(翻頁/分享不會掉回不限期間)', () => {

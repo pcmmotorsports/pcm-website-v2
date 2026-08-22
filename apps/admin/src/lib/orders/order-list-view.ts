@@ -313,6 +313,12 @@ export const PAYMENT_CHANNEL_OPTIONS = toOptions(PAYMENT_CHANNEL_VALUES, PAYMENT
  *    給一個很早的起日。沒有逃生口的預設等於把舊單藏起來,所以**自訂與預設必須同片**。
  */
 const ORDER_DATE_PRESETS = [
+  // 🔴 `months: 0` ⇒ `recentTaipeiMonthsRange` 回 `fromYmd === toYmd === 台北曆面今天`
+  //    (`packages/domain/src/order/date-range.ts:140-156`:`target = m-1-0` ⇒ 同月同日)。
+  //    ⇒ 這一格**沒有動那支 helper 一個字**,它本來就算得出「今天」。
+  //    起因:`#16` 今日對帳的卡片寫「今日新單 N 筆」,而這個下拉最短只到「近一個月」
+  //    ⇒ 員工要看那 N 張單得選「自訂」打兩次日期。
+  { key: 'd0', label: '今天', months: 0 },
   { key: 'm1', label: '近一個月', months: 1 },
   { key: 'm3', label: '近三個月', months: 3 },
   { key: 'm6', label: '近半年', months: 6 },
