@@ -1444,3 +1444,68 @@
 🗂️ **2026-08-12 傍晚 92🚀 三支 migration 一次 push 全上正式庫(130000/150000/160000,NOTICE 斷言全綠)+三線審查全收官+extreme 667 收案**(**apply**:preflight 五查 Sean 貼全綠→dry-run 恰三支→push 三支 NOTICE 逐字中預期(130000=19 條+前置閘/150000=#423 結構驗收整串/160000=後置全過+post-image md5 `f4e3aa5b` 與 P 預測逐字同=2f preflight 釘值)→後驗四查(CJK 切詞=4 正式站成立、trgm 索引 11、搜尋煙測 JSON 正常、**postgres bypassrls=true**=A12 閘結構預警口徑確認)→VACUUM 四表→APPLIED.tsv 183-185+F7 types 走 merge 腳本(零刪除、新增僅 pcm_spec_text)`90d3d2fe`。**三線收官**:B #347-fuzzy 兩顆(23cd6091+bb8f723c;R1 code-reviewer 7Imp6Min+codex R2 1MF4nit 全折;B 抓主視窗兩態窮舉漏時間軸→三格窮舉+「130000 apply 前禁開 ORDER_NUMBER_SEARCH」入 body+時序保險=apply 先於推版,已兌現)/D #423 兩顆(f82f047f+284a3e64;三輪 33 條=K2 12+codex R2 12+Fable R3 9 全折,R3 抓 A12 守零負測穿透前兩輪;#439 立案=audit append-only 只靠 GRANT,**D 誤取作廢號 #438 被攔=作廢不回收首次生效**)+#437 收款卡四點+三態完成(76aff2e3,順手修兩處既有假通過)/P 2e(7a205d38;R1 11+codex R2 14 折 1 駁〔catalog 證據〕;44 格 13 rb 13 靶;D2b 真缺口→Sean 拍 Q-2e-D2b=A→#440 立案)。**Sean 拍板**:審查鏈改制=R1 一律先 codex(memory review-chain-codex-first-r1)/Q-347-B8=A/Q-2e-D2b=A/離群價=A/extreme 667/715 寫入(乾跑零差異、變價 16 全對、分類搬家 123、寫後直查庫逐格對)。**教訓堆**:量具方言一日三例(grep BRE `$x$`/BSD `\|`/shasum 預設 SHA-1)+2>/dev/null 滅音+哨兵基準跳信三封(程序已修=先全量掃再推基準)+撞號兩起。dev 未推 14(本 STATUS 顆前)。)
 🗂️ **2026-08-12 午 91🎉 D 之收款登錄片全收官(2a+2b+OP5 兩輪)+三線審查日+Sean 預批 140000**(**D 片2 收割 `7c6a9fcc`+註解定案 `2e547434`**:兩軌收款表單+印章生命週期+確認閘;審查鏈=codex R1 FAIL5 折→R2 PASS+code-reviewer FAIL 2MF(最重=兩段文案同框互打製造重複入帳路)+2Imp+4minor 八條全折+主視窗窄確認五掃;**OP5 真往返兩輪**=整條真鏈第一次走通(表單→supabase-js→真 PostgREST→真 RPC)+主視窗設計「旁路消耗」構造補測「鍵已被消耗」路=對照組真判別力、§4 缺口就地結案;D 對照組前提錯+主視窗批准背書同錯=各記一筆;roadmap M-4a-15 ⬜→🔄。**B 線**:#347 plan 全定稿(Q-347-B1=B/B2=C 三項全保留/B3=B fail-soft ③知情退場/B4=A 空窗,Sean 四拍;替身鏈首用=codex 四呼叫零產出(14 行動/62 行不動)→Fable adversarial-reviewer R2 FAIL3MF 全折+窄確認)→**migration 130000 寫完 472 行拋棄式庫實跑驗過、未 commit 等雙審**(code-reviewer 跑動中)。**P 線**:沖銷片 R1 FAIL6+R2 FAIL2(折 R1 自傷型:EXIT trap 相蓋/探針全域恆真)全折、harness 84 格全綠;**Sean 預批 140000 apply(「好,上吧」)**=鏈走完直接上、W 線 record all 入 preflight。**D 假掃信自首第三例**→playbook C-6+增補(輸出只准複製貼上)。地圖過期「等拍板」標籤清 4+正式刷卡字面修(Sean 指正)。收割:7c6a9fcc/2e547434/744bce04/7b7b2158/e1ddc827/9aeb9318/1eaacfdd+STATUS/playbook/地圖顆。dev 未推 53(`git rev-list --count origin/dev..dev` 實跑,本 STATUS 顆前)。)
 🗂️ **2026-08-12 午前 90🔚 主視窗換班收工(Sean 令)+晨批七拍板+四顆收割**(當機重建收官:五窗全就位=S五/P九自活續任、D八/B十/E八新開。**Sean 拍板七件全落 memory 0812 檔**:Q-663=A 不追(#431)/extreme=12:30 確認+點頭雙前置/53 台=A 報價單側逐台判讀(29.1%=作廢交叉積、與 53 台無關=我方錯因果被報價單側抓到已三處更正,現行口徑=鍵層 8.7%)/Q-D11=依推薦(gitignore `803e505e`+#434 治本)/Q-347-B1=B/Q-347-B2=C 三項全保留(推翻推薦)。**D 線大翻案**:router 實測 dev+prod 兩輪=redirect() 是 soft nav 但表單仍重掛、印章不復活 ⇒ Fable F1 撤、#432 撤案(Fable 指錯行,真標的=receipt-action-state.ts:45 決定對理由錯=Q-D12 文件債隨片2);v4 窄核 PASS、D 實作 2a/2b 中。**P 線**:migration 140000 十段+拋棄式庫 49 格全綠(TB-neg 翻面實測=B 案回頭路通);lease_token 沿用裁接受+兩條件。**B 線**:折九條+#420-2 收割,等 C 案定稿 §5-16→窄 R2→130000;🔴W 線收據 36 條釘值過期=140000 apply preflight 必跑 record all。收割四顆=803e505e/1d2febf0/9aeb9318/1eaacfdd(backlog #433/#434 入庫、下一號 #435)。交接=`.pending-replies.md` 收工交接版+`.main-socket` 換班註記;新主視窗照 runbook §B 開。dev 未推 34(`git rev-list --count origin/dev..dev` 實跑,本 STATUS 顆前)。)
+
+## 2026-08-23 STATUS 主表第三輪精簡存檔(主視窗指派;逐字零刪改)
+
+> **為什麼有這一節**:`CLAUDE.md` 要求 `STATUS.md` 主表(分隔線上)≤30 非空行,
+> 檔頭另自訂第二把尺 ≤15,000 字元。2026-08-23 當場實測 **38 非空行 / 14,967 字元**
+> ⇒ **行數超 8;字元數只差 33 就破**。
+> 移出準則:**已答 / 已關 / 已作廢** 優先;**還在等 Sean 的、還是 Blocker 的一律不動**。
+> **以下為移出的段落逐字全文、零刪除、零改寫**(含當時的自指字面與已過期指涉——當時即如此、不予修飾)。
+> 現況一律以精簡後的 `STATUS.md` 為準;本節只供追溯。
+
+
+### 原「最近 3 commit」欄 · 08-22 兩次 push 的來龍去脈
+
+```text
+> 🔴 **2026-08-22 兩次 push 都是【主視窗執行、Sean 當場逐字批】的,不是繞過 checkpoint** —— `dev` `82b8f6d4 → f02dd65e`(108 顆,Sean 逐字「**108顆要推就推吧,不然我怎麼測試**」)/ 報價單 `main` `7186051 → b68c186`(22 顆,Sean 逐字「**甲 全推**」,而他推完真的登入過、回報「後台登進去了」)。⚠️ **而我推完沒有廣播** ⇒ **四個施工窗各花一輪去查「誰推的」,四次都查不出來** —— 🔴 `git reflog` 只寫 `update by push`、**不記執行者**;全 repo author/committer 都是 `probe` ⇒ `--author=probe` 篩出 108/108,**那不是「都是我的」,是那把尺分不出人**(線E 自陳「差點把它報成一個結論」)。⇒ **那道關卡驗不了自己有沒有被照做**,已立 `#849`;**⇒ 從今起主視窗 push 完當下廣播,而那是紀律不是機制**(忘了不會紅)。
+```
+
+### 原「Sean 待決策」欄 · Q25(作廢)
+
+```text
+✅ ~~**Q25 請款端點怎麼拿**~~ **與它底下那個 BLOCKER 一起作廢(2026-08-21 Sean 本人)**:逐字「**TapPay 請款是自動的、22:00 批次**」——當日 20:00 前刷卡,22:00 後開始請款、隔天完成;22:00 後刷卡則後天。⇒ **原 BLOCKER 建立在錯的前提**(以為請款是我們要呼叫的動作)。🔴 **真缺口換位**:從「怎麼請款」變成「**怎麼知道它請款了**」——我方系統看不到請款發生,`settle-charge.ts` adapter 只有三端點、無請款動作、無 webhook(W1 2026-08-21 官方文件親讀:確有 Cap Today API,但**請款失敗無 API 訊號**、端點是人工窗口;22:00 時點**逐家收單行不同**而我們不存 `acquirer`)。⚠️ 20:00 切點是 Sean 口述、**未向官方查證**。全文 memory `project_0821-tappay-capture-is-automatic-2200-batch`。
+```
+
+### 原「Sean 待決策」欄 · Q26(已答)
+
+```text
+✅ ~~**Q26 後台最小字**~~ **已答(2026-08-21 Sean 看實體版本)= 乙 最小 13px**。🔴 他選了【有代價】的那個:訂單列表「狀態」欄會切字。該代價**已實現且已修**——窗 A 用對的量法(`td.scrollWidth` 對 `td.clientWidth`,先前量 `span` 是量錯對象)測到 1440 只剩 2px 餘裕、860 真的切,已調 88→98px(`cd854843`)。`.fchip` **維持 12px 不動**(design-reference 逐字值 + 硬測試釘著,記為 `#807` 刻意不一致)。
+```
+
+### 原「Sean 待決策」欄 · Q27(已答)
+
+```text
+✅ ~~**Q27 隱私政策**~~ **已答=乙 直接發,且 2026-08-21 已 apply 收工**(數法 `grep -c '^20260821113000' supabase/APPLIED.tsv` ⇒ 1)。原文:**已答 = 乙 直接發**(本人,解掉那兩份相反的轉述)。仍受 `legal-content.ts:6`「未經律師簽核」限定。migration 已 commit **未 apply**(數法 `grep -c '^20260821113000' supabase/APPLIED.tsv` ⇒ 0),過 codex 三輪 14 條 must-fix 全折 + 窗 H 獨立審 PASS;配一支 `scripts/legal-terms-preflight.sh` 六個世界實測。**只差 Sean 貼 SQL 跑 preflight。**
+```
+
+### 原「Sean 待決策」欄 · 2026-08-21 已答 a,a,a,a 整段
+
+```text
+📌 **2026-08-21 已答(Sean 本人直答「a,a,a,a」,全文見 memory `project_0821-sean-four-rulings-growth-and-d0a`)**:🔴 **D0-a 後台密碼機制 = 甲 用 Supabase 內建** ⇒ **解鎖 E8-B 七片**(數法 `grep -c 'D0-a' STATUS.md` ⇒ 應 ≥1;**寫進本檔之前它是 0** —— 那個 0 就是它該紅的那一發:一個擋住上線關鍵路徑的決策,只活在 plan 第 156 行與一封信箱檔裡,一整天沒有人問得到他)、成長線只先做「留資料」那一段、**站內搜尋入口維持關閉**、量測不裝 GA4 只做自家搜尋日誌;另 **搜尋日誌記會員身分=乙 要記 / 保存 2 年 / 法律頁要改**(他第一輪三句中兩句互斥,由 W11 原樣端回、他選擇放掉「不改法律文件」)。📌 **今晨已答(不要重問)**:Q14 側欄數字(訂單=尚未訂貨筆數/退款異常/商品缺貨,其餘不放)、Q15=乙 操作紀錄維持關閉、Q16=乙、Q17=甲 測試逾時改 15s、Q18a/b/c 全「是」、Q19=甲 設定放軌上最下面、Q20=乙 供應商不放數字、Q21=甲 任一品項未訂就算一筆、Q22=甲 先結備註卡片再重開、請款兩題=甲/甲、**Q24=甲(拆閘優先)且已批准開工(W1 四片 A→B→C→D)**、**外洩憑證改版=丙(清設定檔+做成機制,換憑證不做;推翻同日稍早誤答的甲,理由與全文見 memory `project_0820-sean-five-rulings-morning-restart`)**、**三支規則檔(CLAUDE.md/AGENTS.md/docs/working-style.md)存 git=要(已 commit beea2059)**、**取消訂單三態這次開不開=甲維持擋**、**商品列控制項要不要另畫=甲沿用**、**瀏覽器 MCP 改用完即丟(`--isolated`)=要(已貼 `~/.claude.json`,已 read-back 驗證)**。
+```
+
+### 原「Blocker」欄 · max-rows 1000→2000 殘留已清(已關)
+
+```text
+✅ **`max-rows` 1000 → 2000 殘留已清(2026-08-19 W2)** —— ~~原記「仍留 2 處」~~、~~我同日先報「活的 9 處」~~ **兩個都錯**:前者過期,後者是我**只掃 `docs/**/*.md`** 量出來的。**全樹重量(含 `.ts`/`.sql`,並把三種形狀分開)**:改前 **活 6 / 訃聞 7 / 紀錄清單 6** ⇒ 改後 **活 2 / 訃聞 11 / 紀錄清單 6**。🔴 **剩的 2 處是刻意不動的**:`shipping-doc-truncation-exit-plan.md:53` 是**逐字引用**(改它等於偽造引用)、`:66` 是**當時的自我更正紀錄** ⇒ 兩處都**在下方加註**指向來源,原文未動;**我的分類器分不出「已加註」與「沒修」,所以它仍把這 2 處算成活的** —— 這是尺的限制,不是遺漏。**修法照 `feedback_downgrade-a-source-inside-the-file-people-cite`**:值**只寫在來源** `packages/adapters/src/supabase/mappers/order.ts:406`,其餘各處**只留指標不重寫數字**(下次再變不必回頭改六處)。量法:掃 `**/*.{md,ts,tsx,sql}`(排除 `node_modules`/`archive`/`.next`),逐行判斷是否落在 `~~…~~` 內、並把 backlog 與 inventory 這類**在講這件事本身**的行另歸一類。
+```
+
+### 原「Blocker」欄 · 2026-08-16 夜 I 窗核帳 三條已關(已關)
+
+```text
+✅ **2026-08-16 夜 I 窗核帳:三條 Blocker 已關、一條待決策已拍,原文全數搬至附屬區「🧾 本輪關掉的條目」零刪除。**①`SECURITY DEFINER` 授權缺口 —— **本檔自己打自己**:「下一步」欄早已標 ✅ 已由 E 窗關掉,而 Blocker 還寫「只查了一支」;量法 `grep -n "anon 可執行" docs/security/2026-08-16-external-exposure-audit.md` ⇒ `:23` 逐字「**`anon` 可執行 = 0**、80 支中 0、**production 側**」。②`order-status-axes` 兩份分母 —— 條目自己就寫著【已解】,**已解的東西不該待在 Blocker**;重跑 `grep -c "sum + l.quantity" apps/admin/src/lib/orders/order-status-axes.ts` ⇒ `0`、`grep -c "sum + lineNeed(l)"` ⇒ `1`、`git merge-base --is-ancestor 692849c8 HEAD` ⇒ 可達。③push bypass「要確認 CI 有沒有真的跑」 —— **跑了**:`gh run list --branch dev --limit 6 --json headSha,name,status,conclusion` ⇒ `e6812e16` 與 `d35f7602` 的 `CI` 皆 `success`。**機制也查明了**:分支保護要求 `check` 這個 status 在 **ref 更新之前**就存在(那是 **PR 流程**的形狀),而我們照 CLAUDE.md Git 紀律**直推 dev、不開 feature branch** ⇒ 推之前不可能有那個 status ⇒ **每一次直推都會印那句**;job 名逐字對得上,`.github/workflows/ci.yml:13` ⇒ `check:`。🔴 **但這條【只關掉問句,沒關掉風險】,殘餘風險已另立為活的 Blocker**(見下一行)—— **查明原因 ≠ 風險消失**,我第一版把它整條關掉是關過頭,由主視窗擋下。④`#462` Q3 附加條件 —— **Sean 08-16 已拍甲**(先記著、等庫存功能做出來再接),依據 memory `project_0816-sean-three-rulings-and-taxonomy-count.md:32`。🔴 **四條的共同形狀**:它們描述的是【世界的狀態】不是【本檔的內容】 —— **世界一動它們就變假,而檔沒改、測試沒紅、`grep` 數不變** ⇒ 複掃型守門對這一類天生無效,只能逐句拿量法去核。
+```
+
+### 原「Blocker」欄 · M-3 prod checkout 待取證已關(已關;原行前半「其餘無硬 blocker。」留在主表)
+
+```text
+✅ **M-3 prod checkout 的【待取證】已關(2026-08-17 夜)** —— ~~本欄原寫「3DS flag 全 false」~~ **那句是反的,不只是未取證**。Sean 給的字面值(**原字轉載**):`TAPPAY_3DS_ENABLED:true` / `CRON_SWEEPER_ENABLED:true` / `ANOMALY_ALERT_ENABLED:true` —— 三個都是**小寫 `true`**,命中 `apps/storefront/src/lib/payment/three-ds-flag.ts:30`(`=== 'true'`,只認小寫字面;我當場開檔讀的)⇒ **三個 flag 都是開的**。🔴 **來源屬性(不得美化)**:**Sean 本人回報 → 主視窗轉 → 我落檔**;**沒有人親眼看過 Vercel 面板** ⇒ 這是「他說的」不是「量到的」,要升成量到的只差一道:讀一次 Production env 面板(`true`/`True`/空白/**沒有這個 key** 四者要分開)。🔴 **同一字面還活在三處,本欄改掉不會動到它們**(`bash scripts/literal-sweep.sh '3DS flag 全 false'` ⇒ **8 命中 / 3,098 檔**;另 4 處在 `PROGRESS.md` 與 `docs/reviews/`,有日期的歷史紀錄、留著):`docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md:24-25`(**它引用本欄逐字並附 `grep` 量法 ⇒ 本欄一改,它的量法就回 0**)/ `docs/handoff/CURRENT.md:1111`(寫成「已查證」)/ `apps/storefront/src/lib/payment/three-ds-flag.ts:16-25`(自陳「誰讀誰把這段關掉」—— 🔴 **金流路徑檔、鐵則 12①、不屬 I 窗,已交主視窗指派**)。(獨立線、非本線,不影響 M-4b。)
+```
+
+### 原主表的兩條 🔻 指標行(2026-08-23 併成一條, 內容移此保存)
+
+```text
+🔻 **2026-08-22 早 · 08-21 及更早的 6 段 🚦 已移入附屬區「🗂️ 最後更新 · 08-21 及更早 6 段」(內容一字未改,只換位置)** —— 主表當時實測 **39 非空行 / 20,265 字元**,兩把尺都超。🔴 **而超線的方向是固定的:每一夜都會往這裡加一段,沒有任何一段會自己離開。**
+🔻 **2026-08-22 早 · 兩段移入附屬區「🗂️ 下一步 · 兩段自陳過期的(08-19 待辦快照 / 09:4x 換代表)」(逐字未改)** —— 🔴 **移它們的理由是【它們自己寫著已過期】**(一段逐字「整套作廢」、一段逐字「本行是 08-19 的快照」)⇒ **不是我判它們沒用,是它們自己講的。**⚠️ 而**自陳過期 ≠ 內容全錯** —— 裡面仍有現行事實(舊隊八份遺言的位置、四條新派工法、`#665`/`#667` 等),要用去附屬區讀。
+```
