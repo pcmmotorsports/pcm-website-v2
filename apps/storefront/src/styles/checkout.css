@@ -678,6 +678,34 @@ html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
   /* 🔴 iOS Safari 聚焦 <16px input 會自動放大；通知 Email 不得降回 auth-field 的 14px。 */
   .co-notification-email input { font-size: 16px; }
 
+  /* 🔴 手機結帳欄位加寬(Sean 2026-08-22 看四張實拍圖挑「B」)。
+     他的話逐字:「不會被蓋住,但是其實**整個畫面的欄位都可以再寬一點**」——
+     不是只有地址欄。實量 375 寬:收件人/手機/地址/Email **四個都是 195px = 螢幕的 52%**,
+     左右各被吃掉 90px。
+     🔴 **病因是四層外框各收一次內距**,不是任何一層特別貪:
+        `.co-main` 20 +`.co-section` 28 +`.co-addr-form` 16 +`.acc-inline-form-inner` 24
+        = **88px/邊 = 176px = 全螢幕的 47%**。
+     🔴 **而「每層都少一點」這條路我測掉了** —— 四層一起砍半 ⇒ 欄寬 269、18 字地址要 270
+        ⇒ **差 1px,還是切**;要全部歸零才過,而那時版面已經崩了。
+        ⇒ 所以這裡做的是**拆掉一層**(表單自己那層框),不是把每層調細。
+     ⚠️ `.co-addr-form` 是**盒中盒**:它包住的 `.acc-inline-form-inner` 自己就有框與內距
+        ⇒ 手機拿掉它不會少一層視覺分界,只會少一層重複的邊。
+     ⚠️ `.co-section` 的內距是**結帳 step1 與 step2 共用**(step2 用了 7 次)⇒ 兩步一起變,
+        **那是預期的**,已另拍 step2 一張證明它變成預期的樣子。
+     ⚠️ **不做 `[data-mobile]` 雙寫**:這是**寬度**造成的(手機 UA 但 viewport ≥1080 的平板
+        欄位本來就夠寬),補雙寫會把有空間的平板也一起拆框。 */
+  .co-addr-form { padding: 0; border: 0; background: transparent; }
+  .co-section { padding-left: 14px; padding-right: 14px; }
+  /* 🔴 第三層:表單內距 24→14。**這一條是對圖對出來的,不是我原本想到的** ——
+     只做上面兩條實量 257px,而 Sean 挑的那張圖是 **277px**(18 字地址在那張圖裡剛好完整顯示)。
+     差的 20px 就是這裡:我做候選版本時連這層一起收了,落地時漏抄。
+     ⇒ **他挑的是一張圖,那張圖的數字才是驗收標準。**
+     ⚠️ **刻意寫成 `.co-addr-form` 底下的後代選擇器**,不是直接改 `account.css` 的
+        `.acc-inline-form-inner` —— 那顆 class 是**會員中心與結帳共用**的,而會員中心那邊
+        欄位本來就有 293px、不需要動。收窄作用域 = 只有結帳頁變。
+        (specificity 0,2,0 勝過 account.css 那條 0,1,0;同斷點、靠選擇器贏,不靠 source order。) */
+  .co-addr-form .acc-inline-form-inner { padding-left: 14px; padding-right: 14px; }
+
   .co-mobile-buybar {
     display: flex;
     position: fixed;

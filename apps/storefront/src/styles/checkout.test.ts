@@ -252,3 +252,60 @@ describe('第5批 · TabBar 讓位 padding 歸零(Q5=A 的另一半)', () => {
     ).toBe(0);
   });
 });
+
+// 🔴 手機結帳欄位加寬(Sean 2026-08-22 挑「B」)。
+//    這一族要擋的是「拆掉的那層框被人加回去」—— 而加回去之後畫面**看起來完全正常**
+//    (只是欄位又變窄),沒有任何報錯、沒有測試會因為「窄」而紅。
+//    ⚠️ 本檔是**文字層**:它證得了規則在不在那個斷點裡,證不了真實渲染寬度。
+//       真寬度我在 375 真瀏覽器量過(四個欄位 195→277),量測值寫在交件信,不在這裡假裝測到。
+describe('手機結帳欄位寬度(2026-08-22 挑 B:拆掉表單自己那層框)', () => {
+  const MOB = '@media (max-width: 900px)';
+
+  it('🔴 手機段裡把 .co-addr-form 那層框拆掉(內距/邊框/底色三項都要)', () => {
+    const seg = mediaBlock(CSS, MOB);
+    expect(seg, '找不到 900 手機段').not.toBe('');
+    const rule = seg.match(/\.co-addr-form\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '手機段沒有 .co-addr-form 規則 ⇒ 那層盒中盒還在，欄位仍是 195px').not.toBe('');
+    expect(rule, '內距沒歸零').toMatch(/padding:\s*0\b/);
+    expect(rule, '邊框沒拿掉 ⇒ 仍佔 2px 且視覺上多一層重複的框').toMatch(/border:\s*0\b/);
+    expect(rule, '底色沒轉透明 ⇒ 拆了框卻留一塊色塊').toMatch(/background:\s*transparent/);
+  });
+
+  it('🔴 手機段裡 .co-section 左右內距收到 14px', () => {
+    const seg = mediaBlock(CSS, MOB);
+    const rule = seg.match(/\.co-section\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '手機段沒有 .co-section 規則').not.toBe('');
+    expect(rule).toMatch(/padding-left:\s*14px/);
+    expect(rule).toMatch(/padding-right:\s*14px/);
+  });
+
+  // 🔴 這一格是**對圖對出來的**,不是一開始想到的:只做上面兩條實量 257px,
+  //    而 Sean 挑的那張圖是 277px。差的 20px 就是這條。
+  //    ⇒ 沒有它,三綠全綠、上面兩格全綠,而**做出來的東西比他挑的那張窄 20px、地址照樣切**。
+  it('🔴 第三層:表單內距也要收(少了它就比 Sean 挑的那張圖窄 20px)', () => {
+    const seg = mediaBlock(CSS, MOB);
+    const rule = seg.match(/\.co-addr-form\s+\.acc-inline-form-inner\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '手機段沒有這條 ⇒ 欄寬只有 257px、18 字地址仍被切').not.toBe('');
+    expect(rule).toMatch(/padding-left:\s*14px/);
+    expect(rule).toMatch(/padding-right:\s*14px/);
+    // 🔴 作用域守門:必須是 `.co-addr-form` 底下的後代選擇器。
+    //    直接寫 `.acc-inline-form-inner { … }` 會連**會員中心**一起改 —— 那頁欄位本來就有 293px、
+    //    不需要動,而它變寬了也不會有任何測試紅、沒有人會發現。
+    expect(seg, '把 .acc-inline-form-inner 裸寫在手機段 ⇒ 會員中心跟著變')
+      .not.toMatch(/(^|[};])\s*\.acc-inline-form-inner\s*\{/);
+  });
+
+  it('🔴 桌機【不受影響】:base 的 .co-section 仍是原本的 24px 28px', () => {
+    // 這一格是「別把手機的修法漏到桌機」的守門 —— 桌機欄位本來就有 790px，不需要拆框。
+    const base = CSS.slice(0, CSS.indexOf('@media'));
+    const rule = base.match(/\.co-section\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 base 的 .co-section').not.toBe('');
+    expect(rule, '桌機的 .co-section 內距被動到了 ⇒ 桌機版面跟著變').toMatch(/padding:\s*24px\s+28px/);
+  });
+
+  it('負向對照:同一把尺對【確實不存在】的規則要撈不到(⇒ 上面三格不是恆真)', () => {
+    const seg = mediaBlock(CSS, MOB);
+    expect(seg.match(/\.co-addr-formm\s*\{[^}]*\}/)?.[0] ?? '').toBe('');
+    expect(mediaBlock(CSS, '@media (max-width: 9001px)'), '不存在的斷點應該回空字串').toBe('');
+  });
+});
