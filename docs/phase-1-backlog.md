@@ -26817,6 +26817,30 @@ unreported-work-scan  問「有東西【做完了】而沒人知道」⇒ 判別
 - **分流:** `P1`(結帳對帳掃描器,鐵則 12①錢;而且證據住在只留 6 小時的表,**今天不記,明天就沒了**)
 - **時效警告:** 原始證據在 `net._http_response`,官方未給保留期、實測約 6 小時就清空(G 窗量:最早 `2026-08-20 21:16`,最近 `2026-08-21 03:15`,共 253 列)。**下面這段是逐字抄錄,不是連結,因為連結的東西會消失。**
 
+- ✅ **2026-08-22 09:05 主視窗實跑(唯讀,對照組與主查詢同一發送出)—— `pcm-anomaly-alert` 的第二個資料點,逐字抄下當基準:**
+  ```
+  現在時刻     2026-08-22 01:05:41.870026+00
+  上次應該發生 2026-08-22 01:00:00+00       （= 台北 09:00）
+  🟢 效度閘   保留窗最舊 2026-08-21 19:06:00 ⇒ 窗【涵蓋】目標時刻 ⇒ 下面的數字讀得出意義
+             保留窗最新 2026-08-22 01:05:00 / 469 列
+  排程點火    succeeded @ 2026-08-22 01:00:00.043577+00
+             🔴 而 succeeded 只代表 http_get 排出去了, 不代表路由回 200 —— 那正是本條的病
+  路由回      200                                   ← 這一欄才是真的答案
+  路由原文    {"ok":true,"enabled":true,"alerted":true,"openCount":0,"refundingCount":0,
+              "refundingStuckCount":0,"attemptManualReviewCount":2,"releasedStuckCount":0,
+              "pendingDoubleChargeCandidateCount":0,"oldestOpenAgeSeconds":null,
+              "notifiersTotal":2,"notifiersFailed":0,"errors":0}
+  對照組      今天有 5 個不同路由回過話 ⇒ 尺是活的 ⇒ 上面若出現 0 才讀得出意義
+  ```
+  ⇒ **判為 D 型(正常跑完、零推播失敗)。** 而照備妥檔 §④-b:D 型**不用等 Sean**,動作 = 抄基準 + 記進本條。
+  🔴 **而 D 型不是結案,它把問題往下推一層**:`notifiersFailed:0` 只代表兩支 adapter 都收到 2xx,
+  **不代表那封信/那則訊息到得了人**(repo 內查無 Resend webhook 接收端,兩把尺都沒找到)。
+  📌 **順帶量到一件本條沒問而有用的**:`attemptManualReviewCount:2` = `2SQH2P` / `GVRDMH`
+  (實查:兩張都 `payment_status=unpaid` / `fulfillment_status=notOrdered` / `cancelled_at` 空;
+  建立 08-09 11:28 與 08-19 04:05 ⇒ **卡 12 天與 2 天,不是主視窗先前寫的「都十三天」**;
+  控制組 `orders` 19 筆、負對照查不存在單號 ⇒ 無)
+  ⇒ **那封告警每天都在報同樣兩張單,而它會一直報到有人處置。**
+
 **逐字證據(G 窗 2026-08-21 03:2x 唯讀 SELECT,未改任何 job/env)**
 
 ```
