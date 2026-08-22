@@ -1,5 +1,7 @@
 import type {
   OrderListItem,
+  MemberOrderDetail,
+  MemberOrderDetailItem,
   PlaceOrderInput,
   PlaceOrderLine,
   PlaceOrderVehicle,
@@ -1007,5 +1009,138 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     //    投影型別日後多一個與上方同名的鍵會**靜默覆蓋**已賦的值,且 spread 不受 excess property check 保護。
     cancellations: cancellationProjection.cancellations,
     cancellationsTruncated: cancellationProjection.cancellationsTruncated,
+  };
+}
+
+// ── 讀路徑(會員明細):orders row + 內嵌 order_items → domain MemberOrderDetail(#240)──
+
+/**
+ * **會員(客人)訂單明細**內嵌 `order_items` 的請求上限(`#240`)。
+ *
+ * 🔴 **這個上限存在的理由不是「避免傳太多」,是【把邊界從伺服器手上拿回來】**
+ * (逐字沿用 `ORDER_ITEMS_EMBED_LIMIT` 的理由):`db-max-rows` **會**套用到內嵌陣列,
+ * 而**內嵌被截斷時 PostgREST 不給任何訊號**(仍回 HTTP 200、`Content-Range` 不反映)
+ * ⇒ **不設上限 = 一個偵測不到的懸崖**,而懸崖那頭是「客人看到一張少了品項的訂單」。
+ *
+ * 🔴 **與既有三個常數各自獨立、刻意不共用** —— 照 `ORDER_LIST_ITEMS_EMBED_LIMIT` docstring
+ * (`:441-446`)立下的先例逐字:「與後台列表同值,**而那是巧合不是耦合** —— 兩者各自可調」。
+ *
+ * 值 = 200:與 admin 明細同值(PCM 一張單的品項數是個位數到數十),又**嚴格低於**實測的
+ * 伺服器上限(2026-08-18 V 窗對正式站頂層實測 2000)。
+ * ⚠️ 同一組殘餘風險:若專案 `max-rows` 日後被設到低於本值,截斷會發生在那個更低的數字上
+ *    而本判定看不見(治本要 `count: 'exact'`)。
+ */
+export const MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT = 200;
+
+/**
+ * 會員明細讀 row 型別 —— **derive 自生成 Database Row**(對齊 `SupabaseOrderListRow` 慣例)。
+ *
+ * 只取 `MEMBER_ORDER_DETAIL_SELECT`(SupabaseOrderAdapter)投影的欄。
+ * 🔴 鐵則 12:**不含** `tappay_rec_trade_id` / `tier_at_checkout` / 任何成本或經銷價欄;
+ * 品項的 brand / images join 穿越 `product_variants` / `products`,而**只取 `brands(name)` 與 `images`**。
+ */
+export type SupabaseMemberOrderDetailRow = Pick<
+  Database['public']['Tables']['orders']['Row'],
+  | 'id'
+  | 'display_id'
+  | 'created_at'
+  | 'payment_status'
+  | 'fulfillment_status'
+  | 'payment_method'
+  | 'paid_at'
+  | 'subtotal'
+  | 'shipping_fee'
+  | 'discount_total'
+  | 'total'
+  | 'shipping_method'
+  | 'cancelled_at'
+  | 'cancelled_reason'
+> & {
+  /** jsonb `{name,phone,line}`(DDL CHECK 硬鎖 exact key set);防禦解析、不信形狀 */
+  shipping_address_snapshot: unknown;
+  order_items: {
+    id: string;
+    variant_sku: string;
+    quantity: number;
+    unit_price: number;
+    line_total: number;
+    /** jsonb;{sku,spec,title} 由 create_order 寫入,防禦解析 */
+    product_snapshot: unknown;
+    /** jsonb;V-3a 車款快照,可為 null */
+    vehicle_snapshot: unknown;
+    /** 🔴 商品下架時整個 embed 為 null(products_select_public qual = delisted_at IS NULL) */
+    product_variants?: {
+      images: unknown;
+      products: { images: unknown; brands: { name: string } | null } | null;
+    } | null;
+  }[];
+};
+
+/** `orders.shipping_address_snapshot` 防禦解析:三欄逐一取字串,缺/非物件/非字串 → null。 */
+function pickShippingAddress(raw: unknown): MemberOrderDetail['shippingAddress'] {
+  return {
+    name: pickString(raw, 'name'),
+    phone: pickString(raw, 'phone'),
+    line: pickString(raw, 'line'),
+  };
+}
+
+/**
+ * jsonb string array 的第一個元素(正式庫實查:`products.images` / `product_variants.images`
+ * 皆為 `array` of `string`)。非陣列 / 空 / 首元素非字串 / 空字串 → null。
+ */
+function pickFirstImage(raw: unknown): string | null {
+  if (!Array.isArray(raw)) return null;
+  const first = raw[0];
+  return typeof first === 'string' && first !== '' ? first : null;
+}
+
+/**
+ * wire orders 明細 row → domain `MemberOrderDetail`(`#240`)。
+ *
+ * - 金額四欄 integer → Money 走 `toMoneyAmount` 中央守門(整數/非負、零浮點、絕不 `as MoneyAmount`);
+ * - `title` / `spec` / `vehicle` / 收件三欄**全部走既有的防禦解析器**,不另寫第二套;
+ * - `imageUrl` **變體圖優先、退母商品圖**(變體有自己的圖時它比母商品圖精準);
+ * - 🔴 `itemCount` 從**實際撈到的** `items[]` reduce,**不是** `OrderListItem.itemCount`;
+ * - 🔴 `itemsTruncated` 判法逐字沿用另外三處:**要 N 筆、拿回剛好 N 筆就當作可能被切了**。
+ */
+export function mapSupabaseMemberOrderDetailRow(
+  row: SupabaseMemberOrderDetailRow,
+): MemberOrderDetail {
+  const items = row.order_items.map((item): MemberOrderDetailItem => ({
+    id: item.id,
+    variantSku: item.variant_sku,
+    // 🔴 任一層缺 → null。**而「商品已下架」正是會讓整個 embed 變 null 的成因之一**
+    //    (RLS qual delisted_at IS NULL)⇒ 顯示端對 null 的處置寫在 domain docstring 上。
+    brand: item.product_variants?.products?.brands?.name ?? null,
+    title: pickString(item.product_snapshot, 'title'),
+    spec: pickSpec(item.product_snapshot),
+    imageUrl:
+      pickFirstImage(item.product_variants?.images) ??
+      pickFirstImage(item.product_variants?.products?.images),
+    vehicle: parseVehicleSnapshot(item.vehicle_snapshot),
+    quantity: item.quantity,
+    unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
+    lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
+  }));
+  return {
+    id: row.id,
+    displayId: row.display_id,
+    createdAt: row.created_at,
+    paymentStatus: row.payment_status,
+    fulfillmentStatus: row.fulfillment_status,
+    paymentMethod: row.payment_method,
+    paidAt: row.paid_at,
+    subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
+    shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
+    discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
+    total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    shippingMethod: row.shipping_method,
+    shippingAddress: pickShippingAddress(row.shipping_address_snapshot),
+    cancelledAt: row.cancelled_at,
+    cancelledReason: row.cancelled_reason,
+    items,
+    itemCount: items.reduce((sum, i) => sum + i.quantity, 0),
+    itemsTruncated: row.order_items.length >= MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT,
   };
 }

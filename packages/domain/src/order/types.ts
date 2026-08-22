@@ -1498,3 +1498,144 @@ export type PlaceOrderResult = {
   orderId: OrderId;
   displayId: DisplayId;
 };
+
+// ── 會員訂單明細(#240;/account/orders/<displayId>)────────────────────────────
+
+/**
+ * MemberOrderDetailItem: 會員訂單明細的單一品項(#240;order_items 投影)。
+ *
+ * 🔴 **這是唯讀投影,不是 domain `OrderItem`**(`#217` 裁定 D:明細頁走唯讀投影、不重建 domain
+ * `Order`、不碰 `findById`)。與 `AdminOrderDetailItem` 是**姊妹投影而非同一個** ——
+ * 後台那份帶採購/數量三軸/九碼,客人這份一格都不帶。
+ *
+ * 🔴 鐵則 12:`unitPrice` / `lineTotal` = 該單**成交價**(下單當下實際賣價、integer 元位 → Money),
+ * **非**經銷價表。`brand` / `imageUrl` 的 join 穿越 `product_variants` / `products`,而那兩張表帶
+ * `price_store` / `price_by_tier` / `price_general` ⇒ **投影只取 `brands(name)` 與 `images`,不得擴寬**
+ * (實測:那兩張表對 `authenticated` 表層零授權、只逐欄開了不含價格的那些 ——
+ *  詳見 spec `docs/specs/2026-08-19-g1-240-order-detail-plan.md` §⑤-b 的四條限定,
+ *  🔴 **那是【授權層】量測、不是【行為層】,不可只引結論**)。
+ */
+export type MemberOrderDetailItem = {
+  /** 品項 id(order_items.id;僅供 React key,客人面不顯示) */
+  id: string;
+  /** 料號(order_items.variant_sku;凍結快照欄、不受商品下架影響) */
+  variantSku: string;
+  /**
+   * 品牌名。`order_items.variant_id → product_variants → products → brands.name`。
+   *
+   * 🔴 **null 有兩個成因,而顯示端【一律整行不印】**(判準來自 `AdminOrderDetailItem.brand` docstring:
+   *    「缺值本身算不算一個需要被看見的事實」—— 品牌缺值不是異常):
+   *    ① `variant_id` 為 null(手 key 單)或 join 任一層缺;
+   *    ② 🔴 **商品已下架** —— `products_select_public` 的 qual = `delisted_at IS NULL`、
+   *       `product_variants_select_public` 要求母商品未下架 ⇒ **客人端 join 不到已下架的商品**。
+   *       ⚠️ 正式庫 2026-08-23 實查:21,225 件商品中已下架 559 件(2.63%)、最近 30 天 74 件
+   *       ⇒ **下架是持續發生的營運動作,而訂單越舊踩到的機率越高、且不會有任何訊號。**
+   */
+  brand: string | null;
+  /** 品名(product_snapshot.title;缺 → null 防禦)。🔴 **來自凍結快照,商品下架也還在。** */
+  title: string | null;
+  /** 規格 kv(product_snapshot.spec;缺/非物件 → null 防禦)。同樣來自快照、不受下架影響。 */
+  spec: Record<string, string> | null;
+  /**
+   * 商品主圖 URL(變體圖優先、退母商品圖;皆無 → null)。
+   *
+   * 🔴 **與 `brand` 同一條 join ⇒ 同樣會因下架而變 null。** 顯示端**不得留白框以外的破圖**:
+   *    一律交給既有 `ProductImage`(它自帶 onError → 站內佔位圖 → 漸層三層退化)。
+   * ⚠️ 值是**站外 URL**(供應商 / CDN;正式庫實查 `images[0]` 為 string)⇒ 載不到是常態,不是異常。
+   */
+  imageUrl: string | null;
+  /**
+   * 下單當下的車款快照(order_items.vehicle_snapshot;缺/壞形狀 → null)。
+   * 對應 OD 稿每一列的 `.od-line-fits`(適用車款)。
+   * ⚠️ **「稿的 `it.fits` 就是這一欄」是【推的】** —— 形狀吻合(brand/kind/model/year),
+   *    而稿沒有寫出它的資料來源。正式庫 23 筆品項中 14 筆有值。
+   */
+  vehicle: OrderItemVehicleSnapshot | null;
+  quantity: number;
+  /** 成交單價(整數元位;非經銷價表) */
+  unitPrice: Money;
+  /** 小計 = 下單當下 server 算的 line_total(**不重算**) */
+  lineTotal: Money;
+};
+
+/**
+ * MemberOrderDetail: 會員訂單明細讀模型(#240;/account/orders/<displayId>、RLS own-only)。
+ *
+ * 🔴 **網址與查詢鍵是 `displayId`,不是 `orders.id` 那個 UUID**(OD 稿檔頭逐字
+ * 「/account/orders/<displayId>。原型用 ?id= 帶,真站是動態路由段」)。
+ *
+ * 🔴 PII 邊界:**只**攜收件快照(姓名/電話/地址)—— 客人在看自己的單。
+ * **不攜** `customers(name,email,phone)`(他本來就知道、取了只是多一份 PII 在 RSC payload 裡跑)、
+ * **不攜** `tappay_rec_trade_id`(金流識別碼)、`tier_at_checkout`、`order_notes`、
+ * `payment_charge_attempts`、`order_item_procurement`、`workflow_status`、`version`(內部營運欄)。
+ *
+ * 🔴 **件數不得用 `OrderListItem.itemCount`**(見該型別 `itemCountTruncated` 的 docstring:
+ * 「客人看到『3 件』而實際訂了 600 件,他不會知道、也不會回報」)⇒ 本型別的 `itemCount`
+ * 由 mapper 從**實際撈到的** `items[]` reduce Σquantity,並配 `itemsTruncated` 表態。
+ */
+export type MemberOrderDetail = {
+  id: OrderId;
+  displayId: DisplayId;
+  /** 下單時間 ISO 原樣(UI 端格式化;domain 不綁格式) */
+  createdAt: string;
+  paymentStatus: PaymentStatus;
+  fulfillmentStatus: FulfillmentStatus;
+  /**
+   * 付款方式(`orders.payment_method`;**付款成功才有值**,null = 尚無成功請款)。
+   * 對應 OD 稿 Payment 區塊的「付款方式」列。⚠️ 它是**金流事實軸**、非管理軸。
+   */
+  paymentMethod: string | null;
+  /**
+   * 付款成功時間(`orders.paid_at`;未付成 → null)。
+   *
+   * 🔴 **進度軸「付款完成」那一階的日期只能用它,不得拿 `createdAt` 冒充**
+   *    (codex 關卡2 must-fix,2026-08-23):延後付款或重試成功時,下單日與付款日
+   *    可以差好幾天,而**客人沒有第二個來源可以對** —— 他只會相信我們印的那個日期。
+   * ⚠️ 這個 bug 是**從 OD 稿逐字搬過來的**(稿 `order-detail-page.html:172` 逐字
+   *    `{ t: '付款完成', d: paid ? md(order.placedAt) : '', ok: paid }`)
+   *    ⇒ **稿是視覺權威,不是資料正確性的權威。**
+   * ⇒ `null` 時**不印日期**(而那一階仍可依 `paymentStatus` 標記完成)。
+   */
+  paidAt: string | null;
+  subtotal: Money;
+  shippingFee: Money;
+  discountTotal: Money;
+  total: Money;
+  /** 配送方式(orders.shipping_method;現值 home/store) */
+  shippingMethod: string;
+  /**
+   * 收件快照(`orders.shipping_address_snapshot` jsonb `{name,phone,line}`)。
+   *
+   * 🔴 **一律取快照,禁 join `customer_addresses`** —— 理由不是偏好,是那條路**會給錯答案**:
+   *    `orders.address_id` 是 `ON DELETE SET NULL` 且客人可改地址 ⇒ 客人搬家後 join 出來是**新地址**,
+   *    那不是那張單寄去的地方。正式庫 2026-08-23 實查:20 張單 snapshot 非 null 20/20、
+   *    `address_id` 非 null 19/20 ⇒ 那條 join 現在就已經有 1/20 撈不到。
+   * 🔴 三欄皆 `| null` 的理由**不是** DB 可能沒有(DDL CHECK 硬鎖 exact key set `{name,phone,line}`),
+   *    是**投影退版時整個鍵會消失**(同 `AdminOrderDetail.customerUserId` 那段推論)。
+   * ⇒ **顯示端缺值印 `—`,不得不印** —— 收件人那格缺值是異常、要看得出來。
+   */
+  shippingAddress: { name: string | null; phone: string | null; line: string | null };
+  cancelledAt: string | null;
+  /** 取消原因 = **可對客文案**(內部原因在 admin_audit_log,不在此) */
+  cancelledReason: string | null;
+  items: MemberOrderDetailItem[];
+  /** Σ items[].quantity(**從實際撈到的品項算**、非 `OrderListItem.itemCount`) */
+  itemCount: number;
+  /**
+   * 🔴 `items` 觸及請求端上限(`MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT`)⇒ 品項清單**可能不完整**,
+   * 而 `itemCount` 跟著**不可信**。
+   * ⚠️ `true` = 「不知道完不完整」,**不是**「一定被截了」—— 剛好 N 個品項的單也會命中。
+   * 🔴 顯示端**不得印 0、不得留空**;要明說「可能還有沒列出的品項」。
+   *
+   * 🔴🔴 **`false` 不是「完整」的保證 —— 它會【方向性地漏報】**(codex 關卡2,2026-08-23):
+   *    若專案 `db-max-rows` 日後被設到**低於**我們的上限(200),PostgREST 會在那個更低的
+   *    數字上截斷,而**它對內嵌截斷不給任何訊號** ⇒ 回來的筆數 < 200 ⇒ 本旗標算出 `false`
+   *    ⇒ **頁面會把一個不完整的 `itemCount` 當精確數字印出來。**
+   *    ⇒ **不得把 `false` 當成「已驗證完整」**;它只表示「我們自己的上限沒被觸及」。
+   * 📌 **這個殘餘風險【不是本片引入的】** —— `ORDER_ITEMS_EMBED_LIMIT` /
+   *    `ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT` / `ORDER_LIST_ITEMS_EMBED_LIMIT` 三個既有常數
+   *    **逐字帶著同一條**。治本是 `count: 'exact'`,而那要四處一起改、否則只是把歪斜換個位置
+   *    ⇒ **另立條目,不在本片做**(理由與代價寫在這裡,不要讓下一個人以為沒人看到)。
+   */
+  itemsTruncated: boolean;
+};

@@ -15,6 +15,7 @@ import { OrderKeywordSearchShapeError, MAX_ORDER_KEYWORD_LENGTH } from '@pcm/dom
 import {
   SupabaseOrderAdapter,
   ORDER_LIST_SELECT,
+  MEMBER_ORDER_DETAIL_SELECT,
   ADMIN_ORDER_LIST_SELECT,
   ADMIN_ORDER_DETAIL_SELECT,
   ADMIN_ORDER_ID_IN_CAP,
@@ -937,6 +938,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     //    抓到 2 條 = 有一條投影沒被守到)。日後新增投影常數,這條會先紅、逼人來看一眼。
     expect(otherSelects.map(([name]) => name).sort()).toEqual([
       'ADMIN_ORDER_LIST_SELECT',
+      // 🔴 `#240`(2026-08-23)新增的客人面明細投影 —— **它是被本條納管的對象,不是例外**。
+      //    這一行是那道「日後新增投影常數會先紅、逼人來看一眼」的閘攔下我之後補的。
+      'MEMBER_ORDER_DETAIL_SELECT',
       'ORDER_LIST_SELECT',
     ]);
     for (const [name, value] of otherSelects) {
@@ -1007,7 +1011,13 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
         name.includes('SELECT') &&
         typeof value === 'string' &&
         name !== 'ADMIN_ORDER_DETAIL_SELECT' &&
-        name !== 'ORDER_LIST_SELECT',
+        name !== 'ORDER_LIST_SELECT' &&
+        // 🔴 `#240`:客人面明細**排除在本條之外,而理由與 ORDER_LIST_SELECT 同** ——
+        //    本條是【admin 列表可以有那五欄】的 allowlist,不是禁止清單;
+        //    把客人面投影放進來會變成斷言「它必須含那五欄」,而它**恰恰不准有**。
+        //    ⚠️ 排除會造成覆蓋漏洞 ⇒ 那五欄的**禁止**面由
+        //       `MEMBER_ORDER_DETAIL_SELECT 守門` 那個 describe 的 forbidden-token 格接手。
+        name !== 'MEMBER_ORDER_DETAIL_SELECT',
     );
     // 🔴 前提斷言(同 A9a-2):反射真的抓到全部該抓的;抓到 0 條 = 下面迴圈空轉 = 恆真守門。
     expect(adminListSelects.map(([name]) => name).sort()).toEqual(['ADMIN_ORDER_LIST_SELECT']);
@@ -1227,6 +1237,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     // 🔴 前提斷言(同 A9a-2):反射真的抓到全部該抓的;抓到 0 條 = 下面迴圈空轉 = 恆真守門。
     expect(otherSelects.map(([name]) => name).sort()).toEqual([
       'ADMIN_ORDER_LIST_SELECT',
+      // 🔴 `#240`(2026-08-23)新增的客人面明細投影 —— **它是被本條納管的對象,不是例外**。
+      //    這一行是那道「日後新增投影常數會先紅、逼人來看一眼」的閘攔下我之後補的。
+      'MEMBER_ORDER_DETAIL_SELECT',
       'ORDER_LIST_SELECT',
     ]);
     for (const [name, value] of otherSelects) {
@@ -2420,5 +2433,231 @@ describe('Q-EMBED-1 列表內嵌上限與 itemsTruncated', () => {
     });
     const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 });
     expect(res.items[0]?.itemsTruncated).toBe(false);
+  });
+});
+
+// ── findOrderDetailForCustomer:會員訂單明細(`#240`、RLS own-only)──
+// mock 鏈:from('orders').select(SELECT).order(內嵌).limit(內嵌)
+//          .eq('display_id').eq('customer_user_id').neq('payment_status','unpaid').maybeSingle()
+function makeMemberDetailClient(result: { data: unknown; error: unknown }) {
+  const maybeSingle = vi.fn().mockResolvedValue(result);
+  const neq = vi.fn().mockReturnValue({ maybeSingle });
+  const eqCustomer = vi.fn().mockReturnValue({ neq });
+  const eq = vi.fn().mockReturnValue({ eq: eqCustomer });
+  const limit = vi.fn().mockReturnValue({ eq });
+  const embedOrder = vi.fn().mockReturnValue({ limit });
+  const select = vi.fn().mockReturnValue({ order: embedOrder });
+  const from = vi.fn().mockReturnValue({ select });
+  return {
+    client: { from } as unknown as SupabaseClient,
+    from, select, eq, eqCustomer, neq, limit, embedOrder, maybeSingle,
+  };
+}
+
+const MEMBER_DETAIL_ROW = {
+  id: 'o1',
+  display_id: 'PCM-2099-0007',
+  created_at: '2099-04-15T10:00:00Z',
+  payment_status: 'paid',
+  fulfillment_status: 'shipped',
+  payment_method: 'tappay',
+  paid_at: '2099-04-18T03:00:00Z', // 🔴 刻意與 created_at(04-15)【不同日】
+  subtotal: 12000,
+  shipping_fee: 100,
+  discount_total: 0,
+  total: 12100,
+  shipping_method: 'home',
+  shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
+  cancelled_at: null,
+  cancelled_reason: null,
+  order_items: [
+    {
+      id: 'oi1',
+      variant_sku: 'SKU-1',
+      quantity: 2,
+      unit_price: 6000,
+      line_total: 12000,
+      product_snapshot: { title: '下鏈條蓋', sku: 'SKU-1', spec: { color: 'black' } },
+      vehicle_snapshot: { kind: 'dict', brand: 'BMW', model: 'R1250GS', year: 2021, source: 'garage' },
+      product_variants: { images: ['https://x/v.jpg'], products: { images: ['https://x/p.jpg'], brands: { name: 'CNC RACING' } } },
+    },
+  ],
+};
+
+describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_SELECT 守門', () => {
+  it('🔴 鐵則 12:MEMBER_ORDER_DETAIL_SELECT byte-equal 白名單【唯一擋「漏欄／偷偷加欄」的守門,不得弱化成 toContain】', () => {
+    expect(MEMBER_ORDER_DETAIL_SELECT).toBe(
+      'id, display_id, created_at, payment_status, fulfillment_status, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))))',
+    );
+  });
+
+  // 🔴 forbidden-token:本片的 join **穿越** product_variants / products,而那兩張帶三個價格欄
+  //    (`packages/domain/src/order/types.ts:814-819` 逐字)。這一格防的是**未來有人把投影改寬**。
+  //    ⚠️ 它**不是** spec §⑤-b 第 6 條那個「行為層實打」—— 那條是【已知缺口】、現有工具做不完
+  //       (probe 的 `up.sh:153` 會把欄位權限抹平 ⇒ 回假紅)。**兩者不同層,不可互相抵。**
+  it('🔴 forbidden-token:投影字面零 price_store / price_by_tier / price_general / cost / tappay', () => {
+    for (const token of [
+      'price_store', 'price_by_tier', 'price_general', 'cost', 'tappay_rec_trade_id',
+      // 🔴 下面這幾個是**替上面三條既有 leak-guard 接手的那一面**:
+      //    「數量摘要」那條是 admin 列表的 allowlist ⇒ 客人面被排除在它之外
+      //    ⇒ 那五欄的【禁止】面沒有人守 ⇒ 由這裡守。內部營運欄同理。
+      'order_item_quantity_summary', 'order_item_procurement', 'suppliers',
+      'order_cancellations', 'idempotency_key', 'order_notes',
+      'workflow_status', 'tier_at_checkout', 'customers(',
+    ]) {
+      expect(MEMBER_ORDER_DETAIL_SELECT).not.toContain(token);
+    }
+    // 🔴 **負對照:證明這把尺是活的** —— 換一個【確實在字面裡】的 token 必須命中。
+    //    沒有這一格,上面那五個 not.toContain 在「字串是空的」時也會全綠。
+    expect(MEMBER_ORDER_DETAIL_SELECT).toContain('brands(name)');
+    expect(MEMBER_ORDER_DETAIL_SELECT).toContain('shipping_address_snapshot');
+  });
+
+  it('查詢鏈:display_id 為鍵 + 兩層歸屬 + #249 同一道 neq + 內嵌 order/limit 成對', async () => {
+    const { client, from, select, eq, eqCustomer, neq, embedOrder, limit } = makeMemberDetailClient({
+      data: MEMBER_DETAIL_ROW,
+      error: null,
+    });
+    await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(from).toHaveBeenCalledWith('orders');
+    expect(select).toHaveBeenCalledWith(MEMBER_ORDER_DETAIL_SELECT); // 非 inline 字串
+    // 🔴 查詢鍵是 displayId、**不是 orders.id 那個 UUID**(OD 稿定的網址契約)
+    expect(eq).toHaveBeenCalledWith('display_id', 'PCM-2099-0007');
+    expect(eqCustomer).toHaveBeenCalledWith('customer_user_id', 'c1'); // own-only 應用層縱深
+    expect(neq).toHaveBeenCalledWith('payment_status', 'unpaid'); // #249:與清單同一道
+    // 🔴 order 與 limit 成對:沒排序的截斷會讓兩次重新整理拿到不同子集
+    expect(embedOrder).toHaveBeenCalledWith('id', { referencedTable: 'order_items', ascending: true });
+    expect(limit).toHaveBeenCalledWith(200, { referencedTable: 'order_items' });
+  });
+
+  it('row → MemberOrderDetail:金額走 Money、快照防禦解析、圖變體優先、itemCount 從實際品項算', async () => {
+    const { client } = makeMemberDetailClient({ data: MEMBER_DETAIL_ROW, error: null });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res).toEqual({
+      id: 'o1',
+      displayId: 'PCM-2099-0007',
+      createdAt: '2099-04-15T10:00:00Z',
+      paymentStatus: 'paid',
+      fulfillmentStatus: 'shipped',
+      paymentMethod: 'tappay',
+      paidAt: '2099-04-18T03:00:00Z',
+      subtotal: { amount: 12000, currency: 'TWD' },
+      shippingFee: { amount: 100, currency: 'TWD' },
+      discountTotal: { amount: 0, currency: 'TWD' },
+      total: { amount: 12100, currency: 'TWD' },
+      shippingMethod: 'home',
+      shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
+      cancelledAt: null,
+      cancelledReason: null,
+      items: [
+        {
+          id: 'oi1',
+          variantSku: 'SKU-1',
+          brand: 'CNC RACING',
+          title: '下鏈條蓋',
+          spec: { color: 'black' },
+          imageUrl: 'https://x/v.jpg', // 🔴 變體圖優先於母商品圖
+          vehicle: { kind: 'dict', brand: 'BMW', model: 'R1250GS', year: 2021, source: 'garage' },
+          quantity: 2,
+          unitPrice: { amount: 6000, currency: 'TWD' },
+          lineTotal: { amount: 12000, currency: 'TWD' },
+        },
+      ],
+      itemCount: 2, // Σquantity,從**實際撈到的**品項算
+      itemsTruncated: false, // 1 筆 << 上限 200
+    });
+  });
+
+  // 🔴 **商品下架 ⇒ 客人端 join 不到它**(products_select_public qual = delisted_at IS NULL)。
+  //    正式庫 2026-08-23 實查:21,225 件中已下架 559(2.63%)、最近 30 天 74 件
+  //    ⇒ **這不是假設中的邊界,是每天都在發生的營運動作**,而訂單越舊踩到的機率越高。
+  it('🔴 下架商品:embed 為 null ⇒ brand / imageUrl 皆 null,而品名/規格/金額【仍在】(來自凍結快照)', async () => {
+    const delisted = {
+      ...MEMBER_DETAIL_ROW,
+      order_items: [{ ...MEMBER_DETAIL_ROW.order_items[0], product_variants: null }],
+    };
+    const { client } = makeMemberDetailClient({ data: delisted, error: null });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('PCM-2099-0007', 'c1');
+    expect(res!.items[0]!.brand).toBeNull();
+    expect(res!.items[0]!.imageUrl).toBeNull();
+    // 🔴 **反向那半**:那一列不得整個消失 —— 快照欄不受下架影響。
+    expect(res!.items[0]!.title).toBe('下鏈條蓋');
+    expect(res!.items[0]!.spec).toEqual({ color: 'black' });
+    expect(res!.items[0]!.lineTotal).toEqual({ amount: 12000, currency: 'TWD' });
+    expect(res!.itemCount).toBe(2);
+  });
+
+  it('變體無圖 ⇒ 退母商品圖;兩層皆無 ⇒ null', async () => {
+    const noVariantImg = {
+      ...MEMBER_DETAIL_ROW,
+      order_items: [
+        {
+          ...MEMBER_DETAIL_ROW.order_items[0],
+          product_variants: { images: [], products: { images: ['https://x/p.jpg'], brands: null } },
+        },
+      ],
+    };
+    const { client } = makeMemberDetailClient({ data: noVariantImg, error: null });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('d', 'c1');
+    expect(res!.items[0]!.imageUrl).toBe('https://x/p.jpg');
+    expect(res!.items[0]!.brand).toBeNull();
+
+    const noImg = {
+      ...MEMBER_DETAIL_ROW,
+      order_items: [
+        {
+          ...MEMBER_DETAIL_ROW.order_items[0],
+          product_variants: { images: [], products: { images: [], brands: null } },
+        },
+      ],
+    };
+    const c2 = makeMemberDetailClient({ data: noImg, error: null });
+    const res2 = await new SupabaseOrderAdapter(c2.client).findOrderDetailForCustomer('d', 'c1');
+    expect(res2!.items[0]!.imageUrl).toBeNull();
+  });
+
+  it('收件快照壞形狀 ⇒ 三欄各自 null(不炸頁)', async () => {
+    const broken = { ...MEMBER_DETAIL_ROW, shipping_address_snapshot: null };
+    const { client } = makeMemberDetailClient({ data: broken, error: null });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('d', 'c1');
+    expect(res!.shippingAddress).toEqual({ name: null, phone: null, line: null });
+  });
+
+  it('🔴 itemsTruncated:拿回剛好上限筆數 ⇒ true(「不知道完不完整」,不是「一定被截了」)', async () => {
+    const many = {
+      ...MEMBER_DETAIL_ROW,
+      order_items: Array.from({ length: 200 }, (_, i) => ({
+        ...MEMBER_DETAIL_ROW.order_items[0],
+        id: `oi${i}`,
+      })),
+    };
+    const { client } = makeMemberDetailClient({ data: many, error: null });
+    const res = await new SupabaseOrderAdapter(client).findOrderDetailForCustomer('d', 'c1');
+    expect(res!.itemsTruncated).toBe(true);
+    // 🔴 負對照:少一筆就不該亮 —— 沒有這格,`itemsTruncated: true` 可能是恆真。
+    const oneLess = { ...MEMBER_DETAIL_ROW, order_items: many.order_items.slice(0, 199) };
+    const c2 = makeMemberDetailClient({ data: oneLess, error: null });
+    const res2 = await new SupabaseOrderAdapter(c2.client).findOrderDetailForCustomer('d', 'c1');
+    expect(res2!.itemsTruncated).toBe(false);
+  });
+
+  // ⚠️ **名稱照 codex 關卡2 nit 收窄過**:這一格用 mock 預塞 `data:null`,
+  //    它量到的是「**回 null 時 mapper 不炸、caller 拿到 null**」——
+  //    🔴 **它【沒有】量到「非本人被擋住」**:那道擋是 RLS + `.eq('customer_user_id')`,
+  //       而 mock 裡兩者都是假的 ⇒ 在這裡構造「別人的單」只會得到一個同義反覆。
+  //    ⇒ 歸屬那一半由上面「查詢鏈」那格的 `expect(eqCustomer).toHaveBeenCalledWith(...)` 守;
+  //       真正的行為層證據要真 DB,那是 spec §⑤-b 第 8 條(probe 上可驗、待 #240 上線後跑)。
+  it('查無(DB 回 null)→ null,不 throw', async () => {
+    const { client } = makeMemberDetailClient({ data: null, error: null });
+    await expect(
+      new SupabaseOrderAdapter(client).findOrderDetailForCustomer('nope', 'c1'),
+    ).resolves.toBeNull();
+  });
+
+  it('查詢 error → 裸 throw(caller try/catch 退查無畫面、頁面不 500)', async () => {
+    const { client } = makeMemberDetailClient({ data: null, error: new Error('connection refused') });
+    await expect(
+      new SupabaseOrderAdapter(client).findOrderDetailForCustomer('d', 'c1'),
+    ).rejects.toThrow();
   });
 });

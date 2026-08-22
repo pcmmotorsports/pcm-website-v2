@@ -17,6 +17,8 @@ import type {
   AdminOrderWorkflowResult,
   AdminOrderItemAmountPatch,
   AdminOrderItemAmountResult,
+  MemberOrderDetail,
+  DisplayId,
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
@@ -32,6 +34,7 @@ import type { Database, Json } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
   mapSupabaseOrderRowToListItem,
+  mapSupabaseMemberOrderDetailRow,
   mapSupabaseAdminOrderRowToSummary,
   mapSupabaseAdminOrderDetailRowToDetail,
   mapSupabaseOrderItemDetailRow,
@@ -39,10 +42,12 @@ import {
   type CreateOrderRpcResult,
   type SupabaseAdminOrderRow,
   type SupabaseAdminOrderDetailRow,
+  type SupabaseMemberOrderDetailRow,
   type SupabaseOrderItemPrintRow,
   ORDER_ITEMS_EMBED_LIMIT,
   ADMIN_ORDER_LIST_ITEMS_EMBED_LIMIT,
   ORDER_LIST_ITEMS_EMBED_LIMIT,
+  MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT,
   PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
@@ -61,6 +66,34 @@ import {
  */
 export const ORDER_LIST_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, total, order_items(quantity)';
+
+/**
+ * **會員訂單明細**投影白名單(`#240`;/account/orders/<displayId>、RLS own-only)。
+ *
+ * 🔴 鐵則 12:具名白名單、**禁 `select('*')`**;module-level `export const` 讓測試 byte-equal 守門
+ * (比照 `ORDER_LIST_SELECT` 先例)。
+ *
+ * 🔴 **刻意整條各寫一次、不與 admin 那份拼接** —— `ORDER_ITEMS_DETAIL_SELECT` 的 docstring 逐字:
+ *    兩份的收放理由完全不同,拼接會讓「改一份、另一份跟著變」變成沒人預期的連動。
+ *
+ * 比 `ADMIN_ORDER_DETAIL_SELECT` **少掉三類**,三個不同理由:
+ * ① `customers(name,email,phone)` —— 客人在看自己的單,取了只是多一份 PII 在 RSC payload 裡跑;
+ * ② `invoice` / `tappay_rec_trade_id` / `tier_at_checkout` / `order_notes` /
+ *    `payment_charge_attempts` / `order_item_procurement` / `workflow_status` /
+ *    `availability_at_checkout` / `variant_id` / `version` —— 內部營運欄 + 金流識別碼;
+ * ③ 品項的 `order_item_quantity_summary` —— 三軸是後台的營運視角,客人只要「訂了幾件」。
+ *
+ * 🔴 **而 `product_variants(images, products(images, brands(name)))` 這條 join 是【拍板的】**
+ *    (Sean 2026-08-23 `Q-A'` 答乙:忠實照 OD 稿的四層版面 = 圖 / 品牌 / 品名 / 適用)。
+ *    它**穿越** `product_variants` / `products`,而那兩張表帶 `price_store` / `price_by_tier` /
+ *    `price_general` ⇒ **只取 `images` 與 `brands(name)`,不得擴寬**。
+ *    先例:`d2f82be3`(admin 明細加品牌)走過同一條路。
+ *    ⚠️ 證據等級見 spec `docs/specs/2026-08-19-g1-240-order-detail-plan.md` §⑤-b 的四條限定 ——
+ *       正式庫實測那兩張表對 `authenticated` **表層零授權、只逐欄開了不含價格的那些**,
+ *       🔴 **而那是【授權層】量測、不是【行為層】** ⇒ **不可只引結論**。
+ */
+export const MEMBER_ORDER_DETAIL_SELECT =
+  'id, display_id, created_at, payment_status, fulfillment_status, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, cancelled_at, cancelled_reason, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, vehicle_snapshot, product_variants(images, products(images, brands(name))))';
 
 /**
  * admin orders 列表投影白名單(M-4a 訂單線;後台 /orders「每商品一列」列表;service_role 全表)。
@@ -589,6 +622,45 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       throw error;
     }
     return data.map(mapSupabaseOrderRowToListItem);
+  }
+
+  /**
+   * 會員單筆訂單明細(`#240`;/account/orders/<displayId>)。
+   *
+   * - 查詢鍵 **`display_id`**(OD 稿定的網址契約;該欄有 UNIQUE 約束)⇒ `.maybeSingle()`;
+   * - 🔴 **兩層歸屬**:storefront 注 authenticated client ⇒ RLS `orders_select_own` 擋一層;
+   *   顯式 `.eq('customer_user_id', …)` 是應用層縱深 ⇒ **任一層失效另一層仍擋**
+   *   (逐字沿用 `listSummariesByCustomer` 的做法);後者同時是注 service_role 時的唯一歸屬保證。
+   * - 🔴 **`.neq('payment_status','unpaid')` 與清單同一道**(`#249` Sean 2026-07-02 拍 A+甲)——
+   *   不套的話**被藏起來的孤兒單會從詳情頁這個入口漏出來**,讓那個決定在另一個入口失效。
+   *   📌 非安全洞(RLS own-only 仍在),是「兩個畫面對同一批單講不同的話」。
+   *   ⚠️ `#249` 治本那天到了,**這裡與 `listSummariesByCustomer` 兩處要一起拆**。
+   * - 🔴 **內嵌上限 + 排序成對**:不設上限,邊界就握在遠端 `db-max-rows` 手上,而
+   *   **PostgREST 對內嵌截斷不給任何訊號** ⇒ 客人會看到一張少了品項的訂單而不知道。
+   *   `.order()` 沒有跟上的話,兩次重新整理會拿到不同子集。
+   * - 查無 / 非本人 / 被 `#249` 濾掉 → `null`(caller 走 404、**不 throw、不洩存在性**);
+   *   error → 裸 throw(對齊 `placeOrder` / `listSummariesByCustomer` 慣例;caller try/catch)。
+   */
+  async findOrderDetailForCustomer(
+    displayId: DisplayId,
+    customerId: CustomerId,
+  ): Promise<MemberOrderDetail | null> {
+    const { data, error } = await this.supabase
+      .from('orders')
+      .select(MEMBER_ORDER_DETAIL_SELECT)
+      .order('id', { referencedTable: 'order_items', ascending: true })
+      .limit(MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
+      .eq('display_id', displayId)
+      .eq('customer_user_id', customerId)
+      .neq('payment_status', 'unpaid')
+      .maybeSingle();
+    if (error) {
+      throw error;
+    }
+    if (!data) {
+      return null;
+    }
+    return mapSupabaseMemberOrderDetailRow(data as unknown as SupabaseMemberOrderDetailRow);
   }
 
   /**

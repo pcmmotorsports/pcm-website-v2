@@ -79,6 +79,8 @@
 ## 6. 已親驗現況錨點(主對話逐一 grep/read,非引述)
 
 - `apps/storefront/src/components/account/tabs/OrdersTab.tsx:47` —「查看詳情」無 onClick,註解自陳 backlog **#240**
+  - ✅ **2026-08-23 已不成立**:`#240` 已實作, 那顆鈕改成 `<Link>` 指向 `/account/orders/[displayId]`。
+    **原句不刪**(它是當時的觀察);而讀到這裡的人不要再把它當現況。
 - `apps/storefront/src/lib/orders/order-display.ts:35` 檔頭 — `partiallyRefunded` 付款軸壓過出貨軸,自陳屬 **RF6** 範圍
 - `apps/admin/src/components/orders/order-edit-form.tsx` — 全表單僅出貨方式+發票三欄
 - `docs/reference/hct-logistics-api-reference.md:143` — 逆物流件數只能 1

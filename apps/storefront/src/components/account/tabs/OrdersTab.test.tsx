@@ -6,7 +6,7 @@
 // - 標題「訂單記錄」+ acc-section 殼(data-tab="orders")
 // - 多單 props → 渲染 displayId / 日期(YYYY-MM-DD)/ itemCount 件商品 / 金額 NT$ / 狀態中文 + .acc-order-full + 查看詳情鈕
 // - 空陣列 → acc-empty 空狀態
-// - 查看詳情鈕(Q1=A)為 <button>、無導頁(明細頁 backlog #240)
+// - 查看詳情鈕(`#240` 後)為 <a>、href = /account/orders/<displayId>、encodeURIComponent 有守
 // - 反洩 guard:orders={[]} 空渲染不含 design mock 字面(PCM-2026-0042 / NT$ 18,600)= 證元件無 hardcode mock
 //   (真資料合法含 PCM-YYYY-NNNN / 已出貨,故不再 blanket 禁該類字面,改鎖「特定 design mock 值」)
 
@@ -79,15 +79,50 @@ describe('OrdersTab(M-3 真訂單清單)', () => {
     expect(container.querySelector('.acc-empty')).toBeNull();
   });
 
-  it('查看詳情鈕(Q1=A):為 <button>、每單一顆、無 href 導頁(明細頁 backlog #240)', () => {
+  // 🔴 `#240`(2026-08-23):~~原本這一格釘的是「為 <button>、無 href 導頁」~~ ——
+  //    **那個斷言在 `#240` 之後【必須】反過來**,而它反過來是這一片的重點:
+  //    那顆鈕從 2026-06 起就是一顆點下去沒反應的死鈕(design 自己就是死的、我們忠實照搬)。
+  //    ⇒ 保留原句在這裡,是為了讓下一個人看得出**這不是測試壞掉、是行為被刻意改掉的**。
+  it('查看詳情鈕(`#240`):為 <a>、每單一顆、href 指向 /account/orders/<displayId>', () => {
     const { container } = render(<OrdersTab orders={ORDERS} />);
-    const detailBtns = container.querySelectorAll('button.acc-order-detail');
-    expect(detailBtns).toHaveLength(2);
-    const first = detailBtns[0] as HTMLButtonElement;
-    expect(first.tagName).toBe('BUTTON');
+    const detailLinks = container.querySelectorAll('a.acc-order-detail');
+    expect(detailLinks).toHaveLength(2);
+    const first = detailLinks[0] as HTMLAnchorElement;
+    expect(first.tagName).toBe('A');
     expect(first.textContent).toBe('查看詳情 →');
-    // 非 <a>、無 href(button-not-href、對齊 design)
-    expect(container.querySelector('a.acc-order-detail')).toBeNull();
+    // 🔴 網址段是 displayId、**不是 orders.id 那個 UUID**(OD 稿檔頭定的契約)。
+    expect(first.getAttribute('href')).toBe(`/account/orders/${ORDERS[0]!.displayId}`);
+    // 🔴 **反向那半**:死鈕不得復活 —— 沒有任何 <button class="acc-order-detail"> 殘留。
+    expect(container.querySelector('button.acc-order-detail')).toBeNull();
+  });
+
+  // 🔴 displayId 兩種格式並存(6 碼亂碼 / `PCM-YYYY-NNNN`),而它是**使用者可見的識別碼**、
+  //    不保證只有 URL-safe 字元 ⇒ encodeURIComponent 不可省。這一格用一個會被編碼的字面釘住它。
+  //    (負對照:上面那格用的 displayId 不含特殊字元 ⇒ 編不編碼都一樣 ⇒ **那格擋不住這個 bug**。)
+  // ⚠️ **這個 fixture 刻意【不符合】現行兩種 DB 格式**(6 碼亂碼 / `PCM-YYYY-NNNN`)——
+  //    codex 關卡2 nit 指出這點,而**它是刻意的**:合格式的值全是 URL-safe
+  //    ⇒ 拿它當 fixture,`encodeURIComponent` 加不加都一樣 ⇒ **那格會恆綠**。
+  //    這一格守的是「格式日後放寬時不會靜默壞掉」,不是「今天有這種單」。
+  //    🔴 而 codex 另一半說對了:它**只驗產生端**。接收端(路由的二次解碼)那一半
+  //       由 `page.tsx` 拿掉 `decodeURIComponent` 修掉,理由寫在那支檔上。
+  it('查看詳情鈕:displayId 含 URL 特殊字元時走 encodeURIComponent(格式放寬的預防針)', () => {
+    const tricky = [{ ...ORDERS[0]!, id: 'x-1', displayId: 'PCM 2026/0042#a' }];
+    const { container } = render(<OrdersTab orders={tricky} />);
+    const link = container.querySelector('a.acc-order-detail') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/account/orders/PCM%202026%2F0042%23a');
+  });
+
+  // 正對照:**現行兩種真實格式**都要原樣出現在 href 裡(不被過度編碼)。
+  it('查看詳情鈕:兩種現行 displayId 格式(6 碼亂碼 / PCM-YYYY-NNNN)原樣進 href', () => {
+    const real = [
+      { ...ORDERS[0]!, id: 'r1', displayId: 'B3XA91' },
+      { ...ORDERS[0]!, id: 'r2', displayId: 'PCM-2099-0007' },
+    ];
+    const { container } = render(<OrdersTab orders={real} />);
+    const hrefs = Array.from(container.querySelectorAll('a.acc-order-detail')).map((a) =>
+      a.getAttribute('href'),
+    );
+    expect(hrefs).toEqual(['/account/orders/B3XA91', '/account/orders/PCM-2099-0007']);
   });
 
   it('反洩 guard:空渲染不含 design mock 字面(證元件無 hardcode mock 訂單)', () => {

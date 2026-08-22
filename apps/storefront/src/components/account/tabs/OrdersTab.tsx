@@ -8,9 +8,12 @@
 // - 0 筆 → 保留 g-2 business override 空狀態(design 無 orders 空狀態);≥1 筆 → 渲染清單。
 // - 金額走整數 Money(total.amount.toLocaleString());狀態走 orderStatusLabel 雙軸中文;日期 formatOrderDate→YYYY-MM-DD。
 // - 件數 = itemCount(Σquantity、Q4=B);訂單號 = displayId(新單 6 碼亂碼 / 舊單 PCM-YYYY-NNNN,兩者並存)。
-// - 查看詳情鈕(Q1=A):照 design 渲染、**無 onClick**;訂單詳情頁 = backlog #240(另開 slice)。
+// - 查看詳情鈕:(舊:Q1=A 照 design 渲染、無 onClick、詳情頁另開 slice)⇒ **2026-08-23 `#240` 已做**,
+//   改成 `<a href>` 連到 /account/orders/<displayId>(OD 稿 account-page.html:319 的形狀)。
+//   原句保留是因為它記著「design 自己就是一顆死鈕」這個仍然成立的事實。
 // - 絕不搬 design mock 訂單假字面(PCM-2026-0042 / NT$ 18,600 / 已出貨 等);只渲染真 prop。
 
+import Link from 'next/link';
 import type { OrderListItem } from '@pcm/domain';
 import { formatOrderDate, orderStatusLabel } from '@/lib/orders/order-display';
 import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
@@ -70,8 +73,19 @@ export function OrdersTab({ orders }: OrdersTabProps) {
                 <div className="acc-order-status">
                   {orderStatusLabel(o.paymentStatus, o.fulfillmentStatus)}
                 </div>
-                {/* Q1=A:照 design 渲染、無 onClick;訂單詳情頁 backlog #240(另開 slice) */}
-                <button className="acc-order-detail">查看詳情 →</button>
+                {/* 🔴 `#240`(2026-08-23):**這裡原本是一顆沒有 onClick 也沒有 href 的 `<button>`** ——
+                    design-reference `AccountPages.jsx:551` 自己就是一顆死鈕,我們忠實照搬了它。
+                    而 OD 稿 `account-page.html:319` 給的是 `<a href>`:
+                      `<a class="acc-order-detail" href="/account/orders/${encodeURIComponent(o.displayId)}">`
+                    ⇒ 換成連結、網址段用 **displayId 不是 UUID**(OD 稿檔頭定的契約)。
+                    🔴 `encodeURIComponent` 不可省:displayId 兩種格式並存(6 碼亂碼 / `PCM-YYYY-NNNN`),
+                       而**它是使用者可見的識別碼、不保證只有 URL-safe 字元**。 */}
+                <Link
+                  className="acc-order-detail"
+                  href={`/account/orders/${encodeURIComponent(o.displayId)}`}
+                >
+                  查看詳情 →
+                </Link>
               </div>
             </div>
           ))}

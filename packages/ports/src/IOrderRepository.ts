@@ -1,5 +1,6 @@
 import type {
   Money,
+  MemberOrderDetail,
   Order,
   OrderId,
   OrderListItem,
@@ -15,6 +16,7 @@ import type {
   Paginated,
   PaginationParams,
   CustomerId,
+  DisplayId,
   PlaceOrderInput,
   PlaceOrderResult,
 } from '@pcm/domain';
@@ -73,6 +75,31 @@ export interface IOrderRepository {
    * `listByCustomer` 分離,後者維持 deferred(2026-08-18 `#217` 裁定 D ⇒ **刻意不提供**,見 `findById` 的註解)。
    */
   listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]>;
+
+  /**
+   * 會員單筆訂單明細(`#240`;/account/orders/<displayId>、RLS own-only)。
+   *
+   * 回 `MemberOrderDetail` **唯讀投影**(非 domain `Order` 重建 → 繞過 `#217`,同
+   * `listSummariesByCustomer` 與 `AdminOrderDetail` 先例;`findById` deferred stub **不動**)。
+   * 查無 / 非本人 / 已被 `#249` 過濾掉 → `null`(caller 走 404、**不 throw、不洩存在性**)。
+   *
+   * 🔴 **查詢鍵是 `displayId` 不是 `OrderId`** —— 網址契約由 OD 稿定(檔頭逐字
+   *    「/account/orders/<displayId>」)。`displayId` 有 UNIQUE 約束。
+   *
+   * 🔴 **`customerId` 不可省,而它不是「多一層保險」**:storefront 走 authenticated client、
+   *    RLS `orders_select_own` 是一層;顯式 `.eq('customer_user_id', …)` 是應用層縱深 ——
+   *    **任一層失效另一層仍擋**(同 `listSummariesByCustomer` 的既有做法)。
+   *    ⚠️ 而它同時是**注入 service_role client 時的唯一歸屬保證**(RLS 對 BYPASSRLS 不生效)。
+   *
+   * 🔴 **必須套用與清單相同的 `.neq('payment_status','unpaid')`**(`#249` Sean 2026-07-02 拍
+   *    A+甲:顯示層藏放棄付款的孤兒單)。不套的話,**被藏起來的單會從詳情頁這個入口漏出來**
+   *    ⇒ 那會讓 `#249` 的決定在另一個入口失效。📌 這**不是**安全洞(RLS own-only 仍在),
+   *    是「兩個畫面對同一批單講不同的話」。⚠️ `#249` 治本(付成才建單)那天到了,**兩處要一起拆**。
+   */
+  findOrderDetailForCustomer(
+    displayId: DisplayId,
+    customerId: CustomerId,
+  ): Promise<MemberOrderDetail | null>;
   /** 列出某會員訂單(完整 Order)。⚠️ deferred stub、**刻意不提供**(2026-08-18 `#217` 裁定 D,理由見 `findById`);用 `listSummariesByCustomer`。 */
   listByCustomer(customerId: CustomerId): Promise<Order[]>;
   /** admin 訂單列表(雙軸狀態篩選,完整 Order)。⚠️ deferred stub、**刻意不提供**(同 `listByCustomer`,`#217` 裁定 D);後台列表走 `listOrderSummariesForAdmin` 摘要投影。 */

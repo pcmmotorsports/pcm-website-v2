@@ -144,6 +144,8 @@ listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]>;
   - `<AccountView ... orders={orders} />`。
 - `AccountView.tsx`:`AccountViewProps` 加 `orders: OrderListItem[]`(required)、解構、forward 給 `<OrdersTab orders={orders} />` **且**(Q5=A 固定)`<OverviewTab orders={orders} ... />`。
 - `OrdersTab.tsx`:接 `{ orders }: OrdersTabProps`,`orders.length===0` → 保留現有 `.acc-empty` override;否則 `orders.map` 按 design L538-557 字面渲染(`.acc-order.acc-order-full` + 左右欄)。狀態走 `orderStatusLabel(paymentStatus, fulfillmentStatus)`、日期走 `formatOrderDate(createdAt)`、金額 `NT$ {total.amount.toLocaleString()}`、件數 `{itemCount} 件商品`。**Q1=A**:查看詳情鈕照 design 渲染 `<button className="acc-order-detail">查看詳情 →</button>`、**無 onClick**(明細頁 backlog #240)。
+  ✅ **2026-08-23**:`#240` 已實作 ⇒ **那個拍板的「暫時」部分已執行完畢**, 該鈕現為 `<Link>`。
+  **本行的拍板紀錄不改**(改它等於偽造當時的決定);這行只是指路。
 - `OverviewTab.tsx`(**Q5=A 固定、非條件**):「最近訂單」段改 `orders.slice(0,2)` 列表(`.acc-order` 無 `-full`、無詳情鈕,對齊 design L498-517);無單則保留現有空狀態;「Total orders」卡用 `stats.orderCount`(= `orders.length`,與列表同源,天然一致)。新增 `orders` prop forward。
 
 ### 4f. 顯示 util(L1/L2 文案,hardcode + TODO)
