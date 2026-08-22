@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { isDevAuthBypassEnabled } from '@/lib/dev-auth-bypass';
 import { generateRequestId, REQUEST_ID_HEADER } from '@/lib/request-id';
 import { ADMIN_SESS_COOKIE, consumeAlarmSlot, verifySessionDetailed } from '@/lib/session/session';
 
@@ -14,8 +15,9 @@ const SSO_OPEN_PATHS = new Set(['/api/sso/start', '/api/sso/callback']);
 // 🔴 登入閘 fail-closed(Fable/Codex MF3):閘的判斷與 cookie 的 IS_PROD **解耦**。
 //    用正向 dev bypass flag、預設擋:NODE_ENV 漏設/拼錯/staging 時不會靜默略過整個 admin 登入驗證。
 //    dev 本機(無報價單發起端)須顯式設 ADMIN_DEV_BYPASS=1 才放行;prod(NODE_ENV=production)永遠擋、bypass 無效。
-const DEV_AUTH_BYPASS =
-  process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1';
+// 🔴 第三個條件(MAIN-127 ⑤):**DB 非本機 ⇒ bypass 不生效**。判定與理由在
+//    `@/lib/dev-auth-bypass`(runtime-neutral 純函式、有測試);本檔只在 module 載入時定案一次。
+const DEV_AUTH_BYPASS = isDevAuthBypassEnabled(process.env);
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   // 🔴 correlation id **一律 server 新產、絕不沿用 inbound**(Fable diff must-fix 1)。

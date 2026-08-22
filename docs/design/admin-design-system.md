@@ -7,6 +7,13 @@
 > ```
 > 然後開 `http://localhost:3001/orders`。
 >
+> 🔴🔴 **2026-08-23 起,上面那一行在【這棵主樹】跑不起來,而標題那句「不需要任何 `.env` 檔」也不再成立** ——
+> 主樹本來就有一份 `apps/admin/.env.local` 指向正式庫
+> (量法 `test -e apps/admin/.env.local` ⇒ 存在;`grep -c 'bmpnplmnldofgaohnaok' apps/admin/.env.local` ⇒ 1)
+> ⇒ 啟動閘(`apps/admin/next.config.ts:33`)會直接擋下,而且就算擋不到,
+> `ADMIN_DEV_BYPASS` 在遠端 DB 下也不生效(見下方三條件)⇒ **兩條路都到不了畫面。**
+> ✅ **改法:換一棵沒有 `.env*` 的 worktree 跑同一行**(`git worktree list` 找,`ls -a` 確認無 `.env*`)。
+>
 > 🔴🔴 **`-H 127.0.0.1` 是 2026-08-19 加的,不要拿掉**(G2 加;原本這行沒有它):
 > ```
 > next dev 的預設是綁【所有網路介面】，不是 localhost
@@ -26,7 +33,8 @@
 >
 > **為什麼寫在這裡**:這份檔是**每一片後台 UI 都會引用**的檔,而「我想看看畫面長怎樣」
 > **正好發生在讀它的那一刻**。
-> 🔴 **這條路一直都在** —— `apps/admin/src/proxy.ts:16` 的註解逐字寫著它的用途。
+> 🔴 **這條路一直都在** —— `apps/admin/src/proxy.ts` 檔頭的註解逐字寫著它的用途。
+> (~~`:16`~~ 2026-08-23 該檔插入一行 import ⇒ 其後全體 +1;**這裡改指檔名不指行號**,理由同下方 `:40` 那格。)
 > **而我們花了兩輪來回才找到,因為【沒有人會在需要它的那一刻去讀 `proxy.ts`】。**
 > ⇒ **寫對地方、寫清楚了,不等於它會被讀到。**
 >
@@ -37,8 +45,18 @@
 >
 > ⚠️ **SSO 那三顆完全不需要**(`PCM_QUOTE_SSO_BASE` / `PCM_SSO_EXCHANGE_SECRET` / `ADMIN_SESSION_SECRET`)
 > —— bypass 直接跳過登入閘,那條路不會被走到。
-> 🔴 **`ADMIN_DEV_BYPASS` 在 prod 無效**(`proxy.ts:17-18` 同時要求 `NODE_ENV !== 'production'`)
-> ⇒ **開它不會弱化正式站。**
+> 🔴 **`ADMIN_DEV_BYPASS` 在 prod 無效**(~~`proxy.ts:17-18` 同時要求 `NODE_ENV !== 'production'`~~
+> 2026-08-23 更新:判定移到 `apps/admin/src/lib/dev-auth-bypass.ts`,而且從兩條件變**三條件**:
+> non-prod ∧ flag=1 ∧ **DB 指向本機**)⇒ **開它不會弱化正式站。**
+> 🔴 **2026-08-23 起,`.env` 指向遠端/正式庫時 ADMIN_DEV_BYPASS 也不生效**(仍要登入),
+> 且 `next dev` 會被啟動閘直接擋下(`dev-db-guard.ts`;訊息會教你下一步)——
+> 上面「有資料的畫面」那列教的「填 3 顆真值」**若填的是正式庫值,現在會被擋**,
+> 要看真資料照 `docs/runbooks/local-admin-with-real-data-probe.md` 走拋棄式庫那條路。
+> 🔴🔴 **而那道閘的逃生門【只放行連線,不放行免登入】** —— 這一格照做的人一定會撞到:
+> 閘的訊息會教你加 `PCM_ALLOW_PROD_DB_DEV=1` 再跑一次,**你會起得來,然後停在登入牆進不去**。
+> **那是刻意的**(判準是 `kind === 'ok'` 不是 `!== 'blocked'`):
+> 「免登入 + 正式庫」這個組合不該有低摩擦的路。
+> ⇒ 要免登入看畫面 ⇒ 走乾淨 worktree + 本機/拋棄式庫;要看正式庫資料 ⇒ 正常登入。
 > 🔴 **`apps/admin/` 底下沒有 `.env.local`,而 Next 只載入【該 app 自己目錄】的那一份** ——
 > 根目錄與 `apps/storefront/` 各有一份,**admin 從來沒有被建過**。這就是為什麼 dev server 的
 > `- Environments: .env.local` 那行**只有 storefront 有、admin 沒有**。

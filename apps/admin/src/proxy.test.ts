@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 // 🔴 #606:本檔刻意用 `@/` import **原檔**(不是複本)——
 //    plan 1-bis 的探針證的是「複本上會過」;這裡才是「原檔上會過」。
@@ -6,6 +6,8 @@ import { NextRequest } from 'next/server';
 //    vitest.config.ts admin project 的 alias 解析;本檔自己的 `@/` import 同理。
 import { REQUEST_ID_HEADER } from '@/lib/request-id';
 import { ADMIN_SESS_COOKIE, buildAdminSession, signSession } from '@/lib/session/session';
+import { isDevAuthBypassEnabled } from '@/lib/dev-auth-bypass';
+import { DB_KEY_PATTERN } from '@/lib/dev-db-guard';
 import { proxy } from './proxy';
 
 const SECRET = 'test-admin-session-secret-0123456789abcdef';
@@ -25,9 +27,9 @@ describe('proxy 登入閘', () => {
   // 測試環境若外洩 ADMIN_DEV_BYPASS=1,下面「該紅的世界」會整族靜默放行 ⇒ 先擋。
   it('前置:測試環境沒有 dev bypass(否則整個閘不在測)', () => {
     expect(process.env.ADMIN_DEV_BYPASS).not.toBe('1');
-    // DEV_AUTH_BYPASS 是兩條件 AND(proxy.ts:17-18);測試跑在 non-prod ⇒
-    // 本檔測到的只有 non-prod 那半。「prod 永遠擋、bypass 無效」那半在單測裡
-    // 構造不出來(NODE_ENV 在 module 載入時已定)⇒ 明寫前提,不假裝蓋到。
+    // DEV_AUTH_BYPASS 是三條件 AND(non-prod ∧ flag=1 ∧ DB 本機;判定住 @/lib/dev-auth-bypass)。
+    // module 層的 NODE_ENV 在單測構造不出來(載入時已定)⇒ production 語意由檔尾
+    // isDevAuthBypassEnabled 純函式 describe 蓋到,這裡只斷言測試環境是 non-prod。
     expect(process.env.NODE_ENV).not.toBe('production');
   });
 
@@ -81,5 +83,114 @@ describe('proxy 登入閘', () => {
       }),
     );
     expect(res.status).toBe(303);
+  });
+});
+
+// 🔴 MAIN-127 ⑤(Fable R2 nit-6):dev bypass 的第三個條件 —— DB 非本機 ⇒ bypass 不生效。
+//    proxy 跑在 app 層、任何啟動路徑都經過 ⇒ 這一道補掉 next.config 閘接不到的 custom-server 洞
+//    (auth 那一半)。DEV_AUTH_BYPASS 是 module 載入時定案的 const ⇒ 這組用【動態 import】
+//    讓 proxy 在指定 env 下重新載入;獨立字面同 must-fix-5 慣例。
+const PROD_URL_LITERAL = 'https://bmpnplmnldofgaohnaok.supabase.co';
+
+describe('dev bypass 的 DB 本機條件(MAIN-127 ⑤)', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+    vi.resetModules();
+  });
+
+  async function loadProxyWith(env: Record<string, string>): Promise<typeof import('./proxy')> {
+    vi.resetModules();
+    // 逃生門也要清(codex R1 nit):shell 若全域 export =1,「該紅」案會靜默變放行。
+    // key 清單直接用 guard 的 DB_KEY_PATTERN(R2 N-3:兩份復刻會各自漂)。
+    delete process.env.PCM_ALLOW_PROD_DB_DEV;
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined && (DB_KEY_PATTERN.test(k) || v.includes('bmpnplmnldofgaohnaok'))) {
+        delete process.env[k];
+      }
+    }
+    process.env.ADMIN_SESSION_SECRET = SECRET;
+    Object.assign(process.env, env);
+    return import('./proxy');
+  }
+
+  it('該紅:dev + ADMIN_DEV_BYPASS=1 + 正式庫 ref ⇒ bypass 失效,未登入仍導 /api/sso/start', async () => {
+    const mod = await loadProxyWith({
+      ADMIN_DEV_BYPASS: '1',
+      NEXT_PUBLIC_SUPABASE_URL: PROD_URL_LITERAL,
+    });
+    const res = await mod.proxy(new NextRequest('http://localhost:3001/orders'));
+    expect(res.status).toBe(303);
+    expect(new URL(res.headers.get('location') ?? '').pathname).toBe('/api/sso/start');
+  });
+
+  it('該綠:dev + bypass + 本機 DB ⇒ bypass 照舊(證明不是恆關)', async () => {
+    const mod = await loadProxyWith({
+      ADMIN_DEV_BYPASS: '1',
+      NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+    });
+    const res = await mod.proxy(new NextRequest('http://localhost:3001/orders'));
+    expect(res.status).toBe(200);
+  });
+
+  // 🔴 codex R2 must-fix:逃生門只授權【連線】,不授權【免登入】——
+  //    兩個 flag 一起設仍放行,就重建了本片要消滅的「免登入正式站後台」。
+  it('該紅:dev + bypass + 正式庫 ref + 指令列逃生門 ⇒ bypass 仍失效(逃生門不延伸到 auth)', async () => {
+    const mod = await loadProxyWith({
+      ADMIN_DEV_BYPASS: '1',
+      NEXT_PUBLIC_SUPABASE_URL: PROD_URL_LITERAL,
+      PCM_ALLOW_PROD_DB_DEV: '1',
+    });
+    const res = await mod.proxy(new NextRequest('http://localhost:3001/orders'));
+    expect(res.status).toBe(303);
+    expect(new URL(res.headers.get('location') ?? '').pathname).toBe('/api/sso/start');
+  });
+});
+
+// production 那半(MAIN-127 ⑤ 驗收):module 層 NODE_ENV 在單測構造不出來(上面前置斷言明寫),
+// 但判斷已抽成純函式 ⇒ production 語意在這裡測得到:DB 判斷在 production 下【不改變任何結果】。
+describe('isDevAuthBypassEnabled(純函式)', () => {
+  it('production ⇒ 恆 false;DB 本機或正式庫、逃生門開或關,結果都一樣(判斷不生效)', () => {
+    for (const dbUrl of ['http://127.0.0.1:54321', PROD_URL_LITERAL]) {
+      for (const escape of [{}, { PCM_ALLOW_PROD_DB_DEV: '1' }]) {
+        expect(
+          isDevAuthBypassEnabled({
+            NODE_ENV: 'production',
+            ADMIN_DEV_BYPASS: '1',
+            NEXT_PUBLIC_SUPABASE_URL: dbUrl,
+            ...escape,
+          }),
+          `db=${dbUrl}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('dev:無 flag ⇒ false / flag+本機 ⇒ true / flag+正式庫 ⇒ false / flag+正式庫+逃生門 ⇒ 仍 false', () => {
+    const dev = { NODE_ENV: 'development' };
+    expect(isDevAuthBypassEnabled({ ...dev, NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321' })).toBe(false);
+    expect(
+      isDevAuthBypassEnabled({
+        ...dev,
+        ADMIN_DEV_BYPASS: '1',
+        NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+      }),
+    ).toBe(true);
+    expect(
+      isDevAuthBypassEnabled({
+        ...dev,
+        ADMIN_DEV_BYPASS: '1',
+        NEXT_PUBLIC_SUPABASE_URL: PROD_URL_LITERAL,
+      }),
+    ).toBe(false);
+    expect(
+      isDevAuthBypassEnabled({
+        ...dev,
+        ADMIN_DEV_BYPASS: '1',
+        NEXT_PUBLIC_SUPABASE_URL: PROD_URL_LITERAL,
+        PCM_ALLOW_PROD_DB_DEV: '1',
+      }),
+    ).toBe(false);
   });
 });
