@@ -16,6 +16,7 @@
 
 🔻 **2026-08-22 早 · 08-21 及更早的 6 段 🚦 已移入附屬區「🗂️ 最後更新 · 08-21 及更早 6 段」(內容一字未改,只換位置)** —— 主表當時實測 **39 非空行 / 20,265 字元**,兩把尺都超。🔴 **而超線的方向是固定的:每一夜都會往這裡加一段,沒有任何一段會自己離開。**
 ## 最近 3 commit
+> 🔴 **2026-08-22 兩次 push 都是【主視窗執行、Sean 當場逐字批】的,不是繞過 checkpoint** —— `dev` `82b8f6d4 → f02dd65e`(108 顆,Sean 逐字「**108顆要推就推吧,不然我怎麼測試**」)/ 報價單 `main` `7186051 → b68c186`(22 顆,Sean 逐字「**甲 全推**」,而他推完真的登入過、回報「後台登進去了」)。⚠️ **而我推完沒有廣播** ⇒ **四個施工窗各花一輪去查「誰推的」,四次都查不出來** —— 🔴 `git reflog` 只寫 `update by push`、**不記執行者**;全 repo author/committer 都是 `probe` ⇒ `--author=probe` 篩出 108/108,**那不是「都是我的」,是那把尺分不出人**(線E 自陳「差點把它報成一個結論」)。⇒ **那道關卡驗不了自己有沒有被照做**,已立 `#849`;**⇒ 從今起主視窗 push 完當下廣播,而那是紀律不是機制**(忘了不會紅)。
 > dev。🏁 **2026-07-25 Sean 拍板 A:不寫死 hash 與未推數**(寫死的自指數字每多一個 commit 或每次 push 就當場變假、同款前科已 10 次)→ 一律當場執行取得:`git log --oneline -4`(第 1 行=本 commit,其後 3 行=前序)/ `git rev-parse --short origin/dev` / `git rev-list --count origin/dev..HEAD` / `git merge-base --is-ancestor <hash> HEAD`(驗可達、防 busboy off-by-one orphan)。⚠️ `dev` = pcm-admin 的 **production** 分支,push 即部署;`origin/main` 同理不寫死。
 
 ## 下一步
