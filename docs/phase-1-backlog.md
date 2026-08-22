@@ -29282,3 +29282,17 @@ GVRDMH            0.045 秒              🔴 1 小時 43 分                   
   ⇒ 6 命中全屬 `#838`、零命中這一條,才把它逼出來。
   ⇒ **同族:「我會轉」若沒有當場發出去,會跟著 session 消失**(memory `feedback_ship-the-check-with-the-recommendation`)。
 - **相關**:`#849`(push checkpoint 驗不了自己)/ `#838`(traps-inbox 殘餘沒人接)
+
+### #851. 🧭 `#22` 那格「引擎已寫好、零呼叫端」—— 是句子過期還是行號漂移, 兩種分不開
+- **落點**:`docs/specs/2026-08-16-remaining-work-panorama.md:160`
+- 該行寫 `SupabaseProductAdapter.ts:431-466` **引擎已寫好、零呼叫端**;
+  而 2026-08-23 開檔實查 ⇒ **431-466 現在是 `async searchByKeyword`(關鍵字模糊搜尋), 與上下架/定價無關** ⇒ 錨點已漂。
+- **兩種可能, 目前分不開**:
+  ① 句子過期(spec §1-A `#22` 說 `/products/[id]` 已有真上下架表單)
+  ② 只是行號跑掉、句子仍成立
+- 🔴 **試過的方法名回 0, 而那個 0 不當結論**(可能只是猜錯名字):
+  數法 `git grep -ln 'updateListingState|setListingState|delistProduct|relistProduct' -- apps packages` ⇒ **0 檔**
+- **下一步**:從 `apps/admin/src/app/products/[id]/page.tsx` 往下追真正的呼叫鏈, 再回頭判那一句。
+- **不修未來會痛在哪**:那一格會讓人以為「上下架還沒接上」, 而 spec §1-A `#22` 說它已經是【做了】等級
+  ⇒ 🔴 **兩份文件互相打架, 而沒人對過** —— 而估工的人通常只讀到其中一份。
+- **相關**:`#850`(收割側沒有機械點)
