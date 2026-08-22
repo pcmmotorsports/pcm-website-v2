@@ -389,9 +389,9 @@ commit c6a7b896  無商品圖佔位圖換成 PCM 版 —— 原本那張是 favi
 ### B-4 🔴 CSS 讀完之後,「沒有圖那一列」的成本算式**反過來了**
 
 ```css
-.od-line     { grid-template-columns: 84px minmax(0,1fr) auto; }   /* pcm-account.css:1321 */
-.od-line-img { width:84px; aspect-ratio:1/1; background:#fff; border:1px solid …; } /* :1328 */
-手機版 :1400  .od-line { grid-template-columns: 64px minmax(0,1fr); }
+.od-line     { grid-template-columns: 84px minmax(0,1fr) auto; }   /* pcm-account.css:1322 */
+.od-line-img { width:84px; aspect-ratio:1/1; background:#fff; border:1px solid …; } /* :1329 */
+手機版 :1401  .od-line { grid-template-columns: 64px minmax(0,1fr); }
 ```
 **圖片欄是一條寫死的 grid 軌道,不是靠圖片撐出來的。** ⇒ 附錄 A-4 那三個候選的成本欄要照這個讀:
 
@@ -402,11 +402,49 @@ commit c6a7b896  無商品圖佔位圖換成 PCM 版 —— 原本那張是 favi
                  ⇒ 要加 modifier 改 `grid-template-columns`, **而且手機版斷點要再改一次**
 丙 兩種成因分開  = 乙 + 甲 各做一次
 ```
+⚠️ **上面三個行號 2026-08-23 更正過(原本各差 1)** —— 成因:來源窗用
+`sed -n 'X,Yp' <檔> | grep -n …` 取行號,而**管線後面的 `grep -n` 數的是那段擷取、不是整支檔**,
+印出來的形狀(數字+冒號+內容)與絕對行號**一模一樣**。⇒ **要行號就 `grep -n` 直接打檔案。**
+(內容從頭到尾沒錯,錯的只有座標;主視窗當場 `grep -n` 複驗。)
+
 🔴 **原本寫「甲最省」是錯的** —— 依 CSS **乙最省(零改動),甲要動兩處斷點**。
 ⚠️ 而「乙零成本」是**讀 CSS 推的**,不是畫面上看到的 ⇒ 要變成量到的,得真的渲染一列沒有 `img` 的 `.od-line`。
 🔴 **端那三個候選給 Sean / 線A 時,成本欄要用這一版** —— 否則他用錯的價格挑。
 
-### B-5 一格實作時要補的決定
+### B-5 ✅ 狀態徽章對照表 —— **稿已經給了**(`order-detail-page.html:150-156`)
 
-`.od-status` 有三檔(`is-action` / `is-progress` / `is-done`),與訂單記錄同一套,
-而**稿沒有給「`orderStatusLabel()` 五個字面各配哪一檔」的對照表** ⇒ 實作時要補。
+> 🔴 **這一節 2026-08-23 整段推翻重寫。** 原文寫「稿沒有給對照表 ⇒ 實作時要補一格決定」——
+> **那句是假的。** 成因:來源窗讀 `pcm-account.css` 看到 `.od-status` 三檔的定義,就下了
+> 「稿沒給對照」的結論,**而那張表在 HTML 裡**(它三小時前才整份讀過那支 HTML)。
+> ⇒ 形狀 = **在 A 檔查無 ⇒ 宣稱不存在,而分母是兩支檔。**
+> (主視窗當場 `grep -n "tone:" <html>` 複驗 ⇒ **七行全在**。)
+
+| `payment_status` | 真站字面(`orderStatusLabel()`) | 稿給的 tone | 說明 |
+|---|---|---|---|
+| `refunded`          | 已退款   | `is-done`     | 一致 |
+| `partiallyRefunded` | 已退部分 | `is-done`     | 一致 |
+| `unpaid`            | 待付款   | `is-action`   | 一致 |
+| `partiallyPaid`     | **已收訂金** | `is-action` | 🔴 稿上的 **label** 是「付款確認中」= 過期(見附錄 A-3);**tone 照用** |
+| `paid`              | 處理中   | `is-progress` | 稿的 fallback 分支(`:156`) |
+
+🔴 **兩個限定:**
+① **label 一律呼叫 `orderStatusLabel()`,tone 才照這張表** —— 稿的 label 有一格過期
+   (Sean 2026-08-18 拍 Q06=甲,「付款確認中」改成「已收訂金」,而稿是 08-07 的)。
+② 稿另有兩行 `已出貨`(`is-progress`)/ `已送達`(`is-done`)吃 `order.shipStage`,
+   而那需要**第 2 批「包裹真相」**;`orderStatusLabel()` 現在**完全不讀出貨軸**
+   (`paid` 一律固定「處理中」)⇒ **第 1 批那兩檔永遠不會出現,不要為它們寫分支。**
+
+⇒ **映射是滿的 —— 這一格不需要任何新決定。**
+⚠️ **未核**:真站訂單列表 `.acc-order-status` 實際怎麼配。稿說兩者同一套,而**只驗了稿那一半**。
+
+---
+
+## 附錄 C · 🔴 `#240` **沒有**「存量單要不要修」那個問題
+
+`#240` 是**唯讀投影,每次開頁都重算** ⇒ **沒有任何被寫死、需要回填的既有列。**
+⇒ **不要為 `#240` 排任何回填 / 補寫 migration。**
+
+📌 **寫下理由而不只寫結論**,因為只寫結論的話下一個人還是會再問一次:
+對照組是退款線 —— Fable R2 在那條線抓到「存量單沒有人修」、Sean 2026-08-23 拍**甲(要修)**,
+而那是因為**退款線有寫入的歷史資料**(`orders.payment_status` 是被 UPDATE 進去的持久值)。
+**唯讀投影沒有歷史,只有現在。** 兩條線的差別在這裡,不在誰比較仔細。
