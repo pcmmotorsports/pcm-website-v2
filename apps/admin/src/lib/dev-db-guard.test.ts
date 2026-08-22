@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } from 'next/constants';
+import nextConfig from '../../next.config';
 import {
   PCM_PROD_PROJECT_REF,
   PROD_DB_BYPASS_ENV,
@@ -10,50 +12,133 @@ import {
 //    只驗「指向正式庫會擋」= 只證明它會擋,沒證明它不是【恆擋】——
 //    一個恆擋的閘會讓所有人在所有工作樹上都跑不起來,而它在稽核裡長得跟「有效」一樣。
 
-const PROD_URL = `https://${PCM_PROD_PROJECT_REF}.supabase.co`;
+// 🔴 **這個字面刻意【重打一次】,不從 PCM_PROD_PROJECT_REF 組**(codex R1 must-fix-5):
+//    原本寫 `https://${PCM_PROD_PROJECT_REF}.supabase.co` ⇒ 常數被改壞時測資跟著壞成同一個錯值
+//    ⇒ **10 案照樣全綠,而正式庫判定已經安靜失效。** 兩份獨立字面才擋得住。
+const PROD_REF_LITERAL = 'bmpnplmnldofgaohnaok';
+const PROD_URL = 'https://bmpnplmnldofgaohnaok.supabase.co';
 const LOCAL_URL = 'http://127.0.0.1:54321';
 
+describe('PCM_PROD_PROJECT_REF', () => {
+  it('常數本身要等於那個字面(改壞常數 ⇒ 這一案紅)', () => {
+    expect(PCM_PROD_PROJECT_REF).toBe(PROD_REF_LITERAL);
+  });
+});
+
 describe('checkProdDbInDev', () => {
-  it('該紅的:任何一個 env 值含正式庫 ref ⇒ blocked,並指名是哪一個 key', () => {
+  it('該紅:值含正式庫 ref ⇒ blocked,理由 prod-ref', () => {
     const v = checkProdDbInDev({ NEXT_PUBLIC_SUPABASE_URL: PROD_URL });
-    expect(v).toEqual({ kind: 'blocked', matchedKey: 'NEXT_PUBLIC_SUPABASE_URL' });
+    expect(v).toEqual({
+      kind: 'blocked',
+      bypassRefused: false,
+      matches: [{ key: 'NEXT_PUBLIC_SUPABASE_URL', reason: 'prod-ref' }],
+    });
   });
 
-  it('🔴 該綠的:指向拋棄式 PG ⇒ ok(證明它不是恆擋)', () => {
+  // 🔴 R1 must-fix-1:只比對 ref 是 fail-open —— 正式庫換自訂網域就靜靜放行。
+  it('該紅:DB 類變數指向【非本機】主機(不含 ref)⇒ 仍然 blocked,理由 remote-db', () => {
+    const v = checkProdDbInDev({ SUPABASE_URL: 'https://db.pcmmotorsports.com' });
+    expect(v).toEqual({
+      kind: 'blocked',
+      bypassRefused: false,
+      matches: [{ key: 'SUPABASE_URL', reason: 'remote-db' }],
+    });
+  });
+
+  it('🔴 該綠:指向拋棄式 PG ⇒ ok(證明它不是恆擋)', () => {
     expect(checkProdDbInDev({ NEXT_PUBLIC_SUPABASE_URL: LOCAL_URL })).toEqual({ kind: 'ok' });
   });
 
-  it('空 env ⇒ ok', () => {
-    expect(checkProdDbInDev({})).toEqual({ kind: 'ok' });
-  });
-
-  // 🔴 具名清單會漂:明天有人加一支沒人想到的變數名,閘不可以安靜回綠。
-  it('ref 出現在【任何】變數名底下都要抓到,不只是那幾支具名的', () => {
-    const v = checkProdDbInDev({ SOME_FUTURE_DB_URL: `postgres://${PCM_PROD_PROJECT_REF}.x/db` });
-    expect(v).toEqual({ kind: 'blocked', matchedKey: 'SOME_FUTURE_DB_URL' });
-  });
-
-  it('逃生門 =1 ⇒ bypassed(放行),而仍然指名 key', () => {
-    const v = checkProdDbInDev({
-      NEXT_PUBLIC_SUPABASE_URL: PROD_URL,
-      [PROD_DB_BYPASS_ENV]: '1',
+  it('🔴 該綠:非 DB 類的遠端網址不算(否則正常 dev 會被莫名其妙擋住)', () => {
+    expect(checkProdDbInDev({ NEXT_PUBLIC_SITE_URL: 'https://shop.pcmmotorsports.com' })).toEqual({
+      kind: 'ok',
     });
-    expect(v).toEqual({ kind: 'bypassed', matchedKey: 'NEXT_PUBLIC_SUPABASE_URL' });
   });
 
-  // 🔴 逃生門只認 '1'。'true' / 'yes' / '0' 都不放行 —— 否則「我以為我關掉了」會變成一個沉默的開著。
+  it('空 env / 空字串 ⇒ ok', () => {
+    expect(checkProdDbInDev({})).toEqual({ kind: 'ok' });
+    expect(checkProdDbInDev({ SUPABASE_URL: '' })).toEqual({ kind: 'ok' });
+  });
+
+  it('ref 出現在【任何】變數名底下都要抓到,不只是 DB 類具名的那幾支', () => {
+    const v = checkProdDbInDev({ SOME_FUTURE_THING: `postgres://${PROD_REF_LITERAL}.x/db` });
+    expect(v.kind).toBe('blocked');
+  });
+
+  // 🔴 R1 nit:多個命中時只回報第一個 ⇒ 可能指到無關的變數,真正的設定沒被列出來。
+  it('多個命中 ⇒ 全部列出,不是只列第一個', () => {
+    const v = checkProdDbInDev({ A_SUPABASE_URL: PROD_URL, B_DATABASE_URL: 'https://x.example.com' });
+    expect(v.kind).toBe('blocked');
+    if (v.kind !== 'blocked') return;
+    expect(v.matches.map((m) => m.key).sort()).toEqual(['A_SUPABASE_URL', 'B_DATABASE_URL']);
+  });
+
+  it('逃生門 =1 ⇒ bypassed(放行),而仍然列出命中的 key', () => {
+    const v = checkProdDbInDev({ NEXT_PUBLIC_SUPABASE_URL: PROD_URL, [PROD_DB_BYPASS_ENV]: '1' });
+    expect(v).toEqual({
+      kind: 'bypassed',
+      matches: [{ key: 'NEXT_PUBLIC_SUPABASE_URL', reason: 'prod-ref' }],
+    });
+  });
+
+  // 🔴 逃生門只認 '1'。'true'/'yes'/'0' 都不放行 —— 否則「我以為我關掉了」變成沉默的開著。
   it.each(['true', 'yes', '0', ''])('逃生門 =%s ⇒ 仍然 blocked', (value) => {
     const v = checkProdDbInDev({ NEXT_PUBLIC_SUPABASE_URL: PROD_URL, [PROD_DB_BYPASS_ENV]: value });
     expect(v.kind).toBe('blocked');
   });
+
+  // 🔴 R1 must-fix-3:逃生門寫進 .env 檔 = 下一個人不知情地繼承一個永久放行。
+  it('逃生門 =1 但來自 .env 檔 ⇒ 拒絕放行,且標明 bypassRefused', () => {
+    const v = checkProdDbInDev(
+      { NEXT_PUBLIC_SUPABASE_URL: PROD_URL, [PROD_DB_BYPASS_ENV]: '1' },
+      { bypassFromEnvFile: true },
+    );
+    expect(v).toEqual({
+      kind: 'blocked',
+      bypassRefused: true,
+      matches: [{ key: 'NEXT_PUBLIC_SUPABASE_URL', reason: 'prod-ref' }],
+    });
+  });
 });
 
 describe('describeProdDbInDev', () => {
-  it('訊息要講出【是哪個變數】與【下一步做什麼】,不只說不行', () => {
-    const msg = describeProdDbInDev('NEXT_PUBLIC_SUPABASE_URL');
+  it('訊息要列出【每一個】命中的變數與【下一步做什麼】', () => {
+    const msg = describeProdDbInDev(
+      [
+        { key: 'NEXT_PUBLIC_SUPABASE_URL', reason: 'prod-ref' },
+        { key: 'DATABASE_URL', reason: 'remote-db' },
+      ],
+      false,
+    );
     expect(msg).toContain('NEXT_PUBLIC_SUPABASE_URL');
+    expect(msg).toContain('DATABASE_URL');
     expect(msg).toContain(PCM_PROD_PROJECT_REF);
-    expect(msg).toContain('/private/tmp/pcm-refund-4c');
     expect(msg).toContain(PROD_DB_BYPASS_ENV);
+  });
+
+  it('bypassRefused ⇒ 訊息要講清楚為什麼那個 =1 沒有生效', () => {
+    const msg = describeProdDbInDev([{ key: 'SUPABASE_URL', reason: 'prod-ref' }], true);
+    expect(msg).toContain('.env');
+    expect(msg).toContain('不放行');
+  });
+});
+
+// 🔴🔴 **接線測試(codex R1 must-fix-4)** —— 上面那些全綠,而把 `next.config.ts` 裡那三行
+//    guard 呼叫整段刪掉,它們【一案都不會紅】。⇒ 測到的是判定,不是那道閘真的裝在路上。
+describe('next.config 真的呼叫了那道閘', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  });
+
+  it('dev server phase + 正式庫 ref ⇒ next.config 本身要 throw', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = PROD_URL;
+    expect(() => nextConfig(PHASE_DEVELOPMENT_SERVER)).toThrowError(/next dev 已停止/);
+  });
+
+  it('🔴 build phase + 同一組 env ⇒ 不得 throw(Vercel / next build 不能被擋掉)', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = PROD_URL;
+    expect(() => nextConfig(PHASE_PRODUCTION_BUILD)).not.toThrow();
   });
 });
