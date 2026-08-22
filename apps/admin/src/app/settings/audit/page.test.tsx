@@ -174,6 +174,65 @@ describe('D1c-2a:接線那一跳(顯示層算得對 ≠ 頁面真的用了它)',
   });
 });
 
+describe('🔴🔴 「操作人」未經驗證的警語(釘字面 + 三種狀態都要在)', () => {
+  // 🔴 **這一格擋的是「一份沉默的稽核」**:四欄、有時間有對象、排版像帳本,
+  //    而 `staff.ts:4-5` 逐字「操作者仍是**使用者自行選擇**…沒有驗證『目前使用者是誰』」
+  //    ⇒ 那一欄印的是**他自己說他是誰**。不寫出來的話,畫面看起來完全正常,
+  //    而讀的人會拿它當「誰做的」的憑據。
+  //
+  // 🔴 **釘的是【字面】不是【關鍵字】** —— 因為這句話被改軟(「未經驗證」→「僅供參考」)
+  //    之後**畫面看起來一模一樣**,沒有任何別的東西會紅。
+  //    ⇒ 突變兩個方向都要紅:**整句拿掉** 紅、**改成別的字** 也紅。
+  //    只斷言「有沒有出現『操作人』三個字」擋不住第二種(那三個字本來就是欄標題)。
+  //
+  // ⚠️ 空白正規化:JSX 把跨行文字接成單一空白,而**空白是排版不是內容** ⇒ 兩邊都抽掉再比。
+  const COPY =
+    '「操作人」是操作的人自己在畫面上選的,系統還沒有驗證他是誰 —— 這個名字未經驗證。' +
+    '這裡的紀錄可以當線索,不能當「誰做的」的唯一憑據。要讓它可信,請通知系統維護接上個人帳號登入。';
+  const strip = (text: string) => text.replace(/\s+/g, '');
+
+  beforeEach(() => {
+    vi.stubEnv('AUDIT_UI_ENABLED', '1');
+  });
+
+  it('🔴 有資料 ⇒ 警語逐字出現', async () => {
+    listRecent.mockResolvedValue([LOG_ROW]);
+    const { container } = render(await AuditLogPage());
+    expect(strip(container.textContent ?? '')).toContain(strip(COPY));
+  });
+
+  it('🔴 沒有資料 ⇒ 警語仍逐字出現(空的那天不得悄悄變成沒有但書的稽核)', async () => {
+    // 這句講的是**這一頁的資料是什麼**,不是「這次有沒有撈到」。
+    // 同形狀既有前例:`app/products/[id]/page.test.tsx:353`「空的時候警語仍要在…三段都要在」。
+    listRecent.mockResolvedValue([]);
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    // 前提斷言:先證明我真的在看空狀態那條路,否則這格會在「其實有資料」時假綠。
+    expect(text, '前提:這格量的是空狀態').toContain('目前沒有操作紀錄');
+    expect(strip(text)).toContain(strip(COPY));
+  });
+
+  it('🔴 讀取失敗 ⇒ 警語仍逐字出現', async () => {
+    listRecent.mockRejectedValue(new Error('42501 permission denied'));
+    const { container } = render(await AuditLogPage());
+    const text = container.textContent ?? '';
+    expect(text, '前提:這格量的是失敗狀態').toContain('載入失敗');
+    expect(strip(text)).toContain(strip(COPY));
+  });
+
+  it('🔴 警語是**可見文字**,不是 title / aria-label', async () => {
+    // `title` 由 OS 畫、不進 paint tree ⇒ 截圖與 DOM 都抓不到(`item-name-cell.tsx` 檔頭)。
+    // 這格擋的是有人為了版面把這句搬進屬性裡 —— 搬完之後上面三格會紅,
+    // 而**若有人改用 `title` 又同時放一份可見文字**,這格保證那份可見的才是被量到的那份。
+    listRecent.mockResolvedValue([LOG_ROW]);
+    const { container } = render(await AuditLogPage());
+    const visible = Array.from(container.querySelectorAll('p'))
+      .map((el) => strip(el.textContent ?? ''))
+      .filter((t) => t.includes(strip('這個名字未經驗證')));
+    expect(visible).toHaveLength(1);
+  });
+});
+
 describe('D1c-2a:一次抓幾筆是頁面層的決定', () => {
   it('🔴 頁面把 50 傳給 listRecent(不是讓 adapter 自己決定)', async () => {
     // `AuditLogReader.listRecent(limit)` **刻意沒有預設值**(`lib/audit/repository.ts:73-75`:
