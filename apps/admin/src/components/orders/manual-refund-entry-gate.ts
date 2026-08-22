@@ -71,6 +71,21 @@ import type { PaymentListData } from './payment-list';
  *     · 顯示   `manual-refund-read.ts` 已投影 `voided_at/void_reason/voided_by`,
  *              帳本會把已作廢的列打刪除線(不移除 —— 帳本記的是發生過的事)
  *   ⇒ **只差 GRANT 被 apply。** 那一刻到了,上面三條就全成立。
+ *
+ * 🔴🔴 **中間態(GRANT 未 apply、封印仍 true)有一條【不需要任何人解除封印】的路徑**
+ *   (Fable R2 總評點名,2026-08-22;本段是它在 repo 裡的落點,不要只留在交件信裡):
+ *   ```
+ *   前提:order_manual_refunds 今天 0 列（2026-08-22 唯讀實測）
+ *        ⇒ 帳本沒有列 ⇒ 作廢鈕長不出來 ⇒ 這條路今天是空的
+ *   而唯一的入場方式是:有人直接在 SQL Editor INSERT 一列進 order_manual_refunds
+ *        ⇒ 帳本就有列 ⇒ 作廢鈕就會渲染出來（ledger 不吃這個封印，它吃的是「有沒有列」）
+ *        ⇒ 作廢成功 ⇒ pcm_order_refundable_remaining 把那筆金額【加回】可退餘額
+ *        ⇒ 而登記入口還封著 ⇒ 🔴 那筆帳【在 app 裡沒有任何人修得回來】
+ *   ```
+ *   ⚠️ **限定(不要讀成「隨時會自己發生」)**:那一列要**格式合法**才進得去 ——
+ *     `request_id` 必填、`rail` 要在 CHECK 的 `('bank_transfer','cash')` 內、`refund_amount > 0`
+ *     (`20260820010000` 建表)。**它需要一個刻意的動作,不是隨手一句 INSERT。**
+ *   ⇒ 處置:GRANT apply 之前**不要用 SQL Editor 手動塞這張表**;真要塞,連同解除封印一起做完。
  */
 /** 見上方函式註解:#787 解除前這裡恆 true。寫成具名常數(不是行內 `true` 字面),
  *  是為了不讓下面保留的真實判斷邏輯被 lint 的 no-unreachable 當死碼砍掉。
