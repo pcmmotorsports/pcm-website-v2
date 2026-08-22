@@ -29328,3 +29328,32 @@ GVRDMH            0.045 秒              🔴 1 小時 43 分                   
   ⇒ 它不會紅、不會 404、不會對不上帳;它只會在別人依那個綠去做決定時才發作。
   而今晚三次裡有一次(`node --check`)差點讓一批對外文案帶著被截斷的規則跑掉。
 - **相關**:`CLAUDE.md:101`(原規則) / `#849`(閘驗不了自己有沒有被照做) / `#851`
+
+### #853. 🔴 `storefront-probe` 的整表 GRANT 蓋掉 migrations 的欄位級授權 ⇒ 欄位級權限題問不出來
+
+- **病灶(順序,不是那一行本身)**:`scripts/storefront-probe/up.sh` `:139-143` 先套所有 migrations
+  (含正式站的 REVOKE + 欄位級 GRANT),而 `:153`
+  `GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated;` **跑在那之後、把前面抹平**。
+- **規模(2026-08-23 當場實數,附負對照)**:
+  ```
+  grep -ln "GRANT SELECT[[:space:]]*(" supabase/migrations/*.sql | wc -l          ⇒ 14
+  grep -lE "REVOKE.*FROM.*(anon|authenticated)" supabase/migrations/*.sql | wc -l ⇒ 99
+  負對照 grep -ln "GRANT ZZZNOTREAL" supabase/migrations/*.sql | wc -l            ⇒ 0
+  ```
+  ⇒ 正式站防線 = RLS(列)+ GRANT/REVOKE(表與欄)**兩層**;這支鑽機 = RLS **一層**。
+- 🔴 **不修未來會痛在**:它給的是**假紅**,而那個假紅**乾淨、可重跑、有分母**。
+  2026-08-23 差一步就發生的事:`#240` 要驗「客人端 join 過去會不會帶出經銷價」⇒ 在鑽機上打會撈到
+  `price_store` ⇒ 依驗收條件要回報「這條路走不通」⇒ **Sean 會推翻自己兩小時前的拍板**,
+  而真相是鑽機自己 `:153` 開的門。**擋住它的是線2 起 probe 之前先讀了腳本 —— 那是運氣,不是機制。**
+  ⚠️ 而它**影響的不只 `#240`**:任何窗用這支 probe 問「客人看不看得到 X 欄」,答案都偏寬。
+- **修法方向(而它有一個必須先查的前置)**:①在 `:155` 之後把那 14 支欄位級 GRANT 的 migration 重跑一次,
+  或②把 `:153` 收窄成只給實際需要的那幾張表。
+  🔴 **前置:`:153` 當初為什麼在那裡【沒有人查過】** —— 可能有表沒寫 GRANT、直接拿掉會讓 probe 起不來。
+  **先查來由,再改。**
+- ⚠️ **`up.sh` 是六個窗共用的工具** ⇒ 改壞了會安靜地影響別人 ⇒ **不要擠在任何一條施工線上順手做**,
+  要獨立一片、配「該紅的一發真的紅」的驗收(改前後各打一次同一個欄位級查詢,兩次要不同)。
+- **暫時的繞法(已寫進 runbook §12)**:欄位級權限題一律走正式庫 `pg_catalog` 唯讀量測;
+  🔴 不要用 `information_schema`(對零權限帳號系統性回 0,見 memory `MEMORY-supabase.md`)。
+- **相關**:`docs/runbooks/local-admin-with-real-data-probe.md` §12(全文)/ §10(同一母題的另一面)/
+  `docs/specs/2026-08-19-g1-240-order-detail-plan.md` §⑤-b 限定 ④ /
+  `up.sh:27` 檔頭那句自陳「證不了正式站的權限設定」——**寫對了,而它沒說「所以哪幾種問題會拿到假答案」**。

@@ -3,15 +3,28 @@
 > 作者:G1 · 2026-08-19 · 🔴 **狀態:尚未批准,一行 code 未動。**
 > 主視窗指示:**第一步驗 `#217` 那個 `✅` 是不是真的**(G6 自陳只讀了狀態欄字面)。
 
-## ⓪ 🔴 第 0 步(GR-066 MF-3):**先把 OD 那 306 行整份讀完,欄位清單落成本 plan 的附錄**
+## ⓪ ✅ 已完成(線2,2026-08-23):OD 那份稿整份讀完,欄位清單見附錄 A
+
+原文要求:「先把 OD 那 306 行整份讀完,欄位清單落成本 plan 的附錄」(GR-066 MF-3)。
+
+**已完成。** 實測 `wc -l` ⇒ **305 行**(原文寫 306,差一行,不影響任何結論)。
+檔案(🔴 **用絕對路徑,因為 OD 工具現在查不到它**):
 
 ```
-現況:我只讀了檔頭 55 行 + 兩處搜尋命中 ⇒ **§⑤-1 白名單的分母是「還沒讀的 251 行」**
-檔頭給的是【結構契約】(共用 .acc-main、資料同源、網址契約)；
-而【內容契約】—— 地址 / 物流 / 狀態時間軸 / 發票欄 —— 全在後面那 251 行裡
-⇒ 🔴 OD 若畫了它們，**白名單、洩漏面、估時三個全部要重算**
+/Users/sean_1/Library/Application Support/Open Design/
+  namespaces/release-stable/data/projects/pcm-home-redesign/order-detail-page.html
 ```
-⇒ **實作的第一步不是寫 code,是把那 306 行的欄位清單抄成附錄**;§⑤-1 的白名單**以那份附錄為分母**。
+
+🔴 **OD 的 `list_projects` 回空陣列,而磁碟上有 11 個專案**(2026-08-23 線2 實測、主視窗複驗:
+`mcp__open-design__list_projects()` ⇒ `{"projects": []}` / `ls "<上面那個 projects 目錄>" | wc -l` ⇒ `11`)
+⇒ **從此鐵則 1 查 OD 真權威一律直接讀磁碟,不要只信 `list_projects`。**
+`#240` 的稿因此被兩個窗各判過一次「查無」,而它 2026-08-07 就在那裡。
+📌 三個 `pcm-home-redesign*` 專案裡**只有無後綴那個有 `order-detail*`**(`-codex` ⇒ 0 / `-opus5` ⇒ 0)
+⇒ 無版本分歧,讀的就是唯一那份。
+⚠️ **為什麼 daemon 指不到,沒有人查出根因。** 線A 已排除三個猜測(daemon 沒跑 / namespace 指錯 /
+磁碟與 sqlite 對不起來 —— `projects` 與 `workspace_projects` 各 11 列,對得上),
+收窄成「**MCP 接上了,而它問到的那個範圍是空的**」;唯一未排除的方向是
+`team_project_materializations` 0 列(**標未確認,線A 未證**)。
 
 ## ① 前置驗證:**`✅` 是真的,而它的意思和「可以照原解法做」相反**
 
@@ -39,7 +52,7 @@
 #240 條目寫:「啟用 SupabaseOrderAdapter.findById（目前 deferred-stub）+ 讀 mapper 重建單筆」
 而 packages/ports/src/IOrderRepository.ts:73 逐字:
    listByCustomer「維持 deferred(2026-08-18 `#217` 裁定 D ⇒ **刻意不提供**)」
-   SupabaseOrderAdapter.ts:1193 findById 直接 throw，訊息點名 #217
+   SupabaseOrderAdapter.ts:1194 findById 直接 throw，訊息點名 #217
 ⇒ **那不是「還沒做」，是「決定不做」。** 照條目的解法走 = 推翻昨天的裁定。
 ```
 ✅ **正確形狀**:比照現行 `listSummariesByCustomer`(`IOrderRepository.ts:75`)**新增一支詳情投影**,
@@ -70,7 +83,7 @@ OD `pcm-home-redesign` 有 **order-detail-page.html（306 行）**，2026-08-07 
 ⚠️ **而我沒有讀完那 306 行**(只讀了檔頭 55 行 + 兩處搜尋命中)⇒ **版面細節要實作前整份搬,不憑這份 plan 的摘要。**
 
 ## ③ 與 `#278` 的邊界:**沒有交集**
-`#278` 是 **admin 客戶明細**的訂單歷史(`SupabaseOrderAdapter.ts:582` 的 `.neq('payment_status','unpaid')`),
+`#278` 是 **admin 客戶明細**的訂單歷史(`SupabaseOrderAdapter.ts:586` 的 `.neq('payment_status','unpaid')`),
 不是 `/account`。⇒ **兩片不會互相蓋掉。**
 📎 而 G6 已在 `#278` 條目標「**這條的前提已經被推翻,而推翻它的東西已經上線了**」⇒ 那條的現況要看 G6,不是我。
 
@@ -112,18 +125,106 @@ GR-066 MF-1 兩個問題:
                 任何寫路徑、任何 RPC、任何 migration
 rollback 單一 commit `git revert`。**零 schema、零 migration、零資料面副作用**
         ⇒ 撤掉之後那顆鈕回到今天的樣子（死鈕），不會留下半條路由
-估時    🔴 **我不給數字** —— 大頭是 OD 306 行的版面移植（商品頁級的工），
-        而**我只讀了檔頭 55 行**（GR-066 MF-3）⇒ 估時要等 §⓪ 讀完才算得出來。
+估時    **前提已解除**(§⓪ 已完成,OD 305 行讀完、欄位清單見附錄 A),但數字取決於
+        Q-A'(圖片與品牌)⇒ Sean 2026-08-23 拍 **乙**(開 join、忠實照稿)⇒ 依乙估。
+        ⚠️ 待實作窗填入;**本檔不填憑空數字。**
         ⚠️ 條目原本寫的「~60-90 min」是 2026-06-20 寫的，**那時 OD 那份稿還不存在**（2026-08-07 才建）
         ⇒ **那個估時已經過期，不要拿它排程。**
 ```
 
 ## ⑤ 驗收條件(每條可 yes/no)
-1. **零洩漏**:投影只回白名單欄(`product_snapshot` 的 title/sku/spec、`unit_price`、`line_total`),**不含成本、不含經銷價**。配一個負測:塞一筆有 cost 的假資料,斷言它不在輸出裡。
+1. **零洩漏**:投影為 module-level `export const` 具名白名單、禁 `select('*')`,讓測試可 byte-equal 守門(比照 `ORDER_LIST_SELECT` 先例)。投影字串**刻意整條各寫一次、不與 admin 那份拼接** —— `ORDER_ITEMS_DETAIL_SELECT` docstring(`:414-424`)逐字:兩份的收放理由完全不同,拼接會製造沒人預期的連動。比 `ADMIN_ORDER_DETAIL_SELECT` 少掉三處:① `customers(name,email,phone)` 不取(客人在看自己的單,取了只是多一份 PII 在 RSC payload 裡跑)② `invoice` / `tappay_rec_trade_id` / `tier_at_checkout` / `order_notes` / `payment_charge_attempts` / `order_item_procurement` / `workflow_status` / `availability_at_checkout` / `variant_id` / `version` 不取(內部營運欄 + 金流識別碼)③ 🔴 **品牌與圖片【要取】**,那是 Q-A'=乙 的拍板結果,見 §⑤-b。⚠️ **本條理由 2026-08-23 改寫過**:原本寫「不取,因為那條 join 穿越帶經銷價的表、有洩漏風險」—— **那個理由已被實測推翻**(見 §⑤-b),不要再引用舊句。
+1-b. **件數不得用 `OrderListItem.itemCount`**(`packages/domain/src/order/types.ts:188-196` 逐字:「客人看到『3 件』而實際訂了 600 件,他不會知道、也不會回報」)⇒ 自己從撈到的 `order_items` reduce Σquantity,並比照 admin 夾自己的上限常數(**新開一個,不共用** —— `ORDER_LIST_ITEMS_EMBED_LIMIT` docstring `:441-446` 逐字「與後台列表同值,**而那是巧合不是耦合**」)。理由逐字在 `mappers/order.ts:405-415`:**PostgREST 對內嵌截斷不給任何訊號**(仍回 200、`Content-Range` 不反映)⇒ 不自己夾上限,邊界就握在遠端 `db-max-rows` 手上而看不見。🔴 `.order()` 要與 `.limit()` 成對(同檔 `:582-583`):沒排序的截斷會讓兩次重新整理拿到不同子集。⇒ 型別需有 `itemsTruncated: boolean`,而**顯示端不得印 0、不得留空**(`types.ts:196` 逐字)。
 2. **own-only**:拿 A 的 session 讀 B 的 `displayId` ⇒ **查無**(不是 403、不洩存在性)。
 3. **網址用 displayId**,且不存在的 displayId ⇒ 走 OD 的「查無此單」狀態(`?id=nope` 那個預覽態)。
 4. **那顆鈕變成連結**:`OrdersTab.tsx:74` 由 `<button>` 改 `<a href>`,而**鍵盤可達**(它現在是 button、本來就可 focus,改成 a 要確認不退化)。
 5. 四綠(`TURBO_FORCE=1`,動 `.tsx` ⇒ 含 build)。
+5-b. **收件資訊來源**:收件人 / 手機 / 地址一律取 `orders.shipping_address_snapshot` 的 `name` / `phone` / `line`,**禁 join `customer_addresses`**。理由不是偏好,是那條路**會給錯答案**:建表 `20260604120000_m3_s2a_orders_order_items.sql:96` 逐字「收件地址凍結快照(白名單 name/phone/line)」,同檔 `:120-125` CHECK 硬鎖 exact key set;而同檔 `:95` `address_id ... ON DELETE SET NULL`、註解逐字「**僅追溯 FK(地址可被客人刪改)**」⇒ 客人搬家改了地址,join 出來會顯示**新地址** —— 那不是那張單寄去的地方。正式庫實查(2026-08-23):20 張單 snapshot 非 null **20/20**、`address_id` 非 null **19/20** ⇒ 那條 join 現在就已經有 1/20 撈不到。型別三欄皆 `| null`(理由不是 DB 可能沒有 —— DDL 擋著 —— 是**投影退版時整個鍵會消失**,`types.ts:1213-1219` 對 `customerUserId` 逐字寫過這個推論);**缺值印 `—`,不要不印** —— 收件人那格缺值是異常、要看得出來。
+
+## ⑤-b 🔴 Q-A'=乙(Sean 2026-08-23 拍板:開 join 取商品圖 + 品牌)的專屬驗收
+
+前提:本片因此**穿越** product_variants / products,而那兩張表帶
+price_store / price_by_tier / price_general(`packages/domain/src/order/types.ts:814-819` 逐字)。
+先例:`d2f82be3`(admin 明細加品牌)走過同一條路,其五層改法與守門補法為本片範本。
+
+6. 🔴 **行為層實打(不可省、不可用授權查代替)**:以 **authenticated client**(禁 service_role)
+   對 `order_items → product_variants → products → brands` 打一發真請求,
+   **列舉回傳的完整 key 集合**(不是「看起來沒有價格」,是印出來逐一看)。
+   ⇒ 兩個世界要印不同的東西:該拿到品牌名的一發要拿到、該被擋的一發要被擋。
+   🔴 **若帶出任何價格欄 ⇒ 立刻停下回報主視窗,不自行變通、不自己想繞法。**
+      那一刻它從「照拍板實作」變成「拍板選的路走不通」,是 Sean 要重新拍的題。
+7. 🔴 **forbidden-token 負測**:釘住 `price_store` / `price_by_tier` / `price_general`
+   三個字面在客人面回應裡 **0 命中**;**且負對照要證明尺是活的**
+   (故意塞一個進去,測試必須紅 —— 沒紅代表那格恆綠、等於沒有守門)。
+   📌 `price_general` 一定要在清單裡:`d2f82be3` commit body 逐字記過
+      「兩份清單各自漂了」,漏的就是這一個。
+8. **投影走 RLS-scoped cookie client,禁 service client**(GR-066 MF-1 附帶 pin)。
+   配一格測試:用 A 的 session 讀 B 的單 ⇒ 查無。
+9. **下架商品的降級**:`products_select_public` 的 qual = `delisted_at IS NULL`,
+   `product_variants_select_public` 要求母商品未下架(pg_policies 實查)
+   ⇒ **商品下架後,客人端 join 不到它**,圖與品牌雙雙為 null。
+   ⇒ 那一列必須仍然可讀(品名/規格/單價來自快照,不受影響),**不得整列消失、不得破圖**。
+   🔴 顯示規則照既有先例分兩種、不得憑感覺:
+      品牌 null ⇒ **整行不印**(`AdminOrderDetailItem.brand` docstring 逐字)
+      圖 null   ⇒ 走 `ProductImage` 那套佔位圖 + onError 備援(見本片 §③)
+
+### 🔴 第 6 / 7 條的可完成性 —— **不要把它們排進本片的驗收清單**
+
+現有工具下第 6 條(行為層欄位洩漏)**完成不了**(見下方限定 ④)。
+⇒ 它的真正答案只能來自:①已完成的 `pg_catalog` 正式庫授權量測(唯讀)
+②上線後 code 層的 forbidden-token 測試(那是防「未來有人改寬投影」,與本條不同層)。
+🔴 **理由不是它不重要,是一條【今天做不完的驗收條件】會訓練人略過整張清單**
+(memory `feedback_a-guard-you-cant-finish-today-becomes-noise`)。
+⇒ **第 6/7 條改列為「已知缺口 + 為什麼」,第 8/9 條留在驗收清單裡。**
+
+### ⚠️ 上面那句「客人端拿不到經銷價」的證據等級 —— 三條限定,**不可與結論分開引用**
+
+```
+① 量到的是【授權】,不是【一發真的 REST 請求回什麼】。
+   最強的那一發(真 authenticated JWT 打過去、列舉回傳的完整 key 集合)**尚未執行**
+   ⇒ 那正是上面第 6 條要求的工,**它不因授權量測而可省**。
+② memory 記著「`has_*_privilege` 對欄級授權**少報**」⇒ 它的 `false` 可能是假陰性。
+   📌 而 **ACL 字串那把尺不受此限,兩把尺同向,且 ACL 是權威**。
+③ 本量測**不解除** forbidden-token 負測的必要 —— 它防的是**未來有人改寬投影**,
+   而授權快照不會在那天變紅。
+④ 🔴🔴 **那一發【不能】在現有的 storefront-probe 上打 —— 那把尺會回一個假紅。**
+   `scripts/storefront-probe/up.sh` 的順序是決定性的:
+   `:139-143` 先套所有 migrations(含正式站的 REVOKE + 欄位級 GRANT),
+   而 `:153` **在那之後**下 `GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated;`
+   ⇒ **後面那行把前面抹平。** 被抹平的正是本片要驗的那道牆。
+   數法(2026-08-23 主視窗實數):`grep -ln "GRANT SELECT[[:space:]]*(" supabase/migrations/*.sql | wc -l` ⇒ **14**;
+   `grep -lE "REVOKE.*FROM.*(anon|authenticated)" supabase/migrations/*.sql | wc -l` ⇒ **99**;
+   負對照(編造的 GRANT 形狀)⇒ **0**。
+   ⇒ **正式站防線 = RLS(列)+ GRANT/REVOKE(表與欄)兩層;probe = RLS 一層。**
+   ⇒ 在 probe 上打第 6 條,回傳裡出現 `price_store` 是**鑽機自己 `:153` 那行的迴音**,不是洩漏;
+     第 7 條在 probe 上會**恆紅** ⇒ 一樣零判別力。
+   ✅ 而 RLS 那一層 probe 是**忠實的**(policy 來自 migrations、未被覆蓋)
+     ⇒ **第 8 條(own-only)與第 9 條(下架降級)在 probe 上驗得起來。**
+   ⚠️ `up.sh:27` 檔頭本來就自陳「GRANT 與 BYPASSRLS 是這支腳本自己下的 ⇒ 證不了正式站的權限設定」——
+     **那句寫對了,而它沒有寫「所以哪幾種問題問不出來」** ⇒ 這一格是本檔補的。
+   📌 **修那支腳本 = 動六個窗共用的工具**,且 `:153` 當初為何存在未查(拿掉可能讓 probe 起不來)
+     ⇒ 已另立條目、**不擠在本片做**。
+```
+🔴 **為什麼要逐字留著**:三個月後讀這份 spec 的人會讀到「客人端拿不到經銷價」,
+而**不知道那是授權量測不是行為量測** ⇒ 一份誠實的限制清單被讀成完整的結論。
+(同族 `feedback_an-honest-limits-list-is-read-as-a-complete-one`。)
+
+### 🔴 而「下架商品」那個坑,今天量到 0 —— **那是樣本太小,不是安全**
+
+```
+訂單那一面(2026-08-23 線2 實量)   20 張單、23 個品項,有下架品項的 0;最舊 5 張 0、最新 5 張 0
+                                   ⇒ 分子每格都是 0 ⇒ **斜率沒有定義**(不得寫成「斜率是平的」)
+                                   ⚠️ 且這 20 張全是自己人測試單(Sean 逐字)⇒ 對真實使用幾乎零推論力
+商品那一面(分子不是 0 的地方)     products 21,225 / 已下架 559 = **2.63%**
+                                   第一筆 2026-06-03、最後一筆 2026-08-11
+                                   🔴 **最近 30 天內下架 74 件** ⇒ 約每天 2.5 件
+```
+⇒ 2.63% × 23 個品項 ≈ **0.6 件** ⇒ **量到 0 完全符合「機制成立但樣本太小」**,它不是安全的證據。
+⇒ 而下架只增不減 ⇒ **舊訂單踩到下架商品的機率每個月都在往上走,且不會有任何一天發出訊號。**
+⇒ **第 9 條(下架降級)不因為今天是 0 而可省。**
+⚠️ **刻意不量**:「559 件裡歷史上被下單過幾件」(那才是真分子)—— 我們只有兩個月訂單歷史
+   且全是自己人測試單 ⇒ 分子再精確,分母仍無推論力。**標【刻意不量】,不是漏。**
+
 
 ## ⑥ 我沒做/沒查的
 ```
@@ -139,7 +240,7 @@ rollback 單一 commit `git revert`。**零 schema、零 migration、零資料�
 
 ### 量到的
 ```
-packages/adapters/src/supabase/SupabaseOrderAdapter.ts:582
+packages/adapters/src/supabase/SupabaseOrderAdapter.ts:586
    .neq('payment_status', 'unpaid')   // #249 治標:藏放棄付款的 unpaid 孤兒單(前提=無線下待付款單)
 ```
 `#249` 條目逐字:**「Sean 2026-07-02 拍 A+甲」** ⇒ **Phase 1 維持「顯示層藏孤兒單」**,治本(付成才建單)定調 **Phase 2**。
@@ -167,3 +268,79 @@ packages/adapters/src/supabase/SupabaseOrderAdapter.ts:582
 被藏的 `unpaid` 孤兒單,正是**客人放棄 3DS 之後留下的那一張**。
 ⇒ `2026-08-19-g1-checkout-login-redirect-plan.md` §⑨ 講的「他回購物車再結一次 ⇒ 第二張單」——
 **那第一張單就是這裡被藏起來的那張。** ⇒ 兩片講的是同一件事,而處置分屬兩處。
+
+---
+
+## 附錄 A · OD 稿欄位清單(分母 = 305 行全文,**非摘要**)
+
+> 來源 `pcm-home-redesign/order-detail-page.html`(305 行,mtime 2026-08-07 11:31)。
+> 線2 2026-08-23 整份讀完;絕對路徑見 §⓪。
+
+### A-1 有來源、做得出來的
+
+| 稿上的東西 | 真站來源 |
+|---|---|
+| `displayId` 大標 | `orders.display_id`(🔴 網址也用它,不是 UUID) |
+| 成立時間 | `orders.created_at` |
+| 狀態徽章 | `orderStatusLabel()`(見 A-3) |
+| 商品小計 / 運費 / 總計 | `subtotal` / `shipping_fee` / `total`(運費 `0` ⇒ 印「免運」) |
+| 「實付金額」vs「應付金額」 | 依 `payment_status==='paid'` 切換 |
+| 品名 / 單價 / 數量 / 小計 | `product_snapshot.title` / `unit_price` / `quantity` / `line_total` |
+| 收件人 / 手機 / 地址 | `orders.shipping_address_snapshot` {name,phone,line}(見 §⑤ 5-b) |
+| 付款方式 | `orders.payment_method` |
+| 發票(三種句型) | `orders.invoice` jsonb(⚠️ 稿讀 `addr.invoice` 是原型取巧,真站在 orders) |
+| 四階進度軸 前兩階 | `created_at` / `payment_status='paid'` |
+| 圖片 / 品牌 | join `product_variants → products (→ brands)`(Q-A'=乙,見 §⑤-b) |
+| 「這筆訂單有問題?」LINE 區塊 | 純文案(L1) |
+| 返回鍵 | `/account?tab=orders` |
+
+稿上註解逐字(要照抄的判斷):**未付款的訂單不能寫「實付」——那是還沒發生的事。**
+
+### A-2 稿上有、而現在**沒有來源**的
+
+```
+1. 「下載訂單 PDF」鈕  → 稿註解:真站改成 <a href="/account/orders/<id>/statement.pdf" download> 由後端產
+                        ⚠️ 稿刻意不寫「下載發票」—— 產的是對帳單,不是統一發票(2026-08-07 拍板)
+2. 物流 courier / trackingNo / trackingUrl / 物流歷程 shipEvents
+3. 四階進度軸 後兩階(已出貨 / 已送達)
+4. etaLabel / etaSub(預計到貨)、discountLabel(折扣名稱)
+```
+📌 **2 與 3 稿子自己就交代了**,不用我們決定 —— 稿 `:167-175` 逐字:
+> 已出貨 = 包裹 `shipped_at` ← **需要第 2 批「包裹真相」**;已送達 = 包裹 `delivered_at` ← 同上
+> ⚠️ 第 3、4 階在第 1 批一律是未完成的空心點,**這是誠實的**:
+> `fulfillment_status` 是 stale 出貨軸,**拿它點亮「已出貨」等於對客人說謊**。
+
+✅ 而且降級得乾淨:`shipEvents` 空 ⇒ 整個「物流歷程」區塊不畫;
+`courier` 空 ⇒ 那一列 `<dt>物流</dt>` 整列不畫(稿 `:265-267` 有專門註解)。
+
+### A-3 🔴 逐字搬稿會搬到一個【已經過期的字面】
+
+稿 `:145-152` 自己釘住真站權威 `apps/storefront/src/lib/orders/order-display.ts`。
+開檔對過,四個字面一致、**一個不一致**:
+
+```
+稿  (2026-08-07)  partiallyPaid ⇒ 「付款確認中」
+真站(現在)         partiallyPaid ⇒ 「已收訂金」   order-display.ts:64
+                   成因:Sean 2026-08-18 拍 Q06=甲,推翻 2026-06-20 舊字面(該檔 :23-26)
+```
+⇒ 稿比那次拍板早 11 天。**狀態字面一律呼叫 `orderStatusLabel()`,不要照抄稿上的三元運算。**
+📌 稿自己也這樣要求(`:150-151`):「真站請共用同一個 helper,不要各寫一次。」
+
+### A-4 🔴 稿上**沒有畫**的一個狀態:那一列沒有圖的時候
+
+訂單品項 23 筆實量:**15 筆有圖(各 1 張)/ 8 筆兩層都沒有圖**;
+而那 8 筆**全是同一個東西** —— `supplier_slug='manual'`、標題「補差額用賣場」、`images = []`
+⇒ **不是圖漏了,是一個沒有實體、本來就不該有商品照的手開品項。**
+⚠️ 分母是自己人的 20 張測試單 ⇒ 「8/23」這個比例**不能拿去推真實客人的訂單長相**。
+
+缺圖有**兩個成因,處置不見得該一樣**:
+```
+成因 A  手開的補差額品項  ⇒ **本來就不該有圖**(今天 8/23 全屬此類)
+成因 B  商品已下架 join 不到 ⇒ **本來有圖,現在拿不到**(今天 0 筆,而 §⑤-b 說它會長)
+```
+三個候選(**描述,不是視覺稿**):甲 整個圖框不畫 / 乙 灰底佔位框 / 丙 兩種成因分開處理。
+📌 既有先例的判準(`AdminOrderDetailItem.brand` docstring 逐字):
+**「缺值本身算不算一個需要被看見的事實」** ⇒ 照這條指向**丙**
+—— ⚠️ **而那是推論不是拍板,且它是畫面題 ⇒ 交線A / Sean。**
+✅ **不擋實作**:先走乙(既有 `ProductImage` 佔位圖 + onError 備援),Sean 看過真畫面再調 = 純樣式片。
+🔴 主視窗紀律:**他第一次看到畫面時要主動把那一列指給他看,不要等他自己發現。**

@@ -704,3 +704,62 @@ NOT ((product_snapshot->'spec') ?| array['price_store','price_by_tier','cost'])
 **它們都寫在 schema 裡,而你是在【種資料】的時候撞上的** ——
 你手上那份 `INSERT` 看起來完全合理,**而合不合理是別的檔決定的**。
 ⇒ **種子寫不進去的時候,先讀建表 migration 的 CHECK 與 trigger,不要先改 INSERT。**
+
+---
+
+## §12 🔴🔴 這支鑽機只重現了正式站【兩層防線裡的一層】 —— 欄位級權限題**問不出來**
+
+> 2026-08-23 線2 在起 probe **之前先讀腳本**撞到,主視窗當場複驗。
+> 🔴 **它沒有壞。它是【偏寬】的,而偏寬的答案讀起來跟真的一樣。**
+
+### 12-a 決定性的是【順序】,不是那一行本身
+
+```
+scripts/storefront-probe/up.sh
+  :139-143  for f in $REPO/supabase/migrations/*.sql; do psql … -f "$f"; done
+            ⇒ 先套所有 migrations(裡面含正式站那套 REVOKE + 欄位級 GRANT)
+  :153      GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+            ⇒ **在那之後**下整表 SELECT ⇒ 把前面那些抹平
+```
+
+被抹平的規模(2026-08-23 當場實數,附負對照):
+```
+grep -ln "GRANT SELECT[[:space:]]*(" supabase/migrations/*.sql | wc -l          ⇒ 14
+grep -lE "REVOKE.*FROM.*(anon|authenticated)" supabase/migrations/*.sql | wc -l ⇒ 99
+負對照 grep -ln "GRANT ZZZNOTREAL" supabase/migrations/*.sql | wc -l            ⇒ 0
+```
+
+```
+正式站防線 = RLS(列) + GRANT/REVOKE(表與欄)   ← 兩層
+本鑽機     = RLS(列)  only                      ← 一層
+```
+
+### 12-b ⇒ 哪些問題問得出來、哪些會回假答案
+
+```
+❌ 「客人看不看得到某個【欄位】」        ⇒ 回傳裡出現該欄, 是 :153 那行的**迴音**, 不是洩漏
+❌ forbidden-token 這類欄位級負測        ⇒ 在鑽機上**恆紅** ⇒ 零判別力
+✅ 「A 的 session 讀不讀得到 B 的【列】」 ⇒ 可以問。policy 來自 migrations、**未被覆蓋**
+✅ 「下架 / 停用這類 qual 造成的降級」     ⇒ 可以問。同上
+```
+
+🔴 **這一格的形狀值得記住**:一個假紅,而它**乾淨、可重跑、有分母**。
+照著它走的下一步是「去跟老闆說這條路走不通、請他推翻自己的拍板」——
+**而真相是鑽機自己開的門。**
+📌 與 §10 是同一個母題的兩面:§10 說「要證閘擋住了,負向對照是【拿掉閘】」;
+這裡是**你以為在量那道閘,而量到的是鑽機自己補上去的門**。
+
+### 12-c ⚠️ 檔頭那句話寫對了,而它不夠
+
+`up.sh:27` 逐字已經寫著「**GRANT 與 BYPASSRLS 是這支腳本自己下的 ⇒ 證不了正式站的權限設定**」。
+🔴 **那句是對的,而兩個窗都讀過它、仍差點打出那一發** —— 因為它說的是「證不了」,
+**沒有說「所以哪幾種問題會拿到一個看起來像答案的東西」**。
+⇒ 這一節補的就是那半句。(同族 `feedback_an-honest-limits-list-is-read-as-a-complete-one`。)
+
+### 12-d 📌 要修它是另一件事,**不要順手改**
+
+`:153` 那行**為什麼在那裡沒有人查過**(可能有表沒寫 GRANT、拿掉會讓 probe 起不來),
+而 `up.sh` 是**六個窗共用的工具** ⇒ 改壞了會安靜地影響別人。
+⇒ 已另立 backlog 條目,**不擠在任何一條施工線上做**。
+⇒ 在它被修好之前:**欄位級權限題一律走正式庫 `pg_catalog` 唯讀量測**
+(🔴 不要用 `information_schema` —— 它對零權限帳號系統性回 0,見 memory `MEMORY-supabase.md`)。
