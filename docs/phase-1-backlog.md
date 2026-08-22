@@ -29405,3 +29405,54 @@ GVRDMH            0.045 秒              🔴 1 小時 43 分                   
   歷史上「新函式直接 OR REPLACE」是常態寫法;規則①從此只對【新檔手跑】紅,舊檔一律照規則④的處置不回頭改。
   ⚠️ 修閘第一版曾量到 52 檔 / 79 筆,其中 ≥3 筆是**剝殼順序 bug 造成的假紅**(`--` 註解裡的 `/*` 或 `$tag$`
   開了永不關閉的區塊、吃掉下面的真定義;4 支檔整檔被吃光)—— 已改成一趟掃描照出現順序處理,假紅歸零。
+
+### #856. 🔴 正式庫的 `ALTER DEFAULT PRIVILEGES`(ADP / 權限預設)**沒有人看過** —— 而片1 的權限斷言是在本機造出來的 ADP 上驗的
+
+- **關鍵字**(給搜的人):`ADP` / `ALTER DEFAULT PRIVILEGES` / `pg_default_acl` / 正式庫權限預設 /
+  新物件出生就自帶權限 / 兩道 REVOKE 的第二道。
+- **怎麼發現的**(2026-08-23,退款片1 `20260823010000_…p1_extract_sync_fn.sql`):
+  第一輪跑 ACL 突變(把 `REVOKE ALL … FROM anon, authenticated, authenticator, service_role` 拿掉)
+  ⇒ **自檢完全不紅**。查下去發現不是 code 沒事,是**本機叢集沒有 Supabase 對 `public` schema 掛的 ADP**
+  ⇒ 新函式不會自動授權給具名角色 ⇒ **「第二道 REVOKE」在本機【不可能失效】** ⇒ 斷言一直在一個
+  它不可能紅的世界裡跑。補上 ADP 之後突變才開始紅(片1 的 M4/M5/M6)。
+- **所以現在的狀態是什麼**:片1 的 `3h`/`3i`(全角色掃描 + service_role 執行不到)**是在我自己
+  bootstrap 出來的 ADP 上驗過的**,而**正式庫實際掛了哪些 ADP,沒有人看過**。
+  Sean 2026-08-23 跑的那份 preflight(`~/pcm-mailbox/58-preflight-payment-status-writers-20260823.sql`)
+  問了角色權限、函式清單、trigger、DEFAULT、指紋 —— **獨獨沒問這一格**。
+- **🔴 不修未來會痛在哪 —— 誠實地說:代價不明。**
+  這**不是**「有 bug」,是「**我的證據範圍比它看起來的窄**」。
+  我在本機構造出來的那個「壞掉的世界」,**與正式庫的壞法不保證是同一種**。
+  ⇒ 可能的形狀(全部未證實,不要當結論):正式庫的 ADP 若涵蓋本機沒有的角色/物件類型,
+  片1 的 `3h` 在 apply 當天可能紅(fail-closed、可回退),**或者**它照樣綠而其實漏掉某個角色。
+  ⇒ **會痛的不是某個具體災難,是「我們以為驗過了」。**
+- **怎麼重新量**(唯讀一發,可貼進 Supabase Dashboard → SQL Editor;2026-08-23 本機拋棄式 PG 17.10 驗過語法):
+  ```sql
+  SELECT pg_catalog.pg_get_userbyid(d.defaclrole) AS grantor,
+         COALESCE(n.nspname, '(all schemas)')     AS schema,
+         CASE d.defaclobjtype WHEN 'r' THEN 'table' WHEN 'S' THEN 'sequence'
+              WHEN 'f' THEN 'function' WHEN 'T' THEN 'type' WHEN 'n' THEN 'schema'
+              ELSE d.defaclobjtype::text END      AS obj_type,
+         d.defaclacl                              AS default_acl
+    FROM pg_catalog.pg_default_acl d
+    LEFT JOIN pg_catalog.pg_namespace n ON n.oid = d.defaclnamespace
+   ORDER BY 1, 2, 3;
+  ```
+  **怎麼讀它**:每一列 = 一條「某人在某 schema 建某類物件時,預設授權給誰」的規則。
+  期待看到的是 `public` schema 對 `function` 授 `EXECUTE` 給 `anon` / `authenticated` / `service_role`
+  之類 —— 那正是「新函式出生就自帶權限」的來源,也是為什麼
+  `docs/patterns/revoking-function-execute-in-supabase.md` 要求**兩道 REVOKE**。
+  🔴 **回 0 列不等於「沒有 ADP」** —— 也可能是這個帳號看不到 `pg_default_acl`。
+  ⇒ 判別法:同一發加一句 `SELECT count(*) FROM pg_catalog.pg_class;`,它回 0 才是看不到。
+  📌 本機正對照(2026-08-23 實跑):空叢集 ⇒ 0 列且不報錯;
+  設一條 `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO <role>` 之後
+  ⇒ **1 列** ⇒ **這把尺會在該有東西時印出東西**,不是恆回 0。
+- **分母(這一條的效度邊界)**:上面那些話涵蓋的是**權限預設**,不涵蓋既有物件的 ACL
+  (那格 Sean 那份 preflight 已經問過、且結果正常)。兩者是不同的東西:
+  ACL 說「現在誰有權」,ADP 說「**下一個新物件出生時誰會有權**」。
+- **修法方向**:①(便宜)下次要請 Sean 跑唯讀 SQL 時,把上面那段**併進同一發**,不要為它單獨打擾他一次
+  ②(較貴)把 ADP 查詢加進 `58-preflight-…sql` 當第 7 塊,讓它成為每次 migration preflight 的常設項
+  **建議 ①** —— 它現在不擋任何東西,而併發的成本近乎零。
+- **🔴 我為什麼把它寫成 backlog 而不是留在 plan 裡**:它原本只活在片1 plan 的「效度限制」段落。
+  而那種段落**沒有人會回頭讀** —— 它會就這樣過去。**backlog 有編號、會被 `#` 引用、盤點時會被掃到。**
+  (這一格由主視窗 2026-08-23 指定落點;原始發現與理由見
+  `~/pcm-mailbox/58-在等Sean的清單-20260823.md` 第 4 格。)
