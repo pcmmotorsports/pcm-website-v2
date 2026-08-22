@@ -224,6 +224,9 @@ function composeEvent(input: EnqueueEmailInput): {
     case 'order_shipped': {
       const payload = buildOrderShippedPayload({
         displayId: input.displayId,
+        // 🔴 進 payload:寄送時要拿它去主表撈品項與追蹤碼(`IShippedEmailContext`)。
+        //    ~~原本只進 dedup_key~~ —— 那會逼 sweeper 去解析一個沒有 DB 格式保證的字串。
+        shipmentId: input.shipmentId,
         shipmentReference: input.shipmentReference,
         shippedAt: input.shippedAt,
       });

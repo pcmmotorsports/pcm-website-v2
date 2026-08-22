@@ -18,7 +18,10 @@
  *    **不得進 log / result / 錯誤訊息**(鏡像 `IPaidOrderScanner` 的同一條)。
  */
 export type ShippedOrderWithoutShippedEmail = {
-  /** 箱 uuid。`dedup_key` 的前半;**不進 payload**。 */
+  /**
+   * 箱 uuid。`dedup_key` 的前半,**而且也進 payload**
+   * (~~原寫「不進 payload」~~,2026-08-22 R1 ④ 之後不成立 —— 寄送時要拿它去主表撈脈絡)。
+   */
   shipmentId: string;
   /** 箱號(進 payload;收信人分辨「哪一箱」的唯一依據)。 */
   shipmentReference: string;

@@ -18,12 +18,22 @@ vi.mock('server-only', () => ({}));
 const COMPOSITION_SOURCE = readFileSync(new URL('./composition.ts', import.meta.url), 'utf8');
 
 // 🔴 vi.mock 工廠會被 hoist 到檔頂 → 其引用的常數必須走 vi.hoisted(否則 ReferenceError:早於初始化)。
-const { outboxCtor, senderCtor, scannerCtor, ineligibleScannerCtor, serviceClientSpy, SERVICE_CLIENT, SYNTHETIC_DOMAIN } =
+const {
+  outboxCtor,
+  senderCtor,
+  scannerCtor,
+  ineligibleScannerCtor,
+  shippedContextCtor,
+  serviceClientSpy,
+  SERVICE_CLIENT,
+  SYNTHETIC_DOMAIN,
+} =
   vi.hoisted(() => ({
     outboxCtor: vi.fn(),
     senderCtor: vi.fn(),
     scannerCtor: vi.fn(), // 🔴 B-5:掃描式 enqueue 的 adapter
     ineligibleScannerCtor: vi.fn(), // 🔴 E2a-2(W3-G):寄送前 ineligible gate 的 adapter
+    shippedContextCtor: vi.fn(), // 🔴 E4-b(2026-08-22):出貨信的寄送時讀取 adapter
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
     SYNTHETIC_DOMAIN: 'line.pcmmotorsports.local',
@@ -34,6 +44,7 @@ vi.mock('@pcm/adapters/server', () => ({
   ResendEmailSenderAdapter: senderCtor,
   SupabasePaidOrderScannerAdapter: scannerCtor,
   SupabaseIneligibleOrderEmailScannerAdapter: ineligibleScannerCtor,
+  SupabaseShippedEmailContextAdapter: shippedContextCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
 vi.mock('@/lib/auth/line', () => ({ LINE_SYNTHETIC_EMAIL_DOMAIN: SYNTHETIC_DOMAIN }));
@@ -82,11 +93,25 @@ describe('getSweepEmailOutboxDeps — lazy(module-top 零副作用)', () => {
 });
 
 describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
-  it('🔴 回傳鍵精確 = {outbox, sender}(零告警管道、Q13=A)', () => {
+  it('🔴 回傳鍵精確 = {outbox, sender, shippedContext}(零告警管道、Q13=A)', () => {
+    // 🔴 **2026-08-22(E4-b)這一格的期望值改過,而改動本身要被讀到**:
+    //    ~~`['outbox', 'sender']`~~ ⇒ 多了 `shippedContext`(出貨信的寄送時讀取)。
+    //
+    // ⚠️ **而這一格守的東西沒有變**:它守的是「**告警管道不得被注進 sweeper**」
+    //    (Sean `Q13`=A 零告警:sweeper 死時它自己發的告警會一起死 = 沒有監看)。
+    //    `shippedContext` 是**讀取**不是**發送**,不觸犯那條;
+    //    而下面兩行對 `notifiers` / `alertNotifier` 的斷言**一個字都沒動** —— 那才是這格的本體。
+    // 🔴 判別句:改期望值之前先問「這格原本在擋什麼」。擋的東西沒變 ⇒ 可以改;變了 ⇒ 不可以。
     const deps = getSweepEmailOutboxDeps() as Record<string, unknown>;
-    expect(Object.keys(deps).sort()).toEqual(['outbox', 'sender']);
+    expect(Object.keys(deps).sort()).toEqual(['outbox', 'sender', 'shippedContext']);
     expect(deps.notifiers).toBeUndefined();
     expect(deps.alertNotifier).toBeUndefined();
+  });
+
+  it('🔴 shippedContext = SupabaseShippedEmailContextAdapter,注入 service_role client', () => {
+    getSweepEmailOutboxDeps();
+    expect(shippedContextCtor).toHaveBeenCalledTimes(1);
+    expect(shippedContextCtor.mock.calls[0]![0]).toBe(SERVICE_CLIENT);
   });
 
   it('outbox = SupabaseEmailOutboxAdapter(service_role client cast, {syntheticEmailDomain 單源})', () => {

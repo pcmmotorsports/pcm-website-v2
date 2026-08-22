@@ -1,4 +1,4 @@
-import type { ClaimedEmailJob, IEmailOutbox, IEmailSender } from '@pcm/ports';
+import type { ClaimedEmailJob, IEmailOutbox, IEmailSender, IShippedEmailContext } from '@pcm/ports';
 import {
   computeEmailBackoff,
   LEASE_RECLAIM_RETRY_DELAY_MS,
@@ -42,6 +42,18 @@ import {
 export type SweepEmailOutboxDeps = {
   outbox: IEmailOutbox;
   sender: IEmailSender;
+  /**
+   * 出貨通知信的**寄送時讀取**(M-4b E4-b;`IShippedEmailContext`)。
+   *
+   * 🔴 **選用,而「不給」是一個【有意義的狀態】,不是尚未接線的預設值**:
+   * 不給 ⇒ `order_shipped` 維持今天的 fail-closed(`buildEmailText` 對它 throw)⇒ **一封都不寄**。
+   * ⇒ 這一欄存在**不會讓任何東西被寄出去**;真正打開那道閘的是 `buildEmailText` 的 case(片3)。
+   *
+   * 🔴 **為什麼是 port 不是把資料塞進 payload**(那支 port 的檔頭有完整理由,這裡只留判別句):
+   * 追蹤碼與品項是**可後台改的欄** ⇒ 入列當下凍住的值,員工改過之後就是舊的,
+   * 而**信寄出去收不回來**。⇒ 寄送當下才查主表。
+   */
+  shippedContext?: IShippedEmailContext;
 };
 
 /**
@@ -112,7 +124,17 @@ function buildEmailText(job: ClaimedEmailJob): string {
     case 'order_shipped':
       throw new Error('sweepEmailOutbox:order_shipped 模板未定義(E4 未落地)、fail-closed 不寄');
     default:
-      return job.eventType satisfies never;
+      // 🔴🔴 **這裡原本是 `return job.eventType satisfies never;`**(Fable 2026-08-22 R2 F7)。
+      //    `satisfies` 在編譯後**整個消失** ⇒ 執行期它就是 `return job.eventType`
+      //    ⇒ 一個型別上不該存在的 event_type 真的出現時,
+      //    **那個字串會被當成信件內文寄給真客人**(例:客人收到一封內容只有 `order_refunded` 的信)。
+      //    ⚠️ 今天它不可達,是**因為 DB CHECK 擋著**,不是因為這行安全 ——
+      //    而「DB 先加了新 event_type、code 還沒跟上」是這個 repo 明文預期會發生的順序
+      //    (`IEmailOutbox` 的 `EmailOutboxEventType` 是手抄的 union)。
+      // ⇒ 改成 throw:失敗方向從「寄出垃圾」翻成「計 error、列留 sending、不寄」。
+      //    🔴 **窮舉的型別保證沒有被拿掉** —— 下面那行仍然讓「少一個 case」在 typecheck 當場紅。
+      job.eventType satisfies never;
+      throw new Error('sweepEmailOutbox:未知 event_type、fail-closed 不寄');
   }
 }
 

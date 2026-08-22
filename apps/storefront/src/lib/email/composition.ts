@@ -20,6 +20,7 @@ import {
   SupabaseEmailOutboxAdapter,
   SupabasePaidOrderScannerAdapter,
   SupabaseIneligibleOrderEmailScannerAdapter,
+  SupabaseShippedEmailContextAdapter,
   ResendEmailSenderAdapter,
   createSupabaseServiceClient,
 } from '@pcm/adapters/server';
@@ -46,15 +47,30 @@ function requireEnv(name: string): string {
  *   〔E1 定案 orders@pcmmotorsports.com,兩 Vercel project 都要設;缺 → requireEnv throw → route 503 fail-closed〕)。
  */
 export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
-  const outbox = new SupabaseEmailOutboxAdapter(
-    createSupabaseServiceClient(),
-    { syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN },
-  );
+  // 🔴 **一個 service_role client,兩個 adapter 共用**(2026-08-22 E4-b)。
+  //    ⚠️ 原本這裡只有一個消費端,所以直接內聯呼叫;加第二個時**不要再呼叫一次** ——
+  //    既有測試有一格釘住 `createSupabaseServiceClient` 在本 factory 內**只被呼叫一次**,
+  //    而那一格守的是「本 factory 不會偷偷多開一條連線」。
+  const serviceClient = createSupabaseServiceClient();
+  const outbox = new SupabaseEmailOutboxAdapter(serviceClient, {
+    syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN,
+  });
   const sender = new ResendEmailSenderAdapter({
     apiKey: requireEnv('RESEND_API_KEY'),
     from: requireEnv('ORDER_EMAIL_FROM'),
   });
-  return { outbox, sender };
+  // 🔴 **M-4b E4-b(2026-08-22):這一行就是那份 plan 講了很久的「刻意沒接的那一行」。**
+  //    它讓 sweeper 在寄出貨信時**查得到主表**(品項 / 追蹤碼 / 箱號)。
+  //
+  // 🔴🔴 **而它【不會】讓任何一封信被寄出去。** 打開閘的是 `buildEmailText` 對 `order_shipped`
+  //    的那個 case,而它今天仍然 `throw`(片3 才動)。
+  //    ⇒ `sweep-email-outbox.test.ts` 有一格特別釘住這件事:**給了 `shippedContext` 也一樣不寄**。
+  //    ⚠️ 少了那一格,「接上這一行」與「開始寄信」在交件上分不出來。
+  //
+  // 🔴 service_role 的第三個用途:它讀 shipments / shipment_items / order_items / orders,
+  //    其中 `orders` 含 PII。回傳只進信件內文,不進 log / result(adapter 檔頭明文)。
+  const shippedContext = new SupabaseShippedEmailContextAdapter(serviceClient);
+  return { outbox, sender, shippedContext };
 }
 
 /**

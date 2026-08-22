@@ -80,13 +80,31 @@ export const ORDER_SHIPPED_EVENT_VERSION = 1 as const;
  */
 export function buildOrderShippedPayload(src: {
   displayId: string;
+  shipmentId: string;
   shipmentReference: string;
   shippedAt: string;
 }): OrderShippedEmailPayload {
   return {
     event_version: ORDER_SHIPPED_EVENT_VERSION,
     display_id: requireNonEmptyString(src.displayId, 'displayId', 'order_shipped'),
+    // 🔴 這一欄多驗一道【形狀】:它是寄送時去主表撈脈絡的唯一鍵,
+    //    而型別層擋不住 `as` 硬轉、也擋不住上游傳一個箱【號】(BCDF23)進來。
+    //    傳錯的症狀不是報錯,是**撈不到 ⇒ 整包 null ⇒ 那封信永遠寄不出去**,而每輪都吵。
+    shipment_id: requireUuid(src.shipmentId, 'shipmentId', 'order_shipped'),
     shipment_reference: requireNonEmptyString(src.shipmentReference, 'shipmentReference', 'order_shipped'),
     shipped_at: requireNonEmptyString(src.shippedAt, 'shippedAt', 'order_shipped'),
   };
+}
+
+/**
+ * uuid 形狀檢查(8-4-4-4-12 十六進位)。
+ * ⚠️ **它只驗形狀,不驗那個箱存不存在** —— 後者只有查 DB 才知道,而那是寄送時的事。
+ */
+function requireUuid(value: unknown, field: string, event: string): string {
+  const v = requireNonEmptyString(value, field, event);
+  if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v)) {
+    // 🔴 只講欄位名,不講值(零 PII 政策;而且值可能是誤傳的別的東西)。
+    throw new Error(`${event} 組裝失敗:${field} 必須是 uuid 形狀`);
+  }
+  return v;
 }

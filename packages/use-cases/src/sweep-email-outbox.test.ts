@@ -357,3 +357,82 @@ describe('sweepEmailOutbox — 結果形狀(零 PII 合約)', () => {
     expect(outbox.markSkippedOrderIneligible).not.toHaveBeenCalled();
   });
 });
+
+describe('sweepEmailOutbox — 🔴 order_shipped 仍然 fail-closed(M-4b E4-b 零對外的【可跑證明】)', () => {
+  // 🔴 這一組存在的理由:片2 交件時我要說「一封信都不會多」,
+  //    而**「我沒有寫寄信的 code」不是證明** —— 那是宣稱。
+  //    真正的證明是:餵一份 order_shipped 的工作單進去,看它**有沒有呼叫 sender**。
+  const shippedJob = () =>
+    job({
+      id: 'outbox-shipped-1',
+      eventType: 'order_shipped',
+      dedupKey: 'shp-1:order-1',
+      subject: 'PCM 訂單 PCM-2026-0001 出貨通知(包裹 BCDF23)',
+      payload: {
+        event_version: 1,
+        display_id: 'PCM-2026-0001',
+        shipment_reference: 'BCDF23',
+        shipped_at: '2026-08-22T02:00:00.000Z',
+      },
+    });
+
+  it('🔴 order_shipped 進來 ⇒ 計 error,而且**一次都沒有呼叫 sender**', async () => {
+    const outbox = outboxFake([shippedJob()]);
+    const sender = senderFake([]);
+
+    const r = await sweepEmailOutbox({ outbox, sender }, OPTS);
+
+    // ⬇️ 這一行是「零對外」的真正證據 —— 不是 counts,是那支 spy。
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.sent).toBe(0);
+    expect(r.errors).toBe(1);
+    // 列留在 sending 由下輪回收 ⇒ **不得**被標成 sent。
+    expect(outbox.markSent).not.toHaveBeenCalled();
+  });
+
+  it('🔴 給了 shippedContext 也一樣不寄 —— 那一欄【不是】打開閘的東西', async () => {
+    // 片2 只加了 Deps 的欄位。真正打開閘的是 buildEmailText 的 case(片3)。
+    // ⚠️ 少了這一格,「加了欄位」與「開始寄信」在片2 的交件上分不出來。
+    const outbox = outboxFake([shippedJob()]);
+    const sender = senderFake([]);
+    const loadShippedContext = vi.fn();
+
+    const r = await sweepEmailOutbox({ outbox, sender, shippedContext: { loadShippedContext } }, OPTS);
+
+    expect(sender.send).not.toHaveBeenCalled();
+    // 連讀都還沒開始讀 —— 模板不存在,根本走不到需要脈絡的那一步。
+    expect(loadShippedContext).not.toHaveBeenCalled();
+    expect(r.errors).toBe(1);
+  });
+
+  it('🔴🔴 未知的 event_type ⇒ **不寄**,而不是把型別字串當內文寄給客人', async () => {
+    // 🔴 這一格是 Fable 2026-08-22 R2 F7。原本那行是 `return job.eventType satisfies never;`
+    //    —— `satisfies` **編譯後整個消失** ⇒ 執行期它就是 `return job.eventType`
+    //    ⇒ 客人會收到一封**內容只有一個型別字串**的信(例:`order_refunded`)。
+    // ⚠️ 今天它不可達,是**因為 DB CHECK 擋著**,不是因為那行安全 ——
+    //    而 `EmailOutboxEventType` 是**手抄的 union**,「DB 先加值、code 後上」是預期會發生的順序。
+    // 🔴 而我第一次改完【沒有補這一格】 —— 突變(把 throw 改回 return)當時一格都沒紅。
+    //    ⇒ **改了行為而沒有留下量具,等於沒改**:下一個人可以原路改回去。
+    const rogue = job({ id: 'outbox-rogue' }) as unknown as Record<string, unknown>;
+    rogue.eventType = 'order_refunded'; // ← 型別上不存在,而 DB 有一天可能先有它
+    const outbox = outboxFake([rogue as never]);
+    const sender = senderFake([]);
+
+    const r = await sweepEmailOutbox({ outbox, sender }, OPTS);
+
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(r.sent).toBe(0);
+    expect(r.errors).toBe(1);
+  });
+
+  it('同一輪混著 order_created 與 order_shipped ⇒ 前者照寄、後者擋下(fail-closed 不中斷整批)', async () => {
+    const outbox = outboxFake([job(), shippedJob()]);
+    const sender = senderFake([{ kind: 'sent' }]);
+
+    const r = await sweepEmailOutbox({ outbox, sender }, OPTS);
+
+    expect(sender.send).toHaveBeenCalledTimes(1); // 只有 order_created 那一封
+    expect(r.sent).toBe(1);
+    expect(r.errors).toBe(1);
+  });
+});

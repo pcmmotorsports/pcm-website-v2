@@ -195,7 +195,10 @@ const SHIPPED_INPUT: EnqueueEmailInput = {
   eventType: 'order_shipped',
   orderId: 'ord-uuid-1',
   displayId: 'PCM-2026-0001',
-  shipmentId: 'shp-uuid-9',
+  // 🔴 **必須是真的 uuid 形狀**:2026-08-22 起 `buildOrderShippedPayload` 對這一欄多驗一道形狀
+  //    (它是寄送時去主表撈脈絡的唯一鍵;傳成箱【號】BCDF23 的症狀不是報錯,
+  //     是撈不到 ⇒ 那封信永遠寄不出去而且每輪都吵)。~~原本寫 'shp-uuid-9'~~ ⇒ 會被擋下。
+  shipmentId: '00000000-0000-0000-0000-0000000000d1',
   shipmentReference: 'BCDF23',
   shippedAt: '2026-08-22T02:00:00Z',
   recipientEmail: 'customer@example.com',
@@ -218,7 +221,7 @@ describe('SupabaseEmailOutboxAdapter.enqueue(order_shipped;M-4b E4-a)', () => {
 
     // 🔴 精確等值就夠了 —— codex R2 nit:後面再加一句 `not.toBe(orderId)` **沒有額外判別力**
     //    (等值成立時它必然成立)。想擋「退化成 order_id」那個形狀,靠的是這一行本身。
-    expect(row.dedup_key).toBe('shp-uuid-9:ord-uuid-1');
+    expect(row.dedup_key).toBe('00000000-0000-0000-0000-0000000000d1:ord-uuid-1');
     expect(row.event_type).toBe('order_shipped');
     expect(row.order_id).toBe('ord-uuid-1');
   });
@@ -233,8 +236,8 @@ describe('SupabaseEmailOutboxAdapter.enqueue(order_shipped;M-4b E4-a)', () => {
 
     const keyA = (argsOf(bA, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
     const keyB = (argsOf(bB, 'insert')[0]![0] as Record<string, unknown>).dedup_key;
-    expect(keyA).toBe('shp-uuid-9:ord-A');
-    expect(keyB).toBe('shp-uuid-9:ord-B');
+    expect(keyA).toBe('00000000-0000-0000-0000-0000000000d1:ord-A');
+    expect(keyB).toBe('00000000-0000-0000-0000-0000000000d1:ord-B');
     // 🔴 這一行是重點:兩把鍵**必須不同**,相同 = 第二封被唯一鍵擋掉 = 漏一封信。
     expect(keyA).not.toBe(keyB);
   });
@@ -247,6 +250,10 @@ describe('SupabaseEmailOutboxAdapter.enqueue(order_shipped;M-4b E4-a)', () => {
     expect(row.payload).toEqual({
       event_version: 1,
       display_id: 'PCM-2026-0001',
+      // 🔴 箱 uuid **在** payload 裡(2026-08-22 codex R1 ④ 之後加):
+      //    它是寄送時去主表撈脈絡的唯一安全接點。可以存,因為它**不可變**;
+      //    而追蹤碼不行,因為它**後台可改**。判別的是可不可變,不是是不是 id。
+      shipment_id: '00000000-0000-0000-0000-0000000000d1',
       shipment_reference: 'BCDF23',
       shipped_at: '2026-08-22T02:00:00Z',
     });
@@ -277,7 +284,7 @@ describe('SupabaseEmailOutboxAdapter.enqueue(order_shipped;M-4b E4-a)', () => {
     });
 
     const eqArgs = argsOf(verifyB, 'eq');
-    expect(eqArgs).toContainEqual(['dedup_key', 'shp-uuid-9:ord-uuid-1']);
+    expect(eqArgs).toContainEqual(['dedup_key', '00000000-0000-0000-0000-0000000000d1:ord-uuid-1']);
     expect(eqArgs).not.toContainEqual(['dedup_key', 'ord-uuid-1']);
   });
 });

@@ -35,8 +35,17 @@ export type ShipmentWriteResult = {
   idempotent: boolean;
 };
 
-/** 快遞商三選。字面與 `shipments_carrier_domain` CHECK 同源。 */
-export type CarrierCode = 'hct' | 'sf' | 'other';
+/**
+ * 快遞商三選。字面與 `shipments_carrier_domain` CHECK 同源。
+ *
+ * 🔴 **2026-08-22 起本體在 `packages/domain/src/order/carrier-label.ts`,這裡只是 re-export。**
+ *    ~~原本在本檔就地定義~~ —— 搬走是因為出貨通知信那條鏈在 packages/ 與 storefront,
+ *    而它們 import 不到 admin。**本檔的既有消費端一個字都不用改。**
+ */
+// ⚠️ 本檔【自己也用】這個型別(:94)⇒ 必須 import 進本地作用域,
+//    只寫 `export type … from` 的話它不進本地 scope ⇒ TS2304(2026-08-22 實際撞到)。
+import type { CarrierCode } from '@pcm/domain';
+export type { CarrierCode };
 
 /** 收件快照。DB 要求**恰好**這三個欄位(`pcm_b2_w3a_recipient_shape`),多一個少一個都退件。 */
 export type RecipientSnapshot = { name: string; phone: string; line: string };

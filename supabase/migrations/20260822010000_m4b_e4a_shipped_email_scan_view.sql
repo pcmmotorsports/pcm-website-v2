@@ -147,6 +147,17 @@ WHERE s.shipped_at IS NOT NULL
         nullif(pg_catalog.btrim(o.notification_email), '') IS NOT NULL
      OR nullif(pg_catalog.btrim(c.email), '') IS NOT NULL
       )
+  -- 🔴🔴 **這個 anti-join 只看「那一列存不存在」,【不分 status】** —— 而那件事有一個部署順序的後果
+  --    (Fable 2026-08-22 R2 F3):
+  --    ```
+  --    若 enqueue 先上線、而模板還沒上（或模板 rollback 了而 enqueue 沒有一起 roll）
+  --    ⇒ 列被排進去 → 每輪 claim → buildEmailText throw → 燒完 attempts → status='failed'
+  --    ⇒ 而它【仍然存在】⇒ 本 anti-join 照樣把那個 (箱,單) 排除
+  --    ⇒ 🔴 那一封信【永久漏掉】，救援只剩手改 DB
+  --    ```
+  -- ⇒ **硬性順序:模板與 enqueue 接線【同一次 deploy】,而模板不可後行。**
+  --    rollback 也一樣:要退就兩個一起退。
+  -- ⚠️ 這一條**沒有機制在守** —— 它是一句規矩。放在這裡是因為改 anti-join 的人會讀到這一段。
   AND NOT EXISTS (
         SELECT 1
           FROM public.email_outbox e
@@ -165,7 +176,10 @@ COMMENT ON VIEW public.pcm_shipped_email_pending IS
   '它們永遠不會消失,留在這裡會由最舊那端永久擋住後面的有效信(codex 2026-08-22 R1)。'
   '⚠️ 本 view 含 PII(兩個 email 欄)⇒ 僅 service_role 可讀。'
   '⚠️ 它不含追蹤碼與品項 —— 那些是【寄送當下】才查主表的(可後台改的欄存了會過期,'
-  'packages/ports/src/IShippedEmailContext.ts 檔頭)。';
+  'packages/ports/src/IShippedEmailContext.ts 檔頭)。'
+  '🔴 **部署順序硬性約束**:本 view 的 anti-join 不分 status ⇒ 一列 failed 也會讓那個 (箱,單) 被永久排除 '
+  '⇒ **模板與 enqueue 接線必須同一次 deploy,模板不可後行;rollback 也要兩個一起退。**'
+  '違反的症狀是「那一封信永久漏掉」,而救援只剩手改 DB。';
 
 REVOKE ALL ON public.pcm_shipped_email_pending FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.pcm_shipped_email_pending TO service_role;

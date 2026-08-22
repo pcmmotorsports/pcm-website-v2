@@ -31,7 +31,13 @@ export type * from './IAlertNotifier';
 export type * from './IEmailOutbox';
 export type * from './IEmailSender';
 // 🔴 `Q-C9-b` 前置(2026-08-18):出貨通知信的寄送時讀取 port。
-// **目前零 production 呼叫端** —— 組裝那一行(`composition.ts:55`)刻意沒接,理由見該檔檔頭。
+// ~~**目前零 production 呼叫端** —— 組裝那一行刻意沒接~~
+// **2026-08-22(M-4b E4-b)起要分三層講**(合成一句就會有一句不成立):
+//   ① 有實作 ✅ `SupabaseShippedEmailContextAdapter`
+//   ② 有注入 ✅ `storefront/lib/email/composition.ts` → `Deps.shippedContext`(選用欄)
+//   ③ 🔴 **沒有人呼叫它** —— `sweepEmailOutbox` 只解構 `{ outbox, sender }`,現況 = 建構後閒置
+// ⚠️ ⇒ **一封都不寄**:`buildEmailText` 對 `order_shipped` 仍然 fail-closed throw。
+//    真正呼叫本 port 的是模板那一片(片3)。詳見該 port 檔頭。
 export type * from './IShippedEmailContext';
 // 🔴 M-4a B-5(掃描式 enqueue,Sean `Q-G4-1`=甲):「已付款但還沒排過 order_created」的窄讀 port。
 // 它回 PII(兩個 email 欄)⇒ 實作 server-only + service_role;呼叫端只准把值交給 outbox.enqueue。

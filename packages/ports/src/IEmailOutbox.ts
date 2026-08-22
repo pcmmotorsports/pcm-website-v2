@@ -158,6 +158,20 @@ export type OrderCreatedEmailPayload = {
 export type OrderShippedEmailPayload = {
   event_version: 1;
   display_id: string;
+  /**
+   * 🔴 **箱 uuid。這一欄是【寄送時讀取】那條路的唯一安全接點**(2026-08-22 codex R1 ④ 之後補)。
+   *
+   * `IShippedEmailContext.loadShippedContext` 要 `shipmentId`,而 sweeper 手上的
+   * `ClaimedEmailJob` 原本**只有** `orderId` 與**無結構的** `dedupKey`。
+   * ⇒ 唯一的取得方式會變成「**解析 dedup_key 這個自由文字**」,
+   *   而 `email_outbox.dedup_key` 在 DB 層**沒有任何格式 CHECK**(migration `:301` 逐字
+   *   「dedup_key 是通用 text、不加格式 CHECK」)⇒ 那條路沒有任何東西保證它解得出來。
+   * ⇒ 改成**顯式一欄**:型別擋、組裝層 runtime 驗 uuid 形狀、消費端不必解析字串。
+   *
+   * ⚠️ **它可以進 payload,而追蹤碼不行 —— 判別的是【可不可變】不是【是不是 id】**:
+   *   箱 uuid 一經產生永不改;追蹤碼**後台可改**,存了會過期。
+   */
+  shipment_id: string;
   /** 箱號。🔴 同一張訂單分批出貨會寄多封,這是收信人分辨「哪一箱」的唯一依據。 */
   shipment_reference: string;
   /** 標記出貨的時點(ISO 8601;事件時點快照、非寄送時點)。 */
@@ -188,7 +202,16 @@ export type EnqueueOrderCreatedEmailInput = EnqueueEmailInputBase & {
  */
 export type EnqueueOrderShippedEmailInput = EnqueueEmailInputBase & {
   eventType: 'order_shipped';
-  /** 箱 uuid(dedup_key 的前半;**不進 payload**)。 */
+  /**
+   * 箱 uuid。**dedup_key 的前半,而且【也進 payload】**。
+   *
+   * 🔴 ~~原本寫「不進 payload」~~ **2026-08-22 R1 ④ 之後不成立**(Fable R2 F1 抓到:
+   * 這句與同一支檔 `OrderShippedEmailPayload.shipment_id` **直接矛盾**)。
+   * ⇒ 它進 payload,因為寄送時要拿它去主表撈脈絡;而它**可以**進 payload,
+   *   理由是**不可變**(判準是可不可變,不是是不是 id)。
+   * ⚠️ 讀到舊字面而回頭去解析 `dedup_key` 的人:**那條路是被刻意堵死的**,
+   *   `dedup_key` 在 DB 層沒有任何格式 CHECK。
+   */
   shipmentId: string;
   /** 箱號(進 payload,收信人用它分辨哪一箱)。 */
   shipmentReference: string;

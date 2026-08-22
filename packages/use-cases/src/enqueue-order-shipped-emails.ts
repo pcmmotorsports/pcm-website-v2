@@ -117,8 +117,9 @@ export async function enqueueOrderShippedEmails(
         eventType: 'order_shipped',
         orderId: row.orderId,
         displayId: row.displayId,
-        // 🔴 `shipmentId` 只進 dedup_key、**不進 payload**;`shipmentReference` 反過來。
-        //    兩者不可互換:uuid 對客人沒有意義,而箱號不保證是我們用來去重的那個東西。
+        // 🔴 `shipmentId` 進 dedup_key **也進 payload**(~~原寫「只進 dedup_key、不進 payload」~~,
+        //    2026-08-22 R1 ④ 之後不成立);`shipmentReference` 只進 payload。
+        //    兩者不可互換:uuid 對客人沒有意義(不會印在信上),而箱號不是我們用來去重的那個東西。
         shipmentId: row.shipmentId,
         shipmentReference: row.shipmentReference,
         shippedAt: row.shippedAt,

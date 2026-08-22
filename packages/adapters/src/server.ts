@@ -111,6 +111,15 @@ export {
   SHIPPED_EMAIL_PENDING_VIEW,
   type ShippedOrderScannerClient,
 } from './email/SupabaseShippedOrderScannerAdapter';
+// 🔴 M-4b E4-b(2026-08-22):出貨通知信的**寄送時讀取** —— `IShippedEmailContext` 的第一份實作
+// (那支 port 從 2026-08-18 立好之後一直沒有實作)。server-only + service_role:
+// 它讀 shipments / shipment_items / order_items / orders 四張表,回品項與追蹤碼。
+export {
+  SupabaseShippedEmailContextAdapter,
+  ShippedContextQueryError,
+  SHIPPED_EMAIL_MAX_LINES,
+  type ShippedEmailContextClient,
+} from './email/SupabaseShippedEmailContextAdapter';
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate 的窄讀 adapter。
 // 零 PII(只回 id/orderId),client 注入 service_role,鏡像 SupabasePaidOrderScannerAdapter 的邊界。
 export {
