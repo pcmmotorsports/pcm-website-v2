@@ -94,7 +94,9 @@ export type TodaySummary = {
   /** 今日新單數;`null` = 讀取失敗。 */
   newOrderCount: number | null;
   /**
-   * 待處理的退款異常筆數;`null` = 讀取失敗。
+   * 退款異常筆數;`null` = 讀取失敗。
+   * 🔴 **不是「待處理」**(2026-08-22):含 `failed`+`manual_failed` 那半,而那半**按不動**
+   *    ⇒ 見 `lib/layout/sidebar-counts.ts` 的 `refundExceptionCount` 與 `app-sidebar.tsx` 的 `COUNT_QUALIFIER`。
    *
    * 🔴 **這一格不是「今日」** —— 它是**當下累積的待辦量**(述詞在 `../payment/refund-read.ts`
    *    的 `listRefundExceptions`,本片**不另寫一份述詞**)。**顯示文案不得寫成「今日異常」。**

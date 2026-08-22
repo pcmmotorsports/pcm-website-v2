@@ -40,7 +40,12 @@ import { listRefundExceptions } from '../payment/refund-read';
 export type SidebarCounts = {
   /** 未訂貨(goods_axis='none' 且未取消)訂單數;null = 讀取失敗。 */
   unorderedOrderCount: number | null;
-  /** 待處理退款異常筆數;null = 讀取失敗。`truncated=true` 時這個數字是下限,不是總數。 */
+  /**
+   * 退款異常筆數;null = 讀取失敗。`truncated=true` 時這個數字是下限,不是總數。
+   * 🔴 **不是「待處理」** —— 它把兩半加起來,而第二半(`failed`+`manual_failed`)**按不動**:
+   *    出口已 apply 而 app 呼叫端 = 0 ⇒ 那幾筆不會自己離開。側欄字面 2026-08-22 已改「卡住」
+   *    (理由與正式站數字見 `app-sidebar.tsx` 的 `COUNT_QUALIFIER`)。
+   */
   refundExceptionCount: number | null;
   refundExceptionTruncated: boolean;
   /** 缺貨商品數;null = 讀取失敗。 */

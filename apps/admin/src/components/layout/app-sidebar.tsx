@@ -108,7 +108,17 @@ function formatSyncedAtTaipei(iso: string): string {
  */
 const COUNT_QUALIFIER: Partial<Record<NavItem['key'], string>> = {
   orders: '未訂貨',
-  'refund-exceptions': '待處理',
+  // 🔴 **「待處理」→「卡住」(2026-08-22,Sean 拍板乙)** —— 那顆數字**沒有說謊,說謊的是這個字**。
+  //    `refund-read.ts` 那支有【兩支查詢】,而這一格把兩半加起來:
+  //      ① actionable  `status='processing'` + 逾時/有受理證據 ⇒ 有得按
+  //      ② stuck       `status='failed'` + `failed_reason='manual_failed'` ⇒ **沒得按**
+  //    ②那半**永遠不會自己離開清單** —— 出口(`admin_correct_order_refund_verdict` + 更正表 + view)
+  //    在正式站**已經 apply**,而 **app 呼叫端 = 0** ⇒ 沒有任何畫面寫得進去。
+  //    🔴 正式站實查(2026-08-22):actionable **0** / stuck **2** ⇒ **那個「2」100% 是按不動的那半。**
+  // ⚠️ **不准改成「只數 ① 那半」** —— ②被列出來是 `#473b-2`(2026-08-14)**刻意做的**,
+  //    `docs/phase-1-backlog.md:13760` 逐字「這條不解卡單,**只解看不見**」。
+  //    而 actionable=0 ⇒ 只數①之後這一格**完全沒有數字** ⇒ 精準地重建它修掉的那個病。
+  'refund-exceptions': '卡住',
   products: '缺貨',
 };
 
@@ -302,7 +312,12 @@ function RailCell({
            `app-sidebar-rail.test.tsx:211-214` 逐字釘住 `ordersSlot?.textContent` 的值,
            把數字搬走會讓那四條斷言紅 —— 而**改測試期望值不屬於本片可以拍的板**。
            ⇒ 本列是**純新增**,不動任何既有被釘住的行為。
-        📐 寬度實量(13px、軌內可用 73px):未訂貨 39 / 待處理 50.3 / 缺貨 35.5 ⇒ 三個都不會被切。
+        📐 寬度實量(13px、軌內可用 73px):未訂貨 39 / ~~待處理 50.3~~ / 缺貨 35.5 ⇒ 三個都不會被切。
+           🔴 **「待處理」2026-08-22 改成「卡住」,而【新字面沒有被實量過】。**
+              兩字 vs 三字、而「缺貨」(兩字)實量 35.5 ⇒ **推論上更安全,而推論不是量測。**
+              ⇒ **要量的是**:13px 之下「卡住」那個 `<span>` 的 `getBoundingClientRect().width`
+                 是否 ≤ 73;量法與另外兩格同一支尺(`overflow-ruler.mjs` 或瀏覽器 devtools)。
+              ⚠️ 在有人量過之前,**這一行不得被引用成「三個都不會被切」**。
            (同列塞不下 —— icon 20 + gap 4 + 數字槽 22 = 46,同列只剩 29px,連 10px 字都差 1px。
             而 Sean 2026-08-21 拍板最小字 13px ⇒ 縮字那條路本來就不能走。)
       */}

@@ -237,7 +237,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     expect(visibleTextOf('訂單')).toContain('未訂貨');
-    expect(visibleTextOf('退款異常')).toContain('待處理');
+    expect(visibleTextOf('退款異常')).toContain('卡住');
     expect(visibleTextOf('商品')).toContain('缺貨');
   });
 
@@ -268,7 +268,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
       syncedAt: SYNCED_COUNTS.syncedAt,
     });
     const sr = railCellFor('退款異常').querySelector('.sr-only');
-    expect(sr?.textContent?.trim()).toBe('待處理 99+ 筆');
+    expect(sr?.textContent?.trim()).toBe('卡住 99+ 筆');
     expect(sr?.textContent).not.toContain('55');
   });
 
@@ -286,7 +286,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     // 客戶 / 供應商 / 總覽:count 本身是 null ⇒ 不該有任何限定詞
     for (const label of ['客戶', '供應商', '總覽']) {
       const t = railCellFor(label).textContent ?? '';
-      expect(t, `${label} 不該有限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
+      expect(t, `${label} 不該有限定詞`).not.toMatch(/未訂貨|卡住|缺貨/);
     }
   });
 
@@ -305,7 +305,7 @@ describe('W1-077:三格數字接線(正對照 + 突變)', () => {
     });
     for (const label of ['訂單', '退款異常', '商品']) {
       const t = railCellFor(label).textContent ?? '';
-      expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/未訂貨|待處理|缺貨/);
+      expect(t, `${label} 讀取失敗時不該留著限定詞`).not.toMatch(/未訂貨|卡住|缺貨/);
     }
   });
 
