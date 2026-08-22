@@ -763,3 +763,34 @@ grep -lE "REVOKE.*FROM.*(anon|authenticated)" supabase/migrations/*.sql | wc -l 
 ⇒ 已另立 backlog 條目,**不擠在任何一條施工線上做**。
 ⇒ 在它被修好之前:**欄位級權限題一律走正式庫 `pg_catalog` 唯讀量測**
 (🔴 不要用 `information_schema` —— 它對零權限帳號系統性回 0,見 memory `MEMORY-supabase.md`)。
+
+### 12-e 🔴 同一個症狀有**三種病**,而其中兩種在 `information_schema` 上長得一模一樣
+
+2026-08-23 線A 拿 12-a 的發現去驗**自己**那顆拋棄式庫(不是假設它沒事), 當場量到:
+
+```
+                                    線A 的拋棄式庫(55544)   正式站(唯讀)
+欄位級授權(column_privileges)              350                937
+表級授權                                     27                117
+public 表數                                  47                 50
+量法 select count(*) from information_schema.column_privileges
+     where grantee in ('anon','authenticated')
+```
+🔴 **表數只差 3,授權差了一半以上** ⇒ 差距**不是**「表沒灌到」造成的。
+
+**三種形狀,成因不同、處置不同:**
+```
+① 路徑選錯    掃 .next 而不是 .next/cache/fetch-cache   ⇒ 分母對、產物類別錯
+② 工具補了門  storefront-probe up.sh:153 的 blanket GRANT ⇒ 環境【被工具改過】
+③ 門從來沒建  線A 那顆:22 支 migration 沒套 + 灌資料只灌列、沒重放 GRANT/REVOKE
+                                                        ⇒ 環境【比正式站少一層】
+```
+🔴 **②③ 在 `information_schema` 上完全分不出來** —— 都回得出漂亮的數字、都不報錯。
+⇒ **「有欄位級授權」不是安全訊號**:線A 那顆有 350 條,而它仍然不是對的那 350 條。
+⇒ **判別只能對照正式站的數量級**,不能看「有沒有」。
+
+### 12-f ⚠️ 而 OD 那 95 個畫面是用 `service_role` 跑的(繞過 RLS)
+
+⇒ **它顯示「看得到」不代表員工看得到。** 拿那批畫面當「權限沒問題」的證據 ⇒ 無效。
+✅ 那批畫面能證的:版面 / 欄位長相 / 有幾列 / 狀態機 / 文案。
+❌ 不能證的:誰看得到哪一欄 / anon 打得到什麼 / RLS+GRANT 兩層合起來擋不擋得住。

@@ -147,13 +147,18 @@ rollback 單一 commit `git revert`。**零 schema、零 migration、零資料�
 price_store / price_by_tier / price_general(`packages/domain/src/order/types.ts:814-819` 逐字)。
 先例:`d2f82be3`(admin 明細加品牌)走過同一條路,其五層改法與守門補法為本片範本。
 
-6. 🔴 **行為層實打(不可省、不可用授權查代替)**:以 **authenticated client**(禁 service_role)
+6. ⚠️ **【已知缺口,不列入本片驗收】行為層實打** —— 現有工具做不完,理由見本節末限定 ④。
+   🔴 **不要在 `storefront-probe` 上打這一條 —— 它會回假紅**(`up.sh:153` 的整表 GRANT 跑在 migrations 之後);要做得先解 backlog `#853`。
+   (內容原樣保留在下面,因為它是**日後怎麼補**的規格,不是今天的驗收項。)
+   原條文:**行為層實打(不可用授權查代替)**:以 **authenticated client**(禁 service_role)
    對 `order_items → product_variants → products → brands` 打一發真請求,
    **列舉回傳的完整 key 集合**(不是「看起來沒有價格」,是印出來逐一看)。
    ⇒ 兩個世界要印不同的東西:該拿到品牌名的一發要拿到、該被擋的一發要被擋。
    🔴 **若帶出任何價格欄 ⇒ 立刻停下回報主視窗,不自行變通、不自己想繞法。**
       那一刻它從「照拍板實作」變成「拍板選的路走不通」,是 Sean 要重新拍的題。
-7. 🔴 **forbidden-token 負測**:釘住 `price_store` / `price_by_tier` / `price_general`
+7. ⚠️ **【已知缺口,不列入本片驗收】forbidden-token 負測** —— 同上:在 probe 上**恆紅**、零判別力。
+   (內容原樣保留在下面,同樣是日後的規格。)
+   原條文:**forbidden-token 負測**:釘住 `price_store` / `price_by_tier` / `price_general`
    三個字面在客人面回應裡 **0 命中**;**且負對照要證明尺是活的**
    (故意塞一個進去,測試必須紅 —— 沒紅代表那格恆綠、等於沒有守門)。
    📌 `price_general` 一定要在清單裡:`d2f82be3` commit body 逐字記過
@@ -166,7 +171,7 @@ price_store / price_by_tier / price_general(`packages/domain/src/order/types.ts:
    ⇒ 那一列必須仍然可讀(品名/規格/單價來自快照,不受影響),**不得整列消失、不得破圖**。
    🔴 顯示規則照既有先例分兩種、不得憑感覺:
       品牌 null ⇒ **整行不印**(`AdminOrderDetailItem.brand` docstring 逐字)
-      圖 null   ⇒ 走 `ProductImage` 那套佔位圖 + onError 備援(見本片 §③)
+      圖 null   ⇒ 走 `ProductImage` 那套佔位圖 + onError 備援(**見附錄 B**)
 
 ### 🔴 第 6 / 7 條的可完成性 —— **不要把它們排進本片的驗收清單**
 
@@ -339,8 +344,69 @@ packages/adapters/src/supabase/SupabaseOrderAdapter.ts:586
 成因 B  商品已下架 join 不到 ⇒ **本來有圖,現在拿不到**(今天 0 筆,而 §⑤-b 說它會長)
 ```
 三個候選(**描述,不是視覺稿**):甲 整個圖框不畫 / 乙 灰底佔位框 / 丙 兩種成因分開處理。
+🔴 **成本欄看附錄 B-4,不要憑直覺** —— 讀完 CSS 之後那三個的貴賤**反過來**了(乙零改動、甲要動兩處斷點)。
 📌 既有先例的判準(`AdminOrderDetailItem.brand` docstring 逐字):
 **「缺值本身算不算一個需要被看見的事實」** ⇒ 照這條指向**丙**
 —— ⚠️ **而那是推論不是拍板,且它是畫面題 ⇒ 交線A / Sean。**
 ✅ **不擋實作**:先走乙(既有 `ProductImage` 佔位圖 + onError 備援),Sean 看過真畫面再調 = 純樣式片。
 🔴 主視窗紀律:**他第一次看到畫面時要主動把那一列指給他看,不要等他自己發現。**
+
+---
+
+## 附錄 B · 取圖與 fallback 的權威(**不要另發明一條取圖路徑**)
+
+> 補這一節的原因:`§⑤-b` 第 9 條寫「圖 null ⇒ 走 `ProductImage` 那套」,
+> 而**這份 spec 原本沒有告訴實作窗那套是什麼、在哪、有什麼坑**
+> ⇒ 讀到那句的人只能自己去猜或自己重寫一份。(2026-08-23 線2 當驗收者抓到。)
+
+### B-1 權威在哪
+
+```
+commit 21cbf057  fix(storefront): 商品圖不再向外部圖庫熱連, 而載不到的圖現在有備援 (2026-08-22)
+   舊做法 ProductImage.tsx:28 PRODUCT_IMG_POOL = 15 個 Unsplash id、:176 熱連 images.unsplash.com
+   出處是 design-reference/components/ProductCard.jsx:22 的【示意圖】被當成正式站 fallback
+   ⇒ 已全數移除(分母在 commit body:定義處 2→0、程式碼命中 2→0)
+commit c6a7b896  無商品圖佔位圖換成 PCM 版 —— 原本那張是 favicon 的複本
+```
+⇒ **取圖與 fallback 一律走既有的 `ProductImage`,不另發明。**
+
+### B-2 🔴 兩條硬紀律(`21cbf057` commit body 逐字,照抄別重犯)
+
+```
+① onError 記在 state,**不改 `e.currentTarget.src`**
+   —— 改 src 會【再觸發一次 load】⇒ 佔位圖若也載不到就變成無限迴圈。有測試釘著。
+② hero / 縮圖 / lightbox 三個位置各有各的取法 —— 當時第一版用 getByLabelText('圖片 1')
+   當 hero,而那個 aria-label 掛在【縮圖按鈕】上 ⇒ **量了縮圖、結論講 hero**。突變才抓到。
+```
+
+### B-3 ✅ 一格 Sean 已經拍過,**不要再問他**
+
+`memory project_0822-sean-closes-three-image-and-cache-items` ①:
+47 件商品的 `images[0]` 是供應商自己的 no-image / COMING SOON 圖檔 ⇒ Sean 逐字
+**「就用他們的圖,沒關係」** ⇒ 不改資料、不做圖片正規化。
+⇒ **訂單詳情頁上出現一張寫著「COMING SOON」的圖是【拍過板的可接受狀態】**,不是 bug、不要修。
+
+### B-4 🔴 CSS 讀完之後,「沒有圖那一列」的成本算式**反過來了**
+
+```css
+.od-line     { grid-template-columns: 84px minmax(0,1fr) auto; }   /* pcm-account.css:1321 */
+.od-line-img { width:84px; aspect-ratio:1/1; background:#fff; border:1px solid …; } /* :1328 */
+手機版 :1400  .od-line { grid-template-columns: 64px minmax(0,1fr); }
+```
+**圖片欄是一條寫死的 grid 軌道,不是靠圖片撐出來的。** ⇒ 附錄 A-4 那三個候選的成本欄要照這個讀:
+
+```
+乙 灰底佔位框   🔴 **零成本, 而且已經是現在的預設** —— 沒有 <img> 時那個 div 本身就是
+                 白底 + 1px 框、與有圖的列等寬等高。**一行 CSS 都不用改。**
+甲 整框不畫     ❌ **不是少畫一個 div 就好** —— 軌道還在, 那列仍空著 84px、文字不會左移
+                 ⇒ 要加 modifier 改 `grid-template-columns`, **而且手機版斷點要再改一次**
+丙 兩種成因分開  = 乙 + 甲 各做一次
+```
+🔴 **原本寫「甲最省」是錯的** —— 依 CSS **乙最省(零改動),甲要動兩處斷點**。
+⚠️ 而「乙零成本」是**讀 CSS 推的**,不是畫面上看到的 ⇒ 要變成量到的,得真的渲染一列沒有 `img` 的 `.od-line`。
+🔴 **端那三個候選給 Sean / 線A 時,成本欄要用這一版** —— 否則他用錯的價格挑。
+
+### B-5 一格實作時要補的決定
+
+`.od-status` 有三檔(`is-action` / `is-progress` / `is-done`),與訂單記錄同一套,
+而**稿沒有給「`orderStatusLabel()` 五個字面各配哪一檔」的對照表** ⇒ 實作時要補。
