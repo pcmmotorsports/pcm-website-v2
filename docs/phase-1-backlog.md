@@ -29554,3 +29554,119 @@ B 那半(repo, 任何人可跑):
 ```
 - **本條的位置**:原本只活在 `~/pcm-mailbox/58-841-匯款後單子消失-plan-20260823.md` §3-d 與一封信裡。
   🔴 **而那種位置沒有人會回頭讀**(同 `#856` 的成因)⇒ 主視窗 2026-08-23 指定另立成條目。
+
+### #859. ✅ `pcm_sync_order_refund_payment_status` 的 RAISE 訊息曾掛著 `admin_finalize_order_refund:` 前綴,會把值班導向錯誤的函式 —— **已於片2a 修掉(甲案)**
+
+> ~~原標題:「而它今天【不可達】,那正是它會被忘記的原因」~~ **2026-08-23 更正**:那個「不可達」是錯的(見下面兩層更正),而條目本文 `不得再以「不可達」當延後理由` 與舊標題直接打架 ⇒ 標題改寫。**掃標題索引的人以前會拿到相反的結論。**
+
+- **關鍵字**(給搜的人):RAISE 訊息前綴 / `admin_finalize_order_refund:` / `pcm_sync_order_refund_payment_status` /
+  錯誤訊息指錯函式 / 分期開權 / 不可達的守門 / 退款片1 片2a。
+- **狀態:** ~~⏳ 待執行~~ **✅ 已於片2a 修掉**(`supabase/migrations/20260823020000_…p2a…sql` §1a;主視窗 2026-08-23 裁定甲案、片界擴到 helper)
+- **來源**:退款片1(`20260823010000`)`:211-212` 逐字要求「片2 讓 B/C 也呼叫本函式時,
+  **必須回訪 helper 內 RAISE 訊息的 `admin_finalize_order_refund:` 前綴**」;
+  ~~片2a(`20260823020000`)**刻意沒做**,主視窗 2026-08-23 裁定延後 + 立本條。~~
+  🔴 **2026-08-23 同日更正**:那個延後裁定建在一個【錯的依據】上(見下面兩層更正)⇒ **重裁為不延後**
+  ⇒ 片2a **已把甲案做掉**(`:221-238` 覆寫 helper 三條 RAISE 為中性前綴、`:584-589` 自檢 2g/2g2 釘住)。
+  ⚠️ 而 helper 原本共 **4 條** RAISE,其中 **3 條**掛舊前綴、第 4 條出生就中性;四條現在全中性。
+
+## 事實(可重跑)
+```
+helper 的來源態 allowlist RAISE, 訊息逐字保留了片1 抽取前的前綴:
+  git grep -n "不允許進入退款轉移" supabase/migrations/20260823010000_*.sql
+  ⇒ 'admin_finalize_order_refund: 訂單 % 的 payment_status=% 不允許進入退款轉移(domain 轉移表);拒結案'
+片1 為什麼保留它:那是「行為零改變」的一部分 —— 改掉訊息 = 可觀察行為改變
+  (codex R1 2026-08-23 F8 抓到片1 第一版改了它;片1 自檢 3k 現在釘著它逐字不變)
+而片2a 讓 admin_record_manual_refund 也會走到那條 RAISE
+  ⇒ **一個從「非卡退款登記」觸發的錯誤, 訊息開頭寫著另一支函式的名字**
+```
+
+## 🔴 不修未來會痛在哪 —— **而痛的形狀不是「訊息醜」**
+- 值班的人看到 `admin_finalize_order_refund: …` 會**去查卡片退款那條路**,而錯其實發生在**非卡登記**。
+  ⇒ 那是**把人導向錯誤現場**,不是文案問題。
+- ~~🔴🔴 **而真正的病是它今天【不可達】**:`admin_record_manual_refund` **零 GRANT**
+  (`20260820021000:344-345` 分期開權,EXECUTE 由 D2 那片開)⇒ 今天沒有任何 client role 呼叫得到~~
+  🔴🔴 **2026-08-23 更正:上面那句是錯的,而它錯了兩層。本條【已經到期】,不是未來式。**
+
+## 🔴 更正一:DB 層【今天就可達】
+```
+20260820022000_m4b_e10_d2_grant_manual_refund.sql:124-126
+  GRANT EXECUTE ON FUNCTION
+    public.admin_record_manual_refund(uuid, uuid, text, text, integer, text, timestamptz)
+    TO service_role;
+正式庫實測(主視窗 2026-08-23 唯讀 MCP):service_role 執行得到 ⇒ **true**
+（正對照 service_role 存在=true、該函式存在=true;負對照=false)
+```
+🔴 **我原本引的 `20260810210000:344-345` 是【另一支函式】**(`admin_reverse_manual_payment`)——
+我把兩個名字很像的東西看成同一支, **而那個誤讀被當成一次裁定的前提用掉了**。
+
+## 🔴🔴 更正二:本條原本寫的那句「判別 grep」**它自己是瞎的**
+```
+原判別句  git grep -n "GRANT EXECUTE ON FUNCTION public.admin_record_manual_refund" -- supabase/migrations
+今天實跑  ⇒ **仍然 0 命中** —— 即使那道 GRANT 就在 20260820022000:124
+成因      那道 GRANT 是**跨三行**寫的:`GRANT EXECUTE ON FUNCTION` ⏎ 函式簽章 ⏎ `TO service_role;`
+          ⇒ 單行 grep 看不到它
+```
+🔴 **⇒ 一個為了「以後有人會發現」而寫的機械門檻, 它從出生那天就看不見它要看的東西。**
+**可用的量法(多行感知, 可重跑)**:
+```bash
+python3 - <<'EOF'
+import io,glob,re
+for f in sorted(glob.glob('supabase/migrations/*.sql')):
+    s=io.open(f,encoding='utf-8').read()
+    for m in re.finditer(r'GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+public\.admin_record_manual_refund', s, re.S):
+        print(f, s[:m.start()].count('\n')+1)
+EOF
+# 2026-08-23 實跑 ⇒ 命中 1 處:20260820022000_m4b_e10_d2_grant_manual_refund.sql:124
+```
+⚠️ **而 `admin_record_manual_payment` 是另一支**(收款不是退款)—— 上面的 pattern 已用 `refund` 收窄, 別放寬。
+
+## ⇒ 狀態:**到期。片2a apply 之前必須處置**
+```
+DB 層可達 = **是**(上面實測)
+而「今天還沒有人真的看到那條訊息」的依據 —— **我逐層往下查, 一層一層都不成立**:
+  DB 層 GRANT           ⇒ **已開**(20260820022000:124)
+  app 層呼叫端          ⇒ **存在**:`apps/admin/src/lib/payment/manual-refund-repository.ts:7`
+                           逐字「admin_record_manual_refund owner RPC 的**唯一呼叫端**」
+  UI 層                 ⇒ **只剩一個布林旗標**:
+                           `apps/admin/src/components/orders/manual-refund-entry-gate.ts:94`
+                           `export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = true;`
+                           同檔 :101 `if (MANUAL_REFUND_ENTRY_BLOCKED_BY_787) return false;`
+🔴🔴 **⇒ 擋住那條訊息被人看到的, 是【一行寫死的 true】。**
+   它不是分期開權、不是權限、不是機制 —— **改一個字就沒了**, 而改它的人不會知道本條。
+⇒ **不得再以「不可達」當延後理由。**
+```
+
+## 修法方向 —— ~~三個候選~~ **已選甲並落地**
+
+```
+🔴 2026-08-23 主視窗裁定【甲】, 而片2a 已做完。以下保留三案與代價, 作為【為什麼是甲】的紀錄。
+⚠️ **原本這裡寫「建議與片3 一起做甲」「不要在片2b 順手做」—— 那兩句已作廢**:
+   下一個人若照它去片3 動甲案, **會去改一道已經不存在的 3k 期望值**,
+   並可能把已經中性的前綴再改一次。
+```
+```
+甲 訊息改成中性(拿掉函式名前綴)                ✅ **已採用, 片2a §1a**
+   代價:動到片1 自檢 3k 釘住的字面
+   🔴 而實際落地時發現那個代價**不成立**:3k 住在片1 的 DO $post$, 而片1 的前置閘
+      (「helper 已存在就 RAISE」)使**片1 不可重跑** ⇒ 3k 今天不會再跑到
+      ⇒ 全 repo 另一處釘舊字面的是 `scripts/a7c-rw1b-verify.sh:572`, 比對式是子字串 ⇒ 不會紅
+乙 helper 收 caller 參數                        ❌ 未採用:改簽章 ⇒ 所有呼叫端與前置指紋全要重釘
+丙 只改 COMMENT                                 ❌ 未採用:COMMENT 不會出現在錯誤訊息裡 ⇒ 對值班零幫助
+```
+🔴 **而甲的決定性理由不是「它自己造的它自己收」(那是看向過去),是主視窗給的這一句**:
+> 切成獨立一片 ⇒ **片2a 上線到那一片之間, 那條訊息是錯的** —— 而那正是我們剛決定「不延後」的東西。
+> **切出去等於把自己剛推翻的結論再做一次。**
+
+
+## 相關(逐條開檔看過,都不是同一件)
+```
+#371 classifyPgError 只認 P0001 ⇒ 錯誤碼被誤歸「可重試」
+     ⇒ **同一族不同層**:那條是 TS adapter 把 DB 錯誤【分類錯】, 本條是 DB 訊息【指錯函式】
+     ⇒ 兩者都會誤導值班, 而修的地方不同。不可合併
+#477 單號前綴肉眼分不出來 ⇒ 不同(那是識別碼設計)
+```
+- **別名檢查紀錄**:`scripts/backlog-duplicate-scan.py --search` 逐詞跑過「前綴 / 分期開權 / 訊息 / 不可達」,
+  逐條開檔看過最像的 #371 / #477 / #630 ⇒ 皆非同件。
+  🔴 **而多詞一起搜會回 0** —— 該工具是 AND 比對, 4 個詞沒有任何一條全中
+  ⇒ **那個 0 是尺造出來的, 不是證據**(正對照:單搜「手動建單」⇒ 7 命中)。發號時要用單詞。
+- **編號**:`bash scripts/claim-backlog-number.sh` 佔號取得(非手動 grep 最大號)。
