@@ -126,7 +126,11 @@ afterEach(() => cleanup());
 describe('#10 片1 揀貨單列印頁', () => {
   it('①把投影接上畫面:單號 / 料號 / 品名 / 規格都印得出來', async () => {
     const t = textOf((await renderPage()).container);
-    expect(t).toContain('揀貨單');
+    // 🔴 `#240`/Q1-A1(2026-08-23):~~expect(t).toContain('揀貨單')~~ ⇒ 抬頭已改名。
+    //    原句留在這裡, 因為它記著「這一格【一直】在守抬頭字面」——
+    //    改名的時候它紅了, 那正是它該做的事。
+    expect(t).toContain('訂單明細');
+    expect(t).not.toContain('揀貨單');
     expect(t).toContain('PCM-2026-0042');
     expect(t).toContain('LTC-BK-XL');
     expect(t).toContain('前叉防甩頭');

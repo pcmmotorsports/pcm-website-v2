@@ -355,7 +355,7 @@ export function OrderDetail({
             rel='noopener'
             className='border-border bg-card hover:bg-muted text-foreground inline-flex shrink-0 items-center rounded-md border px-2.5 py-1 text-sm'
           >
-            列印揀貨單
+            訂單明細
           </Link>
         )}
       </div>

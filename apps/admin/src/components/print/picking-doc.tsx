@@ -1,3 +1,4 @@
+import { stripPictographs } from '@/lib/print/strip-pictographs';
 import type { AdminOrderDetail, AdminOrderDetailItem } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 import { BlockedSheet } from './blocked-sheet';
@@ -120,7 +121,13 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
        📎 Sean 逐字「出貨單都是 A4」⇒ **揀貨單一起吃**,兩張紙同一套版面。 */
     <div data-slot='picking-doc' className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
       <div className='flex flex-wrap items-center gap-3'>
-        <h1 className='text-2xl font-semibold'>揀貨單</h1>
+        {/* 🔴 `#240`/Q1-A1(2026-08-23):抬頭由 ~~「揀貨單」~~ 改為「訂單明細」——
+            Sean 拍板②逐字「那原本的揀貨單 按鈕改成 -> **訂單明細**」。
+            ⚠️ **鈕改了而這裡沒改, 比不改更糟**:他在後台看到新名字, 列印出來還是舊的
+               (code-reviewer R1 must-fix 3 抓到)。
+            📌 而**這張紙的【內容】本片沒動** —— 版面同出貨單、無出貨狀態字眼、無勾選欄
+               那些屬 A3(從 ShippingDoc 衍生 variant + PickingDoc 退役)。 */}
+        <h1 className='text-2xl font-semibold'>訂單明細</h1>
         <span className='text-xl font-semibold tabular-nums'>{detail.displayId}</span>
         {/* 🔴 **擋住內容卻沒擋住列印鈕 = 守門裝在沒有事的那條路上**(2026-08-17;
             與 `shipping-doc.tsx` 同批,那邊 code-reviewer R2 F3 點名這裡一個字沒改)。
@@ -195,7 +202,14 @@ export function PickingDoc({ detail }: { detail: AdminOrderDetail }) {
           )}
 
           <div className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-1 text-sm'>
-            <span>客人:{detail.customer.name ?? '—'}</span>
+            {/* 🔴 `#240`/Q1-A1(Sean 2026-08-23 拍「濾掉」):`customers.name` 會帶 emoji 進來
+                —— **LINE 登入把顯示名抓進來的**,不是打錯字(正式庫實查:6 位 LINE 客人裡 1 位有)。
+                而這張紙合併後要 **email 給客人** ⇒ 印不出來就是一個方框,**第一個發現的人是客人**。
+                ⇒ **印的時候拿掉,不動客人自己的資料。**
+                ⚠️ `stripPictographs` **只處理 emoji** —— 罕用漢字(堃/㴪)它抓不到,
+                   那一族要靠「掃整份渲染文字 + 對照嵌入字型 cmap」那道守門(plan §S-字域)。
+                   **這一行綠了不代表印不出來的字都處理好了。** */}
+            <span>客人:{stripPictographs(detail.customer.name) ?? '—'}</span>
             <span>下單:{formatOrderDateTime(detail.createdAt)}</span>
             {/* 🔴 截斷時這個數字**只是已載入的子集**,而它讀起來像總數(codex R2)——
                 與合計那句話同一個病,不能只修被指名的那一處。 */}

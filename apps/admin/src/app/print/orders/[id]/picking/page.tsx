@@ -26,11 +26,13 @@ export const dynamic = 'force-dynamic';
 //    這裡只保證「如果印了,上面是對的字」。
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (!isOrderId(id)) return { title: '揀貨單' };
+  if (!isOrderId(id)) return { title: '訂單明細' };
   // 這支查詢與下面的頁面各查一次(Next 對同一 request 的 dedupe 不涵蓋非 `fetch` 的呼叫)。
   // 代價 = 多一趟唯讀查詢;換到的是紙上有單號。真的想省要自己包 `cache()`,不在本片範圍。
   const detail = await getAdminOrderRepository().findAdminOrderDetail(id);
-  return { title: detail === null ? '揀貨單' : `揀貨單 ${detail.displayId}` };
+  // 🔴 `#240`/Q1-A1:這個 title **會印進瀏覽器的列印頁首**(同檔 :23 註解)
+  //    ⇒ 它跟著鈕一起改名, 否則紙的最上面仍然印著舊名字。
+  return { title: detail === null ? '訂單明細' : `訂單明細 ${detail.displayId}` };
 }
 
 export default async function OrderPickingPrintPage({

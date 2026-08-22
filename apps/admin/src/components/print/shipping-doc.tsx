@@ -1,3 +1,4 @@
+import { stripPictographs } from '@/lib/print/strip-pictographs';
 import type { AdminOrderDetail, AdminOrderDetailItem, AdminOrderPrintItem } from '@pcm/domain';
 import type { ShipmentRow } from '../../lib/shipping/shipment-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
@@ -182,7 +183,11 @@ export function shippingDocBlocker(args: {
   //    寫入鏈四層沒有一層擋空(詳 `shipment-repository.ts` 的 `recipientSnapshot` docstring)。
   //    ⇒ 這裡是**下游擋**,不是把洞補起來;洞在建箱動線,`#503` 另開一片。
   const r = shipment.recipientSnapshot;
-  if (r.name.trim() === '' || r.phone.trim() === '' || r.line.trim() === '') {
+  // 🔴 `#240`/Q1-A1 複驗 must-fix:**姓名這一格判的是【濾過之後】的值。**
+  //    名字若整串都是 emoji(`'🏍'`)⇒ 原始值 `trim()` 非空 ⇒ 舊寫法**放行** ⇒
+  //    而下面渲染時 `stripPictographs` 回 null ⇒ **收件人欄整格空白的標籤就印出去了**。
+  //    ⇒ 比補一個 `?? '—'` 正確:**紙上印「收件人:—」一樣寄不出去。**
+  if (stripPictographs(r.name) === null || r.phone.trim() === '' || r.line.trim() === '') {
     // ⚠️ 用 `trim()` 判空是**顯示端的判斷**,不是資料層的 —— 資料層刻意原樣保留(見該 docstring)。
     return '這個包裹沒有完整的收件資料(收件人 / 電話 / 地址有缺),不能出貨。請先補齊收件資料。';
   }
@@ -478,7 +483,12 @@ export function ShippingDoc({
           {/* 收件人。`blocked === null` 已保證 `recipientSnapshot` 非 null 且三欄都有內容。 */}
           <div className='rounded-md border p-3 text-sm'>
             <div className='text-muted-foreground mb-1 text-xs'>收件人</div>
-            <div className='font-medium'>{shipment.recipientSnapshot?.name}</div>
+            {/* 🔴 `#240`/Q1-A1(code-reviewer R1 must-fix 4):收件人姓名同樣是客人自填 /
+                LINE 帶入 ⇒ 一樣會帶 emoji, **而【這張紙】才是明確要交給客人的那張**。
+                📌 只修被指名的那一條路(揀貨單)而留著姊妹呼叫端, 是本 repo 明文反對的做法。
+                ⚠️ 濾掉之後若整串為空 ⇒ `stripPictographs` 回 null ⇒ 這裡印空(維持既有行為,
+                   本欄原本就沒有 `?? '—'` 的缺值寫法, 本片不改它的顯示規則)。 */}
+            <div className='font-medium'>{stripPictographs(shipment.recipientSnapshot?.name)}</div>
             <div>{shipment.recipientSnapshot?.phone}</div>
             <div>{shipment.recipientSnapshot?.line}</div>
           </div>
