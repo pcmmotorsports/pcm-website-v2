@@ -318,3 +318,45 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
       .toHaveLength(1);
   });
 });
+
+// 🔴 第 12 顆 icon:進氣系統(2026-08-22 補;Sean 授權後看三顆候選挑「乙」)。
+//    這一族要擋的是**兩個方向**的退化,而兩個在畫面上都只是「圖不見了/圖不對」、沒有報錯:
+//      · icon 被刪掉 ⇒ 應該退回**佔位**(仍然對齊),不是變回什麼都沒有
+//      · cat 編號被改 ⇒ 色條會跟著錯,而 `--cat-12` 那條 CSS 仍然存在 ⇒ 文字層守門看不到
+describe('進氣系統 icon(第 12 顆,非 OD 畫的)', () => {
+  const render進氣 = () =>
+    render(<CategoryGrid categories={mk(['進氣系統'])} />).container.querySelector('.b-cat-chip')!;
+
+  it('🔴 有 icon 了:不再是 --noicon、也不再是透明佔位', () => {
+    const chip = render進氣();
+    expect(chip.classList.contains('b-cat-chip--noicon'), '仍被當成缺 icon ⇒ 表沒查到它').toBe(false);
+    const ico = chip.querySelector('.b-cat-icon')!;
+    expect(ico, 'icon 格不見了').not.toBeNull();
+    expect(ico.classList.contains('b-cat-icon--none'), '還掛著透明佔位 ⇒ 那顆 icon 沒被用上').toBe(false);
+    expect(ico.querySelector('svg'), 'icon 格裡沒有 svg').not.toBeNull();
+  });
+
+  it('🔴 色碼是 12 —— 綁的是分類、不是名次(它現在剛好是最後一顆,那是巧合)', () => {
+    expect(render進氣().getAttribute('data-cat')).toBe('12');
+  });
+
+  it('🔴 那顆 svg 照既有 11 顆的規則:viewBox 0 0 24 24,且**不自己寫 stroke/fill**', () => {
+    const svg = render進氣().querySelector('.b-cat-icon svg')!;
+    expect(svg.getAttribute('viewBox'), 'viewBox 不是 0 0 24 24 ⇒ 與其他 10 顆不同座標系、線寬會不一致')
+      .toBe('0 0 24 24');
+    // 🔴 這一格是「別繼承斷掉」的守門:11 顆全部靠 home.css 的 `.b-cat-icon svg` 給描邊,
+    //    誰在元素上自己寫 stroke/fill,誰就會在別人改那條 CSS 時靜靜地不跟著變。
+    for (const el of [...svg.querySelectorAll('*')]) {
+      expect(el.hasAttribute('stroke'), `${el.tagName} 自己寫了 stroke ⇒ 脫離 home.css 那條共用描邊`).toBe(false);
+      expect(el.hasAttribute('fill'), `${el.tagName} 自己寫了 fill ⇒ 同上`).toBe(false);
+    }
+  });
+
+  it('🔴 而它【沒有】解掉真正的病:表上沒有的分類仍然走佔位那條路', () => {
+    // 這一格是 backlog #848 的活證據:磚牆放誰由即時件數排名決定、icon 是畫死的。
+    // 補了進氣系統之後,**下一顆上榜而查無 icon 的分類仍然會退回佔位** —— 拿一個確定不在表上的來驗。
+    const chip = render(<CategoryGrid categories={mk(['煞車系統'])} />).container.querySelector('.b-cat-chip')!;
+    expect(chip.classList.contains('b-cat-chip--noicon'), '補第 12 顆不該讓缺 icon 那條路消失').toBe(true);
+    expect(chip.querySelector('.b-cat-icon--none'), '缺 icon 時仍要有透明佔位撐住對齊').not.toBeNull();
+  });
+});

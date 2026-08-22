@@ -17,6 +17,25 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const RAW = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'home.css'), 'utf8');
+
+/**
+ * 元件**實際能吐出來**的 `data-cat` 值,現場從 `CategoryGrid.tsx` 數(2026-08-22)。
+ *
+ * 🔴 **為什麼不寫 `1..11` 或 `1..12`**:色票與色條規則的數量**會長**(分類上榜是件數排名決定的),
+ *    而寫死的上限有兩種壞法,兩種都不會紅:
+ *      · 寫死的數字**比實際少** ⇒ 新那顆的色條規則**沒有人在檢查**(掃描字集比宣稱窄)
+ *      · 寫死的數字**比實際多** ⇒ 每次加分類都得先改這個數字,而改它的人會直接 +1、不會回頭想
+ *    ⇒ 唯一穩的做法是**問受測物自己有幾顆**。
+ * ⚠️ 這裡讀的是**原始碼字面**(本檔是 node 環境、不 render React):`cat: N` 這個形狀由
+ *    `CATEGORY_CHIPS` 的型別釘住(`{ cat: number; icon: ReactElement }`),改形狀會先炸 typecheck。
+ * ⚠️ 前提斷言在下面:撈到 0 顆 = 正規式跟著原始碼漂掉了,要當場紅,不能靜靜地讓迴圈跑 0 圈
+ *    ——**一個跑 0 圈的迴圈,和一個全部通過的迴圈,在測試報告上是同一個綠勾。**
+ */
+const CATEGORY_GRID_SRC = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../components/CategoryGrid.tsx'),
+  'utf8',
+);
+const CAT_NUMBERS: string[] = [...CATEGORY_GRID_SRC.matchAll(/^\s*cat: (\d+),/gm)].map((m) => m[1]!);
 // 先剝註解:本檔的註解大量引用選擇器字面,直接對原文比對會命中說明文字而不是真規則
 // (brand-page.test.ts 記過這個實錘:規則被整段註解掉、守門照樣綠)。
 const CSS = RAW.replace(/\/\*[\s\S]*?\*\//g, '');
@@ -500,9 +519,16 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
   // 🔴 色碼:11 條逐一比對,而且**必須綁 `[data-cat="N"]`**。
   //    退化成 `:nth-child(N)` 是最自然的寫法、也最錯:那會把顏色綁回**名次**,
   //    OD :927-929 逐字說「名次會變 → 色碼綁分類 id,不能綁位置」。
-  it('🔴 11 條分類色碼綁 `data-cat`、逐條對到自己的 `--cat-N`,且不得改綁位置', () => {
+  // 🔴 前提斷言:`CAT_NUMBERS` 是用正規式從 .tsx 撈的 ⇒ 正規式漂掉會回空陣列,
+  //    而下面兩個迴圈都會**跑 0 圈然後通過**。這一格是那兩個迴圈的分母。
+  it('🔴 前提:真的從 CategoryGrid.tsx 撈到 cat 編號(撈到 0 顆 ⇒ 下面兩個迴圈是空跑)', () => {
+    expect(CAT_NUMBERS.length, '正規式沒撈到任何 `cat: N` ⇒ 色碼那兩格失去全部判別力').toBeGreaterThan(0);
+    expect(new Set(CAT_NUMBERS).size, `有重複的 cat 編號:${CAT_NUMBERS.join(',')}`).toBe(CAT_NUMBERS.length);
+  });
+
+  it('🔴 每一顆分類色碼都綁 `data-cat`、逐條對到自己的 `--cat-N`,且不得改綁位置', () => {
     const css = topLevelCss().replace(/\s+/g, ' ');
-    for (let n = 1; n <= 11; n += 1) {
+    for (const n of CAT_NUMBERS) {
       expect(
         css,
         `--cat-${n} 的色條規則不見了或對錯 token`,
@@ -513,7 +539,7 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
 
   // 🔴 兩份色票必須逐字相同:同一個分類在首頁 chip 與品牌頁 chips 上是同一個顏色。
   //    這條是「重複定義」的配套 —— 沒有它,兩邊分家不會有任何訊號。
-  it('🔴 `--cat-1..11` 與 `brand-page.css` 的那份逐顆相同(11/11)', () => {
+  it('🔴 兩份色票逐顆相同(數量現場數,不寫死)', () => {
     const BP = readFileSync(new URL('./brand-page.css', import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '');
     // 🔴 R1 nit:`Object.fromEntries` 對同名 key 靜默取最後一顆 ⇒ 同一檔裡出現兩次 `--cat-3`
@@ -525,9 +551,21 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     };
     const home = grab(CSS);
     const brand = grab(BP);
-    // 前提斷言:兩邊都真的有 11 顆,否則下面的比對可能在比兩個空物件
-    expect(Object.keys(home), 'home.css 的色票不是 11 顆').toHaveLength(11);
-    expect(Object.keys(brand), 'brand-page.css 的色票不是 11 顆').toHaveLength(11);
+    // 前提斷言:兩邊都真的撈到東西,否則下面的比對可能在比兩個空物件。
+    // 🔴 2026-08-22 這裡原本寫死 `toHaveLength(11)`。加第 12 顆時它**當場擋住我** ——
+    //    那不是壞事(它確實叫了),但它擋的是「數量變了」而不是「兩份分家了」,
+    //    而**數量是會長的**、分家才是病 ⇒ 改成從 `CategoryGrid.tsx` 現場數。
+    //    ⚠️ **刻意不改成 `toHaveLength(12)`** —— 那只是把同一個洞往後推一格,
+    //       下一顆分類上榜時它又會擋住人,而擋住人的成本是「有人把它改成 13」。
+    expect(Object.keys(home).length, 'home.css 撈不到色票 ⇒ 下面會變成兩個空物件相等 = 假綠')
+      .toBeGreaterThan(0);
+    expect(Object.keys(brand).length, 'brand-page.css 撈不到色票 ⇒ 同上').toBeGreaterThan(0);
+    // 元件能吐出來的每一個 `cat: N`,兩份色票都要有 —— 這才是真正的不變量
+    //(元件吐了 12 而色票只有 11 ⇒ 那顆 chip 沒有色條,而畫面上只是「少一條線」、沒有訊號)。
+    for (const n of CAT_NUMBERS) {
+      expect(home[n], `元件有 cat:${n} 而 home.css 沒有 --cat-${n} ⇒ 那顆 chip 不會有色條`).toBeDefined();
+      expect(brand[n], `元件有 cat:${n} 而 brand-page.css 沒有 --cat-${n} ⇒ 品牌頁那顆沒有色條`).toBeDefined();
+    }
     expect(home, '兩份分類色票分家 ⇒ 同名分類在首頁與品牌頁會是兩種顏色').toEqual(brand);
   });
 

@@ -42,6 +42,13 @@
   --cat-1: #9aa3ab; --cat-2: #7a6552; --cat-3: #232629; --cat-4: #5c6656;
   --cat-5: #2f6ea8; --cat-6: #9c7f43; --cat-7: #3f7d80; --cat-8: #6e6e73;
   --cat-9: #545a63; --cat-10: #7a5347; --cat-11: #6a5f86;
+  /* 🔴 cat-12 進氣系統(Sean 2026-08-22 授權「你想辦法生一顆就好」，看三顆候選挑「乙」)。
+     選色是**量的**：現有 11 顆兩兩最接近的一對是 cat-8 vs cat-9、ΔE(CIE76)=9.2
+     ⇒ 判準取自現況本身「新色對 11 顆的最小 ΔE 必須 ≥ 9.2」，不是挑一個看起來夠大的數字。
+     #4f7a5e 的最小 ΔE = 15.5(最近的是 cat-4 橄欖 #5c6656)。
+     ⚠️ 分數更高的灰紫紅 #8a5f75(17.0)**沒選** —— 那是判斷不是量測：它與 cat-11 紫同色相家族。
+     既有有橄欖(4)有青(7)、**沒有正綠** ⇒ 這一顆填的是真的空缺。 */
+  --cat-12: #4f7a5e;
 }
 @media (max-width: 900px) { .ed-page { --ed-gutter: 20px; } }
 
@@ -932,6 +939,7 @@
 .b-cat-chip[data-cat="9"] { box-shadow: inset 3px 0 0 var(--cat-9); }
 .b-cat-chip[data-cat="10"] { box-shadow: inset 3px 0 0 var(--cat-10); }
 .b-cat-chip[data-cat="11"] { box-shadow: inset 3px 0 0 var(--cat-11); }
+.b-cat-chip[data-cat="12"] { box-shadow: inset 3px 0 0 var(--cat-12); }
 .b-cat-icon {
   width: 28px;
   height: 28px;
