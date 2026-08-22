@@ -48,6 +48,31 @@
 -- 這支只建一個 view + 一支函式。排信的呼叫端在 TS,而**片1 不把它掛上 cron route**。
 -- 真正的「上膛」是兩個獨立動作,兩個都還沒做:
 --   ① 掛上 route(片3)  ② 設 `SHIPPED_EMAIL_CUTOFF` env(Sean 的事,片3 交付說明書)
+--
+-- 🔴🔴 **那顆 env 該填什麼 —— 這個數字是 2026-08-22 量出來的,寫在這裡免得它跟著 session 消失**:
+-- ```
+-- 已出貨、未作廢、還沒排過信的箱 = 2 個
+--   最舊  2026-08-12 15:01:23+00
+--   最新  **2026-08-17 09:46:08+00**   ← 值必須填在【這個時點之後】
+-- 裝了超過一張訂單的箱 = 0（⇒「一箱兩單寄兩封」那條路今天沒有真實流量會走到）
+-- 量法（唯讀，任何有 DB 權限的窗可重跑）:
+--   select count(*), min(s.shipped_at), max(s.shipped_at)
+--     from public.shipments s
+--     join public.shipment_items si on si.shipment_id = s.id
+--    where s.shipped_at is not null and s.deleted_at is null;
+-- ```
+-- 🔴 **為什麼是「之後」**:Sean 2026-08-22 答**舊單不補寄**。填在那個時點之前 ⇒ 那兩位客人會收到
+--    一封講十天前 / 五天前的出貨通知,**而信收不回來**(鐵則 12⑤)。
+-- ⚠️ 而上面那三個數字**會過期** —— 只要有人在片3 上線前又出了一箱貨。**照上面那條命令當場重量。**
+-- 📎 給 Sean 的操作說明書(在哪設、怎麼確認上膛):`~/pcm-mailbox/C-給Sean-出貨通知信開關怎麼設-20260822.md`
+--    ⚠️ 它在**信箱不在 repo**,而信箱不會跟著 repo 走。要長期保存請搬進 `docs/runbooks/`。
+--
+-- 🔴🔴 **片3 的驗收硬性要求(Fable 2026-08-22 R2 逐字,寫進 repo 免得只留在信裡)**:
+--    「repo 裡拋棄式 PG + PostgREST runbook **現成兩份**,**片3 驗收必須真跑,不許再推**。」
+--    ⇒ `docs/runbooks/throwaway-postgres-for-migration-verification.md`
+--    ⇒ `docs/runbooks/local-admin-with-real-data-probe.md`(以及 `scripts/storefront-probe/up.sh`)
+--    ⚠️ 片1/片2 用的是**假 client + 參數斷言**,它證明「查詢條件沒被刪掉」,
+--       **證明不了 PostgREST 對那些條件的真實語意**(例:`!inner` 到底有沒有濾掉父列)。
 -- ⚠️ 起始線為什麼非有不可:本 view 的語意是「已出貨而沒排過信」,
 --    **在功能上線的第一秒,那個集合 = 歷史全部**(今天量到 2 筆,最舊 2026-08-12、最舊那筆
 --    已經過了十天)⇒ 沒有 cutoff 就會寄出兩封「十天前出貨」的通知,而**信收不回來**。
