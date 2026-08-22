@@ -301,6 +301,56 @@ cd apps/admin && ADMIN_DEV_BYPASS=1 \
 
 > ## ⇒ **鑽機能驗【畫面長什麼樣】,不能驗【按下去會發生什麼】。**
 
+> ### ⚠️ 上面這句 **2026-08-21 起【部分不成立】** —— 寫入面打得通,配方在下(2026-08-23 b8 重跑驗過)
+> 原句當時為真,留著不改;它失效的那一格與為什麼失效,寫在這裡。
+> 🔴 **它過期了兩天沒人發現的代價是量到的**:線2 2026-08-23 讀到它,放棄了整個行為面的驗證、並開始考慮
+> 一條它自己判斷「不該做」的繞道 —— 一句過期的「做不了」產生的不是錯誤,是【沒有發生的嘗試】。
+>
+> **為什麼原句只對一半**(線A 2026-08-21 打通、b8 08-23 逐條複打 `lib/session/authorize.ts`):
+> ```
+> ADMIN_DEV_BYPASS=1 只管兩件事:proxy.ts 的放行 + Origin 檢查的 devBypass(authorize.ts:17-18、:39)
+> ⇒ 它【不】造出 session。authorizeAdminMutation 要過三關(authorize.ts:24-42),缺一即 null ⇒ ?r=denied:
+>   ① verifySessionDetailed(cookie pcm_admin_sess_dev)
+>   ② isAllowedOrigin(…, devBypass)          ← 只有這一關 ADMIN_DEV_BYPASS 有效
+>   ③ getSessionActor() ⇒ cookie pcm_admin_actor 值必須是 staff 表的 active id(seed 有 sean / staff_1 / staff_2)
+> ```
+> **配方(零 secret、不碰任何 `.env*`、與正式站金鑰無關 —— 這句要讀兩次:secret 是你隨手編的)**:
+> ```bash
+> # 一 · 起鑽機時多帶一個隨手編的 ADMIN_SESSION_SECRET(≥32 字元;up.sh 不擋環境變數,會傳給 next dev)
+> ADMIN_SESSION_SECRET='pcm-admin-probe-<代號>-throwaway-session-secret-32plus' bash scripts/admin-probe/up.sh
+> # 二 · 用【同一個 secret】自己簽一張票(格式=session.ts;dev 的 envTag 是 local;材料有長度前綴)
+> python3 - <<'PY'
+> import hmac, hashlib, json, base64, os, time
+> sec='<你的 SEC>'; env='local'
+> material=f"v1:{len(sec)}:{sec}:{len(env)}:{env}".encode()
+> now=int(time.time())
+> pj=json.dumps({"v":1,"sid":os.urandom(16).hex(),"iat":now,"exp":now+11*3600,"auth_time":now,"amr":["bootstrap"]},separators=(',',':')).encode()
+> b64=lambda b: base64.urlsafe_b64encode(b).decode().rstrip('=')
+> print(b64(pj)+'.'+b64(hmac.new(material,pj,hashlib.sha256).digest()))
+> PY
+> # 三 · 瀏覽器 console 設兩顆 cookie(缺一都還是 denied,而畫面上的字一模一樣 —— 兩顆一起設)
+> document.cookie = 'pcm_admin_sess_dev=<上面印的>; path=/; SameSite=Lax';
+> document.cookie = 'pcm_admin_actor=staff_1; path=/; SameSite=Lax';
+> ```
+> **2026-08-23 重跑的判別發**(訂單列表的關鍵字搜尋 = 走 `authorizeAdminMutation` 的 server action):
+> ```
+> 不帶 cookie 送出  ⇒ 導到 /orders?r=denied                 ← 對照組,原句描述的世界
+> 帶兩顆 cookie 送出 ⇒ 導到 /orders?date_from=…&date_to=…   ← 無 r=denied,動作被執行
+> ```
+> 兩個世界印不同的東西 ⇒ 配方是活的。來源信:`~/pcm-mailbox/A-86-☐2走查清單-失敗時他看得到嗎-20260821.md:195-230`
+> (信箱不會被下一個人讀到 —— 這就是它過期兩天的原因,見下)。
+>
+> **⚠️ 三條效度限制一起帶走,不要只帶好消息**:
+> 1. 鑽機多開了正式站沒有的 `AUDIT_UI_ENABLED=1`(#27)⇒ 稽核那格不可外推到正式站。
+> 2. OD 那 95 張畫面是用 service_role 抓的(繞過 RLS)⇒「看得到」≠「員工看得到」。
+> 3. `customer_addresses` / `customer_vehicles` 在鑽機上是空表 ⇒ 碰那兩張表的路徑構造不出來。
+>
+> **這一格為什麼會過期而沒人發現**:打通法寫進了信箱檔,而信箱檔不在任何人的閱讀路徑上;runbook 這句
+> 「不能驗」沒有任何東西在看它還成不成立。**機制提案(不是「要記得寫回去」)**:把 runbook 裡每一句
+> 「做不了 / 不能驗」變成【帶重測命令的限制條目】—— 條目旁附一條可跑的檢查,定期跑;哪天那條檢查
+> 過了,限制句就被機器標成「過期待改」。本條的重測命令 = 上面那兩發判別發(可腳本化)。
+> ⇒ 立 backlog `#857`;**而我明說它的代價**:每句限制都要有人寫重測命令,沒寫的那些照樣會靜靜過期。
+
 ⚠️ **而失敗【看得見】**(這是好消息,不是壞消息):`?r=denied` 會讓頁面印出「沒有權限」
 (`#534` 的修法;W3 同日負對照驗過:**帶 `r=denied` ⇒ 出現;不帶 ⇒ 不出現**)。
 ⇒ **你按下去沒反應的時候,先看網址列有沒有 `?r=denied`** —— 有的話那不是功能壞了,是這條鏈的邊界。
