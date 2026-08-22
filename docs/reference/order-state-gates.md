@@ -18,6 +18,7 @@
 | `admin_cancel_order` | **3** | 20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:83<br>20260805100000_m4b_e10_a8a2_partial_cancel.sql:80<br>20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253 | `20260820030000_m4b_e10_a8a3_cancel_gate_noncard.sql:253` |
 | `admin_compute_order_settlement` | **2** | 20260811030000_m4b_e10_op6a_compute_order_settlement.sql:50<br>20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356 | `20260812140000_m4b_lifecycle_refund_manual_reversal.sql:356` |
 | `admin_create_shipment` | **3** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:96<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:599<br>20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83 | `20260807170000_m4b_e10_b2_w3a_create_shipment.sql:83` |
+| `admin_finalize_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:612<br>20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245 | `20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:245` |
 | `admin_initiate_order_refund` | **2** | 20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:423<br>20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480 | `20260812170000_m4b_lifecycle_l5b2_2f_initiate_advisory.sql:480` |
 | `admin_mark_shipment_shipped` | **4** | 20260807150000_m4b_e10_b2_w1_shipping_rpc_skeletons.sql:140<br>20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql:659<br>20260807190000_m4b_e10_b2_w3c3_mark_shipped.sql:110<br>20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177 | `20260808100000_m4b_e10_b2_w7d1_ship_deadlock_retry.sql:177` |
 | `admin_record_item_receipt` | **3** | 20260810233000_m4b_e10_352a2_receipt_write_rpcs.sql:53<br>20260811010000_m4b_e10_352c_item_level_room_guard.sql:23<br>20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608 | `20260814100000_m4b_e10_452_2a2a_adjacent_writers_voided_split.sql:608` |
@@ -168,6 +169,26 @@
 **允許集合(逐字)**
 
 `:375` FROM public.order_cancellations<br>`:396` IF (v_order.cancelled_at IS NOT NULL) <> (NOT EXISTS (<br>`:403` IF v_order.cancelled_at IS NULL THEN<br>`:428` JOIN public.order_cancellations c ON c.id = (g.after->>'cancellation_id')::uuid<br>`:465` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:466` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:472` WHERE pa.order_id = p_order_id AND pa.status <> 'failed') THEN<br>`:501` OR v_audit.before->>'payment_status' NOT IN ('unpaid', 'paid')<br>`:525` IF v_closed AND v_order.cancelled_at IS NULL THEN<br>`:533` IF v_order.cancelled_at IS NOT NULL THEN<br>`:541` OR EXISTS (SELECT 1 FROM public.order_cancellations c<br>`:562` IF (v_order.payment_status <> 'unpaid'::public.payment_status<br>`:563` AND NOT (v_order.payment_status = 'paid'::public.payment_status<br>`:569` WHERE a.order_id = p_order_id AND a.status <> 'failed') THEN<br>`:635` INSERT INTO public.order_cancellations (order_id, actor, idempotency_key, reason_code, reason_detail, payload_hash)<br>`:766` IF position('IF v_order.payment_status <> ''unpaid''::public.payment_status' in v_def) > 0 THEN<br>`:775` OR position('v_audit.before->>''payment_status'' NOT IN (''unpaid'', ''paid'')' in v_def) = 0<br>`:818` 'public.order_cancellations', 'public.order_cancellation_items',<br>`:847` 'public.order_cancellations', 'public.order_cancellation_items',
+
+### `admin_finalize_order_refund`  ·  `20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql`
+
+**改什麼狀態**
+
+`:356` UPDATE public.order_refunds<br>`:366` UPDATE public.order_refunds<br>`:372` UPDATE public.order_refunds SET status = 'deferred'<br>`:376` UPDATE public.order_refunds<br>`:384` UPDATE public.order_refunds<br>`:389` UPDATE public.order_refunds<br>`:462` IF v_new NOT LIKE '%UPDATE public.orders SET payment_status = v_target::public.payment_status%' THEN
+
+**允許集合(逐字)**
+
+`:462` IF v_new NOT LIKE '%UPDATE public.orders SET payment_status = v_target::public.payment_status%' THEN
+
+### `pcm_sync_order_refund_payment_status`  ·  `20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql`
+
+**改什麼狀態**
+
+`:167` UPDATE public.orders SET payment_status = v_target::public.payment_status
+
+**允許集合(逐字)**
+
+`:161` IF v_ps NOT IN ('paid', 'partiallyRefunded', 'refunded') THEN<br>`:167` UPDATE public.orders SET payment_status = v_target::public.payment_status
 
 ---
 
