@@ -28,7 +28,11 @@
         📎 **這條是 code-reviewer 找到 OD 檔之後推翻的**:我原本寫「6 處全 0」——
         **漏數的第 7 處正是唯一的反例**,而我拿一個 `use=0` 的宣告(`--radius-pill`)當 pill 規則的靠山,
         **與我自己在同一段寫的「看實際用值不看宣告」直接矛盾。** */
-  --radius: 0;
+  /* 🏁 **2026-08-23 Sean 拍板「乙 全部圓角」⇒ `0` → `8px`**(推導與量法見下方四階那段)。
+     ⚠️ 上面那整段「BMW M:圓角 → 直角」的推理**留著不刪** —— 被推翻的是語言,不是那段推理。
+     🔴 而它裡面那句「**改這一個數不會讓整站圓角一起變**」在直角期間是對的(四階被釘死 0);
+        **本次把四階改回 `calc()` 之後,那句話才重新失效** ⇒ 現在改這裡【真的會】牽動四階。 */
+  --radius: 8px;
 
   /* ═══ BMW M 色票對映(片1;`docs/design/admin-design-system.md` §1)═══════════════
      真權威 = OD `overview-desktop-bmw-m.html`,**sha256 `e3609fc4…` / 40,610 bytes 落筆當下實測對得上**
@@ -79,21 +83,21 @@
         這些數字如果我抄錯,沒有任何一格會紅**(只要真值仍 ≥ 門檻)。
         **⇒ 要核這些數字,只能自己再算一次;把它們當「已被守門釘住」是錯的。**
         📎 這正是本檔一直在講的那件事的又一個實例:**「有守門」與「守的是這件事」是兩回事。** */
-  --background: #f7f8fa;
-  --foreground: #111827;
+  --background: #f8fafc;
+  --foreground: #1f2937;
   --card: #ffffff;
-  --card-foreground: #111827;
+  --card-foreground: #1f2937;
   --popover: #ffffff;
-  --popover-foreground: #111827;
-  --primary: #0066b1;
+  --popover-foreground: #1f2937;
+  --primary: #1a5c96;
   --primary-foreground: #ffffff;
-  --secondary: #eef3f8;
-  --secondary-foreground: #111827;
-  --muted: #eef3f8;
-  --muted-foreground: #606e85;
-  --accent: #eef3f8;
-  --accent-foreground: #111827;
-  --destructive: #e4002b;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #1f2937;
+  --muted: #f1f5f9;
+  --muted-foreground: #4d596d;
+  --accent: #f1f5f9;
+  --accent-foreground: #1f2937;
+  --destructive: #b42318;
   --destructive-foreground: #ffffff;
   /* ═══ 片3b 新增三顆(Sean 2026-08-16 拍「狀態膠囊配色換成 BMW 那套」)══════════════
      🔴 **三顆都與消費端同片進**(狀態膠囊)—— 這是本線第三次拒絕「宣告在、消費端 0」。
@@ -113,16 +117,16 @@
           今天無害,**因為它們的消費端不是「直接當文字色」,而是被 `color-mix` 兌淡當底**
           (實算後膠囊對比 8.96 / 6.30,餘裕很大)。
           🔴 **⇒ 誰要把它們直接拿來當文字色,必須先重算。** */
-  --fg-2: #334155;
-  --success: #12883e;
+  --fg-2: #333e4e;
+  --success: #0f7a3d;
   /* 🏁 **2026-08-17 Sean 拍 `Q-視覺2` = 甲「全部依照設計稿」** ⇒ `#a56a07` → OD `:26` 的 `--warn` `#f59e0b`。
      ⚠️ **舊值不是隨便挑的**:`#a56a07` 是**為了「直接當文字色」而壓深過的**(見上面 `:112-115` 那段)。
      🔴 **換成 `#f59e0b` 之後,它【更不能】直接當文字色** —— 亮琥珀對白底遠低於 4.5。
         今天無害的理由與舊值同款:**唯一的消費端是 `.cap-y`,而那裡兩端都經過 `color-mix`**
         (底 = 混 `--card` 82%、字 = 混黑 38%)。**誰要把它直接拿去當文字色,必須先重算。**
      📎 對比由 `design-tokens.test.ts` 的膠囊那格**實算並斷言**,不是抄在這裡的數字。 */
-  --warning: #f59e0b;
-  --border: #d7dee8;
+  --warning: #a15c07;
+  --border: #ccd5e2;
   /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
      **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
      檔頭那張表的 `--motion-*` 那一列逐字寫著「值存在但沒有任何元件吃它;寫『已套用』是假的」。
@@ -133,7 +137,7 @@
         ⇒ 它與 `--border` 一樣**不進對比配對表**(見 `design-tokens.test.ts` 的 `ALLOWED_UNCOVERED`)。
      🔴 **兩級的差別是承重的,不是好看**:OD `:310-312` 用 `th` 深(`--border`)、
         `td` 淺(`--border-soft`)做出「表頭線 vs 列線」兩級。**只有一級時表頭會混進資料列裡。** */
-  --border-soft: #edf1f6;
+  --border-soft: #e8ecf2;
   /* 🔴🔴 **這是設計參照 §1「三階邊框」裡 `--border-interactive` 那一階的落地。**
      **舊值 `oklch(0.94 0 0)` = `#ebebeb` ⇒ 對頁面底 1.16 / 對卡片 1.19,而 WCAG 1.4.11 要 3.0。**
      **後果不是抽象的**:實測搜尋框與搜尋鈕的邊框顏色完全相同、對白底約 1.17
@@ -170,7 +174,7 @@
               **掃舊字面時那個括號寫法不在任何一條 pattern 上。**
            **⇒ 註解裡引用 token 值要寫完整字面**(`oklch(0.92 0 0)` / `#d7dee8`),
               **簡寫成 `(0.92)` 等於把自己排除在掃描之外,而掃描報 0 命中時看起來像沒事。** */
-  --input: oklch(0.631 0 0);
+  --input: #8b93a1;
   /* ═══ BMW M 動效 token(`docs/design/admin-design-system.md` §5)═══════════════
      🔴🔴 **住在 `:root` 而不是 `@theme inline`,這是被審查糾正過的** ——
      code-reviewer 用本 repo 的 `tailwindcss@4.3.2` 實際編譯後查證:
@@ -197,15 +201,15 @@
        `focus-visible:ring-ring/50` → 50% 疊回底色約 2.2,**這是光暈、不是那道要達標的線**
      🔴 **不要因為「光暈只有 2.2」就去加深它** —— 達標的責任在描邊那條;
         兩條都加深會做出一個又粗又髒的環,而那正是 BMW M 想避開的。 */
-  --ring: #0066b1;
+  --ring: #1a5c96;
   --sidebar: #ffffff;
   --sidebar-foreground: #111827;
-  --sidebar-primary: #0066b1;
+  --sidebar-primary: #1a5c96;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #eef3f8;
+  --sidebar-accent: #e9edf3;
   --sidebar-accent-foreground: #111827;
-  --sidebar-border: #d7dee8;
-  --sidebar-ring: #0066b1;
+  --sidebar-border: #d3dae4;
+  --sidebar-ring: #1a5c96;
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans TC',
     'PingFang TC', 'Microsoft JhengHei', sans-serif;
@@ -305,13 +309,30 @@
         因為那組推導假設了根值夠大,能吃掉 ±4px 的偏移。**邊界值把公式的前提打掉了。**
      ⇒ 直角期間四階全部釘 0;**日後若要恢復圓角,把這四行改回 `calc()` 並確認根值 ≥ 4px。**
      ⚠️ **膠囊不走這裡**(用 `rounded-full`)—— 見設計參照 §6.5.4:可以點的直角、只能看的 pill。 */
-  /* 🔴 `--radius-xs` 一併釘 0(N3):不釘的話 Tailwind 預設 `0.125rem` 活下來,
-     而 `ui/sheet.tsx:66` 的 ✕ 會在一片直角裡留 2px 圓角。 */
-  --radius-xs: 0;
-  --radius-sm: 0;
-  --radius-md: 0;
-  --radius-lg: 0;
-  --radius-xl: 0;
+  /* 🏁🏁 **2026-08-23 Sean 拍板「乙 —— 不算了,照 OD 新稿全部圓角」⇒ 四階恢復推導。**
+     (題目逐字:「『可以點的直角、只能看的圓角』這條還算數嗎?」甲=算數 / 乙=全部圓角。)
+
+     ⚠️ **上面那整段【直角期間】的推理刻意留著,一個字沒刪** —— 它是這組公式的說明書:
+        「`--radius` 一旦設 0 那組推導就壞了(sm 得 −4px、xl 得 4px 根本不是直角)」
+        ⇒ **下一個人若又要改回直角,不能只改根值,要連這四行一起釘死。**
+        它自己也寫了復原條件:「把這四行改回 `calc()` 並**確認根值 ≥ 4px**」—— 本次 8px 滿足。
+
+     🔴 **根值 8px 是【數出來的,不是挑的】。** 量法(可重跑):
+        對 OD 產物 `orders-admin-v2.html` 掃 `border-radius` 的實際用值 ⇒
+        ```
+        8px 22 次   0 7 次   9999px 5 次   9px 4 次   var(--radius) 3 次
+        4px 3 次    10px 3 次   12px 3 次   6px 2 次
+        ```
+        `--radius: 8px` 推出的四階 = **sm 4 / md 6 / lg 8 / xl 12** ——
+        **與稿上的 4 / 6 / 8 / 12 逐一對上。** 這不是巧合,是同一套階梯。
+     ⚠️ **9px 與 10px 是稿上的例外,不進這組**:那兩處是分段控制與計數徽章,
+        L5 線已分別對到 `rounded-md` 與 `rounded-full`(它的判準:徽章 18px 高、9px = 全圓)。
+     ⚠️ **`rounded-full` 的膠囊不吃這組**(它是 9999px)—— 那條沒變。 */
+  --radius-xs: 2px;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 /* 🔴 **尊重系統的「減少動態」設定**(WCAG 2.3.3 / 前庭失調與偏頭痛使用者)。
@@ -400,25 +421,16 @@
    ⚠️ **支援度我沒量**:`color-mix` 要 Chrome 111 / Safari 16.2 / Firefox 113 以上,
       **我沒量過員工實際用什麼瀏覽器** ⇒ 標【未量】。但修法成本是換個參數順序,**不值得為它賭。**
    📎 守門在 `design-tokens.test.ts`:第一個參數不是 `var(--card)` 就紅。 */
-.cap-n {
-  background: color-mix(in oklab, var(--card) 84%, var(--muted-foreground));
-  color: var(--fg-2);
-}
-
-.cap-y {
-  background: color-mix(in oklab, var(--card) 82%, var(--warning));
-  color: color-mix(in oklab, var(--warning), black 38%);
-}
-
-.cap-bl {
-  background: color-mix(in oklab, var(--card) 87%, var(--primary));
-  color: var(--primary);
-}
-
-.cap-g {
-  background: color-mix(in oklab, var(--card) 84%, var(--success));
-  color: color-mix(in oklab, var(--success), black 22%);
-}
+/* 🔴🔴 **這四條規則已於 2026-08-23 移除,而移除的理由是【它們已經死了】,不是不要它們。**
+   OD 改版搬進來的 `:20xx` 那組 `.cap-*` 對 `background` 與 `color` **兩個屬性都下了 `!important`**
+   ⇒ 這四條在瀏覽器裡一個像素都畫不到。留著的代價不是浪費幾行,是**守門會去測它們** ——
+   審查逐字:「四顆膠囊已經沒有顏色了,這一格照樣綠」(`ruleOf()` 用 `RegExp.exec` 只取第一筆,
+   而第一筆就是這裡)。**死碼 + 指著死碼的守門 = 一組會自己維持綠的東西。**
+   ⇒ 顏色的**唯一真相**現在是 `:20xx` 那組,而它讀的是 `--tint-*` / `--ink-*` / `--pill-*`;
+     守門也一起搬過去測那組(見 `design-tokens.test.ts` 同名 describe)。
+   ⚠️ **值不是等價搬移,是換了一組色票**:舊的混 `--warning`/`--primary`/`--success`(頁面中性工業色),
+     新的混 OD 參考檔的 `#f59e0b`/`#0066b1`/`#16a34a`。真瀏覽器實測對比 8.98 / 6.93 / 4.98 / 4.90。
+   📌 形狀那條(`.cap-n,.cap-y,… {padding/字重/字距}`)**不在此列,仍然活著**,不要一起刪。 */
 
 /* ═══ 膠囊的形狀(片 A-1;OD `overview-desktop-bmw-m.html:206-207` 逐字)═══════════
    **片3b 只搬了【顏色】,沒有搬【形狀】。** 三個實測差(瀏覽器 computed value,片 A-1 當天量):
@@ -493,13 +505,15 @@
       會把**品牌條**一起調成別的顏色,而且畫面上看起來只是「顏色變了」、沒有人會發現那是品牌錯誤。
    ⚠️ 本規則**只給背景**,尺寸由使用端決定(OD 自己也是:`:89` 的 `hr.m-stripe` 給 4px 高、
       `:133` 的 `.rail .mstripe` 給 32×4)—— 尺寸屬版面,不屬這個圖案。 */
+/* 🏁 **2026-08-23 Sean 拍板(看過並排實物)= 乙「改單色」** ⇒ 三停漸層 → `var(--primary)`。
+   ⚠️ **上面那 15 行【不是廢話,是當時成立的理由】,刻意保留不刪** ——
+      它記錄的是「為什麼三停要硬寫、為什麼不准寫成 var」,而那段推理在 BMW M 語言下是對的。
+   🔴 **被推翻的是【語言】,不是那段推理**:OD 2026-08-23 改版的理由是
+      「紅色在後台是『未付款/取消』的語意色,品牌也用紅會互相稀釋 —— 賽車感拿掉、品牌痕跡(藍)留著」。
+      ⇒ 三色條不再是品牌圖案,它降級成一條分隔線 ⇒ 那 15 行的前提消失,所以它可以是 var。
+   ⚠️ **下一個人如果要改回三色,請先讀上面那 15 行** —— 它仍然是「改回去要付什麼代價」的說明書。 */
 .m-stripe {
-  background: linear-gradient(
-    90deg,
-    #0066b1 0 33.33%,
-    #1c69d4 33.33% 66.66%,
-    #e22718 66.66% 100%
-  );
+  background: var(--primary);
 }
 
 /* ── #350b 工作區殼 ─────────────────────────────────────────────────────────
@@ -663,17 +677,22 @@
   --od-fs-sm: 0.8125rem;
 }
 
-.orders-grid[data-den='std'] {
-  --od-row-h: 32px;
-  --od-fs: 0.8125rem;
-  --od-fs-sm: 0.75rem;
-}
+/* 🏁 **2026-08-22 Sean 拍板:「寬鬆、標準、緊湊功能就保持寬鬆吧」⇒ 切換拿掉、固定寬鬆。**
+   (2026-08-23 線A 落地;OD 改版稿 `FIX-25 密度切換固定為「寬鬆」` 同一條。)
 
-.orders-grid[data-den='tight'] {
-  --od-row-h: 26px;
-  --od-fs: 0.75rem;
-  --od-fs-sm: 0.6875rem;
-}
+   ⚠️ **原本這裡有 `[data-den='std']`(32px)與 `[data-den='tight']`(26px)兩塊,已刪。**
+      舊值留在版本歷史裡,要回復去 git 找 —— 這裡不留註解版的死值,
+      因為**註解裡的 CSS 會被下一個人當成「還在用、只是被註解掉」**。
+
+   🔴 **為什麼是【刪掉規則】而不是【只拿掉按鈕】**:
+      `orders-table.tsx:725` 逐字 `data-den={density}` —— **那個屬性永遠都在**,
+      而 `[data-den='…']` 的特異性 (0,2,0) 永遠贏過裸 `.orders-grid` (0,1,0)。
+      ⇒ 只拿掉按鈕的話,**舊書籤帶著 `?den=tight` 進來仍然會變 26px**,而畫面上沒有任何開關可以調回去。
+      (這正是 OD FIX-25 ② 逐字講的:「光拿掉按鈕不夠,舊書籤還是會帶參數進來」。)
+   ⇒ 規則刪掉之後,`data-den` 變成一個**不影響任何樣式**的標記,留著給測試與除錯用。
+*/
+
+
 
 /* 🔴 **列高由 `height` 帶、不是由上下 padding 帶**(OD `:105-107` 同款 `height:var(--row-h);padding:0 8px`)。
    片3 刻意沒動上下內距(那時寫著「密度是片4」)⇒ 這裡接手:把元件的 `py-2` 壓成 0,
@@ -1761,4 +1780,606 @@
 }
 .icardbody {
   padding: 0 0 10px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OD 後台改版移植 · L1 樣式線(2026-08-23,線A)
+   ═══════════════════════════════════════════════════════════════════════════
+   🔴 **真權威 = OD 產物檔的【最終渲染結果】,不是任何單一 FIX 條目。**
+      Sean 2026-08-23 拍板逐字:「OD 現在設計稿(`orders-admin-v2.html`)用什麼,就用什麼。」
+
+   🔴🔴 **為什麼下面是【照文件順序整段搬】,不是逐條合併過的乾淨版本:**
+      同一批選擇器被多條 FIX 反覆改(例 `.orders-grid` 的 `--od-row-h` 出現 4 次:
+      44px → 48px → 48px → 40px)。**CSS 後面贏,而稿上長出來的就是最後那一次。**
+      逐條合併 = 我用手去算誰贏 ⇒ 算錯不會有東西紅。**保留順序 = 讓 CSS 自己算,與稿同構。**
+      📎 我 2026-08-23 已經在 token 那批踩過一次:只搬 FIX-10 的 `--background:#eef1f5`,
+         而稿上是 FIX-38 蓋掉的 `#f8fafc` —— **Sean 肉眼看出來的,我的正負對照全過。**
+
+   ⚠️ **已濾掉 72 條 OD 的鷹架規則**(選擇器含 `data-od-*` / `.od-*`)——
+      那些是 OD 在快照上加的標記,我們的元件沒有那些屬性,搬過來是死 CSS。
+      其中 `[data-od-panel]` 屬訂單面板(L5 線)、`[data-od-split-panel]` 屬商品/客戶面板(另議)。
+   ⚠️ **`--od-row-h` / `--od-fs` / `--od-fs-sm` 不是鷹架,是共用詞彙** —— 本檔 `:663` 起本來就在用。
+
+   ⚠️ **未驗**:以下全部沒有人在瀏覽器裡看過。我搬的是字面與順序,不是畫面。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   ✅ **Sean 2026-08-24 拍板【A = 全站放大】—— 那 15 條全站裸 class 字級覆寫【放回來了】。**
+
+   **他是【看真畫面】決定的,不是看文字選項**:同一頁(`/customers`)、同一份資料、同一個瀏覽器,
+   兩張並排(`~/Desktop/PCM-字級比較/A全站-vs-B現況.png`)。逐字量到的差別:
+     A 全站放大 ⇒ `.text-xs` **14px** · `.text-sm` **16px** · `.text-2xl` **26px** · 列高 **44px**
+     B 維持現況 ⇒ `.text-xs` **13px** · `.text-sm` **14px** · `.text-2xl` **24px** · 列高 **38px**
+   兩邊都**沒有破版、沒有截字**(`scrollWidth - clientWidth = 0`,掃 overflow 只命中 `span.sr-only`)。
+
+   ⚠️ **他知道範圍才選的**:這一組是**全站生效**,而 OD 的稿只畫過訂單頁 ——
+   `/customers`、`/products`、`/dashboard`、`/settings` 都會跟著變。
+   實測分母:`text-xs` 282 處 / 75 檔 · `text-sm` 259 處 / 81 檔 · `text-2xl` 16 處 / 14 檔;
+   `/customers` 一頁上寫著 `.text-xs` 的元素 **67 個,67 個全部變 14px**。
+
+   🔴🔴 **改這段之後你會拿到【舊的畫面】,而它不會告訴你 —— 這一格我繞了兩圈才查對。**
+   `next dev` 的 CSS chunk 檔名**不隨內容改變**(實測:改動前後都是
+   `/_next/static/chunks/apps_admin_src_app_globals_03pzd7e.css`)
+   ⇒ **瀏覽器、甚至 `curl`,都可能拿到上一版的樣式表**,而畫面看起來只是「沒差別」。
+   ⚠️ **我一度把它誤判成「貼在檔尾會被編譯器丟掉」** —— 那是**一個沒有證據的歸因**:
+      我看到的兩次現象(檔尾貼、原位貼)其實都可以用「拿到舊 chunk」解釋,
+      而我當時只換了位置、**沒有換量具**,所以那個結論是巧合對的。**已撤回,不要引用它。**
+   ✅ **可信的做法(照做即可)**:
+      ① 直接抓伺服器送出的那支 CSS,不要問瀏覽器:
+         `U=$(curl -s http://localhost:3871/customers | grep -oE '/_next/static/chunks/[^"]*globals[^"]*\.css' | head -1)`
+         `curl -s "http://localhost:3871$U" | grep -c 'text-2xl:not'`   ← 0 就是你還沒拿到新的
+      ② 拿到 0 ⇒ **重開 dev server**(`pkill -f 'next dev -p 3871'` 再起)。touch 檔案沒有用。
+      ③ 最後才量畫面。實測 A 案生效後:`.text-xs` 14px ×67 / `.text-sm` 16px ×172 /
+         `.text-2xl` 26px / 列高 44 / `scrollWidth - clientWidth = 0`。
+   📌 **母題**:量到「沒差別」時,先問**我拿到的是新的東西嗎**,再問東西對不對。
+
+   ⚠️ **同段還有三條全站規則不屬於這一題**(它們不是字級):
+     `:where(a,button,select,input,textarea,summary,[tabindex]):focus-visible`(鍵盤焦點,無障礙)
+     `.border-destructive\/30>span` · `#nav-rail` ×2(側欄本體)
+   ══════════════════════════════════════════════════════════════════════════════ */
+/* ── 稿 FIX-09 ── */
+/* 🔴🔴 **2026-08-23 R3-F7:下面這一段裡有【整組死規則】,選擇器與 FIX-27 逐字重複。**
+   實查逐條(同選擇器、FIX-27 在後 ⇒ 後者全贏):
+     `.text-xs:not(…)` 13px      ← 被 FIX-27 的 14px 蓋
+     `.text-[13px]:not(…)` 13px  ← 被 14px 蓋
+     `.text-sm:not(…)` 15px      ← 被 16px 蓋
+     `.text-[15px]:not(…)` 15px  ← 被 16px 蓋
+     `.orders-grid thead th,…th.text-xs` 13px ← 被 FIX-27 同選擇器的 14px 蓋
+     `.orders-grid td.col-oid,…` 13px         ← 被 FIX-27 同選擇器的 13px 蓋(值相同,仍是死的)
+   **仍然活著的**:`.antialiased` · `.text-base:not(…)`(FIX-27 沒有這一條)·
+     `.ihead` 的 `letter-spacing`(FIX-27 那條只設 `font-size`)· `.orders-grid td.text-xs,th.text-xs`。
+
+   🔴🔴 **而我【刻意不刪】,理由是 R3 看不到的一個相依 —— 它把 F7 與 F8 當成兩件事:**
+   F8 的裁決是「把 FIX-27 那組**裸 class 覆寫**留在門外等 Sean」(全站字級屬範圍題)。
+   ⇒ **若我現在把 FIX-09 這幾條刪掉,而 FIX-27 那組又被抽出這顆 commit,
+     那四條字級規則會【兩邊都不存在】** ⇒ 從「13px 被 14px 蓋」變成「什麼都沒有」。
+   ⇒ **刪除的正確時機是 Sean 對 F8 拍板【之後】**:
+     他選「全站升級」⇒ FIX-09 這幾條刪掉;他選「只給訂單頁」⇒ 要保留並改成訂單頁作用域。
+   📌 **兩個 finding 各自都對,而先做哪一個會改變另一個的答案。** */
+.antialiased {-webkit-font-smoothing:auto;-moz-osx-font-smoothing:auto}
+.text-xs:not([class*="leading-"]) {font-size:13px;line-height:1.6}
+.text-\[13px\]:not([class*="leading-"]) {font-size:13px;line-height:1.6}
+.text-sm:not([class*="leading-"]) {font-size:15px;line-height:1.65}
+.text-\[15px\]:not([class*="leading-"]) {font-size:15px;line-height:1.65}
+.text-base:not([class*="leading-"]) {font-size:16px;line-height:1.7}
+.ihead {font-size:13px;letter-spacing:.02em}
+.orders-grid thead th,.orders-grid thead th.text-xs {font-size:13px}
+.orders-grid td.text-xs,.orders-grid th.text-xs {font-size:var(--od-fs-sm)}
+/* 單號欄用等寬字,14px 時 PCM-2026-0104 會被切掉 11px(實測 容器 744:內容 133 > 可用 122)。
+   降成 13px 剛好放得下,而且【表格總寬不變】(fixed layout) ⇒ 不會多佔任何水平空間。 */
+.orders-grid td.col-oid,.orders-grid td.col-oid a {font-size:13px}
+
+/* ── 稿 FIX-12 ── */
+:where(tbody tr:hover) {background:var(--border-soft)}
+:where(a,button,select,input,textarea,summary,[tabindex]):focus-visible {
+  outline:2px solid var(--ring);outline-offset:2px
+}
+.border-destructive\/30>span {display:inline-block}
+
+/* ── 稿 FIX-25 ── */
+
+/* ── 稿 FIX-27 ── */
+.text-xs:not([class*="leading-"]) {font-size:14px;line-height:1.6}
+.text-\[13px\]:not([class*="leading-"]) {font-size:14px;line-height:1.6}
+.text-sm:not([class*="leading-"]) {font-size:16px;line-height:1.65}
+.text-\[15px\]:not([class*="leading-"]) {font-size:16px;line-height:1.65}
+.text-lg:not([class*="leading-"]) {font-size:20px}
+.text-2xl:not([class*="leading-"]) {font-size:26px}
+.text-\[28px\] {font-size:30px}
+/* 列表:字級跟著升一級,列高一起加大 */
+.orders-grid thead th,.orders-grid thead th.text-xs {font-size:14px}
+.orders-grid td.col-oid,.orders-grid td.col-oid a {font-size:13px}
+/* 商品明細列的表頭小標籤 */
+.ihead {font-size:14px}
+/* 掃描長列表時的行定位 */
+:where(tbody tr:hover) {background:var(--secondary)}
+/* 狀態徽章:原本 12px 太小,和內文一起升一級 */
+.fchip,.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk {font-size:14px}
+
+/* ── 稿 FIX-28 ── */
+.pcm-step {gap:6px}
+.pcm-step .pcm-pill {
+  display:inline-flex;align-items:baseline;justify-content:center;gap:4px;
+  width:var(--pcm-pill-w);padding:3px 0;font-size:14px;font-weight:600;line-height:1.2;
+  border:1px solid transparent;border-radius:var(--radius-sm,4px)
+}
+.pcm-step .pcm-k {font-size:12px;font-weight:500;opacity:.85}
+.pcm-step .pcm-pill[data-state="done"] {background:#e7f4ec;border-color:#b7ddc6;color:#0b6b35}
+.pcm-step .pcm-pill[data-state="part"] {background:#fdf3e2;border-color:#f0d3a0;color:#8a5a06}
+.pcm-step .pcm-pill[data-state="none"] {background:var(--secondary);border-color:var(--border);color:var(--fg-2)}
+.pcm-step .pcm-pill[data-state="unknown"] {background:transparent;border-style:dashed;border-color:var(--border);color:var(--muted-foreground)}
+/* 表頭那三個字現在由膠囊自己帶,標題只留一個總稱 */
+.ihead .three {gap:0}
+.ihead .three span {width:auto}
+.ihead .three span+span {display:none}
+.ihead .three span:first-child::after {content:" · 到 · 出";font-weight:inherit}
+
+/* ── 稿 FIX-31 ── */
+@media (max-width:767px) {
+  /* A. 導覽軌改成底部標籤列 */
+  #nav-rail {
+    position:fixed;inset:auto 0 0 0;width:100%!important;height:60px;z-index:50;
+    border-right:0;border-top:1px solid var(--border);background:var(--sidebar)
+  }
+  #nav-rail>div {flex-direction:row;height:100%}
+  #nav-rail>div>div:first-child {display:none}
+  /* 標誌 + 收合鈕 */
+  #nav-rail>div>*:last-child {display:none}
+  /* 同步時間 */
+  #nav-rail>div>nav {flex:1 1 auto;min-width:0}
+  #nav-rail nav {display:flex;flex-direction:row;align-items:stretch;overflow-x:auto;overflow-y:hidden}
+  #nav-rail nav a {
+    /* 原本的 <a> 帶 w-full(側軌時代=撐滿 84px);橫向排列時會變成每個都 390px 寬 */
+    flex:0 0 auto;width:auto!important;min-width:68px;max-width:96px;
+    border-left:0!important;border-top:2px solid transparent;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 8px
+  }
+  #nav-rail nav a[aria-current="page"] {border-top-color:var(--primary)}
+  #nav-rail nav a>span:nth-child(n+2):not(.sr-only) {display:block;font-size:12px;line-height:1.2}
+  #nav-rail nav a>span:nth-child(n+3):not(.sr-only) {display:none}
+  /* 第二行小字省略 */
+  .workspace-content {padding-bottom:76px}
+  .fchip {white-space:nowrap}
+}
+/* C. 訂單卡片重排
+   🔴 2026-08-23 FIX-43 修正斷點:原本寫 47.9375rem(767px),但快照【自己】的卡片模式是
+      `@container (max-width:520px)` ⇒ 521~767px 之間會進到一個「卡片重排開了、卡片骨架沒開」的
+      破碎中間帶(thead 還在、tr 卻已經是 flex),桌機把面板拉寬到容器 692 就會踩到:
+      列高脹到 84~97px、19 格內容被切。改成 520px 與快照同一個斷點。 */
+@container (max-width:520px) {
+  .orders-grid tr{
+    flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:10px 12px
+  }
+  /* 每格的「標籤+值」不要再自己換行(390px 時會變成標籤一行、值一行) */
+  .orders-grid td{padding:0;flex-wrap:nowrap;white-space:nowrap}
+  .orders-grid .col-title,.orders-grid .col-oid{white-space:normal}
+  .orders-grid .col-pick{order:1;flex:0 0 auto}
+  .orders-grid .col-oid{order:2;flex:1 1 auto;font-size:17px}
+  .orders-grid .col-amount[data-l="金額"]{order:3;flex:0 0 auto;margin-left:auto;font-weight:700;font-size:16px}
+  .orders-grid .col-status{order:4;flex:0 0 100%;padding-bottom:0}
+  .orders-grid .col-date{order:5}
+  .orders-grid .col-customer{order:6}
+  .orders-grid .col-title{order:7;flex:0 0 100%}
+  .orders-grid .col-sku{order:8}
+  .orders-grid .col-qty{order:9}
+  .orders-grid .col-unit,.orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice{order:10}
+  /* 「⋯」操作鈕釘在卡片右上角,不要卡在資料中間(tbody 本來就是 position:relative) */
+  /* 選擇器要用 td.col-ops:原本的規則是 .orders-grid td.col-ops{position:sticky}(0,2,1),
+     只寫 .orders-grid .col-ops(0,2,0) 贏不過它(實測拿到 position:sticky) */
+  .orders-grid td.col-ops{position:absolute;top:8px;right:8px;order:11;padding:0}
+  /* 值本身就說明自己的欄位,標籤省掉;需要標籤的(發票/單價/車種…)保留 */
+  .orders-grid .col-oid:before,.orders-grid .col-status:before,
+  .orders-grid .col-amount[data-l="金額"]:before,.orders-grid .col-title:before{display:none}
+  .orders-grid .col-date:before,.orders-grid .col-customer:before,
+  .orders-grid .col-sku:before,.orders-grid .col-qty:before,
+  .orders-grid .col-unit:before,.orders-grid .col-vehicle:before,
+  .orders-grid .col-brand:before,.orders-grid .col-invoice:before{flex:0 0 auto;font-size:12px}
+  .orders-grid .col-sku,.orders-grid .col-qty,.orders-grid .col-unit,
+  .orders-grid .col-vehicle,.orders-grid .col-brand,.orders-grid .col-invoice{font-size:14px}
+}
+
+/* ── 稿 FIX-33 ── */
+/* 卡片/表單的雙欄在面板 ≤720px 就收成單欄 —— 636px 時兩欄各只剩 ~290px,
+   電話輸入框的 placeholder 會被截(實測)
+
+   🔴🔴 **2026-08-23 R3-F6:這個區塊一度是【空的】,而正上方這段註解把症狀寫得清清楚楚。**
+   ⇒ 搬運時內容掉了,而**空的 at-rule 在 diff 上長得像「這條刻意不搬」**;
+     機械掃全檔空區塊 ⇒ 當時**命中 1 個,就是它**(對照組:FIX-25 那個是真的沒內容)。
+
+   🔴 **為什麼症狀真的存在(量到的,不是照註解相信的)**:那些表單用的是 Tailwind 的
+   `sm:grid-cols-2` / `md:grid-cols-2`(`customer-detail.tsx:178,250`、`payment-record-form.tsx:249`、
+   `note-compose-form.tsx:284`、`cancel-form-body.tsx:172`、`manual-refund-entry-section.tsx:121` …)
+   —— 那是 **viewport** 斷點,**不是容器斷點** ⇒ 在 1440 寬的螢幕上,
+   面板即使只有 636px,那些 grid **仍然是兩欄**。**這就是註解寫的那個實測症狀的機制。**
+
+   ⚠️ **我沒有 OD 的原字面**(OD daemon `list_projects` 回空、`orders-admin-v2.html` 全機 find 不到)
+   ⇒ 這條是**照註解描述的行為重建的**,不是照稿抄的。**值得下一個人在 OD 活著時對一次。** */
+@container (max-width:719px) {
+  [class*='grid-cols-2'] {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 稿 FIX-34 ── */
+/* ② 移除「操作」欄 —— 開明細一律點整列 */
+.orders-grid td.col-ops,.orders-grid th.col-ops {display:none!important}
+/* ① 14 欄只在真的放得下時才出現;放不下就退回會等比例伸縮的 8 欄模式 */
+@container (max-width:1459px) {
+  .orders-grid .col-date,.orders-grid .col-vehicle,.orders-grid .col-brand,
+  .orders-grid .col-unit,.orders-grid .col-customer,.orders-grid .col-invoice{display:none!important}
+}
+
+/* ── 稿 FIX-37 ── */
+/* ② 狀態膠囊:圓角全滿 + 11→12px + 內距放寬(顏色沿用既有語意色,只改形狀與尺寸) */
+/* 🔴 **2026-08-23 R3-F5 補上 `.cap-refund`** —— 原本這張名單只有五顆,漏掉退款那顆
+   (機械掃全檔:給它圓角的規則命中 **1 條**,就是這一條,而它不在名單裡)。
+   ⇒ 接上去那天它會是**方角**混在五顆圓角膠囊裡,而**今天沒有人在用它 ⇒ 沒有人會發現**
+   (`grep cap-refund` 去掉測試 ⇒ 0;對照組 `cap-n/y/bl/g` 命中 `order-status-axes.ts`)。
+   📌 這正是「還沒有人用」最貴的地方:**缺陷已經在了,而回饋路徑還沒接上。** */
+.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk,.cap-refund {
+  border-radius:9999px!important;padding:3px 10px!important;font-size:12px!important;
+  letter-spacing:.02em!important;line-height:1.35
+}
+/* 訂/到/出 也改成膠囊,跟狀態同一語彙 */
+.pcm-step .pcm-pill {border-radius:9999px}
+/* 篩選 chip 與分頁 chip:同樣改膠囊 */
+.fchip {border-radius:9999px;padding:4px 12px}
+/* ④ 表頭:淡底 + 字距,讓資料列浮出來 */
+.orders-grid thead th {
+  background:var(--secondary);letter-spacing:.06em;font-weight:700;
+  border-bottom:1px solid var(--border)
+}
+/* 數字欄用等寬,金額對齊更穩(參考檔的 td.mono) */
+.orders-grid .col-amount,.orders-grid .col-unit,.orders-grid .col-qty {font-variant-numeric:tabular-nums}
+
+/* ── 稿 FIX-38 ── */
+/* ② 表格:去外框、列分隔線極淡 */
+.orders-grid {border:0!important;background:var(--card)}
+.orders-grid table {border:0}
+.orders-grid tbody tr {border-color:var(--border-soft)}
+.orders-grid tbody td {border-bottom:1px solid var(--border-soft)}
+/* ③ 表頭:幾乎看不見的底、一般字重、不加字距 */
+.orders-grid thead th {
+  background:#fbfcfe!important;letter-spacing:0!important;font-weight:500!important;
+  color:var(--muted-foreground);border-bottom:1px solid var(--border)
+}
+/* ④ 列高:v20 由 72px 收到 ~56px ——
+   在 Sean 的螢幕(1728×1117)實測 72px 太鬆:可視區只放得下約 11 列。
+   他喜歡的那張參考圖換算成 CSS px 後列高約 58px,這裡對齊過去。
+   字級【不動】(儲存格 15px 在 1728 寬的螢幕是標準值),收的是垂直間距。 */
+.orders-grid td {padding-top:6px;padding-bottom:6px}
+.orders-grid .col-customer {line-height:1.35}
+/* ⑤ 膠囊:改用【Sean 指定的參考檔色票】(admin-sidebar-rail-final.html)
+   —— 這是唯一一處直接沿用那份檔案的顏色,頁面其餘配色仍是 FIX-10 的中性工業色。
+   參考檔原文:
+     --accent:#0066b1  --danger:#e4002b  --success:#16a34a  --warn:#f59e0b
+     --tint-accent : color-mix(in oklab, accent , surface 88%)
+     --tint-danger : color-mix(in oklab, danger , surface 88%)
+     --tint-warn   : color-mix(in oklab, warn   , surface 84%)
+     --tint-success: color-mix(in oklab, success, surface 88%)
+     --ink-warn    : color-mix(in oklab, warn   , black 42%)
+     --ink-success : color-mix(in oklab, success, black 20%)
+     .pill {padding:3px 10px;border-radius:9999px;font-size:11px;font-weight:700}
+.p-ship {tint-accent / accent}
+.p-done {tint-success / ink-success}
+.p-pay {tint-warn   / ink-warn}
+.p-ref {tint-danger / danger}
+對映:已收未定·現貨在庫 → p-ship(藍) / 完成類 → p-done(綠) / 待付款類 → p-pay(琥珀) / 退款類 → p-ref(紅) */
+
+/* 🔴🔴 **2026-08-23 審查抓到:這個區塊本來是【空的】,而八個 token 的宣告該住在這裡。**
+   `git log -S'--tint-warn' -- globals.css` ⇒ **零命中** ⇒ 它們從來沒有進過版控:
+   是我這次搬運時**整段掉了**,而搬完的 CSS **語法完全合法、三綠不紅**。
+   真瀏覽器覆核(`localhost:3871`,`getComputedStyle`):
+     `.cap-y` / `.cap-bl` / `.cap-g` 的 `background` ⇒ `rgba(0, 0, 0, 0)`(透明)
+     字色掉回繼承值 `rgb(51, 62, 78)`  ⇒ **狀態膠囊整排沒有顏色,現在畫面上就是壞的。**
+   正對照:同一發把 `--card` / `--fg-2` 也讀出來 ⇒ `#fff` / `#333e4e` **有值**
+     ⇒ 那把尺不是「什麼都讀不到」。
+   📌 空區塊在 diff 上長得像「這條刻意不搬」 —— 而同族還有兩個(`:1942` FIX-33、`:1837` FIX-25)。
+
+   🔴 **值照 OD 參考檔(上方「參考檔原文」那六行),但【混色的參數順序刻意反過來寫】。**
+   理由完整版在 `:404-415`:lightningcss 產生的老瀏覽器降級值 = **混色的第一個參數**。
+   照 OD 字面寫 `color-mix(in oklab, warn, surface 84%)` ⇒ 降級值 = `warn`(飽和橘),
+   而 `--ink-warn` 的降級值**也是** `warn` ⇒ **同色字疊同色底 = 那顆膠囊整個看不見。**
+   `A 16%, B` ≡ `B 84%, A` **數學上等值** ⇒ 換順序不改任何一個像素,只改降級值。
+   ⚠️ 底色一律混向 `--card`,不是 `--background` —— 膠囊坐在卡片裡,不是坐在頁底上(同 `:402`)。
+   ⚠️ `--ink-*` / `--pill-*` **維持「顏色在前」** —— 那是**字色**,降級成該色本身配白底才是可讀的那一邊。 */
+/* 🔴🔴 **宣告【不能】放進 `@supports` 裡,而我第一版就是那樣寫的。**
+   `var()` 解析不到 = invalid at computed-value time ⇒ 那個屬性**不會退回下一條規則**,
+   它變成 unset/繼承 ⇒ 不支援 `color-mix` 的瀏覽器上,膠囊照樣是透明的
+   —— **`@supports` 在這裡防不到任何東西,只是把破洞從「所有瀏覽器」縮成「舊瀏覽器」。**
+   放在頂層 `:root` 才對:lightningcss 會**自己**為每個 `color-mix` 產生
+   「降級值 + `@supports` 覆寫」兩段(`:404-415` 記的就是這個機制)⇒ 舊瀏覽器拿得到實色。 */
+:root {
+  --tint-accent: color-mix(in oklab, var(--card) 88%, #0066b1);
+  --tint-danger: color-mix(in oklab, var(--card) 88%, #e4002b);
+  --tint-warn: color-mix(in oklab, var(--card) 84%, #f59e0b);
+  --tint-success: color-mix(in oklab, var(--card) 88%, #16a34a);
+  --ink-warn: color-mix(in oklab, #f59e0b, black 42%);
+  --ink-success: color-mix(in oklab, #16a34a, black 20%);
+  /* `.p-ship {tint-accent / accent}` 與 `.p-ref {tint-danger / danger}`(上方對映表)
+     ⇒ 這兩個「字色」就是該色本身,不混。 */
+  --pill-accent: #0066b1;
+  /* 🔴 **這一顆刻意偏離 OD 的字面,理由是量到的,不是品味。**
+     OD 的對映表寫 `.p-ref {tint-danger / danger}` = 字色用 `#e4002b` 原色 ——
+     實算(兩把獨立的尺,值一致)**對比只有 4.14**,低於 AA 的 4.5。
+     ⚠️ 先試過「不動字色、把底調更淡」:`card 88→94%` 只爬到 **4.47**,
+        而 94% 的底已經幾乎是純白 ⇒ **那條路到不了,不是我沒試。**
+     ⇒ 改成把字混黑 12%(≈5.5)。**底色一個字沒動,紅色的色相也還在。**
+     📌 這是本檔第 5 顆膠囊 —— 它一直沒有守門,是 2026-08-23 把對比守門改成
+        「從 CSS 讀出來算」之後**第一次被量到的**(手打比例的舊版對它是恆綠)。 */
+  --pill-danger: color-mix(in oklab, #e4002b, black 12%);
+}
+.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk,.cap-refund {border:0!important;font-weight:700!important}
+/* 🔴 v21:改用 Sean 給的狀態→膠囊對應表(截圖-2026-08-23-凌晨1.51.43.png)
+   未收未定 / 已收未定 → 灰
+   未收已定 / 已收已定 → 淡黃底 + 棕字
+   未收現貨 / 現貨在庫 → 淡藍底 + 藍字
+   未收出貨            → 【實心深紅 + 白字】(唯一實心:已出貨卻還沒收到錢,最該被看到)
+   出貨完成            → 淡綠底 + 綠字
+   已退款(不在該表內)  → 淡紅底 + 紅字,不用實心,避免跟「未收出貨」搶注意力 */
+/* 🔴 第一個參數必須是 `var(--card)` —— 原本寫 `var(--muted-foreground),var(--card) 88%`,
+   犯的正是本檔 `:404-415` 用 200 字記下來的那個坑(降級值 = 第一參數 ⇒ 深灰底配深灰字)。
+   `A, B 88%` ≡ `B 88%, A`,**值一個像素都沒變**。 */
+.cap-n {background:color-mix(in oklab,var(--card) 88%,var(--muted-foreground))!important;
+       color:var(--fg-2)!important}
+.cap-y {background:var(--tint-warn)!important;color:var(--ink-warn)!important}
+.cap-bl {background:var(--tint-accent)!important;color:var(--pill-accent)!important}
+.cap-g {background:var(--tint-success)!important;color:var(--ink-success)!important}
+.cap-risk {background:#a51022!important;color:#fff!important}
+.cap-refund {background:var(--tint-danger)!important;color:var(--pill-danger)!important}
+/* 訂·到·出 也換成同一組色票 */
+.pcm-step .pcm-pill[data-state="done"] {background:var(--tint-success);border-color:transparent;color:var(--ink-success)}
+.pcm-step .pcm-pill[data-state="part"] {background:var(--tint-warn);border-color:transparent;color:var(--ink-warn)}
+.pcm-step .pcm-pill[data-state="none"] {background:var(--secondary);border-color:transparent;color:var(--fg-2)}
+/* 選中的那一列:淡藍,不要深色塊 */
+@supports (color: color-mix(in lab, red, red)) {
+  .orders-grid tbody.orders-group[data-selected] td{
+    background:color-mix(in oklab,var(--card) 93%,var(--primary))
+  }
+}
+/* 導覽軌:白底,選中項目改淡藍圓角 */
+#nav-rail {background:var(--card)}
+#nav-rail nav a[aria-current="page"] {border-radius:8px}
+@supports (color: color-mix(in lab, red, red)) {
+  #nav-rail nav a[aria-current="page"] {
+    background:color-mix(in oklab,var(--card) 92%,var(--primary))!important
+  }
+}
+
+/* ── 稿 FIX-41 ── */
+/* ① 列表再緊湊一階:列高 56 → 44、儲存格 15 → 14px
+   (Sean 之前覺得字小是因為他開 75% 在看;100% 下 14px 仍清楚) */
+.orders-grid td {padding-top:2px;padding-bottom:2px}
+.orders-grid td.text-sm:not([class*="leading-"]) {font-size:14px}
+.cap-n,.cap-y,.cap-bl,.cap-g,.cap-risk,.cap-refund {font-size:12px!important;padding:2px 9px!important}
+/* ② 欄位不再隱藏:全部保留,放不下就壓縮、再放不下就橫向捲動
+   —— 取代 FIX-34 的「容器 <1460 就藏掉六欄」。Sean:「不要少這麼多欄位」 */
+@container (max-width:1459px) {
+  .orders-grid .col-date,.orders-grid .col-vehicle,.orders-grid .col-brand,
+  .orders-grid .col-unit,.orders-grid .col-customer,.orders-grid .col-invoice{display:table-cell!important}
+}
+.orders-grid {overflow-x:auto}
+.orders-grid table {min-width:1180px}
+/* 🔴 v22 修正:上一版給文字欄【百分比寬】,容器一窄欄位就被壓到極限,
+   中文字直接折成直排(「補差額用賣場」變成一字一行),而金額欄還是固定 104px 留一大片白 ——
+   Sean:「這樣反而更難辨識」。改法:
+   ① 欄寬全部回到【固定 px】,表格 min-width = 各欄總和 ⇒ 放不下就整表橫向捲,絕不壓縮欄位;
+   ② 所有儲存格 nowrap + 省略號,中文不再折成直排;
+   ③ 金額/單價/數量欄縮窄(原本 104/104/38,最長值 NT$ 6,800 只需要 ~72px),把留白還給文字欄。 */
+/* FIX-43 ② 欄寬全部重算:內距 7px + 拿掉 NT$ 之後,量到的【內容自然寬】如下(1728 螢幕實測),
+   每欄只加一點餘裕(廠牌/單價/金額給多一點,因為快照資料偏短、正式站會更長):
+     pick33 oid116 date53 vehicle151 brand42 sku124 title126 qty42 unit53 amount53 customer56 status81 invoice56
+   目標(Sean 指定):預設面板寬(720px ⇒ 容器約 872)時,可見範圍剛好切在【金額】之後。
+   下面到 col-amount 為止累計 = 868px。 */
+.orders-grid .col-pick {width:38px;text-overflow:clip}
+.orders-grid .col-oid {width:120px}
+.orders-grid .col-date {width:54px}
+.orders-grid .col-vehicle {width:152px}
+/* FIX-44:要湊到「面板 520 時剛好不用橫捲」還差 10px,全部從【廠牌】扣
+   —— 它是量到最多餘裕的一欄(自然寬 42,原本給 76)。⚠️ 快照裡廠牌全是「—」,
+   正式站有真品牌名時 66px 只夠約 6~7 個英文字元,較長的會出現省略號(全名在面板看得到)。 */
+.orders-grid .col-brand {width:90px}
+.orders-grid .col-sku {width:128px}
+.orders-grid .col-title {width:130px}
+.orders-grid .col-qty {width:42px}
+.orders-grid .col-unit {width:62px}
+.orders-grid .col-amount {width:70px}
+.orders-grid .col-customer {width:72px}
+.orders-grid .col-status {width:84px}
+.orders-grid .col-invoice {width:58px}
+.orders-grid table {min-width:1100px}
+/* = 上面各欄相加,逐項:38+120+54+152+90+128+130+42+62+70+72+84+58
+   🔴 2026-08-23 更正:這裡原本寫 1096,與實際總和差 4px。註解寫著「= 上面各欄相加」
+      但沒有人真的加過 —— 一句看起來已經驗算過的註解,是最不會被複驗的那種。
+      (實測橫向溢出 0,所以那 4px 沒有造成症狀;更正是為了讓下一個人加得對。) */
+/* 🔴 **`th` 已從這條移除(2026-08-23 線A)。稿上是 `th,td`,我們只給 `td`。**
+   理由是量到的症狀,不是偏好:`orders-table.test.tsx` 的守門逐字
+   「表頭被套上 overflow ⇒ 『數量』這種剛好差 2px 的表頭會被打成『數…』」。
+   📎 而 OD 自己【早期】的稿也是這樣:本檔 `:812` 記著 `table.g th{…white-space:nowrap}`
+      —— **沒有 overflow / ellipsis**。⇒ 新稿把 `th` 併進來很可能是他們的疏忽,已回報。
+   ⚠️ 若 OD 確認那是刻意的,要連同那道守門一起重裁,不要只改這裡。 */
+.orders-grid td {
+  white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis
+}
+/* FIX-43 ③ 左右內距 12 → 7px:13 欄 × 兩側 = 一口氣省下 130px 給內容 */
+.orders-grid th,.orders-grid td {padding-left:7px;padding-right:7px}
+.orders-grid td.col-pick,.orders-grid th.col-pick {padding-left:10px}
+.orders-grid td.col-customer>* {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+/* 手機(容器 ≤767px)仍走原本的卡片模式,不受上面影響 */
+@container (max-width:520px) {
+  .orders-grid table{min-width:0}
+  .orders-grid{overflow-x:visible}
+  /* 🔴 上面那組固定欄寬 + nowrap 是給【表格模式】用的,卡片模式一定要整組解掉,
+     否則卡片內文被鎖在 140/92/60px 裡切掉(2026-08-23 量到 28 格溢出)。 */
+  /* 🔴 同上:`th` 移除 —— 那道守門掃的是「有沒有任何 th 選擇器宣告 overflow」,不分 hidden/visible。 */
+  .orders-grid td,.orders-grid [class*="col-"]{
+    white-space:normal!important;overflow:visible;text-overflow:clip;
+    width:auto!important;min-width:0!important
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OD 移植 · L5 訂單面板線的 CSS 需求(2026-08-23,線A 落;來源 L5 需求清單 ①②④)
+   ═══════════════════════════════════════════════════════════════════════════
+   🔴 **選擇器靠 L5 留的掛鉤**:四個分頁的 `<section>` 帶 `data-od-panel="items|money|customer|notes"`
+      (`components/orders/order-detail-tabs.tsx`)。
+      ⚠️ **不要改用 `id` 選** —— 那個 id 是 React `useId()` 產生的,每次渲染都不一樣。
+   ⚠️ 值逐字取自產物檔 `orders-admin-v2.html` 的 `<style data-od-fix>`,不是重打的。
+   ⚠️ **未驗**:沒有人在瀏覽器裡看過這三段的效果。 */
+
+/* ── ① FIX-08 窄面板品項列堆疊 ─────────────────────────────────────────────
+   🔴 v16:門檻由 720 提高到 820 —— 6 欄列最少需 722px,再加卡片與分頁區的內距 64px = 786;
+      面板 760(容器 ~726)時仍走寬版 ⇒ 小計被切掉(OD 實測)。與 FIX-34 同一類「門檻設太低」。
+   🔴🔴 **`nth-child` 的順序是承重的,而它綁在【L5 的 JSX】上**:
+      `order-detail-items-table.tsx` 的 `before={…}` 目前是 4 個 `<div>`(品名/料號/三軸/數量),
+      `priceText` 與 `after` 各 1 ⇒ 共 6 軌。
+      ⚠️ **以後誰動那個順序,這段會靜靜地把標籤貼到錯的格子上,而兩邊沒有共同的守門。**
+         (L5 原話;它那邊 `order-detail-items-table-shape.test.tsx` 只數 `before` 是不是 4 個。) */
+@container (max-width:820px){
+  .ihead{display:none}
+  .iline{grid-template-columns:minmax(0,1fr) auto;align-items:baseline;gap:2px 10px}
+  .iline>*:nth-child(1){grid-area:1/1}
+  .iline>*:nth-child(6){grid-area:1/2;justify-self:end}
+  .iline>*:nth-child(2){grid-area:2/1;justify-self:start}
+  .iline>*:nth-child(4){grid-area:2/2;justify-self:end}
+  .iline>*:nth-child(3){grid-area:3/1;justify-self:start}
+  .iline>*:nth-child(5){grid-area:3/2;justify-self:end}
+  .iline>*:nth-child(6)::before,
+  .iline>*:nth-child(4)::before,
+  .iline>*:nth-child(5)>div:first-child::before{
+    color:var(--muted-foreground);font-size:12px;font-weight:400;letter-spacing:normal
+  }
+  .iline>*:nth-child(6)::before{content:"小計 "}
+  .iline>*:nth-child(4)::before{content:"數量 "}
+  .iline>*:nth-child(5)>div:first-child::before{content:"單價 "}
+  /* FIX-28 之後每顆膠囊自己帶「訂/到/出」標籤,這裡不再重複 */
+  .iline>*:nth-child(5) button{white-space:normal;text-align:right}
+  .iline>*:nth-child(1),.iline>*:nth-child(2){min-width:0;overflow-wrap:anywhere}
+}
+
+/* ── ② FIX-18 窄面板裡的表格橫捲 ───────────────────────────────────────────
+   門檻跟 ① 一起是 820(v16)。
+   ⚠️ OD 那段還有第三條 `[data-od-id="panel-header"] .flex-nowrap{…}` —— **刻意不搬**:
+      我方沒有那個屬性,而 L5 已用 Tailwind 在自己的 JSX 上做了同一件事(同門檻、同 row-gap 4px,
+      已對真 build 產物驗過規則有編出來)⇒ 搬過來會變成兩份同語意規則各自漂。 */
+@container (max-width:820px){
+  [data-od-panel] :has(>table){overflow-x:auto}
+  [data-od-panel] table{min-width:640px}
+  [data-od-panel] table td,[data-od-panel] table th{white-space:nowrap}
+  [data-od-panel] table td:first-child{white-space:normal;min-width:96px}
+}
+
+/* ── ④ FIX-46① 客戶·發票分頁橫向爆版 ───────────────────────────────────────
+   OD 量到:容器 335px、內容 418px。根因 = `grid-template-columns:1fr` 的格子裡還有
+   `sm:col-span-2` / `lg:col-span-3` ⇒ 瀏覽器自動長出兩個隱含欄。
+   🔴 **OD 那段還有兩條,我【只搬了會修爆版的這部分】,另兩條見下方「未搬」。** */
+[data-od-panel="customer"] .grid>*{grid-column:auto/span 1!important;min-width:0}
+[data-od-panel="customer"] input,
+[data-od-panel="customer"] select,
+[data-od-panel="customer"] textarea{max-width:100%}
+
+/* 🔴 FIX-46 那段共三條宣告,**一條搬了(下面這條)、兩條沒搬**。L5 2026-08-23 逐條實量過。 */
+[data-od-panel="customer"] section{border-radius:0}
+
+/* 🔴🔴 **【未搬】FIX-46 的另外兩條,原文與【量到的】不搬理由:**
+
+   ① `[data-od-panel="customer"] section{border-width:0 0 1px 0!important}`
+      ⚠️ **一開始我們兩個都以為它是 no-op**(「我方 section 沒有 border utility ⇒ border-style
+         是 none ⇒ 只給 width 不畫線」)。**L5 去量真 build 產物,那個以為是錯的:**
+      ```
+      apps/admin/.next/static/ 底下的 build 產物 CSS
+      🔴 (原本這裡寫的是那個 glob 字面 —— 而它含有【註解結束符】,把這整段註解提前關掉,
+          後面的說明文字就變成 CSS 語法錯誤。build 紅在 2186 行,而錯的是這一行。
+          **偵測器打到自己的輸入** 的同族:註解自己終結了自己。)
+      *,:after,:before,::backdrop{box-sizing:border-box;border:0 solid;…}
+                                                        ^^^^^ Tailwind v4 preflight 把 style 設成 solid
+      ```
+      ⇒ **只給 border-width 就會畫出真的線。**
+      **撞在哪**:我方分隔線不是每張卡自己畫的,是容器 `grid gap-px bg-border border` + 每格
+      `bg-card` ⇒ 1px 的縫讓容器底色透出來當線(`order-detail-summary-cards.tsx` 搜「髮絲線格」)。
+      搬進來 ⇒ 卡與卡之間變 **2px 粗線**、最後一張卡下方多一條**沒有對象的線**。
+      ⇒ 要搬的配套是「把 `gap-px bg-border` 那套拿掉、改由 section 自己畫線」——
+        **那是換一套機制,不是加一條規則。**
+
+   ② `[data-od-panel="customer"] .grid{grid-template-columns:1fr!important}`
+      🔴 **射程比看起來大**:`data-od-panel` 掛在元件上,而**面板版與整頁版是同一支元件**
+      ⇒ 這條會**同時打到整頁版**。我方現在是 `@md:grid-cols-3`,而「排 3 欄」本身是
+      2026-08-19 開瀏覽器抓到的修正(排 2 欄時面板會多一個空的灰方塊)。
+      ⇒ **搬了會把整頁版也壓成單欄。** 稿上那條是為【面板】寫的,而我方沒有「只有面板」的選擇器。
+
+   ⚠️ **Sean 的常設令是「依照 OD」⇒ 預設應該搬。這兩條沒搬,不是判稿錯,是【照搬會破壞另一個
+      也在稿裡的東西】,而解法不在稿上。** 兩格都需要拍板,不是我們能自己決定的。 */
+
+
+/* ── FIX-07 固定摘要頭(sticky header)─────────────────────────────────────────
+   🏁 Sean 2026-08-23 拍板由線A 接(L5 提出、刻意不做半套:「只改一半會留下【內容從標頭
+      底下透出來】的縫,而那種縫在截圖上看起來像設計」)。
+
+   **稿上只有這一條**(用 `tool-final-css.py` 掃全檔 `position:sticky`,6 條裡與面板有關的唯一一條):
+   `.od-fullpage>header{position:sticky;top:0;z-index:5;background:var(--card)}`
+
+   🔴 **掛鉤的層級是 L5 決定的,而它比我原本指的【大一層】** ——
+      OD 自己的 `<header data-od-id="panel-header">` **裡面同時裝著抬頭與 `.od-segbar`**
+      (`patch-orders-ui.py` 的 `fix07_tabs` 逐字)。
+      ⇒ 只黏抬頭 = 捲下去**看得到單號、卻沒有分頁可以按**,正好毀掉 FIX-07 要解的那件事。
+
+   🔴 **一條規則兩邊都用,而 `top:0` 兩邊都對** —— 這一格我查過才寫:
+      · 面板:捲動容器 = `app/@panel/orders/page.tsx:78,186` 那個 `overflow-y-auto` 的 div
+      · 整頁:**捲的是 document** —— `workspace-shell.tsx:26-28` 有整段講他們**刻意沒有**
+        改成「main 內捲」⇒ 頂欄(`header.tsx:20` 的 `h-14`)會跟著捲走 ⇒ 不必扣 3.5rem。
+      ⚠️ 若哪天有人把外殼改成 main 內捲,**整頁版這一條要補 `top:3.5rem`**。
+
+   ✅ **2026-08-23 21:0x 真瀏覽器實測**(Chromium 1440x900、拋棄式鑽機 `/tmp/pcm-admin-probe-86`、
+      `localhost:3871` 起自無 `.env*` 的 worktree `/private/tmp/pcm-a06-browser`)。
+      ~~原本這三格寫著「沒有人開瀏覽器看過」~~ —— 已經看過了,逐格換成量到的值:
+
+      ① 🔴 **負外距補償【不夠】,而且是我推錯的那一半。** 量到:面板 `top=56`、
+         黏住後 header `getBoundingClientRect().top=72` ⇒ **中間 16px 沒有被蓋住**。
+         成因:sticky 的貼齊基準是捲動容器的 **padding box**,不是 border box ⇒ 負外距
+         只把它在**版面流**裡撐寬了,沒有把**黏住的位置**往上移。
+         **兩個世界都表演過**:塞 2000px 假內容捲到底 ⇒ 那條縫 3/3 探點打到假內容(漏);
+         加 `top:-1rem` ⇒ 3/3 打到 header(不漏、`top` 回到 56);再改回 `top:0` ⇒ 漏又回來 3/3。
+         正對照:縫下方 30px 的探點恆為 header ⇒ 量具本身會分辨。
+         ⚠️ **只在面板加**(見下方 `.panel-width-locked` 那條):整頁版捲的是 document、
+         外層沒有 `p-4` ⇒ 那裡 `top:0` 才對,`-1rem` 會把 header 上緣切掉 16px。
+
+      ② `background: var(--card)` 量到 `rgb(255,255,255)`;面板容器 `background` 量到
+         `rgba(0,0,0,0)`(**真的沒有底色**,推測那半是對的)⇒ 底下是 `--background` #f8fafc。
+         **看過截圖:不突兀**(卡片本來就是白的,黏住時等於白接白)。
+         ⚠️ 這一格是**我的眼睛**,不是量出來的臨界值 ⇒ **Sean 說突兀就改 `var(--background)`。**
+
+      ③ `z-index: 5` 實掃全頁 `zIndex >= 5`:命中的是**左邊訂單列表**的
+         `z-20`(黏住的第一欄)與一票 `z-10`(表格 TD)。**面板子樹內沒有任何 ≥5。**
+         ⇒ 目前不打架(兩邊左右分佔、不重疊)。⚠️ 但左列表那個 `z-20` **比我大**
+         —— 哪天有人讓面板蓋到列表上,輸的是面板。這一格是「現在沒事」,不是「以後也沒事」。 */
+[data-od-id='panel-header'] {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--card);
+}
+
+/* ① 的補償**整組**(2026-08-23 實測後搬進來):負外距 + 內距 + `top`,三個宣告一起 scope。
+   🔴🔴 **原本只有 `top` 搬進來,而 `margin`/`padding` 留在底規則 ⇒ 整頁版照樣吃到** ——
+   審查逐字:「一條規則兩邊用,而你只 scope 了其中一個宣告」。
+   **真瀏覽器實測**(整頁 `/orders/<id>`,1440 寬):抬頭 `left=170 / right=1354`,
+   而容器是 `186 / 1338` ⇒ **左右各凸出 16px**;
+   對照組:同一個容器裡的兄弟節點量到 `186 / 1338` **剛好貼齊** ⇒ 那把尺會分辨。
+   ⚠️ 整頁沒有橫向捲動(`scrollWidth - clientWidth = 0`)⇒ 它是**對不齊**,不是破版 ——
+      宣稱要寫成看得到的那一種,不要寫成更嚴重的那一種。
+   🔴 **為什麼掛在 `.panel-width-locked` 上**:它是面板路由獨有的標記
+   (`app/@panel/orders/page.tsx:78,186` 兩個分支都有;整頁路由沒有),**而整頁版不能吃這一條**。
+   ⚠️ 代價要寫明:那個 class 的本職是「訂單面板固定 720px」的寬度標記
+   (`workspace-shell.tsx:117` 靠它認面板)—— 我在借它當「這裡是面板」的判準。
+   **哪天有人改掉那個標記名,壞掉的不只寬度,還有這條縫。** 兩邊都 grep 得到,守門在
+   `workspace-shell.test.ts:123`。 */
+.panel-width-locked [data-od-id='panel-header'] {
+  /* ① 的補償:撐回容器的內距邊,再把留白用內距補回來 —— **兩個宣告缺一不可**:
+     `margin` 管【黏住時左右與上方要蓋到哪】,`top` 管【黏住的位置本身】。 */
+  margin: -1rem -1rem 0;
+  padding: 1rem 1rem 0;
+  top: -1rem;
 }

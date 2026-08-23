@@ -65,30 +65,56 @@ import { describe, expect, it } from 'vitest';
 //          **⇒ 引用前先講清楚在數哪一個,而且不要用「類別前綴加大括號」那種式子數(併選擇器就漏看)。**
 const CSS = readFileSync(join(__dirname, 'globals.css'), 'utf8');
 
-describe('BMW M token:圓角', () => {
-  it('🔴 `--radius` 與四階【全部】是 0 —— 少釘一個就會出現「大致直角但某一階不是」', () => {
-    // 🔴 **四階必須逐個釘,不能只釘根值**:本片把它們從 `calc(var(--radius) ± Npx)` 改成寫死,
-    //    因為 `--radius: 0` 之下那組推導會產生 sm=−4px / md=−2px / **xl=+4px(根本不是直角)**。
-    expect(CSS).toMatch(/^\s*--radius:\s*0;/m);
-    for (const tier of ['xs', 'sm', 'md', 'lg', 'xl']) {
-      expect(CSS).toMatch(new RegExp(`^\\s*--radius-${tier}:\\s*0;`, 'm'));
-    }
+describe('圓角 token(2026-08-23 由直角改回推導)', () => {
+  it('🔴 根值 8px,四階【全部】回到 `calc()` 推導 —— 少一階就會出現「大致圓角但某一階不是」', () => {
+    // 🏁 **2026-08-23 Sean 拍板「乙 —— 不算了,照 OD 新稿全部圓角」。**
+    //
+    // ~~原本:`--radius` 與四階全部釘 0~~
+    // 🔴 **舊格的推理留著,因為它是【改回直角要付什麼代價】的說明書**:
+    //    「`--radius: 0` 之下那組推導會產生 sm=−4px / md=−2px / **xl=+4px(根本不是直角)**」
+    //    ⇒ 誰要再改回直角,**不能只把根值設 0,要連四階一起釘死**。
+    //
+    // 🔴 **8px 是數出來的**:掃 OD 產物 `orders-admin-v2.html` 的 `border-radius` 實際用值
+    //    ⇒ `8px 22 次 / 4px 3 次 / 6px 2 次 / 12px 3 次`,**與 lg/sm/md/xl 逐一對上**。
+    // ⚠️ **本格釘的是「四階由根值推導」這個結構,不是那四個數字** ——
+    //    有人把某一階改成寫死值 ⇒ 紅(那正是「改根值卻有一階不動」的病)。
+    expect(CSS).toMatch(/^\s*--radius:\s*8px;/m);
+    expect(CSS).toMatch(/^\s*--radius-xs:\s*2px;/m);
+    expect(CSS).toMatch(/^\s*--radius-sm:\s*calc\(var\(--radius\) - 4px\);/m);
+    expect(CSS).toMatch(/^\s*--radius-md:\s*calc\(var\(--radius\) - 2px\);/m);
+    expect(CSS).toMatch(/^\s*--radius-lg:\s*var\(--radius\);/m);
+    expect(CSS).toMatch(/^\s*--radius-xl:\s*calc\(var\(--radius\) \+ 4px\);/m);
   });
 
-  it('🔴 `.fchip` 跟著 `--radius` 走,不寫死值(篩選 chip 是控制項 ⇒ 與其他控制項同形狀)', () => {
-    // 依據:設計參照 §6.5.4「形狀傳達的是【可不可以互動】」。
-    // ⚠️ 釘 `var(--radius)` 而不是釘 `0` —— 釘死 0 會讓日後恢復圓角時這格紅得莫名其妙。
-    expect(CSS).toMatch(/\.fchip\s*\{[^}]*border-radius:\s*var\(--radius\)/s);
+  it('🔴 `.fchip` 是【全圓膠囊】—— 2026-08-23 照 OD 新稿', () => {
+    // ~~原本:`.fchip` 跟著 `--radius` 走,依據設計參照 §6.5.4「形狀傳達的是可不可以互動」
+    //   ⇒ 可以點的直角、只能看的 pill。~~
+    // 🏁 **那條規則 2026-08-23 被 Sean 明文推翻(「乙 不算了」)** ——
+    //    OD 新稿把 `.fchip` 畫成 `border-radius:9999px`,而拍板是「照稿」。
+    // ⚠️ **舊依據留著**:它解釋了為什麼這一格曾經釘 `var(--radius)`,
+    //    也是「如果哪天想把形狀語意找回來」的入口。
+    expect(CSS).toMatch(/\.fchip\s*\{[^}]*border-radius:\s*9999px/s);
   });
 });
 
 describe('BMW M token:邊框與動效', () => {
-  it('🔴 `--input` 是 `oklch(0.631 0 0)` —— WCAG 1.4.11 那道 3.0 的落地值', () => {
-    // 舊值 oklch(0.94) 對兩個底色只有 1.16 / 1.19;`oklch(0.65)` 是 BMW M 色票落地【之前】的選值。
-    // 🔴 片1 把 `--background` 換成 `#f7f8fa`、並讓 `--accent` 成為暖填 `#eef3f8`
-    //    ⇒ 它多了一個底色(`border-input hover:bg-accent` 三處),舊值在暖填上只有 2.90。
+  it('🔴 `--input` 是 `#8b93a1` —— OD 2026-08-23 改版稿的值', () => {
+    // ~~舊值 `oklch(0.631 0 0)`~~ **2026-08-23 換成 OD 改版稿的 `#8b93a1`**
+    // (Sean 拍板逐字「OD 現在設計稿用什麼,就用什麼」)。
+    //
+    // 🔴🔴 **舊值的來歷留著,因為它解釋了「為什麼這一格存在」**:
+    //    更早的 `oklch(0.94)` 對兩個底色只有 1.16 / 1.19;`oklch(0.631)` 是為了過 WCAG 1.4.11
+    //    那道 3.0 才選的,而且是**在 `--accent` 變成暖填之後重算過的**(舊值在暖填上只有 2.90)。
+    //
+    // ⚠️🔴 **代價要寫在這裡,不要只寫在豁免表**:
+    //    新值 `#8b93a1` 對新底 `#f8fafc` = **2.96**、對 `--accent` `#f1f5f9` = **2.82**,
+    //    **兩者都【未達】1.4.11 的 3.0** ⇒ 上方對比矩陣以 `BELOW_EXEMPT` 具名豁免放行。
+    //    **那是 Sean 2026-08-23 拍板「甲:照 OD 的稿用,把那道檢查調鬆一點」的結果,
+    //      不是這一格自己判定它合格。**
+    //    ⇒ OD 若修稿,這裡與 `BELOW_EXEMPT` 兩處要一起改。
+    //
     // ⚠️ **這一格釘的是【字面】** —— 「底色改了而這個值沒重算」由下面那個 describe 的實算矩陣抓。
-    expect(CSS).toMatch(/^\s*--input:\s*oklch\(0\.631 0 0\);/m);
+    expect(CSS).toMatch(/^\s*--input:\s*#8b93a1;/m);
   });
 
   it('🔴🔴 動效 token 住 `:root`,不在 `@theme inline` —— 後者編出來是【零位元組】', () => {
@@ -144,6 +170,11 @@ const rootBlockOf = (css: string): string => {
   return css.slice(start, end);
 };
 
+// 🔴🔴 **`matchAll` / `exec` 的捕獲組在本 repo 是 `string | undefined`**(`noUncheckedIndexedAccess`)。
+//    2026-08-23 我在這支檔**同一晚踩了兩次 `TS2532`**,而兩次都是 `m[1]` 直接拿來用 ——
+//    **紅的不是這支測試,是全 repo 的 `pnpm typecheck`**,別的窗會在自己沒動過的檔上看到紅。
+//    ⇒ 落筆規則:`m[1]` 一律先處置 —— 捕獲組必然存在就用 `!`,可能不存在就先 `if (… === undefined) throw`。
+//    ⚠️ **不要用 `?? ''` 收尾** —— 那會把「沒抓到」變成一個空字串混進結果裡,而它不會叫。
 const ROOT = rootBlockOf(CSS);
 
 const tokenOf = (name: string): string => {
@@ -274,15 +305,54 @@ describe('BMW M token:對比實算', () => {
     ['primary', 'background', 3.0, '強調色當非文字標記'],
   ];
 
+  // 🔴🔴 **未達標的具名豁免(2026-08-23 Sean 拍板「甲:照 OD 的稿用,把那道檢查調鬆一點」)。**
+  //
+  //    ⚠️ **我提醒過他這是「動驗證」,他重申選甲 ⇒ 照做,並把理由與代價寫在這裡。**
+  //
+  //    🔴 **做成【具名豁免】而不是把門檻從 3.0 調低**,理由與上方 `THIN_EXEMPT` 同一條:
+  //       調低門檻 = 其他 7 組非文字配對【一起】被放寬,而沒有人決定過那件事。
+  //       具名豁免只放行這兩格,其餘照舊守 3.0。
+  //    🔴 **豁免項仍然被【量】**:門檻換成「值必須還是我們記錄的那個」——
+  //       有人再動 `--input` / `--background` / `--accent`,這一格**照樣紅**,
+  //       而且紅在「豁免的前提變了」,不是靜靜放行。
+  //
+  //    **來源**:值取自 OD 2026-08-23 改版稿 `orders-admin-v2.html` 的最終渲染值
+  //    (`--input: #8b93a1`;Sean 拍板逐字「OD 現在設計稿用什麼,就用什麼」)。
+  //    ⚠️ **這是 OD 稿的一個【已知缺口】,不是我們的設計選擇** —— 改版前我們是達標的
+  //    (舊值 `oklch(0.631 0 0)`)。OD 自己那張對比表**沒有列到 `--input` 這一格**,
+  //    所以他們不知道。**已回報,若他們修稿,這兩條豁免要一起撤掉。**
+  const BELOW_EXEMPT: Record<string, { got: number; why: string }> = {
+    'input on background': {
+      got: 2.96,
+      why: 'OD 改版稿 `--input:#8b93a1` 對新底 `#f8fafc`;差 0.04。Sean 2026-08-23 拍板照稿。',
+    },
+    'input on accent': {
+      got: 2.82,
+      why: 'same,對 `--accent:#f1f5f9`;差 0.18。hover 態(border-input hover:bg-accent)。',
+    },
+  };
+
   it('🔴 每一組【文字 × 底色】都達標 —— 失敗時印出實測值,不要只說 false', () => {
     expect(PAIRS.length, '配對表被清空 = 這一格失去判別力').toBeGreaterThan(15);
+    // 🔴 豁免的分母也要守:清空 `BELOW_EXEMPT` 不會讓這格變綠,但**加一筆進去要被看見**。
+    expect(
+      Object.keys(BELOW_EXEMPT).length,
+      '未達標豁免變多了 ⇒ 有人在放行新的不達標組合,這需要拍板不是順手加',
+    ).toBe(2);
     const fails = PAIRS.flatMap(([fg, bg, need, where]) => {
       const got = contrast(parseColor(tokenOf(fg)), parseColor(tokenOf(bg)));
-      return got >= need
-        ? []
-        : [`--${fg} on --${bg} = ${got.toFixed(2)}(需 ${need})  ← ${where}`];
+      if (got >= need) return [];
+      const ex = BELOW_EXEMPT[`${fg} on ${bg}`];
+      // 豁免的前提 = 「它還是我們當初記錄的那個值」。漂了就不再是同一件事,要重新裁。
+      if (ex && Math.abs(got - ex.got) < 0.01) return [];
+      return [
+        `--${fg} on --${bg} = ${got.toFixed(2)}(需 ${need})  ← ${where}` +
+          (ex
+            ? `  🔴 具名豁免記的是 ${ex.got},實測已漂到 ${got.toFixed(2)} ⇒ 豁免前提變了,要重裁`
+            : ''),
+      ];
     });
-    expect(fails, 'BMW M 色票有組合不達標').toEqual([]);
+    expect(fails, '色票有組合不達標(且不在具名豁免內)').toEqual([]);
   });
 
   // 🔴🔴 **具名豁免,不是「跳過」** —— 豁免項仍然被【量】,只是門檻換成「值必須還是我們記錄的那個」。
@@ -503,89 +573,743 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
   //    ⚠️ 這是本 session 第三次踩「【提起】與【做了】字面相同」:
   //       前兩次是 `grep -c 'm-stripe'`(得 3)與 `grep -c "label:"`(得 11)。
   //       **修法一樣:用位置或結構判,不用出現判。**
-  const CSS_CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
-  const ruleOf = (cls: string) =>
-    new RegExp(`\\.${cls}\\s*\\{[^}]*\\}`, 's').exec(CSS_CODE)?.[0];
+  // 🔴 R1 nit 3:剝除器要認字串 —— 舊版正規式遇到 `content:"/*"` 會把後面整段吃掉
+  //    (失敗形狀是 loud 的「找不到 .x」, 但量具自己就該對)。現行檔 11 處 content: 零個含 /*(R1 查)。
+  const CSS_CODE = (() => {
+    let out = '';
+    for (let i = 0; i < CSS.length; i++) {
+      const ch = CSS[i]!;
+      if (ch === '/' && CSS[i + 1] === '*') {
+        const end = CSS.indexOf('*/', i + 2);
+        i = (end === -1 ? CSS.length : end + 2) - 1;
+      } else if (ch === '"' || ch === "'") {
+        const s0 = i;
+        i++;
+        while (i < CSS.length && CSS[i] !== ch) i += CSS[i] === '\\' ? 2 : 1;
+        out += CSS.slice(s0, i + 1);
+      } else out += ch;
+    }
+    return out;
+  })();
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // 🔴🔴🔴 **級聯解析器 —— 這是同一個病的【第三次】修法,前兩次都只修掉一半。**
+  //
+  //    ① 第一次:守門讀到【死掉的規則】(`ruleOf` 用 `.exec` 只取第一筆,而贏的在後面)
+  //    ② 第二次:守門讀到【我手打在測試裡的比例】(換了真相來源,沒換取得方式)
+  //    ③ 第三次(本次):**我寫來修 ① 的求值器,自己用 `.exec` 只取第一筆。**
+  //
+  //    🔴 **R3 給了兩發突變,而它們【都是綠的】—— 缺陷成立,不是假想:**
+  //       · `globals.css` 檔尾追加 `:root{--tint-warn:#f59e0b}`(級聯後者贏)
+  //         ⇒ 真值對比 3.61,而求值器仍讀前面那筆算 6.93 ⇒ 44 passed
+  //       · `.cap-n` 的 `88%` 改成 `20%`(真值 2.43)⇒ 守門照算 8.98 ⇒ 44 passed
+  //       ⚠️ 而追加 `:root` **不是假想的用法** —— 這支檔本來就有第二個 `:root` 區塊。
+  //
+  //    📌 **判別句要升一級**:上一版寫「那個數字是【讀出來的】還是【我打的】?」——
+  //       我通過了那一問,然後死在下一問:**讀出來的是【級聯之後會贏的那一筆】嗎?**
+  //
+  //    ④ 第四次(R4,2026-08-24):③那版的 winningValue 仍用「選擇器字串**全等**」當匹配
+  //       ⇒ 具體度 / at-rule 條件 / !important 寫法變體 / longhand 屬性名 —— 四族全隱形。
+  //       **那不是四個 bug,是一個判準的四個出口** ⇒ 整層重寫,不補洞
+  //       (plan 與批覆:~/pcm-mailbox/06-PLAN-級聯解析器重寫-20260824.md / SUB2-008)。
+  //
+  //    ⇒ 新判準一句話:**凡是會影響「誰贏」的軸 —— 匹配、條件(at-rule/層)、重要性、
+  //       屬性名 —— 要嘛算出來,要嘛 throw,要嘛【具名釘在清單裡】(模型外集合那格)。**
+  //    🔴 第一版寫「不再存在看不到的出口」(R1 證偽);第二版寫「收斂到兩個具名處」(R2 再證偽:
+  //       F1 繪製軸屬性、F2 重複字面通道 —— 同一句修過一次仍太寬 = 對射程估得太樂觀)。
+  //       ⇒ 第三版只【列舉已知】並【明說清單開放】:
+  //       已知的出口 —— ①模型外集合(標籤/`*`/:where 形狀;條數釘住)②plan §6 射程(產物層/
+  //       Tailwind/inline style = 真瀏覽器領域)③繪製軸劫持屬性(已改 throw)④QUERYABLE 外的
+  //       屬性軸(入口 throw 逼同步)。**這份清單是開放的**:R1 找到三種、78 補三發、作者自撞
+  //       @apply、R2 又兩種、自查又一種 —— 沒有任何一種在原作者字集裡;下一種會再出現,
+  //       判準只有「凡不確定 ⇒ 吵, 不要靜」。
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  /** 一筆宣告:屬性、值、!important、全域可比的源序。 */
+  type Decl = { prop: string; value: string; important: boolean; order: number };
+  /** 一條規則:選擇器清單(已切開)、宣告區塊、源序、祖先 at-rule 鏈。 */
+  type Rule = { selectors: string[]; body: string; order: number; ats: string[]; inAtRule: boolean };
+
+  /**
+   * 掃出所有規則。括號深度走訪 + **字串跳過**(R4 C1:`content:"}"` 曾讓整張規則表從那裡起錯位,
+   * 量到 cap-g 假紅 2.22)。
+   * 🔴 走訪結束驗 stack 殘量 = 0 —— 括號不平衡要當場吵(R4 點名舊版零自檢),不是靜默錯位。
+   * 🔴 CSS nesting(style rule 裡再開 style rule)不解析、當場 throw —— 巢狀選擇器的匹配是
+   *    另一個判準軸,隱形比不支援貴。
+   */
+  /** 括號/中括號深度 0 才切逗號(R2 F6:`:where(a,button,…):focus-visible` 是一個選擇器,不是三個)。 */
+  const splitSelectors = (prelude: string): string[] => {
+    const parts: string[] = [];
+    let cur = '';
+    let depth = 0;
+    for (const ch of prelude) {
+      if (ch === '(' || ch === '[') depth++;
+      else if (ch === ')' || ch === ']') depth--;
+      if (ch === ',' && depth === 0) {
+        parts.push(cur);
+        cur = '';
+      } else cur += ch;
+    }
+    parts.push(cur);
+    return parts.map((x) => x.replace(/\s+/g, ' ').trim()).filter((x) => x !== '');
+  };
+
+  const parseRules = (css: string): Rule[] => {
+    const out: Rule[] = [];
+    const stack: Array<{ prelude: string; bodyStart: number }> = [];
+    let preludeStart = 0;
+    for (let i = 0; i < css.length; i++) {
+      const ch = css[i]!;
+      if (ch === '"' || ch === "'") {
+        i++;
+        while (i < css.length && css[i] !== ch) i += css[i] === '\\' ? 2 : 1;
+        if (i >= css.length) throw new Error('CSS 有沒關上的字串 —— 解析器不硬吃');
+      } else if (ch === '{') {
+        stack.push({ prelude: css.slice(preludeStart, i).trim(), bodyStart: i + 1 });
+        preludeStart = i + 1;
+        if (stack.filter((f) => !f.prelude.startsWith('@')).length > 1)
+          throw new Error('CSS nesting(巢狀 style rule)—— 解析器不解析,人來看(plan §8)');
+      } else if (ch === '}') {
+        const frame = stack.pop();
+        preludeStart = i + 1;
+        if (!frame) throw new Error('CSS 括號不平衡:多出來的 }');
+        if (frame.prelude.startsWith('@')) continue; // at-rule 本身不是規則,它裡面的才是
+        out.push({
+          // 🔴 R2 F6:逗號切割要認括號 —— `:where(a,button,…)` 不然會被切成三個碎片
+          selectors: splitSelectors(frame.prelude),
+          body: css.slice(frame.bodyStart, i),
+          // 🔴 源序 = body 起點位置,不靠「} 收合順序」隱含帶(R4 nit F10)
+          order: frame.bodyStart,
+          ats: stack.filter((f) => f.prelude.startsWith('@')).map((f) => f.prelude),
+          // 🔴 **祖先鏈裡有沒有 at-rule** —— 少了這一欄,「宣告在頂層」那格分不出
+          //    `:root{…}` 與 `@supports{ :root{…} }`,而那正是我 v1 犯的錯。
+          inAtRule: stack.some((f) => f.prelude.startsWith('@')),
+        });
+      } else if (ch === ';' && stack.length === 0) {
+        preludeStart = i + 1;
+      }
+    }
+    if (stack.length !== 0)
+      throw new Error(`CSS 括號不平衡:走訪結束 stack 殘 ${stack.length}(需 0)`);
+    return out.sort((a, b) => a.order - b.order);
+  };
+
+  /**
+   * 一段規則 body 切成宣告清單。先剝巢狀區塊(防衛;nesting 在 parseRules 已 throw),
+   * 再以**括號深度 0 的 `;`** 切割 —— `url(a;b)` 與字串裡的 `;` 不會被切錯。
+   * 🔴 important 判定 `/!\s*important\s*$/i` —— `!IMPORTANT` 與 `! important` 都是合法 CSS(R4 F5:
+   *    舊版 `/!important$/` 認不得變體 ⇒ 真正會贏的那筆被丟出 pool)。
+   * 🔴 有內容卻不是「prop: value」形狀的片段 ⇒ throw,不靜默跳過 —— 跳過會把新語法變隱形。
+   */
+  const parseDecls = (body: string, ruleOrder: number): Decl[] => {
+    let flat = '';
+    let depth = 0;
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i]!;
+      if (ch === '"' || ch === "'") {
+        const s0 = i;
+        i++;
+        while (i < body.length && body[i] !== ch) i += body[i] === '\\' ? 2 : 1;
+        if (depth === 0) flat += body.slice(s0, i + 1);
+      } else if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      else if (depth === 0) flat += ch;
+    }
+    const segs: string[] = [];
+    let cur = '';
+    let paren = 0;
+    for (let i = 0; i < flat.length; i++) {
+      const ch = flat[i]!;
+      if (ch === '"' || ch === "'") {
+        const s0 = i;
+        i++;
+        while (i < flat.length && flat[i] !== ch) i += flat[i] === '\\' ? 2 : 1;
+        cur += flat.slice(s0, i + 1);
+      } else if (ch === ';' && paren === 0) {
+        segs.push(cur);
+        cur = '';
+      } else {
+        if (ch === '(') paren++;
+        else if (ch === ')') paren--;
+        cur += ch;
+      }
+    }
+    segs.push(cur);
+    return segs.flatMap((seg, k) => {
+      if (seg.trim() === '') return [];
+      // Tailwind 宣告級指令(`@apply …` 等):樣式在【編譯期】展開, 這裡看不到內容 ——
+      // 存成 @ 開頭的假 prop, 由 cascadeWinner 對命中的規則 throw、模型外守門把它當「有宣告」計入
+      const at = /^\s*(@[a-z-]+)\b([\s\S]*)$/.exec(seg);
+      if (at)
+        return [{ prop: at[1]!.toLowerCase(), value: at[2]!.trim(), important: false, order: ruleOrder + k }];
+      const m = /^\s*(--[A-Za-z0-9_-]+|-?[A-Za-z][A-Za-z-]*)\s*:\s*([\s\S]+?)\s*$/.exec(seg);
+      if (!m) throw new Error(`認不得的宣告片段:\`${seg.trim().slice(0, 40)}\` —— 解析器不猜`);
+      const rawVal = m[2]!;
+      return [
+        {
+          prop: m[1]!.startsWith('--') ? m[1]! : m[1]!.toLowerCase(),
+          value: rawVal.replace(/!\s*important\s*$/i, '').trim(),
+          important: /!\s*important\s*$/i.test(rawVal),
+          // 同規則內以片段序遞增;跨規則由 ruleOrder(字元位置)分開,k ≪ body 長度 ⇒ 不會撞區間
+          order: ruleOrder + k,
+        },
+      ];
+    });
+  };
+
+  const RULES: Rule[] = parseRules(CSS_CODE);
+
+  /** at-rule 條件政策:頂層與【不含 not 的】`@supports` ⇒ 套用(現代瀏覽器兩者都套);
+   *  `@media` / `@container` / `@layer` / 未知 ⇒ 呼叫端 throw(條件與層序不猜 —— plan §2 族②;
+   *  `@layer` 的真語意是「無層恆勝層內」且 !important 反轉,半套實作比 throw 危險)。
+   *  🔴 R1 must-fix 2:`@supports not (…)` 是現代瀏覽器【不會】套用的那一條 —— 舊版把它
+   *     當成立套用 = 方向相反且靜默。否定式(前導 not / `(not (…)` 複合)一律落回 throw。
+   *  🔴 R2 F3:`/\bnot\b/` 太寬 —— `@supports selector(:not(.foo))` 是【正向】query, 誤擋。
+   *     收窄成「前導 not」或「( 後接 not」;`(:not(` 的 not 前是 `:` 不是 `(`, 不命中。 */
+  const conditionalAts = (r: Rule): string[] =>
+    r.ats.filter((a) => !(/^@supports\b/i.test(a) && !/^@supports\s+not\b|\(\s*not\b/i.test(a)));
+
+  /**
+   * 選擇器成員 vs 目標,四分類(R1 must-fix 1 之後的版本 —— 舊版只認「字面包含」,
+   * `[class*="cap-"]` / `span` / `*` 這類【以形狀匹配、不寫出 class 名】的選擇器全部靜默漏掉):
+   *   'hit'        全等 ⇒ 參與級聯
+   *   'complex'    含目標字面但更複雜(後代/複合/:is/:where/偽元素)、或 subject 帶 `[class…]`
+   *                (以 class【形狀】匹配)⇒ 宣告了查詢屬性就 throw
+   *   'miss'       【證明得了不匹配】:subject 錨在別的 class 字面 / id / 偽元素(另一個盒)上
+   *                —— 模型=「元素身分只由目標 class 給定」,錨在別的具名鉤子上就構不成命中
+   *   'outofmodel' 標籤 / `*` / 非 class 屬性 / :where 形狀 —— 匹配與否取決於 DOM(膠囊用什麼
+   *                標籤),那是真瀏覽器的射程(plan §6)⇒ 不參與級聯,但【不准靜默】:
+   *                下方「模型外集合」那格把它們具名釘住,新增同形狀就紅
+   */
+  const subjectOf = (sel: string): string => {
+    let depth = 0;
+    let start = 0;
+    for (let i = 0; i < sel.length; i++) {
+      const ch = sel[i]!;
+      if (ch === '(' || ch === '[') depth++;
+      else if (ch === ')' || ch === ']') depth--;
+      else if (depth === 0 && (ch === ' ' || ch === '>' || ch === '+' || ch === '~')) start = i + 1;
+    }
+    return sel.slice(start).trim();
+  };
+  const classifySel = (sel: string, target: string): 'hit' | 'miss' | 'complex' | 'outofmodel' => {
+    if (sel === target) return 'hit';
+    const esc = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`${esc}(?![A-Za-z0-9_-])`).test(sel)) return 'complex';
+    const subject = subjectOf(sel);
+    if (/\[\s*class/i.test(subject)) return 'complex'; // 以 class 形狀匹配 ⇒ 與含字面同級, 吵
+    if (/::(before|after|marker|placeholder|selection|first-l)/.test(subject)) return 'miss'; // 偽元素=另一個盒
+    // 🔴 R2 之後自查出的第 6 種形狀:`:not(.foo)` 的 class 是【反錨】不是錨 ——
+    //    模型元素沒有 .foo ⇒ :not(.foo) 反而【命中】它。⇒ 判「錨在別的 class」之前,
+    //    先把 :not/:is/:where/:has 的參數剝掉;class 只活在函式型偽類裡 ⇒ 不算錨, 落 outofmodel(被釘住)
+    const anchor = subject.replace(/:(not|is|where|has)\([^)]*\)/gi, ':$1()');
+    if (/\.[A-Za-z_\\-]/.test(anchor)) return 'miss'; // 錨在別的 class 字面(函式型偽類外)
+    if (/#[A-Za-z_-]/.test(anchor)) return 'miss'; // 錨在 id
+    return 'outofmodel';
+  };
+
+  /**
+   * 級聯核心:蒐集所有【確定命中】目標選擇器、且宣告了查詢屬性(群)的宣告,
+   * 依 (!important, 源序) 取贏家 —— 匹配層只放行「全等」⇒ 特異性必同,排序鍵不必含它。
+   * 算不動的一律 throw:complex 選擇器宣告了查詢屬性 / 宣告住在條件式 at-rule 裡。
+   */
+  const cascadeWinner = (rules: Rule[], targetSel: string, props: string[], label: string): Decl => {
+    if (!props[0]!.startsWith('--'))
+      for (const p of props)
+        if (!QUERYABLE.has(p))
+          throw new Error(
+            `查詢屬性 \`${p}\` 不在 QUERYABLE 封閉集合裡 —— 新增查詢要同步擴 QUERYABLE 與「模型外集合」守門的 QUERIED, 否則該屬性在標籤規則上既不參與級聯也不被釘住`,
+          );
+    const cands: Decl[] = [];
+    for (const r of rules) {
+      const vs = r.selectors.map((s) => classifySel(s, targetSel));
+      if (!vs.includes('hit') && !vs.includes('complex')) continue; // miss / outofmodel(後者有具名守門釘住)
+      const decls = parseDecls(r.body, r.order);
+      const hitProps = decls.filter((d) => props.includes(d.prop));
+      // 🔴 R1 nit 1:`all` 會重置一般屬性(不含自訂屬性)—— 命中的規則帶 `all` 就是算不動, 吵
+      const hasAll = !props[0]!.startsWith('--') && decls.some((d) => d.prop === 'all');
+      // `@apply` 等編譯期指令:展開後可能是任何屬性 —— 命中的規則帶它就是算不動, 吵
+      const hasAtDirective = decls.some((d) => d.prop.startsWith('@'));
+      // R2 F1:繪製軸劫持屬性(自訂屬性查詢不受影響)
+      const hijack = props[0]!.startsWith('--') ? undefined : paintHijackIn(decls);
+      if (hitProps.length === 0 && !hasAll && !hasAtDirective && !hijack) continue;
+      if (!vs.includes('hit'))
+        throw new Error(
+          `${label} 被複雜選擇器 \`${r.selectors.join(',')}\` 宣告 —— ` +
+            `本解析器只算「單一 class 全等」的匹配;:is/:where/後代/複合的特異度、與 \`[class…]\` 這種以 class 形狀匹配的選擇器, 它不猜(plan §2 族① + R1 must-fix 1)。` +
+            `正確處置=【擴充解析器讓它算得動這個形狀】;刪掉這格測試或改寫那條選擇器去閃它=動驗證本身=立即停止訊號,回報協調窗`,
+        );
+      if (hasAll)
+        throw new Error(
+          `${label}:命中的規則 \`${r.selectors.join(',')}\` 宣告了 \`all\` —— 它會重置一般屬性而本解析器算不動它(R1 nit 1)。` +
+            `正確處置=【擴充解析器】;刪掉這格測試或把 all 搬走去閃它=動驗證本身=立即停止訊號,回報協調窗`,
+        );
+      if (hasAtDirective)
+        throw new Error(
+          `${label}:命中的規則 \`${r.selectors.join(',')}\` 帶 @ 開頭的宣告級指令(@apply / 巢狀 @media 等)—— 內容在編譯期展開或另有條件, 本解析器看不到(R2 F6 更正:訊息不再只寫 @apply)。` +
+            `正確處置=【擴充解析器或把該規則改寫成明文屬性】;刪掉這格測試去閃它=動驗證本身=立即停止訊號,回報協調窗`,
+        );
+      if (hijack)
+        throw new Error(
+          `${label}:命中的規則 \`${r.selectors.join(',')}\` 宣告了繪製軸劫持屬性 \`${hijack.prop}\`(R2 F1)—— ` +
+            `它會蓋掉 background/color 的渲染結果而不經過這條級聯, 本解析器算不動它。` +
+            `正確處置=【擴充解析器】;刪掉這格測試或把宣告搬走去閃它=動驗證本身=立即停止訊號,回報協調窗`,
+        );
+      const conds = conditionalAts(r);
+      if (conds.length > 0)
+        throw new Error(
+          `${label} 有宣告住在 \`${conds[0]}\` 裡 —— ` +
+            `@media/@container/@layer 的條件與層序、以及 @supports not 的否定條件, 本解析器不猜(plan §2 族② + R1 must-fix 2)。` +
+            `正確處置=【擴充解析器讓它算得動這種條件】;刪掉這格測試或把宣告搬走去閃它=動驗證本身=立即停止訊號,回報協調窗`,
+        );
+      cands.push(...hitProps);
+    }
+    if (cands.length === 0) throw new Error(`globals.css 找不到 ${label}`);
+    const imp = cands.filter((d) => d.important);
+    const pool = imp.length > 0 ? imp : cands;
+    return pool.reduce((a, b) => (b.order >= a.order ? b : a));
+  };
+
+  /**
+   * 一顆自訂屬性【級聯之後】的值。取 `:root` 內最後一筆(同 `:root` ⇒ 特異性相同 ⇒ 源序決定)。
+   * 🔴 限定 `:root`:`.dark { --card: … }` 的深色值不在淺色級聯裡 —— 這是舊版被自己的
+   *    嚴格性抓到的坑,保留(classifySel 對 `.dark` 回 'miss';R2 F5:舊名 selVs 已改)。
+   */
+  const declaredValueIn = (rules: Rule[], name: string): string =>
+    cascadeWinner(rules, ':root', [`--${name}`], `:root 的 --${name}`).value;
+  const declaredValueOf = (name: string): string => declaredValueIn(RULES, name);
+
+  /** 查詢屬性 ⇒ 參與同一個級聯的屬性群(R4 F6:`background-color` 蓋 `background` 的顏色分量;
+   *  反向「簡寫重置長寫」同一張表就涵蓋 —— 贏家是誰就取誰的值)。 */
+  const PROP_GROUP: Record<string, string[]> = {
+    background: ['background', 'background-color'],
+  };
+
+  /**
+   * 🔴 可查詢屬性的【封閉集合】—— cascadeWinner 只接受這裡列的(自訂屬性 --* 另計)。
+   * 為什麼要封閉:「模型外集合」守門的分母掛在這張表上 —— 若未來有人新增一種查詢
+   * (例 font-size)而這裡沒擴,標籤規則裡的那個屬性會【既不參與級聯、也不被釘住】=
+   * 分母定義權又漂走(feedback_a-decoupled-guard-recouples-in-a-new-shape 那族)。
+   * ⇒ 新查詢屬性在這裡不存在 ⇒ 當場 throw,強迫同步擴這張表+模型外守門的 QUERIED。
+   */
+  const QUERYABLE = new Set(['background', 'background-color', 'color']);
+
+  /**
+   * 🔴 R2 F1(must-fix):會【劫走繪製結果】而不經過 background/color 級聯的屬性 ——
+   * `background-image:linear-gradient(黑,黑)` 蓋掉底色、`-webkit-text-fill-color` 直接取代渲染字色、
+   * `opacity`/`filter` 整體改寫 —— 全部在查詢屬性群之外 ⇒ 舊版零 throw 零釘住, 真瀏覽器黑底黑字守門全綠。
+   * 修法照 78 指定【throw 不釘住】(釘住需要名單, 而 F2 剛證明名單有免檢通道)。
+   * `background-image:none` 豁免:它是「拿掉圖層」的無害值(SUB2-008 外-2 該綠對照建立在它上)。
+   */
+  const PAINT_HIJACKERS = new Set(['background-image', '-webkit-text-fill-color', 'opacity', 'filter']);
+  const paintHijackIn = (decls: Decl[]): Decl | undefined =>
+    decls.find(
+      (d) => PAINT_HIJACKERS.has(d.prop) && !(d.prop === 'background-image' && d.value === 'none'),
+    );
+
+  /** 某個 class 的某個屬性,**級聯之後贏的那一個值**(單一 class 元素的視角)。 */
+  const winningValueIn = (rules: Rule[], cls: string, prop: string): string =>
+    cascadeWinner(rules, `.${cls}`, PROP_GROUP[prop] ?? [prop], `.${cls} 的 ${prop}`).value;
+  const winningValue = (cls: string, prop: string): string => winningValueIn(RULES, cls, prop);
 
   it('🔴 混色實作要有正向對照 —— 100% 回原色、0% 回底色', () => {
     // 沒有這一格,下面那格算錯了也會是綠的(混色壞掉通常不會壞成「明顯錯的顏色」)。
+    // ⚠️ **R3 F11 點名這一格的射程**:100%/0% 兩端其實驗的是 `fromOklab ∘ toOklab = 恆等`,
+    //    **任何自洽但寫錯的矩陣對都會過**。真正的外部背書是真瀏覽器那四個數(見下方那格),
+    //    以及審查用**獨立實作**重算得到一致 —— 而那個證據在 repo 外面。**這一格不假裝涵蓋它。**
     const a = hexToRgb('#0066b1');
     const b = hexToRgb('#ffffff');
     expect(mixOklab(a, 100, b)).toEqual(a);
     expect(mixOklab(a, 0, b)).toEqual(b);
   });
 
-  it('🔴🔴 四顆膠囊的【算出來的】底與字都達標 —— 這是換配色的驗收條件', () => {
-    const card = parseColor(tokenOf('card'));
-    const cases: Array<[string, RGB, RGB, string]> = [
-      // ⚠️ 百分比寫成 `--card` 那一側(84/82/87/84),**與 `globals.css` 的參數順序一致** ——
-      //    `A 16%, B` ≡ `B 84%, A`,值相同;順序之所以重要見下一格(降級值)。
-      [
-        'cap-n 灰 還沒訂',
-        mixOklab(card, 84, parseColor(tokenOf('muted-foreground'))),
-        parseColor(tokenOf('fg-2')),
-        'OD :207',
-      ],
-      [
-        'cap-y 黃 訂了沒到',
-        mixOklab(card, 82, parseColor(tokenOf('warning'))),
-        mixOklab(BLACK, 38, parseColor(tokenOf('warning'))),
-        'OD :208-209',
-      ],
-      [
-        'cap-bl 藍 到了沒出',
-        mixOklab(card, 87, parseColor(tokenOf('primary'))),
-        parseColor(tokenOf('primary')),
-        'OD :210',
-      ],
-      [
-        'cap-g 綠 出去了',
-        mixOklab(card, 84, parseColor(tokenOf('success'))),
-        mixOklab(BLACK, 22, parseColor(tokenOf('success'))),
-        'OD :211-212',
-      ],
-    ];
-    const fails = cases.flatMap(([name, bg, fg, src]) => {
-      const got = contrast(fg, bg);
-      return got >= 4.5 ? [] : [`${name}(${src})= ${got.toFixed(2)},需 4.5`];
+  /**
+   * 把一段 CSS 顏色運算式求值。**只認本檔真的用到的形狀,其餘一律 throw。**
+   * 🔴 不靜默回預設色 —— 那會讓「看不懂」與「算過了」長得一樣。
+   */
+  const evalColorExpr = (expr: string, seen: string[] = []): RGB => {
+    const raw = expr.trim();
+    if (raw === 'black') return BLACK;
+    if (raw === 'white') return hexToRgb('#ffffff');
+    // 🔴 R3 F13:上一版閘門收 3~8 碼,而 `hexToRgb` 只認六碼 ⇒ 合法的 `#fff` 會被誤讀。
+    //    ⇒ 三碼在這裡展開成六碼,其餘長度 throw。
+    const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(raw);
+    if (short) return hexToRgb(`#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`);
+    if (/^#[0-9a-f]{6}$/i.test(raw)) return hexToRgb(raw);
+    const v = /^var\(\s*--([A-Za-z0-9_-]+)\s*\)$/.exec(raw);
+    if (v) {
+      const name = v[1]!;
+      if (seen.includes(name)) throw new Error(`--${name} 的定義繞回自己`);
+      return evalColorExpr(declaredValueOf(name), [...seen, name]);
+    }
+    const mix = /^color-mix\(in oklab,\s*(.+)\)$/.exec(raw);
+    if (!mix) throw new Error(`求值器不認得這個形狀:\`${raw}\``);
+    const parts = mix[1]!.split(/\s*,\s*/);
+    if (parts.length !== 2) throw new Error(`color-mix 參數不是兩個:\`${raw}\``);
+    const term = (t: string): [string, number | null] => {
+      const pct = /\s(\d+(?:\.\d+)?)%$/.exec(t);
+      return [pct ? t.slice(0, pct.index).trim() : t.trim(), pct ? Number(pct[1]) : null];
+    };
+    const [lBody, lPct] = term(parts[0]!);
+    const [rBody, rPct] = term(parts[1]!);
+    // 🔴 R3 F10:兩端都帶百分比時 CSS 規範要**正規化**(40%/80% ⇒ 33/67),
+    //    而上一版直接吃第一個數 ⇒ **靜靜回一個算錯的顏色**。本檔沒有這種寫法 ⇒ 直接 throw。
+    if (lPct !== null && rPct !== null)
+      throw new Error(`兩端都帶百分比需要正規化,求值器不猜:\`${raw}\``);
+    if (lPct === null && rPct === null) throw new Error(`兩端都沒有百分比,求值器不猜:\`${raw}\``);
+    const lc = evalColorExpr(lBody, seen);
+    const rc = evalColorExpr(rBody, seen);
+    return lPct !== null ? mixOklab(lc, lPct, rc) : mixOklab(rc, rPct!, lc);
+  };
+
+  it('🔴🔴 求值器自己要能分辨 —— 這一格的每一條都對應一發【真的發生過】的漏網', () => {
+    // 正對照:純 hex 原值回來。
+    expect(evalColorExpr('#0066b1')).toEqual(hexToRgb('#0066b1'));
+    // R3 F13:三碼 hex 是合法 CSS,不可以誤擋也不可以誤讀。
+    expect(evalColorExpr('#fff')).toEqual(hexToRgb('#ffffff'));
+    // R3 F10:兩端都帶百分比 ⇒ 必須 throw,不可以靜靜回一個算錯的顏色。
+    expect(() => evalColorExpr('color-mix(in oklab, #ffffff 40%, #000000 80%)')).toThrow();
+    // 認不得的形狀 ⇒ throw(不是回一個看起來合理的顏色)。
+    expect(() => evalColorExpr('rgb(0 102 177)')).toThrow();
+    expect(() => evalColorExpr('var(--radius)')).toThrow();
+    // 🔴 級聯:同一顆 token 若在後面被覆寫,必須讀到【後面那一筆】。
+    //    這一格用 `--card` 自身當載體 —— 它在本檔只宣告一次,所以下面那格是它的負對照。
+    expect(evalColorExpr('var(--card)')).toEqual(parseColor(tokenOf('card')));
+  });
+
+  it('🔴🔴 級聯判準本身被【直接】測到 —— 合成 CSS 餵真的核心,不靠突變 globals.css', () => {
+    // R4 F9:上一版這格「上半打手打字串、下半釘原始碼字面」—— 兩半都沒呼叫 declaredValueOf,
+    //        F1/F2 那族發生時兩半都綠。⇒ 換成【真的呼叫】參數化核心。
+    // R4 F8:靜止態 6 顆膠囊 × 2 屬性全部 cands=1 ⇒ pool 選擇與 last-wins 分支零覆蓋。
+    //        ⇒ 下面每一格都走到那些分支;每一格對應一發【真的構造過】的突變(MAIN-143 §1)。
+    const P = parseRules;
+    // last-wins(R3 舊突變「檔尾追加 :root」的機制本體):同 token 兩筆,取後者
+    expect(declaredValueIn(P(':root{--dup:#000000}:root{--dup:#ffffff}'), 'dup')).toBe('#ffffff');
+    // !important 逆轉源序(pool 分支)
+    expect(
+      winningValueIn(P('.a{background:#000000!important}.a{background:#ffffff}'), 'a', 'background'),
+    ).toBe('#000000');
+    // !important 寫法變體(R4 F5):大小寫與空白都是合法 CSS,舊版 /!important$/ 兩個都丟 pool
+    expect(
+      winningValueIn(P('.a{background:#000000 !IMPORTANT}.a{background:#ffffff}'), 'a', 'background'),
+    ).toBe('#000000');
+    expect(
+      winningValueIn(P('.a{background:#000000 ! important}.a{background:#ffffff}'), 'a', 'background'),
+    ).toBe('#000000');
+    // longhand 蓋 shorthand(R4 F6)與反向:簡寫重置長寫(78 外-2)—— 兩個方向是不同機制
+    expect(
+      winningValueIn(P('.a{background:#000000}.a{background-color:#ffffff}'), 'a', 'background'),
+    ).toBe('#ffffff');
+    expect(
+      winningValueIn(P('.a{background-color:#000000}.a{background:#ffffff}'), 'a', 'background'),
+    ).toBe('#ffffff');
+    // 逗號清單成員(78 外-3;R3 F4 修過的那族,重寫後不得回退)
+    expect(winningValueIn(P('.b,.a{background:#000000}'), 'a', 'background')).toBe('#000000');
+    // 字串裡的 }(R4 C1):規則表不錯位,後面的規則照常查得到
+    expect(
+      winningValueIn(P('.x::after{content:"}"}.a{background:#000000}'), 'a', 'background'),
+    ).toBe('#000000');
+  });
+
+  it('🔴🔴 算不動的形狀要【吵】,不要隱形 —— 每一發 throw 對應一族舊出口', () => {
+    const P = parseRules;
+    // 族①具體度/偽類(R4 F3、78 外-1):含目標 class 的複雜選擇器,宣告了查詢屬性就 throw
+    expect(() => winningValueIn(P('.g .a{background:#000000}'), 'a', 'background')).toThrow(/不猜/);
+    expect(() =>
+      winningValueIn(P(':where(.a){background:#000000}'), 'a', 'background'),
+    ).toThrow(/不猜/);
+    // 該綠對照:複雜選擇器【不含】目標 ⇒ 不吵(誤擋那半也要驗 —— 它壞的頻率更高)
+    expect(
+      winningValueIn(P('.g .z{background:#111111}.a{background:#000000}'), 'a', 'background'),
+    ).toBe('#000000');
+    // 族② at-rule 條件(R4 F1/F2/F4):@media/@container/@layer 命中即 throw;@supports 套用
+    expect(() =>
+      winningValueIn(
+        P('.a{background:#000000}@media print{.a{background:#ffffff}}'),
+        'a',
+        'background',
+      ),
+    ).toThrow(/不猜/);
+    expect(() =>
+      winningValueIn(
+        P('.a{background:#000000}@container (max-width:520px){.a{background:#ffffff}}'),
+        'a',
+        'background',
+      ),
+    ).toThrow(/不猜/);
+    expect(() =>
+      declaredValueIn(P(':root{--t:#000000}@layer base{:root{--t:#ffffff}}'), 't'),
+    ).toThrow(/不猜/);
+    expect(
+      winningValueIn(P('@supports (color:red){.a{background:#000000}}'), 'a', 'background'),
+    ).toBe('#000000');
+    // 括號不平衡 ⇒ 解析當場吵(R4 點名舊版零自檢)
+    expect(() => P('.a{background:#000000')).toThrow(/括號不平衡/);
+    // CSS nesting ⇒ 不解析,吵
+    expect(() => P('.a{.b{background:#000000}}')).toThrow(/nesting/i);
+    // ── R1 must-fix 1/2 + nit 1 的三形狀(SUB2-015;修法後必吵)──
+    // [class…] 以 class【形狀】匹配、不寫出 class 名 —— 舊版靜默回舊值
+    expect(() =>
+      winningValueIn(
+        P('.a{background:#000000}[class*="a"]{background:#ffffff!important}'),
+        'a',
+        'background',
+      ),
+    ).toThrow(/不猜/);
+    // @supports not = 現代瀏覽器【不會】套用的那條 —— 舊版當成立套用, 方向相反且靜默
+    expect(() =>
+      winningValueIn(
+        P('.a{background:#000000}@supports not (color:red){.a{background:#ffffff}}'),
+        'a',
+        'background',
+      ),
+    ).toThrow(/不猜/);
+    // all 重置一般屬性 —— 舊版 decls 過濾後 continue, 整族隱形
+    expect(() => winningValueIn(P('.a{all:unset}'), 'a', 'background')).toThrow(/all/);
+    // 該綠對照:@supports【不帶 not】照舊套用(修 must-fix 2 不准把正向那半打壞)
+    expect(
+      winningValueIn(P('@supports (color:red){.a{background:#000000}}'), 'a', 'background'),
+    ).toBe('#000000');
+    // 標籤選擇器 = 模型外:合成層【刻意】不吵(匹配與否取決於 DOM)——
+    // 真檔上的防線是下面「模型外集合」那格:新增同形狀 ⇒ 集合變動 ⇒ 紅
+    expect(
+      winningValueIn(
+        P('.a{background:#000000}span{background:#ffffff!important}'),
+        'a',
+        'background',
+      ),
+    ).toBe('#000000');
+    // 🔴 查詢屬性是封閉集合:沒列進 QUERYABLE 的查詢當場吵 ——
+    //    否則新查詢的屬性在標籤規則上【既不參與級聯、也不被模型外守門釘住】(分母漂走那族)
+    expect(() => winningValueIn(P('.a{font-size:14px}'), 'a', 'font-size')).toThrow(/QUERYABLE/);
+    // ── R2 F1(must-fix):繪製軸劫持屬性 —— 蓋掉渲染結果而不經過 background/color 級聯
+    expect(() =>
+      winningValueIn(
+        P('.a{background:#ffffff}.a{background-image:linear-gradient(#000,#000)}'),
+        'a',
+        'background',
+      ),
+    ).toThrow(/劫持/);
+    expect(() =>
+      winningValueIn(
+        P('.a{color:#000000}.a{-webkit-text-fill-color:#0a0a0a!important}'),
+        'a',
+        'color',
+      ),
+    ).toThrow(/劫持/);
+    // 該綠對照:background-image:none 是拿掉圖層的無害值(SUB2-008 外-2 該綠對照建立在它上)
+    expect(
+      winningValueIn(P('.a{background:#000000}.a{background-image:none}'), 'a', 'background'),
+    ).toBe('#000000');
+    // ── R2 F3:@supports selector(:not(.foo)) 是【正向】feature query ⇒ 照套, 不誤擋
+    expect(
+      winningValueIn(
+        P('@supports selector(:not(.foo)){.a{background:#000000}}'),
+        'a',
+        'background',
+      ),
+    ).toBe('#000000');
+    // 否定式(前導 not / 複合 (not …))仍 throw —— 修 F3 不准把 must-fix 2 打壞
+    expect(() =>
+      winningValueIn(
+        P('.a{background:#000000}@supports (a) and (not (b)){.a{background:#ffffff}}'),
+        'a',
+        'background',
+      ),
+    ).toThrow(/不猜/);
+    // ── 第 6 種形狀(自查):`:not(.foo)` 的 class 是反錨 —— 模型元素沒有 .foo ⇒ 它【命中】。
+    //    不准判 miss;落 outofmodel(合成層刻意不吵, 真檔防線=條數釘住那格)
+    expect(classifySel(':not(.foo)', '.a')).toBe('outofmodel');
+    expect(classifySel('.text-xs:not([class*="leading-"])', '.a')).toBe('complex'); // [class 檢查優先, 行為不變(R2 F4 口徑照舊)
+  });
+
+  it('🔴🔴 模型外的規則是【具名集合】,不是靜默出口 —— 新增同形狀就紅(R1 must-fix 1 第二半)', () => {
+    // 標籤/`*`/非 class 屬性/:where 形狀的選擇器, 匹配與否取決於 DOM(膠囊掛在什麼標籤上)——
+    // 那是真瀏覽器的射程(plan §6), 本解析器【算不動】。但算不動不准是靜默:
+    // 這一格把【現行檔裡所有這類、且宣告了查詢屬性】的選擇器釘成清單。
+    // 有人新增一條(例:`span{background:…!important}`)⇒ 集合變動 ⇒ 這裡紅 ⇒ 人來歸類。
+    // 🔴 這不是自動放行的豁免名單 —— 清單上每一條都是「看 DOM 的斷言」:它們今天不打膠囊,
+    //    是因為膠囊不掛在 td/th/a/tr 上;哪天膠囊進了這些容器形狀, 真相只有真瀏覽器知道。
+    // 🔴 同源:分母 = QUERYABLE(封閉集合)+ all + 繪製軸劫持屬性 + @ 指令 —— 不另打一份清單
+    const counted = (r: Rule): boolean => {
+      const ds = parseDecls(r.body, r.order);
+      return (
+        ds.some((d) => QUERYABLE.has(d.prop) || d.prop === 'all' || d.prop.startsWith('@')) ||
+        paintHijackIn(ds) !== undefined
+      );
+    };
+    // 🔴 R2 F2:釘【選擇器 → 條數】不是釘【集合】—— 集合版對「重複既有字面的新規則」全靜默
+    //    (M-B:再加一條 body{…} ⇒ 集合不變 ⇒ 綠)。條數版:同字面第 2 條 ⇒ 數字變 ⇒ 紅。
+    const outOfModel = new Map<string, number>();
+    for (const r of RULES) {
+      if (!counted(r)) continue;
+      for (const s of r.selectors) {
+        // canary class:不存在於檔內 ⇒ 'hit'/'complex' 不會誤觸, 量的就是形狀分類本身
+        if (classifySel(s, '.cap-canary') === 'outofmodel')
+          outOfModel.set(s, (outOfModel.get(s) ?? 0) + 1);
+      }
+    }
+    expect(Object.fromEntries([...outOfModel.entries()].sort())).toEqual({
+      '#nav-rail nav a[aria-current="page"]': 1,
+      '*': 1, // @layer base 的 @apply border-border … —— 編譯期展開, 內容只有產物層看得到
+      '.orders-grid .col-ops a': 1,
+      '.orders-grid .col-ops a:hover': 1,
+      '.orders-grid tbody.orders-group[data-selected] td': 2,
+      '.orders-grid thead th': 2,
+      ':where(tbody tr:hover)': 2,
+      "[data-od-id='panel-header']": 1,
+      body: 1, // 同上:@apply bg-background text-foreground
     });
-    expect(fails, '膠囊配色有不達標的').toEqual([]);
+    // 對照組:集合不是空的 —— 「零新增」不是因為尺沒在量
+    expect(outOfModel.size).toBeGreaterThan(0);
+  });
+
+  it('🔴🔴 五顆膠囊【級聯之後真正生效的】底與字都達標', () => {
+    // 🔴🔴 **值全部從 `globals.css` 讀出來求值,測試裡不出現任何比例數字。**
+    //    R3 F2 打的就是上一版:`.cap-n` 那一列還手打著 `mixOklab(card, 88, …)`,
+    //    而我當時**還親手把它從 84 同步成 88** —— 需要人去同步的東西,就是沒有耦合起來的東西。
+    // ✅ **外部交叉來源**(真瀏覽器 `getComputedStyle` + canvas 解析,`localhost:3871`,2026-08-23,
+    //    自帶正對照「黑字白底 = 21」):cap-n 8.98 / cap-y 6.93 / cap-bl 4.98 / cap-g 4.90。
+    //    ⚠️ `.cap-refund` 那一顆**沒有瀏覽器數** —— 它今天不在任何畫面上(見下方 F5 那格)。
+    const caps = ['cap-n', 'cap-y', 'cap-bl', 'cap-g', 'cap-refund'];
+    const fails = caps.flatMap((cls) => {
+      const bg = evalColorExpr(winningValue(cls, 'background'));
+      const fg = evalColorExpr(winningValue(cls, 'color'));
+      const got = contrast(fg, bg);
+      return got >= 4.5 ? [] : [`.${cls} = ${got.toFixed(2)},需 4.5`];
+    });
+    expect(fails, '膠囊配色有不達標的(值是級聯後真正生效的那一組)').toEqual([]);
   });
 
   it('🔴 實心紅那顆(未收出貨)的白字達標', () => {
-    // OD :214 `.cap.risk{background:var(--danger);color:var(--accent-on)}`
-    expect(
-      contrast(hexToRgb('#ffffff'), parseColor(tokenOf('destructive'))),
-    ).toBeGreaterThanOrEqual(4.5);
+    // 它是寫死的 `#a51022` + `#fff`,一樣走級聯解析,不手抄。
+    const bg = evalColorExpr(winningValue('cap-risk', 'background'));
+    const fg = evalColorExpr(winningValue('cap-risk', 'color'));
+    expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
   });
 
   it('🔴🔴 底色混色的【第一個參數必須是 `var(--card)`】—— 這是老瀏覽器降級值的來源', () => {
-    // 🔴 **這一格守的是一個【原始碼上看不出來】的行為。**
-    //    lightningcss 會自動為 `color-mix` 產生降級版,**降級值 = 混色的第一個參數**。
-    //    照 OD 的原順序寫(`var(--warning) 18%, var(--card)`),降級值就是 `var(--warning)`,
-    //    而字色的降級值**也是** `var(--warning)` ⇒ **同色字疊同色底 = 膠囊整個看不見**
-    //    (四顆裡有三顆會這樣)。把 `--card` 換到第一個參數即可 —— 值等價、降級值變白底。
-    // ⚠️ **不要「照 OD 的順序改回去」** —— 那不是還原設計,那是把三顆膠囊在舊瀏覽器上關掉。
-    // 📎 這個坑是**驗編譯產物**才看到的;而我第一次的修法(在前面多寫一行降級值)
-    //    被 lightningcss 把它自己的降級值接在後面蓋掉 ⇒ **看原始碼會以為修好了。**
-    for (const cls of ['cap-n', 'cap-y', 'cap-bl', 'cap-g']) {
-      const rule = ruleOf(cls);
-      expect(rule, `globals.css 找不到 .${cls}`).toBeDefined();
+    // 🔴 lightningcss 會自動為 `color-mix` 產生降級版,**降級值 = 混色的第一個參數**。
+    //    照 OD 的原順序寫,底色與字色的降級值會是同一個顏色 ⇒ **同色字疊同色底 = 膠囊看不見。**
+    // ✅ **實跑產物驗過**(`grep -rho -- '--tint-warn:[^;}]*' apps/admin/.next/static`):
+    //    `--tint-warn:var(--card)` ← 降級 · `--ink-warn:#774800` ← 降級(白底可讀)。
+    //
+    // 🔴🔴 **R3 F3:上一版只圈四顆 token,而 `.cap-n` 的【行內】`color-mix` 不在任何一格視野裡**
+    //    ⇒ 把它改寫成 `color-mix(in oklab, var(--muted-foreground), var(--card) 88%)`(值等價)
+    //      ⇒ 降級 = 深灰底配深灰字,對比 1.53,而守門全綠。
+    //    ⇒ 現在**兩邊都圈**:token 宣告 + 每一顆膠囊級聯後真正生效的 `background`。
+    for (const token of ['tint-accent', 'tint-danger', 'tint-warn', 'tint-success']) {
       expect(
-        String(rule).replace(/\s+/g, ' '),
-        `.${cls} 的底色混色第一個參數不是 var(--card) ⇒ 舊瀏覽器降級值會變成同色字疊同色底`,
-      ).toContain('background: color-mix(in oklab, var(--card)');
+        declaredValueOf(token).replace(/\s+/g, ' '),
+        `--${token} 的混色第一個參數不是 var(--card)`,
+      ).toMatch(/^color-mix\(in oklab, var\(--card\)/);
+    }
+    for (const cls of ['cap-n', 'cap-y', 'cap-bl', 'cap-g', 'cap-refund']) {
+      const bg = winningValue(cls, 'background').replace(/\s+/g, ' ');
+      if (!bg.startsWith('color-mix')) continue; // 走 token 或純色的不在此列
+      expect(bg, `.${cls} 的行內混色第一個參數不是 var(--card)`).toMatch(
+        /^color-mix\(in oklab, ?var\(--card\)/,
+      );
+    }
+    // 🔴 `--ink-*` / `--pill-*` 刻意**不**要求 card 在前 —— 那是字色,
+    //    降級成該色本身配白底才是可讀的那一邊。
+  });
+
+  it('🔴🔴 八顆 token 真的宣告了,而且【在頂層】—— 放進 @supports 是我犯過的錯', () => {
+    // 🔴 它們一度只活在註解裡。`var()` 解析不到 = invalid at computed-value time
+    //    ⇒ 背景透明、字色掉回繼承值,而 **CSS 語法完全合法、三綠一格都不紅**。
+    // 🔴🔴 **R3 F9:上一版只驗「剝註解後有宣告」,沒驗【在哪】**
+    //    ⇒ 我自己記下的 v1 錯法(把八顆放進 `@supports`)在那一格是**綠的**。
+    //    放進 `@supports` 為什麼不行:`var()` 失效**不會退回下一條規則**,屬性直接 unset
+    //    ⇒ 不支援 `color-mix` 的瀏覽器上膠囊照樣透明。**`@supports` 在這裡防不到任何東西。**
+    const declared = new Set([...CSS_CODE.matchAll(/(--[A-Za-z0-9_-]+)\s*:/g)].map((m) => m[1]));
+    const used = new Set([...CSS_CODE.matchAll(/var\(\s*(--[A-Za-z0-9_-]+)/g)].map((m) => m[1]));
+    const missing = [...used].filter((k) => !declared.has(k)).sort();
+    // ⚠️ **具名豁免,不是放寬門檻**:這一顆由 `workspace-shell.tsx` 的 inline style 供給,
+    //    CSS 裡本來就查不到 —— 而它同時是這把尺的**對照組**:清單不是空的,「零缺」不是恆真。
+    expect(missing, 'globals.css 有 var() 指向沒有宣告的 token').toEqual([
+      '--workspace-panel-width',
+    ]);
+
+    // 位置:八顆都必須在**頂層** `:root`(不在任何 at-rule 內)。
+    const topLevelRoot = RULES.filter((r) => r.selectors.includes(':root') && !r.inAtRule)
+      .map((r) => r.body)
+      .join('\n');
+    // 對照組:分母不是空的 —— 否則下面每一格都是恆綠。
+    expect(topLevelRoot.length, '頂層 :root 一個都沒掃到 ⇒ 這把尺壞了').toBeGreaterThan(200);
+    for (const t of [
+      'tint-accent',
+      'tint-danger',
+      'tint-warn',
+      'tint-success',
+      'ink-warn',
+      'ink-success',
+      'pill-accent',
+      'pill-danger',
+    ]) {
+      expect(topLevelRoot, `--${t} 不在頂層 :root(可能被放進 @supports 了)`).toContain(`--${t}:`);
     }
   });
 
-  it('🔴🔴 值必須留成【運算式】—— 有人把 color-mix 求值成 hex 就紅', () => {
+  it('🔴 值必須留成【運算式】—— 有人把 color-mix 求值成 hex 就紅', () => {
     // 設計參照 §5:求值之後,未來改主色時膠囊不會跟著動,而**沒有任何守門會紅**。
-    // ⇒ 這一格就是那個會紅的東西。
-    for (const cls of ['cap-n', 'cap-y', 'cap-bl', 'cap-g']) {
-      const rule = ruleOf(cls);
-      expect(rule, `globals.css 找不到 .${cls}`).toBeDefined();
-      expect(String(rule), `.${cls} 的值被求成靜態色了`).toContain('color-mix(in oklab');
+    for (const token of ['tint-accent', 'tint-danger', 'tint-warn', 'tint-success', 'ink-warn', 'ink-success']) {
+      expect(declaredValueOf(token), `--${token} 的值被求成靜態色了`).toContain('color-mix(in oklab');
     }
+  });
+
+  it('🔴🔴 第 5 顆膠囊 `.cap-refund` —— 圓角名單漏了它,而【今天沒有人在用它】', () => {
+    // 🔴 **R3 F5 兩半都成立,而第二半打的是我上一輪的宣稱。**
+    //    ① 圓角名單(`border-radius:9999px!important`)原本只列四顆 + `.cap-risk`,不含它
+    //       ⇒ 接上去那天它會是**方角**混在五顆膠囊裡。已補進名單。
+    //    ② 我上一輪寫「守門一變誠實就抓到第 5 顆」—— **那顆是一個 token,不是畫面上的膠囊。**
+    //       `grep 'cap-refund'` 去掉測試 ⇒ **0 個消費端**;
+    //       對照組 `cap-n/y/bl/g` 命中 `order-status-axes.ts` ⇒ 那把尺會分辨。
+    //    ⇒ 這一格把「它還沒有人用」變成**寫下來且會過期就紅**的東西:接上去的那天,下面那句要改。
+    const radiusRule = RULES.find(
+      (r) => r.selectors.includes('.cap-refund') && /border-radius/.test(r.body),
+    );
+    expect(radiusRule, '.cap-refund 不在任何 border-radius 規則裡 ⇒ 它會是方角').toBeDefined();
+
+    const axes = readFileSync(join(__dirname, '..', 'lib', 'orders', 'order-status-axes.ts'), 'utf8');
+    expect(axes, '對照組:其他膠囊應該有消費端,否則這把尺量錯了').toContain('cap-g');
+    expect(
+      axes.includes('cap-refund'),
+      '.cap-refund 有消費端了 ⇒ 請把上面註解②那句「今天沒有人在用它」改掉,並補真瀏覽器對比',
+    ).toBe(false);
+  });
+
+  it('🔴🔴 `globals.css` 不得有【空的區塊】—— 這是那次「整段搬丟」的通用載體', () => {
+    // 🔴🔴 **這一格的來歷**:2026-08-23 搬 OD 樣式時掉了兩整段,而兩次的症狀一模一樣 ——
+    //    **一個空的 `{}`,CSS 語法完全合法,三綠一格都不紅。**
+    //      ① `@supports(color-mix){}`      ⇒ 八顆 token 沒宣告 ⇒ 狀態膠囊整排沒有顏色(R2-C2)
+    //      ② `@container (max-width:719px){}` ⇒ 面板窄了不收單欄 ⇒ 電話 placeholder 被截(R3-F6)
+    //    ⚠️ **空區塊在 diff 上長得像「這條刻意不搬」** —— 而那正是它躲過兩輪審查的方式。
+    // 📌 前兩次都是逐條補;**這一格補的是【那個形狀】** ⇒ 下一次搬丟會在 commit 前就紅。
+    // 🔴 `m[1]` 在 `noUncheckedIndexedAccess` 底下是 `string | undefined` ——
+    //    這是我今晚**第二次**在這支檔用 `matchAll` 踩到 TS2532(第一次在求值器)。
+    //    ⚠️ 不用 `?? ''` 收尾:那會把「沒抓到」變成一個空字串混進清單裡。捕獲組必然存在 ⇒ 用 `!`。
+    const empties = [...CSS_CODE.matchAll(/([^{}]+)\{\s*\}/g)].map((m) =>
+      m[1]!.trim().replace(/\s+/g, ' ').slice(0, 60),
+    );
+    expect(empties, 'globals.css 有空的規則/at-rule 區塊 ⇒ 極可能是搬運時整段掉了').toEqual([]);
+
+    // 對照組:分母不是零 —— 這把尺確實掃得到區塊,「零空塊」不是因為它什麼都沒掃到。
+    const allBlocks = [...CSS_CODE.matchAll(/\{/g)].length;
+    expect(allBlocks, '一個 { 都沒掃到 ⇒ 這把尺壞了').toBeGreaterThan(100);
+  });
+
+  it('🔴 FIX-33 那個容器斷點真的在收單欄 —— 不是「有寫東西」就算', () => {
+    // 空區塊那格擋得住「整段掉了」,擋不住「有人塞一條無關的規則進去」。
+    // ⇒ 這一格釘住**它到底在做什麼**:≤719 的容器裡,兩欄 grid 要變一欄。
+    // ✅ 真瀏覽器兩個世界都表演過(2026-08-23,`localhost:3871`):
+    //    整頁容器 1152 ⇒ `grid-template-columns` 兩欄(553px 553px)
+    //    面板容器 ~687 ⇒ 一欄
+    //    ⇒ **它會分辨**,不是恆為一欄。
+    const block = /@container \(max-width:719px\)\s*\{([\s\S]*?)\n\}/.exec(CSS_CODE)?.[1];
+    expect(block, '找不到 @container (max-width:719px) 區塊').toBeDefined();
+    expect(String(block), 'FIX-33 沒有在收單欄').toMatch(/grid-template-columns:\s*1fr/);
+    expect(String(block), 'FIX-33 沒有指向兩欄的 grid').toContain('grid-cols-2');
   });
 
   it('🔴 膠囊是方角(Sean 2026-08-16 拍板),共用形狀常數不得再帶 pill', () => {
@@ -604,7 +1328,10 @@ describe('BMW M:--border-soft 三階邊框(片3)', () => {
   //    這三格分別釘住鏈條的三個環:**宣告 → Tailwind 映射 → 真的有人用**。
   //    少任何一環,`border-border-soft` 都會變成「寫了但沒有邊框」,而且**不報錯、不會紅**。
   it('🔴 ① 宣告在 `:root`', () => {
-    expect(ROOT).toMatch(/^\s*--border-soft:\s*#edf1f6;/m);
+    // ~~`#edf1f6`~~ **2026-08-23 換成 OD 改版稿的 `#e8ecf2`**(Sean 拍板「稿用什麼就用什麼」)。
+    // ⚠️ 本格釘的是「這顆 token 還在 `:root`」,不是那個 hex 好不好看 —— 改值要連這裡一起改,
+    //    這正是它存在的理由(下面 ②③ 兩格分別釘 `@theme inline` 映射與消費端)。
+    expect(ROOT).toMatch(/^\s*--border-soft:\s*#e8ecf2;/m);
   });
 
   it('🔴 ② `@theme inline` 有映射 —— 少了它 class 根本不存在', () => {
@@ -838,21 +1565,28 @@ describe('BMW M:摘要卡髮絲線格(片4a)', () => {
 });
 
 describe('BMW M:三色條(片2)', () => {
-  it('🔴 三個色停是【硬寫的 hex】,不得被「收進 token」', () => {
-    // OD `:83-86` 明文:這三停不在 tokens.css、是品牌圖案、**絕不當按鈕底色**。
-    // 🔴 這一格擋的是一個**看起來像在做好事**的改動:有人覺得「硬寫 hex 很髒」而改成
-    //    `var(--primary)` 之類 ⇒ 日後調強調色會**把品牌條一起調掉**,
-    //    而畫面上只會看起來「顏色變了」,沒有人會發現那是品牌錯誤。
+  it('🔴 條紋是【單色 var(--primary)】—— 三色停已於 2026-08-23 拍板移除', () => {
+    // 🏁 **Sean 2026-08-23 看過並排實物後拍板「乙:改單色」** ⇒ 三色漸層 → `var(--primary)`。
+    //    OD 改版稿的理由:紅色在後台是「未付款/取消」的語意色,品牌也用紅會互相稀釋
+    //    ⇒ 賽車感拿掉、品牌痕跡(藍)留著。
+    //
+    // 🔴🔴 **本格【整個翻面了】,而舊版的推理要留著,因為它仍然是「改回去要付什麼代價」的說明書。**
+    //    舊版擋的是一個看起來像在做好事的改動:有人覺得「硬寫 hex 很髒」而改成 `var(--primary)`
+    //    ⇒ 日後調強調色會把**品牌條**一起調掉,而畫面上只看起來「顏色變了」。
+    //    ⚠️ **那條推理在 BMW M 語言下是對的。被推翻的是【語言】,不是推理** ——
+    //       三色條不再是品牌圖案、降級成一條分隔線 ⇒ 它的前提消失了,所以現在可以是 var。
+    //
+    // ⇒ 本格現在守的是**新的那一邊**:條紋必須是單色,而且**不得退回三色停**。
     const rule = /\.m-stripe\s*\{[^}]*\}/s.exec(CSS)?.[0];
     expect(rule, 'globals.css 找不到 .m-stripe 規則').toBeDefined();
+    expect(rule, '條紋應為單色 var(--primary)').toContain('var(--primary)');
+    // 🔴 反向:三個舊色停一個都不准回來 —— 沒有這圈,「有人偷偷加回漸層」不會紅。
     for (const stop of ['#0066b1', '#1c69d4', '#e22718']) {
-      expect(rule, `三色條少了色停 ${stop}`).toContain(stop);
+      expect(rule, `三色停 ${stop} 回來了 ⇒ 2026-08-23 拍板被推翻,要重裁不是靜靜改回去`).not.toContain(
+        stop,
+      );
     }
-    // 順序也要對:藍 → 深藍 → 紅。反了就不是 M 的條紋了,而三個色都還在、上面那圈會全過。
-    const order = ['#0066b1', '#1c69d4', '#e22718'].map((s) => String(rule).indexOf(s));
-    expect(order, '三停順序錯了(應為 藍 → 深藍 → 紅)').toEqual([...order].sort((a, b) => a - b));
-    // 🔴 分母:規則裡不得出現 `var(` —— 那代表有人把色停換成 token 了。
-    expect(String(rule).includes('var('), '三色條的色停被換成 var() 了').toBe(false);
+    expect(String(rule).includes('linear-gradient'), '條紋又變回漸層了').toBe(false);
   });
 
   it('🔴 側欄真的有掛上三色條 —— CSS 在而沒人用,等於沒做', () => {
@@ -997,5 +1731,84 @@ describe('#640 有表格的 admin 頁面不得帶 `max-w-`(滿版守門)', () =>
     // 而它們必須全部是**沒有表格**的那一種 —— 否則上一格早該紅了,兩格會自相矛盾。
     const contradiction = withMaxW.filter((p) => /<table|Table/.test(readFileSync(p, 'utf8')));
     expect(contradiction, '兩格自相矛盾:同一支檔同時「有表格」與「帶 max-w-」').toEqual([]);
+  });
+});
+
+describe('黏住的面板摘要頭:兩條規則要一起在(2026-08-23 真瀏覽器量到才補的)', () => {
+  // 🔴 **這一格釘的是一個【我推錯過的】結構事實,不是一個好看的值。**
+  //    sticky 的貼齊基準是捲動容器的 **padding box**。面板容器有 `p-4` ⇒ 只寫 `top:0` 時
+  //    黏住的 header 上緣停在 `panelTop + 16`,**上面那 16px 沒人蓋** ⇒ 內容從縫裡透出來。
+  //    實測(Chromium、`/private/tmp/pcm-a06-browser` 起的 `localhost:3871`、面板捲到底):
+  //      `top:0`    ⇒ 縫上 3/3 探點打到內容(漏)、header `top=72` / 面板 `top=56`
+  //      `top:-1rem` ⇒ 縫上 3/3 探點打到 header(不漏)、header `top=56` = 面板 `top`
+  //      改回 `top:0` ⇒ 漏又回來 3/3(**該紅真的會紅**)
+  //
+  // ⚠️ **它擋得住「有人把那一行刪掉」,擋不住「那一行在別的版面下夠不夠」** ——
+  //    後者要真瀏覽器,不在這裡(本檔開頭那句界線同樣適用)。
+  // 🔴🔴 **2026-08-23 R3-F14:上一版的 `BASE` 沒有錨定 ⇒ 它同時命中面板專屬那條**
+  //    (`.panel-width-locked [data-od-id='panel-header'] {…}` 的**後半段**長得跟底規則一樣)。
+  //    ⇒ 「底規則不得帶 margin」那一格,可能是在檢查另一條規則。
+  //    修:前面必須是行首或 `}`/註解結尾之後的空白 —— 即**前面不可以有選擇器**。
+  const BASE = /(?:^|[};])\s*\[data-od-id='panel-header'\]\s*\{([^}]*)\}/m;
+  const SCOPED = /\.panel-width-locked\s+\[data-od-id='panel-header'\]\s*\{([^}]*)\}/;
+
+  it('底規則存在,而且【不帶任何補償】—— 整頁版沒有 p-4,吃到補償就會左右各凸 16px', () => {
+    const m = BASE.exec(CSS);
+    expect(m, "globals.css 找不到 [data-od-id='panel-header'] 底規則").not.toBeNull();
+    const body = m![1];
+    expect(body).toMatch(/position:\s*sticky/);
+    expect(body).toMatch(/top:\s*0\s*;/);
+    // 🔴🔴 **2026-08-23 審查 Important-6**:上一版只把 `top` 搬進面板作用域,
+    //    `margin`/`padding` 留在這裡 ⇒ **整頁版照樣吃到**。
+    //    真瀏覽器實測(整頁 1440 寬):抬頭 `170/1354`、容器 `186/1338` ⇒ 左右各凸 16px;
+    //    對照組(同容器的兄弟節點)量到 `186/1338` 剛好貼齊 ⇒ 尺會分辨。修完再量 ⇒ `0/0`。
+    expect(body, '底規則不得帶負外距補償 —— 那是面板專屬的').not.toMatch(/margin\s*:/);
+    expect(body, '底規則不得帶內距補償 —— 那是面板專屬的').not.toMatch(/padding\s*:/);
+  });
+
+  it('🔴 面板專屬覆寫【三個宣告都要在】—— 少任何一個都會壞在不同的地方', () => {
+    const m = SCOPED.exec(CSS);
+    expect(m, '面板專屬覆寫 `.panel-width-locked [data-od-id=\'panel-header\']` 不見了').not.toBeNull();
+    const body = m![1];
+    // `top` 管黏住的【位置】;`margin`/`padding` 管黏住時【蓋到哪】。分開壞、分開紅。
+    expect(body, '少了 top:-1rem ⇒ 面板捲動時上緣會透出內容').toMatch(/top:\s*-1rem\s*;/);
+    expect(body, '少了負外距 ⇒ 黏住的抬頭蓋不到面板內距,左右會露出底下的內容').toMatch(
+      /margin:\s*-1rem -1rem 0\s*;/,
+    );
+    expect(body, '少了內距 ⇒ 抬頭本身的留白消失').toMatch(/padding:\s*1rem 1rem 0\s*;/);
+  });
+
+  it('🔴🔴 `-1rem` 這個數綁的是面板的 `p-4` —— 有人把它改成 p-6,兩邊都綠而縫回來', () => {
+    // 審查 Important-7 逐字:「`top:-1rem` ↔ `p-4` 的耦合【零守門】」。
+    // 上一版只釘「字面 `-1rem` 還在」⇒ `p-4` → `p-6` 時**兩格全綠、縫回來 8px**。
+    // ⇒ 這一格把【另一端】也釘住。兩個數要一起改,不能只改一邊。
+    const panelRoute = readFileSync(join(__dirname, '@panel', 'orders', 'page.tsx'), 'utf8');
+    // 🔴🔴 **第一版這條正規式命中了【註解】** —— `[^']*` 會跨行吞掉整段說明文字,
+    //    而那段說明裡就寫著 `panel-width-locked`。**「提起」與「做了」字面相同**,
+    //    本檔已經記過三次同款(`m-stripe` 得 3、`label:` 得 11、`.cap-y` 讀到註解)。
+    //    ⇒ 收窄成「同一行、不跨引號」:`[^'\n]*`。
+    const locked = [
+      ...panelRoute.matchAll(/className='([^'\n]*panel-width-locked[^'\n]*)'/g),
+    ].map((m) => m[1]);
+    expect(locked.length, '面板路由的 panel-width-locked 容器少於兩處').toBeGreaterThanOrEqual(2);
+    for (const cls of locked) {
+      expect(cls, `面板容器的內距不是 p-4,而 globals.css 的補償寫死 -1rem:${cls}`).toMatch(
+        /(^|\s)p-4(\s|$)/,
+      );
+    }
+  });
+
+  it('🔴 借來的那個 class 還在它的本家 —— 名字被改掉的話,壞的不只寬度', () => {
+    // 覆寫是掛在 `.panel-width-locked` 上的,而那個 class 的本職在別處。
+    // 這一格是**耦合的機械載體**:註解講得再清楚,改名的人也不會來讀。
+    const panelRoute = readFileSync(join(__dirname, '@panel', 'orders', 'page.tsx'), 'utf8');
+    const shell = readFileSync(
+      join(__dirname, '..', 'components', 'layout', 'workspace-shell.tsx'),
+      'utf8',
+    );
+    // 面板路由兩個分支(客人卡 / 訂單)都要帶,否則其中一條路上的縫會單獨漏。
+    const hits = panelRoute.match(/panel-width-locked/g) ?? [];
+    expect(hits.length, '面板路由的 `panel-width-locked` 少於兩處').toBeGreaterThanOrEqual(2);
+    expect(shell, 'workspace-shell 不再認得 `panel-width-locked`').toContain('panel-width-locked');
   });
 });

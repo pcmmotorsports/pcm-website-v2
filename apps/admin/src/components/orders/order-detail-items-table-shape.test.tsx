@@ -66,19 +66,70 @@ describe('🔴🔴 【換了定位方式】欄頭與每一列必須共用同一�
   const rules = [...CSS.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
     sel: m[1]!.trim(),
     body: m[2]!,
+    /** 這條規則在 `globals.css` 裡的字元位置 —— 用來判斷它是不是住在某個 at-rule 內。 */
+    at: m.index!,
   }));
   /** 選擇器裡點名了 `.ihead` 或 `.iline`(不含後代選擇器如 `.ihead .three`)的規則。 */
   const trackRules = rules.filter((r) =>
     r.sel.split(',').some((one) => ['.ihead', '.iline'].includes(one.trim())),
   );
 
+  /**
+   * 🔴🔴 **窄版(`@container`)裡的軌道宣告【不算第二份】—— 2026-08-23 Sean 拍板「依照推薦」。**
+   *
+   * **背景**:OD 改版稿 `FIX-08`(窄面板品項列堆疊)在 `@container (max-width:820px)` 裡
+   * 把 `.iline` 改成兩軌。落地之後下面那格從 1 變 2 而紅。
+   *
+   * 🔴 **它不是誤報,但它紅的不是它要抓的東西。** 這一格守的是
+   * 「表頭與每列的軌道**各自漂** ⇒ 整排錯開 8px」(設計稿 `:119-120` 自己記過那個坑),
+   * 而 FIX-08 那塊裡**同一個 `@container` 內就有 `.ihead{display:none}`**
+   * ⇒ **窄版根本沒有表頭可以錯開。不變量在那個斷點下是靠另一個機制守住的。**
+   *
+   * ✅ **改的是這一格的【眼睛】,不是它的【判準】**:
+   *    寬版(頂層)仍然必須「恰好一條、且兩個選擇器共用」——**那半一個字沒動。**
+   *    ⇒ 有人在**寬版**另外宣告一條,照樣紅。
+   * ❌ **試過並還原的路**:把窄版軌道巢狀進共用規則。
+   *    上面那條 regex `[^{}]*` **處理不了巢狀括號** ⇒ 解析錯位,從數到 2 變成數到 **0**
+   *    —— **那不是修好,是把量具弄壞。**
+   * ❌ **不走的路**:把窄版選擇器改成 `[data-od-panel] .iline` 讓這一格掃不到。
+   *    本 repo 另一道守門(`order-filter-chips.test.tsx` 的 `.fchip` 那族)自己寫著:
+   *    **「把 CSS 選擇器改成掃不到的形狀 ⇒ 那是繞過守門,不是修。」**
+   *
+   * **實作**:用**字元掃描**找出每個 `@container`/`@media` 區塊的字元範圍(會數巢狀括號),
+   * 再把落在那些範圍內的規則排除。⚠️ 這個掃描器**只認 at-rule 的巢狀**,
+   * 不處理 CSS 原生巢狀選擇器 —— 那正是上面那條被還原的路,**若日後要用原生巢狀,這裡要一起改**。
+   */
+  const atRuleRanges: Array<[number, number]> = [];
+  for (const m of CSS.matchAll(/@(?:container|media|supports)[^{]*\{/g)) {
+    let depth = 1;
+    let i = m.index! + m[0].length;
+    while (i < CSS.length && depth > 0) {
+      if (CSS[i] === '{') depth++;
+      else if (CSS[i] === '}') depth--;
+      i++;
+    }
+    atRuleRanges.push([m.index!, i]);
+  }
+  const insideAtRule = (pos: number) => atRuleRanges.some(([a, b]) => pos > a && pos < b);
+
   it('軌道只被宣告【一次】,而且是被兩個選擇器共用的那一次', () => {
     expect(rules.length).toBeGreaterThan(10); // 正向對照:真的解析到規則
     expect(trackRules.length).toBeGreaterThan(0); // 正向對照:真的找到那一族
 
-    const withTracks = trackRules.filter((r) => r.body.includes('grid-template-columns'));
+    const allWithTracks = trackRules.filter((r) => r.body.includes('grid-template-columns'));
+    // 🔴 **分母先守**:at-rule 掃描器若寫壞(範圍全空 / 全覆蓋),下面兩行都會失去判別力。
+    //    ⇒ 先斷言「掃到了至少一個 at-rule 區塊」與「頂層那條確實不在任何區塊內」。
+    expect(atRuleRanges.length, 'at-rule 掃描器一個區塊都沒掃到 ⇒ 下面的排除是恆真').toBeGreaterThan(5);
+    const withTracks = allWithTracks.filter((r) => !insideAtRule(r.at));
     // 🔴 恰好一條 —— 兩條就是「各自宣告」那個 8px 坑回來了;零條就是軌道不見了。
-    expect(withTracks).toHaveLength(1);
+    //    ⚠️ **只數頂層**:窄版(`@container`)裡的覆寫不算第二份,理由見上方那段。
+    expect(withTracks, '頂層的軌道宣告不是恰好一條').toHaveLength(1);
+    // 🔴 **負向對照:排除掉的那些必須真的存在** —— 若 FIX-08 那條哪天被刪了,
+    //    這一行會紅,而不是靜靜地讓「窄版沒有堆疊」變成沒有人知道的事。
+    expect(
+      allWithTracks.length - withTracks.length,
+      '窄版(@container)裡的軌道覆寫不見了 ⇒ FIX-08 的品項列堆疊沒有生效',
+    ).toBeGreaterThan(0);
     // 而那一條必須【同時】管到兩個選擇器
     const sels = withTracks[0]!.sel.split(',').map((x) => x.trim());
     expect(sels).toContain('.ihead');

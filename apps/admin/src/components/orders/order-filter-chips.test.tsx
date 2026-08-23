@@ -146,14 +146,22 @@ describe('#484 B-1 — `.fchip` 樣式逐字對 OD', () => {
     expect([...d.keys()].sort()).toEqual(
       ['background', 'border', 'border-radius', 'color', 'font-size', 'padding'].sort(),
     );
-    // 🔴 **2026-08-16:從 `999px` 改成 `var(--radius)`,而這一格是【紅了才被改】的** —— 那是它該做的事。
-    //    依據:設計參照 §6.5.4 裁決「**形狀傳達的是【可不可以互動】,不是【重不重要】**」
-    //    ⇒ chip 渲染成 `<Link>`(可以點)= 控制項 ⇒ 跟所有控制項一起直角化;
-    //      **只能看的狀態膠囊維持 pill**(那些用 `rounded-full`,不吃 `--radius`)。
-    //    ⚠️ **這一格改成釘「它必須跟著 `--radius` 走」,不釘具體值** ——
-    //      釘死 `0` 會讓日後恢復圓角時這格紅得莫名其妙,而那時它本來就該跟著變。
-    expect(d.get('border-radius')).toBe('var(--radius)');
-    expect(d.get('padding')).toBe('3px 11px');
+    // 🏁 **2026-08-23 Sean 拍板「乙 —— 不算了,照 OD 新稿全部圓角」⇒ `var(--radius)` → `9999px`。**
+    //
+    // ⚠️ **下面這段舊依據刻意留著** —— 它是「形狀語意」這條規則的完整推理,
+    //    而被推翻的是那條規則本身,不是推理過程。誰想把它找回來,從這裡讀起:
+    //    ~~2026-08-16:從 `999px` 改成 `var(--radius)`,而這一格是【紅了才被改】的。
+    //      依據:設計參照 §6.5.4 裁決「形狀傳達的是【可不可以互動】,不是【重不重要】」
+    //      ⇒ chip 渲染成 `<Link>`(可以點)= 控制項 ⇒ 跟所有控制項一起直角化;
+    //        只能看的狀態膠囊維持 pill。~~
+    //
+    // 🔴 **繞了一圈回到 `999px` 家族,但【不是回到原點】**:
+    //    2026-08-16 之前是寫死 `999px`(沒有理由);現在是 `9999px`(有拍板 + 有稿)。
+    //    **值長得像,授權完全不同。** 下一個人不要把它讀成「當初那個改動白做了」。
+    expect(d.get('border-radius')).toBe('9999px');
+    // 🏁 2026-08-23 照 OD 新稿:`3px 11px` → `4px 12px`(FIX-37「內距放寬」)。
+    // ⚠️ 這一改**牽動下方那組算式模型**(chip 外框由 24 變 26)—— 見 `:377` 那段的重新校準。
+    expect(d.get('padding')).toBe('4px 12px');
     expect(d.get('font-size')).toBe('12px');
     expect(d.get('border')).toBe('1px solid var(--border)');
   });
@@ -368,24 +376,38 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
    * · 內容容器內距 `p-6` ⇒ 左右各 24 ⇒ 扣 48(`workspace-shell.tsx` 的 `workspace-content`)
    * · 側欄在窄版**不佔寬**:`components/ui/sidebar.tsx` 那顆是 `hidden md:block`(<768 變覆蓋式抽屜)
    * · 390 = 現行最窄的實機寬(iPhone 12/13/14 直式)
-   * · chip 外框 24 = `padding: 3px 11px` 的左右 11×2 + `border: 1px` 的 1×2(`border-box`)
-   * · 每個全形字 12px = `font-size: 12px`(CJK 的字身寬 = 字級)
+   * · chip 外框 26 = `padding: 4px 12px` 的左右 12×2 + `border: 1px` 的 1×2(`border-box`)
+   * · 每個全形字 14px = `font-size: 14px`(CJK 的字身寬 = 字級)
+   *   ⚠️ ~~原本寫 12px~~ —— 那是讀取器漏看 `globals.css:1846` 那條多選擇器規則造成的,見下方註解。
    * · chip 間距 8 = 元件根節點的 `gap-2`(下面有一格釘著)
    *
    * 🔴🔴 **誠實邊界 —— 這是【算式】,不是瀏覽器的用值:**
    *   ① **只對全形字準確**。半形(英數、`/`)實測窄得多(`/` ≈ 4px)⇒ 模型會**高估**寬度
    *      ⇒ **偏保守、會早一步紅**,不會漏報。
-   *   ② 字體真的換掉、或 `.fchip` 的 padding/font-size 被改 ⇒ 模型會失準;
-   *      **但後者有上面「常態 6 個宣告」那格擋著**(本檔直接從 CSS 讀,不抄第二份)。
+   *   ② 字體真的換掉、或 `.fchip` 的 padding/font-size 被改 ⇒ 模型會失準。
+   *      🔴 ~~「但後者有上面『常態 6 個宣告』那格擋著」~~ **這半句 2026-08-23 起為假,審查點名。**
+   *      擋不住的原因:**改它的是【另一個選擇器】** —— `globals.css:1846` 的
+   *      `.fchip,.cap-n,…{font-size:14px}` 不在那一格的視野裡,而它才是贏的那條。
+   *      ⇒ 現在靠的是本檔讀取器**認得多選擇器規則**(見下方 `num()`),不是那一格。
    *   ③ **它證明不了瀏覽器算出來的用值** —— 那要真瀏覽器
    *      (同 `#486` 記過的坑:CSS 字面 36、用值 30)。
    * ✅ **校準來源(2026-08-15 真瀏覽器,幾何照真版面)**:模型算 184 / 340 / 352,
    *    瀏覽器量 184 / 340 / 352 —— **三點全中**,且模型預測的破點(17 字)與實測破點一致。
    */
+  // 🔴🔴 **2026-08-23 審查 Critical:上一版用 `selector === '.fchip'` ⇒ 【只認獨門選擇器】。**
+  //    而 `globals.css:1846` 是 `.fchip,.cap-n,.cap-y,… {font-size:14px}` ——
+  //    **多選擇器、頂層、在後、同特異性 ⇒ 它才是贏的那一條**,而讀取器看不到它
+  //    ⇒ `CHIP_FONT` 讀到 12,真值是 14。
+  //    ✅ **真瀏覽器覆核**(`localhost:3871`,`getComputedStyle`):`font-size: 14px`。
+  //    ✅ **交叉證據來自本 repo 自己**:`order-toolbar-browser.test.tsx` 量到 chip 高 26→31,
+  //       **12px 算不出 31** —— 同一筆 diff 裡「量到的」與「模型假設的」互斥。
+  //    ⇒ 改成**看選擇器清單裡有沒有 `.fchip` 這一項**(逗號切開、逐項比對,不是子字串比對:
+  //       子字串會誤中 `.fchip-x` 之類的名字)。
   const num = (prop: string, re: RegExp) => {
     const decls = new Map<string, string>();
     postcss.parse(CSS).walkRules((rule) => {
-      if (rule.selector.replace(/\s+/g, ' ').trim() !== '.fchip') return;
+      const parts = rule.selector.split(',').map((x) => x.replace(/\s+/g, ' ').trim());
+      if (!parts.includes('.fchip')) return;
       if (rule.parent?.type !== 'root') return;
       // 🔴 用區塊而非簡寫:`walkDecls` 的 callback 型別是 `void | false`,
       //    `(d) => decls.set(...)` 會把 `Map` 當回傳值 ⇒ `TS2322`(vitest 不跑型別檢查、全綠也擋不住)。
@@ -399,7 +421,7 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
   };
   const CHIP_PAD_X = num('padding', /^\d+px\s+(\d+)px$/); // 11
   const CHIP_BORDER = num('border', /^(\d+)px\s/); //          1
-  const CHIP_FONT = num('font-size', /^(\d+)px$/); //          12
+  const CHIP_FONT = num('font-size', /^(\d+)px$/); //          14(2026-08-23 起;見上方讀取器的更正)
   const CHIP_GAP = 8; // Tailwind `gap-2` = 0.5rem;下一格釘住元件真的在用它
   const CONTENT_PADDING = 48; // `p-6` 左右各 24
   const NARROWEST = 390;
@@ -409,6 +431,35 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
   const groupWidth = (labels: readonly string[]) =>
     labels.reduce((sum, l) => sum + chipWidth(l), 0) + CHIP_GAP * (labels.length - 1);
 
+  it('🔴 前提:at-rule 裡的 `.fchip` 沒有動到模型讀的那三個屬性', () => {
+    // 🔴🔴 **R3-F12**:`num()` 只看 `rule.parent?.type === 'root'` ⇒ **看不到 at-rule 裡的 `.fchip`**。
+    //    今天不失準(那兩條只設 `position` / `::after` / `white-space`),而**那是一個沒有載體的前提** ——
+    //    有人在 `@media` 裡加一行 `.fchip{font-size:12px}`,模型會靜靜地繼續用 14。
+    // ⇒ 這一格把那個前提變成機械的:at-rule 內的 `.fchip` **不得**碰 padding / border / font-size。
+    const watched = ['padding', 'border', 'font-size'];
+    const offenders: string[] = [];
+    postcss.parse(CSS).walkRules((rule) => {
+      if (rule.parent?.type === 'root') return;
+      const parts = rule.selector.split(',').map((x) => x.replace(/\s+/g, ' ').trim());
+      if (!parts.includes('.fchip')) return;
+      rule.walkDecls((d) => {
+        if (watched.includes(d.prop)) offenders.push(`${rule.selector} { ${d.prop}: ${d.value} }`);
+      });
+    });
+    expect(
+      offenders,
+      'at-rule 裡的 .fchip 動到了模型讀的屬性 ⇒ 上面那個幾何模型的輸入已經不完整',
+    ).toEqual([]);
+
+    // 對照組:分母不是零 —— at-rule 裡確實有 `.fchip` 規則,只是它們不碰那三個屬性。
+    let inAtRule = 0;
+    postcss.parse(CSS).walkRules((rule) => {
+      if (rule.parent?.type === 'root') return;
+      if (rule.selector.split(',').map((x) => x.trim()).includes('.fchip')) inAtRule++;
+    });
+    expect(inAtRule, 'at-rule 裡一條 .fchip 都沒掃到 ⇒ 這把尺可能壞了').toBeGreaterThan(0);
+  });
+
   it('前提:間距常數 8 對應元件真的用的 `gap-2`,與內容容器真的是 `p-6`', () => {
     const { container } = renderChips({});
     expect(container.querySelector('div')?.className).toContain('gap-2');
@@ -417,18 +468,47 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
     expect(CONTENT_PADDING).toBe(48);
   });
 
-  it('🔴 模型校準:三個真瀏覽器量過的點必須算得出同一個數(算錯就整族失效)', () => {
-    // 🔴 **校準點刻意不用產品字面**:184 是「三顆、中間 3 個全形字」量到的值,
-    //    與這顆 chip 現在叫什麼無關。用 `'待'.repeat(3)` 讓改名不會動到校準
+  it('🔴 模型自洽:三個點必須算得出同一個數(算錯就整族失效)', () => {
+    // 🔴 **校準點刻意不用產品字面**:與這顆 chip 現在叫什麼無關。
+    //    用 `'待'.repeat(n)` 讓改名不會動到校準
     //    (片6 實錘:改名時這一格若綁產品字面,會跟著紅而讓人誤以為模型壞了)。
-    expect(groupWidth(['全部', '待'.repeat(3), '未到貨'])).toBe(184);
-    expect(groupWidth(['全部', '待'.repeat(16), '未到貨'])).toBe(340);
-    expect(groupWidth(['全部', '待'.repeat(17), '未到貨'])).toBe(352);
+    //
+    // 🏁 **2026-08-23 三個數全部改過:184/340/352 → 190/346/358。**
+    //    成因不是模型改了,是它讀的 CSS 改了:Sean 拍板「依照 OD」⇒ `.fchip` 內距
+    //    `3px 11px` → `4px 12px` ⇒ **chip 外框 24 → 26**,三顆就多 6px。
+    //
+    // 🔴🔴 **而本格的【標題也改了】,不是只改數字 —— 那才是這次最重要的一筆:**
+    //    ~~「三個【真瀏覽器量過】的點」~~ → 「三個點」。
+    //    ⚠️ **舊的三個數是 2026-08-15 真瀏覽器量出來的(模型算 184/340/352,瀏覽器量同值,三點全中)。
+    //       新的三個數【沒有人用瀏覽器量過】** —— 它們是同一條算式吃了新的 padding 算出來的。
+    //    ⇒ **本格現在證明的是「模型自洽」,不再是「模型與真瀏覽器一致」。**
+    //       留著仍有價值(有人改壞算式會紅),但**不要再拿它當「這個寬度是真的」的靠山**。
+    //    📎 要恢復那半:在 390/393/430 三個寬度用真瀏覽器重量一次(`order-toolbar-browser.test.tsx`
+    //       那條 harness 就在做這件事)——那支已經量到 chip 高 26 → 31,寬的部分還沒對回本模型。
+    // 🏁 **2026-08-23 第二次改:190/346/358 → 206/388/402。**
+    //    上一次改的是 padding(11→12),**這一次改的是字級 —— 而字級一直都是 14,是讀取器在說謊。**
+    //    ✅ **而這一次「模型 vs 真瀏覽器」那一半【回來了】**:同日 `localhost:3871` 實量
+    //       `全部` = **54.0** / `未到貨` = **68.0**,模型算 26+2×14=54 與 26+3×14=68 ⇒ **兩點全中**。
+    //       (第三顆 `待收款/待訂貨` 瀏覽器量 114.1、模型算 124 ⇒ **模型高估** ——
+    //        那是半形 `/` 造成的,方向與上面誠實邊界①寫的一致:**保守、會早一步紅,不會漏報。**)
+    expect(groupWidth(['全部', '待'.repeat(3), '未到貨'])).toBe(206);
+    expect(groupWidth(['全部', '待'.repeat(16), '未到貨'])).toBe(388);
+    expect(groupWidth(['全部', '待'.repeat(17), '未到貨'])).toBe(402);
   });
 
-  it('🔴 天花板:16 個字放得下、17 個字放不下(校準自實測破點,不是挑的閾值)', () => {
-    expect(groupWidth(['全部', '待'.repeat(16), '未到貨'])).toBeLessThanOrEqual(BUDGET);
-    expect(groupWidth(['全部', '待'.repeat(17), '未到貨'])).toBeGreaterThan(BUDGET);
+  it('🔴 天花板:12 個字放得下、13 個字放不下', () => {
+    // 🏁 **2026-08-23 天花板兩次下修:16/17 → ~~15/16~~ → 12/13。**
+    //    第一次是 padding 11→12(Sean 拍「依照 OD」);
+    //    🔴 **第二次不是任何人改了什麼 —— 是上一版的 15/16 從頭到尾就是錯的。**
+    //       它建立在 `CHIP_FONT = 12` 上,而真值一直是 **14**(讀取器漏看多選擇器規則)。
+    //       ⇒ **上一版宣稱「15 字放得下」,而 15 字實際要 374px、預算只有 342 ⇒ 溢出 32px。**
+    //    ⚠️ **這是使用者看得到的變化,而且比上次大**:手機上 chip 名字的上限
+    //       從「以為的 15 字」掉到「真的 12 字」。**現行三顆最長的是 6 字,離天花板還遠**
+    //       (`待收款/待訂貨`;而它含半形 `/`,模型還高估了它)⇒ **今天不會踩到,但命名時要知道。**
+    // ⚠️ 破點仍然是**算出來的**,不是撞出來的 —— 而算式的兩個輸入
+    //    (chip 外框 26、全形字 14)這次都有真瀏覽器背書(見上一格)。
+    expect(groupWidth(['全部', '待'.repeat(12), '未到貨'])).toBeLessThanOrEqual(BUDGET);
+    expect(groupWidth(['全部', '待'.repeat(13), '未到貨'])).toBeGreaterThan(BUDGET);
   });
 
   /**
@@ -482,9 +562,18 @@ describe('`#742` — chip 與密度鈕都要把開著的面板帶著走', () => 
         panelTarget='ord-1'
       />,
     );
-    // 密度鈕有數顆(鬆/標準/緊)⇒ 每一顆都要帶,不是「至少一顆」。
+    // 🏁 **2026-08-22 Sean 拍板「寬鬆、標準、緊湊功能就保持寬鬆吧」⇒ 三顆密度鈕已移除。**
+    //    (2026-08-23 落地;OD 改版稿 `FIX-25 密度切換固定為「寬鬆」` 同一條。)
+    //
+    // 🔴🔴 **本格【翻面】:原本斷言「密度連結存在且都帶 panel」,現在斷言「一條都不存在」。**
+    //    ⚠️ 舊的意圖留著:那條要防的是「切密度會把員工正在看的那張單關掉」。
+    //       **鈕沒了 ⇒ 那個風險消失 ⇒ 這一格改成守【鈕真的沒了】。**
+    //    🔴 為什麼不是整格刪掉:刪掉的話「有人把密度鈕加回來、而且忘了帶 panel」
+    //       **不會有任何東西紅** —— 那正是這一格原本存在的理由。
     const densityHrefs = [...html.matchAll(/href="([^"]*den=[^"]*)"/g)].map((m) => m[1] ?? '');
-    expect(densityHrefs.length).toBeGreaterThan(0);
-    for (const h of densityHrefs) expect(h).toContain('panel=ord-1');
+    expect(
+      densityHrefs,
+      '密度連結又出現了 ⇒ 三顆鈕被加回來。若那是拍板要的, 記得每一顆都要帶 panel=,否則切密度會關掉員工開著的那張單',
+    ).toEqual([]);
   });
 });

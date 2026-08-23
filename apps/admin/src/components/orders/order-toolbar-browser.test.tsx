@@ -177,7 +177,10 @@ describe('`#485` 片5b — 工具列真瀏覽器量測', () => {
   it.each([390, 393, 430])('%i:三顆單行不折字、chip 獨佔一行、無橫向捲軸', async (vw) => {
     const m = await measure(vw);
     // 🔴 失敗形狀是「字在 chip 裡折」不是「掉行」(片3 之後):訊號是單顆高從 26 變 44。
-    for (const c of m.chip) expect(c.高, `${c.文字} 的高度 —— 26 以外代表內文折行`).toBe(26);
+    /* 🏁 2026-08-23「依照 OD」:`.fchip` 內距 `3px 11px` → `4px 12px`(FIX-37 內距放寬)⇒ 幾何整批位移。
+       🔴 **新值是【本檔自己這一發真瀏覽器量到的】,不是我算的** —— 這支就是那個 harness。 */
+    /* ⚠️ 31 是【一行】不是折行:折行會是兩倍行盒(≈44+)。26→31 = 上下內距各 +1、行盒不變。 */
+    for (const c of m.chip) expect(c.高, `${c.文字} 的高度 —— 31 以外代表內文折行`).toBe(31);
     expect(m.chip獨佔一行).toBe(true);
     expect(m.橫向捲軸).toBe(false);
     expect(m.三顆總寬).toBeLessThanOrEqual(m.可用寬);
@@ -195,11 +198,23 @@ describe('`#485` 片5b — 工具列真瀏覽器量測', () => {
   //    而擴熱區會吃到同一列的其他元素)⇒ 這一格守「熱區沒有外溢到桌機」。
   it('768 桌機:整列單行、chip 26px、熱區不進桌機', async () => {
     const m = await measure(768);
-    expect(m.整列高).toBe(32);
+    /* 🏁 2026-08-23「依照 OD」:`.fchip` 內距 `3px 11px` → `4px 12px`(FIX-37 內距放寬)⇒ 幾何整批位移。
+       🔴 **新值是【本檔自己這一發真瀏覽器量到的】,不是我算的** —— 這支就是那個 harness。
+
+       🏁 **2026-08-24 一度改成 32,現在改回 35 —— 而中間那一段值得留著。**
+       那 15 條**全站裸 class 字級覆寫**曾被刻意移出(範圍題,等 Sean 裁)⇒ 少了 `line-height`
+       ⇒ 同一列裡**不是 chip 的那些元素矮了** ⇒ 整列高 35 → 32(**chip 自己沒變,仍 31**)。
+       ✅ **Sean 2026-08-24 看真畫面比較圖之後拍【A = 全站放大】** ⇒ 那 15 條放回 ⇒ 這裡回到 **35**。
+       📌 留著這段的理由:**它記錄了「這個 35 是由哪一組規則撐起來的」** ——
+          下次有人動那 15 條而這一格紅了,不用再查一次。 */
+    expect(m.整列高).toBe(35);
     expect(m.chip獨佔一行).toBe(false);
     for (const c of m.chip) {
-      expect(c.高).toBe(26);
-      expect(c.命中高, `${c.文字} 桌機不該有 44 熱區`).toBe(26);
+      expect(c.高).toBe(31);
+      /* ⚠️ 命中高 32 = chip 高 31 + 探邊那 1px(`reach(c,0,-1)+reach(c,0,1)+1`)。
+         🔴 本格守的是「**桌機沒有 44px 觸控熱區**」,不是「恰好等於 chip 高」——
+            32 與 31 差的是量法,不是行為。值照本檔量到的寫。 */
+      expect(c.命中高, `${c.文字} 桌機不該有 44 熱區`).toBe(32);
     }
   }, 60_000);
 
@@ -219,7 +234,9 @@ describe('`#485` 片5b — 工具列真瀏覽器量測', () => {
     const baseFirst = base.chip[0];
     const mutatedFirst = mutated.chip[0];
     if (!baseFirst || !mutatedFirst) throw new Error('兩次量測都要有 chip,否則這格是恆綠的');
-    expect(baseFirst.寬, '基準:「全部」在未注入時的寬').toBe(48);
+    /* 🏁 2026-08-23「依照 OD」:`.fchip` 內距 `3px 11px` → `4px 12px`(FIX-37 內距放寬)⇒ 幾何整批位移。
+       🔴 **新值是【本檔自己這一發真瀏覽器量到的】,不是我算的** —— 這支就是那個 harness。 */
+    expect(baseFirst.寬, '基準:「全部」在未注入時的寬').toBe(54);
     expect(mutatedFirst.寬, '注入更高特異性的 padding 之後，寬必須變').toBeGreaterThan(
       baseFirst.寬,
     );

@@ -4,7 +4,6 @@ import {
   type OrderListDisplayState,
   type OrderPanelTarget,
 } from '../../lib/orders/order-list-view';
-import { OrderDensityToggle } from './order-density-toggle';
 import { OrderFilterChips } from './order-filter-chips';
 
 // order-toolbar.tsx — 訂單列表最上面那一列(標題 + 快速篩選 chip + 密度 + 共 N 筆)。
@@ -89,12 +88,16 @@ export function OrderToolbar({
         <OrderFilterChips filter={filter} display={display} panelTarget={panelTarget} />
       </div>
       <div className='ml-auto flex items-center gap-4'>
-        {/* L3 片4:密度切換。🔴 `page` 帶**當下這一頁**、不是固定 1 ——
-            切密度不是換篩選條件,不該把人踢回第一頁(對照上面搜尋框那條刻意給 1 的理由)。 */}
-        <OrderDensityToggle
-          current={display.density}
-          buildHref={(density) => buildOrderListHref(filter, { density }, page, panelTarget)}
-        />
+        {/* 🏁 **2026-08-22 Sean 拍板:「寬鬆、標準、緊湊功能就保持寬鬆吧」⇒ 三顆切換拿掉。**
+            (2026-08-23 線A 落地;OD 改版稿 `FIX-25 密度切換固定為「寬鬆」` 同一條。)
+            ~~原本這裡是 `<OrderDensityToggle current={display.density} buildHref={…} />`~~
+
+            🔴 **`display.density` 與 `buildOrderListHref` 的 density 參數【刻意保留】,沒有一起拆。**
+               `orders-table.tsx:725` 仍然吐 `data-den={density}`,而 `globals.css` 那邊
+               已把 `[data-den='std'|'tight']` 兩塊**刪掉** ⇒ 舊書籤帶 `?den=tight` 進來也不會變樣式。
+               ⇒ 這條路現在是**無害的**,拆掉它會連帶動到網址組裝與讀模型,不在本片範圍。
+            ⚠️ **`order-density-toggle.tsx` 這支檔還在,但已經零呼叫端。**
+               沒有一起刪是因為那要連它的測試一起處理 —— 若要刪,那是獨立一片。 */}
         {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
       </div>
     </div>

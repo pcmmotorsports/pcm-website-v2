@@ -270,6 +270,31 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
    */
   const ALLOWED_TO_CLIP = new Set(['col-vehicle']);
 
+  /**
+   * 🏁 **2026-08-23 Sean 拍板「依照 OD」** —— OD 改版稿 `FIX-43` 逐字
+   *    「欄位再緊縮:不寫 NT$、內距 12→7px、欄寬依量到的自然寬重算」。
+   *    **欄幾何整個換了,而代價是下面這幾欄裝不下今天的最長真值。他知道並接受。**
+   *
+   * 🔴🔴 **做成【具名記錄差距】,不是把它們丟進 `ALLOWED_TO_CLIP`。**
+   *    丟進去 = 那幾欄從此**不管裁多兇都不會紅** ⇒ 用一個恆綠格換掉一個會說話的格子。
+   *    記差距的話:**新的一欄開始裁 ⇒ 紅;既有的一欄裁得更兇 ⇒ 紅。** 判別力留著。
+   *
+   * ⚠️ **數字是量出來的**(2026-08-23 本檔實跑,viewport 1728、真編譯 CSS、真元件),
+   *    不是抄的。容差 6px:字體 hinting 與抗鋸齒在不同機器上會差個一兩 px。
+   * ⚠️ **`col-ops` 那筆不是「被裁」,是【欄位被移除】**(OD `FIX-34 移除「操作」欄 —— 開明細一律點整列`)
+   *    ⇒ 它的文字寬 0、可用寬 -4(內距吃掉)。
+   *    🔴 ~~「留在這裡是為了讓它消失也會紅」~~ **這句 2026-08-23 之前是【假的】,審查點名。**
+   *       登記項只是沒被用到 ⇒ 它消失時整圈 filter 碰不到它 ⇒ 零紅。
+   *       **現在有一格真的在守這件事了**(見下方 `measured` 那格)—— 句子才追上事實。
+   */
+  const KNOWN_CLIP_GAP: Record<string, number> = {
+    'col-brand': 171.3 - 127.4,
+    'col-unit': 87.4 - 83.4,
+    'col-amount': 100.1 - 96,
+    'col-ops': 0 - -4,
+  };
+  const GAP_TOLERANCE = 6;
+
   it('🔴 Sean 的視窗(1728)下,除了車種欄之外沒有一欄裁掉真值', async () => {
     const cols = await measureColumns(1728);
     expect(cols.length, '一欄都沒量到 ⇒ 恆綠').toBeGreaterThanOrEqual(13);
@@ -285,11 +310,45 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
           )
           .join('\n'),
     );
-    const bad = cols.filter((c) => c.clipped && !ALLOWED_TO_CLIP.has(c.col));
+    const bad = cols
+      .filter((c) => c.clipped && !ALLOWED_TO_CLIP.has(c.col))
+      .filter((c) => {
+        const known = KNOWN_CLIP_GAP[c.col];
+        if (known === undefined) return true; // 🔴 沒登記過的一欄開始裁 ⇒ 一定要紅
+        return c.textW - c.contentW > known + GAP_TOLERANCE; // 裁得比登記的更兇 ⇒ 紅
+      });
     expect(
-      bad.map((c) => `${c.col} 文字${c.textW} > 可用${c.contentW}`).join(' / '),
-      '這些欄在 Sean 的視窗下裝不下今天的最長真值(車種除外,它是拍板要裁的)',
+      bad
+        .map(
+          (c) =>
+            `${c.col} 文字${c.textW} > 可用${c.contentW}` +
+            (KNOWN_CLIP_GAP[c.col] === undefined
+              ? '(未登記:新的一欄開始裁了)'
+              : `(登記差距 ${KNOWN_CLIP_GAP[c.col]!.toFixed(1)},現在 ${(c.textW - c.contentW).toFixed(1)} ⇒ 惡化了)`),
+        )
+        .join(' / '),
+      '這些欄在 Sean 的視窗下裝不下今天的最長真值(車種與 2026-08-23「依照 OD」已登記的那幾欄除外)',
     ).toBe('');
+
+    // 🔴 **分母:登記表本身也要被守。**
+    //    有人把 `KNOWN_CLIP_GAP` 清空 ⇒ 上面那圈會退回原本的嚴格版(那是安全方向, 不必擋);
+    //    但有人**往裡面加一欄**就等於靜靜放行一個新的截斷 ⇒ 那要被看見。
+    expect(
+      Object.keys(KNOWN_CLIP_GAP).length,
+      '已登記的截斷欄變多了 ⇒ 有人在放行新的截斷,這需要拍板不是順手加',
+    ).toBe(4);
+
+    // 🔴🔴 **2026-08-23 審查 Important-9:上面那段註解宣稱 `col-ops` 留在登記表是
+    //    「為了讓它消失也會紅」—— 而那句話【不成立】,是本檔自己的字面 vs 事實。**
+    //    機制:那一欄若從 DOM 消失,`cols` 裡就沒有它 ⇒ 登記項只是**沒被用到**,
+    //    整圈 filter 一次都碰不到它 ⇒ **零紅**;而 `cols.length >= 13` 在 14→13 時仍然過。
+    //    ⇒ 這一格就是把那句宣稱**變成真的**:登記表裡的每一欄都必須真的在畫面上量得到。
+    //    📌 這同時守住登記表不腐爛 —— 一個指向不存在欄位的具名豁免,讀起來像在保護什麼。
+    const measured = new Set(cols.map((c) => c.col));
+    expect(
+      Object.keys(KNOWN_CLIP_GAP).filter((k) => !measured.has(k)),
+      '登記表裡有欄位在畫面上量不到了 ⇒ 那一筆登記已經失效(而它看起來仍在保護什麼)',
+    ).toEqual([]);
   }, 120_000);
 
   it('前提 — 車種欄【確實】仍在裁(乙只做了一半,hover 還沒上)', async () => {
