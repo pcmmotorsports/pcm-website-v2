@@ -53,12 +53,10 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | ①寫 rsync / env・secret 操作 / 跨 repo 同步指令<br>②引用其他 session 的 commit body / 跨 session 交接<br>③要在任何規則檔新增條目(立法)前<br>④偵察類工作(凡結論將寫「X 未實作/未覆蓋/查無」)/ 下此類斷言前<br>⑤其他事故式教訓(事故 log;條數會長,當場 `grep -c '^### 12-'` 才算數) | ①`docs/lessons-learned.md` §12-6/12-8/12-9/12-15(🔴)<br>②`docs/lessons-learned.md` §12-30/12-25/12-16<br>③`docs/lessons-learned.md` §12-34/12-36<br>④`docs/lessons-learned.md` §13<br>⑤`docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條) |
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
 | 🔴 **不知道某個東西牽動到哪 / 想知道「改這支檔會影響什麼」** | 查地圖:`graphify query "<檔名或識別字>"`(在 repo 根跑,例 `graphify query "orders-table"`)。它回傳那個節點 BFS depth=2 的連動子圖,答得出**跨檔關係**而 grep 只答得出字面命中。**查完一定要開檔核** —— 地圖給方向,檔案給事實 |
-| ⚠️ **地圖問不出來的東西**(先知道,免得以為它壞了) | ①**中文白話問句零命中**(2026-08-18 實測「訂單列表的品項在哪裡展開成一列」⇒ `No matching nodes`)②**不是節點名的識別字也零命中**(同日實測 `itemsTruncated` ⇒ 0)③🔴 **沒有 HTML 可以開** —— 圖的節點數超過 viz 上限,`graphify update` 會**跳過並移除** `graph.html`(2026-08-18 實測 `ls graphify-out/graph.html` ⇒ `No such file or directory`)。**⇒ 只用 `query`,沒有圖可以看** |
-| 地圖過期了 / 收工前要刷 | `graphify update`(增量)。**milestone 收尾或每日收工跑一次**,不隨每 slice。⚠️ **本表不記節點數與刷新時間** —— 那種數字寫進常載檔就會過期,而過期時零機械訊號;要現值就當場跑 `graphify update` 看它自己印 |
+| ⚠️ **地圖的限制與刷新**(先知道,免得以為它壞了) | **問不出來的三種**:①中文白話問句零命中(2026-08-18 實測「訂單列表的品項在哪裡展開成一列」⇒ `No matching nodes`)②不是節點名的識別字也零命中(同日實測 `itemsTruncated` ⇒ 0)③🔴 **沒有 HTML 可以開** —— 節點數超過 viz 上限,`graphify update` 會**跳過並移除** `graph.html`(同日實測 ⇒ `No such file or directory`)⇒ **只用 `query`,沒有圖可以看**。**刷新** = `graphify update`(增量),**milestone 收尾或每日收工跑一次**、不隨每 slice;⚠️ **本表不記節點數與刷新時間** —— 那種數字寫進常載檔就會過期而過期時零機械訊號,要現值就當場跑它看它自己印 |
 | 跨專案關聯問題(老闆腦/報價單/上架鏈與本 repo 怎麼連) | 四 repo 合併圖 `/Users/sean_1/老闆腦/跨專案圖/`(cd 進去 `graphify query "問題"`;repo 內問題優先用本 repo `graphify-out/`,較新;合併圖由老闆腦維護、本 repo 不更新它) |
 | 三綠細節 / 字面vs事實背景 | `docs/patterns/slice-checkpoint.md` |
-| 歷史 Codex Packet 格式(已停用、僅備查) | `docs/patterns/codex-review-packet.md` |
-| 審查鏈全貌 / 寫審分離 | `docs/patterns/cowork-review-chain.md` |
+| 審查鏈全貌 / 寫審分離 | `docs/patterns/cowork-review-chain.md`(歷史 Codex Packet 格式**已停用、僅備查** ⇒ `docs/patterns/codex-review-packet.md`) |
 | 鐵則字面的詳解與程式碼範例(規則以本檔為準) | `docs/patterns/general.md` + `docs/patterns/pcm-specific.md` |
 | 想知道 `docs/patterns/` 有哪些細節檔 / 從零接手本 repo 找入口 | `docs/patterns/index.md`(全目錄索引與各檔定位) |
 | 要寫守門/負測/突變 · 要下「零命中/沒覆蓋/構造不出來」這類斷言 · 要判 BLOCKER 前 | `docs/patterns/guard-and-instrument-traps.md`(恆綠格 / 紅錯地方 / 一發紅多格 / 守門一裝就紅 / 掃描字集比宣稱窄 / 可重跑 vs 不可重跑的證據;每條附 2026-08-14 當天實例與行號) |
@@ -76,6 +74,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 🔴 **要在本機開【顧客站】來看或量畫面**(手機版面 / 走一遍客人動線 / 購物車結帳) | `bash scripts/storefront-probe/up.sh` 一行起完整鏈(拋棄式 PG + PostgREST + `/auth/v1` 替身 + 種子商品 + storefront dev:3020),收攤 `down.sh`(逐項 pgrep + 逐埠 lsof 驗死)。量版面用同目錄 `overflow-ruler.mjs`(**每次量測自帶三條自檢,`selfCheck.ok=false` ⇒ findings 作廢**)。效度限制照 runbook §5/§8-f 不放寬 |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護) |
 | 接手/重啟/被交辦一條「看起來停住、沒結論」的線 —— 在你說「那要開線」之前 | `docs/patterns/stalled-line-triage.md`(甲沒有落點/乙結論住錯地方/丙照拍板在等;丙型誤判=推翻當事人自己的拍板) |
+| 想知道「上線前還剩多少沒關」 | `docs/launch-todo.md` —— 一張**自己數得出來**的表(態=封閉集 open/doing/parked/done)。⚠️ 它**不涵蓋**沒有人盤過的面;檔尾「這張板子沒涵蓋什麼」那節先讀 |
+| 查「某個坑我們記過沒」 | `scripts/traps-neighbours.py` —— 🔴 **直接 `grep` 正本會漏**:它比對的是**鄰居**不是字面,而同一個坑在不同載體上用的字不一樣(2026-08-23 實錘:兩套誠實的字集各自漏掉對方三分之二) |
 | 制度/檔案盤整(過期清理/歸屬/skill 化;每 milestone 收尾跑) | `~/.claude/skills/pcm-housekeeping/SKILL.md`(2026-08-12 Sean 拍板常設) |
 
 ---
