@@ -91,7 +91,6 @@ export {
 // syntheticEmailDomain 必須從 line.ts LINE_SYNTHETIC_EMAIL_DOMAIN 注入 = 單一字面來源)。
 export {
   SupabaseEmailOutboxAdapter,
-  isSyntheticEmail,
   type EmailOutboxClient,
   type SupabaseEmailOutboxAdapterConfig,
 } from './email/SupabaseEmailOutboxAdapter';
