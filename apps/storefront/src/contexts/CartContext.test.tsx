@@ -9,7 +9,16 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 
-import { CartProvider, useCart } from './CartContext';
+// 🔴 ~~原本這裡 mock `@/lib/supabase/browser` 的 `onAuthStateChange`~~ —— **已移除(2026-08-23)**。
+//   那個 mock 讓 A1 那三格全綠,而**真瀏覽器裡那段碼一次都沒跑過**:登入是 server action,
+//   瀏覽器端的 supabase 實例從頭到尾沒執行過登入 ⇒ 事件永遠不會來。
+//   📌 **一個自己扮演呼叫端的測試,永遠不會發現沒有呼叫端。**
+//   ⇒ 主人現在由 `app/layout.tsx` 從 server 交下來(prop `serverOwnerId`),
+//     所以這三格改成【換 prop + rerender】—— 那才是真實世界會發生的事。
+//   ⚠️ 而這三格仍**不是**這一片的最終證人:證人是 runbook 那條真瀏覽器序列
+//     (訪客 4 件 → 登甲留著 → 重整留著 → 換乙清空 → 按登出鈕清空),2026-08-23 實跑過。
+
+import { CartProvider, useCart, clampDrop } from './CartContext';
 
 const STORAGE_KEY = 'pcm-cart-mock-v2';
 const SESSION_KEY = 'pcm-cart-session-v1';
@@ -17,6 +26,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <CartProvider>{children}</CartProvider>
+);
+
+/** 現在坐在這台電腦前的人 = server 交下來的那個值;改它再 rerender = 真實世界的「換人」。 */
+let currentOwner: string | null | undefined = null;
+const ownerWrapper = ({ children }: { children: ReactNode }) => (
+  <CartProvider serverOwnerId={currentOwner}>{children}</CartProvider>
 );
 
 beforeEach(() => {
@@ -566,5 +581,142 @@ describe('CartContext / cartSessionId 非安全環境 fallback(2026-07-22)', () 
     expect(randomUUID).toHaveBeenCalledTimes(1);
     // 🔴 正式站(HTTPS)行為零變動的機械證據:fallback 一次都沒被走到
     expect(getRandomValues).not.toHaveBeenCalled();
+  });
+
+});
+
+// ── A1:車不跟人走 ────────────────────────────────────────────────────────────
+// 🔴 這三格是**一組**:前兩格是「該清有沒有清」,第三格是「不該清的有沒有被誤清」。
+//   只留前兩格的話,一個「userId 一動就清」的錯實作會**全綠通過**,
+//   而它會在訪客結帳登入的那一刻把他的車倒掉。
+describe('A1:換人 / 登出要清車,訪客登入不清', () => {
+  beforeEach(() => { currentOwner = null; });
+
+  it('登出(A → null)清空品項與 cart session', () => {
+    currentOwner = 'user-a';
+    const { result, rerender } = renderHook(() => useCart(), { wrapper: ownerWrapper });
+    act(() => { result.current.addItem({ productId: 'lightech-1', qty: 2 }); });
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.cartSessionId).toMatch(UUID_RE);
+
+    currentOwner = null;
+    act(() => { rerender(); });
+    expect(result.current.items).toEqual([]);
+    expect(result.current.totalQty).toBe(0);
+    expect(result.current.cartSessionId).toBeNull();
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe('[]');
+    expect(window.localStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  it('換人(A → B)清空品項**與去重子** —— 車行共用一台電腦的那個病', () => {
+    currentOwner = 'user-a';
+    const { result, rerender } = renderHook(() => useCart(), { wrapper: ownerWrapper });
+    act(() => { result.current.addItem({ productId: 'lightech-1', qty: 3 }); });
+    expect(result.current.totalQty).toBe(3);
+    const aSessionId = result.current.cartSessionId;
+    expect(aSessionId).toMatch(UUID_RE);
+
+    currentOwner = 'user-b';
+    act(() => { rerender(); });
+    expect(result.current.items).toEqual([]);
+    // 🔴 R2 nit F3:**第四種錯實作** =「`A → B` 只清品項、留著 A 的 `cartSessionId`」。
+    //   少了下面兩行它會**三格全綠**,而去重子外洩恰好就是 `A → B` 這個情境:
+    //   B 的第一次結帳會帶著 A 的去重把手送 server。
+    expect(result.current.cartSessionId).toBeNull();
+    expect(window.localStorage.getItem(SESSION_KEY)).toBeNull();
+  });
+
+  // 🔴 R1 must-fix(主視窗問的那題):`undefined` = **這次沒讀到**,不是「登出了」。
+  //   兩條路都會產生假的 `null`(getUser 丟例外 / 回 `{user:null,error}` 網路抖),
+  //   而 `null` 在下游的意思是「他登出了」⇒ 會把一個【還登著的人】的車清掉。
+  it('讀不到主人(undefined)**不清車** —— 一次網路抖不該把還登著的人的車倒掉', () => {
+    currentOwner = 'user-a';
+    const { result, rerender } = renderHook(() => useCart(), { wrapper: ownerWrapper });
+    act(() => { result.current.addItem({ productId: 'lightech-1', qty: 2 }); });
+    const before = result.current.cartSessionId;
+
+    currentOwner = undefined;
+    act(() => { rerender(); });
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.cartSessionId).toBe(before);
+  });
+
+  // 🔴 活性訊號(R3 nit):`undefined` 一路安靜下去 = 清車永遠不發生,而畫面正常。
+  //   ⚠️ 這一格**不能**寫成「連續 N 次才吼」—— 那個 effect 的依賴是 `[ownerId]`,
+  //     一連串 `undefined` 之間值沒變、effect 不會再跑。第一版就是那樣寫的,**而這一格當場紅**。
+  it('讀得到主人時**不吼**(該綠那半先跑)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    currentOwner = 'user-a';
+    const { rerender } = renderHook(() => useCart(), { wrapper: ownerWrapper });
+    currentOwner = 'user-b';
+    act(() => { rerender(); });
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('讀不到主人 ⇒ 吼一次,而且只吼一次', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    currentOwner = 'user-a';
+    const { rerender } = renderHook(() => useCart(), { wrapper: ownerWrapper });
+    currentOwner = undefined;
+    act(() => { rerender(); });
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    currentOwner = 'user-b';
+    act(() => { rerender(); });
+    currentOwner = undefined;
+    act(() => { rerender(); });
+    expect(warn).toHaveBeenCalledTimes(1); // 同一次掛載不重複吼
+    warn.mockRestore();
+  });
+
+  it('讀不到之後又讀到【同一個人】⇒ 仍不清 —— undefined 不得污染「前一個人」', () => {
+    currentOwner = 'user-a';
+    const { result, rerender } = renderHook(() => useCart(), { wrapper: ownerWrapper });
+    act(() => { result.current.addItem({ productId: 'lightech-1', qty: 2 }); });
+
+    currentOwner = undefined;
+    act(() => { rerender(); });
+    currentOwner = 'user-a';
+    act(() => { rerender(); });
+    expect(result.current.items).toHaveLength(1);
+
+    // 而真的換人時照樣要清(證明上面不是「壞掉所以永遠不清」)。
+    currentOwner = 'user-b';
+    act(() => { rerender(); });
+    expect(result.current.items).toEqual([]);
+    expect(result.current.cartSessionId).toBeNull();
+  });
+
+  // 🔴 承重理由是 `INITIAL_SESSION`(R2 更正):**每一次重整都是 `null → A`**
+  //   ⇒ 清它 = 每個回頭客每次開頁被倒車。「訪客先逛後登入」只是方向相同的次要理由(未量)。
+  it('訪客登入 / 每次重整(null → A)**不清** —— 否則回頭客每次開頁被倒車', () => {
+    currentOwner = null;
+    const { result, rerender } = renderHook(() => useCart(), { wrapper: ownerWrapper });
+    act(() => { result.current.addItem({ productId: 'lightech-1', qty: 2 }); });
+    const before = result.current.cartSessionId;
+
+    currentOwner = 'user-a';
+    act(() => { rerender(); });
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.totalQty).toBe(2);
+    expect(result.current.cartSessionId).toBe(before);
+  });
+});
+
+// ── A5:上限夾值要「少了幾件」算得出來(補洞窗)────────────────────────────────
+describe('clampDrop —— 因為上限而被丟掉幾件', () => {
+  it('沒滿 ⇒ 0(負對照:平常不得冒出提示)', () => {
+    expect(clampDrop(0, 1)).toBe(0);
+    expect(clampDrop(90, 9)).toBe(0); // 剛好 99,還沒溢出
+  });
+
+  it('提示詞裡那個情境:車裡 90 再加 20 ⇒ 少了 11 件', () => {
+    expect(clampDrop(90, 20)).toBe(11);
+  });
+
+  it('已經滿了再加 ⇒ 加多少丟多少', () => {
+    expect(clampDrop(99, 1)).toBe(1);
+    expect(clampDrop(99, 50)).toBe(50);
   });
 });

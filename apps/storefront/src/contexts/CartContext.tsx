@@ -33,7 +33,7 @@
 //
 // 鐵則對齊:
 // - 鐵則 9 L1 標記(API 結構穩定、M-3 swap 實作不動介面)
-// - 鐵則 6:🔴 本檔**已超過 300 行硬警戒、仍低於 400 行必拆線**(實測 329 行)(原註解「<300 軟警戒內、~230 行」
+// - 鐵則 6:🔴 本檔**已超過 300 行硬警戒、仍低於 400 行必拆線**(實測 383 行;A1 換人清車後重量,2026-08-23)(原註解「<300 軟警戒內、~230 行」
 //   在 2026-07-22 前即已是假字面、當時實為 303 行,同日修正)。不拆的理由:newCartSessionId 為十餘行
 //   純函式,與其三個呼叫點(hydrate / addItem / regenerate)同檔內聚;拆出去反而讓「去重子在哪裡生成」
 //   要跨檔追,提高雙扣線排查成本。下次再長就評估把持久化 I/O 那段抽出。
@@ -47,9 +47,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+
 
 const STORAGE_KEY = 'pcm-cart-mock-v2';
 const SESSION_KEY = 'pcm-cart-session-v1'; // 3DS-7 cart-instance idempotency key(獨立、與品項 key 分開)
@@ -136,6 +138,23 @@ function clampQty(qty: unknown): number {
   return Math.min(floored, MAX_QTY);
 }
 
+/** A5:同一列再加購時,**因為上限而被丟掉幾件**(0 = 沒被丟)。
+ *
+ *  🔴 這支住在這裡、不住在畫面那邊,是因為**夾值本身就發生在這個檔**
+ *  (`addItem` 的 `clampQty(p.qty + safeQty)`)。算法跟著它走,畫面只負責把數字唸出來
+ *  ⇒ 哪天 `MAX_QTY` 或 clamp 規則改了,不會有一個「講另一套數字」的提示留在別的檔裡。
+ *
+ *  ⚠️ **本站有三個 `addItem` 呼叫端,而這支只被其中一個用到**(`ProductInfo`,桌機商品頁)。
+ *    另兩個沒接,理由各自不同、都寫在 A5 回報裡:
+ *    · `ProductPage` 手機買價列:qty 恆 1 ⇒ 最多只丟得掉 1 件,而它的「已加入・數量」面板
+ *      本來就把**車上的真值**顯示出來(滿了就是 99)。
+ *    · `ProductCard` 快速加入:qty 恆 1、且卡片上沒有數量概念。
+ *    ⇒ 這兩條**不是已修**,是**風險小很多**。要收的話用同一支算法,不要各自再寫一次。 */
+export function clampDrop(existingQty: number, addQty: number): number {
+  const wanted = existingQty + addQty;
+  return Math.max(0, wanted - clampQty(wanted));
+}
+
 /** V-2a:CartItem.vehicle 讀回逐 kind 分驗(壞資料→undefined 丟棄、絕不 throw;鏡像既有逐欄防禦)。 */
 function readVehicle(v: unknown): CartItemVehicle | undefined {
   if (!v || typeof v !== 'object') return undefined;
@@ -212,7 +231,17 @@ function writeSessionId(id: string | null) {
   }
 }
 
-export function CartProvider({ children }: { children: ReactNode }) {
+export function CartProvider({
+  children,
+  // 車的主人 = server 端 `supabase.auth.getUser()` 的結果,由 `app/layout.tsx` 交下來。
+  // 🔴 **三態,而 `undefined` 不是「沒登入」是「不知道」**:
+  //   `string` 有人 / `null` **確定沒人** / `undefined` **這一次沒讀到**(或呼叫端沒帶這個 prop)。
+  //   ⚠️ **不要給它 `= null` 的預設值** —— 那會把「不知道」壓成「登出了」,而下游拿它去清車。
+  serverOwnerId,
+}: {
+  children: ReactNode;
+  serverOwnerId?: string | null;
+}) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [cartSessionId, setCartSessionId] = useState<string | null>(null);
@@ -228,6 +257,92 @@ export function CartProvider({ children }: { children: ReactNode }) {
     );
     setIsHydrated(true);
   }, []);
+
+  // ── 車不跟人走的洞(補洞窗 A1)────────────────────────────────────────────────
+  // 病徵:車行共用一台電腦,A 加了一車、登出走人,B 坐下來看到的還是 A 的車。
+  //   本 Provider 是 **localStorage-only**(檔頭 Phase 1 mock),而 localStorage 是**綁瀏覽器不綁人**
+  //   ⇒ 在有 A1 之前,`grep -c 'userId' CartContext.tsx` = 0,登出也不清。
+  //
+  // 抄的形狀:`FavoritesContext.tsx:145` 的 onAuthStateChange 訂閱(連 try/catch 一起抄 ——
+  //   env / browser client 不可用時**維持未登入預設、不阻斷 render**)。
+  //
+  // 🔴 **只差一個地方,而那個差別是刻意的**:收藏清「每一次 userId 變動」,購物車**不清 `null → A`**。
+  //   收藏住在 server(換人 = 重載那個人的),購物車住在這台瀏覽器裡。
+  //
+  //   🔴 **承重的理由是 `INITIAL_SESSION`**(R2 更正,2026-08-23):每次開頁 `prevOwnerRef` 都從
+  //   `null` 起步,而訂閱當下就 emit `INITIAL_SESSION` 帶回登入者 ⇒ **每一次重整都是 `null → A`**
+  //   ⇒ 清它 = **每個回頭客每次開頁被倒車**。這條與動線假設無關,是機制逼出來的,**沒有第二種寫法**。
+  //
+  //   次要理由(方向相同,但**它可以被推翻,別拿它當唯一依據**):訪客先逛先加、結帳那步才登入
+  //   —— 我沒有量過這條動線有多少人在走,只是「若成立則同向」。
+  //   ⇒ 只清這兩種:`A → null`(登出)與 `A → B`(換人)。
+  //
+  //   ⚠️ **兩條沒蓋住而都不走 auth 事件**(R2 nit F2,主視窗已另立條目、**不在本片**):
+  //     ① session 在沒有分頁開著時死掉(過期 / 遠端 revoke / 改密碼)⇒ 重開是 `null`,A 的車還在
+  //        storage ⇒ B 登入走 `null → B` ⇒ **繼承 A 的車**
+  //     ② 前一人全程訪客沒登入 ⇒ 下一人登入繼承訪客車(**原理上分不出**是誰的)
+  //     ③ **A 沒有登出就走人**(R3 nit,2026-08-23 明文寫進清單):下一個人坐下來時 A 還登著,
+  //        `ownerId` 從頭到尾沒變過 ⇒ 這段**不會觸發**,而那是對的 —— 它守的是「主人換了」,
+  //        不是「坐在椅子上的人換了」,後者**在瀏覽器裡量不到**。
+  //        ⚠️ 寫進來的理由:不寫,它每隔一陣子就會被當成 bug 重報一次。
+  //     ④ cookie 還在而 session 真的過期 / 被 revoke ⇒ `layout.tsx` 判 `undefined` ⇒ 車留著
+  //        (該清而沒清;取捨與理由在 `layout.tsx` 那段註解,方向是「不倒別人的車」)
+  //
+  // 🔴 為什麼不用 `.clear()` 那條 R3 must-fix(`FavoritesContext.tsx:161` 上方那段)去照抄:
+  //   那條治的是「舊帳號還在路上的 worker,收尾時動到新帳號的那份 ref」。
+  //   **本 Provider 沒有任何 async worker**(addItem/updateQty 全是同步 setState)⇒ 沒有孤兒可寫回。
+  //   這裡用 `setItems([])`(新陣列)本來就不共用物件,不需要那道防線。若哪天 cart 接了 server,
+  //   把那段連同它的理由一起搬過來。
+  // 🔴🔴 **主人是誰,由 server 交下來,不由 client 去問**(2026-08-23 真瀏覽器實測後改寫)。
+  //   ~~原版訂 `createBrowserSupabaseClient().auth.onAuthStateChange`~~ —— **那條在本站【永遠不會響】**:
+  //   登入是 server action(`app/login/actions.ts` 伺服器端 `signInWithPassword` → 設 cookie → redirect),
+  //   瀏覽器那個 supabase 實例**從頭到尾沒有執行過登入** ⇒ 收不到 `SIGNED_IN`。
+  //
+  //   🔴 實測序列(真瀏覽器,舊版):99 件 → 登甲 99 → 重整 99 → 登出 99 → **登乙 99(該清而沒清)**;
+  //   身分是量到的(cookie `sb-…-auth-token` 解出 sub 由 2222… 變 1111…),而 `pcm-cart-mock-v2`
+  //   與 `pcm-cart-session-v1` 全程同一筆。
+  //
+  //   🔴 **而單元測試是綠的** —— 因為它**自己去呼叫**那個 callback。
+  //   一個自己扮演呼叫端的測試,永遠不會發現沒有呼叫端。⇒ 這一段的證人改成【真瀏覽器序列】。
+  //
+  //   ⚠️ 一併證偽的假設:「登入是整頁重載 ⇒ provider 重掛 ⇒ ref 歸零」——
+  //   登入前在 `window` 放 marker、登入後 marker 還在 ⇒ **是 client-side 導覽,provider 沒重掛**。
+  //   那個假設解釋得通,而它是假的。
+  const ownerId = serverOwnerId;
+
+  const prevOwnerRef = useRef<string | null>(null);
+  const warnedUnknownOwnerRef = useRef(false);
+  useEffect(() => {
+    // 🔴 `undefined` = 這一次沒讀到主人是誰 ⇒ **什麼都不做,連 `prevOwnerRef` 都不更新**。
+    //   更新了它,下一次真的讀到時就會拿 `undefined` 當「前一個人」去比,比出一個假的換人。
+    if (ownerId === undefined) {
+      // 🔴 活性訊號(R3 nit):`undefined` 一路安靜下去 = 這段清車**永遠不會發生**,
+      //   而畫面在「裝了而生效」與「裝了而沒生效」兩個世界長得一模一樣 ——
+      //   那正是這一片第一版翻車的形狀。連續多次就吼一聲,只吼一次、不洗版。
+      // ⚠️ 這裡**不能**數「連續幾次」:本 effect 的依賴是 `[ownerId]`,而一連串 `undefined` 之間
+      //   值沒有變 ⇒ effect 根本不會再跑。**數 effect 跑幾次的量具,量不到「一直是 undefined」。**
+      //   (第一版就是這樣寫的,而它的測試當場紅 —— 那一格救了這個錯。)
+      //   ⇒ 改成:**這次掛載第一次讀不到就吼一次**。env 壞掉的常態失敗從第一次 render 就成立。
+      if (!warnedUnknownOwnerRef.current) {
+        warnedUnknownOwnerRef.current = true;
+        console.warn(
+          '[cart] 讀不到購物車主人是誰 ⇒ 換人清車這段這次沒有作用(這不代表「沒有人換帳號」)。' +
+            '查 app/layout.tsx 的 getUser() 與 NEXT_PUBLIC_SUPABASE_URL。',
+        );
+      }
+      return;
+    }
+    const prev = prevOwnerRef.current;
+    prevOwnerRef.current = ownerId;
+    // `null → A` = 訪客登入(含每次開頁的 INITIAL_SESSION)⇒ 車留著。
+    if (prev === null || prev === ownerId) return;
+    // `A → null`(登出)/ `A → B`(換人)⇒ 清品項,並把去重子一起收掉
+    //   (`cartSessionId` 是**這一車**的 idempotency 把手;車沒了它就不該再跟著新的人跑,
+    //    留著會讓 B 的第一次結帳帶著 A 的去重子送 server)。
+    //   持久化交給下面既有的兩支 effect(isHydrated 已為 true)⇒ localStorage 同步被清。
+    setItems([]);
+    setCartSessionId(null);
+  }, [ownerId]);
 
   useEffect(() => {
     if (isHydrated) writeStorage(items);

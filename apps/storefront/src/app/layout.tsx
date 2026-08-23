@@ -28,9 +28,10 @@
 
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { headers } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { CartProvider } from '@/contexts/CartContext';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { FavoritesProvider } from '@/contexts/FavoritesContext';
 import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
@@ -91,6 +92,64 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // iPad「請求桌面網站」、iPod、舊 IEMobile / Opera Mini 等邊緣 case 由 CSS @media 兜底。
   const isMobile = /iPhone|Android|Mobile/i.test(ua);
 
+  // 🔴 車的主人由【這裡】決定,交給 CartProvider(補洞窗 A1,2026-08-23 真瀏覽器實測後改)。
+  //   為什麼不在 client 端訂 auth 事件:登入是 server action ⇒ 瀏覽器那個 supabase 實例
+  //   沒有執行過登入 ⇒ `onAuthStateChange` 在本站永遠不會響(理由與實測序列寫在 CartContext.tsx)。
+  //   用 `getUser()` 不用 `getSession()`:對齊 `app/checkout/page.tsx:49` —— 向 auth server 驗 JWT、
+  //   而不是信 cookie 裡那份可偽造的。這裡只拿 id 當「換人了沒」的比較值,不授權任何東西。
+  //
+  // 🔴🔴 **三態,不是兩態**(R1 must-fix,2026-08-23:主視窗問「一次讀取失敗會不會把還登著的人的車清掉」)。
+  //   ~~原版 `catch { }` 讓 cartOwnerId 留在預設 `null`~~ —— **那個寫法會清掉一個還登著的人的車**:
+  //     `null` 在下游的意思是「他登出了」⇒ 走 `A → null` ⇒ 清車。
+  //   而**兩條路**都會產生假的 `null`,不是只有 throw:
+  //     ① `getUser()` 丟例外 ⇒ catch ⇒ null
+  //     ② `getUser()` **不丟**、回 `{ user: null, error }`(網路抖 / auth server 慢)⇒ `?? null`
+  //   ⇒ 我原本回報「不會因為一次讀取失敗倒車」是**結論不是依據**,而它是錯的。
+  //
+  //   ⇒ 三態:`string` 有人 / `null` **確定沒人** / `undefined` **不知道**(下游什麼都不做)。
+  //   判「確定沒人」的依據 = **auth cookie 在不在**:沒有 cookie ⇒ 這台瀏覽器就是沒登入;
+  //   有 cookie 卻驗不出來 ⇒ 那是「驗不了」不是「登出了」,**不得拿它當清車的理由**。
+  //   ⚠️ 代價寫在這裡:cookie 還在而 session 真的過期 / 被 revoke ⇒ 本層判成 `undefined` ⇒ 車留著。
+  //     那就是 CartContext 註解裡列的未蓋住情況 ①,**方向是「不倒別人的車」,不是「多清一點」**。
+  //
+  // 🔴 cookie 的名字**從 client 用的同一個 env 推**,不用 regex 猜(R3 must-fix,2026-08-23)。
+  //   規則在 `@supabase/supabase-js@2.105.3/dist/index.cjs:369` 逐字:
+  //     const defaultStorageKey = `sb-${baseUrl.hostname.split(".")[0]}-auth-token`;
+  //   ⇒ 鑽機 `http://127.0.0.1:xxxx` ⇒ `sb-127-auth-token`(與肉眼看到的逐字相同,那不是巧合);
+  //     正式站 `https://<ref>.supabase.co` ⇒ `sb-<ref>-auth-token`。
+  //   ~~原版用 `/^sb-.*-auth-token(\.\d+)?$/`~~ —— 它對今天的正式站**也會命中**,問題不在今天,
+  //   在**失效方向**:日後有人設了自訂 `cookieOptions.name`,regex 恆不命中 ⇒ `hasAuthCookie` 恆 false
+  //   ⇒ 每次「驗不出來」都被判成【確定沒人】⇒ **清車** ⇒ 方向與這一段的初衷正好相反,而三綠不會紅。
+  //   耦合到同一個來源之後,那種失效會**兩邊一起錯**(client 也拿不到)⇒ 看得見。
+  //   ⚠️ 仍不涵蓋自訂 `cookieOptions.name`;而那時是兩邊一起錯,不是只有這裡錯。
+  const cookieStore = await cookies();
+  let authCookieBase: string | null = null;
+  try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (url) authCookieBase = `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
+  } catch {
+    // URL 壞掉 ⇒ 推不出名字 ⇒ 下面當「不知道」處理,不當「沒登入」。
+  }
+  // 🔴 三態:`true` 有 cookie / `false` **確定沒有** / `null` **推不出名字,不知道**。
+  //   推不出名字時**不得**回 false —— 那會把「我沒辦法判斷」講成「這台瀏覽器沒登入」。
+  const base = authCookieBase;
+  const hasAuthCookie: boolean | null =
+    base === null
+      ? null
+      : cookieStore.getAll().some((c) => c.name === base || c.name.startsWith(`${base}.`));
+
+  let cartOwnerId: string | null | undefined;
+  try {
+    const supabase = await createServerSupabaseClient();
+    const { data, error } = await supabase.auth.getUser();
+    if (data?.user) cartOwnerId = data.user.id;
+    // `!== false` = 有 cookie **或** 不知道有沒有 ⇒ 都不動作。只有【確定沒有】才判成登出。
+    else if (error && hasAuthCookie !== false) cartOwnerId = undefined;
+    else cartOwnerId = null;
+  } catch {
+    cartOwnerId = hasAuthCookie === false ? null : undefined;
+  }
+
   return (
     <html lang="zh-Hant" data-mobile={isMobile ? 'true' : 'false'}>
       <head>
@@ -109,7 +168,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           dangerouslySetInnerHTML={{ __html: serializeOrganizationJsonLd() }}
         />
         <MobileProvider value={isMobile}>
-          <CartProvider>
+          <CartProvider serverOwnerId={cartOwnerId}>
             {/* M-4b #191:收藏的單一資料源(兩顆愛心共用)。放在 CartProvider 內、children 外層,
                 理由與 CartProvider 同:它要跨頁存活,而未登入的訪客不會因此多打一趟 server。 */}
             <FavoritesProvider>
