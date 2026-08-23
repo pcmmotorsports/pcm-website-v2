@@ -273,12 +273,39 @@ export function ItemsTable({
    *
    * 🔴 **三處刻意偏離,都不是漏搬**(逐條理由在 `globals.css` 片6a-1 那段):
    *   ① 膠囊**方角**(設計稿是 `999px` 圓角;Sean 08-16 拍「方角、全站統一沒有例外」)
+   *      🔴 **2026-08-23 晚:這一條的【前提】被 Sean 自己推翻了(原句不改,加註)** ——
+   *      他逐字裁「乙 不算了 —— 照 OD 新稿,**全部圓角**」,線A 已把 `--radius` 由 0 改成 8px。
+   *      ✅ **而這顆膠囊【已經回圓了】,不是待辦** —— 線A 同日搬 OD 樣式(FIX-37)時一起進來的。
+   *      **我自己 grep 過,不是聽來的**:`globals.css:1961` 逐字
+   *      `.pcm-step .pcm-pill {border-radius:9999px}`。
+   *      ⚠️ 所以上面那句「膠囊**方角**」**現在是假的** —— 而**本檔一個字都沒改、也沒有東西會紅**,
+   *      因為那個值住在 `globals.css`(線A 獨佔),不在這裡。
+   *      🔴 這正是本片反覆撞到的同一個形狀:**「我確認過這個 class」不等於「我確認過它會畫出什麼」。**
    *   ② **六軌**(設計稿五軌無單價;Sean 08-19 逐字「要顯示」)
    *   ③ **總計那一區留著** —— 設計稿 `grep '運費|總計'` ⇒ **零命中**,而我方有小計/運費/折扣/總計。
    *      **「設計稿沒畫」不等於「該刪掉」** ——拿掉會刪掉真的資訊。
    */
   return (
     <div className='rounded-lg border bg-card p-4'>
+      {/* 🔴 FIX-03(OD):**這張卡原本沒有標題,這次補上** —— 逐字「商品明細(原本這張卡沒有標題,
+          這次補上)」。字級走 OD 壓縮後的**卡片標題**那一級,與摘要卡的 `CARD_TITLE`
+          (`order-detail-summary-cards.tsx`)逐字相同 —— FIX-03 的整條要求就是「四種標題壓成兩種」,
+          所以這裡**不得自創第三種寫法**。
+          🔴 **位置在 `.ihead` 之前**:`order-detail-items-table-shape.test.tsx` 的欄名那格用
+             `<div className='ihead'>…</div>\s*<ItemAmountRowGroup>` 抓表頭,插在那兩者中間會抓不到。
+             ⚠️ 而那不是我把它擺這裡的**理由** —— 卡片標題本來就該在卡的最上面;
+                寫下來只是免得下一個人以為那個位置是隨便挑的。 */}
+      {/* 🔴 **R2 MF-B(審查抓):`mb-3` → `mb-2`。而值得記的是【那句宣稱在同一份 diff 裡就變假了】。**
+          上面那段寫「與摘要卡的 `CARD_TITLE` **逐字相同** —— 這裡不得自創第三種寫法」,
+          而**同一片**的 FIX-02 把 `CARD_TITLE` 從 `mb-3` 壓成 `mb-2`
+          (`order-detail-summary-cards.tsx:102`)⇒ **我寫下那句的時候它是真的,
+          而我在同一次改動裡把它弄假了,兩處相隔 284 行。**
+          量法(可重跑):`grep -rho 'mb-[0-9] text-xs font-bold tracking-\[1.5px\]' apps/admin/src | sort | uniq -c`
+          ⇒ 修前 `mb-2` 1 / `mb-3` 1(FIX-03「四種標題壓成兩種」沒達成);修後應為 `mb-2` 2。
+          📌 判別句:**「與 X 逐字相同」是一句會被【別處的改動】弄假的宣稱,而它不會有東西紅。**
+             寫這種句子時,要嘛同片一起改、要嘛把數法寫在旁邊讓下一個人量得出來。 */}
+      <h2 className='text-muted-foreground mb-2 text-xs font-bold tracking-[1.5px]'>商品明細</h2>
+
       {/* 🔴 片7:**對整張單說的**那兩則(品項被截斷 / 供應商清單載入失敗)留在這裡、只出現一次。
           搬進卡片裡會變成同一句話出現 N 次,而「供應商清單載入失敗」講的是整個選單壞了,
           不是某一項的事。理由全文在 `ItemProcurementOrderNotices` 檔頭。 */}
@@ -442,8 +469,17 @@ export function ItemsTable({
                     </div>
                   )}
                 </div>
+                {/* 🔴 FIX-04(OD):**料號拿掉 `font-semibold`** —— 症狀逐字:
+                    「料號用 `font-mono text-xs font-semibold`(等寬＋加粗),比品名還搶眼,
+                     眼睛先讀到料號」⇒ **品名才是錨點**。
+                    ⚠️ **`font-mono` 留著**:等寬是料號**讀得準**的理由(對位、分得出 0 與 O),
+                       不是它搶眼的理由。OD 那條只動 `font-semibold` 一個 token。
+                    ⚠️ **原生 `title` 一個字沒動**(FIX-69「會截的欄要有看到全名的路」那一半);
+                       料號欄刻意不換成 Tooltip 元件,理由在上方 `ItemNameCell` 那段。
+                    🔴 **FIX-04 的另一半(品名 `text-[13px]` → `text-sm font-medium`)本片【沒做】**:
+                       品名那一格是 `ItemNameCell`(另一支檔),不在本條線獨佔的三支裡。已列進回報。 */}
                 <div
-                  className='text-muted-foreground truncate font-mono text-xs font-semibold'
+                  className='text-muted-foreground truncate font-mono text-xs'
                   title={item.variantSku}
                 >
                   {item.variantSku}
@@ -506,30 +542,46 @@ export function ItemsTable({
       {/* 🔴 總計區:**設計稿沒有這一塊**(`grep '運費|總計'` ⇒ 零命中),而我方有。
           **「設計稿沒畫」不等於「該刪掉」** —— 拿掉會刪掉真的資訊(小計/運費/折扣/總計)。
           ⚠️ 這是**刻意保留**、不是漏改成卡片。 */}
+      {/* ═══ FIX-05(OD):小計 / 運費 / 總計 —— 讓「總計」變成看得出來的結論 ═══════════════
+          症狀逐字:「三行同為 14px,總計只多一個 `font-medium`,**金額結論不明顯**」。
+          改法逐字:小計、運費 → **12px 且金額也轉灰**;總計 → 金額 `text-lg font-semibold`、
+          **標籤改小標籤規格**、上方間距 `mt-1` → `mt-2`。
+          🔴 **`NT$` 留著** —— Sean 2026-08-16 `Q-A216-F4` 拍**乙「留著」**:頭條是速覽 ⇒ 不帶幣別;
+             **明細表底部的總計是正式金額 ⇒ 帶 `NT$`**。完整理由在
+             `order-detail-summary-cards.tsx` 搜 `Q-A216-F4`。**不要順手統一成沒有幣別。**
+          🔴 **外層那一行 `mt-3 border-t pt-3 text-sm` 一個字沒動**:
+             `order-detail-items-table-shape.test.tsx` 的「每列恰好兩格」用它當切段錨點,
+             而它守的「金額欄對不對得齊」在本片**沒有被推翻** ⇒ 錨點不該被弄丟。
+          🔴 **總計那一行的 `flex justify-between` 必須【連在一起】**:同一格用
+             `flex justify-between` 分隔每一列;寫成 `flex items-baseline justify-between`
+             會讓總計那列被併進上一列 ⇒ 那格紅,**而畫面看起來完全正常**。⇒ `items-baseline` 排後面。 */}
       <div className='mt-3 border-t pt-3 text-sm'>
-        <div className='flex justify-between py-1'>
+        <div className='flex justify-between py-1 text-xs'>
           <span className='text-muted-foreground'>小計</span>
-          <span className='tabular-nums whitespace-nowrap'>
+          <span className='text-muted-foreground tabular-nums whitespace-nowrap'>
             NT$ {formatOrderAmount(detail.subtotal.amount)}
           </span>
         </div>
-        <div className='flex justify-between py-1'>
+        <div className='flex justify-between py-1 text-xs'>
           <span className='text-muted-foreground'>運費</span>
-          <span className='tabular-nums whitespace-nowrap'>
+          <span className='text-muted-foreground tabular-nums whitespace-nowrap'>
             NT$ {formatOrderAmount(detail.shippingFee.amount)}
           </span>
         </div>
+        {/* ⚠️ 折扣**不隨小計/運費一起轉灰**:OD 那條只點名「小計、運費」,而折扣是
+            **會改變應付金額的事實**、又只出現在少數單 —— 轉灰等於把它降級成附註。
+            (OD 的快照沒有折扣單、他沒有畫這一列;**這是我方的判斷,不是照抄**,已寫進回報。) */}
         {detail.discountTotal.amount > 0 && (
-          <div className='flex justify-between py-1'>
+          <div className='flex justify-between py-1 text-xs'>
             <span className='text-muted-foreground'>折扣</span>
             <span className='tabular-nums whitespace-nowrap'>
               −NT$ {formatOrderAmount(detail.discountTotal.amount)}
             </span>
           </div>
         )}
-        <div className='mt-1 flex justify-between border-t pt-2 font-medium'>
-          <span>總計</span>
-          <span className='tabular-nums whitespace-nowrap'>
+        <div className='mt-2 flex justify-between items-baseline border-t pt-2'>
+          <span className='text-muted-foreground text-xs font-bold tracking-[1.5px]'>總計</span>
+          <span className='text-lg font-semibold tabular-nums whitespace-nowrap'>
             NT$ {formatOrderAmount(detail.total.amount)}
           </span>
         </div>

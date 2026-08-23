@@ -137,7 +137,8 @@ export function DangerZoneDetails({
   /**
    * 一進來就展開。
    * 🔴 用途**不是**「這塊比較重要」,而是「**收起來會藏住一個警告**」——
-   *    呼叫端目前唯一的用法是對帳異常態(見 `order-detail.tsx` 那段)。
+   *    呼叫端目前唯一的用法是對帳異常與帳本截斷態(見 `order-detail.tsx` 那段;
+   *    截斷是 2026-08-24 codex MF-2 補接的,同一個判準)。
    */
   defaultOpen?: boolean;
   className?: string;

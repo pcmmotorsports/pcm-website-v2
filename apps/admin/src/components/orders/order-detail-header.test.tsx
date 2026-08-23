@@ -144,7 +144,13 @@ describe('片2 面板專屬的兩件(整頁版不得受影響)', () => {
 //    而標頭以外的每一塊都會自己拉 server action / repository / `server-only`。
 //    mock 掉之後 fixture 只需要**標頭真的讀到的欄位**,不必湊出一整份 `AdminOrderDetail`。
 vi.mock('server-only', () => ({}));
-vi.mock('./order-detail-summary-cards', () => ({ OrderSummaryCards: () => null }));
+// 🔴 2026-08-23:`OrderSummaryCards` 那個外殼已刪(審查 important 5:它是本片造出來的生產死碼),
+//    拆成 `OrderFocalRow` / `OrderInfoCards` 兩個 export ⇒ **mock 的形狀要跟著模組走**。
+//    ⚠️ 這是【模組 export 改名時同步 mock】,**不是改任何期望值** —— 本檔的斷言一格未動。
+vi.mock('./order-detail-summary-cards', () => ({
+  OrderFocalRow: () => null,
+  OrderInfoCards: () => null,
+}));
 vi.mock('./notes-timeline', () => ({ NotesTimeline: () => null }));
 vi.mock('./note-compose-form', () => ({ NoteComposeForm: () => null }));
 vi.mock('./order-edit-form', () => ({ OrderEditForm: () => null }));

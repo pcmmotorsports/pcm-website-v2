@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
-import { OrderSummaryCards } from './order-detail-summary-cards';
+import { OrderFocalRow, OrderInfoCards } from './order-detail-summary-cards';
 
 // order-detail-headline.test.tsx — 片3 頭條「尾款」那一格的守門(設計稿 §1 區塊①)。
 //
@@ -71,8 +71,27 @@ const paid = (n: number) => [{ id: 'p1', amount: n }] as never;
  *    ⚠️ 而這只證明「**當時那七個 section 之下**成立」——日後有人再加一格小標叫「尾款」就會撞,
  *       那時 `find` 會回第一個。**不是永久保證,是一次量測。**
  */
-function balanceCell(payments: Parameters<typeof OrderSummaryCards>[0]['payments']): string {
-  const { container } = render(<OrderSummaryCards detail={base} payments={payments} />);
+/**
+ * 🔴 **2026-08-23:那個外殼元件已刪(審查 important 5),本檔改渲染兩個 export。**
+ *
+ * ⚠️ **而本檔【兩半都要】,不是「換個 import 名」就好** —— 它同時斷言
+ *    頭條四態(`OrderFocalRow`)**與**片14 那三張卡的欄位(`OrderInfoCards`)。
+ *    ⇒ 併排渲染,**DOM 與刪殼之前逐字相同**(舊殼只多包一層 `-space-y-px`,
+ *      而全 repo 測試零處斷言它 —— 實查過)。
+ * 🔴🔴 **本檔【零期望值改動】**:四態的 `13,800 / 未知 / 0 / 溢收 6,200`、`labels` 那條、
+ *    11 個欄位那條,一個字都沒動。**改的只有「誰把樹畫出來」。**
+ */
+function renderSummary(payments: Parameters<typeof OrderFocalRow>[0]['payments']) {
+  return render(
+    <>
+      <OrderFocalRow detail={base} payments={payments} />
+      <OrderInfoCards detail={base} />
+    </>,
+  );
+}
+
+function balanceCell(payments: Parameters<typeof OrderFocalRow>[0]['payments']): string {
+  const { container } = renderSummary(payments);
   const section = [...container.querySelectorAll('section')].find(
     (el) => el.querySelector('p:last-of-type')?.textContent === '尾款',
   );
@@ -88,9 +107,7 @@ describe('片3 頭條「尾款」四態', () => {
   //    是**一次量測,不是守門** ⇒ 有人調換 section 順序,四態全綠而畫面不照稿。
   //    ⇒ 這一格同時綁住「恰三格」——多一格 / 少一格都不是設計稿那條。
   it('🔴 頭條**恰三格、且依序**是 總額/已收 → 尾款 → 件數(順序被調換 ⇒ 這一格紅,四態格不會紅)', () => {
-    const { container } = render(
-      <OrderSummaryCards detail={base} payments={{ status: 'ok', rows: paid(10000) }} />,
-    );
+    const { container } = renderSummary({ status: 'ok', rows: paid(10000) });
     // 🔴 只取頭條那一列 —— 下面四張大卡(客戶/收件/付款/發票)也是 `<section>`,
     //    不限定的話這一格會變成在斷言七格的順序。
     const headline = container.querySelector('div.grid');
@@ -131,7 +148,7 @@ describe('片3 頭條「尾款」四態', () => {
 //    這三張卡有 4 個欄位在三份設計稿上都沒有落點(客人電話 / Email / 來源 / 統編),
 //    要不要留是 Sean 的題。**在他答之前,少一個欄位都要有東西紅。**
 describe('🔴 片14:剩下三張卡的欄位一個都不能少(負向對照)', () => {
-  const render3 = () => render(<OrderSummaryCards detail={base} payments={{ status: 'ok', rows: [] }} />);
+  const render3 = () => renderSummary({ status: 'ok', rows: [] });
 
   it('「收件與出貨」那張卡已經不在(它 4 個欄位已搬進出貨區)', () => {
     const { container } = render3();

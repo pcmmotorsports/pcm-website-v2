@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
-import { OrderSummaryCards } from './order-detail-summary-cards';
+import { OrderInfoCards } from './order-detail-summary-cards';
 
 // order-detail-summary-field-empty.test.tsx — 2026-08-21 線 E 建。
 //
@@ -61,7 +61,7 @@ const detailWith = (phone: string | null): AdminOrderDetail =>
  */
 function fieldValue(detail: AdminOrderDetail, label: string): string {
   const { container } = render(
-    <OrderSummaryCards detail={detail} payments={{ status: 'ok', rows: [] } as never} />,
+    <OrderInfoCards detail={detail} />,
   );
   const row = [...container.querySelectorAll('div')].find(
     (el) => el.children.length === 2 && el.children[0]?.textContent === label,

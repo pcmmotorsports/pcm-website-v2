@@ -65,6 +65,21 @@ import {
          新版是**一塊被切成四格的面板**。**視覺分組的語意變了**,而那正是 BMW M 的樣子。
    ⚠️ **`rounded-lg` 一併拿掉**:片1 已把 `--radius-lg` 釘成 0 ⇒ **它今天就已經是方角、拿掉零視覺差**;
       留著只會讓下一個人以為這裡還有圓角。**這是清掉一個誤導字面,不是改外觀。**
+      🔴🔴 **2026-08-23 晚:上面那句「拿掉零視覺差」現在是【假的】(原句不改,加註)。**
+         Sean 逐字裁「乙 不算了 —— 照 OD 新稿,**全部圓角**」,線A 把 `--radius-lg` 從 0 改成 **8px**。
+         ⇒ 當初「拿掉它零視覺差」成立,是因為**那個 token 當時是 0**;token 一變,
+           **這幾張卡就與其他有圓角的卡不一致了,而拿掉的那一行不會自己回來。**
+         🔴 **判別句**:寫「拿掉這個等於沒差」時,先問**那個「沒差」是恆真的,還是靠某個值目前剛好是 0?**
+           靠值 ⇒ 那不是清掉誤導字面,是**把一個決定藏進一個會變的前提裡**。
+         ✅ **2026-08-23 夜結案:這幾張卡【維持方角】,而且那是量到的,不是「不改比較省事」。**
+            線A 用 `tool-final-css.py`(五個世界自檢全 PASS)量 OD 產物頂層最終值:
+            `[data-od-panel="customer"] section` ⇒ **`0`** —— 客戶·發票那一頁的卡片在稿上**就是方角**。
+            (同一發量到的對照:同層的 `[data-od-panel="money"] … > summary` 是 **8px** ⇒ **稿上是混的**。)
+            ⇒ **現況(這裡沒有任何圓角 class ⇒ 0)已經與稿一致,零改動。**
+         🔴🔴 **而我差一點問錯題**:我原本端出去的是「摘要三卡**要不要**補回圓角」——
+            那個問法**預設了三張卡同一個答案**,而稿上根本不是。
+            ⇒ **一個把答案空間預先收窄的問題,比一個沒問的問題更危險** —— 它會得到一個看起來
+              有人拍過板的答案。**先去量真權威,再決定問題長什麼樣。**
 
    🔴 **小標字體 = OD `.spec .l`(`:256-257`),而三件裡一樣只搬得動兩件**:
       OD = `font-size:var(--text-xs); font-weight:700; letter-spacing:1.5px; text-transform:uppercase`。
@@ -72,13 +87,20 @@ import {
         🔴 **不搬 `uppercase`** —— 四個標題全是中文(客戶資訊 / 收件與出貨 / 付款 / 發票),
            **對 CJK 是 no-op**:寫上去畫面一個像素都不會變,卻會留下一行「已照 OD 做大寫」的假字面。
            **與訂單表表頭同一個判斷,不是各自決定的。**
-   ✅ **OD `.spec .v` 那個「大數字」已於片4b 落地(見下方 `HeadlineNumbers`)** ——
+   ✅ **OD `.spec .v` 那個「大數字」已於片4b 落地(見下方 `OrderFocalRow`)** ——
       上一版這裡寫「沒有做…那是內容決策,已排給 Sean」,**Sean 2026-08-16 已拍板要哪些數字**
       ⇒ 那句話連同「不要順手把 `.v` 補上去」的禁令一起**在他拍板的那一刻就過期了**,
       而它**不會有任何東西紅**。留這行是要讓下一個人知道禁令已解除、不是漏刪。 */
-const CARD = 'bg-card p-4 text-card-foreground';
-const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-bold tracking-[1.5px]';
-const ROW = 'flex justify-between gap-4 py-1 text-sm';
+/* ═══ FIX-02(OD):客戶／付款／發票三欄壓密 ═══════════════════════════════════════
+   症狀逐字:「卡片 `p-4`、每列 `py-1`、標題 `mb-3`,**三欄佔掉第一屏一大半**」。
+   改法逐字:`p-4` → `px-4 py-3`;列 `py-1` → `py-0.5`;標題 `mb-3` → `mb-2`。
+   🔴 **欄位內容一項沒動**(OD 逐字)—— 這一片只有三個間距 token,零欄位增刪、零文案。
+   ⚠️ **`CARD` 改完之後與下面 `SPEC` 的 `px-4 py-3` 逐字相同,而那【不是】可以合併的訊號**:
+      `SPEC` 的值來自 OD `.spec` 本來就有的 `var(--space-3) var(--space-4)`,
+      `CARD` 的值來自本次壓密。**兩個常數同值是巧合;合併會讓其中一邊之後改不動。** */
+const CARD = 'bg-card px-4 py-3 text-card-foreground';
+const CARD_TITLE = 'text-muted-foreground mb-2 text-xs font-bold tracking-[1.5px]';
+const ROW = 'flex justify-between gap-4 py-0.5 text-sm';
 const ROW_LABEL = 'text-muted-foreground shrink-0';
 
 /* ═══ BMW M 片4b:頭條數字(OD `.spec .v` + `.l`)═══════════════════════════════════
@@ -321,7 +343,26 @@ export const QTY_MISSING_NOTE = {
     '還算不出件數。最常見的原因是這幾項還沒跟供應商下訂 —— 請看下面商品清單裡標「數量資料尚未就緒」的那幾項,下訂之後這裡就會出現數字。若你確定已經下訂過、數字卻一直沒出現,那時才需要通知系統維護 —— 這不是你操作錯誤。',
 } as const;
 
-function HeadlineNumbers({
+/**
+ * 頭條那一排(總額/已收 · 尾款 · 件數)—— OD FIX-07 之後它住在**分頁列上方的抬頭**,四頁共用。
+ *
+ * 🔴 **名字從 `HeadlineNumbers` 改成 `OrderFocalRow`,而那不是美化**:
+ *    上一版我用 `<OrderSummaryCards section='focal'/>` 叫它 —— 而 `section='focal'` 渲染的是
+ *    `HeadlineNumbers`,**名字與它畫出來的東西對不起來**(審查 important 5 點名「名字說謊」)。
+ * 🔴 **`OrderSummaryCards` 那個外殼已刪除**,理由是審查量到的:
+ *    ```
+ *    生產呼叫端 order-detail.tsx:440 section='focal' / :779 section='cards'
+ *    ⇒ 【沒有任何一處不給 section】⇒ 那個預設分支從出生就沒有生產呼叫端
+ *    ⇒ 它不是既有債, 是【本片自己造的死碼】, 而三支測試在斷言一棵沒有人看得到的樹
+ *    ```
+ *    ⚠️ 我原本擋掉這個乾淨做法的理由是「改 `vi.mock` = 動測試檔」——**那個理由經不起看**:
+ *       補 mock 的 key 是**模組 export 改名時同步 mock**,不是改期望值。
+ *       §3-② 那條紀律的射程是【斷言】,不涵蓋這個。**主視窗 2026-08-23 授權,射程只到這裡。**
+ * 📌 **原本那個 `-space-y-px` 外殼一併消失**:它的作用是讓頭條與三卡**共用同一條 1px 線**,
+ *    而分頁化之後這兩塊**不再相鄰**(一個在抬頭、一個在客戶頁)⇒ 它已經沒有對象。
+ *    (實查:全 repo 測試零處斷言 `space-y-px`。)
+ */
+export function OrderFocalRow({
   detail,
   payments,
 }: {
@@ -433,41 +474,16 @@ function HeadlineNumbers({
   );
 }
 
-export function OrderSummaryCards({
-  detail,
-  payments,
-}: {
-  detail: AdminOrderDetail;
-  payments: PaymentListData;
-}) {
+/**
+ * 客戶 / 付款 / 發票 三欄。
+ *
+ * 🔴 **抽成具名元件是 OD FIX-07 分頁化的需要,DOM 一個節點都沒動** ——
+ *    `OrderSummaryCards` 不給 `section` 時渲染出來的樹與抽之前**逐字相同**。
+ * ✅ **2026-08-23 改成 export**(審查 important 5):`OrderSummaryCards` 那個外殼刪掉之後,
+ *    呼叫端(`order-detail.tsx` 的「客戶 · 發票」分頁)直接叫它 ⇒ 它現在有真的消費者了。
+ */
+export function OrderInfoCards({ detail }: { detail: AdminOrderDetail }) {
   return (
-    /* 🔴 `-space-y-px` 讓兩塊面板**共用同一條 1px 線**,不是留一道 1px 的縫。
-         各自有 `border` ⇒ 直接堆疊會變 2px 粗線;負 1px 把它們疊回一條。
-         ⚠️ 這與格內的 `gap-px` 是**兩件不同的事**:`gap-px` 讓容器底色透出來當線(OD `.specs`),
-            這裡是把兩個容器的邊框收成一條。不要以為重複了就刪掉其中一個。
-         🔴 **這是本 repo 第一個負值 space 工具**,所以「Tailwind 到底編不編得出來」是真問題,不是形式。
-            **已量,不是推的**(2026-08-16 對真 build 產物):
-              `grep -rho '\.-space-y-px[^}]*}' apps/admin/.next/static`
-              ⇒ `.-space-y-px>:not(:last-child)){…margin-block-end:calc(-1px * …)}`
-            ⇒ **規則存在** ⇒「沒編出來、兩塊面板中間變 2px 粗線」那個失敗模式**機械上已排除**。
-            ⚠️ 但這只證「規則在」,**不證「看起來對」** —— 後者仍要 Sean 的眼睛。 */
-    <div className='-space-y-px'>
-      <HeadlineNumbers detail={detail} payments={payments} />
-      {/* 🔴 `gap-px bg-border border` = OD `.specs` 的髮絲線格(見 `CARD` 上方那段的完整理由)。
-       ⚠️ **`gap-px` 與 `bg-border` 是一組,少一個就不成立**:只有 `gap-px` 會變成四格緊貼、
-          完全沒有分隔線;只有 `bg-border` 而 gap 是 0 則底色永遠被格子蓋住、看不到。
-       ⚠️ **容器斷點(`@md` / `@4xl`)一個字沒動** —— 那條的理由(同一份明細有整頁與面板兩個容器)
-          與本片無關,不要順手一起改。 */}
-      {/* 🔴🔴 片14:欄數改成 **`@md:grid-cols-3`,與上面頭條那一排(`:264`)同一個斷點與欄數**。
-          ⚠️ **我第一版寫的是 `@md:grid-cols-2 @4xl:grid-cols-3`,而它在【面板】裡是壞的** ——
-             那一版我推理過「4 欄少一張卡會多一個空格」,卻沒想到**同一件事在兩欄下一樣會發生**:
-             3 張卡排兩欄 = 2 + 1 ⇒ **第二列右邊那格是空的,而 `gap-px bg-border` 照樣把它畫成一個灰方塊。**
-          🔴 **這一格是【開瀏覽器】抓到的,讀 code 抓不到**(2026-08-19,真 Chrome、1440×900、
-             `/orders?panel=<id>` 那個 720px 面板)——
-             整頁版是 `@4xl` 命中、排 3 欄、看起來完全正常;**只有面板那一面破**,
-             而面板正是 Sean 每天在看的那一面。
-          ⇒ 改成跟頭條同一組:**兩面都排 3 欄,沒有空格**,而且兩排上下對齊。
-          📌 `@4xl` 那一段一併拿掉 —— 3 欄在整頁版也夠寬,留著只是多一個會漂的斷點。 */}
       <div className='grid gap-px border bg-border @md:grid-cols-3'>
         <section className={CARD}>
           <h2 className={CARD_TITLE}>客戶資訊</h2>
@@ -520,6 +536,5 @@ export function OrderSummaryCards({
           />
           </section>
       </div>
-    </div>
   );
 }

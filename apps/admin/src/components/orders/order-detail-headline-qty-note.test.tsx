@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
-import { OrderSummaryCards } from './order-detail-summary-cards';
+import { OrderFocalRow } from './order-detail-summary-cards';
 
 // order-detail-headline-qty-note.test.tsx — 2026-08-21 線 E 建。
 //
@@ -67,7 +67,7 @@ const detailWith = (over: Record<string, unknown>): AdminOrderDetail =>
  */
 function qtyCell(detail: AdminOrderDetail): string {
   const { container } = render(
-    <OrderSummaryCards detail={detail} payments={{ status: 'ok', rows: [] } as never} />,
+    <OrderFocalRow detail={detail} payments={{ status: 'ok', rows: [] } as never} />,
   );
   const section = [...container.querySelectorAll('section')].find(
     (el) => el.querySelector('p:last-of-type')?.textContent === '件數 已訂 / 到貨',
