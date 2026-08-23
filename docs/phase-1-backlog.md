@@ -29757,3 +29757,133 @@ DB 層可達 = **是**(上面實測)
 
 - **出處:** 線A 2026-08-24 鑽機實按(`~/pcm-mailbox/A-86-匯款收款那條路-鑽機實量-20260823.md` B 節,
   已從 `[DOM]` 升為 `[行為]`);主視窗落檔。
+
+### #862. 🔴🔴 散客佔位信箱可以被外人【先搶走】—— 而我們補的那道閘不在他的路徑上
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch(它擋 `#858` 手動建單,而 Sean 2026-08-24 答「客人匯款那條路上線前要能用 ⇒ 要」)
+- **關鍵字**(給搜的人):GoTrue / signUp / anon key / Confirm email OFF / 佔位信箱 /
+  合成信箱 / synthetic email / 帳號劫持 / 搶註 / manual.pcmmotorsports.local / auth.users / 片0-b。
+
+- **🔴 先讀這一段,免得修錯地方**
+  `#858` 片0-a 已經把「什麼算我們編的假信箱」收成一份判斷式,而**那道閘只活在我們自己的表單上**。
+  攻擊者不走我們的表單。⇒ **片0-a 是對的、要做,但它不關這個洞。**
+
+- **量到的(每條可重跑,2026-08-24 主視窗逐支開檔複打)**
+  ```
+  packages/adapters/src/supabase/SupabaseAuthAdapter.ts:37 逐字
+    「needsEmailConfirmation = signUp 後無 session(Phase 1 Q1=A **Confirm email OFF** 時應恆 false)」
+  grep -rn "ON auth\.users" supabase/migrations/*.sql
+    ⇒ 唯一命中 20260523034911:293(AFTER INSERT 建 customers)⇒ auth.users 上零網域守門
+  apps/storefront/src/app/register/actions.ts:46  server action 有重驗 validateRegister
+  ```
+  ⇒ 註冊最終走 `supabase.auth.signUp` = **GoTrue 公開端點**,拿 anon key 直呼即可。
+  ⇒ **Confirm email 是 OFF** ⇒ 直呼 signup 當場拿到一個**可用帳號**;`.local` 收不到信**救不了**(根本不需要收信)。
+
+- **⚠️ 一格明說未確認,不要讀成已知**
+  🔴 **那條路實際上通不通(captcha / rate limit / allowed domains)【沒有人量過】** ——
+  那是 Supabase 面板設定,不在 repo 裡。**本條不宣稱它一定可被利用。**
+  ⚠️ **不得用實打正式站 signup 端點的方式去驗** —— 那會在正式庫建出一個真帳號。
+
+- **不修未來會痛在哪**
+  員工幫散客建單 ⇒ 撞到一個「信箱存在、但不是我們建的」帳號 ⇒
+  `app_metadata` 身分鍵防線(`apps/storefront/src/lib/auth/line-admin.ts:63-66`)會**擋下最壞的結果**
+  (訂單不會掛到攻擊者頭上,fail-closed)—— **但那張單建不出來,員工當場卡住。**
+  🔴 而如果佔位信箱的 local-part 用**手機號**這種可枚舉值 ⇒ **可以整段號碼批次搶註** ⇒ 從個案變成阻斷。
+
+- **兩條路(擇一或並用,誰做誰判)**
+  1. **便宜且立即可做**:佔位信箱 local-part 改成**不可預測的值**(隨機 id / uuid),手機號存 `customers.phone` 欄、不編進信箱。
+     ⇒ 那條攻擊路徑從「可批次」降成「猜不到」。**這一格已經交辦 `#858` 片0-b 當場改。**
+  2. **要 Sean 或有面板權限的人**:量 / 關 GoTrue 直呼註冊那條路(或限制可註冊網域)。**本條的主體是這一格。**
+
+- **連帶(不要單獨修)**
+  · `app_metadata` 身分鍵防線在本條關掉之前 **不可省**,而且它的驗收要含
+    「撞到不是我們建的帳號 ⇒ **員工看得懂的錯誤訊息**」,不是靜默失敗、也不是技術錯誤碼。
+  · 三處註解目前寫「server 端尚未查證」⇒ **已與事實相反**(`registerAction` 有重驗)。真缺的那道在 GoTrue 層。
+
+- **出處:** Fable R2 窗(`pcm-website-v2-f5`)2026-08-24 審「決定三」時抓到;主視窗逐項複打後落檔。
+  codex 對抗審查同日獨立確認 server 端第二道存在(缺的是 manual 網域的 server 邊界測試)。
+
+### #863. 🔴 純 `.sql` 的 commit 不跑 vitest ⇒ 所有「掃 migration 的閘」對它們【一律隱形】
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2(守門盲點)—— 而它**已經真的發生過一次**,不是理論。
+- **關鍵字**(給搜的人):三綠 / 鐵則 11 / 純 SQL 片 / migration-only commit / vitest /
+  SQL_ALLOWLIST / 473b-1 / pre-commit / 掃 migration 的測試 / 長紅。
+
+- **實際發生過的那一次(這是本條存在的理由,不是假想)**
+  ```
+  2026-08-23  退款片1 (21cb9ca2) 與片2a (d8ab3d56) commit —— 兩支都是純 .sql
+  兩支都碰 order_refunds.refund_amount
+  ⇒ packages/domain/src/order/refund-remaining-single-source.test.ts 那道 #473b-1 閘應該當場紅
+  ⇒ 而它沒有被跑到 ⇒ **紅了兩天,而每一個窗跑 pnpm test 都會撞到它**
+  ⇒ 2026-08-24 主視窗補 SQL_ALLOWLIST 兩筆才轉綠
+  ```
+
+- **成因是結構,不是誰偷懶(這一句是本條的重點)**
+  鐵則 11 的三綠 = `typecheck` + `lint`(動 `.ts/.tsx/.css/設定檔`才加 `build`);
+  `.sql` 另有語法守門(pre-commit),**而三綠與那道語法守門都不跑 vitest**。
+  ⇒ `packages/domain/` 裡**每一道「掃 `supabase/migrations/` 的閘」**,對 migration-only 的 commit 都看不見。
+  ⇒ 🔴 **之後每一支純 SQL 片都會重演這件事。**
+  量法(列出這族閘有哪些):
+  ```
+  grep -rln "supabase/migrations" packages/domain/src apps/*/src --include="*.test.ts" --include="*.test.tsx"
+  ```
+
+- **不修未來會痛在哪**
+  一道長紅的閘會**訓練所有人略過紅字**(同族前例:`#806`)。
+  而更難發現的那一半:**閘沒被跑到,與閘通過了,在 commit 當下長得一模一樣** ——
+  作者看到的都是「三綠全過」。
+
+- **修法方向(機制優先律:先問機制做不做得到)**
+  `pre-commit` 判斷 staged 是否含 `supabase/migrations/*.sql` ⇒ 含就跑那一族 SQL-scan 測試。
+  🔴 **驗收要雙向表演**:
+  · 該綠:一支不碰受管欄位的 migration ⇒ 必綠
+  · 該紅:一支碰 `refund_amount` 而未補 allowlist 的 migration ⇒ **必紅**
+  沒有第二格,這道新閘自己就是下一個恆綠格。
+  ⚠️ 成本考量:那族測試若很慢,會讓每支 SQL 片的 commit 變慢。**範圍收窄到那一族,不要整套。**
+
+- **出處:** Fable R2 窗(`pcm-website-v2-f5`)2026-08-24 審主視窗「決定四」時指出(F2);
+  主視窗逐項複打後落檔。🔴 **R2 明說「補完 allowlist 不等於修好它」** —— 那次補的是症狀。
+
+### #864. 🔴 `APPLIED.tsv` 過半是事後補記 ⇒ 「帳上沒有」這個訊號本來就弱,而本週三次誤判全是它
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2(可查帳性)。⚠️ **不是「補齊缺的列」** —— 補完整度不提高可信度,見下。
+- **關鍵字**(給搜的人):APPLIED.tsv / backfill / 補記 / 記帳時點 / SQL Editor /
+  平台帳本查無 / deploy-order-gate / PENDING / 已 apply 判斷。
+
+- **量到的(兩種數法都附,分母不同、都對)**
+  ```
+  grep -c "補記\|backfill" supabase/APPLIED.tsv           ⇒ 168 / 283   (全文含關鍵字)
+  awk -F'\t' '$3=="backfill"' supabase/APPLIED.tsv | wc -l ⇒ 159         (第三欄恰為 backfill)
+  ```
+  ⇒ **本表過半是事後補的**,不是有人看著它 apply 當下寫的。
+
+- **本週三次誤判,全部同一個成因(2026-08-24 一天內)**
+  ```
+  ① 督導窗   grep 回 0 ⇒ 判「退款片1 沒 apply」   實際:已 apply,帳本缺列
+  ② 主視窗   照帳本叫 Sean 去貼那兩支 SQL         實際:兩支都已生效,前置閘擋下(零改變)
+  ③ 督導窗   自陳同一晚判錯兩次,第二次尺是對的   而帳本是空的 ⇒ 得到同一個錯結論
+  ```
+  🔴 **形狀:量對了尺,也會拿到錯答案 —— 因為分母(帳本)本身不完整。**
+
+- **不修未來會痛在哪**
+  `scripts/deploy-order-gate.sh` 用本表算 `PENDING`:帳上沒有 ⇒ 用到該 migration 的新 code **被擋推**。
+  ⇒ 缺列的代價不只是「有人判錯」,是**部署被一個假的 pending 擋住**;
+  而反方向(有人為了推得動而補一列沒真的 apply 的)**更糟,且本表擋不住**。
+
+- **🔴 要修的是【記帳時點】,不是完整度**
+  現行流程:Sean 在 Supabase SQL Editor 貼 → **回寫 TSV 是一個【人記得要做】的獨立動作** ⇒ 它會掉。
+  修法方向(機制優先律):讓「貼 SQL」這個動作**自帶回寫一步**。兩個候選:
+  1. 產貼版檔的腳本同時 append 一列、標 `pending-confirm`,事後由回報字面轉正
+  2. 貼版模板尾端帶一段「請把這段原話貼回來」的固定字面,而回報那一步就是回寫的輸入
+  ⚠️ **兩個候選都沒實作過,也都沒有人量過它們會不會被跳過。** 選之前先答:**跳過它的成本是什麼?**
+  🔴 驗收要雙向:真的 apply ⇒ 該列出現;**沒 apply 而有人想補列 ⇒ 要有東西紅**(否則這道機制只會讓假的列更容易產生)。
+
+- **連帶**
+  · 本表檔頭已自陳「有兩支永遠查不到」(`docs/specs/` 的草稿、四欄格式套不上)⇒ **本表天生不是完整分母**,修法不得假裝它是。
+  · 同族:`#838`(traps-inbox 收割停了而沒人寫為什麼)—— 都是「一份被當成分母的東西自己不完整」。
+
+- **出處:** Fable R2 窗(`pcm-website-v2-f5`)2026-08-24 審主視窗「決定四」時指出(F4);
+  主視窗逐項複打後落檔。🔴 R2 逐字:「再補 2 列**既不提高也不降低**它。」
