@@ -32,6 +32,11 @@ export {
   ORDER_LIST_HIDE_PREDICATE,
   isHiddenFromDefaultOrderList,
 } from './order/order-hidden-rule';
+// 🔴 `#249`:`cancelled_reason` 那個機器碼的【唯一】定義 —— 原本只住在 apps/admin,
+//    而客人端從 `#249` 起也要讀它(列表要把「已取消」與「已逾期」分開標)。
+//    storefront import 不到 apps/admin ⇒ 搬進來,admin 那支改 re-export。
+export { PAYMENT_EXPIRED_CANCEL_REASON, orderCancelKindOf } from './order/order-cancel-reason';
+export type { OrderCancelKind } from './order/order-cancel-reason';
 export { CARRIER_LABEL, CARRIER_OPTIONS, carrierLabelOf } from './order/carrier-label';
 export type { CarrierCode } from './order/carrier-label';
 // 2026-08-19 客戶頁排序:同上,`export type *` 帶不出 const ⇒ 少這一行它是不可達死碼。

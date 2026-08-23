@@ -4,10 +4,22 @@
 // 由此處轉成畫面字串。非 paid 文案為 Sean 2026-06-20 拍板定稿(Q2=A);paid 分支自 2026-08-03 依
 // E10 master plan v2 §5.1 row47(Q12=B + R7)固定「處理中」(理由見 orderStatusLabel JSDoc)。
 
-import type { PaymentStatus, FulfillmentStatus } from '@pcm/domain';
+import type { PaymentStatus, FulfillmentStatus, OrderCancelKind } from '@pcm/domain';
 
 /**
  * orderStatusLabel:付款 × 出貨雙軸 → 單一中文狀態字串。
+ *
+ * 🔴 **2026-08-24 `#249`:最上面多了一條【取消軸】,它壓過下表的每一列。**
+ * | `cancelKind` | 顯示 |
+ * |---|---|
+ * | `'expired'` | 已逾期 |
+ * | `'cancelled'` | 已取消 |
+ * | `'none'` | ↓ 照下表 |
+ *
+ * 🔴🔴 **第三個參數是【枚舉】不是原始欄位,而那是 codex must-fix 的修法本體**(2026-08-24):
+ *    `orders.cancelled_reason` 在 `p_reason_code = 'other'` 時裝的是**員工當場打的字**。
+ *    收斂在 **mapper(伺服器端)**做完 ⇒ 這一層拿到的東西**在型別上就不可能是自由文字**。
+ *    ⚠️ **不要把簽章改回收原始欄位** —— 那會把「不渲染原文」從一道型別閘降級成一句紀律。
  *
  * | payment | fulfillment | 顯示 |
  * |---|---|---|
@@ -54,7 +66,21 @@ import type { PaymentStatus, FulfillmentStatus } from '@pcm/domain';
 export function orderStatusLabel(
   payment: PaymentStatus,
   _fulfillment: FulfillmentStatus,
+  cancelKind: OrderCancelKind,
 ): string {
+  // 🔴🔴 **取消軸壓過付款軸**(`#249`,Sean 2026-08-24 拍【甲】,他看到的選項字面逐字:
+  //    「甲 也顯示, 但標清楚「已取消」/「已逾期」, 不能點去付款」)。
+  //
+  //    **為什麼一定要壓過去**:取消**不動** `payment_status`
+  //    (`20260804180000_..._admin_cancel_order.sql:253-254` 的 audit before/after 寫同一個值;
+  //     `20260809160000_..._expire_unpaid_orders_fn.sql:18` 逐字「不動 payment_status」)
+  //    ⇒ 一張已取消的單走到下面那個 switch 會拿到「待付款」,而那正是 `#249` 要防的那句話。
+  //
+  // 🔴 **第三個參數是【必填】的,這是刻意的**:它讓每一個呼叫端在編譯期被迫回答
+  //    「我手上有沒有取消軸」。做成選填 ⇒ 漏傳的那一頁會**安靜地**印回「待付款」,
+  //    而三綠不會紅。(同族:`packages/domain/src/order/order-hidden-rule.ts` 檔頭那段。)
+  if (cancelKind === 'expired') return '已逾期';
+  if (cancelKind === 'cancelled') return '已取消';
   switch (payment) {
     case 'refunded':
       return '已退款';

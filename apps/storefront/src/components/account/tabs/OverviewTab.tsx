@@ -149,8 +149,11 @@ export function OverviewTab({
                 </div>
                 <div className="acc-order-r">
                   <div className="acc-order-total">NT$ {o.total.amount.toLocaleString()}</div>
+                  {/* 🔴 `#249`:第三個參數帶取消軸(理由與 `OrdersTab` 同一份,寫在那裡)。
+                      📌 **這一頁常常是漏掉的那一頁** —— 它與訂單分頁讀同一個 `OrderListItem`,
+                         而兩處各有一份 JSX ⇒ 只改一邊,另一邊會安靜地繼續印「待付款」。 */}
                   <div className="acc-order-status">
-                    {orderStatusLabel(o.paymentStatus, o.fulfillmentStatus)}
+                    {orderStatusLabel(o.paymentStatus, o.fulfillmentStatus, o.cancelKind)}
                   </div>
                 </div>
               </div>

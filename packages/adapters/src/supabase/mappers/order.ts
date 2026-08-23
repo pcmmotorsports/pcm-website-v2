@@ -18,7 +18,7 @@ import type {
   OrderSource,
   PaymentChannel,
 } from '@pcm/domain';
-import { toMoneyAmount } from '@pcm/domain';
+import { toMoneyAmount, orderCancelKindOf } from '@pcm/domain';
 import { narrowMemberTier } from './member-tier';
 import type { Database } from '../database.types';
 import {
@@ -169,7 +169,16 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
  */
 export type SupabaseOrderListRow = Pick<
   Database['public']['Tables']['orders']['Row'],
-  'id' | 'display_id' | 'created_at' | 'payment_status' | 'fulfillment_status' | 'total'
+  | 'id'
+  | 'display_id'
+  | 'created_at'
+  | 'payment_status'
+  | 'fulfillment_status'
+  | 'total'
+  // 🔴 `#249`(2026-08-24):取消軸。**取消不動 `payment_status`** ⇒ 少了這兩欄,
+  //    已取消單在列表上與「還付得了的單」逐欄相同、一律印「待付款」。
+  | 'cancelled_at'
+  | 'cancelled_reason'
 > & {
   /** 內嵌 order_items(quantity)、to-many 非 null array(FK order_items_order_id_fkey、isOneToOne:false)。 */
   order_items: { quantity: number }[];
@@ -190,6 +199,15 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
     paymentStatus: row.payment_status,
     fulfillmentStatus: row.fulfillment_status,
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    // 🔴🔴 `#249` + codex must-fix(2026-08-24):**原文在這裡就停住,不往下游走。**
+    //    `cancelled_reason` 在 `p_reason_code = 'other'` 時裝的是【員工當場打的字】
+    //    (`20260804180000_..._admin_cancel_order.sql:135-136`)⇒ 帶下去就進了客人的瀏覽器。
+    //    ⇒ **這一行是那道邊界**:算成枚舉、丟掉原文。理由全文在 `orderCancelKindOf`。
+    cancelledAt: row.cancelled_at,
+    cancelKind: orderCancelKindOf({
+      cancelledAt: row.cancelled_at,
+      cancelledReason: row.cancelled_reason,
+    }),
     itemCount: row.order_items.reduce((sum, item) => sum + item.quantity, 0),
     // 🔴 **客人端的截斷旗標**(2026-08-16,`Q-EMBED-1` Sean 批)。
     //    這一面的後果與後台不同:後台是**算錯一個狀態**,這裡是**印一個少算的件數**。
@@ -1140,8 +1158,14 @@ export function mapSupabaseMemberOrderDetailRow(
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     shippingMethod: row.shipping_method,
     shippingAddress: pickShippingAddress(row.shipping_address_snapshot),
+    // 🔴🔴 codex must-fix(2026-08-24):**與客人列表同一道邊界** —— 原文停在這裡。
+    //    ⚠️ 這一頁**在 `#249` 之前對取消單不可達**(取消單恆 unpaid、被濾掉)⇒
+    //       這一行原本每天都在跑,而它送出去的東西從來沒有人看得到。**路一開,它就成立了。**
     cancelledAt: row.cancelled_at,
-    cancelledReason: row.cancelled_reason,
+    cancelKind: orderCancelKindOf({
+      cancelledAt: row.cancelled_at,
+      cancelledReason: row.cancelled_reason,
+    }),
     items,
     itemCount: items.reduce((sum, i) => sum + i.quantity, 0),
     itemsTruncated: row.order_items.length >= MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT,

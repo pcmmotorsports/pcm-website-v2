@@ -1,4 +1,5 @@
 import type { Money, MemberTier, Paginated } from '../shared/types';
+import type { OrderCancelKind } from './order-cancel-reason';
 import type { ProductId } from '../catalog/types';
 import type { CustomerId } from '../identity/types';
 
@@ -183,6 +184,26 @@ export type OrderListItem = {
   fulfillmentStatus: FulfillmentStatus;
   /** 訂單總額(Money 整數、TWD;會員自己的單、非經銷價) */
   total: Money;
+  /**
+   * 取消時間(`orders.cancelled_at`;非 null = 這張單已經關掉了)。
+   *
+   * 🔴 **`#249`(2026-08-24)才加進這個摘要投影,而它不是「順便多帶一欄」** ——
+   *    取消**不動** `payment_status`(`20260809160000_..._expire_unpaid_orders_fn.sql:18` 逐字
+   *    「不刪任何資料、**不動 payment_status**、不碰庫存」)⇒ 沒有這一欄的話,
+   *    **一張已作廢的單在列表上與「還付得了的單」逐欄相同**,而列表會印「待付款」
+   *    ⇒ 客人去付一張已作廢的單。
+   * ⚠️ **不要在顯示端自己判「算不算取消」** —— 判別式只有一份:`orderCancelKindOf`。
+   */
+  cancelledAt: string | null;
+  /**
+   * 取消軸收斂成的**枚舉**(`orderCancelKindOf` 在 **adapter/mapper 端**算完)。
+   *
+   * 🔴🔴 **這裡刻意【不帶】`cancelledReason` 原文**(codex must-fix,2026-08-24):
+   * 那一欄在 `p_reason_code = 'other'` 時裝的是**員工當場打的字**
+   * (`20260804180000_..._admin_cancel_order.sql:135-136`)⇒ 帶過來就是把內部說法送進客人的瀏覽器。
+   * ⇒ **客人端只渲染枚舉映射出來的固定字串,永遠不渲染自由文字。** 理由全文在 `orderCancelKindOf`。
+   */
+  cancelKind: OrderCancelKind;
   /** 商品總數量 Σquantity(Q4=B、非 distinct 品項列數) */
   itemCount: number;
   /**
@@ -1627,8 +1648,18 @@ export type MemberOrderDetail = {
    */
   shippingAddress: { name: string | null; phone: string | null; line: string | null };
   cancelledAt: string | null;
-  /** 取消原因 = **可對客文案**(內部原因在 admin_audit_log,不在此) */
-  cancelledReason: string | null;
+  /**
+   * 取消軸收斂成的**枚舉**(`orderCancelKindOf` 在 mapper 端算完)。
+   *
+   * 🔴🔴 ~~`cancelledReason: string | null`「取消原因 = 可對客文案」~~ —— **那句話是錯的,已移除**
+   * (codex must-fix,2026-08-24)。`p_reason_code = 'other'` 那條路寫進去的是**員工當場打的原文**
+   * (`20260804180000_..._admin_cancel_order.sql:135-136`),沒有任何一層把它變成對客文案。
+   * ⇒ 客人端只拿枚舉、不拿原文。理由與紀律全文在 `orderCancelKindOf`。
+   * ⚠️ **代價照實寫**:客人現在看不到「為什麼被取消」。要接回來的正確做法是
+   * 從 `order_cancellations.reason_code`(七值枚舉)映射一張**固定文案表**,而那張表的字
+   * **要 Sean 定**(鐵則 9 L2)。⇒ 已記進 backlog,不在本片。
+   */
+  cancelKind: OrderCancelKind;
   items: MemberOrderDetailItem[];
   /** Σ items[].quantity(**從實際撈到的品項算**、非 `OrderListItem.itemCount`) */
   itemCount: number;

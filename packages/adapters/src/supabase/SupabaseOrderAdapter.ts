@@ -64,9 +64,39 @@ import {
  * 🔴 鐵則 12:**只**摘要欄 + 內嵌 `order_items(quantity)`(只算件數);**禁** unit_price / line_total /
  * product_snapshot / 經銷價 / PII(shipping_address_snapshot / invoice / tappay_rec_trade_id / tier_at_checkout)。
  * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + spy 守門(codex C1/N2)。
+ *
+ * 🔴🔴 **2026-08-24 `#249` 加了兩欄:`cancelled_at` / `cancelled_reason`。**
+ * ```
+ * Sean 拍板逐字(他看到的選項字面):
+ *   「甲 也顯示, 但標清楚「已取消」/「已逾期」, 不能點去付款」
+ * ```
+ * **為什麼非加不可**:取消**不動** `payment_status`
+ * (`20260804180000_..._admin_cancel_order.sql:253-254` audit before/after 寫同一個值;
+ *  `20260809160000_..._expire_unpaid_orders_fn.sql:18` 逐字「**不動 payment_status**」)
+ * ⇒ 已取消單在這份投影裡與「還付得了的單」**完全一樣**,清單一律印「待付款」
+ * ⇒ 客人會去付一張已作廢的單。**那正是 `#249` 要防的動作。**
+ *
+ * 🔴 **鐵則 12 複核(逐欄,不是「應該沒問題」)**:
+ * - `cancelled_at` = timestamptz,**不含**價格 / PII;
+ * - 🔴🔴 ~~`cancelled_reason` = **可對客文案**(內部原因在 `admin_audit_log`,不在 orders)~~
+ *   **那句話是【假的】,而它就是這個投影差點出事的原因**(codex must-fix,2026-08-24)。
+ *   ```
+ *   20260804180000_..._admin_cancel_order.sql:115-136
+ *     七值裡有六值映射成固定中文;而 p_reason_code = 'other' ⇒ v_reason_txt := v_detail
+ *                                                              ↑ 員工當場打的原文
+ *   ⇒ 「供應商欠款 / 內部失誤」那種字會原樣進這一欄
+ *   ```
+ *   ⚠️ `20260712203000_m4a_orders_admin_columns.sql:90` 那句「會員看得到自己單的
+ *     `cancelled_reason`」講的是 **RLS 授權面**(他讀得到),**不是**「那一欄的內容可以給他看」。
+ *     🔴 **授權面與內容適當性是兩件事,而那句註解只答了前者。**
+ * ⇒ **所以這一欄【投影出來只給伺服器用】**:mapper 當場收斂成 `orderCancelKindOf` 的三值枚舉,
+ *   **原文不進 `OrderListItem` / `MemberOrderDetail`、不進 RSC payload、不進瀏覽器**。
+ *   守門在 `mappers/order.test.ts` 的「客人端投影不得夾帶 cancelled_reason 原文」那兩格
+ *   (含一發打得中的突變:把原文放回投影 ⇒ 該格紅)。
+ * ⚠️ 判別式只准用**等於**、不得用「包含」——理由與守門在 `order-cancel-reason.ts` / `.test.ts`。
  */
 export const ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_items(quantity)';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, cancelled_at, cancelled_reason, order_items(quantity)';
 
 /**
  * **會員訂單明細**投影白名單(`#240`;/account/orders/<displayId>、RLS own-only)。
@@ -434,9 +464,18 @@ export const ADMIN_ORDER_DETAIL_SELECT =
  * 🔴 **比 `ADMIN_ORDER_DETAIL_SELECT` 內嵌的那份【窄】,而且兩種欄被排除的理由不同**:
  * - **沒有 `order_item_procurement`** —— **結構性、永久成立**:它是內嵌陣列、受
  *   `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 管 ⇒ 取進來等於把我們正在拆的那道牆換個位置裝回去。
- * - **沒有 `unit_price` / `line_total`** —— **只是 YAGNI**:紙上目前零金額。
+ * - **沒有 `unit_price` / `line_total`** —— **只是 YAGNI**:~~紙上目前零金額~~
+ *   ⚠️⚠️ **那句 2026-08-24 起【不再成立】** —— 出貨明細單有金額了(Sean `Q1`=甲),
+ *   而它**改吃 `listOrderItemsForDetail`**,不再走本投影。
+ *   ⇒ 🔴 **本投影【現在的唯一消費端】是 `lib/shipping/shipment-candidates.ts`(出貨候選,不印紙)**
+ *     ⇒ 「這裡不需要金額」仍然成立,而**理由換了**:不是「紙上零金額」,是「候選清單不談錢」。
  *   🔴 **金額片要加它們時不受上面那條約束** —— 同列 scalar,**取它們不產生任何截斷面**。
  * ⇒ **零 PII、零價格** —— 白名單比明細那份更安全,不是更寬。
+ *   📌 **「零 PII」比的是【`ADMIN_ORDER_DETAIL_SELECT` 內嵌那份】,不是 `ORDER_ITEMS_DETAIL_SELECT`。**
+ *     實測逐欄比對(2026-08-24):本投影與 `ORDER_ITEMS_DETAIL_SELECT` **只差 `unit_price` /
+ *     `line_total` 兩欄,PII 差異 = 0**(`product_snapshot` 兩份都有)。
+ *     ⚠️ 這一句是補的:2026-08-24 有人(兩個窗)把「零 PII」讀成「比 DETAIL 少 PII」而據以裁決,
+ *     **而那個誤讀來自這一行的位置,不是來自讀的人**。
  * ⚠️ `order_item_quantity_summary` 是 1:1(`order_item_id` 為 PK)⇒ 它不會被截。
  */
 const ORDER_ITEMS_PRINT_SELECT =
@@ -445,9 +484,14 @@ const ORDER_ITEMS_PRINT_SELECT =
 /**
  * **明細頁**的品項投影(`D2` C 條,2026-08-18)= 上面那份 **+ `unit_price` / `line_total`**。
  *
- * 🔴 **為什麼不直接擴充 `ORDER_ITEMS_PRINT_SELECT`**:那一份的合約是**紙上零金額**
- * (它的 docstring 逐字「零 PII、零價格 —— 白名單比明細那份更安全,不是更寬」)。
- * 擴充它 = 讓**不需要金額的列印路徑**開始帶著成交價跑。
+ * 🔴 **為什麼不直接擴充 `ORDER_ITEMS_PRINT_SELECT`**:~~那一份的合約是**紙上零金額**~~
+ * ⚠️⚠️ **原句 2026-08-24 改寫 —— 這是同一支檔裡的【第三份】同款過期契約。**
+ * (另兩份在本投影上方的 docstring 與 `listOrderItemsForDetail` 的 docstring;
+ *  🔴 **前兩份修完之後,是 `bash scripts/literal-sweep.sh '紙上零金額'` 掃出這一份的**
+ *  —— 我當時以為只有兩份。**「我改了那句」與「那句沒有別份」是兩個宣稱。**)
+ * ⇒ 現行的理由是:那一份的消費端是 `lib/shipping/shipment-candidates.ts`(**出貨候選,不印紙**),
+ *   而**出貨明細單已改吃本投影**(Sean 2026-08-24 `Q1`=甲,紙上有金額了)。
+ * ⇒ 擴充它 = 讓**候選清單那條路**開始帶著成交價跑 —— 理由換了,結論沒換。
  *
  * 🔴 **而它【刻意仍然沒有】`order_item_procurement`** —— 那是內嵌陣列、
  * 受 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT = 50` 管(`mappers/order-procurement.ts:44`)
@@ -597,11 +641,27 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * - admin(M-4a 明細-b 起):注 service_role(BYPASSRLS)、RLS 層不生效,own-scoping 唯一保證
    *   =上述顯式 eq(值班台快掃親驗);
    * - 投影 `ORDER_LIST_SELECT` 白名單 + 內嵌 `order_items(quantity)`(只算件數、零價格/PII 欄)。
-   * - **隱藏 unpaid 孤兒單(#249 治標)**:`.neq('payment_status','unpaid')` 濾掉客人放棄付款後停留
-   *   unpaid 的孤兒單(對齊 Shopify 客人端:未付成不進訂單列表);orderCount(account/page 同源 `orders.length`)天然跟著對齊。
-   *   ⚠️ 前提=絕大多數 unpaid 皆「沒付成的孤兒」(PCM 現僅 TapPay 即時刷卡、無線下待付款單);未來加線下付款方式須重審。
-   *   ⚠️ 已知短暫窗:3DS 付成後到 settleCharge 翻 paid 之間,在途單短暫仍 unpaid 會被暫藏、對帳收斂(秒~分鐘)後自然顯示 —— 顯示層治標的可接受延遲、非孤兒、非本改引入的回歸。
-   *   治本(reuse / 學 Shopify 付成才建單)見 backlog #249。
+   * - 🔴🔴 ~~**隱藏 unpaid 孤兒單(#249 治標)**:`.neq('payment_status','unpaid')` 濾掉客人放棄付款後
+   *   停留 unpaid 的孤兒單……⚠️ 前提=絕大多數 unpaid 皆「沒付成的孤兒」(PCM 現僅 TapPay 即時刷卡、
+   *   **無線下待付款單**);**未來加線下付款方式須重審**。~~
+   *   **⇒ 2026-08-24 `#249` 拿掉了那一行**(Sean 拍板【丙:不要藏,顯示並標狀態】)。
+   *
+   *   🔴🔴 **而這一段最該被下一個人看到的是:那個「須重審」的條件【寫了兩次】,而兩次都沒被執行。**
+   *   ```
+   *   ① 這裡(JSDoc)  逐字:「無線下待付款單」「未來加線下付款方式【須重審】」
+   *   ② 那一行(行內)  逐字:「(前提=無線下待付款單)」
+   *   而線下付款早就上線了(`20260810200000_..._record_manual_payment.sql:236-238`
+   *   的 allowlist 第一個就是 `'unpaid'` —— 人工收款登錄整支 RPC 的主要用途)
+   *   ⇒ 條件成立那天,**沒有任何東西會紅**:那一行照樣跑、測試照樣綠、畫面照樣少一張單。
+   *   ```
+   *   📌 ⇒ **寫下限制、甚至寫下「到期要重審」,都不會讓它被重審。**
+   *      要有人回來看,靠的是**一個會在那天紅掉的東西**,不是一句寫得很好的註解。
+   *
+   *   ⚠️ **拿掉的代價,照實寫**:`#249` 當初要藏的那批(放棄付款的孤兒單)現在也會出現在客人清單裡;
+   *   `orderCount`(`account/page` 同源 `orders.length`)會跟著變大。
+   *   ✅ 而原本那個「已知短暫窗」(3DS 付成到 settleCharge 翻 paid 之間短暫仍 unpaid)**不再是問題** ——
+   *   那批單現在看得到,而它們的標籤就是「待付款」(`order-display.ts:61-62`)。
+   *   治本(reuse / 學 Shopify 付成才建單)仍見 backlog `#249`。
    * 繞過 #217(摘要不含 items[])。error → throw(對齊 placeOrder/findTotal 慣例;caller try/catch 退空陣列、頁面不 500)。
    */
   async listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]> {
@@ -617,7 +677,26 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       .order('id', { referencedTable: 'order_items', ascending: true })
       .limit(ORDER_LIST_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
       .eq('customer_user_id', customerId)
-      .neq('payment_status', 'unpaid') // #249 治標:藏放棄付款的 unpaid 孤兒單(前提=無線下待付款單)
+      // 🔴🔴 ~~`.neq('payment_status', 'unpaid')` #249 治標:藏放棄付款的 unpaid 孤兒單
+      //      (前提=無線下待付款單)~~ **2026-08-24 拿掉,Sean 拍板【丙:不要藏,顯示並標狀態】**
+      //
+      // ── 為什麼拿掉:那一行【把自己的有效期寫在同一行】,而那個前提已經死了 ──────
+      //   `20260810200000_..._record_manual_payment.sql:236-238` 的 allowlist 第一個就是
+      //   `'unpaid'` —— 人工收款登錄**整支 RPC 的主要用途**就是
+      //   「這張單現在 unpaid,而客人拿現金 / 匯款來付」。
+      //   ⇒ **「線下待付款」現在是一級公民**,而那一行把它連同
+      //     **刷卡刷到一半卡住的單**一起藏了。
+      //
+      // 🔴 **傷害是可推的**:客人刷卡卡住 ⇒ 去自己帳號找那張單 ⇒ **找不到** ⇒ **他會再刷一次**。
+      //   (⚠️ 這是**機制上成立**;正式庫實際發生過幾次,施工窗量不到 ⇒ 標【未量】。)
+      //
+      // 📌 **而這一行值得留著的形狀**:它不是寫錯,也不是沒寫清楚 ——
+      //   **它把前提寫得比大多數註解都好。** 而前提失效時**沒有任何東西會紅**:
+      //   那一行照樣跑、測試照樣綠、畫面照樣少一張單。
+      //   ⇒ **一個【寫下了自己有效期】的註解,仍然沒有人會在到期那天回來看它。**
+      //
+      // ⚠️ **拿掉的代價,照實寫**:`#249` 當初要藏的那批(**放棄付款的孤兒單**)現在也會出現。
+      //   Sean 選丙時我方**沒有**把「清單長度會變」端給他(主視窗 2026-08-24 自陳)⇒ 已回報。
       .order('created_at', { ascending: false });
     if (error) {
       throw error;
@@ -632,14 +711,21 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * - 🔴 **兩層歸屬**:storefront 注 authenticated client ⇒ RLS `orders_select_own` 擋一層;
    *   顯式 `.eq('customer_user_id', …)` 是應用層縱深 ⇒ **任一層失效另一層仍擋**
    *   (逐字沿用 `listSummariesByCustomer` 的做法);後者同時是注 service_role 時的唯一歸屬保證。
-   * - 🔴 **`.neq('payment_status','unpaid')` 與清單同一道**(`#249` Sean 2026-07-02 拍 A+甲)——
-   *   不套的話**被藏起來的孤兒單會從詳情頁這個入口漏出來**,讓那個決定在另一個入口失效。
-   *   📌 非安全洞(RLS own-only 仍在),是「兩個畫面對同一批單講不同的話」。
-   *   ⚠️ `#249` 治本那天到了,**這裡與 `listSummariesByCustomer` 兩處要一起拆**。
+   * - 🔴 ~~`.neq('payment_status','unpaid')` 與清單同一道(`#249` Sean 2026-07-02 拍 A+甲)~~
+   *   **⇒ 2026-08-24 `#249` 兩處一起拆掉了**(理由只寫在 `listSummariesByCustomer` 那一份)。
+   *   ✅ **而原文那句「兩處要一起拆」被照做了** —— 它是這支檔裡**唯一一句真的被執行的到期指示**,
+   *   而它之所以被執行,是因為**有人正好為了別的事走到這裡**,不是因為它寫得好。
+   *   📌 那個顧慮(**兩個畫面對同一批單講不同的話**)**現在仍然成立,只是方向反過來**:
+   *   少拆一邊 ⇒ 列表看得到、點進去說「查無此訂單」。**兩處必須同進退。**
    * - 🔴 **內嵌上限 + 排序成對**:不設上限,邊界就握在遠端 `db-max-rows` 手上,而
    *   **PostgREST 對內嵌截斷不給任何訊號** ⇒ 客人會看到一張少了品項的訂單而不知道。
    *   `.order()` 沒有跟上的話,兩次重新整理會拿到不同子集。
-   * - 查無 / 非本人 / 被 `#249` 濾掉 → `null`(caller 走 404、**不 throw、不洩存在性**);
+   * - 查無 / 非本人 → `null`(caller 走 404、**不 throw、不洩存在性**);
+   *   ⚠️ ~~「被 `#249` 濾掉」也走這條~~ —— 2026-08-24 起**不再有那條路**。
+   *   🔴 而 caller 的查無文案(`account/orders/[displayId]/page.tsx:69-72`)逐字寫著
+   *   「訂單編號可能輸入錯誤,或這筆不屬於目前登入的帳號」——
+   *   **那句話對「被我們藏起來的自己的單」是【錯的】**,而它給客人的下一步是「重打 / 換帳號」,
+   *   試完之後最合理的動作就是**再刷一次**。⇒ 那句文案是 `#249` 的另一半,**未做**(等鑽機看過畫面)。
    *   error → 裸 throw(對齊 `placeOrder` / `listSummariesByCustomer` 慣例;caller try/catch)。
    */
   async findOrderDetailForCustomer(
@@ -653,7 +739,11 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       .limit(MEMBER_ORDER_DETAIL_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
       .eq('display_id', displayId)
       .eq('customer_user_id', customerId)
-      .neq('payment_status', 'unpaid')
+      // 🔴 ~~`.neq('payment_status', 'unpaid')` #249:與清單同一道~~ **2026-08-24 同批拿掉**
+      //    完整理由寫在 `listSummariesByCustomer` 那一處(**只寫一份,這裡指過去**)——
+      //    抄兩份 = 兩份各自過期,而那正是 `#841` 立 `order-hidden-rule` 時要消滅的形狀。
+      // 🔴 **兩處必須同進退**:少拿一邊 ⇒ 列表看得到而點進去說「查無此訂單」,
+      //    那比兩邊都藏更糟 —— 客人會以為是自己點錯。
       .maybeSingle();
     if (error) {
       throw error;
@@ -1097,9 +1187,19 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   /**
    * **明細頁**的品項:同一支迴圈,**投影多兩個同列 scalar**(`unit_price` / `line_total`)。
    *
-   * 🔴 **為什麼不直接用 `listOrderItemsForPrint`** —— 不是懶得共用,是**列印那條的合約是「紙上零金額」**
+   * 🔴 **為什麼不直接用 `listOrderItemsForPrint`** —— 不是懶得共用,是**列印那條的投影刻意零金額**
    * (`ORDER_ITEMS_PRINT_SELECT` 的 docstring 逐字「零 PII、零價格 —— 白名單比明細那份更安全」)。
    * 把金額塞進它,等於讓**不需要金額的路徑**開始帶著成交價跑(鐵則 12 面)。
+   *
+   * ⚠️⚠️ **~~「列印那條的合約是【紙上零金額】」~~ 這句 2026-08-24 起【不再成立】,原句已改寫。**
+   *    Sean 2026-08-24 `Q1`=甲 之後**出貨明細單上有金額了**
+   *    (canonical `memory/project_0824-sean-shipping-doc-two-sections-confirmed.md`)
+   *    ⇒ `app/print/orders/[id]/shipping/[shipmentId]/page.tsx` **改吃本函式**。
+   * 🔴 **而「零金額」在【投影】這一層仍然成立,只是它不再等於「紙上零金額」** ——
+   *    `listOrderItemsForPrint` 現存的消費端是 `lib/shipping/shipment-candidates.ts`
+   *    (出貨候選,不印紙),**它繼續零金額**。
+   *    📌 留著這段的理由:上面那句原文會讓下一個人以為**出貨單不該有金額**而去「修正」它,
+   *      而那正是「一句字面把下一個人的查證關掉」——本檔今天已經被同一個形狀咬過一次。
    * 🔴 **而也不是複製一支迴圈** —— 迴圈本體抽成 `#pageOrderItems`,兩支共用。
    *    複製的話,`from += batch.length` 那種東西會在其中一份被改壞而另一份還對,
    *    **而兩份都綠**。

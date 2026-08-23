@@ -55,6 +55,8 @@ const SAMPLE_ORDERS: OrderListItem[] = [
     fulfillmentStatus: 'shipped',
     total: { amount: toMoneyAmount(1234), currency: 'TWD' },
     itemCount: 3,
+    cancelledAt: null,
+    cancelKind: 'none' as const,
     itemCountTruncated: false,
   },
 ];

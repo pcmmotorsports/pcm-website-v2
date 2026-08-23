@@ -163,7 +163,8 @@ describe('SupabaseOrderAdapter.findTotal', () => {
 });
 
 // ── listSummariesByCustomer:account 訂單列表讀(M-3、RLS own-only)──
-// mock from('orders').select(ORDER_LIST_SELECT).eq('customer_user_id', id).neq('payment_status','unpaid').order('created_at', desc) 鏈;
+// mock from('orders').select(ORDER_LIST_SELECT).eq('customer_user_id', id).order('created_at', desc) 鏈;
+// 🔴 2026-08-24 `#249`:`.neq('payment_status','unpaid')` 已拿掉(Sean 拍板【丙】)。
 // .order() 為終端、await 回 {data, error}。
 function makeListClient(result: { data: unknown; error: unknown }) {
   // 🔴 2026-08-16 `Q-EMBED-1`:查詢鏈變成
@@ -172,8 +173,14 @@ function makeListClient(result: { data: unknown; error: unknown }) {
   //       keyword search 那個)—— 同一個修法在本檔抄三份。**那是既有結構的代價,本片不重構它**,
   //       但**三份都要改**:漏一份的症狀是 `TypeError: ….limit is not a function`。
   const order = vi.fn().mockResolvedValue(result);
+  // 🔴🔴 **`neq` 仍然接在鏈上,而這一點是刻意的**(2026-08-24,`#249` 拿掉那道篩選之後):
+  //    斷言是 `expect(neq).not.toHaveBeenCalled()` ——
+  //    **若 mock 根本不提供 `neq`,那個斷言就【永遠成立】(它連被呼叫的機會都沒有)**
+  //    ⇒ 那會變成一格恆綠的裝飾。
+  //    ⇒ 所以 `eq` 同時回 `order`(現行路徑)**與** `neq`(讓「有人把它加回來」這件事
+  //      真的跑得起來、而且被記錄下來)。**量具要接得住它宣稱不會發生的那一發。**
   const neq = vi.fn().mockReturnValue({ order });
-  const eq = vi.fn().mockReturnValue({ neq });
+  const eq = vi.fn().mockReturnValue({ order, neq });
   // 內嵌 order → 內嵌 limit → 才輪到 eq(篩選還沒下推)
   const limit = vi.fn().mockReturnValue({ eq });
   const embedOrder = vi.fn().mockReturnValue({ limit });
@@ -193,8 +200,13 @@ function makeListClient(result: { data: unknown; error: unknown }) {
 
 describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守門', () => {
   it('🔴 codex C1/N2:ORDER_LIST_SELECT byte-equal 白名單(零 unit_price/line_total/product_snapshot/經銷價/PII)', () => {
+    // 🔴🔴 **2026-08-24 `#249`:這一格【紅過】,而那是它該做的。**
+    //    加的兩欄是 `cancelled_at` / `cancelled_reason`,放行理由逐欄寫在
+    //    `SupabaseOrderAdapter.ts` 的 `ORDER_LIST_SELECT` docstring(對客欄、非價格非 PII、
+    //    客人明細投影早已投影 `cancelled_reason`)。
+    //    ⚠️ **這一格的價值就在它會為了任何一次擴欄而紅** —— 不要把它弱化成 `toContain`。
     expect(ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_items(quantity)',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, cancelled_at, cancelled_reason, order_items(quantity)',
     );
   });
 
@@ -208,6 +220,10 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
           payment_status: 'paid',
           fulfillment_status: 'shipped',
           total: 12345,
+          // 🔴 `#249`:**這兩個鍵不可省** —— 少了 `cancelled_at`,`orderCancelKindOf` 會把整筆
+          //    判成 `'cancelled'`(那個方向是刻意的,見該函式)⇒ 這一格會紅、而它該紅。
+          cancelled_at: null,
+          cancelled_reason: null,
           order_items: [{ quantity: 2 }, { quantity: 1 }],
         },
       ],
@@ -218,7 +234,11 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
     // 🔴 N2:select 確實以 ORDER_LIST_SELECT(module const)被呼叫、非另傳 inline 字串
     expect(select).toHaveBeenCalledWith(ORDER_LIST_SELECT);
     expect(eq).toHaveBeenCalledWith('customer_user_id', 'c1'); // own-only 應用層縱深
-    expect(neq).toHaveBeenCalledWith('payment_status', 'unpaid'); // #249 治標:藏 unpaid 孤兒單
+    // 🔴🔴 **2026-08-24 翻面**(Sean 拍板【丙】):~~原本斷言那道 `.neq` 【有】被呼叫~~
+    //    現在斷言它**完全沒有被呼叫** —— 這一格從「守著它在」變成「守著它不再回來」。
+    //    ⚠️ 用 `not.toHaveBeenCalled()` 而**不是**只檢查參數:
+    //      後者在「有人用別的值再加一道 `.neq`」時**照樣綠**。
+    expect(neq).not.toHaveBeenCalled();
     expect(order).toHaveBeenCalledWith('created_at', { ascending: false }); // 新到舊(Q3)
     expect(res).toEqual([
       {
@@ -227,6 +247,8 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
         createdAt: '2099-04-15T10:00:00Z',
         paymentStatus: 'paid',
         fulfillmentStatus: 'shipped',
+        cancelledAt: null,
+        cancelKind: 'none',
         total: { amount: 12345, currency: 'TWD' },
         itemCount: 3,
         // 🔴 2026-08-16 `Q-EMBED-1`:2 筆 << 上限 500 ⇒ false。
@@ -2445,11 +2467,13 @@ describe('Q-EMBED-1 列表內嵌上限與 itemsTruncated', () => {
 
 // ── findOrderDetailForCustomer:會員訂單明細(`#240`、RLS own-only)──
 // mock 鏈:from('orders').select(SELECT).order(內嵌).limit(內嵌)
-//          .eq('display_id').eq('customer_user_id').neq('payment_status','unpaid').maybeSingle()
+//          .eq('display_id').eq('customer_user_id').maybeSingle()
+//          🔴 2026-08-24 `#249`:那道 `.neq` 已拿掉(與清單同進退)。
 function makeMemberDetailClient(result: { data: unknown; error: unknown }) {
   const maybeSingle = vi.fn().mockResolvedValue(result);
+  // 🔴 同列表那支:`neq` 留在鏈上,否則 `not.toHaveBeenCalled()` 恆綠。
   const neq = vi.fn().mockReturnValue({ maybeSingle });
-  const eqCustomer = vi.fn().mockReturnValue({ neq });
+  const eqCustomer = vi.fn().mockReturnValue({ maybeSingle, neq });
   const eq = vi.fn().mockReturnValue({ eq: eqCustomer });
   const limit = vi.fn().mockReturnValue({ eq });
   const embedOrder = vi.fn().mockReturnValue({ limit });
@@ -2520,7 +2544,7 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     expect(MEMBER_ORDER_DETAIL_SELECT).toContain('shipping_address_snapshot');
   });
 
-  it('查詢鏈:display_id 為鍵 + 兩層歸屬 + #249 同一道 neq + 內嵌 order/limit 成對', async () => {
+  it('查詢鏈:display_id 為鍵 + 兩層歸屬 + 🔴【不再有 #249 那道 neq】+ 內嵌 order/limit 成對', async () => {
     const { client, from, select, eq, eqCustomer, neq, embedOrder, limit } = makeMemberDetailClient({
       data: MEMBER_DETAIL_ROW,
       error: null,
@@ -2531,7 +2555,8 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
     // 🔴 查詢鍵是 displayId、**不是 orders.id 那個 UUID**(OD 稿定的網址契約)
     expect(eq).toHaveBeenCalledWith('display_id', 'PCM-2099-0007');
     expect(eqCustomer).toHaveBeenCalledWith('customer_user_id', 'c1'); // own-only 應用層縱深
-    expect(neq).toHaveBeenCalledWith('payment_status', 'unpaid'); // #249:與清單同一道
+    // 🔴 同上翻面 —— **兩處必須同進退**:少拿一邊 ⇒ 列表看得到而點進去查無。
+    expect(neq).not.toHaveBeenCalled();
     // 🔴 order 與 limit 成對:沒排序的截斷會讓兩次重新整理拿到不同子集
     expect(embedOrder).toHaveBeenCalledWith('id', { referencedTable: 'order_items', ascending: true });
     expect(limit).toHaveBeenCalledWith(200, { referencedTable: 'order_items' });
@@ -2555,7 +2580,7 @@ describe('SupabaseOrderAdapter.findOrderDetailForCustomer + MEMBER_ORDER_DETAIL_
       shippingMethod: 'home',
       shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
       cancelledAt: null,
-      cancelledReason: null,
+      cancelKind: 'none',
       items: [
         {
           id: 'oi1',

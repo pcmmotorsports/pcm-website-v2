@@ -19,6 +19,23 @@ import { ORDER_ITEM_COUNT_TRUNCATED_NOTE } from '@/lib/account-order-copy';
 afterEach(cleanup);
 
 // 測試用訂單(刻意非 design mock 字面;2099 年 + 中性值,防與反洩 guard 混淆)
+// 🔴🔴 `#249`(2026-08-24):**這一格是這片在客人清單那一半的核心。**
+//    取消**不動** `payment_status` ⇒ 已取消單走到列表時是 `unpaid`
+//    ⇒ 舊碼會在這張卡上印「待付款」⇒ **客人去付一張已作廢的單。**
+//    Sean 拍板逐字:「甲 也顯示, 但標清楚「已取消」/「已逾期」, 不能點去付款」
+const CANCELLED_ORDER: OrderListItem = {
+  id: 'ord-cancelled',
+  displayId: 'PCM-2099-0099',
+  createdAt: '2099-02-01T10:00:00Z',
+  paymentStatus: 'unpaid',
+  fulfillmentStatus: 'notOrdered',
+  total: { amount: toMoneyAmount(3280), currency: 'TWD' },
+  cancelledAt: '2099-02-03T02:00:00Z',
+  cancelKind: 'cancelled',
+  itemCount: 1,
+  itemCountTruncated: false,
+};
+
 const ORDERS: OrderListItem[] = [
   {
     id: 'ord-1',
@@ -28,6 +45,8 @@ const ORDERS: OrderListItem[] = [
     fulfillmentStatus: 'shipped',
     total: { amount: toMoneyAmount(12345), currency: 'TWD' },
     itemCount: 3,
+    cancelledAt: null,
+    cancelKind: 'none' as const,
     itemCountTruncated: false,
   },
   {
@@ -38,6 +57,8 @@ const ORDERS: OrderListItem[] = [
     fulfillmentStatus: 'notOrdered',
     total: { amount: toMoneyAmount(980), currency: 'TWD' },
     itemCount: 1,
+    cancelledAt: null,
+    cancelKind: 'none' as const,
     itemCountTruncated: false,
   },
 ];
@@ -187,5 +208,39 @@ describe('itemCountTruncated ⇒ 件數印「?」', () => {
   it('正向對照:旗標為假 ⇒ 「3 件商品」照常印出來', () => {
     render(<OrdersTab orders={[{ ...ORDERS[0]!, itemCountTruncated: false }]} />);
     expect(screen.getByText(/3 件商品/), '正常情況要印真實件數').toBeDefined();
+  });
+});
+
+// ── 🔴🔴 `#249`(2026-08-24):取消單在客人清單上的樣子 ──────────────────────────
+describe('`#249` 已取消的單:清單上不得印「待付款」', () => {
+  it('🔴 這片的核心:取消單是 `unpaid` ⇒ 舊碼印「待付款」⇒ 客人去付一張作廢單', () => {
+    const { container } = render(<OrdersTab orders={[CANCELLED_ORDER]} />);
+    const status = container.querySelector('.acc-order-status');
+    expect(status?.textContent).toBe('已取消');
+    // 🔴 負對照:同一張卡、**沒有取消** ⇒ 仍要印「待付款」。
+    //    少了這一格,「狀態欄整個壞掉」時上面那格也會綠。
+    cleanup();
+    const { container: c2 } = render(
+      <OrdersTab orders={[{ ...CANCELLED_ORDER, cancelledAt: null, cancelKind: 'none' as const }]} />,
+    );
+    expect(c2.querySelector('.acc-order-status')?.textContent).toBe('待付款');
+  });
+
+  it('逾期單 ⇒「已逾期」(與人工取消分開,Sean 那一板的兩個字面)', () => {
+    const { container } = render(
+      <OrdersTab orders={[{ ...CANCELLED_ORDER, cancelKind: 'expired' as const }]} />,
+    );
+    expect(container.querySelector('.acc-order-status')?.textContent).toBe('已逾期');
+    // 🔴 機器碼不得出現在客人畫面上的任何地方
+    expect(container.innerHTML).not.toContain('payment_expired');
+  });
+
+  it('🔴 這張卡上【沒有付款入口】—— Sean 那句「不能點去付款」在這一頁是這樣成立的', () => {
+    // ⚠️ 它是**現況**不是保證:誰日後在這張卡加付款鈕,這一格會紅、逼他回來讀 `#249` 那一板。
+    const { container } = render(<OrdersTab orders={[CANCELLED_ORDER]} />);
+    const links = Array.from(container.querySelectorAll('a'));
+    expect(links).toHaveLength(1);
+    expect(links[0]?.textContent).toContain('查看詳情');
+    expect(container.querySelectorAll('button')).toHaveLength(0);
   });
 });

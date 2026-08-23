@@ -35,7 +35,7 @@ const ORDER: MemberOrderDetail = {
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,
-  cancelledReason: null,
+  cancelKind: 'none' as const,
   items: [
     {
       id: 'oi1',
@@ -201,17 +201,72 @@ describe('OrderDetailView', () => {
     }
   });
 
-  it('已取消訂單 ⇒ 印可對客的取消原因;未取消 ⇒ 整區不印', () => {
+  // 🔴🔴 **2026-08-24 codex must-fix:這一格【整個翻面】。**
+  //    ~~原本:「已取消訂單 ⇒ **印可對客的取消原因**」~~ —— 那個前提是假的:
+  //    `cancelled_reason` 在 `p_reason_code = 'other'` 時裝的是**員工當場打的原文**
+  //    (`20260804180000_..._admin_cancel_order.sql:135-136`)⇒ 印它 = 把內部說法給客人看。
+  //    ⇒ 現在客人端**連拿都拿不到那串字**(mapper 端收斂成 `cancelKind` 枚舉)。
+  it('已取消訂單 ⇒ 印固定字串、**不印任何自由文字**;未取消 ⇒ 整區不印', () => {
     const { container } = render(
       <OrderDetailView
-        order={{ ...ORDER, cancelledAt: '2099-05-01T00:00:00Z', cancelledReason: '缺貨,已全額退款' }}
+        order={{ ...ORDER, cancelledAt: '2099-05-01T00:00:00Z', cancelKind: 'cancelled' }}
       />,
     );
     expect(container.textContent).toContain('訂單已取消');
-    expect(container.textContent).toContain('缺貨,已全額退款');
+    expect(container.textContent).toContain('這張訂單已經取消,不需要付款');
     cleanup();
     const { container: c2 } = render(<OrderDetailView order={ORDER} />);
     expect(c2.querySelector('[data-od-id="order-cancelled"]')).toBeNull();
+  });
+
+  // ── 🔴🔴 `#249`(2026-08-24):這一頁對【取消單】從今天起才走得到 ────────────────
+  // 在此之前 adapter 的 `.neq('payment_status','unpaid')` 把取消單全濾掉了(取消不動 payment_status
+  // ⇒ 每一張取消單都是 unpaid)。下面三格**不是新功能**,是一段沒人走過的路被點亮之後才暴露的東西。
+  // 📌 形狀:**拆掉一道濾網,等於把它背後所有沒被走過的路一次點亮 —— 而那些路沒有人驗過。**
+  describe('`#249` 取消單:一段今天才走得到的路', () => {
+    const CANCELLED = {
+      ...ORDER,
+      paymentStatus: 'unpaid' as const,
+      paidAt: null,
+      paymentMethod: null,
+      cancelledAt: '2099-05-01T00:00:00Z',
+      cancelKind: 'cancelled' as const,
+    };
+    const EXPIRED = { ...CANCELLED, cancelKind: 'expired' as const };
+
+    it('🔴 徽章不得是 `is-action`(那一檔是【催客人去付款】的顏色)', () => {
+      const { container } = render(<OrderDetailView order={CANCELLED} />);
+      const badge = container.querySelector('.od-status');
+      expect(badge?.textContent).toBe('已取消');
+      // 負對照在下一行:同一支元件對【沒取消的 unpaid 單】仍然要給 is-action,
+      // 否則這一格在「is-action 整個壞掉」時也會綠。
+      expect(badge?.className).not.toContain('is-action');
+      cleanup();
+      const { container: c2 } = render(
+        <OrderDetailView order={{ ...CANCELLED, cancelledAt: null, cancelKind: 'none' }} />,
+      );
+      expect(c2.querySelector('.od-status')?.className).toContain('is-action');
+    });
+
+    it('🔴 金額欄不得寫「應付金額」—— 那會告訴一個取消單的客人他還欠錢', () => {
+      const { container } = render(<OrderDetailView order={CANCELLED} />);
+      expect(container.textContent).not.toContain('應付金額');
+      expect(container.textContent).toContain('訂單金額');
+    });
+
+    it('🔴 逾期單:標題「訂單已逾期」,而且**不得把英文機器碼印給客人**', () => {
+      const { container } = render(<OrderDetailView order={EXPIRED} />);
+      expect(container.textContent).toContain('訂單已逾期');
+      // 🔴 `payment_expired` 是 pg_cron 寫進 cancelled_reason 的**機器碼**,不是文案
+      //    (`20260809160000_..._expire_unpaid_orders_fn.sql:174` 逐字)。
+      expect(container.innerHTML).not.toContain('payment_expired');
+      expect(container.textContent).toContain('超過付款期限');
+      // 負對照:人工取消的單標題仍是「訂單已取消」、而它也是固定字串
+      cleanup();
+      const { container: c2 } = render(<OrderDetailView order={CANCELLED} />);
+      expect(c2.textContent).toContain('訂單已取消');
+      expect(c2.textContent).toContain('這張訂單已經取消,不需要付款');
+    });
   });
 
   it('反洩 guard:畫面文字零經銷價字面', () => {

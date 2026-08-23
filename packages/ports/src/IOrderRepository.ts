@@ -81,7 +81,8 @@ export interface IOrderRepository {
    *
    * 回 `MemberOrderDetail` **唯讀投影**(非 domain `Order` 重建 → 繞過 `#217`,同
    * `listSummariesByCustomer` 與 `AdminOrderDetail` 先例;`findById` deferred stub **不動**)。
-   * 查無 / 非本人 / 已被 `#249` 過濾掉 → `null`(caller 走 404、**不 throw、不洩存在性**)。
+   * 查無 / 非本人 → `null`(caller 走 404、**不 throw、不洩存在性**)。
+   * ⚠️ ~~「已被 `#249` 過濾掉」也走這條~~ —— **2026-08-24 起不再有那條路**(見下)。
    *
    * 🔴 **查詢鍵是 `displayId` 不是 `OrderId`** —— 網址契約由 OD 稿定(檔頭逐字
    *    「/account/orders/<displayId>」)。`displayId` 有 UNIQUE 約束。
@@ -91,10 +92,22 @@ export interface IOrderRepository {
    *    **任一層失效另一層仍擋**(同 `listSummariesByCustomer` 的既有做法)。
    *    ⚠️ 而它同時是**注入 service_role client 時的唯一歸屬保證**(RLS 對 BYPASSRLS 不生效)。
    *
-   * 🔴 **必須套用與清單相同的 `.neq('payment_status','unpaid')`**(`#249` Sean 2026-07-02 拍
-   *    A+甲:顯示層藏放棄付款的孤兒單)。不套的話,**被藏起來的單會從詳情頁這個入口漏出來**
-   *    ⇒ 那會讓 `#249` 的決定在另一個入口失效。📌 這**不是**安全洞(RLS own-only 仍在),
-   *    是「兩個畫面對同一批單講不同的話」。⚠️ `#249` 治本(付成才建單)那天到了,**兩處要一起拆**。
+   * 🔴🔴 ~~**必須套用與清單相同的 `.neq('payment_status','unpaid')`**(`#249` Sean 2026-07-02 拍
+   *    A+甲:顯示層藏放棄付款的孤兒單)~~ —— **2026-08-24 `#249` 兩處一起拆掉了。**
+   *    Sean 拍板逐字(他看到的選項字面):「**甲 也顯示, 但標清楚「已取消」/「已逾期」, 不能點去付款**」。
+   *
+   *    🔴 **拆的理由不是那道濾網寫錯,是它的前提死了**:它假設「unpaid = 客人放棄付款的孤兒單」,
+   *    而**線下 / 匯款付款早就上線**(`20260810200000_..._record_manual_payment.sql:236-238`
+   *    的 allowlist 第一個就是 `'unpaid'`)⇒ 它把**刷卡刷到一半卡住的單**一起藏了
+   *    ⇒ 客人找不到那張單 ⇒ **他會再刷一次**。
+   *
+   * 🔴 **而原文那句顧慮(兩個畫面對同一批單講不同的話)【現在仍然成立,只是方向反過來】**:
+   *    少拆一邊 ⇒ 列表看得到、點進去說「查無此訂單」。⇒ **兩處必須同進退。**
+   *    📌 這**不是**安全洞(RLS own-only 兩層仍在),是顯示一致性。
+   *
+   * ⚠️ **這一段本身是個標本**:它寫了自己的到期條件(「治本那天到了兩處一起拆」),
+   *    而真正到的是**另一種失效** —— Sean 改了決定。
+   *    🔴 **一句寫下自己有效期的話,只涵蓋它想得到的那種失效。**(同族 backlog `#882`)
    */
   findOrderDetailForCustomer(
     displayId: DisplayId,

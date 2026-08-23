@@ -32,6 +32,7 @@
 //    **列表投影不行** —— 它走 `mapListQuantitySummary`(`:335`)、缺列補 0(`:291` 那段「補 0 只在純顯示成立」),
 //    餵進來會讓 `quantity_summary_missing` 這道 fail-closed 靜默失效,而型別不會報錯。
 
+import { PAYMENT_EXPIRED_CANCEL_REASON } from '@pcm/domain';
 import type {
   AdminOrderCancellation,
   AdminOrderDetail,
@@ -44,11 +45,19 @@ import type {
  * (Sean 2026-08-09 拍 Q1=A:失效沿用 `cancelled_at` + `cancelled_reason='payment_expired'`,
  *  plan `docs/specs/2026-08-09-order-payment-lifecycle-plan.md:81`;主視窗 `E-003-A` §4.2 裁示照它寫文案)。
  *
- * 🔴 L3 **施工中、尚未 apply** ⇒ 現階段這個值在正式庫不會出現,本常數是**先接住**它。
- *    它不會讓任何目前可取消的單變成不可取消 —— 兩條路都落在「已取消」那道閘裡,
- *    差別只在給員工的那句話(「已被取消」vs「未付款自動失效」)。
+ * 🔴🔴 **2026-08-24 `#249`:本常數的【定義】已搬到 `@pcm/domain`,這裡只是 re-export。**
+ *    搬的理由不是整理:客人端(storefront)從 `#249` 起也要讀它,而 storefront **import 不到 apps/admin**
+ *    ⇒ 不搬就得在客人端再打一份,那正是 `order-hidden-rule.ts` 檔頭在講的病
+ *    (**兩份 production 真相互不認識,改一邊另一邊的測試一格都不會紅**)。
+ *    ⚠️ **名字刻意不變** ⇒ 本檔既有消費端與測試零改動。
+ *
+ * 🔴 ~~「L3 施工中、尚未 apply ⇒ 現階段這個值在正式庫不會出現」~~ —— **那句話已經過期。**
+ *    兩支 migration(`20260809160000` / `20260809170000`)在 `supabase/APPLIED.tsv` 都命中;
+ *    Sean 2026-08-24 對正式庫跑的唯讀 SQL:**被自動失效的單 = 7 張**。
+ *    ⇒ 它現在是**真的會出現的值**。(而那句過期的話寫得很好、到期那天沒有任何東西會紅
+ *      —— 同族全 repo 25 句,backlog `#882`。)
  */
-export const PAYMENT_EXPIRED_CANCEL_REASON = 'payment_expired';
+export { PAYMENT_EXPIRED_CANCEL_REASON };
 
 /**
  * 整張單不能取消的理由。**可以同時成立多條**,因此 `blockReasons` 是陣列而不是單一碼:

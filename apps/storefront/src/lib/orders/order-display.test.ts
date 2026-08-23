@@ -12,6 +12,14 @@ import { describe, it, expect } from 'vitest';
 import type { PaymentStatus, FulfillmentStatus } from '@pcm/domain';
 import { orderStatusLabel, formatOrderDate } from './order-display';
 
+/**
+ * 沒有取消的單(`#249` 加的第三個參數)。
+ *
+ * 🔴 **下面那 20 組全部餵這個值** —— 因為它們證的是**付款軸**,而取消軸會壓過付款軸。
+ *    餵一張取消單進去,那 20 組會全部變成「已取消」而**表還是綠的**(它們只是不再證原本要證的事)。
+ */
+const NOT_CANCELLED = 'none' as const;
+
 // 20 組 = 5 payment × 4 fulfillment(全列、不寫「或等價」弱化、codex N1)
 // 🔴 M-3 RF2a 加 partiallyRefunded 後由 16 → 20:本檔的 toHaveLength 是**獨立硬斷言**、
 //    不從型別衍生 ⇒ 漏改會轉紅(這正是要的:加 enum 值不該靜默通過)。
@@ -42,7 +50,7 @@ const STATUS_CASES: Array<[PaymentStatus, FulfillmentStatus, string]> = [
 
 describe('orderStatusLabel(20 組 exhaustive 雙軸映射、Q2=A)', () => {
   it.each(STATUS_CASES)('payment=%s fulfillment=%s → %s', (payment, fulfillment, expected) => {
-    expect(orderStatusLabel(payment, fulfillment)).toBe(expected);
+    expect(orderStatusLabel(payment, fulfillment, NOT_CANCELLED)).toBe(expected);
   });
 
   it('恰 20 組(5 payment × 4 fulfillment 全覆蓋)', () => {
@@ -50,13 +58,44 @@ describe('orderStatusLabel(20 組 exhaustive 雙軸映射、Q2=A)', () => {
   });
 
   it('關鍵狀態鎖定 + 絕不回空字串', () => {
-    expect(orderStatusLabel('partiallyPaid', 'notOrdered')).toBe('已收訂金');
-    expect(orderStatusLabel('refunded', 'shipped')).toBe('已退款');
-    expect(orderStatusLabel('paid', 'shipped')).toBe('處理中'); // A9f:paid 不再顯出貨階段
+    expect(orderStatusLabel('partiallyPaid', 'notOrdered', NOT_CANCELLED)).toBe('已收訂金');
+    expect(orderStatusLabel('refunded', 'shipped', NOT_CANCELLED)).toBe('已退款');
+    expect(orderStatusLabel('paid', 'shipped', NOT_CANCELLED)).toBe('處理中'); // A9f:paid 不再顯出貨階段
     for (const [payment, fulfillment] of STATUS_CASES) {
-      expect(orderStatusLabel(payment, fulfillment)).not.toBe('');
+      expect(orderStatusLabel(payment, fulfillment, NOT_CANCELLED)).not.toBe('');
     }
   });
+});
+
+// ── `#249`(2026-08-24):取消軸 ────────────────────────────────────────────────
+// Sean 拍板逐字(他看到的選項字面):「甲 也顯示, 但標清楚「已取消」/「已逾期」, 不能點去付款」
+describe('orderStatusLabel · 取消軸壓過付款軸(`#249`)', () => {
+  const CANCELLED = 'cancelled' as const;
+  const EXPIRED = 'expired' as const;
+
+  it('🔴🔴 這片的**核心斷言**:一張已取消的單是 `unpaid` ⇒ 舊碼會印「待付款」⇒ 客人去付一張作廢單', () => {
+    // 🔴 `unpaid` 不是隨手挑的值 —— 取消**不動** `payment_status`
+    //    (`20260804180000_..._admin_cancel_order.sql:253-254` audit before/after 同值;
+    //     `20260809160000_..._expire_unpaid_orders_fn.sql:18` 逐字「不動 payment_status」)
+    //    ⇒ **每一張取消單走到這裡時都是 `unpaid`**。這一格紅掉 = `#249` 的傷害回來了。
+    expect(orderStatusLabel('unpaid', 'notOrdered', CANCELLED)).toBe('已取消');
+    expect(orderStatusLabel('unpaid', 'notOrdered', EXPIRED)).toBe('已逾期');
+    // 負對照:同樣的付款軸、**沒有取消** ⇒ 仍是「待付款」(證上面那兩格是取消軸造成的)
+    expect(orderStatusLabel('unpaid', 'notOrdered', NOT_CANCELLED)).toBe('待付款');
+  });
+
+  it('取消軸壓過【每一個】付款狀態,不是只壓 unpaid', () => {
+    // 已付款後才取消(退款線)⇒ 客人看到的仍必須是「已取消」,不是「處理中」
+    for (const [payment, fulfillment] of STATUS_CASES) {
+      expect(orderStatusLabel(payment, fulfillment, CANCELLED)).toBe('已取消');
+      expect(orderStatusLabel(payment, fulfillment, EXPIRED)).toBe('已逾期');
+    }
+  });
+
+  // 📌 ~~原本這裡有兩格在測「reason 為 null」與「只准等於 payment_expired」~~ ——
+  //    codex must-fix(2026-08-24)之後**這一層拿不到原始欄位了**(第三參數是枚舉),
+  //    那兩格的對象整個搬到 `packages/domain/src/order/order-cancel-reason.test.ts`。
+  //    🔴 **是搬走,不是刪掉** —— 那兩件事仍然要有人守,只是守的位置變了。
 });
 
 describe('formatOrderDate(ISO → YYYY-MM-DD、Asia/Taipei)', () => {

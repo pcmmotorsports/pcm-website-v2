@@ -29,9 +29,11 @@ vi.mock('@/lib/supabase/server', () => ({
     Promise.resolve({ auth: { getUser: () => Promise.resolve({ data: { user: currentUser } }) } }),
 }));
 
-// 🔴 這個假 repo **刻意複製真 adapter 的行為**:它只認「本人 + 該 displayId + 非 unpaid」,
+// 🔴 這個假 repo **刻意複製真 adapter 的行為**:它只認「本人 + 該 displayId」,
 //    其餘一律回 `null` —— 而**回 null 這件事本身就是「不洩存在性」的機制**:
-//    別人的單、不存在的單、被 `#249` 藏起來的 unpaid 孤兒單,在 caller 眼中是同一個值。
+//    別人的單與不存在的單,在 caller 眼中是同一個值。
+// 🔴🔴 ~~「非 unpaid」~~ **2026-08-24 `#249` 拆掉了那個條件**(Sean 拍【甲】)——
+//    unpaid 單(含刷卡卡住的、含已取消的)現在**看得到**,狀態字由取消軸決定。
 const findOrderDetailForCustomer = vi.fn();
 vi.mock('@/lib/auth/composition', () => ({
   getOrderRepo: () => Promise.resolve({ findOrderDetailForCustomer }),
@@ -53,7 +55,7 @@ const OWN_ORDER: MemberOrderDetail = {
   shippingMethod: 'home',
   shippingAddress: { name: '王小明', phone: '0912345678', line: '新北市新莊區化成路 736 巷 18 號' },
   cancelledAt: null,
-  cancelledReason: null,
+  cancelKind: 'none',
   items: [
     {
       id: 'oi1',
@@ -114,19 +116,59 @@ describe('/account/orders/[displayId] 路由', () => {
   it('🔴 走 OD 稿的「查無此訂單」狀態,不是 Next 404(驗收 3)', async () => {
     const html = await renderRoute('NOPE99');
     expect(html).toContain('查無此訂單');
-    // OD 稿 :133-137 的字面與 class
+    // OD 稿 :133-137 的字面與 class(**標題那半仍逐字照稿**)
     expect(html).toContain('acc-empty');
-    expect(html).toContain('訂單編號可能輸入錯誤,或這筆不屬於目前登入的帳號。');
+    // 🔴🔴 **2026-08-24 `#249`:副標換掉了,而這一格【紅過】——那是它該做的。**
+    //    ~~`訂單編號可能輸入錯誤,或這筆不屬於目前登入的帳號。`~~ = OD 稿字面,
+    //    而它對「**我們自己藏起來的、他自己的單**」是假的:它叫客人去重打編號、去換帳號,
+    //    兩條都沒用 ⇒ 試完之後最合理的動作就是**再刷一次**。
+    //    ⇒ Sean 2026-08-24 拍【甲 = 必做】,三版文案再拍【乙】,逐字:
+    expect(html).toContain('您所有的訂單都在訂單記錄裡,回去找找看。若確定是您的,請與客服聯絡');
+    // 🔴 **負對照:舊字面必須真的消失** —— 少了這一格,「兩句都在」也會綠。
+    expect(html).not.toContain('訂單編號可能輸入錯誤');
     // 負對照:本人的單不得出現這個狀態 —— 否則上面幾格在「永遠查無」時也會綠。
     expect(await renderRoute('B3XA91')).not.toContain('查無此訂單');
   });
 
-  // #249:被藏起來的 unpaid 孤兒單在清單看不到 ⇒ 直連網址也必須打不開,
-  // 否則那個拍板會在第二個入口失效。
-  it('🔴 unpaid 孤兒單(adapter 端已濾掉 ⇒ 回 null)⇒ 與查無同一個畫面', async () => {
-    findOrderDetailForCustomer.mockResolvedValue(null); // adapter 的 .neq 已經把它濾掉了
-    const html = await renderRoute('ORPHAN');
-    expect(html).toContain('查無此訂單');
+  // 🔴🔴 **2026-08-24 `#249`:這一格【整個翻面了】。**
+  //    ~~原本:被藏起來的 unpaid 孤兒單在清單看不到 ⇒ 直連網址也必須打不開~~
+  //    ⇒ Sean 拍【甲:顯示但標「已取消」/「已逾期」, 不能點去付款】⇒ 那道 `.neq` 兩處都拆了。
+  //    ⚠️ **原本那一格在拆完之後【仍然是綠的】** —— 它 mock 的是 `null`,而 `null` 這個回傳值
+  //       在「被濾掉」與「真的查無」兩個世界裡長得一樣 ⇒ **它對這次改動零判別力。**
+  //       📌 形狀:**一格測試不會因為它描述的世界消失而變紅。**
+  //    ⇒ 改成斷言新世界:**客人自己的 unpaid 單現在打得開,而且不是「查無」那個畫面。**
+  it('🔴 `#249` 翻面:客人自己的 unpaid 單【打得開】,不再與查無同一個畫面', async () => {
+    findOrderDetailForCustomer.mockResolvedValue({
+      ...OWN_ORDER,
+      paymentStatus: 'unpaid',
+      paidAt: null,
+      paymentMethod: null,
+    });
+    const html = await renderRoute('B3XA91');
+    expect(html).not.toContain('查無此訂單');
+    expect(html).toContain('B3XA91');
+  });
+
+  it('🔴 已取消的單(仍是 unpaid)⇒ 打得開,而狀態字是「已取消」不是「待付款」', async () => {
+    // 🔴 `unpaid` 不是隨手挑的 —— 取消**不動** `payment_status`
+    //    (`20260809160000_..._expire_unpaid_orders_fn.sql:18` 逐字「不動 payment_status」)。
+    //    這一格紅掉 = 客人會在自己的訂單頁看到一張作廢單寫著「待付款」。
+    findOrderDetailForCustomer.mockResolvedValue({
+      ...OWN_ORDER,
+      paymentStatus: 'unpaid',
+      paidAt: null,
+      paymentMethod: null,
+      cancelledAt: '2099-04-16T02:00:00Z',
+      cancelKind: 'cancelled' as const,
+    });
+    const html = await renderRoute('B3XA91');
+    expect(html).toContain('已取消');
+    expect(html).not.toContain('待付款');
+  });
+
+  it('查無 / 非本人 ⇒ 仍是同一個「查無」畫面(這一半沒有變)', async () => {
+    findOrderDetailForCustomer.mockResolvedValue(null);
+    expect(await renderRoute('NOPE99')).toContain('查無此訂單');
   });
 
   it('未登入 ⇒ 導 /login 並帶 next 回這一頁(不是回首頁)', async () => {

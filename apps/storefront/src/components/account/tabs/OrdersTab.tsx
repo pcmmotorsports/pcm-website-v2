@@ -70,8 +70,14 @@ export function OrdersTab({ orders }: OrdersTabProps) {
               </div>
               <div className="acc-order-r">
                 <div className="acc-order-total">NT$ {o.total.amount.toLocaleString()}</div>
+                {/* 🔴 `#249`(2026-08-24):第三個參數帶取消軸。**取消不動 `payment_status`**
+                    ⇒ 少了它,一張已作廢的單在這一格會印「待付款」,而客人會去付它。
+                    ⚠️ 這張卡上**沒有任何付款入口**(唯一的連結是下面那顆「查看詳情」)——
+                       所以 Sean 那句「不能點去付款」在這一頁**本來就成立**,不需要停用什麼。
+                       ⚠️ 而「本來就成立」是**現況**不是保證:誰日後在這張卡加付款鈕,
+                       要先讀 `#249` 那一板(memory `project_0824-sean-cancelled-orders-visible-and-notfound-copy`)。 */}
                 <div className="acc-order-status">
-                  {orderStatusLabel(o.paymentStatus, o.fulfillmentStatus)}
+                  {orderStatusLabel(o.paymentStatus, o.fulfillmentStatus, o.cancelKind)}
                 </div>
                 {/* 🔴 `#240`(2026-08-23):**這裡原本是一顆沒有 onClick 也沒有 href 的 `<button>`** ——
                     design-reference `AccountPages.jsx:551` 自己就是一顆死鈕,我們忠實照搬了它。

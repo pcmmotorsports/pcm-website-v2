@@ -182,6 +182,9 @@ function listRow(over: Partial<SupabaseOrderListRow> = {}): SupabaseOrderListRow
     payment_status: 'paid',
     fulfillment_status: 'shipped',
     total: 12345,
+    // `#249`:預設是一張**沒有取消**的單;要造取消單的那幾格自己 override。
+    cancelled_at: null,
+    cancelled_reason: null,
     order_items: [{ quantity: 1 }],
     ...over,
   };
@@ -901,5 +904,33 @@ describe('#328 明細 mapper 的 notes 那一跳:缺鍵不得被補成空陣列'
     // 沒有這格,「這一跳永遠回 null」的突變也會讓上面那格綠。
     const res = mapSupabaseAdminOrderDetailRowToDetail({ ...detailRow(), order_notes: [] });
     expect(res.customerNotified).toBe(false);
+  });
+});
+
+// ── 🔴🔴 codex must-fix(2026-08-24):客人端投影【不得夾帶自由文字】 ──────────
+// `orders.cancelled_reason` 在 `p_reason_code = 'other'` 時裝的是**員工當場打的原文**
+// (`20260804180000_..._admin_cancel_order.sql:135-136`)。
+// 🔴 **而 mapper 就是那道邊界** —— 過了這裡就是 RSC payload、就是客人的瀏覽器。
+//    ⇒ 這兩格守的不是「畫面沒印」,是「**那串字根本沒被送出去**」。
+//      畫面沒印是可以被下一個人加一行 JSX 破掉的;沒送出去不行。
+describe('🔴 客人端投影不得夾帶 cancelled_reason 原文(codex must-fix)', () => {
+  const INTERNAL = '供應商欠款,內部失誤,先取消';
+
+  it('列表投影:員工自由文字進來 ⇒ 出去的物件裡一個字都沒有', () => {
+    const item = mapSupabaseOrderRowToListItem(
+      listRow({ cancelled_at: '2099-05-01T00:00:00Z', cancelled_reason: INTERNAL }),
+    );
+    expect(item.cancelKind).toBe('cancelled');
+    // 🔴 整包序列化來看,不是只看某一個欄位 —— 只看欄位的話,日後多一個欄位夾帶它就抓不到。
+    expect(JSON.stringify(item)).not.toContain(INTERNAL);
+    expect(JSON.stringify(item)).not.toContain('供應商欠款');
+  });
+
+  it('負對照:這把尺量得到東西 —— 同一發若真的夾帶了,上面那格會紅', () => {
+    // 證明 `not.toContain` 不是恆真:把同一串字塞進一個真的會被序列化的欄位,它必須抓得到。
+    const item = mapSupabaseOrderRowToListItem(
+      listRow({ cancelled_at: '2099-05-01T00:00:00Z', cancelled_reason: INTERNAL }),
+    );
+    expect(JSON.stringify({ ...item, leaked: INTERNAL })).toContain(INTERNAL);
   });
 });

@@ -39,8 +39,12 @@ import { ORDER_DETAIL_ITEMS_TRUNCATED_NOTE } from '@/lib/account-order-copy';
  *    **「應付金額 + 原始總額」** ⇒ **一個已經退款的客人,會被告知他還欠全額。**
  * ⚠️ 那個二元式是**從 OD 稿逐字搬來的**(稿 `:247` / `:271`)——
  *    **稿是視覺權威,不是金額語意的權威。**
- * ⚠️ `unpaid` 在這一頁**到不了**(adapter 端 `.neq('payment_status','unpaid')`、`#249`);
- *    列出來是因為 `Record` 要窮盡,**不是因為它會出現**。
+ * 🔴🔴 ~~`unpaid` 在這一頁**到不了**(adapter 端 `.neq('payment_status','unpaid')`、`#249`);
+ *    列出來是因為 `Record` 要窮盡,**不是因為它會出現**。~~
+ *    **⇒ 2026-08-24 起這句話是假的** —— `#249` 拆掉了那道濾網,`unpaid` **現在天天會出現**
+ *    (刷卡卡住的單、等匯款的單、以及所有已取消的單 —— 取消不動 `payment_status`)。
+ *    ⇒ 而它的「應付金額」對**取消單**是錯的 ⇒ 元件內另有一道 `cancelled ? '訂單金額' : …` 蓋掉它。
+ *    ⚠️ **對「真的還付得了的 unpaid 單」,「應付金額」仍然是對的** ⇒ 這一格不動。
  * 🔴 三個非 `paid` 的可達狀態一律用中性的「訂單金額」—— 它在那三種狀態下都為真。
  *    **而這個字面是我選的,不是稿上的、也不是 Sean 拍過的** ⇒ 已列給主視窗送他過目。
  */
@@ -112,7 +116,16 @@ export type OrderDetailViewProps = {
 
 export function OrderDetailView({ order }: OrderDetailViewProps) {
   const paid = order.paymentStatus === 'paid';
-  const tone = STATUS_TONE[order.paymentStatus];
+  // 🔴🔴 **`#249`(2026-08-24):這一頁對【已取消 / 已逾期】的單從今天起才走得到。**
+  //    在此之前 adapter 的 `.neq('payment_status','unpaid')` 把它們全濾掉了
+  //    ⇒ **下面三格是「一段從來沒有人走過的路」被點亮之後才暴露出來的**,不是新做的功能:
+  //    ① `tone`:`STATUS_TONE.unpaid = 'action'` = **催客人去付款**的那一檔顏色 ⇒ 取消單一律改 `done`
+  //    ② `amountLabel`:`AMOUNT_LABEL.unpaid = '應付金額'` ⇒ **會告訴一個取消單的客人他還欠錢** ⇒ 改中性
+  //    ③ 取消原因那一格:自動失效寫進去的是**英文機器碼** `payment_expired` ⇒ 不得原樣印(見下)
+  //    📌 形狀:**拆掉一道濾網,等於把它背後所有沒被走過的路一次點亮 —— 而那些路沒有人驗過。**
+  const cancelKind = order.cancelKind;
+  const cancelled = cancelKind !== 'none';
+  const tone = cancelled ? 'done' : STATUS_TONE[order.paymentStatus];
   // 稿的四階進度軸。前兩階有來源;後兩階在第 1 批一律未完成(見檔頭)。
   const steps = [
     { t: '訂單成立', d: formatOrderDate(order.createdAt), ok: true },
@@ -124,7 +137,8 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
     { t: '已送達', d: '', ok: false },
   ];
   const nowIdx = steps.reduce((n, s, i) => (s.ok ? i : n), 0);
-  const amountLabel = AMOUNT_LABEL[order.paymentStatus];
+  // 🔴 取消單一律走中性字面(見上面 ②)。`'訂單金額'` 是這張表裡既有的中性值,不是新造的字。
+  const amountLabel = cancelled ? '訂單金額' : AMOUNT_LABEL[order.paymentStatus];
   // 收件三欄缺值印 `—`:**這裡缺值是異常、要看得出來**(與品牌那格刻意相反)。
   const dash = (v: string | null) => (v === null || v === '' ? '—' : v);
 
@@ -137,7 +151,7 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
       <div className="od-head" data-od-id="order-head">
         <div>
           <span className={`od-status is-${tone}`}>
-            {orderStatusLabel(order.paymentStatus, order.fulfillmentStatus)}
+            {orderStatusLabel(order.paymentStatus, order.fulfillmentStatus, order.cancelKind)}
           </span>
           <h1>{order.displayId}</h1>
           <div className="od-head-meta">
@@ -225,13 +239,29 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
         </div>
       </div>
 
-      {order.cancelledAt !== null && (
+      {cancelled && (
         <div className="acc-section" data-od-id="order-cancelled">
           <div className="acc-section-head">
-            <h2>訂單已取消</h2>
+            {/* 🔴 兩種取消對客人是**兩件事**:一件是我們關的,一件是他自己沒付而過期。
+                字面沿用 Sean 2026-08-24 那一板的原字(「已取消」/「已逾期」),不另造詞。 */}
+            <h2>{cancelKind === 'expired' ? '訂單已逾期' : '訂單已取消'}</h2>
           </div>
-          {/* cancelledReason = **可對客文案**(內部原因在 admin_audit_log,不在投影裡)。 */}
-          <div className="acc-empty-sub">{dash(order.cancelledReason)}</div>
+          {/* 🔴🔴 **這一格【不再印 `cancelledReason`】—— codex must-fix,2026-08-24。**
+              ~~原本寫「`cancelledReason` = 可對客文案」~~ **那句話是錯的**:
+              `p_reason_code = 'other'` 那條路寫進去的是**員工當場打的原文**
+              (`20260804180000_..._admin_cancel_order.sql:135-136`)——
+              員工打「供應商欠款 / 內部失誤」都會原樣進那一欄,而沒有任何一層把它變成對客文案。
+              🔴 **而在 `#249` 之前沒有人看得到它** ⇒ 那不是既有缺陷,是**這一片親手打開的那扇門**。
+              ⇒ 紀律:**客人端只渲染枚舉映射出來的固定字串,永遠不渲染自由文字。**
+                 現在連原文都**到不了這一層**(mapper 端就收斂掉了)⇒ 這是型別閘,不是自律。
+              ⚠️ **代價照實寫**:客人看不到「為什麼被取消」。要接回來的正確做法是從
+                 `order_cancellations.reason_code`(七值枚舉)映一張**固定文案表**,而那張表的字要 Sean 定。
+              📌 下面兩句是我寫的、不是稿上的、也不是 Sean 拍過的 ⇒ 已列進送他過目的文案清單。 */}
+          <div className="acc-empty-sub">
+            {cancelKind === 'expired'
+              ? '這張訂單超過付款期限,已自動取消。想再買一次的話,重新下單即可。'
+              : '這張訂單已經取消,不需要付款。想知道原因或要重新訂購,請與我們聯絡。'}
+          </div>
         </div>
       )}
 
