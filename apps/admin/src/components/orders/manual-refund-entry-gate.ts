@@ -16,81 +16,56 @@ import type { PaymentListData } from './payment-list';
 // 輸入):讀不到或負值(對帳異常)時 fail-closed,理由同 refund-entry-gate.ts。
 
 /**
- * 🔴🔴 **臨時硬閘,見 backlog `#787`**(主視窗 2026-08-20 裁丙:等,不做旗標系統也不開新 migration)。
+ * 🔴🔴 **`#787` 臨時硬閘 —— 仍然封著。而封著它的理由,已經不是當初那個。**
  *
- * `admin_record_manual_refund`(D1)一旦有第一個 app 呼叫端,系統裡就有「登記錯了改不掉、
- * 永久多扣可退餘額」的風險——沖銷 RPC(`admin_void_manual_refund`,W1 乙片)還沒落地。
- * `packages/domain/src/order/manual-refund-caller-gate.test.ts` 是那個風險的觸發器測試
- * (本檔案路徑一旦成為它的呼叫端就會紅,逼人讀 #787)。
+ * ── ① 三條解除條件 2026-08-24 全部成立(`#806` 量的)────────────────────────
+ * 第③條是**對 DB 量到的**,不是照帳本推的。原始查詢與輸出:
+ * ```
+ * select p.proname, has_function_privilege('service_role', p.oid, 'EXECUTE') as can_exec, p.proacl
+ *   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ *  where n.nspname = 'public'
+ *    and p.proname in ('admin_void_manual_refund','admin_record_manual_refund','mark_charge_attempt_failed');
  *
- * 🔴 **這不是 #787 要求的「活檢查」**(片A閘二那種 apply 期 `to_regprocedure`/
- * `has_function_privilege` 斷言)——那個檢查方式住在 migration 層,app 層叫不到那兩個
- * catalog 函式,做一支包裝 RPC 只為了回答一個 grep 就答得出來的問題不成比例(主視窗裁定
- * 原文)。這裡改用**最簡單、對稱的手段**:入口先不接線可用,直到乙片落地。
+ *  admin_record_manual_refund | true  | {postgres=X/postgres,service_role=X/postgres}     ← 正對照
+ *  admin_void_manual_refund   | true  | {postgres=X/postgres,service_role=X/postgres}     ← 要查的那個
+ *  mark_charge_attempt_failed | false | {postgres=X/postgres,payment_confirmer=X/postgres} ← 負對照
+ * ⇒ 三個值不全一樣 ⇒ 尺是活的,那個 true 是真的。(Sean 在 SQL Editor 跑)
+ * ```
  *
- * **解除條件(誰都可以做,不必是我)—— 🔴 三條,不是兩條**:
- *   ① `admin_void_manual_refund` 的 migration 已 apply
- *      ⚠️ **注意 `grep` 只量得到「檔案在磁碟上」** —— 分不出未追蹤 / 已 commit / 已上 dev / 已 apply。
- *      要真的確認,跑 `grep -c '20260820100000' supabase/APPLIED.tsv`。
- *      📌 2026-08-22 現況:**已 apply**(APPLIED.tsv 命中)⇒ **這一條【已經成立了】。**
- *   ② `manual-refund-caller-gate.test.ts` 的 `CALLER_ALLOWLIST` 已登記本檔路徑 + why
- *      (why 要寫「封印在哪一片、驗的是什麼」,不要寫「已確認」——該測試檔頭原話)
- *   ③ 🔴🔴 **`service_role` 對 `admin_void_manual_refund` 有 EXECUTE**(2026-08-22 線 C 補進本檔)
- *      量法(唯讀,對正式庫):
- *        select has_function_privilege('service_role', p.oid, 'EXECUTE'), p.proacl
- *          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
- *         where n.nspname = 'public' and p.proname = 'admin_void_manual_refund';
- *      📌 2026-08-22 實測:**false**;`proacl = postgres=X/postgres`(只有 owner)
- *      ⇒ **這一條【還沒成立】,而那是【刻意的】** —— 那支 migration 自己寫了四次「零 GRANT」:
- *        「本檔只建函式,EXECUTE 由『登記畫面那一片』開」(分期開權)。
- *      ✅ **2026-08-22 片 D3-c 已把那支 GRANT migration 寫好**:
- *        `supabase/migrations/20260822120000_m4b_e10_d3c_grant_void_manual_refund.sql`
- *        (四道後置斷言 A1-A4;`scripts/d3c-grant-probe.sh` 在拋棄式 PG 實跑過五個世界、
- *         含四發該紅的突變 ⇒ 那四道斷言有判別力,不是裝飾)。
- *      🔴 **而它還沒被 apply** —— apply 要 Sean 在 SQL Editor 貼(施工窗只有唯讀)。
- *        ⇒ 這一條在 apply 之前**必然是 false**,而**那不是缺陷,是這道閘還沒到可以拆的時候**。
- *        ⇒ 觸發器已換靶到那件事上:`manual-refund-787-trigger.test.ts` 現在盯的是
- *          `supabase/APPLIED.tsv` 有沒有 `20260822120000` —— 它**今天是綠的**,
- *          而它會在該紅的那一刻紅。(舊靶盯「檔在磁碟上」⇒ 從 08-20 起永遠紅了兩天。)
+ * ── ② 🔴 而三條件成立【不等於】可以解除 ────────────────────────────────
+ * 2026-08-24 照三條件解除之後,codex 對抗審查當場構造出一條路(主視窗與本窗各自複打成立):
+ * ```
+ * 持有效後台 session ⇒ 直接送 recordManualRefundAction(不經畫面)
+ *   ⇒ 一張純刷卡、未付款的單 ⇒ 金額 ≤ 訂單總額
+ *   ⇒ 寫進一筆假的人工退款 ⇒ **永久扣低可退餘額**
+ * 擋不住它的原因有兩層:
+ *   · UI 這道的 rail 條件(下方 `row.rail === 'bank_transfer' || 'cash'`)**server 端沒有重驗**
+ *   · RPC 的額度上限(`20260820100000:230-231`)用的是 `o.total`(**訂單總額**),
+ *     不是【該軌淨實收】⇒ 沒有收過現金的單也有額度可扣
+ * ```
+ * ⇒ 缺的是一道**不存在的 server 不變式**:**退款不得超過該軌(現金/匯款)的淨實收**。
+ * ⇒ 🔴 **那件事有編號了:`#866`**(動 RPC ⇒ 鐵則 12③ + 12①,另一片、要 Sean 批)。
  *
- * 🔴🔴 **本段第一版只寫了 ①②,而第三條【只住在測試的紅字訊息裡】** ——
- *   `manual-refund-787-trigger.test.ts` 的失敗訊息逐字有「確認『service_role 已 EXECUTE 到』之後才動手」。
- *   ⇒ 而**要改這道閘的人會讀【本檔】,不會去跑那支測試** ⇒ 照 ①② 做就會解除它,
- *      而入口渲染出來之後 **RPC 會在執行期被權限擋掉,同時 typecheck / lint / 測試【全綠】。**
- *   ⇒ ⇒ 🔴 **這正是本檔開頭第 5-9 行在警告的那個病(片A/片B 兩份規格漂移)——**
- *      **一份在警告規格漂移的檔,自己漂移了。** 保留這句,因為下一個人需要知道它會發生在誰身上。
- *   📌 可搬走的那一句:**規矩要放在那個人【會經過的地方】。**
+ * ── ③ 🔴🔴 所以:這道封印現在的理由,與當初立它時【不是同一個】────────────
+ * 當初封它是因為「登記錯了改不掉」(沖銷入口沒開);**那件事 2026-08-22 已經解決**。
+ * **現在封著它的是 `#866`** —— 一個當初三條解除條件裡**一個字都沒提到**的東西。
+ * ⚠️ 沒有這一段,下一個人會看到「三條件全成立而還封著」,然後**以為有人忘了解**。
  *
- * 三條都成立後,把下面這行 `return false` 連同本段註解一起刪掉。
+ * ── 📌 這一片留下來最該被帶走的一句 ──────────────────────────────────
+ * > **解除一道封印之前,問的不是「條件到齊了嗎」,是「它現在還擋著什麼」。**
  *
- * 🔴🔴 **「改得掉」那條路在 2026-08-22 片 D3-c 已經做好了**(這是本段最重要的更新):
- *   `#787` 封印這道入口的理由逐字是「登記錯了改不掉」。而現在:
- *     · UI     `manual-refund-void-button.tsx`(帳本每一列的作廢入口,兩段式)
- *     · action `manual-refund-void-actions.ts`(actor 取自 session,**絕不讀表單**)
- *     · repo   `manual-refund-void-repository.ts`(`admin_void_manual_refund` 的唯一呼叫端)
- *     · 顯示   `manual-refund-read.ts` 已投影 `voided_at/void_reason/voided_by`,
- *              帳本會把已作廢的列打刪除線(不移除 —— 帳本記的是發生過的事)
- *   ⇒ **只差 GRANT 被 apply。** 那一刻到了,上面三條就全成立。
- *
- * 🔴🔴 **中間態(GRANT 未 apply、封印仍 true)有一條【不需要任何人解除封印】的路徑**
- *   (Fable R2 總評點名,2026-08-22;本段是它在 repo 裡的落點,不要只留在交件信裡):
- *   ```
- *   前提:order_manual_refunds 今天 0 列（2026-08-22 唯讀實測）
- *        ⇒ 帳本沒有列 ⇒ 作廢鈕長不出來 ⇒ 這條路今天是空的
- *   而唯一的入場方式是:有人直接在 SQL Editor INSERT 一列進 order_manual_refunds
- *        ⇒ 帳本就有列 ⇒ 作廢鈕就會渲染出來（ledger 不吃這個封印，它吃的是「有沒有列」）
- *        ⇒ 作廢成功 ⇒ pcm_order_refundable_remaining 把那筆金額【加回】可退餘額
- *        ⇒ 而登記入口還封著 ⇒ 🔴 那筆帳【在 app 裡沒有任何人修得回來】
- *   ```
- *   ⚠️ **限定(不要讀成「隨時會自己發生」)**:那一列要**格式合法**才進得去 ——
- *     `request_id` 必填、`rail` 要在 CHECK 的 `('bank_transfer','cash')` 內、`refund_amount > 0`
- *     (`20260820010000` 建表)。**它需要一個刻意的動作,不是隨手一句 INSERT。**
- *   ⇒ 處置:GRANT apply 之前**不要用 SQL Editor 手動塞這張表**;真要塞,連同解除封印一起做完。
+ * 而那兩個問題的**答案來源不同**:
+ * · 「條件到齊了嗎」**查得到** —— 條件是寫下來的。
+ * · 「它還擋著什麼」**沒有任何檔案列得出來** —— 只能**從消費端反推**:
+ *   grep 這顆旗標的每一個讀取點,逐個問「拿掉它之後,這裡還剩什麼閘」。
+ * 🔴 2026-08-24 有**四個地方**都沒問那一句:backlog 條目 / 盤點清單 / 派工單 / 施工窗的 plan。
  */
-/** 見上方函式註解:#787 解除前這裡恆 true。寫成具名常數(不是行內 `true` 字面),
+
+/** 見上方檔頭:`#787` 解除前這裡恆 true。寫成具名常數(不是行內 `true` 字面),
  *  是為了不讓下面保留的真實判斷邏輯被 lint 的 no-unreachable 當死碼砍掉。
- *  🔴 **匯出是為了讓 `manual-refund-787-trigger.test.ts` 讀得到它**——那支測試在
- *  沖銷 RPC migration 落地的那一刻要能對著這個值斷言「還沒解除」,不匯出就只能猜。 */
+ *  🔴 **匯出是為了讓 `manual-refund-787-trigger.test.ts` 讀得到它。**
+ *  ⚠️ **要暫時關掉這個入口的人:兩道都要關** —— 只關這裡關不住直接送 server action 的請求
+ *     (理由寫在 `lib/payment/manual-refund-actions.ts` 那道的旁邊)。 */
 export const MANUAL_REFUND_ENTRY_BLOCKED_BY_787: boolean = true;
 
 export function shouldShowManualRefundEntry(input: {

@@ -54,8 +54,19 @@ export async function recordManualRefundAction(
     return manualRefundFailure('denied', EMPTY_MANUAL_REFUND_INPUT, generateManualRefundRequestToken());
   }
 
-  // 🔴 #787 硬閘(同 manual-refund-entry-gate.ts 的封印,server 端補一份——
-  // 畫面按鈕不渲染擋不住直接送這支 server action 的請求)。
+  // 🔴🔴 `#787` server 端硬閘。**畫面按鈕不渲染擋不住直接送這支 server action 的請求。**
+  //
+  // ⚠️ **2026-08-24 這道閘被拿掉過一次(`#806`),而那是一個真的錢洞** ——
+  //    當天三條解除條件全部成立,照字面解除之後,codex 對抗審查當場構造出:
+  //      持有效後台 session ⇒ 不經畫面直接送本 action ⇒ 一張純刷卡未付款的單
+  //      ⇒ 金額 ≤ 訂單總額 ⇒ 寫進一筆假的人工退款 ⇒ **永久扣低可退餘額**
+  //    🔴 **上面那一整句「畫面擋不住 server」就寫在這裡,而拿掉這道閘的人(我)把它留著、
+  //       然後把它講的閘刪了。** 保留這段,是因為下一個人會在同樣的位置做同樣的判斷。
+  //
+  // 🔴 **這道閘不是解除的最後一關** —— 真正缺的是一道 server 不變式:
+  //    **退款不得超過該軌(現金/匯款)的淨實收**。RPC 現在的上限是 `o.total`(訂單總額,
+  //    `20260820100000:230-231`)⇒ 沒收過現金的單照樣有額度可扣。**那件事 = `#866`。**
+  //    ⇒ `#866` 補完之前,這道閘不得再拿掉,**即使三條解除條件看起來全成立**。
   if (MANUAL_REFUND_ENTRY_BLOCKED_BY_787) {
     return manualRefundFailure('denied', EMPTY_MANUAL_REFUND_INPUT, generateManualRefundRequestToken());
   }

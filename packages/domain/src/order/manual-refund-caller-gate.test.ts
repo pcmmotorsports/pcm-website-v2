@@ -44,17 +44,22 @@ const CONTROL_NEEDLE = 'admin_record_manual_payment';
 const CALLER_ALLOWLIST: Record<string, string> = {
   'apps/admin/src/lib/payment/manual-refund-repository.ts':
     '唯一真呼叫端(.rpc() 呼叫點)。封印本體在同片 manual-refund-entry-gate.ts 的 ' +
-    'MANUAL_REFUND_ENTRY_BLOCKED_BY_787,目前仍為 true。' +
-    '🔴 2026-08-22 片 D3-c 更新:沖銷 RPC(admin_void_manual_refund)本身【已 apply】 ' +
-    '(APPLIED.tsv 命中 20260820100000),缺的改成【EXECUTE 還沒開給 service_role】—— ' +
-    '2026-08-22 唯讀實測 has_function_privilege = false、proacl = {postgres=X/postgres}。' +
-    'D3-c 已寫好那支 GRANT migration(20260822120000)但尚未 apply(施工窗只有唯讀)。' +
-    '故本檔的 RPC 呼叫路徑在 UI 層目前仍不可達。',
+    'MANUAL_REFUND_ENTRY_BLOCKED_BY_787,**仍為 true**(UI 與 server action 兩道)。' +
+    '🔴 2026-08-24(#806)更新:#787 原本那三條解除條件【已全部成立】—— ' +
+    '沖銷 RPC 已 apply,且 has_function_privilege(service_role, admin_void_manual_refund, ' +
+    'EXECUTE) = true(對 DB 量到;同發正對照 admin_record_manual_refund = true、' +
+    '負對照 mark_charge_attempt_failed = false ⇒ 三個值不全一樣 ⇒ 尺是活的)。' +
+    '⚠️ **而三條件成立不等於可以解除**:實際解除之後 codex 構造出「直接送 server action ' +
+    '⇒ 純刷卡未付款的單也能寫進假退款」——缺一道 server 不變式(退款不得超過該軌淨實收)。' +
+    '⇒ **封印現在押在 #866 上,不是 #787。** 詳見 entry-gate 檔頭。',
   'apps/admin/src/components/orders/manual-refund-entry-gate.ts':
-    '封印本體所在檔——MANUAL_REFUND_ENTRY_BLOCKED_BY_787 常數。' +
-    '🔴 2026-08-22 片 D3-c 更新:它驗的不是「沖銷 RPC 是否已 apply」(那一條已經成立了), ' +
-    '而是「service_role 對它有沒有 EXECUTE」。恆 true 直到 20260822120000 被 apply。' +
-    '解除觸發器 = 同片 manual-refund-787-trigger.test.ts(靶已換成 APPLIED.tsv)。',
+    '封印本體所在檔——MANUAL_REFUND_ENTRY_BLOCKED_BY_787 常數,**仍為 true**。' +
+    '🔴 2026-08-24(#806):#787 的三條解除條件已全部成立,而封印**沒有解除** —— ' +
+    '解除當天量到它還擋著一件三條件一個字都沒提的東西(#866)。' +
+    '⚠️ **這裡的 gating 條件(rail / 帳本健康 / payments.status)在 server 端沒有重驗** ' +
+    '⇒ 只關這道關不住直接送 recordManualRefundAction 的請求,兩道都要在。' +
+    '解除觸發器 = 同片 manual-refund-787-trigger.test.ts(靶 = APPLIED.tsv;它現在紅著, ' +
+    '而**那個紅是對的** —— 它在說「條件到齊了,去看看」,而看完的答案是 #866)。',
   'apps/admin/src/lib/payment/manual-refund-action-state.ts':
     '僅在 docstring 提及 admin_record_manual_refund 這個名字(與 D1 RPC 的行為比較用途), ' +
     '沒有任何 .rpc() 呼叫,不是真呼叫端,不受本閘約束。',
@@ -118,7 +123,7 @@ function grepCallersOrThrow(needle: string): string[] {
   return grepCallers(needle);
 }
 
-describe('🔴 admin_record_manual_refund 的呼叫端閘(#787 的觸發器)', () => {
+describe('🔴 admin_record_manual_refund 的呼叫端閘(#787 的觸發器;封印現由 #866 押著)', () => {
   it('🔴 正向對照:同族那支【確實有】呼叫端 ⇒ 證明這把尺是活的', () => {
     // 少了這一格,grep 整個壞掉時下面那格會「零命中 ⇒ 綠」—— 那是恆綠。
     // ⚠️ **這一格會因為與本閘無關的理由紅**(W5 R2 nit-2):`admin_record_manual_payment`
@@ -136,10 +141,15 @@ describe('🔴 admin_record_manual_refund 的呼叫端閘(#787 的觸發器)', (
     expect(
       callers,
       `🔴 你加了 ${RPC} 的呼叫端:\n  ${callers.join('\n  ')}\n\n` +
-        '而那支 RPC 寫進去的列**改不掉**,並且會永久多扣「可退餘額」——\n' +
-        '⇒ 客人可以退的金額會被少算,而畫面上一切正常。\n\n' +
-        '動手前請先讀 backlog #787,並確認【你這一片】自帶封印:\n' +
-        '  沖銷 RPC 必須存在且可呼叫(形狀照片 A 的閘二:先判存在、再驗能不能用)。\n' +
+        '🔴 2026-08-24 更新:~~那支 RPC 寫進去的列【改不掉】~~ **這一句已經不成立** ——\n' +
+        '  沖銷那條路(admin_void_manual_refund + manual-refund-void-*)已落地,\n' +
+        '  service_role 也叫得動它(#806 對 DB 量到)。**登記錯了改得掉。**\n\n' +
+        '⚠️ **而封印【仍然】封著,理由換了一個** —— 缺一道 server 不變式:\n' +
+        '  **退款不得超過該軌(現金/匯款)的淨實收**。\n' +
+        '  RPC 現在的上限是 o.total(訂單總額,20260820100000:230-231)\n' +
+        '  ⇒ 一張純刷卡未付款的單也有額度可扣 ⇒ 直接送 server action 就能寫進假退款。\n' +
+        '  ⇒ **那件事 = backlog #866**,補完之前不得解除封印。\n\n' +
+        '動手前請先讀 #866(不是 #787 —— #787 的三條解除條件已經全部成立了)。\n' +
         '確認過了 ⇒ 把檔案路徑加進本檔的 CALLER_ALLOWLIST 並寫 why。',
     ).toEqual([]);
   });

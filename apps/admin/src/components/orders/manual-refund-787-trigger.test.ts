@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MANUAL_REFUND_ENTRY_BLOCKED_BY_787 } from './manual-refund-entry-gate';
@@ -8,190 +8,309 @@ import { MANUAL_REFUND_ENTRY_BLOCKED_BY_787 } from './manual-refund-entry-gate';
  *
  * 🔴 主視窗 2026-08-20 裁定的理由,逐字:「註解不會在『條件成立了』的那一刻說話」。
  *
- * ══ 2026-08-22 片 D3-c 換靶(**這一段是本檔的變更史,不要刪**)══════════════════
- * **舊靶**:`supabase/migrations/` 的檔案系統上有沒有 `admin_void_manual_refund` 這個字面。
- * **它完成了它的工作,而且它是對的** —— 那支 migration 2026-08-20 落地,本檔如設計地紅了。
- * 🔴 **但它從那一刻起【永遠紅】,而該做的那一片(作廢入口)當時還沒排** ——
- *    ⇒ 它在 dev 上紅了整整兩天,而**每一次全套測試都會看到它紅、然後略過**。
- *    ⇒ 那個習慣比那道閘本身危險(memory `feedback_a-guard-you-cant-finish-today-becomes-noise`)。
+ * ══ 換靶紀錄(**這一段是本檔的變更史,不要刪** —— 它已經換過兩次)══════════════
  *
- * **新靶**:`supabase/APPLIED.tsv` 有沒有 D3-c 那支 GRANT migration(`20260822120000`)。
- * 換靶的理由 —— **舊靶量的是「檔在磁碟上」,而解除條件要的是「權限真的開了」**:
- *   #787 的解除條件③(2026-08-22 線 C 補進 `manual-refund-entry-gate.ts`)是
- *   「`service_role` 對 `admin_void_manual_refund` 有 EXECUTE」。
- *   ⇒ 那件事**只有 apply 之後才成立**,而本 repo 記錄 apply 的地方就是 `APPLIED.tsv`。
- *   ⇒ 新靶今天是**綠的**(那支還沒 apply),而它會在**該紅的那一刻**紅 —— 那正是舊靶做不到的。
+ * ── 靶① 2026-08-20:`supabase/migrations/` 上有沒有 `admin_void_manual_refund` 這個字面 ──
+ * ~~**它完成了它的工作,而且它是對的**~~ —— 那支 migration 2026-08-20 落地,本檔如設計地紅了。
+ * 🔴 **但它從那一刻起【永遠紅】,而該做的那一片當時還沒排** ⇒ 它在 dev 上紅了整整兩天,
+ *    而**每一次全套測試都會看到它紅、然後略過**。**那個習慣比那道閘本身危險**
+ *    (memory `feedback_a-guard-you-cant-finish-today-becomes-noise`)。
  *
- * ⚠️ **新靶的誠實邊界(它量得比它聽起來的窄)**:
- *   · `APPLIED.tsv` 是**人手寫**的帳本 ⇒ 它答的是「有沒有人記了這一筆」,不是「DB 現在什麼狀態」。
- *     真要確認,跑那句唯讀 SQL(寫在 `manual-refund-entry-gate.ts` 的解除條件③裡)。
- *   · 🔴 **漏報側:有人 apply 了而忘了記那一行 ⇒ 這格【該紅而不紅】,封印會多留著。**
- *     方向是 fail-closed(錢不會動),但它會讓人以為「條件還沒到」而不去查。
- *     ⇒ 覺得等太久時,**去跑那句唯讀 SQL,不要等這一格**。
- *   · 它只掃字面 `20260822120000` ⇒ 有人改檔名/改編號就掃不到
- *     (✅ 這一格已被機制擋掉:編號從檔名推導,檔名沒了 [4] 就紅)。
- *   · 🔴 **它分不出「apply 成功」與「apply 失敗但還是被記了一行」** —— 而那一格
- *     由該支 migration 自己的四道後置斷言擋(A1/A2/A3/A4;`scripts/d3c-grant-probe.sh` 驗過它們有判別力)。
- * ═══════════════════════════════════════════════════════════════════════════
+ * ── 靶② 2026-08-22(片 D3-c):`supabase/APPLIED.tsv` 有沒有 `20260822120000` ──
+ * ~~「舊靶量的是『檔在磁碟上』,而解除條件要的是『權限真的開了』」~~
+ * **它也完成了它的工作**:那支 GRANT 2026-08-22 apply 並記帳 ⇒ 本檔如設計地紅了。
+ * 🔴 **而它又落進靶① 同一個坑**:紅了之後要做的那件事(`#866`)當天不存在
+ *    ⇒ 它會一路紅到 `#866` 落地。**同一個病,第二次。**
+ *
+ * ── 靶③ 2026-08-24(`#806` 之後,主視窗裁):`#866` 那道不變式的【具名標記】在 migrations 目錄 ──
+ * 🔴 **2026-08-24 當天就響了,而且是【對的】那種響**:`#866` 兩支 migration 一落進工作樹,
+ *    本格如設計地紅。**沒有為了讓它變綠而改期望值** —— 照失敗訊息那三件逐條重評:
+ * ```
+ * ① 真的 apply 了嗎  ⇒ grep -c "^20260824010000\t" supabase/APPLIED.tsv ⇒ 0
+ *                      負對照(同尺量一支確定 apply 過的) 20260823020000 ⇒ 1  ⇒ 尺是活的
+ * ② 唯讀查權限        ⇒ **查不了**:施工窗沒有正式庫 access。而 ① 已經 false ⇒ 不必查也不能查
+ * ③ 「它現在還擋著什麼」⇒ 真實讀取點兩處(其餘命中都是註解與測試):
+ *      manual-refund-entry-gate.ts:76  UI 入口
+ *      manual-refund-actions.ts:70     server action
+ *    拿掉旗標之後那兩處還剩什麼閘?**server 端只剩 authorizeAdminMutation + RPC 的 o.total 上限**
+ *    ⇒ 🔴 而 `#866` 那道 trigger **住在 DB 裡、而它沒 apply** ⇒ **現在解除 = DB 側零保護**
+ * ```
+ * ⇒ **重評結論:封印留著。** 靶③ 完成了它的工作 ⇒ 退場、換靶④。
+ * 📌 **它比前兩個靶好在哪**:靶①② 響完之後**一路長紅**;靶③ 響完當天就換掉了,**沒有變成噪音**。
+ *
+ * ── 🔴 靶④ 2026-08-24(現行):`supabase/APPLIED.tsv` 裡有沒有 `#866` 的版本號 ──
+ * ```
+ * 靶 = APPLIED.tsv 的【非註解行】第一欄 == 20260824010000 或 20260824011000
+ * 今天 ⇒ 0 ⇒ **今天綠**    負對照 20260823020000 ⇒ 1 ⇒ **尺讀得到東西**
+ * ```
+ * 🔴 **為什麼從「檔在磁碟」改成「已記帳」**:靶③ 響的那天證明了這兩件事會分岔 ——
+ *    檔在工作樹裡躺著,而 DB 一無所知。**解除封印要的是後者。**
+ * ⚠️ **第三次同款的風險,寫在這裡讓下一個人檢查**:靶④ 響的那天(#866 apply),
+ *    要做的那件事(解除兩道閘)**當天就做得完** ⇒ 不會重演靶①② 的長紅。
+ *    🔴 **若那天發現又做不完 ⇒ 那不是再換一個靶,是把「做不完的原因」變成一個條目。**
+ *
+ * ── ~~靶③ 的原文(留著當紀錄)~~ ──
+ * ```
+ * 靶 = supabase/migrations/ 底下任何一支 .sql 的【非註解行】含   pcm_manual_refund_rail_cap
+ * 今天 grep -rl "pcm_manual_refund_rail_cap" supabase/migrations/ | wc -l ⇒ 0  ⇒ **今天綠**
+ * 負對照 同尺量 admin_void_manual_refund ⇒ 3  ⇒ **尺讀得到東西**
+ * ```
+ * 🔴 **這是一個【合約】,不是猜測**:「`#866` 的 migration 必須含 `pcm_manual_refund_rail_cap`
+ *    這個具名物件」寫進 `#866` 的**驗收條件**(主視窗 2026-08-24 落檔)。
+ *    ⇒ 做 `#866` 的人不照做 ⇒ **這顆觸發器不會響** ⇒ 所以那條驗收是硬的,不是建議。
+ * 🔴 **換靶的判別法(讓下一個人能檢查這個決定)**:換完之後它必須**今天綠、而在該紅的那天紅**。
+ *    換完就紅 ⇒ 那不是換靶,是換一個新的長紅。(2026-08-24 實跑:換完 [1] 綠 ✅)
+ *
+ * ══ 🔴🔴 為什麼今天【不能】解除 —— 而理由與當初封它時【不是同一個】══════════════
+ * ```
+ * #787 原本的三條解除條件 2026-08-24 已【全部成立】(#806 量的,第③條對 DB 量到):
+ *   ① 沖銷 RPC migration 已 apply                                   ✅
+ *   ② CALLER_ALLOWLIST 已登記                                        ✅
+ *   ③ has_function_privilege('service_role', admin_void_manual_refund, 'EXECUTE') = true ✅
+ *      (同發正對照【登記那支 RPC】=true、負對照 mark_charge_attempt_failed=false
+ *       🔴 **正對照那支的完整識別字刻意省略,這不是遺漏** —— `manual-refund-caller-gate.test.ts`
+ *       是一道**字面掃描**,它分不出【呼叫它】與【在註解裡提到它】。2026-08-24 本檔寫了全名,
+ *       那道閘當場把**本檔**報成新呼叫端(實際零呼叫)。⇒ 處置是改措辭,**不是**把本檔加進
+ *       那邊的 CALLER_ALLOWLIST(本檔不是呼叫端)。⚠️ **下一個人請不要「順手補上完整名字」。**
+ *       ⇒ 三個值不全一樣 ⇒ 尺是活的)
+ * ```
+ * ⇒ **當初封它的理由是「登記錯了改不掉」(沖銷入口沒開)—— 那件事 2026-08-22 已經消失。**
+ * ⇒ 🔴 **而 2026-08-24 照三條件解除之後,codex 對抗審查當場構造出一條路**:
+ *    持有效後台 session ⇒ 不經畫面直接送 `recordManualRefundAction` ⇒ 一張純刷卡未付款的單
+ *    ⇒ 金額 ≤ 訂單總額 ⇒ 寫進假的人工退款 ⇒ **永久扣低可退餘額**。
+ *    成因兩層:UI 的 rail 條件 server 端**沒有重驗**;RPC 上限用 `o.total`(訂單總額,
+ *    `20260820100000:230-231`)而**不是該軌淨實收**。
+ * ⇒ ⇒ **現在封著它的是 `#866`** —— 一個當初三條解除條件裡**一個字都沒提到**的東西。
+ *
+ * 📌 **這一片留下來最該被帶走的一句**:
+ * > **解除一道封印之前,問的不是「條件到齊了嗎」,是「它現在還擋著什麼」。**
+ * 而那兩個問題的**答案來源不同**:前者查得到(條件是寫下來的);後者**沒有任何檔案列得出來**,
+ * 只能**從消費端反推** —— grep 那顆旗標的每一個讀取點,逐個問「拿掉它之後這裡還剩什麼閘」。
+ * 🔴 2026-08-24 有**四個地方**都沒問那一句:backlog 條目 / 盤點清單 / 派工單 / 施工窗的 plan。
+ *
+ * ══ ⚠️ 新靶的誠實邊界(它量得比它聽起來的窄)══════════════════════════════
+ * · 它量的是「**repo 的 migrations 目錄裡有沒有這個字面**」,**不是**「那道不變式真的生效了」。
+ *   檔在磁碟上 ≠ 已 apply ≠ 權限開了 —— **這三件事分岔過兩次,而本檔的前兩個靶各栽在一次上。**
+ *   ⇒ 這一格**不重蹈**:它的紅訊息只說「回來重評」,**不說「可以解除了」**。
+ * · 🔴 **非註解行**才算數(見 `migrationsWithRailCap` 的 docstring)—— 有人寫一句
+ *   `-- TODO: pcm_manual_refund_rail_cap 還沒做` 就讓它紅,那是**反過來的答案**。
+ * · 它只掃 `supabase/migrations/*.sql`;`#866` 若改用別的載體(view / 應用層)⇒ **這格不會響**。
  */
 
 const REPO = resolve(__dirname, '../../../../..');
-const GRANT_MIGRATION_FILE =
-  'supabase/migrations/20260822120000_m4b_e10_d3c_grant_void_manual_refund.sql';
-/**
- * D3-c GRANT migration 的時間戳。
- *
- * 🔴 **從檔名【推導】,不另寫一份字面**(2026-08-22 突變測試當場抓到):
- *   第一版兩個常數各寫各的,而我把 `GRANT_MIGRATION_STAMP` 突變成 `'99999999999999'` 之後
- *   —— **四格全綠**。因為 [4] 驗的是 `GRANT_MIGRATION_FILE` 存不存在,
- *   而 [1] 拿一個永遠不會在 `APPLIED.tsv` 出現的編號去 grep ⇒ 永遠回 false ⇒ 永遠綠。
- *   ⇒ 🔴 **那道自檢守的是【另一個常數】,而真正承重的那個沒有人守。**
- *   推導之後兩者不可能分岔:檔名改了、編號跟著改;檔名沒了、[4] 紅。
- */
-const GRANT_MIGRATION_STAMP = /(\d{14})_/.exec(GRANT_MIGRATION_FILE)?.[1] ?? '';
+const MIGRATIONS_DIR = 'supabase/migrations';
+const APPLIED_TSV = 'supabase/APPLIED.tsv';
+
+/** `#866` 那道不變式的具名標記(合約字面;改它 = 改合約,要同步改 `#866` 驗收條件)。 */
+export const RAIL_CAP_MARKER = 'pcm_manual_refund_rail_cap';
 
 /**
- * `APPLIED.tsv` 裡有沒有這一筆。讀檔失敗一律回 false 並在 [4] 那格用真實現況說話。
+ * 掃 `supabase/migrations/` 底下含 `RAIL_CAP_MARKER` 的檔 —— **只認【非註解行】**。
  *
- * 🔴 **錨在行首 + tab(Fable R2 nit F4)**:第一版用 `.includes(STAMP)`,而它的**分母是整支檔的
- *   全部字元** —— 那支 TSV 裡有大量 prose(每一列第四欄是人寫的長段落,還有以 `#`/`⚠️` 開頭的行)。
- *   ⇒ 只要有人在裡面寫一句「`20260822120000` **尚未** apply」,這個觸發器就會紅著說「已 apply」。
- *   📌 **這與我自己今天報過的那個形狀同款**(grep 的分母是整支檔,而說明文字長得跟真值一樣)
- *      —— 而它就在我自己的碼裡。
- *   ⇒ TSV 的資料列一定是 `<stamp>\t...` 開頭 ⇒ 錨 `^<stamp>\t`,prose 行進不來。
+ * 🔴 **這一條是靶② 留給靶③ 的教訓,原封搬過來**(那時它掃的是 `APPLIED.tsv`):
+ *   第一版用 `.includes(MARKER)`,而它的**分母是整支檔的全部字元** ——
+ *   而 SQL 檔裡有大量 `--` 註解、檔頭 prose。只要有人寫一句
+ *   `-- TODO: pcm_manual_refund_rail_cap 還沒做`,這顆觸發器就會紅著說「它已經落地了」。
+ *   ⇒ **那是反過來的答案**,而它讀起來完全正常。
+ * ⇒ 所以要逐行看,並跳過 `--` 開頭的行。
+ * ⚠️ **它擋不住的**:區塊註解 `/* … *​/` 裡的提及、字串常值裡的提及。**照實寫,不假裝覆蓋。**
  */
-function tsvHasAppliedRow(tsv: string, stamp: string): boolean {
-  return tsv.split('\n').some((line) => line.startsWith(`${stamp}\t`));
+export function migrationsWithRailCap(files: Array<{ name: string; body: string }>): string[] {
+  return files
+    .filter(({ body }) =>
+      body
+        .split('\n')
+        .some((line) => line.includes(RAIL_CAP_MARKER) && !line.trimStart().startsWith('--')),
+    )
+    .map(({ name }) => name);
 }
 
-function grantMigrationRecordedApplied(): boolean {
+/** `#866` 兩支 migration 的版本號(= APPLIED.tsv 第一欄的字面)。 */
+export const RAIL_CAP_VERSIONS = ['20260824010000', '20260824011000'] as const;
+
+/**
+ * 靶④ 的尺:`APPLIED.tsv` 的**非註解行**第一欄(TAB 前)有沒有這幾個版本號。
+ *
+ * 🔴 **靶③ 留給靶④ 的教訓,原封搬過來**:分母是【第一欄】,不是整支檔的字元。
+ *   那支檔第三/第四欄是人寫的中文備註,裡面**完全可能**出現一句
+ *   「等 20260824010000 上了再說」⇒ `.includes()` 會回 true,而那是**反過來的答案**。
+ * ⚠️ **它擋不住的**:記帳本身寫錯(記了但沒真的 apply)。
+ *   **照實寫,不假裝覆蓋** —— 所以本格的紅訊息仍然只說「回來重評」,不說「可以解除了」。
+ */
+export function appliedVersionsIn(tsv: string, versions: readonly string[]): string[] {
+  const first = new Set(
+    tsv
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('#'))
+      .map((line) => line.split('\t')[0]?.trim())
+      .filter((v): v is string => !!v),
+  );
+  return versions.filter((v) => first.has(v));
+}
+
+/**
+ * 讀真實 migrations 目錄。**靶③ 退場後它不再是主靶**,
+ * 但 [4] 仍用它當「#866 的檔在不在工作樹裡」的分母 —— 那是重評第①件事的前提。
+ */
+function railCapMigrations(): string[] {
   try {
-    return tsvHasAppliedRow(readFileSync(resolve(REPO, 'supabase/APPLIED.tsv'), 'utf8'), GRANT_MIGRATION_STAMP);
+    const dir = resolve(REPO, MIGRATIONS_DIR);
+    return migrationsWithRailCap(
+      readdirSync(dir)
+        .filter((n) => n.endsWith('.sql'))
+        .map((name) => ({ name, body: readFileSync(resolve(dir, name), 'utf8') })),
+    );
   } catch {
-    return false;
+    return [];
+  }
+}
+
+/** 讀真實 APPLIED.tsv。讀不到一律回空陣列,並由 [4] 那格用真實現況說話。 */
+function railCapApplied(): string[] {
+  try {
+    return appliedVersionsIn(readFileSync(resolve(REPO, APPLIED_TSV), 'utf8'), RAIL_CAP_VERSIONS);
+  } catch {
+    return [];
   }
 }
 
 /**
- * 純邏輯:給定「GRANT 已被記為 apply」與「硬閘是否仍鎖著」,回傳這格該不該紅。
- * 拆成純函式是為了讓 [2] 能在不動任何檔案的情況下,對著一個假的「已 apply」狀態
- * 驗證斷言真的會失敗 —— 同族 caller-gate.test.ts 的自檢精神(量具要能表演給自己看)。
+ * 純邏輯:給定「`#866` 的不變式是否已落地」與「硬閘是否仍鎖著」,回傳這格該不該紅。
+ * 拆成純函式是為了讓 [2][3b] 能在**不動任何檔案**的情況下,對著假狀態驗證斷言真的會失敗。
  */
 function evaluateTrigger(
-  grantApplied: boolean,
+  railCapLanded: boolean,
   stillBlocked: boolean,
 ): { ok: boolean; reason: string } {
-  if (grantApplied && stillBlocked) {
+  if (railCapLanded && stillBlocked) {
     return {
       ok: false,
       reason:
-        `supabase/APPLIED.tsv 出現了 ${GRANT_MIGRATION_STAMP}(D3-c GRANT migration)` +
-        ',而 MANUAL_REFUND_ENTRY_BLOCKED_BY_787 還是 true。\n' +
-        '⇒ #787 的解除條件③(service_role 對 admin_void_manual_refund 有 EXECUTE)可能已經成立。\n' +
-        '⚠️ 本檢查讀的是【人手寫的 apply 帳本】,不是 DB ⇒ 先自己跑那句唯讀 SQL 確認:\n' +
-        "     select has_function_privilege('service_role', p.oid, 'EXECUTE'), p.proacl\n" +
-        '       from pg_proc p join pg_namespace n on n.oid = p.pronamespace\n' +
-        "      where n.nspname = 'public' and p.proname = 'admin_void_manual_refund';\n" +
-        '確認為 true 之後才動手:\n' +
-        '① 把 manual-refund-entry-gate.ts 的 MANUAL_REFUND_ENTRY_BLOCKED_BY_787 改成 false' +
-        '(連同它上面那段函式註解一起刪)\n' +
-        '② 到 manual-refund-caller-gate.test.ts 的 CALLER_ALLOWLIST 更新 why(它現在寫著「仍為 true」)\n' +
-        '③ 🔴 然後把【本檔】刪掉 —— 它是一條絆線,工作完成了就該退場,不是改成永遠會過',
+        `supabase/APPLIED.tsv 記到了 #866 的版本號(${RAIL_CAP_VERSIONS.join(' / ')}` +
+        `,那是「退款不得超過該軌淨實收」的不變式),` +
+        '而 MANUAL_REFUND_ENTRY_BLOCKED_BY_787 還是 true。\n' +
+        '⇒ 🔴 **這不代表可以解除了** —— 它只代表「回來重評 #787 封印」。\n' +
+        '   本格量的是【記帳說 apply 了】,不是【權限開了】,更不是【那道 trigger 真的擋得住】。\n' +
+        '   本檔前三個靶各栽在這條分岔上,不要栽第四次。\n' +
+        '重評要做完這三件才動手:\n' +
+        '① 記帳與現況對得上(APPLIED.tsv 那列的 sha256 == 現在磁碟上那支檔的 sha256)\n' +
+        "② 唯讀查一發:select has_function_privilege('service_role', p.oid, 'EXECUTE'), p.proacl\n" +
+        '     …而且【同一發帶正負對照】,三個值全一樣 ⇒ 尺壞了、該發作廢\n' +
+        '③ 🔴 問那句:**「它現在還擋著什麼?」** —— grep MANUAL_REFUND_ENTRY_BLOCKED_BY_787 的\n' +
+        '   每一個讀取點,逐個問「拿掉它之後這裡還剩什麼閘」。2026-08-24 就是漏了這一步。\n' +
+        '確認完才動:①解除兩道閘(UI + server action,**同一顆 commit**)\n' +
+        '②更新 manual-refund-caller-gate.test.ts 的 CALLER_ALLOWLIST why 與失敗訊息\n' +
+        '③把 refund-wiring.test.tsx 那格翻成「健康輸入 ⇒ 入口【出現】」(見 #866 條目)\n' +
+        '④🔴 然後把【本檔】刪掉 —— 它是一條絆線,工作完成了就該退場,不是改成永遠會過',
     };
   }
-  // 🔴🔴 **反方向(Fable R2 F2;而它引的是我自己今天寫的那條教訓:
-  //    「約束有兩個方向就要兩發突變」)**:
-  //    封印被解除(`stillBlocked === false`)而 GRANT **沒有** apply ——
-  //    那正是 `manual-refund-entry-gate.ts` 檔頭第 45-50 行**自己警告的那個結局**:
-  //    入口渲染得出來、RPC 在執行期被 42501 擋掉,而 typecheck / lint / 測試【全綠】。
-  //    ⇒ 第一版只守「該解沒解」,不守「不該解卻解了」—— 而後者才是會出事的那個方向。
-  if (!grantApplied && !stillBlocked) {
+  // 🔴🔴 反方向:封印被解除而 `#866` 的不變式**沒有**落地 ——
+  //    **那正是 2026-08-24 真的發生過的事**(codex 對抗審查抓到,見檔頭)。
+  //    第一版只守「該解沒解」,不守「不該解卻解了」—— 而後者才是會出錢的那個方向。
+  if (!railCapLanded && !stillBlocked) {
     return {
       ok: false,
       reason:
-        `MANUAL_REFUND_ENTRY_BLOCKED_BY_787 已經是 false,而 supabase/APPLIED.tsv 裡【沒有】 ` +
-        `${GRANT_MIGRATION_STAMP}(D3-c GRANT migration)。\n` +
-        '⇒ 登記入口開著,而 service_role 對 admin_void_manual_refund 很可能還沒有 EXECUTE\n' +
-        '⇒ 員工登記得了、而「登記錯了改不掉」—— 那正是 #787 封印的那個風險本體。\n' +
-        '處置(擇一):① 把封印改回 true,直到那支 GRANT 真的 apply\n' +
-        '           ② 若 GRANT 其實已經 apply 了只是沒記進 APPLIED.tsv ⇒ 補記那一行\n' +
-        '⚠️ 本檢查讀的是【人手寫的 apply 帳本】,不是 DB ⇒ 先跑那句唯讀 has_function_privilege 確認',
+        'MANUAL_REFUND_ENTRY_BLOCKED_BY_787 已經是 false,而 supabase/APPLIED.tsv 裡【沒有】 ' +
+        `${RAIL_CAP_VERSIONS.join(' / ')}(#866 的不變式,它住在 DB 裡 ⇒ 沒 apply = 零保護)。\n` +
+        '⇒ 🔴 這正是 2026-08-24 發生過的那個洞:登記入口開著,而 RPC 的上限是 o.total\n' +
+        '   (訂單總額)不是該軌淨實收 ⇒ 一張純刷卡未付款的單也有額度可扣\n' +
+        '   ⇒ 持有效後台 session 的人直接送 server action 就能寫進假退款、永久扣低可退餘額。\n' +
+        '處置(擇一):① 把兩道閘改回 true,直到 #866 落地\n' +
+        '           ② 若 #866 其實已經落地了只是沒用這個標記 ⇒ 去對齊 #866 的驗收條件字面',
     };
   }
   return { ok: true, reason: '' };
 }
 
-describe('#787 解除觸發器(靶 = D3-c GRANT 已被記進 APPLIED.tsv)', () => {
-  it('[1] 現在:GRANT 還沒被記進 APPLIED.tsv → 綠(量到的,不是假設)', () => {
-    const applied = grantMigrationRecordedApplied();
+describe('#787 解除觸發器(靶④ = #866 的版本號進了 APPLIED.tsv;靶③ 已於 2026-08-24 響過並退場)', () => {
+  it('[1] 現在:#866 那道不變式還沒【apply】 → 綠(量到的,不是假設)', () => {
+    const landed = railCapApplied();
     expect(
-      applied,
-      `${GRANT_MIGRATION_STAMP} 已經出現在 supabase/APPLIED.tsv —— 去確認 service_role 的 EXECUTE，` +
-        '然後解除 #787 的硬閘並刪掉本檔',
-    ).toBe(false);
-    expect(evaluateTrigger(applied, MANUAL_REFUND_ENTRY_BLOCKED_BY_787).ok).toBe(true);
+      landed,
+      `#866 的版本號已經記進 supabase/APPLIED.tsv(${landed.join(', ')})` +
+        ' —— 回來重評 #787 封印,而【重評不等於解除】,照失敗訊息那三件先做完',
+    ).toEqual([]);
+    expect(evaluateTrigger(landed.length > 0, MANUAL_REFUND_ENTRY_BLOCKED_BY_787).ok).toBe(true);
   });
 
-  it('[2] 🔴 反面驗證:餵一個假的「已 apply」狀態,確認這格真的會紅(不是死斷言)', () => {
+  it('[2] 🔴 反面驗證:餵一個假的「已落地」狀態,確認這格真的會紅(不是死斷言)', () => {
     const faked = evaluateTrigger(true, MANUAL_REFUND_ENTRY_BLOCKED_BY_787);
     expect(faked.ok).toBe(false);
-    expect(faked.reason).toContain('has_function_privilege');
-    expect(faked.reason).toContain(GRANT_MIGRATION_STAMP);
+    expect(faked.reason).toContain('它現在還擋著什麼');
+    // 🔴 釘版本號,不釘 RAIL_CAP_MARKER —— 靶④ 之後承重的字面是版本號。
+    expect(faked.reason).toContain(RAIL_CAP_VERSIONS[0]);
+    // 🔴 釘住「重評 ≠ 解除」那句 —— 拿掉它,這格就會把人直接帶去解封印。
+    expect(faked.reason).toContain('這不代表可以解除了');
   });
 
-  it('[3] 正向對照:硬閘一旦解除(false)+ GRANT 已 apply → 不再紅', () => {
+  it('[3] 正向對照:不變式已落地 + 硬閘已解除 → 不再紅', () => {
     expect(evaluateTrigger(true, false).ok).toBe(true);
   });
 
-  // 🔴 F2 的那一發:少了這格,「不該解卻解了」在這支測試上是**全綠**的。
-  it('[3b] 🔴 反方向:封印已解除而 GRANT 沒 apply → 必須紅(入口開著而 RPC 叫不動)', () => {
+  it('[3b] 🔴 反方向:封印已解除而 #866 沒落地 → 必須紅(那正是 08-24 的那個洞)', () => {
     const r = evaluateTrigger(false, false);
     expect(r.ok).toBe(false);
     expect(r.reason).toContain('已經是 false');
-    expect(r.reason).toContain(GRANT_MIGRATION_STAMP);
+    expect(r.reason).toContain('o.total');
   });
 
-  it('[3c] 正向對照:兩邊都還沒動(沒 apply、封印還在)→ 綠', () => {
+  it('[3c] 正向對照:兩邊都還沒動(沒落地、封印還在)→ 綠', () => {
     expect(evaluateTrigger(false, true).ok).toBe(true);
   });
 
-  // 🔴 沒有這一格,[1] 會在「檔名被改掉 / 檔案根本不存在」時**照樣綠** ——
+  // 🔴 沒有這一格,[1] 會在「目錄不存在 / 讀不到」時**照樣綠** ——
   //    那是「我找不到 ⇒ 沒發生」與「真的沒發生」印同一句話的那個病。
-  // ⚠️ **用 existsSync 不用 `git ls-files`**:第一版用了 `git ls-files`,而它**只看得到已追蹤的檔**
-  //    ⇒ 這支 migration 還是 `??`(未 commit)時整格紅,而紅的原因與 #787 一點關係都沒有。
-  //    (那正是 `docs/lessons-learned.md` §12-43 那條:未追蹤/未收割的檔在 git 的尺下是隱形的。)
-  //    ⇒ 這一格要問的是「那個檔在不在磁碟上」,而那把尺就是 existsSync。
-  it('[4] 🔴 量具自檢:那支 GRANT migration 的檔案要真的在(否則上面的綠沒有意義)', () => {
-    // 🔴 先驗編號推導成功 —— 推導失敗會落成空字串,而 `''` 在 `.includes('')` 是**永遠 true**
-    //    ⇒ [1] 會變成「永遠有 apply」而永遠紅,那是紅錯地方,一樣是壞的量具。
-    expect(GRANT_MIGRATION_STAMP, '從檔名抽不出 14 位編號 ⇒ 檔名格式變了').toMatch(/^\d{14}$/);
+  it('[4] 🔴 量具自檢:APPLIED.tsv 要真的讀得到,而且尺讀得到東西', () => {
     expect(
-      existsSync(resolve(REPO, GRANT_MIGRATION_FILE)),
-      `找不到 ${GRANT_MIGRATION_FILE}。它被改名或刪了 ⇒ 本檔對「有沒有 apply」的任何答案都不算數。` +
-        '⚠️ 這一格紅的原因【與 #787 無關】,是量具自己壞了',
+      existsSync(resolve(REPO, APPLIED_TSV)),
+      `找不到 ${APPLIED_TSV} ⇒ 本檔對「有沒有 apply」的任何答案都不算數`,
     ).toBe(true);
+    const tsv = readFileSync(resolve(REPO, APPLIED_TSV), 'utf8');
+    // 🔴 負對照的反面:同一把尺去量一個**確定已 apply** 的版本號,必須撈得到 ——
+    //    撈不到 = 讀檔或切欄壞了,而 [1] 會安靜地永遠綠。
+    expect(
+      appliedVersionsIn(tsv, ['20260823020000']),
+      '同一把尺量一支確定已記帳的版本卻撈不到 ⇒ 切欄邏輯壞了,[1] 的綠不算數',
+    ).toEqual(['20260823020000']);
+    // 🔴 而反方向也要試一發:一個**確定不在**的版本號必須回空 ——
+    //    只驗「撈得到」的話,一把「什麼都回 true」的壞尺會照樣過這一格。
+    expect(
+      appliedVersionsIn(tsv, ['19990101000000']),
+      '一個不存在的版本號卻被撈到 ⇒ 尺什麼都說有,[1] 的綠不算數',
+    ).toEqual([]);
+    // 🔴 靶③ 的遺產:migrations 目錄仍要在(#866 的檔在不在磁碟上,是重評第①件事的分母)
+    expect(existsSync(resolve(REPO, MIGRATIONS_DIR)), `找不到 ${MIGRATIONS_DIR}`).toBe(true);
+    expect(
+      railCapMigrations().length,
+      '🔴 #866 的檔【不在】工作樹裡,而本檔在等它被 apply ⇒ 這個組合說不通,回來看發生什麼事',
+    ).toBeGreaterThan(0);
   });
 });
 
-describe('tsvHasAppliedRow — 分母是【資料列】不是整支檔(Fable R2 nit F4)', () => {
-  const STAMP = '20260822120000';
+describe('migrationsWithRailCap — 分母是【非註解行】不是整支檔', () => {
+  const M = RAIL_CAP_MARKER;
 
-  it('真的有那一列 → true', () => {
-    expect(tsvHasAppliedRow(`${STAMP}\thash\t2026-08-22\tSean 貼的\n`, STAMP)).toBe(true);
+  it('真的建了那個物件 → 命中', () => {
+    expect(migrationsWithRailCap([{ name: 'a.sql', body: `CREATE FUNCTION ${M}() ...` }])).toEqual(['a.sql']);
   });
 
-  // 🔴 這一格是本節存在的理由:`.includes(STAMP)` 在這裡會回 true,而那是【反過來的答案】。
-  it('🔴 只是 prose 裡提到那個編號 → false(說「尚未 apply」不等於已 apply)', () => {
-    const tsv = `# ⚠️ 20260822120000 尚未 apply,等 Sean 貼\n20260820100000\thash\t2026-08-20\t…\n`;
-    expect(tsvHasAppliedRow(tsv, STAMP)).toBe(false);
-    expect(tsv.includes(STAMP), '對照:舊寫法在同一份輸入上會說「已 apply」').toBe(true);
+  // 🔴 這一格是本節存在的理由:`.includes(M)` 在這裡會回 true,而那是【反過來的答案】。
+  it('🔴 只是 `--` 註解裡提到 → 不命中(說「還沒做」不等於做了)', () => {
+    const body = `-- TODO: ${M} 還沒做,等 #866\nCREATE TABLE x ();\n`;
+    expect(migrationsWithRailCap([{ name: 'a.sql', body }])).toEqual([]);
+    expect(body.includes(M), '對照:舊寫法在同一份輸入上會說「已落地」').toBe(true);
   });
 
-  it('編號出現在別欄(不是行首)→ false', () => {
-    expect(tsvHasAppliedRow(`20260820100000\thash\t2026-08-22\t取代了 ${STAMP}\n`, STAMP)).toBe(false);
+  it('縮排的註解也不算(前面有空白的 --)', () => {
+    expect(migrationsWithRailCap([{ name: 'a.sql', body: `    -- ${M}\n` }])).toEqual([]);
   });
 
-  it('空檔 → false(而不是丟例外)', () => {
-    expect(tsvHasAppliedRow('', STAMP)).toBe(false);
+  it('同一支檔註解與真程式都有 → 命中(真程式那行說了算)', () => {
+    expect(migrationsWithRailCap([{ name: 'a.sql', body: `-- ${M}\nGRANT EXECUTE ON FUNCTION ${M} TO x;\n` }])).toEqual(['a.sql']);
+  });
+
+  it('沒有那個字面 → 不命中(不是丟例外)', () => {
+    expect(migrationsWithRailCap([{ name: 'a.sql', body: 'CREATE TABLE y ();' }])).toEqual([]);
   });
 });
