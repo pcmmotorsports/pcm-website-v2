@@ -31,6 +31,12 @@ import type { GarageChipItem } from '@/components/GarageChips';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CartItem, CartItemVehicle } from '@/contexts/CartContext';
 
+/** 站內佔位圖(`apps/storefront/public/placeholder-product.png`,實查 25,300 bytes)。
+ *  ponytail: 這是本站第 3 份同字面(另兩份 `ProductGallery.tsx:45`、`ProductImage.tsx:48`,
+ *  皆為私有 const)。抽成共用模組要動那兩支別人的檔,不在本條範圍;三份都是同一個 public 路徑,
+ *  真改檔名時三處會用**同一種看得見的方式**一起壞 ⇒ 風險可接受。要收就三處一起收。 */
+const PLACEHOLDER_IMAGE = '/placeholder-product.png';
+
 /** React key:productId + variantId(JSON、零碰撞、純 ASCII)。 */
 function lineKey(line: { productId: string; variantId?: string }): string {
   return JSON.stringify([line.productId, line.variantId ?? null]);
@@ -54,7 +60,28 @@ export function CartView({
   garage?: GarageChipItem[];
 } = {}) {
   const router = useRouter();
+
   const { items, updateQty, removeItem, setItemVehicle, setAllItemsVehicle } = useCart();
+  // ── A4:購物車圖片載不到就破圖(補洞窗)────────────────────────────────────────
+  // 病徵:本檔在這之前**全檔零 `onError`** ⇒ 圖載不到就是瀏覽器那個裂掉的圖示,
+  //   而且 `line.image` 是空的時候整格是空白 —— 兩種都讓客人看不出那一列是什麼東西。
+  // 🔴 有實績:2026-08-22 發生過**真實破圖**(外部圖 + `Accept: image/webp`)。
+  //   ⇒ 這不是防禦性想像,是**已經發生過的事**再發生一次時的樣子。
+  //
+  // 抄的形狀:`ProductGallery.tsx:80-83` 三行(`brokenSrc` / `srcOrPlaceholder` / `markBroken`),
+  //   連它的**鍵怎麼選**一起抄:key 用**解析後的 src 字串**而不是列的索引 ——
+  //   同一列在不同時候可能換圖,而壞掉的是那個 URL、不是那一列。
+  // 🔴 A 段 nit(2026-08-24):**這張表整個掛載期都不清,而那是刻意的。**
+  //   代價:某張圖只是一時載不到(CDN 抖一下),那一列在客人離開這一頁之前都會是佔位圖。
+  //   而「清掉它」的代價更差:清了就會**再送一次同一個已知壞掉的 URL** ——
+  //   購物車列表每次數量變動都會重繪 ⇒ 那會變成「壞圖每改一次數量就重試一次、每次都閃一下」。
+  //   ⇒ 兩害相權:**一張過期的佔位圖 vs 一個會閃的重試迴圈**,選前者。
+  //   ⚠️ 而它不會長大到有意義的程度:鍵是 src 字串、只有真的 `onError` 過的才進來。
+  //   📌 這一格寫下來是因為**看到它的人會以為是漏的**;它不是漏的,是量過代價之後留的。
+  const [brokenSrc, setBrokenSrc] = useState<Record<string, true>>({});
+  const srcOrPlaceholder = (src?: string | null) => (src && !brokenSrc[src] ? src : PLACEHOLDER_IMAGE);
+  const markBroken = (src?: string | null) =>
+    setBrokenSrc((prev) => (!src || prev[src] ? prev : { ...prev, [src]: true }));
   // 🔴 補差額商品整車 → 自取免運(對齊 CheckoutView + create_order store→0;購物車頁運費不漂移)。
   const cart = useResolvedCart(
     isBalancePaymentOnlyCart(items.map((i) => i.productId)) ? 'store' : 'home',
@@ -90,6 +117,12 @@ export function CartView({
 
   if (cart.status === 'loading') {
     return <CartLoading />;
+  }
+  // 🔴 A2:`error` 必須排在 `empty` **旁邊而不是被它吃掉** —— 這兩件事對客人完全不同:
+  //   `empty`「你沒有東西」/ `error`「**你的東西還在,我現在讀不到**」。
+  //   在這之前 hook 的 catch 把失敗吞成 `empty` ⇒ 網路抖一下,客人看到的是「購物車是空的」。
+  if (cart.status === 'error') {
+    return <CartUnavailable />;
   }
   if (cart.status === 'empty') {
     return <CartEmpty onContinue={goContinue} />;
@@ -129,7 +162,13 @@ export function CartView({
               return (
                 <div key={lineKey(item)} className="cart-item">
                   <Link href={href} className="cart-item-img">
-                    {line.image ? <img src={line.image} alt={line.name} /> : null}
+                    {/* A4:載不到 ⇒ 換佔位圖(不是破圖)。`line.image` 本來就沒有時也走佔位圖 ——
+                        原本那條 `: null` 會留下一個**空白方框**,客人一樣看不出這列是什麼。 */}
+                    <img
+                      src={srcOrPlaceholder(line.image)}
+                      onError={() => markBroken(line.image)}
+                      alt={line.name}
+                    />
                   </Link>
                   <div className="cart-item-body">
                     <div className="cart-item-brand">{line.brand}</div>
@@ -215,6 +254,24 @@ function CartLoading() {
     <div data-screen-label="Cart" className="ap-page">
       <Header currentPage="cart" />
       <div className="cart-loading">載入購物車…</div>
+      <HomeFooter />
+    </div>
+  );
+}
+
+/** A2:讀不到購物車(不是空車)。
+ *  🔴 文案**不得**寫成「購物車是空的」或「沒有商品」—— 客人的品項一直好好地在 localStorage 裡,
+ *  那樣寫是在對他說謊,而他很可能會因此重新加一次(結果買兩份)。
+ *  ⚠️ 這裡**沒有**「繼續購物」按鈕(`CartEmpty` 有):空車的下一步是去逛,讀不到的下一步是**重試**。
+ *  `role="alert"` = 讀螢幕的人會被主動念到,不必自己去找哪裡變了。 */
+function CartUnavailable() {
+  return (
+    <div data-screen-label="Cart" className="ap-page">
+      <Header currentPage="cart" />
+      <div className="cart-empty" role="alert">
+        <h2>暫時讀不到你的購物車</h2>
+        <p>你的商品沒有不見,是我們這邊一時讀不到。請重新整理頁面再試一次。</p>
+      </div>
       <HomeFooter />
     </div>
   );

@@ -35,7 +35,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
-import { MAX_QTY, useCart } from '@/contexts/CartContext';
+import { MAX_QTY, QTY_CAP_NOTICE, useCart, overLimitMessage } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { ProductSwatchPreview } from './ProductSwatchPreview';
@@ -212,7 +212,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     const parsed = Number.parseInt(raw, 10);
     const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_QTY) : 1;
     if (Number.isFinite(parsed) && parsed > MAX_QTY) {
-      setQtyNotice(`已達購買上限 ${MAX_QTY}`);
+      setQtyNotice(QTY_CAP_NOTICE); // nit:字面住共用層,與 CartQtyInput 唸同一句
       if (qtyNoticeTimer.current) clearTimeout(qtyNoticeTimer.current);
       qtyNoticeTimer.current = setTimeout(() => setQtyNotice(null), 2500);
     }
@@ -222,13 +222,46 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
   // M-4b #191:收藏改吃 FavoritesContext(與商品卡那顆同一個資料源)。
   const { isFavorite, toggleFavorite } = useFavorites();
   const liked = isFavorite(product.slug);
-  const { addItem } = useCart();
+  const { addItem, items } = useCart();
   const router = useRouter();
 
   // product 變更 → reset qty(selectedVariant reset 在 ProductPage)
   useEffect(() => {
     setQty(1);
   }, [product.variants]);
+
+  // ── A3:桌機按「加入購物車」零回饋(補洞窗)────────────────────────────────────
+  // 病徵:在這之前 `addToCart` 只呼叫 `addItem` 就結束,**畫面完全不動** ——
+  //   客人不知道按到了沒 ⇒ 再按三下 ⇒ 結帳才發現買了 4 個。
+  //
+  // 抄的形狀:手機列**已經有這個東西**(`ProductPage.tsx:288` 那條「已加入・數量」滑出列),
+  //   桌機沒有。這裡不自創,照它:**「已加入」+ 車上那一列現在幾件**。
+  //   桌機不重放一個數量控制項(上面 `.pd-qty` 已經有一個)⇒ 只出字。
+  //   而「顯示車上現有件數」正是治那個病的那一半:他再按一下,數字會從 1 變 2 ⇒ **畫面會動**。
+  //
+  // 🔴 **連它的壽命一起抄,那段是承重的**(`ProductPage.tsx:131-155` 有全文與真瀏覽器實走紀錄):
+  //   面板的壽命綁在**它在講的那一列**上。少了這個 effect 會長出一模一樣的病 ——
+  //   「黑」加入後換規格到「銀」(從沒被加過),字還留著說「已加入」,而購物車裡沒有那一列。
+  //   ⚠️ 加入購物車**不會**改變 `selectedVariant?.id` / `product.slug` ⇒ 本 effect 不重跑
+  //     ⇒ `addToCart` 裡設的 `true` 活得下來。
+  const [addedToCart, setAddedToCart] = useState(false);
+  // 🔴 A5 的上限提示**自己一個 state**,不與 `qtyNotice` 共用(Sean 2026-08-23 拍甲之後拆的):
+  //   `qtyNotice` 現在有兩個生產者,而**只有其中一個被拍過板**:
+  //     ① 打字超過上限(`commitQty`)⇒「已達購買上限 99」  —— **Sean 沒有被問到這一句**
+  //     ② 加購被夾掉(下方 `addToCart`)⇒「…這次少加了 N 件」—— **他拍的是這一句**
+  //   逐字題目:「『因為超過上限,你少加了 N 件』這句提示要留多久?」⇒ 答**甲 = 常駐**
+  //   ⇒ 共用一個 state 的話,改 ② 會**順手把 ① 也改掉** —— 那是把他的裁定擴張到他沒被問的東西上。
+  //   (memory `project_0823-sean-overlimit-notice-persists`)
+  const [overLimitNotice, setOverLimitNotice] = useState<string | null>(null);
+  // 🔴 終止條件用**他的字面**:「直到他**換規格或離開**」—— 不是「按了確定」(那會多一個動作)。
+  //   ⇒ 與 A3 的「已加入」共用同一個生命週期(離開 = 換商品 / 關頁面 = 元件卸載)。
+  useEffect(() => {
+    setAddedToCart(false);
+    setOverLimitNotice(null);
+  }, [selectedVariant?.id, product.slug]);
+  // 車上那一列現在幾件(line key 與 `addToCart` 送出去的那組完全一致)。
+  const cartLineQty =
+    items.find((it) => it.productId === product.slug && it.variantId === selectedVariant?.id)?.qty ?? 0;
 
   // OD-4c:選某維(pattern/finish)的值;候選 = 該維=value 的變體;snap「另一維與當前相符最多」者
   // (稀疏矩陣保證選到有效變體、不卡死;候選保留 variants 排序、首個 max-score 穩定 tie-break)。
@@ -275,12 +308,44 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     // V-2a 帶入路徑1(搜尋情境自動帶):選車 context 有字典名稱字面 → 標 kind:'dict' source:'search'
     //   (V-2h/MF-4 抽 readSearchVehicle 供 mobile buybar 共用同一來源、零猜邏輯在純函式)。
     const vehicle = readSearchVehicle();
-    addItem({
+    // 🔴 N4(2026-08-24):`addItem` 現在**自己回傳「因為上限而被夾掉幾件」** ——
+    //   算法與「這一列現在幾件」都住共用層(`CartContext.tsx`),這裡只負責【怎麼顯示】。
+    //   ~~原本這裡自己 `clampDrop(cartLineQty, qty)`~~ ⇒ 那讓另外兩個呼叫端各自漏掉了這一步。
+    const dropped = addItem({
       productId: product.slug,
       qty,
       variantId: selectedVariant?.id,
       ...(vehicle ? { vehicle } : {}),
     });
+    // 🔴🔴 **2026-08-23 R1 must-fix:`setAddedToCart(true)` 原本是【無條件】的。**
+    //   病:車上已經 99,再按一次加入 ⇒ **一件都沒進去**,而畫面說「已加入購物車 · 車上共 99 件」。
+    //   真瀏覽器實測(同一發同時讀三個值):
+    //     `localStorage` 前後都是 `[{"productId":"g3-probe-0006","qty":99}]`(**沒有變**)
+    //     而畫面同時出「已加入購物車 · 車上共 99 件」與「已達購買上限 99,這次少加了 6 件」
+    //   🔴 **那是一句斷言它沒有造成的事** —— 與 `#883` 的 `/logout`「您已登出」同族,同一晚兩個實例。
+    //   ⇒ `dropped === qty` = 全部被夾掉 = **零件進車** ⇒ 那一刻不該說「已加入」。
+    //   ⚠️ 而 `false` 那半是承重的:上一次成功加入留下的那句必須**當場收掉**,
+    //     否則它會停在畫面上,變成一句過期的「已加入」。
+    setAddedToCart(dropped < qty); // A3:讓畫面動一下 —— 沒有這行,客人只能靠猜
+    // A5:靜默夾值 ⇒ 明說。病:車裡 90 再加 20 ⇒ 變 99,**沒有一個字告訴他少了 11 件**。
+    //
+    // 🔴 **Sean 2026-08-23 拍甲:這句改【常駐】,不再 2.5 秒消失。**
+    //   ~~原本沿用同檔 `qtyNotice` 的一次性提示(2500ms)~~ ⇒ 改用自己的 `overLimitNotice`。
+    //   ⚠️ **那個 2500ms 不是有人為這句挑的**,是**沿用**來的預設值 ——
+    //     而它把原本情境(打字打太大,馬上就看得到框裡被改成 99)的假設一起帶了過來:
+    //     那個情境**當場有一個看得見的補償**(數字就在眼前變了),而**加購這個情境沒有**。
+    //   🔴 **一個沿用來的預設值,會把它原本情境的假設一起帶過來,而沒有人重新問過那個假設。**
+    //   📌 而這題**不是有人去看畫面看出來的**:是驗收時**連截三次都撲空**
+    //     ⇒ **「截不到圖」這件事本身,就是那個設計問題的證據。**
+    //   (memory `project_0823-sean-overlimit-notice-persists`)
+    //
+    //   ⚠️ 「連按兩下的第二下可能算不準」那條限制**跟著算法搬去 `CartContext.addItem` 了** ——
+    //     限制要跟著它所限制的那段碼走,留一份副本在這裡只會有一天變成過期的話。
+    // 🔴 `else` 那半是承重的:同一列**先夾到、再改規格數量重加而沒夾到**時,
+    //   舊那句必須**當場收掉** —— 常駐的提示若不清,它會變成一句停在畫面上的過期話。
+    // N4:字面搬去 `CartContext.overLimitMessage` —— 手機 sticky 買價列要唸**同一句**,
+    //   複製兩份的話下次改字只會改到一份,而兩份都不會紅。
+    setOverLimitNotice(overLimitMessage(dropped));
   };
 
   // 立即購買(Sean 2026-07-11):加入購物車後直接前往購物車頁(非結帳);與「加入購物車」的差別=多一步導頁。
@@ -435,6 +500,28 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
           <span className="pd-like-label">{liked ? '已收藏' : '收藏'}</span>
         </button>
       </div>
+
+      {/* A3:加入購物車的回饋(手機列同款字面「已加入」;`role="status"` 沿用 `.pd-qty-notice` 的無障礙慣例
+          ⇒ 讀螢幕的人也會被念到)。`cartLineQty > 0` 一起判:面板說「已加入」而車上那列是 0 件的話,
+          寧可不出字 —— 那是騙人,而騙人比沒有回饋更糟。 */}
+      {addedToCart && cartLineQty > 0 && (
+        <div className="pd-added-notice" role="status">
+          已加入購物車 · 車上共 {cartLineQty} 件
+        </div>
+      )}
+
+      {/* 🔴 A5 常駐版(Sean 2026-08-23 拍甲)。**位置刻意排在「已加入」之下**:
+          兩句現在會**同時常駐**,而它們的關係是「發生了什麼」+「而其中有一部分沒進去」——
+          後者是前者的修正,讀的順序要對。
+          ⚠️ 它**不再借用** `.pd-qty-notice`(那是貼著數量框浮出的絕對定位、給一次性提示用的)——
+            一個**常駐**的東西用絕對定位會一直蓋住底下的內容。改用 `.pd-added-notice` 的同款排版,
+            靠 `.pd-over-limit-notice` 換成警示色。
+          `role="alert"` 而不是 `status`:這句是「你要的東西沒有全部拿到」,讀螢幕的人該被主動打斷。 */}
+      {overLimitNotice && (
+        <div className="pd-added-notice pd-over-limit-notice" role="alert">
+          {overLimitNotice}
+        </div>
+      )}
 
       {/* M-1-13e-a:buynow(design ProductPage.jsx L351);#161 永遠可點 */}
       <button type="button" className="pd-buynow-btn" onClick={buyNow}>

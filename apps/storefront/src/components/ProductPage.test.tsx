@@ -473,4 +473,72 @@ describe('ProductPage', () => {
       expect(items[0].qty).toBe(2);
     });
   });
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴 N4(2026-08-24 補洞窗):**手機 sticky 買價列的靜默夾**
+  //
+  //   Sean 2026-08-23 拍的是「不要靜默夾」,而在這之前**那個拍板只落到了桌機商品頁** ——
+  //   手機這一列的 `addToCart` 從來沒有問過「這次到底有沒有進去」,一律滑出「已加入・數量」。
+  //   ⇒ 車上已 99 再按一次:**一件都沒進去,而畫面說進去了**
+  //     (與 `#883` 的 `/logout`「您已登出」同族:一句斷言它沒有造成的事)。
+  //
+  //   下面兩格是**一對**:一格驗「該出聲時有出聲」,一格驗「該安靜時真的安靜」。
+  //   🔴 只留前者的話,一個「永遠都出這句提示」的壞修法會全綠。
+  //
+  //   實走佐證(2026-08-24、真 dev server `localhost:3020`、viewport 390×844、
+  //   同一發 evaluate 一起讀出來的三個值,不是兩次量測拼起來的):
+  //     車 99 再按 ⇒ cart `[{"productId":"g3-probe-0006","qty":99}]` **前後同值**
+  //                 · `.pd-mbb-notice` = 「已達購買上限 99,這次少加了 1 件」
+  //                 · `.pd-mbb-qty-panel` **不存在**
+  //     車  3 再按 ⇒ cart 3 → 4 · 面板「已加入・數量」出現 · notice = `null`
+  // ══════════════════════════════════════════════════════════════════════
+  describe('N4:手機 sticky 買價列 —— 車上已滿時不准說「已加入」', () => {
+    const CART_KEY = 'pcm-cart-mock-v2';
+    const product = MOCK_PRODUCTS[0]!;
+
+    it('車上已達上限 → 面板不滑出,改出常駐的上限提示(而購物車一件都沒動)', () => {
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
+      const { container } = render(<ProductPage product={product} tier="general" related={[]} />);
+      fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+
+      // ① 購物車真的沒動 —— 這一格是承重的:沒有它,提示可能是對的而東西其實進去了
+      expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
+        { productId: product.slug, qty: 99 },
+      ]);
+      // ② 那句「已加入・數量」不准出現
+      expect(container.querySelector('.pd-mbb-qty-panel')).toBeNull();
+      // ③ 而且要出聲(字面來自共用層 overLimitMessage,與桌機同一句)
+      const notice = container.querySelector('.pd-mbb-notice');
+      expect(notice?.textContent).toBe('已達購買上限 99,這次少加了 1 件');
+      expect(notice?.getAttribute('role')).toBe('status'); // 讀螢幕的人也要被念到
+    });
+
+    it('對照組:車上沒滿 → 面板照常滑出、上限提示【不】出現(否則就是恆真的提示)', () => {
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 3 }]));
+      const { container } = render(<ProductPage product={product} tier="general" related={[]} />);
+      fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+
+      expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
+        { productId: product.slug, qty: 4 },
+      ]);
+      expect(container.querySelector('.pd-mbb-qty-panel')).not.toBeNull();
+      expect(container.querySelector('.pd-mbb-notice')).toBeNull();
+    });
+
+    it('先撞上限、再把數量降下來重按 → 舊那句要當場收掉(常駐提示不准變成過期的話)', () => {
+      // 🔴 這一格守的是 `setMobileOverLimit(...)` 的 **null 那半**。
+      //   常駐 = 沒有計時器會替你收拾 ⇒ 不主動清的話,它會停在畫面上繼續講一件已經不成立的事。
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
+      const { container } = render(<ProductPage product={product} tier="general" related={[]} />);
+      const cartBtn = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
+      fireEvent.click(cartBtn);
+      expect(container.querySelector('.pd-mbb-notice')).not.toBeNull(); // 先確定它真的出來了
+
+      // 把那一列降到 3 件(走面板以外的路,模擬客人去購物車調整後回來)
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 3 }]));
+      cleanup();
+      const second = render(<ProductPage product={product} tier="general" related={[]} />);
+      fireEvent.click(second.container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+      expect(second.container.querySelector('.pd-mbb-notice')).toBeNull();
+    });
+  });
 });

@@ -1354,3 +1354,23 @@ describe('CheckoutView 第一錯誤 focus/scroll(U4b)', () => {
     await waitFor(() => expect(getPrimeMock).toHaveBeenCalledTimes(2));
   });
 });
+
+// ── A2:結帳頁也要分得出「讀不到」與「空車」(補洞窗)──────────────────────────
+// 🔴 在結帳這一步說謊比在購物車頁更貴:客人可能回頭再加一次、或以為已經下單了。
+describe('CheckoutView — A2 讀不到購物車', () => {
+  it('resolve 掛掉 ⇒ 出「暫時讀不到你的購物車」,而**不是**「購物車是空的」', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockRejectedValue(new Error('network down'));
+    renderCheckout();
+    expect(await screen.findByText('暫時讀不到你的購物車')).toBeDefined();
+    expect(screen.queryByText('購物車是空的')).toBeNull();
+  });
+
+  it('負對照:真的空車仍出「購物車是空的」+「繼續購物」', async () => {
+    setCart([]);
+    resolveMock.mockResolvedValue([]);
+    renderCheckout();
+    expect(await screen.findByText('購物車是空的')).toBeDefined();
+    expect(screen.queryByText('暫時讀不到你的購物車')).toBeNull();
+  });
+});

@@ -146,8 +146,28 @@ function detail(): AdminOrderDetail {
   } as unknown as AdminOrderDetail;
 }
 
+// 🔴 B2(補洞窗):jsdom **沒有實作** `Element.prototype.scrollIntoView`。
+//   本檔展開「危險操作」那塊收合區時會走到 `danger-zone-details.tsx:77` 的 `revealed.current?.scrollIntoView(…)`
+//   ⇒ 丟 `TypeError: revealed.current?.scrollIntoView is not a function`。
+//   ⚠️ 那個 `?.` 擋不住它 —— **optional chaining 擋的是「屬性不存在」,不是「它不是函式」**;
+//     jsdom 的元素上這個屬性根本沒定義,而 `?.` 之後仍然去呼叫它。
+//
+//   🔴 **這 3 個錯不會讓測試變紅**:實測 `Tests 4 passed (4)` + `Errors 3 errors` ——
+//     它們是 unhandled rejection,計在另一欄。**綠的欄位與紅的欄位不是同一欄**,
+//     所以「本檔全綠」與「本檔在噴錯」可以同時成立,而只看 `Tests` 那行的人看不到。
+//
+//   就地補 stub 的慣例本 repo 已有 **6 處**(數法:
+//   `grep -rn "scrollIntoView = " apps/ --include='*.test.tsx' | grep -v node_modules`)——
+//   `danger-zone-details.test.tsx:29,78`(admin)/ `AddressTab.test.tsx:38`、`VehiclesTab.test.tsx:34`、
+//   `ProductsMobileControls.test.tsx:114`、`MobileVehicleSheet.test.tsx:77`(storefront)。
+//   ⚠️ 本 repo **無全域 setupFiles**(數法:`grep -n setupFiles vitest.config.ts` ⇒ 0 行)⇒ 只能就地補。
+//
+//   📌 **而這不是一支檔的事**(母條 `#701`):另兩支掛同元件的測試
+//   (`cancel-wiring.test.tsx`、`app-sidebar-rail.test.tsx`)現在不噴,**只因為它們沒展開那塊收合區** ——
+//   下一個寫展開測試的人會再踩一次。**第三支再踩就提成 admin project 的 setupFiles。**
 beforeEach(() => {
   vi.clearAllMocks();
+  Element.prototype.scrollIntoView = vi.fn();
   mocks.findAdminOrderDetail.mockResolvedValue(detail());
   mocks.listSuppliers.mockResolvedValue([{ id: SUPPLIER, label: 'RPM Carbon' }]);
   vi.spyOn(console, 'error').mockImplementation(() => {});

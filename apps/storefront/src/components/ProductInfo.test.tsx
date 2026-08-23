@@ -7,7 +7,7 @@
 
 import { useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 
 // ProductInfo 的「立即購買」用 useRouter().push('/cart') 導頁(2026-07-11);測試需 mock next/navigation。
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -392,5 +392,147 @@ describe('ProductInfo — 數量輸入框(W11-019 B1/B2)', () => {
     const CART_KEY = 'pcm-cart-mock-v2';
     const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
     expect(items[0].qty).toBe(5);
+  });
+});
+
+// ── A3:桌機按「加入購物車」要有回饋(補洞窗)──────────────────────────────────
+// 🔴 這四格是**一組**,少哪一格會讓哪一種錯實作全綠:
+//   · 少「按之前不出字」⇒ 一個**恆真**的字(永遠掛在那裡)會過 —— 那不是回饋。
+//   · 少「按第二下數字要變」⇒ 一個寫死「已加入」的字會過,而客人照樣不知道自己按了幾下,
+//     那正是本條要治的病(再按三下、結帳發現買了 4 個)。
+//   · 少「換到沒加過的規格要消失」⇒ 會長出手機列 2026-08-22 修掉的**同一個病**
+//     (`ProductPage.tsx:131-155` 有真瀏覽器實走紀錄):畫面說「已加入」,而購物車裡沒那一列。
+describe('ProductInfo — A3 加入購物車回饋', () => {
+  const NOTICE = /已加入購物車 · 車上共/;
+
+  it('按之前不出字(它是回饋,不是裝飾)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    expect(screen.queryByText(NOTICE)).toBeNull();
+  });
+
+  it('按一下 ⇒ 出「已加入購物車 · 車上共 1 件」', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    expect(screen.getByText('已加入購物車 · 車上共 1 件')).toBeDefined();
+  });
+
+  it('再按一下 ⇒ 數字從 1 變 2(畫面會動 = 他不會再盲按)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    const btn = screen.getByRole('button', { name: '加入購物車' });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(screen.getByText('已加入購物車 · 車上共 2 件')).toBeDefined();
+  });
+
+  it('換到一個從沒加過的規格 ⇒ 字要消失(不得留在那裡說謊)', () => {
+    renderInfo(variantProduct);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    expect(screen.getByText(NOTICE)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: '斜紋' }));
+    expect(screen.queryByText(NOTICE)).toBeNull();
+  });
+
+  // 🔴 上面那格**抓不到「壽命 effect 被刪掉」**(實測:刪掉 effect 那格照樣綠)——
+  //   因為切到「斜紋」那一列本來就不在車上,`cartLineQty > 0` 那道守門自己就把字擋掉了。
+  //   ⇒ 真正只有 effect 守得住的是**繞回來**這條路:切走再切回,那個字不該自己回來。
+  //   它回來時講的話是**真的**(車上確實有 1 件),所以這格釘的是「這句話的意思是【你剛剛做了什麼】」,
+  //   而不是「車上有什麼」—— 後者是購物車徽章的工作,不是回饋字的。
+  it('切走再切回原規格 ⇒ 字**不**自己回來(回饋講的是「你剛剛做了什麼」)', () => {
+    renderInfo(variantProduct);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    expect(screen.getByText(NOTICE)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: '斜紋' }));
+    fireEvent.click(screen.getByRole('button', { name: '鍛造' }));
+    expect(screen.queryByText(NOTICE)).toBeNull();
+  });
+});
+
+// ── A5:數量合併靜默夾到 99(補洞窗)──────────────────────────────────────────
+// 病:車裡 90 再加 20 ⇒ 變 99,**沒有一個字告訴他少了 11 件**。
+// 🔴 負對照是這組的重點:沒滿的時候**不准**冒出提示,否則「每次都提示」也會全綠 ——
+//   而那種提示客人看兩次就不看了,等於沒有。
+describe('ProductInfo — A5 加購被上限夾掉要明說', () => {
+  function addQty(n: number) {
+    const input = screen.getByRole('textbox', { name: '數量' });
+    fireEvent.change(input, { target: { value: String(n) } });
+    fireEvent.blur(input);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+  }
+
+  it('車裡 90 再加 20 ⇒ 明說「少加了 11 件」', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    addQty(90);
+    addQty(20);
+    expect(screen.getByText('已達購買上限 99,這次少加了 11 件')).toBeDefined();
+  });
+
+  // 🔴🔴 R1 must-fix(2026-08-23):車上已 99 再加 ⇒ **一件都沒進去**,而畫面說「已加入購物車」。
+  //   真瀏覽器實測:`localStorage` 前後都是 `qty:99`(沒有變),而兩句同時在畫面上。
+  //   ⇒ 那是**一句斷言它沒有造成的事**,與 `#883` 的 `/logout`「您已登出」同族。
+  //   ⚠️ 而**這一格在修之前是不存在的** —— 39 格全綠,沒有任何一格抓得到它。
+  const ADDED_RE = /已加入購物車 · 車上共/;
+  it('🔴 車上已滿 99 再加 ⇒ **不准**說「已加入」(一件都沒進去)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    addQty(99);
+    expect(screen.getByText(ADDED_RE)).toBeDefined(); // 這一發是真的加進去了 ⇒ 該說
+    addQty(5); // 車上已 99 ⇒ 全部被夾掉 ⇒ 零件進車
+    expect(screen.getByText('已達購買上限 99,這次少加了 5 件')).toBeDefined();
+    expect(screen.queryByText(ADDED_RE)).toBeNull(); // 🔴 承重:上一次留下的那句也必須當場收掉
+  });
+
+  it('負對照:沒滿就加(1 + 5)⇒ **不准**出任何上限提示', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    addQty(1);
+    addQty(5);
+    expect(screen.queryByText(/購買上限/)).toBeNull();
+  });
+
+  // ── 🔴 Sean 2026-08-23 拍甲:這句改【常駐】,不再 2.5 秒消失 ──────────────────
+  //   (memory `project_0823-sean-overlimit-notice-persists`)
+  it('常駐:出現之後【不會自己消失】(逾時 3 秒後仍在)', () => {
+    vi.useFakeTimers();
+    try {
+      renderInfo(MOCK_PRODUCTS[0]!);
+      addQty(99);
+      addQty(1);
+      expect(screen.getByText('已達購買上限 99,這次少加了 1 件')).toBeDefined();
+      // 舊行為是 2500ms 之後消失 ⇒ 推過那個點,它必須還在。
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(screen.getByText('已達購買上限 99,這次少加了 1 件')).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('🔴 終止條件 = 換規格(Sean 逐字「直到他換規格或離開」)⇒ 換規格後那句要收掉', () => {
+    renderInfo(variantProduct);
+    addQty(99);
+    addQty(1);
+    expect(screen.getByText(/少加了/)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: '斜紋' }));
+    expect(screen.queryByText(/少加了/)).toBeNull();
+  });
+
+  it('🔴 打字超過上限那句【沒有被順手改成常駐】—— Sean 沒有被問到那一句', () => {
+    vi.useFakeTimers();
+    try {
+      renderInfo(MOCK_PRODUCTS[0]!);
+      const input = screen.getByRole('textbox', { name: '數量' });
+      fireEvent.change(input, { target: { value: '500' } });
+      fireEvent.blur(input);
+      expect(screen.getByText('已達購買上限 99')).toBeDefined();
+      act(() => { vi.advanceTimersByTime(3000); });
+      // 它仍然是一次性的 ⇒ 3 秒後不見。改動它 = 把裁定擴張到他沒被問的東西上。
+      expect(screen.queryByText('已達購買上限 99')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('已經 99 再加 1 ⇒ 說「少加了 1 件」(而不是靜靜地什麼都沒發生)', () => {
+    renderInfo(MOCK_PRODUCTS[0]!);
+    addQty(99);
+    addQty(1);
+    expect(screen.getByText('已達購買上限 99,這次少加了 1 件')).toBeDefined();
   });
 });

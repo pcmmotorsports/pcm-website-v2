@@ -260,6 +260,8 @@ export function CheckoutView({
     );
 
   if (cart.status === 'loading') return <CheckoutCartNotice variant="loading" />;
+  // A2:讀不到 ≠ 空車。少了這一行,`error` 會掉進下面 `ready` 的路 ⇒ 結帳頁渲染**零商品的訂單**。
+  if (cart.status === 'error') return <CheckoutCartNotice variant="error" />;
   // 空車不進結帳(對齊 design 假設「有商品」;導回購物車)。
   if (cart.status === 'empty') {
     return (

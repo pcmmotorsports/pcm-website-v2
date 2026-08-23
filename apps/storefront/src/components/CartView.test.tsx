@@ -36,9 +36,17 @@ const { cartRef, resolveMock, pushMock } = vi.hoisted(() => ({
   pushMock: vi.fn(),
 }));
 
-vi.mock('@/contexts/CartContext', () => ({
+// 🔴 2026-08-24:改成 `importOriginal` 的**部分 mock** —— 只換掉 `useCart`,其餘一律用真的。
+//   ~~原本是手列清單(`useCart` + `MAX_QTY: 99`)~~,而那份清單**會腐爛**:
+//   本檔 2026-08-24 就因此紅了 8/8 —— 共用層新增了一個 `QTY_CAP_NOTICE`,
+//   `CartQtyInput` 開始 import 它,而這份手列的 mock 不知道 ⇒
+//   `No "QTY_CAP_NOTICE" export is defined on the mock`。
+//   📌 而它紅的樣子**不像「mock 缺東西」**:表面上是「`updateQty` 被呼叫 0 次」,
+//     真正的成因躲在輸出最底下的 `Unhandled Errors` 區塊。
+//   ⇒ 常數與純函式**沒有理由**被 mock 掉 —— 它們沒有副作用,而假造它們只會讓測試與真值脫鉤。
+vi.mock('@/contexts/CartContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/contexts/CartContext')>()),
   useCart: () => cartRef.current,
-  MAX_QTY: 99, // W11-019 B1:CartView 直接 import 這個常數夾輸入框上限,mock 整支模組要一併給
 }));
 vi.mock('@/app/cart/actions', () => ({
   resolveCartLines: resolveMock,
@@ -261,5 +269,57 @@ describe('CartView(M-3-S2-b2-d)', () => {
     fireEvent.blur(input);
     expect(updateQty).toHaveBeenCalledWith(item, 99);
     expect(screen.getByText('已達購買上限 99')).toBeTruthy();
+  });
+});
+
+// ── A4:購物車圖片載不到就破圖(補洞窗)──────────────────────────────────────────
+// 🔴 有實績:2026-08-22 發生過真實破圖(外部圖 + `Accept: image/webp`)⇒ 這不是假想敵。
+// 三格是一組:載得到的**不准**被換掉(否則「永遠顯示佔位圖」會全綠)/ 載不到要換 / 根本沒圖也要有東西。
+describe('CartView — A4 圖片 fallback', () => {
+  const PLACEHOLDER = '/placeholder-product.png';
+
+  async function renderOneLine(image: string | null) {
+    setCart([{ productId: 'p1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'p1', image })]);
+    render(<CartView />);
+    return await screen.findByAltText('碳纖維車台護蓋');
+  }
+
+  it('載得到的圖**不動** —— 負對照(少了這格,「永遠回佔位圖」會全綠)', async () => {
+    const img = await renderOneLine('https://cdn.example/img.jpg');
+    expect(img.getAttribute('src')).toBe('https://cdn.example/img.jpg');
+  });
+
+  it('圖載不到 ⇒ 換成站內佔位圖(不是瀏覽器那個裂掉的圖示)', async () => {
+    const img = await renderOneLine('https://cdn.example/img.jpg');
+    fireEvent.error(img);
+    expect(img.getAttribute('src')).toBe(PLACEHOLDER);
+  });
+
+  it('那一列根本沒有圖 ⇒ 也給佔位圖(原本是一個空白方框)', async () => {
+    const img = await renderOneLine(null);
+    expect(img.getAttribute('src')).toBe(PLACEHOLDER);
+  });
+});
+
+// ── A2:讀不到 ≠ 空車(補洞窗)──────────────────────────────────────────────────
+// 這一層驗的是**畫面**,不是 hook —— hook 那層在 `useResolvedCart.test.tsx`。
+// 🔴 兩層都要:hook 回 `error` 而畫面沒接住(掉進 ready 分支)在 hook 測試裡是**看不見**的。
+describe('CartView — A2 讀不到購物車', () => {
+  it('resolve 掛掉 ⇒ 出「暫時讀不到你的購物車」,而**不是**「購物車是空的」', async () => {
+    setCart([{ productId: 'p1', qty: 1 }]);
+    resolveMock.mockRejectedValue(new Error('network down'));
+    render(<CartView />);
+    expect(await screen.findByText('暫時讀不到你的購物車')).toBeDefined();
+    // 🔴 這一行是本格的重點:舊行為就是在這裡對客人說「你沒有東西」。
+    expect(screen.queryByText('購物車是空的')).toBeNull();
+  });
+
+  it('負對照:真的空車仍出「購物車是空的」', async () => {
+    setCart([]);
+    resolveMock.mockResolvedValue([]);
+    render(<CartView />);
+    expect(await screen.findByText('購物車是空的')).toBeDefined();
+    expect(screen.queryByText('暫時讀不到你的購物車')).toBeNull();
   });
 });

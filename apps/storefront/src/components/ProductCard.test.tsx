@@ -166,4 +166,51 @@ describe('ProductCard', () => {
     // (linear-gradient 字串裡混進 '255, 255, 255' 也一樣通過上面那條 toContain)。
     expect(gallery.style.background, 'placeholder 分支不該被誤改成 #fff').not.toContain('255, 255, 255');
   });
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴 N4(2026-08-24 補洞窗):**卡片快速加入的靜默夾**
+  //
+  //   車上已 99 再按這顆 ⇒ `addItem` 一件都沒放進去,而鈕照樣閃「✓ 已加入」1.5 秒。
+  //   ⇒ 與 `#883` 的 `/logout`「您已登出」同族:**一句斷言它沒有造成的事**。
+  //   而 Sean 2026-08-23 拍的是「不要靜默夾」—— 在這之前**他的拍板只落到了桌機商品頁**。
+  //
+  //   ⚠️ `已達上限 99` 是**工作字面**,待 Sean 定字(它擠在一顆卡片按鈕裡、不是一整列)。
+  //     改字時這兩格會紅 —— 那是**要的**:字面是客人看得到的東西,不該可以安靜地改掉。
+  //
+  //   實走佐證(2026-08-24、真 dev server `localhost:3020`、首頁 rail、
+  //   **點擊與讀值在同一發 evaluate 裡**,因為那個回饋只活 1500ms ——
+  //   分兩發讀會讀到它已經消失、而那看起來就像「功能沒做」):
+  //     車 99 ⇒ label `+ 加入購物車` → `已達上限 99` · cart 前後同值
+  //     車  0 ⇒ label `✓ 已加入`     · cart 真的多出一列 `{"productId":"g3-probe-0011","qty":1}`
+  // ══════════════════════════════════════════════════════════════════════
+  describe('N4:車上已達上限時,這顆鈕不准說「已加入」', () => {
+    const CART_KEY = 'pcm-cart-mock-v2';
+
+    const clickQuickAdd = () => {
+      const { container } = render(<ProductCard p={product} />);
+      const btn = container.querySelector('.pcard-quick-btn') as HTMLButtonElement;
+      fireEvent.click(btn);
+      return { container, btn };
+    };
+
+    afterEach(() => window.localStorage.clear());
+
+    it('車上已 99 → 鈕改說「已達上限」,而購物車一件都沒動', () => {
+      window.localStorage.setItem(CART_KEY, JSON.stringify([{ productId: product.slug, qty: 99 }]));
+      const { btn } = clickQuickAdd();
+      // ① 東西真的沒進去 —— 沒有這一格,「字面對」與「東西也對」分不開
+      expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
+        { productId: product.slug, qty: 99 },
+      ]);
+      // ② 而鈕不准講「已加入」
+      expect(btn.textContent).toBe('已達上限 99');
+    });
+
+    it('對照組:車上是空的 → 鈕照舊說「✓ 已加入」(否則就是恆真的「已達上限」)', () => {
+      const { btn } = clickQuickAdd();
+      expect(JSON.parse(window.localStorage.getItem(CART_KEY)!)).toEqual([
+        { productId: product.slug, qty: 1 },
+      ]);
+      expect(btn.textContent).toBe('✓ 已加入');
+    });
+  });
 });

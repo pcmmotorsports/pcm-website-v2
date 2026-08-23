@@ -112,7 +112,14 @@ export type CartContextValue = {
   isHydrated: boolean;
   /** 3DS-7 cart-instance idempotency key(uuid);空車首件生、成交換新;hydrate 前 null。非價/tier/身分。 */
   cartSessionId: string | null;
-  addItem: (item: CartItem) => void;
+  /** 加一列進車。**回傳「因為上限 MAX_QTY 而被夾掉幾件」**(0 = 一件都沒被夾掉)。
+   *  🔴 2026-08-24 N4:原本回傳 `void` ⇒ 想講「這次少加了幾件」的呼叫端得【自己】去 `items`
+   *    找那一列、再自己呼叫 `clampDrop` —— 而三個呼叫端裡只有一個做了(桌機商品頁),
+   *    另兩個(手機 sticky 買價列 / 商品卡快速加入)在車上已滿時**一件都沒進去卻說「已加入」**。
+   *  📌 形狀:**「哪些情況要顯示什麼」寫在呼叫端就會漏,寫在共用層才有分母** ——
+   *    夾值本來就發生在 `addItem` 裡,現在只是讓它把自己做了什麼**講出來**,
+   *    第四個呼叫端不必知道要去 find 那一列。 */
+  addItem: (item: CartItem) => number;
   removeItem: (key: CartLineKey) => void;
   updateQty: (key: CartLineKey, qty: number) => void;
   /** V-2a:設/清單列適用車款(null=清)。vehicle 非 line key、不動去重/session。 */
@@ -144,16 +151,39 @@ function clampQty(qty: unknown): number {
  *  (`addItem` 的 `clampQty(p.qty + safeQty)`)。算法跟著它走,畫面只負責把數字唸出來
  *  ⇒ 哪天 `MAX_QTY` 或 clamp 規則改了,不會有一個「講另一套數字」的提示留在別的檔裡。
  *
- *  ⚠️ **本站有三個 `addItem` 呼叫端,而這支只被其中一個用到**(`ProductInfo`,桌機商品頁)。
- *    另兩個沒接,理由各自不同、都寫在 A5 回報裡:
- *    · `ProductPage` 手機買價列:qty 恆 1 ⇒ 最多只丟得掉 1 件,而它的「已加入・數量」面板
- *      本來就把**車上的真值**顯示出來(滿了就是 99)。
- *    · `ProductCard` 快速加入:qty 恆 1、且卡片上沒有數量概念。
- *    ⇒ 這兩條**不是已修**,是**風險小很多**。要收的話用同一支算法,不要各自再寫一次。 */
+ *  🔴 **2026-08-24 N4:上面那段「另兩個沒接、風險小很多」已經作廢 —— 它是錯的判斷。**
+ *    ~~「qty 恆 1 ⇒ 最多只丟得掉 1 件 ⇒ 風險小很多」~~ ——
+ *    **丟掉幾件不是重點,重點是那一刻畫面說了什麼。** 車上已 99 再按一次:
+ *      · `ProductPage` 手機列 ⇒ 滑出面板照樣寫「已加入・數量 99」
+ *      · `ProductCard` 卡片   ⇒ 鈕照樣閃「✓ 已加入」1.5 秒
+ *    **一件都沒進去,而兩個畫面都說進去了** —— 與 `#883` 的 `/logout`「您已登出」同族:
+ *    **一句斷言它沒有造成的事**。而 Sean 拍的是「不要靜默夾」⇒ **他的拍板只落到了桌機。**
+ *  ⇒ 修法**不是**去接第二、第三個呼叫端(那是把同一套判斷寫三次,而第四個呼叫端還是會漏),
+ *    是讓 `addItem` **自己回傳被夾掉幾件**。這支純函式現在由 `addItem` 呼叫,
+ *    呼叫端只負責【怎麼顯示】。 */
 export function clampDrop(existingQty: number, addQty: number): number {
   const wanted = existingQty + addQty;
   return Math.max(0, wanted - clampQty(wanted));
 }
+
+/** A5/N4:「因為上限少加了幾件」那句**常駐**提示的字面(Sean 2026-08-23 拍甲:不再 2.5 秒消失)。
+ *  回 `null` = 沒被夾到 = 不出這句。
+ *
+ *  🔴 **它住這裡的理由與 `clampDrop` 同一條**:句子裡的 `MAX_QTY` 與「少加了幾件」都是這個檔算出來的
+ *  ⇒ 哪天上限或 clamp 規則改了,不會有一份**講另一套數字**的字面留在畫面那邊。
+ *  ⚠️ 而**現在有兩個畫面要唸同一句**(桌機商品頁 `ProductInfo` / 手機 sticky 買價列 `ProductPage`)——
+ *    複製兩份的話,下次 Sean 改字只會改到其中一份,**而兩份都不會紅**。 */
+export function overLimitMessage(dropped: number): string | null {
+  return dropped > 0 ? `已達購買上限 ${MAX_QTY},這次少加了 ${dropped} 件` : null;
+}
+
+/** A 段 nit(2026-08-24):「打字打超過上限」那句一次性提示的字面。
+ *  🔴 **原本同一句客人文案有兩份字面** —— `ProductInfo.tsx` 的數量框與 `CartQtyInput.tsx` 各寫一次。
+ *    兩支的 `commitQty` 幾乎是逐字相同的複製,而**字面被複製時沒有任何東西會紅**:
+ *    下次 Sean 改字,只會改到其中一份,**而兩份都通過所有測試**。
+ *  ⚠️ 這裡**只抽字面,不抽那兩支重複的元件** —— 那是另一片的工作,
+ *    在補洞片裡順手合併兩個有各自 state 與計時器的元件,風險遠大於它解決的問題。 */
+export const QTY_CAP_NOTICE = `已達購買上限 ${MAX_QTY}`;
 
 /** V-2a:CartItem.vehicle 讀回逐 kind 分驗(壞資料→undefined 丟棄、絕不 throw;鏡像既有逐欄防禦)。 */
 function readVehicle(v: unknown): CartItemVehicle | undefined {
@@ -352,9 +382,20 @@ export function CartProvider({
     if (isHydrated) writeSessionId(cartSessionId);
   }, [cartSessionId, isHydrated]);
 
-  const addItem = useCallback((item: CartItem) => {
+  // N4:`addItem` 的 useCallback deps 是 `[]`(刻意:身分穩定),所以它 closure 裡的 `items` 會過期
+  // ⇒ 用一支 ref 抓最新快照,只給「這一列現在幾件」這個唯讀問題用,不參與任何寫入。
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  const addItem = useCallback((item: CartItem): number => {
     const safeQty = clampQty(item.qty);
-    if (safeQty < 1) return;
+    if (safeQty < 1) return 0;
+    // 走到這一行就保證 `item.qty` 是有限數且 ≥ 1(`clampQty` 對 NaN/Infinity/<1 一律回 0)
+    // ⇒ 下面把**未經上限截斷的原始請求量**餵給 `clampDrop` 是安全的,
+    //   且比餵 `safeQty` 誠實:一次要加 200 件而車上是空的 ⇒ 該說「少加了 101 件」,不是 0。
+    const existingQty = itemsRef.current.find((p) => sameLine(p, item))?.qty ?? 0;
     setCartSessionId((prev) => prev ?? newCartSessionId()); // 空車首件 → 生 key
     setItems((prev) => {
       const idx = prev.findIndex((p) => sameLine(p, item));
@@ -365,6 +406,11 @@ export function CartProvider({
       }
       return [...prev, { ...item, qty: safeQty }];
     });
+    // ⚠️ `existingQty` 讀的是**上一次 render 後**的快照 ⇒ **連按兩下的第二下可能算不準**
+    //   (頂多是「該提示而沒提示」,不會提示錯的數字)。要完全準得把算法搬進上面那個更新函式裡,
+    //   那會讓一個純函式變成有副作用的更新器 —— 不划算。這段原本寫在 `ProductInfo`,
+    //   隨算法一起搬過來:**限制要跟著它所限制的那段碼走。**
+    return clampDrop(existingQty, item.qty);
   }, []);
 
   const removeItem = useCallback((key: CartLineKey) => {

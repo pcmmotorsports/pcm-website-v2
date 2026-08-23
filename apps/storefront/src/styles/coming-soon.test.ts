@@ -304,11 +304,59 @@ describe('第2批 · /logout 道別頁(2026-08-18 已接線,見本 describe 最�
       /^\s*redirect\('\/login'\);/m,
     );
     // ⚠️ 對整支檔比 `/logoutAction/` 會命中**檔頭註解**(那裡逐字解釋了接線的出處)——
-    //    第1批的 nit N8 是同一族的錯。只比 import 陳述,對註解免疫。
-    //    道別頁自己**不該**再去呼叫登出 action(它是登出【之後】才到得了的頁,再登出一次是迴圈)。
-    const imports = PAGE_LOGOUT.split('\n').filter((l) => /^\s*import\b/.test(l));
-    expect(imports.join('\n'), '/logout 道別頁 import 了登出 server action ⇒ 它是登出後才到的頁,不該再登出一次').not.toMatch(
-      /actions|logoutAction/,
+    //    第1批的 nit N8 是同一族的錯。⇒ 先剝註解,再比【呼叫】。
+    //
+    // 🔴🔴 **這條斷言 2026-08-23 收斂過(`#883`),而理由在考古裡**:
+    //   ~~原版 `imports.join('\n')` not.toMatch(/actions|logoutAction/)~~
+    //   · `42406e93`(出生)訊息逐字:「那是接線動作、**不歸本批**」⇒ 那是一個【範圍標記】= 事件型
+    //   · `4f19e9f9`(把接線做完的那一顆)**只改了訊息**,升級成「不該再登出一次」= 斷言型,
+    //     而 `not.toMatch(/actions|logoutAction/)` **一個字都沒動**
+    //   ⇒ **一個事件型觸發器被口頭升級成不變式,而它守的東西沒跟著改;
+    //     且原本的理由(不歸本批)在【同一顆 commit 裡】就失效了。**
+    //
+    //   不變式真正是:**這頁不得【一到達就登出】**(「再登出一次是迴圈」)。
+    //   而「import 有沒有提到 actions」是一個**比不變式寬**的字面代理 ——
+    //   它同時禁掉「提供一顆要人按的登出按鈕」,而按鈕**不會讓任何人一到達就被登出**。
+    //   ⇒ 改成禁【呼叫】:`logoutAction(` 有左括號 = 被呼叫;`action={logoutAction}` 沒有 = 只是傳參考。
+    //
+    // 🔴 **天花板(明寫,不要以為它守得住)**:這是字面掃描,它只認得 **`logoutAction(` 這個形狀**。
+    //   ⚠️ ~~原本這裡只列舉了「改名再呼叫」一種~~ —— **那個列舉沒有分母**(R1 nit N8:
+    //   審查實跑量到同族至少還有 `.call(null)` / `.bind(null)()` / `(0, logoutAction)()` /
+    //   `[logoutAction][0]()`)。⇒ 天花板要寫成**一句涵蓋式的話**,不是一張清單:
+    //   **「任何不是 `名字(` 這個字面形狀的呼叫,它都掃不到。」**
+    //   下面有一格負對照【故意斷言它掃不到】,免得下一個人把「全綠」讀成「不可能繞過」。
+    const stripComments = (src: string) =>
+      src
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .filter((l) => !/^\s*\/\//.test(l))
+        .join('\n');
+    const callsLogoutAction = (src: string) => /logoutAction\s*\(/.test(stripComments(src));
+
+    // 🔴 **剝殼自己的自檢**(R1 nit N9):剝過頭的話,下面每一條斷言都是在一份空字串上跑 ——
+    //   而**空字串永遠 `not.toMatch`** ⇒ 恆綠,且畫面上與「真的沒有呼叫」長得一模一樣。
+    const strippedLogout = stripComments(PAGE_LOGOUT);
+    expect(strippedLogout, '剝註解剝過頭:連 import 都不見了 ⇒ 下面的斷言沒有判別力').toContain(
+      'import',
     );
+    expect(
+      strippedLogout,
+      '剝註解剝過頭:`action={logoutAction}` 那一行不見了 ⇒ 下面的斷言沒有判別力',
+    ).toContain('action={logoutAction}');
+
+    expect(
+      callsLogoutAction(PAGE_LOGOUT),
+      '/logout 道別頁【呼叫】了登出 action ⇒ 它是登出後才到的頁,一到達就登出是迴圈',
+    ).toBe(false);
+    // 🔴 負對照①:同一把尺餵一個真的違規 ⇒ 必須抓到。少了它,一個永遠回 false 的尺會全綠。
+    expect(
+      callsLogoutAction('export default async function P(){ await logoutAction(); }'),
+      '負對照:元件本體直接呼叫 logoutAction ⇒ 這把尺必須抓到,否則它沒有判別力',
+    ).toBe(true);
+    // 🔴 負對照②=**天花板**:換個名字再呼叫,這把尺【抓不到】。斷言它抓不到,不假裝守得住。
+    expect(
+      callsLogoutAction('const f = logoutAction; export default async function P(){ await f(); }'),
+      '天花板:改名後呼叫掃不到 —— 這一格【故意】是 false,不是缺陷,是這把尺的已知射程',
+    ).toBe(false);
   });
 });

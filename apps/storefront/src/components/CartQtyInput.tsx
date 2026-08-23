@@ -8,7 +8,7 @@
 // 抽出來的這支檔案零server依賴、純UI,兩邊都能安全import。
 
 import { useEffect, useRef, useState } from 'react';
-import { MAX_QTY } from '@/contexts/CartContext';
+import { MAX_QTY, QTY_CAP_NOTICE } from '@/contexts/CartContext';
 
 /**
  * W11-019 B1/B2:購物車列數量控制,span 換 input(可鍵盤輸入)+ +/− 仍留(§6)。
@@ -31,7 +31,7 @@ export function CartQtyInput({ qty, onCommit }: { qty: number; onCommit: (qty: n
     const parsed = Number.parseInt(raw, 10);
     const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_QTY) : 1;
     if (Number.isFinite(parsed) && parsed > MAX_QTY) {
-      setNotice(`已達購買上限 ${MAX_QTY}`);
+      setNotice(QTY_CAP_NOTICE); // nit:字面住共用層,與 ProductInfo 的數量框唸同一句
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
       noticeTimer.current = setTimeout(() => setNotice(null), 2500);
     }

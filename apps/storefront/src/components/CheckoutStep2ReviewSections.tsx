@@ -33,7 +33,8 @@ import { formatCartVehicle } from '@/lib/cart-vehicle-format';
 import { PAYMENT_FOCUS_TARGET_IDS } from '@/lib/checkout/focus-first-error';
 
 export type CheckoutShippingSummaryProps = {
-  /** 選中的收件地址(= addresses.find(shippingAddrId));undefined 時 body 只在有錯誤時渲染。 */
+  /** 選中的收件地址(= addresses.find(shippingAddrId))。
+   *  🔴 ~~undefined 時 body 只在有錯誤時渲染~~ **A6 起 body 恆渲染**:undefined 且無錯誤時出空狀態指引。 */
   currentAddr: CustomerAddress | undefined;
   /** 配送方式顯示字(Q1=A 僅「貨運宅配」)。 */
   shippingLabel: string;
@@ -82,25 +83,36 @@ export function CheckoutShippingSummary({
           編輯
         </button>
       </div>
-      {(currentAddr || hasError) && (
-        <div className="co-review-body">
-          {currentAddr && (
-            <>
-              <div><strong>{currentAddr.name}</strong> · {currentAddr.phone}</div>
-              <div className="co-shipping-summary-address">{currentAddr.line}</div>
-              <div className="co-review-sub">{shippingLabel}</div>
-            </>
-          )}
-          {/* 🔴 紅字必須留在 .co-review-body 內:放到 .co-review-block 之後會打斷
-              checkout.css `.co-review-block:last-child { border-bottom: 0 }` 的命中對象 = 多一條底線。 */}
-          {shippingError && (
-            <span id="checkout-shipping-error" className="auth-field-err">{shippingError}</span>
-          )}
-          {emailError && (
-            <span id="checkout-notification-email-error" className="auth-field-err">{emailError}</span>
-          )}
-        </div>
-      )}
+      {/* 🔴 A6(補洞窗):body 從「有地址**或**有錯誤才渲染」改成**恆渲染**。
+          在這之前,兩者皆無的那一格只剩下標題「收件資料」與一顆「編輯」鈕 ——
+          **整區靜默消失**,而客人不知道自己少了什麼、也不知道下一步要做什麼。
+          ⚠️ 這是同一個洞的**第三次**:U3b(見上方註解)已經為了「紅字永遠顯示不出來」把條件放寬過一次。
+            那次補的是「有錯誤」,這次補的是「兩者皆無」—— **把條件整個拿掉才是把這一族收乾淨。**
+          ⚠️ 恆渲染不會改到既有畫面:原本會消失的只有「無地址且無錯誤」那一格,而它現在有字。 */}
+      <div className="co-review-body">
+        {currentAddr && (
+          <>
+            <div><strong>{currentAddr.name}</strong> · {currentAddr.phone}</div>
+            <div className="co-shipping-summary-address">{currentAddr.line}</div>
+            <div className="co-review-sub">{shippingLabel}</div>
+          </>
+        )}
+        {/* A6 空狀態:**告訴他下一步做什麼**,不要只說「沒有資料」。
+            有錯誤時不出這句 —— 那時該讀的是下面的紅字,兩句疊著只會互相稀釋。 */}
+        {!currentAddr && !hasError && (
+          <div className="co-review-sub">
+            還沒有收件資料。請按右上角「編輯」回上一步,填寫收件人、電話與地址。
+          </div>
+        )}
+        {/* 🔴 紅字必須留在 .co-review-body 內:放到 .co-review-block 之後會打斷
+            checkout.css `.co-review-block:last-child { border-bottom: 0 }` 的命中對象 = 多一條底線。 */}
+        {shippingError && (
+          <span id="checkout-shipping-error" className="auth-field-err">{shippingError}</span>
+        )}
+        {emailError && (
+          <span id="checkout-notification-email-error" className="auth-field-err">{emailError}</span>
+        )}
+      </div>
     </div>
   );
 }

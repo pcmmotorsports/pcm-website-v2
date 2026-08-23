@@ -121,9 +121,73 @@ describe('useResolvedCart 自我修復(#375/#455)', () => {
 
     const { result } = renderHook(() => useResolvedCart());
 
-    // 等 catch 真的跑完(status 落定成 empty),否則「還沒跑到」也會讓斷言假綠。
-    await waitFor(() => expect(result.current.status).toBe('empty'));
+    // 等 catch 真的跑完(status 落定),否則「還沒跑到」也會讓斷言假綠。
+    // 🔴 **這一行是【同步點】,不是規格**(原字面 `'empty'`,A2 改 `'error'`)。
+    //   考古:寫入它的那顆是 `999ebb54`(2026-08-10)「購物車幽靈行自我修復 — 解 #375 / #343」,
+    //   整顆在講**幽靈行**,沒有一個字在主張「問不到 server 時該顯示空車」。
+    //   而本測試自己的標題就是「**整車不得被清**」⇒ 它與「畫面顯示 empty」內部緊張。
+    //   ⇒ 通過集合是**平移**(具體值換具體值):舊行為(catch 吞成 empty)餵進來**必紅**,見 A2 突變表。
+    // 🔴 下一行 `removeItem not called` 是本檔的**承重斷言**,A2 一字未動、仍綠。
+    await waitFor(() => expect(result.current.status).toBe('error'));
     expect(removeItemMock).not.toHaveBeenCalled();
+  });
+
+  // ── A2:讀不到 ≠ 空車(補洞窗新增)────────────────────────────────────────────
+  it('②-A2a 🔴 resolve reject ⇒ status 是 `error` 而**不是** `empty`(客人的東西沒有不見)', async () => {
+    setCart([REAL, GHOST]);
+    resolveMock.mockRejectedValue(new Error('network down'));
+
+    const { result } = renderHook(() => useResolvedCart());
+
+    await waitFor(() => expect(result.current.status).toBe('error'));
+    // 🔴 A 段 nit(2026-08-24):~~`expect(result.current.status).not.toBe('empty')`~~ **已刪**。
+    //   它在上一行成立之後**恆真** —— 一個值不可能同時是 `'error'` 又是 `'empty'`。
+    //   ⇒ 它讀起來像**第二道獨立的檢查**(而測試標題正好在講 `error` vs `empty`),
+    //     實際上是同一道檢查的複印。**假的第二個證據比沒有第二個證據更能關掉懷疑。**
+    //   真正守住「不是 empty」的是上面那一行 `toBe('error')` 本身,
+    //   以及下面那格**負對照**(真的空車仍是 `empty`)—— 兩格合起來才分得開兩個世界。
+  });
+
+  it('②-A2b 負對照:**真的空車**仍是 `empty`,不得被 `error` 蓋掉', async () => {
+    setCart([]);
+    resolveMock.mockRejectedValue(new Error('network down'));
+
+    const { result } = renderHook(() => useResolvedCart());
+
+    await waitFor(() => expect(result.current.status).toBe('empty'));
+  });
+
+  // 🔴 上面那格**抓不到「三元式順序寫錯」**(實測:把 `resolveFailed` 提到 `items.length === 0` 前面,
+  //   上面那格照樣綠)—— 因為空車走的是 effect 開頭的 early return,`resolveCartLines` 根本沒被呼叫,
+  //   `resolveFailed` 從頭到尾是 false ⇒ **兩種順序印同一個字**。
+  //   ⇒ 只有「**先失敗、車才變空**」這條路分得出來。而它是**真的走得到的**:
+  //     A1 之後,登出 / 換帳號會把車清成 0 ⇒ 順序寫錯的話,一台空車會一直對客人喊「讀不到」。
+  it('②-A2b2 先失敗、車才變空 ⇒ 仍是 `empty`(空車不得對客人喊「讀不到」)', async () => {
+    setCart([REAL]);
+    resolveMock.mockRejectedValue(new Error('network down'));
+
+    const { result, rerender } = renderHook(() => useResolvedCart());
+    await waitFor(() => expect(result.current.status).toBe('error'));
+
+    setCart([]); // 例:A1 的登出 / 換帳號清車
+    rerender();
+
+    await waitFor(() => expect(result.current.status).toBe('empty'));
+  });
+
+  it('②-A2c 失敗之後下一發成功 ⇒ 回到 `ready`(`error` 描述的是【最新那一發】,不是歷史)', async () => {
+    setCart([REAL]);
+    resolveMock.mockRejectedValueOnce(new Error('network down'));
+
+    const { result, rerender } = renderHook(() => useResolvedCart());
+    await waitFor(() => expect(result.current.status).toBe('error'));
+
+    // 換一車(新的 lineSignature)⇒ 重新發動解析,這次成功。
+    resolveMock.mockResolvedValue([line({ productId: 'real-a' }), line({ productId: 'ghost-b', variantId: 'v-ghost' })]);
+    setCart([REAL, GHOST]);
+    rerender();
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
   });
 
   it('③ server 沒回某一行(查無 ≠ 判定 false)→ 不刪', async () => {

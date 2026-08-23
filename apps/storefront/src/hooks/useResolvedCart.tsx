@@ -33,8 +33,15 @@ export type ResolvedCartLineView = {
 };
 
 export type UseResolvedCart = {
-  /** loading=hydrate前/resolve未跟上;empty=空車或全 stale;ready=可渲染 */
-  status: 'loading' | 'empty' | 'ready';
+  /** loading=hydrate前/resolve未跟上;empty=空車或全 stale;ready=可渲染;
+   *  error=**問不到 server**(A2 補洞窗新增)。
+   *
+   *  🔴 `error` 與 `empty` 分開,是因為它們對客人是**兩件完全不同的事**:
+   *    `empty` = 「你沒有東西」;`error` = 「**你的東西還在,只是我現在讀不到**」。
+   *  在有這一格之前,catch 走 `setResolved([])` ⇒ 客人網路抖一下,整車商品在畫面上**消失**,
+   *  而畫面告訴他的是「購物車是空的」—— 那是**錯的**,他的品項一直好好地在 localStorage 裡。
+   *  (`removeItem` 從來沒被呼叫,見 `useResolvedCart.test.tsx:126` —— 資料層本來就沒事,壞的是顯示層。) */
+  status: 'loading' | 'empty' | 'ready' | 'error';
   lines: ResolvedCartLineView[];
   subtotal: number;
   shipping: number;
@@ -75,6 +82,9 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
   const [resolved, setResolved] = useState<ResolvedCartLine[]>([]);
   // resolved 對應的行集合簽章;!== lineSignature 表示 resolve 尚未跟上(顯載入態)。初值 null 永不等真實簽章。
   const [resolvedSignature, setResolvedSignature] = useState<string | null>(null);
+  // A2:上一發 resolve 是不是掛了。**只由 catch 設 true、由下一發解析出發時設回 false**
+  //   ⇒ 它描述的永遠是「最新那一發」,不是「歷史上曾經失敗過」。
+  const [resolveFailed, setResolveFailed] = useState(false);
 
   // 行集合簽章:只在行集合(productId+variantId)變動時改;qty 變動不改(單價與 qty 無關)。
   const lineSignature = useMemo(
@@ -97,6 +107,7 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
       ...(it.variantId ? { variantId: it.variantId } : {}),
     }));
     let active = true;
+    setResolveFailed(false); // A2:每一發解析出發時先把上一發的失敗清掉
     resolveCartLines(payload)
       .then((lines) => {
         if (!active || seq !== resolveSeq.current) return;
@@ -140,6 +151,8 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
         if (!active || seq !== resolveSeq.current) return;
         setResolved([]);
         setResolvedSignature(lineSignature);
+        // A2:問不到 server ⇒ 記下來,讓畫面說實話(「讀不到」而不是「你沒有東西」)。
+        setResolveFailed(true);
       });
     return () => {
       active = false;
@@ -170,15 +183,20 @@ export function useResolvedCart(method: ShippingMethod = 'home'): UseResolvedCar
   const total = subtotal + shipping;
   const freeShipRemaining = FREE_SHIPPING_THRESHOLD - subtotal;
 
-  const status: 'loading' | 'empty' | 'ready' = !isHydrated
+  // 🔴 `error` 插在 `items.length === 0` **之後**:真的空車就是空車,不因為上一發解析掛了
+  //   而對著一台空車喊「讀不到」。而它排在 `lines.length === 0` **之前** ——
+  //   那一格正是舊行為把失敗吞成 `empty` 的位置。
+  const status: 'loading' | 'empty' | 'ready' | 'error' = !isHydrated
     ? 'loading'
     : items.length === 0
       ? 'empty'
       : resolvedSignature !== lineSignature
         ? 'loading'
-        : lines.length === 0
-          ? 'empty'
-          : 'ready';
+        : resolveFailed
+          ? 'error'
+          : lines.length === 0
+            ? 'empty'
+            : 'ready';
 
   return { status, lines, subtotal, shipping, total, freeShipRemaining };
 }

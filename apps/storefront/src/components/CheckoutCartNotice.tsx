@@ -16,7 +16,10 @@ import { HomeFooter } from '@/components/HomeFooter';
 
 export type CheckoutCartNoticeProps =
   | { variant: 'loading' }
-  | { variant: 'empty'; onContinueShopping: () => void };
+  | { variant: 'empty'; onContinueShopping: () => void }
+  /** A2:問不到 server(≠ 空車)。與 'loading' 同樣沒有 `onContinueShopping` ——
+   *  讀不到的下一步是**重試**,不是去逛街。 */
+  | { variant: 'error' };
 
 export function CheckoutCartNotice(props: CheckoutCartNoticeProps) {
   return (
@@ -24,6 +27,13 @@ export function CheckoutCartNotice(props: CheckoutCartNoticeProps) {
       <Header currentPage="checkout" />
       {props.variant === 'loading' ? (
         <div className="cart-loading">載入結帳資料…</div>
+      ) : props.variant === 'error' ? (
+        // A2:🔴 **不得**沿用「購物車是空的」那段字 —— 客人的品項還在,那樣寫是說謊,
+        //   而在結帳這一步說謊更貴:他可能回頭再加一次、或以為已經下單了。
+        <div className="cart-empty" role="alert">
+          <h2>暫時讀不到你的購物車</h2>
+          <p>你的商品沒有不見,是我們這邊一時讀不到。請重新整理頁面再試一次。</p>
+        </div>
       ) : (
         <div className="cart-empty">
           <h2>購物車是空的</h2>

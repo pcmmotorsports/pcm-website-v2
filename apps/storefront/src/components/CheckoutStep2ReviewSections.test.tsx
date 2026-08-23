@@ -62,6 +62,38 @@ function line(
   };
 }
 
+describe('CheckoutShippingSummary — A6 空狀態(補洞窗)', () => {
+  // 病:沒地址又沒錯誤時,整區只剩標題「收件資料」與一顆「編輯」鈕 —— **整區靜默消失**。
+  // 🔴 三格是一組:空狀態要出 / 有地址時**不准**出 / 有錯誤時**不准**出(那時該讀紅字)。
+  const GUIDE = /還沒有收件資料/;
+
+  it('沒地址、也沒錯誤 ⇒ 出空狀態,而且告訴他下一步按哪裡', () => {
+    render(<CheckoutShippingSummary currentAddr={undefined} shippingLabel="貨運宅配" onEdit={vi.fn()} />);
+    const guide = screen.getByText(GUIDE);
+    expect(guide).toBeTruthy();
+    // 🔴 「下一步做什麼」要真的講出來 —— 只寫「沒有資料」等於把客人丟在那裡。
+    expect(guide.textContent).toContain('編輯');
+  });
+
+  it('負對照:有地址 ⇒ **不准**出空狀態', () => {
+    render(<CheckoutShippingSummary currentAddr={ADDR} shippingLabel="貨運宅配" onEdit={vi.fn()} />);
+    expect(screen.queryByText(GUIDE)).toBeNull();
+  });
+
+  it('負對照:沒地址但有錯誤 ⇒ 出紅字、**不**出空狀態(兩句疊著互相稀釋)', () => {
+    render(
+      <CheckoutShippingSummary
+        currentAddr={undefined}
+        shippingLabel="貨運宅配"
+        onEdit={vi.fn()}
+        shippingError="請選擇收件地址"
+      />,
+    );
+    expect(screen.getByText('請選擇收件地址')).toBeTruthy();
+    expect(screen.queryByText(GUIDE)).toBeNull();
+  });
+});
+
 describe('CheckoutShippingSummary(U2a)', () => {
   it('姓名 / 電話 / 完整地址 / 配送方式 + 編輯鈕 → onEdit', () => {
     const onEdit = vi.fn();
@@ -91,11 +123,23 @@ describe('CheckoutShippingSummary(U2a)', () => {
     expect(container.textContent).not.toContain('...');
   });
 
-  it('currentAddr undefined → 不渲染 body(區塊頭與編輯鈕仍在)', () => {
+  // 🔴 **A6 改了這一格的期望值。四問的答案:**
+  //   Q1 不提新實作講得完嗎 ⇒ **講得完**。寫入它的那顆是 `6443a8ef`(2026-07-22)
+  //      `refactor(storefront): 抽出結帳複查區塊`,commit body 逐字「**純 presentational extraction:
+  //      props / handler 契約、DOM 語意、CSS 全部不變**」+「畫面不變的證據…96 組 props 組合比對 innerHTML」
+  //      ⇒ 它釘的是「**抽檔前後長得一樣**」,不是「**客人這時候該看到空白**」。
+  //   Q2 規格還是快照 ⇒ **快照**(見上;一顆 refactor commit 不會順便決定產品行為)。
+  //   Q3 通過集合 ⇒ **平移**:`.co-review-body` 為 null → `.co-review-body` 存在且**含指引字**。
+  //      不是放寬(沒有改成 `toBeTruthy` / 沒有刪掉斷言);舊行為餵回去必紅(見 A6 突變表)。
+  //   Q4 承重斷言 ⇒ **下面那行「編輯鈕仍在」一字未動、仍綠**。那才是這一格真正在守的東西:
+  //      **區塊頭與唯一的出口鈕不得跟著消失**。
+  it('currentAddr undefined → body 仍在、且給出下一步指引(區塊頭與編輯鈕仍在)', () => {
     const { container } = render(
       <CheckoutShippingSummary currentAddr={undefined} shippingLabel="貨運宅配" onEdit={vi.fn()} />,
     );
-    expect(container.querySelector('.co-review-body')).toBeNull();
+    const body = container.querySelector('.co-review-body');
+    expect(body).not.toBeNull();
+    expect(body!.textContent).toContain('還沒有收件資料');
     expect(screen.getByRole('button', { name: '編輯' })).toBeTruthy();
   });
 });

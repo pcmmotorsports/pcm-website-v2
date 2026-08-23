@@ -15,7 +15,7 @@
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { MockProduct } from '@/data/mock-products';
-import { useCart } from '@/contexts/CartContext';
+import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
 import { Price } from './Price';
@@ -57,12 +57,18 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
   const { addItem } = useCart();
   // Q2=A(Sean 2026-08-08):加購回饋做在鈕本身、1.5 秒後復原。存**時間戳**而非布林——
   // 布林在連點時第二次 setState 值沒變 ⇒ effect 不重跑 ⇒ 計時器不重置、第二次的回饋會提早消失。
-  const [addedAt, setAddedAt] = useState<number | null>(null);
+  // 🔴 N4(2026-08-24):回饋改成**兩態** —— 真的加進去了 / 因為上限一件都沒進去。
+  //   病:車上已 99 再按這顆 ⇒ **零件進車**,而鈕照樣閃「✓ 已加入」1.5 秒
+  //   ⇒ 與 `#883` 的 `/logout`「您已登出」同族:**一句斷言它沒有造成的事**。
+  //   🔴 Sean 2026-08-23 拍的是「不要靜默夾」,而在這之前**他的拍板只落到了桌機商品頁**。
+  //   ⚠️ 仍然存**時間戳**(見上面 Q2=A 那段的理由:布林在連點時值沒變 ⇒ effect 不重跑、計時器不重置)——
+  //     這裡改用物件,每次點擊都是**新的物件身分** ⇒ 那個性質原封保留。
+  const [feedback, setFeedback] = useState<{ at: number; dropped: number } | null>(null);
   useEffect(() => {
-    if (addedAt === null) return;
-    const t = setTimeout(() => setAddedAt(null), 1500);
+    if (feedback === null) return;
+    const t = setTimeout(() => setFeedback(null), 1500);
     return () => clearTimeout(t);
-  }, [addedAt]);
+  }, [feedback]);
 
   /**
    * 快速加購(2026-08-08 接線;在此之前 onClick 只有 preventDefault+stopPropagation = 佔位空殼,
@@ -110,12 +116,14 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
     // 🔴 **刻意不帶 `variantId`**:能走到這一行就代表 `variantCount === 0`(有規格的在上面已導頁),
     //   line key 照契約退回 `productId`。原本這裡寫 `p.variants?.[0]?.id` —— 導頁分支落地後那是死碼
     //   (到得了這裡就保證無變體),留著只會讓下一個人以為卡片有能力選變體、而它沒有。
-    addItem({
+    // N4:`addItem` 回傳「因為上限被夾掉幾件」(算法住共用層 `CartContext`)——
+    //   卡片上沒有數量概念、也沒有放提示的位子,所以這件事**由鈕本身的字面講**。
+    const dropped = addItem({
       productId: p.slug,
       qty: 1,
       ...(vehicle ? { vehicle } : {}),
     });
-    setAddedAt(Date.now());
+    setFeedback({ at: Date.now(), dropped });
   };
 
   const badge: ReactNode = (() => {
@@ -180,7 +188,15 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
             onClick={quickAdd}
           >
             {/* 字面必須符合行為(主視窗裁定:這是正確性不是文案調性)——有規格時這顆鈕會導頁、不加購 */}
-            {quickLabel ?? (addedAt !== null ? '✓ 已加入' : '+ 加入購物車')}
+            {/* N4:三態 —— 沒按過 / 真的加進去了 / 撞到上限一件都沒進去。
+                ⚠️ `已達上限 ${MAX_QTY}` 是**新的客人可見字面**,目前是【工作字面】、待 Sean 定字
+                   (它擠在一顆卡片按鈕裡,不是一整列 —— 挑字要知道這件事)。 */}
+            {quickLabel ??
+              (feedback === null
+                ? '+ 加入購物車'
+                : feedback.dropped > 0
+                  ? `已達上限 ${MAX_QTY}`
+                  : '✓ 已加入')}
           </button>
         </div>
       </div>

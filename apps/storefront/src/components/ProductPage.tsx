@@ -22,7 +22,7 @@ import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { readSearchVehicle } from '@/lib/search-vehicle';
-import { useCart } from '@/contexts/CartContext';
+import { useCart, overLimitMessage } from '@/contexts/CartContext';
 import { CartQtyInput } from './CartQtyInput';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
@@ -165,6 +165,13 @@ export function ProductPage({
     items.find((it) => it.productId === mobileLineKey.productId && it.variantId === mobileLineKey.variantId)
       ?.qty ?? 1;
 
+  // 🔴 N4(2026-08-24):手機 sticky 買價列的**上限提示**。
+  //   病:車上已 99 再按「加入購物車」⇒ **一件都沒進去**,而滑出面板照樣寫「已加入・數量 99」
+  //   ⇒ 與 `#883` 的 `/logout`「您已登出」同族:**一句斷言它沒有造成的事**。
+  //   🔴 而 Sean 2026-08-23 拍的是「不要靜默夾」—— 在這之前**他的拍板只落到了桌機**。
+  //   字面與「夾掉幾件」都來自共用層(`CartContext`),這裡只負責顯示。
+  const [mobileOverLimit, setMobileOverLimit] = useState<string | null>(null);
+
   const addToCart = () => {
     // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
     // (Codex M-1-13e-b review P1:不用 mock-only product.id:number)
@@ -175,7 +182,7 @@ export function ProductPage({
     // V-2h/MF-4:sticky buybar 加購亦帶車款(讀選車 context=與 ProductInfo.addToCart 共用 readSearchVehicle
     //   單一來源;修「不同入口加購車款有無不一致」)。名稱不齊=零猜不帶。
     const vehicle = readSearchVehicle();
-    addItem({
+    const dropped = addItem({
       productId: product.slug,
       qty: 1,
       variantId: selectedVariant?.id,
@@ -183,7 +190,12 @@ export function ProductPage({
     });
     // F-81:加購那一刻就已經真的加進去了(qty=1),滑出這一列只是讓客人事後調整,
     // 不是「打開才算數」——不改數量的人不用再多按一下。
-    setShowMobileQtyPanel(true);
+    // 🔴 N4:**而「真的加進去了」有一個它沒說的前提** —— 車上已滿時 `addItem` 一件都沒放進去。
+    //   那一刻不該說「已加入」⇒ 面板只在**真的進去了**才滑出。
+    setShowMobileQtyPanel(dropped === 0);
+    // 🔴 `null` 那半是承重的:先撞到上限、再把數量調下來重按而這次進去了 ⇒ 舊那句必須**當場收掉**,
+    //   否則常駐的提示會停在畫面上變成過期的話(與桌機 `ProductInfo` 的 else 那半同理)。
+    setMobileOverLimit(overLimitMessage(dropped));
   };
 
   // 2026-08-21 F-81 修:手機 sticky buybar 的「立即購買」原本掛的是 addToCart(同一個
@@ -283,6 +295,14 @@ export function ProductPage({
           tag 對齊 design、但價格未真經銷化(對齊 ProductInfo pd-price-block 同樣偏離、
           backlog #161 追、M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分)。 */}
       <div className="pd-mbb-wrap">
+        {/* 🔴 N4:與桌機唸同一句(`overLimitMessage`)、共用桌機那兩個 class 的視覺
+            (Sean 2026-08-23 拍甲的常駐提示:暖底 + 警示槓)。`role="status"` ⇒ 讀螢幕的人也會被念到。
+            排在面板與購買列**之上**:它是對「剛剛按下去發生了什麼」的回答,讀的順序要在動作旁邊。 */}
+        {mobileOverLimit && (
+          <div className="pd-added-notice pd-over-limit-notice pd-mbb-notice" role="status">
+            {mobileOverLimit}
+          </div>
+        )}
         {showMobileQtyPanel && (
           <div className="pd-mbb-qty-panel" role="region" aria-label="已加入購物車,調整數量">
             <span className="pd-mbb-qty-label">已加入・數量</span>

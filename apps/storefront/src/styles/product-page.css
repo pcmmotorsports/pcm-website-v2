@@ -558,6 +558,56 @@
   padding: 3px 8px; z-index: 1;
 }
 
+/* A3:加入購物車的回饋字(補洞窗)。手機列那條是滑出的整列,桌機這裡只需要一行字 ——
+   `.pd-buy-row` 下方、`.pd-buynow-btn` 上方,`margin-bottom` 對齊 `.pd-buy-row` 的 10px。
+   ⚠️ 這條**不設 `display:none` 的 media query**,而本元素跟著 `addedToCart` 走 ——
+   手機根本按不到桌機那顆按鈕,所以它在手機恆為 false、不會冒出來。
+   🔴 **2026-08-24 MF3:上一版這裡寫的【理由】是錯的(結論對)。**
+   ~~「`.pd-buy-row` 在 ≤1079 被隱藏」~~ —— 當場讀 :2096-2098,那條列在手機是
+   `display: flex !important`(2026-08-18 Q3 把收藏鈕放回手機時改的),真正被隱藏的是
+   它裡面的 `.pd-qty` 與 **`.pd-add-btn`**(:2097-2098)、以及 `.pd-buynow-btn`(:2088)。
+   📌 形狀:**結論對而理由過期** —— 那句話在它被寫下的當天是真的,是後來 Q3 那一改讓它變假的,
+      而**沒有任何東西會因此變紅**。下一個照這句去推「整條列在手機不存在」的人會推錯。 */
+.pd-added-notice {
+  margin-bottom: 10px;
+  font-size: 13px; font-weight: 500; color: var(--c-text);
+  background: var(--c-surface-2); border-left: 3px solid var(--c-red);
+  padding: 8px 12px;
+}
+
+/* 🔴 A5 常駐版的警示色(Sean 2026-08-23 拍甲:那句改常駐)。
+   與 `.pd-added-notice` 共用排版(同款 padding / 字級 / 左側槓),只換顏色語意 ——
+   ⚠️ 兩句現在會**同時出現**,而它們必須一眼分得出是兩件事:
+     「已加入」= 中性(灰底、動作色槓)   /   「少加了 N 件」= 警示(暖底、警示槓)
+   而順序是「已加入」在上、「少加了」在下:後者是前者的修正,讀的順序要對。
+   🔴 顏色用既有 token,不新增色票(本頁無設計稿,色票依全站規則外推 —— 同 `.pd-add-btn` 那段的處置)。 */
+/* 🔴🔴 **2026-08-23 R1 must-fix:上面那段註解描述的視覺,碼【給不出來】。**
+   ~~`background: var(--c-surface)` / `border-left-color: var(--c-text)`~~ ——
+   當場量 `tokens.css`:
+     --c-surface  = #ffffff  ⇒ **與 --c-bg #ffffff 同值** ⇒ 這句「警示」整塊【沒有底】
+     --c-text     = #121214  ⇒ 近黑的槓,比中性那句的熔橘槓還低調
+   ⇒ **警示那句比中性那句還不顯眼**,而 Sean 拍它常駐的理由就是「客人要看得到」。
+   📌 形狀:**註解描述了一個【視覺意圖】,而碼給的值達不到那個意圖** ——
+      兩者都不會報錯,**只有真的看畫面(或當場量 token 值)才分得出來**。
+
+   改用既有 token(仍不新增色票),而每一格都附量測:
+     background        --c-red-soft #fdeadd  熔橘淡底;與頁底 #ffffff 對比 1.17
+                       (對照:中性那句的 #f3f3f4 對頁底只有 1.11 ⇒ 這句現在【比它明顯】)
+     border-left-color --c-red-dark #c4470c  深熔橘警示槓
+     color             **不改**,維持 --c-text #121214 ⇒ 在 #fdeadd 上對比 **16.03**
+   🔴 **為什麼文字不跟著改成 --c-red-dark**(那是站上既有寫法,見 `cart-vehicle.css:49-50`):
+      實測 #c4470c on #fdeadd = **4.23**,**低於 WCAG AA 的 4.5** ⇒ 照抄會抄一個對比失敗。
+   ⚠️ **已知限度**:`--c-red-soft` 在 `tokens.css` 的深色模式段**沒有覆寫**(它會維持淺色),
+      而 `--c-text` 有(#fafafa)⇒ 若哪天開了深色模式,這一格會是淺底淺字。
+      今天到不了那個世界:`grep -rn 'data-theme' apps/storefront/src`(排除測試)⇒ **零命中**
+      (負對照:同尺量 `data-mobile` ⇒ 命中 2 支 ⇒ 尺是活的)。
+      🔴 而**站上已有兩處是同款情形**(`cart-vehicle.css:50` / `product-page.css:2118`)——
+      開深色模式的人要一起處理,**這一格不是新債,但它會加一筆**。 */
+.pd-over-limit-notice {
+  background: var(--c-red-soft);
+  border-left-color: var(--c-red-dark);
+}
+
 /* 🔴 加入購物車改品牌動作色(Sean 2026-07-08 拍板整頁熱血點綴、override OD §5 黑底):
    ⚠️ 2026-08-05 第0批 0c 把那顆由**賽車紅** `#dc2626` 換成**熔橘** `#f26722`(`D-105-A` Q2=A 放行,
    本頁無設計稿、色票依全站規則外推)。以下「紅」字是歷史用詞,實際顏色以 token 為準。
@@ -2002,6 +2052,13 @@
   border-top: 1px solid var(--c-border);
 }
 .pd-mbb-qty-label { font-size: 13px; font-weight: 600; color: var(--c-text); }
+
+/* 🔴 N4(2026-08-24):手機 sticky 買價列的上限提示 —— **不新增視覺,借桌機那兩個 class**
+   (`.pd-added-notice` 的排版 + `.pd-over-limit-notice` 的暖底警示槓,Sean 2026-08-23 拍甲那一套)。
+   這裡只收掉一件事:桌機那條的 `margin-bottom: 10px`。
+   理由:`.pd-mbb-wrap` 是**貼在畫面底部的 fixed flex column**,留著那 10px 會在提示與購買列之間
+   漏出一道背景 —— 桌機那個值是為了對齊 `.pd-buy-row` 而挑的,**它把它原本情境的假設帶了過來**。 */
+.pd-mbb-notice { margin-bottom: 0; }
 
 /* ===================================================================
    FAQ accordion(OD §10、N°04 ProductFAQ)— 原生 <details> 純 CSS 手風琴、+→× 旋轉
