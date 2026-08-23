@@ -41,6 +41,7 @@ import { getAddressRepo, getVehicleRepo, getOrderRepo, getFavoritesRepo } from '
 import { AccountView } from '@/components/account/AccountView';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
+import { toMemberTier } from '@pcm/domain';
 import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem, FavoriteListItem } from '@pcm/domain';
 
 export const dynamic = 'force-dynamic';
@@ -78,7 +79,14 @@ export default async function AccountPage() {
     console.error('[account/page] customers row 讀取失敗、退化 general/0/metadata-name:', customerError);
   } else if (customerRow) {
     // DB enum member_tier ('general'|'store'|'premiumStore') 與 MemberTier TS type 字面一致(migration L8 + L32-33)
-    tier = customerRow.tier as MemberTier;
+    // 🔴 `#873` 同款(派工單只點名 checkout,而**這裡是同一個病的第二個現場**):
+    //    裸 cast ⇒ DB enum 多一個值就把 TS 不認得的字串放進 tier。
+    //    退化方向照 `lib/tier.ts` 拍板:只准往下、不得回經銷 tier;而且不得靜默。
+    const parsedTier = toMemberTier(customerRow.tier);
+    if (parsedTier === null) {
+      console.error('[account/page] customers.tier 是本版不認得的值、退化 general:', customerRow.tier);
+    }
+    tier = parsedTier ?? 'general';
     walletBalance = customerRow.wallet_balance;
     // Q4=A:customers.name 為主、空字串退化 user_metadata.name(極罕、trigger 應已同步)
     name = customerRow.name || metadataName;

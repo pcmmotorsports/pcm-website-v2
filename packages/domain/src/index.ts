@@ -38,7 +38,7 @@ export type { CarrierCode } from './order/carrier-label';
 export { ADMIN_CUSTOMER_SORT_KEYS } from './identity/types';
 export { resolveEnd, matchFitmentYear, isYearUnrestricted } from './catalog/year-range';
 export { computeEffectivePrice } from './catalog/pricing';
-export { designTierToSchema, schemaTierToDesign } from './shared/utils';
+export { designTierToSchema, schemaTierToDesign, toMemberTier } from './shared/utils';
 export { AuthError } from './identity/auth';
 // 會員子資源歸屬錯誤(M-1-14e、#176:統一 ownership use-case typed error、取代 plain Error)
 export type { NotOwnedResource } from './identity/ownership';

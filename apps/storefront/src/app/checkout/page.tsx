@@ -32,6 +32,7 @@ import {
   isCheckoutNotificationEmailEnabled,
 } from '@/lib/email/notification-email-gate';
 import { CheckoutView } from '@/components/CheckoutView';
+import { toMemberTier } from '@pcm/domain';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 
 export const dynamic = 'force-dynamic';
@@ -70,8 +71,20 @@ export default async function CheckoutRoute() {
   } else if (customerRow) {
     // name SoT:customers.name 為主、user_metadata.name 退化(對齊 account/page.tsx)。
     memberName = customerRow.name || memberName;
-    // DB enum member_tier 與 MemberTier TS 字面一致(階段① 顯示用、價格仍 general-only)。
-    memberTier = customerRow.tier as MemberTier;
+    // 🔴 `#873`:這裡原本是 `customerRow.tier as MemberTier` **裸 cast**。
+    //    DB 的 enum 多一個值時,那個 cast **不會報錯,它會安靜地過** ⇒ 一個 TS 不認得的字串
+    //    一路流到 `TierBadge` → `schemaTierToDesign` 的 exhaustive `default:` ⇒ **throw TypeError**。
+    //    📏 **實測**(`components/CheckoutSummaryAside.test.tsx`,2026-08-24):
+    //       餵未知 tier ⇒ `TypeError: schemaTierToDesign: unreachable tier …` **在 render 當下丟出**
+    //       ⇒ **那位客人結不了帳。而編譯是綠的。**
+    //    ⇒ 退化方向照 `lib/tier.ts` 的既有拍板:**只准往下,任何不確定都回 general,不得回經銷 tier**。
+    const parsedTier = toMemberTier(customerRow.tier);
+    if (parsedTier === null) {
+      // 🔴 **不得靜默** —— 同 `lib/tier.ts` 的 codex R2 nit:enum 漂移會無聲把經銷會員降級,
+      //    降級方向是對的,但它不該安靜。這一行是它唯一的可觀測形態。
+      console.error('[checkout/page] customers.tier 是本版不認得的值、退化 general:', customerRow.tier);
+    }
+    memberTier = parsedTier ?? 'general';
   }
   if (!memberName) memberName = 'PCM 會員'; // 防 LINE 合成 email 等空名
 

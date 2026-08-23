@@ -11,8 +11,11 @@
  * 對齊 lessons-learned.md §12-5 + working-style.md 第 15 條三層字面對應教訓。
  *
  * 跨 package re-export 規則:domain/src/index.ts 必加具名
- * `export { designTierToSchema, schemaTierToDesign }`(對齊 ADR-0003 §3.1.1
+ * `export { designTierToSchema, schemaTierToDesign, toMemberTier }`(對齊 ADR-0003 §3.1.1
  * runtime helper 規則、避免 M-1-02 toMoneyAmount typecheck fail 同類踩坑)。
+ * ⚠️ ~~原本這裡只列兩個~~ —— **本檔新增函式時,這一行要跟著改**:
+ *    照它補的人會漏掉沒列出來的那個,而 `index.ts` 少一行 export **不會有任何東西紅**
+ *    (它只在有人 import 那個名字的那一刻才炸)。
  *
  * @see docs/lessons-learned.md §12-5
  * @see docs/working-style.md §6.3 第 15 條
@@ -53,6 +56,34 @@ export function designTierToSchema(design: string): MemberTier {
         `designTierToSchema: invalid tier ${JSON.stringify(design)}, expected 'general' | 'store' | 'premium_store'`,
       );
   }
+}
+
+/**
+ * 把**來源不可信的值**(DB 讀出來的 `customers.tier`、外部 API、JSON)收斂成 `MemberTier`。
+ * 認不得就回 `null` —— **不 throw**。
+ *
+ * 🔴 **為什麼它與 `designTierToSchema` / `schemaTierToDesign` 的處置相反(那兩支 throw)**:
+ *    那兩支的輸入是**程式自己**產生的(已經是 `MemberTier` 或 design 字面)⇒ 到不了 `default` 就是 bug
+ *    ⇒ **大聲炸掉是對的**。而本支的輸入是**信任邊界外面**來的
+ *    ⇒ 它拿到不認得的值是**正常會發生的事**(DB 的 enum 多一個值就會),不是 bug。
+ *    ⚠️ **不要把這支拿去「簡化」那兩支** —— 三支的輸入來源不同,處置本來就該不同。
+ *
+ * 🔴 **`#873`:它存在的理由是一個真的缺陷,不是防禦性編程。**
+ *    2026-08-24 實測(`apps/storefront/src/components/CheckoutSummaryAside.test.tsx`):
+ *    餵一個 DB 有、TS 不認得的 tier 進結帳頁 ⇒
+ *    `TypeError: schemaTierToDesign: unreachable tier …` **在 render 當下丟出**。
+ *    ⇒ 那位客人的結帳頁掛掉,**他結不了帳**。而 `as MemberTier` 裸 cast **編譯照樣綠**。
+ *
+ * ⚠️ **退化方向由呼叫端決定,而本 repo 已有拍板**:
+ *    `apps/storefront/src/lib/tier.ts` 逐字「**退化方向只准往下** —— 任何不確定都回 `'general'`,
+ *    **不得回經銷 tier**」。⇒ 呼叫端拿到 `null` 時請照那條走,並**留一行 log**(同檔 codex R2 nit:
+ *    「enum 漂移/版本落後會**無聲把一個經銷會員降級**。降級方向是對的,但它不該安靜」)。
+ *
+ * 📌 已知重複:`apps/storefront/src/lib/tier.ts` 有一支同義的私有 `toSchemaTier`。
+ *    **本片沒有合併它** —— 那支檔當下正被 `#215` 那條線改著。合併是它收工之後的事。
+ */
+export function toMemberTier(raw: unknown): MemberTier | null {
+  return raw === 'general' || raw === 'store' || raw === 'premiumStore' ? raw : null;
 }
 
 /**
