@@ -152,8 +152,29 @@ describe(`production 原始碼不得碰 \`${COOKIE}\` cookie(reader 與 writer �
     for (const e of ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts']) {
       expect(EXTS, `舊守門掃 ${e} 而本檔沒有 ⇒ 掃描面縮水`).toContain(e);
     }
-    // ✅ 而它不是理論上的空集合:同一組掃描根底下真的有非 .ts/.tsx 的檔
-    const nonTs = files.filter((f) => !/\.tsx?$/.test(f));
-    expect(nonTs.length, '一支非 .ts/.tsx 都掃不到 ⇒ 上面那圈斷言沒有判別力').toBeGreaterThan(0);
+    // 🔴🔴 **2026-08-24 更正:原本這裡斷言「同一組掃描根底下真的有非 .ts/.tsx 的檔」**
+    //    —— 而那個對照組**靠的是一支沒有進版控的實驗檔**:
+    //       `packages/adapters/scripts/spikes/M-1-05-postgrest-view-join.mjs`
+    //    ⇒ 本機永遠綠(那支檔在某個人的樹上)、**CI 永遠紅**(乾淨 checkout 沒有它)。
+    //    ⇒ 那不是「差集不是空的」,是「**我的樹上剛好有垃圾**」。
+    //
+    // 🔴 判別句(這一格真正該記的):
+    //    **一個對照組若依賴【未進版控的東西】,它在兩台機器上會給出相反的答案 ——
+    //      而兩邊都不會告訴你它依賴了什麼。**
+    //
+    // ⇒ 改成驗**這支守門自己的能力**,而不是驗**這棵樹碰巧有什麼**:
+    //    餵一個假的 `.mjs` 路徑進 EXTS 判定 ⇒ 它必須認得;
+    //    餵一個不在名單上的副檔名 ⇒ 它必須不認得(負對照,否則「全部都認」也會過)。
+    const extMatches = (p: string) => EXTS.some((x) => p.endsWith(x));
+    for (const e of EXTS) {
+      expect(extMatches(`zzz/fake${e}`), `EXTS 含 ${e} 而判定認不得它 ⇒ 掃描面名存實亡`).toBe(true);
+    }
+    // 🔴 負對照:不在名單上的副檔名必須【不】命中 —— 少了它,一個「永遠回 true」的判定也會過。
+    for (const e of ['.css', '.json', '.md', '.py']) {
+      expect(extMatches(`zzz/fake${e}`), `${e} 不在 EXTS 而判定認得它 ⇒ 掃描面比宣稱寬`).toBe(false);
+    }
+    // ⚠️ **天花板**:本格證明的是「EXTS 這份名單真的被拿去比對」,
+    //    **不證明**「這棵樹上真的有那些副檔名的檔」—— 後者不是這支守門該負責的事,
+    //    而它上一版試圖證明後者,結果證明的是「我的樹上有垃圾」。
   });
 });
