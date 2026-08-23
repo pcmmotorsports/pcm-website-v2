@@ -50,6 +50,10 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' > "$FX/20210104000000_r2_midcommit.sql"
   printf 'BEGIN;\nROLLBACK;\nSELECT 2;\nCOMMIT;\n' > "$FX/20210105000000_r2_midrollback.sql"
   printf 'BEGIN;\nDO $x$ BEGIN NULL; END $x$;\nCOMMIT;\n-- 尾註\n' > "$FX/20210106000000_r2_plpgsql_end.sql"
+  # ── 單引號字串那三格(2026-08-23);第一格是【真實形狀】,不是造出來的邊角 ──
+  printf 'BEGIN;\nCOMMENT ON TABLE public.t IS %s;\nCOMMIT;\n' "'a/**b**c'" > "$FX/20210107000000_r2_slash_star_in_string.sql"
+  printf 'BEGIN;\nCOMMENT ON TABLE public.t IS %s;\nCOMMIT;\n' "'x BEGIN; SELECT 1; COMMIT; y'" > "$FX/20210108000000_r2_commit_in_string.sql"
+  printf 'BEGIN;\nSELECT %s;\nCOMMIT;\n' "'it''s'" > "$FX/20210109000000_r2_doubled_quote.sql"
   fail=0; n=0
   check() { # $1 fixture  $2 須命中的字面  $3 不得命中的字面(可空)  $4 案名
     local out; out="$(bash "$SELF" "$FX/$1" 2>&1)"; n=$((n+1))
@@ -78,6 +82,9 @@ if [ "${1:-}" = "--selftest" ]; then
   check 20210104000000_r2_midcommit.sql        '命中 2 次'          ''          '規則②:同一行 select 1; commit; ⇒ 紅'
   check 20210105000000_r2_midrollback.sql      '命中 2 次'          ''          '規則②:中段 ROLLBACK ⇒ 紅'
   check 20210106000000_r2_plpgsql_end.sql      '恰好 1 次'          '🔴'        '規則②:plpgsql 的 END; 在 dollar-quote 裡 ⇒ 不得誤報'
+  check 20210107000000_r2_slash_star_in_string.sql '恰好 1 次' '🔴' '單引號字串裡的 /** 粗體 ⇒ 不得打開區塊註解吃掉檔尾的 COMMIT'
+  check 20210108000000_r2_commit_in_string.sql     '恰好 1 次' '🔴' '單引號字串裡的 COMMIT; ⇒ 是文字不是碼,不得被算成中段結束交易'
+  check 20210109000000_r2_doubled_quote.sql        '恰好 1 次' '🔴' "SQL 的 '' 跳脫 ⇒ 字串要收在正確位置,不得往後吃"
   # ── 多檔那段的證人:一乾淨 + 一違規,順序【違規在後】(被忽略的就是後面那些)──
   n=$((n+1))
   if bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210104000000_r2_midcommit.sql" >/dev/null 2>&1; then
@@ -130,8 +137,22 @@ RC=0
 #    · 反過來「先剝 `--` 再剝區塊」一樣錯:`/* 備註 -- 說明 */` 同一行會把 `*/` 砍掉 ⇒ 區塊永不關閉
 #      (真資料實測 0 行,但 fixture 釘住它)。⇒ 唯一對的做法是誰先出現誰算數。
 #    行數守恆:每一行照印(被剝的部分變空),行號不漂。⚠️ 跨行單引號字串不剝(已知限度)。
+# 🔴 第四種「不是 code 的東西」= 單引號字串(2026-08-23 加;原版檔頭自陳「跨行單引號字串不剝」)。
+#    加它的動機**不是清乾淨,是它會咬未來**:本 repo 的 `COMMENT ON … IS '…'` 慣用 `**粗體**`,
+#    只要粗體前面剛好接一個 `/`,那兩個字元就是 `/*` ⇒ 掃描器在**字串裡面**打開了一個區塊註解,
+#    然後一路吃到檔尾。實錘:`20260811060000_…_claim_returns_superseded_at.sql:208`
+#      '… settle_attempt_count/**superseded_at**(原本三欄)…'
+#    ⇒ 第 387 行**行首的真 COMMIT;** 被吃掉 ⇒ 規則② 回報「命中 0 次」,而那支檔是照規矩寫的。
+#    另一半同族:`20260807230000_…:352` 的 `'BEGIN; … COMMIT;。'` 整句在字串裡 ⇒ 被算成中段 COMMIT。
+#    ⇒ 現有形狀 4/212(粗尺 `grep -lE "'[^']*/\*"`;負對照量一個編造字串 ⇒ 0)。
+# 🔴 `''`(SQL 的跳脫寫法)不必特判:掃描器在第一個 `'` 收尾、下一個字元又是 `'` ⇒ 立刻重開,
+#    整段字串照樣被吃完、狀態照樣回到 code。`'it''s'` 實測收在正確的位置。
+# ⚠️ 已知限度不變:`E'…\'…'` 這種**反斜線**跳脫會提早收尾。本 repo 6 支檔有 `\'`,
+#    而它們全都在 dollar-quote 的函式體裡(dollar 先命中)⇒ 掃描器碰不到。**這是量到的,不是推的**;
+#    真正的判準是全量前後比對:**由綠轉紅 = 0**(見 commit body 的數字)。
 strip_sql() {
   awk '
+    BEGIN { Q = sprintf("%c", 39) }
     {
       line = $0; out = ""
       while (length(line) > 0) {
@@ -141,16 +162,22 @@ strip_sql() {
         } else if (state == "block") {
           i = index(line, "*/")
           if (i > 0) { line = substr(line, i + 2); state = "" } else { line = "" }
+        } else if (state == "squote") {
+          i = index(line, Q)
+          if (i > 0) { line = substr(line, i + 1); state = "" } else { line = "" }
         } else {
           pd = index(line, "--"); pb = index(line, "/*")
           pq = match(line, /\$[A-Za-z_0-9]*\$/) ? RSTART : 0; ql = RLENGTH
+          ps = index(line, Q)
           best = 0
           if (pd > 0) best = pd
           if (pb > 0 && (best == 0 || pb < best)) best = pb
           if (pq > 0 && (best == 0 || pq < best)) best = pq
+          if (ps > 0 && (best == 0 || ps < best)) best = ps
           if (best == 0) { out = out line; line = "" }
           else if (best == pd) { out = out substr(line, 1, pd - 1); line = "" }
           else if (best == pb) { out = out substr(line, 1, pb - 1); line = substr(line, pb + 2); state = "block" }
+          else if (best == ps) { out = out substr(line, 1, ps - 1); line = substr(line, ps + 1); state = "squote" }
           else { out = out substr(line, 1, pq - 1); tag = substr(line, pq, ql); line = substr(line, pq + ql); state = "dollar" }
         }
       }
