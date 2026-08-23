@@ -1,3 +1,4 @@
+import { narrowMemberTier } from './member-tier';
 import type { Customer, AdminCustomerSummary } from '@pcm/domain';
 import type { Database } from '../database.types';
 
@@ -35,7 +36,8 @@ export function mapSupabaseCustomerToDomain(row: SupabaseCustomerRow): Customer 
     name: row.name,
     phone: row.phone ?? '',
     birthday: row.birthday,
-    tier: row.tier,
+    // 🔴 `#879`:runtime 收窄(生成型別新鮮度不保證,見 `./member-tier`)。
+    tier: narrowMemberTier(row.tier, 'mappers/customer.mapSupabaseCustomerToDomain'),
     walletBalance: row.wallet_balance,
     totalDeposit: row.total_deposit,
     createdAt: row.created_at,
@@ -84,7 +86,8 @@ export function mapSupabaseAdminCustomerRowToSummary(
     name: row.name,
     email: row.email,
     phone: row.phone,
-    tier: row.tier,
+    // 🔴 `#879`:同上。這一路流向 admin 客戶列表的 `Record<MemberTier, …>` 查表。
+    tier: narrowMemberTier(row.tier, 'mappers/customer.adminCustomerRow'),
     createdAt: row.created_at,
     // 🔴 三欄來自 `admin_customer_list_v`(不是 `customers` 表)。
     //    `count`/`sum` 在 PG 回 bigint ⇒ PostgREST 送 JSON number ⇒ 這裡是 number。

@@ -19,6 +19,7 @@ import type {
   PaymentChannel,
 } from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
+import { narrowMemberTier } from './member-tier';
 import type { Database } from '../database.types';
 import {
   mapSupabaseOrderNoteRowsToProjection,
@@ -379,7 +380,9 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     displayPosition: row.display_position,
     cancelledAt: row.cancelled_at,
     // (D-2 起不攜 orders.workflow_status/version:per-item 真相在 lines[]、整單=顯示端彙總。)
-    tierAtCheckout: row.tier_at_checkout, // M-4a Slice D-1a:會員等級(member_tier enum;顯示端映射一般/車行)
+    // 🔴 `#879`:runtime 收窄。⚠️ **正下方那句拍板(走 narrowInvoiceStatus、不是裸 as)講的正是這件事**,
+    //    而這一行在它旁邊躺了一段時間 —— 「同檔同欄兩種硬度」的第二個實例。
+    tierAtCheckout: narrowMemberTier(row.tier_at_checkout, 'mappers/order.tierAtCheckout'), // M-4a Slice D-1a:會員等級
     // A9c:開票紀錄三態。🔴 **走 `narrowInvoiceStatus`、不是裸 `as`**(關卡2 抓到):同一欄在明細側
     // (`:710`)本來就用這支,裸 `as` 會讓同檔同欄出現兩種硬度。generated type 是 `string`
     // ⇒ CHECK 日後放寬或出現第四值時,裸 `as` 會把界外字串當成 enum 傳給 A11a-5 的查表(取到 undefined)。
