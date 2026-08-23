@@ -19343,3 +19343,56 @@ scripts/admin-probe/up.sh:211       cp "$SP/proxy.py" ✅ 不是這形狀:cp 的
 
 ### 判別句
 > **我這條命令鏈裡,哪一步可能 abort?它 abort 之後,下一步還會不會跑?** 會 ⇒ 那下一步就是偽裝現場的人。
+
+---
+
+## 🧩 驗「這個東西存在嗎」時,**建立處與呼叫處的寫法可以不同** —— 拿呼叫處的字面去搜建立處會得到一個乾淨的假零
+
+**來源**:2026-08-23 R3 審查窗(Fable)自己接住的一發假警報。**它沒有發出去,而它已經寫好了。**
+
+### 事發經過(逐字可重跑)
+```
+#858 的 migration 呼叫  public.m3_jsonb_values_all_string(...)
+第一發驗它存在:
+  grep -rlE "CREATE (OR REPLACE )?FUNCTION public\.m3_jsonb_values_all_string" supabase/migrations/*.sql
+  ⇒ 0 命中
+```
+🔴 **而審查者當下手上已經有一個很漂亮的 must-fix**:
+> 「`#858` 呼叫一支 repo 內不存在的函式,而 `apply` 會是綠的(plpgsql 到執行期才解析)」
+
+**那個 finding 有完整的因果、有可怕的後果、有一個乾淨的 0 —— 而它是假的。**
+
+### 真相
+```
+放寬前綴重掃:
+  grep -rlE "CREATE (OR REPLACE )?FUNCTION (public\.)?m3_jsonb_values_all_string" supabase/migrations/*.sql
+  ⇒ supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql
+  該檔 :73 逐字:CREATE OR REPLACE FUNCTION m3_jsonb_values_all_string(j jsonb)
+                 ↑ **建立時沒有 public. 前綴**(呼叫時有,靠 search_path)
+而這不是一支檔的怪癖:既有三支 migration 用同樣形狀呼叫它(20260613130000:262 等)= 既有慣例
+```
+
+### 🔴 判別句
+> **我拿去搜的那個字面,是【呼叫處】的寫法還是【建立處】的寫法?**
+> 兩處可以合法地不同 —— schema 前綴、引號、大小寫、換行位置。
+> ⇒ **報「不存在」之前,先問「它有人建的話會怎麼寫」,而不是「我看到的是怎麼寫」。**
+
+### 為什麼這一族特別危險
+```
+一般的假零   ⇒ 它只是讓我【沒找到】, 我會繼續找
+這一族的假零 ⇒ 它讓我找到一個【看起來很嚴重的缺陷】
+             ⇒ 而嚴重的 finding 會被優先處理、被轉述、被寫進條目
+             ⇒ **它跑得比更正快**
+```
+📎 同族(同一天、不同載體):`docs/patterns/…` 本檔「掃描字集比宣稱窄」那一節 /
+   memory `feedback_one-ruler-sees-one-writing-style`(token 走 `color-mix` 而只掃 Tailwind class)。
+
+### 📌 而它的正確結論不是「掃描要更仔細」
+審查者自己下的那句更好:
+> **成因清單列不完**(這次是 schema 前綴,上次是 `color-mix`,下次是別的),
+> **而行為測試不用列** —— 若有一發「把這支 SQL 真的餵給 PG,不存在的識別字會不會炸」,
+> **前面那些枚舉都不必做。**
+
+⇒ 與同日 C 窗獨立提出的那條合流,兩人沒看過對方:
+> **每一道守門,構造一發它宣稱要擋的東西餵進去,它會不會紅?**
+> —— 比問「有沒有 <某個成因>」抓得更寬。
