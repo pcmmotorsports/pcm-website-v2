@@ -30216,6 +30216,36 @@ DB 層可達 = **是**(上面實測)
   📌 形狀:同 memory `feedback_a-stale-cannot-be-done-line-kills-attempts-silently` ——
      **一句「今天做不到」寫的當下為真,apply 那天起變假,而它不會自己更新。**
 
+- **🔴🔴 驗收條件(2026-08-24 追加,`f5` R3 第十三批抓到;主視窗逐格複打確認)—— 這一格不補,`#867` 修好的那一刻會【弄壞另一片】**
+
+  ```
+  修 #867 的方向 = 讓匯款收足(payment_status 仍 'unpaid')的單進入寄信路徑
+  而付款信 adapter 判「還該不該寄」只問一件事:orders.cancelled_at
+    SupabasePaidEmailContextAdapter.ts:101  .select('… , cancelled_at')   ✅ 主視窗開檔核過
+  而本 repo 明文契約:**部分取消【不動】orders 列**
+    20260804120000:11 / :89、20260804150000:68  三處逐字                  ✅ 主視窗開檔核過
+  ⇒ 部分取消的單 cancelled_at 仍 NULL ⇒ 判 ok ⇒ **會寄**
+  而信的內容:
+    品項 = order_items 原始 quantity(adapter :145 四欄, 零取消量過濾)   ✅ 主視窗開檔核過
+    金額 = orders.total(:101), 部分取消不動 orders 列 ⇒ **未扣已取消品項**
+  ⇒ 客人收到一封「付款成功」信, 列著【他已經取消的品項】, 金額是【未扣除的全額】
+  ```
+  🔴 **為什麼它今天不會發生,而修完就會**:
+  ```
+  今天不可達:部分取消要求 payment_status='unpaid'(20260805100000:359-360 步7 允許集合)
+              而 scanner 濾 .eq('payment_status','paid')
+              (SupabasePaidOrderScannerAdapter.ts:194)                     ✅ 主視窗開檔核過
+              ⇒ 兩個條件互斥
+  #867 修完:匯款收足的單 payment_status 仍 'unpaid'(那正是 #861/#867 的本體)
+              ⇒ 它們進了寄信路徑 ⇒ 而它們【可以被部分取消】⇒ cancelled_at 仍 NULL ⇒ 寄
+  ```
+  ⇒ **兩片各自安全,而其中一片修好會讓另一片變不安全。**
+  ⇒ **處置不在 `#868`(它的判準射程就是整單取消,那是它的合約)。**
+     **`#867` 的實作片必須同時處理「部分取消的單怎麼判」,否則這個缺陷會以一個【沒有人負責】的形狀存在** ——
+     `#868` 說「我只管 `cancelled_at`」,`#867` 說「我只管撈得到」,而客人收到那封信。
+  📌 形狀:**一個缺陷可以不住在任何一片裡,而住在兩片的接縫上** ——
+     而接縫沒有 owner,所以兩邊的驗收都會通過。
+
 - **出處:** Fable R2 窗(`pcm-website-v2-f5`)2026-08-24 審 `#841` 第三批時抓到(F1/F2/F3);
   主視窗逐格複打確認(scanner 路徑 R2 給錯、主視窗更正為 `packages/adapters/src/email/`)。
 
