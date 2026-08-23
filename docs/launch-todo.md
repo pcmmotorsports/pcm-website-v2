@@ -86,10 +86,10 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
 |---|---|---|---|---|
-| doing | #858 | 手動建單(客人匯款那條路) | 窗 C | Sean 2026-08-23 答「上線前要能用」⇒ 升成擋上線。收款端做好、**建單端無入口**(無 `/orders/new`)。四題已答、片0 建客人先做 |
-| doing | — | 訂單確認信改版(HTML + 金額 + PDF) | 窗 A | A 版(Sean 看過三版選的)。最後一步**會改變客人收到的東西**,且要寄兩封測試信到 `bsas0830@gmail.com` |
-| doing | #841 | 登錄匯款後單子從畫面消失 | 窗 B | 正式庫**一次都沒真的發生過**(9 張裡 7 張已取消、2 張零收款)⇒ 該修不用趕。migration 寫好後要 Sean 貼 SQL |
-| open | — | 出貨文件 PDF(一鍵出圖傳客人) | 待派 | 計畫 672 行、零 code。**不用加套件**(`apps/admin/package.json:35` playwright)。驗收=**中文字真的在**,不是「有產出檔案」 |
+| doing | #858 | 手動建單(客人匯款那條路) | 窗 C | Sean 2026-08-23 答「上線前要能用」⇒ 升成擋上線。收款端做好、建單端無 `/orders/new`。🔴 **片0-b 已開工未 commit**(`?? apps/admin/src/lib/customers/manual-customer.ts` + `.test.ts` 在磁碟)⇒ 用 `git log` 查它會拿到沒判別力的 0 |
+| doing | — | 訂單確認信改版(HTML + 金額 + PDF) | 窗 A | A 版(Sean 看過三版選的)。片A 前置在飛(`?? SupabasePaidEmailContextAdapter.ts`)。sender 仍純文字(`IEmailSender` / `ResendEmailSenderAdapter` `grep -c 'html'` ⇒ 0 / 0)。🔴 **真正只剩 Sean 做得到的一格 = Resend 到達率截圖** |
+| doing | #841 | 登錄匯款後單子從畫面消失 | 窗 B | 🔴🔴 **推之前必須先套 SQL,否則後台訂單列表整個 400**:code 已讀 `paid_total`(工作樹 2 處 / `origin/dev` 0 處),而 `20260823030000_..._order_paid_total_view.sql` 是 `??` 未進版控、`grep -c '^20260823030000' APPLIED.tsv` ⇒ 0(正對照 `20260823020000` ⇒ 1)。**三綠不會紅**,dev=production。順序:貼 SQL → 落帳本 → commit → push |
+| open | — | 出貨文件 PDF(一鍵出圖傳客人) | 待派 | 🔴 **不是整條沒做** —— HTML 列印頁早就有(`app/print/orders/[id]/{picking,shipping/[shipmentId]}/page.tsx`),缺的只有「**伺服器渲染成 PDF**」那一段(`git grep 'application/pdf' -- apps packages scripts` ⇒ 空)。不用加套件。驗收=**中文字真的在** |
 | open | #806 | 解除退款封印(那顆紅著的觸發器在等這件事) | **待認領** | 2026-08-21 立案、08-23 列進「能做」估 30 分鐘,**然後沒人挑走**。❌ **不得改測試/加 skip/刪檔讓它變綠** |
 
 ---
@@ -106,10 +106,54 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 
 ---
 
+## E · 客人看得到的(2026-08-24 六面掃描新增;本輪之前**沒有人盤過顧客站**)
+
+| 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
+|---|---|---|---|---|
+| open | — | **新品牌上架後客人看到 404** | 待派 | 品牌內容寫死 21 家(`grep -cE '^\s+"slug":' apps/storefront/src/data/brand-content.ts` ⇒ 21),`app/brands/[slug]/page.tsx:102` 不在那 21 筆就 `notFound()` —— **與 DB 無關**。🔴 **backlog 換 pattern 重掃仍查無條目** |
+| open | — | **品牌牆撈不到就整面全灰,而且不說話** | 待派 | `lib/brand-products.ts:66-68` 無 try/catch,下游 catch 回 `[]` ⇒ `app/brands/page.tsx:52-55` 註解逐字「撈取失敗 → 空集合(fail-closed)⇒ 20 家全部泛白」。🔴 **未立案**;⚠️ 那句註解自己寫 20 而實際 21 ⇒ 註解已過期 |
+| open | #64 | 客人拿不到發票 | 待派 | 後台**填得了**(`workflow-form.ts:25` `invoice_number`),而 `grep -rn 'invoice_number' apps/storefront/src` ⇒ **0** ⇒ 填了客人看不到。自動開票整合零命中 |
+| open | #35 #183 #821 | 全站沒有搜尋框 | 待派 | 無 `search/` 路由;`searchByKeyword` 在 storefront 唯一命中是測試 stub ⇒ 零消費者。`#821` 已記「政策宣告了一個不存在的功能」 |
+| open | #136 | 頁尾「聯絡客服」灰掉按不動 | 待派 | `HomeFooter.tsx` `<button disabled aria-label="聯絡客服(尚未上線)">`,而同排 FB/IG/LINE 是真連結 ⇒ 灰鈕夾在活連結中間 |
+
+## F · 紅著的閘(2026-08-24 新增)
+
+| 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
+|---|---|---|---|---|
+| open | — | 🔴 **CI 已經連紅約 74 小時,而沒有人被通知** | 待派 | 末次 success `2026-08-20T03:29:01Z`,其後 **29 顆連續非 success**。`STATUS.md:31` 已記「CI 非閘、無人被通知」。⚠️ STATUS 寫的「34 小時」已過期 |
+| open | #315 | `brand-products.test.ts` 紅 —— 釘住清單過期 | 待派 | 加了第 13 個分類「進氣系統」(commit `6c937647`)⇒ `:80` diff `+ "進氣系統"`;`:85`/`:86` 的 12→13 / 52→53 同片要改。✅ **直接改是合法的**:`#791` 已對真 taxonomy 比對過(migration 已 apply、真瀏覽器 753 件 / 負對照 0) |
+| open | #701 | `procurement-wiring` 3 個 unhandled error | 待派 | `TypeError: revealed.current?.scrollIntoView is not a function` @ `danger-zone-details.tsx:77`;本 repo 無全域 `setupFiles`(`grep -n setupFiles vitest.config.ts` ⇒ 0)。🔴 **不是一支檔的事** —— 另兩支掛同元件的測試只是沒展開那塊 ⇒ 下一個寫展開測試的人會再踩 |
+| open | — | 沒有任何東西對【新增的 .sql】自動跑語法規則② | 待派 | `scripts/migration-static-checks.sh:276-300` 規則②活著,但 lint-staged 只在**該腳本自己被 staged 時**跑它的 `--selftest` ⇒ **新 migration 不會被它檢查** |
+| open | — | `migration-post-commit-guard.sh` 是重複的孤兒腳本 | 待派 | 它防的那類缺陷已被 `migration-static-checks.sh` 規則②**更嚴格地**涵蓋 ⇒ 處置是**刪**,不是「裝上」。同批另有 7 支 0 引用腳本(正對照 `literal-sweep.sh` ⇒ 24 / 負對照 ⇒ 0) |
+
+| open | — | 🔴🔴 **`20260823030000` 那支 SQL 沒有被 `git add`** | 窗 B / 主視窗 | `git status` ⇒ `??` 未進版控。**這是那顆炸彈的成因**:精準 add 漏一支 ⇒ code 走了、SQL 留在本機。修法=`git add` 它,並與 code **同一顆或它在前** commit |
+| open | — | 🔴🔴 **放寬推 dev 的閘** —— ✅ Sean 2026-08-24 答「**放寬**」 | 待排 plan | 現況 `scripts/deploy-order-gate.sh:141` **只抽 FUNCTION 名**。當場量:本支 FUNCTION ⇒ **0** / VIEW ⇒ **6** / 正對照另一支 ⇒ 2 ⇒ 一個名字都抽不到、push 不會被擋。🔴 **這一板推翻他自己的 `Q2=B`**(`:16` 那句「寧可漏擋、只比對 RPC 函式名」作廢 —— **劃掉加註記,不要刪**)。命中 **12④** ⇒ 對抗審查不降級。全文 memory `project_0824-sean-widens-deploy-order-gate` |
+| open | — | 🔴 放寬那道閘的**第三格驗收**(最容易被跳過的) | 同上 | ①該紅必紅(餵只建 view 且 code 已在讀 ⇒ 擋)②該綠必綠(只建 view 沒人讀 ⇒ 放行)③**對現有 210 支 migration 全量乾跑,看它擋下幾支** —— 擋下一大票 ⇒ **那不是放寬成功,是把閘變成噪音**。實錘:`787-trigger` 紅 26 小時、跨 21 顆 commit 沒人停 |
+| open | — | 🟡 `20260822010000`(出貨信 view)到底套了沒 | 要 DB | ⚠️ **只有帳本一個訊號,不夠**。`APPLIED.tsv` 自陳 **283 列裡 168 列是事後補記** ⇒「帳上沒有」是**弱訊號**。要一發對正式庫的 `to_regclass('public.pcm_shipped_email_pending')` + 編造名負對照 |
+
+## G · Sean 2026-08-24 已裁(**不要再拿這幾格去問他**;逐字與連帶效應在 memory `project_0824-sean-five-scope-rulings`)
+
+| 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
+|---|---|---|---|---|
+| open | — | **優惠券／折扣碼** —— Sean 逐字「開發啊,去做啊」 | 待寫 PRD | 🔴 **從零開始的新功能**:`優惠券`/`優惠卷`/`折扣碼`/`coupon` 於 backlog ⇒ **全 0**(正對照 `出貨單` ⇒ 18);code 三處全是「不做」註解。**零條目、零 PRD、零 schema**。必動訂單金額計算 ⇒ 鐵則 12① ⇒ **先寫 PRD 等批,不是直接開工** |
+| open | — | **客戶篩選多軸 + 註冊表單加性別** —— 他逐字「當然要做啊......... 性別、生日這個在客戶註冊時候也要有」 | 待寫 plan | 🔴 **他把範圍擴到顧客站了**,三段一起:註冊表單 / `customers` schema 加 `gender` / 後台篩選多軸。生日**已有一半地基**(`20260523034911:19` `birthday date`、`:231` 已有欄級 GRANT)⇒ 缺的是註冊表單有沒有在收。`gender` 全樹 0。命中 **12③ + 12⑤** ⇒ 對抗審查不降級。⚠️ **既有客人的回填策略他沒說 —— 那是還沒問的第六題** |
+| open | #660 #390 | **商品編輯後台** —— ✅ Sean 2026-08-24 已定義範圍 | 線A / 待寫 plan | 他逐字:「**可以編輯、新增手動商品,而編輯的功能更完善,可以編輯很多地方。只是會連動到報價單比較麻煩而已**」⇒ 三件:①**新增手動商品**(網站上沒有的)②既有商品**多欄位可編輯**③與同步管線共存。現況 `components/products/` 唯一表單是 `product-listing-form.tsx`,檔頭自陳「上下架表單」⇒ 零編輯欄位、零新增入口 |
+| open | — | 🔴 **商品編輯的真正難題:每天會被覆蓋一次** | 待寫 plan | Sean 自己點到的「連動到報價單比較麻煩」= 本題核心。商品頁**自陳**逐字「**不能在後台改**」「**多數商品每天會被覆蓋一次**」(`apps/admin/src/app/products/[id]/page.test.tsx:255,354`)。同步管線 `scripts/rpm-delta.ts` 等會 upsert。🔴 **2026-08-24 複驗更正(換掉分母,原判作廢)**:~~「只有 1 支命中 `product_source\|is_manual\|origin`」⇒ 區分大概不存在~~ —— **那三個欄名是我猜的,分母是我自己列的**。改用【建表語句本身】當分母重量:`products` 出生 14 欄(`20260507004826_init_products.sql:23`)、後續 `ALTER TABLE products ADD COLUMN` 共 8 欄(`delisted_at highlights manuals price_general price_store sound_clips supplier_slug video_url`;負對照假表名 ⇒ 0)⇒ ✅ **區分【存在】,叫 `supplier_slug`**,`20260602135934:34` `NOT NULL DEFAULT 'rpm'`。⇒ **真正的題目換掉了**:不是「要加一個欄位」,是「**手動商品的 `supplier_slug` 填什麼,而同步管線看到那個值要略過它**」。同步端是另一個 repo ⇒ 跨 repo 合約 |
+| parked | #236 | 安裝預約／合作店家「即將上線」 | — | ✅ **他裁「尚未做,等上線運作後再補」** ⇒ 那兩個入口**留著**,不是缺陷。**下一個盤點的人不要再報一次** |
+| parked | #202 | 儲值金分頁空白 | — | ✅ 他答「**目前是**」⇒ ⚠️ **我讀成「維持現狀、不隱藏」,而這是我的解讀不是他的原話**。低風險故未回頭問;**真要動那個分頁之前先確認** |
+
+## H · 制度衛生(不擋上線,但會讓每次盤點都重來)
+
+| 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
+|---|---|---|---|---|
+| open | — | `MEMORY.md` 超過精簡線 | 待派 | 2026-08-24 當場量 ⇒ **21,438 字元**(門檻約 17,000)。量法 `python3 -c "import io;print(len(io.open(F,encoding='utf-8').read()))"`。🔴 **撤條目需 Sean 拍板**(檔頭自訂規矩),照既有瘦身手冊:零刪除、只換檔 |
+
 ## 🔴 這張板子沒涵蓋什麼(不要把它讀得比它大)
 
 1. **線A 的 UI 統整** —— Sean 2026-08-24 告知「資訊還在那邊沒出來」⇒ **後台畫面那一塊完全沒盤。** 它交件後本檔要再長一段。
-2. **六個面的背景掃描**(信箱／規格／顧客站／紅測試／拍板落地／維運)結果尚未併入。🔴 **顧客站那面本輪完全沒人碰過。**
+2. ✅ **六個面的背景掃描已於 2026-08-24 併入**(E/F/G 三組即是)。⚠️ 那一輪的驗證員自陳分母限制:**34 個 dirty 檔只開了 4 支** ⇒ ✅ **2026-08-24 已補查:35 支全開,四批獨立掃,結論=只有 `paid_total` 那一顆,無第二顆。**
+   ⚠️ 而那一輪自己更正了一件事:`grep APPLIED.tsv ⇒ 0` **不等於未 apply**(168/283 列是事後補記)。
+   那顆炸彈的判定**不靠帳本**,靠的是「`origin/dev` 對 `paid_total` 零命中」+「那支 SQL 未進版控」。
 3. 本檔多數證據來自 **repo 字面與帳本**,不是**線上行為**。標「要 DB / 要打線上 / 要真交易」的那幾條,是**量不到**,不是比較不重要。
 4. 上線清單有 **11 格沒有錨點檔**(判它們的依據是 route 清單)⇒ 不在本輪掃描分母裡。
 5. **本檔沒有任何估時。** 估時要動手的人給。
