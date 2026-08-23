@@ -44,6 +44,14 @@ const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
  * 頁面  app/orders/refund-exceptions/page.tsx:8  import { listRefundExceptions } from '…/lib/payment/refund-read'
  * ⇒ 述詞只有一份 ⇒ **結構上不可能漂移**。不是「今天剛好一致」，是「沒有第二份可以不一致」。
  * ```
+ *
+ * 🔴 **2026-08-23 `#841` 之後,下面每一處引用的那句述詞【字面已經不是全部了】**
+ *    ——(原句不動,只加這一條註記):
+ *    現行 = `payment_channel.neq.tappay,payment_status.neq.unpaid,and(paid_total.neq.0,cancelled_at.is.null)`
+ *    (`SupabaseOrderAdapter.ts`;新增的第三項是**復活條件**:有收到錢且未取消 ⇒ 放行)
+ *    ⇒ 清單現在**藏得比以前少** ⇒ 下面「② 今日新單 7 vs 6」那個**實測值已過期**,
+ *      而**結論(不給 href)沒變**:兩份述詞仍然是兩份,差多少要重量才知道。
+ *      🔴 要引用那個差額之前**重量一次**,不要照抄 7 vs 6。
  * 另外兩格**各自有兩份述詞**,而實測都對不上 ⇒ **不給 `href`**:
  * ```
  * ② 今日新單    卡片 today-read.ts:239-241 零付款面 filter

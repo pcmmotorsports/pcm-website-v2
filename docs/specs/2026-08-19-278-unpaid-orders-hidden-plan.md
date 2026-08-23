@@ -1,5 +1,15 @@
 # `#278` 未付款訂單被過濾器藏起來 —— plan(鐵則 8 + 12①,等批)
 
+> 🔴 **2026-08-23 註記(`#841` 施工窗 B 加;下面的原句一個字沒改)**
+> 本檔多處引用的 `query.or('payment_channel.neq.tappay,payment_status.neq.unpaid')`
+> **已經不是現行述詞了**。現行 =
+> `payment_channel.neq.tappay,payment_status.neq.unpaid,and(paid_total.neq.0,cancelled_at.is.null)`
+> (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`;第三項是**復活條件** ——
+>  帳本有收到錢且未取消 ⇒ 放行。帳本欄由 `supabase/migrations/20260823030000_m4b_841_order_paid_total_view.sql` 提供)
+> ⇒ **`#278` 開工前先重讀那一行**,不要照本檔的字面推結論。
+> ⚠️ 本檔其餘分析仍可能成立 —— 我**沒有**逐條重核,只標了這一個字面。
+
+
 > 落檔 2026-08-19(`date` 實跑值見 commit)。作者 G2。**狀態:未批准、零 code 改動。**
 > 鐵則 12①(錢/`payment_status` 語意)+ 鐵則 8(跨 3+ 檔、動共用 adapter)⇒ plan 等批,commit 前過 codex。
 > 🔴 **本檔不做那個產品決定**,它把決定攤開並回答「最貴的那條路需要什麼」。

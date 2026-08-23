@@ -185,7 +185,11 @@ describe('P1 貨品軸判序:SQL admin_order_list_v ↔ TS goodsAxisOfLines', ()
     ].map((m): [string, string] => [String(m[1]), String(m[2])]);
   }
 
-  it('§0 live 定位:候選清單=已知兩支、live=20260816050000(新 migration 重定義本 view 時本格要紅=綁定要跟上)', () => {
+  // 🔴 `#841`(2026-08-23)把 live 從 `20260816050000` 推到 `20260823030000`。
+  //    那支只在**尾端加了 `paid_total` 一欄**,`goods_axis` 那整段是從 `20260816050000:71-114`
+  //    **原樣抽出**再插入新欄的(不是重打)⇒ 本檔 P1 其餘各格的期待值一個字都不用動,
+  //    而**那不是我宣稱的,是它們自己跑綠證明的**(下面三格都對著新的 live 跑)。
+  it('§0 live 定位:候選清單=已知三支、live=20260823030000(新 migration 重定義本 view 時本格要紅=綁定要跟上)', () => {
     const { live, candidates } = locateLive('VIEW', P1_NAME);
     expect(
       candidates,
@@ -193,8 +197,9 @@ describe('P1 貨品軸判序:SQL admin_order_list_v ↔ TS goodsAxisOfLines', ()
     ).toEqual([
       '20260814140000_m4b_e10_484a_order_goods_axis_view.sql',
       '20260816050000_m4b_522_goods_axis_subtract_cancelled.sql',
+      '20260823030000_m4b_841_order_paid_total_view.sql',
     ]);
-    expect(live).toBe('20260816050000_m4b_522_goods_axis_subtract_cancelled.sql');
+    expect(live).toBe('20260823030000_m4b_841_order_paid_total_view.sql');
   });
 
   it('SQL 側:空單早退(NOT EXISTS)在最前,且(量欄位→回傳值)配對序列正確', () => {
