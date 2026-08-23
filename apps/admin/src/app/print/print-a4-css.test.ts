@@ -134,10 +134,131 @@ describe('🔴 掛勾對不上 = CSS 寫了等於沒寫', () => {
     expect(CSS).toMatch(/\.print-sheet\s*\{[^}]*padding:\s*0;/);
   });
 
-  it('`print-sheet` 的歸零規則住在 `@media print` 裡(螢幕上的 `p-6` 要留著)', () => {
+  it('🔴 `.print-sheet` 的宣告【全部】住在 `@media print` 裡(螢幕上的 `p-6` 要留著)', () => {
     // 掉出 @media print ⇒ 螢幕上那張紙會貼著視窗邊緣,而**列印結果一模一樣** ⇒ 沒人會回報。
-    const printBlock = CSS.slice(CSS.indexOf('@media print'));
-    expect(printBlock).toContain('.print-sheet');
-    expect(CSS.slice(0, CSS.indexOf('@media print'))).not.toContain('.print-sheet');
+    //
+    // 🔴🔴 **R3 MF1:這一格原本用 `CSS.indexOf('@media print')` 當邊界,而那是【碰巧的字面】。**
+    //    2026-08-23 片1 之後,`@media print` 這幾個字**第一次出現在 `:109` 的一句註解裡**
+    //    (真 block 在 `:153`)⇒ **這一格只掃了 833 行的前 109 行。**
+    //    實測突變:在 `:400`(任何 `@media print` 之外)插入 `.print-sheet{font-size:9pt}`
+    //    ⇒ **三條斷言全綠**,而那正是 R1 修掉的「字級外溢到揀貨單」原樣復活。
+    //    🔴 **而那句 `:109` 的註解,是修 R1 那條時寫下來的** ——
+    //       **修一個病的動作,把守門的邊界往前搬了 44 行。**
+    // ⇒ 改用**規則層**(`CSS_RULES`,註解已剝):邊界由**真的 at-rule** 決定,不由註解決定。
+    // ⚠️ 並且改成掃**全部**出現位置,不只「第一個之前」——
+    //    原寫法即使邊界對,也只保證「第一個 block 之前沒有」,**第二個 block 之後仍是盲區**。
+    const first = CSS_RULES.indexOf('@media print');
+    expect(first, '規則層找不到 @media print ⇒ 本格沒有判別力').toBeGreaterThan(-1);
+    expect(CSS_RULES.slice(first)).toContain('.print-sheet');
+    // 🔴 逐個 `.print-sheet` 出現位置檢查它是不是落在某個 `@media` 區塊裡面。
+    const inMedia = (idx: number): boolean => {
+      // 從檔頭走到 idx,數還沒關掉的 `@media` 大括號 —— 深度 > 0 就代表在區塊內。
+      let depth = 0;
+      let atDepth = -1;
+      for (let i = 0; i < idx; i += 1) {
+        // 🔴 **R4 F2:只認 `@media print`,不是任何 `@media`。**
+        //    本格的標題與 `print-a4.css` 的不變式都寫「在 `@media print` **之外**不加宣告」,
+        //    而原本 `startsWith('@media', i)` 接受**任何** media ⇒ 把外溢規則包進
+        //    `@media screen{…}` 就整條放行(R4 實測綠;我在真 runner 上覆過 ⇒ 12 passed)。
+        //    🔴 失敗情境不是假想:R1 修掉的「字級外溢到揀貨單」包進 `@media screen` 就完整復活
+        //       —— **而這道守門會告訴下一個人「包進 @media 就對了」。**
+        if (CSS_RULES.startsWith('@media print', i)) atDepth = depth;
+        else if (CSS_RULES[i] === '{') depth += 1;
+        else if (CSS_RULES[i] === '}') {
+          depth -= 1;
+          if (depth <= atDepth) atDepth = -1;
+        }
+      }
+      return atDepth >= 0;
+    };
+    const spots: number[] = [];
+    for (let i = CSS_RULES.indexOf('.print-sheet'); i !== -1; i = CSS_RULES.indexOf('.print-sheet', i + 1)) {
+      spots.push(i);
+    }
+    expect(spots.length, '規則層一個 .print-sheet 都沒有 ⇒ 本格恆真').toBeGreaterThan(0);
+    for (const at of spots) {
+      const line = CSS_RULES.slice(0, at).split('\n').length;
+      expect(inMedia(at), `規則層第 ${line} 行的 .print-sheet 在 @media 之外`).toBe(true);
+    }
+  });
+});
+
+describe('🔴🔴 反方向掃描 —— 元件掛了、而 CSS 沒有的 `pd-*`(R3 MF2)', () => {
+  // 🔴🔴 **這一族是我 R2 那一掃【漏掉的方向】,而漏掉的那一半才會害人。**
+  //    我掃的是「CSS 有、元件沒有」= 死規則 ⇒ **無害**(只是多了幾行 CSS)。
+  //    會害人的是**反方向**:**元件掛了一個類,而沒有任何規則接它**
+  //    ⇒ 畫面上那一區**拿不到它該有的語彙**,而三綠全綠、沒有任何東西會叫。
+  //    📌 判別句(2026-08-23 主視窗給的):**我這一掃,漏掉的東西會落在哪一邊?**
+  //       兩個方向的工作量看起來一樣,**所以人會選比較好寫的那一個。**
+  //
+  // 🔴 實例:`pd-pending` 全 repo 零規則,而 `shipping-doc.tsx` 掛著它。
+  //    ⚠️ **稿本身也不完整**(實查 `預覽-出貨明細單.html`):
+  //       `pd-pending`   markup 用 1 次 / CSS 規則 **0** 條  ← 只掛不用
+  //       `pd-cancelled` markup 用 0 次 / CSS 規則 **2** 條  ← 只用不掛
+  //       **兩個各缺相反的一半。** ⇒ 不能靠「照抄稿」得到完整的語彙。
+
+  /** 元件原始碼裡出現的 `pd-*`(剝註解 —— 否則本檔與元件的說明文字會自命中)。 */
+  const emitted = (src: string): Set<string> => {
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const out = new Set<string>();
+    for (const m of code.matchAll(/\bpd-[a-z0-9-]+/g)) out.add(m[0]);
+    // 🔴 動態組:`pd-${variant}` —— 它在字面上抓不到,而它正是 MF2 那一個。
+    //    ⇒ 把同檔宣告的 union 成員也算進來。抓不到 union 就**紅**,不放行。
+    if (/pd-\$\{/.test(code)) {
+      const u = /variant\?:\s*([^;]+);/.exec(code);
+      expect(u, '元件有 `pd-${…}` 動態類,而本格找不到它的 union 宣告 ⇒ 掃描不完整').not.toBeNull();
+      // 🔴🔴 **R4 F1:找到宣告 ≠ 抽到成員。** `[^;]+` 可以匹配成功而內層抽出 **0 個**,
+      //    而那條路徑原本是**靜默**的 —— 只要有人把 union 抽成具名型別
+      //    (`variant?: SectionVariant;`),`pd-pending`/`pd-cancelled` 就整層離開分母,
+      //    **而守門照樣綠**(R4 實測:n 由 40 掉到 38,綠;我在真 runner 上覆過 ⇒ 12 passed)。
+      //    ⇒ 那正是「加第三個 variant」時最可能發生的重構 ⇒ **R3-MF2 原樣復活。**
+      let added = 0;
+      for (const m of (u?.[1] ?? '').matchAll(/'([a-z0-9-]+)'/g)) {
+        out.add(`pd-${m[1]}`);
+        added += 1;
+      }
+      expect(
+        added,
+        `找到 union 宣告 \`${u?.[1]?.trim() ?? ''}\` 但抽不出任何成員 ⇒ 動態類整層離開分母`,
+      ).toBeGreaterThan(0);
+    }
+    return out;
+  };
+
+  /**
+   * 刻意「只掛勾、不上樣式」的類。**每一個都要寫理由** ——
+   * 沒有理由的話,這張白名單就會變成「把紅的關掉」的地方。
+   */
+  const HOOK_ONLY: Record<string, string> = {
+    // 稿的 markup 有這個修飾類而**稿自己也沒有規則**(實查:CSS 0 條)。
+    // 我們照鐵則 1 把它掛著,但它**目前不產生任何視覺差異** ——
+    // 「尚未出貨」與「本次出貨」在紙上長得一樣,而那是**設計端的缺口**,不是我們漏搬。
+    // ⚠️ 要給它視覺語彙,得 Sean 看過 —— 我不自己發明一個他沒看過的樣子。
+    'pd-pending': '稿與我們都零規則;設計端缺口,已回報 OD。不自己發明視覺。',
+    // 純結構包裝:`.pd-contact{display:flex}` 需要一個子節點裝那三行字,
+    // 而那三行各自有規則(`.pd-ch` / `.pd-cu` / `.pd-cp` 稿的 CSS 各 1 條,實查)。
+    // 稿自己也是「markup 用 1 次 / CSS 0 條」⇒ 照鐵則 1 掛著,它不承載任何視覺。
+    'pd-ctxt': '純結構包裝;稿同樣零規則,三個子類才帶樣式。',
+  };
+
+  it('🔴 元件掛的每一個 `pd-*`,CSS 都要接得住(或在白名單裡並寫明理由)', () => {
+    const names = new Set([...emitted(SHIPPING), ...emitted(PICKING)]);
+    expect(names.size, '一個 pd-* 都沒掃到 ⇒ 本格恆真').toBeGreaterThan(10);
+    const orphan = [...names].filter(
+      (n) => !new RegExp(`\\.${n}(?![\\w-])`).test(CSS_RULES) && !(n in HOOK_ONLY),
+    );
+    expect(orphan, `元件掛了但 CSS 沒有規則的類:${orphan.join(', ')}`).toEqual([]);
+  });
+
+  it('🔴 白名單本身要是活的 —— 裡面的類【必須】真的還零規則', () => {
+    // 沒有這一格的話,白名單會在規則補上之後繼續留著,
+    // 而**下一個人會以為那個類仍然沒有樣式**。
+    for (const [n, why] of Object.entries(HOOK_ONLY)) {
+      expect(why.length, `${n} 的白名單理由是空的`).toBeGreaterThan(10);
+      expect(
+        new RegExp(`\\.${n}(?![\\w-])`).test(CSS_RULES),
+        `${n} 已經有 CSS 規則了 ⇒ 請把它從白名單移除`,
+      ).toBe(false);
+    }
   });
 });

@@ -58,7 +58,18 @@ export default async function OrderShippingPrintPage({
   //    以前來自 `detail.items`(**已被 200 夾過**)⇒ 訂單 300 項時,後 100 項所在的箱
   //    **根本不會被查到,而那不算截斷、不會有任何訊號**。現在餵的是完整那份。
   //    ⇒ **只修品項那半等於沒修**,兩半必須同一顆改(plan §1「A 會餵壞 B」)。
-  const { items, reportedTotal } = await getAdminOrderRepository().listOrderItemsForPrint(id);
+  // 🔴🔴 **片4b:這一行從 `listOrderItemsForPrint` 改成 `listOrderItemsForDetail`。**
+  //    理由:紙上要印金額了(Sean 2026-08-24 `Q1`=甲),而**列印那份投影刻意沒有 `unit_price`**。
+  //    ⚠️ **兩份投影逐欄比對過,差別【只有】`unit_price` / `line_total` 兩欄,PII 差異 = 0**
+  //       (`ORDER_ITEMS_PRINT_SELECT` 與 `ORDER_ITEMS_DETAIL_SELECT` 兩行字面,2026-08-24 當場比)。
+  //       ⇒ PRINT 那句 docstring 的「零 PII」比的是**明細內嵌那份**,不是 DETAIL —— 別讀錯了。
+  //    🔴 **不新建第三份投影**(78 2026-08-24 裁 Q3=乙):新建等於在同一支 adapter 裡
+  //       對著它自己那句「複製會讓兩份各自漂而兩份都綠」再複製一份平行結構。
+  //    🔴 **而 `lib/shipping/shipment-candidates.ts` 一個字不動,仍走 `listOrderItemsForPrint`**
+  //       ⇒ 兩條路仍然分開,成交價不會跑進出貨候選那條路。
+  //    ⚠️ 代價 = 型別上多帶一個 `lineTotal`,而**紙上不得印它**(它是下單量的行小計,不是本區的量)
+  //       ⇒ 那不是靠自律,`page.test.tsx` 有一格原始碼層守門在看(錨點「不得讀 lineTotal」)。
+  const { items, reportedTotal } = await getAdminOrderRepository().listOrderItemsForDetail(id);
 
   // 🔴 只餵 id 與 title 兩欄下去 —— 不把整包 detail(帶成交價)交給資料層。
   //    慣例與 `components/orders/shipment-section.tsx:26` 逐字相同。

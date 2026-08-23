@@ -76,13 +76,13 @@ vi.mock('next/navigation', () => ({
 
 const mocks = vi.hoisted(() => ({
   findAdminOrderDetail: vi.fn(),
-  listOrderItemsForPrint: vi.fn(),
+  listOrderItemsForDetail: vi.fn(),
   loadOrderShipments: vi.fn(),
 }));
 vi.mock('../../../../../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({
     findAdminOrderDetail: mocks.findAdminOrderDetail,
-    listOrderItemsForPrint: mocks.listOrderItemsForPrint,
+    listOrderItemsForDetail: mocks.listOrderItemsForDetail,
   }),
 }));
 vi.mock('../../../../../../lib/shipping/order-shipments', () => ({
@@ -179,6 +179,18 @@ function detail(itemCount: number, withQuantity = false): AdminOrderDetail {
     cancelledAt: null,
     customer: { name: '王小明', email: null, phone: null },
     items,
+    // 🔴 片4:訂單層金額四欄。原本沒有,而 `as unknown as` 把缺欄藏住 ⇒ 元件讀 `.amount` 時 TypeError。
+    //
+    // 🔴🔴 **R3 nit:這幾個數字【必須由品項算出來】,不能是常數。**
+    //    改前寫死 `subtotal: 51987`,而每一列的 `lineTotal` 是 222,549 × `itemCount` 列
+    //    ⇒ 違反 `packages/domain/src/order/types.ts:131` 的不變式 `subtotal = Σ lineTotal`
+    //    ⇒ **本檔產出來給 Sean 印的那張紙上,金額是【不可能存在的資料】。**
+    //    ⚠️ 那比「數字不好看」嚴重:他拿那張紙做的任何金額判斷都建立在假資料上,
+    //       而紙面本身完全正常 —— **沒有任何東西會提示他那組數字不成立。**
+    subtotal: { amount: 222549 * itemCount, currency: 'TWD' },
+    shippingFee: { amount: 611, currency: 'TWD' },
+    discountTotal: { amount: 0, currency: 'TWD' },
+    total: { amount: 222549 * itemCount + 611, currency: 'TWD' },
     itemsTruncated: false,
   } as unknown as AdminOrderDetail;
 }
@@ -210,7 +222,7 @@ async function emit(itemCount: number, name: string, blocked = false): Promise<s
     (d as { cancelledAt: string | null }).cancelledAt = '2026-08-16T03:00:00+00:00';
   }
   mocks.findAdminOrderDetail.mockResolvedValue(d);
-  mocks.listOrderItemsForPrint.mockResolvedValue({ items: d.items, reportedTotal: d.items.length });
+  mocks.listOrderItemsForDetail.mockResolvedValue({ items: d.items, reportedTotal: d.items.length });
   mocks.loadOrderShipments.mockResolvedValue([
     {
       shipment: SHIPMENT_ROW,

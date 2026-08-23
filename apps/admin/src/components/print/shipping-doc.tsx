@@ -1,9 +1,20 @@
 import { stripPictographs } from '@/lib/print/strip-pictographs';
-import type { AdminOrderDetail, AdminOrderDetailItem, AdminOrderPrintItem } from '@pcm/domain';
+import type {
+  AdminOrderDetail,
+  AdminOrderDetailFullItem,
+  AdminOrderDetailItem,
+  AdminOrderPrintItem,
+} from '@pcm/domain';
 import type { ShipmentRow } from '../../lib/shipping/shipment-repository';
 import type { OrderShipmentGroup } from '../../lib/shipping/order-shipments';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
+import { formatOrderAmount } from '../../lib/orders/order-list-view';
 import { cancelledQuantityOf, outstandingQuantity } from '../../lib/shipping/shipping-doc-quantities';
+import {
+  lineAmount,
+  sectionSubtotal,
+  shipmentReadsAreConsistent,
+} from '../../lib/shipping/shipping-doc-amounts';
 import { carrierLabelOf } from '../../lib/shipping/carrier-label';
 // 🔴 `Q-C5`=丙(Sean 2026-08-17):**追蹤碼不印在這張紙上** ⇒ `trackingDisplay` 這裡不再 import。
 //    那支函式**沒有刪**(目前零消費端、保留給 `Q-C9` 出貨通知信)——
@@ -13,6 +24,25 @@ import { BlockedSheet } from './blocked-sheet';
 import { PrintButton } from './print-button';
 
 // #10 片2b:出貨單(一個箱 × 一張訂單)。
+//
+// ── 🔴 鐵則 6(元件檔 >400 行預設拆)· 本次【判斷不拆】,理由寫在這裡 ──────────────
+// 🔴 **這裡刻意不寫行數。** R2 N5 抓到:我寫「890 行」而當場量是 906(R1 時 872)——
+//    **同一輪內漂了兩次**,而它正是「判斷不拆」的依據數字。
+//    ⇒ 要現值就當場跑:`wc -l < <本檔>`;要註解比例:數行首為 `//` `*` `{/*` 或落在 `/* */` 內的行。
+//    📎 **寫死在註解裡的數字,在下一個人讀到時就過期了** —— 而過期的當下零機械訊號。
+//
+// 🔴 **不拆的理由不是「註解很多所以不算」** —— 那句話任何超標的檔都講得出來。真正的理由是:
+//    **這支檔被【原始碼字面】守門引用著,拆檔會讓那些守門靜默失效或誤紅。** 實查:
+//      · `components/print/print-docs-strip-wiring.test.ts:28`
+//        斷言 `SHIPPING` 含 `stripPictographs(shipment.recipientSnapshot?.name)`
+//      · `app/print/print-a4-css.test.ts` 斷言 `SHIPPING` 含 `'print-sheet mx-auto`
+//      · `app/print/orders/[id]/shipping/[shipmentId]/page.test.tsx` 的圖片守門讀本檔全文
+//    ⇒ 把 `ItemCells` / `Section` / `MoneyRow` 搬去兄弟檔 = 上面三處要同批改,
+//      而**其中兩支不是本線獨佔的檔**。
+// ⇒ **拆檔本身要獨立一片**(連同那三道守門的搬遷),不夾帶進一個正在修 review findings 的片。
+// ⚠️ **這是延後,不是免除。** 沒拆的代價是真的:下一個人要在 890 行裡找東西。
+
+
 //
 // 🔴 **單位是 `(箱, 訂單)` 這一對,不是「訂單」也不是「箱」。** Sean 2026-08-15 逐字:
 //    「一箱只有一個訂單,或者**這個訂單的其中幾樣商品**,就印出**該訂單的要出貨的商品資訊**;
@@ -30,10 +60,23 @@ import { PrintButton } from './print-button';
 //
 // 🔴 **紙上零金額計算。** 金額欄位只能來自 `AdminOrderDetail` 既有欄或既有格式化器,
 //    **不自己加總、不自己格式化**。紙上算錯錢是對客可見的錯。
-//    ⚠️ 金額區塊目前**仍然留空**,但理由已經換了:`Q-D-4` 已答(乙 = 兩區塊各自合計),
-//    ⇒ **卡的不再是規格,是工序** —— 金額橫跨本檔兩個區塊、且 `Q-D-7` 要求每個印出來的數字
-//       都要在註解裡寫明「用哪些權威欄、做了什麼運算」。**排下一片單獨做,不夾帶。**
-//    ⇒ **這片在金額落地之前不算做完**,不要當成可以交給 Sean 驗收的成品。
+//    ✅ **金額區塊已於 2026-08-23 片4 落地**(見本檔 `MoneyRow` 與底部的 `.pd-money`):
+//       小計 / 運費 / [折扣] / 訂單金額,**每個數字都是 `AdminOrderDetail` 的欄位原值、零運算**,
+//       格式化走既有 `formatOrderAmount`(`lib/orders/order-list-view.ts:979`)。
+//    ⚠️ ~~「金額區塊目前仍然留空」「這片在金額落地之前不算做完」~~ **兩句都已過期,原句刪除。**
+//       🔴 **不是「文件沒更新」而已** —— 那兩句會讓下一個人**不去看金額**,
+//          而金額就印在同一支檔的 30 行之下。**它在關掉別人的查證。**(R3 MF3)
+//    🔴 **仍然成立、不准鬆的那一半**:紙上零金額**計算** ——
+//       禁止從 `subtotal`/`total` 反推、禁止浮點、禁止自己發明算法。
+//    🔴🔴 **口徑:Sean 2026-08-24 已答【甲 = 兩區塊各自合計】,而【碼還沒改】。**
+//       逐字「甲 照你原本拍的:本次出貨多少 / 取消多少, 兩區各自合計」
+//       canonical:`memory/project_0824-sean-shipping-doc-money-per-section.md`(我開檔核過)
+//       ⇒ **現況落地的是【訂單層單一合計】,那是【待改】不是【現行設計】。**
+//       ⚠️ 連帶:`page.test.tsx` 現在用**突變驗過的算術斷言**把訂單層口徑釘死了
+//          ⇒ 落地甲案會撞上「**要動一條綠的測試**」⇒ **走那四問,不要順手改期望值。**
+//       ⚠️ ~~「已端 Sean 重裁,在他答之前不要動算法」~~ **原句刪除**(R4 F3):
+//          他答了,而那句留著就是**第二個「把下一個人的查證關掉」的字面** ——
+//          **而它就寫在修 MF3 的同一段裡。**
 //
 // 🔴 版面依據:**既有知識 + 本 repo 既有慣例**(片1 的表格形、`orders/order-detail-items-table.tsx` 的 `ItemsTable`)。
 //    Sean 說「可以參考網路上通用的出貨單格式」,**但這台沒有網路** ⇒ 我沒有查,也不宣稱查過。
@@ -214,15 +257,26 @@ function ItemCells({
 }) {
   return (
     <>
-      <td className='px-2 py-3 align-top font-mono text-base font-bold whitespace-nowrap'>{sku}</td>
-      <td className='px-2 py-3 align-top text-sm'>
-        <div>{title ?? '—'}</div>
+      {/* 🔴 **片4-R1 修 F1-F4:改掛稿的 `.pd-sku` / `.pd-name` / `.pd-spec`,拿掉 Tailwind 排版類。**
+          **病灶不是「哪個好看」,是【兩套規則在打架而我沒發現】**:
+          `print-a4.css` 的 `.pd-*` 沒有 `@layer`,而 Tailwind v4 的 utilities 住在
+          `@layer utilities` 裡 ⇒ **無層規則贏過任何 utility,與具體度無關**。
+          ⇒ 片3 把 `.pd-items` 掛上 `<section>` 的那一刻,`.pd-items td{font-size:9pt}`
+             就開始蓋掉這裡的 `text-base` —— **而畫面上沒有任何東西會紅。**
+          🔴 **為什麼選「改掛 `.pd-*`」而不是「把 CSS 包進 @layer」**:
+             稿**本來就定義了** `.pd-sku` / `.pd-name` / `.pd-num`(它們在 CSS 裡,只是 OD 的
+             markup 沒跟上 —— 他們是**最小幅度地 patch 我們的快照**,不是重寫)。
+             ⇒ 用它們是**回到設計的原意**;包 `@layer` 只是讓兩套規則繼續並存、下次再打一次。
+          📎 `.pd-sku` = mono 11pt 粗、不換行(料號要一眼認出且掃描槍讀得到,見上方 docstring)。 */}
+      <td className='pd-sku'>{sku}</td>
+      <td>
+        <div className='pd-name'>{title ?? '—'}</div>
         {spec && (
-          <div className='text-muted-foreground mt-0.5 text-xs'>
+          <span className='pd-spec'>
             {Object.entries(spec)
               .map(([k, v]) => `${k}: ${v}`)
               .join(' · ')}
-          </div>
+          </span>
         )}
       </td>
     </>
@@ -245,23 +299,67 @@ function Section({
   qtyHeader,
   orderDisplayId,
   shipmentReference,
+  variant,
+  tick = false,
+  money,
   children,
 }: {
   title: string;
   note: string;
   qtyHeader: string;
+  /** `.pd-items` 的修飾類(稿:`pd-pending` / `pd-cancelled`)。省略 = 主區。 */
+  variant?: 'pending' | 'cancelled';
+  /**
+   * 🔴 **`data-slot='qty'` 是【量具的分母定義】,不是樣式。**
+   *    R3 MF7:量具原本用「每一列的**最後一格**」當數量格 —— 那是**位置假設**,
+   *    而片5 只要在數量後面加一個純數字的對帳欄,**分母就整組換人而不會紅**
+   *    (新欄全是數字、字級自洽 ⇒ 斷言照樣綠,真正的數量欄靜靜離開分母)。
+   *    ⇒ 定義權搬回**元件**:誰是數量格由這裡宣告,而量具守「這個標記還在、每列剛好一個」。
+   * ⚠️ 代價是多一個只為量測存在的屬性。**這 repo 既有同款慣例**
+   *    (`print-button.tsx` / `picking-checkbox` / `shipping-checkbox` 都是 `data-slot`),
+   *    所以不是新發明;而它的價值在於**標記不見時量具會紅**,位置假設不會。
+   */
+
+  /**
+   * 這一區要不要**勾選欄**。
+   *
+   * 🔴 **這是 Sean 2026-08-23「揀貨單與出貨單合併」拍板的落地點** ——
+   *    本檔舊註解逐字寫著「**而這張紙上沒有勾選欄**」,那句在合併之前是對的。
+   *    稿的 `預覽-出貨明細單.html` 的「本次出貨」區有 `<th class="pd-mid">勾</th>`
+   *    + 每列 `<td class="pd-tick"><span class="pd-box">`,而「尚未出貨」區**沒有**。
+   * ⚠️ 只給「本次出貨」—— 欠貨與已取消**沒有東西可以勾**,給了框就是在問一個沒有答案的問題
+   *    (與 `picking-doc.tsx` 那條「不用揀的列不給框」是同一條紀律)。
+   */
+  tick?: boolean;
+  /**
+   * 這一區的**金額欄**(片4b,`Q-D-4`=乙 / Sean 2026-08-24 `Q1`=甲)。
+   *
+   * 🔴 **三態,而三態是刻意的**:
+   * ```
+   * 省略                 這一區【沒有金額欄】 —— 訂單取消區(Q-C11=甲)
+   * { subtotal: 數字 }   有金額欄, 而且印得出小計
+   * { subtotal: null }   有金額欄, 而【這一區不印小計】(有列的量不可知, spec §5 fail-closed)
+   * ```
+   * ⚠️ **`null` 與省略【不可以合併】** —— 前者是「有金額欄但算不出來」,
+   *    後者是「這一區本來就不談錢」。合併之後,取消區會長得跟一個算壞的區一樣。
+   */
+  money?: { subtotal: number | null };
   /** 續頁抬頭要帶的訂單編號(`Q-C20`)。 */
   orderDisplayId: string;
   /** 續頁抬頭要帶的箱號(`Q-C20`)。 */
   shipmentReference: string;
   children: React.ReactNode;
 }) {
+  // 🔴 `.pd-sech` = **粗上框線 + 一般文字**(`border-top:1.2mm`),不是黑底反白。
+  //    FIX-63 的字面寫「實心黑帶+反白標題」,而 FIX-71 之後稿的最終值是這個形狀
+  //    (實掃 `.pd-sech` 的 `background` 命中 = 0)。**照 FIX-63 字面搬 = 搬進已修掉的 bug**
+  //    —— Sean 2026-08-23 14:08 實印:用 background 畫的四樣全不見。
   return (
-    <div className='space-y-1'>
-      <div className='flex flex-wrap items-baseline gap-x-3 border-b pb-1'>
-        <h2 className='text-base font-semibold'>{title}</h2>
-        <span className='text-muted-foreground text-xs'>{note}</span>
-      </div>
+    <section className={variant === undefined ? 'pd-items' : `pd-items pd-${variant}`}>
+      <h2 className='pd-sech'>
+        {title}
+        <span>{note}</span>
+      </h2>
       <table className='w-full border-collapse'>
         <thead>
           {/* ── `Q-C20` 續頁抬頭(Sean 2026-08-17 拍**甲**:照設計稿做,不要另外發明)──
@@ -291,24 +389,112 @@ function Section({
                  📎 **要印的話**:加一個右浮的 `<span>` 即可,其餘一個字都不用動。
                  ⚠️ **不要「照樣張補齊」把它加回來而不讀這一段。** 例外清單的正本在
                  `docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §4b-3。 */}
-          <tr className='contbar'>
-            <th
-              colSpan={3}
-              className='text-muted-foreground px-2 pt-2 pb-1 text-left text-xs font-bold tracking-[0.16em] uppercase'
-            >
-              品項明細　訂單 <b className='text-foreground font-mono tracking-[0.04em]'>{orderDisplayId}</b>
-              　箱號 <b className='text-foreground font-mono tracking-[0.04em]'>{shipmentReference}</b>
+          {/* 🔴 **「品項明細」四個字拿掉了**(FIX-63:續頁列不再重複區塊名)——
+              稿的最終值逐字是 `訂單 <b>…</b>　箱號 <b>…</b>`,前面沒有「品項明細」。
+              ⚠️ 上面那整段「為什麼要有這一列」的依據**一個字都沒變**,變的只有它印什麼。 */}
+          {/* 🔴 片4-R1 修 F5:`contbar` → `pd-contbar`。
+              CSS 裡是 `.pd-contbar`(3 條規則),而元件寫的是無前綴的 `contbar`
+              ⇒ **續頁抬頭的樣式從落地那天起就沒有生效過**,而畫面上它仍然「有東西」
+                (只是套的是預設 th 樣式)⇒ 沒有任何人會發現。 */}
+          {/* 🔴 `colSpan` **由欄數推導,不是打一個字面數字** —— 打死的話,
+              片4b 加金額欄的那一刻它就少一格,而**紙上看得到的症狀是續頁抬頭橫線短了一截**,
+              三綠與單測都不會紅。基本三欄(料號/品名/數量)+ 勾 + 金額。 */}
+          <tr className='pd-contbar'>
+            <th colSpan={3 + (tick ? 1 : 0) + (money === undefined ? 0 : 1)}>
+              訂單 <b>{orderDisplayId}</b>　箱號 <b>{shipmentReference}</b>
             </th>
           </tr>
-          <tr className='border-b'>
-            <th className='px-2 py-2 text-left text-xs font-medium'>料號</th>
-            <th className='px-2 py-2 text-left text-xs font-medium'>品名 / 規格</th>
-            <th className='px-2 py-2 text-right text-xs font-medium'>{qtyHeader}</th>
+          {/* 🔴 片4-R1 修 F2:欄名列改掛 `.pd-colhead`,數量那欄掛 `.pd-num`。
+              改之前 `text-right` 被 `.pd-items thead th{text-align:left}` 蓋掉
+              ⇒ **欄名靠左、下方數字靠右,兩者對不齊**,而那是紙上看得到的。 */}
+          <tr className='pd-colhead'>
+            {tick && <th className='pd-mid'>勾</th>}
+            <th>料號</th>
+            <th>品名 / 規格</th>
+            <th className='pd-num'>{qtyHeader}</th>
+            {money !== undefined && <th className='pd-num'>金額</th>}
           </tr>
         </thead>
-        <tbody>{children}</tbody>
+        <tbody>
+          {children}
+          {/* ── 🔴 這一區的小計(片4b)───────────────────────────────────────────
+              🔴 **放在 `tbody` 的最後一列,不是 `tfoot`** —— `tfoot` 會被瀏覽器
+                 **逐頁重複**(與 `thead` 同機制)⇒ 一張 3 頁的紙會印出三個小計,
+                 而那三個看起來都像「這一區的總數」。**紙印出去收不回來。**
+              🔴 **`subtotal === null` ⇒ 整列不印,不印 `—`、不印 0**(spec §5 fail-closed):
+                 印一個佔位符會讓客人以為那一格「本來就沒有錢」,而事實是**我們算不出來**。
+              📎 標籤刻意寫「本區合計」不寫「小計」——「小計」在紙的下半部已經是
+                 `detail.subtotal` 那一列的名字,兩個同名的數字不相等會讓客人以為我們算錯帳。 */}
+          {money !== undefined && money.subtotal !== null && (
+            <tr className='pd-subtotal'>
+              <td colSpan={2 + (tick ? 1 : 0)} />
+              <td className='pd-num'>本區合計</td>
+              <td className='pd-num pd-strong'>{formatOrderAmount(money.subtotal)}</td>
+            </tr>
+          )}
+        </tbody>
       </table>
-    </div>
+    </section>
+  );
+}
+
+/**
+ * 勾選格。**空心 `border` 不是底色** —— 單色印表機照樣看得見,而底色不印時會整個消失。
+ * 🔴 `data-slot` 是守門的掛勾:沒有它,「這一區有沒有勾選欄」就沒有穩定的選取器,
+ *    而那條斷言會變成恆真(選不到 ⇒ 永遠通過)。同型教訓見 `print-button.tsx` 的 docstring。
+ */
+/**
+ * 金額列。
+ *
+ * 🔴 **每個數字都是【欄位原值】,零運算** —— `Q-D-7` 的硬條款:
+ *    禁止從 `subtotal`/`total` 反推、禁止浮點、格式化一律走既有 `formatOrderAmount`
+ *    (`lib/orders/order-list-view.ts:979`,`toLocaleString('en-US')` ⇒ 千分位、**不加 NT$**)。
+ * 📎 全站不寫 `NT$`;幣別只在區塊抬頭出現一次(「金額 新臺幣」),與訂單信同一條紀律。
+ */
+function MoneyRow({
+  label,
+  money,
+  cls,
+  negative = false,
+}: {
+  label: string;
+  money: { amount: number };
+  cls?: string;
+  /** 折扣列:印負號。**只影響呈現,不改值**(見呼叫端那段)。 */
+  negative?: boolean;
+}) {
+  return (
+    <tr className={cls}>
+      <td className='k'>{label}</td>
+      <td className='v'>
+        {negative && '−'}
+        {formatOrderAmount(money.amount)}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * 品項列的**金額格**(片4b)。`null` = 不知道 ⇒ **印一句話,不印數字、不印 `—`、不補 0**。
+ *
+ * 🔴 **為什麼不留白**:空格在紙上與「這一項不用錢」長得一樣,
+ *    而事實是**我們算不出來**。同 `.pd-state`(「數量資料尚未就緒」)那一支的立場。
+ * 🔴 **`formatOrderAmount` 不加 `NT$`**(`lib/orders/order-list-view.ts:979`,`toLocaleString('en-US')`)
+ *    —— 全站不寫幣別符號,幣別只在下方金額區抬頭出現一次(「金額 新臺幣」)。
+ */
+function MoneyCell({ amount }: { amount: number | null }) {
+  return (
+    <td className='pd-num'>
+      {amount === null ? <span className='pd-state'>金額資料尚未就緒</span> : formatOrderAmount(amount)}
+    </td>
+  );
+}
+
+function TickCell() {
+  return (
+    <td className='pd-tick'>
+      <span data-slot='shipping-checkbox' className='pd-box' />
+    </td>
   );
 }
 
@@ -324,6 +510,42 @@ function Alert({ children }: { children: React.ReactNode }) {
 }
 
 
+/**
+ * 抬頭七值(#10)。**逐字,不得正規化** —— 依據與典故見 `<header>` 那段註解。
+ *
+ * 🔴 **拆成四個常數而不是一整串,是為了讓 `<b>` 只包住公司名** —— 排版需要,值沒有變。
+ * 🔴 分隔用的是**全形空格 `　`(U+3000)**,取自 OD 產物 `預覽-出貨明細單.html` 的 `.pd-i1/.pd-i2`。
+ *    ⚠️ 它看起來像兩個半形空格,**而它不是**。用半形取代會讓紙上三段字擠在一起。
+ */
+const ISSUER_NAME = '派達有限公司';
+const ISSUER_LINE1_REST = '　PCM MOTOR PARTS LTD　統一編號 90003020';
+const ISSUER_LINE2 = '新北市新莊區化成路736巷18號1樓';
+const ISSUER_LINE3 = '+886 930-531-867　sean@pcmmotorsports.com　LINE @pcmmoto';
+
+/**
+ * 🔴🔴 **對外紙本的文案 —— Sean 2026-08-24 親自挑的版本(`Q2` 三選一,他逐字「那題人話: 乙」)。**
+ *    canonical:`memory/project_0824-sean-shipping-doc-two-sections-confirmed.md`「追記」節。
+ *    **動這個字面要重新問 Sean**,不是 code review 能放行的。
+ *
+ * **它要解決的問題**:兩區合計的母體是「這一箱」與「還欠的」,而下方訂單金額的母體是整張訂單
+ * (含先前已寄出的、含已取消的)⇒ **加起來不會相等,而那是對的**(spec §3)。
+ * 不講清楚的話,客人會自己相加,然後發現對不起來、以為我們算錯帳。
+ * 落選的兩版與「為什麼是乙」都在 canonical 那條裡(甲=解釋機制 / 丙=只講以哪個為準)。
+ *
+ * ⚠️⚠️ **這一版是【看文字】挑的,不是【看樣張】挑的** —— 原因是雞生蛋:
+ *    樣張要長出這句話,得先有兩區小計這個版面,而那是同一片的工作。
+ *    ⇒ **落地之後要產真樣張讓他肉眼驗**,而他那時仍然可以改字。
+ *    🔴 **「他挑過了」不等於「他看過它印在紙上的樣子」** —— 不要把前者寫成後者。
+ *
+ * 🔴🔴 **引號用「」而不是『』,這是我做的決定,不是照抄** ——
+ *    canonical 那條裡寫成 `『這箱值多少』`,而那是因為**整句話被 `「」` 包起來引用**
+ *    (中文巢狀引號:外「」內『』)。**印在紙上時這句話沒有外層引號** ⇒ 回到單層的「」。
+ *    ⚠️ 我把這一格寫出來而不是默默決定,是因為**它是對外紙面的字面** ——
+ *      若 Sean 要的就是 `『』`,這裡改一個字即可,而**他要看得到有人做過這個判斷**。
+ */
+const CROSS_SECTION_NOTICE =
+  '上面兩塊回答「這箱值多少」和「還欠您多少」,下面回答「這張訂單總共多少」。前面兩個加起來不會等於下面那個,那是正常的。';
+
 export function ShippingDoc({
   detail,
   items,
@@ -332,8 +554,28 @@ export function ShippingDoc({
   lines,
 }: {
   detail: AdminOrderDetail;
-  /** 🔴 完整品項清單(頂層分頁撈到盡)—— **不要改回 `detail.items`**,理由見 `shippingDocBlocker`。 */
-  items: readonly AdminOrderPrintItem[];
+  /**
+   * 🔴 完整品項清單(頂層分頁撈到盡)—— **不要改回 `detail.items`**,理由見 `shippingDocBlocker`。
+   *
+   * 🔴🔴 **片4b:型別從 `AdminOrderPrintItem`(6 欄)加寬成 `AdminOrderDetailFullItem`(+ 單價/行小計)**
+   *    —— 紙上要印金額了(Sean 2026-08-24 `Q1`=甲),而 `unitPrice` 只在後者。
+   *    ⚠️ **加寬的是【這個元件】,不是 `shippingDocBlocker`** —— 那支只讀六欄、簽章維持窄的,
+   *      所以 `lib/shipping/shipment-candidates.ts` 那個消費端一個字都不用動。
+   * 🔴🔴 **而 `lineTotal` 【被型別擋在門外】,不是靠守門也不是靠自律。**
+   *    它是**下單量**的行小計,而 `Q-D-7` 要的是 `unitPrice × 本區數量` ⇒ 印它會印錯區
+   *    (部分出貨時會印出**整筆下單金額**)。
+   *    ⇒ 所以這裡是 `Omit<…, 'lineTotal'>`:**本檔任何地方讀 `item.lineTotal` 都是編譯錯誤。**
+   * 🔴 **為什麼從「原始碼字面守門」換成「型別」**(codex 跨模型審查 2026-08-24 finding 3):
+   *    字面守門只找**單一檔案的連續字串** ⇒ `item['line'+'Total']` / 別名 / 中繼函式全繞得過。
+   *    codex 的 WOULD-CHANGE 我在真 runner 覆過:
+   *    `node -e "…\"item['line'+'Total']\".includes('lineTotal')…"` ⇒ **`BYPASS`**。
+   *    ⚠️ **而修法不是再去列舉那幾種繞法** —— 那又是一個「我列的分母」,
+   *       下一種繞法出現時它不會紅。**判準是:新增第 N 種繞法時,它會不會自己紅?**
+   *       型別會。字面不會。
+   * 📎 呼叫端傳完整的 `AdminOrderDetailFullItem[]` 進來完全合法(結構子型別),
+   *    **被擋住的是「本檔讀它」,不是「呼叫端有它」** —— 那正是要擋的那一半。
+   */
+  items: readonly Omit<AdminOrderDetailFullItem, 'lineTotal'>[];
   reportedTotal: number | null;
   shipment: ShipmentRow;
   lines: OrderShipmentGroup['lines'];
@@ -376,12 +618,57 @@ export function ShippingDoc({
     .map((item) => ({ item, qty: cancelledQuantityOf(item) }))
     .filter((r): r is { item: (typeof r)['item']; qty: number } => r.qty !== null && r.qty > 0);
 
+  // ── 🔴🔴 片4b:金額(`Q-D-3`=B / `Q-D-4`=乙 / Sean 2026-08-24 `Q1`=甲)──────────────
+  // 🔴 **`Q-D-7` 硬條款**:每一格都是 `unitPrice × 本區數量` 後加總。
+  //    **禁**從 `subtotal`/`total` 反推、**禁**浮點、**禁**自己發明算法。算式全在
+  //    `lib/shipping/shipping-doc-amounts.ts`(有不需渲染就跑得動的測試 + 四發突變驗過)。
+  //
+  // 🔴🔴 **§9⑦ 的 fail-closed 閘 —— 這一段是「多一筆錢」與「多幾件」的分界。**
+  //    頁層分兩次讀(`findAdminOrderDetail` / `loadOrderShipments`),中間有人按「標記出貨」
+  //    ⇒ 舊的 `shippedQuantity` 配新的 `shippedAt`。數量層的後果是多印幾件(已登記);
+  //    **而金額讓它變成多印一筆錢**,所以這裡要有處置,不能只登記。
+  //    ⇒ 兩次讀對不起來 ⇒ **整張紙不印任何金額**(不是印一個算錯的)。
+  const moneyIsTrustworthy = shipmentReadsAreConsistent({
+    thisShipmentShipped: shipment.shippedAt !== null,
+    lines: lines.map((l) => ({
+      thisShipmentQuantity: l.quantity,
+      shippedQuantity: itemById.get(l.orderItemId)?.quantitySummary?.shippedQuantity ?? null,
+    })),
+  });
+
+  // 本次出貨:量來自 `lines[]`,**永遠算得出來**(不經過 `quantitySummary`)。
+  const shippedAmounts = lines.map((l) => {
+    const item = itemById.get(l.orderItemId);
+    return item === undefined ? null : lineAmount(item, l.quantity);
+  });
+  // 尚未出貨:量可能是 `null`(不知道)⇒ 那一區整區不印小計(`sectionSubtotal` 自己 fail-closed)。
+  const outstandingAmounts = outstandingRows.map(({ item, qty }) => lineAmount(item, qty));
+
+  // 🔴 **不可信 ⇒ `undefined`(整區沒有金額欄),不是 `null`(有欄但算不出來)。**
+  //    差別在紙上看得到:`null` 會留一個空的金額欄給客人看,而我們根本不想談這張紙的錢。
+  const shippedMoney = moneyIsTrustworthy
+    ? { subtotal: sectionSubtotal(shippedAmounts) }
+    : undefined;
+  const outstandingMoney = moneyIsTrustworthy
+    ? { subtotal: sectionSubtotal(outstandingAmounts) }
+    : undefined;
+
+  // 🔴 **紙上到底印出了幾個區塊合計** —— 那句跨區人話只在 `> 0` 時印。
+  //    ⚠️ 抽成一個名字而不是把條件寫進 JSX:那個條件有三態(沒有金額欄 / 有欄但算不出 / 有值),
+  //       寫成一串 `?.` 與 `!==` 之後**沒有人讀得出它到底在問什麼**,而讀不出來的條件就是下一個 bug。
+  const sectionSubtotalsShown = [shippedMoney, outstandingMoney].filter(
+    (m) => m !== undefined && m.subtotal !== null,
+  ).length;
+
   return (
     /* 🔴 `print-sheet` 是 `app/print/print-a4.css` 唯一的掛勾:列印時把 `p-6` 歸零,
        讓紙面邊界**只由** `@page{margin:12mm 12mm 14mm 12mm}` 決定,不然會內縮兩次。
        ⚠️ 改名要同步那支 CSS —— 那裡是「這張紙是不是 A4」的唯一決定點,
        而改名之後的症狀是**紙印出來邊距不對**,三綠與單測都不會紅。 */
-    <div data-slot='shipping-doc' className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none'>
+    <div
+      data-slot='shipping-doc'
+      className='print-sheet mx-auto max-w-3xl space-y-4 p-6 print:max-w-none pd-sheet'
+    >
       {/* 🔴 **每個號碼各自帶標籤**(plan §4)。設計需求書早就標了這個風險:
           「**兩個碼並排裸印,客人不知道該拿哪個去查**」。
           ⇒ `displayId` 抽出前是**裸印**(沒有「訂單編號」四個字),這次補上。
@@ -412,35 +699,59 @@ export function ShippingDoc({
              📌 **已立案 `#602`**(2026-08-17)—— 在那之前,這條登記**只住在註解裡**,
                 而註解**被遺忘時什麼都不會響**。
           ⚠️ 左側欄名(公司名稱/電話/…)是設計端自訂、非拍板值;右側八個字串才是。 */}
-      <header className='rounded-md border p-3 text-sm'>
-        <div className='text-muted-foreground mb-1 text-xs'>開立單位</div>
-        <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5'>
-          <dt className='text-muted-foreground'>公司名稱</dt>
-          <dd className='font-medium'>派達有限公司</dd>
-          <dt className='text-muted-foreground'>電話</dt>
-          <dd>+886 930-531-867</dd>
-          <dt className='text-muted-foreground'>電子郵件</dt>
-          <dd>sean@pcmmotorsports.com</dd>
-          <dt className='text-muted-foreground'>統一編號</dt>
-          <dd className='tabular-nums'>90003020</dd>
-          <dt className='text-muted-foreground'>地址</dt>
-          <dd>新北市新莊區化成路736巷18號1樓</dd>
-          <dt className='text-muted-foreground'>LINE</dt>
-          <dd>@pcmmoto</dd>
-          <dt className='text-muted-foreground'>英文名稱</dt>
-          <dd>PCM MOTOR PARTS LTD</dd>
-        </dl>
+      {/* ── 片2:改成稿的 `.pd-masthead`(FIX-48/63)────────────────────────────
+          🔴 **七個值一個字都沒動** —— 只有【排法】從 `<dl>` 七列壓成三行跑文字。
+             上面那段逐字紀律(全形半形不動 / +886 不改 0 / LTD 後面沒有句點)照舊生效。
+          🔴 **值放在 JS 常數裡,不放進 JSX 的文字節點** —— 那不是風格:
+             這三行含**全形空格 `　`(U+3000)**,而 JSX 會在換行邊界做 `\s` trim,
+             `\s` 在 JS 裡**吃得掉 U+3000**;prettier 又可能把長行折在那些空格上。
+             ⇒ 放進 JSX 文字節點時,**格式化工具改一次排版就可能把分隔空格吃掉,而沒有人會發現**。
+          🔴 LOGO 用 `<img>`,**不得改成 background-image** ——
+             Sean 2026-08-23 14:08 實印:用 background 畫的四樣全不見,同張紙文字與框線都在。
+             資產逐位元組複製自 OD `assets-print/`(sha256 `0eb4b772…`),**沒有重產**。 */}
+      <header className='pd-masthead'>
+        <div className='pd-brand'>
+          {/* 三色條 = 三條 `border-left`(見 CSS),不是圖也不是底色。純裝飾 ⇒ 對讀屏隱藏。 */}
+          <div className='pd-mstripe' aria-hidden='true'>
+            <i />
+            <i />
+            <i />
+          </div>
+          {/* 🔴🔴 **這張圖在【伺服器渲染】那條路上 100% 不會出現。**
+              `proxy.ts:80` 的 matcher 沒排除 `public` ⇒ 沒有 cookie 的請求會被 303。
+              · 員工用瀏覽器列印 ⇒ 分頁登入過、`<img>` 帶同一顆 cookie ⇒ **看得到**
+              · Sean 08-23 拍板的「出貨單出圖走伺服器渲染」⇒ **沒有任何人的 cookie ⇒ 必然缺圖**
+              ⚠️ 症狀是**圖不見了,不是錯誤**:三綠全綠、頁面不報錯、零告警。
+              ⇒ 修法是 `proxy.ts` 一行 matcher(**不是本檔**),已交下手窗排 backlog。
+              📌 這段寫在這裡而不是只寫在交件檔 —— **交件檔不會被下一個開這支檔的人讀到。** */}
+          <img className='pd-logo' alt='PCM MOTOR PARTS' src='/print/logo-p2-bicolor.png' />
+        </div>
+        <div className='pd-issuer'>
+          <div className='pd-i1'>
+            <b>{ISSUER_NAME}</b>
+            {ISSUER_LINE1_REST}
+          </div>
+          <div className='pd-i2'>{ISSUER_LINE2}</div>
+          <div className='pd-i2'>{ISSUER_LINE3}</div>
+        </div>
       </header>
 
-      <div className='flex flex-wrap items-center gap-3'>
+      {/* ── 片2:`.pd-doctitle`(FIX-48/63)──
+          🔴 英文由 ~~`Shipping / Picking Document`~~ 改為 **`Shipping Document`**,依稿的最終值。
+             理由不是省字:**這張紙沒有揀貨欄**(勾選欄在 `picking-doc.tsx`)⇒ 舊字面裡的
+             `Picking` 描述的是一個還沒成立的世界,與下方那段「用途說明刻意還不印」同一個病。
+             ⚠️ 實查:`page.test.tsx` **沒有任何一格釘英文字串** ⇒ 改它不會紅,
+                也就是說**這一改沒有守門在看**,只有這行註解記得。 */}
+      <div className='pd-doctitle'>
         {/* 🔴 標題改「出貨明細單」+ 英文 + 用途說明,依樣張 `:244-250` 逐字。
             ⚠️ 舊字面是「出貨單」,`page.test.tsx` 兩處 `toContain('出貨單')` 同批更新
                —— `出貨明細單` **不包含** `出貨單` 這個子字串(明細二字插在中間),
                不改那兩格會紅,而它們紅得對。 */}
-        <div>
-          <h1 className='text-2xl font-semibold'>出貨明細單</h1>
-          <div className='text-muted-foreground text-xs'>Shipping / Picking Document</div>
-          {/* 🔴🔴 **樣張的用途說明兩行【刻意還不印】**(code-reviewer R2 F4 抓到,我原本照抄了)。
+        <h1>出貨明細單</h1>
+        <div className='pd-en'>Shipping Document</div>
+        {/* 🔴 稿的**出貨明細單沒有 `.pd-use`**(FIX-61 拿掉用途標語);訂單明細才有。
+            ⇒ 這裡不留空的 `.pd-use` —— 它帶 `margin-left:auto`,空著也會推走 flex 版面。 */}
+        {/* 🔴🔴 **樣張的用途說明兩行【刻意還不印】**(code-reviewer R2 F4 抓到,我原本照抄了)。
               樣張逐字是「倉庫揀貨核對 · 隨貨交付客戶」+「同一張紙兩用:先在倉庫對箱勾選,
               再隨商品出貨」—— **而這張紙上沒有勾選欄**(本檔 `Section` 的 `<th>` 只有
               料號 / 品名規格 / 數量;勾選欄在 `components/print/picking-doc.tsx` 那張紙上)。
@@ -448,13 +759,12 @@ export function ShippingDoc({
               🔴 **「逐字照樣張」擋不住這一條** —— 樣張的前提(揀貨單與出貨單已合併成一張)
                  **還沒成立**;字面沒抄錯,是**它描述的那個世界還不存在**。
               ⇒ 合併片落地時把這兩行一起補上,那時它才是真的(登記在
-                 `docs/specs/2026-08-16-shipping-doc-sample-vs-impl.md` §4)。 */}
-        </div>
-        <span className='text-xl font-semibold tabular-nums'>
-          <span className='text-muted-foreground text-sm font-normal'>訂單編號 </span>
-          {detail.displayId}
-        </span>
-        <span className='font-mono text-sm'>箱號 {shipment.shipmentReference}</span>
+                 `docs/specs/2026-08-16-shipping-doc-sample-vs-impl.md` §4)。
+              📌 片4-R1 修 F13:原本這段包在一個 `<div hidden>` 空殼裡 ——
+                 **註解留著就夠了,空節點沒有用途。** */}
+        {/* 🔴 **訂單編號與箱號已移到下面的 `.pd-info` 右欄** —— 稿把它們與出貨日/貨運商放同一組。
+            ⚠️ 「每個號碼各自帶標籤」那條紀律**沒有被放寬**,是換了位置:
+               在 `.pd-info` 裡每個值前面都有 `.k` 欄名 ⇒ 仍然不是裸印。 */}
         {/* 🔴 **擋住內容卻沒擋住列印鈕 = 守門裝在沒有事的那條路上**(2026-08-17 修)。
             改之前這顆鈕在紅字**上面**、不受 `blocked` 影響 ⇒ 員工按得下去,
             **而印出來的紙上只有那一行紅字** —— 一張沒有用的紙照樣被印出來、照樣可能被放進箱子。
@@ -480,18 +790,43 @@ export function ShippingDoc({
         <BlockedSheet kind='shipping-blocked' reason={blocked} orderDisplayId={detail.displayId} />
       ) : (
         <>
-          {/* 收件人。`blocked === null` 已保證 `recipientSnapshot` 非 null 且三欄都有內容。 */}
-          <div className='rounded-md border p-3 text-sm'>
-            <div className='text-muted-foreground mb-1 text-xs'>收件人</div>
+          {/* ── 片2:收件人 + 單據物流合併成稿的 `.pd-info` 兩欄(FIX-48/63)──
+              🔴 **欄名與值改成【兩個 DOM 節點】(`.k` / `.v`),中間沒有冒號。**
+                 稿是這樣排的(`預覽-出貨明細單.html` 的 `.pd-field`),而舊版是
+                 `貨運商:新竹物流` 一整串。⇒ `textContent` 由 `貨運商:新竹物流`
+                 變成 `貨運商新竹物流`,**釘舊字面的兩格會紅,而它們紅得對**(排版真的變了)。
+              🔴 **「每個號碼各自帶標籤」那條紀律沒有被放寬** —— 它現在由**結構**保證:
+                 每個值都住在一個 `.pd-field` 裡、旁邊就是它的 `.k`。
+                 ⇒ 守門改成**驗 `.k`→`.v` 配對**,那比原本的子字串比對更強
+                   (子字串比對分不出「值跑到別的標籤底下」)。
+              ⚠️ **`日期` 這兩個字不跟稿** —— 稿寫 `出貨日`,而 Sean 2026-08-16 `Q-C6` 逐字
+                 「**改成: 日期 這兩個字就好**」。**拍板 > 設計稿**(`docs/ops/AI_CONTRACT.md` 的優先序)。 */}
+          <section className='pd-info'>
+            <div className='pd-col'>
+              <span className='pd-label'>收件人</span>
             {/* 🔴 `#240`/Q1-A1(code-reviewer R1 must-fix 4):收件人姓名同樣是客人自填 /
                 LINE 帶入 ⇒ 一樣會帶 emoji, **而【這張紙】才是明確要交給客人的那張**。
                 📌 只修被指名的那一條路(揀貨單)而留著姊妹呼叫端, 是本 repo 明文反對的做法。
                 ⚠️ 濾掉之後若整串為空 ⇒ `stripPictographs` 回 null ⇒ 這裡印空(維持既有行為,
                    本欄原本就沒有 `?? '—'` 的缺值寫法, 本片不改它的顯示規則)。 */}
-            <div className='font-medium'>{stripPictographs(shipment.recipientSnapshot?.name)}</div>
-            <div>{shipment.recipientSnapshot?.phone}</div>
-            <div>{shipment.recipientSnapshot?.line}</div>
-          </div>
+              <div className='pd-field'>
+                <div className='k'>姓名</div>
+                <div className='v big'>{stripPictographs(shipment.recipientSnapshot?.name)}</div>
+              </div>
+              <div className='pd-field'>
+                <div className='k'>電話</div>
+                <div className='v code'>{shipment.recipientSnapshot?.phone}</div>
+              </div>
+              {/* 🔴 `recipientSnapshot.line` 的欄位名叫 `line`,而它是**地址**不是 LINE 帳號 ——
+                  來源 `orders.shipping_address_snapshot` jsonb `{name,phone,line}`
+                  (`packages/domain/src/order/types.ts:1209`),而本檔上方擋空的訊息也逐字寫
+                  「收件人 / 電話 / **地址** 有缺」。⇒ 標成「地址」是對的,不是我改了語意。
+                  ⚠️ 名字會騙人的欄位就是這種:標成「LINE」印給客人的話,紙上會出現一個假的帳號欄。 */}
+              <div className='pd-field'>
+                <div className='k'>地址</div>
+                <div className='v addr'>{shipment.recipientSnapshot?.line}</div>
+              </div>
+            </div>
 
           {/* ── 貨運資訊(#10 片3)──
               🔴 **這一區在落地之前,紙上關於「誰送的」一個字都沒有。**
@@ -502,14 +837,24 @@ export function ShippingDoc({
               🔴 資料全在 `ShipmentRow` 裡 ⇒ 零 migration、零新查詢。純粹是「有資料沒印出來」。
               ⚠️ 各欄位的判斷都在 `lib/shipping/shipping-doc-dispatch.ts` 與
                  `carrier-label.ts`,**不在這裡** —— 它們要有不需渲染就跑得動的測試。 */}
-          <div className='rounded-md border p-3 text-sm'>
-            <div className='text-muted-foreground mb-1 text-xs'>貨運資訊</div>
-            <div className='flex flex-wrap gap-x-6 gap-y-1'>
-              <span>
-                貨運商:{carrierLabelOf(shipment.carrierCode)}
-                {shipment.carrierNote !== null && shipment.carrierNote.trim() !== '' &&
-                  `(${shipment.carrierNote})`}
-              </span>
+          <div className='pd-col'>
+              <span className='pd-label'>單據與物流</span>
+              <div className='pd-field'>
+                <div className='k'>訂單編號</div>
+                <div className='v big code'>{detail.displayId}</div>
+              </div>
+              <div className='pd-field'>
+                <div className='k'>箱號</div>
+                <div className='v big code'>{shipment.shipmentReference}</div>
+              </div>
+              <div className='pd-field'>
+                <div className='k'>貨運商</div>
+                <div className='v'>
+                  {carrierLabelOf(shipment.carrierCode)}
+                  {shipment.carrierNote !== null && shipment.carrierNote.trim() !== '' &&
+                    `(${shipment.carrierNote})`}
+                </div>
+              </div>
               {/* 🔴 這一格(`Q-C6` 之後叫「日期」):未出貨時印**列印當天**(Sean 拍甲,**明知偶爾會與系統差一天**)
                   ⇒ 設計需求書逐字要求**不要**加「以系統為準」之類的但書。照做,不加。
 
@@ -521,8 +866,14 @@ export function ShippingDoc({
                   📎 而它正好解掉原本那個矛盾:「日期」**不宣稱任何事**,所以與同一區的
                      任何狀態都不打架。⚠️ 原本這裡寫「與『尚未出貨,出貨後補』不打架」,
                      而**那句話在同一批被 `Q-C9b` 刪掉了** —— 改前件沒翻後件,已更正。 */}
-              <span>日期:{shippedDateText(shipment.shippedAt)}</span>
-            </div>
+              <div className='pd-field'>
+                <div className='k'>日期</div>
+                <div className='v code'>{shippedDateText(shipment.shippedAt)}</div>
+              </div>
+              {/* 🔴 **這一句是【新增的文案】,repo 之前紙上沒有** —— 取自稿的 `.pd-multi` 逐字。
+                  它與本檔 `:19` 那條「一箱兩單 ⇒ 印兩張、不混在一起」是**一致的**:
+                  紙仍是一單一張,而箱子裡**可能**有別單的貨 ⇒ 這句在提醒倉庫別照這張紙清箱。 */}
+              <div className='pd-multi'>同一箱可能還裝著其他訂單的商品。</div>
             {/* ── 🔴 追蹤碼那一列在這裡,而它被 `Q-C5`=丙 拿掉了(2026-08-17)──
                 Sean 逐字 `q3: 丙` ⇒ **出貨明細單不印追蹤碼欄位,追蹤碼只走LINE／Email 給客人。**
                 作廢清單:`docs/specs/2026-08-17-qc5-tracking-off-paper-decommission-list.md` §1。
@@ -534,7 +885,8 @@ export function ShippingDoc({
                    ③ `trackingDisplay` 的三種 `null` 語意(留給 `Q-C9` 的出貨通知信)
                 📎 這一列原本印的東西(`number` / `missing` / `selfService` / `pending` 四支)
                    完整留在 git 歷史與 `trackingDisplay` 的 docstring 裡,沒有跟著失傳。 */}
-          </div>
+            </div>
+          </section>
 
           <div className='text-muted-foreground flex flex-wrap gap-x-6 gap-y-1 text-sm'>
             <span>下單:{formatOrderDateTime(detail.createdAt)}</span>
@@ -546,18 +898,28 @@ export function ShippingDoc({
             title='本次出貨'
             note='這個箱子裡屬於這張訂單的品項'
             qtyHeader='本次出貨'
+            tick
+            money={shippedMoney}
             orderDisplayId={detail.displayId}
             shipmentReference={shipment.shipmentReference}
           >
-            {lines.map((l) => {
+            {lines.map((l, i) => {
               // `blocked === null` 已保證每一條 line 都對得到品項(面7)。
               const item = itemById.get(l.orderItemId);
               return (
                 <tr key={l.orderItemId} className='border-b'>
+                  {/* 🔴 勾選格只在這一區(見 `Section` 的 `tick` docstring)。
+                      ⚠️ 欄名有「勾」而列上沒有框 ⇒ 整張表右移一格、版面歪掉,
+                         而**單測若只數框的總數是抓不到的** —— 守門要問「框在不在這一區裡」。
+                         (我第一版就是漏掉這一行,是那道新守門當場紅給我看的。) */}
+                  <TickCell />
                   <ItemCells sku={item?.variantSku} title={item?.title} spec={item?.spec} />
-                  <td className='px-2 py-3 text-right align-top text-xl font-semibold tabular-nums'>
+                  <td data-slot='qty' className='pd-num pd-strong'>
                     {l.quantity}
                   </td>
+                  {/* 🔴 金額格**不掛 `pd-strong`** —— 這張紙要員工一眼看到的是【要出幾件】,
+                      而金額是給客人核對的。兩個都粗會讓那一眼失去落點。 */}
+                  {shippedMoney !== undefined && <MoneyCell amount={shippedAmounts[i] ?? null} />}
                 </tr>
               );
             })}
@@ -586,24 +948,46 @@ export function ShippingDoc({
               title='尚未出貨'
               note='這張訂單還欠客人的東西(不含這一箱要寄的)'
               qtyHeader='還欠幾件'
+              variant='pending'
+              money={outstandingMoney}
               orderDisplayId={detail.displayId}
               shipmentReference={shipment.shipmentReference}
             >
-              {outstandingRows.map(({ item, qty }) => (
-                <tr key={item.id} className='border-b'>
+              {outstandingRows.map(({ item, qty }, i) => (
+                /* 🔴 `pd-wait` 是**稿的列語彙**:`tr.pd-wait .pd-state{font-weight:700;color:var(--pd-ink)}`
+                   ⇒ 「數量資料尚未就緒」在紙上是**粗的主色**,不是一行灰字。
+                   ⚠️ 改前那句用 `text-amber-800`(琥珀)——**單色雷射印表機上它就是灰的**,
+                      而紙面調色盤本來就只有五階灰。⇒ 用「粗 + 主色」表達「這一列要注意」,不靠顏色。 */
+                <tr key={item.id} className={qty === null ? 'border-b pd-wait' : 'border-b'}>
                   <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />
-                  <td className='px-2 py-3 text-right align-top'>
-                    {qty === null ? (
-                      // 🔴 不知道就明說,**不印下單量、不補 0**(契約見 `outstandingQuantity` docstring)。
-                      <span className='text-sm font-medium text-amber-800'>
+                  {/* 🔴🔴 **R2 MF1+MF2:這一格與另外兩區【必須長得一樣】,而它先前不一樣。**
+                      改前:`<td className='pd-num'>` + `<span className='pd-strong'>`,兩個都壞:
+                        · 裸 `.pd-num` **(0,1,0)** 輸給 `.pd-items td` **(0,1,1)** ⇒ 它的字級從未生效
+                        · **`.pd-strong` 這條規則根本不存在** —— CSS 裡只有 `.pd-num.pd-strong`
+                          (要求同一元素帶兩個類)⇒ 那個 `<span>` 一條規則都沒吃到
+                      ⇒ **「還欠幾件」印成 9pt 一般字,而「本次出貨」是 10pt 粗 —— 紙上兩區字級相反。**
+                      🔴 這與 R1 抓到的 `.pd-sku` 是**同族、同一輪、同一支檔**,而我只修了一個。
+                         **我的量具沒看到它,因為量具用 `querySelector` 只取第一個 section。**
+                      ⇒ 現在與另外兩區共用同一組類 `pd-num pd-strong`(有真規則、具體度夠)。
+                      ⚠️ **只有數字那一支給 `pd-strong`** —— 「數量資料尚未就緒」是**警告不是數字**,
+                         給它 10pt 粗會讓一個「不要動這項」的訊息看起來像一個要照做的量。 */}
+                  {qty === null ? (
+                    <td data-slot='qty' className='pd-num'>
+                      {/* 🔴 不知道就明說,**不印下單量、不補 0**(契約見 `outstandingQuantity` docstring)。 */}
+                      <span className='pd-state'>
                         數量資料尚未就緒
                         <br />
                         這一項不要當成已出貨
                       </span>
-                    ) : (
-                      <span className='text-xl font-semibold tabular-nums'>{qty}</span>
-                    )}
-                  </td>
+                    </td>
+                  ) : (
+                    <td data-slot='qty' className='pd-num pd-strong'>{qty}</td>
+                  )}
+                  {/* 🔴 數量不知道 ⇒ 金額也不知道(`lineAmount` 已經回 `null`)——
+                      這一格會印「金額資料尚未就緒」,**不會印 0**。 */}
+                  {outstandingMoney !== undefined && (
+                    <MoneyCell amount={outstandingAmounts[i] ?? null} />
+                  )}
                 </tr>
               ))}
             </Section>
@@ -620,13 +1004,14 @@ export function ShippingDoc({
               title='訂單取消'
               note='這張訂單裡已經取消的品項,不會出貨'
               qtyHeader='已取消'
+              variant='cancelled'
               orderDisplayId={detail.displayId}
               shipmentReference={shipment.shipmentReference}
             >
               {cancelledRows.map(({ item, qty }) => (
                 <tr key={item.id} className='border-b'>
                   <ItemCells sku={item.variantSku} title={item.title} spec={item.spec} />
-                  <td className='px-2 py-3 text-right align-top text-xl font-semibold tabular-nums'>
+                  <td data-slot='qty' className='pd-num pd-strong'>
                     {qty}
                   </td>
                 </tr>
@@ -634,18 +1019,46 @@ export function ShippingDoc({
             </Section>
           )}
 
-          {/* 🔴🔴 **金額區塊:刻意還沒做 —— 但卡的已經不是規格了。**
-              `Q-D-3` = B(要印金額)、`Q-D-4` = 乙(兩區塊各自合計)⇒ **規格已經齊了。**
-              現在卡的是工序:金額橫跨上面兩個區塊,而 `Q-D-7` 要求每個印在紙上的數字
-              都要在註解裡寫明「用哪些權威欄、做了什麼運算」。⇒ **排下一片單獨做,不夾帶進這片。**
-              落地時的硬條款(不變):**紙上零金額計算的意思是「不自己發明算法」,不是「不能算」** ——
-              `Q-D-7` 已放行 `unitPrice × 本區數量` 後加總,但**禁止**從 `subtotal`/`total` 反推、
-              **禁止**浮點,且格式化一律走既有 `formatOrderAmount`(`order-list-view.ts:746`)。
+          {/* ── ✅ **金額區塊已落地(2026-08-23 片4)** —— 實體在下方 `.pd-money`,不在這裡 ──
+              ⚠️ ~~「金額區塊:刻意還沒做」~~ **原句刪除**(R3 MF3):它在 2026-08-23 之後就是假的,
+                 而**下一個人讀完它會認定紙上沒有錢** —— 錢就印在這一段下面。
+              🔴 硬條款(不變、不准鬆):**紙上零金額【計算】**。
+                 禁止從 `subtotal`/`total` 反推、禁止浮點、禁止自己發明算法;
+                 格式化一律走既有 `formatOrderAmount`
+                 (**`lib/orders/order-list-view.ts:979`** —— R3 nit:原本寫 `:746`,錯的)。
+              ✅ **口徑已落地(片4b,2026-08-24)—— ~~「碼還沒改」~~ 那句原句刪除,它現在是假的。**
+                 Sean 2026-08-24 `Q1`=**甲**:兩區 = **本次出貨 + 尚未出貨**,各自合計
+                 (canonical `memory/project_0824-sean-shipping-doc-two-sections-confirmed.md`)。
+              🔴🔴 **而【兩區合計】與【下面這四行】是「並存」不是「取代」** ——
+                 這是最容易被下一個人讀反的一格,所以寫在這裡:
+                 ```
+                 兩區合計   母體 = 這一箱 / 還欠的      算法 = unitPrice × 本區數量 後加總
+                 下面四行   母體 = 整張訂單(全下單量)  算法 = 直接印權威欄, 零運算
+                 ⇒ 兩者【本來就不相等】(spec §3 逐字「而那是對的」)
+                 ⇒ 紙上不得出現任何跨區等式;差額由 CROSS_SECTION_NOTICE 那句人話交代
+                 ```
+                 📌 ~~「訂 9 取消 1 ⇒ 訂單金額含被取消那件 ⇒ 兩個數字互相打臉」~~
+                    **那個顧慮沒有消失,是【換了處置】** —— 處置不是去改訂單金額
+                    (它是權威欄,改了就變成紙上自己算的數字),是**印一句話說明它們為什麼不同**。
+                 🔴 **`Q-C11`=甲 仍然成立:訂單取消區【不印金額】,只印件數。**
+                    理由要帶著走:客人看到取消品旁邊有金額,第一直覺是「這是要退我的錢」,
+                    而實際退款金額走退款流程、可能是不同的數字(部分退、運費不退)。
 
               ── 🔴 落地前先讀這一段(`#827` 2026-08-21 量測,主視窗裁「甲=先寫成約束」)──
               **列印表格零欄寬控制** ⇒ 金額落地時溢出會**推寬**不是**壓字**,
               `-46` 那片的 `--pcm-money-w` 對它無效;
-              驗收必須含**真瀏覽器列印預覽 + 七位數**(例 `NT$ 1,280,000`)。
+              ✅ **「驗收必須含真瀏覽器列印預覽 + 七位數」現在構造得出來了**(2026-08-23 片4-R3)。
+                 🔴 **而它一度是【從寫下的當下就構造不出來】的**(R3 MF4):
+                    `page-measure.test.tsx` 產給人看的每一份 HTML 都是 51,987 / 52,598,
+                    **與品項數無關** ⇒ 七位數在自動與人眼兩條路上都長不出來。
+                 📌 **一條從出生就無法被滿足的驗收條件,與一條【沒有寫】的,
+                    差別在於它看起來已經被涵蓋了。**
+                 ⇒ 修法**不是**去改這條驗收,是修那個 fixture:它原本寫死 `subtotal: 51987`,
+                    而每列 `lineTotal` 是 222,549 ⇒ **違反 `types.ts:131` 的 `subtotal = Σ lineTotal`**
+                    ⇒ 紙上印的是**不可能存在的資料**。改成由品項算出來之後,
+                    12 品項那份自然就是 **2,670,588 / 2,671,199**(實查 `/tmp/pcm-print-measure/shipping-12item.html`)。
+                 ⚠️ **仍未驗的是【那張紙印出來會不會被推寬】** —— 七位數現在有了,
+                    而**沒有人把它印出來看過**。這一格仍然是 Sean 那一關。
 
               🔴 **同一個病在兩張紙上長成兩個不同的症狀:**
                  後台面板  固定軌 `var(--pcm-money-w)` ⇒ 溢出時**壓字**(還看得出有東西)
@@ -661,12 +1074,81 @@ export function ShippingDoc({
               ⚠️ **誠實邊界**:以上是**字面**。「七位數會不會真的撐破 A4」**沒有量過** ——
                  jsdom 對容器寬度類破版恆綠(`#824`),那把尺對這一題沒有判別力。 */}
 
-          <div className='text-muted-foreground flex gap-8 pt-6 text-sm'>
-            {/* 🔴 **`Q-C7` = 丙(Sean 2026-08-16 逐字「丙,拿掉頁尾手寫日期」)**:
-                原本這裡還有一格手寫「日期:________」,而表頭已經印了一個「出貨日」。
-                兩個日期在員工實際交寄跨日時會不一致,**而客人不知道該信哪一個**。
-                ⚠️ **不要「順手」把它加回來** —— 它看起來像單據的標準欄位,而它是被拍板拿掉的。 */}
-            <span>出貨人:________________</span>
+          {/* ── 片4:簽名欄整塊拿掉(FIX-61)+ 底部區貼齊紙底(FIX-55/64)────────────
+              🔴 **`出貨人:____` 拿掉的依據是【量到的】,不是照抄一句 FIX 標題**:
+                 稿 `預覽-出貨明細單.html` 掃 `出貨人` / `簽名` ⇒ **各 0**;
+                 掃 `簽收` ⇒ 1,而那 1 筆在**CSS 註解裡**(講 margin-top:auto 的),不是紙上的字。
+                 正向對照:同一支 grep 掃「本次出貨」⇒ 2 ⇒ 那些 0 不是分母為 0。
+              ⚠️ `Q-C7`=丙(拿掉頁尾手寫日期)那條**沒有被推翻,是被涵蓋了** ——
+                 整塊簽名區不在了,手寫日期自然也不在。**但它的守門要留著**:
+                 「手寫日期不准回來」在沒有簽名區的世界仍然成立,而且更容易被人「順手」加回來。
+              🔴 **`margin-top:auto` 掛在 `.pd-bottom`(整組)不是 `.pd-foot`** ——
+                 稿的 CSS 註解逐字記著掛錯的後果:「會把它後面的簽收與頁尾擠出 297mm,
+                 實量:紙從 1,122px(A4)長到 1,221px」= 多出 26mm 的空白。 */}
+          <div className='pd-bottom'>
+            <div className='pd-foot'>
+              <section className='pd-contact'>
+                {/* 🔴 同 LOGO 那段:伺服器渲染路上這張 QR 也是 100% 被 303(`proxy.ts:80`)。
+                    ⚠️ 而 QR 缺了比 LOGO 貴:客人**掃不到**就聯絡不上,而紙上看起來只是少一塊。 */}
+                <img className='pd-qr' alt='LINE 官方帳號 QR Code' src='/print/line-qr.png' />
+                <div className='pd-ctxt'>
+                  <div className='pd-ch'>加入官方 LINE 帳號</div>
+                  {/* 🔴 **`lin.ee/egsf1Jy` 是【新增在紙上的字面】**,取自稿逐字。
+                      分級 **L2**(與抬頭七值同一族:公司聯絡資料,年 1-3 次會動)——
+                      收斂點同樣是 `#248`(登記資料進後台),在那之前它住在這裡。
+                      ⚠️ 它與抬頭那行的 `LINE @pcmmoto` **是兩種東西**(邀請連結 vs 帳號 ID),
+                         不是重複、也不能互相取代。 */}
+                  <div className='pd-cu'>lin.ee/egsf1Jy</div>
+                  <div className='pd-cp'>
+                    收到商品後有任何問題(缺件、外觀損傷、規格不符),請掃描左方 QR Code
+                    加入官方 LINE 帳號,並提供本單上的訂單編號。
+                  </div>
+                </div>
+              </section>
+              <section className='pd-money'>
+                <h2>
+                  金額<span>新臺幣</span>
+                </h2>
+                <table>
+                  <tbody>
+                    <MoneyRow label='小計' money={detail.subtotal} />
+                    {/* 🔴 R3 nit:原本帶 `cls='line'`,而 **`.line` 在我們與稿的 CSS 都是 0 條規則**
+                        (實查:兩邊各 0)⇒ 那是一個**只出現在 markup 的死類**。拿掉。 */}
+                    <MoneyRow label='運費' money={detail.shippingFee} />
+                    {/* 🔴🔴 **這一列稿【沒有】,而我判斷它必須有 —— 理由是算術會對不上。**
+                        `packages/domain/src/order/types.ts:133` 逐字:
+                        `total = subtotal + shippingFee − discountTotal`。
+                        稿只印 小計 / 運費 / 訂單金額 ⇒ **折扣不為 0 時,紙上三個數字加不起來**,
+                        而拿到那張紙的是客人。
+                        📎 **這不是我推翻設計** —— 稿自己的 `_po_money()` docstring 逐字寫著
+                           「**折扣只印一行**(discountTotal 是單一合計值,schema 沒有分項欄)」,
+                           而**同一支函式的碼裡沒有那一列**(實查 `patch-orders-ui.py:2264-2277`)。
+                           ⇒ 是稿的註解與碼不一致,他們的預覽剛好 discount=0 所以沒人看見。
+                        ⚠️ **已回報 OD/線A。** 在他們回覆之前,我採「照 docstring 的意圖補上」。
+                        🔴 折扣為 0 時**不印這一列** ⇒ 常見情況下紙面與稿逐字相同。
+                        🔴 印負號是**呈現**不是運算:值是欄位原值,負號只是讓那一欄看得懂。 */}
+                    {detail.discountTotal.amount > 0 && (
+                      <MoneyRow label='折扣' money={detail.discountTotal} negative />
+                    )}
+                    <MoneyRow label='訂單金額' money={detail.total} cls='grand' />
+                  </tbody>
+                </table>
+                {/* 🔴 **只有上面真的印了區塊合計時才印這句** —— 沒有區塊合計時,
+                    這句話會去解釋一件紙上不存在的事,而那比不解釋更糟。
+                    ⇒ 條件與 `Section` 那個 `money.subtotal !== null` 是同一組判斷。 */}
+                {/* 🔴🔴 **`=== 2` 不是 `> 0`**(codex 2026-08-24 finding 1;原本寫 `> 0`)。
+                    那句話逐字講「**上面兩塊**」「**前面兩個**」⇒ 它**只在真的有兩塊時才是真的**。
+                    最後一箱出完 ⇒「尚未出貨」整區不存在 ⇒ 只剩一個本區合計,
+                    而那句話還印著 ⇒ **紙上在描述一個不存在的第二個數字**,
+                    🔴 而觸發情境是【最常見的那個】,不是邊界。
+                    ⚠️ **只剩一塊時【什麼都不印】,而那是一個【已登記的缺口】不是完成品**:
+                       客人仍會看到「本區合計 148,366」與下方「訂單金額 52,598」對不起來,
+                       而現在沒有一句話解釋。**一塊版的文案是 Sean 的範圍**(同 `Q2`),已端出去。
+                       ⇒ **選擇沉默而不是自己寫一句** —— 依據是本檔既有的立場:
+                         「**印一條加不起來的等式,比不印更糟**」;說錯話比不說話貴。 */}
+                {sectionSubtotalsShown === 2 && <p className='pd-xnote'>{CROSS_SECTION_NOTICE}</p>}
+              </section>
+            </div>
           </div>
         </>
       )}
