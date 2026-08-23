@@ -84,6 +84,42 @@ jobs:
       - name: Build admin (編譯產物類測試的前置)
         run: TURBO_FORCE=1 pnpm --filter @pcm/admin build
 
+      # ══ 釘 python 版本 —— 讓 `check-syntax-nonts` 那道閘在 CI 上【通得過】═══════════
+      #
+      # 🔴 **它在此之前從未在 CI 上成功通過**(codex R1 M1:原句寫「從來沒跑過一次」而下一句又說
+      #    「恆紅」—— **會紅就代表它執行了**,兩句互斥,後人會誤判成 skip):
+      #    runner 內建 python 3.12.3 < 閘的地板 `PY_MIN`
+      #    (`scripts/check-syntax-nonts.ts`,用 `grep -n "PY_MIN"` 定位 —— 🔴 **不寫行號**:
+      #     codex R1 M2 抓到我原本寫的 `:242` 已經漂掉,而**漂掉的原因是我自己在同一次改動裡
+      #     往那支檔加了註記** ⇒ 兩件事都是我做的、中間沒有別人,而我不會察覺)
+      #    ⇒ 那 8 格恆紅。
+      #
+      # 🔴 **為什麼地板不能降到 3.12 來換綠**:那是**放寬驗證本身**。
+      #    地板存在的理由在 `check-syntax-nonts.ts`(錨:`版本地板 \`PY_MIN\``):`ast.parse` 用的是
+      #    **跑它的那個 python 的 grammar**,`t"hi"`(PEP 750 t-string)3.14 綠、3.13 紅
+      #    ⇒ 降地板 = 讓「同一份 diff 有人 commit 得了、有人 commit 不了」重新變成靜默的。
+      #
+      # 📌 **量到的部分**(2026-08-23,兩個世界各跑一次同樣那 52 格,**在我本機**):
+      #      PATH 指到 python 3.9.6(低於地板)⇒ `Tests 8 failed | 44 passed (52)`
+      #      PATH 指到 python 3.14.4(達地板)⇒ `Tests 52 passed (52)`
+      #    ⇒ **本機兩個世界證明「版本足以解釋這 8 格的差異」。**
+      #    🔴 **射程就到這裡**(codex R1 M3):**CI 上是否還有別的成因,未量** ——
+      #      原句寫「版本是唯一成因」會把 runner / PATH / 其他測試的問題**先驗地排除掉**,
+      #      而那些我一格都沒量過。
+      #
+      # ⚠️ `python-version: '3.14'` **不是釘死 patch**(codex R1 N1):它選的是 toolcache 裡
+      #    符合 3.14 的**最新 patch** ⇒ 會隨 runner 映像更新而變。這裡固定的是 **3.14 這條 minor 線**。
+      # ⚠️ 這條 minor 線是**對齊那道閘的地板**,不是獨立挑的數字。
+      #    改 `PY_MIN` 就要一起改這裡,否則 CI 會再次恆紅 —— **雖然可由錯誤訊息定位**
+      #    (codex R1 N2:那支閘的失敗訊息會印「本閘需要 >= X.Y,實得 Z」,不是無頭紅)。
+      # 📌 `@v7` 是 **moving major tag**(codex R1 N3):它有 supply-chain 曝險,而這與本檔既有的
+      #    `checkout@v6` / `setup-node@v6` / `pnpm/action-setup@v6` **是同一個策略**
+      #    ⇒ 列為**既有技術債**,不在本片單獨改成 SHA(只改一支不改全部 = 假的安全感)。
+      - name: Setup Python (對齊 check-syntax-nonts 的 PY_MIN 地板)
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
       - name: Test
         run: pnpm test
 
