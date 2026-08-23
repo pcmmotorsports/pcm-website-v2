@@ -79,6 +79,9 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 | open | ⑫ | LINE token 洩漏可冒用官方帳號發訊 | 要權限 | 爆炸半徑 = 全部 LINE 客人,以我們的名義 |
 | open | ⑯b | 報價單那邊 2FA 現值要重量 | 要 DB | 現有數字是 **2026-07-27** 的,而且在另一個 repo 的庫。清單自己寫「上線前要重量」 |
 | parked | ⑳ | 員工分權那題只是沒結案 | 跟 B5-a 收 | Sean 2026-08-16 已拍「內部不分權是刻意的,防的是外部」。主視窗判:分兩次改會讓清單前後不一致 |
+| open | 總帳無號 | merge/deploy 前的安全閘 —— **腳本寫好了、沒有人呼叫它** | `cf` 補洞窗(排 B4 之後) | 🔴 `scripts/pre-push-attack-surface-sweep.sh` **396 行**,而 `grep -rn attack-surface-sweep .husky/ package.json turbo.json` ⇒ **零命中**。`.husky/pre-push` 實跑四段(typecheck / lint / deploy-order-gate / migration-ledger-divergence)**沒有一段是安全檢查**。⚠️ **接線前必須先量誤擋率** —— 補跑 `5e97aabd 3bdf6c7d`(12 顆)⇒ `rc=3`、5 類全中 ⇒ 直接掛 pre-push 很可能變噪音(實錘 `manual-refund-787-trigger` 紅 26 小時無人停)。🔴 這一列的**前一版寫「零規格」是錯的** —— 那個 0 來自我自己挑的字「安全硬閘」,換分母(`ls scripts/`)就出現了(原句逐字留存:~~「修法已核可=拆兩半,而**輕的那一半至今零規格**」~~ **2026-08-23 作廢**)。🔴 **2026-08-23 主視窗裁三格**:①歸 `cf` 不歸 V 窗(V 窗那句是 08-17 寫的,**歸屬要問不要推**)②**先不接 pre-push** —— 12 顆中 5 類 ⇒ 這不是誤擋率高, 是**幾乎每次推都會響**, 而「每次都響」與「從不響」訓練人的效果相同 ⇒ 先做成手動工具、且輸出要能讓人知道下一步 ③判別句給 `cf`:**「這份輸出讀完之後, 人會做什麼?」答不出來就不要掛任何鉤子**
+| open | 總帳無號 | 註冊那道門是【公開端點】, 而信箱驗證是關的 | 要面板 + 要 code | 🔴 `#173` 早就立了(`docs/phase-1-backlog.md:5145`), 而**這張板子上一次都沒出現過** —— 2026-08-23 主視窗讀 `5e97aabd..3bdf6c7d` 的 auth 類 diff 時獨立撞到, 才發現板上沒有它。事實:註冊最終走 `supabase.auth.signUp` = GoTrue **公開端點**, 拿 anon key 就能直呼、**繞過我方表單**;而 Confirm email 是 **OFF**(`packages/adapters/src/supabase/SupabaseAuthAdapter.ts:37` 逐字「Phase 1 Q1=A Confirm email OFF 時應恆 false」)⇒ 直呼就拿得到可用帳號。⚠️ **⇒ 我方那兩道註冊 denylist**(`field-validation.ts` client + `app/register/actions.ts:46` server)**不在攻擊者的路徑上** —— 不得宣稱「合成/佔位信箱不會被搶註」。🔴 **未確認**:GoTrue 那條路實際通不通(captcha / rate limit / allowed domains)= **平台面板設定、不在 repo 裡、沒有人量過**。⚠️ **不得為了確認它去實打正式站 signup** —— 那會在正式庫建出一個真帳號。現有緩解在 `apps/admin/src/lib/customers/manual-customer.ts`(佔位信箱 local-part 不可枚舉 + `app_metadata` 身分鍵 fail-closed), 而**緩解不是關掉**。⇒ 兩步:①Sean 看一次 Supabase Auth 面板的三個設定並回報字面 ②上線前重開 Confirm email + 補「請收信驗證」UI(`#173:5159`)。📌 為什麼今天不緊急:Sean 2026-08-23 逐字「現在都是假帳號」⇒ 沒有真人受害。🔴 **而那句話會過期, 過期當天 repo 裡不會有任何東西變紅。**
+| parked | 總帳無號 | 最終全站滲透測試 —— 屆時把 strix 當第二把尺 | 等完工 | 計畫已在 `docs/security/2026-08-17-full-site-pentest-plan.md`(**316 行**,只擱著不跑)。🔴 **2026-08-23 Sean 拍甲:現在不裝 strix** —— 它最強的是打**活的站**,而站還沒上線。`usestrix/strix` Apache 2.0 / 要 Docker + 一把 LLM API key / 會自己寫 PoC(我們現有的 `pcm-security-audit` 不寫)。⚠️ 本列是**等完工**不是**不做**
 
 ---
 
@@ -86,9 +89,9 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
 |---|---|---|---|---|
-| doing | #858 | 手動建單(客人匯款那條路) | 窗 C | Sean 2026-08-23 答「上線前要能用」⇒ 升成擋上線。收款端做好、建單端無 `/orders/new`。🔴 **片0-b 已開工未 commit**(`?? apps/admin/src/lib/customers/manual-customer.ts` + `.test.ts` 在磁碟)⇒ 用 `git log` 查它會拿到沒判別力的 0 |
+| doing | #858 | 手動建**訂單**(客人匯款那條路)—— ⚠️ **不是手動建商品,兩條線** | 窗 C | Sean 2026-08-23 答「上線前要能用」⇒ 升成擋上線。收款端做好、建單端無 `/orders/new`。🔴 **片0-b 已開工未 commit**(`?? apps/admin/src/lib/customers/manual-customer.ts` + `.test.ts` 在磁碟)⇒ 用 `git log` 查它會拿到沒判別力的 0。🔴🔴 **這片今天是【地基】不是【可用功能】**:督導窗自驗 `createManualCustomer|findCustomerCandidatesByPhone` 於 `apps/admin` 排除自身與測試 ⇒ **production 呼叫端 0**(正對照 `authorizeAdminMutation` ⇒ 46 檔)⇒ 要等片1 接。**現況表不得寫成「手動建單能用了」** |
 | doing | — | 訂單確認信改版(HTML + 金額 + PDF) | 窗 A | A 版(Sean 看過三版選的)。片A 前置在飛(`?? SupabasePaidEmailContextAdapter.ts`)。sender 仍純文字(`IEmailSender` / `ResendEmailSenderAdapter` `grep -c 'html'` ⇒ 0 / 0)。🔴 **真正只剩 Sean 做得到的一格 = Resend 到達率截圖** |
-| doing | #841 | 登錄匯款後單子從畫面消失 | 窗 B | 🔴🔴 **推之前必須先套 SQL,否則後台訂單列表整個 400**:code 已讀 `paid_total`(工作樹 2 處 / `origin/dev` 0 處),而 `20260823030000_..._order_paid_total_view.sql` 是 `??` 未進版控、`grep -c '^20260823030000' APPLIED.tsv` ⇒ 0(正對照 `20260823020000` ⇒ 1)。**三綠不會紅**,dev=production。順序:貼 SQL → 落帳本 → commit → push |
+| doing | #841 | 登錄匯款後單子從畫面消失 | 窗 B | 🔴🔴 **推之前必須先套 SQL,否則後台訂單列表整個 400**:code 已讀 `paid_total`(工作樹 2 處 / `origin/dev` 0 處),而 `20260823030000_..._order_paid_total_view.sql` 是 `??` 未進版控、`grep -c '^20260823030000' APPLIED.tsv` ⇒ 0(正對照 `20260823020000` ⇒ 1)。**三綠不會紅**,dev=production。順序:貼 SQL → 落帳本 → commit → push。✅ **2026-08-23 更新**:主視窗已把它從「靠人記得的順序」升級為**拆片**(第一顆只有 migration + 守門,程式那半等 SQL 貼完才 commit)⇒ **結構上做不到錯**。🔴 **而分邊【今天動過兩次】,都是 B 窗量出來的**(①`order-detail.tsx` 進第二顆 —— 不是因為它讀 `paid_total`(它不讀),是因為它的**正確性依賴新述詞已生效**;判準是【依賴】不是【引用】 ②`packages/domain/*` 三支進第二顆 —— adapter 已 import 那個常數,不可分)⇒ **本表只記「分邊由主視窗維護」,不抄任何一版清單。** |
 | open | — | 出貨文件 PDF(一鍵出圖傳客人) | 待派 | 🔴 **不是整條沒做** —— HTML 列印頁早就有(`app/print/orders/[id]/{picking,shipping/[shipmentId]}/page.tsx`),缺的只有「**伺服器渲染成 PDF**」那一段(`git grep 'application/pdf' -- apps packages scripts` ⇒ 空)。不用加套件。驗收=**中文字真的在** |
 | open | #806 | 解除退款封印(那顆紅著的觸發器在等這件事) | **待認領** | 2026-08-21 立案、08-23 列進「能做」估 30 分鐘,**然後沒人挑走**。❌ **不得改測試/加 skip/刪檔讓它變綠** |
 
@@ -124,7 +127,7 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 | open | #315 | `brand-products.test.ts` 紅 —— 釘住清單過期 | 待派 | 加了第 13 個分類「進氣系統」(commit `6c937647`)⇒ `:80` diff `+ "進氣系統"`;`:85`/`:86` 的 12→13 / 52→53 同片要改。✅ **直接改是合法的**:`#791` 已對真 taxonomy 比對過(migration 已 apply、真瀏覽器 753 件 / 負對照 0) |
 | open | #701 | `procurement-wiring` 3 個 unhandled error | 待派 | `TypeError: revealed.current?.scrollIntoView is not a function` @ `danger-zone-details.tsx:77`;本 repo 無全域 `setupFiles`(`grep -n setupFiles vitest.config.ts` ⇒ 0)。🔴 **不是一支檔的事** —— 另兩支掛同元件的測試只是沒展開那塊 ⇒ 下一個寫展開測試的人會再踩 |
 | open | — | 沒有任何東西對【新增的 .sql】自動跑語法規則② | 待派 | `scripts/migration-static-checks.sh:276-300` 規則②活著,但 lint-staged 只在**該腳本自己被 staged 時**跑它的 `--selftest` ⇒ **新 migration 不會被它檢查** |
-| open | — | `migration-post-commit-guard.sh` 是重複的孤兒腳本 | 待派 | 它防的那類缺陷已被 `migration-static-checks.sh` 規則②**更嚴格地**涵蓋 ⇒ 處置是**刪**,不是「裝上」。同批另有 7 支 0 引用腳本(正對照 `literal-sweep.sh` ⇒ 24 / 負對照 ⇒ 0) |
+| open | — | `migration-post-commit-guard.sh` **不是重複的孤兒 —— 它是【做好了沒接線】** | `cf` 補洞窗 | 🔴 **2026-08-23 更正,原處置作廢**。原句留痕:~~「它防的那類缺陷已被 `migration-static-checks.sh` 規則②**更嚴格地**涵蓋 ⇒ 處置是**刪**,不是『裝上』」~~。**那句話漏掉了那支腳本的一半。** 它有兩道閘:**閘① 最後一個 COMMIT 之後不得有 DDL/DML** ⇒ ✅ 確實被規則② 更嚴格涵蓋;**閘② `#530` 交易區塊【內】不得有會沖掉批次的語句**(`CREATE INDEX CONCURRENTLY` / `REINDEX … CONCURRENTLY` / `VACUUM` / `CLUSTER` / `ALTER SYSTEM`)⇒ 🔴 **零人涵蓋**。數法(全 repo,附負對照):`grep -nE "CONCURRENTLY|VACUUM|CLUSTER|ALTER SYSTEM" scripts/migration-static-checks.sh` ⇒ **零命中**;負對照同尺量它確有的字 `grep -c "commit"` ⇒ **6**(尺是活的);全 repo 提到 `CONCURRENTLY` 的 3 支裡,`l5b2-2d-verify.sh:513` 是**在用**它、`269b-gate.sh:93` 是**提示文字**,只有本支是**偵測式**。⇒ **刪掉它 = 刪掉 `#530` 唯一的守門。** 🔴 而它零呼叫端的原因寫在它自己的 commit 標題裡:`166f3554` 逐字「**本片【不掛 hook】—— 這是刻意的邊界,不是漏做**」+ 「**掛上去那一行由主視窗或平台設定的負責人做**」⇒ **接線那一步被指派給主視窗,而那一步沒發生。**⇒ 新處置:**掛上去**(`.husky/` = 平台設定 = 鐵則 12④ ⇒ 要跑對抗審查)。掛之前兩件硬前提:①量誤擋率(拿最近 20 支 migration 各跑一次,紅的逐支開檔判是真違規還是字集太寬)②🔴 **它一次都沒跑過 ⇒ 「該紅會紅」從來沒有人證明過** ⇒ 要餵一支故意違規的 migration 證明它真的紅、再還原。🔴 **同批那 7 支 0 引用腳本:一支都不准整批處置** —— 「零呼叫端」有兩種而處置相反(甲 做完了沒人再需要 ⇒ 可刪 / 乙 做好了沒接線 ⇒ 刪掉等於丟掉別人做完的工)⇒ **逐支問甲乙**。📌 形狀:「它被涵蓋了」這句話**沒有分母** —— 它比對的是「兩支都在管 COMMIT」,不是「兩支各自守住哪些形狀」 |
 
 | open | — | 🔴🔴 **`20260823030000` 那支 SQL 沒有被 `git add`** | 窗 B / 主視窗 | `git status` ⇒ `??` 未進版控。**這是那顆炸彈的成因**:精準 add 漏一支 ⇒ code 走了、SQL 留在本機。修法=`git add` 它,並與 code **同一顆或它在前** commit |
 | open | — | 🔴🔴 **放寬推 dev 的閘** —— ✅ Sean 2026-08-24 答「**放寬**」 | 待排 plan | 現況 `scripts/deploy-order-gate.sh:141` **只抽 FUNCTION 名**。當場量:本支 FUNCTION ⇒ **0** / VIEW ⇒ **6** / 正對照另一支 ⇒ 2 ⇒ 一個名字都抽不到、push 不會被擋。🔴 **這一板推翻他自己的 `Q2=B`**(`:16` 那句「寧可漏擋、只比對 RPC 函式名」作廢 —— **劃掉加註記,不要刪**)。命中 **12④** ⇒ 對抗審查不降級。全文 memory `project_0824-sean-widens-deploy-order-gate` |
@@ -147,6 +150,93 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
 |---|---|---|---|---|
 | open | — | `MEMORY.md` 超過精簡線 | 待派 | 2026-08-24 當場量 ⇒ **21,438 字元**(門檻約 17,000)。量法 `python3 -c "import io;print(len(io.open(F,encoding='utf-8').read()))"`。🔴 **撤條目需 Sean 拍板**(檔頭自訂規矩),照既有瘦身手冊:零刪除、只換檔 |
+
+## I · 客人買東西那條路(2026-08-24 雙線掃描新增)
+
+> 🔴 **前提**:全 repo 真瀏覽器測試 **3 支**(首頁 / 未登入被踢 / build 起得來),
+> 而 `checkout|結帳|cart|購物車|付款|加入購物車` 於 `*.spec.ts` ⇒ **全 0**(正對照 `登入` ⇒ 1、負對照 ⇒ 0)。
+> ⇒ **從選商品到收信這條路,零端到端覆蓋。**
+> ✅ **好消息:器材已經架好** —— `apps/storefront/playwright.config.ts` 在、`package.json:14` 有 `test:e2e`
+> ⇒ 補一支的成本是**一個檔**,不是一套建置,而它剛好會抓到下面第 1、2 條。
+
+**證據等級**:標 ✅督導窗自驗 的三條是我自己開檔跑的;其餘為對抗審查員複驗後轉述,**我未逐條開檔**。
+
+| 態 | # | 事 | 誰 | 卡什麼 / 客人會看到什麼 |
+|---|---|---|---|---|
+| open | — | 🔴🔴 **網路抖一下,客人整車商品消失** ✅督導窗自驗 | 待派 | `hooks/useResolvedCart.tsx:139-143` catch ⇒ `setResolved([])`;型別 `:37` 只有 `loading\|empty\|ready`,**沒有 error 這一格**。🔴 **而 `useResolvedCart.test.tsx:125` 有一條【綠的】測試把它鎖成期望行為** ⇒ **要修得先改掉一條綠測試**。客人:右上角寫 3 件、頁面寫「購物車是空的」,他以為被清空了,而我們零通知 |
+| open | — | 🔴🔴 **購物車不綁帳號,換人登入前一個人的車還在** ✅督導窗自驗 | 待派 | `contexts/CartContext.tsx` `grep -c 'userId'` ⇒ **0**(正對照 `addItem` ⇒ 10、負對照 ⇒ 0);登出不清。✅ **修法就在隔壁**:`contexts/FavoritesContext.tsx:161` 逐字「登入(或換人)後載入那個人的收藏;**登出清空**」⇒ 同一個 bug 類別、正解現成沒抄過來。**車行共用一台電腦** ⇒ 前一個人的車原封不動出現 |
+| open | — | 🔴 **正式站躺著一張收不掉的空單 + 一個測試帳號** ✅督導窗自驗 | 待派 | 不是推論,有座標:`docs/probes/2026-08-18-tappay-sandbox-charge-log.md:42` 單號 **`WCYCW5`** / `orders.id 52d1f82f…` / 2026-08-18 23:45 建於**正式站** / NT$1,500 已收 **0** / `unpaid`。同檔:測試帳號 `g3-sandbox-test@pcmmotorsports.com` 亦留在正式站 auth。🔴 **而那次是最後一次真人端到端刷卡 —— 它失敗了**(UI 出「付款失敗,請聯繫客服 LINE」) |
+| open | — | 桌機按「加入購物車」零回饋 | 待派 | `ProductInfo.tsx:271-284` 只呼叫 `addItem` 就結束;`已加入` 字面只在 `ProductCard.tsx:183` 與 `ProductPage.tsx:288`(手機列)。客人:畫面完全不動 ⇒ 再按三下 ⇒ 結帳發現買了 4 個 |
+| open | — | 有些商品的顏色／尺寸**選不到** | 待派 | `ProductInfo.tsx:191` `.filter(g => g.values.length > 1)` ⇒ 主列+變體列那種形狀(distinct 只有 1 個值)**整組選擇器被濾掉**,而 `ProductPage.tsx:118` 預設第 0 個變體。⚠️ **嚴重度未確認** —— 缺「幾件商品是這種形狀」那一發(要查正式庫)。客人:排氣管有黑銀兩色,只看得到一種 |
+| open | — | 離島運費沒有概念 | 待派 | 用**建表語句**當分母(不猜欄名):`20260523034911:40-61` 地址欄只有 `name/phone/line/invoice_*`,**無 city/postal/zip/region**;唯一後續 ALTER 只加 `email`。`shipping.ts` 全檔零地址字樣。客人:澎湖客人刷完 NT$100 運費,出貨才發現 |
+| open | — | 購物車圖片載不到就破圖 | 待派 | `CartView.tsx` 全檔零 `onError`,而 `ProductGallery.tsx` 有 3 處(`:191/:242/:277`)⇒ **商品頁會自動換圖,購物車不會**。🔴 有實績:08-22 才發生過真實破圖(外部圖 + `Accept: image/webp`)。客人:結帳前那一頁破圖,最容易讓他關分頁 |
+| open | — | 數量合併靜默夾到 99 | 待派 | `CartContext.tsx:249` `clampQty(p.qty + safeQty)`,`addItem` 全函式無提示路徑(而輸入框那條**有**,`ProductInfo.tsx:214-218`)。客人:車裡 90 再加 20 變 99,**沒有一個字告訴他少了 11 個** |
+| open | — | 🔴 **客人刷不出卡,我們這邊不會響** | 待派 | 三個獨立分母同向:①`package.json` 全 dep(storefront 18 + root 21)⇒ 零監控套件 ②`find api -name route.ts` ⇒ 10 支,無 ingest/log 端點 ③`sendBeacon\|window.onerror\|global-error\|ErrorBoundary` ⇒ 1 命中且只寫 state 不外送。客人:只能自己打 LINE 來罵 |
+| open | — | `capture-recheck` 是唯一 route 級零測試的那支 | 待派 | 分母不靠猜:`route.ts` **10 支** vs `route.test.ts` **9 支**,差的**恰好只有它**。它的三道閘沒有一發測試看著。車行:那是唯一去重讀「錢到底收了沒」的路,**它壞了會安靜地回 200** |
+| open | — | 結帳第 2 步地址不見了,整區靜默消失 | 待派 | `CheckoutStep2ReviewSections.tsx:85` `{(currentAddr \|\| hasError) && (...)}` ⇒ 兩者皆無時 body 不渲染,只剩標題與「編輯」鈕 |
+| open | — | ✅ **補一支購物車 e2e**(器材已架好) | 待派 | 成本一個檔。它會同時抓到本組第 1、2 條。`playwright.config.ts` 在、`test:e2e` 在、`e2e/` 已有 3 支可抄形狀 |
+
+### ⚠️ 這一輪被對抗審查員【駁回】的(不要再報一次)
+```
+「購物車不能刪東西」  假的 —— CartView.tsx:156 有 removeItem, qty=1 照樣可按
+「經銷價分支沒接上」  是刻意的 —— page.tsx:7-9 明寫理由(傳真 tier 會顯 NT$0), 拍板釘死
+「測試有 74 格」      數字全高估 —— 實際 13/7/17/28 = 65
+「無圖商品會空白」    21,220 件裡只有 1 件 —— 幾乎打不到人
+```
+
+### 🔴 兩件標「未確認」,不要當成量到的
+```
+· 線上 CHECKOUT_NOTIFICATION_EMAIL_ENABLED 是開是關 —— repo 看不出來, 沒人讀過 Vercel env
+· 那 5 支 pg_cron 在正式庫排上了沒 —— APPLIED.tsv 第 3 欄 159/184 列是 backfill
+  ⇒ 「這支上線了沒」在帳本裡【兩個世界印同一個東西】
+```
+
+## J · 跨 repo 接點與付款後(2026-08-24 雙線掃描新增)
+
+> **證據等級**:標 ✅督導窗自驗 的是我自己跑的;標 ⚠️未確認 的我試過但兩個訊號打架;其餘為對抗審查員複驗後轉述。
+
+| 態 | # | 事 | 誰 | 卡什麼 / 客人或車行會遇到什麼 |
+|---|---|---|---|---|
+| open | — | 🔴 **DNA 這家不在每日同步名單裡** ✅督導窗自驗 | 待派 | `grep -ci 'dna' .github/workflows/rpm-sync.yml` ⇒ **0**(正對照 `rpm` ⇒ 4、負對照 `zzzsupplier` ⇒ 0)。而該檔 `:3` 自陳「每天 12:30 自動跑全量同步」、`:25` 自陳 matrix 涵蓋「**所有品牌每日同步**」(2026-07-12 Sean 拍板)⇒ **宣稱與實際不符**。客人:DNA 的價格庫存凍在灌進去那天,看到的可能是舊價舊庫存,**而不會有人收到通知** |
+| open | — | 🔴🔴 **`supplier_slug` 預設 `'rpm'` 是活的 —— 這是商品編輯那片的地雷** | 待派 | 建表語句當分母:`20260602135934:34-35` 兩表皆 `NOT NULL DEFAULT 'rpm'`。⇒ **後台一開放建商品,只要沒填供應商,那筆會被當成 rpm 的貨、隔天被自動同步蓋掉。** 今天沒事只因為後台還沒有那個按鈕。🔴 **這格必須在商品編輯開工前解掉**,不是之後。⚠️ **2026-08-23 更正歸屬**:~~推給窗 C(`#858`)~~ —— **`#858` 是手動建【訂單】,不是建【商品】,兩條線**。代購品項走 `order_items.variant_id = NULL` + 快照(`20260604120000:143-146`,督導窗自驗)⇒ **不建商品、不寫 `supplier_slug`,那顆地雷踩不到它**。⇒ **本格歸【商品編輯】那條線(G 組),而那條線今天還沒有人在做** |
+| open | — | ⚠️**未確認** 停產品會不會自動從店裡下架 | 待派 | 🔴 **我試過,兩個訊號打架,不報成已確認**:①`rpm-sync.yml:3` 自陳每天跑「S4 下架對賬」 ②而 `scripts/rpm-reconcile.test.ts:136` 有一條測試斷言 `updates` **不得包含** `delisted_at`。⇒ 缺的檢查=**對正式庫數一發「上游已標停產而站上仍 `delisted_at IS NULL`」的筆數**。若成立,代價是**停產品還掛在店裡賣** |
+| open | — | 🔴 **SSO 的 `sub` 被丟掉,兩本帳對不起來** | 併 B5-a | `app/api/sso/callback/route.ts:72` `buildAdminSession(result.amr, result.auth_time)`、`:84` `recordSsoLogin('success', { requestId, amr })` —— **兩處都沒帶 `sub`**。出事那天查「是誰按的」:報價單那邊查得到,網站這邊查不到 |
+| open | — | 🔴 那兩顆 fuse **守不到上游** | 待派 | `b5-identity-wiring-trigger.test.ts:59` / `login-event-identity-drop-fuse.test.ts:66` 都是對**原始碼字串**跑 regex,不是行為測試 ⇒ **只在「自己做到一半」時響**。對面已開始送 `sub` 而我們沒接 —— **它們一聲都不會叫** |
+| open | — | 🔴 **死人偵測的表建好了,而全樹零程式在寫它** | 待派 | `20260817070000_m4b_231_3_sweeper_heartbeat.sql:65` 建 `public.sweeper_heartbeat`(已 apply)⇒ **表在 ≠ 偵測到位**。這是本板 B 組 `⑤` 的更精確版:不只「沒人驗過」,是**根本沒有寫入端** |
+| open | — | 客人重整「處理中」那一頁,會真的再打一次 TapPay | 待派 | `claimPollSettle` 生產呼叫三處(`reconcile-actions.ts:92`/`charge-actions.ts:408`/`payment-status/route.ts:141`)。而 `PollOrderStatus.tsx:34` 陣列實算 **13 次共 51.5 秒**(督導窗獨立重算,非抄註解)⇒ **51 秒後畫面永遠停在「處理中」** |
+| open | — | 卡住的單,客人在自己帳號裡看不到 | 待派 | `SupabaseOrderAdapter.ts:619`(列表)與 `:655`(明細)都有 `.neq('payment_status','unpaid')` ⇒ **兩支都是客人端入口**。他付款卡住 ⇒ 訂單在他那邊等於不存在 |
+| open | — | 🔴 那條「每天中午寫進正式庫」的線,**不在 Sean 這台機器上** | 待派 | 分母換成 `~/Library/LaunchAgents/` 實際載入面(不是檔案存在)⇒ 它跑在**另一台 Mac mini**,靠那台機器上剛好有一個密碼檔在對的位置。**那台關機或檔案搬走,同步就靜靜停了** |
+
+### ✅ 這一輪的兩個好消息(實際比對過,不是猜的)
+```
+· 報價單開始送 sub 之後,員工【不會】突然登不進後台
+  —— sanitizeSub 是 exact-key、壞形狀整包拒;審查員逐格比對兩端形狀
+· 經銷價目前沒有任何地方在用 —— 那 2 處命中都是「確保它不會外洩」的測試,不是漏洞
+```
+
+## K · 報價單 repo(2026-08-23 首次盤點;**它現在正在被車行使用**)
+
+> ⚠️ **另一個 repo** `/Users/sean_1/API大量上架/PCM報價單-V2`,不套本 repo 規矩、本板不派它工。
+> 列在這裡的理由:**它出事會直接打到車行,而它今天之前沒有任何一張表在追。**
+> 全部為對抗審查員複驗後轉述,**督導窗未逐條開檔**(標 ✅ 者除外)。
+
+| 態 | # | 事 | 卡什麼 / 車行會遇到什麼 |
+|---|---|---|---|
+| open | — | 🔴 **33 支後台 API 沒有自己的門鎖,全靠一道 middleware** | 分母=所有非公開 `app/api/**/route.ts`,逐檔 `grep -c 'requireAdmin\|verifySession\|getSession\|cookies()'` ⇒ **33 支 0 命中**。✅ 已試著擊穿:Next `15.5.23`,CVE-2025-29927(繞過 middleware)**已修** ⇒ 今天大門沒壞。**哪天大門壞了,匯出全部報價與成本那支 API 直接對全世界開** |
+| open | — | 🔴 新開的 API **出生就是不用登入可打**,而零測試在看 | `git ls-files \| grep -iE 'test\|spec' \| xargs grep -l 'middleware\|PUBLIC_PATHS'` ⇒ 生產測試 **0 支**。以後任何人在 `app/api/quote/` 下新開一支,**三綠全綠、沒人會收到通知** |
+| open | — | 防灌水自己掛掉時**安靜地放行** | `lib/quote-guard.ts:45` `if (error) return { allowed: true }` + `:48` catch ⇒ fail-open。公開報價頁被狂刷時,**沒有人會知道** |
+| open | — | 🔴 **2FA 蓋好了,但沒有「這支手機是誰的」** | 用建表語句當分母(不猜欄名):`totp_devices` 14 欄零 `user_id`(`baseline_schema.sql:5029-5044`);🆕 `recovery_codes` 同病(`:4674-4682`)。⇒ **現在開 2FA,出事查不出是誰**。連動本板 B 組 `⑯` |
+| open | BL-37 | 部件講錯／方向講反(15 筆) | ⚠️ 那份 backlog 用「有沒有 DONE/✅」當尺 ⇒ **方向性漏掉正好做一半的那幾條**。這兩件**最會讓客人買錯零件** |
+| open | BL-47 | 寫入路徑缺交易與 CAS | 同上,被同一把尺漏掉 |
+| open | — | 🔴 **那棵樹沒有 husky 閘,而現在兩個窗共用一個 git index** ✅督導窗自驗 | `ls -d <報價單>/.husky` ⇒ **無此目錄**(本 repo 對照 ⇒ 8 項)。兩窗約好各自 `git commit -- <逐檔>`、都不 push ⇒ ✅ 做法對,🔴 **但那是【提醒】不是【機制】**,會在某人趕時間時失效,**而歸屬錯了零機械訊號** |
+| open | — | 🟡 那棵樹 **4 顆未推**,其中兩顆修的是客人看得到的 ✅督導窗自驗 | `git -C <報價單> rev-list --count origin/main..main` ⇒ **4**:`382c456` 變體面板年份(**3,850 個商品的年份不再消失**)/ `bdf1c5f` 掃描器誤標 116→31 / `f2c716d` 改名 243 列 / `ca298c0` 改名腳本。**不推 ⇒ 網站側等的東西不會來,而不會有訊號** ⇒ **推不推是 Sean 的** |
+
+### 這一面被駁回的(不要再報一次)
+```
+「LINE 送不出去會卡住」        已修 —— lib/line.ts:136-138 有 AbortSignal.timeout(10_000)
+「最需要警報時叫不到」        已處理 —— 剩下那小塊是故意留的
+「公開路由只有 11 條 / 86 檔」 兩個數字都不是量到的（實測 route+page = 85）
+```
 
 ## 🔴 這張板子沒涵蓋什麼(不要把它讀得比它大)
 
