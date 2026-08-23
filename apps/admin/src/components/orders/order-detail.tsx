@@ -39,6 +39,7 @@ import { OrderCancelBlock } from './order-cancel-block';
 import { ShipmentSection } from './shipment-section';
 import { RefundSection } from './refund-section';
 import { RefundLedgerSection } from './refund-ledger-section';
+import { isStuckManualVerdict } from '../../lib/payment/refund-ledger-view';
 import { shouldShowRefundEntry } from './refund-entry-gate';
 import { ManualRefundEntrySection } from './manual-refund-entry-section';
 import { ManualRefundLedgerSection } from './manual-refund-ledger-section';
@@ -153,7 +154,7 @@ export function OrderDetail({
   refundEnabled = false,
   refunds = [],
   refundsFailed = false,
-  refundsTruncated = false,
+  refundsTruncated,
   refundUnregisteredAmount = null,
   refundUnregisteredFailed = false,
   manualRefunds = [],
@@ -183,7 +184,21 @@ export function OrderDetail({
   /** M-3 RW3:帳本讀取失敗(區塊顯警告 + 發起入口 fail-closed,codex MF2)。 */
   refundsFailed?: boolean;
   /** M-3 RW3:帳本列被上限截斷(codex MF1)。 */
-  refundsTruncated?: boolean;
+  /**
+   * 🔴 **本檔唯一的必填旗標,而它是刻意的**(2026-08-24 codex R1 must-fix ①)。
+   *
+   * 病灶:`refund-entry-gate.ts` 那格已經是必填,**而必填只擋到最後一段** ——
+   * 這一層若是 `?: boolean = false`,route 忘了傳 ⇒ 這裡靜靜填 `false`
+   * ⇒ 閘拿到 `false` ⇒ **退款入口亮回來,而 typecheck 全綠**。
+   * 🔴 **一道必填,在鏈上任何一段變成選填,整條鏈就回到選填。**
+   *
+   * ⚠️ **而它的兄弟還沒收**(照實寫,不要讀成「這一族都處理好了」):
+   *   `refundsFailed` / `refundUnregisteredFailed` **同樣是選填 + 預設 `false`**,
+   *   而 `false` 對它們一樣是**不安全的方向**(= 沒失敗 ⇒ 入口亮)。
+   *   本片刻意只收這一格(scope = codex 指名的那條),其餘列為待辦、見交件檔。
+   * 📌 `refundEnabled` 不在此列:它的預設 `false` 落在**安全**方向(關著=入口不顯示)。
+   */
+  refundsTruncated: boolean;
   /** M-3 RW3:`pcm_order_refundable_remaining`(措辭鐵律=「帳本未登記額」)。 */
   refundUnregisteredAmount?: number | null;
   /** M-3 RW3:未登記額讀取失敗(顯錯誤態≠查無 + 發起入口 fail-closed,codex MF2)。 */
@@ -221,12 +236,37 @@ export function OrderDetail({
   /**
    * 片12:退款帳本處於**對帳異常**態 ⇒ 那一塊不准收起來(codex K2 finding 3)。
    *
-   * 🔴 判準用的是**與 `shouldShowRefundEntry` 那道 fail-closed 閘同一組輸入**
-   *    (帳本讀不到 / 未登記額讀不到 / 未登記額為負),**不另立第二套語意** ——
-   *    兩套會各自漂,而畫面上「入口消失」與「有沒有警告」就會對不起來。
+   * 🔴 **這一顆與 `shouldShowRefundEntry` 那道閘【高度重疊而不相同】,差異逐格列在下面。**
+   *
+   *    ⚠️ ~~原句:「判準用的是**與那道閘同一組輸入**…**兩套會各自漂**」~~
+   *    **2026-08-24 更正(SUB2-009):那句話當時是【規範】,而它警告的「各自漂」已經發生了。**
+   *    寫的當下它要求你去維持那個不變式;不變式破了之後,它變成一句**錯誤的現況描述**,
+   *    讀的人會以為還成立、因此**不去檢查** —— 而中間那一刻**沒有任何訊號**:
+   *    沒有測試會紅、`grep` 數不變。⇒ 改成**列出差異**,不再宣稱「相同」。
+   *
+   *    逐格對照(**數出來的**;閘的定義 = `refund-entry-gate.ts` 的參數型別,那是唯一權威):
+   *      兩邊都有:`refundsFailed` / `refundUnregisteredFailed` / 未登記額為負
+   *      🔴 只有本顆有:`manualRefundsFailed`
+   *         —— 非卡退款登記讀不到**也是對帳異常**(那一塊掛紅字),而它不進閘:
+   *            那格的紅字講的是**另一個入口**(「勿重複登記」)。⇒ 該不該進閘 = 待判(乙案)。
+   *      只有閘有:`refundEnabled`(理由見下)/ `refundsTruncated` / `paymentChannel` / `paymentStatus`
+   *         —— `refundsTruncated` **2026-08-24 才進閘**(它讓「勿發起退款」的紅字與亮著的入口同頁);
+   *            **刻意不進本顆**:截斷不是對帳異常,掛紅標題「退款(對帳異常)」會說謊。
+   *
    * 🔴 **刻意不含 `refundEnabled`**:旗標關著只是「這功能還沒開放」,不是「對帳出事」;
    *    把它算進來會讓每一張單都掛上紅字異常。
    */
+  /**
+   * 🔴 SUB2-009:帳本裡有沒有「人工判定沒動到錢」而卡住的列。
+   *
+   * **算在這裡、不算在閘裡**:閘吃的是旗標(它是純判斷、不認識列),
+   * 而判準本身住在 `refund-ledger-view.ts` —— 這裡只是把它套在列上,**不複製那個判準**
+   * (複製一份就是下一個漂移點,同檔頭那條「兩處各養一份 label」的教訓)。
+   * ⚠️ 這一顆**刻意不併進 `refundLedgerAbnormal`**:它不是對帳異常,掛紅標題會說謊
+   *    —— 與 `refundsTruncated` 同一個理由。
+   */
+  const hasStuckRefundVerdict = refunds.some((r) => isStuckManualVerdict(r));
+
   const refundLedgerAbnormal =
     refundsFailed ||
     refundUnregisteredFailed ||
@@ -251,9 +291,14 @@ export function OrderDetail({
    *     cancelled 橫幅                                → 抬頭,四頁都看得到
    *     !refundEnabled 的琥珀說明                     → 環境說明非異常,且取消區文案會指路過去
    * ⚠️ 截斷紅區住在「退款」收合塊【裡面】⇒ 只開分頁不夠,defaultOpen 也要接(見下)。
-   * 🔴 刻意不併進 `refundLedgerAbnormal`:那顆與 `shouldShowRefundEntry` 那道閘同一組輸入
-   *    (:224 的「不另立第二套語意」),而截斷與收款讀不到**不在閘的輸入裡** ——
-   *    併進去會把紅標題「退款(對帳異常)」也掛到截斷單上,那是另一個語意。
+   * 🔴 刻意不併進 `refundLedgerAbnormal`(那顆的逐格差異寫在它自己上方那段;
+   *    ~~原本這裡寫「與那道閘同一組輸入(:224…)」~~ —— **兩處都在 2026-08-24 更正**:
+   *    ①「同一組輸入」不成立 ②**行號引用會被本檔自己的改動推走**,改成字面錨)。
+   *    ⚠️ ~~「而截斷與收款讀不到**不在閘的輸入裡**」~~ —— **`refundsTruncated` 已於 2026-08-24 進閘**
+   *    (SUB2-009);**收款讀不到仍不在**。
+   *    📌 留這句留痕的理由:它當時是**對的觀察**,而它被拿去回答「紅標題該不該變」,
+   *       **沒有人拿它問「入口該不該暗掉」** —— 那正是 SUB2-009 那個 bug 活下來的方式。
+   *    本顆仍不併截斷:併進去會把紅標題「退款(對帳異常)」也掛到截斷單上,那是另一個語意。
    */
   const moneyTabMustSee =
     refundLedgerAbnormal ||
@@ -681,7 +726,10 @@ export function OrderDetail({
                     這種**警告** —— 那類警告存在的唯一理由就是要員工看到它。
                     收起來 ⇒ 員工看到的是一顆平平無奇的「退款」鈕,退款入口消失了他也**不知道為什麼**
                     ⇒ **那是把一個 fail-closed 的安全設計,退化成一個沉默的安全設計。**
-                    ⇒ 判準用的是**與那道閘同一組輸入**(讀取失敗 / 未登記額為負),不另立第二套語意。 */}
+                    ⇒ 判準與那道閘**高度重疊而不相同** —— 逐格差異寫在 `refundLedgerAbnormal` 那段
+                    (2026-08-24 更正;~~原句「同一組輸入」~~ 是同一句話的**第三份副本**。
+                    🔴 本檔今天有三份, 只改一份 = 同一份檔案把兩個相反的說法各餵給不同的人 ——
+                    改這句話之前先 `grep -c '同一組輸入'`)。 */}
                 <DangerZoneDetails
                   className='group bg-card text-card-foreground rounded-lg border p-4'
                   /* 🔴 codex MF-2(2026-08-24):截斷兩態也要自己打開 —— 截斷紅區(「勿發起退款」/
@@ -750,6 +798,8 @@ export function OrderDetail({
                     refundsFailed,
                     refundUnregisteredFailed,
                     refundUnregisteredAmount,
+                    refundsTruncated,
+                    hasStuckRefundVerdict,
                     paymentChannel: detail.paymentChannel,
                     paymentStatus: detail.paymentStatus,
                   }) && (

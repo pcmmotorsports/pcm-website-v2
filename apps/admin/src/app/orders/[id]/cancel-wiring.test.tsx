@@ -340,7 +340,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
   it('🔴 直接渲染 OrderDetail 且不傳 cancelFormsAllowed ⇒ 零取消表單', () => {
     // `payments` 與本格無關,給「訂單在、零收款列」的中性值(#15-B2-c 片1a 起為必填 prop)。
     const { container } = render(
-      <OrderDetail detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail refundsTruncated={false} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
     );
     // 正向對照:證明元件真的畫出來了(否則「零表單」是恆真)。
     expect(container.textContent).toContain('ABC123');
@@ -380,7 +380,7 @@ describe('D6-a 驗收④-b 預設 fail-closed:prop 沒傳就不給', () => {
 
   it('同一份資料明確傳 true ⇒ 表單出現(證明上一格不是因為資料不可取消)', () => {
     const { container } = render(
-      <OrderDetail
+      <OrderDetail refundsTruncated={false}
         detail={detail()}
         returnTo='/orders/ord-1'
         cancelFormsAllowed
@@ -467,7 +467,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
 
   it('🔴 直接渲染 OrderDetail 不傳 cancelFormsAllowed ⇒ 商品卡零 checkbox(fail-closed)', () => {
     const { container } = render(
-      <OrderDetail detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
+      <OrderDetail refundsTruncated={false} detail={detail()} returnTo='/orders/ord-1' payments={{ status: 'ok', rows: [] }} />,
     );
     expect(container.textContent).toContain('ABC123');
     expect(cancelItemCheckboxCount(container)).toBe(0);
@@ -500,7 +500,7 @@ describe('片C 驗收:商品卡的取消 checkbox 與危險區的表單共用同
       ] as never,
     });
     const { container } = render(
-      <OrderDetail
+      <OrderDetail refundsTruncated={false}
         detail={withOddId}
         returnTo='/orders/ord-1'
         cancelFormsAllowed

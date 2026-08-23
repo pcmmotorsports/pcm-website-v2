@@ -57,6 +57,35 @@ export function shouldShowRefundEntry(input: {
   refundUnregisteredFailed: boolean;
   /** `null` = 查無(不是失敗,失敗有自己的旗標);負值 = 對帳異常。 */
   refundUnregisteredAmount: number | null;
+  /**
+   * 🔴 帳本列被截斷 —— **這一格沒有預設值,是刻意的。**
+   *
+   * 給它 `= false` 會讓「還沒接線」與「接了而這張單沒截斷」在型別上、在畫面上、在測試上
+   * **全部長得一樣**,而漏接的那一刻**沒有任何東西會紅**。
+   * ⇒ 必填 ⇒ 新的呼叫端不傳就是編譯錯誤。
+   *
+   * 語意:`true` = 這一頁**看不出這張單退過多少**(`refund-ledger-section.tsx:94` 那一區塊
+   * 為此**一列都不顯示**,並逐字寫著「也不要在這個狀態下發起退款」)。
+   */
+  refundsTruncated: boolean;
+  /**
+   * 🔴 帳本裡有「**人工判定為沒有動到錢**」而卡住的列(`isStuckManualVerdict`)。
+   * **同樣沒有預設值,理由同上一格。**
+   *
+   * 為什麼它比 `processing` 危險(2026-08-24 SUB2-009,兩題都答「危險」):
+   *   Q1 這一頁算得出退過多少嗎 ⇒ **算不準,而且錯在不安全的方向**:那一列是 `failed`
+   *      ⇒ **不佔額** ⇒ 未登記額被**高估** ⇒ 看起來「還能再退」。
+   *      而那個判定**本來就可能錯**(`refund-ledger-view.ts` 逐字:「這是人工判定,
+   *      不是系統確認」;`#473` 的存在前提就是它會錯)。
+   *   Q2 server 端擋得住嗎 ⇒ **擋不住**:`S5` 只認 `processing`(`refund-actions.ts:297`),
+   *      而 `REFUND_EXCEEDS_REMAINING` **吃的正是那個被高估的數字**。
+   * ⇒ 與 `processing` 的處置**刻意相反**:那一格按下去會拿到具名訊息、錢是安全的 ⇒ 不藏;
+   *   這一格按下去**會真的送出**去 ⇒ 藏。
+   *
+   * 🔴 **而藏起來只修掉一半** —— 那個被高估的數字**沒有動**,不經過這個畫面的路徑一樣會撞到。
+   *   ⇒ backlog `#890`。**看到入口不見了,不要讀成「這件事處理過了」。**
+   */
+  hasStuckRefundVerdict: boolean;
   paymentChannel: AdminOrderDetail['paymentChannel'];
   paymentStatus: AdminOrderDetail['paymentStatus'];
 }): boolean {
@@ -67,6 +96,19 @@ export function shouldShowRefundEntry(input: {
     // 負值 = 帳本登記已超過訂單總額(對帳異常)⇒ 區塊明寫「勿再發起」,入口不能還亮著:
     // 同一頁「文字叫你別按、按鈕還亮著」就是自打嘴巴。
     !(input.refundUnregisteredAmount !== null && input.refundUnregisteredAmount < 0) &&
+    // 🔴 截斷 = 帳本列超過本頁上限 ⇒ 那一區塊**一列都不顯示**(`refund-ledger-section.tsx:94`),
+    //    並逐字對值班說「**也不要在這個狀態下發起退款**」⇒ 入口不能還亮著。
+    //    這一條與上面那條負值是**同一個判準的兩個觸發源**(上面那段註解就是它的出處),
+    //    而它在 2026-08-24 之前不在這份輸入裡 —— 不是沒想到:`order-detail.tsx` 已經寫下
+    //    「截斷與收款讀不到不在閘的輸入裡」,只是那句話被拿去回答**紅標題該不該變**,
+    //    沒有人拿它問**入口該不該暗掉**。
+    // ⚠️ **刻意不含** `manualRefundsFailed` / `manualRefundsTruncated`:那兩格的紅字講的是
+    //    **非卡退款登記**那另一個入口(「勿在此期間重複登記」),它們該不該關掉 **TapPay**
+    //    入口是一個要有人判的問題,不是順手擴進來的事。⇒ 已列 backlog,見交件檔。
+    !input.refundsTruncated &&
+    // 🔴 卡住的人工判定(見上方該格的兩題):那一列的字面逐字說「**這裡沒有可以改的動作**」,
+    //    而入口若還亮著、按下去**還真的會送出** ⇒ 那不是矛盾,是一句會被照著相信的假話。
+    !input.hasStuckRefundVerdict &&
     // channel 閘(R1 N5)= 顯示層:轉帳/現金單不該看到「線上退款(TapPay)」紅框。
     input.paymentChannel === 'tappay' &&
     REFUND_ENTRY_STATUSES.includes(input.paymentStatus)

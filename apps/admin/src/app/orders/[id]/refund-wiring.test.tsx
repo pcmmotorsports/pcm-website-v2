@@ -1160,4 +1160,59 @@ describe('#787:非卡退款登記入口硬閘(沖銷 RPC 落地前恆不渲染)'
     //   本片表單的標題「登記退款(現金/匯款)」是本檔獨有字面,用它當唯一錨。
     expect(text).not.toContain('登記退款');
   });
+  // ═════════════════════════════════════════════════════════════════════════
+  // 🔴 SUB2-009 第 7 格(2026-08-24):**接線本身**要有守門,不是只有閘
+  // ═════════════════════════════════════════════════════════════════════════
+  // 為什麼這一格非有不可(實測,不是假想):閘的單元測試全綠的情況下,我把
+  // `order-detail.tsx` 的 `const hasStuckRefundVerdict = refunds.some(…)` 改成 `= false`
+  // ⇒ **87 格全過、零紅**。那就是「閘裝好了而沒接上」——
+  // 而它與「接上了而這張單沒卡住」在畫面上、在測試上**長得一模一樣**。
+  // ⇒ 這一格量的是【頁級行為】:餵一列卡住的判定進去,退款入口必須不見。
+  it('🔴 卡住的人工判定(failed + manual_failed)⇒ 退款入口不得渲染', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{
+        id: 'r-stuck',
+        kind: 'partial',
+        status: 'failed',
+        refundAmount: 100,
+        reason: '人工判定',
+        actor: 'sean',
+        createdAt: '2026-08-04T03:00:00+00:00',
+        failedReason: 'manual_failed',
+        failedDetail: null,
+        providerEvidence: null,
+      }],
+      truncated: false,
+    });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  // 🔴 **負對照,而它是這一組的承重格**:同一發、只把 `failedReason` 換掉。
+  //    少了它,上面那格會被「其他條件也剛好關掉入口」滿足而變成恆真
+  //    —— 那正是這一片一路在抓的那種假綠。
+  it('[負對照] 同一列但 failedReason 不是 manual_failed ⇒ 入口照常渲染', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{
+        id: 'r-plain',
+        kind: 'partial',
+        status: 'failed',
+        refundAmount: 100,
+        reason: '一般失敗',
+        actor: 'sean',
+        createdAt: '2026-08-04T03:00:00+00:00',
+        failedReason: 'not_sent',
+        failedDetail: null,
+        providerEvidence: null,
+      }],
+      truncated: false,
+    });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+    const { container } = await renderPage();
+    expect(hasRefundEntry(container)).toBe(true);
+  });
+
 });
