@@ -14,7 +14,6 @@
 // 真實狀態:Supabase products 表 0 row(M-1-16 種子前)、HomeSelect 必走 Q-empty=b 分支。
 
 import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
 import { resolveSiteUrl } from '@/lib/site-url';
 import { Header } from '@/components/Header';
 import { HomeHero } from '@/components/HomeHero';
@@ -32,7 +31,7 @@ import { BRAND_CONTENT } from '@/data/brand-content';
 import { BRAND_FOCUS } from '@/data/brand-focus';
 import { resolveBrandFocus } from '@/lib/brand-focus';
 import { resolveTierFromRequest } from '@/lib/tier';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getVerifiedUser } from '@/lib/auth/verified-user';
 import { getVehicleRepo } from '@/lib/auth/composition';
 
 // d2 build 揭示:本頁 server-side fetch Supabase、build 階段預生成 SSG 會撞 env 未注入
@@ -61,12 +60,26 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  // tier 解析:?tier= override(env flag PCM_DEV_TIER_OVERRIDE=1)> cookie `pcm-tier` > 'general'
-  // 邏輯抽至 @/lib/tier resolveTierFromRequest(M-1-13e-pre-1、Sean Q1=B 業務拍板:
+  // tier 解析:?tier= override(僅 dev,env flag `PCM_DEV_TIER_OVERRIDE=1`)> **登入身分** > 'general'
+  // 邏輯在 @/lib/tier resolveTierFromRequest(M-1-13e-pre-1、Sean Q1=B 業務拍板:
   // 金額頁面必須區分會員、helper 立即抽、不等第 3 處撞 trigger)
+  // 🔴 `#215`(2026-08-23):~~cookie `pcm-tier`~~ 那條路已移除 —— 它是 client 可偽造的,
+  //    而全 repo 零 production 寫入端。tier 現在只來自 `getUser()` → `customers.tier`。
   const params = await searchParams;
-  const cookieStore = await cookies();
-  const tier = await resolveTierFromRequest(params, cookieStore);
+  // ~~⚠️ 已知成本(刻意不修):登入者會跑到兩次 getUser();不合併的理由是安全 ——
+  //    合併要把 user 當參數餵進 resolveTierFromRequest, 而那正是本片剛修掉的形狀~~
+  // 🔴 **那是一個假二選一(codex R2 nit 抓到,2026-08-23 當天)**:第三條路存在 ——
+  //    把「去拿一個**經過驗證**的 user」本身做成 request-scoped 快取
+  //    (`@/lib/auth/verified-user` 的 `getVerifiedUser`,`cache()` 來自 react;
+  //     本 repo `lib/products.ts` 已在用同一個慣例)。
+  //    ⇒ **信任來源沒有變**(仍是 `getUser()` 向 Auth 驗 token),只是同一個 request 內不重問。
+  //    📌 留痕不刪:那是「我把自己的限制當成世界的限制」的標本 —— 而找到第三條路的是
+  //       一個沒有我脈絡的人。
+  // 🔴 **codex R5 nit:不要先 await 它。** 它內含一次 Auth 往返 ⇒ 放在這裡等於把
+  //    「認證」與「首頁三段查詢」**串起來**(量化例:Auth 300ms + 資料 400ms ⇒ TTFB ≈ 700ms)。
+  //    ⇒ 改成丟進下面那個 `Promise.all` 一起跑。`getVerifiedUser` 是 request-scoped 快取,
+  //      所以它與 garage 那一段**共用同一次**已驗證身分,不會變成兩次往返。
+  const tierPromise = resolveTierFromRequest(params);
 
   // 三段互不依賴 → Promise.all 並行(perf/P2:原逐一 await 串行、跨區延遲三段相加是首頁
   // TTFB 主因之一;三函式的 adapter 查詢錯誤各自 catch 回 fallback → Promise.all 收到的是
@@ -79,7 +92,10 @@ export default async function HomePage({
   // - categories(Q4-S5):CategoryGrid 真分類化(修「首頁分類卡點了無過濾」死連結;同 /products
   //   側欄的 fetchCategories→buildCategoryTree,只列有商品分類、深連結 ?category=<真分類名> 必命中過濾)
   // - garage(V-1c):登入會員愛車 chips(RLS vehicles_*_own 守自己 row;未登入/讀取失敗
-  //   → [] chips 整排不顯示、頁面不 500;本頁已 force-dynamic+讀 cookies=零額外快取語意變更)
+  //   → [] chips 整排不顯示、頁面不 500;本頁已 force-dynamic=零額外快取語意變更;
+  //   ~~🔴 動態性改由 resolveTierFromRequest 內讀 session cookie 帶來,那條路被拿掉就會消失~~
+  //   **這句是錯的(codex nit;當天寫、當天被抓)**:本頁檔頭有 `export const dynamic = 'force-dynamic'`
+  //   ⇒ **動態性不依賴任何讀 cookie 的路徑**。留痕不刪 —— 它是「順手補一句解釋,而那句沒被驗過」的標本)
   // - brandsWithProducts(D3c-2):目錄零商品的品牌在 BrandIndex 那一排泛白且不可點
   //   (Sean 拍板 `C-31-A`,主視窗 `C-33-A` 裁示首頁比照品牌頁磚牆)。
   //   🔴 撈取失敗回**空集合**=全部當成沒商品(fail-closed,`brand-products.ts` 那支自己保證)
@@ -88,7 +104,8 @@ export default async function HomePage({
   //   鍵(`catalog-brand-taxonomy-v1`,60s + tag `catalog`)⇒ 熱路徑零額外 DB round-trip、
   //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 1 分鐘
   //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:135`)。
-  const [featured, motoBrands, categories, garage, brandsWithProducts] = await Promise.all([
+  const [tier, featured, motoBrands, categories, garage, brandsWithProducts] = await Promise.all([
+    tierPromise,
     // H6 連動(Sean 2026-08-06 拍板、`D-132-A` 更正):取數提高到 `FEATURED_LIMIT`,
     // 讓 OD 的 5 格橫捲真的捲得動;**會員中心「為你推薦」共用同一個數字、一起變多**。
     fetchFeaturedProducts(),
@@ -96,10 +113,8 @@ export default async function HomePage({
     fetchCategories(),
     (async () => {
       try {
-        const supabase = await createServerSupabaseClient();
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        // `#215`:與上面的 tier 共用同一次【已驗證】身分(request-scoped),不重跑一次 Auth。
+        const { user } = await getVerifiedUser();
         if (!user) return [];
         // 序列化面收窄:chips 只需 id/name/year(engine/km/mods 等不進 client props;皆為
         // 本人 own 資料、此為最小面原則非洩漏修補)
