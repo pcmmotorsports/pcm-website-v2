@@ -42,6 +42,14 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'CREATE OR REPLACE FUNCTION public.eat1() RETURNS void LANGUAGE sql AS $f$ SELECT 2 $f$;\n' > "$FX/20200114000000_eat1_redef.sql"
   printf 'CREATE OR REPLACE FUNCTION public.eat2() RETURNS void LANGUAGE sql AS $f$ SELECT 2 $f$;\n' > "$FX/20200115000000_eat2_redef.sql"
   printf 'CREATE OR REPLACE FUNCTION public.eat3() RETURNS void LANGUAGE sql AS $f$ SELECT 2 $f$;\n' > "$FX/20200116000000_eat3_redef.sql"
+  # ── 規則②的證人(2026-08-23 加;在此之前規則②【從來沒有人證明過它會紅】)──
+  # 🔴 時間戳一律 2021+:規則①只回頭看【更早】的檔,用更晚的戳才不會污染上面那 16 格。
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n' > "$FX/20210101000000_r2_clean.sql"
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n-- 結語:零留痕驗證見 runbook\n-- 本 repo 的常態寫法\n' > "$FX/20210102000000_r2_trailing_comment.sql"
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n-- 註解\nSELECT 2;\n' > "$FX/20210103000000_r2_comment_then_sql.sql"
+  printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' > "$FX/20210104000000_r2_midcommit.sql"
+  printf 'BEGIN;\nROLLBACK;\nSELECT 2;\nCOMMIT;\n' > "$FX/20210105000000_r2_midrollback.sql"
+  printf 'BEGIN;\nDO $x$ BEGIN NULL; END $x$;\nCOMMIT;\n-- 尾註\n' > "$FX/20210106000000_r2_plpgsql_end.sql"
   fail=0; n=0
   check() { # $1 fixture  $2 須命中的字面  $3 不得命中的字面(可空)  $4 案名
     local out; out="$(bash "$SELF" "$FX/$1" 2>&1)"; n=$((n+1))
@@ -64,8 +72,37 @@ if [ "${1:-}" = "--selftest" ]; then
   check 20200114000000_eat1_redef.sql     '合法,不紅'          '新物件'    '更早檔的 -- 註解含 /* ⇒ 不得開區塊吃掉下面的真定義(must-fix 1)'
   check 20200115000000_eat2_redef.sql     '合法,不紅'          '新物件'    '更早檔的 -- 註解含 $gate$ ⇒ 不得開 dollar 吃掉下面的真定義(假紅 3)'
   check 20200116000000_eat3_redef.sql     '合法,不紅'          '新物件'    '更早檔 /* -- */ 同一行 ⇒ 先剝 -- 會砍掉 */;誰先出現誰算數'
-  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向)"
+  check 20210101000000_r2_clean.sql            '恰好 1 次'          '🔴'        '規則②:BEGIN…COMMIT 收在最後 ⇒ 綠'
+  check 20210102000000_r2_trailing_comment.sql '恰好 1 次'          '🔴'        '規則②:COMMIT 後面只有註解 ⇒ 綠(修掉 23 支誤擋的那一格)'
+  check 20210103000000_r2_comment_then_sql.sql '不是最後一句 SQL'   ''          '規則②:COMMIT 後面還有真 SQL ⇒ 照樣紅(上一格的負對照,證明沒放寬)'
+  check 20210104000000_r2_midcommit.sql        '命中 2 次'          ''          '規則②:同一行 select 1; commit; ⇒ 紅'
+  check 20210105000000_r2_midrollback.sql      '命中 2 次'          ''          '規則②:中段 ROLLBACK ⇒ 紅'
+  check 20210106000000_r2_plpgsql_end.sql      '恰好 1 次'          '🔴'        '規則②:plpgsql 的 END; 在 dollar-quote 裡 ⇒ 不得誤報'
+  # ── 多檔那段的證人:一乾淨 + 一違規,順序【違規在後】(被忽略的就是後面那些)──
+  n=$((n+1))
+  if bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210104000000_r2_midcommit.sql" >/dev/null 2>&1; then
+    echo "❌ 多檔:第二支違規卻回 0 ⇒ 多餘參數被安靜忽略"; fail=1
+  fi
+  n=$((n+1))
+  if ! bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210102000000_r2_trailing_comment.sql" >/dev/null 2>&1; then
+    echo "❌ 多檔:兩支都乾淨卻回非 0 ⇒ 該綠沒綠"; fail=1
+  fi
+  [ "$fail" = "0" ] && echo "✅ migration-static-checks --selftest $n/$n(規則①雙向 + 規則②雙向 + 多檔雙向)"
   exit "$fail"
+fi
+
+# ── 多檔:逐支跑、任一支紅就整體紅(2026-08-23 加)────────────────────────────
+# 🔴 為什麼要有這段:本檔原本只讀 `$1`,多餘的參數【安靜地被忽略】。
+#    實測(2026-08-23):第一支乾淨、第二支中段 COMMIT ⇒ 印「✅ 四道靜態檢查全過」、`rc=0`。
+#    ⇒ **第二支從來沒有被檢查過,而畫面上與「兩支都過」長得一模一樣。**
+#    這在今天是無害的(沒有呼叫端會餵多支),但只要有人把它掛進 lint-staged 就會變成承重的 ——
+#    lint-staged 把【所有命中的檔】一次接在命令後面。⇒ 先修,不要等它變成事故。
+if [ "$#" -gt 1 ]; then
+  multi_rc=0
+  for one in "$@"; do
+    bash "$0" "$one" || multi_rc=1
+  done
+  exit "$multi_rc"
 fi
 
 F="${1:-}"
@@ -285,7 +322,13 @@ echo "── ② 結束交易:commit / end / rollback 三種寫法 ────�
 #    這正是本 repo patterns 檔在教的:用位置或結構判,不用「出現」判。
 PAT='(^|;)[[:space:]]*(commit|end|rollback)[[:space:]]*;'
 N=$(grep -ciE "$PAT" "$STRIPPED" || true)
-LAST=$(wc -l < "$F" | tr -d ' ')
+# 🔴 LAST 必須量【剝殼後的最後一個有內容的行】,不是原始檔的總行數(2026-08-23 乾跑抓到)。
+# 原版 `wc -l < "$F"` 拿【原始檔行數】去比對【$STRIPPED 的行號】—— 那是兩個座標系。
+# 剝殼保留行數但把註解變成空行 ⇒ COMMIT 後面接一段結語註解(本 repo 的常態寫法)就會被判
+# 「不在最後一行」。乾跑 212 支實測:這個形狀誤擋 23 支,而那 23 支全部是【COMMIT 之後只有註解】。
+# ⇒ 誤擋的後果是有人照規矩寫而被工具懲罰,然後他下次繞過去。
+# 語意沒有放寬:COMMIT 之後只要還有【真的 SQL】,那一行就是新的 LAST ⇒ 照樣紅(selftest 有負對照釘住)。
+LAST=$(grep -n '[^[:space:]]' "$STRIPPED" | tail -1 | cut -d: -f1)
 LINE=$(grep -niE "$PAT" "$STRIPPED" | tail -1 | cut -d: -f1)
 if [ "$N" != "1" ]; then
   echo "🔴 命中 $N 次,預期恰好 1:"
@@ -293,7 +336,7 @@ if [ "$N" != "1" ]; then
   echo "   ⇒ 檔頭 BEGIN、檔尾 COMMIT,中間不得有任何結束交易的語句。"
   RC=1
 elif [ "$LINE" != "$LAST" ]; then
-  echo "🔴 命中 1 次但不在最後一行(在第 $LINE 行,全檔 $LAST 行)"
+  echo "🔴 命中 1 次但不是最後一句 SQL(它在第 $LINE 行,而最後一句 SQL 在第 $LAST 行)"
   RC=1
 else
   echo "✅ 恰好 1 次,且在最後一行(第 $LINE 行)"
