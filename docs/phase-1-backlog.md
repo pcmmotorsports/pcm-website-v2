@@ -29670,3 +29670,41 @@ DB 層可達 = **是**(上面實測)
   🔴 **而多詞一起搜會回 0** —— 該工具是 AND 比對, 4 個詞沒有任何一條全中
   ⇒ **那個 0 是尺造出來的, 不是證據**(正對照:單搜「手動建單」⇒ 7 命中)。發號時要用單詞。
 - **編號**:`bash scripts/claim-backlog-number.sh` 佔號取得(非手動 grep 最大號)。
+
+### #860. 🔴 兩張列印紙的【商品名】未濾 emoji —— 而客人拿到的那張會是方框
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **關鍵字**(給搜的人):emoji / 圖形符號 / 方框 / 豆腐字 / item.title / product_snapshot /
+  stripPictographs / 列印 / 訂單明細 / 出貨單 / 品名。
+
+- **不修未來會痛在哪:** `picking-doc.tsx` 與 `shipping-doc.tsx` 印 `item.title`(供應商品名),
+  **未經 `stripPictographs`**。客人名字那一格已於 A1(`4b3ef949`)修掉,
+  而**品名走的是同一張紙、同一條渲染路徑** ⇒ 供應商品名帶 emoji 時,客人收到的 PDF 上是方框,
+  而**第一個發現的人是客人**(與 A1 要解的那件事逐字同一件)。
+
+- **今天無樣本(2026-08-23 線2 對正式庫唯讀實量,不是推的):**
+  ```
+  order_items.product_snapshot.title   distinct 60 字元 / astral 0
+  order_items.variant_sku              distinct 30 字元 / astral 0
+  shipments.recipient_snapshot.name    distinct  3 字元 / astral 0
+  同一發正對照 customers.name          distinct 53 字元 / astral 1(U+1F3CD)⇒ 尺是活的
+  ```
+  🔴 **同一發帶正對照**,不是另跑一次 —— 那個 0 是「這一發的 0」,不是「某個時刻尺曾經活過」。
+
+- **🔴 三條限定,不要與數字分開讀:**
+  1. `shipments.recipient_snapshot.name` 只有 **3 個 distinct 字元**(5 張單)
+     ⇒ 那個 0 **幾乎沒有說服力**;A1 對該欄的修法目前是**防未來**,不是**修已發生**。
+  2. 三欄全是**自己人測試資料**(真實客人 0 筆)⇒ 供應商真上架時字集會變。
+  3. 🔴 量的是 **astral(U+10000 以上)** ⇒ **不涵蓋 BMP 內的 `✨` `⭐` `✅`** ——
+     而 A1 複驗後那些**也要濾**(它們 `Emoji_Presentation = true` ⇒ 文字字型沒有字形)。
+     ⇒ **這一發證不了「品名裡沒有 BMP 彩色符號」。要那個得另一把尺。**
+
+- **量法(可重跑):** 對 `product_snapshot->>'title'` 拆字、數 `ascii(ch) >= 65536`,
+  **並在同一發帶上 `customers.name` 當正對照** —— 否則 0 分不出「沒有」與「尺壞了」。
+  ⚠️ 而依限定 3,要涵蓋 `✨` 那一族還需要第二把尺(判 `Emoji_Presentation`)。
+
+- **做法:** 兩張紙的 `item.title` 各包一層 `stripPictographs`(函式已存在,`apps/admin/src/lib/print/`)。
+  ⚠️ **只有一處濾** —— 訂單信那一側刻意不濾(兩處濾法會漂,而漂了之後信裡與 PDF 裡的同一個名字會不一樣)。
+
+- **出處:** A1(`4b3ef949`)的 code-reviewer 列出、線2 判明文延後、主視窗落檔。
