@@ -54,6 +54,9 @@ if [ "${1:-}" = "--selftest" ]; then
   printf 'BEGIN;\nCOMMENT ON TABLE public.t IS %s;\nCOMMIT;\n' "'a/**b**c'" > "$FX/20210107000000_r2_slash_star_in_string.sql"
   printf 'BEGIN;\nCOMMENT ON TABLE public.t IS %s;\nCOMMIT;\n' "'x BEGIN; SELECT 1; COMMIT; y'" > "$FX/20210108000000_r2_commit_in_string.sql"
   printf 'BEGIN;\nSELECT %s;\nCOMMIT;\n' "'it''s'" > "$FX/20210109000000_r2_doubled_quote.sql"
+  # ── 收斂那一刀的兩格(2026-08-23):沒開交易 ⇒ 不適用;開了交易 ⇒ 照樣管 ──
+  printf 'CREATE VIEW public.no_tx AS SELECT 1;\n' > "$FX/20210110000000_r2_no_begin.sql"
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\nSELECT 2;\nCOMMIT;\n' > "$FX/20210111000000_r2_begin_but_broken.sql"
   fail=0; n=0
   check() { # $1 fixture  $2 須命中的字面  $3 不得命中的字面(可空)  $4 案名
     local out; out="$(bash "$SELF" "$FX/$1" 2>&1)"; n=$((n+1))
@@ -85,6 +88,8 @@ if [ "${1:-}" = "--selftest" ]; then
   check 20210107000000_r2_slash_star_in_string.sql '恰好 1 次' '🔴' '單引號字串裡的 /** 粗體 ⇒ 不得打開區塊註解吃掉檔尾的 COMMIT'
   check 20210108000000_r2_commit_in_string.sql     '恰好 1 次' '🔴' '單引號字串裡的 COMMIT; ⇒ 是文字不是碼,不得被算成中段結束交易'
   check 20210109000000_r2_doubled_quote.sql        '恰好 1 次' '🔴' "SQL 的 '' 跳脫 ⇒ 字串要收在正確位置,不得往後吃"
+  check 20210110000000_r2_no_begin.sql          '這道不適用'  ''  '規則②:沒寫 BEGIN ⇒ 不適用(現行慣例一半的檔長這樣, 擋它們=噪音)'
+  check 20210111000000_r2_begin_but_broken.sql  '命中 2 次'   ''  '規則②:開了交易卻中途結束 ⇒ 照樣紅(收斂沒有把真缺陷放走)'
   # ── 多檔那段的證人:一乾淨 + 一違規,順序【違規在後】(被忽略的就是後面那些)──
   n=$((n+1))
   if bash "$SELF" "$FX/20210101000000_r2_clean.sql" "$FX/20210104000000_r2_midcommit.sql" >/dev/null 2>&1; then
@@ -357,7 +362,23 @@ N=$(grep -ciE "$PAT" "$STRIPPED" || true)
 # 語意沒有放寬:COMMIT 之後只要還有【真的 SQL】,那一行就是新的 LAST ⇒ 照樣紅(selftest 有負對照釘住)。
 LAST=$(grep -n '[^[:space:]]' "$STRIPPED" | tail -1 | cut -d: -f1)
 LINE=$(grep -niE "$PAT" "$STRIPPED" | tail -1 | cut -d: -f1)
-if [ "$N" != "1" ]; then
+# 🔴🔴 本道**只管「開了交易的檔」**(2026-08-23 接線前乾跑逼出來的收斂)。
+#   ~~原版對【完全沒寫 BEGIN】的檔也要求「恰好 1 次 COMMIT」~~ ⇒ 那其實是**另一條規則**
+#   (「migration 一律要包在交易裡」),而它**從來沒有人拍過板**。
+#   把兩件事塞進同一道,量出來的數字就沒有意義:
+#     全 212 支 ⇒ 規則②紅 107 支(50%),而其中 **106 支的理由是「命中 0 次」**
+#     最近 20 支(現行寫法)⇒ 紅 9 支,**9 支全部是「命中 0 次」**;同 20 支裡有寫 BEGIN 的是 11 支
+#   ⇒ 現行慣例本來就【一半包、一半不包】。照原版掛成閘 = **擋掉近一半照現行慣例寫的新檔**,
+#     而它們不是壞的 ⇒ 那不是把閘裝上,是把閘變成噪音,然後訓練下一個人繞過去。
+# ⇒ 本道收斂成它真正在守的那件事:**你開了交易,就不准在中途把它結束掉**
+#   (中途 COMMIT/END/ROLLBACK ⇒ 後面每句各自 autocommit、失敗時沒有交易可回滾)。
+# 🔴 **而「沒包交易」那件事沒有消失,只是沒有人管** —— 它要不要變成規則是 Sean 的題,不是我的。
+#   本道印一行說明讓它**看得見**,不讓它安靜地不存在。
+HAS_BEGIN=$(grep -ciE '(^|;)[[:space:]]*begin([[:space:]]+(work|transaction))?[[:space:]]*;' "$STRIPPED" || true)
+if [ "$HAS_BEGIN" = "0" ]; then
+  echo "⚠️ 本檔沒有 BEGIN;,這道不適用(它守的是「開了交易不准中途結束」)。"
+  echo "   ⇒ 「migration 是否一律要包在交易裡」是**另一條還沒有人拍板的規則**,本道不代它執行。"
+elif [ "$N" != "1" ]; then
   echo "🔴 命中 $N 次,預期恰好 1:"
   grep -niE "$PAT" "$STRIPPED" | sed 's/^/     /'
   echo "   ⇒ 檔頭 BEGIN、檔尾 COMMIT,中間不得有任何結束交易的語句。"

@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# migration-new-file-static-checks.sh — lint-staged 的入口:**只對【新增的】 .sql 跑四道靜態檢查**
+#
+# 用法(lint-staged 會把命中的檔名接在後面):
+#   bash scripts/migration-new-file-static-checks.sh <file.sql> [more.sql ...]
+#   bash scripts/migration-new-file-static-checks.sh --selftest
+#
+# ── 為什麼要有這一支,而不是直接把 migration-static-checks.sh 掛上去 ─────────────
+# 🔴 ① **Sean 2026-08-23 拍板「甲:只擋新增的、舊檔一律豁免」**,而 lint-staged **做不到那一刀**:
+#      `lint-staged@17.0.4/lib/index.d.ts:1` 逐字 `(stagedFileNames: readonly string[]) => …`
+#      —— 它**內部知道** A/C/D/M/R(`lib/getStagedFiles.js` 解 `--raw -z`、`lib/generateTasks.js:24`
+#      把 status 帶進 task),**但只把檔名交出來**。唯一的旋鈕 `--diff-filter` 是**全域**的,
+#      設成 A 會讓 lint-staged 裡每一條規則都只看新增檔 ⇒ 不可接受。
+#      ⇒ 那一刀只能由**我們自己寫的這一行**切:`git diff --cached --diff-filter=A`。
+# 🔴 ② lint-staged 把**所有**命中的檔一次接在命令後面(`lib/getSpawnedTask.js:102`
+#      `args.concat(files)`)⇒ 入口必須自己迴圈。
+# 🔴 ③ **不把過濾寫進 migration-static-checks.sh 本體**:那一支也給人**手動**驗任意檔用
+#      (含已 commit 的舊檔)。在它裡面加「只看 staged 新增」會讓手動用法安靜地什麼都不檢查。
+#
+# ⚠️ **誠實邊界(不要讀成比它大)**:
+#   · 只看**這一次 commit 新增**的檔。舊檔改一個字 ⇒ 跳過、不檢查(那就是「甲」的意思)。
+#   · 舊檔**刪掉再重加**會被當成新增 ⇒ 會被檢查。
+#   · 跳過幾支、跳過哪幾支**一律印出來** —— 沉默的跳過會讓人以為「全部檢查過了」。
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+CHECKS="$HERE/migration-static-checks.sh"
+# 🔴 自檢會 `cd` 進拋棄式 repo,而 `$0` 是【相對路徑】⇒ cd 之後就找不到自己(實測 rc=127)。
+#    那個 127 不是「閘擋了」也不是「閘放行」,是【指令根本沒跑】—— 而 `rc != 0` 讀起來像前者。
+SELF="$HERE/$(basename "$0")"
+
+is_added() { # $1=path → 0=這次 commit 新增
+  git diff --cached --name-only --diff-filter=A -- "$1" 2>/dev/null | grep -q .
+}
+
+if [ "${1:-}" = "--selftest" ]; then
+  # 🔴 自檢要在**拋棄式 repo** 裡跑:A 與 M 的差別只有真的 git index 才造得出來,
+  #    而在本 repo 裡動 index = 動別人正在準備的那次 commit。
+  W=$(mktemp -d) || exit 2
+  trap 'rm -rf "$W"' EXIT
+  # 繼承來的 git env 會讓底下的 git add 寫進【外層那次 commit 的 index】(mutation-harness-restore.md §4e)。
+  unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR GIT_PREFIX 2>/dev/null || true
+  fail=0; n=0
+  (
+    cd "$W" && git init -q . && git config user.email cf@x && git config user.name cf \
+      && git config commit.gpgsign false && mkdir -p supabase/migrations
+  ) || { echo "✗ 自檢 fixture 建置失敗 ⇒ exit 2" >&2; exit 2; }
+  # 舊檔:先 commit 一份【乾淨】的,再把它改成【違規】(開了交易卻中途結束)。
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200101000000_old.sql"
+  ( cd "$W" && git add -A && git commit -q -m seed ) || { echo "✗ seed 失敗 ⇒ exit 2" >&2; exit 2; }
+  printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' > "$W/supabase/migrations/20200101000000_old.sql"
+  # 新檔:同款違規。
+  printf 'BEGIN;\nSELECT 1; COMMIT;\nSELECT 2;\nCOMMIT;\n' > "$W/supabase/migrations/20200202000000_new.sql"
+  ( cd "$W" && git add supabase/migrations ) || { echo "✗ stage 失敗 ⇒ exit 2" >&2; exit 2; }
+
+  cell() { # $1=標籤 $2=實得rc $3=該得rc
+    n=$((n + 1))
+    if [ "$2" = "$3" ]; then echo "  PASS $1 (rc=$2)"
+    else echo "  🔴 FAIL $1 —— rc=$2 但宣稱是 $3"; fail=1; fi
+  }
+  # 🔴 該綠那格排前面(2026-08-23:兩格的自檢,先跑比較容易被跳過的那一格)。
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200101000000_old.sql >/dev/null 2>&1 )
+  cell "舊檔(M)違規 ⇒ 跳過、放行 —— 這就是 Sean 的「甲」" "$?" "0"
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200202000000_new.sql >/dev/null 2>&1 )
+  cell "新檔(A)違規 ⇒ 擋" "$?" "1"
+  # 兩支一起餵:違規的那支【排在後面】—— 被安靜忽略的正是後面那些。
+  ( cd "$W" && bash "$SELF" supabase/migrations/20200101000000_old.sql supabase/migrations/20200202000000_new.sql >/dev/null 2>&1 )
+  cell "多檔:違規新檔排在第二個 ⇒ 仍擋(不得只看 \$1)" "$?" "1"
+  # 負對照:新檔改成乾淨的 ⇒ 必須放行(否則它是一道恆紅的閘)。
+  printf 'BEGIN;\nSELECT 1;\nCOMMIT;\n' > "$W/supabase/migrations/20200202000000_new.sql"
+  ( cd "$W" && git add supabase/migrations/20200202000000_new.sql && bash "$SELF" supabase/migrations/20200202000000_new.sql >/dev/null 2>&1 )
+  cell "新檔(A)乾淨 ⇒ 放行(該綠必綠)" "$?" "0"
+  [ "$fail" = "0" ] && echo "✅ migration-new-file-static-checks --selftest $n/$n(A/M 雙向 + 多檔 + 該綠必綠)"
+  exit "$fail"
+fi
+
+if [ ! -f "$CHECKS" ]; then
+  printf '%s\n' "🔴 找不到 $CHECKS ⇒ 擋下(不放行)" >&2
+  printf '%s\n' "   本入口沒有它就什麼都沒檢查,而「檢查過了」與「沒東西可檢查」在畫面上長得一樣。" >&2
+  exit 1
+fi
+
+rc=0
+checked=0
+skipped_list=""
+for f in "$@"; do
+  if ! is_added "$f"; then
+    skipped_list="$skipped_list $f"
+    continue
+  fi
+  checked=$((checked + 1))
+  bash "$CHECKS" "$f" || rc=1
+done
+
+# 🔴 跳過了什麼一律講出來(no silent caps):不講,下一個人會以為這一發把所有 .sql 都看過了。
+if [ -n "$skipped_list" ]; then
+  printf '⚠️ 略過(不是這次新增的檔,照 Sean 2026-08-23「甲」豁免):\n'
+  for s in $skipped_list; do printf '   · %s\n' "$s"; done
+fi
+printf 'migration-new-file-static-checks:檢查了 %s 支新增的 .sql\n' "$checked"
+exit "$rc"
