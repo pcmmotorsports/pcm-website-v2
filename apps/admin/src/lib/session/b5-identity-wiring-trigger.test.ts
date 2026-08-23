@@ -1,3 +1,15 @@
+
+//
+// ⚠️⚠️ **2026-08-23:本檔守不到【上游】那個世界。**
+//   本檔的訊號要求「**我們這邊已經動手到一半**」(欄已加而接線未換 / insert 已加鍵而表沒欄)。
+//   🔴 而真正會發生的世界是相反的:**我們根本沒開始,而上游已經在送。**
+//      那個世界裡本檔的訊號恆假 ⇒ **一聲都不會叫。**
+//   📏 實據:`lib/sso/exchange.ts` 已經在解析、清洗、回傳 `sub`,而 `api/sso/callback/route.ts`
+//      沒有把它帶進 session 或 login event ⇒ 報價單 B3/B4 一上線,`sub` 就會被丟掉。
+//      ⚠️ ~~【靜默】丟掉~~ **同一顆 commit 之後不再是「靜默」的** ——
+//         `identity-drop-trace` 會留下一行指名 `sub` 的痕。**丟棄本身仍未修**(仍併 B5-a)。
+//   ✅ **那一半改由 `lib/sso/identity-drop-trace.ts` 守**(斷言的是**可觀測性**,不是結構)。
+//   ⇒ **不要把「本檔存在」讀成「這條身分鏈被守著了」** —— 本檔只守我們自己做到一半那一種。
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';

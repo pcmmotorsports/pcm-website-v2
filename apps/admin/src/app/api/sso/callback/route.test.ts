@@ -278,7 +278,7 @@ describe('sso/callback route', () => {
     expect(res.status).toBe(500);
     expect(res.cookies.get(ADMIN_SESS_COOKIE)).toBeUndefined();
     expectSecurityHeaders(res); // codex MF4
-    // #613 呼叫點4(route.ts:72 sign-failed-config)。
+    // #613 呼叫點4(route.ts 的 sign-failed-config 那一支 —— **不引行號**:2026-08-23 那顆 commit 自己把它從 :72 推到 :77)。
     expect(info).not.toHaveBeenCalled();
     expect(secLogs(warn)).toEqual([{
       evt: 'sso.login',
@@ -344,5 +344,64 @@ describe('sso/callback route', () => {
         '⇒ 【不要刪掉本格】,去改它:把它改成驗「sub 被逐字帶進去且形狀正確」,\n' +
         '   並同時補上 b5-spec 驗收表那三條(缺 sub 不得轉 fallback / 最終 session 的身分對不對)。',
     ).toBeUndefined();
+  });
+
+  // 🔴 兩格共用同一個字串。**分開寫的話:改文案時 ① 會紅、而 ②(正對照)會【靜靜變成恆真】**
+  //    —— 一個永遠找不到東西的 filter,長得跟「真的沒印」一模一樣。
+  const IDENTITY_DROP_MARK = '上游送了 sub';
+
+  // ────────────────────────────────────────────────────────────────────────
+  // 🔴 上面那格釘住「今天刻意丟棄」。**而「刻意」在正式站是看不出來的** ——
+  //    丟棄與從來沒收到,在 log 裡長得一模一樣。
+  //    ⇒ 本組釘住的是**可觀測性**:丟的時候要出聲,沒東西可丟的時候要安靜。
+  //    契約與退場條件見 `lib/sso/identity-drop-trace.ts` 檔頭。
+  it('🔴 上游送了 sub 而我們沒接 ⇒ 留下一行【指名 sub 與兩本帳】的痕', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            amr: ['pwd'],
+            auth_time: AUTH_TIME,
+            sub: { kind: 'user', staff_id: 'sean' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+    );
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await GET(
+      callbackReq({ cookie: encodeStateCookie(STATE, '/orders'), code: 'code-1', state: STATE }),
+    );
+    expect(res.status, '沒走到成功路徑 ⇒ 下面的斷言什麼都沒證明').toBe(303);
+    const dropCalls = spy.mock.calls.filter((c) => String(c[0]).includes(IDENTITY_DROP_MARK));
+    const lines = spy.mock.calls.map((c) => String(c[0]));
+    spy.mockRestore();
+    expect(dropCalls.length, `沒有那一行痕。console.warn 收到的是:\n${lines.join('\n')}`).toBe(1);
+    expect(String(dropCalls[0]?.[0])).toContain('session cookie');
+    // 🔴 codex must-fix 5:PII 可以走【第二個參數】溜出去,而字串守門看不到它。
+    //    ⇒ 釘住呼叫的**參數個數**。改成 console.warn(msg, result.sub) ⇒ 本行紅。
+    expect(dropCalls[0]?.length, '那一行不得帶第二個參數(它一樣會進 Vercel log)').toBe(1);
+  });
+
+  it('🔴 正對照:上游【沒送】sub ⇒ 不得留那一行(否則上一格對「什麼都印」也會過)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, amr: ['pwd'], auth_time: AUTH_TIME }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      ),
+    );
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await GET(
+      callbackReq({ cookie: encodeStateCookie(STATE, '/orders'), code: 'code-1', state: STATE }),
+    );
+    expect(res.status).toBe(303);
+    const lines = spy.mock.calls.map((c) => String(c[0]));
+    spy.mockRestore();
+    expect(lines.filter((l) => l.includes(IDENTITY_DROP_MARK)).length).toBe(0);
   });
 });

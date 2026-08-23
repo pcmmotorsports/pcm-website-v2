@@ -1,3 +1,15 @@
+
+//
+// ⚠️⚠️ **2026-08-23:本檔守不到【上游】那個世界。**
+//   本檔的訊號要求「**我們這邊已經動手到一半**」(欄已加而接線未換 / insert 已加鍵而表沒欄)。
+//   🔴 而真正會發生的世界是相反的:**我們根本沒開始,而上游已經在送。**
+//      那個世界裡本檔的訊號恆假 ⇒ **一聲都不會叫。**
+//   📏 實據:`lib/sso/exchange.ts` 已經在解析、清洗、回傳 `sub`,而 `api/sso/callback/route.ts`
+//      沒有把它帶進 session 或 login event ⇒ 報價單 B3/B4 一上線,`sub` 就會被丟掉。
+//      ⚠️ ~~【靜默】丟掉~~ **同一顆 commit 之後不再是「靜默」的** ——
+//         `identity-drop-trace` 會留下一行指名 `sub` 的痕。**丟棄本身仍未修**(仍併 B5-a)。
+//   ✅ **那一半改由 `lib/sso/identity-drop-trace.ts` 守**(斷言的是**可觀測性**,不是結構)。
+//   ⇒ **不要把「本檔存在」讀成「這條身分鏈被守著了」** —— 本檔只守我們自己做到一半那一種。
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -140,5 +152,38 @@ describe('稽核表(admin_sso_login_events)身分寫入 · 靜默降級觸發器
       tableHasIdentityColumn('CREATE TABLE public.admin_sso_login_events (\n  id uuid,\n  amr text\n);'),
     ).toBe(false);
     expect(tableHasIdentityColumn('CREATE TABLE public.something_else (\n  id uuid\n);')).toBe(true);
+  });
+});
+
+// ── 🔴 **「提早退場」那一條(codex 2026-08-23 must-fix 4)**────────────────────────
+//  `api/sso/callback/route.ts` 的 identity-drop trace **只掛 session 那一本**,
+//  因為它看得到的 `loginEvent` 是**傳進去的參數**,不是本檔實際 `insert` 的那個物件。
+//  🔴 **若 B5-a 只把 `sub` 加進呼叫端參數而忘了複製到 insert** ⇒ route 那道 trace 會**安靜下來**,
+//     而 DB 仍然沒有身分 ⇒ **「安靜」會被讀成「已經好了」。**
+//  ⇒ 本格接住那條路:**呼叫端契約一旦帶得動身分,`insert` 就必須把它抄過去。**
+//  ⚠️ **限度**:它掃的是**原始碼字面**(`security-log.ts` 的欄位型別 + 本檔的 insert 物件字面)。
+//     有人用展開運算子或變數組出那個物件 ⇒ 掃不到 ⇒ **本格會靜靜失去偵測力**,而不會紅。
+describe('提早退場:呼叫端契約帶得動身分時,insert 必須跟著抄', () => {
+  const securityLogSrc = readFileSync(resolve(HERE, 'security-log.ts'), 'utf8');
+
+  it('🔴 前提:兩支原始碼都讀得到(讀不到 = 本組瞎了,不是通過)', () => {
+    expect(securityLogSrc.length).toBeGreaterThan(0);
+    expect(loginEventSrc.length).toBeGreaterThan(0);
+  });
+
+  it('SsoLoginLogFields 帶得動身分 ⇒ insert 物件字面也要有;兩邊要嘛都有、要嘛都沒有', () => {
+    // ⚠️ 它是 `interface` 不是 `type`(2026-08-23 實測:寫成 `type` 的正規式當場 fail-loud 紅)。
+    const fieldsType = /export interface SsoLoginLogFields \{([\s\S]*?)\n\}/.exec(securityLogSrc)?.[1];
+    // 掃不到型別 ⇒ fail-loud(同本檔既有慣例:量具接不到檔就吵)
+    expect(fieldsType, 'SsoLoginLogFields 掃不到 ⇒ 正規式與檔案已脫節').toBeDefined();
+    const contractCarriesIdentity = /\bsub\b|\bstaff_id\b/.test(fieldsType ?? '');
+    const insertCarriesIdentity = insertAttemptsIdentity(loginEventSrc);
+    expect(
+      insertCarriesIdentity,
+      contractCarriesIdentity
+        ? '🔴 呼叫端契約已經帶得動身分,而 insert 沒有抄過去 ⇒ **DB 會靜默丟掉它**,' +
+          '而 route 那道 trace 會因為參數有值而安靜 ⇒ 看起來像做完了。'
+        : '呼叫端契約還不帶身分,而 insert 卻有身分鍵 ⇒ 兩邊對不上,請人判。',
+    ).toBe(contractCarriesIdentity);
   });
 });
