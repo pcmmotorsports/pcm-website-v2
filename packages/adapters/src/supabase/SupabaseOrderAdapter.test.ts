@@ -304,7 +304,11 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 }
 
 /** L6 預設隱藏規則的 `.or()` 字面(module scope:多處斷言共用同一個真相)。 */
-const L6_HIDE_OR = 'payment_channel.neq.tappay,payment_status.neq.unpaid';
+// 🔴 `#841`:第三項 `and(...)` 是**復活條件**(有錢且未取消才放行),不是第四個隱藏軸。
+//    拆成平鋪的 `paid_total.neq.0` 會讓**已取消單跑出來**(2026-08-23 PostgREST 實測),
+//    而那是回歸 —— 它們今天是被藏著的。改這一行之前先讀 `SupabaseOrderAdapter.ts` 那段註解。
+const L6_HIDE_OR =
+  'payment_channel.neq.tappay,payment_status.neq.unpaid,and(paid_total.neq.0,cancelled_at.is.null)';
 
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   // ══ 🔴 `#533`:下面這一格是 **TS↔TS** 的 —— 真值在資料庫,而資料庫沒有出現在這一格裡 ══
@@ -2060,7 +2064,10 @@ describe('#347-2a 關鍵字搜尋 · RPC 回傳形狀 fail-closed(硬轉 = 假�
 });
 
 describe('#347-2a 關鍵字 × L6 隱藏規則(豁免綁精準鍵)', () => {
-  const HIDE = 'payment_channel.neq.tappay,payment_status.neq.unpaid';
+  // 🔴 `#841`:原本這裡**自己重打了一份**隱藏字面(module scope 已有 `L6_HIDE_OR`)——
+  //    改述詞時 `:1741` 那份跟上了、這份沒有,兩份漂開而只有這一格紅。
+  //    ⇒ 改指同一份真相。**兩份同義字面遲早會漂,而漂的那次不一定有測試會叫。**
+  const HIDE = L6_HIDE_OR;
 
   it('🔴 純關鍵字搜尋 **不豁免** 隱藏規則(主視窗 D-385-A 裁決;搜「王」會撈回大量刷卡未付款單)', async () => {
     const h = makeKeywordSearchClient({

@@ -27,6 +27,11 @@ export { ORDER_GOODS_AXIS_VALUES } from './order/types';
 // 🔴 M-4b E4-b(2026-08-22):貨運商代碼 → 中文標籤。**共用的唯一一份。**
 // 從 apps/admin 搬來,因為出貨通知信那條鏈在 packages/ 與 storefront,不可能 import admin。
 // ⚠️ 想新增一家貨運商:**先改 migration,再改那支檔** —— 理由在該檔檔頭。
+// 🔴 `#841`:訂單列表預設隱藏規則的【唯一】定義 —— SQL 側與 UI 側都從這裡拿,不各自寫一份。
+export {
+  ORDER_LIST_HIDE_PREDICATE,
+  isHiddenFromDefaultOrderList,
+} from './order/order-hidden-rule';
 export { CARRIER_LABEL, CARRIER_OPTIONS, carrierLabelOf } from './order/carrier-label';
 export type { CarrierCode } from './order/carrier-label';
 // 2026-08-19 客戶頁排序:同上,`export type *` 帶不出 const ⇒ 少這一行它是不可達死碼。

@@ -212,6 +212,19 @@ function paymentText(container: HTMLElement): string {
  *   ③ 讀不到明細時不講  —— 「不知道有沒有收過錢」不可以被畫成「有」
  *
  * ⚠️ **本族只驗「有沒有講」,不驗隱藏規則本身** —— 甲案一個字都沒改行為。
+ *
+ * ══ 🔴🔴 `#841` 治本(2026-08-23)之後,①③ 兩格的真值【換了】 ═══════════════════
+ *
+ * 隱藏規則現在會問帳本(`SupabaseOrderAdapter.ts` 的 `and(paid_total.neq.0,cancelled_at.is.null)`)
+ * ⇒ **淨額 > 0 的單不再被藏** ⇒ 對它講「預設不會出現在訂單列表」變成一句**假話**,
+ * 而且會教員工去勾一個不必勾的勾。
+ *
+ * 🔴 **這裡改的是【期望值】,而那通常是停止訊號** —— 所以把理由寫清楚:
+ *    改的不是「測試太嚴」,是**被測的那句話在新行為下不再為真**。
+ *    ⇒ 覆蓋面**沒有縮**:原①(淨額>0 ⇒ 講)翻成「⇒ 不講」,
+ *      並**新增**一格(收了又沖、淨額 0 ⇒ 仍被藏 ⇒ 仍要講)接住原①守的那件事。
+ *    判別句:**「有收款列」與「被藏起來」在治本前等價,治本後不等價。**
+ *    而**沒有任何測試會因為一句話變假而紅** —— 這一族就是補那個缺口。
  */
 function hiddenNotice(container: HTMLElement): Element | null {
   return (
@@ -222,15 +235,54 @@ function hiddenNotice(container: HTMLElement): Element | null {
 }
 
 describe('#841 甲:收到錢了而那張單仍被預設隱藏 ⇒ 面板要講', () => {
-  it('🔴 tappay + unpaid + 有收款 ⇒ 講,而且給得出一條點得過去的路', async () => {
+  it('🔴 tappay + unpaid + 收了又沖(淨額 0)⇒ 講,而且給得出一條點得過去的路', async () => {
+    // 🔴 淨額 0 = 收了又沖掉 = 錢不在我們手上 ⇒ 治本之後它**仍然**被藏 ⇒ 這句話對它仍然為真。
+    //    ⚠️ 判斷沖銷用 `isReversal`,不是看金額正負(`payment-list-view.ts:28-31`);
+    //       這裡的加總本來就只加總、不分類。
     mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
-    mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
+    mocks.listOrderPayments.mockResolvedValue([
+      paymentRow(),
+      paymentRow({
+        id: '33333333-3333-4333-8333-333333333333',
+        amount: -8642,
+        bankReference: null,
+        reversesPaymentId: '22222222-2222-4222-8222-222222222222',
+        reversalReason: '測試沖銷',
+        isReversal: true,
+      }),
+    ]);
     const { container } = await renderPage();
     const notice = hiddenNotice(container);
-    expect(notice, '收到錢了而單子被藏起來時必須講').not.toBeNull();
+    expect(notice, '錢收了又沖掉、單子仍被藏起來時必須講').not.toBeNull();
     // 🔴 只講不給路 = 還是死路。連結要真的帶著那個開關。
     const href = notice?.querySelector('a')?.getAttribute('href') ?? '';
     expect(href).toContain('show_unpaid_card=1');
+  });
+
+  it('🔴 tappay + unpaid + 淨額 > 0 + 【已取消】⇒ 講 —— 它仍然被藏著', async () => {
+    // 🔴 這一格是 code-reviewer(R1 MF3)抓出來的,我第一版漏了。
+    //    新述詞的復活條件是 `and(paid_total.neq.0,cancelled_at.is.null)` ⇒ **兩個條件都要成立才放行**
+    //    ⇒ 已取消的單即使有錢也**仍然被藏** ⇒ 只看「淨額 = 0」會讓它不再跳提示,
+    //      而那**比治本前更糟**(治本前它會跳)。
+    mocks.findAdminOrderDetail.mockResolvedValue({
+      ...detail(),
+      paymentStatus: 'unpaid',
+      cancelledAt: '2026-08-23T02:00:00+00:00',
+    });
+    mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
+    const { container } = await renderPage();
+    expect(hiddenNotice(container), '已取消 + 有錢 ⇒ 它仍然被藏著,必須講').not.toBeNull();
+  });
+
+  it('🔴 tappay + unpaid + 【淨額 > 0】⇒ 不講 —— 治本之後它已經看得見了,講了是假話', async () => {
+    // 🔴 這一格在 `#841` 治本【之前】的期望值是「要講」。翻面的理由不是測試太嚴,
+    //    是那句「預設不會出現在訂單列表」對這種單**已經是假的**。
+    mocks.findAdminOrderDetail.mockResolvedValue({ ...detail(), paymentStatus: 'unpaid' });
+    mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
+    const { container } = await renderPage();
+    expect(hiddenNotice(container)).toBeNull();
+    // 正對照:這一發真的渲染了付款卡 ⇒ 上面那個 null 不是「整頁沒出來」造成的。
+    expect(container.textContent ?? '').toContain('收款');
   });
 
   it('🔴 tappay + unpaid + 【零收款】⇒ 不講(那種單被藏是刻意的,講了是噪音)', async () => {
@@ -245,6 +297,21 @@ describe('#841 甲:收到錢了而那張單仍被預設隱藏 ⇒ 面板要講',
     mocks.listOrderPayments.mockRejectedValue(new Error('boom'));
     const { container } = await renderPage();
     expect(hiddenNotice(container)).toBeNull();
+  });
+
+  it('🔴 【非 tappay】+ unpaid + 有收款 ⇒ 不講 —— 現金/匯款單不受這條規則管', async () => {
+    // 🔴 codex 2026-08-23 M6:本族原本**每一格都是 tappay** ⇒ 把元件的 channel 那道拿掉,
+    //    整組仍然全綠。這一格就是那個缺口。
+    mocks.findAdminOrderDetail.mockResolvedValue({
+      ...detail(),
+      paymentStatus: 'unpaid',
+      paymentChannel: 'cash',
+    });
+    mocks.listOrderPayments.mockResolvedValue([paymentRow()]);
+    const { container } = await renderPage();
+    expect(hiddenNotice(container), '非 tappay 的單本來就看得見,講了是假話').toBeNull();
+    // 正對照:這一發真的渲染了付款卡 ⇒ 上面那個 null 不是「整頁沒出來」造成的。
+    expect(container.textContent ?? '').toContain('收款');
   });
 
   it('已付款(不符隱藏規則)+ 有收款 ⇒ 不講', async () => {

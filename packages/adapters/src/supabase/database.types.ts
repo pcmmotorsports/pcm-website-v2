@@ -3216,6 +3216,7 @@ export type Database = {
           notification_email: string | null
           order_source: string | null
           paid_at: string | null
+          paid_total: number | null
           payment_channel: string | null
           payment_method: string | null
           payment_status: Database["public"]["Enums"]["payment_status"] | null
@@ -3256,6 +3257,7 @@ export type Database = {
           notification_email?: string | null
           order_source?: string | null
           paid_at?: string | null
+          paid_total?: never
           payment_channel?: string | null
           payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"] | null
@@ -3296,6 +3298,7 @@ export type Database = {
           notification_email?: string | null
           order_source?: string | null
           paid_at?: string | null
+          paid_total?: never
           payment_channel?: string | null
           payment_method?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"] | null
@@ -3360,6 +3363,13 @@ export type Database = {
             referencedColumns: ["user_id"]
           },
         ]
+      }
+      order_paid_totals_v: {
+        Row: {
+          order_id: string | null
+          paid_total: number | null
+        }
+        Relationships: []
       }
       order_refund_effective_verdict: {
         Row: {

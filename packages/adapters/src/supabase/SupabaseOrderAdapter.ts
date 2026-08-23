@@ -29,6 +29,7 @@ import {
   toMoneyAmount,
   normalizeOrderKeywordSearch,
   OrderKeywordSearchShapeError,
+  ORDER_LIST_HIDE_PREDICATE,
 } from '@pcm/domain';
 import type { Database, Json } from './database.types';
 import {
@@ -903,8 +904,45 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     // 🔴 關鍵字**本來就不在豁免名單裡**(D-385-A 同一段),理由不因本片改變:關鍵字是
     //    多維度子字串搜尋,搜「王」或一個品牌名會一次撈回大量 tappay×unpaid 單,
     //    正是 Sean 逐字要求藏起來的那批(`types.ts` 的 `includeUnpaidCardOrders` docstring)。
+    // 🔴 `#841`(2026-08-23):第三項是**復活條件**,不是第三個獨立的隱藏軸。
+    //    病:客人刷卡失敗 → 改匯款 → 員工登錄收款(每一步都成功)→ 回列表,**那張單不見了**。
+    //    成因:`payment_status` **不是**「錢收到了沒」的單一真相 —— 人工收款(匯款 / 現金)
+    //    走 `order_payments` 帳本,而這道述詞沒問過帳本。
+    //    ⚠️ **不要把它寫成「那張卡刷過了沒」** —— 那句已經過期:現金退款登記也寫這一欄
+    //    (`20260823010000:164-167` 寫 `refunded` / `partiallyRefunded`)。
+    //    量得到的只有:`'paid'` 這個值**只由 `confirm_order_payment()` 寫**(刷卡確認那條路),
+    //    而那支函式全樹被 REPLACE 四次、live 是 `20260810170000:436`。
+    //    完整分母與四個行號在 `20260823030000_m4b_841_order_paid_total_view.sql` 檔頭 §1。
+    //
+    //    De Morgan:`or()` 寫的是【顯示】條件,所以在這裡加一項 OR = 在【隱藏】面加一項 AND。
+    //      隱藏 ⟺ tappay AND unpaid AND NOT(已收 ≠ 0 AND 未取消)
+    //
+    // 🔴🔴 `cancelled_at` **必須跟 `paid_total` 綁在同一個 `and()` 裡**,不可以拆成第四個平鋪項。
+    //    2026-08-23 拋棄式 PG + PostgREST 實測(六張測試單):
+    //      三項平鋪 `paid_total.neq.0`  ⇒ 已取消單**跑出來了**(它今天是被藏著的 ⇒ 那是回歸)
+    //      本寫法(巢狀 and)           ⇒ 今天被藏的一張都沒多跑出來,只放行 `#841` 要救的那種
+    //    ⚠️ 同款警告見本檔 `:845-847`:`.or()` **不會**自帶 `cancelled_at`,不加就會撈回已取消的單
+    //    (**那一列真的跑出來過**)⇒ 員工按「待處理」會看到一批寫著「已取消」的單。
+    //
+    // ⚠️ 承接上面 nit 8 那條 NOT NULL 前提,兩個新欄各自的理由不同:
+    //    · `paid_total` 由 view 的 `COALESCE(..., 0)` 保證 NOT NULL
+    //      (`20260823030000_m4b_841_order_paid_total_view.sql`;那支 migration 的斷言 ⑦c 釘住它,
+    //       **拿掉 COALESCE 會讓它變 NULL ⇒ `neq.0` 回 NULL ⇒ 那些單靠巧合被藏,而畫面完全正常**)
+    //    · `cancelled_at` **本來就可為 NULL**,而這裡用的是 `is.null` —— 三值邏輯對 `is.null` 不適用,
+    //      它正是要問「這一欄是不是 NULL」。⇒ 不受 nit 8 那條限制。
+    //
+    // 🔴 巢狀 `and()` 寫在 `or()` 裡,本檔 `:838-841` 記著片0「沒測過 `in.(…)` 寫在 `or=()` 裡面」
+    //    ⇒ 巢狀 `and()` 同樣沒被片0 測過。**所以量了,沒有憑推論改**(PostgREST 14.16):
+    //      負向 `or=(and(paid_total.eq.99999,cancelled_at.is.null))`   ⇒ 空
+    //      正對照 `or=(and(paid_total.eq.1500,cancelled_at.is.null))`  ⇒ 命中該命中的那張
+    //      亂語法 `or=(paid_total.zzz.0)`                              ⇒ HTTP 400(它不是照單全收)
+    //      兩道 `.or()` 疊起來                                        ⇒ 仍是交集、括號各自保住
+    //      `Content-Range` 的 count 跟著述詞走(6 ⇒ 3)
+    //    ⚠️ 正式站的 PostgREST 版本**未查** —— 巢狀 `and()` 是老語法,風險低,但這是【未確認】。
     if (!filter.includeUnpaidCardOrders) {
-      query = query.or('payment_channel.neq.tappay,payment_status.neq.unpaid');
+      // 🔴 字面**不寫在這裡** —— 它與 UI 側那份判斷曾經是兩份互不認識的邏輯(codex M7)。
+      //    唯一定義在 `@pcm/domain` 的 `order-hidden-rule.ts`,兩邊都從那裡拿。
+      query = query.or(ORDER_LIST_HIDE_PREDICATE);
     }
     const { data, error, count } = await query
       .order('created_at', { ascending: false })
