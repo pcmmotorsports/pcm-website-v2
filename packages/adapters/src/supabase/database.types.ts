@@ -1,5 +1,5 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十四個函式、共三十處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正
 //   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
 //    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
@@ -40,26 +40,17 @@
 //      ⇒ NULL 是設計上合法輸入;同檔 :118-120 寫明它是刻意選填。與 ⑦ 同款。)
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
-//   ⑬ `admin_record_manual_refund` **整段**(`#787`,2026-08-20)—— 與 ①–⑫ 形狀不同(同 ⑪ 舊例):
-//      整支函式在正式庫還不存在(migration `20260820021000` 未 apply)⇒ 現在重 gen 不會產生它。
-//      簽章逐字對該檔:`admin_record_manual_refund(p_order_id uuid, p_request_id uuid,
-//      p_actor text, p_rail text, p_refund_amount integer, p_reason text,
-//      p_occurred_at timestamptz) RETURNS jsonb`,全部參數必填、無 DEFAULT。
-//      🔴 apply 之後重 gen:先比對生成內容與本段是否一致,再刪本段——
-//         不要因為「反正會生成」就先拿掉,那會讓中間任何一次 gen 失敗變成靜默的型別漏洞。
-//      ⚠️ **本項只涵蓋函式那半**——本行計數的機制本身只認「函式」(見
-//      `database-types-manual-count.test.ts` 的正規式)。同一片手補的 `order_manual_refunds`
-//      表(Tables 區塊、退場條件相同)**不計入這個數字**,那是既有機制對「表」沒有涵蓋的
-//      既知邊界,已在該表定義旁另外留一段說明,不是漏算。
-//   ⑭ `admin_void_manual_refund` **整段**(`#787` 解除鏈、片 D3-c,2026-08-22)—— 形狀同 ⑬:
-//      該函式雖然**已 apply**(`20260820100000`,APPLIED.tsv 命中),但本檔目前的內容是
-//      2026-08-18 那一次 gen 的產物 ⇒ **它不在裡面**,而 `.rpc('admin_void_manual_refund')`
-//      沒有它就過不了 typecheck。簽章逐字對 `20260820100000`:
-//      `admin_void_manual_refund(p_refund_id uuid, p_void_reason text, p_actor text)
-//      RETURNS jsonb`,三個參數全部必填、無 DEFAULT。
-//      🔴 下次重 gen:先比對生成內容與本段是否一致,再刪本段(理由同 ⑬)。
-//      ⚠️ 同一片手補的 `order_manual_refunds` **三個作廢欄**(voided_at/void_reason/voided_by,
-//      D3-a `20260820090000` 加的)**不計入這個數字** —— 那是表,不是函式,同 ⑬ 的既知邊界。
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 **以下是【已退場】的條目留痕,不計入上面的計數。**(分節線在這裡是承重的:
+//    少了它,上面最後一條會把這些留痕【吸進自己的 body】—— 2026-08-23 實測撞過,
+//    `database-types-apply-state.test.ts` 的前提格當場紅。)
+//   ~~⑬ `admin_record_manual_refund` **整段**~~ / ~~⑭ `admin_void_manual_refund` **整段**~~
+//      **已退場(2026-08-23,B 窗;體例同 ⑫)**:兩支的 migration 都已 apply,
+//      而**當場重 gen 的產物與本檔已有的內容逐字相同**(⑭ 另把手貼的排版與註解對齊生成版)。
+//      ⇒ 生成器現在自己產得出它們 ⇒ **重 gen 不會再失去它們** ⇒ 不再是要人記得重貼的債。
+//      🔴 驗法(可重跑):`supabase gen types typescript --project-id <ref> > /tmp/probe.ts` 後
+//         `grep -c admin_record_manual_refund /tmp/probe.ts` / `admin_void_manual_refund` 皆 ⇒ 1。
+//      🔴 原文不在這裡重貼(在該顆 commit 的 diff 裡),同 ⑫ 的處置。
 //   ~~⑫ `admin_search_customers` **整段**~~ **已退場(2026-08-19 G4)**:它自己寫著
 //      「apply 之後先比對再刪本段」。**已比對 ⇒ 生成版簽章與手動段相同** ⇒ 手動段刪除。
 //      🔴 原文不在這裡重貼(在該顆 commit 的 diff 裡)。**本條不再計入上面的計數。**
@@ -3936,13 +3927,7 @@ export type Database = {
         Returns: string
       }
       admin_void_manual_refund: {
-        // 🔴 手動校正,片 D3-c 2026-08-22 —— 見檔頭條目 ⑭(含退場條件)。
-        //    簽章逐字對 `20260820100000`:三個參數全部必填、無 DEFAULT。
-        Args: {
-          p_actor: string
-          p_refund_id: string
-          p_void_reason: string
-        }
+        Args: { p_actor: string; p_refund_id: string; p_void_reason: string }
         Returns: Json
       }
       admin_void_shipment: {
