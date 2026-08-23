@@ -8,11 +8,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { stripComments } from '../../lib/test-support/strip-comments';
 import type { AdminOrderItemQuantitySummary } from '@pcm/domain';
+// 🔴 2026-08-24 拆檔片:三個軸/例外小元件搬到 support 檔 ⇒ import 跟著走(斷言零改動)。
 import {
   ItemAxisMissingNote,
   ItemAxisValue,
   ItemCancelledNote,
-} from './order-detail-items-table';
+} from './order-detail-items-support';
 
 // order-detail-items-table-shape.test.tsx — 品項區的結構守門。
 //
@@ -29,6 +30,9 @@ afterEach(cleanup);
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const RAW_TABLE = readFileSync(resolve(DIR, 'order-detail-items-table.tsx'), 'utf8');
+// 🔴 2026-08-24 拆檔片(L5,06 覆核):總計區與葉元件搬到 support 檔 ⇒ 掃它們的格跟著改讀
+//    這一支;`.ihead` / 每列格數 / 「自己判」那些格仍讀 TABLE(那些東西沒搬)。
+const RAW_SUPPORT = readFileSync(resolve(DIR, 'order-detail-items-support.tsx'), 'utf8');
 const RAW_ROW = readFileSync(resolve(DIR, 'item-amount-row.tsx'), 'utf8');
 const RAW_CSS = readFileSync(resolve(DIR, '../../app/globals.css'), 'utf8');
 
@@ -38,6 +42,7 @@ const RAW_CSS = readFileSync(resolve(DIR, '../../app/globals.css'), 'utf8');
  * 而尺量的是**字元**、宣稱量的是**結構**。用 repo 既有的剝除器,不各寫各的。
  */
 const TABLE = stripComments(RAW_TABLE);
+const SUPPORT = stripComments(RAW_SUPPORT);
 const ROW = stripComments(RAW_ROW);
 const CSS = stripComments(RAW_CSS);
 
@@ -195,6 +200,8 @@ describe('🔴 【原樣保留】欄名與順序 = 設計稿 08-17 那一行', (
 
   it('🔴 舊的四合一欄名不得再存在(片5 把那三個字搬到欄頭,搬乾淨了沒)', () => {
     expect(TABLE).not.toContain('訂貨 · 到貨 · 出貨');
+    // 2026-08-24 拆檔片:軸元件搬到 support 檔 ⇒ 這個負斷言的射程跟著涵蓋它(收窄通過集合,非放寬)。
+    expect(SUPPORT).not.toContain('訂貨 · 到貨 · 出貨');
   });
 });
 
@@ -204,7 +211,12 @@ describe('🔴 【新增】總計那一區每一列恰好兩格(標籤 + 金額)
   //    ⚠️ 但它守的**那件事**還在:金額欄要對齊,而一列多一格就會歪。
   //    ⇒ 換成數 flex 列的 span 數。**這不是把舊格刪掉,是同一個不變量換了載體。**
   it('小計 / 運費 / 折扣 / 總計 每一列都是 label + 金額 兩個 span', () => {
-    const totals = /border-t pt-3 text-sm'>([\s\S]*?)<\/div>\s*<\/div>\s*\);/.exec(TABLE)?.[1] ?? '';
+    // 🔴 2026-08-24 拆檔片:總計區搬到 support 檔(`ItemsTotals`)⇒ 本格改掃 SUPPORT。
+    //    斷言本體零改動;「呼叫端還在渲染它」由 order-detail-items-totals-wiring.test.tsx 守。
+    //    ⚠️ 結尾錨從【兩個 `</div>`】改成【一個】:原檔的第二個是 ItemsTable 卡片殼的收尾,
+    //       它沒有跟著搬(它不屬於總計區)⇒ 照舊寫兩個會把總計列自己的 `</div>` 吃掉、
+    //       讓最後一列數到 0 個 span(拆檔當下真的紅過一次,不是推測)。
+    const totals = /border-t pt-3 text-sm'>([\s\S]*?)<\/div>\s*\);/.exec(SUPPORT)?.[1] ?? '';
     expect(totals.length).toBeGreaterThan(0); // 正向對照:真的抓到總計區
     // 🔴 用「切段」而不是「配對整塊」—— 巢狀 `</div>` 讓非貪婪的邊界抓不準
     //    (第一版抓到 4 個 span,因為它吃進了下一列)。
@@ -219,8 +231,8 @@ describe('🔴 【新增】總計那一區每一列恰好兩格(標籤 + 金額)
   });
 
   it('🔴 總計區【刻意保留】—— 設計稿沒有它,而拿掉會刪掉真的資訊', () => {
-    // 這一格守的是「別人看到設計稿沒畫就順手刪掉」。
-    for (const label of ['小計', '運費', '總計']) expect(TABLE).toContain(label);
+    // 這一格守的是「別人看到設計稿沒畫就順手刪掉」。(2026-08-24 拆檔片:總計區住 SUPPORT。)
+    for (const label of ['小計', '運費', '總計']) expect(SUPPORT).toContain(label);
   });
 });
 

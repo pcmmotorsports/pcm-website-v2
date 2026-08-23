@@ -45,7 +45,10 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 //   **字面守門**只證明「code 裡有那個字串」;**render 守門**才證明「那個字串真的進到畫面」。
 
 const read = (rel: string) => stripComments(readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8'));
-const DETAIL = read('./order-detail.tsx');
+// 🔴 2026-08-24 拆檔片:標頭整塊(含 OrderHeadChip)搬到 `order-detail-header.tsx` ⇒ 字面守門
+//    改讀該檔;斷言零改動。render 格照舊 render `OrderDetail`(呼叫端)—— 它們同時兼任
+//    「主檔真的還在渲染標頭」的呼叫端守門(把 `<OrderDetailHeader/>` 從主檔拔掉,render 格就紅)。
+const DETAIL = read('./order-detail-header.tsx');
 const PANEL = read('../../app/@panel/orders/page.tsx');
 
 describe('片2 標頭列', () => {

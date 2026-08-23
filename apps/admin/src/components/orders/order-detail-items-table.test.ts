@@ -10,7 +10,8 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
-import { resolveAmountEditBlock } from './order-detail-items-table';
+// 🔴 2026-08-24 拆檔片:`resolveAmountEditBlock` 搬到 support 檔,本檔只換 import 路徑、斷言零改動。
+import { resolveAmountEditBlock } from './order-detail-items-support';
 
 const OK = { discountTotal: { amount: 0 } } as never;
 const NO_PAY = { status: 'ok', rows: [] } as never;

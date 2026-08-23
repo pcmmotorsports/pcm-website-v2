@@ -32,7 +32,8 @@ vi.mock('./order-detail-items-table', () => ({ ItemsTable: () => null }));
 vi.mock('./payment-section', () => ({ PaymentSection: () => null }));
 vi.mock('./shipment-section', () => ({ ShipmentSection: () => null }));
 // 🔴🔴 **R3 MF-1:這一支【不能】mock 成 `() => null`,而理由是量出來的。**
-//    `OrderCancelBlock`(`order-detail.tsx` 搜 `<OrderCancelBlock`)是 `id='cancel'` 的**唯一來源**。
+//    `OrderCancelBlock`(`order-detail-money-tab.tsx` 搜 `<OrderCancelBlock`;2026-08-24 拆檔片
+//    隨 money content 搬檔)是 `id='cancel'` 的**唯一來源**。
 //    mock 成 null ⇒ 下面那格守的其實是「**money 這一頁露出來了**」,**不是「連過去看得到取消區」**。
 //    🔴 失敗情境(R3 給的):把 `OrderCancelBlock` 搬到別的分頁
 //       ⇒ `#cancel` 仍然開 money、而 money 裡沒有取消區 ⇒ **R1 那條 must-fix 原封回來,而 25 格全綠。**
@@ -204,9 +205,38 @@ describe('🔴 codex 關卡2(2026-08-24)MF-1/MF-2:money 頁的必看警示,一�
   /* 🔴 這一族的來歷:codex 對抗審查抓到「`*Failed` 有接、`*Truncated` 沒接」——
      那不是漏兩個變數,是「哪些情況要自動開哪一頁」那張表是【想出來的】不是【數出來的】。
      ⇒ 分母(逐 prop 過 `OrderDetail` 的介面、逐個開消費元件看渲染)寫在
-       `order-detail.tsx` 的 `moneyTabMustSee` 那段,本族一格一列。
+       `order-detail-tab-routing.ts` 的 `moneyTabMustSee` 那段(2026-08-24 拆檔片抽檔),本族一格一列。
      ⚠️ codex 的 runner 被唯讀 sandbox 擋下 ⇒ 四條全是靜態推理;本族就是「真 runner 覆一次」本身:
        加入當下(未改 production code)四格全紅 = 兩條 must-fix 屬實,不撤回。 */
+  // 🔴 codex R2(拆檔片,2026-08-24)must-fix:分母表的每一個旗標要【各自】有一格 ——
+  //    「整體改恆定值」的突變只證明有人在用那顆函式,證明不了每一格都接上了。
+  //    下面兩格補上分母表裡原本沒有獨立格的那兩個 `*Failed`;逐分支刪除突變的紀錄在交件檔。
+  it('🔴 未登記額讀取失敗(`refundUnregisteredFailed`)⇒ 停在 money', () => {
+    const { container } = render(
+      <OrderDetail
+        refundsTruncated={false}
+        detail={DETAIL}
+        returnTo='/orders'
+        payments={OK}
+        refundUnregisteredFailed
+      />,
+    );
+    expect(visible(container)).toEqual(['money']);
+  });
+
+  it('🔴 非卡退款登記讀取失敗(`manualRefundsFailed`)⇒ 停在 money', () => {
+    const { container } = render(
+      <OrderDetail
+        refundsTruncated={false}
+        detail={DETAIL}
+        returnTo='/orders'
+        payments={OK}
+        manualRefundsFailed
+      />,
+    );
+    expect(visible(container)).toEqual(['money']);
+  });
+
   it('🔴 MF-1:收款讀取失敗(`unreadable`)⇒ 開單停在 money(「勿再登錄」紅字在那一頁)', () => {
     const { container } = render(
       <OrderDetail refundsTruncated={false}

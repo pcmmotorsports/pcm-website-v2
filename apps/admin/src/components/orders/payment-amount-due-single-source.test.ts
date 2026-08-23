@@ -103,16 +103,18 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
   });
 
   it('🔴🔴 `amountDue` 這條 prop 鏈的**源頭**必須是 `detail.total.amount`', () => {
-    // 鏈路(2026-08-19 實查,兩跳):
-    //   order-detail.tsx  <PaymentSection amountDue={detail.total.amount}>
+    // 鏈路(2026-08-19 實查,兩跳;2026-08-24 拆檔片:源頭那一跳隨 money 分頁 content 搬檔):
+    //   order-detail-money-tab.tsx  <PaymentSection amountDue={detail.total.amount}>
     //   → payment-section.tsx  <PaymentList amountDue={amountDue}>   ← 純轉傳
     //   → payment-list.tsx  toPaymentSummary(amountDue, …)
+    // 🔴 拆檔片 re-point:期望值只換【檔名】—— 運算式同字、源頭仍恰一個(本格當場紅過,
+    //    紅的內容就是「同運算式、新檔名」,它證明這把尺按內容掃全樹、搬家躲不掉它)。
     const props = amountDueProps();
     const sources = props.filter((p) => p.value !== 'amountDue');
     expect(
       sources.map((p) => `${p.file} ⇒ ${p.value}`),
       'amountDue 的源頭變了(或多了第二個源頭)⇒ 付款卡會與頭條、出貨區脫鉤。',
-    ).toEqual([`${ROOT}/components/orders/order-detail.tsx ⇒ detail.total.amount`]);
+    ).toEqual([`${ROOT}/components/orders/order-detail-money-tab.tsx ⇒ detail.total.amount`]);
   });
 });
 

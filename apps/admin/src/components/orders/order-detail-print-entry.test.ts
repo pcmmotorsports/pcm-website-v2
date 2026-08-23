@@ -14,9 +14,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-const SRC = readFileSync(new URL('./order-detail.tsx', import.meta.url), 'utf8');
+// 🔴 2026-08-24 拆檔片:那顆鈕住的標頭整塊搬到 `order-detail-header.tsx` ⇒ 本檔改讀它;
+//    斷言零改動,只有下面自檢的「一定在的字面」跟著換成新檔自己的檔名。
+const SRC = readFileSync(new URL('./order-detail-header.tsx', import.meta.url), 'utf8');
 
-describe('訂單明細列印入口(order-detail.tsx)', () => {
+describe('訂單明細列印入口(order-detail-header.tsx)', () => {
   it('🔴 鈕的字面是「訂單明細」, 而舊字面「列印揀貨單」零殘留', () => {
     // 舊字面(Sean 拍板②之前那個)不得再出現在任何地方
     expect(SRC).not.toContain('列印揀貨單');
@@ -25,8 +27,8 @@ describe('訂單明細列印入口(order-detail.tsx)', () => {
   });
 
   it('🔴 負對照:這把尺讀得到這支檔的內容(否則上面兩格在空字串上也會綠)', () => {
-    // 正對照 —— 一定在的字面
-    expect(SRC).toContain('order-detail.tsx');
+    // 正對照 —— 一定在的字面(檔頭第一行的自我命名;它同時驗「讀對檔了」)
+    expect(SRC).toContain('order-detail-header.tsx');
     expect(SRC.length).toBeGreaterThan(1000);
     // 反向 —— 一定不在的字面
     expect(SRC).not.toContain('zzz-not-a-real-token');
