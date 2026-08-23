@@ -79,8 +79,12 @@ export function designTierToSchema(design: string): MemberTier {
  *    **不得回經銷 tier**」。⇒ 呼叫端拿到 `null` 時請照那條走,並**留一行 log**(同檔 codex R2 nit:
  *    「enum 漂移/版本落後會**無聲把一個經銷會員降級**。降級方向是對的,但它不該安靜」)。
  *
- * 📌 已知重複:`apps/storefront/src/lib/tier.ts` 有一支同義的私有 `toSchemaTier`。
- *    **本片沒有合併它** —— 那支檔當下正被 `#215` 那條線改著。合併是它收工之後的事。
+ * ✅ **2026-08-24 已合併(窗 B)**:`apps/storefront/src/lib/tier.ts` 那支同義的私有
+ *    `toSchemaTier` **已刪**,該檔改 import 本函式 ⇒ **本函式現在是唯一實作(canonical)**。
+ *    合併前跑過差分檢查:19 個輸入兩支 0 差異,負對照(故意改壞一支)16 筆不同。
+ *    ~~📌 已知重複……**本片沒有合併它** —— 那支檔當下正被 `#215` 那條線改著。合併是它收工之後的事。~~
+ *    🔴 **留痕的用途**:那個「刻意不合併」的決定**只活在這行註解裡** ——
+ *       沒有任何東西會在 `#215` 收工那天提醒誰回來做它。它差點就被忘記了。
  */
 export function toMemberTier(raw: unknown): MemberTier | null {
   return raw === 'general' || raw === 'store' || raw === 'premiumStore' ? raw : null;

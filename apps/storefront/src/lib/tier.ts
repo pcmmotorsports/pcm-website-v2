@@ -14,22 +14,28 @@
 
 import 'server-only';
 
-import { designTierToSchema } from '@pcm/domain';
+import { designTierToSchema, toMemberTier } from '@pcm/domain';
 import type { MemberTier } from '@pcm/domain';
 import { getVerifiedUser, isNoSessionError } from '@/lib/auth/verified-user';
 
-/**
- * DB enum `member_tier` 的合法值(**schema 字面 camelCase**,不是 design 的 snake_case)。
- * 🔴 **不可以拿 `designTierToSchema` 驗它** —— 那支只認 design 字面,餵 `'premiumStore'` 會 throw
- *    (`packages/domain/src/shared/utils.ts` 的 `designTierToSchema`,`default:` 分支逐字)。
- * ⚠️ 而 `checkout/page.tsx` 對同一個值用的是**裸 cast**(`customerRow.tier as MemberTier`)——
- *    那是既有寫法,本片不動它;但**新的路不沿用裸 cast**:DB 加一個 enum 值時,裸 cast 會安靜地
- *    讓一個 TS 不認得的字串流進 tier,而這裡會退成 general。
- */
-const SCHEMA_TIERS = ['general', 'store', 'premiumStore'] as const;
-function toSchemaTier(raw: unknown): MemberTier | null {
-  return (SCHEMA_TIERS as readonly string[]).includes(raw as string) ? (raw as MemberTier) : null;
-}
+// ── `toMemberTier`:把 DB 讀出來的 `customers.tier` 收斂成 `MemberTier`,認不得回 `null` ──
+//
+// 🔴 **2026-08-24:本檔原本有一支同義的私有 `toSchemaTier`,已刪,改用 domain 那支。**
+//    canonical = `packages/domain/src/shared/utils.ts` 的 `toMemberTier`。
+//    合併前跑過**差分檢查**:19 個輸入(三個合法值 / 大小寫變體 / snake_case / null / undefined /
+//    0 / NaN / 物件 / 陣列 / `new String('store')` / 尾空白…)兩支**逐一同值,0 差異**;
+//    負對照(把其中一支故意改成回 `'general'`)⇒ 16 筆不同 ⇒ **那把尺不是死的**。
+//    📌 為什麼要合併:兩份同義實作並存時,**DB enum 加一個值只會有一邊被改到**,
+//       而另一邊會安靜地把那位會員降級 —— 合併之後「只有一份」這件事本身就是守門。
+//    ⚠️ 而原本擋著不合併的理由只活在 `toMemberTier` 的檔頭註解裡
+//       (逐字:「那支檔當下正被 `#215` 那條線改著」)⇒ 沒有人會回來讀 ⇒ 差點被忘記。
+//
+// ⚠️ **留著兩句原本寫在這裡、而它們與合併無關的知識**:
+//  · 🔴 **不可以拿 `designTierToSchema` 驗這個值** —— 那支只認 design 的 snake_case 字面,
+//    餵 `'premiumStore'` 會 **throw**(`packages/domain/src/shared/utils.ts` 的 `default:` 分支逐字)。
+//  · `checkout/page.tsx` 對同一個值用的是**裸 cast**(`customerRow.tier as MemberTier`)。
+//    那是既有寫法,本檔不動它;但**新的路不沿用裸 cast** —— DB 加一個 enum 值時,
+//    裸 cast 會安靜地讓一個 TS 不認得的字串流進 tier,而這裡會退成 general。
 
 /**
  * 🔴 `#215` / H-1 的認證化那一半:**依登入身分查 `customers.tier`**,不看任何 client 送的東西。
@@ -80,7 +86,7 @@ export async function resolveAuthenticatedTier(): Promise<MemberTier> {
       console.error('[lib/tier] customers.tier 讀取失敗、退化 general:', error);
       return 'general';
     }
-    const tier = toSchemaTier(data?.tier);
+    const tier = toMemberTier(data?.tier);
     if (tier === null) {
       // 🔴 codex R2 nit:原本這裡是**靜默**退 general —— 而 enum 漂移/版本落後會
       //    **無聲把一個經銷會員降級**。降級方向是對的,但它不該安靜。
