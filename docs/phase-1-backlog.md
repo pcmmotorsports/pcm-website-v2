@@ -28797,6 +28797,27 @@ python3 scripts/brand-degenerate-samples.py
   - 擴充性:只要再多一種收款方式(現金/儲值金/貨到付款),同一個病就多一個入口。
   - 可維護性:`payment_status` 這個名字**比它的語意大** —— 它讀起來像「這張單付款了沒」,
     而它只回答「那張卡刷過了沒」。🔴 **改述詞之前,先在那一欄的 COMMENT 上把語意寫死**,否則下一個人照名字用它。
+
+  > 🔴 **2026-08-24 更正(主視窗;原句上方那兩處留著不改)**:上面那句「`payment_status` 的真正語意是『那張卡刷過了沒』」**已經不成立**。
+  > 自 M-4b 退款片1(`20260823010000:167`)起,**現金/匯款退款登記也寫這一欄**(`UPDATE public.orders SET payment_status`)。
+  > ⇒ 留著原句,下一個人會推「人工那條路永遠不動這欄」,**而那已經是假的**。
+  >
+  > **量到的命題是這個**(逐字 grep,不要憑記憶):
+  > ```
+  > grep -rn "payment_status *= *'paid'" supabase/migrations/*.sql | grep SET
+  >   ⇒ 4 處:20260611120000:178 / 20260804150000:127 / 20260810160000:448 / 20260810170000:436
+  >   正對照 grep -rn "SET payment_status" supabase/migrations/*.sql | wc -l ⇒ 10(尺是活的)
+  > ```
+  > ⇒ **`'paid'` 這個值只由 `public.confirm_order_payment()` 寫**(刷卡確認那條路),
+  >   而那支函式全樹被 `CREATE OR REPLACE` **四次** ⇒ **live 的是檔名序最大的 `20260810170000:436`**,
+  >   `20260611120000:178` 是最早那一版。
+  > 🔴 **這一格連續三個人寫成「只有一處」**(B 窗初稿抄自 plan / Fable R2 沒發現 / 主視窗轉述時照抄)——
+  >   **三次覆核都沒有做那一發 grep。** 形狀:**一個座標在三次轉手裡都沒被重量過。**
+  > ⚠️ 分母限定:上面只掃 `supabase/migrations/*.sql`,**應用層有沒有別的路徑寫 `paid` 未查**。
+  >
+  > 📌 **而下面那句交辦【還沒有人做】**:「改述詞之前,先在那一欄的 COMMENT 上把語意寫死」——
+  >   `#841` 片1 刻意不碰 `orders.payment_status` 的 COMMENT(免得弄壞退款線)⇒ **那件事仍然開著。**
+
   - bug 可追蹤性:今天沒有任何測試會紅 —— 因為每一層自己都是對的,**錯的是它們接在一起之後的意思**。
 
 - 🔴 **可搜尋字面(2026-08-22 線 C 加;本條目原本【搜不到】)**:
@@ -29887,3 +29908,48 @@ DB 層可達 = **是**(上面實測)
 
 - **出處:** Fable R2 窗(`pcm-website-v2-f5`)2026-08-24 審主視窗「決定四」時指出(F4);
   主視窗逐項複打後落檔。🔴 R2 逐字:「再補 2 列**既不提高也不降低**它。」
+
+### #865. 🔴 假信箱那道閘是【注入一個函式】,而注入錯的函式會 fail-open —— 而它在寄信那條路上
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2(守門形狀)。⚠️ 而它落在**對外不可回收**的路徑上 ⇒ 嚴重度不由「今天有沒有受害者」決定。
+- **關鍵字**(給搜的人):isSyntheticEmail / 注入 / fail-open / @pcm/schemas / packages/adapters /
+  依賴圖 / workspace / outbox / Resend / bounce rate / #858 片0-a。
+
+- **現況(2026-08-24 `#858` 片0-a 之後)**
+  `SupabaseEmailOutboxAdapter` 的假信箱判斷**由 composition 注入一個函式**,不是自己 import 規則。
+  ⇒ 注入 `() => false` 是**完全合法的**型別 ⇒ 假信箱照樣落 `pending` ⇒ **照樣送去 Resend**。
+  今天沒有活的 fail-open:三個建構點都被 exact-reference 斷言釘住
+  (`apps/storefront/src/lib/email/composition.test.ts` 有 `toBe` 比參考)。
+  🔴 **但那是「今天沒有人接錯」,不是「接錯了會被擋」。**
+
+- **🔴 當初選注入的理由【已經死了】,這一條的存在就是因為那個理由死了**
+  片0-a 的原始說法是「`packages/adapters` **不能** import `@pcm/schemas`」。
+  ⚠️ **那句是假的。** 實查 `packages/adapters/package.json` 的 `dependencies`:
+  ```
+  python3 -c "import json,io; d=json.load(io.open('packages/adapters/package.json',encoding='utf-8')); print({k:v for k,v in d['dependencies'].items() if str(v).startswith('workspace')})"
+    ⇒ {'@pcm/domain': 'workspace:*', '@pcm/ports': 'workspace:*'}
+  ```
+  ⇒ 它**本來就有兩條同款的 workspace 邊** ⇒ 加 `@pcm/schemas` 是**同一種邊,不是新架構決定**。
+  ⇒ 精確說法是「**沒有宣告那個依賴**」,不是「不能」。(施工窗已自行收回原句。)
+
+- **修法(小片,而它讓整族消失)**
+  加依賴 → 直接 `import { isSyntheticEmailDomain }` → **刪掉注入**。
+  ⇒ 沒有「可以被接錯的參數」這個東西 ⇒ **fail-open 那一族整個不存在**,不是被測試看著。
+  🔴 驗收:①改完之後,`SupabaseEmailOutboxAdapter` 的建構子**不再接受任何判斷式**(型別層擋)
+        ②既有三個建構點行為逐欄不變 ③`pnpm build` 綠(確認依賴圖沒繞成環)
+
+- **不修未來會痛在哪**
+  `20260717020000_m4a_email_outbox.sql:28-31` 逐字:寄假地址會拉高 Resend bounce rate(要求 <4%)、
+  **傷害已驗證網域 `pcmmotorsports.com` 的寄件信譽 = 全站共用資產**。
+  ⇒ 而「有人未來新增第四個建構點時忘了注入對的函式」**不會有任何東西紅** ——
+  型別只要求「一個 `(email: string) => boolean`」,`() => false` 完全合法。
+
+- **🔴 這一條的來源本身值得記**
+  片0-a 的 code 與 plan 都寫著「已立案」,而 **repo 裡指不到任何東西**
+  (那份 plan 在信箱、不在版控;`#862` 追的是 GoTrue 搶註,不是這件)。
+  ⇒ codex 判它是**懸空字面**:「『已立案』是一個沒有指向的承諾」。**本條就是那個指向。**
+  ⇒ 形狀:**寫「已立案」的當下,那個編號要存在。** 不存在 ⇒ 寫「待立案」,不要寫「已」。
+
+- **出處:** codex 對抗審查 2026-08-24 第一輪 MF2 + 第二輪 C5;Fable R2 同日 B-F4 獨立指出
+  「『該有自己的片』半成立半合理化,**而它沒被立案 ⇒ 現在是合理化**」。主視窗複打後落檔。
