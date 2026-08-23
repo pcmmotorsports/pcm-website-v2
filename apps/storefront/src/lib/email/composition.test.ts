@@ -5,7 +5,7 @@
 // env 搬 module-top / 接錯 adapter / 加告警管道,route 的 lazy 與零告警測試仍會綠,因為只檢查測試自造的 DEPS)。
 // 本檔載入**真** factory、只 mock adapter 建構子 + createSupabaseServiceClient + LINE 域名,驗:
 //   ① lazy:import 本模組零建構、零 env 讀取(env 未設仍載入成功)
-//   ② 呼叫後正確建兩 adapter(client cast 注入、syntheticEmailDomain 單源、Resend apiKey/from)
+//   ② 呼叫後正確建兩 adapter(client cast 注入、假信箱【判斷式】單源、Resend apiKey/from)
 //   ③ 回傳鍵精確 = {outbox, sender}(🔴 零告警管道:Q13=A)
 //   ④ 缺 env(RESEND_API_KEY / ORDER_EMAIL_FROM)→ requireEnv throw(route 接 → 503 fail-closed)
 
@@ -26,7 +26,6 @@ const {
   shippedContextCtor,
   serviceClientSpy,
   SERVICE_CLIENT,
-  SYNTHETIC_DOMAIN,
 } =
   vi.hoisted(() => ({
     outboxCtor: vi.fn(),
@@ -36,7 +35,6 @@ const {
     shippedContextCtor: vi.fn(), // 🔴 E4-b(2026-08-22):出貨信的寄送時讀取 adapter
     serviceClientSpy: vi.fn(),
     SERVICE_CLIENT: { __serviceClient: true },
-    SYNTHETIC_DOMAIN: 'line.pcmmotorsports.local',
   }));
 
 vi.mock('@pcm/adapters/server', () => ({
@@ -47,8 +45,8 @@ vi.mock('@pcm/adapters/server', () => ({
   SupabaseShippedEmailContextAdapter: shippedContextCtor,
   createSupabaseServiceClient: serviceClientSpy,
 }));
-vi.mock('@/lib/auth/line', () => ({ LINE_SYNTHETIC_EMAIL_DOMAIN: SYNTHETIC_DOMAIN }));
 
+import { isSyntheticEmailDomain } from '@pcm/schemas';
 import { getApplyOrderIneligibleGateDeps, getEnqueueOrderCreatedDeps, getSweepEmailOutboxDeps } from './composition';
 
 beforeEach(() => {
@@ -114,13 +112,16 @@ describe('getSweepEmailOutboxDeps — 呼叫後建 deps', () => {
     expect(shippedContextCtor.mock.calls[0]![0]).toBe(SERVICE_CLIENT);
   });
 
-  it('outbox = SupabaseEmailOutboxAdapter(service_role client cast, {syntheticEmailDomain 單源})', () => {
+  it('outbox = SupabaseEmailOutboxAdapter(service_role client cast, {假信箱判斷式 單源})', () => {
     getSweepEmailOutboxDeps();
     expect(serviceClientSpy).toHaveBeenCalledTimes(1);
     expect(outboxCtor).toHaveBeenCalledTimes(1);
     const [clientArg, cfgArg] = outboxCtor.mock.calls[0]!;
     expect(clientArg).toBe(SERVICE_CLIENT); // createSupabaseServiceClient() 的回傳注入(cast 只在編譯期)
-    expect(cfgArg).toEqual({ syntheticEmailDomain: SYNTHETIC_DOMAIN }); // 單一字面來源 LINE_SYNTHETIC_EMAIL_DOMAIN
+    // 🔴 `#858` 片0-a:注入的**必須是 `@pcm/schemas` 那一份函式本人**(用 `toBe` 比參考,不是比長得像)。
+    //    這一格就是「三處共用同一份規則」的機械證明 —— 有人把它換成本地實作,這裡當場紅。
+    expect(cfgArg).toEqual({ isSyntheticEmail: isSyntheticEmailDomain });
+    expect((cfgArg as { isSyntheticEmail: unknown }).isSyntheticEmail).toBe(isSyntheticEmailDomain);
   });
 
   it('sender = ResendEmailSenderAdapter({apiKey: RESEND_API_KEY, from: ORDER_EMAIL_FROM})', () => {
@@ -158,7 +159,7 @@ describe('getEnqueueOrderCreatedDeps — 不吃 Resend env(這是它存在的全
 
     expect(Object.keys(deps).sort()).toEqual(['outbox', 'scanner']); // 🔴 沒有 sender
     expect(senderCtor).not.toHaveBeenCalled();
-    expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { syntheticEmailDomain: SYNTHETIC_DOMAIN });
+    expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { isSyntheticEmail: isSyntheticEmailDomain });
     expect(scannerCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
   });
 
@@ -186,7 +187,7 @@ describe('getApplyOrderIneligibleGateDeps — 不吃 Resend env(同 enqueue 的�
 
     expect(Object.keys(deps).sort()).toEqual(['outbox', 'scanner']); // 🔴 沒有 sender
     expect(senderCtor).not.toHaveBeenCalled();
-    expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { syntheticEmailDomain: SYNTHETIC_DOMAIN });
+    expect(outboxCtor).toHaveBeenCalledWith(SERVICE_CLIENT, { isSyntheticEmail: isSyntheticEmailDomain });
     expect(ineligibleScannerCtor).toHaveBeenCalledWith(SERVICE_CLIENT);
   });
 

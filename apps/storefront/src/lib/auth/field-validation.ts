@@ -20,7 +20,7 @@
 //   - ok invariant 明確依賴 `parsed.success`(非僅看 fieldErrors 空):非顯示欄 schema error 仍令 ok=false、
 //     data=undefined;server action 對「ok=false 但無逐欄錯」回 formError fallback、不無聲失敗。
 
-import { LoginInput, RegisterInput } from '@pcm/schemas';
+import { LoginInput, RegisterInput, isSyntheticEmailDomain } from '@pcm/schemas';
 import type { LoginInput as LoginData, RegisterInput as RegisterData } from '@pcm/schemas';
 
 export type RegisterField = 'name' | 'email' | 'phone' | 'password' | 'agree';
@@ -52,9 +52,26 @@ const LOGIN_PRESENCE: Record<'email', string> = {
 };
 
 // 合成 email 網域 denylist(M-1-14e-f2-a2、codex 關卡1 finding-2 防冒登入第二道防線):
-// LINE OAuth 用合成 email line_{sub}@此域、不可被一般 email/password 註冊佔用(否則有人能先佔合成 email 冒登入 LINE 用戶)。
-// ⚠️ 必與 lib/auth/line.ts 的 LINE_SYNTHETIC_EMAIL_DOMAIN 同步(此處不 import line.ts:該檔 server-only、不可進 client 驗證)。
-const LINE_SYNTHETIC_EMAIL_DOMAIN = 'line.pcmmotorsports.local';
+// 我們自己編出來的合成 email 不可被一般 email/password 註冊佔用
+// (否則有人能先佔走那個信箱、冒領該帳號)。
+//
+// 🔴 `#858` 片0-a:本檔原本自己 hardcode 一份 `'line.pcmmotorsports.local'` + 自己做 `endsWith` 比對,
+//    而那份**只認 LINE 那一個子網域** ⇒ 第二種用途的合成信箱(手動建單的散客佔位信箱)
+//    **註冊擋不住** ⇒ 有人可以先去前台把散客的佔位信箱註冊走。
+//    改成用 `@pcm/schemas` 的共用判斷式(它認整個 `pcmmotorsports.local` 家族)。
+//    ⚠️ 舊註解說「此處不 import line.ts:該檔 server-only」—— 那句仍然成立,
+//    但 `@pcm/schemas` **不是** server-only,client 驗證可以 import 它。
+//
+// 🔴 **這道 denylist 我方有兩道,不是一道**(Fable R2 2026-08-23 更正;寫低了會讓下一個人去補錯地方):
+//    ① 本檔(client)② `app/register/actions.ts:46` 的 server action 也重驗同一份 `validateRegister`。
+// 🔴🔴 **而真正缺的那一道不在這兩道之間,在 GoTrue**:註冊最終走 `supabase.auth.signUp` =
+//    公開端點,拿 anon key 就能直呼、**繞過我方表單**;而 Confirm email 是 OFF
+//    (`packages/adapters/src/supabase/SupabaseAuthAdapter.ts:37` 逐字)⇒ 直呼就拿得到可用帳號。
+//    ⇒ 本檔這兩道**不在攻擊者的路徑上**,不得宣稱「合成信箱不會被搶註」。
+//    ⚠️ GoTrue 那條路實際通不通(captcha / rate limit / allowed domains)= **平台面板設定、
+//       不在 repo 裡、沒有人量過** ⇒ 標**未確認**;**不得為了確認它去實打正式站 signup**
+//       (那會在正式庫建出一個真帳號)。緩解在 `apps/admin/src/lib/customers/manual-customer.ts`
+//       (佔位信箱 local-part 不可枚舉 + `app_metadata` 身分鍵 fail-closed)。
 
 /**
  * 把 zod issues 映射到 fieldErrors:只接受 allowlist 內的可顯示欄位(path[0]);presence 已佔的欄不覆蓋。
@@ -97,7 +114,7 @@ export function validateRegister(input: unknown): {
   if (!str(o.password).trim()) fe.password = '請填寫密碼';
 
   // 合成 email 網域 denylist(防冒登入第二道防線、見上常數註解):非空且屬合成網域 → 拒(presence 已佔則不覆蓋)。
-  if (!fe.email && str(o.email).trim().toLowerCase().endsWith(`@${LINE_SYNTHETIC_EMAIL_DOMAIN}`)) {
+  if (!fe.email && isSyntheticEmailDomain(str(o.email))) {
     fe.email = '此 Email 網域不可用於註冊';
   }
 

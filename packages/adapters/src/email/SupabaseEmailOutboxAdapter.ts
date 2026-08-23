@@ -34,7 +34,8 @@
  *   「非 NULL ⟺ sending」、「是 now()」本就是 app 合約;app 鐘落後 DB 鐘時 claimById 可能 miss
  *   剛 insert 的列=僅延遲至 sweeper 補、無正確性破口;偏差遠小於 lease ≥1h 的比較粒度)。
  *
- * 🔴 假信箱 gate(plan §3.4):域名**不複製字面**、由 composition 注入 `LINE_SYNTHETIC_EMAIL_DOMAIN`
+ * 🔴 假信箱 gate(plan §3.4):**規則不複製一份**、由 composition 注入 `@pcm/schemas` 的 `isSyntheticEmailDomain`
+ *    (`#858` 片0-a 起;~~注入 `LINE_SYNTHETIC_EMAIL_DOMAIN` 字串~~ 已不是這個形狀)
  * (單一來源 = apps/storefront/src/lib/auth/line.ts:38;packages 不可反向 import app 層檔案,故走
  * 建構參數、必填無預設)。比對前雙邊正規化(trim+lowercase);否決 MX 即時查詢(網路依賴進寫入路徑)。
  */
@@ -155,26 +156,40 @@ export type EmailOutboxClient = SupabaseClient<Database>;
 
 export type SupabaseEmailOutboxAdapterConfig = {
   /**
-   * 合成假信箱網域(必填、無預設):composition 必須 import `LINE_SYNTHETIC_EMAIL_DOMAIN`
-   * (line.ts:38、唯一字面來源)傳入;測試才允許自訂假域。
+   * 假信箱判斷式(必填、無預設)。composition 必須傳 `@pcm/schemas` 的 `isSyntheticEmailDomain`;
+   * 測試才允許傳自訂的假判斷式。
+   *
+   * 🔴🔴 **這裡刻意收【判斷式】而不是【網域字串】(`#858` 片0-a)。**
+   * 原本收的是字串、本檔自己做「域名等值比對」⇒ 同一條規則在兩個地方各寫一份,而它們**已經分岔了**:
+   *
+   * ⚠️ **更正(codex R1 MF2)**:我原本寫「這個 package **不能** import `@pcm/schemas`」——
+   *    **那句是錯的**。實測到的是「**現在沒有宣告這個依賴**」(`packages/adapters/package.json`
+   *    的 dependencies = `@pcm/domain` / `@pcm/ports` / `@supabase/supabase-js` / `pg` / `server-only`),
+   *    而「沒宣告」與「不能」是兩件事 —— 加一行依賴就能 import。
+   *    ⇒ 誠實的說法是:**我選擇不加那個依賴**,理由 = 動 package 依賴圖是架構決定、
+   *      該有自己的片與自己的審查,不該夾在一個修守門的片裡順手做掉。
+   *    ⇒ **代價寫在下面「fail-open」那段,不藏。**
+   *   `@pcm/schemas` 認子網域 / 本檔只認完全相等
+   *   ⇒ `xxx@manual.line.pcmmotorsports.local` 一邊擋一邊放
+   *      (2026-08-23 修閘前實測,`~/pcm-mailbox/線C-858-片0a-修閘前量測-20260823.md` 第 4 列)。
+   * ⇒ **收判斷式 = 這個 package 不再擁有那條規則** ⇒ **「兩份規則各自演化」那種分岔消失了。**
+   * ⚠️ **但不要讀成「再也不會錯」**(codex R3:原句與下面那段自相矛盾):
+   *    規則只有一份,**而「有沒有接到那一份」是另一回事** —— 見下面 fail-open 那段。
+   *    ⇒ 分岔的風險**換了形狀**,不是歸零:從「兩份規則不一樣」變成「接錯了沒人叫」。
+   *
+   * 🔴🔴 **而它換來一個新的失敗面:注入錯的東西 = fail-open**(codex R1 MF2)。
+   *    `isSyntheticEmail: () => false` 是**完全合法的注入** ⇒ 假信箱照樣落 `pending` ⇒ 照樣寄出去。
+   *    · 沒傳 config / 傳 `undefined` ⇒ **fail-closed**(TypeError,停在 insert 之前)—— 測試釘住。
+   *    · 傳一個「永遠說不是」的判斷式 ⇒ **fail-open**,型別層擋不住。
+   *    ⇒ 唯一的防線是 `apps/storefront/src/lib/email/composition.test.ts` 那一格:
+   *      它用 `toBe` 釘住注入的**必須是 `@pcm/schemas` 那一份函式本人**。
+   *      **誰把注入換成本地實作,那一格當場紅。**
+   * ⚠️ 誰要把它改回收字串,請先讀那份量測:分岔的代價是**假信箱被送去 Resend**
+   *    (`20260717020000_m4a_email_outbox.sql:28-31` 逐字:bounce rate 要求 <4%、
+   *     傷害已驗證網域 `pcmmotorsports.com` 的寄件信譽 = 全站共用資產)。
    */
-  syntheticEmailDomain: string;
+  isSyntheticEmail: (email: string) => boolean;
 };
-
-/** gate 正規化(比對用;不改寫落表的 recipient_email 原值)。 */
-function normalizeForGate(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-/** 是否為合成假信箱(域名等值比對;無 @ 視為非合成、交由 Resend 4xx → failed 走正常退避)。 */
-export function isSyntheticEmail(email: string, syntheticDomain: string): boolean {
-  const normalized = normalizeForGate(email);
-  const at = normalized.lastIndexOf('@');
-  if (at < 0) {
-    return false;
-  }
-  return normalized.slice(at + 1) === normalizeForGate(syntheticDomain);
-}
 
 function mapRowToJob(row: OutboxJobRow): ClaimedEmailJob {
   return {
@@ -252,7 +267,7 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
     // 固定模板、dedup_key 依事件分派。呼叫端無寫入口。
     const composed = composeEvent(input);
     const dedupKey = composed.dedupKey;
-    const skipped = isSyntheticEmail(input.recipientEmail, this.cfg.syntheticEmailDomain);
+    const skipped = this.cfg.isSyntheticEmail(input.recipientEmail);
     const { data, error } = await this.client
       .from('email_outbox')
       .insert({

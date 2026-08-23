@@ -75,7 +75,8 @@ describe('dedup_key 跨檔契約(SQL migration ↔ TS adapter)', () => {
     const pin = readSqlPin();
     const { client, calls } = captureInsert();
     await new SupabaseEmailOutboxAdapter(client, {
-      syntheticEmailDomain: 'line.pcmmotorsports.local',
+      // `#858` 片0-a:改注入判斷式;本檔測的是 dedup_key,gate 一律回 false(不影響本檔斷言)。
+      isSyntheticEmail: () => false,
     }).enqueue({
       eventType: 'order_shipped',
       orderId: pin.orderId,

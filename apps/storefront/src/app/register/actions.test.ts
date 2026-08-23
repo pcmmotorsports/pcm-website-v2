@@ -116,3 +116,32 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
     expect(redirectSpy).not.toHaveBeenCalled();
   });
 });
+
+// ── 🔴 `#858` 片0-a(codex R1 MF4):合成信箱網域**不得走到 signUp** ──────────────
+//
+// 為什麼加在這裡而不是 `field-validation.test.ts`:那支測的是**驗證函式**;
+// 這一格要證的是**這條路真的接起來了** —— `registerAction` → `validateRegister` → denylist
+// ⇒ 斷言的重點不只是「回了 fieldErrors」,而是 **`signUp` 一次都沒被呼叫**。
+//
+// ⚠️ **這一格擋不住的**:攻擊者直呼 GoTrue `signUp`(公開端點、anon key)⇒ **繞過本檔整條路**。
+//    那道缺口在平台面板設定、不在 repo 裡、**未量測** —— 見
+//    `apps/admin/src/lib/customers/manual-customer.ts` 的威脅模型段。
+//    **本格證明的是「我方表單這條路是關的」,不是「這個信箱註冊不到」。**
+describe('registerAction — 合成信箱網域 denylist(server action 這一道)', () => {
+  it('🔴 LINE 合成網域 ⇒ 逐欄錯 + **signUp 一次都沒被呼叫**', async () => {
+    const result = await registerAction({ ...VALID, email: 'line_u1@line.pcmmotorsports.local' });
+    expect(result?.fieldErrors?.email).toBeTruthy();
+    expect(signUpSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 `#858` 的 manual 網域 ⇒ 同樣擋下(片0-a 把判斷式擴到基底網域之後才成立)', async () => {
+    const result = await registerAction({ ...VALID, email: 'manual_r4nd0m@manual.pcmmotorsports.local' });
+    expect(result?.fieldErrors?.email).toBeTruthy();
+    expect(signUpSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 負對照:真客人的信箱**照樣走得到** signUp(證明上面兩格不是恆真)', async () => {
+    await registerAction({ ...VALID, email: 'rider@example.com' });
+    expect(signUpSpy).toHaveBeenCalledTimes(1);
+  });
+});

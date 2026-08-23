@@ -35,7 +35,14 @@ export const LINE_OAUTH_COOKIE_MAX_AGE = 600; // 10 分鐘、夠走完一趟授�
 // 合成 email 網域(Q3=A、固定常數非 env → §13 維持 3 個 LINE env vars;codex 關卡1 finding-3)。
 // LINE 用戶 auth.users.email = line_{sub}@此域:命名空間隔離、永不與真實 email 帳號衝突;
 // 真實 LINE email(若有)只存 user_metadata.line_email、永不用於對應(line-admin.ts〔f2-a2〕)。
-export const LINE_SYNTHETIC_EMAIL_DOMAIN = 'line.pcmmotorsports.local';
+// 🔴 `#858` 片0-a:改成 re-export `@pcm/schemas` 那一份,**不再在本檔宣告字面**。
+//    這個字串原本在 3 支檔各宣告一次,而 `notification-email.ts` 的舊 docstring
+//    逐字寫著「不得再抄第三份」—— 那件事當時已經發生了。
+//    ⚠️ 要 `import` + `export`,不能只寫 `export … from`:本檔 `lineSyntheticEmail()` 自己也要用它,
+//    而 `export … from` **不會**把名字帶進本地作用域。
+import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@pcm/schemas';
+
+export { LINE_SYNTHETIC_EMAIL_DOMAIN };
 
 // LINE userId(sub)格式:'U' + 32 hex(LINE 規格)。boundary 驗證、防異常 sub 污染合成 email。
 const LINE_USER_ID_PATTERN = /^U[0-9a-f]{32}$/;

@@ -10,8 +10,16 @@
 //   - ResendEmailSenderAdapter 持 RESEND_API_KEY,皆絕不進 client bundle。
 // 🔴 lazy(對齊 payment/composition + N2 sweeper 不變式):env 在 factory 內讀、零 module-top env 讀取 → route 的
 //    route 認證/限流未過即在建 deps 前 return 之「零 env 依賴」仰賴此;改本檔前必守 lazy 契約。
-// 🔴 假信箱 gate 域名 = 單一字面來源 LINE_SYNTHETIC_EMAIL_DOMAIN(lib/auth/line.ts:38);packages 不可反向 import app,
-//    故由本 composition 注入(SupabaseEmailOutboxAdapter 建構參數必填無預設)。
+// 🔴 `#858` 片0-a:假信箱 gate 收的是【判斷式】不是【網域字串】—— 注入 `@pcm/schemas` 的 `isSyntheticEmailDomain`
+//    (那是共用的那一份規則)。由本層注入的理由:`packages/adapters` **目前沒有宣告** `@pcm/schemas` 依賴。
+//    ⚠️ **「沒有宣告」不是「不能」** —— 它已經有 `@pcm/domain` / `@pcm/ports` 兩條同款 workspace 邊,
+//    加第三條是同一種邊。⇒ **更好的解是加依賴、直接 import、把注入整個刪掉**
+//    (那會讓 `isSyntheticEmail: () => false` 那一族 fail-open **消失**)。
+//    ⇒ 立案編號 **`#865`**(主視窗 2026-08-24 開:加依賴、刪注入)。
+//    ⚠️ 原本這裡寫「已立案,見 `#858` plan §12」—— **那是懸空字面**(codex):那份 plan 在信箱、**不在版控**,
+//    而 `#862` 追的是 GoTrue 搶註、不是這件事 ⇒ 讀的人指不到任何東西。
+//    ⇒ **本檔這個注入是過渡形狀,不是終局。**
+//    (另:packages 不可反向 import app,故不論如何都不會由 app 端提供規則本體。)
 
 import 'server-only';
 import type { ApplyOrderIneligibleGateDeps, EnqueueOrderCreatedEmailsDeps, SweepEmailOutboxDeps } from '@pcm/use-cases';
@@ -24,7 +32,7 @@ import {
   ResendEmailSenderAdapter,
   createSupabaseServiceClient,
 } from '@pcm/adapters/server';
-import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
+import { isSyntheticEmailDomain } from '@pcm/schemas';
 
 /** 讀必要 env、缺則 throw(fail fast、對齊 payment/composition.ts + lib/auth/line.ts requireEnv 模式)。 */
 function requireEnv(name: string): string {
@@ -42,7 +50,7 @@ function requireEnv(name: string): string {
  * 🔴 lazy(見檔頭):env 在此讀、非 module-top → route 認證/限流未過即不觸發本 factory = 零 env 依賴。
  * - outbox = SupabaseEmailOutboxAdapter + service_role client(**2026-08-11 #415 窄 cast 已拆**:
  *   `EmailOutboxClient` 現在就是 `SupabaseClient<Database>`,`email_outbox` 的表名/欄名/回傳形狀
- *   由生成型別直接把關);syntheticEmailDomain 注入單一字面來源。
+ *   由生成型別直接把關);假信箱**判斷式**注入(`#858` 片0-a 起;~~syntheticEmailDomain 字串~~ 已不是這個形狀)。
  * - sender = ResendEmailSenderAdapter(RESEND_API_KEY 與告警管道共用同一把 key、from=ORDER_EMAIL_FROM 交易信專用寄件者
  *   〔E1 定案 orders@pcmmotorsports.com,兩 Vercel project 都要設;缺 → requireEnv throw → route 503 fail-closed〕)。
  */
@@ -53,7 +61,7 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
   //    而那一格守的是「本 factory 不會偷偷多開一條連線」。
   const serviceClient = createSupabaseServiceClient();
   const outbox = new SupabaseEmailOutboxAdapter(serviceClient, {
-    syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN,
+    isSyntheticEmail: isSyntheticEmailDomain,
   });
   const sender = new ResendEmailSenderAdapter({
     apiKey: requireEnv('RESEND_API_KEY'),
@@ -90,7 +98,7 @@ export function getSweepEmailOutboxDeps(): SweepEmailOutboxDeps {
 export function getEnqueueOrderCreatedDeps(): EnqueueOrderCreatedEmailsDeps {
   return {
     outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
-      syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN,
+      isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabasePaidOrderScannerAdapter(createSupabaseServiceClient()),
   };
@@ -110,7 +118,7 @@ export function getEnqueueOrderCreatedDeps(): EnqueueOrderCreatedEmailsDeps {
 export function getApplyOrderIneligibleGateDeps(): ApplyOrderIneligibleGateDeps {
   return {
     outbox: new SupabaseEmailOutboxAdapter(createSupabaseServiceClient(), {
-      syntheticEmailDomain: LINE_SYNTHETIC_EMAIL_DOMAIN,
+      isSyntheticEmail: isSyntheticEmailDomain,
     }),
     scanner: new SupabaseIneligibleOrderEmailScannerAdapter(createSupabaseServiceClient()),
   };

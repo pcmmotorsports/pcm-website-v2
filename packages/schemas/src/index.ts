@@ -15,8 +15,10 @@
 import { z } from 'zod';
 
 export {
+  LINE_SYNTHETIC_EMAIL_DOMAIN,
   NOTIFICATION_EMAIL_MAX_OCTETS,
   NotificationEmailInput,
+  SYNTHETIC_EMAIL_BASE_DOMAIN,
   TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH,
   canonicalizeNotificationEmail,
   isSyntheticEmailDomain,

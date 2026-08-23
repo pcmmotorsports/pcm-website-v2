@@ -5,7 +5,6 @@ vi.mock('server-only', () => ({}));
 
 import {
   SupabaseEmailOutboxAdapter,
-  isSyntheticEmail,
   type EmailOutboxClient,
   type EmailOutboxQueryBuilder,
 } from './SupabaseEmailOutboxAdapter';
@@ -65,21 +64,70 @@ const JOB_ROW = {
   request_id: 'req-1',
 };
 
+// 🔴 `#858` 片0-a:gate 判準**已經不住在這個 package 裡了** —— 它由 composition 注入
+//    (`@pcm/schemas` 的 `isSyntheticEmailDomain`,那是三處共用的唯一一份規則)。
+//    ⇒ 原本這裡那個 `describe('isSyntheticEmail(假信箱 gate 判準)')` **整段刪除**:
+//      它測的是本 package 自己實作的第二份規則,而那份規則正是分岔的來源。
+//      **規則本身的測試搬到規則住的地方**(`packages/schemas`),這裡只測「有沒有真的去問它」。
+const fakeGate = (email: string) => email.trim().toLowerCase().endsWith(`@${FAKE_DOMAIN}`);
+
 function adapter(client: EmailOutboxClient) {
-  return new SupabaseEmailOutboxAdapter(client, { syntheticEmailDomain: FAKE_DOMAIN });
+  return new SupabaseEmailOutboxAdapter(client, { isSyntheticEmail: fakeGate });
 }
 
-describe('isSyntheticEmail(假信箱 gate 判準)', () => {
-  it('命中合成域(含大小寫/前後空白正規化)→ true', () => {
-    expect(isSyntheticEmail('line_u1@line.example.local', FAKE_DOMAIN)).toBe(true);
-    expect(isSyntheticEmail('  Line_U1@LINE.Example.LOCAL  ', FAKE_DOMAIN)).toBe(true);
-    expect(isSyntheticEmail('a@line.example.local', ' LINE.example.local ')).toBe(true);
+describe('假信箱 gate 的【接線】(判準本身在 @pcm/schemas,不在這裡)', () => {
+  it('🔴 注入的判斷式**真的會被呼叫**,而且拿到的是原始 recipient_email', async () => {
+    const seen: string[] = [];
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    await new SupabaseEmailOutboxAdapter(makeClient(b), {
+      isSyntheticEmail: (email) => {
+        seen.push(email);
+        return false;
+      },
+    }).enqueue(BASE_INPUT);
+    expect(seen).toEqual([BASE_INPUT.recipientEmail]);
   });
-  it('真實域 / 子字串偽陽性 / 無 @ → false', () => {
-    expect(isSyntheticEmail('customer@example.com', FAKE_DOMAIN)).toBe(false);
-    // 域名必須整段等值,尾碼相似不算(防 endsWith 誤判族)。
-    expect(isSyntheticEmail('a@evil-line.example.local.attacker.com', FAKE_DOMAIN)).toBe(false);
-    expect(isSyntheticEmail('not-an-email', FAKE_DOMAIN)).toBe(false);
+
+  // ── 🔴 codex R1 MF2:注入錯的東西會怎樣?**三種都要有答案,不能用「不會發生」帶過。** ──
+  it('🔴 沒傳 config ⇒ fail-closed:在 insert 之前就炸,不會靜默放行', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    const client = makeClient(b);
+    await expect(
+      // @ts-expect-error 故意不給 config —— 型別層擋得住,這一格量的是【執行期】。
+      new SupabaseEmailOutboxAdapter(client, undefined).enqueue(BASE_INPUT),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it('🔴 傳 undefined 當判斷式 ⇒ fail-closed:同樣在 insert 之前炸', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    await expect(
+      // @ts-expect-error 故意傳 undefined
+      new SupabaseEmailOutboxAdapter(makeClient(b), { isSyntheticEmail: undefined }).enqueue(BASE_INPUT),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it('🔴🔴 傳「永遠說不是」的判斷式 ⇒ **fail-open,假信箱照樣落 pending**(誠實記錄,不是通過)', async () => {
+    // 這一格**不是**在證明系統安全,它是在把「型別層擋不住的那個洞」寫下來。
+    // 唯一擋得住它的是 composition.test.ts 那個 `toBe` 身分斷言(注入必須是 schemas 那一份本人)。
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    const r = await new SupabaseEmailOutboxAdapter(makeClient(b), {
+      isSyntheticEmail: () => false,
+    }).enqueue({ ...BASE_INPUT, recipientEmail: 'line_u1@line.pcmmotorsports.local' });
+    expect(r).toEqual({ kind: 'enqueued', id: 'outbox-1' }); // 🔴 不是 skipped —— 它會被寄出去
+  });
+
+  it('🔴 判斷式說「是假信箱」⇒ 走 skipped;說「不是」⇒ 走 pending(接線方向沒有反過來)', async () => {
+    const b1 = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    const skipped = await new SupabaseEmailOutboxAdapter(makeClient(b1), {
+      isSyntheticEmail: () => true,
+    }).enqueue(BASE_INPUT);
+    expect(skipped).toEqual({ kind: 'skipped_no_real_email', id: 'outbox-1' });
+
+    const b2 = makeBuilder({ data: [{ id: 'outbox-2' }], error: null });
+    const queued = await new SupabaseEmailOutboxAdapter(makeClient(b2), {
+      isSyntheticEmail: () => false,
+    }).enqueue(BASE_INPUT);
+    expect(queued).toEqual({ kind: 'enqueued', id: 'outbox-2' });
   });
 });
 
