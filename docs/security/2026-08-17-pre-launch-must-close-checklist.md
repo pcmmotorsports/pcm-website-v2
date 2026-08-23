@@ -146,7 +146,23 @@ grantor=supabase_admin 那半  兩庫一模一樣 anon=arwdDxtm / anon=X / anon=
    我們的 migration 以 postgres 身分建表 ⇒ 吃的是 anon=Dxtm 那一份 ⇒ 那一份改得動
 ```
 ⇒ **所以「補齊」的定義 = `grantor=postgres` 那一半清乾淨**,而**報價單庫現在就是那個樣子**(有現成的目標狀態)。
-🔴 **仍未關**:網站庫的 `postgres` 那一半**還沒清** ⇒ E683 那支 migration 仍要做。
+~~🔴 **仍未關**:網站庫的 `postgres` 那一半**還沒清** ⇒ E683 那支 migration 仍要做。~~
+✅ **2026-08-23 更正:那一半已經清掉了,而上面那句是同日【早上】的值。**
+   量法(Sean 本人實跑 `scripts/check-anon-grants-prod.sh`,對照組兩發皆過;主視窗複打 apply 帳):
+   ```
+   `public|r|` grantor=postgres 那列 ⇒ 只剩 `postgres=arwdDxtm` + `service_role=Dxtm`
+                                       🔴 `anon=Dxtm` 已不在
+   成因:20260817060000_e683_1_public_default_privileges_revoke.sql 已於 2026-08-18 apply
+   grep -c "^20260817060000" supabase/APPLIED.tsv  ⇒ 1     (負對照 ^19990101000000 ⇒ 0)
+   ```
+   🔴 **原句留痕不刪** —— 它曾經是真的,而**下一個人要看得出它曾經誤導過誰**。
+   ⚠️ **而「清乾淨」的射程要講準,不要讀成整件事結束**:仍有**兩格未評估**
+   ① `public|S| anon=w`(**序號**)—— E683 `:44-45` 只 `REVOKE ALL ON TABLES`,**沒有碰 SEQUENCES**
+   ② `storage` schema —— **完全沒看過**
+   ⇒ 這兩格**不是「查過沒事」,是「沒有人查過」**。要關本項之前先答它們。
+   📎 發現者:督導窗(`pcm-website-v2-7c`)2026-08-23 夜與 Sean 跑必關清單時量到;
+      **改正本這一步由主視窗做** —— 照本 repo 同日立的分工:**指出的人不改自己指出的東西,
+      那會少掉一次獨立複核**。
 🔴 **而它現在有一個硬期限**:Sean 2026-08-18 拍板的**登入紀錄新表建在網站庫**
 ⇒ 在 E683 落地之前建的新表,**出生就帶 `Dxtm`(含 TRUNCATE,RLS 管不到)**
 ⇒ 那支建表 migration 的**兩道 REVOKE + fail-closed 斷言是必要條件,不是保險**。
