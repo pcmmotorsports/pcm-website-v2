@@ -194,7 +194,19 @@ ck "格8 [2] 閘 staged/工作樹不一致 ⇒ 2" "$(run "$W")" "2" "不一致"
 # ── 格9 pre-commit 接線塊:缺檔 ⇒ 擋;在 ⇒ 穿過(用本 repo 現行 pre-commit 副本 + stub)──
 W=$(mkworld w9); need_world "$W" w9
 cp "$PRECOMMIT" "$W/.husky/pre-commit" || die "cp pre-commit"
-printf '#!/bin/sh\nexit 0\n' > "$W/.husky/scripts-whitelist-gate.sh" || die "stub whitelist"   # 它缺檔會 fail-closed,要 stub
+# 🔴 stub 清單【不能寫死】(2026-08-23 實測):原版只 stub `scripts-whitelist-gate.sh` 一支,
+#    而 pre-commit 每多一道 **fail-closed** 閘,這一格就多紅一次 —— 紅的是【本片】,理由卻與
+#    state-gates 新鮮度完全無關。實例:新增 `.husky/migration-post-commit-gate.sh` 當天,
+#    格9a 期待 0、實得 1(命中 pre-commit 自己的 fail-closed 分支)。
+#    ⇒ 寫死的清單與 pre-commit 的閘數是**耦合的,而沒有任何東西在看那個耦合**。
+#    改法:從它剛複製進來的那份 pre-commit **自己抽**,凡被引用到的 `.husky/*.sh` 全 stub,
+#    **唯獨受測的那一支不 stub** —— stub 掉它,格9a 與格9b 會【一起】變成恆綠。
+STUBS=$(grep -oE '\.husky/[A-Za-z0-9_-]+\.sh' "$W/.husky/pre-commit" | sort -u | grep -v 'state-gates-freshness-gate\.sh')
+[ -n "$STUBS" ] || die "抽不出 pre-commit 引用的任何 .husky/*.sh ⇒ 這份 stub 沒有判別力(不是沒閘,是沒抽到)"
+case "$STUBS" in *state-gates-freshness-gate.sh*) die "受測閘被 stub 了 ⇒ 格9a/9b 會一起變恆綠" ;; esac
+for _s in $STUBS; do
+  printf '#!/bin/sh\nexit 0\n' > "$W/$_s" || die "stub $_s"
+done
 # stub pnpm 印一個信標 ⇒ 格9a 能分出「穿過本段抵達 lint-staged」與「pre-commit 那段被整塊刪掉」(reviewer nit)。
 mkdir -p "$BASE/bin" && printf '#!/bin/sh\necho PNPM_STUB_REACHED\nexit 0\n' > "$BASE/bin/pnpm" && chmod +x "$BASE/bin/pnpm" || die "stub pnpm"
 ( cd "$W" && PATH="$BASE/bin:$PATH" sh -e .husky/pre-commit > "$OUT" 2>&1 ); rc=$?

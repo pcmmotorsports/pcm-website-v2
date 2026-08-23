@@ -39,6 +39,18 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/scripts-whitelist-gate.sh' >&2
   exit 1
 fi
+if [ -f .husky/migration-post-commit-gate.sh ]; then
+  # 🔴 **bash 不是 sh** —— 那支用 `read -r -d ''` 讀 NUL 分隔的檔名(bash 專有)。
+  # 改成 sh 會讓檔名處理【靜靜退化】回按空白斷詞,而退化時不會有東西紅。
+  bash .husky/migration-post-commit-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/migration-post-commit-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   與 scripts-whitelist / state-gates 同款 fail-closed:它接的那支守門' >&2
+  printf '%s\n' '   (scripts/migration-post-commit-guard.sh)**被提議刪除過**,而它的第二道閘' >&2
+  printf '%s\n' '   (#530 交易內批次沖斷語句)全 repo 零人涵蓋 ⇒ fail-open 會讓它被靜靜關掉。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/migration-post-commit-gate.sh' >&2
+  exit 1
+fi
 if [ -f .husky/state-gates-freshness-gate.sh ]; then
   sh .husky/state-gates-freshness-gate.sh || exit $?
 else
