@@ -204,7 +204,11 @@ describe('#380 側欄收合模式', () => {
   //    —— 那正好補上本檔 `:193-195` 自陳擋不住的那幾格。
   //    ⇒ 這裡只留一格**便宜的字面哨兵**:別讓那個機制被靜默拿掉。
   it('🔴 收合 = 整條不渲染(行為守門在 app-sidebar-rail.test.tsx,這裡只是哨兵)', () => {
-    expect(SOURCE).toContain("if (state === 'collapsed') return null;");
+    // 🔴 2026-08-24 Bug B 修法:桌機仍讀 `state`,手機改讀 `openMobile`
+    //    (`toggleSidebar` 的手機分支只寫 `openMobile`,`state` 在手機上恆不變 —— 見 §17 根因鏈,
+    //    L5 交件檔 `~/pcm-mailbox/L5-交件-b4-面板差異清單-20260824.md`)。
+    expect(SOURCE).toContain("const collapsed = isMobile ? !openMobile : state === 'collapsed';");
+    expect(SOURCE).toContain('if (collapsed) return null;');
     // 負向對照:舊模式的字面不得復活(復活 = 有人把 shadcn 那條路接回來而沒動這裡)。
     expect(SOURCE).not.toContain("collapsible='icon'");
   });

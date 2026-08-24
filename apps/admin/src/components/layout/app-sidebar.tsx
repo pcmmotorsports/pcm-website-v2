@@ -177,11 +177,14 @@ export function AppSidebar({
   counts: SidebarCounts;
 }) {
   const pathname = usePathname();
-  const { state } = useSidebar();
+  const { state, isMobile, openMobile } = useSidebar();
   const navItems = buildNavItems(auditEnabled);
 
   // #380:整條滑走。`collapsed` 時連 DOM 都不留 —— 半透明或 `w-0` 都還是「收成一條」。
-  if (state === 'collapsed') return null;
+  // 🔴 手機走 `openMobile`(shadcn toggleSidebar 的手機分支只寫這個 state,`state` 恆不變,
+  //    見 L5 交件檔 §17 根因鏈);桌機仍照 `state`。
+  const collapsed = isMobile ? !openMobile : state === 'collapsed';
+  if (collapsed) return null;
 
   return (
     <aside

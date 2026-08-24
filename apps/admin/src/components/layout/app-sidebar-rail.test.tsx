@@ -15,8 +15,8 @@
 //      那三格要真瀏覽器,量測與期望值見本片 commit body。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
-import { SidebarProvider } from '@/components/ui/sidebar';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import type { SidebarCounts } from '@/lib/layout/sidebar-counts';
 import { AppSidebar, formatNavCount } from './app-sidebar';
 
@@ -96,6 +96,49 @@ describe('#380 收合 = 整條滑走(而這一次是【渲染】驗的,不是字
 //    📌 而這個分辨正是「**動驗證本身**」(R4 的停止訊號) 與「**移除已消失的斷言**」的差別:
 //    前者是我改期望值去遷就壞掉的 code;後者是那個行為被拍板取消了。
 //    ⏳ 而「設定」現在**不在任何地方** —— 甲(軌上加一格灰的)/乙(先拿掉) 等 Sean 答。
+// 🔴🔴 Bug B(2026-08-24,Sean 真手機肉眼驗回報「甲=我點了,沒反應」)——
+//    根因鏈見 `~/pcm-mailbox/L5-交件-b4-面板差異清單-20260824.md` §17:
+//    `toggleSidebar` 手機分支只寫 `openMobile`,而 `AppSidebar` 修前只讀 `state`
+//    (`state` 只由桌機的 `open`/`setOpen` 決定,手機上永遠不變)⇒ 點了鈕、`openMobile`
+//    真的變了、但沒有人讀它 ⇒ 軌不會消失也不會出現。
+//    ⚠️ `useIsMobile`(`hooks/use-mobile.tsx`)判斷手機的依據是 `window.innerWidth`,
+//    **不是** `matchMedia(...).matches`(檔頭 beforeEach 那個 mock 只提供
+//    addEventListener/removeEventListener,`matches` 欄位對這支 hook 沒有作用)
+//    ⇒ 要讓 `useIsMobile()` 回傳 true,得直接改 `window.innerWidth`。
+describe('Bug B 回歸:手機點 SidebarTrigger 現在真的會開/關 nav-rail', () => {
+  // 🔴 `window.innerWidth` 是全域、不隨 `cleanup()` 重設 ——
+  //    第一版沒還原,把它遺留在 375,下面其餘 describe 的 `mount(true)`(桌機)
+  //    全部被讀成手機、預設收合 ⇒ 18 格他人的斷言連環假紅。跑完本區塊要還原。
+  const desktopInnerWidth = window.innerWidth;
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { value: desktopInnerWidth, configurable: true });
+  });
+
+  function mountMobile() {
+    Object.defineProperty(window, 'innerWidth', { value: 375, configurable: true });
+    return render(
+      <SidebarProvider>
+        <SidebarTrigger />
+        <AppSidebar auditEnabled={false} counts={SYNCED_COUNTS} />
+      </SidebarProvider>,
+    );
+  }
+
+  it('🔴 手機預設收合(不像桌機預設展開);點一下出現,再點一下收回去', () => {
+    mountMobile();
+    // 這一格在修前會失敗:舊碼讀 `state`,手機上 `state` 恆為 'expanded'(桌機預設值)
+    // ⇒ 軌從一開始就渲染,不會等使用者按鈕。
+    expect(screen.queryByTestId('nav-rail')).toBeNull();
+
+    const trigger = screen.getByRole('button', { name: 'Toggle Sidebar' });
+    fireEvent.click(trigger);
+    expect(screen.queryByTestId('nav-rail')).not.toBeNull();
+
+    fireEvent.click(trigger);
+    expect(screen.queryByTestId('nav-rail')).toBeNull();
+  });
+});
+
 describe('設定那一格(Sean 2026-08-20 拍板甲)', () => {
   // 🔴🔴 **本格的斷言方向被【翻過來】了,而它不是「改期望值去遷就 code」。**
   //    原本:「軌上【沒有】設定」(依定案稿 :357「不在軌上出現」)
