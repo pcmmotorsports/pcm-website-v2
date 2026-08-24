@@ -85,6 +85,91 @@
 --    **本檔重跑會 42723「物件已存在」,那是刻意的,不是失敗。**
 --    ⇒ 要重跑請先照 §7 的 down 註解逐支 DROP,再跑一次。
 --    ⇒ 我們寧可「重試時停下來讓人看」,也不要「安靜地改寫一個可能不是本片建的物件」。
+-- ── 🔴 交易包覆(2026-08-25 加;實物證據 `~/pcm-mailbox/線DB驗證-交件-兩支migration實貼驗證-20260825.md` §4)──
+-- **問題**:在**不包交易的 applier** 上,本檔中途失敗會留下一個**半套用的物件**。
+--   🔴🔴 **本檔的最壞形狀不是函式的 EXECUTE,是【兩支 view 的客人 email 對匿名可讀】。**
+--      (code-reviewer 2026-08-25 抓到:這一段原本是從 `20260824040000` 逐字複製過來的,
+--       而那支是 `SECURITY DEFINER` 函式、授權對象 `payment_confirmer`;
+--       **本檔的 `pcm_shipped_email_dedup_key` 是 `LANGUAGE sql IMMUTABLE`、沒有 SECDEF、
+--       授權對象是 `service_role`** ⇒ 照那段評估風險會**低估**。)
+--   實測(拋棄式 PG 17.10 · PORT 55551 · 2026-08-25;不包交易,且補上 anon/authenticated 的
+--   預設 SELECT 以還原 Supabase 那個世界,砍掉 `pending` 那道 REVOKE):
+--     rc=3(斷言有紅)⇒ 而 **view 留在庫裡**:
+--       `has_table_privilege('anon',       'pcm_shipped_email_pending','SELECT')` ⇒ **t**
+--       `has_table_privilege('authenticated','pcm_shipped_email_pending','SELECT')` ⇒ **t**
+--       而該 view 的欄位含 **`notification_email` / `customer_email`**
+--     ⇒ **客人的收件 email 對匿名訪客可讀,而 apply 的人只看到一行 ERROR。**
+--   另一種失敗時點(REVOKE/GRANT 都跑完、只有檔尾斷言炸)⇒ 物件留下而 ACL **是收好的**
+--     ⇒ 壞的是「有個沒走完斷言的物件在庫裡」,不是權限。
+--   🔴 **所以不要寫成「檔尾任一句失敗都會停在最壞的權限」—— 那句是假的**(codex R2 抓到)。
+--     共同的真相只有一句:**留下一個沒有走完斷言的物件,而 apply 的人只看到一行 ERROR。**
+-- **處置**:`BEGIN;` / `COMMIT;`。實測 rc=3 時**零殘留**;正對照(拿掉 RAISE)rc=0 建得起來。
+--
+-- ── 🔴 這個修法【驗過的射程】(codex 對抗審查 R1+R2 逼出來的精確版)────────────────
+--    ✅ 已驗:`psql -f`(不包交易)、`psql -1`(整檔一交易)兩條路,本檔都不再留下半成品。
+--    ✅ 已驗:外層已有交易時,內嵌 BEGIN 只多兩行 WARNING、本檔照樣建得起來(rc=0)。
+--    ✅ 已驗:本檔的**可執行碼**沒有交易內禁跑的 DDL。
+--       🔴 **量法要看【非註解行】,不能整檔掃** —— 因為**這段說明自己就把那組關鍵字寫進檔案了**
+--          (整檔掃本檔 ⇒ 2 行命中,而那 2 行就是這段字;code-reviewer 2026-08-25 抓到:
+--           **一句宣稱「零命中」的話,把自己變成了命中**)。
+--       量法(2026-08-25 重量,可重跑):
+--         `grep -vE '^[[:space:]]*--' <檔> | grep -cE 'CONCURRENTLY|^[[:space:]]*VACUUM|ALTER SYSTEM|CREATE DATABASE|DROP DATABASE|TABLESPACE|REINDEX'`
+--         本檔 ⇒ **0**
+--         同尺非零對照(`supabase/migrations/*.sql` 全目錄、同樣只看非註解行)⇒ **2 支命中**
+--       ⚠️ **原本這裡寫「全 repo 9 支」,那個 9 對不上任何一個可重跑的狀態**
+--          (重量:HEAD 整檔 8 / 工作樹整檔 10 / 非註解行 2)⇒ 已作廢。
+--          📌 **一個沒有寫清楚「量的是哪個範圍、哪一版、含不含註解」的對照數字,等於沒有對照。**
+--       ⚠️ 而 grep 只證明**那組字**零命中,**不證明**不存在其他交易限制
+--          (動態 SQL、`DO` 內只有正式資料才走到的分支、extension 行為、版本差異都在射程外)。
+--       ⚠️ 而 grep 只證明**那組字**零命中,**不證明**不存在其他交易限制
+--       (動態 SQL、DO 內只有正式資料才走到的分支、extension 行為、版本差異都在射程外)。
+--    🔴 **我們現行走的是哪一條(2026-08-25 主視窗裁定,寫成條件式不是「不適用」)**:
+--       **Supabase SQL Editor 手貼 + 手寫 `supabase/APPLIED.tsv`** —— `APPLIED.tsv` 是人寫的、不是 CLI 寫的
+--       🔴 **紀錄的主詞不是本檔,不要讀錯**(code-reviewer 2026-08-25 抓到我引用時把主詞拿掉了):
+--          `docs/launch-todo.md` 那句「2026-08-24 夜 Sean 本人貼…已記進 `supabase/APPLIED.tsv`」
+--          講的是 **`20260824030000`(B5-a 登入事件欄)**,**不是本檔**。
+--          它證明的只有「**手貼是我們現行的路徑**」這一件事。
+--       🔴 **本檔【不在】 `supabase/APPLIED.tsv` 裡**(2026-08-25 量:兩支目標 0 命中;
+--          同尺非零對照 `20260801120000` ⇒ 2 命中)⇒ **本檔還沒貼過,不要因為上面那句就跳過它。**
+--       ⇒ 本檔**未在真的 `supabase db push` 下驗過**。CLI 那條「台帳 INSERT 以 session_user 跑」的
+--         因果鏈在**手貼路徑上不會發生,因為那一步不存在**。
+--       🔴 **若有人改走 `db push`(或任何自動 runner)⇒ 這一格要重驗。**
+--         缺的檢查 = 一個可拋棄的 Supabase 專案,對 `db push` 至少驗
+--         「成功 / 斷言失敗 / 台帳寫入失敗」三種結果。
+--       📌 **「我們不走那條路」是一個會過期的中間態,所以寫成條件式,不寫成「不適用」。**
+--    ❌ **未驗**:Supabase Dashboard SQL Editor / `supabase db push` / MCP `apply_migration`
+--       三條路各自怎麼包交易 —— 三個都沒量過。**不要讀成「所有 applier 都安全」。**
+--    ── 🔴🔴 **一次只貼一支**(2026-08-25 實測,Sean 本人貼進正式庫的 SQL Editor)──────
+--       量法(探針全文 `~/pcm-mailbox/線DB驗證-給Sean-一發量交易包覆的探針-20260825.md`):
+--         第一個 `DO` 建一張 `TEMP TABLE … ON COMMIT DROP`,之後一發 `SELECT` 問它還在不在。
+--         包了 ⇒ 還在;沒包 ⇒ 第一個 `DO` 結束就被清掉。
+--       結果:`g1_wrapped_batch = YES` · `g2_poscontrol = ruler-alive` · `g3_negctrl = null`
+--         🔴 判別力**先被證明過**:同一發在本機兩個世界各跑一次
+--            ⇒ psql 不包交易 `NO` / `psql -1` `YES`。**不是事後推的。**
+--       ⇒ **Supabase SQL Editor 會把【整批】包成一個交易。**
+--       🔴 所以:**一次只貼一支。** 本檔的 `COMMIT;` 提交的是 editor 那個交易;
+--          若同一批後面還有別支,**它們就失去保護**(前一支的 `COMMIT` 把交易斷開了)。
+--       ⚠️ 而**這是我們觀察到的現況,不是 Supabase 的承諾** —— 它變的那天不會有人通知我們。
+--          ⇒ 交易框**不因為 `g1=YES` 就可以拿掉**:自帶交易框才讓結果與 applier 無關,
+--            而全樹 214 支裡 110 支本來就自帶 ⇒ 拿掉才是特例。
+--
+--    🔴 **殘餘風險(未確認,不是已排除)。兩種形狀,不要只讀到第一種**:
+--       ⓐ **單檔外層交易 + 台帳寫入在本檔 `COMMIT;` 之後** —— **這是 runner 最常見的形狀**,
+--          而它把本檔的 DDL 與台帳那筆的原子性拆開:DDL 已提交,台帳那筆若失敗就補不回來
+--          ⇒ 下次重跑本檔 ⇒ 本檔刻意不冪等 ⇒ 42723。
+--          🔴 **原本這一段只寫了 ⓑ,而「前面那幾支」那個字面在文法上排除了本檔自己**
+--          ⇒ 讀者會判「只有跨檔才有風險」而對單檔 runner 放行(code-reviewer 2026-08-25 抓到)。
+--       ⓑ **跨檔外層交易** —— 本檔的 `COMMIT;` 會一起提交**前面那幾支還沒登記完成的 migration**,
+--          並釋放 runner 的 advisory lock / `SET LOCAL` / savepoint
+--          ⇒ 之後任何一步失敗,runner 的 `ROLLBACK` 也救不回來。
+--       ⚠️ 而本檔現在用 `SET LOCAL ROLE`,ⓑ 那條「釋放 SET LOCAL」對本檔**不只是理論**:
+--          `COMMIT;` 正是本檔還原角色的機制。
+--       ⇒ **「COMMIT 之後本檔沒有語句」是必要條件,不是充分條件。**
+--          充分條件是:`COMMIT` 之後,**runner 與整批 migration 都沒有必須與本檔原子完成的動作**。
+--       缺的檢查=在拋棄式 Supabase 專案上,對那三條路各跑一次
+--       「成功 / 失敗回滾 / migration 台帳」三者是否一致,並確認 runner 有無跨檔共用交易。正本 `#913`。
+BEGIN;
+
 CREATE FUNCTION public.pcm_shipped_email_dedup_key(
   p_shipment_id uuid,
   p_order_id    uuid
@@ -262,27 +347,69 @@ GRANT SELECT ON public.pcm_shipped_email_unsendable TO service_role;
 --    ~~原本用 `has_table_privilege('service_role', view, 'SELECT')`~~ —— 那**不夠**:
 --    view 是 `security_invoker`,缺任一張**底表**的 SELECT 時那道斷言**仍然過**,
 --    而 runtime 查詢才 42501 ⇒ 兩個世界印同一句話。
---    ⇒ 改成 **`SET ROLE service_role` 之後真的 `SELECT` 一次**(六張底表全部經過)。
+--    ⇒ 改成 **`SET LOCAL ROLE service_role` 之後真的 `SELECT` 一次**(六張底表全部經過)。
 --
--- ⚠️ **`SET ROLE` 這個手法自己的限定,照實寫**:
+-- ⚠️ **`SET LOCAL ROLE` 這個手法自己的限定,照實寫**(2026-08-25 前是 `SET ROLE`,見下方):
 --    ① 它換的是 `current_user`,而 **`session_user` 不變** ⇒ 用它**量不出「該角色能不能升權」**
 --      (memory `reference_set-role-cannot-measure-target-role-escalation`)。本段不宣稱那件事。
 --    ② `service_role` 有 BYPASSRLS ⇒ 本段驗的是 **GRANT**,**不是 RLS**。
---    ③ 下面那道 `current_user` 自檢是為了讓「SET ROLE 沒生效」自己現形 ——
---      少了它,若 SET ROLE 因任何原因是 no-op,整段就會用 postgres 的權限查出一個假綠。
---      (`SET LOCAL` 在沒自包 BEGIN 的 migration 裡就是 no-op,memory
---       `reference_supabase-migration-set-local-is-noop` ⇒ 本檔刻意用 `SET ROLE` 不用 `SET LOCAL`。)
+--    ③ 下面那道 `current_user` 自檢是為了讓「SET LOCAL ROLE 沒生效」自己現形 ——
+--      少了它,若它因任何原因是 no-op,整段就會用 postgres 的權限查出一個假綠。
+--    🔴 **2026-08-25 改用 `SET LOCAL ROLE`,而這一格的歷史要留著,因為它的前提被本檔自己推翻了**:
+--      原註解逐字寫「`SET LOCAL` 在沒自包 BEGIN 的 migration 裡就是 no-op ⇒ 本檔刻意用 `SET ROLE`」
+--      (memory `reference_supabase-migration-set-local-is-noop`,那句在當時為真)。
+--      而本檔 2026-08-25 加了自己的 `BEGIN;` / `COMMIT;` ⇒ **那個前提不再成立**,
+--      `SET LOCAL ROLE` 在本檔裡是有效的,而它正好解掉下面那個帳本問題。
+--      📌 形狀:**一顆只加交易框的改動,把一段解釋「為什麼不能用交易語意」的註解變成假的**,
+--         而 diff 上完全看不出來(code-reviewer 2026-08-25 抓到)。
+--
+-- ── 🔴🔴 為什麼**不能**用那個 `RESET` + `ROLE` 的組合(2026-08-25 在拋棄式 PG 上重現)────
+--    `scripts/migration-reset-role-guard.sh` 記著 G6 2026-08-18 查明的因果鏈,而本檔曾是它的第 2 支
+--    (該閘期望 1 支、實際 2 支 ⇒ **它在本次改動【之前】就是紅的,不是本片打紅的**)。
+--    重現(PORT 55551;造 `supabase_migrations` schema owner=postgres nspacl=NULL、
+--    造 NOINHERIT 登入角色 `l1_cli_login` 並 GRANT postgres 與 service_role,
+--    連進來先 `SET SESSION ROLE postgres` 再跑本檔,之後模擬 CLI 寫帳本):
+--      · 舊寫法(且已有 BEGIN/COMMIT)⇒ 三物件 **建成功(3)**,
+--        而帳本 `INSERT` 炸 `permission denied for schema supabase_migrations` ⇒ **帳本 0 列**
+--        🔴 **加了 BEGIN/COMMIT 也修不掉它** —— 那個組合是 session 層,COMMIT 之後仍然有效。
+--      · 改用 `SET LOCAL ROLE` 並拿掉三處 ⇒ rc=0、三物件 3、**帳本 1 列**。
+--    ⇒ 症狀差別:前者是「SQL 生效而帳沒記」⇒ 下次 db push 重跑本檔 ⇒ 本檔刻意不冪等 ⇒ 42723 卡死。
+--    ⚠️ **代價,照實寫**:`SET LOCAL ROLE` 到交易結束才還原 ⇒ **本檔後面那個負向斷言區塊
+--       是以 `service_role` 的身分在跑**(2026-08-25 實測 `current_user=service_role`)。
+--       已驗它沒有因此變鈍,而**突變不夠、要配一發靜態證明**(codex 2026-08-25 指出:
+--       三道 REVOKE 突變只覆蓋 ACL 撤銷,覆蓋不到「斷言依賴執行者身分」那一族):
+--         · 動態:三道 REVOKE 逐一砍掉 ⇒ 各紅各的那一格、訊息指名;正對照 rc=0
+--         · 靜態(2026-08-25 重量;🔴 **區域用字面錨,不要寫序數** ——
+--           原本寫「第一個 `DO` 區塊之後」而本檔有**三個** `DO $$`,
+--           那組數字只在【`SET LOCAL ROLE service_role;` 所在那個 `DO` 的 `END $$;` 之後】成立;
+--           照「第一個」讀會量到完全不同的數 ⇒ 同一句話有一個會讀成假的讀法。code-reviewer 抓到):
+--           **區域 = 從 `SET LOCAL ROLE service_role;` 所在那個 `DO` 的 `END $$;` 到檔尾**
+--             可執行行數 **39**
+--             `has_*_privilege` **3** 處,第一個參數**全部是 `v_role`**(受測角色 anon/authenticated)
+--               ⇒ 執行者是誰不影響結果
+--             `current_user` / `session_user` **0** 處
+--             直接查詢型斷言(`FROM public.` / `PERFORM`)**0** 處
+--             那 4 個 `EXCEPTION` 全是 `RAISE EXCEPTION`(斷言失敗),不是依賴查詢失敗的 handler
+--           🔴 負對照 = 同一組尺餵**那個 `DO` 區塊自己**:
+--             `current_user`/`session_user` **3** · `FROM public.`/`PERFORM` **3** · `has_*_privilege` **0**
+--             ⇒ 尺是活的。
+--           ⚠️ **原本這裡寫「3 / 2 / 3」,那組數字重現不出來**(code-reviewer 三個候選區塊各量一次
+--              都對不上)⇒ 已作廢並重量。**一個重現不出來的負對照,比沒有負對照更糟。**
+--       ⇒ 但**「以 service_role 跑」仍是一個行為改變**,日後在此之後加語句的人要知道:
+--          **新加的斷言必須把受測角色寫成參數,不可以依賴「我現在是誰」。**
+--       📌 而 EXCEPTION 分支不需要手動還原角色(codex 2026-08-25):PL/pgSQL 的 `EXCEPTION`
+--          是子交易語意,被捕捉的錯誤會把區塊內的 `SET LOCAL ROLE` 一起回滾;未捕捉的例外
+--          讓整筆交易 abort,同樣不會把角色帶到成功的台帳 INSERT。
 DO $$
 DECLARE
   v_user text;
   v_n    bigint;
 BEGIN
-  SET ROLE service_role;
+  SET LOCAL ROLE service_role;
 
   v_user := current_user;  -- 🔴 current_user 是 SQL 關鍵字,不是 pg_catalog 的函式(2026-08-22 本機實跑撞到)
   IF v_user <> 'service_role' THEN
-    RESET ROLE;
-    RAISE EXCEPTION 'E4-a:SET ROLE 沒生效(current_user=%)⇒ 下面的查詢會用錯的角色跑出假綠', v_user;
+    RAISE EXCEPTION 'E4-a:SET LOCAL ROLE 沒生效(current_user=%)⇒ 下面的查詢會用錯的角色跑出假綠', v_user;
   END IF;
 
   -- 🔴 真的查。查得動 = view 與**六張底表**的 SELECT 都在。
@@ -293,11 +420,8 @@ BEGIN
     '00000000-0000-0000-0000-0000000000a1'::uuid,
     '00000000-0000-0000-0000-0000000000b2'::uuid
   );
-
-  RESET ROLE;
 EXCEPTION
   WHEN insufficient_privilege THEN
-    RESET ROLE;
     RAISE EXCEPTION 'E4-a:service_role 查不動(42501)⇒ 掃描器會安靜地撈到 0 列。缺的是 view 或某張底表的 SELECT';
 END $$;
 
@@ -366,3 +490,5 @@ END $$;
 --   DROP VIEW IF EXISTS public.pcm_shipped_email_unsendable;
 --   DROP VIEW IF EXISTS public.pcm_shipped_email_pending;
 --   DROP FUNCTION IF EXISTS public.pcm_shipped_email_dedup_key(uuid, uuid);
+
+COMMIT;
