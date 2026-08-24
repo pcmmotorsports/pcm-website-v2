@@ -1,0 +1,268 @@
+import {
+  MANUAL_ORDER_CUSTOMER_FIELD,
+  MANUAL_ORDER_INVOICE_CARRIER_FIELD,
+  MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD,
+  MANUAL_ORDER_INVOICE_TAX_ID_FIELD,
+  MANUAL_ORDER_INVOICE_TITLE_FIELD,
+  MANUAL_ORDER_INVOICE_TYPE_FIELD,
+  MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
+  MANUAL_ORDER_REQUEST_ID_FIELD,
+  MANUAL_ORDER_SHIPPING_FEE_FIELD,
+  MANUAL_ORDER_SHIPPING_METHOD_FIELD,
+  MANUAL_ORDER_SHIP_TO_LINE_FIELD,
+  MANUAL_ORDER_SHIP_TO_NAME_FIELD,
+  MANUAL_ORDER_SHIP_TO_PHONE_FIELD,
+  MANUAL_ORDER_SOURCE_FIELD,
+} from '@/lib/orders/manual-order-form';
+import type { ManualCustomerCandidate } from '@/lib/customers/manual-customer';
+import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
+
+// manual-order-form-body.tsx — M12-A3-b:手動建單表單本體(客人 / 經手人 / 收件 / 發票 / 運費)。
+// 🔴 **品項那一列不在本片**(A3-c)。本片先讓「一張沒有品項的單」在畫面上成立,
+//    而它送出去會被 RPC 的 `G6` 擋(`p_lines` 空陣列)—— **那是刻意的**:
+//    先把承重的三件(經手人來源 / 冪等鍵生命週期 / 停用態)做對,再長品項。
+//
+// 🔴 **零 client state、純 server component** —— 照取消片 PRG 那條路
+//    (`cancel-actions.ts:29-33` 逐字:混合形在 React 19 的 form reset 競態下四輪修不穩)。
+//
+// 🔴🔴 **兩段式,而那是 codex R1 must-fix 逼出來的形狀**:
+//    原本搜尋框與建單表單同時在畫面上 ⇒ 員工填好運費 150 與地址之後按「找客人」
+//    ⇒ GET 導頁 ⇒ **整份表單重建,運費無聲回到 0** ⇒ 他補完必填欄就**少收 150**。
+//    ⇒ 改成:**選到客人之前不出建單表單**。搜尋不可能清掉還沒開始填的東西
+//      —— 這不是「小心一點」,是把那個時間窗**拿掉**。
+
+/** 這一頁的表單值。**沒有 actor 這一格,而那是承重的**(見 `manual-order-actions.ts`)。 */
+export type ManualOrderFormBodyProps = {
+  /** 這一次的冪等鍵。🔴 **由頁面決定**:失敗導回時沿用 URL 帶回來的那顆,否則鑄新的。 */
+  manualRequestId: string;
+  /** 啟用中的員工。**空陣列 = 整張表單停用**。 */
+  activeStaff: ReadonlyArray<{ id: string; label: string }>;
+  /** 依電話查到的客人候選(可空)。 */
+  candidates: ReadonlyArray<ManualCustomerCandidate>;
+  /** 查回來的候選被上限截斷 ⇒ 畫面必須說出來(靜默截斷讓員工以為就這幾個)。 */
+  candidatesTruncated: boolean;
+  /** 員工這次搜的電話原字面(回填搜尋框)。 */
+  phoneQuery: string;
+  /** 已經選定的客人。🔴 `null` = **不出建單表單**(兩段式,見檔頭)。 */
+  selectedCustomer: ManualCustomerCandidate | null;
+  /**
+   * 客人查詢是不是壞掉了。
+   * 🔴 **「查壞了」與「查無」不得印同一個畫面**(codex R1 must-fix):
+   *    後者要他去建客人(做得到),前者要他找人 —— 他建再多客人都沒用。
+   */
+  lookupFailed: boolean;
+  /** 員工名單讀不到。🔴 讀不到時**不出**「還沒有建立員工」那一句(頁面那層會說「讀不到」)。 */
+  staffLoadFailed: boolean;
+};
+
+export function ManualOrderFormBody({
+  manualRequestId,
+  activeStaff,
+  candidates,
+  candidatesTruncated,
+  phoneQuery,
+  selectedCustomer,
+  lookupFailed,
+  staffLoadFailed,
+}: ManualOrderFormBodyProps) {
+  const noStaff = activeStaff.length === 0;
+  // 🔴 **那句指路只在【真的沒有員工】時出** —— 名單讀不到時由頁面那層說話,
+  //    兩句同時在畫面上會互相矛盾(codex R1 nit),而它們的下一步相反。
+  const showNoStaffNotice = noStaff && !staffLoadFailed;
+
+  return (
+    <div className='space-y-4'>
+      {/* 🔴 停用態:staff 空 ⇒ 整張表單停用 + 一句話指路(Sean 2026-08-24 裁「甲」)。
+          文案寫【怎麼做】不寫內部語彙 —— 不是「staff 表為空」。 */}
+      {showNoStaffNotice && (
+        <div
+          role='status'
+          data-testid='manual-order-no-staff'
+          className='rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700'
+        >
+          還沒有建立員工。請先到
+          <a className='underline' href='/settings/staff'>
+            【設定 → 員工】
+          </a>
+          新增,才能建單。
+        </div>
+      )}
+
+      {/* 客人查詢:獨立 GET 表單,不與建單表單巢狀(HTML 不允許 form 巢狀)。
+          🔴🔴 **選定客人之後就不出它**(codex R2 新發現 must-fix):
+          我原本以為「兩段式」已經把清值那條路拿掉了 —— **沒有**。
+          搜尋框留在畫面上 ⇒ 員工填完地址與運費再按一次「找客人」⇒ 值照樣全部消失。
+          ⇒ 要換人請走表單裡那個「換一位」(它會回到還沒填東西的狀態)。 */}
+      {selectedCustomer === null && (
+      <form method='get' action='/orders/new' className='flex gap-2'>
+        <input type='hidden' name='mrid' value={manualRequestId} />
+        <label className='sr-only' htmlFor='manual-order-phone'>
+          客人電話
+        </label>
+        <input
+          id='manual-order-phone'
+          name='phone'
+          defaultValue={phoneQuery}
+          placeholder='用電話找客人'
+          className='w-56 rounded-md border px-2 py-1 text-sm'
+        />
+        <button type='submit' className='rounded-md border px-3 py-1 text-sm'>
+          找客人
+        </button>
+      </form>
+      )}
+
+      {candidatesTruncated && (
+        <p role='status' className='text-sm text-amber-700'>
+          符合的帳號太多,下面只列出前面幾個。請把電話打完整一點再找一次。
+        </p>
+      )}
+      {phoneQuery !== '' && candidates.length === 0 && !lookupFailed && (
+        <p role='status' className='text-muted-foreground text-sm'>
+          這支電話找不到客人。請先到【客人】頁建立這位客人,再回來建單。
+        </p>
+      )}
+
+      {selectedCustomer === null && candidates.length > 0 && (
+        <ul className='space-y-1' data-testid='manual-order-candidates'>
+          {candidates.map((c) => (
+            <li key={c.userId}>
+              <a
+                className='underline'
+                // 🔴 **`phone` 一定要帶**(codex R2 新發現 must-fix):
+                //    頁面是靠「這次查回來的候選」去核 `customer` 的,少了 `phone`
+                //    ⇒ 重載後候選是空的 ⇒ `customer` 被判無效 ⇒ **點誰都選不上**。
+                //    ⚠️ 我的測試原本只斷言 href 含 `mrid` 與 `customer` ⇒ 這一格是我的盲區。
+                href={`/orders/new?mrid=${manualRequestId}&phone=${encodeURIComponent(phoneQuery)}&customer=${encodeURIComponent(c.userId)}`}
+              >
+                {c.name}({c.phone ?? '沒有電話'}){c.isManual ? ' · 後台開的帳號' : ''}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {selectedCustomer === null ? (
+        <p className='text-muted-foreground text-sm' data-testid='manual-order-pick-first'>
+          先選一位客人,才會出現建單表單。
+        </p>
+      ) : (
+      <form action={createManualOrderAction} className='space-y-4'>
+        {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
+        <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
+
+        {/* 🔴 **中間態要講出來**(codex R1 must-fix):品項那一列在 A3-c,
+            而**少了它這張單一定被解析器擋下**(`p_lines` 空)⇒ 現在按送出必然失敗。
+            不說的話員工會以為是自己填錯。 */}
+        <div
+          role='status'
+          data-testid='manual-order-lines-todo'
+          className='rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700'
+        >
+          品項還沒做好,所以這張表單現在還不能真的建單。填的內容按下去會被擋下來。
+        </div>
+
+        <fieldset disabled={noStaff} className='space-y-4'>
+          {/* 🔴 客人是**已經選定**的,不是表單上的一個下拉:兩段式之後這一格只剩「帶著走」。
+              值仍然逐字送出去(RPC 的 G3 會再驗一次這位客人存不存在)。 */}
+          <input type='hidden' name={MANUAL_ORDER_CUSTOMER_FIELD} value={selectedCustomer!.userId} />
+          <p className='text-sm'>
+            客人:{selectedCustomer!.name}({selectedCustomer!.phone ?? '沒有電話'})
+            <a className='ml-2 underline' href={`/orders/new?mrid=${manualRequestId}`}>
+              換一位
+            </a>
+          </p>
+
+          {/* 🔴 **這裡刻意【沒有】經手人下拉**(codex R1 must-fix)。
+              原本擺了一個 disabled 的下拉顯示 `activeStaff[0]` —— 而真正寫進稽核的 actor
+              來自授權閘的 cookie 身分。**登入的是 Bob 而排序第一位是 Alice 時,
+              畫面說 Alice、帳上寫 Bob** ⇒ 一個會說謊的欄位比沒有欄位糟。
+              ⇒ 要顯示經手人的話,值必須來自 `getSessionActor()` 那一個來源;那是另一片。 */}
+
+          <div className='grid grid-cols-2 gap-3'>
+            <label className='block text-sm'>
+              訂單來源
+              <select name={MANUAL_ORDER_SOURCE_FIELD} className='mt-1 block w-full rounded-md border px-2 py-1'>
+                <option value='manual_phone'>電話</option>
+                <option value='manual_line'>LINE</option>
+                <option value='manual_other'>其他</option>
+              </select>
+            </label>
+            <label className='block text-sm'>
+              付款方式
+              <select
+                name={MANUAL_ORDER_PAYMENT_CHANNEL_FIELD}
+                className='mt-1 block w-full rounded-md border px-2 py-1'
+              >
+                <option value='bank_transfer'>匯款</option>
+                <option value='cash'>現金</option>
+              </select>
+            </label>
+            <label className='block text-sm'>
+              取貨方式
+              <select
+                name={MANUAL_ORDER_SHIPPING_METHOD_FIELD}
+                className='mt-1 block w-full rounded-md border px-2 py-1'
+              >
+                <option value='home'>宅配</option>
+                <option value='store'>門市自取</option>
+              </select>
+            </label>
+            <label className='block text-sm'>
+              運費
+              <input
+                name={MANUAL_ORDER_SHIPPING_FEE_FIELD}
+                inputMode='numeric'
+                defaultValue='0'
+                className='mt-1 block w-full rounded-md border px-2 py-1'
+              />
+            </label>
+          </div>
+
+          <fieldset className='space-y-2 rounded-md border p-3'>
+            <legend className='px-1 text-sm'>收件資料</legend>
+            <input
+              name={MANUAL_ORDER_SHIP_TO_NAME_FIELD}
+              placeholder='收件人'
+              required
+              className='block w-full rounded-md border px-2 py-1'
+            />
+            <input
+              name={MANUAL_ORDER_SHIP_TO_PHONE_FIELD}
+              placeholder='電話'
+              required
+              className='block w-full rounded-md border px-2 py-1'
+            />
+            <input
+              name={MANUAL_ORDER_SHIP_TO_LINE_FIELD}
+              placeholder='地址'
+              required
+              className='block w-full rounded-md border px-2 py-1'
+            />
+          </fieldset>
+
+          <fieldset className='space-y-2 rounded-md border p-3'>
+            <legend className='px-1 text-sm'>發票</legend>
+            <select
+              name={MANUAL_ORDER_INVOICE_TYPE_FIELD}
+              className='block w-full rounded-md border px-2 py-1'
+            >
+              <option value='personal'>個人</option>
+              <option value='company'>公司</option>
+              <option value='donate'>捐贈</option>
+            </select>
+            <input name={MANUAL_ORDER_INVOICE_CARRIER_FIELD} placeholder='載具(選填)' className='block w-full rounded-md border px-2 py-1' />
+            <input name={MANUAL_ORDER_INVOICE_TITLE_FIELD} placeholder='抬頭(公司才填)' className='block w-full rounded-md border px-2 py-1' />
+            <input name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className='block w-full rounded-md border px-2 py-1' />
+            <input name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className='block w-full rounded-md border px-2 py-1' />
+          </fieldset>
+
+          <button type='submit' className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground'>
+            建立訂單
+          </button>
+        </fieldset>
+      </form>
+      )}
+    </div>
+  );
+}

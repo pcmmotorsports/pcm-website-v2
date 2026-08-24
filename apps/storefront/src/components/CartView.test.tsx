@@ -251,10 +251,19 @@ describe('CartView(M-3-S2-b2-d)', () => {
     render(<CartView />);
     await screen.findByText('碳纖維車台護蓋');
 
-    const input = screen.getByRole('textbox', { name: '數量' });
+    const input = screen.getByRole<HTMLInputElement>('textbox', { name: '數量' });
     fireEvent.change(input, { target: { value: '0' } });
     fireEvent.blur(input);
-    expect(updateQty).toHaveBeenCalledWith(item, 1);
+    // 🔴 #886:失敗時把【輸入框當下的值】一起吐出來。**期望值一個字沒動** ——
+    //   探針量到兩個機制造得出同一個指紋(恰好一次呼叫、值 1),而 CI 只留下次數與值 ⇒ 分不出來:
+    //     r3 React 的 value tracker 脫鉤 ⇒ onChange 被吞 ⇒ 框裡留著 "150",state 是 '1'
+    //     r4 blur 當下框是空的           ⇒ commit('') ⇒ NaN ⇒ 走 `: 1`,框裡留著 "1"
+    //   ⇒ **`input.value` 是唯一分得出這兩個的東西**,而它下次紅的時候才拿得到。
+    //   (值與五格探針:`~/pcm-mailbox/線C-交件-886探針結果-20260824.md` §2)
+    expect(updateQty, `#886 診斷:input.value=${JSON.stringify(input.value)}`).toHaveBeenCalledWith(
+      item,
+      1,
+    );
   });
 
   it('數量輸入框:打 >99 失焦 → 夾到 99 並顯示提示,updateQty 收到 99', async () => {
@@ -264,10 +273,19 @@ describe('CartView(M-3-S2-b2-d)', () => {
     render(<CartView />);
     await screen.findByText('碳纖維車台護蓋');
 
-    const input = screen.getByRole('textbox', { name: '數量' });
+    const input = screen.getByRole<HTMLInputElement>('textbox', { name: '數量' });
     fireEvent.change(input, { target: { value: '150' } });
     fireEvent.blur(input);
-    expect(updateQty).toHaveBeenCalledWith(item, 99);
+    // 🔴 #886:失敗時把【輸入框當下的值】一起吐出來。**期望值一個字沒動** ——
+    //   探針量到兩個機制造得出同一個指紋(恰好一次呼叫、值 1),而 CI 只留下次數與值 ⇒ 分不出來:
+    //     r3 React 的 value tracker 脫鉤 ⇒ onChange 被吞 ⇒ 框裡留著 "150",state 是 '1'
+    //     r4 blur 當下框是空的           ⇒ commit('') ⇒ NaN ⇒ 走 `: 1`,框裡留著 "1"
+    //   ⇒ **`input.value` 是唯一分得出這兩個的東西**,而它下次紅的時候才拿得到。
+    //   (值與五格探針:`~/pcm-mailbox/線C-交件-886探針結果-20260824.md` §2)
+    expect(updateQty, `#886 診斷:input.value=${JSON.stringify(input.value)}`).toHaveBeenCalledWith(
+      item,
+      99,
+    );
     expect(screen.getByText('已達購買上限 99')).toBeTruthy();
   });
 });

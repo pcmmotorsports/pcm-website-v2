@@ -33,6 +33,8 @@ import {
   ORDER_AMOUNT_REJECTED_RESULT_CODE,
 } from '../../lib/orders/amount-action-state';
 
+import { manualOrderResultCode } from '@/lib/orders/manual-order-action-state';
+
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
 
@@ -42,6 +44,59 @@ import {
 //    **新增任何一顆沒被歸類的碼都會轉紅** —— 那時要做的是去測試裡把它歸到對的線,不是放寬斷言。
 export const MESSAGES: Readonly<Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>> =
   Object.freeze({
+  // ── M12-A3-b 手動建單線(`#858`)八顆(沒送到 2 + 送到之後 6) ────────────────────────────────────────
+  // 🔴 **全部帶 `manual_order_` 前綴**:`denied` / `invalid` / `error` 這三個字面在本表裡
+  //    已經被改單線用掉了,而**兩條線的下一步不一樣** ⇒ 撞號在畫面上長得像「訊息偶爾會不對」。
+  // 🔴🔴 **`concurrent` 與 `mismatch` 這兩句必須讓員工做出【相反】的動作**,不得共用、不得互換:
+  //    前者「再按一次」是因為那一刻可能已經有人在寫同一顆鍵;
+  //    後者「不要重送」是因為那顆鍵已經建過一張單了。
+  //    ⇒ 弄反的代價:`mismatch` 唸成「再按一次」= 叫他去撞一顆已經用掉的鍵(永遠不會成功、他會一直按);
+  //      `concurrent` 唸成「不要重送」= 他放棄一張其實還沒建成的單。
+  //    ⇒ `result-banner.test.tsx` 有一格逐字釘住這兩句不得互換。
+  // ⚠️ **這七句都是【固定文案】,不是 RPC 說的原話**(M12-A3 plan Q1=甲,主視窗 2026-08-24 裁)。
+  //    RPC 的原文只進 log —— 因為 `?r=` 是任何人都能自己打的字,把它放進 URL
+  //    = 讓任何人對員工顯示任意一句「系統說的話」。
+  [manualOrderResultCode('denied')]: {
+    text: '你的登入已經過期。請重新登入之後再建一次。',
+    tone: 'error',
+  },
+  [manualOrderResultCode('invalid')]: {
+    // 🔴 不寫「檢查紅字那幾格」(codex R1 nit):導頁之後表單是重新繪的,**畫面上沒有紅字**
+    //    ⇒ 那句話會讓他去找一個不存在的東西。
+    text: '表單有欄位沒填好,這張單沒有建出來。請重新填一次,每一格都要填。',
+    tone: 'warn',
+  },
+  [manualOrderResultCode('concurrent')]: {
+    text: '有另一個人同時在送這張單。請【再按一次送出】——不要重開表單。',
+    tone: 'warn',
+  },
+  [manualOrderResultCode('mismatch')]: {
+    // 🔴🔴 **不得叫他直接放棄**(codex R1 must-fix):`?r=` 是任何人都能自己打的字
+    //    ⇒ 一句「已經建過了,不要再送」貼在一張其實從沒建成的單上,
+    //    會讓他**放棄一張真的還沒建的訂單**。
+    //    ⇒ 文案改成叫他**去確認**(那個動作在兩個世界都是對的),而不是叫他停手。
+    text: '這個編號可能已經建過一張單了,而內容不一樣。【先不要再按送出】——請去訂單列表找一下這位客人的單:有,就去那張單上改;沒有,再重開一張空白表單。',
+    tone: 'warn',
+  },
+  [manualOrderResultCode('exhausted')]: {
+    text: '系統現在產不出單號,已經通知維護。請稍後再試,不要重複按。',
+    tone: 'error',
+  },
+  // 🔴 `bug` 這一顆 **第一版漏掉了**(codex R1 must-fix):送到 RPC 之後的失敗有六支,
+  //    而我只登錄了五支 ⇒ RPC 已寫入但回傳形狀漂移時,員工會拿到**一張空白表單、零訊息**,
+  //    然後很可能換一顆新鍵再建一張。⇒ 「零碰撞」那格數的是鍵集合,數不出「少一顆」。
+  [manualOrderResultCode('bug')]: {
+    text: '這張單送出去之後系統回了看不懂的東西,它可能已經建好了。請先去訂單列表找一下這位客人的新單:有就不要再按;沒有請找人看一下,不要重複送。',
+    tone: 'error',
+  },
+  [manualOrderResultCode('rejected')]: {
+    text: '這張單建不出來。請重新整理表單、確認客人與經手人都還在,再試一次。',
+    tone: 'error',
+  },
+  [manualOrderResultCode('error')]: {
+    text: '建單可能已經寫進去了,也可能沒有。請先去訂單列表找一下這位客人的新單:有就不要再按;沒有再送一次(編號不變,不會建成兩張)。',
+    tone: 'error',
+  },
   saved: { text: '已儲存變更。', tone: 'ok' },
   noop: { text: '沒有變更(內容與原本相同)。', tone: 'ok' },
   conflict: { text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。', tone: 'warn' },

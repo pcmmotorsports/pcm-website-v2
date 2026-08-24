@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { LISTING_NOOP_NOTE_DROPPED_RESULT_CODE } from '../../lib/products/product-listing-form';
+import { manualOrderResultCode } from '../../lib/orders/manual-order-action-state';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { MESSAGES, ResultBanner } from './result-banner';
@@ -174,6 +175,73 @@ const PROTOTYPE_CHAIN_KEYS = [
   'hasOwnProperty',
 ] as const;
 
+describe('🔴🔴 M12-A3-b 手動建單:concurrent 與 mismatch 的下一步【相反】', () => {
+  // 弄反的代價:
+  //   mismatch 唸成「再按一次」 ⇒ 叫他去撞一顆已經用掉的鍵, 永遠不會成功, 而他會一直按
+  //   concurrent 唸成「不要重送」 ⇒ 他放棄一張其實還沒建成的單
+  const concurrent = MESSAGES[manualOrderResultCode('concurrent')]!.text;
+  const mismatch = MESSAGES[manualOrderResultCode('mismatch')]!.text;
+
+  it('兩句話不得相同(共用一則 = 兩個相反的下一步印同一句)', () => {
+    expect(concurrent).not.toBe(mismatch);
+  });
+
+  it('concurrent 叫他【再按一次】, 而且沒有叫他不要送', () => {
+    expect(concurrent).toContain('再按一次');
+    expect(concurrent).not.toContain('不要再送');
+  });
+
+  it('mismatch 叫他【先不要再按送出】, 而且沒有叫他再按一次', () => {
+    expect(mismatch).toContain('先不要再按送出');
+    expect(mismatch).not.toContain('再按一次');
+  });
+
+  it('🔴🔴 mismatch **不得叫他直接放棄** —— 它要叫他【去確認】(codex R1 must-fix)', () => {
+    // `?r=` 是任何人都能自己打的字 ⇒ 一句「已經建過了」貼在一張從沒建成的單上,
+    // 會讓他放棄一張真的還沒建的訂單。⇒ 文案要叫他做一個【兩個世界都對】的動作。
+    expect(mismatch).toContain('訂單列表');
+    for (const giveUp of ['已經建過了,不要', '不用再處理', '放棄']) {
+      expect(mismatch).not.toContain(giveUp);
+    }
+  });
+
+  it('🔴 送到 RPC 之後的六支碼【一顆都不能少】(bug 第一版就漏掉了)', () => {
+    // 漏一顆的症狀:員工拿到一張空白表單、零訊息, 然後很可能換新鍵再建一張。
+    // 而「零碰撞」那一格數的是鍵集合, **數不出「少一顆」**。
+    for (const code of ['concurrent', 'mismatch', 'exhausted', 'rejected', 'bug', 'error'] as const) {
+      expect(Object.hasOwn(MESSAGES, manualOrderResultCode(code))).toBe(true);
+    }
+  });
+
+  it('🔴 每一句都要能讓他【自己查證】, 不得只叫他相信畫面', () => {
+    for (const code of ['mismatch', 'bug', 'error'] as const) {
+      // 這三支的共同處境 = 「那張單可能已經存在」⇒ 唯一安全的下一步是去看訂單列表。
+      expect(MESSAGES[manualOrderResultCode(code)]!.text).toContain('訂單列表');
+    }
+  });
+
+  it('🔴 兩句都要講【他該做什麼】, 不得只講發生了什麼', () => {
+    // Sean 2026-08-11 常設準則:文案寫怎麼做, 不寫內部語彙。
+    for (const text of [concurrent, mismatch]) {
+      expect(text).toMatch(/請|不要/);
+      // 內部語彙不得外洩到員工畫面
+      for (const jargon of ['P858A', 'P858B', 'SQLSTATE', 'RPC', 'idempotent', 'manual_request_id']) {
+        expect(text).not.toContain(jargon);
+      }
+    }
+  });
+
+  it('🔴 負對照:七句【每一句】都不得含內部語彙(不是只有這兩句)', () => {
+    for (const code of ['denied', 'invalid', 'concurrent', 'mismatch', 'exhausted', 'bug', 'rejected', 'error'] as const) {
+      const text = MESSAGES[manualOrderResultCode(code)]!.text;
+      expect(text.length).toBeGreaterThan(8);
+      for (const jargon of ['P858', 'SQLSTATE', 'RPC', 'idempotent', 'null', 'undefined']) {
+        expect(text).not.toContain(jargon);
+      }
+    }
+  });
+});
+
 describe('ResultBanner — 非自有 key 一律不渲染(#332-2)', () => {
   it.each(PROTOTYPE_CHAIN_KEYS)(
     '原型鏈屬性名 %s 當作 ?r= 傳進來時什麼都不畫',
@@ -327,6 +395,17 @@ describe('ResultBanner — A13b D1 取消線結果碼', () => {
       ORDER_AMOUNT_REJECTED_RESULT_CODE,
       // 🔴 M-4b #20 上下架線只登錄這一顆(saved/noop/not_found/invalid/denied/error 走裸碼)。
       LISTING_NOOP_NOTE_DROPPED_RESULT_CODE,
+      // 🔴 M12-A3-b 手動建單線八顆(`#858`;沒送到 2 + 送到之後 6)。**本格在我把它們加進 MESSAGES 的當下真的紅過**
+      //    (2026-08-24 實跑,`1 failed | 31 passed (32)`)—— 那是它有判別力的證據,不是推的。
+      //    ⚠️ 逐顆列出、不用迴圈展開:迴圈會讓「有人偷偷多加一顆 manual_order_xxx」也自動歸類。
+      manualOrderResultCode('denied'),
+      manualOrderResultCode('invalid'),
+      manualOrderResultCode('concurrent'),
+      manualOrderResultCode('mismatch'),
+      manualOrderResultCode('exhausted'),
+      manualOrderResultCode('bug'),
+      manualOrderResultCode('rejected'),
+      manualOrderResultCode('error'),
     ];
 
     // ① 表裡沒有第三種鍵(新增未歸類的碼 → 紅)
