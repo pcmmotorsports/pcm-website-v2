@@ -21,9 +21,17 @@ import { MANUAL_ORDER_PATH, manualOrderResultQuery } from './manual-order-action
 //     不是靠下一個人記得把 `redirect()` 寫在 try 外面(備註片 `note-actions.ts:28-30` 的教訓)
 //   · **本檔沒有一行稽核 code** —— RPC 的 `G9` 在同交易寫 `admin_audit_log`
 //
-// 🔴🔴 **本 action 目前【零呼叫端】** —— `/orders/new` 那一頁還不存在
+// ⛔ ~~🔴🔴 **本 action 目前【零呼叫端】** —— `/orders/new` 那一頁還不存在
 //    (`ls apps/admin/src/app/orders` ⇒ `[id]` / `page.tsx` / `refund-exceptions`,2026-08-24 當場量)。
-//    ⇒ **它必須與表單頁同一片上線**;先推它會讓每一條失敗路徑導去一個 404。
+//    ⇒ **它必須與表單頁同一片上線**;先推它會讓每一條失敗路徑導去一個 404。~~
+// ✅ **它有呼叫端了**:`components/orders/manual-order-form-body.tsx` 的 `<form action={…}>`,
+//    頁面在 `app/orders/new/page.tsx`。
+// 🔴🔴 **而上面那句是【什麼時候】變假的,值得記一筆**:它在 **A3-b 落地的當天**就假了
+//    (那一片同時建了頁面與 `<form action={…}>`),而**它躺到 A3-c 才被發現**。
+//    ⇒ 寫下「目前零呼叫端」的人**沒有辦法知道**它哪一天會變假 —— 那一天是別人做的事。
+//    ⇒ 所以本檔的測試裡有一格**去掃原始碼**釘住這件事:
+//      `manual-order-actions.test.ts` 的「本 action 必須有呼叫端」那一格。
+//      **中間態的宣稱要有守門,不然它只會在下一個人碰巧讀到時才被更正。**
 //
 // ⚠️ **plan §3-③ 有一格本片【刻意沒做】,不是忘了**:那張表寫「其他 `P0001` ⇒ 原樣顯示 RPC 訊息」。
 //    本片只把**代碼**放進 URL、把訊息寫進 log。理由:`?r=` 是任何人都能自己打的字

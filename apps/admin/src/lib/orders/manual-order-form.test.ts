@@ -28,7 +28,16 @@ const FIELDS = {
   title: 'invoice_title',
   taxId: 'invoice_tax_id',
   donateCode: 'invoice_donate_code',
-  item: 'manual_order_line',
+  // 🔴 A3-c 起是**六個平行的原生欄位**(原本 `~~manual_order_line~~` 一個 JSON 欄已退場)。
+  // 這六個字面同樣是**手打的**,理由同上:從常數走訪會讓「少一欄」變成全綠。
+  // 🔴 **帶列號 `_0`** —— 少了它, 下面那組「送的不是字串」的測試會把檔案塞進一個
+  //    **沒有人會讀的欄名** ⇒ 解析器一路綠 ⇒ **那六格全部假綠**。我踩過一次。
+  lineSku: 'line_sku_0',
+  lineTitle: 'line_title_0',
+  lineQty: 'line_qty_0',
+  lineUnitPrice: 'line_unit_price_0',
+  lineVariant: 'line_variant_id_0',
+  lineSpec: 'line_spec_0',
 } as const;
 
 const UUID_A = '11111111-1111-4111-8111-111111111111';
@@ -42,13 +51,31 @@ function form(entries: Array<[string, string]>): ManualOrderFormLike {
   };
 }
 
-const LINE = JSON.stringify({
-  sku: 'PCM-001',
-  title: '排氣管',
-  qty: 2,
-  unit_price: 12000,
-  variant_id: VARIANT,
-  spec: { color: '黑' },
+type LineOver = Partial<Record<'sku' | 'title' | 'qty' | 'unitPrice' | 'variantId' | 'spec', string>>;
+
+/**
+ * 把**第 `index` 列**品項展開成六筆 `[欄名, 值]`。欄名帶列號(`line_sku_0` …)。
+ * 🔴 欄名的 `_${index}` 是**手打的字串拼接**,不呼叫 `manualOrderLineField()` ——
+ *    共用同一支拼接函式的話,拼錯了兩邊會一起錯而測試全綠。
+ */
+function lineRows(over: LineOver = {}, index = 0): Array<[string, string]> {
+  const v = { sku: 'S', title: 'T', qty: '1', unitPrice: '100', variantId: '', spec: '', ...over };
+  return [
+    [`line_sku_${index}`, v.sku],
+    [`line_title_${index}`, v.title],
+    [`line_qty_${index}`, v.qty],
+    [`line_unit_price_${index}`, v.unitPrice],
+    [`line_variant_id_${index}`, v.variantId],
+    [`line_spec_${index}`, v.spec],
+  ];
+}
+
+/** 基準那一列的六個欄名(要 drop 它時用)。 */
+const LINE_KEYS = lineRows().map(([k]) => k);
+
+const BASE_LINE = lineRows({
+  sku: 'PCM-001', title: '排氣管', qty: '2', unitPrice: '12000',
+  variantId: VARIANT, spec: JSON.stringify({ color: '黑' }),
 });
 
 function base(over: Array<[string, string]> = [], drop: string[] = []): ManualOrderFormLike {
@@ -63,7 +90,7 @@ function base(over: Array<[string, string]> = [], drop: string[] = []): ManualOr
     [FIELDS.phone, '0912345678'],
     [FIELDS.line, '台北市中正區某路 1 號'],
     [FIELDS.invoiceType, 'personal'],
-    [FIELDS.item, LINE],
+    ...BASE_LINE,
   ];
   return form([...rows.filter(([k]) => !drop.includes(k)), ...over]);
 }
@@ -101,9 +128,9 @@ describe('parseManualOrderForm:成功路徑的形狀', () => {
         base(
           [
             [FIELDS.name, '  王小明  '],
-            [FIELDS.item, JSON.stringify({ sku: ' PCM-001 ', title: ' 排氣管 ', qty: 1, unit_price: 1 })],
+            ...lineRows({ sku: ' PCM-001 ', title: ' 排氣管 ', qty: '1', unitPrice: '1' }),
           ],
-          [FIELDS.name, FIELDS.item],
+          [FIELDS.name, ...LINE_KEYS],
         ),
       ),
     );
@@ -185,64 +212,281 @@ describe('收件三格與運費', () => {
 });
 
 describe('品項', () => {
-  const line = (over: Record<string, unknown>) =>
-    JSON.stringify({ sku: 'S', title: 'T', qty: 1, unit_price: 100, ...over });
+  /** 只帶一列品項的表單(先把基準那列六格 drop 掉,再放進 `over`)。 */
+  const one = (over: LineOver = {}) => base(lineRows(over), [...LINE_KEYS]);
 
   it('一個品項都沒有 ⇒ 拒', () => {
-    expect(parseManualOrderForm(base([], [FIELDS.item])).ok).toBe(false);
+    expect(parseManualOrderForm(base([], [...LINE_KEYS])).ok).toBe(false);
   });
 
   it(`超過 ${MANUAL_ORDER_MAX_LINES} 筆 ⇒ 拒;剛好 ${MANUAL_ORDER_MAX_LINES} 筆 ⇒ 收`, () => {
-    const rows = (n: number): Array<[string, string]> =>
-      Array.from({ length: n }, (_, i) => [FIELDS.item, line({ sku: `S${i}` })] as [string, string]);
-    expect(parseManualOrderForm(base(rows(MANUAL_ORDER_MAX_LINES), [FIELDS.item])).ok).toBe(true);
-    expect(parseManualOrderForm(base(rows(MANUAL_ORDER_MAX_LINES + 1), [FIELDS.item])).ok).toBe(false);
+    const many = (n: number) => Array.from({ length: n }, (_, i) => lineRows({ sku: `S${i}` }, i)).flat();
+    expect(parseManualOrderForm(base(many(MANUAL_ORDER_MAX_LINES), [...LINE_KEYS])).ok).toBe(true);
+    expect(parseManualOrderForm(base(many(MANUAL_ORDER_MAX_LINES + 1), [...LINE_KEYS])).ok).toBe(false);
   });
 
   it.each([
     ['沒有料號', { sku: '  ' }],
     ['沒有品名', { title: '' }],
-    ['數量 0', { qty: 0 }],
-    ['數量非整數', { qty: 1.5 }],
-    ['數量是字串', { qty: '2' }],
-    [`數量超過 ${MANUAL_ORDER_MAX_QTY}`, { qty: MANUAL_ORDER_MAX_QTY + 1 }],
-    ['單價負數', { unit_price: -1 }],
-    ['單價非整數', { unit_price: 0.5 }],
-    ['規格值不是文字', { spec: { qty: 3 } }],
-    ['規格是陣列', { spec: [] }],
+    ['數量 0', { qty: '0' }],
+    ['數量非整數', { qty: '1.5' }],
+    ['數量帶正號', { qty: '+2' }],
+    ['數量前後有空白', { qty: ' 2 ' }],
+    ['數量是科學記號', { qty: '3e0' }],
+    [`數量超過 ${MANUAL_ORDER_MAX_QTY}`, { qty: String(MANUAL_ORDER_MAX_QTY + 1) }],
+    ['單價負數', { unitPrice: '-1' }],
+    ['單價非整數', { unitPrice: '0.5' }],
+    ['規格值不是文字', { spec: JSON.stringify({ qty: 3 }) }],
+    ['規格是陣列', { spec: '[]' }],
+    ['規格不是 JSON', { spec: '{oops' }],
+    // 🔴 codex R1 #5:舊的 JSON 版對 `spec: "   "` 會因「不是物件」而拒;用 `isBlank()` 會變 `{}`
+    //    ⇒ 又是一條被靜默放寬的規則。**完全沒送(空字串)才等於沒填。**
+    ['規格只有空白(不是沒送)', { spec: '   ' }],
   ])('%s ⇒ 拒', (_label, over) => {
-    expect(parseManualOrderForm(base([[FIELDS.item, line(over)]], [FIELDS.item])).ok).toBe(false);
+    expect(parseManualOrderForm(one(over as LineOver)).ok).toBe(false);
   });
 
-  it('整筆不是 JSON ⇒ 拒(不是丟例外)', () => {
-    expect(parseManualOrderForm(base([[FIELDS.item, '{oops']], [FIELDS.item])).ok).toBe(false);
+  it('variantId = 空字串(完全沒打字)⇒ 代購品項(variant_id 收斂成 null)', () => {
+    expect(ok(parseManualOrderForm(one())).lines[0]?.variant_id).toBeNull();
   });
 
-  it.each([
-    ['沒帶 variant_id', {}],
-    ['variant_id = null', { variant_id: null }],
-    ['variant_id = 空字串', { variant_id: '' }],
-  ])('%s ⇒ 代購品項(variant_id 收斂成 null)', (_label, over) => {
-    const values = ok(parseManualOrderForm(base([[FIELDS.item, line(over)]], [FIELDS.item])));
-    expect(values.lines[0]?.variant_id).toBeNull();
-  });
-
-  it('🔴 variant_id 是個不合法字串 ⇒ 拒,【不得】默默退化成代購品項', () => {
-    // 退化的後果:員工以為挑到了網站上那個商品, 系統建出來的卻是一個憑空的新品項。
-    const r = parseManualOrderForm(base([[FIELDS.item, line({ variant_id: 'not-a-uuid' })]], [FIELDS.item]));
+  it('🔴🔴 variantId = 【只有空白】⇒ 拒,不得靜默退化成代購', () => {
+    // ⛔ 這一格第一版被我寫成 `⇒ null`(當成沒填)——**那是把一條放寬的規則釘成期望值**,
+    //    而放寬之後沒有任何東西會紅。R1 抓到。
+    //    真實情境:從 Excel 貼一格帶前後空白的編號 ⇒ 建出一個沒連到商品的憑空品項。
+    const r = parseManualOrderForm(one({ variantId: '   ' }));
     expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain('商品編號');
+  });
+
+  it('🔴 variantId 是個不合法字串 ⇒ 拒,【不得】默默退化成代購品項', () => {
+    // 退化的後果:員工以為挑到了網站上那個商品, 系統建出來的卻是一個憑空的新品項。
+    expect(parseManualOrderForm(one({ variantId: 'not-a-uuid' })).ok).toBe(false);
   });
 
   it('沒帶 spec ⇒ 空物件', () => {
-    expect(ok(parseManualOrderForm(base([[FIELDS.item, line({})]], [FIELDS.item]))).lines[0]?.spec).toEqual({});
+    expect(ok(parseManualOrderForm(one())).lines[0]?.spec).toEqual({});
+  });
+
+  // 🔴 **邊界那一格,codex R1 #9 點名**:原本只驗 `MAX_QTY + 1` 被拒,
+  //    ⇒ 把 `qty > MAX_QTY` 改成 `>=` 的突變**會活著**(唯一用到 9999 的案例本來就因總額超限而預期失敗)
+  //    ⇒ 合法上限 9999 會被錯誤拒絕,而沒有東西會紅。**上界要兩邊都釘。**
+  it(`🔴 數量【剛好】 ${MANUAL_ORDER_MAX_QTY} ⇒ 收(單價壓低, 免得被總額上限接走而看不出是哪一格擋的)`, () => {
+    const values = ok(parseManualOrderForm(one({ qty: String(MANUAL_ORDER_MAX_QTY), unitPrice: '1' })));
+    expect(values.lines[0]?.qty).toBe(MANUAL_ORDER_MAX_QTY);
   });
 
   it('總金額超出 int4 上限 ⇒ 拒', () => {
-    const r = parseManualOrderForm(
-      base([[FIELDS.item, line({ qty: 9999, unit_price: 999999 })]], [FIELDS.item]),
-    );
+    const r = parseManualOrderForm(one({ qty: '9999', unitPrice: '999999' }));
     expect(r.ok).toBe(false);
     expect(r.ok === false && r.error).toContain('上限');
+  });
+
+  // ── 🔴 A3-c 新增的三族:拉鍊 / 空白列 / 列號 ────────────────────────────────
+  describe('🔴🔴 列與值的配對(本片最承重的一族)', () => {
+    // 🔴 **這一族在 codex R1 之後換了形狀。** 第一版是六個同名可重複欄位 + 「長度全等」拉鍊,
+    //    而 codex 打破了它:一格 `disabled` 不送 + 尾端一個同名殘留欄位
+    //    ⇒ **六欄仍然等長, 而配對錯開** ⇒ 建出一張每格合法而內容全錯的單。
+    //    ⇒ 現在欄名自己帶列號(`line_sku_0`)⇒ **那一整族不存在了**, 不是被擋下來。
+    //    📌 **「六個東西數量一樣多」不等於「它們配對正確」。要驗配對, 就得有配對的鍵。**
+    it('某一列少送一格 ⇒ 拒,走【線路層】那句話(不是靜默補空、也不是整列消失)', () => {
+      // ⚠️ **這一格的期望值在 Fable R3 之後改過**:原本斷言「第 2 個品項」——
+      //    那是把「缺格」當成「那一列內容不合格」。**它不是** ——
+      //    欄位整個沒送是**線路層**出事(頁面沒載完 / 欄位被拔掉), 員工的下一步是**重新整理**,
+      //    不是「去把第 2 列填好」(他畫面上那一列可能填得好好的)。
+      //    🔴 訊息要指向他**做得到的下一步**, 而那取決於是哪一層壞掉。
+      const rows = [...lineRows({ sku: 'A', unitPrice: '10' }), ...lineRows({ sku: 'B', unitPrice: '20' }, 1)]
+        .filter(([k]) => k !== 'line_unit_price_1');
+      const r = parseManualOrderForm(base(rows, [...LINE_KEYS]));
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toContain('重新整理');
+    });
+
+    it('🔴🔴 同一格送兩份 ⇒ 拒,【不得挑一個用】(挑哪一個都是猜)', () => {
+      const rows = [...lineRows({ sku: 'A' }), ['line_qty_0', '999'] as [string, string]];
+      const r = parseManualOrderForm(base(rows, [...LINE_KEYS]));
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toContain('重新整理');
+    });
+
+    // 🔴🔴 **Fable R3 F1(must-fix)**:第一版的「六欄長度全等」擋得住「缺格」,
+    //    而換成帶列號之後我只擋了「重複」與「缺號」—— **忘了擋「缺格」** ⇒ 一個原本會紅的情況被改綠。
+    //    ⇒ 這一族釘住「這一列在席, 而某一格【整個沒送】」。
+    it.each([
+      ['line_variant_id_0', '🔴 最貴的那一格:靜默退化成代購品項'],
+      ['line_sku_0', '料號'],
+      ['line_spec_0', '規格'],
+      ['line_qty_0', '數量'],
+    ])('🔴 這一列在席而 %s 整格沒送 ⇒ 拒(%s)', (missing) => {
+      const rows = lineRows({ variantId: '33333333-3333-4333-8333-333333333333' })
+        .filter(([k]) => k !== missing);
+      const r = parseManualOrderForm(base(rows, [...LINE_KEYS]));
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error, '要走「對不起來」那條路, 不是被別的欄位規則順手擋下').toContain(
+        '重新整理',
+      );
+    });
+
+    it('🔴 正對照:六格【全部】送出(其中幾格是空字串)⇒ 收 —— 空字串不等於沒送', () => {
+      // 沒有這一格, 上面那族可以靠「把空字串也判成缺格」而全綠, 而那會擋掉正常的代購品項。
+      expect(ok(parseManualOrderForm(one())).lines[0]?.variant_id).toBeNull();
+    });
+
+    it('🔴 整列六格【全部】送兩份 ⇒ 拒(不得整列靜默消失)', () => {
+      // Fable R3 F3:`present()` 若寫成 `=== 'value'`, 這一列會被判成不在席 ⇒ 整列消失,
+      // 而上面那道 invalid 守門根本走不到。其他 invalid 測項都還有別的字串格撐住 present()。
+      const rows = [...lineRows({ sku: 'A' }), ...lineRows({ sku: 'B' })]; // 同 index 0 ⇒ 六格各兩份
+      const r = parseManualOrderForm(base(rows, [...LINE_KEYS]));
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toContain('重新整理');
+    });
+
+    it('🔴🔴 列號中間缺一號而後面還有東西 ⇒ 拒(那一列在路上不見了, 不得靜默截斷)', () => {
+      const rows = [...lineRows({ sku: 'A' }), ...lineRows({ sku: 'C' }, 2)];
+      const r = parseManualOrderForm(base(rows, [...LINE_KEYS]));
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toContain('重新整理');
+    });
+
+    // ── 🔴 列號本身可以被 client 亂寫, 這一族釘住「亂寫會怎樣」 ──────────────
+    //  🔴🔴 **先寫清楚這道守門【做不到】什麼**:解析器拿到的介面只有 `getAll(name)`,
+    //     它**沒有辦法列舉表單上到底有哪些欄名** ⇒ 名字不是 `base_0`…`base_50` 的東西
+    //     (`line_sku_9999` / `line_sku_-1` / `line_sku_x` / `line_sku_00`)
+    //     **它根本看不到, 因此是被【忽略】而不是被【擋下】。**
+    //  ✅ 而忽略是安全的那一邊:那些格子進不了訂單, 不會憑空多一列。
+    //     ⚠️ 但**不得讀成「亂寫的列號會被拒絕」** —— 它是被無視。
+    it.each([
+      ['超大列號', 9999],
+      ['負數列號', -1],
+      ['前導零', '00'],
+      ['非數字', 'x'],
+    ])('🔴 %s 的欄位【被忽略】, 不會憑空多一列品項', (_label, idx) => {
+      const rows: Array<[string, string]> = [
+        ...lineRows({ sku: 'REAL' }),
+        [`line_sku_${idx}`, 'PHANTOM'],
+        [`line_title_${idx}`, '幽靈'],
+        [`line_qty_${idx}`, '1'],
+        [`line_unit_price_${idx}`, '1'],
+      ];
+      const values = ok(parseManualOrderForm(base(rows, [...LINE_KEYS])));
+      expect(values.lines.map((l) => l.sku)).toEqual(['REAL']);
+    });
+
+    it('🔴 只送一個超大列號、沒有第 0 列 ⇒ 拒(不是建出一張空單)', () => {
+      const rows: Array<[string, string]> = [
+        ['line_sku_9999', 'PHANTOM'],
+        ['line_title_9999', '幽靈'],
+        ['line_qty_9999', '1'],
+        ['line_unit_price_9999', '1'],
+      ];
+      expect(parseManualOrderForm(base(rows, [...LINE_KEYS])).ok).toBe(false);
+    });
+
+    it('🔴 正對照:連續兩列 ⇒ 收(證明上面幾格紅的是【那些毛病】不是【兩列】)', () => {
+      const rows = [...lineRows({ sku: 'A', unitPrice: '10' }), ...lineRows({ sku: 'B', unitPrice: '20' }, 1)];
+      const values = ok(parseManualOrderForm(base(rows, [...LINE_KEYS])));
+      expect(values.lines.map((l) => [l.sku, l.unit_price])).toEqual([['A', 10], ['B', 20]]);
+    });
+
+    it('🔴 值與列的配對不得錯開(拉鍊本身)', () => {
+      const rows = [
+        ...lineRows({ sku: 'A', title: 'TA', qty: '1', unitPrice: '11' }),
+        ...lineRows({ sku: 'B', title: 'TB', qty: '2', unitPrice: '22' }, 1),
+      ];
+      expect(ok(parseManualOrderForm(base(rows, [...LINE_KEYS]))).lines).toEqual([
+        { sku: 'A', title: 'TA', qty: 1, unit_price: 11, variant_id: null, spec: {} },
+        { sku: 'B', title: 'TB', qty: 2, unit_price: 22, variant_id: null, spec: {} },
+      ]);
+    });
+  });
+
+  // 🔴 R1 找到的第二發活著的突變:`readLines` 裡 `typeof v !== 'string'` 改成 `if (false)` ⇒ 108 格全綠。
+  //    ⇒ 那道守門**一格測試都沒有**。構造的 multipart 可以把 `line_qty` 送成一個 File,
+  //    而 `isBlank(File)` 會丟 `TypeError` ⇒ **500,而不是那句「請重新整理」。**
+  //  ⚠️ **第一版只把檔案塞進 `line_qty`,而突變照樣活著** —— 因為 `isEmptyRow` 是短路的:
+  //     `sku` 不是空的就直接 false,**根本沒碰到 qty** ⇒ 後面 `NON_NEG_INT_RE.test()` 把它
+  //     強制轉成字串 `'[object File]'` ⇒ 乖乖回一句話 ⇒ 沒有例外、測試綠。
+  //     ⇒ **要真的走到會爆的那一行,那六格得【逐格都試一次】。**
+  it.each(['lineSku', 'lineTitle', 'lineQty', 'lineUnitPrice', 'lineVariant', 'lineSpec'] as const)(
+    '🔴 %s 送的不是字串(例如檔案)⇒ 收斂成一句話, 不得丟例外',
+    (key) => {
+      const target = FIELDS[key];
+      const good = base(lineRows(), [...LINE_KEYS]);
+      const withFile: ManualOrderFormLike = {
+        ...good,
+        getAll: (name: string) =>
+          name === target
+            ? ([new File([''], 'x.txt')] as unknown as FormDataEntryValue[])
+            : good.getAll(name),
+      };
+      let r: ReturnType<typeof parseManualOrderForm> | undefined;
+      expect(() => {
+        r = parseManualOrderForm(withFile);
+      }).not.toThrow();
+      expect(r?.ok).toBe(false);
+      // 🔴🔴 **要斷言【是哪一條路擋的】,而不是「反正失敗了」**(2026-08-24 夜,主視窗問「那六發都跑了嗎」逼出來的)。
+      //    只斷言 `ok === false` 時,把那道 `invalid` 守門拿掉 ⇒ 六格裡**只有兩格會紅**:
+      //    另外四格是因為 `read.value` 是 `undefined` ⇒ 收斂成空字串 ⇒ 落進「沒有料號 / 沒有品名 /
+      //    數量要是整數」那些**別的**訊息 ⇒ 照樣 `ok:false` ⇒ **綠得沒有判別力。**
+      //    📌 形狀:**一個會失敗的輸入,通常有不只一條路讓它失敗。**
+      //       只驗「有沒有失敗」= 沒有指定是哪一條路 ⇒ 守門死了它也不會說。
+      expect(r?.ok === false && r.error, '要走「這幾欄對不起來」那條路, 不是被別的欄位規則順手擋下').toContain(
+        '重新整理',
+      );
+    },
+  );
+
+  describe('空白列', () => {
+    const blank = (index = 0) => lineRows({ sku: '', title: '', qty: '', unitPrice: '' }, index);
+
+    it('六格全空的列 ⇒ 跳過(員工按了「加一列」但沒填)', () => {
+      const rows = [...lineRows({ sku: 'A' }), ...blank(1)];
+      expect(ok(parseManualOrderForm(base(rows, [...LINE_KEYS]))).lines.map((l) => l.sku)).toEqual(['A']);
+    });
+
+    // 🔴🔴 **下面兩格是 R1 指出的一發【活著的突變】逼出來的**:
+    //    把 `isEmptyRow` 的 `&& isBlank(r.variantId)`(或 `&& isBlank(r.spec)`)拿掉 ⇒ 67 格全綠。
+    //    ⇒ 「六格全空」這個斷言,**當時只有四格真的被量到**。
+    //    失敗形狀:員工只填了商品編號、其他留白 ⇒ 那一列**憑空消失**,而不是被指名擋下。
+    it.each([
+      ['只填了商品編號', { variantId: '33333333-3333-4333-8333-333333333333' }],
+      ['只填了規格', { spec: JSON.stringify({ color: '黑' }) }],
+    ])('🔴 %s、其餘留白 ⇒ 那一列【不算空】, 要被指名擋下而不是消失', (_label, over) => {
+      const rows = [
+        ...lineRows({ sku: 'GOOD' }),
+        ...lineRows({ sku: '', title: '', qty: '', unitPrice: '', ...(over as LineOver) }, 1),
+      ];
+      const r = parseManualOrderForm(base(rows, [...LINE_KEYS]));
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toContain('第 2 個品項');
+    });
+
+    it('🔴 全部都是空白列 ⇒ 拒(與「一列都沒有」同一句話)', () => {
+      expect(parseManualOrderForm(base(blank(), [...LINE_KEYS])).ok).toBe(false);
+    });
+
+    it('🔴🔴 【部分】空的列 ⇒ 拒,不得靜默跳過', () => {
+      // 靜默跳過的後果:他填了料號忘了價格 ⇒ 那一列憑空消失 ⇒ 畫面說成功 ⇒ 對帳那天才發現少一項。
+      //
+      // 🔴🔴 **這一格【要配一列好的】,而那不是湊數** —— 第一版只送那一列壞的,
+      //    突變(把「部分空」也當空列跳過)之後它**照樣綠**:唯一那列被跳掉 ⇒ 零品項 ⇒ 仍然 `ok:false`。
+      //    **它綠的理由與它自己寫的失敗情境不同 ⇒ 那一發沒有判別力。**
+      //    配一列好的之後,跳過那列壞的會變成 `ok:true` ⇒ 兩個世界才印不同的東西。
+      const r = parseManualOrderForm(
+        base([...lineRows({ sku: 'GOOD' }), ...lineRows({ sku: 'A', qty: '', unitPrice: '' }, 1)], [...LINE_KEYS]),
+      );
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toContain('第 2 個品項');
+    });
+
+    it('🔴 跳過空白列【不得】讓後面的列改號 —— 訊息裡的列號要對得上畫面', () => {
+      // 畫面:第 1 列有東西 / 第 2 列空的 / 第 3 列數量填 0 ⇒ 訊息必須說「第 3 個」
+      const rows = [...lineRows({ sku: 'A' }), ...blank(1), ...lineRows({ sku: 'C', qty: '0' }, 2)];
+      const r = parseManualOrderForm(base(rows, [...LINE_KEYS]));
+      expect(r.ok).toBe(false);
+      expect(r.ok === false && r.error).toContain('第 3 個品項');
+      expect(r.ok === false && r.error).not.toContain('第 2 個品項');
+    });
   });
 });
 

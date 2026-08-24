@@ -163,10 +163,25 @@ describe('🔴🔴 兩段式:選到客人之前不出建單表單(codex R1 must-
   });
 });
 
-describe('🔴 中間態要講出來:品項還沒做(codex R1 must-fix)', () => {
-  it('表單上有一句話說現在還不能真的建單', () => {
-    renderForm();
-    expect(screen.getByTestId('manual-order-lines-todo').textContent).toContain('還不能真的建單');
+describe('🔴 中間態【已經結束】:品項列接上了(A3-c,2026-08-24 夜)', () => {
+  // ⛔ ~~原本這裡斷言「表單上有一句話說現在還不能真的建單」(codex R1 must-fix)。~~
+  //    那句話的用途是**在品項還沒做好的那段期間不要讓員工以為是自己填錯**。
+  //    A3-c 落地之後它就該消失 —— 而**留著它比拿掉它糟**:一個能建單的表單上寫著「不能建單」。
+  it('🔴 那句「還不能真的建單」【不在了】', () => {
+    renderForm({ selectedCustomer: candidate() });
+    expect(screen.queryByTestId('manual-order-lines-todo')).toBeNull();
+    expect(document.body.textContent).not.toContain('還不能真的建單');
+  });
+
+  it('🔴 正對照:同一次渲染裡品項列【真的在】(不然上面那格會因為整張表單沒出來而假綠)', () => {
+    renderForm({ selectedCustomer: candidate() });
+    expect(screen.getByTestId('manual-order-lines')).toBeTruthy();
+    expect(screen.getAllByTestId('manual-order-line-row').length).toBeGreaterThan(0);
+  });
+
+  it('🔴 還沒選客人時,品項列也不該出現(它住在建單表單裡)', () => {
+    renderForm({ selectedCustomer: null });
+    expect(screen.queryByTestId('manual-order-lines')).toBeNull();
   });
 });
 

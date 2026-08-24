@@ -51,8 +51,49 @@ export const MANUAL_ORDER_INVOICE_CARRIER_FIELD = 'invoice_carrier';
 export const MANUAL_ORDER_INVOICE_TITLE_FIELD = 'invoice_title';
 export const MANUAL_ORDER_INVOICE_TAX_ID_FIELD = 'invoice_tax_id';
 export const MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD = 'invoice_donate_code';
-/** 品項:**可重複**欄位,每一筆是一個 JSON 物件字串(見 `parseLineEntry` 的取捨)。 */
-export const MANUAL_ORDER_LINE_FIELD = 'manual_order_line';
+// ── 品項:**六個平行的可重複原生欄位**(A3-c;主視窗 2026-08-24 裁「丙」)────────────
+// 🔴🔴 **為什麼不是一個 JSON 欄**(原本是,`~~manual_order_line~~` 已退場):
+//    `cancel-form-body.tsx` 的**不變式 (i)** 逐字:
+//      「送出值一律**不由 client state 產生或回寫;原生控制項才是送出來源**」
+//    ——那是 `E-011-STOP` 四輪修不穩 + 一次**誤送整單取消**換來的。
+//    而「把六格湊成一個 JSON 字串」一定得**讀值再組值**,那正是它禁止的動作。
+//    ⇒ 兩者**形狀上互斥**,不是小心一點就能同時成立。
+//    ⇒ 改成六個平行原生欄之後:**client 只決定「有幾列」,一個值都不碰。**
+// ⛔ ~~**代價是平行陣列會失同步**,所以下面 `readLines()` 對「六個長度不全等」是**立即拒、不補齊**~~
+// 🔴 **上面那句描述的是【第一版】(同名可重複 + 長度全等), 帶列號之後【沒有長度檢查這回事】。**
+//    (Fable R3 F1:而我把那道檢查弄丟了 —— 換形狀時只搬了「重複」與「缺號」, **忘了「缺格」**。)
+//    現行三道,逐條都有負測 + 突變釘住:
+//      · 同一格送兩份 / 不是字串 ⇒ 拒(`readSingle` 的 `invalid`)
+//      · 這一列在席而某一格【整個沒送】⇒ 拒(**不補空字串** —— 補了會讓 variant 靜默變代購)
+//      · 列號中間缺一號而後面還有東西 ⇒ 拒(不得靜默截斷)
+// ⚠️ **`line_spec` 本片【沒有畫面入口】**(它是任意鍵字典,原生控制項表達不出來)⇒ 一律送空。
+//    **這是明說的缺口,不是做完了。** 要做 spec UI 請當獨立條目。
+// 🔴🔴 **欄名帶列號 `line_sku_0` / `line_sku_1` …,而那是 codex R1 逼出來的第二版形狀。**
+//    第一版是六個同名的可重複欄位 + 「六欄長度全等」拉鍊。codex 打破了它:
+//      「第一列的 `line_qty` 因為 `disabled` 而不送,同一張表單尾端又有一個同名殘留欄位
+//        ⇒ 六欄仍然等長,而 qty 變成 `[第二列數量, 殘留舊值]`
+//        ⇒ 建出一張**第一列品項配第二列數量**的合法錯單。」
+//    ⇒ **長度相等擋不住錯位** —— 因為長度裡沒有【身分】。
+//    ⇒ 改成欄名自己帶列號之後,**每一格的身分寫在它自己的名字裡** ⇒ 那一整族不存在了,
+//      不是被擋下來。同名重複送兩份也擋得住(`readSingle` 的 `invalid` 三態)。
+//    📌 形狀:**「六個東西數量一樣多」不等於「它們配對正確」。要驗配對就得有配對的鍵。**
+export const manualOrderLineField = (base: string, index: number) => `${base}_${index}`;
+export const MANUAL_ORDER_LINE_SKU_BASE = 'line_sku';
+export const MANUAL_ORDER_LINE_TITLE_BASE = 'line_title';
+export const MANUAL_ORDER_LINE_QTY_BASE = 'line_qty';
+export const MANUAL_ORDER_LINE_UNIT_PRICE_BASE = 'line_unit_price';
+export const MANUAL_ORDER_LINE_VARIANT_BASE = 'line_variant_id';
+export const MANUAL_ORDER_LINE_SPEC_BASE = 'line_spec';
+
+/** 六欄的 base 名。順序**綁死**下面 `readLines()` 的取值順序。 */
+const LINE_BASES = [
+  MANUAL_ORDER_LINE_SKU_BASE,
+  MANUAL_ORDER_LINE_TITLE_BASE,
+  MANUAL_ORDER_LINE_QTY_BASE,
+  MANUAL_ORDER_LINE_UNIT_PRICE_BASE,
+  MANUAL_ORDER_LINE_VARIANT_BASE,
+  MANUAL_ORDER_LINE_SPEC_BASE,
+] as const;
 
 // ── 封閉值集(權威在 DB,這裡是它的 TS 複本;DB 改了要同步改這裡)──────────────
 /** `20260824020000:266`。 */
@@ -179,59 +220,166 @@ function readOptional(form: ManualOrderFormLike, field: string): string | null |
   return read.value;
 }
 
-/** 空白判斷用 JS `trim()`(比 RPC 嚴,理由見檔頭)。 */
+/**
+ * 空白判斷用 JS `trim()`(比 RPC 嚴,理由見檔頭)。
+ *
+ * ⚠️ **它量的是 Unicode code point,不是「員工眼裡看起來有沒有東西」**(codex R1 #3):
+ *   · 貼進一個 **U+200B 零寬空白** ⇒ 畫面看起來完全空的,而 `isBlank()` 回 `false`
+ *     ⇒ 那一列**不算空白列** ⇒ 他會看到「第 N 個品項沒有品名」而畫面上那格看起來就是空的。
+ *   · 反過來,**U+3000 全形空白 / NBSP** 會被 `trim()` 吃掉 ⇒ 那一列被當成全空**靜默跳過**。
+ * 🔴 **兩個方向都不好,而今天不修** —— 修它要決定「什麼叫做員工看得到的字」,那是拍板題。
+ *    ⇒ 這裡只把限度寫下來,**不得讀成「空白列規則等於畫面上看起來空的列」**。
+ */
 const isBlank = (v: string) => v.trim() === '';
 
-function parseLineEntry(raw: string, index: number): ManualOrderLineInput | string {
-  // 🔴 用 JSON 而不是 `cancel-form.ts` 那種 `a:b` 切法:那支切的是兩個純量(uuid + 數字),
-  //    本檔一筆品項有六格、其中兩格是員工自由輸入的文字(品名 / 料號)、還有一個任意鍵的 spec
-  //    ⇒ 分隔符一定會撞到內容。JSON 多的那個失敗面(parse 失敗)在這裡是**看得見的**。
+/** 一列品項的**原始六格**(全是字串,因為它們來自六個原生控制項)。 */
+type RawLine = { sku: string; title: string; qty: string; unitPrice: string; variantId: string; spec: string };
+
+/**
+ * 照**列號**把品項讀出來(`line_sku_0` / `line_title_0` … / `line_sku_1` …)。
+ *
+ * 🔴 **每一格的身分寫在它自己的名字裡** ⇒ 沒有「拉鍊對錯位」這件事可以發生(見上方那段)。
+ * 🔴 **一格同名送兩份 ⇒ 拒**(`readSingle` 的 `invalid`)—— 那正是第一版擋不住的攻擊面。
+ * 🔴 **列號必須從 0 起連續** —— 中間缺一號就停,而**後面若還有東西就拒**:
+ *    「第 0、1、3 列」代表有一列在路上不見了,而**靜默只收 0 與 1** 會讓那一列憑空消失。
+ *
+ * ⚠️⚠️ **它【做不到】什麼(照實寫,不要讀成「亂寫的列號會被拒絕」)**:
+ *    本函式拿到的介面只有 `getAll(name)` —— **它沒有辦法列舉表單上到底有哪些欄名**。
+ *    ⚠️ **精確一格**(Fable R3 F7):gap 檢查掃到 `j < MAX + 2` ⇒ `base_51` **看得到**
+ *       (有缺號時會拒);**`base_52` 之後才是純忽略**。原文寫成「51 之外」是差一格。
+ *    ⇒ 名字不是 `base_0` … `base_51` 的東西
+ *      (`line_sku_9999` / `line_sku_-1` / `line_sku_00` / `line_sku_x`)
+ *      **它根本看不到** ⇒ 那些格子是被【忽略】,不是被【擋下】。
+ *    ✅ 而忽略是安全的那一邊:它們進不了訂單,不會憑空多出一列(有測試釘住)。
+ *    🔴 要真的「擋下」得換介面(拿得到全部 key),那是另一件事;**今天只把限度寫在這裡。**
+ */
+function readLines(form: ManualOrderFormLike): RawLine[] | string {
+  const rows: RawLine[] = [];
+  // 🔴 `present` 的極性:**只要有一格【不是 missing】就算這一列在席**(含 `invalid`)。
+  //    ⚠️ 寫成 `=== 'value'` 會讓「六格【全部】invalid(全部送兩份 / 全部是檔案)的一列」
+  //    被判成不在席 ⇒ **整列靜默消失**, 而上面那道 invalid 守門根本走不到。
+  //    (Fable R3 F3:那一發突變在 84 格全綠之下存活 —— 因為每個 invalid 測項的那一列
+  //     都還有【別的字串格】撐住 `present()`。有負測釘住了。)
+  const present = (i: number) => LINE_BASES.some((b) => readSingle(form, manualOrderLineField(b, i)).kind !== 'missing');
+  for (let i = 0; i < MANUAL_ORDER_MAX_LINES + 1; i += 1) {
+    if (!present(i)) {
+      // 🔴 停在第一個空號之後,**還有東西 ⇒ 拒**(不得靜默截斷)。
+      for (let j = i + 1; j < MANUAL_ORDER_MAX_LINES + 2; j += 1) {
+        if (present(j)) {
+          return '品項那幾欄對不起來了(可能是頁面沒載完就送出)。請重新整理這一頁,重新填一次品項。';
+        }
+      }
+      break;
+    }
+    const cell: string[] = [];
+    for (const b of LINE_BASES) {
+      const read = readSingle(form, manualOrderLineField(b, i));
+      if (read.kind === 'invalid') {
+        // 同一格送了兩份(或不是字串)⇒ 拒。**不得挑一個用** —— 挑哪一個都是猜。
+        return '品項那幾欄對不起來了(可能是頁面沒載完就送出)。請重新整理這一頁,重新填一次品項。';
+      }
+      // 🔴🔴 **這一列既然在席, 六格就【必須全部在席】** —— 少一格是拒, 不是補空字串。
+      //    (Fable R3 F1 must-fix;而**這道檢查是我在第二版裡弄丟的**:
+      //     第一版的「六欄長度全等」擋得住它, 換成帶列號之後我只擋了「重複」與「缺號」,
+      //     **忘了擋「缺格」** ⇒ 一個原本會紅的情況被我改綠了。)
+      //    🔴 失敗形狀最貴的是 `line_variant_id_i` 那一格:整個欄位沒送 ⇒ 補成空字串
+      //    ⇒ **靜默退化成代購品項** ⇒ 員工畫面上打了商品編號, 建出來的是一個憑空的新品項,
+      //      而每一格都合法、沒有東西會紅。正是本檔 `parseLineEntry` 三行註解說不准發生的事。
+      //    ⚠️ 空字串 ≠ 沒送:`readSingle` 的三態把它們分得開, 而這裡靠的就是那個分別。
+      if (read.kind === 'missing') {
+        return '品項那幾欄對不起來了(可能是頁面沒載完就送出)。請重新整理這一頁,重新填一次品項。';
+      }
+      cell.push(read.value);
+    }
+    rows.push({
+      sku: cell[0] ?? '', title: cell[1] ?? '', qty: cell[2] ?? '',
+      unitPrice: cell[3] ?? '', variantId: cell[4] ?? '', spec: cell[5] ?? '',
+    });
+  }
+  return rows;
+}
+
+/** 這一列六格**全空** ⇒ 員工按了「加一列」但沒填 ⇒ 跳過它。 */
+const isEmptyRow = (r: RawLine) =>
+  isBlank(r.sku) && isBlank(r.title) && isBlank(r.qty) && isBlank(r.unitPrice) && isBlank(r.variantId) && isBlank(r.spec);
+
+/**
+ * 解析一列品項。
+ *
+ * 🔴 **每一條欄位規則都是從原本那支 JSON 版【原封搬過來的】,一條都沒有重寫**
+ *    (主視窗 2026-08-24 裁丙時逐字要求:「照抄的時候把旁邊的註解一起搬」)——
+ *    差別只在**值從哪裡來**:原本是 `JSON.parse` 出來的 `unknown`,現在是六個字串。
+ *
+ * 🔴 **`index` 是【畫面上的列號】,不是有效列的序號** —— 跳過空列**不得**讓後面的列改號。
+ *
+ * ⚠️ **而理由不是「員工照訊息去找」**(我第一版這樣寫,2026-08-24 夜 R1 抓到那是假的):
+ *    `manual-order-actions.ts` 把 `parsed.error` 送進 `console.warn`,**導頁只帶一個固定碼 `invalid`**
+ *    ⇒ 員工在畫面上看到的是 `result-banner.tsx` 那句固定文案「表單內容不正確,未儲存。」
+ *    ⇒ **這個列號到得了 log,到不了人。**
+ * 🔴 **那它為什麼還要對?** —— 因為災難當天有人拿著 log 去對畫面,列號錯一格就對到別的品項。
+ *    (而「怎麼把這句話送回畫面上」是 `manual-order-actions.ts` 檔頭點名**還沒做**的那一題。)
+ */
+function parseLineEntry(raw: RawLine, index: number): ManualOrderLineInput | string {
   const at = `第 ${index + 1} 個品項`;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return `${at}的資料壞掉了,請把那一列刪掉重新加一次。`;
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return `${at}的資料壞掉了,請把那一列刪掉重新加一次。`;
-  }
-  const o = parsed as Record<string, unknown>;
 
-  if (typeof o.sku !== 'string' || isBlank(o.sku)) return `${at}沒有料號。`;
-  if (typeof o.title !== 'string' || isBlank(o.title)) return `${at}沒有品名。`;
+  if (isBlank(raw.sku)) return `${at}沒有料號。`;
+  if (isBlank(raw.title)) return `${at}沒有品名。`;
 
-  if (typeof o.qty !== 'number' || !Number.isInteger(o.qty) || o.qty <= 0) {
-    return `${at}的數量要是大於 0 的整數。`;
-  }
-  if (o.qty > MANUAL_ORDER_MAX_QTY) {
+  // 🔴 數字這兩格與原版的差別**只有型別入口**:原本 JSON 直接給 number(於是檢查 `Number.isInteger`),
+  //    現在是字串 ⇒ 先用 `NON_NEG_INT_RE` 擋掉 `+3` / `3.0` / ` 3 ` / `3e0`(**與運費那一格同一把尺**),
+  //    再轉成 number。**規則本身沒有放寬:仍然是「大於 0 的整數」與「0 或正整數」。**
+  if (!NON_NEG_INT_RE.test(raw.qty)) return `${at}的數量要是大於 0 的整數。`;
+  const qty = Number(raw.qty);
+  if (qty <= 0) return `${at}的數量要是大於 0 的整數。`;
+  if (qty > MANUAL_ORDER_MAX_QTY) {
     return `${at}的數量超過單筆上限 ${MANUAL_ORDER_MAX_QTY};真的要這個量請找系統維護。`;
   }
-  if (typeof o.unit_price !== 'number' || !Number.isInteger(o.unit_price) || o.unit_price < 0) {
-    return `${at}的單價要是 0 或正整數。`;
-  }
+  if (!NON_NEG_INT_RE.test(raw.unitPrice)) return `${at}的單價要是 0 或正整數。`;
+  const unitPrice = Number(raw.unitPrice);
 
-  // 🔴 `variant_id` 三態:沒帶 / null ⇒ 代購品項;帶了就必須是 uuid。
+  // 🔴 `variant_id` 三態:**完全沒打字**(空字串)⇒ 代購品項;打了東西就必須是 uuid。
   //    帶一個不是 uuid 的字串**不得**默默退化成代購 —— 那會把「選錯商品」變成「憑空新增一個品項」。
+  //
+  // 🔴🔴 **這裡用 `!== ''` 而【不是】`isBlank()`,而我第一版寫錯了**(2026-08-24 夜 R1 抓到):
+  //    `isBlank()` 會把「只打了空白的商品編號」也當成沒填 ⇒ **靜默退化成代購品項**,
+  //    正好是上面那句話說不准發生的事。**而我還寫了一格測試把那個行為釘成期望值** ——
+  //    ⇒ 那條規則被放寬了,而**沒有任何東西會紅**。
+  //    ⚠️ 真實情境:從 Excel 貼一格帶前後空白的編號 ⇒ 建出一個沒連到商品的憑空品項。
+  //    📌 **與本檔其他欄位刻意不一致,而那是對的**:別處用 `isBlank()` 是為了「比 RPC 嚴」,
+  //       這一格用 `!== ''` 也是為了嚴 —— **同一個目的,在這一格要用另一個運算子。**
+  //       (只打空白 ⇒ 落進下面的 uuid 檢查 ⇒ 被指名擋下,而不是靜默改變品項的性質。)
   let variantId: string | null = null;
-  if (o.variant_id !== undefined && o.variant_id !== null && o.variant_id !== '') {
-    if (typeof o.variant_id !== 'string' || !UUID_RE.test(o.variant_id)) {
+  if (raw.variantId !== '') {
+    if (!UUID_RE.test(raw.variantId)) {
       return `${at}的商品編號格式不對,請重新從商品清單挑一次。`;
     }
-    variantId = o.variant_id;
+    variantId = raw.variantId;
   }
 
-  // spec:沒帶 ⇒ 空物件。每個值都必須是字串(RPC `:381` 那道自驗的鏡像)。
+  // spec:空 ⇒ 空物件。每個值都必須是字串(RPC `:381` 那道自驗的鏡像)。
+  // ⚠️ 本片**沒有畫面入口**送這一格(見上方欄位常數那段)⇒ 實務上一律走空的那條路。
+  //    規則留著是因為欄位存在;**不得**因為「反正沒人送」就把它拿掉。
+  // 🔴 **這裡也用 `!== ''` 而不是 `isBlank()`,理由同 `variant_id` 那格**(codex R1 #5):
+  //    舊的 JSON 版對 `spec: "   "` 會因為「不是物件」而**拒**;用 `isBlank()` 會把它變成 `{}`
+  //    ⇒ 又是一條被靜默放寬的規則。**完全沒送(空字串)才等於沒填。**
   const spec: Record<string, string> = {};
-  if (o.spec !== undefined && o.spec !== null) {
-    if (typeof o.spec !== 'object' || Array.isArray(o.spec)) return `${at}的規格格式不對。`;
-    for (const [k, v] of Object.entries(o.spec as Record<string, unknown>)) {
+  if (raw.spec !== '') {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw.spec);
+    } catch {
+      return `${at}的規格格式不對。`;
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return `${at}的規格格式不對。`;
+    }
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
       if (typeof v !== 'string') return `${at}的規格「${k}」只能填文字。`;
       spec[k] = v;
     }
   }
 
-  return { sku: o.sku, title: o.title, qty: o.qty, unit_price: o.unit_price, variant_id: variantId, spec };
+  return { sku: raw.sku, title: raw.title, qty, unit_price: unitPrice, variant_id: variantId, spec };
 }
 
 /**
@@ -310,21 +458,32 @@ export function parseManualOrderForm(form: ManualOrderFormLike): ManualOrderPars
     if (read !== null && !isBlank(read)) invoice[key] = read;
   }
 
-  const rawLines = form.getAll(MANUAL_ORDER_LINE_FIELD);
-  if (rawLines.length === 0) return { ok: false, error: '這張單還沒有品項,至少要加一個。' };
-  if (rawLines.length > MANUAL_ORDER_MAX_LINES) {
+  const rows = readLines(form);
+  if (typeof rows === 'string') return { ok: false, error: rows };
+  // ⚠️ **這裡數的是【含空白列】的列數,而 RPC 數的是剝完空列的 `p_lines`**(`20260824020000:286`)
+  //    ⇒ 兩層的分母不同。本層**比較嚴**(50 列裡只填 3 列也會被擋)⇒ 方向是安全的。
+  //    UI 把「加一列」封頂在 50 ⇒ 正常操作到不了這裡;構造出來的 POST 才會讓兩層給不同答案。
+  if (rows.length > MANUAL_ORDER_MAX_LINES) {
     return { ok: false, error: `一張單最多 ${MANUAL_ORDER_MAX_LINES} 個品項,超過請拆成兩張單。` };
   }
   const lines: ManualOrderLineInput[] = [];
   let subtotal = 0;
-  for (let i = 0; i < rawLines.length; i += 1) {
-    const raw = rawLines[i];
-    if (typeof raw !== 'string') return { ok: false, error: `第 ${i + 1} 個品項的資料壞掉了。` };
-    const parsed = parseLineEntry(raw, i);
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (row === undefined) return { ok: false, error: `第 ${i + 1} 個品項的資料壞掉了。` };
+    // 🔴 **全空的列跳過,而【部分空】的列不跳過** —— 它會掉進 `parseLineEntry` 被指名擋下。
+    //    ⚠️ **不得把部分空也靜默跳過**:員工填了料號忘了價格,靜默跳過會讓那一列**憑空消失**,
+    //       而畫面回報「建立成功」⇒ 他要等到對帳那天才發現少一項。
+    //       ⇒ 兩者的差別是「他沒打算填」與「他填到一半」,而只有後者需要被告知。
+    if (isEmptyRow(row)) continue;
+    const parsed = parseLineEntry(row, i);
     if (typeof parsed === 'string') return { ok: false, error: parsed };
     lines.push(parsed);
     subtotal += parsed.unit_price * parsed.qty;
   }
+  // 🔴 這一格搬到迴圈**之後**(原本在之前):現在「零列」與「全部都是空列」是同一件事,
+  //    而員工看到的下一步一樣 —— 都是「去填一個品項」。
+  if (lines.length === 0) return { ok: false, error: '這張單還沒有品項,至少要加一個。' };
   // 🔴 鏡像 RPC `:429-431`。本層先擋是為了給員工看得懂的話 —— **不是**代替它:
   //    真正的金額由 RPC 自己算(它不信任何 client 送的合計),這裡只是同一條線的第一道。
   if (subtotal > INT4_MAX || subtotal + shippingFee > INT4_MAX) {

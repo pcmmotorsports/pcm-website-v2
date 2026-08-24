@@ -16,14 +16,24 @@ import {
 } from '@/lib/orders/manual-order-form';
 import type { ManualCustomerCandidate } from '@/lib/customers/manual-customer';
 import { createManualOrderAction } from '@/lib/orders/manual-order-actions';
+import { ManualOrderLines } from './manual-order-lines';
 
 // manual-order-form-body.tsx — M12-A3-b:手動建單表單本體(客人 / 經手人 / 收件 / 發票 / 運費)。
-// 🔴 **品項那一列不在本片**(A3-c)。本片先讓「一張沒有品項的單」在畫面上成立,
-//    而它送出去會被 RPC 的 `G6` 擋(`p_lines` 空陣列)—— **那是刻意的**:
-//    先把承重的三件(經手人來源 / 冪等鍵生命週期 / 停用態)做對,再長品項。
+// ⛔ ~~🔴 **品項那一列不在本片**(A3-c)。本片先讓「一張沒有品項的單」在畫面上成立…~~
+//    ✅ **2026-08-24 夜 A3-c 落地**:品項列已接上(`./manual-order-lines`),那張擋路的黃色告示已拿掉。
 //
-// 🔴 **零 client state、純 server component** —— 照取消片 PRG 那條路
-//    (`cancel-actions.ts:29-33` 逐字:混合形在 React 19 的 form reset 競態下四輪修不穩)。
+// ⛔ ~~🔴 **零 client state、純 server component** —— 照取消片 PRG 那條路
+//    (`cancel-actions.ts:29-33` 逐字:混合形在 React 19 的 form reset 競態下四輪修不穩)。~~
+// 🔴🔴 **上面那句在寫下的當天就已經是【引用了一份已被撤回的說法】**(2026-08-24 夜線4 發現):
+//    `cancel-actions.ts` 的那一段**自己就寫著**逐字
+//    「⚠️ 原本這行寫『全 PRG、零 client state』—— **A13b E1 之後「零 client state」為假**」。
+//    ⇒ **被引用的那份更正過了,而引用它的這一份照抄了更正前的版本。**
+//    📌 形狀:**引用一句話時,座標對了不代表內容還成立。**
+//
+// **現況(取代上面兩段)**:本檔本體仍是 server component、全 PRG;
+//    而品項那一塊是一個 client 子元件(`manual-order-lines.tsx`),
+//    它**只持有「有幾列」這一個 state,一個值都不碰** —— 形狀逐字比照取消線的
+//    `cancel-form-body.tsx`(漸進增強層),那條路是被審過的,不是我新發明的。
 //
 // 🔴🔴 **兩段式,而那是 codex R1 must-fix 逼出來的形狀**:
 //    原本搜尋框與建單表單同時在畫面上 ⇒ 員工填好運費 150 與地址之後按「找客人」
@@ -151,17 +161,6 @@ export function ManualOrderFormBody({
         {/* 🔴 冪等鍵。**同一張表單重按送出要送同一顆** —— 它由頁面決定、表單只是帶著走。 */}
         <input type='hidden' name={MANUAL_ORDER_REQUEST_ID_FIELD} value={manualRequestId} />
 
-        {/* 🔴 **中間態要講出來**(codex R1 must-fix):品項那一列在 A3-c,
-            而**少了它這張單一定被解析器擋下**(`p_lines` 空)⇒ 現在按送出必然失敗。
-            不說的話員工會以為是自己填錯。 */}
-        <div
-          role='status'
-          data-testid='manual-order-lines-todo'
-          className='rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700'
-        >
-          品項還沒做好,所以這張表單現在還不能真的建單。填的內容按下去會被擋下來。
-        </div>
-
         <fieldset disabled={noStaff} className='space-y-4'>
           {/* 🔴 客人是**已經選定**的,不是表單上的一個下拉:兩段式之後這一格只剩「帶著走」。
               值仍然逐字送出去(RPC 的 G3 會再驗一次這位客人存不存在)。 */}
@@ -256,6 +255,10 @@ export function ManualOrderFormBody({
             <input name={MANUAL_ORDER_INVOICE_TAX_ID_FIELD} placeholder='統編(公司才填)' className='block w-full rounded-md border px-2 py-1' />
             <input name={MANUAL_ORDER_INVOICE_DONATE_CODE_FIELD} placeholder='愛心碼(捐贈才填)' className='block w-full rounded-md border px-2 py-1' />
           </fieldset>
+
+          {/* 🔴 品項在收件與發票**之後** —— 員工的動線是「先確認是誰、寄到哪」再逐項打單。
+              ⚠️ 這一格沒有稿可以對(OD 那份是訂單【明細】不是【建單】)⇒ 這是我的判斷,不是照稿。 */}
+          <ManualOrderLines />
 
           <button type='submit' className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground'>
             建立訂單

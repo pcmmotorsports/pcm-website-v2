@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -54,7 +56,7 @@ import { MANUAL_ORDER_PATH } from './manual-order-action-state';
 import { createManualOrderAction } from './manual-order-actions';
 import {
   MANUAL_ORDER_CUSTOMER_FIELD,
-  MANUAL_ORDER_LINE_FIELD,
+
   MANUAL_ORDER_PAYMENT_CHANNEL_FIELD,
   MANUAL_ORDER_REQUEST_ID_FIELD,
   MANUAL_ORDER_SHIPPING_FEE_FIELD,
@@ -67,19 +69,80 @@ import {
 } from './manual-order-form';
 
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
+// ── 🔴 A3-c:「本 action 有呼叫端」的守門 ──────────────────────────────────────
+//  本檔頭曾逐字寫「**本 action 目前【零呼叫端】**」,而那句話在 **A3-b 落地那天就假了**
+//  (那一片同時建了頁面與 `<form action={…}>`),卻躺到 A3-c 才被發現。
+//  🔴 **中間態的宣稱如果沒有守門,它只會在下一個人碰巧讀到時才被更正。**
+//  ⇒ 這一格把它變成機械的:action 沒有呼叫端 ⇒ 紅。
+//  ⚠️ **它守的是「有沒有人用」,不是「用得對不對」** —— 後者在
+//     `components/orders/manual-order-form-body.test.tsx`。兩件事不得互相冒充。
+describe('🔴 本 action 必須有呼叫端(A3-c)', () => {
+  const FORM_BODY = join(__dirname, '../../components/orders/manual-order-form-body.tsx');
+  const PAGE = join(__dirname, '../../app/orders/new/page.tsx');
+  const src = readFileSync(FORM_BODY, 'utf8');
+  const pageSrc = readFileSync(PAGE, 'utf8');
+  /**
+   * 只看程式碼。🔴 **要剝【三種】註解**(codex R1 #7:我原本只剝了 `//`)——
+   * 少剝 JSX 註解的話,**一段被註解掉的 `<form action={…}>` 照樣命中** ⇒ 守門恆綠。
+   */
+  const strip = (t: string) =>
+    t
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+  const code = strip(src);
+  const pageCode = strip(pageSrc);
+
+  it('表單頁把它接在 `<form action={…}>` 上', () => {
+    expect(code).toContain('createManualOrderAction');
+    expect(code).toMatch(/action=\{createManualOrderAction\}/);
+  });
+
+  // 🔴🔴 codex R1 #7:只掃元件**還是恆綠的** —— 頁面把 `<ManualOrderFormBody>` 拿掉之後,
+  //    那個元件變成沒有人 render 的死碼,而上面那格照樣過。**呼叫鏈要一路驗到頁面。**
+  it('🔴 而且頁面真的 render 了那個元件(不然元件是死碼, 上面那格會恆綠)', () => {
+    expect(pageCode).toContain('ManualOrderFormBody');
+    expect(pageCode).toMatch(/<ManualOrderFormBody/);
+  });
+
+  it('🔴 正對照:頁面那把尺量得到東西', () => {
+    expect(pageCode.length).toBeGreaterThan(300);
+  });
+
+  it('🔴 正對照:這把尺量得到東西(不然上面那格是【因為讀不到檔】而綠)', () => {
+    expect(code.length).toBeGreaterThan(500);
+    expect(code).toContain('ManualOrderFormBody');
+  });
+
+  it('🔴 負對照:剝註解這一步【真的在做事】—— 只住在註解裡的字串剝完就不見了', () => {
+    // 挑一句**只出現在 form-body 註解裡**的字面。它若哪天進了程式碼, 這一格會紅並要人重挑。
+    // ⚠️ **這個字面是【隨時可以換】的** —— 它唯一的用途是證明「剝註解那一步真的在做事」。
+    //    有人把那句註解刪掉 ⇒ 這一格會紅, 而**那不代表呼叫鏈壞了**。
+    //    ⇒ 看到這格紅:去 form-body 挑另一句**只住在註解裡**的字面換上來, 不要去動呼叫鏈。
+    const COMMENT_ONLY = '零 client state';
+    expect(src, '這句話應該在原始碼裡(當註解)').toContain(COMMENT_ONLY);
+    expect(code, '剝完註解之後它就不該在了 —— 不然剝的那一步是假的').not.toContain(COMMENT_ONLY);
+  });
+});
+
 const CUSTOMER = '22222222-2222-4222-8222-222222222222';
 const VARIANT = '33333333-3333-4333-8333-333333333333';
 const ORDER_ID = '44444444-4444-4444-4444-444444444444';
 const ACTOR = 'alice';
 
-const LINE = JSON.stringify({
-  sku: 'PCM-001',
-  title: '排氣管',
-  qty: 2,
-  unit_price: 12000,
-  variant_id: VARIANT,
-  spec: { color: '黑' },
-});
+// 🔴 A3-c 起品項走**六個平行的原生欄位**(原本 `~~manual_order_line~~` 一個 JSON 欄已退場)。
+// 🔴 欄名**手打**(含 `_0` 那個列號), 不從常數組 —— 理由同 `manual-order-form.test.ts` 檔頭:
+//    從常數走訪會讓「欄名改了」變成全綠。改了欄名 ⇒ 這裡紅。
+const LINE_ROWS: Array<[string, string]> = [
+  ['line_sku_0', 'PCM-001'],
+  ['line_title_0', '排氣管'],
+  ['line_qty_0', '2'],
+  ['line_unit_price_0', '12000'],
+  ['line_variant_id_0', VARIANT],
+  ['line_spec_0', JSON.stringify({ color: '黑' })],
+];
 
 function base(over: Array<[string, string]> = []): FormData {
   const fd = new FormData();
@@ -94,7 +157,7 @@ function base(over: Array<[string, string]> = []): FormData {
     [MANUAL_ORDER_SHIP_TO_PHONE_FIELD, '0912345678'],
     [MANUAL_ORDER_SHIP_TO_LINE_FIELD, '台北市中正區某路 1 號'],
     [MANUAL_ORDER_INVOICE_TYPE_FIELD, 'personal'],
-    [MANUAL_ORDER_LINE_FIELD, LINE],
+    ...LINE_ROWS,
   ];
   for (const [k, v] of [...rows, ...over]) fd.append(k, v);
   return fd;
