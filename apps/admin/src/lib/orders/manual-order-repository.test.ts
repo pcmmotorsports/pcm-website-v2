@@ -8,6 +8,8 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   createClient: vi.fn(),
+  /** 「乙」規格權威化那一發查詢。回 `{ data, error }`。 */
+  variantSelect: vi.fn(),
 }));
 vi.mock('@pcm/adapters/server', () => ({
   createSupabaseServiceClient: mocks.createClient,
@@ -55,7 +57,12 @@ function pgError(over: Record<string, unknown>): Record<string, unknown> {
 }
 
 beforeEach(() => {
-  mocks.createClient.mockReturnValue({ rpc: mocks.rpc });
+  mocks.createClient.mockReturnValue({
+    rpc: mocks.rpc,
+    // 🔴 鏈式:`.from(...).select(...).in(...)` ⇒ 只有最後那一段回結果。
+    from: (table: string) => ({ select: () => ({ in: (_c: string, ids: string[]) => mocks.variantSelect(table, ids) }) }),
+  });
+  mocks.variantSelect.mockResolvedValue({ data: [], error: null });
 });
 
 afterEach(() => {
@@ -287,5 +294,142 @@ describe('🔴 成功 payload 形狀漂移 ⇒ bug,而 log 只記鍵名與型別
     const log = (out as { logMessage: string }).logMessage;
     expect(log).toContain('ship_to_name:string');
     expect(log).not.toContain('王小明');
+  });
+});
+
+
+// ── 🔴🔴 「乙」:規格由 server 依 variant_id 取權威值 ────────────────────────────
+//  它擋的東西:A3-c 的品項列沒有規格輸入欄 ⇒ 一律送空 ⇒ 有顏色/尺寸的既有 variant
+//  建出來的 `product_snapshot.spec` 永遠是 `{}` 而且**補不回來**(RPC 直接寫進不可變快照)。
+//  形狀照顧客站那條路(`create_order` 逐字從 `v_variant.spec` 讀)。
+describe('🔴 規格權威化(乙)', () => {
+  const VARIANT = 'dddddddd-1111-2222-3333-444444444444';
+  const withVariant = (spec: Record<string, string> = {}): CreateManualOrderArgs => ({
+    actor: 'sean',
+    values: {
+      ...VALUES,
+      lines: [{ sku: 'RPM-001', title: '護蓋', qty: 1, unit_price: 100, variant_id: VARIANT, spec }],
+    },
+  });
+  const sentLines = () => (mocks.rpc.mock.calls[0]?.[1] as { p_lines: ManualOrderValues['lines'] }).p_lines;
+
+  it('🔴 有 variant 的品項:送出去的 spec 是【DB 那份】, 不是畫面送的空的', async () => {
+    mocks.variantSelect.mockResolvedValue({ data: [{ id: VARIANT, spec: { color: '黑', size: 'M' } }], error: null });
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder(withVariant());
+    expect(sentLines()[0]?.spec).toEqual({ color: '黑', size: 'M' });
+  });
+
+  it('🔴🔴 畫面送了一份 spec ⇒ 【被覆蓋掉】(client 說了不算)', async () => {
+    mocks.variantSelect.mockResolvedValue({ data: [{ id: VARIANT, spec: { color: '黑' } }], error: null });
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder(withVariant({ color: '我自己打的', price_store: '1' } as Record<string, string>));
+    expect(sentLines()[0]?.spec).toEqual({ color: '黑' });
+  });
+
+  it('代購品項(variant_id 為 null)⇒ 維持空的, 而且【根本不打那發查詢】', async () => {
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder(ARGS);
+    expect(mocks.variantSelect).not.toHaveBeenCalled();
+    expect(sentLines()[0]?.spec).toEqual({});
+  });
+
+  it('🔴 查詢失敗 ⇒ 整發放棄, 【不得】就用空的先建起來', async () => {
+    mocks.variantSelect.mockResolvedValue({ data: null, error: { message: 'boom' } });
+    const out = await createManualOrder(withVariant());
+    expect(out.ok).toBe(false);
+    expect(out.ok === false && out.code).toBe('error');
+    // 🔴 最承重的一格:RPC **一次都不能被呼叫** —— 不然就是「基礎設施失敗 ⇒ 一張永久缺規格的真訂單」。
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('查不到那個 variant ⇒ 不動那一列, 交給 RPC 的 FK 去拒(兩層各判一次會漂移)', async () => {
+    mocks.variantSelect.mockResolvedValue({ data: [], error: null });
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder(withVariant());
+    expect(sentLines()[0]?.spec).toEqual({});
+  });
+
+  it('🔴 只查那些【真的有 variant_id】的 id, 而且去重', async () => {
+    mocks.variantSelect.mockResolvedValue({ data: [{ id: VARIANT, spec: {} }], error: null });
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({
+      actor: 'sean',
+      values: {
+        ...VALUES,
+        lines: [
+          { sku: 'A', title: 'A', qty: 1, unit_price: 1, variant_id: VARIANT, spec: {} },
+          { sku: 'B', title: 'B', qty: 1, unit_price: 1, variant_id: VARIANT, spec: {} },
+          { sku: 'C', title: 'C', qty: 1, unit_price: 1, variant_id: null, spec: {} },
+        ],
+      },
+    });
+    expect(mocks.variantSelect).toHaveBeenCalledWith('product_variants', [VARIANT]);
+  });
+
+  // 🔴🔴 codex R1:**一發沒覆蓋而且會活著的突變** —— 把覆蓋限制成「只處理第一列」。
+  //    所有單列測試照樣綠;唯一那個多列測試只驗了查詢 ID 去重, 第二列保留 client spec 也不會紅。
+  it('🔴 多列各自拿到【自己那一列】的權威值(不是只有第一列被覆蓋)', async () => {
+    const V2 = 'dddddddd-5555-6666-7777-888888888888';
+    mocks.variantSelect.mockResolvedValue({
+      data: [{ id: VARIANT, spec: { color: '黑' } }, { id: V2, spec: { color: '紅' } }],
+      error: null,
+    });
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({
+      actor: 'sean',
+      values: {
+        ...VALUES,
+        lines: [
+          { sku: 'A', title: 'A', qty: 1, unit_price: 1, variant_id: VARIANT, spec: { color: '假的1' } },
+          { sku: 'B', title: 'B', qty: 1, unit_price: 1, variant_id: V2, spec: { color: '假的2' } },
+        ],
+      },
+    });
+    expect(sentLines().map((l) => l.spec)).toEqual([{ color: '黑' }, { color: '紅' }]);
+  });
+
+  // 🔴🔴 codex R1 must-fix:表單的 `UUID_RE` 帶 `/i` ⇒ **大寫 uuid 過得了解析器**,
+  //    而 PostgREST 回來的 id 一律小寫 ⇒ Map 用原字面當鍵就會 miss
+  //    ⇒ `?? l.spec` 讓 client 送的**假規格原樣進 RPC**, 而 RPC 對大寫 uuid cast 成功
+  //    ⇒ 一份假規格被永久寫進不可變快照, 而每一格都合法。
+  it('🔴🔴 variant_id 是【大寫】uuid ⇒ 照樣拿到權威值(不得讓 client 那份活下來)', async () => {
+    mocks.variantSelect.mockResolvedValue({ data: [{ id: VARIANT, spec: { color: '黑' } }], error: null });
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    await createManualOrder({
+      actor: 'sean',
+      values: {
+        ...VALUES,
+        lines: [{
+          sku: 'A', title: 'A', qty: 1, unit_price: 1,
+          variant_id: VARIANT.toUpperCase(), spec: { color: '我自己打的' },
+        }],
+      },
+    });
+    expect(sentLines()[0]?.spec).toEqual({ color: '黑' });
+  });
+
+  // 🔴 codex R1 must-fix:權威查詢原本在 try 外面 ⇒ 拋出型失敗直接擊破「永不 throw」合約。
+  it('🔴 權威查詢【拋出】(網路斷 / 缺 env)⇒ 收斂成 error, 不得往外拋', async () => {
+    mocks.variantSelect.mockImplementation(() => { throw new Error('fetch failed'); });
+    const out = await createManualOrder(withVariant());
+    expect(out.ok).toBe(false);
+    expect(out.ok === false && out.code).toBe('error');
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it('🔴 建 client 時就拋(缺 env)⇒ 同樣收斂, 不得往外拋', async () => {
+    mocks.createClient.mockImplementation(() => { throw new Error('missing env'); });
+    const out = await createManualOrder(withVariant());
+    expect(out.ok).toBe(false);
+    expect(out.ok === false && out.code).toBe('error');
+  });
+
+  it('🔴 不原地改呼叫端手上那份 lines(送出去的與解析器驗過的要分得開)', async () => {
+    mocks.variantSelect.mockResolvedValue({ data: [{ id: VARIANT, spec: { color: '黑' } }], error: null });
+    mocks.rpc.mockResolvedValue({ data: payload(), error: null });
+    const args = withVariant();
+    await createManualOrder(args);
+    expect(args.values.lines[0]?.spec, '呼叫端那份不該被動到').toEqual({});
   });
 });

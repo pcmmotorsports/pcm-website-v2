@@ -165,10 +165,118 @@ function readConstraint(value: unknown): string | null {
  * ⇒ 而這條路上的正確下一步與 `concurrent` 相同 —— **保留同一顆 id 重送**,由 RPC 的
  *   冪等格去分辨那一發到底寫進去了沒有。**這正是那顆 id 存在的理由。**
  */
+/**
+ * 🔴🔴 **「乙」:規格由 server 依 `variant_id` 取【權威值】,不信畫面送上來的。**
+ *
+ * ## 為什麼一定要有這一步(不是 nice-to-have)
+ * RPC 把送進去的 `spec` **直接寫成不可變的** `product_snapshot.spec`
+ * (`20260824020000` 的 `jsonb_build_object('title',…,'sku',…,'spec', v_spec)`)。
+ * 而 A3-c 的品項列**沒有規格輸入欄** ⇒ 一律送空 ⇒
+ * **有顏色/尺寸的既有 variant,手動建單之後那份快照永遠是 `{}` 且補不回來。**
+ * 快照存在的理由正是「variant 之後會變」⇒ 空掉之後**沒有任何地方查得回來**。
+ *
+ * ## 形狀照【正常下單那條路】,不是我發明的
+ * `create_order`(`20260604130000`)逐字:
+ * `'product_snapshot', jsonb_build_object('title', v_variant.title, 'sku', v_variant.sku, 'spec', v_variant.spec)`
+ * ⇒ **顧客站那條路,`spec` 從來不由 client 提供,是 RPC 自己從 variant 讀的。**
+ * ⇒ 本函式做的是同一件事,只是**做在 server 的 TS 這一層**而不是 RPC 裡。
+ * ⚠️ **兩者不等價的那一格要講明**:RPC 內讀 = client 沒有機會提供;本層讀 = client 仍然送了一份,
+ *    只是**被我們覆蓋掉**。對「畫面沒有輸入欄」與「構造的 POST」兩種來源,覆蓋都成立;
+ *    而**真正對齊 `create_order` 的做法是把它搬進 RPC**(那要一支 migration + 一次 apply)。
+ *    ⇒ 本層是**今天做得到而且擋得住的那一版**,不是終局。已交回主視窗記為後續。
+ *
+ * ## 三條刻意的取捨
+ * 1. **代購品項(`variant_id` 為 null)保持 `{}`** —— 它不在型錄裡,沒有權威值可取。
+ *    這**不是**缺口:員工手打的品項本來就沒有 catalog 規格。
+ * 2. **查不到那個 variant ⇒ 不動那一列**(維持 `{}`),讓 RPC 的 FK 去拒。
+ *    ⚠️ 那條路今天的訊息很差(歸 `error`、叫他原樣重送)—— 那是 F5,另一片。
+ *    這裡**刻意不自己判「商品不存在」**:兩層各判一次會漂移。
+ * 3. **值原樣送、不做型別轉換** —— `create_order` 也是原樣送。
+ *    ⚠️ 若某個 variant 的 spec 帶了非字串值,RPC 的 `m3_jsonb_values_all_string` 會拒**整張單**。
+ *    那與顧客站那條路**同一個曝險面**(它靠的是同一個「spec 值全為字串」的不變式)。
+ *    ⇒ 這裡不偷偷 coerce:coerce 會讓快照與型錄**不一致**,而那正是快照要避免的事。
+ *
+ * ## 🔴 一個真的連帶,寫在這裡免得下一個人踩
+ * RPC 的冪等指紋**含 `spec`**(`20260824020000` 把 `v_spec::text` 併進指紋)。
+ * ⇒ 兩次送同一顆 `manualRequestId` 之間,若**有人編輯了那個商品的規格**,
+ *   第二發的指紋會不同 ⇒ 回 `P858B`「內容不一樣」⇒ **一次合法的重送被判成撞鍵**。
+ * ⛔ ~~罕見~~ —— 🔴 **那個「罕見」是我加上去的,我沒有量過它**(codex R1 must-fix)。
+ *   codex 指出視窗比我寫的寬:
+ *   · 不只「兩次送出之間」—— **第一次 select 之後、RPC 之前**若同步程序改了 spec,
+ *     第一單就凍結了舊值;此時回應遺失、員工**立即**合法重送 ⇒ 第二發讀到新值 ⇒ `P858B`。
+ *   · **多品項單:任一 variant 變動都會觸發** ⇒ 機率隨品項數放大。
+ *   ⇒ 正確的寫法是「**視窗多寬未量,而它隨品項數放大**」,不是「罕見」。
+ *   📌 頻率副詞是一個沒有來源的數字。
+ *
+ * ## 🔴🔴 這一層**結構上**擋不住的兩件(codex R1;兩件都指向同一個結論)
+ * 1. **兩發分開的往返,沒有一致性時點。** select 與 RPC 之間 variant 被 UPDATE ⇒ 凍結過期值;
+ *    被 DELETE ⇒ RPC 在 FK 那步整單回滾;先讀到合法值、隨後 DB 被改成非法值 ⇒ 仍用舊值成功建單。
+ *    **本層只保證「select 當下」,不保證「建單當下」。**
+ * 2. **RPC 自己仍然信任 `p_lines.spec`** —— 它只驗形狀。任何持 service role 的
+ *    script / 另一個 server 呼叫端 / 事故重送工具都繞得過這支 TS。
+ *    「唯一呼叫端」是一句**註解**,不是 DB 約束。
+ * ⇒ **兩件都只有把它搬進 RPC 才解得掉**(那要一支 migration + 一次 apply)。已交回主視窗立條目。
+ */
+export async function resolveAuthoritativeSpecs(
+  lines: ManualOrderValues['lines'],
+): Promise<{ ok: true; lines: ManualOrderValues['lines'] } | { ok: false; logMessage: string }> {
+  const ids = [...new Set(lines.map((l) => l.variant_id).filter((v): v is string => v !== null))];
+  if (ids.length === 0) return { ok: true, lines };
+
+  let data: unknown;
+  let error: unknown;
+  // 🔴 **這一段【必須】包在 try 裡**(codex R1 must-fix):本檔的合約是「永不 throw」,
+  //    而會拋的是傳輸層 / 環境層(網路斷、fetch abort、`createSupabaseServiceClient()` 缺 env)。
+  //    ⚠️ 我第一版把它放在 try 外面 ⇒ **那一發直接擊破本檔最上面那句合約**,
+  //       現場員工看到的是 server error 而不是一句話。
+  try {
+    ({ data, error } = await createSupabaseServiceClient()
+      .from('product_variants')
+      .select('id, spec')
+      .in('id', ids));
+  } catch (thrown) {
+    return { ok: false, logMessage: `resolveAuthoritativeSpecs 拋出: ${summarize(thrown)}` };
+  }
+
+  // 🔴 **查詢失敗 ⇒ 整發放棄, 不得「就用空的先建起來」** ——
+  //    那會把一次基礎設施失敗變成一張永久缺規格的真訂單。
+  if (error) return { ok: false, logMessage: `resolveAuthoritativeSpecs 失敗: ${summarize(error)}` };
+
+  // 🔴🔴 **鍵一律小寫**(codex R1 must-fix):`manual-order-form.ts` 的 `UUID_RE` 帶 `/i`
+  //    ⇒ **表單接受大寫 uuid**,而 PostgREST 回來的 `id` 一律小寫。
+  //    我第一版用原字面當 Map 鍵 ⇒ 大寫 variant_id **查得到資料卻 miss**
+  //    ⇒ `?? l.spec` 讓 client 送的假規格原樣進 RPC,而 RPC 對大寫 uuid cast 成功
+  //    ⇒ **一份假規格被永久寫進不可變快照**,每一格都合法。
+  const norm = (v: string) => v.toLowerCase();
+  const bySpec = new Map<string, Record<string, string>>();
+  for (const row of (data ?? []) as Array<{ id: string; spec: unknown }>) {
+    if (typeof row.spec === 'object' && row.spec !== null && !Array.isArray(row.spec)) {
+      bySpec.set(norm(row.id), row.spec as Record<string, string>);
+    }
+  }
+
+  return {
+    ok: true,
+    // 🔴 逐列重建、**不原地改** `lines` —— 呼叫端(server action)手上那份是解析器的產物,
+    //    就地改會讓「送出去的」與「解析器驗過的」變成同一個物件的兩個時點, 而 log 上分不出來。
+    // ⚠️ **誠實邊界**(codex R1 nit):`variant_id` 為 null 的那些列**沿用原物件**(淺層共享),
+    //    而全部都是 null 時**直接回原陣列**。今天沒有原地修改 ⇒ 沒壞;
+    //    但日後若有人在送 RPC 前正規化代購列的 `spec`,**會反向改到呼叫端手上那份**。
+    lines: lines.map((l) => (l.variant_id === null ? l : { ...l, spec: bySpec.get(norm(l.variant_id)) ?? l.spec })),
+  };
+}
+
 export async function createManualOrder(
   args: CreateManualOrderArgs,
 ): Promise<CreateManualOrderOutcome> {
   const { values, actor } = args;
+
+  // 🔴 規格權威化(見 `resolveAuthoritativeSpecs`)。**在 RPC 之前**, 而且失敗就整發放棄。
+  const resolved = await resolveAuthoritativeSpecs(values.lines);
+  if (!resolved.ok) {
+    return { ok: false, code: 'error', sqlstate: null, constraint: null, logMessage: resolved.logMessage };
+  }
+
   let data: unknown;
   let error: unknown;
   try {
@@ -182,7 +290,7 @@ export async function createManualOrder(
       p_ship_to: values.shipTo,
       p_invoice: values.invoice,
       p_shipping_fee: values.shippingFee,
-      p_lines: values.lines,
+      p_lines: resolved.lines,
     }));
   } catch (thrown) {
     return {
