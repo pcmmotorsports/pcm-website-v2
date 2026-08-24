@@ -134,6 +134,22 @@ const ALLOWLIST = [
   //    是真實存在的,不是已消除的風險。
   //    📌 backlog #801(2026-08-21 主視窗開,codex 對抗審查 MF-5 折入):同一個限制的正式條目。
   '20260820020000_m4b_e10_a8a3g_cancel_guard_sibling_dedup.sql',
+  // 🔴🔴 `#858`(2026-08-24 登錄,線C):**這一筆與上面每一筆都不同族。**
+  //    上面十一支是「`create_order` 的歷代重新定義」+「改既有單金額的 RPC」+「probe fixture」。
+  //    這一支是 `admin_create_manual_order` —— **第二條【建單】路徑**,後台手動幫客人開單用的。
+  //    ⇒ 本檔上面那句「`create_order` 是金額欄**有史以來唯一的寫入者**」**從今天起不再成立**。
+  //      (那句留著沒改,因為它記的是 2026-08-15 實跑當下的事實;這一格就是它的失效點。)
+  //
+  //    **為什麼這個寫入者是安全的**(我開檔看過才登,不是因為它紅了才登):
+  //      · 金額**全部由 server 自算**:`line_total = unit_price * qty`、`subtotal = Σ line_total`、
+  //        `total = subtotal + shipping_fee` —— **不收 client 送來的任何合計欄**。
+  //      · 逐筆驗 `qty > 0`、`unit_price >= 0`,並有筆數(50)與單筆數量(9999)上限。
+  //      · 跨列去重:同 variant(或代購品的同料號+同品名)送兩列 ⇒ 拒絕,
+  //        擋掉「一次手滑把 subtotal 與可退金額變兩倍」。
+  //      · 冪等格比對**內容指紋**:同一顆 `manual_request_id` 裝不同內容 ⇒ 拒絕,不覆蓋、不回舊單。
+  //    🔴 **已知限制與 `#801` 同一格**:本 allowlist 的粒度是**檔案**不是語句 ——
+  //      這支 migration 在 commit 前若被再編輯、加進與建單無關的 orders 寫入,本守門看不到。
+  '20260824020000_m4b_858_admin_create_manual_order.sql',
 ] as const;
 
 function scanWriters(dir: string): string[] {
