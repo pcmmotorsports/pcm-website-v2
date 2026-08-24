@@ -263,9 +263,50 @@ describe('#350b 無障礙:分隔線不能只有滑鼠拖得動、也要報得出
 //    🔴 14 條宣告、4 個選擇器同一片(§12 只記到 `.workspace-panel` 那 9 條,漏了 `.workspace-row`
 //    display:block 與 `.workspace-handle` display:none 這 2 條 —— 少了它們會做出稿上不存在的中間態;
 //    code-reviewer R1 又抓到漏搬 `.workspace-panel > .panel-width-locked` 那 3 條,2026-08-24 補上)。
+/**
+ * 🔴🔴 **2026-08-25:本組原本 4 處各自 `.exec(GLOBALS)` —— 而 `.exec()` 只回【第一個】命中。**
+ *
+ * `@media (max-width: 767px) {` 在 `globals.css` 裡 **命中 2 處**(另一處裝的是 `.fchip`)。
+ * 舊寫法拿第一處,而它今天剛好就是裝 `.workspace-*` 的那一處 ⇒ **綠,但靠的是排列順序這個
+ * 外部事實,不是它自己有判別力。** 有人在前面插入第三個 767px 區塊,它就讀到別人的區塊。
+ *
+ * ⚠️ **不能照「命中 >1 就 throw」的通用處方套** —— 命中本來就是 2(`.fchip` 那個是正常結構,
+ *    不是誘餌)⇒ 照字面套會**當場紅**。**把好的弄紅,與把證據關掉,是互為反面的同一種錯。**
+ * ⇒ 改成把閘收在「**裝著 `.workspace-` 的那些 767px 區塊**」上 —— 那才是本組真正在問的東西。
+ *
+ * 另外修掉一個潛在坑:舊的 `[\s\S]*?\n\}` 靠「內層規則有縮排、外層 `}` 頂格」來停,
+ * **那是格式假設不是結構**。本函式改用**大括號配對**切,格式怎麼縮排都不影響。
+ *
+ * 兩個方向都會叫:0 個 ⇒ 結構變了;>1 個 ⇒ 有人把這片拆成兩塊,先確認哪一塊才是生效的。
+ */
+function mobilePanelMediaBlock(): string {
+  const ANCHOR = '@media (max-width: 767px) {';
+  const blocks: string[] = [];
+  for (let at = GLOBALS.indexOf(ANCHOR); at !== -1; at = GLOBALS.indexOf(ANCHOR, at + 1)) {
+    let depth = 1;
+    let j = at + ANCHOR.length;
+    for (; j < GLOBALS.length && depth > 0; j += 1) {
+      if (GLOBALS[j] === '{') depth += 1;
+      else if (GLOBALS[j] === '}') depth -= 1;
+    }
+    blocks.push(GLOBALS.slice(at + ANCHOR.length, j - 1));
+  }
+  const mine = blocks.filter((b) => b.includes('.workspace-'));
+  if (mine.length !== 1) {
+    throw new Error(
+      `\`${ANCHOR}\` 全檔 ${blocks.length} 處,其中裝著 \`.workspace-\` 的有 ${mine.length} 處(期望剛好 1 處)。` +
+        (mine.length === 0
+          ? ' 結構變了 —— 這片手機面板規則被刪掉或搬走了,本守門要重寫。'
+          : ' 有人把這片拆成兩塊 ⇒ 先確認哪一塊才是層疊生效的那一塊,再改本守門' +
+            ' —— 不要讓它繼續讀第一塊(那正是本組 2026-08-25 修掉的病)。'),
+    );
+  }
+  return mine[0]!;
+}
+
 describe('組4 手機面板全螢幕覆蓋(14 條宣告同一片,零覆蓋,見 globals.css 該段出處)', () => {
   it('🔴 `@media (max-width: 767px)` 裡四個選擇器都在,一個都沒有漏', () => {
-    const mediaBlock = /@media \(max-width: 767px\) \{[\s\S]*?\n\}/.exec(GLOBALS)?.[0] ?? '';
+    const mediaBlock = mobilePanelMediaBlock();
     expect(mediaBlock, '這個 media block 必須抓得到,抓不到代表選擇器或格式被改動').not.toBe('');
     expect(mediaBlock).toContain('.workspace-row');
     expect(mediaBlock).toContain('.workspace-handle');
@@ -274,13 +315,13 @@ describe('組4 手機面板全螢幕覆蓋(14 條宣告同一片,零覆蓋,見 g
   });
 
   it('🔴 `.workspace-row` 手機改直排,`.workspace-handle` 手機藏起來(桌機並排/可拖曳,這兩條只在手機生效)', () => {
-    const mediaBlock = /@media \(max-width: 767px\) \{([\s\S]*?)\n\}/.exec(GLOBALS)?.[1] ?? '';
+    const mediaBlock = mobilePanelMediaBlock();
     expect(mediaBlock).toMatch(/\.workspace-row\s*\{\s*display:\s*block;?\s*\}/);
     expect(mediaBlock).toMatch(/\.workspace-handle\s*\{\s*display:\s*none;?\s*\}/);
   });
 
   it('🔴 `.workspace-panel` 手機整片蓋滿(9 條宣告逐一命中,不是只有 position:fixed)', () => {
-    const mediaBlock = /@media \(max-width: 767px\) \{([\s\S]*?)\n\}/.exec(GLOBALS)?.[1] ?? '';
+    const mediaBlock = mobilePanelMediaBlock();
     const panelBlock = /\.workspace-panel\s*\{([\s\S]*?)\}/.exec(mediaBlock)?.[1] ?? '';
     for (const decl of [
       'position: fixed',
@@ -298,7 +339,7 @@ describe('組4 手機面板全螢幕覆蓋(14 條宣告同一片,零覆蓋,見 g
   });
 
   it('🔴 `.workspace-panel > .panel-width-locked` 手機覆寫(code-reviewer R1 must-fix,2026-08-24 補)', () => {
-    const mediaBlock = /@media \(max-width: 767px\) \{([\s\S]*?)\n\}/.exec(GLOBALS)?.[1] ?? '';
+    const mediaBlock = mobilePanelMediaBlock();
     const lockedBlock = /\.workspace-panel > \.panel-width-locked\s*\{([\s\S]*?)\}/.exec(mediaBlock)?.[1] ?? '';
     for (const decl of ['height: 100%', 'max-height: 100svh', 'border-left: 0']) {
       expect(lockedBlock, decl).toContain(decl);
