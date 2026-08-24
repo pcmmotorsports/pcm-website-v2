@@ -700,7 +700,8 @@ describe('#10 片1 列印時必須藏起來的三顆', () => {
 //    ⇒ 路由資料夾改名 = **靜默 404**(員工按了得到「找不到頁面」),而三綠全綠、沒有任何測試會紅。
 //    做法照同目錄既有樣板 `components/orders/order-detail-refund-entry.test.ts` 的 source-scan 形。
 describe('#10 片1 入口鈕:href 必須真的指到一支存在的頁', () => {
-  const detailSrc = readFileSync(join(SRC, 'components/orders/order-detail.tsx'), 'utf8');
+  // 🔴 2026-08-24 拆檔片:入口鈕住的標頭整塊搬到 `order-detail-header.tsx` ⇒ 改讀它;斷言零改動。
+  const detailSrc = readFileSync(join(SRC, 'components/orders/order-detail-header.tsx'), 'utf8');
   const HREF = '`/print/orders/${detail.id}/picking`';
 
   it('href 字面還在', () => {
