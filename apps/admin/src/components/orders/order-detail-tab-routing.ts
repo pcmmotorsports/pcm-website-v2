@@ -44,7 +44,17 @@ export function resolveOrderDetailTabFlags(input: {
    *      兩邊都有:`refundsFailed` / `refundUnregisteredFailed` / 未登記額為負
    *      🔴 只有本顆有:`manualRefundsFailed`
    *         —— 非卡退款登記讀不到**也是對帳異常**(那一塊掛紅字),而它不進閘:
-   *            那格的紅字講的是**另一個入口**(「勿重複登記」)。⇒ 該不該進閘 = 待判(乙案)。
+   *            那格的紅字講的是**另一個入口**(「勿重複登記」)。⇒ ~~該不該進閘 = 待判(乙案)。~~
+   *            🔴 **2026-08-24 更正:那不是「待判」——它是 `#445` 第②件的子格,方向已拍。**
+   *               `docs/phase-1-backlog.md` 的 `### #445.` 條(Sean 2026-08-12 拍 `Q-超退閘=做`),
+   *               「要做的四件事」第②件逐字:「從顯示升格為守門,**明確決定 fail-open / fail-closed 方向**」。
+   *               ⇒ **逐字同一個問題**,理由是:`pcm_order_refundable_remaining` 的**第三段就是非卡退款**
+   *                 (`20260820100000_m4b_e10_d3b_void_manual_refund.sql` 裡的
+   *                 `FROM public.order_manual_refunds m`)⇒ 非卡退款讀不到 ⇒ **那條式子本身不可信**。
+   *               ⚠️ 而那條式子**不是守門**:`#445` 逐字「不是守門、沒有 trigger 讀它」,
+   *                 全 repo 唯一呼叫點是顯示路徑 `refund-read.ts` 的 `getLedgerUnregisteredAmount`
+   *                 ⇒ **不要把它讀成「已經有人擋著」**。
+   *               ⇒ 所以這裡**不需要新開題、不需要問 Sean**;要動的時候跟著 `#445` ② 一起決定。
    *      只有閘有:`refundEnabled`(理由見下)/ `refundsTruncated` / `paymentChannel` / `paymentStatus`
    *         —— `refundsTruncated` **2026-08-24 才進閘**(它讓「勿發起退款」的紅字與亮著的入口同頁);
    *            **刻意不進本顆**:截斷不是對帳異常,掛紅標題「退款(對帳異常)」會說謊。
