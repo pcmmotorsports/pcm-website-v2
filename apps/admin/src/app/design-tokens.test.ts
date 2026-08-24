@@ -1204,9 +1204,26 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
         `--${token} 的混色第一個參數不是 var(--card)`,
       ).toMatch(/^color-mix\(in oklab, var\(--card\)/);
     }
+    // 🔴 **這份名單【少一顆是刻意的】—— `.cap-risk` 不在裡面, 不要「順手補齊」。**
+    //    `globals.css:2130`(字面錨 `.cap-risk {background:#a51022!important`)是**刻意寫死的靜態色**,
+    //    而下面那道斷言要求「必須含 var(」⇒ **把它加進來會當場誤紅一個設計決定**。
+    //    它沒有失守:同檔上方「🔴 實心紅那顆(未收出貨)的白字達標」那格
+    //    (字面錨 `winningValue('cap-risk', 'background')`)用對比度 >= 4.5 守著它。
+    //    🔴 補齊一份清單看起來永遠像在做好事 —— 所以擋它的只有這行字。(#895 / b0 複驗撈出)
     for (const cls of ['cap-n', 'cap-y', 'cap-bl', 'cap-g', 'cap-refund']) {
       const bg = winningValue(cls, 'background').replace(/\s+/g, ' ');
-      if (!bg.startsWith('color-mix')) continue; // 走 token 或純色的不在此列
+      // 🔴 #895:上一版這裡是 `if (!bg.startsWith('color-mix')) continue`(走 token 或純色的
+      //    一律靜默跳過)—— 而「純色」正是本格要擋的那件事:有人把 `.cap-n` 的行內 color-mix
+      //    求值成等值 hex(看起來像【簡化】)⇒ 這格 continue · `--tint-*` 那格只圈 token ·
+      //    對比守門算出同一個數 ⇒ **三格同時不紅**。
+      // ✅ 修法是否定那個【動作】,不是列舉合法寫法:背景必須仍然參照 `var(…)`。
+      //    列舉會賭「合法寫法只有 tint-* 與 color-mix 兩種」,而新膠囊換一顆別的 token 就被誤擋。
+      expect(
+        bg,
+        `.${cls} 的 background 不含 var(…) ⇒ 它被求值成靜態色了(值:\`${bg}\`)。` +
+          '正確動作:讓它保持 token 或 color-mix 運算式,或【擴充本判別式】—— 不是刪掉這格',
+      ).toContain('var(');
+      if (!bg.startsWith('color-mix')) continue; // 直取 token 者由上方 --tint-* 迴圈把關
       expect(bg, `.${cls} 的行內混色第一個參數不是 var(--card)`).toMatch(
         /^color-mix\(in oklab, ?var\(--card\)/,
       );
