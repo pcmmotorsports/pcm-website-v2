@@ -32792,6 +32792,91 @@ DB 層可達 = **是**(上面實測)
 
 ---
 
+### #916. 🔴 `listByBrand` / `listByCategory` 的**真實作零測試**,而它們在替身上測得很好 —— 且那 15 個「等它落地」的 `it.todo` 已經等了 110 天
+
+- **狀態:** 未開工
+- **分流:** 待定(**本條只記事實,不定優先序** —— 1b 2026-08-25 明裁:
+  「該不該補那兩個 method 的測試是產品線的決定,不是稽核線的」)
+- **發現於:** 2026-08-25 · cf 線(補洞/量具與守門稽核)· `#869` 存量掃描的副產品
+- **複驗:** 1b 獨立重量,逐格相同(見下「兩人同值」那節)
+
+---
+
+#### 現況(每個數字都附可重跑的數法)
+
+**① 那 15 個 `it.todo` 的前置條件,已於 110 天前成立**
+```
+它們的字面：「待 main-b SupabaseProductAdapter 落地時實作」
+git log --diff-filter=A --format='%ai %h' -- packages/adapters/src/supabase/SupabaseProductAdapter.ts
+  ⇒ 2026-05-07 11:38:22  6dfda2ba   （距 2026-08-25 約 110 天）
+packages/adapters/src/supabase/SupabaseProductAdapter.ts:135
+  export class SupabaseProductAdapter implements IProductRepository
+grep -cE "^[[:space:]]*it\.todo\(" packages/ports/src/IProductRepository.contract.ts  ⇒ 15
+  負對照 同尺 it\.zzztodo\(                                                            ⇒ 0
+```
+🔴 **前置條件到了,而【沒有任何東西紅過】。**
+
+**② 兩個 method 的真實作零測試,而替身測得很好**
+```
+grep -c 於 packages/adapters/src/supabase/SupabaseProductAdapter.test.ts（共 28 格）：
+  listAllProducts  ⇒ 20   ← 正對照，尺是活的
+  findById         ⇒ 4
+  findByHandle     ⇒ 4
+  matchFitment     ⇒ 1
+  🔴 listByBrand     ⇒ 0
+  🔴 listByCategory  ⇒ 0
+
+而全 repo 撈得到 listByBrand 的測試檔只有兩支，【兩支測的都是替身】：
+  packages/adapters/src/in-memory/InMemoryProductRepository.test.ts        （in-memory 實作）
+  apps/storefront/src/lib/recommendations/rule-based-engine.test.ts        （自寫替身）
+```
+🔴 **「這個 method 有測試」在【替身】與【真貨】兩個世界印同一句話。**
+**`grep listByBrand` 撈得到東西 ⇒ 一個只做 grep 的稽核會判它「被覆蓋了」。
+要分開這兩個世界,只有看撈到的是哪一支檔。**
+
+**兩人同值(而這只證明實作獨立,不證明判準獨立 —— 兩邊數的都是同一個字面)**
+```
+cf 量 / 1b 獨立重量 ⇒ listAllProducts 20 · listByBrand 0 · listByCategory 0，逐格相同
+```
+
+---
+
+#### 🔴 射程(逐條寫進來,不得省 —— 少了它們這條會被讀得比事實寬)
+
+```
+① 【沒有查】storefront 的品牌頁 / 分類頁實際走的是哪一條路（真 adapter 還是別的路）
+   ⇒ 本條【不宣稱】「線上有未測的碼在跑」。量到的只有「真實作零測試」。
+② 【沒有查】那 15 個 it.todo 是不是【有意保留】
+   —— IProductRepository.contract.ts 檔頭寫著「此 framework 全 it.todo」
+   ⇒ 🔴 若那是設計，則「待 SupabaseProductAdapter 落地時實作」那句就是【過期的字面】
+      ⇒ 兩者必有一個要改，而本條沒有判是哪一個。
+③ 本條不含優先序、不含「應該補」⇒ 那是產品線的決定。
+```
+
+---
+
+#### 不修未來會痛在哪
+
+- **擴充性:** contract 框架的用途是「同一組案例跑在每一個實作上」。
+  現在它對 Supabase 實作**一個案例都沒跑** ⇒ 再多一個實作時,這個框架仍然不會幫上忙。
+- **可維護性:** 那句「待 X 落地時實作」在 X 落地之後**原封不動地繼續正確著**
+  ⇒ 讀的人會以為 X 還沒好。
+- **bug 可追蹤性:** 🔴 **`listByBrand` / `listByCategory` 若在真 adapter 上壞掉,
+  今天沒有任何測試會紅** —— 而 in-memory 那份會繼續全綠。
+
+#### 關閉條件(擇一,由產品線裁)
+```
+甲｜補上 listByBrand / listByCategory 對【真 adapter】的測試，並把對應的 it.todo 拿掉
+乙｜確認 contract 框架【刻意】只跑 in-memory ⇒ 把那 15 個 it.todo 的字面改掉
+    （拿掉「待 SupabaseProductAdapter 落地時實作」，改成寫出真正的保留理由）
+🔴 不論哪一個，都要一併處理【沒有東西會紅】那一半 ——
+   否則下一個前置條件成立時，同樣的事會再發生一次。
+   📎 模板見 `#869` 的「丙類要的另一個模板」節：
+      一道守門斷言【前置條件還不存在】，前置條件出現的那天它紅。
+```
+
+- **相關:** `#869`(本條是它存量掃描的副產品,且是它那個模板的「屍體」)
+
 ### #913. 🔴 migration 沒包在交易裡 —— `CREATE FUNCTION` 成功而檔尾 `REVOKE` 失敗 ⇒ 一支對所有人開放的 SECDEF 函式留在正式庫
 
 - **狀態**:open · 待派 · 出處=線 2(金流退款線,session `pcm-website-v2-1e`)2026-08-24 夜寫 `#250` 那支新 RPC 時提出;主視窗 `pcm-website-v2-db` 開條目(**線 2 兩次提醒「還沒有編號」,這是第二次才開的**)
