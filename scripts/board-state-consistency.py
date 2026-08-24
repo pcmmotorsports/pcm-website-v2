@@ -38,41 +38,64 @@
 #     ⚠️ 而 R2 另外指出**第三種寫法**:同型字樣**大量出現在「關鍵事實」欄而不是事欄**
 #        (例:一列態=doing 而關鍵事實欄寫「🔴 仍未 apply」, 且那一列已被更正過)
 #        ⇒ **那個位置我一格都沒量。** 要做這個方向, 先量那裡。
-#  ⑤ 🔴 **它讀的是【工作樹】, 不是 staged 的那一份**(codex F9)。
-#     ⇒ partial staging 時兩者會分岔:**staged 是乾淨的而工作樹髒 ⇒ 它照樣擋**
-#     (也可能反過來:staged 壞而工作樹已修 ⇒ 它放行)。
-#     ⇒ **這是它掛進 pre-commit 之後最可能的誤擋來源**, 而目前**沒有修**。
-#     要修的話得改成讀 index(`git show :<path>`), 那是另一片。
+#  ⑤ ~~🔴 **它讀的是【工作樹】, 不是 staged 的那一份**(codex F9)…而目前**沒有修**~~
+#     ✅ **2026-08-25 已修**:`--staged` 走 `git show :<path>`。證人 = partial-staging 三格
+#     (真 git repo, 每格帶「不帶 --staged 的對照組」)。**預設仍讀工作樹**(人手動跑要看眼前這份)。
+#     ⚠️ **殘留**:`--staged` 對【稀疏 checkout / 子模組 / 大檔】的失效面**沒有量過**
+#        —— 缺的檢查很具體:在 sparse-checkout repo 與含 submodule 的 repo 各跑一發 `--staged`。
 #  ⑥ **地板以上的消失是看不見的**(codex F10):板側地板 60、spec 側 5
 #     ⇒ 一整節悄悄掉出分母而列數仍在地板之上 ⇒ 它**安靜全綠**。
 #     地板只擋「掉光」, 不擋「掉一半」。
 #  ⑦ **表頭只驗「整份檔至少看過一次」**(codex F11)——
 #     ⇒ 同一份檔裡**另一張表**換了欄序或缺表頭, 它會被當資料讀而不出聲。
-#  ⑧ 規則② 的收窄**不是只有漏、也有誤擋**(codex F12 推翻我原本寫的
-#     ~~「收窄的代價是漏, 不是誤擋」~~):事欄寫「待確認是否已完成」「不是已完成」
-#     這類**否定或疑問語境**照樣會紅。已處理的只有【劃掉】那一種(`~~已完成~~`)。
+#  ⑧ ~~規則② …事欄寫「待確認是否已完成」「不是已完成」這類**否定或疑問語境**照樣會紅~~
+#     ✅ **2026-08-25 已修**(欠帳 7):否定與疑問**分開**處理, 六格證人 ㊀-㊅。
+#     ⚠️ **而它仍然做得很窄**(刻意):已知漏 = 雙重否定 / 跨標點的否定 / 否定在詞的**後面**
+#        (「已完成嗎」)。📏 而族群在真板上是 **0 處**(同尺正對照 = 那四個詞全板 **6 處**)
+#        ⇒ 這個修法**改不動任何真實結果**, 它買到的是「以後不會誤擋」。
+#  ⑧b 🔴 **檔頭這一節自己過期過一次** —— ⑤ 與 ⑧ 在修完之後**沒有跟著改**,
+#     而本檔第一段明文叫讀者「先讀這段」⇒ **被指示先讀的兩句話, 方向是反的。**
+#     📌 **判別句:我剛剛修好的東西, 在檔頭有沒有一句話還在說它沒修?**
 #  ⑨ **它不是守門, 除非有人把它掛上去。** 現行接線 = `package.json` 的 lint-staged
 #     跑 `--selftest`(那只驗它自己活著);**對真檔跑那一發要有人在 CI 或 pre-commit 叫它**,
 #     而那一步動 `.husky/` = 平台設定 = 鐵則 12④, 不在本檔的權限裡。
 #
 # ══ 用法 ════════════════════════════════════════════════════════════════
-#    python3 scripts/board-state-consistency.py            掃兩份檔
+#    python3 scripts/board-state-consistency.py            掃兩份檔(讀【工作樹】)
+#    python3 scripts/board-state-consistency.py --staged   掃 **index 那一份**(給閘用的模式)
 #    python3 scripts/board-state-consistency.py --selftest 各規則兩個方向各一發
 #    python3 scripts/board-state-consistency.py --why      印誤擋率乾跑的數字與量法
 #
 #    rc=0 全過 / rc=1 有 finding / rc=2 **工具自己壞掉**(與 finding 分得開)
 #
-# ══ 🔴🔴 它現在【只能當印報告用, 不能當擋人的閘】═══════════════════════════
-# codex 兩輪都判 NO-GO 在同一件事上, 而那件事**沒有修**:
-#   🔴 **它讀的是工作樹, 不是這顆 commit 要收的那份(index)。**
-#      ⇒ partial staging 時兩者分岔:staged 乾淨而工作樹髒 ⇒ **誤擋**;
-#        staged 壞而工作樹已修 ⇒ **放行**(比誤擋更糟)。
-#   🔴 規則② **已知會誤擋**否定與疑問語境(「待確認是否已完成」「不是已完成」)。
-# ⇒ **拿一個已知會誤擋、而且沒讀到真正要收的內容的工具去擋 commit, 不可接受。**
+# ══ 🔴 它【仍然只能當印報告用】—— 而擋它的理由從兩條減成一條 ═══════════════
+# ✅ **已修(2026-08-25)**:`--staged` 讀 **index 那一份**(`git show :<path>`)。
+#    ~~它讀的是工作樹, 不是這顆 commit 要收的那份~~ ⇒ 已不成立。
+#    證人 = selftest 的 partial-staging 兩格(**真的建 git repo**, 不是 fixture 字串),
+#    而且每一格都帶【不帶 `--staged` 的對照組】—— 兩個模式必須印**不同的**答案,
+#    否則那兩格對「它讀哪一份」零判別力。
+#      ①staged 乾淨而工作樹髒 ⇒ `--staged` rc=0 · 不帶 ⇒ rc=1
+#      ②staged 髒而工作樹已修 ⇒ `--staged` rc=1 · 不帶 ⇒ rc=0
+#
+# ✅ **已修(2026-08-25,欠帳 7)**:規則② 現在會跳過**否定**與**疑問**語境。
+#    ~~已知會誤擋「待確認是否已完成」「不是已完成」~~ ⇒ 已不成立(六格證人 ㊀-㊅)。
+#    🔴 **而兩種是分開餵的**(主視窗明令):否定 =「它不成立」· 疑問 =「還不知道成不成立」
+#      —— 用同一格代表兩者的話,清空其中一個字集**不會紅**(突變實測)。
+#    📏 **而這個修法【改不動任何真實結果】**:族群在真板上是 **0 處**
+#      (同尺正對照 = 那四個詞全板出現 **6 處** ⇒ 尺是活的);改動前後對真板皆 rc=0。
+#      ⇒ **它買到的是「以後不會誤擋」, 不是「現在少擋了什麼」。**
+#
+# 🔴 **它仍然不是擋人的閘 —— 而現在的理由只剩【沒有人把它掛上去】**:
+#    現行接線只有 `package.json` lint-staged 跑 `--selftest`(那只驗它自己活著)。
+#    掛上去那一步動 `.husky/` = 平台設定 = 鐵則 12④ ⇒ **不在本檔的權限裡。**
+# ⚠️ 而升成擋人閘之前,**族群 0 那條要重量一次** —— 板子每天都在長。
 # ⇒ 現行接線只有 `package.json` lint-staged 跑 `--selftest`(那只驗它自己活著),
 #    **沒有人在 commit 時對真檔叫它** —— 那是刻意的, 不是漏做。
-# 📌 升成擋人閘的前置(codex 開的順序):① 改成掃 index(`git show :<path>`)+ 兩發
-#    partial-staging 整合測試 ② 規則② 先只印報告 ③ 結構性的 ①③ 與 rc=2 才先升 blocking。
+# 📌 升成擋人閘的前置(codex 開的順序):
+#    ~~① 改成掃 index + 兩發 partial-staging 整合測試~~ ⇒ **✅ 2026-08-25 做完**
+#    ② 規則② 先只印報告(**還沒做**)
+#    ③ 結構性的 ①③ 與 rc=2 才先升 blocking(**還沒做**)
+# ⚠️ 而掛上去那一步動 `.husky/` = 平台設定 = 鐵則 12④ ⇒ **不在本檔的權限裡。**
 import io, os, re, subprocess, sys, tempfile
 
 CLOSED = ('open', 'doing', 'parked', 'done')
@@ -84,6 +107,20 @@ DONE_WORDS = ('已結掉', '已做完', '已關掉', '已完成')
 # 🔴 而這個區間的**唯一證人是 fixture** —— 對真板跑 `LOOKBACK` 取 0/16/24/200 **一律 0 列命中**
 #    ⇒ 真板此刻對這個常數**零判別力**。取 24 是區間中段, 不是因為 24 有什麼特別。
 LOOKBACK = 24
+
+# 🔴 否定 / 疑問語境(codex:規則② 對事欄只要出現那四個詞就紅 ⇒
+#    「不是已完成」「待確認是否已完成」都會被判成整列已完成)。
+#    📏 而**族群在真板上是 0**(2026-08-25 量;同尺正對照 = 那四個詞全板出現 **6 處** ⇒ 尺是活的)
+#    ⇒ 所以這裡**刻意做窄**:只認幾個**明確的**標記, 不做中文否定語境解析。
+#    理由:①族群 0 ⇒ 我沒有真實樣本能驗一個解析器對不對, 只能拿自己編的句子驗自己寫的規則
+#          ②中文否定自己會帶新誤擋(「並不是還沒完成」是雙重否定;
+#            「已完成的部分不含 X」裡的「不含」不是在否定「已完成」)
+#    ⇒ **換一個誤擋率未知的東西, 去修一個實例數 0 的缺口, 不划算。**
+#    ⚠️ 已知漏(明寫, 不假裝):雙重否定、跨標點的否定、否定在【詞的後面】都抓不到。
+NEGATORS = ('不是', '並不是', '並非', '不算', '不等於')
+QUESTIONERS = ('是否', '待確認', '待驗', '尚待確認', '有沒有')
+# 往前看幾個字。8 是量出來的:「待確認是否」到「已完成」之間最長 5 字, 留餘裕。
+CONTEXT_BACK = 8
 
 BOARD = 'docs/launch-todo.md'
 SPEC = 'docs/specs/2026-07-25-admin-backend-rebuild-spec.md'
@@ -110,12 +147,37 @@ class MeasurementError(RuntimeError):
         self.code = code
 
 
-def _rows(path, sec_pat, head_pat, state_header):
-    """撈資料列。同時驗【欄位標題】—— 不驗的話, 欄位順序一改它會靜靜地讀錯欄。"""
+def read_source(path, staged):
+    """讀檔內容。
+       🔴 `staged=True` ⇒ 讀 **index 裡那一份**(`git show :<path>`), 不是工作樹。
+       成因(codex 兩輪都咬同一條):掛進 pre-commit 之後, 這支東西要判的是
+       **這顆 commit 會收什麼**, 不是硬碟上現在長什麼樣。partial staging 時兩者會分岔:
+         staged 乾淨而工作樹髒  ⇒ 讀工作樹會【誤擋】
+         staged 壞而工作樹已修  ⇒ 讀工作樹會【放行】← 比誤擋更糟
+       ⚠️ 預設仍是 `False`(讀工作樹)—— 人手動跑它時要看的是眼前這份。"""
+    if not staged:
+        try:
+            return io.open(path, encoding='utf-8').read()
+        except OSError as e:
+            raise MeasurementError('FILE_UNREADABLE', f'讀不到 {path}:{e}')
     try:
-        lines = io.open(path, encoding='utf-8').read().split('\n')
+        r = subprocess.run(['git', 'show', f':{path}'], capture_output=True)
     except OSError as e:
-        raise MeasurementError('FILE_UNREADABLE', f'讀不到 {path}:{e}')
+        raise MeasurementError('GIT_UNRUNNABLE', f'跑不動 git show :{path}:{e}')
+    if r.returncode != 0:
+        raise MeasurementError(
+            'NOT_IN_INDEX',
+            f'{path} 不在 index 裡(git show :{path} 回 rc={r.returncode})—— '
+            f'這不是「檔案沒問題」, 是【這顆 commit 沒有它】')
+    try:
+        return r.stdout.decode('utf-8')
+    except UnicodeDecodeError as e:
+        raise MeasurementError('NOT_UTF8', f'index 裡的 {path} 不是 UTF-8:{e}')
+
+
+def _rows(path, sec_pat, head_pat, state_header, staged=False):
+    """撈資料列。同時驗【欄位標題】—— 不驗的話, 欄位順序一改它會靜靜地讀錯欄。"""
+    lines = read_source(path, staged).split('\n')
     rows, sec, in_fence, header_seen = [], None, False, False
     for i, l in enumerate(lines):
         # 🔴 code fence 內的示範表列不是真資料列。
@@ -149,13 +211,20 @@ def _rows(path, sec_pat, head_pat, state_header):
     return rows
 
 
-def board_grep_count(path):
+def board_grep_count(path, staged=False):
     """🔴 真的跑板子【自己附的那條數法】, 不要用 len(rows) 去推算它。
        兩邊是不同的機制(它不分節、不剝 fence), 今天相等不代表明天相等。"""
+    # 🔴 staged 模式下要數的是【index 那一份】—— 拿工作樹去數就與上面那一半不同源,
+    #    而「兩個各自量到的數」如果來自不同的檔, 它們相等或不等都沒有意義。
     try:
-        out = subprocess.run(
-            ['grep', '-oE', r'\| (open|doing|parked|done) \|', path],
-            capture_output=True, text=True)
+        if staged:
+            out = subprocess.run(['grep', '-oE', r'\| (open|doing|parked|done) \|'],
+                                 input=read_source(path, True),
+                                 capture_output=True, text=True)
+        else:
+            out = subprocess.run(
+                ['grep', '-oE', r'\| (open|doing|parked|done) \|', path],
+                capture_output=True, text=True)
     except OSError as e:
         raise MeasurementError('GREP_UNRUNNABLE', f'跑不動 grep:{e}')
     # 🔴 grep 的 rc:0=有命中 · 1=零命中 · **2 以上=它自己出錯**。
@@ -168,6 +237,13 @@ def board_grep_count(path):
 def rule1_closed_set(rows):
     """① 態欄必須落在封閉集裡。空態欄也算 —— 那正是最壞的形狀(板子的 grep 也數不到它)。"""
     return [r for r in rows if r['state'] not in CLOSED]
+
+
+def _negated_or_questioned(cell, at):
+    """那個詞的**前 CONTEXT_BACK 字**裡有沒有否定/疑問標記。
+       🔴 只看【前面】—— 「已完成嗎」那種後置疑問抓不到, 明寫在 NEGATORS 上面的天花板裡。"""
+    pre = cell[max(0, at - CONTEXT_BACK):at]
+    return any(x in pre for x in NEGATORS) or any(x in pre for x in QUESTIONERS)
 
 
 def rule2_self_contradiction(rows):
@@ -184,14 +260,20 @@ def rule2_self_contradiction(rows):
         if len(f) > 3:
             title = re.sub(r'~~.*?~~', '', f[3])
             for w in DONE_WORDS:
-                if w in title:
+                for m in re.finditer(re.escape(w), title):
+                    if _negated_or_questioned(title, m.start()):
+                        continue        # 「不是已完成」/「待確認是否已完成」⇒ 不是宣稱
                     found = (3, w)
+                    break
+                if found:
                     break
         if found is None:
             for idx, cell in enumerate(f[4:], start=4):
                 cell = re.sub(r'~~.*?~~', '', cell)
                 for w in DONE_WORDS:
                     for m in re.finditer(re.escape(w), cell):
+                        if _negated_or_questioned(cell, m.start()):
+                            continue
                         if '✅' in cell[max(0, m.start() - LOOKBACK):m.start()]:
                             found = (idx, w)
                             break
@@ -222,7 +304,7 @@ def rule3_marker_vs_table(rows):
     return [r for r in rows if len(r['f']) <= 3 or normalize_marker(r['f'][3]) != '✅']
 
 
-def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None):
+def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, staged=False):
     board_min = BOARD_MIN_ROWS if board_min is None else board_min
     spec_min = SPEC_GREEN_MIN_ROWS if spec_min is None else spec_min
 
@@ -232,18 +314,18 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None):
 
     bad = 0
 
-    rows = _rows(board, r'^## ([A-Z]+) · ', r'^#{2,3} ', '態')
+    rows = _rows(board, r'^## ([A-Z]+) · ', r'^#{2,3} ', '態', staged=staged)
     if len(rows) < board_min:
         raise MeasurementError(
             'BOARD_ROW_FLOOR',
             f'{board} 只撈到 {len(rows)} 列(地板 {board_min})—— '
             f'掉一整節時唯一的訊號就是這個數變小')
-    say(f'══ {board}(資料列 {len(rows)})══')
+    say(f'══ {board}(資料列 {len(rows)};讀自 {"index" if staged else "工作樹"})══')
 
     # ① 🔴 真的跑那條 grep, 兩個【各自量到的】數字比對。不是 len(rows) 減 len(strays)。
     # 🔴 兩條路【分開判、分開印】—— R2 抓到:合成一個 if 之後它們會互相遮蔽,
     #    拿掉任一條另一條都會接住 ⇒ 沒有任何一格證明它們【各自】活著。
-    grep_n = board_grep_count(board)
+    grep_n = board_grep_count(board, staged=staged)
     strays = rule1_closed_set(rows)
     if strays:
         bad = 1
@@ -278,7 +360,7 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None):
     else:
         say('  ✅ ② 零命中')
 
-    grows = _rows(spec, r'^### .*(§1-A-1) ✅ 現在做得到', r'^#{3,4} ', '#')
+    grows = _rows(spec, r'^### .*(§1-A-1) ✅ 現在做得到', r'^#{3,4} ', '#', staged=staged)
     for r in grows:
         r['sec'] = 'GREEN'
     if len(grows) < spec_min:
@@ -324,6 +406,17 @@ def _spec(extra=''):
 
 GREEN_BOARD = _pad()
 GREEN_SPEC = _spec()
+
+
+# 🔴🔴 **這一段是事故的修補, 不是防禦性想像。**
+#    2026-08-25:本檔的 selftest 會 `git init` / `git add -A` 一個拋棄式 repo。
+#    而它**掛在 `package.json` 的 lint-staged 上** ⇒ 每次 pre-commit 都會跑它。
+#    pre-commit 執行時, git **匯出 `GIT_DIR` 與 `GIT_INDEX_FILE`(在 linked worktree 下是絕對路徑)**
+#    ⇒ 子程序裡的 `git add -A` **寫進真 repo 的 index**, 而 `cwd` 是空的暫存目錄
+#    ⇒ **它會把整個 repo 的檔案 stage 成刪除**, 而 selftest 照樣印「全部通過」。
+#    ⇒ 下一顆不帶 pathspec 的 commit 會刪掉整個 repo。
+#    📌 **兩個世界印同一句話**:有沒有污染真 index, selftest 的輸出**一模一樣**。
+_GIT_FREE_ENV = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
 
 
 def selftest():
@@ -419,6 +512,38 @@ def selftest():
          _pad('| doing | — | 這件**已完成** | — | x |\n'), GREEN_SPEC, 1),
         ('㉙該綠必綠 · 態=parked 而寫「已完成」⇒ 不得抓(規則② 的邊界)',
          _pad('| parked | — | 這件**已完成** | — | 在等外部事件 |\n'), GREEN_SPEC, 0),
+        # ── 欠帳 7:否定 / 疑問語境(主視窗 2026-08-25 明令【分開各餵一發】,
+        #    因為那兩種不是同一件事:否定是「它不成立」, 疑問是「還不知道成不成立」)──
+        ('㊀該綠必綠 · 否定語境「不是已完成」⇒ 不得抓',
+         _pad('| open | — | 這件**不是已完成**, 還在做 | — | x |\n'), GREEN_SPEC, 0),
+        ('㊁該綠必綠 · 疑問語境「待確認是否已完成」⇒ 不得抓',
+         _pad('| open | — | 待確認是否已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㊂該紅必紅 · 【對照組】真的自稱做完 ⇒ 仍要抓(否則上面兩格是恆綠的)',
+         _pad('| open | — | 這件**已完成**了 | — | x |\n'), GREEN_SPEC, 1),
+        ('㊃該綠必綠 · 否定出現在【後面欄位】的判決句裡也不得抓',
+         _pad('| open | — | 一件事 | — | ✅ 上游說法是不是已結掉還要問 |\n'), GREEN_SPEC, 0),
+        # 🔴 CONTEXT_BACK 的【上界證人】—— 往前看太多的話, 一個不相干的「不是」會把
+        #    後面真正的宣稱吃掉。突變實測:改 999 ⇒ 沒有這一格的話一格都不紅。
+        ('㊅該紅必紅 · 否定詞離得很遠 ⇒ 不算否定(往前看太多會吃掉真的宣稱)',
+         _pad('| open | — | 這件不是上週報的那一件, 而它現在已完成 | — | x |\n'), GREEN_SPEC, 1),
+        # ⚠️ **效度限定(主視窗 2026-08-25 明令照實標)**:下面這八格餵的是**我自己編的句子**。
+        #    那八個標記在真板上**一個真實樣本都沒有**(族群 0)⇒ 它們證明的是
+        #    「**這個字串會讓規則② 跳過**」, **不是**「真實世界裡那種寫法會被正確處理」。
+        #    📌 **我編的句子驗我寫的規則 = 同一個腦。** 不要把這八格讀成「驗過了」。
+        # 🔴 code-reviewer MF4:十個標記原本只有 `不是` 與 `是否` 兩個有證人
+        #    (突變:清空成一個詞 ⇒ 零格紅)⇒ 其餘八個刪掉沒人會知道。逐個補。
+        #    📌 而這正是同檔對 `DONE_WORDS` 已經套過的標準(㉖/㉗ 就是為此補的)——
+        #       **我自己的標準在這裡沒套上。**
+        ('㊆該綠必綠 · 否定標記「並非」', _pad('| open | — | 並非已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㊇該綠必綠 · 否定標記「不算」', _pad('| open | — | 這不算已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㊈該綠必綠 · 否定標記「不等於」', _pad('| open | — | 不等於已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㊉該綠必綠 · 否定標記「並不是」', _pad('| open | — | 並不是已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㋀該綠必綠 · 疑問標記「待確認」', _pad('| open | — | 待確認已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㋁該綠必綠 · 疑問標記「待驗」', _pad('| open | — | 待驗已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㋂該綠必綠 · 疑問標記「尚待確認」', _pad('| open | — | 尚待確認已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㋃該綠必綠 · 疑問標記「有沒有」', _pad('| open | — | 有沒有已完成 | — | x |\n'), GREEN_SPEC, 0),
+        ('㊄該紅必紅 · 【對照組】同一欄位真的是判決句 ⇒ 仍要抓',
+         _pad('| open | — | 一件事 | — | ✅ **2026-08-25 夜已結掉**:貼過了 |\n'), GREEN_SPEC, 1),
         ('㉚該綠必綠 · 【劃掉的】已完成不是宣稱(codex F12 的誤擋面)',
          _pad('| open | — | ~~原寫已完成~~ ⇒ 其實還在做 | — | x |\n'), GREEN_SPEC, 0),
         ('㉛該綠必綠 · 節內含多個豎線的【普通文字】不得被吃成資料列',
@@ -579,12 +704,256 @@ def selftest():
         os.makedirs(os.path.join(_d2, 'docs', 'specs'), exist_ok=True)
         io.open(os.path.join(_d2, BOARD), 'w', encoding='utf-8').write(_b)
         io.open(os.path.join(_d2, SPEC), 'w', encoding='utf-8').write(_s)
-        _r = subprocess.run([sys.executable, _here], cwd=_d2, capture_output=True, text=True)
+        _r = subprocess.run([sys.executable, _here], cwd=_d2, capture_output=True, text=True, env=_GIT_FREE_ENV)
         if _r.returncode == _want:
             print(f'  ✅ 壬·rc 對應表 · {_lbl} fixture ⇒ 子程序真的 exit {_want}')
         else:
             print(f'  🔴 壬·rc 對應表 · {_lbl} fixture ⇒ exit {_r.returncode}(該是 {_want})')
             ok = False
+
+    # ══ partial-staging 整合測試(codex 兩輪都咬的那一條)══════════════════
+    # 🔴 這兩格是【真的建一個 git repo】跑的, 不是 fixture 字串。
+    #    因為它們要問的正是「index 那一份與工作樹那一份不同時, 它讀哪一份」。
+    DIRTY = _pad('| ~~open~~ **半關** | — | 工作樹上的髒東西 | — | x |\n')
+
+    def _git_world(staged_text, worktree_text):
+        w = tempfile.mkdtemp()
+        os.makedirs(os.path.join(w, 'docs', 'specs'), exist_ok=True)
+        bp = os.path.join(w, BOARD)
+        io.open(bp, 'w', encoding='utf-8').write(staged_text)
+        io.open(os.path.join(w, SPEC), 'w', encoding='utf-8').write(GREEN_SPEC)
+        for cmd in (['git', 'init', '-q'], ['git', 'config', 'user.email', 't@t'],
+                    ['git', 'config', 'user.name', 't'], ['git', 'add', '-A']):
+            if subprocess.run(cmd, cwd=w, capture_output=True,
+                              env=_GIT_FREE_ENV).returncode != 0:
+                raise RuntimeError(f'fixture 建置失敗:{cmd}')
+        io.open(bp, 'w', encoding='utf-8').write(worktree_text)   # 只改工作樹, 不 stage
+        return w
+
+    for label, staged_text, wt_text, want_staged, want_worktree in [
+        ('①staged 乾淨而工作樹髒 ⇒ --staged 必須【放行】(讀工作樹會誤擋)',
+         GREEN_BOARD, DIRTY, 0, 1),
+        ('②staged 髒而工作樹已修 ⇒ --staged 必須【擋】(讀工作樹會放行 ← 比誤擋更糟)',
+         DIRTY, GREEN_BOARD, 1, 0),
+    ]:
+        try:
+            w = _git_world(staged_text, wt_text)
+        except RuntimeError as e:
+            print(f'  🔴 partial-staging · fixture 壞了:{e}')
+            ok = False
+            continue
+        _here2 = os.path.abspath(__file__)
+        # 🔴 **這兩發也要濾掉 `GIT_*`。** 2026-08-25 實測:在 pre-commit 底下(`GIT_DIR` 指著真 repo)
+        #    子程序會拿真 repo 的 index 去回答, 而不是這個拋棄式世界的
+        #    ⇒ ②「staged 髒而工作樹已修 ⇒ 該擋」變成 rc=0 ⇒ **只有在 pre-commit 底下才紅。**
+        #    📌 而先前那一版**只驗了「它不會弄壞別人」, 沒驗「它在那個環境底下跑得起來」** ——
+        #       那是兩個宣稱。
+        r_s = subprocess.run([sys.executable, _here2, '--staged'], cwd=w,
+                             capture_output=True, text=True, env=_GIT_FREE_ENV)
+        r_w = subprocess.run([sys.executable, _here2], cwd=w,
+                             capture_output=True, text=True, env=_GIT_FREE_ENV)
+        good = r_s.returncode == want_staged
+        print(('  ✅ ' if good else '  🔴 ') +
+              f'partial-staging {label} ⇒ --staged rc={r_s.returncode}(期望 {want_staged})')
+        if not good:
+            ok = False
+        # 🔴 對照組:同一個世界【不帶 --staged】必須印出【不同的】答案。
+        #    兩邊一樣的話, 這兩格對「它讀哪一份」零判別力。
+        if r_w.returncode == want_worktree:
+            print(f'      ✅ 對照:不帶 --staged rc={r_w.returncode} ⇒ 兩個模式真的讀到不同的東西')
+        else:
+            print(f'      🔴 對照:不帶 --staged rc={r_w.returncode}(期望 {want_worktree})'
+                  f' ⇒ 兩個模式讀到一樣的東西 ⇒ 上面那一格沒有判別力')
+            ok = False
+
+    # 🔴 這一格單獨釘 `board_grep_count` 那條路。上面兩格對它零判別力:
+    #    它們的工作樹版與 index 版**grep 數剛好相同** ⇒ 讀哪一份都印同一個答案。
+    #    這裡讓工作樹**多一列乾淨的 `| open |`** ⇒ 工作樹的 grep 是 61、index 是 60,
+    #    而 rows 讀 index = 60 ⇒ 若 grep 去讀工作樹, ①b 就會誤報「差 1」。
+    try:
+        w = _git_world(GREEN_BOARD, _pad('| open | — | 只在工作樹上的一列 | 待派 | x |\n'))
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), '--staged'],
+                           cwd=w, capture_output=True, text=True, env=_GIT_FREE_ENV)
+        if r.returncode == 0:
+            print('  ✅ 子丑·grep 同源 · --staged 時板子的數法也讀 index(不是工作樹)')
+        else:
+            print(f'  🔴 子丑·grep 同源 · rc={r.returncode}(該是 0)'
+                  f' ⇒ 兩個數來自不同的檔, 它們相等或不等都沒有意義')
+            ok = False
+    except RuntimeError as e:
+        print(f'  🔴 子丑·grep 同源 · fixture 壞了:{e}')
+        ok = False
+
+    # 🔴🔴 **這一格是那場事故的證人。** 它把 `GIT_DIR` / `GIT_INDEX_FILE` 指到一個
+    #    拋棄式 repo(= pre-commit 執行時的環境形狀), 跑一次本檔的 selftest,
+    #    然後**數那個 repo 的 index 還在不在**。
+    #    📌 沒有這一格的話, 「有沒有污染真 index」與「沒有」在輸出上**一模一樣**。
+    # 🔴 **這一格會再跑一次完整 selftest ⇒ 它自己會無限遞迴。**
+    #    內層那一發帶 `BSC_SKIP_ISOLATION_CELL=1` 讓它跳過本格。
+    #    ⚠️ 而那個旗標本身是一個【可以讓守門靜靜消失】的東西 ⇒ 只在這裡讀, 別處不得用。
+    #    (2026-08-25 實測:沒有它 ⇒ selftest 跑不完, 120 秒逾時。)
+    if os.environ.get('BSC_SKIP_ISOLATION_CELL') == '1':
+        print('  ⏭  寅卯·GIT 環境隔離 · 內層跑, 跳過(避免無限遞迴)')
+        _vic = None
+    else:
+        _vic = tempfile.mkdtemp()
+        _clean = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+        for _c in (['git', 'init', '-q'], ['git', 'config', 'user.email', 'v@v'],
+                   ['git', 'config', 'user.name', 'v']):
+            subprocess.run(_c, cwd=_vic, capture_output=True, env=_clean)
+        for _i in range(3):
+            io.open(os.path.join(_vic, f'f{_i}.txt'), 'w').write('x')
+        subprocess.run(['git', 'add', '-A'], cwd=_vic, capture_output=True, env=_clean)
+        subprocess.run(['git', 'commit', '-qm', 'base'], cwd=_vic, capture_output=True, env=_clean)
+
+        def _victim_files():
+            r = subprocess.run(['git', 'ls-files'], cwd=_vic, capture_output=True,
+                               text=True, env=_clean)
+            return len([x for x in r.stdout.split('\n') if x.strip()])
+
+        _before = _victim_files()
+        _polluted = dict(os.environ)
+        _polluted['GIT_DIR'] = os.path.join(_vic, '.git')
+        _polluted['GIT_INDEX_FILE'] = os.path.join(_vic, '.git', 'index')
+        # 🔴 **刻意【不設】`GIT_WORK_TREE`** —— pre-commit 匯出的是 `GIT_DIR` 與 `GIT_INDEX_FILE`,
+        #    而**不是** work tree。設了它反而讓這一格失去判別力(2026-08-25 突變實測:
+        #    設了 ⇒ 拿掉隔離也不紅)。真正的失效機制是:
+        #    有 GIT_DIR 而沒有 GIT_WORK_TREE ⇒ git 把 **cwd** 當工作樹
+        #    ⇒ `git add -A` 在一個空目錄裡 ⇒ **把 index 裡所有檔 stage 成刪除**。
+        _inner = subprocess.run(
+            [sys.executable, os.path.abspath(__file__), '--selftest'],
+            cwd=tempfile.mkdtemp(), capture_output=True, text=True,
+            env={**_polluted, 'BSC_SKIP_ISOLATION_CELL': '1'})
+        _after = _victim_files()
+        # 🔴 **兩個宣稱, 分開驗**(2026-08-25 主視窗指出, 而它是對的):
+        #    ① 它不會弄壞別人(index 沒被動)  ② **它在那個環境底下跑得完**(內層 rc=0)
+        #    先前這一格只驗了 ①, 而 ② 掛掉了 —— 症狀是「手動跑過、pre-commit 底下沒過」。
+        if _inner.returncode != 0:
+            print(f'  🔴 寅卯b·在 GIT_DIR 環境底下【跑不完】· 內層 rc={_inner.returncode}'
+                  ' ⇒ 收這一包的人會撞到, 而手動跑是綠的')
+            for _l in (_inner.stdout + _inner.stderr).split('\n'):
+                if _l.startswith('  🔴'):
+                    print('        ' + _l.strip()[:110])
+            ok = False
+        else:
+            print('  ✅ 寅卯b·在 GIT_DIR 環境底下跑得完(內層 rc=0)')
+        if _before == 3 and _after == 3:
+            print('  ✅ 寅卯·GIT 環境隔離 · 被 GIT_DIR 指著跑一次 selftest ⇒ 那個 repo 的 index 沒被動'
+                  f'(前 {_before} / 後 {_after})')
+        elif _before != 3:
+            print(f'  🔴 寅卯·GIT 環境隔離 · fixture 壞了(前 {_before} 該是 3)⇒ 量具失效, 不判通過')
+            ok = False
+        else:
+            print(f'  🔴 寅卯·GIT 環境隔離 · index 被動了(前 {_before} → 後 {_after})'
+                  ' ⇒ 它會在別人的 pre-commit 裡刪掉整個 repo')
+            ok = False
+
+    # ══ code-reviewer MF2:`--staged` 帶進來的四條錯誤路徑【原本全部零證人】════
+    #    三條路本身是通的(實測過), 而**沒有一格在看它們** ⇒ 拿掉判斷、或把 code 字串
+    #    改成別的字, selftest 一格都不紅。
+    #    🔴 而這裡驗的是 **`.code`**, 不是「有沒有丟 MeasurementError」——
+    #       檔頭 `MeasurementError` 的 docstring 自己寫著「帶 code 才分得開」, 而沒有一格在用它。
+    # 🔴 code-reviewer n1:`w` 這個名字在本函式中途被 `w = _git_world(…)` 蓋成 **str**
+    #    ⇒ 在它之後呼叫 `w(...)` 會 `TypeError`。我就踩了一次。
+    #    ⇒ 自己開一個不會被蓋的名字。
+    def _mkf(name, text):
+        pp = os.path.join(d, name)
+        io.open(pp, 'w', encoding='utf-8').write(text)
+        return pp
+
+    def _mk_git_repo(board_text=None, spec_text=None, add=True):
+        w = tempfile.mkdtemp()
+        os.makedirs(os.path.join(w, 'docs', 'specs'), exist_ok=True)
+        if board_text is not None:
+            io.open(os.path.join(w, BOARD), 'w', encoding='utf-8').write(board_text)
+        if spec_text is not None:
+            io.open(os.path.join(w, SPEC), 'w', encoding='utf-8').write(spec_text)
+        for c in (['git', 'init', '-q'], ['git', 'config', 'user.email', 'e@e'],
+                  ['git', 'config', 'user.name', 'e']):
+            subprocess.run(c, cwd=w, capture_output=True, env=_GIT_FREE_ENV)
+        if add:
+            subprocess.run(['git', 'add', '-A'], cwd=w, capture_output=True, env=_GIT_FREE_ENV)
+        return w
+
+    def _code_of(cwd, env=None):
+        """在子程序裡跑 --staged, 從 stderr 抓 [CODE]。"""
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), '--staged'],
+                           cwd=cwd, capture_output=True, text=True,
+                           env=env or _GIT_FREE_ENV)
+        # 🔴 原本寫 `[A-Z_]+` ⇒ **撈不到 `NOT_UTF8`(裡面有數字 8)**。
+        #    而它的症狀是「code=(沒有 code)」—— 看起來像**程式沒帶 code**, 實際是**尺不認得那個 code**。
+        #    📌 兩個世界印同一句話:真的沒帶 code / 帶了而我的尺讀不到。
+        m = re.search(r'\[([A-Z0-9_]+)\]', r.stderr + r.stdout)
+        return r.returncode, (m.group(1) if m else '(沒有 code)')
+
+    # 甲乙 NOT_IN_INDEX:檔在工作樹而【沒 add】
+    _w = _mk_git_repo(GREEN_BOARD, GREEN_SPEC, add=False)
+    _rc, _code = _code_of(_w)
+    if _rc == 2 and _code == 'NOT_IN_INDEX':
+        print('  ✅ 甲乙·NOT_IN_INDEX · 檔沒進 index ⇒ rc=2 且 code 對')
+    else:
+        print(f'  🔴 甲乙·NOT_IN_INDEX · rc={_rc} code={_code}(該是 2 / NOT_IN_INDEX)')
+        ok = False
+
+    # 丙丁 NOT_UTF8:index 那份不是 UTF-8
+    _w = _mk_git_repo(GREEN_BOARD, GREEN_SPEC, add=False)
+    open(os.path.join(_w, BOARD), 'wb').write(b'## A \xb7 \xff\xfe\n')
+    subprocess.run(['git', 'add', '-A'], cwd=_w, capture_output=True, env=_GIT_FREE_ENV)
+    _rc, _code = _code_of(_w)
+    if _rc == 2 and _code == 'NOT_UTF8':
+        print('  ✅ 丙丁·NOT_UTF8 · index 那份不是 UTF-8 ⇒ rc=2 且 code 對')
+    else:
+        print(f'  🔴 丙丁·NOT_UTF8 · rc={_rc} code={_code}(該是 2 / NOT_UTF8)')
+        ok = False
+
+    # 戊己 GIT_UNRUNNABLE:PATH 裡沒有 git
+    _w = _mk_git_repo(GREEN_BOARD, GREEN_SPEC)
+    _nogit = dict(_GIT_FREE_ENV)
+    _nogit['PATH'] = tempfile.mkdtemp()
+    _rc, _code = _code_of(_w, env=_nogit)
+    if _rc == 2 and _code == 'GIT_UNRUNNABLE':
+        print('  ✅ 戊己·GIT_UNRUNNABLE · PATH 裡沒有 git ⇒ rc=2 且 code 對')
+    else:
+        print(f'  🔴 戊己·GIT_UNRUNNABLE · rc={_rc} code={_code}(該是 2 / GIT_UNRUNNABLE)')
+        ok = False
+
+    # 庚辛 而【工作樹模式】的三個 code 也要各自驗到, 不是「有丟就算過」
+    for _lbl, _mk in [
+        ('FILE_UNREADABLE',
+         lambda: (os.path.join(d, 'no-such-at-all.md'), _mkf('s2.md', GREEN_SPEC))),
+        ('BOARD_ROW_FLOOR',
+         lambda: (_mkf('b2.md', _pad()[:_pad().index('| open | — | 乾淨列 30')]),
+                  _mkf('s3.md', GREEN_SPEC))),
+        ('HEADER_MISSING',
+         lambda: (_mkf('b3.md', GREEN_BOARD),
+                  _mkf('s4.md', _spec().replace('| # | 能力 | 狀態 | 量法 |',
+                                                '| 項 | 能力 | 狀態 | 量法 |')))),
+        # 🔴 **這一項是【比對本身】的證人。** 期望值刻意寫錯 ⇒ 它**必須不相符**。
+        #    突變實測:沒有它的時候, 把 `if e.code == _want` 改成 `if True` ⇒ **零格紅**
+        #    —— 因為其餘三項的 code 本來就都對, 比對鬆掉了也看不出來。
+        ('ZZZ_BOGUS_EXPECTATION',
+         lambda: (os.path.join(d, 'definitely-not-here.md'), _mkf('s9.md', GREEN_SPEC))),
+    ]:
+        _want = _lbl
+        _must_mismatch = _lbl.startswith('ZZZ_')
+        _b, _s = _mk()
+        try:
+            scan(_b, _s, quiet=True)
+            print(f'  🔴 庚辛·{_lbl} · 該失效而它沒丟')
+            ok = False
+        except MeasurementError as e:
+            _match = (e.code == _want)
+            if _must_mismatch:
+                if _match:
+                    print(f'  🔴 庚辛·比對證人 · 連編造的期望 `{_want}` 都說相符 ⇒ 比對是恆真的')
+                    ok = False
+                else:
+                    print(f'  ✅ 庚辛·比對證人 · 編造的期望不相符(實得 {e.code})⇒ 比對有判別力')
+            elif _match:
+                print(f'  ✅ 庚辛·{_lbl} · code 逐字相符(不是「有丟就算過」)')
+            else:
+                print(f'  🔴 庚辛·{_lbl} · code={e.code}(該是 {_want})')
+                ok = False
 
     # 癸 🔴 codex F15:**非預期**的例外(不是 RuntimeError)也要落 rc=2, 不得落 rc=1。
     #    餵一份不是 UTF-8 的板 ⇒ io.open 丟 UnicodeDecodeError(不是 OSError ⇒ 不會變 RuntimeError)。
@@ -595,7 +964,7 @@ def selftest():
     open(os.path.join(_d3, BOARD), 'wb').write(b'## A \xb7 \xff\xfe not utf8\n')
     io.open(os.path.join(_d3, SPEC), 'w', encoding='utf-8').write(GREEN_SPEC)
     _r3 = subprocess.run([sys.executable, os.path.abspath(__file__)],
-                         cwd=_d3, capture_output=True, text=True)
+                         cwd=_d3, capture_output=True, text=True, env=_GIT_FREE_ENV)
     if _r3.returncode == 2:
         print('  ✅ 癸·非預期例外 · 非 UTF-8 的板 ⇒ exit 2(不是 1)')
     else:
@@ -607,7 +976,7 @@ def selftest():
     #    ⇒ 這一格真的開一個子程序, 斷言 exit code。
     r = subprocess.run(
         [sys.executable, os.path.abspath(__file__)],
-        cwd=d, capture_output=True, text=True)
+        cwd=d, capture_output=True, text=True, env=_GIT_FREE_ENV)
     if r.returncode == 2:
         print('  ✅ 辛·rc 對應表 · 讀不到檔 ⇒ 子程序真的 exit 2(與 finding 的 1 分得開)')
     else:
@@ -656,7 +1025,7 @@ if __name__ == '__main__':
         if '--why' in sys.argv:
             print(WHY)
             sys.exit(0)
-        sys.exit(scan())
+        sys.exit(scan(staged='--staged' in sys.argv))
     except RuntimeError as e:
         print(f'🔴 工具壞了:{e}', file=sys.stderr)
         sys.exit(2)
