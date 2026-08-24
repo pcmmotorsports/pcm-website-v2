@@ -13,9 +13,41 @@
 # 判準(**零宣告**,plan §3):
 #   1. PENDING = `supabase/migrations/*.sql` 的版本號 − `supabase/APPLIED.tsv` 已記錄且 sha 相符的版本號
 #   2. 對每支 pending migration,抽出它 `CREATE [OR REPLACE] FUNCTION` 的**函式名**
-#      🔴 **只抽函式名**是 Sean 的拍板(Q2=B「寧可漏擋、只比對 RPC 函式名」)——
-#         table / column / view / index 名一律**不比**,因為它們(如 `orders`)撞常見字的機率高、誤擋體感差。
-#         ⇒ 這是**刻意的漏擋**,不是漏寫;代價寫在 plan §6。
+#      **以及**(2026-08-24 放寬)`CREATE [OR REPLACE] [MATERIALIZED] VIEW` 的**view 名**。
+#
+#      ~~🔴 **只抽函式名**是 Sean 的拍板(Q2=B「寧可漏擋、只比對 RPC 函式名」)——~~
+#      ~~   table / column / view / index 名一律**不比**,因為它們(如 `orders`)撞常見字的機率高、誤擋體感差。~~
+#      ~~   ⇒ 這是**刻意的漏擋**,不是漏寫;代價寫在 plan §6。~~
+#      🔴 **上面那段【劃掉不刪】** —— 下一個人要看得到「當初為什麼只抽函式」,
+#         否則他會把 view 造成的誤擋當成 bug 去修,而那是 2026-08-11 深思過的取捨。
+#
+#      🔴 **2026-08-24 Sean 逐字答「放寬」**(memory `project_0824-sean-widens-deploy-order-gate`)。
+#      **放寬的是 view,不是 table / column / index** —— 後三者維持 Q2=B 的不比,理由沒變(撞常見字)。
+#      放寬的證據(2026-08-24 全量乾跑,量測時點寫在數字旁邊):
+#        分母 `supabase/migrations/*.sql` = 209 支  ← ⚠️ **量測時點的值, 2026-08-24 夜已是 214**
+#        (🔴 分母不要引用這一行, 當場跑 `ls supabase/migrations/*.sql | wc -l`。
+#          留著 209 是因為底下那幾個數字是**在 209 那個分母上量的**, 換掉會讓它們失去出處。)
+#          有 CREATE FUNCTION(放寬前看得到)  = 123
+#          **只有 VIEW 沒有 FUNCTION ⇒ 放寬前【完全看不到】= 13**
+#          兩者皆無(加欄 / 建表 / RLS…)= 73  ← 仍然不管,Q2=B 的射程未變
+#        當天真的 PENDING = 2 支 ⇒ 放寬之後【新增】擋下 1 支、**誤擋 0 支**
+#          擋下的那支 = `20260823030000_m4b_841_order_paid_total_view.sql`(零函式、建 `admin_order_list_v`)
+#          而它**應該**被擋:`#841` 的紀錄逐字「推之前必須先套 SQL,否則後台訂單列表整個 400」。
+#
+#   🔴 **射程限定(它第一次吵起來的那天,先讀這段再決定要不要改這道閘)**:
+#      上面「誤擋 0」是建立在**當天 PENDING 只有 2 支**上。
+#      **若哪天有人一次帶進十幾支未記帳的 migration(例如整批補記之前),誤擋會逼近上界** ——
+#      ~~同一發乾跑量到的上界是 **16 組 (migration, view)**(把每一支都當成 pending 去算)。~~
+#      🔴 **2026-08-24 codex 對抗審查:16 不是上界, 劃掉不刪。** 兩個理由:
+#        ① 實作的 BLOCKED 單位是 **(應用檔, view)** —— 一支 pending view 若被 N 支改動的 app 檔提到,
+#           就產生 N 筆提示 ⇒ N 可以超過 16。
+#        ② `(migration, view)` 這個分母還被 `VIEW_LIST` 的 `sort -u` 壓平過 ⇒ 與實際提示數不同尺。
+#      📏 **線3 2026-08-24 重量(分母 214, 把每一支都當 pending 的最壞情況;量具自檢 214==ls)**:
+#        抽得到 view 名的 migration **20 支** · `(migration, view)` 組數 **25** · **會被擋的 migration 14 支**
+#        ⇒ 最壞情況是 **14/214**, 而它只在「帳本整個沒跟上」時才成立。
+#        ⚠️ 這仍**不是**提示筆數的上界(理由同 ①)—— 提示筆數要乘上「有幾支 app 檔提到它」。
+#      ⇒ 🔴 **那時它會很吵,而吵的原因是【帳本沒跟上】,不是這道閘壞了。**
+#        先去補 `APPLIED.tsv`,不要先來改這裡。
 #   3. 若這次要推的範圍內,`apps/**` 或 `packages/**` 的非測試檔 diff **出現那些函式名的完整識別字** ⇒ 擋
 #
 # ── 為什麼不留「宣告」欄位 ───────────────────────────────────
@@ -150,6 +182,55 @@ fn_names_of() { # $1=rev:path
     | tr -d '"' | sed 's/.*\.//' | sort -u
 }
 
+# ── 2b. 從 pending migration 抽 VIEW 名(2026-08-24 放寬新增)──────────────
+#    `CREATE VIEW x` / `CREATE OR REPLACE VIEW public.x` / `CREATE MATERIALIZED VIEW x` 都要抓到。
+#    形狀與 `fn_names_of` 刻意一致(同一個坑只踩一次):壓換行、大小寫不敏感、容 IF NOT EXISTS、去 schema 前綴。
+# 🔴 **2026-08-24 線3:先剝 SQL 註解, 再抽名字(codex 對抗審查 ③, 實測誤擋)。**
+#    構造:一支 migration 的**行註解**裡寫著 `-- CREATE VIEW public.ghost_v AS …`,
+#    而 app 這次新增讀的是**早就存在**的 `ghost_v` ⇒ 舊版把註解抽成一支 pending view ⇒ **rc=1 誤擋**。
+#    (實測:拋棄式 repo, 正對照=正常 view+讀 ⇒ 擋、負對照=無關改動 ⇒ 放行, 兩發都活。)
+#    🔴 而它擋的理由對讀的人完全不成立 —— 那支 view 早就在庫裡, 訊息卻叫他「先 apply」。
+# ⚠️ **射程**:只剝 `--` 行註解與 `/* … */` 區塊註解。
+#    **字串字面裡的 `--` 會被誤剝**(例:`'a--b'`)—— 那會讓後面的字消失 ⇒ 可能造成【漏擋】。
+#    🔴 ~~今天全 repo 的 migration 零這種寫法~~ **這句是假的(2026-08-24 codex R2 點名, 我複量成立)**:
+#      `grep -hE "'[^']*--[^']*'" supabase/migrations/*.sql | grep -v '^\s*--' | wc -l` ⇒ **40 行**
+#      (例:`position('-- items 筆數守…')`、regexp pattern);含 dollar-quote 的 migration ⇒ **175 支**
+#      (負對照 `$ZZZ$` ⇒ 0 ⇒ 尺是活的)。
+#    ⇒ 正確的說法是:**構造已經存在, 只是還沒有一支同時滿足「字串裡有 `--`」+「後面才是真的 CREATE VIEW」**。
+#      📏 而那一點是量到的:214 支逐支比對「剝註解前 vs 後抽出來的 view 名集合」⇒ **不同 0 支**。
+#    ⚠️ 兩句話差很多:「零這種寫法」讓人以為不會發生;「已有構造、尚未撞到」讓人知道**它會**。
+#    要根治得真的 parse SQL;`fn_names_of` 有**同一個**既有缺口(codex 點名)⇒ 兩支要一起改, 不在本片。
+# 🔴 **2026-08-24 codex R2 must-fix:第一版的區塊註解剝除器對兩種輸入完全失效。**
+#    ~~`sed -e ':a' -e 's;/\*[^*]*\*/;;g' -e 'ta'`~~ ——
+#      · `/* a * b */`(內含單獨星號)⇒ `[^*]*` 吃不過那個 `*` ⇒ **剝不掉**
+#      · 跨行 `/* a\nb */` ⇒ 那時還沒 flatten ⇒ **剝不掉**
+#    ⇒ 現在分兩步, 而**順序是有理由的**:
+#      ① 行註解 `--` 必須在【還是多行】的時候剝(flatten 之後就分不出行尾在哪)
+#      ② 區塊註解在【flatten 之後】剝(這樣跨行的那些也變成同一行), 且用
+#         `[^*]*(\*[^/][^*]*)*` 這個形狀 —— 它容得下內含的單獨星號。
+strip_sql_line_comments() { sed -e 's;--.*$;;'; }
+strip_sql_block_comments() { sed -E -e ':a' -e 's;/\*[^*]*(\*[^/][^*]*)*\*+/;;g' -e 'ta'; }
+view_names_of() { # $1=rev:path
+  git show "$1" 2>/dev/null \
+    | strip_sql_line_comments \
+    | tr '\n' ' ' \
+    | strip_sql_block_comments \
+    | sed -E 's/[Cc][Rr][Ee][Aa][Tt][Ee]([[:space:]]+[Oo][Rr][[:space:]]+[Rr][Ee][Pp][Ll][Aa][Cc][Ee])?([[:space:]]+[Mm][Aa][Tt][Ee][Rr][Ii][Aa][Ll][Ii][Zz][Ee][Dd])?[[:space:]]+[Vv][Ii][Ee][Ww]([[:space:]]+[Ii][Ff][[:space:]]+[Nn][Oo][Tt][[:space:]]+[Ee][Xx][Ii][Ss][Tt][Ss])?[[:space:]]+/\n@@VW@@/g' \
+    | sed -nE 's/^@@VW@@([a-zA-Z0-9_."]+).*/\1/p' \
+    | tr -d '"' | sed 's/.*\.//' | sort -u
+}
+
+# 🔴 **view 比對時要排除的檔**(2026-08-24;理由是【機制】不是「差很小」):
+#    `packages/adapters/src/supabase/database.types.ts` 是 Supabase **自動產生**的型別檔
+#    (該檔第一行逐字「生成型別;勿手改」),而它**含每一個 view 名**
+#    (實測 `admin_order_list_v` 14 次 / `products_public` 8 次 / `admin_customer_list_v` 10 次)。
+#    ⇒ 重 gen 通常與 migration 同一顆 push ⇒ **任何 view migration 都會自己命中它**。
+#    🔴 而那是**誤擋**:型別檔只是型別,**執行期不會發任何 PostgREST 請求** ⇒ 它造不出 `PGRST202`。
+#    ⚠️ 「今天差很小(17→16)」不是排除它的理由 —— **它是會長大的那種雜訊**,而理由是上面那個機制。
+#    ⚠️ **只排除 view 那條路**:函式那條路維持原樣,不因本次放寬被順手放鬆
+#       (今天它實際上也不會命中該檔 —— 函式名在那裡是物件鍵、沒有引號、也沒有 `.rpc(`)。
+GENERATED_TYPES='packages/adapters/src/supabase/database.types.ts'
+
 EMPTY_TREE="$(git hash-object -t tree /dev/null)"
 
 # ── 3. 逐 ref 判斷 ────────────────────────────────────────────────────
@@ -172,9 +253,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   FN_LIST="$(printf '%s\n' "$PENDING" | cut -f2 | while read -r f; do
                [ -n "$f" ] && fn_names_of "$local_sha:$f"; done | sort -u)"
+  VIEW_LIST="$(printf '%s\n' "$PENDING" | cut -f2 | while read -r f; do
+               [ -n "$f" ] && view_names_of "$local_sha:$f"; done | sort -u)"
   [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: 函式名 = $(printf '%s' "$FN_LIST" | tr '\n' ' ')" >&2
-  # pending 但零 CREATE FUNCTION(例如純加欄位)⇒ 依 Q2=B 的射程,本閘不管它
-  [ -n "$FN_LIST" ] || continue
+  [ "${DOG_DEBUG:-0}" = "1" ] && echo "deploy-order-gate[$remote_ref]: view 名 = $(printf '%s' "$VIEW_LIST" | tr '\n' ' ')" >&2
+  # pending 但**函式與 view 都零**(例如純加欄位 / 建表 / 改 RLS)⇒ 仍在 Q2=B 的射程外,本閘不管
+  [ -n "$FN_LIST" ] || [ -n "$VIEW_LIST" ] || continue
 
   if [ "${remote_sha:-$ZERO}" = "$ZERO" ]; then
     BASE="$EMPTY_TREE"                                          # 遠端還沒有這條 ref ⇒ 對空樹比(#6:不能只看 tip 一顆)
@@ -277,6 +361,36 @@ $VALS"
       [ -n "$HIT" ] \
         && BLOCKED="$BLOCKED\n  · 函式 [$fn](在未 apply 的 migration 裡)出現在新增的 .rpc() 呼叫:$af($HIT)  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')"
     done <<< "$FN_LIST"
+
+    # ── view 那條路(2026-08-24 放寬)────────────────────
+    # 🔴 **view 走 `.from(` 不走 `.rpc(`** —— 兩邊的比對窗口不同,不能共用上面那個。
+    #    窗口規則刻意與 `.rpc(` 那邊一致(含跨行接續與後兩行),理由同上:同一個坑只踩一次。
+    # ⚠️ 產生型別檔整支跳過(見 `GENERATED_TYPES` 的理由;**只跳 view 這條路**)。
+    if [ -n "$VIEW_LIST" ] && [ "$af" != "$GENERATED_TYPES" ]; then
+      FROMS="$(printf '%s\n' "$CODE" | sed -e ':a' -e '/\.from([[:space:]]*$/{N;s/\n[[:space:]]*/ /;ta' -e '}' \
+               | grep -A2 -E '\.from\(' || true)"
+      while IFS= read -r vw; do
+        [ -n "$vw" ] || continue
+        VHIT=""
+        printf '%s\n' "$FROMS" | grep -qE "(^|[^A-Za-z0-9_])$vw([^A-Za-z0-9_]|\$)" && VHIT="from 窗口"
+        # 與函式那邊同一條:**整串**等於 view 名的字串字面(常數表那一半),句子裡嵌著的不算。
+        # 🔴🔴 **2026-08-24 線3:誤擋 ⑤ 的修法【已撤回】—— 而撤回的理由要留著。**
+        #    ⑤ 是真的:app 只新增 `const LABEL = "pcm_probe_v"`(整支檔零 `.from(`)⇒ 本行擋下 ⇒ 誤擋。
+        #    我的修法是「同一支檔裡真的有 `.from(` 才算命中」。**它製造了一個更貴的漏擋:**
+        #    📏 實測(拋棄式 repo,兩個方向):
+        #      `table.ts` 把 `const TABLE='old_v'` 改成 `'new_v'`,而 `.from(TABLE)` 在**未改動的**
+        #      `reader.ts` 裡 ⇒ 這次部署**真的**依賴一支 pending view
+        #        修【前】⇒ 🔴 擋(訊息點名 `view [new_v] … table.ts(整串字面)`)
+        #        修【後】⇒ 🟢 **放行** ← 漏的正是這道閘存在的理由(PGRST202 / 42P01)
+        #    ⇒ **誤擋 > 漏擋 這條原則在這裡不適用** —— 因為換來的漏擋落在**核心失敗情境**上,
+        #      而不是落在別的地方。⇒ 撤回,`⑤` 維持為**已知誤擋**,處置交回主視窗。
+        #    ⚠️ 下一個想修它的人:便宜的條件都會撞到「常數住在沒改動的檔裡」這個形狀。
+        #       先構造上面那一發, 再決定。
+        [ -z "$VHIT" ] && printf '%s\n' "$CODE" | grep -qE "['\"]$vw['\"]" && VHIT="整串字面"
+        [ -n "$VHIT" ] \
+          && BLOCKED="$BLOCKED\n  · view [$vw](在未 apply 的 migration 裡)出現在新增的 .from() 讀取:$af($VHIT)  [ref $remote_ref]\n    └ 那支 migration:$(printf '%s\n' "$PENDING" | cut -f2 | tr '\n' ' ')"
+      done <<< "$VIEW_LIST"
+    fi
   done <<< "$APP_FILES"
 done
 
@@ -284,8 +398,8 @@ done
 
 {
   echo ""
-  echo "🔴 部署時序 gate:**這次要推的應用層新增程式碼,用到了還沒 apply 的 migration 建的函式**。"
-  echo "   推上去 = 正式站呼叫一支資料庫裡還不存在的函式 ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。"
+  echo "🔴 部署時序 gate:**這次要推的應用層新增程式碼,用到了還沒 apply 的 migration 建的函式或 view**。"
+  echo "   推上去 = 正式站去問一個資料庫裡還不存在的東西 ⇒ PGRST202(2026-08-07 A9h:壞約 8 小時)。"
   printf '%b\n' "$BLOCKED"
   echo ""
   echo "   兩條出路(擇一):"
@@ -296,5 +410,5 @@ done
   echo ""
 } >&2
 # 🔴 摘要行放在【擋下訊息之後】—— 它是最後一行,而 Sean 的終端機是往下捲的。
-summary "$(printf '%b' "$BLOCKED" | grep -c '· 函式' || true)"
+summary "$(printf '%b' "$BLOCKED" | grep -cE '· (函式|view) ' || true)"
 exit 1

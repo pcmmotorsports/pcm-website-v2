@@ -19,7 +19,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=58
+EXPECT_TOTAL=64
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -742,16 +742,26 @@ view_push() { # $1=repo
 # 🔴🔴 **已【實測確認】而本 harness 沒有格在守的四個洞(2026-08-24 codex 對抗審查)**
 #    寫在這裡是因為:**它們是真的,而下面六格全綠** —— 不寫,下一個人會把 58/58 讀成「這條路是安全的」。
 #    每一條都附可複跑的測資(拋棄式 repo,正對照=正常 view+讀 ⇒ 擋、負對照=無關改動 ⇒ 放行,兩發都活)。
-#      🔴漏擋 ① `CREATE RECURSIVE VIEW public.v(x) AS …`      ⇒ 抽不到名字,rc=0
-#      🔴漏擋 ② `CREATE /*註解*/ VIEW public.v AS …`          ⇒ 抽不到名字,rc=0
-#      🔴誤擋 ③ migration 的【行註解裡】有 `-- CREATE VIEW public.ghost_v …`
-#               而 app 新增讀既有的 `ghost_v` ⇒ 抽成假 DDL,rc=1
-#      🔴誤擋 ⑤ app 只是新增一個 `const LABEL = "pcm_probe_v"`(**完全沒有 `.from()`**)⇒ rc=1
-#    ⚠️ ⑤ 這條是「整串字面」matcher 的設計後果,`.rpc(` 那條路**本來就有同一個性質**
-#       ⇒ 它不是本次放寬新增的,而**放寬把它的射程從函式名擴到 view 名** ⇒ 命中面變大。
+#    ✅ **2026-08-24 主視窗裁「③⑤ 誤擋最急,你修;①② 漏擋先掛著」⇒ 已修,並各補一格看著:**
+#      ✅誤擋 ③ migration 的【行註解裡】有 `-- CREATE VIEW public.ghost_v …`
+#               而 app 新增讀既有的 `ghost_v` ⇒ 舊版抽成假 DDL、rc=1  ⇒ **修法=先剝 SQL 註解** ⇒ 見 `V⑦`
+#      🔴誤擋 ⑤ app 只新增 `const LABEL = "pcm_probe_v"`(**整支檔零 `.from(`**)⇒ rc=1
+#               🔴🔴 **修法已撤回, ⑤ 仍是已知誤擋。** 我試過「同檔要有 `.from(` 才算命中」,
+#               而 codex R2 構造出它換來的漏擋、我複驗成立:常數住在**沒改動的檔**裡時整發放行
+#               ⇒ 漏的正是這道閘存在的理由。**誤擋 > 漏擋 在這裡不適用。** ⇒ 見 `V⑧`(現在守那個漏擋)
+#      ✅漏擋 ② `CREATE /*註解*/ VIEW public.v AS …` ⇒ 舊版抽不到名字、rc=0
+#               🔴 **這一條是【剝註解順便修好的】,不在裁決範圍內** —— 剝掉 `/* */` 之後
+#               `CREATE` 與 `VIEW` 接在一起 ⇒ 抽得到。⇒ 見 `V⑨`
+#      🔴漏擋 ① `CREATE RECURSIVE VIEW public.v(x) AS …` ⇒ **仍然抽不到名字,rc=0(刻意留著)**
+#               理由(主視窗裁):它只是**退回放寬前**的狀態,而放寬前那 13 支本來就完全看不到;
+#               修它是「更嚴」,而更嚴要另配一次誤擋率乾跑 ⇒ 另一片。
 #    📌 codex 另外點的「④被註解掉的呼叫會誤擋」**實測不成立**(rc=0,剝註解有效)⇒ 已改成 V④ 在守它。
-#    ⇒ **為什麼不直接加成紅格**:紅格會讓整支 harness 紅,而這四條要不要修是設計取捨
-#      (①②修了更嚴、③⑤修了更寬),不是本片能自己拍的 ⇒ 已回報,等裁決。
+#
+#    📏 **③ 那個修法對【今天的存量】零影響 —— 這句話要寫出來,否則它讀起來像修好了一批東西**:
+#       全部 214 支 migration 逐支比對「剝註解前 vs 剝註解後抽出來的 view 名集合」
+#       ⇒ **不同的有 0 支**(而註解裡真的有 `CREATE VIEW` 的有 12 支 —— 它們的註解名與真名相同)。
+#       ⇒ 它治的是**第一次有人這樣寫的那一刻**,與 `migration-post-commit-guard.sh` 檔頭
+#         「現在無人踩到,而踩到不會有任何東西叫」是同一句話。
 # ════════════════════════════════════════════════════════════════════════
 
 echo "── view 那條路(2026-08-24 放寬;線3 補) ──────────────"
@@ -790,6 +800,65 @@ RV6="$WORK/v6"; setup_view_repo "$RV6"; add_matview_migration "$RV6"
 printf 'export const q = (c:any)=> c.from("pcm_probe_v").select("*");\n' > "$RV6/apps/admin/src/reader.ts"
 expect_block "V⑥漏擋面·CREATE MATERIALIZED VIEW 也要抽得到名字 ⇒ 擋" \
   "$(view_push "$RV6")" "view [pcm_probe_v]"
+
+# ── 2026-08-24 線3:codex 對抗審查點名的兩個【誤擋】修完之後補的格 ────────────
+# 🔴 這三格在**修之前全部是紅的**(實測), 而修之後全綠 ⇒ 極性正確、不是恆綠。
+
+RV7="$WORK/v7"; setup_view_repo "$RV7"
+# 這支 migration 的【行註解裡】有一句假的 CREATE VIEW, 而它真正建的是一張表。
+printf -- '-- CREATE VIEW public.ghost_v AS SELECT 1;\nCREATE TABLE public.z(i int);\n' \
+  > "$RV7/supabase/migrations/20260102000000_pending.sql"
+# app 這次新增讀的是【早就存在】的 ghost_v。
+printf 'export const q = (c:any)=> c.from("ghost_v").select("*");\n' > "$RV7/apps/admin/src/reader.ts"
+expect_pass "V⑦誤擋面·migration 的【註解裡】有假 DDL ⇒ 不得抽成 pending view(修前 rc=1)" \
+  "$(view_push "$RV7")"
+
+# 🔴🔴 **V⑧【已撤回】—— 而撤回本身要留一格看著, 不是刪掉就算。**
+#    原本這格驗「view 名只當字串常數而整支檔零 `.from(` ⇒ 放行」。修法是「同檔要有 `.from(` 才算命中」。
+#    📏 codex R2 構造出它換來的漏擋, 我複驗成立(兩個方向):
+#      `table.ts` 把 `const TABLE='old_v'` → `'new_v'`, 而 `.from(TABLE)` 在**未改動的** `reader.ts`
+#        修前 ⇒ 🔴 擋   修後 ⇒ 🟢 放行 ← **漏的正是這道閘存在的理由**
+#    ⇒ 撤回。`⑤` 維持為**已知誤擋**(app 新增純標籤字串 ⇒ 被擋), 處置交回主視窗。
+#    ⇒ 下面這一格改成**釘住那個漏擋不會再回來**:常數住在沒改動的檔裡時, 仍然要擋。
+RV8="$WORK/v8"; setup_view_repo "$RV8"
+printf 'CREATE VIEW public.new_v AS SELECT 1 AS x;\n' > "$RV8/supabase/migrations/20260102000000_pending.sql"
+printf "export const TABLE = 'old_v';\n" > "$RV8/apps/admin/src/table.ts"
+printf "import {TABLE} from './table';\nexport const q=(c:any)=>c.from(TABLE).select('*');\n" > "$RV8/apps/admin/src/reader.ts"
+( cd "$RV8" && git add -A && git commit -qm seed >/dev/null )
+printf "export const TABLE = 'new_v';\n" > "$RV8/apps/admin/src/table.ts"
+expect_block "V⑧漏擋面·常數表改名而 .from(常數) 在【未改動的檔】⇒ 仍要擋(⑤ 的修法撤回就是為了它)" \
+  "$(view_push "$RV8")" "view [new_v]"
+
+RV9="$WORK/v9"; setup_view_repo "$RV9"
+# `CREATE /*註解*/ VIEW` —— 註解夾在關鍵字中間。剝註解之後 CREATE 與 VIEW 接在一起 ⇒ 抽得到。
+printf 'CREATE /*x*/ VIEW public.pcm_probe_v AS SELECT 1 AS x;\n' \
+  > "$RV9/supabase/migrations/20260102000000_pending.sql"
+printf 'export const q = (c:any)=> c.from("pcm_probe_v").select("*");\n' > "$RV9/apps/admin/src/reader.ts"
+expect_block "V⑨漏擋面·CREATE /*註解*/ VIEW ⇒ 擋(修前 rc=0 漏擋;剝註解順便修好的)" \
+  "$(view_push "$RV9")" "view [pcm_probe_v]"
+
+# 🔴 **codex R2 must-fix:V⑨ 只餵了最簡單的 `/*x*/`,而第一版剝除器對另外兩種【完全失效】。**
+#    ⇒ 三格分開餵:內含單獨星號 / 跨行 / 跨行註解裡的假 DDL(誤擋面)。
+RVa="$WORK/va"; setup_view_repo "$RVa"
+printf 'CREATE /* a * b */ VIEW public.pcm_probe_v AS SELECT 1 AS x;\n' \
+  > "$RVa/supabase/migrations/20260102000000_pending.sql"
+printf 'export const q = (c:any)=> c.from("pcm_probe_v").select("*");\n' > "$RVa/apps/admin/src/reader.ts"
+expect_block "V⑩漏擋面·區塊註解【內含單獨星號】 /* a * b */ ⇒ 擋(第一版剝除器剝不掉)" \
+  "$(view_push "$RVa")" "view [pcm_probe_v]"
+
+RVb="$WORK/vb"; setup_view_repo "$RVb"
+printf 'CREATE /* a\nb */ VIEW public.pcm_probe_v AS SELECT 1 AS x;\n' \
+  > "$RVb/supabase/migrations/20260102000000_pending.sql"
+printf 'export const q = (c:any)=> c.from("pcm_probe_v").select("*");\n' > "$RVb/apps/admin/src/reader.ts"
+expect_block "V⑪漏擋面·【跨行】區塊註解 ⇒ 擋(剝除器要在 flatten 之後才剝得到)" \
+  "$(view_push "$RVb")" "view [pcm_probe_v]"
+
+RVc="$WORK/vc"; setup_view_repo "$RVc"
+printf '/* 舊版:\nCREATE VIEW public.ghost_v AS SELECT 1;\n*/\nCREATE TABLE public.z(i int);\n' \
+  > "$RVc/supabase/migrations/20260102000000_pending.sql"
+printf 'export const q = (c:any)=> c.from("ghost_v").select("*");\n' > "$RVc/apps/admin/src/reader.ts"
+expect_pass "V⑫誤擋面·【跨行】區塊註解裡的假 DDL ⇒ 不得抽成 pending view" \
+  "$(view_push "$RVc")"
 
 echo
 echo "══ 結果:PASS=$PASS FAIL=$FAIL(期望 PASS=$EXPECT_TOTAL)══"
