@@ -312,3 +312,140 @@ describe('🔴 GET payment-status — S2b 主動結算 + throttle', () => {
     expect(await res.json()).toEqual({ status: 'pending' });
   });
 });
+
+// ── 🔴🔴 `#900`(2026-08-24):訊號 ────────────────────────────────────────────
+// 上面那些格證的是【行為對】(fail-closed skip、不 500、不偽 paid)。而在此之前
+// **兩個世界的行為是一樣的、而且都不留痕**:
+// ```
+// 世界①「throttle 好好地擋著」(預期,客人多分頁/狂重整時每天都會發生)
+// 世界②「settleCharge 一直在拋錯」(不預期)
+// ⇒ 兩者都 skip、都回 pending、都沉默 ⇒ 在我們這端是同一個畫面(什麼都沒有)
+// ⇒ 「它從來沒出過問題」與「它一直在失敗」分不出來
+// ```
+// 🔴 所以這一段要的**不是「有 log」,是「兩個世界印【不同】的東西」** —— 印同一句話的兩個訊號,判別力是零。
+//
+// 📌 **本段是【後來補的】,而補它的理由值得留著**:同一道守門在
+//    `apps/storefront/src/app/checkout/charge-actions.test.ts` 已經有(那條路是同一個 throttle 的另一個 caller),
+//    而這一支沒有 ⇒ **那是不對稱,不是取捨**。訊號的價值全押在「兩句話不一樣」上,
+//    而那正是下一次重構最容易被抹平的東西 —— 有人把兩句統一成一句,**不會有任何測試紅**。
+describe('🔴 `#900` 訊號:被 throttle 擋下 vs settle 拋錯必須印【不同】的東西', () => {
+  it('兩個世界各自印,而且訊息集合【不得相交】', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // 🔴 `unpaid` 是走進 settle 那一段的**唯一**入口(route:`first.paymentStatus === 'unpaid'`)——
+    //    餵 `paid` 的話會在第 4 步就 return,兩個世界都印不出東西**而測試照樣綠**。
+    mockSupabase({ user: { id: USER }, data: { payment_status: 'unpaid' } });
+    throttleSpy.mockResolvedValue(false); // 世界①:擋下
+    expect((await GET(req(), ctx())).status).toBe(200);
+    const world1 = info.mock.calls.map((c) => String(c[0]));
+    expect(world1.some((m) => m.includes('throttle 擋下'))).toBe(true);
+    expect(error).not.toHaveBeenCalled();
+    expect(settleSpy).not.toHaveBeenCalled();
+
+    info.mockClear();
+    error.mockClear();
+
+    mockSupabase({ user: { id: USER }, data: { payment_status: 'unpaid' } });
+    throttleSpy.mockResolvedValue(true); // 世界②:放行而 settle 拋錯
+    settleSpy.mockRejectedValue(new Error('settle boom secret-detail'));
+    expect((await GET(req(), ctx())).status).toBe(200); // 行為不變:fail-closed skip、不 500
+    const world2 = error.mock.calls.map((c) => String(c[0]));
+    expect(world2.some((m) => m.includes('拋錯'))).toBe(true);
+
+    // 🔴 **這一行才是本段存在的理由**:兩個世界的訊息集合不得相交。
+    //    少了它,兩邊各印一句「[payment-status] 處理中」也會全綠 —— 而那等於沒有訊號。
+    expect(world1.filter((m) => world2.includes(m))).toEqual([]);
+
+    info.mockRestore();
+    error.mockRestore();
+  });
+
+  it('順利放行(throttle 過 + settle 沒拋)⇒ 兩種訊號都不該出現', async () => {
+    // 負對照:少了這一格,「無條件每次都印那兩句」也會讓上面那格綠。
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockSupabase({ user: { id: USER }, data: { payment_status: 'unpaid' } });
+    throttleSpy.mockResolvedValue(true);
+    settleSpy.mockResolvedValue({ kind: 'pending' });
+    expect((await GET(req(), ctx())).status).toBe(200);
+    expect(info.mock.calls.map((c) => String(c[0])).some((m) => m.includes('throttle 擋下'))).toBe(
+      false,
+    );
+    expect(error).not.toHaveBeenCalled();
+    info.mockRestore();
+    error.mockRestore();
+  });
+
+  // ── 🔴 R1 findings 1/3/5/6 的守門(codex 關卡2, must-fix)──────────────────────
+  // 📌 上面那格已經在餵 `new Error('settle boom secret-detail')` —— **想到了那個字, 而沒有斷言它不出現**
+  //    ⇒ 那個 `'secret-detail'` 當時的作用是【看起來驗過了】。這三格把它變成真的驗過。
+
+  it('🔴 finding 3/6:第三方 error 的內容【不得】出現在 log 的任何一個參數裡', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockSupabase({ user: { id: USER }, data: { payment_status: 'unpaid' } });
+    throttleSpy.mockResolvedValue(true);
+    settleSpy.mockRejectedValue(new Error('settle boom secret-detail'));
+
+    expect((await GET(req(), ctx())).status).toBe(200);
+
+    // 🔴 掃**全部參數**不只第一個 —— 上一格只看 `c[0]`, 而刻意放進去的祕密在 `c[1]`。
+    //    這是本格與上一格的唯一差別, 也是 finding 6 逐字指出的那個洞。
+    const everything = JSON.stringify(error.mock.calls);
+    expect(everything).not.toContain('secret-detail');
+    expect(everything).not.toContain('settle boom');
+    // 正向:它仍然要印得出「哪一段壞了」與「哪一類例外」, 否則本格用「什麼都不印」也能綠。
+    expect(everything).toContain('settle');
+    expect(everything).toContain('Error');
+    error.mockRestore();
+  });
+
+  it('🔴 finding 5:throttle 自己拋錯時, 不得印成「settleCharge 拋錯」(歸因)', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockSupabase({ user: { id: USER }, data: { payment_status: 'unpaid' } });
+    // 世界③:throttle RPC 自己拋 ⇒ settleCharge **根本沒被呼叫**
+    throttleSpy.mockRejectedValue(new Error('throttle rpc down'));
+
+    expect((await GET(req(), ctx())).status).toBe(200); // 行為不變:fail-closed skip
+    expect(settleSpy).not.toHaveBeenCalled();
+
+    const msgs = error.mock.calls.map((c) => String(c[0]));
+    // 🔴 承重的是這一條**否定**:值班的人 grep 「settleCharge」不該撈到這一發,
+    //    否則他會去查一個沒有被呼叫的東西。
+    expect(msgs.some((m) => m.includes('settleCharge'))).toBe(false);
+    expect(msgs.some((m) => m.includes('throttle RPC'))).toBe(true);
+    expect(JSON.stringify(error.mock.calls)).toContain('throttle');
+    error.mockRestore();
+  });
+
+  it('🔴 finding 1:`console.error` 自己拋錯時, 行為必須【逐字不變】(仍 200、不變成未捕捉例外)', async () => {
+    // 🔴 這一格是 finding 1 的整個理由:原本那行 `console.error` 就寫在 catch 區塊裡,
+    //    而 **catch 區塊裡的語句在那個 catch 的保護範圍外面** ⇒ 它拋就逃出去 ⇒ 200 變成例外。
+    //    ⚠️ 它也是 `safeLog` 的突變靶:把 `safeLog` 改回裸 `console.error` ⇒ 本格必紅。
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {
+      throw new Error('console is broken');
+    });
+    mockSupabase({ user: { id: USER }, data: { payment_status: 'unpaid' } });
+    throttleSpy.mockResolvedValue(true);
+    settleSpy.mockRejectedValue(new Error('settle boom'));
+
+    const res = await GET(req(), ctx());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'pending' });
+    error.mockRestore();
+  });
+
+  it('負對照:`console.info` 自己拋錯(throttle 擋下那條路)也不得改變行為', async () => {
+    // 🔴 兩支都要有這一格。少了它, `safeLog` 只被證明在 error 那條路上有接。
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {
+      throw new Error('console is broken');
+    });
+    mockSupabase({ user: { id: USER }, data: { payment_status: 'unpaid' } });
+    throttleSpy.mockResolvedValue(false);
+
+    const res = await GET(req(), ctx());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: 'pending' });
+    info.mockRestore();
+  });
+});

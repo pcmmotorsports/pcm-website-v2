@@ -259,6 +259,38 @@ export function CheckoutView({
       />
     );
 
+  // 🔴🔴 `#887` 乙案 —— **這一道必須排在下面三道 cart 閘【之前】。**
+  //
+  //   病:下面三道(`loading` / `error` / `empty`)都是**整頁 early return**, 而
+  //   `<CheckoutPaymentOverlay open={submitting} />` 住在它們的**下游**(見下方 return)
+  //   ⇒ 付款進行中(錢已經在飛、尚未落終態)只要 cart 掉出 `ready`, **整頁連同遮罩一起被換掉**:
+  //     · `error` ⇒ 客人看到「請重新整理頁面再試一次」⇒ 讀成「付款失敗了」⇒ **重按 ⇒ 重複扣款**
+  //     · `empty` ⇒ 畫面上還遞給他一顆「繼續購物」, 那是一個**會離開結帳頁的出口**
+  //     · `loading` ⇒ 什麼都不說, 而他的錢正在飛
+  //
+  //   🔴 這條不變量**早就有前例, 而沒有人把它延伸到「進行中」**:
+  //     `:253` 的 `isTerminalChargeState` 早退擋的是**終態**那一半, 而它的守門
+  //     (`CheckoutView.test.tsx` 「終態優先於空車」)註解逐字寫著「直接誘導重複付款」。
+  //     `#887` = 那道守門只守了一半。本行補「進行中」那一半。
+  //
+  //   🔴 為什麼**不是**在 `:264` 加一個 `&& !submitting` 就好:那樣會掉進下面 `ready` 的路,
+  //     拿 `lines = []` 渲染出一張**零商品的結帳頁**而付款鈕是活的 —— 那正是 A2 修掉的病。
+  //
+  //   🔴 遮罩**不可省**:`CheckoutCartNotice` 自帶 `Header` / `HomeFooter`, 它們有連結(離開入口)。
+  //     原生 `<dialog>` 的 inert 背景才鎖得住。少了它, 乙案會比甲案更糟。
+  //
+  //   Sean 2026-08-24 拍「依照建議」= 乙案(付款中專屬畫面, 那顆「繼續購物」根本不渲染)。
+  //   ⚠️ 他買的是**結果**不是方案 —— 若實作撞到與那三行選項不符的現實, 回去找主視窗改,
+  //      **不要說「Sean 決定的」**。
+  if (submitting && cart.status !== 'ready') {
+    return (
+      <>
+        <CheckoutPaymentOverlay open />
+        <CheckoutCartNotice variant="paying" />
+      </>
+    );
+  }
+
   if (cart.status === 'loading') return <CheckoutCartNotice variant="loading" />;
   // A2:讀不到 ≠ 空車。少了這一行,`error` 會掉進下面 `ready` 的路 ⇒ 結帳頁渲染**零商品的訂單**。
   if (cart.status === 'error') return <CheckoutCartNotice variant="error" />;

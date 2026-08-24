@@ -592,6 +592,120 @@ describe('chargePaymentAction — outcome 六態映射(plan v6 §7)', () => {
     expect(mockSettleCharge).not.toHaveBeenCalled();
   });
 
+  // ── 🔴🔴 `#900`(2026-08-24):訊號 ────────────────────────────────────────
+  // 上面那幾格證的是【行為對】(照舊擋、零 settle)。而在此之前**兩個世界的行為是一樣的**:
+  //   世界①「throttle 好好地擋下來」(預期,每天都會發生)
+  //   世界②「settle 這條路壞了」    (不預期)
+  // 兩者都回 false、都不留痕 ⇒ **在我們這端是同一個畫面(什麼都沒有)**
+  // ⇒ 「它從來沒出過問題」與「它一直在失敗」分不出來。
+  // 🔴 所以這一格要的**不是「有 log」,是「兩個世界印【不同】的東西」** ——
+  //    印同一句話的兩個訊號,判別力等於零。
+  it('🔴 `#900`:被 throttle 擋下 vs settle 拋錯 ⇒ 必須印【不同】的東西(不是「有印就好」)', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    // 世界①:throttle 擋下(allowed = false)⇒ 只有 info,零 error
+    mockClaimPollSettle.mockResolvedValue(false);
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    expect(await (await getAction())(validInput())).toEqual(IN_FLIGHT_MSG);
+    const world1Info = info.mock.calls.map((c) => String(c[0]));
+    expect(world1Info.some((m) => m.includes('throttle 擋下'))).toBe(true);
+    expect(error).not.toHaveBeenCalled();
+
+    info.mockClear();
+    error.mockClear();
+
+    // 世界②:settle 拋錯 ⇒ 只有 error,而且訊息不同
+    mockClaimPollSettle.mockResolvedValue(true);
+    mockSettleCharge.mockRejectedValue(new Error('settle boom'));
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+    expect(await (await getAction())(validInput())).toEqual(IN_FLIGHT_MSG);
+    const world2Error = error.mock.calls.map((c) => String(c[0]));
+    expect(world2Error.some((m) => m.includes('settle 拋錯'))).toBe(true);
+
+    // 🔴 **這一行才是本格的重點**:兩個世界的訊息集合不得相交。
+    //    少了它,兩邊各印一句「[checkout] 在途單處理」也會全綠 —— 而那等於沒有訊號。
+    expect(world1Info.filter((m) => world2Error.includes(m))).toEqual([]);
+
+    info.mockRestore();
+    error.mockRestore();
+  });
+
+  // ── 🔴 R1 findings 2/4/5/7 的守門(codex 關卡2, must-fix)────────────────────────
+  // 📌 上面那格只驗了 `c[0]`(第一參數的文字)。而**刻意餵進去的祕密在 `c[1]`** ——
+  //    「想到了那個字, 而沒有斷言它不出現」⇒ 那個字當時的作用是【看起來驗過了】。
+  // 🔴 而本檔這幾格裡最重的是 finding 2 那一格:它守的是**雙扣**, 不是 log 好不好看。
+
+  it('🔴 finding 2:`console.error` 自己拋錯時, 仍須回 IN_FLIGHT_MSG —— 不得掉出 formError(那會釋鎖 ⇒ 雙扣)', async () => {
+    // 🔴 這一格是整輪 R1 最重的一條。`isInFlightSettledFailed` 的 docstring 逐字寫著
+    //    「任何 throw 都回 false(照舊擋), **絕不落到 chargePaymentAction 的外層 generic catch**
+    //      —— 那會回 formError, 而 client 收到 formError 會釋放按鈕允許重試 = 潛在雙扣」。
+    //    而我原本在那個 catch 裡放了一個裸 `console.error` ⇒ **catch 區塊裡的語句在那個 catch
+    //    的保護範圍外面** ⇒ 它拋就逃出去 ⇒ 那條不變式被我自己在同一支檔裡打破。
+    //    ⚠️ 突變靶:把 `safeLog` 改回裸 `console.error` ⇒ 本格必紅(而且紅在 formError 上)。
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {
+      throw new Error('console is broken');
+    });
+    mockClaimPollSettle.mockResolvedValue(true);
+    mockSettleCharge.mockRejectedValue(new Error('settle boom'));
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+
+    const res = await (await getAction())(validInput());
+    expect(res).toEqual(IN_FLIGHT_MSG);
+    expect(res).not.toHaveProperty('formError'); // ← 承重:formError 就是釋鎖那條路
+    error.mockRestore();
+  });
+
+  it('負對照:`console.info` 自己拋錯(throttle 擋下那條路)也不得掉出 formError', async () => {
+    // 少了這一格, `safeLog` 只被證明在 error 那條路上有接。
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {
+      throw new Error('console is broken');
+    });
+    mockClaimPollSettle.mockResolvedValue(false);
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+
+    const res = await (await getAction())(validInput());
+    expect(res).toEqual(IN_FLIGHT_MSG);
+    expect(res).not.toHaveProperty('formError');
+    info.mockRestore();
+  });
+
+  it('🔴 finding 4/7:第三方 error 的內容【不得】出現在 log 的任何一個參數裡', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockClaimPollSettle.mockResolvedValue(true);
+    mockSettleCharge.mockRejectedValue(new Error('settle boom secret-detail'));
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+
+    expect(await (await getAction())(validInput())).toEqual(IN_FLIGHT_MSG);
+
+    // 🔴 掃**全部參數**, 不只 `c[0]` —— 這是本格與上面那格 `#900` 的唯一差別。
+    const everything = JSON.stringify(error.mock.calls);
+    expect(everything).not.toContain('secret-detail');
+    expect(everything).not.toContain('settle boom');
+    // 正向:仍要印得出「哪一段」與「哪一類例外」, 否則「什麼都不印」也能讓本格綠。
+    expect(everything).toContain('settle');
+    expect(everything).toContain('Error');
+    error.mockRestore();
+  });
+
+  it('🔴 finding 5:throttle RPC 自己拋錯時, 不得印成「settle 拋錯」(歸因)', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // 世界③:throttle RPC 自己拋 ⇒ settleCharge **根本沒被呼叫**
+    mockClaimPollSettle.mockRejectedValue(new Error('throttle rpc down'));
+    mockConfirmPayment.mockResolvedValue(IN_FLIGHT);
+
+    const res = await (await getAction())(validInput());
+    expect(res).toEqual(IN_FLIGHT_MSG); // 行為不變:照舊擋
+    expect(res).not.toHaveProperty('formError');
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+
+    const msgs = error.mock.calls.map((c) => String(c[0]));
+    // 🔴 承重的是這一條**否定**:值班的人 grep「settle 拋錯」不該撈到這一發。
+    expect(msgs.some((m) => m.includes('settle 拋錯'))).toBe(false);
+    expect(msgs.some((m) => m.includes('throttle RPC 拋錯'))).toBe(true);
+    error.mockRestore();
+  });
+
   it('🔴 節流 factory throw(正式環境缺設定)→ 照舊擋、零 settle、run 恰一次', async () => {
     // factory 若被移出 try,這裡會落外層 generic catch → formError → client 釋鎖 → 潛在雙扣。
     mockGetPollSettleThrottle.mockImplementation(() => {

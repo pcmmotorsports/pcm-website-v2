@@ -74,6 +74,7 @@ import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
 import { CURRENT_TERMS_VERSION } from '@/lib/legal/terms-version';
+import { safeErrorName, safeLog } from '@/lib/safe-log';
 import type { CheckoutFieldErrors } from './checkout-form-types';
 
 // 🔴 3DS-7:cart_session_id 局部 uuid 驗(不改共用 CheckoutInput;沿用
@@ -201,7 +202,10 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       //   現在改成擋在 placeOrder **之前** ⇒ 零單、零 attempt。沒有這行 log,
       //   「修好了(沒人被擋)」與「大家被擋在更前面,只是不再產生證據」在觀測上**長得一模一樣**。
       //   🔴 PII(#16):只記 reason 與 userId,**email 值絕不入 log**。
-      console.error('[checkout] cardholder blocked', { reason: built.reason, userId: user.id });
+      // 🔴 `safeLog` 而非裸 `console.error`(#900 R1 finding 2 的同族, 既有非本片新增):
+      //    這一行在外層 try 裡 ⇒ 它自己拋會被 :340 那個 catch 收成 `MSG.generic`
+      //    ⇒ 客人拿到的是通用字面而不是「持卡人資料」那句。零扣款, 但診斷全丟。
+      safeLog('error', '[checkout] cardholder blocked', { reason: built.reason, userId: user.id });
       return mapCardholderFail(built.reason);
     }
 
@@ -345,7 +349,11 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     //    🔴 只印錯誤碼與固定修法字串,**不印 err 本體**(PII / error 不洩;Q2=A 逐字不變)。
     const rpcErrorCode = (err as { code?: unknown } | null)?.code;
     if (rpcErrorCode === 'PGRST202' || rpcErrorCode === '42883') {
-      console.error('[checkout] create_order 簽章不符', {
+      // 🔴 這一行與 finding 2 **同一個形狀**(既有, 非本片新增):它就在 catch 區塊裡
+      //    ⇒ 它自己拋就逃出這個 catch ⇒ 下面那句 `return { formError: MSG.generic }` 不會跑。
+      //    ⚠️ 而它的**傷害比 finding 2 輕**, 理由寫在下面 :356 那段註解:走到此處的 throw
+      //       全屬零扣款路徑 ⇒ 逃出去也沒有一筆錢可以扣第二次。**輕不等於不修**, 而修法是一個字。
+      safeLog('error', '[checkout] create_order 簽章不符', {
         code: rpcErrorCode,
         fix: 'prod 的 create_order 可能仍是 8 參:跑 bash scripts/verify-create-order-9param.sh,只有 exit 0 才可部署',
       });
@@ -404,19 +412,53 @@ async function settleInFlightThenRetryOnce<O>(
  * generic catch** —— 那會回 `formError`,而 client 收到 formError 會釋放按鈕允許重試 = 潛在雙扣。
  */
 async function isInFlightSettledFailed(inFlightOrderId: string): Promise<boolean> {
+  // 🔴 `stage` = **歸因**(#900 codex R1 finding 5, must-fix)。throttle RPC 自己拋錯時,
+  //    原本印的是「settle 拋錯」而 settle **根本沒被呼叫** ⇒ 值班的人去查一個沒壞的東西。
+  //    ⇒ 兩個世界要有兩個名字。而它**不動控制流**:下面那個「全包 try/catch」的形狀一個字沒改
+  //      —— 那個形狀是本函式的不變式, 不是風格。
+  let stage: 'throttle' | 'settle' = 'throttle';
   try {
     const allowed = await getPollSettleThrottle().claimPollSettle(
       inFlightOrderId,
       IN_FLIGHT_SETTLE_THROTTLE_SECONDS,
     );
+    stage = 'settle';
     if (!allowed) {
+      // 🔴 `#900`(2026-08-24):**行為不變(照舊擋),加的是訊號。**
+      //    這一格回 `false` = 「不放行客人重新結帳」,而它原本**不留任何痕跡**
+      //    ⇒ 一個被 throttle 擋在門外的客人,與一個從來沒來過的客人,在我們這端長得一樣。
+      //    ⚠️ 用 `info`:被擋是**預期行為**(10 秒內重按),不是故障。
+      safeLog('info', '[checkout] 在途單 settle 被 throttle 擋下、維持擋住重新結帳', {
+        inFlightOrderId,
+        throttleSeconds: IN_FLIGHT_SETTLE_THROTTLE_SECONDS,
+      });
       return false;
     }
     // 不帶 recTradeIdHint:settleCharge 以 orderId 重查 attempt、自取強鍵(settle-charge.ts:74,77),
     // 我們手上沒有、也不需要一個較舊的觀察。
     const settled = await settleCharge(getSettleChargeDeps(), { orderId: inFlightOrderId });
     return settled.kind === 'failed';
-  } catch {
+  } catch (settleError) {
+    // 🔴 `#900`:**行為不變(任何 throw 都回 false、照舊擋)**,加的是訊號。
+    //    這一格與上面那個 `!allowed` **必須印不同的東西** —— 它們是兩個世界:
+    //      上面 = 擋得好好的(預期);這裡 = settle 這條路壞了(不預期)
+    //    而原本兩者都是沉默 ⇒ 在我們這端**分不出來**。
+    // 🔴 `safeLog` 不是美觀, 它是這支函式的不變式(#900 codex R1 finding 2, must-fix)。
+    //    上面 docstring 逐字寫著「任何 throw 都回 false、**絕不落到 `chargePaymentAction` 的
+    //    外層 generic catch**」—— 而我原本在這個 catch 裡放了一個 `console.error`,
+    //    **catch 區塊裡的語句在那個 catch 的保護範圍外面** ⇒ console 自己拋就逃出去
+    //    ⇒ formError ⇒ client 釋放按鈕 ⇒ 客人重按 ⇒ **雙扣**。
+    //    📌 我親手寫下那條不變式, 又親手在同一支檔裡打破它。
+    //       母題:**「我只是加 log」是一句關於【意圖】的話, 不是關於【控制流】的話。**
+    // 🔴 `errorName`(finding 4):`settleError.message` 由第三方決定
+    //    ⇒ 可能含 prime / rec_trade_id / payload / PII。第三方決定的字串不進 log。
+    safeLog('error', stage === 'throttle'
+      ? '[checkout] 在途單 throttle RPC 拋錯、維持擋住重新結帳'
+      : '[checkout] 在途單 settle 拋錯、維持擋住重新結帳', {
+      inFlightOrderId,
+      stage,
+      errorName: safeErrorName(settleError),
+    });
     return false;
   }
 }

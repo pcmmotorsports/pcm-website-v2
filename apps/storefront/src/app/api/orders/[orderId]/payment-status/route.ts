@@ -34,6 +34,7 @@
 
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getPollSettleThrottle, getSettleChargeDeps } from '@/lib/payment/composition';
+import { safeErrorName, safeLog } from '@/lib/safe-log';
 import { settleCharge } from '@pcm/use-cases';
 
 export const runtime = 'nodejs';
@@ -136,14 +137,56 @@ export async function GET(
   //    settle 閘用 raw `=== 'unpaid'`(非 `!== 'paid'`):partiallyPaid/refunded 不觸發 settle(對齊 throttle RPC
   //    unpaid 閘、不干擾 4a-2 sweeper flag_non_unpaid_active 回收路徑)。全包 try/catch fail-closed:
   //    throttle RPC / settleCharge throw → skip、不 500、不偽 paid;客人續輪詢(背景 webhook/sweeper 仍會收斂)。
+  // 🔴🔴 **2026-08-24 `#900`:這一段【原本是啞的】,而那是它唯一的缺陷。**
+  //    `fail-closed skip` 這個行為是對的、不改;錯的是**它不留痕跡**:
+  //    ```
+  //    「它從來沒出過問題」與「它一直在失敗」—— 在我們這端是【同一個畫面】(什麼都沒有)
+  //    ```
+  //    原本的 `catch {}` 是空的,而 `grep -c console` 這支檔 ⇒ **0**。
+  //    ⇒ 下面三條路各印一行、**而且印不同的東西** —— 一個訊號要能分辨兩個世界才有用。
+  //    ⚠️ **不印 `payment_url` / prime / rec_trade_id**(`CheckoutRedirecting.tsx:9` 的紀律:
+  //       那三個絕不 log)。`orderId` 是客人自己的單,而它本來就在這支路由的網址裡。
   if (first.paymentStatus === 'unpaid') {
+    // 🔴 `stage` 存在的唯一理由 = **歸因**(#900 codex R1 finding 5, must-fix)。
+    //    原本 throttle RPC 自己拋錯時, log 印的是「throttle 或 settleCharge 拋錯」——
+    //    值班的人 grep 到它, 會去查一個**根本沒被呼叫**的 settleCharge。
+    //    「有沒有被擋」與「【誰】擋的」是兩個宣稱, 而一行含糊的 log 只答得出第一個。
+    //    ⇒ 兩個世界要有兩個名字。而它**不動控制流** —— 原本那一個 try/catch 的形狀一個字沒改。
+    let stage: 'throttle' | 'settle' = 'throttle';
     try {
       const allowed = await getPollSettleThrottle().claimPollSettle(orderId, POLL_SETTLE_THROTTLE_SECONDS);
+      stage = 'settle';
       if (allowed) {
         await settleCharge(getSettleChargeDeps(), { orderId });
+      } else {
+        // 🔴 這一行答的是「throttle 擋掉了幾次」。**它不是錯誤** —— 客人多分頁 / 狂重整時
+        //    擋下來正是它的工作(port 檔頭逐字:「會員多分頁/狂重整可 spam 打爆 Record 查詢額度」)。
+        //    ⇒ 用 `info` 不用 `error`:這條路每天都會走,而把它記成錯誤會讓真的錯誤被淹掉。
+        safeLog('info', '[payment-status] settle 被 throttle 擋下', {
+          orderId,
+          throttleSeconds: POLL_SETTLE_THROTTLE_SECONDS,
+        });
       }
-    } catch {
-      /* throttle RPC(正式暫無此 RPC)/ settleCharge throw → fail-closed skip(不 500、不偽) */
+    } catch (settleError) {
+      /* 行為不變:throttle RPC / settleCharge throw → fail-closed skip(不 500、不偽 paid) */
+      // 🔴 而**這一條是真的壞了**:客人會一直看到「處理中」而我們這端一片安靜。
+      //
+      // 🔴 `safeLog` + `safeErrorName`, 兩個都是 must-fix 的修法, 而它們修的是**不同的東西**:
+      //    · `safeLog`(finding 1):`console.error` **自己**拋 ⇒ 原本會逃出這個 catch
+      //      ⇒ 本來回 pending 200 變成未捕捉例外。catch 區塊裡的語句在 catch 的保護範圍**外面**。
+      //    · `safeErrorName`(finding 3):`settleError.message` 是**第三方決定的字串** ——
+      //      裡面可能有 payment_url / prime / rec_trade_id / payload / PII, 原樣進 log。
+      //      判別句 = 這個字串的內容是【誰】決定的?第三方 ⇒ 不可信。
+      //      ⚠️ 代價寫在這裡, 不要事後才發現:**我們從 log 看不出「錯在哪一句」了**,
+      //         只看得出「哪一段(stage)壞了、是哪一類例外(errorName)」。
+      //         要更細的診斷得去 Supabase / TapPay 那端對時間, 而那條路今天沒有人走過。
+      safeLog('error', stage === 'throttle'
+        ? '[payment-status] throttle RPC 拋錯、已 skip'
+        : '[payment-status] settleCharge 拋錯、已 skip', {
+        orderId,
+        stage,
+        errorName: safeErrorName(settleError),
+      });
     }
   }
 

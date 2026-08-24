@@ -19,13 +19,33 @@ export type CheckoutCartNoticeProps =
   | { variant: 'empty'; onContinueShopping: () => void }
   /** A2:問不到 server(≠ 空車)。與 'loading' 同樣沒有 `onContinueShopping` ——
    *  讀不到的下一步是**重試**,不是去逛街。 */
-  | { variant: 'error' };
+  | { variant: 'error' }
+  /** 🔴 `#887` 乙案(Sean 2026-08-24 拍「依照建議」):**錢正在飛, 而購物車不是 ready**。
+   *
+   *  它排在其他三個 variant **之前**被選中(判斷在 `CheckoutView`), 因為那三句話在這一刻
+   *  全都是**對客人說錯話**:
+   *    · `error` 說「請重新整理頁面再試一次」—— 而他一重整就可能重複送出
+   *    · `empty` 說「購物車是空的」+ 一顆**會把他導離結帳頁**的「繼續購物」
+   *    · `loading` 什麼都沒說, 而他的錢正在飛
+   *
+   *  🔴 與另外三個 variant 一樣**沒有任何互動元素**, 而那不夠 —— 本檔的 `Header` / `HomeFooter`
+   *    自帶連結(離開入口)⇒ 呼叫端**必須**同時掛 `CheckoutPaymentOverlay`(原生 dialog 的
+   *    inert 背景才鎖得住那些連結)。少了它, 乙案會比甲案更糟:甲至少還有遮罩。 */
+  | { variant: 'paying' };
 
 export function CheckoutCartNotice(props: CheckoutCartNoticeProps) {
   return (
     <div data-screen-label="Checkout" className="co-page">
       <Header currentPage="checkout" />
-      {props.variant === 'loading' ? (
+      {props.variant === 'paying' ? (
+        // 🔴 `#887` 乙案。**文案逐字照抄, 不得潤飾**(Sean 2026-08-24 第二次拍板, 推翻他自己第一版)。
+        //   📌 他第一版只寫「請勿更新頁面」= **兩個動作只擋了一個**;這版兩個都擋。
+        //     ⇒ 那正是不得潤飾的理由:任何「讀起來更順」的改寫, 都可能又掉一個動作。
+        //   ⚠️ 改這一行前先跑 `bash scripts/literal-sweep.sh '<舊字面>'`。
+        <div className="cart-empty" role="status" aria-live="polite">
+          <h2>付款處理中,請勿更新頁面或重複點擊</h2>
+        </div>
+      ) : props.variant === 'loading' ? (
         <div className="cart-loading">載入結帳資料…</div>
       ) : props.variant === 'error' ? (
         // A2:🔴 **不得**沿用「購物車是空的」那段字 —— 客人的品項還在,那樣寫是說謊,

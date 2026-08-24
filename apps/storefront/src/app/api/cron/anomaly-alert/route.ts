@@ -121,6 +121,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { checkAnomalyAlerts, type CheckAnomalyAlertsDeps } from '@pcm/use-cases';
 import { getAnomalyAlertDeps } from '@/lib/payment/composition';
 import { checkCronRateLimit } from '@/lib/cron/rate-limit';
+import { safeErrorName } from '@/lib/safe-log';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -165,45 +166,6 @@ function requireCronSecret(): string {
   return s;
 }
 
-/**
- * 例外 → 一個【由白名單決定】的識別字。J-003 MF-1 的修法,而它的形狀是 codex 對抗審查逼出來的。
- *
- * 🔴 我第一版寫的是 `err instanceof Error ? err.name : typeof err`,並在註解裡宣稱
- *    「類別名是一個封閉集合的識別字,永遠不含密鑰」。**那句話是假的,而 codex 當場表演給我看:**
- *      const e = new Error('safe'); e.name = 'SECRET_IN_NAME';   ⇒ e.name === 'SECRET_IN_NAME'
- *    `name` 是一般可寫欄位(實例自帶、子類自訂、`Error.prototype.name` 被覆寫都算)
- *    ⇒ 只要哪天有人寫一個 name 帶動態內容的 Error 子類,密鑰就從這條路進 log,
- *      **而那正是這個 catch 當初刻意只記固定碼要擋的那件事**(訊息面 drift)。
- * ⇒ 所以封閉集合要【由這裡造出來】,不能假設它本來就是:
- *   認得的就照實印,不認得的一律 'other'。'other' 本身也有訊息(= 出現了不尋常的東西)。
- *
- * 🔴 而它一步都不可以自己 throw —— 這是 fail-closed 路徑上的最後一段:
- *    這裡 throw ⇒ console.error 那行不會跑、503 也不會回,**變成 500 而且零 log**
- *    ⇒ 比修之前更糟。`instanceof` 與讀 `.name` 對 Proxy 都可能 throw(codex A-2),故整段包 try。
- */
-function safeErrorName(err: unknown): string {
-  /** ECMAScript 規格定義的錯誤建構子名稱 —— 這是一個【真的】封閉集合,不是假設出來的。 */
-  const KNOWN = [
-    'Error',
-    'EvalError',
-    'RangeError',
-    'ReferenceError',
-    'SyntaxError',
-    'TypeError',
-    'URIError',
-    'AggregateError',
-  ] as const;
-  try {
-    if (err instanceof Error) {
-      const name: unknown = err.name;
-      return typeof name === 'string' && (KNOWN as readonly string[]).includes(name) ? name : 'other';
-    }
-    return 'other';
-  } catch {
-    // 讀 err 本身就會爆(Proxy / getter throw)⇒ 仍然要有一個字給觀察者。
-    return 'other';
-  }
-}
 
 export async function GET(request: Request): Promise<Response> {
   // 1. 認證:CRON_SECRET Bearer 硬驗。env 未設/弱 → 500(設定錯、拒不執行);Bearer 缺/不符 → 401(不揭內部)。
