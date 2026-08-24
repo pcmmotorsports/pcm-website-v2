@@ -1,9 +1,18 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十三個函式、共二十九處**手動校正,
-//   **外加一張表的兩個欄位**(⑮ `admin_sso_login_events.actor_kind` / `.actor_staff_id`,
-//    2026-08-24 B5-a;migration `20260824030000` **未 apply** ⇒ 現在重 gen 不會產生它們)
-//   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
-//    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正,
+//   (~~十三個函式、共二十九處~~ ⇒ **2026-08-24 線4:⑬ 走完退場後減一**,數字回到 `92436630` 那一版)
+//   **外加一張表的兩個欄位**(⑮ `admin_sso_login_events.actor_kind` / `.actor_staff_id`,2026-08-24 B5-a):
+//    ~~migration `20260824030000` **未 apply** ⇒ 現在重 gen 不會產生它們~~
+//    🔴 **2026-08-24 線4 當場量到相反的**:`20260824030000` 已在 `APPLIED.tsv`,而重 gen 的產物裡
+//      `admin_sso_login_events` **整個表區塊 42 行與本檔 `diff` 為空**(負對照 `zzz_negctrl` ⇒ 0 ⇒ 尺是活的)
+//      ⇒ **生成器現在自己產得出這兩欄** ⇒ ⑮ 已具備退場條件。
+//      ⚠️ **本次刻意不動它** —— 退場屬 B5-a 那條線的決定,而「外加」本來就不計入上面那個數 ⇒ 不影響計數。
+//      🔴 **而沒有任何守門看得見這一格**:`database-types-apply-state.test.ts` 只解析 `//` + 三格縮排的圈號條目,
+//        ⑮ 住在括號裡 ⇒ 它宣稱「未 apply」宣稱了多久都不會有東西紅。(這句是給下一個人的,不是給我自己的。)
+//   ~~(2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
+//    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)~~
+//    ⚠️ 上面這條在 2026-08-19 就隨 ⑫ 一起退場了(見下方留痕區),而它留在計數行上**沒被劃掉** ——
+//      2026-08-24 線4 補劃。形狀:**退場動作只改了條目本身,沒回頭改「引用它的那句話」。**
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
 //    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
@@ -42,22 +51,30 @@
 //      ⇒ NULL 是設計上合法輸入;同檔 :118-120 寫明它是刻意選填。與 ⑦ 同款。)
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
-//   ⑬ `admin_create_manual_order` **整段**〔主migration=20260824020000〕 —— 它在正式庫**尚未 apply**
-//      (`grep -c '20260824020000' supabase/APPLIED.tsv` ⇒ 0;2026-08-24 當場量)
-//      ⇒ **現在重 gen 不會產生它**;它 apply 之後重 gen 時**先比對再刪那一段**,
-//      不要因為「反正會生成」就先拿掉(體例逐字同下方已退場的那條 `admin_search_customers`)。
-//      ⚠️ 圈號 ⑬ 在下方留痕區也出現過(那條已退場、被劃掉)—— 圈號數的是**還活著的條目**,
-//      與 ⑫ 在此處和留痕區各出現一次同款,不是重號。
-//      🔴 **十個參數一個都沒有補 `| null`,而那是查過的、不是省略的**:RPC 對每一格都 fail-closed
-//      拒 NULL:八格在 `20260824020000:241-286`,兩個 jsonb 在 `:310`(ship_to)與 `:322`(invoice)
-//      —— **十格我逐一開檔數過**,不是抽樣。傳 NULL 不是合法用法、拿到的只會是錯誤。
-//      🔴 **本段今天沒有呼叫端** —— repository 那一支要等 apply:它會寫出 `.rpc(` + 函式名的
-//      新增行,而部署時序閘擋那個形狀(2026-08-24 五格真值表實測)。**型別這一段不會被擋**
-//      (它在下方是裸物件鍵、沒有引號、不在呼叫窗口內 —— 同一份實測的對照格)。
 // ─────────────────────────────────────────────────────────────────────────────
-// 🔴 **以下是【已退場】的條目留痕,不計入上面的計數。**(分節線在這裡是承重的:
+// 🔴 **以下是【已退場】的條目留痕,不計入上面的計數。**
+// 🔴🔴 **留痕的寫法有一條【承重的不變式】,而在 2026-08-24 夜之前沒有一句話講過它**:
+//    刪除線 `~~` **必須排在圈號【前面】**(寫 `//   ~~⑬ …~~`,不是 `//   ⑬ ~~…~~`)。
+//    理由:`database-types-apply-state.test.ts` 的 `ENTRY_RE` = `^//` + 三格縮排 + 圈號
+//    ⇒ 圈號若在最前面,**這條退場留痕會被當成活的條目解析進來**,總數與名單同時對不上。
+//    ⚠️ **沒有守門認得這條規矩** —— 它只會表現成「前提格紅了而看起來像別人動了條目」。(分節線在這裡是承重的:
 //    少了它,上面最後一條會把這些留痕【吸進自己的 body】—— 2026-08-23 實測撞過,
 //    `database-types-apply-state.test.ts` 的前提格當場紅。)
+//   ~~⑬ `admin_create_manual_order` **整段**〔主migration=20260824020000〕~~
+//      **已退場(2026-08-24,線4;體例同 ⑫ 與下面那條)**:主 migration 已 apply
+//      (`grep -c '^20260824020000' supabase/APPLIED.tsv` ⇒ **1**;負對照 `^20260824029999` ⇒ **0**),
+//      而**當場重 gen 的產物與本檔那一段逐字相同** —— `diff` 的唯一差異是本檔多了兩行手貼註解,
+//      型別內容 15 行零差異(那兩行已在同一顆改動裡刪掉)。
+//      ⇒ 生成器現在自己產得出它 ⇒ **重 gen 不會再失去它** ⇒ 不再是要人重貼的債。
+//      🔴 驗法(可重跑,`<ref>` = 下方 gen 指令那行的 project id):
+//         `supabase gen types typescript --project-id <ref> > /tmp/probe.ts` 後
+//         `grep -c admin_create_manual_order /tmp/probe.ts` ⇒ **1**;
+//         同一發的負對照 `grep -c zzz_negctrl_does_not_exist /tmp/probe.ts` ⇒ **0**(尺是活的)。
+//      ⚠️ **退場的只有「型別會不會被沖掉」這件事** —— 那十個參數**一個都沒有補 `| null`**,
+//         理由(RPC 對每格 fail-closed 拒 NULL,十格逐一開檔數過)隨本條目一起下台,
+//         因為生成器產的就是不帶 `| null` 的版本 ⇒ 不再需要有人記得它。
+//      🔴 **本條退場【不】代表那支 RPC 的行為被驗過** —— 它在正式庫上一次都沒被真的走過
+//         (線C 的 probe 全在拋棄式 PG 上)。**型別對得上 ≠ 函式做對事。**
 //   ~~⑬ `admin_record_manual_refund` **整段**~~ / ~~⑭ `admin_void_manual_refund` **整段**~~
 //      **已退場(2026-08-23,B 窗;體例同 ⑫)**:兩支的 migration 都已 apply,
 //      而**當場重 gen 的產物與本檔已有的內容逐字相同**(⑭ 另把手貼的排版與註解對齊生成版)。
@@ -98,7 +115,10 @@
 //    (`apps/admin/src/lib/payment/composition.test.ts:86-97` 逐字寫著為什麼改)。
 //    ⇒ **檔頭再長都不會再假紅**;而它**仍然沒有放寬到全檔** —— ref 只出現在中段生成型別裡照樣紅。
 //    🔴 我 2026-08-19 加註記時特地避開那個位置,**而那個閃避是白做的** ——
-//       量到:ref 現在落在第 4,529 個字元,遠超過 4000,**而測試是綠的**。
+//       量到:~~ref 現在落在第 4,529 個字元~~ —— 🔴 **這個數字每加一行就過期,而它躺著沒人重量**:
+//       2026-08-24 夜(線4)當場重量 ⇒ **7,259**(HEAD 上是 6,428)。遠超過 4000,**而測試是綠的**。
+//       ⇒ 📌 **不要再往這裡寫死一個數字** —— 要現值就跑下面那行 `node -e`。
+//       (這與檔頭 ⑮、與 `database-types-apply-state.test.ts` 那句「~~現行分母 = 2 條~~」是同一個形狀。)
 //    📌 形狀:**過期的約束會讓下一個人為它讓路,而讓路本身不會有任何東西紅。**
 //    以下原文留痕:
 // 🔴🔴 **~~上面那行 project ref 的位置約束(2026-08-15 實測撞過一次)~~**:
@@ -111,6 +131,21 @@
 //   🔴 注意單位:那道守門用的是 **JS 字元數**,`head -c` 數的是 **byte** —— 中文一個字 3 bytes,兩者差很多。
 //   ⇒ **要加長文,一律加在本段以下。**
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
+//
+// 🔴🔴🔴 **2026-08-24 夜(線4):上面那句「唯一權威」現在【不完整】,先讀這一段再往下。**
+//   它是**手動校正清單**的唯一權威,而**它不是「本檔與正式庫的差異清單」** —— 這兩件事今晚被證明不同。
+//   當場量法(可重跑):對正式庫 `supabase gen types` 產一份,切掉檔頭後**雙向** `comm` 比對。
+//   **量到正式庫有、本檔沒有的具名區塊 5 支**:
+//     `get_payment_anomaly_alert_display_ids` / `list_charge_attempts_for_capture_recheck` /
+//     `pcm_manual_refund_rail_cap` / `pcm_sync_order_refund_payment_status` / `record_charge_capture_state`
+//   另有數支既有函式**新增的參數**(如 `p_refunding_stuck_seconds`)與 `order_payments` 的 FK 關係。
+//   (`orders` 那兩欄同族,**已於本次補回** —— 見下方 orders 區塊上的說明。)
+//   ⚠️ **`graphql` 那一塊反向**:本檔有而產物沒有,那是 gen 的 schema 選擇差異,**不是缺口,不要刪它**。
+//   🔴 **這些【都不是】手動校正** —— 生成器產得出它們,它們只是**沒有人重 gen 過**。
+//     ⇒ 檔頭那個數字沒有錯,**是它回答的問題比讀的人以為的窄。**
+//   🔴 **沒有任何守門看得見這一格**:`database-types-manual-count.test.ts` 只數圈號條目,
+//     `database-types-apply-state.test.ts` 只解析圈號條目 ⇒ **本檔可以與正式庫脫節任意久而四綠全綠。**
+//   ⇒ 已交回主視窗排一片「**整支重 gen 對帳**」(要保住下面 ①-⑫ 那些 `| null`,清單已量出來)。
 //
 // 🔴🔴 **而「唯一權威」的另一面:這個數字【沒有第二個來源】,任何驗它的腳本都與它同源。**
 //   (2026-08-15 E 窗審 `433bcf26` 判 must-fix;A 窗實測後確認成立。)
@@ -407,11 +442,20 @@ export type Database = {
       //    2026-08-24 本窗原本寫了 ⑭ ⇒ 同一支檔裡兩個 ⑭ 指不同的東西,
       //    而 grep `⑭` 會同時撈到「還要記得重貼的債」與「已經不是債的留痕」⇒ 意思相反。
       //    📌 **退場的編號不回收** —— 留痕還在,回收它等於讓兩段互相冒充。
-      // 🔴🔴 **手動校正 ⑮(2026-08-24 B5-a)**:`actor_kind` / `actor_staff_id` 兩欄
-      //   **在正式庫還不存在** —— 它們來自 `supabase/migrations/20260824030000_m4b_b5a_sso_login_events_actor.sql`,
+      // 🔴🔴 **手動校正 ⑮(2026-08-24 B5-a)**:`actor_kind` / `actor_staff_id` 兩欄。
+      //   ~~**在正式庫還不存在** —— 它們來自 `supabase/migrations/20260824030000_m4b_b5a_sso_login_events_actor.sql`,
       //   而**那支還沒 apply**(貼 SQL 是 Sean 的動作)。
       //   ⇒ **現在重 gen 不會產生這兩欄**;apply 之後重 gen 時**先比對再刪本段註解**,
-      //     不要因為「反正會生成」就先拿掉。**形狀與理由完全比照 `admin_search_customers` 那個先例。**
+      //     不要因為「反正會生成」就先拿掉。**形狀與理由完全比照 `admin_search_customers` 那個先例。**~~
+      //   🔴 **2026-08-24 夜(線4)量到相反的,上面整段已不成立**:`20260824030000` 已在
+      //     `APPLIED.tsv`(`grep -c '^20260824030000' supabase/APPLIED.tsv` ⇒ 1),而對正式庫重 gen 的
+      //     產物裡 `admin_sso_login_events` **整個表區塊與本檔 `diff` 為空**
+      //     ⇒ **生成器現在自己產得出這兩欄** ⇒ **本段已具備退場條件、不再是重貼的債。**
+      //   ⚠️ **退場動作本身刻意不做** —— 那屬 B5-a 那條線的決定,不屬做退場那顆包的人。
+      //     ⇒ 做 B5-a 退場的人:**比對已經有人做過了,你不必再跑一次**(要重跑見檔頭 gen 指令)。
+      //   🔴 **這段話為什麼在 apply 之後還躺了一整天**:檔頭那道守門
+      //     (`database-types-apply-state.test.ts`)只解析「`//` + 三格縮排 + 圈號」開頭的行,
+      //     **本段是表區塊裡的散句 ⇒ 它看不見** ⇒ 說謊多久都不會有東西紅。同族見下方 `payment_charge_attempts`。
       //   ⚠️ **而手改型別檔的代價要寫在這裡**(`#523`):它**沒有外部分母** ——
       //     沒有任何東西在比對「這個檔宣稱的 schema」與「正式庫真正的 schema」
       //     ⇒ 手改多寫一欄、少寫一欄、型別寫錯,**編譯都會綠**。
@@ -1966,6 +2010,21 @@ export type Database = {
         }
         Relationships: []
       }
+      // 🔴🔴 **下面 orders 的 `manual_request_id` / `manual_request_payload_sha256` 兩欄是**
+      //   **2026-08-24 夜(線4)手動補進來的,而它【不是】檔頭那份「手動校正」清單的第 N 條。**
+      //   判準逐字同 `customer_favorites` 那個先例:**日後整支重 gen 時它會【自己回來】**
+      //   ⇒ 它不需要有人記得重貼 ⇒ **它不是債,不計入檔頭那個數。**
+      //   來源:`20260824020000:142,147`(已 apply,`APPLIED.tsv` 命中);
+      //   內容**逐字取自對正式庫 `supabase gen types` 的產物**,一個字沒改。
+      //   🔴 **它為什麼會缺**:那支 migration apply 之後【沒有人重 gen 過整支】——
+      //   而 2026-08-24 夜做 ⑬ 退場的人(我)**只逐字比對了要退場的那 15 行函式區塊**,
+      //   沒有比對整支產物 ⇒ **差一點就把「那一段對得上」寫成「這個檔對得上」。**
+      //   📌 形狀:**比對的範圍要照【重 gen 會動到的東西】決定,不是照【我這次要改的東西】決定。**
+      //   ⚠️ **而這個缺口比這兩欄大**:同一發產物對帳量到正式庫另有 **5 支具名區塊**
+      //   本檔沒有(`get_payment_anomaly_alert_display_ids` / `list_charge_attempts_for_capture_recheck` /
+      //   `pcm_manual_refund_rail_cap` / `pcm_sync_order_refund_payment_status` / `record_charge_capture_state`),
+      //   另有數支既有函式**新增的參數**與 `order_payments` 的 FK 關係。**那些不在本次範圍**,
+      //   已交回主視窗排一片「整支重 gen 對帳」。詳檔頭那段。
       orders: {
         Row: {
           address_id: string | null
@@ -1984,6 +2043,8 @@ export type Database = {
           invoice_number: string | null
           invoice_status: string
           legacy_display_id: string | null
+          manual_request_id: string | null
+          manual_request_payload_sha256: string | null
           notification_email: string | null
           order_source: string
           paid_at: string | null
@@ -2021,6 +2082,8 @@ export type Database = {
           invoice_number?: string | null
           invoice_status?: string
           legacy_display_id?: string | null
+          manual_request_id?: string | null
+          manual_request_payload_sha256?: string | null
           notification_email?: string | null
           order_source?: string
           paid_at?: string | null
@@ -2058,6 +2121,8 @@ export type Database = {
           invoice_number?: string | null
           invoice_status?: string
           legacy_display_id?: string | null
+          manual_request_id?: string | null
+          manual_request_payload_sha256?: string | null
           notification_email?: string | null
           order_source?: string
           paid_at?: string | null
@@ -2103,8 +2168,14 @@ export type Database = {
         ]
       }
       payment_charge_attempts: {
-        // 🔴 手動校正,W4 委託、2026-08-20 —— capture_state / capture_state_read_at 兩欄在
-        //    正式庫還不存在(migration `20260820040000` 未 apply)⇒ 現在重 gen 不會產生它們。
+        // 🔴 手動校正,W4 委託、2026-08-20 —— ~~capture_state / capture_state_read_at 兩欄在
+        //    正式庫還不存在(migration `20260820040000` 未 apply)⇒ 現在重 gen 不會產生它們。~~
+        //    🔴 **2026-08-24 夜(線4)量到相反的**:`grep -c '^20260820040000' supabase/APPLIED.tsv` ⇒ **1**;
+        //    而對正式庫重 gen 的產物裡 `capture_state` ⇒ **8 處**、`capture_state_read_at` ⇒ **3 處**
+        //    (同一發的負對照 `zzz_negctrl` ⇒ **0** ⇒ 尺是活的)⇒ **生成器現在自己產得出它們。**
+        //    ⚠️ 退場動作**不在本次範圍**(屬 capture 那條線),這裡只把已知為假的那句劃掉。
+        //    🔴 **它與 ⑮ 是同一族**:住在表區塊裡的散句 ⇒ 檔頭那道守門的解析字集看不到它
+        //    ⇒ **這句從 2026-08-20 起就是假的,而四天內沒有任何東西紅過。**
         //    逐字對該檔 :75-77:
         //      capture_state         text NOT NULL DEFAULT 'unknown'
         //      capture_state_read_at timestamptz
@@ -3687,8 +3758,6 @@ export type Database = {
         Returns: Json
       }
       admin_create_manual_order: {
-        // 🔴 手動貼上的整段(見檔頭該條目):主 migration 尚未 apply ⇒ 生成器現在產不出它。
-        //   參數順序照生成器慣例排字母序,不是 RPC 的宣告順序。
         Args: {
           p_actor: string
           p_customer_user_id: string

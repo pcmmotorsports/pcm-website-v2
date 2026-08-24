@@ -39,8 +39,20 @@ function cjkNumber(raw: string): number | null {
 describe('database.types.ts 檔頭的手動校正計數 = 實際條目', () => {
   const src = readFileSync(TYPES_PATH, 'utf8');
 
-  /** 檔頭那一行:「本體另有**十一個函式、共二十七處**手動校正」 */
-  const header = /本體另有\*\*(.+?)個函式、共(.+?)處\*\*手動校正/.exec(src);
+  /**
+   * 檔頭那一行:「本體另有**十二個函式、共二十八處**手動校正」。
+   *
+   * 🔴 **先剝掉 `~~刪除線~~`,而那一步是 2026-08-24 夜補的**(codex R1 nit;姊妹閘
+   *    `database-types-apply-state.test.ts` 早就有 `stripStruck`,**本檔漏了**)。
+   *    失敗情境:有人照本 repo 慣例把整行劃掉、在下面重寫一行新的
+   *    ⇒ 本正規式取**第一個**命中 = 那句**已經死掉的**話 ⇒ **釘住一個死數字而且全綠。**
+   * ⚠️ 剝完若整行不見 ⇒ `header` 為 `null` ⇒ 下面前提格紅(fail-closed,刻意)。
+   * ✅ **兩個世界當場表演過**(2026-08-24 夜):在檔頭插一行
+   *    `~~本體另有**九個函式、共九處**手動校正~~` ⇒ 未剝時取到「九/九」⇒ 紅;
+   *    剝了之後仍取到「十二/二十八」⇒ 綠。**尺是活的。**
+   */
+  const headerSrc = src.replace(/~~[\s\S]*?~~/g, '');
+  const header = /本體另有\*\*(.+?)個函式、共(.+?)處\*\*手動校正/.exec(headerSrc);
 
   /** 圈號條目:`//   ① …` ~ `//   ⑳ …` */
   const entries = [...src.matchAll(/^\/\/ {3}([①-⑳])\s*(.*)$/gm)];
