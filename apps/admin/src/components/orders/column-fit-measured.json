@@ -1,0 +1,119 @@
+{
+  "measuredAt": "2026-08-24",
+  "viewport": 1728,
+  "note": "在 Sean 的機器上跑 PCM_PIXEL_MEASURE=1 才會更新。CI 不跑它(容器零中文字型)。",
+  "columns": [
+    {
+      "col": "col-pick",
+      "cellW": 60,
+      "contentW": 43,
+      "textW": 16,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-oid",
+      "cellW": 189,
+      "contentW": 175,
+      "textW": 102,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-date",
+      "cellW": 85,
+      "contentW": 71,
+      "textW": 39,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-vehicle",
+      "cellW": 239,
+      "contentW": 225,
+      "textW": 227,
+      "fontSize": "14px",
+      "clipped": true
+    },
+    {
+      "col": "col-brand",
+      "cellW": 141,
+      "contentW": 127,
+      "textW": 171,
+      "fontSize": "14px",
+      "clipped": true
+    },
+    {
+      "col": "col-sku",
+      "cellW": 201,
+      "contentW": 187,
+      "textW": 152,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-title",
+      "cellW": 204,
+      "contentW": 190,
+      "textW": 112,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-qty",
+      "cellW": 66,
+      "contentW": 52,
+      "textW": 17,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-unit",
+      "cellW": 97,
+      "contentW": 83,
+      "textW": 87,
+      "fontSize": "14px",
+      "clipped": true
+    },
+    {
+      "col": "col-amount",
+      "cellW": 110,
+      "contentW": 96,
+      "textW": 100,
+      "fontSize": "14px",
+      "clipped": true
+    },
+    {
+      "col": "col-customer",
+      "cellW": 113,
+      "contentW": 99,
+      "textW": 98,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-status",
+      "cellW": 132,
+      "contentW": 118,
+      "textW": 67,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-invoice",
+      "cellW": 91,
+      "contentW": 77,
+      "textW": 42,
+      "fontSize": "14px",
+      "clipped": false
+    },
+    {
+      "col": "col-ops",
+      "cellW": 0,
+      "contentW": -4,
+      "textW": 0,
+      "fontSize": "14px",
+      "clipped": true
+    }
+  ]
+}

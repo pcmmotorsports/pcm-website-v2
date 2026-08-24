@@ -295,7 +295,69 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
   };
   const GAP_TOLERANCE = 6;
 
-  it('🔴 Sean 的視窗(1728)下,除了車種欄之外沒有一欄裁掉真值', async () => {
+  // 🔴🔴 **2026-08-24 拆分:本 describe 原本把【跟字型無關】與【字型決定】的斷言綁在同一格。**
+  //    成因與代價都量過了:
+  //      · CI 容器【零中文字型】(`grep -icE "font|fonts-noto|fontconfig" .github/workflows/ci.yml` ⇒ 0)
+  //      · 而本檔用 `Range.getBoundingClientRect()` 量【文字的真實像素寬】⇒ 字型換掉, 答案就換掉
+  //      · 實測:同一顆 SHA, 本機 `3 passed / EXIT=0`, CI `1 failed`(唯一紅 = 絕對像素那一格)
+  //    ⇒ 那不是 bug, 是**一支量環境的測試被當成量程式碼在用**。
+  //
+  // 🔴 **而【不要在 CI 裝中文字型】** —— 審查窗 2026-08-24 的原話, 我採納:
+  //    「它量的是 Sean 的機器。CI 裝了字型只會從【紅錯理由】變成【綠錯理由】。」
+  //    裝字型會讓它變綠, 而它量的還是錯的東西, **從此沒有人會再回來看**。
+  //
+  // ⚠️ **而下面兩格(量具自檢、車種欄前提)也含字型相依的斷言, 只是今天在 CI 上碰巧綠。**
+  //    那是運氣不是設計 —— GitHub 換 runner 映像檔的那天它們會翻。已記 backlog, 本次不動。
+
+  it('CI 可攜 — DOM 分母與登記表守門(不碰任何像素比較)', async () => {
+    const cols = await measureColumns(1728);
+    // ① 分母:量不到欄位 ⇒ 下面每一格都恆綠
+    expect(cols.length, '一欄都沒量到 ⇒ 恆綠').toBeGreaterThanOrEqual(13);
+    // ③ 登記表本身要被守:有人往裡面加一欄 = 靜靜放行一個新的截斷
+    expect(
+      Object.keys(KNOWN_CLIP_GAP).length,
+      '已登記的截斷欄變多了 ⇒ 有人在放行新的截斷,這需要拍板不是順手加',
+    ).toBe(4);
+    // ④ 登記表不得腐爛:指向不存在欄位的具名豁免, 讀起來像在保護什麼
+    const measured = new Set(cols.map((c) => c.col));
+    expect(
+      Object.keys(KNOWN_CLIP_GAP).filter((k) => !measured.has(k)),
+      '登記表裡有欄位在畫面上量不到了 ⇒ 那一筆登記已經失效(而它看起來仍在保護什麼)',
+    ).toEqual([]);
+    },
+    120_000,
+  );
+
+  // 🔴 **死亡偵測(dead-man)** —— 這一格【在 CI 跑】, 而它守的是「本機那一格還有沒有人在跑」。
+  //    沒有它, 把絕對像素那格移成本機專用 = **安樂死不是搬家**(審查窗 must-fix 2)。
+  //    機制:本機那一格每次跑完會寫 `column-fit-measured.json`(含 measuredAt);
+  //         本格讀它, 超過 90 天沒更新就紅。
+  //    ⇒ 🔴 **「三個月沒跑, 什麼東西會紅?」的答案就是這一格。**
+  it('死亡偵測 — 本機像素量測不得超過 90 天沒跑', async () => {
+    const { readFileSync, existsSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    const recPath = join(here, 'column-fit-measured.json');
+    expect(
+      existsSync(recPath),
+      '找不到 column-fit-measured.json ⇒ 本機像素量測從來沒跑過, 或紀錄被刪了',
+    ).toBe(true);
+    const rec = JSON.parse(readFileSync(recPath, 'utf8')) as { measuredAt: string };
+    const days = (Date.now() - Date.parse(rec.measuredAt)) / 86_400_000;
+    expect(Number.isFinite(days), `measuredAt 讀不出日期:${rec.measuredAt}`).toBe(true);
+    expect(
+      days,
+      `本機像素量測已經 ${days.toFixed(0)} 天沒跑(上次 ${rec.measuredAt})` +
+        ' ⇒ 在 Sean 的機器上跑 PCM_PIXEL_MEASURE=1 npx vitest run <本檔> 重新量一次',
+    ).toBeLessThan(90);
+  });
+
+  // 🔴 **只在 Sean 的機器上跑** —— 需要中文字型才算得對。
+  //    CI 上它會顯示成 skipped(而不是消失)⇒ `Tests ... N skipped` 那個數字看得到它。
+  it.skipIf(!process.env.PCM_PIXEL_MEASURE)(
+    '🔴 [本機專用] Sean 的視窗(1728)下,除了車種欄之外沒有一欄裁掉真值',
+    async () => {
     const cols = await measureColumns(1728);
     expect(cols.length, '一欄都沒量到 ⇒ 恆綠').toBeGreaterThanOrEqual(13);
     // eslint-disable-next-line no-console
@@ -330,13 +392,32 @@ describe('🔴 14 欄在 Sean 的真實視窗下裝不裝得下真值(同尺量�
       '這些欄在 Sean 的視窗下裝不下今天的最長真值(車種與 2026-08-23「依照 OD」已登記的那幾欄除外)',
     ).toBe('');
 
-    // 🔴 **分母:登記表本身也要被守。**
-    //    有人把 `KNOWN_CLIP_GAP` 清空 ⇒ 上面那圈會退回原本的嚴格版(那是安全方向, 不必擋);
-    //    但有人**往裡面加一欄**就等於靜靜放行一個新的截斷 ⇒ 那要被看見。
-    expect(
-      Object.keys(KNOWN_CLIP_GAP).length,
-      '已登記的截斷欄變多了 ⇒ 有人在放行新的截斷,這需要拍板不是順手加',
-    ).toBe(4);
+    // 🔴 **跑完就把量測寫下來** —— 那份紀錄是上面「死亡偵測」那一格的食物。
+    //    沒有這一步, 本格移成本機專用 = 沒有人知道它多久沒跑了。
+    const { writeFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    const here = dirname(fileURLToPath(import.meta.url));
+    writeFileSync(
+      join(here, 'column-fit-measured.json'),
+      `${JSON.stringify(
+        {
+          measuredAt: new Date().toISOString().slice(0, 10),
+          viewport: 1728,
+          note: '在 Sean 的機器上跑 PCM_PIXEL_MEASURE=1 才會更新。CI 不跑它(容器零中文字型)。',
+          columns: cols.map((c) => ({
+            col: c.col,
+            cellW: Math.round(c.cellW),
+            contentW: Math.round(c.contentW),
+            textW: Math.round(c.textW),
+            fontSize: c.fontSize,
+            clipped: c.clipped,
+          })),
+        },
+        null,
+        2,
+      )}\n`,
+    );
 
     // 🔴🔴 **2026-08-23 審查 Important-9:上面那段註解宣稱 `col-ops` 留在登記表是
     //    「為了讓它消失也會紅」—— 而那句話【不成立】,是本檔自己的字面 vs 事實。**
