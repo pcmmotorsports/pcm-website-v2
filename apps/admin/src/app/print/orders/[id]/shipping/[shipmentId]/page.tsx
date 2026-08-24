@@ -99,6 +99,14 @@ export default async function OrderShippingPrintPage({
       reportedTotal={reportedTotal}
       shipment={group.shipment}
       lines={group.lines}
+      // 🔴 **「現在幾點」在【頁層】取,不在元件裡取**(`Q-⑨`=甲,Sean 2026-08-24)。
+      //    理由與本頁既有的立場一致:資料在這裡取好再餵下去,元件不自己去拿。
+      //    ⇒ 元件因此是**純的**:同一份輸入渲染出同一份輸出 ⇒ 測試餵固定值就斷言得了字面。
+      // 🔴 本頁 `export const dynamic = 'force-dynamic'`(檔頭)⇒ **每次請求都重新渲染**
+      //    ⇒ 這個 `new Date()` 拿到的是**這一次列印**的時間,不會被快取凍住。
+      //    ⚠️ 若有人把 `force-dynamic` 拿掉,這一行會**安靜地印出一個舊時間** ——
+      //       而紙看起來完全正常。**那兩件事綁在一起,不要只改一邊。**
+      printedAt={new Date().toISOString()}
     />
   );
 }

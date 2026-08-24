@@ -828,6 +828,32 @@ tr.pd-wait .pd-state {
 /* 跨區說明那句人話(值由元件的 `CROSS_SECTION_NOTICE` 決定,**待 Sean 拍板**)。
    🔴 給它一個【比金額列小、但仍讀得清楚】的字級 —— 它是說明不是數字,
       印得跟金額一樣大會讓客人以為那也是一個要核對的欄位。 */
+/* 頁尾列印時間(`Q-⑨`=甲,Sean 2026-08-24「頁尾一行淡色小字」)。
+   🔴 **稿上沒有這個元素**(分母與正對照寫在元件那段註解裡)⇒ 值不是搬的,是**照本檔既有小字慣例**:
+      字級沿用 `.pd-xnote` 的 7.5pt(本檔最小的一級),色沿用 `--pd-sub`。
+   🔴 **靠右**:它是這張紙的簽收欄位之外唯一的「機器資訊」,靠右可以讓它不與左下的聯絡區搶讀順序。
+   ⚠️ **`margin-top` 用 3mm 而不是 auto** —— `.pd-bottom` 自己已經吃掉 `margin-top:auto`
+      (見本檔錨點「`margin-top:auto` 掛在 `.pd-bottom`」),再給一次會把整組推爆版面。 */
+.pd-bottom .pd-printed {
+  margin: 3mm 0 0;
+  font-size: 7.5pt;
+  line-height: 1.4;
+  color: var(--pd-sub);
+  text-align: right;
+}
+
+/* 退款小字 —— **值逐字取自稿**:`.money .refund{font-size:8pt;color:var(--sub);
+   margin-top:2mm;line-height:1.45}`(OD `pcm-print-docs/shipping-picking-doc-a4.html:201`)。
+   🔴 **四個值一個沒改**;改的只有選擇器命名 —— 本 repo 一律 `pd-` 前綴(`--sub` ⇒ `--pd-sub`)。
+      ⇒ 這是**命名慣例對齊**,不是「翻譯設計」:數值才是稿的內容,前綴是本檔的既有規矩。
+   ⚠️ 具體度要贏過可能的 `.pd-money p` —— 同族的病本檔吃過三次(`.pd-sku` / `.pd-num` / `.pd-subtotal`),
+      而症狀都一樣:**螢幕上看不出來、三綠不會紅、只有紙上不對。** */
+.pd-money .pd-refund {
+  margin: 2mm 0 0;
+  font-size: 8pt;
+  line-height: 1.45;
+  color: var(--pd-sub);
+}
 .pd-money .pd-xnote {
   margin: 2.5mm 0 0;
   font-size: 7.5pt;
