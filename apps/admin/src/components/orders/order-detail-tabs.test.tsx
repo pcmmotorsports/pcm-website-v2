@@ -97,6 +97,29 @@ describe('OrderDetailTabs — 全部展開逃生口(FIX-17)', () => {
   });
 });
 
+describe('OrderDetailTabs — §12 批次2(組22/24/25,2026-08-24 照 OD 稿補上)', () => {
+  it('🔴 組22:`.od-segbar` 的 `margin:10px 0 12px` —— tablist 要帶 mt-[10px] mb-[12px]', () => {
+    const { getByRole } = renderTabs();
+    expect(getByRole('tablist').className).toContain('mt-[10px]');
+    expect(getByRole('tablist').className).toContain('mb-[12px]');
+  });
+
+  it('🔴 組24:未選中分頁的字色是 `--fg-2`,不是 `--muted-foreground`(兩個 token 值不同)', () => {
+    const { getByRole } = renderTabs();
+    const offTab = getByRole('tab', { name: /收款/ }); // 預設 active 是 items,收款是未選中
+    expect(offTab.className).toContain('text-[var(--fg-2)]');
+    expect(offTab.className).not.toContain('text-muted-foreground');
+  });
+
+  it('🔴 組25:未選中分頁要有 hover 背景(color-mix),不是只有 hover 文字色', () => {
+    const { getByRole } = renderTabs();
+    const offTab = getByRole('tab', { name: /收款/ });
+    expect(offTab.className).toContain('hover:bg-[color-mix(in_oklab,var(--card),transparent_40%)]');
+    // 正對照:hover 文字色是既有的、本片沒動它,仍要在
+    expect(offTab.className).toContain('hover:text-foreground');
+  });
+});
+
 describe('OrderDetailTabs — hash 深連結(承重:列表那兩條 `#cancel`)', () => {
   it('🔴🔴 掛載時 `#cancel` ⇒ 停在認領它的那一頁,不是第一頁', () => {
     window.location.hash = '#cancel';

@@ -123,14 +123,24 @@ export type OrderDetailTabSpec = {
    ⚠️ **窄版斷點 380 → 384 的差**:OD 用 `@container (max-width:380px)`,我方用 `@sm`(24rem = 384px)。
       本 repo 既有的容器斷點都走具名階(`@md` / `@4xl`),而 4px 差落在「沒有任何內容剛好卡在 380–384」
       的區間裡。**這是一個我知道的偏離,不是照抄。** */
-const SEGBAR = 'grid grid-cols-4 gap-[2px] rounded-xl bg-muted p-[3px] @sm:gap-[3px]';
+/* 🔴 §12 批次 2(組 22/24/25,2026-08-24)三格照稿補上,Sean 2026-08-23 常設令「一律照 OD 現行稿」:
+   組22 `.od-segbar{margin:10px 0 12px}` —— 我方原本沒有這行 ⇒ 補 `mt-[10px] mb-[12px]`。
+   組24 `.od-seg-off{color:var(--fg-2)}` —— 我方原本誤用 `text-muted-foreground`
+        (`--fg-2` #333e4e 與 `--muted-foreground` #4d596d 是兩個不同 token,不是換名同值)
+        ⇒ 改 `text-[var(--fg-2)]`,直接吃 token、不要寫死 hex(token 之後若再變不用回來改這裡)。
+   組25 `.od-seg-off:hover{background:color-mix(in oklab,var(--card),transparent 40%)}` ——
+        我方原本只做了 hover 文字色(`hover:text-foreground`,那格本來就對),沒做 hover 背景 ⇒ 補上。
+        Tailwind 任意值語法空白要換底線,逐字搬 `color-mix()` 那串。 */
+const SEGBAR = 'grid grid-cols-4 gap-[2px] rounded-xl bg-muted p-[3px] mt-[10px] mb-[12px] @sm:gap-[3px]';
 const SEG_BASE =
   'flex h-[34px] min-w-0 cursor-pointer items-center justify-center gap-[5px] rounded-lg' +
   ' border-0 px-[3px] text-[13px] leading-none whitespace-nowrap' +
   ' focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none' +
   ' @sm:px-[6px] @sm:text-sm';
 const SEG_ON = 'bg-primary text-primary-foreground font-semibold shadow-[0_1px_2px_rgba(16,24,40,.16)]';
-const SEG_OFF = 'bg-transparent text-muted-foreground font-normal hover:text-foreground';
+const SEG_OFF =
+  'bg-transparent text-[var(--fg-2)] font-normal hover:text-foreground' +
+  ' hover:bg-[color-mix(in_oklab,var(--card),transparent_40%)]';
 
 export function OrderDetailTabs({
   header,
