@@ -98,6 +98,49 @@ describe('DangerZoneDetails 展開時把被揭露的那塊捲進視野', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  // ── §12 組19/20 染色所依賴的【結構前提】(2026-08-25,codex 關卡2 之後補)────────────
+  //
+  // 🔴🔴 **為什麼這一格非有不可**:`globals.css` 那兩條標題列染色規則,**沒有逐字照稿寫**。
+  //    稿:掛在收合元素上、`:has()` 往下看標題列裡的 h2、再選回標題列。
+  //    我方:**直接掛在標題列上**(理由:那道掃描守門連【註解】裡都不准出現收合元素的標籤名)。
+  //    ⇒ 兩者「今天選到同一組元素」,而**那是由現況撐住的**:
+  //      **有人把 h2 從標題列裡搬出去、或在標題列與收合元素之間多包一層 ⇒ 兩者就不再等價,
+  //      而那一天【不會有任何東西紅】。**
+  //    📌 本 repo 記過這個形狀:**由現況撐住的約束,沒有聲音。** 這一格就是把它變成有聲的。
+  //
+  // ⚠️ **本格證得到 / 證不到**:證得到「結構前提成立」;**證不到** CSS 真的染上色
+  //    (那要真瀏覽器,已量:destructive ⇒ 紅底、拿掉 ⇒ 翻黃底、收合仍可切換)。
+  it('🔴🔴 標題列是收合元素的【直接子代】,而 h2 在標題列【裡面】—— 染色選擇器的等價性靠這兩件事', () => {
+    const spy = vi.fn();
+    Element.prototype.scrollIntoView = spy;
+    render(
+      <DangerZoneDetails
+        summary={
+          <span>
+            <h2 className='text-destructive'>申請取消整張單</h2>
+          </span>
+        }
+      >
+        <p>取消表單</p>
+      </DangerZoneDetails>,
+    );
+    const details = screen.getByText('取消表單').closest('details') as HTMLDetailsElement;
+    const summary = details.querySelector('summary');
+    expect(summary, '收合元素底下找不到標題列').not.toBeNull();
+
+    // ① 標題列必須是**直接子代** —— 中間多包一層,稿的 `> summary` 就不再命中,而我方的仍然命中。
+    expect(summary!.parentElement, '標題列不再是收合元素的直接子代 ⇒ 兩個選擇器不再等價').toBe(
+      details,
+    );
+
+    // ② h2 必須在標題列**裡面** —— 被搬出去的話,我方那條 `summary:has(h2…)` 會整個失配(靜靜地不染色)。
+    const h2 = summary!.querySelector('h2');
+    expect(h2, 'h2 不在標題列裡面 ⇒ 染色會靜靜地消失').not.toBeNull();
+    expect(h2!.className, 'h2 的 destructive class 是染色的開關,不能改名').toContain(
+      'text-destructive',
+    );
+  });
+
   it('prefers-reduced-motion ⇒ behavior 降成 auto(無障礙基本盤,不是效果)', () => {
     // jsdom 沒有 matchMedia ⇒ 只能塞,不能 spyOn。
     // 📌 而其餘四條**沒有**塞它 ⇒ 它們同時是「這支元件在無 matchMedia 環境不 throw」的對照。
