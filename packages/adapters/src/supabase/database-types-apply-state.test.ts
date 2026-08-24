@@ -54,13 +54,15 @@ const CLAIM_APPLIED = ['已 apply', '已apply', '已套用', 'APPLIED.tsv 命中
 
 /**
  * 🔴 現行分母,釘字面(F1:只斷言「>0」的話,把還在說謊的那條整段刪掉會全綠)。
- * **2026-08-23 起是空的** —— ⑬⑭ 兩條已退場(見 `database.types.ts` 檔頭那條刪除線)。
+ * ~~**2026-08-23 起是空的** —— ⑬⑭ 兩條已退場(見 `database.types.ts` 檔頭那條刪除線)。~~
+ * **2026-08-24 起又有一條**:⑬ `admin_create_manual_order`〔主migration=20260824020000〕。
+ * 🔴 圈號重用 ⑬ 不是筆誤 —— 圈號數的是**還活著的條目**,退場的那兩條在留痕區被劃掉、不進解析。
  * ⚠️ **空不等於這道閘睡著了**:下面的前提格仍釘死總條目數;
  *    而任何人新增一條「整段」條目 ⇒ 名單對不上 ⇒ **紅**,逼他來這裡把它加進來並想清楚退場條件。
  */
-const EXPECTED_WHOLE_SECTION_MARKS: string[] = [];
+const EXPECTED_WHOLE_SECTION_MARKS: string[] = ['⑬'];
 /** 全部圈號條目數。F2:某條圈號被改寫 ⇒ 它不會消失,會**併進上一條**而總數少一。 */
-const EXPECTED_TOTAL_ENTRIES = 12;
+const EXPECTED_TOTAL_ENTRIES = 13;
 
 type Entry = { mark: string; body: string };
 
@@ -135,6 +137,24 @@ describe('database.types.ts 檔頭「整段」條目:宣稱不得說謊', () => 
     } else {
       expect(isApplied, `條目 ${mark} 宣稱已套用,而 APPLIED.tsv 裡找不到主 migration ${primary[0]}`).toBe(true);
     }
+  });
+});
+
+describe('🔴 第二層:退場條件不得靜默', () => {
+  // ── 為什麼寫成 `it.fails`(體例抄 `applied-migration-pairing.test.ts` 的同名段落)──────────
+  // 普通斷言會**現在就紅**,擋住 commit;而 apply 是 Sean 的獨立停點,不是我或主視窗能代的。
+  // 🔴 `it.fails` 讓這件事變成**「現在綠、apply 之後紅」**:
+  //   · 尚未 apply(現在)→ 內層斷言失敗 → `it.fails` 通過 → 可以 commit
+  //   · apply 之後 → 內層斷言成立 → **本格開始紅** → 逼下一個人回到這裡
+  //     ⇒ 而那正是該重 gen `database.types.ts`、逐字比對、刪掉 ⑬ 那一段、檔頭計數減一的同一刻。
+  // ⚠️ **這不是把紅藏起來** —— 它把紅挪到**有人能處理的那一刻**:現在紅沒有人修得了(要 Sean),
+  //    apply 後紅的人手上剛好有全部材料。
+  // 🔴 **極性**:內層斷言的是「**觸發條件成立了**」(= 已記進帳)。寫反(斷言「還沒記」)
+  //    會變成一個**永遠綠的裝飾品** —— 2026-08-23 那次退場的註解逐字警告過這一點。
+  // 🔴 **退場方式**:它紅的那一刻,把本 describe 連同 ⑬ 條目一起刪(前者是後者的守門,
+  //    後者沒了它就沒有標的)—— 而 `EXPECTED_WHOLE_SECTION_MARKS` 那份名單會逼你真的改到這裡。
+  it.fails('⑬ 20260824020000 一旦記進 APPLIED.tsv ⇒ 本格轉紅,唯一的綠路是真的走完退場', () => {
+    expect(appliedIds.has('20260824020000')).toBe(true);
   });
 });
 
