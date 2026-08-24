@@ -19457,21 +19457,40 @@ scripts/admin-probe/up.sh:211       cp "$SP/proxy.py" ✅ 不是這形狀:cp 的
 ### 實錘(2026-08-24,commit `b9475aec` 修的就是它)
 ```
 globals.css 有 13 條規則寫給 #nav-rail
-  數法:grep -n '#nav-rail' apps/admin/src/app/globals.css ⇒ 14 命中
-        其中 :1842 是註解(一行列舉選擇器的說明)⇒ 實際規則 13 條
+  數法(字面錨, 不寫行號 —— 見下方「座標會在二十分鐘內過期」):
+    grep -c '#nav-rail' apps/admin/src/app/globals.css                       ⇒ 14
+    其中一個命中是註解(那行同時列了 `.border-destructive\/30>span`)⇒ 實際規則 13 條
+    規則本體的字面錨:`#nav-rail {` / `#nav-rail nav a {` / `@media (max-width:767px)`
 而元素帶的是 data-testid='nav-rail', 沒有 id 屬性
 ⇒ 那 13 條【從寫下來到那一天為止, 一條都沒命中過】
 ```
-⚠️ **座標更正**:`b9475aec` 的 commit body 寫「其中 `:1840` 是註解」,而主視窗當天夜裡
-逐行印出 14 個命中,註解那行是 **`:1842`**(`:1840` 那行不含 `#nav-rail`)。
-**數字 14 / 13 是對的,錯的是座標。** ⇒ 同一族:[[feedback_i-broke-my-own-coordinate-in-the-same-edit]]。
 
-### 🔴 而主視窗在**複驗這一節的時候,自己踩了另一個坑** —— 值得一起留著
+### 🔴🔴 座標會在**二十分鐘內**過期 —— 而過期的座標與正確的座標長得一樣
 ```
-第一發   grep -rn 'id="nav-rail"' apps/admin/src --include='*.tsx'  ⇒ 零命中
-一度得出 「修法沒有落地」
-放寬後   grep -rnE "id=['\"{]?[^>]*nav-rail"                        ⇒ app-sidebar.tsx:193  id='nav-rail'
+b9475aec 的 commit body 寫了六個行號    :1922-1941 · :2143 :2144 :2146
+二十分鐘後同一支檔實際                  :1924-1943 · :2145 :2146 :2148
+⇒ 全部漂了 2 行(有人 commit 了 globals.css)
 ```
+📌 而寫下那六個行號的人(下手窗 7f)**當天自己也複述過「用字面錨不要用行號」那條規矩**。
+🔴 **知道那條規矩、複述過那條規矩,然後在同一份 commit body 裡寫了六個行號。**
+⇒ 這不是不知道,是**寫座標的當下不會想起它會漂** —— 而 commit body **改不了**。
+**處置:引用別人的 commit body 時,不要引它的行號,自己用字面錨重新定位一次。**
+⚠️ 另一格更小的:主視窗當天也曾把註解行報成 `:1840`(實際不含 `#nav-rail`),
+   數字 14 / 13 是對的、錯的是座標 ⇒ 同一族:[[feedback_i-broke-my-own-coordinate-in-the-same-edit]]。
+
+### 🔴🔴 寫死引號的 grep —— **同一天咬了三個窗,三個不同方向的錯**
+```
+cf     pattern 寫死雙引號        ⇒ 掃 type=number 的分母 = 0        (假零)
+7f     grep "id=['\"]nav-rail['\"]" ⇒ 咬到 data-testid              (假陽性 1)
+主視窗  grep -rn 'id="nav-rail"'   ⇒ 零命中, 差點回報「修法沒落地」   (假零)
+放寬後 grep -rnE "id=['\"{]?[^>]*nav-rail" ⇒ 命中 `id='nav-rail'`   (在 app-sidebar.tsx)
+```
+🔴 **沒有一次是同一個人重犯** ⇒ **它不是紀律問題。**
+成因:**這個 repo 全用單引號,而多數人的手指預設打雙引號。**
+⇒ 判別句:**我這個 pattern 裡有沒有寫死引號?有 ⇒ 它的零命中不算數。**
+📌 而 7f 提了一個機制層的想法(**未實作,待 Sean 裁**):
+   掛 hook 擋「pattern 含 `="` 或 `='` 而沒有用字元類」的 grep。
+   —— 一天咬三次的東西,值得從「請大家小心」升級成一個會擋人的動作。
 📌 **admin 用單引號,而我拿雙引號的 pattern 去量** —— 這與同日「兩個窗說某屬性沒有、
 而兩個用同一個寫死雙引號的 pattern」是**同一把壞尺,隔了幾小時又咬了一次**。
 🔴 判別句:**我這個 pattern 裡有沒有寫死引號?** 有 ⇒ 它的零命中不算數。
@@ -19517,7 +19536,7 @@ b4 原句:任何一片宣稱「照稿做了」, 驗收必須含【真瀏覽器�
 cf 窗掃了 `globals.css` 全部 selector(2026-08-24 夜,7f 複驗轉述):
 ```
 250 條規則 / 去重 160 條 selector
-命中 0 個元素的 = 1 條   (:1892 `.text-[28px]`, 稿 FIX-27 那組, 稿有而沒做到)
+命中 0 個元素的 = 1 條   (字面錨 `.text-[28px]`, 稿 FIX-27 那組, 稿有而沒做到)
 活性對照  text-[13px] ⇒ 17 處 · text-[15px] ⇒ 3 處 · text-[28px] ⇒ 0
 負對照    種兩條假 selector 進【副本】⇒ miss 清單恰好是那兩條, 不多不少
 ```
@@ -19537,8 +19556,8 @@ cf 窗掃了 `globals.css` 全部 selector(2026-08-24 夜,7f 複驗轉述):
 
 ### 🔴 最後一格:cf 拿 `#nav-rail` 當「已知病例」做對照組,而它**過期了**
 方法判它 hit,cf 期望 miss ⇒ 一度像方法壞掉。實查 `.tsx` 才發現:
-**那個 bug 兩小時前被 `b9475aec` 修好了** —— `apps/admin/src/components/layout/app-sidebar.tsx:193`
-現在寫著 `id='nav-rail'`(主視窗當天夜裡實查;數法見下一格的引號坑)。
+**那個 bug 兩小時前被 `b9475aec` 修好了** —— `apps/admin/src/components/layout/app-sidebar.tsx`
+現在有一行字面 `id='nav-rail'`(主視窗當天夜裡實查;數法見上面那格的引號坑)。
 🔴 **判別句**:「已知病例」當對照組,**只有在那個病例還維持在你以為的狀態時才有效** ——
 而它過期的時候,**長得跟「方法壞了」一模一樣。**
 ⇒ 處置:對照組要附「我上次確認它是這個狀態的時間」,或當場重新確認一次。
