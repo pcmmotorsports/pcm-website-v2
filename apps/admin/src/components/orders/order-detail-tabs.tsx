@@ -118,8 +118,14 @@ export type OrderDetailTabSpec = {
             📌 `design-tokens.test.ts` 自己也是這樣做的 —— 它逐字寫著「本段刻意不寫出那個英文字的
             裸形,也不寫方括號圓角的完整字面」,並說它踩過三次「偵測器打到自己的輸入」。
             ⇒ **要描述它就用中文,不要示範。**
-   🔴 色票對照(產物檔實搜):`--pill-accent` = `#0066b1` = 我方 `--primary`
-      (`workspace-shell.tsx` 逐字記著片1 把 `--primary` 換成 BMW 藍 `#0066b1`)⇒ 用 `bg-primary`。
+   🔴 色票對照(產物檔實搜):`--pill-accent` = `#0066b1`。
+      ~~= 我方 `--primary`(片1 把 `--primary` 換成 BMW 藍 `#0066b1`)~~
+      ⚠️ **這半句 2026-08-25 起是【過期的】**(code-reviewer R1 順手抓到):我方 `--primary`
+         現在是 **#1a5c96**(`globals.css` 的 `--primary:`,`e299c5e0` 08-24 改的),
+         **不再等於 `#0066b1`** ⇒ 「`--pill-accent` = 我方 `--primary`」這個等式**不成立了**。
+         `bg-primary` 這個用法本身沒動(它仍然是我方主色),**變假的是那個等號**。
+         🔴 **形狀**:這句話寫下當天是真的,而讓它變假的是**別人後來改了 token** ——
+            過期沒有任何機械訊號,是下一輪審查逐字核色票才撞到的。
    ⚠️ **窄版斷點 380 → 384 的差**:OD 用 `@container (max-width:380px)`,我方用 `@sm`(24rem = 384px)。
       本 repo 既有的容器斷點都走具名階(`@md` / `@4xl`),而 4px 差落在「沒有任何內容剛好卡在 380–384」
       的區間裡。**這是一個我知道的偏離,不是照抄。** */
@@ -131,11 +137,43 @@ export type OrderDetailTabSpec = {
    組25 `.od-seg-off:hover{background:color-mix(in oklab,var(--card),transparent 40%)}` ——
         我方原本只做了 hover 文字色(`hover:text-foreground`,那格本來就對),沒做 hover 背景 ⇒ 補上。
         Tailwind 任意值語法空白要換底線,逐字搬 `color-mix()` 那串。 */
-const SEGBAR = 'grid grid-cols-4 gap-[2px] rounded-xl bg-muted p-[3px] mt-[10px] mb-[12px] @sm:gap-[3px]';
+/* 🔴 §12 組 40(`.od-segbar:focus-within{box-shadow:0 0 0 1px var(--border)}`,2026-08-25 真瀏覽器補比)
+   —— 這一組**從來沒有人比對過**:兩份 §12 交件檔都自稱「38 組」,而清單其實是 40 筆,
+   組 39/40 落在那個數字之外。**修前實測**(真後台 `localhost:3091`,1440×900,真鍵盤 Tab 進去):
+   segbar `matches(':focus-within')` = **true**(狀態真的成立,不是我沒觸發到)而 `boxShadow: none`。 */
+const SEGBAR =
+  'grid grid-cols-4 gap-[2px] rounded-xl bg-muted p-[3px] mt-[10px] mb-[12px] @sm:gap-[3px]' +
+  ' focus-within:shadow-[0_0_0_1px_var(--border)]';
 const SEG_BASE =
   'flex h-[34px] min-w-0 cursor-pointer items-center justify-center gap-[5px] rounded-lg' +
   ' border-0 px-[3px] text-[13px] leading-none whitespace-nowrap' +
   ' focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none' +
+  /* 🔴 §12 組 37/38(`.od-seg:focus-visible` / `[data-od-tab]:focus-visible`)的**第三條宣告**。
+     稿共三條:`outline:2px solid var(--pill-accent)` / `outline-offset:2px` / `border-radius:6px`。
+     它們不是這裡給的 —— 是 `globals.css` 的全域
+     `:where(a,button,select,input,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--ring);outline-offset:2px}`
+     (2026-08-25 真瀏覽器實測:真鍵盤 Tab 進去 `matches(':focus-visible')`=**true** 之下,
+      量到 `2px solid rgb(26,92,150)` / `offset 2px`)。
+     🔴 **三條裡只有【兩條半】相符,而我第一版把它寫成「前兩條相符」——那是錯的**
+        (code-reviewer R1 抓到,我自己用 `tool-final-css` 對 OD 全檔重算贏家複核過):
+        · `outline` 寬度 2px + `solid` ✅ 相符
+        · `outline-offset:2px` ✅ 相符
+        · 🔴 **顏色不相符**:稿要 `--pill-accent`(OD 贏家值 **#0066b1**,全檔單一定義、零覆蓋),
+          而我方這顆吃到的是全域規則的 `--ring` = **#1a5c96**(`globals.css` `--ring:`)。
+          ⚠️ 我方**有** `--pill-accent: #0066b1` 這顆 token,但這顆分頁鈕吃不到它 ——
+             我方按鈕沒有 `.od-seg` / `[data-od-tab]` 那兩個 class,只吃得到全站通用那條。
+        ⇒ **這是【已知偏離】,不是本片修掉的東西。** 要修就是動全站聚焦環的顏色
+          (那條全域規則打到每一個可聚焦元素)⇒ **範圍遠大於一片分頁列對稿,要拍板,不是順手改。**
+          已回報下手窗。
+     🔴 **本片補的是第三條:量到 8px(`rounded-lg`),稿要 6px** ⇒ 補一條聚焦態專用圓角。
+     ⚠️ 為什麼走既有的中號圓角 token 名,而**不是把 6px 用方括號寫死**:本檔上方那段徽章註解
+        已記過「大號/中號圓角在本專案解析成 8/6px」,而 `design-tokens.test.ts` 的定位器
+        **會攔方括號寫死的圓角字面**。
+        🔴 **我第一版就是在這行註解裡把那個被禁的字面【原樣寫出來】而被攔下的** ——
+           它擋的是**整支檔的原始字元,不剝註解**(那支檔的 R2/R3 兩輪都栽在「以為註解不算」,
+           真 build 實測:沒有引號的註解散文照樣產出規則)。
+           ⇒ 連「解釋我為什麼不用它」都不能把它寫出來,只能改成中文描述。 */
+  ' focus-visible:rounded-md' +
   ' @sm:px-[6px] @sm:text-sm';
 const SEG_ON = 'bg-primary text-primary-foreground font-semibold shadow-[0_1px_2px_rgba(16,24,40,.16)]';
 const SEG_OFF =

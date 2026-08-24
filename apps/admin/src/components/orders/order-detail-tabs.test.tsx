@@ -258,4 +258,28 @@ describe('OrderDetailTabs — a11y 的最低限', () => {
     expect(head).not.toBeNull();
     expect(head!.querySelector('[role="tablist"]')).not.toBeNull();
   });
+
+  // ── §12 組 37/38/40 聚焦態對稿(2026-08-25)──────────────────────────────
+  // 🔴 **這兩格是【字面哨兵】,不是行為驗證**:`:focus-visible` / `:focus-within` 的實際樣式
+  //    jsdom **量不到**(它不做 CSS 版面、也不解析 focus-visible 的啟發式)。
+  //    真正的驗證已在**真瀏覽器**做完(真後台 `localhost:3091`、真鍵盤 ArrowRight、
+  //    每格都印了 `matches(':focus-visible')` / `matches(':focus-within')` 確認狀態成立):
+  //      組37/38  聚焦時 borderRadius 量到 **6px**(對照組:沒聚焦的分頁 8px)
+  //      組40     segbar 聚焦內時 boxShadow 量到 **rgb(227,233,240) 0 0 0 1px**(修前 none)
+  //    ⇒ 本檔只擋「這兩個 class 被靜默刪掉」,擋不到「它們有沒有生效」。
+  it('🔴 組37/38:分頁鈕帶聚焦態專用圓角 `focus-visible:rounded-md`(稿 6px,元素自身是 8px)', () => {
+    const { container } = renderTabs();
+    const tab = container.querySelector('[role="tab"]');
+    expect(tab).not.toBeNull();
+    expect(tab!.className).toContain('focus-visible:rounded-md');
+    // 正向對照:元素自身的圓角仍是 rounded-lg(8px),兩者不同層 ⇒ 不是把基準圓角改掉
+    expect(tab!.className).toContain('rounded-lg');
+  });
+
+  it('🔴 組40:分頁列帶 `focus-within` 的 1px 邊框環(稿 `box-shadow:0 0 0 1px var(--border)`)', () => {
+    const { container } = renderTabs();
+    const bar = container.querySelector('[role="tablist"]');
+    expect(bar).not.toBeNull();
+    expect(bar!.className).toContain('focus-within:shadow-[0_0_0_1px_var(--border)]');
+  });
 });
