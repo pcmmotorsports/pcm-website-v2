@@ -2353,6 +2353,66 @@
   [data-od-panel] table td:first-child{white-space:normal;min-width:96px}
 }
 
+/* ── §12 組 19 / 組 20:收款分頁「收合塊標題列」整條染色 ────────────────────────
+   🏁 Sean 2026-08-25 拍板「對帳出錯時三處變色,要補嗎 ⇒ **要補**」。三處 =
+      ①分頁上的紅點(組 28,已做)②**這裡:整條標題列染底** ③標題文字紅字(早就有)。
+   📌 這三處**不是三個 nit,是同一個功能的三個機制** —— 而我方原本只做了最不顯眼的第三個。
+
+   **真權威**(OD `orders-admin-v2.html`,`tool-final-css.py` 對 40 個 style 區塊各自獨立跑過,
+   兩條**都只出現在 1 個區塊 ⇒ 零覆蓋**):
+     組19  收合塊(其標題列的 h2 **沒有** `.text-destructive`)的標題列
+           { background: var(--tint-warn);   color: var(--ink-warn)   }
+     組20  收合塊(其標題列的 h2 **帶有** `.text-destructive`)的標題列
+           { background: var(--tint-danger); color: var(--pill-danger) }
+   🔴 **稿的選擇器原文用的是【收合元素】那個英文標籤名,而我這裡【刻意用中文描述、不寫那個字】** ——
+      `audit-detail-css.test.ts` 有一道守門會掃**整支 `globals.css` 的原始行**(含註解),
+      凡是含那個標籤字面、又不在具名豁免清單上的行**一律紅**。
+      我第一版把稿的選擇器原文抄進這段註解 ⇒ **三行註解各紅一次**,而那三行只是說明文字。
+      📌 同一支檔的 `design-tokens.test.ts` 也記過同族的事(偵測器打到自己的輸入)⇒
+         **要描述被守的東西就用中文,不要示範它。**
+
+   🔴 **染色的開關是【h2 上有沒有 `text-destructive`】,不是另寫一個判準。**
+      我方那顆 h2 的 class 本來就綁著對帳異常
+      (`order-detail-money-tab.tsx`:`refundLedgerAbnormal ? 'text-destructive …' : 'text-muted-foreground …'`)
+      ⇒ **正常 ⇒ 黃底、對帳異常 ⇒ 紅底**,自動跟著走,不需要新的接線。
+      而「申請取消整張單」那顆 h2 **恆為** `text-destructive` ⇒ 它**恆為紅底**,那是稿要的。
+
+   ⚠️ **稿的靜態樣張只演了一個狀態,不要照著讀成規則**(2026-08-25 實查 payload):
+      payload 裡「退款」那顆 h2 **沒有** `text-destructive`(38/38)、「申請取消整張單」**有**(38/38)
+      ⇒ 只看樣張會以為「退款恆黃、取消恆紅」;**實際上退款那顆會隨對帳狀態在黃/紅之間換。**
+
+   🔴 **這四顆 token 我方【定義了但沒有人用在這裡】**(2026-08-25 量:`--tint-warn` / `--ink-warn` /
+      `--tint-danger` / `--pill-danger` 在 admin 全部 `.tsx`/`.ts` 消費端 ⇒ **0**;
+      在本檔有被用,但用在 `.cap-y` / `.cap-refund` / `.pcm-pill` —— 那是**膠囊**,不是標題列)。
+      ⇒ 本片是它們第一次用在這一格。
+
+   ⚠️ **為什麼寫在 CSS 而不是在 JSX 掛 class**:那顆標題列的 className 寫死在
+      `components/orders/` 底下那支包裝收合塊的共用元件裡(檔名同樣含被守的那個字,故不寫出來;
+      `grep -l "呼叫端\*\*自己保留" apps/admin/src/components/orders/` 找得到它)——
+      呼叫端只傳得了它的**內容**、傳不了它的 class
+      ⇒ 要在 JSX 做就得改那支**共用元件的介面**(鐵則 12⑥)。稿本來就是 CSS + `:has()`,
+      而本檔已有同族的 `[data-od-panel="…"]` 區塊(FIX-18 / FIX-46)⇒ 照稿走 CSS 是較小的一刀。
+
+   🔴 **選擇器與稿【不逐字相同】,而這是刻意的 —— 差異與等價性寫在這裡:**
+      稿:掛在收合元素上、用 `:has()` 往下看標題列裡的 h2,再選回它的標題列。
+      我方:**直接掛在標題列上**,用 `:has()` 往下看它自己裡面的 h2。
+      **等價的理由**:HTML 規範下標題列只能是收合元素的第一個子元素 ⇒
+      「收合元素裡的標題列」與「標題列」在這個 DOM 上是**同一組元素**。
+      **換寫法的理由**:見上面那段守門 —— 稿的寫法必須提到那個被守的標籤名,
+      而**連註解都不能寫它**;改掛標題列就完全不需要提到它。
+   ✅ **真瀏覽器實測(2026-08-25,真後台 `localhost:3091`)**:
+      · money 面板 4 個收合塊,**兩個帶 h2 的都被對應規則命中**、兩個不帶 h2 的都沒被命中(對照組)
+      · 帶 `.text-destructive` ⇒ 紅底;**手動拿掉那個 class ⇒ 當場翻黃底**;加回去 ⇒ 回紅(三段印不同的值)
+      · **收合行為沒被蓋掉**:點標題列 ⇒ `open` false→true→false,而底色仍在 */
+[data-od-panel='money'] summary:has(h2:not(.text-destructive)) {
+  background: var(--tint-warn);
+  color: var(--ink-warn);
+}
+[data-od-panel='money'] summary:has(h2.text-destructive) {
+  background: var(--tint-danger);
+  color: var(--pill-danger);
+}
+
 /* ── ④ FIX-46① 客戶·發票分頁橫向爆版 ───────────────────────────────────────
    OD 量到:容器 335px、內容 418px。根因 = `grid-template-columns:1fr` 的格子裡還有
    `sm:col-span-2` / `lg:col-span-3` ⇒ 瀏覽器自動長出兩個隱含欄。

@@ -1158,6 +1158,16 @@ describe('BMW M:狀態膠囊配色(片3b)', () => {
       '.orders-grid thead th': 2,
       ':where(tbody tr:hover)': 2,
       "[data-od-id='panel-header']": 1,
+      // 🔴 §12 組 19/20(2026-08-25 新增,**由我歸類,不是靜默通過**):收款分頁收合塊的標題列染色。
+      //    形狀落 outofmodel 的原因:選擇器最後打在 `summary` **標籤**上,而本解析器算不動標籤。
+      //    **今天不打膠囊的理由**:那兩條 `<summary>` 裡只有一顆 `▶` 的 span 與一顆 `h2`,沒有 `.cap-*`。
+      //    🔴 **而它們宣告了 `color`** ⇒ 哪天有人把東西放進這兩條標題列裡,那個東西**若自己沒有字色**
+      //       就會繼承到這裡的 `--ink-warn` / `--pill-danger`。
+      //       ⚠️ **精確一點(codex 關卡2 nit)**:`.cap-*` / `.pcm-pill` 這幾顆**自己有明確字色**
+      //       ⇒ 它們**蓋得過**父層的繼承值,不會被改掉;會被改到的是**沒宣告字色的後代**。
+      //       ⇒ 真相只有真瀏覽器知道,與本清單其他條目同一個射程。
+      "[data-od-panel='money'] summary:has(h2.text-destructive)": 1,
+      "[data-od-panel='money'] summary:has(h2:not(.text-destructive))": 1,
       body: 1, // 同上:@apply bg-background text-foreground
     });
     // 對照組:集合不是空的 —— 「零新增」不是因為尺沒在量
@@ -1859,5 +1869,65 @@ describe('黏住的面板摘要頭:兩條規則要一起在(2026-08-23 真瀏覽
     const hits = panelRoute.match(/panel-width-locked/g) ?? [];
     expect(hits.length, '面板路由的 `panel-width-locked` 少於兩處').toBeGreaterThanOrEqual(2);
     expect(shell, 'workspace-shell 不再認得 `panel-width-locked`').toContain('panel-width-locked');
+  });
+});
+
+// ── §12 組 19 / 組 20:收款分頁收合塊標題列整條染色(2026-08-25 Sean 拍「要補」)──────
+//
+// 🔴🔴 **這四顆 token 在本片之前是【定義了而沒有人用在這一格】** —— 2026-08-25 量:
+//    `--tint-warn` / `--ink-warn` / `--tint-danger` / `--pill-danger` 在 admin 全部 `.tsx`/`.ts`
+//    消費端 = **0**;在 `globals.css` 裡有被用,但用在 `.cap-y` / `.cap-refund` / `.pcm-pill`
+//    —— 那是**膠囊**,不是標題列。⇒ 本組守的是「它們真的被接到標題列上了」。
+//
+// ⚠️ **本組是【字面哨兵】,不是行為驗證** —— `:has()` 的實際配對 jsdom 做不到。
+//    真瀏覽器那半已量(真後台 `localhost:3091`):兩條選擇器都真的命中、
+//    destructive ⇒ 紅底、手動拿掉 destructive ⇒ 翻黃底、加回去 ⇒ 回紅(三段都印不同的值)。
+//    **本組擋的是「這兩條規則被靜默刪掉或改壞」。**
+describe('§12 組19/20 收款分頁標題列染色', () => {
+  const RULE_WARN =
+    /\[data-od-panel='money'\]\s*summary:has\(h2:not\(\.text-destructive\)\)\s*\{([^}]*)\}/;
+  const RULE_DANGER =
+    /\[data-od-panel='money'\]\s*summary:has\(h2\.text-destructive\)\s*\{([^}]*)\}/;
+
+  // 🔴 **抽【那個屬性的值】,不是「token 有沒有出現在這段裡」**(codex 關卡2 must-fix):
+  //    只驗「出現過」的話,token 被搬到 `border-color`、或被移進註解,這幾格**照樣全綠**。
+  // 🔴 收 `string | undefined`:`exec()[1]` 在 `noUncheckedIndexedAccess` 下是可選的。
+  //    📌 這一格是 **typecheck 抓到的,不是 vitest** —— vitest 不跑 tsc,那 4 格測試全綠而型別是紅的。
+  const declOf = (block: string | undefined, prop: string): string | null =>
+    (block === undefined
+      ? null
+      : (new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, 'm').exec(block)?.[1]?.trim() ?? null));
+
+  it('🔴 正常態(h2 沒有 destructive)⇒ 黃底 `--tint-warn` + 字色 `--ink-warn`', () => {
+    const m = RULE_WARN.exec(CSS);
+    expect(m, '組19 那條規則不見了(選擇器或格式被改動)').not.toBeNull();
+    expect(declOf(m![1], 'background'), 'background 沒有綁在 --tint-warn 上').toBe(
+      'var(--tint-warn)',
+    );
+    expect(declOf(m![1], 'color'), 'color 沒有綁在 --ink-warn 上').toBe('var(--ink-warn)');
+  });
+
+  it('🔴 對帳異常(h2 帶 destructive)⇒ 紅底 `--tint-danger` + 字色 `--pill-danger`', () => {
+    const m = RULE_DANGER.exec(CSS);
+    expect(m, '組20 那條規則不見了').not.toBeNull();
+    expect(declOf(m![1], 'background'), 'background 沒有綁在 --tint-danger 上').toBe(
+      'var(--tint-danger)',
+    );
+    expect(declOf(m![1], 'color'), 'color 沒有綁在 --pill-danger 上').toBe('var(--pill-danger)');
+  });
+
+  it('🔴🔴 兩條的【底色與字色】不得相同 —— 一樣的話「異常」與「正常」在畫面上就分不開了', () => {
+    const warn = RULE_WARN.exec(CSS)![1];
+    const danger = RULE_DANGER.exec(CSS)![1];
+    // 🔴 **比的是那兩個屬性的值,不是整段文字**(codex must-fix):
+    //    比整段的話,兩條顏色明明一樣、只要多一個無關宣告或空白不同,這格就會綠。
+    expect(declOf(warn, 'background')).not.toBe(declOf(danger, 'background'));
+    expect(declOf(warn, 'color')).not.toBe(declOf(danger, 'color'));
+  });
+
+  it('🔴 四顆 token 都真的有定義(沒定義 ⇒ `var()` 靜靜地算不出顏色,而規則字面還在)', () => {
+    for (const t of ['--tint-warn', '--ink-warn', '--tint-danger', '--pill-danger']) {
+      expect(new RegExp(`${t}\\s*:`).test(CSS), `${t} 沒有定義`).toBe(true);
+    }
   });
 });
