@@ -59,6 +59,27 @@ type Recipient = { name: string | null; phone: string | null; line: string | nul
 //    症狀是「下拉選單寫一個、訂單卡片寫另一個」,而**沒有任何守門會紅**。
 //    ⚠️ 下拉選單的**順序**沿用抽出前的 `hct / sf / other`,釘在 `carrier-label.test.ts`。
 
+/**
+ * 出貨數量的收斂規則:自由文字 → 送出吃的那個數。**模組層純函式, 為的是它可以被單獨突變。**
+ *
+ * 🔴 `0` 是合法結果不是失敗 —— 它是「這箱不出這件」, 而那是本檔的**承重語意**
+ *   (`touchedRef` 那整段 R2 N2 註解存在的唯一理由就是保護它)。
+ *
+ * 🔴 `Number.isFinite` 那道不可省, 而它與舊碼的 `|| 0` 擋的**不是同一件事**(#905 plan 量過):
+ *     Number('')    ⇒ 0    ⇒ 舊碼 `0 || 0` ⇒ 0    ← 這一格 `||` 是 **no-op**
+ *     Number('abc') ⇒ NaN  ⇒ 舊碼 `NaN || 0` ⇒ 0  ← `||` **唯一真的在做事**的地方
+ *   ⇒ 少了它 `NaN` 會進 state, 畫面直接印出 `NaN`。
+ *   ⚠️ `type='number'` 之下瀏覽器多半不讓 `'abc'` 進 `e.target.value`(它給 `''`)——
+ *      **那是規格知識, 我沒實測**;jsdom 與未來換 input type 都不受那個保護。
+ *
+ * ⚠️ **本函式不做 `Math.floor`, 而那是刻意的**:小數今天由 SQL 那道閘擋(整數檢查),
+ *   在這裡先 floor 會**改變員工看到的東西**(打 1.5 變 1), 那是另一個決定 ⇒ 不在本片。
+ */
+export function clampShipQty(remaining: number, raw: string): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(remaining, parsed)) : 0;
+}
+
 export function ShipmentDialog({
   candidates,
   recipient,
@@ -102,6 +123,40 @@ export function ShipmentDialog({
   const [trackingSettled, setTrackingSettled] = useState(false);
   /** 🔴 員工**親手動過**的品項(R2 N2)。用 ref:它不影響渲染,只用來決定「這格能不能自動補」。 */
   const touchedRef = useRef<Set<string>>(new Set());
+
+  // 🔴 `#905`:**顯示層的自由文字, 與 `qty`(真相)分開。**
+  //
+  //   病:上一版只有 `qty: Record<string, number>` 一個 state, 而 input 是受控的
+  //   (`value={qty[id] ?? 0}`)⇒ **員工按 backspace 想清空, 欄位會自己跳出一個 `0`。**
+  //   ⇒ 他沒有辦法讓那格是空的, 而「清空 / 刻意打 0 / 亂打」三種**意圖完全不同**的操作
+  //     塌成同一個值。
+  //
+  //   修法不是發明的, 是**照抄本 repo 已經有的形狀**:`storefront` 的
+  //   `hooks/useQtyInput.ts:23-26` 用 `qty`(number, 送出吃它)+ `qtyText`(string, 打到一半允許空),
+  //   **失焦才收斂寫回**。這裡是同一個問題的同一個解。
+  //
+  //   🔴 沒有 key 的那些列 = 「現在沒有人在編輯它」⇒ 顯示回落到 `qty`。
+  //     所以 `commitShipQty` 收斂完會**把 key 刪掉**, 而不是寫一個字串進去 ——
+  //     留著的話, 上面那個「重取後補滿量」的 effect 改了 `qty`, 而畫面還印著舊字串。
+  const [qtyText, setQtyText] = useState<Record<string, string>>({});
+
+  /**
+   * 失焦處理:**把這一格的自由文字丟掉**, 讓顯示回落到 `qty`(真相)。
+   *
+   * 🔴 **它不算數、也不碰 `qty`。** 收斂發生在 `onChange`(`clampShipQty`)——
+   *   文字與真相是**同一發一起寫**的, 那是本片的承重設計。
+   *   ⚠️ 這段 docstring 的**第一版描述的是我實作第一版的行為**(失焦才重算), 而那個版本
+   *      造成了「打 0 沒失焦就送出 ⇒ 送舊值」的回歸。**留這句在這裡, 是因為
+   *      下一個人會照 docstring 以為失焦會重算, 然後把 `onChange` 的那一半拿掉。**
+   *      (code-reviewer must-fix 續:「下一個人會照它以為失焦會重算」。)
+   */
+  const commitShipQty = useCallback((orderItemId: string) => {
+    setQtyText((p) => {
+      if (!(orderItemId in p)) return p;
+      const { [orderItemId]: _drop, ...rest } = p;
+      return rest;
+    });
+  }, []);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SubmitShipmentResult | null>(null);
   /**
@@ -360,17 +415,73 @@ export function ShipmentDialog({
                   min={0}
                   max={c.remaining}
                   disabled={c.remaining === 0}
-                  value={qty[c.orderItemId] ?? 0}
+                  // 🔴 `#905`:正在編輯的那格印 `qtyText`(**允許空字串**), 其餘回落到 `qty`。
+                  //   `??` 不可換成 `||`:`qtyText` 是空字串時 `||` 會把它當 falsy 而跳去印 `qty`
+                  //   ⇒ 那正是本片要修的「框自己跳出一個 0」。
+                  value={qtyText[c.orderItemId] ?? String(qty[c.orderItemId] ?? 0)}
                   aria-label={`${c.title ?? '品項'} 要出的數量`}
+                  // 🔴 a11y(code-reviewer nit):少了它, 螢幕閱讀器只唸得到「甲 要出的數量 = 0」,
+                  //   **聽不到旁邊那句「0 = 這次不出這項」** ⇒ 而那句正是本片存在的理由。
+                  //   恆定給 id(不隨標記出現與否切換):`aria-describedby` 指到不存在的 id 是無害的,
+                  //   而讓它忽隱忽現會讓輔助技術在焦點中途重讀整個欄位。
+                  aria-describedby={`ship-qty-zero-note-${c.orderItemId}`}
                   onChange={(e) => {
+                    // 🔴🔴 **文字與真相【同一發一起寫】, 不可以只寫文字。**
+                    //   我第一版把算數整個搬到 onBlur, 而那製造了一個新的病:
+                    //   員工打了 0、**還沒失焦就按送出** ⇒ `qty` 還是舊值 ⇒ 他決定不出的東西被裝進箱子。
+                    //   🔴 而既有那格守門【照樣綠】—— 它斷言的是 `box().value`(畫面),
+                    //     而我把真相搬離了畫面。**尺量的是顯示層, 而我動的是它下面那層。**
+                    //   ⇒ 本片保留原本的不變式:**離開輸入框之後, 框裡的字與送出的值一致。**
+                    //   🔴🔴 **不要寫成「任何時刻都一致」—— 那句是假的, code-reviewer 量到反例**:
+                    //     `remaining=2` 打 `'9'` 不失焦直接送出 ⇒ 框顯示 `"9"`、payload `quantity: 2`
+                    //     打 `'-3'` ⇒ 框顯示 `"-3"` 而 `qty=0`
+                    //     ⇒ **編輯中框裡是【他打的原文】, 而送出的是【夾過的值】, 兩者本來就會不同。**
+                    //   ✅ 而本片守的那個承重不變式仍然成立:**送出的值永遠是收斂過的, 不會是舊值。**
+                    //     (舊值那條路 = 我第一版的回歸, 由「兩件、清空其中一件、不失焦」那格釘著。)
+                    //   ⚠️ **靜默夾**(9 → 2 沒有提示)是已知缺口, 已另立條目 —— 見下方 `#905` 尾註。
                     touchedRef.current.add(c.orderItemId);
+                    setQtyText((p) => ({ ...p, [c.orderItemId]: e.target.value }));
                     setQty((p) => ({
                       ...p,
-                      [c.orderItemId]: Math.max(0, Math.min(c.remaining, Number(e.target.value) || 0)),
+                      [c.orderItemId]: clampShipQty(c.remaining, e.target.value),
                     }));
                   }}
+                  // 失焦:把自由文字丟掉 ⇒ 顯示回落到 `qty` 這個真相
+                  //   ⇒ 空框在離開時會顯示 `0`, **而旁邊那個標記會說明它的意思**。
+                  onBlur={() => commitShipQty(c.orderItemId)}
                   className='w-16 shrink-0 rounded-md border-input border px-2 py-1 text-sm disabled:opacity-50'
                 />
+                {/* 🔴 `#905` 甲案的【另一半】:讓「這箱不出這件」看得出來。
+                    在這之前, 三件事在畫面上是同一個 `0`:
+                      ① 員工刻意打 0(= 不出這件)
+                      ② 他按 backspace 想清空, 而受控 input 把 0 渲染回去
+                      ③ 他亂打, 而 `|| 0` 把它變成 0
+                    ①② 現在分得開了(上面那個 `qtyText`), 而**① 仍然需要一個看得見的說法** ——
+                    否則他掃過一整列 0 的時候, 分不出哪些是他決定的、哪些是他還沒填。
+                    🔴 `c.remaining > 0` 那個條件是承重的:出不了的品項本來就顯示 0,
+                       對它印這句是**假話**(它不是「決定不出」, 是「出不了」)。
+                    🔴 **文案是 Sean 2026-08-24 逐字拍的, 不得改寫 / 加標點 / 補字。**
+                       他的兩個選項是「0 = 這次不出這項」與「本次不出貨」, 他選了前者。
+                       理由(主視窗端題時給的):**後者讀起來像系統在通知你, 前者讀起來像
+                       【你剛剛做了一個決定】** —— 而員工在那個當下確實是在做決定。
+                       ⚠️ 改這行前先跑 `bash scripts/literal-sweep.sh '0 = 這次不出這項'`。
+                       ✅ 有守門釘著它(`shipment-dialog.test.tsx` 那格斷言字面, 改一個字就紅)。 */}
+                {/* 🔴 `!(id in qtyText)` = **沒有人正在編輯這一格**(code-reviewer nit)。
+                    少了它, 員工 backspace 到空的【當下】這句話就跳出來說「這次不出這項」——
+                    而他其實只是打到一半。⇒ 那正是本標記存在要分開的兩件事之一。
+                    ⚠️ 順帶消掉 reviewer 量到的一個自相矛盾畫面:打 `-3` 時 `qty=0`
+                       ⇒ 舊寫法會一邊顯示 `-3` 一邊亮「這次不出這項」。 */}
+                {c.remaining > 0 &&
+                  !(c.orderItemId in qtyText) &&
+                  (qty[c.orderItemId] ?? 0) === 0 && (
+                  <span
+                    className='text-muted-foreground shrink-0 font-mono text-xs'
+                    id={`ship-qty-zero-note-${c.orderItemId}`}
+                    data-testid='ship-qty-zero-note'
+                  >
+                    0 = 這次不出這項
+                  </span>
+                )}
                 {/* 🔴 入口 2 只給 `not_arrived`(plan §5.2):四個原因各代表完全不同的下一步,
                     給 `all_boxed` 或 `cancelled` 一顆「貨到了」是**假話**,還會把員工指去
                     追一批根本不會來的貨(`shipment-candidates.ts:81-86` 逐字)。 */}

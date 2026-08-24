@@ -31,7 +31,7 @@ vi.mock('../../lib/orders/receipt-actions', () => ({
   undoItemReceiptAction,
 }));
 
-import { ShipmentDialog } from './shipment-dialog';
+import { ShipmentDialog, clampShipQty } from './shipment-dialog';
 // 🔴 深引入是**刻意的**:這個類別沒有公開匯出口,而元件用的判定式是 `instanceof`
 //    ⇒ 只有真的實例才餵得進那條分支。Next 若搬走它,這一格會**直接爆**(不是靜默轉綠)= 對的訊號。
 import { UnrecognizedActionError } from 'next/dist/client/components/unrecognized-action-error';
@@ -650,6 +650,14 @@ describe('ShipmentDialog — 手動填 0 不被自動補回(N2)', () => {
     expect(box().value).toBe('2');
 
     fireEvent.change(box(), { target: { value: '0' } });
+    // 🔴🔴 **這一行 `blur` 是承重的, 不是禮貌。**(`#905` code-reviewer must-fix)
+    //   `#905` 之後顯示走 `qtyText`, 而 `qtyText` 只在**失焦**時被丟掉 ⇒
+    //   少了它, `box().value` 會被自由文字釘在 `'0'`, **再也不反映 `qty`**
+    //   ⇒ 本格對「`touchedRef` 那道跳過還在不在」**零判別力**。
+    //   量到的:拿掉 `touchedRef` 跳過, HEAD 版本 ⇒ 紅;`#905` 版本少這行 ⇒ **53/53 全綠**。
+    //   📌 而 `#905` 的 diff 自己在旁邊寫著「尺量的是顯示層, 而我把真相搬離了畫面」——
+    //     **同一個形狀當場又發生在隔壁那格, 而那段字只盯著自己那一格。**
+    fireEvent.blur(box());
     expect(box().value).toBe('0');
 
     // 23a 重取:換一份**新的** candidates 陣列(身分變了、內容相同)⇒ 補量的 effect 會跑。
@@ -665,6 +673,144 @@ describe('ShipmentDialog — 手動填 0 不被自動補回(N2)', () => {
     );
 
     expect(box().value, '員工刻意填的 0 被當成「沒填」而補回滿量了').toBe('0');
+  });
+
+  // ═══ `#905`:出貨數量欄清不掉 ═══════════════════════════════════════════════
+  //
+  // 🔴 本段守的**不是**「畫面好不好看」, 是三件塌成一個 `0` 的意圖分不分得開:
+  //     ① 員工刻意打 0(= 這箱不出這件)—— 承重語意, `touchedRef` 那整段在保護它
+  //     ② 他按 backspace 想清空 —— 舊版受控 input 立刻把 `0` 渲染回去, **他做不到**
+  //     ③ 他亂打 —— 舊版 `|| 0` 靜默變 0
+  //
+  // 🔴🔴 **而本段最重要的那一格是「打了沒失焦就送出」** —— 我實作第一版把算數整個搬到
+  //   `onBlur`, 結果 `qty`(送出吃的)與框裡的字**在失焦前不一致**:
+  //   員工打 0、直接按送出 ⇒ 送出去的是舊值。
+  //   ⚠️ **而上面那格既有守門照樣綠** —— 它斷言 `box().value`(顯示層), 而我動的是它下面那層。
+  //   📌 形狀:**尺量的是顯示, 而真相被搬到別的地方去了。**
+
+  it('🔴 #905:員工按 backspace 清空 ⇒ 框【真的是空的】, 不會自己跳出一個 0', () => {
+    const { container } = view([ITEM]);
+    const box = () =>
+      container.querySelector('input[aria-label="甲 要出的數量"]') as HTMLInputElement;
+    expect(box().value).toBe('2'); // 前置條件成立才有判別力
+
+    fireEvent.change(box(), { target: { value: '' } });
+    expect(box().value, '受控 input 把 0 渲染回去了 ⇒ 員工清不掉').toBe('');
+  });
+
+  it('🔴🔴 #905:單一品項清空、沒失焦 ⇒ 送出鈕必須 disabled(標題只講斷言真的量到的)', async () => {
+    // 🔴 這一格是我自己實作第一版踩出來的洞。少了它,「框裡的意思」與「送出的值」
+    //   可以在失焦前分岔, 而畫面上看不出來。
+    const { container } = view([ITEM]);
+    const box = () =>
+      container.querySelector('input[aria-label="甲 要出的數量"]') as HTMLInputElement;
+    fireEvent.change(box(), { target: { value: '' } });
+    // 刻意**不** fireEvent.blur —— 這正是要守的那個時刻。
+    // 🔴 用 `.disabled` 屬性不用 `toBeDisabled()`:**本專案沒載 `@testing-library/jest-dom`**
+    //   (第一版寫 toBeDisabled ⇒ `Invalid Chai property`)。既有測試也是這個慣例。
+    // 🔴 用「只建箱」那顆:「建箱並標出貨」還要貨號(shipBlocker), 拿它量會量到別的東西。
+    expect(box().value).toBe(''); // 前置:框真的是空的
+    expect(
+      (screen.getByRole('button', { name: '只建箱、先不出貨' }) as HTMLButtonElement).disabled,
+      '框裡是空的而送出鈕還亮著 ⇒ 送出去的是舊值',
+    ).toBe(true);
+  });
+
+  it('🔴🔴 #905:兩件、清空其中一件、【沒有失焦就送出】⇒ payload 不得含那件的舊值', async () => {
+    // 🔴 這一格補的是我自己守門的一個洞。上面那格「沒失焦就送出」斷言的是**送出鈕 disabled**,
+    //   而那是**間接量測** —— 它經過閘②(chosen.length === 0), 只在【單一品項】時成立。
+    //   兩件的時候送出鈕本來就亮著 ⇒ 那格對「送出去的到底是哪個數」**零判別力**。
+    //   ⇒ 本格直接看 payload, 而且刻意**不 blur**。
+    const second: ShipmentCandidateItem = { ...ITEM, orderItemId: 'oi-2', title: '乙' };
+    const { container } = view([ITEM, second]);
+    const boxOf = (t: string) =>
+      container.querySelector(`input[aria-label="${t} 要出的數量"]`) as HTMLInputElement;
+
+    fireEvent.change(boxOf('甲'), { target: { value: '' } }); // 清空, **不失焦**
+    fireEvent.click(screen.getByRole('button', { name: '只建箱、先不出貨' }));
+
+    await waitFor(() => expect(submitShipment).toHaveBeenCalled());
+    const payload = submitShipment.mock.calls[0]![0] as {
+      items: { orderItemId: string; quantity: number }[];
+    };
+    expect(
+      payload.items.find((i) => i.orderItemId === 'oi-1'),
+      '員工清空了甲, 而它帶著舊值被裝進箱子',
+    ).toBeUndefined();
+    expect(payload.items.map((i) => i.quantity)).toEqual([2]); // 乙照舊
+  });
+
+  it('🔴 #905:失焦之後回落到 0, 而旁邊要有一個【看得見的說明】', () => {
+    const { container } = view([ITEM]);
+    const box = () =>
+      container.querySelector('input[aria-label="甲 要出的數量"]') as HTMLInputElement;
+    expect(screen.queryByTestId('ship-qty-zero-note')).toBeNull(); // 前置:qty=2 時不該有
+
+    fireEvent.change(box(), { target: { value: '' } });
+    fireEvent.blur(box());
+    expect(box().value).toBe('0');
+    // 承重:0 這個值本身分不出「決定不出」與「還沒填」⇒ 要有一個字說出來
+    // 🔴 不用 `toBeDefined()`:`getBy*` 找不到是**丟例外**, 而 `toBeDefined()` 永不失敗
+    //   ⇒ 判別力全來自那個 throw, 斷言本身是裝飾(code-reviewer nit)。改成量真的東西。
+    expect(screen.getAllByTestId('ship-qty-zero-note')).toHaveLength(1);
+    // 🔴 **字面也要釘** —— Sean 2026-08-24 逐字拍板「不要改寫、不要加標點、不要補字」。
+    //   testid 只證明「有一個標記在」, 它對【那行字是什麼】零判別力
+    //   ⇒ 有人把它潤成別的意思, 不會有任何東西紅。
+    //   **一個沒有守門的逐字拍板, 就是一句等著被潤稿的話。**
+    expect(screen.getByTestId('ship-qty-zero-note').textContent?.trim()).toBe('0 = 這次不出這項');
+  });
+
+  it('🔴 #905 負對照:出不了的品項(remaining=0)【不得】印那個說明 —— 那是假話', () => {
+    // 它不是「決定不出」, 是「出不了」。少了這一格, 把條件寫成 `qty===0` 也會綠。
+    const blocked: ShipmentCandidateItem = { ...ITEM, remaining: 0, blockedReason: 'not_arrived' };
+    view([blocked]);
+    expect(screen.queryByTestId('ship-qty-zero-note')).toBeNull();
+  });
+
+  it('🔴 #905 閘②:全部清成 0 ⇒ **兩顆**送出鈕都 disabled(chosen.length === 0 那道)', () => {
+    const { container } = view([ITEM]);
+    const box = () =>
+      container.querySelector('input[aria-label="甲 要出的數量"]') as HTMLInputElement;
+    // 🔴 標題說「兩顆」⇒ **就要量兩顆**(code-reviewer nit:標題比斷言寬)。
+    const both = () =>
+      [
+        screen.getByRole('button', { name: '建箱並標出貨' }) as HTMLButtonElement,
+        screen.getByRole('button', { name: '只建箱、先不出貨' }) as HTMLButtonElement,
+      ].map((b) => b.disabled);
+    expect(both()[1], '前置條件不成立就沒有判別力').toBe(false);
+
+    fireEvent.change(box(), { target: { value: '0' } });
+    fireEvent.blur(box());
+    expect(both()).toEqual([true, true]);
+  });
+
+  it('🔴 #905 閘①:有一件 0、一件 2 ⇒ 送出的 items 【不得】含那個 0', async () => {
+    // 閘① = `chosen` 的 `.filter((i) => i.quantity > 0)`。突變:拿掉那個 filter ⇒ 本格必紅。
+    const second: ShipmentCandidateItem = { ...ITEM, orderItemId: 'oi-2', title: '乙' };
+    const { container } = view([ITEM, second]);
+    const boxOf = (t: string) =>
+      container.querySelector(`input[aria-label="${t} 要出的數量"]`) as HTMLInputElement;
+
+    fireEvent.change(boxOf('甲'), { target: { value: '0' } });
+    fireEvent.blur(boxOf('甲'));
+    // 🔴 走「只建箱」那顆:另一顆還要合法貨號, 而本格量的不是貨號。
+    fireEvent.click(screen.getByRole('button', { name: '只建箱、先不出貨' }));
+
+    await waitFor(() => expect(submitShipment).toHaveBeenCalled());
+    const payload = submitShipment.mock.calls[0]![0] as { items: { quantity: number }[] };
+    expect(payload.items.map((i) => i.quantity)).toEqual([2]);
+    expect(payload.items.some((i) => i.quantity === 0), '0 那件被送出去了').toBe(false);
+  });
+
+  it('🔴 #905 正對照:打得進去的數字照舊(尺是活的)', () => {
+    const { container } = view([ITEM]);
+    const box = () =>
+      container.querySelector('input[aria-label="甲 要出的數量"]') as HTMLInputElement;
+    fireEvent.change(box(), { target: { value: '1' } });
+    expect(box().value).toBe('1');
+    fireEvent.change(box(), { target: { value: '9' } }); // 超過 remaining=2
+    fireEvent.blur(box());
+    expect(box().value, '上限夾值壞了').toBe('2');
   });
 
   // 正向對照:**沒被碰過**的品項由 0 變可出時,該補還是要補(否則 M1 就沒做事)。
@@ -686,6 +832,54 @@ describe('ShipmentDialog — 手動填 0 不被自動補回(N2)', () => {
       />,
     );
     expect(box().value).toBe('2');
+  });
+});
+
+// ═══ `clampShipQty` 直接單元測(`#905` code-reviewer must-fix)═══════════════
+//
+// 🔴 **為什麼非要直接測它, 而不是靠元件層**:reviewer 量到兩件事 ——
+//   ① 把 `Number.isFinite` 那道換成無條件 `Math.max/min` ⇒ 元件層 53 格**全綠**(突變存活)
+//   ② 元件層**構造不出那個輸入**:jsdom 對 `type='number'` 打 `'abc'` 給的是 `''`
+//   ⇒ 它 export 出來的理由(docstring:「為的是它可以被單獨突變」)在本段之前**沒有兌現**。
+//   📌 形狀:**一個「為了可測而 export」的東西, 不會因為 export 了就被測到。**
+describe('clampShipQty —— 出貨數量的收斂規則', () => {
+  it('正對照:一般數字照收, 超上限夾到 remaining', () => {
+    expect(clampShipQty(5, '3')).toBe(3);
+    expect(clampShipQty(5, '9')).toBe(5);
+    expect(clampShipQty(5, '0')).toBe(0);
+  });
+
+  it('🔴 `Number.isFinite` 那道:parse 不出有限數的一律回 0(= 這箱不出這件)', () => {
+    // 突變靶:把 `Number.isFinite(parsed) ? … : 0` 換成無條件 clamp ⇒ 本格必紅
+    //   (無條件版會讓 NaN 一路傳出去 ⇒ 畫面印 NaN)
+    for (const raw of ['', '   ', 'abc', '2,5', '-']) {
+      expect(clampShipQty(5, raw), `輸入 ${JSON.stringify(raw)}`).toBe(0);
+    }
+  });
+
+  it('🔴 `Infinity` 走的是【回 0】那條, **不是**夾到上限 —— 這與直覺相反, 釘住它', () => {
+    // `Number('Infinity')` 是 Infinity, 而 `Number.isFinite(Infinity)` 是 false
+    // ⇒ 它落到 else ⇒ 0。若哪天有人把 isFinite 換成 `!Number.isNaN`, 這裡會變成 5。
+    expect(clampShipQty(5, 'Infinity')).toBe(0);
+    expect(clampShipQty(5, '-Infinity')).toBe(0);
+  });
+
+  it('負數走 clamp 回 0(它 parse 得出來, 不屬於上面那一族)', () => {
+    expect(clampShipQty(5, '-3')).toBe(0);
+  });
+
+  it('JS 認得的其他數字字面照樣被夾(`1e3` / `0x10` / 前後空白)', () => {
+    // ⚠️ 這是**現況存證**不是背書:`Number()` 收這些, 而 `parseInt` 不收。
+    //   `procurement-form.ts` 那條路刻意用正則擋在解析【之前】, 本檔沒有(`#904` 已記)。
+    expect(clampShipQty(2, '1e3')).toBe(2);
+    expect(clampShipQty(2, '0x10')).toBe(2);
+    expect(clampShipQty(2, '  12  ')).toBe(2);
+  });
+
+  it('⚠️ `remaining` 本身是 NaN 時回 NaN —— 現況存證, 呼叫端保證它是數字', () => {
+    // 本檔唯一呼叫端是 `c.remaining`(props 上的 number)。
+    // 若哪天有人餵得進 NaN, 這裡不會擋 ⇒ 留一格讓那個世界看得見。
+    expect(Number.isNaN(clampShipQty(Number.NaN, '3'))).toBe(true);
   });
 });
 
