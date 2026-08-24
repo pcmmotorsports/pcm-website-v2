@@ -32886,3 +32886,64 @@ DB 層可達 = **是**(上面實測)
   答不了「這一推會不會叫到未 apply 的東西」。要後者 ⇒ 人去看那一片碰了哪些 DB 物件。
 
 - **相關**:`#11`(出貨信掛 route 的開閘順序)· `#913`(migration 沒包交易)· `#912`(收權斷言那道閘的分母會死)· `8425157b`(2026-08-24 放寬 view 那顆)
+
+---
+
+## 🔴🔴 2026-08-25 續:**今天那一發根本沒有走解析器 —— 而它擋下來的理由比「靠運氣」更脆**(線 4 實測)
+
+- **① 它是從哪一行取到那個字串的**:不是解析來的, 是**整串字面**, 而來源逐字是
+  ```
+  const REFUNDS_FN = 'get_order_refunds_stuck_summary';
+  ```
+  🔴 **那個常數從頭到尾沒有被用來呼叫任何東西。** `grep -n REFUNDS_FN` ⇒ 5 行 = 1 行宣告 + **4 行全在組錯誤訊息**。
+  真正危險的那一行是 `client.query('SELECT public.get_order_refunds_stuck_summary() AS result', [])`。
+  ⇒ 🔴 **今天那一發之所以被擋下, 是因為有人為了寫錯誤訊息而順手宣告了一個常數。**
+  ⚠️ 而閘印的訊息說「出現在新增的 `.rpc()` 呼叫」—— 那支檔 `grep -c '\.rpc('` ⇒ **0**
+  (正對照 `manual-order-repository.ts` ⇒ 1 ⇒ 尺是活的)⇒ **訊息本身在說一件不成立的事**, 下一個人會照它去那支檔找 `.rpc(`。
+
+- **② `.rpc(<識別字>)` 全 repo 非測試檔只有 4 個實例 / 3 支檔**(逐支點名):
+  `ADMIN_SEARCH_CUSTOMERS_FN` ✅ 自己那支檔 · `ADMIN_SEARCH_ORDERS_FN` ✅ 自己那支檔 ·
+  🔴 `fn`(`refund-repository.ts` 兩處)⇒ **3 個宣告橫跨 2 支檔**, 其中一個**連常數都不是** ——
+  `PgAnomalyAlertReaderAdapter.ts` 裡一個**函式預設參數** `fn = 'get_payment_anomaly_alert_summary'`。
+  ⚠️ 這 2 個的錯法方向是**多擋** ⇒ 對安全性無害。有害的是它的鏡像 ⇒ ③。
+
+- **③ 🔴🔴 構造出來了:假的解析成功會【拆掉 fail-closed】**
+  兩個世界是**完全相同的一次部署**(都真的呼叫未 apply 的函式, 呼叫名動態組出來 ⇒ 正規式看不到字面)。
+  唯一差別:repo 裡**別處**有沒有一個**同名但無關**的宣告。
+  ```
+  ① 沒有別的 helper = '…'              ⇒ 🔴 RED(訊息「識別字而我認不出它: helper」)
+  ② 別的檔有 helper = 'harmless_value' ⇒ 🟢 GREEN
+  ```
+  ⇒ **一個與這次部署毫無關係的字串, 讓閘從「認不出來 ⇒ 擋」變成「認得 ⇒ 放行」。**
+  📌 **解析器回「我解析到了」與「我解析對了」是同一個值, 而 fail-closed 只看前者。**
+
+- **④ 🔴🔴 第四個洞:raw SQL 這道閘完全看不到, 而它的射程全部在金流層**
+  ```
+  兩個世界都真的呼叫未 apply 的函式:
+    N1 有常數宣告(= 今天那一發的形狀) ⇒ RED
+    N2 只有 raw SQL 字串               ⇒ 🟢 GREEN
+  ```
+  **射程:22 處 / 7 支檔, 全部在金流層** ——
+  `PaymentConfirmerAdapter` · `PgAnomalyAlertReaderAdapter` · `PgChargeAttemptAdapter` ·
+  `PgPollSettleThrottleAdapter` · `PgReleaseSiblingAdapter` · `PgWebhookInboxAdapter`;
+  函式含 `confirm_order_payment` / `begin_charge_attempt` / `record_webhook_event` / `mark_charge_attempt_charged` …
+  正對照同尺量 `'SELECT '` ⇒ 53 支檔 ⇒ 尺是活的。
+  ⚠️ **這是【射程】不是【發生數】** —— 那 22 個函式裡有幾支現在未 apply, **沒有人量**。缺的檢查 = 逐一對 `APPLIED.tsv`。
+
+- **🔴 兩件事要分開寫(線 4 的原話, 逐字採用)**:
+  ```
+  甲 今天那一發是錯的嗎? 不是。那支 migration 真的沒 apply
+     (grep -c '20260824040000' APPLIED.tsv ⇒ 0, 正對照 20260824020000 ⇒ 1)
+     adapter 真的會呼叫它 ⇒ 擋下來是【對的結果】。
+  乙 「這道閘在看著我們」還成立嗎? 🔴 成立得比我們以為的窄:
+     · 它擋下的路徑, 不是危險走的路徑(常數 vs raw SQL)
+     · 那條路徑依賴一個【與呼叫無關的】常數存在 ⇒ 一次無害重構(把錯誤訊息內嵌)就會消失
+     · 它印的訊息說 .rpc(, 而那支檔的 .rpc( 是 0
+     ⇒ 三件都不影響今天的結果, 而三件都表示:
+       **「下一次它會不會擋住」不是這一次能推出來的。**
+  ```
+  📌 **一道閘「這次擋對了」與「它在看著這一類事」是兩個宣稱。今天量到的是第一個。**
+
+- **對 push 紀律的追加(主視窗 2026-08-25 立)**:先前那條寫「這道閘的綠不得單獨當成可以推的依據」。
+  **現在要再窄一格:它的【紅】也不保證下一次會紅。**
+  ⇒ 推之前要人去看那一片碰了哪些 DB 物件, **含 raw SQL 字串**, 不能只看閘的顏色。
