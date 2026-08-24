@@ -164,7 +164,13 @@ export default async function OrderPanelPage({
     //          **每一步都查得到出處,而瀏覽器不這樣做** ⇒ 審查者與作者共用同一條推理鏈,沒有人去按一下。
     // 🔴 `@container`:讓 `order-detail.tsx` 的欄數看**面板寬度**而不是視窗寬度
     //    (主視窗 2026-08-10 裁④);沒有它,1920 螢幕上的 576px 面板會硬排四欄。
-    /* 🔴 `panel-width-locked` = **訂單編輯面板固定 720px**(Sean 2026-08-19 拍「甲」)。
+    /* 🔴 `panel-width-locked` = **訂單編輯面板有一個自己的預設寬**,不是視窗的一半。
+           拍板史(劃掉不刪 —— 下一個人要看得到它被改過幾次):
+             2026-08-19 Sean 拍「甲=固定 720、拿掉拖曳」
+             2026-08-21 改拍「乙=留著拖曳、~~預設值 720~~」
+             🔴 **2026-08-24 逐字「面板寬度那題: 520」** ⇒ 現行預設 **520**,拖曳仍在。
+           ⚠️ **字面的權威在 `components/layout/workspace-shell.tsx`**(它旁邊有守門釘著)——
+              本段只講「這個 marker 是幹嘛的」,**不要在這裡再寫一次那個數字**。
         🔴 **順序不可換:`@container` 必須是第一個 token** —— `order-panel-wiring.test.ts`
            的「守門 6」斷言的是 `className='@container` 這個**字面前綴**,把標記寫在它前面
            會讓那格當場紅(本片第一版就是這樣被它抓到的)。**那道守門沒有錯,不要去改它。**
@@ -182,7 +188,7 @@ export default async function OrderPanelPage({
            `~/pcm-mailbox/MAIN-057…md` §5①)。
         ⚠️ **客人卡那條路(上面那個 return)也帶同一個標記,而那是刻意的**:
            客人卡是「蓋在某張訂單的面板上」(本檔 `:63-66` 逐字),不是獨立視圖
-           ⇒ 少了它,點「客人明細」面板會從 720 跳回 cookie 寬度、關掉再跳回來。 */
+           ⇒ 少了它,點「客人明細」面板會從那個預設寬跳回 cookie 寬度、關掉再跳回來。 */
     <div className='@container panel-width-locked sticky top-0 max-h-[calc(100svh-3.5rem)] space-y-4 overflow-y-auto border-l p-4'>
       {/* 🔴 片2:BMW M 三色條,設計稿 §1 逐字「頂端有 BMW M 三色條(藍→紫→紅)橫貫整個面板寬」。
           漸層本體是既有的 `.m-stripe`(`globals.css`),那裡寫了為什麼三個色停是硬寫 hex 不是 token。

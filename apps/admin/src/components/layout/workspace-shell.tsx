@@ -106,6 +106,18 @@ export function WorkspaceShell({
    *    範圍越大,越可能被別處剛好同名的節點餵一個假的 true。
    * ⚠️ `initialPanelWidth !== null`(使用者拖過、有 cookie)⇒ **整段不跑**,行為與舊版一致:
    *    使用者的偏好優先於任何預設值。
+   *
+   * 🔴🔴 **而那件事在【改預設值】那一天有一個後果**(2026-08-24 codex important):
+   *    ```
+   *    改預設值【不影響】任何已經有 cookie 的人 —— 他們的偏好直接短路掉這一段。
+   *    cookie 活 WORKSPACE_PANEL_COOKIE_MAX_AGE = 60*60*24*7 = 7 天
+   *      (`lib/layout/workspace-panel.ts:23` 逐字, 量到的)
+   *    ⇒ 🔴 **拍板的人自己最可能看不到自己拍的改動** —— 他是拖曳過最多次的那一個。
+   *    ```
+   *    ⇒ 沒有 migration、沒有清除機制,而**那是刻意的**(偏好優先是這一段的設計)。
+   *    ⇒ 驗收時要嘛開無痕視窗、要嘛先清掉那顆 cookie;
+   *      否則「看起來沒改」是**預期行為**,不是 bug。
+   *    ⚠️ **這一段是紙上約束** —— 沒有任何東西會在他打開後台時提醒他。
    */
   React.useEffect(() => {
     if (initialPanelWidth !== null) return;
@@ -115,8 +127,16 @@ export function WorkspaceShell({
       // 🔴 使用者這個 session 已經自己調過 ⇒ 預設值退場,不得覆蓋他的選擇。
       if (hasUserSetWidthRef.current) return;
       const hasOrderPanelMarker = slot.querySelector('.panel-width-locked') !== null;
-      // 🔴 `720` **刻意寫成字面、不抽常數**:`workspace-shell.test.ts` 用原始碼字串
-      //    (`/hasOrderPanelMarker\s*\?\s*720\s*:\s*defaultPanelWidth/`)釘著這條規則。
+      // 🔴 **2026-08-24 Sean 逐字「面板寬度那題: 520」** —— 推翻他 08-21 拍的「預設值改 720」
+      //    那一半;**「留著拖曳」那一半沒有被推翻**(另問過,他答「甲 留著」)⇒ 只改預設值。
+      // ✅ 而 520 有一個 720 沒有的性質:**它拿得到。**
+      //    上面 `-4a` N4 那段量到「1280 且側欄展開時上限就是 716」⇒ **Sean 拍的 720 在那台機器上拿不到**。
+      //    `MIN_CONTENT_WIDTH = 480` ⇒ 520 需要 `vw − 480 ≥ 520`,即 **vw ≥ 1000**(再加側欄軌 84)。
+      //    ⚠️ **2026-08-24 收窄(code-reviewer N-4)**:~~原句「日常視窗都滿足」~~ 是**推出來的**。
+      //       反例:vw 1024 ⇒ `maxPanelWidth(1024) = 544`,扣側欄後 460 < 520 ⇒ **仍會被夾**。
+      //       ⇒ 正確的說法是「**比 720 容易拿到**」,不是「都拿得到」。
+      // 🔴 `520` **刻意寫成字面、不抽常數**:`workspace-shell.test.ts` 用原始碼字串
+      //    (`/hasOrderPanelMarker\s*\?\s*520\s*:\s*defaultPanelWidth/`)釘著這條規則。
       //    抽成 `ORDER_PANEL_WIDTH` 會讓那格紅,而**行為一個字都沒變** ——
       //    我試過,然後選擇讓自己的寫法配合守門,而不是改守門的期望值。
       /* 🔴 **外面包 `clampPanelWidth`,不寫生的值**(`-4a` 審查 2026-08-22 N3;
@@ -136,7 +156,7 @@ export function WorkspaceShell({
             要完全消掉,`maxPanelWidth` 得改吃 row 的寬而不是視窗寬 —— 那會動到 `aria-valuemax`
             與拖曳夾寬的共用規則,**不在本片範圍**,標為已知缺口。 */
       setWidth(
-        clampPanelWidth(hasOrderPanelMarker ? 720 : defaultPanelWidth(window.innerWidth), window.innerWidth),
+        clampPanelWidth(hasOrderPanelMarker ? 520 : defaultPanelWidth(window.innerWidth), window.innerWidth),
       );
     };
     apply();

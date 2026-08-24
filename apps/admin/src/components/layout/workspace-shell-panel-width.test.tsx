@@ -8,6 +8,10 @@
 //      ⇒ **`querySelector` 只在掛載那一瞬間跑過一次。**
 //    平行路由的槽在**軟導航**時換內容而 shell **不重新掛載** ⇒ marker 是在判斷做完【之後】才進 DOM。
 //
+//    ⚠️ **下面這段量測是 2026-08-22 做的,當時的預設值是 720。**
+//       2026-08-24 Sean 改拍 **520** ⇒ 底下每一個「720」都是**那次量測的歷史值**,不是現行預設。
+//       **不要照它去改斷言** —— 現行值的權威在 `workspace-shell.tsx` 的字面 + `workspace-shell.test.ts`。
+//       (病灶本身與數字無關:寬度跟著視窗跑、拍板那個數字沒進入計算。)
 //    **真瀏覽器實測(2026-08-22、真滑鼠點擊、視窗 1728;`-2e` 以不同工具獨立複現同一組數字):**
 //      直接貼網址 `?panel=…` ⇒ 720 ✅   從訂單列表點一張單 ⇒ **864** ❌(= 視窗的一半)
 //      視窗 1280 同樣點法    ⇒ **640** ❌ —— 比 720 還**窄**,**方向會翻面**
@@ -15,12 +19,18 @@
 //    ⇒ Sean 每天的動線就是「開列表 → 點單」⇒ **他從來沒拿到過自己拍的 720。**
 //
 // ⚠️ **本檔的效度邊界(不要放寬)**:jsdom 沒有版面引擎 ⇒ 它驗的是
-//    「shell 有沒有把 `--workspace-panel-width` 這個變數改成 720」,**不是「畫面上真的 720px」**。
+//    「shell 有沒有把 `--workspace-panel-width` 這個變數改成那個值」,**不是「畫面上真的那麼寬」**。
 //    真正的像素要真瀏覽器。本檔擋的是**邏輯不再重算**這一件,而那正好是這次的病。
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
+import { MIN_PANEL_WIDTH, maxPanelWidth } from '../../lib/layout/workspace-panel';
 import { WorkspaceShell } from './workspace-shell';
+
+/** 🔴 讀原始碼字面 —— 前提斷言要拿【現行預設值】比,而它刻意寫成字面不抽常數。 */
+const SHELL_SRC = readFileSync(resolve(__dirname, 'workspace-shell.tsx'), 'utf8');
 
 /**
  * 🔴 **把 jsdom 的視窗設成 Sean 的實測值 1728**(主視窗 `osascript` 量到的 Chrome 視窗寬)。
@@ -32,7 +42,7 @@ import { WorkspaceShell } from './workspace-shell';
  * ⇒ 判別句:**期望值寫的是一個【數字】,還是一個【在這個環境下算得出來的規則】?**
  *    寫數字 ⇒ 換一個環境它就在說謊。
  *
- * 🔴🔴 **動這個 1728 會讓下面四格(`'720px'` 那四處)失去意義** —— 它是它們的隱藏前提:
+ * 🔴🔴 **動這個 1728 會讓下面四格(`'520px'` 那四處)失去意義** —— 它是它們的隱藏前提:
  *    720 在 1728 底下拿得到,在 1024 底下拿不到。**改它之前先看那四格。**
  * 🔴🔴 **而它同時把 `clampPanelWidth` 那層夾變成【恆等函式】**
  *    (`maxPanelWidth(1728) = 1248 ≥ 720` ⇒ 夾不到任何東西)
@@ -70,7 +80,7 @@ const landPanel = async (container: HTMLElement, withMarker: boolean): Promise<v
 };
 
 describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點一張單)', () => {
-  it('前提 — 一開始沒有面板時,寬度是「視窗的一半」而不是 720', () => {
+  it('前提 — 一開始沒有面板時,寬度是「視窗的一半」而不是 520', () => {
     const { container } = render(
       <WorkspaceShell initialPanelWidth={null} panel={null}>
         <div />
@@ -81,7 +91,7 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
     expect(widthVar(container)).toBe(`${Math.round(window.innerWidth * 0.5)}px`);
   });
 
-  it('🔴 marker 後到 ⇒ 寬度【必須】重算成 720(舊版停在視窗的一半,這一格就是它)', async () => {
+  it('🔴 marker 後到 ⇒ 寬度【必須】重算成 520(舊版停在視窗的一半,這一格就是它)', async () => {
     const { container } = render(
       <WorkspaceShell initialPanelWidth={null} panel={null}>
         <div />
@@ -92,8 +102,8 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
     const after = widthVar(container);
     // 🔴 兩個世界都要表演:before 不是 720、after 是 720。
     //    只驗 after ⇒ 分不出「重算了」與「它本來就一直是 720」。
-    expect(before, '前提壞了:還沒有面板就已經是 720 ⇒ 下面那格恆綠').not.toBe('720px');
-    expect(after, 'marker 進 DOM 之後寬度沒有重算 ⇒ 從列表點單的人永遠拿不到 720').toBe('720px');
+    expect(before, '前提壞了:還沒有面板就已經是 520 ⇒ 下面那格恆綠').not.toBe('520px');
+    expect(after, 'marker 進 DOM 之後寬度沒有重算 ⇒ 從列表點單的人永遠拿不到 520').toBe('520px');
   });
 
   /**
@@ -132,14 +142,14 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
    *    ⇒ 那一格驗的是「重新整理」那條路,而那條路本來就沒風險。
    *    📌 **測試的名字說它擋 X,而它的 setup 讓 X 不可能發生。** 那不是寫錯,是**前提把述詞排除掉了**。
    */
-  it('🔴🔴 回歸 — 這個 session 裡拖過寬度之後,面板再變動【不得】彈回 720', async () => {
+  it('🔴🔴 回歸 — 這個 session 裡拖過寬度之後,面板再變動【不得】彈回 520', async () => {
     const { container } = render(
       <WorkspaceShell initialPanelWidth={null} panel={null}>
         <div />
       </WorkspaceShell>,
     );
     await landPanel(container, true);
-    expect(widthVar(container), '前提壞了:marker 到了卻不是 720 ⇒ 下面測的不是這條路').toBe('720px');
+    expect(widthVar(container), '前提壞了:marker 到了卻不是 720 ⇒ 下面測的不是這條路').toBe('520px');
 
     // 使用者主動調寬 —— 走的是 `commit()`/鍵盤步進那條真實路徑,不是直接改 state
     const handle = container.querySelector('[role="separator"]') as HTMLElement;
@@ -148,7 +158,7 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
       await Promise.resolve();
     });
     const afterUser = widthVar(container);
-    expect(afterUser, '鍵盤步進沒有改變寬度 ⇒ 這一格失去前提,下面恆綠').not.toBe('720px');
+    expect(afterUser, '鍵盤步進沒有改變寬度 ⇒ 這一格失去前提,下面恆綠').not.toBe('520px');
 
     // 面板再動一下(換一張單 / 任何 re-render 都會這樣)
     await act(async () => {
@@ -171,14 +181,14 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
    * ⚠️ jsdom 沒有 Pointer Capture ⇒ 下面補上 `setPointerCapture`/`hasPointerCapture`,
    *    那是**環境的洞**不是產品的洞;補了才走得到 `commit()`,不補會死在第一行而看起來像「沒事」。
    */
-  it('🔴🔴 回歸 — 用【滑鼠拖曳】調寬之後,面板再變動也【不得】彈回 720', async () => {
+  it('🔴🔴 回歸 — 用【滑鼠拖曳】調寬之後,面板再變動也【不得】彈回 520', async () => {
     const { container } = render(
       <WorkspaceShell initialPanelWidth={null} panel={null}>
         <div />
       </WorkspaceShell>,
     );
     await landPanel(container, true);
-    expect(widthVar(container), '前提壞了:marker 到了卻不是 720').toBe('720px');
+    expect(widthVar(container), '前提壞了:marker 到了卻不是 720').toBe('520px');
 
     const handle = container.querySelector('[role="separator"]') as HTMLElement;
     handle.setPointerCapture = () => undefined;
@@ -193,7 +203,7 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
       await Promise.resolve();
     });
     const afterDrag = widthVar(container);
-    expect(afterDrag, '拖曳沒有改變寬度 ⇒ 本格失去前提、恆綠(先修這裡再看下面)').not.toBe('720px');
+    expect(afterDrag, '拖曳沒有改變寬度 ⇒ 本格失去前提、恆綠(先修這裡再看下面)').not.toBe('520px');
 
     await act(async () => {
       const slot = container.querySelector('.workspace-panel') as HTMLElement;
@@ -211,14 +221,39 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
    *
    * 上面所有格都在 `innerWidth = 1728` 底下跑,而 `maxPanelWidth(1728) = 1248 ≥ 720`
    * ⇒ **夾在那個環境裡是恆等函式**,把它整層拿掉,上面一格都不會紅(`-4a` R2 實測:0 格紅)。
-   * ⇒ 本格把視窗壓到 **1000**:`maxPanelWidth(1000) = 1000 − 480 = 520`
-   *   ⇒ 拍板值 720 **必須被夾成 520**。拿掉夾 ⇒ 本格立刻紅。
+   * ⇒ 本格把視窗壓到 **900**:`maxPanelWidth(900) = 900 − 480 = 420`
+   *   ⇒ 預設值 520 **必須被夾成 420**。拿掉夾 ⇒ 本格立刻紅(2026-08-24 實測:正好本格紅)。
+   *   ⚠️ ~~舊版用 1000~~ —— `maxPanelWidth(1000) = 520` 與新預設同值 ⇒ 那個視窗下本格零判別力。
    *
    * 📌 而 520 不寫死成「某個數字」的理由同上:它是**在這個視窗下算得出來的規則**。
    *    這裡仍寫字面 520 是為了讓讀的人看得到那個結果,**而算式寫在旁邊、兩者必須對得起來**。
    */
-  it('🔴 窄視窗(1000)⇒ 拍板的 720 必須被夾成 520 —— 這格是 N3 唯一會紅的地方', async () => {
-    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true, writable: true });
+  // 🔴🔴 **2026-08-24:視窗從 1000 改成 900,而這一改是【必須的】不是偏好。**
+  //    Sean 把預設寬從 720 改成 520 之後:`maxPanelWidth(1000) = 1000 − 480 = 520`
+  //    ⇒ **上限與新預設【同一個值】** ⇒ 夾與不夾算出來一樣 ⇒ 本格對「夾有沒有裝上」零判別力。
+  //    📏 而它不會紅 —— 它會**安靜地全綠**(code-reviewer 2026-08-24 MF-2 指出,本窗複驗)。
+  //    ⇒ 改用 900:`maxPanelWidth(900) = 420`,而 420 既低於 520 也高於 `MIN_PANEL_WIDTH`(320)
+  //      ⇒ **它只可能是上限夾出來的**,不會與地板混淆。
+  //    📌 母題:**一個守門的判別力,可能被【它守的那個值本身】的改動殺掉,而它不會叫。**
+  // 🔴 **前提斷言(2026-08-24 codex important)**:本格的判別力靠三個數字**嚴格遞減**。
+  //    任一個未來被改動而破壞這個順序,本格就會再次「夾與不夾同值」而**安靜全綠**。
+  //    ⇒ 先斷言那個順序;它不成立時,紅的是【前提】而不是【行為】,訊息會說出是哪一個。
+  it('🔴 前提:預設值 > 窄窗上限 > 最小寬 —— 破壞這個順序,下一格會再次零判別力', () => {
+    const 預設 = Number(/hasOrderPanelMarker\s*\?\s*(\d+)\s*:/.exec(SHELL_SRC)?.[1]);
+    const 窄窗上限 = maxPanelWidth(900);
+    expect(
+      { 預設, 窄窗上限, 最小: MIN_PANEL_WIDTH },
+      '三者不再嚴格遞減 ⇒ 下一格的「必須被夾」會與「沒被夾」算出同一個值 ⇒ 它會安靜全綠。' +
+        '處置:換一個讓三者重新嚴格遞減的視窗寬,並把新的期望值一起改。',
+    ).toEqual({ 預設, 窄窗上限, 最小: MIN_PANEL_WIDTH });
+    expect(預設, '預設值沒有大於窄窗上限 ⇒ 夾不到任何東西').toBeGreaterThan(窄窗上限);
+    expect(窄窗上限, '窄窗上限沒有大於最小寬 ⇒ 夾出來的會是地板, 分不出是上限還是下限').toBeGreaterThan(
+      MIN_PANEL_WIDTH,
+    );
+  });
+
+  it('🔴 窄視窗(900)⇒ 預設的 520 必須被夾成 420 —— 這格是 N3 唯一會紅的地方', async () => {
+    Object.defineProperty(window, 'innerWidth', { value: 900, configurable: true, writable: true });
     const { container } = render(
       <WorkspaceShell initialPanelWidth={null} panel={null}>
         <div />
@@ -227,8 +262,8 @@ describe('🔴 面板寬度:marker 在【掛載之後】才出現(= 從列表點
     await landPanel(container, true);
     expect(
       widthVar(container),
-      '720 沒有被夾 ⇒ state 存著一個畫面上不成立的值,而 aria-valuenow 讀的就是 state',
-    ).toBe('520px');
+      '520 沒有被夾 ⇒ state 存著一個畫面上不成立的值,而 aria-valuenow 讀的就是 state',
+    ).toBe('420px');
   });
 
   /**

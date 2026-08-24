@@ -94,7 +94,7 @@ describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 兩個接
   });
 });
 
-// ── 片1:訂單編輯面板預設 720px、可拖寬(2026-08-21 F-81;推翻 08-19「甲=固定+拿掉拖曳」)──
+// ── 片1:訂單編輯面板預設 520px、可拖寬(2026-08-21 F-81;推翻 08-19「甲=固定+拿掉拖曳」)──
 //
 // 🔴 **這組測試 2026-08-21 改寫,不是新增**:原本釘的是「CSS `:has()` 鎖死寬度 + 藏把手」,
 //    而 Sean 在端過三張實體版本後**改拍「乙=留著拖曳、預設值改720」**,推翻了 08-19 那次的「甲」
@@ -116,7 +116,7 @@ describe('#350b TSX 的 class 名 × CSS 的 `:has()` 選擇器 —— 兩個接
 //    `panel` 參數〕⇒ 算出 600px = 1200 視窗的一半,兩個世界印不同的值,量法有判別力)。
 const PANEL_ROUTE = stripComments(read('../../app/@panel/orders/page.tsx'));
 
-describe('片1 訂單編輯面板預設 720px、可拖寬', () => {
+describe('片1 訂單編輯面板預設 520px、可拖寬', () => {
   // ⚠️ **射程**:本組只讀 `app/@panel/orders/page.tsx` 這一支 route。
   //    `@panel` 槽底下其餘兩支(`default.tsx` / `[...catchAll]/page.tsx`)**一律回 `null`、不渲染面板**
   //    ⇒ 今天不會有第二個產生點。日後若有人新增會渲染內容的槽路由,**本組看不到它**。
@@ -125,7 +125,7 @@ describe('片1 訂單編輯面板預設 720px、可拖寬', () => {
     expect({ shell: SHELL.includes('panel-width-locked') }).toEqual({ shell: true });
   });
 
-  // 🔴 客人卡那條 return 少了標記的話,點「客人明細」面板會從 720 跳回視窗一半、
+  // 🔴 客人卡那條 return 少了標記的話,點「客人明細」面板會從 520 跳回視窗一半、
   //    關掉再跳回來 —— 一個只在**點下去那一刻**才看得到的抖動。
   // 🔴 **不要只數出現次數** —— 那把尺會被「有人在註解裡提到這個 class」推歪
   //    (本片自己就差點踩到:原始碼裡連註解共 3 次、剝註解後才是 2 次)。
@@ -135,12 +135,14 @@ describe('片1 訂單編輯面板預設 720px、可拖寬', () => {
   });
 
   // 🔴🔴 **這一格是本片核心**:沒有 cookie 偏好時,shell 要用 JS 查 DOM 有沒有 marker,
-  //    有 ⇒ 預設 720、沒有 ⇒ 退回視窗一半(defaultPanelWidth)。
+  //    有 ⇒ 預設 520、沒有 ⇒ 退回視窗一半(defaultPanelWidth)。
   //    這是原本「CSS `:has()` 鎖死寬度」的替代品 —— 差別是這裡只決定**預設值**,
   //    寬度仍然可拖(下面「可拖」那格另外釘)。
-  it('🔴 shell 沒有 cookie 偏好時:查 `.panel-width-locked` marker,有 ⇒ 預設 720,沒有 ⇒ `defaultPanelWidth`', () => {
+  it('🔴 shell 沒有 cookie 偏好時:查 `.panel-width-locked` marker,有 ⇒ 預設 520,沒有 ⇒ `defaultPanelWidth`', () => {
     expect(SHELL).toMatch(/querySelector\(['"]\.panel-width-locked['"]\)/);
-    expect(SHELL).toMatch(/hasOrderPanelMarker\s*\?\s*720\s*:\s*defaultPanelWidth/);
+    // 🔴 2026-08-24 Sean 拍「520」⇒ 期望值跟著改。**改的是值,不是判準** ——
+    //    這一格仍然釘著「有 marker ⇒ 用那個字面;沒有 ⇒ 退回 defaultPanelWidth」的形狀。
+    expect(SHELL).toMatch(/hasOrderPanelMarker\s*\?\s*520\s*:\s*defaultPanelWidth/);
   });
 
   // 🔴🔴 **防止舊機制被靜默抄回來**:若有人複製前一版的 CSS 區塊貼回 globals.css,
