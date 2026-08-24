@@ -33,7 +33,8 @@ const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.met
 const LAYOUT = stripComments(read('../../app/layout.tsx'));
 const SHELL_RAW = read('./workspace-shell.tsx');
 const SHELL = stripComments(SHELL_RAW);
-const GLOBALS = stripComments(read('../../app/globals.css'));
+const GLOBALS_RAW = read('../../app/globals.css');
+const GLOBALS = stripComments(GLOBALS_RAW);
 const PANEL_DEFAULT_PATH = fileURLToPath(new URL('../../app/@panel/default.tsx', import.meta.url));
 
 describe('#350b 平行路由槽的接線', () => {
@@ -253,5 +254,59 @@ describe('#350b 無障礙:分隔線不能只有滑鼠拖得動、也要報得出
     for (const attr of ['aria-valuenow', 'aria-valuemin', 'aria-valuemax']) {
       expect({ [attr]: SHELL.includes(attr) }).toEqual({ [attr]: true });
     }
+  });
+});
+
+// 🔴 組4(§12 交接檔標「本批最大的一格」,2026-08-24 plan 批准動手)——
+//    手機(≤767px)面板整片蓋滿螢幕。真瀏覽器行為/computed style/截圖已在真後台驗過,
+//    本檔只是**字面哨兵**:擋住「這段 @media 區塊被靜默刪掉/改壞」,不重複驗行為。
+//    🔴 14 條宣告、4 個選擇器同一片(§12 只記到 `.workspace-panel` 那 9 條,漏了 `.workspace-row`
+//    display:block 與 `.workspace-handle` display:none 這 2 條 —— 少了它們會做出稿上不存在的中間態;
+//    code-reviewer R1 又抓到漏搬 `.workspace-panel > .panel-width-locked` 那 3 條,2026-08-24 補上)。
+describe('組4 手機面板全螢幕覆蓋(14 條宣告同一片,零覆蓋,見 globals.css 該段出處)', () => {
+  it('🔴 `@media (max-width: 767px)` 裡四個選擇器都在,一個都沒有漏', () => {
+    const mediaBlock = /@media \(max-width: 767px\) \{[\s\S]*?\n\}/.exec(GLOBALS)?.[0] ?? '';
+    expect(mediaBlock, '這個 media block 必須抓得到,抓不到代表選擇器或格式被改動').not.toBe('');
+    expect(mediaBlock).toContain('.workspace-row');
+    expect(mediaBlock).toContain('.workspace-handle');
+    expect(mediaBlock).toContain('.workspace-panel');
+    expect(mediaBlock).toContain('.workspace-panel > .panel-width-locked');
+  });
+
+  it('🔴 `.workspace-row` 手機改直排,`.workspace-handle` 手機藏起來(桌機並排/可拖曳,這兩條只在手機生效)', () => {
+    const mediaBlock = /@media \(max-width: 767px\) \{([\s\S]*?)\n\}/.exec(GLOBALS)?.[1] ?? '';
+    expect(mediaBlock).toMatch(/\.workspace-row\s*\{\s*display:\s*block;?\s*\}/);
+    expect(mediaBlock).toMatch(/\.workspace-handle\s*\{\s*display:\s*none;?\s*\}/);
+  });
+
+  it('🔴 `.workspace-panel` 手機整片蓋滿(9 條宣告逐一命中,不是只有 position:fixed)', () => {
+    const mediaBlock = /@media \(max-width: 767px\) \{([\s\S]*?)\n\}/.exec(GLOBALS)?.[1] ?? '';
+    const panelBlock = /\.workspace-panel\s*\{([\s\S]*?)\}/.exec(mediaBlock)?.[1] ?? '';
+    for (const decl of [
+      'position: fixed',
+      'inset: 0',
+      'z-index: 60',
+      'width: 100% !important',
+      'min-width: 0',
+      'max-width: none',
+      'overflow: auto',
+      'background: var(--card)',
+      'overscroll-behavior: contain',
+    ]) {
+      expect(panelBlock, decl).toContain(decl);
+    }
+  });
+
+  it('🔴 `.workspace-panel > .panel-width-locked` 手機覆寫(code-reviewer R1 must-fix,2026-08-24 補)', () => {
+    const mediaBlock = /@media \(max-width: 767px\) \{([\s\S]*?)\n\}/.exec(GLOBALS)?.[1] ?? '';
+    const lockedBlock = /\.workspace-panel > \.panel-width-locked\s*\{([\s\S]*?)\}/.exec(mediaBlock)?.[1] ?? '';
+    for (const decl of ['height: 100%', 'max-height: 100svh', 'border-left: 0']) {
+      expect(lockedBlock, decl).toContain(decl);
+    }
+  });
+
+  it('🔴 `#od-stage` 不搬的理由必須寫在 comment 裡(查無元素,§12 已判不適用;查 comment 用 RAW,GLOBALS 已剝註解)', () => {
+    expect(GLOBALS_RAW).toContain('od-stage');
+    expect(GLOBALS_RAW).toContain('刻意不搬');
   });
 });

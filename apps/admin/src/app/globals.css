@@ -579,6 +579,51 @@
   max-width: calc(100% - 480px);
 }
 
+/* ②b 手機(≤767px)面板整片蓋滿螢幕(組4,§12 交接檔標「本批最大的一格」,2026-08-24 plan 批准動手)。
+   🔴 **14 條宣告、4 個選擇器,是同一片,不是只做 `.workspace-panel` 那 9 條**
+      (原寫 11/3,2026-08-24 R1 補上 `.panel-width-locked` 那 3 條後改寫;
+      數法 = row 1 + handle 1 + panel 9 + panel-width-locked 3):
+      OD 稿(`orders-admin-v2.html`,同一個 `<style data-od-fix="FIX-13">` 區塊、零覆蓋,
+      用 `tool-final-css.py` 對 39 個區塊各自獨立跑過)裡,`.workspace-row` 改 `display:block`
+      (桌機是 flex 左右並排)、`.workspace-handle` 藏起來(手機無法拖曳),
+      與 `.workspace-panel` 那 9 條是同一個手機版面切換,漏做前兩條會做出「面板蓋滿、
+      但底下那排(列表欄 + 拖曳把手)還是桌機排法」的中間態 —— 稿上不存在這個中間態。
+   🔴 **修前實測(真後台 + 真資料,`localhost:3091`,390px)**:面板 `position:static`、
+      `width:320px`(吃 `min-width` 那個下限,不是算成 0 或無限制)、列表欄被擠成 `66px`
+      寬的一條縫,兩塊內容互相截斷、看不全——這不是算出來的,是真瀏覽器量到的。
+   🔴 **code-reviewer R1 抓到漏搬 `.workspace-panel>.panel-width-locked` 這條**(2026-08-24):
+      同一個 FIX-13 區塊裡,訂單面板(唯一帶 `.panel-width-locked` marker 的面板,
+      `app/@panel/orders/page.tsx:78,192`)有自己的 `max-h-[calc(100svh-3.5rem)]` /
+      `border-l`(Tailwind,算的是「桌機、面板在整頁旁邊」那個情境);手機版面板本身已經是
+      `position:fixed;inset:0` 的滿版覆蓋層,那兩個桌機假設不成立 ⇒ 補上手機版覆寫。
+   🔴 **OD 同區塊還有一條 `#od-stage:has(.workspace-panel > *){overflow:hidden!important}`,
+      刻意不搬**:`#od-stage` 這個 id 在本 repo 查無元素(grep 全專案 0 命中),
+      §12 對稿當時已判「不適用」——這裡把理由寫下來,不是漏掉。 */
+@media (max-width: 767px) {
+  .workspace-row {
+    display: block;
+  }
+  .workspace-handle {
+    display: none;
+  }
+  .workspace-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+    overflow: auto;
+    background: var(--card);
+    overscroll-behavior: contain;
+  }
+  .workspace-panel > .panel-width-locked {
+    height: 100%;
+    max-height: 100svh;
+    border-left: 0;
+  }
+}
+
 /* ③ **訂單編輯面板有預設寬,可拖寬**(現行預設 = **520**,Sean 2026-08-24 逐字「面板寬度那題: 520」;
       🔴 字面的權威在 `components/layout/workspace-shell.tsx`,本檔不複述那個數字)
       ~~預設 720px~~(Sean 2026-08-19 拍「甲=720固定」,
