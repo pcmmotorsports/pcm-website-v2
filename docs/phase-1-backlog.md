@@ -32381,3 +32381,62 @@ DB 層可達 = **是**(上面實測)
   而那與「我要出 0 件」在畫面上、在資料上都是同一件事 ⇒ **意圖無法表達,只能靠他記得。**
 
 - **出處**:`#904` 的第 3 處 → 主視窗派 06 窗查判別力(三問)→ 06 逐項附行號與活性對照。
+
+- **🔴 追加(2026-08-24 夜,窗 A 實作途中發現、本片刻意不修)**:同一個輸入框吃得下**小數**。
+  ```
+  clampShipQty 不做 Math.floor —— 而 type='number' 打得進 1.5
+  ⇒ client 送 1.5 ⇒ SQL 那道閘的整數檢查 raise ⇒ 整箱失敗(不是那一列失敗)
+  ```
+  ⚠️ **不修是對的判斷,不是遺漏**:在那裡 `Math.floor` 會**改變員工看到的東西**(打 1.5 變 1),
+  那是另一個決定,而兩件綁一顆 = 弱的繼承強的背書。已寫進 `clampShipQty` 的 docstring。
+  ⚠️ **射程**:「`type='number'` 打得進小數」是**規格知識,窗 A 未實測**;
+  SQL 那側是不是整箱 raise,出處是 `20260807180000_..._add_shipment_items.sql:135-141` 的引文。
+  🔴 **要修之前先答**:員工打 1.5 時該看到什麼?(擋住不讓打 / 自動變 1 / 送出時才報錯)
+  —— 這是 UX 決定,不是修 bug。
+
+---
+
+### #907. 🔴 `supabase/migrations/` 從零 apply 重現不了正式庫 —— 而本機驗 migration 的整套 runbook 就建立在「從零 apply」上
+
+- **狀態**:open。**不是任何一片的缺陷,是 migration 鏈自己的缺口。**
+
+- **發現方式**:窗 A 為了驗 `#905` 閘③(SQL `quantity <= 0`)照
+  `docs/runbooks/throwaway-postgres-for-migration-verification.md` 起拋棄式 PG,
+  在乾淨 DB 上 apply 到 `20260807180000` 為止 ⇒ 目標函式沒被建出來。
+
+- **量到的(窗 A 報,主視窗複驗過 view 那一格)**:
+  ```
+  嘗試 117 支 / 失敗 38 支
+  38 個失敗裡  already exists = 0   does not exist = 17
+  ⇒ 沒有一個是「重複 apply」造成的 ⇒ 全部是真的缺前置
+  第一個根失敗:
+    20260712183000_products_catalog_page_public.sql:106
+    ERROR: relation "public.product_fitments_effective" does not exist
+  目標那支自己的前置閘:
+    20260807180000_..._add_shipment_items.sql:81
+    ERROR: W3-2 前置閘失敗 — W2 冪等層 / shipment_items / 摘要表 有缺
+  ```
+
+- **🔴 根因(主視窗 2026-08-24 夜獨立複驗,尺附活性對照)**:
+  ```
+  分母 = supabase/migrations/*.sql
+  被引用 product_fitments_effective        grep -l                                 => 7
+  被建立 CREATE [OR REPLACE] [MATERIALIZED] VIEW ... product_fitments_effective    => 0
+  活性對照 同尺抓所有 CREATE VIEW 目標名                                            => 30
+    (印得出 products_public / products_list_public / product_variants_public 等真名字)
+  ⇒ 那個 0 是真的沒有, 不是 pattern 壞了
+  ```
+  ⚠️ **射程**:本格只數 `supabase/migrations/`。它有沒有住在別的載體(手動在 dashboard 建的、
+  別的 repo、或早已存在於正式庫而從未進版控)—— **未查**。而第三種正是最可能的一種。
+
+- **不修未來會痛在哪**:
+  ```
+  ① 任何人想在本機驗任何一支 migration 都會撞到它
+     ⇒ throwaway-postgres runbook 的整個前提失效, 而它今天仍在路由表裡被指著
+  ② 更貴的一種:如果那個 view 真的只存在於正式庫而不在版控裡,
+     那正式庫與 repo 之間有一段【沒有人能重建的落差】—— 而災難復原就是從零 apply
+  ```
+  🔴 **判別句**:先答「正式庫裡有沒有 `product_fitments_effective`」。
+  有 ⇒ 是版控缺一支 migration(補寫即可);沒有 ⇒ 那 7 支引用它的 migration 現在就在正式庫裡壞著。
+
+- **出處**:窗 A `#905` 交件第五節 → `~/pcm-mailbox/A-905-交件-出貨數量欄清不掉-20260824.md:138-150`
