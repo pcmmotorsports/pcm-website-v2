@@ -15,6 +15,12 @@ const ZERO: AnomalyAlertSummary = {
   attemptManualReviewCount: 0,
   releasedStuckCount: 0,
   pendingDoubleChargeCandidateCount: 0,
+  // F-004:`0` 代表「查得到而且是 0 筆」;`null` + unknown=true 是**另一個世界**(RPC 尚未 apply)。
+  // 🔴 ZERO 這個 fixture 刻意用 0/false —— 它是「一切正常且沒事」的基準,不是「查不到」。
+  orderRefundsStuckCount: 0,
+  orderRefundsStuckOvernightCount: 0,
+  orderRefundsManualFailedCount: 0,
+  orderRefundsStuckUnknown: false,
   openDisplayIds: [],
   refundingStuckDisplayIds: [],
   attemptManualReviewDisplayIds: [],
@@ -678,5 +684,234 @@ describe('Sean 逐字那句 —— 只掛 ③,而 ④【不得】沾上它(2026-
     expect(text).not.toContain('3D驗證');
     expect(text).not.toContain(SEAN);
     expect(text).toContain('這一類後台沒有手可以處理'); // 而 NO_HAND_NOTE 仍在
+  });
+});
+
+/**
+ * F-004 · 客人的退款卡住 —— 這一類**以前從來沒有進過這封信**(分母讀的是雙扣表)。
+ *
+ * 🔴 這一組每一格都成對:一發該綠、一發該紅,而且**兩發都要走得到**。
+ *    codex 關卡1 R2 抓到我第一版把「該紅那發」寫成了**不可達分支**
+ *    (key=0 且其餘全 0 ⇒ `shouldAlert=false` ⇒ 根本沒有訊息可以驗,而那一格會是綠的)。
+ *    ⇒ 所有「訊息內容」的格子一律讓**另一個計數非零**,確保信真的寄得出來。
+ */
+describe('F-004 退款卡住:計數、過夜拆分、與部署窗口', () => {
+  const OTHER_NONZERO = { ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0001'] };
+
+  it('計數 > 0 → 會寄信(它自己就踩得到門檻,不用靠別類)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, orderRefundsStuckCount: 2 }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(true);
+    expect(n.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 對照:計數 = 0 且其餘全零 → 不寄信(證明上一格是這個欄位造成的)', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, orderRefundsStuckCount: 0 }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  it('訊息含這一類的白話標題與筆數(不含資料表技術名)', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...OTHER_NONZERO, orderRefundsStuckCount: 3 },
+      OPTS.refundingStuckSeconds,
+    );
+    // 🔴 斷言【整行】,不是裸數字 —— 同一封信裡「24 小時」等處也有數字,
+    //    `toContain('3')` 在功能壞掉時照樣可能綠。
+    expect(msg.text).toContain('【客人的退款卡住,還沒退成功】3 筆');
+    // 🔴 這封信是給 Sean 看的,不得出現資料表名(codex R1 N8)。
+    expect(msg.text).not.toContain('order_refunds');
+  });
+
+  it('🔴 過夜是【分開列】不是把剛卡住的藏起來:總數與過夜數同時出現', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...OTHER_NONZERO, orderRefundsStuckCount: 5, orderRefundsStuckOvernightCount: 2 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.text).toContain('5');
+    expect(msg.text).toContain('其中 2 筆已經卡超過一天');
+  });
+
+  it('🔴 對照:過夜數 = 0 → 不出現「其中 N 筆」那一行(而總數照出)', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...OTHER_NONZERO, orderRefundsStuckCount: 5, orderRefundsStuckOvernightCount: 0 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.text).toContain('客人的退款卡住');
+    expect(msg.text).not.toContain('已經卡超過一天');
+  });
+
+  it('文案不逐筆承諾可以處理、也不承諾筆數會變少', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...OTHER_NONZERO, orderRefundsStuckCount: 1 },
+      OPTS.refundingStuckSeconds,
+    );
+    // ① 有些筆點進去沒有按鈕(判定落在 record_shape_bad / evidence_contradiction)
+    expect(msg.text).toContain('有幾筆可能還按不了');
+    // ② 不承諾筆數會變少 —— 否則下一封信數字沒降,他會以為系統壞了
+    expect(msg.text).toContain('每天都會再出現一次');
+  });
+
+  it('🔴 部署窗口:查不到 ≠ 0 筆 —— 兩個世界的文案必須不同', () => {
+    const unknown = buildAnomalyAlertMessage(
+      { ...OTHER_NONZERO, orderRefundsStuckCount: null, orderRefundsStuckOvernightCount: null, orderRefundsStuckUnknown: true },
+      OPTS.refundingStuckSeconds,
+    );
+    const zero = buildAnomalyAlertMessage(
+      { ...OTHER_NONZERO, orderRefundsStuckCount: 0 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(unknown.text).toContain('今天查不到');
+    expect(zero.text).not.toContain('今天查不到');
+    // 🔴 兩發都寄得出信(OTHER_NONZERO 讓 shouldAlert 成立)⇒ 差別只在那一行在不在。
+    expect(unknown.text).not.toBe(zero.text);
+  });
+
+  it('🔴 unknown 自己【不】觸發寄信 —— 部署問題走 route 503,不是每天寄信給老闆', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      {
+        reader: reader({
+          ...ZERO,
+          orderRefundsStuckCount: null,
+          orderRefundsStuckOvernightCount: null,
+          orderRefundsStuckUnknown: true,
+        }),
+        notifiers: [n],
+      },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+    // 而它必須在結果裡看得見,否則 route 沒有東西可以據以回 503。
+    expect(res.orderRefundsStuckUnknown).toBe(true);
+  });
+});
+
+/**
+ * F-004 折 code-reviewer 的兩條 must-fix。**兩條都會改到寄到 Sean 手機上的那封信的字面。**
+ */
+describe('F-004 · 主旨張數 與 「只是可能」的射程', () => {
+  const ONE_OPEN = { ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0001'] };
+
+  it('🔴 有退款卡住那一類時,主旨【不寫張數】(那一類永遠沒有單號 = 整個拿不到)', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsStuckCount: 4 },
+      OPTS.refundingStuckSeconds,
+    );
+    // 實測過的壞法:主旨會印「有 1 張單要你看」,而內文是 1 筆 + 4 筆
+    // ⇒ 本檔自己寫著「一個錯的數字會讓他以為事情比較小」。
+    expect(msg.subject).not.toContain('1 張單');
+    expect(msg.subject).toBe('⚠️ PCM 付款有事要你看');
+  });
+
+  it('🔴 對照:退款卡住 0 筆時,主旨【照常寫張數】(證明上一格是這個欄位造成的)', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsStuckCount: 0 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.subject).toContain('1 張單');
+  });
+
+  it('🔴 unknown 時主旨也不寫張數(那一類是「查不到」,更不該替它報數字)', () => {
+    const msg = buildAnomalyAlertMessage(
+      {
+        ...ONE_OPEN,
+        orderRefundsStuckCount: null,
+        orderRefundsStuckOvernightCount: null,
+        orderRefundsStuckUnknown: true,
+      },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.subject).not.toContain('1 張單');
+  });
+
+  it('🔴 有退款卡住那一類時,補上「那一類是已經確定的」—— 因為「每一筆都只是可能」對它是假的', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsStuckCount: 2 },
+      OPTS.refundingStuckSeconds,
+    );
+    // Sean 拍板的那句字面不動(它有兩格測試釘著,含順序那格)
+    expect(msg.text).toContain('上面每一筆都只是「可能」,不是已經確定');
+    // 而範圍那句要跟在它後面
+    expect(msg.text).toContain('是已經確定卡住的,不是「可能」');
+    expect(msg.text.indexOf('只是「可能」')).toBeLessThan(msg.text.indexOf('是已經確定卡住的'));
+  });
+
+  it('🔴 對照:退款卡住 0 筆時,不加那句範圍話(不替一封沒有那類的信加無所指的話)', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsStuckCount: 0 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.text).toContain('上面每一筆都只是「可能」,不是已經確定');
+    expect(msg.text).not.toContain('是已經確定卡住的');
+  });
+
+  it('過夜數大於總數(理論上走不到)也不會印出矛盾的兩個數字', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsStuckCount: 1, orderRefundsStuckOvernightCount: 5 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.text).toContain('其中 1 筆已經卡超過一天');
+    expect(msg.text).not.toContain('其中 5 筆');
+  });
+});
+
+/**
+ * F-004 · Sean 2026-08-24 拍甲:②終態半**不列進清單**,只在信尾寫一行。
+ * 主視窗轉貼他的原句:「① 退款告警信要不要列『已判定失敗、按不了任何按鈕』的那幾筆 / 甲(推薦)」
+ */
+describe('F-004 · ②終態半只出現在信尾那一行', () => {
+  const ONE_OPEN = { ...ZERO, openCount: 1, openDisplayIds: ['PCM-2026-0001'] };
+
+  it('🔴 有終態半 ⇒ 信尾出現「另有 N 筆已判定失敗,不需要你動作」', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsManualFailedCount: 4 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.text).toContain('另有 4 筆已判定失敗,不需要你動作');
+  });
+
+  it('🔴 對照:終態半 = 0 ⇒ 那一行不出現', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsManualFailedCount: 0 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.text).not.toContain('已判定失敗,不需要你動作');
+  });
+
+  it('🔴 N 是動態值,不是寫死的 4', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsManualFailedCount: 7 },
+      OPTS.refundingStuckSeconds,
+    );
+    expect(msg.text).toContain('另有 7 筆');
+    expect(msg.text).not.toContain('另有 4 筆');
+  });
+
+  it('🔴🔴 終態半【不觸發寄信】—— 它是終態、永遠不會消失,進了閘就是每天叫一次做不到的事', async () => {
+    const n = okNotifier();
+    const res = await checkAnomalyAlerts(
+      { reader: reader({ ...ZERO, orderRefundsManualFailedCount: 4 }), notifiers: [n] },
+      OPTS,
+    );
+    expect(res.alerted).toBe(false);
+    expect(n.notify).not.toHaveBeenCalled();
+  });
+
+  it('它不進主旨的張數計算,也不讓主旨變成「不寫數字」那條路', () => {
+    const msg = buildAnomalyAlertMessage(
+      { ...ONE_OPEN, orderRefundsManualFailedCount: 4 },
+      OPTS.refundingStuckSeconds,
+    );
+    // 只有①可處理半(永遠沒單號)才讓主旨不寫數字;②終態半只是信尾一行。
+    expect(msg.subject).toContain('1 張單');
   });
 });

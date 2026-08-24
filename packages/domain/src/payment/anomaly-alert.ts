@@ -2,6 +2,8 @@
  * @module @pcm/domain/payment/anomaly-alert — 雙扣 anomaly 主動告警 domain 型別(M-3 #250)
  *
  * 主動告警(pull→push)的 domain 契約:
+ * 🔴 **2026-08-24(F-004)起是【三支】RPC**,不是兩支:計數 / 單號 / 退款卡住計數
+ *    (`get_order_refunds_stuck_summary`)。下面那句原本只列兩支,已被本行更正。
  * - `AnomalyAlertSummary` = SECDEF 聚合 RPC `get_payment_anomaly_alert_summary` 回的計數,
  *   **外加** `get_payment_anomaly_alert_display_ids` 回的五個**訂單單號**陣列
  *   (adapter 邊界把 DB snake_case jsonb 映射成 camelCase domain)。
@@ -53,6 +55,41 @@ export type AnomalyAlertSummary = {
   openCount: number;
   refundingCount: number;
   refundingStuckCount: number;
+
+  /**
+   * 🔴 **F-004:退款卡住計數,分母是 `order_refunds`** —— 與上面那個 `refundingStuckCount`
+   * **不是同一張表**。後者的分母是 `payment_double_charge_anomalies`(名字比分母寬),
+   * 而畫面上卡住的退款**從 2026-08 以前到現在一次都沒有被通報過**,因為那封信讀的是前者。
+   *
+   * · `orderRefundsStuckCount`:①可處理半全體(processing 且〔逾 30 分 或 有 TapPay 受理證據〕)。
+   * · `orderRefundsStuckOvernightCount`:上者的**子集**,再加「建立逾 24 小時」。
+   *   ⇒ 兩者在同一支 RPC 的同一發 SELECT 算出 ⇒ **內部恆一致,不會 overnight > total**。
+   * · `orderRefundsStuckUnknown`:RPC 尚未 apply(部署窗口)⇒ 兩個計數為 `null`。
+   *   🔴 **`null` 與 `0` 必須印不同的字** —— 把「我讀不到」印成「沒有卡住的退款」,
+   *   就是**用這一片的部署窗口,重新造出這一片要修的那個 bug**。
+   *
+   * ⚠️ **信上的數字通常會小於畫面上的數字**,那是設計:畫面另含②終態半
+   * (`status='failed' AND failed_reason='manual_failed'`),那半後台零按鈕、不進計數型告警。
+   * 🔴 「通常」二字不要退回全稱句:`refund-read.ts` 的 `REFUND_EXCEPTIONS_LIMIT = 200`
+   *    會截斷①半 ⇒ ①半超過 200 筆時**方向會反過來**(信比畫面大)。
+   *    寫成全稱句的話,那一天沒有人解釋得了那個矛盾。
+   */
+  orderRefundsStuckCount: number | null;
+  orderRefundsStuckOvernightCount: number | null;
+  /**
+   * 🔴 ②終態半(`status='failed' AND failed_reason='manual_failed'`)—— **只是一個數字**。
+   * Sean 2026-08-24 拍甲:**不列進清單**,只在信尾寫一行「另有 N 筆已判定失敗,不需要你動作」。
+   * 🔴🔴 **它絕不可以進 `shouldAlert`**:終態、永遠不會自己消失(正式庫 2026-08-24 量到 = 4)。
+   * ⚠️ **「終態」不是我的形容詞,是 DB 硬防線** —— 出處:
+   *   `20260725130100_m3_rf2a2_order_refunds_ledger.sql` 的 `pcm_order_refund_status_transition()`
+   *   逐字:「僅允許 processing → confirmed / processing → failed / 同值冪等;
+   *   confirmed 與 failed 皆為終態,**轉出一律 RAISE**。DB 層硬防線,不依賴 RF8 自律。」
+   * ⚠️ **射程**:那道 trigger 管的是 UPDATE。這個計數仍可能因 **DELETE / TRUNCATE** 下降,
+   *   而那兩條路不在它的守備範圍 ⇒ 不要把「不會消失」讀成「這個數字單調不減」。
+   * ⇒ 進了就是每天叫一次做不到的事,那正是 `2SQH2P` 叫了 15 天的同一個病。
+   */
+  orderRefundsManualFailedCount: number | null;
+  orderRefundsStuckUnknown: boolean;
   oldestOpenAgeSeconds: number | null;
   attemptManualReviewCount: number;
   releasedStuckCount: number;

@@ -57,6 +57,16 @@ export type CheckAnomalyAlertsResult = {
   releasedStuckCount: number;
   /** #256 pending-based 雙扣候選「組」數(卡住指紋 + 同額 + 窗;候選待查證)。 */
   pendingDoubleChargeCandidateCount: number;
+  /**
+   * F-004 客人的退款卡住(分母 `order_refunds`,**不是**上面那個雙扣表)。
+   * `null` = 那支 RPC 尚未 apply ⇒ 🔴 **route 據 `orderRefundsStuckUnknown` 回 503**,
+   * 而不是寄一封「尚未啟用」的信給老闆(部署問題走部署管道)。
+   */
+  orderRefundsStuckCount: number | null;
+  orderRefundsStuckOvernightCount: number | null;
+  /** ②終態半(只進信尾那一行,**不進 `shouldAlert`**;Sean 2026-08-24 拍甲)。 */
+  orderRefundsManualFailedCount: number | null;
+  orderRefundsStuckUnknown: boolean;
   /** 最舊 open anomaly 年齡秒數(排序訊號、非 PII;無 open → null)。 */
   oldestOpenAgeSeconds: number | null;
   /** 本輪嘗試推播的管道數(shouldAlert=false 時為 0)。 */
@@ -232,7 +242,16 @@ export function buildAnomalyAlertMessage(
     summary.refundingStuckCount > summary.refundingStuckDisplayIds.length ||
     summary.attemptManualReviewCount > summary.attemptManualReviewDisplayIds.length ||
     summary.releasedStuckCount > summary.releasedStuckDisplayIds.length ||
-    summary.pendingDoubleChargeCandidateCount > summary.pendingDoubleChargeDisplayIdPairs.length;
+    summary.pendingDoubleChargeCandidateCount > summary.pendingDoubleChargeDisplayIdPairs.length ||
+    // 🔴🔴 **F-004 這一類【永遠沒有單號】**(那支 RPC 只回計數、零 PII 零 id)⇒ 它**恆定命中**
+    //    下面 `subject` 那段檔頭自己寫的條件:「被截斷(**或整個拿不到**)時不寫數字」。
+    //    不加這一條的話,實測 `openCount=1`(1 個單號)+ `orderRefundsStuckCount=4` ⇒
+    //    主旨印「⚠️ PCM 付款有 **1** 張單要你看」,而內文是 1 筆 + 4 筆
+    //    ⇒ 🔴 **一個錯的數字會讓他以為事情比較小** —— 那正是那段檔頭寫下來要防的事,
+    //      而我新增的類別讓它自己失效了。
+    //    ⚠️ `unknown`(RPC 尚未 apply)同理:那一類是「查不到」,主旨更不該替它報一個數字。
+    (summary.orderRefundsStuckCount ?? 0) > 0 ||
+    summary.orderRefundsStuckUnknown;
 
   // 🔴 ④ 與 ③ 可以是**同一顆 attempt**(被讓路的 released 同時達 12h 與達 ceiling)。
   //    原版只能寫「可能與上一項重疊」;**帶了單號之後這件事變成查得出來的** ——
@@ -335,6 +354,64 @@ export function buildAnomalyAlertMessage(
         summary.refundingStuckCount,
         summary.refundingStuckDisplayIds,
       ),
+      notes: [],
+    },
+    /**
+     * 🔴 **F-004:客人的退款卡住 —— 這一類以前【從來沒有進過這封信】。**
+     *
+     * 成因不是漏寫,是**分母**:上面那一類讀的是重複扣款那張表,而客人的退款帳本
+     * 是另一張。⇒ 畫面上有卡住的退款,而信裡永遠是安靜的。
+     * 🔴 **而排程與寄信都活著、信真的有來 ⇒ 這比完全沒有通知更難發現。**
+     *
+     * ⚠️ **標題刻意與上面那一類不同字**(「客人的退款」vs「退款」):兩類都叫「退款卡住」
+     *    而分母不同 ⇒ 收信人分不出來,就會以為其中一個數字寫錯了。
+     * ⚠️ **沒有單號可印** —— 那支 RPC 只回計數(零 PII/零 id)⇒ 走 `section` 的空陣列路徑,
+     *    只講筆數。**不得憑空編單號。**
+     */
+    {
+      lines: section(
+        '客人的退款卡住,還沒退成功',
+        summary.orderRefundsStuckCount ?? 0,
+        [],
+      ),
+      notes:
+        (summary.orderRefundsStuckCount ?? 0) > 0
+          ? [
+              // 🔴 Sean 的連帶必做逐字:「信裡把**剛卡住**與**過夜**分開列,不是把剛卡住的藏起來」。
+              //    ⇒ 過夜是子集,分開講而不是換一個門檻把新的那幾筆濾掉。
+              // 🔴 夾在總數上:overnight 是 total 的子集,而**型別沒有把這件事編碼進去**。
+              //    SQL 端同一發 SELECT 保證子集 ⇒ 今天走不到;但 `shownIds` 對同一個 skew
+              //    方向本來就有夾,這裡不夾就是同一封信裡兩套標準。
+              //    不夾的話 `count=1 / overnight=5` ⇒ 信上會印「1 筆 / ↳ 其中 5 筆已經卡超過一天」。
+              ...((summary.orderRefundsStuckOvernightCount ?? 0) > 0
+                ? [
+                    `  ↳ 其中 ${Math.min(
+                      summary.orderRefundsStuckOvernightCount ?? 0,
+                      summary.orderRefundsStuckCount ?? 0,
+                    )} 筆已經卡超過一天。`,
+                  ]
+                : []),
+              '  ↳ 到後台「退款異常清單」那一頁看。',
+              // 🔴🔴 這兩句是主視窗指定的 must,而它們擋的是**兩種不同的誤會**:
+              //    ① 「其餘=停+告警、零按鈕」⇒ 點進去可能沒有動作可按,那不是壞掉
+              //    ② 不承諾筆數會變少 ⇒ 否則下一封信數字沒降,他會以為系統壞了
+              '  ↳ 有幾筆可能還按不了(系統還在等對帳),那不是壞掉。',
+              '  ↳ 只要還沒處理完,這幾筆每天都會再出現一次。',
+            ]
+          : [],
+    },
+    /**
+     * 🔴 部署窗口:程式先上、DB 那支 RPC 還沒 apply。
+     * **不寫成「0 筆」** —— 把「我讀不到」印成「沒有卡住的退款」,
+     * 就是用這一片的部署窗口,重新造出這一片要修的那個 bug。
+     * ⚠️ 而它**不觸發寄信**(不進 `shouldAlert`):DB 沒 apply 是**部署問題**,
+     *    該吵的對象是看 cron 的人(route 回 503),不是每天寄信給老闆。
+     *    ⇒ 這一行只在信**本來就要寄**的時候搭便車出現。
+     */
+    {
+      lines: summary.orderRefundsStuckUnknown
+        ? ['【客人的退款卡住】這一項今天查不到(後台尚未啟用),不代表沒有。']
+        : [],
       notes: [],
     },
     {
@@ -457,14 +534,34 @@ export function buildAnomalyAlertMessage(
     //      而唯一擋住那件事的,就是這一句。
     // ⚠️ 「上面」指的是 footer 之上的單號清單(body)⇒ 移到 footer 開頭之後,那個指涉仍然成立。
     '⚠️ 上面每一筆都只是「可能」,不是已經確定 —— 先查清楚再動錢。',
+    // 🔴🔴 **F-004:上面那句是全稱句,而它對新這一類【是假的】。**
+    //    「客人的退款卡住」那幾筆是 `order_refunds` 真的 `status='processing'` 且逾 30 分
+    //    (或已有 TapPay 受理證據)⇒ 它們**確定卡住了**,不是「可能」。
+    // 🔴 本檔上面已經記過**兩次**「全稱句只對部分類為真」被打回的病史(v1/v2)⇒ 這是第三次。
+    //    ⇒ 修法照 `NO_HAND_NOTE` 那個形狀:**不改 Sean 拍板的那句字面**(它有兩格測試釘著,
+    //      含一格釘它必須出現在「不要自己去 TapPay 退款」之前),**改成在它後面補一句範圍**。
+    // ⚠️ 只在那一類真的有筆數時才出現 —— 否則就是替一封沒有那類的信加一句無所指的話。
+    ...((summary.orderRefundsStuckCount ?? 0) > 0
+      ? ['   ↳ 但「客人的退款卡住」那一類是已經確定卡住的,不是「可能」。']
+      : []),
     'https://admin.pcmmotorsports.com (需登入後台)',
     // 🔴🔴 2026-08-21:上一版寫「看過之後再決定要退款還是【標記免處理】」——
     //    **那兩個動作後台都做不到**,而這封信從 2026-08-09 起每天叫他做一次(C 窗查證、窗 G 複驗):
     //      · 退款(TapPay)  入口不渲染 —— `refund-entry-gate.ts` 的 REFUND_ENTRY_STATUSES
     //        只認 'paid' / 'partiallyRefunded',而本信這一類的單是 unpaid/pending
-    //      · 退款(人工)    UI 與 server 兩層都恆關 —— `manual-refund-entry-gate.ts:42`
-    //        `MANUAL_REFUND_ENTRY_BLOCKED_BY_787 = true`(:49 擋渲染、
-    //        `lib/payment/manual-refund-actions.ts:59` 擋 action)
+    //      · 退款(人工)    UI 與 server 兩層都恆關 —— `manual-refund-entry-gate.ts`
+    //        `MANUAL_REFUND_ENTRY_BLOCKED_BY_787 = true`(擋渲染、
+    //        `lib/payment/manual-refund-actions.ts` 擋 action)
+    //        🔴 **2026-08-24(`#806`)更新:這道封印被拿掉過一次,當天又裝回去。**
+    //        `#787` 原本的三條解除條件**已全部成立**,而解除之後發現它還擋著一件
+    //        三條件一個字都沒提的東西 ⇒ **封印現在押在 `#866`**(缺一道 server 不變式:
+    //        退款不得超過該軌淨實收)。⇒ 這一行今天仍然成立,而**它會在 `#866` 落地那天失效**。
+    //        ⚠️ **而當天我為它寫過一個錯的理由,留著當反例**:
+    //           ~~「本信這一類 `payment_status=unpaid` + `paid_at=null` ⇒ 一列收款都沒有」~~
+    //           **推不出來** —— 人工現金/匯款登錄**刻意不碰 `orders.payment_status`**
+    //           (`20260810200000:32` 逐字「不碰 orders.payment_status」)
+    //           ⇒ 「unpaid、paid_at null、而已經有 cash 收款列」是**存在的形狀**。
+    //           📌 形狀:**拿一個欄位去推另一個欄位,而中間那一步沒有人量。**
     //      · 標記免處理      **不存在**(窗 G 用比 C 更寬的 pattern 掃 admin 502 支檔 ⇒ 2 命中,
     //        兩個都是 payment-record-form 的 UI dismissedState、與本題無關;
     //        正對照同法 payment_status 62 / refund 115 ⇒ 尺讀得到東西)
@@ -550,6 +647,22 @@ export function buildAnomalyAlertMessage(
     //      **只問前一個會通過。**
     //   ⇒ 所以改寫成一個**他一個人就能執行完、而且不需要任何人回應**的動作。
     '   把單號記下來,等這筆的處理方式確認過再動 —— 自己先退,這邊的訂單狀態不會跟著更新。',
+    /**
+     * 🔴🔴 **Sean 2026-08-24 拍甲**(主視窗轉貼他的原句:
+     * 「① 退款告警信要不要列『已判定失敗、按不了任何按鈕』的那幾筆 / 甲(推薦)」)——
+     * 那一類**不列進清單**,只在信尾寫這一行。
+     *
+     * 為什麼是「一行」而不是「一個區塊」:那幾筆是**終態**,後台**零按鈕**
+     * (`refund-exceptions/page.tsx` 逐字「這裡沒有可以按的動作」)⇒ 列出來他也做不了事,
+     * 而它們**永遠不會自己消失** ⇒ 每天列一次 = `2SQH2P` 叫了 15 天的同一個病。
+     * ⇒ 一行的作用是**讓那個差額有解釋**:畫面上看得到而信裡沒有,不是系統壞了。
+     *
+     * 🔴 **N 是動態值,不是寫死的 4** —— 正式庫 2026-08-24 量到 4,而那是**那一刻**的值。
+     * 🔴 **這個計數不進 `shouldAlert`** —— 它只搭已經要寄的那封信的便車。
+     */
+    ...((summary.orderRefundsManualFailedCount ?? 0) > 0
+      ? [`另有 ${summary.orderRefundsManualFailedCount} 筆已判定失敗,不需要你動作。`]
+      : []),
   ];
   return { subject, text: fitToLineBudget(subject, body, footer) };
 }
@@ -565,12 +678,31 @@ export async function checkAnomalyAlerts(
     opts.pendingDoubleChargeStuckSeconds,
   );
 
+  /**
+   * 🔴 **F-004 加了第六項,而它是一個【被明知接受的代價】,不是順手加的。**
+   *
+   * 加了 `orderRefundsStuckCount > 0` ⇒ 只要有一筆卡住的退款沒被處理掉,
+   * 這封信**每天 09:00 都會再寄一次,直到有人處理它**(本 use-case 明文零 per-anomaly 去重)。
+   *
+   * 為什麼可以接受 —— 而它與 `2SQH2P` 那族**不是同一個病**:
+   *   `2SQH2P` 那族  叫的動作【後台做不到】(人工退款入口封印在 `#866`)⇒ 叫 15 天 = 純雜訊
+   *   這一族        叫的動作【後台做得到】—— `refund-exception-resolve.tsx` 有兩顆具名按鈕
+   *                 (「標記失敗(確認錢未動)」/「恢復結案(登記為已退)」)
+   *                 ⇒ 每天催報 = 真的待辦清單,不是狼來了
+   * ⇒ 主視窗 2026-08-24 裁定接受;可逆(不同意就改這一個條件)。
+   *
+   * 🔴 **而 `orderRefundsStuckUnknown` 刻意【不】進這道閘**(codex R2):
+   *    DB 一直沒 apply ⇒ 每天寄一封「尚未啟用」⇒ 久了變例行雜訊
+   *    ⇒ 那是**把沉默換成無限重寄**,同一個病的另一面。
+   *    ⇒ 部署問題走部署管道:route 依 `orderRefundsStuckUnknown` 回 503(監控看得到)。
+   */
   const shouldAlert =
     summary.openCount > 0 ||
     summary.refundingStuckCount > 0 ||
     summary.attemptManualReviewCount > 0 ||
     summary.releasedStuckCount > 0 ||
-    summary.pendingDoubleChargeCandidateCount > 0;
+    summary.pendingDoubleChargeCandidateCount > 0 ||
+    (summary.orderRefundsStuckCount ?? 0) > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -621,6 +753,10 @@ export async function checkAnomalyAlerts(
     attemptManualReviewCount: summary.attemptManualReviewCount,
     releasedStuckCount: summary.releasedStuckCount,
     pendingDoubleChargeCandidateCount: summary.pendingDoubleChargeCandidateCount,
+    orderRefundsStuckCount: summary.orderRefundsStuckCount,
+    orderRefundsStuckOvernightCount: summary.orderRefundsStuckOvernightCount,
+    orderRefundsManualFailedCount: summary.orderRefundsManualFailedCount,
+    orderRefundsStuckUnknown: summary.orderRefundsStuckUnknown,
     oldestOpenAgeSeconds: summary.oldestOpenAgeSeconds,
     notifiersTotal,
     notifiersFailed,

@@ -38,6 +38,14 @@ const CLEAN_RESULT = {
   attemptManualReviewCount: 0,
   releasedStuckCount: 0,
   pendingDoubleChargeCandidateCount: 0,
+  // 🔴 F-004:這三欄**必須明寫**,不能靠「fixture 沒有它 ⇒ undefined ⇒ falsy ⇒ 剛好走 200」。
+  //    那種過關是**假的**:route 讀的是 `result.orderRefundsStuckUnknown`,
+  //    而一個缺欄位的 fixture 與「查得到而且沒事」在這裡印同一個結果 ——
+  //    ⇒ 下面那兩格(unknown ⇒ 503 / 非 unknown ⇒ 200)就是為了讓這兩個世界分得開。
+  orderRefundsStuckCount: 0,
+  orderRefundsStuckOvernightCount: 0,
+  orderRefundsManualFailedCount: 0,
+  orderRefundsStuckUnknown: false,
   oldestOpenAgeSeconds: null,
   notifiersTotal: 0,
   notifiersFailed: 0,
@@ -446,4 +454,50 @@ describe('route.ts 檔頭的跨檔引用 — 錨在字面、不在行號(J-001 M
       expect(ROUTE_SOURCE).toContain(routeMention);
     },
   );
+});
+
+/**
+ * F-004:退款計數那支 RPC 還沒 apply 的**部署窗口**。
+ *
+ * 🔴 為什麼走 route 503 而不是寄信(codex 關卡1 R2):
+ *    進 `shouldAlert` ⇒ DB 一直沒 apply 就**每天寄一封「尚未啟用」給老闆** ⇒ 久了變例行雜訊
+ *    ⇒ 那是**把沉默換成無限重寄**,同一個病的另一面。
+ *    ⇒ 「DB 函式沒 apply」是**部署問題**,該吵的對象是看 cron 的人。
+ *
+ * ⚠️ 而 503 **不代表信沒寄** —— 上面那封信(若本來就要寄)照常送出,只是多帶一行「今天查不到」。
+ *    兩件事不要讀成同一件。
+ */
+describe('GET anomaly-alert — F-004 退款 RPC 尚未 apply', () => {
+  it('🔴 orderRefundsStuckUnknown=true → 503(不是 200,也不是靠寄信告訴老闆)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkSpy.mockResolvedValue({
+      ...CLEAN_RESULT,
+      orderRefundsStuckCount: null,
+      orderRefundsStuckOvernightCount: null,
+      orderRefundsStuckUnknown: true,
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, orderRefundsStuckUnknown: true });
+    // 訊息要講得出是哪一支函式 —— 值班的人照著這行去查。
+    expect(errSpy.mock.calls.flat().join(' ')).toContain('get_order_refunds_stuck_summary');
+    errSpy.mockRestore();
+  });
+
+  it('🔴 對照:unknown=false 且其餘乾淨 → 200(證明上一格是這個欄位造成的,不是別的)', async () => {
+    checkSpy.mockResolvedValue({ ...CLEAN_RESULT, orderRefundsStuckUnknown: false });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+  });
+
+  it('🔴 計數 0 與 unknown 是兩個世界:0 筆照樣 200', async () => {
+    checkSpy.mockResolvedValue({
+      ...CLEAN_RESULT,
+      orderRefundsStuckCount: 0,
+      orderRefundsStuckOvernightCount: 0,
+      orderRefundsStuckUnknown: false,
+    });
+    const res = await GET(makeReq(bearer()));
+    expect(res.status).toBe(200);
+  });
 });

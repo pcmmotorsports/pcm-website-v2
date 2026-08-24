@@ -11,6 +11,8 @@
  * attempt_manual_review_count,released_stuck_count,pending_double_charge_candidate_count}`
  * (計數;payment_confirmer 對 anomaly 兩表 / attempts / orders 零表權、只能經此 SECDEF 受控窗讀)
  * **以及** `get_payment_anomaly_alert_display_ids` 回的**五個訂單單號陣列**。
+ * 🔴 **2026-08-24(F-004)起還有第三支** `get_order_refunds_stuck_summary()`(零參數)——
+ *    退款卡住計數,分母是 `order_refunds`,與上面那支的 `refunding_stuck_count`【不同表】。
  * 🔴 ~~原句「零 PII 計數」~~ 2026-08-19 作廢:**本層現在會下放訂單單號**,
  *    那道閘是 Sean 本人拍板打開的(理由與代價見 `packages/use-cases/src/check-anomaly-alerts.ts` 檔頭)。
  * 本層把 DB snake_case 映射成 domain camelCase。
@@ -99,7 +101,39 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
         if (probe.rows[0]?.missing !== true) throw err;
       }
 
-      return parseAlertSummary(counts.rows, ids);
+      /**
+       * 🔴 **F-004 第三支 RPC:退款卡住計數(分母 `order_refunds`)。**
+       *
+       * 為什麼是【另一支函式】而不是把 key 加進上面那支 summary:
+       * 那支的定義散在四支 migration,而 `20260810220000` 檔內有**四顆 pre-image md5
+       * fail-closed 閘 + 三道 post-image prosrc 指紋**在守它;同簽章重貼可能**安靜撤回**
+       * `L5b-0-s` 的最新述詞,而新 key 照常出現、型別過、ACL 過、三綠過。
+       * ⇒ 而走那條路要 live pre-image md5,施工窗零 DB access ⇒ **做不到那道驗證。**
+       *    「我做不到那道驗證」本身就是選路的理由,不只是風險。
+       *
+       * 降級**逐字沿用上面 display_ids 那一條**(不是新發明的):
+       *   `42883` → `to_regprocedure` 複查 → 真的不存在 ⇒ unknown(部署窗口)
+       *   `42883` 而 oid 回得出來 ⇒ **原封上拋**(函式體壞了,必須吵)
+       *   `42501`(權限被收走)⇒ **原封上拋**
+       * 🔴 而 unknown **不寫成 0** —— `null` 與 `0` 在信上要印不同的字。
+       */
+      let refundRows: Array<Record<string, unknown>> = [];
+      try {
+        const res = await client.query(
+          'SELECT public.get_order_refunds_stuck_summary() AS result',
+          [],
+        );
+        refundRows = res.rows;
+      } catch (err) {
+        if ((err as { code?: unknown } | null)?.code !== UNDEFINED_FUNCTION) throw err;
+        const probe = await client.query(
+          "SELECT to_regprocedure('public.get_order_refunds_stuck_summary()') IS NULL AS missing",
+          [],
+        );
+        if (probe.rows[0]?.missing !== true) throw err;
+      }
+
+      return parseAlertSummary(counts.rows, ids, refundRows);
     });
   }
 
@@ -124,11 +158,22 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
   }
 }
 
-/** 非負整數解析(count 欄;非有限/負 → throw fail-closed)。 */
-function parseCount(v: unknown, field: string): number {
+/** F-004 那支 RPC 的名字(錯誤訊息要指對地方 —— 見 `parseCount` 的 `fn`)。 */
+const REFUNDS_FN = 'get_order_refunds_stuck_summary';
+
+/**
+ * 非負整數解析(count 欄;非有限/負 → throw fail-closed)。
+ *
+ * 🔴 `fn` 必須帶,而它是 F-004 當場修的一個**指錯地方的錯誤訊息**:
+ *    原本函式名寫死成 `get_payment_anomaly_alert_summary`,而退款那支 RPC 的欄位壞掉時
+ *    訊息會說「**get_payment_anomaly_alert_summary** 計數欄 order_refunds_stuck_count 異常」
+ *    ⇒ **值班的人會去查一支根本沒問題的函式。**
+ *    📌 那不是假綠,是**紅在對的時候、指向錯的地方** —— 一樣會浪費掉那個晚上。
+ */
+function parseCount(v: unknown, field: string, fn = 'get_payment_anomaly_alert_summary'): number {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
   if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
-    throw new AnomalyAlertReaderParseError(`get_payment_anomaly_alert_summary 計數欄 ${field} 異常`);
+    throw new AnomalyAlertReaderParseError(`${fn} 計數欄 ${field} 異常`);
   }
   return n;
 }
@@ -176,6 +221,7 @@ function parseDisplayIdPairs(v: unknown, field: string): Array<[string, string]>
 function parseAlertSummary(
   rows: Array<Record<string, unknown>>,
   idRows: Array<Record<string, unknown>>,
+  refundRows: Array<Record<string, unknown>>,
 ): AnomalyAlertSummary {
   const r = rows[0]?.result as Record<string, unknown> | undefined;
   if (!r || typeof r !== 'object') {
@@ -195,10 +241,46 @@ function parseAlertSummary(
     }
     oldestOpenAgeSeconds = Math.floor(n);
   }
+  /**
+   * F-004:`refundRows` 為空 = 那支 RPC 還不存在(部署窗口)⇒ unknown、兩個計數 `null`。
+   * 🔴 **有回應但缺鍵、或型別不對 ⇒ 走 `parseCount` 的 fail-closed 上拋**,不當成 unknown ——
+   *    「函式不在」與「函式回了垃圾」是兩件事,後者必須吵(codex R1 N9)。
+   */
+  /**
+   * 🔴🔴 **`undefined` 與 `null` 是兩個世界,而我第一版把它們合成一個**(code-reviewer 抓的)。
+   * ```
+   * refundRows = []          ⇒ rf === undefined ⇒ 我們【根本沒拿到那一列】= 函式不存在(部署窗口)
+   * { result: null }         ⇒ rf === null      ⇒ 函式【存在而且跑了】, 只是回了 SQL NULL
+   * ```
+   * 合成一個的後果:函式明明 apply 了、只是回 NULL ⇒ route 會印「**尚未 apply**」
+   * ⇒ 🔴 **值班的人跑去查 migration 有沒有 apply, 而它 apply 了** —— 紅在對的時候、指向錯的地方,
+   *    正是同檔 `parseCount` 的 `fn` 參數在防的那件事。
+   * ⇒ `null` 走 fail-closed 上拋:「函式不在」與「函式回了垃圾」是兩件事,而 NULL 屬後者。
+   */
+  const rf = refundRows[0]?.result as Record<string, unknown> | null | undefined;
+  const orderRefundsStuckUnknown = rf === undefined;
+  if (!orderRefundsStuckUnknown && (rf === null || typeof rf !== 'object')) {
+    throw new AnomalyAlertReaderParseError(`${REFUNDS_FN} 回應格式異常(函式存在但回了 NULL 或非物件)`);
+  }
+
   return {
     openCount: parseCount(r.open_count, 'open_count'),
     refundingCount: parseCount(r.refunding_count, 'refunding_count'),
     refundingStuckCount: parseCount(r.refunding_stuck_count, 'refunding_stuck_count'),
+    orderRefundsStuckCount: orderRefundsStuckUnknown
+      ? null
+      : parseCount(rf!.order_refunds_stuck_count, 'order_refunds_stuck_count', REFUNDS_FN),
+    orderRefundsStuckOvernightCount: orderRefundsStuckUnknown
+      ? null
+      : parseCount(
+          rf!.order_refunds_stuck_overnight_count,
+          'order_refunds_stuck_overnight_count',
+          REFUNDS_FN,
+        ),
+    orderRefundsManualFailedCount: orderRefundsStuckUnknown
+      ? null
+      : parseCount(rf!.order_refunds_manual_failed_count, 'order_refunds_manual_failed_count', REFUNDS_FN),
+    orderRefundsStuckUnknown,
     oldestOpenAgeSeconds,
     attemptManualReviewCount: parseCount(r.attempt_manual_review_count, 'attempt_manual_review_count'),
     releasedStuckCount: parseCount(r.released_stuck_count, 'released_stuck_count'),

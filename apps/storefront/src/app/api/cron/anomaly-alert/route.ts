@@ -14,6 +14,13 @@
 //   3. enabled 後 deps/env 缺(factory throw:PAYMENT_CONFIRMER_DB_URL 或「enabled 但零管道」)→ 503;本輪告警管道
 //      推播失敗(result.errors>0)→ 503 + 結構化 counts log(零 PII)、**不可吞成 200 偽裝成功**(壞掉的告警管道
 //      靜默不推 = 沉默故障、#250 最怕的事)。
+//      🔴 **第三種 503(F-004,2026-08-24 新增)**:`result.orderRefundsStuckUnknown` ——
+//      退款卡住計數那支 RPC(`get_order_refunds_stuck_summary`)尚未 apply。
+//      刻意**不**進 `shouldAlert`:DB 沒 apply 是**部署問題**,該吵的對象是看 cron 的人,
+//      不是每天寄一封「尚未啟用」給老闆(那是把沉默換成無限重寄、同一個病的另一面)。
+//      ⚠️ 它**不擋信** —— 本來就要寄的那封照常送出,只是多帶一行「今天查不到」。503 ≠ 信沒寄。
+//      📌 這三行是**清單**,而 code-reviewer 2026-08-24 抓到它漏了第三種(鐵則 11 字面 vs 事實)
+//         ⇒ 日後再加 503 路徑,**同一顆 commit 更新這裡**。
 //   4. 不採信任何外部輸入:無 client 參數 / 無 query / 無 body;refunding 卡住門檻 = route 端常數。告警訊息**含訂單單號**(2026-08-19 Sean 拍板;~~原寫「零 PII」~~ 作廢。⚠️ **route 的回應與 log 仍是 counts-only**,那半沒變)
 //      (reader 走 payment_confirmer SECDEF 受控窗、對 anomaly 兩表零表權;
 //       🔴 ~~原寫「只計數」~~ 作廢 —— 它同時讀計數**與五組訂單單號**,見 check-anomaly-alerts.ts 檔頭)。
@@ -213,6 +220,21 @@ export async function GET(request: Request): Promise<Response> {
     //    counts only 零 PII(route 本就無 order/rec/amount 等可洩欄)。
     if (result.errors > 0) {
       console.error('[anomaly-alert] 🔴 本輪告警管道推播有失敗(回 503;不吞成 200 偽裝成功)', { ...result });
+      return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
+    }
+
+    // 4b. 🔴 **F-004 部署窗口:退款計數那支 RPC 還沒 apply ⇒ 503,而【不是】寄信。**
+    //     為什麼放這一層,不放進 `shouldAlert`(codex 關卡1 R2):
+    //       進 shouldAlert ⇒ DB 一直沒 apply 就每天寄一封「尚未啟用」給 Sean
+    //       ⇒ 久了變例行雜訊 ⇒ 那是**把沉默換成無限重寄**,同一個病的另一面。
+    //     ⇒ 「DB 函式沒 apply」是**部署問題**,該吵的對象是看 cron 的人,不是老闆。
+    //     ⚠️ 而它**不擋信** —— 上面那封信(若本來就要寄)照常送出,只是多帶一行「今天查不到」。
+    //        ⇒ 503 與「信沒寄」是兩件事,不要讀成同一件。
+    if (result.orderRefundsStuckUnknown) {
+      console.error(
+        '[anomaly-alert] 🔴 get_order_refunds_stuck_summary 尚未 apply ⇒ 退款卡住那一類今天是【查不到】不是【0】(回 503)',
+        { ...result },
+      );
       return Response.json({ ok: false, enabled: true, ...result }, { status: 503 });
     }
 
