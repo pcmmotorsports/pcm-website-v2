@@ -14,6 +14,18 @@ export interface SsoLoginLogFields {
   readonly reason?: string;
   /** 成功時的 amr(如 ['pwd','totp']);非敏感。 */
   readonly amr?: readonly string[];
+  /**
+   * 🔴 **B5-a**:這次登入的身分**種類**('user' / 'fallback' / 'bootstrap'),來自 SSO 票上
+   * 經過簽章驗證的 `sub.kind`。缺席 = 上游還沒送身分,或這是一次失敗的登入。
+   * ⚠️ **只進 DB,不進 console** —— 見下方 `logSsoLogin` 為什麼不印它。
+   */
+  readonly actorKind?: string;
+  /**
+   * 🔴 **B5-a**:具名員工 slug,只在 `actorKind === 'user'` 時有值(DB 的 CHECK 強制)。
+   * 🔴 **不得進 console log** —— `api/sso/callback/route.ts` 那道 PII 守門釘的是日誌;
+   *    「可以進 DB」與「可以進 log」是兩件事(理由逐字在 migration 20260824030000 的檔頭)。
+   */
+  readonly actorStaffId?: string;
 }
 
 /** 寫一筆 SSO 登入事件到 server log。成功=info、失敗=warn(值班撈 warn 即異常登入候選)。 */

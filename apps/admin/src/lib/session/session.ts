@@ -8,8 +8,13 @@
 // 🔴 過期釘死在 payload.exp、verifySession 檢 exp(Fable MF1);cookie Max-Age 只是 UX,cookie 值一旦外洩,
 //    唯有 payload.exp 到期或換 ADMIN_SESSION_SECRET 才失效(stateless、phase1 無 server 端撤銷,見殘餘風險)。
 //
-// 具名身分不在此 payload:報價單=共用密碼登入,SSO 只帶認證(amr/auth_time)、無 per-user 身分。
-//   「操作者是誰」仍走 lib/session/actor.ts 的 picker(到 M-4b 真帳號)。SSO=認證,不是身分綁定。
+// ⛔ ~~具名身分不在此 payload:報價單=共用密碼登入,SSO 只帶認證(amr/auth_time)、無 per-user 身分。
+//   「操作者是誰」仍走 lib/session/actor.ts 的 picker(到 M-4b 真帳號)。SSO=認證,不是身分綁定。~~
+// **2026-08-24 `B5-a` 起,這段不再成立**:payload 是 `v` 判別的 union,而 `v:2` **必帶 `sub`**。
+//   · 上游沒送身分(今天的每一次登入)⇒ 仍簽 `v:1`,而 `v:1` 裡確實沒有身分 ⇒ 上面那段對 `v:1` 仍為真
+//   · 上游送了 ⇒ `v:2`,身分在票上,而 `actor.ts` 只認它
+// 🔴 **兩軸仍然不要混**(B3 §3.12):`sub.kind`=【這是誰】,`amr`=【他怎麼證明的】。
+//   SSO 現在同時帶認證與身分,而**它們仍是兩個欄、兩個閘**,不得互相代用。
 //
 // 相對 import 是歷史遺留(#606 前 root vitest alias 只指 storefront、lib 檔被迫走相對路徑);
 // #606 起 admin project 有自己的 @ alias(proxy.test.ts 已用 @/ import 本檔),新 code 可直接用 @/。
@@ -38,8 +43,7 @@ export type AdminSessionSub =
   | { kind: 'fallback' }
   | { kind: 'bootstrap' };
 
-export interface AdminSessionPayload {
-  v: 1;
+export interface AdminSessionCommon {
   sid: string; // 128-bit hex;每次簽發新產 = §3.1「旋轉 session id」(stateless 下為衛生,非撤銷)
   iat: number; // unix sec:admin 簽發時刻
   exp: number; // unix sec:iat + TTL;🔴 verifySession 以此欄判過期(非靠 cookie 屬性)
@@ -49,7 +53,90 @@ export interface AdminSessionPayload {
   auth_time: number;
 }
 
+/** 舊票:**沒有身分**。報價單 B3/B4 上線前簽出的每一顆,以及今天的每一次登入。 */
+export interface AdminSessionPayloadV1 extends AdminSessionCommon {
+  v: 1;
+}
+
+/**
+ * 新票:**帶身分**。
+ *
+ * 🔴 **`sub` 是【必填】,不得寫成 `sub?:`**(B5-a §B5-3;理由逐字引 B3 spec `:66-69`):
+ *    「型別上不存在『沒有 `sub` 的 v:2 session』…備援路徑不是『沒有身分』,是一種明確的身分」。
+ *    寫成選填 ⇒ 那個「不存在」就沒有了。
+ */
+export interface AdminSessionPayloadV2 extends AdminSessionCommon {
+  v: 2;
+  sub: AdminSessionSub;
+}
+
+/**
+ * 🔴 **為什麼是 union 而不是 `v: 1 | 2` 加一個選填欄**(§B5-3):
+ *    union 之下,「拿到一個 `v:2` 卻讀不到 `sub`」**在型別上構造不出來**;
+ *    選填欄則要靠每一個呼叫端自己記得判。
+ *    📎 **讓錯誤形狀不存在,勝過讓每個人記得檢查它。**
+ */
+export type AdminSessionPayload = AdminSessionPayloadV1 | AdminSessionPayloadV2;
+
 export const IS_PROD = process.env.NODE_ENV === 'production';
+
+/**
+ * 📖 **要開這個旗標、或要 revert 這一包之前,先讀** `docs/runbooks/2026-08-24-b5a-identity-rollout.md`
+ *    (三件東西的順序 / 唯一那道機制 / revert 要配換 secret / 兩個盲區)。
+ *
+ * `ADMIN_REQUIRE_REAL_IDENTITY` —— **B5 那條線的總開關**(§B5-3 (3) / §B5-5 第 2·3 層)。
+ *
+ * ```
+ * 關(預設,今天):v:1 與 v:2 都收;actor.ts 拿不到 v:2 時【維持現行行為】= 讀那顆自選 cookie
+ * 開:            v:1 一律拒;    actor.ts 拿不到 v:2 時回 null,【不得回退去讀 cookie】
+ * ```
+ * 🔴🔴 **2026-08-24 更正(codex B1-2)—— 這個旗標【不是】身分路徑的總開關。**
+ *    ~~原句「預設關 = 這一整片是暗著出的」~~ **把功勞算錯了**。真值表:
+ * ```
+ * 關 + v:1  ⇒ 讀那顆自選 cookie(今天)      開 + v:1  ⇒ 拒(null)
+ * 關 + v:2  ⇒ 🔴 用【簽章過的 sub】          開 + v:2  ⇒ 用簽章過的 sub
+ *              ↑ 旗標關著, 新身分路徑照樣生效
+ * ```
+ *    ⇒ **旗標只管「拿不到 v:2 時怎麼辦」,不管「拿到 v:2 時要不要用它」。**
+ *    ⇒ 🔴 **這一片今天是暗的,靠的是【上游還沒送 `sub`】,不是靠這個旗標。**
+ *       上游一開始送,身分路徑就生效 —— **旗標關著也一樣**。
+ *       ⚠️ 所以它**不是 kill switch**:出事時把旗標關掉**不會**讓身分路徑停下來。
+ *
+ * 🔴🔴 **rollback 的紙上約束 —— 讀者是【做 revert 的人】,不是翻旗標的人。**
+ *    ⚠️ **2026-08-24 主視窗更正了它自己問這題的方式,而那個更正是承重的**:
+ *    ```
+ *    翻旗標的人   = Sean(Vercel dashboard)
+ *    做 revert 的人 = 我們(主視窗 / 施工窗)
+ *    而這條約束講的是【revert 的時候要注意什麼】⇒ 讀者是我們
+ *    ```
+ *    ⇒ 🔴 **本段是【副本】。主載體 = 那一包的 commit body**(要 revert 一顆 commit,
+ *      動作的起點就是找到它 ⇒ `git log` / `git show` ⇒ 讀得到 body)。
+ *    ⚠️ 而它的天花板照實寫:`git revert <sha>` 產生的訊息**預設只帶 subject、不帶 body**
+ *      ⇒ 它不是「自動塞到眼前」,是「找它的過程中會經過」。**仍然是紙上約束。**
+ *
+ *    ⚠️ **2026-08-24 更正(codex B1-4):~~原句說「先把 env 拿掉就好」~~ 指錯了主要風險。**
+ *    真正卡住的**不是 env**,是**已經簽出去、還沒過期的 `v:2` 票**:
+ *    ```
+ *    碼 revert 回去 ⇒ 舊碼的守衛是 `v === 1` ⇒ 那些還沒過期的 v:2 票【全部被拒】
+ *    ⇒ 先拿掉 env 也救不了它們 —— 它們已經在使用者的瀏覽器裡了
+ *    ⇒ 要嘛等它們自然過期, 要嘛換 ADMIN_SESSION_SECRET 讓所有票一起失效(全員重登)
+ *    ```
+ *    (旗標還開著 + 碼退回去 ⇒ 連 v:1 也被拒 ⇒ 那是**第二層**災難,仍然要先拿掉 env。)
+ *
+ * ⚠️🔴 **沒有任何機制在執行這一條。它靠 revert 的人讀到這段字。**
+ *    **已知的失敗方式**:有人用 `git revert` 而**沒有先 `git show` 那顆 commit**。
+ *    📌 為什麼要把這句寫出來,而不是寫成「已在 commit body 記載」就收工:
+ *       **造一個看起來像機制的東西,會讓下一個人以為它被守住了**,而真的那個洞還在。
+ *       一段誠實的「這裡沒有守門」比一段讀起來很安心的說明有用。
+ *    📌 唯一一個**會被強制經過**的時點 = **B7(開旗標那一片)的 plan 必須先答「退場路徑」** ——
+ *       而**那也不是機制,是流程**:它靠「B7 那片會照規矩提 plan」。
+ *
+ * 形狀抄 `lib/audit/audit-ui-flag.ts:29-30`(`=== '1'`,不收 `'true'`/`'yes'`):
+ * **認得出來才算開**,而不是「不是空的就算開」。
+ */
+export function requireRealIdentity(): boolean {
+  return process.env.ADMIN_REQUIRE_REAL_IDENTITY === '1';
+}
 // 🔴 secret 最小長度(<32 視為未設、fail-closed):弱 ADMIN_SESSION_SECRET → 離線暴破 HMAC → 偽造任意 admin session(Fable/Codex MF5)。
 const MIN_SECRET_LEN = 32;
 const strongSecret = (s: string | undefined): string | null => (s && s.length >= MIN_SECRET_LEN ? s : null);
@@ -182,14 +269,40 @@ export function newSid(): string {
   return [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-/** 組 payload(每次新 sid = 旋轉;iat=now、exp=now+TTL)。 */
+/**
+ * 組 payload(每次新 sid = 旋轉;iat=now、exp=now+TTL)。
+ *
+ * 🔴 **`sub` 有沒有帶,決定簽出來的是 `v:1` 還是 `v:2`** —— 版本不是呼叫端自己挑的。
+ *    · 上游沒送身分(今天的每一次登入)⇒ `v:1`,**與本片之前逐字相同**
+ *    · 上游送了身分              ⇒ `v:2`,而 `sub` 一定在裡面(型別逼的)
+ * ⚠️ **不要加一個 `version` 參數** —— 那會讓「v:2 而沒有 sub」重新變得構造得出來。
+ */
+/**
+ * 🔴🔴 **簽章裡【只剩一個 `number`】,而那是刻意的。**
+ *
+ * 歷史(這一格被打開兩次):
+ * ```
+ * v1  (amr, authTime, maxAgeSec, sub)   ⇒ authTime 與 maxAgeSec 相鄰且同為 number
+ *                                          ⇒ 對調照樣編得過(codex B1-3)
+ * v2  (amr, authTime, sub?, maxAgeSec?) ⇒ 🔴 codex R2-4:**兩個 number 還在同一個簽章裡** ——
+ *                                          `(amr, maxAge, undefined, authTime)` 仍可對調且 typecheck 全綠
+ *                                          ⇒ 我只是把風險【縮小】, 沒有【消除】
+ * v3  (amr, authTime, sub?, opts?)      ⇒ 本版:`maxAgeSec` 收進具名物件
+ *                                          ⇒ **對調需要打出 `{ maxAgeSec: … }` 這個鍵名**
+ *                                          ⇒ 它不再是「順手打錯位置」做得到的事
+ * ```
+ * 🔴 判別句:**風險縮小 ≠ 風險消除。** 而「相鄰」只是可對調的其中一種形狀,不是全部。
+ */
 export function buildAdminSession(
   amr: AdminSessionAmr[],
   authTime: number,
-  maxAgeSec: number = ADMIN_SESSION_MAX_AGE_SEC,
+  sub?: AdminSessionSub,
+  opts?: { maxAgeSec?: number },
 ): AdminSessionPayload {
+  const maxAgeSec = opts?.maxAgeSec ?? ADMIN_SESSION_MAX_AGE_SEC;
   const now = Math.floor(Date.now() / 1000);
-  return { v: 1, sid: newSid(), iat: now, exp: now + maxAgeSec, amr, auth_time: authTime };
+  const common = { sid: newSid(), iat: now, exp: now + maxAgeSec, amr, auth_time: authTime };
+  return sub === undefined ? { v: 1, ...common } : { v: 2, ...common, sub };
 }
 
 /** 簽出 cookie 字串。ADMIN_SESSION_SECRET 缺 → null(callback 據此回 500,見 REQ4)。 */
@@ -204,11 +317,61 @@ export async function signSession(payload: AdminSessionPayload): Promise<string 
 const VALID_AMR = new Set<AdminSessionAmr>(['pwd', 'totp', 'bootstrap', 'recovery']);
 const isSafeInt = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n);
 
-/** 嚴格形狀檢查:缺欄 / 型別不對 / 非安全整數 / v≠1 / sid 非 32-hex / amr 空或不在白名單 / auth_time≤0 → reject。 */
+/**
+ * `sub` 的形狀檢查(§B5-3 (2))。
+ *
+ * 🔴 **判別一律用 `kind`,永遠不要用「有沒有 `staff_id`」判。**
+ *    理由:本檔的 `isPayload` **容許額外欄位**(逐欄檢查、沒有「不得有其他欄」那一道)
+ *    ⇒ `{kind:'fallback', staff_id:'sean'}` 這種形狀**在型別上不合法、在 runtime 會被放行**。
+ * ⚠️ **缺的那一道**(要不要對 `sub` 做嚴格 exact-shape 檢查)= **本片刻意不做**,
+ *    理由:全檔沒有一個地方做 exact-shape,單獨在這裡做會與其餘欄位的鬆緊不一致,
+ *    而收益要靠「有人用 kind 以外的方式判」才兌現。**寫成缺口,不假裝它被擋住。**
+ */
+function isSub(v: unknown): v is AdminSessionSub {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  switch (o.kind) {
+    case 'user':
+      // 🔴 空字串要拒:`resolveStaff('')` 與「沒有身分」在下游長得一樣。
+      // 🔴🔴 **用【正面要求】,不要列舉空白**(2026-08-24 codex R2-2;這一格今天被打開兩次):
+      //    ```
+      //    v1  .length > 0     ⇒ '   ' 放行
+      //    v2  .trim() !== ''  ⇒ 🔴 JS 的 trim() 不去 U+200B(零寬)⇒ 零寬字串放行
+      //    ```
+      //    📏 實測(2026-08-24,node 逐字元):`'\u200B'.trim() === ''` ⇒ **false**。
+      //    ⇒ 一個「看起來是空的、而 trim 說它不是空的」slug 會簽出可信的 `v:2` 票。
+      //
+      // 🔴 **而 DB 那一層【不是同一組規則】** —— 這是 codex R2-2 的重點:
+      //    `btrim(x)` **不帶字集只去 ASCII space** ⇒ tab / NBSP / 全形空白在 DB 那邊全部放行。
+      //    ⇒ 兩層若各自列舉空白,**永遠對不齊**(JS 的空白定義 ≠ PG 的)。
+      //    ⇒ 所以兩層都改成同一個**正面要求**:**至少要有一個 `[a-z0-9_]`**。
+      //       migration `20260824030000_…_actor.sql` 的配對 CHECK 用 `~ '[a-z0-9_]'`,
+      //       本行用同一個字元集合。**改任一邊要同時改另一邊。**
+      // ✅ 不會誤殺:`staff.id` 格式是 `^[a-z0-9_]{1,64}$`
+      //    (`20260726120000_m4b_e8a1_staff_table.sql:21`)⇒ 合法 slug 一定含 `[a-z0-9_]`。
+      return typeof o.staff_id === 'string' && /[a-z0-9_]/.test(o.staff_id);
+    case 'fallback':
+    case 'bootstrap':
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * 嚴格形狀檢查:缺欄 / 型別不對 / 非安全整數 / v 不是 1 或 2 / sid 非 32-hex /
+ * amr 空或不在白名單 / auth_time≤0 / (v:2 而 sub 形狀不合法) → reject。
+ *
+ * 🔴 **本函式只管【形狀】,不管【政策】**(§B5-3 (2)/(3))——
+ *    「這個部署現在收不收 `v:1`」住在 `verifySessionDetailed`,不住這裡。
+ *    分開的理由:形狀是**永遠**的性質,政策是**這個環境當下**的性質;
+ *    混在一起之後,「為什麼這張票被拒」就分不出是票壞了還是旗標開了。
+ */
 function isPayload(p: unknown): p is AdminSessionPayload {
   if (typeof p !== 'object' || p === null) return false;
   const o = p as Record<string, unknown>;
-  if (o.v !== 1) return false;
+  if (o.v !== 1 && o.v !== 2) return false;
+  if (o.v === 2 && !isSub(o.sub)) return false;
   if (typeof o.sid !== 'string' || !/^[0-9a-f]{32}$/.test(o.sid)) return false;
   if (!isSafeInt(o.iat) || o.iat < 0) return false;
   if (!isSafeInt(o.exp) || o.exp <= 0) return false;
@@ -275,7 +438,18 @@ export type SessionRejectReason =
    */
   | 'shape'
   /** 簽章對、形狀對,而 `exp` 已過 */
-  | 'expired';
+  | 'expired'
+  /**
+   * 簽章對、形狀對、沒過期 —— **而這個部署的政策不收這個版本**(B5-a §B5-3 (3))。
+   * 今天唯一的來源:`ADMIN_REQUIRE_REAL_IDENTITY` 開著,而票是 `v:1`(舊票 / 上游還沒送身分)。
+   *
+   * 🔴 **為什麼不壓進 `shape`**:那會讓開旗標當天的「全員被登出」看起來像
+   *    「大家的 cookie 都壞了」。而這兩件的處置完全相反 ——
+   *    前者是**把旗標關掉**,後者是去查簽章與 secret。
+   *    📌 本檔既有的同款判準逐字寫在 `no_secret` / `no_env` 那兩格旁邊。
+   * ⚠️ **不進 `ALARM_REASONS`**:rollout 期間它是**預期會發生**的,而不是「我們自己壞了」。
+   */
+  | 'version_rejected';
 
 /**
  * 🔴 **這一類就是「我們自己壞了」** —— 只有它值得無條件被知道。
@@ -370,6 +544,10 @@ export async function verifySessionDetailed(
   }
   if (!isPayload(parsed)) return { ok: false, reason: 'shape' };
   if (parsed.exp <= Math.floor(Date.now() / 1000)) return { ok: false, reason: 'expired' };
+  // ── 🔴 版本【政策】(§B5-3 (3))—— 形狀與過期都過了,才輪到「這個部署收不收它」 ──
+  //    順序是硬的:政策放在最後,一張過期的舊票才會被報成 `expired` 而不是 `version_rejected`。
+  //    ⚠️ 而政策**只看版本,不看 `sub` 的內容** —— 「那個人是誰、在不在職」是 `actor.ts` 那一層。
+  if (parsed.v === 1 && requireRealIdentity()) return { ok: false, reason: 'version_rejected' };
   return { ok: true, payload: parsed };
 }
 

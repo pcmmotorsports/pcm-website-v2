@@ -13,7 +13,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const { insertSpy, fromSpy, serviceClientSpy } = vi.hoisted(() => {
-  const insertSpy = vi.fn(async (): Promise<{ error: unknown }> => ({ error: null }));
+  // 🔴 **參數要寫出來**:寫成 `vi.fn(async () => …)` 時 TS 推出的 `mock.calls` 是 `[][]`
+  //    ⇒ `calls[0]?.[0]` 直接 TS2493(長度 0 的 tuple 沒有索引 0)。
+  //    ⚠️ 而那個錯**只有 typecheck 抓得到,測試照樣綠** —— 我踩過這一發。
+  const insertSpy = vi.fn(
+    async (_row: Record<string, unknown>): Promise<{ error: unknown }> => ({ error: null }),
+  );
   const fromSpy = vi.fn(() => ({ insert: insertSpy }));
   return { insertSpy, fromSpy, serviceClientSpy: vi.fn(() => ({ from: fromSpy })) };
 });
@@ -121,6 +126,11 @@ describe('recordSsoLogin — 兩半一起做', () => {
       source_app: 'quote',
       ip: '203.0.113.7',
       user_agent: 'Mozilla/5.0',
+      // 🔴 **B5-a 加的兩欄**。這一發沒帶身分(上游還沒送)⇒ 兩欄都是 `null`,**而它們必須在**:
+      //    這是**完整物件比對**,少列一欄它就紅 —— 那正是本格的用途
+      //    (⚠️ 而它仍然只防「單邊改字」,不是 schema 守門,見檔頭)。
+      actor_kind: null,
+      actor_staff_id: null,
     });
     // ⚠️ ~~另一格單獨檢查 `occurred_at` 不存在~~ 已刪:上面的**完整物件比對**通過之後它必然通過,
     //    那是一格「不可能紅」的冗餘守門(codex 關卡2 R1 指出)。
@@ -198,39 +208,288 @@ describe('recordSsoLogin — 兩半一起做', () => {
     infoSpy.mockRestore();
   });
 
-  it('🔴 DB 寫入失敗【不得多印任何一行】,而且 IP 與 UA 都不得出現在任何 console 方法裡', async () => {
-    // ⚠️ 舊版有兩個洞(codex 關卡2 R1 中6):①它容許 `console.info` ⇒ catch 裡加一行 info 不會紅
-    //    ②失敗情境只查了 IP、**沒查 UA**。
-    // ⇒ 現在:先量「正常那一發」印了幾次當基準,再斷言失敗那一發**一次都沒有多印**,且兩個值都掃。
+  // ════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 2026-08-24:本格從【數次數】改成【驗內容】(主視窗 Q1 裁准,附硬條件)
+  // ════════════════════════════════════════════════════════════════════════
+  // **舊版**:失敗時 console 呼叫次數不得超過 baseline。
+  // **問題**:它的**用意**是「不准印 error 物件」(DB 錯誤訊息夾帶那一行的 IP / UA),
+  //          **機制**卻是「一行都不准多印」⇒ 連零 PII 的固定字串也擋。
+  // 🔴 **而它今天就已經在放行一個它照字面該擋的東西**:
+  //    退回成功時印的 `IDENTITY_DROP_PREFIX` 也是「多印的一行」,
+  //    舊守門量不到它 —— 因為舊守門的情境是兩發都錯,**從沒走到退回成功那條**。
+  //    ⇒ 一道守門若已經在放行它宣稱要擋的東西,它守的就不是它宣稱的那件事。
+  //
+  // **新版守的是【內容】**,四條:
+  //   ① 每一行要嘛是 security-log 那行 JSON,要嘛**開頭命中固定前綴白名單**
+  //   ② 任何一行都不得出現 IP / UA / staff_id
+  //   ③ 任何一行都不得出現 DB error 的 message / details 內容
+  //   ④ 每次 console 呼叫**只准一個參數** —— 擋 `console.warn('失敗了', result.error)`
+  //      (它前綴合法、而第二個參數就是那顆夾帶 PII 的 error 物件)
+  //
+  // ⚠️ **白名單寫死在測試裡,不從 source import** —— import 的話,
+  //    改 source 的前綴會讓白名單跟著動,守門就永遠對齊現況。
+  const ALLOWED_FAILURE_PREFIXES = [
+    '[sso.login] 登入事件寫成了,但【沒有身分】—— ',
+    '[sso.login] 登入事件【整列都沒寫成】—— ',
+    '[sso.login] 登入事件的 DB 那半整段拋出或逾時 —— ',
+  ];
+
+  it('🔴 DB 寫入失敗時 console 只准出現【白名單固定字串】,且不得夾帶 error 物件 / IP / UA', async () => {
     const ALL = ['error', 'warn', 'log', 'info', 'debug'] as const;
     const spies = ALL.map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    const IP = '203.0.113.7';
+    const UA = 'SecretAgent/9';
+    const DB_MSG = `row ${IP} ${UA} failed`;
     try {
-      const h = headers({ 'x-forwarded-for': '203.0.113.7', 'user-agent': 'SecretAgent/9' });
+      const h = headers({ 'x-forwarded-for': IP, 'user-agent': UA });
 
-      // 基準:成功寫入時 console 被叫幾次
+      const collect = () =>
+        spies.flatMap((sp, si) =>
+          sp.mock.calls.map((c) => ({ method: ALL[si], argc: c.length, text: String(c[0]) })),
+        );
+      const ok = (t: string) =>
+        t.includes('"evt":"sso.login"') || ALLOWED_FAILURE_PREFIXES.some((p) => t.startsWith(p));
+
+      // 正向對照:它真的會印東西(否則下面每一條都對著空陣列成立)
       insertSpy.mockResolvedValue({ error: null });
       await recordSsoLogin('success', { requestId: 'req-base' }, h);
-      const baseline = spies.reduce((n, s) => n + s.mock.calls.length, 0);
-      expect(baseline).toBeGreaterThan(0); // 正向對照:它真的會印東西
+      expect(collect().length).toBeGreaterThan(0);
 
       // 失敗①:reject(連線層炸了)
-      insertSpy.mockRejectedValue(new Error('row 203.0.113.7 SecretAgent/9 failed'));
+      insertSpy.mockRejectedValue(new Error(DB_MSG));
       await recordSsoLogin('success', { requestId: 'req-5' }, h);
-      expect(spies.reduce((n, s) => n + s.mock.calls.length, 0)).toBe(baseline * 2);
-
-      // 🔴 失敗②:resolve 成 { error } —— **主要失敗路徑**(codex 關卡2 R2 中6:
-      //    舊版只測了 reject ⇒ 有人在那個顯式 `{ error }` 分支加一行 `console.error(result.error)`,
-      //    整份測試照樣全綠,而 DB 給的錯誤訊息裡就是那一行的 IP 與 UA)。
-      insertSpy.mockResolvedValue({ error: { message: 'row 203.0.113.7 SecretAgent/9 failed' } });
+      // 🔴 失敗②:resolve 成 { error } —— **主要失敗路徑**(codex 關卡2 R2 中6)
+      insertSpy.mockResolvedValue({ error: { message: DB_MSG, details: DB_MSG } });
       await recordSsoLogin('success', { requestId: 'req-6' }, h);
-      const after = spies.reduce((n, s) => n + s.mock.calls.length, 0);
-      expect(after).toBe(baseline * 3); // 三發各自只有那一份基準,沒有任何一發多印錯誤 log
+      // 失敗③:第一發錯、退回成功 ⇒ 這條會合法地多印一行(白名單那行)
+      insertSpy
+        .mockResolvedValueOnce({ error: { code: 'PGRST204', message: DB_MSG } })
+        .mockResolvedValueOnce({ error: null });
+      await recordSsoLogin(
+        'success',
+        { requestId: 'req-7', actorKind: 'user', actorStaffId: 'sean' },
+        h,
+      );
 
-      const printed = JSON.stringify(spies.map((s) => s.mock.calls));
-      expect(printed).not.toContain('203.0.113.7');
-      expect(printed).not.toContain('SecretAgent/9');
+      const calls = collect();
+      // ① 每一行都要在白名單上
+      const strays = calls.filter((c) => !ok(c.text)).map((c) => `${c.method}: ${c.text}`);
+      expect(strays).toEqual([]);
+      // ④ 每次呼叫只准一個參數(擋 console.warn(msg, result.error))
+      expect(calls.filter((c) => c.argc !== 1)).toEqual([]);
+      // ②③ 內容:IP / UA / staff_id / DB 訊息一個都不准出現
+      const printed = JSON.stringify(calls);
+      expect(printed).not.toContain(IP);
+      expect(printed).not.toContain(UA);
+      expect(printed).not.toContain('sean');
+      expect(printed).not.toContain(DB_MSG);
+      // console.error 一次都不該被叫(印 error 物件的人通常用它)
+      expect(calls.filter((c) => c.method === 'error')).toEqual([]);
     } finally {
       for (const spy of spies) spy.mockRestore();
     }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 🔴 `B5-a` 接線:身分要真的被寫進 `admin_sso_login_events`
+// ════════════════════════════════════════════════════════════════════════════
+// **這一組回答的是主視窗問的那句:「接上之後,誰會第一個發現它沒接?」**
+//
+// 🔴 而它取代了 `login-event-identity-drop-fuse.test.ts`(**2026-08-24 依它自己的退場條款刪除**;
+//    原文 `git show 952c0c42:apps/admin/src/lib/sso/login-event-identity-drop-fuse.test.ts`,189 行)。那支守的是「insert 寫了而表沒欄」——
+//    兩個訊號現在都成立 ⇒ 它自己說「屆時刪掉本檔,不要留著當紀念」。
+// ⚠️ **而它守不到的正是這一組要守的**:「**根本沒接**」那個世界,它的訊號 A 恆假 ⇒ 一聲不叫。
+//
+// 📌 **順手記一個【量出來的】坑**(它差點讓那支 fuse 安靜地失效):
+//    那支的字集是 `/\bstaff_id\b/`,而 B5-a 的欄位叫 `actor_staff_id`。
+//    `node -e "/\bstaff_id\b/.test('actor_staff_id')"` ⇒ **false**(`_` 是 word 字元)。
+//    ⇒ **一個守門的字集,是照它寫成那天的命名訂的;而命名會變。**
+describe('🔴 B5-a:登入事件要帶著身分寫進 DB', () => {
+  it('sub.kind=user ⇒ insert 帶 actor_kind 與 actor_staff_id(沒接線的話這格紅)', async () => {
+    await recordSsoLogin(
+      'success',
+      { requestId: 'r-1', amr: ['pwd'], actorKind: 'user', actorStaffId: 'sean' },
+      headers(),
+    );
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+    expect(insertSpy.mock.calls[0]?.[0]).toMatchObject({ actor_kind: 'user', actor_staff_id: 'sean' });
+  });
+
+  it('sub.kind=fallback ⇒ actor_kind 有值而 actor_staff_id 是 null(對齊 DB 的配對 CHECK)', async () => {
+    await recordSsoLogin('success', { requestId: 'r-2', amr: ['pwd'], actorKind: 'fallback' }, headers());
+    expect(insertSpy.mock.calls[0]?.[0]).toMatchObject({ actor_kind: 'fallback', actor_staff_id: null });
+  });
+
+  it('✅ 對照組:上游沒送身分(今天)⇒ 兩欄都是 null,而其餘欄照舊', async () => {
+    await recordSsoLogin('success', { requestId: 'r-3', amr: ['pwd'] }, headers());
+    expect(insertSpy.mock.calls[0]?.[0]).toMatchObject({
+      actor_kind: null,
+      actor_staff_id: null,
+      request_id: 'r-3',
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 部署時序空窗:migration 還沒 apply 的那段時間
+  // ════════════════════════════════════════════════════════════════════════
+  // 不接這一段的話,那個空窗裡**每一次登入都會整列不見**(本檔 catch 的註解逐字:
+  // 「表還沒 apply、權限不對、DB 掛掉、逾時,症狀都一樣」)
+  // ⇒ 我們會拿「沒有身分」換成「連紀錄都沒有」,而**那比接線前更糟**。
+  describe('🔴 空窗保護:帶身分的 insert 被拒 ⇒ 退回不帶身分那版,並【出聲】', () => {
+    it('退回之後那一列仍然寫進去了,而回傳值說得出「沒有身分」', async () => {
+      insertSpy
+        .mockResolvedValueOnce({ error: { message: 'column "actor_kind" does not exist' } })
+        .mockResolvedValueOnce({ error: null });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const r = await recordSsoLogin(
+        'success',
+        { requestId: 'r-4', amr: ['pwd'], actorKind: 'user', actorStaffId: 'sean' },
+        headers(),
+      );
+
+      // 🔴 **在 mockRestore 之前把要驗的東西全部取出來** —— restore 之後 `warn.mock` 就沒了,
+      //    而讀到的 `undefined` 會讓斷言紅在「量具已收攤」而不是「行為不對」。(我踩過這一發。)
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      const argCounts = warn.mock.calls.map((c) => c.length);
+      warn.mockRestore();
+      expect(r).toBe('ok_without_identity');
+      expect(insertSpy).toHaveBeenCalledTimes(2);
+      // 退回那一發【不得】再帶身分欄(否則它會被同一個原因再拒一次)
+      expect(insertSpy.mock.calls[1]?.[0]).not.toHaveProperty('actor_kind');
+      // 而那一列的其他欄位一個都不能少 —— 這才是這段存在的理由
+      expect(insertSpy.mock.calls[1]?.[0]).toMatchObject({ request_id: 'r-4', outcome: 'success' });
+      // 🔴 出聲:值班 grep 得到。(~~「apply 之後永遠不再出現」~~ 已證偽 ⇒ 見下面分類那三格。)
+      expect(lines.filter((l) => l.includes('沒有身分')).length).toBe(1);
+      // 🔴 零 PII:那一行不得帶 staff_id,也不得帶 DB 的 error 物件
+      expect(lines.join('\n')).not.toContain('sean');
+      expect(argCounts[0]).toBe(1);
+    });
+
+    it('✅ 對照組:第一發就成功 ⇒ 只打一次、不出聲、回 ok', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const r = await recordSsoLogin(
+        'success',
+        { requestId: 'r-5', amr: ['pwd'], actorKind: 'user', actorStaffId: 'sean' },
+        headers(),
+      );
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      warn.mockRestore();
+      expect(r).toBe('ok');
+      expect(insertSpy).toHaveBeenCalledTimes(1);
+      expect(lines.filter((l) => l.includes('沒有身分')).length).toBe(0);
+    });
+
+    it('🔴 兩發都失敗 ⇒ 回 log_only,而【不得】謊稱寫成了', async () => {
+      insertSpy.mockResolvedValue({ error: { message: 'boom' } });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const r = await recordSsoLogin(
+        'success',
+        { requestId: 'r-6', amr: ['pwd'], actorKind: 'user', actorStaffId: 'sean' },
+        headers(),
+      );
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      warn.mockRestore();
+      expect(r).toBe('log_only');
+      // 🔴🔴 codex B2-4:這個世界原本**一聲都不叫**,而它比只丟身分嚴重(整列不見)。
+      //    (2026-08-24 主視窗 Q1 裁准把守門改成驗內容之後才裝得上。)
+      expect(lines.filter((l) => l.includes('整列都沒寫成')).length).toBe(1);
+      expect(lines.join('\n')).not.toContain('sean');
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 DB 那半整段 throw / 逾時 ⇒ 也要出聲(2026-08-24 codex B2-4)
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 throw / 逾時那條路不得靜默', () => {
+    it('insert 拋出 ⇒ 回 log_only,而且【出聲】', async () => {
+      insertSpy.mockRejectedValue(new Error('boom'));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const r = await recordSsoLogin('success', { requestId: 'r-t1' }, headers());
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      warn.mockRestore();
+      expect(r).toBe('log_only');
+      expect(lines.filter((l) => l.includes('整段拋出或逾時')).length).toBe(1);
+    });
+
+    it('🔴 那一行不得謊稱「那一列不在」—— 逾時未取消底層請求,它可能稍後才寫成', async () => {
+      insertSpy.mockRejectedValue(new Error('boom'));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await recordSsoLogin('success', { requestId: 'r-t2' }, headers());
+      const text = warn.mock.calls.map((c) => String(c[0])).join('\n');
+      warn.mockRestore();
+      expect(text).toContain('也可能稍後才寫成');
+    });
+
+    it('✅ 對照組:成功時【不】出現這一行', async () => {
+      insertSpy.mockResolvedValue({ error: null });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await recordSsoLogin('success', { requestId: 'r-t3' }, headers());
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      warn.mockRestore();
+      expect(lines.filter((l) => l.includes('整段拋出或逾時')).length).toBe(0);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴🔴 錯因分類(2026-08-24 codex B2-3 / B2-5)
+  // ══════════════════════════════════════════════════════════════════════════
+  // 原本退回路徑**無條件**印「最可能的原因:migration 還沒 apply」——
+  // 而本窗在拋棄式 PG + 真 PostgREST 上量到:migration **已 apply** 的世界裡,
+  // 三種不合法的身分形狀**都**走到退回路徑、**都**印那句話 ⇒ 值班被指去查一件做完的事。
+  // ⇒ 🔴 **只有 `error.code` 分得出是哪個世界。**
+  describe('🔴 退回時要說得出【是哪一個世界】,不能一律說「還沒 apply」', () => {
+    const shoot = async (error: Record<string, unknown>) => {
+      insertSpy.mockResolvedValueOnce({ error }).mockResolvedValueOnce({ error: null });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const r = await recordSsoLogin(
+        'success',
+        { requestId: 'r-c', amr: ['pwd'], actorKind: 'user', actorStaffId: 'sean' },
+        headers(),
+      );
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      warn.mockRestore();
+      return { r, text: lines.join('\n') };
+    };
+
+    it('PGRST204(找不到欄)⇒ 說「最可能尚未 apply」,**而且要講出第二個來源**', async () => {
+      const { r, text } = await shoot({ code: 'PGRST204', message: 'x' });
+      expect(r).toBe('ok_without_identity');
+      expect(text).toContain('尚未 apply');
+      expect(text).not.toContain('契約 bug');
+      // 🔴 2026-08-24 codex R2-3:這個碼**不只一個來源** —— 已 apply 但 schema cache 沒刷新也回它。
+      //    少了這一句,值班查完 apply 狀態(= 已 apply)就會卡住,而真因是 cache。
+      expect(text, 'PGRST204 的第二個來源沒講出來 ⇒ 值班會查錯方向').toContain('schema cache');
+      // 🔴 而它**不得**再說「apply 之後不再出現」—— 那句話今天被證偽兩次了
+      expect(text).not.toContain('不再出現');
+    });
+
+    it('🔴 23514(CHECK 被拒)⇒ 說「應用層契約 bug」,**不得**說「還沒 apply」', async () => {
+      const { r, text } = await shoot({ code: '23514', message: 'x' });
+      expect(r).toBe('ok_without_identity');
+      expect(text).toContain('契約 bug');
+      expect(text).not.toContain('尚未 apply');
+    });
+
+    it('其餘錯誤碼 ⇒ 說「未分類」,**不得**冒充知道原因', async () => {
+      const { r, text } = await shoot({ code: '42501', message: 'x' });
+      expect(r).toBe('ok_without_identity');
+      expect(text).toContain('未分類');
+      expect(text).toContain('42501');
+      expect(text).not.toContain('尚未 apply');
+      expect(text).not.toContain('契約 bug');
+    });
+
+    it('✅ 對照組:三句話互斥 —— 沒有 code 時走「未分類」而不是靜默', async () => {
+      const { text } = await shoot({ message: 'no code at all' });
+      expect(text).toContain('未分類');
+    });
+
+    it('🔴 零 PII 不因分類而放寬:那幾行不得帶 staff_id,也不得帶 message', async () => {
+      const { text } = await shoot({ code: '23514', message: 'staff_id=sean 違反 CHECK' });
+      expect(text).not.toContain('sean');
+      expect(text).not.toContain('違反 CHECK');
+    });
   });
 });

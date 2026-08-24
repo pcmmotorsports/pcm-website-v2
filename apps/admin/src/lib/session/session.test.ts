@@ -50,7 +50,7 @@ describe('admin session', () => {
   });
 
   it('expired (exp <= now) → null', async () => {
-    const token = await signSession(buildAdminSession(['pwd'], 1_700_000_000, -10));
+    const token = await signSession(buildAdminSession(['pwd'], 1_700_000_000, undefined, { maxAgeSec: -10 }));
     expect(await verifySession(token)).toBeNull();
   });
 

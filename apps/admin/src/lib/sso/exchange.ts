@@ -68,9 +68,27 @@ function sanitizeSub(raw: unknown): AdminSessionSub | null | undefined {
   const keys = Object.keys(o);
   switch (o.kind) {
     case 'user':
-      // 具名身分:恰兩個鍵,且 staff_id 是非空白字串(btrim 後仍非空 —— 與報價單 CHECK 同判準)
+      // 具名身分:恰兩個鍵,且 staff_id **至少含一個 `[a-z0-9_]`**。
+      // 🔴 2026-08-24(codex R2-2):~~原本用 `.trim() === ''`~~ —— 那與 DB 那道 CHECK **不是同一組規則**
+      //    (JS 的空白定義 ≠ PG `btrim` 的),而且兩者都漏 `U+200B`(零寬)。
+      //    ⇒ 三處統一成同一個正面要求:本行 / `session.ts` 的 `isSub` /
+      //      migration `20260824030000` 的配對 CHECK(`~ '[a-z0-9_]'`)。**改一處要改三處。**
+      //
+      // 🔴🔴 **而「三處」是【本 repo 內】的三處 —— 這條不變式實際上跨兩個 repo**
+      //    (2026-08-24 R3-2,窗 F 在 A 庫實測):
+      //    ```
+      //    第四層  A 庫 admin_user_staff_map 的 whitelist CHECK(staff_id 限枚舉三值)
+      //            ⇒ 那三個值全部落在 [a-z0-9_] 內 ⇒ **今天誤殺為零**(枚舉即全集)
+      //    第五層  resolveStaff(`lib/session/staff.ts:38`)名單成員檢查, fail-closed
+      //    ⚠️ 另有 A 庫 sso_codes 的 btrim CHECK —— 它**比本行鬆**(btrim 只去 ASCII space)
+      //    ```
+      //    🔴 **缺的那一塊,寫出來不假裝它被守住**:
+      //      哪天有人在 A 庫**加一個新員工 slug**,沒有任何字面會把他帶到這條不變式前面 ——
+      //      本 repo 的三處都在下游,而上游的枚舉不在我們的版控裡。
+      //      ⇒ **兜底是 `resolveStaff`(查不到名單就回 null),不是這條字集。**
+      //      ⇒ 要真的關掉它,需要跨 repo 的契約檢查,而那**不在本片射程內**。
       if (keys.length !== 2) return null;
-      if (typeof o.staff_id !== 'string' || o.staff_id.trim() === '') return null;
+      if (typeof o.staff_id !== 'string' || !/[a-z0-9_]/.test(o.staff_id)) return null;
       return { kind: 'user', staff_id: o.staff_id };
     case 'fallback':
     case 'bootstrap':

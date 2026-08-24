@@ -1,7 +1,8 @@
 // identity-drop-trace.ts — `#215`/B5 身分鏈:**「上游送了身分,而我們把它丟了」的可觀測形態。**
 //
 // ── 🔴 為什麼是這個形狀(2026-08-23,`launch-todo` 那條「兩顆 fuse 守不到上游」)──────
-// 既有兩顆 fuse(`b5-identity-wiring-trigger` / `login-event-identity-drop-fuse`)
+// 既有兩顆 fuse(~~`b5-identity-wiring-trigger`~~ **2026-08-24 已隨 B5-a 退場刪除**,
+//   原文 `git show 952c0c42:apps/admin/src/lib/session/b5-identity-wiring-trigger.test.ts` / `login-event-identity-drop-fuse` **仍在**)
 // 斷言的是**結構**:某個欄在不在原始碼裡。
 // ⇒ 它們的觸發條件是「**我們自己做到一半**」(payload 已加欄而 actor 沒換 / insert 已加鍵而表沒欄)。
 // 🔴 **而真正會發生的世界是相反的:我們【根本沒開始】,而上游已經在送。**

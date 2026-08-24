@@ -1,5 +1,7 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十二個函式、共二十八處**手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**十三個函式、共二十九處**手動校正,
+//   **外加一張表的兩個欄位**(⑮ `admin_sso_login_events.actor_kind` / `.actor_staff_id`,
+//    2026-08-24 B5-a;migration `20260824030000` **未 apply** ⇒ 現在重 gen 不會產生它們)
 //   (2026-08-16 `#525` +1:`admin_search_customers` 整段 —— 它在正式庫還不存在〔migration 未 apply〕,
 //    ⇒ **現在重 gen 不會產生它**;apply 之後重 gen 時**先比對再刪那一段**,不要因為「反正會生成」就先拿掉)
 //   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
@@ -40,6 +42,18 @@
 //      ⇒ NULL 是設計上合法輸入;同檔 :118-120 寫明它是刻意選填。與 ⑦ 同款。)
 //      ⚠️ **不得讀成「校正漏貼都會被抓到」** —— 這層保護只對「呼叫端真的會傳 null」的校正成立;
 //      其餘各處的防線仍然只有「人重貼」+ 外部檢查腳本(缺口已立 backlog `#518`))
+//   ⑬ `admin_create_manual_order` **整段**〔主migration=20260824020000〕 —— 它在正式庫**尚未 apply**
+//      (`grep -c '20260824020000' supabase/APPLIED.tsv` ⇒ 0;2026-08-24 當場量)
+//      ⇒ **現在重 gen 不會產生它**;它 apply 之後重 gen 時**先比對再刪那一段**,
+//      不要因為「反正會生成」就先拿掉(體例逐字同下方已退場的那條 `admin_search_customers`)。
+//      ⚠️ 圈號 ⑬ 在下方留痕區也出現過(那條已退場、被劃掉)—— 圈號數的是**還活著的條目**,
+//      與 ⑫ 在此處和留痕區各出現一次同款,不是重號。
+//      🔴 **十個參數一個都沒有補 `| null`,而那是查過的、不是省略的**:RPC 對每一格都 fail-closed
+//      拒 NULL:八格在 `20260824020000:241-286`,兩個 jsonb 在 `:310`(ship_to)與 `:322`(invoice)
+//      —— **十格我逐一開檔數過**,不是抽樣。傳 NULL 不是合法用法、拿到的只會是錯誤。
+//      🔴 **本段今天沒有呼叫端** —— repository 那一支要等 apply:它會寫出 `.rpc(` + 函式名的
+//      新增行,而部署時序閘擋那個形狀(2026-08-24 五格真值表實測)。**型別這一段不會被擋**
+//      (它在下方是裸物件鍵、沒有引號、不在呼叫窗口內 —— 同一份實測的對照格)。
 // ─────────────────────────────────────────────────────────────────────────────
 // 🔴 **以下是【已退場】的條目留痕,不計入上面的計數。**(分節線在這裡是承重的:
 //    少了它,上面最後一條會把這些留痕【吸進自己的 body】—— 2026-08-23 實測撞過,
@@ -389,8 +403,24 @@ export type Database = {
         }
         Relationships: []
       }
+      // 🔴 **編號用 ⑮ 不用 ⑭ —— ⑭ 已經被【已退場留痕】那節佔著**(`admin_void_manual_refund`)。
+      //    2026-08-24 本窗原本寫了 ⑭ ⇒ 同一支檔裡兩個 ⑭ 指不同的東西,
+      //    而 grep `⑭` 會同時撈到「還要記得重貼的債」與「已經不是債的留痕」⇒ 意思相反。
+      //    📌 **退場的編號不回收** —— 留痕還在,回收它等於讓兩段互相冒充。
+      // 🔴🔴 **手動校正 ⑮(2026-08-24 B5-a)**:`actor_kind` / `actor_staff_id` 兩欄
+      //   **在正式庫還不存在** —— 它們來自 `supabase/migrations/20260824030000_m4b_b5a_sso_login_events_actor.sql`,
+      //   而**那支還沒 apply**(貼 SQL 是 Sean 的動作)。
+      //   ⇒ **現在重 gen 不會產生這兩欄**;apply 之後重 gen 時**先比對再刪本段註解**,
+      //     不要因為「反正會生成」就先拿掉。**形狀與理由完全比照 `admin_search_customers` 那個先例。**
+      //   ⚠️ **而手改型別檔的代價要寫在這裡**(`#523`):它**沒有外部分母** ——
+      //     沒有任何東西在比對「這個檔宣稱的 schema」與「正式庫真正的 schema」
+      //     ⇒ 手改多寫一欄、少寫一欄、型別寫錯,**編譯都會綠**。
+      //   🔴 **所以應用層那一邊【不能只靠這個檔】** —— `lib/sso/login-event.ts` 對
+      //     「這兩欄其實不存在」那個世界有一段會出聲的退回路徑,理由寫在那裡。
       admin_sso_login_events: {
         Row: {
+          actor_kind: string | null
+          actor_staff_id: string | null
           amr: string | null
           id: string
           ip: unknown
@@ -402,6 +432,8 @@ export type Database = {
           user_agent: string | null
         }
         Insert: {
+          actor_kind?: string | null
+          actor_staff_id?: string | null
           amr?: string | null
           id?: string
           ip?: unknown
@@ -413,6 +445,8 @@ export type Database = {
           user_agent?: string | null
         }
         Update: {
+          actor_kind?: string | null
+          actor_staff_id?: string | null
           amr?: string | null
           id?: string
           ip?: unknown
@@ -3649,6 +3683,23 @@ export type Database = {
           p_reason: string
           p_refund_id: string
           p_refunded: boolean
+        }
+        Returns: Json
+      }
+      admin_create_manual_order: {
+        // 🔴 手動貼上的整段(見檔頭該條目):主 migration 尚未 apply ⇒ 生成器現在產不出它。
+        //   參數順序照生成器慣例排字母序,不是 RPC 的宣告順序。
+        Args: {
+          p_actor: string
+          p_customer_user_id: string
+          p_invoice: Json
+          p_lines: Json
+          p_manual_request_id: string
+          p_order_source: string
+          p_payment_channel: string
+          p_ship_to: Json
+          p_shipping_fee: number
+          p_shipping_method: string
         }
         Returns: Json
       }
