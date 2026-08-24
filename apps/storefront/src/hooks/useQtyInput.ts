@@ -35,7 +35,19 @@ export function useQtyInput() {
   }, []);
   const commitQty = (raw: string) => {
     const parsed = Number.parseInt(raw, 10);
-    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_QTY) : 1;
+    // 🔴 **`: qty` 不是 `: 1`** —— 清空輸入框再失焦, 那一列曾經【從 8 件直接變 1 件, 零提示】。
+    //   機制:`Number.parseInt('')` ⇒ `NaN` ⇒ `Number.isFinite(NaN)` ⇒ false ⇒ 走三元的 else。
+    //   舊的 else 是常數 `1`, 而 `1` 是一個**看起來很合理的預設值** —— 那正是它活這麼久的原因:
+    //   在客人只買 1 件的時候, 對的行為與錯的行為**印出同一個數字**。
+    //
+    //   🔴 **這一行同時是 `#886` flaky 的判別實驗**(主視窗 2026-08-24 裁定):
+    //     線C 的兩個假說對 `updateQty(item, 1)` 這個指紋是**同一個結果**, 分不出來 ——
+    //       r3  React value tracker 脫鉤 ⇒ onChange 被吞 ⇒ state 本來就是 '1', **不經過這一行**
+    //       r4  失焦當下框是空的         ⇒ 走這一行 ⇒ 舊碼吐 1
+    //     ⇒ 改成 `qty` 之後, r4 那條路**不再吐 1**(它吐當下的 qty)⇒ 兩個世界從此印不同的東西:
+    //       **flaky 消失 ⇒ 成因是 r4;flaky 還在 ⇒ 成因是 r3。**
+    //   ⚠️ **而這個實驗只有在有人回來看結果時才成立** —— 沒人看的話它就只是一個修好了的 bug。
+    const clamped = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), MAX_QTY) : qty;
     if (Number.isFinite(parsed) && parsed > MAX_QTY) {
       setQtyNotice(QTY_CAP_NOTICE); // nit:字面住共用層,與 CartQtyInput 唸同一句
       if (qtyNoticeTimer.current) clearTimeout(qtyNoticeTimer.current);
