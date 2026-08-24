@@ -44,9 +44,12 @@
 
      | OD                      | 值        | → repo token                                                        |
      |-------------------------|-----------|---------------------------------------------------------------------|
-     | `--bg`            `:12` | `#f7f8fa` | `--background`                                                       |
+     | `--bg`            `:12` | ~~`#f7f8fa`~~ **實際 `#f8fafc`** | `--background`                                                       |
      | `--surface`       `:13` | `#ffffff` | `--card` / `--popover` / `--sidebar`                                 |
-     | `--surface-warm`  `:14` | `#eef3f8` | `--secondary` / `--muted` / `--accent` / `--sidebar-accent`  ← 見下① |
+     | `--surface-warm`  `:14` | ~~`#eef3f8`~~ **`--secondary`/`--muted`/`--accent` 實際 `#f1f5f9`、`--sidebar-accent` 實際 `#e9edf3`(四顆已分岔)** | `--secondary` / `--muted` / `--accent` / `--sidebar-accent`  ← 見下① |
+     🔴 **這一列與 :47/:62/:63 同一天過期**:改動者 `e299c5e0`(2026-08-24 02:26),量測時刻
+        2026-08-24 22:53(`python3 scripts/tool-final-css.py` 的 `final_values_css()` 現場重讀,
+        不是抄舊報告)。`:52` 那列當初只有自己被抓到並標記,這幾列一起漏了,這次補齊。
      | `--fg`            `:15` | `#111827` | 上列每一顆的 `-foreground`                                            |
      | `--muted`         `:17` | 【改】     | `--muted-foreground`                                      ← 見下②    |
      | `--accent`        `:21` | ~~`#0066b1`~~ **實際 `#1a5c96`** | `--primary` / `--sidebar-primary` / `--ring` / `--sidebar-ring`      |
@@ -59,8 +62,12 @@
      🔴 **教訓**:對稿不是 grep 稿裡有沒有那個值,是問【稿上哪一條贏】——
         我們對自己的碼會問「它生效了嗎」,對別人的稿只問「它寫了嗎」,而稿也是一份會層疊的程式。
      | `--accent-on`     `:22` | `#ffffff` | `--primary-foreground` / `--sidebar-primary-foreground`              |
-     | `--danger`        `:27` | `#e4002b` | `--destructive`                                                      |
-     | `--border`        `:19` | `#d7dee8` | `--border` / `--sidebar-border`                                      |
+     | `--danger`        `:27` | ~~`#e4002b`~~ **實際 `#b42318`**(`e299c5e0`,同一天過期,見上) | `--destructive`                                                      |
+     | `--border`        `:19` | ~~`#d7dee8`~~ **`--border` 實際 `#e3e9f0`(尚未 commit,06 線工作中)、`--sidebar-border` 實際 `#d3dae4`(`e299c5e0`)** | `--border` / `--sidebar-border`                                      |
+     ⚠️ **`--border` 這格本身就是本檔在講的那個病 2026-08-24 當晚又發生一次的活案例**:cf 線稍早的
+        稽核報告(`~/pcm-mailbox/cf-交件-註解與實值不符盤點-20260824.md`)寫「現在贏的值 `#ccd5e2`」,
+        而 1b 複驗時樹上已經是 `#e3e9f0`——報告離開量測現場那一刻起就沒有再更新過。
+        **「現在贏的值」這五個字本身帶時刻,不是常數。**
 
      ① **OD 只有【一階】淺填色,而 repo 有【三顆】token 在做同一件事** ⇒ 三顆全指向它。
         ⚠️ **這不是我把三個不同的東西壓成一個** —— 改之前 `--secondary` 與 `--accent`
@@ -134,7 +141,7 @@
         (底 = 混 `--card` 82%、字 = 混黑 38%)。**誰要把它直接拿去當文字色,必須先重算。**
      📎 對比由 `design-tokens.test.ts` 的膠囊那格**實算並斷言**,不是抄在這裡的數字。 */
   --warning: #a15c07;
-  --border: #ccd5e2;
+  --border: #e3e9f0;
   /* 🔴🔴 **`--border-soft`(片3)= 設計參照 §1「三階邊框」的第三階。片1 刻意留到現在才補。**
      **為什麼不在片1 補**:補了就會變成第二個「宣告在、消費端 0」的假落地 ——
      檔頭那張表的 `--motion-*` 那一列逐字寫著「值存在但沒有任何元件吃它;寫『已套用』是假的」。
@@ -145,7 +152,7 @@
         ⇒ 它與 `--border` 一樣**不進對比配對表**(見 `design-tokens.test.ts` 的 `ALLOWED_UNCOVERED`)。
      🔴 **兩級的差別是承重的,不是好看**:OD `:310-312` 用 `th` 深(`--border`)、
         `td` 淺(`--border-soft`)做出「表頭線 vs 列線」兩級。**只有一級時表頭會混進資料列裡。** */
-  --border-soft: #e8ecf2;
+  --border-soft: #f1f5f9;
   /* 🔴🔴 **這是設計參照 §1「三階邊框」裡 `--border-interactive` 那一階的落地。**
      **舊值 `oklch(0.94 0 0)` = `#ebebeb` ⇒ 對頁面底 1.16 / 對卡片 1.19,而 WCAG 1.4.11 要 3.0。**
      **後果不是抽象的**:實測搜尋框與搜尋鈕的邊框顏色完全相同、對白底約 1.17

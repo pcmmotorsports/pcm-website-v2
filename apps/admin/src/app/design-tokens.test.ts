@@ -1345,10 +1345,16 @@ describe('BMW M:--border-soft 三階邊框(片3)', () => {
   //    這三格分別釘住鏈條的三個環:**宣告 → Tailwind 映射 → 真的有人用**。
   //    少任何一環,`border-border-soft` 都會變成「寫了但沒有邊框」,而且**不報錯、不會紅**。
   it('🔴 ① 宣告在 `:root`', () => {
-    // ~~`#edf1f6`~~ **2026-08-23 換成 OD 改版稿的 `#e8ecf2`**(Sean 拍板「稿用什麼就用什麼」)。
+    // ~~`#edf1f6`~~ ~~2026-08-23 換成 OD 改版稿的 `#e8ecf2`~~(Sean 拍板「稿用什麼就用什麼」)。
+    // 🔴 2026-08-24 訂正為 `#f1f5f9` —— 而這【不是推翻 Sean 的拍板, 是照他的拍板重新執行一次】。
+    //    他拍的是「稿用什麼就用什麼」= 一條規則, 不是一個值。
+    //    而那份稿會層疊:`#e8ecf2` 在 `orders-admin-v2.html:4857`(FIX-10),
+    //    被 `:5317`(FIX-38)的 `#f1f5f9` 覆蓋 —— 同特異性、文件順序更後 ⇒ 後者贏。
+    //    ⇒ 08-23 落值的人讀到的是【沒贏的那一個宣告】。
+    //    生效值表 `docs/design/od-cascade-winning-values.md`(commit `2d9cda0f`)。
     // ⚠️ 本格釘的是「這顆 token 還在 `:root`」,不是那個 hex 好不好看 —— 改值要連這裡一起改,
     //    這正是它存在的理由(下面 ②③ 兩格分別釘 `@theme inline` 映射與消費端)。
-    expect(ROOT).toMatch(/^\s*--border-soft:\s*#e8ecf2;/m);
+    expect(ROOT).toMatch(/^\s*--border-soft:\s*#f1f5f9;/m);
   });
 
   it('🔴 ② `@theme inline` 有映射 —— 少了它 class 根本不存在', () => {
