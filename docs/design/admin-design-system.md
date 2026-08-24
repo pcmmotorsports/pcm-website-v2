@@ -134,8 +134,12 @@
 > 少了消費端 ⇒ token 又變回空殼。**「有宣告」從來不等於「有作用」。**
 > 📎 落地形狀 = 訂單表**同一張單的品項列**改吃淺線,**群組首列維持深線**(OD `:310-312` 的兩級)。
 >
-> **數法(可重跑)**:`grep -rn border-soft apps/admin/src | wc -l` → 0;
-> `grep -rn 'var(--motion' apps/admin/.next/static/chunks/*.css | wc -l` → 0(**編譯產物,不是原始碼**)。
+> **數法(可重跑)**:~~`grep -rn border-soft apps/admin/src | wc -l` → 0~~
+> 🔴 **2026-08-25 當場重跑 ⇒ `24`,不是 0。** 那個 `0` 是 2026-08-16 的量測,**而它旁邊沒有寫時點**
+> ⇒ 讀到它的人不會知道要重跑。**凍住的數字過期時不會叫。**(值本身不是壞事:`border-soft` 後來
+> 真的被用起來了 —— **壞的是那個 `0` 讀起來像一條現在仍成立的斷言。**)
+> `grep -rn 'var(--motion' apps/admin/.next/static/chunks/*.css | wc -l` → 0(**編譯產物,不是原始碼**;
+> ⚠️ 同上,此數量測於 2026-08-16,**未重驗**)。
 > **完整量法與逐頁表**:`~/pcm-mailbox/B-後台BMW-M合規盤點-20260816.md`。
 >
 > 🔴 **為什麼這一段必須在最前面**:那份盤點的結論逐字是 ——
@@ -448,6 +452,13 @@ OD 自己有兩階 `--border` `:19` / `--border-soft` `:20`,**而後者 `use=2`�
 ### 🔴🔴 修訂:我第一版寫「6 處全是 0」——**漏數的第 7 處,正是唯一的反例**
 ```
 實查 grep -c border-radius <OD檔> ⇒ 7
+🔴 2026-08-25:`<OD檔>` 是一個【佔位符】,不是路徑 ⇒ 這一發【任何人都重跑不出來】。
+   當場對 OD 專案 pcm-524f 底下全部 13 支 .html 逐支跑同一發 grep:
+     border-radius 命中數 = 0/5/11/11/12/13/13/13/61/0/0/5/0 —— 【沒有任何一支回 7】
+     且 13 支【全部】grep -c legacy = 0,而本段的論證靠 `.legacy{…9999px}` 那一處
+   ⇒ 它指的很可能是 :397 提到的 overview-desktop-bmw-m.html,而那支檔
+     在 OD 專案目錄與家目錄(maxdepth 7)都【找不到】。
+   ⇒ **本段的「7」與「6 處是 0」現在沒有可查證的來源。標為不可重跑,不是標為錯。**
   6 處 = 0
   :316 .legacy{ … border-radius:9999px … }   ← 唯一不為 0 的，而我沒數到它
 ```
@@ -912,7 +923,10 @@ components/customers/customer-detail.tsx jump= 0   ❌
 ```
 skill 說：「數字一律用 font-mono」
 我第一版查：orders-table.tsx font-mono 只有 1 處（:309 料號）⇒ 我判「現在就壞著」
-🔴 而真值（實查，正向對照 grep -c radius globals.css = 11 證明 grep 是活的）：
+🔴 而真值（實查，正向對照 ~~`grep -c radius globals.css` = 11~~ **2026-08-25 重跑 = 42** 證明 grep 是活的）：
+   ⚠️ **這一格的【功能】沒壞、【數字】壞了** —— 正向對照只需要「> 0」,而 11 與 42 都 > 0
+   ⇒ **它會一直正確地證明 grep 是活的,同時一直帶著一個過期的數字。**
+   🔴 **這是凍住的數字最難發現的一種:它所在的那句話從來不會變成假的。**
    orders-table.tsx  tabular-nums  4 處 —— :313 數量 / :322 單價 / :330 金額 / :337 小計
    ~~全 admin 分母    font-mono 7 檔/14 行   ·   tabular-nums 16 檔/45 行~~
    → 2026-08-24 重量  font-mono 8 檔/19 行   ·   tabular-nums 23 檔/53 行
