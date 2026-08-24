@@ -84,6 +84,14 @@ grep -o '[A-Z_]* not set' build.full.log | sort | uniq -c
       **CI 會**，因為 ci.yml 沒有 build 步驟（2026-08-18 提案修正中）。
    實例：CI run 32094343674
 
+   🔴🔴 **2026-08-24 更正:上面那句「CI 會」現在是【假的】。** 原句逐字保留在上方當標本。
+      `ci.yml` 已於 2026-08-18 加了 build 步驟(commit `a5514381`,subject 逐字
+      「Test 之前補一步只 build admin —— 一個恆紅的訊號跟恆綠的一樣沒有判別力」)。
+      現況(2026-08-24 當場量):`ci.yml` 有一步 `run: TURBO_FORCE=1 pnpm --filter @pcm/admin build`
+      **排在 `run: pnpm test` 之前** ⇒ **CI 這一族不會再因為缺產物而紅。**
+      ⚠️ 而它只 build `apps/admin`;`apps/storefront` 若日後出現依賴產物的測試,這條會【重新成立】。
+      📌 它寫下來的那天(08-18)是對的 —— **過期的是世界,不是當時的判斷。**
+
 ④ 錯訊息是 `⨯ Another next build process is already running.`
    ⇒ 【build 鎖】。另一個 build 正在跑,你這一發是**無效量測** —— 不是綠也不是紅。
    🔴 它長得跟真的 build 失敗**一模一樣**(`rc=1`、`Tasks: 0 successful`),差別只在那一行字。
@@ -162,11 +170,28 @@ pgrep -fl 'next build'
 
 ## 六、本表的射程限定（不要放大）
 
-- 🔴 **本機四綠對「CI 會不會過」沒有判別力** —— 兩邊順序不同。
-  量法：`grep -cE 'pnpm build|turbo run build' .github/workflows/ci.yml` ⇒ **0**；
-  正向對照（證明尺對這個檔量得到）：`grep -c 'run:' .github/workflows/ci.yml` ⇒ **7**。
-  本機順序見 `scripts/dev-four-greens.sh`（typecheck → lint → **build** → vitest）。
-  ⇒ 在 CI 那個順序被修好之前，這條一直成立。
+- 🔴 ~~**本機四綠對「CI 會不會過」沒有判別力** —— 兩邊順序不同。~~
+  ~~量法：`grep -cE 'pnpm build|turbo run build' .github/workflows/ci.yml` ⇒ **0**；~~
+  ~~正向對照（證明尺對這個檔量得到）：`grep -c 'run:' .github/workflows/ci.yml` ⇒ **7**。~~
+  ~~⇒ 在 CI 那個順序被修好之前，這條一直成立。~~
+  🔴🔴 **2026-08-24 更正:那個條件已經達成 ⇒ 這一條【就順序這一點而言】不再成立。**
+  `a5514381`(08-18)在 `run: pnpm test` 之前加了 `run: TURBO_FORCE=1 pnpm --filter @pcm/admin build`。
+  本機順序見 `scripts/dev-four-greens.sh:154-161`(typecheck → lint → **build** → vitest)⇒ **兩邊都先 build。**
+
+  🔴🔴 **而上面那條量法【本身就是壞的】,這比結論過期更值得記(2026-08-24 當場量到):**
+  ```
+  它今天回 1, 而它命中的是 ci.yml:94 的【一行註解】(「不是 `pnpm build`(全 monorepo)」)
+  —— 那行註解是 2026-08-24 才加進去的。
+  真正的 build 步驟在 ci.yml:124 `run: TURBO_FORCE=1 pnpm --filter @pcm/admin build`
+  而它【不含 `pnpm build` 這個字面】⇒ 原 pattern 認不出它。
+  ⇒ 這把尺在「CI 有 build」與「CI 沒 build」兩個世界都印不出正確答案:
+     08-18 印 0(對, 但理由是碰巧)· 08-24 印 1(而那 1 來自註解, 不是那一步)
+  ```
+  ✅ 換一把量得到的:`grep -cE '^[[:space:]]+run:.*build' .github/workflows/ci.yml` ⇒ **1**
+     正向對照(證明尺對這個檔活著):`grep -c 'run:' .github/workflows/ci.yml` ⇒ **8**
+     🔴 這把尺只認**可執行的 `run:` 行**,不會被註解染色 —— 而原句那把會。
+  ⚠️ **仍然成立的那一半**:本機與 CI 的**其他**差異(冷 checkout / 無快取 / 環境變數)未變
+     ⇒ 「本機綠不保證 CI 綠」這句話**照舊**,只是【順序】不再是它的理由。
 - 🔴 **CI 綠也不證線上那份是對的** —— CI 自己建的產物 ≠ Vercel 部署的那份（codex 2026-08-18 R1 F1）。
 - **本表只有一天的資料（四發 + 一發 CI）。** 判別法 ①②③ 各只有一個實例；④ 當天**零實例**（當天沒有任何一發是真的 `AssertionError`）。
   ⇒ **這是一張起手表，不是統計。** 下一個人撞到新形狀，請往「二、」加一列並附實例。
