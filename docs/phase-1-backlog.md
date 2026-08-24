@@ -32877,6 +32877,90 @@ cf 量 / 1b 獨立重量 ⇒ listAllProducts 20 · listByBrand 0 · listByCatego
 
 - **相關:** `#869`(本條是它存量掃描的副產品,且是它那個模板的「屍體」)
 
+### #917. 🔴 `order-detail-route.tsx` 的三條退款讀取失敗路徑,**沒有測試證明【它】會把 `*Failed` 設成 true** —— 而 grep 撈得到一堆測試
+
+- **狀態:** 未開工
+- **分流:** 待定(**本條只記事實,不定優先序** —— 照 `#916` 同一條裁定:
+  該不該補、什麼時候補,是產品線的決定,不是稽核線的)
+- **發現於:** 2026-08-25 · b4 線那片(對帳紅點,`d73333b6`)的 codex R3 · 1b 裁定不擋該片、開成獨立條目
+- **複驗:** cf 線獨立開檔核過(下面每個數字都附數法與正負對照)
+
+---
+
+#### 🔴 這一條的形狀:**grep 撈得到測試,而撈到的是【邊界的另一側】**
+
+```
+三顆旗標（apps/admin/src/components/orders/order-detail-route.tsx）：
+  :201  refundsFailed = true            （帳本讀取失敗）
+  :226  refundUnregisteredFailed = true （未登錄退款讀取失敗）
+  :237  manualRefundsFailed = true      （人工退款讀取失敗）
+
+grep 這三顆在測試檔的命中數：
+  refundsFailed             ⇒ 11
+  refundUnregisteredFailed  ⇒ 10
+  manualRefundsFailed       ⇒ 4
+  正對照 loadFailed（同尺同分母）⇒ 7   ← 尺是活的
+  負對照 refundsFailedZZZ        ⇒ 0
+```
+**⇒ 只看命中數,會判「這三顆測得很好」。**
+
+🔴 **而開檔看那些命中住在哪,答案反過來**:
+```
+命中全部落在這四支，而它們測的都是【下游消費端把旗標當 prop 收進去】：
+  order-detail-tab-routing.test.ts
+  order-detail-tabs-wiring.test.tsx     例：<OrderDetail … refundsFailed />
+  order-detail-header.test.tsx
+  order-detail-refund-entry.test.ts
+
+🔴 而 order-detail-route.tsx 【沒有任何自己的測試檔】：
+   ls apps/admin/src/components/orders/order-detail-route*  ⇒ 只有 .tsx 一支，無 .test.tsx
+```
+> **⇒ 那三顆旗標作為【輸入】被測得很好,作為【輸出】一格都沒有。**
+> **沒有任何測試證明:當那三條讀取真的 throw 時,這支 route 會把對應的旗標設成 `true`。**
+
+📌 **母題**(本條是第三個實例,前兩個見「相關」):
+**`grep <識別字>` 撈得到測試 ⇒ 看起來被覆蓋了;而撈到的可能是【邊界的另一側】或【替身】。
+要分開這兩個世界,只有看撈到的是哪一支檔。**
+
+---
+
+#### 歸因(要寫清楚,否則會被讀成「這一片造成的」)
+
+```
+🔴 那段行為【早就上線】且已在餵 initialKey ⇒ 這是【既有未測程式碼】，不是 b4 那一片造成的
+✅ 而 b4 那一片讓它【比較不嚴重】—— 多了一個下游守門
+⇒ 本條不擋那一片（1b 2026-08-25 裁定），開成獨立條目
+```
+
+#### 射程(逐條寫,不得省)
+
+```
+① 【沒有查】那三條讀取在真實環境下多容易 throw ⇒ 本條【不宣稱】「線上常常踩到」
+② 【沒有查】是不是有別的機制（型別 / 上游守門）讓它們不可能出錯
+③ 本條不含優先序、不含「應該補」
+```
+
+#### 不修未來會痛在哪
+
+- **bug 可追蹤性:** 🔴 若哪天那三條的 `try/catch` 被改壞(例如漏掉一個 `= true`),
+  **今天沒有任何測試會紅** —— 而下游那四支測試會繼續全綠,因為它們**自己餵 prop**。
+- **可維護性:** 下一個做覆蓋率稽核的人 `grep refundsFailed` 會看到 11 個命中 ⇒
+  **判它被覆蓋了** ⇒ 這條會一直看起來是綠的。
+- **擴充性:** 再加第四條退款讀取路徑時,同樣不會有東西提醒它要補測試。
+
+#### 關閉條件
+
+```
+補上針對【order-detail-route 自己】的測試：三條讀取各餵一發 throw，
+斷言對應的旗標為 true、而另外兩顆【不受影響】
+🔴 而驗收要含【該紅真的紅】那一發：把某一個 `= true` 拿掉，對應那格必須紅
+   （只跑「該綠真的綠」分不出「它有測」與「它恆真」）
+```
+
+- **相關:** `#916`(同一個母題:真實作零測試而替身測得很好)·
+  `docs/patterns/guard-and-instrument-traps.md` 的「零命中的第四種成因」與
+  「正對照剛好落在尺看得見的那一側」兩條
+
 ### #913. 🔴 migration 沒包在交易裡 —— `CREATE FUNCTION` 成功而檔尾 `REVOKE` 失敗 ⇒ 一支對所有人開放的 SECDEF 函式留在正式庫
 
 - **狀態**:open · 待派 · 出處=線 2(金流退款線,session `pcm-website-v2-1e`)2026-08-24 夜寫 `#250` 那支新 RPC 時提出;主視窗 `pcm-website-v2-db` 開條目(**線 2 兩次提醒「還沒有編號」,這是第二次才開的**)
