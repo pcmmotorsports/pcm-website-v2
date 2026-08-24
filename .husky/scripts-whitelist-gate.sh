@@ -90,6 +90,7 @@ scripts/storefront-probe/cors-server.py	本機探針,用完即拆;非守門
 scripts/storefront-probe/overflow-ruler.mjs	量版面用;它自帶三條自檢,但不是 commit 期守門
 scripts/containment-probe.mjs	一次性探針;非守門
 scripts/design-mirror.mjs	design 同步用;非守門
+scripts/tool-final-css.py	自檢 fixture 需要 OD 產物, 而它在 repo 外(~/Library/…/pcm-524f/)⇒ 接 lint-staged 會在別人機器與 CI 誤擋;手動跑 python3 scripts/tool-final-css.py 仍會自檢六組世界 A-F
 XEOF
 
 # 🔴 副檔名分母(codex R2 must-fix:原版只認 py/js/mjs,.cjs/.jsx/.mts/.cts 會完全隱形)。
