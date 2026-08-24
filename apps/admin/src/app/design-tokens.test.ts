@@ -1506,9 +1506,35 @@ describe('BMW M:表格內文色 --fg-2(片5)', () => {
   const CSS_CODE2 = CSS.replace(/\/\*[\s\S]*?\*\//g, '');
 
   it('🔴 `.orders-grid` 容器帶 `color: var(--fg-2)`(OD :167/:171)', () => {
-    const rule = /\.orders-grid\s*\{[^}]*\}/s.exec(CSS_CODE2)?.[0];
-    expect(rule, '找不到 .orders-grid 容器規則').toBeDefined();
-    expect(String(rule)).toContain('color: var(--fg-2)');
+    // 🔴🔴 **2026-08-25:這一格原本用 `.exec()` —— 而 `.exec()` 只回【第一個】命中。**
+    //    `\.orders-grid\s*\{` 在本檔命中 **6 處**(頂層 4 + 巢狀 2)⇒ 舊寫法讀的是第一處,
+    //    而瀏覽器吃的是【最後一條宣告 color 的】那處。**兩者今天剛好是同一處,所以它是綠的
+    //    —— 靠的是「目前只有一處宣告 color」這個外部事實,不是它自己有判別力。**
+    // 📏 **量到的,不是推的**(把本格舊正則原樣搬到合成字串上跑,不碰真檔):
+    //    ```
+    //    該綠 .orders-grid{color:var(--fg-2)}                         ⇒ 讀到 var(--fg-2) ⇒ 🟢
+    //    該紅 .orders-grid{color:var(--fg-2)} … .orders-grid{color:red}
+    //         (瀏覽器實際吃 red)                                       ⇒ 讀到 var(--fg-2) ⇒ 🟢
+    //    ```
+    //    **兩個世界印同一句綠 = 失明。**
+    // ⚠️ **為什麼不照 `money-column-width.test.ts` 的 `ilineBlock()` 那樣「命中 >1 就 throw」**:
+    //    那個形狀直接套上來會【當場紅】—— `.orders-grid {` 本來就有 6 處(容器查詢、卡片化、
+    //    列印各一份),那是正常結構,不是有人加了誘餌。
+    //    ⇒ 改成**把閘收在「宣告 color 的那幾處」上** —— 那才是本格真正在問的東西。
+    //    兩個方向都會叫:0 處 ⇒ 結構變了;>1 處 ⇒ 有人加了第二條 color,先確認哪條生效。
+    const gridRules = [...CSS_CODE2.matchAll(/\.orders-grid\s*\{[^}]*\}/gs)].map((m) => m[0]);
+    const withColor = gridRules.filter((r) => /(^|[;{])\s*color\s*:/.test(r));
+    expect(
+      gridRules.length,
+      '找不到任何 `.orders-grid {` 規則 —— 結構變了,本守門要重寫',
+    ).toBeGreaterThan(0);
+    expect(
+      withColor.length,
+      `\`.orders-grid\` 有 ${withColor.length} 處宣告 color(期望剛好 1 處)。` +
+        '有人加了第二條 ⇒ 先確認哪一條才是層疊生效的那條,再改本守門 —— ' +
+        '不要讓它繼續讀第一條(那正是本格 2026-08-25 修掉的病)。',
+    ).toBe(1);
+    expect(String(withColor[0])).toContain('color: var(--fg-2)');
   });
 
   it('🔴🔴 顏色【不得】下放到 `.orders-grid td` —— 那會靜默殺掉表格內 4 處刻意的次要色', () => {
