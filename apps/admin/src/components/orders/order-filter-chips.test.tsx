@@ -127,7 +127,20 @@ describe('#484 B-1 — `.fchip` 樣式逐字對 OD', () => {
   const declsOf = (selector: string, atRule: string | null = null) => {
     const out = new Map<string, string>();
     ROOT.walkRules((rule) => {
-      if (norm(rule.selector) !== selector) return;
+      // 🔴🔴 **2026-08-25 線3:比的是【逗號清單裡有沒有它】,不是整串相等。**
+      //    舊版 `norm(rule.selector) !== selector` 看不到分組選擇器 ⇒ globals.css 裡
+      //    字面錨 `.fchip,.cap-n,` 那條(`{font-size:14px}`)被整條跳過,
+      //    而它在字面錨 `.fchip {` 那塊(`font-size: 12px`)**後面**、同特異性
+      //    ⇒ **畫面上生效的是 14px,本檔卻在對 12px。**(不寫行號:本 repo 座標會漂)
+      //    📏 兩個方向各餵一發(改完前,`globals.css` 改完即還原、porcelain 0):
+      //      改【死的】那條 `.fchip{font-size:12px}` → 99px ⇒ 🔴 本格紅  ← 它在對一個不生效的宣告
+      //      改【活的】那條 `.fchip,…{font-size:14px}` → 99px ⇒ 🟢 本格全綠 ← 對真正生效的值失明
+      //    ⇒ 同一支檔裡下方 `num('font-size')` 讀到的是 **14**,本格斷言 **12** ——
+      //      **兩個讀取器對同一個屬性給出不同的值,而兩個都是綠的。**
+      const parts = norm(rule.selector)
+        .split(',')
+        .map((x) => x.trim());
+      if (!parts.includes(selector)) return;
       const parent = rule.parent;
       const inAtRule = parent?.type === 'atrule' ? norm((parent as postcss.AtRule).params) : null;
       if (inAtRule !== atRule) return;
@@ -162,7 +175,15 @@ describe('#484 B-1 — `.fchip` 樣式逐字對 OD', () => {
     // 🏁 2026-08-23 照 OD 新稿:`3px 11px` → `4px 12px`(FIX-37「內距放寬」)。
     // ⚠️ 這一改**牽動下方那組算式模型**(chip 外框由 24 變 26)—— 見 `:377` 那段的重新校準。
     expect(d.get('padding')).toBe('4px 12px');
-    expect(d.get('font-size')).toBe('12px');
+    // 🔴 **2026-08-25 線3:`12px` → `14px`,而改的不是規矩,是這一格本來就讀錯了。**
+    //    字面錨 `.fchip {` 那塊的 `font-size: 12px` 被後面字面錨 `.fchip,.cap-n,`
+    //    那條的 `font-size:14px` 覆蓋(同特異性、後者在後)⇒ **畫面上一直是 14px**。
+    //    ⚠️ **同一條規則上的 `.cap-n/.cap-y/.cap-bl/.cap-g/.cap-risk` 不是 14** ——
+    //       它們被更後面的 `font-size:12px!important` 再蓋一次 ⇒ 那條給 cap-* 的 14px 是死宣告。
+    //       (審查 2026-08-25 點出;不要把這一行讀成「這六個都 14」。)
+    //    讀取器修好之後本格當場紅,逐字:`expected '14px' to be '12px'` ⇒ 舊期望值是假的。
+    //    ⚠️ 所以這一行**不是**把守門調鬆去配合現況 —— 是把它從「對死值」搬到「對生效值」。
+    expect(d.get('font-size')).toBe('14px');
     expect(d.get('border')).toBe('1px solid var(--border)');
   });
 
@@ -419,7 +440,7 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
     if (!m) throw new Error(`.fchip 的 ${prop} 讀不到,模型不能用推的 —— 實際值:${decls.get(prop)}`);
     return Number(m[1]);
   };
-  const CHIP_PAD_X = num('padding', /^\d+px\s+(\d+)px$/); // 11
+  const CHIP_PAD_X = num('padding', /^\d+px\s+(\d+)px$/); // 12(生效 padding 是 `4px 12px`)
   const CHIP_BORDER = num('border', /^(\d+)px\s/); //          1
   const CHIP_FONT = num('font-size', /^(\d+)px$/); //          14(2026-08-23 起;見上方讀取器的更正)
   const CHIP_GAP = 8; // Tailwind `gap-2` = 0.5rem;下一格釘住元件真的在用它
@@ -458,6 +479,28 @@ describe('`#485` 片4 — 窄版 chip 容量(算式模型,校準自真瀏覽器)
       if (rule.selector.split(',').map((x) => x.trim()).includes('.fchip')) inAtRule++;
     });
     expect(inAtRule, 'at-rule 裡一條 .fchip 都沒掃到 ⇒ 這把尺可能壞了').toBeGreaterThan(0);
+
+    // 🔴🔴 **2026-08-25 線3(審查 nit 4)——上面那半只守 at-rule 內,而同一個病會換形狀復發。**
+    //    `declsOf()` 比的是「逗號清單裡有沒有 `.fchip` 這一項」⇒ 它看不到**後代/複合**選擇器。
+    //    有人在頂層加一條 `.toolbar .fchip{font-size:12px}`(特異性更高、真的會生效)
+    //    ⇒ 畫面變了、`declsOf` 讀到的值不變 ⇒ **上面那格與幾何模型雙雙全綠**,
+    //      正是本檔 2026-08-25 剛修掉的那個病,只是換了一種寫法。
+    //    ⇒ 判準:selector 的某一項**含 `.fchip` 卻不是以 `.fchip` 開頭**(排掉
+    //      `.fchip::after` / `.fchip[aria-current='true']` 這種同元素修飾)且碰到模型讀的三個屬性。
+    //    📏 表演過會紅:注入 `.toolbar .fchip{font-size:12px}` ⇒ 🔴;拿掉 ⇒ 🟢(見交件包)。
+    const descendants: string[] = [];
+    postcss.parse(CSS).walkRules((rule) => {
+      const parts = rule.selector.split(',').map((x) => x.replace(/\s+/g, ' ').trim());
+      if (!parts.some((p) => p.includes('.fchip') && !p.startsWith('.fchip'))) return;
+      rule.walkDecls((d) => {
+        if (watched.includes(d.prop)) descendants.push(`${rule.selector} { ${d.prop}: ${d.value} }`);
+      });
+    });
+    expect(
+      descendants,
+      '有後代/複合選擇器在改 .fchip 的 padding/border/font-size ⇒ `declsOf()` 讀不到它,' +
+        '而畫面吃得到 ⇒ 本檔的「逐字對 OD」與幾何模型會同時失明',
+    ).toEqual([]);
   });
 
   it('前提:間距常數 8 對應元件真的用的 `gap-2`,與內容容器真的是 `p-6`', () => {
