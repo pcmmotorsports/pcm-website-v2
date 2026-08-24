@@ -32741,6 +32741,46 @@ DB 層可達 = **是**(上面實測)
 - **失敗情境(照抄線 2 原句,未重打)**:
   > `CREATE FUNCTION` 成功之後,檔尾的 `REVOKE`/`GRANT`/`DO` 任一失敗 ⇒ **函式已存在於正式庫、而 ACL 停在「出生自帶 PUBLIC EXECUTE」那一刻** ⇒ 一支對所有人開放的 SECDEF 函式留在庫裡,而 apply 的人只看到一個錯誤訊息、不會知道有東西留下來了。
 
+- **🔴 2026-08-25 更正:上面那句【寫得比證據寬】, 而寫它的是主視窗(我從線 2 原句抄的)。原句不刪, 劃掉加註記。**
+  線 1 在拋棄式 PG(55551)上造了**兩個世界**實測:
+  ```
+  世界 ①  REVOKE 那行被刪(=沒跑到)     ⇒ rc=3, 函式留下, ACL 停在出生態 ⇒ anon 執行得到  ← 原句只涵蓋這個
+  世界 ②  REVOKE/GRANT 都跑到, 只有檔尾斷言炸 ⇒ rc=3, 函式留下,
+          而 ACL = {postgres=X, payment_confirmer=X} / anon=f / pc=t   ← 🔴 是【收好的】
+  ```
+  ⇒ ~~「ACL 停在出生自帶 PUBLIC EXECUTE 那一刻」~~ **對世界①為真、對世界②為假。**
+  **共同的真相只有一句:留下一個【沒走完斷言】的物件。** 它的 ACL 停在哪, 取決於檔尾是第幾句炸的。
+  📌 **一條 backlog 條目的失敗情境寫得比證據寬, 與 code 裡寫寬一樣糟** —— 它會讓下一個人去修一個不存在的形狀,
+  而**逐字驗那句話的每一格都會過**(它確實是一種可能發生的情況), 所以沒有人會發現它太寬。
+  出處:codex R1 打掉線 1 同一句 ⇒ 線 1 重量 ⇒ 回報主視窗 ⇒ 主視窗改本條目。
+
+- **✅ 2026-08-25 修法已量到, 而它比原本想的簡單 —— 不需要知道 Supabase 怎麼 apply**:
+  ```
+  A 不包交易, 檔尾 RAISE      rc=3  🔴 函式留下來了(proacl 含 anon=X / authenticated=X / service_role=X)
+  B 正對照 同一支拿掉 RAISE   rc=0  留下來(尺是活的)
+  C 檔案【自帶 BEGIN;/COMMIT;】rc=3  ✅ 沒留
+  D psql -1                   rc=3  ✅ 沒留
+  E 外層已有交易時內嵌 BEGIN   rc=0  建得起來, 只有兩行 WARNING
+  ```
+  ⇒ **`BEGIN;`/`COMMIT;` 寫進檔案自己, 結果就與 applier 無關** ⇒ 上面那個「沒有人量過 Supabase 逐不逐句 commit」**不再擋路**。
+  ⚠️ 硬條件:**`COMMIT;` 必須是檔案最後一行** —— 內嵌 `COMMIT` 會把外層那個交易一起提交。
+  ⚠️ 既有慣例佐證:214 支 migration 裡 **108 支本來就自帶 `BEGIN;`/`COMMIT;`** ⇒ 不是新花樣。
+  🔴 **而 codex R2 提出一條【還沒被排除】的**:若 runner 把多支 migration 包在同一個外層交易,
+  本檔的 `COMMIT` 會一起提交前面尚未登記完成的 migration, 並釋放 runner 的 advisory lock / SET LOCAL / savepoint
+  ⇒ **「COMMIT 之後本檔沒有語句」是必要條件, 不是充分條件。**
+  **標未確認, 不是已排除。** 缺的檢查 = 一個可拋棄的 Supabase 專案(線 1 量不到, 那是 Sean 的資源)。
+
+- **⛔ 2026-08-25 主視窗裁【甲】:兩支檔的 `BEGIN;`/`COMMIT;` 改動【先擱著不收】。**
+  理由是 codex R2 問對了一個我們還沒有答案的問題:
+  ```
+  那兩支【正式庫套了沒】
+    已套過 ⇒ 改歷史檔不會修正既有物件, 新環境與正式庫會由不同版本 SQL 建起來 ⇒ 要的是 forward migration
+    沒套過 ⇒ 才輪到「applier 容不容許內嵌 COMMIT」這一題
+  ```
+  ⇒ **在那個答案回來之前, 我們不知道自己在解哪一題。** 缺的檢查 = 對正式庫跑一發
+  `select to_regclass('public.pcm_shipped_email_pending')::text, …, to_regclass('<一個編造的名字>')::text;`
+  (**編造那一行不得拿掉** —— 它是證明尺活著的那一格)。已端給 Sean:`~/pcm-mailbox/給Sean-01-三行唯讀SQL-20260825.md`。
+
 - **🔴 為什麼它比一般的「apply 失敗」嚴重**:
   ```
   apply 失敗 ⇒ 人會看到紅字 ⇒ 人會以為「這支沒進去」
