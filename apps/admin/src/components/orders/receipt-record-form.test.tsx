@@ -482,3 +482,97 @@ describe('ReceiptRecordForm — 彈窗模式成功後的冪等鍵', () => {
     expect(undoKey, '撤銷帶的鍵不是剛剛消費掉的那把 ⇒ 反查不到產物、鈕永遠按不動').toBe(consumed);
   });
 });
+
+// 🔴 `#904`:數量輸入的分母是 **7 處** —— 本檔這兩格正是那把窄尺漏掉的兩處。
+//    ⚠️ **那個 `7` 是本片算出來的, 不是引來的**:= `#904` 表上的 5 + 本檔這 2。
+//      🔴 canonical `docs/phase-1-backlog.md` 的 `#904` 標題至今逐字寫的是【**5 處**】, **本片未改它**
+//      ⇒ 跟著這句話去開 `#904` 的人會看到 5, 而他會以為我寫錯。改那一行是收包端的動作。
+//    上一把尺抓的是 label 含「數量」⇒ 本檔的「到貨幾件 / 溢收幾件」在它的分母裡是 **0**。
+//    🔴 `cancel-order-forms` 的取消數量欄**不進這個 bug 形狀的分母** —— 標【不適用】, 不是「有判別力」:
+//      它是**非受控**(`defaultValue=`)+ 單一判官是解析器 ⇒「清空被吃成 1」在那裡構造不出來。
+//
+//    ⚠️ 本段不是在修一個現行的 bug —— **現行碼是對的**, 產品碼一行未改。它補的是**判別力**。
+//    守的那顆 bug 的形狀 = `value={values.quantity}` 變成 `value={values.quantity || '1'}`
+//    (`#886` / `#905` 逐字同款:**一個看起來很合理的預設值**)。
+//    📌 **補格前的一次性量測(107 / 56 全綠、分母怎麼選的、活性對照打在哪)住在本片的 commit body** ——
+//      那些數字綁著量測時刻、永不重跑, 留在這裡只會爛掉。要考古去那顆 commit。
+//
+//    🔴🔴 **本檔的守門【沒有】因此補齊 —— 不要把這兩格讀成那個意思。**
+//      code-reviewer 量到:把四欄從 `value=`+`onChange` 改回 `defaultValue=`
+//      (逐字還原本檔「R1 Important 6:四個欄位全部受控」要防的那件事)⇒ **本檔 25 格全綠**,
+//      連那句承重註解自己指名的「失敗回來時員工打的四欄都回到輸入框裡」也不紅
+//      ⇒ **那條承重註解目前零判別力。**
+//      ⚠️ **尚無 backlog 編號** —— 2026-08-24 已連同失敗情境交給收包端, 而此刻
+//        這個請求唯一的載體就是這行註解:它若蒸發, **沒有任何一句話會變成假的, 也沒有格會紅**。
+//        進了板子就把編號補在這裡。本片不自己動 backlog(共用檔, 收包端寫)。
+describe('ReceiptRecordForm — 清空數量欄不得被吃成 1(#904)', () => {
+  // 🔴 **三層各斷一次**, 而一二層各擋一種錯法、第三層擋「這條路根本走不到」:
+  //   ① 顯示層 `input.value` —— 擋「框自己長出一個 1」
+  //   ② 真相層 送出的 `FormData` —— 擋「失焦/送出的當下才吃成 1」(commit-on-blur,
+  //      那正是 `useQtyInput` / `CartQtyInput` / `shipment-dialog` 三處那顆 bug 的真形狀)
+  //   ③ `checkValidity()` —— 擋「空欄在真瀏覽器【送不出去】」
+  //   🔴🔴 ③ 是 R3(換模型換角度)構造出來的 silent-green, 前兩輪都沒看到:
+  //      給「到貨幾件」加一個 `required` ⇒ **本檔 25 格全綠**, 而真瀏覽器裡「清空後送出」當場死掉。
+  //      機制:`fireEvent.submit` **直接派發事件, 繞過 constraint validation, 也繞過停用的送出鈕**
+  //      ⇒ ①② 兩層在 jsdom 裡照樣為真, 而員工按不出去。
+  //      📌 它是本檔既有那格「`min` 是 0 不是 1」的**兄弟洞** —— 同樣是「原生驗證把一條正式路關掉,
+  //         而測試看不見」。
+  // 🔴 `mockClear()` 不是儀式 —— 沒有它, `calls[0]` 是**別的測試**留下來的那一發。
+  //   實測:第一版讀到 `'3'`(前面某格用預設 remaining=3 送出的), 而它與「真的送出 3」印同一句話。
+  // 🔴 本檔沒有全檔的 mock 重置 ⇒ 本段自己收尾, 不把 implementation 留給
+  //   下一個往檔尾追加 describe 的人。
+  afterEach(() => action.mockReset());
+
+  const submittedValue = (field: string) =>
+    (action.mock.calls.at(-1)![1] as FormData).get(field);
+
+  it('🔴「到貨幾件」清空 ⇒ 框是空的, 送得出去, 而且送出去的也是空的', async () => {
+    action.mockClear();
+    action.mockResolvedValue({ status: 'idle' as const });
+    const { container } = renderForm(5);
+    const qty = () => container.querySelector<HTMLInputElement>('input[name="quantity"]')!;
+    expect(qty().value, '前提:預設帶的是這筆採購還沒到的件數').toBe('5');
+
+    fireEvent.change(qty(), { target: { value: '' } });
+    expect(
+      qty().value,
+      '清空後畫面自己填了值 ⇒ 員工把它當成自己打的那個數字送出 ⇒ 到貨件數靜默記錯',
+    ).toBe('');
+    expect(
+      container.querySelector('form')!.checkValidity(),
+      '空欄在真瀏覽器送不出去(例如有人加了 required)⇒ 下面兩個斷言只在 jsdom 為真',
+    ).toBe(true);
+
+    fireEvent.blur(qty());
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(action).toHaveBeenCalled());
+    expect(
+      submittedValue('quantity'),
+      // 🔴 訊息不寫死「是 1」:本斷言連 `'0'` 也拒。而拒 `'0'` 是**刻意的絆線** ——
+      //   `receipt-form.ts` 的 `toCount` 逐字「空字串當 0」是明文合約,
+      //   要把 `''` 正規化成 `'0'` 的人本來就該被迫看一眼這裡。
+      '送出去的不再是空的 ⇒ 畫面與真相脫鉤, 而畫面那一格會一直是綠的',
+    ).toBe('');
+  });
+
+  it('🔴「溢收幾件」清空 ⇒ 框是空的, 送得出去, 而且送出去的也是空的', async () => {
+    action.mockClear();
+    action.mockResolvedValue({ status: 'idle' as const });
+    const { container } = renderForm(5);
+    const surplus = () =>
+      container.querySelector<HTMLInputElement>('input[name="surplus_quantity"]')!;
+    expect(surplus().value, '前提:溢收欄預設是 0').toBe('0');
+
+    fireEvent.change(surplus(), { target: { value: '' } });
+    expect(surplus().value, '清空後自己變成 1 ⇒ 憑空多記一件供應商沒送的貨').toBe('');
+    expect(
+      container.querySelector('form')!.checkValidity(),
+      '空的溢收欄在真瀏覽器送不出去 ⇒ 下面那個斷言只在 jsdom 為真',
+    ).toBe(true);
+
+    fireEvent.blur(surplus());
+    fireEvent.submit(container.querySelector('form')!);
+    await waitFor(() => expect(action).toHaveBeenCalled());
+    expect(submittedValue('surplus_quantity'), '送出去的溢收件數不再是空的').toBe('');
+  });
+});
