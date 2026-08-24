@@ -58,6 +58,25 @@ export type OrderDetailTabSpec = {
    */
   badge?: number;
   /**
+   * 🔴 **警示圓點(§12 組 28 / OD FIX-11)** —— Sean 2026-08-25 拍「對帳出錯時三處變色,要補嗎 ⇒ 要補」。
+   *
+   * **與 `badge` 的分工**(兩者語意不同,不要合併):
+   *   `badge`  = 「有幾筆」(備註)—— OD 逐字「用數字不用純圓點:圓點只說有東西,數字同時說有幾筆」
+   *   `alert`  = 「**這一頁要看一下**」—— **它沒有筆數可言**,OD 稿上那顆點 20/20 都**沒有文字內容**
+   *              ⚠️ ~~「這裡出事了」~~ **這個說法是錯的,2026-08-25 codex 關卡2 R2 nit 更正**:
+   *              判準含「資料沒讀完」(截斷),而**沒讀完不等於出事** ⇒ 寫「出事」在型別文件裡
+   *              與畫面文案犯同一個謊。📌 **畫面文案改了而型別註解沒跟** —— 同一個錯的兩個落點,
+   *              修一個會讓另一個看起來已經修好。
+   *
+   * 🔴 **為什麼是布林、不是數字**(這一格擋過一次施工):前人交接檔寫紅點「需要第 4 個
+   *    『尾款/已收』彙總函式呼叫端」⇒ 被讀成它被 `payment-amount-due-single-source.test.ts`
+   *    那道金額守門擋著。**2026-08-25 實查:那個前提不成立** —— 稿上那顆點
+   *    `aria-hidden="true"` 且 span 內為空 ⇒ **它不顯示任何金額** ⇒ 不需要呼叫 `toPaymentSummary()`
+   *    ⇒ **沒有新增任何一面「已收/尾款」** ⇒ 那條不變式不受影響、那道閘不擋這件事。
+   *    ⚠️ 若哪天有人要把它改成**帶尾款數字的徽章**,那就真的動到那道閘 ⇒ 去讀它的複核清單,不要直接改數字。
+   */
+  alert?: boolean;
+  /**
    * 這一頁「認領」哪些網址 hash(不含 `#`)。
    *
    * 🔴🔴 **這一格是承重的,不是便利功能。** `order-detail.tsx` 逐字寫著:
@@ -340,6 +359,44 @@ export function OrderDetailTabs({
                     {tab.badge}
                   </span>
                   <span className='sr-only'>有 {tab.badge} 筆備註</span>
+                </>
+              )}
+              {/* 🔴 §12 組 28 / OD FIX-11 警示圓點。稿的 7 條宣告逐字(payload 裡 20/20 完全一致):
+                    `display:inline-block; width:6px; height:6px; border-radius:50%;
+                     background:var(--destructive); margin-left:6px; vertical-align:middle`
+                  · `width/height:6px` + `border-radius:50%` = 全圓 ⇒ `size-1.5 rounded-full`
+                    (`rounded-full` 是 `design-tokens.test.ts` 定位器**明文豁免**的一個,與徽章那顆同族)
+                  · `margin-left:6px` ⇒ 由 `SEG_BASE` 的 `gap-[5px]` 吸收(**近似,不是逐字:5px vs 6px**)
+                  · `vertical-align:middle` / `display:inline-block` ⇒ 父層是 flex + `items-center`,
+                    這兩條在 flex 版面下**不適用**(它們是 inline 版面的對齊手段)⇒ 不搬,不是漏搬。
+
+                  🔴 **選中態要翻白,否則等於消失** —— 稿另有一條
+                    `.od-seg-on .od-seg-dot{background:#fff!important}`。
+                    ⚠️ **我方不搬那個 `!important`,改用條件 class**:那條 `!important` 存在的理由是
+                       OD 要從**外部**覆寫一個已經上色的元素;而我方直接控制這顆 span 的 className
+                       ⇒ 三元式就夠,不需要提高權重。
+                       📌 這一格 2026-08-25 有先量過才決定:同日另一格(全域 `:where(...):focus-visible`)
+                          的教訓是「元件層的 class 蓋不過 unlayered 規則」⇒ 我確認過**這顆點沒有任何
+                          外部規則在跟它搶**(repo 內 `od-seg-dot` 零命中),所以三元式不會被蓋掉。
+                  🔴 **`aria-hidden` + `sr-only` 兩個都要**:稿只給了視覺那半(視覺稿不描述螢幕閱讀器),
+                     而**這顆點存在的唯一理由是「你必須看到這件事」** —— 只有看得見的人收得到的訊號,
+                     對其他人等於這個功能不存在,**而它旁邊就是錢**。形式照上面備註徽章那顆逐字。 */}
+              {tab.alert === true && (
+                <>
+                  <span
+                    aria-hidden='true'
+                    className={`size-1.5 shrink-0 rounded-full ${
+                      selected ? 'bg-primary-foreground' : 'bg-destructive'
+                    }`}
+                  />
+                  {/* 🔴 **文案刻意【不】說「異常」**(codex 關卡2 must-fix,2026-08-25):
+                      這顆點的判準含 `refundsTruncated` / `manualRefundsTruncated`,而截斷只代表
+                      **資料沒讀完**,不代表對帳出事 ⇒ 說「異常」會說謊。
+                      📌 **repo 早就有同一個判斷**:`order-detail-money-tab.tsx` 逐字寫著
+                         「紅標題『退款(對帳異常)』的判準【不動】…截斷不是對帳異常,掛那五個字會說謊」
+                         —— 我第一版寫「有需要處理的異常」正是踩到同一格,而那句話就在隔壁檔案裡。
+                      ⇒ 改成**涵蓋四個輸入都為真的說法**:出事、以及沒讀完,都算「要看一下」。 */}
+                  <span className='sr-only'>這一頁有需要查看的狀況</span>
                 </>
               )}
             </button>

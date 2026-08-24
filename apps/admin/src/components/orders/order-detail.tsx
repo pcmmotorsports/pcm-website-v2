@@ -318,6 +318,28 @@ export function OrderDetail({
         {
           key: 'money',
           label: '收款 · 退款',
+          /* 🔴 §12 組 28 / OD FIX-11 警示圓點(Sean 2026-08-25 拍「對帳出錯時三處變色 ⇒ 要補」)。
+             **判準刻意重用 `moneyTabMustSee`,不另外寫一個** —— 它的分母是 codex 關卡2
+             逐格數出來的(見 `order-detail-tab-routing.ts` 那段),再寫一個就是第五個各自為政的判準。
+             🔴 **與 `initialKey` 同一個值 ⇒ 點亮的時機與跳頁的時機天生一致**:
+                不會出現「跳到 money 但沒有點」或「有點但不跳」那種讓人不信任它的狀態。
+             🔴 **fail-loud 是逐格查過的,不是假設**(codex 關卡2 must-fix 要求給證據,2026-08-25):
+                四個輸入**每一個都是「出事 ⇒ 真」**,所以「判不出來」一律【亮】,不會安靜地不亮:
+                  · `payments.status !== 'ok'`  讀不到/查無 ⇒ 真
+                  · `refundsFailed` / `manualRefundsFailed` / `refundUnregisteredFailed` 讀取失敗 ⇒ 真
+                  · `*Truncated` 沒讀完 ⇒ 真
+                ⚠️ 唯一看起來像 fail-open 的是 `refundUnregisteredAmount === null` 那一項為假,
+                   **但它不是「讀不到」** —— `order-detail-route.tsx` 該處逐字:
+                   「失敗≠查無(codex MF2):壓成 null 會顯示成普通『查無』被照著操作」
+                   ⇒ 讀失敗走的是 `refundUnregisteredFailed = true` 那條,**仍然會亮**。
+             🔴 **而這正是它要解的那個已知殘餘**:`initialKey` 只在 mount 算一次 ⇒
+                revalidate 之後才變異常的單,跳頁那條路救不到它;**這顆點每次渲染都算。**
+                (該殘餘逐字寫在本檔 `initialKey` 那段:「真解仍是那顆紅點…這一格是已知殘餘」。)
+             ⚠️ **「同一個值」不等於「同一個時機」**(codex 關卡2 nit,2026-08-25):
+                `initialKey` 只在 mount 算一次、`alert` 每次渲染都算 ⇒ revalidate 之後
+                **點會亮而頁不會自己跳**。那是刻意的(跳頁會把人從他正在看的地方拉走),
+                但不要把它讀成「執行期也會自動切頁」。 */
+          alert: moneyTabMustSee,
           /* 🔴 **`#cancel` 是既有深連結的目的地**(列表那兩條),而它住在這一頁的取消區裡。
              沒有這一格,那兩條連結會連到一個 `hidden` 的區塊 —— 而 `order-detail.tsx` 自己
              早就寫著「收起來就等於連過去看到空白」。**分頁把「收起來」又做了一次。** */

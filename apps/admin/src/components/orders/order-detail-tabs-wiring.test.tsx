@@ -310,4 +310,30 @@ describe('🔴 must-fix 1:`OrderDetailTabs` 必須帶 `key={detail.id}`', () => 
     expect(SRC.length).toBeGreaterThan(1000);
     expect(SRC).not.toContain('zzz-not-a-real-token');
   });
+
+  // ── §12 組 28 警示圓點的【接線】(codex 關卡2 must-fix,2026-08-25)────────────
+  // 🔴🔴 **為什麼這一格非有不可**:`order-detail-tabs.test.tsx` 那三格是**手動傳 `alert`**
+  //    去驗元件行為 ⇒ **有人把 `alert: moneyTabMustSee` 刪掉或接錯,那三格照樣全綠**。
+  //    codex 逐字:「若日後刪除或接錯 `alert: moneyTabMustSee` 仍會全綠」。
+  //    ⇒ 這正是本檔開頭那句判別句的同一個形狀:**元件測綠 ≠ 接線對。**
+  it('🔴🔴 money 那一顆 tab 的 `alert` 接的是 `moneyTabMustSee`(刪掉/接錯 ⇒ 那顆點永遠不亮,而元件測全綠)', () => {
+    const i = SRC.indexOf("key: 'money'");
+    expect(i, "找不到 money 那顆 tab ⇒ 下面的斷言會恆綠").toBeGreaterThan(-1);
+    // 只看 money 那一顆的區塊(到下一顆 tab 為止),避免撈到別顆的字面。
+    // 🔴 `indexOf` 找不到時回 -1 ⇒ `slice(i, -1)` 會**切到檔尾前一字元**、把後面所有 tab 都吃進來
+    //    ⇒ 那時這一格會**因為撈到別處的字面而假綠**(codex 關卡2 R2 nit)。
+    //    ⇒ 先斷言終點真的在起點後面,不要讓那個 -1 靜靜地擴大範圍。
+    const end = SRC.indexOf("key: '", i + 10);
+    expect(end, 'money 後面找不到下一顆 tab ⇒ 區塊切片會擴到檔尾而假綠').toBeGreaterThan(i);
+    const block = SRC.slice(i, end);
+    expect(block, 'money tab 沒有接 alert').toContain('alert:');
+    expect(block, 'alert 接的不是 moneyTabMustSee ⇒ 判準被換成別的東西了').toContain(
+      'alert: moneyTabMustSee',
+    );
+  });
+
+  it('🔴 負對照:`moneyTabMustSee` 真的被算出來過(只驗接線不驗來源 ⇒ 接到一個 undefined 也會綠)', () => {
+    expect(SRC).toContain('resolveOrderDetailTabFlags');
+    expect(SRC).toMatch(/const\s*\{[^}]*moneyTabMustSee[^}]*\}\s*=\s*resolveOrderDetailTabFlags/);
+  });
 });

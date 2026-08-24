@@ -282,4 +282,65 @@ describe('OrderDetailTabs — a11y 的最低限', () => {
     expect(bar).not.toBeNull();
     expect(bar!.className).toContain('focus-within:shadow-[0_0_0_1px_var(--border)]');
   });
+
+  // ── §12 組 28 / OD FIX-11 警示圓點(2026-08-25,Sean 拍「要補」)────────────────
+  // 🔴 **這一組是【渲染測試】不是字面哨兵** —— `alert` 是布林 prop,兩個世界在 jsdom 就分得開。
+  //    真瀏覽器那半(顏色翻白、對比、真的對帳異常資料)另外量過,寫在交件檔;
+  //    **本檔擋的是「有沒有這顆點、掛在哪一顆分頁、無障礙那半在不在」。**
+  // 🔴 **不能用 `span[aria-hidden="true"]` 當量具** —— 備註那顆**數字徽章**也帶 `aria-hidden`
+  //    ⇒ 那把尺會同時撈到徽章與圓點,「只有一顆」那格會恆紅、而「圓點在不在」那格會恆綠。
+  //    (本檔 `TABS` 的 notes 帶 `badge: 5`,所以這不是假設,是現況。)
+  //    ⇒ 改用**圓點自己的尺寸 class** 當識別:徽章是 `h-[18px]`,圓點是 `size-1.5`。
+  const dotsIn = (root: HTMLElement) =>
+    [...root.querySelectorAll('span[aria-hidden="true"]')].filter((s) =>
+      s.className.includes('size-1.5'),
+    );
+  const withAlertOnMoney = () =>
+    TABS.map((t) => (t.key === 'money' ? { ...t, alert: true } : t));
+
+  it('🔴🔴 `alert` 為真 ⇒ 那顆分頁長出圓點 + sr-only 說明;為假 ⇒ **元素根本不存在**', () => {
+    const withAlert = renderTabs({ tabs: withAlertOnMoney() });
+    const money = [...withAlert.container.querySelectorAll('[role="tab"]')].find((t) =>
+      t.textContent?.includes('收款'),
+    );
+    expect(money, '找不到收款分頁 ⇒ 下面的斷言會恆綠').toBeDefined();
+    expect(dotsIn(money as HTMLElement), '警示圓點不見了').toHaveLength(1);
+    expect(money!.textContent).toContain('這一頁有需要查看的狀況');
+
+    // 🔴 **負向那半**:OD 逐字「不是隱藏,是根本沒有這個元素」——
+    //    只驗「有的時候在」會讓「永遠都在」全綠通過。
+    const noAlert = renderTabs();
+    const money2 = [...noAlert.container.querySelectorAll('[role="tab"]')].find((t) =>
+      t.textContent?.includes('收款'),
+    );
+    expect(dotsIn(money2 as HTMLElement), 'alert 為假時圓點仍在').toHaveLength(0);
+    expect(money2!.textContent).not.toContain('這一頁有需要查看的狀況');
+  });
+
+  it('🔴 圓點只掛在被標記的那一顆分頁上(不會整排都長出來)', () => {
+    const { container } = renderTabs({ tabs: withAlertOnMoney() });
+    const dotted = [...container.querySelectorAll('[role="tab"]')].filter(
+      (t) => dotsIn(t as HTMLElement).length > 0,
+    );
+    expect(dotted).toHaveLength(1);
+    expect(dotted[0]!.textContent).toContain('收款');
+  });
+
+  it('🔴 選中態翻白、未選中態用 destructive —— 兩個世界的 class 不同(在藍底上不翻色 = 那顆點消失)', () => {
+    const { container, getByRole } = renderTabs({ tabs: withAlertOnMoney() });
+    const money = [...container.querySelectorAll('[role="tab"]')].find((t) =>
+      t.textContent?.includes('收款'),
+    )!;
+    // 預設 active 是 items ⇒ 收款這顆【沒被選中】⇒ 走 destructive
+    expect(money.getAttribute('aria-selected'), '前提變了:收款這顆變成選中態').toBe('false');
+    expect(dotsIn(money as HTMLElement)[0]!.className).toContain('bg-destructive');
+
+    // 🔴 **兩個世界都要表演**:點進去讓它變選中,同一顆點必須換成翻白那個 class。
+    fireEvent.click(getByRole('tab', { name: /收款/ }));
+    const moneyNow = [...container.querySelectorAll('[role="tab"]')].find((t) =>
+      t.textContent?.includes('收款'),
+    )!;
+    expect(moneyNow.getAttribute('aria-selected')).toBe('true');
+    expect(dotsIn(moneyNow as HTMLElement)[0]!.className).toContain('bg-primary-foreground');
+  });
 });
