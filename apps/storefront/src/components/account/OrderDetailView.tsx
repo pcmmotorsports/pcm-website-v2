@@ -255,7 +255,12 @@ export function OrderDetailView({ order }: OrderDetailViewProps) {
               ⇒ 紀律:**客人端只渲染枚舉映射出來的固定字串,永遠不渲染自由文字。**
                  現在連原文都**到不了這一層**(mapper 端就收斂掉了)⇒ 這是型別閘,不是自律。
               ⚠️ **代價照實寫**:客人看不到「為什麼被取消」。要接回來的正確做法是從
-                 `order_cancellations.reason_code`(七值枚舉)映一張**固定文案表**,而那張表的字要 Sean 定。
+                 取消原因的**七值枚舉欄**映一張**固定文案表**,而那張表的字要 Sean 定。
+                 🔴 **這裡刻意不寫那張表的字面名** —— `scripts/storefront-projection-leak-guard.test.ts`
+                    掃 storefront 原始碼時**不剝 `*` 開頭的註解行**(該檔 `:146-148` 逐字寫了理由:
+                    剝了會讓 template literal 裡的跨行 raw SQL 隱形)⇒ 寫在這裡會讓那道守門【假紅】。
+                    ⚠️ **改的是這句話的寫法, 不是那道守門** —— 它偏保守是刻意的, 不要去鬆它。
+                    要查那個欄位:`grep -rn reason_code supabase/migrations/`(枚舉定義在建表 migration)。
               📌 下面兩句是我寫的、不是稿上的、也不是 Sean 拍過的 ⇒ 已列進送他過目的文案清單。 */}
           <div className="acc-empty-sub">
             {cancelKind === 'expired'
