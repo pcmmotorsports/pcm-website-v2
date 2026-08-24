@@ -19,7 +19,7 @@ GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=52
+EXPECT_TOTAL=58
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
@@ -696,6 +696,100 @@ if [ "$S_PASS" != "$S_BLOCK" ] && [ "$S_BLOCK" != "$S_OTHER" ] && [ "$S_PASS" !=
 else
   bad "㉘摘要行·三世界有重複 ⇒ 那一行零判別力:A=[$S_PASS] B=[$S_BLOCK] C=[$S_OTHER]"
 fi
+
+# ════════════════════════════════════════════════════════════════════════
+# view 那條路(2026-08-24 放寬新增;2026-08-24 線3 補格)
+# ════════════════════════════════════════════════════════════════════════
+# 🔴 **為什麼補這六格**:放寬那筆改動加了 `view_names_of` / `VIEW_LIST` / `.from(` 那整條路,
+#    而本 harness 對它**零覆蓋**且照樣回報 52/52 PASS。當場量到的分母:
+#      本檔 `view_names_of|VIEW_LIST|\.from\(` ⇒ **0 命中**
+#      正對照 `fn_names_of|FN_LIST|\.rpc\(` ⇒ **23 命中**(尺是活的)
+#      本檔字串 `view` 出現 4 次、`reviewer` 也 4 次 ⇒ **差 0 ⇒ 每一個 view 都在 reviewer 裡面**
+#    ⇒ 那是「守門存在 ≠ 守門被測到」的標準形狀:**新路徑上線而 harness 的綠色一個字都沒變。**
+#
+# 🔴 **這六格自己有判別力嗎 —— 量過**(2026-08-24,拿 `git show HEAD:` 的【未放寬】舊閘當對照組):
+#      放寬後的閘  ⇒ 6/6 PASS
+#      未放寬的舊閘 ⇒ **恰好 ①⑤⑥(三格該紅)全部 rc=0 漏擋**,②③④(該綠)仍綠
+#    ⇒ **極性正確**:紅的來源就是這次放寬,不是別的。
+# ⚠️ 三格該紅一律**加驗訊息點名 `view [<名>]`** —— rc=1 有很多來源,
+#    而「擋下來了」與「紅錯地方」的 rc 是同一個。
+setup_view_repo() { # $1=repo
+  setup_repo "$1"
+  mkdir -p "$1/packages/adapters/src/supabase"
+}
+# 🔴 **2026-08-24 codex must-fix:`CREATE OR REPLACE MATERIALIZED VIEW` 不是合法 PostgreSQL。**
+#    第一版把 `MATERIALIZED ` 塞進 `OR REPLACE` 那個模板 ⇒ 測資本身是壞 SQL,
+#    閘因為**文字命中**而紅 ⇒ 那一格證明的是「它會 grep」,**不是「合法 materialized view 抽得到名字」**。
+#    ⇒ 兩種形狀分開產:一般 view 走 `CREATE OR REPLACE VIEW`,materialized 走 `CREATE MATERIALIZED VIEW`。
+add_view_migration() { # $1=repo
+  printf 'CREATE OR REPLACE VIEW public.pcm_probe_v AS SELECT 1 AS x;\n' \
+    > "$1/supabase/migrations/20260102000000_pending.sql"
+}
+add_matview_migration() { # $1=repo
+  printf 'CREATE MATERIALIZED VIEW public.pcm_probe_v AS SELECT 1 AS x;\n' \
+    > "$1/supabase/migrations/20260102000000_pending.sql"
+}
+# 造一次推送:$1=repo → 印 "rc|輸出"
+view_push() { # $1=repo
+  local base tip
+  base="$(cd "$1" && git rev-parse HEAD)"
+  ( cd "$1" && git add -A && git commit -qm w >/dev/null )
+  tip="$(cd "$1" && git rev-parse HEAD)"
+  run_gate "$1" "refs/heads/dev $tip refs/heads/dev $base"
+}
+
+# ════════════════════════════════════════════════════════════════════════
+# 🔴🔴 **已【實測確認】而本 harness 沒有格在守的四個洞(2026-08-24 codex 對抗審查)**
+#    寫在這裡是因為:**它們是真的,而下面六格全綠** —— 不寫,下一個人會把 58/58 讀成「這條路是安全的」。
+#    每一條都附可複跑的測資(拋棄式 repo,正對照=正常 view+讀 ⇒ 擋、負對照=無關改動 ⇒ 放行,兩發都活)。
+#      🔴漏擋 ① `CREATE RECURSIVE VIEW public.v(x) AS …`      ⇒ 抽不到名字,rc=0
+#      🔴漏擋 ② `CREATE /*註解*/ VIEW public.v AS …`          ⇒ 抽不到名字,rc=0
+#      🔴誤擋 ③ migration 的【行註解裡】有 `-- CREATE VIEW public.ghost_v …`
+#               而 app 新增讀既有的 `ghost_v` ⇒ 抽成假 DDL,rc=1
+#      🔴誤擋 ⑤ app 只是新增一個 `const LABEL = "pcm_probe_v"`(**完全沒有 `.from()`**)⇒ rc=1
+#    ⚠️ ⑤ 這條是「整串字面」matcher 的設計後果,`.rpc(` 那條路**本來就有同一個性質**
+#       ⇒ 它不是本次放寬新增的,而**放寬把它的射程從函式名擴到 view 名** ⇒ 命中面變大。
+#    📌 codex 另外點的「④被註解掉的呼叫會誤擋」**實測不成立**(rc=0,剝註解有效)⇒ 已改成 V④ 在守它。
+#    ⇒ **為什麼不直接加成紅格**:紅格會讓整支 harness 紅,而這四條要不要修是設計取捨
+#      (①②修了更嚴、③⑤修了更寬),不是本片能自己拍的 ⇒ 已回報,等裁決。
+# ════════════════════════════════════════════════════════════════════════
+
+echo "── view 那條路(2026-08-24 放寬;線3 補) ──────────────"
+
+RV1="$WORK/v1"; setup_view_repo "$RV1"; add_view_migration "$RV1"
+printf 'export const q = (c:any)=> c.from("pcm_probe_v").select("*");\n' > "$RV1/apps/admin/src/reader.ts"
+expect_block "V①漏擋面·建 view 且 app 新增 .from() 讀它 ⇒ 擋(放寬前這格 rc=0)" \
+  "$(view_push "$RV1")" "view [pcm_probe_v]"
+
+RV2="$WORK/v2"; setup_view_repo "$RV2"; add_view_migration "$RV2"
+printf 'export const x = 2;\n' > "$RV2/apps/admin/src/other.ts"
+expect_pass "V②該綠必綠·建 view 但沒有人讀 ⇒ 放行(否則每支 view migration 都被擋)" \
+  "$(view_push "$RV2")"
+
+RV3="$WORK/v3"; setup_view_repo "$RV3"; add_view_migration "$RV3"
+printf 'export type DB = { pcm_probe_v: { Row: { x: number } } };\n' \
+  > "$RV3/packages/adapters/src/supabase/database.types.ts"
+expect_pass "V③誤擋面·view 名只出現在【自動產生】的型別檔 ⇒ 放行(GENERATED_TYPES 刻意排除;型別檔發不出 PostgREST 請求)" \
+  "$(view_push "$RV3")"
+
+# 🔴 **2026-08-24 codex must-fix:V④ 第一版是【恆綠】的。**
+#    原測資是裸的 `// TODO 以後改讀 pcm_probe_v` —— 那個字面**本來就不符合**兩個 matcher
+#    (`.from(` 窗口 / 引號整串字面)⇒ 就算把剝註解整段拿掉它照樣綠 ⇒ 對「剝註解有沒有裝上」零判別力。
+#    ⇒ 改成**被註解掉的呼叫**:剝註解若失效,這一行會落進 `.from(` 窗口 ⇒ 紅。
+RV4="$WORK/v4"; setup_view_repo "$RV4"; add_view_migration "$RV4"
+printf '// c.from("pcm_probe_v")\nexport const y = 3;\n' > "$RV4/apps/admin/src/note.ts"
+expect_pass "V④誤擋面·**被註解掉的** .from() 呼叫 ⇒ 放行(剝註解若失效這格會紅)" \
+  "$(view_push "$RV4")"
+
+RV5="$WORK/v5"; setup_view_repo "$RV5"; add_view_migration "$RV5"
+printf 'export const q = (c:any)=> c.from(\n  "pcm_probe_v"\n).select("*");\n' > "$RV5/apps/admin/src/multi.ts"
+expect_block "V⑤漏擋面·跨行 .from( —— view 名在下一行 ⇒ 仍要擋(與 .rpc( 那邊同一條窗口規則)" \
+  "$(view_push "$RV5")" "view [pcm_probe_v]"
+
+RV6="$WORK/v6"; setup_view_repo "$RV6"; add_matview_migration "$RV6"
+printf 'export const q = (c:any)=> c.from("pcm_probe_v").select("*");\n' > "$RV6/apps/admin/src/reader.ts"
+expect_block "V⑥漏擋面·CREATE MATERIALIZED VIEW 也要抽得到名字 ⇒ 擋" \
+  "$(view_push "$RV6")" "view [pcm_probe_v]"
 
 echo
 echo "══ 結果:PASS=$PASS FAIL=$FAIL(期望 PASS=$EXPECT_TOTAL)══"

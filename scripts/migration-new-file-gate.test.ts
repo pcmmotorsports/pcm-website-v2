@@ -1,6 +1,6 @@
 // migration-new-file-gate.test.ts — 「新增的 .sql 會不會真的被靜態檢查擋下」的**真效果測**。
 //
-// 🔴 為什麼要有這一支(2026-08-25 線3 立):
+// 🔴 為什麼要有這一支(2026-08-24 線3 立):
 //   `scripts/migration-new-file-static-checks.sh --selftest` 已經證明**那支腳本自己**會擋
 //   (A/M 雙向 + 多檔 + 該綠必綠,4/4)。但它證不到中間那一層:
 //   package.json 的 `supabase/migrations/*.sql` 這條 lint-staged entry
@@ -8,7 +8,7 @@
 //   當場量到的分母:全 repo 提到 `migration-new-file-static-checks` 的是 **4 個檔 / 9 行**
 //   (package.json **兩條** entry〔接線那條 + `--selftest` 那條〕、腳本自己、兩支 migration 的註解)。
 //   🔴 而「零守門」只對**接線那一條**成立 —— `--selftest` 那條守的是**腳本本體**,不守接線。
-//      (審查 2026-08-25 更正:原句寫「只有 4 處」把 package.json 的第二條蓋掉了。)
+//      (審查 2026-08-24 更正:原句寫「只有 4 處」把 package.json 的第二條蓋掉了。)
 //   形狀 = memory `feedback_a-fail-open-guard-hides-whether-it-is-installed`
 //         + 隔壁 `check-syntax-nonts.gate.test.ts` 檔頭那句「守門存在 ≠ 守門接著」。
 //
@@ -20,7 +20,7 @@
 //   · 它證的是「這條路通」,不是「四道靜態檢查都對」—— 那是 `migration-static-checks.sh --selftest`(29/29)的事。
 //   · 只餵規則②那一種違規。其餘三道規則的接線由同一條路走 ⇒ 通了就是通了,但本檔沒有各餵一發。
 //   · 走的是 `lint-staged` 這一層,**不是 `.husky/pre-commit`**。
-//     🔴 **2026-08-25 審查更正**:~~原句寫「pre-commit 有沒有呼叫 lint-staged 由
+//     🔴 **2026-08-24 審查更正**:~~原句寫「pre-commit 有沒有呼叫 lint-staged 由
 //     `scripts/husky-hook-wiring-check.sh` 管」—— 那是假的~~。那支管的是
 //     「`.husky/*.sh` 那幾行有沒有接 `|| exit $?`」,它檔內唯一那句 `pnpm exec lint-staged`
 //     在自檢 fixture 的 heredoc 裡。真正釘住那一環的是
@@ -153,7 +153,7 @@ describe('lint-staged → migration-new-file-static-checks 真效果測', () => 
     expect(r.out, `擋下來了,但不是規則②擋的 ⇒ 本格失去歸因:\n${r.out}`).toContain(RULE2_MARK);
   });
 
-  // 🔴🔴 **本格第一版是【恆綠】的,2026-08-25 審查 must-fix 2 抓到 —— 形狀就是本片在獵的那個。**
+  // 🔴🔴 **本格第一版是【恆綠】的,2026-08-24 審查 must-fix 2 抓到 —— 形狀就是本片在獵的那個。**
   //    原版只斷 `status === 0` 與「沒印規則②的字面」。而 lint-staged **成功時完全不印 task 輸出**
   //    ⇒ 「entry 被刪、task 根本沒跑」那個世界**印出一模一樣的東西** ⇒ 零判別力。
   //    📏 兩個世界的差別在 lint-staged 自己的進度行(實測,不是推的):
