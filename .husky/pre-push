@@ -36,4 +36,13 @@ _T="$(mktemp)" || exit 1
 trap 'rm -f "$_T"' EXIT
 trap 'rm -f "$_T"; exit 1' INT TERM
 cat > "$_T" || { echo '🔴 pre-push:讀不進 git 餵的 ref(stdin)⇒ 擋下,不放行' >&2; exit 1; }
-TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T"
+# 🔴 第五段 selftest git 隔離 gate(2026-08-25;線 3 交件, 主視窗裁定掛這裡不掛 lint-staged):
+#    今晚兩次事故都是「自帶拋棄式世界的 --selftest 在真 repo 上動手」——
+#      board-state-consistency.py 清空整個 index(3,234 ⇒ 3)
+#      view-apply-before-wire-gate.py 在真 repo 建 4 顆 commit 並把 dev 指過去
+#    🔴 為什麼不掛 lint-staged:當場量到 --selftest 37 秒 / 全掃 171 秒。
+#      每顆 commit 多等 37 秒 ⇒ 人會開始 --no-verify, 那比沒有這道閘更糟。
+#      而它守的是【repo 的一個狀態】不是每顆 commit 都會變的東西 ⇒ 用 push 的頻率問它才對。
+#    ⚠️ 它對債表上已知的 3 支只印不擋, 對【表外新出現的】才 exit 1(線 3 拋棄式 repo 真 push 兩方向量過)。
+#    ⚠️ 它不吃 stdin, 而上面兩支已經把 $_T 用掉了 ⇒ 導 /dev/null 只是為了不讓它意外繼承。
+TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T" && bash "$_R/scripts/selftest-git-isolation-gate.sh" < /dev/null

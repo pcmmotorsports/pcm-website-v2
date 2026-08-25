@@ -27,6 +27,22 @@
 #      🔴 **模擬一個環境時, 多設一個變數會讓它變成另一個環境。**
 #   ③ 超時 = **量不到**, 不是乾淨。慢的腳本會被標 TIMEOUT 並單獨列出。
 set -u
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔴🔴 本閘【自己】曾經犯下它要抓的那個病 —— 2026-08-25, 收包的人在 pre-commit 底下撞到。
+#   形狀:手動跑 5 PASS「全部通過。」/ 在 pre-commit 底下 exit 2「正對照沒抓到」,
+#         而**同一發還把一個誘餌 repo 從 7 個檔寫成 12 個**。
+#   成因:`pre-commit` 設了 `GIT_DIR` / `GIT_INDEX_FILE`, 而本閘蓋受害者 repo 用的
+#         `git init` / `git add` / `git commit` **一路繼承下去** ⇒ 蓋在別人的倉庫上。
+#   📌 **一把抓「沒有隔離」的尺, 自己沒有隔離。** 而它手動跑是全綠的 ——
+#      綠的那一次與壞的那一次, 差別只有【誰在跑它】。
+# ⇒ 修法:本閘自己的每一發 git 都在**剝乾淨的環境**下跑;
+#   只有 `probe ... yes` 那一發【故意】把 GIT_DIR 指向受害者。
+#   證人 = `--selftest` 的「丁」格(帶著 GIT_DIR 跑, 誘餌不得變、且 selftest 要真的跑完)。
+# ══════════════════════════════════════════════════════════════════════════════
+for _v in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_v"; done
+unset _v
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMPROOT="${TMPDIR:-/tmp}/sgi.$$"
 V="$TMPROOT/victim"
@@ -106,13 +122,48 @@ if [ "${1:-}" = "--selftest" ]; then
   # 丙:一支已知修好的 ⇒ 兩個方向都必須 CLEAN(它分得出「修好」與「壞的」)
   ck "丙1 board-state 帶 GIT_DIR"   "$(probe scripts/board-state-consistency.py yes | cut -d' ' -f1)" CLEAN
   ck "丙2 board-state 不帶 GIT_DIR" "$(probe scripts/board-state-consistency.py no  | cut -d' ' -f1)" CLEAN
+  # ── 丁:🔴 **這一格就是收包的人撞到的那一發。** ─────────────────────────────
+  #    帶著 pre-commit 真的會設的那兩個變數跑【本閘自己】, 要求兩件事同時成立:
+  #      丁1 誘餌 repo 一個檔都不許變(它不得寫到繼承來的倉庫上)
+  #      丁2 內層要**真的跑完**(rc=0)—— 只驗丁1 的話, 「它壞掉提早死掉」也會讓誘餌不變
+  #    📌 少了丁2, 「安全」與「死了」印同一個結果。
+  #    ⚠️ 只設 GIT_DIR + GIT_INDEX_FILE, **不設 GIT_WORK_TREE** —— pre-commit 就是這樣。
+  if [ "${SGI_SKIP_ISOLATION_CELL:-}" != "1" ]; then
+    DEC="$TMPROOT/decoy"
+    rm -rf "$DEC"; mkdir -p "$DEC" || die "mkdir decoy"
+    ( cd "$DEC" && git init -q . && git config user.email d@d.t && git config user.name d ) || die "git init decoy"
+    for i in 1 2 3 4 5 6 7; do printf 'y%s\n' "$i" > "$DEC/g$i.txt"; done
+    ( cd "$DEC" && git add g1.txt g2.txt g3.txt g4.txt g5.txt g6.txt g7.txt && git commit -qm base ) >/dev/null || die "commit decoy"
+    dcount() { printf '%s %s' "$(cd "$DEC" && git ls-files | wc -l | tr -d ' ')" "$(cd "$DEC" && git rev-parse HEAD)"; }
+    d_before=$(dcount)
+    ( cd "$ROOT" && SGI_SKIP_ISOLATION_CELL=1 \
+        GIT_DIR="$DEC/.git" GIT_INDEX_FILE="$DEC/.git/index" \
+        bash "$ROOT/scripts/selftest-git-isolation-gate.sh" --selftest ) >/dev/null 2>&1
+    d_rc=$?
+    d_after=$(dcount)
+    ck "丁1 帶 GIT_DIR 跑自己 ⇒ 誘餌 repo 不得變" "$d_after" "$d_before"
+    ck "丁2 帶 GIT_DIR 跑自己 ⇒ 內層必須跑完"     "$d_rc"    "0"
+  fi
+  # ── 戊:從**別的目錄**呼叫本閘, 候選清單不得變成空的 ────────────────────────
+  #    🔴 這一格是真 push 實測換來的:`pre-push` 不保證 cwd 是 repo 根。
+  #    量的是「列得出候選」而不是「rc=0」—— 因為債表上還有違規者時 rc 也可能非 0,
+  #    那兩件事要分開問。
+  wcount=$( cd / && { cd "$ROOT" && { git ls-files -z; git ls-files -z --others --exclude-standard; } \
+            | xargs -0 grep -l -- '--selftest' 2>/dev/null | sort -u | grep -cE '^scripts/.*\.(py|sh)$'; } )
+  [ "${wcount:-0}" -gt 0 ] && ck "戊 從別的目錄也列得出候選" yes yes \
+                          || ck "戊 從別的目錄也列得出候選" no yes
   echo "  ── $p PASS / $f FAIL"
   [ "$f" = 0 ] || exit 1
   echo "全部通過。"; exit 0
 fi
 
 controls
-CAND=$( { git -C "$ROOT" ls-files -z; git -C "$ROOT" ls-files -z --others --exclude-standard; } \
+# 🔴 **整段在 `cd "$ROOT"` 裡面跑**(2026-08-25 真 push 實測抓到):
+#    `git -C "$ROOT" ls-files` 吐的是**相對於 ROOT** 的路徑, 而 `grep` 用的是**當下的 cwd**
+#    ⇒ 從別的目錄呼叫本閘時, 每一個檔名都開不起來 ⇒ 命中 0 ⇒ 本閘判自己壞掉 exit 2。
+#    📌 而在 `pre-commit` 底下 cwd 剛好是 repo 根 ⇒ **它一直是對的, 直到有人從別的地方叫它。**
+#    (第一次撞到是拿它掛 `pre-push` 做拋棄式真 push:push 被擋, 而理由與違規者無關。)
+CAND=$( cd "$ROOT" && { git ls-files -z; git ls-files -z --others --exclude-standard; } \
         | xargs -0 grep -l -- '--selftest' 2>/dev/null | sort -u | grep -E '^scripts/.*\.(py|sh)$' )
 [ -n "$CAND" ] || die "候選清單是空的"
 n=0; bad=0; newbad=0; slow=0
