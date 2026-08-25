@@ -10,9 +10,32 @@ import { ADDRESS_INVOICE_LABEL } from '../../lib/customers/customer-detail-view'
 // M-4a 客戶明細-b:訂單歷史/地址/車庫三 section(server-render 唯讀;customer-detail.tsx 組裝)。
 // 🔴 訂單歷史=OrderListItem 摘要投影(型別層零經銷價/成本欄、total=該客成交價);
 //    地址含發票設定、車庫含引擎號/里程=PII 同頁邊界(admin-only、登入閘後)。
-// ⚠️ 已知限制(#278):listSummariesByCustomer 沿用 #249 隱含濾 unpaid(storefront 會員視角
+// 🔴🔴 ~~已知限制(#278):listSummariesByCustomer 沿用 #249 隱含濾 unpaid(storefront 會員視角
 //    藏放棄付款孤兒單)→ 本頁「訂單歷史」看不到該客待付款單(admin /orders 列表篩「待付款」
-//    看得到同一單);admin 專用含 unpaid 查法=另片,詳 backlog #278。
+//    看得到同一單);admin 專用含 unpaid 查法=另片,詳 backlog #278。~~
+// **⇒ 2026-08-24 上面整段【已不成立】**:`#249` 那道 `.neq('payment_status','unpaid')` 已被拆掉
+//    (`SupabaseOrderAdapter.ts` 的 `listSummariesByCustomer`,Sean 拍板【丙:不要藏,顯示並標狀態】)
+//    ⇒ **本頁現在【看得到】該客的待付款單** ⇒ `#278` 那個「兩個後台頁互相矛盾」被順手修掉了。
+//
+// 🔴 **而這一段是【被審查抓到的】,不是我主動想起來的** —— 那一片動的是 storefront 的畫面,
+//    而 `listSummariesByCustomer` 是**跨兩個 app 的共用方法**:
+//    `load-customer-detail.ts:104` 呼叫的就是同一支。
+//    📌 **改一個共用方法時,「我改的是哪個畫面」不是分母 —— 分母是【誰在呼叫它】。**
+//
+// ⚠️ ~~**而本頁沒有為此加任何欄位**:清單投影 `ORDER_LIST_SELECT` **不含 `cancelled_at`**~~
+//    ⇒ 2026-08-25 實查:`ORDER_LIST_SELECT` **含** `cancelled_at`
+//      (`packages/adapters/src/supabase/SupabaseOrderAdapter.ts:99`,由 `2e276a10` 加入)
+//      ⇒ **原句的【前提】為假。**
+//    ⇒ 🔴 **而結論仍然成立,只是理由換了一個** —— 不是撈不到,是**本頁沒有讀它**:
+//      `grep -n 'cancelled\|Cancelled' <本檔>` ⇒ **命中全部落在註解行**(判別式:
+//      同一發接 `| grep -cv '://'` ⇒ 0 ⇒ 沒有任何一格在真的碼上);
+//      正對照 `grep -c 'paymentStatus\|payment_status' <本檔>` ⇒ 2(那兩格在碼上)⇒ 尺會動。
+//      🔴 **這是自指的量測** —— 本段註解自己就是命中的一部分,寫下它就改變了它
+//      ⇒ 只寫「全在註解行」這個**程序**,不寫命中數那個**絕對值**。
+//      ⇒ **已取消的單在本頁也會顯示,而分不出來**(同 storefront 的那一格,見那支檔的決策題)。
+//    📌 **一句話讀起來對,不代表它下面那句依據是對的** —— 這一段的結論從頭到尾沒錯,
+//      而它拿來當依據的那個事實在 `2e276a10` 那天就死了,**沒有任何東西會紅**。
+//    ⇒ **那一格未決,本頁跟著未決。** 不要單獨在這裡補一個 admin 專用的判法。
 // 編輯/刪除不在此(後台寫入片另議);V-1d dict 欄唯讀顯示。
 
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
