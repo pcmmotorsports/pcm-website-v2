@@ -11,6 +11,24 @@
 # 判準(刻意窄,只咬危險組合,不咬所有 next dev):
 #   這次 commit【新增的一行】同時含 ADMIN_DEV_BYPASS=1 與 next dev,且不含 -H 127.0.0.1 ⇒ 擋。
 #   ⚠️ 不擋單獨出現 next dev(docs 裡大量在講別的事,例如拋棄式 PG 版本、pgrep 找程序名)。
+#
+# 🔴 2026-08-25 擴射程(Sean 拍乙;b4 量的三個洞。**這不是修壞掉的東西,原本的行為是對的**):
+#   ① dev 指令族:`pnpm dev` / `npm run dev` / `yarn dev` 都會走到 `next dev`
+#      (apps/admin/package.json 的 "dev" 逐字就是 "next dev")⇒ 危險完全相同,而舊字面看不見。
+#   ② 值可以帶引號:shell 會把引號吃掉 —— `ADMIN_DEV_BYPASS="1"` 傳進去就是 `1`
+#      (實測 `sh -c 'ADMIN_DEV_BYPASS="1" printenv ADMIN_DEV_BYPASS'` ⇒ 1),
+#      而 apps/admin/src/lib/session/authorize.ts:18 比的是 `=== '1'` ⇒ bypass 真的會開。
+#   ③ 順手修掉一個【既有的誤擋】:`ADMIN_DEV_BYPASS=10` 的值是 "10" ≠ '1' ⇒ bypass 不會開,
+#      而舊字面 `ADMIN_DEV_BYPASS=1` 會命中它。新版加了 `([^0-9]|$)` ⇒ 不再誤擋。
+#   ⚠️ 同理 `ADMIN_DEV_BYPASS=true` 也不觸發 bypass ⇒ 本閘刻意不擋它。**不是漏,是不危險。**
+#
+# 🔴🔴 本閘【只咬單行】—— 這是宣告過的限制,不是還沒想到:
+#   `export ADMIN_DEV_BYPASS=1` 與 `next dev` 分兩行寫 ⇒ 環境變數照樣設起來,而本閘不擋。
+#   要擋它需要跨行狀態,那會把這道閘變複雜;**代價與收益還沒有人量過**。
+#   ⚠️ 而讀到這一行的人請注意:**一個宣告過的限制,會讓人以為沒宣告的部分也被想過了。**
+#      這一句只涵蓋「分兩行」這一種,不涵蓋任何其他變形。
+#
+# 🔴 判定與【寫 log 那一段】用的是同一組判準,改一處必須同時改另一處(兩處都在本檔)。
 #   ⚠️ 不擋「拋棄式 PG」那個安全變體(接本機拋棄式庫,不指正式站)—— 這道閘只看單行字面,
 #      分不出後面接的是正式站還是拋棄式庫;若要收窄到那個粒度,拋棄式 PG 那幾處請保留
 #      現有寫法(不要加 -H 也不算錯,那條路本來就低風險一級)。
@@ -24,7 +42,47 @@
 #
 # 逃生門:PCM_ALLOW_ADMIN_BYPASS_LINE=1 git commit ...(commit body 寫明理由)
 
+# ═══ 🔴 這道閘【管不到什麼】(2026-08-25 codex 兩輪實測;Sean 拍「就此收工」)═══
+# 🔴🔴 **以下不是窮舉。** 這一節列的是【已經被量到】的五種, 不是【全部】——
+#    而本檔自己記過那個病:**一個宣告過的限制, 會讓人以為沒宣告的部分也被想過了。**
+#    ⇒ 讀到這一節請當成「已知的下界」, 不是「安全範圍的上界」。
+#
+# 根因(五條共用一個):**本閘用【字面近似】shell 的剖析語意, 而同一個指令有無限多種拼法。**
+#    第一輪修 3 條 ⇒ 第二輪生出 6 條, 其中 5 條是修法本身帶進來的 ⇒ 已停手, 不再加碼。
+#
+# ① 分兩行寫    `export ADMIN_DEV_BYPASS=1` 與 dev 指令各一行 ⇒ 環境變數照樣設起來, 本閘只咬單行
+# ② 指令尾接符號 `pnpm --filter @pcm/admin dev;` / `dev>/dev/null`
+#                成因:判準要求 dev 後面是空白或行尾 ⇒ `;` `>` 都不算
+# ③ 賦值後接重導向 `ADMIN_DEV_BYPASS=1>/dev/null pnpm … dev`
+#                成因同②(執行期值【確實是 1】, 實測 printenv 導 stderr ⇒ [1])
+# ④ 散文誤擋    `ADMIN_DEV_BYPASS=1 … pnpm does not run admin dev`
+#                成因:dev 指令族允許中間夾任意 token ⇒ 散文可能被讀成指令
+#                ⚠️ 真語料實測命中 **0 行**(2026-08-25;分母 = 全部 git 追蹤檔)
+# ⑤ 值帶尾空白誤擋 `ADMIN_DEV_BYPASS='1 ' pnpm dev`(執行期值是 `1␣` ≠ `1`, 不危險而被擋)
+#                ⚠️ 真語料實測命中 **0 行**
+# ⑥ 註解裡的 -H  `ADMIN_DEV_BYPASS=1 pnpm dev # -H 127.0.0.1` ⇒ shell 不把註解當參數, 而本閘被那串字騙過
+#                ⚠️ 真語料裡【# 之前那段本身是可執行指令】的 ⇒ **0 行**;已開 backlog
+# ⑦ 檔名含空白 / 非 ASCII ⇒ 整支檔不被掃(成因:`for f in $(git diff --cached --name-only)` 未加引號)
+# ⑧ rename(`Rxxx`)被 `--diff-filter=ACM` 排除
+# ⚠️ ⑦⑧ 與 ①-⑥ 不同:**它們在 2026-08-25 改動之前就存在**, 不是這次擴射程帶進來的。
+# ⚠️ ⑦⑧ 與 ② ③ 之中, 有四條是**照 codex 原句轉錄、我未獨立實測**(見交件檔), 引用前請自己跑。
+#
+# 📌 而【已知誤擋】現況:真語料 2 行(docs/runbooks/…:708 的反例示範、docs/specs/…:69 的散文),
+#    兩行在改動前的原版也擋 ⇒ 本次改動對真語料是【純減少誤擋】(原版 10 → 現行 6 → 只算版控裡的 2)。
+
+
 set -e
+
+# 🔴 dev 指令族的【單一定義】—— 判定與寫 log 兩處共用同一個變數。
+#    2026-08-25 codex 對抗審查 must-fix:原本兩處各寫一份字面, 實測會分岔
+#    (`ADMIN_DEV_BYPASS=""1 pnpm dev` grep 漏而 awk 命中;`="1"0` 反過來)。
+#    ⇒ 不是「兩處要記得同步」, 是【根本不要有第二份】。
+#    涵蓋 pnpm/npm/yarn 帶中間參數的寫法:`pnpm --filter admin dev`、`npm --prefix … run dev`。
+DEV_CMD_RE='(next[[:space:]]+dev|(pnpm|npm|yarn)([[:space:]]+(-{1,2}[^[:space:]]+|[a-zA-Z0-9@/._-]+))*[[:space:]]+dev([[:space:]]|$))'
+# 🔴 空字串在 awk 的 `~` 裡是【恆真】(實測:awk -v devre="" '{if($0~devre)…}' ⇒ 匹配一切)
+#    ⇒ 若有人刪掉上面那行, 寫 log 那段會記下每一個新增行, 而【判定那段會一行都不擋】。
+#    兩個方向都錯, 而都不會報錯 ⇒ 這裡 fail-closed。
+[ -n "$DEV_CMD_RE" ] || { echo "🔴 admin-dev-bypass-gate: DEV_CMD_RE 是空的 ⇒ 擋下(不放行)" >&2; exit 1; }
 
 [ "${PCM_ALLOW_ADMIN_BYPASS_LINE:-}" = "1" ] && {
   echo "⚠ 免登入後台指令守門被 PCM_ALLOW_ADMIN_BYPASS_LINE=1 略過 —— 請在 commit body 寫明理由" >&2
@@ -42,7 +100,23 @@ for f in $(git diff --cached --name-only --diff-filter=ACM); do
     /^\+\+\+/ { next }
     /^\+/  { print line ":" substr($0, 2); line++; next }
   ')
-  LINES=$(printf '%s\n' "$ADDED" | grep 'ADMIN_DEV_BYPASS=1' | grep 'next dev' | grep -v -- '-H 127\.0\.0\.1' || true)
+  # 🔴 判準三段(順序有意義):① 去引號後【值精確等於 1】② 會跑到 admin 的 dev script
+  #    ③ 沒有 -H —— 🔴 **三段全部對【去引號後】的字串判**
+#       ⚠️ 這一句在 2026-08-25 較早的版本裡寫的是「第③段刻意用【原始行】而非去引號後的」——
+#          **那句話後來變成假的, 而讓它變假的是同一天稍晚的一次修正。** 保留這行說明, 是因為
+#          光看現在的碼看不出來它曾經是另一個樣子, 而讀舊 commit 的人會撞到那句舊註解。
+#       成因(codex R2 must-fix, 已折):awk 那側原本用【原始行】檢查 -H ⇒
+#          餵 `ADMIN_DEV_BYPASS=1 pnpm dev -H 127'.0.0.1'`(執行期【真的有綁】127.0.0.1, 是安全指令)
+#          ⇒ 判定鏈去引號後看到 -H ⇒ 放行;awk 用原始行看不到 ⇒ 記進 .gate-blocks.log
+#          ⇒ **一條安全指令被記成擋案。兩處分岔。**
+#       判哪一邊對, 用的是【執行期行為】不是「哪個看起來合理」:
+#          sh -c 'printf "args: %s\n" "$*"' _ -H 127'.0.0.1'  ⇒  args: -H 127.0.0.1
+#          ⇒ 引號被 shell 吃掉 ⇒ 正解是兩處都對【去引號後】的字串判。
+  LINES=$(printf '%s\n' "$ADDED" \
+    | sed "s/[\"']//g" \
+    | grep -E 'ADMIN_DEV_BYPASS=1([[:space:]]|$)' \
+    | grep -E "$DEV_CMD_RE" \
+    | grep -v -- '-H 127\.0\.0\.1' || true)
   [ -n "$LINES" ] && HITS="$HITS
 $f:
 $LINES"
@@ -59,12 +133,17 @@ LOG_TS=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
   for f in $(git diff --cached --name-only --diff-filter=ACM); do
     [ "$f" = ".husky/admin-dev-bypass-gate.sh" ] && continue
     git cat-file -e ":$f" 2>/dev/null || continue
-    git diff --cached -U0 --no-ext-diff --no-textconv -- "$f" | awk -v ts="$LOG_TS" -v gate="admin-dev-bypass-gate" -v file="$f" -v head="$LOG_HEAD" '
+    git diff --cached -U0 --no-ext-diff --no-textconv -- "$f" | awk -v ts="$LOG_TS" -v gate="admin-dev-bypass-gate" -v file="$f" -v head="$LOG_HEAD" -v devre="$DEV_CMD_RE" '
       /^@@/  { match($0, /\+[0-9]+/); line = substr($0, RSTART+1, RLENGTH-1) + 0; next }
       /^\+\+\+/ { next }
       /^\+/  {
         content = substr($0, 2)
-        if (content ~ /ADMIN_DEV_BYPASS=1/ && content ~ /next dev/ && content !~ /-H 127\.0\.0\.1/)
+        c2 = content; gsub(/["\047]/, "", c2)
+        if (c2 ~ /ADMIN_DEV_BYPASS=1([[:space:]]|$)/ \
+            && c2 ~ devre \
+            && c2 !~ /-H 127\.0\.0\.1/)   # 🔴 R2:這裡必須用【去引號後】的 c2, 與判定鏈同一份輸入
+                                          #    原本用 content ⇒ `-H 127'.0.0.1'`(執行期真的有綁)
+                                          #    判定放行而 log 記下 ⇒ 兩處分岔。實測已修。
           print ts "\t" gate "\t" file ":" line "\t" head
         line++
         next
