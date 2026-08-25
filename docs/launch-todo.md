@@ -74,6 +74,8 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 
 ## B · 上線前必關(正本 `docs/security/2026-08-17-pre-launch-must-close-checklist.md`)
 
+> **證據等級**(2026-08-25 線 4 提、主視窗落):標 `✅Sean 親跑` 的是**他本人**在正式庫或面板上跑的(逐格附腳本名或截圖來源);標 `⚠️未確認` 的是**量過而兩個訊號打架**;其餘為施工窗或審查員複驗後**轉述**,**主視窗未逐條開檔**。🔴 **標 ✅ 者除外** —— 不要把這一句讀成「整節都是轉述」。
+
 > 實體工作 16 條。**⑯⑰⑲ 三條前置都是 B5-a ⇒ 收在 A 組,本表不重列。**
 
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
@@ -104,6 +106,8 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 ---
 
 ## C · 功能線
+
+> **證據等級**(2026-08-25 線 4 提、主視窗落):**標日期的量測**為當天實跑(附命令);**未標日期者為沿用前一版板子的字面**。🔴 `doing` 列的數字**每天都可能翻面**,引用前自己重跑。**標 ✅ 且附命令者除外。**
 
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
 |---|---|---|---|---|
@@ -143,6 +147,8 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 
 ## F · 紅著的閘(2026-08-24 新增)
 
+> **證據等級**(2026-08-25 線 4 提、主視窗落):標 `✅線3` / `✅主視窗` 的是該窗**當場實跑**(附命令與 rc);🔴 而**「真瀏覽器」類的證據不可重跑** ⇒ 一律附「**誰看的 / 哪一天 / 哪一頁**」,附不出來就不是證據。**標 ✅ 且附命令者除外。**
+
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
 |---|---|---|---|---|
 | done | — | 🔴 **CI 已經連紅約 74 小時,而沒有人被通知** | 待派 | 末次 success `2026-08-20T03:29:01Z`,其後 **29 顆連續非 success**。`STATUS.md:31` 已記「CI 非閘、無人被通知」。⚠️ STATUS 寫的「34 小時」已過期 | 🔴 **2026-08-23 更新(主視窗)**:根因查明並已 commit —— runner 內建 python 3.12.3 < `check-syntax-nonts` 的地板 `PY_MIN=[3,14]`,而三支 workflow 裡 `python|setup-python` **零命中** ⇒ 那 8 格從裝上以來**在 CI 上一次都沒成功通過**。修法 `a8ce7578`(`actions/setup-python@v7`, 釘 3.14), codex 對抗審查 R1 FAIL 3 must-fix(**全部在新寫的註解上,做法本身零 finding**)已修完。⚠️ **仍是 doing 不是 done**:它**要真的跑一次 CI 才驗得到**,而那顆還沒推。🔴 而 push 輸出已第三方佐證此事:`Bypassed rule violations … Required status check "check" is expected`。 ✅ **2026-08-25 關掉(線 3 當場重跑, 主視窗收)**:`gh run list --limit 40` ⇒ 最新一顆 `2026-08-24T12:08:58Z` **success**(CI, headSha `64eb9366`);**從最新往回連續非 success = 0**(板子寫 29);CI workflow 最近三顆連續綠 `03:44:19Z` / `09:27:09Z` / `12:08:58Z`;正對照 = 尺抓到 40 筆、負對照 `conclusion=="zzz"` ⇒ 0;`a8ce7578` `git merge-base --is-ancestor` ⇒ **是 dev 的祖先**。🔴 **這一列的形狀比它的結論重要**:它自己寫的收工條件(「要真的跑一次 CI 才驗得到, 而那顆還沒推」)**已經被滿足了, 而滿足它的是【別人做的事】** ⇒ **沒有任何機制會回來改這一列** —— 它就這樣以 `doing` 的狀態掛了一天多。⚠️ 本列關掉**不影響** `STATUS.md` Blocker 那條「CI 不是閘、是事後警報」—— 那條講**結構**, 仍成立, **兩件事不要合起來讀**。
@@ -158,6 +164,8 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 | open | #299 | 🔴🔴 **整張正式資料表不在版控裡 —— 用 repo 從零重建資料庫這條路是斷的** | 待派 | `public.product_fitments_effective` 在正式站是一張**完整資料表**(**148,716 列**、PK、3 索引、5 CHECK、對 `products` 的 FK `ON DELETE CASCADE`、RLS 已開), 而 `supabase/migrations/` **沒有任何一支建立它** —— 它是當初在 SQL Editor / MCP 手動建的。**實測(2026-07-29 D1a6)**:建 preview branch ⇒ `MIGRATIONS_FAILED`、**85 支只跑了 54 支**。<br>🔴 **為什麼今天才進這張板子**:`#299` 在 `docs/phase-1-backlog.md:9061` 立了將近一個月, 而 2026-08-25 當場數 `grep -c '#299' docs/launch-todo.md` ⇒ **0**(正對照 `#841` ⇒ 2、負對照 `#99999` ⇒ 0)⇒ **它一次都沒出現在「上線前還剩什麼」這張表上。** 而這張板子的檔尾自己就寫著「它不涵蓋沒有人盤過的面」—— **這一格就是那句話的實例。**<br>🔴 **`#298` 抓不到它**:`#298` 比對的是「本地檔名 vs remote 版本號」, 而兩邊**完全一致** ⇒ 它會回報「乾淨」。📌 memory `feedback_control-named-beyond-its-actual-power`:**防護的名字比它實際擋得住的範圍大。**<br>✅ **現況不是沒人處理**:`scripts/d1-fitments-bootstrap.sql` 是一支**明寫定位的 stub**(檔頭逐字「本檔不是 `#299` 的解…定位 = migration 相容性 stub」「若日後 `#299` 落地, 本檔應改為指向正式 migration 並刪除」)。⇒ **它不在 `supabase/migrations/` 裡** ⇒ 純靠 migrations 從零建庫仍然會卡。<br>⚠️ **兩個分母對不上, 未選邊**:那支腳本檔頭寫「4 支 migration 引用它」, 而 2026-08-25 線 1 當場量到 **7 支**(非註解行命中亦 7)。檔頭那句寫於 2026-07-29, 而命中的檔裡有 3 支是 08-11 的 ⇒ **判檔頭的 4 過期**, 而**沒有人改它**(不是線 1 的檔)。<br>🔴 **缺的檢查(線 1 自己標的射程)**:它答的是「**從現在這個起點(206 成功 / 8 跳過)重跑那 8 支**」, **不是「從零」**。真正的「從零」= **開一個新的空 DB, 依序跑完 214 支, 數失敗幾支** —— **今夜還沒有人做, 已排給線 1。**<br>✅ **2026-08-25 線 1 做掉了那一格**:全新空庫依序跑 214 支 ⇒ **195 成功 / 19 失敗**(首個失敗在 #55);把 `d1-fitments-bootstrap.sql` 插在 #55 之前 ⇒ **199 / 15**。真正救不回來的是 **7 支**(兩支 migration 自己的斷言需要既有資料 + 5 支下游), 而災難那天就是空庫。<br>🔴🔴 **本列標題有兩處與事實不符, 2026-08-25 線 1 當場量到, 尚未改標題(改標題會斷掉外部引用的字面錨)**:<br>　**① 不是「一張表」, 是【七個物件】** —— 同一把尺(`CREATE TABLE|VIEW|FUNCTION` 對 `supabase/migrations/`, 正對照 `shipments` ⇒ 1、負對照編造名 ⇒ 0):`product_fitments_effective` / `_staging` / `_sync_log` / `storefront_fitments_v`(view)/ `search_products_by_vehicle` / `pfe_staging_reset` / `pfe_sync_commit` **建它們的 migration 各 0 支**。⚠️ 連帶:`d1-fitments-bootstrap.sql` **只建其中 1 張** ⇒ 上面那個 `199/214` 的射程比它讀起來窄, **引用時要帶著這句走**。<br>　**② 不是「不在版控裡」, 是【在一個沒有人會去讀的地方】** —— 七個物件的 DDL **完整存在**於 `docs/archive/2026-07-25-docs-cleanup/reviews/2026-07-12-s1-apply-sql.sql`(**312 行**:三表 + 一 view + 三函式 + 3 索引 + RLS ENABLE + POLICY + 逐個 GRANT/REVOKE)。📌 **`docs/archive/*` 在規矩裡是「絕不動」, 而大家把它讀成「不要碰」⇒ 連讀都不去讀** —— **一條保護性的規矩, 把一份完整的資料變成了隱形的。**<br>　⚠️ **而②【還沒有】把這一列關掉**:那份檔是 **2026-07-12** 的, 距今 44 天;本列宣稱正式庫有 **5 個 CHECK**, **沒有人數過那 312 行裡有幾個** ⇒ **漂移未排除**。「DDL 找得到」與「DDL 等於正式庫現況」是兩個宣稱, 只成立第一個。<br>✅✅ **2026-08-25 線 1 實跑那 312 行(拋棄式 PG, 新庫 `l1_pfe` = `TEMPLATE l1_zero` 乾淨 47 表)**:**七個物件裡六個建得起來。**<br>　🔴🔴 **2026-08-25 線 1 §9 更正:網站側的缺口是【6 個】不是 7 個。**卡住的 `storefront_fitments_v` 與它依賴的 `product_groups_v` **是【報價單庫】的物件**,而且**一直好好地在報價單 repo 的版控裡**(`~/API大量上架/PCM報價單-V2`,`supabase/migrations/20260730000000_baseline_schema.sql` **同一支檔建兩個**;同尺各 ⇒ 1,負對照 `zzz_bogus_v` ⇒ 0)。⇒ **存檔那 312 行是一份【混合包】,網站庫與報價單庫的物件混在一起** —— 「有一個建不起來」根本不是缺口,是**把別人家的東西餵進了我們家的庫**。<br>　📌 **而線 1 自己抓到的兩個量法坑值得跟著這一列走**:① 它第一版的「查無」**射程寫了副檔名,而副檔名就是那個漏洞**(11 支 `.md` 全在射程外)⇒ **射程寫得出來 ≠ 夠寬,而這比「沒寫射程」更難發現,因為它看起來很嚴謹**;② 它把「不在我們 repo 裡」讀成了「不在版控裡」⇒ 🔴 **跨 repo 的東西,在單一 repo 的尺下與「遺失」印同一句話。** 整份一次跑 ⇒ `EXIT=3` 停在 `:48`(`relation "product_groups_v" does not exist`), **失敗那發零留痕**(表數仍 47);拆兩段 `:67-160` 與 `:161-312` ⇒ 皆 `EXIT=0`。<br>　🔴 **而卡住的那個不在關鍵路徑上**:今天被 `apps/` `packages/` 引用(排除 `database.types.ts`)—— `product_fitments_effective` **9 處** / `search_products_by_vehicle` **4 處** ← 關鍵路徑;`storefront_fitments_v`(卡住的那個)/ `pfe_staging_reset` / `pfe_sync_commit` / `_staging` / `_sync_log` **皆 0 處**;負對照 `pcm_zzz_bogus` ⇒ 0。⇒ **重建「客人看得到的那條路」只需要 2 個物件, 兩個都建得起來。**<br>　✅ **六格獨立佐證**(板子對正式庫的描述 vs `database.types.ts`(產自正式庫)vs 線 1 在 `l1_pfe` 量到的):欄 8 逐字同 / CHECK 5 / 索引 4=PK+3 / FK 1 且 `ON DELETE CASCADE` / FK 名逐字同 / RLS true —— **六格全中, 沒有一格對不上。**<br>　⚠️ **而線 1 自己貼的限制原封留在這裡, 因為它最容易被讀成「驗過了」**:**「這是強佐證, 不是等同。六格全中仍可能有第七格漂掉了。44 天。」**<br>　⚠️ 另:**148,716 列【資料】一列都沒驗**, 本段全部只講結構 ⇒ 就算 DDL 補進版控, 從零重建仍然沒有那些資料。**兩件事不要合起來讀。**<br>🔴 **三顆地雷 —— 寫那支 migration 的人一定要看**(全文 `~/pcm-mailbox/線DB驗證-交件-299缺的DDL一直在archive裡-20260825.md` §7):<br>　① 存檔檔最後一行是 `ALTER ROLE service_role SET statement_timeout = 300s` ⇒ **叢集層角色設定, 不是 schema**。🔴 照抄整份 312 行的話:**三綠會全綠、apply 會成功、而它動到了叢集設定。**<br>　② 存檔檔物件名**沒有 schema 前綴** ⇒ 要補 `public.`, 而補之前要先確認 `search_path` 假設。<br>　③ 線 1 量到序列 ACL `anon=rwU` 是**本機 shim 的 `ALTER DEFAULT PRIVILEGES`**, 不是存檔檔給的 ⇒ **不要拿本機這串去對正式庫、也不要照它寫 GRANT**。<br>📌 **下一步不是寫 migration** —— 那是 schema ⇒ 鐵則 8(要 plan 等 Sean 批)+ 鐵則 12③。本列現在是「**材料齊了, 等排**」, 不是「可以動手」。 |
 
 ## G · Sean 2026-08-24 已裁(**不要再拿這幾格去問他**;逐字與連帶效應在 memory `project_0824-sean-five-scope-rulings`)
+
+> **證據等級**(2026-08-25 線 4 提、主視窗落):**Sean 的逐字引號內為原話**;**引號外為主視窗的判讀**;所有 grep 數字為 **2026-08-24 掃描當下值,未重量**。🔴 判讀與原話混在同一格時,只有引號內那半是他說的。
 
 | 態 | # | 事 | 誰 | 卡什麼 / 關鍵事實 |
 |---|---|---|---|---|
@@ -245,7 +253,7 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 
 | 態 | # | 事 | 卡什麼 / 車行會遇到什麼 |
 |---|---|---|---|
-| open | — | 🔴 **33 支後台 API 沒有自己的門鎖,全靠一道 middleware** | 分母=所有非公開 `app/api/**/route.ts`,逐檔 `grep -c 'requireAdmin\|verifySession\|getSession\|cookies()'` ⇒ **33 支 0 命中**。✅ 已試著擊穿:Next `15.5.23`,CVE-2025-29927(繞過 middleware)**已修** ⇒ 今天大門沒壞。**哪天大門壞了,匯出全部報價與成本那支 API 直接對全世界開** |
+| open | — | 🔴 **33 支後台 API 沒有自己的門鎖,全靠一道 middleware** | 分母=所有非公開 `app/api/**/route.ts`,逐檔 `grep -c 'requireAdmin\|verifySession\|getSession\|cookies()'` ⇒ **33 支 0 命中**。✅ 已試著擊穿:Next `15.5.23`,CVE-2025-29927(繞過 middleware)**已修** ⇒ 今天大門沒壞。🔴🔴 **2026-08-25 線 4 量到、主視窗當場複核:那個 `15.5.23` 沒有寫出處,而同一棵樹的宣告版是別的數字。**數法(只讀,不動那棵樹):`grep -n '"next"' /Users/sean_1/API大量上架/PCM報價單-V2/package.json` ⇒ `:31` `"next": "^15.1.4"`;負對照 `grep -c '"zzznext"' <同檔>` ⇒ 0(rc=1)。⚠️ **兩者不矛盾**(`^` 允許升到 15.5.x)—— **它們是兩個不同的東西:宣告版 vs 實裝版。**🔴 **而危險在方向**:下一個人照 `package.json` 查會拿到 `15.1.4`,**而那個版本在 CVE-2025-29927 的受影響範圍裡**⇒ **他會得到一個相反、而且看起來很確定的結論**,然後去修一道可能沒壞的門、或向 Sean 回報一個安全事故。📌 **一個過期或無出處的座標,在安全這一面上,兩個方向都會製造真實的行動。**⚠️ **線 4 自標的射程,照原句留著:「我沒有證明板子錯 —— 我只證明了 `package.json` 與板子寫的不同。缺的檢查 = 在那棵樹上讀 lockfile 或 `node_modules` 的實裝版。兩個宣稱,我只成立第一個。」**(那一發已派線 4,只讀、不得寫入那棵樹。)**哪天大門壞了,匯出全部報價與成本那支 API 直接對全世界開** |
 | open | — | 🔴 新開的 API **出生就是不用登入可打**,而零測試在看 | `git ls-files \| grep -iE 'test\|spec' \| xargs grep -l 'middleware\|PUBLIC_PATHS'` ⇒ 生產測試 **0 支**。以後任何人在 `app/api/quote/` 下新開一支,**三綠全綠、沒人會收到通知** |
 | open | — | 防灌水自己掛掉時**安靜地放行** | `lib/quote-guard.ts:45` `if (error) return { allowed: true }` + `:48` catch ⇒ fail-open。公開報價頁被狂刷時,**沒有人會知道** |
 | open | — | 🔴 **2FA 蓋好了,但沒有「這支手機是誰的」** | 用建表語句當分母(不猜欄名):`totp_devices` 14 欄零 `user_id`(`baseline_schema.sql:5029-5044`);🆕 `recovery_codes` 同病(`:4674-4682`)。⇒ **現在開 2FA,出事查不出是誰**。連動本板 B 組 `⑯` |
@@ -281,6 +289,8 @@ grep -oE '\| (open|doing|parked|done) \|' docs/launch-todo.md | sort | uniq -c
 ---
 
 ## M · 2026-08-24 夜班收工新增(**這一節是補漏 —— 當天生出來的洞,當天沒有進板子**)
+
+> **證據等級**(2026-08-25 線 4 提、主視窗落):🔴 **本節每一列的數字必須帶【量測日期】與【當時的分母】** ——本節數字多為跨夜量測,而 `supabase/migrations/` 與 `supabase/APPLIED.tsv` **都會長**。沒帶日期的數字**不是錯的,是無法判斷新舊的** ⇒ 引用前當場重跑。
 
 > 🔴 **本節存在的理由是一個量測**:2026-08-24 收工時查,當天產生的七個編號
 > (`#900` `#903` `#904` `#905` `#906` `#907` `#908`)在本檔命中 **全部 0**,
