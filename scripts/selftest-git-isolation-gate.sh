@@ -59,8 +59,6 @@ trap 'rm -rf "$TMPROOT"' EXIT
 #      —— 否則它會一裝就紅, 而一裝就紅的閘會在三天內被繞過去。
 KNOWN="
 scripts/dev-four-greens.sh
-scripts/pre-push-attack-surface-sweep.sh
-scripts/where-is.sh
 "
 
 die() { echo "🔴 $1 ⇒ 本閘自己壞了, exit 2" >&2; exit 2; }
@@ -80,9 +78,11 @@ snap() {
 # 跑一支, 印 "狀態 rc";狀態 = CLEAN / DIRTY / TIMEOUT
 probe() { # $1=相對路徑  $2=leak(yes/no)
   local f="$1" leak="$2" cmd b a rc pid waited=0
+  local fp
+  case "$f" in /*) fp="$f" ;; *) fp="$ROOT/$f" ;; esac
   case "$f" in
-    *.py) cmd=(python3 "$ROOT/$f" --selftest) ;;
-    *.sh) cmd=(bash    "$ROOT/$f" --selftest) ;;
+    *.py) cmd=(python3 "$fp" --selftest) ;;
+    *.sh) cmd=(bash    "$fp" --selftest) ;;
     *) echo "SKIP 0"; return ;;
   esac
   mkvictim; b=$(snap)
@@ -116,10 +116,31 @@ if [ "${1:-}" = "--selftest" ]; then
   p=0; f=0
   ck() { if [ "$2" = "$3" ]; then echo "  PASS $1 ($2)"; p=$((p+1)); else echo "  🔴 FAIL $1 —— 得 $2 期望 $3"; f=$((f+1)); fi; }
   controls; echo "  PASS 甲 正負對照皆過"; p=$((p+1))
-  # 乙:一支已知會洩漏的 ⇒ 帶 GIT_DIR 必 DIRTY、不帶必 CLEAN(兩方向)
-  ck "乙1 where-is.sh 帶 GIT_DIR"   "$(probe scripts/where-is.sh yes | cut -d' ' -f1)" DIRTY
-  ck "乙2 where-is.sh 不帶 GIT_DIR" "$(probe scripts/where-is.sh no  | cut -d' ' -f1)" CLEAN
-  # 丙:一支已知修好的 ⇒ 兩個方向都必須 CLEAN(它分得出「修好」與「壞的」)
+  # 乙:一支【故意不隔離】的樁 ⇒ 帶 GIT_DIR 必 DIRTY、不帶必 CLEAN(兩方向)
+  # 🔴🔴 **這支樁是自己造的, 不是拿 repo 裡某一支真腳本當範例。**
+  #    2026-08-25 踩到:原本乙格指名 `scripts/where-is.sh`(當時的已知違規者),
+  #    而**我把它修好的那一刻, 乙1 就假紅了** —— 紅的原因不是本閘壞了, 是**靶被修好了**。
+  #    📌 一個「已知會壞」的例子, 只要它是**活的檔**, 就有人會去修它。
+  #      ⇒ 對照組要**自己造**, 它的壞是我寫死的, 沒有人會來修。
+  LEAK="$TMPROOT/leaky-stub.sh"
+  cat > "$LEAK" <<'STUB'
+#!/bin/sh
+t=$(mktemp -d) || exit 1
+cd "$t" || exit 1
+git init -q . >/dev/null 2>&1
+printf 'x\n' > leak.txt
+git add leak.txt >/dev/null 2>&1
+git -c commit.gpgsign=false commit -qm leak >/dev/null 2>&1
+exit 0
+STUB
+  chmod +x "$LEAK"
+  ck "乙1 故意不隔離的樁 帶 GIT_DIR"   "$(probe "$LEAK" yes | cut -d' ' -f1)" DIRTY
+  ck "乙2 故意不隔離的樁 不帶 GIT_DIR" "$(probe "$LEAK" no  | cut -d' ' -f1)" CLEAN
+  # 丙:一支【真的、已知修好的】腳本 ⇒ 兩個方向都必須 CLEAN。
+  #    ⚠️ **這一格刻意留了一個真檔**(乙格改成自建樁之後, 這裡是唯一的真實世界樣本)——
+  #      它證明的是「這把尺在**別人寫的真碼**上也分得出修好與壞的」, 樁證明不了這件事。
+  #    🔴 **代價要講清楚**:若有人把 `board-state-consistency.py` 的隔離弄壞,
+  #      紅的會是**本閘**, 而病人是那支檔 ⇒ 看到丙紅時, 先去看那支檔, 不要先查本閘。
   ck "丙1 board-state 帶 GIT_DIR"   "$(probe scripts/board-state-consistency.py yes | cut -d' ' -f1)" CLEAN
   ck "丙2 board-state 不帶 GIT_DIR" "$(probe scripts/board-state-consistency.py no  | cut -d' ' -f1)" CLEAN
   # ── 丁:🔴 **這一格就是收包的人撞到的那一發。** ─────────────────────────────

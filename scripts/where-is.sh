@@ -195,6 +195,14 @@ where_is() {
 #    上一版把探針綁在「那個檔只在 customers 上」這個【會過期的世界狀態】——
 #    reviewer 實測:那批一收割,格2 就假紅,而紅的原因不是 bug。
 selftest() {
+  # 🔴🔴 **剝掉繼承來的 `GIT_*`**(2026-08-25 補;`scripts/selftest-git-isolation-gate.sh` 量到的)
+  #    下面那個 `cd "$tmp" && git init` 的拋棄式世界, 在 `pre-commit` / `pre-push` 底下
+  #    會**繼承 `GIT_DIR` / `GIT_INDEX_FILE`** ⇒ 那些 `git add` / `git commit`
+  #    **打到真的 repo 上**。實測:受害者 repo 從 5 個檔被寫成 8 個、HEAD 被移動。
+  #    📌 而它裸跑是全綠的 ⇒ **綠的那一次與壞的那一次, 差別只有【誰在跑它】。**
+  #    ⚠️ 只剝在 `selftest()` 裡面 —— 主模式(查一個真路徑)本來就該看當下的 repo, 不動它。
+  for _gv in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_gv"; done
+  unset _gv
   pass=0; fail=0; skip=0
   ck() { if [ "$2" = "$3" ]; then pass=$((pass+1)); printf 'PASS  %s\n' "$1";
          else fail=$((fail+1)); printf 'FAIL  %s  得到「%s」預期「%s」\n' "$1" "$2" "$3"; fi; }
