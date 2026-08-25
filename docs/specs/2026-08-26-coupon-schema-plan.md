@@ -32,6 +32,22 @@ design-reference/HANDOFF.md:202-203 逐字   "invalidCoupon": false,
 
 ⇒ 📌 **所以「拒絕理由」在這一片是【規格】不是事後補的 UI** —— 它決定資料表要記什麼、API 要回什麼。
 
+## 🔴 §0-b 而它連帶決定了這一片的成本階梯:**要不要第二張表**
+
+`Q2乙`(每人可用 N 次)**必須查得到「這個帳號用過沒」**。
+而 `orders.discount_total` 是**一個總數**:
+```
+supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql:103 逐字
+  discount_total  integer NOT NULL DEFAULT 0 CHECK (discount_total >= 0)
+⇒ 它記得住「這單折了 500」, 記不住「這 500 是哪張券折的、誰用的」
+```
+⇒ 🔴 **`coupon_redemptions` 不是「加分」,是「必須」——沒有第二張表,「每人上限」做不出來。**
+⇒ **這是這一片的成本分水嶺**:一張表 = 券的 CRUD;兩張表 = 券的 CRUD **+ 每一次結帳都要寫一筆**。
+
+📌 **而金流那邊要知道的是另一句**:`orders` 那條 DB 不變式**不動**
+(`:112` `CONSTRAINT orders_total_balances CHECK (total = subtotal + shipping_fee - discount_total)`)
+⇒ **券只影響 `discount_total` 是怎麼算出來的,不碰那條不變式** ⇒ **對金流線零侵入。**
+
 ---
 
 ## §1 要改什麼
@@ -41,11 +57,8 @@ design-reference/HANDOFF.md:202-203 逐字   "invalidCoupon": false,
 coupons               券本體
 coupon_redemptions    誰、在哪張單、用了哪張券、折了多少
 ```
-🔴 **為什麼一定要第二張表**:`orders.discount_total` 是**一個總數**
-(`supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql:103`
-`discount_total integer NOT NULL DEFAULT 0 CHECK (discount_total >= 0)`)
-⇒ **記不下「這 500 是哪張券折的」** ⇒ 而 `Q2乙`(每人上限)**必須查得到「這個帳號用過沒」**
-⇒ **沒有第二張表,每人上限做不出來。**
+🔴 **為什麼一定要第二張表 ⇒ 見 §0-b**(全文在那裡,此處不重複)。一句話:
+`orders.discount_total` 是**一個總數**,而 `Q2乙` 的「每人上限」要查得到「**這個帳號用過沒**」。
 
 ### 1-2 `coupons` 欄位(全部來自 Sean 的答案,逐欄標出處)
 ```
