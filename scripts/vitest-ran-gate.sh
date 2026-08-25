@@ -65,7 +65,15 @@ if [ -n "$SUMMARY" ]; then
   # 🔴 有 Tests 行【不等於】有東西跑過(這一格是本閘自己的洞,實測補的):
   #    `-t` 過濾沒命中任何測試 ⇒ 印「Tests  38 skipped (38)」而且 **rc=0** ⇒ 舊版會放行。
   #    ⇒ 判準:那一行裡要真的有【跑過的東西】—— passed 或 failed 至少一個非零。
-  RAN=$(printf '%s' "$SUMMARY" | grep -cE '[1-9][0-9]* (passed|failed)')
+  # 🔴 `expected fail` 是【真的跑過】(測試 body 執行了、如預期地失敗)⇒ 必須算進來。
+  #    2026-08-25 構造實測:一支只有 `it.fails` 的檔 ⇒ `Tests  3 expected fail (3)`、vitest rc=0
+  #    ⇒ 舊正規式只認 passed|failed ⇒ RAN=0 ⇒ **本閘回 98 說「一格都沒真的跑」= 假紅**。
+  #    (舊版之所以在混合輸出下看起來是對的,是被同一行的 `N passed` 救的,不是被 `failed` 救的。)
+  #    ⚠️ 反向:`todo` / `skipped` **不算跑過**,刻意不放進來 —— 已各構造一發驗過仍回 98。
+  #    🔴 這三個以外的摘要字彙(未來版本新增的)**未確認**:本閘會把它們讀成「沒跑」⇒ 假紅方向。
+  #    🔴 **而這個洞的射程要一起讀**:它只在【零 passed】的世界現形,而日常幾乎每一發都有 passed
+  #       ⇒ 觸發條件罕見。**罕見不等於不重要 —— 罕見表示它現形的那一天,沒有人會相信它。**
+  RAN=$(printf '%s' "$SUMMARY" | grep -cE '[1-9][0-9]* (passed|failed|expected fail)')
   if [ "$RAN" -gt 0 ]; then
     exit "$RC"
   fi
