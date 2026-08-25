@@ -96,7 +96,7 @@
 #    ② 規則② 先只印報告(**還沒做**)
 #    ③ 結構性的 ①③ 與 rc=2 才先升 blocking(**還沒做**)
 # ⚠️ 而掛上去那一步動 `.husky/` = 平台設定 = 鐵則 12④ ⇒ **不在本檔的權限裡。**
-import io, os, re, subprocess, sys, tempfile
+import io, json, os, re, subprocess, sys, tempfile
 
 CLOSED = ('open', 'doing', 'parked', 'done')
 # 🔴 板子那條數法的 regex 【只寫一次】 —— grep 用它, 驗輸出形狀也用它。
@@ -176,17 +176,37 @@ BYPASS_MARK = '<!-- BOARD-GATE-BYPASS:'
 #       有人在**這一顆 commit 裡**新增一行長得像痕的引文 ⇒ 它會成立。
 #       而「舊痕重用」那條路已經被上面那句堵死 ⇒ 剩下的是**當次刻意為之**, 不是會慢慢腐爛的洞。
 def _bypass_marks(text):
-    return {l.strip() for l in text.split('\n') if BYPASS_MARK in l}
+    """🔴 code-reviewer N1(2026-08-25):比對前**把空白正規化**——
+       原本是整行字面比對 ⇒ 在 HEAD 舊痕中間多插一個空白, 它就被算成「新痕」,
+       而那正是本檢查要擋的那件事(舊痕重用)換一個寫法。"""
+    #    🔴 用 `''.join` 不是 `' '.join`:中文之間本來就沒有空白,
+    #       插一個進去會把 `上一次留下的` 切成兩個 token ⇒ 正規化成單一空白**擋不住**
+    #       (逃11 實測到:第一版仍然 rc=0 放行)。剝光空白才比得出「同一行」。
+    #    ⚠️ 副作用:兩行只差空白的**不同**痕會被當成同一行 ⇒ 偏保守(往「擋」的方向錯), 可接受。
+    return {''.join(l.split()) for l in text.split('\n') if BYPASS_MARK in l}
 
 
 def _head_text(path):
-    """HEAD 裡那一份。拿不到(沒有 HEAD / 不在 repo 裡 / 該檔還沒進版本庫)⇒ None。
-       🔴 None **不當成「沒有舊痕」以外的意思** —— 那種世界裡任何一行痕都必然是新的。"""
+    """HEAD 裡那一份。**沒有 HEAD / 該檔還沒進版本庫 ⇒ None**(那種世界裡任何痕都必然是新的)。
+       🔴 code-reviewer I3(2026-08-25):原本對**任何** git 失敗都回 None ⇒ fail-open,
+          而它印出來的是一句**正面的假宣稱**:「板子帶著【這次新增的】痕 ⇒ 放行」。
+          實跑證據:痕在 HEAD 裡、重用它、PATH 上沒有 git ⇒ rc=0 放行;
+          同一世界 git 在 PATH 上 ⇒ rc=1。**兩個世界該印不同的東西, 而它印一樣的。**
+       ⇒ 現在分三種:git 跑不動 ⇒ MeasurementError(rc=2, 與同檔 `read_source` 的既有約定一致);
+          git 跑得動而沒有 HEAD ⇒ None;git 跑得動、有 HEAD 而該檔不在裡面 ⇒ None。
+       ⚠️ **刻意不剝 GIT_***:這裡只跑 `git show`(唯讀, 不可能污染 index),
+          而剝掉之後它在 linked worktree 裡會與同檔 `read_source` 讀到不同的 repo。"""
     try:
         r = subprocess.run(['git', 'show', f'HEAD:{path}'], capture_output=True)
-    except OSError:
-        return None
-    return r.stdout.decode('utf-8', 'replace') if r.returncode == 0 else None
+    except OSError as e:
+        raise MeasurementError('GIT_UNRUNNABLE', f'跑不動 git show HEAD:{path}:{e}')
+    if r.returncode == 0:
+        return r.stdout.decode('utf-8', 'replace')
+    try:
+        chk = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], capture_output=True)
+    except OSError as e:
+        raise MeasurementError('GIT_UNRUNNABLE', f'跑不動 git rev-parse:{e}')
+    return None
 
 
 def split_cells(line):
@@ -498,6 +518,19 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
         say(f'  🔴 {BYPASS_ENV}=1 而板子上那 {len(cur)} 行痕【HEAD 裡已經有了】⇒ **不放行**'
             f'(舊痕不能重用 —— 那會讓第一次繞道變成一個永久的洞。'
             f'這次要繞就寫一行新的, 並且 stage 它)')
+    elif bad:
+        # 🔴🔴 code-reviewer C1 [Critical](2026-08-25):**逃生門對【除了寫它的人以外的所有人】不存在。**
+        #    原本只有 `env == '1'` 那條分支會印任何一句關於它的話 ⇒ 撞到閘的人看到兩行紅、
+        #    **沒有任何出口** ⇒ 他伸手拿 `--no-verify` ⇒ 那顆 commit 上的**每一道閘**一起關掉。
+        #    ⚠️ 而 body 裡「一道逼人用 --no-verify 的閘比沒有那道閘更糟」那句是我自己寫的 ——
+        #       **這一片交出去的就是那道閘。**
+        #    對照組:`.husky/status-owner-gate.sh:22` 與 `scripts/reserve-backlog.sh:168`
+        #    都把 env 名寫進**失敗訊息**。本閘原本是全 repo 唯一一道把逃生門藏起來的。
+        say(f'  ── 真的要繞過去(而板子確實還沒改得完)⇒ **兩步, 缺一不可**:')
+        say(f'     ① 把一行 `{BYPASS_MARK} <日期> <誰> <為什麼> -->` 寫進 {board} 並 stage 它')
+        say(f'     ② {BYPASS_ENV}=1 git commit …')
+        say(f'     🔴 那一行痕會跟著這顆 commit 進板子 —— 這就是它與 --no-verify 的差別:'
+            f'--no-verify 會把這顆 commit 上的【每一道】閘一起關掉, 而且不留任何痕。')
     return bad
 
 
@@ -1259,7 +1292,12 @@ def selftest():
     _dirty_board = _pad('| zzzbad | — | 態欄不在封閉集 | — | x |\n')
     _mark_line = '\n<!-- BOARD-GATE-BYPASS: 2026-08-25 selftest 證人用的假痕 -->\n'
     _esc = [
-        ('逃1該綠必綠 · env=1 且板子帶著痕 ⇒ 放行', _dirty_board + _mark_line, True, 0),
+        # 🔴 code-reviewer N2(2026-08-25):這一格餵的板子是**臨時檔、不在任何 git repo 裡**
+        #    ⇒ `_head_text` 回 None ⇒ 它走的是 **fail-open 那條分支**, 不是 fresh 比對。
+        #    ⇒ 標題原本寫「板子帶著痕 ⇒ 放行」, 讀起來像在驗 fresh 那條路, 而它沒有。
+        #    真正驗 fresh 的是 逃5 / 逃6(那兩格在真 git repo 裡)。標題改成它實際驗的東西。
+        ('逃1該綠必綠 · 【拿不到 HEAD 的世界】env=1 + 痕 ⇒ 放行(走 fail-open 那條分支)',
+         _dirty_board + _mark_line, True, 0),
         ('逃2該紅必紅 · env=1 而板子【沒有】痕 ⇒ 仍然擋', _dirty_board, True, 1),
         ('逃3該紅必紅 · 有痕而【沒設 env】⇒ 仍然擋(痕不是永久的洞)',
          _dirty_board + _mark_line, False, 1),
@@ -1363,6 +1401,107 @@ def selftest():
               f' / 附加路徑 rc={_r8.returncode}(該是 0)')
         ok = False
 
+    # ══ code-reviewer C1 [Critical] 的證人:**逃生門要講給撞到閘的人聽**═══════
+    #    🔴 少了這一格, 逃生門可以只存在於 code 裡, 而撞到閘的人手上只有 --no-verify。
+    #    ⚠️ **該不印的那一半也要有** —— 綠的時候印一段繞道教學 = 教大家怎麼繞, 那是反效果。
+    import contextlib as _c1ctx
+    def _cap(board_text):
+        _b = io.StringIO()
+        with _c1ctx.redirect_stdout(_b):
+            try:
+                scan(_mkf('c1-b.md', board_text), _mkf('c1-s.md', GREEN_SPEC))
+            except MeasurementError:
+                pass
+        return _b.getvalue()
+    _o_bad = _cap(_dirty_board)
+    _o_ok = _cap(GREEN_BOARD)
+    if BYPASS_ENV in _o_bad and BYPASS_MARK in _o_bad and BYPASS_ENV not in _o_ok:
+        print('  ✅ 逃8·出口可見 · 紅的時候把 env 名與痕的格式印出來;綠的時候不印'
+              '(不教沒撞到閘的人怎麼繞)')
+    else:
+        print(f'  🔴 逃8·出口可見 · 紅時有 env={BYPASS_ENV in _o_bad} 有痕格式={BYPASS_MARK in _o_bad}'
+              f' / 綠時有 env={BYPASS_ENV in _o_ok}'
+              ' ⇒ 撞到閘的人看不到出口, 他會伸手拿 --no-verify')
+        ok = False
+
+    # ══ code-reviewer I2 的證人:**少一個 dash 也要擋**═══════════════════════
+    #    🔴 `-selftest` 比 `--stage` 更會咬人:package.json 那條 entry 就是 `--selftest`
+    #       ⇒ 「91 格全過」與「一格都沒跑」原本印同一個 rc=0。
+    _r9 = subprocess.run([sys.executable, os.path.abspath(__file__), '-selftest'], cwd=_w7,
+                         capture_output=True, text=True, env=_GIT_FREE_ENV)
+    _r10 = subprocess.run([sys.executable, os.path.abspath(__file__), '-staged'], cwd=_w7,
+                          capture_output=True, text=True, env=_GIT_FREE_ENV)
+    if _r9.returncode == 2 and _r10.returncode == 2:
+        print('  ✅ 逃9·少一個 dash · -selftest 與 -staged 都 rc=2'
+              '(不是靜靜跑另一個模式、也不是靜靜地一格都不跑)')
+    else:
+        print(f'  🔴 逃9·少一個 dash · -selftest rc={_r9.returncode} / -staged rc={_r10.returncode}'
+              '(兩個都該是 2)')
+        ok = False
+
+    # ══ code-reviewer I3 的證人:**git 跑不動要 rc=2, 不得放行**═══════════════
+    #    🔴 原本 fail-open, 而它印的是一句**正面的假宣稱**:「板子帶著【這次新增的】痕 ⇒ 放行」。
+    #    做法:PATH 上只留 grep, 沒有 git ⇒ `git show` 丟 FileNotFoundError。
+    _shim = tempfile.mkdtemp()
+    for _b in ('grep', 'sed'):
+        _src = f'/usr/bin/{_b}'
+        if os.path.exists(_src):
+            os.symlink(_src, os.path.join(_shim, _b))
+    _w11 = _mk_git_repo(board_text=_pad() + _old_mark, spec_text=GREEN_SPEC, add=True)
+    subprocess.run(['git', 'commit', '-q', '-m', 'base'], cwd=_w11,
+                   capture_output=True, env=_GIT_FREE_ENV)
+    io.open(os.path.join(_w11, BOARD), 'w', encoding='utf-8').write(_dirty_board + _old_mark)
+    _r11 = subprocess.run([sys.executable, os.path.abspath(__file__)], cwd=_w11,
+                          capture_output=True, text=True,
+                          env={**_GIT_FREE_ENV, BYPASS_ENV: '1', 'PATH': _shim})
+    _r12 = subprocess.run([sys.executable, os.path.abspath(__file__)], cwd=_w11,
+                          capture_output=True, text=True,
+                          env={**_GIT_FREE_ENV, BYPASS_ENV: '1'})
+    if _r11.returncode == 2 and _r12.returncode == 1:
+        print('  ✅ 逃10·git 跑不動 · rc=2 判量具失效(不是 fail-open 放行);'
+              '而同一世界 git 在 PATH 上 ⇒ rc=1 ⇒ 兩個世界真的印不同的東西')
+    else:
+        print(f'  🔴 逃10·git 跑不動 · 無 git rc={_r11.returncode}(該是 2)'
+              f' / 有 git rc={_r12.returncode}(該是 1)⇒ 重用舊痕會被放行而它說是新痕')
+        ok = False
+
+    # ══ code-reviewer N1 的證人:**舊痕多插一個空白不得變成新痕**═════════════
+    io.open(os.path.join(_w11, BOARD), 'w', encoding='utf-8').write(
+        _dirty_board + _old_mark.replace('上一次', '上一次 '))
+    subprocess.run(['git', 'add', BOARD], cwd=_w11, capture_output=True, env=_GIT_FREE_ENV)
+    _r13 = subprocess.run([sys.executable, os.path.abspath(__file__), '--staged'], cwd=_w11,
+                          capture_output=True, text=True,
+                          env={**_GIT_FREE_ENV, BYPASS_ENV: '1'})
+    if _r13.returncode == 1:
+        print('  ✅ 逃11·空白 · 舊痕中間多插一個空白 ⇒ 仍算舊痕, 仍然擋')
+    else:
+        print(f'  🔴 逃11·空白 · rc={_r13.returncode}(該是 1)'
+              ' ⇒ 舊痕重用只要多打一個空白就繞得過去')
+        ok = False
+
+    # ══ code-reviewer I4 的證人:**閘讀兩支檔, 兩支都要接上 lint-staged**═════
+    #    🔴 只接板子那一支的話:改壞 spec 的人**零回饋**, 而被擋的是**下一個碰板子的人**,
+    #       紅的內容指向他**沒動過**的那支檔 ⇒ 他唯一的出口是「以他的名義寫一行繞道痕」
+    #       ⇒ **繞道紀錄歸屬直接錯人。**
+    #    ⚠️ 找不到 package.json ⇒ 跳過(突變副本跑在 /tmp), 不判紅也不判綠。
+    _pkg = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'package.json')
+    if os.path.exists(_pkg):
+        try:
+            _ls = json.load(io.open(_pkg, encoding='utf-8')).get('lint-staged', {})
+        except Exception:  # noqa: BLE001
+            _ls = {}
+        _mine = [k for k, v in _ls.items() if 'board-state-consistency.py --staged' in v]
+        _covers = [k for k in _mine if BOARD in k and SPEC in k]
+        if _covers:
+            print('  ✅ 逃12·接線涵蓋面 · lint-staged 那條 key 同時涵蓋板子與 spec 兩支')
+        else:
+            print(f'  🔴 逃12·接線涵蓋面 · 命中的 key = {_mine or "(一條都沒有)"}'
+                  f' ⇒ 沒有同時涵蓋 {BOARD} 與 {SPEC}'
+                  ' ⇒ 改壞 spec 的人零回饋, 而繞道紀錄會歸屬到錯的人身上')
+            ok = False
+    else:
+        print('  ⏭ 逃12·接線涵蓋面 · 找不到 package.json ⇒ 跳過(不判綠)')
+
     print('\n全部通過。' if ok else '\n🔴 有格沒過。')
     return 0 if ok else 1
 
@@ -1405,7 +1544,12 @@ if __name__ == '__main__':
         #    ⇒ 未知的 `--` 開頭一律 rc=2(量具失效), 不與 finding 的 rc=1 混。
         #    ⚠️ **不含位置參數** —— lint-staged 會附加檔名(絕對路徑), 那個本來就被無視。
         _known = ('--selftest', '--why', '--staged')
-        _bad_flags = [a for a in sys.argv[1:] if a.startswith('--') and a not in _known]
+        # 🔴 code-reviewer I2(2026-08-25):原本比對 `--` 開頭 ⇒ **少一個 dash 仍然被安靜吞掉**。
+        #    實跑:`-selftest` ⇒ rc=0 且印 ✅①a ✅①b, 而 `'全部通過' in stdout` 是 **False**
+        #    ⇒ **91 格一格都沒跑**, 而它與「全部通過」印同一個 rc。
+        #    而 `package.json` 那條 entry 正是 `--selftest` ⇒ 這一族比 `--stage` 更會咬人。
+        #    改成 `-` 開頭:實測 lint-staged 遞的是**絕對路徑**, 永遠不以 `-` 開頭。
+        _bad_flags = [a for a in sys.argv[1:] if a.startswith('-') and a not in _known]
         if _bad_flags:
             print(f'🔴 工具壞了(不認得的旗標 {" ".join(_bad_flags)};認得的只有 '
                   f'{" ".join(_known)})—— 打錯旗標時它會安靜地跑【另一個模式】',

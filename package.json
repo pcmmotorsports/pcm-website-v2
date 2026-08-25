@@ -44,7 +44,7 @@
     "scripts/migration-new-file-static-checks.sh": "bash scripts/migration-new-file-static-checks.sh --selftest",
     "scripts/claim-backlog-number.sh": "bash scripts/claim-backlog-number.sh --selftest",
     "docs/phase-1-backlog.md": "bash scripts/claim-backlog-number.sh --audit",
-    "docs/launch-todo.md": "python3 scripts/board-state-consistency.py --staged"
+    "{docs/launch-todo.md,docs/specs/2026-07-25-admin-backend-rebuild-spec.md}": "python3 scripts/board-state-consistency.py --staged"
   },
   "devDependencies": {
     "@pcm/domain": "workspace:^",
