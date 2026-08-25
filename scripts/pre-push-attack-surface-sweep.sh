@@ -111,6 +111,14 @@ is_num() { case ${1:-} in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac }
 
 # ── selftest:跑真的自己,斷言 rc ──────────────────────────────────────────
 if [ "${1:-}" = "--selftest" ]; then
+  # 🔴🔴 **剝掉繼承來的 `GIT_*`**(2026-08-25 補;`scripts/selftest-git-isolation-gate.sh` 量到)
+  #    下面那個 `git init` 的拋棄式世界會在 `pre-commit` / `pre-push` 底下**繼承
+  #    `GIT_DIR` / `GIT_INDEX_FILE`** ⇒ 那 20 幾發 `git add` / `git commit` **打到真的 repo 上**。
+  #    實測:受害者 repo 從 5 個檔被寫成 **23 個**、HEAD 被移動(本族破壞面最大的一支)。
+  #    📌 而它裸跑是全綠的 ⇒ **綠的那一次與壞的那一次, 差別只有【誰在跑它】。**
+  #    ⚠️ 只剝在 `--selftest` 這條路上 —— 主模式要掃真的 push 範圍, 本來就該看當下的 repo。
+  for _gv in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_gv"; done
+  unset _gv
   _t=$(mktemp -d) || { echo "selftest: mktemp 失敗" >&2; exit 1; }
   trap 'rm -rf "$_t"' EXIT
   _fail=0
