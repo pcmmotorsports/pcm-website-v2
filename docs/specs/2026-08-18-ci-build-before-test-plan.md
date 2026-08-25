@@ -444,7 +444,12 @@ codex R1 F2：ci.yml 支援 PR ⇒ 不必推 dev 也驗得到正向結果
 
 ## 9. 🔴 R3 之後的重新推導 —— 一個【已經跑過但沒被認出來】的實驗
 
-> R3(W6)提出 F6:`ci.yml` 有**零個** `env:`(量法 `grep -c 'env:' .github/workflows/ci.yml` ⇒ **0**;
+> R3(W6)提出 F6:`ci.yml` 有**零個** `env:`(~~量法 `grep -c 'env:' .github/workflows/ci.yml` ⇒ **0**~~;
+> 🔴 **2026-08-26 重跑 ⇒ 4, 而【結論仍然成立】。** 四處全是 `ci.yml` 裡的**註解**,
+> 而其中 `ci.yml:106` 逐字寫著「**不要用 `grep -c 'env:'`** —— 這段註解自己就含 `env:` 兩個字, 那把尺會被自己的說明染色」。
+> ⇒ **那個坑在目標檔裡已經被寫下來了, 而寫下它的那段話就是污染源。**
+> ⇒ 正確的尺:`grep -cE '^[[:space:]]+env:' .github/workflows/ci.yml` ⇒ **0**
+>   (正對照 同一把尺對 `run:` ⇒ **8**;負對照 `^[[:space:]]+zzzenv:` ⇒ 0 rc=1)。
 > 正向對照 `grep -c 'name:'` ⇒ **11**),而 `pnpm build` 是全 monorepo ⇒ storefront 那半會在零 env 下 build。
 > 兩種壞結局:(a) storefront build 紅 ⇒ CI 仍恆紅、只是換一個 step (b) build 過但 `NEXT_PUBLIC_*` 內插成空。
 > W6 自己標明 **(a)/(b) 它沒有量**。主視窗指示:**重新推導,不要護著甲。**

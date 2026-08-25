@@ -14,7 +14,13 @@ import { ItemAmountForm, type ItemAmountFormProps } from './item-amount-form';
 //    `nowrap` 會讓它一行到底,**要嘛擠爆別欄、要嘛整張表出現橫向捲軸**。
 //
 // 🔴🔴 **本檔是 client 島之一 —— `ItemsTable` 與 `order-detail.tsx` 仍是 server component。**
-//    (`grep -c "use client" order-detail.tsx` ⇒ **0**,那個 0 要維持。)
+//    (~~`grep -c "use client" order-detail.tsx` ⇒ **0**,那個 0 要維持。~~
+//     ⇒ 2026-08-26 重跑 ⇒ **1**,而 **結論仍然成立** —— 唯一那一命中是
+//     `order-detail.tsx:26` 的**一行註解**,逐字「本檔是 server component…⇒ 不能加 `'use client'`」。
+//     🔴 **那行註解是為了保護這條規則而寫的, 而它把量這條規則的尺弄髒了。**
+//     ⇒ 要維持的不是那個 0, 是**剝掉註解之後**的 0:
+//       `grep -vE '^\s*(//|\*|/\*)' order-detail.tsx | grep -c 'use client'` ⇒ **0**
+//       (正對照:同一發不剝註解 ⇒ 1 ⇒ 兩把尺印不同的東西, 差就是註解那行))
 //    ⚠️ 2026-08-21 更新:`item-name-cell.tsx` 是第二個 client 島(品名 hover 完整字,
 //    base-ui Tooltip 需要 client);上面「唯一」那句已不成立,改成「之一」。
 //    ⚠️ 作法:**那幾格的內容仍由 server 算好、當 `ReactNode` 傳進來**(`before` / `priceText` / `after`),

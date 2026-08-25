@@ -157,7 +157,11 @@ describe('投影退版:缺鍵(undefined)要與 null 同向 fail-closed', () => {
   // 🔴🔴 `#646`(2026-08-18):`procurements` 從 `T[]` 變成 `T[] | null`,`null` = **讀不到**。
   //    `cancel-view.ts` 的 `zeroInferable` 因此多了一行 `item.procurements !== null &&`。
   //    ⚠️ **本組是那一行【唯一】的守門** —— code-reviewer 實查:把那行刪掉,全套 8735 格照樣全綠
-  //    (`grep -c "procurements: null" cancel-view.test.ts` ⇒ 0)。
+  //    (~~`grep -c "procurements: null" cancel-view.test.ts` ⇒ 0~~
+  //     ⇒ 2026-08-26 重跑 ⇒ **2**。🔴 **這是自指** —— 那句話量的就是它自己所在的這支檔,
+  //     而它把那個字面寫進來的當下就把 0 變成了非 0。
+  //     ⇒ 這種宣稱不要寫【絕對值】, 要寫【差量或程序】:
+  //       先數 N ⇒ 編輯完再數 N' ⇒ 只有 N'-N 是你新增的)。
   //    ⇒ 沒有這兩格,那一行就是一段沒有人在守的 fail-closed 宣稱。
   it('🔴 `#646` 採購讀不到(procurements=null)+ 缺摘要 ⇒ **推不出 0/0**,要 fail-closed', () => {
     const view = buildOrderCancelView(

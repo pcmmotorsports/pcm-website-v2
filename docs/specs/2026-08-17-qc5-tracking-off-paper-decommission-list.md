@@ -37,7 +37,7 @@
 | 1 | 紙上那一列追蹤碼(`shipping-doc.tsx` 的「貨運資訊」區塊內) | `git grep -n '追蹤碼自成一列' -- apps/admin/src` | **拿掉那一列 + 原地留註解寫明是 `Q-C5=丙`** |
 | 2 | `trackingDisplay`(`lib/shipping/shipping-doc-dispatch.ts`) | `git grep -n 'export function trackingDisplay' -- apps/admin/src` | 見 §2,**不要順手刪** |
 | 3 | 列印頁測試裡與追蹤碼有關的格 | `grep -c '追蹤碼' 'apps/admin/src/app/print/orders/[id]/shipping/[shipmentId]/page.test.tsx'` ⇒ **12** | 逐格分類(§3),不是整批刪 |
-| 4 | `shipping-doc-dispatch.test.ts` | `grep -c '追蹤碼' apps/admin/src/lib/shipping/shipping-doc-dispatch.test.ts` ⇒ **11** | 同上 |
+| 4 | `shipping-doc-dispatch.test.ts` | ~~`grep -c '追蹤碼' …shipping-doc-dispatch.test.ts` ⇒ **11**~~ ⇒ **2026-08-26 重跑 ⇒ 12**(目標檔真的長了一處;非自指, 本檔不含那個目標路徑的內容) | 同上 |
 | 5 | spec `docs/specs/2026-08-16-shipping-doc-carrier-tracking-plan.md` | 檔名即錨點 | **檔頭加作廢框**,內文零刪除 |
 
 ⚠️ **`shipment-actions.test.ts` 那 3 處【不動】** —— 數法

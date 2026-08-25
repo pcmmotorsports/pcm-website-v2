@@ -85,7 +85,11 @@ id bigint | ran_at timestamptz | status text | <幾個 counts int> | run_id uuid
 > ## 🔴🔴 1b **做不了 —— 硬卡在 apply,而這是量到的不是推的**(2026-08-18 B 窗)
 >
 > `sweeper_heartbeat` **不在 `database.types.ts` 裡**
-> (`grep -c 'sweeper_heartbeat' packages/adapters/src/supabase/database.types.ts` ⇒ **0**)——
+> (~~`grep -c 'sweeper_heartbeat' packages/adapters/src/supabase/database.types.ts` ⇒ **0**~~)——
+> 🔴 **2026-08-26 重跑 ⇒ 2 ⇒ 這句已經反過來了:那張表現在【在型別裡】。**
+> 兩處逐一開檔看過:`:3229` 是**真的型別項**、`:359` 是註解 ⇒ **不是純註解污染, 有實貨。**
+> ⚠️ 而 `database.types.ts` 是**從線上產的** ⇒ 它進型別代表**線上有它**, 不代表 migration 裡有它。
+> **兩個宣稱不要合起來讀。**
 > 那份是**從真實 DB 生成**的,而本表的 migration **還沒 apply 到任何真實 DB**。
 > ⇒ `supabase.from('sweeper_heartbeat')` **通不過 typecheck**。
 >

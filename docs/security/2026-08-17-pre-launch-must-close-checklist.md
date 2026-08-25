@@ -645,7 +645,10 @@ Vercel 官方 Drains · Usage and pricing（last_updated 2026-07-22）逐字：
    ⇒ 「有守門」與「改壞會被擋下來」是兩件事，本條只達成前者
 
 🔴🔴 ③ 惡化一級（2026-08-18 11:2x，我自量，不是轉述）：**那個警報現在【一直在響】。**
-   ci.yml 沒有 build 步驟 —— 量法 `grep -cE '^\s+run: .*build' .github/workflows/ci.yml` ⇒ **0**
+   ~~ci.yml 沒有 build 步驟 —— 量法 `grep -cE '^\s+run: .*build' .github/workflows/ci.yml` ⇒ **0**~~
+   🔴🔴 **2026-08-26 重跑 ⇒ 1 ⇒ 這句已經反過來了:`ci.yml:124` 有一個【真的】build 步驟**
+   `run: TURBO_FORCE=1 pnpm --filter @pcm/admin build`(剝註解後仍命中 ⇒ 不是註解污染)。
+   ⚠️ 而它 build 的是 **admin 一個 app**, 不是全 monorepo ⇒ **「CI 有 build」與「CI 的 build 涵蓋全部」是兩個宣稱。**
    （步驟只有 Checkout / Setup / Install / Typecheck / Lint / Playwright / Test / SQL probes）
    而有測試需要建置產物 ⇒ 它們【刻意紅、不 skip】（作者紀律是對的，紅比假綠好）
    ⇒ 🔴 **CI 從現在起每次都紅** ⇒ **紅色不再是訊號。**

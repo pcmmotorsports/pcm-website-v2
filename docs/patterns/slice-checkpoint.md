@@ -150,7 +150,7 @@ git ls-files --others --exclude-standard    # 🔴 未追蹤的新檔——前�
 |---|---|---|
 | `package.json:13-15` | scripts 本體仍是裸的 `turbo run` | **有** —— 改它 = 動平台設定(鐵則 12④),未做 |
 | `~/.claude/skills/slice-checkpoint/SKILL.md` | 已改 | ⚠️ **不在 git 內** ⇒ 不隨 repo 同步、**換機器就沒有** |
-| `.github/workflows/ci.yml:35-39` | 裸跑 `pnpm typecheck` / `pnpm lint` | 📊 **量到的**:全檔**零** turbo 快取持久化(`actions/cache`、`TURBO_TOKEN`、`TURBO_TEAM` 三字面零命中;唯一 `cache: pnpm`(`:30`)是 pnpm store)。**推論的**:因此 replay 在 CI 上不容易發生 —— **未做受控驗證**。🔴 **但 CI 不能取代本機三綠:它只跑 typecheck 與 lint,完全沒有跑 build**(`grep -c 'pnpm build' ci.yml` ⇒ **0**,正向對照 `pnpm typecheck` ⇒ 1) |
+| `.github/workflows/ci.yml:35-39` | 裸跑 `pnpm typecheck` / `pnpm lint` | 📊 **量到的**:全檔**零** turbo 快取持久化(`actions/cache`、`TURBO_TOKEN`、`TURBO_TEAM` 三字面零命中;唯一 `cache: pnpm`(`:30`)是 pnpm store)。**推論的**:因此 replay 在 CI 上不容易發生 —— **未做受控驗證**。🔴 **但 CI 不能取代本機三綠:它只跑 typecheck 與 lint,完全沒有跑 build**(~~`grep -c 'pnpm build' ci.yml` ⇒ **0**,正向對照 `pnpm typecheck` ⇒ 1~~) 🔴🔴 **2026-08-26 重跑:這一句【已經不成立】—— CI 現在真的會 build。** 落點 `.github/workflows/ci.yml:124` 逐字 `run: TURBO_FORCE=1 pnpm --filter @pcm/admin build`(**非註解**:`grep -vE '^\s*#' ci.yml \| grep -nE 'run:.*build'` ⇒ 命中)。⚠️ 而**天真的那把尺答不出這件事**:`grep -c 'pnpm build' ci.yml` ⇒ 1, 而**那 1 是 `:94` 的一行註解**;剝註解後 `pnpm build` ⇒ **0**(它 build 的是 `--filter @pcm/admin`, 不是全 monorepo)。⇒ 🔴 **兩把尺都會給你一個數字, 而只有【開檔看那一行是什麼】答得出「CI 到底 build 了沒」。** ⇒ **CI 仍不能取代本機三綠**(它只 build admin 一個 app), 而「完全沒有跑 build」這半是假的。 |
 | `pcm-tools/scripts/busboy-end.js:24` | 印 `pnpm -r typecheck` | ⚠️ **走的不是 turbo**(`pnpm -r` 是 pnpm 遞迴)⇒ **推測**沒有這個病;它與三綠定義不同步,**是另一件事,本次未評估** |
 
 🔴 **上表要讀成兩件事,不要合成一句**:

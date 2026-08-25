@@ -291,7 +291,13 @@ export function CartProvider({
   // ── 車不跟人走的洞(補洞窗 A1)────────────────────────────────────────────────
   // 病徵:車行共用一台電腦,A 加了一車、登出走人,B 坐下來看到的還是 A 的車。
   //   本 Provider 是 **localStorage-only**(檔頭 Phase 1 mock),而 localStorage 是**綁瀏覽器不綁人**
-  //   ⇒ 在有 A1 之前,`grep -c 'userId' CartContext.tsx` = 0,登出也不清。
+  //   ⇒ 在有 A1 之前,~~`grep -c 'userId' CartContext.tsx` = 0~~,登出也不清。
+  //     ⇒ 2026-08-26 重跑 ⇒ **2**。🔴 **這句話自己就是它宣稱不存在的那個東西。**
+  //     ⇒ 改法不是改那個數字(改完還是會被下一次編輯弄假), 是改成**差量**:
+  //       動手前數 N、動完數 N', **N'-N 才是我造成的**。
+  //     📌 而真正的修法用的變數叫 `ownerId` ⇒ **這把尺在修好前印 0、修好後也印 0**
+  //       ⇒ 它從頭到尾就答不出「這件事做了沒」。判別句:
+  //       **如果這件事做好了, 它會長成什麼字?那個字在我的尺裡嗎?**
   //
   // 抄的形狀:`FavoritesContext.tsx:145` 的 onAuthStateChange 訂閱(連 try/catch 一起抄 ——
   //   env / browser client 不可用時**維持未登入預設、不阻斷 render**)。
