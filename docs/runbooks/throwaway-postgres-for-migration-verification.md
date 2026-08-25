@@ -285,9 +285,48 @@ CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');
 🔴 **而你的查詢對「這張表不存在」與「這張表存在但沒資料」會給出不同的錯,對「這個欄位不存在」
 卻可能安靜地回空。⇒ 「我驗過了」在一個殘缺的 schema 上,是一句沒有射程的話。**
 
+### 🔴🔴 而它有**第二個問題**,而它與第一個一樣重要
+
+> ## **你用的是哪一份 bootstrap?**
+
+**同一棵 repo、同一份 migrations,在兩份 bootstrap 之下差【一倍】**:
+```
+手打 §2 那段            ⇒ 41 支失敗(2026-08-25 線 06)
+用 repo 內建的 shim     ⇒ **19 支失敗**(2026-08-25 cf 自己跑的,見下)
+```
+🔴 **⇒ 兩個問題要一起問。只問「幾支失敗」而不問「用哪份 bootstrap」,拿到的數字沒有意義。**
+
+### ✅ **先跑這一支,不要手打**(2026-08-25 cf 補;它一直都在,而 §2 教的是手打)
+```bash
+psql -h 127.0.0.1 -p $PORT -U postgres -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql
+```
+`scripts/d1-supabase-shim.sql`(**54 行**)檔頭逐字:
+> 「migrations 之前先跑。範圍 = **實掃 85 支 migration 的最小集合**(角色 TO 清單 + auth 引用)」
+> —— 角色四個 / `auth.users` 含 `email` 與 `raw_user_meta_data` / `auth.uid()` / `extensions` + pgcrypto
+
+📌 **又是同一個母題**:**一把工具【存在】與【下一個人找得到它】是兩件事。**
+(同族:`scripts/tool-final-css.py` 躺在信箱一個月、`scripts/traps-neighbours.py` 沒有人跑。)
+
+**cf 2026-08-25 自己跑的一發(不是引用別人的數字)**:
+```
+initdb --encoding=UTF8 --locale=C ⇒ server_encoding = UTF8
+psql -f scripts/d1-supabase-shim.sql          ⇒ rc=0
+for f in supabase/migrations/*.sql (216 支, filename 順序, ON_ERROR_STOP=1)
+  ⇒ **成功 197 · 失敗 19 · 分母 216**
+失敗的成因大致三族:pg_cron / net 類(5 支, 檔名多帶 pgcron)· 缺 relation(catalog / vehicle_taxonomy)
+                   · manual refund 那一串(D1/D2/D3/866 —— 多半是前面失敗的下游)
+收攤:pg_ctl stop rc=0 · pgrep 無殘留程序 · 目錄已刪並驗
+```
+
+---
+
 **當天的量**(⚠️ **數字帶著量法與時刻走,它會過期而過期時零機械訊號**):
 ```
-2026-08-25 線 06:215 支照 filename 順序全跑 ⇒ **41 支失敗**
+🔴 2026-08-25 線 06:215 支照 filename 順序全跑 ⇒ **41 支失敗**
+   ⚠️ **2026-08-25 cf 補:這個 41 是【手打 §2 bootstrap】之下的數字, 不是這棵 repo 的性質。**
+   ⇒ 換成 scripts/d1-supabase-shim.sql ⇒ **19 支**。**原句留著, 因為它記錄了「手打會發生什麼」。**
+   🔴 而【不要】因此讀成「所以其實沒問題」——**一個數字變小, 與那個問題變小, 是兩件事。**
+      那 19 支仍然是真的失敗。
 2026-08-25 線 1  :全新空庫依序跑 214 支     ⇒ **195 成功 / 19 失敗**(首個失敗在第 55 支)
                   插入 scripts/d1-fitments-bootstrap.sql 之後 ⇒ **199 / 15**
 🔴 兩個數字不同, 而它們【不是互相矛盾】—— 分母(215 vs 214)、順序、是否插 stub 都不同
