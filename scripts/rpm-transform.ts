@@ -37,8 +37,23 @@ const PLACEHOLDER_IMAGE = '/placeholder-product.png';
 const TWD = 'TWD' as const;
 
 // ── helpers ──
-/** numeric(string/number/null)→ 整數 TWD(Math.round、禁浮點);null/非法數字→null */
-function roundTwd(v: string | number | null | undefined): number | null {
+/**
+ * numeric(string/number/null)→ 整數 TWD(Math.round、禁浮點);null/非法數字→null
+ *
+ * 🔴 **2026-08-25 加 `export` 的理由不是「給別人用」, 是【為了能被真的跑到】**:
+ *   `rpm-delta.ts` 的價格判準要驗「小於 1 元的來源價會被取整成什麼」,
+ *   而在沒有 export 之前, 探針只能**複製一份這裡的邏輯**去跑 ——
+ *   **那證明的是「我抄對了」, 不是「我跑了它」。** 一個 `export` 把替身換成本尊。
+ *
+ * ⚠️ **已知債(本片不修, 而修法【不是正規化】)**:來源價落在 **`[-0.5, 0)`** 之間時
+ *   (🔴 2026-08-25 訂正:原寫 `(-0.5, 0]`,**左端錯成開區間** —— `Math.round(-0.5) === -0`;
+ *    右端 `0` 也不該含 —— `Math.round(0) === 0` 是正零。字串 `"-0"` / `"-0.0"` 同樣產生 `-0`。)
+ *   `Math.round` 回的是 **`-0`**(不是 `0`)⇒ 一個負價會帶著負零往下游走。
+ *   🔴 **不要用 `n === 0 ? 0 : n` 去「正規化」它** —— 那會把一個【擋得住的異常】
+ *      變成一個【合法的 0】, 而 `Object.is(-0)` 這個唯一的證據也一起被抹掉。
+ *      正確的修法是**回 null 或保留負號**, 讓下游看得見它本來是負的。
+ */
+export function roundTwd(v: string | number | null | undefined): number | null {
   if (v === null || v === undefined || v === '') return null;
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? n : null; // 🔴 NaN/Infinity(非法來源值)→ null(codex k2 審查 must-fix 2)
@@ -291,6 +306,19 @@ export function transformGroup(
   });
   const basis = sorted[0];
   if (!basis) throw new Error(`群 ${mainSku} 無變體(分群保證 ≥1、不應發生)`);
+  // 🔴🔴 **2026-08-25 · 本片打開的【第二個】盲區, 而它【沒有被本片修掉】(code-reviewer must-fix 3)**
+  //   基準款 = 群內 `min(price_retail)`(上面那段)⇒ **一個群裡只要混進一支 0 元贈品變體,
+  //   整個商品的 `price_general` 就是 0**, 而 `rpm-delta.ts` 檔頭逐字:
+  //   「products by external_id(**前台列表/卡片吃商品層基準價**)」
+  //   ⇒ 一個其他變體都要錢的商品, **卡片上顯示 NT$ 0**。
+  //   · 本片【之前】:`isAbnormal` 的 `<= 0` 會把它抓進異常列、硬 abort ⇒ 這個情境進不來。
+  //   · 本片【之後】:一路通到底, 而顯示層(commit 0ed3cf16)已經讓前台把 0 印成 `NT$ 0`。
+  //   📌 它與 `rpm-delta.ts` 的 `isOutlier` 盲區**是同一次放寬造成的同一類問題** ——
+  //     差別只在那一個被寫下來並補掉了, 這一個沒有。
+  //   🔴 **會不會今天就發生 = 未確認。** 缺的那道檢查是:**去看供應商來源資料裡,
+  //     有沒有「同一群內同時存在 0 元與非 0 元 `price_retail`」的列**。
+  //     本窗沒有該資料的存取權, 沒有量過 ⇒ **不寫「不會發生」, 寫「未確認」。**
+  //   ⇒ 處置照鐵則 10 進 backlog(不修未來會痛在哪:客人看到一件要錢的商品標 NT$ 0)。
   const priceGeneral = roundTwd(basis.price_retail); // 🔴 view.price_retail → 網站 price_general(零售)
   // 群代表圖:第一個非空 image_url → 任一變體 images[0] → placeholder
   const repImage =

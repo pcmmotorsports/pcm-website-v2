@@ -7,12 +7,14 @@
 import { describe, it, expect } from 'vitest';
 import {
   simulateSpecCollisions,
+  computeDelta,
   checkNewItemPrices,
   independentPrice,
   independentGroupPrice,
   NEW_ITEM_PRICE_FLOOR,
   NEW_ITEM_PRICE_CEILING,
 } from './rpm-delta';
+import { roundTwd } from './rpm-transform';
 
 describe('M1 新品驗價(Codex R1 must-fix:首灌全是新品 → delta gate 零檢查)', () => {
   const item = (key: string, price: number | null, sourcePrice: number | null) =>
@@ -175,5 +177,73 @@ describe('V1 simulateSpecCollisions(spec 撞鍵模擬 + 孤兒排除)', () => {
     const src = new Map([['G-NEW', [{ sku: 'N1', spec: spec('red') }, { sku: 'N2', spec: spec('blue') }]]]);
     const collisions = simulateSpecCollisions(src, new Map(), new Map(), new Set());
     expect(collisions).toEqual([]);
+  });
+});
+
+// ── 0 元贈品放行(2026-08-25 · Sean 拍板「0 元是合法價格」)──────────────────
+//
+// 🔴🔴 **這一組取代的是四發【會消失的】探針, 不是例行覆蓋率, 不要當成湊數的格子。**
+//   本片改 `isAbnormal`(`<= 0` → `< 0 || Object.is(newP, -0)`)與 `isOutlier` 時,
+//   判別力是用 scratchpad 的一次性探針量的 —— 而**探針不進 repo**
+//   ⇒ 收工報告寫「四發突變全部翻面」, 而那句話在明天就**不可重跑**。
+//   ⇒ 沒有這一組, 明天有人順手刪掉 `Object.is(newP, -0)`, **全套一格都不會紅。**
+//
+// 🔴 每一格旁邊都寫了「刪掉哪一行它會紅」—— 那是它的判別力來源, 不要拆開。
+describe('0 元贈品:合法價格放行, 而負價/負零仍硬擋(2026-08-25 Sean 拍板)', () => {
+  const stubClient = (existing: Record<string, number | null>) =>
+    ({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            in: (keyCol: string, batch: string[]) =>
+              Promise.resolve({
+                data: batch.filter((k) => k in existing).map((k) => ({ [keyCol]: k, price_general: existing[k] })),
+                error: null,
+              }),
+          }),
+        }),
+      }),
+    }) as never;
+
+  const delta = (oldP: number | null, newP: number | null) =>
+    computeDelta(stubClient({ 'SKU-X': oldP }), 'test-sup', [], [{ sku: 'SKU-X', price_general: newP } as never]);
+
+  it('🔴 新價 0(贈品)→ 不算異常(突變:把 `< 0` 改回 `<= 0` ⇒ 本格紅)', async () => {
+    const r = await delta(5000, 0);
+    expect(r.abnormal.map((l) => l.key)).not.toContain('SKU-X');
+  });
+
+  it('🔴 新價 -0(負價取整來的)→ 仍算異常(突變:拿掉 `Object.is(newP, -0)` ⇒ 本格紅)', async () => {
+    const r = await delta(5000, -0);
+    expect(r.abnormal.map((l) => l.key)).toContain('SKU-X');
+  });
+
+  it('🔴 `roundTwd` 真的會產生 -0 —— 上一格守的不是一個沒人做得出來的值', () => {
+    // 危險窗口 [-0.5, 0):左端【閉】。`-0.5` 本身就會產生 -0。
+    expect(Object.is(roundTwd('-0.4'), -0)).toBe(true);
+    expect(Object.is(roundTwd('-0.5'), -0)).toBe(true);
+    expect(Object.is(roundTwd('-0'), -0)).toBe(true);
+    // 負對照:再負一點取整成 -1(由 `newP < 0` 擋), 而正零不是 -0
+    expect(roundTwd('-0.6')).toBe(-1);
+    expect(Object.is(roundTwd('0'), -0)).toBe(false);
+  });
+
+  it('新價 -1(一般負數)→ 仍算異常(它由 `newP < 0` 擋, 與 `Object.is` 無關)', async () => {
+    const r = await delta(5000, -1);
+    expect(r.abnormal.map((l) => l.key)).toContain('SKU-X');
+  });
+
+  it('🔴 舊價 0 → 新價 5000 → 列離群(突變:拿掉 isOutlier 的 `oldPrice === 0` 那一行 ⇒ 本格紅)', async () => {
+    // 成因:`pct()` 對 oldP === 0 直接 return null ⇒ 舊邏輯會靜默放過整段 0 → 500,000。
+    const r = await delta(0, 5000);
+    expect(r.outliers.map((l) => l.key)).toContain('SKU-X');
+  });
+
+  it('正對照:一般降價 5000 → 4500(-10%)既不異常也不離群(證明上面幾格不是恆真)', async () => {
+    // 🔴 這一格第一次寫成 5000 → 3000 而【紅了】—— 那是 -40%, 撞到 isOutlier 的 `pct < -30`。
+    //   **是我的期望值錯, 不是碼錯。** 留著這句:挑「正常值」時要對著判準挑, 不要憑感覺。
+    const r = await delta(5000, 4500);
+    expect(r.abnormal.map((l) => l.key)).not.toContain('SKU-X');
+    expect(r.outliers.map((l) => l.key)).not.toContain('SKU-X');
   });
 });

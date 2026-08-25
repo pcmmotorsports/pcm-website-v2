@@ -11,7 +11,7 @@
  *   pnpm exec tsx scripts/rpm-import.ts --dry-run [--supplier=rpm] [--group=APRILIA-01] [--limit=3] [--delta-full]
  *     → 跑 W1 抓取完整性 + pv_spec preflight + 兩層價格 delta gate + S4 下架對賬報告(全量才跑)、印清單、不寫
  *   pnpm exec tsx scripts/rpm-import.ts --confirm-write [--supplier=rpm] [--expect-groups=648] [--allow-large-delist] [--allow-fetch-shrink]
- *     → 正式寫入 + S4 下架對賬(源頭消失→軟下架、只全量);硬 gate:異常列(null/0/負/NaN)無條件 abort、
+ *     → 正式寫入 + S4 下架對賬(源頭消失→軟下架、只全量);硬 gate:異常列(null/負/NaN/±Infinity/-0;🔴 `0` 自 2026-08-25 起合法)無條件 abort、
  *       M2 群數指紋 gate(首灌 target active=0 時 W1 恆過 → 強制帶 --expect-groups=<乾跑實查群數>、不符即停);
 *       任何寫入須帶 --confirm-write;S5 W1 抓取完整性 gate(商品維度差集、來源缺現存上架商品>5% 疑截斷硬 abort 除非 --allow-fetch-shrink);
  *       下架安全 gate:source 空硬 abort、下架比例>10% abort 除非 --allow-large-delist
@@ -475,6 +475,39 @@ async function main(): Promise<void> {
   //   delta gate 只比得出「變價」,新品無舊價可比 → 首灌整批零檢查。此處對來源逐筆比對(恆驗)
   //   + 絕對價區間(僅首灌硬擋、日常誤殺率高故只報;實查依據見 rpm-delta.ts)。
   //   dry-run 印報告不 throw(對齊其他 gate);寫入模式有 issue → abort 不進 upsert。
+  // 🔴🔴 **這條路有【兩個世界】:首灌(`isFirstLoad=true`)與日常(`false`), 而它們走不同的閘。**
+  //   改動任何一個價格判準 ⇒ **兩個世界各跑一發**, 只跑一發等於只驗了一半。
+  //   📌 這一行是 2026-08-25 補的, 而補它的理由是一次實錘:本片(放行 0 元贈品)的
+  //     三發突變**全部跑在日常那條路上** ⇒ 完全沒有碰到首灌, 而首灌上有一道
+  //     `NEW_ITEM_PRICE_FLOOR = 100` 的硬擋會把 0 元贈品整批 abort
+  //     (在 `rpm-delta.ts`,🔴 **用 `grep -n "export const NEW_ITEM_PRICE_FLOOR" scripts/rpm-delta.ts` 找,
+  //      不要寫行號** —— 見本段最下方那條自陳)。
+  //     漏掉它的不是眼力, 是**測試選取比爆炸半徑窄** —— 而這是這個病的第【二】次
+  //     (第一次:2026-08-23 L5, 新檔只跑了自己那個目錄的測試)。
+  //
+  // 🔴🔴 **首灌【不放行】0 元贈品 —— 而這是拍板, 不是漏掉的。**
+  //   Sean 2026-08-25 拍板甲:贈品之後走**日常匯入**補上, `NEW_ITEM_PRICE_FLOOR = 100`
+  //   那道閘**一個字都不改**(同上, 用 `grep -n "export const NEW_ITEM_PRICE_FLOOR"` 找)。
+  //   理由:那道閘的註解逐字寫「疑小數點/單位錯位」⇒ **它防的是【打錯字】, 不是防贈品**;
+  //   而機械上分不出「0 是贈品」與「0 是把 1000 打成 0」⇒ 放寬它等於同時放掉打錯字那一半。
+  //   代價 = 上架要分兩趟。這是他知情之下選的。
+  //   ⚠️ **不要「順手」把 floor 改成 0 或加 0 的例外** —— 那會推翻一條拍板,
+  //     而且 diff 上看起來只是修好一個明顯的漏洞。拍板全文:
+  //     memory `project_0825-sean-first-load-excludes-gifts.md`
+  //     (完整路徑 `~/.claude/projects/-Users-sean-1-pcm-website-v2/memory/`;2026-08-25 實查存在)
+  //
+  // 🔴🔴 **自陳(這一段自己踩過一次, 留著給下一個人)**:
+  //   本段原本寫「見 rpm-delta.ts:174」—— 那是**動手改之前**的行號。
+  //   而這份 diff 自己在 `rpm-delta.ts` 上游加了註解 ⇒ 套用之後那個常數**往下移了**,
+  //   而 `:174` 指到一句完全不相干的話。
+  //   🔴🔴 **而這段話原本自己也端出了兩個數字(常數搬到哪一行 / 上游加了幾行), 兩個都是錯的。**
+  //     成因:我量它們的時候檔案**還沒改完**, 之後繼續編輯而**沒有回頭重量**。
+  //     ⇒ 處置是**把數字整個拿掉**, 不是換成新的正確值 —— 換成新的, 明天會再過期一次。
+  //     📌 一段【主旨就是「行號會過期」】的話, 自己端出兩個過期的數字。
+  //        **寫下規矩不會讓你遵守它;把數字換成 grep 才會。**
+  //   ⇒ **我在同一次改動裡, 弄壞了我自己剛寫下的座標。** 沒有任何一刻是不一致的
+  //     (寫的當下是對的), 所以沒有測試、沒有 lint、沒有審查會撞到它。
+  //   ⇒ **規矩:跨檔指路一律用【可 grep 的字面錨】, 不寫行號。**
   const isFirstLoad = fetchIntegrity.targetActiveCount === 0;
   const productPriceByExtId = new Map(productRows.map((p) => [p.external_id, p.price_general]));
   const variantPriceBySku = new Map(variantRows.map((v) => [v.sku, v.price_general]));
@@ -501,8 +534,42 @@ async function main(): Promise<void> {
     enforceBand: isFirstLoad,
   });
   if (!DRY_RUN && newItemPriceIssues.length) {
+    // 🔴🔴 2026-08-25:**這個 throw 原本會把兩個世界合流。**
+    //   Sean 拍板甲:首灌(`isFirstLoad`)【不放行 0 元贈品】, 贈品走日常匯入補上,
+    //   而 `NEW_ITEM_PRICE_FLOOR = 100` 那道閘**一個字都不改**(理由見上面 isFirstLoad 那段)。
+    //   ⇒ 問題是:撞到時它只印「新品驗價 N 筆問題」——**那句話不會說「因為你放了贈品」**,
+    //     而這條拍板**零機制在守**(沒有任何東西會提醒首灌的人別放贈品)。
+    //   ⇒ 這一段就是唯一會在現場說話的東西。它不改行為, 只讓錯誤訊息分得出世界。
+    //
+    // 🔴 **`Object.is(p, 0)` 不是 `p === 0`** —— `-0 === 0` 為 true。
+    //   `-0` 是**負價取整來的**(來源落在 `[-0.5, 0)`), 它**不是贈品**;
+    //   而它會比 `hasAbnormal`(在本行【下方】)更早撞到這道 floor
+    //   ⇒ 用 `===` 的話, 一個負價商品會被這行訊息指認成「贈品」。**那正是本片在防的病。**
+    // 🔴 **2026-08-25 訂正(codex R2 must-fix 1)**:~~原本只看 `price`~~ ——
+    //   那會讓 `source-mismatch` 且 `price` 剛好是 0 的一列, 在**首灌與日常兩個世界都**
+    //   印出「贈品?請走日常匯入補上」。而在日常世界, 看到的人**已經在日常匯入了**
+    //   ⇒ 照著做只是把同一批壞資料再跑一次, 而真正的病(transform 接線壞)沒人查。
+    //   ⇒ 兩個條件都要:**`reason` 必須是 `below-floor`**(才是被 floor 擋的)
+    //     **且必須是首灌**(才是那條拍板適用的世界)。
+    const giftHintIssues = isFirstLoad
+      ? newItemPriceIssues.filter((i) => i.reason === 'below-floor' && Object.is(i.price, 0))
+      : [];
+    // 🔴 `-0` 這半【不看 isFirstLoad 也不看 reason】—— 只要它出現, 就是「來源有負價」,
+    //   而那永遠是要查來源的事, 不是要換一條匯入路徑的事。
+    //   ⚠️ **範圍講準**:實際上 `-0` 在【日常】世界走不到這裡(`enforceBand=false`
+    //   ⇒ 區間檢查整段 `continue`, 只剩對源比對)。這裡不加條件是**刻意的防禦性寫法**,
+    //   不是因為「兩個世界都會發生」—— ~~原本那句寫成後者, 比實情寬~~。
+    const negZeroCount = newItemPriceIssues.filter((i) => Object.is(i.price, -0)).length;
+    const hint = [
+      giftHintIssues.length
+        ? `其中 ${giftHintIssues.length} 筆是 0 元且被首灌下限擋下(贈品?Sean 2026-08-25 拍板甲:首灌先上非贈品, 贈品之後走日常匯入補上)`
+        : '',
+      negZeroCount ? `🔴 其中 ${negZeroCount} 筆是 -0(**負價**取整來的、不是贈品, 查來源)` : '',
+    ]
+      .filter(Boolean)
+      .join(';');
     throw new Error(
-      `新品驗價 ${newItemPriceIssues.length} 筆問題、abort 不寫(對源不符=transform 接線壞;區間異常=疑單位錯位;dry-run 看清單)`,
+      `新品驗價 ${newItemPriceIssues.length} 筆問題、abort 不寫(對源不符=transform 接線壞;區間異常=疑單位錯位;dry-run 看清單)${hint ? `。${hint}` : ''}`,
     );
   }
 
@@ -527,9 +594,10 @@ async function main(): Promise<void> {
   }
 
   // ── 硬 gate 2:正式寫入守門(codex k2 審查 must-fix 1)──
-  // 異常列(null/0/負/NaN)= 不可覆寫硬 abort、無條件先擋(即使帶旗標也不放行)
+  // 異常列(null/負/NaN/±Infinity/-0)= 不可覆寫硬 abort、無條件先擋(即使帶旗標也不放行)
+  // 🔴 2026-08-25:`0` 已從這個清單移除(Sean 拍板 0 元贈品合法);`-0` 留著 —— 它是負價取整來的。
   if (hasAbnormal(delta)) {
-    throw new Error(`價格異常列 ${delta.abnormal.length}(null/0/負/NaN/Inf)、不可覆寫硬 abort、停止(查源頭)`);
+    throw new Error(`價格異常列 ${delta.abnormal.length}(null/負/NaN/±Infinity/-0)、不可覆寫硬 abort、停止(查源頭)`);
   }
   // 任何正式寫入一律須 --confirm-write(無價變也要、無旗標一律 abort)
   if (!CONFIRM_WRITE) {
