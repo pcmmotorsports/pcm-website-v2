@@ -22503,3 +22503,47 @@ printf '' | grep -c <pattern>   ⇒ 回 0 = 這條 pattern 不屬於 (b) 族
 ③ 「靜態答不了」寫成「要換什麼工具才答得了」, 它就變成下一件工作而不是一句遺憾
    (本例:regex 做不到, TS compiler API 做得到 —— 拿 .update() 引數的 type 列屬性名)
 ```
+
+---
+
+## 🔴🔴 **報一族的值時, 要說出你查了幾個 —— 因為「逐個查」與「查一個推其餘」在【對的時候】長得一樣**(2026-08-25;主視窗差一點犯、線 2 補完後半)
+
+**事發**:主視窗要給 Sean 一張「上線前去面板核對這六個 env」的清單。它**逐個 grep 了讀取式**, 所以清單寫成兩組:
+```
+storefront  ANOMALY_ALERT_ENABLED / CRON_SWEEPER_ENABLED /
+            CHECKOUT_NOTIFICATION_EMAIL_ENABLED / TAPPAY_3DS_ENABLED   ⇒ 要剛好是 true
+admin       REFUND_UI_ENABLED / ADMIN_REQUIRE_REAL_IDENTITY            ⇒ 要剛好是 1
+```
+✅ **那張清單是對的。而它對, 是因為逐個查, 不是因為知道有兩套慣例。**
+🔴 **主視窗當時【不知道有兩套】** —— 若它只查了其中一個然後推廣, 它會給 Sean **六個 `true`**,
+而那兩道 admin 的閘會**靜靜地不生效**。
+
+線 2 隨後量到的分母:
+```
+=== '1'     ADMIN_DEV_BYPASS · ADMIN_REQUIRE_REAL_IDENTITY · AUDIT_UI_ENABLED
+            PCM_DEV_TIER_OVERRIDE · REFUND_UI_ENABLED                    ← 5 個
+=== 'true'  ANOMALY_ALERT_ENABLED · CHECKOUT_NOTIFICATION_EMAIL_ENABLED
+            CRON_SWEEPER_ENABLED · TAPPAY_3DS_ENABLED                    ← 4 個
+```
+📌 **`REFUND_UI_ENABLED=true` 什麼都不會發生;`TAPPAY_3DS_ENABLED=1` 也什麼都不會發生。**
+**而這比 typo 更可能** —— **一個人設完 4 個 `true` 的, 很自然會對第 5 個也打 `true`。**
+⇒ **這不是「有人手滑」, 是【設定的形狀本身在誘導一個錯誤】。**
+
+### 🔴 判別句(線 2 提, 採用)
+
+> **「逐個查」與「查一個然後推廣」, 在【結果對的時候】交出來的東西一模一樣。**
+> **⇒ 這件事不會在做對的時候留下任何痕跡 —— 它只在做錯的那次才現形。**
+> **⇒ 報一個【一族的值】時, 說出你查了幾個。**
+
+**「六個都查了」與「查了一個, 推其餘」是兩句話, 而現在它們都被寫成同一句「值是 X」。**
+📌 **這條補上了轉述契約的一個洞**:原契約管「**值要貼原文**」, **沒管「這個值的分母是幾」。**
+
+### 而同一個成因有兩個方向(線 2 對稱地認了自己那一半)
+
+它第一發餵 `'true'` 給 `=== '1'` 的旗標 ⇒ 回 `false` ⇒ **那個畫面與「這個旗標壞了」一模一樣**,
+**差一點寫成一個不存在的缺陷**。分出來的是**回頭去碼裡撈啟用值**, 不是再餵一次。
+```
+🔴 一邊的錯 ⇒ 給出六個錯的值(誤導設定的人)
+🔴 另一邊的錯 ⇒ 給出一個不存在的 bug(誤導修碼的人)
+同一個成因, 兩個方向。
+```
