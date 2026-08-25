@@ -185,8 +185,13 @@ tr {
       Sean 2026-08-23 逐字「OD 現在設計稿用什麼,就用什麼」——
       而 FIX 條目會被後面的 FIX 蓋掉(實例:FIX-63 說「實心黑帶+反白」,
       最終產物是 `border-top:1.2mm`,`background` 命中 0)。
-      算最終值的工具與它的五個世界自檢:`~/pcm-mailbox/tool-final-css.py`
-      (sha256 7dd52815…;`python3 tool-final-css.py` 會自己表演一次)。
+      算最終值的工具與它的五個世界自檢:`scripts/tool-final-css.py`
+      (~~原本指 `~/pcm-mailbox/tool-final-css.py`~~ —— 2026-08-24 `5b59575e` 已收進 repo,
+       repo 內那份才是被維護的;`python3 scripts/tool-final-css.py` 會自己表演一次)。
+      🔴 **要它的指紋請當場量**:`shasum -a 256 scripts/tool-final-css.py`
+      (~~此處原本釘著 `sha256 7dd52815…`~~ —— 2026-08-25 實量:repo 那份是 `4dd68e2e…`、
+       信箱那份是 `63eea00c…`,**兩個都不是它** ⇒ 那個 sha 指不到任何現存版本,而它不會叫。
+       **一個會被維護的檔,釘它的 sha 就是製造一個必然過期的字面** ⇒ 指【怎麼量】不指【量到什麼】。)
    📎 **兩份產物的 CSS 逐鍵相同**(差集:出貨單獨有 0 / 訂單獨有 0 / 同鍵不同值 0)
       ⇒ 「兩張紙共用同一套骨架」是量到的,不是宣稱。
 
