@@ -61,4 +61,12 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/state-gates-freshness-gate.sh' >&2
   exit 1
 fi
+if [ -f .husky/view-apply-gate.sh ]; then
+  sh .husky/view-apply-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/view-apply-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   與 scripts-whitelist / state-gates 同款 fail-closed:刪掉這支殼正是關掉它最省事的方法。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/view-apply-gate.sh' >&2
+  exit 1
+fi
 pnpm exec lint-staged
