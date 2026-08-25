@@ -27,7 +27,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 鐵則 1-12(每個 slice 必遵守;編號固定、外部大量按編號引用、**絕不重新編號**)
 
-1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。**真權威解析**:design 真權威不只 design-reference——任何會被人看到的產出物(前台頁面/後台 UI/列印單據/信件模板)動工前,先解析真權威:OD `list_projects` 當場列全部設計專案 + grep design-reference;各面對應與拍板紀錄見 `docs/PHASE-1-NORTHSTAR.md` §2(清單不寫進本檔:清單會過期,查法不會)。查無 ⇒「查無」寫進 plan 並附掃過的分母;拿不準哪個是權威 ⇒ 問 Sean。
+1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。**真權威解析**:design 真權威不只 design-reference——任何會被人看到的產出物(前台頁面/後台 UI/列印單據/信件模板)動工前,先解析真權威:OD `list_projects` 當場列全部設計專案 + grep design-reference;各面對應與拍板紀錄見 `docs/PHASE-1-NORTHSTAR.md` §2(清單不寫進本檔:清單會過期,查法不會)。查無 ⇒「查無」寫進 plan 並附掃過的分母;拿不準哪個是權威 ⇒ 問 Sean。🔴 **`list_projects` 回空 ⇒ 先確認 OD daemon 有沒有在跑,【不得當成查無】**(2026-08-25 Sean 拍板;當天實測:`list_projects` ⇒ `{"projects": []}`, 而磁碟上 **11 個專案** —— **「工具沒起來」與「真的沒有設計稿」印同一句話**, 而後者會讓人直接自己畫)。磁碟落點 `~/Library/Application Support/Open Design/namespaces/release-stable/data/projects/`。
 2. **後台對應 design** — Medusa schema 對應 design 已定義的資料結構;design `data/products.js` mock 是合約、後台實作合約。
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
@@ -37,7 +37,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema・API・共用元件 / 動 next.config・vercel.json・Medusa config・Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
-11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx/.css/設定檔加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(`/slice-checkpoint` skill、詳 `docs/patterns/slice-checkpoint.md`)。🔴 **三綠指令一律加前綴 `TURBO_FORCE=1 pnpm <項目>`** —— 少了它 turbo **命中既有快取時**會 replay 舊的綠(2026-08-17 實測:`pnpm typecheck` ⇒ `8 cached / FULL TURBO`,加前綴 ⇒ `0 cached`;正本 `docs/phase-1-backlog.md` `#524`)。動 .sh / .yaml / .sql 另有語法守門(隨 pre-commit 自動跑,詳 slice-checkpoint.md §2.2a);🔴 **「純文件片」僅指只動 .md**(2026-08-17 Sean 拍板收斂;~~原「.md / .json schema」~~ 作廢 —— **三綠不會 parse 任意 JSON、格式壞掉照樣全綠**,而 `package.json`/`turbo.json`/`tsconfig*.json` 副檔名都是 `.json`),`.json` / `.css` / `.sh` / `.yaml` / `.yml` / `.sql` **一律不算**(`.css` **要跑 build 才有判別力**;`.json` / `.sh` / `.yaml` / `.yml` / `.sql` 對三綠恆綠或零判別力、另有守門)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**。
+11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx/.css/設定檔加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(`/slice-checkpoint` skill、詳 `docs/patterns/slice-checkpoint.md`)。🔴 **三綠指令一律加前綴 `TURBO_FORCE=1 pnpm <項目>`** —— 少了它 turbo **命中既有快取時**會 replay 舊的綠(2026-08-17 實測:`pnpm typecheck` ⇒ `8 cached / FULL TURBO`,加前綴 ⇒ `0 cached`;正本 `docs/phase-1-backlog.md` `#524`)。動 .sh / .yaml / .sql 另有語法守門(隨 pre-commit 自動跑,詳 slice-checkpoint.md §2.2a);🔴 **「純文件片」僅指只動 .md**(2026-08-17 Sean 拍板收斂;~~原「.md / .json schema」~~ 作廢 —— **三綠不會 parse 任意 JSON、格式壞掉照樣全綠**,而 `package.json`/`turbo.json`/`tsconfig*.json` 副檔名都是 `.json`),`.json` / `.css` / `.sh` / `.yaml` / `.yml` / `.sql` **一律不算**(`.css` **要跑 build 才有判別力**;`.json` / `.sh` / `.yaml` / `.yml` / `.sql` 對三綠恆綠或零判別力、另有守門)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**。🔴 **測試那一項:跑【動到的檔】就好、不必每次全套(2026-08-25 Sean 拍板)。而重點不是「跑哪些」, 是【怎麼知道它跑完了】—— **連跑兩發、比【測項總數】相同**, 不是比「有沒有紅」。⚠️ **兩個病, 兩道都要**:①`beforeAll` 逾時 ⇒ 檔【紅】而 **0 格紅**(`Tests` 那行沒有任何紅, 而大家引用的就是那一行)⇒ 比 `Test Files` 紅的支數 vs `Tests failed` 格數, **對不上的差就是消失的檔**;②檔根本【沒出現】⇒ **沒有東西紅** ⇒ 只有「連跑兩發比總數」抓得到。🔴 **這條【不是因為機器忙】** —— 就算只剩一個視窗,「印全綠但少跑 22 格」還是看不出來,**只是機率變低, 不是變成看得見**(2026-08-25 實測:同一份改動 4 發拿到 4 個結果, 其中一發**全綠而少 22 格**;而 Sean 同日拍板**施工窗不減少** ⇒ 這條與視窗數無關, 不得以「機器不忙了」為由撤掉)。
 12. **高風險改動 commit 前必過 Codex 對抗審查** — 高風險=動到任一:**①錢**(order・payment・refund・pricing・經銷價・會員 tier・儲值金)**②權限**(auth・RLS・GRANT・service_role・server/client 邊界)**③DB 結構與大量/不可逆寫入**(schema・migration・批次匯入)**④平台設定**(next.config・vercel.json・Prisma・CI・env)**⑤對外不可回收**(寄信・對外發布・法律頁)**⑥共用元件 packages/ui 行為改動**(props 介面/邏輯/資料流;純樣式=標準片)。跨 3 檔/一般 API/進度單元收尾**不自動觸發**;自評有風險只能加審不能免審;Sean 說「Ready for review」必審;milestone 收尾仍跑一次總審。動作:停下、跑完三綠、**commit 前**直呼 codex CLI 唯讀對抗審查(`codex-adversary` 關卡2、`-s read-only`、不產書面 Packet)、findings 修完才 commit、**不 push**。審查唯讀紀律見 `docs/ops/AI_CONTRACT.md` §2。
 
 ---
@@ -88,7 +88,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **SSH only**:`git@github.com:pcmmotorsports/pcm-website-v2.git`。絕不在對話貼 ghp_ token;credential 命令加 `grep -v ghp_`;`cat .env` 不在對話跑(Sean 自驗)。
 - **Branch**:`main`←production(Sean 手動 merge)/ `dev`←主開發(slice 都在 dev、線性、暫不開 feature branch)。
 - **Commit 訊息**:`type(scope): subject [milestone]`。type=feat/fix/refactor/docs/chore/test/perf;scope=storefront/medusa/ui/schemas/docs/config;subject=繁中祈使句≤72 字元。
-- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。
+- **Add 必精準**:`git add <精確路徑>`;**禁 `git add .` / `git add -A`**。🔴 **而「路徑精準」≠「內容精準」**(2026-08-25 拋棄式 repo 雙世界實測):`git add <單一檔案>` 拿的是**那支檔的整個 diff** —— 一支檔被改了兩處(例如另一個窗也動過), `add` 它就兩處全進來。⇒ 動**多窗共用的檔**(`package.json` / `STATUS.md` / 板子)前先 `git diff <檔>` 看清楚。🔴 **而 `git commit -F <msg> -- <pathspec>` 與不帶 pathspec【各擋一半、各對另一半失明】**:帶 pathspec ⇒ 只收指定的檔(擋住別人放進 index 的**其他檔**), **而它收的是【工作樹】那一份** ⇒ 別人在你 `add` 之後對**同一支檔**的編輯會一起被收走;不帶 pathspec ⇒ 收 index(你 `add` 的那版), **而別人的其他檔會一起進去**。⇒ 兩種都不是無條件安全 ⇒ **commit 前 `git diff --cached -- <檔>`、commit 後 `git show HEAD:<檔>` 回核**。
 - **不自動 push**:commit + busboy-end 後**不 push**、Sean 手動推=review checkpoint。
 - **Submodule**:初始化 `git submodule update --init --recursive`;同步 design `git submodule update --remote design-reference/` → `git add design-reference` commit。
 
@@ -101,12 +101,12 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 - **zsh 禁忌**:命令內**禁 `#` 註解**(報 command not found)、**禁全形標點「」():;**(報 unknown file attribute);註解寫 prose、不寫進命令。
 - 🔴 **雙引號內禁反引號**(2026-08-16 A 窗實錘):`git commit -m "…\`foo\`…"` 的反引號被 zsh 當**命令替換**吃掉 ⇒ **那段字從 commit body 消失**,而**句子還讀得通、只是掉了主詞** ⇒ 比「掉了字」難發現。**commit body / 多行訊息一律用檔案餵**(`git commit -F <檔>`)或單引號。
-- 🔴 **pipeline 後面的 `$?` 是【右端】那個指令的,不是你關心的那支腳本的**(2026-08-16 一夜三次、三個不同的窗):`bash x.sh | head` 之後 `echo $?` 拿到的是 `head` 的 0。⇒ **要腳本自己的 exit code:別接管線,或 `set -o pipefail` 寫在【跑 pipeline 的那個 shell】**(寫在腳本裡管不到包住它的那一個)。
+- 🔴 **pipeline 後面的 `$?` 是【右端】那個指令的,不是你關心的那支腳本的**(2026-08-16 一夜三次、三個不同的窗):`bash x.sh | head` 之後 `echo $?` 拿到的是 `head` 的 0。⇒ **要腳本自己的 exit code:別接管線,或 `set -o pipefail` 寫在【跑 pipeline 的那個 shell】**(寫在腳本裡管不到包住它的那一個)。🔴 **同族第二條:背景任務的輸出檔會被截斷**(2026-08-25 實測:一支跑 14 分鐘的只剩 **80 bytes**)⇒ **證據會消失, 而「它到底綠沒綠」事後查不到**。⇒ 要 rc 就寫 `cmd > file 2>&1 ; echo "rc=$?" >> file`。
 - 🔴 **輸出的標籤要由【結果】決定,不能無條件印**(2026-08-16 主視窗自己踩):`cmd; echo "(空 = 零命中)"` —— 那行 `echo` 在**有命中時照樣印**,而它就印在命中的正下方。⇒ **要嘛用 `|| echo`,要嘛把判定寫進條件式。**
-- **多步驟用 `&&` 串接**(任一步失敗自動停)、**禁裸換行 batch 多命令**。
+- **多步驟用 `&&` 串接**(任一步失敗自動停)、**禁裸換行 batch 多命令**。🔴 **而 `&&` 會被一個【合法的零】截斷**(2026-08-25 兩個窗各踩一次):`grep -c "nothere" f` **印出 `0` 而 `rc=1`** ⇒ 後面整串不跑, 而畫面上**只是少印一行**。同族成員:`grep -c` / `grep -q` / `diff` / `test` / glob —— **下一個人踩的會是另一個成員**。⇒ 量測鏈不要用 `&&` 串;要串就每一段自己收 rc。🔴 **同族第三條:在錯的目錄跑 `vitest` ⇒ `No test files found`** ⇒ 濾掉那句之後**畫面全空, 與「零失敗」長得一樣**。
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
-- **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`。
+- **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`。🔴 **而 zsh 【不】對未加引號的變數斷詞**(2026-08-25 `/bin/zsh 5.9` 實測:`for x in $V` 跑 **1 次** / `while IFS= read -r x` 跑 **3 次**)⇒ **迴圈只跑一次而它印出一個乾淨、合理的結論**。⇒ 迴圈一律 `while IFS= read -r f; do … done < 檔案`, **不要 `for f in $VAR`**;路徑一律逐一列出, **禁 `git add $P`**。
 - **CJK / str_replace 切策略**:見常載 `~/.claude/rules/00-work-rules.md` §5(單一權威,此處不重複)。
 
 ## Server 端鐵則(會員與價格、Phase 1 核心)
