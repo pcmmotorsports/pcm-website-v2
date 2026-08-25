@@ -155,6 +155,39 @@ SPEC = 'docs/specs/2026-07-25-admin-backend-rebuild-spec.md'
 BOARD_MIN_ROWS = 60
 SPEC_GREEN_MIN_ROWS = 5
 
+# ══ 合法繞道(2026-08-25 線3;主視窗批准「乙案」)════════════════════════
+# 🔴 **為什麼一定要有**:一道逼人用 `--no-verify` 的閘, 比沒有那道閘更糟 ——
+#    `--no-verify` 會把那顆 commit 上的**每一道**閘一起關掉, 而畫面上看不出差別。
+# 🔴 **為什麼不照現成慣例做**:本 repo 既有兩處 `PCM_ALLOW_*` 逃生門
+#    (`scripts/reserve-backlog.sh:168` · `PCM_ALLOW_STATUS_IN_WORKTREE`)
+#    **都只 `printf` 到 stderr** ⇒ **痕跡跟著終端機一起消失**, 半小時後沒有人知道繞過了。
+# ⇒ 本閘的逃生門**只在板子自己帶著那行痕時才生效**:痕與繞道的動作進同一顆 commit,
+#    住在收訊者本來就會打開的那份檔裡。沒有痕 ⇒ **fail-closed, 閘照擋。**
+# 🔴 讀的是 `read_source(board, staged)` ⇒ **判誰、就讀誰**:
+#    `--staged` 時讀 index 那一份, 不帶時讀工作樹那一份。
+#    否則會出現「工作樹有痕而 index 沒有」⇒ 繞道成立而痕沒進 commit。
+BYPASS_ENV = 'PCM_ALLOW_BOARD_DRIFT'
+BYPASS_MARK = '<!-- BOARD-GATE-BYPASS:'
+# 🔴 codex R1-A/C(2026-08-25):**上面那個設計有一個洞, 而它會自己長大** ——
+#    第一行痕一旦 commit 進板子, 它就**永遠在那裡** ⇒ 之後任何人只要設 env 就能重用它,
+#    而畫面上與「這次真的寫了一行理由」**一模一樣**。
+#    ⇒ 判準改成:**這次要放行, 必須有一行痕是【HEAD 裡沒有的】。**
+#    ⚠️ 已知天花板(明寫, 不假裝):本檢查是整檔 substring, **不排除 fence / 引文 / 範例**。
+#       有人在**這一顆 commit 裡**新增一行長得像痕的引文 ⇒ 它會成立。
+#       而「舊痕重用」那條路已經被上面那句堵死 ⇒ 剩下的是**當次刻意為之**, 不是會慢慢腐爛的洞。
+def _bypass_marks(text):
+    return {l.strip() for l in text.split('\n') if BYPASS_MARK in l}
+
+
+def _head_text(path):
+    """HEAD 裡那一份。拿不到(沒有 HEAD / 不在 repo 裡 / 該檔還沒進版本庫)⇒ None。
+       🔴 None **不當成「沒有舊痕」以外的意思** —— 那種世界裡任何一行痕都必然是新的。"""
+    try:
+        r = subprocess.run(['git', 'show', f'HEAD:{path}'], capture_output=True)
+    except OSError:
+        return None
+    return r.stdout.decode('utf-8', 'replace') if r.returncode == 0 else None
+
 
 def split_cells(line):
     """切欄。🔴 `\\|` 是跳脫的豎線, 不能當欄位分隔。
@@ -447,6 +480,24 @@ def scan(board=BOARD, spec=SPEC, quiet=False, board_min=None, spec_min=None, sta
                 say(f'     :{r["line"]}  #{f[1]} {f[2][:20]}  狀態=[{mk[:40]}]')
     else:
         say(f'  ✅ ③ {len(grows)} 列狀態欄全是純 ✅')
+
+    # 🔴 逃生門(見檔上方 BYPASS_ENV 那段的「為什麼」)。**兩個條件都要成立才放行。**
+    #    ⚠️ 只在 bad 時才讀那支檔 —— 綠的時候多讀一次沒有意義, 而 `--staged` 那條會多跑一發 git。
+    if bad and os.environ.get(BYPASS_ENV) == '1':
+        cur = _bypass_marks(read_source(board, staged))
+        if not cur:
+            say(f'  🔴 {BYPASS_ENV}=1 而板子【沒有】{BYPASS_MARK} 那行痕 ⇒ **不放行**'
+                f'(逃生門要留痕才生效。把那行寫進 {board} 並 stage 它)')
+            return bad
+        head = _head_text(board)
+        fresh = cur if head is None else cur - _bypass_marks(head)
+        if fresh:
+            say(f'  ⚠️ {BYPASS_ENV}=1 且板子帶著【這次新增的】{BYPASS_MARK} 痕 ⇒ **放行**'
+                f'(痕跟著這顆 commit 進 {board};要查是誰繞的, 去板子裡看那一行)')
+            return 0
+        say(f'  🔴 {BYPASS_ENV}=1 而板子上那 {len(cur)} 行痕【HEAD 裡已經有了】⇒ **不放行**'
+            f'(舊痕不能重用 —— 那會讓第一次繞道變成一個永久的洞。'
+            f'這次要繞就寫一行新的, 並且 stage 它)')
     return bad
 
 
@@ -1198,6 +1249,120 @@ def selftest():
         print(f'  🔴 辛·rc 對應表 · 讀不到檔而子程序 exit {r.returncode}(該是 2)')
         ok = False
 
+    # ══ 逃生門的證人(2026-08-25 線3;主視窗:「證人不可以省」)══════════════
+    #    🔴 三格, 而**每一格殺死的是不同的一刀**:
+    #      逃1 拿掉整個逃生門      ⇒ 只有逃1 會紅(它期望放行)
+    #      逃2 拿掉「要有痕」那半  ⇒ 只有逃2 會紅(它期望仍然擋)
+    #      逃3 拿掉「要設 env」那半 ⇒ 只有逃3 會紅(痕本身不得當成永久的洞)
+    #    📌 少了逃2,「逃生門裝好了」與「逃生門恆開」印同一個結果。
+    #    📌 少了逃3, 那行痕會變成一個**寫進板子就永遠打開**的洞 —— 而它讀起來像一筆紀錄。
+    _dirty_board = _pad('| zzzbad | — | 態欄不在封閉集 | — | x |\n')
+    _mark_line = '\n<!-- BOARD-GATE-BYPASS: 2026-08-25 selftest 證人用的假痕 -->\n'
+    _esc = [
+        ('逃1該綠必綠 · env=1 且板子帶著痕 ⇒ 放行', _dirty_board + _mark_line, True, 0),
+        ('逃2該紅必紅 · env=1 而板子【沒有】痕 ⇒ 仍然擋', _dirty_board, True, 1),
+        ('逃3該紅必紅 · 有痕而【沒設 env】⇒ 仍然擋(痕不是永久的洞)',
+         _dirty_board + _mark_line, False, 1),
+    ]
+    for _name, _bt, _set_env, _want in _esc:
+        _old = os.environ.get(BYPASS_ENV)
+        if _set_env:
+            os.environ[BYPASS_ENV] = '1'
+        else:
+            os.environ.pop(BYPASS_ENV, None)
+        try:
+            _got = scan(_mkf('esc-b.md', _bt), _mkf('esc-s.md', GREEN_SPEC), quiet=True)
+        except MeasurementError as e:
+            _got = f'量具失效:{e.code}'
+        finally:
+            if _old is None:
+                os.environ.pop(BYPASS_ENV, None)
+            else:
+                os.environ[BYPASS_ENV] = _old
+        if _got == _want:
+            print(f'  ✅ {_name}  期望 rc={_want} 實得 rc={_got}')
+        else:
+            print(f'  🔴 {_name}  期望 rc={_want} 實得 rc={_got}')
+            ok = False
+
+    # 🔴 逃4:**上面三格都餵【工作樹】那條路。** `--staged` 那條讀的是 index,
+    #    而逃生門讀的是 `read_source(board, staged)` ⇒ 兩條路各自有一個「痕在哪」的答案。
+    #    ⇒ 這一格造一個真 repo:**痕只在工作樹上, index 裡沒有** ⇒ `--staged` 必須【仍然擋】。
+    #    📌 少了它, 「痕跟著 commit 走」這個整個設計的賣點**一格證人都沒有**:
+    #       有人可以在工作樹寫一行痕、繞過閘, 而那顆 commit 裡沒有那行痕。
+    _w4 = _mk_git_repo(board_text=_dirty_board, spec_text=GREEN_SPEC, add=True)
+    subprocess.run(['git', 'commit', '-q', '-m', 'base'], cwd=_w4,
+                   capture_output=True, env=_GIT_FREE_ENV)
+    io.open(os.path.join(_w4, BOARD), 'w', encoding='utf-8').write(_dirty_board + _mark_line)
+    _r4 = subprocess.run([sys.executable, os.path.abspath(__file__), '--staged'], cwd=_w4,
+                         capture_output=True, text=True,
+                         env={**_GIT_FREE_ENV, BYPASS_ENV: '1'})
+    _r4w = subprocess.run([sys.executable, os.path.abspath(__file__)], cwd=_w4,
+                          capture_output=True, text=True,
+                          env={**_GIT_FREE_ENV, BYPASS_ENV: '1'})
+    if _r4.returncode == 1 and _r4w.returncode == 0:
+        print('  ✅ 逃4·痕只在工作樹 · --staged 仍然擋(rc=1), 而不帶 --staged 放行(rc=0)'
+              ' ⇒ 兩條路真的各自讀自己那一份')
+    else:
+        print(f'  🔴 逃4·痕只在工作樹 · --staged rc={_r4.returncode}(該是 1)'
+              f' / 不帶 --staged rc={_r4w.returncode}(該是 0)'
+              ' ⇒ 逃生門讀錯了那一份, 痕可以不進 commit')
+        ok = False
+
+    # ══ codex R1-A/C 的證人:**舊痕不得重用**(2026-08-25)════════════════
+    #    🔴 這一格擋的是【會自己長大的洞】:第一次繞道留下的那行痕會永遠留在板子裡,
+    #       而重用它與「這次真的寫了理由」在畫面上一模一樣。
+    #    逃5 舊痕(HEAD 裡已有) ⇒ 仍然擋   逃6 這次新增的痕 ⇒ 放行
+    #    📌 少了逃5, 把「fresh」那半改回「只要有痕」⇒ 一格都不會紅。
+    _old_mark = '<!-- BOARD-GATE-BYPASS: 2026-08-01 上一次繞道留下的 -->\n'
+    _w5 = _mk_git_repo(board_text=_pad() + _old_mark, spec_text=GREEN_SPEC, add=True)
+    subprocess.run(['git', 'commit', '-q', '-m', 'base'], cwd=_w5,
+                   capture_output=True, env=_GIT_FREE_ENV)
+    _b5 = os.path.join(_w5, BOARD)
+    io.open(_b5, 'w', encoding='utf-8').write(_dirty_board + _old_mark)
+    subprocess.run(['git', 'add', BOARD], cwd=_w5, capture_output=True, env=_GIT_FREE_ENV)
+    _r5 = subprocess.run([sys.executable, os.path.abspath(__file__), '--staged'], cwd=_w5,
+                         capture_output=True, text=True,
+                         env={**_GIT_FREE_ENV, BYPASS_ENV: '1'})
+    if _r5.returncode == 1:
+        print('  ✅ 逃5·舊痕重用 · HEAD 裡已有的那行痕 ⇒ 仍然擋(rc=1)')
+    else:
+        print(f'  🔴 逃5·舊痕重用 · rc={_r5.returncode}(該是 1)'
+              ' ⇒ 第一次繞道會變成一個永久的洞')
+        ok = False
+    io.open(_b5, 'w', encoding='utf-8').write(
+        _dirty_board + _old_mark + '<!-- BOARD-GATE-BYPASS: 2026-08-25 這次新寫的 -->\n')
+    subprocess.run(['git', 'add', BOARD], cwd=_w5, capture_output=True, env=_GIT_FREE_ENV)
+    _r6 = subprocess.run([sys.executable, os.path.abspath(__file__), '--staged'], cwd=_w5,
+                         capture_output=True, text=True,
+                         env={**_GIT_FREE_ENV, BYPASS_ENV: '1'})
+    if _r6.returncode == 0:
+        print('  ✅ 逃6·新痕 · 舊痕還在而這次多寫了一行新的 ⇒ 放行(rc=0)'
+              ' ⇒ 逃5 不是靠「有舊痕就一律擋」蒙對的')
+    else:
+        print(f'  🔴 逃6·新痕 · rc={_r6.returncode}(該是 0)⇒ 誤擋:寫了新理由還是繞不過去')
+        ok = False
+
+    # ══ codex R1-F 的證人:**打錯的旗標不得被安靜吞掉**══════════════════
+    #    🔴 實測過的病:`--stage`(少一個 d)⇒ rc=0 而它印「讀自工作樹」
+    #       ⇒ 人以為驗了 index, 而它驗的是另一份。**兩個模式印的是同一個 rc。**
+    #    ⚠️ 該綠那一半也要有 —— 位置參數(lint-staged 會附加的絕對路徑)**不得**被當成壞旗標。
+    _w7 = _mk_git_repo(board_text=GREEN_BOARD, spec_text=GREEN_SPEC, add=True)
+    subprocess.run(['git', 'commit', '-q', '-m', 'base'], cwd=_w7,
+                   capture_output=True, env=_GIT_FREE_ENV)
+    _r7 = subprocess.run([sys.executable, os.path.abspath(__file__), '--stage'], cwd=_w7,
+                         capture_output=True, text=True, env=_GIT_FREE_ENV)
+    _r8 = subprocess.run([sys.executable, os.path.abspath(__file__),
+                          os.path.join(_w7, BOARD)], cwd=_w7,
+                         capture_output=True, text=True, env=_GIT_FREE_ENV)
+    if _r7.returncode == 2 and _r8.returncode == 0:
+        print('  ✅ 逃7·旗標 · 打錯的 --stage ⇒ rc=2(不是靜靜跑另一個模式);'
+              '而 lint-staged 附加的路徑參數照常放行(rc=0)')
+    else:
+        print(f'  🔴 逃7·旗標 · --stage rc={_r7.returncode}(該是 2)'
+              f' / 附加路徑 rc={_r8.returncode}(該是 0)')
+        ok = False
+
     print('\n全部通過。' if ok else '\n🔴 有格沒過。')
     return 0 if ok else 1
 
@@ -1235,6 +1400,17 @@ WHY = """誤擋率乾跑
 
 if __name__ == '__main__':
     try:
+        # 🔴 codex R1-F(2026-08-25):旗標比對是 `in sys.argv` ⇒ **打錯的旗標會被安靜吞掉**。
+        #    實測:`--stage`(少一個 d)⇒ rc=0 而它印「讀自工作樹」—— 人以為驗了 index, 其實沒有。
+        #    ⇒ 未知的 `--` 開頭一律 rc=2(量具失效), 不與 finding 的 rc=1 混。
+        #    ⚠️ **不含位置參數** —— lint-staged 會附加檔名(絕對路徑), 那個本來就被無視。
+        _known = ('--selftest', '--why', '--staged')
+        _bad_flags = [a for a in sys.argv[1:] if a.startswith('--') and a not in _known]
+        if _bad_flags:
+            print(f'🔴 工具壞了(不認得的旗標 {" ".join(_bad_flags)};認得的只有 '
+                  f'{" ".join(_known)})—— 打錯旗標時它會安靜地跑【另一個模式】',
+                  file=sys.stderr)
+            sys.exit(2)
         if '--selftest' in sys.argv:
             sys.exit(selftest())
         if '--why' in sys.argv:

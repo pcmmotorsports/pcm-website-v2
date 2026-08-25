@@ -33951,3 +33951,44 @@ b4  寫出「轉述【值】照貼原文;轉述【機制】要自己造一發對
 - ⚠️ 它**不需要判斷時機** —— 這正是它與「我會注意」型規則的差別;
   ⇒ 因此它**掛得上 hook**(寫下「我想到一件事 / 這其實是」時提醒),**而那把 hook 沒做**。
 - **相關:** `#929`(同族:F 管【更正的時候】,本條管【得意的時候】)· `#926`
+
+### #931. 🔴 `board-state-consistency.py` 用 `'--staged' in sys.argv` 認旗標 —— 位置參數被無視, 而它無視的是【一個絕對路徑】
+
+- **狀態:** ⏳ 待做(2026-08-25 線3 掛閘時當場量到;**今天構造不出傷害**, 本條是台帳)
+- **優先級:** 🟡 低(觸發面已改窄 ⇒ 現在不在流血;而缺陷還在)
+- **來由:** 2026-08-25 線3 把 `docs/launch-todo.md` 掛上 lint-staged 時, 自己量出來的
+
+#### 事實(當場量的, 三個世界 + 端到端)
+
+```
+落點  scripts/board-state-consistency.py 的 __main__:`'--staged' in sys.argv`
+      package.json lint-staged 新增的那條 key = 精確路徑 `docs/launch-todo.md`
+量法  python3 scripts/board-state-consistency.py --staged docs/launch-todo.md  => rc=0
+      python3 scripts/board-state-consistency.py --staged                       => rc=0
+      python3 scripts/board-state-consistency.py --staged /zzz/不存在的檔        => rc=0   <= 重點
+負對照 (旗標那半已修)打錯的 --stage => rc=2, 由 selftest 的「逃7」格守著
+```
+
+🔴 **第三行才是重點**:它連一個**不存在的路徑**都照樣 rc=0
+⇒ **它掃的永遠是自己寫死的 `BOARD`, 不是 lint-staged 遞給它的那個檔。**
+
+🔴 **而它無視的不是「一個檔名」, 是【一個絕對路徑】。**
+lint-staged 17.0.4 遞進來的是 `/private/var/.../docs/launch-todo.md`(2026-08-25 用一支 probe 腳本實測),
+不是相對字面 ⇒ **下一個想「補一行讀 `sys.argv[1]`」的人, 會拿到一個他沒預期的形狀。**
+
+#### 不修未來會痛在哪(鐵則 10)
+
+**出現第二張板子的那一天**(例如把這條 entry 改成 glob, 或新增另一支要掃的 md):
+lint-staged 會為第二張板子觸發同一支工具, 而工具**掃的還是第一張板子**
+⇒ **它會印綠, 因為它掃的是另一張還是好的板子。**
+📌 **沒有任何數字會對不上** —— 檔名清單正常、rc=0、輸出格式正常。**這種綠沒有訊號。**
+
+#### 修的時候要注意
+
+- **現成的正解就在同一個 repo 裡**:`scripts/husky-hook-wiring-check.sh:47,49,66`
+  —— 它明文處理 lint-staged 附加的位置參數(非 `--` 開頭 = 檔名不是旗標),
+  並且**印一行「忽略位置參數:… —— 本工具不吃檔名」**。⇒ 照它做, 不要重新發明。
+- ⚠️ 這支工具的 `BOARD` / `SPEC` 是模組常數, 改成吃 argv **會動到 selftest 的 91 格**(它們都傳 board 路徑進 `scan()`)⇒ 不是一行的事。
+- **相關:** `#798`(全稱句守門覆蓋面比看起來窄)—— **機制不同, 不是同題**:
+  `#798` 是**範圍太窄**, 本條是**打錯目標**。別名檢查 `--search "lint-staged" "sys.argv" "位置參數" "掃錯檔"`
+  ⇒ 778 條裡命中 9, 全部只中 `lint-staged` 一個詞, 逐條開檔核過無同題(負對照餵不存在的詞 ⇒ 0)。
