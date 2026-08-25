@@ -101,6 +101,19 @@ logdir_for() { echo "$(pwd)/logs/four-greens/$(runstamp_for "$1")"; }
 #      = 稽核假陽性的另一扇門(R2 F-3 實測)。放進 one() 之後,只有真的要寫 log 才會生目錄。
 if [ "${1:-}" = --selftest ]; then MODE=selftest; else MODE=run; fi
 
+# 🔴🔴 **selftest 模式剝掉繼承來的 `GIT_*`**(2026-08-25 補;`scripts/selftest-git-isolation-gate.sh` 量到)
+#    `:879` 那個 DRIFT fixture 會 `mktemp -d` + `git init` + `add` + `commit` 造一個拋棄式世界,
+#    而在 `pre-commit` / `pre-push` 底下它**繼承 `GIT_DIR` / `GIT_INDEX_FILE`**
+#    ⇒ 那幾發寫進**真的 repo**。實測:受害者 repo 5 個檔 → 6 個檔、HEAD 被移動。
+#    📌 **這一支是三支違規者裡唯一沒有人點名過的** —— 它是行為尺自己撈到的,
+#      而字面尺找不到它的原因就在上面那一行:**它的 `git init` 前面掛著四個 `-c`**,
+#      掃 `git init` 的人看得到, 掃「這支檔有沒有建 repo」的人得先想到要掃什麼。
+#    ⚠️ 只剝在 selftest —— `run` 模式要讀當下這棵樹的 HEAD/status 當指紋, 不能剝。
+if [ "$MODE" = selftest ]; then
+  for _gv in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_gv"; done
+  unset _gv
+fi
+
 # 🔴 尾行數是【參數】不是固定值,原因是實戰踩到的(2026-08-17 收割 products 那次):
 #    vitest 紅的時候,失敗明細在 `Failed Tests` 那一段,而總結行在最後 ——
 #    尾 8 行只夠印到「Test Files 1 failed」,**印不到是哪一格紅、為什麼紅**。
