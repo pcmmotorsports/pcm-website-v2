@@ -40,9 +40,27 @@ cat > "$_T" || { echo '🔴 pre-push:讀不進 git 餵的 ref(stdin)⇒ 擋下,�
 #    今晚兩次事故都是「自帶拋棄式世界的 --selftest 在真 repo 上動手」——
 #      board-state-consistency.py 清空整個 index(3,234 ⇒ 3)
 #      view-apply-before-wire-gate.py 在真 repo 建 4 顆 commit 並把 dev 指過去
-#    🔴 為什麼不掛 lint-staged:當場量到 --selftest 37 秒 / 全掃 171 秒。
-#      每顆 commit 多等 37 秒 ⇒ 人會開始 --no-verify, 那比沒有這道閘更糟。
+#    🔴 為什麼不掛 lint-staged:它慢到會讓人開始 --no-verify, 而那比沒有這道閘更糟。
 #      而它守的是【repo 的一個狀態】不是每顆 commit 都會變的東西 ⇒ 用 push 的頻率問它才對。
-#    ⚠️ 它對債表上已知的 3 支只印不擋, 對【表外新出現的】才 exit 1(線 3 拋棄式 repo 真 push 兩方向量過)。
+#      ⚠️ **量級在這裡, 而每個數字都綁著它的世界**(§6-b:沒帶範圍的數字不進表):
+#        · 2026-08-25 早先:`--selftest` **37 秒** / 全掃 **171 秒**(當時的證人格數 **未確認**)
+#        · 同日線 3 加到 **12 格**後:`--selftest` **31-34 秒** / 全掃 **107-116 秒**
+#      🔴 **這兩組不可直接相比** —— 機器負載不同(當晚八個窗共用一台), 格數也不同。
+#      🔴 **不要把過期的數字直接刪掉** —— 「不掛 lint-staged」這個決定的**依據就是那個秒數**,
+#         刪掉數字 ⇒ 有人會以為這決定沒依據而去推翻它。**過期的數字要加註時點, 不是拿掉。**
+#      ⇒ 要現值當場跑(在 repo 根):
+#         `time bash scripts/selftest-git-isolation-gate.sh --selftest`
+#         `time bash scripts/selftest-git-isolation-gate.sh`
+#      📌 同族要知道的:這道閘掛在一條 `&&` 鏈的**末端** ⇒ 前面任一段紅它根本不會跑
+#         ⇒「pre-push 有這道閘」與「每次 push 都驗過隔離」是**兩個宣稱**。而前面紅時
+#         畫面上是「push 被擋了」= 看起來就像守門在工作。**鏈式守門的漏跑長得像真紅。**
+#    ⚠️ 它對【債表 KNOWN 上的】只印不擋, 對【表外新出現的】才 exit 1(線 3 拋棄式 repo 真 push 兩方向量過)。
+#      **這裡刻意不寫支數** —— 債表會被清空也會被加回(2026-08-25 就清空過一次)。
+#      要現值 —— **兩步, 不要只跑第二步**:
+#        ① `grep -c '^KNOWN="' scripts/selftest-git-isolation-gate.sh`  ⇒ **必須是 1**
+#        ② `sed -n '/^KNOWN="/,/^"/p' scripts/selftest-git-isolation-gate.sh`
+#      🔴 **少了①, 「錨不見了(查法壞掉)」與「債表是空的」印的是同一個輸出。**
+#      📌 一般化:一條「抽某個區段」的查法, 要先驗那個區段的**錨存在** ——
+#         否則它在兩個世界印同一句話, 而其中一個世界是它自己壞了。
 #    ⚠️ 它不吃 stdin, 而上面兩支已經把 $_T 用掉了 ⇒ 導 /dev/null 只是為了不讓它意外繼承。
 TURBO_FORCE=1 pnpm typecheck && TURBO_FORCE=1 pnpm lint && bash "$_R/scripts/deploy-order-gate.sh" < "$_T" && sh "$_R/scripts/migration-ledger-divergence.sh" --if-pushing-main < "$_T" && bash "$_R/scripts/selftest-git-isolation-gate.sh" < /dev/null
