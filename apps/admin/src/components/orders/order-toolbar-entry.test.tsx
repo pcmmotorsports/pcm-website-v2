@@ -41,6 +41,24 @@ describe('訂單列表工具列 · 手動建單入口', () => {
   //    「真的有那顆鈕」與「我拿了一個恆真的字串去比」印同一種綠。
   it('負對照 —— 沒被畫上去的路徑不會命中', () => {
     const html = renderToStaticMarkup(<OrderToolbar {...BASE} loadFailed={false} />);
+    // 🔴🔴 **這個字串【現在住在本檔裡】,而那件事有後果:**
+    //    `fc6a1edf` 的 commit body 記著一發負對照,逐字
+    //    「`git grep -lF "orders/definitely-not-here" -- apps/admin/src` ⇒ 0(rc=1)」——
+    //    **那句話在 commit 當下是真的,而今天任何人回去重跑都會得到 1**,
+    //    因為**同一顆 commit 把這個字串寫進了這一行**。
+    //    ⇒ 那不是當時記錯。**是那發負對照在被寫下來的那一刻就被自己消耗掉了。**
+    //
+    //    🔴 **判別句(cf 對抗審查 2026-08-25 開的 must-fix,主視窗轉):**
+    //       *我這個負對照字串,會不會因為我把它寫下來而變成命中?*
+    //    ⇒ 以後負對照字串**只寫在 commit body,不寫進 code / 測試 / 註解**;
+    //      要在檔裡留量法就留**量法的形狀**,不留那個具體字串。
+    //      今晚的正確範本 = `c1a48918`(線3),它的負對照字串只活在 commit body 裡。
+    //    ⇒ 要重驗那一發,請換一個**沒有寫進任何檔案**的新字串。
+    //
+    //    ⚠️ 同族的第二格:`fc6a1edf` body 另有「排除建單片後 ⇒ 0」,**今天是 2** ——
+    //       而多出來的兩支正是 `order-toolbar.tsx` 與本檔,**也就是那顆 commit 自己**。
+    //
+    //    本行的斷言本身沒有問題(它比的是 render 出來的 HTML,不是 repo 檔案),照留。
     expect(html).not.toContain('href="/orders/definitely-not-here"');
   });
 
