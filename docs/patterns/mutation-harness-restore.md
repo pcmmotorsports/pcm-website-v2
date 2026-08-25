@@ -548,6 +548,42 @@ grep -rl '<你插進去的探針字串>' apps packages scripts
 
 ---
 
+## 4g 🔴 **不 commit 的人,在共用樹上結構上不可能自救** —— patch 交接流程(2026-08-25,一夜三次)
+
+```
+機制:共用工作樹上編輯而【不當場 commit】⇒ 下一個 `git add <那支檔>` 的人收走【整個 diff】
+     ⇒ 內容進了版控, 而 commit 說明不是他的
+2026-08-25 一夜三次:52b94490 / ba63782b / 221fe511 各掃走一個人的東西
+🔴 而【發訊息叫人來收】不夠 —— 最後那次, 從發訊息到來收【不到一分鐘】
+```
+📎 **這個機制本身已有 memory,本節只補【處置】**:
+`feedback_precise-path-does-not-stop-a-shared-file` —— **精準路徑擋「選錯檔」,擋不到「選對檔而裡面有別人的改動」。**
+
+### 處置:把自己的那一刀**帶離**共用樹
+
+```bash
+F=<你改的那支檔>
+cp "$F" /tmp/mybackup                      # 🔴 先備份, 後面驗還原用
+# … 做你的編輯 …
+git diff -- "$F" > ~/pcm-mailbox/cf-patch-<主題>-<時分>.patch
+git apply -R ~/pcm-mailbox/cf-patch-<主題>-<時分>.patch   # 把【自己那一刀】從工作樹撤掉
+shasum -a 256 "$F" /tmp/mybackup           # 兩個 sha 必須相同 ⇒ 撤乾淨了
+git apply --check ~/pcm-mailbox/<那支>.patch  # 確認收包的人套得上
+```
+
+### 🔴🔴 撤那一刀**不可以用 `git checkout -- <檔>`**
+
+```
+git checkout -- <檔> 的作用域是【那支檔對 index/HEAD 的全部差異】, 不是【我剛剛那一刀】
+⇒ 別人同時在改同一支檔時, 它把他的一起丟掉
+⇒ 而 git apply -R 反向套用的是【我自己那一份 patch】⇒ 作用域剛好等於我那一刀
+```
+📎 這一半也已有 memory,不要重新發現:
+`feedback_mutation-restore-scope-git-checkout-wipes-uncommitted-edits`(**2026-08-10**)
+—— 而本檔 §4c 已記了它的第 2、3 次復發。**⇒ 同一個坑, 到今天至少 5 次。**
+
+---
+
 ## 5. 判別句
 
 > **我現在要跑的這支腳本,如果在中間被殺掉,會留下什麼?**
