@@ -285,9 +285,20 @@ def write_log(root, query_src, counts, n_self, ranked, warned):
             #    ~~而 hook 端【不把 unknown 當免驗】,因為「我不知道是誰跑的」與
             #      「是你跑的」不可以印同一個結果。~~
             #    ⇒ 2026-08-25 實查(下手窗複驗):**這個欄位目前有一個寫的人、零個讀的人。**
-            #       量法 `grep -rn 'CLAUDE_CODE_SESSION_ID' .husky scripts` ⇒ 只有本檔這一行自己;
-            #       `grep -rn 'logs/' .husky/` ⇒ rc=1 零命中(沒有 hook 讀這份 log);
-            #       正對照 `grep -rn 'pcm-reviewer-ran' .husky scripts` ⇒ 4 行 ⇒ 尺會動。
+            #       🔴 量法要【扣掉本檔】才不會被自己汙染 —— 這段註解自己就是命中之一:
+            #         `grep -rn 'CLAUDE_CODE_SESSION_ID' .husky scripts | grep -cv 'traps-neighbours.py'`
+            #            ⇒ **0**(rc=1)⇒ 本檔以外沒有任何 hook 或腳本讀這個環境變數
+            #         `grep -rn 'logs/' .husky/` ⇒ rc=1 零命中 ⇒ 沒有 hook 讀這份 log
+            #         正對照(同一組指令、同一個扣法)
+            #         `grep -rn 'pcm-reviewer-ran' .husky scripts | grep -cv 'traps-neighbours.py'`
+            #            ⇒ **5**(`.husky/reviewer-gate.sh` ×4 + `scripts/write-reviewer-marker.sh` ×1)⇒ 尺會動
+            #         負對照 `CLAUDE_CODE_SESSION_ID_zzz` 同一組指令 ⇒ 0 rc=1
+            #       📌 **原本這三行報的是【絕對值】而它們會被自己改變** —— 對抗審查 R1 開的兩條 must-fix:
+            #         ①「只有本檔這一行自己」在寫下它的那一刻就從 1 變成 2
+            #         ②「正對照 4 行」是我**數錯**不是過期 —— `scripts/write-reviewer-marker.sh`
+            #           從 `3e1dcd5b`(2026-08-11)就在了,量的當下正確答案是 5,我漏了它。
+            #       🔴 **而「數錯」與「過期」在螢幕上長得一樣** —— 兩者都只是一個對不上的數字,
+            #         分得開它們的是「去查那一行是什麼時候進來的」,不是再數一次。
             #    ⇒ **免驗令綁執行者這件事,寫的那一半做完了,讀的那一半還沒有。**
             #    🔴 **原句的危害不是它錯,是它會讓下一個人以為保護已經在了** ⇒ 他就不會去做讀的那一半。
             #       而那正是 Sean 拍這塊板要防的東西。劃掉不刪:下一個人要看得到曾經有人拿它當證據。
