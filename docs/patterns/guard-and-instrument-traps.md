@@ -22479,6 +22479,18 @@ apps/admin/src/lib/dev-db-guard.ts:114   if (env[PROD_DB_BYPASS_ENV] !== '1') re
 ⇒ 而 `B4_DEPLOY_CUTOFF` 正是線 2 上一份標「判不出來」的那一個 —— **它不是判不出來, 是用錯尺。**
 ⇒ 連帶:「env 名稱 33 個是下界」從**推測**升成**量到的**(具名寫法 + 2 個實例)。
 
+**⇒ 那把寬尺長這樣(2026-08-25 線 2 補;原本這一節有處置沒有指令)**:
+```
+目標   /usr/bin/grep -rnE "const [A-Z][A-Z0-9_]+ = '[A-Z][A-Z0-9_]+';" --include=*.ts --include=*.tsx apps packages | grep -v '\.test\.'
+       ⇒ 9 行(2026-08-25 實跑)。其中 env 別名 2:`dev-db-guard.ts:36` · `email-sweep/route.ts:101`
+       其餘 7 是別種常數(P0001 / PGRST116 / TWD …)⇒ **這把尺【偏鬆】, 對「有沒有漏掉一個」是安全方向。**
+正對照 同一發 | grep -c 'PROD_DB_BYPASS_ENV\|CUTOFF_ENV'          ⇒ 2   兩個已知實例都撈得到
+負對照 同一 regex 換成 "const ZZZ_NO_SUCH_ENV = 'ZZZ';"            ⇒ 空 rc=1
+```
+🔴 **zsh 要給 `--include=*.ts` 加引號** —— 不加會 nomatch, 而它讓**四發一起回空、含正對照**;
+沒有正對照的話, 那個空會被寫成一句乾淨的「零命中」。
+📌 **這一節在講的就是這件事:正對照的價值不是「它綠了」, 是「它跟著紅了」。**
+
 **寬尺(高召回低精確, 要人工挑)**:
 ```
 git ls-files | while IFS= read -r f; do grep -aHn "= '[A-Z][A-Z0-9_]\{5,\}'" "$f"; done
