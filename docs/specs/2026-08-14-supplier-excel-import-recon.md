@@ -4,6 +4,32 @@
 > `#23` = 員工的一天 33 項的項次(`2026-07-25-admin-backend-rebuild-spec.md` §1-A),不是 backlog 號。
 > 報價單專案一律讀 `origin/main`(本機 clone 落後 16 顆),**只讀、零寫入**。
 
+## 0-bis. 🔴🔴 2026-08-25 訂正:**下面 §0 的 package.json 事實已全數失效**(線2 重量)
+
+**§0 說「`package.json:46` 有 `xlsx`、`papaparse` 在 `:28,:39`」—— 這三個字面今天一個都不在了。**
+
+| 量什麼 | 命令 | 2026-08-25 結果 |
+|---|---|---|
+| `xlsx` 在不在 | `grep -rn '"xlsx"' --include='package.json' . \| grep -v node_modules` | **rc=1 · 0 行** |
+| `papaparse` 在不在 | 同尺換字 | **rc=1 · 0 行** |
+| **正對照**(同尺、找一定在的) | `grep -rn '"zod"' …` | **rc=0 · 2 行**(`package.json:70` / `packages/schemas/package.json:13`)⇒ **尺是通的** |
+| 誰移的 | `git log --oneline -S "xlsx" -- package.json` | **`13e8c26e`**「移除零引用的 xlsx 依賴 [M-4b]」 |
+| 誰移的 | `git log --oneline -S "papaparse" -- package.json` | **`1307dfb5`**「移除零引用的 papaparse 與其型別套件 [M-4b]」 |
+
+⇒ **§5「兩個死相依要不要移除 —— 本報告只登記,不建議也不動」這一格已經關了。**
+   Sean 已答:`STATUS.md:517` 逐字「**A: 甲 ✅ 已答 —— papaparse 跟 xlsx 一起清**」。
+
+🔴 **而移除 `xlsx` 的理由不是「死相依」,是【2 個 HIGH 且官方無修補版】** ——
+   詳 `docs/phase-1-backlog.md` `#552`,它逐字警告:**匯入片開工時不要直接 `pnpm add xlsx` 裝回來**,
+   因為「**那條路正好是拿它去吃外部檔案**」。
+
+📌 **刻意不改 §0 原文** —— 它記的是 2026-08-14 當時的事實,而**本檔正是「上一個人的偵察被下一個人照抄」的活教材**:
+   §0 自己就是在更正更早的一份斷言,**然後它自己在 11 天內過期**。
+🔴 **而 §1-§4 的結論不受影響**(報價單側 6 支 fetcher 用 openpyxl 解 Excel、本 repo 零解析能力、
+   三條替代路徑都不需要在本 repo 寫解析器)—— **失效的只有 package.json 那三個行號。**
+
+---
+
 ## 0. 🔴 先更正 §1-A 一條:「全 repo 對 `xlsx`/`.xls` 零命中」**不成立**
 
 `package.json:46` 有 `"xlsx": "^0.18.5"`,還有 `papaparse` + `@types/papaparse`(`:28,:39`)。

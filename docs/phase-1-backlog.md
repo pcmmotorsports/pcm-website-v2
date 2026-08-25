@@ -16696,9 +16696,14 @@ Dashboard 的存取權目前**沒有被當成祕密的保護邊界在管** —�
 - **要做的(開工那天的第一件事,不是最後一件):**
   1. **先選解析器**,把「為什麼不是 `xlsx`」寫進那片的 plan
   2. 候選要看:**有沒有在維護、CVE 修補紀錄、是否需要處理不受信任的檔**
-  3. ⚠️ **`papaparse`(CSV)目前也在 `devDependencies` 且零引用** ——
-     若匯入改走 CSV,那個現成的比裝回 `xlsx` 安全得多。
-     **但它今天沒有被批准移除或保留,不要順手處置。**
+  3. ~~⚠️ **`papaparse`(CSV)目前也在 `devDependencies` 且零引用** —— 若匯入改走 CSV,那個現成的比裝回 `xlsx` 安全得多。**但它今天沒有被批准移除或保留,不要順手處置。**~~
+     🔴🔴 **2026-08-25 訂正(線2 重量):`papaparse` 也已經不在了 ⇒ 上面那句的「現成的」今天是假的。**
+     · 量法 `grep -rn "papaparse" --include='package.json' . | grep -v node_modules` ⇒ **rc=1 · 0 行**
+     · **正對照**(同一把尺、找一定在的)`grep -rn '"zod"' …` ⇒ **rc=0 · 2 行**(`package.json:70` / `packages/schemas/package.json:13`)⇒ **尺是通的,不是 grep 壞掉**
+     · 誰移的 `git log --oneline -S "papaparse" -- package.json` ⇒ **`1307dfb5`**「移除零引用的 papaparse 與其型別套件 [M-4b]」
+     ⇒ **改走 CSV 一樣是【新增相依】= 鐵則 12④ = 一樣要 Sean 批**,不再是「順手就有」。
+     📌 **刻意不揉掉原句** —— 它記錄的是 2026-08-16 當時的事實,而**本條目是一條「防止別人踩坑」的備忘,
+        它自己的一格卻在 9 天內過期了、零訊號**。那件事本身就是這條目最該留下的東西。
 - **三視角:**
   - **擴充性:** 匯入是規劃中的功能,現在留一句比那天現想便宜
   - **可維護性:** 18 個 docs 說「有」、repo 說「沒有」,**而沒有任何一處解釋為什麼**
@@ -33992,3 +33997,52 @@ lint-staged 會為第二張板子觸發同一支工具, 而工具**掃的還是�
 - **相關:** `#798`(全稱句守門覆蓋面比看起來窄)—— **機制不同, 不是同題**:
   `#798` 是**範圍太窄**, 本條是**打錯目標**。別名檢查 `--search "lint-staged" "sys.argv" "位置參數" "掃錯檔"`
   ⇒ 778 條裡命中 9, 全部只中 `lint-staged` 一個詞, 逐條開檔核過無同題(負對照餵不存在的詞 ⇒ 0)。
+
+### #932. 🧩 批次訂貨的**決策層已經寫好而且測試綠**,而生產端零人使用 —— 缺協調層 + UI 兩層
+
+- **狀態:** 未開工。**這不是「路是斷的」,是「有路而沒人走過」。**
+- **由來:** 2026-08-25 夜跑,線2(商品與供應商面)唯讀偵察佇列項「`#4` 批次標商品進度」時量到。號由主視窗 `-96` 用 `claim-backlog-number.sh` 原子佔發。
+
+**事實(每一格附量法;時點 2026-08-25、HEAD `3c588990`)**
+
+| 事實 | 量法 | 值 |
+|---|---|---|
+| 決策層本體 | `wc -l apps/admin/src/lib/orders/procurement-batch-policy.ts` | **363 行** |
+| 它的測試 | `wc -l …/procurement-batch-policy.test.ts` | **464 行** |
+| 匯出幾個 symbol | `grep -nE "^export" …/procurement-batch-policy.ts` | **9**(`BatchRowOutcome` `BatchRow` `shouldAbortBatch` `recordsAsUnknown` `maxRowsForBudget` `BatchSummary` `summarizeBatch` `BatchInputVerdict` `checkBatchInput`) |
+| 🔴 **生產端消費者** | `grep -rn "procurement-batch-policy" apps/admin/src` | **只有它自己 + 它自己的測試,零 import** |
+| **正對照**(同一把尺、換一支確定有人接的) | `grep -rn "procurement-actions" apps/admin/src` | **16 行**,含生產檔真 import `components/orders/item-procurement-form.tsx:7` ⇒ **尺是通的,不是 grep 壞掉** |
+| 共用表格有沒有勾選能力 | `components/shared/admin-data-table.tsx:12` 逐字 | 「篩選 pill / **批次選取 = 後續片,先不投機抽象**」⇒ **沒有** |
+
+它自己的檔頭 `apps/admin/src/lib/orders/procurement-batch-policy.ts:9` 逐字:
+> `procurement-batch-policy.ts — A9h-2 的**純決策層**(#4 批次標商品進度)。`
+
+**🔴 為什麼這條會一直沒人發現**
+
+**它每天都在跑測試、每天都印綠。**
+📌 **而那個綠的分母是「這 9 個函式的行為對不對」,不是「有沒有人在用它」。**
+⇒ **一支零人使用的檔,在三綠面前與一支被全站使用的檔長得一模一樣。**
+
+**缺什麼(兩層,不是一個入口)**
+
+1. **協調層** —— 逐列跑、收 outcome、依 `shouldAbortBatch` 決定中止、用 `summarizeBatch` 彙總。住 `lib/orders/**`。
+2. **UI** —— `components/shared/admin-data-table.tsx` 要長出勾選 + 訂單列表要有批次入口。
+
+**三視角(鐵則 10)**
+
+- **擴充性:** 最難的部分(要不要中止、上限幾列由逾時預算反推、怎麼彙總)已經做完 ⇒ **接起來比重寫便宜**。
+- **可維護性:** 827 行零人使用的碼會隨時間漂離真實需求,**而它綠著,所以沒有訊號會叫**。
+- 🔴 **bug 可追蹤性(不修未來會痛在哪):** 下次要做批次的人**很可能不知道這一層存在而重寫一份**;
+  那時會有**兩套「要不要中止批次」的判斷**,而 `apps/admin/src/lib/orders/procurement-result.ts:8` 逐字記著同型的病:
+  「**同一個回傳碼在單列路徑是失敗、在批次路徑是成功** —— 那種 bug 不會有測試紅給你看」。
+
+**歸屬與閘**
+
+- ⚠️ 兩層都在**線1 的檔案面**(`lib/orders/**` + `components/orders/**`)+ 全後台共用表格。
+- 🔴 **跨 3+ 檔 + 動全後台共用表格 ⇒ 命中鐵則 8,要 Sean 批 plan。**
+- ⚠️ 而 `components/shared/admin-data-table.tsx` 在 `apps/admin/` **不在 `packages/ui/`** ⇒ **嚴格講不命中鐵則 12⑥**(主視窗 `-96` 2026-08-25 明示不替本條升格)。**鐵則 8 照樣命中。**
+- ⇒ **歸線1 還是線2,等 Sean 批 plan 時一起定** —— 那時才知道它是一片還是一條線。
+
+- **關閉條件:** 批次入口能在訂單列表勾多張單、跑完一輪,**而中止與彙總走的是 `procurement-batch-policy.ts` 這一份,不是新寫的第二份**。
+- **別名檢查:** `python3 scripts/backlog-duplicate-scan.py --search 批次 訂貨 procurement A9h 進度` ⇒ 命中 9 條,**逐條開檔核過,無同題**(命中的是 `#484`/`#534`/`#527`/`#517`/`#618`/`#631`/`#636`/`#809`/`#887`/`#898`,全是別的主題)。
+- **相關:** `apps/admin/src/lib/orders/procurement-result.ts:6-8`(為什麼要有單一判斷來源)
