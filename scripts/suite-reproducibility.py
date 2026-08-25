@@ -48,6 +48,13 @@
   標籤印「檔紅 10」而真值是 1(那是 files_total)、「總數一致」那句在總數不一致時照樣印。
   **自檢 9 格全 PASS、三綠全綠。** 抓到它的是把場景實跑出來、逐行讀那幾句字。
   ⇒ 改動本檔的輸出文字之後,**跑一次構造場景並讀輸出**,不要只看自檢綠不綠。
+· 🔴 `todo` 與 `skipped` 同族(宣告了而從沒執行,卻算進總數)。它是 2026-08-25
+  餵**真實 admin 輸出**才看到的,九格罐頭裡沒有 —— 那一行同時有五種字彙:
+  `2 failed | 4983 passed | 2 expected fail | 8 skipped | 1 todo (4996)`。
+· 🔴🔴 **罐頭的字集 = 作者想得到的那些。** 2026-08-25 第一次拿真實輸出來餵,
+  就拿到一個九格裡都沒有的形狀:`Tests 3632 passed | 1 expected fail (3633)`。
+  當時行為是**對的**,而對的原因是 `failed` 與 `fail` 差一個字母 —— **湊巧對,不是設計對**。
+  ⇒ 已補 ⑩⑪ 兩格把那個行為釘住。**而未來 vitest 新增的摘要字彙,這些罐頭一樣看不見它們。**
 · 輸出裡若有多份 `Test Files/Tests` 摘要,`search()` 靜默取【第一份】。
   ⚠️ 現行 vitest 4.1.5 三個 project 是一次全域摘要 ⇒ 現在不會系統性少報。
   **這是未來的洞,不是現在的洞。** 哪天摘要變成每個 project 一份,這裡要改。
@@ -72,6 +79,11 @@ FAILED_RE = re.compile(r'(\d+)\s+failed')
 #    的【兩個總數完全相同】⇒ 只比總數會把「10 格根本沒執行」報成 ✅。
 #    skipped 不是「跑了而沒紅」,是【沒跑】—— 那正是本檔要防的病。
 SKIPPED_RE = re.compile(r'(\d+)\s+skipped')
+# 🔴 `todo` 與 skipped 同族:**宣告了而從來沒執行**,卻被算進總數。
+#    2026-08-25 餵真實 admin 輸出才看到它 ——
+#    `Tests 2 failed | 4983 passed | 2 expected fail | 8 skipped | 1 todo (4996)`
+#    ⇒ 沒有它, 一發 `0 skipped + 5 todo` 與 `0 skipped + 0 todo` 的指紋【完全相同】。
+TODO_RE = re.compile(r'(\d+)\s+todo')
 
 
 def parse(out: str) -> dict | None:
@@ -86,6 +98,7 @@ def parse(out: str) -> dict | None:
     fail_t = FAILED_RE.search(t.group('body'))
     skip_f = SKIPPED_RE.search(f.group('body'))
     skip_t = SKIPPED_RE.search(t.group('body'))
+    todo_t = TODO_RE.search(t.group('body'))
     return {
         'files_total': int(f.group('total')),
         'files_failed': int(fail_f.group(1)) if fail_f else 0,
@@ -93,13 +106,14 @@ def parse(out: str) -> dict | None:
         'tests_total': int(t.group('total')),
         'tests_failed': int(fail_t.group(1)) if fail_t else 0,
         'tests_skipped': int(skip_t.group(1)) if skip_t else 0,
+        'tests_todo': int(todo_t.group(1)) if todo_t else 0,
     }
 
 
 def fingerprint(r: dict) -> tuple:
     """一發的結果指紋。**skipped 在裡面** —— 見 MF-2:總數相同而 skipped 不同 = 沒跑完。"""
     return (r['files_total'], r['files_failed'], r['files_skipped'],
-            r['tests_total'], r['tests_failed'], r['tests_skipped'])
+            r['tests_total'], r['tests_failed'], r['tests_skipped'], r['tests_todo'])
 
 
 def git_status() -> str:
@@ -131,7 +145,8 @@ def selftest() -> int:
     a = parse(stable)
     w.append(('① 正常輸出 ⇒ 六個數字都抓得到',
               a == {'files_total': 254, 'files_failed': 0, 'files_skipped': 0,
-                    'tests_total': 3632, 'tests_failed': 0, 'tests_skipped': 0}, a))
+                    'tests_total': 3632, 'tests_failed': 0, 'tests_skipped': 0,
+                    'tests_todo': 0}, a))
 
     b = parse(short)
     w.append(('② 少跑那一發 ⇒ 總數不同(而它自己【沒有紅】)',
@@ -175,6 +190,48 @@ def selftest() -> int:
     w.append(('⑨ 負對照:兩發 skipped 相同 ⇒ 指紋必須相同(不可誤報)',
               fingerprint(parse(skipped_run)) == fingerprint(parse(skipped_run)),
               fingerprint(parse(skipped_run))))
+
+    # ⑩⑪ 🔴 `expected fail` —— **真實 vitest 輸出第一發就印出來的形狀,而九格罐頭裡沒有它**
+    #    真值逐字取自 2026-08-25 `npx vitest run --project storefront` 的實跑輸出。
+    #    ⑩ 防的【具體改動】= 有人把 FAILED_RE 放寬到容許數字與 fail 之間夾字
+    #       (例如 r'(\d+)[\s\w]*fail' 或 r'(\d+)\s+.*fail')⇒ 會把 0 紅讀成 1 紅 / 3632 紅。
+    #    ⑪ 防的【具體改動】= 有人讓 expected fail 遮住【真的紅】(改成錨在 expected、或先比到它就停)。
+    #    🔴 ⑪ **抓不到 ⑩ 那個放寬** —— 四種放寬在混合世界全部回 7(2026-08-25 實測)。
+    #       兩格防的不是同一件事,不要以為有了 ⑪ 就涵蓋 ⑩。
+    xfail_only = '  Test Files  254 passed (254)\n      Tests  3632 passed | 1 expected fail (3633)\n'
+    xfail_red = ('  Test Files  2 failed | 252 passed (254)\n'
+                 '      Tests  7 failed | 3625 passed | 1 expected fail (3633)\n')
+    p_only, p_red = parse(xfail_only), parse(xfail_red)
+    w.append(('⑩ 🔴 真實輸出 `N passed | 1 expected fail` ⇒ tests_failed 必須是 0(不是 1、不是 3632)',
+              p_only is not None and p_only['tests_failed'] == 0 and p_only['tests_total'] == 3633,
+              p_only and p_only['tests_failed']))
+    w.append(('⑪ 🔴 真紅 + passed + expected fail 三者同時 ⇒ 必須抓到【真紅】那個數',
+              p_red is not None and p_red['tests_failed'] == 7 and p_red['files_failed'] == 2,
+              p_red and p_red['tests_failed']))
+
+    # ⑫ 🔴 **這一格的字串是【真的】** —— 逐字取自 2026-08-25 `npx vitest run --project admin`。
+    #    它一行裡同時有 failed / passed / expected fail / skipped / todo 五種字彙,
+    #    而九格罐頭世界裡有三種是作者從來沒想到的。
+    #    防的【具體改動】= 有人動 parse 的任一條正規式後,只跑罐頭就以為沒事。
+    real_admin = ('  Test Files  3 failed | 270 passed | 1 skipped (274)\n'
+                  '      Tests  2 failed | 4983 passed | 2 expected fail | 8 skipped | 1 todo (4996)\n')
+    p_adm = parse(real_admin)
+    w.append(('⑫ 🔴 真實 admin 輸出(五種字彙同行)⇒ 2 紅 / 4996 總 / 8 skipped / 1 todo',
+              p_adm == {'files_total': 274, 'files_failed': 3, 'files_skipped': 1,
+                        'tests_total': 4996, 'tests_failed': 2, 'tests_skipped': 8,
+                        'tests_todo': 1}, p_adm))
+
+    # ⑬ 🔴 **這一格是因為 ⑫ 抓不到才加的。** 突變「把 todo 從 fingerprint 拿掉」⇒ 12 格【全綠】
+    #    ⇒ 那一段有一半是死碼:parse 讀到了 todo, 而比對兩發時沒有人用它。
+    #    防的【具體改動】= 有人動 fingerprint() 的欄位清單(增刪/改順序)。
+    #    📌 ⑫ 驗的是 parse, ⑬ 驗的是 fingerprint。**讀得到 ≠ 拿它來比。**
+    todo_a = '  Test Files  10 passed (10)\n      Tests  95 passed | 5 todo (100)\n'
+    todo_b = '  Test Files  10 passed (10)\n      Tests  100 passed (100)\n'
+    fa, fb = fingerprint(parse(todo_a)), fingerprint(parse(todo_b))
+    w.append(('⑬ 🔴 兩發只差 todo(總數都是 100)⇒ 指紋必須不同',
+              fa != fb, f'{fa} vs {fb}'))
+    w.append(('⑭ 負對照:兩發 todo 相同 ⇒ 指紋必須相同(不可誤報)',
+              fingerprint(parse(todo_a)) == fingerprint(parse(todo_a)), fa))
 
     ok = True
     for label, passed, got in w:
@@ -258,10 +315,13 @@ def main() -> int:
         print(f'🔴 **病A 訊號**:第 {shape_a} 發【檔紅而 0 格紅】 ⇒ 通常是 beforeAll 逾時。')
         print('   ⇒ 它與「不可重現」是兩個病:這個單發就抓得到,那個只有連跑才抓得到。')
 
-    skipped_runs = [i + 1 for i, r in enumerate(got) if r['tests_skipped'] > 0]
+    skipped_runs = [i + 1 for i, r in enumerate(got) if r['tests_skipped'] or r['tests_todo']]
     if skipped_runs:
         hit.append('S')
-        print(f'🔴 **有格子沒有執行**:第 {skipped_runs} 發有 skipped ⇒ 那些格【沒跑】。')
+        print(f'🔴 **有格子沒有執行**:第 {skipped_runs} 發有 skipped / todo ⇒ 那些格【沒跑】。')
+        for i, r in enumerate(got):
+            if r['tests_skipped'] or r['tests_todo']:
+                print(f"     第 {i+1} 發:skipped {r['tests_skipped']} / todo {r['tests_todo']}")
         print('   📌 `90 passed | 10 skipped (100)` 與 `100 passed (100)` 的【兩個總數都相同】。')
 
     if len(totals) > 1:
