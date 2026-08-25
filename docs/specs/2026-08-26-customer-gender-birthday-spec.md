@@ -63,15 +63,22 @@ Google / LINE 註冊的人【根本沒有看過那張表單】
 ## 1-1 DB(鐵則 12③)
 ```
 新增 gender 欄
-  🔴 型別:enum 還是 text + CHECK —— 見 §3-1, 我列成待決不自己拍
+  型別:enum(主視窗 2026-08-26 裁定, 與 member_tier 一致;理由與更正見 §3-1)
   值域:'male' | 'female' | 'undisclosed'          ← Q11甲
-  NULL 允許 = 【還沒填】, 而 'undisclosed' = 【他選了不說】
-  🔴🔴 這兩個【不是同一件事】, 不要合併:
-     NULL          = 沒機會填 / 還沒填(含全部 OAuth 註冊者)
-     'undisclosed' = 他看到了那一格, 而他選擇不說
-     ⇒ 合併會讓「有多少人拒答」這個數字永遠算不出來
+  可為 NULL                                        ← 理由見 1-1b, 那是 schema 決定不是預設值
 birthday 欄【已經存在】(:19 `birthday date`)⇒ 不動 schema
 ```
+
+### 🔴🔴 1-1b `NULL` 與 `'undisclosed'` 不是同一件事 —— **這是 schema 決定,不是 UI**
+```
+NULL          = 沒機會填 / 還沒填(🔴 含【全部】OAuth 註冊者, 見 §0)
+'undisclosed' = 他看到了那一格, 而他【選擇不說】
+```
+🔴 **合併它們會讓「有多少人拒答」這個數字【永遠算不出來】** —— 而那正是做分眾時會想知道的。
+⇒ **所以 enum 一定要有 `'undisclosed'` 這個值**(`Q11甲` 本來就有),**而欄位一定要允許 NULL**。
+⇒ **兩者缺一,那個區別就沒有地方可以表達。**
+⚠️ 而 `Q12=甲(選填)` + §0(OAuth 那批填不到)⇒ **NULL 會是上線初期的大宗**
+  ⇒ 後台篩選的 UI 要**分得開「未填」與「不透露」**,不要只給一個「空白」。
 
 ### 🔴 1-1a GRANT 有一個**方向相反**的陷阱,逐字量過
 ```
@@ -138,11 +145,25 @@ apps/admin/src/app/customers/page.tsx                     接上去
 # §3 沒定的(逐條)
 
 ```
-3-1 🔴 gender 用 enum 還是 text + CHECK
-    · enum:值域硬、而【加第四個值要 ALTER TYPE】(已 apply 的 migration 不能改)
-    · text + CHECK:改值域比較軟, 而少一層型別保護
-    ⇒ 本 repo 兩種都有前例(member_tier 是 enum)⇒ **我傾向 enum**(與 tier 一致)
-    ⇒ 而它是 schema 決定 ⇒ 列給主視窗 / codex 審查裁, 不自己拍
+3-1 ✅ **gender 用 enum —— 主視窗 2026-08-26 裁定(與 `member_tier` 一致)**
+    🔴 **而我原本寫的理由是錯的, 更正並留痕**:
+       ~~「加第四個值要 ALTER TYPE(**已 apply 的 migration 不能改**)」~~
+       ⇒ **加值【不必】改已 apply 的 migration** —— 它是開一支新的跑 `ALTER TYPE … ADD VALUE`。
+       本 repo **有前例**:`20260725130000_m3_rf2a1_payment_status_add_partially_refunded.sql:45`
+       (`ADD VALUE` 命中 2 支;正對照 `CREATE TYPE` 3 支;負對照當天靶 0)
+       📌 **我把「麻煩」寫成了「不可能」** ⇒ 下一個人會為了「怕改不動」而選 text,
+          **而那個理由是假的。**
+    🔴🔴 **而真正的不對稱在另一邊, 那支前例的檔頭逐字記著**:
+      ① 「**新值在加它的那個交易內不可被使用**」(PG 官方 sql-altertype Notes)
+         ⇒ 該檔**刻意不包 BEGIN/COMMIT**
+         ⇒ 🔴 **也因此做不了 PCM 慣用的交易模擬驗證**(BEGIN → 套用 → 用新值插 → 驗 → 回滾)
+           ——「用新值插資料」那一步**同交易內物理上做不到**
+         ⇒ **任何交付物不得宣稱這種 migration 做過交易模擬**(該檔逐字)
+      ② 「**PostgreSQL 不支援移除 enum 值**」⇒ **該檔沒有真正的 rollback**
+    ⇒ 📌 **所以 enum 的真相是:【加值便宜、移除不可能】** ——
+      不是我寫的「硬」, 也不是「隨便加」。**它是單向的。**
+    ⇒ ⚠️ **對 gender 的實際意思**:`'male'|'female'|'undisclosed'` 這三個值
+      **定下去就移不掉** ⇒ 值域要一次想清楚, 而**加第四個(例如 'other')隨時可以**。
 
 3-2 🔴 生日要篩什麼(月/日 vs 年齡)—— **Sean 沒有被問過這一題**
     ⇒ 建議併進下一批:「你想按生日篩什麼?甲 這個月生日的 乙 幾歲到幾歲 丙 兩個都要」
