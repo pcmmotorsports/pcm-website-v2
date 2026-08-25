@@ -26,6 +26,23 @@
 #   ② 只設 `GIT_DIR` + `GIT_INDEX_FILE` 兩個, 因為 pre-commit 真的只設這兩個。
 #      🔴 **模擬一個環境時, 多設一個變數會讓它變成另一個環境。**
 #   ③ 超時 = **量不到**, 不是乾淨。慢的腳本會被標 TIMEOUT 並單獨列出。
+#   ④ 🔴 **`CLEAN` 只涵蓋 `snap()` 那五格量得到的東西, 而那五格【只讀受害者 repo `$V`】。**
+#      ⇒ 一支用**非 git 手段**寫真樹的 selftest(`rm` / `> file` / 寫 `.next` 產物)本閘印 CLEAN。
+#      **以下仍然量不到**, 而每一項後面標了它的**證據等級**(2026-08-25 R2):
+#        · `.git/hooks/` 被寫入          —— **實測**
+#        · `.git/info/exclude`           —— **實測**
+#        · `packed-refs` 重排(`pack-refs --all` / `gc`) —— **實測**(五格一個位元不動)
+#        · `reflog`(`reflog expire --all`) —— **實測**(五格一個位元不動)
+#        · `git config --global`         —— **推理未實測**(尺只看 `--local`)
+#        · `.git/config` 行序被重排而值不變 —— **推理未實測**(尺先 `sort` 再 hash)
+#        · **瞬時寫入**(建了又刪:`stash` 後 `stash drop`、建 ref 又刪)—— **實測**逐字回到原值。
+#          📌 這是 before/after 快照尺的**天生形狀**, 不是漏補的格子。
+#      🔴🔴 **`stash` 不在上面這張表裡, 因為它【看得見】** —— R2 實測:留著的 `stash` 會讓
+#      `refs/stash` 出現在 `git for-each-ref` ⇒ **第五格紅**, 而前四格全部不動。
+#      📌 **上一版這裡把 `stash` 列成「量不到」, 而且整段寫著「code-reviewer 實測列出, 不是推測」——**
+#      **那句出處宣稱把【推理】升級成【量測】, 而唯一被它掩護的錯項, 正是量一下就會掉出來的那一項。**
+#      (§6-b:完成式動詞落筆時要自問「這是量到的還是推出來的」。)
+#      📌 **這一節是尺的形狀, 不是待辦清單。** 要讀成「它看得到哪些」, 不要讀成「這支腳本安全」。
 set -u
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -71,11 +88,28 @@ mkvictim() {
   for i in 1 2 3 4 5; do printf 'x%s\n' "$i" > "$V/f$i.txt"; done
   ( cd "$V" && git add f1.txt f2.txt f3.txt f4.txt f5.txt && git commit -qm base ) >/dev/null || die "commit victim"
 }
+# 🔴 第四格 `config` 是 2026-08-25 補的, 而**補它的理由是一次真事故**:
+#    那天出事的 selftest 除了在真 repo 建假 commit, 還把 `.git/config` 的身分
+#    改成 fixture 用的名字(`probe` → `victim`)。
+#    📌 **改 config 不會讓前三格裡的任何一個數字變** ⇒ 本尺對那一整族傷害【完全失明】,
+#      而它印的是 `CLEAN`。「沒看到」與「沒有」在這把尺上印同一個字。
+#    ⇒ 證人 = `--selftest` 的「己」格:一支【只改 config、不碰檔案】的樁, 兩方向。
+# 🔴 第五格 `for-each-ref` 是**同一輪 code-reviewer 打出來的**, 而它指的是**另一起真事故**:
+#    `.husky/pre-push:46` 記著「建 4 顆 commit 並把 **dev** 指過去」——
+#    📌 **動的不是 HEAD, 是別的 ref** ⇒ `git rev-parse HEAD` 一個位元都不變, `git ls-files` 也不變。
+#    reviewer 實測:樁做 `git branch` + `git tag`, 四格尺印 **CLEAN** 而四項傷害全部落地。
+#    ⇒ 證人 = 「庚」格。
+#    ⚠️ **兩次都是同一個形狀**:補一族盲區的當下, 要問「還有哪一族長得像它」——
+#      config / refs 兩族都是「不經過工作樹的寫入」。第三族見天花板 ④, 那些**仍然量不到**。
+# 🔴 `cksum` 的分隔改 `tr ' ' '_'`(原 `tr -d ' '`):`cksum` 印的是 `sum bytes` 兩個數字,
+#    整個刪空白會把 (38164600,14176) 與 (3816460014,176) 黏成同一個字串。機率極低而修法零成本。
 snap() {
-  printf '%s %s %s' \
+  printf '%s %s %s %s %s' \
     "$(cd "$V" && git ls-files | wc -l | tr -d ' ')" \
     "$(cd "$V" && git rev-parse HEAD 2>/dev/null || echo none)" \
-    "$(cd "$V" && git status --porcelain | wc -l | tr -d ' ')"
+    "$(cd "$V" && git status --porcelain | wc -l | tr -d ' ')" \
+    "$(cd "$V" && git config --local --list | sort | cksum | tr ' ' '_')" \
+    "$(cd "$V" && git for-each-ref | cksum | tr ' ' '_')"
 }
 # 跑一支, 印 "狀態 rc";狀態 = CLEAN / DIRTY / TIMEOUT
 probe() { # $1=相對路徑  $2=leak(yes/no)
@@ -138,6 +172,54 @@ STUB
   chmod +x "$LEAK"
   ck "乙1 故意不隔離的樁 帶 GIT_DIR"   "$(probe "$LEAK" yes | cut -d' ' -f1)" DIRTY
   ck "乙2 故意不隔離的樁 不帶 GIT_DIR" "$(probe "$LEAK" no  | cut -d' ' -f1)" CLEAN
+  # ── 己:🔴 **只改 `.git/config` 身分、一個檔都不碰的樁** ─────────────────────
+  #    這一格證的不是「本閘會動」(甲/乙已經證了), 是【本閘往哪一側錯】。
+  #    在補上 snap 的第四格之前, 己1 印的是 **CLEAN** —— 一個真實發生過的傷害
+  #    被這把尺判成乾淨。**修前會演 / 修後不會演**, 這一格就是那個「演」。
+  #    ⚠️ 樁自己 `mktemp -d` + `git init` ⇒ **不帶 GIT_DIR 時它寫的是自己的拋棄式 repo**。
+  #      🔴 「不會碰到真的 pcm-website-v2」這句**有兩個前提**, 不是無條件成立:
+  #         ① `git init` 成功(已補 `|| exit 1`) ② `$TMPDIR` 不在本 repo 底下。
+  #         ⇒ 照 code-reviewer R1:**話不要寫得比碼保證的強。**帶 GIT_DIR 時 `git config` 才落到受害者身上,
+  #      而那正是事故當天的形狀。
+  #    🔴 樁寫的身分【必須與 `mkvictim` 寫的不同】。第一版我照事故原文寫 `victim`,
+  #      而 `mkvictim` 的 `user.name` 本來就是 `victim` ⇒ 那一格會靠 `user.email` 僥倖紅。
+  #      📌 一個「改成同一個值」的覆寫在任何 diff 尺上都是 CLEAN, 而它仍然是一次劫持。
+  IDSTUB="$TMPROOT/identity-stub.sh"
+  cat > "$IDSTUB" <<'STUB2'
+#!/bin/sh
+t=$(mktemp -d) || exit 1
+cd "$t" || exit 1
+git init -q . >/dev/null 2>&1 || exit 1
+git config user.name hijacked-by-fixture >/dev/null 2>&1
+git config user.email hijack@fixture.invalid >/dev/null 2>&1
+exit 0
+STUB2
+  chmod +x "$IDSTUB"
+  ck "己1 只改 config 的樁 帶 GIT_DIR"   "$(probe "$IDSTUB" yes | cut -d' ' -f1)" DIRTY
+  ck "己2 只改 config 的樁 不帶 GIT_DIR" "$(probe "$IDSTUB" no  | cut -d' ' -f1)" CLEAN
+  # ── 庚:🔴 **只動【非 HEAD 的 ref】、不碰檔案也不碰 config 的樁** ──────────────
+  #    來歷 = `.husky/pre-push:46` 記的第二起真事故:「建 4 顆 commit 並把 **dev** 指過去」。
+  #    `git branch` / `git tag` 不動 `HEAD`、不動 `git ls-files`、不動 `.git/config`
+  #    ⇒ 在補上第五格之前, 前四格對它印 **CLEAN**。這一格就是那個「演」。
+  #    ⚠️ **庚2 的機制與它的兄弟格不同族, 講清楚免得被讀成同一件事**(R2 實測):
+  #      乙2 / 己2 的樁在不帶 GIT_DIR 時是**寫進自己的拋棄式 repo**;而庚樁那個 repo 是**空的**,
+  #      `git branch` / `git tag` 在零 commit 的 repo 上 rc=128、**哪裡都沒落地**(事後 `for-each-ref` 0 行)。
+  #      ⇒ 庚2 擋得住「尺自己有噪音」, 擋不住它字面看起來擋的那件事。
+  #      🔴 而若日後有人「修好」這支樁(先補一顆 commit 讓 branch 成功), **這一格的性質會靜靜改變** ——
+  #        它會從「什麼都沒發生」變成「有發生但落在別處」, 而**兩者都印 CLEAN**。
+  REFSTUB="$TMPROOT/refs-stub.sh"
+  cat > "$REFSTUB" <<'STUB3'
+#!/bin/sh
+t=$(mktemp -d) || exit 1
+cd "$t" || exit 1
+git init -q . >/dev/null 2>&1 || exit 1
+git branch hijacked-line3 >/dev/null 2>&1
+git tag hijacked-line3-tag >/dev/null 2>&1
+exit 0
+STUB3
+  chmod +x "$REFSTUB"
+  ck "庚1 只動非 HEAD ref 的樁 帶 GIT_DIR"   "$(probe "$REFSTUB" yes | cut -d' ' -f1)" DIRTY
+  ck "庚2 只動非 HEAD ref 的樁 不帶 GIT_DIR" "$(probe "$REFSTUB" no  | cut -d' ' -f1)" CLEAN
   # 丙:一支【真的、已知修好的】腳本 ⇒ 兩個方向都必須 CLEAN。
   #    ⚠️ **這一格刻意留了一個真檔**(乙格改成自建樁之後, 這裡是唯一的真實世界樣本)——
   #      它證明的是「這把尺在**別人寫的真碼**上也分得出修好與壞的」, 樁證明不了這件事。
@@ -157,7 +239,9 @@ STUB
     ( cd "$DEC" && git init -q . && git config user.email d@d.t && git config user.name d ) || die "git init decoy"
     for i in 1 2 3 4 5 6 7; do printf 'y%s\n' "$i" > "$DEC/g$i.txt"; done
     ( cd "$DEC" && git add g1.txt g2.txt g3.txt g4.txt g5.txt g6.txt g7.txt && git commit -qm base ) >/dev/null || die "commit decoy"
-    dcount() { printf '%s %s' "$(cd "$DEC" && git ls-files | wc -l | tr -d ' ')" "$(cd "$DEC" && git rev-parse HEAD)"; }
+    # 🔴 `config` 這一格與 `snap()` 同時補上 —— 否則會是同一個盲區的上一層版本:
+    #    本閘自己若劫持了誘餌的身分, 丁1 一樣印綠。**修一層盲區時, 先問它有沒有第二層。**
+    dcount() { printf '%s %s %s %s' "$(cd "$DEC" && git ls-files | wc -l | tr -d ' ')" "$(cd "$DEC" && git rev-parse HEAD)" "$(cd "$DEC" && git config --local --list | sort | cksum | tr ' ' '_')" "$(cd "$DEC" && git for-each-ref | cksum | tr ' ' '_')"; }
     d_before=$(dcount)
     ( cd "$ROOT" && SGI_SKIP_ISOLATION_CELL=1 \
         GIT_DIR="$DEC/.git" GIT_INDEX_FILE="$DEC/.git/index" \
