@@ -119,11 +119,22 @@ BEGIN
   --    而它若真的出現, 意思正好是「它變成 INHERIT 了」⇒ **RLS 會套用這條政策** ⇒
   --    那正是唯一該擋的那一發, 而舊版把它寫成豁免 ⇒ **恰好在該紅的世界放行。**
   --    ⇒ 豁免拿掉。誤擋的成本是 Sean 貼一次被擋;漏擋的成本是靜默擴權。
+  -- 🔴 2026-08-26 正式庫實測之後改的:也排除【自己就帶 BYPASSRLS】的角色。
+  --    這【不是】豁免清單(R2 警告的那種), 它是一個可以證明的斷言:
+  --    一個帶 BYPASSRLS 的角色本來就繞得過所有 RLS ⇒ **本片的政策給不了它任何新東西。**
+  --    ⚠️ 而這一格是量出來才知道要改的:正式庫實跑 ⇒ 唯一繼承 service_role 的是 `postgres`,
+  --      而 **Supabase 的 `postgres` 不是 superuser**(`rolsuper = false`)⇒ 舊版的
+  --      `NOT r.rolsuper` 攔不住它 ⇒ **段A 會在正式庫上擋下這一片, 而那是一發假紅。**
+  --      ⇒ 沒有這一行, Sean 貼下去會被擋, 然後要自己去分辨真假 —— 那是我該先做掉的事。
   SELECT coalesce(pg_catalog.string_agg(r.rolname, ', ' ORDER BY r.rolname), '')
     INTO v_extra
     FROM pg_catalog.pg_roles r
    WHERE r.rolname <> 'service_role'
      AND NOT r.rolsuper
+     AND NOT r.rolbypassrls
+     AND r.oid <> (SELECT c.relowner FROM pg_catalog.pg_class c
+                    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                   WHERE n.nspname = 'public' AND c.relname = 'customers')
      AND pg_catalog.pg_has_role(r.rolname, 'service_role', 'USAGE');
 
   IF v_extra <> '' THEN

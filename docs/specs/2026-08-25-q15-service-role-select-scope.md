@@ -6,6 +6,50 @@
 > ⇒ **本片 apply 之後是 39 張。** 標題保留 40 不改, 因為它是量測當下的事實;
 > 而**任何往下游引用的地方要用 39**。要現值就跑下面的數法, 不要抄這兩個數字。
 
+> ## 🟢 2026-08-26 · **Sean 在正式庫跑了那支體檢, 這一段是【量到的】不是推的**
+> 探針 `docs/probes/2026-08-26-q15-rls-service-role-audit.sql`, 三列尺自檢全部 `✅ 尺會動`。
+>
+> | 問題 | 正式庫的答案 | 意思 |
+> |---|---|---|
+> | `service_role` 有 BYPASSRLS 嗎 | **有** | 今天沒事。Q15 講的是【未來式】, 不是現在進行式 |
+> | 誰有效繼承 `service_role` | **只有 `postgres` 1 個**, 而它自己也有 BYPASSRLS | 🟢 **零外溢路徑** —— 補政策不會讓任何人多看到東西 |
+> | 開了 RLS 的表 | **50 張**(版控重播算 47) | 差 3 張 |
+> | 其中缺 service_role 可用 SELECT 政策 | **42 張**(版控重播算 40) | 差 2 張 |
+> | `service_role` 對 `customers` 的 table 權 | **DELETE, INSERT, REFERENCES, SELECT, TRIGGER, TRUNCATE** | 🟢 **SELECT 在**, 而 UPDATE 不在 |
+>
+> ### 🔴 那 3 張差在哪 —— **是 drift, 而且其中兩張 repo 完全不認識**
+> ```
+> 線上有 / 版控沒有:
+>   product_fitments_effective            <- migration 裡出現在 7 支, 而沒有一支寫 ALTER TABLE ... ENABLE RLS
+>                                            (推測走 20260531142534 那支 event trigger `ensure_rls` 自動開的)
+>   product_fitments_effective_staging    <- 🔴 supabase/migrations/ 裡【零支】提到它
+>   product_fitments_effective_sync_log   <- 🔴 supabase/migrations/ 裡【零支】提到它
+> 版控有 / 線上沒有:  無
+> ```
+> 後兩張在 repo 的其他地方找得到:`docs/archive/2026-07-25-docs-cleanup/reviews/2026-07-12-s1-apply-sql.sql`
+> (一份**歸檔的、手動貼上去的 SQL**)+ `packages/adapters/src/supabase/database.types.ts`(從線上產的)。
+> ⇒ **它們是手貼進去的, 從來沒有變成 migration。** 而 `ensure_rls` 那支 event trigger 幫它們開了 RLS
+> ⇒ **有 RLS、零政策、repo 不知道它們存在。**
+> 📌 **這正是「下界穩」為什麼不成立的實例** —— drift 兩個方向都會發生, 而這次是往上。
+>
+> ### 🟢 而這一發同時關掉了幾個一直標「未確認」的格子
+> - **GRANT 那一層是好的**:repo 內零行 `GRANT SELECT ... TO service_role`, 而線上**有** SELECT
+>   ⇒ **確認它來自平台預設**(先前那句「推不出來源」現在有答案了)。
+> - 而 `UPDATE` **不在**清單裡 ⇒ 與 `20260717010000:174` 那句 `REVOKE UPDATE ... FROM service_role`
+>   **互相印證** ⇒ 版控與線上在這一格是對得起來的。
+> - **外溢路徑 = 0** ⇒ 那支 migration 的「影響面」從「五格為零、第六格未驗」變成 **六格皆為零**(以量測當下為準)。
+>
+> ### 🔴 而它也抓到那支 migration 的一個【會誤擋】的 bug, 已修
+> `postgres` 出現在「誰繼承 service_role」那一列 ⇒ 代表 **Supabase 的 `postgres` 不是 superuser**
+> ⇒ 段A 舊版的 `NOT rolsuper` 攔不住它 ⇒ **貼下去會被自己的閘擋掉, 而那是假紅。**
+> ⇒ 已改成同時排除「自己帶 BYPASSRLS」與「表的 owner」——
+> 那**不是豁免清單**, 是可證明的斷言:繞得過 RLS 的角色, 本片給不了它新東西。
+> 兩個世界實測過:postgres-like(帶 BYPASSRLS)⇒ **通過**;沒帶的 ⇒ **擋下且只點名它**。
+>
+> ⚠️ **這一整段綁著 2026-08-26 那個時點。** 要現值就重跑那支探針, 不要抄這裡的數字。
+
+---
+
 > **這份檔的存在理由**:2026-08-26 那支 migration
 > (`supabase/migrations/20260826000035_m4b_q15_customers_select_service_role_policy.sql`)
 > **只補了 `customers` 一張**。主視窗 2026-08-25 裁【乙】= SQL 不越過 Sean 拍的範圍,
