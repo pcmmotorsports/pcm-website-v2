@@ -1,0 +1,117 @@
+{
+  "_readme": [
+    "§12 已從 OD 稿搬進 repo 的規則,與它們【在稿上的贏家值】。",
+    "🔴 這份檔的用途是【偵測稿改了】,不是描述我方實作 —— 我方的值在 globals.css / 各元件裡。",
+    "🔴 值一律是 tool-final-css.py final_values() 算出的【贏家值】,不是第一次宣告:",
+    "   稿自己會層疊(39 個 style 區塊 + data-od-fix=\"FIX-N\" 後補修正塊)。",
+    "   實錘 2026-08-24:三重證據都支持「把 --primary 改回稿」, 而開稿才發現 FIX-10 已覆寫成我方現值 ⇒ 改回去才是改壞。",
+    "⚠️ 分母 = 下面 rules 這幾條, **不是 §12 全部, 更不是整份稿**。",
+    "跑法:python3 scripts/od-drift-check.py"
+  ],
+  "source": {
+    "path": "~/Library/Application Support/Open Design/namespaces/release-stable/data/projects/pcm-524f/orders-admin-v2.html",
+    "sha256": "fc4a24a584e9e7d24eeb6e7e0839e8cc0c25a754db5bf9fee537e7e97f933d67",
+    "lines": 6795,
+    "measured_at": "2026-08-25 02:28 (Asia/Taipei)",
+    "_note": "🔴 sha 對不上 ⇒ 【稿換了, 本次比對作廢】, 不是「發現漂移」。兩者處置相反。",
+    "_lines_note": "行數用 wc -l 的口徑(數換行字元)。⚠️ 我第一版用 count+1 ⇒ 6796, 與主視窗量的 6795 差 1 —— 那不是稿變了, 是兩把尺的口徑不同。"
+  },
+  "rules": [
+    {
+      "group": "組4",
+      "context": "@media (max-width:767px)",
+      "selector": ".workspace-panel",
+      "declarations": {
+        "position": "fixed",
+        "inset": "0",
+        "z-index": "60",
+        "width": "100%!important",
+        "min-width": "0",
+        "max-width": "none",
+        "overflow": "auto",
+        "background": "var(--card)",
+        "overscroll-behavior": "contain"
+      }
+    },
+    {
+      "group": "組4",
+      "context": "@media (max-width:767px)",
+      "selector": ".workspace-row",
+      "declarations": {
+        "display": "block"
+      }
+    },
+    {
+      "group": "組4",
+      "context": "@media (max-width:767px)",
+      "selector": ".workspace-handle",
+      "declarations": {
+        "display": "none"
+      }
+    },
+    {
+      "group": "組5",
+      "context": "@media (max-width:767px)",
+      "selector": ".workspace-panel>.panel-width-locked",
+      "declarations": {
+        "height": "100%",
+        "max-height": "100svh",
+        "border-left": "0"
+      }
+    },
+    {
+      "group": "組19",
+      "context": "",
+      "selector": "[data-od-panel=\"money\"] details:has(>summary h2:not(.text-destructive)) > summary",
+      "declarations": {
+        "background": "var(--tint-warn)",
+        "color": "var(--ink-warn)"
+      }
+    },
+    {
+      "group": "組20",
+      "context": "",
+      "selector": "[data-od-panel=\"money\"] details:has(>summary h2.text-destructive) > summary",
+      "declarations": {
+        "background": "var(--tint-danger)",
+        "color": "var(--pill-danger)"
+      }
+    },
+    {
+      "group": "組28",
+      "context": "",
+      "selector": ".od-seg-on .od-seg-dot",
+      "declarations": {
+        "background": "#fff!important"
+      }
+    },
+    {
+      "group": "組37",
+      "context": "",
+      "selector": ".od-seg:focus-visible",
+      "declarations": {
+        "outline": "2px solid var(--pill-accent)",
+        "outline-offset": "2px",
+        "border-radius": "6px"
+      }
+    },
+    {
+      "group": "組38",
+      "context": "",
+      "selector": "[data-od-tab]:focus-visible",
+      "declarations": {
+        "outline": "2px solid var(--pill-accent)",
+        "outline-offset": "2px",
+        "border-radius": "6px"
+      }
+    },
+    {
+      "group": "組40",
+      "context": "",
+      "selector": ".od-segbar:focus-within",
+      "declarations": {
+        "box-shadow": "0 0 0 1px var(--border)"
+      }
+    }
+  ]
+}
