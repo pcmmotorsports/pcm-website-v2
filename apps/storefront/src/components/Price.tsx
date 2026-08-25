@@ -130,6 +130,22 @@ function isRenderablePrice(v: number | null | undefined): v is number {
  *   舊寫法的 `originalPrice !== null`(那正是本檔 isMember 分支上方那段註解擋掉的東西;
  *   ~~原本寫 `:144`~~ ⇒ **行號會漂, 改用字面錨**)。
  *   ⇒ 贈品的顯示價可以是 0;**贈品的「原價」不可以是 0**。
+ *
+ * 🔴🔴 **而它在執行期【也是冗餘的】—— 這一格是本檔第二個同款(2026-08-25 收工後量到)。**
+ *   三個呼叫點**都**跟著一個 `originalPrice > price`,而顯示價本身已被上面那支限成 `>= 0`
+ *   ⇒ `originalPrice = 0` 時 `0 > price` 對任何**合法的** price 都是 false ⇒ 它先被那個比較擋掉。
+ *   突變實測(在 `0ed3cf16` 這份碼上跑的):
+ *   ```
+ *   把本函式的 `v > 0` 改成 `v >= 0`                       ⇒ 31 格全綠, 0 紅
+ *   把 isMember 那個呼叫換成寬的 isRenderablePrice(保留 `> price`) ⇒ 31 格全綠, 0 紅
+ *   ```
+ *   ⚠️ **而交件時我報的是「2 failed | 29 passed」** —— 那一發是真的,
+ *      **只是它跑在【加上 `originalPrice > price` 之前】的碼上, 而我沒有在修完之後重跑它。**
+ *      ⇒ 每一句話當時都為真, 而**證物不再撐得起結論**。這一格由 cc 收包時的獨立突變抓到。
+ *   ⇒ 處置與上面 `Number.isFinite` 那層相同:**留著**(哪天有人拿掉那個 `> price` 比較,
+ *     它就是唯一擋住「原價 NT$ 0」的東西),**而自述必須說實話**。
+ *   ⚠️ 誠實邊界:「全綠」是量到的;「構造不出反例」是**推的** —— 我沒有證明它不可達。
+ *
  * ⚠️ 不要把這支併回 `isRenderablePrice` —— 它們對 `0` 要的答案相反,合併等於挑一個犧牲。
  */
 function isRenderableOriginalPrice(v: number | null | undefined): v is number {
