@@ -218,12 +218,19 @@ describe('🔴 標點遷移(Sean 2026-08-05 拍板 A · 全站遷移)', () => {
     const boundary: string[] = [];
     for (const brand of BRAND_CONTENT) {
       for (const raw of allStrings(brand)) {
-        const masked = raw.replace(/<[^>]+>/g, (t) => ' '.repeat(t.length));
+        // 🔴 遮罩哨兵寫成 `\u0000` 跳脫、**不要改回字面 NUL 位元組**(執行期完全相同)。
+        //    字面 NUL 會讓本檔被判成 binary,而 Bash 工具每次對 grep 注入 `-I`
+        //    ⇒ **整支檔對每一個 agent 的 grep 隱形**(回零命中 rc=1,與「不存在」一模一樣)。
+        //    2026-08-25 線 2 實測:改前 `grep -c '' <本檔>` ⇒ **空 rc=1**,改後 ⇒ **有輸出 rc=0**。
+        //    🔴 判別句刻意不寫行數 —— 初版寫「改後 ⇒ 329」而實測是 334,
+        //    而把它推過去的正是這 5 行註解本身:那個數字在被寫下的那一秒就過期了。
+        //    機制正本 = `docs/patterns/guard-and-instrument-traps.md`「grep 對編碼壞掉的檔整支全盲」節。
+        const masked = raw.replace(/<[^>]+>/g, (t) => '\u0000'.repeat(t.length));
         for (const m of masked.matchAll(/[,;:.!?]/g)) {
           let j = m.index - 1;
           let crossedTag = false;
-          while (j >= 0 && (masked[j] === ' ' || /\s/.test(masked[j]!))) {
-            if (masked[j] === ' ') crossedTag = true;
+          while (j >= 0 && (masked[j] === '\u0000' || /\s/.test(masked[j]!))) {
+            if (masked[j] === '\u0000') crossedTag = true;
             j -= 1;
           }
           if (j < 0) continue;
