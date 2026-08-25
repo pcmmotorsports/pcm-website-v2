@@ -103,39 +103,44 @@ describe('FavoritesTab(M-4b #191)', () => {
     expect(container.textContent).not.toContain('NT$');
   });
 
-  // 🔴🔴 這一格記錄的是【現況】,不是我們要的行為 —— 它是一個 tripwire,不是背書。
+  // 🔴🔴 這一格斷言的是【Sean 要的行為】,不是一個洞。**它應該永遠綠。**
   //
-  // 上面那格的標題原本逐字寫著「也不印『NT$ 0』」,而它**只餵了 null 一種輸入**。
-  // `FavoritesTab.tsx:65` 的守門是 `priceGeneral !== null` ⇒ `0 !== null` 為真 ⇒ 0 元照印。
-  // ⇒ 那個標題是一句假話,而它的形狀正好會讓【下一個 grep「NT$ 0」找守門的人】停止查
-  //   (2026-08-25 已經騙過一個:就是來訂正它的這一班)。
+  // ── 這段註解 2026-08-25 被整段重寫過,而【斷言一個字都沒動】。原因值得留著 ──
+  //   前一版的註解說「印 NT$ 0 是已知洞、修好後這格會紅」。
+  //   當天稍晚 Sean 拍板,那個框架整個反過來(見下),而**測試照樣是綠的**。
+  //   🔴 **一個測試可以【斷言正確而註解錯誤】,而三綠只看斷言。**
+  //      它不會紅、lint 抓不到、突變測試照樣通過 —— 而下一個人是**照註解**理解它的,
+  //      那段舊註解會叫他「去把這個洞補起來」,而補起來正好會做出 Sean 明確否決的行為。
   //
-  // 為什麼不順手把守門改成 `> 0`:
-  //   同一個洞在 `ProductInfo.tsx:243` / `ProductPage.tsx:324` 也在
-  //   (實跑 `mappers/product.ts:206` 的守門條件是 `=== null` 不是 `<= 0`,餵 0 一路通到底),
-  //   而四扇門共同繞開的是 **DB 明文允許 0 元**。
-  //   🔴 收包複驗時訂正:本段原本寫「無 NOT NULL、無 CHECK」——**後半是假的。**
-  //      同一支 migration 裡有一條 CHECK,只是它放行 0:
-  //        `ALTER TABLE products ADD CONSTRAINT price_general_non_negative CHECK (`
-  //        `  price_general IS NULL OR price_general >= 0 );`
-  //      (無 NOT NULL 那半為真,該檔自陳「NOT NULL 推遲 sub-slice 2-X」。)
-  //   🔴 而它叫 `price_general_non_negative` —— **名字說的正是它做的事,而它做的事就是允許 0。**
-  //      查「這個欄有沒有 CHECK 在守」的人會命中它、看到一個令人安心的名字,然後停止查。
-  //      ⇒ 這與本測試檔上面那句假標題是**同一個形狀**:一個讀起來像已經守住了的東西。
-  //      ⇒ 找 CHECK 的量法別停在 `grep -c 'CHECK'`(它連註解一起算);
-  //        先 `grep -v '^\s*--'` 濾掉註解,再開檔讀那條約束**允許什麼**。
-  //   ⇒ 治本刀 = 把既有那條 CHECK 從 `>= 0` 收成 `> 0`,**不是新增一條**(待 Sean 拍板);
-  //     在 .tsx 各補一刀 = 承認 0 元是合法資料,
-  //     然後在四個地方各自決定要不要顯示它 —— 那正是今天四種不一致的來源。
+  // ── Sean 2026-08-25 拍板(memory `project_0825-sean-zero-price-is-real-print-ntd-zero`)──
+  //   Q「我們會不會有 0 元的商品(贈品 / 買一送一的那個『送』/ 試用品)?」⇒ A【乙:會,偶爾有】
+  //   ⇒ **0 是合法價格。0 元要印成「NT$ 0」,不是印一條槓、也不是印「贈品」二字**
+  //     (「贈品」是端上去的推薦,他沒有選它)。
+  //   ⇒ 「要不要把 CHECK 收成 > 0」這一題**當場消失,答案是不要**。
   //
-  // ⚠️ 而截至 2026-08-25 量測(anon 角色 / 正式站 / `products_list_public` 與
-  //    `product_variants_public`),`price_general = 0` 的商品 **0 筆**、變體 **0 筆**
-  //    ⇒ **今天沒有任何客人走得到這一格。**
-  //    🔴 而那個 0 沒有 NOT NULL / 沒有 CHECK 在守 —— **它是現況,不是保證。**
+  // ── 佐證:DB 那條 CHECK 一開始就是對的 ──
+  //   `supabase/migrations/20260516064013_products_add_price_general_store.sql:13-14`
+  //     `ALTER TABLE products ADD CONSTRAINT price_general_non_negative CHECK (`
+  //     `  price_general IS NULL OR price_general >= 0 );`
+  //   🔴 它叫 `price_general_non_negative`,而**名字說的正是它做的事:允許 0**。
+  //      這一格 2026-08-25 收包複驗時被訂正過(原文誤寫「無 CHECK」),
+  //      而 Sean 拍板之後它從「尺畫錯一格」升級成「那條約束本來就對」。
+  //   ⚠️ 量法留著給下一個人:找 CHECK 別停在 `grep -c 'CHECK'`(它連註解一起算);
+  //      先 `grep -v '^\s*--'` 濾掉註解,再開檔讀那條約束**允許什麼**。
+  //   (`NOT NULL` 仍然沒有 —— 該 migration 自陳「推遲 sub-slice 2-X」。
+  //    ⇒ **「查不到價格」與「0 元」是兩件事,不可合流。**)
   //
-  // 🔴 這一格【紅了】就是好消息:代表洞被補起來了。
-  //    那時請把它翻面成 `not.toContain('NT$ 0')`,不要 skip 它。
-  it('🔴 已知洞:priceGeneral = 0 目前【擋不住】,會印出「NT$ 0」(修好後這格會紅,翻面別 skip)', () => {
+  // ── 那個區分落在哪 ──
+  //   `FavoritesTab.tsx:65` 的守門是 `priceGeneral !== null`:
+  //     null(查不到)⇒ 整列不渲染 ✅   0(贈品)⇒ 印「NT$ 0」✅  **兩個都是要的行為。**
+  //   同一個區分在別處的落點(逐一開檔核過):
+  //     `ProductInfo.tsx:243` / `ProductPage.tsx:324` —— 詳情頁自己的 NT$ 渲染
+  //     `mappers/product.ts:206` —— 上游守門條件是 `=== null` 不是 `<= 0`
+  //       ⇒ null 在那裡就被 throw 掉、0 一路通行。**這正好是拍板後要的分工。**
+  //
+  // 🔴 這一格若哪天【紅了】,代表有人把 0 一起擋掉了 ⇒ 那是回歸,不是修好。
+  //    回來讀這段註解,不要改斷言。
+  it('🔴 priceGeneral = 0(贈品)要印出「NT$ 0」—— Sean 2026-08-25 拍板;紅了是回歸不是修好', () => {
     const { container } = render(<FavoritesTab favorites={[item({ priceGeneral: 0 })]} />);
     expect(container.querySelector('.acc-fav-price')).not.toBeNull();
     expect(container.textContent).toContain('NT$ 0');
