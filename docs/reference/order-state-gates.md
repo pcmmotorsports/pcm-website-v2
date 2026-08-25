@@ -59,6 +59,7 @@
 | `pcm_sync_order_refund_payment_status` | **2** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239 | `20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239` |
 | `search_catalog_by_vehicle` | **4** | 20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266 | `20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266` |
 | `sql` | **2** | 20260712183000_products_catalog_page_public.sql:37<br>20260712183000_products_catalog_page_public.sql:111 | `20260712183000_products_catalog_page_public.sql:111` |
+| `sync_product_variant_group` | **2** | 20260727084801_atomic_variant_group_sync.sql:19<br>20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58 | `20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58` |
 
 > 只列 **>1 代**的。單代函式不會有「引用到過期世代」的風險,故省略。
 
