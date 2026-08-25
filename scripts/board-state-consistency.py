@@ -99,6 +99,26 @@
 import io, os, re, subprocess, sys, tempfile
 
 CLOSED = ('open', 'doing', 'parked', 'done')
+# 🔴 板子那條數法的 regex 【只寫一次】 —— grep 用它, 驗輸出形狀也用它。
+#    寫兩份的話, 有人改了 CLOSED 而只改到一邊 ⇒ 驗證器會開始放行它本來該擋的東西。
+#    ⚠️ **而「只寫一次」只治【只改一邊】那一種漂移, 治不了【新值本身含 regex 元字元】那一種**
+#      (R1 審查打出來的):`CLOSED += ('wip?',)` ⇒ 未 escape 時 `wip?` 的 `?` 被當量詞
+#      ⇒ grep 撈不到那一列、而 fullmatch 也一起漏 ⇒ 兩邊【同時】瞎掉, 又回到「板子少數了 N 列」。
+#      ⇒ 所以要 `re.escape`。**收成單一來源不等於沒有無訊號漂移, 只是少一種。**
+def _state_cell(states):
+    """組出板子那條數法的 regex。🔴 **做成函式是為了讓 selftest 打得到它** ——
+       原本寫成一行 module 層的字串, 而 selftest 只能【照抄一次組法】去驗,
+       那等於驗我自己抄的那份, 不是驗它 ⇒ 拿掉 re.escape 時那一格照樣全綠(實測過)。"""
+    return r'\| (' + '|'.join(map(re.escape, states)) + r') \|'
+
+
+_STATE_CELL = _state_cell(CLOSED)
+# 🔴 `GREP_OPTIONS` 會讓 grep 的輸出多東西, 而【本片新加的形狀檢查會把它判成量具壞掉】
+#    (R1 審查實測:`GREP_OPTIONS='-H'` ⇒ 輸出帶檔名前綴;`--color=always` ⇒ 帶 ANSI
+#     兩者在【舊版】都照常數對, 在【新版】一律 GREP_GARBAGE)
+#    ⇒ 那是**本片新引入的誤擋路徑**, 不是既有事故(本機此刻沒有設它)。
+#    📌 而誤擋比漏擋更會殺死一道閘:被誤擋的人會繞過去, 然後它就永遠不紅了。
+_GREP_ENV = {**os.environ, 'GREP_OPTIONS': ''}
 DONE_WORDS = ('已結掉', '已做完', '已關掉', '已完成')
 # ✅ 與那四個詞之間容許幾個字。
 # 📏 2026-08-25 掃 0-200(量的對象 = **本檔 selftest 的 fixture**, 不是真板):
@@ -218,20 +238,52 @@ def board_grep_count(path, staged=False):
     #    而「兩個各自量到的數」如果來自不同的檔, 它們相等或不等都沒有意義。
     try:
         if staged:
-            out = subprocess.run(['grep', '-oE', r'\| (open|doing|parked|done) \|'],
+            out = subprocess.run(['grep', '-oE', _STATE_CELL],
                                  input=read_source(path, True),
-                                 capture_output=True, text=True)
+                                 capture_output=True, text=True, env=_GREP_ENV)
         else:
             out = subprocess.run(
-                ['grep', '-oE', r'\| (open|doing|parked|done) \|', path],
-                capture_output=True, text=True)
+                ['grep', '-oE', _STATE_CELL, path],
+                capture_output=True, text=True, env=_GREP_ENV)
     except OSError as e:
         raise MeasurementError('GREP_UNRUNNABLE', f'跑不動 grep:{e}')
     # 🔴 grep 的 rc:0=有命中 · 1=零命中 · **2 以上=它自己出錯**。
     #    不看 rc 的話, 「grep 壞了」會回空 ⇒ 0 ⇒ 判成「板子少數了 N 列」⇒ **紅錯地方**。
     if out.returncode > 1:
         raise MeasurementError('GREP_FAILED', f'grep 對 {path} 回 rc={out.returncode}:{out.stderr.strip()[:80]}')
-    return len([x for x in out.stdout.split('\n') if x.strip()])
+    lines = [x for x in out.stdout.split('\n') if x.strip()]
+    # 🔴🔴 rc 不夠 —— 2026-08-25 線 3 造樁量到的第二條入口:
+    #    板子裡只要有一個 NUL, `grep` 會回 `Binary file … matches` 而 **rc=0**
+    #    ⇒ 上面那道 `rc > 1` 【不觸發】, 而這裡會數到 1(那行訊息)而不是真的列數
+    #    ⇒ 與 python 這半不符 ⇒ 仍然會紅(方向是對的), **而紅的訊息會寫成「板子少數了 N 列」**
+    #    ⇒ 有人會去板子上找一列【不存在的東西】。上面那段註解自己就寫著這個病,
+    #      作者想到了「回空 rc=1」那條入口, 沒想到「rc=0 而輸出是一句話」那條。
+    #    📌 **守門存在這件事, 會讓下一個人以為這條路已經被想過了。**
+    # 🔴 判準【不看 grep 的訊息字面】(那會隨 locale / 版本變),
+    #    看的是**輸出的形狀**:`-oE` 只會印出被匹配到的那段文字
+    #    ⇒ 每一行都必須 fullmatch 同一條 regex。對不上 = grep 沒有做我們要求的事。
+    # 🔴 第三條入口(R1 審查提出, 而**本機驗不成**, 照實標):
+    #    GNU grep >= 3.5 據稱把 `Binary file … matches` 印到 **stderr**, stdout 留空
+    #    ⇒ `lines` 是空的 ⇒ `bad` 也是空的 ⇒ 回 0 而不出聲 = 本片要修的那個病原封不動。
+    #    ⚠️ **未驗**:本機是 `BSD grep 2.6.0-FreeBSD`(它印 stdout, 所以下面那條抓得到),
+    #      `ggrep` 查無 ⇒ **缺的那一道檢查 = 在 GNU grep 上跑一次同一份 NUL fixture。**
+    #    ⇒ 所以不賭訊息去哪, 改釘一個**不可能的組合**:`-oE` 的 rc=0 代表「有匹配到東西」,
+    #      有匹配就一定會印出來 ⇒ **rc=0 而零輸出 = grep 沒有做它說它做了的事。**
+    #      這一條與訊息印到哪、長什麼樣、哪一支 grep 全部無關。
+    if out.returncode == 0 and not lines:
+        raise MeasurementError(
+            'GREP_GARBAGE',
+            f'grep 對 {path} 回 rc=0(= 有匹配)卻沒有印出任何東西'
+            f' ⇒ 這是【量具壞了】, 不是板子零命中'
+            f'(stderr 前 80 字:{out.stderr.strip()[:80]!r})')
+    bad = [x for x in lines if not re.fullmatch(_STATE_CELL, x)]
+    if bad:
+        raise MeasurementError(
+            'GREP_GARBAGE',
+            f'grep 對 {path} 回 rc={out.returncode} 而輸出不是態欄的形狀'
+            f'(例:{bad[0][:60]!r})⇒ 這是【量具壞了】, 不是板子少列。'
+            f'常見成因:板子含 NUL / GREP_OPTIONS 或 alias 讓輸出多了前綴或色碼')
+    return len(lines)
 
 
 def rule1_closed_set(rows):
@@ -651,6 +703,101 @@ def selftest():
         ok = False
     except RuntimeError:
         print('  ✅ 庚·grep rc · grep 自己出錯 ⇒ 判量具失效(不是回 0 假裝零命中)')
+
+    # ㉝b 🔴 grep 的【第二條壞法】:rc=0 而輸出不是態欄。**全文在 `board_grep_count()` 的註解裡**, 不在這裡複述。
+    #     🔴 這一格【必須有該綠的那一半】:誤擋比漏擋更會殺死一道閘。
+    _nulb = os.path.join(d, 'nul-board.md')
+    _cleanb = os.path.join(d, 'clean-board.md')
+    _rowbytes = b'| open | x | a | y | z |\n| done | x | b | y | z |\n| open | x | c | y | z |\n'
+    # 🔴 不叫 `_rows` —— 模組層 :182 有個函式叫 `_rows()`, 同名會在 selftest 這個 scope 遮蔽它
+    #    ⇒ 今天不會炸(這裡沒呼叫它), 而下一個在 selftest 裡加一行 `_rows(...)` 的人會拿到 UnboundLocalError。
+    with open(_cleanb, 'wb') as _f:
+        _f.write(_rowbytes)
+    with open(_nulb, 'wb') as _f:
+        _f.write(_rowbytes[:30] + b'\x00' + _rowbytes[30:])
+    try:
+        _n = board_grep_count(_nulb)
+        print(f'  🔴 庚b·grep 二號壞法 · 含 NUL 的板子回 {_n} 而沒出聲'
+              f' ⇒ 會被讀成「板子少數了 N 列」, 有人會去找不存在的列')
+        ok = False
+    except MeasurementError as _e:
+        if _e.code == 'GREP_GARBAGE':
+            print('  ✅ 庚b·grep 二號壞法 · rc=0 而輸出不是態欄 ⇒ 判量具失效(指向量具, 不是板子)')
+        else:
+            print(f'  🔴 庚b·grep 二號壞法 · 拋了 {_e.code}, 期望 GREP_GARBAGE ⇒ 紅錯地方')
+            ok = False
+    # 該綠的那一半:乾淨的板子不得被這道新守門誤擋
+    try:
+        _n2 = board_grep_count(_cleanb)
+        if _n2 == 3:
+            print('  ✅ 庚b·該綠真的綠 · 乾淨板子照常數到 3(新守門沒有誤擋)')
+        else:
+            print(f'  🔴 庚b·該綠真的綠 · 乾淨板子數到 {_n2}, 期望 3')
+            ok = False
+    except MeasurementError as _e:
+        print(f'  🔴 庚b·該綠真的綠 · 乾淨板子被誤擋:{_e.code}')
+        ok = False
+
+    # ㉝c 🔴 第三條入口:rc=0 而【零輸出】。用 PATH shim 造一支「回 0 卻不印東西」的 grep。
+    #     這一格釘的是「不賭 grep 把訊息印到哪」那個判準本身。
+    _shimd = os.path.join(d, 'shim-quiet')
+    os.makedirs(_shimd, exist_ok=True)
+    with open(os.path.join(_shimd, 'grep'), 'w') as _f:
+        _f.write('#!/bin/sh\nexit 0\n')
+    os.chmod(os.path.join(_shimd, 'grep'), 0o755)
+    _saved = os.environ.get('PATH', '')
+    try:
+        os.environ['PATH'] = _shimd + os.pathsep + _saved
+        globals()['_GREP_ENV'] = {**os.environ, 'GREP_OPTIONS': ''}
+        try:
+            _n3 = board_grep_count(_cleanb)
+            print(f'  🔴 庚c·rc=0 零輸出 · 回 {_n3} 而沒出聲 ⇒ 會被讀成「板子零命中」')
+            ok = False
+        except MeasurementError as _e:
+            if _e.code == 'GREP_GARBAGE':
+                print('  ✅ 庚c·rc=0 零輸出 · 判量具失效(不賭訊息印到 stdout 還是 stderr)')
+            else:
+                print(f'  🔴 庚c·rc=0 零輸出 · 拋了 {_e.code}, 期望 GREP_GARBAGE')
+                ok = False
+    finally:
+        os.environ['PATH'] = _saved
+        globals()['_GREP_ENV'] = {**os.environ, 'GREP_OPTIONS': ''}
+
+    # ㉝e 🔴 `_STATE_CELL` 必須 escape —— 否則 CLOSED 新增一個含 regex 元字元的值時,
+    #     grep 撈不到那一列、而形狀檢查 fullmatch **也一起漏** ⇒ 兩邊同時瞎掉,
+    #     又回到「板子少數了 N 列」= 本片要消滅的那個紅錯地方。
+    #     這一格不動真的 CLOSED, 只驗【組法】本身。
+    #     🔴 打的是【本檔真的那個組法】`_state_cell()`, 不是照抄一份 ——
+    #     第一版就是照抄, 而拿掉 re.escape 之後那一格【照樣全綠】(我突變實測到的)。
+    if re.fullmatch(_state_cell(('open', 'wip?')), '| wip? |'):
+        print('  ✅ 庚e·escape · 含元字元的態欄值配得到 ⇒ _state_cell 有 escape')
+    else:
+        print('  🔴 庚e·escape · `wip?` 這種值配不到 ⇒ _state_cell 少了 re.escape'
+              ' ⇒ grep 與 fullmatch 會【同時】漏掉那一列, 又回到「板子少數了 N 列」')
+        ok = False
+    if re.fullmatch(_state_cell(('open',)), '| XXXX |'):
+        print('  🔴 庚e·負對照 · 不該配的也配上了 ⇒ 這一格零判別力')
+        ok = False
+
+    # ㉝d 🔴 該綠真的綠(第二個):`GREP_OPTIONS` 設了也不得誤擋乾淨的板子。
+    #     這是**本片新引入的誤擋路徑**(R1 審查實測), 所以它需要自己的證人。
+    _saved2 = os.environ.get('GREP_OPTIONS')
+    try:
+        os.environ['GREP_OPTIONS'] = '-H'
+        _n4 = board_grep_count(_cleanb)
+        if _n4 == 3:
+            print('  ✅ 庚d·GREP_OPTIONS · 設了 -H 仍照常數到 3(env 有被洗掉, 沒有誤擋)')
+        else:
+            print(f'  🔴 庚d·GREP_OPTIONS · 數到 {_n4}, 期望 3')
+            ok = False
+    except MeasurementError as _e:
+        print(f'  🔴 庚d·GREP_OPTIONS · 乾淨板子被誤擋:{_e.code} ⇒ 被誤擋的人會繞過這道閘')
+        ok = False
+    finally:
+        if _saved2 is None:
+            os.environ.pop('GREP_OPTIONS', None)
+        else:
+            os.environ['GREP_OPTIONS'] = _saved2
 
     # 子 🔴 codex R2:F13 與 F14 **只改了行為與字面, 沒有任何一格在看訊息**
     #    ⇒ 改回「固定印事欄」或「過度推論的舊文案」, 44 格照樣全綠。這兩格補那個缺口。
