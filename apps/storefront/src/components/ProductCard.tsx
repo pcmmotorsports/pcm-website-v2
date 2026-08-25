@@ -14,7 +14,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { MAX_QTY, useCart } from '@/contexts/CartContext';
 import { useFavorites } from '@/contexts/FavoritesContext';
 import { readSearchVehicle } from '@/lib/search-vehicle';
@@ -35,7 +35,10 @@ import { ProductImage } from './ProductImage';
 export { ProductImage };
 
 export type ProductCardProps = {
-  p: MockProduct;
+  // 🔴 `CatalogCardProduct` = `MockProduct` 但 `price` 可為 `null`(卡片路徑拿不到價格)。
+  //   `MockProduct` 仍可直接傳進來 —— `number` 是 `number | null` 的子集。
+  //   ⚠️ **不要在這裡重寫一份 `Omit<...>`**:同一個契約散成多份, 下次改價格契約時它們會分岔(codex R1 nit)。
+  p: CatalogCardProduct;
   showRedPrice?: boolean;
   badgeStyle?: 'minimal' | 'pill' | 'corner' | 'none';
   compact?: boolean;
@@ -135,7 +138,17 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
     }
     if (p.isSale) {
       if (badgeStyle === 'pill') return <div className="badge badge-pill badge-red">SALE</div>;
-      if (badgeStyle === 'corner' && p.origPrice) return <div className="badge badge-corner badge-red">-{Math.round((1 - p.price / p.origPrice) * 100)}%</div>;
+      // 🔴🔴 這個守門是 `p.price !== null`,**不可以寫成 `p.price > 0`。**
+      //   實跑量到(node,2026-08-25):
+      //     price=null · origPrice=5000 ⇒ 進這個分支 ⇒ 印 **-100%**(JS 把 `null` 當 0 算)
+      //     price=0    · origPrice=5000 ⇒ 印 -100% ← **這一格是對的**:贈品原價 5000、現在 0 元 = 真的 100% off
+      //     price=3000 · origPrice=5000 ⇒ 印 -40%
+      //   ⇒ **寫 `> 0` 會把 Sean 2026-08-25 剛拍的贈品情境一起擋掉,而畫面上只是少一個角標。**
+      //   ⚠️ `> 0` 是下一個人最可能順手寫的那個 —— 它跟隔壁 `isRenderableOriginalPrice` 長得一樣。
+      //   📌 今天這個分支【走不到】(`catalog-page.ts` 的 `isSale` / `origPrice` 寫死 false / null)
+      //      ⇒ 它是**縱深防線**,不是在修一個現在會發生的事。而它必須在,因為型別放寬後
+      //        typecheck 會在這一行紅,**而繞過它最省事的寫法是 `p.price!`** —— 那正好把 bug 留在原地。
+      if (badgeStyle === 'corner' && p.origPrice && p.price !== null) return <div className="badge badge-corner badge-red">-{Math.round((1 - p.price / p.origPrice) * 100)}%</div>;
       return <div className="badge badge-min badge-min-red">特價</div>;
     }
     return null;

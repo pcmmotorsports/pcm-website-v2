@@ -10,12 +10,12 @@
 //    `nth-child(n+4) display:none` 的「選擇器改名」申報 —— **CSS 已整組刪除**,
 //    表頭與版位都歸 rail。RWD 來源列的那幾條稿行號同樣不再對應任何規則。
 //
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import type { BrandContent } from '@/data/brand-content-types';
 import { ProductRail } from '@/components/ProductRail';
 import { brandCatalogueUrl } from '@/lib/brand-url';
 
-export function BrandPageProducts({ brand, products }: { brand: BrandContent; products: MockProduct[] }) {
+export function BrandPageProducts({ brand, products }: { brand: BrandContent; products: CatalogCardProduct[] }) {
   // 0 筆 → 整區不渲染(同設計稿對選填區塊的 `dropSection()` 慣例)。
   // 🔴 **不留空骨架、也不自己編一句「目前沒有商品」** —— 對客人說什麼是文案決策(鐵則 R6),
   //    而且 5 家 0 商品品牌要不要掛品牌頁本身就在等 Sean 拍(backlog #315)。

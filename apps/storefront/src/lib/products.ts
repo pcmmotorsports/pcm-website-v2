@@ -55,7 +55,7 @@ import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 import { buildCategoryTree } from '@/lib/category-taxonomy';
 import type { CatalogQuery } from '@/lib/catalog-query';
 import { NEW_ARRIVAL_WINDOW_DAYS } from '@/lib/catalog-query';
-import { catalogRowToUIProduct, type CatalogListRow } from '@/lib/catalog-page';
+import { catalogRowToUIProduct, type CatalogListRow, type CatalogCardProduct } from '@/lib/catalog-page';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -401,7 +401,8 @@ function newArrivalWindowStart(): string {
 }
 
 export type CatalogPageResult = {
-  products: MockProduct[];
+  /** 🔴 `price` 可為 `null`(查不到價格)—— 見 `catalog-page.ts` 的 `CatalogCardProduct`。 */
+  products: CatalogCardProduct[];
   total: number;
   error: boolean;
 };
@@ -506,7 +507,14 @@ const getCatalogPageCached = unstable_cache(
       } : null,
     );
   },
-  ['catalog-page-v3'],
+  // 🔴 v3 → v4 是**承重的, 不是順手**(codex R1 must-fix, 2026-08-25):
+  //   `unstable_cache` 的 Data Cache **跨部署保留**。v3 那些條目是在
+  //   `catalog-page.ts` 還有 `?? 0` 的時候寫進去的 ⇒ 它們把「查不到價格」存成了 `price: 0`。
+  //   不換鍵 ⇒ 命中舊條目時新型別契約(`number | null`)拿不到 `null`,
+  //   而片B 之後那個 0 會被印成「NT$ 0」= **告訴客人可以免費帶走**。
+  //   ⚠️ 今天 `price_general is null` 的 count = 0(2026-08-25 anon 實測)
+  //      ⇒ 舊快取裡**現在**應該沒有偽造值 —— 而那是資料剛好, 不是機制。換鍵是保險, 成本 = 一次快取重建。
+  ['catalog-page-v4'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 

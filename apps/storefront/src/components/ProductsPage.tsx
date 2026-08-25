@@ -70,7 +70,7 @@ import { useFilterScrollTop } from './products-scroll-top';
 import type { FilterTopData } from './FilterTop';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 import type { GarageChipItem } from './GarageChips';
@@ -86,7 +86,7 @@ const MESSAGE_STATE_STYLE: CSSProperties = {
 export type ProductsPageProps = {
   /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真;
    *  S1 起選了車=server 已按車過濾的子集、非恆全目錄) */
-  products: MockProduct[];
+  products: CatalogCardProduct[];
   /** P4 server query 的完整結果數；products 僅為當頁 card DTO。 */
   total?: number;
   /** server fetch 失敗旗標(true → 顯「載入失敗、請稍後再試」、與真 0 結果區分;Q2=A 鏡像 HomeSelect) */

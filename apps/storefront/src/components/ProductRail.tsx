@@ -32,11 +32,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { ProductCard } from './ProductCard';
 
 export type ProductRailProps = {
-  products: MockProduct[];
+  products: CatalogCardProduct[];
   /** 取數/查詢失敗。與「取到 0 筆」是兩件事、文案不同(對客人的意思不一樣)。 */
   error?: boolean;
   /**

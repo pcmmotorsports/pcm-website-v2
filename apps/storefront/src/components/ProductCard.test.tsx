@@ -214,3 +214,38 @@ describe('ProductCard', () => {
     });
   });
 });
+
+describe('🔴 SALE 角標:拿不到價格時不得編造一個折扣(Sean 2026-08-25 兩板)', () => {
+  // ── 為什麼要有這一格 ────────────────────────────────────────────────
+  // 2026-08-25 突變實測:把 `ProductCard.tsx` 那個 `&& p.price !== null` 整句拿掉
+  // ⇒ 這支測試檔 **14 格全綠, 一格都沒紅** ⇒ **那個守門當時沒有任何測試在守它。**
+  // 📌 這是本 repo 記過的形狀:「照處方加上去的子句, 可以完全沒有獨立判別力,
+  //    而它看起來裝好了。」⇒ 補這一格就是讓它變成量得到的。
+  //
+  // ⚠️ 這個輸入組合【今天從 RPC 那條路走不到】(`catalog-page.ts` 的 `isSale` 寫死 false、
+  //    `origPrice` 寫死 null)⇒ 這一格守的是**縱深防線**, 不是現在會發生的事。
+  //    ⇒ 而元件的 props 是公開介面, 任何呼叫端都能構造出這組值。
+  const withBadge = (price: number | null) => ({
+    ...MOCK_PRODUCTS[0]!, variantCount: 0,
+    price, origPrice: 5000, isSale: true, isNew: false,
+  });
+
+  it('price = null ⇒ 不得出現角標(現在會算成 -100%:JS 把 null 當 0)', () => {
+    const { container } = render(<ProductCard p={withBadge(null)} badgeStyle="corner" />);
+    expect(container.querySelector('.badge-corner')).toBeNull();
+    expect(container.textContent ?? '').not.toContain('-100%');
+  });
+
+  it('🔴 price = 0(贈品)⇒ 角標【要】出現且是 -100% —— 守門不可寫成 `> 0`', () => {
+    // Sean 2026-08-25 拍板:0 是合法價格(贈品)。原價 5000、現在 0 元 = 真的 100% off。
+    // 寫成 `p.price > 0` 會把這一格一起擋掉, 而畫面上只是少一個角標 ⇒ 沒有人會發現。
+    const { container } = render(<ProductCard p={withBadge(0)} badgeStyle="corner" />);
+    expect(container.querySelector('.badge-corner')).not.toBeNull();
+    expect(container.textContent ?? '').toContain('-100%');
+  });
+
+  it('正對照:price = 3000 / origPrice = 5000 ⇒ -40%(證明這把尺會動)', () => {
+    const { container } = render(<ProductCard p={withBadge(3000)} badgeStyle="corner" />);
+    expect(container.textContent ?? '').toContain('-40%');
+  });
+});

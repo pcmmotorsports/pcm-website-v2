@@ -21,7 +21,7 @@
 //    20 家 × 一組、每組 **10 筆**(R-2 起;原 5 筆)卡片 DTO,離單條 2MB 上限仍很遠
 //    (memory `reference_next16-unstable-cache-force-dynamic-2mb`)。
 
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { fetchCatalogPage, fetchCatalogBrandTaxonomy } from '@/lib/products';
 import { BRAND_PRODUCT_SLOTS } from '@/lib/brand-url';
 
@@ -33,7 +33,7 @@ import { BRAND_PRODUCT_SLOTS } from '@/lib/brand-url';
  * 🔴 目前 20 家裡有 5 家在目錄中是 0 筆(dbk / gilles / kineo / rizoma / wrs,2026-08-04 實測),
  *    ⇒ 這條路徑**真的會走到**,不是理論分支。那 5 家的品牌頁怎麼呈現待 Sean 拍(backlog #315)。
  */
-export async function fetchBrandTopProducts(brandSlug: string): Promise<MockProduct[]> {
+export async function fetchBrandTopProducts(brandSlug: string): Promise<CatalogCardProduct[]> {
   const { products, error } = await fetchCatalogPage({
     page: 1,
     perPage: BRAND_PRODUCT_SLOTS,

@@ -39,7 +39,7 @@
 
 import '@/styles/brand-page.css';
 import type { BrandContent } from '@/data/brand-content-types';
-import type { MockProduct } from '@/data/mock-products';
+import type { CatalogCardProduct } from '@/lib/catalog-page';
 import { BrandPageHeader } from '@/components/brand/BrandPageHeader';
 import { BrandPageAbout } from '@/components/brand/BrandPageAbout';
 import { BrandPageWhy } from '@/components/brand/BrandPageWhy';
@@ -62,7 +62,7 @@ export function BrandPageRoot({
   availableSlugs,
 }: {
   brand: BrandContent;
-  products: MockProduct[];
+  products: CatalogCardProduct[];
   /** 目錄裡真的有商品的品牌 slug —— 磚牆用它決定哪幾磚泛白不可點(Sean 08-04 拍板)。 */
   availableSlugs: ReadonlySet<string>;
 }) {
