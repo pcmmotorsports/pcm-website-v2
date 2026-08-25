@@ -39,6 +39,12 @@ export type * from './IEmailSender';
 // ⚠️ ⇒ **一封都不寄**:`buildEmailText` 對 `order_shipped` 仍然 fail-closed throw。
 //    真正呼叫本 port 的是模板那一片(片3)。詳見該 port 檔頭。
 export type * from './IShippedEmailContext';
+// 🔴 M-4b(2026-08-24,Sean 拍板信裡要顯示金額之後):付款信的同款寄送時讀取 port。
+// 🔴 ~~今天三層全是「沒有」:零 adapter / 零注入 / 零呼叫端~~ **2026-08-24 codex M6:①已假**
+// 現況 = **有 adapter(已從 adapters/src/server.ts 匯出)/ 零注入 / 零呼叫端** ⇒ 仍不是一條通路。
+// ⚠️ 數法與完整三層寫在該 port 檔頭;**這裡不重抄數字**(抄兩份 = 兩份各自過期)。
+// ⚠️ 這一行**不會**讓任何客人收到不一樣的信;接上它的是模板那一片(合併 plan 的 S4)。
+export type * from './IPaidEmailContext';
 // 🔴 M-4a B-5(掃描式 enqueue,Sean `Q-G4-1`=甲):「已付款但還沒排過 order_created」的窄讀 port。
 // 它回 PII(兩個 email 欄)⇒ 實作 server-only + service_role;呼叫端只准把值交給 outbox.enqueue。
 export type * from './IPaidOrderScanner';

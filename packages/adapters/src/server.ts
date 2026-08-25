@@ -87,8 +87,10 @@ export {
 
 // M-4a Email 通知片 E1b:交易信 outbox 狀態機 + Resend 寄送 + 組裝層(plan v3.1 §5)。
 // 全走 server-only subpath:outbox 表含 recipient_email(PII、client 零權限)、Resend 持 API key、
-// outbox client = service_role 注入(composition 於 E2a/E3 走 line-admin 式受控模組;
-// syntheticEmailDomain 必須從 line.ts LINE_SYNTHETIC_EMAIL_DOMAIN 注入 = 單一字面來源)。
+// outbox client = service_role 注入(composition 於 E2a/E3 走 line-admin 式受控模組)。
+// 🔴 `#858` 片0-a:假信箱**判斷式**改由 composition 注入(`@pcm/schemas` 的 `isSyntheticEmailDomain`),
+//    本 package 不再自己實作那條規則 ⇒ 原本 export 的 `isSyntheticEmail` **已刪除**
+//    (它是那條規則的第二份實作,而它與 `@pcm/schemas` 那份已經分岔過一次)。
 export {
   SupabaseEmailOutboxAdapter,
   type EmailOutboxClient,
@@ -119,6 +121,17 @@ export {
   SHIPPED_EMAIL_MAX_LINES,
   type ShippedEmailContextClient,
 } from './email/SupabaseShippedEmailContextAdapter';
+// 🔴 M-4b(2026-08-24,Sean 拍板信裡要顯示金額之後):付款信的**寄送時讀取**,`IPaidEmailContext` 第一份實作。
+// server-only + service_role:讀 orders / order_items 兩張表,回品項與四個金額。
+// ⚠️ **今天零注入零呼叫端** —— `composition.ts` 沒有建構它,`sweepEmailOutbox` 沒有呼叫它。
+//    這一行**不會**讓任何客人收到不一樣的信;接上它的是模板那一片(合併 plan 的 S4)。
+// 🔴 它的 select 是**正面白名單**(經銷價零滲入),而那條有負向斷言在測試裡看著,不是只有註解。
+export {
+  SupabasePaidEmailContextAdapter,
+  PaidContextQueryError,
+  PAID_EMAIL_MAX_LINES,
+  type PaidEmailContextClient,
+} from './email/SupabasePaidEmailContextAdapter';
 // 🔴 M-4a E2a-2(W3-G 拆出,2026-08-20):寄送前 ineligible gate 的窄讀 adapter。
 // 零 PII(只回 id/orderId),client 注入 service_role,鏡像 SupabasePaidOrderScannerAdapter 的邊界。
 export {
