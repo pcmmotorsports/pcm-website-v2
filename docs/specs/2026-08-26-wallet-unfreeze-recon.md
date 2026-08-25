@@ -67,6 +67,23 @@ memory `project_wallet-deposit-taiwan-legal-hold`,2026-07-16 那節逐字:
 負對照(當天靶)zzzWallet20260826 ⇒ 0
 ```
 
+### 🔴 3-a 而這一格有兩個數字,兩把尺都對 —— **下一個人要知道自己在數哪一個**
+```
+我量  「有沒有【入口】」 grep -rln 'depositWallet|立即儲值' apps/storefront/src   ⇒ 0 支
+主視窗量「有沒有【提到】」git grep -l 'depositWallet|儲值' -- apps/storefront/src ⇒ 7 支
+```
+**那 7 支我逐支開過,沒有一支是入口**:
+```
+AccountView.tsx        nav 上的分頁【標籤】文字
+WalletTab.tsx          stub 本體            AccountView.test.tsx / WalletTab.test.tsx  測試
+CheckoutStep2.tsx      寫著「不做」的【註解】  CheckoutView.tsx  同上
+styles/checkout.css    寫著「不搬」的【註解】
+```
+⇒ 🔴 **「有沒有提到」= 7,「有沒有做」= 0。**
+⇒ **而 7 那個數字會讓下一個人以為前台已經做了一半** —— 它數到的大部分是**寫著「不做」的字**。
+📌 **同一個坑今晚出現過**(`L250`:板子的尺數到了它自己的說明書)。
+**這裡是它的鏡像:尺數到了【一堆宣告「我沒做」的註解】,而那看起來像做了。**
+
 **顧客站現況**(逐行開檔):
 ```
 AccountView.tsx:102     會員中心【有】一個「儲值金」分頁(nav 上看得到)
