@@ -558,6 +558,54 @@ handoff 全檔 `REVOKE` 只出現 **1 次**（量法 `grep -c -i REVOKE <該檔>
    > **我沒做**(不在正式庫上建東西)。
    > ⇒ ⚠️ **在有人真的量過之前,兩道都留著** —— 空砲的成本是一行,猜錯的成本是一個公開端點。
    >
+   > ### ✅ **2026-08-25 線1(DB 驗證線)補:上面那個「我沒做」的實驗,做了。而答案與那個推論相反。**
+   > 🔴 **上面整段一個字沒改** —— 它是當時誠實的推論紀錄。本段是加註,不是更正。
+   >
+   > 上段自己指定了做法:「**拋棄式 PG 抄一份同樣的 `pg_default_acl`,建一支函式看它的 `proacl`**」。
+   > 照做了。**環境**:本機拋棄式 PG `127.0.0.1:55551` / 庫 `l1_inv`
+   > (由 `l1_zero` 複製;`l1_zero` = shim bootstrap + `supabase/migrations/` 216 支全套 apply)。
+   >
+   > **這個庫的 `pg_default_acl`(先印出來,否則下面的結果沒有座標)**:
+   > ```sql
+   > SELECT d.defaclobjtype::text, d.defaclacl::text FROM pg_catalog.pg_default_acl d;
+   > ```
+   > ```
+   > r  {service_role=arwdDxtm/postgres}
+   > S  {anon=rwU/postgres, authenticated=rwU/postgres, service_role=rwU/postgres}
+   > f  {anon=X/postgres, authenticated=X/postgres, service_role=X/postgres}
+   > ```
+   > ⚠️ **這【不是】正式庫那兩列的複本**:正式庫是 `postgres` 與 `supabase_admin` **兩個 granting role**,
+   > 而本機只有 `postgres` 一個。⇒ **不能拿本機去回答「正式庫的新函式長什麼樣」。**
+   > **但它回答得了上段真正在問的那個【語意】問題**,因為那是 Postgres 的行為、不是本庫的設定:
+   >
+   > **實測(交易內,做完 ROLLBACK,零留痕)**:
+   > ```sql
+   > BEGIN;
+   > CREATE FUNCTION public.l1_newborn_probe() RETURNS int LANGUAGE sql AS 'SELECT 1';
+   > SELECT proacl FROM pg_catalog.pg_proc WHERE proname='l1_newborn_probe';
+   > ```
+   > **輸出逐字**:
+   > ```
+   > {=X/postgres, postgres=X/postgres, anon=X/postgres,
+   >  authenticated=X/postgres, service_role=X/postgres}
+   > ```
+   > 🔴🔴 **開頭那個 `=X` 就是 PUBLIC,而它【在】。**
+   > 上段推論「`pg_default_acl` 有該列時會**取代**內建預設 ⇒ `postgres` 建的函式可能根本沒有
+   > PUBLIC EXECUTE ⇒ 那道 REVOKE 是空砲」——
+   > ⇒ **推論不成立。`pg_default_acl` 是【疊加】,不是取代。PUBLIC 那一道不是空砲,它有東西可收。**
+   > (本庫的 `f` 那列**沒有** PUBLIC 條目,而新函式仍拿到 `=X` ⇒ 兩者確實是兩個來源。)
+   >
+   > **負對照(同一顆交易,證明我讀的不是一個對什麼都印同一串的欄位)**:
+   > ```sql
+   > CREATE TABLE public.l1_newborn_tbl(x int);
+   > SELECT relacl FROM pg_catalog.pg_class WHERE relname='l1_newborn_tbl';
+   > ⇒ {postgres=arwdDxtm/postgres, service_role=arwdDxtm/postgres}   ← 與函式那串【不同】
+   > ```
+   >
+   > ⇒ **§6-1 的結論「兩道都留著」維持不變,而理由從「不確定」升級成「量到了」。**
+   > ⚠️ **仍未關掉的**:正式庫上由 `supabase_admin` 建的函式會不會也帶 PUBLIC —— **本機答不了**,
+   > 因為本機沒有 `supabase_admin` 那一列。**那一格還開著。**
+   >
    > 📌 **活體佐證(同夜同一發量的)**:`admin_void_manual_refund` 的 owner 是 `postgres`
    > ⇒ 它的 `proacl` 是 `postgres=X/postgres`,`anon`/`authenticated`/`service_role` 三個
    > `has_function_privilege` 全 `false`。**乾淨的底來自 owner 是 postgres,不是來自那兩道 REVOKE 有多用力。**
