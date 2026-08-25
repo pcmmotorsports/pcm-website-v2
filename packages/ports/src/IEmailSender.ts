@@ -30,12 +30,52 @@
  */
 import type { EmailOutboxEventType, EmailSendErrorCode } from './IEmailOutbox';
 
+/**
+ * 一個附件(M-4b,2026-08-24:訂單信要夾訂單明細 PDF)。
+ *
+ * 🔴 **`contentBase64` 就是要送出去的那個字串本身**,不是「內容」的抽象 ——
+ * 官方那個 40MB 講的正是 base64 之後的量
+ * (`~/pcm-mailbox/58-片B前置查證-附件與到達率-20260823.md`,2026-08-23 官方文件親讀)。
+ *
+ * 🔴🔴 **上限量的是【UTF-8 位元組】,不是字串長度**(cf 審查 MF-2 更正)。
+ * ~~原本這裡寫「量的是它的長度」「這裡只量前者」~~ —— 那在【內容真的是 ASCII base64】時成立,
+ * 而它是一個**前提**不是保證:餵 CJK / emoji 時 UTF-16 `.length` 可以只有真實 bytes 的三分之一。
+ * ⇒ adapter 已改量 `Buffer.byteLength(…, 'utf8')`,常數也改名為 `…_BASE64_BYTES`。
+ * 📌 **port 是呼叫端唯一會讀的契約面** —— 它留著舊描述時,給的是一個【已被推翻的前提】,
+ *    而讀它的人不會知道實作那邊已經改了。
+ *
+ * 🔴 **`filename` 由產出側給,不由本層組** —— 檔名規則屬那份文件那一側(見 `IPaidEmailContext` 同族理由)。
+ */
+export type EmailAttachment = {
+  /** 附件檔名(含副檔名;由產出側決定)。 */
+  filename: string;
+  /** 附件內容,**base64 編碼後的字串**。 */
+  contentBase64: string;
+};
+
 export type SendEmailInput = {
   /** 收件者(已過假信箱 gate 的真實信箱;PII、絕不入 log/錯誤訊息)。 */
   to: string;
   subject: string;
   /** 純文字內文(對齊 EmailAlertNotifierAdapter 慣例;HTML 版留 E3 需要時擴欄)。 */
   text: string;
+  /**
+   * 🔴 **選填,而「選填」是承重的**:既有呼叫端一個字都沒改,
+   * 而**不給附件時,送出去的 POST body 不得出現 `attachments` 這個 key**
+   * —— 不是給一個空陣列。空陣列會讓「這封信沒有附件」與「這封信附件掉了」在 wire 上長得一樣,
+   * 也讓既有信的 payload 逐位元改變(而那個改變沒有任何人要求)。
+   * ⚠️ 傳空陣列 `[]` 與不傳,adapter 一律當作**沒有附件**。
+   *
+   * 🔴 **`https://api.resend.com/emails` 的 batch 端點【不能送附件】**(官方明文)。
+   *    今天 adapter 走的是單封端點所以不成立 —— 而**改成批次的那天會安靜地送不出去**。
+   *    這句話也寫在 adapter 的 `RESEND_ENDPOINT` 旁邊,因為要改批次的人會經過那一行。
+   *
+   * ⚠️ **`readonly` 只在編譯期成立**(codex R1 nit-2):它擋的是「透過這個型別引用去改陣列」,
+   * 呼叫端照樣可以傳一個 mutable array 進來、之後再改它的元素。**runtime 零約束力。**
+   * ⇒ 所以 adapter **不靠這個型別** —— 它進來就自己抄一份快照(見 adapter 那段「一次讀完並定住」),
+   *   而那才是真的擋住「量過之後內容被換掉」的東西。**型別是文件,快照才是機制。**
+   */
+  attachments?: readonly EmailAttachment[];
   /**
    * 🔴 冪等座標(=該封信對應的 outbox 列):adapter 組 `<eventType>/<outboxId>` 當
    * Idempotency-Key。Resend 官方保留 24h(< 重試總跨度)→ 只是第一道網,DB 唯一鍵 +

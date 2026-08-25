@@ -46,7 +46,79 @@ import 'server-only';
 
 import type { IEmailSender, SendEmailInput, SendEmailResult, EmailSendErrorCode } from '@pcm/ports';
 
+/**
+ * 🔴 **單封端點。要改成批次的人先讀這句**:Resend 官方明文
+ * 「Attachments cannot be sent via the batch email endpoint」——
+ * 換成 `/emails/batch` 之後,**附件會安靜地送不出去**(不是報錯,是信照寄而少了那份 PDF)。
+ * ⇒ 客人收到一封說「附件是您的訂單明細」而沒有附件的信,而**寄出去收不回來**(鐵則 12⑤)。
+ * 📎 查證來源:`~/pcm-mailbox/58-片B前置查證-附件與到達率-20260823.md`(2026-08-23 官方文件親讀)。
+ */
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+
+/**
+ * 一封信所有附件 **base64 編碼後**的 **UTF-8 位元組**總和上限。
+ *
+ * 🔴🔴 **名字從 `…_CHARS` 改成 `…_BYTES`**(cf 審查 MF-1)。原本叫 CHARS,而 adapter 內部
+ * 早在 codex R1 MF-2 就改成量 `Buffer.byteLength` 了 ⇒ **這個名字會教呼叫端寫**
+ * `myBase64.length > 上限` —— 非 ASCII 時他判「沒超過」而 adapter 照樣 throw,
+ * ⇒ **呼叫端等於重現了那個剛被修掉的 bug,而是【常數的名字】教他的。**
+ * 📌 形狀:**局部修正會提高未修正部分的可信度 —— 受害者是 diff 上沒有變的那幾行。**
+ *    我列了「量法改了」,而**我沒有列到「名字沒跟著改」**。
+ *
+ * 來源:Resend 官方 attachments 段「max 40MB per email, after Base64 encoding」
+ * (2026-08-23 親讀;全文 `~/pcm-mailbox/58-片B前置查證-附件與到達率-20260823.md`)。
+ * ⇒ 量的是**我們真的要送出去的那份內容的 UTF-8 位元組數**(`Buffer.byteLength`),
+ *   不是原始 bytes 乘 4/3(那是推出來的),**也不是字串的 `.length`**。
+ * 🔴 ~~原本這裡寫「量的是那個字串長度…前者是量到的」~~(codex R2 MF-1 更正)——
+ *   那句在【內容真的是 ASCII base64】時與 byte 數相等,而它是一個**前提**不是保證。
+ *   ⇒ 留著它會**再一次**把呼叫端引導去用 `.length`,而那正是 cf MF-1 剛修掉的病。
+ * 📌 **同一個病在這包出現三處**:名字(已修)、port 契約(已修)、**而 adapter 自己的註解沒跟**。
+ *    ⇒ 「一天四例」那份清單裡的第①項,**遺漏的是兩處不是一處**。
+ *
+ * ⚠️ **未確認的兩格,照實寫、不編數字**:
+ * · **附件【數量】上限** —— 官方那段沒給,repo 也沒有第二來源 ⇒ **本檔不設數量上限**。
+ *   (設一個「看起來合理」的數字 = 發明一條沒人驗過的規則,而它會擋掉合法的信。)
+ * · **檔名長度上限** —— 官方只對「用 content ID 的附件」講過 <128 字元,而我們沒用 content ID
+ *   ⇒ 對本路徑**是否適用未確認** ⇒ 不設。
+ */
+export const RESEND_MAX_ATTACHMENTS_BASE64_BYTES = 40 * 1024 * 1024;
+
+/**
+ * 附件超量 ⇒ **在送出去之前 throw**,而不是回 `failed`。
+ *
+ * 🔴 **為什麼不走 `failed` 那條路**:port 的「不 throw」約的是**可預期失敗**
+ * (HTTP 非 2xx / transport / 畸形回應)—— 那些**重試會好**。附件太大不會好:
+ * 重試幾次都一樣大 ⇒ 落 `failed` 只會安靜地燒完 attempts,而失敗原因被記成一個錯的碼。
+ *
+ * 🔴🔴 **而上面那個意圖【今天沒有達成】—— 這不是過期,是它從寫下的那天就不成立**:
+ * `sweep-email-outbox.ts:229-253` 有一個 **per-job `try/catch`**,它會接住這個 throw
+ * ⇒ 計 error、列留 `sending`、回收、**一樣安靜地燒完 attempts**。
+ * ```
+ * 那個 try/catch 進版控 = a691a9d8(2026-07-17)   本註解寫於 2026-08-24
+ * ⇒ 它比本註解早【五週】。不是後來有人加上去把它蓋掉的。
+ * ```
+ * 📌 **形狀:一段註解宣告了一個保證,而那個保證在【一個檔案之外】就失效了 ——
+ *    而註解不會知道自己出了作用域。**
+ * ⇒ **本片刻意不修那個行為**:修它要動 `sweep-email-outbox` 的失敗分類 = 寄信流程的行為改動
+ *   (鐵則 12⑤),會讓這一片從「零行為改變」變成「有行為改變」。**那是換一片,不是把這片做完。**
+ * ⇒ 條目 **`#921`**:接 PDF 的那個人會看到「信沒寄出去、attempts 燒完了,而**沒有任何一列說是
+ *   因為附件太大**」⇒ 他會去查寄信服務、查網路、查憑證,而原因在他自己剛接上的那個附件。
+ * 🔴 **而更重要的是它 throw 的【時機】:一次網路呼叫都還沒發生。**
+ *    超量的信送到 Resend 會被退,而被退會傷寄件信譽 —— 那是**整個信箱**的事,不只這一封
+ *    (同族:`20260717020000:28-31` 的 bounce rate)。⇒ 這一發要擋在我們這一側。
+ */
+export class EmailAttachmentTooLargeError extends Error {
+  constructor(
+    readonly totalBase64Bytes: number,
+    readonly limit: number,
+  ) {
+    super(
+      `附件總量超過上限(base64 後 ${totalBase64Bytes} 位元組 > ${limit})—— 一封都沒有送出去。` +
+        ' 超量的信會被 provider 退回,而退信傷的是整個網域的寄件信譽,不只這一封。',
+    );
+    this.name = 'EmailAttachmentTooLargeError';
+  }
+}
 
 /**
  * 最小 fetch 抽象(本地定義、**刻意不共用** `payment/LineAlertNotifierAdapter` 的 `FetchLike`)。
@@ -133,6 +205,68 @@ export class ResendEmailSenderAdapter implements IEmailSender {
     // 🔴 冪等鍵由本 adapter 組字面(codex 關卡2 R1:port 收結構化座標、不收自由字串,
     // 呼叫端無法誤餵 orderId/dedupKey/亂數)。
     const idempotencyKey = `${input.idempotency.eventType}/${input.idempotency.outboxId}`;
+    // 🔴 **空陣列與沒給,一律當作沒有附件**(port 明文)——
+    //    帶一個空的 `attachments: []` 會讓既有呼叫端的 payload 逐位元改變,
+    //    而那個改變沒有任何人要求;也讓「沒有附件」與「附件掉了」在 wire 上長得一樣。
+    // 🔴 **只認【自己身上】那個 key**(codex R1 MF-1):`input.attachments` 會走原型鏈,
+    //    `Object.prototype.attachments` 被污染成非空陣列或 getter 時,**既有那個一個字都沒改的呼叫端會突然送出附件、或直接 throw** —— 而改動前那份碼**根本不會讀這一欄**。
+    //    ⇒ 「零行為改變」這個宣稱在那個世界會破掉,而三綠不會紅。
+    const raw = Object.prototype.hasOwnProperty.call(input, 'attachments')
+      ? (input.attachments ?? [])
+      : [];
+    // 🔴 **一次讀完並定住**(codex R1 MF-3):原本量一次、送出時再讀一次
+    //    ⇒ getter / Proxy 可以第一次回短字串、第二次回一份超量的有效 base64,**繞過前面那道 throw**。
+    //    ⇒ 之後所有用到的都是這份快照,`input` 那一側再怎麼變都影響不到已經量過的東西。
+    // 🔴🔴 **上一版這裡的註解說錯了它自己在做什麼**(codex R2 MF-2)——
+    //    我寫「`String(...)` 擋的是欄位不是字串」「`Array.from` 對非陣列會安靜產出 `[]`」,
+    //    而 codex 實測兩句都不對:
+    //    ```
+    //    String(x)          是【強制轉型】不是擋住 ⇒ undefined 會變成字串 "undefined"
+    //    Array.from('AB')   不是 []  ⇒ 字串是可迭代的 ⇒ 得到兩個元素
+    //    ⇒ 傳 attachments: 'AB' ⇒ **送出兩個 filename/content 都是 "undefined" 的附件**
+    //    ```
+    //    📌 **這一條與「我改了 A 而 B 沒跟」不同族:那句話從來就不對,不是後來過期的。**
+    //
+    // ⇒ 處置:**只收真正的陣列,而元素的兩個欄位必須真的是字串**,否則 throw。
+    //    🔴 **而這【不是】我在替一個沒人問過的產品決定拍板** —— 我選的是
+    //      **唯一不與這個檔已經寫下的決定牴觸的那個**:
+    //      · 「安靜忽略」會走到本檔已經寫下要防的那條路:**信說有附件而沒有附件**
+    //      · 「假裝有附件」(現況)比兩個候選都差 —— 它會把 "undefined" 當成客人的訂單明細寄出去
+    //      · 而 port 已定的紀律是:**重試不會好的失敗要 throw,不要回 `failed`** —— 畸形輸入不會好
+    //    ⚠️ 若日後有人要改成「忽略」,那是一個**產品決定**,而它是一行:把 throw 換成 `[]`。
+    //      **這一格留著這句話,不要讓下一個人以為它從來沒有被想過。**
+    if (!Array.isArray(raw)) {
+      throw new TypeError('attachments 必須是陣列 —— 收到別的東西時不得猜,否則會寄出假的附件。');
+    }
+    const attachments = raw.map((a) => {
+      // 🔴🔴 **先讀進區域變數,再驗那個區域變數** —— 順序反過來就會讀兩次。
+      //    我第一版寫成「先 `typeof a.contentBase64` 驗、再 `a.contentBase64` 取值」
+      //    ⇒ **兩次讀取** ⇒ getter 可以第一次回合法短字串、第二次換成超量的
+      //    ⇒ **我折 R2-MF2 的時候,把 R1-MF3 那道守門打壞了**,而是那格測試當場叫的。
+      //    📌 又一次「折 A 開出 B」—— 而這次擋住它的是**上一輪留下來的那格測試**。
+      const filename: unknown = a?.filename;
+      const contentBase64: unknown = a?.contentBase64;
+      if (typeof filename !== 'string' || typeof contentBase64 !== 'string') {
+        throw new TypeError('附件的 filename 與 contentBase64 必須是字串(不轉型、不猜)。');
+      }
+      return { filename, contentBase64 };
+    });
+    // 🔴 **量在送出去之前**:一次 fetch 都還沒發生(見 `EmailAttachmentTooLargeError`)。
+    if (attachments.length > 0) {
+      // 🔴 **量 byte 不量 `.length`**(codex R1 MF-2):`.length` 數的是 UTF-16 code unit。
+      //    合法 base64 全是 ASCII ⇒ 兩者相同;而**那是一個前提,不是一個保證** ——
+      //    餵進 CJK / emoji / 落單 surrogate 時,真正送出去的 UTF-8 bytes 可以是 `.length` 的三倍,
+      //    ⇒ 低於門檻而照樣發出一發超量的請求。
+      //    ⚠️ 刻意**不驗 base64 格式**:那是產出側的契約(檔名同理,見 port)。
+      //       改量 byte 之後,這道閘**對內容是什麼一律成立**,所以不需要先假設它是 base64。
+      const totalBytes = attachments.reduce(
+        (sum, a) => sum + Buffer.byteLength(a.contentBase64, 'utf8'),
+        0,
+      );
+      if (totalBytes > RESEND_MAX_ATTACHMENTS_BASE64_BYTES) {
+        throw new EmailAttachmentTooLargeError(totalBytes, RESEND_MAX_ATTACHMENTS_BASE64_BYTES);
+      }
+    }
     try {
       const res = await this.fetchImpl(RESEND_ENDPOINT, {
         method: 'POST',
@@ -146,6 +280,18 @@ export class ResendEmailSenderAdapter implements IEmailSender {
           to: input.to,
           subject: input.subject,
           text: input.text,
+          // 🔴 **有附件才出現這個 key**(展開一個空物件 ⇒ 零改變)。
+          //    寫成 `attachments: attachments` 的話,既有的信 body 會多一個 `"attachments":[]`
+          //    —— 那是一個**沒有人要求的、對外可見的**改變,而三綠不會紅。
+          ...(attachments.length > 0
+            ? {
+                // 🔴 逐欄具名,**不用 `...a` 展開** —— 展開會把未來新增的欄自動送給 provider。
+                attachments: attachments.map((a) => ({
+                  filename: a.filename,
+                  content: a.contentBase64,
+                })),
+              }
+            : {}),
         }),
       });
       // 回應形狀驗證留在 try 內(畸形回應/getter 拋錯 → fail closed,不外洩為程式錯誤)。

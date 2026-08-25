@@ -141,6 +141,13 @@ export {
 export {
   ResendEmailSenderAdapter,
   type ResendEmailSenderConfig,
+  // 🔴 **這兩個一定要出得去**(#876):`EmailAttachmentTooLargeError` 是 adapter **刻意 throw**
+  //    而不回 `failed` 的那個東西 —— 它存在的**全部意義**就是讓呼叫端分辨得出
+  //    「附件太大(重試不會好)」與「一般可預期失敗(重試會好)」。
+  //    ⇒ 不出口 ⇒ 別的 package 拿不到那個 class ⇒ `instanceof` 做不到 ⇒ **那個意義歸零**,
+  //      而它會安靜地被當成一般錯誤。上限常數同理:呼叫端要在組附件之前自己先判就得拿得到它。
+  EmailAttachmentTooLargeError,
+  RESEND_MAX_ATTACHMENTS_BASE64_BYTES,
 } from './email/ResendEmailSenderAdapter';
 export {
   buildOrderCreatedPayload,

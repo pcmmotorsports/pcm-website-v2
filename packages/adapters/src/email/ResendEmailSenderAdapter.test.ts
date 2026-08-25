@@ -223,3 +223,332 @@ describe('ResendEmailSenderAdapter.send(Resend emails)', () => {
     await expect(send(f)).resolves.toEqual({ kind: 'failed', errorCode: 'http_429' });
   });
 });
+
+// ── M-4b S2(2026-08-24):附件欄 ────────────────────────────────────────────────
+//
+// 🔴 **本組最重要的不是「附件送得出去」,是【不給附件時什麼都沒變】。**
+//    這一片對外宣告「客人可見改變 = 零」,而那個零**要被證明**,不是宣稱。
+import {
+  RESEND_MAX_ATTACHMENTS_BASE64_BYTES,
+  EmailAttachmentTooLargeError,
+} from './ResendEmailSenderAdapter';
+
+const sendWith = (f: unknown, over: Partial<SendEmailInput> = {}) =>
+  new ResendEmailSenderAdapter({ apiKey: KEY, from: FROM }, f as ResendFetchLike).send({
+    ...INPUT,
+    ...over,
+  });
+
+/**
+ * 取出這一發真的被送出去的東西。
+ * 🔴 走 `as unknown as`(既有格 :37 同款):`vi.fn(async () => …)` 的 mock 參數 tuple 是 `[]`,
+ *    直接索引 `[1]` 在型別層取不到 —— 那是 mock 的形狀問題,不是斷言的問題。
+ */
+type SentInit = { method: string; headers: Record<string, string>; body: string };
+const sentInit = (f: unknown): SentInit =>
+  (f as { mock: { calls: unknown[][] } }).mock.calls[0]?.[1] as unknown as SentInit;
+const sentBody = (f: unknown) => JSON.parse(sentInit(f).body) as Record<string, unknown>;
+
+const PDF = { filename: 'PCM-2026-0001-訂單明細.pdf', contentBase64: 'JVBERi0xLjQK' };
+
+describe('ResendEmailSenderAdapter — 🔴🔴 不給附件 ⇒ 逐位元零改變(既有呼叫端的回歸網)', () => {
+  it('🔴 沒給 attachments ⇒ body **不得出現** attachments 這個 key(不是空陣列)', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await sendWith(f);
+    const body = sentBody(f);
+    expect('attachments' in body).toBe(false);
+    // 正對照:鍵集就是既有那四個,多一個都算改變。
+    expect(Object.keys(body).sort()).toEqual(['from', 'subject', 'text', 'to']);
+  });
+
+  it('🔴 給【空陣列】也一樣不得出現那個 key(空陣列與沒給是同一件事)', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await sendWith(f, { attachments: [] });
+    expect('attachments' in sentBody(f)).toBe(false);
+  });
+
+  it('🔴 逐位元:給空陣列送出去的 body 字串,與完全不給時**一模一樣**', async () => {
+    const f1 = vi.fn(async () => ({ ok: true, status: 200 }));
+    const f2 = vi.fn(async () => ({ ok: true, status: 200 }));
+    await sendWith(f1);
+    await sendWith(f2, { attachments: [] });
+    const b1 = sentInit(f1).body;
+    const b2 = sentInit(f2).body;
+    expect(b2).toBe(b1);
+  });
+
+  it('🔴🔴 逐位元【對改動前那一版】—— 上一格只比新實作自己,兩邊一起變仍會全綠', async () => {
+    // codex R1 MF-4:`b2 === b1` 兩端都出自**同一份新碼** ⇒ 共同欄位的值或序列化順序一起變,
+    // 那一格照樣過。⇒ 這裡把改動前送出去的**字面**釘死,它不會跟著實作一起漂。
+    // (來源 = 改動前 `JSON.stringify({ from, to, subject, text })` 的四欄與順序。)
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await sendWith(f);
+    expect(sentInit(f).body).toBe(
+      JSON.stringify({ from: FROM, to: INPUT.to, subject: INPUT.subject, text: INPUT.text }),
+    );
+  });
+
+  it('🔴🔴 `Object.prototype` 被污染 ⇒ 既有呼叫端仍然零改變(改動前不會讀這一欄)', async () => {
+    // codex R1 MF-1:`input.attachments` 走原型鏈 ⇒ 污染值會被讀成「有附件」。
+    const proto = Object.prototype as unknown as Record<string, unknown>;
+    expect('attachments' in proto).toBe(false); // 負對照:開跑前是乾淨的
+    proto['attachments'] = [{ filename: 'evil.pdf', contentBase64: 'RVZJTA==' }];
+    try {
+      const f = vi.fn(async () => ({ ok: true, status: 200 }));
+      await sendWith(f);
+      // 🔴 這裡【不能用 `in`】—— 污染的當下 `in` 會走到原型鏈上那一個,
+      //    ⇒ 它會對【任何】被解析出來的物件都回 true,而那與 adapter 有沒有送出附件無關。
+      //    (我第一版就是這樣寫的, 而它紅了 —— **量具自己被同一個污染騙到**。)
+      expect(Object.prototype.hasOwnProperty.call(sentBody(f), 'attachments')).toBe(false);
+      expect(sentInit(f).body).not.toContain('evil.pdf');
+    } finally {
+      delete proto['attachments'];
+    }
+    expect('attachments' in proto).toBe(false); // 還原驗證:不留痕給別的測試
+  });
+});
+
+describe('ResendEmailSenderAdapter — 附件送得出去', () => {
+  it('給附件 ⇒ body 含 attachments,filename 與 content 逐欄相符', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const r = await sendWith(f, { attachments: [PDF] });
+    expect(r).toEqual({ kind: 'sent' });
+    expect(sentBody(f).attachments).toEqual([
+      { filename: PDF.filename, content: PDF.contentBase64 },
+    ]);
+  });
+
+  it('🔴 附件逐欄具名:原始物件多帶欄位,送出去的**只有 filename 與 content**', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const dirty = { ...PDF, path: '/etc/passwd', content_id: 'x', cost: 999 } as never;
+    await sendWith(f, { attachments: [dirty] });
+    const sent = (sentBody(f).attachments as Record<string, unknown>[])[0] ?? {};
+    expect(Object.keys(sent).sort()).toEqual(['content', 'filename']);
+    expect(JSON.stringify(sent)).not.toContain('999');
+  });
+
+  it('多個附件照順序全帶上', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await sendWith(f, { attachments: [PDF, { filename: 'b.pdf', contentBase64: 'QQ==' }] });
+    expect((sentBody(f).attachments as unknown[]).length).toBe(2);
+  });
+
+  it('其餘欄位不受影響(附件不得改動 from/to/subject/text 與 Idempotency-Key)', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await sendWith(f, { attachments: [PDF] });
+    const body = sentBody(f);
+    expect(body.text).toBe(INPUT.text);
+    expect(body.subject).toBe(INPUT.subject);
+    expect(sentInit(f).headers['Idempotency-Key']).toBe('order_created/11111111-2222-3333-4444-555555555555');
+  });
+});
+
+describe('ResendEmailSenderAdapter — 🔴🔴 附件超量:擋在送出去【之前】', () => {
+  const oversized = () => ({
+    filename: 'huge.pdf',
+    contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES + 1),
+  });
+
+  it('🔴 單一附件超過上限 ⇒ throw,而且**一次 fetch 都沒發生**', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await expect(sendWith(f, { attachments: [oversized()] })).rejects.toThrow(
+      EmailAttachmentTooLargeError,
+    );
+    // 🔴 這一格才是重點:超量的信**沒有送出去**,所以不會被退、不會傷寄件信譽。
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('🔴 多個附件【加起來】超過上限 ⇒ 一樣 throw(量的是總和,不是單顆)', async () => {
+    const half = 'A'.repeat(Math.ceil(RESEND_MAX_ATTACHMENTS_BASE64_BYTES / 2) + 1);
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await expect(
+      sendWith(f, {
+        attachments: [
+          { filename: 'a.pdf', contentBase64: half },
+          { filename: 'b.pdf', contentBase64: half },
+        ],
+      }),
+    ).rejects.toThrow(EmailAttachmentTooLargeError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('🟢 邊界正對照:剛好等於上限 ⇒ **照送**(上限是「超過才擋」,不是「接近就擋」)', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const r = await sendWith(f, {
+      attachments: [
+        { filename: 'edge.pdf', contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES) },
+      ],
+    });
+    expect(r).toEqual({ kind: 'sent' });
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 錯誤訊息不得帶附件內容(它可能是客人的訂單明細)', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const err: unknown = await sendWith(f, { attachments: [oversized()] }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EmailAttachmentTooLargeError);
+    const msg = (err as Error).message;
+    // 🔴 附件內容可能是客人的訂單明細 ⇒ 一個字都不得進錯誤訊息。
+    expect(msg).not.toContain('AAAA');
+    // codex R1 nit-1:只找 'AAAA' ⇒ 洩漏【檔名】或少於四個字元仍會假綠。
+    //    ⇒ 補上檔名那一半,並用一個獨特到不會意外出現的字面當探針。
+    expect(msg).not.toContain('PCM-2026-0001');
+    expect(msg).not.toContain('.pdf');
+    expect(msg).toContain('一封都沒有送出去');
+  });
+});
+
+describe('#876 codex R1 —— 量法與快照(兩條 must-fix 各自的證人)', () => {
+  it('🔴 量的是 byte 不是 `.length`:非 ASCII 內容 `.length` 過關而 UTF-8 bytes 超量 ⇒ 仍要 throw', async () => {
+    // 每個 '中' 的 UTF-8 是 3 bytes、UTF-16 `.length` 是 1
+    //    ⇒ 只要 .length 略低於門檻,byte 就是它的三倍 ⇒ 舊量法會放它出去發一發超量請求。
+    const n = RESEND_MAX_ATTACHMENTS_BASE64_BYTES - 1;
+    const cjk = { filename: 'x.pdf', contentBase64: '中'.repeat(Math.floor(n / 2)) };
+    expect(cjk.contentBase64.length).toBeLessThan(RESEND_MAX_ATTACHMENTS_BASE64_BYTES); // 負對照:舊量法會過
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await expect(sendWith(f, { attachments: [cjk] })).rejects.toThrow(EmailAttachmentTooLargeError);
+    expect(f, '一次 fetch 都不該發生').not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 getter 二讀:第一次回短的、第二次回超量的 ⇒ 快照擋住,送出去的是【量過的那一份】', async () => {
+    // codex R1 MF-3:原本量一次、送出時再讀一次 ⇒ 這個 getter 可以繞過前面那道 throw。
+    let reads = 0;
+    const sneaky = {
+      filename: 'x.pdf',
+      get contentBase64() {
+        reads += 1;
+        return reads === 1 ? 'SHORT' : 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES + 1);
+      },
+    };
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await sendWith(f, { attachments: [sneaky] });
+    expect(reads, '這一欄只可以被讀一次 —— 讀第二次就是給了它換內容的機會').toBe(1);
+    const sent = (sentBody(f).attachments as Array<{ content: string }>)[0]!;
+    expect(sent.content).toBe('SHORT');
+    expect(sent.content.length).toBeLessThan(RESEND_MAX_ATTACHMENTS_BASE64_BYTES);
+  });
+});
+
+describe('#876 cf 審查 —— 🔴 常數的【名字】要與 adapter 真正的量法一致', () => {
+  // cf MF-1:名字叫 CHARS 而內部量 byte ⇒ 呼叫端照名字寫 `myBase64.length > 上限`,
+  //   非 ASCII 時他判「沒超過」而 adapter 照樣 throw ⇒ **他重現了剛被修掉的那個 bug**。
+  //   ⇒ 這一格釘住「名字說 BYTES」與「真的量 byte」是同一件事。
+  it('🔴 名字說 BYTES,而餵一份【bytes 超量但 .length 沒超量】的內容 ⇒ 真的會 throw', async () => {
+    const cjk = { filename: 'x.pdf', contentBase64: '中'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES) };
+    // 這一份的 .length 恰好【等於】上限 ⇒ 照 `.length` 判是「沒超過」
+    expect(cjk.contentBase64.length).toBe(RESEND_MAX_ATTACHMENTS_BASE64_BYTES);
+    expect(Buffer.byteLength(cjk.contentBase64, 'utf8')).toBeGreaterThan(
+      RESEND_MAX_ATTACHMENTS_BASE64_BYTES,
+    );
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await expect(sendWith(f, { attachments: [cjk] })).rejects.toThrow(EmailAttachmentTooLargeError);
+  });
+
+  it('🔴 錯誤訊息說的單位也要是【位元組】(訊息是給人看的那一半)', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const err = await sendWith(f, {
+      attachments: [{ filename: 'x.pdf', contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES + 1) }],
+    }).catch((e: unknown) => e);
+    const msg = err instanceof Error ? err.message : String(err);
+    expect(msg).toContain('位元組');
+    expect(msg, '訊息若還說「字元」, 它會教下一個人用 .length').not.toContain('字元');
+  });
+
+  it('🟢 邊界正對照:剛好等於上限(ASCII)⇒ 照送,不 throw', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const exact = { filename: 'x.pdf', contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES) };
+    await expect(sendWith(f, { attachments: [exact] })).resolves.toEqual({ kind: 'sent' });
+  });
+});
+
+describe('#876 codex R2 —— 🔴 用【字串鍵】釘住公開名稱,不是釘住行為', () => {
+  // codex R2 MF-3:我上一輪加的三格斷言的是【行為】(量 byte / 邊界)——
+  //   而把常數連同測試一起改回 …CHARS,那三格**仍然全綠**。
+  //   🔴 **而 MF-1 的病因就是名字。** ⇒ 名字要用字串鍵釘,才擋得住「連測試一起改」。
+  it('🔴 出口的公開名稱必須叫 …_BYTES,而【不得】再出現 …_CHARS', async () => {
+    const mod = (await import('../server')) as Record<string, unknown>;
+    const keys = Object.keys(mod);
+    expect(keys).toContain('RESEND_MAX_ATTACHMENTS_BASE64_BYTES');
+    expect(
+      keys.filter((k) => k.includes('BASE64_CHARS')),
+      '舊名字回來了 ⇒ 它會再教一次呼叫端用 .length',
+    ).toEqual([]);
+  });
+
+  it('🔴 錯誤物件的公開欄位也要叫 …Bytes(它跨 package 可見)', async () => {
+    const mod = await import('../server');
+    const err = new mod.EmailAttachmentTooLargeError(9, 1);
+    expect(Object.keys(err)).toContain('totalBase64Bytes');
+    expect(Object.keys(err).filter((k) => /Chars$/.test(k))).toEqual([]);
+  });
+});
+
+describe('#876 codex R2 —— 🔴 畸形輸入不得被猜成附件', () => {
+  // codex R2 MF-2:`Array.from('AB')` 不是 [] ⇒ 舊版會送出兩個內容為 "undefined" 的附件。
+  it('🔴 attachments 是字串(型別禁止但 runtime 擋不住)⇒ throw,而不是寄出兩個 "undefined"', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await expect(
+      sendWith(f, { attachments: 'AB' as unknown as SendEmailInput['attachments'] }),
+    ).rejects.toThrow(TypeError);
+    expect(f, '一次 fetch 都不該發生').not.toHaveBeenCalled();
+  });
+
+  it('🔴 元素的欄位不是字串 ⇒ throw,不得轉型成 "undefined" 寄出去', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await expect(
+      sendWith(f, { attachments: [{} as unknown as { filename: string; contentBase64: string }] }),
+    ).rejects.toThrow(TypeError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 非陣列的【可迭代物】(元素合法)也要 throw —— 不然 isArray 那道是死碼', async () => {
+    // 🔴 這一格是我跑突變才補的:把 `Array.isArray` 那道拿掉之後,上面兩格【仍然全綠】——
+    //    因為字串 'AB' 的元素本來就通不過「欄位必須是字串」那道。
+    //    ⇒ isArray 那道當時**沒有任何獨立判別力**,而它看起來裝好了。
+    //    ⇒ 要證明它在做事,得餵一個【元素合法而容器不是陣列】的東西。
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const notAnArray = new Set([PDF]) as unknown as SendEmailInput['attachments'];
+    await expect(sendWith(f, { attachments: notAnArray })).rejects.toThrow(TypeError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('🟢 負對照:合法的附件不可以被這道檢查誤擋', async () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    await expect(sendWith(f, { attachments: [PDF] })).resolves.toEqual({ kind: 'sent' });
+  });
+});
+
+describe('#876 出口面 —— 🔴 呼叫端【拿得到】那個 class,不然它 throw 的意義歸零', () => {
+  // 🔴 為什麼是【真的 import】而不是 grep server.ts 的字面:
+  //    字面在、而 barrel 少了一層轉出 / 型別出不去 / 檔案改名 —— 三種情況下 grep 都是綠的,
+  //    而呼叫端仍然拿不到。**這一格要用呼叫端的方式問,不是用讀原始碼的方式問。**
+  it('從 @pcm/adapters/server 拿得到 EmailAttachmentTooLargeError,而且 instanceof 成立', async () => {
+    const mod = await import('../server');
+    expect(typeof mod.EmailAttachmentTooLargeError).toBe('function');
+    const err = new mod.EmailAttachmentTooLargeError(999, 100);
+    expect(err).toBeInstanceOf(Error);
+    // 🔴🔴 **要用 adapter【真的 throw 出來的那一顆】去問**(codex R1 MF-5):
+    //    上面那個 `err` 是我自己 new 的 ⇒ 出口若誤接成一個 subclass / wrapper,
+    //    `new mod.X() instanceof X` 仍然成立,而**呼叫端接到的那顆不會被認得**。
+    //    ⇒ 這才是這一格要保護的東西:**呼叫端 catch 到的那顆,instanceof 出口那個 class**。
+    const f = vi.fn(async () => ({ ok: true, status: 200 }));
+    const tooBig = {
+      filename: 'x.pdf',
+      contentBase64: 'A'.repeat(RESEND_MAX_ATTACHMENTS_BASE64_BYTES + 1),
+    };
+    const thrown = await sendWith(f, { attachments: [tooBig] }).catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(mod.EmailAttachmentTooLargeError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('上限常數也出得去(呼叫端要在【組附件之前】自己先判就得拿得到它)', async () => {
+    const mod = await import('../server');
+    expect(mod.RESEND_MAX_ATTACHMENTS_BASE64_BYTES).toBe(RESEND_MAX_ATTACHMENTS_BASE64_BYTES);
+    expect(mod.RESEND_MAX_ATTACHMENTS_BASE64_BYTES).toBe(40 * 1024 * 1024);
+  });
+
+  it('🔴 負對照:一個不存在的名字拿不到(不然上面兩格對【任何】名字都會過)', async () => {
+    const mod = (await import('../server')) as Record<string, unknown>;
+    expect(mod['ZzzThisExportDoesNotExist']).toBeUndefined();
+  });
+});
