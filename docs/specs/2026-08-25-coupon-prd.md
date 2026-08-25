@@ -205,8 +205,10 @@ repo 有 `lib/cron/rate-limit.ts` 的形狀。⚠️ **我沒查它套不套得�
 · Q8 的 CSS 耦合程度 —— 沒查
 · SKIP LOCKED 套不套得上券 —— 沒查
 · rate-limit.ts 套不套得上結帳路徑 —— 沒查
-· 這份 PRD【沒有】涵蓋:退貨時券的次數怎麼退回去
-  (Q7 選甲之後 coupon_redemptions 有地方記,而「退回的規則」還沒問)
+· ~~這份 PRD【沒有】涵蓋:退貨時券的次數怎麼退回去~~
+  ✅ **2026-08-26 Sean 已答 `c 甲` = 退回去, 客人可以再用一次。**
+  ⇒ 落點 `2026-08-26-coupon-schema-plan.md` §1-2b(`reverted_at` 欄 + 每個數次數的地方都要濾)
+  ⚠️ **而「誰把它退回去」仍未定** —— 同 §1-2b 末段, 是實作前要確認的一格
 ```
 
 📌 相關:[shape-draft](../reviews/2026-08-19-coupon-shape-draft.md) ·

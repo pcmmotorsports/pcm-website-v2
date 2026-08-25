@@ -113,7 +113,69 @@ apps/storefront/src/app/register/actions.ts    寫進 signUp 的 metadata
 storefront 的會員中心 profile 頁:生日接上(design 已有)+ 性別新畫(design 沒有)
 ```
 
-## 1-4 後台篩選 —— ✅ **這是我的檔案面**
+## 1-4 🔴 生日要篩什麼 —— ✅ **Sean 2026-08-26 答 `e:丙` = 兩個都要**
+
+⚠️ **這是他這一批唯一的非推薦**(我推甲)。而我自己說過「這兩種底層做法不一樣,
+不是多打幾個字的差別」⇒ **那句現在要兌現,所以下面是重新估的成本,不是把兩個查法寫兩遍。**
+
+### (1) 兩種篩法各自要什麼(我開檔查的,不是想的)
+```
+「幾歲到幾歲」  ⇒ 值域是【日期區間】 ⇒ birthday BETWEEN 兩個算出來的日子
+                 索引 CREATE INDEX customers_birthday_idx ON customers(birthday);  ← 普通 btree
+「這個月生日」  ⇒ 值域是【月份 1-12】 ⇒ 要 EXTRACT(MONTH FROM birthday)
+                 索引 CREATE INDEX ... ON customers((extract(month from birthday)));  ← 函式索引
+                 (birthday 是 date 不是 timestamptz ⇒ extract 是 IMMUTABLE ⇒ 建得起來)
+```
+⇒ **兩支索引,不是一支。** 而 `customers` 現在**一支生日索引都沒有**
+(`20260523034911_init_customers_and_subtables.sql:27-28` 只有 `tier` 與 `email` 兩支)。
+
+### (2) 🔴 而真正的成本【不在索引】,在後台列表走的是一支 view
+```
+packages/adapters/src/supabase/SupabaseCustomerAdapter.ts:290 逐字
+  .from(ADMIN_CUSTOMER_LIST_VIEW).select(ADMIN_CUSTOMER_LIST_SELECT, ...)
+:113 逐字 ADMIN_CUSTOMER_LIST_SELECT =
+  'user_id, name, email, phone, tier, created_at, active_order_count, active_spend_total, last_active_ordered_at'
+```
+⇒ 🔴 **那支白名單【沒有 birthday】,而那是【刻意的】** ——
+`apps/admin/src/lib/customers/customer-repository.ts:15-17` 逐字:
+> 「列表走 `ADMIN_CUSTOMER_LIST_SELECT` 具名白名單(**不帶 wallet/birthday**);
+> 明細-a 起 `findById` 含 …/birthday(… **PII 只在明細頁**、登入閘後)」
+
+⇒ **「生日不上列表頁」是一條已經存在的決定,而 `e:丙` 沒有推翻它。**
+⇒ ✅ **所以做法是:【篩得到、但不顯示】** —— PostgREST 可以對 view 上有的欄下 filter
+   而不把它放進 `select` ⇒ **白名單一個字不動、生日不出現在畫面上。**
+⇒ ⚠️ **而 view 本身要多兩欄**(`birthday` 與 `birth_month`)⇒ **那是一支新 migration**
+   ⇒ 🔴 **鐵則 12③(動 schema)⇒ 這一片仍然要 codex 對抗審查,不因為「只是加欄」而降級。**
+   ⇒ 🔴 **而 view 加欄要順便確認它現在 GRANT 給誰** —— 我**沒查**,列進 §3。
+
+### (3) 🔴 每年錯一次的那一格 —— 主視窗點名的邊界,我逐條寫死
+```
+① 「這個月生日」的定義 = 【日曆月】(1 日到月底), 不是「未來 30 天」
+   ⇒ 🔴 定成日曆月【就沒有 12/31 與 1/1 的跨年問題】—— 一個月份數字, 不跨界。
+   ⇒ 而【會跨年的是另一種定義】:「接下來 N 天生日」12/28 查會漏掉 1/2 的人。
+     ⇒ **所以這一格的防線不是寫程式小心, 是【把定義釘在 spec 裡】。** 釘在這裡。
+② 「今天是幾月」由【app 端算, 用 Asia/Taipei】, 不用 DB 的 now()
+   ⇒ 伺服器是 UTC ⇒ 台灣時間每月 1 號的凌晨 0-8 點, UTC 還在上個月
+   ⇒ **每個月會錯 8 小時, 而它印出來的是一份看起來完全正常的名單。**
+③ 算年齡【用日期界線, 不用天數除以 365】
+   ⇒ 40 歲的下界 = today - interval '41 years' + 1 day, 上界 = today - interval '40 years'
+   ⇒ 除以 365 的寫法遇到閏年會漂, 而 2/29 出生的人是它最先出錯的地方。
+④ 兩個篩法同時選 ⇒ 【AND】(照 tier 與搜尋詞的既成慣例, Adapter:293 註解逐字
+   「搜尋與 tier 是 AND」)⇒ 不自創第三種語意。
+```
+
+### (4) 成本重估(相對於原本推薦的甲)
+```
+甲 只做「這個月生日」  ⇒ 1 支函式索引 · view 加 1 欄 · 1 個 URL 參數 · 1 顆下拉
+丙 兩個都要            ⇒ 2 支索引 · view 加 2 欄 · 3 個 URL 參數(月 / 年齡下限 / 年齡上限)
+                        · 2 組 UI 控制 · 4 條上面那些邊界規則 · 各自的測試
+⇒ 🔴 粗估【約兩倍】, 而增加的不是難度是【要記住的規則數】。
+⇒ ⚠️ 而這是我估的, 不是量的 —— 我沒有寫過任何一行 ⇒ 這個「兩倍」是【推出來的不是量到的】。
+```
+
+---
+
+## 1-5 後台篩選 —— ✅ **這是我的檔案面**
 ```
 apps/admin/src/lib/customers/customer-list-view.ts        加 GENDER_PARAM + 值域白名單
 apps/admin/src/components/customers/customer-filter-bar.tsx  加下拉(照現有 tier 那顆的形狀)
@@ -121,12 +183,7 @@ apps/admin/src/lib/customers/customer-repository.ts       查詢帶上 gender
 apps/admin/src/app/customers/page.tsx                     接上去
 + 各自 .test.ts(x)
 ```
-⚠️ **生日要篩什麼**:`Q11`-`Q14` 沒有一題問這個。
-```
-· 「這個月生日的客人」(行銷用)⇒ 要的是【月/日】不是【年】
-· 「幾歲到幾歲」⇒ 要的是【年】
-🔴 兩種要的索引與查法不同 ⇒ 而 Sean 沒有被問過 ⇒ 見 §3-2
-```
+
 
 ---
 
@@ -165,9 +222,11 @@ apps/admin/src/app/customers/page.tsx                     接上去
     ⇒ ⚠️ **對 gender 的實際意思**:`'male'|'female'|'undisclosed'` 這三個值
       **定下去就移不掉** ⇒ 值域要一次想清楚, 而**加第四個(例如 'other')隨時可以**。
 
-3-2 🔴 生日要篩什麼(月/日 vs 年齡)—— **Sean 沒有被問過這一題**
-    ⇒ 建議併進下一批:「你想按生日篩什麼?甲 這個月生日的 乙 幾歲到幾歲 丙 兩個都要」
-    ⚠️ 而【不問就做】會做出一個他不會用的篩選器
+3-2 ✅ **已答**(2026-08-26 `e:丙` = 兩個都要)⇒ 全文與重估成本在 §1-4。
+    🔴 **而它換來三格【新的沒查】**:
+      (a) `ADMIN_CUSTOMER_LIST_VIEW` 現在 GRANT 給誰 —— 加欄前要確認, **我沒查**
+      (b) 那支 view 的建表 migration 在哪、加欄要不要重建整支 view —— **我沒查**
+      (c) 「約兩倍」那個成本是**推出來的不是量到的** —— 我一行碼都還沒寫
 
 3-3 ⚠️ 既有客人有幾個 —— 沒查正式庫 ⇒ Q13甲(不回填)的代價講不出量級
     ⇒ 而它影響「這個篩選上線後多久才有用」
