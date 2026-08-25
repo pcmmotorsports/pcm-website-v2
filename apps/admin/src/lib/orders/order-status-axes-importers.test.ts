@@ -101,6 +101,20 @@ function importersOf(mod: string): string[] {
 const ALLOWED_IMPORTERS = [
   'components/orders/order-detail-summary-cards.tsx',
   'components/orders/orders-table.tsx',
+  // 🔴 2026-08-26 線1 加入。**而我先做了上面那段要求的判斷,判斷寫在這裡,不是只加一行:**
+  //   用途:`order-export.ts:101` 只取 `orderStatusView(order).label`,寫進 CSV 的「狀態」欄。
+  //   ✅ 它**不餵任何守門/上限/可否取消的判斷** —— 那一欄是一段給人看的文字。
+  //   ✅ 而該檔的**金額欄不經過這支**:單價/小計/訂單總額分別直接取
+  //      `line.unitPrice.amount` / `line.lineTotal.amount` / `order.total.amount`
+  //      ⇒ `?? 0` 那個顯示語意**碰不到任何一個錢的數字**。
+  //   ⇒ 結論:落在該檔 `:244` house 裁定許可的「純顯示補 0」那一側。
+  //
+  //   ⚠️ **而我要自己講出殘餘風險,因為它正好是上面第 ③ 條**(白名單內的元件從顯示改成守門用途):
+  //      那份 CSV 的**用途是對帳**,而一個「顯示語意」的狀態欄坐在對帳檔裡,
+  //      **很容易在三個月後被某個人當成權威**。
+  //      ⇒ 所以 `order-export.ts` 那一側也寫了同一段(兩邊都寫,因為讀的人只會讀到其中一邊)。
+  //      🔴 **若哪天有人拿那一欄去做篩選、對帳判斷或自動化 ⇒ 這條判斷當場作廢,要重做。**
+  'lib/orders/order-export.ts',
 ];
 
 const WHY = [

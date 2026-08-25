@@ -116,9 +116,23 @@ export function OrderToolbar({
             ⇒ 樣式**照抄站內既有那顆**(`manual-order-form-body.tsx:263` 的送出鈕),不自創。
             🔴 **不掛 `!loadFailed`**:列表讀失敗與「能不能建新單」無關 ——
                把入口綁在列表健康上,會讓最需要補單的那一刻剛好沒有入口。 */}
+        {/* 🔴🔴 **高度是 `h-8`(32px)而不是 `py-2`,而那一格是承重的 —— 我踩過:**
+            `fc6a1edf` 原本用 `px-4 py-2`(照抄 `manual-order-form-body.tsx:263` 的送出鈕)
+            ⇒ 那顆鈕比同列其他元素高 ⇒ **整列高從 35 撐成 42**
+            ⇒ `order-toolbar-browser.test.tsx:208` 當場紅(`expected 42 to be 35`)。
+            🔴 **而那個 35 不是隨手訂的**:它是 Sean 2026-08-24 看真畫面比較圖之後
+               拍【A = 全站字級放大】、把那 15 條全站裸 class 字級覆寫放回去撐出來的
+               (理由全文在該測試 `:203-208`,那段刻意留著就是為了這一刻)。
+            ⇒ **所以修法是把鈕縮回這一列裡,不是改那個 35。**
+            ⚠️ 而我原本沒發現,因為我只跑了自己新增的那支測試 ——
+               **同一支元件的真瀏覽器測試就在隔壁,而我沒跑它。**
+            📌 判別句:**要跑的是「測這個元件的檔」,不是「我這次建的檔」。**
+            🔴 `h-8` 的上界來自這一列(≤35 才不會變成撐高的那個);
+               下界來自 OD `orders-admin-v2.html:5718` 的 `#od-stage button{min-height:24px}`
+               ⇒ 32 落在 [24, 35] 之間。**改這個數字前先看那兩端。** */}
         <a
           href='/orders/new'
-          className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground'
+          className='inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm text-primary-foreground'
         >
           新增訂單
         </a>

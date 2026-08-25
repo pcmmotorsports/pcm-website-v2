@@ -98,6 +98,16 @@ const EMPTY = '—';
 export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
   const rows: string[][] = [];
   for (const order of orders) {
+    // 🔴🔴 **這一欄是【給人看的文字】,不是可以拿去判斷的值。**
+    //   `orderStatusView` 內部把「摘要列不存在」當成 0(`order-status-axes.ts:244` 的 house 裁定:
+    //   純顯示補 0 可接受、**守門/上限/可否取消的判斷絕不可補 0**)。
+    //   ✅ 本檔只取 `.label` 塞進一欄,**不餵任何判斷**;而**金額欄不經過這支**
+    //      (單價/小計/總額各自直接取 `amount`)⇒ 那個 `?? 0` 碰不到任何一個錢的數字。
+    //   ⚠️ **殘餘風險我自己講**:這份 CSV 的用途是**對帳**,而一個顯示語意的欄位坐在對帳檔裡,
+    //      很容易被下一個人當成權威。
+    //   🔴 **若哪天有人拿這一欄去做篩選、對帳判斷或自動化 ⇒ 上面那個判斷當場作廢,要重做。**
+    //   (同一段話在 `order-status-axes-importers.test.ts` 的白名單旁邊也有一份 ——
+    //    兩邊都寫,因為讀的人只會讀到其中一邊。)
     const status = order.itemsTruncated ? '未知' : orderStatusView(order).label;
     const date = formatOrderListDate(order.createdAt);
     const customer = order.customerName ?? EMPTY;
