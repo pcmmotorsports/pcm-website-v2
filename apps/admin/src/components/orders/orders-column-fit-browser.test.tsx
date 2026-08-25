@@ -32,7 +32,10 @@ import { ShippingSelectionProvider } from './shipping-selection';
 //    訊息會叫你先跑 `TURBO_FORCE=1 pnpm build`。
 
 function findCompiledCss(): string {
-  const roots = [join(__dirname, '../../../.next/static'), join(__dirname, '../../../.next')];
+  // 🔴 `.next/static` 在 `.next` 底下 ⇒ 兩個 root 會把同一支檔【走兩次】, 而 hits 是陣列不去重。
+  //    修掉之後「撈到幾份」才可信 —— 舊寫法的 2 在【真有兩份】與【同一份數兩次】印同一個數字。
+  //    深度預算 6 仍夠: 目標 CSS 距 `.next` 深度 3, 全樹 css 最深 4(2026-08-25 量)。
+  const roots = [join(__dirname, '../../../.next')];
   const hits: string[] = [];
   const walk = (dir: string, depth: number): void => {
     if (depth > 6) return;
