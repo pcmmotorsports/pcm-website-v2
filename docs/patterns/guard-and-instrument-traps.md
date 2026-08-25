@@ -22151,3 +22151,60 @@ bash /tmp/x.sh 裡跑同一個 pattern     ⇒ 1  ✅ 正常
 ⇒ **中文不要用 `-w`** —— 它把「假的命中」換成「假的零」。
 🔴 **而線 4 對這一格的第一個假設是【反的】**:它原本推「中文沒詞界 ⇒ `-w` 擋不住誤命中」, 實測是 `-w` **太有效**。
 ⇒ **判別句:一個「這個 flag 沒用」的直覺, 兩個方向都要餵一發。**
+
+---
+
+## 🔴🔴 **同一條管線, 換一把 `grep` 一個放行一個擋人;而換一個 shell, NUL 活不活得下來也不同**(2026-08-25;線 3 找到形狀, 主視窗四格重量後**收窄了它的射程**)
+
+### 起點:線 3 報「`scripts/migration-post-commit-guard.sh:134` 會 fail-open」
+
+那支閘的形狀:
+```bash
+body=$(strip_sql "$f")                                     # $f 是 migration 的 .sql
+after=$(printf '%s\n' "$body" | grep -niE "$DDL" || true)
+if [ -n "$after" ]; then  … 判違規 …
+```
+**兩把 `grep` 對含 NUL 的輸入, 失效方向【相反】**(主視窗當場重量):
+```
+直讀那支含 NUL 的檔:
+  ugrep          ⇒ 印空, rc=1                       ← 🔴 fail-OPEN(判定沒有違規 ⇒ 放行)
+  /usr/bin/grep  ⇒ Binary file … matches, rc=0      ← fail-CLOSED(after 非空 ⇒ 擋下)
+乾淨檔正對照 ugrep ⇒ 1:DROP TABLE x;                 ← 尺是活的
+```
+📌 **同一支腳本, 換一把 `grep`, 一個放行一個擋人。而畫面上都是「正常跑完」。**
+
+### 🔴 而射程比線 3 報的窄 —— **那支閘在真實情境下【不會】fail-open, 有兩道各自獨立的保護**
+
+**主視窗量到一件兩邊都沒想到的**:`$( )` **對 NUL 的處理, zsh 與 bash 不同**。
+```
+同一發 body=$(cat 含NUL的檔) ; printf '%s\n' "$body" | od -An -tx1
+  zsh   ⇒ 含 00: True  (22 bytes)    ← NUL 活下來
+  bash  ⇒ 含 00: False (20 bytes)    ← NUL 被剝掉
+```
+```
+走完整管線的四格:
+  zsh  + ugrep(= Claude Code 的 Bash 工具)  ⇒ after=[]              🔴 放行
+  zsh  + /usr/bin/grep                       ⇒ Binary file … matches  擋下
+  bash + grep(腳本實際拿到 /usr/bin/grep)    ⇒ 1:DROP TABLE x;        擋下
+  sh   + 同上                                 ⇒ 1:DROP TABLE x;        擋下
+腳本的 shebang 實查 head -1 ⇒ #!/usr/bin/env bash
+```
+⇒ **那支閘拿到的是 `bash` + `/usr/bin/grep` ⇒ 兩道保護同時成立 ⇒ 它不會放行。**
+⇒ **唯一會 fail-open 的是【在 zsh 互動 shell 裡手打那條管線的人】** —— 也就是**我們自己在做調查的那一刻**。
+
+### 📌 這一格的教訓不是那道閘, 是差一點交出去的那句話
+
+**若照原版報出去, 會有人去「修」一道健康的 pre-commit 閘** —— 而那種修改三綠全綠、審查看不出行為改變。
+🔴 **同一個形狀今天在兩條線上各發生一次**(另一次:線 4 差點報 `deploy-order-gate.sh` 會靜默 fail-open)。
+**兩次的共同結構:一個真的機制 + 一個沒有量過的射程 = 一個會叫人弄壞好東西的結論。**
+
+### ⚠️ 而它是「條件不成立」不是「已經在出事」
+```
+repo 裡 .sql 分母 255 支 · 含 NUL 0 · 編碼解不開 0
+```
+⇒ **今天沒有輸入會觸發它。** 而觸發條件寫在這裡:**有人把一支含 NUL 的 `.sql` 放進 migrations 的那一天。**
+
+### 🔴 順帶作廢一個理由(線 3 自己更正)
+先前一張表把幾支腳本標 🟢, 理由是「`$( )` + `printf '%s\n'` 把結尾換行正規化了」。
+**那個理由只涵蓋 `-v` 那族。** 而**在 zsh 底下 NUL 穿得過 `$( )`** ⇒ `$( )` **不是消毒器**。
+📌 **「有一格標未確認」與「這張表可以拿來 triage」是兩件事** —— 其他格的 🟢 讓整張表讀起來像都查過了。
