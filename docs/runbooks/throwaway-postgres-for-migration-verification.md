@@ -171,14 +171,50 @@ lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1 && { echo "🔴 埠 $PORT 已�
 [ -e "$D" ] && { echo "🔴 $D 已存在 —— 可能是【別人的】或【你上次沒收攤的】。自己看過再決定,本檔不替你 rm"; return 2>/dev/null || exit 1; }
 
 mkdir -p "$D"
-initdb -U postgres -A trust "$D/data" > "$D/initdb.log" 2>&1
-pg_ctl -D "$D/data" \
+# 🔴 --encoding=UTF8 --locale=C 兩個都要(2026-08-25 cf 實測,見下方「兩個獨立的坑」)
+initdb -U postgres -A trust --encoding=UTF8 --locale=C "$D/data" > "$D/initdb.log" 2>&1
+# 🔴 LC_ALL 一定要在【環境裡】,不是只給 initdb —— 少了它 postmaster 起不來
+LC_ALL=C pg_ctl -D "$D/data" \
   -o "-p $PORT -c listen_addresses=127.0.0.1 -c unix_socket_directories=''" \
   -l "$D/pg.log" start
 sleep 3
 psql -h 127.0.0.1 -p $PORT -U postgres -tAc "select version()"
 ```
 **起不來就看 `$D/pg.log` 最後 6 行,不要猜。**
+
+### 🔴🔴 兩個**獨立**的坑,而它們會被合成一個(2026-08-25 cf 實測,四格 2×2)
+
+> ⚠️ **先講為什麼要分開寫**:這兩個都在「叢集起不來 / 跑到一半炸」的階段出現,
+> 而它們的**變數不同**。合成一句的話,修了一個而另一個還在,**而症狀看起來一樣。**
+
+**坑一 · `initdb` 沒指定編碼 ⇒ 叢集是 `SQL_ASCII`**
+```
+LC_ALL=C initdb -U postgres -A trust <dir>                        ⇒ initdb.log 逐字:
+    "The default database encoding has accordingly been set to \"SQL_ASCII\"."
+    起起來之後 SHOW server_encoding  ⇒ **SQL_ASCII**
+LC_ALL=C initdb -U postgres -A trust --encoding=UTF8 --locale=C   ⇒ SHOW server_encoding ⇒ **UTF8**
+```
+🔴 **後果**:PCM 有 migration 會在 UTF8 ↔ SQL_ASCII 之間轉換而失敗
+(2026-08-25 線 06 的 215 支 replay 裡,**兩支**因此炸)。
+⚠️ **而 cf 用自己構造的 SQL(`convert_to` / `convert`)【沒有】重現那個錯誤訊息** ——
+**重現到的是【成因】(叢集真的是 SQL_ASCII),不是 06 報的那一句。**
+⇒ 要看那句原文,去 06 的交件包;**不要引用成「cf 重現了那個錯誤」。**
+
+**坑二 · `pg_ctl` 的環境沒有 `LC_ALL` ⇒ postmaster 直接死**
+```
+pg.log 逐字:
+  FATAL:  postmaster became multithreaded during startup
+  HINT:   Set the LC_ALL environment variable to a valid locale.
+```
+🔴 **2×2 實測(叢集編碼 × 環境有無 `LC_ALL`)——它是 `LC_ALL` 造成的,【不是編碼】**:
+```
+叢集 SQL_ASCII · 環境無 LC_ALL ⇒ 🔴 起不來(上面那則 FATAL)
+叢集 SQL_ASCII · 環境有 LC_ALL ⇒ ✅ 起得來
+叢集 UTF8      · 環境無 LC_ALL ⇒ 🔴 起不來(**同一則 FATAL**)
+叢集 UTF8      · 環境有 LC_ALL ⇒ ✅ 起得來
+```
+> 📌 **四格全跑過才分得出來。** 只跑「SQL_ASCII + 無 LC_ALL」那一格的人,
+> 會把它記成「SQL_ASCII 叢集起不來」—— **而那句話會讓下一個人修錯東西。**
 ⚠️ 上面那兩道檢查**會在該紅的時候紅**(埠被佔 / 目錄已存在),而它們**擋不到**
 「別人待會才要用這個名字」。⇒ 收攤時把 `$D` 刪乾淨,別留給下一個人去猜。
 
@@ -237,6 +273,55 @@ CREATE TYPE member_tier AS ENUM ('general','store','premiumStore');
 | `idx_customers_name_trgm` / `idx_customers_phone_trgm` | `supabase/migrations/20260812130000_m4b_347_fuzzy_admin_search_orders.sql:432-438` |
 
 **找法**:`grep -ln "CREATE TABLE.*<表名>" supabase/migrations/*.sql`
+
+---
+
+### 🔴🔴 而在 bootstrap 之前先問一句 —— **它比上面整段都重要**
+
+> ## **任何一句「我在完整 schema 上驗過」,在這棵 repo 上都要先問:你的 replay 幾支失敗?**
+
+**為什麼**:`supabase/migrations/` **不是**這個資料庫的完整定義。從零依序跑完會有一批失敗,
+而失敗的那幾支所要建立的東西,**在你的拋棄式庫裡是不存在的** ——
+🔴 **而你的查詢對「這張表不存在」與「這張表存在但沒資料」會給出不同的錯,對「這個欄位不存在」
+卻可能安靜地回空。⇒ 「我驗過了」在一個殘缺的 schema 上,是一句沒有射程的話。**
+
+**當天的量**(⚠️ **數字帶著量法與時刻走,它會過期而過期時零機械訊號**):
+```
+2026-08-25 線 06:215 支照 filename 順序全跑 ⇒ **41 支失敗**
+2026-08-25 線 1  :全新空庫依序跑 214 支     ⇒ **195 成功 / 19 失敗**(首個失敗在第 55 支)
+                  插入 scripts/d1-fitments-bootstrap.sql 之後 ⇒ **199 / 15**
+🔴 兩個數字不同, 而它們【不是互相矛盾】—— 分母(215 vs 214)、順序、是否插 stub 都不同
+⇒ **要引用就自己重跑一發, 並把「你跑的是哪一種」寫在數字旁邊。**
+```
+
+### 三族失敗(2026-08-25 線 06 分的堆;cf 只重驗了 (a) 與 (c))
+
+**(a) `public.product_fitments_effective` 不存在 —— 而它【不是遺失】**
+```
+量法(cf 2026-08-25 重跑, 與 06 一致):
+  grep -ln "CREATE.*VIEW.*product_fitments_effective" supabase/migrations/*.sql  ⇒ **0**
+  grep -ln "product_fitments_effective"               supabase/migrations/*.sql  ⇒ **7**(引用它)
+  負對照 一個編造的 view 名 ⇒ 0
+```
+🔴 **而「migrations 裡沒有」這句話不可以單獨寫** —— 照本 repo 紀律,同一句要答得出 canonical 在哪:
+```
+✅ canonical DDL(七個物件, 312 行:三表 + 一 view + 三函式 + 索引 + RLS + GRANT)
+   docs/archive/2026-07-25-docs-cleanup/reviews/2026-07-12-s1-apply-sql.sql
+   (cf 實查:存在 · 312 行 · 建 product_fitments_effective 的敘述 3 處 · 負對照 0)
+✅ migration 相容性 stub(只建其中 1 張, 明寫「本檔不是 #299 的解」)
+   scripts/d1-fitments-bootstrap.sql(cf 實查:存在 · 49 行 · 5 個 CREATE)
+📎 完整脈絡與三顆地雷:docs/launch-todo.md 的 `#299` 那一列
+```
+> 🔴 **那份 DDL 一直都在,而它住在 `docs/archive/`。**
+> **而 `docs/archive/*` 在規矩裡是「絕不動」—— 大家把它讀成「不要碰」⇒ 連讀都不去讀。**
+> 📌 **一條保護性的規矩,把一份完整的資料變成了隱形的。**
+> ⚠️ 而那份存檔是 **2026-07-12** 的 ⇒ 「DDL 找得到」與「DDL 等於正式庫現況」是**兩個宣稱**,
+> 只成立第一個。**照抄前先讀 `#299` 那一列列的三顆地雷。**
+
+**(b) `pg_cron` / 平台物件缺席** —— 與上面 bootstrap 那段同族:本機沒有 Supabase 平台給的東西。
+⚠️ **cf 沒有重驗這一族**,照 06 原文轉錄。
+
+**(c) 叢集編碼** ⇒ **已上移到 §1**(它是起叢集那一步的事,不是 bootstrap 的事),見「兩個獨立的坑」。
 
 ## 3. 要 PostgREST 那一層時(驗錯誤欄位 / RPC 介面才需要)
 
