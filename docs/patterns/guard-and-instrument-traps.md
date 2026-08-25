@@ -22219,7 +22219,7 @@ repo 裡 .sql 分母 255 支 · 含 NUL 0 · 編碼解不開 0
 
 ## 🔴🔴 **一道守門想到了「量具壞掉」, 而它只涵蓋兩條入口裡的一條 —— 而它存在這件事, 會讓下一個人以為這條路已經被想過了**(2026-08-25;線 3 造樁, 主視窗當場重現)
 
-`scripts/board-state-consistency.py`(**pre-commit 會跑**)用 `subprocess.run(['grep','-oE', …, path])`
+`scripts/board-state-consistency.py`(~~**pre-commit 會跑**~~ 🔴 **2026-08-25 訂正:那是主視窗給審查員的一個【錯的前提】,而 R1 與 R2 兩次都自己去查證推翻了它** —— `package.json:39` 的 lint-staged **只在這支 `.py` 自己被 staged 時跑 `--selftest`**;lint-staged 全表無 `docs/launch-todo.md`;`.husky/` 內唯一命中是 `pre-push:41` 的**註解**⇒ **改板子不會觸發它, `scan()` 那條路沒有任何 hook 在跑**)用 `subprocess.run(['grep','-oE', …, path])`
 數板子的態欄, 再與 python 自己 parse 的列數比對。它**有**守門:
 ```python
 if out.returncode > 1:
@@ -22556,6 +22556,16 @@ admin       REFUND_UI_ENABLED / ADMIN_REQUIRE_REAL_IDENTITY            ⇒ 要�
 ```
 tappay-notify   🔴 durable DB insert(record_webhook_event 去重;表建於
                    supabase/migrations/20260613120000_m3_3ds_0a_webhook_events.sql)  ⇒ ✅ 完全可查
+   🔴 **2026-08-25 訂正:結論對, 而【當時給的量法是錯的】。**
+   ~~`grep -cE 'insert\(|upsert\(|rpc\(' <那支 route>` ⇒ 2~~ —— **那 2 筆都是註解**(`:13` 與 `:200`, 兩行都以 `//` 開頭)。
+   ⇒ **照那個方法重跑的人會拿到 0, 然後合理地認為正本這一行是錯的。**
+   ✅ **正確的量法 = 逐跳鏈**(線 2 開檔, 主視窗逐跳複跑):
+   ```
+   route:58   import { getWebhookInbox, … } from '@/lib/payment/composition'
+   route:212  inserted = await getWebhookInbox().recordEvent(input);
+   composition.ts:175  export function getWebhookInbox(): IWebhookInbox      ← 🔴 回的是【介面】
+   PgWebhookInboxAdapter.ts:53  'SELECT public.record_webhook_event($1::text, …'  ← SQL 在這
+   ```
 sso/callback    一發 console.warn(route.ts:176)—— 而且【只在身分掉了那條路才印】  ⇒ ⚠️ 成功路徑零訊號
 line/callback   🔴🔴 什麼都沒有 —— 全檔寬尺命中 2, 逐行開檔 ⇒ 一句註解 + 一個 redirect 常數
 ```
@@ -22597,3 +22607,48 @@ tappay-notify  ✅ 不用做 —— 它是模板
 主視窗要求把「抽函式」與「補判別力」分兩顆, 理由是
 **合成一顆的話, reviewer 要在同一份 diff 裡同時問「有沒有偷改行為」與「新行為對不對」。**
 📌 線 2 指出它與「三片不合一」是**同一條規則的兩個尺度** —— **片與片之間如此, 顆與顆之間也如此。**
+
+
+---
+
+## 🔴🔴 **一個【對的結論】配上一條【錯的量法】, 比一個錯的結論更難拆**(2026-08-25;線 2 自己回頭推翻自己給過的證據)
+
+**事發**:線 2 交出「`tappay-notify` 有 durable 留痕 ⇒ 完全可查」, 主視窗落進正本。
+**結論是對的**(逐跳鏈已驗)。**而它當時給的證據是錯的**:
+```
+它的量法  grep -cE 'insert\(|upsert\(|rpc\(' <那支 route>  ⇒ 2
+今天開檔  那 2 筆【都是註解】(:13 與 :200, 兩行都以 // 開頭)
+```
+🔴 **照那條量法重跑的人會拿到 0, 然後合理地認為那一行是錯的。**
+
+### 為什麼這一族比「結論錯」難拆(線 2 的判別, 採用)
+
+> **一個對的結論配上一條錯的量法, 比一個錯的結論更難拆 ——**
+> **因為結論會被後續證據一再確認, 而沒有人回頭看那條量法。**
+
+📌 **它與正本 `:14834`「證據為真, 結論為假」是【鏡像】**:
+```
+那一條  證據對 / 結論錯   ⇒ 錯的結論會被下游戳破       ⇒ 會被抓到
+本 條   結論對 / 證據錯   ⇒ 🔴 對的結論【保護】那條錯量法 ⇒ 不會被抓到
+```
+**消失的方式相反。**
+
+### 🔴 而它為什麼會發生:**好的解耦讓這個問題在靜態分析下無解**
+
+線 2 想用「靜態掃出哪些端點有留痕」來分類, 而它拿已知答案自檢, **兩次都錯**:
+```
+檔內直接找 ⇒ 0 · 跟 import 走一跳 ⇒ 0
+真正的鏈是【三跳】, 而第 2→3 跳走【介面】(依賴注入)⇒ 把 import 走到底也接不起來
+```
+📌 **這不是壞架構, 正好相反** —— **是好的解耦讓「這支端點有沒有留痕」在靜態下沒有判別力。**
+⇒ **所以那一輪的產出是「分母切得出來, 而【分類】做不到」, 並附已知答案證明。**
+
+### ⚠️ 而它量得到的那一半**不能讀成缺陷清單**
+```
+分母(切在 API route handler)git ls-files | grep -E 'app/api/.*/route\.ts$' | grep -v '\.test\.' ⇒ 12 支
+  4 支零 log(sso/start · line/callback · line/start · capture-recheck)
+  1 支只在 catch 有 log(tappay-notify)
+🔴 而 tappay-notify 正是「只記失敗」的形狀, 卻【有 DB 留痕】⇒ 不是缺陷
+```
+⇒ **「只記失敗」要成為缺陷, 條件是【而且沒有別的留痕】—— 而那另一半正是量不到的那一半。**
+📌 線 2 逐字:**「不要把『有 catch 就算有留痕』寫進表」還不夠 —— 連『有 log 就算有留痕』都不能寫。**
