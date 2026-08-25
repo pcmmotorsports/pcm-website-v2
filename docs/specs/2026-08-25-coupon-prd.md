@@ -16,9 +16,22 @@
 ```
 docs/reviews/2026-08-19-coupon-shape-draft.md    169 行   ← 已把大部分決策收斂到二選一
 docs/reviews/2026-08-19-coupon-code-research.md  260 行   ← 已調研 Woo / Medusa 做法
-量法:wc -l,2026-08-25 21:0x 當場跑
-負對照(不同寫法):grep -rli "coupon" --include="*.ts" --include="*.tsx" --include="*.sql" . ⇒ 0 檔
-  ⇒ 「文件有、code 零」兩個結論用兩把不同的尺分別量到,不是同一把尺印兩次
+量法:wc -l,2026-08-25 當場跑
+```
+
+**而 code 那一側是【零命中】,它要另外一把尺**(下手窗 pcm-website-v2-8d 複驗時指出:
+0 檔在「真的沒有」與「我的 `--include` 把它濾光了」印同一個數 ⇒ 只有負對照不夠,
+要一發**我知道答案的正對照**才證明尺會動【對】,不只是會動):
+
+```
+同一條指令、同一組 --include,只換那個字(2026-08-25 當場跑):
+  grep -rli "order"    --include="*.ts" --include="*.tsx" --include="*.sql" . | grep -v node_modules | wc -l  ⇒ 978
+  grep -rli "wallet"   同上  ⇒ 102
+  grep -rli "discount" 同上  ⇒  73
+  grep -rli "coupon"   同上  ⇒   0    ← 這一發才是宣稱
+⇒ 三個正對照都回非 0 ⇒ 那把尺在這組 --include 底下抓得到東西
+⇒ 「文件有 429 行」與「code 零命中」是兩個宣稱,各自量到
+⚠️ 而這把尺只涵蓋 .ts / .tsx / .sql —— 若優惠券以別的副檔名或別的字命名存在,它抓不到
 ```
 
 ⇒ **本 PRD 不重做那兩份的工作**,只做它們沒做的:**把待決格收成 Sean 一個字答得完的題**,
