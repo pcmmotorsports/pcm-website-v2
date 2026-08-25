@@ -118,7 +118,13 @@ _STATE_CELL = _state_cell(CLOSED)
 #     兩者在【舊版】都照常數對, 在【新版】一律 GREP_GARBAGE)
 #    ⇒ 那是**本片新引入的誤擋路徑**, 不是既有事故(本機此刻沒有設它)。
 #    📌 而誤擋比漏擋更會殺死一道閘:被誤擋的人會繞過去, 然後它就永遠不紅了。
-_GREP_ENV = {**os.environ, 'GREP_OPTIONS': ''}
+def _grep_env():
+    """🔴 **每次呼叫【現算】, 不是 import 當下快照一份。**
+       第一版寫成 module 層的 `_GREP_ENV = {...}` 常數 ⇒ 而 selftest 的證人是先設
+       `os.environ['GREP_OPTIONS']` 再呼叫 ⇒ **子行程在「有洗」與「沒洗」兩個世界拿到同一份 env**
+       ⇒ 把這個洗法整個刪掉, 那一格【照樣印 ✅】(R2 審查突變實測, 我複現過)。
+       📌 一個在【量測開始之前】就凍住的值, 對量測要分辨的那兩個世界是瞎的。"""
+    return {**os.environ, 'GREP_OPTIONS': ''}
 DONE_WORDS = ('已結掉', '已做完', '已關掉', '已完成')
 # ✅ 與那四個詞之間容許幾個字。
 # 📏 2026-08-25 掃 0-200(量的對象 = **本檔 selftest 的 fixture**, 不是真板):
@@ -240,11 +246,11 @@ def board_grep_count(path, staged=False):
         if staged:
             out = subprocess.run(['grep', '-oE', _STATE_CELL],
                                  input=read_source(path, True),
-                                 capture_output=True, text=True, env=_GREP_ENV)
+                                 capture_output=True, text=True, env=_grep_env())
         else:
             out = subprocess.run(
                 ['grep', '-oE', _STATE_CELL, path],
-                capture_output=True, text=True, env=_GREP_ENV)
+                capture_output=True, text=True, env=_grep_env())
     except OSError as e:
         raise MeasurementError('GREP_UNRUNNABLE', f'跑不動 grep:{e}')
     # 🔴 grep 的 rc:0=有命中 · 1=零命中 · **2 以上=它自己出錯**。
@@ -269,7 +275,11 @@ def board_grep_count(path, staged=False):
     #      `ggrep` 查無 ⇒ **缺的那一道檢查 = 在 GNU grep 上跑一次同一份 NUL fixture。**
     #    ⇒ 所以不賭訊息去哪, 改釘一個**不可能的組合**:`-oE` 的 rc=0 代表「有匹配到東西」,
     #      有匹配就一定會印出來 ⇒ **rc=0 而零輸出 = grep 沒有做它說它做了的事。**
-    #      這一條與訊息印到哪、長什麼樣、哪一支 grep 全部無關。
+    #      這一條與訊息**印到哪、長什麼樣**無關。
+    #      ⚠️ 而**不是「與哪一支 grep 無關」**(R2 審查:那句講太滿)——
+    #        一支被 `-q` / `-l` / `-c` 驅動的 grep, rc=0 而零輸出是**它正確執行了指令**,
+    #        這道閘會判它壞了。前提是「`-oE` 且沒有 `-q`/`-l`/`-c`」, 而那個前提由
+    #        `_grep_env()` 洗掉 `GREP_OPTIONS` 來保證 ⇒ **是【條件成立】, 不是【無關】。**
     if out.returncode == 0 and not lines:
         raise MeasurementError(
             'GREP_GARBAGE',
@@ -748,7 +758,6 @@ def selftest():
     _saved = os.environ.get('PATH', '')
     try:
         os.environ['PATH'] = _shimd + os.pathsep + _saved
-        globals()['_GREP_ENV'] = {**os.environ, 'GREP_OPTIONS': ''}
         try:
             _n3 = board_grep_count(_cleanb)
             print(f'  🔴 庚c·rc=0 零輸出 · 回 {_n3} 而沒出聲 ⇒ 會被讀成「板子零命中」')
@@ -761,7 +770,6 @@ def selftest():
                 ok = False
     finally:
         os.environ['PATH'] = _saved
-        globals()['_GREP_ENV'] = {**os.environ, 'GREP_OPTIONS': ''}
 
     # ㉝e 🔴 `_STATE_CELL` 必須 escape —— 否則 CLOSED 新增一個含 regex 元字元的值時,
     #     grep 撈不到那一列、而形狀檢查 fullmatch **也一起漏** ⇒ 兩邊同時瞎掉,
@@ -778,6 +786,66 @@ def selftest():
     if re.fullmatch(_state_cell(('open',)), '| XXXX |'):
         print('  🔴 庚e·負對照 · 不該配的也配上了 ⇒ 這一格零判別力')
         ok = False
+    #     🔴 上面兩發只打了 **python 的 `re`** 那一半, 而 `re.escape` 產的是 Python flavour,
+    #     真正拿去跑的是 **grep 的 POSIX ERE** ⇒ 兩邊對 `\?` `\#` `\&` 的處理不保證一樣。
+    #     ⇒ 這一發把同一條 regex 真的餵給 grep, 兩半才都被打到。
+    _ecell = _state_cell(('open', 'wip?'))
+    _et = os.path.join(d, 'escape-probe.md')
+    io.open(_et, 'w', encoding='utf-8').write('| wip? |\n| open |\n')
+    _er = subprocess.run(['grep', '-oE', _ecell, _et],
+                         capture_output=True, text=True, env=_grep_env())
+    _elines = [x for x in _er.stdout.split('\n') if x.strip()]
+    if _elines == ['| wip? |', '| open |']:
+        print('  ✅ 庚e·grep 那一半 · escape 後的 regex 餵給【真的 grep】也撈得到 wip?')
+    else:
+        print(f'  🔴 庚e·grep 那一半 · grep 撈到 {_elines!r}, 期望 [\'| wip? |\', \'| open |\']'
+              f' ⇒ python 的 escape 與 POSIX ERE 對不上(rc={_er.returncode})')
+        ok = False
+
+    # ㉝f 🔴 **staged 那條路(走 `input=` + stdin)在此之前【一個證人都沒有】**(R2 審查指出)——
+    #     庚b/庚c/庚d 全部只打 `staged=False`。而兩條路餵給 grep 的方式不同
+    #     (一條給檔名、一條給 stdin)⇒ **「檔案那條擋得住」證不了「stdin 那條也擋得住」。**
+    _sgw = tempfile.mkdtemp()
+    os.makedirs(os.path.join(_sgw, os.path.dirname(BOARD)), exist_ok=True)
+    _sgb = os.path.join(_sgw, BOARD)
+    with open(_sgb, 'wb') as _f:
+        _f.write(_rowbytes[:30] + b'\x00' + _rowbytes[30:])
+    _sgok = True
+    for _c in (['git', 'init', '-q'], ['git', 'config', 'user.email', 't@t'],
+               ['git', 'config', 'user.name', 't'], ['git', 'add', '-A']):
+        if subprocess.run(_c, cwd=_sgw, capture_output=True,
+                          env=_GIT_FREE_ENV).returncode != 0:
+            print(f'  🔴 庚f·staged 路 · fixture 建置失敗:{_c} ⇒ 量具失效, 不判通過')
+            ok = False
+            _sgok = False
+            break
+    if _sgok:
+        _cwd = os.getcwd()
+        # 🔴 `read_source(staged=True)` 裡那發 `git show :<path>` **沒有帶 `_GIT_FREE_ENV`**
+        #    ⇒ 它會繼承外面的 `GIT_DIR` / `GIT_INDEX_FILE`
+        #    ⇒ 本格在【寅卯b 那一發帶著 GIT_DIR 跑整支 selftest】時, 會去讀【別人的 index】
+        #      ⇒ 拋 NOT_IN_INDEX 而不是 GREP_GARBAGE(我第一版就是這樣紅的, 而外層那發是綠的
+        #        ⇒ **手動跑綠、在隔離 harness 底下紅**, 正是本檔 :20 那段出生事故的同一個形狀)。
+        #    ⇒ 這裡自己剝乾淨, 跑完還原。
+        _savedgit = {k: v for k, v in os.environ.items() if k.startswith('GIT_')}
+        try:
+            for _k in _savedgit:
+                os.environ.pop(_k, None)
+            os.chdir(_sgw)
+            try:
+                _n5 = board_grep_count(BOARD, staged=True)
+                print(f'  🔴 庚f·staged 路 · index 裡含 NUL 的板子回 {_n5} 而沒出聲'
+                      f' ⇒ stdin 那條路沒有被這道守門蓋到')
+                ok = False
+            except MeasurementError as _e:
+                if _e.code == 'GREP_GARBAGE':
+                    print('  ✅ 庚f·staged 路 · 走 stdin 也判量具失效(不是只有檔案那條擋得住)')
+                else:
+                    print(f'  🔴 庚f·staged 路 · 拋了 {_e.code}, 期望 GREP_GARBAGE')
+                    ok = False
+        finally:
+            os.chdir(_cwd)
+            os.environ.update(_savedgit)
 
     # ㉝d 🔴 該綠真的綠(第二個):`GREP_OPTIONS` 設了也不得誤擋乾淨的板子。
     #     這是**本片新引入的誤擋路徑**(R1 審查實測), 所以它需要自己的證人。
