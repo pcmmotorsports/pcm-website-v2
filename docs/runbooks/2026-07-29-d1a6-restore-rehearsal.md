@@ -37,7 +37,14 @@ products 10 / variants 10 / terms 2)→ 跑**真正的匯出腳本** → 模擬 
   `verify-full` 在本機必然失敗。preflight 與校驗碼兩步有實跑。
 - 環境是**本機 PostgreSQL、非 Supabase**:角色與預設權限照正式站實查值重建,
   但不是同一套基礎設施。
-- 🔴 **`20260723120000` pg_cron 那支 migration 跳過**(需要正式站的 vault 密鑰)。
+- 🔴 **pg_cron 那些 migration 跳過**(需要正式站的 vault 密鑰)。
+  ⚠️ **2026-07-29 當時只有 `20260723120000` 一支;現在不只。跑之前自己算一次**:
+  ```bash
+  grep -lE 'cron\.schedule|pg_cron|cron\.job' supabase/migrations/*.sql
+  ```
+  2026-08-25 實跑 ⇒ **14 支**(正對照 `20260723120000` 在裡面;負對照 `20260505130758` 不在)。
+  🔴 **這條命令答的是「誰提到 pg_cron」,不是「誰在裸 PG 上一定會炸」** ——
+  有幾支自己包了條件式。**看到清單以外的失敗,預設當它是真的失敗**,不要當成「大概也是 pg_cron 那種」。
 
 ⇒ 若要補上第一項,你跑一次 `scripts/d1-rehearsal.sh` 即可(它會問你 age 密碼)。
 

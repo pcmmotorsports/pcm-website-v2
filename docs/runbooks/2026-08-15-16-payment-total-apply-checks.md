@@ -217,4 +217,11 @@ select count(*) as 沖銷列數 from public.order_payments where reverses_paymen
 - plan:`docs/specs/2026-08-15-e10-16-payment-total-rpc-plan.md`(§5a rollback、§7 誠實缺口)
 - backlog:`#502`(本檔就是它的可執行版本)
 - migration:`supabase/migrations/20260815010000_m4b_e10_16_admin_today_payment_total.sql`
+  > 🔴 **用這張單之前,先確認那支 RPC 沒有被後來的 migration 重定義過** ——
+  > 本單所有期待值都是照 `20260815010000` 的字面組出來的,**它若不再是最後定義的那一支,整張單失效**:
+  > ```bash
+  > grep -lE 'FUNCTION[^\n]*admin_today_payment_total' supabase/migrations/*.sql
+  > ```
+  > 2026-08-25 實跑 ⇒ **只有 `20260815010000` 一支**(負對照餵不存在的函式名 ⇒ 0)⇒ 本單當時仍然對得上。
+  > **算出來多於一支 ⇒ 停,先看新的那支改了什麼。**
 - 上線當天總表:`docs/runbooks/2026-08-14-apply-day-one-pager.md`
