@@ -121,6 +121,67 @@ run() { ( cd "$1" && sh .husky/gate.sh > "$OUT" 2>&1 ); echo $?; }
 # 🔴 帶參數跑 —— `--list-orphans` 那條路原本一格都沒走過(突變矩陣抓到:拿掉它零格紅)。
 run_args() { _r="$1"; shift; ( cd "$_r" && sh .husky/gate.sh "$@" > "$OUT" 2>&1 ); echo $?; }
 
+# 🔴 codex R2 F4 的證人(2026-08-25 補)—— 原作者在閘裡逐字寫著「我構造不出一個
+#    【不改本檔的碼、只靠 fixture】就能讓它壞掉的世界(它讀的是 pipe, 不是檔)」。
+#    ⇒ 繞開的是**那個前提**, 不是那個結論:用 PATH shim 換掉 `grep` 這支【外部指令】,
+#      閘的碼一個字沒改, 而它呼叫的量具壞了。
+#    shim 只在看到副檔名 regex 的特徵字 `[pP][yY]` 時 exit 2, 其餘一律 exec 真 grep
+#    ⇒ 不會誤傷同支腳本裡另外那 12 處 grep(而且 :202 那一發會先 exit 2, 根本走不到後面)。
+run_shimgrep() { # $1=repo → 印 rc
+  _r="$1"
+  _sd="$BASE/shim-grep"
+  _rg=$(command -v grep) || die "找不到真 grep ⇒ 本 harness 自己壞了"
+  mkdir -p "$_sd" || die "mkdir shim"
+  cat > "$_sd/grep" <<'SHIM' || die "寫 shim grep"
+#!/bin/sh
+for a in "$@"; do
+  case "$a" in *'[pP][yY]'*) exit 2 ;; esac
+done
+exec __REALGREP__ "$@"
+SHIM
+  sed "s|__REALGREP__|$_rg|" "$_sd/grep" > "$_sd/grep.new" || die "sed shim"
+  mv "$_sd/grep.new" "$_sd/grep" || die "mv shim"
+  chmod +x "$_sd/grep" || die "chmod shim"
+  grep -q "^exec /" "$_sd/grep" || die "shim 沒有指向絕對路徑的真 grep ⇒ 會無限遞迴"
+  ( cd "$_r" && PATH="$_sd:$PATH" sh .husky/gate.sh > "$OUT" 2>&1 ); echo $?
+}
+
+# 🔴🔴 codex R3 F5 逼出來的第二種 shim(2026-08-25)——【只壞一次】。
+#    上面那支是「每一發都壞」⇒ 它會**連下游的副檔名 grep 一起打壞** ⇒ 分母變 0
+#    ⇒ 下游那道分母自檢會接住 ⇒ 看起來像「這個 if 只是換個病名而已」。**那個結論是錯的。**
+#    ⇒ 這一支覆蓋的是**只影響單次呼叫的故障模型**。
+#    ⚠️ **不宣稱它比較常見**(codex R2 F3:這組量測撐不起頻率宣稱;
+#       記憶體 / 檔案描述子耗盡也不一定只影響一次呼叫)。
+# 🔴 **已知債(codex R2 F4)**:`fired` state 檔與 shim 目錄是**固定路徑**
+#    ⇒ 兩份 harness 同時跑會互相吃掉對方的「第一次故障」, 而 `[ ! -f ]` + 建檔也不是原子操作。
+#    ⇒ **本 harness 現在不得平行執行**(`$OUT` 也是共用的, 整支本來就不支援)。
+#      修法(未做):shim 目錄與 state 檔改成每次呼叫獨立的臨時目錄。
+#    當場量到(同一 fixture, 只差有沒有那個 if):
+#      有 if ⇒ rc=2(指著 grep)   /   拿掉 if ⇒ **rc=0, 印「全部有歸屬」** ⇒ **真的恆綠、真的放行。**
+#    ⇒ 這道 if 買到的是 **fail-closed**, 不只是病名。
+run_shimgrep_once() { # $1=repo → 印 rc
+  _r="$1"
+  _sd="$BASE/shim-grep-once"
+  _rg=$(command -v grep) || die "找不到真 grep ⇒ 本 harness 自己壞了"
+  case "$_rg" in /*) : ;; *) die "command -v grep 沒回絕對路徑($_rg)⇒ shim 會無限遞迴" ;; esac
+  mkdir -p "$_sd" || die "mkdir shim-once"
+  _st="$_sd/fired"
+  rm -f "$_st"
+  cat > "$_sd/grep" <<SHIM || die "寫 shim-once"
+#!/bin/sh
+for a in "\$@"; do
+  case "\$a" in *'[pP][yY]'*)
+    if [ ! -f "$_st" ]; then : > "$_st"; exit 2; fi
+    ;;
+  esac
+done
+exec $_rg "\$@"
+SHIM
+  chmod +x "$_sd/grep" || die "chmod shim-once"
+  grep -q "^exec /" "$_sd/grep" || die "shim-once 沒指向絕對路徑的真 grep ⇒ 會無限遞迴"
+  ( cd "$_r" && PATH="$_sd:$PATH" sh .husky/gate.sh > "$OUT" 2>&1 ); echo $?
+}
+
 # 🔴 codex R2 nit:`die` 發生在 `W=$(world …)` 的**子 shell** 裡,只結束 command substitution,
 #    parent 會若無其事繼續 ⇒ fixture 壞掉時最後回 1(看起來像「閘不合宣稱」)而不是 2(harness 自壞)。
 #    ⇒ 每次取世界都用這個包裝,parent 這一層自己檢查。
@@ -538,6 +599,24 @@ PJ
 ( cd "$W" && git add package.json ) || die "stage pkg idx_newline"
 ck "格32 [exit2] 全樹模式 + index 裡有含換行的路徑 ⇒ 2" "$(run "$W")" "2" "index 檔數"
 
+# ── 格33 [exit2] 🔴 F4 的證人:副檔名篩選那發 grep 自己壞了 ⇒ 2, 不是恆綠 ──────
+#    對照組 = 格1 用的**同一種世界**(每支都有歸屬 ⇒ 平常 rc=0)。
+#    同一個 fixture, 只換掉一支外部指令 ⇒ 0 變 2 ⇒ 變的是量具不是資料。
+#    🔴 沒有這一格的話, 「grep 壞了」會長得像「這顆 commit 沒動腳本」而**放行**。
+W=$(world shimgrep)
+ck "格33 [exit2] grep 回 rc>1(PATH shim) ⇒ 2" "$(run_shimgrep "$W")" "2" "副檔名篩選的 grep 回 rc=2"
+# ── 格33b [該綠·負對照] 同一個世界【不掛 shim】⇒ 0 ────────────────────
+#    🔴 少了它, 格33 分不出「shim 生效」與「這個 fixture 本來就會紅」。
+ck "格33b [負對照] 同一世界不掛 shim ⇒ 0" "$(run "$W")" "0" "白名單涵蓋"
+# ── 格33c [exit2] 🔴🔴 **這一格才是承重的** —— grep 只壞【第一發】(暫時性故障) ────
+#    與格33 的差別:那一發是「一直壞」⇒ 下游也被打壞 ⇒ 分母自檢接住 ⇒ 看起來 if 可有可無。
+#    這一發只壞第一次 ⇒ 下游全部正常 ⇒ **沒有第二道網子。**
+#    🔴 突變實測:拿掉那個 if ⇒ 這一格變 **rc=0 並印「全部有歸屬」** = **真的放行**。
+#       (格33 在同一發突變下 rc 仍是 2 ⇒ 只靠格33 會把「恆綠」誤判成「換了病名」。)
+W=$(world shimgrep_once)
+ck "格33c [exit2] grep 只壞第一發 ⇒ 2(不得放行)" "$(run_shimgrep_once "$W")" "2" "副檔名篩選的 grep 回 rc=2"
+
+
 echo "  ── harness: $pass PASS / $fail FAIL"
 # 🔴 codex R1 must-fix:只驗 fail=0 ⇒ 整格被刪掉仍 exit 0,而檔頭卻寫著「N 格全 PASS」。
 # 🔴 格數守門比的是【跑過幾格】(pass+fail),不是【過了幾格】(pass)——
@@ -545,7 +624,7 @@ echo "  ── harness: $pass PASS / $fail FAIL"
 #    舊寫法卻印「格數不對:有格被刪掉或沒跑到」⇒ **診斷指錯方向**,
 #    而它印在「17 PASS / 1 FAIL」之後 ⇒ 讀的人最後看到的是錯的那一句。
 #    「一格失敗」與「一格不見了」修法完全不同,不能共用同一個出口。
-EXPECT=47
+EXPECT=50
 if [ "$((pass + fail))" != "$EXPECT" ]; then
   echo "  🔴 【格數】不對:跑了 $((pass + fail)) 格 ≠ $EXPECT ⇒ 有格被刪掉或沒跑到(這不是「有格失敗」)"
   exit 1
