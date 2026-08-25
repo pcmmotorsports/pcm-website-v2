@@ -276,6 +276,22 @@ def write_log(root, query_src, counts, n_self, ranked, warned):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         rec = {
             'ts': __import__('datetime').datetime.now().astimezone().isoformat(timespec='seconds'),
+            # 🔴 2026-08-25 Sean 拍板:免驗令必須綁【執行者】, 不是只綁時間。
+            #    成因(量到的):七個窗共用一棵樹, 而本 log 原本沒有執行者欄位
+            #    ⇒ 任何一個窗跑一次, 【所有窗】三小時內都免驗, 事後也查不出是誰跑的
+            #    ⇒ 今天三次「重新發現一條已存在的教訓」全部落在別人跑過的三小時內。
+            #    📌 那正是查重要防的東西的鏡像:一個人查過, 不代表下一個人知道他查到了什麼。
+            #    ⚠️ 取不到 session 時寫 'unknown'。
+            #    ~~而 hook 端【不把 unknown 當免驗】,因為「我不知道是誰跑的」與
+            #      「是你跑的」不可以印同一個結果。~~
+            #    ⇒ 2026-08-25 實查(下手窗複驗):**這個欄位目前有一個寫的人、零個讀的人。**
+            #       量法 `grep -rn 'CLAUDE_CODE_SESSION_ID' .husky scripts` ⇒ 只有本檔這一行自己;
+            #       `grep -rn 'logs/' .husky/` ⇒ rc=1 零命中(沒有 hook 讀這份 log);
+            #       正對照 `grep -rn 'pcm-reviewer-ran' .husky scripts` ⇒ 4 行 ⇒ 尺會動。
+            #    ⇒ **免驗令綁執行者這件事,寫的那一半做完了,讀的那一半還沒有。**
+            #    🔴 **原句的危害不是它錯,是它會讓下一個人以為保護已經在了** ⇒ 他就不會去做讀的那一半。
+            #       而那正是 Sean 拍這塊板要防的東西。劃掉不刪:下一個人要看得到曾經有人拿它當證據。
+            'session': os.environ.get('CLAUDE_CODE_SESSION_ID') or 'unknown',
             'query_src': query_src,
             'corpus': {'canon': counts[0], 'inbox': counts[1], 'memory': counts[2]},
             'excluded_self': n_self,
