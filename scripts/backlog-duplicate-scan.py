@@ -94,7 +94,12 @@ if SEARCH is not None:
             hits.append((len(words), len(rows), e, sorted(words)))
     hits.sort(key=lambda h: (-h[0], -h[1]))
     print(f"== --search 分母 ==")
-    print(f"詞表          : {' '.join(SEARCH)}")
+    # 🔴 這一行【刻意】印出詞數與 list 字面,不是 ' '.join —— 2026-08-25 cf 線量到的:
+    #   --search 'a b c'（加引號）⇒ SEARCH 是【一個】含空白的詞 ⇒ 安靜回 0
+    #   --search a b c （不加引號）⇒ SEARCH 是【三個】詞 ⇒ 正常命中
+    #   而舊版兩者都印「詞表 : a b c」⇒ 🔴 這一行的用途正是讓你檢查輸入,
+    #   而它對【最可能發生的那個輸入錯誤】零判別力。印詞數 + list 才分得開。
+    print(f"詞表          : {len(SEARCH)} 個詞 {SEARCH}")
     print(f"掃過的條目    : {len(entries)}(含已收 —— 錯號族正是指到已收的那一種)")
     print(f"命中條目      : {len(hits)}")
     print("🔴 命中數不是結論。開檔看那幾行再判是不是同一件事。")
@@ -107,6 +112,13 @@ if SEARCH is not None:
             print(f"      :{j}  {ln.strip()[:88]}")
     if not hits:
         print("(零命中)🔴 而零命中要先問:這個詞表撈得到一條【你知道存在】的條目嗎?")
+        # 🔴 這一格擋的是【最常見的那個零命中成因】,不是罕見誤用:
+        #   中文詞、含空白、怕 zsh ⇒ 加引號是這支艦隊的習慣。
+        #   而加了引號的零命中會被讀成「沒有人記過這個坑」⇒ 放心去開一個重複的號。
+        if len(SEARCH) == 1 and any(c.isspace() for c in SEARCH[0]):
+            print("🔴🔴 而你的詞表只有【1 個詞】而它含有空白 ⇒ **你很可能加了引號**。")
+            print("     詞要【分開傳】:--search 詞1 詞2 詞3(不要 --search '詞1 詞2 詞3')")
+            print(f"     照你這一發拆開會是:{SEARCH[0].split()}  ⇒ 請重跑一次。")
     sys.exit(0)
 
 
