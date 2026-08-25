@@ -99,6 +99,29 @@ export function OrderToolbar({
             ⚠️ **`order-density-toggle.tsx` 這支檔還在,但已經零呼叫端。**
                沒有一起刪是因為那要連它的測試一起處理 —— 若要刪,那是獨立一片。 */}
         {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
+        {/* 手動建單的入口(`#858` plan v2 §片4 逐字「+ 列表那顆鈕」)。
+            🔴 **在它之前 `/orders/new` 整頁【只能手打網址才到得了】** —— 2026-08-25 當場量:
+               分母 = `git ls-files` 數 admin 底下全部 .ts 與 .tsx ⇒ 571 支
+               (⚠️ 量法那行的 glob 帶星號斜線,寫進 JSX 註解會**當場把註解關掉**
+                —— 2026-08-25 就這樣紅了一發,完整量法留在 `order-toolbar-entry.test.tsx` 檔頭);
+               `git grep -ln "orders/new" -- apps/admin/src` ⇒ 6 支,逐支開檔**全部是建單片自己**;
+               排除建單片後 ⇒ **0**(rc=1),負對照(`git grep -lF` 一個必不存在的路徑)⇒ 0(rc=1)。
+            ⚠️ **那把尺偏鬆**:它只掃字面 `orders/new`,`<Link href={常數}>` 這種寫法抓不到
+               (`MANUAL_ORDER_PATH` 另查過,呼叫端仍在建單片內)。
+            ⚠️ **這顆鈕沒有稿可以對,是我的判斷不是照稿**(鐵則 1 的「查無」要附分母):
+               OD `pcm-524f/orders-admin-v2.html`(6,795 行,`sha256 fc4a24a584e9e7d2…` 當場核過)
+               grep `新增|建單|＋|新單` ⇒ 唯一命中 `:5718` 是講按鈕最低高度的註解、不是一顆鈕;
+               `HANDOFF-orders-ui.md` grep 同組字 ⇒ 2 處都在講「建單當下寫金額」、也不是鈕。
+               負對照(fixed-string 找必不存在字串)⇒ 0。
+            ⇒ 樣式**照抄站內既有那顆**(`manual-order-form-body.tsx:263` 的送出鈕),不自創。
+            🔴 **不掛 `!loadFailed`**:列表讀失敗與「能不能建新單」無關 ——
+               把入口綁在列表健康上,會讓最需要補單的那一刻剛好沒有入口。 */}
+        <a
+          href='/orders/new'
+          className='rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground'
+        >
+          新增訂單
+        </a>
       </div>
     </div>
   );
