@@ -30,6 +30,7 @@
     "{supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql,supabase/migrations/20260813120000_m4b_e10_452_procurement_void_schema.sql,docs/runbooks/a4a-summary-rollback.md,scripts/a4a-verify.sh}": "python3 scripts/b2s2b-truth-sync.py .",
     "{scripts/b2s2b-tsync-cells.sh,scripts/b2s2b-verify.sh}": "bash scripts/b2s2b-tsync-cells.sh --selftest",
     "scripts/stale-commit-msgs.py": "python3 scripts/stale-commit-msgs.py --selftest",
+    "scripts/suite-reproducibility.py": "python3 scripts/suite-reproducibility.py --selftest",
     "scripts/traps-neighbours.py": "python3 scripts/traps-neighbours.py --selftest",
     "scripts/view-apply-before-wire-gate.py": "python3 scripts/view-apply-before-wire-gate.py --selftest",
     "scripts/selftest-git-isolation-gate.sh": "sh scripts/selftest-git-isolation-gate.sh --selftest",
