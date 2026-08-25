@@ -97,9 +97,47 @@ describe('FavoritesTab(M-4b #191)', () => {
     expect(container.querySelector('.acc-empty[role="alert"]')).toBeTruthy();
   });
 
-  it('🔴 沒有價格就不渲價格列(不印「NT$ null」也不印「NT$ 0」)', () => {
+  it('🔴 priceGeneral 是 null 就不渲價格列(不印「NT$ null」)', () => {
     const { container } = render(<FavoritesTab favorites={[item({ priceGeneral: null })]} />);
     expect(container.querySelector('.acc-fav-price')).toBeNull();
     expect(container.textContent).not.toContain('NT$');
+  });
+
+  // 🔴🔴 這一格記錄的是【現況】,不是我們要的行為 —— 它是一個 tripwire,不是背書。
+  //
+  // 上面那格的標題原本逐字寫著「也不印『NT$ 0』」,而它**只餵了 null 一種輸入**。
+  // `FavoritesTab.tsx:65` 的守門是 `priceGeneral !== null` ⇒ `0 !== null` 為真 ⇒ 0 元照印。
+  // ⇒ 那個標題是一句假話,而它的形狀正好會讓【下一個 grep「NT$ 0」找守門的人】停止查
+  //   (2026-08-25 已經騙過一個:就是來訂正它的這一班)。
+  //
+  // 為什麼不順手把守門改成 `> 0`:
+  //   同一個洞在 `ProductInfo.tsx:243` / `ProductPage.tsx:324` 也在
+  //   (實跑 `mappers/product.ts:206` 的守門條件是 `=== null` 不是 `<= 0`,餵 0 一路通到底),
+  //   而四扇門共同繞開的是 **DB 明文允許 0 元**。
+  //   🔴 收包複驗時訂正:本段原本寫「無 NOT NULL、無 CHECK」——**後半是假的。**
+  //      同一支 migration 裡有一條 CHECK,只是它放行 0:
+  //        `ALTER TABLE products ADD CONSTRAINT price_general_non_negative CHECK (`
+  //        `  price_general IS NULL OR price_general >= 0 );`
+  //      (無 NOT NULL 那半為真,該檔自陳「NOT NULL 推遲 sub-slice 2-X」。)
+  //   🔴 而它叫 `price_general_non_negative` —— **名字說的正是它做的事,而它做的事就是允許 0。**
+  //      查「這個欄有沒有 CHECK 在守」的人會命中它、看到一個令人安心的名字,然後停止查。
+  //      ⇒ 這與本測試檔上面那句假標題是**同一個形狀**:一個讀起來像已經守住了的東西。
+  //      ⇒ 找 CHECK 的量法別停在 `grep -c 'CHECK'`(它連註解一起算);
+  //        先 `grep -v '^\s*--'` 濾掉註解,再開檔讀那條約束**允許什麼**。
+  //   ⇒ 治本刀 = 把既有那條 CHECK 從 `>= 0` 收成 `> 0`,**不是新增一條**(待 Sean 拍板);
+  //     在 .tsx 各補一刀 = 承認 0 元是合法資料,
+  //     然後在四個地方各自決定要不要顯示它 —— 那正是今天四種不一致的來源。
+  //
+  // ⚠️ 而截至 2026-08-25 量測(anon 角色 / 正式站 / `products_list_public` 與
+  //    `product_variants_public`),`price_general = 0` 的商品 **0 筆**、變體 **0 筆**
+  //    ⇒ **今天沒有任何客人走得到這一格。**
+  //    🔴 而那個 0 沒有 NOT NULL / 沒有 CHECK 在守 —— **它是現況,不是保證。**
+  //
+  // 🔴 這一格【紅了】就是好消息:代表洞被補起來了。
+  //    那時請把它翻面成 `not.toContain('NT$ 0')`,不要 skip 它。
+  it('🔴 已知洞:priceGeneral = 0 目前【擋不住】,會印出「NT$ 0」(修好後這格會紅,翻面別 skip)', () => {
+    const { container } = render(<FavoritesTab favorites={[item({ priceGeneral: 0 })]} />);
+    expect(container.querySelector('.acc-fav-price')).not.toBeNull();
+    expect(container.textContent).toContain('NT$ 0');
   });
 });
