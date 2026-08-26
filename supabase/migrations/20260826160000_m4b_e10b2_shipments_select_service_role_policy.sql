@@ -1,5 +1,6 @@
 -- ============================================================================
--- 🛑🛑🛑 **2026-08-27 · 這支檔【apply 不進正式庫】。實跑量到的, 不是推論。**
+-- 🟢 **2026-08-27 · 那個「apply 不進正式庫」的 BLOCKER【已折】。而下面整段留著, 不要刪。**
+--    留它的理由:**它記的是「怎麼發現的」, 而那比「發現了什麼」更難重建。**
 --
 -- 起 pgcluster 各給一個全新 DB, 只換【角色拓撲】一個變數, 其餘一字未動:
 --   玩具拓撲(先前那批世界用的:只有 service_role / anon / authenticated)   ⇒ rc=0 PASS
@@ -27,12 +28,44 @@
 --   📌 **那 16 個世界全綠, 而它們共用同一個玩具拓撲 ⇒ 世界【數量】增加不會發現這件事,**
 --      **它們是同一份假設的 16 個副本。**
 --
--- ── 待 Sean 拍板(端出去了, 未回)─────────────────────────────────────────
---   甲 = 把 `SET` 從段A 判準拿掉, 只留 `USAGE`(兩片立刻跑得進去;而 `SET` 是 codex R0 明確要求加的)
---   乙 = 保留 `SET`, 把 authenticator 標成已知例外(判準不變鬆;而白名單會過期)
---   🔴 **在他拍板之前, 這兩支檔都不要 apply, 也不要為了讓它綠而動判準。**
+-- ── ✅ Sean 2026-08-27 拍【乙】—— 逐字:「還是把它們撈出來【印在畫面上】」──────────
+--   段A 的判準拆成兩半, 而**兩半的意思不一樣**:
+--     · `USAGE=true`(會自動繼承)  ⇒ 政策真的多給了他, 他不用做任何動作就吃得到 ⇒ 🔴 **擋**
+--     · `USAGE=false AND SET=true`(只能明確 SET ROLE 切過去)⇒ 他切過去就是 service_role 本人,
+--       今天就已經做得到 service_role 做得到的每一件事 ⇒ 🟡 **RAISE NOTICE 印出名單, 放行**
+--   🔴 **而「不擋」那句話有時態, 這一格是 cf 的 code-reviewer 2026-08-27 實跑抓到的**:
+--     它量到 —— 目標角色 **NOBYPASSRLS** 時, 一個 SET-only 的 LOGIN 角色 SET ROLE 過去讀 RLS 表:
+--     無政策 ⇒ **0 列**;有 `TO service_role` 政策 ⇒ **3 列**。而帶 BYPASSRLS 時有無政策都是 2 列。
+--     ⇒ **「本片對它們零增量」只在 service_role 仍持 BYPASSRLS 時成立;Q15 之後翻面** ——
+--       那時本片【就是】它們讀得到這張表的理由。
+--     ⚠️ 而那**不是本閘的漏洞, 是 `SET ROLE` 的定義**:
+--       **無法只給 service_role 而不給能變成它的人。** 唯一的替代是「不給 service_role」, 那等於本片不做。
+--     ⇒ 所以 NOTICE 的文字**帶著時態寫**, 不寫成一句永遠成立的話。
+--   ⚠️ **接受的代價明寫**:惡意的 NOINHERIT 成員不會被本閘擋, 只會被印出來。
+--     **那條線的防禦不在這裡** —— 在「誰能建角色 / 誰能 GRANT service_role」那一層(grantor 欄看得到)。
+--     📌 **本閘問的是「這條政策有沒有多給人東西」, 不是「有沒有壞人」。兩件事要兩道防線。**
+--
+-- ── 折完之後實跑:7 個世界 × 2 支檔, **7/7 與期望值逐格相符**(比對是腳本做的)────
+--     世界                              片3a            片2
+--     ① 玩具(零成員)                  rc=0 NOTICE 0   rc=0 NOTICE 0
+--     ② SET-only 一個(authenticator)   rc=0 NOTICE 2   rc=0 NOTICE 1   ← 放行 + 印名單
+--     ③ 🔴 有人【自動繼承】(sneak)     rc=3 段A 擋下   rc=3 段A 擋下   ← 真的該擋的還是擋
+--     ④ 惡意 SET-only(evil NOINHERIT)  rc=0 NOTICE 2   rc=0 NOTICE 1   ← 代價, 而它看得見
+--     ⑤ NOBYPASSRLS 且非 owner          rc=3 段A 擋下   rc=3 段A 擋下   ← 前提斷言(片2 本次新增)
+--     ⑥ NOBYPASSRLS 但是 owner          rc=3 段C ⑦0    rc=0            ← 片3a 宣稱較強所以閘較多
+--     ⑦ 🔴 **照正式庫量到的五角色形狀** rc=0 NOTICE 2   rc=0 NOTICE 1
+--        NOTICE 名單逐字 `[authenticator, cli_login_postgres, supabase_storage_admin]`
+--        而 `postgres`(rolbypassrls)與 `supabase_admin`(rolsuper)**被正確排除** ⇒ 與正式庫區 2 對得上
+--   🔴 **世界⑦ 是照量到的形狀重建的, 不是照「像不像」** —— 先前那個只放了 `authenticator` 一個,
+--     而正式庫是三個。**「夠像了」正是 R3 抓到的那個病, 這次不再犯。**
+--   ⚠️ 而造世界⑦ 的時候我的 harness 清理迴圈掛了一次:它寫 `WHERE NOT rolsuper`
+--     ⇒ **清不掉 superuser** ⇒ 上一輪的 `supabase_admin` 留著, 下一輪 `CREATE ROLE` 直接 already exists。
+--     📌 **清理工具排除掉的那一類, 正好是下一個世界需要重建的那一類。**
 -- ============================================================================
--- 🟡 **本片狀態:codex 那 3 條 must-fix【已折並實跑驗過】, 而它【還沒有過第二輪審查】。**
+-- 🟡 **本片狀態:五輪審查的 findings 全折(codex ×2 / cf / code-reviewer ×2 / Fable),
+--    而【最新這一輪(段A 判準改動)的 codex 那一關還沒跑】。**
+--    ~~原句「還沒有過第二輪審查」~~ 作廢 —— 它寫於 2026-08-27 清晨, 而同一天又跑了三輪。
+--    📌 **一句描述「跑到第幾輪」的狀態句, 每跑一輪就過期一次, 而它自己不會知道。**
 --
 -- 時序(不要壓成一句):
 --   2026-08-26  8d 寫完 ⇒ codex 判 FAIL 3 條 ⇒ Sean 收工 ⇒ 帶著未折的 findings 進版控(`04c9fb5a`)
@@ -124,7 +157,11 @@
 --     下限只要 16 而 Supabase 不會降 major ⇒ 判它穩;要更硬就 `SELECT current_setting('server_version_num');`
 --   🔴 **順帶訂正原檔頭一句假話**:原寫本片是「**全 repo 第一支對 PG 版本設下限的 migration**」——
 --     **不是。** 早 16 天的 `20260810010000_m4b_lifecycle_l5a1_supersede_charge_attempt.sql:395`
---     就有同一個 `< 160000` 的檢查;全 repo 用 `server_version_num` 的 migration 共 **5 支**, 3 支早於本片
+--     就有同一個 `< 160000` 的檢查;全 repo 用 `server_version_num` 的 migration 共 **5 支**,
+--     🔴 **4 支早於本片**(~~原寫 3 支~~ —— b4 2026-08-27 複驗抓到:**片2 `20260826150000` 也早於本片**,
+--     而我當時心裡問的是「還有誰也這樣做」, 而片2 不是「別人」)。
+--     📌 **同一組的東西最容易被漏數 —— 因為數的時候問的是「還有誰」, 而它不在「誰」裡面。**
+--     ⚠️ `4b0c47cc` 的 commit body 裡那句仍寫著 3 支, **那顆已推、改不了** ⇒ 以本行為準。
 --     (數法:`grep -rlF "server_version_num" supabase/migrations | grep -c .` ⇒ 5)。
 --     📌 **「第一支」這種話是拿來提高警覺的, 而它一旦是假的, 提高的是【錯的那一格】的警覺。**
 --
@@ -197,7 +234,11 @@
 --     🔴 正式庫 service_role 的 `rolinherit` **全 repo 查無字面**(reviewer grep 過 supabase/migrations + docs;
 --        只找到 `authenticator` / `payment_confirmer` 是 NOINHERIT)⇒ **標未確認, 不是「應該是 INHERIT」。**
 --     ⇒ 那張並排表的「紅在對的那一格」**射程要收窄成:在 INHERIT 的 fixture 之下。**
---   · 🔴 **三個負對照(段A 的 pg_signal_backend、段C 的同名格、段C ⑧)從來沒有被構造成【該紅】過**
+--   · 🔴 **三個負對照從來沒有被構造成【該紅】過**
+--     ⚠️ ~~原文寫「段A 的 pg_signal_backend」~~ **那個負對照已經不存在了**(codex R2 #4 折掉,
+--     改成「不對全部角色恆真」)。b4 2026-08-27 複驗抓到這句過期;數法
+--     `grep -v '^ *--' <本檔> | grep -c 'pg_signal_backend'` ⇒ **0**(只剩兩處註解提到它)。
+--     📌 **一句描述「我有哪幾道檢查」的話, 在那道檢查被換掉的時候不會自己更新。**
 --     ⇒ 它們是**未經雙向表演的量具**, 恆綠格的形狀。段A 的 `v_members` 正對照在 fixture 裡 v_members=0
 --     ⇒ 恆等、證不到東西(檔內本來就標了, 而那張並排表沒有把這件事算進「證了什麼」)。
 --   · 🔴 **競態:斷言與 COMMIT 之間有窗**(codex R2 #5, **本片選擇不修碼, 只寫明**)。
@@ -211,6 +252,48 @@
 --     (codex R2 #6)。它們只驗:直接 membership 的 MEMBER 恆等 / USAGE 模式不恆假 / USAGE 模式不恆真。
 --     **不驗**兩層以上的繼承路徑、不驗 `inherit_option` 的各種組合。那幾種留在隔離測試(16 世界)裡。
 --   · 🔴 **本片折完之後的審查狀態** ⇒ 見下方「審查紀錄」節。
+--
+-- ── ⚠️ `4b0c47cc` commit body 的兩處訂正(那顆已推、改不了 ⇒ 以本檔為準)──────
+--   b4 2026-08-27 逐條拿 body 去對實物, 抓到兩句:
+--   ① 「3 支早於本片」⇒ 實為 **4**(見上方版本那節)
+--   ② 「R2 #4 打的是 R1 F1 折出來的負對照」⇒ **錯**。
+--      `git show 04c9fb5a:<本檔> | grep -n pg_signal_backend` ⇒ `:170` **8d 的原碼就有那個負對照**,
+--      不是 R1 折出來的。⇒ 那句「折 finding 會產生新 finding」的四個例子裡, **這一個舉錯了**
+--      (其餘三個 b4 複驗成立)。📌 **一個舉例錯了不會讓結論垮, 而它會讓下一個人照著錯的因果去找。**
+--   ③ 那條數法 `grep -cE "RAISE EXCEPTION '片3a 段C "` **印 19 不是 16** ——
+--      多的三行是**沒帶格號的對照句**(它們也以同樣字串開頭)。值 16 是對的, **而那條命令數不出它**。
+--      要數得出來:`grep -oE "RAISE EXCEPTION '片3a 段C [①-⑧]" <本檔> | grep -c .` ⇒ 16(我當場複驗)。
+--      📌 **「值對」與「數法數得出這個值」是兩個宣稱, 而我把後者當成了前者的證據。**
+--
+-- ── 🔴 獨立複量(9e 複量窗, 2026-08-27, **它自己的尺、不用我的 harness**)──────────
+--   結論:**9 世界 × 2 支 = 18/18**, rc 與「紅在哪一格」**全部相同**。
+--   它的尺比我的硬:**每個世界一個全新叢集**(initdb→跑→stop→rm)⇒ 角色不可能跨世界殘留
+--   ⇒ 我那個「清理迴圈漏掉 superuser」的坑**在它的尺上不存在**(不是「沒踩到」, 是構造上沒有那一格)。
+--   它自帶對照:刪掉片2 檔尾那個 SELECT 的突變版 ⇒ 結果集 0(原檔 1);
+--   世界③ 不帶 `ON_ERROR_STOP` ⇒ **rc=0 而畫面有 ERROR、尾行 ROLLBACK**(本檔早就寫過這一格, 它複現了)。
+--
+--   🔴 **而它訂正了我報數的兩處(值相同, 數法不準)**:
+--     ① 「NOTICE 次數」我數的是 🟡 那一種。**數所有 `NOTICE:` 行的話, 每個綠世界要多 1**(段C 的 PASS)。
+--        ⇒ 世界① 不是「NOTICE 0」, 是「**🟡 0、PASS 1**」。
+--     ② 🔴 **「結果列 1」對片3a 是錯的** —— 片3a 是 **1 個結果集、2 列**(shipments / shipment_items 各一列);
+--        片2 才是 1 列。**我的計數器數的是那行表頭出現幾次, 不是資料列有幾列。**
+--        📌 **我拿「那個字串出現幾次」當「有幾列」用, 而它們在片2 恰好相等 —— 所以錯了也對得起來。**
+--   ✅ 它多跑的:世界⑦b(把 cli/storage 建成間接成員而非直接 GRANT)⇒ **名單逐字相同**
+--      ⇒ 這把尺**對直接/間接成員關係不敏感**, 那是好事(語意本來就該一樣)。
+--      我沒跑的 ⑧/⑨ 對片3a:rc=3(⑦0 / 段A), **而兩則 🟡 都先印出來才擋** ⇒ 被擋的世界也看得到名單。
+--   ⚠️ **它量不到的那一格, 照抄不改寫**:
+--      「SQL Editor / `db push` 會不會吞掉 NOTICE ⇒ **我量不到**。唯一線索:探針結果檔說值是
+--       『逐格抄自他貼回的結果表』⇒ **SQL Editor 顯示 SELECT 結果集有先例;NOTICE 零證據。**」
+--      ⇒ 這正是本片檔尾那條**結果列**存在的理由 —— 有先例的那個載體, 才是拍板真正靠得住的地方。
+--
+-- ── ⚠️ 一格【已知行為, 不是 bug】:被擋的時候只看得到第一張表的 🟡 名單 ──────────
+--   本片段A 是逐表迴圈 ⇒ 第一張表就 RAISE 的話, **第二張表的 🟡 NOTICE 不會印**。
+--   2026-08-27 實跑世界⑨(同時有 INHERIT 成員與 SET-only 成員)⇒ 🟡 只印 `shipments` 一則, 然後擋在同一張表。
+--   ⇒ 讀錯誤訊息的人**看不到 `shipment_items` 那半的名單**。
+--   **不修的理由**:被擋 = 整筆回滾 = 什麼都沒 apply, 他本來就要去查;而訊息有寫是哪一張表。
+--   重構迴圈(先全部算完再決定擋不擋)風險大於價值。**記下來, 不假裝它不存在。**
+--   📌 而這一格是**我的期望值錯**抓到的 —— 我以為會印 2 則。**期望值對不上時先問「是碼錯還是我錯」,
+--      2026-08-27 這個問題問了兩次, 兩次都是我錯, 而兩次都因此多知道一件事。**
 --
 -- ── 審查紀錄(誰打過、打了什麼、結論)────────────────────────────────────
 --   R0 codex(2026-08-26, 8d 跑)          FAIL 3 must-fix + 2 nit  ⇒ 2026-08-27 全折
@@ -227,7 +310,17 @@
 --      #5 斷言與 COMMIT 之間的競態                                  ⇒ **不修碼, 寫進效度限制**(理由在那節)
 --      #6 三格自檢的宣稱過寬(nit)                                  ⇒ 改寫成「有限 sanity check」
 --      ✅ codex 明說打不破的:⑥ 的謂詞與 `USAGE` 模式選擇 / v_verbs 的 PG16 相容 / 例外與 n_hit 與迴圈位置
---   🔴 **R2 也是 FAIL ⇒ 這支檔【還欠一輪確認】。**
+--   R3 code-reviewer(2026-08-27, opus, 審段A 判準改動)  **FAIL 5 must-fix + 4 nit** ⇒ 全折
+--      F2 NOTICE 到不到得了畫面(拍板的載體)/ F3 片2 負對照沒跟著同步 / F4 NOTICE 那句無條件斷言
+--      F5 檔頭三處新產生的矛盾 / F6 片2 擋下訊息過期;nit:述詞複製四份 ⇒ 改成一次掃描兩個 FILTER
+--   R4 codex(2026-08-27, cf 代跑, -s read-only, 窄化 prompt)  **FAIL 1 must-fix + 3 nit**
+--      must-fix = 與 R3 的 F2 **同一條**(兩把不同的腦獨立指到同一格 ⇒ 那一格是真的)
+--      三個 nit(檔頭 `USAGE OR SET` / 片2 前提斷言那段 / 片2 擋下訊息)**在它派出之後就已經折掉了**
+--      ⚠️ cf 轉述 codex 時明說:「你方向 1(互斥窮盡)與 3(抄片2 漏搬)codex **沒列 finding** ——
+--        是【沒找到】不是【證明沒有】, 它沒寫 OK 條目。」**照收, 不升級成背書。**
+--   R5 9e 複量窗(2026-08-27, 它自己的尺)  **18/18 相同 + 訂正我報數兩處**(見上一節)
+--   🔴 **五輪之後仍然沒關掉的那一格:NOTICE 在真正 apply 通道看不看得見。**
+--      它不擋(本片改走結果列), 而它是**唯一一條由 Sean 本人才做得完的**。已進等待表。
 --      而 2026-07-29 Sean 的紀律:**第 3 輪起要換角度換模型** —— R0/R2 是 codex, R1 是 Claude
 --      ⇒ 下一輪建議換 Fable 或換一個明確不同的角度(假設審查 / 災難當天可用性 / 測試假綠)。
 --   📌 **四輪審查, 四輪都抓到真 finding, 而每一輪打的都不是上一輪打的那批方向。**
@@ -336,19 +429,51 @@
 
 BEGIN;
 
+-- 🔴 **client_min_messages —— 沒有它, 下面所有 RAISE NOTICE 可能【一個字都不會送出】。**
+--    本 repo 早就撞過這一格:`docs/specs/2026-08-08-e10-b2-w7d1-ship-deadlock-and-translator-direction-plan.md:228`
+--    逐字要求「連線顯式帶 `-c client_min_messages=notice`, 把 NOTICE 計數格的環境前提釘死」。
+SET LOCAL client_min_messages = notice;
+
+-- 🔴🔴 **而【伺服器有送】與【Sean 看得到】仍然是兩件事**(code-reviewer 2026-08-27 F2):
+--    Supabase SQL Editor / `supabase db push` / MCP `apply_migration` 各自會不會把 NoticeResponse
+--    渲染出來 —— **沒有人量過**(repo 內兩條 apply 路徑都真的被用過:
+--    `docs/phase-1-backlog.md:7766` 逐字「一律走 supabase db push, 不要貼 SQL Editor」,
+--    而 `supabase/APPLIED.tsv` 有備註逐字「Sean(SQL Editor 本人貼)」的列)。
+--    ⚠️ **Sean 2026-08-27 拍【乙】的載體就是「印在畫面上」** ⇒ 那個前提沒被建立之前, 它是推的不是量到的。
+--    ⇒ 所以本片**不只靠 NOTICE**:段A 把算出來的東西寫進下面這張暫存表, 檔尾用一個
+--      **結果列** SELECT 交出來。**結果列是每一種 client 都會顯示的載體, NOTICE 不是。**
+--    📌 **7 個世界全在 psql 量, 而 psql 是最會顯示 notice 的那一種 client**
+--       ⇒ 我量到的是「訊息被 raise 了」, 不是「他看得到」。**那兩件事在 psql 底下印同一個結果。**
+CREATE TEMP TABLE _p3a_gate_report (
+  表                text,
+  service_role帶BYPASSRLS boolean,
+  是這張表的owner    boolean,
+  FORCE_RLS         boolean,
+  可SET_ROLE切過去   text
+) ON COMMIT DROP;
+
+
 -- ── 段A · fail-closed 角色閘 ───────────────────────────────────────────────
 -- 🔴 ~~原寫「形狀與片2 同款」~~ **折完 M2 之後這句不再成立**(2026-08-27 code-reviewer F4):
 --    片2 `20260826150000` 段A **沒有** `rolbypassrls` 的前提斷言。
--- 🔴🔴 **而這是一件比字面矛盾更大的事**:如果 M2 的理由成立, **片2 有同一個洞, 而它已經 commit 了**
---    (`dc6d1961`, 且已過 codex 7 條 + cf 6 條兩輪)。
---    ⇒ **本片不擅自去改片2**(那是範圍擴張, 鐵則 8)。已列成決策題端給 Sean / 主視窗。
+-- ✅ **2026-08-27 更新:那題 Sean 拍了【甲】(`Q-27c`)⇒ 片2 已經補上同一道前提斷言。**
+--    ~~原文:「片2 有同一個洞, 而它已經 commit 了, 本片不擅自去改片2, 已列成決策題」~~
+--    **那是端出去【之前】的狀態。** 現在片2 的段A 有 `rolbypassrls` 前提斷言(與本片同一個形狀,
+--    含 codex R2 #3 的訂正:寫「證不出」而不是「它一定擴權」)。
+--    🔴 **這一格是 code-reviewer 2026-08-27 抓到的**:那段舊文字留著會讓下一個人
+--      「照它去補一個已經存在的東西, 或以為 Sean 還沒回」。**答案回來的那一刻, 問題的敘述就過期了。**
 --    📌 **兩輪審查都跑過的檔, 一樣可以有洞 —— 因為兩輪打的不是同一批方向。**(本片自己就是實例)
--- 判準 = `USAGE OR SET`(codex 2026-08-26:`MEMBER` 只代表是成員, 兩件事都不保證 ⇒ 會誤擋)。
+-- ~~判準 = `USAGE OR SET`~~ **2026-08-27 Sean 拍【乙】之後已作廢**, 逐字:「還是把它們撈出來【印在畫面上】」。
+--   現行:`USAGE` ⇒ 擋;`NOT USAGE AND SET` ⇒ `RAISE NOTICE` 印名單、放行。
+--   (codex 2026-08-26 原本的理由仍然成立:`MEMBER` 只代表是成員、兩件事都不保證 ⇒ MEMBER 不進判準。)
+--   改的理由是量到的:正式庫三個平台角色全是 `USAGE=false SET=true` ⇒ 舊判準之下本片【永遠】apply 不進去
+--   (`docs/probes/2026-08-27-production-topology-and-acl-results.md`)。
 -- owner 只有在 `relforcerowsecurity=false` 時才排除得起(FORCE 之下 owner 也受 RLS 管)。
 -- 正對照走真實 membership(cf 2026-08-26:`pg_has_role(自己,自己)` 恆為 true, 它什麼都證不到)。
 DO $$
 DECLARE
   v_extra   text;
+  v_setonly text;
   v_members int;
   v_seen    int;
   t         text;
@@ -424,28 +549,66 @@ BEGIN
         t, v_bypass, (v_owner = v_sr_oid), v_force;
     END IF;
 
-    SELECT coalesce(pg_catalog.string_agg(
-             r.rolname || ' (USAGE=' || pg_catalog.pg_has_role(r.rolname, 'service_role', 'USAGE')::text
-                       || ' SET='    || pg_catalog.pg_has_role(r.rolname, 'service_role', 'SET')::text || ')',
-             ', ' ORDER BY r.rolname), '')
-      INTO v_extra
+    -- 🔴🔴 **Sean 2026-08-27 拍【乙】** —— 逐字:「還是把它們撈出來【印在畫面上】」。
+    --    ~~舊版:USAGE OR SET 一律擋~~ **那在正式庫是誤擋, 而且是【永久】誤擋。**
+    --    正式庫親測(`docs/probes/2026-08-27-production-topology-and-acl-results.md`)量到三個角色
+    --    `authenticator` / `cli_login_postgres` / `supabase_storage_admin` 全部是 `USAGE=false SET=true`,
+    --    而三個都是 Supabase **平台自己的**角色 ⇒ **它們永遠都會在** ⇒ 舊版之下本片永遠 apply 不進去。
+    --
+    --    ⇒ 判準拆成兩半, 而**兩半的意思不一樣**:
+    --      · `USAGE=true`(**會自動繼承**)⇒ 本片的政策**真的多給了他** ⇒ 🔴 **擋。**
+    --      · `USAGE=false AND SET=true`(**只能明確 SET ROLE 切過去**)⇒ 他切過去之後**就是 service_role 本人**
+    --        ⇒ 他今天就已經做得到 service_role 做得到的每一件事, **本片一條都沒有多給他** ⇒ 🟡 **印出來, 不擋。**
+    --
+    --    ⚠️ **這個決定接受了一個代價, 明寫不藏**:如果有人建一個【惡意的】NOINHERIT 成員,
+    --      本片不會擋它, 只會把它印在 NOTICE 裡。**那條線的防禦不在這裡** ——
+    --      在「誰能建角色 / 誰能 GRANT service_role」那一層(`grantor` 欄看得到, 見拓撲探針區 2)。
+    --      📌 **本閘問的是「這條政策有沒有多給人東西」, 不是「有沒有壞人」。** 兩件事要用兩道防線。
+    -- 🔴 **一次掃描、兩個 FILTER** —— 排除述詞只寫一次(code-reviewer 2026-08-27 nit:
+    --    ~~兩次掃描各抄一份述詞~~ **沒有任何東西保證那兩份保持一致**;現在沒有 bug, 這條防的是下一次改)。
+    --    · `USAGE=true`  ⇒ 政策真的多給了他(不用做任何動作就吃得到)⇒ v_extra ⇒ 擋
+    --    · `NOT USAGE AND SET` ⇒ 只能明確 SET ROLE 切過去 ⇒ v_setonly ⇒ 印, 不擋(Sean 2026-08-27 拍乙)
+    --    · 兩邊都不在的只有 `USAGE=f SET=f`(它拿不到任何東西)⇒ 這個分割互斥且窮盡。
+    SELECT coalesce(pg_catalog.string_agg(r.rolname, ', ' ORDER BY r.rolname)
+             FILTER (WHERE pg_catalog.pg_has_role(r.rolname, 'service_role', 'USAGE')), ''),
+           coalesce(pg_catalog.string_agg(r.rolname, ', ' ORDER BY r.rolname)
+             FILTER (WHERE NOT pg_catalog.pg_has_role(r.rolname, 'service_role', 'USAGE')
+                       AND pg_catalog.pg_has_role(r.rolname, 'service_role', 'SET')), '')
+      INTO v_extra, v_setonly
       FROM pg_catalog.pg_roles r
      WHERE r.rolname <> 'service_role'
        AND NOT r.rolsuper
        AND NOT r.rolbypassrls
-       AND NOT (r.oid = v_owner AND NOT v_force)
-       AND (pg_catalog.pg_has_role(r.rolname, 'service_role', 'USAGE')
-         OR pg_catalog.pg_has_role(r.rolname, 'service_role', 'SET'));
+       AND NOT (r.oid = v_owner AND NOT v_force);
+
+    IF v_setonly <> '' THEN
+      RAISE NOTICE E'片3a 段A 🟡 表 % —— 這些角色【可以 SET ROLE 成 service_role】(但不繼承):[%]\n'
+        '  它們切過去之後【就是 service_role 本人】⇒ 本片給 service_role 的, 它們一樣拿得到, 不多也不少。\n'
+        '  ⇒ 本片沒有給它們任何 service_role 沒有的東西 ⇒ **不擋**。\n'
+        '  🔴 「本片對它們零增量」這句話【有前提】, 而前提是這一刻量到的三個值, 不是一句斷言:\n'
+        '       service_role.rolbypassrls = %  · service_role 是不是這張表的 owner = %  · 該表 FORCE RLS = %\n'
+        '     · rolbypassrls = true  ⇒ service_role 本來就讀得到全部列 ⇒ 本片對它們確實【零增量】。\n'
+        '     · rolbypassrls = false ⇒ **零增量那句不成立** ⇒ 本片就是它們讀得到這張表的【那個理由】。\n'
+        '       (Q15 拿掉 BYPASSRLS 之後是這個世界;走 owner 那條充分條件時也是。)\n'
+        '     ⚠️ 那不是本閘的漏洞, 是 SET ROLE 的定義 —— **無法只給 service_role 而不給能變成它的人。**\n'
+        '  🔴 名單變長【不一定】是多了一個身分 —— 也可能是某角色被拿掉 BYPASSRLS, 或某筆 membership 的\n'
+        '     INHERIT 由 true 翻 false(**那是從擋列搬到本列, 它的權限其實變小了**)。\n'
+        '     ⇒ 名單變了要查, 而不要預設方向。防線在「誰能建角色 / 誰能 GRANT service_role」那一層。',
+        t, v_setonly, v_bypass, (v_owner = v_sr_oid), v_force;
+    END IF;
 
     IF v_extra <> '' THEN
       RAISE EXCEPTION E'片3a 段A 擋下(表 %), 本片沒有 apply(整筆已回滾, 資料庫沒有任何改變)。\n'
-        '這些角色拿得到 service_role 的東西:[%]\n'
+        '這些角色【會自動繼承】service_role 的權限:[%]\n'
         '(該表的 FORCE ROW LEVEL SECURITY = % ⇒ 它決定 table owner 算不算在裡面)\n'
-        '⇒ 本片的政策會一起套到它們。這【可能】是真暴露, 也【可能】是假紅。\n'
-        '⇒ rolbypassrls=true 是假紅;是該表 owner 而 FORCE=false 也是假紅。其餘 = 🔴 真的多一個看得到的人。\n'
+        '⇒ 本片的政策會一起套到它們, 而它們【不需要做任何動作】就吃得到 ⇒ 這是真的多給了人東西。\n'
+        '⇒ 只能 SET ROLE 切過去的那一種不在這個名單裡(它們在上面的 🟡 NOTICE)。\n'
         '⇒ 逐角色分得開的查詢, 見片2 那支 migration 的段A 錯誤訊息(同一段, 把表名換掉即可)。',
         t, v_extra, v_force;
     END IF;
+
+    -- 把段A 算出來的那份交給結果列(見檔頭那段:NOTICE 不保證到得了畫面)
+    INSERT INTO _p3a_gate_report VALUES (t, v_bypass, (v_owner = v_sr_oid), v_force, v_setonly);
   END LOOP;
 END $$;
 
@@ -701,5 +864,53 @@ BEGIN
 
   RAISE NOTICE '片3a PASS:兩條政策逐項驗過(cmd / permissive / roles 恰為 {service_role} / qual=true);RESTRICTIVE 0 條(⑥ 已展開成員關係, 不只比字面);service_role 的 SELECT 有效權限都在, 且不帶 GRANT OPTION(⑦a), 而【表級全集扣掉 SELECT】與【欄級 INSERT/UPDATE/REFERENCES】的有效權限都不在 —— service_role 自己(⑦b)與它 SET ROLE 得到的每一個角色(⑦b-2)都問過了;兩表 relrowsecurity = true(⑦c)。⚠️ 本片證的是「政策面 = GRANT 面」;「實際動作面」那一半是 code 層的宣稱, SQL 證不到, 出處見檔頭';
 END $$;
+
+-- ── 🔴 結果列(不是裝飾)—— 而「保證」這兩個字要收窄 ───────────────────────────
+-- 事實分三層, 不要壓成一句:
+--   ① **通訊協定層**:結果集是 query 的回傳值, 每一種 client 都得處理它;NOTICE 是旁路訊息, client 可以丟掉。
+--   ② **有先例**:Sean 2026-08-27 把一整張 SELECT 結果表從 SQL Editor 貼回來過
+--      (`docs/probes/2026-08-27-production-topology-and-acl-results.md` 就是那份)⇒ **那條路顯示結果集, 量到的。**
+--   ③ 🔴 **NOTICE 在那條路上顯不顯示 —— 零證據。**
+--      · code-reviewer 2026-08-27 判 must-fix:「拍板的載體是 NOTICE, 而沒有任何一格斷言它到得了畫面」
+--      · codex 2026-08-27 同一條 must-fix:「未確認實際 apply 通道會顯示 NOTICE ⇒ 可能 rc=0 而名單無人看見」
+--      · 9e 複量窗:「**我量不到**」
+--      · ⚠️ 主視窗 2026-08-27 一度對 Sean 說「SQL Editor 不顯示 NOTICE」—— **那是推的, 它已當場更正。**
+--        📌 **一個「未確認」被講成「不顯示」, 與被講成「顯示」一樣糟 —— 兩邊都關掉了下一個人的查證。**
+--   ⇒ 所以本片**不把拍板押在 NOTICE 上**:NOTICE 照印(psql 那條路已量到會顯示), 而**同一份東西也走結果列**。
+--      codex 給的修法逐字:「用含唯一字串的 sentinel 在真正 apply 通道逐一驗證;**若不可見, 改用該通道保證呈現的
+--      警示或明確結果集**」⇒ 本片走的是後半, 而前半(sentinel)**已排進等待表, 要 Sean 醒來貼一次**:
+--        `DO $$ BEGIN RAISE NOTICE 'de-sentinel-notice-20260827'; END $$;`
+--        `SELECT 'de-sentinel-row-20260827' AS 這一列看得到嗎;`
+--
+--   🔴🔴 **2026-08-27 深夜:sentinel 跑了, 而它是【Sean 本人在 Supabase SQL Editor 貼的】。**
+--   他貼進去的逐字:
+--     `DO $$ BEGIN RAISE NOTICE 'de-sentinel-notice-20260827'; END $$;`
+--     `SELECT 'de-sentinel-row-20260827' AS 這一列看得到嗎;`
+--   他貼回來的逐字, **全部**:
+--     | 這一列看得到嗎           |
+--     | de-sentinel-row-20260827 |
+--   ⇒ ✅ **結果列到得了他眼前 —— 量到的。**
+--   ⇒ 🔴 **而那行 NOTICE 不在他貼回來的內容裡。**
+--
+--   ⚠️ **這一格的射程要寫準, 不要多講一個字**:
+--     我量到的是「**他貼回來的東西裡沒有 NOTICE**」, 不是「**他螢幕上沒有 NOTICE**」。
+--     那兩件事在我這端印同一個東西:**一段他複製給我的文字。**
+--     ⇒ 誠實的結論:**SQL Editor 這條路上, 結果列【可複製、可轉述】而 NOTICE 至少【不在可複製的那半】。**
+--       而「可複製」正是這個團隊實際使用它的方式 —— 今天整份拓撲探針結果就是這樣傳過來的。
+--     ⇒ **對本片的決策而言, 這已經足夠**:拍板「印在畫面上」若只押 NOTICE, 它到不了他手上。
+--
+--   📌 **而這一發最該記的不是結果, 是它有多便宜**:兩行 SQL、三十秒。
+--      🔴 **而在它跑之前, 這一格擋著兩支 migration, 經過了五輪審查、三個模型、九個世界。**
+--      **沒有任何一輪審查能回答它 —— 因為答案不在 repo 裡, 在他的瀏覽器裡。**
+--      ⇒ 判別句:**這個問題的答案住在哪裡?住在我構造得出來的世界裡, 還是住在一個我碰不到的地方?**
+--        後者不要再審一輪, 要去問那個碰得到的人。
+--
+--   ⚠️ 順帶訂正一格:主視窗 2026-08-27 一度對 Sean 說「SQL Editor 不顯示 NOTICE」並自行撤回(標明那是推的)。
+--      **這一發之後看起來它推對了** —— 而**推對了不等於量過了**。撤回仍然是對的動作:
+--      📌 **一個沒有量過的斷言, 它碰巧為真的時候, 危險不會比較小 —— 只是這一次沒有人被它害到。**
+-- 這張表的每一格都是**段A 當場算出來的那份**, 不是重算的 ⇒ 不會與閘的判斷漂開。
+SELECT 表, service_role帶BYPASSRLS, 是這張表的owner, "force_rls" AS FORCE_RLS,
+       coalesce(nullif(可SET_ROLE切過去, ''), '(無)') AS "🟡可SET_ROLE切成service_role_本片放行"
+  FROM _p3a_gate_report ORDER BY 表;
 
 COMMIT;
