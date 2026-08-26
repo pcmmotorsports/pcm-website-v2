@@ -11,7 +11,8 @@
 ```
 回答     續期【失敗】時, 頁面會不會自己跳走
          🔴 **以及:在【一個非受控、無 debounce、不靠 client state 的輸入框上】字會不會不見**
-不回答   續期【成功】那條路 —— 本機量不到, 理由見 §1
+✅ 回答   續期【成功】那條路 —— **2026-08-27 03:2x 已補量, 見 §6**
+         ⛔ ~~本機量不到, 理由見 §1~~ —— 那個「量不到」的理由是錯的, 見 `…-947-…-WITHDRAWN.md`
 不回答   🔴 **受控輸入框(React state + 可能重新 mount)會不會掉字 —— 那一格【仍然是開的】**
 ```
 🔴🔴 **本檔第一版把回答欄寫成「打到一半的字會不會不見」, 射程太寬。** 訂正原因(`-9e` 複量):
@@ -200,3 +201,108 @@ Object.keys(document.querySelector('main')).some(k => k.startsWith('__react'))  
 ```
 ⇒ 以上每一行都是**未數**。
 ⚠️ 上面每一行都是「我沒量」,**不是「不會有問題」**。
+
+---
+
+# §6 ✅ 補量:續期【成功】那條路(2026-08-27 03:2x)
+
+> 這一格原本被記成「本機量不到」。那個結論是錯的 —— 真因是**我沒種票**,不是機制擋住。
+> 配方見 `docs/specs/2026-08-27-947-split-dev-bypass-flag-WITHDRAWN.md` §2。
+
+## §6-1 起法(不改任何腳本)
+```bash
+ADMIN_SESSION_SECRET='<至少 32 字元>' bash scripts/admin-probe/up.sh
+```
+🔴 `up.sh` **自己不設** `ADMIN_SESSION_SECRET`(`grep -n "ADMIN_SESSION_SECRET" scripts/admin-probe/up.sh` ⇒ rc=1)
+⇒ 從**呼叫端環境**餵進去,`next dev` 會繼承。**不要改腳本。**
+🔴 票的簽法(`lib/session/session.ts:302` `getKey`):
+```
+token = b64url(JSON.stringify(payload)) + '.' + b64url(HMAC_SHA256(payloadJSON, key))
+key   = `v1:${secret.length}:${secret}:${envTag.length}:${envTag}`
+envTag 本機 = 'local'(VERCEL_ENV 未設 + NODE_ENV=development;resolveEnvTag :258)
+```
+staff 表要有那個人且 `is_active=t`(本次用 `sean`;`select id,label,is_active from staff` ⇒ 5 列,3 活)。
+
+## §6-2 七個世界,同一支簽票管線(curl,真 Next runtime)
+```
+世界                     HTTP  outcome         種新票
+還早    exp+3600         200   fresh           0
+快過期  exp+60           200   renewed         1     <- ✅ 成功那條路
+已過期  exp-60           401   not-active      0
+鏈到頂  sso_at-13h       401   chain-expired   0
+人被停用 staff=op4       403   not-active      0
+簽章壞掉                 401   not-active      0
+沒有票(對照)            401   not-active      0
+```
+🔴 **注意最後三列**:`沒有票` / `已過期` / `簽章壞掉` **印出完全一樣的東西**(401 + `not-active`)。
+📌 **那正是 2026-08-27 稍早騙倒我的那一格** —— 我拿到 401,讀成「閘擋住我」,
+   而真相是第一列那種:**我根本沒種票**。**一個 401 有很多種原因。**
+⚠️ 這是端點的**刻意設計**(不外洩哪一種失敗),不是缺陷。而它對**量測的人**是個陷阱。
+
+## §6-3 續出來的那張票,逐欄拆開(這是 `bc61afe6` 三條修法的真 runtime 驗證)
+搬運的碼在 `apps/admin/src/app/api/session/renew/route.ts:131-143`
+(`buildAdminSession` 呼叫;`amr` `:132` / `auth_time` `:133` / `sid` `:142`)。
+⚠️ 本節第一版寫 `:104-118`,而 `:104` 是 `fresh` 早退的 `return` —— **今晚第五次「結論對、位置錯」**。
+   數法 `grep -n "const next = buildAdminSession" <同檔>` ⇒ `131`。
+```
+欄位        舊票 → 新票                判定
+sid         相同(cccc…)               ✅ 沿用不旋轉   <- 第三把審查 N1
+sso_at      相同(1787769017)          ✅ 鏈起點原封   <- 片二唯一的天花板
+amr         相同(['pwd'])             ✅ 不得被改寫   <- N2(改寫 = 可自我提權成 2FA)
+auth_time   相同                       ✅ 不得被改寫   <- N2
+iat / exp   都變新                     ✅ 正對照(否則整張票原封不動也會過)
+新票壽命    900 秒                     ✅ = ADMIN_SESSION_MAX_AGE_SEC
+sub         {kind:user, staff_id:sean} ✅ 原封
+```
+
+## §6-4 🔴 `exp` 夾鏈尾 —— 那條【正在 production 上壞著】的洞,修法實測
+造一張**鏈只剩 120 秒**到頂的票:
+```
+新票活多久   = 120 秒
+沒夾的話會是 = 900 秒
+新票 exp     = 1787772795  = 鏈尾, 距鏈尾 0 秒
+```
+⇒ **夾住了。** 而 `5276411e`(現正在 origin/dev 上)沒有這一段 ⇒ 那張票會活 900 秒、越過鏈尾。
+
+## §6-5 真瀏覽器:續期成功時, 頁面與表單有沒有受影響
+(被量的元件在 `apps/admin/src/components/session/session-renew.tsx:80`)
+種票 → 重新載入 → 在 `#customer-keyword-search` 打 `續期成功那條路-KEEPME-7c1d` → 等 198 秒:
+```
+續期呼叫 5 發:#22 renewed / #23 renewed / #24 fresh / #26 ? / #27 fresh
+A 字還在不在   ⇒ 逐字相同
+B 網址有沒有變 ⇒ 沒有
+C JS context   ⇒ window.__p2 仍讀得到(頁面若導走過, 它會不存在)
+D 頁面活了     ⇒ 198 秒(頁內時鐘)
+```
+✅ **續期成功不改 URL、不導頁、不動表單。**
+✅ 而且**續完之後就不再打 DB**:第 3 發起一律 `fresh` —— 那是補審 M1 的早退在真 runtime 上生效。
+
+### 🔴 兩件這一輪【新量到】的事
+```
+① mount 那兩發是【同時】打出去的, 而【兩發都 renewed】
+   ⇒ 第二發在第一發的 Set-Cookie 回來之前就上路了 ⇒ 兩張票都被簽出來。
+   ⇒ 這就是審查提過的「多分頁 / 併發續期」那一格, 現在量到了。
+   ⚠️ 不構成安全問題(兩張都是同一條鏈的合法票), 而**每一發都是一次 DB 查詢**。
+   ⚠️ 而這兩發其中一發是 dev 造的:React StrictMode 讓 effect 跑兩次
+      (`grep -n "reactStrictMode" apps/admin/next.config.ts` ⇒ 零命中 rc=1 ⇒ 走 Next 預設)。
+      **production 只會有 1 發 mount** ⇒ 併發那一格在 production 要靠【多分頁】才會出現。
+② `document.cookie` 讀不到那張票 —— 而那不是失敗, 是**伺服器用 httpOnly 重種了**。
+   🔴 我當下沒有猜, 去看網路層:兩發都是 200 ⇒ cookie 確實有送出去、有被接受。
+   📌 **「讀不到」與「沒送到」在 document.cookie 上長得一樣。**
+```
+
+## §6-6 收攤(這一次用對的尺)
+```
+source scripts/admin-probe/env.sh   ⇒ web=3011 proxy=3978 prest=3979 pg=55534
+四個埠逐一 lsof ⇒ 各 0 listener;資料目錄已刪;pgrep "next dev" ⇒ 查無
+```
+🔴 對照 §5 那一格被撤回的證據:上一輪我**手打**了 `55501 / 3998`,而那兩個**從來不是這些服務的埠**。
+**這一次的埠是從 `env.sh` 讀出來的, 不是我打的。**
+
+## §6-7 這一輪的射程
+```
+· 只量了 Chromium、單一分頁、198 秒、一個【非受控】輸入框。
+· 「受控輸入框會不會掉字」**仍然沒量**(§0 那一格還開著)。
+· 併發那一格只量到 dev 的 StrictMode 版本, **沒有量真的多分頁**。
+· 端點那七格是 curl 量的(server 層), 瀏覽器那段是另一組量測 —— 兩者沒有互相驗證。
+```
