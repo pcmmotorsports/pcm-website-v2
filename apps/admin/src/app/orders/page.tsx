@@ -17,6 +17,12 @@ import {
 import { describeSupplierMatch } from '../../lib/orders/supplier-match-notice';
 import { OrderFilterBar } from '../../components/orders/order-filter-bar';
 import { OrdersTable } from '../../components/orders/orders-table';
+import { OrderExportButton } from '../../components/orders/order-export-button';
+import { orderExportBlockedReason } from '../../lib/orders/order-export';
+import {
+  buildOrderPageCsv,
+  orderPageExportFilename,
+} from '../../lib/orders/order-export-page';
 import { OrderToolbar } from '../../components/orders/order-toolbar';
 import {
   ShippingSelectionProvider,
@@ -174,6 +180,28 @@ export default async function OrdersPage({
   }
 
   const orders = result?.items ?? [];
+
+  /* `#24` 片B:匯出用的三個字串【在 server 端這裡算好】,client 元件只負責存檔。
+     🔴 **為什麼不把 `orders` 傳給 client 元件**(code-reviewer `I3`):那會讓整包
+        `AdminOrderSummary[]` 跨進 client bundle ——今天不外洩(admin 頁),
+        而 `AdminOrderSummary` 日後加成本 / 進貨價 / 經銷價任一欄,會**自動**進瀏覽器 payload,
+        而那正是 `CLAUDE.md` Server 端鐵則點名的東西。⇒ 這樣做讓那條前向風險**結構上消失**。
+     🔴 **`dataAsOf` 用的是這一次 render 的時刻**(code-reviewer `C2`):它與 `orders` 同時定版
+        ⇒ 檔案上那個時間講的是【資料的時刻】,不是【按鈕被按的時刻】。 */
+  const exportBlocked = orderExportBlockedReason(orders);
+  /* 🔴 `filterNote` 這一版一律傳空字串, 而理由(一個恆為 false 的判斷)
+     寫在 `order-export-page.ts` 的 `OrderExportContext.filterNote` 旁邊, 此處不複述。 */
+  const exportNow = new Date();
+  const exportCtx = {
+    page,
+    filterNote: '',
+    dataAsOf: exportNow.toISOString().slice(0, 16).replace('T', ' '),
+  };
+  const exportProps = {
+    csv: buildOrderPageCsv(orders, exportCtx),
+    filename: orderPageExportFilename(exportNow, exportCtx),
+    blockedReason: exportBlocked,
+  };
   /**
    * 🔴 **查無時的「可能被藏起來了」提示**(Q-347-B1=B 拍板要求的承接體)。
    *
@@ -315,6 +343,17 @@ export default async function OrdersPage({
               動作列放表格上方(勾了才浮出)。彈窗成箱是 2b-2。 */}
           <ShippingSelectionProvider>
             <ShippingSelectionBar />
+            {/* `#24` 片B:匯出這一頁的品項。
+                🔴 **它吃的是同一個 `orders` 陣列** —— 就是下面那張表用來渲染的那一份。
+                   ⇒ 「匯出的內容等於畫面上那一頁」不是靠紀律, 是**因為它們是同一個變數**。
+                🔴 放在表格【上方】而不是工具列那一列:那一列的高度被
+                   `order-toolbar-browser.test.tsx:208` 釘在 35(Sean 2026-08-24 拍板的字級規則撐的),
+                   而我在 `fc6a1edf` 已經因為往那一列塞東西而撐高過一次(修在 `03f7e27f`)。
+                   ⇒ **不要再往那一列加東西。**
+                ⚠️ `filterNote` 目前只帶「有沒有套篩選」這個粗略訊息 —— 見該元件註解與 §未做。 */}
+            <div className='mb-2'>
+              <OrderExportButton {...exportProps} />
+            </div>
             {/* #350c:面板連結**帶著當下篩選與頁碼**一起走(同一支 builder)⇒ 點開一張單不會洗掉列表狀態。 */}
             <OrdersTable
               orders={orders}
