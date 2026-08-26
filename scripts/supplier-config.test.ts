@@ -103,17 +103,46 @@ describe('getSupplierConfig', () => {
     expect(() => getSupplierConfig('__proto__')).toThrow(/未知供應商/);
   });
 
-  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)', () => {
+  // 🔴 must-fix(code-reviewer R1 #2、2026-08-27):**「今晚刻意不開寫」這件事原本零守門。**
+  //   實查:把 gilles.writeAllowed 改成 true,整個測試套件**沒有任何一格會紅**——
+  //   主閘 brand-showcase-coverage 因為 case 已補齊而綠、上面那條 keys 測試不看值、
+  //   rpm-import-cli 的授權對照組是寫死的 ['rpm','akrapovic']。
+  //   而「writeAllowed=false」正是本片最吃重的宣稱(它擋的是寫進正式顧客站、不可逆的 1,817 列)。
+  //   ⇒ 釘住它。Sean 批首灌時**本來就要改這裡**,那時這條紅 = 正確的摩擦,不是誤報。
+  it('gilles:過夜 fail-closed —— writeAllowed 必須是 false(Sean 批首灌後才改這裡與本條)', () => {
+    expect(getSupplierConfig('gilles').writeAllowed).toBe(false);
+  });
+
+  // 逐值釘死(同 rpm/gbracing/bonamici/akrapovic 等家的慣例):值皆 2026-08-27 報價單庫實查。
+  it('gilles:其餘欄位逐值釘死(改任一值 = 對匯入行為的改動,必須連這條一起面對)', () => {
+    const cfg = getSupplierConfig('gilles');
+    expect(cfg.supplierSlug).toBe('gilles');
+    expect(cfg.brandSlug).toBe('gilles'); // 來源 slug == brand slug(不像 kspeed→k-speed 分岔)
+    expect(cfg.handlePrefix).toBe('gilles'); // 登記表 18/18 區塊 handlePrefix == supplierSlug、零例外
+    expect(cfg.syncDescription).toBe(true); // 1,817/1,817 繁中 description 全有
+    expect(cfg.syncInstallResources).toBe(false); // 實查 pdf_urls / video_urls 兩欄 1,817 筆全 0
+    expect(cfg.appendManualFilename).toBe(false); // 新供應商預設(零附件時無作用)
+    expect(cfg.categoryStrategy).toEqual({ kind: 'per-group' });
+    expect(cfg.variantImages).toBe('per-variant'); // 222 群多變體、最大群 7
+  });
+
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)+ dna(08-20)+ gilles(08-27)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
     // 2026-07-24 品牌上架第三批補 extreme(第 15 家、commit 9a2f62a/d756651)+ kspeed(第 16 家、
     //   commit 2b5cba1;supplierSlug='kspeed'、brandSlug='k-speed' 拼法分岔)並開寫首灌。
     // 2026-08-20 補 dna(第 17 家;supplierSlug=brandSlug='dna',拼法未分岔),writeAllowed=false
     //   起手(過夜零寫入,乾跑全綠 + Sean 批首灌後才開,見同片 supplier-config.ts 該筆註解)。
+    // 2026-08-27 補 gilles(GILLES TOOLING、盧森堡 Grevenmacher;supplierSlug=brandSlug='gilles',
+    //   拼法未分岔),writeAllowed=false 起手(過夜零寫入,乾跑五關全綠、待 Sean 批首灌後才開)。
+    // 🔴 本檔既有的「第 N 家」序數把 __gated_canary__ 也數進去了(extreme=15/kspeed=16/dna=17),
+    //   而 supplier-config.ts 那側的註解數的是【真供應商】⇒ 同一家會有兩個編號。
+    //   實量(2026-08-27):登記表總鍵數 18 / 真供應商 17 / gilles 是第 17 家真供應商。
+    //   ⇒ 要引用數量請用這三個量到的數字,不要用序數。
     // __gated_canary__ = 永久 guard 測試靶(非真供應商、writeAllowed 恆 false);底線排序在字母前。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
       '__gated_canary__',
       'akrapovic', 'bonamici', 'cncracing', 'dna', 'eazigrip', 'ebc', 'evotech', 'extreme',
-      'front3d', 'gbracing', 'kspeed', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
+      'front3d', 'gbracing', 'gilles', 'kspeed', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
     ]);
   });
 });

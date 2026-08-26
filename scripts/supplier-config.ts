@@ -332,6 +332,57 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     // ✅ 2026-08-21 Sean 逐字「套」+「那DNA尚未完成地方要緊接著處理好」批首灌;dry-run 全綠(787群已對上0未對上)
     writeAllowed: true,
   },
+  // 上架第 17 家真供應商(2026-08-27):GILLES TOOLING。
+  //   (🔴 序數兩套並存:`supplier-config.test.ts` 那側把 guard 靶 __gated_canary__ 也數進去,
+  //    同一家在那邊是第 18 家。實量 2026-08-27:總鍵數 18 / 真供應商 17。引用請用量到的數,不用序數。)
+  //   🔴 國籍別寫錯:盧森堡 Grevenmacher,**不是德國**。來源側交接文件(2026-08-27)第 4 節
+  //   逐字寫「德國 Gilles Tooling」= 錯的；官網 Impressum 登記地址 `26, Op der Ahlkerrech,
+  //   Z.I. Potaschbierg, L-6776 Grevenmacher, Luxembourg`、`R.C.S. Luxembourg: B 107.876`,
+  //   且官網商品頁逐字寫 `CNC-manufactured quality "Made in Luxembourg"`。
+  //   本 repo `brand-content.ts` 那筆("country": "盧森堡")**是對的**,不要拿交接文件去「修正」它。
+  //
+  //   🔴🔴 **這家的群數是活的,下面這組數字是快照、不是契約**:
+  //   本窗 2026-08-27 實量,**兩分鐘內量到兩組不同的值**(同一支 view、兩種寫法交叉驗過、
+  //   排除查詢形狀差異):
+  //     18:54:26 UTC ⇒ 1,814 列 / 1,543 群(缺中文名 3)
+  //     18:56:17 UTC ⇒ 1,817 列 / 1,545 群(缺中文名 0)
+  //   ∴ 來源側正在補那 3 筆的中文品名(view 有群級中文名閘,補了就進 view)。
+  //   ⇒ **`--expect-groups` 必須在跑乾跑/首灌的那一刻重量,絕對不要沿用這裡或交接文件的數字。**
+  //   (交接文件第 4 點:這家 2026-08-27 起排入每日班、自己更新價格；另有 agent 在追車款字典 36 筆。)
+  //
+  //   其餘值皆 2026-08-27 18:56 UTC 實查(單一 SQL 同一時點):
+  //     缺價 0 / 圖非 https 0 / 有描述 1,817 全有 / 缺 v2 大類 0(子類 29 種)/ pdf 0 / 影片 0
+  //   ⇒ syncInstallResources=false **是量到的不是保守猜**:pdf_urls / video_urls 兩欄 1,817 筆全 0。
+  //   handlePrefix='gilles':交接文件標「待定」,而既有 **17/17 家 handlePrefix 逐字 == supplierSlug**
+  //   (本窗求值比對、零例外)⇒ 此值不是選擇題,是沿用唯一慣例。
+  //   brandSlug='gilles':來源與網站 brands 表同名(不像 kspeed→k-speed 那種拼法分岔)。
+  gilles: {
+    supplierSlug: 'gilles',
+    brandSlug: 'gilles', // 來源 slug == brand slug(交接文件已實查網站 brands 表)
+    handlePrefix: 'gilles', // 17/17 既有慣例 = supplierSlug 同名
+    syncDescription: true, // 1,817/1,817 繁中 description 全有
+    syncInstallResources: false, // 實查:pdf_urls / video_urls 兩欄 1,817 筆全 0,沒有附件可同步
+    appendManualFilename: false, // 新供應商預設(零附件時本旗標無作用)
+    categoryStrategy: { kind: 'per-group' }, // v2 兩層已回填、子類 29 種
+    variantImages: 'per-variant', // 🔴 222 群多變體、最大群 7,每變體自身圖
+    //   ⚠️ 交接文件寫「221 群多變體」= 差 1。本窗 2026-08-27 19:20 UTC 實量:
+    //   1,545 群 = 單變體 1,323 + 多變體 **222**;1,817 列 = 1,545 + 超出群數的 272。
+    //   (差 1 的成因未查;數字以實量為準,不沿用交接。)
+    // 🔴 fail-closed:今夜不翻。首灌 = 寫進正式顧客站、不可逆,需 Sean 明確點頭(runbook §4)。
+    //    翻 true 之前先確認:①乾跑五關全綠(--expect-groups **當場重量**,這家每天更新、群數會動)
+    //    ②`GillesShowcase.tsx` 已存在且 `BrandShowcase.tsx` 有 case(2026-08-27 已補齊)。
+    //
+    // 🔴🔴 **翻 true 的同一個 commit 要一起改的,只有下面【兩條】,而它們會紅、那是預期的**
+    //   (2026-08-27 本窗實測:暫翻 true 跑一次量出來的,不是推測;跑完已還原零留痕):
+    //     1. `scripts/supplier-config.test.ts` → it('gilles:過夜 fail-closed …')
+    //     2. `apps/storefront/src/components/brand-showcase-coverage.test.ts` → it('負對照 ②:已登記但 writeAllowed=false …')
+    //   **主閘(『每一家 writeAllowed=true 的品牌都要有對應 case』)那條【不會】紅** —— case 已備齊。
+    //   ⇒ 看到這兩條紅 = 流程正常前進的摩擦,**不是缺陷**,照各該條的訊息改掉即可。
+    //   📌 這段話存在的理由:本片修掉過一顆同族的雷 —— 舊的負對照名單會在翻 true 的那一刻紅,
+    //      而它的訊息說「gilles 從未被登記進 supplier-config.ts」= 假的 ⇒ 讀的人會去找一個不存在的 bug。
+    //      **紅本身不是問題,訊息把人指去錯的地方才是。**
+    writeAllowed: false,
+  },
   // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
   //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
   //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。

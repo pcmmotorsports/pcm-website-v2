@@ -214,7 +214,11 @@ describe('/brands/[slug] · 商品區接線(D3b)', () => {
     expect(html).not.toContain('bp-slot');
   });
 
-  it('🔴 0 筆 → 整區不出現(20 家裡實測 5 家會走這條:dbk/gilles/kineo/rizoma/wrs)', async () => {
+  // ⚠️ 標題原本寫死「5 家:dbk/gilles/kineo/rizoma/wrs」,而那是**某個時點的快照**:
+  //    gilles 2026-08-27 登記進上架流程 ⇒ 首灌之後它就不再是零商品品牌。
+  //    本測試的主體是 rizoma + 一份空清單,**不吃那份名單** ⇒ 名單過期不會讓這條紅,
+  //    也就是說**它會靜靜地變成一句假話**。⇒ 標題改成不寫死家數與名單。
+  it('🔴 0 筆 → 整區不出現(零商品品牌會走這條;哪幾家是會變的,不寫死名單)', async () => {
     brandProductsRef.current = [];
     const html = await markupFor('rizoma');
     expect(html, '0 筆時商品區仍在 ⇒ 客人看到一排空格').not.toContain('class="bp-products"');

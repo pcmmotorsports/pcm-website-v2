@@ -145,6 +145,19 @@
   --ext-red: #e00018;
   --ext-red-deep: #b3000f;
 
+  /* Brand accents — 上架第 17 家(2026-08-27)。同上原則:僅進各自品牌特色區。
+     gilles 藍取樣自本 repo 既有官方 logo `brand-assets/assets/brands-trim/gilles.png`
+     的主色像素(#002a58,佔非白像素最大宗);深navy 本身即淺底文字安全色,故不另出 -deep。 */
+  --gil-blue: #002a58;
+  /* 🔴 深色模式的已知限制(2026-08-27 實量,寫在這裡是因為它【現在不會發作】、發作時很難追):
+     `[data-theme="dark"]` 那段**不覆寫任何品牌 accent** —— 不只 gilles,既有 7 家都一樣。
+     實量 accent on 深色 --c-surface #18181b:gilles 1.24:1 / ebc 1.64 / samco 1.88 / akrapovic 2.75
+     ⇒ **全家族都不過 AA(4.5),而 gilles 是其中最低的那個。**
+     現況不發作的理由:storefront 端**沒有任何程式碼會設 `data-theme="dark"`**(2026-08-27 全 src grep,
+     排除測試檔後零命中)⇒ 深色模式目前到不了。
+     ⚠️ **哪天真的開啟深色模式,要一次處理【整族 8 顆】,不是只補 gilles** —— 只補最低的那顆
+     會讓另外 7 顆看起來像通過了。 */
+
   /* Type */
   --f-sans: "Inter", "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;

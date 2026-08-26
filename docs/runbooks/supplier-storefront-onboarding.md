@@ -168,9 +168,13 @@ N°02 區塊(精簡版最低配置,依品牌規模可加重,見既有 15 支分�
 斷言:SUPPLIER_CONFIGS 裡每一家 writeAllowed=true(= 已開放寫入 prod、商品頁客人點得到)
      的 brandSlug,BrandShowcase.tsx 都要有對應的 case。缺一家就紅,訊息附品牌名 + 修法。
 
-🔴 分母刻意不是「brand-content.ts 有這家品牌」——21 家裡有 6 家沒有 case,
-   但其中 5 家(dbk/gilles/kineo/rizoma/wrs)從未在 supplier-config.ts 登記過、
-   網站庫商品數 = 0,沒有商品頁可看,現在就要求它們有 showcase 是「一裝就紅」的假警報。
+🔴 分母刻意不是「brand-content.ts 有這家品牌」——brand-content.ts 有 21 家,而其中數家
+   從未在 supplier-config.ts 登記過、網站庫商品數 = 0,沒有商品頁可看,
+   現在就要求它們有 showcase 是「一裝就紅」的假警報。
+   ⚠️ ~~原字面列了「5 家(dbk/gilles/kineo/rizoma/wrs)」~~ **2026-08-27 作廢**:
+   gilles 當天登記進 supplier-config.ts ⇒ 那句話從那一刻起是假的。
+   🔴 **這裡刻意不再寫死名單** —— 名單會隨每次上架過期,而過期時零機械訊號;
+   要現值就當場跑 `Object.values(SUPPLIER_CONFIGS).map(c => c.brandSlug)` 跟 brand-content.ts 比。
    閘綁在 writeAllowed(= 上架流程自己已有的開關)上,紅格數與「客人看得到的缺口」一一對應。
 
 ⇒ 這道閘同時解決兩件事:①下次任何一家 writeAllowed 翻 true 而沒補 showcase,

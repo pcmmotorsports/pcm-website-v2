@@ -617,6 +617,14 @@ components:
       - "apps/storefront/src/components/MateryaShowcase.tsx"  # #212 品牌放量:Materya 精簡版(logo=白字重上色深墨;創立年份查無不寫)
       - "apps/storefront/src/components/EbcShowcase.tsx"  # #212 品牌放量:EBC Brakes 精簡版(logo=官方 svg、Sean 授權網路抓;⚠ 1983/ISO 9001 查無不寫)
       - "apps/storefront/src/components/AkrapovicShowcase.tsx"  # 上架第三批(2026-07-19、supplier-config.ts 同名批次):Akrapovič 形象區(N°01 三卡 + N°02 冠軍工藝:官網首頁形象影片帶 muted loop+IO 進視窗才播/reduced-motion 停留海報 + pd-bona 故事兩段 + pd-bs 信任狀;信任狀官方 URL 佐證於檔頭、⚠ 創辦人姓名查無不寫、L2 #271;素材=www.akrapovic.com 公開資產、授權=Sean 既有品牌圖授權 gate)
+      - "apps/storefront/src/components/GillesShowcase.tsx"  # 上架第 17 家真供應商(2026-08-27、supplier-config.ts 同名批次):GILLES TOOLING 形象區(骨架逐支對照 AkrapovicShowcase 重量版:N°01 三卡 + N°02 官網形象影片帶 muted loop+IO 進視窗才播/reduced-motion 停留海報 + pd-bona 故事兩段 + pd-bs 信任狀四格;事實逐字佐證於檔頭〔本窗親自 WebFetch 官網三頁〕、⚠ 國籍=盧森堡非德國、L2 #271;素材=官網 media 官方照 + Sean 提供官方影片轉檔自 host,授權=Sean 既有品牌圖授權 gate)
+      # 🔴 本清單與磁碟不同步(2026-08-27 本窗實量,順手記下、不代改別人的片):
+      #    磁碟上有 17 支 *Showcase.tsx,本 manifest 只列 13 支 ⇒ 缺 4 支。
+      #    其中 3 支不是本片造成的:KspeedShowcase / ExtremeComponentsShowcase(2026-07-24 上架第三批)、
+      #    DnaShowcase(2026-08-21)—— 它們上架時就沒進來。本片只補自己那一支,
+      #    另外 3 支留給各自的線補(代寫等於替我沒做過的元件寫描述)。
+      #    數法(可重跑):`ls apps/storefront/src/components/ | grep "Showcase.tsx$" | grep -v test`
+      #              vs `grep -o "[A-Za-z0-9]*Showcase\.tsx" docs/design-storefront-manifest.yaml | sort -u`
       - "apps/storefront/src/components/ProductHighlights.tsx"  # N°01;#270 B S3 起由 BrandShowcase 掛載(規格之下)
       - "apps/storefront/src/components/ProductSwatchWall.tsx"  # N°02;#270 B S3 起由 BrandShowcase 掛載(規格之下)
       - "apps/storefront/src/components/ProductSpotlight.tsx"  # #270 B S3 起由 BrandShowcase 掛載(規格之下、自帶雙守門)

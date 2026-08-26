@@ -32,6 +32,7 @@ import { DnaShowcase } from './DnaShowcase';
 import { AkrapovicShowcase } from './AkrapovicShowcase';
 import { KspeedShowcase } from './KspeedShowcase';
 import { ExtremeComponentsShowcase } from './ExtremeComponentsShowcase';
+import { GillesShowcase } from './GillesShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -82,6 +83,9 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
       return <KspeedShowcase />;
     case 'extreme':
       return <ExtremeComponentsShowcase />;
+    // 上架第 17 家(2026-08-27):GILLES TOOLING(重量版、對照 Akrapovic:影片帶 + 故事兩段 + 信任狀)
+    case 'gilles':
+      return <GillesShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;
