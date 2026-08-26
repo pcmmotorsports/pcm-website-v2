@@ -243,22 +243,40 @@ apps/admin/src/components/orders/order-filter-chips.test.tsx  每顆新 chip 一
                  (漂了之後畫面照樣顯示得出東西 —— 只是篩的東西不一樣)
 
 甲案 存網址   把那 9 個 URL 參數原樣存成一段 query string,讀回來時
-              **丟回既有的 `parseOrderListView()` 重新 parse**
+              **丟回既有的 `parseOrderListSearchParams()`(`apps/admin/src/lib/orders/order-list-view.ts:382`)重新 parse**
+              🔴 **我第一版把它寫成 `parseOrderListView()` —— 那個函式【不存在】**
+                 (`grep -rn parseOrderListView apps/ packages/` ⇒ **0**;codex 關卡1 抓到)
+                 📌 **一個不存在的函式名寫在 plan 的核心設計那一句上, 而它讀起來完全合理。**
               ⇒ 白名單守門**一份都不用新增**:`pickEnum` / `pickEnumMulti` 已經
-                 逐值白名單 + 去重 + 空折 undefined(`apps/admin/src/components/orders/order-filter-chips.tsx:126-127` 逐字;`:128` 是 `*/`)
+                 逐值白名單 + 去重 + 空折 undefined(實作在 `apps/admin/src/lib/shared/list-params.ts:15`(`pickEnum`)與 `:33`(`pickEnumMulti`);
+                 ⚠️ 我第一版引的 `order-filter-chips.tsx:126-127` **只是一段描述性註解, 不是實作** —— codex 關卡1 抓到)
               ⇒ 存進去的髒值(手改網址、日後改 enum)在**讀出來的那一刻**被丟掉,
                  而不是變成一個沒有人驗過的篩選條件
               ⇒ ✅ **本 plan 推薦甲**
 ```
 
-**那 9 個參數(2026-08-27 當場 grep,`apps/admin/src/lib/orders/order-list-view.ts`)**:
+🔴🔴 **「那 9 個參數」是錯的,而錯法值得寫下來(codex 關卡1 抓到)**
+
+**repo 裡本來就有一份權威清單,而我沒找到它**:
 ```
-grep -n "_PARAM = '" apps/admin/src/lib/orders/order-list-view.ts   ⇒ 9 行
-  :45 payment_status   :58 goods_axis     :59 order_source
-  :60 payment_channel  :73 show_unpaid_card  :85 pending
-  :93 den              :518 date_from     :519 date_to
-負對照:同一條指令改查 `_PARAM_NOSUCH = '` ⇒ **0** 命中(2026-08-27 當場跑過才寫,不是預期值)
+apps/admin/src/lib/orders/order-list-view.ts:701  const ORDER_LIST_URL_KEYS = [ … ] as const
+⇒ **11 個 key**, 不是 9:
+   我數到的 9 個 filter 參數
+   + ORDER_PANEL_PARAM      ← 訂單面板開在哪一筆
+   + CUSTOMER_PANEL_PARAM   ← 客戶面板開在哪一筆
+另有 `page` / `r` / `rt` 等消費者不在這份清單裡(見 `order-return-to.ts` 的 RESULT_ONLY_PARAMS)
 ```
+**我的尺是 `grep "_PARAM = '"`** ⇒ 它數的是**宣告**,而**組裝好的那份權威清單長在別的地方**。
+
+🔴 **而最難看的一格是:我自己在 `§6-9` 標了這個盲區** ——
+   逐字「若有參數是用別的寫法宣告的,我的尺看不見它 ⇒ **未確認**」
+   **⇒ 我標了未確認, 然後把那個未確認的數字當成整片設計的地基用了下去。**
+   📌 **標「未確認」不等於處理了它。一個被標記的洞, 與一個被填起來的洞, 在下一句話裡長得一樣。**
+
+⇒ **正確做法:不要自己數,直接用 `ORDER_LIST_URL_KEYS`**(它已經是單一權威)。
+⚠️ 而那兩個 panel key 在裡面 ⇒ **「原樣存整段 query」會把「面板開在某一筆訂單上」也存進去**
+   ⇒ 明天點開那個檢視, 會重開一個舊面板、顯示過期的內容(codex must-fix)。
+   ⇒ **存哪些 key 要另立白名單, 而那份白名單必須從 `ORDER_LIST_URL_KEYS` 扣掉 panel 那兩個。**
 
 ### 🔴🔴 6-2a 而甲案有一個會靜默說謊的地方 —— **日期**
 
@@ -545,3 +563,139 @@ Q-檢視-3  用共用密碼登入的人(沒有具名身分)看到什麼?
 📌 相關:`docs/patterns/revoking-function-execute-in-supabase.md`(兩道 REVOKE / 新物件自帶 anon)·
 `docs/runbooks/throwaway-postgres-for-migration-verification.md` ·
 `supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql`(表的形狀來源)
+
+---
+---
+
+# 🔴🔴 §7 codex 關卡1 的結果:**30 條 must-fix,而這份 plan 的地基動了**
+
+> 2026-08-27 線4 自己跑(`codex exec -s read-only`、stdin 導掉 `< /dev/null`、`codex-cli 0.144.1`)。
+> 完整 log 在 session scratchpad,**不進 repo**(6,850 行)。
+> ⚠️ **零留痕檢查**:跑前後 `git status --porcelain` **有差異,而差異不是 codex 造成的** ——
+> 差的三支是**別的窗在這段時間 commit 掉的**(`fdc40cb7` / `93fd3682` / `f4b36ea2`),
+> 另一支 `scripts/supplier-config.ts` 是別條線新弄髒的。
+> **我的三支檔零變動**(`git status --porcelain | grep -cE 'saved-views-plan|945-submodule|WalletTab.test'`)。
+> 📌 **八窗共用一棵樹時,「跑前後 status 相同」這個判準本身失效了** ——
+>    它把「codex 動了東西」與「別人動了東西」混進同一個 diff。
+>    ⇒ **要驗的是【我的檔有沒有變】,不是【整棵樹有沒有變】。** 這一格要回報主視窗修判準。
+
+## 7-1 ✅ 已直接訂正的三個**事實錯誤**(不是判斷分歧,是我寫錯)
+
+```
+① `parseOrderListView()` **不存在** —— 真名 `parseOrderListSearchParams()`(order-list-view.ts:382)
+   `grep -rn parseOrderListView apps/ packages/` ⇒ 0
+   🔴 而它就寫在 §6-2「核心設計決定」那一句上。
+② `pickEnum` / `pickEnumMulti` 實作在 `lib/shared/list-params.ts:15` / `:33`,
+   我引的 `order-filter-chips.tsx:126-127` 只是一段**描述性註解**。
+③ 🔴🔴 **「9 個 URL 參數」是錯的** —— repo 裡本來就有 `ORDER_LIST_URL_KEYS`(:701),**11 個**,
+   多的兩個是 `ORDER_PANEL_PARAM` / `CUSTOMER_PANEL_PARAM`(面板開在哪一筆)。
+   ⇒ 「原樣存整段 query」會把**面板狀態**一起存進去 ⇒ 點開檢視會重開一個舊面板、顯示過期內容。
+```
+
+### 🔴 7-1a ③ 那一格是**今天同一個病的第四次**,而這一次最難看
+
+```
+第 1 次 wallet.css   `^\.` 錨第 0 欄 ⇒ 看不見 @media 裡的縮排 ⇒ 把對的 35 改成錯的 34
+第 2 次 --c-text-muted 的數法**把自己寫進被搜的目錄** ⇒ 印 1 而結論是 0
+第 3 次 「唯一讀 design-reference 的測試」附的數法照抄去跑印 12 不是 1
+第 4 次 這一格:我數**宣告**,而權威清單組裝在別的地方
+```
+🔴 **而第 4 次多了一層**:我在 `§6-9` **自己標了這個盲區**,逐字
+「若有參數是用別的寫法宣告的,我的尺看不見它 ⇒ **未確認**」。
+📌 **我標了未確認,然後把那個未確認的數字當成整片設計的地基用了下去。**
+⇒ **標「未確認」不等於處理了它。一個被標記的洞,與一個被填起來的洞,在下一句話裡長得一樣。**
+⇒ 判別句再加一條:**我標的那個「未確認」,有沒有東西擋著我在它被填之前繼續往下蓋?**
+
+## 7-2 🔴 這一片的**核心設計要重做**,而不是打補丁
+
+`§6-2`「存整段 query string ⇒ 白名單一份都不用新增」——
+**它的前提是「URL 上的東西全都是檢視狀態」,而那個前提是假的**(面板、page、r、rt 都在 URL 上)。
+
+⇒ **正確形狀**:存的不是整段 query,是「**`ORDER_LIST_URL_KEYS` 扣掉 panel 那兩個之後的子集**」
+  (清單本體 `apps/admin/src/lib/orders/order-list-view.ts:701-713`;
+   panel 兩個 key 的來源 `apps/admin/src/lib/orders/order-return-to.ts`)
+⇒ 那就是**一份新的白名單** ⇒ 🔴 **`§6-2` 原本宣稱「不用新增第二份白名單」,那個賣點沒有了。**
+⚠️ 而它仍然**比存欄位好**(值的合法性照舊走既有 `pickEnum`;新增的只有「哪些 key 可存」一層)
+   ⇒ **設計方向不變,而理由要換、賣點要縮。** 這一段等 §7-4 的題回來再改寫。
+
+## 7-3 🔴 日期那一格:`Q-檢視-2=甲` 的做法**沒有想像中那麼便宜**
+
+```
+① 「多存一欄 date_preset」**本身不會重算** —— 交給現有 parser 時**絕對日期優先**
+   ⇒ 存 `date_from=2026-08-27` + `date_preset=d0`, 明天照樣得到 8/27
+   ⇒ 要真的重算, 讀回來時必須【先丟掉 query 裡的 date_from/date_to】再由 preset 重生
+② `date_preset=custom`(員工手選的任意區間)**沒有可重算公式**
+   ⇒ plan 未定義「custom 時保留絕對日期」這條規則
+③ preset key 日後改名或移除 ⇒ 不是退回過期絕對日期, 就是靜默套預設
+   ⇒ **未知 key 要有一個看得見的錯誤**, 而 plan 沒寫
+④ 時區:台北 23:59 存、跨午夜後開;或存的人與看的人時區不同
+   ⇒ 未指定用**台北 business date** 還是 viewer 的日期
+   ⚠️ 而 repo 已有 `taipeiDayStartIso` / `taipeiYmdFromInstantIso`(`@pcm/domain`)
+     ⇒ **有現成答案而 plan 沒引用它** ⇒ 實作走那一族, 不自己算
+```
+⇒ `Q-檢視-2=甲` 的**決定仍然成立**(理由沒被推翻),而**它的成本欄要改寫** ——
+   記在這裡,讓明早複核的人看得到差在哪。
+
+## 7-4 🔴 codex 找到**四題我漏開的**,而它們都是 schema 題 ⇒ **當待拍板,我不自己決定**
+
+(它們共同的前提在 `§6-5b`:`Q-檢視-1=乙` + `Q-檢視-3=乙` 造出「沒有主人而大家都看得到」的檢視;
+ 而 `staff` 那一欄的警語落點 `supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql:28-29`。)
+
+```
+Q-檢視-7  **誰可以【建立】共用檢視?**(Q4/5/6 只決定了刪、改、併發)
+          👉 共用密碼登入的人(沒有具名身分)按下「存成共用」會怎樣?
+Q-檢視-8  私人「今日」與共用「今日」**同時存在**時, UI 怎麼分?
+          👉 兩個唯一域各自合法 ⇒ 畫面會出現兩顆同名 chip
+Q-檢視-9  **有沒有數量上限?**(每人幾張 / 全站幾張)
+          👉 沒有上限 ⇒ chip 列可以被灌成數百筆
+Q-檢視-10 **排序(sort_order)誰可以動?** 共用那份誰能拖?兩個人同時拖?
+          👉 欄位落點見 `§6-4` 草案的 `sort_order`(而該表已標【不能定稿】)
+```
+⚠️ 而 codex 另外點出一格**不是題、是既有契約**,plan 必須承接:
+```
+🔴 `staff` 的離職契約是 `is_active=false`、**不物理刪除**
+   (`supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql:27` COMMENT 逐字
+    「停用走 is_active=false、不物理刪除」)
+   ⇒ **`ON DELETE CASCADE` 這輩子不會觸發** ⇒ 離職員工的私人檢視會永久殘留
+   ⇒ 「停用員工的檢視要保留、轉移、還是隱藏」**沒有人問過** ⇒ 併入 Q-檢視-9 一起端
+```
+
+## 7-5 其餘 must-fix 的分堆(**逐條都真,而它們屬於實作片、不屬於這份 plan**)
+
+```
+schema 形狀(片1 動手前要折):
+  · NULLS DISTINCT ⇒ 兩筆同名共用檢視並存 —— codex 說「不該留到實作時才探針」**它對**
+    ⇒ 改法:唯一索引改成 `(COALESCE(staff_id,'∅'), btrim(label))` 或加 partial unique index
+  · `is_shared` 與 nullable `staff_id` 並存而**沒有 CHECK** ⇒ 四種組合有兩種是壞資料
+  · 沒有 touch `updated_at` trigger ⇒ 時間會永久說謊
+    (staff 表自己有一支可抄:`20260726120000_m4b_e8a1_staff_table.sql:40-53`)
+  · `database.types.ts` 沒有這張表 ⇒ typecheck 會紅 ⇒ **變更清單漏了型別生成那一步**
+權限:
+  · 直接 GRANT service_role DML ⇒ 任何持 service client 的新程式都繞得過 ownership
+    ⇒ codex 提的更窄形狀:**撤表 DML、只開一支集中驗 owner/scope 的 RPC** —— 值得認真考慮
+  · `getSessionActor()` 因 staff DB 失敗回 `null` ⇒ **與 fallback/bootstrap 分不開**
+    ⇒ 具名員工被誤當共用使用者、**靜默藏掉他自己的私人檢視**
+    📌 又是「三種原因印同一個結果」—— 與儲值金那片的 must-fix 同形狀
+片界:
+  · 片2 少了 `app/orders/page.tsx` 與一支真的讀表的 repository(純函式自己讀不到 DB)
+  · 「片1 單獨上線安全」**不成立** —— 它已經把 DML 權交出去了, 不能靠「沒人讀」宣稱安全
+  · 片2 先部署而 migration 沒 apply ⇒ 查不存在的表 ⇒ **缺一個 migration-applied 硬 checkpoint**
+rollback:
+  · down migration **不可以當成另一支正式 migration 附上**(下次依序 apply 會把表刪掉)
+    ⇒ 它必須是**人工 runbook**, 不進前進序列
+  · `DROP TABLE … CASCADE` 會連後來新增的相依物件一起刪, dump 資料救不回 schema
+```
+
+## 7-6 判定與下一步
+
+```
+🔴 這一輪 **FAIL**, 而它 FAIL 在【地基】不在【細節】:
+   核心設計的前提(URL 上都是檢視狀態)是假的、核心函式名不存在、參數清單數錯。
+   三格的落點:`§7-2` / `§7-1`① / `§7-1`③(權威清單 `order-list-view.ts:701-713`)。
+⇒ 照 §5 輪次紀律:R1 FAIL ⇒ 折完跑 R2。
+⇒ **而「折完」需要 Q-檢視-4~10 共七題的答案, 那些今晚拿不到**(Sean 已休息)。
+⇒ **本片停在這裡, 不往下寫。** 硬折出一份「我自己替他答了七題」的 plan,
+   交出去的是一個**看起來完整而沒有人拍過板**的東西。
+📌 而這正是本片今天最該記住的一句:
+   **一份 plan 的價值不在於它多完整, 在於它有沒有把【還沒有人決定的事】留成看得見的洞。**
+```
