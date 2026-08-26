@@ -619,12 +619,16 @@ components:
       - "apps/storefront/src/components/AkrapovicShowcase.tsx"  # 上架第三批(2026-07-19、supplier-config.ts 同名批次):Akrapovič 形象區(N°01 三卡 + N°02 冠軍工藝:官網首頁形象影片帶 muted loop+IO 進視窗才播/reduced-motion 停留海報 + pd-bona 故事兩段 + pd-bs 信任狀;信任狀官方 URL 佐證於檔頭、⚠ 創辦人姓名查無不寫、L2 #271;素材=www.akrapovic.com 公開資產、授權=Sean 既有品牌圖授權 gate)
       - "apps/storefront/src/components/GillesShowcase.tsx"  # 上架第 17 家真供應商(2026-08-27、supplier-config.ts 同名批次):GILLES TOOLING 形象區(骨架逐支對照 AkrapovicShowcase 重量版:N°01 三卡 + N°02 官網形象影片帶 muted loop+IO 進視窗才播/reduced-motion 停留海報 + pd-bona 故事兩段 + pd-bs 信任狀四格;事實逐字佐證於檔頭〔本窗親自 WebFetch 官網三頁〕、⚠ 國籍=盧森堡非德國、L2 #271;素材=官網 media 官方照 + Sean 提供官方影片轉檔自 host,授權=Sean 既有品牌圖授權 gate)
       - "apps/storefront/src/components/DnaShowcase.tsx"  # DNA Filters 形象區(2026-08-21、精簡版:N°01 三卡 + 短 N°02,對齊 EbcShowcase 骨架/#212 方向3 精簡版三家同款)。起因=Sean 2026-08-21 肉眼驗 DNA 商品頁發現保固後直接跳「相關商品」、缺 N°01/N°02 兩段。信任狀事實=官方 dnafilters.com 已查證(讀取日 2026-08-20):多層棉紗浸油濾材/希臘 Mandra Attika 1,300 平方米自有廠房/約 95% 外銷逾 42 國/Red Dot 2012・2017/Rally Dakar 實測。圖片兩種來源分開記:logo+prod-01~04=我方資料庫既有商品照;story-anatomy=官網剖面圖,走 Sean 2026-08-20 對 DNA 品牌頁圖片的既有授權延伸。⚠️ 本描述【逐字搬運自 `DnaShowcase.tsx:1-30` 檔頭】,不是本窗發明的,**而未經該元件的線確認**
-      # 🔴 本清單與磁碟不同步(2026-08-27 本窗實量):磁碟 17 支 *Showcase.tsx,
-      #    本清單真正登記為 path 的 15 支 ⇒ **仍缺 2 支**:
-      #      KspeedShowcase / ExtremeComponentsShowcase(2026-07-24 上架第三批)。
-      #    ✅ DnaShowcase(2026-08-21)已於 2026-08-27 補上,補法 = **逐字搬運該元件自己的檔頭**
-      #       (`DnaShowcase.tsx:1-30`),不是替它發明描述 —— 搬運可以被逐字核對,發明不行。
-      #       剩下兩支照同一個做法補即可(補完記得從測試檔的 KNOWN_UNREGISTERED 移除,否則那條會紅)。
+      - "apps/storefront/src/components/KspeedShowcase.tsx"  # K-SPEED 形象區(品牌放量、2026-07-24、Sean 拍板 v5 草案 GO;骨架對齊 Bonamici/Akrapovic 家族):N°01 三卡(eyebrow 官方 logo)+ N°02「設計者」(真 YouTube facade 點縮圖才載 iframe + Tanadit/House of Custom 兩段圖文 + 信任狀四格)。文案全數官方 URL 佐證(k-speed.com/pages/k-speed 逐句翻譯、查無不寫):2002 曼谷小零件店起家 / CEO Tanadit Sarawek / blackout style / Honda・BMW・Royal Enfield 官方展演車。🔴 品牌介紹頁網站主體為 K-SPEED JAPAN(官方授權日本代理)、非泰國總部自撰(Sean 已知會)。🔴 無官方色票 ⇒ accent 落中性 --c-text,不臆測專色。L2 hardcode(#271)。⚠️ 本描述【逐字搬運自 `KspeedShowcase.tsx:1-17` 檔頭】,不是本窗發明的,**而未經該元件的線確認**
+      - "apps/storefront/src/components/ExtremeComponentsShowcase.tsx"  # Extreme Components 形象區(品牌放量、2026-07-24、Sean 拍板 v5 草案 GO):N°01 三卡(eyebrow 官方 logo 彩色不轉黑)+ N°02「工藝與戰績」(賽車橫幅 pd-hero-band 2.5:1 —— **無官方影片改橫幅、Sean Q8=A** + 材料/賽場/義大利三段圖文 + 信任狀四格 pd-bs--extreme 紅 accent)。文案全數官方 URL 佐證(官網逐句翻譯 + 逐張獎狀圖確認、查無不寫):六座 2025 冠軍(官網 Palmares 2025 六張獎狀圖逐張確認)/ Alu 7075 T6 整塊實心切削・硬質陽極 / 預浸布 autoclave 成型 / Solo opere d'arte 標語・創辦人 Stefano Bragagnolo・產地 Piombino Dese。🔴 未確認:創立年份(官網未載)⇒ 版面不寫成立年份。🔴 accent = --ext-red-deep(PIL 取樣官方 logo 紅 #e00018 加深)。L2 hardcode(#271)。⚠️ 本描述【逐字搬運自 `ExtremeComponentsShowcase.tsx:1-18` 檔頭】,不是本窗發明的,**而未經該元件的線確認**
+      # ✅ **2026-08-27 已補齊**:磁碟 17 支 *Showcase.tsx,本清單登記為 path 的也是 17 支。
+      #    🔴 **而「17 = 17」正是本檔上面那個坑的長相** ⇒ 不要只比數字,要比**集合**。
+      #       實際驗法(2026-08-27 跑過):兩邊各自求集合再取差,
+      #       `磁碟 - 登記` 與 `登記 - 磁碟` **兩個方向都是空的**,不是只有筆數相等。
+      #    補上的三支(Dna 2026-08-21 / Kspeed・ExtremeComponents 2026-07-24)補法一致 =
+      #       **逐字搬運各自元件的檔頭**,不是替它們發明描述 —— 搬運可以被逐字核對,發明不行。
+      #    守門 `showcase-manifest-coverage.test.ts` 的 KNOWN_UNREGISTERED 已隨之清空
+      #       ⇒ 那道閘從「盯著三筆已知欠帳」變成「盯著**下一支**新元件」。
       #    ⚠️ 這幾個數字會隨每次補漏過期 ⇒ **不要引用,當場跑下面那條數法**。
       # 🔴 補完之後【描述的品質沒有任何東西在盯著】(主視窗 2026-08-27 指出):
       #    那道閘只檢查「有沒有登記」,不檢查「描述對不對」

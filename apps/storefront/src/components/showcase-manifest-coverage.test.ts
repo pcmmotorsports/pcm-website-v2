@@ -59,12 +59,14 @@ function showcasesOnDisk(): Set<string> {
  * · KspeedShowcase / ExtremeComponentsShowcase — 2026-07-24 上架第三批(元件現況見 `6a5ffca3`)
  * · DnaShowcase — 2026-08-21 首灌(`0fd337ea`)
  */
-const KNOWN_UNREGISTERED = [
-  'KspeedShowcase.tsx',
-  'ExtremeComponentsShowcase.tsx',
-  // ✅ DnaShowcase.tsx 已於 2026-08-27 補進 manifest ⇒ 依本檔下面那條「欠帳表要能被清空」移出。
-  //    補法 = **逐字搬運該元件自己的檔頭**(`DnaShowcase.tsx:1-30`),不是替它發明描述
-  //    ⇒ 搬運可以被逐字核對,發明不行。剩下兩支照同一個做法補即可。
+const KNOWN_UNREGISTERED: readonly string[] = [
+  // ✅ **2026-08-27 已清空** —— 三支(Dna / Kspeed / ExtremeComponents)當天全部補進 manifest。
+  //    補法一致 = **逐字搬運各自元件的檔頭**,不是替它們發明描述
+  //    ⇒ 搬運可以被逐字核對,發明不行;每一筆都標了「未經該元件的線確認」。
+  // 🔴 **清空之後這道閘的意義變了**:它從「盯著三筆已知欠帳」變成「盯著【下一支】新元件」。
+  //    ⇒ 下一個人新建 <Brand>Showcase.tsx 而忘了登記 ⇒ 上面那條直接紅。**不要往這裡加東西來消紅** ——
+  //    加進來只會讓那支元件的缺口變成永久豁免,而豁免不會提醒任何人它該被清空。
+  //    真的需要暫時豁免時:加進來 + 寫清楚為什麼 + 寫清楚誰在什麼條件下移除它。
 ] as const;
 
 describe('registeredShowcases(自檢:抽取邏輯要先被驗證,不能只信它跑出來的答案)', () => {
