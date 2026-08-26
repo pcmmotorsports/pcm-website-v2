@@ -7,6 +7,8 @@
 //   —— **有人把那一行刪掉,腳本仍然 4/4 全綠,而新的 migration 從此沒有人檢查。**
 //   當場量到的分母:全 repo 提到 `migration-new-file-static-checks` 的是 **4 個檔 / 9 行**
 //   (package.json **兩條** entry〔接線那條 + `--selftest` 那條〕、腳本自己、兩支 migration 的註解)。
+//   ⚠️ **那是 2026-08-24 的量;2026-08-27 現量是 7 檔 / 18 行**(多了三支 migration 的註解)。
+//   📌 句子有標日期, 而**它讀起來像現值** —— 帶日期不等於讀者會把它讀成過去式。
 //   🔴 而「零守門」只對**接線那一條**成立 —— `--selftest` 那條守的是**腳本本體**,不守接線。
 //      (審查 2026-08-24 更正:原句寫「只有 4 處」把 package.json 的第二條蓋掉了。)
 //   形狀 = memory `feedback_a-fail-open-guard-hides-whether-it-is-installed`
@@ -27,7 +29,12 @@
 //     `scripts/check-syntax-nonts.gate.test.ts`(字面錨 `存在性釘,非效果證明`)。
 //     ⚠️ 這種句子的作用是**關掉下一個人的尋找動作** ⇒ 指錯比不指更貴。
 //
-// 🔴🔴 **2026-08-27:本檔目前有 2 格是紅的, 而 `7228d8d0` 的 commit body 把成因寫錯了。**
+// ✅ **2026-08-27 已修:本檔現在 3 綠。** 底下那段「2 格是紅的」是**當時的狀態**, 留著不刪 ——
+//    **它記的是成因與一次錯誤歸因, 而那比「現在幾綠」有用得多。**
+//    修法與它的價格寫在 `beforeAll` 裡(錨:`TRUTH_SYNC_PATH_CONSTANTS`)。
+//    🔴 **而那 2 格紅在 CI 上活了 30+ 小時而沒有人被通知** —— 那一半沒修, 也不是本檔修得掉的。
+//
+// 🔴🔴 **2026-08-27(修之前的狀態):本檔有 2 格是紅的, 而 `7228d8d0` 的 commit body 把成因寫錯了。**
 //
 //   那顆 body 逐字說這 2 格紅是「那支測試讀的是 index, 而 index 上是別窗 staged 的兩支 migration
 //   (`20260826150000` / `20260826160000`)」⇒ 🔴 **那是假的。**
@@ -57,10 +64,12 @@
 // 成本:scratch repo 建一次;每格 spawn 一次 lint-staged(node 冷啟動)。
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync, symlinkSync, readFileSync } from 'node:fs';
+import {
+  mkdtempSync, writeFileSync, rmSync, mkdirSync, symlinkSync, readFileSync, copyFileSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 
 // 🔴 逾時放寬的理由與隔壁同一條:多窗夜跑時機器負載會讓 node 冷啟動變慢,
 //    而 `Test timed out` 與真的紅在畫面上長得一樣。判別法:
@@ -119,7 +128,24 @@ function stageAndRunGate(name: string, content: string): GateResult {
 
   git(['reset']);
   rmSync(join(scratch, rel), { force: true });
-  return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  // 🔴🔴 2026-08-27:**分得開「規則②沒擋」與「別的 task 先炸、把它 SIGKILL 了」。**
+  //    那正是 CI 紅 30+ 小時那次的形狀 —— 當時的斷言訊息寫「擋下來了, 但不是規則②擋的」,
+  //    而真兇是另一個 task 的 `FileNotFoundError`。**那句話誤導了兩輪歸因。**
+  //    ⇒ 這種輸出不是「本格失去歸因」, 是 **fixture 級的壞**, 要指名真兇。
+  //    ⚠️ **偵測要指名【本閘自己】被殺, 不能只看有沒有 `[SIGKILL]`** ——
+  //       閘正確擋下的時候, lint-staged 會把**兄弟 task** 殺掉(實測:`check-syntax-nonts.ts [SIGKILL]`)
+  //       ⇒ 只看 `[SIGKILL]` 會把【擋對了】判成【fixture 壞了】。
+  //       📌 **那正好是這道偵測自己要防的病:分不出兩個世界。第一版我寫錯了, 而它一裝就把該綠的弄紅。**
+  const gateKilled = /migration-new-file-static-checks\.sh[^\n]*\[SIGKILL/.test(out);
+  if (gateKilled || out.includes('FileNotFoundError')) {
+    throw new Error(
+      'fixture:本閘自己被 SIGKILL / 或有別的 task 印了 FileNotFoundError ⇒ 本格的紅【不是規則②沒擋】。\n' +
+        '真兇在下面這段輸出裡(找 [FAILED] 那幾行):\n' +
+        out,
+    );
+  }
+  return { status: r.status, out };
 }
 
 beforeAll(() => {
@@ -136,7 +162,10 @@ beforeAll(() => {
   must('config gpgsign', ['config', 'commit.gpgsign', 'false']);
 
   // 🔴 整包搬,不挑 key —— 挑 key 就等於把「別的 entry 會不會互相干擾」這件事偷偷排除掉。
-  //    (實際會干擾:`.sql` 同時命中 `*.{…,[sS][qQ][lL],…}` 那條 ⇒ 兩個 task 都會跑。)
+  //    (實際會干擾:一支 `.sql` 現在會叫起**三個** task —— `*.{sh,yaml,yml,sql,py}` 那條、
+  //     `b2s2b-truth-sync.py` 那條(`ee4bdf27` 放寬後才有的)、以及本檔要測的 new-file 那條。
+  //     ~~原句寫「兩個 task」~~ 2026-08-27 實跑是三個, 而**那句正好是解釋本次事故的那句**
+  //     ⇒ 不改它, 下一個人會再算錯一次。)
   const mainPkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as {
     'lint-staged': Record<string, string>;
   };
@@ -151,8 +180,66 @@ beforeAll(() => {
   symlinkSync(join(REPO, 'scripts'), join(scratch, 'scripts'));
   mkdirSync(join(scratch, 'supabase/migrations'), { recursive: true });
 
+  // 🔴🔴 2026-08-27:`ee4bdf27` 把另一條 lint-staged entry 的 glob 從【兩支具名 migration】
+  //    放寬成 `supabase/migrations/*.sql` ⇒ **本檔餵進去的新 migration 現在也會叫起
+  //    `python3 scripts/b2s2b-truth-sync.py .`**,而那支要讀三支真實檔。
+  //    本 scratch repo 沒有它們 ⇒ FileNotFoundError x9 ⇒ lint-staged 整個 task 被 kill
+  //    ⇒ **規則② 根本沒跑到**, 而症狀是「有擋到但歸因失敗」。CI 因此紅了 30+ 小時。
+  //    (成因由 b4 窗 2026-08-27 量到;下手窗 de 複量:本機 `2 failed | 1 passed`、
+  //     `git show ee4bdf27 --stat` = package.json 一行。)
+  //
+  //    ⇒ 修法照本檔既有紀律【不手抄】:**從那支腳本自己宣告的路徑常數讀出來**, 再從真 repo 複製過來。
+  //
+  //  🔴 它宣告的是【四支】不是三支(code-reviewer 2026-08-27 抓到我原本寫「三支」):
+  //     `MIG` / `MIG452` / `RB` / **`AV = 'scripts/a4a-verify.sh'`**(`b2s2b-truth-sync.py:66`
+  //     的 `BLOCKS_PER_FILE = {MIG: 2, RB: 3, AV: 1, MIG452: 1}` 才是完整清單)。
+  //     **AV 今天沒有炸, 只是因為它碰巧落在上面那行 symlink 過去的 `scripts/` 底下。**
+  //     📌 **「它在」與「我知道它為什麼在」是兩件事, 而前者不會提醒你後者。**
+  //
+  //  🔴 **個數釘住**:抓到的不是 `TRUTH_SYNC_PATH_CONSTANTS` 支就 throw。
+  //     ~~只擋「全部消失」~~ 擋不住**最可能發生的那兩種**:其中一個改名(仍抓到 3 支 ⇒ 不 throw
+  //     ⇒ **安靜地回到今天這個狀態**)、或有人加第四第五支。
+  //
+  //  ⚠️ **這個修法的價格, 明寫**:本檔的綠從此綁在「真 repo 的 b2s2b 真相同步維持全綠」上。
+  //     有人合法改 `SHIPPED-TRUTH` 區塊而忘了同步 `BLOCKS` 凍結值 ⇒ **本檔跟著紅, 而訊息指向規則②**。
+  //     (另兩條路我沒選:甲 = truth-sync 找不到檔就 skip ⇒ **fail-open**;
+  //      乙 = 把 package.json 那條 glob 收回具名 ⇒ 撤銷 `ee4bdf27` 的用意, 且不在本窗檔案面。)
+  const TRUTH_SYNC_PATH_CONSTANTS = 4;
+  const truthSrc = readFileSync(join(REPO, 'scripts/b2s2b-truth-sync.py'), 'utf8');
+  const truthPaths = [...truthSrc.matchAll(/^[A-Z][A-Z0-9_]*\s*=\s*'([^']*\/[^']*)'/gm)]
+    .map((m) => m[1])
+    .filter((p): p is string => typeof p === 'string' && p.length > 0);
+  if (truthPaths.length !== TRUTH_SYNC_PATH_CONSTANTS) {
+    throw new Error(
+      `fixture:scripts/b2s2b-truth-sync.py 的路徑常數抓到 ${truthPaths.length} 支, 期望 ${TRUTH_SYNC_PATH_CONSTANTS} 支。` +
+        '常數被改名 / 新增 / 刪除了 ⇒ 請開那支檔核對(看 BLOCKS_PER_FILE 那一行才是完整清單), ' +
+        '再更新這裡的期望值與下面的複製邏輯。' +
+        '🔴 不要只把這個數字調成實際值就算了 —— 它變了代表 lint-staged 那條鏈要讀的【檔集合】變了。',
+    );
+  }
+  const copiedTruthFiles: string[] = [];
+  for (const rel of truthPaths) {
+    // `scripts/` 底下的由上面那行 symlink 覆蓋 ⇒ **不要複製**:
+    // `join(scratch, rel)` 會【穿過 symlink 寫回真 repo】。(實測是 no-op 自我複製、不截斷,
+    //  而依賴那個行為是運氣, 不是設計。)
+    if (rel.startsWith('scripts/')) continue;
+    mkdirSync(join(scratch, dirname(rel)), { recursive: true });
+    try {
+      copyFileSync(join(REPO, rel), join(scratch, rel));
+    } catch (e) {
+      // 照本檔 `must()` 的紀律:fixture 建不起來要說出自己壞了, 不要看起來像閘抓到東西。
+      throw new Error(`fixture 複製 ${rel} 失敗:${String(e)} —— 這不是閘壞了, 是 fixture 建不起來。`);
+    }
+    copiedTruthFiles.push(rel);
+  }
+
   writeFileSync(join(scratch, 'README.md'), '# mig gate e2e\n', 'utf8');
   must('add README', ['add', 'README.md']);
+  // 進 init commit。⚠️ **理由不是「不然會紅」** —— code-reviewer 2026-08-27 實測:
+  //    複製但不 `git add`(留 untracked)⇒ 每一格結果**與現版逐格相同**
+  //    (lint-staged 只看 staged;`migration-new-file-static-checks.sh:33` 也只看被傳進來的那支)。
+  //    ⇒ 保留 `git add` **只為了 scratch 乾淨**, 不是判別力來源。~~原本我寫的理由是錯的。~~
+  must('add truth-sync files', ['add', '--', ...copiedTruthFiles]);
   must('commit init', ['commit', '-q', '-m', 'init']);
 });
 
