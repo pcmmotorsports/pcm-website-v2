@@ -34755,3 +34755,74 @@ supabase/migrations/20260809180000_…:12, 18, 23
 
 📌 **與 `#941` 同族, 而這兩條更硬**:`#941` 是文件過期,本條 (a) 是**守門本身比宣稱窄**、
    (b) 是**假契約住在改不了的地方**。
+
+---
+
+### #944 後台客戶線的設計【明文掛在 BYPASSRLS 上】,而三支 adapter 的檔頭同時說它沒有
+
+**來源**:下手窗 `pcm-website-v2-de` 2026-08-27 回報,主視窗逐格複量。
+原始出處是 `~/pcm-mailbox/cc-checkpoint-收工-下手窗-20260826.md` §4-②
+點名「上一班收工前沒取號的那格」⇒ **這條被丟掉過兩次,本條是它第一次拿到號。**
+
+**(a) 設計依賴寫在 code 註解裡, 而它決定了 `Q15` 那天的處置方式**
+`apps/admin/src/lib/customers/customer-repository.ts:146-147` 逐字:
+```
+ * 兩 adapter 原設計注 authenticated client(RLS own);admin 注 **service_role**
+ * (BYPASSRLS 看任意客戶=後台預期),scoping 由 adapter `listByCustomer` 顯式
+```
+🔴 **它明文把「員工看得到任意客戶」這個功能掛在 `service_role` 的 `BYPASSRLS` 上。**
+⇒ `Q15`(Sean 已拍甲:補上 `customers` 那條缺的 `FOR SELECT TO service_role` 政策)
+   那天若一併對 `customer_addresses` / `customer_vehicles` 做同樣的補強,
+   **這裡發生的是【設計失效】不是【bug】** —— 而兩者的處置完全不同:
+   bug 是「修好它」,設計失效是「先問這個功能還要不要,再決定補政策還是改注入」。
+⚠️ **這條與既有的 `docs/phase-1-backlog.md:15480`(`#25` 片C1 那條)不是同一件事** ——
+   那條記的是**「打錯客人」的可追蹤性風險**(零稽核、零確認步驟),
+   本條記的是**設計依賴本身沒有落點**。兩條互相指,不要互相取代。
+   📌 而這個分辨值得記:第一次盤這格的人用 `grep -c BYPASSRLS docs/phase-1-backlog.md` ⇒ **3**
+      就會判「記過了」;用 `grep -c BYPASSRLS docs/launch-todo.md` ⇒ **0** 就會判「沒記過」。
+      **兩把尺都在誠實地量字串, 而要判的是一個【概念】有沒有落點。**
+      🔴 **字串命中不等於概念被記過, 字串零命中也不等於概念沒被記過。**
+
+**(b) 三支 adapter 的檔頭現在是假的 —— 各有兩個注入點, 而檔頭都寫「單一」**
+```
+packages/adapters/src/supabase/SupabaseCustomerAdapter.ts:168
+packages/adapters/src/supabase/SupabaseVehicleAdapter.ts:22
+packages/adapters/src/supabase/SupabaseAddressAdapter.ts:28
+```
+三行逐字都以「` * **單一 authenticated client**:`」開頭(2026-08-27 主視窗 `sed -n` 逐行複核,3/3 相符)。
+🔴 **而全 repo 掃下來是 5 處不是 3 處**(主視窗第一次把這個數字寫成 4,重跑才對):
+```
+grep -rn "單一 authenticated client" --include="*.ts" . | grep -v node_modules | wc -l   ⇒ 5
+```
+多出來的兩處:`SupabaseFavoritesAdapter.ts:48`(不在本條範圍,另判)與
+🔴 `packages/adapters/src/index.ts:17` 逐字「會員系統 3 個 Supabase adapter(單一 authenticated client、RLS 守自己 row)」
+⇒ **那是【彙總宣告】,是同一句話的第四個載體, 而它住在 barrel 檔 —— 讀 import 的人會先讀到它。**
+⇒ 改檔頭時這一行要一起改, 否則改了三支而彙總那句照樣說「單一」。
+⇒ 而 (a) 那段註解說 admin 那條注的是 `service_role`。**兩份都是誠實寫的, 而它們互相矛盾。**
+⇒ 要做的事:改那三行檔頭,寫成「兩個注入點:storefront=authenticated / admin=service_role」,
+   並在該行**指回本條號**,讓下一個人不用重新推導。
+   ⚠️ 這三支在 `packages/adapters/` ⇒ **不是 `packages/ui`, 不自動命中鐵則 12⑥**;
+      但它們是**共用套件**,改檔頭是純註解=標準片,改**行為**要另判。
+
+**不修未來會痛在哪**
+- **可追蹤性**:`Q15` 開工的人會先讀 adapter 檔頭(那是最近的文件),拿到「單一 authenticated client」
+  ⇒ 他會以為補 RLS 政策是安全的,而那正好是會讓後台客戶明細**整個空白**的那個改動。
+  🔴 **而那個空白發生在部署之後**,本機三綠對它零判別力(現有 Blocker 已記同款形狀)。
+- **可維護性**:每一片碰客戶子表的都要重新推導一次「到底注的是哪個 client」,
+  而推導的起點是一份錯的檔頭 ⇒ **重複付費, 而且每次都可能推錯。**
+- **擴充性**:設計依賴沒有號 ⇒ 它進不了任何盤點的分母。
+  這條已經被丟掉兩次(8d checkpoint 點名過一次、上一班收工前沒取號一次)——
+  📌 **一個沒有號的東西, 每一次被想起來都要靠某個人剛好記得。**
+
+**射程與未查的**
+- (a)(b) 兩段的字面**都是本檔作者當場 `sed -n` 逐行讀出來的**,不是轉述。
+- 🔴 **未查**:那三支 adapter 的**實際注入點**我沒有追(只讀了檔頭與 `customer-repository.ts` 的註解)
+  ⇒ 「各有兩個注入點」這句**是 de 說的, 我沒有獨立驗證**。改檔頭之前要先追一次 composition。
+- 🔴 **未查**:`service_role` 到底帶不帶 `BYPASSRLS` —— 那是**平台角色屬性, repo 內無法驗證**
+  (既有 Blocker 已標「未確認」)⇒ 本條**不重新宣稱它成立**,只記「設計依賴它」這個事實。
+
+📌 **本條落號過程本身量到一格, 留著**:主視窗第一次驗 (b) 時把範圍寫成 `apps/`
+   ⇒ `grep -rn "單一 authenticated client" apps --include="*.ts"` ⇒ **零命中**
+   ⇒ 差一步就要回報「de 那三支查無」。實際上三支全在 `packages/`。
+   🔴 **那個零是【尺的範圍錯】印出來的, 而它與【東西真的不在】印同一個數字。**
+   ⇒ 救回來的是負對照習慣:零命中當下改用不含路徑限制的寫法重掃一次,三支立刻全中。
