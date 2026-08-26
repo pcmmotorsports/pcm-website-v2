@@ -61,6 +61,15 @@ else
   printf '%s\n' '   復原:git checkout -- .husky/state-gates-freshness-gate.sh' >&2
   exit 1
 fi
+if [ -f .husky/rls-service-role-policy-gate.sh ]; then
+  sh .husky/rls-service-role-policy-gate.sh || exit $?
+else
+  printf '%s\n' '🔴 .husky/rls-service-role-policy-gate.sh 不見了 ⇒ 擋下(不放行)' >&2
+  printf '%s\n' '   與 scripts-whitelist / state-gates / view-apply 同款 fail-closed:刪掉這支殼' >&2
+  printf '%s\n' '   正是關掉它最省事的方法,而本閘防的正是「開了 RLS 卻沒補政策」這種疏忽。' >&2
+  printf '%s\n' '   復原:git checkout -- .husky/rls-service-role-policy-gate.sh' >&2
+  exit 1
+fi
 if [ -f .husky/view-apply-gate.sh ]; then
   sh .husky/view-apply-gate.sh || exit $?
 else
