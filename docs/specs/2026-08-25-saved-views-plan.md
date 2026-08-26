@@ -188,3 +188,270 @@ apps/admin/src/components/orders/order-filter-chips.test.tsx  每顆新 chip 一
 
 📌 相關:[階梯原文](2026-08-14-e10-1-today-view-recon.md) · [邊界原文](2026-08-15-1-today-view-plan.md) ·
 `docs/phase-1-backlog.md:21226` (`#638` 錯號登記) · `apps/admin/src/lib/session/actor.ts`
+
+---
+---
+
+# 🔴 §6 拍板之後:Sean 選了丙 ⇒ 這一片長這樣(2026-08-27 線4 續寫,**等批**)
+
+> **狀態:等 Sean 批。一行碼都還沒寫、schema 一個字都沒動。**
+> 數法(2026-08-27 當場跑):`git status --porcelain | grep -c 'saved-views-plan'` ⇒ 1、
+> `git status --porcelain | grep -cE 'supabase/migrations|apps/admin/src/(lib|components)/orders'` ⇒ 那幾支全是別條線的,
+> **本片零命中**(逐支比對清單見 `§6-3` 交界風險那節)。
+> 拍板出處(⚠️ **引用帶檔名 + 題號,不寫「Q15 丙」**):
+> `~/pcm-mailbox/CHECKPOINT-主視窗-96-壓縮前-20260826.md` 的 **`Q15=丙`** 逐字
+> 「**Q15 丙 等真登入再做每人一份**」(第二批 23 題決策表)。
+> 🔴 **`Q15` 在本 repo 是【一號兩用】**:`STATUS.md:32`(Blocker 節)現行還有另一個 `Q15`=甲
+> (customers 那條缺的 `FOR SELECT TO service_role` 政策;
+>  數法 `grep -c 'Q15' STATUS.md` ⇒ 5、負對照 `grep -c 'Q9999' STATUS.md` ⇒ 0)—— **完全不同的事,而兩句都讀得通。**
+> ⇒ 本節之後一律寫全稱,不寫裸題號。(主視窗 `-5b` 2026-08-27 指出。)
+
+## 🔴 6-0 上一版推薦的是甲,而拍板是丙 —— 本節不回頭推銷甲
+
+`§3 Q1` 那份推薦(甲:加寫死 chip、零 schema、今天就能出)**已被拍板推翻**。
+⚠️ 它**仍然完整、仍然有說服力、而且就在同一份檔案的上面** ——
+📌 **一份被推翻的推薦不會自己消失,它是最容易讓人不知不覺走回去的東西。**
+⇒ 本節只把丙補成可執行的一片。`§4`(「假如 Q1 選甲」)**保留備查、不刪、不再更新**。
+⇒ `§3 Q2`(要加哪幾顆 chip)是「Q1 選甲才要答」⇒ **拍丙之後不成題,不去碰它**
+  (修一個已經不成題的題目 = 製造新的過期字面)。
+
+## 6-1 片型與分級(動手前先標)
+
+```
+片型   高風險片  —— 命中鐵則 12③(新表 + migration)⇒ 對抗審查【不降級】,codex 必跑
+鐵則 8 命中     —— 動 schema + 跨 3+ 檔 ⇒ 本節就是那份 plan, 等 Sean 批才動手
+內容分級 不是 L3 —— 員工自己維護的資料, 不是對客文案
+                  出處 `docs/specs/2026-08-14-e10-1-today-view-recon.md:83` 逐字
+                  「ⓒ 的自訂檢視 = 員工自己維護的資料,**不是 L3 內容**(它不是對客文案)」
+                  🔴 **本節上面 `§0` 那份 plan 寫的是 `:81`, 而 `:81` 講的是 ⓑ 書籤、不是分級。**
+                     我第一版**照抄了那個行號沒有開檔核** —— 2026-08-27 重量才發現。
+                     📌 **我從一份自己正在續寫的檔裡, 抄走了一個錯的行號** ——
+                        它就在同一支檔案上面幾十行, 而我沒有點開它。
+體積   ⚠️ 超過 15-45 分鐘 ⇒ **鐵則 4 要求拆**。拆法見 6-6。
+```
+
+## 🔴 6-2 這一片的核心設計決定:**存網址,不存欄位**
+
+存一組篩選條件有兩條路,而它們的差別**不在工程量,在誰來守白名單**:
+
+```
+乙案 存欄位   把 AdminOrderFilter 的每一軸拆成資料表欄位(或一坨 jsonb)
+              ⇒ 讀回來時要【重新驗一次】每一軸的合法值
+              ⇒ 🔴 那是**第二份白名單**, 而兩份白名單一定會漂
+                 (第一份的落點:`packages/domain/src/order/types.ts:287` `AdminOrderFilter`
+                  + `apps/admin/src/lib/orders/order-list-view.ts:405-432` 那段 parse)
+                 (漂了之後畫面照樣顯示得出東西 —— 只是篩的東西不一樣)
+
+甲案 存網址   把那 9 個 URL 參數原樣存成一段 query string,讀回來時
+              **丟回既有的 `parseOrderListView()` 重新 parse**
+              ⇒ 白名單守門**一份都不用新增**:`pickEnum` / `pickEnumMulti` 已經
+                 逐值白名單 + 去重 + 空折 undefined(`apps/admin/src/components/orders/order-filter-chips.tsx:126-127` 逐字;`:128` 是 `*/`)
+              ⇒ 存進去的髒值(手改網址、日後改 enum)在**讀出來的那一刻**被丟掉,
+                 而不是變成一個沒有人驗過的篩選條件
+              ⇒ ✅ **本 plan 推薦甲**
+```
+
+**那 9 個參數(2026-08-27 當場 grep,`apps/admin/src/lib/orders/order-list-view.ts`)**:
+```
+grep -n "_PARAM = '" apps/admin/src/lib/orders/order-list-view.ts   ⇒ 9 行
+  :45 payment_status   :58 goods_axis     :59 order_source
+  :60 payment_channel  :73 show_unpaid_card  :85 pending
+  :93 den              :518 date_from     :519 date_to
+負對照:同一條指令改查 `_PARAM_NOSUCH = '` ⇒ **0** 命中(2026-08-27 當場跑過才寫,不是預期值)
+```
+
+### 🔴🔴 6-2a 而甲案有一個會靜默說謊的地方 —— **日期**
+
+```
+date_from / date_to 在網址上是【絕對的年月日】(`:468-469` 逐字 firstValue(raw[DATE_FROM_PARAM]))
+而「今天 / 本週」那些按鈕是由 `matchOrderDatePreset()` 從那兩個絕對日**反推**出來的(`:479`)
+
+⇒ 員工今天按「今天」再存成檢視 ⇒ 存進去的是 `date_from=2026-08-27&date_to=2026-08-27`
+⇒ **明天點它, 看到的是 8/27 的單, 不是明天的單**
+⇒ 🔴 而畫面上**沒有任何東西會紅**:日期格式正確、範圍合理、筆數是真的、
+     篩選列還會把「自訂」那一格顯示成選中 —— 它看起來完全正常。
+📌 這正是本 repo 記過的那個母題:**錯的那次和對的那次長得一樣。**
+```
+
+⇒ **這一格要 Sean 拍**(見 6-5 `Q-檢視-2`),而三條路都寫在那裡。
+⚠️ **在他拍之前,這一片不能開工** —— 這不是實作細節,是「這個功能到底在做什麼」。
+
+## 6-3 要改什麼(鐵則 8 第一件;**這份清單就是協調用的那份**)
+
+```
+新增
+  supabase/migrations/2026MMDD_m4b_1_admin_saved_order_views.sql     新表 + RLS + GRANT
+  apps/admin/src/lib/orders/saved-views.ts                           純函式:query string ↔ 檢視
+  apps/admin/src/lib/orders/saved-views.test.ts
+  apps/admin/src/lib/orders/saved-views-actions.ts                   server action:建/改名/刪
+  apps/admin/src/lib/orders/saved-views-actions.test.ts
+  apps/admin/src/components/orders/saved-view-chips.tsx              UI:存起來的那排 + 「存成檢視」
+  apps/admin/src/components/orders/saved-view-chips.test.tsx
+
+要讀(不一定要改)
+  apps/admin/src/lib/session/actor.ts          `getSessionActor()` 取 staff  —— 🔴 只讀
+  apps/admin/src/lib/orders/order-list-view.ts `parseOrderListView` 重 parse —— 🔴 只讀
+
+🔴 交界(主視窗 `-5b` 2026-08-27 居中, 線1 `-21` 自己給了形狀 ⇒ **已解, 不是風險**)
+  · `apps/admin/src/lib/orders/order-list-view.ts`   線1 動的形狀 = **純加法一處**:
+      把 `taipeiParts` 由 `function` 改成 `export function` + 一段註解
+      (`git diff --stat` ⇒ 1 file, 11 insertions(+), 1 deletion(-))
+      🔴 **沒改任何既有函式簽名、沒碰 `buildOrderListHref` / 篩選那一族**, 下完就離開該檔
+      ⇒ 與本片(篩選 / 檢視那一族)**零交集**
+  · `packages/domain/src/order/types.ts`             線1 也在動(`AdminOrderFilter` 在這)
+      ⚠️ **這一支我沒有拿到形狀** ⇒ 實作前要跟主視窗要一次, 不要自己推
+  · `apps/admin/src/components/orders/order-filter-chips.tsx`  2026-08-27 量:**沒有人在動**
+    (`git status --porcelain | grep -c 'order-filter-chips'` ⇒ 0,主視窗當場量)
+  ⇒ 本片**設計上不需要改**上面前兩支(只 import 既有 export)。
+    ⚠️ 而「不需要改」是**設計推論,不是量到的** —— 真的動手時若發現要改,
+       **停下來找主視窗居中,不要自己去改**。
+
+📌 **報交界的規格(線1 `-21` 2026-08-27 示範, 本 repo 之後照這個寫)**:
+   協調**不是**問「我可不可以動這支檔」—— 那會讓兩邊都停下來等一個還沒發生的答案。
+   協調是**給出「我動了什麼形狀」讓對方自己判會不會撞**,四件:
+   ```
+   ① 哪一支檔          ② 加法還是改法(`git diff --stat` 的實際數字)
+   ③ 有沒有動既有簽名   ④ 做完會不會再回來
+   ```
+```
+
+## 6-4 表長這樣(草案;**未寫、未跑、未驗**)
+
+形狀抄自既有 `supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql`
+(`:62` ENABLE RLS / `:65` REVOKE ALL FROM PUBLIC, anon, authenticated, service_role / `:71-72` 只 GRANT 給 service_role 且 UPDATE 逐欄)。
+
+```sql
+CREATE TABLE public.admin_saved_order_views (
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id    text        NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  label       text        NOT NULL,
+  query       text        NOT NULL,   -- 那段 query string(不含 `?`)
+  sort_order  integer     NOT NULL DEFAULT 0,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT saved_view_label_nonempty CHECK (pg_catalog.btrim(label) <> ''),
+  CONSTRAINT saved_view_label_len      CHECK (char_length(label) <= 40),
+  CONSTRAINT saved_view_query_len      CHECK (char_length(query) <= 2048)
+);
+CREATE UNIQUE INDEX admin_saved_order_views_owner_label_idx
+  ON public.admin_saved_order_views (staff_id, pg_catalog.btrim(label));
+```
+
+🔴 **權限(鐵則 12②;照 `docs/patterns/revoking-function-execute-in-supabase.md`)**
+```
+ALTER TABLE … ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE … FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, INSERT, DELETE ON TABLE … TO service_role;
+GRANT UPDATE (label, sort_order, updated_at) ON TABLE … TO service_role;   -- staff_id / query 不給改
+⚠️ **新物件出生就自帶 anon 權限,而 repo 內零 `GRANT` 字面可掃、三綠不會紅**
+   ⇒ 兩道 REVOKE 都要下,不是只下一道。(該 runbook 的原話)
+🔴 **ownership 由【app 層的 where staff_id = 目前這個人】守,不是 RLS** ——
+   後台走 service_role(它 BYPASSRLS)⇒ **RLS 在這條路上不生效**。
+   ⇒ 那道 where 是唯一的一道 ⇒ 它要有自己的負測:
+     「用 A 的 session 讀 B 的檢視 id ⇒ 讀不到 / 刪不掉」,而且要**先看它會紅**。
+```
+
+## 🔴 6-5 要 Sean 拍的 —— 三題,每題一個字
+
+```
+Q-檢視-1  存起來的檢視要不要能給別人看到?
+   甲 只有自己看得到(純每人一份)                              ← 我傾向
+      依據:`apps/admin/src/lib/session/actor.ts:73-79`(fallback / bootstrap 兩種都回 null)
+   乙 自己的 + 一排全公司共用的(要多做「誰能改共用的」那一格)
+   👉 乙 = 一個人改、其他人畫面跟著變, 而畫面上不會有提示
+      (§2 已寫:**未實作、未量**, 這是「沒有擁有者欄」的直接後果, 不是量到的行為)
+   👉 甲交出去的東西比較小, 而且乙隨時可以加上去;反過來不行。
+
+Q-檢視-2  🔴 存「今天」這種會動的日期, 明天點它應該看到什麼?
+   甲 看到【明天】的單 —— 存的是「今天」這個【意思】, 不是那一天的日期     ← 我傾向
+   乙 看到【存的那一天】的單 —— 存的是那個日期本身
+   丙 這一版**乾脆不存日期**, 存檢視時把日期那一軸丟掉、點開後日期回預設
+   👉 現在的網址上只有絕對日期(`date_from=2026-08-27`), 沒有「今天」這個意思
+      落點:`apps/admin/src/lib/orders/order-list-view.ts:468-469`(讀那兩個絕對日)
+            + 同檔 `:479` `matchOrderDatePreset` 從絕對日**反推**按鈕, 而反推不會知道那天是不是今天
+      ⇒ **選甲要多存一欄**(存 preset 的 key, 讀回來當天重算), 不是免費的
+   👉 而選乙**不用多做任何事** —— 因為它就是「什麼都不處理」的結果
+      🔴 **這正是危險的地方**:乙會在沒有人決定的情況下自己發生,
+         而明天點開看到昨天的單, 畫面上不會有任何東西紅。
+   👉 丙最小、最誠實, 而員工每次都要重點一次日期。
+
+Q-檢視-3  用共用密碼登入的人(沒有具名身分)看到什麼?
+   甲 看不到「我的檢視」那一排, 也不能存 —— 畫面上寫一句為什麼        ← 我傾向
+   乙 讓他們共用一份「沒有主人」的檢視
+   👉 `apps/admin/src/lib/session/actor.ts:73-79` 逐字:共用密碼備援 (`fallback`)
+      與首次建置 (`bootstrap`) **兩種都回 null**, 拿不到 staff_id ⇒ 甲是現況的自然結果
+   👉 ⚠️ **今天實際上有沒有人用共用密碼登入, 沒有人量過**(§3 就標著這句, 仍未量)
+      ⇒ 若答甲, 那句「沒有人量過」要跟著寫進交件, 不得寫成「沒有人這樣用」
+```
+
+## 6-6 拆片(鐵則 4:15-45 分鐘可中斷 + Sean 肉眼驗得了)
+
+```
+片1  schema  migration + 兩道 REVOKE + GRANT 逐欄 + 拋棄式 PG 上跑斷言
+             (含負測:anon / authenticated 讀不到;先看它會紅)
+             ⇒ 高風險片, codex 必跑。**不接 UI, Sean 這一片看不到畫面**
+片2  讀       saved-views.ts(query string ↔ 檢視, 純函式)+ 列表讀出來顯示成一排 chip
+             ⇒ Sean 肉眼驗:手動塞一筆進 DB, 那排 chip 出現、點下去篩對
+片3  寫       「存成檢視」+ 改名 + 刪 + 那道 ownership where 的負測
+             ⇒ Sean 肉眼驗:存一組、改名、刪掉
+🔴 片1 單獨上線是安全的(新表沒有人讀)⇒ 三片可以分開 commit、分開推。
+```
+
+## 6-7 rollback
+
+```
+片2 / 片3   單一 commit revert ⇒ 完全復原(只動 app 層)
+片1         🔴 **migration 不能靠 revert 復原** —— 它已經跑在正式庫上了
+            ⇒ 要附一支 down migration(DROP TABLE ... CASCADE)
+            ⇒ ⚠️ 而 DROP 會**連同員工存的檢視一起消失**, 那是不可逆的
+              ⇒ 上線後才要 rollback ⇒ 先 dump 那張表再 DROP
+```
+
+## 6-8 🔴 這一片交不出來的東西(寫在前面,不要等交件才講)
+
+```
+· **關鍵字搜尋存不進去。** 關鍵字走 cookie 不走 URL, 而那是拍板紅線
+  (`apps/admin/src/lib/orders/keyword-search-action.ts:18` 逐字「PRG 是紅線不是風格(Q-a=B)」)
+  ⇒ 存一組「含關鍵字」的畫面, 存起來的那份**沒有關鍵字**, 而它看起來就是一張正常的檢視。
+  ⇒ **UI 上要講**, 不能只寫在這份 plan 裡。
+· 排序不存(列表目前沒有可切的排序軸 —— **未查, 未確認**)
+· 頁碼不存(`page` 不在那 9 個參數裡, 而存一個「第 3 頁」也沒有意義)
+```
+
+## 6-9 這份續寫自己不確定的(**逐條, 不藏**)
+
+```
+· 那 9 個參數是不是**全部**篩選狀態 —— 我 grep 的是 `_PARAM = '` 這個字面。
+  🔴 **若有參數是用別的寫法宣告的(樣板字串 / 行內字面), 我的尺看不見它**
+  ⇒ **未確認**。實作前要用第二種數法交叉(例如掃 `raw[` 的取用點)。
+  📌 這一條是 2026-08-27 我自己在 wallet.css 上踩過的同一個病:**尺比對象窄**。
+  🔴 **而它有一個更大號的同族, 同日由線1 `-21` 自爆**。
+     ⚠️ **我拿到的是轉述, 所以我自己開了那顆 commit** —— `git show 7489aada --format=%B --no-patch`
+     的第 111 行**逐字**(引用塊, 未重打):
+     ```
+       admin  126 passed | 1 skipped (127) · 2636 passed | 2 skipped (2638) · 紅 0  —— 兩發完全相同
+     ```
+     📌 轉述給我的版本是「admin 126 passed · 2636 測項 · 紅 0」—— **它把 skipped 那兩格吃掉了**。
+        兩個版本都支持同一個結論, 而**只有一個是那顆 commit 上真正寫著的字**。
+     而**今天全套的分母是我自己量的**(2026-08-27,`npx vitest run apps/admin`):
+     ```
+       Test Files  281 passed | 1 skipped (282)
+       Tests  5112 passed | 2 expected fail | 2 skipped | 1 todo (5117)
+     ```
+     ⇒ `127 / 282` 檔、`2638 / 5117` 測項 ⇒ **分母不到一半**, 而那半裡藏著 6 格 `TypeError`
+       (`order.shippingAddress.name` 少一個 `?.`;**這一格是轉述, 我沒有自己複現**)。
+     **那句「兩發完全相同」是真的, 三個數字都在, 而它看起來比大多數收工紀錄都嚴謹。**
+     ⇒ **連跑兩發比總數防的是【漏跑】, 防不了【分母一開始就選窄】—— 窄的分母跑兩次還是窄的。**
+  ⇒ 📌 **本片的判別句要問兩層, 不是一層**:
+       ① **我的尺看得見對象的全部嗎?**(wallet.css 那次:`^\.` 看不見 `@media` 裡的縮排)
+       ② **我量的那個對象, 是不是全部的對象?**(`7489aada` 那次:分母只有一半)
+       兩者都印得出一個乾淨、附了數法、可重跑的結果。
+· 員工實際上每天在篩什麼 —— **沒問過任何員工**(§5 就標著, 仍未問)
+· `staff` 表現在有幾筆、正式站上有沒有人真的用共用密碼 —— **沒查**
+· 片1 的斷言要在拋棄式 PG 上跑(`docs/runbooks/throwaway-postgres-for-migration-verification.md`)
+  ⇒ 而該 runbook 自己寫著 **`apply 成功 ≠ 斷言通過`** 與本機效度限制, 照它不放寬
+```
+
+📌 相關:`docs/patterns/revoking-function-execute-in-supabase.md`(兩道 REVOKE / 新物件自帶 anon)·
+`docs/runbooks/throwaway-postgres-for-migration-verification.md` ·
+`supabase/migrations/20260726120000_m4b_e8a1_staff_table.sql`(表的形狀來源)
