@@ -1,5 +1,7 @@
 # 供應商主檔 — 片級 plan **v2**(2026-08-01)
 
+> 🔴 **本檔的 `#1`-`#33` 是「員工的一天」項次(正本 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1 + §1.1),不是 `docs/phase-1-backlog.md` 的 `#N` —— **兩套全部同號、意義無關**。完整警語在正本檔頭。**不寫行號:那份檔會長。**
+
 > 取代已作廢的 A5b/A5c。拍板全集 = memory `project_m4b-supplier-master-decisions`。
 > 🔴 **命中鐵則 8**(動 schema + 跨 3+ 檔)⇒ **需 Sean 批准才動 code**;鐵則 12 ③ ⇒ 高風險片。
 >

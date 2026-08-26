@@ -1,5 +1,7 @@
 # #12 手動建單(非網站商品)— 片級 plan(A 窗夜跑,零行 code)
 
+> 🔴 **本檔的 `#1`-`#33` 是「員工的一天」項次(正本 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1 + §1.1),不是 `docs/phase-1-backlog.md` 的 `#N` —— **兩套全部同號、意義無關**。完整警語在正本檔頭。**不寫行號:那份檔會長。**
+
 > **狀態:等 Sean 批(鐵則 8 + 12)+ 一題待答。** 事實親查於 worktree `pcm-void-readers` @ `0e8c086b`。
 > 上位權威 = `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` §5.3 項 10;本檔是它的片級落地,**不改它的任何合約**。
 

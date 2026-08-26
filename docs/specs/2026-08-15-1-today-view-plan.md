@@ -1,5 +1,7 @@
 # `#1` 看今天要處理什麼 — slice plan(C 窗;**未開工,等主視窗看過**)
 
+> 🔴 **本檔的 `#1`-`#33` 是「員工的一天」項次(正本 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1 + §1.1),不是 `docs/phase-1-backlog.md` 的 `#N` —— **兩套全部同號、意義無關**。完整警語在正本檔頭。**不寫行號:那份檔會長。**
+
 > 事實親查於 `pcm-customers` @ `c58cb48b`(branch `customers`)。🔴 **全部來自 repo 檔案,未對正式庫查詢、未開瀏覽器。**
 > 前身 = 我自己的偵察報告 `2026-08-14-e10-1-today-view-recon.md`。**本 plan 推翻它一個結論,見 §0。**
 

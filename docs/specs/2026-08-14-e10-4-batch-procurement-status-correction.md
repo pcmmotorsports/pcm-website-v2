@@ -1,5 +1,7 @@
 # #4 批次標商品進度 — 現況更正 + 既有 plan 還缺什麼(A 窗夜跑,零行 code)
 
+> 🔴 **本檔的 `#1`-`#33` 是「員工的一天」項次(正本 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1 + §1.1),不是 `docs/phase-1-backlog.md` 的 `#N` —— **兩套全部同號、意義無關**。完整警語在正本檔頭。**不寫行號:那份檔會長。**
+
 > **這份不是第二份 plan。** 權威 plan 仍是 `docs/specs/2026-08-06-e10-a9h-batch-procurement-plan.md`(329 行),
 > 本檔只做兩件事:**①更正兩處已過期的字面 ②列出那份 plan 現在還缺什麼才能開工。**
 > 事實親查於 worktree `pcm-void-readers` @ `0e8c086b`。
