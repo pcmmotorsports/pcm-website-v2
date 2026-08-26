@@ -492,6 +492,31 @@ export function consumeAlarmSlot(reason: SessionRejectReason, now: number = Date
 /** 測試用:清掉去重狀態。**不要在 production code 呼叫。** */
 export function __resetAlarmThrottleForTests(): void {
   lastAlarmAt.clear();
+  lastNamedSlotAt.clear();
+}
+
+// ── 同一套有界去重,給【不是 SessionRejectReason】的告警用 ────────────────────
+// 🔴 **為什麼要多這一支,而不是把新 reason 塞進 `SessionRejectReason`**:
+//    那個 union 是 `verifySessionDetailed` 的**回傳型別**。塞一個它永遠不會回傳的成員進去,
+//    等於讓每個窮舉它的呼叫端都要處理一個**構造不出來的狀態** —— 型別會開始說謊。
+// 🔴 **而為什麼不是「直接 console.warn 就好」**(B5-b 自審抓到的 must-fix):
+//    上面 `ALARM_MIN_INTERVAL_MS` 那段註解逐字寫了理由 ——
+//    「發生時**整站都在失敗**,而那正是每一個請求都會走到這一行的時刻」。
+//    ⇒ B5-b 讀取閘的拒絕**觸發情境正好就是那一個**:DB 掛掉 ⇒ 名單對每一個人都查不到
+//      ⇒ **全公司每一個請求都記一則**。逐次記 = ①log 量被放大成 DoS 面 ②真訊號被自己的洪水淹掉。
+//    📌 那不是理論,它就是 `#933` 描述的那一天。
+// ⚠️ 誠實界線同上:serverless 每個 instance 各有計時器 ⇒ **上界,不是精確節流**。
+const lastNamedSlotAt = new Map<string, number>();
+
+/**
+ * 具名告警窗口的有界去重。**呼叫即消耗**(語意與 `consumeAlarmSlot` 逐字相同)。
+ * `key` 用穩定字串(例 `'readgate.staff_not_active'`),不要用會變動的值。
+ */
+export function consumeNamedAlarmSlot(key: string, now: number = Date.now()): boolean {
+  const prev = lastNamedSlotAt.get(key);
+  if (prev !== undefined && now - prev < ALARM_MIN_INTERVAL_MS) return false;
+  lastNamedSlotAt.set(key, now);
+  return true;
 }
 
 export type VerifyResult =

@@ -7,6 +7,8 @@ import {
   requireRealIdentity,
   signSession,
 } from '@/lib/session/session';
+import { planStaffGate } from '@/lib/session/read-gate';
+import { resolveActiveStaffById } from '@/lib/staff';
 import { getSsoConfig } from '@/lib/sso/config';
 import { exchangeCode } from '@/lib/sso/exchange';
 import { identityDropTrace } from '@/lib/sso/identity-drop-trace';
@@ -41,6 +43,52 @@ function failResponse(req: NextRequest): NextResponse {
 /** 設定缺漏 500(帶與其他回應一致的安全標頭;不動任何 cookie)。 */
 function configError(): NextResponse {
   const res = NextResponse.json({ error: '設定缺漏' }, { status: 500 });
+  res.headers.set('Referrer-Policy', 'no-referrer');
+  res.headers.set('Cache-Control', 'no-store');
+  return res;
+}
+
+/**
+ * 查不到「在職的他」時的**終點頁**。
+ *
+ * 🔴🔴 **為什麼是終點頁,不是導回 `/api/sso/start`**(本片最重要的一條約束):
+ *    導回去 ⇒ 報價單那側 session 還活著 ⇒ 它**直接發一張新碼導回來**
+ *    (量到的:`~/API大量上架/PCM報價單-V2/app/api/sso/authorize/route.ts:55-57,:87` ——
+ *     有 session 就發碼、不需要使用者做任何事)
+ *    ⇒ 回到本函式 ⇒ 同一個 `staff_id` ⇒ 一樣查不到 ⇒ 又導回去
+ *    ⇒ **兩站之間無限互踢,而畫面看起來只是「一直在轉圈」,不像被擋。**
+ *    📌 那種故障最貴的地方是**它不像故障** —— 它像網路慢。
+ *
+ * 🔴🔴 **而頁面上【有一顆手動的「重新登入」】,那與上面那條不衝突**(codex R3 must-fix 4):
+ *    ```
+ *    自動導回  ⇒ 使用者沒有選擇 ⇒ 無限迴圈, 而他看到的是轉圈
+ *    手動按鈕  ⇒ 使用者自己決定何時再試 ⇒ 最壞情況是【他再看到這一頁一次】
+ *    ```
+ *    ⇒ 📌 **「同一個目的地」在自動與手動之下是兩件事** —— 差別不在去哪裡,在**誰決定去**。
+ *    ⚠️ **而沒有這顆按鈕的代價是具體的**:被誤停用的人, 在管理員改回來之後
+ *       **重新整理只會拿那張【已經被兌換掉】的一次性 code 再失敗一次**
+ *       ⇒ 他會以為「還是不行」, 而其實只要重新發起一次就好。
+ *       ⇒ **我們會把一個【可恢復】的問題, 變成一個【他只能打電話】的問題。**
+ *
+ * 🔴 **文案為什麼把兩種可能都寫出來**:
+ *    `resolveActiveStaffById` 對「查無此人 / 已停用 / **DB 讀不到**」回**同一個 null**(`#933`)。
+ *    ⇒ 只寫「你已被停用」⇒ DB 抖動那天全公司以為自己被開除;
+ *      只寫「載入失敗」⇒ 真的被停用的人會一直等。**兩件都講,並告訴他去找誰。**
+ */
+function inactiveStaffResponse(requestId: string): NextResponse {
+  const body = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>無法確認員工身分</title></head>
+<body style="font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;background:#f5f5f5;color:#1a1a1a">
+<main style="max-width:32rem;padding:2rem;background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+<h1 style="font-size:1.25rem;margin:0 0 1rem">無法確認你的員工身分</h1>
+<p style="margin:0 0 1rem;line-height:1.7">可能是<strong>系統暫時讀不到員工名單</strong>,也可能是<strong>你的帳號已停用</strong>。<br>這兩種情況目前看起來一樣,請直接找管理員確認。</p>
+<p style="margin:0 0 1.5rem;line-height:1.7;color:#444">管理員說已經處理好之後,再按下面這顆:</p>
+<p style="margin:0 0 1.5rem"><a href="/api/sso/start" style="display:inline-block;padding:.625rem 1.25rem;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:8px;font-size:.9375rem">重新登入一次</a></p>
+<p style="margin:0;color:#666;font-size:.8125rem">回報時請附上這組編號:<code>${requestId}</code></p>
+</main></body></html>`;
+  const res = new NextResponse(body, { status: 403 });
+  res.headers.set('Content-Type', 'text/html; charset=utf-8');
   res.headers.set('Referrer-Policy', 'no-referrer');
   res.headers.set('Cache-Control', 'no-store');
   return res;
@@ -110,6 +158,36 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   //    那道 trace「會自己退場」靠的前提是 **`sub` 被加進【呼叫端傳給它的那個物件本身】**。
   //    若改成在下游內部補,trace 看到的 carrier 永遠不帶 ⇒ **每次登入都印、永不退場**
   //    ⇒ 它就變成它自己要防的那種噪音。**所以這一行的位置是契約的一部分,不是風格。**
+  // ── B5-b′ 片一:**簽票之前先問一句「他還在職嗎」** ──────────────────────────
+  //
+  // 🔴 **這是本片唯一在補的那個洞**:在這一行之前,**全 repo 沒有任何一處在簽票時查 `is_active`**
+  //    (2026-08-26 量:`grep -nE "resolveStaff|listActiveStaff|is_active" <本檔>` ⇒ 三處全是註解/log;
+  //     負對照 同檔 `grep -c buildAdminSession` ⇒ 2 ⇒ 尺是活的)。
+  //    ⇒ 一個已停用的員工,只要報價單那側還讓他登入,就能一直換到新的 admin 票。
+  //
+  // 🔴🔴 **為什麼查在【這裡】而不是每個請求都查**(Sean 2026-08-26 拍板,逐字「只有登入那一刻問一次」):
+  //    每個請求都查 ⇒ `staff` 表**單獨**故障就會讓**整個後台停擺**,而訂單客戶資料其實還好好的
+  //    ⇒ codex R3 逐字:「有些故障下,它確實比【沒有這道閘】更糟」。詳 `#935`。
+  //    ⚠️ **而這不是把依賴消掉,是把它搬家**:DB 掛掉 ⇒ 沒有人能換新票
+  //       ⇒ 大家在自己的票過期時**陸續**被擋。**擋的位置變了,不是消失了。**
+  //       📌 而**漸進式的全站故障比瞬間的更難認出來** —— 值班看到的是「陸陸續續有人說進不去」。
+  //
+  // ⏳ **本片刻意【不動】票的有效期**(仍是 `ADMIN_SESSION_MAX_AGE_SEC` 12h)。
+  //    ⇒ 所以今天的效果是「**停用之後,最多 12 小時內下次換票時進不去**」,不是「立刻」。
+  //    ⇒ 縮到 15 分鐘是**片二**,而它**必須與「靜默續票」一起出** ——
+  //      只縮短不做續票 = 每個員工每天被打斷約 32 次,那是**做一半**。
+  const gate = planStaffGate(result.sub);
+  if (gate.kind === 'require-active-staff') {
+    const staff = await resolveActiveStaffById(gate.staffId);
+    if (staff === null) {
+      // 🔴 三種世界在這裡回**同一個 null**:查無此人 / 已停用 / **DB 讀不到**(`#933`)。
+      //    本片刻意接受這個歧義(Sean 2026-08-25 拍板:先關破口、DB 韌性另開一片),
+      //    ⇒ 所以下面那頁**兩種可能都講**,不能只講一種。
+      await recordSsoLogin('fail', { requestId, reason: 'staff-not-active' }, req.headers);
+      return inactiveStaffResponse(requestId);
+    }
+  }
+
   const session = buildAdminSession(result.amr, result.auth_time, result.sub);
   const token = await signSession(session);
   if (!token) {

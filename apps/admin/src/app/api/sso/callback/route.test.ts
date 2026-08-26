@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 // #606 之後 admin 測試可用 @/ 直讀原模組;本檔測【原檔】route.ts,不建複本。
-import { ADMIN_SESS_COOKIE, verifySession } from '@/lib/session/session';
+import {
+  ADMIN_SESS_COOKIE,
+  verifySession,
+  __resetAlarmThrottleForTests,
+} from '@/lib/session/session';
 import { SSO_STATE_COOKIE, encodeStateCookie } from '@/lib/sso/state';
 import { buildExchangeUrl } from '@/lib/sso/config';
 
@@ -24,8 +28,50 @@ const { loginEventInsertSpy } = vi.hoisted(() => {
   );
   return { loginEventInsertSpy };
 });
+// 🔴 **B5-b′**:同一顆 client 現在有【兩個】消費者 ——
+//    ① 登入事件那本帳 `insert`(既有)
+//    ② 簽票前查「他還在職嗎」`from('staff').select().eq().maybeSingle()`(本片新增)
+//    ⚠️ **原本的 mock 只給 `insert`** ⇒ 本片接上之後,`.select` 是 `undefined` ⇒ 查詢丟例外
+//       ⇒ 被 `resolveActiveStaffById` 的 catch 吞成 `null` ⇒ **每一個 user 登入都被擋**
+//       ⇒ 既有 5 格當場紅。**那 5 格紅是【好消息】:它證明這道閘真的接上了,不是 no-op。**
+//    📌 值得記:一個「只長出需要的那幾個方法」的 mock,會在**別人多接一個消費者**時
+//       用一種**看起來像業務失敗**(登入被擋)的形狀壞掉,而不是「mock 缺方法」。
+// 🔴🔴 **`eq` 收下【欄名與值】並記錄它**(codex 2026-08-26 must-fix)。
+//    ⚠️ 原本寫成 `eq: () => …` —— **把問誰整個丟掉** ⇒ 把實作改成永遠查 `'sean'`,
+//       B1–B7 **照樣全綠**,而正式站**停用的 Amy 會查到在職的 Sean,然後簽出帶 Amy 身分的票**。
+//    📌 **一個不看問題就回答的 mock,讓「有沒有問對人」這件事變成不可觀測** ——
+//       同一個病我在 proxy 那版被抓過一次,**換了落點之後我又寫了一遍。**
+const { staffRow, staffEqArgs } = vi.hoisted(() => ({
+  staffRow: vi.fn(async (_id: unknown): Promise<{ data: unknown; error: unknown }> => ({
+    data: { id: 'sean', label: 'Sean(老闆)', is_manager: true, is_active: true },
+    error: null,
+  })),
+  staffEqArgs: vi.fn((_col: string, _val: unknown) => {}),
+}));
 vi.mock('@pcm/adapters/server', () => ({
-  createSupabaseServiceClient: () => ({ from: () => ({ insert: loginEventInsertSpy }) }),
+  createSupabaseServiceClient: () => ({
+    from: (table: string) =>
+      table === 'staff'
+        ? {
+            select: () => ({
+              eq: (col: string, val: unknown) => {
+                staffEqArgs(col, val);
+                // 🔴 `abortSignal` 也要長出來(codex R2 之後實作加的)——
+                //    少了它 ⇒ `q.abortSignal` 是 undefined ⇒ TypeError ⇒ 被 catch 吞成 null
+                //    ⇒ **每一個 user 登入都變 403**, 而 7 格既有測試會紅在「沒走到成功路徑」。
+                //    📌 又一次同款:mock 只長出【當時用得到】的方法, 而實作多接一個就壞。
+                // 🔴🔴 **回傳要【依 val 而定】, 不能是一個與問題無關的固定值。**
+                //    2026-08-26 實測:只記 `eq` 的參數而資料仍固定 ⇒ 把實作改成
+                //    「永遠查 `'sean'`」⇒ **42 格全綠**(因為不論問誰都回同一列)。
+                //    ⇒ 📌 **記錄下問題, 與讓答案取決於問題, 是兩件事。**
+                //      我在 proxy 那版做對過(`staffTable()`), 換落點之後只搬了一半。
+                const leaf = { maybeSingle: () => staffRow(val) };
+                return { ...leaf, abortSignal: () => leaf };
+              },
+            }),
+          }
+        : { insert: loginEventInsertSpy },
+  }),
 }));
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'x-request-id': REQ_ID }),
@@ -684,5 +730,177 @@ describe('🔴 B5-a 部署時序閘:旗標開了而上游還沒送 sub', () => {
     expect(res.status, '旗標關著卻被擋 ⇒ 這道閘漏到了今天的每一次登入').toBe(303);
     const payload = await verifySession(res.cookies.get(ADMIN_SESS_COOKIE)?.value);
     expect(payload?.v).toBe(1);
+  });
+});
+
+// ── B5-b′ 片一:簽票前查「他還在職嗎」──────────────────────────────────────────
+//
+// 🔴 **本組殺的突變(每一格對得上一個)**:
+//   ① 整段 `planStaffGate` + `resolveActiveStaffById` 被刪掉        ⇒ [B1][B2] 紅
+//   ② `fallback` / `bootstrap` 也被拿去查名單(規格 §7.1 壞世界①) ⇒ [B4][B5] 的「零查詢」斷言紅
+//   ③ 擋的時候改成導回 `/api/sso/start`(= 兩站無限互踢那個 bug)   ⇒ [B3] 紅
+//   ④ 文案縮成只講一種可能                                          ⇒ [B6] 紅
+function subFetch(sub: unknown) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, amr: ['pwd'], auth_time: AUTH_TIME, sub }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    ),
+  );
+}
+const doCallback = () =>
+  GET(callbackReq({ cookie: encodeStateCookie(STATE, '/orders'), code: 'c', state: STATE }));
+
+describe('🔴 B5-b′ 片一:簽票前查 is_active', () => {
+  // ⚠️ 本組是【外層 describe 的兄弟】,拿不到它 beforeEach 設的那三個 env
+  //    ⇒ 少了這一段,每一格都會走 `configError()` 回 500,而**那看起來像「我的閘沒接上」**。
+  //    📌 2026-08-26 我就是這樣被騙了一輪:六格全紅而紅的原因與被測的東西無關。
+  let saved2: Record<string, string | undefined>;
+  let info2: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    saved2 = {};
+    for (const k of ENV_KEYS) saved2[k] = process.env[k];
+    process.env.PCM_QUOTE_SSO_BASE = QUOTE_BASE;
+    process.env.PCM_SSO_EXCHANGE_SECRET = EXCHANGE_SECRET;
+    process.env.ADMIN_SESSION_SECRET = SESSION_SECRET;
+    info2 = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    void info2;
+    // 一張【依 id 回答】的假名單:sean 在職 / amy 停用 / 其餘查無。
+    staffRow.mockReset().mockImplementation(async (id: unknown) => {
+      const rows: Record<string, unknown> = {
+        sean: { id: 'sean', label: 'Sean(老闆)', is_manager: true, is_active: true },
+        amy: { id: 'amy', label: '艾咪', is_manager: false, is_active: false },
+      };
+      return { data: rows[String(id)] ?? null, error: null };
+    });
+    staffEqArgs.mockReset();
+    loginEventInsertSpy.mockClear();
+    // 🔴 **節流的 Map 是 module-level ⇒ 會跨測試留著**(codex R2 明文警告過)。
+    //    不重設 ⇒ 前面某一格先消耗掉窗口 ⇒ 後面驗「有沒有記 log」那格**永遠看到 0 則**
+    //    ⇒ 它會變成一格**恆綠**, 而它守的正是「DB 失敗有沒有留痕」。
+    //    📌 2026-08-26 實測:少了這一行, [B8] 直接紅 —— 而紅的原因與被測的東西無關。
+    __resetAlarmThrottleForTests();
+  });
+  afterEach(() => {
+    for (const k of ENV_KEYS) {
+      if (saved2[k] === undefined) delete process.env[k];
+      else process.env[k] = saved2[k];
+    }
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('[B1] ✅ 正對照:在職 ⇒ 照常簽票(否則下面每一格「被擋」都沒有意義)', async () => {
+    subFetch({ kind: 'user', staff_id: 'sean' });
+    const res = await doCallback();
+    expect(res.status).toBe(303);
+    expect(staffRow).toHaveBeenCalledTimes(1);
+    // 🔴 **問的必須是票上那個人, 而且問對欄**(codex must-fix):
+    //    少了這一行, 「永遠查 sean」的實作會讓本組全綠而別人的身分被簽出去。
+    expect(staffEqArgs).toHaveBeenCalledWith('id', 'sean');
+  });
+
+  it('[B2] 🔴 已停用 ⇒ 403,而且【沒有簽出票】(這一格就是本片要補的洞)', async () => {
+    subFetch({ kind: 'user', staff_id: 'amy' });
+    const res = await doCallback();
+    expect(res.status).toBe(403);
+    // 🔴 沒簽票 = 沒有 admin session cookie 被種下去。少了這一行, 只驗 403 擋不住
+    //    「擋了畫面卻照樣發票」那種壞世界。
+    expect(res.headers.get('set-cookie') ?? '').not.toContain(`${ADMIN_SESS_COOKIE}=ey`);
+  });
+
+  it('[B3] 🔴🔴 被擋時【不得】導回 /api/sso/start —— 報價單 session 還活著會無限互踢', async () => {
+    subFetch({ kind: 'user', staff_id: 'ghost' });
+    const res = await doCallback();
+    expect(res.status).not.toBe(303);
+    expect(res.headers.get('location')).toBeNull();
+    // 🔴 **而「不自動導」不等於「沒有出路」**(codex R3 must-fix 4):
+    //    頁面上必須有一顆【手動】的重新登入 —— 差別不在去哪裡, 在【誰決定去】。
+    //    沒有它 ⇒ 被誤停用的人在管理員改回來之後, 重新整理只會拿【已被兌換掉】的 code 再失敗
+    //    ⇒ 他會以為「還是不行」, 而我們把一個可恢復的問題變成一個他只能打電話的問題。
+    expect(await res.text()).toContain('href="/api/sso/start"');
+  });
+
+  it('[B4] 🔴 fallback 票 ⇒ 照簽,而且【一次名單都沒查】', async () => {
+    subFetch({ kind: 'fallback' });
+    const res = await doCallback();
+    expect(res.status).toBe(303);
+    expect(staffRow).not.toHaveBeenCalled();
+  });
+
+  it('[B5] 🔴 bootstrap 票 ⇒ 照簽,而且【一次名單都沒查】', async () => {
+    subFetch({ kind: 'bootstrap' });
+    const res = await doCallback();
+    expect(res.status).toBe(303);
+    expect(staffRow).not.toHaveBeenCalled();
+  });
+
+  it('[B6] 🔴 終點頁必須同時講【兩種可能】,而且不得洩漏 staff_id', async () => {
+    subFetch({ kind: 'user', staff_id: 'amy' });
+    const res = await doCallback();
+    const html = await res.text();
+    expect(html).toContain('讀不到員工名單');
+    expect(html).toContain('帳號已停用');
+    expect(html).toContain('管理員');
+    expect(html).not.toContain('amy');
+    expectSecurityHeaders(res);
+  });
+
+  it('[B7] 🔴 DB 讀不到(丟例外)⇒ 一樣擋,不得因為「不是明確停用」就放行', async () => {
+    // ⚠️ 本格與 [B2] 回**同一個結果** —— 那正是 `#933` 登記的歧義, 刻意接受、不是 bug。
+    staffRow.mockRejectedValue(new Error('db down'));
+    subFetch({ kind: 'user', staff_id: 'sean' });
+    expect((await doCallback()).status).toBe(403);
+  });
+
+  it('[B8] 🔴 Supabase 常見形狀 resolved `{data:null,error}` ⇒ 要被當成【查詢失敗】,不是【查無此人】', async () => {
+    // codex must-fix:B7 只模擬 Promise reject。而 supabase-js 更常見的是
+    // **resolve 一個帶 error 的物件** ⇒ 靠 staff-repository 的 `if (error) throw error` 轉成例外。
+    //
+    // 🔴🔴 **只斷言 403 是抓不到的**(2026-08-26 實測:拿掉那行 throw ⇒ 42 格【全綠】)——
+    //    因為 `data:null` 走「查無此人」那一支, **一樣回 403**。
+    //    ⇒ 兩個世界的 HTTP 結果相同, 分得開它們的**只有那一則 DB 失敗的 log**。
+    //    ⇒ 📌 **當兩個世界的輸出一樣時, 測試要去看【那個唯一不一樣的東西】, 不是看結果。**
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      staffRow.mockResolvedValue({ data: null, error: { message: 'boom', code: '500' } });
+      subFetch({ kind: 'user', staff_id: 'sean' });
+      expect((await doCallback()).status).toBe(403);
+      const hits = err.mock.calls.filter((c) => String(c[0]).includes('[admin/staff]'));
+      expect(hits, 'DB 失敗沒有留下任何 log ⇒ 那行 throw 大概被拿掉了').toHaveLength(1);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('[B8b] ✅ 正對照:真的【查無此人】不得留 DB 失敗的 log(否則 B8 恆綠)', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      subFetch({ kind: 'user', staff_id: 'ghost' });
+      expect((await doCallback()).status).toBe(403);
+      const hits = err.mock.calls.filter((c) => String(c[0]).includes('[admin/staff]'));
+      expect(hits).toHaveLength(0);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('[B9] 🔴 被擋時必須【嘗試】寫登入失敗那本帳 —— 否則畫面給的編號查不到任何東西', async () => {
+    // ⚠️ **名字刻意寫「嘗試」不寫「durable」**(codex R2 nit):`recordSsoLogin` 是 best-effort,
+    //    DB 自己掛掉時它回 `log_only` 而 route 不檢查結果 ⇒ 本格證得了「有呼叫」,**證不了「寫進去了」**。
+    //    📌 一個測試的【名字】也是一種宣稱, 而它比斷言更容易被引用。
+    // codex must-fix:只刪掉 recordSsoLogin('fail', …) 那一行, B1-B7 全綠 ——
+    // 停用/查無/DB 故障照樣 403, 而【登入失敗那本帳沒有這一列】
+    // ⇒ 使用者照著終點頁回報編號, 值班撈不到對應事件。
+    subFetch({ kind: 'user', staff_id: 'amy' });
+    expect((await doCallback()).status).toBe(403);
+    expect(loginEventInsertSpy).toHaveBeenCalledTimes(1);
+    // 🔴 直接斷言那一欄, 不要靠 JSON.stringify 撈字串(codex R2:那樣會被別的欄位剛好含同字騙過)
+    const row = (loginEventInsertSpy.mock.calls[0]?.[0] ?? {}) as Record<string, unknown>;
+    expect(row.reason).toBe('staff-not-active');
   });
 });
