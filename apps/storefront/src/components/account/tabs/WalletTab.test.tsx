@@ -29,9 +29,34 @@ const DESIGN_WALLET_JSX = resolve(HERE, '../../../../../../design-reference/comp
  * `scripts/commit-pack-preflight.sh` 用 `git worktree add --detach` 建乾淨沙箱 ⇒ 沙箱裡沒有它
  * ⇒ 這一格在那裡會**硬紅**,而紅的理由與「字面打錯了」長得一樣。(2026-08-27 preflight 實際抓到。)
  *
- * ⚠️ **本檔是全 repo 唯一在 runtime 讀 design-reference 檔案的測試**
- *    (`grep -rn design-reference --include='*.test.ts*' apps packages` ⇒ 只有本檔那一行)
+ * ⚠️ **本檔是全 repo 唯一在 runtime 讀 design-reference 檔案的測試**(2026-08-27 重量)
  *    ⇒ 沒有既有慣例可循,這個取捨是本片新造的。
+ *
+ * 🔴 **我第一版在這裡寫的數法是【假的】,而它旁邊的結論是真的** ——
+ *    原文寫「`grep -rn design-reference --include='*.test.ts*' apps packages` ⇒ 只有本檔那一行」,
+ *    而那條指令**照抄去跑印 12**,不是 1。**結論對、數法錯 ⇒ 下一個想重現的人會得到 12 然後不知道該信誰。**
+ *    📌 **一個附了數法而數法錯的結論,比一個沒附數法的結論更難被推翻** ——
+ *       因為它旁邊掛著一條可執行的指令,讀的人會覺得已經驗過了。
+ *
+ * 📏 **真正的數法(2026-08-27;它有兩段,而第二段【不是一條指令】)**:
+ *    ① 先用一把**寬尺**取候選集 —— 全 repo、不限目錄、六種測試檔命名變體:
+ *       `find . -path ./node_modules -prune -o \( -name '*.test.ts' -o -name '*.test.tsx'`
+ *       `   -o -name '*.spec.ts' -o -name '*.spec.tsx' -o -name '*.test.js' -o -name '*.spec.js' \) -print`
+ *       ⇒ 候選集 **851** 支;其中內容含 `design-reference` 的 **7** 支。
+ *       負對照:同一把寬尺改查 `design-reference-nosuch` ⇒ **0**(尺不會無中生有)。
+ *    ② 再**逐支開檔人工分類那 7 支** —— 🔴 **這一段沒有指令,是我一支一支看的**:
+ *         3 支 `readFileSync` 讀的是**別的路徑**,design-reference 只出現在註解
+ *           (`invisible-tap-targets` / `filter-drawer-width` / `order-detail-header`)
+ *         1 支 `cancel-request-token` 同上(註解在講掃描範圍**不含** design-reference)
+ *         2 支純註解、無讀檔(`FeatureEditorial`;`FilterDrawer` 那一行是**測試標題字串**)
+ *         **1 支 = 本檔**,`DESIGN_WALLET_JSX` 這個 const 餵給 `readFileSync`
+ *    🔴 **為什麼第②段不能用 grep**:本檔的路徑寫在一個 const 裡、`readFileSync` 收的是**變數**
+ *       ⇒ `grep '(readFileSync|readFile|import)\(' | grep -c design-reference` 對**本檔自己**印 **0**。
+ *       📌 **一把連自己都量不到的尺,會把唯一的那個命中報成零。**(我第二版又踩了一次。)
+ *
+ * ⚠️ **這個結論的殘留缺口(附不出檢查的就明寫)**:動態組出來的路徑
+ *    (變數拼接、`process.env`、glob)我的候選集掃得到那支檔,而②的人工分類**可能看漏**。
+ *    ⇒ 標**未確認**;它若被打破,方向是「不只本檔」,而本檔的 `skipIf` 處置不受影響。
  *
  * 🔴 **取捨(ponytail:寫下天花板)**:沒有 submodule 時 **skip 而不是紅**。
  *    · 代價 = **它在乾淨沙箱與 CI 上不生效** —— 那是一個 fail-open,我不假裝它不是。
