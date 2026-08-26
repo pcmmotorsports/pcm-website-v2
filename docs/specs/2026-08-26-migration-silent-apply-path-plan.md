@@ -28,9 +28,40 @@ Dashboard SQL Editor 貼上去 ⇒ 完全不寫 schema_migrations(P 不動、H �
 MCP apply_migration        ⇒ 寫 schema_migrations, 但【自派版本號】
 supabase db push           ⇒ 讀 P。P 沒有的就當沒套過 ⇒ 重跑
 ```
-✅ **主視窗問的「Dashboard 貼的會不會進 P」這一格,repo 內已有量測答案:不會。**
-⚠️ **證據等級**:那是 c5 2026-08-20 的實測,**我方本輪未獨立複驗**(我無正式庫存取權)。
-**沒有去查官方文件補第二來源 —— 這一格標【單一來源】。**
+### 1.1a ✅ **「Dashboard 貼的不進 P」—— 2026-08-26 補到官方文件,不再是單一來源**
+
+**這一格原本標【單一來源】(只有 c5 2026-08-20 的實測),而整份 plan 的診斷都站在它上面。已補:**
+
+**Supabase 官方文件逐字**(`https://supabase.com/docs/guides/troubleshooting/branch-in-migrations-failed-status`):
+> This almost always means the migration history on `main` is out of sync with its actual live schema,
+> **commonly because a change was made directly in the SQL Editor or through another manual edit
+> that was never captured as a migration file.**
+
+**同批查到的另外兩句,一起釘住:**
+```
+`https://supabase.com/docs/guides/deployment/database-migrations` 逐字:
+  Supabase tracks which migrations have been applied ... in a table called
+  `supabase_migrations.schema_migrations`. When you run `supabase db push`, it compares your local
+  `supabase/migrations` folder against that table and runs only the ones not yet applied, in order.
+  ⇒ 這就是 #800「會重跑」的官方依據。
+
+`https://supabase.com/docs/reference/cli/supabase-db-push` 逐字:
+  If you need to mutate the migration history table, such as deleting existing entries or
+  **inserting new entries without actually running the migration**, use the `migration repair` command.
+  ⇒ 這就是 §6 那格的官方處置法, 而且逐字寫著「不會真的去跑那支」—— 正是我們要的。
+```
+⇒ ✅ **兩個獨立來源(repo 內實測 + 官方文件)⇒ 這一格不再是單一來源。**
+⚠️ 而**仍未複驗的那半**:c5 那發是對【本專案的正式庫】實測,我方無存取權;
+官方文件講的是【一般行為】。**「官方說會這樣」與「我們這顆庫確實這樣」是兩個宣稱。**
+
+### 1.1b 🔴 而官方文件多給了一個【本 plan 原本沒寫】的後果
+```
+建 Preview Branch 時, 平台會【重放 main 的 migration history】到一顆新庫
+⇒ history 與實際 schema 對不上 ⇒ 分支停在 MIGRATIONS_FAILED, 空的或做到一半
+   (出處同上 branch-in-migrations-failed-status)
+```
+⇒ 📌 **所以爆炸半徑不只 `db push`。** 之前只寫「重跑會炸」,而**建分支也會炸,而且它炸得比較安靜**
+   —— 一個空的或半滿的 preview 分支,看起來像「還沒建好」。
 
 ### 1.2 守門不但存在,而且已經接線了
 ```
@@ -150,7 +181,24 @@ R / H / P 三把尺量的都是【紀錄】:
 補帳後  R✅ H✅ P❌  = ② 🔴 危險          ⇒ 閘【擋】, exit 3
         (② 逐字:「人帳說套了、平台不知道 ⇒ db push 會重跑」← 擋)
 ```
-⇒ 🔴 **下一個要推 main 的人會被 `pre-push` 擋下,而他不會知道為什麼。**
+### 6.1 ⚠️ **射程比上面那句窄 —— 逐字核過,先講清楚免得有人以為現在壞了**
+`scripts/migration-ledger-divergence.sh:49-56` 誠實邊界節逐字:
+```
+· 只擋 refs/heads/main 的 push
+· 推 dev 【刻意不擋】。dev 會上 admin production, 但那是應用層部署、不會跑 db push
+· GitHub 網頁 merge、別台機器、--no-verify、直接跑 supabase db push 【都繞得過】
+  ⇒ supabase db push 本身沒有 hook 點, 這是本閘的天花板, 不是漏寫
+```
+⇒ **Sean 的常態是推 `dev`(main 由他手動 merge)⇒ 【他現在不會被擋,現在也沒有東西壞掉】。**
+⇒ 🔴 **會被擋的是「下一個推 `main` 的人」,而他不會知道為什麼。**
+📌 **這一格的形狀值得記**:旗標名 `--if-pushing-main` 寫在**呼叫端**(`pre-push:66`),
+而「推 dev 刻意不擋」寫在**被呼叫那支檔的註解裡**
+⇒ **只讀呼叫端的人看得到旗標,看不到那個「刻意」。**
+
+🔴 **而同一節還寫著一句直接支持 §2 的話**:
+> **「H 是自陳帳:它說 apply 過不代表真的 apply 過。」**
+⇒ **寫這支守門的人自己就知道這件事。** 本 plan 的 §2 不是新發現,是**把它的後果補完**:
+   H 不可信 ⇒ 而 P 也只是另一本帳 ⇒ **三把尺沒有一把在量 DB 本身。**
 ⇒ **而那個擋是【對的】** —— `db push` 真的會重跑它,而 `#800` 已經量到不冪等的重跑會 `ERROR 42701`。
 ⇒ **處置**:對那個版本號跑一次 `supabase migration repair`(把 P 補上),
    前例:`STATUS.md:842` 記著 Sean 2026-08-21 本人跑過兩條、帳本閘因此從紅轉綠。
@@ -163,8 +211,9 @@ R / H / P 三把尺量的都是【紀錄】:
 ## §7 沒查 / 沒量的(不要讀成查過了)
 
 ```
-· 「Dashboard 貼的不寫 schema_migrations」= c5 2026-08-20 實測, 本輪【未獨立複驗】,
-  也【沒有】去查 Supabase 官方文件補第二來源 ⇒ 單一來源。
+· ✅ 「Dashboard 貼的不寫 schema_migrations」已於 2026-08-26 補到官方文件(見 §1.1a)⇒ 不再是單一來源。
+  ⚠️ 而仍未複驗的半格:官方講的是【一般行為】, c5 那發是對【本專案正式庫】實測而我無存取權
+  ⇒ 「官方說會這樣」與「我們這顆庫確實這樣」仍是兩個宣稱。
 · `20260825130000`(checkout/cart_total 那道閘)仍然是候選 —— 它沒有對應的驗證查詢,
   而 Sean 那四發只涵蓋 sync_product_variant_group 這一支函式。🔴 不要讓 120000 的確認外溢過去。
 · 那條路【實際上是哪一條】(SQL Editor 手貼 / 別窗直跑 / MCP)查不出來 ——
@@ -185,8 +234,9 @@ Q1: migration 記帳這條路怎麼關?
     乙 = 只做對帳、不做記帳(承認攔不住, 靠定期比對)
     丙 = 先不做, 記進 #795 等踩到再說
 
-Q2: 20260825120000 那支現在是【擋 push main】的狀態, 要不要現在 repair?
-    甲 = 現在跑 supabase migration repair 把平台帳補上
-    乙 = 等到真的要推 main 那天再處理
-    🔴 而不處理的話, 下一個推 main 的人會撞牆而不知道為什麼。
+Q2: 20260825120000 會擋【推 main】, 而你平常推的是 dev ⇒ **現在沒有東西壞掉, 不急**。
+    要不要現在 repair(官方 `supabase migration repair`, 逐字「插入紀錄而不真的跑那支」)?
+    甲 = 現在跑
+    乙 = 下次要推 main 之前再說
+    🔴 不處理的話, 下一個推 main 的人會撞牆而不知道為什麼;而建 Preview Branch 也會踩到(§1.1b)。
 ```
