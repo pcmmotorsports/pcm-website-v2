@@ -36,6 +36,13 @@ export type OverviewTabProps = {
   recentOrders: OrderListItem[];
   onJumpToOrders: () => void;
   onJumpToWallet: () => void;
+  /**
+   * 🔴 **餘額【沒讀到】,與 `stats.walletBalance === 0` 是兩件事。**
+   * `code-reviewer` R1 Critical(2026-08-26):上一輪只修了 `WalletTab` 那一半,
+   * 而**總覽是預設著陸的分頁** ⇒ customers 那一發失敗時,**客人第一眼看到的就是 `NT$ 0`**。
+   * 📌 **修一半的 bug 與沒修的 bug,在最常被看到的那條路上是同一個。**
+   */
+  balanceFailed?: boolean;
 };
 
 // 🔴 2026-08-07 R-3:這裡原本有一顆 `ACCOUNT_REC_DISPLAY = 8`,把 10 筆截成 8 筆。
@@ -61,6 +68,7 @@ export function OverviewTab({
   recentOrders,
   onJumpToOrders,
   onJumpToWallet,
+  balanceFailed = false,
 }: OverviewTabProps) {
   return (
     <div data-tab="overview">
@@ -82,7 +90,12 @@ export function OverviewTab({
         </div>
         <div className="acc-stat">
           <div className="ap-mono">Stored value</div>
-          <div className="acc-stat-v">NT$ {stats.walletBalance.toLocaleString()}</div>
+          {/* 🔴 **餘額讀不到 ⇒ 不得印 0**(`code-reviewer` R1 Critical,2026-08-26)。
+              上一輪只修了 WalletTab 那一半,而**這裡才是客人第一眼看到的那半** ——
+              總覽是預設著陸的分頁。印 `NT$ 0` = 告訴他他沒有錢。 */}
+          <div className="acc-stat-v">
+            {balanceFailed ? '暫時讀不到' : `NT$ ${stats.walletBalance.toLocaleString()}`}
+          </div>
           <div className="acc-stat-sub">
             <button type="button" className="acc-link-btn" onClick={onJumpToWallet}>
               查看明細 →

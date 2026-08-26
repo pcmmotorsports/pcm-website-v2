@@ -1,0 +1,162 @@
+/* wallet.css — 會員中心「儲值金」分頁(#202 解凍第一片)
+ *
+ * 🔴 **逐塊【搬】自 `design-reference/styles/wallet.css`,不是重寫**(鐵則 1)。
+ *    搬法:整塊複製,一個宣告都沒改。**下面標出的三處是【刪】與【加】,不是【改】。**
+ *
+ * ── 沒搬的(逐條,而每一條都有拍板依據)──────────────────────────────────
+ *   儲值 Modal 那族(`.wal-modal-*` / `.wal-preset*` / `.wal-pm*` / `.wal-custom*`)
+ *     ⇒ 「立即儲值」不做(Sean:等網站上線後再補)。原檔 35 塊。
+ *   等級卡那族(`.wal-tier-*` / `.wal-upgrade-*` / `.acc-stat-tier`)
+ *     ⇒ Sean 2026-08-26 `Q2=乙` **刻意偏離 design** —— 而 design 兩邊都畫
+ *       (`AccountPages.jsx:469-473` + `WalletTab.jsx` 的 `.wal-tier-card`),
+ *       我們的總覽已經有(`OverviewTab.tsx:4` / `:73`)。**不是漏搬。** 原檔 16 塊。
+ *   `.wal-balance-r .btn-primary` ⇒ 那顆鈕不做(同上)。
+ *   `.wal-tx-bal`(每列右下角「當時餘額」)⇒ Sean `Q3=乙` 不顯示。
+ *     🔴 **而那條禁令沒有跟著消失**:要顯示只能後端算 running balance,
+ *       **不得前端累加**(第一頁碰巧會對、第二頁起全錯而不會紅)。plan `§3-b`。
+ *
+ * ── 🔴 加的(design 沒有這一條,而它是 `q5=乙` 的實體)───────────────────
+ *   `.wal-balance-soon` —— 「立即儲值」鈕拿掉之後那個位置的灰字。
+ *     Sean `q5=乙`:**放一句灰字、不留白。**
+ *     ⚠️ **這是 design 上沒有的 class** ⇒ 對稿的人會找不到它。**它是拍板加的,不是自創樣式。**
+ *
+ * ⚠️ **原檔量測(2026-08-26,而【數法要寫出來,不然重現不了】)**:
+ *      `grep -c '{' design-reference/styles/wallet.css`        ⇒ **91**(含 media block 內的)
+ *      `grep -cE '^[^[:space:]].*\{' 同檔`                     ⇒ **83**(頂層規則)
+ *      `grep -cE '^[^[:space:]/].*\{' 本檔`                    ⇒ **26**(本檔頂層 selector)
+ *    🔴 我第一版寫「92 塊搬 24 塊」—— **兩個數字都重現不出來**(對抗審查 nit)。
+ *      📌 **一個沒有附數法的計數,與一個錯的計數,對想重現的人是同一個東西。**
+ */
+
+/* WalletTab styles — 儲值金 + 會員等級 */
+
+.wal-tab { padding-top: 0; }
+
+/* Balance card */
+.wal-balance-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 24px;
+  align-items: center;
+  padding: 28px 32px;
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+  margin-bottom: 16px;
+}
+
+.wal-balance-l .ap-mono {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 12px;
+}
+
+.wal-balance-amt {
+  display: flex; align-items: baseline; gap: 8px;
+}
+
+.wal-balance-cur {
+  font-family: var(--f-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.6);
+}
+
+.wal-balance-num {
+  font-family: "Noto Serif TC", serif;
+  font-size: 48px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.wal-balance-meta {
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  margin-top: 8px;
+}
+
+.wal-balance-r {
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+/* Transactions */
+.wal-tx-section { margin-top: 24px; }
+
+.wal-tx-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.wal-tx-head h3 { font-size: 16px; font-weight: 700; margin: 0; }
+
+.wal-tx-head .ap-mono { font-size: 10px; letter-spacing: 0.18em; color: var(--c-text-2); }
+
+.wal-tx-list { display: flex; flex-direction: column; }
+
+.wal-tx {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.wal-tx:last-child { border-bottom: 0; }
+
+.wal-tx-date { font-size: 11px; letter-spacing: 0.05em; color: var(--c-text-2); margin-bottom: 4px; }
+
+.wal-tx-note { font-size: 14px; color: var(--c-text); }
+
+.wal-tx-r { text-align: right; }
+
+.wal-tx-amt {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.wal-tx-amt.is-plus { color: var(--c-text); }
+
+.wal-tx-amt.is-minus { color: var(--c-text-2); }
+
+.wal-tx-empty {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--c-text-2);
+}
+
+.wal-tx-empty-sub { font-size: 12px; color: var(--c-text-3); margin-top: 6px; }
+
+/* 🔴 **design 沒有這一條** —— `q5=乙` 的實體:那顆鈕拿掉之後不留白。
+ *    刻意做得低調(不搶餘額那個數字),而**不承諾時程** —— 文案在 `WalletTab.tsx`。 */
+.wal-balance-soon {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+  text-align: right;
+}
+
+/* Responsive — 逐字搬自原檔 :364-369,只留本檔用得到的兩條
+ * (原塊另含 `.wal-tier-premium-perks` 與 `.wal-preset-grid`,那兩族本檔沒搬)。 */
+@media (max-width: 900px) {
+  .wal-balance-card {
+    grid-template-columns: 1fr;
+    padding: 24px;
+  }
+  .wal-balance-num { font-size: 36px; }
+  .wal-balance-soon { text-align: left; }
+}
+
+/* 🔴 **design 沒有這一條** —— 它是「只取最近 20 筆、不分頁」那個已知缺口的**對客人告知**。
+ *    對抗審查 must-fix:沒有它, 第 21 筆起被截掉而畫面照樣說「20 ENTRIES」
+ *    ⇒ 客人以為那就是他的全部交易。**截斷要寫在他看得到的地方, 不是只寫在 log 裡。** */
+.wal-tx-more {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--c-text-muted, rgba(0, 0, 0, 0.55));
+}

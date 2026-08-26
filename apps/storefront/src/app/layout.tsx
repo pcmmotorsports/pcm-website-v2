@@ -51,6 +51,7 @@ import '../styles/products-mobile.css'; // ADR-0007:手機商品目錄控制列 
 import '../styles/home.css';
 import '../styles/auth.css';
 import '../styles/account.css';
+import '../styles/wallet.css'; // 會員中心儲值金分頁(#202 解凍第一片);序在 account 後 —— .wal-tab 與 .acc-section 同時作用在同一個節點,後載才蓋得住(⚠️ 我上一版寫「覆寫 .acc-section 的 padding」是錯的:account.css:196 的 .acc-section 只有 margin-bottom、沒有 padding)
 import '../styles/cart.css';
 import '../styles/cart-vehicle.css'; // V-2a:CartVehicleField 車款欄(.cvf-* 自有 class;garage/建議 chip 復用全域 .cat-garage-chip、零 cascade 交互)
 import '../styles/checkout.css';

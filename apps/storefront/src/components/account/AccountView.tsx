@@ -49,7 +49,7 @@ import { FavoritesTab } from '@/components/account/tabs/FavoritesTab';
 import { VehiclesTab } from '@/components/account/tabs/VehiclesTab';
 import { AddressTab } from '@/components/account/tabs/AddressTab';
 import { ProfileTab } from '@/components/account/tabs/ProfileTab';
-import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem, FavoriteListItem } from '@pcm/domain';
+import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem, FavoriteListItem , WalletLedgerEntry } from '@pcm/domain';
 import type { FeaturedResult } from '@/lib/products';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
@@ -130,6 +130,17 @@ type TabId = (typeof NAV)[number]['id'];
 export type AccountViewProps = {
   user: AccountUser;
   stats: AccountStats;
+  /**
+   * 儲值金明細(#202 解凍第一片)。**server 已排好序(新到舊)**,本層只 forward。
+   * 🔴 `walletEntriesFailed` 與 `walletEntries: []` 是兩件事 —— 前者「讀不到」、後者「真的沒交易」。
+   *    合成一種 ⇒ 讀取壞掉時畫面會對客人說「尚無交易紀錄」。
+   */
+  walletEntries: readonly WalletLedgerEntry[];
+  walletEntriesFailed: boolean;
+  /** 明細總筆數(`null` = 沒拿到)。🔴 沒有它,「N 筆」會是這一頁的筆數假扮成總筆數。 */
+  walletEntryTotal: number | null;
+  /** 🔴 餘額沒讀到 —— 與 `walletBalance === 0` 是兩件事。 */
+  walletBalanceFailed: boolean;
   featured: FeaturedResult;
   profile: AccountProfile;
   // g-5a:收件地址清單(page.tsx getAddressRepo→listByCustomer 算好傳入;forward 給 AddressTab 唯讀渲染)
@@ -147,7 +158,7 @@ export type AccountViewProps = {
   favoritesFailed?: boolean;
 };
 
-export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed }: AccountViewProps) {
+export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed, walletEntries, walletEntriesFailed, walletEntryTotal, walletBalanceFailed }: AccountViewProps) {
   const [tab, setTab] = useState<TabId>('overview');
 
   // g-4a Q4=A:displayName / avatarChar 用 profile.name(customers.name SoT)為主、displayEmail 退化、
@@ -209,6 +220,7 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
             {tab === 'overview' && (
               <OverviewTab
                 stats={stats}
+                balanceFailed={walletBalanceFailed}
                 featured={featured}
                 recentOrders={orders.slice(0, 2)}
                 onJumpToOrders={jumpToOrders}
@@ -216,7 +228,15 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
               />
             )}
             {tab === 'orders' && <OrdersTab orders={orders} />}
-            {tab === 'wallet' && <WalletTab />}
+            {tab === 'wallet' && (
+              <WalletTab
+                balance={stats.walletBalance}
+                entries={walletEntries}
+                loadFailed={walletEntriesFailed}
+                total={walletEntryTotal}
+                balanceFailed={walletBalanceFailed}
+              />
+            )}
             {tab === 'favorites' && <FavoritesTab favorites={favorites} loadFailed={favoritesFailed} />}
             {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} vehicleBrands={vehicleBrands} />}
             {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}

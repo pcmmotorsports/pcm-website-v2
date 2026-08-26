@@ -35,3 +35,20 @@ export {
   availabilityToBool,
   boolToAvailability,
 } from './storefront-mappers/availability';
+
+// 🔴 **純 mapper,不是 adapter** —— 它只把一列 `customer_wallet_ledger` 的 row 轉成 domain 型別,
+//    **不持任何 client、不碰 service_role** ⇒ 放 root export 不違反上面那條
+//    「`SupabaseWalletAdapter` 因 `addEntry` 需 service_role writeClient 而不在 root」的界線。
+//
+//    🔴 **而那條界線【不是「會不會寫入」】** —— 我第一版這樣寫,而它是錯的(對抗審查 nit,我複驗過):
+//    root export 裡**已經有好幾支會寫入的 adapter**(`SupabaseCustomerAdapter` `:18` 有 `update`、
+//    `SupabaseAddressAdapter` `:19`、`SupabaseOrderAdapter` `:24` …)。
+//    ⇒ **真正的界線是「要不要 service_role / server-only」** —— `SupabaseWalletAdapter` 出局是因為
+//      它的 ctor **強制**一個 service_role writeClient,而那個東西不該進得了顧客站的 bundle。
+//    ⇒ 本支 mapper **兩個都不沾**:不持任何 client、不碰 service_role,它收一個已經在手上的物件。
+//
+// ⚠️ **為什麼要 export 而不是在 storefront 抄一份**:顧客站的會員中心要直接查 ledger
+//    (它不能用 `SupabaseWalletAdapter` —— 那支的 ctor 強制 service_role writeClient,
+//     而 `apps/storefront/src/app/account/page.tsx:18-19` 逐字寫著 storefront 不允許注入 service_role)。
+//    ⇒ 沒有這個 export,那邊就要**再寫一份欄位對照** ⇒ 兩份會漂,而漂了之後畫面照樣顯示得出東西。
+export { mapSupabaseWalletEntryToDomain } from './supabase/mappers/wallet';

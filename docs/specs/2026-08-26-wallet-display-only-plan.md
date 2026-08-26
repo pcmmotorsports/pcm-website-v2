@@ -20,6 +20,58 @@
 
 ---
 
+## §0-a ✅ **已實作(2026-08-26)—— 而下面這幾格是【做出來之後才知道的】**
+
+**Sean 拍板四格全在**:`Q1=甲` 批准 · `Q2=乙` 不放等級卡 · `Q3=乙` 明細不顯示「當時餘額」 ·
+`q5=乙` 灰字不留白 · `Q-錢包-3=乙` 拿掉「可用於下單折抵」。
+
+### 🔴 對抗審查(鐵則 12① 錢)抓到 **5 條 must-fix**,而其中三條是同一族
+```
+① 餘額讀不到時退化成 0, 而明細那一發可能成功
+   ⇒ 客人看到「NT$ 0」配著一串真實交易 = **對他顯示一個錯的金額**
+② `data=null 而 error 也是 null` 被 `?? []` 吃成「他真的沒交易」
+③ `count` 沒回來時靜默轉 0 ⇒ 印得出「顯示 20 筆 / 共 0 筆」
+⇒ 🔴 **三條的共同形狀:【我們不知道】被顯示成【他沒有】。**
+   而那三種畫面客人都分不出來 —— 他只會以為自己的錢不見了或交易沒了。
+```
+```
+④ 餘額與明細是**兩發獨立查詢**, 中間有人寫入 ⇒ 畫面同時顯示兩個時點
+   🔴 **跨兩發 PostgREST 呼叫做不出交易 ⇒ 不一致消不掉, 而【方向可以選】**:
+     改成**先讀明細、後讀餘額** ⇒ 餘額永遠不比明細舊
+     ⇒ 最壞是「餘額比看得到的明細多」, **而不是「餘額 0 而下面有交易」**
+   📌 **消不掉的東西, 選它壞掉時比較容易看懂的那個方向。**
+⑤ 既有的 `page.test.tsx` mock 只支援 `.eq().single()`, 而明細那一發接著呼叫 `.order()`
+   ⇒ **那四格在我交件當下是紅的, 而我沒發現** —— 我只跑了 `WalletTab` 與 `AccountView`。
+   🔴 **「我跑的那些綠」與「動到的都綠」是兩件事。**
+```
+
+### 🔴 而截斷那一格,修法不是「把 20 改大」
+```
+只取最近 20 筆、不分頁 ⇒ 第 21 筆起看不到
+上一版:畫面照樣印「20 ENTRIES」⇒ **這一頁的筆數假扮成總筆數**
+修法:`count: 'exact'` 拿真總數 ⇒ 印「20 / 57 ENTRIES」+ 一句客人看得到的
+      「僅顯示最近 20 筆,共 57 筆。需要更早的紀錄請聯絡客服。」
+⇒ **截斷要寫在客人看得到的地方, 不是只寫在 log 裡。**
+⚠️ 而**分頁仍然沒做** —— 那是本片的已知缺口, 要補的是分頁, 不是把 20 改大。
+```
+
+### 實際動到的檔(**8 支,而 plan 原本只列 6**)
+```
+apps/storefront/src/components/account/tabs/WalletTab.tsx       stub 11 行 → 本體
+apps/storefront/src/components/account/tabs/WalletTab.test.tsx  15 格守門
+apps/storefront/src/app/account/page.tsx                        明細查詢(排在餘額之前)
+apps/storefront/src/app/account/page.test.tsx                   mock 加一條路 + 5 格失敗守門
+apps/storefront/src/components/account/AccountView.tsx          forward 四個 prop
+apps/storefront/src/components/account/AccountView.test.tsx     prop 補齊
+🔴 apps/storefront/src/styles/wallet.css                        **新檔** —— 從 design 搬 26 塊
+🔴 apps/storefront/src/app/layout.tsx                           一行 import
++ packages/adapters/src/index.ts                                export 既有 mapper(不抄第二份)
+```
+⚠️ **多的兩支是 CSS 那一半**(鐵則 5:CSS + TSX 同元件單一 slice)⇒ 主視窗裁**不重端**,
+判別句逐字:**「多出來的檔,是不是【不做它,這一片就交不出去】?」**
+
+---
+
 ## §0-b 🔴🔴 **2026-08-26 二次重量 —— 這一片又縮了一次,而且縮得比 §1 說的更多**
 
 **§1 說「餘額那半已經在跑」,而它指的是【資料送到畫面了】。二次重量發現:餘額【已經印在畫面上】。**
