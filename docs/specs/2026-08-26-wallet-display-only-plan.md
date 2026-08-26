@@ -20,6 +20,78 @@
 
 ---
 
+## §0-b 🔴🔴 **2026-08-26 二次重量 —— 這一片又縮了一次,而且縮得比 §1 說的更多**
+
+**§1 說「餘額那半已經在跑」,而它指的是【資料送到畫面了】。二次重量發現:餘額【已經印在畫面上】。**
+
+```
+apps/storefront/src/components/account/tabs/OverviewTab.tsx:84-85 逐字
+  <div className="ap-mono">Stored value</div>
+  <div className="acc-stat-v">NT$ {stats.walletBalance.toLocaleString()}</div>
+同檔 :4 逐字「acc-stats(3 卡):Member tier(TierBadge + sub 字面)/ **Stored value** / Total orders」
+:67 逐字「對齊 design L469-496」
+```
+⇒ 🔴 **Sean 說的「只顯示餘額和明細」,餘額那半【已經做完並且對齊 design 了】。**
+⇒ **真正缺的只剩【明細】一樣。**
+```
+grep -rn 'customer_wallet_ledger' apps/storefront/src ⇒ **0 命中**(負對照 zzz_wallet_ledger ⇒ 0)
+⇒ 顧客站【完全沒有】任何一條路撈那張表。這一格是真的缺。
+```
+
+### 🔴 0-b-① 而這改變了「這一片是什麼」
+```
+上一版理解:做一個「顯示餘額 + 明細」的分頁
+二次重量後:餘額已經有了(在總覽)⇒ 這一片實際上是【把明細接上, 並換掉 WalletTab 那個 stub】
+```
+⚠️ **兩者的驗收條件不一樣** —— 前者驗「看得到餘額」(**現在就已經過**),後者驗「看得到每一筆進出」。
+📌 **如果沒有重量, 交件時「看得到餘額」那一格會綠, 而綠的理由是【它本來就綠】。**
+
+## §0-c ✅ 主視窗要的兩格 design 衝突,我用證據答(而**最後仍是 Sean/Design 的**)
+
+### (一)等級卡算不算在這一片內?
+```
+現況:tier 【已經顯示在總覽】—— OverviewTab.tsx:4 / :73(TierBadge)
+design:🔴 **它【兩邊都畫】** —— 總覽 AccountPages.jsx:469-473 有 TierBadge,
+       而 WalletTab.jsx 的 .wal-tier-card 又畫一次(分頁標題逐字「儲值金 · 會員等級」)
+```
+⇒ 📌 **所以「重複」不是我們的疏漏,是 design 自己的選擇。** 照鐵則 1(design 直接搬不翻譯)⇒ **該搬。**
+⇒ 🔴 **而 Sean 說的是「餘額和明細」, 沒提等級** ⇒ **這一格我不自己裁**:
+```
+Q-錢包-1 儲值金那頁要不要也放一張「會員等級」卡?
+  甲 不放 —— 他說的是「餘額和明細」, 而等級在總覽已經看得到       ← 我傾向
+  乙 放 —— 照 design 搬(design 確實兩邊都畫)
+  👉 傾向甲的理由不是「少做一點」, 是**這一片的驗收句是他自己給的那六個字**;
+     而乙 不是錯的 —— 它是「照稿搬」, 而那也是鐵則 1 的字面。
+     ⇒ **兩個都站得住 ⇒ 所以要問。**
+```
+
+### (二)明細列右下角那個「當時餘額」欄
+**這一格【不是選擇題,是能不能做】** —— 見 §3-b 禁令節(不得前端累加)。
+```
+Q-錢包-2 明細每一列右下角要不要顯示「當時餘額」?
+  甲 不顯示 —— 與 design 有差, 而差在哪寫進交件, 不默默拿掉        ← 我傾向
+  乙 顯示 —— 而它要後端算 running balance(SQL 視窗函式), 成本我沒估
+  👉 🔴 **不論選哪個, 前端累加都是禁的** —— 第一頁碰巧會對、第二頁起全錯,
+     而錯出來仍是格式正確、遞增合理的金額 ⇒ **沒有任何一格會紅。**
+```
+
+## §0-d 鐵則判定(主視窗要我自己判並說理由)
+```
+🔴 鐵則 8 【命中】—— 要動 6 支檔(3 源 + 3 測), 超過 3 檔:
+   apps/storefront/src/components/account/tabs/WalletTab.tsx      stub → 本體
+   apps/storefront/src/app/account/page.tsx                       加一發 ledger 查詢 + 傳 prop
+   apps/storefront/src/components/account/AccountView.tsx         forward prop
+   + 對應三支 *.test.tsx
+   ⇒ **本檔即 plan, 而它【還沒有被 Sean 批過】⇒ 不動任何 code。**
+🔴 鐵則 12① 【命中】—— 餘額與明細是錢 ⇒ codex + code-reviewer 兩把都要,
+   由做這片的窗自己跑。而 code-reviewer 要問 Sean 本人。
+❌ 12② 權限:不新增 RLS/GRANT;讀取走既有 RLS `wallet_select_own`(§2)
+❌ 12③ schema:零 migration ❌ ④平台 ❌ ⑤對外 ❌ ⑥ packages/ui
+鐵則 9 分級:**L1**(顯示既有資料, 沒有內容要維護)
+```
+
+---
+
 ## §1 🔴 先講一件會改變這一片大小的事:**餘額那半已經在跑了**
 
 我開檔查的,不是讀文件:
