@@ -27,6 +27,33 @@
 //     `scripts/check-syntax-nonts.gate.test.ts`(字面錨 `存在性釘,非效果證明`)。
 //     ⚠️ 這種句子的作用是**關掉下一個人的尋找動作** ⇒ 指錯比不指更貴。
 //
+// 🔴🔴 **2026-08-27:本檔目前有 2 格是紅的, 而 `7228d8d0` 的 commit body 把成因寫錯了。**
+//
+//   那顆 body 逐字說這 2 格紅是「那支測試讀的是 index, 而 index 上是別窗 staged 的兩支 migration
+//   (`20260826150000` / `20260826160000`)」⇒ 🔴 **那是假的。**
+//
+//   真成因(2026-08-27 開檔看的, 不是推的):擋下來的是**另一道檢查**, 它印 `FileNotFoundError`
+//   並點名三支檔 —— `supabase/migrations/20260806180000_…_shipped_recompute_wire.sql` /
+//   `docs/runbooks/a4a-summary-rollback.md` /
+//   `supabase/migrations/20260813120000_…_procurement_void_schema.sql`。
+//   **而這三支在真 repo 裡都存在**(逐支 `test -e` ⇒ 存在)⇒ 是這支 harness 的**暫時工作區**看不到它們。
+//   ⇒ 於是「有擋到」而**歸因失敗**, 斷言逐字「擋下來了,但不是規則②擋的 ⇒ 本格失去歸因」。
+//
+//   🔴 **判別法(自帶, 不要相信上面這段字 —— 一句話會過期, 一條指令不會):**
+//   ```
+//   git diff --cached --name-only | wc -l     ⇒ 印 0(index 乾淨)時這 2 格【仍然紅】
+//                                              ⇒ 與 index 無關, 也與任何別窗無關
+//   ```
+//   實測時序:`b7af8f76` 之後 index 已清空(`⇒ 0 行`), 單獨重跑本檔 ⇒ 仍 `2 failed | 1 passed (3)`。
+//
+//   📌 **而這一格真正該記的不是「成因寫錯了」, 是它為什麼活得下來:**
+//      那顆 body 的**結論**(外因、非該片可修)**碰巧是對的** ——
+//      **結論對, 就沒有人會回來查理由。**
+//      作者(線1)自陳成因:「我看到 index 上有兩支 migration、而這支測試名字裡也有 migration,
+//      **就停在那裡了**。」⇒ memory `feedback_相關但錯的源會關掉懷疑` 的新實例。
+//   ⚠️ **本段只訂正成因, 不宣稱這 2 格該怎麼修** —— 那要能讓 harness 的暫時工作區看到那三支檔,
+//      而那是 `scripts/` 那條線的面, 不是線1 的。**未修, 未指派。**
+//
 // 成本:scratch repo 建一次;每格 spawn 一次 lint-staged(node 冷啟動)。
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
