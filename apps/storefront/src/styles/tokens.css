@@ -146,7 +146,7 @@
   --ext-red-deep: #b3000f;
 
   /* Brand accents — 上架第 17 家(2026-08-27)。同上原則:僅進各自品牌特色區。
-     gilles 藍取樣自本 repo 既有官方 logo `brand-assets/assets/brands-trim/gilles.png`
+     gilles 藍取樣自本 repo 既有官方 logo `apps/storefront/public/brand-assets/assets/brands-trim/gilles.png`
      的主色像素(#002a58,佔非白像素最大宗);深navy 本身即淺底文字安全色,故不另出 -deep。 */
   --gil-blue: #002a58;
   /* 🔴 深色模式的已知限制(2026-08-27 實量,寫在這裡是因為它【現在不會發作】、發作時很難追):
