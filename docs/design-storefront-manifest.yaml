@@ -618,9 +618,28 @@ components:
       - "apps/storefront/src/components/EbcShowcase.tsx"  # #212 品牌放量:EBC Brakes 精簡版(logo=官方 svg、Sean 授權網路抓;⚠ 1983/ISO 9001 查無不寫)
       - "apps/storefront/src/components/AkrapovicShowcase.tsx"  # 上架第三批(2026-07-19、supplier-config.ts 同名批次):Akrapovič 形象區(N°01 三卡 + N°02 冠軍工藝:官網首頁形象影片帶 muted loop+IO 進視窗才播/reduced-motion 停留海報 + pd-bona 故事兩段 + pd-bs 信任狀;信任狀官方 URL 佐證於檔頭、⚠ 創辦人姓名查無不寫、L2 #271;素材=www.akrapovic.com 公開資產、授權=Sean 既有品牌圖授權 gate)
       - "apps/storefront/src/components/GillesShowcase.tsx"  # 上架第 17 家真供應商(2026-08-27、supplier-config.ts 同名批次):GILLES TOOLING 形象區(骨架逐支對照 AkrapovicShowcase 重量版:N°01 三卡 + N°02 官網形象影片帶 muted loop+IO 進視窗才播/reduced-motion 停留海報 + pd-bona 故事兩段 + pd-bs 信任狀四格;事實逐字佐證於檔頭〔本窗親自 WebFetch 官網三頁〕、⚠ 國籍=盧森堡非德國、L2 #271;素材=官網 media 官方照 + Sean 提供官方影片轉檔自 host,授權=Sean 既有品牌圖授權 gate)
+      - "apps/storefront/src/components/DnaShowcase.tsx"  # DNA Filters 形象區(2026-08-21、精簡版:N°01 三卡 + 短 N°02,對齊 EbcShowcase 骨架/#212 方向3 精簡版三家同款)。起因=Sean 2026-08-21 肉眼驗 DNA 商品頁發現保固後直接跳「相關商品」、缺 N°01/N°02 兩段。信任狀事實=官方 dnafilters.com 已查證(讀取日 2026-08-20):多層棉紗浸油濾材/希臘 Mandra Attika 1,300 平方米自有廠房/約 95% 外銷逾 42 國/Red Dot 2012・2017/Rally Dakar 實測。圖片兩種來源分開記:logo+prod-01~04=我方資料庫既有商品照;story-anatomy=官網剖面圖,走 Sean 2026-08-20 對 DNA 品牌頁圖片的既有授權延伸。⚠️ 本描述【逐字搬運自 `DnaShowcase.tsx:1-30` 檔頭】,不是本窗發明的,**而未經該元件的線確認**
       # 🔴 本清單與磁碟不同步(2026-08-27 本窗實量):磁碟 17 支 *Showcase.tsx,
-      #    本清單真正登記為 path 的 14 支 ⇒ **仍缺 3 支**:
-      #      KspeedShowcase / ExtremeComponentsShowcase(2026-07-24 上架第三批)、DnaShowcase(2026-08-21)。
+      #    本清單真正登記為 path 的 15 支 ⇒ **仍缺 2 支**:
+      #      KspeedShowcase / ExtremeComponentsShowcase(2026-07-24 上架第三批)。
+      #    ✅ DnaShowcase(2026-08-21)已於 2026-08-27 補上,補法 = **逐字搬運該元件自己的檔頭**
+      #       (`DnaShowcase.tsx:1-30`),不是替它發明描述 —— 搬運可以被逐字核對,發明不行。
+      #       剩下兩支照同一個做法補即可(補完記得從測試檔的 KNOWN_UNREGISTERED 移除,否則那條會紅)。
+      #    ⚠️ 這幾個數字會隨每次補漏過期 ⇒ **不要引用,當場跑下面那條數法**。
+      # 🔴 補完之後【描述的品質沒有任何東西在盯著】(主視窗 2026-08-27 指出):
+      #    那道閘只檢查「有沒有登記」,不檢查「描述對不對」
+      #    ⇒ 一個欠帳被清掉的那一刻,盯著它的東西也一起消失。
+      #    ⇒ 處置:搬運來的描述一律標「**未經該元件的線確認**」,
+      #       那樣清掉的是「沒登記」,而留下的是「登記了而沒人認過」——**兩者不同**。
+      #    🔴🔴 **而我寫這條數法的時候,當場又踩了一次本檔上面那個坑**(2026-08-27,同一小時內第二次):
+      #       先寫的是 `grep -c '未經該元件的線確認' <本檔>` ⇒ 印 **3**,而真正未認的描述只有 **1** 筆
+      #       —— 另外 2 筆是**這段說明文字自己**。**寫這條規矩的那幾行,被這條規矩數了進去。**
+      #    ⇒ 正確數法(綁形狀不綁字面,只認清單項那一行):
+      #       `grep -cE '^\s*- "apps/storefront/src/components/.*未經該元件的線確認' docs/design-storefront-manifest.yaml`
+      #       ⇒ 這個數字 = 還沒有人認過的描述有幾筆;該元件的線認過就把那半句拿掉。
+      #    📌 教訓正本 `docs/patterns/guard-and-instrument-traps.md:14382` 與 `:9240`,
+      #       實例與四種形狀 `docs/patterns/traps-inbox/G-20260827.md`。
+      #       **知道這個坑,不會讓你在下一段不踩它** —— 這一格就是證據。
       #    🔴 根因不是「某次忘了」:`git log -S<元件名> -- <本檔>` 對這三支各自只有 1 次命中,
       #       而那一次就是 2026-08-27 補漏這顆 commit ⇒ **它們從來沒有被登記過**,
       #       也不是被 2026-08-07 那顆還原 35 檔的 revert(`6a5ffca3`)刪掉的(它沒刪任何 Showcase 行)。

@@ -62,7 +62,9 @@ function showcasesOnDisk(): Set<string> {
 const KNOWN_UNREGISTERED = [
   'KspeedShowcase.tsx',
   'ExtremeComponentsShowcase.tsx',
-  'DnaShowcase.tsx',
+  // ✅ DnaShowcase.tsx 已於 2026-08-27 補進 manifest ⇒ 依本檔下面那條「欠帳表要能被清空」移出。
+  //    補法 = **逐字搬運該元件自己的檔頭**(`DnaShowcase.tsx:1-30`),不是替它發明描述
+  //    ⇒ 搬運可以被逐字核對,發明不行。剩下兩支照同一個做法補即可。
 ] as const;
 
 describe('registeredShowcases(自檢:抽取邏輯要先被驗證,不能只信它跑出來的答案)', () => {
