@@ -56,6 +56,7 @@ function order(over: Partial<AdminOrderSummary> = {}): AdminOrderSummary {
     total: { amount: toMoneyAmount(12000), currency: 'TWD' },
     customerUserId: 'cu-1',
     customerName: '王小明',
+    shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },
     tierAtCheckout: 'general',
     invoiceStatus: 'not_issued',
     cancelledAt: null,
@@ -225,5 +226,111 @@ describe('檔名', () => {
   it('帶日期,而時鐘是注入的(不吃真時鐘 ⇒ 這一格不會在半夜自己變色)', () => {
     expect(orderExportFilename(new Date(2026, 7, 25))).toBe('訂單商品-20260825.csv');
     expect(orderExportFilename(new Date(2026, 0, 3))).toBe('訂單商品-20260103.csv');
+  });
+});
+
+
+describe('🔴 `#24` 收件人三欄(Sean 2026-08-26 要求「放在最後一欄」)', () => {
+  it('三欄在最後, 而順序是姓名/電話/地址', () => {
+    const tail = ORDER_EXPORT_COLUMNS.slice(-3);
+    expect(tail[0]).toContain('收件人姓名');
+    expect(tail[1]).toContain('收件人電話');
+    expect(tail[2]).toContain('收件地址');
+    // 負對照:證它們【真的在最後】—— 前面那一段不該含這三個
+    expect(ORDER_EXPORT_COLUMNS.slice(0, -3).join(',')).not.toContain('收件人');
+  });
+
+  it('🔴 欄名【不描述用法】—— 只寫它是什麼', () => {
+    /* `#24` 片B 踩過:「訂單總額(每單只出現一次,**可直接加總**)」的「可直接加總」
+       在會計於 Excel 篩選/隱藏列之後就不成立。
+       📌 **一句比實際成立範圍更大的話, 比不寫更危險** —— 沒寫他會小心, 寫了他不會。
+       ⇒ 本格釘住這三欄不得出現「可以拿來做什麼」那類字眼。 */
+    for (const col of ORDER_EXPORT_COLUMNS.slice(-3)) {
+      expect(col).not.toContain('可直接');
+      expect(col).not.toContain('可以');
+      expect(col).toContain('每單只有一個');
+    }
+    /* 正對照:證這把尺會回「是」。
+       🔴 **用測試自造的字串, 不要拿現有欄名當正對照** ——
+          第一版我釘的是既有那欄的「可直接加總」, 而**這一片自己正在宣告那句話有害**
+          ⇒ 哪天有人照本片的道理去修那個欄名, 這一格會紅, 把他勸回去。
+          **一個對的修法被自己立的守門擋下來, 而紅的理由看起來完全正當。**(審查 finding #12) */
+    expect('收件人姓名(可直接寄信)').toContain('可直接');
+    expect('收件人姓名(每單只有一個)').not.toContain('可直接');
+  });
+
+  it('值取自收件人快照, 而缺值印 —(不是空白也不是 undefined)', () => {
+    const rows = buildOrderExportRows([
+      order({ shippingAddress: { name: '王大明', phone: '0987654321', line: '高雄市三民區 9 號' } }),
+    ]);
+    expect(cell(rows, 0, '收件人姓名(每單只有一個)')).toBe('王大明');
+    expect(cell(rows, 0, '收件人電話(每單只有一個)')).toBe('0987654321');
+    expect(cell(rows, 0, '收件地址(每單只有一個)')).toBe('高雄市三民區 9 號');
+
+    const missing = buildOrderExportRows([
+      order({ shippingAddress: { name: null, phone: null, line: null } }),
+    ]);
+    expect(cell(missing, 0, '收件人姓名(每單只有一個)')).toBe('—');
+    expect(cell(missing, 0, '收件人電話(每單只有一個)')).toBe('—');
+  });
+
+  it('🔴 續列【重複】收件人 —— 而它與「訂單總額」刻意不同', () => {
+    const rows = buildOrderExportRows([
+      order({
+        lines: [line({ id: 'a' }), line({ id: 'b' })],
+        shippingAddress: { name: '王大明', phone: '0987654321', line: '高雄市三民區 9 號' },
+      }),
+    ]);
+    /* 收件人重複:CSV 會被排序, 而排序把第一列與續列拆開 ⇒ 留空的話續列不知道要寄給誰。
+       而「訂單總額」留空是為了 SUM 不重複算 —— 這三欄不是數字, 重複它不會讓加總出錯。 */
+    expect(cell(rows, 1, '收件人姓名(每單只有一個)')).toBe('王大明');
+    // 對照:同一發裡「訂單總額」的續列仍然是空的(證兩條規則並存, 我沒有把它一起改掉)
+    expect(cell(rows, 1, '訂單總額(每單只出現一次,可直接加總)')).toBe('');
+  });
+});
+
+describe('🔴 CSV 公式注入(2026-08-26 審查 finding #8)', () => {
+  /* 試算表看到 `=` `+` `-` `@` 開頭就把那格當公式跑。而地址/電話是客人自己打的,
+     這份檔的用途又正好是「用 Excel 開起來對帳」⇒ 客人打的字會在會計的機器上執行。 */
+  it('危險前綴的格被加上單引號逃脫', () => {
+    /* ⚠️ 逃脫發生在 `toCsv` 裡, **不在** `buildOrderExportRows` ——
+       `cell()` 拿到的是【逃脫前】的原值。第一版我在這裡用了 `cell()` 而它紅了,
+       📌 那個紅是對的:**尺量錯層, 與碼真的沒修, 印出來的字一模一樣。** */
+    for (const bad of ['=1+1', '+886912345678', '-危險', '@SUM(A1)']) {
+      const rows = buildOrderExportRows([
+        order({ shippingAddress: { name: bad, phone: null, line: null } }),
+      ]);
+      expect(toCsv([...ORDER_EXPORT_COLUMNS], rows)).toContain(`'${bad}`);
+    }
+  });
+
+  it('🔴 負對照:乾淨的值【不】被動到 —— 否則每一格都會多一個引號', () => {
+    const csv = toCsv(
+      [...ORDER_EXPORT_COLUMNS],
+      buildOrderExportRows([
+        order({ shippingAddress: { name: '王大明', phone: '0912345678', line: '台北市 1 號' } }),
+      ]),
+    );
+    expect(csv).toContain('王大明');
+    expect(csv).not.toContain(`'王大明`);
+    expect(csv).not.toContain(`'0912345678`);
+  });
+
+  it('🔴 修在共用的 escapeCell ⇒ 舊欄位也一起被保護(不是只擋新三欄)', () => {
+    /* 只擋新欄的話, `客戶` / `物品名稱` 仍然開著 —— 而下一個人會以為已經修過。 */
+    const rows = buildOrderExportRows([order({ customerName: '=cmd|calc' })]);
+    expect(toCsv([...ORDER_EXPORT_COLUMNS], rows)).toContain("'=cmd|calc");
+  });
+
+  it('逃脫與引號包裝【疊加】—— 危險前綴 + 逗號同時出現', () => {
+    const rows = buildOrderExportRows([
+      order({ shippingAddress: { name: null, phone: null, line: '=A1,B2' } }),
+    ]);
+    /* 先加單引號 ⇒ 再因為含逗號整格包引號。這一格要看**逃脫後**的字面,
+       而 `cell()` 回的是逃脫前的原值 ⇒ 直接對整份 CSV 斷言。 */
+    const csv = toCsv([...ORDER_EXPORT_COLUMNS], rows);
+    expect(csv).toContain(`"'=A1,B2"`);
+    // 負對照:證這把尺會回「不是」—— 沒逃脫的話長這樣, 而它不該出現
+    expect(csv).not.toContain(',=A1,B2,');
   });
 });

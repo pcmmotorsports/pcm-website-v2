@@ -47,6 +47,21 @@ export const ORDER_EXPORT_COLUMNS = [
   '會員等級',
   '狀態',
   '發票',
+  /* 🔴 `#24`(2026-08-26 Sean 要求)—— 他自由打的字逐字:
+       「按鈕成功匯出，但是少了客人詳細資訊」/「客人的 姓名,電話,地址」/「放在最後一欄」
+     ⇒ **放最後**是他指定的位置, 不是我挑的。
+
+     🔴🔴 **欄名【只描述它是什麼, 不描述它可以拿來做什麼】** ——
+        `#24` 片B 踩過:上面那個「訂單總額(每單只出現一次, **可直接加總**)」的
+        「可直接加總」在會計於 Excel 篩選/隱藏列之後**就不成立了**
+        ⇒ **一句比實際成立範圍更大的話, 比不寫更危險**:沒寫他會小心, 寫了他不會。
+     ⇒ 所以這三欄只寫「每單只有一個」—— 那是**事實**(一張單一個收件人), 不是用法。
+
+     ⚠️ **而這三欄是【下單當下的快照】, 不是客人現在的地址**(理由與量法見
+        `AdminOrderSummary.shippingAddress` 的 docstring)⇒ 對帳要的正是這個。 */
+  '收件人姓名(每單只有一個)',
+  '收件人電話(每單只有一個)',
+  '收件地址(每單只有一個)',
 ] as const;
 
 /**
@@ -113,6 +128,9 @@ export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
     const customer = order.customerName ?? EMPTY;
     const tier = MEMBER_TIER_LABEL[order.tierAtCheckout];
     const invoice = INVOICE_STATUS_LABEL[order.invoiceStatus];
+    const recipientName = order.shippingAddress.name ?? EMPTY;
+    const recipientPhone = order.shippingAddress.phone ?? EMPTY;
+    const recipientLine = order.shippingAddress.line ?? EMPTY;
     order.lines.forEach((line, i) => {
       rows.push([
         // 🔴 訂單層的識別欄**每列都重複**,而畫面只在第一列印。
@@ -133,6 +151,14 @@ export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
         tier,
         status,
         invoice,
+        /* 🔴 收件人三格【每一列都重複】, 與單號/日期/客戶同一條規則 ——
+           理由同上面那段:CSV 會被排序與篩選, 而排序會把第一列跟它的續列拆開
+           ⇒ 留空的話, 續列會變成一列不知道要寄給誰的品項。
+           ⚠️ 而它與「訂單總額」那一欄【刻意不同】:那一欄留空是為了 SUM 不重複算,
+              而這三欄不是數字, 重複它不會讓任何加總出錯。 */
+        recipientName,
+        recipientPhone,
+        recipientLine,
       ]);
     });
   }
@@ -168,8 +194,17 @@ export function orderExportBlockedReason(orders: AdminOrderSummary[]): string | 
  *    而它不會報錯 —— 它會給你一份少了很多列、而每一列看起來都正常的表。
  */
 function escapeCell(value: string): string {
-  if (!/[",\r\n]/.test(value)) return value;
-  return `"${value.replace(/"/g, '""')}"`;
+  /* 🔴🔴 **公式注入**(2026-08-26 審查抓到, `#24` 收件人三欄一併修)——
+     試算表軟體看到一格以 `= + - @` 或 tab/CR 開頭, 會把它當**公式**跑, 不是當文字顯示。
+     ⇒ 地址與電話是**客人自己在結帳時打的**, 而這份檔的用途就是「用 Excel 開起來對帳」。
+     ⚠️ 這不是這三欄帶來的病 —— `客戶` / `物品名稱` 早就同病(它們也是客人可控)。
+        本片一次修在**共用的 escapeCell**, 而不是只擋新的那三欄:
+        只擋新欄的話, 舊欄仍然開著, 而下一個人會以為「已經修過了」。
+     修法 = 前綴一個單引號。Excel / Numbers / Google Sheets 都把它當「這格是文字」的逃脫,
+     而那個引號**不會顯示在儲存格裡**。⇒ 對帳的人看到的字沒變。 */
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  if (!/[",\r\n]/.test(guarded)) return guarded;
+  return `"${guarded.replace(/"/g, '""')}"`;
 }
 
 /** BOM —— 沒有它,Excel 開 UTF-8 的中文會變亂碼(而 Numbers 與試算表軟體不會)。 */

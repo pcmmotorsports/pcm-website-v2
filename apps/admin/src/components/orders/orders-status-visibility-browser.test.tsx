@@ -118,6 +118,7 @@ function order(itemsTruncated: boolean): AdminOrderSummary {
     total: { amount: toMoneyAmount(12000), currency: 'TWD' },
     customerUserId: 'cu-1',
     customerName: '王小明',
+    shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },
     tierAtCheckout: 'general',
     invoiceStatus: 'not_issued',
     cancelledAt: null,

@@ -271,6 +271,11 @@ export type SupabaseAdminOrderRow = Pick<
   | 'tier_at_checkout'
   | 'invoice_status' // A9c:開票紀錄三態(NOT NULL DEFAULT 'not_issued';CHECK 三值)
   | 'customer_user_id' // 2b-0:同客人閘的識別;非成本欄、orders 自己的欄位(理由見 AdminOrderSummary.customerUserId)
+  // 🔴 `#24`(2026-08-26):收件人快照。**這一欄原本【刻意】不在列表投影裡** ——
+  //    `SupabaseOrderAdapter.test.ts` 的 forbidden 清單擋著它,而 Sean 2026-08-26 拍板拿掉那道屏障
+  //    (他選「甲」;選項字面的作者是線1)。代價他看過:「拿掉之後它每次開訂單列表都會進去。」
+  //    ⇒ 值由 `pickShippingAddress` 防禦式解析(jsonb 可能壞掉 ⇒ 要 null 不要整頁炸掉)。
+  | 'shipping_address_snapshot'
 > & {
   /**
    * 內嵌 customers(name):orders.customer_user_id → customers(user_id) 為 forward FK(orders 持 FK 欄)=
@@ -390,6 +395,14 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     createdAt: row.created_at,
     customerUserId: row.customer_user_id,
     customerName: customerNameFromEmbed(row.customers),
+    /* `#24`(2026-08-26):收件人三格進**列表**讀模型。
+       🔴 **這一欄原本【刻意】不在列表側** —— `SupabaseOrderAdapter.test.ts` 的 forbidden 清單
+          擋著它, 而 Sean 2026-08-26 拍板拿掉那道屏障(他選「甲」;選項字面的作者是線1)。
+          代價他看過:「拿掉之後它每次開訂單列表都會進去。」
+       ✅ 走**明細側同一支** `pickShippingAddress`(本檔下方,`function pickShippingAddress` 一處,grep 得到), 不另寫一份解析 ——
+          它是「三欄逐一取字串, 缺就 null」的防禦式解析, 而 snapshot 是 jsonb
+          ⇒ 資料壞掉時要的是 null 不是整頁炸掉。 */
+    shippingAddress: pickShippingAddress(row.shipping_address_snapshot),
     paymentStatus: row.payment_status,
     fulfillmentStatus: row.fulfillment_status,
     orderSource: row.order_source as OrderSource, // DB orders_order_source_check 保證值域

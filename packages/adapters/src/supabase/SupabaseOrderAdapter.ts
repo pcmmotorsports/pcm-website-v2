@@ -163,7 +163,7 @@ export const MEMBER_ORDER_DETAIL_SELECT =
 //    `supabase/migrations/20260814140000_m4b_e10_484a_order_goods_axis_view.sql` 檔頭「寫作契約」。
 //    ⚠️ 這一條**沒有守門**,只有這行字(候選修法列在 `#499`)。
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))';
 
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
@@ -298,9 +298,36 @@ function describeType(v: unknown): string {
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
  *
- * 🔴 PII 邊界(設計檔 2026-07-13):明細**才**攜 customers(name, email, phone)+
- * shipping_address_snapshot(收件姓名/電話/地址)+ invoice(結帳開票需求)——列表投影
- * `ADMIN_ORDER_LIST_SELECT` 維持精簡零 PII、兩白名單**刻意分立**。
+ * 🔴 PII 邊界(設計檔 2026-07-13)——**2026-08-26 部分推翻,原句留著**:
+ * ~~明細**才**攜 customers(name, email, phone)+ shipping_address_snapshot(收件姓名/電話/地址)
+ * + invoice(結帳開票需求)——列表投影 `ADMIN_ORDER_LIST_SELECT` 維持**精簡零 PII**、
+ * 兩白名單刻意分立。~~
+ * 🔴 **`shipping_address_snapshot` 已於 2026-08-26 移入列表投影**(`#24` 匯出加收件人三欄)。
+ *    ⇒ **「列表投影零 PII」那句已經不成立** —— 收件人姓名/電話/地址現在會進讀模型與 RSC payload,
+ *      而且是**每一次開訂單列表**都會,不只按匯出的時候。
+ *    授權:Sean 2026-08-26 拍板拿掉那道屏障(他選「甲」;選項字面的作者是線1,不是他的逐字)。
+ *    他知道的代價,端給他的那一行原文:「那是我們自己設的一道保護:收件人的電話地址現在
+ *    【不會】離開資料庫進到瀏覽器。拿掉之後它每次開訂單列表都會進去。」
+ * ⚠️ **而射程只有這一個欄位**:`customers(email, phone)` 與 `invoice` **仍然只在明細側**,
+ *    兩白名單**仍然分立**。移走的是【一個 token】,不是【那份清單的原則】。
+ * 🔴🔴 **而上面那句話有一半是空的, 這一段是 2026-08-26 審查逼出來的訂正** ——
+ *    ~~其餘每一個都還在, 而下面那一格就是守這件事的~~
+ *    ⇒ **`customers(email, phone)` 從來就不在 forbidden 清單裡。** 那份清單只有 10 個 token
+ *      (`*` / price_store / price_by_tier / priceByTier / price_general / cost /
+ *       tappay_rec_trade_id / invoice / cart_session_id / address_id)。
+ *    ⇒ 也就是說:**今天有人把 `customers(email, phone)` 加進列表投影, forbidden 那格【不會紅】。**
+ *      唯一會紅的是**下面那道 byte-equal**(它釘住整條投影字面)。
+ *    📌 **而這兩者的差別不是嚴格程度, 是句型**:
+ *       forbidden = 「**你不准**」· byte-equal = 「**你要承認**」。
+ *       ⇒ 「兩白名單分立」這件事,今天實際上是由**後者**在守 —— 加欄位的人得先去改那個期望值,
+ *         而改的時候他會讀到這一段。**沒有任何東西擋著他, 只是他躲不掉看見。**
+ * 🔴🔴 **而有幾份字面【回不去了】, 這一句就是為了那件事寫的**(審查 finding #16):
+ *    `supabase/migrations/20260812130000_…:501` 與 `20260809180000_…:12,18,23`
+ *    仍逐字寫著「在 forbidden 清單裡 / 擴投影等於拆守門」。
+ *    ⚠️ **那些是 `COMMENT ON`,已 apply、活在正式站的 DB 裡** ——
+ *      migration 不能改, 而**下一個人去查 DB 的函式註解, 會拿到與這裡相反的答案**。
+ *    ⇒ 兩邊都是誠實寫的, 而**舊的那份沒有任何機制會通知它自己過期了**。
+ *      以本檔為準。查到 DB COMMENT 與這裡衝突 ⇒ 那份是 2026-08-26 之前寫的。
  * 🔴 鐵則 12:**仍禁** `select('*')`、零成本欄(price_store / price_by_tier / cost)、
  * **零 tappay_rec_trade_id**(金流對帳識別碼不進顯示層)、零 cart_session_id / address_id /
  * tier_at_checkout。order_items 內嵌成交價欄(unit_price / line_total)=該單實際賣價、非經銷價表;
@@ -797,9 +824,20 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    供應商 probe 隨 Q-347-B1=B 退場之後**沒有第二個查詢可以排前面了**,那條規則自然失效 ——
     //    留著這段是為了讓下一代知道它是**被移除的**、不是被忘記的。
     //    合約本身沒變:`AdminOrderListResult` 的 docstring 仍要求 truncated 時**含 0 筆**一律提示。
-    // 🔴 為什麼是 RPC 而不是把欄位加進投影:命中面含 `shipping_address_snapshot`,
-    //    那一欄在鐵則 12 的 forbidden 清單裡 ⇒ 擴投影 = 親手拆守門。走 RPC 之後
-    //    **PII 只在 SQL 內比對,一個字都不進讀模型、不進 RSC payload**(migration `:9-17`)。
+    // 🔴 為什麼是 RPC 而不是把欄位加進投影 —— **2026-08-26 這個理由的一半失效了,原句留著**:
+    //    ~~命中面含 `shipping_address_snapshot`,那一欄在鐵則 12 的 forbidden 清單裡
+    //    ⇒ 擴投影 = 親手拆守門。走 RPC 之後 **PII 只在 SQL 內比對,一個字都不進讀模型、
+    //    不進 RSC payload**(migration `:9-17`)。~~
+    // 🔴 **那道屏障 2026-08-26 被拿掉了**(`#24`,Sean 拍板)⇒ `shipping_address_snapshot`
+    //    **現在就在列表投影裡** ⇒ 上面那句「不進讀模型、不進 RSC payload」**已經不成立**。
+    // ✅ **而【做成 RPC】這個選擇仍然有效** —— 它還在做四件與 PII 無關的事(逐條,出處同 migration `:501`):
+    //    ① **UNION 而非一大坨 OR**:OR 形狀下品項側索引規劃器拿不到 —— 實測 127.5ms vs 1.4ms
+    //    ② **UNION 非 UNION ALL + 外層 DISTINCT**:一張訂單掛 N 個命中商品必須只算 1 筆,
+    //       否則吃掉 N 個名額、把別的單擠出上限 = **靜默少回訂單**
+    //    ③ **pg_trgm 模糊比對**(函式層 SET 釘死 word_similarity_threshold 0.4)
+    //    ④ 🔴 **本函式無任何 RAISE** —— **搜尋詞本身是 PII,不得落進 server log**
+    //       ⇒ 這一格是【另一道】PII 保護,**與上面被拿掉的那道無關,它仍然成立**。
+    // ⇒ 所以:**理由變了,結論沒變。** 不要因為上半段失效就把這支改回擴投影。
     // #338:這次搜尋命中了哪幾家供應商。`null` = 這次不是供應商單號搜尋(見 domain docstring)。
     // 🔴 `const` 不是 `let`(R1 m3):#347-B 之後**沒有任何 producer 會改寫它**,
     //    唯一的 producer(供應商兩段式 probe)已退場 ⇒ 恆 `null`,語意見

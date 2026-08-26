@@ -158,6 +158,7 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
     total: { amount: toMoneyAmount(12000), currency: 'TWD' },
     customerUserId: 'cu-fixture-1',
     customerName: '王小明',
+    shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },
     // 🔴 合法值只有 general / store / premiumStore(`MEMBER_TIER_LABEL`)。
     //    初版寫了不存在的 `'regular'`,被 V7 抓到 —— 因為它會查表查到 undefined、等級小字整個消失。
     //    **抓到它的不是 typecheck 而是測試**:下面原本有一個 `as AdminOrderSummary` 把型別檢查壓掉了

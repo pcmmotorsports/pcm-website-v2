@@ -332,6 +332,44 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 const L6_HIDE_OR =
   'payment_channel.neq.tappay,payment_status.neq.unpaid,and(paid_total.neq.0,cancelled_at.is.null)';
 
+/* 🔴 鐵則 12 縱深防線:後台訂單列表投影**永久禁止**出現的 token(子字串比對)。
+   admin server-render、SSO 閘後,而 brand join 穿越帶 `price_store`/`price_by_tier`/`price_general`
+   的 `product_variants`/`products` ⇒ 投影只取 `brands(name)`,任一成本欄誤入即被下面那一格擋下。
+
+   🔴 **A9c 只放行 `invoice_status` 這一欄,`invoice` 家族其餘全部仍禁**(Sean Q2b=A:列表只顯示
+      未開/已開/作廢三態、**砍掉載具別**)。做法是查之前先把該欄剝掉 —— 不是把 `invoice` 從清單拿掉。
+      差別在判別力:剝掉之後 `invoice`(jsonb,含 carrier/taxId/title)、`invoice_number`、
+      `invoice_amount` 任一誤入**仍會被擋下**;整條拿掉則全開。
+
+   🔴🔴 **`'shipping_address_snapshot'` 於 2026-08-26 從本清單移走**(`#24` 匯出加收件人三欄)。
+      授權:Sean 拍板拿掉那道屏障(他選「甲」;選項字面的作者是線1, 不是他的逐字)。
+      他知道的代價, 端給他的那一行原文:
+        「那是我們自己設的一道保護:收件人的電話地址現在【不會】離開資料庫進到瀏覽器。
+          拿掉之後它每次開訂單列表都會進去。」
+      🔴 **射程**:移走的是【一個 token】, 不是【本清單的原則】。
+
+   🔴🔴🔴 **而【這份清單自己再少一個】是沒有守門看得到的, 而且看不到是結構性的。**
+      2026-08-26 我一度寫了一格「剩下的一個都不能再少」+ `toHaveLength(10)` ——
+      **兩格都是恆真的**:它們比對的是一份【自己在旁邊宣告的第二份字面陣列】,
+      從這份真陣列刪一個 token, 那兩格照樣全綠。審查逐條擊破,已刪。
+      📌 **一份清單少一個成員, 任何純字面斷言都抓不到 —— 因為那個動作【就是編輯清單本身】。**
+      ⇒ 唯一真的會擋的門是下面那道 **byte-equal**(它釘住整條投影字面)。
+         而它是「**你要承認**」不是「**你不准**」:加欄位得先去改那個期望值, 改的時候你會看見這段字。
+      ⚠️ 本檔 `:1359-1366` 記著同款病(兩份清單各自漂了、`price_general` 只在其中一份)——
+         那正是為什麼這裡只留【一份】。 */
+const ADMIN_LIST_FORBIDDEN_TOKENS = [
+  '*',
+  'price_store',
+  'price_by_tier',
+  'priceByTier',
+  'price_general',
+  'cost',
+  'tappay_rec_trade_id',
+  'invoice',
+  'cart_session_id',
+  'address_id',
+] as const;
+
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   // ══ 🔴 `#533`:下面這一格是 **TS↔TS** 的 —— 真值在資料庫,而資料庫沒有出現在這一格裡 ══
   //
@@ -353,7 +391,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
   //    ⇒ 它的觸發是「有人記得」。**動這個常數的人請自己跑一次。**
   it('🔴 鐵則 12 + #533:ADMIN_ORDER_LIST_SELECT byte-equal 白名單【這是唯一擋「漏欄」的守門,不得弱化成 toContain】(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), shipping_address_snapshot, order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity))',
     );
   });
 
@@ -366,33 +404,15 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
   // 🔴 縱深防線:brand join 穿越帶 price_store/price_by_tier/price_general 的 product_variants/products,故下列**經銷價成本欄
   // 永久 forbidden**(投影只取 brands(name);任一成本欄誤入即被本測試擋下)。
   it('🔴 鐵則 12:投影不含任何經銷價 / 成本欄名、且無 select("*")(成交價/tier 已於 D-1a 有意識放行、非成本欄)', () => {
-    const forbidden = [
-      '*',
-      'price_store',
-      'price_by_tier',
-      'priceByTier',
-      'price_general',
-      'cost',
-      'tappay_rec_trade_id',
-      'shipping_address_snapshot',
-      'invoice',
-      'cart_session_id',
-      'address_id',
-    ];
-    // 🔴 **A9c 只放行 `invoice_status` 這一欄,`invoice` 家族其餘全部仍禁**(Sean Q2b=A:列表只顯示
-    //    未開/已開/作廢三態、**砍掉載具別**)。做法是先把該欄剝掉再查 `invoice` 這個 token ——
-    //    不是把 `invoice` 從清單拿掉。差別在判別力:剝掉之後,`invoice`(jsonb,含 carrier/taxId/title)、
-    //    `invoice_number`、`invoice_amount` 任一誤入**仍會被擋下**;整條拿掉則全開。
-    //    突變證:把投影裡的 `invoice_status` 換成 `invoice`,本測試轉紅。
+    /* 🔴 `.split('invoice_status').join('')` 是**為了 `'invoice'` 這個 token 而做的碰撞閃避** ——
+       `invoice_status` 是合法欄位而它含 `'invoice'`。
+       📌 **⇒ 這份清單用【子字串比對】, 而它的成員之間有隱藏的耦合。**
+          新增投影欄位時, 若它剛好含著清單裡某個 token, 紅的會是【它】而不是真的違規。
+       突變證:把投影裡的 `invoice_status` 換成 `invoice`, 本測試轉紅。 */
     const projection = ADMIN_ORDER_LIST_SELECT.split('invoice_status').join('');
-    for (const token of forbidden) {
-      expect(projection).not.toContain(token);
+    for (const token of ADMIN_LIST_FORBIDDEN_TOKENS) {
+      expect(projection, `${token} 不得出現在列表投影`).not.toContain(token);
     }
-    // 剝除法自身的前提:被剝的那欄真的在投影裡(不在 = 上面整段變成量一個沒改過的字串)。
-    expect(ADMIN_ORDER_LIST_SELECT).toContain('invoice_status');
-    // ⚠️ 誠實邊界(關卡2 nit):本條**被上面那條 byte-equal 嚴格蘊含** —— 投影是整串比對,任何改動
-    //    都會先讓它紅。保留的理由只有一個:失敗訊息會說出**為什麼**不能加那些欄,byte-equal 只會說
-    //    「兩個長字串不一樣」。不宣稱它擋得住 byte-equal 擋不住的東西。
   });
 
   it('🔴 D-1a 每商品一列:投影確含 tier_at_checkout + order_items 成交價 + brand join(brands(name))', () => {
@@ -426,6 +446,14 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           invoice_status: 'issued',
           customer_user_id: 'cu-list-A', // 2b-0:同客人閘的識別(兩個 fixture 刻意不同值:撞號的話 mapper 硬寫死也會全綠)
           customers: { name: '王小明' }, // forward FK many-to-one → 單物件
+          /* 🔴 `#24`(2026-08-26):本欄 2026-08-26 才進列表投影(Sean 拍板拿掉那道 forbidden 屏障)。
+             🔴🔴 **這一格【刻意帶真值】, 而下面 `o2` 那格【刻意整個沒有這個鍵】** ——
+                因為兩格都缺鍵的話, 期望值會是 `{name:null,phone:null,line:null}` 三格全 null,
+                而那個結果在【接對了但這筆沒資料】與【壓根沒接上】兩個世界**印一模一樣的東西**。
+                ⇒ 全 null 的期望值對「值真的流得出來」**零判別力**。
+             ⚠️ 而三個值刻意互不相同且不含彼此 ⇒ 任兩格接錯線都會紅
+                (若寫成同一個字串, `name` 抄進 `phone` 照樣綠)。 */
+          shipping_address_snapshot: { name: '林收件', phone: '0955000111', line: '桃園市中壢區中大路 300 號' },
           order_items: [
             {
               id: 'oi-1',
@@ -535,6 +563,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           itemsTruncated: false,
           cancelledAt: null,
           tierAtCheckout: 'store',
+          /* 🔴 `#24`:有值的那個世界 —— 三格逐一比對, 不是比「有沒有物件」。 */
+          shippingAddress: { name: '林收件', phone: '0955000111', line: '桃園市中壢區中大路 300 號' },
           invoiceStatus: 'issued', // A9c:三態直送(非 DB 預設值 ⇒ 真的讀到了)
           lines: [
             {
@@ -674,6 +704,10 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       displayPosition: 3,
       cancelledAt: '2099-05-02T00:00:00Z',
       tierAtCheckout: 'general',
+      /* 🔴 `#24`:【缺鍵】的那個世界 —— 本 fixture 刻意沒有 `shipping_address_snapshot` 這個鍵。
+         量的是防禦解析:缺鍵 / 非物件 / 非字串 一律 → null, 而**不是** undefined、不是整個物件消失。
+         ⇒ 與上面 `o1` 那格合起來, 這兩格才構成一組正負對照。 */
+      shippingAddress: { name: null, phone: null, line: null },
       lines: [],
       // 🔴 2026-08-16 `Q-EMBED-1`:0 筆 < 上限 ⇒ false。
       //    ⚠️ 這一格順便釘住「空陣列不等於被截斷」——
@@ -1287,7 +1321,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
    *    ⇒ 前兩個原本就在,而 `price_general` 只在**列表**那格的清單裡(同檔 `:342` 那格)。
    *    ⇒ **兩份清單各自漂了** —— 而它們守的是同一件事(經銷價不得外洩,Server 端鐵則第二條)。
    * ⚠️ **我沒有把兩份合成一份**:明細與列表的 forbidden 清單**刻意不同**
-   *    (明細有 `tier_at_checkout`/`wallet`、列表有 `invoice`/`shipping_address_snapshot`)——
+   *    (明細有 `tier_at_checkout`/`wallet`、列表有 ~~`invoice`/`shipping_address_snapshot`~~
+   *     `invoice` —— 🔴 `shipping_address_snapshot` 於 2026-08-26 移入**列表**投影(`#24`),
+   *     所以它現在【兩側都有】、不再是本句舉的那種「只在一側」的例子)——
    *    合併會把「明細刻意帶 PII」那個決定弄丟。**這裡只補漏的那一個 token,不動結構。**
    */
   it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {

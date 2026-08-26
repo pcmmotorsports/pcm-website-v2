@@ -382,10 +382,23 @@ export type AdminOrderFilter = {
    * - 值由 `normalizeOrderKeywordSearch` 正規化後才可進 adapter;
    * - 🔴 **不合法時 adapter 回零筆、不得退化成不篩選**(同上面兩欄的理由:fail-open 是本族的病)。
    *
-   * 🔴🔴 **為什麼它是 RPC 而不是多幾個 filter 欄**:命中面裡有 `shipping_address_snapshot`,
-   * 而那一欄**就在鐵則 12 的 forbidden 清單裡**(`SupabaseOrderAdapter.test.ts` 的 forbidden 陣列)。
-   * 走 RPC 之後 **PII 只在 SQL 內被比對,一個字都不進讀模型、不進 RSC payload** —— 函式只吐 `orders.id`。
-   * ⇒ 任何「把這些欄加進列表投影去前端過濾」的修法都是**親手拆掉那道守門**,不要走。
+   * 🔴🔴 **為什麼它是 RPC 而不是多幾個 filter 欄** ——
+   * ~~命中面裡有 `shipping_address_snapshot`,而那一欄就在鐵則 12 的 forbidden 清單裡~~
+   * ~~走 RPC 之後 PII 只在 SQL 內被比對,一個字都不進讀模型、不進 RSC payload~~
+   * ~~⇒ 任何「把這些欄加進列表投影去前端過濾」的修法都是親手拆掉那道守門,不要走。~~
+   *
+   * 🔴 **上面整段於 2026-08-26 不再成立**(`#24`:Sean 拍板把該欄加進列表投影)。
+   *    ⇒ 這三個值**現在每次開訂單列表都會進 RSC payload**。上面那句「不要走」已經被走過了,
+   *      而**走它的是拍板,不是疏忽**。
+   *
+   * ✅ **而 RPC 這個選擇仍然正確 —— 理由整組換掉, 四個都與 PII 無關**:
+   *    ① 多欄 `.or()` 會退化成 seq scan;RPC 內走 `UNION` 各自吃自己的索引
+   *      (`20260812130000_…` 實測 127.5ms → 1.4ms)
+   *    ② 必須是 `UNION` 不是 `UNION ALL` —— 同一張單同時命中兩個分支時,`ALL` 會讓
+   *      分頁的 `range()` 位移,**安靜地少回**(不是報錯)
+   *    ③ 模糊比對用 `pg_trgm`,門檻釘死 0.4 寫在函式裡;PostgREST 的 filter 語法給不了門檻
+   *    ④ 函式內**不 `RAISE`** —— 搜尋字串本身是 PII(客人姓名/電話),不得進 server log
+   *    ⇒ 也就是說:**那道 PII 屏障沒了, 而這四個理由一個都沒動。**
    *
    * 🔴 **與另外兩欄最大的差異:本欄沒有字元集限制**。那兩欄擋字元是因為值會被內插進
    * PostgREST 的 GET query string;本欄走 `.rpc()` = POST + JSON body ⇒ 中文、`%`、`,` 全合法
@@ -592,6 +605,21 @@ export type AdminOrderSummary = {
   customerUserId: string;
   /** 客人顯示名(join customers.name;缺 → null) */
   customerName: string | null;
+  /**
+   * 收件人(`orders.shipping_address_snapshot` 的三鍵;缺 → null)。
+   *
+   * 🔴🔴 **這三格是【下單當下的快照】, 不是客人現在的地址** ——
+   *    量到:全 `supabase/migrations` 對該欄的真正 `UPDATE` 語句 **0**
+   *    (正對照 `cancelled_at` 同一把尺 ⇒ 12 ⇒ 尺會動);欄位是 `jsonb NOT NULL`,建單時寫一次。
+   *    ⚠️ **而射程有一半是推的**:我只掃了 migrations ——
+   *      「app 層改不到它, 因為寫入一律走 owner RPC 而 RPC 都在 migrations 裡」是推論。
+   *    ⇒ 對帳要的正是這個:檔案上記的是【當時寄去哪】, 不是【他現在住哪】。
+   *
+   * 🔴 **而它 2026-08-26 才進列表讀模型**, 在那之前是【刻意】被擋在外面的
+   *    (`SupabaseOrderAdapter.test.ts` 的 forbidden 清單)。Sean 拍板拿掉那道屏障,
+   *    而**代價是每一次開訂單列表這三個值都會進到瀏覽器**, 不只按匯出的時候。
+   */
+  shippingAddress: { name: string | null; phone: string | null; line: string | null };
   paymentStatus: PaymentStatus;
   fulfillmentStatus: FulfillmentStatus;
   orderSource: OrderSource;

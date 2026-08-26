@@ -85,6 +85,7 @@ const WORST = {
   sku: 'PRN-013-2350-B-XXL',
   title: '品牌貼紙（白色）',
   customerName: '陳大文王小美美',
+    shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },
 } as const;
 
 function worstLine(): AdminOrderLine {
@@ -129,6 +130,7 @@ function worstOrder(): AdminOrderSummary {
     total: { amount: toMoneyAmount(1536000), currency: 'TWD' },
     customerUserId: 'cu-1',
     customerName: WORST.customerName,
+    shippingAddress: { name: '收件人', phone: '0912345678', line: '台北市信義區 1 號' },
     tierAtCheckout: 'general',
     invoiceStatus: 'not_issued',
     cancelledAt: null,
