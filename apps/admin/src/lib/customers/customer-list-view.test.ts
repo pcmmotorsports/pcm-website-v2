@@ -13,24 +13,34 @@ import {
   TIER_VALUES,
   customerEmailDisplay,
   LINE_NO_EMAIL_LABEL,
+  parseAge,
+  birthdayRangeForAges,
+  todayInTaipei,
 } from './customer-list-view';
+
+/**
+ * 🔴 固定的「今天」—— 本檔**一次都不呼叫 `new Date()`**。
+ * 純函式吃 `today` 是刻意的:讓測試不會在某一天自己變色。
+ * (`todayInTaipei()` 本身另有一格單測, 它是唯一碰時鐘的地方。)
+ */
+const TODAY = '2026-08-26';
 
 describe('parseCustomerListSearchParams — tier 白名單守門', () => {
   it('合法 tier → filter 帶入;page 解析', () => {
-    const { filter, page } = parseCustomerListSearchParams({ tier: 'premiumStore', page: '2' });
+    const { filter, page } = parseCustomerListSearchParams({ tier: 'premiumStore', page: '2' }, TODAY);
     expect(filter).toEqual({ tier: 'premiumStore' });
     expect(page).toBe(2);
   });
 
   it('非法 tier 忽略(注入不透傳)', () => {
-    expect(parseCustomerListSearchParams({ tier: 'vip; DROP' }).filter).toEqual({
+    expect(parseCustomerListSearchParams({ tier: 'vip; DROP' }, TODAY).filter).toEqual({
       tier: undefined,
     });
-    expect(parseCustomerListSearchParams({ tier: '' }).filter).toEqual({ tier: undefined });
+    expect(parseCustomerListSearchParams({ tier: '' }, TODAY).filter).toEqual({ tier: undefined });
   });
 
   it('缺 searchParams → tier undefined + page 1', () => {
-    const { filter, page } = parseCustomerListSearchParams({});
+    const { filter, page } = parseCustomerListSearchParams({}, TODAY);
     expect(filter).toEqual({ tier: undefined });
     expect(page).toBe(1);
   });
@@ -117,15 +127,15 @@ it('null 原樣回傳,不轉成替代字面', () => {
 
 describe('客戶列表排序 · 網址參數', () => {
   it('三個軸各自解析得出來,而網址值是 snake、domain 鍵是 camel', () => {
-    expect(parseCustomerListSearchParams({ sort: 'spend', dir: 'asc' }).sort).toEqual({
+    expect(parseCustomerListSearchParams({ sort: 'spend', dir: 'asc' }, TODAY).sort).toEqual({
       key: 'spend',
       ascending: true,
     });
-    expect(parseCustomerListSearchParams({ sort: 'orders', dir: 'desc' }).sort).toEqual({
+    expect(parseCustomerListSearchParams({ sort: 'orders', dir: 'desc' }, TODAY).sort).toEqual({
       key: 'orders',
       ascending: false,
     });
-    expect(parseCustomerListSearchParams({ sort: 'last_order' }).sort).toEqual({
+    expect(parseCustomerListSearchParams({ sort: 'last_order' }, TODAY).sort).toEqual({
       key: 'lastOrder',
       ascending: false, // 沒給 dir ⇒ 該軸的預設方向（降冪）
     });
@@ -142,19 +152,19 @@ describe('客戶列表排序 · 網址參數', () => {
    */
   it('🔴🔴 白名單外的 sort / dir 一律落回預設,而那個字串【不會到達查詢層】', () => {
     for (const bad of ['created_at', 'wallet_balance', 'name; drop', '', 'SPEND', 'lastOrder']) {
-      expect(parseCustomerListSearchParams({ sort: bad }).sort).toBeUndefined();
+      expect(parseCustomerListSearchParams({ sort: bad }, TODAY).sort).toBeUndefined();
     }
     // dir 亂寫 ⇒ 軸仍成立、方向落回該軸預設(不是整個排序失效)
-    expect(parseCustomerListSearchParams({ sort: 'spend', dir: '亂寫' }).sort).toEqual({
+    expect(parseCustomerListSearchParams({ sort: 'spend', dir: '亂寫' }, TODAY).sort).toEqual({
       key: 'spend',
       ascending: false,
     });
     // 🔴 正對照:白名單內的值要真的認得出來 —— 沒有這一格,「永遠回 undefined」也會綠
-    expect(parseCustomerListSearchParams({ sort: 'spend' }).sort).toBeDefined();
+    expect(parseCustomerListSearchParams({ sort: 'spend' }, TODAY).sort).toBeDefined();
   });
 
   it('🔴 同名參數送兩份 ⇒ 當沒指定(不取第一個 —— 那會讓網址說了兩件事而只套一件)', () => {
-    expect(parseCustomerListSearchParams({ sort: ['spend', 'orders'] }).sort).toBeUndefined();
+    expect(parseCustomerListSearchParams({ sort: ['spend', 'orders'] }, TODAY).sort).toBeUndefined();
   });
 
   it('欄頭連結:已經在這一軸 ⇒ 反向;不在 ⇒ 該軸預設方向;而【一律回 page 1】', () => {
@@ -213,3 +223,185 @@ describe('客戶列表排序 · 網址參數', () => {
 //
 // 🔴 這幾格斷的是**表格渲染出來的 `<th>` 屬性**,不是那個 helper 的回傳值 ——
 //    helper 對了而沒有接到 `<th>` 上,讀屏使用者一樣聽不到,**而單測會全綠**。
+
+/* ══ 生日兩軸(Sean 2026-08-26 `e:丙`)══════════════════════════════════════ */
+
+describe('parseAge — 年齡值域守門', () => {
+  it('合法整數過;空 / 未給 ⇒ undefined', () => {
+    expect(parseAge('30')).toBe(30);
+    expect(parseAge('0')).toBe(0);
+    expect(parseAge(undefined)).toBeUndefined();
+    expect(parseAge('')).toBeUndefined();
+    expect(parseAge('   ')).toBeUndefined();
+  });
+
+  it('🔴 `30abc` ⇒ undefined,不是 30', () => {
+    // parseInt('30abc') 會回 30 —— 那是使用者打錯字,不該被當成 30。
+    expect(parseAge('30abc')).toBeUndefined();
+  });
+
+  it('非整數 / 負數 / 超出上界 ⇒ undefined(不擲錯)', () => {
+    expect(parseAge('30.5')).toBeUndefined();
+    expect(parseAge('-1')).toBeUndefined();
+    expect(parseAge('131')).toBeUndefined();
+    expect(parseAge('abc')).toBeUndefined();
+    // 🔴 手滑把年份打進年齡欄 ⇒ 擋得住
+    expect(parseAge('1990')).toBeUndefined();
+    // ⚠️ 而**擋不住的那一種**:把 85 當年份打 ⇒ 它在值域內、看起來完全合法。
+    //    這一格是**明寫的天花板**,不是缺口 —— 值域守門攔不了「合法而錯」的值。
+    expect(parseAge('85')).toBe(85);
+  });
+});
+
+describe('birthdayRangeForAges — 年齡 → 生日日期區間(純函式,不碰時鐘)', () => {
+  const TODAY_2026 = '2026-08-26';
+
+  it('兩端都含:30-40 歲 ⇒ 已滿 30、還沒滿 41', () => {
+    const r = birthdayRangeForAges(30, 40, TODAY_2026);
+    // 最年輕:今天剛好滿 30 的人(1996-08-26 生)要**被包含**
+    expect(r.birthdayTo).toBe('1996-08-26');
+    // 最年長:今天剛好滿 41 的人(1985-08-26 生)要**被排除** ⇒ 下界是隔天
+    expect(r.birthdayFrom).toBe('1985-08-27');
+  });
+
+  it('只給一端 ⇒ 另一端不設限', () => {
+    expect(birthdayRangeForAges(30, undefined, TODAY_2026)).toEqual({ birthdayTo: '1996-08-26' });
+    expect(birthdayRangeForAges(undefined, 40, TODAY_2026)).toEqual({ birthdayFrom: '1985-08-27' });
+    expect(birthdayRangeForAges(undefined, undefined, TODAY_2026)).toEqual({});
+  });
+
+  it('🔴 今天是 2/29 時不炸,而【3/1 生的人會差一歲】—— 釘住這個已知偏差', () => {
+    // ⚠️ **這一格的理由 2026-08-26 被 `code-reviewer` 更正過, 舊版的理由是錯的**:
+    //    舊註解說口徑是「2/29 出生的人被正規化到 3/1」—— 那是 docstring 講的另一件事。
+    //    🔴 **這裡真正發生的是**:today = 2/29 時, `2/29 - 1 年` 被 JS 正規化成 3/1
+    //    ⇒ 2023-03-01 生的人**今天(2024-02-29)其實還沒滿 1 歲**, 而這裡把他算進 1 歲。
+    //    ⇒ 也就是**受害者是 3/1 生的人**, 不是 2/29 生的人。
+    //    範圍:四年一次 × 生日恰為 3/1 ⇒ 命中率約 1/365。判為**已知偏差, 不修**。
+    //    📌 而釘住它是為了:**下一個人改這裡的時候, 知道自己在改什麼。**
+    //       照舊版那個(錯的)理由去改, 會改錯。
+    const r = birthdayRangeForAges(1, 1, '2024-02-29');
+    expect(r.birthdayTo).toBe('2023-03-01');
+    expect(r.birthdayFrom).toBe('2022-03-02');
+  });
+
+  it('🔴 不是用天數除以 365:跨多個閏年仍然對得上日曆', () => {
+    // 100 歲:1926-08-26。除以 365 的寫法會漂掉約 24 天(1926 到 2026 有 ~24 個閏日)。
+    expect(birthdayRangeForAges(100, undefined, TODAY_2026).birthdayTo).toBe('1926-08-26');
+  });
+});
+
+describe('parseCustomerListSearchParams — 生日兩軸', () => {
+  it('月份合法 ⇒ 進 filter;非法 ⇒ 忽略', () => {
+    expect(parseCustomerListSearchParams({ bmonth: '7' }, TODAY).filter.birthMonth).toBe(7);
+    expect(parseCustomerListSearchParams({ bmonth: '13' }, TODAY).filter.birthMonth).toBeUndefined();
+    expect(parseCustomerListSearchParams({ bmonth: '0' }, TODAY).filter.birthMonth).toBeUndefined();
+    expect(parseCustomerListSearchParams({ bmonth: 'x' }, TODAY).filter.birthMonth).toBeUndefined();
+  });
+
+  it('🔴 年齡與日期【同源】—— 兩者只在這支函式裡一起被設定', () => {
+    // 這一格釘的是 `AdminCustomerFilter.ageMin` docstring 裡那條不變式:
+    // ageMin/ageMax(進網址)與 birthdayFrom/To(進查詢)**要嘛都在, 要嘛都不在**。
+    // 🔴 只有一半在 ⇒ 「網址說的」與「查詢做的」漂開, 而畫面上看不出來。
+    const both = parseCustomerListSearchParams({ agemin: '30', agemax: '40' }, TODAY).filter;
+    expect(both.ageMin !== undefined).toBe(both.birthdayTo !== undefined);
+    expect(both.ageMax !== undefined).toBe(both.birthdayFrom !== undefined);
+
+    const neither = parseCustomerListSearchParams({}, TODAY).filter;
+    expect(neither.ageMin).toBeUndefined();
+    expect(neither.birthdayTo).toBeUndefined();
+
+    // 打反 ⇒ 四個都不在(不是一半)
+    const swapped = parseCustomerListSearchParams({ agemin: '50', agemax: '20' }, TODAY).filter;
+    expect(swapped.ageMin).toBeUndefined();
+    expect(swapped.ageMax).toBeUndefined();
+    expect(swapped.birthdayFrom).toBeUndefined();
+    expect(swapped.birthdayTo).toBeUndefined();
+  });
+
+  it('🔴 `agemin=0x1E` 不得被當成 30(非十進位字面量)', () => {
+    for (const bad of ['0x1E', '1e2', '0b101', '0o17', '+30', '30.', ' 30 ']) {
+      const got = parseCustomerListSearchParams({ agemin: bad }, TODAY).filter.ageMin;
+      // ⚠️ ' 30 ' 是例外:trim 後是合法十進位, 它應該過
+      if (bad === ' 30 ') expect(got).toBe(30);
+      else expect(got, `${bad} 不該被接受`).toBeUndefined();
+    }
+  });
+
+  it('年齡 ⇒ filter 裡【日期與年齡都有】;而 ageInputs 保留原值給輸入框回填', () => {
+    const { filter, ageInputs } = parseCustomerListSearchParams(
+      { agemin: '30', agemax: '40' },
+      TODAY,
+    );
+    expect(filter.birthdayTo).toBe('1996-08-26');
+    expect(filter.birthdayFrom).toBe('1985-08-27');
+    expect(filter.ageMin).toBe(30);
+    expect(filter.ageMax).toBe(40);
+    expect(ageInputs).toEqual({ min: 30, max: 40, swapped: false });
+  });
+
+  it('🔴 上下界打反 ⇒ 當成不限 + 掛 swapped 訊號(不是靜靜回零筆)', () => {
+    const { filter, ageInputs } = parseCustomerListSearchParams(
+      { agemin: '50', agemax: '20' },
+      TODAY,
+    );
+    expect(filter.birthdayFrom).toBeUndefined();
+    expect(filter.birthdayTo).toBeUndefined();
+    expect(ageInputs.swapped).toBe(true);
+    // 🔴 訊號要在 —— 沒有它的話,「這個條件沒有人」與「你打反了」在畫面上長得一樣。
+    // 🔴 而【使用者打的字要留著】(R1 nit):清空的話, 那句警告指不到任何東西 ——
+    //    他低頭一看兩格都是空的。
+    expect(ageInputs.min).toBe(50);
+    expect(ageInputs.max).toBe(20);
+  });
+});
+
+describe('buildCustomerListHref — 生日兩軸要能翻頁不丟', () => {
+  it('月份與年齡都帶得過去 —— 🔴 而年齡是從 filter 讀的, 不是額外參數', () => {
+    const href = buildCustomerListHref({ birthMonth: 7, ageMin: 30, ageMax: 40 }, 2);
+    expect(href).toContain('bmonth=7');
+    expect(href).toContain('agemin=30');
+    expect(href).toContain('agemax=40');
+  });
+
+  it('🔴 三條真實路徑都不丟年齡 —— 翻頁 / 清關鍵字 / 按欄頭排序', () => {
+    // 這一格是 R1 must-fix 1 的證人:上一版年齡走第 4 個 optional 參數,
+    // 而這三個呼叫點**全部忘了傳** ⇒ 年齡靜靜消失而月份還在 ⇒ 筆數變多、畫面自洽、零訊號。
+    const f = { tier: 'store', birthMonth: 7, ageMin: 30, ageMax: 40 } as const;
+    const paths = [
+      buildCustomerListHref(f, 2, { key: 'spend', ascending: false }), // 翻頁
+      buildCustomerListHref(f, 1), // 清關鍵字
+      buildCustomerSortHref(f, undefined, 'orders'), // 按欄頭排序
+    ];
+    for (const href of paths) {
+      expect(href, href).toContain('agemin=30');
+      expect(href, href).toContain('agemax=40');
+      expect(href, href).toContain('bmonth=7');
+    }
+  });
+
+  it('🔴 網址帶【年齡】不帶換算後的日期', () => {
+    // 日期是衍生值(依賴「今天」)⇒ 存進網址的話,同一條網址明天會篩到不同的人,
+    // 而使用者以為自己存的是同一個查詢。
+    const href = buildCustomerListHref(
+      { ageMin: 30, ageMax: 40, birthdayFrom: '1985-08-27', birthdayTo: '1996-08-26' },
+      1,
+    );
+    expect(href).not.toContain('1985');
+    expect(href).not.toContain('1996');
+    expect(href).toContain('agemin=30');
+  });
+});
+
+describe('todayInTaipei — 唯一碰時鐘的地方', () => {
+  it('🔴 UTC 還在前一天的那八小時,它已經是今天', () => {
+    // 這正是為什麼年齡邊界不能用伺服器的 new Date():
+    // 台灣 8/26 早上 7 點 = UTC 8/25 23:00 ⇒ 用 UTC 算會少一天,而畫面完全正常。
+    expect(todayInTaipei(new Date('2026-08-25T23:00:00Z'))).toBe('2026-08-26');
+    expect(new Date('2026-08-25T23:00:00Z').toISOString().slice(0, 10)).toBe('2026-08-25');
+  });
+
+  it('台灣午夜前一刻仍是當天', () => {
+    expect(todayInTaipei(new Date('2026-08-26T15:59:00Z'))).toBe('2026-08-26');
+    expect(todayInTaipei(new Date('2026-08-26T16:00:00Z'))).toBe('2026-08-27');
+  });
+});

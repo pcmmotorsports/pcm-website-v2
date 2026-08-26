@@ -6,6 +6,7 @@ import type { AdminCustomerListResult } from '@pcm/domain';
 import { getAdminCustomerRepository } from '../../lib/customers/customer-repository';
 import {
   parseCustomerListSearchParams,
+  todayInTaipei,
   buildCustomerListHref,
   CUSTOMERS_PAGE_SIZE,
 } from '../../lib/customers/customer-list-view';
@@ -32,7 +33,13 @@ export default async function CustomersPage({
   searchParams: Promise<SearchParams>;
 }) {
   const rawSearch = await searchParams;
-  const { filter, page, sort } = parseCustomerListSearchParams(rawSearch);
+  // 🔴 `today` 明給、不讓純函式自己取 —— 這是本頁**唯一**碰時鐘的地方。
+  //    伺服器跑 UTC ⇒ 台灣時間每天 0-8 點 `new Date()` 還在昨天
+  //    ⇒ 年齡篩選的邊界會差一天, 而**那一天不會有任何東西紅**。
+  const { filter, page, sort, ageInputs } = parseCustomerListSearchParams(
+    rawSearch,
+    todayInTaipei(),
+  );
   // 🔴 #365:儲值金 / 會員等級兩支 action 的失敗出口是**寫死**的 `redirect('/customers?r=…')`
   //    (`lib/customers/wallet-actions.ts:33`/`:39`、`tier-actions.ts:35`/`:41`)——
   //    也就是**所有** `denied` / `invalid` 都落在這一頁。這頁先前沒有橫幅 ⇒ 員工按下去之後
@@ -89,7 +96,7 @@ export default async function CustomersPage({
         truncated={result?.keywordTruncated ?? false}
       />
 
-      <CustomerFilterBar filter={filter} sort={sort} />
+      <CustomerFilterBar filter={filter} sort={sort} ageInputs={ageInputs} />
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

@@ -4,6 +4,12 @@ import { SelectFilter } from '../shared/select-filter';
 import {
   TIER_OPTIONS,
   TIER_PARAM,
+  BIRTH_MONTH_OPTIONS,
+  BIRTH_MONTH_PARAM,
+  AGE_MIN_PARAM,
+  AGE_MAX_PARAM,
+  AGE_MIN_ALLOWED,
+  AGE_MAX_ALLOWED,
   customerSortHiddenFields,
 } from '../../lib/customers/customer-list-view';
 
@@ -15,6 +21,7 @@ import {
 export function CustomerFilterBar({
   filter,
   sort,
+  ageInputs,
 }: {
   filter: AdminCustomerFilter;
   /**
@@ -23,6 +30,12 @@ export function CustomerFilterBar({
    *    值怎麼算在 `customerSortHiddenFields`(與 `buildCustomerListHref` 共用同一份對照)。
    */
   sort: AdminCustomerSort | undefined;
+  /**
+   * 年齡輸入框的回填值 + 「上下界打反了」的訊號(來自 `parseCustomerListSearchParams`)。
+   * 🔴 **不是從 `filter` 反推** —— `filter` 裡存的是換算後的**日期**,反推回年齡會在
+   *    生日當天差一歲, 而畫面上看不出來。
+   */
+  ageInputs: { min?: number; max?: number; swapped: boolean };
 }) {
   return (
     <form
@@ -41,6 +54,49 @@ export function CustomerFilterBar({
         value={filter.tier}
         options={TIER_OPTIONS}
       />
+      {/* 生日月份(Sean 2026-08-26 `e:丙` 的第一半:這個月生日的客人)。
+          🔴 是【12 個月下拉】不是一顆「本月」開關 —— 理由見 `AdminCustomerFilter.birthMonth`
+             的 docstring:一顆「本月」需要伺服器知道今天是幾月,而伺服器跑 UTC
+             ⇒ 台灣時間每月 1 號凌晨會印出一份【上個月的名單】而看起來完全正常。 */}
+      <SelectFilter
+        name={BIRTH_MONTH_PARAM}
+        label='生日月份'
+        value={filter.birthMonth === undefined ? undefined : String(filter.birthMonth)}
+        options={BIRTH_MONTH_OPTIONS}
+        allLabel='不限'
+      />
+      {/* 年齡區間(`e:丙` 的第二半)。原生 number input、無 client JS,與整張表單同一次 GET 送出。 */}
+      <label className='flex flex-col gap-1 text-sm'>
+        <span className='text-muted-foreground text-xs font-medium'>年齡</span>
+        <span className='flex items-center gap-1'>
+          <input
+            type='number'
+            name={AGE_MIN_PARAM}
+            defaultValue={ageInputs.min ?? ''}
+            min={AGE_MIN_ALLOWED}
+            max={AGE_MAX_ALLOWED}
+            placeholder='不限'
+            aria-label='年齡下限'
+            className='border-input bg-background h-9 w-20 rounded-md border px-2 text-sm'
+          />
+          <span className='text-muted-foreground text-xs'>到</span>
+          <input
+            type='number'
+            name={AGE_MAX_PARAM}
+            defaultValue={ageInputs.max ?? ''}
+            min={AGE_MIN_ALLOWED}
+            max={AGE_MAX_ALLOWED}
+            placeholder='不限'
+            aria-label='年齡上限'
+            className='border-input bg-background h-9 w-20 rounded-md border px-2 text-sm'
+          />
+        </span>
+        {/* 🔴 打反了要**說出來**, 不要靜靜地當成沒填 ——
+            靜靜忽略的話,「這個條件沒有人」與「你打反了」在畫面上長得一樣。 */}
+        {ageInputs.swapped ? (
+          <span className='text-destructive text-xs'>下限比上限大,這一格先當成不限</span>
+        ) : null}
+      </label>
       <div className='flex items-center gap-2'>
         {/* MAIN-063 C:選了會員等級就生效,不必再按這顆(關掉 JS 時它照常在)。 */}
         <AutoApplySubmit

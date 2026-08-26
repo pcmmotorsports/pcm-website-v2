@@ -133,11 +133,26 @@ export const ADMIN_CUSTOMER_LIST_VIEW = 'admin_customer_list_v';
  *
  * ⚠️ **這段是【有期限的】**:apply 之後重生 `database.types.ts`,那支 view 會自己出現,
  *    這個 augment 就該刪掉。留著不刪的話,它會變成「型別說有、DB 說了算」的第二份真相。
+ *
+ * 🔴 **2026-08-26 更新:那個期限【已經到了一半】**(`code-reviewer` R1 nit,我核過):
+ *    `packages/adapters/src/supabase/database.types.ts:3255` **已經有** `admin_customer_list_v`
+ *    ——**九欄、沒有 birthday**。⇒ 這個 augment 現在不是「補一支生成檔沒有的 view」,
+ *    而是**在既有的九欄上再疊兩欄**。
+ *    ⇒ 上面那句「apply 之後就該刪掉」**對這兩顆新欄仍然成立**、對其餘九欄**已經過期**。
+ *    ⚠️ **不在本片刪** —— 刪它要重生 `database.types.ts`,那動的是全 repo 的生成檔,
+ *       不屬本片範圍。**寫在這裡是因為:下一個讀到上面那句的人會以為整段都還沒到期。**
  */
 type DatabaseWithCustomerListView = Database & {
   public: Database['public'] & {
     Views: Database['public']['Views'] & {
-      admin_customer_list_v: { Row: SupabaseAdminCustomerRow; Relationships: [] };
+      // 🔴 `birthday` / `birth_month` 是 `20260826140000` 那支 migration 加的,
+      //    而它們**刻意只出現在這個 Row 型別裡, 不進 `SupabaseAdminCustomerRow`** ——
+      //    後者是**投影**用的(對應 `ADMIN_CUSTOMER_LIST_SELECT`), 而這兩欄**只用來 filter**。
+      //    ⇒ 型別層把「查得到」與「拿得到」分開, 與 §PII 那條既有決定同一個形狀。
+      admin_customer_list_v: {
+        Row: SupabaseAdminCustomerRow & { birthday: string | null; birth_month: number | null };
+        Relationships: [];
+      };
     };
   };
 };
@@ -289,6 +304,28 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
       .from(ADMIN_CUSTOMER_LIST_VIEW)
       .select(ADMIN_CUSTOMER_LIST_SELECT, { count: 'exact' });
     if (filter.tier) query = query.eq('tier', filter.tier);
+    // 🔴 生日兩軸(`20260826140000` 那支 migration 加的兩顆 view 欄)。
+    //    ⚠️ **只下 filter, 不進 `select`** —— `ADMIN_CUSTOMER_LIST_SELECT` 一個字沒改。
+    //    那條既有決定逐字在 `apps/admin/src/lib/customers/customer-repository.ts:14-16`
+    //    ⚠️ **`code-reviewer` R1 說這裡該是 `:13`, 而那條 finding 是【錯的】** ——
+    //       當場量:`:14` 就是白名單那句、`:16` 是「PII 只在明細頁、登入閘後」。
+    //       📌 記在這裡的原因不是爭輸贏, 是:**我差一點照著改成錯的。**
+    //          別人的 finding 也要核 —— 今晚這是第二次。
+    //    (「列表走具名白名單、不帶 wallet/birthday;PII 只在明細頁」),而**本片沒有推翻它**:
+    //    PostgREST 對 view 上有的欄可以下 filter 而不投影出來 ⇒ **篩得到、看不到**。
+    //    📌 那條白名單有 byte-equal 守門(`SupabaseCustomerAdapter.test.ts:28`)—— 改了會紅。
+    if (filter.birthMonth !== undefined) {
+      query = query.eq('birth_month', filter.birthMonth);
+    }
+    // ⚠️ 兩端都**含**(`gte` / `lte`)—— 對齊 `birthdayRangeForAges` 的語意, 兩邊要一致。
+    //    那支純函式的區間是閉區間, 這裡用開區間的話會**每一端各少一天的人**,
+    //    而少掉的是**生日剛好落在邊界那天**的人 ⇒ 數量小、沒有人會發現。
+    if (filter.birthdayFrom !== undefined) {
+      query = query.gte('birthday', filter.birthdayFrom);
+    }
+    if (filter.birthdayTo !== undefined) {
+      query = query.lte('birthday', filter.birthdayTo);
+    }
     // 🔴 搜尋與 tier 是 **AND**:員工先選「經銷商」再搜名字,不該把 tier 洗掉。
     if (keywordIds !== null) query = query.in('user_id', keywordIds);
 

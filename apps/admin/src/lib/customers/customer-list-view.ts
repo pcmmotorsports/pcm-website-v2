@@ -10,7 +10,13 @@ import type {
   MemberTier,
 } from '@pcm/domain';
 import { isSyntheticEmailDomain } from '@pcm/schemas';
-import { pickEnum, parsePage, buildListHref, type FilterOption } from '../shared/list-params';
+import {
+  pickEnum,
+  parsePage,
+  buildListHref,
+  firstValue,
+  type FilterOption,
+} from '../shared/list-params';
 
 /**
  * LINE 用戶沒有真 Email 時,後台 Email 欄的替代字面。
@@ -84,6 +90,106 @@ export const TIER_OPTIONS: FilterOption[] = TIER_VALUES.map((v) => ({
 // ─────────────── 排序(2026-08-19;plan 已批,主視窗裁「這不是決策題」)───────────────
 
 /** 網址上的排序參數名。**值走白名單,不是裸字串**(同 `tier` 那一軸的紀律)。 */
+/* ── 生日兩軸(Sean 2026-08-26 `e:丙`「兩個都要」)──────────────────────────── */
+
+/** URL 參數:生日月份 1-12。 */
+export const BIRTH_MONTH_PARAM = 'bmonth';
+/** URL 參數:年齡下界(含)。 */
+export const AGE_MIN_PARAM = 'agemin';
+/** URL 參數:年齡上界(含)。 */
+export const AGE_MAX_PARAM = 'agemax';
+
+/** 月份白名單(字串,因為 URL 值都是字串;對齊 tier 那一軸的 `pickEnum` 形狀)。 */
+export const BIRTH_MONTH_VALUES: readonly string[] = [
+  '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12',
+];
+
+/** 月份下拉選項。 */
+export const BIRTH_MONTH_OPTIONS: FilterOption[] = BIRTH_MONTH_VALUES.map((v) => ({
+  value: v,
+  label: `${v} 月`,
+}));
+
+/**
+ * 年齡的合理範圍守門。**超出一律當「沒填」,不擲錯** —— 對齊同檔 tier 與 sort 的立場:
+ * 網址被亂改時「看到全部」比「看到錯誤頁」好。
+ *
+ * 🔴 上界 130 不是隨便挑的:它要**大到不會誤擋真人**、又**小到擋得住手滑打成年份**
+ * (例如把 `1990` 打進年齡欄)。而**擋不住的那一種是打 `85` 當年份** —— 那在值域內。
+ */
+export const AGE_MIN_ALLOWED = 0;
+export const AGE_MAX_ALLOWED = 130;
+
+/** 解析一個年齡值;非數字 / 非整數 / 超出值域 ⇒ `undefined`。 */
+export function parseAge(raw: string | string[] | undefined): number | undefined {
+  const v = firstValue(raw);
+  if (v === undefined || v.trim() === '') return undefined;
+  // 🔴 先擋形狀再轉數字(`code-reviewer` R1 nit):只認**十進位數字**。
+  //    `Number()` 認得 `0x1E`(=30)、`1e2`(=100)、`0b101`、`0o17`、`+30`、`30.` ——
+  //    全部落在值域內 ⇒ `?agemin=0x1E` 會被靜靜當成 30 篩,而輸入框回填也顯示 30。
+  //    不可利用(值只餵日期運算), 而它是同一道「擋打錯字」守門的洞。
+  if (!/^\d+$/.test(v.trim())) return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n)) return undefined;
+  if (n < AGE_MIN_ALLOWED || n > AGE_MAX_ALLOWED) return undefined;
+  return n;
+}
+
+/**
+ * 年齡區間 → 生日日期區間。**純函式:`today` 由呼叫端明給,本函式不碰時鐘。**
+ *
+ * 語意:`ageMin` / `ageMax` 都**含**。「30 到 40 歲」= 今天已滿 30、還沒滿 41。
+ * ```
+ * 最年輕的那一端(= ageMin)⇒ 生日不得晚於  today - ageMin 年        ⇒ birthdayTo
+ * 最年長的那一端(= ageMax)⇒ 生日不得早於  today - (ageMax+1) 年 + 1 天 ⇒ birthdayFrom
+ * ```
+ * 🔴 **用日期界線,不用天數除以 365** —— 除法遇閏年會漂,而 **2/29 出生的人最先出錯**。
+ *
+ * ⚠️ **2/29 的邊界本身仍然有一個選擇,而 JS 幫我們選了**:
+ * `2000-02-29` 減 1 年在 `Date` 會落到 `1999-03-01`(它把 2/29 正規化到 3/1)。
+ * ⇒ 也就是「2/29 出生的人在非閏年,算作 3/1 生日」。**那是一個可辯的口徑,不是唯一解**;
+ *   寫在這裡是因為**它現在是被選過的,而不是沒人想過的**。
+ *
+ * @param today `YYYY-MM-DD`(呼叫端負責用 **Asia/Taipei** 算,見 `todayInTaipei`)
+ */
+export function birthdayRangeForAges(
+  ageMin: number | undefined,
+  ageMax: number | undefined,
+  today: string,
+): { birthdayFrom?: string; birthdayTo?: string } {
+  const out: { birthdayFrom?: string; birthdayTo?: string } = {};
+  if (ageMin !== undefined) out.birthdayTo = shiftYmd(today, -ageMin, 0);
+  if (ageMax !== undefined) out.birthdayFrom = shiftYmd(today, -(ageMax + 1), 1);
+  return out;
+}
+
+/** `YYYY-MM-DD` 位移 n 年 + d 天,回 `YYYY-MM-DD`。走 UTC 建構,避開本機時區。 */
+function shiftYmd(ymd: string, years: number, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number) as [number, number, number];
+  // 🔴 `Date.UTC` 不是裝飾:用 `new Date('2026-08-26')` 之外的建構法會吃進本機時區,
+  //    而伺服器與開發機的時區不同 ⇒ 邊界那一天會差一天,而畫面看起來完全正常。
+  const t = new Date(Date.UTC(y + years, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+}
+
+/**
+ * 今天(Asia/Taipei)的 `YYYY-MM-DD`。
+ *
+ * 🔴 **只有呼叫端該用它,純函式不該用** —— 它是本檔唯一碰時鐘的地方,
+ * 而它存在的理由是:伺服器跑 UTC ⇒ 台灣時間每天 0-8 點,`new Date()` 還在昨天
+ * ⇒ 年齡邊界會差一天,而**那一天不會有任何東西紅**。
+ */
+export function todayInTaipei(now: Date = new Date()): string {
+  // ⚠️ **預設參數等於把時鐘留在函式裡**,而同檔 `parseCustomerListSearchParams` 才剛主張
+  //    「明給不預設」(`code-reviewer` R1 指出這個形狀不一致)。
+  //    🔴 這裡**刻意保留預設值**, 理由是分工不同:**本函式的職責就是「去拿時鐘」** ——
+  //    它是那條線的終點, 不是中途站。而純函式收 `today` 是為了讓**中途站不碰時鐘**。
+  //    ⇒ 判別句:**一支函式如果名字裡就有「今天」, 它可以有預設;
+  //      而一支名字裡沒有時間的函式收到了時間, 那個時間必須是別人給的。**
+  // en-CA 給的就是 YYYY-MM-DD(對齊同檔 formatCustomerDate 的既有做法,不新造輪子)
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(now);
+}
+
 export const SORT_PARAM = 'sort';
 export const DIR_PARAM = 'dir';
 
@@ -125,16 +231,48 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
  * 解析 searchParams → { filter(tier 白名單守門), page }。
  * 非法 tier 一律忽略(不篩選);page 下界 1(parsePage 共用)。
  */
-export function parseCustomerListSearchParams(raw: RawSearchParams): {
+export function parseCustomerListSearchParams(
+  raw: RawSearchParams,
+  /**
+   * 今天(`YYYY-MM-DD`,**呼叫端用 `todayInTaipei()` 算**)。
+   * 🔴 **明給不預設** —— 給了預設值就等於把時鐘偷渡進純函式, 而那會讓這支變成
+   *    「每天跑出不同結果」的東西, 測試也只能跟著寫成「今天」。
+   */
+  today: string,
+): {
   filter: AdminCustomerFilter;
   page: number;
   /** `undefined` = 沒指定 ⇒ 用預設排序(`created_at DESC`),**不是**某個軸的預設方向。 */
   sort: AdminCustomerSort | undefined;
+  /** 年齡輸入框的回填值 + 「你打反了」的訊號。 */
+  ageInputs: { min?: number; max?: number; swapped: boolean };
 } {
+  const bm = pickEnum(raw[BIRTH_MONTH_PARAM], BIRTH_MONTH_VALUES);
+  const ageMin = parseAge(raw[AGE_MIN_PARAM]);
+  const ageMax = parseAge(raw[AGE_MAX_PARAM]);
+  // 🔴 上下界寫反(min > max)⇒ **當作沒填, 不是回零筆** ——
+  //    回零筆的話畫面上「這個條件沒有人」與「你打反了」長得一樣。
+  const swapped = ageMin !== undefined && ageMax !== undefined && ageMin > ageMax;
+  const range = swapped
+    ? {}
+    : birthdayRangeForAges(ageMin, ageMax, today);
   return {
-    filter: { tier: pickEnum(raw[TIER_PARAM], TIER_VALUES) },
+    filter: {
+      tier: pickEnum(raw[TIER_PARAM], TIER_VALUES),
+      ...(bm === undefined ? {} : { birthMonth: Number(bm) }),
+      // 🔴 年齡與日期【一起】設定, 而且只在這裡設定 —— 見 `AdminCustomerFilter.ageMin` 的 docstring。
+      //    打反時兩者都不設 ⇒ 網址與查詢一起變成「不限」, 不會一半篩一半不篩。
+      ...(swapped || ageMin === undefined ? {} : { ageMin }),
+      ...(swapped || ageMax === undefined ? {} : { ageMax }),
+      ...range,
+    },
     page: parsePage(raw.page),
     sort: parseCustomerSort(raw[SORT_PARAM], raw[DIR_PARAM]),
+    /** 原樣回傳給 UI 回填輸入框用(filter 裡存的是換算後的日期, 填不回輸入框)。 */
+    // 🔴 打反時**保留使用者打的字**(`code-reviewer` R1 nit):
+    //    上一版把兩格清空, 而警告文字叫他「下限比上限大」——
+    //    **他低頭一看兩格都是空的** ⇒ 那句話指不到任何東西。
+    ageInputs: { min: ageMin, max: ageMax, swapped },
   };
 }
 
@@ -221,6 +359,16 @@ export function buildCustomerListHref(
     '/customers',
     [
       [TIER_PARAM, filter.tier],
+      // 🔴 生日兩軸也要原封帶過去 —— 少了它們, 翻頁就會把篩選丟掉,
+      //    而畫面看起來完全正常(同 `#743` 排序那一格的病)。
+      [BIRTH_MONTH_PARAM, filter.birthMonth === undefined ? undefined : String(filter.birthMonth)],
+      // ⚠️ 網址帶的是**年齡**不是換算後的日期 —— 日期是衍生值,
+      //    而把衍生值放進網址 ⇒ 那條網址明天會篩到不同的人(今天在變)。
+      // 🔴 **年齡從 `filter` 讀, 不從額外參數讀**(R1 must-fix):
+      //    上一版走第 4 個 optional 參數 ⇒ **三個呼叫點全部忘了傳** ⇒ 翻頁把年齡丟掉。
+      //    ⇒ 掛在 filter 上之後, **沒有東西可以忘**。
+      [AGE_MIN_PARAM, filter.ageMin === undefined ? undefined : String(filter.ageMin)],
+      [AGE_MAX_PARAM, filter.ageMax === undefined ? undefined : String(filter.ageMax)],
       [SORT_PARAM, sort === undefined ? undefined : SORT_KEY_TO_URL[sort.key]],
       // 🔴 方向**明寫**、不省略 —— 省略的話「降冪」與「沒指定」在網址上長得一樣,
       //    而它們今天恰好同義。哪天預設方向改了,那條網址會靜靜地變成另一個意思。
