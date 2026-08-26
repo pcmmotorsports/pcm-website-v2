@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRequestId } from '@/lib/audit/context';
+import { isSafeRequestId } from '@/lib/request-id';
 import {
   ADMIN_SESS_COOKIE,
   adminSessionCookieOptions,
@@ -76,6 +77,14 @@ function configError(): NextResponse {
  *      只寫「載入失敗」⇒ 真的被停用的人會一直等。**兩件都講,並告訴他去找誰。**
  */
 function inactiveStaffResponse(requestId: string): NextResponse {
+  // 🔴 **插進 HTML 之前先驗形狀**(code-reviewer nit C1)。
+  //    今天安全靠的是**別的檔**:`proxy.ts` 一律 `generateRequestId()` 覆寫 inbound
+  //    ⇒ 值恆為 `req_<uuid>`。**那是一個非本地的不變式** —— 它成立與否不在本檔手上。
+  //    ⚠️ 而 `isSafeRequestId()` 在 repo 裡**有定義卻零 production 呼叫端**
+  //      (數法 `grep -rn isSafeRequestId apps/admin/src | grep -v '.test.' | grep -v 'export function' | wc -l` ⇒ 0)
+  //      ⇒ 有人**打算**在某個邊界接受 inbound 值。而本檔是 admin 唯一一支自建 HTML 的 production 檔。
+  //    📌 **「今天注不進來」與「這裡有防注入」是兩件事。** 這一行讓它變成後者。
+  const safeId = isSafeRequestId(requestId) ? requestId : '(格式不正確, 已略去)';
   const body = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>無法確認員工身分</title></head>
@@ -85,12 +94,16 @@ function inactiveStaffResponse(requestId: string): NextResponse {
 <p style="margin:0 0 1rem;line-height:1.7">可能是<strong>系統暫時讀不到員工名單</strong>,也可能是<strong>你的帳號已停用</strong>。<br>這兩種情況目前看起來一樣,請直接找管理員確認。</p>
 <p style="margin:0 0 1.5rem;line-height:1.7;color:#444">管理員說已經處理好之後,再按下面這顆:</p>
 <p style="margin:0 0 1.5rem"><a href="/api/sso/start" style="display:inline-block;padding:.625rem 1.25rem;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:8px;font-size:.9375rem">重新登入一次</a></p>
-<p style="margin:0;color:#666;font-size:.8125rem">回報時請附上這組編號:<code>${requestId}</code></p>
+<p style="margin:0;color:#666;font-size:.8125rem">回報時請附上這組編號:<code>${safeId}</code></p>
 </main></body></html>`;
   const res = new NextResponse(body, { status: 403 });
   res.headers.set('Content-Type', 'text/html; charset=utf-8');
   res.headers.set('Referrer-Policy', 'no-referrer');
   res.headers.set('Cache-Control', 'no-store');
+  // 🔴 **與其他失敗路徑一致地清掉 state cookie**(code-reviewer nit C2)。
+  //    實害低(下次 `/start` 會覆寫), 而**兩條失敗路徑不一致本身**就是下一個人要花時間確認的東西。
+  //    📌 一致性的價值不在這一次, 在下一個人【不用去查為什麼這裡不一樣】。
+  res.cookies.set(SSO_STATE_COOKIE, '', clearStateCookieOptions());
   return res;
 }
 
@@ -150,14 +163,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return configError();
   }
 
-  // 🔴 **B5-a 件 2:上游送來的身分【接進票裡】。** 這一行之前,`result.sub` 走到這裡就沒了。
-  //    · 上游沒送(今天的每一次登入)⇒ `sub` 是 `undefined` ⇒ 簽出 `v:1`,行為與之前逐字相同
-  //    · 上游送了                    ⇒ 簽出 `v:2`,而 `sub` 一定在裡面(型別逼的)
-  //
-  // 🔴🔴 **為什麼放在【這裡】而不是在 `recordSsoLogin` 內部補**(`identity-drop-trace.ts` 檔頭逐字):
-  //    那道 trace「會自己退場」靠的前提是 **`sub` 被加進【呼叫端傳給它的那個物件本身】**。
-  //    若改成在下游內部補,trace 看到的 carrier 永遠不帶 ⇒ **每次登入都印、永不退場**
-  //    ⇒ 它就變成它自己要防的那種噪音。**所以這一行的位置是契約的一部分,不是風格。**
   // ── B5-b′ 片一:**簽票之前先問一句「他還在職嗎」** ──────────────────────────
   //
   // 🔴 **這是本片唯一在補的那個洞**:在這一行之前,**全 repo 沒有任何一處在簽票時查 `is_active`**
@@ -188,6 +193,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // 📌 **本段(B5-b′ 的閘)刻意排在 B5-a 那段註解【之前】**(code-reviewer nit C5):
+  //    B5-a 那段的結尾逐字是「**所以這一行的位置是契約的一部分,不是風格**」,
+  //    而它指的是下面那行 `buildAdminSession(…, result.sub)`。
+  //    ⚠️ 上一版我把 30 行新註解 + 整段閘插在**它們中間** ⇒ 那句話讀起來變成在描述我的閘。
+  //    📌 **註解要跟著它解釋的那段碼**(鐵則 6 同精神)—— 插隊會靜默改掉一句話的主詞。
+  // 🔴 **B5-a 件 2:上游送來的身分【接進票裡】。** 這一行之前,`result.sub` 走到這裡就沒了。
+  //    · 上游沒送(今天的每一次登入)⇒ `sub` 是 `undefined` ⇒ 簽出 `v:1`,行為與之前逐字相同
+  //    · 上游送了                    ⇒ 簽出 `v:2`,而 `sub` 一定在裡面(型別逼的)
+  //
+  // 🔴🔴 **為什麼放在【這裡】而不是在 `recordSsoLogin` 內部補**(`identity-drop-trace.ts` 檔頭逐字):
+  //    那道 trace「會自己退場」靠的前提是 **`sub` 被加進【呼叫端傳給它的那個物件本身】**。
+  //    若改成在下游內部補,trace 看到的 carrier 永遠不帶 ⇒ **每次登入都印、永不退場**
+  //    ⇒ 它就變成它自己要防的那種噪音。**所以這一行的位置是契約的一部分,不是風格。**
   const session = buildAdminSession(result.amr, result.auth_time, result.sub);
   const token = await signSession(session);
   if (!token) {

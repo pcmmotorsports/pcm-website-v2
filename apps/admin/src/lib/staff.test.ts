@@ -12,9 +12,10 @@ import {
   pickStaff,
   resolveActiveStaffById,
   resolveStaff,
+  __resetStaffLogThrottleForTests,
   type StaffActor,
 } from './staff';
-import { __resetAlarmThrottleForTests } from './session/session';
+
 
 const FIXED_STAFF: readonly StaffActor[] = [
   { id: 'sean', label: 'Sean(老闆)' },
@@ -28,6 +29,11 @@ beforeEach(() => {
     { id: 'staff_1', label: '員工 1(占位)', is_active: true },
     { id: 'staff_2', label: '員工 2(占位)', is_active: true },
   ]);
+  // 🔴 **本檔【最上層】也要重設節流**(2026-08-26 nit C3 之後):
+  //    `listActiveStaff` 的失敗 log 現在有有界去重 ⇒ 前一格先消耗掉窗口
+  //    ⇒ 後面那兩格斷言「有記 log」會**永遠看到 0 則**, 而紅的原因與被測的東西無關。
+  //    📌 這是同一個病在本檔的第二次:module-level 狀態會跨測試留著。
+  __resetStaffLogThrottleForTests();
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -77,6 +83,46 @@ describe('staff', () => {
   });
 });
 
+describe('listActiveStaff 的失敗 log 也走有界去重(nit C3)', () => {
+  beforeEach(() => __resetStaffLogThrottleForTests());
+
+  it('🔴 DB 失敗連打兩發 ⇒ 只留一則', async () => {
+    // 🔴 **這一格是補的**:我加了節流卻沒有任何一格在看它 ——
+    //    2026-08-26 實測「把節流拿掉」⇒ **56 格全綠**。
+    //    📌 又一次同款:**加了一道防護, 而沒有東西在看那道防護還在不在。**
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      listStaffRows.mockRejectedValue(new Error('db down'));
+      await listActiveStaff();
+      await listActiveStaff();
+      const hits = err.mock.calls.filter((c) => String(c[0]).includes('員工名單載入失敗'));
+      expect(hits, '節流不見了 ⇒ DB 掛掉時每個請求都會印一則').toHaveLength(1);
+      // ✅ 正對照:重設窗口之後【又記得到】—— 否則本格在「永遠不記」時也是綠的。
+      __resetStaffLogThrottleForTests();
+      await listActiveStaff();
+      expect(
+        err.mock.calls.filter((c) => String(c[0]).includes('員工名單載入失敗')),
+      ).toHaveLength(2);
+    } finally {
+      err.mockRestore();
+    }
+  });
+
+  it('🔴 兩個 key 互不影響:名單失敗與單筆失敗各有自己的窗口', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      listStaffRows.mockRejectedValue(new Error('db down'));
+      getStaffRowById.mockRejectedValue(new Error('db down'));
+      await listActiveStaff();
+      await resolveActiveStaffById('sean');
+      // 兩則不同 key ⇒ 兩則都該留;壓成同一個 key 的話這裡只會有 1。
+      expect(err.mock.calls).toHaveLength(2);
+    } finally {
+      err.mockRestore();
+    }
+  });
+});
+
 // ── resolveActiveStaffById(B5-b 新增;codex R2 must-fix 之後補的直接測試)──────
 //
 // 🔴 **它在此之前【只被 proxy 測試間接跑到】** —— 而那種覆蓋答得出「擋不擋」,
@@ -86,7 +132,7 @@ describe('staff', () => {
 describe('resolveActiveStaffById · 與 resolveStaff 的語意必須逐條相同', () => {
   beforeEach(() => {
     getStaffRowById.mockReset();
-    __resetAlarmThrottleForTests();
+    __resetStaffLogThrottleForTests();
   });
 
   it('在職 ⇒ 回 actor,而且【問的是傳進去那個 id】', async () => {
@@ -166,7 +212,7 @@ describe('resolveActiveStaffById · 與 resolveStaff 的語意必須逐條相同
       await resolveActiveStaffById('amy');
       expect(err.mock.calls).toHaveLength(1);
       // ✅ 正對照:重設窗口之後【又記得到】—— 否則本格在「永遠不記」時也是綠的。
-      __resetAlarmThrottleForTests();
+      __resetStaffLogThrottleForTests();
       await resolveActiveStaffById('amy');
       expect(err.mock.calls).toHaveLength(2);
     } finally {

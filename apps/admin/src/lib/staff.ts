@@ -1,8 +1,37 @@
 import { getStaffRowById, listStaffRows, type StaffRow } from './staff-repository';
-import { consumeNamedAlarmSlot } from './session/session';
 
 // M-4b E8-A1:staff 名單改由資料庫提供,但操作者仍是使用者自行選擇。
 // 🔴 這不是登入 / 授權邊界,也沒有驗證「目前使用者是誰」;真實身分驗證待個人帳號接上。
+
+// ── 本檔自己的告警節流(code-reviewer nit C3/C4)────────────────────────────
+//
+// 🔴 **為什麼搬回本檔**:上一版把它放在 `session/session.ts`(594 行的 auth 模組),
+//    而它**只有一個消費者,就在這支檔裡** ⇒ 代價是 `staff.ts` 從此 import auth 模組(跨層耦合),
+//    而且 `__resetAlarmThrottleForTests` 會**一次清掉兩個互相獨立的節流器**
+//    ⇒ 測試之間會靜默互相影響。**搬回來之後那兩件都不存在。**
+//
+// 🔴 **而搬回來順手補上了漏掉的那一則**:`listActiveStaff` 的 `console.error` 原本**沒有節流**,
+//    而它的觸發條件與下面那則**一模一樣**(DB 掛掉 ⇒ 每個請求都印一則)。
+//    📌 我上一輪修的是「我剛動過的那一支」,而**同一個放大面在隔壁還開著** ——
+//      修好眼前那個出口, 不等於這一族被關掉了。
+//
+// ⚠️ 誠實界線:serverless 每個 instance 各有自己的計時器 ⇒ 這是**上界不是精確節流**;
+//    它擋的是「單一 instance 的洪水」,不是「全域剛好一則」。
+const LOG_MIN_INTERVAL_MS = 60_000;
+const lastLogAt = new Map<string, number>();
+
+/** 呼叫即消耗(語意同 `session.ts` 的 `consumeAlarmSlot`,而**兩者互不影響**)。 */
+function consumeLogSlot(key: string, now: number = Date.now()): boolean {
+  const prev = lastLogAt.get(key);
+  if (prev !== undefined && now - prev < LOG_MIN_INTERVAL_MS) return false;
+  lastLogAt.set(key, now);
+  return true;
+}
+
+/** 測試用:清掉本檔的節流狀態。**不要在 production code 呼叫。** */
+export function __resetStaffLogThrottleForTests(): void {
+  lastLogAt.clear();
+}
 
 /** 具名 staff 身分。id 為穩定 slug、寫入 admin_audit_log.actor;label 供 UI 顯示。 */
 export interface StaffActor {
@@ -30,7 +59,10 @@ export async function listActiveStaff(): Promise<StaffActor[]> {
       .filter((row) => row.is_active)
       .map(({ id, label }) => ({ id, label }));
   } catch (err) {
-    console.error('[admin/staff] 員工名單載入失敗', err);
+    // 🔴 有界去重:DB 掛掉時這一行會被【每個頁面請求】打到(它掛在 getSessionActor 上)。
+    if (consumeLogSlot('staff.list-failed')) {
+      console.error('[admin/staff] 員工名單載入失敗', err);
+    }
     return [];
   }
 }
@@ -120,7 +152,7 @@ export async function resolveActiveStaffById(
     //      而我只看得到我剛剛動過的那一支檔。
     // ⚠️ 節流的代價明寫:同一個 60 秒窗口內的**後續**失敗不會留痕
     //    ⇒ 它答得出「有沒有在失敗」,答不出「失敗了幾次」。要次數請看 DB 那一側。
-    if (consumeNamedAlarmSlot('staff.point-lookup-failed')) {
+    if (consumeLogSlot('staff.point-lookup-failed')) {
       console.error('[admin/staff] 單筆員工查詢失敗', err);
     }
     return null;

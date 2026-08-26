@@ -1,11 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 // #606 之後 admin 測試可用 @/ 直讀原模組;本檔測【原檔】route.ts,不建複本。
-import {
-  ADMIN_SESS_COOKIE,
-  verifySession,
-  __resetAlarmThrottleForTests,
-} from '@/lib/session/session';
+import { ADMIN_SESS_COOKIE, verifySession } from '@/lib/session/session';
+import { __resetStaffLogThrottleForTests } from '@/lib/staff';
 import { SSO_STATE_COOKIE, encodeStateCookie } from '@/lib/sso/state';
 import { buildExchangeUrl } from '@/lib/sso/config';
 
@@ -798,7 +795,7 @@ describe('🔴 B5-b′ 片一:簽票前查 is_active', () => {
     //    不重設 ⇒ 前面某一格先消耗掉窗口 ⇒ 後面驗「有沒有記 log」那格**永遠看到 0 則**
     //    ⇒ 它會變成一格**恆綠**, 而它守的正是「DB 失敗有沒有留痕」。
     //    📌 2026-08-26 實測:少了這一行, [B8] 直接紅 —— 而紅的原因與被測的東西無關。
-    __resetAlarmThrottleForTests();
+    __resetStaffLogThrottleForTests();
   });
   afterEach(() => {
     for (const k of ENV_KEYS) {
