@@ -41,7 +41,15 @@ const { loginEventInsertSpy } = vi.hoisted(() => {
 //       B1–B7 **照樣全綠**,而正式站**停用的 Amy 會查到在職的 Sean,然後簽出帶 Amy 身分的票**。
 //    📌 **一個不看問題就回答的 mock,讓「有沒有問對人」這件事變成不可觀測** ——
 //       同一個病我在 proxy 那版被抓過一次,**換了落點之後我又寫了一遍。**
-const { staffRow, staffEqArgs } = vi.hoisted(() => ({
+const { staffRow, staffEqArgs, staffAbortSignal } = vi.hoisted(() => ({
+  // 🔴 **接住【真的交給 PostgREST 的那顆 signal】**(code-reviewer 2026-08-26 must-fix B1)。
+  //    原本寫成 `abortSignal: () => leaf` —— **把參數丟掉** ⇒ 把 staff-repository 的
+  //    `.abortSignal(signal)` 整段拿掉, **不會有任何一格紅**。
+  //    ⇒ R2 那條「不再等待 vs 已經停止」只守到【倒數第二跳】:
+  //      `staff.test.ts` 驗的是「resolveActiveStaffById 有【收到】一個 signal」,
+  //      而**最後一跳(把它交出去)沒有任何人在看**。
+  //    📌 一條鏈上每一跳都有測試, 不等於這條鏈被守住了 —— 要看的是【接縫】。
+  staffAbortSignal: vi.fn((_s: unknown) => {}),
   staffRow: vi.fn(async (_id: unknown): Promise<{ data: unknown; error: unknown }> => ({
     data: { id: 'sean', label: 'Sean(老闆)', is_manager: true, is_active: true },
     error: null,
@@ -66,7 +74,13 @@ vi.mock('@pcm/adapters/server', () => ({
                 //    ⇒ 📌 **記錄下問題, 與讓答案取決於問題, 是兩件事。**
                 //      我在 proxy 那版做對過(`staffTable()`), 換落點之後只搬了一半。
                 const leaf = { maybeSingle: () => staffRow(val) };
-                return { ...leaf, abortSignal: () => leaf };
+                return {
+                  ...leaf,
+                  abortSignal: (sig: unknown) => {
+                    staffAbortSignal(sig);
+                    return leaf;
+                  },
+                };
               },
             }),
           }
@@ -778,6 +792,7 @@ describe('🔴 B5-b′ 片一:簽票前查 is_active', () => {
       return { data: rows[String(id)] ?? null, error: null };
     });
     staffEqArgs.mockReset();
+    staffAbortSignal.mockReset();
     loginEventInsertSpy.mockClear();
     // 🔴 **節流的 Map 是 module-level ⇒ 會跨測試留著**(codex R2 明文警告過)。
     //    不重設 ⇒ 前面某一格先消耗掉窗口 ⇒ 後面驗「有沒有記 log」那格**永遠看到 0 則**
@@ -802,6 +817,9 @@ describe('🔴 B5-b′ 片一:簽票前查 is_active', () => {
     // 🔴 **問的必須是票上那個人, 而且問對欄**(codex must-fix):
     //    少了這一行, 「永遠查 sean」的實作會讓本組全綠而別人的身分被簽出去。
     expect(staffEqArgs).toHaveBeenCalledWith('id', 'sean');
+    // 🔴 **最後一跳**:signal 必須真的交到 PostgREST 手上, 否則逾時只是「我們不等了」。
+    expect(staffAbortSignal, '.abortSignal() 沒被呼叫 ⇒ 逾時不會真的中止查詢').toHaveBeenCalledTimes(1);
+    expect(staffAbortSignal.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal);
   });
 
   it('[B2] 🔴 已停用 ⇒ 403,而且【沒有簽出票】(這一格就是本片要補的洞)', async () => {
