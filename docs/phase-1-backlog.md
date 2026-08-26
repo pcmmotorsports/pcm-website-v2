@@ -34857,8 +34857,10 @@ grep -rn "單一 authenticated client" --include="*.ts" . | grep -v node_modules
 
 **不修未來會痛在哪**
 - **可追蹤性**:那一格是**目前唯一**在 runtime 讀 design-reference 的測試
-  (線4 數法 `grep -rn design-reference --include='*.test.ts*' apps packages` ⇒ 只有那一行;
-   ⚠️ **主視窗未複量**,標**讀來的**)⇒ 它在 CI 上不生效 = **鐵則 1「design 直接搬」在 CI 這一層零守門**。
+  🔴 **而那個數法是錯的,線4 自己抓到並訂正了** —— 照抄去跑印 **12** 不是 1。
+   **正確的尺與逐支分類寫在 `apps/storefront/src/components/account/tabs/WalletTab.test.tsx:36-54`**(`-9e` 複量指出本條沒指過去)。
+   `-9e` 獨立重量:`--include='*.test.ts*'` ⇒ **7 支 16 行**,而 runtime 真的讀它的只有 `WalletTab` 一處 ⇒ **結論相同、字面不同**。
+   📌 該檔逐字:**「一個附了數法而數法錯的結論,比一個沒附數法的結論更難被推翻 —— 因為它旁邊掛著一條可執行的指令,讀的人會覺得已經驗過了。」**⇒ 它在 CI 上不生效 = **鐵則 1「design 直接搬」在 CI 這一層零守門**。
 - **擴充性**:之後每多一格讀 design-reference 的測試,就多一格同樣的 fail-open,
   而**每一格都會誠實地印 skip** ⇒ **skip 的數量會單向長,而沒有任何時刻會發出訊號。**
 
