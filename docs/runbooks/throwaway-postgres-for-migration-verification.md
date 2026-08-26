@@ -182,6 +182,16 @@ psql -h 127.0.0.1 -p $PORT -U postgres -tAc "select version()"
 ```
 **起不來就看 `$D/pg.log` 最後 6 行,不要猜。**
 
+### 🔴 起來之後還有三個坑(2026-08-26 cf 踩過而只散在對話裡;2026-08-27 cf 在拋棄式 PG 17.10 逐一重現,每格帶正負對照)
+
+| 坑 | 症狀(逐字) | 怎麼避 | 對照 |
+|---|---|---|---|
+| **角色名不能 `pg_` 開頭** | `ERROR:  role name "pg_cf_test" is reserved` | 探針/世界用的角色改別的前綴(`cf_`、`w1_`…) | 正對照 `CREATE ROLE cf_test` ⇒ `CREATE ROLE` |
+| **PG15+ `public` schema 對非 owner 預設無 CREATE** | 用非 postgres 的角色 `CREATE TABLE` ⇒ `ERROR:  permission denied for schema public` | 在**每個新 DB** 裡 `GRANT CREATE ON SCHEMA public TO <角色>` | 同一句 GRANT 之後 ⇒ `CREATE TABLE` |
+| 🔴 **角色是【叢集】層級的,`DROP DATABASE` 不會帶走它** | 換一個 DB 之後 `pg_roles` 裡上一個世界的角色**還在** ⇒ 第二個世界 `CREATE ROLE service_role` 直接 `already exists`;而**先 `DROP ROLE` 再 `DROP DATABASE`** 會撞 `role cannot be dropped because some objects depend on it` | 世界之間**先 `DROP DATABASE`、再 `DROP ROLE`**,順序不能反;每個世界開頭都做 | `SELECT count(*) FROM pg_roles WHERE rolname='cf_app'` 在新 DB ⇒ **1**;負對照 `zzz_nope` ⇒ 0;`DROP ROLE` 後 ⇒ 0 |
+
+📌 第三個坑的形狀:**rc 一樣是非零,而兩個世界沒建成的原因不同** —— 只看 rc 會讀成「探針壞了」。2026-08-27 cf 的三世界 harness 第一發就是這樣死的(三個世界 rows 全 0)。
+
 ### 🔴🔴 兩個**獨立**的坑,而它們會被合成一個(2026-08-25 cf 實測,四格 2×2)
 
 > ⚠️ **先講為什麼要分開寫**:這兩個都在「叢集起不來 / 跑到一半炸」的階段出現,
@@ -361,6 +371,44 @@ for f in supabase/migrations/*.sql (216 支, filename 順序, ON_ERROR_STOP=1)
 ⚠️ **cf 沒有重驗這一族**,照 06 原文轉錄。
 
 **(c) 叢集編碼** ⇒ **已上移到 §1**(它是起叢集那一步的事,不是 bootstrap 的事),見「兩個獨立的坑」。
+
+## 2c. 🔴 地面真相:`sr_nobypass` 實讀(RLS / 政策類 migration 的第三方裁判)
+
+> **為什麼要有這段**:兩把尺(探針 A 與探針 B、或 migration 自檢與審查者的 grep)一致,**不是效度 —— 它們可以用同一種方式一起錯**。
+> 2026-08-26 cf 造了第三方:**把 BYPASSRLS 拿掉,真的去讀,數回幾列**。v1 探針六張錯兩張、v2 六張全中,是這樣分出來的;
+> 2026-08-27 下手窗 de 用同一手量到片3a 舊版「migration 全綠而 `shipments` 實讀 **0 列**」(`4b0c47cc` commit body)。
+> 8d 稱它「這兩天最好的一手」而它一直只活在信箱與 commit body 裡 —— 本段是它第一次落成可引用的一段。
+
+**做法(整段可貼;接在 §2 bootstrap 之後、跑完要驗的 migration 之後)**
+
+```sql
+-- 一個「拿得到 service_role 的一切政策與權限、但自己沒有 BYPASSRLS」的角色
+-- ⇒ 這就是「Supabase 哪天把 BYPASSRLS 拿掉」(Q15)的那個世界
+CREATE ROLE sr_nobypass LOGIN INHERIT NOBYPASSRLS;
+GRANT service_role TO sr_nobypass;
+```
+```bash
+# 真的去讀,數回幾列(每張要驗的表各一發)
+psql -h 127.0.0.1 -p $PORT -U sr_nobypass -d <db> -tAc "SELECT count(*) FROM public.<表>"
+```
+
+**怎麼讀結果**
+
+| 你看到的 | 意思 |
+|---|---|
+| `permission denied for table` | GRANT 面沒給 ⇒ 政策再對也碰不到(片3a 方向1 就是這樣證出「寫入在 GRANT 層就被擋」) |
+| 回 **0** 而表裡明明有列 | RLS 開著、政策沒套到 service_role(或被 RESTRICTIVE 殺掉)⇒ **這是 migration 全綠時最危險的那一格** |
+| 回 N = 表裡的列數 | 政策真的套到了 |
+
+**對照(不做就等於沒量)**
+- 正對照:一張你**確定**有 `TO service_role` permissive SELECT 政策的表 ⇒ 要回 N
+- 負對照:一張 RLS 開著、**零政策**的表 ⇒ 要回 0(2026-08-26 / 08-27 兩班都量到 0)
+- 🔴 用同一個 `sr_nobypass` 讀 `INSERT/UPDATE/DELETE` ⇒ 三個都該 `permission denied`(GRANT 只有 SELECT 時);不是的話 GRANT 面已經不是你以為的那樣
+
+**效度限制**
+- 它答的是「**這個拋棄式庫**的 GRANT + RLS + 政策合起來讓 service_role 讀到幾列」;正式庫的角色拓撲(有沒有 `authenticator`、`service_role` 的 `rolinherit`)本機不知道 ⇒ 要另量(2026-08-27 cf 拓撲探針)。
+- **分割表**:讀父表不需要子表的 GRANT(2026-08-26 實測 rc=0)⇒ 子表 `relacl` 是 NULL 不是紅。
+- `sr_nobypass` 是**你造的角色**,收攤要 `DROP ROLE`(它是叢集層級的,見 §1 三個坑)。
 
 ## 3. 要 PostgREST 那一層時(驗錯誤欄位 / RPC 介面才需要)
 
