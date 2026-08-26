@@ -13,7 +13,7 @@
          🔴 **以及:在【一個非受控、無 debounce、不靠 client state 的輸入框上】字會不會不見**
 ✅ 回答   續期【成功】那條路 —— **2026-08-27 03:2x 已補量, 見 §6**
          ⛔ ~~本機量不到, 理由見 §1~~ —— 那個「量不到」的理由是錯的, 見 `…-947-…-WITHDRAWN.md`
-不回答   🔴 **受控輸入框(React state + 可能重新 mount)會不會掉字 —— 那一格【仍然是開的】**
+✅ 回答   🔴 **受控輸入框(React state)** —— 2026-08-27 03:5x 已補量, 見 §7
 ```
 🔴🔴 **本檔第一版把回答欄寫成「打到一半的字會不會不見」, 射程太寬。** 訂正原因(`-9e` 複量):
 我量的 `#customer-keyword-search`(`components/customers/customer-keyword-search.tsx:65`)是
@@ -306,3 +306,81 @@ source scripts/admin-probe/env.sh   ⇒ web=3011 proxy=3978 prest=3979 pg=55534
 · 併發那一格只量到 dev 的 StrictMode 版本, **沒有量真的多分頁**。
 · 端點那七格是 curl 量的(server 層), 瀏覽器那段是另一組量測 —— 兩者沒有互相驗證。
 ```
+
+---
+
+# §7 ✅ 補量:**受控**輸入框(2026-08-27 03:5x)
+
+> §6 之前量的都是**非受控**框(值住在 DOM 上;`customer-keyword-search.tsx:65` 的 `defaultValue`)
+> —— `-9e` 複量時指出那是**最不可能掉字的一種**。
+> 本節量的是**受控**框(值住在 React state 裡)。**兩個宣稱分開驗。**
+
+## §7-1 先寫下「受控」的判準,再去找(不憑感覺)
+```
+受控   有 useState  ∧  value={<state>}  ∧  onChange 回寫 state  ∧  沒有 defaultValue
+非受控 defaultValue(值住在 DOM 上)
+```
+### 分母(逐層,每層都印得出數字)
+```
+A  admin 的 client component        grep -rl "^'use client'" apps/admin/src --include='*.tsx' | 去掉 .test.  ⇒ 47
+B  其中有 useState                                                                                        ⇒ 27
+C  其中有 <input 或 <textarea                                                                              ⇒ 21
+負對照 同一套尺掃一個不存在的字串 ⇒ 查無(rc=1)⇒ 尺是活的
+```
+21 支逐支印 `useState / value={ / onChange / defaultValue` 四個計數。
+**選中** `apps/admin/src/components/settings/supplier-label-input.tsx`
+(`:41` `useState('')` / `:59` `value={query}` / `:60` `onChange` / `defaultValue` ⇒ 0;**零 router、零 IO**)。
+⚠️ **跳過了什麼**:`order-filter-controls.tsx` 雖然也是純受控,而它**打字會 push 網址**
+⇒ 那會混淆「有沒有導頁」這個訊號,**刻意不選**。
+
+## §7-2 🔴 而「它真的受控嗎」不是我判的 —— **是 React 自己說的**
+讀那個 DOM 節點的 `__reactProps$*`,並拿**同一頁上的另一種框**當對照:
+```
+                     props 有 value   有 defaultValue   有 onChange
+我量的那個            ✅ 且值 = 我打的字   ❌              ✅        ⇒ 受控
+同頁另一個(供應商列)  ❌                ✅              ❌        ⇒ 非受控
+```
+📌 **同一頁、同一把尺、兩個相反的答案** —— 這比「我讀了原始碼所以它是受控的」強一級。
+而 `props.value` **就是我打進去的那串字** ⇒ 值確實進了 React state,不只是躺在 DOM 上。
+
+## §7-3 宣稱①:**續期發生時**,受控框掉不掉字
+種一張近過期票 → 在該框打 `受控框-KEEPME-4b2e` → 等 181 秒(頁內時鐘):
+```
+續期呼叫 5 發(全 200)
+A 字還在不在      ⇒ 逐字相同
+B 網址有沒有變    ⇒ 沒有
+C JS context      ⇒ window.__p3 仍讀得到
+D 有沒有重新 mount ⇒ **沒有** —— 還是【同一個 DOM 節點】,且 document.contains(舊節點) ⇒ true
+```
+✅ **續期不會讓受控框掉字,也不會 remount 它。**
+
+## §7-4 宣稱②:**重新 mount 時**掉不掉字 —— 🔴 **會掉,而它與續期無關**
+在同一個 JS context 裡做一次 client 端換頁(點側欄 `/orders` 再點回 `/settings/suppliers`):
+```
+換頁後  document.contains(舊節點) ⇒ false          <- 尺會動, 那個「沒有 remount」才算數
+回來後  框裡的字 ⇒ (空的 — 掉了)
+        是不是同一個節點 ⇒ 不是(新節點)
+        JS context ⇒ 仍活著(所以這是 SPA 換頁, 不是整頁重載)
+```
+🔴 **受控框確實會掉字 —— 觸發它的是【使用者自己換頁】,不是續期。**
+📌 **兩個宣稱到這裡才真的分開**:
+```
+續期  ⇒ 不 remount ⇒ 不掉字        (§7-3)
+換頁  ⇒ remount    ⇒ 掉字          (§7-4, 而這是 React 的正常行為, 不是缺陷)
+```
+⚠️ **而它們會在一個地方相遇**:票**真的過期**之後,使用者下一次換頁會被 proxy 導去登入
+⇒ 那是一次**整頁**導航 ⇒ 受控框的字一定掉。
+⇒ 📌 **續期做得好,不是「掉字被修好了」,是「被導去登入的次數變少了」。** 兩句話不一樣。
+
+## §7-5 這一輪的射程
+```
+· 只量 Chromium、單一分頁、181 秒、一個【零 IO 的受控框】。
+· 沒量:受控 + 有 debounce / 有 IO / 表單很大 的情況。
+· §7-4 用的是 SPA 換頁(JS context 存活);**沒有量整頁重載或真的被 proxy 導走**那一路
+  —— 後者一定掉字(整個 document 都換了), 而我沒有實際跑它。
+· 併發那格照 §6-7:只量到 dev 的 StrictMode 版本。
+```
+
+## §7-6 收攤
+`source scripts/admin-probe/env.sh` ⇒ web=3011 / proxy=3978 / prest=3979 / pg=55534;
+四埠逐一 `lsof` ⇒ 各 0;資料目錄已刪;`pgrep "next dev"` ⇒ 查無。**埠是讀出來的,不是手打的。**
