@@ -1,3 +1,13 @@
+// ⚠️⚠️ **2026-08-27:本檔【在正式站上跑的那一版】與你眼前這一版不一樣。**
+//    `5276411e`(片二)欠兩場審查就被推上 `origin/dev`(= pcm-admin 的 production 分支),
+//    而補審抓到 **15 條 must-fix**。修在 `bc61afe6`,**而那一顆還沒推**。
+//    🔴 最會咬人的一條:staff 表抖一次 ⇒ 每個開著的分頁**永久**停止續期 ⇒ 15 分鐘內全體被踢。
+//    🔴 **這一段話會過期, 而過期時【沒有任何訊號】** —— 所以不要相信它, 自己跑這一行:
+//       `git merge-base --is-ancestor bc61afe6 origin/dev && echo 已推 || echo 未推`
+//       印「已推」⇒ 本段已完成任務, **請連同這幾行一起刪掉**。
+//    📌 我今晚修的毛病裡有一條就是「一段被推翻的註解還留在檔案裡」(`callback/route.ts` 那段
+//      『停用後最多 12 小時』, 舊字面算出來的數字大 48 倍)⇒ 本段自帶判別法, 是為了不變成第二條。
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getRequestId } from '@/lib/audit/context';
 import {
