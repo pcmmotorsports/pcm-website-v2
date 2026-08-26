@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getRequestId } from '@/lib/audit/context';
 import {
   ADMIN_SESS_COOKIE,
+  ADMIN_SESSION_MAX_AGE_SEC,
+  ADMIN_SESSION_RENEW_WHEN_REMAINING_SEC,
+  SSO_CHAIN_MAX_AGE_SEC,
   adminSessionCookieOptions,
   buildAdminSession,
   signSession,
@@ -9,6 +12,7 @@ import {
   verifySession,
 } from '@/lib/session/session';
 import { planStaffGate } from '@/lib/session/read-gate';
+import { isAllowedOrigin } from '@/lib/orders/workflow-form';
 import { resolveActiveStaffById } from '@/lib/staff';
 
 // B5-b′ 片二:**靜默續期**。前端在票快到期時 `fetch` 這裡,拿一張新的 15 分鐘票。
@@ -24,7 +28,10 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * 回應形狀 —— **前端要分得出這三種,而它們的處置完全不同。**
+ * 回應形狀 —— **前端要分得出這幾種,而它們的處置完全不同。**
+ *
+ * 🔴 2026-08-27 補審:原句寫「這三種」而型別上是五個(`fresh` / `error` 是補審加的)。
+ *    ⇒ 註解裡的**數字**是最容易與碼脫節的東西, 而它讀起來完全合理。
  *
  * 🔴 這是本片的**硬需求**,不是 nice-to-have。理由是 2026-08-26 實測到的那條鏈:
  * ```
@@ -36,7 +43,7 @@ export const dynamic = 'force-dynamic';
  * ⇒ 所以前端呼叫時要用 `redirect: 'manual'`(見 `components/session/session-renew.tsx`),
  *   而本端點對「還能不能續」給出**明確的、可分辨的**答案。
  */
-type RenewOutcome = 'renewed' | 'chain-expired' | 'not-active';
+type RenewOutcome = 'renewed' | 'fresh' | 'chain-expired' | 'not-active' | 'bad-origin' | 'error';
 
 function json(outcome: RenewOutcome, status: number, requestId: string): NextResponse {
   const res = NextResponse.json({ outcome }, { status });
@@ -50,6 +57,20 @@ function json(outcome: RenewOutcome, status: number, requestId: string): NextRes
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const requestId = await getRequestId();
+
+  // 🔴 **Origin fail-closed**(codex 補審 MF3)。缺 Origin 就拒,不是「沒帶就放行」。
+  //    這是一個**會發新認證 cookie 的 POST** ⇒ 它屬於 mutation 那一族,
+  //    而本 repo 每一支 mutation 都過 `authorizeAdminMutation` 的同一道 Origin 閘。
+  //    ⚠️ `SameSite=Lax` **擋不住同站子網域** —— `__Host-` 讓 cookie 是 host-only(不外送給子網域),
+  //       而子網域【送請求過來】時 cookie 照樣會帶上。同站 = Lax 不管。
+  //    🔴 **刻意重用 `isAllowedOrigin` 而不自己寫一份**:那個字面
+  //       (`https://admin.pcmmotorsports.com`)已經是正式站每一次改單都在跑的承重件
+  //       ⇒ 它若是錯的,後台早就整片壞了。**重用把「配錯」這個風險降到既有水位,自己寫一份會新開一個。**
+  const devBypass = process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1';
+  if (!isAllowedOrigin(req.headers.get('origin'), { devBypass })) {
+    return json('bad-origin', 403, requestId);
+  }
+
   const payload = await verifySession(req.cookies.get(ADMIN_SESS_COOKIE)?.value);
 
   // 🔴 票已經無效(過期/簽章不符/缺)⇒ **401,而不是導向。**
@@ -63,6 +84,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   //    這一格回 `chain-expired`,而前端**不該靜默重試** —— 它要讓使用者走一次完整登入。
   if (ssoChainExpired(payload)) return json('chain-expired', 401, requestId);
 
+  // 🔴 **還早 ⇒ 直接回,【不碰 DB】**(片二補審 M1)。
+  //    原本沒有這一格 ⇒ 前端每 60 秒敲一次, 每一次都查一發 staff 表:
+  //    一個分頁一天約 480 次, 五個分頁一人一天 2400 次 —— 而當時 `session-renew.tsx` 的
+  //    `RENEW_WHEN_REMAINING_SEC` 註解逐字寫著「否則等於每次巡邏都在續 —— 那是無謂的 DB 查詢」,
+  //    那正是當時的行為。(不寫行號:那支檔已重寫, 行號會漂而字面不會 —— codex 補審 nit。)
+  //    ⚠️ 這一格排在鏈上限【之後】:鏈到頂就是到頂, 不因為「票還沒過期」而被蓋掉。
+  if (payload.exp - Math.floor(Date.now() / 1000) > ADMIN_SESSION_RENEW_WHEN_REMAINING_SEC) {
+    return json('fresh', 200, requestId);
+  }
+
+  // ⚠️ **「每次續期都會查 is_active」這句話【不成立】**(codex 補審 MF4,誠實寫下來而不是偷偷修):
+  //    `planStaffGate` 只對 `v:2` 具名票回 `require-active-staff`;
+  //    `v:1` / `fallback` / bootstrap 這三種**一次 DB 都不查**就續(測試 [R5] 明確斷言這件事,
+  //    依規格 §7.1 壞世界① —— 那是**刻意的可用性設計**:staff 表掛掉時後台不該整個停擺)。
+  //    ⇒ 這三種票的唯一天花板就是上面那個鏈上限。**修法不是在這裡加查詢**(那會把 #935 的
+  //      fail-open 設計反轉,屬於要 Sean 拍板的範圍)⇒ 先把宣稱改成真的。
   const gate = planStaffGate(payload.v === 2 ? payload.sub : undefined);
   if (gate.kind === 'require-active-staff') {
     // 🔴 與片一走**同一支** `resolveActiveStaffById` —— 兩邊語意一旦漂掉,
@@ -72,22 +109,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // 🔴🔴 **新票的 `exp` 不得越過鏈尾**(codex 補審 MF1)。
+  //    原本只擋「還能不能再簽」,沒有擋「簽出來的那張活到什麼時候」
+  //    ⇒ 在鏈齡 11:59:59 續一發 ⇒ 新票活到 **12:14:59** ⇒ 比片二之前【多了近 15 分鐘】。
+  //    📌 而 `session.ts` 逐字宣稱「最壞情況與片二之前完全一樣」——
+  //      **那句話在這一行加上去之前是假的。** 一個天花板只擋住「再蓋一層」,
+  //      而沒有擋住「最後那一層可以蓋多高」。
+  //    ⚠️ `ssoChainExpired` 已在上面擋過 ⇒ 這裡 `chainRemaining` 必為正。
+  const chainStart = payload.sso_at ?? payload.iat;
+  const chainRemaining = chainStart + SSO_CHAIN_MAX_AGE_SEC - Math.floor(Date.now() / 1000);
   const next = buildAdminSession(
     payload.amr,
     payload.auth_time,
     payload.v === 2 ? payload.sub : undefined,
     // 🔴 **`sso_at` 原封抄過去** —— 讓它重新開始 = 那個 12 小時上限永遠不會到,
     //    而它是本片唯一的天花板。
-    { ssoAt: payload.sso_at ?? payload.iat },
+    {
+      ssoAt: chainStart,
+      maxAgeSec: Math.min(ADMIN_SESSION_MAX_AGE_SEC, chainRemaining),
+      // 🔴 **沿用舊 `sid`,不旋轉**(第三把審查 N1)。續期不是新的一次登入。
+      //    旋轉的話, 稽核 log 裡同一次連線的動作會散成一堆對不起來的 sid。
+      sid: payload.sid,
+    },
   );
   const token = await signSession(next);
   // 簽不出 = 設定壞了(secret 缺)⇒ 不是「他不能續」⇒ 500,讓前端知道是我們壞了。
-  if (!token) {
-    const res = NextResponse.json({ outcome: 'error' }, { status: 500 });
-    res.headers.set('Cache-Control', 'no-store');
-    res.headers.set('x-request-id', requestId);
-    return res;
-  }
+  // 走 json() 而不是自己組一份 —— 自己組的那份少了 Referrer-Policy, 而
+  // 「同一個端點有兩條各自維護的回應路徑」是下一次漏掉標頭的原因(補審 nit1)。
+  if (!token) return json('error', 500, requestId);
 
   const res = json('renewed', 200, requestId);
   res.cookies.set(ADMIN_SESS_COOKIE, token, adminSessionCookieOptions());

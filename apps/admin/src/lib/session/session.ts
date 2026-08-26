@@ -44,7 +44,19 @@ export type AdminSessionSub =
   | { kind: 'bootstrap' };
 
 export interface AdminSessionCommon {
-  sid: string; // 128-bit hex;每次簽發新產 = §3.1「旋轉 session id」(stateless 下為衛生,非撤銷)
+  /**
+   * 128-bit hex。§3.1「旋轉 session id」(stateless 下為衛生,非撤銷)。
+   *
+   * ⛔ ~~每次簽發新產~~ —— 2026-08-27 訂正(第三把審查 N1)。
+   * 🔴 **原句在片二之前是對的,因為那時「簽發」= 一次登入**。片二加了靜默續期
+   *    ⇒ 簽發變成**每十幾分鐘一次** ⇒ 這個欄位就從「一次連線」變成「一個時間片」。
+   *    而它被寫進稽核 log(`orders/order-actions.ts:79`、`customers/wallet-actions.ts:46`、
+   *    `customers/tier-actions.ts:48`、`orders/amount-actions.ts:95`、`shipping/shipment-actions.ts:98`)
+   *    ⇒ **「這幾筆是不是同一個人同一次連線做的」會答不出來** —— 而那一天正是最需要它的那天。
+   * ✅ 現行:**續期沿用舊 `sid`**(`renew/route.ts` 傳 `opts.sid`),只有真的登入才新產。
+   *    📌 一個欄位的語意可以被【別的地方的改動】換掉,而它自己一個字都沒動。
+   */
+  sid: string;
   iat: number; // unix sec:admin 簽發時刻
   /**
    * **這條票鏈的起點**(片二新增)—— 續期時**原封不動抄過去**,`iat` 每次重簽都會變而它不會。
@@ -167,12 +179,37 @@ export const ADMIN_SESS_COOKIE = IS_PROD ? '__Host-pcm_admin_sess' : 'pcm_admin_
 export const ADMIN_SESSION_MAX_AGE_SEC = 60 * 15; // 15 分鐘
 
 /**
+ * **票剩多少秒以內才真的去續**(片二補審 M1)。
+ *
+ * 🔴 **它住在 server,而不是前端** —— 前端那支原本有一個同名常數,而它
+ *    只被塞進一個**沒有人讀的 header**(`x-renew-remaining-hint`)⇒ 那是死碼,
+ *    而註解宣稱的行為(「剩 5 分鐘內才續」)在 diff 裡不存在:實際是**每 60 秒無條件續一次**。
+ * 📌 判別句:**一個常數被【用來計算】與被【印出來給人看】是兩件事,而它們在 diff 上長得一樣。**
+ *
+ * ⚠️ 它必須**大於**前端的巡邏間隔(`CHECK_INTERVAL_MS`,60 秒),否則會有一整個巡邏週期
+ *    落在窗口外面 ⇒ 票在兩次巡邏之間過期,而我們從來沒試過續它。
+ */
+export const ADMIN_SESSION_RENEW_WHEN_REMAINING_SEC = 300; // 5 分鐘
+
+/**
  * **一條票鏈最多能自己續多久**,超過就要重走一次完整 SSO。
  *
  * 🔴 **為什麼一定要有**(Sean 2026-08-26 拍甲):片二讓 admin **自己重簽**票而不經報價單
  *    ⇒ **報價單那側永遠不會再驗證他** ⇒ 沒有天花板的話,**一張被偷的票可以永遠續下去**。
  * 📌 選 12 小時的理由:**最壞情況與片二之前【完全一樣】**(那時票就是 12h)
  *    ⇒ **本片不引入新的曝險上限,只是把中間的檢查變密。**
+ *
+ * 🔴 **而上面那句話在 2026-08-27 之前是【假的】**(codex 補審 MF1):
+ *    這個常數只擋「還能不能【再簽】」,沒有擋「簽出來的那張活到什麼時候」
+ *    ⇒ 鏈齡 11:59:59 續一發 ⇒ 新票活到 **12:14:59** ⇒ 多了近 15 分鐘。
+ *    ✅ 已補:`api/session/renew/route.ts` 把新票的 `maxAgeSec` 夾到剩餘鏈長
+ *    ⇒ 那句話**現在**才是真的,守門 `[R9]`。
+ *    📌 判別句:**一個叫「絕對上限」的常數,與一段真的把東西夾住的碼,是兩件事。**
+ *
+ * ⚠️ **它管不到【部署前就簽出去的票】**(codex 補審 MF5,誠實寫下來):
+ *    票是 stateless 的 ⇒ 片二部署前簽出的 12h 票,`exp` 就寫在票上,照樣活滿 12 小時。
+ *    ⇒ 「TTL 已經是 15 分鐘」這句話對**新簽的票**成立,對**在飛的票**要等一輪才成立。
+ *    ⇒ 這是刻意的(寫成必填 / 硬拒舊票 = 部署當下全員被登出),不是漏掉。
  */
 export const SSO_CHAIN_MAX_AGE_SEC = 60 * 60 * 12; // 12h
 
@@ -329,7 +366,7 @@ export function buildAdminSession(
   amr: AdminSessionAmr[],
   authTime: number,
   sub?: AdminSessionSub,
-  opts?: { maxAgeSec?: number; ssoAt?: number },
+  opts?: { maxAgeSec?: number; ssoAt?: number; sid?: string },
 ): AdminSessionPayload {
   const maxAgeSec = opts?.maxAgeSec ?? ADMIN_SESSION_MAX_AGE_SEC;
   const now = Math.floor(Date.now() / 1000);
@@ -337,7 +374,8 @@ export function buildAdminSession(
   //    續期時呼叫端要把舊票的 `sso_at` 傳進來, **不要讓它重新開始** ——
   //    重新開始 = 那個 12 小時上限永遠不會到,而它就是本片唯一的天花板。
   const common = {
-    sid: newSid(),
+    // 🔴 沒傳 = 新的一次登入 ⇒ 新產。續期要把舊的傳進來(見上方 `sid` 那段)。
+    sid: opts?.sid ?? newSid(),
     iat: now,
     exp: now + maxAgeSec,
     amr,
