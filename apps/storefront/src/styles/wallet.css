@@ -5,12 +5,36 @@
  *
  * ── 沒搬的(逐條,而每一條都有拍板依據)──────────────────────────────────
  *   儲值 Modal 那族(`.wal-modal-*` / `.wal-preset*` / `.wal-pm*` / `.wal-custom*`)
- *     ⇒ 「立即儲值」不做(Sean:等網站上線後再補)。原檔 35 塊。
+ *     ⇒ 「立即儲值」不做(Sean:等網站上線後再補)。
+ *     原檔 **35** 塊 —— 數法(2026-08-27 重量):
+ *       `grep -cE '^[[:space:]]*\.wal-(modal|preset|pm|custom)' design-reference/styles/wallet.css` ⇒ 35
+ *     🔴🔴 **我先寫成 34,而那是【我的尺比對象窄】** —— 舊值 35 才是對的。
+ *        我第一版錨在第 0 欄(`^\.`)⇒ **看不見縮排在 `@media` 裡的規則**
+ *        (`design wallet.css:371 .wal-preset-grid` 就在那裡面)。
+ *        📌 **我拿一把比對象窄的尺,去指控舊數字沒有數過** —— 而印出來的 34 看起來
+ *           完全正常:一個接近的整數、附了可執行的指令、還有負對照。
+ *           **錯的那次和對的那次長得一樣。**
+ *        ✅ 負對照(證明這把尺不是恆真):`^[[:space:]]*\.wal-nosuchthing` ⇒ **0**;
+ *           而**只數縮排**(`^[[:space:]]+`)⇒ **1** ⇒ 證明新尺真的多看見了那一行。
  *   等級卡那族(`.wal-tier-*` / `.wal-upgrade-*` / `.acc-stat-tier`)
  *     ⇒ Sean 2026-08-26 `Q2=乙` **刻意偏離 design** —— 而 design 兩邊都畫
  *       (`AccountPages.jsx:469-473` + `WalletTab.jsx` 的 `.wal-tier-card`),
- *       我們的總覽已經有(`OverviewTab.tsx:4` / `:73`)。**不是漏搬。** 原檔 16 塊。
+ *       我們的總覽已經有(`OverviewTab.tsx:4` 檔頭那行 / `:87` 那顆 `<TierBadge … size="lg" />`;
+ *       2026-08-27 重量,原寫的 `:73` 現在是一行 `return (`)。**不是漏搬。**
+ *     原檔 **20** 塊 —— 數法同上(含縮排):
+ *       `grep -cE '^[[:space:]]*\.(wal-tier-|wal-upgrade-|acc-stat-tier)' design-reference/styles/wallet.css` ⇒ 20
+ *       (只數縮排 ⇒ **1** = `:370 .wal-tier-premium-perks`,它在 `@media` 裡)
+ *     🔴 上一版寫的是「16」⇒ 真的偏低。而 Modal 族那個「35」**上一版是對的**。
+ *     📌 **一個沒有附數法的計數,與一個錯的計數,對想重現的人是同一個東西** ——
+ *        而這一輪的教訓比那句更難聽:**我用一把窄尺,把一個對的數字改成錯的**,
+ *        並且在旁邊寫下了「當時根本沒有數」。⇒ **量之前先問:我的尺看得見對象的全部嗎?**
+ *        本檔 `:161-162` 那條註解當時就寫著那兩族「原塊另含…本檔沒搬」—— **證據一直在同一支檔裡。**
  *   `.wal-balance-r .btn-primary` ⇒ 那顆鈕不做(同上)。
+ *   🔴 `.wal-btn-history`(design `WalletTab.jsx:57` 那顆「查看交易紀錄」鈕,
+ *     CSS 在 design `wallet.css:52` + `:57`〔`:hover`〕**共 2 塊**,**不含在上面 34 / 19 裡**)⇒ **也沒搬**
+ *     —— 它做的是 `scrollIntoView` 捲到下面的交易紀錄區,而**我們的明細就在同一頁往下一點**。
+ *     ⚠️ **上一版的「沒搬的」清單自稱逐條、而漏了這一條**(code-reviewer R1)
+ *       ⇒ 📌 **一份自稱完整的清單漏一項,比沒有清單更難發現。**
  *   `.wal-tx-bal`(每列右下角「當時餘額」)⇒ Sean `Q3=乙` 不顯示。
  *     🔴 **而那條禁令沒有跟著消失**:要顯示只能後端算 running balance,
  *       **不得前端累加**(第一頁碰巧會對、第二頁起全錯而不會紅)。plan `§3-b`。
@@ -158,5 +182,15 @@
 .wal-tx-more {
   margin: 12px 0 0;
   font-size: 12px;
-  color: var(--c-text-muted, rgba(0, 0, 0, 0.55));
+  /* 🔴 原本寫 `var(--c-text-muted, rgba(0,0,0,.55))` —— **`--c-text-muted` 全 repo 零定義**
+   *    數法(2026-08-27):
+   *      `grep -rn --exclude=wallet.css -- '--c-text-muted:' apps packages design-reference` ⇒ **0**
+   *      負對照同法查 `--c-text-3:` ⇒ **有命中** ⇒ 尺是活的
+   *    🔴 **`--exclude=wallet.css` 不是可有可無** —— 少了它會命中 **1**,而那一個命中
+   *       **就是這行註解自己**(它把 pattern 字面寫進了被搜的目錄)。
+   *       ⇒ 而「1 命中」讀起來正好是「這個 token 有定義」= **與結論相反**。
+   *       📌 **一個把自己寫進搜尋範圍的數法,會印出推翻自己的數字。**(R1 抓到)
+   *    ⇒ 它【永遠】走那個 hardcode fallback,
+   *    而 hardcode 的 rgba **不會跟著暗色主題翻**。改用隔壁 `.wal-tx-empty-sub` 同款的真 token。 */
+  color: var(--c-text-3);
 }

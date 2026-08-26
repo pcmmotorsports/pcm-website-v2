@@ -13,8 +13,34 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { WalletLedgerEntry } from '@pcm/domain';
 import { WalletTab } from './WalletTab';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+/** design 原稿 —— 「刻意不做」那三個字面的**正對照量具**(見 `DELIBERATELY_OMITTED`)。 */
+const DESIGN_WALLET_JSX = resolve(HERE, '../../../../../../design-reference/components/WalletTab.jsx');
+/**
+ * 🔴 **`design-reference` 是 git submodule** —— 新 worktree / 未跑過
+ * `git submodule update --init` 的 checkout 上,那個目錄是**空的**。
+ *
+ * `scripts/commit-pack-preflight.sh` 用 `git worktree add --detach` 建乾淨沙箱 ⇒ 沙箱裡沒有它
+ * ⇒ 這一格在那裡會**硬紅**,而紅的理由與「字面打錯了」長得一樣。(2026-08-27 preflight 實際抓到。)
+ *
+ * ⚠️ **本檔是全 repo 唯一在 runtime 讀 design-reference 檔案的測試**
+ *    (`grep -rn design-reference --include='*.test.ts*' apps packages` ⇒ 只有本檔那一行)
+ *    ⇒ 沒有既有慣例可循,這個取捨是本片新造的。
+ *
+ * 🔴 **取捨(ponytail:寫下天花板)**:沒有 submodule 時 **skip 而不是紅**。
+ *    · 代價 = **它在乾淨沙箱與 CI 上不生效** —— 那是一個 fail-open,我不假裝它不是。
+ *    · 但 skip **會出現在 vitest 摘要的 skipped 欄**,不是靜靜地綠 ⇒ 看得到。
+ *    · 而它在**主樹**(我與 Sean 實際工作、submodule 在的地方)照常跑;
+ *      2026-08-27 突變複驗:把 `tierCard` 改名成 `wal-tier-card-v2` ⇒ 這一格紅。
+ *    · 要拿掉這個 fail-open,只能讓沙箱/CI 也帶 submodule ⇒ 不屬本片範圍,已回報主視窗。
+ */
+const HAS_DESIGN_SUBMODULE = existsSync(DESIGN_WALLET_JSX);
 
 afterEach(cleanup);
 
@@ -95,18 +121,61 @@ describe('WalletTab — 🔴 金額的正負由 amount 決定,不由 entryType �
   });
 });
 
+/**
+ * 「拍板刻意不做的東西」的字面 —— **正對照與斷言共用同一份常數**。
+ *
+ * 🔴 分開寫的話,斷言那半打錯字(`.wal-tier-crd`)就變成**恆真**:
+ *    `querySelector` 找不到一個不存在的 class,而它回 `null` —— 與「我們真的沒渲染」一模一樣。
+ *    ⇒ 下面那格正對照拿【design 原稿】當量具:打錯的字在原稿裡也找不到 ⇒ 正對照先紅。
+ */
+const DELIBERATELY_OMITTED = {
+  /** design `WalletTab.jsx` 的等級卡容器(Q2=乙 不放)。 */
+  tierCard: 'wal-tier-card',
+  /** design `WalletTab.jsx:108` 每列右下角的「當時餘額」(Q3=乙 不顯示)。 */
+  txBalance: 'wal-tx-bal',
+  /** design `WalletTab.jsx:54` 那顆鈕的字面(q5=乙 換成灰字)。 */
+  depositButtonLabel: '立即儲值',
+} as const;
+
 describe('WalletTab — 🔴 拍板刻意不做的東西不得偷偷出現', () => {
+  it.skipIf(!HAS_DESIGN_SUBMODULE)(
+    '🔴 正對照:這三個字面在 design 原稿上【真的找得到】(否則下面那格是恆真的)',
+    () => {
+    // 🔴 這一格量的不是我們的元件,是**我的量具有沒有接上**。
+    //    `queryBy…(X) === null` 在【我們沒渲染 X】與【X 這個字根本不存在】兩個世界印同一句話,
+    //    而後者就是打錯字。⇒ 拿 design 原稿當第三方:打錯的字在那裡也不存在 ⇒ 這一格先紅。
+    const designJsx = readFileSync(DESIGN_WALLET_JSX, 'utf8');
+
+    // 🔴 **比【完整 token】不比子字串**(R1 nit):`toContain('wal-tier-card')` 在原稿改名成
+    //    `wal-tier-card-v2` 時仍然綠,而 `querySelector('.wal-tier-card')` 那側已經量不到東西了
+    //    ⇒ 正對照會替一把已經斷掉的尺背書。
+    // 🔴🔴 **而 class 與中文標籤不能用同一把尺** —— JS 的 `\b` 靠 `\w`(ASCII)判邊界,
+    //    中文字元不是 `\w` ⇒ `/\b立即儲值\b/` **永遠不匹配**,而它印出來的是「找不到」
+    //    = 與「這個字面打錯了」一模一樣的失敗訊息。(我第一版就是這樣紅的。)
+    //    ⇒ class 走 `\b`;中文標籤釘「自成一行的文字節點」(design 那顆鈕的字面就是這個形狀)。
+    for (const cls of [DELIBERATELY_OMITTED.tierCard, DELIBERATELY_OMITTED.txBalance]) {
+      expect(designJsx, `class token「${cls}」在 design 原稿上找不到 ⇒ 打錯或已改名`).toMatch(
+        new RegExp(`\\b${cls}\\b`),
+      );
+    }
+    expect(
+      designJsx,
+      `「${DELIBERATELY_OMITTED.depositButtonLabel}」在 design 原稿上不是一個獨立的文字節點 ⇒ 打錯或已改字`,
+    ).toMatch(new RegExp(`^\\s*${DELIBERATELY_OMITTED.depositButtonLabel}\\s*$`, 'm'));
+    },
+  );
+
   it('沒有「立即儲值」鈕、沒有等級卡、沒有每列的「當時餘額」', () => {
     const { container } = render(
       <WalletTab balance={27600} entries={[entry(), entry({ id: 'b', amount: -2400, entryType: 'use' })]} />,
     );
     // q5=乙:鈕拿掉
-    expect(screen.queryByText('立即儲值')).toBeNull();
+    expect(screen.queryByText(DELIBERATELY_OMITTED.depositButtonLabel)).toBeNull();
     expect(container.querySelector('button')).toBeNull();
     // Q2=乙:等級卡不放(🔴 這是【刻意偏離 design】, 不是漏搬 —— 見元件檔頭)
-    expect(container.querySelector('.wal-tier-card')).toBeNull();
+    expect(container.querySelector(`.${DELIBERATELY_OMITTED.tierCard}`)).toBeNull();
     // Q3=乙:每列的「當時餘額」不顯示
-    expect(container.querySelector('.wal-tx-bal')).toBeNull();
+    expect(container.querySelector(`.${DELIBERATELY_OMITTED.txBalance}`)).toBeNull();
     expect(container.textContent).not.toContain('餘額 NT$');
   });
 

@@ -17,7 +17,9 @@
 //    🔴🔴 **這是【刻意偏離 design】,不是漏搬。對稿的人請讀這一段再判:**
 //    design **兩個地方都畫了會員等級** —— `AccountPages.jsx:469-473`(總覽的 acc-stats)
 //    與 `WalletTab.jsx` 的 `.wal-tier-card`。**而我們的總覽已經有了**
-//    (`OverviewTab.tsx:79` 逐字 `<TierBadge tier={stats.tier} size="lg" />`,對齊 design `L469-496`)。
+//    (`OverviewTab.tsx:87` 逐字 `<TierBadge tier={stats.tier} size="lg" />`,對齊 design `L469-496`)。
+//    ⚠️ **`:79` 是 2026-08-26 審查訂正過的值,而 2026-08-27 重量它已經是一行註解** ——
+//       真值 `:87`。📌 **同一個行號被訂正過一次,不表示它之後不會再漂。**
 //    ⇒ 照鐵則 1「design 直接搬」本來指向**該搬**;Sean 拍板不搬。**兩個判斷都成立,他拍了。**
 //    ⚠️ 上面那幾個 design 行號 **2026-08-26 對抗審查抓到我引錯、已逐一重量**
 //       —— 而審查給的其中一個(Overview `:78`)**自己也差一行**,真值是 `:79`。
@@ -47,9 +49,11 @@ import type { WalletLedgerEntry } from '@pcm/domain';
  *
  * 🔴 **而留下的那半,它的依據是【條件式】不是事實**:
  *    「永久有效」現在為真,**因為 `customer_wallet_ledger` 沒有到期欄位**
- *    (建表 `20260523034911_init_customers_and_subtables.sql:100-107`:
- *     `entry_date` / `entry_type` / `amount` / `note` / `related_order_id` / `created_at`,
- *     **沒有任何一欄表示到期**)。
+ *    (建表 `20260523034911_init_customers_and_subtables.sql:100-107` = **八行八欄,逐欄列全**:
+ *     `id` / `customer_user_id` / `entry_date` / `entry_type` / `amount` / `note` /
+ *     `related_order_id` / `created_at` —— **沒有任何一欄表示到期**)。
+ *    ⚠️ **原本這裡只列了六欄而行號寫 `:100-107`** —— 少了 `id` 與 `customer_user_id`(2026-08-27 重量)。
+ *       📌 **一份比行號範圍窄的清單,會讓「沒有任何一欄」這個全稱句在【沒被列出來的那兩欄】上失去依據。**
  *    ⚠️⚠️ **哪天有人給儲值金加了到期欄位,這句話就變成假的 —— 而【不會有任何東西紅】。**
  *    ⇒ **加那一欄的人:請一起改這個常數。** 這句話寫在這裡而不是只寫在 plan 裡,
  *      理由是**你會讀到這個檔,而你不會去讀那份 plan。**
@@ -114,7 +118,9 @@ export function WalletTab({
         <h2>儲值金</h2>
       </div>
 
-      {/* 餘額卡 — design WalletTab.jsx:38-62;右半的「立即儲值」鈕換成灰字(q5=乙) */}
+      {/* 餘額卡 — design WalletTab.jsx:40-61(`Balance card` 註解行 + `.wal-balance-card` 整塊;
+          2026-08-27 當場重量:`.wal-balance-card` 開在 :41、對應收尾 `</div>` 在 :61,
+          原寫的 :38-62 兩端各寬一行);右半的「立即儲值」鈕換成灰字(q5=乙) */}
       <div className="wal-balance-card">
         <div className="wal-balance-l">
           <div className="ap-mono">CURRENT BALANCE</div>
@@ -139,11 +145,12 @@ export function WalletTab({
         </div>
       </div>
 
-      {/* 交易紀錄 — design WalletTab.jsx:86-112,扣掉 .wal-tx-bal(Q3=乙) */}
+      {/* 交易紀錄 — design WalletTab.jsx:87-113(`.wal-tx-section` 開在 :87、對應收尾 `</div>` 在 :113;
+          2026-08-27 重量,原寫的 :86-112 起點是註解行、終點停在 `.wal-tx-list` 的收尾 = 結構中間),
+          扣掉 .wal-tx-bal(Q3=乙) */}
       <div className="wal-tx-section">
         <div className="wal-tx-head">
           <h3>交易紀錄</h3>
-          {/* 🔴 讀取失敗時**不印筆數** —— 印 `0 ENTRIES` 會被讀成「他沒有交易」。 */}
           {/* 🔴 讀取失敗時**不印筆數** —— 印 `0 ENTRIES` 會被讀成「他沒有交易」。 */}
           {loadFailed ? null : (
             <div className="ap-mono">

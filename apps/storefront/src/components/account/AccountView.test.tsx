@@ -210,4 +210,99 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
     // 預設 overview:最近訂單段渲染 recentOrders(slice 0,2)而非空狀態
     expect(screen.getByText('PCM-2099-0001')).toBeTruthy();
   });
+
+  /* ══ #202 解凍第一片:四個 wallet prop 的【轉交】 ══════════════════════════════
+   *
+   * 🔴 上面每一格都停在 overview / orders —— **沒有一格切到 wallet tab**
+   *    ⇒ 四條線任一條接錯(`loadFailed` 接到 `balanceFailed`、`total` 忘了傳…),
+   *      `WalletTab.test.tsx` 照樣全綠(它直接餵 prop、跳過這一層),
+   *      `page.test.tsx` 也照樣全綠(它只驗到 `AccountView` 的 props 物件為止)。
+   *    📌 **兩支測試各自完整,而中間那一段接線沒有人量。**(code-reviewer R1)
+   * ══════════════════════════════════════════════════════════════════════════ */
+
+  const toWallet = () => fireEvent.click(screen.getByRole('button', { name: /儲值金/ }));
+
+  it('🔴 前提:切到 wallet tab 真的切得過去(它若不成立,下面每一格都在對空 DOM 斷言)', () => {
+    const { container } = renderView();
+    toWallet();
+    expect(container.querySelector('.wal-tab')).toBeTruthy();
+  });
+
+  it('🔴 `stats.walletBalance` 轉交成 WalletTab 的 `balance`', () => {
+    const { container } = renderView({ stats: { tier: 'general', walletBalance: 27600, orderCount: 0 } });
+    toWallet();
+    expect(container.querySelector('.wal-balance-num')?.textContent).toBe('27,600');
+  });
+
+  it('🔴 `walletEntries` 轉交成 `entries`(接錯 = 客人看到空白而畫面不會紅)', () => {
+    const { container } = renderView({
+      walletEntries: [
+        {
+          id: 'w1',
+          customerUserId: 'u1',
+          entryDate: '2026-04-22',
+          entryType: 'deposit',
+          amount: 30000,
+          note: '儲值 NT$ 30,000',
+          relatedOrderId: null,
+          createdAt: '2026-04-22T00:00:00Z',
+        },
+      ],
+      walletEntryTotal: 1,
+    });
+    toWallet();
+    expect(screen.getByText('儲值 NT$ 30,000')).toBeTruthy();
+    expect(container.querySelector('.wal-tx-empty')).toBeNull();
+  });
+
+  it('🔴 `walletEntriesFailed` 轉交成 `loadFailed`,而**不是**接到餘額那條線', () => {
+    // 🔴 **這一格的第一版是瞎的**(R1 抓到、我用真·雙向接反複跑確認):
+    //    我原本斷 `textContent).toContain('讀不到')` —— 而畫面上有【兩句】含「讀不到」
+    //    (`WalletTab` 的「交易紀錄暫時讀不到」與「餘額暫時讀不到」)⇒ 旗標接反時它照樣命中;
+    //    第二道斷 `.wal-balance-num` 存在,而那個節點在 `balanceFailed` 世界【也還在】(裡面換成句子)
+    //    ⇒ 兩道都過。**兩個旗標互換的世界裡,只有下一格會紅,這一格是綠的。**
+    //    📌 而我在這裡寫過「兩格互為對照、單獨看任一格都還是綠的」—— **那句話本身是錯的**,
+    //       它把「我這一格瞎了」寫成了「所以要成對看」,讀起來像設計、其實是缺陷。
+    const { container } = renderView({ walletEntriesFailed: true, walletEntryTotal: null });
+    toWallet();
+    // 明細那一半失敗 ⇒ 走「讀不到」而**不是**空狀態「尚無交易紀錄」
+    expect(container.textContent).toContain('交易紀錄暫時讀不到');
+    expect(container.textContent).not.toContain('尚無交易紀錄');
+    // 餘額那一半沒失敗 ⇒ `NT$` 前綴仍在(接反的話它會消失)
+    expect(container.querySelector('.wal-balance-cur')).toBeTruthy();
+  });
+
+  it('🔴 `walletBalanceFailed` 轉交成 `balanceFailed`,而**不是**接到明細那條線', () => {
+    const { container } = renderView({ walletBalanceFailed: true });
+    toWallet();
+    // 餘額那一半掛失敗 ⇒ **不得印那個數字**(印 0 就是顯示一個錯的金額)。
+    // ⚠️ `.wal-balance-num` 這個節點【還在】,裡面換成一句話 ⇒ 要量的是 `NT$` 前綴不見了、
+    //    而且那一格印的是句子不是數字。(我第一版對 `.wal-balance-num` 斷言 null,那是我量錯位置。)
+    expect(container.querySelector('.wal-balance-cur')).toBeNull();
+    expect(container.querySelector('.wal-balance-num')?.textContent).toBe('餘額暫時讀不到');
+    // 而明細那一半沒失敗 ⇒ 走「真的沒交易」而不是「讀不到」
+    expect(container.textContent).toContain('尚無交易紀錄');
+  });
+
+  it('🔴 `walletEntryTotal` 轉交成 `total` —— 截斷時「共 N 筆」的 N 來自它', () => {
+    const { container } = renderView({
+      walletEntries: [
+        {
+          id: 'w1',
+          customerUserId: 'u1',
+          entryDate: '2026-04-22',
+          entryType: 'deposit',
+          amount: 30000,
+          note: '儲值 NT$ 30,000',
+          relatedOrderId: null,
+          createdAt: '2026-04-22T00:00:00Z',
+        },
+      ],
+      walletEntryTotal: 57,
+    });
+    toWallet();
+    // 🔴 斷在**那個節點的內文**,不是整頁 textContent —— 後者「57 印在哪都算過」。
+    expect(container.querySelector('.wal-tx-head .ap-mono')?.textContent).toBe('1 / 57 ENTRIES');
+    expect(container.querySelector('.wal-tx-more')?.textContent).toContain('共 57 筆');
+  });
 });
