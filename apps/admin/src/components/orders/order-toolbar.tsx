@@ -1,9 +1,11 @@
+import Link from 'next/link';
 import type { AdminOrderFilter } from '@pcm/domain';
 import {
   buildOrderListHref,
   type OrderListDisplayState,
   type OrderPanelTarget,
 } from '../../lib/orders/order-list-view';
+import { MANUAL_ORDER_PATH } from '../../lib/orders/manual-order-action-state';
 import { OrderFilterChips } from './order-filter-chips';
 
 // order-toolbar.tsx — 訂單列表最上面那一列(標題 + 快速篩選 chip + 密度 + 共 N 筆)。
@@ -101,7 +103,17 @@ export function OrderToolbar({
         {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
         {/* 手動建單的入口(`#858` plan v2 §片4 逐字「+ 列表那顆鈕」)。
             🔴 **在它之前 `/orders/new` 整頁【只能手打網址才到得了】** —— 2026-08-25 當場量:
-               分母 = `git ls-files` 數 admin 底下全部 .ts 與 .tsx ⇒ 571 支
+               分母 = `git ls-files` 數 admin 底下的 .ts 與 .tsx ⇒ **當時記 571 支**
+               🔴 **2026-08-27 補審更正:那個「全部」是假的** —— 當時的 pathspec 只掃了
+                  「src 底下**遞迴子目錄**的 .ts 與 .tsx」, 而那個寫法**不含直接放在 `src/` 底下的檔**
+                  ⇒ 漏掉 4 支,其中一支正是 `proxy.ts`(最可能出現路徑字面的那種檔)。
+                  (⚠️ 完整 pathspec 字面**故意不寫在這裡** —— 它含星號加斜線,
+                   寫進 JSX 註解會當場把註解關掉;字面留在 `order-toolbar-entry.test.tsx` 檔頭。
+                   🔴 而上面那句警告本來就在這段註解裡, 我 2026-08-27 還是照樣踩了一次
+                   ⇒ **寫著「這裡有坑」的那行, 擋不住下一個人掉進去。**)
+                  本日重量:`**` 版 584、`**` 加 `src/*` 版 **588**(兩發都當場跑, 不是推)。
+                  ⇒ 原句的**結論**沒變(排除建單片後仍是 0),而**那個「全部」不成立**;
+                    數字保留 571 是因為它是 08-25 的量, 不是今天的 —— 改成 588 會讓它看起來像今天量的。
                (⚠️ 量法那行的 glob 帶星號斜線,寫進 JSX 註解會**當場把註解關掉**
                 —— 2026-08-25 就這樣紅了一發,完整量法留在 `order-toolbar-entry.test.tsx` 檔頭);
                `git grep -ln "orders/new" -- apps/admin/src` ⇒ 6 支,逐支開檔**全部是建單片自己**;
@@ -130,12 +142,24 @@ export function OrderToolbar({
             🔴 `h-8` 的上界來自這一列(≤35 才不會變成撐高的那個);
                下界來自 OD `orders-admin-v2.html:5718` 的 `#od-stage button{min-height:24px}`
                ⇒ 32 落在 [24, 35] 之間。**改這個數字前先看那兩端。** */}
-        <a
-          href='/orders/new'
+        {/* 🔴 **2026-08-27 補審:`<a>` → `next/link`, 路徑 → 常數**(兩條 nit 一起清)。
+            ~~原本是裸 `<a href='/orders/new'>`~~ ——
+            · 同一列的 `order-filter-chips.tsx` 與 `orders-table.tsx` 都走 `next/link`
+              (admin 底下 `grep -rl "from 'next/link'" apps/admin/src | wc -l`
+               ⇒ **改本檔之前 25 支 / 改完 26 支**, 兩個數都是 2026-08-27 當場量的。
+               ⚠️ 標「改前/改後」是因為**照這行字面重跑的人拿到的一定是 26** ——
+                  只寫 25 會讓他以為自己量錯了。)
+              ⇒ 裸 `<a>` 會**整頁重載、沒有 prefetch**, 而它在同一列裡看起來完全一樣。
+            · 🔴 **而既有守門分不出這兩種寫法**:兩者 `renderToStaticMarkup` 出來的 `href` 相同
+              ⇒ 這一格不會有測試紅, 只會有員工覺得「這顆鈕比較慢」。
+            · 路徑改用 `MANUAL_ORDER_PATH` 常數:原本這裡寫死字串, 而測試比的是常數
+              ⇒ 常數改名時**元件與 `manual-order-actions.ts:50` 的失敗導頁會分岔**, 各自都綠。 */}
+        <Link
+          href={MANUAL_ORDER_PATH}
           className='inline-flex h-8 items-center rounded-md bg-primary px-4 text-sm text-primary-foreground'
         >
           新增訂單
-        </a>
+        </Link>
       </div>
     </div>
   );

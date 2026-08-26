@@ -222,10 +222,82 @@ describe('CSV 逃脫:壞掉的話整份檔會安靜地少列', () => {
   });
 });
 
+describe('🔴 品項是空陣列的單(2026-08-27 補審 must-fix 的同族 nit)', () => {
+  // 🔴 **修之前:那張單【整筆從 CSV 消失】, 連訂單總額一起** —— 而檔案上零訊號。
+  //    `orderExportBlockedReason` 攔不到(它只看 `itemsTruncated`)⇒ 對帳的人 SUM 少一筆。
+  // ⇒ 現在印一列出來, 品項欄全部 `—`, 訂單層的欄位照填。
+  // ⚠️ **測試名稱與斷言要一致**(2026-08-27 codex nit):上一版叫「品項全 `—`」而只驗了料號一欄,
+  //    且總額只驗 `not.toBe('')` —— 那讓 `0` 與 `—` 都算過。**名字承諾的比斷言做的多。**
+  it('不會整筆消失:印一列, 料號欄寫「本單無品項」, 其餘品項欄全 `—`, 訂單總額逐字保真', () => {
+    const o = order({ displayId: 'PCM-EMPTY', lines: [] });
+    const rows = buildOrderExportRows([o]);
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row[0]).toBe('PCM-EMPTY');
+
+    const idx = (needle: string) => {
+      const i = ORDER_EXPORT_COLUMNS.findIndex((c) => c.includes(needle));
+      expect(i, `欄位 ${needle} 不在 ORDER_EXPORT_COLUMNS 裡 —— 這一格失去意義`).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+
+    // ① 訂單總額**逐字等於**那張單的金額(不是「非空」)⇒ 被輸出成 0 或 — 都會紅。
+    expect(row[idx('訂單總額')]).toBe(String(o.total.amount));
+
+    // ② 料號欄是那句人話 —— 它與「料號是空的」必須分得開。
+    expect(row[idx('料號')]).toBe('(本單無品項)');
+
+    // ③ 其餘每一個品項欄都是 `—`(逐欄檢, 不是只挑一欄)。
+    for (const name of ['車種', '廠牌', '物品名稱', '數量', '單價', '小計']) {
+      expect(row[idx(name)], `品項欄 ${name} 應為 —`).toBe('—');
+    }
+  });
+
+  // 🔴 正對照:有品項的單不受影響(否則上面那格可能是「所有單都只印一列」)。
+  it('正對照:有兩個品項的單仍然印兩列', () => {
+    const rows = buildOrderExportRows([order({ lines: [line({ id: 'a' }), line({ id: 'b' })] })]);
+    expect(rows).toHaveLength(2);
+  });
+});
+
 describe('檔名', () => {
   it('帶日期,而時鐘是注入的(不吃真時鐘 ⇒ 這一格不會在半夜自己變色)', () => {
     expect(orderExportFilename(new Date(2026, 7, 25))).toBe('訂單商品-20260825.csv');
     expect(orderExportFilename(new Date(2026, 0, 3))).toBe('訂單商品-20260103.csv');
+  });
+
+  // 🔴 **日期走 Asia/Taipei 曆面, 不走機器本機時區**(2026-08-27 `#24` 補審 must-fix)。
+  //
+  // 🔴🔴 **這一格【在這台機器上預設是恆真的】, 所以它必須自己造出另一個世界:**
+  //    `Intl.DateTimeFormat().resolvedOptions().timeZone` ⇒ `Asia/Taipei`(2026-08-27 量)
+  //    ⇒ 本機時區與台北**同一個** ⇒ 不改 TZ 的話,`getDate()` 與台北曆面永遠一致,
+  //      **舊的本機時區寫法在這裡怎麼測都綠。** 這正是它活到現在的原因。
+  //    ⇒ 所以本格把 `process.env.TZ` 切成 `UTC` 再測 —— 那是 Vercel node 的預設。
+  //
+  // ⚠️ **而「我以為我切了時區」與「真的切了」是兩個宣稱** ⇒ 下面第一發是**量具自檢**:
+  //    先確認在這個 process 裡 TZ 真的生效了(`getDate()` 真的變成 UTC 那一天),
+  //    自檢不過就直接紅在自檢那一行,**不會讓主斷言無聲地通過**。
+  it('🔴 檔名日期是台北曆面, 不是機器時區(server TZ=UTC 時不得標成前一天)', () => {
+    const original = process.env.TZ;
+    try {
+      process.env.TZ = 'UTC';
+
+      // 台北 2026-08-27 07:00 = UTC 2026-08-26 23:00 ⇒ 兩個世界的「今天」不同一天。
+      const instant = new Date('2026-08-26T23:00:00Z');
+
+      // ① 量具自檢:TZ 真的切成 UTC 了嗎?(沒切成功 ⇒ 紅在這裡, 不是在主斷言)
+      expect(instant.getDate()).toBe(26);
+      // ② 負對照:舊寫法(本機時區)在這個世界會產出【哪一天】—— 證明兩個世界真的不同。
+      const naive = `${instant.getFullYear()}${String(instant.getMonth() + 1).padStart(2, '0')}${String(
+        instant.getDate(),
+      ).padStart(2, '0')}`;
+      expect(naive).toBe('20260826');
+
+      // ③ 主斷言:實作必須給台北那一天。
+      expect(orderExportFilename(instant)).toBe('訂單商品-20260827.csv');
+    } finally {
+      process.env.TZ = original;
+    }
   });
 });
 

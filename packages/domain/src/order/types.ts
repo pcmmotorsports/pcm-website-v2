@@ -397,14 +397,31 @@ export type AdminOrderFilter = {
    *      📌 我寫那句是為了強調「屏障沒了而理由還在」, 而**為了讓句子整齊, 我把第四項數錯邊了**):
    *    ① 多欄 `.or()` 會退化成 seq scan;RPC 內走 `UNION` 各自吃自己的索引
    *      (`20260812130000_…` 實測 127.5ms → 1.4ms)
-   *    ② 必須是 `UNION` 不是 `UNION ALL` —— 同一張單同時命中兩個分支時,`ALL` 會讓
-   *      分頁的 `range()` 位移,**安靜地少回**(不是報錯)
+   *    ② **去重是兩道:`UNION`(非 `UNION ALL`)+ 外層 `SELECT DISTINCT`**。少了去重,
+   *      同一張單同時命中兩個分支時重複列會讓分頁的 `range()` 位移,**安靜地少回**(不是報錯)。
+   *      ~~原字面「必須是 `UNION` 不是 `UNION ALL`」~~ ⇒ **那句把兩道講成一道**
+   *      (2026-08-27 codex 對抗審查 nit:上一版我把更正寫在下面, 而**開頭那句沒改**
+   *       ⇒ 同一個 bullet 前三行與後六行互相反。**訂正寫在下面, 不會把上面那句變成對的。**)
+   *      🔴 **更正的內容** —— 函式外層另有一道
+   *        `SELECT DISTINCT`(`20260812130000_…:379` 逐字 `FROM (SELECT DISTINCT id, created_at`)
+   *        ⇒ 光把 `UNION` 換成 `UNION ALL`,那道 DISTINCT 仍會把重複吃掉。
+   *        ⇒ 正確說法:**兩道各自都在守同一件事, 而守門 E3 掃的是 `UNION ALL` 這個字面**
+   *          (同 migration `:614-625`, 它自己的誠實邊界逐字寫著「擋不住用別的方式製造重複列
+   *           (例如把外層 DISTINCT 拿掉)」)⇒ **拿掉 DISTINCT 是那道守門看不見的路。**
+   *        ⚠️ 這條 codex 2026-08-26 就抓到了(標 nit), 而當時修的人只開了
+   *          `packages/adapters/src/supabase/SupabaseOrderAdapter.ts`, 沒開這一份。
    *    ③ 模糊比對用 `pg_trgm`,門檻釘死 0.4 寫在函式裡;PostgREST 的 filter 語法給不了門檻
    *    ④ 函式內**不 `RAISE`** —— 搜尋字串本身是 PII(客人姓名/電話),不得進 server log
    *      🔴 **這一項【是】PII 理由, 而它與被拿掉的那道屏障是兩件事**:
    *        屏障管的是「值進不進瀏覽器」, 這一項管的是「值進不進 server log」。
    *        ⇒ 前者被拍板拿掉了, **後者一步都沒動。**
    *    ⇒ 也就是說:**那道 PII 屏障沒了, 而這四個理由一個都沒動。**
+   *
+   * 🔴🔴 **同一段契約也寫在 `packages/adapters/src/supabase/SupabaseOrderAdapter.ts:827-849`(那份是行內註解)。**
+   *    (行號會漂 ⇒ 認那段的開頭字面「**為什麼是 RPC 而不是把欄位加進投影**」。)
+   *    **改這一段就要開那一份, 反過來也是。** 2026-08-26 那次就是只開了一份:
+   *    「四件與 PII 無關」修在本檔而漏了 adapter;而上面 ② 的 `UNION ALL` 理由
+   *    修在 adapter 而漏了本檔 —— **兩條 nit 交叉各漏一半, 兩邊的 commit 訊息都寫「已修」。**
    *
    * 🔴 **與另外兩欄最大的差異:本欄沒有字元集限制**。那兩欄擋字元是因為值會被內插進
    * PostgREST 的 GET query string;本欄走 `.rpc()` = POST + JSON body ⇒ 中文、`%`、`,` 全合法
@@ -653,7 +670,15 @@ export type AdminOrderSummary = {
    * 🔴 **列表只帶這一欄、不帶載具別**(Sean 2026-08-06 Q2b=A):母 plan §5.1a「新增 | 發票」那列
    * 原字面是「列表只顯示**載具別**與開立與否」,Q2b=A **砍掉載具別**、只留三態(該列字面已同批更正)。
    * 理由=載具別在 `orders.invoice` jsonb(`carrier`/`type`),把它拉進列表會破壞
-   * 「列表投影零 PII、兩白名單刻意分立」那條邊界;而 `invoice_status` 是 enum、非 PII。
+   * ~~「列表投影零 PII、兩白名單刻意分立」那條邊界~~;而 `invoice_status` 是 enum、非 PII。
+   * 🔴🔴 **2026-08-27 更正:「列表投影零 PII」那條邊界【已經不成立了】** —— `#24`(Sean 2026-08-26 拍板)
+   *    把 `shipping_address_snapshot` 加進列表投影 ⇒ 收件人三格每次開列表都進 RSC payload
+   *    (同一份 docstring 上面 `:385-421` 那段已經寫了這件事, **而這一句在同一個檔裡沒有跟著改**)。
+   * ⇒ **Q2b=A 這個【拍板】沒有變**, 變的是它當時給的**理由**。
+   *   今天要重議「載具別能不能進列表」⇒ **不得再引用「列表零 PII」當論據**, 要重新論證。
+   * ⚠️ 「`invoice_status` 是 enum、非 PII」這一句仍然成立。
+   * 📌 **這是同一段契約的第四份副本**(另三份:本檔 `:385-421` /
+   *    `packages/adapters/src/supabase/SupabaseOrderAdapter.ts:827-849` 與同檔 `:148` 起的 select docstring)。
    *
    * 🔴 三態是 `not_issued` / `issued` / `voided`,**沒有「不需開立」** —— 「客人沒填開票需求」與
    * 「有需求但還沒開」在本欄都是 `not_issued`,要分只能推論 `invoice` jsonb 是否為空(推論、非欄位)。

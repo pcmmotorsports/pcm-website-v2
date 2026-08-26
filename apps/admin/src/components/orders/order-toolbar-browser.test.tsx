@@ -75,6 +75,13 @@ type Measured = {
   整列高: number;
   chip獨佔一行: boolean;
   橫向捲軸: boolean;
+  // 🔴 2026-08-27 補審 must-fix:`order-toolbar-entry.test.tsx` 的檔頭把「那顆鈕在真畫面上
+  //    看得見、點得到、沒被蓋住」逐字劃給**本檔**, 而本檔對那顆鈕的斷言當時是 **0**
+  //    (`grep -c '新增訂單' 本檔` ⇒ 0、`orders/new` ⇒ 0、`MANUAL_ORDER_PATH` ⇒ 0)。
+  //    ⇒ 那句話是一張**沒有人兌現的支票**:給鈕加 `hidden`、或被同列元素蓋住,
+  //      entry 測試(靜態 markup)綠、本檔(只量整列高與 chip)也綠
+  //      ⇒ 回到「那一頁沒有人走得到」而**全綠**。這一格就是來兌現它的。
+  入口鈕: { 寬: number; 高: number; 中心點打得到自己: boolean } | null;
 };
 
 /**
@@ -156,6 +163,23 @@ async function measure(viewport: number, extraCss = ''): Promise<Measured> {
           Math.round(first.getBoundingClientRect().top) >=
           Math.round(h1.getBoundingClientRect().bottom),
         橫向捲軸: document.documentElement.scrollWidth > window.innerWidth,
+        入口鈕: (() => {
+          const el = content.querySelector('a[href="/orders/new"]') as HTMLElement | null;
+          // 🔴 找不到就回 null、**不要回 0** —— `寬:0` 與「這一格根本沒渲染」
+          //    在斷言那端會走同一條路, 而它們是兩件不同的事。
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          const cx = Math.round(r.left + r.width / 2);
+          const cy = Math.round(r.top + r.height / 2);
+          const hit = document.elementFromPoint(cx, cy);
+          return {
+            寬: Math.round(r.width),
+            高: Math.round(r.height),
+            // 被別的元素蓋住時 `elementFromPoint` 回的是**蓋住它的那個**
+            // ⇒ 這一格才是「點得到」, `寬/高 > 0` 只是「排版上佔了位置」。
+            中心點打得到自己: hit === el || (!!hit && el.contains(hit)),
+          };
+        })(),
       };
     }, padding());
   } finally {
@@ -217,6 +241,53 @@ describe('`#485` 片5b — 工具列真瀏覽器量測', () => {
       expect(c.命中高, `${c.文字} 桌機不該有 44 熱區`).toBe(32);
     }
   }, 60_000);
+
+  /**
+   * 🔴🔴 **手動建單入口鈕:在真畫面上看得見、點得到、沒被蓋住。**
+   *
+   * 這一格是 2026-08-27 補審(`fc6a1edf` 補跑 code-reviewer)才補上的。**在它之前這裡是空的** ——
+   * 而 `order-toolbar-entry.test.tsx` 的檔頭逐字把這件事劃給本檔:
+   * 「本檔**不保證**那顆鈕在真畫面上看得見、點得到、沒被蓋住。那是
+   *   `order-toolbar-browser.test.tsx` 那條真瀏覽器 harness 的分母,不是本檔的。」
+   * 🔴 **那句話把責任交出去了, 而接收端沒有接** ⇒ 兩邊都綠, 而沒有人在量那件事。
+   * 📌 **判別句:我把一個責任寫給【另一支檔】的時候, 有沒有去那支檔確認它真的有那一格?**
+   *
+   * 三發、缺一發就退回恆綠:
+   *   ① 鈕存在(`null` ⇒ 直接紅, 不是 `寬 0`)
+   *   ② 佔得到位置(寬高 > 0)—— 擋 `display:none` / `hidden`
+   *   ③ 中心點 `elementFromPoint` 打得到自己 —— 擋「被同列元素蓋住」,
+   *      而 ② 對這種情況是**綠的**(蓋住的東西不改變它的 rect)
+   * 負對照在下一格:注入一片蓋住它的東西 ⇒ ③ 必須翻成 false。
+   */
+  // 🔴🔴 **手機寬度一定要在分母裡**(2026-08-27 codex 對抗審查 must-fix)——
+  //    我第一版只量 768。失敗情境逐字:**那顆 `Link` 加上 `max-md:hidden`
+  //    ⇒ 390 / 430 的員工看不到入口, 而 768 那一格照樣全綠。**
+  //    📌 而本檔其他格早就 `it.each([390, 393, 430])` 了 —— **我把新格寫窄, 而窄的那個看起來一樣綠。**
+  //      這是同一晚第二次踩「分母選窄」(第一次:`7489aada` 那發的分母是
+  //      `126 passed | 1 skipped (127)`, 而全套是 282 支檔 —— **`127` 才是它的檔數, 不是 `126`**;
+  //      `126` 是通過數。連講那個病的句子自己都少數了一支。)
+  it.each([390, 430, 768])('🔴 %ipx:手動建單入口鈕看得見 + 點得到', async (vw) => {
+    const m = await measure(vw);
+    expect(m.入口鈕, '入口鈕沒被渲染出來 —— 這正是 `#858` 片4 要防的那件事').not.toBeNull();
+    expect(m.入口鈕!.寬).toBeGreaterThan(0);
+    expect(m.入口鈕!.高).toBeGreaterThan(0);
+    expect(m.入口鈕!.中心點打得到自己, '鈕在版面上但被蓋住 ⇒ 員工點不到').toBe(true);
+  }, 60_000);
+
+  it.each([390, 768])(
+    '🔴 %ipx 負對照:有東西蓋住它時, 上一格必須翻成 false(否則那一格是恆綠的)',
+    async (vw) => {
+      const 蓋住 =
+        'body::after{content:"";position:fixed;inset:0;z-index:99999;background:transparent}';
+      const m = await measure(vw, 蓋住);
+      expect(m.入口鈕, '負對照世界裡鈕仍要渲染 —— 我們改的是遮擋, 不是渲染').not.toBeNull();
+      // 🔴 蓋住它的東西**不改變它的 rect** ⇒ 寬高照樣 > 0。
+      //    這一行是在證明「上一格那兩發寬高斷言擋不住這種病」, 不是順手多寫的。
+      expect(m.入口鈕!.寬).toBeGreaterThan(0);
+      expect(m.入口鈕!.中心點打得到自己).toBe(false);
+    },
+    60_000,
+  );
 
   /**
    * 🔴🔴 **判別力自檢 —— 這一格是本檔存在的理由。**

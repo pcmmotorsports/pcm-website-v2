@@ -468,6 +468,10 @@ describe('#350c 守門 7:列表頁真的把「帶篩選的 panel href」餵給�
           lines: [],
           invoiceStatus: null,
           tierAtCheckout: null,
+          // 🔴 2026-08-27 補上:同檔 :140 那個 fixture 有這一欄, 而這一個沒有
+          //    ⇒ `AdminOrderSummary.shippingAddress` 必填, 少了它 `buildOrderExportRows` 會 `TypeError`。
+          //    📌 **同一支檔裡兩個 fixture, 只有一個守著型別** —— 而編譯不會講, 因為 mock 的型別是鬆的。
+          shippingAddress: { name: null, phone: null, line: null },
         },
       ],
       total: 1,

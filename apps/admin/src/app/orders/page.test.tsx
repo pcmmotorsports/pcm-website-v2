@@ -76,6 +76,10 @@ const ONE_ORDER = {
       invoiceStatus: null,
       cancelledAt: null,
       displayPosition: null,
+      // 🔴 2026-08-27 補上:`AdminOrderSummary.shippingAddress` 是**必填**, 而本 fixture 少了它
+      //    ⇒ `7489aada` 起 `buildOrderExportRows` 在這裡 `TypeError`, 本檔 **5 格**紅在 `dev` 上。
+      //    ⇒ 這一欄不是為了讓測試變綠而加的裝飾, 是**這個 fixture 本來就違反型別**。
+      shippingAddress: { name: null, phone: null, line: null },
       lines: [],
     },
   ],

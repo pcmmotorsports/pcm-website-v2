@@ -1,9 +1,10 @@
-import type { AdminOrderSummary } from '@pcm/domain';
+import type { AdminOrderLine, AdminOrderSummary } from '@pcm/domain';
 import {
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
   formatOrderItemVehicle,
   formatOrderListDate,
+  taipeiParts,
 } from './order-list-view';
 import { orderStatusView } from './order-status-axes';
 
@@ -109,6 +110,16 @@ function moneyCell(amount: number): string {
  */
 const EMPTY = '—';
 
+/**
+ * 一張**沒有任何品項**的單, 在 CSV 裡佔一列, 而那一列的料號欄放這句話。
+ *
+ * 🔴 **不是 `—`**:`—` 與「這件貨的料號是空的」在同一欄裡長得一樣 ⇒ 佔位列會被讀成一筆真品項。
+ * ⚠️ 用**半形**括號(實查 `od -c` ⇒ `(` = 0x28 / `)` = 0x29)。兩件都核過:
+ *    · 不以 `= + - @` / tab / CR 開頭 ⇒ `escapeCell` 的公式注入守門不會動它, 試算表也不會當公式跑
+ *    · 不含逗號 / 雙引號 / 換行 ⇒ 不會觸發整格包引號, CSV 形狀不變
+ */
+const NO_LINES_MARK = '(本單無品項)';
+
 /** 把一頁訂單攤平成「每品項一列」,欄序同 `ORDER_EXPORT_COLUMNS`。 */
 export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
   const rows: string[][] = [];
@@ -128,10 +139,37 @@ export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
     const customer = order.customerName ?? EMPTY;
     const tier = MEMBER_TIER_LABEL[order.tierAtCheckout];
     const invoice = INVOICE_STATUS_LABEL[order.invoiceStatus];
+    // 🔴🔴 **這三行 2026-08-27 走過一次錯路, 過程留著, 因為那個錯很好看:**
+    //    `7489aada` 引進它們時是 `order.shippingAddress.name`, 而全套 admin 有 **6 格** 當場
+    //    `TypeError: Cannot read properties of undefined` —— 那顆的 commit body 逐字
+    //    「admin 測試連跑兩發…**紅 0 —— 兩發完全相同**」。
+    //    📌 **兩發確實相同, 而兩發都只跑了 `126 passed | 1 skipped (127)` 這個分母;全套是 282 支檔。**
+    //      ⇒ **「連跑兩發比總數」防的是漏跑, 防不了【分母一開始就選窄】** —— 窄的分母跑兩次還是窄的。
+    //
+    // ⚠️ **我第一版的修法是加 `?.`, 而 codex 對抗審查判那是錯的, 我同意並改掉了。**
+    //    它的理由:`AdminOrderSummary.shippingAddress` 型別是**必填**, 而唯一的 production producer
+    //    `mapSupabaseAdminOrderRowToSummary`(`packages/adapters/src/supabase/mappers/order.ts:405`)
+    //    走 `pickShippingAddress`, 而它 `:1114-1120` **永遠回一個物件** ⇒ 真資料不可能是 undefined。
+    //    ⇒ **`?.` 是永遠不會走到的分支, 而它唯一的作用是讓【違反型別的測試 fixture】安靜地過。**
+    //      那正是本 repo 反覆記到的形狀:**把訊號關掉, 而關掉的方式看起來像變得更安全。**
+    //    ⇒ 正解是**去修那些 fixture**(`app/orders/page.test.tsx` 與
+    //      `app/@panel/order-panel-wiring.test.ts` 各補上這一欄), 不是在生產碼上長一個假的守門。
     const recipientName = order.shippingAddress.name ?? EMPTY;
     const recipientPhone = order.shippingAddress.phone ?? EMPTY;
     const recipientLine = order.shippingAddress.line ?? EMPTY;
-    order.lines.forEach((line, i) => {
+    // 🔴🔴 **品項是空陣列時, 這張單【整筆從 CSV 消失】—— 2026-08-27 補審抓到的。**
+    //    ~~原本直接 `order.lines.forEach(...)`~~ ⇒ `lines: []` 跑零次 ⇒ 這一單一列都不產出,
+    //    **連 `訂單總額` 一起消失** ⇒ 對帳的人 SUM 起來少一筆, 而**檔案上零訊號**。
+    //    ⚠️ 而 `orderExportBlockedReason` 攔不到它:那道閘只看 `itemsTruncated`
+    //       (「品項太多沒載完」), **不看「品項是空的」** ⇒ 兩種都是「資料半份」而只擋了一種。
+    //    📌 **這正是本檔自己反覆在講的那個形狀:錯的那次和對的那次長得一樣。**
+    //       ⇒ 所以這裡選擇**印一列出來**(品項欄全部 `—`), 不是靜靜跳過:
+    //         一列「有單號、有總額、品項是破折號」的列, 員工看得出不對勁;少一列, 沒有人看得出來。
+    // ⚠️ **`line` 為 `null` 的那一列不是常態** —— 正常的單一定有品項。
+    //    它是**防禦性的**, 而它的存在不代表我們知道怎麼會生出這種單。
+    const linesOrPlaceholder: (AdminOrderLine | null)[] =
+      order.lines.length > 0 ? order.lines : [null];
+    linesOrPlaceholder.forEach((line, i) => {
       rows.push([
         // 🔴 訂單層的識別欄**每列都重複**,而畫面只在第一列印。
         //    這是刻意的:CSV 會被排序與篩選,而**排序會把第一列跟它的續列拆開** ——
@@ -139,13 +177,17 @@ export function buildOrderExportRows(orders: AdminOrderSummary[]): string[][] {
         //    ⚠️ 而「訂單總額」**不在**這條規則裡(見 `orderTotalCellFor`)。
         order.displayId,
         date,
-        formatOrderItemVehicle(line.vehicle) ?? EMPTY,
-        line.brand ?? EMPTY,
-        line.variantSku,
-        line.title ?? EMPTY,
-        String(line.quantity),
-        moneyCell(line.unitPrice.amount),
-        moneyCell(line.lineTotal.amount),
+        line ? (formatOrderItemVehicle(line.vehicle) ?? EMPTY) : EMPTY,
+        line ? (line.brand ?? EMPTY) : EMPTY,
+        // 🔴 佔位列的**料號欄寫一句人話**, 不是 `—`(2026-08-27 codex 對抗審查 must-fix)。
+        //    理由:`—` 在這一欄與「這件貨沒有料號」長得一樣 ⇒ 佔位列會被下游當成**一筆真的品項**。
+        //    這一欄是唯一不可能有合法空值的品項欄(`variantSku` 型別非 null)⇒ 放在這裡最不會被誤讀,
+        //    而且**不必為此多開一個欄位**(多開欄會改 CSV 形狀, 那是另一片)。
+        line ? line.variantSku : NO_LINES_MARK,
+        line ? (line.title ?? EMPTY) : EMPTY,
+        line ? String(line.quantity) : EMPTY,
+        line ? moneyCell(line.unitPrice.amount) : EMPTY,
+        line ? moneyCell(line.lineTotal.amount) : EMPTY,
         orderTotalCellFor(order, i === 0),
         customer,
         tier,
@@ -234,10 +276,20 @@ export function buildOrderExportCsv(orders: AdminOrderSummary[]): string {
   return toCsv(ORDER_EXPORT_COLUMNS, buildOrderExportRows(orders));
 }
 
-/** 檔名帶日期,員工一天匯好幾次時不會互相蓋掉。`now` 可注入 ⇒ 測試不吃真時鐘。 */
+/**
+ * 檔名帶日期,員工一天匯好幾次時不會互相蓋掉。`now` 可注入 ⇒ 測試不吃真時鐘。
+ *
+ * 🔴 **日期走 Asia/Taipei 曆面, 不走機器本機時區**(2026-08-27 `#24` 補審 must-fix)——
+ *    ~~原本用 `getFullYear` / `getMonth` / `getDate`~~ = **跑這支的機器在哪個時區**。
+ *    失敗情境:server TZ=UTC(Vercel node 預設),台北 2026-08-27 07:00 按匯出
+ *    ⇒ UTC 還是 08-26 ⇒ 檔名 `訂單商品-20260826.csv`,**一份對帳檔標成前一天**。
+ *    📌 而它在【開發機上永遠是對的】—— 這台機器的 TZ 就是 `Asia/Taipei`
+ *       (`Intl.DateTimeFormat().resolvedOptions().timeZone` ⇒ `Asia/Taipei`, 2026-08-27 量)
+ *       ⇒ **本機怎麼測都綠, 只有部署到 UTC 的機器上才會錯**, 而那時沒有人在看檔名。
+ *    ⇒ 同模組的日期面(`formatOrderListDate` / 日期篩選)本來就走台北曆面,
+ *      只有這一支沒跟上 ⇒ **這不是新規則, 是本檔漏掉的那一格。**
+ */
 export function orderExportFilename(now: Date): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `訂單商品-${y}${m}${d}.csv`;
+  const { year, month, day } = taipeiParts(now);
+  return `訂單商品-${year}${month}${day}.csv`;
 }

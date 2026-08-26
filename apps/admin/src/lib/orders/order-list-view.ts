@@ -944,8 +944,15 @@ const TAIPEI_YMD = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 });
 
-/** Asia/Taipei 曆面的年/月/日(讀 `formatToParts`,不切任何格式化字串 —— 那會在格式一改就靜默切錯)。 */
-function taipeiParts(d: Date): { year: string; month: string; day: string } {
+/**
+ * Asia/Taipei 曆面的年/月/日(讀 `formatToParts`,不切任何格式化字串 —— 那會在格式一改就靜默切錯)。
+ *
+ * 🔴 **2026-08-27 由 `function` 改成 `export function`**(`#24` 補審 must-fix):
+ *    `order-export.ts` 的 `orderExportFilename` 原本自己用 `getFullYear/getMonth/getDate`
+ *    = **機器本機時區**;server TZ=UTC 時,台北 08-27 07:00 匯出的檔名會寫成 `20260826`。
+ *    ⇒ 不是再寫一份台北曆面,是**用回本檔這一份** —— 曆面只准有一個來源。
+ */
+export function taipeiParts(d: Date): { year: string; month: string; day: string } {
   const parts = TAIPEI_YMD.formatToParts(d);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   return { year: get('year'), month: get('month'), day: get('day') };

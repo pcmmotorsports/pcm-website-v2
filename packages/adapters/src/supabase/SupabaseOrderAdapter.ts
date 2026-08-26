@@ -147,6 +147,14 @@ export const MEMBER_ORDER_DETAIL_SELECT =
  *   ① orders 層加 `invoice_status`(開票紀錄三態 enum;**不加**載具別 —— 那在 `orders.invoice` jsonb,
  *      Sean Q2b=A 明文砍掉,以免破壞下方「列表零 PII、兩白名單刻意分立」那條邊界。`invoice_status`
  *      本身是 CHECK 三值 enum、非 PII);
+ *      🔴🔴 **2026-08-27 更正:「列表零 PII」那條邊界【已經不成立了】** —— `#24`(Sean 2026-08-26 拍板)
+ *         把 `shipping_address_snapshot` 加進本投影 ⇒ **收件人姓名/電話/地址每次開列表都進讀模型與 RSC payload**。
+ *         ⇒ 上面那句話**仍然是 Q2b=A 當時的理由, 而它的前提沒了**:今天要判「載具別能不能加進來」,
+ *           **不能再引用「列表零 PII」** —— 那個論證已經被拍板拿掉,要重新論證(例如「該不該再多一種 PII」)。
+ *         ⚠️ 而 `invoice_status` 是 enum、非 PII 這一句仍然成立, 別把整段一起丟掉。
+ *         📌 **這是同一段契約的第三份副本** —— 前兩份(`SupabaseOrderAdapter.ts:827-849` 與
+ *            `packages/domain/src/order/types.ts:385-421`)2026-08-26 各自只被修了一半, 而**這一份誰都沒開**。
+ *            **一句話寫在幾個檔裡, 就要被找到幾次;而找它的人每次只會找到一個。**
  *   ② `order_items` 底下加第二個內嵌 `order_item_quantity_summary(…)` —— 三軸(訂貨/到貨/取消)。
  *      🔴 **必須是 nested left embed**(母 plan 計數器摘要列 `:335` 逐字):本常數是 select **字串**、
  *      寫不了 SQL `COALESCE`;該表由 A4a trigger **惰性建列**,沒被採購也沒被取消過的品項**沒有那一列**
@@ -830,7 +838,20 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    不進 RSC payload**(migration `:9-17`)。~~
     // 🔴 **那道屏障 2026-08-26 被拿掉了**(`#24`,Sean 拍板)⇒ `shipping_address_snapshot`
     //    **現在就在列表投影裡** ⇒ 上面那句「不進讀模型、不進 RSC payload」**已經不成立**。
-    // ✅ **而【做成 RPC】這個選擇仍然有效** —— 它還在做四件與 PII 無關的事(逐條,出處同 migration `:501`):
+    // ✅ **而【做成 RPC】這個選擇仍然有效** —— 它還在做四件事(逐條,出處同 migration `:501`):
+    //    🔴 ~~「四件**與 PII 無關**的事」~~ —— **那個「都與 PII 無關」是錯的**
+    //       (codex 2026-08-26 抓到, 而修的人只改了 `packages/domain/src/order/types.ts`,
+    //        **沒有開這一份** ⇒ 2026-08-27 補審才發現這裡還站著)。
+    //       正確說法:**①②③ 與 PII 無關, 第④項正好相反** —— 不 `RAISE` 的目的就是不讓 PII 進 log。
+    //       ⇒ 兩者管的是**不同的門**:被拍板拿掉的屏障管「值進不進瀏覽器」,
+    //         第④項管「值進不進 server log」。**前者沒了, 後者一步都沒動。**
+    //
+    // 🔴🔴 **同一段契約也寫在 `packages/domain/src/order/types.ts:385-421`(那份是 docstring)。**
+    //    (行號會漂 ⇒ 認那段的開頭字面「**為什麼它是 RPC 而不是多幾個 filter 欄**」。)
+    //    **改這一段就要開那一份, 反過來也是。** 2026-08-26 那次就是只開了一份:
+    //    「四件與 PII 無關」修在 types.ts 而漏了本檔;而「`UNION ALL` 的理由」
+    //    修在本檔而漏了 types.ts —— **兩條 nit 交叉各漏一半, 兩邊的 commit 訊息都寫「已修」。**
+    //    📌 **一句誠實的話, 配上一個比它宣稱範圍窄的視野, 產出的東西和說謊長得一樣。**
     //    ① **UNION 而非一大坨 OR**:OR 形狀下品項側索引規劃器拿不到 —— 實測 127.5ms vs 1.4ms
     //    ② **UNION 非 UNION ALL + 外層 DISTINCT**:一張訂單掛 N 個命中商品必須只算 1 筆,
     //       否則吃掉 N 個名額、把別的單擠出上限 = **靜默少回訂單**
