@@ -324,13 +324,10 @@ date_from / date_to 在網址上是【絕對的年月日】(`:468-469` 逐字 fi
     ⚠️ 而「不需要改」是**設計推論,不是量到的** —— 真的動手時若發現要改,
        **停下來找主視窗居中,不要自己去改**。
 
-📌 **報交界的規格(線1 `-21` 2026-08-27 示範, 本 repo 之後照這個寫)**:
-   協調**不是**問「我可不可以動這支檔」—— 那會讓兩邊都停下來等一個還沒發生的答案。
-   協調是**給出「我動了什麼形狀」讓對方自己判會不會撞**,四件:
-   ```
-   ① 哪一支檔          ② 加法還是改法(`git diff --stat` 的實際數字)
-   ③ 有沒有動既有簽名   ④ 做完會不會再回來
-   ```
+📌 **報交界的規格已搬進正本** ⇒ `docs/runbooks/multi-window-command-workflow.md` 的 **§C-3**
+   (四格:哪一支檔 / 加法還是改法 / 有沒有動既有簽名 / 做完會不會再回來;含來源實例)。
+   🔴 **本檔不留全文** —— 常載 `~/.claude/rules/00-work-rules.md` §4:同一教訓不寫兩處全文。
+   搬家的理由:**plan 會被歸檔,而慣例不會有人回歸檔的 plan 裡找。**
 ```
 
 ## 6-4 表長這樣(草案;**未寫、未跑、未驗**)
@@ -698,4 +695,91 @@ rollback:
    交出去的是一個**看起來完整而沒有人拍過板**的東西。
 📌 而這正是本片今天最該記住的一句:
    **一份 plan 的價值不在於它多完整, 在於它有沒有把【還沒有人決定的事】留成看得見的洞。**
+```
+
+
+---
+---
+
+# 📏 §8 訂單列表網址上的 key 逐個分類 —— **這是可量的,不是可拍的**
+(對象:`apps/admin/src/lib/orders/order-list-view.ts` + `apps/admin/src/lib/orders/order-return-to.ts`)
+
+> 2026-08-27 線4 量。**這一節不需要 Sean**,它是明天折 plan 的地基。
+> 量法與三把尺的補洞關係見 `§8-2`;權威清單本體 `order-list-view.ts:701-713`。
+> 起因:`§7-1`③ —— 我原本以為「URL 上的東西全都是檢視狀態」,而那是假的。
+> ⇒ 那就把**每一個 key 逐個分類**,別再用一個總數當地基。
+
+## 8-1 分類表
+
+| key(字面) | 常數 | 落點 | 類別 | 存不存進檢視 |
+|---|---|---|---|---|
+| `payment_status` | `PAYMENT_STATUS_PARAM` | `order-list-view.ts` | 篩選 | ✅ 存 |
+| `goods_axis` | `GOODS_AXIS_PARAM` | 同上 | 篩選 | ✅ 存 |
+| `order_source` | `ORDER_SOURCE_PARAM` | 同上 | 篩選 | ✅ 存 |
+| `payment_channel` | `PAYMENT_CHANNEL_PARAM` | 同上 | 篩選 | ✅ 存 |
+| `show_unpaid_card` | `SHOW_UNPAID_CARD_PARAM` | 同上 | 篩選 | ✅ 存 |
+| `pending` | `PENDING_ONLY_PARAM` | 同上 | 篩選 | ✅ 存 |
+| `date_from` | `DATE_FROM_PARAM` | 同上 | 篩選(日期) | ⚠️ 見 `§7-3` |
+| `date_to` | `DATE_TO_PARAM` | 同上 | 篩選(日期) | ⚠️ 見 `§7-3` |
+| `den` | `ORDER_DENSITY_PARAM` | 同上 | **顯示密度** | ❓ 見 `§8-3` |
+| `panel` | `ORDER_PANEL_PARAM` | `order-return-to.ts:47` | **面板開在哪一筆** | ❌ **不存** |
+| `customer` | `CUSTOMER_PANEL_PARAM` | `order-return-to.ts:60` | **面板開在哪一位** | ❌ **不存** |
+| `page` | (無常數,`raw.page`) | `order-list-view.ts:435` | 分頁位置 | ❌ **不存** |
+| `r` | `CANCEL_RESULT_PARAM` / `MANUAL_ORDER_RESULT_PARAM` | `order-return-to.ts` | **一次性結果** | ❌ **不存** |
+| `rt` | `CANCEL_REQUEST_TOKEN_PARAM` | 同上 | **一次性 token** | ❌ **不存** |
+| `mrid` | `MANUAL_ORDER_REQUEST_ID_PARAM` | 同上 | **一次性 request id** | ❌ **不存** |
+| `correct` | **無常數,三處字面** | `order-return-to.ts:37-39` 註解點名 | **一次性模式旗標** | ❌ **不存** |
+| `return_to` | `ORDER_RETURN_TO_FIELD` | `order-return-to.ts:70` | 導航目的地 | ❌ **不存** |
+
+⇒ **要存的是 9 個(含日期兩個,而日期另有 `§7-3` 的重算問題)。**
+⇒ 🔴 **`ORDER_LIST_URL_KEYS` 那 11 個【不能直接當白名單用】** —— 它裡面有兩個面板 key。
+
+## 8-2 量法(三把尺,而它們互相補洞)
+
+```
+尺A 宣告面   grep -hn "^export const .*_PARAM = '" apps/admin/src/lib/orders/*.ts   ⇒ 15 個常數
+             ⚠️ 看不見沒有常數的 `page` 與 `correct`
+尺B 取用面   grep -oE "raw\.[a-zA-Z_]+|raw\[[A-Za-z_]+\]" …/order-list-view.ts     ⇒ 12 種
+             ⚠️ 只涵蓋 parse 那一支, 看不見別的檔在 URL 上放的東西
+尺C 組裝面   `ORDER_LIST_URL_KEYS`(order-list-view.ts:701-713)                       ⇒ 11 個
+             ⚠️ 它是「連結建構要帶哪些」, 不是「網址上有哪些」—— **兩者不同**
+⇒ **三把尺都不完整, 而表上那 17 列是三把合起來 + 逐個開檔核出來的。**
+```
+
+### 🔴 8-2a 我在量這張表的時候,又踩了同一個病(**第五次**)
+
+```
+我第一版的尺B 是   grep -n "searchParams|raw\[" <檔> | grep -oE "raw\.[a-z_]+|raw\[[A-Z_]+\]"
+⇒ 它先用 `grep -n` **過濾行**, 再從留下的行裡抽取用形狀
+⇒ 而 `page: parsePage(raw.page)` 那一行**既沒有 `searchParams` 也沒有 `raw[`**
+⇒ **它在第一道就被濾掉了, 第二道再怎麼準也抽不到它。**
+⇒ 印出來是 11 種, 乾淨、整齊、與 `ORDER_LIST_URL_KEYS` 的 11 完美吻合
+   —— 🔴 **兩個錯誤互相印證, 而那個吻合看起來正是「我量對了」的證據。**
+📌 **一個兩段式的尺, 第一段的漏會讓第二段的準沒有意義。**
+⇒ 尺B 改成不預先過濾行, 直接對全檔抽 ⇒ 12 種(多出 `raw.page`)。
+```
+📌 這是今天第 5 次同一族(前四次列在 `§7-1a`)。**而這一次的新形狀是:錯得剛好對上另一個錯的數字。**
+
+## 8-3 ❓ 我判不下來的那一格:`den`(顯示密度,`order-list-view.ts:93` 宣告 / `:439` 取用)
+
+```
+它是【看的方式】不是【篩什麼】—— 存一個「寬鬆/緊湊」進檢視,語意上說得通也說不通。
+甲 存 —— 「我這張檢視就是要用緊湊模式看」
+乙 不存 —— 密度是個人偏好, 不該綁在一張(可能共用的)檢視上
+🔴 而 `Q-檢視-1=乙`(檢視可以共用)讓這一格**變得重要**:
+   存了 ⇒ 別人點你的共用檢視, 他的密度會被你改掉。
+⇒ 這是**取捨題不是事實題** ⇒ 併進待拍板清單, 編號 `Q-檢視-11`。
+```
+
+## 8-4 這張表自己的天花板
+
+```
+· 它涵蓋的是【`/orders` 這一頁】。客戶列表那頁另有一套, 沒量。
+· `correct` 這個 key **全樹沒有常數、三處都是字面**
+  (`order-return-to.ts:37-39` 的註解自己點名了那三處)
+  ⇒ **它日後改名時, 沒有任何一處會編譯紅** ⇒ 這張表也會跟著過期而零訊號。
+· 🔴 **而最重要的天花板**:這張表是「今天」的。日後有人加一個新的 URL key,
+  **本表不會知道**, 而存檢視的程式會靜默漏掉它(codex 關卡1 的 must-fix 之一)。
+  ⇒ 折 plan 時要一併設計一道**「新 key 沒被分類就編譯紅」**的守門,
+    否則這張表明天就開始腐爛。
 ```
