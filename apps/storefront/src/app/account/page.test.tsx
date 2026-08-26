@@ -92,9 +92,15 @@ vi.mock('@/lib/supabase/server', () => ({
 vi.mock('@/lib/auth/composition', () => ({
   getAddressRepo: async () => ({ listByCustomer: async () => [] }),
   getVehicleRepo: async () => ({ listByCustomer: async () => [] }),
-  // 🔴 `listSummariesByCustomer` 不是 `listByCustomer` —— 抓到這個名字寫錯的是下面第 4 格
-  //    (「合法 tier 不得留下那行 log」)。少了那一格,這個 mock 缺口會讓第 2 格的
-  //    「有 log」被【另一個錯誤的 log】滿足 ⇒ 假綠。
+  // 🔴 `listSummariesByCustomer` 不是 `listByCustomer` —— 抓到這個名字寫錯的是
+  //    `it('🔴 對照組:合法 tier 不得留下那行 log …')` 那一格。
+  //    少了它, 這個 mock 缺口會讓 `it('🔴 DB 給一個本版不認得的 tier ⇒ 退成 general …')`
+  //    的「有 log」被【另一個錯誤的 log】滿足 ⇒ 假綠。
+  //
+  // 🔴 **2026-08-27:原文寫「下面第 4 格」與「第 2 格」, 已改成【格名】。**
+  //    理由:位置會因為「有人在中間插一格」而變, 而插一格是每天都在做的事
+  //    —— 本檔 2026-08-27 就從 15 格變成 16 格。
+  //    📌 **一個宣稱要可查, 前提是它指的東西有一個【不會因為正常工作而改變】的名字。**
   getOrderRepo: async () => ({ listSummariesByCustomer: async () => [] }),
   getFavoritesRepo: async () => ({ listByCustomer: async () => [] }),
 }));
@@ -302,7 +308,10 @@ describe('/account server route · 🔴 儲值金那一發查詢送出去的參�
   it('🔴 `.select()` 的第一個實參 —— 欄位清單逐欄都在(mapper 讀得到的那八欄)', async () => {
     // 🔴 **這一格是 R1 抓到的那一半**:記錄器【收下了】欄位清單而沒有任何一格斷言它
     //    ⇒ 把 `.select('id, …, created_at', …)` 改成 `.select('*', …)`,或砍掉其中一欄,
-    //      **本檔全部 15 格照樣綠**(mapper 那格餵的是 mock 的完整 ROWS,與真正送出去的清單無關)。
+    //      **本檔【當時】全部 15 格照樣綠**(mapper 那格餵的是 mock 的完整 ROWS,與真正送出去的清單無關)。
+    //    ⚠️ **那個 15 是在【補這一格之前】量的, 而補上去的動作把它變成 16。**
+    //       ⇒ 這句話錨在 commit `c1aef746`(本格尚未存在的那一版), **不是永久事實**。
+    //       📌 一個描述【我出生之前的世界】的數字, 會被我的出生改掉 —— 而那句話留在原地。
     //    📌 **一個收下了證據而沒有人去讀它的量具,與沒有那個量具是同一個東西。**
     await route();
     const columns = String(walletQuery.select[0]?.[0])
