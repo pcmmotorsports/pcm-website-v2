@@ -24,8 +24,14 @@ import { loadCustomerDetail, WALLET_LEDGER_PAGE_SIZE } from './load-customer-det
 // OD 片 3a:客戶明細五路取數抽成共用實作的守門。
 //
 // 🔴 **這支測試存在的第一個理由是「原本零覆蓋」**:`app/customers/[id]/page.tsx` 在本片之前
-//    **全 repo 沒有任何測試 import 它**(數法:`grep -rn 'customers/\[id\]/page' --include='*.test.*'`
-//    → 0 行;該目錄下只有 `page.tsx`)。抽共用等於讓**兩個**消費端依賴同一份容錯契約,
+//    **全 repo 沒有任何測試 import 它**。
+//    🔴 **數法必須帶時點錨,否則它會被本檔自己命中**(2026-08-27 訂正):
+//      `git grep -l 'customers/\[id\]/page' 6dabe2f3 -- '*.test.*'` ⇒ **0 支**
+//      (`6dabe2f3` = 建立本檔那顆 `4dbfd0fc` 的**父** = 本檔尚未存在的那一版)
+//      負對照:同法在同一顆上查一個不存在的字串 ⇒ 0 支
+//    ⚠️ **不帶錨照抄** `grep -rn 'customers/\[id\]/page' --include='*.test.*'`
+//      ⇒ **今天印 1,而那 1 就是這幾行註解自己** ⇒ 讀起來正好與結論相反(= 有測試 import 它了)。
+//    📌 **一個描述「我出生之前的世界」的數字,會被我的出生改掉 —— 而那句話留在原地。**抽共用等於讓**兩個**消費端依賴同一份容錯契約,
 //    而那份契約當時沒有任何守門 —— 抽出來卻不補測試,是把無保護的東西複製給更多人用。
 //
 // 🔴 第二個理由是「失敗 vs 查無」這條分流:兩者的 `customer` 都是 `null`,
