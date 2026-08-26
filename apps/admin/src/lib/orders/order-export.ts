@@ -202,7 +202,16 @@ function escapeCell(value: string): string {
         只擋新欄的話, 舊欄仍然開著, 而下一個人會以為「已經修過了」。
      修法 = 前綴一個單引號。Excel / Numbers / Google Sheets 都把它當「這格是文字」的逃脫,
      而那個引號**不會顯示在儲存格裡**。⇒ 對帳的人看到的字沒變。 */
-  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  /* 🔴 **第二種病, 而它與公式注入【不是同一件事】**(2026-08-26 codex must-fix)——
+     `0912345678` 沒有任何危險字元, 而試算表會把它當**數字**:
+     開頭的 `0` 被吃掉 ⇒ 變 `912345678`;更長的會變科學記號。
+     ⇒ **對帳的人拿到一份電話全錯的檔, 而檔案本身沒有任何異常。**
+     📌 **公式注入是「它做了不該做的事」, 這個是「它安靜地改了值」** —— 後者更難發現,
+        因為前者至少會有一格長得很奇怪。
+     判準用「以 0 開頭的純數字」而不是「電話欄」:欄位會增加, 而這個病跟著**值的形狀**走,
+     不跟著欄名走(訂單編號、統編、郵遞區號都可能長這樣)。 */
+  const numericLeadingZero = /^0\d+$/.test(value);
+  const guarded = /^[=+\-@\t\r]/.test(value) || numericLeadingZero ? `'${value}` : value;
   if (!/[",\r\n]/.test(guarded)) return guarded;
   return `"${guarded.replace(/"/g, '""')}"`;
 }

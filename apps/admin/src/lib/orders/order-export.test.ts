@@ -313,7 +313,13 @@ describe('🔴 CSV 公式注入(2026-08-26 審查 finding #8)', () => {
     );
     expect(csv).toContain('王大明');
     expect(csv).not.toContain(`'王大明`);
-    expect(csv).not.toContain(`'0912345678`);
+    /* ⚠️ ~~expect(csv).not.toContain(`'0912345678`)~~ —— **本行 2026-08-26 當天就過期了。**
+       寫它的時候「乾淨的值」包含電話;而同一天稍後 codex 指出以 `0` 開頭的純數字
+       會被試算表吃掉開頭的 0 ⇒ **電話從此【該】被加引號**。
+       📌 這一格是這一片第三次撞到同一個形狀:
+          **一個前提被改掉之後, 所有引用它的斷言在同一秒變假, 而它們一個都不知道。**
+          前兩次隔了幾個月(migration COMMENT / spec 的死前提), 這次隔了 20 分鐘。
+       ⇒ 電話的正確行為改由下面那個 describe 釘住。 */
   });
 
   it('🔴 修在共用的 escapeCell ⇒ 舊欄位也一起被保護(不是只擋新三欄)', () => {
@@ -332,5 +338,33 @@ describe('🔴 CSV 公式注入(2026-08-26 審查 finding #8)', () => {
     expect(csv).toContain(`"'=A1,B2"`);
     // 負對照:證這把尺會回「不是」—— 沒逃脫的話長這樣, 而它不該出現
     expect(csv).not.toContain(',=A1,B2,');
+  });
+});
+
+describe('🔴 以 0 開頭的純數字會被試算表吃掉開頭的 0(2026-08-26 codex must-fix)', () => {
+  /* 這與公式注入不是同一件事:`0912345678` 沒有任何危險字元,
+     而 Excel 會把它當數字 ⇒ 變 `912345678`。**檔案本身沒有任何異常。** */
+  it('電話被保護成文字', () => {
+    const csv = toCsv(
+      [...ORDER_EXPORT_COLUMNS],
+      buildOrderExportRows([
+        order({ shippingAddress: { name: null, phone: '0912345678', line: null } }),
+      ]),
+    );
+    expect(csv).toContain(`'0912345678`);
+  });
+
+  it('🔴 負對照三發:不以 0 開頭 / 含非數字 / 空字串 —— 都【不】該被動到', () => {
+    /* 沒有這三發的話,「每一格都加引號」與「只加對的那幾格」印同一個綠。 */
+    for (const clean of ['912345678', '2026-08-26', '台北市 1 號']) {
+      const csv = toCsv(
+        [...ORDER_EXPORT_COLUMNS],
+        buildOrderExportRows([
+          order({ shippingAddress: { name: clean, phone: null, line: null } }),
+        ]),
+      );
+      expect(csv).not.toContain(`'${clean}`);
+      expect(csv).toContain(clean);
+    }
   });
 });
