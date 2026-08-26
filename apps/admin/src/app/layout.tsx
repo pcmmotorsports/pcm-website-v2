@@ -5,6 +5,7 @@ import { AppSidebar } from '@/components/layout/app-sidebar';
 import { Header } from '@/components/layout/header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { WorkspaceShell } from '@/components/layout/workspace-shell';
+import { SessionRenew } from '@/components/session/session-renew';
 import { WORKSPACE_PANEL_COOKIE, parsePanelWidthCookie } from '@/lib/layout/workspace-panel';
 import { isAuditUiEnabled } from '@/lib/audit/audit-ui-flag';
 import { getSidebarCounts } from '@/lib/layout/sidebar-counts';
@@ -86,6 +87,12 @@ export default async function RootLayout({
                    改它下次同步上游會被蓋掉;而 `<SidebarInset>` 全 repo 只有這一個使用點。
                 ⚠️ 發作條件:視窗越窄越嚴重(實測 1024 ⇒ 溢出 84 · 1100 ⇒ 28 ·
                    1200/1280/1440 ⇒ 0)。⇒ **寬螢幕看不到它,不代表它不在。** */}
+            {/* B5-b′ 片二:靜默續期。**不渲染任何東西**,只在票快到期時去換一張新的。
+                🔴 掛在這裡而**不是改 `WorkspaceShell` 內部**:改既有共用元件 = 改所有頁面的行為;
+                   掛一個新節點 = 影響面只有那個節點自己。
+                🔴 而它與 TTL 縮短(12h ⇒ 15 分鐘)**必須一起出** —— 只縮短不續期
+                   ⇒ 每人每天被打斷約 32 次(`8h ÷ 15min`)= 做一半。 */}
+            <SessionRenew />
             <SidebarInset className='min-w-0'>
               <Header />
               <WorkspaceShell panel={panel} initialPanelWidth={initialPanelWidth}>

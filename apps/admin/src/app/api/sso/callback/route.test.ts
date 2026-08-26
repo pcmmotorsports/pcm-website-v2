@@ -207,11 +207,18 @@ describe('sso/callback route', () => {
     expect(sess?.value).toBeTruthy();
     // codex MF3:session cookie 安全屬性。
     // 🔴 maxAge 寫死字面(reviewer F1):斷 ADMIN_SESSION_MAX_AGE_SEC 是拿被測物
-    //    自己的常數當期望值,session.ts 把 12h 改成 500 天照樣綠 ⇒ 12h 在這裡釘死。
+    //    自己的常數當期望值,session.ts 把 12h 改成 500 天照樣綠 ⇒ 在這裡釘死。
+    //
+    // 🔴🔴 **2026-08-26 片二:`60 * 60 * 12` ⇒ `60 * 15`。而【它紅了才是對的】。**
+    //    ⛔ ~~`expect(sess?.maxAge).toBe(60 * 60 * 12)`~~
+    //    這一格在片二把 TTL 改短時**當場轉紅**(`expected 900 to be 43200`)——
+    //    **那正是 reviewer F1 當初寫死字面的目的**:讓「有人動了票的壽命」變成一件會叫的事。
+    //    ⇒ 改期望值是**刻意的**,依據 = Sean 2026-08-26 `Q-B5b-2 = 乙 15 分鐘票`。
+    //    📌 **一個測試因為實作改變而紅,與它壞掉,是兩件事。** 這一格是前者。
     expect(sess?.httpOnly).toBe(true);
     expect(sess?.sameSite).toBe('lax');
     expect(sess?.path).toBe('/');
-    expect(sess?.maxAge).toBe(60 * 60 * 12);
+    expect(sess?.maxAge).toBe(60 * 15);
     const payload = await verifySession(sess?.value);
     expect(payload?.amr).toEqual(['pwd', 'totp']);
     // codex MF2:auth_time 原封寫進 session(寫錯欄位/寫 now 會綠的洞)。

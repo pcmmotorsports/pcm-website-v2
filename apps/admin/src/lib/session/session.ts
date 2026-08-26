@@ -46,6 +46,16 @@ export type AdminSessionSub =
 export interface AdminSessionCommon {
   sid: string; // 128-bit hex;每次簽發新產 = §3.1「旋轉 session id」(stateless 下為衛生,非撤銷)
   iat: number; // unix sec:admin 簽發時刻
+  /**
+   * **這條票鏈的起點**(片二新增)—— 續期時**原封不動抄過去**,`iat` 每次重簽都會變而它不會。
+   *
+   * 🔴 **為什麼不能用 `auth_time` 當這個錨點**:`auth_time` 的語意是報價單那側的 `session.iat`,
+   *    而本檔 `:51` 逐字記著它「**隨 sliding refresh 更新的時刻,非不變登入時刻**」⇒ 它會動。
+   * 🔴 **為什麼是選填**:片一已經簽出去的 `v:2` 票沒有這個欄。
+   *    寫成必填 ⇒ `isPayload` 會拒掉它們 ⇒ **部署當下全員被登出**。
+   *    ⇒ 缺這個欄時,**用該票自己的 `iat` 當起點**(保守:只會讓上限更早到,不會更晚)。
+   */
+  sso_at?: number;
   exp: number; // unix sec:iat + TTL;🔴 verifySession 以此欄判過期(非靠 cookie 屬性)
   amr: AdminSessionAmr[]; // 報價單傳來、admin 已白名單過濾
   // 報價單 session.iat。⚠️ 語意=隨 sliding refresh 更新的時刻,非不變登入時刻(報價單端自述)。
@@ -142,7 +152,29 @@ const MIN_SECRET_LEN = 32;
 const strongSecret = (s: string | undefined): string | null => (s && s.length >= MIN_SECRET_LEN ? s : null);
 // prod: __Host- 前綴要求 secure + path=/ + 無 Domain;dev(http)不能用 __Host-、且不加 Secure(localhost 全瀏覽器可收)。
 export const ADMIN_SESS_COOKIE = IS_PROD ? '__Host-pcm_admin_sess' : 'pcm_admin_sess_dev';
-export const ADMIN_SESSION_MAX_AGE_SEC = 60 * 60 * 12; // 12h(後台、比報價單 24h 稍緊)
+/**
+ * 一張票活多久。
+ *
+ * 🔴 **2026-08-26 片二:12h ⇒ 15 分鐘**(Sean `Q-B5b-2 = 乙`,逐字
+ * 「只有登入那一刻問一次, 給他一張 15 分鐘就過期的通行證」)。
+ * ⛔ ~~`60 * 60 * 12` // 12h(後台、比報價單 24h 稍緊)~~ —— 留痕,因為下一個人會問為什麼變這麼短。
+ *
+ * **它縮短的是【多久重新確認一次「他還在職」】,不是曝險上限** ——
+ * 上限由 `SSO_CHAIN_MAX_AGE_SEC` 管,而那一格仍是 12 小時(見下)。
+ * 🔴 **而這一格【必須與靜默續期一起出】**:只縮短不續期 ⇒ 每人每天被打斷約 32 次
+ *    (`8h ÷ 15min`)⇒ 那是做一半。plan `docs/specs/2026-08-26-m4b-e8b-b5b-piece2-plan.md` §0。
+ */
+export const ADMIN_SESSION_MAX_AGE_SEC = 60 * 15; // 15 分鐘
+
+/**
+ * **一條票鏈最多能自己續多久**,超過就要重走一次完整 SSO。
+ *
+ * 🔴 **為什麼一定要有**(Sean 2026-08-26 拍甲):片二讓 admin **自己重簽**票而不經報價單
+ *    ⇒ **報價單那側永遠不會再驗證他** ⇒ 沒有天花板的話,**一張被偷的票可以永遠續下去**。
+ * 📌 選 12 小時的理由:**最壞情況與片二之前【完全一樣】**(那時票就是 12h)
+ *    ⇒ **本片不引入新的曝險上限,只是把中間的檢查變密。**
+ */
+export const SSO_CHAIN_MAX_AGE_SEC = 60 * 60 * 12; // 12h
 
 /** login / SSO 收端發 cookie 的統一選項。SameSite=Lax:callback 後 303 為同源;Lax 足夠防跨站 CSRF、
  *  且跨站進站(從報價單點連結)不會誤判未登入。 */
@@ -297,12 +329,36 @@ export function buildAdminSession(
   amr: AdminSessionAmr[],
   authTime: number,
   sub?: AdminSessionSub,
-  opts?: { maxAgeSec?: number },
+  opts?: { maxAgeSec?: number; ssoAt?: number },
 ): AdminSessionPayload {
   const maxAgeSec = opts?.maxAgeSec ?? ADMIN_SESSION_MAX_AGE_SEC;
   const now = Math.floor(Date.now() / 1000);
-  const common = { sid: newSid(), iat: now, exp: now + maxAgeSec, amr, auth_time: authTime };
+  // 🔴 `ssoAt` 沒傳 ⇒ 這是一條【新的】票鏈(初次登入)⇒ 起點就是現在。
+  //    續期時呼叫端要把舊票的 `sso_at` 傳進來, **不要讓它重新開始** ——
+  //    重新開始 = 那個 12 小時上限永遠不會到,而它就是本片唯一的天花板。
+  const common = {
+    sid: newSid(),
+    iat: now,
+    exp: now + maxAgeSec,
+    amr,
+    auth_time: authTime,
+    sso_at: opts?.ssoAt ?? now,
+  };
   return sub === undefined ? { v: 1, ...common } : { v: 2, ...common, sub };
+}
+
+/**
+ * 這條票鏈還能不能續 —— **純函式,好測**。
+ *
+ * 🔴 缺 `sso_at`(片一簽出的舊票)⇒ **用該票自己的 `iat` 當起點**。
+ *    方向是保守的:上限只會**更早**到,不會更晚。
+ */
+export function ssoChainExpired(
+  payload: AdminSessionPayload,
+  now: number = Math.floor(Date.now() / 1000),
+): boolean {
+  const start = payload.sso_at ?? payload.iat;
+  return now >= start + SSO_CHAIN_MAX_AGE_SEC;
 }
 
 /** 簽出 cookie 字串。ADMIN_SESSION_SECRET 缺 → null(callback 據此回 500,見 REQ4)。 */
@@ -376,6 +432,8 @@ function isPayload(p: unknown): p is AdminSessionPayload {
   if (!isSafeInt(o.iat) || o.iat < 0) return false;
   if (!isSafeInt(o.exp) || o.exp <= 0) return false;
   if (!isSafeInt(o.auth_time) || o.auth_time <= 0) return false;
+  // 🔴 選填, 而【有帶就要是合法的】—— 不驗的話, 一個亂填的 sso_at 會讓上限算出負的
+  if (o.sso_at !== undefined && (!isSafeInt(o.sso_at) || o.sso_at <= 0)) return false;
   if (!Array.isArray(o.amr) || o.amr.length === 0) return false;
   if (!o.amr.every((x) => typeof x === 'string' && VALID_AMR.has(x as AdminSessionAmr))) return false;
   return true;
