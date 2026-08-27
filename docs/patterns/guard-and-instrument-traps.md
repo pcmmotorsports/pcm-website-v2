@@ -264,6 +264,43 @@ npx vitest run packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts
 
 ---
 
+### ①-b fixture 是用「它要驗的那個常數」生的 ⇒ 對「改那個常數」天然免疫、恆綠假 PASS(2026-08-27 線3 `#952` 週邊,`scripts/ceiling-header-inventory.py`)
+
+**病**:一支自檢的 fixture 不是寫死的,是用它**要驗的那個常數**當場生出來的。
+```
+ceiling 的 self_check:fixture 用 SCOPE_TITLE / RULER_TITLE 常數【生】(f'# {SCOPE_TITLE} …'),
+                      matcher 又用同一個常數去 match ⇒ 改常數 ⇒ fixture 跟著改 ⇒ 兩邊還是吻合 ⇒ rc=0。
+第二道「自我合規」同時瞎:inventory([__file__]) 掃自己找常數值,
+                      而 `SCOPE_TITLE = '<值>'` 定義行【自己就含那個值】⇒ 永遠命中(突變版命中在定義行本身)。
+```
+🔴 **兩道獨立的檢查、兩個獨立的機制,而兩個都對同一個突變免疫。**
+
+**後果具體**(機制的**邏輯後果**,不是實測計數):matcher 找的是 typo 後的標題字串,而真守門檔裡沒有那個字串
+⇒ 命中數 = 0(數法 `grep -rl '<typo後的標題>' <守門檔清單>` ⇒ 0)。
+⇒ 工具回報「**0 支寫了天花板**」,而 self-check 照綠 —— **而那個 0 是它自己的 typo。**
+
+**判別句(落筆寫 self-check 時就問)**:
+> **我的 fixture 是【寫死的】還是【生出來的】?生出來的話,它是用【我要驗的那個東西】生的嗎?**
+> **是 ⇒ 這道自檢對「那個東西壞掉」是瞎的**(它會拿改壞後的值去生 fixture、再拿改壞後的值去比,永遠吻合)。
+
+**正對照(同一批工具裡就有,對照組不用另造)**:
+- `zsh-shebang-gate.py` 的 fixture 用【字面】`#!/usr/bin/env zsh` 寫死、**不是**用 regex 生 ⇒ 突變那個 regex,fixture 不跟著動 ⇒ 當場紅。**不盲。**
+- 同批另兩支 2026-08-27 各量一發(**沒講 ≠ 沒中**;拋棄式 worktree 突變,數法可重跑):
+  `shell-dialect-gate.sh` CAND regex `-t([[:space:]]|$)`→`-tZ(…)` ⇒ `--self-check` rc=2(fixture 是字面 `mktemp -t…`);
+  `reachable-ci-scripts.py` frozen `('.husky/commit-msg','A'`→`('.husky/commit-msgZ','A'` ⇒ `--self-check` rc=1(控制是 hardcoded path)。
+  ⇒ **量到不盲,不是推測。三支只有 ceiling 中,因為只有它的 fixture 從被驗的常數生。**
+
+**修法(兩選一)**:①釘死期望字面 `assert 常數 == '<契約值>'`(ceiling 已用此法 `60050f42`);②讓 fixture **寫死**、不從常數生(zsh 那支的形狀)。
+
+**實錘(可重跑)**:拋棄式 worktree 改 `SCOPE_TITLE` 一個字元 ⇒ 補釘**前** rc=0(假 PASS)、補釘**後** rc=1;還原後零殘留。
+
+#### 🔴 與最近鄰的分界(投稿人開了四條,逐條寫)
+- **memory `feedback_fixture-value-makes-guard-vacuous`(最近鄰 0.39)**:那條病在 fixture 的**取值**碰巧特殊(`0`/`NULL`/等於另一欄)讓斷言 vacuous ⇒ **改那個值就把 bug 炸出來**。本條病在 fixture 的**來源**(從被驗常數生)⇒ **改那個常數,fixture 跟著改、炸不出來**。📌 **分界一句:vacuous 那條「改那個東西 ⇒ 假綠變紅」;本條「改那個東西 ⇒ 兩邊一起動、假綠還是綠」。方向相反。**
+- **①-a(`toEqual` + fixture 缺鍵)**:缺鍵是 fixture **少一欄**;本條 fixture 欄都在、值也對,問題純在它**從常數生**。
+- **②-b(突變打到測試自己那一行)**:那是某一發突變指令**剛好**把守門自己那行也刪了(意外、一次性);本條是**結構性** —— **【任何】對那個常數的突變都看不到**。(②-b 共用**字面**;本條共用**來源**。)
+- **`§12-45`(射程要寫在檔頭)**:那條講**揭露**缺口;本條講**偵測**缺口 —— **自檢結構上量不到這個盲區,就算你想把它寫下來,也是這道自檢先發現不了它。** disclosure vs detectability,不同題。
+
+
 ## ② 紅錯地方 —— 紅起來了,但紅的不是你以為的那一格
 
 **判準**:突變之後,**去看紅在哪一行**,不要只看 exit code。
