@@ -754,7 +754,15 @@ git worktree add --detach "$WT" HEAD
 # 🔴 尺要量【那道閘真的會讀的地方】—— 它讀的是 `apps/storefront`(next.config 傳 CONFIG_DIR 進去),
 #    只量 worktree 根目錄會漏掉 `apps/storefront/.env.local` —— 而主樹那支就住在那裡。
 #    ⚠️ 而它還會看 `process.env` ⇒ **你自己 export 過的變數不在這把尺裡**,尺量得到的只有檔。
-ls -a "$WT" "$WT/apps/storefront" | grep -c '^\.env'   # 期望 0 —— 不是 0 就換一棵,別將就
+#    🔴 而【不要數個數,要看名字】(2026-08-27 線4 抓到,主視窗複量):
+#       ~~原句「grep -c 期望 0 —— 不是 0 就換一棵」~~ 作廢 —— 它【恆常不是 0】:
+#       `apps/storefront/.env.example` 是版控裡的範本(`git ls-files` 命中 1),
+#       **每一棵 worktree 都有它**,而 **Next 不載入 `.env.example`** ⇒ 無害。
+#       ⇒ 那個判準會叫每一個人「換一棵」,而換不掉 —— **一個恆紅的判準,判別力與恆綠的一樣是零,
+#         而恆紅那種會先耗掉三個人的時間。**(主樹當場量:那行印 `4`,乾淨 worktree 印 `1`。)
+ls -a "$WT" "$WT/apps/storefront" | grep '^\.env' | sort -u
+#    期望【只有 .env.example 一行】。看到 .env / .env.local / .env.development* 任何一支 ⇒ 換一棵,別將就。
+#    ⚠️ 印出【名字】而不是個數:`0` 與 `1` 分不出「乾淨」與「有一支 .env.local」,而名字分得出來。
 
 # ③ 裝相依(pnpm workspace 大多是連結,實測數十秒等級)
 ( cd "$WT" && pnpm install --frozen-lockfile --prefer-offline )
