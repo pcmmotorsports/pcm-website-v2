@@ -136,7 +136,9 @@ if [ "${1:-}" = "--selftest" ]; then
     then echo "  $1  ✅"
     else echo "  $1  ❌ 輸出裡找不到:$4" >&2; _fail=1; fi
   }
-  _nonrepo=$(mktemp -d)
+  # 🔴 `b4` 2026-08-27 點名:同一支檔裡【第二個】mktemp 沒守 ——
+  #   而 `:122` 那個有守 ⇒ **修了第一個會讓人以為整支好了**。
+  _nonrepo=$(mktemp -d) || { printf '%s\n' "selftest: mktemp 失敗(第二處)" >&2; exit 1; }
 
   cd "$_t" || exit 1
   git init -q . && git config user.email t@t && git config user.name t || {

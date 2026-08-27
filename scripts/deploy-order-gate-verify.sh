@@ -59,7 +59,20 @@ PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/dog-verify.XXXXXX")"
+# 🔴 `|| exit` 少不得(2026-08-27,`b4` 點名 + 本窗實測):`set -uo pipefail` **沒有 `-e`**
+#   ⇒ `mktemp` 失敗時這一行【不會停】, `WORK` 變空字串, 而 `set -u` 也擋不住它(它有值, 只是空的)。
+#   ⚠️ **而它接下來會怎樣, 取決於一件與設計無關的事** ——
+#     本檔所有路徑都是 `"$WORK/rN"` 形式 ⇒ `WORK=""` 時它是 `/r1` **不是空字串**
+#     ⇒ `cd "/r1"` 在 macOS 上失敗(唯讀根)⇒ `&&` 真的擋住了。**實測:受害者 repo 2 → 2 檔、零新 commit。**
+#     🔴 **那是後綴救的, 不是任何人寫的守門救的** —— 而下一個人只要寫一次 `cd "$WORK"`(沒有後綴),
+#       那條路就開了:`cd ""` 在 bash 是【成功且原地不動】。
+#   ⇒ 所以這裡 fail-closed:**不靠後綴, 靠停下來。**
+#   📌 而它現在的症狀也是壞的:80 幾格全部在 `/r1` 上失敗、印一大堆 `Read-only file system`,
+#     最後 `PASS=` 是一個【沒有意義的數字】—— 而那個數字看起來像「有幾格沒過」。
+if ! WORK="$(mktemp -d "${TMPDIR:-/tmp}/dog-verify.XXXXXX")" || [ -z "$WORK" ] || [ ! -d "$WORK" ]; then
+  printf '%s\n' "🔴 mktemp -d 失敗(或回了空值)⇒ 不往下跑。本檔的每一格都要一個拋棄式目錄。" >&2
+  exit 2
+fi
 # 🔴🔴 **這裡【刻意不做】一件看起來該做的事,寫下來免得下一個人再試一次:**
 #   code-reviewer 建議加第二層防線 `cd "$WORK"` —— 理由是對的(剝掉 `GIT_DIR` 之後
 #   git 改成**從 cwd 往上找 repo**,而本檔被 hook 叫起來時 cwd 就是主樹頂)。
@@ -68,7 +81,8 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/dog-verify.XXXXXX")"
 #     **那兩格【需要】cwd 在 repo 裡**。⇒ 那不是「把原本被遮住的紅露出來」,是我弄壞的。
 #   ⇒ 這條路要走的話,得先讓那兩格改用絕對路徑,而那是另一片。
 #   📌 **一個看起來明顯正確的加固,和它會弄壞什麼,是兩個問題。**
-trap 'rm -rf "$WORK"' EXIT
+# 🔴 trap 也守一下:`WORK` 空的時候 `rm -rf ""` 雖然無害, 而【看起來像它清乾淨了】。
+trap '[ -n "${WORK:-}" ] && rm -rf "$WORK"' EXIT
 
 # ── 造一個拋棄式 repo:一支已 apply 的 migration + 一支 pending 的(內含 CREATE FUNCTION)──
 setup_repo() { # $1=repo 路徑
