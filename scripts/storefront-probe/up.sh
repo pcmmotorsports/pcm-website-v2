@@ -157,6 +157,74 @@ SQL
 psql -h 127.0.0.1 -p $PG -U postgres -v ON_ERROR_STOP=1 -q -f "$SP/seed.sql"
 echo "seed 完成: $(psql -h 127.0.0.1 -p $PG -U postgres -t -c 'select count(*) from products' | tr -d ' ') 件商品"
 
+# ── 🔴 種子自檢:每一家品牌都要有商品(2026-08-27 `-ed` 線)──────────────────
+#    為什麼要有這一格:`seed.sql` 沒有任何自動化測試依賴它(全 repo 唯一的呼叫端就是本檔)
+#    ⇒ **改壞了不會有任何東西紅**,只會在下一個人用鑽機時給他一份看起來正常的假資料。
+#    ⇒ 判準不是「seed 跑完沒報錯」(它現在也不報錯,而改之前每一家都是空的),
+#      是**逐家數出來、對不上就非 0**。
+#
+# 🔴 這一格的第一版有【兩條恆綠路徑】(code-reviewer 抓到,兩條都補了):
+#   ① `nbrand` 若是 0(brands 空表 ⇒ seed migration 沒套上,而那正是本檔頭寫「套不上是常態」的那件事)
+#      ⇒ gap 一列都不回、`0 -ne 0` 也不成立 ⇒ 它會印「✅ 0 家品牌每家 ≥ 4 件」。**真空成立。**
+#   ② psql 少了 `-v ON_ERROR_STOP=1` ⇒ SQL 錯誤時它「finished normally」rc=0、變數變【空字串】
+#      ⇒ `[ "" -ne 0 ]` 在 bash **回 2**,`if` 讀成 false ⇒ **穿過去印 ✅**(`set -e` 對 if 條件不生效)。
+#   📌 兩條都是「量具在該紅的世界印綠」,而不是「判斷寫錯」。
+# 🔴 而第三條是【量具比宣稱窄】:第一版只數件數與變體數,不數形狀
+#    ⇒ `k=4` 宣稱「有圖」而實際 `images='[]'` 的那個 bug **就是從這個縫掉出去的,而它印 ✅**。
+MIN_PER_BRAND=4
+q() { psql -h 127.0.0.1 -p $PG -U postgres -t -A -v ON_ERROR_STOP=1 -c "$1"; }
+gap=$(q "
+  SELECT b.slug || '(' || count(p.id) || ')'
+  FROM brands b LEFT JOIN products p ON p.brand_id = b.id
+  GROUP BY b.slug HAVING count(p.id) < $MIN_PER_BRAND ORDER BY b.slug;" | tr -d ' ')
+nbrand=$(q 'select count(*) from brands' | tr -d ' ')
+nvar=$(q "select count(*) from product_variants v join products p on p.id=v.product_id
+          where p.handle like 'probe-%-3';" | tr -d ' ')
+nimg=$(q "select count(*) from products
+          where handle like 'probe-%' and jsonb_array_length(images) > 0;" | tr -d ' ')
+nfit=$(q "select count(*) from products
+          where handle like 'probe-%' and jsonb_array_length(fitments) > 0;" | tr -d ' ')
+# ① 分母先自證非空 —— 沒有這一行,下面每一格都可以真空成立。
+case "$nbrand" in
+  ''|*[!0-9]*) echo "🔴 種子自檢 FAIL:品牌數讀不出來(值='$nbrand')⇒ 量具本身壞了,不是資料的問題" >&2; exit 1 ;;
+esac
+if [ "$nbrand" -lt 1 ]; then
+  echo "🔴 種子自檢 FAIL:brands 表是空的 ⇒ seed migration 沒套上,底下每一格都會【真空成立】" >&2
+  exit 1
+fi
+for v in nvar nimg nfit; do
+  eval "val=\$$v"
+  case "$val" in
+    ''|*[!0-9]*) echo "🔴 種子自檢 FAIL:$v 讀不出來(值='$val')⇒ 量具壞了" >&2; exit 1 ;;
+  esac
+done
+if [ -n "$gap" ]; then
+  {
+    echo "🔴 種子自檢 FAIL:下列品牌商品數 < $MIN_PER_BRAND(品牌總數 $nbrand)"
+    echo "$gap" | tr '\n' ' '
+    echo
+    echo "   ⇒ 那幾家在這台鑽機上打不開商品頁,而它不會報錯、只會給你一頁空的。"
+  } >&2
+  exit 1
+fi
+# 七色變體:每家 k=3 那支各 7 個 ⇒ 期望 = 品牌數 × 7。少了就是 variants 那段沒跑到。
+if [ "$nvar" -ne "$((nbrand * 7))" ]; then
+  echo "🔴 種子自檢 FAIL:probe-%-3 的變體數 $nvar ≠ 品牌數 $nbrand × 7 = $((nbrand * 7))" >&2
+  exit 1
+fi
+# ③ 數形狀,不只數件數:每家 k=3/k=4 兩支有圖、k=2/k=3/k=4 三支有車款。
+#    形狀對不上 = 那一族的題目在鑽機上構造不出來,而件數那格看不出來。
+if [ "$nimg" -ne "$((nbrand * 2))" ]; then
+  echo "🔴 種子自檢 FAIL:有圖的 probe 商品 $nimg ≠ 品牌數 × 2 = $((nbrand * 2))(k=3/k=4 應各一支)" >&2
+  exit 1
+fi
+if [ "$nfit" -ne "$((nbrand * 3))" ]; then
+  echo "🔴 種子自檢 FAIL:有適用車款的 probe 商品 $nfit ≠ 品牌數 × 3 = $((nbrand * 3))(k=2/3/4)" >&2
+  exit 1
+fi
+echo "✅ 種子自檢:$nbrand 家品牌每家 ≥ $MIN_PER_BRAND 件、多變體 $nvar(=×7)、有圖 $nimg(=×2)、有車款 $nfit(=×3)"
+# ─────────────────────────────────────────────────────────────────────────────
+
 cat > $S/prest.conf <<CONF
 db-uri = "postgres://authenticator@127.0.0.1:$PG/postgres"
 db-schemas = "public"
