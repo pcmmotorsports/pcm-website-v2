@@ -35,6 +35,12 @@
 #     `OR s.shipped_quantity IS DISTINCT FROM` 改成 `s.instock_quantity`,第四軸 oracle 就接錯欄,
 #     而本守門**全綠**(R1 nit 5 實測)。要守它得比整條述詞的宿主表達式,不在 3a 範圍。
 #   ②**SQL 語意**:本檔是純文字比對,不解析 SQL。字面對 ≠ 查詢正確。
+#
+# 天花板/範圍: 只驗六塊「嵌入形 / helper」的字面同步(位置集合寫死在 SITES、不用全樹 grep);不做突變。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「一個該同步、但不在 SITES 寫死清單裡的第七處」。
+# 天花板/量具: 純文字比對、不解析 SQL ⇒ 字面對 ≠ 查詢正確;標記區塊【外】的接線改錯(如把 a4a-verify
+#   的述詞欄 shipped_quantity 改成 instock_quantity)本守門全綠,那不在 3a 範圍。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「六塊都字面一致、但它們一起對著錯的來源同步」。
 import io, os, sys
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else '.'

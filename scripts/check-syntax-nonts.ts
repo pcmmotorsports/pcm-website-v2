@@ -17,6 +17,13 @@
 //   - `.py` 只有 `ast.parse`:**它量的是「這個檔讀不讀得進去」,不是「這支腳本對不對」**。
 //     import 錯的模組、名稱打錯、邏輯錯、跑起來就炸 —— 這格全部是綠的。
 //     ⇒ 不得因為這格綠就宣稱「那 N 支 .py 都沒問題」(2026-08-22 D 線加入 .py 時明寫)。
+//
+// 天花板/範圍: 只抓「這個檔在語法層根本讀不進去」;不是 SQL / shell / YAML 的語意檢查。
+//   .sql 只做括號配對平衡、.py 只做 ast.parse。
+//   這份清單是我想得到的那些, 而我最可能漏掉的是「語法讀得進去、但語意壞掉的那一整類錯」。
+// 天花板/量具: parse 過 ≠ 對 —— import 錯模組、名稱打錯、邏輯錯、跑起來炸,這格全綠;
+//   lint-staged 的射程是整個 repo ⇒ 量法不固定 root、數出來的就不是這道閘的分母。
+//   這份清單是我想得到的那些, 而我最可能漏掉的是「一種我沒為它寫 checker 的副檔名,靜靜地不被檢查」。
 
 import { readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';

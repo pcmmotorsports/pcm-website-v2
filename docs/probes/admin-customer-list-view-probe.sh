@@ -8,6 +8,12 @@
 # 環境 = 拋棄式 Postgres(照 docs/runbooks/throwaway-postgres-for-migration-verification.md)。
 # 🔴 **效度邊界**:本 probe 造的 `orders` 是**最小形狀**(只含本 view 用到的欄,逐字取自 repo),
 #    不是正式庫的完整 orders ⇒ 它證的是「這支 view 的算法對」,**不證「在正式庫跑起來一樣」**。
+#
+# 天花板/範圍: 只驗 admin_customer_list_v 的【值】算法對;結構不變式歸 migration,不在這裡。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「migration 本身結構錯,但值算法在最小形狀下仍算對」。
+# 天花板/量具: 造的 orders 是【最小形狀】(只含本 view 用到的欄、逐字取自 repo),不是正式庫完整 orders
+#   ⇒ 量不到「真表才有的欄位互動 / 資料量 / 權限」,不證正式庫跑起來一樣。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「最小形狀下不出現、真表上才會出現的欄位組合」。
 set -euo pipefail
 export LC_ALL=C LANG=C
 D=/tmp/pgprobe-cust

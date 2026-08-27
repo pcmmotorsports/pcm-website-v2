@@ -51,6 +51,13 @@
 # 除錯:`PCM_MIGRATION_BYPASS_DEBUG=1` ⇒ 每個分岔印一行 `[cm-gate] dN …`。
 #   它存在的理由很具體:**「沒設逃生門就過」與「設了但沒動 migration 就過」
 #   在畫面上【都是零輸出】** ⇒ 只比 rc 的話那兩發等於只跑了一發。
+#
+# 天花板/範圍: 只在【走 migration 逃生門(PCM_ALLOW_MIGRATION_POST_COMMIT=1)】時要求 commit body 帶
+#   PCM-MIGRATION-BYPASS-872 token;不波及正常 commit、不擋逃生門本身,只要求它留痕。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「逃生門以外、別種靜默繞過守門的環境變數」。
+# 天花板/量具: 它驗 token【字面在不在】,不驗 token 後面那句理由【真不真】;而 --no-verify 或事後改
+#   git 歷史整個繞過本 hook —— 那條路連這一行留痕都不會有,本閘看不到。
+#   這份清單是我想得到的那些, 而我最可能漏掉的是「有人寫了 token 但理由是假的」。
 
 set -u
 
