@@ -51,14 +51,17 @@ export default async function BrandDirectoryPage() {
   //    把空入口全放出去,那正是這條線在修的東西。
   //    ⚠️ **保證住在哪要寫準**(關卡2 R1 nit 更正:本檔第一版寫「`brand-products.ts` 那支
   //    自己保證」是不準的):`fetchBrandsWithProducts` 本身**沒有** try/catch,
-  //    fail-safe 在它下游的 `fetchCatalogBrandTaxonomy`(`lib/products.ts`,catch 回 `[]`)。
+  //    fail-safe 在它下游 —— 🔴 **線E 之後那支換人了**:本頁的呼叫鏈走的是
+  //    `tryCatalogBrandTaxonomy`(同樣 catch,而它多回一個 `failed`),
+  //    `fetchCatalogBrandTaxonomy` **已完全不在本頁的鏈上**(它留給另外三個消費端)。
   //    ⇒ 那一層哪天改成往上 throw,本頁會整頁 500 而不是全泛白。
-  const availableSlugs = await fetchBrandsWithProducts();
+  //    📌 這段是 code-reviewer 2026-08-28 抓到的:**我在別的檔修了同族的過期字面,漏了這一處。**
+  const { slugs: availableSlugs, loadFailed } = await fetchBrandsWithProducts();
 
   return (
     <div data-screen-label="品牌總覽">
       <Header currentPage="brands" />
-      <BrandDirectoryRoot availableSlugs={availableSlugs} />
+      <BrandDirectoryRoot availableSlugs={availableSlugs} loadFailed={loadFailed} />
       <HomeFooter tagline={<>為每一趟騎乘，<br />找到對的部品。</>} />
     </div>
   );

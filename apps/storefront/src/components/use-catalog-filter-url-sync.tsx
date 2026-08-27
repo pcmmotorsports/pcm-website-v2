@@ -150,7 +150,13 @@ export function useCatalogFilterUrlSync(
     //   ⚠️ 這裡**沒有新增任何 `params.set/delete`**(改的是同一次寫入的來源集合、以及把既有的
     //      delete 改成條件式)⇒ 下方「不得在等值比對之前再新增寫入」那條安全前提照舊成立。
     // 🔴 **對照表空的時候照樣保留**(= 不特別處理),這是想過的、不是漏的:
-    //   `fetchCatalogBrandTaxonomy()` 撈失敗回 `[]` 而非 null(`lib/products.ts:531-536`),
+    //   `fetchCatalogBrandTaxonomy()` 撈失敗回 `[]` 而非 null,
+    //   🔴 **這裡不寫行號**(2026-08-27 線E):原本寫 `lib/products.ts:531-536`,而它已經漂到 :590;
+    //     我改對之後【自己那一顆 commit 又把它推到 :612】—— 兩次都是同一個病。
+    //     ⇒ 用**函式名**當錨,`grep -n 'function fetchCatalogBrandTaxonomy' apps/storefront/src/lib/products.ts`。
+    //     📌 一條過期的行號不會讓假設失效,但會讓下一個人找不到它 ——
+    //        而它上面那句「撈失敗回 [] 而非 null」**現在仍然成立**:
+    //        線E 新增的 `tryCatalogBrandTaxonomy()` 是另一支,對外這支的簽章與行為 byte 不變。
     //   而 `ProductsPage.tsx:234` 是 `??` ⇒ `[]` 不觸發 fallback ⇒ 中斷期對照表真的是空的。
     //   但**商品過濾不吃這張表**:品牌條件走 `search_catalog_by_vehicle` 的 `p_brand_slugs`
     //   (`lib/products.ts:402`),與 `catalog_brand_counts`(:543)是**兩支不同的 RPC**

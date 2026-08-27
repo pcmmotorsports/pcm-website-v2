@@ -18,6 +18,10 @@ import { BrandIndex } from './BrandIndex';
 // 🔴 真的 import 頁尾來比對(D3c-5 的教訓:兩邊各寫硬字面 = 只改一邊也全綠)。
 import { HomeFooter } from './HomeFooter';
 import { BRAND_CONTENT } from '../data/brand-content';
+import {
+  BRAND_AVAILABILITY_UNREADABLE,
+  BRAND_AVAILABILITY_UNREADABLE_SUB,
+} from '../lib/brand-availability';
 import { BRAND_TRIM_LOGO_SCALE } from '../data/brand-trim-logo-scale';
 
 afterEach(cleanup);
@@ -194,5 +198,39 @@ describe('BrandIndex · 零商品品牌泛白不可點', () => {
       expect(tile.querySelector('.b-brand-logo')).not.toBeNull();
       expect(tile.querySelector('.b-brand-tag')).not.toBeNull();
     }
+  });
+});
+
+// ── 線E:撈失敗要說話(而零商品不說話)· code-reviewer 2026-08-28 Important ⑤ ──────
+//
+// 🔴 補這段的理由是量到的:審查者實查「**刪掉那整塊提示,全套仍綠**」
+//    ⇒ 這一面的顯示在補之前**零守門**,只有磚牆那一面有。
+//    📌 三面共用同一份文案常數, 而**只有一面有測試** —— 那三面在報告上長得一樣綠。
+describe('線E · 首頁 BrandIndex 撈失敗要說話', () => {
+  it('🔴 loadFailed ⇒ 印出那一句(帶 role="alert"),而文案吃常數不吃字面', () => {
+    const { container } = render(<BrandIndex availableSlugs={new Set()} loadFailed />);
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert, '撈失敗與零商品印同一個畫面 ⇒ 客人以為這些品牌沒貨, 而我們看不出哪一種').not.toBeNull();
+    expect(alert!.textContent).toContain(BRAND_AVAILABILITY_UNREADABLE);
+    expect(alert!.textContent).toContain(BRAND_AVAILABILITY_UNREADABLE_SUB);
+  });
+
+  // ⚠️ **本條的判別力來自上面那條**:在上面那條綠掉之前, 它綠的理由是
+  //    「沒有任何東西會印那個字串」⇒ 恆綠。兩條一起看才算數。
+  it('🔴 沒失敗(即使全部零商品)⇒ 不印那一句', () => {
+    const { container } = render(<BrandIndex availableSlugs={new Set()} />);
+    expect(container.querySelector('[role="alert"]'), '沒失敗卻在喊 ⇒ 狼來了, 下次真的壞掉沒人看').toBeNull();
+    expect(container.textContent).not.toContain(BRAND_AVAILABILITY_UNREADABLE);
+  });
+
+  // 🔴 must-fix ①(審查者從 CSS 巢狀推出的, 我另外用 storefront-probe 量):
+  //    `.brand-avail-note` 自己沒有版寬約束, 而 `.b-brands` 的另兩個子元素都有
+  //    ⇒ 少了 `.b-brands-note` 這層容器, 灰底條會**橫貫整個 viewport**。
+  //    這一格 Sean 肉眼幾乎驗不到 —— 它只在 DB 撈失敗時才顯示。
+  it('🔴 提示外面要有 `.b-brands-note` 容器層(拿掉 ⇒ 首頁通欄出血)', () => {
+    const { container } = render(<BrandIndex availableSlugs={new Set()} loadFailed />);
+    const note = container.querySelector('.brand-avail-note');
+    expect(note, '提示沒渲染').not.toBeNull();
+    expect(note!.parentElement?.className, '提示直接掛在 .b-brands 下 ⇒ 沒有版寬約束 ⇒ 通欄出血').toBe('b-brands-note');
   });
 });

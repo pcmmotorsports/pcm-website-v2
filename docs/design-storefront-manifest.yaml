@@ -488,12 +488,17 @@ components:
     storefront:
       component: "apps/storefront/src/components/BrandIndex.tsx"
       css: "apps/storefront/src/styles/home.css"  # .ed-brands / .ed-brand-* 家族
-      last_modified_commit: "4833eaf"  # 記可達祖先=D5g 的父 commit(#180 案 A);前錨見下方敘述
-      last_modified_date: "2026-08-05 [D5g 捲動進場]:本區塊加一個 `data-reveal` 屬性,由 `HomeReveal.tsx` (effect-only client 元件)以選擇器找到、捲進視窗才掛 `.is-in` 淡入上移。**內容、版面、連結一律零改動** —— 本片對本元件的唯一異動就是那個屬性。起始隱藏掛在 `body.js-reveal` 底下,JS 沒跑到 / 不支援 IO / 開了減少動效時整塊維持全可見。前:2026-08-05 [D5a 首頁區塊重排連動;**只動 CSS 底色、本元件 .tsx 零改動**]:`.ed-brands` 底色由 `var(--ed-c-paper)`(白)改 `var(--ed-c-paper-2)`(淺灰白)—— OD README 表逐字「08-02 改淺,原色 logo 可讀性」,這一格是節奏「白 白 深 白 淺灰白 深」的倒數第二塊、用來把頁尾那塊深色墊出來。⚠️ 本條目的 20 家 logo 磚牆重寫是 **D5f**,尚未做;現況仍是吃 MOCK_BRANDS(17 筆)的純文字牆。前:2026-08-05 [D3c-5 品牌入口全站收口]:表頭「品牌專區」href `/products` → **`/brands`**。🔴 這顆是關卡2 R1 抓到的**漏網**——交接單寫「三個消費端」,照著收就漏了它,結果首頁上同一個『品牌專區』標籤出現兩次、指到兩個地方(表頭 /products、頁尾 /brands);而 `BrandIndex.test.tsx` 有一條**主動鎖住舊值**、註解還寫「不再指向不存在的 /brands」⇒ 全套 4695 綠對這個矛盾完全無感,**那條測試正是在保護錯的那一半**。已改 href + 改寫該測試。⚠️ 每一列的 `?brand=<slug>` **維持不動**(那是『看這個品牌的商品』、不是『看品牌介紹』,兩者不同意圖;品牌介紹的入口是 /brands 總覽的卡片)。前:2026-08-04 [D3c-2 零商品品牌泛白不可點]:收 `availableSlugs` prop,目錄零商品的品牌那幾列渲染成 `<span>`(不是拿掉 href 的 `<a>`、也不是 aria-disabled)、不畫箭頭、加一句只給報讀器的「(暫無商品)」;`home.css` 版面選擇器 `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)` 兩處(子選擇器,寫成後代會讓列內每個 span 都吃到 grid)。前:2026-07-05 [Q4-S5]:品牌連結 /brands*→/products?brand=(當時路由不存在=404)"
+      last_modified_commit: "96cbfa09"  # 記可達祖先=線E 品牌牆失敗態片的父 commit(#180 案 A);前錨見下方敘述
+      last_modified_date: "2026-08-28 [線E 品牌牆失敗態說話]:`.b-brands` 內新增一塊【只在撈失敗時】出現的提示(`loadFailed` prop),外面包一層 `.b-brands-note` 容器 —— 那層**不是裝飾**:同層兄弟 `.ed-section-head` / `.b-brand-wall` 都帶 `max-width: var(--ed-max) + padding: 0 var(--ed-gutter)`,少了它灰底條會**橫貫整個 viewport**(code-reviewer 2026-08-28 must-fix ①;而那一格 Sean 肉眼幾乎驗不到 —— 它只在 DB 撈失敗時顯示)。**泛白邏輯與 `isEmpty` 算法一個字未動。**前:2026-08-05 [D5g 捲動進場]:本區塊加一個 `data-reveal` 屬性,由 `HomeReveal.tsx` (effect-only client 元件)以選擇器找到、捲進視窗才掛 `.is-in` 淡入上移。**內容、版面、連結一律零改動** —— 本片對本元件的唯一異動就是那個屬性。起始隱藏掛在 `body.js-reveal` 底下,JS 沒跑到 / 不支援 IO / 開了減少動效時整塊維持全可見。前:2026-08-05 [D5a 首頁區塊重排連動;**只動 CSS 底色、本元件 .tsx 零改動**]:`.ed-brands` 底色由 `var(--ed-c-paper)`(白)改 `var(--ed-c-paper-2)`(淺灰白)—— OD README 表逐字「08-02 改淺,原色 logo 可讀性」,這一格是節奏「白 白 深 白 淺灰白 深」的倒數第二塊、用來把頁尾那塊深色墊出來。⚠️ 本條目的 20 家 logo 磚牆重寫是 **D5f**,尚未做;現況仍是吃 MOCK_BRANDS(17 筆)的純文字牆。前:2026-08-05 [D3c-5 品牌入口全站收口]:表頭「品牌專區」href `/products` → **`/brands`**。🔴 這顆是關卡2 R1 抓到的**漏網**——交接單寫「三個消費端」,照著收就漏了它,結果首頁上同一個『品牌專區』標籤出現兩次、指到兩個地方(表頭 /products、頁尾 /brands);而 `BrandIndex.test.tsx` 有一條**主動鎖住舊值**、註解還寫「不再指向不存在的 /brands」⇒ 全套 4695 綠對這個矛盾完全無感,**那條測試正是在保護錯的那一半**。已改 href + 改寫該測試。⚠️ 每一列的 `?brand=<slug>` **維持不動**(那是『看這個品牌的商品』、不是『看品牌介紹』,兩者不同意圖;品牌介紹的入口是 /brands 總覽的卡片)。前:2026-08-04 [D3c-2 零商品品牌泛白不可點]:收 `availableSlugs` prop,目錄零商品的品牌那幾列渲染成 `<span>`(不是拿掉 href 的 `<a>`、也不是 aria-disabled)、不畫箭頭、加一句只給報讀器的「(暫無商品)」;`home.css` 版面選擇器 `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)` 兩處(子選擇器,寫成後代會讓列內每個 span 都吃到 grid)。前:2026-07-05 [Q4-S5]:品牌連結 /brands*→/products?brand=(當時路由不存在=404)"
     design:
       component: "design-reference/components/HomePage.jsx"  # N°06 Authorized brands 段
       css: "design-reference/styles/home.css"
     business_overrides:
+      - field: "brandAvailabilityUnreadable"
+        design_value: "design 沒有『我們現在讀不到有沒有商品』這個狀態 —— 稿上只有整頁錯誤(`design-reference/components/ErrorPage.jsx:7-8`),沒有局部區塊讀不到的樣式"
+        storefront_value: "撈失敗時多印一句灰底小字(`.brand-avail-note`;文案單一作者在 `lib/brand-availability.ts`、樣式在 `styles/brand-availability.css`,三面共用一份);**磚仍全泛白、不得變可點** —— 說話不等於放行"
+        decided_at: "2026-08-27"
+        reason: "🔴 **稿上查無而 Sean 明文授權自畫**(`q14: 甲` 逐字「你畫一個簡單的就好(灰底小字, 不要新元件)」,原話在 `~/pcm-mailbox/pending-questions-20260827.md:761`)⇒ 授權偏離、不是自創。存在理由:【撈失敗】與【那家真的零商品】在畫面上都是整片泛白,客人分不出來、我們也看不出哪一種發生了(同一句判別句 `contexts/FavoritesContext.tsx:50` 逐字寫過,標 `MAIN-035 ①-1`【必修】)"
       - field: "emptyCatalogBrands"
         design_value: "design 每一列都是可點連結,沒有『這家目前沒商品』這個狀態"
         storefront_value: "目錄零商品的品牌泛白且**語意上也不可點**(渲染成 `<span>`);判斷來源 `lib/brand-products.fetchBrandsWithProducts()` 由 `catalog_brand_counts` 衍生、**不寫死名單**,商品一上架自動恢復(最長延遲 1 分鐘 = `unstable_cache` 60s)。撈取失敗 fail-closed(全部當成沒商品)"
@@ -1721,6 +1726,24 @@ components:
       - "apps/storefront/src/components/InstallResources.tsx"  # 兄弟面板;空狀態「整區不渲染」的慣例來源
       - "supabase/migrations/20260808000000_products_add_sound_clips_expose_view.sql"  # 片 3a,尚未 apply
 
+  # ---- 全站級失敗態(線E,2026-08-28)----
+
+  BrandAvailabilityNotice:
+    storefront:
+      component: "(無元件;Sean q14 逐字「不要新元件」)三面各自 inline 一段 `<p className=\"brand-avail-note\" role=\"alert\">`:`components/BrandIndex.tsx`(外包一層 `.b-brands-note`)/ `components/brand/BrandDirectoryRoot.tsx` / `components/brand/BrandPageBrandWall.tsx`;文案單一作者 `apps/storefront/src/lib/brand-availability.ts`"
+      css: "apps/storefront/src/styles/brand-availability.css"
+      last_modified_commit: "96cbfa09"  # 記可達祖先=線E 品牌牆失敗態片的父 commit(#180 案 A)(新增條目、無前錨)
+      last_modified_date: "2026-08-28 [線E 品牌牆讀不到時會說話]:【`catalog_brand_counts` 撈失敗】與【那家目錄真的零商品】在畫面上**都是整片泛白**,客人分不出來、我們也看不出哪一種發生了 ⇒ 撈失敗時多印一句。🔴 **只做『不說話』那半**:泛白是 Sean 2026-08-04 拍板(`docs/phase-1-backlog.md:10433` 逐字)、fail-closed 方向是刻意選的(`lib/brand-products.ts` 檔內自陳)⇒ **兩半都一個字未動**。🔴 **為什麼是全站級一支小檔而不是寫進品牌那兩面的 CSS**:同一句話出現在三面,而三面的色票 scope 各不相同(`.ed-page` / `.bd-page` / `.bp-page`)⇒ 寫進任一面,另外兩面吃不到,而**畫面不報錯、只是那行字長得不一樣**(形狀抄 `styles/favorites.css` 的 `#191` 收藏寫入失敗提示:獨立 class、零 cascade 交互)。⚠️ 三個 token 都在 `tokens.css` 的 `:root` ⇒ 三面都吃得到值;**而『深色模式自動跟著換』只對其中兩面成立** —— `brand-page.css:86/89` 在 `.bp-page` 內用亮色字面覆寫了 `--c-border` 與 `--c-text-3`(該檔 `:96-99` 自陳刻意)⇒ 品牌頁那一面不會換(目前不可達,全 app `data-theme` 命中 0 ⇒ 是理由錯不是畫面壞;code-reviewer 2026-08-28 Important ④)。真瀏覽器兩世界實測(拋棄式鑽機 + 乾淨 worktree,**兩邊各清 `.next` 重跑**):撈失敗 ⇒ 那行字 1 / `role=alert` 1 / 副行 1 / `is-empty` 42 / `href=\"/brands/` **0**;正常 ⇒ 0 / 0 / 0 / 0 / 21 ⇒ **說話不等於放行**。⚠️ `role=\"alert\"` 在 SSR 靜態內容上**不會被朗讀**(live region 只播報掛載後的變動)⇒ 無害,但**不得當成『無障礙已處理』**。"
+    design:
+      component: "(無對應稿)Sean 2026-08-27 `q14: 甲` 逐字授權自畫:「你畫一個簡單的就好(灰底小字, 不要新元件)」;原話在 `~/pcm-mailbox/pending-questions-20260827.md:761`"
+      css: "(無對應稿)稿上只有整頁錯誤 `design-reference/components/ErrorPage.jsx:7-8`,沒有局部區塊讀不到的樣式"
+    related_storefront:
+      - "apps/storefront/src/lib/brand-availability.ts"  # 文案單一作者(client-safe;放 brand-products.ts 會讓元件測試炸在 server-only)
+      - "apps/storefront/src/lib/brand-products.ts"  # fetchBrandsWithProducts 回 { slugs, loadFailed }
+      - "apps/storefront/src/lib/products.ts"  # tryCatalogBrandTaxonomy(對外那支簽章 byte 不變)
+      - "apps/storefront/src/styles/home.css"  # .b-brands-note 容器層(不加會通欄出血)
+      - "apps/storefront/src/styles/favorites.css"  # 形狀來源:同族的全站級失敗提示
+
   # ---- 全站 RWD 系列(#192) ----
 
   MobileInputZoomGuard:
@@ -1938,8 +1961,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/brand/BrandDirectoryRoot.tsx"
       css: "apps/storefront/src/styles/brand-directory.css"
-      last_modified_commit: "c9b269d0"  # 記可達祖先=#346 補追蹤片的父 commit(#180 案 A)(新增條目、無前錨)
-      last_modified_date: "2026-08-09 [#346 補追蹤,本條目為新建]:`/brands` 品牌總覽頁。歸屬判斷=**整支 `brand-directory.css` 只服務這一頁**(`.bd-*` 命名空間;色票 scope 掛在 `.bd-page`、刻意不進 `:root` 以免正式站每頁變色)⇒ 單一元件擁有、不需獨立條目。🔴 `BrandDirectoryRoot.tsx` 檔頭記著一個單點風險並照抄自 `BrandPageRoot`:**這支的 CSS import 被刪掉時整頁裸奔而測試全綠** ⇒ `BrandDirectoryRoot.test.tsx` 有一條讀原始碼的守門(本檔必須有 import、其餘 src 必須沒有);動這支 CSS 的檔界前先讀那條。最近改動:`03fd5b74`(h1 三級收斂:`.bd-hero h1` 手機 34→38,形象級)、`5d04bea0`(H2 品牌磚牆:N°06 由 17 家文字清單改 OD 20 家 logo 磚牆)、`b94246e1`(第1批內容頁換色與版寬)。"
+      last_modified_commit: "96cbfa09"  # 記可達祖先=線E 品牌牆失敗態片的父 commit(#180 案 A)
+      last_modified_date: "2026-08-28 [線E 品牌牆失敗態說話]:收 `loadFailed` prop,撈失敗時在「全部品牌」表頭下方多印一句(`.brand-avail-note`;本頁已在 `.bd-wrap` 內 ⇒ 不需額外容器層)。泛白邏輯零改動。⚠️ 本頁的 fail-safe 來源換人了:改走 `tryCatalogBrandTaxonomy`(同樣 catch、多回一個 `failed`),而 `fetchCatalogBrandTaxonomy` 的**對外簽章與行為 byte 不變**、留給另外三個消費端。前:2026-08-09 [#346 補追蹤,本條目為新建]:`/brands` 品牌總覽頁。歸屬判斷=**整支 `brand-directory.css` 只服務這一頁**(`.bd-*` 命名空間;色票 scope 掛在 `.bd-page`、刻意不進 `:root` 以免正式站每頁變色)⇒ 單一元件擁有、不需獨立條目。🔴 `BrandDirectoryRoot.tsx` 檔頭記著一個單點風險並照抄自 `BrandPageRoot`:**這支的 CSS import 被刪掉時整頁裸奔而測試全綠** ⇒ `BrandDirectoryRoot.test.tsx` 有一條讀原始碼的守門(本檔必須有 import、其餘 src 必須沒有);動這支 CSS 的檔界前先讀那條。最近改動:`03fd5b74`(h1 三級收斂:`.bd-hero h1` 手機 34→38,形象級)、`5d04bea0`(H2 品牌磚牆:N°06 由 17 家文字清單改 OD 20 家 logo 磚牆)、`b94246e1`(第1批內容頁換色與版寬)。"
     design:
       # 🔴 真權威 = Open Design `pcm-home-redesign/brand-directory.html`(骨架 :120-137、組裝 :170-182),
       #    鐵則 1 例外 = Sean 2026-08-03 拍 Q1=B;位置見

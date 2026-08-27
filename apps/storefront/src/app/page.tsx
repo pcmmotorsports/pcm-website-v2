@@ -97,6 +97,9 @@ export default async function HomePage({
   //   **這句是錯的(codex nit;當天寫、當天被抓)**:本頁檔頭有 `export const dynamic = 'force-dynamic'`
   //   ⇒ **動態性不依賴任何讀 cookie 的路徑**。留痕不刪 —— 它是「順手補一句解釋,而那句沒被驗過」的標本)
   // - brandsWithProducts(D3c-2):目錄零商品的品牌在 BrandIndex 那一排泛白且不可點
+  //   ⚠️ 線E 起它裝的是 `{ slugs, loadFailed }` 而不只是那個集合 —— **名字比內容窄了**
+  //   (code-reviewer 2026-08-28 Minor)。刻意不改名:那會動到本檔 `Promise.all` 的解構順序
+  //   與下面兩處引用, 而本片的範圍是「失敗態說話」⇒ 改名記在這裡, 不夾帶。
   //   (Sean 拍板 `C-31-A`,主視窗 `C-33-A` 裁示首頁比照品牌頁磚牆)。
   //   🔴 撈取失敗回**空集合**=全部當成沒商品(fail-closed,`brand-products.ts` 那支自己保證)
   //   ⇒ 本頁不需要另包 try/catch;反過來(失敗全放行)會在 DB 一抖時把空入口全放出去。
@@ -185,7 +188,7 @@ export default async function HomePage({
           🔴 這一面有守門接著:`app/page.test.tsx` 的「八個 section 都在」是**前提斷言**,
              真的變 null 的話那條會紅、不會靜默少一段。 */}
       {focus && <FeatureEditorial focus={focus} />}
-      <BrandIndex availableSlugs={brandsWithProducts} />
+      <BrandIndex availableSlugs={brandsWithProducts.slugs} loadFailed={brandsWithProducts.loadFailed} />
       {/* 🔴 D-136 清尾片(2026-08-06):**首頁**頁尾標語走 OD 字面「專業重機零件・改裝精品/一站式服務」。
           OD 頁尾自帶註解逐字說明理由:「這裡原本是『改裝不只是升級配件,是風格與態度的延伸』,
           但那句已經升上 hero 當主標了,同一頁講兩次會稀釋掉它。改放服務範圍。」

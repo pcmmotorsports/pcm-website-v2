@@ -29,14 +29,20 @@ vi.mock('@/components/Header', () => ({
 //   ① `lib/brand-products` → `lib/products` → `server-only`,在 vitest 裡載入即 throw。
 //   ② 不 mock 的話這支測試會打真 DB ⇒ 目錄資料一變就紅、而且 CI 沒有連線。
 //   真資料那一面由 `lib/brand-products.test.ts` 與真瀏覽器量測負責,分工不重疊。
-const { brandProductsRef, availableRef } = vi.hoisted(() => ({
+const { brandProductsRef, availableRef, failedRef } = vi.hoisted(() => ({
   brandProductsRef: { current: [] as unknown[] },
+  // 線E:`loadFailed` 要可控 —— 寫死 false 的話, route 把它改成寫死 false 也全綠(審查 Important ⑤)。
+  failedRef: { current: false },
   // D3c-1:磚牆要知道哪些品牌有商品;預設 20 家全有(既有 case 的前提不變)。
   availableRef: { current: null as ReadonlySet<string> | null },
 }));
 vi.mock('@/lib/brand-products', () => ({
   fetchBrandTopProducts: () => Promise.resolve(brandProductsRef.current),
-  fetchBrandsWithProducts: () => Promise.resolve(availableRef.current ?? new Set()),
+  // 線E:回傳從 `Set` 改成 `{ slugs, loadFailed }`(見 `lib/brand-products.ts` 的 `BrandAvailability`)。
+  //   ⚠️ 這幾支 route 測試把整個模組 mock 掉 ⇒ **型別不會幫你擋**,回錯形狀是
+  //      `TypeError: Cannot read properties of undefined (reading 'has')` 在執行期才炸。
+  fetchBrandsWithProducts: () =>
+    Promise.resolve({ slugs: availableRef.current ?? new Set(), loadFailed: failedRef.current }),
 }));
 
 import BrandPage, { generateMetadata, generateStaticParams } from './page';
@@ -47,6 +53,7 @@ afterEach(() => {
   vi.clearAllMocks();
   brandProductsRef.current = [];
   availableRef.current = null;
+  failedRef.current = false;
 });
 
 /** D3b:最小的商品 DTO —— 只需要 `ProductCard` 讀得到的欄。 */
@@ -237,5 +244,24 @@ describe('/brands/[slug] · 零商品品牌的磚泛白不可點(D3c-1;Sean 08-0
     expect(html, 'rizoma 仍有 /brands/rizoma 連結 ⇒ 拍板沒生效').not.toContain('href="/brands/rizoma"');
     // 對照:有商品的那些照舊是連結
     expect(html).toContain('href="/brands/bonamici"');
+  });
+});
+
+// ── 線E:route 真的把 `loadFailed` 接到磚牆上(code-reviewer Important ⑤)──────────
+describe('/brands/[slug] · 撈失敗要說話', () => {
+  it('🔴 loadFailed:true ⇒ 磚牆印出那一句;false ⇒ 不印(同一支 helper, 只換這一格)', async () => {
+    const { BRAND_AVAILABILITY_UNREADABLE } = await import('@/lib/brand-availability');
+
+    failedRef.current = true;
+    availableRef.current = new Set();
+    const bad = await markupFor('akrapovic');
+    expect(bad, '撈失敗而磚牆不說話 ⇒ 與「這幾家真的沒貨」長一樣').toContain(BRAND_AVAILABILITY_UNREADABLE);
+    // 🔴 說話不等於放行:失敗時磚仍全泛白, 不得變成可點的空入口。
+    expect(bad.match(/is-empty/g) ?? []).not.toHaveLength(0);
+
+    failedRef.current = false;
+    availableRef.current = new Set();
+    const ok = await markupFor('akrapovic');
+    expect(ok, '沒失敗卻在喊 ⇒ 狼來了').not.toContain(BRAND_AVAILABILITY_UNREADABLE);
   });
 });

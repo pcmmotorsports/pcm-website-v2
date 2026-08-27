@@ -60,11 +60,14 @@ export function BrandPageRoot({
   brand,
   products,
   availableSlugs,
+  loadFailed,
 }: {
   brand: BrandContent;
   products: CatalogCardProduct[];
   /** 目錄裡真的有商品的品牌 slug —— 磚牆用它決定哪幾磚泛白不可點(Sean 08-04 拍板)。 */
   availableSlugs: ReadonlySet<string>;
+  /** 線E:撈失敗(≠ 零商品)。只是往下傳給磚牆,本元件不自己判。 */
+  loadFailed?: boolean;
 }) {
   return (
     <main className="bp-page">
@@ -77,7 +80,7 @@ export function BrandPageRoot({
       <BrandPageCategories brand={brand} />
       {/* 商品區位置 = 設計稿骨架 `:1470-1489`(分類與磚牆之間)。0 筆時本元件回 null。 */}
       <BrandPageProducts brand={brand} products={products} />
-      <BrandPageBrandWall currentSlug={brand.slug} availableSlugs={availableSlugs} />
+      <BrandPageBrandWall currentSlug={brand.slug} availableSlugs={availableSlugs} loadFailed={loadFailed} />
     </main>
   );
 }

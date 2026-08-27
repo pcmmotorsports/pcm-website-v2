@@ -1,0 +1,32 @@
+/* brand-availability.css — 品牌「有沒有商品」讀不到時的那一行(線E,2026-08-27)
+ *
+ * 🔴 為什麼是全站級的一支小檔:同一句話出現在**三面**(首頁 BrandIndex / /brands 總覽 /
+ *    /brands/<slug> 磚牆),而那三面的色票 scope 各不相同(`.ed-page` / `.bd-page` / `.bp-page`)
+ *    ⇒ 樣式寫進任何一面,另外兩面就吃不到,而**畫面不會報錯、只是那行字長得不一樣**。
+ *    形狀抄隔壁 `favorites.css`(`#191` 收藏寫入失敗提示:獨立 class、零 cascade 交互)。
+ *
+ * 🔴 用的三個 token 都在 `tokens.css` 的 `:root`(不是 scoped)⇒ **三面都吃得到值、不會是空的**。
+ *    ⚠️ **而「深色模式自動跟著換」這句話只對其中兩面成立**(code-reviewer 2026-08-28 抓到,
+ *    我第一版把它寫成了選 token 的理由):`brand-page.css:86` 的 `--c-border` 與 `:89` 的
+ *    `--c-text-3` 在 `.bp-page` 內被**亮色字面覆寫**(該檔 `:96-99` 逐字說明那是刻意的)
+ *    ⇒ **品牌頁那一面不會跟著深色模式換。**
+ *    📌 目前不可達(全 app 內 `data-theme` 命中 0)⇒ **是理由錯,不是畫面壞** ——
+ *      而一句錯的理由會讓下一個人以為這件事已經處理過了。
+ *
+ * ⚠️ 樣式規格 = Sean 2026-08-27 逐字「**灰底小字, 不要新元件**」(主視窗 `-84` 轉,`q14: 甲`)。
+ *    ⇒ 沒有圖示、沒有動畫、沒有可關閉的 X、不抽共用元件。照字面做。
+ */
+.brand-avail-note {
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  color: var(--c-text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.brand-avail-note span {
+  display: block;
+  font-size: 12px;
+  opacity: 0.85;
+}

@@ -228,3 +228,51 @@ describe('BrandPageBrandWall · 零商品品牌泛白不可點', () => {
     }
   });
 });
+
+// ── 線E:讀不到時,磚牆要【說話】(`docs/launch-todo.md` E 節那一列)──────────────
+//
+// 🔴 磚牆泛白有【兩個原因】,而客人看到的是同一片灰:
+//   ① 那家品牌目錄真的零商品(Sean 2026-08-04 拍板:泛白且不可點)⇒ 正常,不說話
+//   ② `catalog_brand_counts` 撈失敗(fail-closed ⇒ 全部泛白)      ⇒ **要說話**
+// ⇒ 兩個世界必須印不同的東西。抄 `components/account/tabs/FavoritesTab.tsx:35` 的
+//    `loadFailed?: boolean` 形狀,不自創第二種寫法。
+//
+// 🔴 斷言吃**常數**不吃字面:文案 Q-E2 還在 Sean 手上,而「文案長什麼樣」只能有一個作者
+//    (同 `FavoritesContext.tsx` 的 `LOAD_FAILED_MESSAGE`)。改字時只改常數,本檔不用跟著改。
+//
+// 🔴🔴 **那個常數不可以住在 `lib/brand-products.ts`,而這是【先寫測試】才量到的**:
+//    第一版本檔從那裡 import ⇒ 兩條紅在
+//    `Error: This module cannot be imported from a Client Component module.`
+//    —— 那支檔的下游 `lib/products.ts` 有 `import 'server-only'`,在 jsdom 下真的會炸。
+//    ⇒ **紅是紅了,而紅的是 import 不是斷言** ⇒ 那把尺當時沒有接上被測的東西。
+//    ⇒ 常數改住 client-safe 的 `lib/brand-availability.ts`(server 與 client 兩側共用一個作者)。
+describe('線E · 撈失敗要說話(而零商品不說話)', () => {
+  it('🔴 loadFailed ⇒ 印出那一句,且帶 role="alert"', async () => {
+    const { BRAND_AVAILABILITY_UNREADABLE } = await import('@/lib/brand-availability');
+    const { container } = render(
+      <BrandPageBrandWall currentSlug="akrapovic" availableSlugs={new Set()} loadFailed />,
+    );
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert, '撈失敗與零商品印同一個畫面 ⇒ 客人以為這些品牌沒貨,而我們看不出哪一種').not.toBeNull();
+    expect(alert!.textContent).toContain(BRAND_AVAILABILITY_UNREADABLE);
+  });
+
+  it('🔴 磚牆仍然泛白 —— 說話不等於放行(fail-closed 方向不翻)', () => {
+    const { container } = render(
+      <BrandPageBrandWall currentSlug="akrapovic" availableSlugs={new Set()} loadFailed />,
+    );
+    const empties = container.querySelectorAll('.bp-others-list .is-empty');
+    expect(empties.length, '失敗時磚變可點 ⇒ 客人被送進零商品的頁').toBe(SLUGS.length);
+  });
+
+  // ⚠️ **本條現在就是綠的,而它綠的理由是「沒有任何東西會印那個字串」** ——
+  //    在上面兩條轉綠之前,它沒有判別力。兩條一起看才成立。
+  it('🔴 沒失敗(即使全部零商品)⇒ 不印那一句', async () => {
+    const { BRAND_AVAILABILITY_UNREADABLE } = await import('@/lib/brand-availability');
+    const { container } = render(
+      <BrandPageBrandWall currentSlug="akrapovic" availableSlugs={new Set()} />,
+    );
+    expect(container.querySelector('[role="alert"]'), '沒失敗卻在喊 ⇒ 狼來了,下次真的壞掉沒人看').toBeNull();
+    expect(container.textContent).not.toContain(BRAND_AVAILABILITY_UNREADABLE);
+  });
+});

@@ -60,6 +60,7 @@ import '../styles/error.css'; // A3:404 頁 err-*(design 序 error.css 在 check
 import '../styles/pages-shipping.css'; // A2:/info/shipping(design pages.css 抽段;faq 家族帶 .shipping-content scope 防撞 product-page.css)
 import '../styles/coming-soon.css'; // 第2批:/coming-soon /stores /install(.cs-* 色票 scope 在 .cs-page、零 cascade 交互)
 import '../styles/favorites.css'; // M-4b #191:收藏寫入失敗提示(.fav-error;獨立 class 零 cascade 交互)
+import '../styles/brand-availability.css'; // 線E:品牌「有沒有商品」讀不到時那一行(.brand-avail-note;三面共用、獨立 class 零 cascade 交互)
 import '../styles/tier.css';
 import '../styles/mobile-tabbar.css';
 // 🔴 **必須排在所有樣式的最後一支**:它靠「同 specificity 時 source order 勝出」蓋掉各表單自訂的

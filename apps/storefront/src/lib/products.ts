@@ -587,13 +587,32 @@ const getCatalogBrandTaxonomyCached = unstable_cache(
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
-export async function fetchCatalogBrandTaxonomy(): Promise<MockBrand[]> {
+/**
+ * 同 {@link fetchCatalogBrandTaxonomy},但**把「失敗了沒」帶出來**。
+ *
+ * 🔴 為什麼要有這一支(線E,2026-08-27):撈失敗回 `[]` 與「真的每家都 0 件」是**同一個回傳值**
+ *    ⇒ 品牌牆兩種情況都整面泛白,而客人看到同一個畫面、我們也看不出哪一種發生了。
+ *    (同一句判別句 `contexts/FavoritesContext.tsx:50` 逐字寫過,標 `MAIN-035 ①-1`【必修】。)
+ *
+ * 🔴🔴 **為什麼不直接把 `fetchCatalogBrandTaxonomy` 改成回 `null`** —— 它有 3 個 sibling 消費端,
+ *    而其中一個把這個行為**寫死在註解裡當前提**:`components/use-catalog-filter-url-sync.tsx:153`
+ *    逐字「撈失敗回 `[]` 而非 null」。改簽章會**安靜地**打到它與
+ *    `app/products/page.tsx` 側欄、`app/api/catalog/facet-counts/route.ts`(失敗要 503)。
+ *    ⇒ 對外那支的簽章與行為 **byte 不變**,新需求走這一支。
+ */
+export async function tryCatalogBrandTaxonomy(): Promise<{ brands: MockBrand[]; failed: boolean }> {
   try {
-    return await getCatalogBrandTaxonomyCached();
+    return { brands: await getCatalogBrandTaxonomyCached(), failed: false };
   } catch (err) {
-    console.error('[fetchCatalogBrandTaxonomy] catalog_brand_counts failed:', err);
-    return [];
+    // 🔴 前綴用【發出它的那支】:查 log 的人會拿這個字串去 grep 函式名(code-reviewer Minor)。
+      console.error('[tryCatalogBrandTaxonomy] catalog_brand_counts failed:', err);
+    return { brands: [], failed: true };
   }
+}
+
+export async function fetchCatalogBrandTaxonomy(): Promise<MockBrand[]> {
+  // 🔴 行為與簽章 byte 不變(見上面那支的說明):這裡**刻意丟掉** `failed`。
+  return (await tryCatalogBrandTaxonomy()).brands;
 }
 
 async function queryCatalogBrandTaxonomy(): Promise<MockBrand[]> {

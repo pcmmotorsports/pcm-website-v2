@@ -21,6 +21,11 @@
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { BRAND_CONTENT } from '@/data/brand-content';
+import {
+  BRAND_AVAILABILITY_UNREADABLE,
+  BRAND_AVAILABILITY_UNREADABLE_SUB,
+} from '@/lib/brand-availability';
+
 // bp-* 樣式與 `.bp-page` scope 由 `BrandPageRoot.tsx` 一併提供(D3a 收斂;理由見該檔檔頭)。
 // 🔴 `brandTrimLogo` D3c-3 搬去 `lib/brand-asset.ts`(第二個消費端 = `/brands` 總覽卡片出現)。
 //    刻意**不留 re-export**:兩個出口會讓下一個人不知道該從哪裡拿,而全 repo 只有本檔
@@ -43,9 +48,16 @@ import { brandIntroUrl } from '@/lib/brand-url';
 export function BrandPageBrandWall({
   currentSlug,
   availableSlugs,
+  loadFailed,
 }: {
   currentSlug: string;
   availableSlugs: ReadonlySet<string>;
+  /**
+   * 🔴 **撈失敗**(≠ 目錄真的零商品)。線E:兩者都讓磚泛白,而客人看到同一個畫面
+   * ⇒ 失敗時**多印一句**,磚照樣泛白(說話不等於放行)。
+   * 同型前例 `components/account/tabs/FavoritesTab.tsx:35`(`MAIN-035 ①-1`【必修】)。
+   */
+  loadFailed?: boolean;
 }) {
   return (
     <section className="bp-others">
@@ -55,6 +67,14 @@ export function BrandPageBrandWall({
             grid item,標題被塞進 200px 的標籤欄旁邊、磚牆再自己占一列。 */}
         <div>
           <h2>品牌介紹</h2>
+          {/* 🔴 讀不到 ⇒ 說一句(線E)。磚照樣泛白 —— 說話不等於放行:失敗時放行會把客人送進零商品的頁。 */}
+          {loadFailed ? (
+            <p className="brand-avail-note" role="alert">
+              {BRAND_AVAILABILITY_UNREADABLE}
+              <span>{BRAND_AVAILABILITY_UNREADABLE_SUB}</span>
+            </p>
+          ) : null}
+
           <div className="bp-others-list">
             {BRAND_CONTENT.map((item) => {
               const isCurrent = item.slug === currentSlug;

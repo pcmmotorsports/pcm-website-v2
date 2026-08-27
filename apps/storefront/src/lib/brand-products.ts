@@ -22,8 +22,22 @@
 //    (memory `reference_next16-unstable-cache-force-dynamic-2mb`)。
 
 import type { CatalogCardProduct } from '@/lib/catalog-page';
-import { fetchCatalogPage, fetchCatalogBrandTaxonomy } from '@/lib/products';
+import { fetchCatalogPage, tryCatalogBrandTaxonomy } from '@/lib/products';
 import { BRAND_PRODUCT_SLOTS } from '@/lib/brand-url';
+
+/**
+ * 「哪幾家有商品」的答案 + 「這個答案是不是讀不到」。
+ *
+ * 🔴 `loadFailed` 是顯示端判斷「要不要說話」的**唯一**依據,不准自己再組一次
+ *    (形狀抄 `apps/admin/src/lib/dashboard/freshness-read.ts` 的 `unreadableReason`:
+ *     文字層與顏色層各判一次同一件事 ⇒ 它們一定會漂開)。
+ */
+export type BrandAvailability = {
+  /** 目錄裡真的有商品(`count > 0`)的品牌 slug。**失敗時是空集合**,見 `loadFailed`。 */
+  slugs: ReadonlySet<string>;
+  /** `true` = 撈失敗(≠ 真的零商品)。顯示端據此多印一句,而磚牆照樣泛白。 */
+  loadFailed: boolean;
+};
 
 
 /**
@@ -52,10 +66,19 @@ export async function fetchBrandTopProducts(brandSlug: string): Promise<CatalogC
  *
  * 🔴 **由真資料衍生、不寫死名單**(拍板備註逐字建議):商品一上架,那家的磚下次 render
  *    就自動恢復可點;寫死名單的話得有人記得回來改,而「記得」正是本專案一直在輸的東西。
- * 🔴 資料源 `catalog_brand_counts` 與 `/products` 側欄**同一支**(`fetchCatalogBrandTaxonomy`)
+ * 🔴 資料源 `catalog_brand_counts` 與 `/products` 側欄**同一支**(線E 起本檔走 `tryCatalogBrandTaxonomy`,
+ *    而它與 `fetchCatalogBrandTaxonomy` **共用同一層 `unstable_cache`** ⇒ 實質仍是同一份資料)
  *    ⇒ 品牌頁的「可不可點」與目錄的「篩不篩得到」不會各自漂移。
  *    2026-08-04 實測回 16 家(含一個 `pcm` 測試品牌);20 家品牌頁裡有 5 家不在其中:
  *    `dbk` / `gilles` / `kineo` / `rizoma` / `wrs`。
+ *
+ * 🔴 **回傳帶 `loadFailed`**(線E,2026-08-27):`slugs` 空集合有**兩個原因** ——
+ *    ①目錄真的每家都 0 件 ②`catalog_brand_counts` 撈失敗(fail-closed)。
+ *    這兩件在畫面上都是「整面泛白」,而客人分不出來、我們也看不出哪一種發生了。
+ *    ⇒ **泛白那半不動**(Sean 2026-08-04 拍板)、**fail-closed 方向不翻**(見下),
+ *      只把「是哪一種」帶出去,讓顯示端多說一句話。
+ *    (同一句判別句 `contexts/FavoritesContext.tsx:50` 逐字寫過,標 `MAIN-035 ①-1`【必修】:
+ *     「『讀不到』與『沒有收藏』必須是兩個畫面」。)
  *
  * ⚠️ **失敗時回空集合 = 全部當成「沒有商品」**(fail-closed)。
  *    反過來(失敗時全部放行)會讓 DB 一抖就把 5 個**空入口**放出去,而那正是本次要修掉的東西;
@@ -63,7 +86,9 @@ export async function fetchBrandTopProducts(brandSlug: string): Promise<CatalogC
  *    ——「死連結」是錯的字);壞的是進去之後零商品、而頁上兩顆 CTA 再動一下篩選就滑成全站目錄。
  *    失敗時全部泛白雖然難看,但**不會把客人送到錯的頁面**。這是刻意的方向選擇,不是省事。
  */
-export async function fetchBrandsWithProducts(): Promise<ReadonlySet<string>> {
-  const brands = await fetchCatalogBrandTaxonomy();
-  return new Set(brands.filter((b) => b.count > 0).map((b) => b.id));
+export async function fetchBrandsWithProducts(): Promise<BrandAvailability> {
+  const { brands, failed } = await tryCatalogBrandTaxonomy();
+  // 🔴 這一行**一個字都沒動**:`count > 0` 才算有商品,是 Sean 2026-08-04 的拍板結果。
+  //    失敗時 `brands` 是 `[]` ⇒ 集合仍是空的 ⇒ 全部泛白 ⇒ fail-closed 行為 byte 不變。
+  return { slugs: new Set(brands.filter((b) => b.count > 0).map((b) => b.id)), loadFailed: failed };
 }

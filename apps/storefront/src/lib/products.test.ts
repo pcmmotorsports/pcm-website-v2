@@ -18,7 +18,7 @@
 //   顯示值 = 45000(general)/ 38000(store 顯示)/ 12000(變體 general);
 //   禁現值 = 36111(premiumStore 永不顯)/ 79222(變體 store)/ 79333(變體 premiumStore)。
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
@@ -237,5 +237,99 @@ describe('toUIProduct — 附件線 3b:soundClips 透傳', () => {
     expect(ui.soundClips?.[0]?.title, '在 toUIProduct 就翻譯了 ⇒ 資料層烤標籤,片 2 doc_type 遺失同型').toBe(
       'Slip-On Line',
     );
+  });
+});
+
+// ── 線E:`tryCatalogBrandTaxonomy` 的兩個世界 ────────────────────────────────────
+//
+// 🔴 **為什麼補在這一支**(code-reviewer 2026-08-28 判 Critical):
+//    這一行是本片**唯一**決定「撈失敗了沒」的地方,而在補這段之前它**零測試覆蓋** ——
+//    把 `failed: true` 改成 `failed: false`,全套仍綠、整片價值靜默消失。
+//    分母(審查者實查):`brand-products.test.ts` 與 `api/catalog/facet-counts/route.test.ts`
+//    **整支 mock 掉 `@/lib/products`** ⇒ 真的那支函式從來沒被執行過。
+//    📌 **兩個測試檔各自都在測「它的呼叫端」,而沒有一個在測【它】。**
+//
+// 🔴 mock 的是 `@pcm/adapters` 的 `createSupabaseAnonClient`(products.ts:45 從那裡拿)。
+//
+// 🔴🔴 **`next/cache` 的 `unstable_cache` 也一定要 mock,而理由是我第一版寫錯了才量到的**:
+//    第一版註解逐字寫「不 mock `unstable_cache`,那層在測試環境是直通的」—— **那句是假的。**
+//    實跑印出 `Invariant: incrementalCache missing in unstable_cache` ⇒ 它在 vitest 裡**恆 throw**。
+//    ⇒ 後果不是「測試紅」,是**「失敗」那兩條會【因為錯的理由】變綠** ——
+//      它們綠是因為 `unstable_cache` 自己炸了,**不是因為 RPC 炸了**。
+//      那時就算把 `createSupabaseAnonClient` 的 mock 整個拿掉,它們照樣綠。
+//    📌 **一條為了對的理由該綠的測試,與一條為了錯的理由也會綠的測試,在報告上是同一格。**
+//    ⇒ 下面把它 mock 成直通(`unstable_cache(fn) => fn`),
+//      而**「成功」那一條就是這件事的負對照**:它只有在 `unstable_cache` 真的直通、
+//      且 RPC 真的成功時才綠 ⇒ 它綠 ⇒ 證明上面那兩條的紅/綠來自 RPC 而不是快取層。
+vi.mock('next/cache', () => ({
+  // 直通:把被包的函式原樣回傳。`revalidate` / `tags` 在單元測試裡沒有意義, 也不是本段在驗的東西。
+  unstable_cache: (fn: unknown) => fn,
+}));
+
+describe('線E · tryCatalogBrandTaxonomy 的兩個世界(本片唯一決定「失敗了沒」的那一行)', () => {
+  afterEach(() => {
+    vi.doUnmock('@pcm/adapters');
+    vi.resetModules();
+  });
+
+  it('🔴 RPC 炸掉 ⇒ failed:true、brands 空陣列(這一格假了,整片就靜默消失)', async () => {
+    vi.doMock('@pcm/adapters', async () => {
+      const real = await vi.importActual<typeof import('@pcm/adapters')>('@pcm/adapters');
+      return {
+        ...real,
+        createSupabaseAnonClient: () => ({
+          rpc: () => Promise.reject(new Error('線E 測試:模擬 catalog_brand_counts 失敗')),
+        }),
+      };
+    });
+    vi.resetModules();
+    const { tryCatalogBrandTaxonomy } = await import('./products');
+
+    const res = await tryCatalogBrandTaxonomy();
+    expect(res.failed, '撈失敗被講成成功 ⇒ 品牌牆會安靜地說「這些品牌沒貨」').toBe(true);
+    expect(res.brands).toEqual([]);
+  });
+
+  it('🔴 RPC 正常 ⇒ failed:false(反面:不得恆回 true,否則那句話會一直掛著)', async () => {
+    vi.doMock('@pcm/adapters', async () => {
+      const real = await vi.importActual<typeof import('@pcm/adapters')>('@pcm/adapters');
+      return {
+        ...real,
+        createSupabaseAnonClient: () => ({
+          rpc: () =>
+            Promise.resolve({
+              data: [{ slug: 'akrapovic', name: 'AKRAPOVIČ', product_count: 648 }],
+              error: null,
+            }),
+        }),
+      };
+    });
+    vi.resetModules();
+    const { tryCatalogBrandTaxonomy } = await import('./products');
+
+    const res = await tryCatalogBrandTaxonomy();
+    expect(res.failed, '恆回 true ⇒ 狼來了, 而正常世界會一直印那句話').toBe(false);
+    expect(res.brands.map((b) => b.id)).toEqual(['akrapovic']);
+  });
+
+  it('🔴 RPC 回 error 物件(不是 reject)⇒ 一樣算 failed(supabase 兩種失敗形狀)', async () => {
+    vi.doMock('@pcm/adapters', async () => {
+      const real = await vi.importActual<typeof import('@pcm/adapters')>('@pcm/adapters');
+      return {
+        ...real,
+        createSupabaseAnonClient: () => ({
+          rpc: () => Promise.resolve({ data: null, error: { message: 'permission denied' } }),
+        }),
+      };
+    });
+    vi.resetModules();
+    const { tryCatalogBrandTaxonomy } = await import('./products');
+
+    // `queryCatalogBrandTaxonomy` 對 `error` 是 `throw error` ⇒ 由 try/catch 接住。
+    // 🔴 這一條是真實故障的形狀:REVOKE EXECUTE 之後 PostgREST 回 401 就是走這條,
+    //    而它與 reject 那條是**不同的路徑**(真瀏覽器那一發量到的正是這條)。
+    const res = await tryCatalogBrandTaxonomy();
+    expect(res.failed).toBe(true);
+    expect(res.brands).toEqual([]);
   });
 });

@@ -29,6 +29,10 @@ import { BRAND_CONTENT } from '@/data/brand-content';
 import { BRAND_TRIM_LOGO_SCALE } from '@/data/brand-trim-logo-scale';
 import { brandAsset, brandTrimLogo } from '@/lib/brand-asset';
 import { brandCatalogueUrl, brandIntroUrl } from '@/lib/brand-url';
+import {
+  BRAND_AVAILABILITY_UNREADABLE,
+  BRAND_AVAILABILITY_UNREADABLE_SUB,
+} from '@/lib/brand-availability';
 
 /** 卡片格子的兩個入口:有商品 → `<Link>`;零商品 → `<span>`(語意上也不可點)。 */
 function BrandCard({ brand, index, isEmpty }: {
@@ -99,7 +103,18 @@ function BrandCard({ brand, index, isEmpty }: {
   );
 }
 
-export function BrandDirectoryRoot({ availableSlugs }: { availableSlugs: ReadonlySet<string> }) {
+export function BrandDirectoryRoot({
+  availableSlugs,
+  loadFailed,
+}: {
+  availableSlugs: ReadonlySet<string>;
+  /**
+   * 🔴 **撈失敗**(≠ 目錄真的零商品)。線E:兩者都讓磚泛白,而客人看到同一個畫面
+   * ⇒ 失敗時**多印一句**,磚照樣泛白(說話不等於放行)。
+   * 同型前例 `components/account/tabs/FavoritesTab.tsx:35`(`MAIN-035 ①-1`【必修】)。
+   */
+  loadFailed?: boolean;
+}) {
   const total = BRAND_CONTENT.length;
 
   return (
@@ -133,6 +148,13 @@ export function BrandDirectoryRoot({ availableSlugs }: { availableSlugs: Readonl
             <h2 id="bd-directory-title">全部品牌</h2>
             <span>{total} BRANDS</span>
           </div>
+          {/* 🔴 讀不到 ⇒ 說一句(線E)。磚照樣泛白 —— 說話不等於放行:失敗時放行會把客人送進零商品的頁。 */}
+          {loadFailed ? (
+            <p className="brand-avail-note" role="alert">
+              {BRAND_AVAILABILITY_UNREADABLE}
+              <span>{BRAND_AVAILABILITY_UNREADABLE_SUB}</span>
+            </p>
+          ) : null}
           <ul className="bd-grid">
             {BRAND_CONTENT.map((brand, index) => (
               <BrandCard

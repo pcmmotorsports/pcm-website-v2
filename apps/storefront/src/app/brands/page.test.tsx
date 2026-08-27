@@ -17,11 +17,21 @@ vi.mock('@/components/Header', () => ({
 }));
 // 🔴 必須 mock:`lib/brand-products` → `lib/products` → `server-only`,在 vitest 載入即 throw;
 //    而且不 mock 會打真 DB。真資料那一面由 `lib/brand-products.test.ts` 與真瀏覽器量測負責。
-const { availableRef } = vi.hoisted(() => ({
+const { availableRef, failedRef } = vi.hoisted(() => ({
   availableRef: { current: null as ReadonlySet<string> | null },
+  failedRef: { current: false },
 }));
 vi.mock('@/lib/brand-products', () => ({
-  fetchBrandsWithProducts: () => Promise.resolve(availableRef.current ?? new Set()),
+  // 線E:回傳從 `Set` 改成 `{ slugs, loadFailed }`(見 `lib/brand-products.ts` 的 `BrandAvailability`)。
+  //   ⚠️ 這幾支 route 測試把整個模組 mock 掉 ⇒ **型別不會幫你擋**,回錯形狀是
+  //      `TypeError: Cannot read properties of undefined (reading 'has')` 在執行期才炸。
+  //   🔴 `loadFailed` 也要**可控**(code-reviewer 2026-08-28 Important ⑤):寫死 `false` 的話,
+ //      把 route 的 `loadFailed={loadFailed}` 改成寫死 `false` 也全綠 ⇒ 接線那一段零守門。
+  fetchBrandsWithProducts: () =>
+    Promise.resolve({
+      slugs: availableRef.current ?? new Set(),
+      loadFailed: failedRef.current,
+    }),
 }));
 
 const { default: BrandDirectoryPage, generateMetadata } = await import('./page');
@@ -85,5 +95,22 @@ describe('/brands · route 輸出', () => {
     const none = await html(new Set());
     expect(none).not.toContain('<a class="bd-brand-products"');
     expect(none.match(/bd-brand is-empty/g) ?? []).toHaveLength(BRAND_CONTENT.length);
+  });
+});
+
+// ── 線E:route 真的把 `loadFailed` 接到畫面上(code-reviewer Important ⑤)────────────
+describe('/brands · 撈失敗要說話', () => {
+  it('🔴 loadFailed:true ⇒ HTML 裡出現那一句;false ⇒ 不出現', async () => {
+    const { BRAND_AVAILABILITY_UNREADABLE } = await import('@/lib/brand-availability');
+
+    failedRef.current = true;
+    const bad = await html(new Set());
+    expect(bad, '撈失敗而畫面不說話 ⇒ 與「真的零商品」長一樣').toContain(BRAND_AVAILABILITY_UNREADABLE);
+
+    // 🔴 負對照同一支 helper、只換這一格 ⇒ 證明那句話是被 `loadFailed` 決定的,
+    //    不是「只要空集合就會印」。
+    failedRef.current = false;
+    const ok = await html(new Set());
+    expect(ok, '沒失敗卻在喊 ⇒ 狼來了').not.toContain(BRAND_AVAILABILITY_UNREADABLE);
   });
 });

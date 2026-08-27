@@ -224,12 +224,23 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
           { id: 'akrapovic', name: 'A', count: 648 },
           { id: 'ghost', name: 'G', count: 0 },
         ]),
+      // 線E:實作改走這一支(對外那支簽章不變、仍留著給其他 3 個消費端)。
+      tryCatalogBrandTaxonomy: () =>
+        Promise.resolve({
+          brands: [
+            { id: 'akrapovic', name: 'A', count: 648 },
+            { id: 'ghost', name: 'G', count: 0 },
+          ],
+          failed: false,
+        }),
     }));
     vi.resetModules();
     const { fetchBrandsWithProducts } = await import('@/lib/brand-products');
-    const set = await fetchBrandsWithProducts();
-    expect([...set]).toEqual(['akrapovic']);
-    expect(set.has('ghost'), 'count 0 的品牌被當成有商品 ⇒ 磚會變成可點的空入口').toBe(false);
+    // 線E:回傳從 `Set` 改成 `{ slugs, loadFailed }`(見該函式 doc)。**斷言的內容一個字沒改**,
+    //   只是換個地方拿那個 Set —— `count > 0` 這條規則是 Sean 08-04 的拍板,不在本片的範圍裡。
+    const { slugs } = await fetchBrandsWithProducts();
+    expect([...slugs]).toEqual(['akrapovic']);
+    expect(slugs.has('ghost'), 'count 0 的品牌被當成有商品 ⇒ 磚會變成可點的空入口').toBe(false);
   });
 
   // 🔴 **afterEach 自己的負測**(關卡2 R2 must-fix 3 的第二半):上面那個清理函式原本是**空的**,
@@ -241,5 +252,76 @@ describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
   //    ⚠️ 位置就是行為:本條必須排在**最後**(它驗的是「前一條的殘留」)。
   it('🔴 afterEach 真的把 `@/lib/products` 的 mock 拆乾淨了(空的清理函式會讓本條紅)', async () => {
     await expect(import('@/lib/products')).rejects.toThrow(/cannot be imported from a Client Component/);
+  });
+});
+
+// ── 線E:讀不到 vs 真的零商品(`docs/launch-todo.md` E 節「品牌牆撈不到就整面全灰,而且不說話」)──
+//
+// 🔴 **本片修的是哪一半,寫在測試裡而不是只寫在 plan 裡**(plan 會過期,測試跟著碼走):
+//   · 泛白        = Sean 2026-08-04 拍板 ⇒ 不動
+//   · fail-closed = 檔內自陳「刻意的方向選擇,不是省事」⇒ 不動
+//   · 缺口        = 【撈失敗】與【真的零商品】客人看到同一個畫面 ⇒ **只做這半**
+//
+// 🔴 同一個病 repo 已經修過一次:`contexts/FavoritesContext.tsx:50`(`MAIN-035 ①-1`【必修】)
+//    逐字「『讀不到』與『沒有收藏』必須是兩個畫面 —— 靜靜地當成空的,客人會以為他的收藏不見了,
+//    而我們也看不出來哪一種發生了」。這裡是同一句話換成品牌牆。
+describe('線E · fetchBrandsWithProducts 要分得出【撈失敗】與【真的零商品】', () => {
+  afterEach(() => {
+    vi.doUnmock('@/lib/products');
+    vi.resetModules();
+  });
+
+  it('🔴 撈失敗 ⇒ loadFailed:true,而 slugs 仍是空集合(泛白照舊、fail-closed 方向不翻)', async () => {
+    vi.doMock('@/lib/products', () => ({
+      fetchCatalogPage: () => Promise.resolve({ products: [], total: 0, error: false }),
+      // 現行實作走的那支(失敗被它自己吞掉、回 []);留著,好讓本條紅在斷言而不是紅在 import。
+      fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
+      // 本片要新增的那支:把「失敗了沒」帶出來,而**不改 fetchCatalogBrandTaxonomy 的簽章**
+      //  —— 它有 3 個 sibling 消費端,其中 `use-catalog-filter-url-sync.tsx:153`
+      //     的註解寫死了「撈失敗回 [] 而非 null」。
+      tryCatalogBrandTaxonomy: () => Promise.resolve({ brands: [], failed: true }),
+    }));
+    vi.resetModules();
+    const { fetchBrandsWithProducts } = await import('@/lib/brand-products');
+
+    const res = await fetchBrandsWithProducts();
+    expect(res.loadFailed, '撈失敗與零商品回同一個東西 ⇒ 客人看到同一個畫面').toBe(true);
+    expect([...res.slugs], '失敗時不得放行任何品牌(泛白是拍板結果)').toEqual([]);
+  });
+
+  it('🔴 真的零商品 ⇒ loadFailed:false(這一半【不是】缺陷,不准被當成失敗)', async () => {
+    vi.doMock('@/lib/products', () => ({
+      fetchCatalogPage: () => Promise.resolve({ products: [], total: 0, error: false }),
+      fetchCatalogBrandTaxonomy: () => Promise.resolve([{ id: 'ghost', name: 'G', count: 0 }]),
+      tryCatalogBrandTaxonomy: () =>
+        Promise.resolve({ brands: [{ id: 'ghost', name: 'G', count: 0 }], failed: false }),
+    }));
+    vi.resetModules();
+    const { fetchBrandsWithProducts } = await import('@/lib/brand-products');
+
+    const res = await fetchBrandsWithProducts();
+    expect(res.loadFailed, '零商品被講成「讀不到」⇒ 我們會去修一個不存在的故障').toBe(false);
+    expect([...res.slugs]).toEqual([]);
+  });
+
+  it('🔴 撈得到且有商品 ⇒ loadFailed:false、slugs 照舊只收 count > 0', async () => {
+    vi.doMock('@/lib/products', () => ({
+      fetchCatalogPage: () => Promise.resolve({ products: [], total: 0, error: false }),
+      fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
+      tryCatalogBrandTaxonomy: () =>
+        Promise.resolve({
+          brands: [
+            { id: 'akrapovic', name: 'A', count: 648 },
+            { id: 'ghost', name: 'G', count: 0 },
+          ],
+          failed: false,
+        }),
+    }));
+    vi.resetModules();
+    const { fetchBrandsWithProducts } = await import('@/lib/brand-products');
+
+    const res = await fetchBrandsWithProducts();
+    expect(res.loadFailed).toBe(false);
+    expect([...res.slugs]).toEqual(['akrapovic']);
   });
 });

@@ -30,14 +30,14 @@ export default async function BrandPagePreview({ params }: { params: Promise<{ s
   if (!Object.hasOwn(BRAND_BY_SLUG, slug)) notFound();
   const brand = BRAND_BY_SLUG[slug]!;
   // D3b:商品區走與正式 route 同一支撈法(同一份排序與筆數;預覽看到的就是正式站會有的)
-  const [products, availableSlugs] = await Promise.all([
+  const [products, availability] = await Promise.all([
     fetchBrandTopProducts(slug),
     fetchBrandsWithProducts(),
   ]);
 
   return (
     <>
-      <BrandPageRoot brand={brand} products={products} availableSlugs={availableSlugs} />
+      <BrandPageRoot brand={brand} products={products} availableSlugs={availability.slugs} loadFailed={availability.loadFailed} />
       {/* 切換列自帶 `.bp-page`:它用的 `--f-mono` / `--c-ember-ink` / `--c-text-3` 都是
           scoped 色票,放在 BrandPageRoot 外面就吃不到(這正是 #314 講的沉默降級)。 */}
       <div className="bp-page">

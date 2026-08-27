@@ -38,7 +38,11 @@ vi.mock('@/lib/products', () => ({
     ]),
 }));
 vi.mock('@/lib/brand-products', () => ({
-  fetchBrandsWithProducts: () => Promise.resolve(new Set<string>()),
+  // 線E:回傳從 `Set` 改成 `{ slugs, loadFailed }`(見 `lib/brand-products.ts` 的 `BrandAvailability`)。
+  //   🔴 這一支是我**第一輪選檔時漏掉的**:我跑的是「brand 開頭的檔」,而首頁也吃這支函式。
+  //      分母由【誰碰得到這段碼】決定,不是由【檔名長得像不像】決定(鐵則 11)。
+  fetchBrandsWithProducts: () =>
+    Promise.resolve({ slugs: new Set<string>(), loadFailed: false }),
 }));
 vi.mock('@/lib/tier', () => ({ resolveTierFromRequest: () => Promise.resolve('general') }));
 vi.mock('@/lib/supabase/server', () => ({

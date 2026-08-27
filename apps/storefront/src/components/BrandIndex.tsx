@@ -62,6 +62,11 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { BRAND_CONTENT } from '@/data/brand-content';
+import {
+  BRAND_AVAILABILITY_UNREADABLE,
+  BRAND_AVAILABILITY_UNREADABLE_SUB,
+} from '@/lib/brand-availability';
+
 import { BRAND_TRIM_LOGO_SCALE } from '@/data/brand-trim-logo-scale';
 import { brandTrimLogo } from '@/lib/brand-asset';
 import { brandIntroUrl } from '@/lib/brand-url';
@@ -116,7 +121,18 @@ function BrandTile({
   );
 }
 
-export function BrandIndex({ availableSlugs }: { availableSlugs: ReadonlySet<string> }) {
+export function BrandIndex({
+  availableSlugs,
+  loadFailed,
+}: {
+  availableSlugs: ReadonlySet<string>;
+  /**
+   * 🔴 **撈失敗**(≠ 目錄真的零商品)。線E:兩者都讓磚泛白,而客人看到同一個畫面
+   * ⇒ 失敗時**多印一句**,磚照樣泛白(說話不等於放行)。
+   * 同型前例 `components/account/tabs/FavoritesTab.tsx:35`(`MAIN-035 ①-1`【必修】)。
+   */
+  loadFailed?: boolean;
+}) {
   return (
     <section id="brand-index" data-reveal className="b-brands">
       <div className="ed-section-head">
@@ -127,6 +143,21 @@ export function BrandIndex({ availableSlugs }: { availableSlugs: ReadonlySet<str
           <span>Brands · 品牌專區</span>
         </h2>
       </div>
+      {/* 🔴 讀不到 ⇒ 說一句(線E)。磚照樣泛白 —— 說話不等於放行:失敗時放行會把客人送進零商品的頁。 */}
+      {loadFailed ? (
+        // 🔴 這一層 div 不是裝飾(code-reviewer 2026-08-28 must-fix ①):
+        //   `.b-brands` 的另外兩個子元素(`.ed-section-head` / `.b-brand-wall`)各自帶
+        //   `max-width: var(--ed-max) + padding: 0 var(--ed-gutter)`,而 `.brand-avail-note` 沒有
+        //   ⇒ 少了這層,灰底條會**橫貫整個 viewport**、與磚牆左右對不齊。
+        //   另兩面不必(`/brands` 在 `.bd-wrap` 內、品牌頁在 `.bp-others-inner` 的 grid 格內)。
+        // 🔴 而這一格 **Sean 肉眼幾乎驗不到** —— 它只在 DB 撈失敗時才顯示。
+        <div className="b-brands-note">
+          <p className="brand-avail-note" role="alert">
+            {BRAND_AVAILABILITY_UNREADABLE}
+            <span>{BRAND_AVAILABILITY_UNREADABLE_SUB}</span>
+          </p>
+        </div>
+      ) : null}
       <ul className="b-brand-wall">
         {BRAND_CONTENT.map((brand, index) => (
           <BrandTile

@@ -8,6 +8,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { BrandDirectoryRoot } from './BrandDirectoryRoot';
+import {
+  BRAND_AVAILABILITY_UNREADABLE,
+  BRAND_AVAILABILITY_UNREADABLE_SUB,
+} from '@/lib/brand-availability';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import { BRAND_TRIM_LOGO_SCALE } from '@/data/brand-trim-logo-scale';
 import { brandAsset, brandTrimLogo } from '@/lib/brand-asset';
@@ -213,5 +217,40 @@ describe('BrandDirectoryRoot · `brand-directory.css` 的 import 只有一個入
     const files = sourceFiles(SRC_ROOT);
     expect(files.length, 'src/** 掃到的 .ts/.tsx/.css 檔數').toBeGreaterThan(370);
     expect(files.some((f) => f.endsWith('styles/brand-directory.css')), 'CSS 面沒掃到').toBe(true);
+  });
+});
+
+// ── 線E:撈失敗要說話(而零商品不說話)· code-reviewer 2026-08-28 Important ⑤ ──────
+//
+// 🔴 補這段的理由是量到的:審查者實查「**刪掉那整塊提示,全套仍綠**」
+//    ⇒ 這一面的顯示在補之前**零守門**,只有磚牆那一面有。
+//    📌 三面共用同一份文案常數, 而**只有一面有測試** —— 那三面在報告上長得一樣綠。
+//
+// 🔴🔴 **而這一段自己差點沒進來**:我第一次是用一支腳本同時改兩個檔,腳本在前一個檔的
+//    assert 就 crash 了 ⇒ **這支一個字都沒被改到**,而我接著跑測試拿到 `2 passed (29)` 全綠。
+//    📌 **一個沒被加進去的測試, 與一個加進去且通過的測試, 在報告上是同一格綠。**
+//    ⇒ 事後是靠 `git status` 看到這支**不在 dirty 清單裡**才發現的, 不是靠測試。
+describe('線E · /brands 總覽 BrandDirectoryRoot 撈失敗要說話', () => {
+  it('🔴 loadFailed ⇒ 印出那一句(帶 role="alert"),而文案吃常數不吃字面', () => {
+    const { container } = render(<BrandDirectoryRoot availableSlugs={new Set()} loadFailed />);
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert, '撈失敗與零商品印同一個畫面 ⇒ 客人以為這些品牌沒貨, 而我們看不出哪一種').not.toBeNull();
+    expect(alert!.textContent).toContain(BRAND_AVAILABILITY_UNREADABLE);
+    expect(alert!.textContent).toContain(BRAND_AVAILABILITY_UNREADABLE_SUB);
+  });
+
+  // ⚠️ **本條的判別力來自上面那條**:在上面那條綠掉之前, 它綠的理由是
+  //    「沒有任何東西會印那個字串」⇒ 恆綠。兩條一起看才算數。
+  it('🔴 沒失敗(即使全部零商品)⇒ 不印那一句', () => {
+    const { container } = render(<BrandDirectoryRoot availableSlugs={new Set()} />);
+    expect(container.querySelector('[role="alert"]'), '沒失敗卻在喊 ⇒ 狼來了, 下次真的壞掉沒人看').toBeNull();
+    expect(container.textContent).not.toContain(BRAND_AVAILABILITY_UNREADABLE);
+  });
+
+  // 🔴 說話不等於放行:失敗時磚仍全泛白, 不得變成可點的空入口。
+  it('🔴 撈失敗時卡片仍全泛白(不得因為說了話就放行)', () => {
+    const { container } = render(<BrandDirectoryRoot availableSlugs={new Set()} loadFailed />);
+    expect(container.querySelectorAll('.bd-grid .bd-brand.is-empty').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('a.bd-brand-products')).toHaveLength(0);
   });
 });

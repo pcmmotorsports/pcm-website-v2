@@ -1358,6 +1358,14 @@
 }
 /* 20 家固定排成 5 × 4;CTA 另起一列跨滿(OD :467-469 註解逐字)。
    `list-style: none` 是本檔既有慣例(OD 靠 reset;退場的 `.ed-brand-list` 當初也補了同族三行)。 */
+/* 線E:品牌可用性讀不到時的提示,要與同層兄弟切齊(不然通欄出血)。
+   🔴 三行**逐字抄下面 `.b-brand-wall` 與上面 `.ed-section-head`** —— 不是另訂一套值:
+   兩個兄弟哪天改版寬, 這一條要跟著改, 而抄同樣的 token 至少讓它們一起壞、不會只有它歪掉。 */
+.b-brands-note {
+  max-width: var(--ed-max);
+  margin: 0 auto;
+  padding: 0 var(--ed-gutter);
+}
 .b-brand-wall {
   max-width: var(--ed-max);
   margin: 0 auto;
