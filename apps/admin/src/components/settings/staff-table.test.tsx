@@ -37,7 +37,7 @@ describe('StaffTable', () => {
     expect(headers).toEqual([
       '顯示名',
       '代碼(id)',
-      '管理者標記',
+      '管理者',
       '狀態',
       '操作',
     ]);
@@ -109,9 +109,9 @@ describe('StaffCreateForm', () => {
     expect(labelInput?.maxLength).toBe(32);
     expect(labelInput?.required).toBe(true);
     expect(container.textContent).toContain('代碼之後不可修改');
-    expect(container.textContent).toContain('管理者(標記用,尚未生效)');
+    expect(container.textContent).toContain('管理者');
     expect(container.textContent).toContain(
-      '此標記目前不影響任何權限;成本報表上線後才會生效。',
+      '管理者才能新增員工、改員工資料,以及授予或收回管理者權限、停用 / 重新啟用員工。',
     );
   });
 });

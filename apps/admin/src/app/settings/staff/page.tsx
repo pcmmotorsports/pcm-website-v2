@@ -35,7 +35,7 @@ export default async function StaffSettingsPage({
       <div className='space-y-1'>
         <h1 className='text-2xl font-semibold'>員工管理</h1>
         <p className='text-muted-foreground text-sm'>
-          新增員工、調整顯示名與管理者標記,或停用不再使用的員工。代碼建立後不可修改。
+          新增員工、改顯示名、授予或收回管理者權限,或停用不再使用的員工。代碼建立後不可修改。
         </p>
       </div>
 

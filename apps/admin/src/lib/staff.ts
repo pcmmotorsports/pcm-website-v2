@@ -158,3 +158,46 @@ export async function resolveActiveStaffById(
     return null;
   }
 }
+
+/**
+ * 同 `resolveActiveStaffById`,而回答的是「他是不是【啟用中的管理者】」。
+ * ⟦b4-MGR0⟧ 2026-08-28(Sean 當日批准開工,依主視窗摘要 —— **不是**他逐行審過本設計)。
+ *
+ * 🔴 重用同一支 `lookupWithTimeout`(3 秒 + 真的 abort)與同一個 `consumeLogSlot` ——
+ *    兩支語意一旦漂掉,「讀取閘算數、寫入閘不算數」就會出現而沒有測試看得到。
+ *
+ * 回傳語意(刻意與姊妹函式逐條相同):
+ * ```
+ * 空 id / 查無 / is_active=false / is_manager=false / DB 失敗 ⇒ 一律 false(fail-closed)
+ * ```
+ * ⚠️ 而「DB 失敗」與「不是管理者」在回傳值上同為 false —— 那是刻意複製既有歧義,
+ *    **而兩者在 log 上分得開**:只有前者留 error。
+ *
+ * 🔴 **天花板 —— 這段【不得】被讀成「這個洞已經關閉」**:
+ *    這道閘住在【應用層】。持 `service_role` 的程式(= 我們自己寫的下一支腳本)
+ *    仍然直接寫得動 `staff.is_manager` —— 建表 migration
+ *    `20260726120000_m4b_e8a1_staff_table.sql:72` 給的是【欄級】UPDATE 權
+ *    (`GRANT UPDATE (label, is_manager, is_active) ON TABLE public.staff TO service_role`)。
+ *    🔴 而那不是「技術上做不到」:REVOKE 那一欄就關得掉,零身分需求。
+ *       是 **Sean 2026-08-28 讀過代價後【選擇不鎖】**(Q15 = 甲)。
+ *       「做不到」與「他選擇不做」在檔案上長得一樣,而只有後者有一個可以回頭問的人。
+ *
+ * ⚠️ 成本(登記,不是疏漏):每次 mutation 多一次 DB 往返。上游
+ *    `getSessionActor → resolveStaff` 其實已經拉過整張表、而 `StaffRow` 帶 `is_manager`
+ *    (`staff-repository.ts` 的 `STAFF_COLUMNS`),只是 `pickStaff` 把它丟掉了。
+ *    ⇒ 這是「既有一個字不動」那條裁定的代價。要省這一趟,得先動姊妹函式。
+ */
+export async function isActiveManager(id: string | null | undefined): Promise<boolean> {
+  if (!id) return false;
+  try {
+    const row = await lookupWithTimeout(id);
+    return row?.is_active === true && row.is_manager === true;
+  } catch (err) {
+    // 🔴 不是裸 catch(codex R1 MF4):裸 catch 把【DB 故障】偽裝成【權限不足】且零紀錄
+    //    ⇒ 值班端分不出「資料庫掛了」與「有人在試越權」。仍 fail-closed,而理由要留得下來。
+    if (consumeLogSlot('staff.manager-check-failed')) {
+      console.error('[admin/staff] 管理者查核失敗(拒絕放行)', err);
+    }
+    return false;
+  }
+}

@@ -1,12 +1,17 @@
+// 🔴🔴 這支檔【不得】加 vi.mock('../staff')。
+//    加了 ⇒ authorizeManagerMutation 的管理者查核退回 mock 層,而 ⟦b4-MGR0⟧ 的核心突變
+//    (把 `if (!(await isActiveManager(...))) return null` 改成不看回傳值)會【全綠通過】。
+//    要造假資料就 mock '../staff-repository' 那一層,不要 mock '../staff'。
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // mock next/headers cookies()+headers():就地 vi.mock + vi.hoisted(對齊 actor.test.ts 慣例)。
-const { cookieGet, headerGet, verifySessionDetailed, getSessionActor, isAllowedOrigin } = vi.hoisted(() => ({
+const { cookieGet, headerGet, verifySessionDetailed, getSessionActor, isAllowedOrigin, getStaffRowById } = vi.hoisted(() => ({
   cookieGet: vi.fn(),
   headerGet: vi.fn(),
   verifySessionDetailed: vi.fn(),
   getSessionActor: vi.fn(),
   isAllowedOrigin: vi.fn(),
+  getStaffRowById: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -24,8 +29,14 @@ vi.mock('./session', () => ({
 }));
 vi.mock('./actor', () => ({ getSessionActor }));
 vi.mock('../orders/workflow-form', () => ({ isAllowedOrigin }));
+// 🔴 mock 到【repository】那一層, 不是 '../staff' —— 見檔頭第一段。
+//    這樣 authorizeManagerMutation → isActiveManager → lookupWithTimeout 這條鏈是【真的】。
+vi.mock('../staff-repository', () => ({
+  getStaffRowById,
+  listStaffRows: vi.fn().mockResolvedValue([]),
+}));
 
-import { authorizeAdminMutation } from './authorize';
+import { authorizeAdminMutation, authorizeManagerMutation } from './authorize';
 
 // E8-A1 補:這道閘的三層(session / Origin / 具名 actor)在此之前**零測試覆蓋**。
 // 缺口由 2026-07-26 codex 關卡2 對抗審查指出:第三層(actor)現在會打 DB,
@@ -134,5 +145,60 @@ describe('authorizeAdminMutation — 三層閘任一失敗都必須 fail-closed'
     verifySessionDetailed.mockResolvedValue({ ok: false, reason: 'sig_invalid' });
     await authorizeAdminMutation();
     expect(getSessionActor).not.toHaveBeenCalled();
+  });
+});
+
+// ── authorizeManagerMutation(⟦b4-MGR0⟧ 2026-08-28)──────────────────────────
+//
+// 🔴🔴 **這一組是這片的核心守門,而它必須跑到【真的】 authorizeManagerMutation。**
+//    code-reviewer 2026-08-28 MF1 造過這一發突變:
+//      把 authorize.ts 的 `if (!(await isActiveManager(base.actorId))) return null;`
+//      改成 `await isActiveManager(base.actorId); return base;`  ← 閘完全失效, 而它還是有呼叫
+//    在那一發之下, staff.test.ts 的 isActiveManager 那組【全綠】(它本身沒被改壞),
+//    staff-actions.test.ts 那組也【全綠】(它 mock 掉了 ./session/authorize)。
+//    📌 **每一格都正確運作 —— 而它們檢查的那個東西, 不是被突變的那個東西。**
+//    ⇒ 只有本組會紅。**不要把它搬去別的層, 也不要 mock '../staff'(見檔頭)。**
+describe('authorizeManagerMutation — 只有【啟用中的管理者】過得了', () => {
+  beforeEach(() => {
+    getStaffRowById.mockReset();
+  });
+
+  it('管理者 ⇒ 回 { sid, actorId }', async () => {
+    getStaffRowById.mockResolvedValue({ id: 'sean', label: 'Sean', is_manager: true, is_active: true });
+    await expect(authorizeManagerMutation()).resolves.toEqual({ sid: 'sid-1', actorId: 'sean' });
+  });
+
+  it('🔴 接線斷言:它拿【base 的 actorId】去查,而且真的走到 repository', async () => {
+    // 這一格擋的是兩件事:
+    //  ① 有人在本檔補了 vi.mock('../staff') ⇒ 那條鏈整段不跑 ⇒ getStaffRowById 零呼叫 ⇒ 紅
+    //  ② 有人把 isActiveManager(base.actorId) 寫成 isActiveManager(base.sid)
+    //     ⇒ 後果是全員鎖死, 而上面那格會紅得像「權限壞了」;本格直接指出【傳錯 id】
+    getStaffRowById.mockResolvedValue({ id: 'sean', label: 'Sean', is_manager: true, is_active: true });
+    await authorizeManagerMutation();
+    expect(getStaffRowById, "沒查到 repository ⇒ 那條鏈被 mock 掉了(是不是加了 vi.mock('../staff')?)")
+      .toHaveBeenCalled();
+    expect(getStaffRowById.mock.calls[0]?.[0], '查的不是 actorId ⇒ 傳錯 id, 後果是全員鎖死或全員放行')
+      .toBe('sean');
+  });
+
+  it('非管理者 ⇒ null(而基礎閘三層都是通的)', async () => {
+    getStaffRowById.mockResolvedValue({ id: 'sean', label: 'Sean', is_manager: false, is_active: true });
+    await expect(authorizeManagerMutation()).resolves.toBeNull();
+  });
+
+  it('🔴 停用中的管理者 ⇒ null(正式庫真的有這麼一列)', async () => {
+    getStaffRowById.mockResolvedValue({ id: 'sean', label: 'Sean', is_manager: true, is_active: false });
+    await expect(authorizeManagerMutation()).resolves.toBeNull();
+  });
+
+  it('🔴 DB 失敗 ⇒ null(fail-closed;故障不得被讀成放行)', async () => {
+    getStaffRowById.mockRejectedValue(new Error('db down'));
+    await expect(authorizeManagerMutation()).resolves.toBeNull();
+  });
+
+  it('基礎閘先失敗時,不該再去查管理者(順序守門,省一次 DB)', async () => {
+    verifySessionDetailed.mockResolvedValue({ ok: false, reason: 'sig_invalid' });
+    await expect(authorizeManagerMutation()).resolves.toBeNull();
+    expect(getStaffRowById).not.toHaveBeenCalled();
   });
 });

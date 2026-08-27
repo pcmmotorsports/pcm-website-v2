@@ -8,6 +8,7 @@ const { listStaffRows, getStaffRowById } = vi.hoisted(() => ({
 vi.mock('./staff-repository', () => ({ listStaffRows, getStaffRowById }));
 
 import {
+  isActiveManager,
   listActiveStaff,
   pickStaff,
   resolveActiveStaffById,
@@ -218,5 +219,68 @@ describe('resolveActiveStaffById · 與 resolveStaff 的語意必須逐條相同
     } finally {
       err.mockRestore();
     }
+  });
+});
+
+// ── isActiveManager(⟦b4-MGR0⟧ 2026-08-28)──────────────────────────────────
+//
+// 🔴 **它必須住在這裡,不能住 staff-actions.test.ts** —— 那支檔 mock 掉了
+//    `./session/authorize`,所以在那裡寫的「非管理者 ⇒ 拒」斷言的是【那個 mock 的行為】,
+//    而不是本函式的邏輯。把 `is_active` 那個條件整條刪掉,那邊照樣全綠。
+describe('isActiveManager · 啟用中的管理者才算數', () => {
+  beforeEach(() => {
+    getStaffRowById.mockReset();
+    __resetStaffLogThrottleForTests();
+  });
+
+  it('is_manager=true + is_active=true ⇒ true(正對照;少了它,寫成「一律 false」也全綠)', async () => {
+    getStaffRowById.mockResolvedValue({ id: 'amy', label: '艾咪', is_manager: true, is_active: true });
+    await expect(isActiveManager('amy')).resolves.toBe(true);
+    expect(getStaffRowById.mock.calls[0]?.[0]).toBe('amy');
+    expect(getStaffRowById.mock.calls[0]?.[1], '沒把 AbortSignal 傳下去 ⇒ 逾時只是不等了, 查詢還在跑')
+      .toBeInstanceOf(AbortSignal);
+  });
+
+  it('🔴 is_manager=true + is_active=false(停用中的管理者)⇒ false', async () => {
+    // 這一格有現實依據:2026-08-28 正式庫真的有這麼一列(test_01)——
+    // 一顆【休眠的管理者】。少了 is_active 那半, 任何人把它叫醒就拿到權限。
+    getStaffRowById.mockResolvedValue({ id: 'test_01', label: '測試', is_manager: true, is_active: false });
+    await expect(isActiveManager('test_01')).resolves.toBe(false);
+  });
+
+  it('is_manager=false + is_active=true ⇒ false', async () => {
+    getStaffRowById.mockResolvedValue({ id: 'staff_1', label: '員工 1', is_manager: false, is_active: true });
+    await expect(isActiveManager('staff_1')).resolves.toBe(false);
+  });
+
+  it('查無此人 ⇒ false', async () => {
+    getStaffRowById.mockResolvedValue(null);
+    await expect(isActiveManager('nobody')).resolves.toBe(false);
+  });
+
+  it('空 id / null / undefined ⇒ false,而且【一次 DB 都沒查】', async () => {
+    for (const id of ['', null, undefined]) {
+      await expect(isActiveManager(id)).resolves.toBe(false);
+    }
+    expect(getStaffRowById).not.toHaveBeenCalled();
+  });
+
+  it('🔴 DB 失敗 ⇒ false(fail-closed),不得往上拋、也不得放行', async () => {
+    getStaffRowById.mockRejectedValue(new Error('db down'));
+    await expect(isActiveManager('amy')).resolves.toBe(false);
+  });
+
+  it('🔴 DB 失敗與「不是管理者」回同一個 false,而【log 上分得開】', async () => {
+    // 回傳值刻意複製既有歧義(見 isActiveManager docstring);而值班端要分得出
+    // 「資料庫掛了」與「有人在試越權」—— 只有前者留 error。
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    getStaffRowById.mockResolvedValue({ id: 'staff_1', label: '員工 1', is_manager: false, is_active: true });
+    await expect(isActiveManager('staff_1')).resolves.toBe(false);
+    expect(spy, '「不是管理者」不該留 error —— 那會把正常拒絕變成雜訊').not.toHaveBeenCalled();
+
+    getStaffRowById.mockRejectedValue(new Error('db down'));
+    await expect(isActiveManager('staff_1')).resolves.toBe(false);
+    expect(spy, 'DB 失敗沒有留下任何痕跡 ⇒ 故障會被讀成「他沒權限」').toHaveBeenCalledTimes(1);
   });
 });

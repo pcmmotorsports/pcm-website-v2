@@ -45,7 +45,7 @@ export function StaffCreateForm() {
         />
       </AdminFormField>
 
-      <AdminFormField label='管理者(標記用,尚未生效)'>
+      <AdminFormField label='管理者'>
         <div className='space-y-1.5'>
           <label className='flex h-9 items-center gap-2'>
             <input
@@ -53,10 +53,10 @@ export function StaffCreateForm() {
               name={IS_MANAGER_FIELD}
               className='size-4'
             />
-            標記為是
+            設為管理者(這是授權,不只是標記)
           </label>
           <p className='text-muted-foreground text-xs'>
-            此標記目前不影響任何權限;成本報表上線後才會生效。
+            管理者才能新增員工、改員工資料,以及授予或收回管理者權限、停用 / 重新啟用員工。
           </p>
         </div>
       </AdminFormField>

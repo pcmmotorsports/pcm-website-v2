@@ -33,13 +33,13 @@ function StaffProfileForm({ staff }: { staff: StaffRow }) {
           defaultChecked={staff.is_manager}
           className='size-4'
         />
-        管理者(標記用,尚未生效)
+        管理者
       </label>
       <span className='text-muted-foreground text-xs' title={staff.id}>
         代碼不可修改
       </span>
       <p className='text-muted-foreground w-full text-xs'>
-        此標記目前不影響任何權限;成本報表上線後才會生效。
+        管理者才能新增員工、改員工資料,以及授予或收回管理者權限、停用 / 重新啟用員工。
       </p>
       <button
         type='submit'

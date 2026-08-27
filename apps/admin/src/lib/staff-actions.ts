@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { getRequestId } from './audit/context';
 import type { AuditEntry } from './audit/types';
 import { getAdminAuditLogRepository } from './orders/order-repository';
-import { authorizeAdminMutation } from './session/authorize';
+import { authorizeManagerMutation } from './session/authorize';
 import {
   insertStaffRow,
   listStaffRows,
@@ -19,8 +19,25 @@ import {
   parseStaffProfileForm,
 } from './staff-form';
 
-// E8-A2 員工管理 action。actor 仍是使用者自行選擇,本片不把它描述成身分驗證。
-// 固定 redirect 回單一設定頁,無 return_to / open-redirect 面。
+// E8-A2 員工管理 action。固定 redirect 回單一設定頁,無 return_to / open-redirect 面。
+//
+// ⚠️ ~~原註解「actor 仍是使用者自行選擇,本片不把它描述成身分驗證」~~ **已作廢兩次**:
+//    ① 2026-08-25 B5-a 起 `ADMIN_REQUIRE_REAL_IDENTITY=1` ⇒ actor 來自【簽章過的票】,
+//       那顆自選 cookie 一個字都不讀(`session/actor.ts` 第 1 層)。
+//    ② ⟦b4-MGR0⟧ 2026-08-28 起,那個 actor 還決定**誰能改權限**。
+//
+// 🔴 **Q5 = 乙(Sean 2026-08-28 拍板,而他讀過代價)**:三個 staff mutation 同一道管理者閘。
+//    代價① 每次管理者離職就生出一顆「休眠管理者」(is_manager=true + is_active=false),
+//          而甲(只閘寫入、不閘停用/啟用)會讓任何登入者把它叫醒 ⇒ 所以 setActive 也收進來。
+//    代價② 實際效果 = 只有【啟用中的管理者】改得動員工。
+//          (2026-08-28 量:正式庫 is_manager AND is_active = 1,後台 2 人在用 ⇒ Sean 判可接受)
+//    🔴 上面那兩個數字【綁 2026-08-28 那個時點】,標籤跟著它們走 ——
+//       第三個員工進來那天它們會零訊號地變假,而機制句(代價①②本身)不會。
+//    哪天這一格開始卡人,回來看這裡,不要重新發明。
+//
+// 🔴 **而這道閘【不等於那個洞已經關閉】**:它住在應用層,`service_role` 仍有 `is_manager`
+//    的欄級 UPDATE 權 ⇒ **我們自己寫的下一支腳本仍然繞得過**。那是 Sean 讀過代價後
+//    選擇不鎖(Q15 = 甲),不是技術上做不到。完整說明在 `staff.ts` 的 `isActiveManager`。
 
 const SETTINGS_PATH = '/settings/staff';
 
@@ -85,7 +102,7 @@ function finishMutation(auditRecorded: boolean): never {
 
 export async function createStaffAction(formData: FormData): Promise<void> {
   // ① 授權閘。
-  const authorization = await authorizeAdminMutation();
+  const authorization = await authorizeManagerMutation();
   if (!authorization) redirectWith('denied');
 
   // ② 解析。
@@ -136,12 +153,20 @@ export async function updateStaffProfileAction(
   formData: FormData,
 ): Promise<void> {
   // ① 授權閘。
-  const authorization = await authorizeAdminMutation();
+  const authorization = await authorizeManagerMutation();
   if (!authorization) redirectWith('denied');
 
   // ② 解析。
   const parsed = parseStaffProfileForm(formData);
   if (!parsed.ok) redirectWith('invalid');
+
+  // 🔴 原子 break-glass:sean 的管理者身分不得被拿掉 ——
+  //    拿掉 = 沒有人能再設定管理者(這道閘會把自己鎖死)。
+  //    形狀與同檔 BREAK_GLASS_STAFF_ID / setStaffActiveAction 那條「永不允許停用 sean」相同,
+  //    不是新發明;而它守的是【另一個欄位】,所以兩條都要。
+  if (parsed.id === BREAK_GLASS_STAFF_ID && !parsed.profile.isManager) {
+    redirectWith('invalid');
+  }
 
   const requestId = await getRequestId();
   console.info('[admin/settings/staff] staff.profile.update.attempt', {
@@ -202,7 +227,7 @@ export async function setStaffActiveAction(
   formData: FormData,
 ): Promise<void> {
   // ① 授權閘。
-  const authorization = await authorizeAdminMutation();
+  const authorization = await authorizeManagerMutation();
   if (!authorization) redirectWith('denied');
 
   // ② 解析。
@@ -253,7 +278,7 @@ export async function setStaffActiveAction(
     redirectWith('invalid');
   }
 
-  // ③ 寫入。repository SET 只含 is_active,不覆蓋顯示名或管理者標記。
+  // ③ 寫入。repository SET 只含 is_active,不覆蓋顯示名或管理者權限。
   let after: StaffRow | null;
   try {
     after = await setStaffActiveRow(parsed.id, parsed.isActive);

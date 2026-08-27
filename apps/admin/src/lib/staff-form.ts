@@ -34,10 +34,13 @@ export type FormLike = SingleValueFormLike;
 // 🔴 **`is_manager` 是 checkbox,語意是「有沒有出現」不是「值是什麼」**,所以它不能只換讀法:
 //    · 沒送(未勾)⇒ `false`;送恰一筆(勾了,原生 checkbox 送 `'on'`)⇒ `true`;
 //    · **送兩份 / 送非字串 ⇒ 整份表單拒收**(舊碼的 `has()` 對這兩種都回 `true` = 靜默當成勾了)。
-//    ⚠️ **這一欄不是權限旗標**,別因為名字像就當成鐵則 12② —— 建表 migration
-//    `20260726120000:28-29` 的 COMMENT 逐字(中間略一句,以 `…` 標出):
-//    「本欄目前無任何程式讀取、不強制任何權限;…看到此欄不代表權限已生效。」
-//    我另外 grep 過 `session/` 與 `sso/` 兩個授權面、零命中。
+//    🔴 **這一欄【是】權限旗標 —— 動它就是鐵則 12②(權限),要跑 codex 對抗審查。**
+//    ⟦b4-MGR0⟧(2026-08-28)起,`is_manager AND is_active` 決定誰能新增 / 修改 / 停用員工;
+//    閘 = `session/authorize.ts` 的 `authorizeManagerMutation()`。
+//    ⚠️ ~~原註解說本欄與權限無關、不必當鐵則 12②~~ **已作廢** ——
+//       它連同建表 migration `20260726120000:28-29` 那句 COMMENT,都是【本片之前】的事實。
+//       (刻意不引用舊句原文:貼回來會讓守住這一格的那把 grep 自己失效。)
+//    ⚠️ 而本欄同時還背著出生時的語意「成本遮蔽」(該片未做)⇒ backlog ⟦b4-MGR0-SEM⟧。
 
 /**
  * 🔴🔴 **只有新增/編輯這條路需要入口擋門,而且只為了 `is_manager` 一欄。**
@@ -66,6 +69,24 @@ function parseStaffId(form: FormLike): string | null {
  * checkbox 專用讀法:**勾了沒**,不是「值是什麼」(原生 checkbox 勾選時送 `'on'`)。
  * 🔴 `invalid`(送兩份 / 非字串)在呼叫端的入口擋門就被擋掉了 ⇒ 走到這裡只剩
  *    `value`(勾了)與 `missing`(沒勾)兩種。這裡回 `false` 是「沒勾」,不是「讀不出來」。
+ *
+ * 🔴🔴 **而 ⟦b4-MGR0⟧(2026-08-28)之後,這個語意有了新的後果**(codex 關卡2 must-fix):
+ * ```
+ * is_manager=false  ⇒ 這裡讀成 【true】   ← 「有出現」就算勾了, 值是什麼不看
+ * is_manager=off    ⇒ 【true】
+ * is_manager=""     ⇒ 【true】
+ * 沒送這個欄位      ⇒ false(唯一的 false)
+ * ```
+ * 📌 **一個寫著 `false` 的欄位, 會授予管理者權限。** 以前那只是一顆沒有效力的標記,
+ *    現在它決定誰能管員工。
+ * ⚠️ **爆炸半徑(量過才寫)**:要走到這裡必須先過 `authorizeManagerMutation`
+ *    ⇒ **非管理者送什麼都拿不到權限**(閘擋在 action 第 ① 步)。
+ *    真正會踩的是【管理者自己】或【日後新增的呼叫端】:
+ *    一支以為「送 false = 取消」的表單或 API,會**反過來授予**。
+ * 🔴 **本片刻意不改這個解析語意** —— 改它會動到 create/profile 兩條路的既有行為,
+ *    超出 Sean 2026-08-28 批准的範圍(plan §1-d 明列「不動解析邏輯」)。
+ *    ⇒ 登記 backlog **⟦b4-MGR0-PARSE⟧**「is_manager 改成顯式布林(送 false 就是 false)」。
+ *    ⇒ 而在它落地之前:**新增呼叫端時不要送 `is_manager=false`,要【整個欄位不送】。**
  */
 function readIsManager(form: FormLike): boolean {
   return readSingle(form, IS_MANAGER_FIELD).kind === 'value';

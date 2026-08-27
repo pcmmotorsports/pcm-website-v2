@@ -34,7 +34,7 @@ const COLUMNS: ReadonlyArray<AdminColumn<StaffRow>> = [
   },
   {
     key: 'role',
-    header: '管理者標記',
+    header: '管理者',
     cell: (row) => (row.is_manager ? '是' : '否'),
   },
   {
