@@ -34,6 +34,7 @@
     "scripts/traps-neighbours.py": "python3 scripts/traps-neighbours.py --selftest",
     "scripts/git-isolation-denominator.py": "python3 scripts/git-isolation-denominator.py --self-check",
     "scripts/ceiling-header-inventory.py": "python3 scripts/ceiling-header-inventory.py --self-check",
+    "scripts/shell-dialect-gate.sh": "sh scripts/shell-dialect-gate.sh --self-check",
     "scripts/grep-claim-recheck.py": "python3 scripts/grep-claim-recheck.py --selftest",
     "scripts/citation-rot-check.py": "python3 scripts/citation-rot-check.py --selftest",
     "scripts/zsh-shebang-gate.py": "python3 scripts/zsh-shebang-gate.py --selftest",
