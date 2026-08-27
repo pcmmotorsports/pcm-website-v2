@@ -150,9 +150,13 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     : CATALOG_DEFAULT_PER_PAGE;
   const requestedSort = searchParams.get('sort');
   // 🔴 `?filter=new` 沒帶 `sort` 時預設 `'new'`,不是 `'recommend'`(codex 段二審查 MF-1)。
-  //    `recommend` 在 RPC 裡是 `ORDER BY id ASC` ⇒ 導覽列那顆「新品」點進去會拿到
-  //    **依 id 排的任意順序**,而 Sean `Q20 = C` 要的是「最近上架」。
-  //    退回清單受害更明顯:退回本來就是為了顯示「最近上架的」,用 id ASC 排等於隨機挑 108 件裡的一頁。
+  //    ⚠️ **2026-08-27 更新(`#950`):`recommend` 不再是 `ORDER BY id ASC`。**
+  //    ~~原句:`recommend` 在 RPC 裡是 `ORDER BY id ASC`~~ —— 那句在本行寫下時是對的,
+  //    而 `#950` 把它換成「中高價位優先 + 各大類輪流」(`20260827150000_..._recommend_sort_mid_high_price.sql`)。
+  //    🔴 **這段話原本的論點【不受影響、而理由換了】**:導覽列那顆「新品」若落到 `recommend`,
+  //    現在拿到的是「依價格帶排的任意上架時間」—— 一樣不是 Sean `Q20 = C` 要的「最近上架」。
+  //    退回清單同理:退回本來就是為了顯示「最近上架的」。
+  //    📌 留下舊字面是刻意的 —— 不然下一個人會以為這條規則從來沒有別的理由。
   //    只在**沒有明確指定 sort** 時才套用 ⇒ 客人自己選了價格排序仍然有效。
   const filterValue = searchParams.get('filter');
   const filter = (CATALOG_FILTER_VALUES as readonly string[]).includes(filterValue ?? '')

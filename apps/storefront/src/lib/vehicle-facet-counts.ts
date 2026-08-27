@@ -87,7 +87,7 @@ type FacetRpcClient = {
       p_year: number | null;
       p_offset: number;
       p_limit: number;
-      p_sort: 'recommend';
+      p_sort: 'recommend' | 'new';
       p_category: string | null;
       p_brand_slugs: string[] | null;
       p_price_min: null;
@@ -200,7 +200,11 @@ async function countOne(
       p_year: vehicle.year ?? null,
       p_offset: 0,
       p_limit: 1,
-      p_sort: 'recommend',
+      // 🔴 2026-08-27(`#950`):這裡【只讀 total】, 順序對它零意義 —— 而 `recommend` 現在
+      //   會付一次全集的 row_number() window(那支 RPC 的新排序)。facet 是【扇出】的:
+      //   每個維度一發 ⇒ 一次目錄頁會多付很多次。改用 `new`(同樣不看順序, 而它只是一個 ORDER BY 欄)。
+      //   ⚠️ 這一行改的是【成本】不是【結果】—— 回傳的 total 與改前逐字相同。
+      p_sort: 'new',
       p_category: dimension.category ?? null,
       // 🔴 判 `!== undefined` 而非真假值:空字串的 brand slug 若退成 `null`,RPC 會**完全不過濾品牌**
       //    ⇒ 把整台車的總件數當成那個品牌的件數(fail-open 的錯誤方向)。
