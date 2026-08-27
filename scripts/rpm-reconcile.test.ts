@@ -6,7 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { classifyVariantOrphans, markSourceMissing, clearSourceMissing, type VariantOrphan } from './rpm-reconcile';
+import { classifyVariantOrphans, computeSourceMissing, markSourceMissing, clearSourceMissing, type VariantOrphan } from './rpm-reconcile';
 
 const tv = (sku: string, externalId: string): VariantOrphan => ({ sku, externalId });
 
@@ -178,5 +178,138 @@ describe('🔴 #20 片2b:markSourceMissing / clearSourceMissing 動的是哪一�
     const r = makeUpdateRecorder({ code: 'PGRST204', message: "Could not find the 'source_missing_at' column" });
     await expect(markSourceMissing(r.client, 'rpm', ['EXT-1'], '2026-08-15T00:00:00Z')).resolves.toBe(0);
     warn.mockRestore();
+  });
+});
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 🔴 商品級 computeSourceMissing 的比例閘 —— 2026-08-27 補,因為它【本來一格都沒有】。
+//
+// 起因:`dna` 與 `gilles` 2026-08-27 被加進 `.github/workflows/rpm-sync.yml` 的每日同步 matrix,
+//   下一次跑就是第一次。有人主張「`SOURCE_MISSING_RATIO_ABORT = 0.1` 擋著,不會批次動到商品」——
+//   而查下去:`computeSourceMissing` 在測試裡**只被驗過 supplier scope**
+//   (`rpm-pipeline-scope.test.ts:49`),**比例閘與空來源閘從來沒有任何一格**。
+//   ⇒ 那句話當時是【讀出來】的,不是【跑出來】的。本段把它跑成真的。
+//
+// ⚠️ 三條【本段不證明】的事,寫在這裡免得下一個人外推:
+//   ① **它不下架。** 片2b 起這份名單只寫 `source_missing_at`,商品維持上架可購買
+//      (見本檔 `#20 片2b` 那個 describe)⇒ 這道閘防的是「批次誤標」,不是「批次下架」。
+//   ② **「函式判 abort」≠「job 會停」。** 停不停在呼叫端:`rpm-import.ts` 寫入路徑會 throw,
+//      而 dry-run 分支**只印報告、rc 仍為 0**(那是刻意的,註解寫在它旁邊)。
+//   ③ **首灌時這道閘是啞的** —— `active.length === 0` ⇒ ratio 被設 0 ⇒ 永不 abort。
+//      那時擋的是群數指紋 gate,不是本閘。W0 那格就是把這件事釘住。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 分頁 + 記錄 filter 的 mock:除了回資料,還記下 .is()/.order()/.eq() 有沒有被套上。 */
+function makePagedClient(active: string[]) {
+  const filters: string[] = [];
+  const client = {
+    from() {
+      const q: Record<string, unknown> = {};
+      const chain = (name: string) => (...args: unknown[]) => {
+        filters.push(`${name}(${args.map((a) => JSON.stringify(a)).join(',')})`);
+        return q;
+      };
+      q.select = chain('select');
+      q.eq = chain('eq');
+      q.is = chain('is');
+      q.order = chain('order');
+      q.range = (from: number, to: number) =>
+        Promise.resolve({ data: active.slice(from, to + 1).map((external_id) => ({ external_id })), error: null });
+      return q;
+    },
+  } as unknown as SupabaseClient;
+  return { client, filters };
+}
+
+/** gilles 首灌後的真實群數;用真數字才看得出 154/155 那一對邊界落在哪。 */
+const N = 1545;
+const ids = (n: number) => Array.from({ length: n }, (_, i) => `G-${String(i).padStart(5, '0')}`);
+
+describe('🔴 computeSourceMissing 比例閘(SOURCE_MISSING_RATIO_ABORT = 0.1)', () => {
+  it('W1 來源全在 → 不 abort、待標記 0、分母是 target 現存數', async () => {
+    const { client } = makePagedClient(ids(N));
+    const r = await computeSourceMissing(client, 'gilles', new Set(ids(N)));
+    expect(r.aborted).toBe(false);
+    expect(r.toMark).toHaveLength(0);
+    expect(r.targetActive).toBe(N); // 🔴 分母被換成 source 數的話這格會紅
+    expect(r.largeDelistBypassed).toBe(false);
+  });
+
+  it('W2 來源只剩 10% → abort,且【沒有】被標成 bypass', async () => {
+    const { client } = makePagedClient(ids(N));
+    const r = await computeSourceMissing(client, 'gilles', new Set(ids(N).slice(0, 155)));
+    expect(r.aborted).toBe(true);
+    expect(r.abortReason).toContain('超上限');
+    expect(r.largeDelistBypassed).toBe(false); // 沒這條,「恆 bypass」那種壞法會活下來
+  });
+
+  it('W3 來源為空 → 硬 abort(疑 fetch 失敗、絕不標記全部)', async () => {
+    const { client } = makePagedClient(ids(N));
+    const r = await computeSourceMissing(client, 'gilles', new Set<string>());
+    expect(r.aborted).toBe(true);
+    expect(r.abortReason).toContain('不可 bypass');
+  });
+
+  it('🔴 W3b 來源為空 + --allow-large-delist → 仍須 abort(這條閘不吃旗標)', async () => {
+    // 沒有這格,「不可 bypass」四個字就只被當【字串】驗過,沒被當【行為】驗過。
+    const { client } = makePagedClient(ids(N));
+    const r = await computeSourceMissing(client, 'gilles', new Set<string>(), { allowLargeDelist: true });
+    expect(r.aborted).toBe(true);
+    expect(r.largeDelistBypassed).toBe(false);
+  });
+
+  it('W4/W5 邊界成對:154/1545 = 9.97% 不擋,155/1545 = 10.03% 擋(嚴格大於)', async () => {
+    // 只跑一發的話,「沒擋」與「閘壞了」長得一樣 ⇒ 這一對必須同時在。
+    const under = await computeSourceMissing(makePagedClient(ids(N)).client, 'gilles', new Set(ids(N).slice(154)));
+    const over = await computeSourceMissing(makePagedClient(ids(N)).client, 'gilles', new Set(ids(N).slice(155)));
+    expect(under.toMark).toHaveLength(154);
+    expect(under.aborted).toBe(false);
+    expect(over.toMark).toHaveLength(155);
+    expect(over.aborted).toBe(true);
+  });
+
+  it('W6 比例超限 + 顯式旗標 → 放行,但留下 largeDelistBypassed 供 audit', async () => {
+    const { client } = makePagedClient(ids(N));
+    const r = await computeSourceMissing(client, 'gilles', new Set(ids(N).slice(0, 155)), { allowLargeDelist: true });
+    expect(r.aborted).toBe(false);
+    expect(r.largeDelistBypassed).toBe(true);
+  });
+
+  it('🔴 W0 首灌(target 現存 0、來源滿的)→ 本閘【啞的】:ratio 恆 0、不 abort', async () => {
+    // 這格不是在誇它安全,是在釘住一個限制:首灌那一發【不是這道閘擋的】,是群數指紋 gate。
+    // 🔴 我第一版把來源也寫成空的 ⇒ 測試紅了,而紅得對:空來源那條閘【先觸發】、
+    //    它不看 target 有沒有東西。首灌的真實形狀是「target 空、source 滿」,不是兩邊都空。
+    const { client } = makePagedClient([]);
+    const r = await computeSourceMissing(client, 'gilles', new Set(ids(N)));
+    expect(r.targetActive).toBe(0);
+    expect(r.ratio).toBe(0);
+    expect(r.aborted).toBe(false);
+    expect(r.toMark).toHaveLength(0);
+  });
+
+  it('🔴 W0b 兩邊都空 → 仍走「來源為空」硬 abort(它比 target 空優先)', async () => {
+    const { client } = makePagedClient([]);
+    const r = await computeSourceMissing(client, 'gilles', new Set<string>());
+    expect(r.aborted).toBe(true);
+    expect(r.abortReason).toContain('不可 bypass');
+  });
+
+  it('active-read 有套上 delisted_at IS NULL 與穩定排序(拿掉任一條都該紅)', async () => {
+    // 少了 .is → 已下架的會被算進分母 ⇒ 比例被稀釋、閘變鬆。
+    // 少了 .order → 分頁不穩定 ⇒ 讀出來的集合本身不可信。兩者都不會讓上面任何一格紅。
+    const { client, filters } = makePagedClient(ids(3));
+    await computeSourceMissing(client, 'gilles', new Set(ids(3)));
+    expect(filters).toContain('is("delisted_at",null)');
+    expect(filters).toContain('order("external_id")');
+    expect(filters).toContain('eq("supplier_slug","gilles")');
+  });
+
+  it('分頁邊界:1000 的整數倍不會少讀也不會無限迴圈(READ_BATCH = 1000)', async () => {
+    for (const n of [0, 999, 1000, 1545, 2000, 2001]) {
+      const { client } = makePagedClient(ids(n));
+      const r = await computeSourceMissing(client, 'gilles', new Set(ids(n)));
+      expect(r.targetActive).toBe(n);
+    }
   });
 });
