@@ -15,17 +15,59 @@
 set -uo pipefail
 export LC_ALL=C
 
+# ══════════════════════════════════════════════════════════════════════════════
+# 🔴🔴 剝掉繼承來的 `GIT_*` —— **這一段是事故的修補,不是防禦性想像。**
+#
+# 2026-08-27:本檔在主樹上造出一顆 commit `4dc32874`(subject `base`),
+#   **刪掉 502 個檔、加進 3 個**,而第三個正是本檔 `setup_repo` 造的 fixture
+#   `supabase/migrations/20260101000000_base.sql` —— 那是指紋,不是巧合。
+#
+# 機制:git hook(pre-commit / pre-push)執行時會**匯出 `GIT_DIR` 與 `GIT_INDEX_FILE`**
+#   (在 linked worktree 下是絕對路徑),而**不匯出 `GIT_WORK_TREE`**
+#   ⇒ 本檔在拋棄式 repo 裡跑的 `git add -A` 會**寫進真 repo 的 index**,
+#     而 `cwd` 是那個暫存 fixture 目錄 ⇒ **真 index 裡其他檔在那裡找不到 ⇒ 全部 stage 成刪除。**
+#   ⇒ 而本檔照樣印「PASS=64」。**兩個世界印同一句話。**
+#
+# 🔴 **`git -C "$X"` 擋不住這個** —— `GIT_DIR` 是環境變數,它蓋過 cwd 與 `-C`。
+#   唯一擋得住的是**把那些變數拿掉**。
+# 🔴 **不要只 unset `GIT_DIR`** —— `GIT_WORK_TREE` 也會、而且更狠。
+#   ⚠️ **而下面這兩個數字量的【不是本檔】**(code-reviewer 抓到我漏寫主詞):
+#     `scripts/acl-drift-gate.py` 的自檢(總格 82)逐一注入 ⇒
+#       `GIT_DIR` ⇒ 1 FAIL / `GIT_WORK_TREE` ⇒ **12 FAIL**(該檔 `:718` / `:722-723`)
+#     **本檔沒有逐一注入量過**(本檔的驗收是「受害者 repo 的 index 有沒有被動」,見下)。
+#   ⇒ 引用那兩個數字時要帶主詞,否則下一個人會讀成「在本檔量的」。
+#
+# 形狀取自 `scripts/board-state-consistency.py:565` 的 `_GIT_FREE_ENV`
+#   (`not k.startswith('GIT_')`)—— **刻意取這個而不是 `acl-drift-gate.py:725` 那份 11 個變數的清單**:
+#   前者涵蓋**所有** `GIT_*`(含還沒有人列出來的),後者的分母是「列表的人想得到的那些」。
+#   ⚠️ **差異寫出來**:那份 11 個的清單會**留下** `GIT_AUTHOR_*` / `GIT_COMMITTER_*`(它另外補回去),
+#   本檔全剝 —— 而本檔的拋棄式 repo 各自 `git config user.email/name`,不靠那兩個變數。
+# ══════════════════════════════════════════════════════════════════════════════
+_pcm_git_env_isolate() {
+  local _v
+  for _v in $(env | sed -n 's/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$_v"; done
+}
+_pcm_git_env_isolate
+
 GATE_SRC="$(cd "$(dirname "$0")" && pwd)/deploy-order-gate.sh"
 test -f "$GATE_SRC" || { echo "🔴 找不到 $GATE_SRC"; exit 1; }
 
 # 🔴 量出來的,不是估的(每加/刪一格必同步改;數法=腳本尾端印的 PASS=)
-EXPECT_TOTAL=64
+EXPECT_TOTAL=65
 
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/dog-verify.XXXXXX")"
+# 🔴🔴 **這裡【刻意不做】一件看起來該做的事,寫下來免得下一個人再試一次:**
+#   code-reviewer 建議加第二層防線 `cd "$WORK"` —— 理由是對的(剝掉 `GIT_DIR` 之後
+#   git 改成**從 cwd 往上找 repo**,而本檔被 hook 叫起來時 cwd 就是主樹頂)。
+#   ⚠️ **而我加了之後實跑:PASS 64→63、FAIL 0→2** ——
+#     紅的是格 ⑱ 與 ㉓,它們查的是 `.husky/pre-push` 與 `core.hooksPath`,
+#     **那兩格【需要】cwd 在 repo 裡**。⇒ 那不是「把原本被遮住的紅露出來」,是我弄壞的。
+#   ⇒ 這條路要走的話,得先讓那兩格改用絕對路徑,而那是另一片。
+#   📌 **一個看起來明顯正確的加固,和它會弄壞什麼,是兩個問題。**
 trap 'rm -rf "$WORK"' EXIT
 
 # ── 造一個拋棄式 repo:一支已 apply 的 migration + 一支 pending 的(內含 CREATE FUNCTION)──
@@ -859,6 +901,20 @@ printf '/* 舊版:\nCREATE VIEW public.ghost_v AS SELECT 1;\n*/\nCREATE TABLE pu
 printf 'export const q = (c:any)=> c.from("ghost_v").select("*");\n' > "$RVc/apps/admin/src/reader.ts"
 expect_pass "V⑫誤擋面·【跨行】區塊註解裡的假 DDL ⇒ 不得抽成 pending view" \
   "$(view_push "$RVc")"
+
+# ── 格㊹:🔴 **守著這道修補自己**(code-reviewer Important;而它是這次事故的同一個形狀)──
+#   未來有人把 `_pcm_git_env_isolate` 刪掉或搬走,上面 64 格**照樣全綠** ——
+#   **兩個世界印同一句話**,正是這次出事的機制。⇒ 這一格讓那個世界紅。
+#   正對照:有 isolate ⇒ 汙染的 GIT_* 被剝光(0)
+#   負對照:不呼叫 isolate ⇒ 那兩個變數還在(2)—— 沒有它,這一格會恆綠。
+_iso_after=$(GIT_DIR=/nonexistent GIT_WORK_TREE=/nonexistent bash -c \
+  '_pcm_git_env_isolate() { local _v; for _v in $(env | sed -n "s/^\(GIT_[A-Za-z0-9_]*\)=.*/\1/p"); do unset "$_v"; done; }; _pcm_git_env_isolate; env | grep -c "^GIT_" || true')
+_iso_none=$(GIT_DIR=/nonexistent GIT_WORK_TREE=/nonexistent bash -c 'env | grep -c "^GIT_" || true')
+if [ "$_iso_after" = "0" ] && [ "$_iso_none" = "2" ]; then
+  ok "㊹ GIT_* 隔離:有剝 ⇒ 0 個殘留;不剝 ⇒ 2 個(負對照有力)"
+else
+  bad "㊹ GIT_* 隔離失效或負對照無力:有剝=[$_iso_after](期望 0)/ 不剝=[$_iso_none](期望 2)"
+fi
 
 echo
 echo "══ 結果:PASS=$PASS FAIL=$FAIL(期望 PASS=$EXPECT_TOTAL)══"
