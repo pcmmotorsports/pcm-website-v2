@@ -110,7 +110,12 @@ vi.mock('@/lib/products', () => ({
   fetchVehicleTaxonomy: async () => [],
 }));
 
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import AccountRoute from './page';
+import { ACCOUNT_TAB_IDS } from '@/components/account/account-nav';
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -131,6 +136,119 @@ async function renderRoute(tier: unknown) {
   });
   return AccountRoute();
 }
+
+describe('🔴 client/server 邊界(2026-08-27 真瀏覽器抓到的,而【這一族測試當時全綠】)', () => {
+  // 🔴🔴 **這一格存在的理由,是它抓不到的那一次:**
+  //    我原本把 `ACCOUNT_TAB_IDS` export 在 `AccountView.tsx`(有 `'use client'`)裡,
+  //    讓 server component `page.tsx` import 它 —— 想確保「合法分頁清單只有一份」。
+  //    ⇒ **單元測試 20 格全綠,而真瀏覽器一開就 500**:
+  //      `ACCOUNT_TAB_IDS.includes is not a function`
+  //      —— 從 server component import 一支 `'use client'` 模組的普通 export,
+  //      拿到的不是那個陣列,是 React 的 client reference。
+  //    📌 **vitest 直接 import 那支模組,它的世界裡【沒有 RSC 邊界】。**
+  //       那把尺量得到邏輯,量不到「這段碼會跑在哪一側」—— 而畫面壞在後者。
+  //
+  // ⚠️ **本格是【文字層】守門,不是真的 RSC 測試** —— 它證不到「跑起來不會炸」,
+  //    只證得到「那條會炸的接線形狀沒有回來」。要證前者只有真瀏覽器。**不要把它讀成前者。**
+  // 🔴 **從本檔自己的位置推,不從 `process.cwd()` 推**(第一版就是那樣寫,而它 ENOENT):
+  //    cwd 是「vitest 從哪裡被叫起來」= repo 根,不是這支檔在哪。
+  //    📌 而那個紅是【我的尺錯了】不是碼錯了 —— 兩者都印一個紅,要開錯訊才分得出。
+  const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+  const read = (rel: string) => readFileSync(join(SRC, rel), 'utf8');
+
+  it('🔴 `account-nav.ts` 不得帶 `use client` —— 它要兩側都 import 得到', () => {
+    // 🔴 **只看【第一個非空白、非註解】的敘述,不掃全檔**(第一版就是掃全檔而它紅了):
+    //    `account-nav.ts` 的檔頭有兩句在【解釋】為什麼不能帶 `'use client'`
+    //    ⇒ 掃字面會數到那兩句 ⇒ **紅的是我的尺,不是碼。**
+    //    ⚠️ 而 `'use client'` 的語意本來就是**必須是檔案第一個敘述** ⇒ 只看第一句才是對的量法。
+    const firstStatement = (src: string) =>
+      src
+        // 🔴 **先把塊註解整段拿掉**(code-reviewer 2026-08-27 nit):
+        //    原版逐行跳過 `//` 與 `*` 開頭 ⇒ 一段【開頭不帶 `*`】的 `/* … */`
+        //    會讓下一行中文被當成 firstStatement ⇒ 後面真的 `'use client'` 看不到、**綠**。
+        //    ⇒ 那正是這道守門在防的東西, 而它自己有一條路穿過去。
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => l.length > 0 && !l.startsWith('//') && !l.startsWith('*') && !l.startsWith('/*')) ?? '';
+
+    expect(
+      firstStatement(read('components/account/account-nav.ts')),
+      'account-nav.ts 變成 client 模組 ⇒ server 端會拿到 client reference 而不是陣列',
+    ).not.toContain('use client');
+    // 正對照:同一把尺對著一支**真的**帶 use client 的檔要看得到 —— 否則它是恆真的。
+    expect(
+      firstStatement(read('components/account/AccountView.tsx')),
+      '正對照失效:這把尺連真的 use client 都看不到',
+    ).toContain('use client');
+  });
+
+  it('🔴 `page.tsx`(server)不得從 `AccountView` 拿分頁清單', () => {
+    const src = read('app/account/page.tsx');
+    // 那條會炸的形狀:從 AccountView 帶出 ACCOUNT_TAB_IDS
+    // 🔴🔴 **2026-08-27 code-reviewer 訂正(主視窗在 node 裡跑三個世界複驗,兩把都餵過)**:
+    //    ~~原改成 `[\s\S]*?`,理由寫「多行 import 裡有分號以外的換行,`[^;]*` 照樣過」~~
+    //    ⇒ **那句理由是錯的**:`[^;]` 是【否定字元類】,它本來就吃 `\n` ——
+    //      多行壞形狀 `[^;]*` 實測 **true**(抓得到),不需要換。
+    //    🔴 而換成 `[\s\S]*?` 引進一個【假紅】:兩行 import 對調(**完全合法**)⇒
+    //      `[\s\S]*?` **true**(誤判違規)/ `[^;]*` **false**(正確放行)。
+    //    ⇒ ⇒ 那會變成一把【依賴 import 順序】的尺 —— prettier 排一次就紅,而碼是對的,
+    //         **而下一個人會去改守門**。⇒ 改回 `[^;]*`。
+    const BAD = /ACCOUNT_TAB_IDS[^;]*from '@\/components\/account\/AccountView'/;
+    expect(BAD.test(src), 'page.tsx 又從 AccountView 拿分頁清單了 ⇒ server 端會拿到 client reference').toBe(false);
+    // 🔴 **正對照:這把尺從來沒被證明抓得到東西**(nit)—— 餵一段手寫的壞字串, 它必須抓到。
+    //    少了這一行, 把 regex 打錯成永不匹配也會全綠。
+    expect(
+      BAD.test("import { ACCOUNT_TAB_IDS } from '@/components/account/AccountView';"),
+      '正對照失效:這把尺連寫死的壞形狀都抓不到',
+    ).toBe(true);
+    // 而它必須從 account-nav 拿 —— 少了這一行,上面那格在「兩邊都沒有」時也會綠。
+    expect(src).toContain("from '@/components/account/account-nav'");
+  });
+});
+
+describe('/account server route · `?tab=` deep-link(2026-08-27,Sean 拍 B)', () => {
+  // 🔴 **這一族守的是 `cf` 那份 probe 的三個世界**(真瀏覽器量到的):
+  //    A 明細頁按返回鈕 / B 直接開 `/account?tab=orders` / C 瀏覽器上一頁。
+  //    ⚠️ **本檔只證得了 server 端解析那一半** —— A/B/C 是**畫面**的事,
+  //       而畫面要真瀏覽器才算數。**這裡綠不等於那三個世界修好了。**
+  async function routeWithTab(tab?: string) {
+    getUserMock.mockResolvedValue({
+      data: { user: { id: 'user-test', email: 'member@example.com', user_metadata: { name: '測試會員' } } },
+    });
+    customerSingleMock.mockResolvedValue({
+      data: { name: '測試會員', phone: '', birthday: null, tier: 'general', wallet_balance: 0 },
+      error: null,
+    });
+    return AccountRoute(tab === undefined ? undefined : { searchParams: Promise.resolve({ tab }) });
+  }
+
+  it('🔴 `?tab=orders` ⇒ server 解出 initialTab=\'orders\'(標題刻意窄:本格證不到「首屏亮」, 那要真瀏覽器)', async () => {
+    expect((await routeWithTab('orders')).props.initialTab).toBe('orders');
+  });
+
+  it('🔴 沒給 `?tab=` ⇒ 仍然落總覽(防回歸;這一格【修之前就是綠的】)', async () => {
+    // ⚠️ 而「本來就綠」的格子最容易在重構時失去判別力 ——
+    //    它與上面那格用同一支 helper、同一條路徑,差別只有參數 ⇒ 兩格一起才分得出兩個世界。
+    expect((await routeWithTab()).props.initialTab).toBeUndefined();
+  });
+
+  it('🔴 `?tab=zzz`(打錯的分頁名)⇒ 安靜落總覽,不報錯(Sean 2026-08-27 Q1 拍甲)', async () => {
+    // 🔴 **代價寫在 `page.tsx` 的 `tabFromSearchParams` docstring** —— 舊書籤會安靜落總覽而沒人回報。
+    //    那是他讀過代價之後選的,不是我們沒想到。
+    expect((await routeWithTab('zzz')).props.initialTab).toBeUndefined();
+    // 負對照:合法值不得被同一條路收斂掉 —— 少了這一行,`return undefined` 也會讓上面全綠。
+    expect((await routeWithTab('wallet')).props.initialTab).toBe('wallet');
+  });
+
+  it('🔴 `page.tsx` 不得再自己打一份清單 —— 而本格【近乎恆真】, 真正承重的是 toBe(7) 與 zzz/wallet 那對負對照', async () => {
+    // 🔴 不在這裡再打一份七個字串:兩份會漂, 而漂掉的那天新分頁會被判成不合法、安靜落總覽。
+    for (const id of ACCOUNT_TAB_IDS) {
+      expect((await routeWithTab(id)).props.initialTab, `合法分頁 ${id} 被判成不合法`).toBe(id);
+    }
+    expect(ACCOUNT_TAB_IDS.length, '分頁數變了 ⇒ 回去看 page.tsx 那段代價註解').toBe(7);
+  });
+});
 
 describe('/account server route · `#873` DB 多一個會員等級', () => {
   it('🔴 前提:這支路由在合法 tier 下真的跑得完(它若不成立,下面每一格都沒有判別力)', async () => {

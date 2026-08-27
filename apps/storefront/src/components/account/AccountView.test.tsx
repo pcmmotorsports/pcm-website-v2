@@ -14,11 +14,24 @@
 //
 // mock '@/app/account/actions'(server action)+ next/navigation(useRouter)+ matchMedia polyfill。
 
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
+// 🔴 2026-08-27 補 `useSearchParams`(主視窗;線1 停工時這支檔還沒跟上)。
+//    `AccountView.tsx:169` 開始用它讀 `?tab=` ⇒ 這份 mock 少了那個 export
+//    ⇒ 本檔 19 格全紅,訊息是 vitest 的「No "useSearchParams" export is defined」。
+//    ⚠️ **這不是放寬斷言** —— 是讓假件跟上被測元件真的用到的東西;19 格的斷言一字未動。
+//    📌 而預設值給【空的】search params:本檔的既有斷言都建立在「沒有 ?tab= ⇒ 預設總覽」,
+//       給 `?tab=` 反而會改掉它們要測的世界。
+// 🔴🔴 **2026-08-27 code-reviewer M4 補**:~~原本給【固定空的】`new URLSearchParams()`~~
+//    ⇒ 那讓 client 那一半【餵不進去】:想補「`?tab=orders` 首屏亮訂單」也沒有辦法。
+//    ⇒ 而 client 那三件(`useState(initialTab)` / `useEffect` 跟隨 / `selectTab` 寫回)
+//      **正是世界 A/B/C 真正靠的東西** —— server 那半只決定首屏。
+//    ⇒ ⇒ 改成可變的,並在檔尾補兩格。
+let mockSearchParams = new URLSearchParams();
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => mockSearchParams,
 }));
 vi.mock('@/app/account/actions', () => ({
   logoutAction: vi.fn(),
@@ -304,5 +317,47 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
     // 🔴 斷在**那個節點的內文**,不是整頁 textContent —— 後者「57 印在哪都算過」。
     expect(container.querySelector('.wal-tx-head .ap-mono')?.textContent).toBe('1 / 57 ENTRIES');
     expect(container.querySelector('.wal-tx-more')?.textContent).toContain('共 57 筆');
+  });
+});
+
+/**
+ * 🔴🔴 **2026-08-27 code-reviewer M4:client 那一半的守門(本片之前是零覆蓋)。**
+ *
+ * ⚠️ **這兩格【證不到】的**:真瀏覽器裡 `history.replaceState` 有沒有真的同步
+ *    Next 的 `useSearchParams` —— 那是整條世界 C 的承重前提,而 vitest 這裡是 mock。
+ *    ⇒ **本節只證「元件自己那一半接對了」,不證「Next runtime 會配合」。**
+ * 📌 而 jsdom 的 `window` 跨格共用 ⇒ 每格自己把 `mockSearchParams` 與 URL 重設,
+ *    否則前一格點出來的 `?tab=` 會流進後面每一格(而今天沒有一格讀它 ⇒ 不會叫)。
+ */
+describe('AccountView · ?tab= 契約(client 那一半)', () => {
+  beforeEach(() => {
+    mockSearchParams = new URLSearchParams();
+    window.history.replaceState(null, '', '/account');
+  });
+
+  it('🔴 `?tab=orders` ⇒ 首屏就在訂單分頁(不是總覽)', () => {
+    mockSearchParams = new URLSearchParams('tab=orders');
+    const { container } = renderView();
+    // 斷言用 `[data-tab=]`(與本檔既有那格同一把尺, 不另發明選擇器)
+    expect(container.querySelector('[data-tab="orders"]')).toBeTruthy();
+    expect(container.querySelector('[data-tab="overview"]')).toBeNull();
+  });
+
+  it('🔴 負對照:沒有 `?tab=` ⇒ 首屏是總覽(證明上一格不是恆真)', () => {
+    const { container } = renderView();
+    expect(container.querySelector('[data-tab="overview"]')).toBeTruthy();
+    expect(container.querySelector('[data-tab="orders"]')).toBeNull();
+  });
+
+  it('🔴 `?tab=zzz`(不合法)⇒ 安靜落在總覽, 不報錯(Sean Q1 拍甲)', () => {
+    mockSearchParams = new URLSearchParams('tab=zzz');
+    const { container } = renderView();
+    expect(container.querySelector('[data-tab="overview"]')).toBeTruthy();
+  });
+
+  it('🔴 點分頁 ⇒ 網址跟著變(Sean Q2 拍甲;世界 C 的必要條件)', () => {
+    renderView();
+    fireEvent.click(screen.getByRole('button', { name: /儲值金/ }));
+    expect(window.location.search).toBe('?tab=wallet');
   });
 });

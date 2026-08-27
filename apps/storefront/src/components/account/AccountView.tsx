@@ -1,12 +1,23 @@
 'use client';
 
+import { ACCOUNT_TAB_IDS, NAV, type AccountTabId } from './account-nav';
+
 // AccountView.tsx — 會員中心 client 殼(g-1a 建、g-2 接 overview/orders 真資料、g-4a 加 profile prop)
 //
 // 直接搬 design-reference/components/AccountPages.jsx AccountPage 殼(acc-head L432-442 + acc-nav 7-tab
 // L445-464)。薄 router(codex 關卡1 finding-6):依 tab state 渲染對應 tab component(g-1a = stub、
 // g-2~g-7 各填真內容、各自獨立檔不撐爆鐵則 6)。
 //
-// - tab 切換純 client setState(對齊 design setTab、Sean 決策2=A;deep-link ?tab= 留 M-3+)。
+// - tab 切換 client setState(對齊 design setTab),而**初值由 `?tab=` 決定**。
+//   🔴 **2026-08-27:`deep-link ?tab=` 從「留 M-3+」變成【現在做】,而那【不是推翻拍板】。**
+//   舊字面:~~「deep-link ?tab= 留 M-3+」~~。原拍板逐字(`docs/archive/2026-07-25-docs-cleanup/
+//   handoff/2026-05-27-g-1-plan.md:9`):
+//     「**決策2=A**(分頁純 client setState 對齊 design setTab、deep-link `?tab=` 留 M-3+
+//       **真有消費者再補**)」
+//   ⇒ 押後的條件寫的是【真有消費者】,而 `OrderDetailView.tsx:147` 那顆返回鈕
+//     (`#240`,2026-08-23 上線)**就是第一個消費者** ⇒ 條件在 08-23 那天就成立了。
+//   📌 **一個押後決定把自己的解鎖條件寫進了註解 —— 而條件成立那天,沒有人回來看。**
+//   ⇒ 提前做的授權:Sean 2026-08-27 拍 **B**(跳整頁保留、只修「回不來」)。
 // - 登出走 app/account/actions.ts logoutAction server action(非 client 直接 signOut;finding-4)。
 // - user.displayEmail 由 server page.tsx 過濾 LINE 合成 email 後傳入(line.ts 為 server-only、
 //   不可在 client 端 import,故過濾在 server 完成、本檔只渲染 displayEmail;codex k1 round2 M-r2-1)。
@@ -38,7 +49,8 @@
 // - 新 vehicles prop:CustomerVehicle[](page.tsx getVehicleRepo→listByCustomer 算好傳入)
 // - forward 給 VehiclesTab 唯讀渲染愛車清單(g-6b 接新增表單;編輯/刪除/設主車留 g-6c)
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { logoutAction } from '@/app/account/actions';
@@ -86,48 +98,19 @@ export type AccountProfile = { name: string; phone: string; birthday: string };
 //    ⚠️ 但 OD 交接單 `account-page-handoff.md` 的 icon 表**文字寫的是「vehicles=機車、與 tabbar
 //    『找車』同一支」**(grep `vehicles`)—— 也就是 OD 自己的文字說明與落地 SVG 互相矛盾,
 //    Sean 的口頭與那份文字說明其實同向。回饋包一併把這條矛盾回報給 OD。
-const NAV = [
-  {
-    id: 'overview',
-    label: '總覽',
-    path: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
-  },
-  {
-    id: 'orders',
-    label: '訂單記錄',
-    path: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
-  },
-  {
-    id: 'wallet',
-    label: '儲值金',
-    path: '<rect x="2" y="6" width="20" height="13" rx="1"/><path d="M2 10h20"/><path d="M16 15h3"/>',
-  },
-  {
-    id: 'favorites',
-    label: '收藏清單',
-    path: '<path d="M12 20.5 4.2 13a4.6 4.6 0 0 1 6.5-6.5l1.3 1.3 1.3-1.3A4.6 4.6 0 0 1 19.8 13z"/>',
-  },
-  {
-    id: 'vehicles',
-    label: '我的愛車',
-    // 原為汽車 path,2026-08-07 Sean 拍板 Q2=A 換成重機(複用 tabbar「找車」那支)。
-    path: '<circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17h8l-2-6h-3L6 17Z"/><path d="m14 11 1-3h3"/>',
-  },
-  {
-    id: 'address',
-    label: '收件地址',
-    path: '<path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>',
-  },
-  {
-    id: 'profile',
-    label: '個人資料',
-    path: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
-  },
-] as const;
 
-type TabId = (typeof NAV)[number]['id'];
 
 export type AccountViewProps = {
+  /**
+   * 首屏要亮哪一個分頁 —— 由 server 端從 `?tab=` 解出來(`app/account/page.tsx`)。
+   * 🔴 **在 server 解、不在 client 解**:client 解的話首屏會先畫總覽再跳,客人看得到那一下。
+   *    (`cf` 規格 §3 把「首屏閃動」列為未量 —— 我選了不會閃的那一邊,而不是量它。)
+   * ⚠️ **不合法的值在 server 被丟成 `undefined`**(`page.tsx` 的 `tabFromSearchParams`),
+ *    而收斂成 `'overview'` 的是**下面那個預設參數**,不是 server。
+ *    🔴 所以這個 prop 的值域是【七個之一 or `undefined`】——**不是「一定是七個之一」**。
+ *    (code-reviewer 2026-08-27 訂正我原本那句;`page.test.tsx` 有兩格正是斷言 `undefined`。)
+   */
+  initialTab?: AccountTabId;
   user: AccountUser;
   stats: AccountStats;
   /**
@@ -158,8 +141,85 @@ export type AccountViewProps = {
   favoritesFailed?: boolean;
 };
 
-export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed, walletEntries, walletEntriesFailed, walletEntryTotal, walletBalanceFailed }: AccountViewProps) {
-  const [tab, setTab] = useState<TabId>('overview');
+export function AccountView({ initialTab = 'overview', user, stats, featured, profile, addresses, vehicles, vehicleBrands, orders, favorites, favoritesFailed, walletEntries, walletEntriesFailed, walletEntryTotal, walletBalanceFailed }: AccountViewProps) {
+  const [tab, setTab] = useState<AccountTabId>(initialTab);
+
+  /**
+   * 🔴🔴 **回退時把 `?tab=` 讀回來(code-reviewer 2026-08-27 must-fix,而它是真瀏覽器量到的)。**
+   *
+   *    我原本只在 server 讀一次當初值 ⇒ **客人真正會走的那條路是壞的**:
+   *    ```
+   *    無參數進 /account(server 給 undefined ⇒ 總覽)
+   *      → 點側欄「訂單記錄」(client setState + replaceState ⇒ 網址變 ?tab=orders)
+   *      → 點進明細(client 導覽)
+   *      → 瀏覽器上一頁
+   *    ⇒ 實測:網址是 /account?tab=orders,而【畫面亮總覽】
+   *    ```
+   *    成因:回退走的是 **router cache 裡那份 payload**,而那份是「無參數」那次 server render
+   *    的結果 ⇒ `initialTab` 仍是 `undefined`,元件不 remount、`useState` 初值不重讀。
+   *    🔴 **而我第一次量的世界 C 是【先 server render 過 `?tab=orders`】的那條** ——
+   *       兩條路在畫面上長得一樣,而只有一條是客人真的會走的。
+   *       📌 **我量到「C 修好了」,而我量的是另一個 C。**
+   *
+   * ⇒ 修法照 Next 官方那條(`node_modules/next/dist/docs/01-app/01-getting-started/
+   *   04-linking-and-navigating.md:345-365`):**`?tab=` 是真相,不是只當初值。**
+   * ⚠️ 而這也順帶修掉 code-reviewer nit 11 那個「網址說謊」——
+   *    頁首 / 底部的會員鈕 `push('/account')` 之後,這裡會把 tab 拉回總覽。
+   */
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get('tab');
+  useEffect(() => {
+    // 🔴 不合法或缺席 ⇒ 收斂成總覽(Sean 2026-08-27 Q1 拍甲:安靜,不報錯)。
+    const next = ACCOUNT_TAB_IDS.includes(tabFromUrl as AccountTabId)
+      ? (tabFromUrl as AccountTabId)
+      : 'overview';
+    setTab(next);
+  }, [tabFromUrl]);
+
+  /**
+   * 切分頁時把 `?tab=` 寫回網址(Sean 2026-08-27 `Q2` 拍甲 = 要跟著變)。
+   *
+   * 🔴 **這不是偏好,它決定修得完不完整**:只讀不寫的話,客人從明細按【瀏覽器上一頁】
+   *    仍會落在總覽 —— 因為那一筆歷史紀錄的網址是 `/account`(沒有參數)。
+   *    ⇒ `cf` probe 的「世界 C」要修好,這一段是必要條件。
+   * 🔴 **用 `replaceState` 不用 `pushState`**:每點一次分頁就多一筆歷史,客人要按七次上一頁
+   *    才離得開會員中心。`replaceState` 只改當前那一筆 ⇒ 上一頁回來時讀得到,而歷史不變長。
+   * ⚠️ **不走 `router.replace`** —— 🔴 **而這是【推論】不是我量到的**(code-reviewer 訂正):
+   *    我量到的只有「`replaceState` 這樣寫,三個世界都對」。「`router.replace` 會多一次
+   *    server round-trip」我**沒有量過**。要改用它之前先量,不要引用這一句當理由。
+   * 📎 官方對「改 query 而不重取」的示範:`node_modules/next/dist/docs/01-app/
+   *    01-getting-started/04-linking-and-navigating.md:345-365`(從 `useSearchParams` 帶著走)。
+   */
+  /**
+   * ⚠️ **一個【改動前就有、而改動後開始說謊】的行為**(code-reviewer 2026-08-27 nit,我沒修):
+   *    停在 `/account?tab=wallet` 時點頁首 / 底部的「會員」鈕 ⇒ `push('/account')`,
+   *    而 `AccountView` **不 remount** ⇒ `useState(initialTab)` 不重讀
+   *    ⇒ **網址變回 `/account`,而畫面停在儲值金。**
+   * 🔴 改動前也是這個行為(非回歸)—— 而**改動前網址從來不說話,現在它會說錯話**。
+   *    ⇒ 要修得靠 `useEffect` 跟著 `searchParams` 走,而那會把「網址是唯一真相」這個
+   *      更大的決定提前 ⇒ ~~**不在本片射程**(Sean 拍的是「只修回不來」)。**標明,未修。**~~
+   * 🔴🔴 **2026-08-27 訂正(主視窗,線1 停工後):上面這一整段【已經不成立】——**
+   *    `:171-177` 那個 `useEffect(…, [tabFromUrl])` **就是**它說「要修得靠」的那個東西,
+   *    而它已經在這支檔裡了 ⇒ 點會員鈕 `push('/account')` ⇒ `tabFromUrl` 變 `null`
+   *    ⇒ `next = 'overview'` ⇒ `setTab('overview')` ⇒ **網址與畫面一致,那個 nit 已修。**
+   *    ✅ 而 `:166-167` 那一段自己也寫著「順帶修掉 code-reviewer nit 11」⇒ **同一支檔裡兩段話相反。**
+   * 📌 **⇒ 而這正是同日剛立的那條**(`docs/patterns/guard-and-instrument-traps.md`
+   *    「局部修正會【提高】未修正部分的可信度」的 2026-08-27 擴充):
+   *    **訂正的人是最不可能再去看另一段的人 —— 他剛剛才逐字讀完他改的那一段。**
+   *    ⇒ 舊句照 repo 慣例劃線保留,不靜靜刪掉。
+   */
+  const selectTab = (next: AccountTabId) => {
+    setTab(next);
+    if (typeof window === 'undefined') return;
+    // 🔴 **帶著其他 query 一起走,不要整串重寫**(code-reviewer 2026-08-27 nit):
+    //    原版寫死 `/account?tab=x` ⇒ 哪天有 `?from=email` / `?next=`,**點一下分頁就沒了**,
+    //    而畫面看起來完全正常。用 `URLSearchParams` 只動 `tab` 這一個鍵。
+    const params = new URLSearchParams(window.location.search);
+    if (next === 'overview') params.delete('tab');
+    else params.set('tab', next);
+    const qs = params.toString();
+    window.history.replaceState(null, '', qs ? `/account?${qs}` : '/account');
+  };
 
   // g-4a Q4=A:displayName / avatarChar 用 profile.name(customers.name SoT)為主、displayEmail 退化、
   // 'PCM 會員' 最終 fallback(防 LINE 合成 email 洩 H1 / avatar;page.tsx 已把 user.name 設為同值)
@@ -167,8 +227,8 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
   const avatarChar = (profile.name || user.displayEmail || 'P').charAt(0).toUpperCase();
 
   // overview 內「最近訂單」「儲值金」CTA 跳 tab(對齊 design L488/L501 setTab 行為)
-  const jumpToOrders = () => setTab('orders');
-  const jumpToWallet = () => setTab('wallet');
+  const jumpToOrders = () => selectTab('orders');
+  const jumpToWallet = () => selectTab('wallet');
 
   return (
     <div data-screen-label="Account" className="ap-page">
@@ -194,7 +254,7 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
               <button
                 key={t.id}
                 className={tab === t.id ? 'is-active' : ''}
-                onClick={() => setTab(t.id)}
+                onClick={() => selectTab(t.id)}
               >
                 {/* 🔶 R1 9-2:`dangerouslySetInnerHTML` 用在**本檔內寫死的常數**上,
                     沒有任何使用者輸入路徑(`NAV` 是 `as const`、不從 props / DB 來)。

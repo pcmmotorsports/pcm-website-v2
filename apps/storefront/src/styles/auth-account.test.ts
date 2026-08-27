@@ -22,7 +22,21 @@ const AUTH = strip(read('auth.css'));
 const ACCOUNT = strip(read('account.css'));
 const CART = strip(read('cart.css'));
 const LAYOUT = read('../app/layout.tsx');
-const ACCOUNT_VIEW = read('../components/account/AccountView.tsx');
+// 🔴 **2026-08-27:`NAV` 從 `AccountView.tsx` 搬到 `account-nav.ts`** —— 改的是【去哪裡找】,
+//    底下每一格斷言的**字面與意圖一個字沒動**。
+//    搬家的理由(真瀏覽器抓到的):`AccountView.tsx` 有 `'use client'`,而 server component
+//    `app/account/page.tsx` 需要那份分頁清單 ⇒ 從 client 模組 import 拿到的是 client reference
+//    不是陣列 ⇒ 頁面 500,而**單元測試全綠**(vitest 的世界裡沒有 RSC 邊界)。
+//    ⚠️ 本檔這一族守的是 **CSS 格線數學與 NAV 的 7 顆**,與那次搬家無關 ——
+//       它們紅是因為**檔案位置變了**,不是因為它們守的東西變了。
+const ACCOUNT_NAV = read('../components/account/account-nav.ts');
+const ACCOUNT_SHELL = read('../components/account/AccountView.tsx');
+// 🔴 **搬家把一個分母拆成兩個,而【不是每一格都該跟著走】**:
+//    · `NAV` 的 7 顆與每顆的 `path` 字面 ⇒ 在 `account-nav.ts`
+//    · `viewBox` / `dangerouslySetInnerHTML` 那些**渲染**的事 ⇒ 仍在 `AccountView.tsx`
+//    ⚠️ 我第一版把整支檔的參照一次換掉 ⇒ 5 格紅剩 2 格,而**那 2 格紅得對**:
+//       它們找的東西真的不在新檔裡。**把它們一起改指向新檔才是把守門弄瞎。**
+//    📌 **一次搬家之後,「這一格該看哪一支檔」要逐格問,不能整批換。**
 const MOBILE_TABBAR = read('../components/MobileTabBar.tsx');
 
 /** 從指定位置切一個大括號區塊。🔴 **不要用 `[\s\S]*?` 去跨 `@media`** ——
@@ -248,20 +262,21 @@ describe('第4批 · /account R1 比例(⚠️ 這頁本 worktree 無法渲染,�
 describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
   it('🔴 七顆幾何字元全數退場', () => {
     for (const ch of ['◉', '□', '◈', '♡', '◎', '▸', '✎']) {
-      expect(ACCOUNT_VIEW, `側欄還留著幾何字元 ${ch}(字體覆蓋率不一、會顯示成豆腐或大小不齊)`)
+      expect(ACCOUNT_NAV, `側欄還留著幾何字元 ${ch}(字體覆蓋率不一、會顯示成豆腐或大小不齊)`)
         .not.toContain(`icon: '${ch}'`);
     }
   });
 
   it('🔴 七顆都有 path,且規格與殼一致', () => {
-    const paths = [...ACCOUNT_VIEW.matchAll(/^\s*path:\s*'/gm)];
+    const paths = [...ACCOUNT_NAV.matchAll(/^\s*path:\s*'/gm)];
     expect(paths.length, `NAV 的 path 不是 7 筆(實際 ${paths.length})`).toBe(7);
     // 🔴 R1 nit:初版只釘 strokeWidth + stroke,沒釘 viewBox / fill,也沒釘任何 path 字面
     //    ⇒ 把 path 內容整組換掉照樣綠。補上四個規格 + 兩條「共用同一支 path」的字面。
     for (const attr of ['viewBox="0 0 24 24"', 'fill="none"', 'stroke="currentColor"', 'strokeWidth="1.6"']) {
-      expect(ACCOUNT_VIEW, `SVG 規格少了 ${attr}(殼的 header / mobile-tabbar 是這一組)`).toContain(attr);
+      expect(ACCOUNT_SHELL, `SVG 規格少了 ${attr}(殼的 header / mobile-tabbar 是這一組)`).toContain(attr);
     }
-    expect(ACCOUNT_VIEW, '圖示沒對讀屏隱藏(旁邊已經有文字 label)').toMatch(
+    // 🔴 這一條也是【渲染面】—— `aria-hidden` 寫在 JSX 上, 不在資料裡 ⇒ 看殼。
+    expect(ACCOUNT_SHELL, '圖示沒對讀屏隱藏(旁邊已經有文字 label)').toMatch(
       /className="acc-nav-icon" aria-hidden="true"/,
     );
   });
@@ -284,7 +299,7 @@ describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
     const tabbarMoto = normalizeSvgMarkup(
       svgInnerAfter(tabObject, "label: '找車'", 'MobileTabBar 找車 icon'),
     );
-    const accountVehicles = normalizeSvgMarkup(navPathById(ACCOUNT_VIEW, 'vehicles'));
+    const accountVehicles = normalizeSvgMarkup(navPathById(ACCOUNT_NAV, 'vehicles'));
     expect(accountVehicles, 'AccountView vehicles 的 path 與 MobileTabBar「找車」不是同一支').toBe(
       tabbarMoto,
     );
@@ -298,7 +313,7 @@ describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
     // 當下的 path、從沒讀過 Header.tsx,是與 vehicles 那條同形狀的假理由欄。
     // 對齊 header 不在本次 Q2=A 範圍、不動 production code,這裡退回純字面鎖定(regression pin),
     // 訊息不再宣稱跨檔同支。
-    expect(ACCOUNT_VIEW, 'profile 的 path 字面被改動了(僅鎖字面防誤改,不宣稱與 header 同一支——查證後從來不是)').toContain(
+    expect(ACCOUNT_NAV, 'profile 的 path 字面被改動了(僅鎖字面防誤改,不宣稱與 header 同一支——查證後從來不是)').toContain(
       '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
     );
   });
@@ -350,8 +365,18 @@ describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
 
   it('🔴 `dangerouslySetInnerHTML` 的來源必須是本檔寫死的常數(沒有使用者輸入路徑)', () => {
     // 這條不是形式主義:哪天有人把 `path` 改成從 props / DB 來,這裡就是一個 XSS 入口。
-    expect(ACCOUNT_VIEW, 'NAV 不再是 as const ⇒ path 可能從外部來').toMatch(/\] as const;/);
-    const usages = [...ACCOUNT_VIEW.matchAll(/dangerouslySetInnerHTML=\{\{\s*__html:\s*([^}]+)\}\}/g)];
+    // 🔴🔴 **2026-08-27 code-reviewer M2 補(主視窗)**:搬家把這道守門的前提【拆成兩半】——
+    //    `] as const;` 在 `account-nav.ts` 裡,而 `t.path` 的用法在 `AccountView.tsx` 裡,
+    //    而【沒有一格把它們綁回去】。
+    //    ⇒ 失敗情境:有人在 `AccountView.tsx` 重新宣告一份 local `NAV`(或把 `nav` 改成 prop)
+    //      ⇒ 下面三格照樣過(`as const` 還在別的檔、`t.path` 字面還在、7 顆 path 還數得到)
+    //      ⇒ ⇒ **全綠,而 `t.path` 已經可以從外面來 = XSS 入口開著。**
+    expect(
+      ACCOUNT_SHELL,
+      '殼不再從 account-nav 拿 NAV ⇒ 下面那三格的前提斷了(它們檢查的是【另一支檔】的 as const)',
+    ).toContain("from './account-nav'");
+    expect(ACCOUNT_NAV, 'NAV 不再是 as const ⇒ path 可能從外部來').toMatch(/\] as const;/);
+    const usages = [...ACCOUNT_SHELL.matchAll(/dangerouslySetInnerHTML=\{\{\s*__html:\s*([^}]+)\}\}/g)];
     expect(usages.length, `dangerouslySetInnerHTML 的用量不是 1(實際 ${usages.length})`).toBe(1);
     expect(usages[0]?.[1]?.trim(), 'dangerouslySetInnerHTML 的來源不是 NAV 的 t.path').toBe('t.path');
   });
@@ -429,7 +454,7 @@ describe('2026-08-07 · 分頁列改成 OD 網格(Sean 手機實測後拍板推�
   //    加第 8 顆會讓邊框錯亂,而文字層全綠(同 memory feedback_ui-count-change-check-hardcoded-css-track-counts)。
   //    ⇒ 把 NAV 長度釘成前提;哪天要加分頁,這條會先紅、逼人回頭重算格線。
   it('🔴 前提 — AccountView 的 NAV 剛好 7 顆(CSS 的 nth-child 格線數學綁死這個數字)', () => {
-    const paths = [...ACCOUNT_VIEW.matchAll(/^\s*id:\s*'/gm)];
+    const paths = [...ACCOUNT_NAV.matchAll(/^\s*id:\s*'/gm)];
     expect(
       paths.length,
       `NAV 不是 7 筆(實際 ${paths.length})⇒ account.css 的 :nth-child(2n)/(4n)/:nth-last-child(-n+3)/:last-child span 2 那組格線數學要重算`,

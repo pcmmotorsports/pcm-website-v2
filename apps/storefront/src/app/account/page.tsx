@@ -39,6 +39,10 @@ import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getAddressRepo, getVehicleRepo, getOrderRepo, getFavoritesRepo } from '@/lib/auth/composition';
 import { AccountView } from '@/components/account/AccountView';
+// 🔴 **分頁清單從 `account-nav.ts` 拿, 不從 `AccountView` 拿**(2026-08-27 真瀏覽器抓到):
+//    `AccountView` 有 `'use client'` ⇒ 從 server component import 它的普通 export
+//    拿到的是 client reference 不是陣列 ⇒ 執行期 500, 而**單元測試全綠**(vitest 沒有 RSC 邊界)。
+import { ACCOUNT_TAB_IDS, type AccountTabId } from '@/components/account/account-nav';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
 import { toMemberTier } from '@pcm/domain';
@@ -65,7 +69,35 @@ const WALLET_LEDGER_LIMIT = 20;
 
 export const dynamic = 'force-dynamic';
 
-export default async function AccountPage() {
+/**
+ * `?tab=` → 首屏分頁(2026-08-27;Sean 拍 **B** = 只修「回不來」)。
+ *
+ * 🔴 **不合法的值安靜落在總覽,不報錯**(Sean `Q1` 拍甲)。
+ *    ⚠️ **而那個選擇的代價要留在這裡,因為它是他讀過之後選的、不是我們沒想到**:
+ *    **哪天我們改了分頁的代號(例如 `orders` 改名),舊書籤與舊連結會【安靜地】落在總覽,
+ *      而客人不會回報 —— 他只會覺得「怎麼跳錯了」然後自己再點一次。**
+ *    ⇒ 要改 `NAV` 的 id 之前,先想一下這一段。
+ * 🔴 **合法值的唯一來源是 `NAV`**(`account-nav.ts`)—— 這裡**不再打一份七個字串**:
+ *    兩份清單會漂,而漂掉的那天這裡會把一個合法分頁判成不合法、安靜落總覽。
+ */
+function tabFromSearchParams(raw: string | string[] | undefined): AccountTabId | undefined {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof v !== 'string') return undefined;
+  return ACCOUNT_TAB_IDS.includes(v as AccountTabId) ? (v as AccountTabId) : undefined;
+}
+
+export default async function AccountPage(
+  // 🔴 **整個參數選填,不只 `searchParams` 選填**:既有測試以 `AccountPage()` 零引數呼叫
+  //    (`page.test.tsx` 有 4 處)⇒ 若寫成必填,那 4 格會因為**簽名**而紅,
+  //    而它們一格都不是在測分頁。**那種紅會逼下一個人去改測試,而測試沒有錯。**
+  //    ⚠️ 而 Next 真的呼叫時一定會給 —— 選填只影響測試那一側。
+  //    🔴 **而它有一個【未來】的代價,寫下來**(code-reviewer 2026-08-27 nit):
+  //       自己寫的 inline 型別讓 Next 生成的 `PageProps<'/account'>` **完全不參與** ——
+  //       哪天 `searchParams` 的契約再變(它在 Next 15→16 已經變過一次:同步 → Promise),
+  //       **這支檔不會紅,而測試餵的是我自己寫的同一個形狀,也不會紅。**
+  props?: { searchParams?: Promise<Record<string, string | string[] | undefined>> },
+) {
+  const initialTab = tabFromSearchParams((await props?.searchParams)?.tab);
   const supabase = await createServerSupabaseClient();
   const {
     data: { user },
@@ -262,6 +294,7 @@ export default async function AccountPage() {
 
   return (
     <AccountView
+      initialTab={initialTab}
       user={{ name, displayEmail }}
       stats={{ tier, walletBalance, orderCount: orders.length }}
       walletEntries={walletEntries}
