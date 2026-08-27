@@ -72,7 +72,10 @@
 --      要那個數字, 得在網站庫上對真的 `products_list_public` 跑一次 EXPLAIN ANALYZE ——
 --      🔴 **本窗沒有網站庫的存取權, 沒有量過。**
 --
--- Rollback = `scripts/20260827150000-down.sql`(內容 = 改動前的函式定義【逐字複製】, 不重寫)
+-- Rollback = `scripts/20260827150000-down.sql`(內容 = 改動前的函式定義【逐字複製】, 不重寫;
+--   codex 2026-08-27 獨立驗過 SHA-256 相同)。**而 down 也帶同一組斷言與交易** ——
+--   `CREATE OR REPLACE` 在【0 支】或【另有 overload】時一樣回報成功, 而新建的那支拿 default ACL
+--   ⇒ 退回之後型錄可能打不開, 而腳本印綠。📌「取代」與「新建」在事後的計數上長得一模一樣。
 --   ⚠️ 而最快的止血不是 rollback, 是把前端預設排序換成 'new'(另一支檔、另一次部署)。
 -- ============================================================
 
@@ -339,19 +342,60 @@ END;
 $fn$;
 
 
--- ── 🔴 斷言①:同名函式恰 1 支(code-reviewer must-fix,逐字搬自 20260811040000:473-479)──
+-- ── 🔴 斷言①:同名函式恰 1 支(code-reviewer must-fix,同邏輯搬自 20260811040000:473-479(錯誤訊息是本片改寫的, 不是逐字))──
 --   `CREATE OR REPLACE` 在【簽章漂移】時不會報錯, 它會**安靜地新建第二支 overload**
 --   ⇒ 具名參數呼叫變成 `42725 ambiguous` ⇒ 型錄全頁掛, **而 migration 回報成功**。
 --   📌 那正是原檔那句錯誤訊息在講的事 —— 而本片第一版把這道斷言【漏掉了】。
+-- ── ACL:逐字照 20260811040000:444-445(冪等;`CREATE OR REPLACE` 同簽章時本來就保留權限,
+--    而【它不保證我們落在同簽章那個世界】—— 見下面斷言②。這兩行讓「新建」那條路也落在正確的 ACL 上,
+--    而斷言③④ 才有東西可以驗。少了這兩行, 全新重放這支 migration 會被自己的斷言擋下。)
+REVOKE ALL ON FUNCTION public.search_catalog_by_vehicle(text, text, int, int, int, text, text, text[], int, int, timestamptz) FROM PUBLIC;
+-- ACL-GATE-EXEMPT: public.search_catalog_by_vehicle -- 型錄 RPC 的既有授權原樣補回(#950, 2026-08-27);
+--   這一行逐字照 20260811040000:445, 不是新開的權限 —— 它存在的理由是 CREATE OR REPLACE 在
+--   【新建】那條路上會拿 default ACL(codex must-fix)⇒ 補回來, 而同檔斷言③④ 會驗它:
+--   ③ PUBLIC 不得有 EXECUTE、④ 這三個 role 都要有。**兩個方向都有東西在量, 不是只補不驗。**
+GRANT EXECUTE ON FUNCTION public.search_catalog_by_vehicle(text, text, int, int, int, text, text, text[], int, int, timestamptz) TO anon, authenticated, service_role;
+
 DO $assert$
 DECLARE
   v_overloads int;
+  v_public_exec boolean;
+  v_missing_roles text;
+  c_sig constant text :=
+    'public.search_catalog_by_vehicle(text, text, int, int, int, text, text, text[], int, int, timestamptz)';
 BEGIN
+  -- ① 同名函式恰 1 支(code-reviewer must-fix;同邏輯搬自 20260811040000:473-479,
+  --   而【錯誤訊息是本片改寫的】—— 不是逐字複製, codex 抓到我這句話寫得不精確)
+  --   `CREATE OR REPLACE` 在【簽章漂移】時不報錯, 它會安靜新建第二支 overload
+  --   ⇒ 具名參數呼叫 42725 ambiguous ⇒ 型錄全頁掛, **而 migration 回報成功**。
   SELECT count(*) INTO v_overloads
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public' AND p.proname = 'search_catalog_by_vehicle';
   IF v_overloads <> 1 THEN
     RAISE EXCEPTION '#950 斷言①失敗:public.search_catalog_by_vehicle 應恰 1 支、實得 % 支。overload 存活 ⇒ 正式站具名參數呼叫會 42725 ambiguous、型錄全頁掛掉。', v_overloads;
+  END IF;
+
+  -- ② 🔴 **那 1 支必須是【我們要的那個簽章】**(codex must-fix)
+  --   只數「恰 1 支」不夠:若套用【之前】那支函式根本不存在(0 支),
+  --   `CREATE OR REPLACE` 會【新建】一支, 事後 count=1 照樣綠 ——
+  --   而新建的那支拿的是 default ACL, 不是原本那組 grant。
+  --   📌 「取代」與「新建」在事後的計數上長得一模一樣。
+  IF to_regprocedure(c_sig) IS NULL THEN
+    RAISE EXCEPTION '#950 斷言②失敗:精確簽章不存在 ⇒ %', c_sig;
+  END IF;
+
+  -- ③ PUBLIC 不得握有 EXECUTE(新建的那支會拿 default ACL ⇒ 這一格才看得出來)
+  SELECT has_function_privilege('public', c_sig, 'EXECUTE') INTO v_public_exec;
+  IF v_public_exec THEN
+    RAISE EXCEPTION '#950 斷言③失敗:PUBLIC 對 % 有 EXECUTE。', c_sig;
+  END IF;
+
+  -- ④ 三個 role 都要有 EXECUTE(掉了 grant ⇒ 客人打不開型錄, 而 migration 會回報成功)
+  SELECT string_agg(r, ', ') INTO v_missing_roles
+  FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) AS r
+  WHERE NOT has_function_privilege(r, c_sig, 'EXECUTE');
+  IF v_missing_roles IS NOT NULL THEN
+    RAISE EXCEPTION '#950 斷言④失敗:這些 role 對簽章沒有 EXECUTE ⇒ %', v_missing_roles;
   END IF;
 END
 $assert$;

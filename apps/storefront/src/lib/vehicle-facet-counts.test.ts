@@ -57,6 +57,8 @@ type RpcArgs = {
   p_year: number | null;
   p_offset: number;
   p_limit: number;
+  // `#950`:facet 只讀 total ⇒ 送 'new'(不吃 recommend 的全集 window)。見下方那一格斷言。
+  p_sort: string;
   p_category: string | null;
   p_brand_slugs: string[] | null;
   p_price_min: null;
@@ -108,6 +110,10 @@ describe('queryVehicleFacetCounts', () => {
       expect(args.p_brand).toBe('KAWASAKI');
       expect(args.p_model).toBe('Ninja ZX-10R');
       expect(args.p_year).toBe(2024);
+      // 🔴 `#950`(codex consider):facet 只讀 `total`, 順序對它零意義 —— 而 `recommend` 現在
+      //   會付一次全集的 row_number() window。facet 是【扇出】的(每個維度一發)
+      //   ⇒ 沒有這一格, 有人把它改回 `recommend` 時【測試全綠而成本回來了】。
+      expect(args.p_sort).toBe('new');
       // facet 只吃「車輛 + 自己那一維」:價格不疊
       expect(args.p_price_min).toBeNull();
       expect(args.p_price_max).toBeNull();

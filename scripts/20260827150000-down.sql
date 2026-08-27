@@ -1,15 +1,27 @@
 -- 20260827150000-down.sql — #950 推薦排序的回退
 --
 -- 🔴 內容 = `supabase/migrations/20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql`
---    第 266–441 行的函式定義【逐字複製】(只把 `CREATE FUNCTION` 改成 `CREATE OR REPLACE FUNCTION`),
+--    第 266–441 行的函式定義【逐字複製】(只把開頭那個 `CREATE FUNCTION` 換成 `CREATE OR REPLACE`),
 --    **不是重寫的**。重寫的回退腳本會悄悄帶進今天的想法, 而回退要的是【當時那一版】。
+--    (codex 2026-08-27 獨立驗過:原檔 266–441 首行換掉之後, 與本檔的函式體 SHA-256 完全相同。)
 --
 -- 用法:psql "$URL" -v ON_ERROR_STOP=1 -f scripts/20260827150000-down.sql
 --
 -- 退的判準:跑驗收 W2(指定分類 ⇒ 與改前逐筆相同)⇒ 應回到改前那組 id 序列。
 -- ⚠️ 而最快的止血不是這個 —— 是把前端預設排序換成 'new'(另一支檔、另一次部署)。
 --    兩條路都寫在這裡, 誰快用誰。
+--
+-- 🔴🔴 **codex must-fix(2026-08-27):退回也要證明自己落在「精確同簽章原地替換」那個世界。**
+--    `CREATE OR REPLACE` 在【0 支】或【另有 overload】時一樣會回報成功,
+--    而它新建的那支拿的是 default ACL ⇒ 退回之後型錄可能【打不開】, 而這支腳本印綠。
+--    📌 「取代」與「新建」在事後的計數上長得一模一樣。
+--    ⇒ 下面那組斷言與 migration 那支【同一組、逐條同義】, 並用交易包住。
+--
 -- 🔴 本檔【不刪】任何東西:它只把函式定義換回去。band 那兩個常數本來就只活在函式體裡。
+--    而 GRANT/REVOKE 也【不搬】—— `CREATE OR REPLACE` 在同簽章原地替換時保留既有 ownership 與權限;
+--    而「有沒有真的落在同簽章那個世界」由下面的斷言②③④回答, 不是靠假設。
+
+BEGIN;
 
 CREATE OR REPLACE FUNCTION public.search_catalog_by_vehicle(
   p_brand text DEFAULT NULL,
@@ -187,3 +199,59 @@ BEGIN
     pg.id ASC;
 END;
 $fn$;
+
+-- ── ACL:逐字照 20260811040000:444-445(冪等;`CREATE OR REPLACE` 同簽章時本來就保留權限,
+--    而【它不保證我們落在同簽章那個世界】—— 見下面斷言②。這兩行讓「新建」那條路也落在正確的 ACL 上,
+--    而斷言③④ 才有東西可以驗。少了這兩行, 全新重放這支 migration 會被自己的斷言擋下。)
+REVOKE ALL ON FUNCTION public.search_catalog_by_vehicle(text, text, int, int, int, text, text, text[], int, int, timestamptz) FROM PUBLIC;
+-- ACL-GATE-EXEMPT: public.search_catalog_by_vehicle -- 型錄 RPC 的既有授權原樣補回(#950, 2026-08-27);
+--   這一行逐字照 20260811040000:445, 不是新開的權限 —— 它存在的理由是 CREATE OR REPLACE 在
+--   【新建】那條路上會拿 default ACL(codex must-fix)⇒ 補回來, 而同檔斷言③④ 會驗它:
+--   ③ PUBLIC 不得有 EXECUTE、④ 這三個 role 都要有。**兩個方向都有東西在量, 不是只補不驗。**
+GRANT EXECUTE ON FUNCTION public.search_catalog_by_vehicle(text, text, int, int, int, text, text, text[], int, int, timestamptz) TO anon, authenticated, service_role;
+
+DO $assert$
+DECLARE
+  v_overloads int;
+  v_public_exec boolean;
+  v_missing_roles text;
+  c_sig constant text :=
+    'public.search_catalog_by_vehicle(text, text, int, int, int, text, text, text[], int, int, timestamptz)';
+BEGIN
+  -- ① 同名函式恰 1 支(同邏輯搬自 20260811040000:473-479,
+  --   而【錯誤訊息是本片改寫的】—— 不是逐字複製, codex 抓到我這句話寫得不精確)
+  --   `CREATE OR REPLACE` 在【簽章漂移】時不報錯, 它會安靜新建第二支 overload
+  --   ⇒ 具名參數呼叫 42725 ambiguous ⇒ 型錄全頁掛, **而 migration 回報成功**。
+  SELECT count(*) INTO v_overloads
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'search_catalog_by_vehicle';
+  IF v_overloads <> 1 THEN
+    RAISE EXCEPTION '#950-down 斷言①失敗:public.search_catalog_by_vehicle 應恰 1 支、實得 % 支。overload 存活 ⇒ 正式站具名參數呼叫會 42725 ambiguous、型錄全頁掛掉。', v_overloads;
+  END IF;
+
+  -- ② 🔴 **那 1 支必須是【我們要的那個簽章】**(codex must-fix)
+  --   只數「恰 1 支」不夠:若套用【之前】那支函式根本不存在(0 支),
+  --   `CREATE OR REPLACE` 會【新建】一支, 事後 count=1 照樣綠 ——
+  --   而新建的那支拿的是 default ACL, 不是原本那組 grant。
+  --   📌 「取代」與「新建」在事後的計數上長得一模一樣。
+  IF to_regprocedure(c_sig) IS NULL THEN
+    RAISE EXCEPTION '#950-down 斷言②失敗:精確簽章不存在 ⇒ %', c_sig;
+  END IF;
+
+  -- ③ PUBLIC 不得握有 EXECUTE(新建的那支會拿 default ACL ⇒ 這一格才看得出來)
+  SELECT has_function_privilege('public', c_sig, 'EXECUTE') INTO v_public_exec;
+  IF v_public_exec THEN
+    RAISE EXCEPTION '#950-down 斷言③失敗:PUBLIC 對 % 有 EXECUTE。', c_sig;
+  END IF;
+
+  -- ④ 三個 role 都要有 EXECUTE(掉了 grant ⇒ 客人打不開型錄, 而 migration 會回報成功)
+  SELECT string_agg(r, ', ') INTO v_missing_roles
+  FROM unnest(ARRAY['anon', 'authenticated', 'service_role']) AS r
+  WHERE NOT has_function_privilege(r, c_sig, 'EXECUTE');
+  IF v_missing_roles IS NOT NULL THEN
+    RAISE EXCEPTION '#950-down 斷言④失敗:這些 role 對簽章沒有 EXECUTE ⇒ %', v_missing_roles;
+  END IF;
+END
+$assert$;
+
+COMMIT;
