@@ -21,9 +21,14 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 import { OrderDetail } from './order-detail';
 
 vi.mock('server-only', () => ({}));
+// 🔴 2026-08-27:`OrderFocalRow` 搬到自己的檔 ⇒ **mock 也要跟著搬,不然它 mock 到一個
+//    已經沒有那個 export 的模組,而真的焦點列會【被真的渲染】** —— 那不會紅,只會慢慢變成
+//    「這支測試在測一棵比它以為的更大的樹」。
 vi.mock('./order-detail-summary-cards', () => ({
-  OrderFocalRow: () => null,
   OrderInfoCards: () => null,
+}));
+vi.mock('./order-focal-row', () => ({
+  OrderFocalRow: () => null,
 }));
 vi.mock('./notes-timeline', () => ({ NotesTimeline: () => null }));
 vi.mock('./note-compose-form', () => ({ NoteComposeForm: () => null }));

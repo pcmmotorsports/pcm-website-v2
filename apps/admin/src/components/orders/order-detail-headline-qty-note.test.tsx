@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { AdminOrderDetail } from '@pcm/domain';
 
-import { OrderFocalRow } from './order-detail-summary-cards';
+import { OrderFocalRow } from './order-focal-row';
 
 // order-detail-headline-qty-note.test.tsx — 2026-08-21 線 E 建。
 //
@@ -69,11 +69,16 @@ function qtyCell(detail: AdminOrderDetail): string {
   const { container } = render(
     <OrderFocalRow detail={detail} payments={{ status: 'ok', rows: [] } as never} />,
   );
-  const section = [...container.querySelectorAll('section')].find(
-    (el) => el.querySelector('p:last-of-type')?.textContent === '件數 已訂 / 到貨',
+  // 🔴 **2026-08-27 OD FIX-01:那一格從 `<section>` 變成 `<details>`**(Sean 拍乙)。
+  //    改的是**去哪裡找**,不是找什麼 —— 底下每一格的斷言【一個字沒動】。
+  //    ⚠️ 而 `textContent` 讀得到 `<details>` 裡**尚未展開**的 `<p>`(DOM 有,只是視覺收著)
+  //       ⇒ 這把尺量的是【那句話在不在 DOM 裡】,**不是【使用者現在看不看得到】**。
+  //       那是本檔一直以來的射程(舊版讀 `section.textContent` 同理),本次沒有放寬。
+  const cell = [...container.querySelectorAll('details')].find(
+    (el) => el.querySelector('summary')?.textContent?.includes('件數 已訂 / 到貨'),
   );
-  if (!section) throw new Error('找不到小標為「件數 已訂 / 到貨」的那一格 —— 整格被刪掉了?');
-  return section.textContent ?? '';
+  if (!cell) throw new Error('找不到小標為「件數 已訂 / 到貨」的那一格 —— 整格被刪掉了?');
+  return cell.textContent ?? '';
 }
 
 describe('頭條「件數」答不出來時,旁邊那一行', () => {

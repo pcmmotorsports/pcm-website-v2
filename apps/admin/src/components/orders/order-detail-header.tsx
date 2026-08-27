@@ -12,7 +12,9 @@ import type { AdminOrderDetail } from '@pcm/domain';
 import { formatOrderDateTime } from '../../lib/orders/order-detail-view';
 // 片2 標頭列:兩個標籤表都是**既有的**,本片零新增詞彙(理由見 `OrderHeadChip` 那段)。
 import { PAYMENT_STATUS_LABEL, formatOrderAmount } from '../../lib/orders/order-list-view';
-import { OrderFocalRow } from './order-detail-summary-cards';
+// 🔴 2026-08-27 `#OD-FIX-01`:焦點列抽成自己的檔(Sean 拍乙)——
+//    它與那三張資訊卡不是同一種東西, 留在同一支檔會讓人以為共用 `SPEC`。
+import { OrderFocalRow } from './order-focal-row';
 import type { PaymentListData } from './payment-list';
 
 /**

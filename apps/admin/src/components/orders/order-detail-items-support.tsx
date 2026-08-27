@@ -198,7 +198,8 @@ const ITEMS_FOOTER_LABEL_COLSPAN = ITEMS_TABLE_COLSPAN - 1;
    **標籤改小標籤規格**、上方間距 `mt-1` → `mt-2`。
    🔴 **`NT$` 留著** —— Sean 2026-08-16 `Q-A216-F4` 拍**乙「留著」**:頭條是速覽 ⇒ 不帶幣別;
       **明細表底部的總計是正式金額 ⇒ 帶 `NT$`**。完整理由在
-      `order-detail-summary-cards.tsx` 搜 `Q-A216-F4`。**不要順手統一成沒有幣別。**
+      `order-focal-row.tsx` 搜 `Q-A216-F4`。**不要順手統一成沒有幣別。**
+      (🔴 2026-08-27 改指向:那段隨焦點列搬到新檔了;舊檔現在 grep 該字面 ⇒ 0。)
    🔴 **外層那一行 `mt-3 border-t pt-3 text-sm` 一個字沒動**:
       `order-detail-items-table-shape.test.tsx` 的「每列恰好兩格」用它當切段錨點,
       而它守的「金額欄對不對得齊」在本片**沒有被推翻** ⇒ 錨點不該被弄丟。

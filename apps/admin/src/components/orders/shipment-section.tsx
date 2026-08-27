@@ -103,10 +103,13 @@ function RecipientLine({ detail }: { detail: AdminOrderDetail }) {
  * 📌 **走同一支 `toPaymentSummary`,不自己減** —— 那支已經處理了「讀不到」那一態,
  *    自己算等於重新踩一次那個坑。
  * ⚠️ **而「共用函式」保證得比它聽起來少 —— 這句話 2026-08-16 已經被 code-reviewer 更正過一次**,
- *    正解不在這裡重複寫,逐字在 `order-detail-summary-cards.tsx` 搜 `不是它的第一個引數`:
+ *    正解不在這裡重複寫,逐字在 `order-focal-row.tsx` 搜 `不是它的第一個引數`:
+ *    (🔴 2026-08-27 改指向:隨焦點列搬檔;舊檔 grep 該字面 ⇒ 0。)
  *    **共用的是那支函式,不是它的第一個引數。**
  *    🔴 **而本元件是第 3 個 call site**,`amountDue` 在 `:56` 自己從 `detail.total.amount` 讀
- *    (與頭條 `order-detail-summary-cards.tsx:243` **逐字同一個運算式**;付款卡那份則由
+ *    (與頭條 `order-focal-row.tsx` 搜 `toPaymentSummary(` **逐字同一個運算式**
+ *     —— 🔴 2026-08-27 改成字面錨、不再寫行號:那一行已經搬過一次檔,而行號是最先漂的東西;
+ *     付款卡那份則由
  *     `order-detail.tsx` 以 prop 傳入)⇒ **三處靠呼叫端自律對齊,沒有任何一格斷言把它們綁在一起。**
  *    ⇒ 誰改其中一邊的口徑,另外兩邊不會跟,**而畫面上不會有東西紅**。
  */

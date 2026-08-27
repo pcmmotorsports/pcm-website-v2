@@ -150,9 +150,14 @@ vi.mock('server-only', () => ({}));
 // 🔴 2026-08-23:`OrderSummaryCards` 那個外殼已刪(審查 important 5:它是本片造出來的生產死碼),
 //    拆成 `OrderFocalRow` / `OrderInfoCards` 兩個 export ⇒ **mock 的形狀要跟著模組走**。
 //    ⚠️ 這是【模組 export 改名時同步 mock】,**不是改任何期望值** —— 本檔的斷言一格未動。
+// 🔴 2026-08-27:`OrderFocalRow` 搬到自己的檔 ⇒ **mock 也要跟著搬,不然它 mock 到一個
+//    已經沒有那個 export 的模組,而真的焦點列會【被真的渲染】** —— 那不會紅,只會慢慢變成
+//    「這支測試在測一棵比它以為的更大的樹」。
 vi.mock('./order-detail-summary-cards', () => ({
-  OrderFocalRow: () => null,
   OrderInfoCards: () => null,
+}));
+vi.mock('./order-focal-row', () => ({
+  OrderFocalRow: () => null,
 }));
 vi.mock('./notes-timeline', () => ({ NotesTimeline: () => null }));
 vi.mock('./note-compose-form', () => ({ NoteComposeForm: () => null }));

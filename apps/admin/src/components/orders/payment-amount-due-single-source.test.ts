@@ -14,7 +14,8 @@ import { stripComments } from '../../lib/test-support/strip-comments';
 //    ⇒ 而出貨區那一格**就在「出貨」鈕旁邊** ⇒ 它直接決定員工按不按下去。
 //
 // 📌 **這個病 2026-08-16 已經被 code-reviewer 更正過一次**(逐字在
-//    `order-detail-summary-cards.tsx` 搜 `不是它的第一個引數`)—— 而更正之後**又多了第 3 面**
+//    `order-focal-row.tsx` 搜 `不是它的第一個引數`;🔴 2026-08-27 隨焦點列搬檔,
+//    舊檔 grep 該字面 ⇒ 0)—— 而更正之後**又多了第 3 面**
 //    (片9 的出貨區)⇒ **更正本身沒有機制在擋新增的面。這支就是那個機制。**
 //
 // ⚠️⚠️ **誠實邊界 —— 本檔是【文字層】斷言,不是渲染測試。**
@@ -87,7 +88,12 @@ describe('「尾款/已收」的第一個引數只有一個來源', () => {
       sites.map((s) => s.file).sort(),
       '呼叫端數量變了。新增一處請確認它的第一個引數與另外三處同源,然後把數字改成新的值。',
     ).toEqual([
-      `${ROOT}/components/orders/order-detail-summary-cards.tsx`,
+      // 🔴 2026-08-27:焦點列從 `order-detail-summary-cards.tsx` 搬到自己的檔(Sean 拍乙)。
+      //    **呼叫端數量沒有變(仍是 3), 換的是【路徑】** —— 第一引數 `detail.total.amount`
+      //    整段搬家、逐字未動。
+      //    ⚠️ **而「改路徑」與「換掉一個呼叫端」在 diff 上長得一樣** ⇒ 審這一行的人要看的是
+      //       下面那格(第一引數同源), 不是這張名單的長度。
+      `${ROOT}/components/orders/order-focal-row.tsx`,
       `${ROOT}/components/orders/payment-list.tsx`,
       `${ROOT}/components/orders/shipment-section.tsx`,
     ]);

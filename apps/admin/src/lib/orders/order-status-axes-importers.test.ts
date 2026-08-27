@@ -100,6 +100,25 @@ function importersOf(mod: string): string[] {
 /** 🔴 這份名單是**顯示元件**。加進來之前,先讀上方「本守門不涵蓋的」那六條。 */
 const ALLOWED_IMPORTERS = [
   'components/orders/order-detail-summary-cards.tsx',
+  // 🔴 2026-08-27 線1 加入。**而我先做了上方要求的判斷,判斷寫在這裡,不是只加一行:**
+  //   用途:焦點列從 `order-detail-summary-cards.tsx` 搬出來時,把 `goodsQuantityHeadline`
+  //        一起帶走(Sean 拍乙)。它取 `qty.ordered` / `qty.instock` 兩個數字,
+  //        印在「件數 已訂 / 到貨」那個 chip 上。
+  //   ✅ **純顯示**:那兩個數字不餵任何守門 / 上限 / 可否取消的判斷。
+  //   ✅ **null 態不補 0**:`qty === null ⇒ 印「未知」`(逐字搬家、一個字沒改)——
+  //      那正是本守門在守的那條約束,而它在搬家之後仍然成立。
+  //   ✅ 截斷閘(`detail.itemsTruncated ⇒ qty=null`)也逐字跟著搬。
+  //   ⇒ 落在 `:244` house 裁定許可的「純顯示補 0」那一側,與 `order-export.ts` 同一類。
+  //
+  //   🔴🔴 **而加完之後這道閘【對本檔失去了什麼】,明寫**:
+  //   名單多一個成員 ⇒ 它的射程沒有變寬也沒有變窄(它本來就只答「清冊有沒有變」),
+  //   **變的是分母裡多了一支我自己寫的檔** —— 而上方那六條「不涵蓋」對它一樣成立:
+  //     ③ 這支檔哪天拿 `qty` 去擋一顆按鈕 ⇒ 本閘**不會紅**
+  //     ④ 它把值再傳給別的函式當守門依據 ⇒ 同上
+  //     ⑥ `order-status-axes` 自己改回傳語意 ⇒ 清冊不變而危險變了
+  //   🔴 **而本檔 `:41-42` 逐字寫著:「有人順手把自己加進名單 —— 本守門沒有辦法分辨」。**
+  //      **我就是那個人。** ⇒ 第二道不是這道閘,是 `code-reviewer` 讀上面這段判斷。
+  'components/orders/order-focal-row.tsx',
   'components/orders/orders-table.tsx',
   // 🔴 2026-08-26 線1 加入。**而我先做了上面那段要求的判斷,判斷寫在這裡,不是只加一行:**
   //   用途:`order-export.ts:101` 只取 `orderStatusView(order).label`,寫進 CSV 的「狀態」欄。
