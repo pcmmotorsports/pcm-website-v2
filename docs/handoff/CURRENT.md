@@ -1,5 +1,37 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> # 🗂 2026-08-27 全窗壓縮 · 八份 checkpoint 的位置
+>
+> **Sean 令全窗 `/compact`。八個窗全部先 commit、先寫 checkpoint、回報、才壓。主視窗最後壓。**
+> 🔴 **本節【不寫任何 sha 也不寫行數】** —— 今晚實測:`b4` 那份的 sha 在四十分鐘內變了三次(173→177→179 行)。
+> 📌 **`-de` 的判詞,照抄**:**「對一份【還在被編輯的檔】記 sha,記到的是一個時刻,不是一個身分。」**
+> ⇒ **路徑才是身分。要判版本就當場 `shasum -a 256 <檔> | cut -c1-12` 自己量一次。**
+>
+> ```
+> ~/pcm-mailbox/de-checkpoint-下手窗-20260827.md              下手窗(帶 cf / b4 / ed)
+> ~/pcm-mailbox/CHECKPOINT-線1-訂單面-21-收工-20260827.md     線1 訂單面
+> ~/pcm-mailbox/CHECKPOINT-線4-26-壓縮前-20260827.md          線4 客戶面
+> ~/pcm-mailbox/線3-checkpoint-20260827.md                    線3 通知與帳號面
+> ~/pcm-mailbox/CHECKPOINT-複量窗-9e-壓縮前-20260827.md       複量窗(Fable 位置)
+> ~/pcm-mailbox/b4-checkpoint-收工-20260827.md                b4 板子稽核
+> ~/pcm-mailbox/cf-checkpoint-20260827.md                     cf 資料庫探針
+> ~/pcm-mailbox/CHECKPOINT-ed-Gilles上顧客站-20260827.md      Gilles 上架線(Sean 本人開的)
+> 當場列法:ls -1 ~/pcm-mailbox/ | grep -iE 'checkpoint.*20260827|20260827.*checkpoint'  ⇒ 8
+> 負對照   ls -1 ~/pcm-mailbox/ | grep -c 'zzzcheckpoint'                                ⇒ 0
+> ```
+>
+> 🔴🔴 **三份【最不能少】的,理由不一樣**:
+> ```
+> ed 那份 §1  ← 唯一一條【有東西已經在正式站上】的線(1,545 商品 live、writeAllowed 現在是 true)
+> de 那份     ← 它帶三個窗, 而那三個窗的裁決大半只活在它與它們的訊息裡
+> 9e 那份 §0  ← 全隊訊息量最大而【零 commit】⇒ 痕跡最少;含 Sean 親自給它的限制逐字
+> ```
+> ⚠️ **每一份的第一行都寫著「壓縮後第一件事 = 從頭讀完本檔」。**
+> 📌 **而八份的 §0 都是同一個問題**:**「我知道而【沒有寫進任何檔案】的東西」** ——
+> 判別動作:每個轉折點問一次「**這個結論的依據現在寫在哪個檔的哪一行**」。**答不出 `檔案:行號` 的就進 §0。**
+>
+> ---
+>
 > # 🌅 Sean 早上從這裡開始(2026-08-27 深夜,八窗自走一夜)
 >
 > **這一節是導航,不是內容。** 底下 100 行是細節,**而它是照「發現的時間」疊起來的,不是照重要性** ——
