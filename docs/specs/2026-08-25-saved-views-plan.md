@@ -3107,6 +3107,9 @@ M5 = 突變【原 migration】後 fresh apply ⇒ 命中那份 pattern 的射程
 
 # 🛑 §14-13 **codex 關卡1 對 `§14-12` ⇒ R1 FAIL,9 條 must-fix 逐條處置**
 
+> 🛑🛑 **2026-08-28 codex R2:本節九條修法裡,`F3` 與 `F4` 兩條【修法本身有洞】,`F6` 一句是假的。**
+> **訂正全在 `§14-15`,而本節已換路** —— `ON CONFLICT` 那個形狀作廢,改抄 repo 用了 51 次的鎖列形狀。
+
 > 2026-08-28 線C。主視窗准跑(`§14-12` 是授權設計 ⇒ 命中鐵則 12 ②權限 ⇒ 高風險片要跑關卡1)。
 > 審查快照 `sha256 bab0770…38b83`,唯讀、零留痕。
 > 🔴 **9 條我一條都沒駁 —— 全部成立、全部照收。** 而其中 4 條屬「我宣稱做到而實際沒做到」。
@@ -3301,7 +3304,12 @@ IF (p_is_shared OR v_existing.is_shared) AND NOT s.is_manager THEN RAISE <通用
 
 ---
 
-# ✅ §14-14 **B-8 與線上查證回來了** —— `§14` 的**外部** blocker 只剩 B-0
+# ⚠️ §14-14 ~~**外部 blocker 只剩 B-0**~~ —— B-8 與線上查證回來了
+
+> 🛑 **2026-08-28 codex R2 ⇒ 本節三處被推翻,訂正在 `§14-15`(R2-11 / R2-12 / R2-13 / R2-14):**
+> · 「外部只剩 B-0」**假** —— 檔內自己寫著 `Q-檢視-9` / `Q-檢視-10` 擋表(片1)
+> · 「不是 atomic、新舊版並存 1-2 分鐘」**推得比證據多** —— 那句只證等待時間
+> · 線上查證只證「查詢看得見」,不證「連到那顆正式庫」
 
 > 2026-08-28 主視窗回覆。兩格都不是我量的,**來源與天花板照抄,不升級**。
 
@@ -3355,4 +3363,215 @@ ADMIN_REQUIRE_REAL_IDENTITY = 1 已確認(08-25 memory:Sean 逐字 + 一發登�
 🛑 B-0    等線B 定稿                              ← 外部, 唯一
 🛑 §14-13 九條 must-fix 的修法本身還沒過 R2        ← 內部, 我的
 ⏳ apply 前要重跑的:to_regclass 一發 · pg_auth_members 一發(F2 那條 membership 路)
+```
+
+---
+
+# 🛑 §14-15 **codex R2 ⇒ 又 FAIL,14 條** —— 而這一輪我要**換路**,不是再修一次
+
+> 2026-08-28 線C。R2 換角度:**不指定攻擊面**,只問「那九條修法哪一條修錯了 / 修不完整 / 又是恆綠」。
+> 結果 **FAIL / 14 條 must-fix**。我接受 **13** 條;第 14 條(owner 最小權限)成立而**超出本片射程**
+> ⇒ 轉成給 Sean 的決策題,不在本節自行決定。
+
+## 🔴🔴 先講這一輪最重要的事:**我修 R1 的修法,自己製造了兩個新洞**
+
+```
+R1-F4 說「M7 造不出它宣稱的違規」⇒ 我改成 M7'
+   ⇒ R2 說 M7' 拿掉 staff_id = p_actor 之後只剩「共用且管理者」
+     ⇒ 私人檢視變成【沒有人改得動】⇒ **更嚴, 不是更鬆** ⇒ 仍然造不出越權 ⇒ 仍然恆綠
+   📌 同一個病、同一節、連續兩次。
+   🔴 判別句:**拿掉一個條件, 有時候是把閘變【嚴】, 不是變鬆。**
+     ⇒ 突變的方向要看它落在 OR 還是 AND 的哪一側, 不能憑「拿掉 = 變鬆」的直覺
+
+R1-F5 說「先 SELECT 再 upsert = TOCTOU」⇒ 我修 R1-F3 時寫 `IF (p_is_shared OR v_existing.is_shared)`
+   ⇒ 而 v_existing **正是先讀出來的那一份** ⇒ 我把 F5 剛關上的門推開了
+   📌 **修一條 finding 的動作, 重新打開另一條 finding 剛關的洞。**
+```
+
+## ⇒ ⇒ 🔴 **換路(R4)**:停止發明 upsert 形狀,改抄 repo 用了 51 次的那個
+
+```
+❌ 作廢:`INSERT … ON CONFLICT (staff_id, name) DO UPDATE`(那是【我發明的】)
+✅ 改抄 `20260717010000_m4a_admin_set_customer_tier_rpc.sql` 的形狀:
+     SELECT … INTO v_before FROM … WHERE id = p_id FOR UPDATE;   ← :123 鎖列
+     <所有授權判斷、新舊值比較, 全部在這把鎖裡面>
+     UPDATE …                                                    ← :135
+     同交易寫 admin_audit_log
+     RETURN 'UPDATED' / 'NO_CHANGE' / 'CONFLICT' / 'NOT_FOUND'
+🔴 換路的理由不是「那個比較好」, 是**我連兩輪都在同一個位置犯錯**:
+   我一直在【設計一個新的寫入形狀】, 而這個 repo 已經有一個被 51 支 migration 磨過的形狀。
+📌 判別句:**兩輪修法都製造新洞 ⇒ 那不是「再修一次」的訊號, 是「換路」的訊號。**
+⇒ ⇒ 而換路一次解掉四條:R2-3(TOCTOU)· R2-4(衝突鍵)· R2-5(版本條件)· R1-F5
+```
+### ⇒ 連帶:RPC 由 **3 支變 4 支**(建立與修改分家)
+```
+admin_list_saved_order_views    讀
+admin_create_saved_order_view   建   —— INSERT, 授權依【傳入的新值】
+admin_update_saved_order_view   改   —— FOR UPDATE 鎖列 → 授權依【鎖住的舊值 + 傳入的新值】→ UPDATE
+admin_delete_saved_order_view   刪   —— FOR UPDATE 鎖列 → 授權 → DELETE
+📌 upsert 那個形狀之所以誘人, 是它「一支就好」—— 而它把【建】與【改】兩種不同的授權
+   壓進同一句, 那正是 R1-F3 與 R2-4 的共同成因。**分家之後兩個都不成題。**
+```
+
+---
+
+## R2 逐條處置
+
+### R2-1 🛑 `M7'` 仍然恆綠 ⇒ **第三版突變**
+```
+❌ M7'(拿掉 staff_id = p_actor)⇒ 剩「共用且管理者」⇒ 私人檢視沒人改得動 ⇒ 更嚴 ⇒ 綠
+✅ M7'' 把整個內容閘換成恆真(`WHERE TRUE`)
+   ⇒ 任一啟用員工改得動【任何人的】私人檢視 ⇒ 紅
+🔴 而這一族**既有 memory 已經寫過**, 不是本片發現的:
+   `feedback_negative-test-observation-supplied-by-another-mechanism`
+   逐字:「把這條守門拿掉, 我要觀察的那個現象, 還有沒有別的機制會提供?」
+   ⇒ **我連兩輪沒有問這一句。**
+```
+
+### R2-2 🛑 `M5` 證明不了執行順序 ⇒ **而它有解,解法也是既有 memory**
+```
+🔴 R2 對:閘移到寫入之後再 RAISE ⇒ 整筆回滾 ⇒ 外部行為與正確版本【完全相同】
+   ⇒ 所以我 §14-13 F6 那句「撐得住順序的只有 M5」**也是假的**
+✅ 解法(memory `reference_pg-sql-percent-escape-and-rollback-safe-counter` ②):
+   **sequence 的 nextval 不受交易回滾影響。**
+   ⇒ 表的 id 用 `GENERATED ALWAYS AS IDENTITY`(sequence 撐腰), 不用 uuid
+   ⇒ 驗收:對一個【應該被拒絕】的呼叫, 比對前後 `last_value`
+        閘在寫入之前 ⇒ INSERT 沒跑過 ⇒ last_value 不動
+        閘在寫入之後 ⇒ INSERT 跑過了 ⇒ last_value +1(而交易照樣回滾)
+   ⇒ ⇒ **那是一個熬過回滾的觀察點** —— 這才是真的證明執行順序
+⚠️ 而那份 memory 同時警告:讀到 0 會被讀成「沒被呼叫」⇒ 本片比的是**前後差**, 不是絕對值
+📌 ⇒ 「id 用 identity 不用 uuid」這個選擇, 理由要寫進 migration 註解:
+   **它不只是主鍵形式, 它是本片唯一一個證明得了執行順序的觀察點。**
+```
+
+### R2-3 / R2-4 / R2-5 ✅ **換路一次解掉**(見上)
+```
+R2-3 v_existing 預讀 = TOCTOU   ⇒ 改成 FOR UPDATE 鎖住之後才讀、才判
+R2-4 ON CONFLICT (staff_id,name) 不是身分, 改名會插第二列 ⇒ 不用 ON CONFLICT, 用 id 鎖列
+R2-5 WHERE 漏版本條件 ⇒ 鎖列之後比 updated_at:
+     不等 ⇒ RETURN 'CONFLICT'(Q-檢視-6 拍的「後改的贏, 而畫面告訴他」需要這個碼)
+     🔴 沒有它, §14-11 宣稱的 CONFLICT **產不出來** —— 那是一個宣稱有而實際沒有的回傳碼
+```
+
+### R2-6 🛑 `has_table_privilege` **看不到純欄級授權**
+```
+✅ 加驗 has_any_column_privilege;逐欄那半照 repo 既有做法
+   前例就在同一支:`admin_set_customer_tier_rpc.sql:226` 已經用 has_column_privilege 逐欄驗
+   ⇒ 🔴 **又一次:我要的東西在那支前例裡已經有了, 而我沒抄完。**
+⚠️ 同族 memory 早記過(新表 defacl 那條):has_*_privilege 對欄級授權少報。
+```
+
+### R2-7 🛑 `SELECT * FROM pg_auth_members` **不是一道檢查**
+```
+❌ 作廢:§14-13 F2 那句「⇒ 需要線上一發 SELECT * FROM pg_auth_members」
+🔴 兩個理由:① 它沒有失敗判準 —— 一張清單不會自己說「這樣算不合格」
+            ② 它漏掉【間接的 SET ROLE 鏈】(A→B→C), 一層查詢看不到遞移
+✅ 改成有判準的:遞迴展開角色成員鏈, 判準寫死
+   「anon / authenticated 到 postgres 之間**不得存在任何路徑**」⇒ 有 ⇒ 紅
+   ⚠️ 而負對照要跑:餵一條已知存在的鏈(service_role 那條)⇒ 它必須撈得到
+📌 判別句:**一張清單不是一道檢查 —— 檢查要答得出「怎樣算不合格」。**
+```
+
+### R2-8 🛑 `search_path = public, pg_temp` **的安全前提沒有被驗**
+```
+🔴 官方條件:它只有在 `public` 對【不受信任角色不可寫】時才安全
+   ⇒ 否則攻擊者在 public 建一個同名物件, SECURITY DEFINER 就以 owner 去執行它
+✅ 補一條斷言:has_schema_privilege('anon','public','CREATE') = false
+              has_schema_privilege('authenticated','public','CREATE') = false
+   ⇒ 任一為 true ⇒ RAISE
+📌 ⇒ 我原本只比對了 proconfig 的**字面**。**字面對了, 而它成立的前提沒有人驗。**
+```
+
+### R2-9 ⚠️ **owner = postgres 是全庫權限** ⇒ 成立,而**超出本片射程** ⇒ 給 Sean
+```
+🔴 R2 說得對:把 owner 固定成 postgres 只修了「可預測」, 沒修「最小權限」
+   ⇒ 函式體內任何未來的錯誤, 爆炸半徑是整個資料庫
+⚠️ 而本 repo 現況:`OWNER TO postgres` 在 migration 裡出現 **18 次、只有這一種**
+   (數法見 `§14-8` B-7 #3 那一列)⇒ 換成專用低權角色是**全 repo 的架構改動**, 不是本片能拍的
+🛑 ⇒ **這是殘餘風險, 而殘餘風險不由我自宣接受**(R6)⇒ 端 Sean, 兩條路:
+   甲 本片照現況(owner=postgres), 把「改用專用低權 owner」記成全 repo backlog
+   乙 本片就開第一支專用低權 owner —— 而那會讓本片變成一個架構先例, 體積與風險都上升
+   👉 我推甲, 而**推薦不是拍板**。
+```
+
+### R2-10 🛑 rollback 後「留著的代價是 0」**仍然是假的**
+```
+🔴 R2 對:回 B 之後, 三支(現在四支)SECURITY DEFINER RPC 對 service_role 仍然開放
+   ⇒ 那是一個【沒有 UI、沒有主人】的持久讀寫入口 —— 代價不是 0
+✅ 修法比我上一版想的簡單, 而且**不需要問 Sean**:
+   rollback 步驟②(推回舊 app)後面加一句:
+     REVOKE EXECUTE ON FUNCTION <四支> FROM service_role;
+   ⇒ 資料留著(不可逆的那一步不做)· 入口關掉(可逆的那一步做)
+📌 ⇒ 我上一版把「要不要關入口」與「要不要刪資料」綁成同一題, 而它們是兩題,
+   **一題可逆一題不可逆。綁在一起, 就會用不可逆那題的謹慎去拖住可逆那題。**
+```
+
+### R2-11 🛑 擋門清單**漏列四題** ⇒ 「外部只剩 B-0」是假的
+```
+❌ 作廢(§14-14 那句):「外部擋門只剩 B-0」
+🔴 檔內自己寫著(spec:1891-1894), 我沒去看:
+   Q-檢視-8  私人與共用同名時 UI 怎麼分  ⇒ 擋 **UI(片3)**
+   Q-檢視-9  有沒有數量上限              ⇒ 🛑 **擋表(片1)** 與版面
+   Q-檢視-10 sort_order 誰可以動          ⇒ 🛑 **擋表(片1)**
+   Q-檢視-12 存檔要不要選「固定期間 / 每次算最新」⇒ 擋語意
+⇒ ⇒ **Q-9 與 Q-10 直接擋本片的表定稿** ⇒ 它們與 B-0 同級, 一起端 Sean
+📌 🔴 **一份自己維護的清單, 漏掉的那幾筆不會有任何訊號** ——
+   而我漏的方式最安靜:**我沒有去讀同一份檔裡三千行前的那張表。**
+```
+
+### R2-12 / R2-13 🛑 Vercel 那兩格 **我推得比證據多**
+```
+❌ 作廢:「不是 atomic swap, 新舊版並存約 1-2 分鐘」
+🔴 Sean 逐字只說了「通常要一分多鐘」⇒ 那**只證等待時間**
+   不證非 atomic、不證新舊版並存、更不證 rollback 也是這個時間
+   (R2 附:Instant Rollback 是【重新指派既有 deployment】, 與部署是不同機制)
+✅ 改寫成兩句, 而它們都成立:
+   · 【已知】部署到生效之間有一段等待, Sean 的印象是一分多鐘(印象值, 未量)
+   · 【未確認】是否 atomic · 是否新舊版並存 · rollback 是否同一個時間
+🔴 而我上一版寫「這對設計零改動」⇒ **那個結論仍然成立, 而理由要換**:
+   不是「因為並存所以 DB-first 剛好安全」, 是
+   **DB-first 之下 A/B/D 三個世界都安全 ⇒ 不論中間態長什麼樣、並不並存, 都落在安全集合裡**
+   📌 ⇒ 一個結論可以是對的, 而支撐它的理由是錯的。**理由錯了就要換, 即使結論不變。**
+⏳ 要真的關掉:確認 Rolling Releases 設定, 或量到兩個同時在線的 deployment ID
+   ⇒ 而本片**不需要**它(見上)⇒ 記待辦, 不列擋門
+```
+
+### R2-14 🛑 線上查證 **只證查詢看得見,不證連到那顆正式庫**
+```
+🔴 R2 對:current_database = postgres + 常見表存在 + superuser
+   —— **在本機或 staging clone 會得到同一組結果**
+✅ apply 前重跑那一發時, 加一格【只有正式庫才有】的識別:
+   例:比對 Supabase project ref, 或查一筆只存在於正式庫的已知列(不印內容, 只印存不存在)
+⚠️ 而這一格**不是我量的**(下手窗跑的)⇒ 訂正要回報給它, 不要我自己改結論
+📌 判別句:**「這個查詢有能力看見」與「這個查詢連到了我以為的那顆庫」是兩個宣稱。**
+```
+
+---
+
+## §14-15-x 這一輪的帳
+
+```
+· codex R2 = FAIL / 14 條 / 我接受 13 條 / 轉決策題 1 條(R2-9 owner 最小權限)
+· 🔴 兩輪合計 23 條 must-fix, 而**我修 R1 的修法製造了 2 個新洞**(R2-1 · R2-3)
+  ⇒ 那是 R4 換路訊號, 不是「再修一次」訊號 ⇒ **本節已換路**(不再發明 upsert 形狀)
+· 🔴 而兩輪裡有 **3 條**, 答案本來就在既有 memory / 既有前例裡:
+    R2-1 的判別句  ⇒ memory `feedback_negative-test-observation-supplied-by-another-mechanism`
+    R2-2 的解法    ⇒ memory `reference_pg-sql-percent-escape-and-rollback-safe-counter` ②
+    R2-6 的做法    ⇒ 我抄的那支前例 `admin_set_customer_tier_rpc.sql:226` 自己就有
+  📌 **三條都是「我抄了那支前例, 而沒有抄完」或「我查過那族, 而沒有讀到那一條」。**
+· 查重跑過:`logs/traps-neighbours.jsonl:131`;開了 2 條候選, **兩條都判同族並直接改變了修法**
+  ⇒ 本節零新教訓
+· ⏳ 未做:R3。而照輪次紀律, **第三輪起必須換角度換模型** ——
+  R1/R2 都是 codex ⇒ R3 要換 Fable 或 code-reviewer, 而且不要再問同一個框架
+```
+
+## 🛑 訂正後的擋門清單(取代 `§14-14` 那份)
+```
+🛑 B-0        等線B 定稿(誰能設定 is_manager)                    ← 別人做
+🛑 Q-檢視-9   有沒有數量上限(每人幾張 / 全站幾張)                ← **擋表, 要 Sean**
+🛑 Q-檢視-10  sort_order 誰可以動                                  ← **擋表, 要 Sean**
+🛑 R2-9       owner 用 postgres 還是專用低權角色                    ← **要 Sean**(我推甲)
+🛑 §14-15     本節的換路設計自己還沒過 R3
+⏳ 不擋表但擋後面片的:Q-檢視-8(UI 同名)· Q-檢視-12(固定期間 / 算最新)
+⏳ apply 前重跑:to_regclass(加正式庫識別)· 角色成員鏈(要有判準)
 ```
