@@ -54,6 +54,12 @@ emit() {
 > **每一格都附行號:下判斷前開檔看那一行,不要只信本表。**
 > 🔴 **`docs/` 一律不採信** —— 本表只讀 `supabase/migrations/*.sql`。
 > 今天的病根就是「文件寫的 ≠ 程式碼實際擋的」;文件有述而 code 找不到的,本表標「**docs 有述、code 未見**」。
+>
+> 🔴 **2026-08-27 修過一個抽取 bug(給下一個撞到同族的人)**:當 migration 檔名自己含 `public.<字>`
+>   (如 `..._page_public.sql` 內含子字串 `public.sql`),舊版 awk 用裸 `public.` match、又撞到 `grep -n`
+>   加的檔名前綴,把兩個真函式抽成一個叫 `sql` 的假名。修法 = match 錨在 `FUNCTION public.`。
+>   ⇒ 若日後表上又冒出看起來像真函式的怪名(例如 `orders`),**先看是不是又有檔名含 `public.<字>`** ——
+>   那種碎片看起來完全正常,不會自己喊。
 
 HEADER
 
@@ -62,9 +68,12 @@ HEADER
   echo
   echo "| 函式 | 代數 | 各代 (檔:行) | 🔴 live 那代 |"
   echo "|---|---|---|---|"
+  # 🔴 awk 的 match 錨在 `FUNCTION public.`(非裸 `public.`):grep -n 會加【檔名:行號:】前綴,
+  #    若檔名含 public.<字>(如 ..._page_public.sql 內含 public.sql)會排在內容的 public.<fn> 前,
+  #    裸 match 抽到檔名碎片(2026-08-27:search_catalog_by_vehicle / catalog_brand_counts 被抽成假名 sql)。
   grep -nE '^CREATE (OR REPLACE )?FUNCTION public\.[a-z_0-9]+' "$MIG_DIR"/*.sql \
   | sed -E 's#^'"$MIG_DIR"'/##' \
-  | awk -F: '{ match($0, /public\.[a-z_0-9]+/); fn=substr($0, RSTART+7, RLENGTH-7);
+  | awk -F: '{ match($0, /FUNCTION public\.[a-z_0-9]+/); fn=substr($0, RSTART+16, RLENGTH-16);
                key=fn; cnt[key]++; loc[key]=loc[key] (loc[key]==""?"":"<br>") $1 ":" $2; last[key]=$1 ":" $2 }
        END { for (k in cnt) if (cnt[k]>1) printf "| `%s` | **%d** | %s | `%s` |\n", k, cnt[k], loc[k], last[k] }' \
   | sort
@@ -82,7 +91,9 @@ HEADER
 
     awk -v FN="$base" -v WP="$WRITE_PAT" -v GP="$GATE_PAT" '
       /^CREATE (OR REPLACE )?FUNCTION public\.[a-z_0-9]+/ {
-        match($0, /public\.[a-z_0-9]+/); cur = substr($0, RSTART+7, RLENGTH-7); curline = FNR
+        # 🔴 錨 FUNCTION public.(非裸 public.):這段逐檔讀、$0 不帶檔名前綴 ⇒ 今天無害,
+        #    但錨它是為了不留「§一錨了、這裡沒錨」這種要解釋的差異(§一那個是真的會撞檔名)。
+        match($0, /FUNCTION public\.[a-z_0-9]+/); cur = substr($0, RSTART+16, RLENGTH-16); curline = FNR
       }
       {
         line = $0

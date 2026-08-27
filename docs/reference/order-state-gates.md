@@ -9,6 +9,12 @@
 > **每一格都附行號:下判斷前開檔看那一行,不要只信本表。**
 > 🔴 **`docs/` 一律不採信** —— 本表只讀 `supabase/migrations/*.sql`。
 > 今天的病根就是「文件寫的 ≠ 程式碼實際擋的」;文件有述而 code 找不到的,本表標「**docs 有述、code 未見**」。
+>
+> 🔴 **2026-08-27 修過一個抽取 bug(給下一個撞到同族的人)**:當 migration 檔名自己含 `public.<字>`
+>   (如 `..._page_public.sql` 內含子字串 `public.sql`),舊版 awk 用裸 `public.` match、又撞到 `grep -n`
+>   加的檔名前綴,把兩個真函式抽成一個叫 `sql` 的假名。修法 = match 錨在 `FUNCTION public.`。
+>   ⇒ 若日後表上又冒出看起來像真函式的怪名(例如 `orders`),**先看是不是又有檔名含 `public.<字>`** ——
+>   那種碎片看起來完全正常,不會自己喊。
 
 ## 一、同名函式被 CREATE OR REPLACE 過幾代(**只有時間戳最大那代是 live**)
 
@@ -57,8 +63,7 @@
 | `pcm_order_refundable_remaining` | **5** | 20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:450<br>20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql:394<br>20260814190000_m4b_e10_473b1_refund_manual_corrections.sql:403<br>20260820010000_m4b_manual_refunds.sql:213<br>20260820100000_m4b_e10_d3b_void_manual_refund.sql:224 | `20260820100000_m4b_e10_d3b_void_manual_refund.sql:224` |
 | `pcm_refund_ledger_block_truncate` | **2** | 20260725130100_m3_rf2a2_order_refunds_ledger.sql:253<br>20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:418 | `20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:418` |
 | `pcm_sync_order_refund_payment_status` | **2** | 20260823010000_m4b_refund_notify_p1_extract_sync_fn.sql:127<br>20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239 | `20260823020000_m4b_refund_notify_p2a_record_calls_sync.sql:239` |
-| `search_catalog_by_vehicle` | **5** | 20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84 | `20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84` |
-| `sql` | **2** | 20260712183000_products_catalog_page_public.sql:37<br>20260712183000_products_catalog_page_public.sql:111 | `20260712183000_products_catalog_page_public.sql:111` |
+| `search_catalog_by_vehicle` | **6** | 20260712183000_products_catalog_page_public.sql:37<br>20260712193000_catalog_rpc_expose_fitments.sql:10<br>20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql:8<br>20260719150000_catalog_product_image_trim.sql:73<br>20260811040000_m4b_storefront_269b_catalog_new_arrivals.sql:266<br>20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84 | `20260827150000_m4b_storefront_950_recommend_sort_mid_high_price.sql:84` |
 | `sync_product_variant_group` | **2** | 20260727084801_atomic_variant_group_sync.sql:19<br>20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58 | `20260825120000_m4b_zero_price_allowed_in_variant_sync.sql:58` |
 
 > 只列 **>1 代**的。單代函式不會有「引用到過期世代」的風險,故省略。
