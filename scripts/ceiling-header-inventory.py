@@ -59,11 +59,13 @@ def _bucket(scope_ln, ruler_ln):
 
 def report(paths):
     rows = inventory(paths)
-    both = one = none = 0
+    both = one = none = unreadable = 0
     for p, s, r, note in rows:
+        # 🔴 讀不到(路徑打錯/不存在)【不】算「兩段都無」——那是【另一種】狀態(code-reviewer 補審 nit)。
+        #    否則一個 typo 的路徑會被讀成「這支守門沒寫天花板」,兩件事印同一個桶。
         if note:
-            print(f'  ⚠️ {p}: {note}')
-            none += 1
+            print(f'  ⚠️ 讀不到 {p}: {note}')
+            unreadable += 1
             continue
         b = _bucket(s, r)
         both += b == 'both'; one += b == 'one'; none += b == 'none'
@@ -71,9 +73,11 @@ def report(paths):
         print(f'  {tag}  範圍:{("L"+str(s)) if s else "無":>6}  量具:{("L"+str(r)) if r else "無":>6}  {p}')
     # 🔴 零命中要能自我否證:印 0 的同時,印【掃了幾支、認得幾種形狀】——
     #    否則「兩段都有=0」會被讀成「沒有守門寫天花板」,而它其實是「沒有守門用【固定標題】寫」。
-    print(f'\n掃了 {len(rows)} 支 · 認得 2 種【逐字固定標題】({SCOPE_TITLE} · {RULER_TITLE})'
+    scanned = len(rows) - unreadable
+    print(f'\n掃了 {scanned} 支(讀得到)· 認得 2 種【逐字固定標題】({SCOPE_TITLE} · {RULER_TITLE})'
           f' · 用別的話寫的同一件事【不算】(見檔頭「天花板/量具」)')
-    print(f'兩段都有 {both} · 只一段 {one} · 兩段都無 {none}')
+    print(f'兩段都有 {both} · 只一段 {one} · 兩段都無 {none}'
+          + (f' · ⚠️ 讀不到 {unreadable}(不計入上三堆)' if unreadable else ''))
     return 0
 
 
