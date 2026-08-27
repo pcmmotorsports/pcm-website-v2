@@ -3798,8 +3798,11 @@ Q-檢視-9 = 甲(不限制數量)× Q-檢視-10 = 丙(各人各排)
    📌 🔴 **而 `create` 那支【是】證得了的 ⇒ 三支沒有 ≠ 四支都沒有。**
       **不要讓這一格被讀成「整片都沒有執行順序的證明」** —— 那會讓下一個人以為這片沒救,
       或反過來以為「反正都沒有」而把 `create` 那支的錨也拿掉。
-③ ⚠️ `is_shared` 採 `GENERATED ALWAYS AS (staff_id IS NULL) STORED`(`§14-18` S-2)
-   ⇒ **能不能 index 未查** ⇒ 片1 動手前驗一發
+~~③ `is_shared` 能不能 index~~ ✅ **2026-08-28 實測關掉(`§14-20`)** ——
+   拋棄式 PG 17.10:單獨索引 / 部分唯一索引 / 當部分索引的條件, **三種全部建得起來**;
+   而「它寫不進去」也量到了(INSERT 與 UPDATE 各一發 ERROR)。
+   ✅ 連帶:`§7-5` 的「NULLS DISTINCT 唯一索引」那條**不成題了**(兩個部分唯一索引就夠)
+   ✅ 連帶:`R2-2` 的 identity sequence 觀察點**量到成立**(回滾後 last_value 2 ⇒ 3)
 ④ 🔴 **`updated_at` 的 touch trigger 從「要折的表形狀」升級為【功能交付物】**(`§14-19` MF-5)
    ⇒ 缺它 ⇒ 「有人剛改過」那句提示**永遠不會出現**, 而
    📌 **【永遠不會出現的提示】與【沒有人改過】在畫面上是同一件事** ⇒ 沒有人會回報
@@ -3809,9 +3812,11 @@ Q-檢視-9 = 甲(不限制數量)× Q-檢視-10 = 丙(各人各排)
 
 ## 📌 backlog(不擋本片,而要有名字)
 ```
-· **A 的修改被 B 蓋掉, 而 A 不知道**(`Q31 = 甲` 的固有代價;Sean 沒有被問過這一格)
-· 🔴 **那句提示給錯人**:損失的是 A ⇒ A 收到 0 個訊號;收到提示的是 B(造成損失的那個)
-  ⇒ 而**本片不加任何他沒要的復原機制** —— 這裡只負責讓它有名字
+· 🔴 **「共用檢視被蓋掉時,唯一收到通知的是蓋掉別人的那個人」**
+  ⇒ 這是 backlog 條目的**標題**(主視窗 2026-08-28 指定逐字)——
+  🔴 **理由:這一條將來會被讀成「小事」,而【標題是唯一會被掃到的部分】。**
+  內文:`Q31 = 甲` 的固有代價;損失的是 A ⇒ A 收到 0 個訊號;收到提示的是 B(造成損失的那個)。
+  Sean 沒有被問過這一格。而**本片不加任何他沒要的復原機制** —— 這裡只負責讓它有名字。
 ```
 
 ## apply 前要重跑的(不擋批准,擋動手)
@@ -4297,4 +4302,86 @@ CONFLICT 這個碼 ⇒ 從本片合約拿掉;新碼 UPDATED_OVERWROTE
 updated_at touch trigger ⇒ 從「要折的表形狀」升級為【功能交付物】, 缺它 = 功能半套
 突變 ⇒ M10 新增(打功能不打授權)⇒ 而突變表整張仍待重算(R3 IMP-11)
 backlog ⇒ 「A 的修改被 B 蓋掉而 A 不知道」+「提示給錯人」
+```
+
+---
+
+# ✅ §14-20 **實測**:`§14-Z` 動手前必關那幾格,能量的都量了(拋棄式 PG 17.10)
+
+> 2026-08-28 線C。**不是推的** —— 本機起拋棄式 Postgres 17.10 實跑,收攤後逐項驗死(見末段)。
+> 🔴 **每一格都讓它雙向表演**:該成功的餵一發必須成功、該擋的餵一發必須擋。
+
+## 環境與收攤
+```
+initdb -E UTF8 --locale=C -U postgres  ⇒ rc=0
+🔴 而第一次 pg_ctl start 失敗:`postmaster became multithreaded during startup`
+   ⇒ 修法 = 帶 LC_ALL=C LANG=C 再啟(macOS 上的已知坑, 不帶就起不來)
+server_version ⇒ 17.10 (Homebrew)
+收攤 pg_ctl stop -m fast rc=0 · pgrep 0 · socket 0 · 目錄已刪
+```
+
+## ① `is_shared` 用 `GENERATED ALWAYS AS (staff_id IS NULL) STORED` ⇒ **三種索引全部建得起來**
+
+| 世界 | 做了什麼 | 結果 |
+|---|---|---|
+| W1 | `CREATE INDEX ON t (is_shared)` | ✅ `CREATE INDEX` |
+| W2 | `CREATE UNIQUE INDEX ON t (label) WHERE is_shared` | ✅ `CREATE INDEX` |
+| W3 | `CREATE UNIQUE INDEX ON t (staff_id, label) WHERE NOT is_shared` | ✅ `CREATE INDEX` |
+```
+⇒ ✅ `§14-Z` 動手前必關 ③ **關掉** —— GENERATED STORED 欄可以單獨索引、可以進部分唯一索引、
+   **也可以當部分索引的條件**(第三種是我原本沒想到要問的, 而它正是本片會用的那一種)
+```
+
+## ② 而「它寫不進去」這句話,**也是量到的不是推的**
+```
+W6 INSERT … (staff_id, label, is_shared) VALUES ('s2','x', true)
+   ⇒ 🔴 ERROR: cannot insert a non-DEFAULT value into column "is_shared"
+W7 UPDATE t SET is_shared = true
+   ⇒ 🔴 ERROR: column "is_shared" can only be updated to DEFAULT
+W4/W5 該成功的兩發(寫私人列 / 寫共用列)⇒ 都 INSERT 0 1
+W8 結果:s1/my ⇒ is_shared = f;NULL/shared ⇒ is_shared = t   ⇒ 推導正確
+```
+📌 ⇒ **「變成共用」真的只剩改 `staff_id` 這一條路** ⇒ 閘只要守一個地方。**這句現在有證據。**
+
+## ③ 🔴 而唯一索引那三格,**`§7-5` 的 `NULLS DISTINCT` 問題自己消失了**
+```
+W11 兩張【共用】檢視同名        ⇒ 🔴 擋下(t_shared_label_idx)
+W12 兩個人各有一張同名【私人】  ⇒ ✅ 允許
+W13 同一個人兩張同名【私人】    ⇒ 🔴 擋下(t_owner_label_idx)
+```
+```
+⇒ 兩個**部分唯一索引**(一個 WHERE is_shared、一個 WHERE NOT is_shared)
+   剛好給出想要的語意, 而**完全不需要碰 NULLS DISTINCT / NULLS NOT DISTINCT**
+🔴 而 `§7-5` 把「NULLS DISTINCT 唯一索引」列為【仍要折】的三條表形狀之一
+   ⇒ ✅ **那一條可以劃掉了** —— 不是因為我決定不管它, 是因為換了索引形狀之後它不成題
+📌 判別句:**有些「待折的難題」不是被解決的, 是被【換一個形狀】之後消失的。**
+```
+
+## ④ 🔴🔴 而最關鍵的一格:**identity sequence 真的熬得過回滾**(R2-2 那個觀察點)
+```
+W10  before ⇒ last_value = 2
+     BEGIN; INSERT …; ROLLBACK;
+     after  ⇒ last_value = 3
+⇒ ✅ **兩數不同** ⇒ 那個觀察點【成立】
+```
+📌 **⇒ `§14-13 R2-2`「用 identity sequence 的前後差證明閘在寫入之前」這件事,現在是量到的。**
+🔴 **而在量之前,它與「我讀過一份 memory 說 sequence 不受回滾影響」是同一句話** ——
+   而那份 memory 講的是 `nextval` 手動呼叫,**identity 欄的隱含 nextval 是不是同一回事,原本沒有人驗過。**
+⚠️ 連帶量到:最終列的 id 是 **1 / 2 / 5**(中間兩個被回滾與唯一鍵失敗吃掉)
+   ⇒ **identity 的 id 不連號** ⇒ R3 IMP-8 那個「可枚舉」比想像中弱一點
+   ⇒ 而**修法不改**(仍照 IMP-8 收窄錯誤通道)—— 不連號只是提高成本, 不是關掉管道
+
+## ⑤ 負對照(尺本身要會紅)
+```
+W14 SELECT is_sharedzz FROM t  ⇒ 🔴 ERROR: column "is_sharedzz" does not exist
+⇒ 前面那些 ✅ 不是「psql 對什麼都印成功」
+```
+
+## ⚠️ 本節的天花板
+```
+· 這是**拋棄式 PG 17.10**, 不是正式庫 ⇒ 版本行為若不同, 結論要重驗
+  🔴 而正式庫版本**未查** —— 而 GENERATED 欄是 PG12+、部分唯一索引更早 ⇒ 風險低而不是零
+· 我量的是**表與索引的行為**, 沒有量任何 RPC(那幾支還不存在)
+· 沒有量 RLS、沒有量 ACL、沒有量 service_role(那些要 Supabase 的角色集合, 本機沒有)
+  ⇒ `§14-Z` 動手前必關的另外四格, **這一輪一格都沒關**
 ```
