@@ -117,6 +117,14 @@ def self_check():
     print(f'  {"✅" if self_ok else "🔴"} 本工具自己:範圍 {("L"+str(s)) if s else "無"} / 量具 {("L"+str(r)) if r else "無"}'
           f' ⇒ 它是量具、自己也帶那兩段(自我合規)')
     ok = ok and self_ok
+    # 🔴 標題常數是 §12-45 契約字面,而【上面兩道檢查對「改它的值」都免疫】(2026-08-27 mutation 實測):
+    #    ① fixtures 是用 SCOPE_TITLE/RULER_TITLE 常數【生】的 ⇒ 改常數 fixture 跟著改 ⇒ 還是吻合;
+    #    ② 自我合規那格掃 __file__ 找常數值 ⇒ 而 `SCOPE_TITLE = '<值>'` 定義行自己就含那個值 ⇒ 永遠命中。
+    #    後果:typo 標題 ⇒ 拿錯標題掃真守門 ⇒ 真檔全漏報 ⇒ 而 self-check 照綠、回報「0 支寫了天花板」。
+    #    釘死期望字面補住:改一個字元 ⇒ 這裡紅。(§12-45 定義的就是這兩個字串;要改標題連這行一起改。)
+    title_ok = SCOPE_TITLE == '天花板/範圍:' and RULER_TITLE == '天花板/量具:'
+    print(f'  {"✅" if title_ok else "🔴"} 標題常數 == §12-45 契約字面(補住「fixture 從被驗常數生」的盲區)')
+    ok = ok and title_ok
     print('  ⇒', 'self-check PASS' if ok else '🔴 self-check FAIL')
     return 0 if ok else 1
 
