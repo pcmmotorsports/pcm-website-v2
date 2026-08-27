@@ -8,11 +8,17 @@
       驗每一支的來源錨(檔:token)還在;錨爛了就紅、要人重新實跑推導——不是自己重推。
   (D) ci.yml 直跑管道:CI 的「Run self-contained SQL probes」步驟【直接 bash 跑】的腳本。
       這一段是【當場 live 算的】(同 CI 用的機制:掃 `# ci-self-contained: yes` 標記 + ci.yml 裡字面 bash)。
+      🔴 為什麼一定要 live 算、不寫死數字:ci.yml:197 註解逐字寫「目前兩支」,而 live 掃 docs/probes/ 是 3 支
+      (有人加了 birthday-probe 沒改註解)——而同一支 ci.yml:54-62 三天前(2026-08-24)才立過
+      「過期的分母比沒有分母更貴」。凍住的數會過期而零訊號,可重跑的工具才是現值。
   不涵蓋:別的 CI job、runtime 才由「repo 外的資料」決定要跑什麼的、以及日後新增的管道。
 
 天花板/量具: 🔴 管道 C(變數組出路徑呼叫,如 `bash "$CHECKS"`)對【任何字面尺】都是結構性盲區——
   migration-static-checks.sh 是被 `CHECKS="$HERE/migration-static-checks.sh"` 這樣叫的,grep 字面撈不到它。
-  它在清單裡是 frozen 自 -ed 的實跑,**本工具沒有、也無法靜態推導出它**。
+  它在清單裡是 frozen 自一次 e2e 實跑,**本工具沒有、也無法靜態推導出它**。
+  🔴 而 provenance 不寫「某人跑過」寫【怎麼重跑】(某人會隨 session 消失,查法不會):
+  跑 migration-new-file-gate.test.ts(它 stage 一支違規 migration → lint-staged → migration-new-file-static-checks.sh
+  → 該檔 :27 CHECKS= → :100 bash "$CHECKS" 執行 migration-static-checks.sh),觀察它真的被跑到。
   🔴 而「被測試檔提到」≠「被執行」:.husky/pre-commit 被三支測試 readFileSync(只讀內容做斷言)、
   一次都沒被跑 ⇒ 它【不在】可達集。一把「grep 測試檔字面路徑」的尺會把它誤收——這正是 -ed 那份
   原始 10 支犯的病(它把「被提到」與「被執行」混在一起,含 3 筆假陽性)。本工具用【負對照】把這件事釘住。
@@ -46,7 +52,7 @@ FROZEN_TEST_CHANNEL = [
     ('scripts/check-syntax-nonts.ts', 'B', 'package.json',
      'scripts/check-syntax-nonts.ts', "lint-staged 鍵 '*.{sh,yaml,yml,sql,py}' ⇐ check-syntax-nonts.gate.test.ts stage bad.sql/bad.sh/bad.py…(.ts 不是 .sh,但在分母)"),
     ('scripts/migration-static-checks.sh', 'C', 'scripts/migration-new-file-static-checks.sh',
-     'migration-static-checks.sh', ':27 CHECKS=\"$HERE/migration-static-checks.sh\" → :100 bash \"$CHECKS\". 🔴 變數呼叫、字面尺看不到;frozen 自 -ed 實跑'),
+     'migration-static-checks.sh', ':27 CHECKS=\"$HERE/migration-static-checks.sh\" → :100 bash \"$CHECKS\". 🔴 變數呼叫、字面尺看不到。重推法:跑 migration-new-file-gate.test.ts(非「相信某人跑過」)'),
 ]
 FROZEN_PROVENANCE = '-ed 2026-08-27 拋棄式 repo 端到端實跑 + 逐支開檔核(原始 10 支修正掉 3 筆假陽性後)'
 
