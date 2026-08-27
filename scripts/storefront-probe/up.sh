@@ -337,4 +337,39 @@ sleep 15
 #    ⇒ 撈上來放在使用者一定看得到的位置。查無時明說查無,不要靜靜地不印(那與「沒載入」長得一樣)。
 echo "next 載入的 env 檔:$(grep -m1 'Environments:' $S/next.log 2>/dev/null || echo '(next.log 裡沒有 Environments 這一行 —— 未確認,不等於沒載入)')"
 echo "  ⚠️ 上面若出現 .env.local ⇒ 真金鑰在這個 dev server 的環境裡 ⇒ **不要打任何 /api/cron/* 之類會建 notifier 的路徑**"
-echo "web: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:$WEB/)  <- 開這個,不要開 127.0.0.1"
+# 🔴 `|| true` 少不得(2026-08-27 實測踩到):連不上時 curl **回 7**,而本檔是 `set -euo pipefail`
+#    ⇒ 「獨立的指派」會讓整支腳本【當場死掉】,`web:` 那一行一個字都不會印、rc=7。
+#    ⚠️ 原本寫成 `echo "web: $(curl …)"` 反而沒事 —— 命令替換在**參數位置**時,
+#       決定 rc 的是 `echo` 不是 curl。**我把它拆成變數,就把一個不會死的地方變成會死的地方。**
+WEB_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$WEB/" || true)
+echo "web: ${WEB_CODE:-000}  <- 開這個,不要開 127.0.0.1"
+# 🔴 `000` = curl 連不上 = dev server 根本沒起來,**不是還沒暖機** —— 而這兩件事印同一個數字。
+#    最常見的成因不是壞掉,是**被一道擋得對的閘停掉**:REPO 寫死主樹 ⇒ next dev 一定載入
+#    主樹的 `.env.local` ⇒ 裡面有指向正式庫的變數 ⇒ dev-db-guard-gate 當場停掉它,
+#    而那段話印在 `$S/next.log` 裡、**不在使用者的畫面上**。
+#    ⇒ 指路要指到【正解】,不要只留一個數字讓人自己猜(猜的人很可能去走
+#      錯誤訊息裡那條 `PCM_ALLOW_PROD_DB_DEV=1` —— 那等於起一台握著正式庫憑證的 dev server)。
+#    🔴 而【000 有兩個成因,而它們印同一個數字】:上面只 `sleep 15`,next 冷啟超過 15 秒時
+#       curl 也回 000。⇒ **分流靠 `next.log` 裡有沒有那句話,不靠猜** ——
+#       無條件斷言「再等也不會變」會在冷啟慢的那次把人指錯方向(code-reviewer 抓到)。
+if [ "${WEB_CODE:-000}" = "000" ]; then
+  if grep -q '不是本機' "$S/next.log" 2>/dev/null; then
+    {
+      echo "🔴 web 回 000,而 next.log 裡有那道閘的訊息 ⇒ dev server 【被停掉了】,不是還沒暖機。"
+      echo "     tail -20 $S/next.log"
+      echo "   那道閘擋得對:REPO 寫死主樹 ⇒ next dev 一定載入主樹 .env.local ⇒ 裡面有指向正式庫的變數。"
+      echo "   正解(把 web 那一層搬到一棵沒有 .env* 的工作樹跑,前面幾層照用這一份):"
+      echo "     docs/runbooks/local-admin-with-real-data-probe.md §8-g"
+      echo "   🔴 不要用 PCM_ALLOW_PROD_DB_DEV=1、不要動任何 .env*(那是共用工作樹,別的窗在用)。"
+    } >&2
+  else
+    {
+      echo "⚠️ web 回 000 —— 兩種可能,先開 log 分辨,不要憑等:"
+      echo "     tail -20 $S/next.log"
+      echo "   ① 還在編譯(本腳本只等 15 秒)⇒ 過一下再打 curl http://localhost:$WEB/"
+      echo "   ② 它已經死了 ⇒ log 裡會有原因;若寫著「指向【不是本機】的資料庫」"
+      echo "      ⇒ 走 docs/runbooks/local-admin-with-real-data-probe.md §8-g,"
+      echo "        🔴 不要用 PCM_ALLOW_PROD_DB_DEV=1、不要動任何 .env*。"
+    } >&2
+  fi
+fi

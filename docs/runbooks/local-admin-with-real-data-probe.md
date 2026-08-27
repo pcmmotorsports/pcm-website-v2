@@ -693,6 +693,128 @@ GRANT EXECUTE ON FUNCTION auth.uid(), auth.role(), auth.jwt() TO authenticated, 
 🔴 **最後那條要特別記**:替身**不驗密碼**,任何字串都登得進去。
 ⇒ **不要拿這條鏈去驗任何「擋不擋得住」的題目**,它在那些題目上恆綠。
 
+### 🔴🔴 8-g `up.sh` 起完了、而 `web: 000` —— **dev server 根本沒起來,不是還沒暖機**
+
+> **來源:2026-08-27 `-ed` 線實際撞到並走出來的路。** 在那之前,路由表只寫了「什麼沒用」,沒寫「什麼有用」。
+
+#### 症狀(它與「還沒起來」長得一模一樣)
+
+`bash scripts/storefront-probe/up.sh` 一路綠、最後印:
+```
+web: 000  <- 開這個,不要開 127.0.0.1
+```
+`000` = curl 連不上。多等一分鐘、重打幾次,**都還是 000**。
+🔴 **而畫面上沒有任何一個字說它失敗了** —— 那一行本來就長這樣,只是數字不同。
+
+#### 病灶:`REPO` 寫死主樹 ⇒ `next dev` 一定載入主樹的 `.env.local`
+
+```bash
+grep -n '^REPO=' scripts/storefront-probe/up.sh      # 行號會漂,當場查
+grep -n 'web: ' scripts/storefront-probe/up.sh       # 印 000 的那一行
+```
+`REPO` 是**寫死的絕對路徑**(不是從腳本位置推的)⇒ **不管你人在哪一棵樹呼叫它,
+`next dev` 都從主樹的 `apps/storefront` 起** ⇒ 它一定會讀到主樹那份 `.env.local`。
+而那份檔裡有指向**正式庫**的變數 ⇒ `dev-db-guard-gate` 把 `next dev` **當場停掉**:
+
+```
+🔴 這個工作樹的環境變數指向【不是本機】的資料庫,next dev 已停止。
+   命中的變數(全部列出):
+     PAYMENT_CONFIRMER_DB_URL — 值含正式庫 ref …
+```
+**這段話印在 `$STOREFRONT_PROBE_DIR/next.log` 裡,不在你的畫面上。**
+⇒ 看到 `000` 的第一個動作是:
+```bash
+. scripts/storefront-probe/env.sh && tail -20 "$STOREFRONT_PROBE_DIR/next.log"
+```
+
+#### 🔴 **那道閘擋得對。不要繞。**
+
+錯誤訊息**自己寫著**一條放行路徑:`PCM_ALLOW_PROD_DB_DEV=1 npx next dev`。
+**不要走。** 走下去 = 起一台**同時握有正式庫憑證**的 dev server。
+📌 形狀值得記:**一道閘同時扮演「擋你的人」與「給你鑰匙的人」** ——
+而鑰匙就寫在它拒絕你的那句話裡,寫給的正是**最想繞過它的那個人**。
+⚠️ 2026-08-27 有**兩個窗**各自撞到、各自沒走 —— **那是兩次自制力,不是機制。**
+
+同理:**不要動 `.env*`**(移開 / 改名 / 註解掉都算)。那是共用工作樹,別的窗正在用它。
+
+#### ✅ 正解:**把 web 那一層搬出去跑,不是換 `up.sh` 的樹**
+
+`up.sh` 前面那幾層(Postgres / PostgREST / 代理)**沒有問題,照跑**。
+有問題的只有最後一層 `next dev`。所以:**讓 `up.sh` 起前面幾層,`next dev` 自己在別的樹起。**
+
+```bash
+cd /Users/sean_1/pcm-website-v2
+
+# ① 前面幾層照跑(它最後那句 web: 000 是預期的,不用管)
+bash scripts/storefront-probe/up.sh
+
+# ② 開一棵【沒有 .env*】的乾淨工作樹(放 scratchpad,用完就刪)
+WT="$(mktemp -d)/wt-probe"
+git worktree add --detach "$WT" HEAD
+# 🔴 尺要量【那道閘真的會讀的地方】—— 它讀的是 `apps/storefront`(next.config 傳 CONFIG_DIR 進去),
+#    只量 worktree 根目錄會漏掉 `apps/storefront/.env.local` —— 而主樹那支就住在那裡。
+#    ⚠️ 而它還會看 `process.env` ⇒ **你自己 export 過的變數不在這把尺裡**,尺量得到的只有檔。
+ls -a "$WT" "$WT/apps/storefront" | grep -c '^\.env'   # 期望 0 —— 不是 0 就換一棵,別將就
+
+# ③ 裝相依(pnpm workspace 大多是連結,實測數十秒等級)
+( cd "$WT" && pnpm install --frozen-lockfile --prefer-offline )
+
+# ④ 在那棵樹起 next dev,指向鑽機的 PostgREST 代理;埠【換一個】,不要用 up.sh 那個
+. scripts/storefront-probe/env.sh
+S="$STOREFRONT_PROBE_DIR"
+A=$(grep ANON= "$S/jwts.txt" | cut -d= -f2-); SR=$(grep SERVICE= "$S/jwts.txt" | cut -d= -f2-)
+cd "$WT/apps/storefront"
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:$STOREFRONT_PROBE_PROXY \
+NEXT_PUBLIC_SUPABASE_ANON_KEY="$A" SUPABASE_SERVICE_ROLE_KEY="$SR" \
+NEXT_PUBLIC_SITE_URL=http://localhost:3021 \
+NEXT_PUBLIC_TAPPAY_APP_ID=00000 NEXT_PUBLIC_TAPPAY_APP_KEY=probe_app_key NEXT_PUBLIC_TAPPAY_ENV=sandbox \
+nohup "$WT/apps/storefront/node_modules/.bin/next" dev -p 3021 -H 127.0.0.1 > /tmp/probe-next.log 2>&1 &
+
+# ⑤ 等它真的答話 —— 🔴 **要有上限**:本節在講的那個失敗模式(閘把 next 停掉)
+#    會讓沒有上限的 until 變成**無聲無限迴圈** —— 而那與「還在編譯」長得一模一樣。
+for _i in $(seq 1 30); do curl -s -o /dev/null http://localhost:3021/ && break; sleep 2; done
+curl -s -o /dev/null -w 'web: %{http_code}\n' http://localhost:3021/ || echo 'web: 000(連不上)'
+grep -E 'Environments|Ready|Error|不是本機' /tmp/probe-next.log | head -5
+#    逾時(60 秒還是 000)⇒ 別再等,開 log:tail -20 /tmp/probe-next.log
+```
+🔴 **開瀏覽器一律 `http://localhost:3021`,不要 `127.0.0.1`**(理由見 §9)。
+🔴 **TapPay 三個變數刻意給假值** —— 這條路不需要真金鑰,而給了就等於再把它帶進一個行程。
+
+#### 收攤(兩邊都要,而它們是分開的)
+
+```bash
+# 🔴 步驟④最後一行 cd 進了 $WT/apps/storefront ⇒ **收攤第一件事是回 repo root**,
+#    否則下面那行相對路徑會 No such file,而 git worktree 也會在一個即將被刪的目錄裡跑。
+cd /Users/sean_1/pcm-website-v2
+# 🔴 換了終端機貼這段時 $WT 是空的 ⇒ `git worktree remove --force ""`。先自證它有值。
+: "${WT:?先跑 git worktree list 找到那棵樹的路徑、指派給 WT 再貼}"
+
+pkill -f "next dev -p 3021" ; sleep 2
+pgrep -f "next dev -p 3021" | wc -l                       # 期望 0
+# 🔴 `pgrep` 不夠:父程序被帶走而 worker 還活著時它會印 0(down.sh 自己的註解就寫著這件事)
+#    ⇒ 再驗一次【埠】,與 §6 / down.sh 同口徑。
+lsof -nP -iTCP:3021 -sTCP:LISTEN | wc -l                  # 期望 0
+
+bash scripts/storefront-probe/down.sh                     # 前面幾層(它不知道 3021 那個)
+git worktree remove --force "$WT" ; git worktree list | grep -c wt-probe   # 期望 0
+```
+⚠️ **`down.sh` 不知道你在別的埠起了一個 `next`** —— 它逐埠驗死的是**它自己那組埠**,
+你那個 3021 **不在它的分母裡**。⇒ 那一行 `pkill` 少不得。
+
+#### ⚠️ 這條路的效度限制(比 §8-f 又短一截)
+
+```
+❌ 車款選擇整條路走不進去 —— 我【量到】的是瀏覽器 console 逐字印:
+     [fetchVehicleTaxonomy] … Could not find the table 'public.vehicle_taxonomy_public'
+                              in the schema cache
+   ⚠️ **成因未確認**:`up.sh` 檔頭把它列為「migration 套不上」的已知受害者,
+      而 code-reviewer 實查那支 migration 對空庫是走 RAISE NOTICE 跳過、不是失敗
+      ⇒ 兩種說法我沒有分辨開。**能確定的只有「這條路走不進去」,不是為什麼。**
+❌ 這棵樹的 HEAD 就是它的世界(§5-c 同樣適用)
+❌ 沒有真 TapPay 金鑰 ⇒ 結帳第④步顯示「付款模組暫時無法使用」(設計如此)
+✅ 能證:商品頁 / 目錄 / 篩選 / 換規格 / 加購物車這一段的畫面與行為
+```
+
 ---
 
 ## §9 🔴🔴 開瀏覽器一律用 `http://localhost:<port>`,**不要用 `http://127.0.0.1:<port>`**
